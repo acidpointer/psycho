@@ -1,0 +1,18 @@
+[package]
+name = "libf4se"
+version = "0.1.0"
+edition = "2024"
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+libc = "0.2"
+proc-macro2 = "1.0"
+syn = "2.0"
+log = "0.4"
+thiserror = "2.0"
+anyhow = "1.0"
+dashmap = { version = "7.0.0-rc2", features = ["inline-more"] }
+parking_lot = "0.12"
+libpsycho = { path = "../libpsycho" }

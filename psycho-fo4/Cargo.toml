@@ -1,0 +1,27 @@
+[package]
+name = "psycho-fo4"
+version = "0.1.0"
+edition = "2024"
+
+[lib]
+name = "psycho"
+crate-type = ["cdylib"]
+
+[profile.dev]
+panic = "abort"
+
+[profile.release] 
+panic = "abort"
+lto = true
+
+
+[dependencies]
+log = "0.4"
+dashmap = { version = "7.0.0-rc2", features = ["inline-more"] }
+anyhow = "1.0"
+parking_lot = "0.12.4"
+fern = "0.7.1"
+humantime = "2.2"
+libf4se = { path = "../libf4se" }
+libpsycho = { path = "../libpsycho" }
+libmimalloc = { path = "../libmimalloc" }
