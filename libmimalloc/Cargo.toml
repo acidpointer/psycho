@@ -1,22 +1,29 @@
 [package]
 name = "libmimalloc"
 version = "0.1.42"
-authors = ["Octavian Oncescu <octavonce@gmail.com>", "stillflow500 <stillflow500@proton.me>"]
+authors = [
+  "Octavian Oncescu <octavonce@gmail.com>",
+  "stillflow500 <stillflow500@proton.me>",
+]
 edition = "2018"
-repository = "https://github.com/purpleprotocol/mimalloc_rust/tree/master/libmimalloc-sys"
-keywords = ["allocator", "encrypted-heap", "performance"]
-categories = ["memory-management", "api-bindings"]
 description = "Sys crate wrapping the mimalloc allocator"
+repository = "https://github.com/purpleprotocol/mimalloc_rust/tree/master/libmimalloc-sys"
 license = "MIT"
+keywords = ["allocator", "encrypted-heap", "performance"]
+categories = ["api-bindings", "memory-management"]
 links = "mimalloc"
 exclude = [
-    "/c_src/mimalloc/bin",
-    "/c_src/mimalloc/cmake",
-    "/c_src/mimalloc/doc",
-    "/c_src/mimalloc/docs",
-    "/c_src/mimalloc/ide",
-    "/c_src/mimalloc/test",
+  "/c_src/mimalloc/bin",
+  "/c_src/mimalloc/cmake",
+  "/c_src/mimalloc/doc",
+  "/c_src/mimalloc/docs",
+  "/c_src/mimalloc/ide",
+  "/c_src/mimalloc/test",
 ]
+
+# Show `extended` on docs.rs since it's the full API surface.
+[package.metadata.docs.rs]
+features = ["extended"]
 
 [dependencies]
 cty = { version = "0.2", optional = true }
@@ -27,17 +34,13 @@ libpsycho = { path = "../libpsycho" }
 cc = "1.0"
 
 [features]
-secure = []
+arena = []
 debug = []
 debug_in_debug = []
-override = []
+default = ["extended"]
 extended = ["cty"]
-arena = []
 local_dynamic_tls = []
 no_thp = []
-default = ["extended"]
-
-# Show `extended` on docs.rs since it's the full API surface.
-[package.metadata.docs.rs]
-features = ["extended"]
+override = []
+secure = []
 

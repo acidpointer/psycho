@@ -8,4 +8,4 @@ pub mod common;
 pub mod ffi;
 pub mod hook;
 pub mod patch;
-pub mod winapi;
+pub mod os;

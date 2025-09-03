@@ -74,50 +74,43 @@ pub fn validate_alignment(address: NonNull<c_void>, alignment: usize) -> Result<
 
 /// Validates range of memory (raw pointer + it's size)
 /// Checks if range of memory is commited and sise is okay
+///
+///
+#[cfg(target_os = "windows")]
 pub fn validate_memory_range(address: NonNull<c_void>, size: usize) -> Result<()> {
-    #[cfg(target_os = "windows")]
-    {
-        use super::query_memory;
-        use windows::Win32::System::Memory::MEM_COMMIT;
+    use super::query_memory;
+    use windows::Win32::System::Memory::MEM_COMMIT;
 
-        if size == 0 {
-            return Err(WindowsError::InvalidSize);
-        }
-
-        let info = query_memory(address)?;
-
-        // Check if memory is committed
-        if info.state != MEM_COMMIT.0 {
-            return Err(WindowsError::MemoryNotCommitted(address.as_ptr() as usize));
-        }
-
-        let base_address = info.base_address as usize;
-        let region_size = info.base_address as usize;
-        let end_address = base_address
-            .checked_add(region_size)
-            .ok_or_else(|| WindowsError::InvalidMemoryRange(base_address, region_size))?;
-
-        let target_end = (address.as_ptr() as usize)
-            .checked_add(size)
-            .ok_or_else(|| WindowsError::InvalidMemoryRange(address.as_ptr() as usize, size))?;
-
-        if target_end > end_address {
-            return Err(WindowsError::InvalidMemoryRange(
-                address.as_ptr() as usize,
-                size,
-            ));
-        } else {
-            return Ok(());
-        }
-
-        return Ok(())
+    if size == 0 {
+        return Err(WindowsError::InvalidSize);
     }
 
-    #[cfg(not(target_os = "windows"))]
-    unimplemented!("validate_memory_range supported only for Windows target")
+    let info = query_memory(address)?;
+
+    // Check if memory is committed
+    if info.state != MEM_COMMIT.0 {
+        return Err(WindowsError::MemoryNotCommitted(address.as_ptr() as usize));
+    }
+
+    let base_address = info.base_address as usize;
+    let region_size = info.base_address as usize;
+    let end_address = base_address
+        .checked_add(region_size)
+        .ok_or_else(|| WindowsError::InvalidMemoryRange(base_address, region_size))?;
+
+    let target_end = (address.as_ptr() as usize)
+        .checked_add(size)
+        .ok_or_else(|| WindowsError::InvalidMemoryRange(address.as_ptr() as usize, size))?;
+
+    if target_end > end_address {
+        return Err(WindowsError::InvalidMemoryRange(
+            address.as_ptr() as usize,
+            size,
+        ));
+    }
+
+    Ok(())
 }
-
-
 
 /// Safely writes bytes to memory
 pub fn write_bytes(address: NonNull<c_void>, buffer: &[u8]) -> Result<()> {

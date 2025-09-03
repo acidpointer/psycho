@@ -1,5 +1,6 @@
 use std::{fs, time::SystemTime};
 
+use thiserror::Error;
 pub use log::LevelFilter;
 use parking_lot::Once;
 
@@ -8,6 +9,12 @@ use parking_lot::Once;
 pub struct GlobalLogger {}
 
 static LOGGER_INITIALIZED: Once = Once::new();
+
+#[derive(Debug, Error)]
+pub enum GlobalLoggerError {
+    #[error("Log adapter throwed an error: {0}")]
+    LogAdepterError(#[from] fern::InitError)
+}
 
 impl GlobalLogger {
     pub fn init() {
@@ -18,7 +25,7 @@ impl GlobalLogger {
                 Err(err) => {
                     let _ = fs::write(
                         "logs/orion_query_error.txt",
-                        format!("Failed to initialize logger in F4SEPlugin_Load: {:?}", err),
+                        format!("Failed to initialize logger in F4SEPlugin_Load: {err:?}"),
                     );
                 }
             }
@@ -26,8 +33,6 @@ impl GlobalLogger {
     }
 
     fn setup(log_path: &str, level_filter: LevelFilter) -> Result<(), fern::InitError> {
-        // TODO: Get rid of (maybe) built-in to fern log rotation
-        // Remove log file if already exist
         if fs::exists(log_path)? {
             fs::remove_file(log_path)?;
         }

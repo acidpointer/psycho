@@ -41,8 +41,8 @@ use windows::{
     core::PCSTR,
 };
 
-use super::errors::WindowsError;
 use super::Result;
+use super::errors::WindowsError;
 
 use goblin::pe::{PE, import::Import};
 
@@ -276,14 +276,9 @@ pub fn get_proc_address(module: NonNull<c_void>, function_name: &str) -> Result<
 }
 
 /// Safe wrapper for WinAPI AllocConsole
+#[cfg(target_os = "windows")]
 pub fn alloc_console() -> Result<()> {
-    #[cfg(target_os = "windows")]
-    unsafe {
-        return Ok(AllocConsole()?);
-    }
-
-    #[cfg(not(target_os = "windows"))]
-    unimplemented!("alloc_console supported only for Windows target")
+    Ok(unsafe { AllocConsole() }?)
 }
 
 /// Get a function address from a DLL
@@ -292,85 +287,57 @@ pub fn get_function_address(dll_name: &str, function_name: &str) -> Result<NonNu
     match get_module_handle_a(Some(dll_name)) {
         Ok(module_handle) => {
             log::debug!(
-                "[winapi::get_function_address] Module '{}' already loaded, using existing handle",
-                dll_name
+                "[winapi::get_function_address] Module '{dll_name}' already loaded, using existing handle"
             );
             get_proc_address(module_handle, function_name)
         }
         Err(_) => {
             // If not loaded, try to load it
             log::debug!(
-                "[winapi::get_function_address] Module '{}' not loaded, attempting to load",
-                dll_name
+                "[winapi::get_function_address] Module '{dll_name}' not loaded, attempting to load"
             );
             let module_handle = load_library_a(dll_name)?;
 
-            log::debug!("[winapi::get_function_address] Loaded '{}'!", dll_name);
+            log::debug!("[winapi::get_function_address] Loaded '{dll_name}'!");
             get_proc_address(module_handle, function_name)
         }
     }
 }
 
-pub const THREAD_PRIORITY_NORMAL: i32 = 0;
-pub const THREAD_PRIORITY_ABOVE_NORMAL: i32 = 1;
-pub const THREAD_PRIORITY_HIGHEST: i32 = 2;
-pub const THREAD_PRIORITY_IDLE: i32 = -15;
-pub const THREAD_PRIORITY_LOWEST: i32 = -2;
-pub const THREAD_PRIORITY_MIN: i32 = -2;
-pub const THREAD_PRIORITY_TIME_CRITICAL: i32 = 15;
+
 
 /// WinAPI: SetThreadPriority
+#[cfg(target_os = "windows")]
 pub fn set_thread_priority(hthread: *mut c_void, priority: i32) -> Result<()> {
-    #[cfg(target_os = "windows")]
     unsafe {
         SetThreadPriority(HANDLE(hthread), THREAD_PRIORITY(priority))?;
 
-        return Ok(());
+        Ok(())
     }
-
-    #[cfg(not(target_os = "windows"))]
-    unimplemented!("set_thread_priority supported only for Windows target")
 }
 
 /// WinAPI: InitializeCriticalSection
 #[cfg(target_os = "windows")]
 pub fn initialize_critical_section(critsec: *mut CRITICAL_SECTION) {
-    #[cfg(target_os = "windows")]
-    unsafe {
-        InitializeCriticalSection(critsec)
-    };
-
-    #[cfg(not(target_os = "windows"))]
-    unimplemented!("initialize_critical_section supported only for Windows target")
+    unsafe { InitializeCriticalSection(critsec) }
 }
 
 /// Default protection flags for VirtualProtect
 pub const VIRTUAL_PROTECT_DEFAULT_FLAGS: u32 = 0x02;
 
+#[cfg(target_os = "windows")]
 pub fn virtual_protect_execute_readwrite(ptr: *mut c_void, size: Option<usize>) -> Result<u32> {
-    #[cfg(target_os = "windows")]
-    {
-        let mut old_protect = PAGE_PROTECTION_FLAGS(0);
+    let mut old_protect = PAGE_PROTECTION_FLAGS(0);
 
-        let size = match size {
-            Some(s) => s,
-            None => std::mem::size_of::<*mut c_void>(),
-        };
+    let size = match size {
+        Some(s) => s,
+        None => std::mem::size_of::<*mut c_void>(),
+    };
 
-        // Change protection to allow writing
-        unsafe {
-            VirtualProtect(
-                ptr,
-                size,
-                PAGE_EXECUTE_READWRITE,
-                &mut old_protect,
-            )?
-        }
+    // Change protection to allow writing
+    unsafe { VirtualProtect(ptr, size, PAGE_EXECUTE_READWRITE, &mut old_protect)? }
 
-        return Ok(old_protect.0);
-    }
-    #[cfg(not(target_os = "windows"))]
-    unimplemented!("virtual_protect_execute_readwrite supported only for Windows target")
+    Ok(old_protect.0)
 }
 
 /// Restores memory protection.
@@ -378,69 +345,49 @@ pub fn virtual_protect_execute_readwrite(ptr: *mut c_void, size: Option<usize>) 
 /// `VIRTUAL_PROTECT_DEFAULT_FLAGS` will be used.
 ///
 /// Otherwise, specify packed flags in u32 (pls, use correct for WinAPI)
-pub fn virtual_protect_restore(ptr: *mut c_void, old_protect: u32, size: Option<usize>) -> Result<()> {
-    #[cfg(target_os = "windows")]
-    {
-        let mut op = PAGE_PROTECTION_FLAGS(0);
+#[cfg(target_os = "windows")]
+pub fn virtual_protect_restore(
+    ptr: *mut c_void,
+    old_protect: u32,
+    size: Option<usize>,
+) -> Result<()> {
+    let mut op = PAGE_PROTECTION_FLAGS(0);
 
-        let size = match size {
-            Some(s) => s,
-            None => std::mem::size_of::<*mut c_void>(),
-        };
+    let size = match size {
+        Some(s) => s,
+        None => std::mem::size_of::<*mut c_void>(),
+    };
 
-        unsafe {
-            VirtualProtect(
-                ptr,
-                size,
-                PAGE_PROTECTION_FLAGS(old_protect),
-                &mut op,
-            )?
-        }
+    unsafe { VirtualProtect(ptr, size, PAGE_PROTECTION_FLAGS(old_protect), &mut op)? }
 
-        return Ok(());
-    }
-    #[cfg(not(target_os = "windows"))]
-    unimplemented!("virtual_protect_restore supported only for Windows target")
+    Ok(())
 }
 
 /// WinAPI: SetLastError(0)
+#[cfg(target_os = "windows")]
 pub fn reset_last_error() {
-    #[cfg(target_os = "windows")]
-    unsafe {
-        SetLastError(windows::Win32::Foundation::WIN32_ERROR(0))
-    };
-
-    #[cfg(not(target_os = "windows"))]
-    unimplemented!("reset_last_error supported only for Windows target")
+    unsafe { SetLastError(windows::Win32::Foundation::WIN32_ERROR(0)) };
 }
 
 /// WinAPI: FlushInstructionCache(GetCurrentProcess(), Some(target_addr), size)
+#[cfg(target_os = "windows")]
 pub fn flush_instructions_cache(target_addr: *mut c_void, size: usize) -> Result<()> {
-    #[cfg(target_os = "windows")]
     unsafe {
         FlushInstructionCache(GetCurrentProcess(), Some(target_addr), size)?;
 
-        return Ok(());
-    };
-
-    #[cfg(not(target_os = "windows"))]
-    unimplemented!("flush_instructions_cache supported only for Windows target")
+        Ok(())
+    }
 }
 
+#[cfg(target_os = "windows")]
 pub fn get_pcstr_from_str(str: &str) -> Result<PCSTR> {
-    #[cfg(target_os = "windows")]
-    {
-        // Create a static CString that lives for the program duration
-        // This is a memory leak, but ensures the pointer stays valid
+    // Create a static CString that lives for the program duration
+    // This is a memory leak, but ensures the pointer stays valid
 
-        use std::ffi::CString;
-        let c_string = CString::new(str)?;
-        let leaked_str = Box::leak(c_string.into_boxed_c_str());
-        return Ok(PCSTR(leaked_str.as_ptr() as *const u8));
-    }
+    let c_string = CString::new(str)?;
+    let leaked_str = Box::leak(c_string.into_boxed_c_str());
 
-    #[cfg(not(target_os = "windows"))]
-    unimplemented!("get_pcstr_from_str supported only for Windows target")
+    Ok(PCSTR(leaked_str.as_ptr() as *const u8))
 }
 
 /// Wrapped WinAPI type MEMORY_BASIC_INFORMATION
@@ -456,38 +403,32 @@ pub struct MemoryBasicInformation {
 }
 
 /// Query memory with VirtualQuery
+#[cfg(target_os = "windows")]
 pub fn query_memory(address: NonNull<c_void>) -> Result<MemoryBasicInformation> {
-    #[cfg(target_os = "windows")]
-    {
-        use windows::Win32::Foundation::GetLastError;
-        use windows::Win32::System::Memory::MEMORY_BASIC_INFORMATION;
-        use windows::Win32::System::Memory::VirtualQuery;
+    use windows::Win32::Foundation::GetLastError;
+    use windows::Win32::System::Memory::MEMORY_BASIC_INFORMATION;
+    use windows::Win32::System::Memory::VirtualQuery;
 
-        let mut info = unsafe { std::mem::zeroed() };
-        let info_size = std::mem::size_of::<MEMORY_BASIC_INFORMATION>();
+    let mut info = unsafe { std::mem::zeroed() };
+    let info_size = std::mem::size_of::<MEMORY_BASIC_INFORMATION>();
 
-        let result = unsafe { VirtualQuery(Some(address.as_ptr()), &mut info, info_size) };
+    let result = unsafe { VirtualQuery(Some(address.as_ptr()), &mut info, info_size) };
 
-        if result == 0 {
-            let last_error = unsafe { GetLastError().0 };
-            return Err(WindowsError::MemoryQueryFailed(last_error));
-        } else {
-            let memory_basic_info = MemoryBasicInformation {
-                base_address: info.BaseAddress,
-                allocation_base: info.AllocationBase,
-                allocation_protect: info.AllocationProtect.0,
-                partition_id: info.PartitionId,
-                region_size: info.RegionSize,
-                state: info.State.0,
-                protect: info.Protect.0,
-                r#type: info.Type.0,
-            };
-
-            return Ok(memory_basic_info);
-        }
+    if result == 0 {
+        let last_error = unsafe { GetLastError().0 };
+        return Err(WindowsError::MemoryQueryFailed(last_error));
     }
 
-    #[cfg(not(target_os = "windows"))]
-    unimplemented!("query_memory supported only for Windows target")
-}
+    let memory_basic_info = MemoryBasicInformation {
+        base_address: info.BaseAddress,
+        allocation_base: info.AllocationBase,
+        allocation_protect: info.AllocationProtect.0,
+        partition_id: info.PartitionId,
+        region_size: info.RegionSize,
+        state: info.State.0,
+        protect: info.Protect.0,
+        r#type: info.Type.0,
+    };
 
+    Ok(memory_basic_info)
+}

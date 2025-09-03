@@ -14,7 +14,7 @@
 //! Crates like libpsycho and libf4se will help you to develop high quality and safe
 //! plugin.
 
-use std::{ffi::CStr, ptr::NonNull};
+use std::ffi::CStr;
 
 use libf4se::prelude::{
     f4se::{F4SEInterface, PluginInfo, UInt32},
@@ -44,29 +44,23 @@ unsafe extern "C" fn F4SEPlugin_Query(f4se: *const F4SEInterface, info: *mut Plu
 }
 
 #[unsafe(no_mangle)]
-unsafe extern "C" fn F4SEPlugin_Load(f4se: *const F4SEInterface) -> bool {
-    if f4se.is_null() {
-        return false;
-    }
-
-    let f4se_interface = unsafe { NonNull::new_unchecked(f4se as *mut F4SEInterface) };
-
-    match entry(f4se_interface) {
+unsafe extern "C" fn F4SEPlugin_Load(f4se: *mut F4SEInterface) -> bool {
+    match entry(f4se) {
         Ok(_) => {
             log::info!("Plugin ready!");
 
             true
         }
         Err(err) => {
-            log::error!("Plugin init error: {:?}", err);
+            log::error!("Plugin init error: {err:?}");
             false
         }
     }
 }
 
-fn entry(f4se: NonNull<F4SEInterface>) -> anyhow::Result<()> {
+fn entry(f4se: *mut F4SEInterface) -> anyhow::Result<()> {
     GlobalLogger::init();
-    F4SEContext::instantiate(f4se);
+    F4SEContext::init(f4se)?;
 
     init_allocator_patch()?;
 

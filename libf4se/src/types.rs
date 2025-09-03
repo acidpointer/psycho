@@ -1,4 +1,4 @@
-use std::ffi::c_void;
+use libc::c_void;
 
 pub type BGSMemoryManagerAllocFn =
     unsafe extern "C" fn(*mut c_void, usize, u32, bool) -> *mut c_void;

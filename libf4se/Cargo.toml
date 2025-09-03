@@ -8,11 +8,9 @@ crate-type = ["cdylib", "rlib"]
 
 [dependencies]
 libc = "0.2"
-proc-macro2 = "1.0"
 syn = "2.0"
-log = "0.4"
-thiserror = "2.0"
-anyhow = "1.0"
-dashmap = { version = "7.0.0-rc2", features = ["inline-more"] }
-parking_lot = "0.12"
+log = { workspace = true }
+thiserror = { workspace = true }
+anyhow = { workspace = true }
+parking_lot = { workspace = true }
 libpsycho = { path = "../libpsycho" }

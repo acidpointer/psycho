@@ -2,32 +2,28 @@
 name = "libpsycho"
 version = "0.1.0"
 edition = "2024"
+authors = ["acidpointer"]
 
 [dependencies]
-dashmap = { version = "7.0.0-rc2", features = ["inline-more"] }
 iced-x86 = "1.21.0"
-thiserror = "2.0"
-anyhow = "1.0"
-log = "0.4"
-bitflags = "2.8"
-goblin = "0.9"
-parking_lot = "0.12"
-
-# Interesting facts
-# You maybe curios, why to bind windows crate to version 0.60?
-# It's pretty simple: next crate updates stopped to work in mingw-w64 builds
-[dependencies.windows]
-version = "=0.60"
-features = [
-  "Data_Xml_Dom",
-  "UI_WindowManagement",
-  "Wdk_System_SystemServices",
-  "Win32_Security",
-  "Win32_System_Threading",
-  "Win32_UI_WindowsAndMessaging",
-  "Win32_Graphics_Direct3D11",
-  "Win32_System_LibraryLoader",
-  "Win32_System_Performance",
+bitflags = "2.9.2"
+goblin = "0.10.1"
+libc = { workspace = true }
+dashmap = { workspace = true }
+log = { workspace = true }
+thiserror = { workspace = true }
+anyhow = { workspace = true }
+parking_lot = { workspace = true }
+windows = { version = "=0.60", features = [ 
+  "Data_Xml_Dom", 
+  "UI_WindowManagement", 
+  "Wdk_System_SystemServices", 
+  "Win32_Security", 
+  "Win32_System_Threading", 
+  "Win32_UI_WindowsAndMessaging", 
+  "Win32_Graphics_Direct3D11", 
+  "Win32_System_LibraryLoader", 
+  "Win32_System_Performance", 
   "Win32_Foundation",
   "Win32_System_SystemServices",
   "Win32_System_Console",
@@ -39,6 +35,5 @@ features = [
   "Win32_Graphics_Direct3D",
   "Win32_System_Com",
   "Win32_Graphics_Gdi",
-  "Win32_UI_WindowsAndMessaging",
   "Win32_System_Kernel",
-]
+] }

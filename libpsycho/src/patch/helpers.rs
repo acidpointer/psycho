@@ -8,11 +8,7 @@ pub fn validate_branch_range(source: NonNull<c_void>, target: NonNull<c_void>) -
     let target_addr = target.as_ptr() as usize;
 
     // Calculate distance between addresses
-    let distance = if target_addr > source_addr {
-        target_addr - source_addr
-    } else {
-        source_addr - target_addr
-    };
+    let distance = target_addr.abs_diff(source_addr);
 
     // Maximum allowed distance is 2^31 - 1 (±2GB range for 32-bit relative offset)
     if distance > 0x7FFF_FFFF {

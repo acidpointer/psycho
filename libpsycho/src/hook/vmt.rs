@@ -73,8 +73,7 @@ impl<T: Copy + 'static> VMTHook<T> {
         let original_method_ptr = unsafe { *vtable_ptr.add(method_index) };
         if original_method_ptr.is_null() {
             return Err(HookError::NullPointerError(format!(
-                "Method at index {}",
-                method_index
+                "Method at index {method_index}"
             )));
         }
 
@@ -140,7 +139,7 @@ impl<T: Copy + 'static> Drop for VMTHook<T> {
         match self.disable() {
             Ok(_) => {}
             Err(err) => {
-                log::error!("Error dropping VMTHook: {:?}", err);
+                log::error!("Error dropping VMTHook: {err:?}");
             }
         }
     }

@@ -1,6 +1,6 @@
 {
     "rust-analyzer.check.command": "clippy",
-    "rust-analyzer.cargo.buildScripts.enable": true,
+    "rust-analyzer.cargo.buildScripts.enable": false,
     "rust-analyzer.procMacro.enable": true,
     "rust-analyzer.procMacro.attributes.enable": true,
     "rust-analyzer.diagnostics.experimental.enable": true,

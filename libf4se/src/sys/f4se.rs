@@ -169,10 +169,10 @@ impl F4SEMessagingInterface {
 
 #[repr(C)]
 pub struct F4SEMessagingInterface_Message {
-    pub sender: *const std::ffi::c_char,
+    pub sender: *const libc::c_char,
     pub r#type: UInt32,
     pub dataLen: UInt32,
-    pub data: *mut std::ffi::c_void,
+    pub data: *mut libc::c_void,
 }
 
 pub type F4SEMessagingInterface_EventCallback = Option<unsafe extern "C" fn(msg: *mut F4SEMessagingInterface_Message)>;

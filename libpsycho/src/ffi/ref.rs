@@ -1,106 +1,78 @@
-use std::{marker::PhantomData, ptr::NonNull, sync::Arc};
+use std::{ops::Deref, sync::atomic::{AtomicPtr, Ordering}, thread::{self, ThreadId}};
+use thiserror::Error;
 
-use parking_lot::Mutex;
-
-
-/// FFIRef<T>
-/// 
-/// Basic building block for FFI interaction.
-/// Use FFIRef when you get raw pointer to some struct and want read-only access.
-/// Note: FFIRef<T> is Clone
-#[derive(Clone)]
-pub struct FFIRef<T> {
-    inner: NonNull<T>,
-    _phantom: PhantomData<T>,
+#[derive(Debug, Error)]
+pub enum FFIRefError {
+    #[error("Pointer is NULL")]
+    PointerIsNull()
 }
 
-impl<T> FFIRef<T> {
-    #[allow(clippy::not_unsafe_ptr_arg_deref)]
-    pub fn from_ptr(ffi_ptr: *mut T) -> Option<Self> {
-        if ffi_ptr.is_null() {
-            return None;
-        }
-        
-        let inner = unsafe { NonNull::new_unchecked(ffi_ptr) };
+pub type FFIRefResult<T> = std::result::Result<T, FFIRefError>;
 
-        Some(Self {
-            inner,
-            _phantom: PhantomData,
-        })
+/// Container for non-owned pointer.
+/// FFIRef<T> is Send + Sync if T is Send + Sync
+pub struct FFIRef<T> {
+    ptr: AtomicPtr<T>,
+    thread_id: ThreadId,
+}
+
+// Safety: Safe if T is Send + Sync
+unsafe impl<T: Send + Sync> Sync for FFIRef<T> {}
+
+// Safety: Safe if T is Send + Sync
+unsafe impl<T: Send + Sync> Send for FFIRef<T> {}
+
+impl<T> FFIRef<T> {
+    /// Creates new instance of FFIRef
+    /// Return Err if raw_ptr is NULL
+    /// Also, at this point stores current thread id
+    pub fn new(raw_ptr: *mut T) -> FFIRefResult<Self> {
+        if raw_ptr.is_null() {
+            return Err(FFIRefError::PointerIsNull())
+        }
+
+        let thread_id = thread::current().id();
+
+        Ok(Self { ptr: AtomicPtr::new(raw_ptr), thread_id })
+    }
+
+    /// Returns raw underlying pointer
+    /// Note: use atomic load with Acquire ordering under the hood
+    pub fn as_ptr(&self) -> *mut T {
+        self.ptr.load(Ordering::Acquire)
+    }
+
+    /// Returns true if thread id from which this method called equals
+    /// thread id in which instance of FFIRef<T> created
+    pub fn is_parent_thread(&self) -> bool {
+        let current_thread_id = thread::current().id();
+
+        current_thread_id == self.thread_id
     }
 }
 
 impl<T> AsRef<T> for FFIRef<T> {
-    /// Return reference to underlying FFI type.
     fn as_ref(&self) -> &T {
-        unsafe { self.inner.as_ref() }
+        let ptr = self.as_ptr();
+
+        // Safety: Pointer can't be NULL because of validation in constructor
+        unsafe { ptr.as_ref().unwrap() }
     }
 }
 
-
-pub struct FFIRefMut<'a, T> {
-    inner: NonNull<T>,
-    _phantom: PhantomData<&'a mut T>,
-}
-
-impl<'a, T> FFIRefMut<'a, T> {
-    #[allow(clippy::not_unsafe_ptr_arg_deref)]
-    pub fn from_ptr(ffi_ptr: *mut T) -> Option<Self> {
-        if ffi_ptr.is_null() {
-            return None;
-        }
-        
-        let inner = unsafe { NonNull::new_unchecked(ffi_ptr) };
-
-        Some(Self {
-            inner,
-            _phantom: PhantomData,
-        })
-    }
-}
-
-impl<'a, T> AsMut<T> for FFIRefMut<'a, T> {
-    /// Return mutable reference to underlying FFI type.
+impl<T> AsMut<T> for FFIRef<T> {
     fn as_mut(&mut self) -> &mut T {
-        unsafe { self.inner.as_mut() }
+        let ptr = self.as_ptr();
+
+        // Safety: Pointer can't be NULL because of validation in constructor
+        unsafe { ptr.as_mut().unwrap() }
     }
 }
 
-impl<'a, T> AsRef<T> for FFIRefMut<'a, T> {
-    /// Return reference to underlying FFI type.
-    fn as_ref(&self) -> &T {
-        unsafe { self.inner.as_ref() }
+impl<T> Deref for FFIRef<T> {
+    type Target = T;
+
+    fn deref(&self) -> &Self::Target {
+        self.as_ref()
     }
 }
-
-/// FFIRef<T> and FFIRefMut<T> are good, but not thread-safe.
-/// SyncFFIRef<T> is thread-safe container for FFI type T.
-pub struct SyncFFIRef<T> {
-    inner: Arc<Mutex<NonNull<T>>>,
-}
-
-impl<T> SyncFFIRef<T> {
-    pub fn from_ptr(ffi_ptr: *mut T) -> Option<Self> {
-        NonNull::new(ffi_ptr).map(|ptr| {
-            Self {
-                inner: Arc::new(Mutex::new(ptr))
-            }
-        })
-    }
-
-    pub fn inner(&self) -> Arc<Mutex<NonNull<T>>> {
-        self.inner.clone()
-    }
-}
-
-impl<T> Clone for SyncFFIRef<T> {
-    fn clone(&self) -> Self {
-        Self { inner: Arc::clone(&self.inner) }
-    }
-}
-
-// Safety: SyncFFIRef<T> is fully thread safe
-unsafe impl<T: Send> Send for SyncFFIRef<T> {}
-
-// Safety: SyncFFIRef<T> is fully thread safe
-unsafe impl<T: Sync> Sync for SyncFFIRef<T> {}

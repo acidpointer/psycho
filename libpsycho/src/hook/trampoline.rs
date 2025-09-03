@@ -1,6 +1,8 @@
 use std::{ffi::c_void, ptr::NonNull};
 
-use crate::winapi::{read_bytes, virtual_protect_execute_readwrite, virtual_protect_restore, write_bytes};
+use crate::winapi::{
+    read_bytes, virtual_protect_execute_readwrite, virtual_protect_restore, write_bytes,
+};
 
 use super::*;
 
@@ -14,14 +16,18 @@ pub struct Trampoline {
 
 impl Trampoline {
     pub fn new(original_addr: NonNull<c_void>) -> Result<(Self, usize)> {
-        log::debug!("[Trampoline] Creating trampoline for: {:p}", original_addr.as_ptr());
-        
+        log::debug!(
+            "[Trampoline] Creating trampoline for: {:p}",
+            original_addr.as_ptr()
+        );
+
         // Calculate safe patch size (minimum 14 bytes for absolute jump)
         let patch_bytes = calculate_safe_patch_size(original_addr, MIN_PATCH_SIZE)?;
         let trampoline_size = patch_bytes + ABS_JMP_SIZE;
 
-        log::debug!("[Trampoline] Size: {} bytes (patch: {}, abs_jmp: {})", 
-                   trampoline_size, patch_bytes, ABS_JMP_SIZE);
+        log::debug!(
+            "[Trampoline] Size: {trampoline_size} bytes (patch: {patch_bytes}, abs_jmp: {ABS_JMP_SIZE})"
+        );
 
         // Fixed-size allocation that won't move
         let mut buffer = vec![0u8; trampoline_size].into_boxed_slice();
@@ -32,7 +38,10 @@ impl Trampoline {
             Some(trampoline_size),
         )?;
 
-        log::debug!("[Trampoline] Buffer at {:p} made executable", buffer.as_ptr());
+        log::debug!(
+            "[Trampoline] Buffer at {:p} made executable",
+            buffer.as_ptr()
+        );
 
         let buffer_ptr = NonNull::new(buffer.as_mut_ptr() as *mut c_void)
             .ok_or_else(|| HookError::NullPointerError("Buffer pointer is null".into()))?;
@@ -44,16 +53,19 @@ impl Trampoline {
         // Create absolute jump back to original function
         let return_addr = original_addr.as_ptr() as usize + patch_bytes;
         let jmp_location = buffer.as_ptr() as usize + patch_bytes;
-        
-        log::debug!("[Trampoline] Creating absolute jump from {:p} to {:p}", 
-                   jmp_location as *const c_void, return_addr as *const c_void);
+
+        log::debug!(
+            "[Trampoline] Creating absolute jump from {:p} to {:p}",
+            jmp_location as *const c_void,
+            return_addr as *const c_void
+        );
 
         let abs_jmp_bytes = create_absolute_jump(return_addr);
-        
+
         // Write absolute jump at end of trampoline
         let jmp_ptr = NonNull::new((buffer.as_ptr() as usize + patch_bytes) as *mut c_void)
             .ok_or_else(|| HookError::NullPointerError("Jump location is null".into()))?;
-        
+
         write_bytes(jmp_ptr, &abs_jmp_bytes)?;
 
         log::debug!("[Trampoline] Successfully created at {:p}", buffer.as_ptr());
@@ -85,8 +97,3 @@ impl Drop for Trampoline {
         );
     }
 }
-
-
-
-
-

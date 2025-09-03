@@ -1,0 +1,12 @@
+[workspace]
+resolver = "3"
+members = ["libf4se", "libmimalloc", "libpsycho", "psycho-fo4"]
+
+[workspace.dependencies]
+anyhow = { version = "1.0" }
+dashmap = { version = "7.0.0-rc2", features = ["inline-more"] }
+fern = "0.7.1"
+libc = { version = "0.2.175", features = ["extra_traits"] }
+log = "0.4"
+parking_lot = "0.12.4"
+thiserror = "2.0"
