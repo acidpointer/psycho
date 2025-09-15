@@ -3,7 +3,7 @@ use std::{ffi::c_void, ptr::NonNull};
 use parking_lot::Mutex;
 
 use super::*;
-use crate::winapi::{read_bytes, validate_memory_range, write_bytes};
+use crate::os::windows::winapi::{read_bytes, validate_memory_range, write_bytes};
 
 /// A patchable memory region that can be enabled/disabled
 pub struct MemoryPatch {

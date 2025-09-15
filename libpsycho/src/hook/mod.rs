@@ -1,18 +1,17 @@
-use crate::hook::errors::HookError;
+pub mod traits;
+pub mod builder;
+pub mod examples;
 
-pub mod iat;
-pub mod vmt;
-pub mod jmp;
-pub mod helpers;
-pub mod trampoline;
-pub mod errors;
-pub mod constants;
-pub mod types;
+// Re-export core traits and builder
+pub use traits::*;
+pub use builder::*;
 
-pub use types::*;
-pub use constants::*;
-pub use helpers::*;
-pub use iat::*;
-pub use trampoline::*;
-pub use vmt::*;
-pub use jmp::*;
+// Hook implementations are platform-specific and live in os modules
+// This allows for clean separation of concerns and platform-specific optimizations
+
+#[cfg(target_os = "windows")]
+pub use crate::os::windows::hooks::*;
+
+// Future platforms can be added here:
+// #[cfg(target_os = "linux")]
+// pub use crate::os::linux::hooks::*;

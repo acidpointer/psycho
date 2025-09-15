@@ -2,10 +2,9 @@
 name = "libpsycho"
 version = "0.1.0"
 edition = "2024"
-authors = ["acidpointer"]
 
 [dependencies]
-iced-x86 = "1.21.0"
+iced-x86 = { version = "1.21.0", features = ["code_asm"] }
 bitflags = "2.9.2"
 goblin = "0.10.1"
 libc = { workspace = true }

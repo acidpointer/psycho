@@ -1,10 +1,14 @@
-use std::{ops::Deref, sync::atomic::{AtomicPtr, Ordering}, thread::{self, ThreadId}};
+use std::{
+    ops::Deref,
+    sync::atomic::{AtomicPtr, Ordering},
+    thread::{self, ThreadId},
+};
 use thiserror::Error;
 
 #[derive(Debug, Error)]
 pub enum FFIRefError {
     #[error("Pointer is NULL")]
-    PointerIsNull()
+    PointerIsNull(),
 }
 
 pub type FFIRefResult<T> = std::result::Result<T, FFIRefError>;
@@ -28,12 +32,15 @@ impl<T> FFIRef<T> {
     /// Also, at this point stores current thread id
     pub fn new(raw_ptr: *mut T) -> FFIRefResult<Self> {
         if raw_ptr.is_null() {
-            return Err(FFIRefError::PointerIsNull())
+            return Err(FFIRefError::PointerIsNull());
         }
 
         let thread_id = thread::current().id();
 
-        Ok(Self { ptr: AtomicPtr::new(raw_ptr), thread_id })
+        Ok(Self {
+            ptr: AtomicPtr::new(raw_ptr),
+            thread_id,
+        })
     }
 
     /// Returns raw underlying pointer

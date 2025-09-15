@@ -11,13 +11,15 @@ use thiserror::Error;
 use windows::Win32::Foundation::{GetLastError, HANDLE, HMODULE, SetLastError, WIN32_ERROR};
 use windows::Win32::System::LibraryLoader::{GetModuleHandleA, GetProcAddress, LoadLibraryA};
 use windows::Win32::System::Memory::{
-    MEMORY_BASIC_INFORMATION, PAGE_ENCLAVE_DECOMMIT, PAGE_ENCLAVE_MASK, PAGE_ENCLAVE_SS_FIRST,
+    MEMORY_BASIC_INFORMATION, MEM_COMMIT, MEM_RELEASE, MEM_RESERVE,
+    PAGE_ENCLAVE_DECOMMIT, PAGE_ENCLAVE_MASK, PAGE_ENCLAVE_SS_FIRST,
     PAGE_ENCLAVE_SS_REST, PAGE_ENCLAVE_THREAD_CONTROL, PAGE_ENCLAVE_UNVALIDATED, PAGE_EXECUTE,
     PAGE_EXECUTE_READ, PAGE_EXECUTE_READWRITE, PAGE_EXECUTE_WRITECOPY, PAGE_GRAPHICS_COHERENT,
     PAGE_GRAPHICS_EXECUTE, PAGE_GRAPHICS_EXECUTE_READ, PAGE_GRAPHICS_EXECUTE_READWRITE,
     PAGE_GRAPHICS_NOACCESS, PAGE_GRAPHICS_NOCACHE, PAGE_GRAPHICS_READONLY, PAGE_GRAPHICS_READWRITE,
     PAGE_GUARD, PAGE_NOACCESS, PAGE_NOCACHE, PAGE_PROTECTION_FLAGS, PAGE_READONLY, PAGE_READWRITE,
-    PAGE_REVERT_TO_FILE_MAP, PAGE_TARGETS_INVALID, PAGE_TARGETS_NO_UPDATE, VirtualProtect,
+    PAGE_REVERT_TO_FILE_MAP, PAGE_TARGETS_INVALID, PAGE_TARGETS_NO_UPDATE,
+    VirtualAlloc, VirtualFree, VirtualProtect, VIRTUAL_ALLOCATION_TYPE, VIRTUAL_FREE_TYPE,
 };
 use windows::Win32::System::ProcessStatus::{GetModuleInformation, MODULEINFO};
 use windows::Win32::System::Threading::{
@@ -30,6 +32,9 @@ use windows::Win32::System::{
     Diagnostics::Debug::FlushInstructionCache, Memory::VirtualQuery, Threading::GetCurrentProcess,
 };
 use windows::core::{PCSTR, PCWSTR};
+
+// Memory state constants for query_memory validation
+pub const MEMORY_STATE_COMMIT: u32 = MEM_COMMIT.0;
 
 #[derive(Debug, Error)]
 pub enum WinapiError {
@@ -187,7 +192,7 @@ pub fn set_thread_priority(
     Ok(())
 }
 
-#[derive(Debug, Hash, PartialEq, Eq)]
+#[derive(Debug, Hash, PartialEq, Eq, Clone, Copy)]
 pub enum PageProtectionFlags {
     PageEnclaveDecommit,
     PageEnclaveMask,
@@ -346,7 +351,7 @@ impl TryFrom<HANDLE> for Handle {
     type Error = WinapiError;
 
     fn try_from(value: HANDLE) -> Result<Self, Self::Error> {
-        Ok(Handle::new(value.0)?)
+        Handle::new(value.0)
     }
 }
 
@@ -359,7 +364,7 @@ impl TryFrom<HANDLE> for Handle {
 pub fn get_current_process() -> WinapiResult<Handle> {
     let handle = unsafe { GetCurrentProcess() };
 
-    Ok(handle.try_into()?)
+    handle.try_into()
 }
 
 #[derive(Debug)]
@@ -384,6 +389,9 @@ impl HModule {
         })
     }
 
+    /// # Safety
+    /// no any inner-checks, so providing null pointer is
+    /// undefined behavior. Developer is responsible here!
     pub unsafe fn new_unchecked(ptr: *mut c_void) -> Self {
         Self {
             ptr: AtomicPtr::new(ptr),
@@ -410,7 +418,7 @@ impl TryFrom<HMODULE> for HModule {
     type Error = WinapiError;
 
     fn try_from(value: HMODULE) -> Result<Self, Self::Error> {
-        Ok(HModule::new(value.0)?)
+        HModule::new(value.0)
     }
 }
 
@@ -559,7 +567,7 @@ impl TryFrom<&str> for WinString {
     type Error = WinapiError;
 
     fn try_from(value: &str) -> Result<Self, Self::Error> {
-        Ok(WinString::new(value)?)
+        WinString::new(value)
     }
 }
 
@@ -575,20 +583,17 @@ pub fn get_module_handle_a(module_name: Option<&str>) -> WinapiResult<HModule> {
         Some(name) => {
             let winstr = WinString::new(name)?;
 
-            let handle: HMODULE = winstr.try_with_pcstr(|lpmodulename| {
+            winstr.try_with_pcstr(|lpmodulename| {
                 Ok(unsafe { GetModuleHandleA(lpmodulename) }?)
-            })?;
-
-            handle
+            })?
         }
 
         None => {
-            let handle = unsafe { GetModuleHandleA(None) }?;
-            handle
+            unsafe { GetModuleHandleA(None) }?
         },
     };
 
-    Ok(hmodule.try_into()?)
+    hmodule.try_into()
 }
 
 /// WinAPI: GetProcAddress(...)
@@ -623,7 +628,7 @@ pub fn load_library_a(dll: &str) -> WinapiResult<HModule> {
         Ok(unsafe { LoadLibraryA(lplibfilename) }?)
     })?;
 
-    Ok(hmodule.try_into()?)
+    hmodule.try_into()
 }
 
 /// If function exist in loaded dll, returns it's address as *mut c_void
@@ -633,4 +638,85 @@ pub fn get_proc_address_in_dll(dll: &str, function_name: &str) -> WinapiResult<*
     let proc = get_proc_address(module_handle, function_name)?;
 
     Ok(proc)
+}
+
+/// Memory allocation types for VirtualAlloc
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AllocationType {
+    Commit,
+    Reserve,
+    CommitReserve,
+}
+
+impl From<AllocationType> for VIRTUAL_ALLOCATION_TYPE {
+    fn from(value: AllocationType) -> Self {
+        match value {
+            AllocationType::Commit => MEM_COMMIT,
+            AllocationType::Reserve => MEM_RESERVE,
+            AllocationType::CommitReserve => MEM_COMMIT | MEM_RESERVE,
+        }
+    }
+}
+
+/// Memory free types for VirtualFree
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FreeType {
+    Release,
+}
+
+impl From<FreeType> for VIRTUAL_FREE_TYPE {
+    fn from(value: FreeType) -> Self {
+        match value {
+            FreeType::Release => MEM_RELEASE,
+        }
+    }
+}
+
+/// WinAPI: VirtualAlloc(...)
+pub fn virtual_alloc(
+    address: Option<*const c_void>,
+    size: usize,
+    allocation_type: AllocationType,
+    protection: PageProtectionFlags,
+) -> WinapiResult<*mut c_void> {
+    if size == 0 {
+        return Err(WinapiError::ZeroSize());
+    }
+
+    let result = unsafe {
+        VirtualAlloc(
+            address,
+            size,
+            allocation_type.into(),
+            protection.into(),
+        )
+    };
+
+    if result.is_null() {
+        return Err(WinapiError::WindowsCore(windows::core::Error::from_win32()));
+    }
+
+    Ok(result)
+}
+
+/// WinAPI: VirtualFree(...)
+#[allow(clippy::not_unsafe_ptr_arg_deref)]
+pub fn virtual_free(
+    address: *mut c_void,
+    size: usize,
+    free_type: FreeType,
+) -> WinapiResult<()> {
+    if address.is_null() {
+        return Err(WinapiError::InputNullPtr());
+    }
+
+    let result = unsafe {
+        VirtualFree(address, size, free_type.into())
+    };
+
+    if result.is_err() {
+        return Err(WinapiError::WindowsCore(windows::core::Error::from_win32()));
+    }
+
+    Ok(())
 }

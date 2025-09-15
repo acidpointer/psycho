@@ -1,6 +1,6 @@
 use thiserror::Error;
 
-use crate::winapi::WindowsError;
+use crate::os::windows::winapi::WinapiError;
 
 /// Error types for memory patching operations
 #[derive(Error, Debug)]
@@ -45,5 +45,5 @@ pub enum PatchError {
     RangeTooLarge,
     
     #[error("WinAPI error: {0}")]
-    WinapiError(#[from] WindowsError)
+    WinapiError(#[from] WinapiError)
 }
