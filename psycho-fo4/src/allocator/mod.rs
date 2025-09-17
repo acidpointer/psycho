@@ -1,12 +1,12 @@
-use std::{os::raw::c_void, sync::OnceLock};
+use std::{ffi::c_void, sync::OnceLock};
 
 use libf4se::prelude::{
     BGSMemoryManagerAllocFn, BGSMemoryManagerDeallocFn, BGSMemoryManagerMsizeFn,
     BGSScrapHeapAllocFn, BGSScrapHeapDeallocFn,
 };
 use libpsycho::{
-    hook::{JMPHook, iat::IATHook},
-    winapi::{
+    hook::{Hook, JmpHook, IatHook},
+    os::windows::winapi::{
         CallocFn, FreeAlignFn, FreeFn, MallocAlignFn, MallocFn, MemcmpFn, MemcpyFn, MemcpySFn,
         MemmoveFn, MemmoveSFn, MemsetFn, MsizeFn, ReallocFn, RecallocFn, get_module_handle_a,
     },
@@ -17,20 +17,20 @@ mod hooks;
 
 use hooks::*;
 
-pub static PATCH_ALLOC_MALLOC: OnceLock<Mutex<IATHook<MallocFn>>> = OnceLock::new();
-pub static PATCH_ALLOC_MALLOC_ALIGN: OnceLock<Mutex<IATHook<MallocAlignFn>>> = OnceLock::new();
+pub static PATCH_ALLOC_MALLOC: OnceLock<Mutex<IatHook<MallocFn>>> = OnceLock::new();
+pub static PATCH_ALLOC_MALLOC_ALIGN: OnceLock<Mutex<IatHook<MallocAlignFn>>> = OnceLock::new();
 
-pub static PATCH_ALLOC_MSIZE: OnceLock<Mutex<IATHook<MsizeFn>>> = OnceLock::new();
+pub static PATCH_ALLOC_MSIZE: OnceLock<Mutex<IatHook<MsizeFn>>> = OnceLock::new();
 
-pub static PATCH_ALLOC_FREE: OnceLock<Mutex<IATHook<FreeFn>>> = OnceLock::new();
-pub static PATCH_ALLOC_FREE_ALIGN: OnceLock<Mutex<IATHook<FreeAlignFn>>> = OnceLock::new();
+pub static PATCH_ALLOC_FREE: OnceLock<Mutex<IatHook<FreeFn>>> = OnceLock::new();
+pub static PATCH_ALLOC_FREE_ALIGN: OnceLock<Mutex<IatHook<FreeAlignFn>>> = OnceLock::new();
 
-pub static PATCH_ALLOC_MEMCMP: OnceLock<Mutex<IATHook<MemcmpFn>>> = OnceLock::new();
-pub static PATCH_ALLOC_MEMCPY: OnceLock<Mutex<IATHook<MemcpyFn>>> = OnceLock::new();
-pub static PATCH_ALLOC_MEMSET: OnceLock<Mutex<IATHook<MemsetFn>>> = OnceLock::new();
-pub static PATCH_ALLOC_MEMMOVE: OnceLock<Mutex<IATHook<MemmoveFn>>> = OnceLock::new();
-pub static PATCH_ALLOC_MEMMOVE_S: OnceLock<Mutex<IATHook<MemmoveSFn>>> = OnceLock::new();
-pub static PATCH_ALLOC_MEMCPY_S: OnceLock<Mutex<IATHook<MemcpySFn>>> = OnceLock::new();
+pub static PATCH_ALLOC_MEMCMP: OnceLock<Mutex<IatHook<MemcmpFn>>> = OnceLock::new();
+pub static PATCH_ALLOC_MEMCPY: OnceLock<Mutex<IatHook<MemcpyFn>>> = OnceLock::new();
+pub static PATCH_ALLOC_MEMSET: OnceLock<Mutex<IatHook<MemsetFn>>> = OnceLock::new();
+pub static PATCH_ALLOC_MEMMOVE: OnceLock<Mutex<IatHook<MemmoveFn>>> = OnceLock::new();
+pub static PATCH_ALLOC_MEMMOVE_S: OnceLock<Mutex<IatHook<MemmoveSFn>>> = OnceLock::new();
+pub static PATCH_ALLOC_MEMCPY_S: OnceLock<Mutex<IatHook<MemcpySFn>>> = OnceLock::new();
 
 /*
         REL::Impl::DetourJump(REL::ID(30), (UInt64)&detail::BGSMemoryManager::alloc);
@@ -94,66 +94,72 @@ const REFERENCE_ENTRIES_163: [(usize, usize); 39] = [
 ];
 */
 
-pub static PATCH_MM_ALLOC: OnceLock<Mutex<JMPHook<BGSMemoryManagerAllocFn>>> = OnceLock::new();
-pub static PATCH_MM_DEALLOC: OnceLock<Mutex<JMPHook<BGSMemoryManagerDeallocFn>>> = OnceLock::new();
-pub static PATCH_MM_MSIZE: OnceLock<Mutex<JMPHook<BGSMemoryManagerMsizeFn>>> = OnceLock::new();
+pub static PATCH_MM_ALLOC: OnceLock<Mutex<JmpHook<BGSMemoryManagerAllocFn>>> = OnceLock::new();
+pub static PATCH_MM_DEALLOC: OnceLock<Mutex<JmpHook<BGSMemoryManagerDeallocFn>>> = OnceLock::new();
+pub static PATCH_MM_MSIZE: OnceLock<Mutex<JmpHook<BGSMemoryManagerMsizeFn>>> = OnceLock::new();
 
-pub static PATCH_SH_ALLOC: OnceLock<Mutex<JMPHook<BGSScrapHeapAllocFn>>> = OnceLock::new();
-pub static PATCH_SH_DEALLOC: OnceLock<Mutex<JMPHook<BGSScrapHeapDeallocFn>>> = OnceLock::new();
+pub static PATCH_SH_ALLOC: OnceLock<Mutex<JmpHook<BGSScrapHeapAllocFn>>> = OnceLock::new();
+pub static PATCH_SH_DEALLOC: OnceLock<Mutex<JmpHook<BGSScrapHeapDeallocFn>>> = OnceLock::new();
 
 /// Initializes and enables all allocator related patches
 /// In addition this function tunes couple of MiMalloc options
 pub fn init_allocator_patch() -> anyhow::Result<()> {
     let module_base = get_module_handle_a(None)?;
 
-    let malloc = IATHook::<MallocFn>::new(module_base, "msvcr110.dll", "malloc", hook_malloc)?;
-    let malloc_align = IATHook::<MallocAlignFn>::new(
+    let malloc = IatHook::<MallocFn>::new(module_base, "msvcr110.dll", "malloc", hook_malloc)?;
+    let malloc_align = IatHook::<MallocAlignFn>::new(
         module_base,
         "msvcr110.dll",
         "_aligned_malloc",
         hook_malloc_aligned,
     )?;
 
-    let free = IATHook::<FreeFn>::new(module_base, "msvcr110.dll", "free", hook_free)?;
-    let free_align = IATHook::<FreeAlignFn>::new(
+    let free = IatHook::<FreeFn>::new(module_base, "msvcr110.dll", "free", hook_free)?;
+    let free_align = IatHook::<FreeAlignFn>::new(
         module_base,
         "msvcr110.dll",
         "_aligned_free",
         hook_free_aligned,
     )?;
 
-    let msize = IATHook::<MsizeFn>::new(module_base, "msvcr110.dll", "_msize", hook_msize)?;
+    let msize = IatHook::<MsizeFn>::new(module_base, "msvcr110.dll", "_msize", hook_msize)?;
 
-    let memcmp = IATHook::<MemcmpFn>::new(module_base, "msvcr110.dll", "memcmp", hook_memcmp)?;
-    let memcpy = IATHook::<MemcpyFn>::new(module_base, "msvcr110.dll", "memcpy", hook_memcpy)?;
-    let memset = IATHook::<MemsetFn>::new(module_base, "msvcr110.dll", "memset", hook_memset)?;
-    let memmove = IATHook::<MemmoveFn>::new(module_base, "msvcr110.dll", "memmove", hook_memmove)?;
+    let memcmp = IatHook::<MemcmpFn>::new(module_base, "msvcr110.dll", "memcmp", hook_memcmp)?;
+    let memcpy = IatHook::<MemcpyFn>::new(module_base, "msvcr110.dll", "memcpy", hook_memcpy)?;
+    let memset = IatHook::<MemsetFn>::new(module_base, "msvcr110.dll", "memset", hook_memset)?;
+    let memmove = IatHook::<MemmoveFn>::new(module_base, "msvcr110.dll", "memmove", hook_memmove)?;
     let memmove_s =
-        IATHook::<MemmoveSFn>::new(module_base, "msvcr110.dll", "memmove_s", hook_memmove_s)?;
+        IatHook::<MemmoveSFn>::new(module_base, "msvcr110.dll", "memmove_s", hook_memmove_s)?;
     let memcpy_s =
-        IATHook::<MemcpySFn>::new(module_base, "msvcr110.dll", "memcpy_s", hook_memcpy_s)?;
+        IatHook::<MemcpySFn>::new(module_base, "msvcr110.dll", "memcpy_s", hook_memcpy_s)?;
 
-    let mm_alloc = JMPHook::<BGSMemoryManagerAllocFn>::new(
-        module_base,
-        0x1B0EFD0,
-        hook_bgsmemorymanager_alloc,
-    )?;
-    let mm_dealloc = JMPHook::<BGSMemoryManagerDeallocFn>::new(
-        module_base,
-        0x1B0F2E0,
-        hook_bgsmemorymanager_dealloc,
-    )?;
-    let mm_msize = JMPHook::<BGSMemoryManagerMsizeFn>::new(
-        module_base,
-        0x1B0E7D0,
-        hook_bgsmemorymanager_msize,
-    )?;
+    let mm_alloc = unsafe { JmpHook::<BGSMemoryManagerAllocFn>::from_raw_ptrs(
+        "BGSMemoryManager::Alloc",
+        (0x1B0EFD0 as usize + module_base as usize) as *mut c_void,
+        hook_bgsmemorymanager_alloc as *mut c_void,
+    )? };
+    let mm_dealloc = unsafe { JmpHook::<BGSMemoryManagerDeallocFn>::from_raw_ptrs(
+        "BGSMemoryManager::Dealloc",
+        (0x1B0F2E0 as usize + module_base as usize) as *mut c_void,
+        hook_bgsmemorymanager_dealloc as *mut c_void,
+    )? };
+    let mm_msize = unsafe { JmpHook::<BGSMemoryManagerMsizeFn>::from_raw_ptrs(
+        "BGSMemoryManager::Msize",
+        (0x1B0E7D0 as usize + module_base as usize) as *mut c_void,
+        hook_bgsmemorymanager_msize as *mut c_void,
+    )? };
 
-    let sh_alloc =
-        JMPHook::<BGSScrapHeapAllocFn>::new(module_base, 0x1B13F70, hook_bgsscrapheap_alloc)?;
+    let sh_alloc = unsafe { JmpHook::<BGSScrapHeapAllocFn>::from_raw_ptrs(
+        "BGSScrapHeap::Alloc",
+        (0x1B13F70 as usize + module_base as usize) as *mut c_void,
+        hook_bgsscrapheap_alloc as *mut c_void,
+    )? };
 
-    let sh_dealloc =
-        JMPHook::<BGSScrapHeapDeallocFn>::new(module_base, 0x1B14580, hook_bgsscrapheap_dealloc)?;
+    let sh_dealloc = unsafe { JmpHook::<BGSScrapHeapDeallocFn>::from_raw_ptrs(
+        "BGSScrapHeap::Dealloc",
+        (0x1B14580 as usize + module_base as usize) as *mut c_void,
+        hook_bgsscrapheap_dealloc as *mut c_void,
+    )? };
 
     PATCH_ALLOC_MALLOC
         .get_or_init(move || Mutex::new(malloc))

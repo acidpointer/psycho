@@ -1,0 +1,30 @@
+[package]
+name = "drifter"
+version = "0.1.0"
+edition = "2021"
+description = "Simple test application for libpsycho hooks"
+
+[[bin]]
+name = "drifter"
+path = "src/main.rs"
+
+[dependencies]
+libpsycho = { path = "../libpsycho" }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+fern = { workspace = true }
+log = { workspace = true }
+chrono = { version = "0.4", features = ["serde"] }
+
+[target.'cfg(windows)'.dependencies]
+windows = { version = "0.58", features = [
+    "Win32_Foundation",
+    "Win32_System_LibraryLoader",
+    "Win32_UI_WindowsAndMessaging",
+    "Win32_System_Memory",
+] }
+
+[profile.release]
+opt-level = 3
+lto = true
+strip = true

@@ -1,3 +1,26 @@
-/target
+# Rust build artifacts
+/target/
+**/*.rs.bk
+Cargo.lock
+
+# Wine prefix for testing (isolated for this project)
+/.wine_psycho/
+
+# Test outputs
+/drifter/drifter_report.json
+/drifter/*.log
+
+# IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Debug files
+*.pdb
 
 

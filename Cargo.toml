@@ -1,9 +1,10 @@
 [workspace]
 resolver = "3"
-members = ["libf4se", "libmimalloc", "libpsycho", "psycho-fo4"]
+members = ["libf4se", "libmimalloc", "libpsycho", "psycho-fo4", "drifter"]
 
 [workspace.dependencies]
 anyhow = { version = "1.0" }
+chrono = { version = "0.4", features = ["serde"] }
 dashmap = { version = "7.0.0-rc2", features = ["inline-more"] }
 fern = "0.7.1"
 libc = { version = "0.2.175", features = ["extra_traits"] }

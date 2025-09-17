@@ -2,8 +2,7 @@
 
 use std::ffi::c_void;
 
-//use liborion::{OrionAlloc, MemoryAllocator};
-use libpsycho::winapi::{EINVAL, ERANGE};
+use libpsycho::os::windows::constants::errcodes::*;
 
 use libmimalloc::*;
 

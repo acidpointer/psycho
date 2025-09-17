@@ -1,0 +1,7 @@
+# Test outputs
+drifter_report.json
+wine_output.log
+*.log
+
+# Debug files
+*.pdb

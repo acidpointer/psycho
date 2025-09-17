@@ -6,6 +6,7 @@
 
 use std::{ffi::c_void, ptr::NonNull};
 use thiserror::Error;
+use log::{debug, info, warn, error, trace};
 
 use super::winapi::{
     AllocationType, FreeType, PageProtectionFlags, WinapiError,
@@ -47,14 +48,16 @@ impl ExecutableMemory {
     ///
     /// This attempts to allocate within ±2GB of the target for 32-bit relative jumps
     pub fn allocate_near(target: *const c_void, size: usize) -> MemoryResult<Self> {
-        // Round up to page size (4KB on Windows)
+        debug!("Allocating executable memory: size={}, target={:p}", size, target);
+
         let page_size = 4096;
         let aligned_size = (size + page_size - 1) & !(page_size - 1);
+        trace!("Aligned size: {} -> {}", size, aligned_size);
 
-        // Try to allocate within ±2GB of target for relative jumps
         let mut allocation = None;
 
         if let Some(near_addr) = calculate_allocation_address(target as usize, aligned_size) {
+            debug!("Attempting near allocation at 0x{:X}", near_addr);
             let result = virtual_alloc(
                 Some(near_addr as *const c_void),
                 aligned_size,
@@ -63,25 +66,35 @@ impl ExecutableMemory {
             );
 
             if let Ok(ptr) = result {
+                info!("Near allocation succeeded at {:p}", ptr);
                 allocation = Some(ptr);
+            } else {
+                debug!("Near allocation failed, will use fallback");
             }
+        } else {
+            debug!("No suitable near address found, using fallback");
         }
 
-        // Fallback: allocate anywhere
         let ptr = match allocation {
             Some(ptr) => ptr,
-            None => virtual_alloc(
-                None,
-                aligned_size,
-                AllocationType::CommitReserve,
-                PageProtectionFlags::PageExecuteReadWrite,
-            )?,
+            None => {
+                debug!("Allocating executable memory anywhere");
+                virtual_alloc(
+                    None,
+                    aligned_size,
+                    AllocationType::CommitReserve,
+                    PageProtectionFlags::PageExecuteReadWrite,
+                )?
+            }
         };
 
-        Ok(Self {
+        let memory = Self {
             ptr: NonNull::new(ptr).ok_or(MemoryError::AllocationFailed)?,
             size: aligned_size,
-        })
+        };
+
+        info!("Allocated executable memory at {:p}, size: {}", memory.as_ptr(), memory.size);
+        Ok(memory)
     }
 
     /// Get the memory address
@@ -96,39 +109,52 @@ impl ExecutableMemory {
 
     /// Write data to the allocated memory
     pub fn write_bytes(&self, offset: usize, data: &[u8]) -> MemoryResult<()> {
+        debug!("Writing {} bytes to executable memory at offset {}", data.len(), offset);
+
         if offset + data.len() > self.size {
+            error!("Write would exceed memory bounds: offset={}, len={}, size={}",
+                   offset, data.len(), self.size);
             return Err(MemoryError::InvalidMemoryRange(offset, data.len()));
         }
 
         let dest = unsafe { self.ptr.as_ptr().add(offset) };
+        trace!("Writing to {:p}: {:02x?}", dest,
+               if data.len() <= 16 { data } else { &data[..16] });
+
         unsafe {
             std::ptr::copy_nonoverlapping(data.as_ptr(), dest as *mut u8, data.len());
         }
 
-        // Flush instruction cache
         flush_instructions_cache(dest, data.len())?;
-
+        debug!("Successfully wrote {} bytes to executable memory", data.len());
         Ok(())
     }
 }
 
 impl Drop for ExecutableMemory {
     fn drop(&mut self) {
-        // Best effort cleanup - ignore errors in drop
-        let _ = virtual_free(self.ptr.as_ptr(), 0, FreeType::Release);
+        debug!("Freeing executable memory at {:p}, size: {}", self.as_ptr(), self.size);
+        if let Err(e) = virtual_free(self.ptr.as_ptr(), 0, FreeType::Release) {
+            warn!("Failed to free executable memory: {}", e);
+        } else {
+            trace!("Successfully freed executable memory");
+        }
     }
 }
 
 /// Validate that a memory range is accessible
 pub fn validate_memory_range(address: *const c_void, size: usize) -> MemoryResult<()> {
-    let info = query_memory(address as *mut c_void)?;
+    trace!("Validating memory range: {:p}, size: {}", address, size);
 
-    // Check if memory is committed
+    let info = query_memory(address as *mut c_void)?;
+    debug!("Memory info: base={:p}, size={}, state=0x{:X}, protect=0x{:X}",
+           info.base_address, info.region_size, info.state, info.protect);
+
     if info.state != super::winapi::MEMORY_STATE_COMMIT {
+        error!("Memory not committed at {:p}, state=0x{:X}", address, info.state);
         return Err(MemoryError::MemoryNotCommitted(address as usize));
     }
 
-    // Check if the entire range is within the queried region
     let start = address as usize;
     let end = start.checked_add(size)
         .ok_or_else(|| MemoryError::InvalidMemoryRange(start, size))?;
@@ -137,15 +163,21 @@ pub fn validate_memory_range(address: *const c_void, size: usize) -> MemoryResul
         .ok_or_else(|| MemoryError::InvalidMemoryRange(region_start, info.region_size))?;
 
     if start < region_start || end > region_end {
+        error!("Memory range validation failed: range 0x{:X}-0x{:X} not within region 0x{:X}-0x{:X}",
+               start, end, region_start, region_end);
         return Err(MemoryError::InvalidMemoryRange(start, size));
     }
 
+    trace!("Memory range validation successful");
     Ok(())
 }
 
 /// Safely read bytes from memory
 pub fn read_bytes(address: *const c_void, size: usize) -> MemoryResult<Vec<u8>> {
+    debug!("Reading {} bytes from {:p}", size, address);
+
     if size == 0 {
+        trace!("Zero-size read, returning empty buffer");
         return Ok(Vec::new());
     }
 
@@ -156,35 +188,50 @@ pub fn read_bytes(address: *const c_void, size: usize) -> MemoryResult<Vec<u8>> 
         std::ptr::copy_nonoverlapping(address as *const u8, buffer.as_mut_ptr(), size);
     }
 
+    trace!("Read bytes: {:02x?}",
+           if buffer.len() <= 16 { buffer.as_slice() } else { &buffer[..16] });
+    debug!("Successfully read {} bytes", size);
     Ok(buffer)
 }
 
 /// Safely write bytes to memory with temporary protection change
 pub fn write_bytes(address: *mut c_void, data: &[u8]) -> MemoryResult<()> {
+    debug!("Writing {} bytes to {:p}", data.len(), address);
+
     if data.is_empty() {
+        trace!("Zero-size write, nothing to do");
         return Ok(());
     }
 
     validate_memory_range(address, data.len())?;
 
-    // Change protection to allow writing
+    debug!("Changing memory protection to allow writing");
     let old_protect = virtual_protect(
         address,
         PageProtectionFlags::PageReadwrite,
         data.len(),
     )?;
+    trace!("Old protection: {:?}", old_protect);
 
-    // Write the data
+    if let Err(e) = validate_memory_range(address, data.len()) {
+        warn!("Memory validation failed after protection change, restoring protection");
+        virtual_protect(address, old_protect, data.len())?;
+        return Err(e);
+    }
+
+    trace!("Writing data: {:02x?}",
+           if data.len() <= 16 { data } else { &data[..16] });
     unsafe {
         std::ptr::copy_nonoverlapping(data.as_ptr(), address as *mut u8, data.len());
     }
 
-    // Restore original protection
+    debug!("Restoring memory protection");
     virtual_protect(address, old_protect, data.len())?;
 
-    // Flush instruction cache
+    debug!("Flushing instruction cache");
     flush_instructions_cache(address, data.len())?;
 
+    debug!("Successfully wrote {} bytes to memory", data.len());
     Ok(())
 }
 
@@ -194,7 +241,13 @@ pub fn change_memory_protection(
     size: usize,
     new_protect: PageProtectionFlags,
 ) -> MemoryResult<MemoryProtection> {
+    debug!("Changing memory protection: {:p}, size={}, new_protect={:?}",
+           address, size, new_protect);
+
     let old_protect = virtual_protect(address, new_protect, size)?;
+
+    debug!("Memory protection changed: old={:?}, new={:?}",
+           old_protect, new_protect);
     Ok(MemoryProtection { old_protect })
 }
 
@@ -204,44 +257,44 @@ pub fn restore_memory_protection(
     size: usize,
     protection: MemoryProtection,
 ) -> MemoryResult<()> {
+    debug!("Restoring memory protection: {:p}, size={}, protect={:?}",
+           address, size, protection.old_protect);
+
     virtual_protect(address, protection.old_protect, size)?;
+
+    trace!("Memory protection restored successfully");
     Ok(())
 }
 
 /// Calculate a good allocation address near the target for relative jumps
 fn calculate_allocation_address(target: usize, size: usize) -> Option<usize> {
-    // Try to allocate within ±2GB for relative jumps (32-bit displacement)
-    const MAX_DISPLACEMENT: usize = 0x7FFF_0000; // 2GB - small margin
+    trace!("Calculating allocation address near 0x{:X}, size={}", target, size);
 
-    // Calculate bounds
+    const MAX_DISPLACEMENT: usize = 0x7FFF_0000;
+
     let lower_bound = target.saturating_sub(MAX_DISPLACEMENT);
     let upper_bound = target.saturating_add(MAX_DISPLACEMENT);
 
-    // Align to page boundaries
+    debug!("Allocation bounds: 0x{:X} - 0x{:X}", lower_bound, upper_bound);
+
     let page_size = 4096;
     let aligned_lower = (lower_bound + page_size - 1) & !(page_size - 1);
 
-    // Try various offsets from the target
-    let offsets = [
-        0x1000,      // 4KB
-        0x10000,     // 64KB
-        0x100000,    // 1MB
-        0x1000000,   // 16MB
-        0x10000000,  // 256MB
-    ];
+    let offsets = [0x1000, 0x10000, 0x100000, 0x1000000, 0x10000000];
 
     for &offset in &offsets {
-        // Try both directions
         for direction in [-1isize, 1isize] {
             let candidate = target.wrapping_add((offset as isize * direction) as usize);
 
             if candidate >= aligned_lower &&
-               candidate + size <= upper_bound &&
+               candidate.saturating_add(size) <= upper_bound &&
                candidate != 0 {
+                trace!("Found suitable allocation address: 0x{:X}", candidate);
                 return Some(candidate);
             }
         }
     }
 
+    debug!("No suitable allocation address found near target");
     None
 }

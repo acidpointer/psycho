@@ -4,6 +4,7 @@ use std::{
     sync::atomic::{AtomicPtr, Ordering},
 };
 use thiserror::Error;
+use log::{debug, error, trace};
 
 #[derive(Debug, Error)]
 pub enum FnPtrError {
@@ -47,17 +48,21 @@ impl<T: Copy + 'static> FnPtr<T> {
     /// - The function must remain valid for the lifetime of this FnPtr
     /// - T must be a function pointer type
     pub fn from_raw(raw_ptr: *mut c_void) -> FnPtrResult<Self> {
+        debug!("Creating FnPtr from raw pointer: {:p}", raw_ptr);
+
         Self::validate_size()?;
 
         if raw_ptr.is_null() {
+            error!("Cannot create FnPtr from null pointer");
             return Err(FnPtrError::FunctionPtrIsNull);
         }
 
-        // Check alignment (function pointers should be aligned)
-        if (raw_ptr as usize) % std::mem::align_of::<*mut c_void>() != 0 {
+        if (raw_ptr as usize) % 2 != 0 {
+            error!("Function pointer has invalid alignment: {:p}", raw_ptr);
             return Err(FnPtrError::FunctionPtrAlign);
         }
 
+        trace!("FnPtr created successfully from raw pointer");
         Ok(Self {
             raw_ptr: AtomicPtr::new(raw_ptr),
             _phantom: PhantomData,
@@ -80,20 +85,23 @@ impl<T: Copy + 'static> FnPtr<T> {
     /// - The function must remain valid for the lifetime of this FnPtr
     /// - The function must be safe to call from multiple threads if used across threads
     pub fn from_fn(function: T) -> FnPtrResult<Self> {
+        debug!("Creating FnPtr from function pointer");
+
         Self::validate_size()?;
 
-        // Convert function pointer to usize first, then to *mut c_void
-        // This avoids transmute size issues
         let addr = unsafe {
             std::mem::transmute_copy::<T, usize>(&function)
         };
 
         let ptr = addr as *mut c_void;
+        trace!("Function converted to pointer: {:p}", ptr);
 
         if ptr.is_null() {
+            error!("Function pointer converted to null");
             return Err(FnPtrError::FunctionPtrIsNull);
         }
 
+        debug!("FnPtr created successfully from function");
         Ok(Self {
             raw_ptr: AtomicPtr::new(ptr),
             _phantom: PhantomData,
@@ -108,18 +116,19 @@ impl<T: Copy + 'static> FnPtr<T> {
     /// - The function must be safe to call with the expected signature
     pub unsafe fn as_fn(&self) -> FnPtrResult<T> {
         let ptr = self.as_raw_ptr();
+        trace!("Converting FnPtr to function: {:p}", ptr);
 
         if ptr.is_null() {
+            error!("Cannot convert null pointer to function");
             return Err(FnPtrError::FunctionPtrIsNull);
         }
 
-        // Convert pointer to usize first, then to function type
-        // This avoids transmute size issues
         let addr = ptr as usize;
         let result: T = unsafe {
             std::mem::transmute_copy::<usize, T>(&addr)
         };
 
+        trace!("Successfully converted pointer to function");
         Ok(result)
     }
 
@@ -136,25 +145,34 @@ impl<T: Copy + 'static> FnPtr<T> {
     /// - `new_ptr` must be a valid function pointer that matches type T
     /// - The function must remain valid for the lifetime of this FnPtr
     pub unsafe fn update_ptr(&self, new_ptr: *mut c_void) -> FnPtrResult<()> {
+        debug!("Updating FnPtr: {:p} -> {:p}", self.as_raw_ptr(), new_ptr);
+
         if new_ptr.is_null() {
+            error!("Cannot update FnPtr to null pointer");
             return Err(FnPtrError::FunctionPtrIsNull);
         }
 
-        // Check alignment
         if (new_ptr as usize) % std::mem::align_of::<*mut c_void>() != 0 {
+            error!("New pointer has invalid alignment: {:p}", new_ptr);
             return Err(FnPtrError::FunctionPtrAlign);
         }
 
         self.raw_ptr.store(new_ptr, Ordering::Release);
+        trace!("FnPtr updated successfully");
         Ok(())
     }
 
     /// Validates that T has the correct size for a function pointer.
     fn validate_size() -> FnPtrResult<()> {
-        // Function pointers should be the same size as usize on the target platform
-        if std::mem::size_of::<T>() != std::mem::size_of::<usize>() {
+        let type_size = std::mem::size_of::<T>();
+        let ptr_size = std::mem::size_of::<usize>();
+
+        if type_size != ptr_size {
+            error!("Invalid function pointer type size: {} != {}", type_size, ptr_size);
             return Err(FnPtrError::FunctionPtrSize);
         }
+
+        trace!("Function pointer type size validation passed: {}", type_size);
         Ok(())
     }
 

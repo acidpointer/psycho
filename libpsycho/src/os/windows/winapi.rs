@@ -8,8 +8,9 @@ use std::sync::atomic::{AtomicPtr, Ordering};
 
 use libc::c_void;
 use thiserror::Error;
-use windows::Win32::Foundation::{GetLastError, HANDLE, HMODULE, SetLastError, WIN32_ERROR};
-use windows::Win32::System::LibraryLoader::{GetModuleHandleA, GetProcAddress, LoadLibraryA};
+use windows::Win32::Foundation::{GetLastError, HANDLE, HMODULE, HWND, SetLastError, WIN32_ERROR};
+use windows::Win32::System::LibraryLoader::{GetModuleHandleA, GetModuleHandleW, GetProcAddress, LoadLibraryA};
+use windows::Win32::UI::WindowsAndMessaging::{MessageBoxA, MB_OK, MESSAGEBOX_RESULT, MESSAGEBOX_STYLE};
 use windows::Win32::System::Memory::{
     MEMORY_BASIC_INFORMATION, MEM_COMMIT, MEM_RELEASE, MEM_RESERVE,
     PAGE_ENCLAVE_DECOMMIT, PAGE_ENCLAVE_MASK, PAGE_ENCLAVE_SS_FIRST,
@@ -71,7 +72,7 @@ pub struct MemoryBasicInformation {
     pub r#type: u32,
 }
 
-/// Query memory with VirtualQuery
+/// Query memory with VirtualQuery(...)
 pub fn query_memory(ptr: *mut c_void) -> WinapiResult<MemoryBasicInformation> {
     if ptr.is_null() {
         return Err(WinapiError::InputNullPtr());
@@ -126,7 +127,7 @@ pub fn reset_last_error() {
     set_last_error(0);
 }
 
-/// WinAPI: InitializeCriticalSection
+/// WinAPI: InitializeCriticalSection(...)
 #[allow(clippy::not_unsafe_ptr_arg_deref)]
 pub fn initialize_critical_section(ptr: *mut CRITICAL_SECTION) -> WinapiResult<()> {
     if ptr.is_null() {
@@ -182,7 +183,7 @@ impl From<THREAD_PRIORITY> for ThreadPriority {
     }
 }
 
-/// WinAPI: SetThreadPriority
+/// WinAPI: SetThreadPriority(...)
 pub fn set_thread_priority(
     thread_handle: Handle,
     priority: ThreadPriority,
@@ -719,4 +720,39 @@ pub fn virtual_free(
     }
 
     Ok(())
+}
+
+/// WinAPI: GetModuleHandleW(...)
+/// Get module handle by name (Unicode version)
+pub fn get_module_handle_w(module_name: Option<&str>) -> WinapiResult<HModule> {
+    let hmodule = if let Some(name) = module_name {
+        let winstr = WinString::new(name)?;
+        winstr.try_with_pcwstr(|lpmodulename| {
+            Ok(unsafe { GetModuleHandleW(lpmodulename) }?)
+        })?
+    } else {
+        unsafe { GetModuleHandleW(None) }?
+    };
+
+    HModule::new(hmodule.0)
+}
+
+/// WinAPI: MessageBoxA(...)
+/// Display a message box with text and caption
+pub fn message_box_a(
+    hwnd: Option<HWND>,
+    text: &str,
+    caption: &str,
+    mb_type: Option<MESSAGEBOX_STYLE>
+) -> WinapiResult<MESSAGEBOX_RESULT> {
+    let text_str = WinString::new(text)?;
+    let caption_str = WinString::new(caption)?;
+    let style = mb_type.unwrap_or(MB_OK);
+    let window = hwnd.unwrap_or(HWND(std::ptr::null_mut()));
+
+    text_str.try_with_pcstr(|text_ptr| {
+        caption_str.try_with_pcstr(|caption_ptr| {
+            Ok(unsafe { MessageBoxA(Some(window), text_ptr, caption_ptr, style) })
+        })
+    })
 }
