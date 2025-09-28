@@ -13,5 +13,3 @@ pub mod common;
 pub mod ffi;
 pub mod hook;
 pub mod os;
-// TODO: Patch module needs updating to use new winapi paths
-// pub mod patch;

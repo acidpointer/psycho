@@ -6,8 +6,6 @@ export DIR="$(dirname "$SCRIPT")"
 
 function msg () {
     echo -e "$0"
-
-
 }
 
 F4SE_VERSION="v0.6.23"

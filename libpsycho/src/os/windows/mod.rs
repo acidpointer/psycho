@@ -1,8 +1,8 @@
+//! Windows-specific implementations
+
+pub mod constants;
+pub mod hook;
+pub mod memory;
 pub mod winapi;
 pub mod pe;
-pub mod memory;
-pub mod process;
-pub mod types;
-pub mod constants;
-pub mod hooks;
-pub mod instruction;
+

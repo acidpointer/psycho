@@ -2,6 +2,7 @@
 //!
 //! This module contains various wrapper winapi functions and types.
 
+use core::fmt;
 use std::ffi::{CString, NulError, OsStr};
 use std::os::windows::ffi::OsStrExt;
 use std::sync::atomic::{AtomicPtr, Ordering};
@@ -68,12 +69,12 @@ pub struct MemoryBasicInformation {
     pub partition_id: u16,
     pub region_size: usize,
     pub state: u32,
-    pub protect: u32,
+    pub protect: PageProtectionFlags,
     pub r#type: u32,
 }
 
 /// Query memory with VirtualQuery(...)
-pub fn query_memory(ptr: *mut c_void) -> WinapiResult<MemoryBasicInformation> {
+pub fn virtual_query(ptr: *mut c_void) -> WinapiResult<MemoryBasicInformation> {
     if ptr.is_null() {
         return Err(WinapiError::InputNullPtr());
     }
@@ -95,7 +96,7 @@ pub fn query_memory(ptr: *mut c_void) -> WinapiResult<MemoryBasicInformation> {
         partition_id: info.PartitionId,
         region_size: info.RegionSize,
         state: info.State.0,
-        protect: info.Protect.0,
+        protect: info.Protect.into(),
         r#type: info.Type.0,
     };
 
@@ -224,6 +225,42 @@ pub enum PageProtectionFlags {
     Unknown(u32),
 }
 
+impl fmt::Display for PageProtectionFlags {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let fmt_str: String = match self {
+            PageProtectionFlags::PageEnclaveDecommit => "PAGE_ENCLAVE_DECOMMIT".to_string(),
+            PageProtectionFlags::PageEnclaveMask => "PAGE_ENCLAVE_MASK".to_string(),
+            PageProtectionFlags::PageEnclaveSSFirst => "PAGE_ENCLAVE_SS_FIRST".to_string(),
+            PageProtectionFlags::PageEnclaveSSRest => "PAGE_ENCLAVE_SS_REST".to_string(),
+            PageProtectionFlags::PageEnclaveThreadControl => "PAGE_ENCLAVE_THREAD_CONTROL".to_string(),
+            PageProtectionFlags::PageEnclaveUnvalidated => "PAGE_ENCLAVE_UNVALIDATED".to_string(),
+            PageProtectionFlags::PageExecute => "PAGE_EXECUTE".to_string(),
+            PageProtectionFlags::PageExecuteRead => "PAGE_EXECUTE_READ".to_string(),
+            PageProtectionFlags::PageExecuteReadWrite => "PAGE_EXECUTE_READWRITE".to_string(),
+            PageProtectionFlags::PageExecuteWriteCopy => "PAGE_EXECUTE_WRITECOPY".to_string(),
+            PageProtectionFlags::PageGraphicsCoherent => "PAGE_GRAPHICS_COHERENT".to_string(),
+            PageProtectionFlags::PageGraphicsExecute => "PAGE_GRAPHICS_EXECUTE".to_string(),
+            PageProtectionFlags::PageGraphicsExecuteRead => "PAGE_GRAPHICS_EXECUTE_READ".to_string(),
+            PageProtectionFlags::PageGraphicsExecuteReadWrite => "PAGE_GRAPHICS_EXECUTE_READWRITE".to_string(),
+            PageProtectionFlags::PageGraphicsNoaccess => "PAGE_GRAPHICS_NOACCESS".to_string(),
+            PageProtectionFlags::PageGraphicsNocache => "PAGE_GRAPHICS_NOCACHE".to_string(),
+            PageProtectionFlags::PageGraphicsReadonly => "PAGE_GRAPHICS_READONLY".to_string(),
+            PageProtectionFlags::PageGraphicsReadwrite => "PAGE_GRAPHICS_READWRITE".to_string(),
+            PageProtectionFlags::PageGuard => "PAGE_GUARD".to_string(),
+            PageProtectionFlags::PageNoaccess => "PAGE_NOACCESS".to_string(),
+            PageProtectionFlags::PageNocache => "PAGE_NOCACHE".to_string(),
+            PageProtectionFlags::PageReadonly => "PAGE_READONLY".to_string(),
+            PageProtectionFlags::PageReadwrite => "PAGE_READWRITE".to_string(),
+            PageProtectionFlags::PageRevertToFileMap => "PAGE_REVERT_TO_FILE_MAP".to_string(),
+            PageProtectionFlags::PageTargetsInvalid => "PAGE_TARGETS_INVALID".to_string(),
+            PageProtectionFlags::PageTargetsNoUpdate => "PAGE_TARGETS_NO_UPDATE".to_string(),
+            PageProtectionFlags::Unknown(page_protection) => format!("PAGE_PROTECTION_FLAGS({page_protection})"),
+        };
+
+        write!(f, "{}", fmt_str)
+    }
+}
+
 impl From<PageProtectionFlags> for PAGE_PROTECTION_FLAGS {
     fn from(value: PageProtectionFlags) -> Self {
         match value {
@@ -292,6 +329,7 @@ impl From<PAGE_PROTECTION_FLAGS> for PageProtectionFlags {
     }
 }
 
+/// WinAPI: VirtualProtect(...)
 #[allow(clippy::not_unsafe_ptr_arg_deref)]
 pub fn virtual_protect(
     ptr: *mut c_void,
@@ -476,6 +514,8 @@ pub fn get_module_information(module_handle: HModule) -> WinapiResult<ModuleInfo
     Ok(module_info.into())
 }
 
+/// String container for easy conversion between
+/// WinApi strings and Rust strings
 #[derive(Debug)]
 pub struct WinString {
     origin: String,

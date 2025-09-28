@@ -89,6 +89,7 @@ impl<T: Copy + 'static> FnPtr<T> {
 
         Self::validate_size()?;
 
+        // Safety: validate_size ensures that T has the same size as a usize, making this transmutation safe.
         let addr = unsafe {
             std::mem::transmute_copy::<T, usize>(&function)
         };
@@ -124,6 +125,8 @@ impl<T: Copy + 'static> FnPtr<T> {
         }
 
         let addr = ptr as usize;
+
+        // Safety: validate_size ensures that T has the same size as a usize, making this transmutation safe.
         let result: T = unsafe {
             std::mem::transmute_copy::<usize, T>(&addr)
         };
