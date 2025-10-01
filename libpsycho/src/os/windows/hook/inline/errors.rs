@@ -1,5 +1,4 @@
-use std::ffi::c_void;
-
+use libc::c_void;
 use iced_x86::{IcedError, Mnemonic};
 use thiserror::Error;
 
@@ -56,8 +55,8 @@ pub enum InlineHookError {
     #[error("Architecture mismatch: expected {expected}, got {detected}")]
     ArchitectureMismatch { expected: u32, detected: u32 },
     
-    #[error("Jump verification failed: expected target {expected:p}, got {actual:p}")]
-    JumpVerificationFailed { expected: *mut c_void, actual: *mut c_void },
+    #[error("Jump verification failed: expected target {expected:x}, got {actual:x}")]
+    JumpVerificationFailed { expected: usize, actual: usize },
     
     #[error("Unsafe memory region: can only read {safe} bytes, need {requested}")]
     UnsafeMemoryRegion { safe: usize, requested: usize },

@@ -11,6 +11,7 @@ use libc::c_void;
 /// Think of memory like a huge array of bytes, and a pointer is an index into that array.
 /// 
 /// This function copies bytes from that location into a Vec (safe Rust storage).
+#[cfg(not(target_os = "windows"))]
 unsafe fn read_bytes(addr: *mut c_void, size: usize) -> Vec<u8> {
     let mut bytes = vec![0u8; size];
     

@@ -1,4 +1,4 @@
-use libpsycho::common::utils::{format_bytes, format_duration};
+use libpsycho::common::helpers::{format_bytes, format_duration};
 
 use crate::mi_process_info;
 
@@ -185,11 +185,11 @@ impl MiMallocProcessInfo {
     /// Categorize current memory usage level
     pub fn memory_status(&self) -> MemoryStatus {
         match self.current_rss {
-            0..=100_000_000 => MemoryStatus::Excellent,  // < 100MB
-            100_000_001..=500_000_000 => MemoryStatus::Good,      // 100-500MB
+            0..=100_000_000 => MemoryStatus::Excellent, // < 100MB
+            100_000_001..=500_000_000 => MemoryStatus::Good, // 100-500MB
             500_000_001..=1_000_000_000 => MemoryStatus::Moderate, // 500MB-1GB
-            1_000_000_001..=2_000_000_000 => MemoryStatus::High,   // 1-2GB
-            _ => MemoryStatus::Critical,                            // > 2GB
+            1_000_000_001..=2_000_000_000 => MemoryStatus::High, // 1-2GB
+            _ => MemoryStatus::Critical,                // > 2GB
         }
     }
 
@@ -198,14 +198,26 @@ impl MiMallocProcessInfo {
         let cpu_eff = self.cpu_efficiency_percent();
         let mem_eff = self.memory_efficiency_percent();
         let fault_rate = self.page_fault_rate_per_second();
-        
+
         // Simple scoring system
         let mut score = 0;
-        
-        if cpu_eff > 80.0 { score += 2; } else if cpu_eff > 60.0 { score += 1; }
-        if mem_eff > 80.0 { score += 2; } else if mem_eff > 60.0 { score += 1; }
-        if fault_rate < 1.0 { score += 2; } else if fault_rate < 10.0 { score += 1; }
-        
+
+        if cpu_eff > 80.0 {
+            score += 2;
+        } else if cpu_eff > 60.0 {
+            score += 1;
+        }
+        if mem_eff > 80.0 {
+            score += 2;
+        } else if mem_eff > 60.0 {
+            score += 1;
+        }
+        if fault_rate < 1.0 {
+            score += 2;
+        } else if fault_rate < 10.0 {
+            score += 1;
+        }
+
         match score {
             5..=6 => PerformanceHealth::Excellent,
             4 => PerformanceHealth::Good,

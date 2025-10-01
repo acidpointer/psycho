@@ -10,8 +10,7 @@ pub type ListenerId = u128;
 /// Represents event listener callback and it's id.
 /// 
 /// # Safety
-/// Thread-safe.
-/// Inner callback stored in Arc and have same lifetime as EventEmitter.
+/// Safe, because inner callback stored in Arc and have same lifetime as EventEmitter
 #[derive(Clone)]
 pub struct Listener<'a, P: Send + Sync> {
     id: ListenerId,
@@ -46,6 +45,11 @@ impl<'a, P: Send + Sync> Listener<'a, P> {
 /// Callback and payload needs to be Send + Sync.
 pub struct EventEmitter<'a, E: Send + Sync + Copy + Clone + Eq + Hash, P: Send + Sync> {
     last_id: RwLock<ListenerId>,
+
+    /// We store listeners in nested hashmap.
+    /// DashMap is quite good for such type of task, because
+    /// it offers built-in concurrency support and already
+    /// correctly implements needed synchronizations under the hood.
     listeners: DashMap<E, DashMap<ListenerId, Listener<'a, P>>>,
 }
 
@@ -63,6 +67,8 @@ impl<'a, E: Send + Sync + Copy + Clone + Eq + Hash, P: Send + Sync> EventEmitter
         Self::default()
     }
 
+    /// Create new listener and returns it id.
+    /// Simple explanation: callback will be executed on each emit of 'event'
     pub fn on<F: Fn(&P) + Send + Sync + 'a>(&self, event: E, callback: F) -> ListenerId {
         let mut listener_id = self.last_id.write();
 
@@ -84,6 +90,7 @@ impl<'a, E: Send + Sync + Copy + Clone + Eq + Hash, P: Send + Sync> EventEmitter
         *listener_id
     }
 
+    /// Remove listener from EventEmitter by listener id
     pub fn off(&self, listener_id: ListenerId) -> bool {
         for all_listeners in self.listeners.iter() {
             match all_listeners.remove(&listener_id) {
@@ -95,6 +102,9 @@ impl<'a, E: Send + Sync + Copy + Clone + Eq + Hash, P: Send + Sync> EventEmitter
         false
     }
 
+    /// Emits event in EventEmitter, passing some payload to it.
+    /// All subscribed listeners will execute it's callbacks with non-mut ref
+    /// to payload
     pub fn emit(&self, event: E, payload: P) {
         let listeners_for_event = match self.listeners.get(&event) {
             Some(listeners) => listeners,

@@ -3,7 +3,6 @@ use std::io::Write;
 use std::path::Path;
 use serde::{Deserialize, Serialize};
 use log::{debug, info, warn, error};
-use libpsycho::hook::{Hook, OriginAccess, JmpHook, IatHook, VmtHook};
 use libpsycho::os::windows::winapi::{
     get_module_handle_w, message_box_a
 };

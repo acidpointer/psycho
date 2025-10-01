@@ -16,13 +16,14 @@ lto = true
 
 
 [dependencies]
-dashmap = { version = "7.0.0-rc2", features = ["inline-more"] }
-parking_lot = "0.12.4"
+dashmap = { workspace = true }
+parking_lot = { workspace = true }
 humantime = "2.2"
 log = { workspace = true }
 thiserror = { workspace = true }
 anyhow = { workspace = true }
 fern = { workspace = true }
+libc = { workspace = true }
 libf4se = { path = "../libf4se" }
 libpsycho = { path = "../libpsycho" }
 libmimalloc = { path = "../libmimalloc" }

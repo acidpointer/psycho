@@ -24,7 +24,7 @@ impl GlobalLogger {
 
                 Err(err) => {
                     let _ = fs::write(
-                        "logs/orion_query_error.txt",
+                        "logs/psycho_query_error.txt",
                         format!("Failed to initialize logger in F4SEPlugin_Load: {err:?}"),
                     );
                 }

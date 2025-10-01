@@ -1,6 +1,6 @@
 //! PE (Portable Executable) parsing utilities for Windows
 
-use std::ffi::c_void;
+use libc::c_void;
 use thiserror::Error;
 use goblin::pe::PE;
 
@@ -88,7 +88,7 @@ impl PeParser {
         // The simple approach: imports have an rva field for their IAT entry
         let iat_address = unsafe {
             // The import.rva is the RVA of this import's IAT slot
-            self.module_base.add(target_import.rva as usize) as *mut *mut c_void
+            self.module_base.add(target_import.rva) as *mut *mut c_void
         };
         
         let current_function = unsafe { *iat_address };

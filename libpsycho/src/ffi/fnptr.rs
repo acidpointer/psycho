@@ -1,10 +1,10 @@
 use std::{
-    ffi::c_void,
     marker::PhantomData,
     sync::atomic::{AtomicPtr, Ordering},
 };
 use thiserror::Error;
 use log::{debug, error, trace};
+use libc::c_void;
 
 #[derive(Debug, Error)]
 pub enum FnPtrError {

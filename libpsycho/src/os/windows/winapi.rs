@@ -336,6 +336,9 @@ pub fn virtual_protect(
     protection_flags: PageProtectionFlags,
     size: usize,
 ) -> WinapiResult<PageProtectionFlags> {
+
+    // Security + Safety with null checking!
+
     if ptr.is_null() {
         return Err(WinapiError::InputNullPtr());
     }
@@ -347,12 +350,46 @@ pub fn virtual_protect(
     let target_protection_flags: PAGE_PROTECTION_FLAGS = protection_flags.into();
     let mut old_protect = PAGE_PROTECTION_FLAGS(0);
 
-    // Change protection to allow writing
+    // Change protection with winapi call
+    // We use PageProtectionFlags type instead raw PAGE_PROTECTION_FLAGS
+    // Why we need this? Because native idiomatic type works better for
+    // devs. You can do way more with custom type and cast to raw when 
+    // needed.
     unsafe { VirtualProtect(ptr, size, target_protection_flags, &mut old_protect)? }
 
     Ok(old_protect.into())
 }
 
+/// Safe wrapper for 'virtual_protect'
+/// 
+/// This function takes closure 'func' and execute it after
+/// memory protection flag changed to requested: 'protection_flags'.
+/// After execution finish, memory protection flags restores to initial
+/// value and return result from 'func', if any.
+/// 
+/// You really want to use this instead raw 'virtual_protect' because
+/// with this safe wrapper, you can freely forget about missing protection
+/// flags restoration, and you just write less code!
+pub fn with_virtual_protect<T, U: FnOnce() -> T>(
+    ptr: *mut c_void,
+    protection_flags: PageProtectionFlags,
+    size: usize,
+    func: U,
+) -> WinapiResult<T> {
+    // Step 1: change protection and save old protection flags to restore it in future
+    let old_ptotect = virtual_protect(ptr, protection_flags, size)?;
+
+    // Step 2: Execute callback here, saving it's result
+    let callback_result = func();
+
+    // Step 3: Restore protection, using previously stored protection flags
+    let _ = virtual_protect(ptr, old_ptotect, size)?;
+
+    Ok(callback_result)
+}
+
+/// Very important thing which represents HANDLE from WinAPI.    
+/// It tries to be safe using AtomicPtr<c_void>
 #[derive(Debug)]
 pub struct Handle {
     ptr: AtomicPtr<c_void>,
@@ -406,6 +443,10 @@ pub fn get_current_process() -> WinapiResult<Handle> {
     handle.try_into()
 }
 
+/// Wrapper for WinAPI HMODULE type.
+/// 
+/// # Safety
+/// HMODULE pointer stored in AtomicPtr and read-only.
 #[derive(Debug)]
 pub struct HModule {
     ptr: AtomicPtr<c_void>,
@@ -461,6 +502,7 @@ impl TryFrom<HMODULE> for HModule {
     }
 }
 
+/// Wrapper for WinAPI MODULEINFO type
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct ModuleInfo {
     base_of_dll: *mut c_void,
@@ -514,8 +556,38 @@ pub fn get_module_information(module_handle: HModule) -> WinapiResult<ModuleInfo
     Ok(module_info.into())
 }
 
-/// String container for easy conversion between
-/// WinApi strings and Rust strings
+/// Universal string conversion
+/// 
+/// WinString stores 3 types of string under the hood:
+/// - origin string   - default String from Rust std
+/// - ANSI string     - CString from Rust std, used in PCSTR conversion
+/// - wide bytes vec  - re-encoded bytes from original string to UTF-16 for PCWSTR conversion
+/// 
+/// When you call WinString to give any WinAPI string type, it will just get pointer from
+/// some of the stored string forms and put this pointer to desired WinAPI string type.
+/// 
+/// But the real use case for it - lifetime safety. Let me explain.
+/// 
+/// Imagine, you need to call some windows function which require string as argument. And from
+/// this point, pain begins. What you need is go through this steps:
+/// 1. Create intermediate string representation with CString/CStr/Vec<u16> or whatever
+/// 2. Get pointer to just created intermediate string representation
+/// 3. Pass pointer to PCSTR or PCWSTR to finally create WinAPI string
+/// 4. Pass string to WinAPI function
+/// 
+/// You feel it? Pain! And you even not wrote this code yet! But real pain is only starts.
+/// As you know, Rust comes with borrow checker which ensures that all type lives within
+/// it's scopes. So, Rust will just delete everything which comes outside of initial scope.
+/// 
+/// In case of strings, we actually pass raw pointers to WinAPI functions, so it's very important
+/// to ensure that original string lives long enougth. Otherwise, we get null pointer and undefined
+/// behavior.
+/// 
+/// WinString fix all this problems with callback based approach. First, you instantiate WinString,
+/// and for each action which require WinAPI string type, you write callbacks.
+/// 
+/// I know, it's boring and not very cool, but it really protects from shit, trust me.
+/// Better to write not so crazy beatifull code construction instead spend hours on debugging.
 #[derive(Debug)]
 pub struct WinString {
     origin: String,
@@ -764,6 +836,7 @@ pub fn virtual_free(
 
 /// WinAPI: GetModuleHandleW(...)
 /// Get module handle by name (Unicode version)
+/// If input is None, will return handle of current process
 pub fn get_module_handle_w(module_name: Option<&str>) -> WinapiResult<HModule> {
     let hmodule = if let Some(name) = module_name {
         let winstr = WinString::new(name)?;
@@ -785,6 +858,10 @@ pub fn message_box_a(
     caption: &str,
     mb_type: Option<MESSAGEBOX_STYLE>
 ) -> WinapiResult<MESSAGEBOX_RESULT> {
+    // Very easy string conversion using our custom string type.
+    // Closures allows us to ensure that lifetimes of strings are
+    // okay.
+
     let text_str = WinString::new(text)?;
     let caption_str = WinString::new(caption)?;
     let style = mb_type.unwrap_or(MB_OK);

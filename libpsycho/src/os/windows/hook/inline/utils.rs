@@ -378,7 +378,7 @@ pub fn relocate_instructions(
 
     for instr in instructions {
         let mut new_instr = *instr;
-        new_instr.set_ip((new_base as u64) + (current_offset as u64));
+        new_instr.set_ip((new_base as u64) + current_offset);
 
         // Note: BlockEncoder will handle most relocations, but we've already
         // rejected RIP-relative instructions in is_relocatable_instruction
@@ -527,8 +527,8 @@ pub fn verify_jump_bytes(
     let mut instruction = Instruction::default();
     if !decoder.can_decode() {
         return Err(InlineHookError::JumpVerificationFailed {
-            expected: expected_target,
-            actual: std::ptr::null_mut(),
+            expected: expected_target as usize,
+            actual: 0,
         });
     }
 
@@ -536,8 +536,8 @@ pub fn verify_jump_bytes(
 
     if instruction.is_invalid() {
         return Err(InlineHookError::JumpVerificationFailed {
-            expected: expected_target,
-            actual: std::ptr::null_mut(),
+            expected: expected_target as usize,
+            actual: 0,
         });
     }
 
@@ -559,8 +559,8 @@ pub fn verify_jump_bytes(
             let actual_target = instruction.near_branch_target();
             if actual_target != expected_target as u64 {
                 return Err(InlineHookError::JumpVerificationFailed {
-                    expected: expected_target,
-                    actual: actual_target as *mut c_void,
+                    expected: expected_target as usize,
+                    actual: actual_target as usize,
                 });
             }
         }

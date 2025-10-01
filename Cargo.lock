@@ -330,6 +330,7 @@ dependencies = [
  "dashmap",
  "fern",
  "humantime",
+ "libc",
  "libf4se",
  "libmimalloc",
  "libpsycho",

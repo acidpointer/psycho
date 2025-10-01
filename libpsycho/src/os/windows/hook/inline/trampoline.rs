@@ -1,4 +1,4 @@
-use std::ffi::c_void;
+use libc::c_void;
 use iced_x86::Instruction;
 
 use super::errors::InlineHookError;

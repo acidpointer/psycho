@@ -1,4 +1,4 @@
-use std::ffi::c_void;
+use libc::c_void;
 
 use crate::os::windows::pe::{IatEntry, PeParser};
 use super::IatHookResult;

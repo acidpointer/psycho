@@ -4,7 +4,7 @@
 //! including executable memory allocation, memory protection changes,
 //! and safe memory read/write operations using the winapi wrapper.
 
-use std::ffi::c_void;
+use libc::c_void;
 use thiserror::Error;
 
 use crate::os::windows::winapi::virtual_query;
