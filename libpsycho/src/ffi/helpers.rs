@@ -1,7 +1,4 @@
 ///! Various FFI helper functions
-use std::ptr;
-
-use libc::c_void;
 
 /// Reads bytes from memory safely.
 /// 
@@ -24,4 +21,3 @@ unsafe fn read_bytes(addr: *mut c_void, size: usize) -> Vec<u8> {
     
     bytes
 }
-

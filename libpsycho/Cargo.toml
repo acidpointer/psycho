@@ -7,6 +7,7 @@ edition = "2024"
 iced-x86 = { version = "1.21.0", features = ["code_asm", "encoder", "intel"] }
 bitflags = "2.9.2"
 goblin = "0.10.1"
+closure-ffi = { workspace = true }
 libc = { workspace = true }
 dashmap = { workspace = true }
 log = { workspace = true }

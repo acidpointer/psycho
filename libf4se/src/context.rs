@@ -53,9 +53,10 @@ unsafe impl Sync for F4SEContext {}
 
 impl F4SEContext {
     /// Initialize static F4SEContext with F4SEInterface
+    #[allow(clippy::not_unsafe_ptr_arg_deref)]
     pub fn init(f4se: *mut F4SEInterface) -> F4SEContextResult<()> {
         if G_F4SE_CTX.get().is_none() {
-            let f4se_ref = FFIRef::new(f4se)?;
+            let f4se_ref = unsafe { FFIRef::new(f4se) }?;
 
             let instance = Arc::new(Self {
                 interface: f4se_ref,
@@ -84,7 +85,7 @@ impl F4SEContext {
             .ok_or_else(F4SEContextError::QueryInterfaceIsNull)?;
 
         let interface_ptr = unsafe { query_fn(interface_id) as *mut Q };
-        let interface_ref = FFIRef::new(interface_ptr)?;
+        let interface_ref = unsafe { FFIRef::new(interface_ptr) }?;
 
         Ok(interface_ref)
     }

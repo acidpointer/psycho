@@ -3,19 +3,18 @@ use std::{
     fmt,
     sync::atomic::{AtomicBool, Ordering},
 };
+use windows::Win32::System::Memory::PAGE_READWRITE;
 
 use super::errors::IatHookError;
-use super::utils::find_iat_entry;
 use crate::{
     ffi::fnptr::FnPtr,
     hook::traits::Hook,
     os::windows::{
-        hook::iat::IatHookResult,
-        winapi::{PageProtectionFlags, virtual_protect},
+        hook::iat::IatHookResult, memory::validate_memory_access, pe::find_iat_entry, winapi::with_virtual_protect
     },
 };
 
-/// Import Address Table (IAT) hook
+/// Hook by IAT (Import Address Table)
 pub struct IatHook<F: Copy + 'static> {
     name: String,
     original_fn: FnPtr<F>,
@@ -40,12 +39,21 @@ impl<F: Copy + 'static> IatHook<F> {
         function_name: impl Into<String>,
         detour: F,
     ) -> IatHookResult<Self> {
-        let detour_fn = FnPtr::from_fn(detour)?;
+        let detour_fn = unsafe { FnPtr::from_fn(detour) }?;
         let library_name: String = library_name.into();
         let function_name: String = function_name.into();
 
         let iat_entry_info = unsafe { find_iat_entry(module_base, &library_name, &function_name)? };
-        let original_fn = FnPtr::from_raw(iat_entry_info.current_function)?;
+
+        let iat_entry = iat_entry_info.iat_address;
+
+        validate_memory_access(iat_entry as *mut c_void)?;
+
+        let current_fn_ptr = iat_entry_info.current_function;
+
+        validate_memory_access(current_fn_ptr)?;
+
+        let original_fn = unsafe { FnPtr::from_raw(current_fn_ptr) }?;
 
         Ok(Self {
             name: name.into(),
@@ -54,7 +62,7 @@ impl<F: Copy + 'static> IatHook<F> {
             function_name,
             original_fn,
             detour_fn,
-            iat_entry: iat_entry_info.iat_address,
+            iat_entry,
             enabled: AtomicBool::new(false),
         })
     }
@@ -63,38 +71,26 @@ impl<F: Copy + 'static> IatHook<F> {
         self.enabled.load(Ordering::Acquire)
     }
 
-    fn original(&self) -> IatHookResult<F> {
-        unsafe { Ok(self.original_fn.as_fn()?) }
-    }
-
     fn enable(&self) -> IatHookResult<()> {
         if self.is_enabled() {
             return Err(IatHookError::AlreadyEnabled);
         }
 
-        if self.iat_entry.is_null() {
-            return Err(IatHookError::IatEntryNull);
-        }
-
         let detour_ptr = self.detour_fn.as_raw_ptr();
 
-        let old_protect = virtual_protect(
-            self.iat_entry as *mut c_void,
-            PageProtectionFlags::PageReadwrite,
-            std::mem::size_of::<*mut c_void>(),
-        )?;
-
         unsafe {
-            *self.iat_entry = detour_ptr;
+            with_virtual_protect(
+                self.iat_entry as *mut c_void,
+                PAGE_READWRITE,
+                std::mem::size_of::<*mut c_void>(),
+                || {
+                    *self.iat_entry = detour_ptr;
+                },
+            )?;
         }
 
-        let _ = virtual_protect(
-            self.iat_entry as *mut c_void,
-            old_protect,
-            std::mem::size_of::<*mut c_void>(),
-        )?;
-
         self.enabled.store(true, Ordering::Release);
+
         Ok(())
     }
 
@@ -103,28 +99,21 @@ impl<F: Copy + 'static> IatHook<F> {
             return Err(IatHookError::NotEnabled);
         }
 
-        if self.iat_entry.is_null() {
-            return Err(IatHookError::IatEntryNull);
-        }
-
         let original_ptr = self.original_fn.as_raw_ptr();
-        let old_protect = virtual_protect(
-            self.iat_entry as *mut c_void,
-            PageProtectionFlags::PageReadwrite,
-            std::mem::size_of::<*mut c_void>(),
-        )?;
 
         unsafe {
-            *self.iat_entry = original_ptr;
+            with_virtual_protect(
+                self.iat_entry as *mut c_void,
+                PAGE_READWRITE,
+                std::mem::size_of::<*mut c_void>(),
+                || {
+                    *self.iat_entry = original_ptr;
+                },
+            )?;
         }
 
-        let _ = virtual_protect(
-            self.iat_entry as *mut c_void,
-            old_protect,
-            std::mem::size_of::<*mut c_void>(),
-        )?;
-
         self.enabled.store(false, Ordering::Release);
+
         Ok(())
     }
 }
@@ -161,8 +150,8 @@ impl<F: Copy + 'static> Hook<F> for IatHook<F> {
     fn name(&self) -> &str {
         self.name.as_str()
     }
-    
+
     unsafe fn original(&self) -> Result<F, Self::Error> {
-        self.original()
+        unsafe { Ok(self.original_fn.as_fn()?) }
     }
 }

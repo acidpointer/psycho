@@ -2,26 +2,19 @@
 //!
 //! This module contains various wrapper winapi functions and types.
 
-use core::fmt;
 use std::ffi::{CString, NulError, OsStr};
 use std::os::windows::ffi::OsStrExt;
-use std::sync::atomic::{AtomicPtr, Ordering};
+use std::ptr::NonNull;
 
 use libc::c_void;
 use thiserror::Error;
 use windows::Win32::Foundation::{GetLastError, HANDLE, HMODULE, HWND, SetLastError, WIN32_ERROR};
-use windows::Win32::System::LibraryLoader::{GetModuleHandleA, GetModuleHandleW, GetProcAddress, LoadLibraryA};
-use windows::Win32::UI::WindowsAndMessaging::{MessageBoxA, MB_OK, MESSAGEBOX_RESULT, MESSAGEBOX_STYLE};
+use windows::Win32::System::LibraryLoader::{
+    GetModuleHandleA, GetModuleHandleW, GetProcAddress, LoadLibraryA,
+};
 use windows::Win32::System::Memory::{
-    MEMORY_BASIC_INFORMATION, MEM_COMMIT, MEM_RELEASE, MEM_RESERVE,
-    PAGE_ENCLAVE_DECOMMIT, PAGE_ENCLAVE_MASK, PAGE_ENCLAVE_SS_FIRST,
-    PAGE_ENCLAVE_SS_REST, PAGE_ENCLAVE_THREAD_CONTROL, PAGE_ENCLAVE_UNVALIDATED, PAGE_EXECUTE,
-    PAGE_EXECUTE_READ, PAGE_EXECUTE_READWRITE, PAGE_EXECUTE_WRITECOPY, PAGE_GRAPHICS_COHERENT,
-    PAGE_GRAPHICS_EXECUTE, PAGE_GRAPHICS_EXECUTE_READ, PAGE_GRAPHICS_EXECUTE_READWRITE,
-    PAGE_GRAPHICS_NOACCESS, PAGE_GRAPHICS_NOCACHE, PAGE_GRAPHICS_READONLY, PAGE_GRAPHICS_READWRITE,
-    PAGE_GUARD, PAGE_NOACCESS, PAGE_NOCACHE, PAGE_PROTECTION_FLAGS, PAGE_READONLY, PAGE_READWRITE,
-    PAGE_REVERT_TO_FILE_MAP, PAGE_TARGETS_INVALID, PAGE_TARGETS_NO_UPDATE,
-    VirtualAlloc, VirtualFree, VirtualProtect, VIRTUAL_ALLOCATION_TYPE, VIRTUAL_FREE_TYPE,
+    MEM_COMMIT, MEM_RELEASE, MEM_RESERVE, MEMORY_BASIC_INFORMATION, PAGE_PROTECTION_FLAGS,
+    VIRTUAL_ALLOCATION_TYPE, VIRTUAL_FREE_TYPE, VirtualAlloc, VirtualFree, VirtualProtect,
 };
 use windows::Win32::System::ProcessStatus::{GetModuleInformation, MODULEINFO};
 use windows::Win32::System::Threading::{
@@ -33,10 +26,10 @@ use windows::Win32::System::Threading::{
 use windows::Win32::System::{
     Diagnostics::Debug::FlushInstructionCache, Memory::VirtualQuery, Threading::GetCurrentProcess,
 };
+use windows::Win32::UI::WindowsAndMessaging::{
+    MB_OK, MESSAGEBOX_RESULT, MESSAGEBOX_STYLE, MessageBoxA,
+};
 use windows::core::{PCSTR, PCWSTR};
-
-// Memory state constants for query_memory validation
-pub const MEMORY_STATE_COMMIT: u32 = MEM_COMMIT.0;
 
 #[derive(Debug, Error)]
 pub enum WinapiError {
@@ -69,7 +62,7 @@ pub struct MemoryBasicInformation {
     pub partition_id: u16,
     pub region_size: usize,
     pub state: u32,
-    pub protect: PageProtectionFlags,
+    pub protect: PAGE_PROTECTION_FLAGS,
     pub r#type: u32,
 }
 
@@ -96,7 +89,7 @@ pub fn virtual_query(ptr: *mut c_void) -> WinapiResult<MemoryBasicInformation> {
         partition_id: info.PartitionId,
         region_size: info.RegionSize,
         state: info.State.0,
-        protect: info.Protect.into(),
+        protect: info.Protect,
         r#type: info.Type.0,
     };
 
@@ -128,9 +121,12 @@ pub fn reset_last_error() {
     set_last_error(0);
 }
 
-/// WinAPI: InitializeCriticalSection(...)
-#[allow(clippy::not_unsafe_ptr_arg_deref)]
-pub fn initialize_critical_section(ptr: *mut CRITICAL_SECTION) -> WinapiResult<()> {
+/// `InitializeCriticalSection` wrapper from WinAPI
+/// 
+/// # Safety
+/// 
+/// - If `ptr` is NULL, error will be returned
+pub unsafe fn initialize_critical_section(ptr: *mut CRITICAL_SECTION) -> WinapiResult<()> {
     if ptr.is_null() {
         return Err(WinapiError::InputNullPtr());
     }
@@ -140,6 +136,10 @@ pub fn initialize_critical_section(ptr: *mut CRITICAL_SECTION) -> WinapiResult<(
     Ok(())
 }
 
+/// Idiomatic Rust type for storing `THREAD_PRIORITY` values.
+/// 
+/// Actually, not really better than `THREAD_PRIORITY`, but
+/// implements `Debug`, `Display`, `Hash` and easier to use in Rust.
 #[derive(Debug, Hash, PartialEq, Eq)]
 pub enum ThreadPriority {
     AboveNormal,
@@ -185,160 +185,19 @@ impl From<THREAD_PRIORITY> for ThreadPriority {
 }
 
 /// WinAPI: SetThreadPriority(...)
-pub fn set_thread_priority(
-    thread_handle: Handle,
-    priority: ThreadPriority,
-) -> WinapiResult<()> {
+pub fn set_thread_priority(thread_handle: Handle, priority: ThreadPriority) -> WinapiResult<()> {
     unsafe { SetThreadPriority(thread_handle.into(), priority.into())? };
 
     Ok(())
-}
-
-#[derive(Debug, Hash, PartialEq, Eq, Clone, Copy)]
-pub enum PageProtectionFlags {
-    PageEnclaveDecommit,
-    PageEnclaveMask,
-    PageEnclaveSSFirst,
-    PageEnclaveSSRest,
-    PageEnclaveThreadControl,
-    PageEnclaveUnvalidated,
-    PageExecute,
-    PageExecuteRead,
-    PageExecuteReadWrite,
-    PageExecuteWriteCopy,
-    PageGraphicsCoherent,
-    PageGraphicsExecute,
-    PageGraphicsExecuteRead,
-    PageGraphicsExecuteReadWrite,
-    PageGraphicsNoaccess,
-    PageGraphicsNocache,
-    PageGraphicsReadonly,
-    PageGraphicsReadwrite,
-    PageGuard,
-    PageNoaccess,
-    PageNocache,
-    PageReadonly,
-    PageReadwrite,
-    PageRevertToFileMap,
-    PageTargetsInvalid,
-    PageTargetsNoUpdate,
-    Unknown(u32),
-}
-
-impl fmt::Display for PageProtectionFlags {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let fmt_str: String = match self {
-            PageProtectionFlags::PageEnclaveDecommit => "PAGE_ENCLAVE_DECOMMIT".to_string(),
-            PageProtectionFlags::PageEnclaveMask => "PAGE_ENCLAVE_MASK".to_string(),
-            PageProtectionFlags::PageEnclaveSSFirst => "PAGE_ENCLAVE_SS_FIRST".to_string(),
-            PageProtectionFlags::PageEnclaveSSRest => "PAGE_ENCLAVE_SS_REST".to_string(),
-            PageProtectionFlags::PageEnclaveThreadControl => "PAGE_ENCLAVE_THREAD_CONTROL".to_string(),
-            PageProtectionFlags::PageEnclaveUnvalidated => "PAGE_ENCLAVE_UNVALIDATED".to_string(),
-            PageProtectionFlags::PageExecute => "PAGE_EXECUTE".to_string(),
-            PageProtectionFlags::PageExecuteRead => "PAGE_EXECUTE_READ".to_string(),
-            PageProtectionFlags::PageExecuteReadWrite => "PAGE_EXECUTE_READWRITE".to_string(),
-            PageProtectionFlags::PageExecuteWriteCopy => "PAGE_EXECUTE_WRITECOPY".to_string(),
-            PageProtectionFlags::PageGraphicsCoherent => "PAGE_GRAPHICS_COHERENT".to_string(),
-            PageProtectionFlags::PageGraphicsExecute => "PAGE_GRAPHICS_EXECUTE".to_string(),
-            PageProtectionFlags::PageGraphicsExecuteRead => "PAGE_GRAPHICS_EXECUTE_READ".to_string(),
-            PageProtectionFlags::PageGraphicsExecuteReadWrite => "PAGE_GRAPHICS_EXECUTE_READWRITE".to_string(),
-            PageProtectionFlags::PageGraphicsNoaccess => "PAGE_GRAPHICS_NOACCESS".to_string(),
-            PageProtectionFlags::PageGraphicsNocache => "PAGE_GRAPHICS_NOCACHE".to_string(),
-            PageProtectionFlags::PageGraphicsReadonly => "PAGE_GRAPHICS_READONLY".to_string(),
-            PageProtectionFlags::PageGraphicsReadwrite => "PAGE_GRAPHICS_READWRITE".to_string(),
-            PageProtectionFlags::PageGuard => "PAGE_GUARD".to_string(),
-            PageProtectionFlags::PageNoaccess => "PAGE_NOACCESS".to_string(),
-            PageProtectionFlags::PageNocache => "PAGE_NOCACHE".to_string(),
-            PageProtectionFlags::PageReadonly => "PAGE_READONLY".to_string(),
-            PageProtectionFlags::PageReadwrite => "PAGE_READWRITE".to_string(),
-            PageProtectionFlags::PageRevertToFileMap => "PAGE_REVERT_TO_FILE_MAP".to_string(),
-            PageProtectionFlags::PageTargetsInvalid => "PAGE_TARGETS_INVALID".to_string(),
-            PageProtectionFlags::PageTargetsNoUpdate => "PAGE_TARGETS_NO_UPDATE".to_string(),
-            PageProtectionFlags::Unknown(page_protection) => format!("PAGE_PROTECTION_FLAGS({page_protection})"),
-        };
-
-        write!(f, "{}", fmt_str)
-    }
-}
-
-impl From<PageProtectionFlags> for PAGE_PROTECTION_FLAGS {
-    fn from(value: PageProtectionFlags) -> Self {
-        match value {
-            PageProtectionFlags::PageEnclaveDecommit => PAGE_ENCLAVE_DECOMMIT,
-            PageProtectionFlags::PageEnclaveMask => PAGE_ENCLAVE_MASK,
-            PageProtectionFlags::PageEnclaveSSFirst => PAGE_ENCLAVE_SS_FIRST,
-            PageProtectionFlags::PageEnclaveSSRest => PAGE_ENCLAVE_SS_REST,
-            PageProtectionFlags::PageEnclaveThreadControl => PAGE_ENCLAVE_THREAD_CONTROL,
-            PageProtectionFlags::PageEnclaveUnvalidated => PAGE_ENCLAVE_UNVALIDATED,
-            PageProtectionFlags::PageExecute => PAGE_EXECUTE,
-            PageProtectionFlags::PageExecuteRead => PAGE_EXECUTE_READ,
-            PageProtectionFlags::PageExecuteReadWrite => PAGE_EXECUTE_READWRITE,
-            PageProtectionFlags::PageExecuteWriteCopy => PAGE_EXECUTE_WRITECOPY,
-            PageProtectionFlags::PageGraphicsCoherent => PAGE_GRAPHICS_COHERENT,
-            PageProtectionFlags::PageGraphicsExecute => PAGE_GRAPHICS_EXECUTE,
-            PageProtectionFlags::PageGraphicsExecuteRead => PAGE_GRAPHICS_EXECUTE_READ,
-            PageProtectionFlags::PageGraphicsExecuteReadWrite => PAGE_GRAPHICS_EXECUTE_READWRITE,
-            PageProtectionFlags::PageGraphicsNoaccess => PAGE_GRAPHICS_NOACCESS,
-            PageProtectionFlags::PageGraphicsNocache => PAGE_GRAPHICS_NOCACHE,
-            PageProtectionFlags::PageGraphicsReadonly => PAGE_GRAPHICS_READONLY,
-            PageProtectionFlags::PageGraphicsReadwrite => PAGE_GRAPHICS_READWRITE,
-            PageProtectionFlags::PageGuard => PAGE_GUARD,
-            PageProtectionFlags::PageNoaccess => PAGE_NOACCESS,
-            PageProtectionFlags::PageNocache => PAGE_NOCACHE,
-            PageProtectionFlags::PageReadonly => PAGE_READONLY,
-            PageProtectionFlags::PageReadwrite => PAGE_READWRITE,
-            PageProtectionFlags::PageRevertToFileMap => PAGE_REVERT_TO_FILE_MAP,
-            PageProtectionFlags::PageTargetsInvalid => PAGE_TARGETS_INVALID,
-            PageProtectionFlags::PageTargetsNoUpdate => PAGE_TARGETS_NO_UPDATE,
-            PageProtectionFlags::Unknown(page_protection) => PAGE_PROTECTION_FLAGS(page_protection),
-        }
-    }
-}
-
-impl From<PAGE_PROTECTION_FLAGS> for PageProtectionFlags {
-    fn from(value: PAGE_PROTECTION_FLAGS) -> Self {
-        match value {
-            PAGE_ENCLAVE_DECOMMIT => PageProtectionFlags::PageEnclaveDecommit,
-            // PAGE_ENCLAVE_MASK => PageProtectionFlags::PageEnclaveMask,
-            PAGE_ENCLAVE_SS_FIRST => PageProtectionFlags::PageEnclaveSSFirst,
-            PAGE_ENCLAVE_SS_REST => PageProtectionFlags::PageEnclaveSSRest,
-            PAGE_ENCLAVE_THREAD_CONTROL => PageProtectionFlags::PageEnclaveThreadControl,
-            PAGE_ENCLAVE_UNVALIDATED => PageProtectionFlags::PageEnclaveUnvalidated,
-            PAGE_EXECUTE => PageProtectionFlags::PageExecute,
-            PAGE_EXECUTE_READ => PageProtectionFlags::PageExecuteRead,
-            PAGE_EXECUTE_READWRITE => PageProtectionFlags::PageExecuteReadWrite,
-            PAGE_EXECUTE_WRITECOPY => PageProtectionFlags::PageExecuteWriteCopy,
-            PAGE_GRAPHICS_COHERENT => PageProtectionFlags::PageGraphicsCoherent,
-            PAGE_GRAPHICS_EXECUTE => PageProtectionFlags::PageGraphicsExecute,
-            PAGE_GRAPHICS_EXECUTE_READ => PageProtectionFlags::PageGraphicsExecuteRead,
-            PAGE_GRAPHICS_EXECUTE_READWRITE => PageProtectionFlags::PageGraphicsExecuteReadWrite,
-            PAGE_GRAPHICS_NOACCESS => PageProtectionFlags::PageGraphicsNoaccess,
-            PAGE_GRAPHICS_NOCACHE => PageProtectionFlags::PageGraphicsNocache,
-            PAGE_GRAPHICS_READONLY => PageProtectionFlags::PageGraphicsReadonly,
-            PAGE_GRAPHICS_READWRITE => PageProtectionFlags::PageGraphicsReadwrite,
-            PAGE_GUARD => PageProtectionFlags::PageGuard,
-            PAGE_NOACCESS => PageProtectionFlags::PageNoaccess,
-            PAGE_NOCACHE => PageProtectionFlags::PageNocache,
-            PAGE_READONLY => PageProtectionFlags::PageReadonly,
-            PAGE_READWRITE => PageProtectionFlags::PageReadwrite,
-            // PAGE_REVERT_TO_FILE_MAP => PageProtectionFlags::PageRevertToFileMap,
-            PAGE_TARGETS_INVALID => PageProtectionFlags::PageTargetsInvalid,
-            // PAGE_TARGETS_NO_UPDATE => PageProtectionFlags::PageTargetsNoUpdate,
-            page_protection => PageProtectionFlags::Unknown(page_protection.0),
-        }
-    }
 }
 
 /// WinAPI: VirtualProtect(...)
 #[allow(clippy::not_unsafe_ptr_arg_deref)]
 pub fn virtual_protect(
     ptr: *mut c_void,
-    protection_flags: PageProtectionFlags,
+    protection_flags: PAGE_PROTECTION_FLAGS,
     size: usize,
-) -> WinapiResult<PageProtectionFlags> {
-
-    // Security + Safety with null checking!
-
+) -> WinapiResult<PAGE_PROTECTION_FLAGS> {
     if ptr.is_null() {
         return Err(WinapiError::InputNullPtr());
     }
@@ -347,32 +206,36 @@ pub fn virtual_protect(
         return Err(WinapiError::ZeroSize());
     }
 
-    let target_protection_flags: PAGE_PROTECTION_FLAGS = protection_flags.into();
+    let target_protection_flags: PAGE_PROTECTION_FLAGS = protection_flags;
     let mut old_protect = PAGE_PROTECTION_FLAGS(0);
 
     // Change protection with winapi call
     // We use PageProtectionFlags type instead raw PAGE_PROTECTION_FLAGS
     // Why we need this? Because native idiomatic type works better for
-    // devs. You can do way more with custom type and cast to raw when 
+    // devs. You can do way more with custom type and cast to raw when
     // needed.
     unsafe { VirtualProtect(ptr, size, target_protection_flags, &mut old_protect)? }
 
-    Ok(old_protect.into())
+    Ok(old_protect)
 }
 
-/// Safe wrapper for 'virtual_protect'
-/// 
+/// Wrapper for 'virtual_protect'
+///
 /// This function takes closure 'func' and execute it after
 /// memory protection flag changed to requested: 'protection_flags'.
 /// After execution finish, memory protection flags restores to initial
 /// value and return result from 'func', if any.
-/// 
+///
 /// You really want to use this instead raw 'virtual_protect' because
 /// with this safe wrapper, you can freely forget about missing protection
 /// flags restoration, and you just write less code!
-pub fn with_virtual_protect<T, U: FnOnce() -> T>(
+/// 
+/// # Safety
+/// - Virtual protect automatically restores after closure evaluation
+/// - Same safety rules as for `virtual_protect`
+pub unsafe fn with_virtual_protect<T, U: FnOnce() -> T>(
     ptr: *mut c_void,
-    protection_flags: PageProtectionFlags,
+    protection_flags: PAGE_PROTECTION_FLAGS,
     size: usize,
     func: U,
 ) -> WinapiResult<T> {
@@ -392,7 +255,7 @@ pub fn with_virtual_protect<T, U: FnOnce() -> T>(
 /// It tries to be safe using AtomicPtr<c_void>
 #[derive(Debug)]
 pub struct Handle {
-    ptr: AtomicPtr<c_void>,
+    ptr: NonNull<c_void>,
 }
 
 // Safety: Safe, because AtomicPtr is used and pointer is not null
@@ -402,18 +265,24 @@ unsafe impl Send for Handle {}
 unsafe impl Sync for Handle {}
 
 impl Handle {
-    pub fn new(ptr: *mut c_void) -> WinapiResult<Self> {
+    /// Construct new `Handle`
+    /// 
+    /// # Safety
+    /// 
+    /// - If `ptr` is NULL, error will be returned
+    /// - `ptr` stored in `NonNull<c_void>` container
+    pub unsafe fn new(ptr: *mut c_void) -> WinapiResult<Self> {
         if ptr.is_null() {
             return Err(WinapiError::InputNullPtr());
         }
 
         Ok(Self {
-            ptr: AtomicPtr::new(ptr),
+            ptr: unsafe { NonNull::new_unchecked(ptr) },
         })
     }
 
     pub fn as_ptr(&self) -> *mut c_void {
-        self.ptr.load(Ordering::Acquire)
+        self.ptr.as_ptr()
     }
 }
 
@@ -427,7 +296,7 @@ impl TryFrom<HANDLE> for Handle {
     type Error = WinapiError;
 
     fn try_from(value: HANDLE) -> Result<Self, Self::Error> {
-        Handle::new(value.0)
+        unsafe { Handle::new(value.0) }
     }
 }
 
@@ -444,12 +313,12 @@ pub fn get_current_process() -> WinapiResult<Handle> {
 }
 
 /// Wrapper for WinAPI HMODULE type.
-/// 
+///
 /// # Safety
 /// HMODULE pointer stored in AtomicPtr and read-only.
 #[derive(Debug)]
 pub struct HModule {
-    ptr: AtomicPtr<c_void>,
+    ptr: NonNull<c_void>,
 }
 
 // Safety: Inner poiter stored in AtomicPtr
@@ -459,32 +328,23 @@ unsafe impl Send for HModule {}
 unsafe impl Sync for HModule {}
 
 impl HModule {
-    pub fn new(ptr: *mut c_void) -> WinapiResult<Self> {
+    /// Constructs new `HModule`
+    /// 
+    /// # Safety
+    /// - If `ptr` is NULL, error will be returned
+    pub unsafe fn new(ptr: *mut c_void) -> WinapiResult<Self> {
         if ptr.is_null() {
             return Err(WinapiError::InputNullPtr());
         }
 
         Ok(Self {
-            ptr: AtomicPtr::new(ptr),
+            ptr: unsafe { NonNull::new_unchecked(ptr) },
         })
     }
 
-    /// # Safety
-    /// no any inner-checks, so providing null pointer is
-    /// undefined behavior. Developer is responsible here!
-    pub unsafe fn new_unchecked(ptr: *mut c_void) -> Self {
-        Self {
-            ptr: AtomicPtr::new(ptr),
-        }
-    }
-
+    /// Returns raw pointer for HMODULE
     pub fn as_ptr(&self) -> *mut c_void {
-        self.ptr.load(Ordering::Acquire)
-    }
-
-    pub fn as_usize(&self) -> usize {
-        let ptr = self.as_ptr();
-        ptr as usize
+        self.ptr.as_ptr()
     }
 }
 
@@ -498,7 +358,7 @@ impl TryFrom<HMODULE> for HModule {
     type Error = WinapiError;
 
     fn try_from(value: HMODULE) -> Result<Self, Self::Error> {
-        HModule::new(value.0)
+        unsafe { HModule::new(value.0) }
     }
 }
 
@@ -557,35 +417,35 @@ pub fn get_module_information(module_handle: HModule) -> WinapiResult<ModuleInfo
 }
 
 /// Universal string conversion
-/// 
+///
 /// WinString stores 3 types of string under the hood:
 /// - origin string   - default String from Rust std
 /// - ANSI string     - CString from Rust std, used in PCSTR conversion
 /// - wide bytes vec  - re-encoded bytes from original string to UTF-16 for PCWSTR conversion
-/// 
+///
 /// When you call WinString to give any WinAPI string type, it will just get pointer from
 /// some of the stored string forms and put this pointer to desired WinAPI string type.
-/// 
+///
 /// But the real use case for it - lifetime safety. Let me explain.
-/// 
+///
 /// Imagine, you need to call some windows function which require string as argument. And from
 /// this point, pain begins. What you need is go through this steps:
 /// 1. Create intermediate string representation with CString/CStr/Vec<u16> or whatever
 /// 2. Get pointer to just created intermediate string representation
 /// 3. Pass pointer to PCSTR or PCWSTR to finally create WinAPI string
 /// 4. Pass string to WinAPI function
-/// 
+///
 /// You feel it? Pain! And you even not wrote this code yet! But real pain is only starts.
 /// As you know, Rust comes with borrow checker which ensures that all type lives within
 /// it's scopes. So, Rust will just delete everything which comes outside of initial scope.
-/// 
+///
 /// In case of strings, we actually pass raw pointers to WinAPI functions, so it's very important
 /// to ensure that original string lives long enougth. Otherwise, we get null pointer and undefined
 /// behavior.
-/// 
+///
 /// WinString fix all this problems with callback based approach. First, you instantiate WinString,
 /// and for each action which require WinAPI string type, you write callbacks.
-/// 
+///
 /// I know, it's boring and not very cool, but it really protects from shit, trust me.
 /// Better to write not so crazy beatifull code construction instead spend hours on debugging.
 #[derive(Debug)]
@@ -650,7 +510,7 @@ impl WinString {
     pub fn as_string(&self) -> String {
         self.origin.clone()
     }
-    
+
     fn as_pcwstr(&self) -> PCWSTR {
         PCWSTR::from_raw(self.wide_vec.as_ptr())
     }
@@ -696,14 +556,10 @@ pub fn get_module_handle_a(module_name: Option<&str>) -> WinapiResult<HModule> {
         Some(name) => {
             let winstr = WinString::new(name)?;
 
-            winstr.try_with_pcstr(|lpmodulename| {
-                Ok(unsafe { GetModuleHandleA(lpmodulename) }?)
-            })?
+            winstr.try_with_pcstr(|lpmodulename| Ok(unsafe { GetModuleHandleA(lpmodulename) }?))?
         }
 
-        None => {
-            unsafe { GetModuleHandleA(None) }?
-        },
+        None => unsafe { GetModuleHandleA(None) }?,
     };
 
     hmodule.try_into()
@@ -713,10 +569,9 @@ pub fn get_module_handle_a(module_name: Option<&str>) -> WinapiResult<HModule> {
 pub fn get_proc_address(module: HModule, function_name: &str) -> WinapiResult<*mut c_void> {
     let proc_name = WinString::new(function_name)?;
 
-    let proc = proc_name.with_pcstr(|lpprocname| {
-        unsafe { GetProcAddress(module.into(), lpprocname) }
-    });
-    
+    let proc =
+        proc_name.with_pcstr(|lpprocname| unsafe { GetProcAddress(module.into(), lpprocname) });
+
     match proc {
         Some(proc_value) => {
             // Safety: We do pointer copy here
@@ -737,9 +592,8 @@ pub fn get_proc_address(module: HModule, function_name: &str) -> WinapiResult<*m
 pub fn load_library_a(dll: &str) -> WinapiResult<HModule> {
     let dll_name = WinString::new(dll)?;
 
-    let hmodule = dll_name.try_with_pcstr(|lplibfilename| {
-        Ok(unsafe { LoadLibraryA(lplibfilename) }?)
-    })?;
+    let hmodule =
+        dll_name.try_with_pcstr(|lplibfilename| Ok(unsafe { LoadLibraryA(lplibfilename) }?))?;
 
     hmodule.try_into()
 }
@@ -785,25 +639,23 @@ impl From<FreeType> for VIRTUAL_FREE_TYPE {
     }
 }
 
-/// WinAPI: VirtualAlloc(...)
-pub fn virtual_alloc(
+/// `VirtualAlloc` wrapper from WinAPI
+/// 
+/// # Safety
+/// - If `size == 0`, error will be returned
+/// - If result is `NULL`, error will be returned
+/// - Other safety rules is same as for `VirtualAlloc`
+pub unsafe fn virtual_alloc(
     address: Option<*const c_void>,
     size: usize,
     allocation_type: AllocationType,
-    protection: PageProtectionFlags,
+    protection: PAGE_PROTECTION_FLAGS,
 ) -> WinapiResult<*mut c_void> {
     if size == 0 {
         return Err(WinapiError::ZeroSize());
     }
 
-    let result = unsafe {
-        VirtualAlloc(
-            address,
-            size,
-            allocation_type.into(),
-            protection.into(),
-        )
-    };
+    let result = unsafe { VirtualAlloc(address, size, allocation_type.into(), protection) };
 
     if result.is_null() {
         return Err(WinapiError::WindowsCore(windows::core::Error::from_win32()));
@@ -812,24 +664,22 @@ pub fn virtual_alloc(
     Ok(result)
 }
 
-/// WinAPI: VirtualFree(...)
-#[allow(clippy::not_unsafe_ptr_arg_deref)]
-pub fn virtual_free(
-    address: *mut c_void,
-    size: usize,
-    free_type: FreeType,
-) -> WinapiResult<()> {
+/// `VirtualFree` wrapper from WinAPI
+/// 
+/// # Safety
+/// - If `address` is `NULL` error will be returned
+/// - Other safety rules is same as for `VirtualFree`
+pub unsafe fn virtual_free(address: *mut c_void, free_type: FreeType) -> WinapiResult<()> {
     if address.is_null() {
         return Err(WinapiError::InputNullPtr());
     }
 
-    let result = unsafe {
-        VirtualFree(address, size, free_type.into())
+    // Per WinAPI docs, 'dwSize' must be 0 if 'dwFreeType' is MEM_RELEASE.
+    let size = match free_type {
+        FreeType::Release => 0,
     };
 
-    if result.is_err() {
-        return Err(WinapiError::WindowsCore(windows::core::Error::from_win32()));
-    }
+    unsafe { VirtualFree(address, size, free_type.into()) }?;
 
     Ok(())
 }
@@ -840,14 +690,12 @@ pub fn virtual_free(
 pub fn get_module_handle_w(module_name: Option<&str>) -> WinapiResult<HModule> {
     let hmodule = if let Some(name) = module_name {
         let winstr = WinString::new(name)?;
-        winstr.try_with_pcwstr(|lpmodulename| {
-            Ok(unsafe { GetModuleHandleW(lpmodulename) }?)
-        })?
+        winstr.try_with_pcwstr(|lpmodulename| Ok(unsafe { GetModuleHandleW(lpmodulename) }?))?
     } else {
         unsafe { GetModuleHandleW(None) }?
     };
 
-    HModule::new(hmodule.0)
+    unsafe { HModule::new(hmodule.0) }
 }
 
 /// WinAPI: MessageBoxA(...)
@@ -856,7 +704,7 @@ pub fn message_box_a(
     hwnd: Option<HWND>,
     text: &str,
     caption: &str,
-    mb_type: Option<MESSAGEBOX_STYLE>
+    mb_type: Option<MESSAGEBOX_STYLE>,
 ) -> WinapiResult<MESSAGEBOX_RESULT> {
     // Very easy string conversion using our custom string type.
     // Closures allows us to ensure that lifetimes of strings are

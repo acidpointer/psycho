@@ -1,23 +1,22 @@
-use std::{
-    ops::Deref,
-    sync::atomic::{AtomicPtr, Ordering},
-    thread::{self, ThreadId},
-};
+use std::{ops::Deref, ptr::NonNull};
 use thiserror::Error;
+
+use crate::os::windows::memory::{MemoryError, validate_memory_access};
 
 #[derive(Debug, Error)]
 pub enum FFIRefError {
     #[error("Pointer is NULL")]
-    PointerIsNull(),
+    PointerIsNull,
+
+    #[error("Memory error: {0}")]
+    MemoryError(#[from] MemoryError),
 }
 
 pub type FFIRefResult<T> = std::result::Result<T, FFIRefError>;
 
-/// Container for non-owned pointer.
-/// FFIRef<T> is Send + Sync if T is Send + Sync
+/// Simple container which stores raw pointer and it's type information.
 pub struct FFIRef<T> {
-    ptr: AtomicPtr<T>,
-    thread_id: ThreadId,
+    ptr: NonNull<T>,
 }
 
 // Safety: Safe if T is Send + Sync
@@ -27,34 +26,35 @@ unsafe impl<T: Send + Sync> Sync for FFIRef<T> {}
 unsafe impl<T: Send + Sync> Send for FFIRef<T> {}
 
 impl<T> FFIRef<T> {
-    /// Creates new instance of FFIRef
-    /// Return Err if raw_ptr is NULL
-    /// Also, at this point stores current thread id
-    pub fn new(raw_ptr: *mut T) -> FFIRefResult<Self> {
-        if raw_ptr.is_null() {
-            return Err(FFIRefError::PointerIsNull());
+    /// Constructs new `FFIRef<T>`, storing pointer and external type information `T`.
+    ///
+    /// # Safety
+    /// - If `ptr` is NULL, error will be returned
+    /// - Memory is validated by `validate_memory_access`
+    pub unsafe fn new(ptr: *mut T) -> FFIRefResult<Self> {
+        if ptr.is_null() {
+            return Err(FFIRefError::PointerIsNull);
         }
 
-        let thread_id = thread::current().id();
+        validate_memory_access(ptr as *mut libc::c_void)?;
 
         Ok(Self {
-            ptr: AtomicPtr::new(raw_ptr),
-            thread_id,
+            ptr: unsafe { NonNull::new_unchecked(ptr) },
         })
     }
 
-    /// Returns raw underlying pointer
-    /// Note: use atomic load with Acquire ordering under the hood
-    pub fn as_ptr(&self) -> *mut T {
-        self.ptr.load(Ordering::Acquire)
+    /// Returns const raw underlying pointer `*const T`
+    pub fn as_ptr(&self) -> *const T {
+        self.ptr.as_ptr() as *const T
     }
 
-    /// Returns true if thread id from which this method called equals
-    /// thread id in which instance of FFIRef<T> created
-    pub fn is_parent_thread(&self) -> bool {
-        let current_thread_id = thread::current().id();
-
-        current_thread_id == self.thread_id
+    /// Returns raw mutable underlying pointer with type `*mut T`
+    ///
+    /// # Safety:
+    /// Caller responsible for safety, compiller have no way to check
+    /// raw mutable pointer usage.
+    pub fn as_mut_ptr(&self) -> *mut T {
+        self.ptr.as_ptr()
     }
 }
 
@@ -69,9 +69,9 @@ impl<T> AsRef<T> for FFIRef<T> {
 
 impl<T> AsMut<T> for FFIRef<T> {
     fn as_mut(&mut self) -> &mut T {
-        let ptr = self.as_ptr();
+        let ptr = self.as_mut_ptr();
 
-        // Safety: Pointer can't be NULL because of validation in constructor
+        // Safety: Pointer can't be NULL, .unwrap call is correct here
         unsafe { ptr.as_mut().unwrap() }
     }
 }

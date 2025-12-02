@@ -4,20 +4,24 @@ use std::{
 };
 
 use crate::{
-    ffi::fnptr::FnPtr, hook::traits::Hook, os::windows::{
-        hook::vmt::{errors::VmtHookError, VmtHookResult},
-        memory::validate_memory_range,
-        winapi::{with_virtual_protect, PageProtectionFlags},
-    }
+    ffi::fnptr::FnPtr,
+    hook::traits::Hook,
+    os::windows::{
+        hook::vmt::{VmtHookResult, errors::VmtHookError},
+        memory::{validate_memory_access},
+        winapi::with_virtual_protect,
+    },
 };
 use libc::c_void;
+use windows::Win32::System::Memory::PAGE_READWRITE;
 
-/// Virtual Method Table (VMT) hook
+/// Hook by VMT (Virtual Method Table)
 #[allow(dead_code)]
 pub struct VmtHook<F: Copy + 'static> {
     name: String,
     object_ptr: *mut c_void,
     vmt_ptr: *mut *mut c_void,
+    vmt_entry_ptr: *mut *mut c_void,
     method_index: usize,
     original_fn: FnPtr<F>,
     detour_fn: FnPtr<F>,
@@ -36,13 +40,10 @@ impl<F: Copy + 'static> VmtHook<F> {
         method_index: usize,
         detour: F,
     ) -> VmtHookResult<Self> {
-        let detour_fn = FnPtr::from_fn(detour)?;
+        validate_memory_access(object_ptr)?;
 
-        if object_ptr.is_null() {
-            return Err(VmtHookError::InvalidPointer);
-        }
+        let detour_fn = unsafe { FnPtr::from_fn(detour) }?;
 
-        validate_memory_range(object_ptr, std::mem::size_of::<*mut c_void>())?;
         let vmt_ptr = unsafe { *(object_ptr as *mut *mut *mut c_void) };
 
         if vmt_ptr.is_null() || method_index >= Self::MAX_VMT_SIZE {
@@ -50,23 +51,21 @@ impl<F: Copy + 'static> VmtHook<F> {
         }
 
         let vmt_entry_ptr = unsafe { vmt_ptr.add(method_index) };
-        validate_memory_range(
-            vmt_entry_ptr as *mut c_void,
-            std::mem::size_of::<*mut c_void>(),
-        )?;
+        
+        // This validation is highly important, because method_index can be potentially invalid
+        validate_memory_access(vmt_entry_ptr as *mut c_void)?;
 
         let original_method_ptr = unsafe { *vmt_entry_ptr };
-        if original_method_ptr.is_null() {
-            return Err(VmtHookError::InvalidPointer);
-        }
 
-        let original_fn = FnPtr::from_raw(original_method_ptr)?;
-        validate_memory_range(original_method_ptr, 1)?;
+        validate_memory_access(original_method_ptr)?;      
+
+        let original_fn = unsafe { FnPtr::from_raw(original_method_ptr) }?;
 
         Ok(Self {
             name: name.into(),
             object_ptr,
             vmt_ptr,
+            vmt_entry_ptr,
             method_index,
             original_fn,
             detour_fn,
@@ -79,23 +78,21 @@ impl<F: Copy + 'static> VmtHook<F> {
             return Err(VmtHookError::AlreadyEnabled);
         }
 
-        if self.vmt_ptr.is_null() {
-            return Err(VmtHookError::InvalidPointer);
-        }
-
-        let vmt_entry_ptr = unsafe { self.vmt_ptr.add(self.method_index) };
         let detour_ptr = self.detour_fn.as_raw_ptr();
 
-        with_virtual_protect(
-            vmt_entry_ptr as *mut c_void,
-            PageProtectionFlags::PageReadwrite,
-            std::mem::size_of::<*mut c_void>(),
-            || unsafe {
-                *vmt_entry_ptr = detour_ptr;
-            },
-        )?;
+        unsafe {
+            with_virtual_protect(
+                self.vmt_entry_ptr as *mut c_void,
+                PAGE_READWRITE,
+                std::mem::size_of::<*mut c_void>(),
+                || {
+                    *self.vmt_entry_ptr = detour_ptr;
+                },
+            )?
+        };
 
         self.enabled.store(true, Ordering::Release);
+
         Ok(())
     }
 
@@ -104,32 +101,26 @@ impl<F: Copy + 'static> VmtHook<F> {
             return Err(VmtHookError::NotEnabled);
         }
 
-        if self.vmt_ptr.is_null() {
-            return Err(VmtHookError::InvalidPointer);
-        }
-
-        let vmt_entry_ptr = unsafe { self.vmt_ptr.add(self.method_index) };
         let original_ptr = self.original_fn.as_raw_ptr();
 
-        with_virtual_protect(
-            vmt_entry_ptr as *mut c_void,
-            PageProtectionFlags::PageReadwrite,
-            std::mem::size_of::<*mut c_void>(),
-            || unsafe {
-                *vmt_entry_ptr = original_ptr;
-            },
-        )?;
+        unsafe {
+            with_virtual_protect(
+                self.vmt_entry_ptr as *mut c_void,
+                PAGE_READWRITE,
+                std::mem::size_of::<*mut c_void>(),
+                || {
+                    *self.vmt_entry_ptr = original_ptr;
+                },
+            )?;
+        }
 
         self.enabled.store(false, Ordering::Release);
+
         Ok(())
     }
 
     fn is_enabled(&self) -> bool {
         self.enabled.load(Ordering::Acquire)
-    }
-
-    fn origin(&self) -> VmtHookResult<F> {
-        Ok(unsafe { self.original_fn.as_fn()? })
     }
 }
 
@@ -139,6 +130,7 @@ impl<F: Copy + 'static> fmt::Debug for VmtHook<F> {
             .field("name", &self.name)
             .field("object_ptr", &self.object_ptr)
             .field("vmt_ptr", &self.vmt_ptr)
+            .field("vmt_entry_ptr", &self.vmt_entry_ptr)
             .field("method_index", &self.method_index)
             .field("original_fn", &self.original_fn.as_raw_ptr())
             .field("detour_fn", &self.detour_fn.as_raw_ptr())
@@ -167,6 +159,6 @@ impl<F: Copy + 'static> Hook<F> for VmtHook<F> {
     }
 
     unsafe fn original(&self) -> Result<F, Self::Error> {
-        unsafe { self.original() }
+        Ok(unsafe { self.original_fn.as_fn()? })
     }
 }

@@ -2,7 +2,7 @@ use thiserror::Error;
 
 use crate::{
     ffi::fnptr::FnPtrError,
-    os::windows::{pe::PeError, winapi::WinapiError},
+    os::windows::{memory::MemoryError, pe::PeError, winapi::WinapiError},
 };
 
 #[derive(Debug, Error)]
@@ -24,4 +24,7 @@ pub enum IatHookError {
 
     #[error("Hook is not enabled")]
     NotEnabled,
+
+    #[error("Memory error: {0}")]
+    MemoryError(#[from] MemoryError)
 }

@@ -11,3 +11,4 @@ libc = { version = "0.2.175", features = ["extra_traits"] }
 log = "0.4"
 parking_lot = "0.12.4"
 thiserror = "2.0"
+closure-ffi = { version = "5.0", features = ["default"] }

@@ -31,6 +31,9 @@ pub type Float32 = f32;
 /// A 64-bit floating point value
 pub type Float64 = f64;
 
+pub type c_void = libc::c_void;
+pub type c_char = libc::c_char;
+
 pub type PluginHandle = UInt32;
 
 
@@ -111,11 +114,11 @@ pub struct F4SEInterface {
 ///  to cast it back to a char* on receipt.
 #[repr(C)]
 pub struct F4SEMessagingInterface {
-    pub RegisterListener: Option<unsafe extern "C" fn(listener: PluginHandle, sender: *const libc::c_char, handler: F4SEMessagingInterface_EventCallback) -> bool>,
-    pub Dispatch: Option<unsafe extern "C" fn(sender: PluginHandle, messageType: UInt32, data: *mut libc::c_void, dataLen: UInt32, receiver: *const libc::c_char)>,
+    pub RegisterListener: Option<unsafe extern "C" fn(listener: PluginHandle, sender: *const c_char, handler: F4SEMessagingInterface_EventCallback) -> bool>,
+    pub Dispatch: Option<unsafe extern "C" fn(sender: PluginHandle, messageType: UInt32, data: *mut c_void, dataLen: UInt32, receiver: *const c_char)>,
     
     /// Use this to acquire F4SE's internal EventDispatchers so that you can sink to them. Currently none implemented yet
-    pub GetEventDispatcher: Option<unsafe extern "C" fn(dispatcherId: UInt32) -> *mut libc::c_void>,
+    pub GetEventDispatcher: Option<unsafe extern "C" fn(dispatcherId: UInt32) -> *mut c_void>,
 }
 
 impl F4SEMessagingInterface {
@@ -169,10 +172,10 @@ impl F4SEMessagingInterface {
 
 #[repr(C)]
 pub struct F4SEMessagingInterface_Message {
-    pub sender: *const libc::c_char,
+    pub sender: *const c_char,
     pub r#type: UInt32,
     pub dataLen: UInt32,
-    pub data: *mut libc::c_void,
+    pub data: *mut c_void,
 }
 
 pub type F4SEMessagingInterface_EventCallback = Option<unsafe extern "C" fn(msg: *mut F4SEMessagingInterface_Message)>;
@@ -188,12 +191,12 @@ pub struct F4SESerializationInterface {
     pub SetLoadCallback: Option<unsafe extern "C" fn(plugin: PluginHandle, callback: F4SESerializationInterface_EventCallback)>,
     pub SetFormDeleteCallback: Option<unsafe extern "C" fn(plugin: PluginHandle, callback: F4SESerializationInterface_EventCallback)>,
 
-    pub WriteRecord: Option<unsafe extern "C" fn(r#type: UInt32, version: UInt32, buf: *const libc::c_void, length: UInt32) -> bool>,
+    pub WriteRecord: Option<unsafe extern "C" fn(r#type: UInt32, version: UInt32, buf: *const c_void, length: UInt32) -> bool>,
     pub OpenRecord: Option<unsafe extern "C" fn(r#type: UInt32, version: UInt32) -> bool>,
-    pub WriteRecordData: Option<unsafe extern "C" fn(buf: *const libc::c_void, length: UInt32) -> bool>,
+    pub WriteRecordData: Option<unsafe extern "C" fn(buf: *const c_void, length: UInt32) -> bool>,
 
     pub GetNextRecordInfo: Option<unsafe extern "C" fn(r#type: *mut UInt32, version: *mut UInt32, length: *mut UInt32) -> bool>,
-    pub ReadRecordData: Option<unsafe extern "C" fn(buf: *mut libc::c_void, length: UInt32) -> UInt32>,
+    pub ReadRecordData: Option<unsafe extern "C" fn(buf: *mut c_void, length: UInt32) -> UInt32>,
     pub ResolveHandle: Option<unsafe extern "C" fn(handle: UInt64, handleOut: *mut UInt64) -> bool>,
     pub ResolveFormId: Option<unsafe extern "C" fn(formId: UInt32, formIdOut: *mut UInt32) -> bool>,
 }
