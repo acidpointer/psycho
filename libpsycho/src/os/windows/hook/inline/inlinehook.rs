@@ -245,6 +245,10 @@ impl<F: Copy + 'static> Drop for InlineHook<F> {
         let stolen_bytes = self.trampoline.get_stolen_bytes_ref();
         let stolen_bytes_len = stolen_bytes.len();
 
+        // For this specific case .unwrap call is safe,
+        // because target_ptr is guaranteed not NULL.
+        // Null check in virtual_protect can be reason of
+        // error in result with very high chances.
         let restore_result = unsafe {
             with_virtual_protect(
                 self.target_ptr.as_ptr(),
@@ -261,29 +265,11 @@ impl<F: Copy + 'static> Drop for InlineHook<F> {
             )
         };
 
-        if let Err(e) = restore_result {
-            log::error!(
-                "[{}] CRITICAL: VirtualProtect failed in Drop: {}. Attempting unsafe restore!",
-                self.name,
-                e
-            );
-
-            // LAST RESORT: Write without VirtualProtect
-            // This might fail/crash, but it's better than leaving a dangling jump
-            unsafe {
-                std::ptr::copy_nonoverlapping(
-                    stolen_bytes.as_ptr(),
-                    self.target_ptr.as_ptr() as *mut u8,
-                    stolen_bytes_len,
-                );
+        match restore_result {
+            Ok(_) => {}
+            Err(err) => {
+                log::error!("[{}] Failed to drop: {}", self.name, err);
             }
-        }
-
-        if self.is_enabled()
-            && !self.is_failed()
-            && let Err(err) = self.disable()
-        {
-            log::error!("[{}] Failed to drop: {}", self.name, err);
         }
     }
 }
