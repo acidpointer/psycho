@@ -7,6 +7,9 @@ use crate::os::windows::winapi::WinapiError;
 
 #[derive(Debug, Error)]
 pub enum InlineHookError {
+    #[error("Target pointer is NULL")]
+    TargetIsNull,
+
     #[error("WinAPI error: {0}")]
     Winapi(#[from] WinapiError),
     

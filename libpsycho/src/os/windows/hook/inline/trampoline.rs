@@ -9,7 +9,7 @@ use crate::os::windows::winapi::{FreeType, flush_instructions_cache, virtual_fre
 use super::disasm::*;
 
 /// Guard for safe memory allocation cleanup
-pub(super) struct AllocGuard {
+struct AllocGuard {
     ptr: *mut c_void,
     should_free: bool,
 }

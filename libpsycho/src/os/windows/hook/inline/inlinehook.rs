@@ -4,7 +4,8 @@ use crate::os::windows::memory::validate_memory_access;
 use crate::os::windows::winapi::*;
 use core::fmt;
 use libc::c_void;
-use std::sync::Arc;
+use parking_lot::RwLock;
+use std::ptr::NonNull;
 use std::sync::atomic::{AtomicBool, Ordering};
 use windows::Win32::System::Memory::PAGE_EXECUTE_READWRITE;
 
@@ -15,18 +16,23 @@ use super::trampoline::Trampoline;
 
 pub struct InlineHook<F: Copy + 'static> {
     name: String,
-    target_ptr: *mut c_void,
+    target_ptr: NonNull<c_void>,
 
     detour_fn: FnPtr<F>,
     original_fn: FnPtr<F>,
 
-    trampoline: Arc<Trampoline>,
+    trampoline: Trampoline,
 
     enabled: AtomicBool,
     failed: AtomicBool,
+
+    guard: RwLock<()>,
 }
 
+// Safety: Synchronized with inner RwLock guard and atomics
 unsafe impl<F: Copy + 'static> Send for InlineHook<F> {}
+
+// Safety: Synchronized with inner RwLock guard and atomics
 unsafe impl<F: Copy + 'static> Sync for InlineHook<F> {}
 
 impl<F: Copy + 'static> InlineHook<F> {
@@ -40,6 +46,8 @@ impl<F: Copy + 'static> InlineHook<F> {
         target_ptr: *mut c_void,
         detour_fn_ptr: F,
     ) -> InlineHookResult<Self> {
+        let target_ptr = NonNull::new(target_ptr).ok_or(InlineHookError::TargetIsNull)?;
+
         let detour_fn = unsafe { FnPtr::from_fn(detour_fn_ptr) }?;
 
         let detour_ptr = detour_fn.as_raw_ptr();
@@ -48,7 +56,7 @@ impl<F: Copy + 'static> InlineHook<F> {
         validate_memory_access(detour_ptr)?;
 
         // Create trampoline with proper cleanup on failure
-        let trampoline = Arc::new(Trampoline::new(target_ptr, detour_ptr)?);
+        let trampoline = Trampoline::new(target_ptr.as_ptr(), detour_ptr)?;
 
         let original_fn = unsafe { FnPtr::from_raw(trampoline.get_ptr()) }?;
 
@@ -60,6 +68,7 @@ impl<F: Copy + 'static> InlineHook<F> {
             original_fn,
             enabled: AtomicBool::new(false),
             failed: AtomicBool::new(false),
+            guard: RwLock::new(()),
         };
 
         Ok(hook)
@@ -67,44 +76,50 @@ impl<F: Copy + 'static> InlineHook<F> {
 
     /// Enables the hook, redirecting the target to the detour
     pub fn enable(&self) -> InlineHookResult<()> {
-        if self.failed.load(Ordering::Relaxed) {
+        let _guard = self.guard.write();
+
+        if self.is_failed() {
             return Err(InlineHookError::HookFailed);
         }
 
         // Check enabled state after acquiring lock
-        if self.enabled.load(Ordering::Relaxed) {
+        if self.is_enabled() {
             return Err(InlineHookError::AlreadyEnabled);
         }
 
         log::debug!("Enabling hook at {:p}", self.target_ptr);
 
         // Re-validate memory is still accessible
-        validate_memory_access(self.target_ptr).inspect_err(|_err| {
+        validate_memory_access(self.target_ptr.as_ptr()).inspect_err(|_err| {
             self.failed.store(true, Ordering::Relaxed);
         })?;
 
         // Generate jump bytes on demand
-        let jump_bytes = create_jump_bytes(self.target_ptr, self.detour_fn.as_raw_ptr())
+        let jump_bytes = create_jump_bytes(self.target_ptr.as_ptr(), self.detour_fn.as_raw_ptr())
             .inspect_err(|_err| {
-                self.failed.store(true, Ordering::Relaxed);
-            })?;
+            self.failed.store(true, Ordering::Relaxed);
+        })?;
 
         // Verify jump instruction correctness
-        verify_jump_bytes(&jump_bytes, self.target_ptr, self.detour_fn.as_raw_ptr())?;
+        verify_jump_bytes(
+            &jump_bytes,
+            self.target_ptr.as_ptr(),
+            self.detour_fn.as_raw_ptr(),
+        )?;
 
         (unsafe {
             with_virtual_protect(
-                self.target_ptr,
+                self.target_ptr.as_ptr(),
                 PAGE_EXECUTE_READWRITE,
                 jump_bytes.len(),
                 || {
                     // Write with memory barrier for visibility
-                    std::ptr::write_volatile(self.target_ptr as *mut u8, jump_bytes[0]);
+                    std::ptr::write_volatile(self.target_ptr.as_ptr() as *mut u8, jump_bytes[0]);
 
                     if jump_bytes.len() > 1 {
                         std::ptr::copy_nonoverlapping(
                             jump_bytes[1..].as_ptr(),
-                            (self.target_ptr as *mut u8).add(1),
+                            (self.target_ptr.as_ptr() as *mut u8).add(1),
                             jump_bytes.len() - 1,
                         );
                     }
@@ -112,53 +127,58 @@ impl<F: Copy + 'static> InlineHook<F> {
             )
             .inspect_err(|_err| {
                 // Save failed flag
-                self.failed.store(true, Ordering::Relaxed);
+                self.failed.store(true, Ordering::Release);
             })
         })?;
 
-        flush_instructions_cache(self.target_ptr, jump_bytes.len())?;
+        // Ensure writes are complete
+        std::sync::atomic::fence(Ordering::Release);
+
+        flush_instructions_cache(self.target_ptr.as_ptr(), jump_bytes.len())?;
+
+        // Ensure cache flush is visible to all CPUs
+        std::sync::atomic::fence(Ordering::SeqCst);
 
         // Set enabled flag while still holding lock
-        self.enabled.store(true, Ordering::Relaxed);
-
-        // Memory barrier to ensure all CPUs see the change
-        std::sync::atomic::fence(Ordering::SeqCst);
+        self.enabled.store(true, Ordering::Release);
 
         Ok(())
     }
 
     /// Disables the hook, restoring original function
     pub fn disable(&self) -> InlineHookResult<()> {
+        let _guard = self.guard.write();
+
         // Check failed state first
-        if self.failed.load(Ordering::Relaxed) {
+        if self.is_failed() {
             return Err(InlineHookError::HookFailed);
         }
 
         // Check enabled state after acquiring lock
-        if !self.enabled.load(Ordering::Relaxed) {
+        if !self.is_enabled() {
             return Err(InlineHookError::NotEnabled);
         }
 
         // Re-validate memory is still accessible
-        validate_memory_access(self.target_ptr)?;
+        validate_memory_access(self.target_ptr.as_ptr())?;
 
         let trampoline_stolen_size = self.trampoline.get_stolen_bytes_ref().len();
 
         unsafe {
             with_virtual_protect(
-                self.target_ptr,
+                self.target_ptr.as_ptr(),
                 PAGE_EXECUTE_READWRITE,
                 trampoline_stolen_size,
                 || {
                     std::ptr::write_volatile(
-                        self.target_ptr as *mut u8,
+                        self.target_ptr.as_ptr() as *mut u8,
                         self.trampoline.get_stolen_bytes_ref()[0],
                     );
 
                     if trampoline_stolen_size > 1 {
                         std::ptr::copy_nonoverlapping(
                             self.trampoline.get_stolen_bytes_ref()[1..].as_ptr(),
-                            (self.target_ptr as *mut u8).add(1),
+                            (self.target_ptr.as_ptr() as *mut u8).add(1),
                             trampoline_stolen_size - 1,
                         );
                     }
@@ -166,13 +186,16 @@ impl<F: Copy + 'static> InlineHook<F> {
             )?;
         }
 
-        flush_instructions_cache(self.target_ptr, trampoline_stolen_size)?;
+        // Ensure writes are complete
+        std::sync::atomic::fence(Ordering::Release);
+
+        flush_instructions_cache(self.target_ptr.as_ptr(), trampoline_stolen_size)?;
+
+        // Ensure cache flush is visible to all CPUs
+        std::sync::atomic::fence(Ordering::SeqCst);
 
         // Set disabled flag while still holding lock
-        self.enabled.store(false, Ordering::Relaxed);
-
-        // Memory barrier to ensure all CPUs see the change
-        std::sync::atomic::fence(Ordering::SeqCst);
+        self.enabled.store(false, Ordering::Release);
 
         Ok(())
     }
@@ -181,26 +204,30 @@ impl<F: Copy + 'static> InlineHook<F> {
     ///
     /// Note: Recursive calls (detour -> original -> detour) will return an error
     pub fn original(&self) -> InlineHookResult<F> {
+        let _guard = self.guard.read();
+
         unsafe { Ok(self.original_fn.as_fn()?) }
     }
 
     /// Returns whether the hook is currently enabled
     pub fn is_enabled(&self) -> bool {
-        self.enabled.load(Ordering::Relaxed)
+        self.enabled.load(Ordering::Acquire)
     }
 
     /// Returns whether the hook is in a failed state
     pub fn is_failed(&self) -> bool {
-        self.failed.load(Ordering::Relaxed)
+        self.failed.load(Ordering::Acquire)
     }
 
     /// Attempts to recover from a failed state
     pub fn reset(&self) -> InlineHookResult<()> {
-        if self.enabled.load(Ordering::Relaxed) {
+        let _guard = self.guard.write();
+
+        if self.is_enabled() {
             return Err(InlineHookError::AlreadyEnabled);
         }
 
-        self.failed.store(false, Ordering::Relaxed);
+        self.failed.store(false, Ordering::Release);
 
         Ok(())
     }
@@ -208,6 +235,50 @@ impl<F: Copy + 'static> InlineHook<F> {
 
 impl<F: Copy + 'static> Drop for InlineHook<F> {
     fn drop(&mut self) {
+        if self.is_enabled() || self.is_failed() {
+            return;
+        }
+
+        // We MUST restore original bytes!
+        // Otherwise, we will have catastrophe!
+
+        let stolen_bytes = self.trampoline.get_stolen_bytes_ref();
+        let stolen_bytes_len = stolen_bytes.len();
+
+        let restore_result = unsafe {
+            with_virtual_protect(
+                self.target_ptr.as_ptr(),
+                PAGE_EXECUTE_READWRITE,
+                stolen_bytes_len,
+                || {
+                    // Write all bytes back
+                    std::ptr::copy_nonoverlapping(
+                        stolen_bytes.as_ptr(),
+                        self.target_ptr.as_ptr() as *mut u8,
+                        stolen_bytes_len,
+                    );
+                },
+            )
+        };
+
+        if let Err(e) = restore_result {
+            log::error!(
+                "[{}] CRITICAL: VirtualProtect failed in Drop: {}. Attempting unsafe restore!",
+                self.name,
+                e
+            );
+
+            // LAST RESORT: Write without VirtualProtect
+            // This might fail/crash, but it's better than leaving a dangling jump
+            unsafe {
+                std::ptr::copy_nonoverlapping(
+                    stolen_bytes.as_ptr(),
+                    self.target_ptr.as_ptr() as *mut u8,
+                    stolen_bytes_len,
+                );
+            }
+        }
+
         if self.is_enabled()
             && !self.is_failed()
             && let Err(err) = self.disable()
