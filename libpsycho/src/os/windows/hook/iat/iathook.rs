@@ -1,6 +1,8 @@
 use libc::c_void;
+use parking_lot::RwLock;
 use std::{
     fmt,
+    ptr::NonNull,
     sync::atomic::{AtomicBool, Ordering},
 };
 use windows::Win32::System::Memory::PAGE_READWRITE;
@@ -10,7 +12,8 @@ use crate::{
     ffi::fnptr::FnPtr,
     hook::traits::Hook,
     os::windows::{
-        hook::iat::IatHookResult, memory::validate_memory_access, pe::find_iat_entry, winapi::with_virtual_protect
+        hook::iat::IatHookResult, memory::validate_memory_access, pe::find_iat_entry,
+        winapi::with_virtual_protect,
     },
 };
 
@@ -20,14 +23,19 @@ pub struct IatHook<F: Copy + 'static> {
     original_fn: FnPtr<F>,
     detour_fn: FnPtr<F>,
 
-    module_base: *mut c_void,
+    module_base: NonNull<c_void>,
     library_name: String,
     function_name: String,
     iat_entry: *mut *mut c_void,
     enabled: AtomicBool,
+
+    guard: RwLock<()>,
 }
 
+// Safety: Synchronized with inner RwLock guard and atomics
 unsafe impl<F: Copy + 'static> Send for IatHook<F> {}
+
+// Safety: Synchronized with inner RwLock guard and atomics
 unsafe impl<F: Copy + 'static> Sync for IatHook<F> {}
 
 impl<F: Copy + 'static> IatHook<F> {
@@ -39,11 +47,14 @@ impl<F: Copy + 'static> IatHook<F> {
         function_name: impl Into<String>,
         detour: F,
     ) -> IatHookResult<Self> {
+        let module_base = NonNull::new(module_base).ok_or(IatHookError::ModuleBaseNull)?;
+
         let detour_fn = unsafe { FnPtr::from_fn(detour) }?;
         let library_name: String = library_name.into();
         let function_name: String = function_name.into();
 
-        let iat_entry_info = unsafe { find_iat_entry(module_base, &library_name, &function_name)? };
+        let iat_entry_info =
+            unsafe { find_iat_entry(module_base.as_ptr(), &library_name, &function_name)? };
 
         let iat_entry = iat_entry_info.iat_address;
 
@@ -64,6 +75,7 @@ impl<F: Copy + 'static> IatHook<F> {
             detour_fn,
             iat_entry,
             enabled: AtomicBool::new(false),
+            guard: RwLock::new(()),
         })
     }
 
@@ -72,6 +84,8 @@ impl<F: Copy + 'static> IatHook<F> {
     }
 
     fn enable(&self) -> IatHookResult<()> {
+        let _guard = self.guard.write();
+
         if self.is_enabled() {
             return Err(IatHookError::AlreadyEnabled);
         }
@@ -95,6 +109,8 @@ impl<F: Copy + 'static> IatHook<F> {
     }
 
     fn disable(&self) -> IatHookResult<()> {
+        let _guard = self.guard.write();
+
         if !self.is_enabled() {
             return Err(IatHookError::NotEnabled);
         }
@@ -152,6 +168,8 @@ impl<F: Copy + 'static> Hook<F> for IatHook<F> {
     }
 
     unsafe fn original(&self) -> Result<F, Self::Error> {
+        let _guard = self.guard.read();
+
         unsafe { Ok(self.original_fn.as_fn()?) }
     }
 }

@@ -4,6 +4,8 @@ use libc::c_void;
 use thiserror::Error;
 use goblin::pe::PE;
 
+use crate::os::windows::winapi::virtual_query;
+
 use super::winapi::WinapiError;
 
 #[derive(Debug, Error)]
@@ -50,9 +52,11 @@ impl PeParser {
             return Err(PeError::InvalidMemoryRange);
         }
 
+        let memory_basic_info = virtual_query(module_base)?;
+
         let pe_bytes = unsafe { std::slice::from_raw_parts(
             module_base as *const u8, 
-            65536
+            memory_basic_info.region_size,
         ).to_vec() };
 
         if pe_bytes.len() < 2 || &pe_bytes[0..2] != b"MZ" {

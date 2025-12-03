@@ -8,11 +8,12 @@ use crate::{
     hook::traits::Hook,
     os::windows::{
         hook::vmt::{VmtHookResult, errors::VmtHookError},
-        memory::{validate_memory_access},
+        memory::validate_memory_access,
         winapi::with_virtual_protect,
     },
 };
 use libc::c_void;
+use parking_lot::RwLock;
 use windows::Win32::System::Memory::PAGE_READWRITE;
 
 /// Hook by VMT (Virtual Method Table)
@@ -26,9 +27,14 @@ pub struct VmtHook<F: Copy + 'static> {
     original_fn: FnPtr<F>,
     detour_fn: FnPtr<F>,
     enabled: AtomicBool,
+
+    guard: RwLock<()>,
 }
 
+// Safety: Synchronized with inner RwLock guard and atomics
 unsafe impl<F: Copy + 'static> Send for VmtHook<F> {}
+
+// Safety: Synchronized with inner RwLock guard and atomics
 unsafe impl<F: Copy + 'static> Sync for VmtHook<F> {}
 
 impl<F: Copy + 'static> VmtHook<F> {
@@ -40,7 +46,8 @@ impl<F: Copy + 'static> VmtHook<F> {
         method_index: usize,
         detour: F,
     ) -> VmtHookResult<Self> {
-        validate_memory_access(object_ptr)?;
+        // object_ptr is on stack, validation with 'validate_memory_access'
+        // is impossible!
 
         let detour_fn = unsafe { FnPtr::from_fn(detour) }?;
 
@@ -70,10 +77,13 @@ impl<F: Copy + 'static> VmtHook<F> {
             original_fn,
             detour_fn,
             enabled: AtomicBool::new(false),
+            guard: RwLock::new(()),
         })
     }
 
     fn enable(&self) -> VmtHookResult<()> {
+        let _guard = self.guard.write();
+
         if self.is_enabled() {
             return Err(VmtHookError::AlreadyEnabled);
         }
@@ -97,6 +107,8 @@ impl<F: Copy + 'static> VmtHook<F> {
     }
 
     fn disable(&self) -> VmtHookResult<()> {
+        let _guard = self.guard.write();
+
         if !self.is_enabled() {
             return Err(VmtHookError::NotEnabled);
         }
@@ -159,6 +171,8 @@ impl<F: Copy + 'static> Hook<F> for VmtHook<F> {
     }
 
     unsafe fn original(&self) -> Result<F, Self::Error> {
+        let _guard = self.guard.read();
+
         Ok(unsafe { self.original_fn.as_fn()? })
     }
 }

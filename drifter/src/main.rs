@@ -1,11 +1,13 @@
+use libpsycho::hook::traits::Hook;
+use libpsycho::os::windows::{
+    hook::{inline::inlinehook::InlineHook, vmt::vmthook::VmtHook},
+    winapi::{get_module_handle_w, message_box_a},
+};
+use log::{debug, error, info, warn};
+use serde::{Deserialize, Serialize};
 use std::ffi::c_void;
 use std::io::Write;
 use std::path::Path;
-use serde::{Deserialize, Serialize};
-use log::{debug, info, warn, error};
-use libpsycho::os::windows::winapi::{
-    get_module_handle_w, message_box_a
-};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct TestResult {
@@ -57,7 +59,10 @@ fn setup_logging() -> Result<(), fern::InitError> {
 }
 
 fn cleanup_old_logs(log_dir: &str, keep_count: usize) {
-    debug!("Cleaning up old log files, keeping {} most recent", keep_count);
+    debug!(
+        "Cleaning up old log files, keeping {} most recent",
+        keep_count
+    );
 
     let mut log_files: Vec<_> = match std::fs::read_dir(log_dir) {
         Ok(entries) => entries
@@ -80,7 +85,10 @@ fn cleanup_old_logs(log_dir: &str, keep_count: usize) {
     };
 
     if log_files.len() <= keep_count {
-        debug!("Only {} log files found, no cleanup needed", log_files.len());
+        debug!(
+            "Only {} log files found, no cleanup needed",
+            log_files.len()
+        );
         return;
     }
 
@@ -159,7 +167,7 @@ impl TestRunner {
 }
 
 fn main() {
-    let _logger_guard = setup_logging().expect("Failed to setup logging");
+    setup_logging().expect("Failed to setup logging");
 
     info!("🚀 Drifter - libpsycho Hook Tests Starting");
     info!("===========================================");
@@ -171,53 +179,41 @@ fn main() {
     println!("==========================================");
 
     // Test 1: Simple function test (no hooks)
-    runner.run_test("simple_function_test", || {
-        test_simple_functions()
-    });
+    runner.run_test("simple_function_test", test_simple_functions);
 
     // Test 2: IAT Hook with MessageBoxA (easier than JMP hooks)
-    runner.run_test("iat_hook_messagebox", || {
-        test_iat_hook_messagebox()
-    });
+    runner.run_test("iat_hook_messagebox", test_iat_hook_messagebox);
 
     // Test 3: More IAT Tests with system DLLs
-    runner.run_test("iat_hook_system_functions", || {
-        test_iat_system_functions()
-    });
+    runner.run_test("iat_hook_system_functions", test_iat_system_functions);
 
     // Test 4: VMT Hook Test
-    runner.run_test("vmt_hook_test", || {
-        test_vmt_hook()
-    });
+    runner.run_test("vmt_hook_test", test_vmt_hook);
 
     // Test 5: JMP Hook with simple function (most complex)
-    runner.run_test("jmp_hook_simple_function", || {
-        test_jmp_hook_simple()
-    });
+    runner.run_test("jmp_hook_simple_function", test_jmp_hook_simple);
 
     // Test 6: Hook Safety Test
-    runner.run_test("hook_safety_test", || {
-        test_hook_safety()
-    });
+    runner.run_test("hook_safety_test", test_hook_safety);
 
     // Test 7: Multiple Hook Interaction
-    runner.run_test("multiple_hook_interaction", || {
-        test_multiple_hooks()
-    });
+    runner.run_test("multiple_hook_interaction", test_multiple_hooks);
 
     let report = runner.generate_report(start_time);
 
-    let report = runner.generate_report(start_time);
-
-    info!("📊 Test Summary: Total: {}, Passed: {}, Failed: {}",
-          report.total_tests, report.passed, report.failed);
+    info!(
+        "📊 Test Summary: Total: {}, Passed: {}, Failed: {}",
+        report.total_tests, report.passed, report.failed
+    );
     info!("Execution Time: {}ms", report.execution_time_ms);
     info!("Environment: {}", report.environment);
 
     println!("\n📊 Test Summary");
     println!("===============");
-    println!("Total: {}, Passed: {}, Failed: {}",
-             report.total_tests, report.passed, report.failed);
+    println!(
+        "Total: {}, Passed: {}, Failed: {}",
+        report.total_tests, report.passed, report.failed
+    );
     println!("Execution Time: {}ms", report.execution_time_ms);
     println!("Environment: {}", report.environment);
 
@@ -256,7 +252,10 @@ fn test_simple_functions() -> Result<(), Box<dyn std::error::Error>> {
     debug!("original_function() returned: {}", result1);
     println!("    original_function() = {}", result1);
     if result1 != 42 {
-        error!("original_function() returned unexpected value: expected 42, got {}", result1);
+        error!(
+            "original_function() returned unexpected value: expected 42, got {}",
+            result1
+        );
         return Err(format!("Expected 42, got {}", result1).into());
     }
 
@@ -264,7 +263,10 @@ fn test_simple_functions() -> Result<(), Box<dyn std::error::Error>> {
     debug!("detour_function() returned: {}", result2);
     println!("    detour_function() = {}", result2);
     if result2 != 84 {
-        error!("detour_function() returned unexpected value: expected 84, got {}", result2);
+        error!(
+            "detour_function() returned unexpected value: expected 84, got {}",
+            result2
+        );
         return Err(format!("Expected 84, got {}", result2).into());
     }
 
@@ -287,9 +289,9 @@ fn test_jmp_hook_simple() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     debug!("Creating JMP hook instance");
-    let hook = JmpHook::<extern "C" fn() -> i32>::new(
+    let hook = InlineHook::<extern "C" fn() -> i32>::new(
         "test_jmp_hook",
-        original_function,
+        original_function as *mut c_void,
         detour_function,
     )?;
     info!("JMP hook created successfully");
@@ -299,7 +301,10 @@ fn test_jmp_hook_simple() -> Result<(), Box<dyn std::error::Error>> {
     debug!("Original function returned: {}", original_result);
     println!("    Original function returned: {}", original_result);
     if original_result != 42 {
-        error!("Original function returned unexpected value: {}", original_result);
+        error!(
+            "Original function returned unexpected value: {}",
+            original_result
+        );
         return Err("Original function should return 42".into());
     }
 
@@ -337,12 +342,16 @@ fn test_jmp_hook_simple() -> Result<(), Box<dyn std::error::Error>> {
     println!("  Testing trampoline...");
     std::io::stdout().flush().unwrap();
 
-    let trampoline_result = unsafe { hook.original() };
+    let trampoline_result = hook.original()?;
     let trampoline_call_result = trampoline_result();
     println!("    Trampoline returned: {}", trampoline_call_result);
     if trampoline_call_result != 42 {
         hook.disable()?;
-        return Err(format!("Trampoline should return 42, got {}", trampoline_call_result).into());
+        return Err(format!(
+            "Trampoline should return 42, got {}",
+            trampoline_call_result
+        )
+        .into());
     }
 
     println!("  Disabling hook...");
@@ -352,7 +361,11 @@ fn test_jmp_hook_simple() -> Result<(), Box<dyn std::error::Error>> {
     let restored_result = original_function();
     println!("    Restored function returned: {}", restored_result);
     if restored_result != 42 {
-        return Err(format!("Restored function should return 42, got {}", restored_result).into());
+        return Err(format!(
+            "Restored function should return 42, got {}",
+            restored_result
+        )
+        .into());
     }
 
     Ok(())
@@ -360,10 +373,17 @@ fn test_jmp_hook_simple() -> Result<(), Box<dyn std::error::Error>> {
 
 #[cfg(target_os = "windows")]
 fn test_iat_hook_messagebox() -> Result<(), Box<dyn std::error::Error>> {
+    use libpsycho::{hook::traits::Hook, os::windows::hook::iat::iathook::IatHook};
+
     println!("  Testing IAT hook with MessageBoxA...");
 
     // Our detour function that will replace MessageBoxA
-    extern "C" fn messagebox_detour(_hwnd: windows::Win32::Foundation::HWND, _text: *const i8, _caption: *const i8, _mb_type: u32) -> i32 {
+    extern "C" fn messagebox_detour(
+        _hwnd: windows::Win32::Foundation::HWND,
+        _text: *const i8,
+        _caption: *const i8,
+        _mb_type: u32,
+    ) -> i32 {
         println!("    MessageBoxA hooked! Intercepted call.");
         // Return IDOK without showing the actual messagebox
         1 // IDOK
@@ -374,26 +394,21 @@ fn test_iat_hook_messagebox() -> Result<(), Box<dyn std::error::Error>> {
 
     println!("  Creating IAT hook for MessageBoxA...");
 
-    let hook = unsafe {
-        IatHook::<extern "C" fn(windows::Win32::Foundation::HWND, *const i8, *const i8, u32) -> i32>::new(
-            "messagebox_hook",
-            module_handle.as_ptr(),
-            "user32.dll",
-            "MessageBoxA",
-            messagebox_detour,
-        )
-    }?;
+    let hook = IatHook::<
+        extern "C" fn(windows::Win32::Foundation::HWND, *const i8, *const i8, u32) -> i32,
+    >::new(
+        "messagebox_hook",
+        module_handle.as_ptr(),
+        "user32.dll",
+        "MessageBoxA",
+        messagebox_detour,
+    )?;
 
     println!("  Enabling IAT hook...");
     hook.enable()?;
 
     // Test the hook by calling MessageBoxA using libpsycho wrapper
-    let result = message_box_a(
-        None,
-        "This should be intercepted!",
-        "Test",
-        None,
-    )?;
+    let result = message_box_a(None, "This should be intercepted!", "Test", None)?;
 
     if result.0 != 1 {
         hook.disable()?;
@@ -417,9 +432,9 @@ fn test_hook_safety() -> Result<(), Box<dyn std::error::Error>> {
     println!("  Testing hook safety...");
 
     // Test multiple enable/disable cycles
-    let hook = JmpHook::<extern "C" fn() -> i32>::new(
+    let hook = InlineHook::<extern "C" fn() -> i32>::new(
         "safety_test_hook",
-        original_function,
+        original_function as *mut c_void,
         detour_function,
     )?;
 
@@ -430,7 +445,12 @@ fn test_hook_safety() -> Result<(), Box<dyn std::error::Error>> {
         // Verify hook is working
         let result = original_function();
         if result != 84 {
-            return Err(format!("Hook failed in cycle {}, expected 84, got {}", i + 1, result).into());
+            return Err(format!(
+                "Hook failed in cycle {}, expected 84, got {}",
+                i + 1,
+                result
+            )
+            .into());
         }
 
         println!("    Cycle {}: Disabling...", i + 1);
@@ -439,7 +459,12 @@ fn test_hook_safety() -> Result<(), Box<dyn std::error::Error>> {
         // Verify original function is restored
         let result = original_function();
         if result != 42 {
-            return Err(format!("Restore failed in cycle {}, expected 42, got {}", i + 1, result).into());
+            return Err(format!(
+                "Restore failed in cycle {}, expected 42, got {}",
+                i + 1,
+                result
+            )
+            .into());
         }
     }
 
@@ -465,20 +490,28 @@ fn test_hook_safety() -> Result<(), Box<dyn std::error::Error>> {
 fn test_multiple_hooks() -> Result<(), Box<dyn std::error::Error>> {
     println!("  Testing multiple hooks interaction...");
 
-    extern "C" fn test_func_a() -> i32 { 100 }
-    extern "C" fn test_func_b() -> i32 { 200 }
-    extern "C" fn detour_a() -> i32 { 101 }
-    extern "C" fn detour_b() -> i32 { 202 }
+    extern "C" fn test_func_a() -> i32 {
+        100
+    }
+    extern "C" fn test_func_b() -> i32 {
+        200
+    }
+    extern "C" fn detour_a() -> i32 {
+        101
+    }
+    extern "C" fn detour_b() -> i32 {
+        202
+    }
 
-    let hook_a = JmpHook::<extern "C" fn() -> i32>::new(
+    let hook_a = InlineHook::<extern "C" fn() -> i32>::new(
         "multi_hook_a",
-        test_func_a,
+        test_func_a as *mut c_void,
         detour_a,
     )?;
 
-    let hook_b = JmpHook::<extern "C" fn() -> i32>::new(
+    let hook_b = InlineHook::<extern "C" fn() -> i32>::new(
         "multi_hook_b",
-        test_func_b,
+        test_func_b as *mut c_void,
         detour_b,
     )?;
 
@@ -501,8 +534,8 @@ fn test_multiple_hooks() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     // Test trampolines work independently
-    let original_a = unsafe { hook_a.original() };
-    let original_b = unsafe { hook_b.original() };
+    let original_a = hook_a.original()?;
+    let original_b = hook_b.original()?;
 
     if original_a() != 100 {
         hook_a.disable()?;
@@ -558,33 +591,35 @@ fn test_vmt_hook() -> Result<(), Box<dyn std::error::Error>> {
     println!("  Testing VMT hook...");
 
     // Create test object with VMT
-    let vtable = TestVTable {
+    static VTABLE: TestVTable = TestVTable {
         method1: original_method1,
         method2: original_method2,
     };
 
     let mut obj = TestObject {
-        vtable: &vtable,
+        vtable: &VTABLE,
         data: 50,
     };
 
     // Test original method calls
     let original_result1 = unsafe { ((*obj.vtable).method1)(&obj) };
     if original_result1 != 150 {
-        return Err(format!("Original method1 should return 150, got {}", original_result1).into());
+        return Err(format!(
+            "Original method1 should return 150, got {}",
+            original_result1
+        )
+        .into());
     }
 
     println!("  Creating VMT hook for method1...");
 
     // Create VMT hook for method1 (index 0)
-    let hook = unsafe {
-        VmtHook::<extern "C" fn(*const TestObject) -> i32>::new(
-            "vmt_method1_hook",
-            &mut obj as *mut _ as *mut c_void,
-            0, // method1 is at index 0
-            hooked_method1,
-        )
-    }?;
+    let hook = VmtHook::<extern "C" fn(*const TestObject) -> i32>::new(
+        "vmt_method1_hook",
+        &mut obj as *mut _ as *mut c_void,
+        0, // method1 is at index 0
+        hooked_method1,
+    )?;
 
     println!("  Enabling VMT hook...");
     hook.enable()?;
@@ -600,15 +635,23 @@ fn test_vmt_hook() -> Result<(), Box<dyn std::error::Error>> {
     let method2_result = unsafe { ((*obj.vtable).method2)(&obj) };
     if method2_result != 250 {
         hook.disable()?;
-        return Err(format!("Method2 should be unchanged, expected 250, got {}", method2_result).into());
+        return Err(format!(
+            "Method2 should be unchanged, expected 250, got {}",
+            method2_result
+        )
+        .into());
     }
 
     // Test original method through hook
-    let original_fn = unsafe { hook.original() };
+    let original_fn = unsafe { hook.original() }?;
     let original_through_hook = original_fn(&obj);
     if original_through_hook != 150 {
         hook.disable()?;
-        return Err(format!("Original through hook should return 150, got {}", original_through_hook).into());
+        return Err(format!(
+            "Original through hook should return 150, got {}",
+            original_through_hook
+        )
+        .into());
     }
 
     println!("  Disabling VMT hook...");
@@ -617,7 +660,11 @@ fn test_vmt_hook() -> Result<(), Box<dyn std::error::Error>> {
     // Verify method1 is restored
     let restored_result = unsafe { ((*obj.vtable).method1)(&obj) };
     if restored_result != 150 {
-        return Err(format!("Restored method1 should return 150, got {}", restored_result).into());
+        return Err(format!(
+            "Restored method1 should return 150, got {}",
+            restored_result
+        )
+        .into());
     }
 
     println!("  VMT hook test completed");
@@ -626,6 +673,8 @@ fn test_vmt_hook() -> Result<(), Box<dyn std::error::Error>> {
 
 #[cfg(target_os = "windows")]
 fn test_iat_system_functions() -> Result<(), Box<dyn std::error::Error>> {
+    use libpsycho::os::windows::hook::iat::iathook::IatHook;
+
     println!("  Testing IAT hook with GetProcAddress...");
 
     // Detour for GetProcAddress
@@ -642,15 +691,18 @@ fn test_iat_system_functions() -> Result<(), Box<dyn std::error::Error>> {
 
     println!("  Creating IAT hook for GetProcAddress...");
 
-    let hook = unsafe {
-        IatHook::<extern "C" fn(windows::Win32::Foundation::HMODULE, windows::core::PCSTR) -> Option<unsafe extern "system" fn() -> isize>>::new(
-            "getprocaddress_hook",
-            module_handle.as_ptr(),
-            "kernel32.dll",
-            "GetProcAddress",
-            getprocaddress_detour,
-        )
-    }?;
+    let hook = IatHook::<
+        extern "C" fn(
+            windows::Win32::Foundation::HMODULE,
+            windows::core::PCSTR,
+        ) -> Option<unsafe extern "system" fn() -> isize>,
+    >::new(
+        "getprocaddress_hook",
+        module_handle.as_ptr(),
+        "kernel32.dll",
+        "GetProcAddress",
+        getprocaddress_detour,
+    )?;
 
     println!("  Enabling IAT hook...");
     hook.enable()?;

@@ -235,38 +235,16 @@ impl<F: Copy + 'static> InlineHook<F> {
 
 impl<F: Copy + 'static> Drop for InlineHook<F> {
     fn drop(&mut self) {
-        if self.is_enabled() || self.is_failed() {
+        if !self.is_enabled() || self.is_failed() {
             return;
         }
 
-        // We MUST restore original bytes!
-        // Otherwise, we will have catastrophe!
-
-        let stolen_bytes = self.trampoline.get_stolen_bytes_ref();
-        let stolen_bytes_len = stolen_bytes.len();
-
-        // For this specific case .unwrap call is safe,
-        // because target_ptr is guaranteed not NULL.
-        // Null check in virtual_protect can be reason of
-        // error in result with very high chances.
-        let restore_result = unsafe {
-            with_virtual_protect(
-                self.target_ptr.as_ptr(),
-                PAGE_EXECUTE_READWRITE,
-                stolen_bytes_len,
-                || {
-                    // Write all bytes back
-                    std::ptr::copy_nonoverlapping(
-                        stolen_bytes.as_ptr(),
-                        self.target_ptr.as_ptr() as *mut u8,
-                        stolen_bytes_len,
-                    );
-                },
-            )
-        };
+        let restore_result = self.disable();
 
         match restore_result {
-            Ok(_) => {}
+            Ok(_) => {
+                log::debug!("[{}] Hook disabled and original bytes restored in Drop", self.name);
+            }
             Err(err) => {
                 log::error!("[{}] Failed to drop: {}", self.name, err);
             }

@@ -1,7 +1,9 @@
 #![allow(dead_code)]
 
-use iced_x86::{BlockEncoder, BlockEncoderOptions, Code, FlowControl, InstructionBlock};
-use iced_x86::{Decoder, DecoderOptions, Instruction, Mnemonic, OpKind, Register};
+use iced_x86::{
+    BlockEncoder, BlockEncoderOptions, Code, Decoder, DecoderOptions, Encoder, FlowControl,
+    Instruction, InstructionBlock, Mnemonic, OpKind, Register,
+};
 
 use libc::c_void;
 use windows::Win32::System::Memory::PAGE_EXECUTE_READWRITE;
@@ -16,11 +18,15 @@ pub type DisasmResult<T> = Result<T, DisasmError>;
 /// Wrapped instruction with additional functionality
 pub struct DisasmInstruction {
     instruction: Instruction,
+    is_rip_relative: bool,
 }
 
 impl DisasmInstruction {
     pub fn new(instruction: Instruction) -> Self {
-        Self { instruction }
+        Self {
+            instruction,
+            is_rip_relative: false,
+        }
     }
 
     /// Returns inner 'instruction' from 'iced_x86'
@@ -128,6 +134,8 @@ pub struct Disasm {
     stolen_bytes_len: usize,
     stolen_instructions: Vec<DisasmInstruction>,
     target_ptr: *const c_void,
+
+    has_rip_relative: bool,
 }
 
 impl Disasm {
@@ -204,16 +212,18 @@ impl Disasm {
         // Vector with disassembled instructions
         let mut stolen_instructions: Vec<DisasmInstruction> = vec![];
 
+        let mut has_rip_relative = false;
+
         while stolen_bytes_len < jump_size {
             let mut instruction = Instruction::default();
 
             decoder.decode_out(&mut instruction);
 
-            let instr = DisasmInstruction::new(instruction);
+            let mut instr = DisasmInstruction::new(instruction);
 
+            // Yeeee, we found invalid instruction! Fantastic!
+            // For us - it is obvious error, so we throw error here
             if instr.is_invalid() {
-                // Yeeee, we found invalid instruction! Fantastic!
-                // For us - it is obvious error, so we throw error here
                 return Err(DisasmError::InvalidInstruction);
             }
 
@@ -223,11 +233,19 @@ impl Disasm {
                 return Err(DisasmError::ShortTarget);
             }
 
-            // Ooops, RIP-relative instruction, damn.
-            // We handle it later, when we will create trampoline.
-            // As for now we just log this case.
+            // We need to log that we found RIP-relative instruction.
+            // This case should be handled by BlockEncoder in range +- 2Gb
+            // Otherwise, it will return an error.
             if let Some(_target) = instr.rip_operand_target() {
                 log::debug!("Found RIP-relative instruction at 0x{:X}", instr.ip());
+
+                instr.is_rip_relative = true;
+
+                // We save flag to inform Disasm object that
+                // it contains some RIP-relative instructions
+                if !has_rip_relative {
+                    has_rip_relative = true;
+                }
             }
 
             stolen_instructions.push(instr);
@@ -244,6 +262,7 @@ impl Disasm {
             stolen_bytes,
             jump_size,
             target_ptr,
+            has_rip_relative,
         })
     }
 
@@ -268,44 +287,62 @@ impl Disasm {
                 if let Some(addr) = target_addr.checked_sub(distance) {
                     let aligned_addr = (addr / alignment) * alignment;
 
-                    let ptr = unsafe {
+                    let alloc_result = unsafe {
                         virtual_alloc(
                             Some(aligned_addr as *const c_void),
                             size,
                             AllocationType::CommitReserve,
                             PAGE_EXECUTE_READWRITE,
-                        )?
+                        )
                     };
 
-                    log::trace!(
-                        "Allocated near memory at {:p} ({}KB before target)",
-                        ptr,
-                        distance / 1024
-                    );
+                    match alloc_result {
+                        Ok(ptr) => {
+                            log::trace!(
+                                "Allocated near memory at {:p} ({}KB before target)",
+                                ptr,
+                                distance / 1024
+                            );
 
-                    return Ok(ptr);
+                            return Ok(ptr);
+                        }
+                        Err(err) => {
+                            log::trace!(
+                                "Failed to allocate at {} before target: {}",
+                                distance,
+                                err
+                            );
+                        }
+                    }
                 }
 
                 // Try after target
                 if let Some(addr) = target_addr.checked_add(distance) {
                     let aligned_addr = (addr / alignment) * alignment;
 
-                    let ptr = unsafe {
+                    let alloc_result = unsafe {
                         virtual_alloc(
                             Some(aligned_addr as *const c_void),
                             size,
                             AllocationType::CommitReserve,
                             PAGE_EXECUTE_READWRITE,
-                        )?
+                        )
                     };
 
-                    log::trace!(
-                        "Allocated after memory at {:p} ({}KB after target)",
-                        ptr,
-                        distance / 1024
-                    );
+                    match alloc_result {
+                        Ok(ptr) => {
+                            log::trace!(
+                                "Allocated after memory at {:p} ({}KB after target)",
+                                ptr,
+                                distance / 1024
+                            );
 
-                    return Ok(ptr);
+                            return Ok(ptr);
+                        }
+                        Err(err) => {
+                            log::trace!("Failed to allocate at {} after target: {}", distance, err);
+                        }
+                    }
                 }
 
                 // Exponential growth up to 1GB
@@ -432,6 +469,11 @@ impl Disasm {
     pub fn get_target_ptr(&self) -> *const c_void {
         self.target_ptr
     }
+
+    /// Returns true if any stolen instructions use RIP-relative addressing
+    pub fn has_rip_relative(&self) -> bool {
+        self.has_rip_relative
+    }
 }
 
 /// Generate bytes
@@ -448,37 +490,27 @@ pub(super) fn create_jump_bytes(from: *mut c_void, to: *mut c_void) -> DisasmRes
             .wrapping_sub(5);
 
         if distance >= i32::MIN as i64 && distance <= i32::MAX as i64 {
-            use iced_x86::{Code, Encoder};
-
-            use crate::ffi::BITNESS;
-
             log::trace!("Creating near(relative) jump");
+
             let mut instr = Instruction::with_branch(Code::Jmp_rel32_64, to_addr)?;
+
             instr.set_ip(from_addr);
 
             let mut encoder = Encoder::new(BITNESS);
-            let result = encoder.encode(&instr, from_addr)?;
 
-            if result != instr.len() {
-                return Err(DisasmError::EncodingError(
-                    "Encoding size mismatch".to_string(),
-                ));
-            }
+            let encoded_len = encoder.encode(&instr, from_addr)?;
 
             let buffer = encoder.take_buffer();
             if buffer.len() != 5 {
                 return Err(DisasmError::EncodingError(format!(
-                    "Expected 5 bytes for near jump, got {}",
-                    buffer.len()
+                    "Expected 5 bytes for near jump, got {} (encoded_len={})",
+                    buffer.len(),
+                    encoded_len
                 )));
             }
 
             Ok(buffer)
         } else {
-            use iced_x86::{Code, Encoder, OpKind, Register};
-
-            use crate::ffi::BITNESS;
-
             log::trace!("Creating far jump through memory");
 
             // For far jumps, we need to manually construct the instruction
@@ -490,6 +522,8 @@ pub(super) fn create_jump_bytes(from: *mut c_void, to: *mut c_void) -> DisasmRes
             instr.set_op0_kind(OpKind::Memory);
             instr.set_memory_base(Register::RIP);
             instr.set_memory_displacement64(0);
+
+            instr.set_ip(from_addr);
 
             let mut encoder = Encoder::new(BITNESS);
             let encoded_len = encoder.encode(&instr, from_addr)?;
@@ -615,101 +649,3 @@ pub fn verify_jump_bytes(
     log::trace!("Jump instruction verified successfully");
     Ok(())
 }
-
-
-// pub fn steal_bytes_safe(
-//     target: *mut c_void,
-//     min_size: usize,
-//     region_size: usize,
-// ) -> InlineHookResult<(Vec<u8>, Vec<Instruction>)> {
-//     const MAX_INSTRUCTIONS: usize = 20;
-//     const MAX_STEAL_SIZE: usize = 64;
-
-//     log::debug!("Stealing at least {} bytes from {:p}", min_size, target);
-
-//     let mut stolen_bytes = Vec::new();
-//     let mut stolen_instructions = Vec::new();
-//     let mut stolen_size = 0usize;
-
-//     // Calculate safe read size within memory region
-//     let target_offset = (target as usize) % 0x1000; // Offset within page
-//     let safe_read_size = (0x1000 - target_offset).min(region_size).min(128);
-
-//     if safe_read_size < min_size {
-//         return Err(InlineHookError::UnsafeMemoryRegion {
-//             safe: safe_read_size,
-//             requested: min_size,
-//         });
-//     }
-
-//     let mut buffer = vec![0u8; safe_read_size];
-
-//     unsafe {
-//         std::ptr::copy_nonoverlapping(target as *const u8, buffer.as_mut_ptr(), safe_read_size);
-//     }
-
-//     // We use DecoderOptions::AMD because it provide slightly better compatibility while
-//     // still supports Intel
-//     let mut decoder = Decoder::new(BITNESS, &buffer, DecoderOptions::AMD);
-//     decoder.set_ip(target as u64);
-
-//     while stolen_size < min_size {
-//         if stolen_instructions.len() >= MAX_INSTRUCTIONS {
-//             log::error!("Too many instructions to steal");
-
-//             return Err(InlineHookError::InsufficientSpace {
-//                 needed: min_size,
-//                 available: stolen_size,
-//             });
-//         }
-
-//         if !decoder.can_decode() {
-//             log::error!("Cannot decode more instructions");
-//             return Err(InlineHookError::DisassemblyFailed);
-//         }
-
-//         let mut instruction = Instruction::default();
-
-//         decoder.decode_out(&mut instruction);
-
-//         if instruction.is_invalid() {
-//             log::error!("Invalid instruction encountered at offset {}", stolen_size);
-//             return Err(InlineHookError::DisassemblyFailed);
-//         }
-
-//         // Check if instruction is relocatable
-//         is_relocatable_instruction(&instruction)?;
-
-//         let instr_len = instruction.len();
-//         if stolen_size + instr_len > MAX_STEAL_SIZE {
-//             log::error!("Stealing too many bytes");
-
-//             return Err(InlineHookError::InsufficientSpace {
-//                 needed: min_size,
-//                 available: stolen_size,
-//             });
-//         }
-
-//         if stolen_size + instr_len > safe_read_size {
-//             log::error!("Would exceed safe read boundary");
-//             return Err(InlineHookError::UnsafeMemoryRegion {
-//                 safe: safe_read_size,
-//                 requested: stolen_size + instr_len,
-//             });
-//         }
-
-//         log::trace!("Decoded relocatable instruction of {} bytes", instr_len);
-
-//         stolen_bytes.extend_from_slice(&buffer[stolen_size..stolen_size + instr_len]);
-//         stolen_instructions.push(instruction);
-//         stolen_size += instr_len;
-//     }
-
-//     log::debug!(
-//         "Successfully stole {} bytes with {} instructions",
-//         stolen_size,
-//         stolen_instructions.len()
-//     );
-//     Ok((stolen_bytes, stolen_instructions))
-// }
-

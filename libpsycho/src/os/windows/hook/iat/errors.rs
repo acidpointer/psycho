@@ -25,6 +25,9 @@ pub enum IatHookError {
     #[error("Hook is not enabled")]
     NotEnabled,
 
+    #[error("Module base for IAT hook is NULL")]
+    ModuleBaseNull,
+
     #[error("Memory error: {0}")]
     MemoryError(#[from] MemoryError)
 }
