@@ -299,17 +299,19 @@ impl Disasm {
                     match alloc_result {
                         Ok(ptr) => {
                             log::trace!(
-                                "Allocated near memory at {:p} ({}KB before target)",
+                                "Allocated near memory at {:p} ({}KB before target at {:p})",
                                 ptr,
-                                distance / 1024
+                                distance / 1024,
+                                self.target_ptr,
                             );
 
                             return Ok(ptr);
                         }
                         Err(err) => {
                             log::trace!(
-                                "Failed to allocate at {} before target: {}",
+                                "Failed to allocate at {} before target at {:p} with error: {}",
                                 distance,
+                                self.target_ptr,
                                 err
                             );
                         }
@@ -366,7 +368,7 @@ impl Disasm {
     }
 
     /// Relocate instructions from `target_ptr` to pre-allocated trampoline memory
-    ///  
+    ///
     /// # Arguments
     /// - `trampoline_memory_ptr` - Pointer to allocated trampoline memory
     ///
@@ -493,11 +495,9 @@ pub(super) fn create_jump_bytes(from: *mut c_void, to: *mut c_void) -> DisasmRes
             log::trace!("Creating near(relative) jump");
 
             let mut instr = Instruction::with_branch(Code::Jmp_rel32_64, to_addr)?;
-
             instr.set_ip(from_addr);
 
             let mut encoder = Encoder::new(BITNESS);
-
             let encoded_len = encoder.encode(&instr, from_addr)?;
 
             let buffer = encoder.take_buffer();
@@ -509,6 +509,12 @@ pub(super) fn create_jump_bytes(from: *mut c_void, to: *mut c_void) -> DisasmRes
                 )));
             }
 
+            log::trace!(
+                "Near(relative) jump created with distance {} bytes from: {:p} to: {:p}",
+                distance,
+                from,
+                to
+            );
             Ok(buffer)
         } else {
             log::trace!("Creating far jump through memory");

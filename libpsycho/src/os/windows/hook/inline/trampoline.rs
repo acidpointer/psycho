@@ -91,12 +91,15 @@ impl Trampoline {
         // Calculate return address after the hook jump
         let return_address = unsafe { target_ptr.add(jump_size) };
 
+        log::trace!("Return address after hook jmp: {:p}", return_address);
+
         let jump_back_offset = unsafe { trampoline_ptr.add(relocated_bytes.len()) };
 
+        log::trace!("Jump back offset: {:p}", jump_back_offset);
         let jump_back = create_jump_bytes(jump_back_offset, return_address)?;
 
         // Verify jump back is correct
-        create_jump_bytes(jump_back.as_ptr() as *mut c_void, jump_back_offset)?;
+        // create_jump_bytes(jump_back.as_ptr() as *mut c_void, jump_back_offset)?;
 
         // Write relocated instructions
         unsafe {

@@ -7,33 +7,18 @@ edition = "2024"
 iced-x86 = { version = "1.21.0", features = ["code_asm", "encoder", "intel"] }
 bitflags = "2.9.2"
 goblin = "0.10.1"
-closure-ffi = { workspace = true }
 libc = { workspace = true }
 dashmap = { workspace = true }
 log = { workspace = true }
 thiserror = { workspace = true }
 anyhow = { workspace = true }
 parking_lot = { workspace = true }
-windows = { version = "=0.60", features = [ 
-  "Data_Xml_Dom", 
-  "UI_WindowManagement", 
-  "Wdk_System_SystemServices", 
-  "Win32_Security", 
-  "Win32_System_Threading", 
-  "Win32_UI_WindowsAndMessaging", 
-  "Win32_Graphics_Direct3D11", 
-  "Win32_System_LibraryLoader",
-  "Win32_System_Performance",
-  "Win32_Foundation",
-  "Win32_System_SystemServices",
-  "Win32_System_Console",
-  "Win32_System_Memory",
-  "Win32_System_Diagnostics_Debug",
-  "Win32_System_SystemInformation",
-  "Win32_System_WindowsProgramming",
-  "Win32_System_ProcessStatus",
-  "Win32_Graphics_Direct3D",
-  "Win32_System_Com",
-  "Win32_Graphics_Gdi",
-  "Win32_System_Kernel",
-] }
+
+[target.'cfg(windows)'.dependencies]
+windows = { workspace = true }
+
+
+[profile.release]
+opt-level = 3
+lto = true
+strip = true

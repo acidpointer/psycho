@@ -4,5 +4,14 @@
     "rust-analyzer.procMacro.enable": true,
     "rust-analyzer.procMacro.attributes.enable": true,
     "rust-analyzer.diagnostics.experimental.enable": true,
-    "rust-analyzer.cargo.target": "x86_64-pc-windows-gnu"
+    "rust-analyzer.cargo.target": "x86_64-pc-windows-gnu",
+
+    "files.watcherExclude": {
+        "**/.git/objects/**": true,
+        "**/.git/subtree-cache/**": true,
+        "**/target/**": true,
+        "**/logs/**": true,
+        "**/.hg/store/**": true,
+        "**/.wine_psycho/**": true,
+    }
 }

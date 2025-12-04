@@ -7,8 +7,7 @@ edition = "2024"
 crate-type = ["cdylib", "rlib"]
 
 [dependencies]
-libc = "0.2"
-syn = "2.0"
+libc = { workspace = true }
 log = { workspace = true }
 thiserror = { workspace = true }
 anyhow = { workspace = true }
