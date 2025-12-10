@@ -1,17 +1,24 @@
 # libpsycho
 
-This is core library crate for all project.
+Library which provides basic building blocks for game modding or hacking.  
+
+## Features
+
+- Import address table(aka IAT) hooking
+- Virtual method table(aka VMT) hooking
+- Inline hooking via JMP instruction and trampoline
+- Wrappers for common WinAPI calls (better safety and easier to use)
+- `EventEmitter` inspired by Node.Js
+- Various utilities for FFI: `FFIRef<T>`, `FnPtr<T>`, etc.
+- Bethesda like executable verioning helpers (see `common/exe_version.rs`)
+- No unexpected panics! All abstractions propagates result.
+
+## TODO
+
+- Memory patching. Direct patching of memory regions with `NOOP` or other instructions. Should be revertable
+- Memory search by pattern. Feature which exists in all mature hacking libraries
+- Support for Rust closures as detours instead function pointers. It's much better if hook can accept closure and own it. It's much better type-checking and more possibilities for business logic.
 
 ## Why?
 
-Project "PSYCHO" aims to be not only some plugin for Fallout 4 game, it tries to be complete solution for modding various games.
-
-Main issue which blocks Rust in modding is bad tooling. While we have great language, it lacks of many ready tools to perform
-basic modding operations, like hooking and memory patching. That's why "libpsycho" exist.
-
-## Features
-1. Safe wrapper for couple of common WinAPI functions and types
-2. IAT hook library
-3. VMT hook library
-4. JMP (trampoline) hook library
-5. Utility FFI types and abstractions
+World lacks of pure Rust all-in-one game hacking library. 

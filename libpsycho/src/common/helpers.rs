@@ -18,6 +18,8 @@ pub fn format_bytes(bytes: usize) -> String {
     }
 }
 
+/// Format time duration in milliseconds to
+/// human readable string
 pub fn format_duration(ms: usize) -> String {
     let seconds = ms / 1000;
     let minutes = seconds / 60;

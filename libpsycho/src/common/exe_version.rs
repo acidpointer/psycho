@@ -1,4 +1,6 @@
-//! Abstractions for executable versioning
+//! This is full port of executable versioning from F4SE project to Rust.
+//! 
+//! Should be compatible with other `Bethesda` games, but tested only with `Fallout 4`.
 
 
 // Macro equivalents as Rust functions

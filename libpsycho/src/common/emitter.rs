@@ -1,3 +1,9 @@
+//! `EventEmitter` implementation for Rust
+//! 
+//! We have Node.js like EventEmitter inside game hacking library,
+//! so you can subscribe to events or emit them, while dealing
+//! with addresses relocation.
+
 use dashmap::DashMap;
 use parking_lot::RwLock;
 use std::hash::Hash;
@@ -41,8 +47,8 @@ impl<'a, P: Send + Sync> Listener<'a, P> {
 /// level abstraction.
 /// 
 /// # Safety
-/// Listeners stored in concurrent hash map - DashMap, which is thread-safe.  
-/// Callback and payload needs to be Send + Sync.
+/// Listeners stored in concurrent hash map - `DashMap`.  
+/// Callback and payload needs to be `Send` + `Sync`.
 pub struct EventEmitter<'a, E: Send + Sync + Copy + Clone + Eq + Hash, P: Send + Sync> {
     last_id: RwLock<ListenerId>,
 

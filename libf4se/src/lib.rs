@@ -2,6 +2,8 @@ mod sys;
 mod version;
 mod context;
 mod types;
+mod message;
+mod msgbroker;
 
 pub mod prelude {
     pub use super::sys::*;

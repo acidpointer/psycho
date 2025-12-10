@@ -99,7 +99,7 @@ impl Trampoline {
         let jump_back = create_jump_bytes(jump_back_offset, return_address)?;
 
         // Verify jump back is correct
-        // create_jump_bytes(jump_back.as_ptr() as *mut c_void, jump_back_offset)?;
+        // TODO: implement validation for jump
 
         // Write relocated instructions
         unsafe {
