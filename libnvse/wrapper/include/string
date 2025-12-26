@@ -1,0 +1,11 @@
+#pragma once
+#include "cstddef"
+namespace std {
+    class string {
+    public:
+        typedef char value_type;
+        const char* c_str() const;
+        size_t size() const;
+        char& operator[](size_t);
+    };
+}

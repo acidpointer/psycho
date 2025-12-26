@@ -1,0 +1,15 @@
+#pragma once
+#include "cstdint"
+namespace std {
+    template<typename T>
+    T byteswap(T value) noexcept { return value; }
+
+    template<typename T>
+    int countl_zero(T x) noexcept { return 0; }
+
+    template<typename T>
+    int countr_zero(T x) noexcept { return 0; }
+
+    template<typename T>
+    int popcount(T x) noexcept { return 0; }
+}

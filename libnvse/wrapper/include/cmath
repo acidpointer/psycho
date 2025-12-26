@@ -1,0 +1,15 @@
+#pragma once
+extern "C" {
+    double sqrt(double);
+    double pow(double, double);
+    double floor(double);
+    double ceil(double);
+    double fabs(double);
+}
+namespace std {
+    using ::sqrt;
+    using ::pow;
+    using ::floor;
+    using ::ceil;
+    using ::fabs;
+}

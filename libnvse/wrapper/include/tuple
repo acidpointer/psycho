@@ -1,0 +1,6 @@
+#pragma once
+namespace std {
+    template<typename... Args>
+    class tuple {
+    };
+}

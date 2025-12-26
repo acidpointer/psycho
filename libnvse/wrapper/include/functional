@@ -1,0 +1,9 @@
+#pragma once
+namespace std {
+    template<typename>
+    class function;
+
+    template<typename R, typename... Args>
+    class function<R(Args...)> {
+    };
+}

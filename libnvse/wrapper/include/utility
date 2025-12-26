@@ -1,0 +1,22 @@
+#pragma once
+#include "type_traits"
+namespace std {
+    template<typename T1, typename T2>
+    struct pair {
+        typedef T1 first_type;
+        typedef T2 second_type;
+        T1 first;
+        T2 second;
+    };
+
+    // std::forward implementation
+    template<typename T>
+    constexpr T&& forward(typename remove_reference<T>::type& t) noexcept {
+        return static_cast<T&&>(t);
+    }
+
+    template<typename T>
+    constexpr T&& forward(typename remove_reference<T>::type&& t) noexcept {
+        return static_cast<T&&>(t);
+    }
+}

@@ -8,7 +8,7 @@ use iced_x86::{
 use libc::c_void;
 use windows::Win32::System::Memory::PAGE_EXECUTE_READWRITE;
 
-use crate::os::windows::hook::inline::errors::DisasmError;
+use super::errors::DisasmError;
 
 use crate::ffi::BITNESS;
 use crate::os::windows::winapi::{AllocationType, virtual_alloc};
@@ -557,10 +557,6 @@ pub(super) fn create_jump_bytes(from: *mut c_void, to: *mut c_void) -> DisasmRes
 
     #[cfg(target_arch = "x86")]
     {
-        let distance = (to_addr as i32)
-            .wrapping_sub(from_addr as i32)
-            .wrapping_sub(5);
-
         log::trace!("Creating x86 near jump");
         let mut instr = Instruction::with_branch(Code::Jmp_rel32_32, to_addr)?;
         instr.set_ip(from_addr);
@@ -568,17 +564,17 @@ pub(super) fn create_jump_bytes(from: *mut c_void, to: *mut c_void) -> DisasmRes
         let mut encoder = Encoder::new(BITNESS);
         let result = encoder
             .encode(&instr, from_addr)
-            .map_err(|e| InlineHookError::EncodingError(format!("{:?}", e)))?;
+            .map_err(|e| DisasmError::EncodingError(format!("{:?}", e)))?;
 
         if result != instr.len() {
-            return Err(InlineHookError::EncodingError(
+            return Err(DisasmError::EncodingError(
                 "Encoding size mismatch".to_string(),
             ));
         }
 
         let buffer = encoder.take_buffer();
         if buffer.len() != 5 {
-            return Err(InlineHookError::EncodingError(format!(
+            return Err(DisasmError::EncodingError(format!(
                 "Expected 5 bytes for x86 jump, got {}",
                 buffer.len()
             )));

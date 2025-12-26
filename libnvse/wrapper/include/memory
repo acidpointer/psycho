@@ -1,0 +1,16 @@
+#pragma once
+namespace std {
+    template<typename T>
+    class shared_ptr {
+    public:
+        T* get() const;
+    };
+
+    template<typename T, typename Deleter = void>
+    class unique_ptr {
+    public:
+        unique_ptr() = default;
+        unique_ptr(T* ptr, Deleter d) { }
+        T* get() const;
+    };
+}

@@ -1,0 +1,18 @@
+[package]
+name = "libnvse"
+version = "0.1.0"
+edition = "2024"
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+libc = { workspace = true }
+log = { workspace = true }
+thiserror = { workspace = true }
+anyhow = { workspace = true }
+parking_lot = { workspace = true }
+libpsycho = { path = "../libpsycho" }
+
+[build-dependencies]
+bindgen = "0.72.1"

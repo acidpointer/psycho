@@ -1,3 +1,6 @@
 [submodule "libmimalloc/c_src/mimalloc"]
 	path = libmimalloc/c_src/mimalloc
 	url = https://github.com/microsoft/mimalloc.git
+[submodule "libnvse/xnvse"]
+	path = libnvse/xnvse
+	url = https://github.com/xNVSE/NVSE.git

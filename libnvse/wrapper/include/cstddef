@@ -1,0 +1,8 @@
+#pragma once
+#ifndef NULL
+#define NULL 0
+#endif
+namespace std {
+    // For i686 target, size_t is unsigned int (32-bit)
+    typedef unsigned int size_t;
+}

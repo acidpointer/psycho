@@ -1,0 +1,10 @@
+#pragma once
+#include "cstddef"
+namespace std {
+    class string_view {
+    public:
+        typedef char value_type;
+        const char* data() const;
+        size_t size() const;
+    };
+}

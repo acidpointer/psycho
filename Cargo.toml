@@ -1,16 +1,16 @@
 [workspace]
 resolver = "3"
-members = ["libf4se", "libmimalloc", "libpsycho", "psycho-fo4", "drifter"]
+members = ["libf4se", "libmimalloc", "libpsycho", "psycho-fo4", "drifter", "libnvse"]
 
 [workspace.dependencies]
 anyhow = { version = "1.0" }
 chrono = { version = "0.4", features = ["serde"] }
 dashmap = { version = "7.0.0-rc2", features = ["inline-more"] }
 fern = "0.7.1"
-libc = { version = "0.2.175", features = ["extra_traits"] }
+libc = { version = "0.2.178", features = ["extra_traits"] }
 log = "0.4"
-parking_lot = "0.12.4"
-thiserror = "2.0"
+parking_lot = "0.12.5"
+thiserror = "2.0.17"
 windows = { version = "=0.60", features = [ 
   "Data_Xml_Dom", 
   "UI_WindowManagement", 

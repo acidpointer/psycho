@@ -1,0 +1,8 @@
+#pragma once
+namespace std {
+    template<typename T>
+    class list {
+    public:
+        typedef T value_type;
+    };
+}

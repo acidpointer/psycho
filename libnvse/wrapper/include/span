@@ -1,0 +1,11 @@
+#pragma once
+#include "cstddef"
+namespace std {
+    template<typename T>
+    class span {
+    public:
+        typedef T value_type;
+        size_t size() const;
+        T* data() const;
+    };
+}
