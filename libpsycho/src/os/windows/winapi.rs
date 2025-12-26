@@ -8,7 +8,13 @@ use std::ptr::NonNull;
 
 use libc::c_void;
 use thiserror::Error;
-use windows::Win32::Foundation::{GetLastError, HANDLE, HMODULE, HWND, SetLastError, WIN32_ERROR};
+use windows::Win32::Foundation::{
+    GetLastError, HANDLE, HMODULE, HWND, INVALID_HANDLE_VALUE, SetLastError, WIN32_ERROR,
+};
+use windows::Win32::System::Console::{
+    CONSOLE_MODE, ENABLE_VIRTUAL_TERMINAL_PROCESSING, GetConsoleMode, GetStdHandle,
+    STD_OUTPUT_HANDLE, SetConsoleMode,
+};
 use windows::Win32::System::LibraryLoader::{
     GetModuleHandleA, GetModuleHandleW, GetProcAddress, LoadLibraryA,
 };
@@ -122,9 +128,9 @@ pub fn reset_last_error() {
 }
 
 /// `InitializeCriticalSection` wrapper from WinAPI
-/// 
+///
 /// # Safety
-/// 
+///
 /// - If `ptr` is NULL, error will be returned
 pub unsafe fn initialize_critical_section(ptr: *mut CRITICAL_SECTION) -> WinapiResult<()> {
     if ptr.is_null() {
@@ -137,7 +143,7 @@ pub unsafe fn initialize_critical_section(ptr: *mut CRITICAL_SECTION) -> WinapiR
 }
 
 /// Idiomatic Rust type for storing `THREAD_PRIORITY` values.
-/// 
+///
 /// Actually, not really better than `THREAD_PRIORITY`, but
 /// implements `Debug`, `Display`, `Hash` and easier to use in Rust.
 #[derive(Debug, Hash, PartialEq, Eq)]
@@ -229,7 +235,7 @@ pub fn virtual_protect(
 /// You really want to use this instead raw 'virtual_protect' because
 /// with this safe wrapper, you can freely forget about missing protection
 /// flags restoration, and you just write less code!
-/// 
+///
 /// # Safety
 /// - Virtual protect automatically restores after closure evaluation
 /// - Same safety rules as for `virtual_protect`
@@ -266,9 +272,9 @@ unsafe impl Sync for Handle {}
 
 impl Handle {
     /// Construct new `Handle`
-    /// 
+    ///
     /// # Safety
-    /// 
+    ///
     /// - If `ptr` is NULL, error will be returned
     /// - `ptr` stored in `NonNull<c_void>` container
     pub unsafe fn new(ptr: *mut c_void) -> WinapiResult<Self> {
@@ -329,7 +335,7 @@ unsafe impl Sync for HModule {}
 
 impl HModule {
     /// Constructs new `HModule`
-    /// 
+    ///
     /// # Safety
     /// - If `ptr` is NULL, error will be returned
     pub unsafe fn new(ptr: *mut c_void) -> WinapiResult<Self> {
@@ -640,7 +646,7 @@ impl From<FreeType> for VIRTUAL_FREE_TYPE {
 }
 
 /// `VirtualAlloc` wrapper from WinAPI
-/// 
+///
 /// # Safety
 /// - If `size == 0`, error will be returned
 /// - If result is `NULL`, error will be returned
@@ -665,7 +671,7 @@ pub unsafe fn virtual_alloc(
 }
 
 /// `VirtualFree` wrapper from WinAPI
-/// 
+///
 /// # Safety
 /// - If `address` is `NULL` error will be returned
 /// - Other safety rules is same as for `VirtualFree`
@@ -720,4 +726,30 @@ pub fn message_box_a(
             Ok(unsafe { MessageBoxA(Some(window), text_ptr, caption_ptr, style) })
         })
     })
+}
+
+/// Configure the console to display colours.
+///
+/// This is only needed on Windows when using the 'colors' feature.
+/// It doesn't currently handle combining the 'colors' and 'stderr' features.
+pub fn set_up_windows_color_terminal() -> WinapiResult<()> {
+    use std::io::{IsTerminal, stdout};
+
+    if stdout().is_terminal() {
+        unsafe {
+            let stdout = GetStdHandle(STD_OUTPUT_HANDLE)?;
+
+            if stdout == INVALID_HANDLE_VALUE {
+                return Ok(());
+            }
+
+            let mut mode: CONSOLE_MODE = windows::Win32::System::Console::CONSOLE_MODE(0);
+
+            GetConsoleMode(stdout, &mut mode)?;
+
+            SetConsoleMode(stdout, mode | ENABLE_VIRTUAL_TERMINAL_PROCESSING);
+        }
+    }
+
+    Ok(())
 }

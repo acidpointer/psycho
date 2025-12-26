@@ -8,9 +8,10 @@ chrono = { version = "0.4", features = ["serde"] }
 dashmap = { version = "7.0.0-rc2", features = ["inline-more"] }
 fern = "0.7.1"
 libc = { version = "0.2.178", features = ["extra_traits"] }
-log = "0.4"
+log = { version = "0.4", features = ["std"] }
 parking_lot = "0.12.5"
 thiserror = "2.0.17"
+crossbeam-queue = "0.3"
 windows = { version = "=0.60", features = [ 
   "Data_Xml_Dom", 
   "UI_WindowManagement", 

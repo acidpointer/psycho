@@ -13,6 +13,9 @@ log = { workspace = true }
 thiserror = { workspace = true }
 anyhow = { workspace = true }
 parking_lot = { workspace = true }
+crossbeam-queue = { workspace = true }
+colored = "3.0.0"
+time = { version = "0.3.44", features = ["formatting", "local-offset", "macros"] }
 
 [target.'cfg(windows)'.dependencies]
 windows = { workspace = true }
