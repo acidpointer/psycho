@@ -1,11 +1,13 @@
 use std::sync::OnceLock;
 
 use crate::sys::f4se::{
-    F4SEInterface, F4SEMessagingInterface, F4SESerializationInterface, PluginHandle,
-    kInterface_Messaging, kInterface_Serialization,
+    F4SEInterface, F4SEMessagingInterface, F4SEMessagingInterface_Message,
+    F4SESerializationInterface, PluginHandle, kInterface_Messaging, kInterface_Serialization,
 };
+
+use super::message::*;
 use libpsycho::{
-    common::exe_version::ExeVersion,
+    common::{emitter::EventEmitter, exe_version::ExeVersion},
     ffi::r#ref::{FFIRef, FFIRefError},
 };
 use parking_lot::RwLock;
@@ -27,6 +29,9 @@ pub enum F4SEContextError {
 
     #[error("F4SEContext is not initialized")]
     NotInitialized(),
+
+    #[error("Function 'RegisterListener' from 'F4SEMessagingInterface' is NULL")]
+    MsgInterfaceRegisterListenerIsNull(),
 }
 
 type F4SEContextResult<T> = std::result::Result<T, F4SEContextError>;
@@ -36,6 +41,7 @@ static G_F4SE_CTX: OnceLock<F4SEContext> = OnceLock::new();
 /// F4SEContext
 pub struct F4SEContext {
     interface: RwLock<FFIRef<F4SEInterface>>,
+    emitter: EventEmitter<'static, F4SEMessageType, F4SEMessage>,
 }
 
 // Safety: Synchronized with RwLock
@@ -45,6 +51,39 @@ unsafe impl Send for F4SEContext {}
 unsafe impl Sync for F4SEContext {}
 
 impl F4SEContext {
+    unsafe extern "C" fn listener_topic_f4se(msg_ptr: *mut F4SEMessagingInterface_Message) {
+        // It is highly important to check if pointer to message is not NULL
+        if msg_ptr.is_null() {
+            return;
+        }
+
+        let f4se_ctx = match Self::instance() {
+            Ok(instance) => instance,
+            Err(err) => {
+                log::error!(
+                    "Failed to get F4SEContext instance in 'listener_topic_f4se'. Error: {:?}",
+                    err
+                );
+                return;
+            }
+        };
+
+        let message = match unsafe { F4SEMessage::from_ptr(msg_ptr) } {
+            Ok(msg) => msg,
+            Err(err) => {
+                log::error!(
+                    "Failed to convert F4SEMessage from raw in 'listener_topic_f4se'. Error: {:?}",
+                    err
+                );
+                return;
+            }
+        };
+
+        let emitter = f4se_ctx.emitter();
+
+        emitter.emit(message.get_message_type(), message);
+    }
+
     /// Initialize static F4SEContext with F4SEInterface
     #[allow(clippy::not_unsafe_ptr_arg_deref)]
     pub fn init(f4se: *mut F4SEInterface) -> F4SEContextResult<()> {
@@ -53,6 +92,23 @@ impl F4SEContext {
 
             let instance = Self {
                 interface: RwLock::new(f4se_ref),
+                emitter: EventEmitter::new(),
+            };
+
+            // At this point, we have enougth input to initialize message listener
+            let messanging_interface = instance.query_messanging_interface()?;
+
+            // Null-check for register listener function
+            let register_listener = messanging_interface
+                .RegisterListener
+                .ok_or(F4SEContextError::MsgInterfaceRegisterListenerIsNull())?;
+
+            let is_registered = unsafe {
+                register_listener(
+                    instance.plugin_handle()?,
+                    c"F4SE".as_ptr(),
+                    Some(Self::listener_topic_f4se),
+                )
             };
 
             G_F4SE_CTX
@@ -61,6 +117,10 @@ impl F4SEContext {
         }
 
         Ok(())
+    }
+
+    pub fn emitter(&'_ self) -> &'static EventEmitter<'_, F4SEMessageType, F4SEMessage> {
+        &self.emitter
     }
 
     pub fn instance() -> F4SEContextResult<&'static Self> {
@@ -73,7 +133,8 @@ impl F4SEContext {
 
     fn query<Q>(&self, interface_id: u32) -> F4SEContextResult<FFIRef<Q>> {
         let query_fn = self
-            .interface.read()
+            .interface
+            .read()
             .QueryInterface
             .ok_or_else(F4SEContextError::QueryInterfaceIsNull)?;
 
@@ -108,9 +169,10 @@ impl F4SEContext {
     /// Return plugin handle
     pub fn plugin_handle(&self) -> F4SEContextResult<PluginHandle> {
         let plugin_handle_fn = self
-            .interface.read()
+            .interface
+            .read()
             .GetPluginHandle
-            .ok_or_else(F4SEContextError::GetPluginHandleIsNull)?;
+            .ok_or(F4SEContextError::GetPluginHandleIsNull())?;
 
         let plugin_handle = unsafe { plugin_handle_fn() };
         Ok(plugin_handle)

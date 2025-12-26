@@ -2,7 +2,7 @@
 
 use std::ffi::c_void;
 
-use libpsycho::os::windows::constants::errcodes::*;
+use libc::{EINVAL, ERANGE};
 
 use libmimalloc::*;
 

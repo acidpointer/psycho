@@ -1,7 +1,7 @@
 use std::{ffi::CStr, str::Utf8Error};
 
 use crate::sys::f4se::{F4SEMessagingInterface, F4SEMessagingInterface_Message, UInt32};
-
+use libc::c_void;
 use thiserror::Error;
 
 #[derive(Debug, Error)]
@@ -82,7 +82,7 @@ pub struct F4SEMessage {
     sender: String,
     message_type: F4SEMessageType,
     data_len: u32,
-    data_ptr: *mut libc::c_void,
+    data_ptr: *mut c_void,
 }
 
 // Safety: no safety issues

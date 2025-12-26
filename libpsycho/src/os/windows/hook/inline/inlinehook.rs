@@ -201,8 +201,6 @@ impl<F: Copy + 'static> InlineHook<F> {
     }
 
     /// Calls the original function, with recursion protection
-    ///
-    /// Note: Recursive calls (detour -> original -> detour) will return an error
     pub fn original(&self) -> InlineHookResult<F> {
         let _guard = self.guard.read();
 
