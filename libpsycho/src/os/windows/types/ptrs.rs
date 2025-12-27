@@ -1,0 +1,1 @@
+pub type LPVOID = *mut std::ffi::c_void;

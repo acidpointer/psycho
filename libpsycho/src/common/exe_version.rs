@@ -66,7 +66,7 @@ impl std::fmt::Display for ExeVersion {
 }
 
 impl ExeVersion {
-    pub fn new(major: u32, minor: u32, build: u32, sub: u32) -> Self {
+    pub const fn new(major: u32, minor: u32, build: u32, sub: u32) -> Self {
         let version = make_exe_version_ex(major, minor, build, sub);
 
         Self {
@@ -97,7 +97,7 @@ impl ExeVersion {
     /// Return packed version number
     /// Version packing work similar to F4SE logic.
     /// Can be safely used in interaction with C++ codebase.
-    pub fn get_version_packed(&self) -> u32 {
+    pub const fn get_version_packed(&self) -> u32 {
         self.version
     }
 

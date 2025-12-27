@@ -580,7 +580,7 @@ pub(super) fn create_jump_bytes(from: *mut c_void, to: *mut c_void) -> DisasmRes
             )));
         }
 
-        return Ok(buffer);
+        Ok(buffer)
     }
 }
 

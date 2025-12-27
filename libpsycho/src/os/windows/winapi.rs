@@ -12,7 +12,7 @@ use windows::Win32::Foundation::{
     GetLastError, HANDLE, HMODULE, HWND, INVALID_HANDLE_VALUE, SetLastError, WIN32_ERROR,
 };
 use windows::Win32::System::Console::{
-    CONSOLE_MODE, ENABLE_VIRTUAL_TERMINAL_PROCESSING, GetConsoleMode, GetStdHandle,
+    AllocConsole, CONSOLE_MODE, ENABLE_VIRTUAL_TERMINAL_PROCESSING, GetConsoleMode, GetStdHandle,
     STD_OUTPUT_HANDLE, SetConsoleMode,
 };
 use windows::Win32::System::LibraryLoader::{
@@ -728,6 +728,22 @@ pub fn message_box_a(
     })
 }
 
+/// Allocate a new console window for the process.
+///
+/// This is useful when your DLL is loaded into a process that doesn't have a console
+/// (like a GUI game). After calling this, stdout/stderr will be redirected to the new console.
+///
+/// # Safety
+/// - Can only be called once per process
+/// - If the process already has a console, this will fail (returns Ok anyway)
+pub fn alloc_console() -> WinapiResult<()> {
+    unsafe {
+        AllocConsole()?;
+    }
+
+    Ok(())
+}
+
 /// Configure the console to display colours.
 ///
 /// This is only needed on Windows when using the 'colors' feature.
@@ -747,7 +763,7 @@ pub fn set_up_windows_color_terminal() -> WinapiResult<()> {
 
             GetConsoleMode(stdout, &mut mode)?;
 
-            SetConsoleMode(stdout, mode | ENABLE_VIRTUAL_TERMINAL_PROCESSING);
+            SetConsoleMode(stdout, mode | ENABLE_VIRTUAL_TERMINAL_PROCESSING)?;
         }
     }
 

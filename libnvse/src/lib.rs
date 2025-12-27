@@ -1,6 +1,4 @@
 //! NVSE bindings for Rust
-//!
-//! Very experimental and early stage of development.
 
 #![allow(non_upper_case_globals)]
 #![allow(non_camel_case_types)]
@@ -18,4 +16,4 @@ compile_error!("Unsupported architecture - only x86/x64 supported");
 mod nvse_bindings;
 
 // Re-export bindings at the crate root for easier access
-pub use nvse_bindings::*;
+pub use nvse_bindings::root::*;

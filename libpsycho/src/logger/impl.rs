@@ -5,8 +5,8 @@
 //! - Lock-free asynchronous logging with a dedicated background thread
 //! - File output with three rotation strategies
 //! - Progressive backoff for minimal CPU usage when idle
-//! - Dual output (colored console + plain text files)
-//! - Buffered file I/O for optimal write performance
+//! - Dual output (console + file)
+//! - Unbuffered file I/O with immediate flush for crash safety
 //!
 //! This logger is designed specifically for use in performance-critical applications such as
 //! game mods, DLL injections, real-time systems, and other latency-sensitive environments where
@@ -19,8 +19,8 @@
 //! - **Lock-free queue**: Uses `crossbeam_queue::SegQueue` for wait-free message passing
 //! - **Dedicated consumer thread**: A single background thread handles all I/O operations
 //! - **Progressive backoff**: Adaptive sleep strategy to minimize CPU usage when idle
-//! - **Dual output**: Simultaneously writes colored output to console and plain text to files
-//! - **Buffered file I/O**: Uses `BufWriter` to batch file writes for better performance
+//! - **Dual output**: Simultaneously writes to console and files
+//! - **Unbuffered file I/O**: Immediate flush for crash safety
 //!
 //! ## Why Threaded?
 //!
@@ -28,7 +28,7 @@
 //! during logging is unacceptable. This implementation:
 //!
 //! 1. **Never blocks the caller**: Log messages are formatted and queued in microseconds
-//! 2. **Batches I/O operations**: The background thread handles all writes asynchronously
+//! 2. **Immediate flush on write**: Each log is flushed to disk immediately for crash safety
 //! 3. **Degrades gracefully**: If I/O fails, logging continues without crashing
 //! 4. **Minimal overhead when idle**: Progressive backoff reduces CPU to near-zero when quiet
 //!
@@ -40,32 +40,11 @@
 //! - **Single Rotating**: One file that is truncated on each application start
 //! - **Rotated with Limit**: Timestamped files with automatic cleanup of old logs
 //!
-//! File output always uses **plain text** (ANSI color codes stripped), while console output
-//! uses colored text for better readability.
+//! All output uses plain text format.
 //!
 //! # Platform-Specific Setup
 //!
-//! ## Windows Console Color Support
-//!
-//! On Windows, you must enable ANSI color support before initializing the logger:
-//!
-//! ```no_run
-//! # #[cfg(windows)]
-//! use libpsycho::os::windows::winapi::set_up_windows_color_terminal;
-//! use libpsycho::logger::Logger;
-//!
-//! # #[cfg(windows)]
-//! set_up_windows_color_terminal().expect("Failed to set up Windows console");
-//!
-//! Logger::new()
-//!     .with_level(log::LevelFilter::Info)
-//!     .init()
-//!     .unwrap();
-//! ```
-//!
-//! ## Linux/Unix
-//!
-//! No special setup required. Colors work out of the box in most terminals.
+//! No special platform setup is required. The logger works on all platforms.
 //!
 //! # Examples
 //!
@@ -137,18 +116,12 @@
 //! ## Complete Windows Example
 //!
 //! ```no_run
-//! # #[cfg(windows)]
-//! use libpsycho::os::windows::winapi::set_up_windows_color_terminal;
 //! use libpsycho::logger::Logger;
 //! use log::{LevelFilter, info, warn, error};
-//!
-//! # #[cfg(windows)]
-//! set_up_windows_color_terminal().expect("Failed to enable console colors");
 //!
 //! Logger::new()
 //!     .with_level(LevelFilter::Info)
 //!     .with_file_rotated_limit("C:\\logs\\myapp", "game", 10)
-//!     .with_colors(true)
 //!     .with_utc_timestamps()
 //!     .init()
 //!     .expect("Failed to initialize logger");
@@ -206,16 +179,14 @@
 //! Logger::shutdown();
 //! ```
 
-use colored::*;
 use crossbeam_queue::SegQueue;
 use log::{Level, LevelFilter, Log, Metadata, Record, SetLoggerError};
-use std::{collections::HashMap, fs::{self, File, OpenOptions}, io::{BufWriter, Write}, path::PathBuf, sync::{atomic::{AtomicBool, Ordering}, LazyLock, Mutex}, thread::{self, JoinHandle}};
+use std::{collections::HashMap, fs::{self, File, OpenOptions}, io::Write, path::PathBuf, sync::{atomic::{AtomicBool, Ordering}, LazyLock, Mutex}, thread::{self, JoinHandle}};
 
 use time::{OffsetDateTime, UtcOffset, format_description::FormatItem};
 
 struct LogMessage {
-    colored: String,
-    plain: String,
+    text: String,
 }
 
 static MSG_QUEUE: LazyLock<SegQueue<LogMessage>> = LazyLock::new(Default::default);
@@ -337,11 +308,6 @@ pub struct Logger {
     timestamps: Timestamps,
     timestamps_format: Option<&'static [FormatItem<'static>]>,
 
-    /// Whether to use color output or not.
-    ///
-    /// This field is only available if the `color` feature is enabled.
-    colors: bool,
-
     /// File output configuration
     file_output: FileOutput,
 }
@@ -352,7 +318,6 @@ impl Logger {
     /// Default settings:
     /// - Log level: `Trace` (logs everything)
     /// - Timestamps: UTC
-    /// - Colors: Enabled
     /// - Thread names: Disabled
     /// - File output: None (console only)
     ///
@@ -374,7 +339,6 @@ impl Logger {
             threads: false,
             timestamps: Timestamps::Utc,
             timestamps_format: None,
-            colors: true,
             file_output: FileOutput::None,
         }
     }
@@ -534,15 +498,6 @@ impl Logger {
         self
     }
 
-    /// Control whether messages are colored or not.
-    ///
-    /// This method is only available if the `colored` feature is enabled.
-    #[must_use = "You must call init() to begin logging"]
-    pub fn with_colors(mut self, colors: bool) -> Logger {
-        self.colors = colors;
-        self
-    }
-
     /// Configure file output with timestamped filenames.
     ///
     /// Logs will be written to `{dir}/{prefix}-{timestamp}.log`
@@ -626,8 +581,6 @@ impl Logger {
     /// Logger::shutdown();
     /// ```
     pub fn init(self) -> Result<(), SetLoggerError> {
-        use_stderr_for_colors();
-
         let mut log_file = create_log_file(&self.file_output);
 
         let handle = thread::spawn(move || {
@@ -636,9 +589,9 @@ impl Logger {
             loop {
                 if SHUTDOWN.load(Ordering::Acquire) {
                     while let Some(msg) = MSG_QUEUE.pop() {
-                        let _ = stdout.write_all(msg.colored.as_bytes());
+                        let _ = stdout.write_all(msg.text.as_bytes());
                         if let Some(file) = &mut log_file {
-                            let _ = file.write_all(msg.plain.as_bytes());
+                            let _ = file.write_all(msg.text.as_bytes());
                         }
                     }
                     let _ = stdout.flush();
@@ -651,12 +604,13 @@ impl Logger {
                 if let Some(msg) = MSG_QUEUE.pop() {
                     idle_count = 0;
 
-                    if stdout.write_all(msg.colored.as_bytes()).is_err() {
+                    if stdout.write_all(msg.text.as_bytes()).is_err() {
                         continue;
                     }
 
                     if let Some(file) = &mut log_file {
-                        let _ = file.write_all(msg.plain.as_bytes());
+                        let _ = file.write_all(msg.text.as_bytes());
+                        let _ = file.flush(); // Immediate flush for crash safety
                     }
                 } else {
                     idle_count = idle_count.saturating_add(1);
@@ -773,31 +727,7 @@ impl Log for Logger {
 
     fn log(&self, record: &Record) {
         if self.enabled(record.metadata()) {
-            let level_colored = {
-                if self.colors {
-                    match record.level() {
-                        Level::Error => format!("{:<5}", record.level().to_string())
-                            .red()
-                            .to_string(),
-                        Level::Warn => format!("{:<5}", record.level().to_string())
-                            .yellow()
-                            .to_string(),
-                        Level::Info => format!("{:<5}", record.level().to_string())
-                            .cyan()
-                            .to_string(),
-                        Level::Debug => format!("{:<5}", record.level().to_string())
-                            .purple()
-                            .to_string(),
-                        Level::Trace => format!("{:<5}", record.level().to_string())
-                            .normal()
-                            .to_string(),
-                    }
-                } else {
-                    format!("{:<5}", record.level().to_string())
-                }
-            };
-
-            let level_plain = format!("{:<5}", record.level().to_string());
+            let level = format!("{:<5}", record.level().to_string());
 
             let target = if !record.target().is_empty() {
                 record.target()
@@ -849,27 +779,17 @@ impl Log for Logger {
                 }
             };
 
-            let colored_message = format!(
+            let message = format!(
                 "{}{} [{}{}] {}\n",
                 timestamp,
-                level_colored,
-                target,
-                thread,
-                record.args()
-            );
-
-            let plain_message = format!(
-                "{}{} [{}{}] {}\n",
-                timestamp,
-                level_plain,
+                level,
                 target,
                 thread,
                 record.args()
             );
 
             MSG_QUEUE.push(LogMessage {
-                colored: colored_message,
-                plain: plain_message,
+                text: message,
             });
         }
     }
@@ -880,15 +800,7 @@ impl Log for Logger {
     }
 }
 
-/// The colored crate will disable colors when STDOUT is not a terminal. This method overrides this
-/// behaviour to check the status of STDERR instead.
-fn use_stderr_for_colors() {
-    use std::io::{IsTerminal, stderr};
-
-    colored::control::set_override(stderr().is_terminal());
-}
-
-fn create_log_file(file_output: &FileOutput) -> Option<BufWriter<File>> {
+fn create_log_file(file_output: &FileOutput) -> Option<File> {
     match file_output {
         FileOutput::None => None,
         FileOutput::Timestamped { dir, prefix } => {
@@ -909,7 +821,7 @@ fn create_log_file(file_output: &FileOutput) -> Option<BufWriter<File>> {
                 .open(path)
                 .ok()?;
 
-            Some(BufWriter::new(file))
+            Some(file)
         }
         FileOutput::SingleRotating { path } => {
             if let Some(parent) = path.parent() {
@@ -923,7 +835,7 @@ fn create_log_file(file_output: &FileOutput) -> Option<BufWriter<File>> {
                 .open(path)
                 .ok()?;
 
-            Some(BufWriter::new(file))
+            Some(file)
         }
         FileOutput::RotatedWithLimit { dir, prefix, max_files } => {
             if fs::create_dir_all(dir).is_err() {
@@ -945,7 +857,7 @@ fn create_log_file(file_output: &FileOutput) -> Option<BufWriter<File>> {
                 .open(path)
                 .ok()?;
 
-            Some(BufWriter::new(file))
+            Some(file)
         }
     }
 }

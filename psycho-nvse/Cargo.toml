@@ -1,0 +1,15 @@
+[package]
+name = "psycho-nvse"
+version = "0.1.0"
+edition = "2024"
+
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+windows = { workspace = true }
+log = { workspace = true }
+anyhow = { workspace = true }
+libnvse = { path = "../libnvse" }
+libpsycho = { path = "../libpsycho" }

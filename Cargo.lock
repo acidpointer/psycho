@@ -510,6 +510,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "psycho-nvse"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "libnvse",
+ "libpsycho",
+ "log",
+ "windows",
+]
+
+[[package]]
 name = "quote"
 version = "1.0.40"
 source = "registry+https://github.com/rust-lang/crates.io-index"

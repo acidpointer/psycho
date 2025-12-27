@@ -1,6 +1,6 @@
 [workspace]
 resolver = "3"
-members = ["libf4se", "libmimalloc", "libpsycho", "psycho-fo4", "drifter", "libnvse"]
+members = ["libf4se", "libmimalloc", "libpsycho", "psycho-fo4", "drifter", "libnvse", "psycho-nvse"]
 
 [workspace.dependencies]
 anyhow = { version = "1.0" }
