@@ -4,11 +4,11 @@ use libnvse::{NVSEInterface, PluginInfo};
 use libpsycho::{common::exe_version::ExeVersion, logger::Logger, os::windows::{types::LPVOID, winapi::alloc_console}};
 use windows::{Win32::{Foundation::HINSTANCE, System::SystemServices::{DLL_PROCESS_ATTACH, DLL_PROCESS_DETACH, DLL_THREAD_ATTACH, DLL_THREAD_DETACH}}, core::BOOL};
 
-use crate::plugininfo;
+use crate::{hooks::memory::install_memory_hooks, plugininfo};
 
 #[unsafe(no_mangle)]
 #[allow(non_snake_case)]
-pub extern "system" fn DllMain(_hmodule: HINSTANCE, reason: u32, _reserved: LPVOID) -> BOOL {
+pub extern "system" fn DllMain(hmodule: HINSTANCE, reason: u32, _reserved: LPVOID) -> BOOL {
     
     static LOGGER_INIT: Once = Once::new();
 
@@ -28,10 +28,12 @@ pub extern "system" fn DllMain(_hmodule: HINSTANCE, reason: u32, _reserved: LPVO
         DLL_PROCESS_ATTACH => {
             log::info!("Process attach - initializing");
 
+            log::info!("(DllMain) HMODULE: {:p}", hmodule.0);
+
             true
         }
         DLL_PROCESS_DETACH => {
-            log::info!("Process detach (module: {:p})", _hmodule.0);
+            log::info!("Process detach (module: {:p})", hmodule.0);
             true
         }
         DLL_THREAD_ATTACH => true,
@@ -92,5 +94,19 @@ pub unsafe extern "C" fn NVSEPlugin_Load(nvse: *const NVSEInterface) -> BOOL {
 
     // Business logic starts here
 
+    match start() {
+        Ok(_) => { log::warn!("Plugin loaded without errors!") }
+        Err(err) => {
+            log::error!("Error in plugin load: {:?}", err);
+        }
+    }
+
     true.into()
+}
+
+
+pub fn start() -> anyhow::Result<()> {
+    install_memory_hooks()?;
+
+    Ok(())
 }

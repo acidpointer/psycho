@@ -29,5 +29,8 @@ pub enum IatHookError {
     ModuleBaseNull,
 
     #[error("Memory error: {0}")]
-    MemoryError(#[from] MemoryError)
+    MemoryError(#[from] MemoryError),
+
+    #[error("Iat hook container not initialized")]
+    HookContainerNotInitialized,
 }

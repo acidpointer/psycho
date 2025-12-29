@@ -1,10 +1,12 @@
 //! PE (Portable Executable) parsing utilities for Windows
 
+use std::collections::HashSet;
+
+use goblin::pe::options::ParseOptions;
 use libc::c_void;
 use thiserror::Error;
-use goblin::pe::PE;
 
-use crate::os::windows::winapi::virtual_query;
+use crate::os::windows::winapi::{HModule, enum_process_modules, get_module_information};
 
 use super::winapi::WinapiError;
 
@@ -25,7 +27,7 @@ pub enum PeError {
     #[error("WinAPI error: {0}")]
     WinapiError(#[from] WinapiError),
 
-    #[error("Goblin parsing error: {0}")]
+    #[error("Goblin error: {0}")]
     GoblinError(#[from] goblin::error::Error),
 }
 
@@ -33,100 +35,133 @@ pub type PeResult<T> = std::result::Result<T, PeError>;
 
 #[derive(Debug, Clone)]
 pub struct IatEntry {
+    pub module_base: *mut c_void,
     pub iat_address: *mut *mut c_void,
     pub current_function: *mut c_void,
     pub library_name: String,
     pub function_name: String,
 }
 
-pub struct PeParser {
-    module_base: *mut c_void,
-    pe_bytes: Vec<u8>,
-}
-
-impl PeParser {
-    /// # Safety
-    /// Module must be a valid PE loaded in memory
-    pub unsafe fn new(module_base: *mut c_void) -> PeResult<Self> {
-        if module_base.is_null() {
-            return Err(PeError::InvalidMemoryRange);
-        }
-
-        let memory_basic_info = virtual_query(module_base)?;
-
-        let pe_bytes = unsafe { std::slice::from_raw_parts(
-            module_base as *const u8, 
-            memory_basic_info.region_size,
-        ).to_vec() };
-
-        if pe_bytes.len() < 2 || &pe_bytes[0..2] != b"MZ" {
-            return Err(PeError::InvalidPe("Not a PE file".into()));
-        }
-
-        Ok(Self { module_base, pe_bytes })
-    }
-
-    pub fn find_iat_entry(
-        &self,
-        library_name: &str,
-        function_name: &str,
-    ) -> PeResult<IatEntry> {
-        let pe = PE::parse(&self.pe_bytes)?;
-        
-        // Find in the simple imports list first
-        let target_import = pe.imports
-            .iter()
-            .find(|imp| {
-                imp.dll.to_lowercase().contains(&library_name.to_lowercase()) &&
-                imp.name == function_name
-            })
-            .ok_or_else(|| PeError::ImportNotFound(
-                library_name.into(), 
-                function_name.into()
-            ))?;
-
-        // Now find the IAT entry
-        // goblin's Import struct has an 'offset' field which is the IAT offset
-        // But we need the RVA, not file offset
-        
-        // The simple approach: imports have an rva field for their IAT entry
-        let iat_address = unsafe {
-            // The import.rva is the RVA of this import's IAT slot
-            self.module_base.add(target_import.rva) as *mut *mut c_void
-        };
-        
-        let current_function = unsafe { *iat_address };
-
-        Ok(IatEntry {
-            iat_address,
-            current_function,
-            library_name: target_import.dll.to_string(),
-            function_name: target_import.name.to_string(),
-        })
-    }
-
-    pub fn module_base(&self) -> *mut c_void {
-        self.module_base
-    }
-}
-
-impl std::fmt::Debug for PeParser {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("PeParser")
-            .field("module_base", &self.module_base)
-            .finish()
-    }
-}
-
-
-/// Finds IAT entry by module_base, library name and function name.
 /// # Safety
-/// Module must be valid PE in memory
+/// UNSAFE!
 pub unsafe fn find_iat_entry(
     module_base: *mut c_void,
-    library_name: &str,
-    function_name: &str,
-) -> PeResult<IatEntry> {
-    let parser = unsafe { PeParser::new(module_base) }?;
-    parser.find_iat_entry(library_name, function_name)
+    library_name: Option<String>,
+    function_name: String,
+) -> PeResult<Vec<IatEntry>> {
+    let mut result = vec![];
+    let mut process_modules = enum_process_modules(None)?;
+
+    process_modules.insert(0, unsafe { HModule::new(module_base) }?);
+
+    // Track unique (library_name, function_name) pairs to deduplicate by DLL
+    let mut seen_imports: HashSet<(String, String)> = HashSet::new();
+
+    for module_handle in process_modules {
+        let module_info = get_module_information(module_handle)?;
+
+        let pe_start_addr = module_info.base_of_dll as *const u8;
+        let pe_len = module_info.size_of_image as usize;
+
+        let pe_bytes = unsafe { std::slice::from_raw_parts(pe_start_addr, pe_len) };
+
+        let module_name = crate::os::windows::winapi::get_module_base_name(module_handle)
+            .unwrap_or_else(|_| format!("{:p}", pe_start_addr));
+
+        let mut pe_opts = ParseOptions::default();
+        pe_opts.resolve_rva = false;
+        pe_opts.parse_mode = goblin::options::ParseMode::Permissive;
+        pe_opts.parse_tls_data = false;
+
+        let old_log_level = log::STATIC_MAX_LEVEL;
+
+        log::set_max_level(log::LevelFilter::Error);
+        let pe_view = goblin::pe::PE::parse_with_opts(pe_bytes, &pe_opts)?;
+        log::set_max_level(old_log_level);
+
+        for import in pe_view.imports {
+            let dll_name = import.dll;
+            let import_name = import.name;
+            let import_offset = import.offset;
+
+            let iat_address =
+                module_handle.as_ptr().wrapping_add(import_offset) as *mut *mut c_void;
+
+            match &library_name {
+                Some(library_name) => {
+                    if library_name.to_lowercase() == dll_name.to_lowercase()
+                        && import_name == function_name
+                    {
+                        // Create key for deduplication using case-insensitive comparison
+                        let dll_key = dll_name.to_lowercase();
+                        let dedup_key = (dll_key.clone(), import_name.to_string());
+
+                        // Skip if we've already seen this DLL::function combination
+                        if !seen_imports.insert(dedup_key) {
+                            log::trace!(
+                                "Skipping duplicate import: '{}::{}' in module '{}' (already hooked)",
+                                dll_name,
+                                import_name,
+                                module_name
+                            );
+                            continue;
+                        }
+
+                        log::debug!(
+                            "Found import(requested name): '{}::{}' in module '{}' at {:p}",
+                            dll_name,
+                            import_name,
+                            module_name,
+                            pe_start_addr
+                        );
+
+                        result.push(IatEntry {
+                            module_base: module_handle.as_ptr(),
+                            iat_address,
+                            current_function: unsafe { *iat_address },
+                            library_name: dll_name.to_string(),
+                            function_name: import_name.to_string(),
+                        });
+                    }
+                }
+
+                None => {
+                    if import_name == function_name {
+                        // Create key for deduplication using case-insensitive comparison
+                        let dll_key = dll_name.to_lowercase();
+                        let dedup_key = (dll_key.clone(), import_name.to_string());
+
+                        // Skip if we've already seen this DLL::function combination
+                        if !seen_imports.insert(dedup_key) {
+                            log::trace!(
+                                "Skipping duplicate import: '{}::{}' in module '{}' (already hooked)",
+                                dll_name,
+                                import_name,
+                                module_name
+                            );
+                            continue;
+                        }
+
+                        log::debug!(
+                            "Found import: '{}::{}' in module '{}' at {:p}",
+                            dll_name,
+                            import_name,
+                            module_name,
+                            pe_start_addr
+                        );
+
+                        result.push(IatEntry {
+                            module_base: module_handle.as_ptr(),
+                            iat_address,
+                            current_function: unsafe { *iat_address },
+                            library_name: dll_name.to_string(),
+                            function_name: import_name.to_string(),
+                        });
+                    }
+                }
+            }
+        }
+    }
+
+    Ok(result)
 }

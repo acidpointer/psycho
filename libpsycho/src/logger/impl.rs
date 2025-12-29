@@ -181,7 +181,17 @@
 
 use crossbeam_queue::SegQueue;
 use log::{Level, LevelFilter, Log, Metadata, Record, SetLoggerError};
-use std::{collections::HashMap, fs::{self, File, OpenOptions}, io::Write, path::PathBuf, sync::{atomic::{AtomicBool, Ordering}, LazyLock, Mutex}, thread::{self, JoinHandle}};
+use std::{
+    collections::HashMap,
+    fs::{self, File, OpenOptions},
+    io::Write,
+    path::PathBuf,
+    sync::{
+        LazyLock, Mutex,
+        atomic::{AtomicBool, Ordering},
+    },
+    thread::{self, JoinHandle},
+};
 
 use time::{OffsetDateTime, UtcOffset, format_description::FormatItem};
 
@@ -189,8 +199,13 @@ struct LogMessage {
     text: String,
 }
 
+/// Queue of log messages
+/// Logger will fill queue with messages, while separate thread
+/// pop messages from queue one-by-one and print, thus saving IO time.
 static MSG_QUEUE: LazyLock<SegQueue<LogMessage>> = LazyLock::new(Default::default);
+
 static SHUTDOWN: AtomicBool = AtomicBool::new(false);
+
 static LOGGER_THREAD: LazyLock<Mutex<Option<JoinHandle<()>>>> = LazyLock::new(|| Mutex::new(None));
 
 const TIMESTAMP_FORMAT_OFFSET: &[FormatItem] = time::macros::format_description!(
@@ -201,9 +216,8 @@ const TIMESTAMP_FORMAT_UTC: &[FormatItem] = time::macros::format_description!(
     "[year]-[month]-[day]T[hour]:[minute]:[second].[subsecond digits:3]Z"
 );
 
-const FILENAME_TIMESTAMP_FORMAT: &[FormatItem] = time::macros::format_description!(
-    "[day]-[month]-[year]--[hour]-[minute]-[second]"
-);
+const FILENAME_TIMESTAMP_FORMAT: &[FormatItem] =
+    time::macros::format_description!("[day]-[month]-[year]--[hour]-[minute]-[second]");
 
 #[derive(PartialEq)]
 enum Timestamps {
@@ -231,7 +245,7 @@ pub enum FileOutput {
         /// Directory where log files will be created (created if it doesn't exist)
         dir: PathBuf,
         /// Prefix for log filenames
-        prefix: String
+        prefix: String,
     },
 
     /// Single log file that is truncated on each application start.
@@ -239,7 +253,7 @@ pub enum FileOutput {
     /// Always writes to the same file, clearing previous contents.
     SingleRotating {
         /// Path to the log file
-        path: PathBuf
+        path: PathBuf,
     },
 
     /// Timestamped files with automatic cleanup of old logs.
@@ -253,7 +267,7 @@ pub enum FileOutput {
         /// Prefix for log filenames
         prefix: String,
         /// Maximum number of log files to keep
-        max_files: usize
+        max_files: usize,
     },
 }
 
@@ -332,7 +346,7 @@ impl Logger {
     ///     .unwrap();
     /// ```
     #[must_use = "You must call init() to begin logging"]
-    pub fn new() -> Logger {
+    pub fn new() -> Self {
         Logger {
             default_level: LevelFilter::Trace,
             module_levels: Vec::new(),
@@ -352,7 +366,7 @@ impl Logger {
     /// [`env`]: #method.env
     /// [`with_module_level`]: #method.with_module_level
     #[must_use = "You must call init() to begin logging"]
-    pub fn with_level(mut self, level: LevelFilter) -> Logger {
+    pub fn with_level(mut self, level: LevelFilter) -> Self {
         self.default_level = level;
         self
     }
@@ -390,7 +404,7 @@ impl Logger {
     //
     // This method *must* sort `module_levels` for the [`enabled`](#method.enabled) method to work correctly.
     #[must_use = "You must call init() to begin logging"]
-    pub fn with_module_level(mut self, target: &str, level: LevelFilter) -> Logger {
+    pub fn with_module_level(mut self, target: &str, level: LevelFilter) -> Self {
         self.module_levels.push((target.to_string(), level));
         self.module_levels
             .sort_by_key(|(name, _level)| name.len().wrapping_neg());
@@ -404,7 +418,7 @@ impl Logger {
         since = "1.11.0",
         note = "Use [`with_module_level`](#method.with_module_level) instead. Will be removed in version 2.0.0."
     )]
-    pub fn with_target_levels(mut self, target_levels: HashMap<String, LevelFilter>) -> Logger {
+    pub fn with_target_levels(mut self, target_levels: HashMap<String, LevelFilter>) -> Self {
         self.module_levels = target_levels.into_iter().collect();
         self.module_levels
             .sort_by_key(|(name, _level)| name.len().wrapping_neg());
@@ -416,7 +430,7 @@ impl Logger {
     /// This method is only available if the `threads` feature is enabled.
     /// Thread names are disabled by default.
     #[must_use = "You must call init() to begin logging"]
-    pub fn with_threads(mut self, threads: bool) -> Logger {
+    pub fn with_threads(mut self, threads: bool) -> Self {
         self.threads = threads;
         self
     }
@@ -431,7 +445,7 @@ impl Logger {
         since = "1.16.0",
         note = "Use [`with_local_timestamps`] or [`with_utc_timestamps`] instead. Will be removed in version 2.0.0."
     )]
-    pub fn with_timestamps(mut self, timestamps: bool) -> Logger {
+    pub fn with_timestamps(mut self, timestamps: bool) -> Self {
         if timestamps {
             self.timestamps = Timestamps::Local
         } else {
@@ -457,7 +471,7 @@ impl Logger {
     ///  .unwrap();
     /// ```
     #[must_use = "You must call init() to begin logging"]
-    pub fn with_timestamp_format(mut self, format: &'static [FormatItem<'static>]) -> Logger {
+    pub fn with_timestamp_format(mut self, format: &'static [FormatItem<'static>]) -> Self {
         self.timestamps_format = Some(format);
         self
     }
@@ -466,7 +480,7 @@ impl Logger {
     ///
     /// This method is only available if the `timestamps` feature is enabled.
     #[must_use = "You must call init() to begin logging"]
-    pub fn without_timestamps(mut self) -> Logger {
+    pub fn without_timestamps(mut self) -> Self {
         self.timestamps = Timestamps::None;
         self
     }
@@ -475,7 +489,7 @@ impl Logger {
     ///
     /// This method is only available if the `timestamps` feature is enabled.
     #[must_use = "You must call init() to begin logging"]
-    pub fn with_local_timestamps(mut self) -> Logger {
+    pub fn with_local_timestamps(mut self) -> Self {
         self.timestamps = Timestamps::Local;
         self
     }
@@ -484,7 +498,7 @@ impl Logger {
     ///
     /// This method is only available if the `timestamps` feature is enabled.
     #[must_use = "You must call init() to begin logging"]
-    pub fn with_utc_timestamps(mut self) -> Logger {
+    pub fn with_utc_timestamps(mut self) -> Self {
         self.timestamps = Timestamps::Utc;
         self
     }
@@ -493,7 +507,7 @@ impl Logger {
     ///
     /// This method is only available if the `timestamps` feature is enabled.
     #[must_use = "You must call init() to begin logging"]
-    pub fn with_utc_offset(mut self, offset: UtcOffset) -> Logger {
+    pub fn with_utc_offset(mut self, offset: UtcOffset) -> Self {
         self.timestamps = Timestamps::UtcOffset(offset);
         self
     }
@@ -503,7 +517,11 @@ impl Logger {
     /// Logs will be written to `{dir}/{prefix}-{timestamp}.log`
     /// where timestamp is in format: dd-mm-yyyy--hh-mm-ss
     #[must_use = "You must call init() to begin logging"]
-    pub fn with_file_timestamped(mut self, dir: impl Into<PathBuf>, prefix: impl Into<String>) -> Logger {
+    pub fn with_file_timestamped(
+        mut self,
+        dir: impl Into<PathBuf>,
+        prefix: impl Into<String>,
+    ) -> Self {
         self.file_output = FileOutput::Timestamped {
             dir: dir.into(),
             prefix: prefix.into(),
@@ -515,10 +533,8 @@ impl Logger {
     ///
     /// The file at `path` will be truncated on each init.
     #[must_use = "You must call init() to begin logging"]
-    pub fn with_file_rotating(mut self, path: impl Into<PathBuf>) -> Logger {
-        self.file_output = FileOutput::SingleRotating {
-            path: path.into(),
-        };
+    pub fn with_file_rotating(mut self, path: impl Into<PathBuf>) -> Self {
+        self.file_output = FileOutput::SingleRotating { path: path.into() };
         self
     }
 
@@ -527,7 +543,12 @@ impl Logger {
     /// Logs will be written to `{dir}/{prefix}-{timestamp}.log`.
     /// Old log files exceeding `max_files` will be automatically deleted on init.
     #[must_use = "You must call init() to begin logging"]
-    pub fn with_file_rotated_limit(mut self, dir: impl Into<PathBuf>, prefix: impl Into<String>, max_files: usize) -> Logger {
+    pub fn with_file_rotated_limit(
+        mut self,
+        dir: impl Into<PathBuf>,
+        prefix: impl Into<String>,
+        max_files: usize,
+    ) -> Logger {
         self.file_output = FileOutput::RotatedWithLimit {
             dir: dir.into(),
             prefix: prefix.into(),
@@ -788,14 +809,13 @@ impl Log for Logger {
                 record.args()
             );
 
-            MSG_QUEUE.push(LogMessage {
-                text: message,
-            });
+            MSG_QUEUE.push(LogMessage { text: message });
         }
     }
 
     fn flush(&self) {
         while MSG_QUEUE.pop().is_some() {}
+
         let _ = std::io::stdout().flush();
     }
 }
@@ -837,7 +857,11 @@ fn create_log_file(file_output: &FileOutput) -> Option<File> {
 
             Some(file)
         }
-        FileOutput::RotatedWithLimit { dir, prefix, max_files } => {
+        FileOutput::RotatedWithLimit {
+            dir,
+            prefix,
+            max_files,
+        } => {
             if fs::create_dir_all(dir).is_err() {
                 return None;
             }
@@ -896,4 +920,3 @@ fn cleanup_old_logs(dir: &PathBuf, prefix: &str, max_files: usize) {
         }
     }
 }
-

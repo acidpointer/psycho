@@ -6,7 +6,7 @@ edition = "2024"
 [dependencies]
 iced-x86 = { version = "1.21.0", features = ["code_asm", "encoder", "intel"] }
 bitflags = "2.9.2"
-goblin = "0.10.1"
+goblin = { version = "0.10.4", features=["pe32","pe64", "std"]}
 libc = { workspace = true }
 dashmap = { workspace = true }
 log = { workspace = true }
@@ -14,7 +14,6 @@ thiserror = { workspace = true }
 anyhow = { workspace = true }
 parking_lot = { workspace = true }
 crossbeam-queue = { workspace = true }
-colored = "3.0.0"
 time = { version = "0.3.44", features = ["formatting", "local-offset", "macros"] }
 
 [target.'cfg(windows)'.dependencies]

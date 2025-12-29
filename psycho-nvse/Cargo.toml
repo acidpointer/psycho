@@ -11,5 +11,8 @@ crate-type = ["cdylib", "rlib"]
 windows = { workspace = true }
 log = { workspace = true }
 anyhow = { workspace = true }
+parking_lot = { workspace = true }
+libc = { workspace = true }
+libmimalloc = { path = "../libmimalloc" }
 libnvse = { path = "../libnvse" }
 libpsycho = { path = "../libpsycho" }

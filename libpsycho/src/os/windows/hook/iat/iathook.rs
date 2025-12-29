@@ -24,7 +24,7 @@ pub struct IatHook<F: Copy + 'static> {
     detour_fn: FnPtr<F>,
 
     module_base: NonNull<c_void>,
-    library_name: String,
+    library_name: Option<String>,
     function_name: String,
     iat_entry: *mut *mut c_void,
     enabled: AtomicBool,
@@ -40,34 +40,37 @@ unsafe impl<F: Copy + 'static> Sync for IatHook<F> {}
 
 impl<F: Copy + 'static> IatHook<F> {
     #[allow(clippy::not_unsafe_ptr_arg_deref)]
-    pub fn new(
+    pub fn from_iat_entry(
         name: impl Into<String>,
-        module_base: *mut c_void,
-        library_name: impl Into<String>,
-        function_name: impl Into<String>,
+        iat_entry_info: crate::os::windows::pe::IatEntry,
         detour: F,
     ) -> IatHookResult<Self> {
-        let module_base = NonNull::new(module_base).ok_or(IatHookError::ModuleBaseNull)?;
+        let module_base = NonNull::new(iat_entry_info.module_base).ok_or(IatHookError::ModuleBaseNull)?;
 
         let detour_fn = unsafe { FnPtr::from_fn(detour) }?;
-        let library_name: String = library_name.into();
-        let function_name: String = function_name.into();
-
-        let iat_entry_info =
-            unsafe { find_iat_entry(module_base.as_ptr(), &library_name, &function_name)? };
-
+        let library_name = Some(iat_entry_info.library_name.clone());
+        let function_name = iat_entry_info.function_name.clone();
         let iat_entry = iat_entry_info.iat_address;
-
-        validate_memory_access(iat_entry as *mut c_void)?;
-
         let current_fn_ptr = iat_entry_info.current_function;
 
+        let name_str: String = name.into();
+
+        log::debug!(
+            "Creating hook '{}' for '{}::{}' at IAT={:p}, fn={:p}",
+            name_str,
+            library_name.as_ref().unwrap(),
+            function_name,
+            iat_entry,
+            current_fn_ptr
+        );
+
+        // Validate function pointer is in executable memory
         validate_memory_access(current_fn_ptr)?;
 
         let original_fn = unsafe { FnPtr::from_raw(current_fn_ptr) }?;
 
         Ok(Self {
-            name: name.into(),
+            name: name_str,
             module_base,
             library_name,
             function_name,
@@ -91,6 +94,15 @@ impl<F: Copy + 'static> IatHook<F> {
         }
 
         let detour_ptr = self.detour_fn.as_raw_ptr();
+        let original_ptr = unsafe { *self.iat_entry };
+
+        log::debug!(
+            "Enabling hook '{}': IAT={:p}, before={:p}, after={:p}",
+            self.name,
+            self.iat_entry,
+            original_ptr,
+            detour_ptr
+        );
 
         unsafe {
             with_virtual_protect(
@@ -102,6 +114,14 @@ impl<F: Copy + 'static> IatHook<F> {
                 },
             )?;
         }
+
+        let actual_value = unsafe { *self.iat_entry };
+        log::debug!(
+            "Hook '{}' enabled: IAT now contains {:p} (expected {:p})",
+            self.name,
+            actual_value,
+            detour_ptr
+        );
 
         self.enabled.store(true, Ordering::Release);
 
@@ -171,5 +191,82 @@ impl<F: Copy + 'static> Hook<F> for IatHook<F> {
         let _guard = self.guard.read();
 
         unsafe { Ok(self.original_fn.as_fn()?) }
+    }
+}
+
+#[derive(Default)]
+pub struct IatHookContainer<T: Copy + 'static> {
+    hooks: RwLock<Vec<IatHook<T>>>,
+}
+
+impl<T: Copy + 'static> IatHookContainer<T> {
+    pub fn new() -> Self {
+        Self {
+            hooks: RwLock::new(Vec::new()),
+        }
+    }
+
+    /// # Safety
+    /// Unsafe, caller must ensure that all pointers are valid
+    pub unsafe fn init(
+        &self,
+        name: impl Into<String>,
+        module_base: *mut libc::c_void,
+        library_name: Option<&str>,
+        function_name: &str,
+        detour: T,
+    ) -> IatHookResult<()> {
+        let name_str: String = name.into();
+        let library_name_opt = library_name.map(|s| s.to_string());
+        let iat_entries = unsafe {
+            find_iat_entry(module_base, library_name_opt, function_name.to_string())?
+        };
+
+        log::info!("Found {} IAT entries for '{}'", iat_entries.len(), function_name);
+
+        let mut hooks = self.hooks.write();
+
+        for (idx, entry) in iat_entries.into_iter().enumerate() {
+            let hook_name = format!("{}_{}", name_str, idx);
+            let hook = IatHook::from_iat_entry(hook_name, entry, detour)?;
+            hooks.push(hook);
+        }
+
+        Ok(())
+    }
+
+    pub fn is_initialized(&self) -> bool {
+        !self.hooks.read().is_empty()
+    }
+
+    pub fn enable(&self) -> IatHookResult<()> {
+        let hooks = self.hooks.read();
+
+        for hook in hooks.iter() {
+            hook.enable()?;
+        }
+
+        Ok(())
+    }
+
+    pub fn disable(&self) -> IatHookResult<()> {
+        let hooks = self.hooks.read();
+
+        for hook in hooks.iter() {
+            hook.disable()?;
+        }
+
+        Ok(())
+    }
+
+    pub fn original(&self) -> IatHookResult<T> {
+        let hooks = self.hooks.read();
+
+        if hooks.is_empty() {
+            return Err(IatHookError::HookContainerNotInitialized);
+        }
+
+        // Return the original from the first hook
+        unsafe { hooks[0].original() }
     }
 }

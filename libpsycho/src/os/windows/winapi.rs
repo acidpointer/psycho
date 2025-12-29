@@ -22,7 +22,9 @@ use windows::Win32::System::Memory::{
     MEM_COMMIT, MEM_RELEASE, MEM_RESERVE, MEMORY_BASIC_INFORMATION, PAGE_PROTECTION_FLAGS,
     VIRTUAL_ALLOCATION_TYPE, VIRTUAL_FREE_TYPE, VirtualAlloc, VirtualFree, VirtualProtect,
 };
-use windows::Win32::System::ProcessStatus::{GetModuleInformation, MODULEINFO};
+use windows::Win32::System::ProcessStatus::{
+    EnumProcessModules, GetModuleBaseNameA, GetModuleInformation, MODULEINFO,
+};
 use windows::Win32::System::Threading::{
     CRITICAL_SECTION, InitializeCriticalSection, SetThreadPriority, THREAD_PRIORITY,
     THREAD_PRIORITY_ABOVE_NORMAL, THREAD_PRIORITY_BELOW_NORMAL, THREAD_PRIORITY_HIGHEST,
@@ -322,7 +324,7 @@ pub fn get_current_process() -> WinapiResult<Handle> {
 ///
 /// # Safety
 /// HMODULE pointer stored in AtomicPtr and read-only.
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy)]
 pub struct HModule {
     ptr: NonNull<c_void>,
 }
@@ -371,9 +373,9 @@ impl TryFrom<HMODULE> for HModule {
 /// Wrapper for WinAPI MODULEINFO type
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct ModuleInfo {
-    base_of_dll: *mut c_void,
-    size_of_image: u32,
-    entry_point: *mut c_void,
+    pub base_of_dll: *mut c_void,
+    pub size_of_image: u32,
+    pub entry_point: *mut c_void,
 }
 
 impl From<MODULEINFO> for ModuleInfo {
@@ -420,6 +422,79 @@ pub fn get_module_information(module_handle: HModule) -> WinapiResult<ModuleInfo
     }
 
     Ok(module_info.into())
+}
+
+/// WinAPI: EnumProcessModules(...)
+/// Enumerate all modules loaded in the current process
+/// # Safety:
+/// Returns error if process handle is invalid
+pub fn enum_process_modules(handle_ptr: Option<*mut c_void>) -> WinapiResult<Vec<HModule>> {
+    let raw_handle = match handle_ptr {
+        Some(ptr) => HANDLE(ptr),
+        None => {
+            let process_handle = get_current_process()?;
+            HANDLE(process_handle.as_ptr())
+        }
+    };
+
+    // First call to get the required buffer size
+    let mut cb_needed: u32 = 0;
+
+    unsafe {
+        EnumProcessModules(raw_handle, std::ptr::null_mut(), 0, &mut cb_needed)?;
+    }
+
+    // Allocate buffer for module handles
+    let module_count = (cb_needed as usize) / std::mem::size_of::<HMODULE>();
+    let mut modules: Vec<HMODULE> = vec![HMODULE(std::ptr::null_mut()); module_count];
+
+    // Second call to get the actual modules
+    let mut cb_needed_actual: u32 = 0;
+
+    unsafe {
+        EnumProcessModules(
+            raw_handle,
+            modules.as_mut_ptr(),
+            cb_needed,
+            &mut cb_needed_actual,
+        )?;
+    }
+
+    // Convert HMODULE to HModule, filtering out null handles
+    let result: Vec<HModule> = modules
+        .into_iter()
+        .filter(|h| !h.0.is_null())
+        .filter_map(|h| h.try_into().ok())
+        .collect();
+
+    Ok(result)
+}
+
+/// WinAPI: GetModuleBaseNameA(...)
+/// Get the base name of a module
+/// # Safety:
+/// Returns error if module handle is invalid
+pub fn get_module_base_name(module_handle: HModule) -> WinapiResult<String> {
+    let process_handle = get_current_process()?;
+    let process_handle_raw: HANDLE = HANDLE(process_handle.as_ptr());
+    let module_handle_raw: HMODULE = HMODULE(module_handle.as_ptr());
+
+    const MAX_PATH: usize = 260;
+    let mut buffer = [0u8; MAX_PATH];
+
+    let length =
+        unsafe { GetModuleBaseNameA(process_handle_raw, Some(module_handle_raw), &mut buffer) };
+
+    if length == 0 {
+        return Err(WinapiError::WindowsCore(windows::core::Error::from_win32()));
+    }
+
+    // Convert to String, stopping at first null byte
+    let name = std::str::from_utf8(&buffer[..length as usize])
+        .map_err(|_| WinapiError::WindowsCore(windows::core::Error::from_win32()))?
+        .to_string();
+
+    Ok(name)
 }
 
 /// Universal string conversion
