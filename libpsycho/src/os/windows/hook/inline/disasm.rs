@@ -566,11 +566,11 @@ pub(super) fn create_jump_bytes(from: *mut c_void, to: *mut c_void) -> DisasmRes
             .encode(&instr, from_addr)
             .map_err(|e| DisasmError::EncodingError(format!("{:?}", e)))?;
 
-        if result != instr.len() {
-            return Err(DisasmError::EncodingError(
-                "Encoding size mismatch".to_string(),
-            ));
-        }
+        // if result != instr.len() {
+        //     return Err(DisasmError::EncodingError(
+        //         "Encoding size mismatch".to_string(),
+        //     ));
+        // }
 
         let buffer = encoder.take_buffer();
         if buffer.len() != 5 {

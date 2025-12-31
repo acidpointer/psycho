@@ -1,13 +1,36 @@
 use std::sync::LazyLock;
 
+use libc::c_void;
+use libmimalloc::{
+    mi_calloc, mi_free, mi_malloc, mi_realloc, mi_recalloc, mi_usable_size, mi_zalloc,
+};
 use libpsycho::os::windows::{
-    hook::iat::iathook::IatHookContainer,
+    hook::{iat::iathook::IatHookContainer, inline::inlinehook::InlineHookContainer},
     types::{CallocFn, FreeFn, MallocFn, MsizeFn, ReallocFn, RecallocFn},
     winapi::get_module_handle_a,
 };
 
-use libc::c_void;
-use libmimalloc::*;
+pub static MALLOC_HOOK: LazyLock<IatHookContainer<MallocFn>> = LazyLock::new(IatHookContainer::new);
+pub static CALLOC_HOOK: LazyLock<IatHookContainer<CallocFn>> = LazyLock::new(IatHookContainer::new);
+pub static REALLOC_HOOK: LazyLock<IatHookContainer<ReallocFn>> =
+    LazyLock::new(IatHookContainer::new);
+pub static RECALLOC_HOOK: LazyLock<IatHookContainer<RecallocFn>> =
+    LazyLock::new(IatHookContainer::new);
+pub static MSIZE_HOOK: LazyLock<IatHookContainer<MsizeFn>> = LazyLock::new(IatHookContainer::new);
+pub static FREE_HOOK: LazyLock<IatHookContainer<FreeFn>> = LazyLock::new(IatHookContainer::new);
+
+
+/*
+
+    patch_jmp((void *)0x00AA3E40, &game_heap_allocate);
+    patch_jmp((void *)0x00AA4150, &game_heap_reallocate);
+    patch_jmp((void *)0x00AA4200, &game_heap_reallocate);
+    patch_jmp((void *)0x00AA44C0, &game_heap_msize);
+    patch_jmp((void *)0x00AA4060, &game_heap_free);
+
+ */
+
+
 
 // Hook implementations - redirect to mimalloc
 pub unsafe extern "C" fn hook_malloc(size: usize) -> *mut c_void {
@@ -48,7 +71,13 @@ pub unsafe extern "C" fn hook_realloc(raw_ptr: *mut c_void, size: usize) -> *mut
             if !new_ptr.is_null() && old_size > 0 {
                 // Copy min(old_size, new_size) bytes
                 let copy_size = if old_size < size { old_size } else { size };
-                unsafe { std::ptr::copy_nonoverlapping(raw_ptr as *const u8, new_ptr as *mut u8, copy_size) };
+                unsafe {
+                    std::ptr::copy_nonoverlapping(
+                        raw_ptr as *const u8,
+                        new_ptr as *mut u8,
+                        copy_size,
+                    )
+                };
 
                 // Free old block with original free
                 if let Ok(original_free) = FREE_HOOK.original() {
@@ -103,8 +132,18 @@ pub unsafe extern "C" fn hook_recalloc(
                 let old_size = unsafe { original_msize(raw_ptr) };
                 if old_size > 0 {
                     // Copy min(old_size, new_size) bytes
-                    let copy_size = if old_size < new_size { old_size } else { new_size };
-                    unsafe { std::ptr::copy_nonoverlapping(raw_ptr as *const u8, new_ptr as *mut u8, copy_size) };
+                    let copy_size = if old_size < new_size {
+                        old_size
+                    } else {
+                        new_size
+                    };
+                    unsafe {
+                        std::ptr::copy_nonoverlapping(
+                            raw_ptr as *const u8,
+                            new_ptr as *mut u8,
+                            copy_size,
+                        )
+                    };
                 }
                 //log::debug!("_recalloc({:p}, {}, {}) -> {:p} [mixed: old_size={}]", raw_ptr, count, size, new_ptr, old_size);
             } else {
@@ -169,56 +208,49 @@ pub unsafe extern "C" fn hook_free(raw_ptr: *mut c_void) {
             //log::debug!("free({:p}) [original]", raw_ptr);
             unsafe { original_free(raw_ptr) }
         } else {
-            log::warn!("free({:p}) [no fallback available, potential leak]", raw_ptr);
+            log::warn!(
+                "free({:p}) [no fallback available, potential leak]",
+                raw_ptr
+            );
         }
     }
 }
 
-// Global hook containers
-static MALLOC_HOOK: LazyLock<IatHookContainer<MallocFn>> = LazyLock::new(IatHookContainer::new);
-static CALLOC_HOOK: LazyLock<IatHookContainer<CallocFn>> = LazyLock::new(IatHookContainer::new);
-static REALLOC_HOOK: LazyLock<IatHookContainer<ReallocFn>> = LazyLock::new(IatHookContainer::new);
-static RECALLOC_HOOK: LazyLock<IatHookContainer<RecallocFn>> = LazyLock::new(IatHookContainer::new);
-static MSIZE_HOOK: LazyLock<IatHookContainer<MsizeFn>> = LazyLock::new(IatHookContainer::new);
-static FREE_HOOK: LazyLock<IatHookContainer<FreeFn>> = LazyLock::new(IatHookContainer::new);
-
 /// Install memory allocation hooks targeting NVSE runtime
-pub fn install_memory_hooks() -> anyhow::Result<()> {
+pub fn install_crt_hooks() -> anyhow::Result<()> {
     let module_base = get_module_handle_a(None)?.as_ptr();
 
-    // Hook UCRT functions from api-ms-win-crt-heap-l1-1-0.dll
+    log::info!("Initializing IAT CRT hooks...");
 
-    // Install malloc hook
-    (unsafe { MALLOC_HOOK.init("malloc", module_base, None, "malloc", hook_malloc) })?;
+    unsafe {
+        // IAT Hooks
+        MALLOC_HOOK.init("malloc", module_base, None, "malloc", hook_malloc)?;
+        CALLOC_HOOK.init("calloc", module_base, None, "calloc", hook_calloc)?;
+        REALLOC_HOOK.init("realloc", module_base, None, "realloc", hook_realloc)?;
+        RECALLOC_HOOK.init("_recalloc", module_base, None, "_recalloc", hook_recalloc)?;
+        FREE_HOOK.init("free", module_base, None, "free", hook_free)?;
+        MSIZE_HOOK.init("_msize", module_base, None, "_msize", hook_msize)?;
+
+    }
+
+    log::info!("CRT hooks initialized!");
+
     MALLOC_HOOK.enable()?;
-    log::info!("Hooked malloc");
+    log::info!("[IAT] Hooked malloc");
 
-    // Install calloc hook
-    (unsafe { CALLOC_HOOK.init("calloc", module_base, None, "calloc", hook_calloc) })?;
     CALLOC_HOOK.enable()?;
-    log::info!("Hooked calloc");
+    log::info!("[IAT] Hooked calloc");
 
-    // Install realloc hook
-    (unsafe { REALLOC_HOOK.init("realloc", module_base, None, "realloc", hook_realloc) })?;
     REALLOC_HOOK.enable()?;
-    log::info!("Hooked realloc");
+    log::info!("[IAT] Hooked realloc");
 
-    // Install recalloc hook
-    (unsafe { RECALLOC_HOOK.init("_recalloc", module_base, None, "_recalloc", hook_recalloc) })?;
     RECALLOC_HOOK.enable()?;
-    log::info!("Hooked _recalloc");
+    log::info!("[IAT] Hooked _recalloc");
 
-    // Install free hook
-    (unsafe { FREE_HOOK.init("free", module_base, None, "free", hook_free) })?;
     FREE_HOOK.enable()?;
-    log::info!("Hooked free");
-
-    // Install msize hook (needed for realloc/recalloc to work with mixed allocators)
-    (unsafe { MSIZE_HOOK.init("_msize", module_base, None, "_msize", hook_msize) })?;
-    MSIZE_HOOK.enable()?;
-    log::info!("Hooked _msize");
-
-    log::info!("Successfully installed all memory allocation hooks");
+    log::info!("[IAT] Hooked free");
+    
+    log::info!("[IAT] CRT hooks enabled!");
 
     Ok(())
 }

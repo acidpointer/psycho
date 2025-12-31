@@ -1,5 +1,6 @@
 use crate::ffi::fnptr::*;
 use crate::hook::traits::Hook;
+use crate::os::windows::hook::iat::IatHookResult;
 use crate::os::windows::memory::validate_memory_access;
 use crate::os::windows::winapi::*;
 use core::fmt;
@@ -360,5 +361,103 @@ impl<F: Copy + 'static> ScopedInlineHook<F> {
 impl<F: Copy + 'static> Drop for ScopedInlineHook<F> {
     fn drop(&mut self) {
         let _ = self.inner.disable();
+    }
+}
+
+
+/// Container for InlineHook<T>
+///
+/// Common use-case: static variables with deffered initialization.
+pub struct InlineHookContainer<T: Copy + 'static> {
+    hook: RwLock<Option<InlineHook<T>>>,
+}
+
+// Safety: synchronized with inner RwLock
+unsafe impl<T: Copy + 'static> Send for InlineHookContainer<T> {}
+
+// Safety: synchronized with inner RwLock
+unsafe impl<T: Copy + 'static> Sync for InlineHookContainer<T> {}
+
+impl<T: Copy + 'static> InlineHookContainer<T> {
+    
+    pub fn new() -> Self {
+        Self {
+            hook: RwLock::new(None),
+        }
+    }
+    
+    pub unsafe fn init(&self, name: &str, target_ptr: *mut c_void, detour_fn_ptr: T) -> InlineHookResult<()> {
+        let mut hook_lock = self.hook.write();
+
+        match hook_lock.as_mut() {
+            Some(_hook) => {
+                Err(InlineHookError::HookContainerInitialized)
+            },
+
+            None => {
+                let inline_hook = InlineHook::new(name, target_ptr, detour_fn_ptr)?;
+
+                let _ = hook_lock.insert(inline_hook);
+
+                log::debug!("Inline hook '{}' initialized without errors!", name);
+
+                Ok(())
+            }
+        }
+    }
+
+    pub fn enable(&self) -> InlineHookResult<()> {
+        let mut hook_lock = self.hook.write();
+
+        match hook_lock.as_mut() {
+            Some(hook) => {
+                log::debug!("Enabling inline hook '{}'...", hook.name);
+
+                hook.enable()?;
+
+                log::info!("Inline hook '{}' enabled without errors!", hook.name);
+                
+        
+                Ok(())
+            },
+
+            None => {
+                Err(InlineHookError::HookContainerNotInitialized)
+            }
+        }
+    }
+
+    pub fn disable(&self) -> InlineHookResult<()> {
+        let mut hook_lock = self.hook.write();
+
+        match hook_lock.as_mut() {
+            Some(hook) => {
+                log::debug!("Disabling inline hook '{}'...", hook.name);
+
+                hook.disable()?;
+
+                log::info!("Inline hook '{}' disabled without errors!", hook.name);
+        
+                Ok(())
+            },
+
+            None => {
+                Err(InlineHookError::HookContainerNotInitialized)
+            }
+        }
+    }
+
+    pub fn original(&self) -> InlineHookResult<T> {
+        let hook_lock = self.hook.write();
+
+        match hook_lock.as_ref() {
+            Some(hook) => {
+                Ok(hook.original()?)
+            },
+
+            None => {
+                Err(InlineHookError::HookContainerNotInitialized)
+            }
+        }
     }
 }

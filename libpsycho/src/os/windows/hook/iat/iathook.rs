@@ -45,7 +45,8 @@ impl<F: Copy + 'static> IatHook<F> {
         iat_entry_info: crate::os::windows::pe::IatEntry,
         detour: F,
     ) -> IatHookResult<Self> {
-        let module_base = NonNull::new(iat_entry_info.module_base).ok_or(IatHookError::ModuleBaseNull)?;
+        let module_base =
+            NonNull::new(iat_entry_info.module_base).ok_or(IatHookError::ModuleBaseNull)?;
 
         let detour_fn = unsafe { FnPtr::from_fn(detour) }?;
         let library_name = Some(iat_entry_info.library_name.clone());
@@ -216,22 +217,31 @@ impl<T: Copy + 'static> IatHookContainer<T> {
         function_name: &str,
         detour: T,
     ) -> IatHookResult<()> {
-        let name_str: String = name.into();
-        let library_name_opt = library_name.map(|s| s.to_string());
-        let iat_entries = unsafe {
-            find_iat_entry(module_base, library_name_opt, function_name.to_string())?
-        };
-
-        log::info!("Found {} IAT entries for '{}'", iat_entries.len(), function_name);
+        log::debug!("Acquiring write lock for hooks container");
 
         let mut hooks = self.hooks.write();
+        log::debug!("Write lock acquired");
+
+        let name_str: String = name.into();
+        let library_name_opt = library_name.map(|s| s.to_string());
+        let iat_entries =
+            unsafe { find_iat_entry(module_base, library_name_opt, function_name.to_string())? };
+
+        log::info!(
+            "Found {} IAT entries for '{}'",
+            iat_entries.len(),
+            function_name
+        );
 
         for (idx, entry) in iat_entries.into_iter().enumerate() {
+            log::debug!("Processing IAT entry {} for '{}'", idx, function_name);
             let hook_name = format!("{}_{}", name_str, idx);
             let hook = IatHook::from_iat_entry(hook_name, entry, detour)?;
             hooks.push(hook);
+            log::debug!("Hook {} created and added", idx);
         }
 
+        log::debug!("All hooks created for '{}'", function_name);
         Ok(())
     }
 

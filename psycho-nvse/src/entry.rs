@@ -1,15 +1,26 @@
 use std::sync::Once;
 
 use libnvse::{NVSEInterface, PluginInfo};
-use libpsycho::{common::exe_version::ExeVersion, logger::Logger, os::windows::{types::LPVOID, winapi::alloc_console}};
-use windows::{Win32::{Foundation::HINSTANCE, System::SystemServices::{DLL_PROCESS_ATTACH, DLL_PROCESS_DETACH, DLL_THREAD_ATTACH, DLL_THREAD_DETACH}}, core::BOOL};
+use libpsycho::{
+    common::exe_version::ExeVersion,
+    logger::Logger,
+    os::windows::{types::LPVOID, winapi::alloc_console},
+};
+use windows::{
+    Win32::{
+        Foundation::HINSTANCE,
+        System::SystemServices::{
+            DLL_PROCESS_ATTACH, DLL_PROCESS_DETACH, DLL_THREAD_ATTACH, DLL_THREAD_DETACH,
+        },
+    },
+    core::BOOL,
+};
 
-use crate::{hooks::memory::install_memory_hooks, plugininfo};
+use crate::{mods::memory::{install_crt_hooks, install_crt_inline_hooks}, plugininfo};
 
 #[unsafe(no_mangle)]
 #[allow(non_snake_case)]
 pub extern "system" fn DllMain(hmodule: HINSTANCE, reason: u32, _reserved: LPVOID) -> BOOL {
-    
     static LOGGER_INIT: Once = Once::new();
 
     LOGGER_INIT.call_once(|| {
@@ -75,10 +86,9 @@ pub unsafe extern "C" fn NVSEPlugin_Query(
     log::info!("NVSEPlugin_Query called! NVSEInterface address: {:p}", nvse);
     log::info!("NVSE version: {}", nvse_version);
     log::info!("Runtime version: {}", runtime_version);
-    
+
     info.name = plugininfo::PLUGIN_NAME.as_ptr();
     info.version = plugininfo::PLUGIN_VERSION;
-
 
     true.into()
 }
@@ -95,7 +105,9 @@ pub unsafe extern "C" fn NVSEPlugin_Load(nvse: *const NVSEInterface) -> BOOL {
     // Business logic starts here
 
     match start() {
-        Ok(_) => { log::warn!("Plugin loaded without errors!") }
+        Ok(_) => {
+            log::warn!("Plugin loaded without errors!")
+        }
         Err(err) => {
             log::error!("Error in plugin load: {:?}", err);
         }
@@ -104,9 +116,17 @@ pub unsafe extern "C" fn NVSEPlugin_Load(nvse: *const NVSEInterface) -> BOOL {
     true.into()
 }
 
-
-pub fn start() -> anyhow::Result<()> {
-    install_memory_hooks()?;
+/// Main function which executes when plugin ready
+/// 
+/// This function must return result.
+/// 
+/// # Safety
+/// Developer responsible to make this function free of hidded panics,
+/// or silent errors. Result MUST be propagated.
+/// Usage of .expect or .unwrap strongly not recommended!
+fn start() -> anyhow::Result<()> {
+    //install_crt_hooks()?;
+    install_crt_inline_hooks()?;
 
     Ok(())
 }

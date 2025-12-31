@@ -56,7 +56,13 @@ pub enum InlineHookError {
     MemoryError(#[from] MemoryError),
 
     #[error("Disassembler error: {0}")]
-    DisasmError(#[from] DisasmError)
+    DisasmError(#[from] DisasmError),
+
+    #[error("Inline hook container already initialized")]
+    HookContainerInitialized,
+
+    #[error("Inline hook cotainer not initialized")]
+    HookContainerNotInitialized,
 }
 
 #[derive(Debug, Error)]
