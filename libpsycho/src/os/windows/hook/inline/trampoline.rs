@@ -88,10 +88,17 @@ impl Trampoline {
             ));
         }
 
-        // Calculate return address after the hook jump
-        let return_address = unsafe { target_ptr.add(jump_size) };
+        // Calculate return address after the stolen bytes
+        // We need to return to the instruction AFTER all the bytes we stole, not after the jump
+        let stolen_bytes_len = disasm.get_stolen_bytes_len();
+        let return_address = unsafe { target_ptr.add(stolen_bytes_len) };
 
-        log::trace!("Return address after hook jmp: {:p}", return_address);
+        log::trace!(
+            "Return address: target={:p} + stolen_bytes={} = {:p}",
+            target_ptr,
+            stolen_bytes_len,
+            return_address
+        );
 
         let jump_back_offset = unsafe { trampoline_ptr.add(relocated_bytes.len()) };
 

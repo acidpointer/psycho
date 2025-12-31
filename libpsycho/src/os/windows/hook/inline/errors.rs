@@ -99,4 +99,7 @@ pub enum DisasmError {
 
     #[error("Jump verification failed! Expected target: {0:X}, actual: {1:X}")]
     JumpVerificationFailed(usize, usize),
+
+    #[error("Unsupported instruction pattern: {0}")]
+    UnsupportedInstruction(String),
 }

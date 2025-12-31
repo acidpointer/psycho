@@ -47,11 +47,19 @@ impl<F: Copy + 'static> InlineHook<F> {
         target_ptr: *mut c_void,
         detour_fn_ptr: F,
     ) -> InlineHookResult<Self> {
+        let name = name.into();
         let target_ptr = NonNull::new(target_ptr).ok_or(InlineHookError::TargetIsNull)?;
 
         let detour_fn = unsafe { FnPtr::from_fn(detour_fn_ptr) }?;
 
         let detour_ptr = detour_fn.as_raw_ptr();
+
+        log::debug!(
+            "Creating inline hook '{}': target={:p}, detour={:p}",
+            &name,
+            target_ptr.as_ptr(),
+            detour_ptr
+        );
 
         // Validate detour memory
         validate_memory_access(detour_ptr)?;
@@ -62,7 +70,7 @@ impl<F: Copy + 'static> InlineHook<F> {
         let original_fn = unsafe { FnPtr::from_raw(trampoline.get_ptr()) }?;
 
         let hook = Self {
-            name: name.into(),
+            name,
             target_ptr,
             detour_fn,
             trampoline,
@@ -134,6 +142,20 @@ impl<F: Copy + 'static> InlineHook<F> {
 
         // Ensure writes are complete
         std::sync::atomic::fence(Ordering::Release);
+
+        // Verify the write by reading back the bytes
+        let written_bytes = unsafe {
+            std::slice::from_raw_parts(self.target_ptr.as_ptr() as *const u8, jump_bytes.len())
+        };
+        log::trace!("Expected jump bytes: {:02X?}", &jump_bytes);
+        log::trace!("Actually written bytes: {:02X?}", written_bytes);
+
+        if written_bytes != jump_bytes.as_slice() {
+            log::error!("Memory write verification failed! Bytes mismatch!");
+            return Err(InlineHookError::EncodingError(
+                "Written bytes don't match expected jump bytes".to_string()
+            ));
+        }
 
         flush_instructions_cache(self.target_ptr.as_ptr(), jump_bytes.len())?;
 

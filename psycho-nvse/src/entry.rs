@@ -23,6 +23,9 @@ use crate::{mods::memory::{install_crt_hooks, install_crt_inline_hooks}, plugini
 pub extern "system" fn DllMain(hmodule: HINSTANCE, reason: u32, _reserved: LPVOID) -> BOOL {
     static LOGGER_INIT: Once = Once::new();
 
+    static CRT_INLINE_HOOKS_INIT: Once = Once::new();
+    static CRT_IAT_HOOKS_INIT: Once = Once::new();
+
     LOGGER_INIT.call_once(|| {
         // Allocate a console window for the game process
         let _ = alloc_console();
@@ -40,6 +43,33 @@ pub extern "system" fn DllMain(hmodule: HINSTANCE, reason: u32, _reserved: LPVOI
             log::info!("Process attach - initializing");
 
             log::info!("(DllMain) HMODULE: {:p}", hmodule.0);
+
+            CRT_IAT_HOOKS_INIT.call_once(|| {
+                match install_crt_hooks() {
+                    Ok(_) => {
+                        log::info!("IAT CRT hooks installed");
+                    },
+
+                    Err(err) => {
+                        log::error!("IAT CRT hooks install error: {:?}", err);
+                    }
+                }
+            });
+
+            // CRT Inline hooks must be installed as earliest as possible,
+            // otherwise we will get game crash
+            CRT_INLINE_HOOKS_INIT.call_once(|| {
+                match install_crt_inline_hooks() {
+                    Ok(_) => {
+                        log::info!("Inline CRT hooks installed");
+                    },
+
+                    Err(err) => {
+                        log::error!("Inline CRT hooks install error: {:?}", err);
+                    },
+                }
+            });
+
 
             true
         }
@@ -125,8 +155,7 @@ pub unsafe extern "C" fn NVSEPlugin_Load(nvse: *const NVSEInterface) -> BOOL {
 /// or silent errors. Result MUST be propagated.
 /// Usage of .expect or .unwrap strongly not recommended!
 fn start() -> anyhow::Result<()> {
-    //install_crt_hooks()?;
-    install_crt_inline_hooks()?;
-
+    log::info!("start() called, plugin fully loaded and ready!");
+    
     Ok(())
 }

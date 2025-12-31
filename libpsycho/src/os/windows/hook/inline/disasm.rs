@@ -227,17 +227,38 @@ impl Disasm {
                 return Err(DisasmError::InvalidInstruction);
             }
 
-            // If we find any control flow before we have enough
-            // bytes for our JMP, we must abort.
+            // Log detailed instruction information for debugging
+            log::trace!(
+                "Stolen instruction at 0x{:X}: mnemonic={:?}, len={}, flow_control={:?}",
+                instr.ip(),
+                instr.inner().mnemonic(),
+                instr.len(),
+                instr.inner().flow_control()
+            );
+
+            // If we find certain control flow instructions, we cannot safely hook.
+            // - Returns/Unconditional Jumps: Function ends before we have enough bytes
+            // - Loops: Complex control flow that's difficult to relocate correctly
+            // Note: CALL and conditional branches CAN be relocated by BlockEncoder
             if instr.is_return() || instr.is_unconditional_jump() || instr.is_loop() {
+                log::error!(
+                    "Cannot hook: found terminating instruction at 0x{:X}: {:?}",
+                    instr.ip(),
+                    instr.inner().mnemonic()
+                );
                 return Err(DisasmError::ShortTarget);
             }
 
-            // We need to log that we found RIP-relative instruction.
-            // This case should be handled by BlockEncoder in range +- 2Gb
-            // Otherwise, it will return an error.
-            if let Some(_target) = instr.rip_operand_target() {
-                log::debug!("Found RIP-relative instruction at 0x{:X}", instr.ip());
+            // Check for IP-relative memory operands (RIP on x64, EIP on x86).
+            // On x64, these are common and BlockEncoder can handle them if trampoline is within ±2GB.
+            // On x86, these are rare but also relocatable within the 4GB address space.
+            // We log them for debugging but allow BlockEncoder to handle the relocation.
+            if let Some(target) = instr.rip_operand_target() {
+                log::debug!(
+                    "Found RIP-relative instruction at 0x{:X} targeting 0x{:X}",
+                    instr.ip(),
+                    target
+                );
 
                 instr.is_rip_relative = true;
 
@@ -369,6 +390,11 @@ impl Disasm {
 
     /// Relocate instructions from `target_ptr` to pre-allocated trampoline memory
     ///
+    /// This uses manual instruction relocation similar to retour-rs approach:
+    /// - CALL instructions are manually regenerated with correct displacement
+    /// - Conditional jumps (Jcc) are handled specially (copied if internal, expanded if external)
+    /// - Other instructions use BlockEncoder for automatic relocation
+    ///
     /// # Arguments
     /// - `trampoline_memory_ptr` - Pointer to allocated trampoline memory
     ///
@@ -380,6 +406,8 @@ impl Disasm {
         &self,
         trampoline_memory_ptr: *mut c_void,
     ) -> DisasmResult<Vec<u8>> {
+        use super::thunk;
+
         let instr_len = self.stolen_instructions.len();
 
         log::debug!(
@@ -395,41 +423,168 @@ impl Disasm {
             ));
         }
 
-        let mut relocated = Vec::with_capacity(instr_len);
-        let mut current_offset = 0u64;
+        // Track internal branch targets
+        let mut internal_branch_target: Option<u64> = None;
 
-        for disasm_instr in &self.stolen_instructions {
-            let mut new_instr = *disasm_instr.inner();
+        // Calculate the range of stolen bytes in original code
+        let prolog_start = self.target_ptr as u64;
+        let prolog_end = prolog_start + (self.stolen_bytes_len as u64);
 
-            new_instr.set_ip((trampoline_memory_ptr as u64) + current_offset);
+        // Build relocated code byte-by-byte
+        let mut relocated_bytes = Vec::with_capacity(self.stolen_bytes_len + 32);
+        let mut original_offset = 0usize;
 
-            // Note: BlockEncoder will handle most relocations, but we've already
-            // rejected RIP-relative instructions in is_relocatable_instruction
-            relocated.push(new_instr);
-            current_offset += disasm_instr.len() as u64;
-        }
+        for (idx, disasm_instr) in self.stolen_instructions.iter().enumerate() {
+            let instr = disasm_instr.inner();
+            let instr_len = instr.len();
 
-        let block = InstructionBlock::new(&relocated, trampoline_memory_ptr as u64);
+            // Current address in trampoline where this instruction will be placed
+            let trampoline_instr_addr = (trampoline_memory_ptr as usize) + relocated_bytes.len();
 
-        // Use RETURN_NEW_INSTRUCTION_OFFSETS for better debugging
-        let encoded = BlockEncoder::encode(
-            BITNESS,
-            block,
-            BlockEncoderOptions::RETURN_NEW_INSTRUCTION_OFFSETS,
-        )?;
+            // Original instruction bytes
+            let instr_bytes = &self.stolen_bytes[original_offset..original_offset + instr_len];
 
-        if encoded.code_buffer.is_empty() {
-            return Err(DisasmError::EncodingError(
-                "Empty encoding result".to_string(),
-            ));
+            log::trace!(
+                "Processing instruction #{}: {:?} at original 0x{:X}, trampoline 0x{:X}",
+                idx,
+                instr.mnemonic(),
+                instr.ip(),
+                trampoline_instr_addr
+            );
+
+            // Check if this is a CALL instruction
+            if instr.is_call_near()
+                && let Some(target_addr) = disasm_instr.relative_branch_target() {
+                    log::debug!(
+                        "Found CALL instruction at 0x{:X} targeting 0x{:X}, manually relocating",
+                        instr.ip(),
+                        target_addr
+                    );
+
+                    // Generate new CALL instruction with correct displacement
+                    let call_bytes = thunk::generate_call_rel32(
+                        trampoline_instr_addr,
+                        target_addr as usize,
+                    );
+
+                    relocated_bytes.extend_from_slice(&call_bytes);
+                    original_offset += instr_len;
+                    continue;
+                }
+
+            // Check if this is a conditional jump (Jcc)
+            if let Some(target_addr) = disasm_instr.relative_branch_target() {
+                // Check if it's a conditional jump (not unconditional JMP or CALL which we handle elsewhere)
+                if instr.is_jcc_short_or_near() && !instr.is_jmp_short_or_near() {
+                    // Check if jump target is within the stolen prolog (internal branch)
+                    let is_internal = target_addr >= prolog_start && target_addr < prolog_end;
+
+                    if is_internal {
+                        log::debug!(
+                            "Found internal Jcc at 0x{:X} targeting 0x{:X} (within prolog), copying unchanged",
+                            instr.ip(),
+                            target_addr
+                        );
+
+                        // Track this as an internal branch target
+                        internal_branch_target = Some(target_addr);
+
+                        // For internal branches, copy the instruction unchanged
+                        // The relative offset is still valid within the copied prolog
+                        relocated_bytes.extend_from_slice(instr_bytes);
+                        original_offset += instr_len;
+                        continue;
+                    } else {
+                        log::debug!(
+                            "Found external Jcc at 0x{:X} targeting 0x{:X}, expanding to long form",
+                            instr.ip(),
+                            target_addr
+                        );
+
+                        // Extract condition code from original instruction
+                        let condition = thunk::extract_jcc_condition(instr_bytes);
+
+                        // Generate long-form conditional jump (6 bytes)
+                        let jcc_bytes = thunk::generate_jcc_rel32(
+                            trampoline_instr_addr,
+                            target_addr as usize,
+                            condition,
+                        );
+
+                        // CRITICAL: Check if size changed
+                        if jcc_bytes.len() != instr_len {
+                            // Check if we're inside an internal branch
+                            if let Some(branch_target) = internal_branch_target
+                                && instr.ip() < branch_target {
+                                    log::error!(
+                                        "Size change detected: instruction at 0x{:X} changed from {} to {} bytes, but is inside internal branch targeting 0x{:X}",
+                                        instr.ip(),
+                                        instr_len,
+                                        jcc_bytes.len(),
+                                        branch_target
+                                    );
+                                    return Err(DisasmError::UnsupportedInstruction(
+                                        "Cannot hook: conditional jump size change would break internal branch".to_string()
+                                    ));
+                                }
+                        }
+
+                        relocated_bytes.extend_from_slice(&jcc_bytes);
+                        original_offset += instr_len;
+                        continue;
+                    }
+                }
+            }
+
+            // For all other instructions, use BlockEncoder for automatic relocation
+            // This handles: regular instructions, RIP-relative memory operands, etc.
+            let mut new_instr = *instr;
+            new_instr.set_ip(trampoline_instr_addr as u64);
+
+            let instr_array = [new_instr];
+            let encoded = {
+                let block = InstructionBlock::new(&instr_array, trampoline_instr_addr as u64);
+                BlockEncoder::encode(
+                    BITNESS,
+                    block,
+                    BlockEncoderOptions::NONE,
+                )?
+            };
+
+            if encoded.code_buffer.is_empty() {
+                return Err(DisasmError::EncodingError(
+                    format!("BlockEncoder produced empty result for instruction at 0x{:X}", instr.ip())
+                ));
+            }
+
+            log::trace!(
+                "BlockEncoder relocated instruction from {} bytes to {} bytes",
+                instr_len,
+                encoded.code_buffer.len()
+            );
+
+            relocated_bytes.extend_from_slice(&encoded.code_buffer);
+            original_offset += instr_len;
         }
 
         log::debug!(
-            "Successfully relocated instructions to {} bytes",
-            encoded.code_buffer.len()
+            "Successfully relocated {} instructions: {} bytes -> {} bytes",
+            instr_len,
+            self.stolen_bytes_len,
+            relocated_bytes.len()
         );
 
-        Ok(encoded.code_buffer)
+        // Log the relocated bytes for debugging
+        log::trace!(
+            "Original bytes: {:02X?}",
+            self.stolen_bytes
+        );
+        log::trace!(
+            "Relocated bytes: {:02X?}",
+            &relocated_bytes
+        );
+
+        Ok(relocated_bytes)
     }
 
     /// Returns minimum needed amount of bytes for Jump instruction.
@@ -562,7 +717,7 @@ pub(super) fn create_jump_bytes(from: *mut c_void, to: *mut c_void) -> DisasmRes
         instr.set_ip(from_addr);
 
         let mut encoder = Encoder::new(BITNESS);
-        let result = encoder
+        let _result = encoder
             .encode(&instr, from_addr)
             .map_err(|e| DisasmError::EncodingError(format!("{:?}", e)))?;
 
