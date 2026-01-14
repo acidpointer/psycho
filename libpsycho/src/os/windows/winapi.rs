@@ -19,8 +19,9 @@ use windows::Win32::System::LibraryLoader::{
     GetModuleHandleA, GetModuleHandleW, GetProcAddress, LoadLibraryA,
 };
 use windows::Win32::System::Memory::{
-    MEM_COMMIT, MEM_RELEASE, MEM_RESERVE, MEMORY_BASIC_INFORMATION, PAGE_PROTECTION_FLAGS,
-    VIRTUAL_ALLOCATION_TYPE, VIRTUAL_FREE_TYPE, VirtualAlloc, VirtualFree, VirtualProtect,
+    MEM_COMMIT, MEM_RELEASE, MEM_RESERVE, MEMORY_BASIC_INFORMATION, PAGE_EXECUTE_READWRITE,
+    PAGE_PROTECTION_FLAGS, VIRTUAL_ALLOCATION_TYPE, VIRTUAL_FREE_TYPE, VirtualAlloc, VirtualFree,
+    VirtualProtect,
 };
 use windows::Win32::System::ProcessStatus::{
     EnumProcessModules, GetModuleBaseNameA, GetModuleInformation, MODULEINFO,
@@ -58,6 +59,15 @@ pub enum WinapiError {
 
     #[error("Interior nul bytes found: {0}")]
     NulError(#[from] NulError),
+
+    #[error(
+        "Target address 0x{target_addr:x} is out of range from source 0x{source_addr:x} (distance: {distance}). Relative CALL is limited to ±2GB on x86_64."
+    )]
+    CallTargetOutOfRange {
+        source_addr: usize,
+        target_addr: usize,
+        distance: isize,
+    },
 }
 
 pub type WinapiResult<T> = std::result::Result<T, WinapiError>;
@@ -841,6 +851,151 @@ pub fn set_up_windows_color_terminal() -> WinapiResult<()> {
             SetConsoleMode(stdout, mode | ENABLE_VIRTUAL_TERMINAL_PROCESSING)?;
         }
     }
+
+    Ok(())
+}
+
+/// Safe write value to address
+///
+/// Uses unaligned write to support any address alignment.
+#[allow(clippy::not_unsafe_ptr_arg_deref)]
+pub fn safe_write<T: Copy>(ptr: *mut c_void, data: T) -> WinapiResult<()> {
+    if ptr.is_null() {
+        return Err(WinapiError::InputNullPtr());
+    }
+
+    unsafe {
+        with_virtual_protect(
+            ptr,
+            PAGE_EXECUTE_READWRITE,
+            std::mem::size_of::<T>(),
+            || {
+                std::ptr::write_unaligned(ptr as *mut T, data);
+            },
+        )
+    }?;
+
+    Ok(())
+}
+
+/// Write a 32-bit value to an address
+///
+/// Uses unaligned write to support addresses that aren't 4-byte aligned.
+/// This is necessary when patching call instructions where the offset field
+/// may not be properly aligned (e.g., at address + 1).
+pub fn safe_write_32(ptr: *mut c_void, data: u32) -> WinapiResult<()> {
+    safe_write(ptr, data)
+}
+
+/// Write a 16-bit value to an address
+///
+/// Uses unaligned write to support addresses that aren't 2-byte aligned.
+/// This is important when writing to arbitrary memory locations that may not
+/// be properly aligned for u16 access.
+pub fn safe_write_16(ptr: *mut c_void, data: u16) -> WinapiResult<()> {
+    safe_write(ptr, data)
+}
+
+/// Write an 8-bit value to an address
+///
+/// Note: u8 writes don't have alignment requirements, but we use the safe_write
+/// wrapper for consistency and to handle memory protection.
+pub fn safe_write_8(ptr: *mut c_void, data: u8) -> WinapiResult<()> {
+    safe_write(ptr, data)
+}
+
+/// Patch memory region with NOP instructions (0x90)
+///
+/// Fills a memory region with NOP opcodes, commonly used to disable code.
+/// Uses unaligned writes for safety, though single-byte writes don't strictly
+/// require alignment.
+///
+/// # Arguments
+/// * `ptr` - Start address of the memory region to patch
+/// * `size` - Number of bytes to fill with NOPs
+///
+/// # Safety
+/// Caller must use correct memory range with valid pointer and size
+pub unsafe fn patch_memory_nop(ptr: *mut c_void, size: usize) -> WinapiResult<()> {
+    unsafe {
+        with_virtual_protect(ptr, PAGE_EXECUTE_READWRITE, size, || {
+            for i in 0..size {
+                let target_ptr = (ptr as *mut u8).wrapping_add(i);
+                // 0x90 is opcode for NOP instruction
+                std::ptr::write_unaligned(target_ptr, 0x90);
+            }
+        })
+    }?;
+
+    flush_instructions_cache(ptr, size)?;
+
+    Ok(())
+}
+
+/// Patches a relative CALL instruction to redirect to a new target address.
+///
+/// This function replaces the 4-byte offset in a CALL instruction (opcode 0xE8)
+/// with a new offset that points to the specified function.
+///
+/// # Safety
+/// Caller must be carefull with this function. Pointers must be valid and accesible.
+///
+/// # Memory Alignment
+///
+/// Uses `safe_write_32` which handles unaligned writes via `std::ptr::write_unaligned`.
+/// This is critical because the offset field at `jump_src + 1` is often unaligned.
+///
+/// In Rust, direct pointer dereference requires proper alignment:
+/// - `u32` must be at addresses divisible by 4 (ending in 0, 4, 8, C)
+///
+/// Example: When patching a CALL at 0x004742AC, the offset is at 0x004742AD (unaligned).
+/// Direct write `*(ptr as *mut u32) = value` would cause undefined behavior and crash.
+/// Solution: `std::ptr::write_unaligned(ptr as *mut u32, value)` works on any address.
+///
+/// # Arguments
+/// * `jump_src` - Pointer to the CALL instruction to patch
+/// * `func` - Pointer to the new function to call
+///
+/// # Platform Support
+/// - **x86**: Full address space accessible via relative calls
+/// - **x86_64**: Target must be within ±2GB of source (i32 range limitation)
+///
+/// # Errors
+/// Returns `WinapiError::CallTargetOutOfRange` if target is out of range on x86_64.
+///
+/// # Source
+/// Based on: https://github.com/WallSoGB/Fallout-zlibUpdate/blob/main/zlibUpdate/main.cpp#L26
+///
+pub unsafe fn replace_call(jump_src: *mut c_void, func: *mut c_void) -> WinapiResult<()> {
+    let jump_src_addr = jump_src as usize;
+    let jump_tgt_addr = func as usize;
+
+    // Calculate the address right after the CALL instruction (source + 5 bytes)
+    let next_instruction = jump_src_addr.wrapping_add(5);
+
+    // Calculate the signed distance from the end of the CALL to the target
+    let distance = jump_tgt_addr.wrapping_sub(next_instruction) as isize;
+
+    // On x86_64, verify the target is within ±2GB range (i32::MIN to i32::MAX)
+    // On x86, isize == i32 so this check always passes
+    #[cfg(target_arch = "x86_64")]
+    {
+        if distance < i32::MIN as isize || distance > i32::MAX as isize {
+            return Err(WinapiError::CallTargetOutOfRange {
+                source_addr: jump_src_addr,
+                target_addr: jump_tgt_addr,
+                distance,
+            });
+        }
+    }
+
+    // Cast to u32 - safe because:
+    // - On x86: isize is i32, always fits
+    // - On x86_64: validated above
+    let offset = distance as u32;
+
+    // Write the new offset at jump_src + 1 (skip the 0xE8 CALL opcode byte)
+    safe_write_32(unsafe { jump_src.add(1) }, offset)?;
 
     Ok(())
 }

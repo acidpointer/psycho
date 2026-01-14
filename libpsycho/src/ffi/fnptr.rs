@@ -85,6 +85,8 @@ impl<T: Copy + 'static> FnPtr<T> {
             return Err(FnPtrError::FunctionPtrIsNull);
         }
 
+        log::debug!("FnPtr created for function pointer: {:p}", ptr);
+
         Ok(Self {
             ptr: unsafe { NonNull::new_unchecked(ptr) },
             _phantom: PhantomData,

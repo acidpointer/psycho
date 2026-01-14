@@ -633,17 +633,18 @@ impl Logger {
                         let _ = file.write_all(msg.text.as_bytes());
                         let _ = file.flush(); // Immediate flush for crash safety
                     }
-                } else {
-                    idle_count = idle_count.saturating_add(1);
-
-                    if idle_count < 10 {
-                        thread::yield_now();
-                    } else if idle_count < 100 {
-                        thread::sleep(std::time::Duration::from_micros(10));
-                    } else {
-                        thread::sleep(std::time::Duration::from_millis(1));
-                    }
                 }
+                //  else {
+                //     idle_count = idle_count.saturating_add(1);
+
+                //     if idle_count < 10 {
+                //         thread::yield_now();
+                //     } else if idle_count < 100 {
+                //         thread::sleep(std::time::Duration::from_micros(10));
+                //     } else {
+                //         thread::sleep(std::time::Duration::from_millis(1));
+                //     }
+                // }
             }
         });
 

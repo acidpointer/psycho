@@ -16,7 +16,13 @@ use windows::{
     core::BOOL,
 };
 
-use crate::{mods::memory::{install_crt_hooks, install_crt_inline_hooks}, plugininfo};
+use crate::{
+    mods::{
+        memory::{install_crt_hooks, install_crt_inline_hooks},
+        zlib::install_zlib_hooks,
+    },
+    plugininfo,
+};
 
 #[unsafe(no_mangle)]
 #[allow(non_snake_case)]
@@ -44,32 +50,27 @@ pub extern "system" fn DllMain(hmodule: HINSTANCE, reason: u32, _reserved: LPVOI
 
             log::info!("(DllMain) HMODULE: {:p}", hmodule.0);
 
-            CRT_IAT_HOOKS_INIT.call_once(|| {
-                match install_crt_hooks() {
-                    Ok(_) => {
-                        log::info!("IAT CRT hooks installed");
-                    },
+            CRT_IAT_HOOKS_INIT.call_once(|| match install_crt_hooks() {
+                Ok(_) => {
+                    log::info!("IAT CRT hooks installed");
+                }
 
-                    Err(err) => {
-                        log::error!("IAT CRT hooks install error: {:?}", err);
-                    }
+                Err(err) => {
+                    log::error!("IAT CRT hooks install error: {:?}", err);
                 }
             });
 
             // CRT Inline hooks must be installed as earliest as possible,
             // otherwise we will get game crash
-            CRT_INLINE_HOOKS_INIT.call_once(|| {
-                match install_crt_inline_hooks() {
-                    Ok(_) => {
-                        log::info!("Inline CRT hooks installed");
-                    },
+            CRT_INLINE_HOOKS_INIT.call_once(|| match install_crt_inline_hooks() {
+                Ok(_) => {
+                    log::info!("Inline CRT hooks installed");
+                }
 
-                    Err(err) => {
-                        log::error!("Inline CRT hooks install error: {:?}", err);
-                    },
+                Err(err) => {
+                    log::error!("Inline CRT hooks install error: {:?}", err);
                 }
             });
-
 
             true
         }
@@ -133,8 +134,7 @@ pub unsafe extern "C" fn NVSEPlugin_Load(nvse: *const NVSEInterface) -> BOOL {
     let nvse = unsafe { &*nvse };
 
     // Business logic starts here
-
-    match start() {
+    match start(nvse) {
         Ok(_) => {
             log::warn!("Plugin loaded without errors!")
         }
@@ -147,15 +147,17 @@ pub unsafe extern "C" fn NVSEPlugin_Load(nvse: *const NVSEInterface) -> BOOL {
 }
 
 /// Main function which executes when plugin ready
-/// 
+///
 /// This function must return result.
-/// 
+///
 /// # Safety
 /// Developer responsible to make this function free of hidded panics,
 /// or silent errors. Result MUST be propagated.
 /// Usage of .expect or .unwrap strongly not recommended!
-fn start() -> anyhow::Result<()> {
-    log::info!("start() called, plugin fully loaded and ready!");
-    
+fn start(nvse: &NVSEInterface) -> anyhow::Result<()> {
+    log::info!("start() called!");
+
+    install_zlib_hooks(nvse)?;
+
     Ok(())
 }
