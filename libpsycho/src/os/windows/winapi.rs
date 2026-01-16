@@ -999,3 +999,130 @@ pub unsafe fn replace_call(jump_src: *mut c_void, func: *mut c_void) -> WinapiRe
 
     Ok(())
 }
+
+/// Patch memory with a RET instruction (0xC3)
+///
+/// Replaces code at the given address with a single RET (return) instruction,
+/// effectively making the function return immediately.
+///
+/// # Arguments
+/// * `ptr` - Address to patch with RET instruction
+///
+/// # Safety
+/// Caller must ensure the pointer is valid and points to executable code.
+pub unsafe fn patch_ret(ptr: *mut c_void) -> WinapiResult<()> {
+    safe_write_8(ptr, 0xC3)?;
+    flush_instructions_cache(ptr, 1)?;
+    Ok(())
+}
+
+/// Patch memory with an unconditional JMP instruction (0xE9)
+///
+/// Completely replaces code at the source address with a 5-byte relative JMP
+/// instruction that redirects execution to the target function. This is different
+/// from inline hooking - it fully overwrites the original function without
+/// preserving any original instructions.
+///
+/// The JMP instruction format is:
+/// - Byte 0: 0xE9 (JMP opcode)
+/// - Bytes 1-4: signed 32-bit relative offset
+///
+/// The offset is calculated as: `target - (source + 5)`
+///
+/// # Arguments
+/// * `ptr` - Address to patch with JMP instruction (source)
+/// * `target` - Address to jump to (destination function)
+///
+/// # Platform Support
+/// - **x86**: Full address space accessible via relative jumps
+/// - **x86_64**: Target must be within ±2GB of source (i32 range limitation)
+///
+/// # Safety
+/// Caller must ensure:
+/// - Both pointers are valid and point to executable code
+/// - The source location has at least 5 bytes available to overwrite
+/// - Target is within valid jump range on x86_64
+///
+/// # Source
+/// Based on C++ Heap-Replacer implementation:
+/// https://github.com/iranrmrf/Heap-Replacer/blob/master/heap_replacer/main/util.h#L112-L118
+pub unsafe fn patch_jmp(ptr: *mut c_void, target: *mut c_void) -> WinapiResult<()> {
+    let jump_src_addr = ptr as usize;
+    let jump_tgt_addr = target as usize;
+
+    // Calculate the address right after the JMP instruction (source + 5 bytes)
+    let next_instruction = jump_src_addr.wrapping_add(5);
+
+    // Calculate the signed distance from the end of the JMP to the target
+    let distance = jump_tgt_addr.wrapping_sub(next_instruction) as isize;
+
+    // On x86_64, verify the target is within ±2GB range (i32::MIN to i32::MAX)
+    // On x86, isize == i32 so this check always passes
+    #[cfg(target_arch = "x86_64")]
+    {
+        if distance < i32::MIN as isize || distance > i32::MAX as isize {
+            return Err(WinapiError::CallTargetOutOfRange {
+                source_addr: jump_src_addr,
+                target_addr: jump_tgt_addr,
+                distance,
+            });
+        }
+    }
+
+    // Create JMP instruction bytes
+    let mut bytes = [0u8; 5];
+    bytes[0] = 0xE9; // JMP opcode
+
+    // Write the 32-bit relative offset in little-endian format
+    let offset = distance as i32;
+    bytes[1..5].copy_from_slice(&offset.to_le_bytes());
+
+    // Apply the patch using our existing patch_bytes wrapper
+    unsafe { patch_bytes(ptr, &bytes) }?;
+
+    Ok(())
+}
+
+/// Patch a CALL instruction (5 bytes) with NOPs
+///
+/// Replaces a 5-byte CALL instruction with NOP instructions (0x90),
+/// effectively disabling the function call.
+///
+/// # Arguments
+/// * `ptr` - Address of the CALL instruction to patch
+///
+/// # Safety
+/// Caller must ensure the pointer is valid and points to a CALL instruction.
+pub unsafe fn patch_nop_call(ptr: *mut c_void) -> WinapiResult<()> {
+    unsafe { patch_memory_nop(ptr, 5) }
+}
+
+/// Patch arbitrary bytes at a memory address
+///
+/// Writes arbitrary byte sequence to the specified address with proper
+/// memory protection handling and instruction cache flushing.
+///
+/// # Arguments
+/// * `ptr` - Address to patch
+/// * `bytes` - Slice of bytes to write
+///
+/// # Safety
+/// Caller must ensure the pointer and size are valid and the bytes represent
+/// valid code/data for that location.
+pub unsafe fn patch_bytes(ptr: *mut c_void, bytes: &[u8]) -> WinapiResult<()> {
+    if bytes.is_empty() {
+        return Err(WinapiError::ZeroSize());
+    }
+
+    unsafe {
+        with_virtual_protect(ptr, PAGE_EXECUTE_READWRITE, bytes.len(), || {
+            let dest = ptr as *mut u8;
+            for (i, &byte) in bytes.iter().enumerate() {
+                std::ptr::write_unaligned(dest.add(i), byte);
+            }
+        })
+    }?;
+
+    flush_instructions_cache(ptr, bytes.len())?;
+    Ok(())
+}
