@@ -1,6 +1,5 @@
 use crate::ffi::fnptr::*;
 use crate::hook::traits::Hook;
-use crate::os::windows::hook::iat::IatHookResult;
 use crate::os::windows::memory::validate_memory_access;
 use crate::os::windows::winapi::*;
 use core::fmt;
