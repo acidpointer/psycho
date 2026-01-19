@@ -170,6 +170,8 @@ pub unsafe extern "C" fn hook_free(raw_ptr: *mut c_void) {
 
 /// Install memory allocation hooks targeting NVSE runtime
 pub fn install_crt_hooks() -> anyhow::Result<()> {
+    super::configure_mimalloc();
+
     let module_base = get_module_handle_a(None)?.as_ptr();
 
     log::info!("Initializing IAT CRT hooks...");

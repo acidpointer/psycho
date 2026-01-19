@@ -6,6 +6,7 @@ use core::ffi::c_void;
 extern crate libc;
 
 pub mod process_info;
+pub mod heap;
 
 #[cfg(feature = "extended")]
 mod extended;

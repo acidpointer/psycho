@@ -1,3 +1,7 @@
+//! This set of patches heavily based on awesome project: https://github.com/iranrmrf/Heap-Replacer
+//! I heavily rely on reverse engineering work and re-use general approach.
+//! This project is source of all addresses and memory patches, applied here.
+
 use std::sync::LazyLock;
 
 use libc::c_void;
@@ -8,6 +12,10 @@ use libpsycho::os::windows::{
     types::{GameHeapAllocateFn, GameHeapFreeFn, GameHeapMsizeFn, GameHeapReallocateFn, SheapAllocFn, SheapFreeFn, SheapGetThreadLocalFn, SheapInitFixFn, SheapInitVarFn, SheapPurgeFn},
     winapi::{patch_bytes, patch_memory_nop, patch_nop_call, patch_ret},
 };
+
+// ======================================================================================================================
+// Addresses
+// ======================================================================================================================
 
 // Game Heap API addresses (Fallout New Vegas engine heap)
 // Source: https://github.com/iranrmrf/Heap-Replacer/blob/master/heap_replacer/main/heap_replacer.h
@@ -24,6 +32,10 @@ const SHEAP_ALLOC_ADDR: usize = 0x00AA54A0;
 const SHEAP_FREE_ADDR: usize = 0x00AA5610;
 const SHEAP_PURGE_ADDR: usize = 0x00AA5460;
 const SHEAP_GET_THREAD_LOCAL_ADDR: usize = 0x00AA42E0;
+
+// ======================================================================================================================
+// Statics
+// ======================================================================================================================
 
 // InlineHook containers for game heap functions
 pub static GAME_HEAP_ALLOCATE_HOOK: LazyLock<InlineHookContainer<GameHeapAllocateFn>> =
@@ -51,17 +63,12 @@ pub static SHEAP_PURGE_HOOK: LazyLock<InlineHookContainer<SheapPurgeFn>> =
 pub static SHEAP_GET_THREAD_LOCAL_HOOK: LazyLock<InlineHookContainer<SheapGetThreadLocalFn>> =
     LazyLock::new(InlineHookContainer::new);
 
-// Game Heap API replacement functions (Fallout New Vegas engine)
-// These functions use __fastcall convention where:
-// - 'self' (heap pointer) is passed in ECX
-// - 'edx' is passed in EDX (usually unused)
-// We completely replace the game's heap allocator with mimalloc
 
-/// Game heap allocation replacement
-///
-/// Replaces the game's heap allocator with mimalloc. Since we use patch_jmp,
-/// this completely overwrites the original function - there is no original to call.
-pub unsafe extern "fastcall" fn game_heap_allocate(
+// ======================================================================================================================
+// Game heap detours
+// ======================================================================================================================
+
+unsafe extern "fastcall" fn game_heap_allocate(
     _self: *mut c_void,
     _edx: *mut c_void,
     size: usize,
@@ -69,15 +76,7 @@ pub unsafe extern "fastcall" fn game_heap_allocate(
     unsafe { mi_malloc(size) }
 }
 
-/// Game heap reallocation replacement
-///
-/// Handles:
-/// - null pointer case (acts like malloc)
-/// - zero size case (acts like free, calling original for foreign pointers)
-/// - normal reallocation (calling original for foreign pointers)
-///
-/// CRITICAL: Uses InlineHook to call original function for foreign pointers.
-pub unsafe extern "fastcall" fn game_heap_reallocate(
+unsafe extern "fastcall" fn game_heap_reallocate(
     self_ptr: *mut c_void,
     edx: *mut c_void,
     addr: *mut c_void,
@@ -87,22 +86,22 @@ pub unsafe extern "fastcall" fn game_heap_reallocate(
         return unsafe { mi_malloc(size) };
     }
 
-    // Check if the pointer belongs to mimalloc
-    if unsafe { mi_is_in_heap_region(addr) } {
-        // Our pointer - use mimalloc realloc
+    let is_mimalloc = unsafe { mi_is_in_heap_region(addr) };
+    
+    if is_mimalloc {
         if size == 0 {
             unsafe { mi_free(addr) };
             return std::ptr::null_mut();
         }
+        
         return unsafe { mi_realloc(addr, size) };
     }
 
-    // Foreign pointer - call original game heap reallocate
     match GAME_HEAP_REALLOCATE_HOOK_1.original() {
         Ok(orig_realloc) => unsafe { orig_realloc(self_ptr, edx, addr, size) },
         Err(err) => {
             log::error!(
-                "Failed to call original game_heap_reallocate for {:p}: {:?}",
+                "[game_heap_reallocate] Failed to call original game_heap_reallocate for {:p}: {:?}",
                 addr,
                 err
             );
@@ -111,13 +110,7 @@ pub unsafe extern "fastcall" fn game_heap_reallocate(
     }
 }
 
-/// Game heap memory size query replacement
-///
-/// Returns the usable size of an allocated block.
-/// Returns 0 for null pointers.
-///
-/// CRITICAL: Uses InlineHook to call original function for foreign pointers.
-pub unsafe extern "fastcall" fn game_heap_msize(
+unsafe extern "fastcall" fn game_heap_msize(
     self_ptr: *mut c_void,
     edx: *mut c_void,
     addr: *mut c_void,
@@ -126,17 +119,15 @@ pub unsafe extern "fastcall" fn game_heap_msize(
         return 0;
     }
 
-    // Check if this pointer belongs to mimalloc
     if unsafe { mi_is_in_heap_region(addr) } {
         return unsafe { mi_usable_size(addr) };
     }
 
-    // Foreign pointer - call original game heap msize
     match GAME_HEAP_MSIZE_HOOK.original() {
         Ok(orig_msize) => unsafe { orig_msize(self_ptr, edx, addr) },
         Err(err) => {
             log::error!(
-                "Failed to call original game_heap_msize for {:p}: {:?}",
+                "[game_heap_msize] Failed to call original game_heap_msize for {:p}: {:?}",
                 addr,
                 err
             );
@@ -145,14 +136,7 @@ pub unsafe extern "fastcall" fn game_heap_msize(
     }
 }
 
-/// Game heap free replacement
-///
-/// Frees memory allocated by game_heap_allocate or game_heap_reallocate.
-/// Ignores null pointers (standard free behavior).
-///
-/// CRITICAL: Uses InlineHook to call original function for foreign pointers,
-/// preventing memory leaks while still using mimalloc for our allocations.
-pub unsafe extern "fastcall" fn game_heap_free(
+unsafe extern "fastcall" fn game_heap_free(
     self_ptr: *mut c_void,
     edx: *mut c_void,
     addr: *mut c_void,
@@ -161,27 +145,30 @@ pub unsafe extern "fastcall" fn game_heap_free(
         return;
     }
 
-    // Check if this pointer belongs to mimalloc
-    if unsafe { mi_is_in_heap_region(addr) } {
-        // Our pointer - free with mimalloc
+    let is_mimalloc = unsafe { mi_is_in_heap_region(addr) };
+    
+    if is_mimalloc {
         unsafe { mi_free(addr) };
         return;
     }
 
-    // Foreign pointer - call original game heap free
     match GAME_HEAP_FREE_HOOK.original() {
         Ok(orig_free) => {
             unsafe { orig_free(self_ptr, edx, addr) };
         }
         Err(err) => {
             log::error!(
-                "Failed to call original game_heap_free for {:p}: {:?}",
+                "[game_heap_free] Failed to call original game_heap_free for {:p}: {:?}",
                 addr,
                 err
             );
         }
     }
 }
+
+// ======================================================================================================================
+// Scrap heap detours
+// ======================================================================================================================
 
 // Scrap Heap (sheap) structure
 // The game allocates this structure and passes it to init functions.
@@ -195,23 +182,16 @@ struct SheapStruct {
     last: *mut c_void,        // Pointer to last allocated chunk header
 }
 
-// Constants matching the C++ implementation
 const SHEAP_MAX_BLOCKS: usize = 32;
 const SHEAP_BUFF_SIZE: usize = 512 * 1024; // 512 KB
 
-// Scrap Heap (sheap) API replacement functions (Fallout New Vegas engine)
-// The sheap is a stack-like heap used for temporary allocations.
-//
-// CRITICAL: The game allocates the SheapStruct and may access its fields directly.
-// We MUST properly initialize these fields even though we're redirecting actual
-// allocations to mimalloc. This prevents crashes from null pointer dereferences.
 
 /// Sheap fixed-size initialization replacement
 ///
 /// Allocates the blocks array and first block, matching C++ implementation.
 /// Even though we redirect actual allocations to mimalloc, the game may
 /// read these fields, so we must initialize them properly.
-pub unsafe extern "fastcall" fn sheap_init_fix(heap: *mut c_void, _edx: *mut c_void) {
+unsafe extern "fastcall" fn sheap_init_fix(heap: *mut c_void, _edx: *mut c_void) {
     if heap.is_null() {
         return;
     }
@@ -247,7 +227,7 @@ pub unsafe extern "fastcall" fn sheap_init_fix(heap: *mut c_void, _edx: *mut c_v
 /// Sheap variable-size initialization replacement
 ///
 /// Allocates the blocks array and first block, matching C++ implementation.
-pub unsafe extern "fastcall" fn sheap_init_var(
+unsafe extern "fastcall" fn sheap_init_var(
     heap: *mut c_void,
     _edx: *mut c_void,
     _size: usize,
@@ -287,7 +267,7 @@ pub unsafe extern "fastcall" fn sheap_init_var(
 /// Sheap allocation replacement
 ///
 /// Just use mimalloc directly. Do NOT zero - C++ version doesn't zero either.
-pub unsafe extern "fastcall" fn sheap_alloc(
+unsafe extern "fastcall" fn sheap_alloc(
     _heap: *mut c_void,
     _edx: *mut c_void,
     size: usize,
@@ -299,7 +279,7 @@ pub unsafe extern "fastcall" fn sheap_alloc(
 /// Sheap free replacement
 ///
 /// Frees memory allocated by sheap_alloc.
-pub unsafe extern "fastcall" fn sheap_free(
+unsafe extern "fastcall" fn sheap_free(
     heap: *mut c_void,
     edx: *mut c_void,
     addr: *mut c_void,
@@ -333,7 +313,7 @@ pub unsafe extern "fastcall" fn sheap_free(
 ///
 /// Frees all allocated blocks and the blocks array, matching C++ implementation.
 /// After purge, the game must call init again before using the sheap.
-pub unsafe extern "fastcall" fn sheap_purge(heap: *mut c_void, _edx: *mut c_void) {
+unsafe extern "fastcall" fn sheap_purge(heap: *mut c_void, _edx: *mut c_void) {
     if heap.is_null() {
         return;
     }
@@ -368,7 +348,7 @@ pub unsafe extern "fastcall" fn sheap_purge(heap: *mut c_void, _edx: *mut c_void
 ///
 /// Original returns a thread-local sheap structure that is initialized on first access.
 /// Matches C++ implementation: allocates the sheap struct, then calls sheap_init on it.
-pub unsafe extern "C" fn sheap_get_thread_local() -> *mut c_void {
+unsafe extern "C" fn sheap_get_thread_local() -> *mut c_void {
     use std::cell::RefCell;
 
     // Thread-local storage for sheap structure
@@ -412,9 +392,9 @@ pub unsafe extern "C" fn sheap_get_thread_local() -> *mut c_void {
 /// Early game allocations (before this function is called) will leak, but this is
 /// acceptable for a plugin loaded early in the game lifecycle.
 pub fn install_game_heap_hooks() -> anyhow::Result<()> {
+    super::configure_mimalloc();
+
     unsafe {
-        // STEP 1: Initialize and enable game heap inline hooks
-        // C++ lines 258-262
         GAME_HEAP_ALLOCATE_HOOK.init(
             "game_heap_allocate",
             GAME_HEAP_ALLOCATE_ADDR as *mut c_void,
@@ -465,30 +445,26 @@ pub fn install_game_heap_hooks() -> anyhow::Result<()> {
     log::info!("[GAME HEAP] All game heap functions hooked with mimalloc!");
 
     unsafe {
-        // STEP 2: Apply first group of RET patches
-        // C++ lines 264-267
+        // Apply first group of RET patches
         patch_ret(0x00AA6840 as *mut c_void)?;
         patch_ret(0x00866E00 as *mut c_void)?;
         patch_ret(0x00866770 as *mut c_void)?;
         log::info!("[PATCHES] Applied RET patches: 0x00AA6840, 0x00866E00, 0x00866770");
 
-        // STEP 3: Apply second group of RET patches
-        // C++ lines 268-271
+        // Apply second group of RET patches
         patch_ret(0x00AA6F90 as *mut c_void)?;
         patch_ret(0x00AA7030 as *mut c_void)?;
         patch_ret(0x00AA7290 as *mut c_void)?;
         patch_ret(0x00AA7300 as *mut c_void)?;
         log::info!("[PATCHES] Applied RET patches: 0x00AA6F90, 0x00AA7030, 0x00AA7290, 0x00AA7300");
 
-        // STEP 4: Apply third group of RET patches
-        // C++ lines 273-275
+        // Apply third group of RET patches
         patch_ret(0x00AA58D0 as *mut c_void)?;
         patch_ret(0x00866D10 as *mut c_void)?;
         patch_ret(0x00AA5C80 as *mut c_void)?;
         log::info!("[PATCHES] Applied RET patches: 0x00AA58D0, 0x00866D10, 0x00AA5C80");
 
-        // STEP 5: Initialize and enable sheap inline hooks
-        // C++ lines 277-281
+        // Initialize and enable sheap inline hooks
         SHEAP_INIT_FIX_HOOK.init(
             "sheap_init_fix",
             SHEAP_INIT_FIX_ADDR as *mut c_void,
@@ -539,13 +515,11 @@ pub fn install_game_heap_hooks() -> anyhow::Result<()> {
     log::info!("[SHEAP] All scrap heap functions hooked with mimalloc!");
 
     unsafe {
-        // STEP 6: Apply 30-byte NOP patch
-        // C++ line 283
+        // Apply 30-byte NOP patch
         patch_memory_nop(0x00AA38CA as *mut c_void, 0x00AA38E8 - 0x00AA38CA)?;
         log::info!("[PATCHES] Applied 30-byte NOP patch at 0x00AA38CA");
 
-        // STEP 7: Initialize and enable sheap_get_thread_local hook
-        // C++ line 284
+        // Initialize and enable sheap_get_thread_local hook
         SHEAP_GET_THREAD_LOCAL_HOOK.init(
             "sheap_get_thread_local",
             SHEAP_GET_THREAD_LOCAL_ADDR as *mut c_void,
@@ -557,8 +531,7 @@ pub fn install_game_heap_hooks() -> anyhow::Result<()> {
     log::info!("[INLINE] Hooked sheap_get_thread_local at {:#x}", SHEAP_GET_THREAD_LOCAL_ADDR);
 
     unsafe {
-        // STEP 8: Apply NOP call patches
-        // C++ lines 286-290
+        // Apply NOP call patches
         patch_nop_call(0x00AA3060 as *mut c_void)?;
         log::info!("[PATCHES] Applied NOP call patch at 0x00AA3060");
 
@@ -567,8 +540,7 @@ pub fn install_game_heap_hooks() -> anyhow::Result<()> {
         patch_nop_call(0x00EC1701 as *mut c_void)?;
         log::info!("[PATCHES] Applied NOP call patches: 0x0086C56F, 0x00C42EB1, 0x00EC1701");
 
-        // STEP 9: Apply byte patch to change conditional jump
-        // C++ line 292
+        // Apply byte patch to change conditional jump
         patch_bytes(0x0086EED4 as *mut c_void, &[0xEB, 0x55])?;
         log::info!("[PATCHES] Applied byte patch at 0x0086EED4 (conditional jump modification)");
 

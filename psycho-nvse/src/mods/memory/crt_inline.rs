@@ -172,6 +172,8 @@ pub unsafe extern "C" fn hook_free(raw_ptr: *mut c_void) {
 }
 
 pub fn install_crt_inline_hooks() -> anyhow::Result<()> {
+    super::configure_mimalloc();
+
     unsafe {
         // Inline hooks
         CRT_INLINE_MALLOC_HOOK_1.init("malloc1", CRT_MALLOC_ADDR_1 as *mut c_void, hook_malloc)?;

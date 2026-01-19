@@ -328,6 +328,9 @@ dependencies = [
  "cty",
  "libc",
  "libpsycho",
+ "log",
+ "parking_lot",
+ "thiserror",
 ]
 
 [[package]]
