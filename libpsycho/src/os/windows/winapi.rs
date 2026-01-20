@@ -27,9 +27,10 @@ use windows::Win32::System::ProcessStatus::{
     EnumProcessModules, GetModuleBaseNameA, GetModuleInformation, MODULEINFO,
 };
 use windows::Win32::System::Threading::{
-    CRITICAL_SECTION, InitializeCriticalSection, SetThreadPriority, THREAD_PRIORITY,
-    THREAD_PRIORITY_ABOVE_NORMAL, THREAD_PRIORITY_BELOW_NORMAL, THREAD_PRIORITY_HIGHEST,
-    THREAD_PRIORITY_IDLE, THREAD_PRIORITY_LOWEST, THREAD_PRIORITY_MIN, THREAD_PRIORITY_NORMAL,
+    CRITICAL_SECTION, GetCurrentThreadId as WinGetCurrentThreadId, InitializeCriticalSection,
+    SetThreadPriority, THREAD_PRIORITY, THREAD_PRIORITY_ABOVE_NORMAL,
+    THREAD_PRIORITY_BELOW_NORMAL, THREAD_PRIORITY_HIGHEST, THREAD_PRIORITY_IDLE,
+    THREAD_PRIORITY_LOWEST, THREAD_PRIORITY_MIN, THREAD_PRIORITY_NORMAL,
     THREAD_PRIORITY_TIME_CRITICAL,
 };
 use windows::Win32::System::{
@@ -318,16 +319,25 @@ impl TryFrom<HANDLE> for Handle {
     }
 }
 
-/// WinAPI: GetCurrentProcess()  
+/// WinAPI: GetCurrentProcess()
 /// Return Handle wrapper in Result.
 ///
-/// # Safety:  
+/// # Safety:
 /// Handle itself tries to be as safe as possible, using AtomicPtr
-/// under the hood.  
+/// under the hood.
 pub fn get_current_process() -> WinapiResult<Handle> {
     let handle = unsafe { GetCurrentProcess() };
 
     handle.try_into()
+}
+
+/// WinAPI: GetCurrentThreadId()
+/// Returns the thread identifier of the calling thread.
+///
+/// # Safety
+/// This is a safe wrapper around the Windows API call.
+pub fn get_current_thread_id() -> u32 {
+    unsafe { WinGetCurrentThreadId() }
 }
 
 /// Wrapper for WinAPI HMODULE type.

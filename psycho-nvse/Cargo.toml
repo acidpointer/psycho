@@ -17,3 +17,4 @@ libmimalloc = { path = "../libmimalloc" }
 libnvse = { path = "../libnvse" }
 libpsycho = { path = "../libpsycho" }
 libz-rs-sys = { version = "0.5.5", features = ["rust-allocator"] }
+bump-scope = "1.5.1"

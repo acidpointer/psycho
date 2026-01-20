@@ -8,8 +8,3 @@
 mod plugininfo;
 mod entry;
 mod mods;
-
-
-fn start() -> anyhow::Result<()> {
-    Ok(())
-}
