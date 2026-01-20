@@ -112,7 +112,7 @@ pub(super) unsafe extern "fastcall" fn sheap_init_fix(heap: *mut c_void, _edx: *
     }
 
     let thread_id = libpsycho::os::windows::winapi::get_current_thread_id();
-    log::info!("[sheap_init_fix] Called for sheap {:p} on thread {}", heap, thread_id);
+    //log::info!("[sheap_init_fix] Called for sheap {:p} on thread {}", heap, thread_id);
     SCRAP_HEAP_MANAGER.init(heap, thread_id);
 }
 
@@ -133,7 +133,7 @@ pub(super) unsafe extern "fastcall" fn sheap_init_var(
     }
 
     let thread_id = libpsycho::os::windows::winapi::get_current_thread_id();
-    log::info!("[sheap_init_var] Called for sheap {:p} on thread {} (size={})", heap, thread_id, _size);
+    //log::info!("[sheap_init_var] Called for sheap {:p} on thread {} (size={})", heap, thread_id, _size);
     SCRAP_HEAP_MANAGER.init(heap, thread_id);
 }
 
@@ -188,8 +188,7 @@ pub(super) unsafe extern "fastcall" fn sheap_free(
     // Check if this pointer belongs to mimalloc
     if is_mimalloc {
         // This might be from fallback allocations or old allocations
-        unsafe { mi_free(addr) };
-        return;
+        unsafe { mi_free(addr) }
     }
 
     // For bump allocator pointers: NO-OP
@@ -214,12 +213,12 @@ pub(super) unsafe extern "fastcall" fn sheap_purge(heap: *mut c_void, _edx: *mut
         return;
     }
 
-    let thread_id = libpsycho::os::windows::winapi::get_current_thread_id();
-    log::warn!(
-        "[sheap_purge] PURGE called for sheap {:p} on thread {} - sheap will become INVALID until re-init",
-        heap,
-        thread_id
-    );
+    // let thread_id = libpsycho::os::windows::winapi::get_current_thread_id();
+    // log::warn!(
+    //     "[sheap_purge] PURGE called for sheap {:p} on thread {} - sheap will become INVALID until re-init",
+    //     heap,
+    //     thread_id
+    // );
 
     SCRAP_HEAP_MANAGER.purge(heap);
 }
@@ -257,12 +256,12 @@ pub(super) unsafe extern "C" fn sheap_get_thread_local() -> *mut c_void {
                 sheap_init_fix(sheap as *mut c_void, std::ptr::null_mut());
             }
 
-            let thread_id = libpsycho::os::windows::winapi::get_current_thread_id();
-            log::info!(
-                "[sheap_get_thread_local] Created new thread-local sheap {:p} for thread {}",
-                sheap,
-                thread_id
-            );
+            // let thread_id = libpsycho::os::windows::winapi::get_current_thread_id();
+            // log::debug!(
+            //     "[sheap_get_thread_local] Created new thread-local sheap {:p} for thread {}",
+            //     sheap,
+            //     thread_id
+            // );
 
             *opt = Some(sheap);
         }

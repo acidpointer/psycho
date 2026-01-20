@@ -1,4 +1,4 @@
-
+#![allow(unused_imports)]
 use std::sync::LazyLock;
 
 use libpsycho::os::windows::hook::inline::inlinehook::InlineHookContainer;

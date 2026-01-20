@@ -1,6 +1,6 @@
 use std::sync::LazyLock;
 use libc::c_void;
-use libmimalloc::{heap::MiHeap, mi_free, mi_is_in_heap_region, mi_malloc, mi_usable_size};
+use libmimalloc::{heap::MiHeap, mi_free, mi_is_in_heap_region, mi_usable_size};
 
 static GAME_HEAP: LazyLock<MiHeap> = LazyLock::new(MiHeap::new);
 
@@ -10,7 +10,8 @@ pub(super) unsafe extern "fastcall" fn game_heap_allocate(
     _edx: *mut c_void,
     size: usize,
 ) -> *mut c_void {
-    unsafe { mi_malloc(size) }
+    //unsafe { mi_malloc(size) }
+    GAME_HEAP.malloc(size)
 }
 
 pub(super) unsafe extern "fastcall" fn game_heap_reallocate(

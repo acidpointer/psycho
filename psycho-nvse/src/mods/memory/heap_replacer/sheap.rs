@@ -1,8 +1,7 @@
 use bump_scope::Bump;
 use libc::c_void;
+use libpsycho::os::windows::winapi::get_current_thread_id;
 use parking_lot::RwLock;
-
-
 
 const SHEAP_MAX_BLOCKS: usize = 32;
 const SHEAP_BUFF_SIZE: usize = 512 * 1024; // 512 KB per block
@@ -39,12 +38,12 @@ impl ScrapHeapInstance {
         let capacity_bytes = SHEAP_MAX_BLOCKS * SHEAP_BUFF_SIZE;
         let bump = Some(Bump::with_size(capacity_bytes));
 
-        log::info!(
-            "[ScrapHeapInstance] Created bump allocator (size {}MB) for sheap {:p} on thread {}",
-            capacity_bytes / 1024 / 1024,
-            sheap_ptr,
-            thread_id
-        );
+        // log::info!(
+        //     "[ScrapHeapInstance] Created bump allocator (size {}MB) for sheap {:p} on thread {}",
+        //     capacity_bytes / 1024 / 1024,
+        //     sheap_ptr,
+        //     thread_id
+        // );
 
         Self {
             sheap_ptr,
@@ -83,8 +82,8 @@ impl ScrapHeapInstance {
         // SAFETY: We're allocating raw memory for FFI, caller is responsible for initialization
         match bump.try_alloc_layout(layout) {
             Ok(ptr) => ptr.as_ptr() as *mut c_void,
-            Err(_) => {
-                log::error!("[ScrapHeapInstance] Failed to allocate {} bytes with alignment {}", size, align);
+            Err(err) => {
+                log::error!("[ScrapHeapInstance] Failed to allocate {} bytes with alignment {}. Error: {:?}", size, align, err);
                 std::ptr::null_mut()
             }
         }
@@ -105,10 +104,10 @@ impl ScrapHeapInstance {
     ///
     /// This matches the C++ behavior exactly!
     fn purge(&mut self) {
-        log::debug!(
-            "[ScrapHeapInstance] PURGING sheap {:p} - dropping bump allocator (sheap becomes INVALID)",
-            self.sheap_ptr
-        );
+        // log::debug!(
+        //     "[ScrapHeapInstance] PURGING sheap {:p} - dropping bump allocator (sheap becomes INVALID)",
+        //     self.sheap_ptr
+        // );
 
         // Drop the bump allocator - this frees ALL memory
         // Sheap is now INVALID and MUST be re-initialized before use
@@ -142,24 +141,24 @@ impl ScrapHeapManager {
             instance.bump = Some(Bump::with_size(capacity_bytes));
             instance.thread_id = thread_id; // Update thread_id in case it moved
 
-            log::debug!(
-                "[ScrapHeapManager] Re-initialized sheap {:p} on thread {} (created new {}MB bump allocator)",
-                sheap_ptr,
-                thread_id,
-                capacity_bytes / 1024 / 1024
-            );
+            // log::debug!(
+            //     "[ScrapHeapManager] Re-initialized sheap {:p} on thread {} (created new {}MB bump allocator)",
+            //     sheap_ptr,
+            //     thread_id,
+            //     capacity_bytes / 1024 / 1024
+            // );
             return;
         }
 
         // New sheap - create instance
         instances.push(ScrapHeapInstance::new(sheap_ptr, thread_id));
 
-        log::info!(
-            "[ScrapHeapManager] New scrap heap {:p} on thread {} (total: {} instances)",
-            sheap_ptr,
-            thread_id,
-            instances.len()
-        );
+        // log::info!(
+        //     "[ScrapHeapManager] New scrap heap {:p} on thread {} (total: {} instances)",
+        //     sheap_ptr,
+        //     thread_id,
+        //     instances.len()
+        // );
     }
 
     /// Allocate from a specific scrap heap instance
@@ -180,14 +179,14 @@ impl ScrapHeapManager {
                 // AUTO-INITIALIZE after purge!
                 let capacity_bytes = SHEAP_MAX_BLOCKS * SHEAP_BUFF_SIZE;
                 instance.bump = Some(Bump::with_size(capacity_bytes));
-                let thread_id = unsafe { libpsycho::os::windows::winapi::get_current_thread_id() };
+                let thread_id = get_current_thread_id();
                 instance.thread_id = thread_id;
 
-                log::warn!(
-                    "[ScrapHeapManager] AUTO-REINIT: sheap {:p} was purged, auto-reinitializing on alloc (thread {})",
-                    sheap_ptr,
-                    thread_id
-                );
+                // log::warn!(
+                //     "[ScrapHeapManager] AUTO-REINIT: sheap {:p} was purged, auto-reinitializing on alloc (thread {})",
+                //     sheap_ptr,
+                //     thread_id
+                // );
             }
 
             return instance.malloc_aligned(size, align);
@@ -195,13 +194,13 @@ impl ScrapHeapManager {
 
         // Sheap not found - AUTO-INITIALIZE!
         // This happens when plugin loads after game created sheaps, or game never called init
-        let thread_id = unsafe { libpsycho::os::windows::winapi::get_current_thread_id() };
+        let thread_id = get_current_thread_id();
 
-        log::warn!(
-            "[ScrapHeapManager] AUTO-INIT: Unknown sheap {:p}, creating instance on-demand (thread {})",
-            sheap_ptr,
-            thread_id
-        );
+        // log::warn!(
+        //     "[ScrapHeapManager] AUTO-INIT: Unknown sheap {:p}, creating instance on-demand (thread {})",
+        //     sheap_ptr,
+        //     thread_id
+        // );
 
         instances.push(ScrapHeapInstance::new(sheap_ptr, thread_id));
 
@@ -226,13 +225,13 @@ impl ScrapHeapManager {
         } else {
             // Unknown sheap - auto-initialize it first, then purge
             // This handles cases where plugin loaded after game created sheaps
-            let thread_id = unsafe { libpsycho::os::windows::winapi::get_current_thread_id() };
+            let thread_id = get_current_thread_id();
 
-            log::warn!(
-                "[ScrapHeapManager] AUTO-INIT on purge: Unknown sheap {:p}, creating then purging (thread {})",
-                sheap_ptr,
-                thread_id
-            );
+            // log::warn!(
+            //     "[ScrapHeapManager] AUTO-INIT on purge: Unknown sheap {:p}, creating then purging (thread {})",
+            //     sheap_ptr,
+            //     thread_id
+            // );
 
             let mut new_instance = ScrapHeapInstance::new(sheap_ptr, thread_id);
             new_instance.purge(); // Immediately purge it
