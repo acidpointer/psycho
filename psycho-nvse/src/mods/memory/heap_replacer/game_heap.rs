@@ -1,16 +1,20 @@
+//! Game heap hook implementations.
+//!
+//! Replaces the game's primary heap allocator with MiMalloc.
+//! Falls back to original implementation for pre-hook allocations.
+
 use std::sync::LazyLock;
+
 use libc::c_void;
 use libmimalloc::{heap::MiHeap, mi_free, mi_is_in_heap_region, mi_usable_size};
 
 static GAME_HEAP: LazyLock<MiHeap> = LazyLock::new(MiHeap::new);
-
 
 pub(super) unsafe extern "fastcall" fn game_heap_allocate(
     _self: *mut c_void,
     _edx: *mut c_void,
     size: usize,
 ) -> *mut c_void {
-    //unsafe { mi_malloc(size) }
     GAME_HEAP.malloc(size)
 }
 
@@ -21,19 +25,15 @@ pub(super) unsafe extern "fastcall" fn game_heap_reallocate(
     size: usize,
 ) -> *mut c_void {
     if addr.is_null() {
-        //return unsafe { mi_malloc(size) };
-        return GAME_HEAP.malloc(size)
+        return GAME_HEAP.malloc(size);
     }
 
-    let is_mimalloc = unsafe { mi_is_in_heap_region(addr) };
-    
-    if is_mimalloc {
+    if unsafe { mi_is_in_heap_region(addr) } {
         if size == 0 {
-            unsafe { mi_free(addr) };            
+            unsafe { mi_free(addr) };
             return std::ptr::null_mut();
         }
-        
-        //return unsafe { mi_realloc(addr, size) };
+
         return GAME_HEAP.realloc(addr, size);
     }
 
@@ -41,7 +41,7 @@ pub(super) unsafe extern "fastcall" fn game_heap_reallocate(
         Ok(orig_realloc) => unsafe { orig_realloc(self_ptr, edx, addr, size) },
         Err(err) => {
             log::error!(
-                "[game_heap_reallocate] Failed to call original game_heap_reallocate for {:p}: {:?}",
+                "game_heap_reallocate: Failed to call original for {:p}: {:?}",
                 addr,
                 err
             );
@@ -67,7 +67,7 @@ pub(super) unsafe extern "fastcall" fn game_heap_msize(
         Ok(orig_msize) => unsafe { orig_msize(self_ptr, edx, addr) },
         Err(err) => {
             log::error!(
-                "[game_heap_msize] Failed to call original game_heap_msize for {:p}: {:?}",
+                "game_heap_msize: Failed to call original for {:p}: {:?}",
                 addr,
                 err
             );
@@ -85,9 +85,7 @@ pub(super) unsafe extern "fastcall" fn game_heap_free(
         return;
     }
 
-    let is_mimalloc = unsafe { mi_is_in_heap_region(addr) };
-    
-    if is_mimalloc {
+    if unsafe { mi_is_in_heap_region(addr) } {
         unsafe { mi_free(addr) };
         return;
     }
@@ -98,7 +96,7 @@ pub(super) unsafe extern "fastcall" fn game_heap_free(
         }
         Err(err) => {
             log::error!(
-                "[game_heap_free] Failed to call original game_heap_free for {:p}: {:?}",
+                "game_heap_free: Failed to call original for {:p}: {:?}",
                 addr,
                 err
             );

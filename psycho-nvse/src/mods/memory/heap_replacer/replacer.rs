@@ -4,16 +4,10 @@ use crate::mods::memory::configure_mimalloc;
 use libc::c_void;
 use super::*;
 
-/// Install all heap replacement patches
+/// Installs all heap and scrap heap replacement hooks.
 ///
-/// This function completely replaces the game's heap and sheap systems with mimalloc.
-/// Uses patch_jmp to overwrite function entry points with jumps to our replacements.
-///
-/// IMPORTANT: Unlike inline hooks, patch_jmp completely overwrites the original functions.
-/// There is no original function to call back to - all allocations go through mimalloc.
-///
-/// Early game allocations (before this function is called) will leak, but this is
-/// acceptable for a plugin loaded early in the game lifecycle.
+/// Replaces the game's allocators with MiMalloc (game heap) and bump allocators (scrap heap).
+/// Also applies memory patches to disable original heap initialization and cleanup code.
 pub fn install_game_heap_hooks() -> anyhow::Result<()> {
     configure_mimalloc();
 
@@ -65,27 +59,17 @@ pub fn install_game_heap_hooks() -> anyhow::Result<()> {
     GAME_HEAP_FREE_HOOK.enable()?;
     log::info!("[INLINE] Hooked game_heap_free at {:#x}", GAME_HEAP_FREE_ADDR);
 
-    log::info!("[GAME HEAP] All game heap functions hooked with mimalloc!");
-
     unsafe {
-        // Apply first group of RET patches
         patch_ret(0x00AA6840 as *mut c_void)?;
         patch_ret(0x00866E00 as *mut c_void)?;
         patch_ret(0x00866770 as *mut c_void)?;
-        log::info!("[PATCHES] Applied RET patches: 0x00AA6840, 0x00866E00, 0x00866770");
-
-        // Apply second group of RET patches
         patch_ret(0x00AA6F90 as *mut c_void)?;
         patch_ret(0x00AA7030 as *mut c_void)?;
         patch_ret(0x00AA7290 as *mut c_void)?;
         patch_ret(0x00AA7300 as *mut c_void)?;
-        log::info!("[PATCHES] Applied RET patches: 0x00AA6F90, 0x00AA7030, 0x00AA7290, 0x00AA7300");
-
-        // Apply third group of RET patches
         patch_ret(0x00AA58D0 as *mut c_void)?;
         patch_ret(0x00866D10 as *mut c_void)?;
         patch_ret(0x00AA5C80 as *mut c_void)?;
-        log::info!("[PATCHES] Applied RET patches: 0x00AA58D0, 0x00866D10, 0x00AA5C80");
 
         // Initialize and enable sheap inline hooks
         SHEAP_INIT_FIX_HOOK.init(
@@ -135,12 +119,8 @@ pub fn install_game_heap_hooks() -> anyhow::Result<()> {
     SHEAP_PURGE_HOOK.enable()?;
     log::info!("[INLINE] Hooked sheap_purge at {:#x}", SHEAP_PURGE_ADDR);
 
-    log::info!("[SHEAP] All scrap heap functions hooked with mimalloc!");
-
     unsafe {
-        // Apply 30-byte NOP patch
         patch_memory_nop(0x00AA38CA as *mut c_void, 0x00AA38E8 - 0x00AA38CA)?;
-        log::info!("[PATCHES] Applied 30-byte NOP patch at 0x00AA38CA");
 
         // Initialize and enable sheap_get_thread_local hook
         SHEAP_GET_THREAD_LOCAL_HOOK.init(
@@ -154,20 +134,13 @@ pub fn install_game_heap_hooks() -> anyhow::Result<()> {
     log::info!("[INLINE] Hooked sheap_get_thread_local at {:#x}", SHEAP_GET_THREAD_LOCAL_ADDR);
 
     unsafe {
-        // Apply NOP call patches
         patch_nop_call(0x00AA3060 as *mut c_void)?;
-        log::info!("[PATCHES] Applied NOP call patch at 0x00AA3060");
-
         patch_nop_call(0x0086C56F as *mut c_void)?;
         patch_nop_call(0x00C42EB1 as *mut c_void)?;
         patch_nop_call(0x00EC1701 as *mut c_void)?;
-        log::info!("[PATCHES] Applied NOP call patches: 0x0086C56F, 0x00C42EB1, 0x00EC1701");
-
-        // Apply byte patch to change conditional jump
         patch_bytes(0x0086EED4 as *mut c_void, &[0xEB, 0x55])?;
-        log::info!("[PATCHES] Applied byte patch at 0x0086EED4 (conditional jump modification)");
 
-        log::info!("[HEAP REPLACER] All patches applied successfully - game heap fully replaced with mimalloc!");
+        log::info!("[HEAP REPLACER] All hooks and patches applied successfully");
     }
 
     Ok(())
