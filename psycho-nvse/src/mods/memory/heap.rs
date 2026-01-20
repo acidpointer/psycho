@@ -5,7 +5,7 @@
 use std::sync::LazyLock;
 
 use libc::c_void;
-use libmimalloc::{mi_calloc, mi_free, mi_is_in_heap_region, mi_malloc, mi_realloc, mi_usable_size};
+use libmimalloc::{heap::MiHeap, mi_free, mi_is_in_heap_region, mi_malloc, mi_usable_size, process_info::MiMallocProcessInfo};
 
 use libpsycho::os::windows::{
     hook::inline::inlinehook::InlineHookContainer,
@@ -64,6 +64,9 @@ pub static SHEAP_GET_THREAD_LOCAL_HOOK: LazyLock<InlineHookContainer<SheapGetThr
     LazyLock::new(InlineHookContainer::new);
 
 
+static GAME_HEAP: LazyLock<MiHeap> = LazyLock::new(MiHeap::new);
+static SCRAP_HEAP: LazyLock<MiHeap> = LazyLock::new(MiHeap::new);
+
 // ======================================================================================================================
 // Game heap detours
 // ======================================================================================================================
@@ -83,18 +86,20 @@ unsafe extern "fastcall" fn game_heap_reallocate(
     size: usize,
 ) -> *mut c_void {
     if addr.is_null() {
-        return unsafe { mi_malloc(size) };
+        //return unsafe { mi_malloc(size) };
+        return GAME_HEAP.malloc(size)
     }
 
     let is_mimalloc = unsafe { mi_is_in_heap_region(addr) };
     
     if is_mimalloc {
         if size == 0 {
-            unsafe { mi_free(addr) };
+            unsafe { mi_free(addr) };            
             return std::ptr::null_mut();
         }
         
-        return unsafe { mi_realloc(addr, size) };
+        //return unsafe { mi_realloc(addr, size) };
+        return GAME_HEAP.realloc(addr, size);
     }
 
     match GAME_HEAP_REALLOCATE_HOOK_1.original() {
@@ -184,7 +189,7 @@ struct SheapStruct {
 
 const SHEAP_MAX_BLOCKS: usize = 32;
 const SHEAP_BUFF_SIZE: usize = 512 * 1024; // 512 KB
-
+const ARENA_SIZE: usize = 512; // 512 Kb
 
 /// Sheap fixed-size initialization replacement
 ///
@@ -195,33 +200,33 @@ unsafe extern "fastcall" fn sheap_init_fix(heap: *mut c_void, _edx: *mut c_void)
     if heap.is_null() {
         return;
     }
+  
+    // let sheap = heap as *mut SheapStruct;
 
-    let sheap = heap as *mut SheapStruct;
+    // // Allocate array of block pointers (matches C++ sheap_init)
+    // let blocks = unsafe {
+    //     mi_calloc(SHEAP_MAX_BLOCKS, std::mem::size_of::<*mut c_void>())
+    // } as *mut *mut c_void;
 
-    // Allocate array of block pointers (matches C++ sheap_init)
-    let blocks = unsafe {
-        mi_calloc(SHEAP_MAX_BLOCKS, std::mem::size_of::<*mut c_void>())
-    } as *mut *mut c_void;
+    // if blocks.is_null() {
+    //     return;
+    // }
 
-    if blocks.is_null() {
-        return;
-    }
+    // // Allocate first block (matches C++ sheap_init)
+    // let first_block = unsafe { mi_malloc(SHEAP_BUFF_SIZE) };
 
-    // Allocate first block (matches C++ sheap_init)
-    let first_block = unsafe { mi_malloc(SHEAP_BUFF_SIZE) };
+    // if first_block.is_null() {
+    //     unsafe { mi_free(blocks as *mut c_void) };
+    //     return;
+    // }
 
-    if first_block.is_null() {
-        unsafe { mi_free(blocks as *mut c_void) };
-        return;
-    }
-
-    // Initialize the sheap structure (matches C++ sheap_init)
-    unsafe {
-        (*sheap).blocks = blocks;
-        *blocks = first_block; // blocks[0] = first_block
-        (*sheap).cur = first_block;
-        (*sheap).last = std::ptr::null_mut();
-    }
+    // // Initialize the sheap structure (matches C++ sheap_init)
+    // unsafe {
+    //     (*sheap).blocks = blocks;
+    //     *blocks = first_block; // blocks[0] = first_block
+    //     (*sheap).cur = first_block;
+    //     (*sheap).last = std::ptr::null_mut();
+    // }
 }
 
 /// Sheap variable-size initialization replacement
@@ -229,51 +234,52 @@ unsafe extern "fastcall" fn sheap_init_fix(heap: *mut c_void, _edx: *mut c_void)
 /// Allocates the blocks array and first block, matching C++ implementation.
 unsafe extern "fastcall" fn sheap_init_var(
     heap: *mut c_void,
-    _edx: *mut c_void,
+    edx: *mut c_void,
     _size: usize,
 ) {
     if heap.is_null() {
         return;
     }
 
-    let sheap = heap as *mut SheapStruct;
+    // let sheap = heap as *mut SheapStruct;
 
-    // Allocate array of block pointers (matches C++ sheap_init)
-    let blocks = unsafe {
-        mi_calloc(SHEAP_MAX_BLOCKS, std::mem::size_of::<*mut c_void>())
-    } as *mut *mut c_void;
+    // // Allocate array of block pointers (matches C++ sheap_init)
+    // let blocks = unsafe {
+    //     mi_calloc(SHEAP_MAX_BLOCKS, std::mem::size_of::<*mut c_void>())
+    // } as *mut *mut c_void;
 
-    if blocks.is_null() {
-        return;
-    }
+    // if blocks.is_null() {
+    //     return;
+    // }
 
-    // Allocate first block (matches C++ sheap_init)
-    let first_block = unsafe { mi_malloc(SHEAP_BUFF_SIZE) };
+    // // Allocate first block (matches C++ sheap_init)
+    // let first_block = unsafe { mi_malloc(SHEAP_BUFF_SIZE) };
 
-    if first_block.is_null() {
-        unsafe { mi_free(blocks as *mut c_void) };
-        return;
-    }
+    // if first_block.is_null() {
+    //     unsafe { mi_free(blocks as *mut c_void) };
+    //     return;
+    // }
 
-    // Initialize the sheap structure (matches C++ sheap_init)
-    unsafe {
-        (*sheap).blocks = blocks;
-        *blocks = first_block; // blocks[0] = first_block
-        (*sheap).cur = first_block;
-        (*sheap).last = std::ptr::null_mut();
-    }
+    // // Initialize the sheap structure (matches C++ sheap_init)
+    // unsafe {
+    //     (*sheap).blocks = blocks;
+    //     *blocks = first_block; // blocks[0] = first_block
+    //     (*sheap).cur = first_block;
+    //     (*sheap).last = std::ptr::null_mut();
+    // }
 }
 
 /// Sheap allocation replacement
 ///
 /// Just use mimalloc directly. Do NOT zero - C++ version doesn't zero either.
 unsafe extern "fastcall" fn sheap_alloc(
-    _heap: *mut c_void,
+    heap: *mut c_void,
     _edx: *mut c_void,
     size: usize,
-    _align: usize,
+    align: usize,
 ) -> *mut c_void {
-    unsafe { mi_malloc(size) }
+    //unsafe { mi_malloc_aligned(size, align) }
+    SCRAP_HEAP.malloc_aligned(size, align)
 }
 
 /// Sheap free replacement
@@ -288,8 +294,9 @@ unsafe extern "fastcall" fn sheap_free(
         return;
     }
 
+    let is_mimalloc = unsafe { mi_is_in_heap_region(addr) };
     // Check if this pointer belongs to mimalloc
-    if unsafe { mi_is_in_heap_region(addr) } {
+    if  is_mimalloc {
         unsafe { mi_free(addr) };
         return;
     }
@@ -318,67 +325,81 @@ unsafe extern "fastcall" fn sheap_purge(heap: *mut c_void, _edx: *mut c_void) {
         return;
     }
 
-    let sheap = heap as *mut SheapStruct;
+    // unsafe { mi_collect(false) }
+    // unsafe { mi_collect(true) }
 
-    unsafe {
-        let blocks = (*sheap).blocks;
-        if blocks.is_null() {
-            return;
-        }
+    let proc_info = MiMallocProcessInfo::get();
 
-        // Free all allocated blocks (matches C++ sheap_purge)
-        for i in 0..SHEAP_MAX_BLOCKS {
-            let block = *blocks.add(i);
-            if !block.is_null() {
-                mi_free(block);
-            }
-        }
+    log::debug!("Process info:\n{}", proc_info.detailed_report());
 
-        // Free the blocks array itself
-        mi_free(blocks as *mut c_void);
+    SCRAP_HEAP.heap_collect(true);
+    
+    // let sheap = heap as *mut SheapStruct;
 
-        // Zero out the sheap structure
-        (*sheap).blocks = std::ptr::null_mut();
-        (*sheap).cur = std::ptr::null_mut();
-        (*sheap).last = std::ptr::null_mut();
-    }
+    // unsafe {
+    //     let blocks = (*sheap).blocks;
+    //     if blocks.is_null() {
+    //         return;
+    //     }
+
+    //     // Free all allocated blocks (matches C++ sheap_purge)
+    //     for i in 0..SHEAP_MAX_BLOCKS {
+    //         let block = *blocks.add(i);
+    //         if !block.is_null() {
+    //             mi_free(block);
+    //         }
+    //     }
+
+    //     // Free the blocks array itself
+    //     mi_free(blocks as *mut c_void);
+
+    //     // Zero out the sheap structure
+    //     (*sheap).blocks = std::ptr::null_mut();
+    //     (*sheap).cur = std::ptr::null_mut();
+    //     (*sheap).last = std::ptr::null_mut();
+    // }
 }
+
+
 
 /// Sheap thread-local storage replacement
 ///
 /// Original returns a thread-local sheap structure that is initialized on first access.
 /// Matches C++ implementation: allocates the sheap struct, then calls sheap_init on it.
 unsafe extern "C" fn sheap_get_thread_local() -> *mut c_void {
-    use std::cell::RefCell;
+    std::ptr::null_mut()
 
-    // Thread-local storage for sheap structure
-    thread_local! {
-        static THREAD_SHEAP: RefCell<Option<*mut SheapStruct>> = const { RefCell::new(None) };
-    }
+    
+    // use std::cell::RefCell;
 
-    THREAD_SHEAP.with(|cell| {
-        let mut opt = cell.borrow_mut();
-        if opt.is_none() {
-            // Allocate sheap structure for this thread (matches C++ sheap_get_thread_local)
-            let sheap =
-                unsafe { mi_malloc(std::mem::size_of::<SheapStruct>()) } as *mut SheapStruct;
+    // // Thread-local storage for sheap structure
+    // thread_local! {
+    //     static THREAD_SHEAP: RefCell<Option<*mut SheapStruct>> = const { RefCell::new(None) };
+    // }
 
-            if sheap.is_null() {
-                return std::ptr::null_mut();
-            }
+    // THREAD_SHEAP.with(|cell| {
+    //     let mut opt = cell.borrow_mut();
+    //     if opt.is_none() {
+    //         // Allocate sheap structure for this thread (matches C++ sheap_get_thread_local)
+    //         let sheap =
+    //             unsafe { mi_malloc(std::mem::size_of::<SheapStruct>()) } as *mut SheapStruct;
 
-            // Initialize the sheap structure by calling our init function
-            // This matches C++ which calls sheap_init(heap)
-            unsafe {
-                sheap_init_fix(sheap as *mut c_void, std::ptr::null_mut());
-            }
+    //         if sheap.is_null() {
+    //             return std::ptr::null_mut();
+    //         }
 
-            *opt = Some(sheap);
-        }
+    //         // Initialize the sheap structure by calling our init function
+    //         // This matches C++ which calls sheap_init(heap)
+    //         unsafe {
+    //             sheap_init_fix(sheap as *mut c_void, std::ptr::null_mut());
+    //         }
 
-        let sheap = opt.unwrap();
-        sheap as *mut c_void
-    })
+    //         *opt = Some(sheap);
+    //     }
+
+    //     let sheap = opt.unwrap();
+    //     sheap as *mut c_void
+    // })
 }
 
 /// Install all heap replacement patches
