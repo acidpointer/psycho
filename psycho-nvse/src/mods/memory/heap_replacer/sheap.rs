@@ -4,6 +4,7 @@
 //! with batch deallocation. We replace it with bump-scope's Bump allocator
 //! and fall back to mimalloc when capacity is exhausted.
 
+use ahash::AHashMap;
 use bump_scope::Bump;
 use libc::c_void;
 use libpsycho::os::windows::winapi::get_current_thread_id;
@@ -15,8 +16,8 @@ const SHEAP_MAX_BLOCKS: usize = 32;
 /// Size of each block in bytes (512KB)
 const SHEAP_BUFF_SIZE: usize = 512 * 1024;
 
-/// Total capacity per sheap instance (16MB)
-const SHEAP_CAPACITY_BYTES: usize = SHEAP_MAX_BLOCKS * SHEAP_BUFF_SIZE;
+/// Total capacity per sheap instance (32MB - doubled from original 16MB)
+const SHEAP_CAPACITY_BYTES: usize = (SHEAP_MAX_BLOCKS * SHEAP_BUFF_SIZE) * 2;
 
 /// A single scrap heap instance backed by a bump allocator.
 ///
@@ -29,7 +30,9 @@ pub(super) struct ScrapHeapInstance {
     sheap_ptr: *mut c_void,
     bump: Option<Bump>,
     thread_id: u32,
-    fallback_count: usize,
+    allocations: AHashMap<usize, usize>,
+    total_allocated: usize,
+    total_freed: usize,
 }
 
 unsafe impl Send for ScrapHeapInstance {}
@@ -41,57 +44,68 @@ impl ScrapHeapInstance {
             sheap_ptr,
             bump: Some(Bump::with_size(SHEAP_CAPACITY_BYTES)),
             thread_id,
-            fallback_count: 0,
+            allocations: AHashMap::new(),
+            total_allocated: 0,
+            total_freed: 0,
         }
     }
 
     fn malloc_aligned(&mut self, size: usize, align: usize) -> *mut c_void {
-        let bump = match self.bump.as_mut() {
-            Some(b) => b,
-            None => {
-                log::error!(
-                    "Allocation attempted on purged sheap {:p}",
-                    self.sheap_ptr
-                );
-                return std::ptr::null_mut();
-            }
-        };
-
-        let layout = match std::alloc::Layout::from_size_align(size, align) {
-            Ok(layout) => layout,
-            Err(_) => {
-                log::error!("Invalid layout: size={}, align={}", size, align);
-                return std::ptr::null_mut();
-            }
-        };
-
-        match bump.try_alloc_layout(layout) {
-            Ok(ptr) => ptr.as_ptr() as *mut c_void,
-            Err(_) => {
-                self.fallback_count += 1;
-
-                if self.fallback_count == 1 || self.fallback_count % 1000 == 0 {
-                    log::warn!(
-                        "Bump allocator full for sheap {:p}, fallback count: {}",
-                        self.sheap_ptr,
-                        self.fallback_count
-                    );
+        if let Some(bump) = self.bump.as_mut() {
+            let layout = match std::alloc::Layout::from_size_align(size, align) {
+                Ok(layout) => layout,
+                Err(_) => {
+                    log::error!("Invalid layout: size={}, align={}", size, align);
+                    return std::ptr::null_mut();
                 }
+            };
 
-                unsafe { libmimalloc::mi_malloc_aligned(size, align) }
+            if let Ok(ptr) = bump.try_alloc_layout(layout) {
+                let addr = ptr.as_ptr() as usize;
+                self.allocations.insert(addr, size);
+                self.total_allocated += size;
+                return addr as *mut c_void;
             }
+
+            log::warn!(
+                "Sheap {:p} bump allocator exhausted (32MB), switching to mimalloc",
+                self.sheap_ptr
+            );
+            self.bump = None;
         }
+
+        unsafe { libmimalloc::mi_malloc_aligned(size, align) }
+    }
+
+    fn free(&mut self, addr: *mut c_void) -> bool {
+        let addr_usize = addr as usize;
+
+        if let Some(size) = self.allocations.remove(&addr_usize) {
+            self.total_freed += size;
+
+            if self.total_freed >= self.total_allocated && self.bump.is_some() {
+                // log::info!(
+                //     "Sheap {:p} auto-purge: all allocations freed ({} bytes)",
+                //     self.sheap_ptr,
+                //     self.total_allocated
+                // );
+                self.bump = None;
+                self.allocations.clear();
+                self.total_allocated = 0;
+                self.total_freed = 0;
+            }
+
+            return true;
+        }
+
+        false
     }
 
     fn purge(&mut self) {
-        log::info!(
-            "Purging sheap {:p}, fallback count: {}",
-            self.sheap_ptr,
-            self.fallback_count
-        );
-
         self.bump = None;
-        self.fallback_count = 0;
+        self.allocations.clear();
+        self.total_allocated = 0;
+        self.total_freed = 0;
     }
 }
 
@@ -116,7 +130,6 @@ impl ScrapHeapManager {
         if let Some(instance) = instances.iter_mut().find(|inst| inst.sheap_ptr == sheap_ptr) {
             instance.bump = Some(Bump::with_size(SHEAP_CAPACITY_BYTES));
             instance.thread_id = thread_id;
-            instance.fallback_count = 0;
             return;
         }
 
@@ -134,7 +147,6 @@ impl ScrapHeapManager {
             if instance.bump.is_none() {
                 instance.bump = Some(Bump::with_size(SHEAP_CAPACITY_BYTES));
                 instance.thread_id = get_current_thread_id();
-                instance.fallback_count = 0;
             }
 
             return instance.malloc_aligned(size, align);
@@ -149,6 +161,16 @@ impl ScrapHeapManager {
             log::error!("Failed to find just-created sheap instance");
             unsafe { libmimalloc::mi_malloc_aligned(size, align) }
         }
+    }
+
+    pub fn free(&self, sheap_ptr: *mut c_void, addr: *mut c_void) -> bool {
+        let mut instances = self.instances.write();
+
+        if let Some(instance) = instances.iter_mut().find(|inst| inst.sheap_ptr == sheap_ptr) {
+            return instance.free(addr);
+        }
+
+        false
     }
 
     pub fn purge(&self, sheap_ptr: *mut c_void) {

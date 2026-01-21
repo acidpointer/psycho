@@ -81,7 +81,7 @@ pub(super) unsafe extern "fastcall" fn sheap_alloc(
 /// For bump allocator memory, this is a no-op (memory is reclaimed on purge).
 /// For mimalloc fallback allocations, frees the memory individually.
 pub(super) unsafe extern "fastcall" fn sheap_free(
-    _heap: *mut c_void,
+    heap: *mut c_void,
     _edx: *mut c_void,
     addr: *mut c_void,
 ) {
@@ -89,8 +89,10 @@ pub(super) unsafe extern "fastcall" fn sheap_free(
         return;
     }
 
-    if unsafe { mi_is_in_heap_region(addr) } {
-        unsafe { mi_free(addr) };
+    if !SCRAP_HEAP_MANAGER.free(heap, addr) {
+        if unsafe { mi_is_in_heap_region(addr) } {
+            unsafe { mi_free(addr) };
+        }
     }
 }
 
