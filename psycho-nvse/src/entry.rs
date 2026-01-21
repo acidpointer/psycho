@@ -123,10 +123,11 @@ pub unsafe extern "C" fn NVSEPlugin_Query(
     let nvse = unsafe { &*nvse };
     let info = unsafe { &mut *info };
 
-    let nvse_version = ExeVersion::from_u32(nvse.nvseVersion);
-    let runtime_version = ExeVersion::from_u32(nvse.runtimeVersion);
-
     log::info!("NVSEPlugin_Query called! NVSEInterface address: {:p}", nvse);
+
+    let nvse_version = ExeVersion::from_u32(nvse.nvseVersion as u32);
+    let runtime_version = ExeVersion::from_u32(nvse.runtimeVersion as u32);
+
     log::info!("NVSE version: {}", nvse_version);
     log::info!("Runtime version: {}", runtime_version);
 

@@ -111,26 +111,27 @@ impl ScrapHeapInstance {
 /// Provides thread-safe access to per-sheap bump allocators.
 /// Automatically initializes sheaps when first accessed (handles late plugin loading).
 pub(super) struct ScrapHeapManager {
-    instances: RwLock<Vec<ScrapHeapInstance>>,
+    instances: RwLock<AHashMap<usize, ScrapHeapInstance>>,
 }
 
 impl ScrapHeapManager {
-    pub const fn new() -> Self {
+    pub fn new() -> Self {
         Self {
-            instances: RwLock::new(Vec::new()),
+            instances: RwLock::new(AHashMap::new()),
         }
     }
 
     pub fn init(&self, sheap_ptr: *mut c_void, thread_id: u32) {
         let mut instances = self.instances.write();
+        let key = sheap_ptr as usize;
 
-        if let Some(instance) = instances.iter_mut().find(|inst| inst.sheap_ptr == sheap_ptr) {
+        if let Some(instance) = instances.get_mut(&key) {
             instance.bump = Some(Bump::with_size(SHEAP_CAPACITY_BYTES));
             instance.thread_id = thread_id;
             return;
         }
 
-        instances.push(ScrapHeapInstance::new(sheap_ptr, thread_id));
+        instances.insert(key, ScrapHeapInstance::new(sheap_ptr, thread_id));
     }
 
     /// Allocates memory from the specified sheap.
@@ -139,8 +140,9 @@ impl ScrapHeapManager {
     /// the game created sheaps before our hooks were installed.
     pub fn alloc(&self, sheap_ptr: *mut c_void, size: usize, align: usize) -> *mut c_void {
         let mut instances = self.instances.write();
+        let key = sheap_ptr as usize;
 
-        if let Some(instance) = instances.iter_mut().find(|inst| inst.sheap_ptr == sheap_ptr) {
+        if let Some(instance) = instances.get_mut(&key) {
             if instance.bump.is_none() {
                 instance.bump = Some(Bump::with_size(SHEAP_CAPACITY_BYTES));
                 instance.thread_id = get_current_thread_id();
@@ -150,20 +152,17 @@ impl ScrapHeapManager {
         }
 
         let thread_id = get_current_thread_id();
-        instances.push(ScrapHeapInstance::new(sheap_ptr, thread_id));
+        let new_instance = ScrapHeapInstance::new(sheap_ptr, thread_id);
+        instances.insert(key, new_instance);
 
-        if let Some(instance) = instances.iter_mut().find(|inst| inst.sheap_ptr == sheap_ptr) {
-            instance.malloc_aligned(size, align)
-        } else {
-            log::error!("Failed to find just-created sheap instance");
-            unsafe { libmimalloc::mi_malloc_aligned(size, align) }
-        }
+        instances.get_mut(&key).unwrap().malloc_aligned(size, align)
     }
 
     pub fn free(&self, sheap_ptr: *mut c_void, addr: *mut c_void) -> bool {
         let mut instances = self.instances.write();
+        let key = sheap_ptr as usize;
 
-        if let Some(instance) = instances.iter_mut().find(|inst| inst.sheap_ptr == sheap_ptr) {
+        if let Some(instance) = instances.get_mut(&key) {
             return instance.free(addr);
         }
 
@@ -172,14 +171,15 @@ impl ScrapHeapManager {
 
     pub fn purge(&self, sheap_ptr: *mut c_void) {
         let mut instances = self.instances.write();
+        let key = sheap_ptr as usize;
 
-        if let Some(instance) = instances.iter_mut().find(|inst| inst.sheap_ptr == sheap_ptr) {
+        if let Some(instance) = instances.get_mut(&key) {
             instance.purge();
         } else {
             let thread_id = get_current_thread_id();
             let mut new_instance = ScrapHeapInstance::new(sheap_ptr, thread_id);
             new_instance.purge();
-            instances.push(new_instance);
+            instances.insert(key, new_instance);
         }
     }
 }
