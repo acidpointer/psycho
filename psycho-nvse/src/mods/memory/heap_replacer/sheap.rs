@@ -39,6 +39,7 @@ unsafe impl Send for ScrapHeapInstance {}
 unsafe impl Sync for ScrapHeapInstance {}
 
 impl ScrapHeapInstance {
+    #[inline]
     fn new(sheap_ptr: *mut c_void, thread_id: u32) -> Self {
         Self {
             sheap_ptr,
@@ -50,6 +51,7 @@ impl ScrapHeapInstance {
         }
     }
 
+    #[inline(always)]
     fn malloc_aligned(&mut self, size: usize, align: usize) -> *mut c_void {
         if let Some(bump) = self.bump.as_mut() {
             let layout = match std::alloc::Layout::from_size_align(size, align) {
@@ -77,6 +79,7 @@ impl ScrapHeapInstance {
         unsafe { libmimalloc::mi_malloc_aligned(size, align) }
     }
 
+    #[inline(always)]
     fn free(&mut self, addr: *mut c_void) -> bool {
         let addr_usize = addr as usize;
 
@@ -98,6 +101,7 @@ impl ScrapHeapInstance {
         false
     }
 
+    #[inline]
     fn purge(&mut self) {
         self.bump = None;
         self.allocations.clear();
@@ -115,12 +119,14 @@ pub(super) struct ScrapHeapManager {
 }
 
 impl ScrapHeapManager {
+    #[inline]
     pub fn new() -> Self {
         Self {
             instances: RwLock::new(AHashMap::new()),
         }
     }
 
+    #[inline]
     pub fn init(&self, sheap_ptr: *mut c_void, thread_id: u32) {
         let mut instances = self.instances.write();
         let key = sheap_ptr as usize;
@@ -138,6 +144,7 @@ impl ScrapHeapManager {
     ///
     /// Auto-initializes unknown sheaps to handle late plugin loading where
     /// the game created sheaps before our hooks were installed.
+    #[inline(always)]
     pub fn alloc(&self, sheap_ptr: *mut c_void, size: usize, align: usize) -> *mut c_void {
         let mut instances = self.instances.write();
         let key = sheap_ptr as usize;
@@ -158,6 +165,7 @@ impl ScrapHeapManager {
         instances.get_mut(&key).unwrap().malloc_aligned(size, align)
     }
 
+    #[inline(always)]
     pub fn free(&self, sheap_ptr: *mut c_void, addr: *mut c_void) -> bool {
         let mut instances = self.instances.write();
         let key = sheap_ptr as usize;
@@ -169,6 +177,7 @@ impl ScrapHeapManager {
         false
     }
 
+    #[inline]
     pub fn purge(&self, sheap_ptr: *mut c_void) {
         let mut instances = self.instances.write();
         let key = sheap_ptr as usize;
