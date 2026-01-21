@@ -8,7 +8,7 @@ use ahash::AHashMap;
 use bump_scope::Bump;
 use libc::c_void;
 use libpsycho::os::windows::winapi::get_current_thread_id;
-use parking_lot::RwLock;
+use parking_lot::Mutex;
 
 /// Maximum number of blocks
 const SHEAP_MAX_BLOCKS: usize = 32;
@@ -115,20 +115,20 @@ impl ScrapHeapInstance {
 /// Provides thread-safe access to per-sheap bump allocators.
 /// Automatically initializes sheaps when first accessed (handles late plugin loading).
 pub(super) struct ScrapHeapManager {
-    instances: RwLock<AHashMap<usize, ScrapHeapInstance>>,
+    instances: Mutex<AHashMap<usize, ScrapHeapInstance>>,
 }
 
 impl ScrapHeapManager {
     #[inline]
     pub fn new() -> Self {
         Self {
-            instances: RwLock::new(AHashMap::new()),
+            instances: Mutex::new(AHashMap::new()),
         }
     }
 
     #[inline]
     pub fn init(&self, sheap_ptr: *mut c_void, thread_id: u32) {
-        let mut instances = self.instances.write();
+        let mut instances = self.instances.lock();
         let key = sheap_ptr as usize;
 
         if let Some(instance) = instances.get_mut(&key) {
@@ -146,7 +146,7 @@ impl ScrapHeapManager {
     /// the game created sheaps before our hooks were installed.
     #[inline(always)]
     pub fn alloc(&self, sheap_ptr: *mut c_void, size: usize, align: usize) -> *mut c_void {
-        let mut instances = self.instances.write();
+        let mut instances = self.instances.lock();
         let key = sheap_ptr as usize;
 
         if let Some(instance) = instances.get_mut(&key) {
@@ -167,7 +167,7 @@ impl ScrapHeapManager {
 
     #[inline(always)]
     pub fn free(&self, sheap_ptr: *mut c_void, addr: *mut c_void) -> bool {
-        let mut instances = self.instances.write();
+        let mut instances = self.instances.lock();
         let key = sheap_ptr as usize;
 
         if let Some(instance) = instances.get_mut(&key) {
@@ -179,7 +179,7 @@ impl ScrapHeapManager {
 
     #[inline]
     pub fn purge(&self, sheap_ptr: *mut c_void) {
-        let mut instances = self.instances.write();
+        let mut instances = self.instances.lock();
         let key = sheap_ptr as usize;
 
         if let Some(instance) = instances.get_mut(&key) {
