@@ -159,10 +159,12 @@ impl ScrapHeapManager {
         }
 
         let thread_id = get_current_thread_id();
-        let new_instance = ScrapHeapInstance::new(sheap_ptr, thread_id);
+        let mut new_instance = ScrapHeapInstance::new(sheap_ptr, thread_id);
+        
+        let ptr = new_instance.malloc_aligned(size, align);
         instances.insert(key, new_instance);
 
-        instances.get_mut(&key).unwrap().malloc_aligned(size, align)
+        ptr
     }
 
     #[inline(always)]
@@ -184,11 +186,6 @@ impl ScrapHeapManager {
 
         if let Some(instance) = instances.get_mut(&key) {
             instance.purge();
-        } else {
-            let thread_id = get_current_thread_id();
-            let mut new_instance = ScrapHeapInstance::new(sheap_ptr, thread_id);
-            new_instance.purge();
-            instances.insert(key, new_instance);
         }
     }
 }
