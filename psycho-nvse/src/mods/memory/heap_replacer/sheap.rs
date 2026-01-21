@@ -83,13 +83,10 @@ impl ScrapHeapInstance {
         if let Some(size) = self.allocations.remove(&addr_usize) {
             self.total_freed += size;
 
-            if self.total_freed >= self.total_allocated && self.bump.is_some() {
-                // log::info!(
-                //     "Sheap {:p} auto-purge: all allocations freed ({} bytes)",
-                //     self.sheap_ptr,
-                //     self.total_allocated
-                // );
-                self.bump = None;
+            if self.total_freed >= self.total_allocated {
+                if let Some(bump) = self.bump.as_mut() {
+                    bump.reset();
+                }
                 self.allocations.clear();
                 self.total_allocated = 0;
                 self.total_freed = 0;
