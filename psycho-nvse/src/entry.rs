@@ -18,7 +18,7 @@ use windows::{
 
 use crate::{
     mods::{
-        memory::{install_crt_hooks, install_crt_inline_hooks},
+        memory::{install_crt_hooks, install_crt_inline_hooks, install_game_heap_hooks},
         zlib::install_zlib_hooks,
     },
     plugininfo,
@@ -31,6 +31,8 @@ pub extern "system" fn DllMain(hmodule: HINSTANCE, reason: u32, _reserved: LPVOI
 
     static CRT_INLINE_HOOKS_INIT: Once = Once::new();
     static CRT_IAT_HOOKS_INIT: Once = Once::new();
+
+    static HEAP_PATCH_INIT: Once = Once::new();
 
     LOGGER_INIT.call_once(|| {
         // Allocate a console window for the game process
@@ -69,6 +71,16 @@ pub extern "system" fn DllMain(hmodule: HINSTANCE, reason: u32, _reserved: LPVOI
 
                 Err(err) => {
                     log::error!("Inline CRT hooks install error: {:?}", err);
+                }
+            });
+
+            HEAP_PATCH_INIT.call_once(|| match install_game_heap_hooks() {
+                Ok(_) => {
+                    log::info!("Game heap patch ready!");
+                }
+
+                Err(err) => {
+                    log::error!("Game heap patch install error: {:?}", err);
                 }
             });
 

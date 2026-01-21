@@ -1,3 +1,10 @@
+//! Zlib patch
+//! 
+//! This set of patches is complete port of awesome plugin: https://github.com/WallSoGB/Fallout-zlibUpdate
+//! All addresses and idea taken from it. The only difference - we use `zlib-rs` instead of `zlib`.
+//! 
+//! What makes this patch differs - it not use any hooking mechanism. Instead, we use direct CALL patch.
+
 use std::ffi::CStr;
 
 use libc::c_void;

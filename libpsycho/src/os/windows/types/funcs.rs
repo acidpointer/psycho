@@ -30,3 +30,4 @@ pub type HeapFreeFn = unsafe extern "system" fn(*mut c_void, u32, *mut c_void) -
 
 // Windows Virtual Memory API
 pub type VirtualAllocFn = unsafe extern "system" fn(*mut c_void, usize, u32, u32) -> *mut c_void;
+

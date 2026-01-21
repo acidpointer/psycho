@@ -27,7 +27,10 @@ features = ["extended"]
 
 [dependencies]
 cty = { version = "0.2", optional = true }
-libc = "0.2"
+libc = { workspace = true }
+thiserror = { workspace = true }
+log = { workspace = true }
+parking_lot = { workspace = true }
 libpsycho = { path = "../libpsycho" }
 
 [build-dependencies]
@@ -37,7 +40,7 @@ cc = "1.0"
 arena = []
 debug = []
 debug_in_debug = []
-default = ["extended"]
+default = ["extended", "arena"]
 extended = ["cty"]
 local_dynamic_tls = []
 no_thp = []
