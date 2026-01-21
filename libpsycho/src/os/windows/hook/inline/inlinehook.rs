@@ -389,6 +389,7 @@ impl<F: Copy + 'static> Drop for ScopedInlineHook<F> {
 /// Container for InlineHook<T>
 ///
 /// Common use-case: static variables with deffered initialization.
+#[derive(Default)]
 pub struct InlineHookContainer<T: Copy + 'static> {
     hook: RwLock<Option<InlineHook<T>>>,
 }
@@ -407,7 +408,7 @@ impl<T: Copy + 'static> InlineHookContainer<T> {
         }
     }
     
-    pub unsafe fn init(&self, name: &str, target_ptr: *mut c_void, detour_fn_ptr: T) -> InlineHookResult<()> {
+    pub fn init(&self, name: &str, target_ptr: *mut c_void, detour_fn_ptr: T) -> InlineHookResult<()> {
         let mut hook_lock = self.hook.write();
 
         match hook_lock.as_mut() {

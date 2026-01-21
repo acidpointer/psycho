@@ -151,6 +151,7 @@ impl Disasm {
     ///
     /// But on x86 only relative jumps possible, so we instantly return 5 without any calculations.
     /// Remember, for relative jumps we need distance between pointers: +- 2Gb and 5 bytes for instructions!
+    #[allow(unused_variables)]
     fn calculate_jump_size(from: *const c_void, to: *const c_void) -> usize {
         #[cfg(target_arch = "x86_64")]
         {

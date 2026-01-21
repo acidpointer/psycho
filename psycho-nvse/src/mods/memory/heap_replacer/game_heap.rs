@@ -59,7 +59,9 @@ pub(super) unsafe extern "fastcall" fn game_heap_msize(
         return 0;
     }
 
-    if unsafe { mi_is_in_heap_region(addr) } {
+    let is_mimalloc = unsafe { mi_is_in_heap_region(addr) };
+
+    if is_mimalloc {
         return unsafe { mi_usable_size(addr) };
     }
 
@@ -85,7 +87,9 @@ pub(super) unsafe extern "fastcall" fn game_heap_free(
         return;
     }
 
-    if unsafe { mi_is_in_heap_region(addr) } {
+    let is_mimalloc = unsafe { mi_is_in_heap_region(addr) };
+
+    if is_mimalloc {
         unsafe { mi_free(addr) };
         return;
     }

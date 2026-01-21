@@ -9,7 +9,7 @@ use std::sync::LazyLock;
 use libc::c_void;
 use libmimalloc::{mi_free, mi_is_in_heap_region, mi_malloc};
 
-use super::ScrapHeapManager;
+use super::sheap::*;
 
 /// Game's scrap heap structure (12 bytes, FFI boundary).
 /// Must match the game's struct layout exactly.
@@ -89,10 +89,10 @@ pub(super) unsafe extern "fastcall" fn sheap_free(
         return;
     }
 
-    if !SCRAP_HEAP_MANAGER.free(heap, addr) {
-        if unsafe { mi_is_in_heap_region(addr) } {
-            unsafe { mi_free(addr) };
-        }
+    let is_mimalloc = unsafe { mi_is_in_heap_region(addr) };
+
+    if !SCRAP_HEAP_MANAGER.free(heap, addr) && is_mimalloc {
+        unsafe { mi_free(addr) };
     }
 }
 

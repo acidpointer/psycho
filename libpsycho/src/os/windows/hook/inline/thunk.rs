@@ -1,3 +1,4 @@
+#![allow(dead_code)]
 //! x86 instruction generation utilities
 //!
 //! This module provides functions to generate specific x86 instructions

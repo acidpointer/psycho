@@ -52,20 +52,19 @@ pub static CRT_INLINE_MSIZE_HOOK: LazyLock<InlineHookContainer<MsizeFn>> =
 pub static CRT_INLINE_FREE_HOOK: LazyLock<InlineHookContainer<FreeFn>> =
     LazyLock::new(InlineHookContainer::new);
 
-
-pub unsafe extern "C" fn hook_malloc(size: usize) -> *mut c_void {
+unsafe extern "C" fn hook_malloc(size: usize) -> *mut c_void {
     let result = unsafe { mi_malloc(size) };
     log::trace!("malloc({}) -> {:p}", size, result);
     result
 }
 
-pub unsafe extern "C" fn hook_calloc(count: usize, size: usize) -> *mut c_void {
+unsafe extern "C" fn hook_calloc(count: usize, size: usize) -> *mut c_void {
     let result = unsafe { mi_calloc(count, size) };
     log::trace!("calloc({}, {}) -> {:p}", count, size, result);
     result
 }
 
-pub unsafe extern "C" fn hook_realloc(raw_ptr: *mut c_void, size: usize) -> *mut c_void {
+unsafe extern "C" fn hook_realloc(raw_ptr: *mut c_void, size: usize) -> *mut c_void {
     let is_mimalloc = unsafe { mi_is_in_heap_region(raw_ptr) };
 
     if is_mimalloc {
@@ -81,16 +80,7 @@ pub unsafe extern "C" fn hook_realloc(raw_ptr: *mut c_void, size: usize) -> *mut
 
     match CRT_INLINE_REALLOC_HOOK_1.original() {
         Ok(orig_realloc) => {
-            let result = unsafe { orig_realloc(raw_ptr, size) };
-
-            log::trace!(
-                "realloc_orig({:p}, {}) -> {:p} [mimalloc]",
-                raw_ptr,
-                size,
-                result
-            );
-
-            result
+            unsafe { orig_realloc(raw_ptr, size) }
         }
 
         Err(err) => {
@@ -101,40 +91,27 @@ pub unsafe extern "C" fn hook_realloc(raw_ptr: *mut c_void, size: usize) -> *mut
     }
 }
 
-pub unsafe extern "C" fn hook_recalloc(
+unsafe extern "C" fn hook_recalloc(
     raw_ptr: *mut c_void,
     count: usize,
     size: usize,
 ) -> *mut c_void {
-    let result = unsafe { mi_recalloc(raw_ptr, count, size) };
-    log::trace!(
-        "recalloc({:p}, {}, {}) -> {:p} [mimalloc]",
-        raw_ptr,
-        count,
-        size,
-        result
-    );
-    result
+    unsafe { mi_recalloc(raw_ptr, count, size) }
 }
 
-pub unsafe extern "C" fn hook_msize(raw_ptr: *mut c_void) -> usize {
+unsafe extern "C" fn hook_msize(raw_ptr: *mut c_void) -> usize {
     let is_mimalloc = unsafe { mi_is_in_heap_region(raw_ptr) };
 
     if is_mimalloc {
-        let size = unsafe { mi_usable_size(raw_ptr) };
-
-        log::trace!("msize({:p}) -> {} [mimalloc]", raw_ptr, size);
-
-        return size;
+        return unsafe { mi_usable_size(raw_ptr) };
     }
 
     match CRT_INLINE_MSIZE_HOOK.original() {
         Ok(orig_msize) => {
             let orig_size = unsafe { orig_msize(raw_ptr) };
 
-            log::trace!("orig_msize({:p}) -> {} [mimalloc]", raw_ptr, orig_size);
             if orig_size == usize::MAX {
-                log::error!("Neither allocator recognizes {:p}!", raw_ptr);
+                log::warn!("hook_msize: pointer is unknown {:p}!", raw_ptr);
                 return 0;
             }
             orig_size
@@ -146,20 +123,17 @@ pub unsafe extern "C" fn hook_msize(raw_ptr: *mut c_void) -> usize {
     }
 }
 
-pub unsafe extern "C" fn hook_free(raw_ptr: *mut c_void) {
+unsafe extern "C" fn hook_free(raw_ptr: *mut c_void) {
     let is_mimalloc = unsafe { mi_is_in_heap_region(raw_ptr) };
 
     if is_mimalloc {
-        unsafe { mi_free(raw_ptr) }
-        log::trace!("free({:p}) [mimalloc]", raw_ptr);
-        return;
+        return unsafe { mi_free(raw_ptr) };
     }
 
     match CRT_INLINE_FREE_HOOK.original() {
         Ok(orig_free) => {
             unsafe { orig_free(raw_ptr) };
-            log::trace!("orig_free({:p}) [mimalloc]", raw_ptr);
-        },
+        }
 
         Err(err) => {
             log::error!(
@@ -174,40 +148,30 @@ pub unsafe extern "C" fn hook_free(raw_ptr: *mut c_void) {
 pub fn install_crt_inline_hooks() -> anyhow::Result<()> {
     super::configure_mimalloc();
 
-    unsafe {
-        // Inline hooks
-        CRT_INLINE_MALLOC_HOOK_1.init("malloc1", CRT_MALLOC_ADDR_1 as *mut c_void, hook_malloc)?;
-        CRT_INLINE_MALLOC_HOOK_2.init("malloc2", CRT_MALLOC_ADDR_2 as *mut c_void, hook_malloc)?;
+    // Inline hooks
+    CRT_INLINE_MALLOC_HOOK_1.init("malloc1", CRT_MALLOC_ADDR_1 as *mut c_void, hook_malloc)?;
+    CRT_INLINE_MALLOC_HOOK_2.init("malloc2", CRT_MALLOC_ADDR_2 as *mut c_void, hook_malloc)?;
 
-        CRT_INLINE_CALLOC_HOOK_1.init("calloc1", CRT_CALLOC_ADDR_1 as *mut c_void, hook_calloc)?;
-        CRT_INLINE_CALLOC_HOOK_2.init("calloc2", CRT_CALLOC_ADDR_2 as *mut c_void, hook_calloc)?;
+    CRT_INLINE_CALLOC_HOOK_1.init("calloc1", CRT_CALLOC_ADDR_1 as *mut c_void, hook_calloc)?;
+    CRT_INLINE_CALLOC_HOOK_2.init("calloc2", CRT_CALLOC_ADDR_2 as *mut c_void, hook_calloc)?;
 
-        CRT_INLINE_REALLOC_HOOK_1.init(
-            "realloc1",
-            CRT_REALLOC_ADDR_1 as *mut c_void,
-            hook_realloc,
-        )?;
-        CRT_INLINE_REALLOC_HOOK_2.init(
-            "realloc2",
-            CRT_REALLOC_ADDR_2 as *mut c_void,
-            hook_realloc,
-        )?;
+    CRT_INLINE_REALLOC_HOOK_1.init("realloc1", CRT_REALLOC_ADDR_1 as *mut c_void, hook_realloc)?;
+    CRT_INLINE_REALLOC_HOOK_2.init("realloc2", CRT_REALLOC_ADDR_2 as *mut c_void, hook_realloc)?;
 
-        CRT_INLINE_RECALLOC_HOOK_1.init(
-            "recalloc1",
-            CRT_RECALLOC_ADDR_1 as *mut c_void,
-            hook_recalloc,
-        )?;
-        CRT_INLINE_RECALLOC_HOOK_2.init(
-            "recalloc2",
-            CRT_RECALLOC_ADDR_2 as *mut c_void,
-            hook_recalloc,
-        )?;
+    CRT_INLINE_RECALLOC_HOOK_1.init(
+        "recalloc1",
+        CRT_RECALLOC_ADDR_1 as *mut c_void,
+        hook_recalloc,
+    )?;
+    CRT_INLINE_RECALLOC_HOOK_2.init(
+        "recalloc2",
+        CRT_RECALLOC_ADDR_2 as *mut c_void,
+        hook_recalloc,
+    )?;
 
-        CRT_INLINE_FREE_HOOK.init("free", CRT_FREE_ADDR as *mut c_void, hook_free)?;
+    CRT_INLINE_FREE_HOOK.init("free", CRT_FREE_ADDR as *mut c_void, hook_free)?;
 
-        CRT_INLINE_MSIZE_HOOK.init("msize", CRT_MSIZE_ADDR as *mut c_void, hook_msize)?;
-    }
+    CRT_INLINE_MSIZE_HOOK.init("msize", CRT_MSIZE_ADDR as *mut c_void, hook_msize)?;
 
     // Inline hooks
 

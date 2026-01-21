@@ -10,14 +10,14 @@ use libc::c_void;
 use libpsycho::os::windows::winapi::get_current_thread_id;
 use parking_lot::RwLock;
 
-/// Maximum number of 512KB blocks in original C++ implementation
+/// Maximum number of blocks
 const SHEAP_MAX_BLOCKS: usize = 32;
 
 /// Size of each block in bytes (512KB)
 const SHEAP_BUFF_SIZE: usize = 512 * 1024;
 
-/// Total capacity per sheap instance (32MB - doubled from original 16MB)
-const SHEAP_CAPACITY_BYTES: usize = (SHEAP_MAX_BLOCKS * SHEAP_BUFF_SIZE) * 2;
+/// Total capacity per sheap instance
+const SHEAP_CAPACITY_BYTES: usize = SHEAP_MAX_BLOCKS * SHEAP_BUFF_SIZE;// * 2;
 
 /// A single scrap heap instance backed by a bump allocator.
 ///

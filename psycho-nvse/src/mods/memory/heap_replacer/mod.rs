@@ -7,18 +7,14 @@ use std::sync::LazyLock;
 
 use libpsycho::os::windows::hook::inline::inlinehook::InlineHookContainer;
 
-mod game_heap;
-mod replacer;
-mod scrap_heap;
-mod sheap;
+pub(super) mod game_heap;
+pub(super) mod scrap_heap;
+pub(super) mod sheap;
 mod types;
+mod replacer;
 
 pub use replacer::install_game_heap_hooks;
 pub use types::*;
-
-pub(super) use game_heap::*;
-pub(super) use scrap_heap::*;
-pub(super) use sheap::*;
 
 /// Game heap function addresses (Fallout New Vegas)
 pub(super) const GAME_HEAP_ALLOCATE_ADDR: usize = 0x00AA3E40;
