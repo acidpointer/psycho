@@ -587,6 +587,13 @@ impl WinString {
         f(self.as_pcstr())
     }
 
+    pub fn with_ansi<F, R>(&self, f: F) -> R
+    where
+        F: FnOnce(*const i8) -> R,
+    {
+        f(self.as_ansi_ptr())
+    }
+
     pub fn try_with_pcstr<F, T>(&self, f: F) -> WinapiResult<T>
     where
         F: FnOnce(PCSTR) -> WinapiResult<T>,
@@ -608,6 +615,13 @@ impl WinString {
         f(self.as_pcwstr())
     }
 
+    pub fn try_with_ansi<F, T>(&self, f: F) -> WinapiResult<T>
+    where
+        F: FnOnce(*const i8) -> WinapiResult<T>,
+    {
+        f(self.as_ansi_ptr())
+    }
+
     pub fn as_string(&self) -> String {
         self.origin.clone()
     }
@@ -618,6 +632,10 @@ impl WinString {
 
     fn as_pcstr(&self) -> PCSTR {
         PCSTR::from_raw(self.ansi_str.as_ptr() as *const u8)
+    }
+
+    fn as_ansi_ptr(&self) -> *const i8 {
+        self.ansi_str.as_ptr()
     }
 }
 

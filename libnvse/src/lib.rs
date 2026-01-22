@@ -17,3 +17,5 @@ mod nvse_bindings;
 
 // Re-export bindings at the crate root for easier access
 pub use nvse_bindings::root::*;
+
+pub mod api;

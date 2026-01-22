@@ -1,6 +1,13 @@
 use std::sync::Once;
 
-use libnvse::{NVSEInterface, PluginInfo};
+use libnvse::{
+    NVSEInterface, NVSEMessagingInterface, NVSEMessagingInterface_Message, PluginInfo,
+    api::{
+        message_box::show_message_box,
+        messaging::{NVSEMessage, NVSEMessageType},
+    },
+    kInterface_Messaging,
+};
 use libpsycho::{
     common::exe_version::ExeVersion,
     logger::Logger,
@@ -159,6 +166,31 @@ pub unsafe extern "C" fn NVSEPlugin_Load(nvse: *const NVSEInterface) -> BOOL {
     true.into()
 }
 
+extern "C" fn msg_cb(msg: *mut NVSEMessagingInterface_Message) {
+    let msg = NVSEMessage::from(unsafe { &*msg });
+
+    let msg_type = msg.get_type();
+
+    if msg_type == NVSEMessageType::MainGameLoop
+        || msg_type == NVSEMessageType::OnFramePresent
+        || msg_type == NVSEMessageType::ScriptCompile
+        || msg_type == NVSEMessageType::EventListDestroyed
+    {
+        return;
+    }
+
+    log::info!("Message received: {}", msg.get_type());
+
+    if msg.get_type() == NVSEMessageType::DeferredInit {
+        match show_message_box("psycho-nvse loaded! Have FUN!", "YUP") {
+            Ok(_) => {}
+            Err(err) => {
+                log::error!("show_message_box error: {:?}", err);
+            }
+        }
+    }
+}
+
 /// Main function which executes when plugin ready
 ///
 /// This function must return result.
@@ -171,6 +203,21 @@ fn start(nvse: &NVSEInterface) -> anyhow::Result<()> {
     log::info!("start() called!");
 
     install_zlib_hooks(nvse)?;
+
+    if let Some(query_interface_fn) = nvse.QueryInterface {
+        let messaging_interface = unsafe { query_interface_fn(kInterface_Messaging as u32) }
+            as *mut NVSEMessagingInterface;
+
+        let messaging_interface = unsafe { &*messaging_interface };
+
+        if let Some(register_listener_fn) = messaging_interface.RegisterListener
+            && let Some(get_plugin_handle_fn) = nvse.GetPluginHandle
+        {
+            let plugin_handle = unsafe { get_plugin_handle_fn() };
+
+            unsafe { register_listener_fn(plugin_handle, c"NVSE".as_ptr(), Some(msg_cb)) };
+        }
+    }
 
     Ok(())
 }
