@@ -157,3 +157,9 @@ typedef Bitfield<UInt8>  Bitfield8;
 
 // Include main plugin API (path will be adjusted by build.rs with -I flags)
 #include "nvse/PluginAPI.h"
+
+// Include game API for runtime functions (ShowMessageBox, etc.)
+#include "nvse/GameAPI.h"
+
+// Include utilities (ShowErrorMessageBox, etc.)
+#include "nvse/Utilities.h"
