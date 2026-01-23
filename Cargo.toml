@@ -3,6 +3,7 @@ resolver = "3"
 members = ["libf4se", "libmimalloc", "libpsycho", "psycho-fo4", "drifter", "libnvse", "psycho-nvse"]
 
 [workspace.dependencies]
+closure-ffi = { version = "5.0.1" }
 anyhow = { version = "1.0" }
 dashmap = { version = "7.0.0-rc2", features = ["inline-more"] }
 fern = "0.7.1"
@@ -11,6 +12,7 @@ log = { version = "0.4", features = ["std"] }
 parking_lot = "0.12.5"
 thiserror = "2.0.17"
 crossbeam-queue = "0.3"
+ahash = "0.8.12"
 windows = { version = "=0.60", features = [ 
   "Data_Xml_Dom", 
   "UI_WindowManagement", 

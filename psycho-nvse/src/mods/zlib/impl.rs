@@ -8,7 +8,7 @@
 use std::ffi::CStr;
 
 use libc::c_void;
-use libnvse::NVSEInterface;
+use libnvse::api::interface::NVSEInterface;
 use libpsycho::os::windows::winapi::{patch_memory_nop, replace_call, safe_write_16, safe_write_8};
 use libz_rs_sys::{inflate, inflateEnd, inflateInit2_, z_streamp};
 
@@ -92,7 +92,7 @@ unsafe extern "C" fn hook_inflate_end(strm: z_streamp) -> i32 {
 /// This performs direct memory patching of the executable and should only be called
 /// during plugin initialization.
 pub fn install_zlib_hooks(nvse: &NVSEInterface) -> anyhow::Result<()> {
-    let is_editor = nvse.isEditor != 0;
+    let is_editor = nvse.is_editor();
 
     if is_editor {
         log::info!("[ZLIB] Installing zlib patches for GECK Editor");

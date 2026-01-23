@@ -1,12 +1,8 @@
 use std::sync::Once;
 
 use libnvse::{
-    NVSEInterface, NVSEMessagingInterface, NVSEMessagingInterface_Message, PluginInfo,
-    api::{
-        message_box::show_message_box,
-        messaging::{NVSEMessage, NVSEMessageType},
-    },
-    kInterface_Messaging,
+    NVSEInterfaceFFI, PluginInfoFFI,
+    api::{interface::NVSEInterface, message_box::show_message_box, messaging::NVSEMessageType},
 };
 use libpsycho::{
     common::exe_version::ExeVersion,
@@ -124,8 +120,8 @@ pub extern "C" fn NVSEPlugin_Preload() -> BOOL {
 #[unsafe(no_mangle)]
 #[allow(non_snake_case)]
 pub unsafe extern "C" fn NVSEPlugin_Query(
-    nvse: *const NVSEInterface,
-    info: *mut PluginInfo,
+    nvse: *const NVSEInterfaceFFI,
+    info: *mut PluginInfoFFI,
 ) -> BOOL {
     let nvse = unsafe { &*nvse };
     let info = unsafe { &mut *info };
@@ -148,10 +144,8 @@ pub unsafe extern "C" fn NVSEPlugin_Query(
 /// Unsafe, caller must be carefull
 #[unsafe(no_mangle)]
 #[allow(non_snake_case)]
-pub unsafe extern "C" fn NVSEPlugin_Load(nvse: *const NVSEInterface) -> BOOL {
+pub unsafe extern "C" fn NVSEPlugin_Load(nvse: *const NVSEInterfaceFFI) -> BOOL {
     log::info!("NVSEPlugin_Load called! NVSEInterface address: {:p}", nvse);
-
-    let nvse = unsafe { &*nvse };
 
     // Business logic starts here
     match start(nvse) {
@@ -166,31 +160,6 @@ pub unsafe extern "C" fn NVSEPlugin_Load(nvse: *const NVSEInterface) -> BOOL {
     true.into()
 }
 
-extern "C" fn msg_cb(msg: *mut NVSEMessagingInterface_Message) {
-    let msg = NVSEMessage::from(unsafe { &*msg });
-
-    let msg_type = msg.get_type();
-
-    if msg_type == NVSEMessageType::MainGameLoop
-        || msg_type == NVSEMessageType::OnFramePresent
-        || msg_type == NVSEMessageType::ScriptCompile
-        || msg_type == NVSEMessageType::EventListDestroyed
-    {
-        return;
-    }
-
-    log::info!("Message received: {}", msg.get_type());
-
-    if msg.get_type() == NVSEMessageType::DeferredInit {
-        match show_message_box("psycho-nvse loaded! Have FUN!", "YUP") {
-            Ok(_) => {}
-            Err(err) => {
-                log::error!("show_message_box error: {:?}", err);
-            }
-        }
-    }
-}
-
 /// Main function which executes when plugin ready
 ///
 /// This function must return result.
@@ -199,25 +168,41 @@ extern "C" fn msg_cb(msg: *mut NVSEMessagingInterface_Message) {
 /// Developer responsible to make this function free of hidded panics,
 /// or silent errors. Result MUST be propagated.
 /// Usage of .expect or .unwrap strongly not recommended!
-fn start(nvse: &NVSEInterface) -> anyhow::Result<()> {
+fn start(nvse_ptr: *const NVSEInterfaceFFI) -> anyhow::Result<()> {
     log::info!("start() called!");
 
-    install_zlib_hooks(nvse)?;
+    let mut nvse_interface = NVSEInterface::from_raw(nvse_ptr)?;
 
-    if let Some(query_interface_fn) = nvse.QueryInterface {
-        let messaging_interface = unsafe { query_interface_fn(kInterface_Messaging as u32) }
-            as *mut NVSEMessagingInterface;
+    let msg_interface = nvse_interface.messaging_interface_mut();
 
-        let messaging_interface = unsafe { &*messaging_interface };
+    // See, you can use closures for registering listeners for NVSEMessagingInterface!
+    msg_interface.register_listener("NVSE", |msg| {
+        let msg_type = msg.get_type();
 
-        if let Some(register_listener_fn) = messaging_interface.RegisterListener
-            && let Some(get_plugin_handle_fn) = nvse.GetPluginHandle
+        if msg_type == NVSEMessageType::MainGameLoop
+            || msg_type == NVSEMessageType::OnFramePresent
+            || msg_type == NVSEMessageType::ScriptCompile
+            || msg_type == NVSEMessageType::EventListDestroyed
+            || msg_type == NVSEMessageType::ScriptPrecompile
         {
-            let plugin_handle = unsafe { get_plugin_handle_fn() };
-
-            unsafe { register_listener_fn(plugin_handle, c"NVSE".as_ptr(), Some(msg_cb)) };
+            return;
         }
-    }
+
+        log::debug!("Message received: {}", msg.get_type());
+
+        if msg.get_type() == NVSEMessageType::DeferredInit {
+            match show_message_box("psycho-nvse loaded! Have FUN!", "YUP", || {
+                log::info!("YES! BUTTON PRESSED!!!!")
+            }) {
+                Ok(_) => {}
+                Err(err) => {
+                    log::error!("show_message_box error: {:?}", err);
+                }
+            }
+        }
+    })?;
+
+    install_zlib_hooks(&nvse_interface)?;
 
     Ok(())
 }

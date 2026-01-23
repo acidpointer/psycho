@@ -10,6 +10,8 @@ log = { workspace = true }
 thiserror = { workspace = true }
 anyhow = { workspace = true }
 parking_lot = { workspace = true }
+closure-ffi = { workspace = true }
+ahash = { workspace = true }
 libpsycho = { path = "../libpsycho" }
 
 [build-dependencies]

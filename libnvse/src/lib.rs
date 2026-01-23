@@ -16,6 +16,8 @@ compile_error!("Unsupported architecture - only x86/x64 supported");
 mod nvse_bindings;
 
 // Re-export bindings at the crate root for easier access
-pub use nvse_bindings::root::*;
+pub(crate) use nvse_bindings::root::*;
+
+pub use nvse_bindings::root::{NVSEInterface as NVSEInterfaceFFI, PluginInfo as PluginInfoFFI};
 
 pub mod api;

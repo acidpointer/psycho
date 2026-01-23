@@ -1,6 +1,6 @@
 # libnvse
 
-Rust FFI bindings for xNVSE (Extended New Vegas Script Extender).
+Library to work with xNVSE.
 
 ## About
 

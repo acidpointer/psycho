@@ -1,4 +1,12 @@
-use std::{ffi::CStr, fmt::Display};
+use crate::{
+    NVSEMessagingInterface as NVSEMessagingInterfaceFFI, api::interface::NVSEPluginHandle
+};
+use ahash::AHashMap;
+use closure_ffi::BareFn;
+use libpsycho::os::windows::winapi::{WinString, WinapiError};
+use parking_lot::RwLock;
+use std::{ffi::CStr, fmt::Display, ptr::NonNull};
+use thiserror::Error;
 
 use libc::c_void;
 
@@ -51,8 +59,8 @@ pub enum NVSEMessageType {
     Unknown(u32),
 }
 
-pub const kMessage_PostLoad: u32 = NVSEMessagingInterface_kMessage_PostLoad as u32;
-pub const kMessage_ExitGame: u32 = NVSEMessagingInterface_kMessage_ExitGame as u32;
+const kMessage_PostLoad: u32 = NVSEMessagingInterface_kMessage_PostLoad as u32;
+const kMessage_ExitGame: u32 = NVSEMessagingInterface_kMessage_ExitGame as u32;
 pub const kMessage_ExitToMainMenu: u32 = NVSEMessagingInterface_kMessage_ExitToMainMenu as u32;
 pub const kMessage_LoadGame: u32 = NVSEMessagingInterface_kMessage_LoadGame as u32;
 pub const kMessage_SaveGame: u32 = NVSEMessagingInterface_kMessage_SaveGame as u32;
@@ -177,5 +185,108 @@ impl From<&NVSEMessagingInterface_Message> for NVSEMessage {
 impl NVSEMessage {
     pub fn get_type(&self) -> NVSEMessageType {
         self.msg_type
+    }
+}
+
+#[derive(Debug, Error)]
+pub enum NVSEMessagingInterfaceError {
+    #[error("RegisterListener from NVSEMessagingInterface is NULL")]
+    RegisterListenerIsNull,
+
+    #[error("NVSEMessagingInterface pointer is NULL")]
+    InterfaceIsNull,
+
+    #[error("WinAPI error: {0}")]
+    WinapiError(#[from] WinapiError),
+
+    #[error("Message listener already registered for sender: {0}")]
+    ListenerAlreadyRegistered(String),
+}
+
+pub type NVSEMessagingInterfaceResult<T> = std::result::Result<T, NVSEMessagingInterfaceError>;
+
+pub struct NVSEMessagingInterface<'a> {
+    version: u32,
+    msg_ptr: NonNull<NVSEMessagingInterfaceFFI>,
+
+    listeners:
+        AHashMap<String, BareFn<'a, unsafe extern "C" fn(*mut NVSEMessagingInterface_Message)>>,
+
+    plugin_handle: NVSEPluginHandle,
+
+    _guard: RwLock<()>,
+}
+
+impl<'a> NVSEMessagingInterface<'a> {
+    pub fn from_raw(
+        msg_interface: *mut NVSEMessagingInterfaceFFI,
+        plugin_handle: NVSEPluginHandle,
+    ) -> NVSEMessagingInterfaceResult<Self> {
+        let msg_ptr =
+            NonNull::new(msg_interface).ok_or(NVSEMessagingInterfaceError::InterfaceIsNull)?;
+
+        let msg_ref = unsafe { msg_ptr.as_ref() };
+
+        let version = msg_ref.version;
+
+        Ok(Self {
+            version,
+            msg_ptr,
+            plugin_handle,
+            listeners: AHashMap::new(),
+            _guard: RwLock::new(()),
+        })
+    }
+
+    pub fn register_listener<F: Fn(&NVSEMessage) + 'a>(
+        &mut self,
+        sender: &str,
+        cb: F,
+    ) -> NVSEMessagingInterfaceResult<()> {
+        let _lock = self._guard.write();
+
+        if self.listeners.contains_key(sender) {
+            return Err(NVSEMessagingInterfaceError::ListenerAlreadyRegistered(
+                sender.to_string(),
+            ));
+        }
+
+        let msg_ref = unsafe { self.msg_ptr.as_ref() };
+
+        let register_listener_fn = msg_ref
+            .RegisterListener
+            .ok_or(NVSEMessagingInterfaceError::RegisterListenerIsNull)?;
+
+        // Okay okay, what this thing will do for us?
+        // First of all, we want to give NVSE raw pointer to our closure.
+        // This task achiavable through `closure-ffi` with `BareFn` type.
+        // BareFn will own our closure and can safely return pointer to it.
+        // But we all know about Rust's lifetimes, so we save BareFn to hashmap.
+        // That means NVSE always have pointer to VALID function, while developer
+        // use nice high level API in little cost of RAM
+        let bare_fn = BareFn::new(move |msg: *mut NVSEMessagingInterface_Message| {
+            let message: NVSEMessage = unsafe { &*msg }.into();
+
+            cb(&message)
+        });
+
+        let sender_winstr = WinString::new(sender)?;
+
+        sender_winstr.with_ansi(|sender| unsafe {
+            register_listener_fn(self.plugin_handle.get_handle(), sender, Some(bare_fn.bare()))
+        });
+
+        // This is closure lifetime preservation program
+        // Input closure was chosen to exclusively participate in program
+        // of preserving it's lifetime in our specialy designed vault(hashmap)
+        self.listeners.insert(sender.to_string(), bare_fn);
+
+        Ok(())
+    }
+
+    pub fn is_listener_registered(&self, sender: &str) -> bool {
+        let _lock = self._guard.read();
+
+        self.listeners.contains_key(sender)
     }
 }
