@@ -13,6 +13,9 @@ pub(super) mod sheap;
 mod types;
 mod replacer;
 
+#[cfg(test)]
+mod sheap_tests;
+
 pub use replacer::install_game_heap_hooks;
 pub use types::*;
 

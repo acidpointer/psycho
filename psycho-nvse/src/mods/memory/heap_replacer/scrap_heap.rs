@@ -89,11 +89,17 @@ pub(super) unsafe extern "fastcall" fn sheap_free(
         return;
     }
 
-    let is_mimalloc = unsafe { mi_is_in_heap_region(addr) };
-
-    if !SCRAP_HEAP_MANAGER.free(heap, addr) && is_mimalloc {
-        unsafe { mi_free(addr) };
+    if heap.is_null() {
+        log::warn!("sheap_free: NULL heap pointer, trying global free");
+        unsafe {
+            if mi_is_in_heap_region(addr) {
+                mi_free(addr);
+            }
+        }
+        return;
     }
+
+    SCRAP_HEAP_MANAGER.free(heap, addr);
 }
 
 /// Sheap purge hook (0x00AA5460 FNV, 0x0086CAA0 GECK).
