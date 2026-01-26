@@ -4,20 +4,20 @@
 //! with batch deallocation. We replace it with bump-scope's Bump allocator
 //! and fall back to mimalloc when capacity is exhausted.
 
-use std::cell::Cell;
+use std::cell::{Cell, UnsafeCell};
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 use ahash::AHashMap;
 use bump_scope::Bump;
 use libc::c_void;
 use libpsycho::os::windows::winapi::get_current_thread_id;
-use parking_lot::Mutex;
+use parking_lot::{Mutex, RwLock};
 
-/// Thread-local cache for fast sheap instance lookup.
-///
-/// Caches the last accessed (sheap_ptr, instance_ptr) pair per thread.
-/// Provides ~99% hit rate for typical usage patterns where the same sheap
-/// is used repeatedly before switching to a different one.
+// Thread-local cache for fast sheap instance lookup.
+//
+// Caches the last accessed (sheap_ptr, instance_ptr) pair per thread.
+// Provides ~99% hit rate for typical usage patterns where the same sheap
+// is used repeatedly before switching to a different one.
 thread_local! {
     static SHEAP_CACHE: Cell<(usize, *mut ScrapHeapInstance)> =
         const { Cell::new((0, std::ptr::null_mut())) };
@@ -57,7 +57,10 @@ const SHEAP_CAPACITY_BYTES: usize = SHEAP_MAX_BLOCKS * SHEAP_BUFF_SIZE;// * 2;
 /// Access is synchronized via RwLock in ScrapHeapManager.
 pub(super) struct ScrapHeapInstance {
     sheap_ptr: *mut c_void,
-    bump: Option<Bump>,
+    /// Bump allocator wrapped in RwLock for thread-safe concurrent access.
+    /// - Read lock: Multiple threads can allocate simultaneously
+    /// - Write lock: Exclusive access for reset operations
+    bump: RwLock<Option<Bump>>,
     thread_id: u32,
     /// Total bytes allocated from this sheap (atomic for thread-safety).
     /// Tracks cumulative allocation size across all allocations.
@@ -65,10 +68,10 @@ pub(super) struct ScrapHeapInstance {
     /// Total bytes freed from this sheap (atomic for thread-safety).
     /// When total_freed >= total_allocated, safe to reset the bump allocator.
     total_freed: AtomicUsize,
-    /// Start address of the bump allocator's memory region
-    region_start: usize,
-    /// End address of the bump allocator's memory region
-    region_end: usize,
+    /// Start address of the bump allocator's memory region (UnsafeCell for interior mutability)
+    region_start: UnsafeCell<usize>,
+    /// End address of the bump allocator's memory region (UnsafeCell for interior mutability)
+    region_end: UnsafeCell<usize>,
 }
 
 unsafe impl Send for ScrapHeapInstance {}
@@ -82,12 +85,12 @@ impl ScrapHeapInstance {
 
         Self {
             sheap_ptr,
-            bump: Some(bump),
+            bump: RwLock::new(Some(bump)),
             thread_id,
             total_allocated: AtomicUsize::new(0),
             total_freed: AtomicUsize::new(0),
-            region_start,
-            region_end,
+            region_start: UnsafeCell::new(region_start),
+            region_end: UnsafeCell::new(region_end),
         }
     }
 
@@ -106,50 +109,61 @@ impl ScrapHeapInstance {
     /// Fast check if a pointer falls within this sheap's bump allocator region.
     #[inline(always)]
     pub fn contains_ptr(&self, addr: usize) -> bool {
-        addr >= self.region_start && addr < self.region_end
+        unsafe {
+            let start = *self.region_start.get();
+            let end = *self.region_end.get();
+            addr >= start && addr < end
+        }
     }
 
     #[inline(always)]
-    fn malloc_aligned(&mut self, size: usize, align: usize) -> *mut c_void {
+    fn malloc_aligned(&self, size: usize, align: usize) -> *mut c_void {
         // Calculate total size including header
         let total_size = size + HEADER_SIZE;
 
         // Ensure alignment is at least header alignment (8 bytes)
         let actual_align = align.max(std::mem::align_of::<AllocationHeader>());
 
-        if let Some(bump) = self.bump.as_mut() {
-            let layout = match std::alloc::Layout::from_size_align(total_size, actual_align) {
-                Ok(layout) => layout,
-                Err(_) => {
-                    log::error!("Invalid layout: size={}, align={}", total_size, actual_align);
-                    return std::ptr::null_mut();
+        // Try to allocate from bump allocator with read lock (allows concurrent allocations)
+        {
+            let bump_guard = self.bump.read();
+            if let Some(ref bump) = *bump_guard {
+                let layout = match std::alloc::Layout::from_size_align(total_size, actual_align) {
+                    Ok(layout) => layout,
+                    Err(_) => {
+                        log::error!("Invalid layout: size={}, align={}", total_size, actual_align);
+                        return std::ptr::null_mut();
+                    }
+                };
+
+                if let Ok(ptr) = bump.try_alloc_layout(layout) {
+                    let base_addr = ptr.as_ptr() as usize;
+
+                    // Write header at the base address
+                    let header = AllocationHeader { size };
+                    unsafe {
+                        std::ptr::write(base_addr as *mut AllocationHeader, header);
+                    }
+
+                    // Return pointer after the header (this is what the game sees)
+                    let user_ptr = (base_addr + HEADER_SIZE) as *mut c_void;
+
+                    // Atomically increment total allocated bytes (thread-safe)
+                    self.total_allocated.fetch_add(size, Ordering::Relaxed);
+
+                    return user_ptr;
                 }
-            };
-
-            if let Ok(ptr) = bump.try_alloc_layout(layout) {
-                let base_addr = ptr.as_ptr() as usize;
-
-                // Write header at the base address
-                let header = AllocationHeader { size };
-                unsafe {
-                    std::ptr::write(base_addr as *mut AllocationHeader, header);
-                }
-
-                // Return pointer after the header (this is what the game sees)
-                let user_ptr = (base_addr + HEADER_SIZE) as *mut c_void;
-
-                // Atomically increment total allocated bytes (thread-safe)
-                self.total_allocated.fetch_add(size, Ordering::Relaxed);
-
-                return user_ptr;
             }
-
-            log::warn!(
-                "Sheap {:p} bump allocator exhausted (16MB), switching to mimalloc",
-                self.sheap_ptr
-            );
-            self.bump = None;
         }
+
+        // Bump allocator exhausted or doesn't exist - switch to mimalloc
+        log::warn!(
+            "Sheap {:p} bump allocator exhausted (16MB), switching to mimalloc",
+            self.sheap_ptr
+        );
+
+        // Write lock to set bump to None
+        *self.bump.write() = None;
 
         // Fallback to mimalloc - also use header-based allocation
         unsafe {
@@ -168,7 +182,7 @@ impl ScrapHeapInstance {
     }
 
     #[inline(always)]
-    fn free(&mut self, addr: *mut c_void) -> bool {
+    fn free(&self, addr: *mut c_void) -> bool {
         if addr.is_null() {
             return false;
         }
@@ -203,35 +217,51 @@ impl ScrapHeapInstance {
 
         // Check if we can reset the bump allocator (all bytes freed)
         if freed >= allocated {
-            // CRITICAL: Only reset if we still have a bump allocator
-            // Another thread might have already reset or switched to mimalloc
-            if let Some(bump) = self.bump.as_mut() {
-                bump.reset();
+            // Acquire write lock for exclusive access during reset
+            let mut bump_guard = self.bump.write();
 
-                // Update region after reset
-                let (region_start, region_end) = Self::get_bump_region(bump);
-                self.region_start = region_start;
-                self.region_end = region_end;
+            // Double-check condition after acquiring lock (another thread might have reset already)
+            let freed_recheck = self.total_freed.load(Ordering::SeqCst);
+            let allocated_recheck = self.total_allocated.load(Ordering::SeqCst);
 
-                // Reset counters atomically
-                self.total_allocated.store(0, Ordering::SeqCst);
-                self.total_freed.store(0, Ordering::SeqCst);
+            if freed_recheck >= allocated_recheck
+                && let Some(ref mut bump) = *bump_guard {
+                    bump.reset();
 
-                log::trace!("Sheap {:p} auto-reset successful (freed={}, allocated={})",
-                    self.sheap_ptr, freed, allocated);
-            }
+                    // Update region after reset
+                    let (region_start, region_end) = Self::get_bump_region(bump);
+
+                    // SAFETY: We have exclusive write lock, safe to modify via UnsafeCell
+                    unsafe {
+                        *self.region_start.get() = region_start;
+                        *self.region_end.get() = region_end;
+                    }
+
+                    // Reset counters atomically
+                    self.total_allocated.store(0, Ordering::SeqCst);
+                    self.total_freed.store(0, Ordering::SeqCst);
+
+                    log::trace!("Sheap {:p} auto-reset successful (freed={}, allocated={})",
+                        self.sheap_ptr, freed_recheck, allocated_recheck);
+                }
         }
 
         true
     }
 
     #[inline]
-    fn purge(&mut self) {
-        self.bump = None;
+    fn purge(&self) {
+        // Acquire write lock for exclusive access
+        *self.bump.write() = None;
+
         self.total_allocated.store(0, Ordering::SeqCst);
         self.total_freed.store(0, Ordering::SeqCst);
-        self.region_start = 0;
-        self.region_end = 0;
+
+        // SAFETY: We have exclusive access during purge, safe to modify via UnsafeCell
+        unsafe {
+            *self.region_start.get() = 0;
+            *self.region_end.get() = 0;
+        }
     }
 }
 
@@ -260,10 +290,16 @@ impl ScrapHeapManager {
             let bump = Bump::with_size(SHEAP_CAPACITY_BYTES);
             let (region_start, region_end) = ScrapHeapInstance::get_bump_region(&bump);
 
-            instance.bump = Some(bump);
-            instance.thread_id = thread_id;
-            instance.region_start = region_start;
-            instance.region_end = region_end;
+            // Acquire write lock to replace bump allocator
+            *instance.bump.write() = Some(bump);
+
+            // SAFETY: We hold the instances lock, safe to modify via UnsafeCell
+            unsafe {
+                let instance_mut = instance as *mut ScrapHeapInstance;
+                (*instance_mut).thread_id = thread_id;
+                *instance.region_start.get() = region_start;
+                *instance.region_end.get() = region_end;
+            }
 
             // Update cache with new instance pointer
             let instance_ptr = instance as *mut ScrapHeapInstance;
@@ -315,14 +351,25 @@ impl ScrapHeapManager {
         let mut instances = self.instances.lock();
 
         if let Some(instance) = instances.get_mut(&key) {
-            if instance.bump.is_none() {
-                let bump = Bump::with_size(SHEAP_CAPACITY_BYTES);
-                let (region_start, region_end) = ScrapHeapInstance::get_bump_region(&bump);
+            // Check if bump allocator needs to be recreated
+            {
+                let bump_guard = instance.bump.read();
+                if bump_guard.is_none() {
+                    drop(bump_guard); // Release read lock before acquiring write lock
 
-                instance.bump = Some(bump);
-                instance.thread_id = get_current_thread_id();
-                instance.region_start = region_start;
-                instance.region_end = region_end;
+                    let bump = Bump::with_size(SHEAP_CAPACITY_BYTES);
+                    let (region_start, region_end) = ScrapHeapInstance::get_bump_region(&bump);
+
+                    *instance.bump.write() = Some(bump);
+
+                    // SAFETY: We hold the instances lock, safe to modify via UnsafeCell
+                    unsafe {
+                        let instance_mut = instance as *mut ScrapHeapInstance;
+                        (*instance_mut).thread_id = get_current_thread_id();
+                        *instance.region_start.get() = region_start;
+                        *instance.region_end.get() = region_end;
+                    }
+                }
             }
 
             // Update cache before releasing lock
@@ -334,7 +381,7 @@ impl ScrapHeapManager {
 
         // Initialize new sheap instance
         let thread_id = get_current_thread_id();
-        let mut new_instance = ScrapHeapInstance::new(sheap_ptr, thread_id);
+        let new_instance = ScrapHeapInstance::new(sheap_ptr, thread_id);
 
         let ptr = new_instance.malloc_aligned(size, align);
         instances.insert(key, new_instance);
