@@ -30,6 +30,9 @@ const SHEAP_MAX_BLOCKS: usize = 32;
 const SHEAP_BUFF_SIZE: usize = 512 * 1024;
 const SHEAP_CAPACITY_BYTES: usize = SHEAP_MAX_BLOCKS * SHEAP_BUFF_SIZE * 2; // 32MB
 
+/// Number of retry attempts for bump allocator before falling back to mimalloc
+const BUMP_ALLOC_RETRY_ATTEMPTS: usize = 2;
+
 /// Scrap heap instance backed by a bump allocator.
 ///
 /// Uses bump-scope with automatic reset when all allocations are freed.
@@ -103,57 +106,64 @@ impl ScrapHeapInstance {
         }
     }
 
+    /// Calculates the required alignment for an allocation request.
     #[inline(always)]
-    fn malloc_aligned(&self, size: usize, align: usize) -> *mut c_void {
-        // Ensure requested alignment is at least as large as header alignment
-        let actual_align = align.max(std::mem::align_of::<AllocationHeader>());
+    fn calculate_alignment(requested_align: usize) -> usize {
+        requested_align.max(std::mem::align_of::<AllocationHeader>())
+    }
 
-        // We need: header (8 bytes) + user data (size bytes)
-        // The user data must be aligned to `actual_align`
-        // Strategy: allocate extra space so we can align the user pointer
+    /// Creates an allocation layout with header space and alignment padding.
+    #[inline]
+    fn create_allocation_layout(size: usize, align: usize) -> Option<std::alloc::Layout> {
+        let total_size = size + HEADER_SIZE + align;
+        std::alloc::Layout::from_size_align(total_size, align).ok()
+    }
 
-        let total_size = size + HEADER_SIZE + actual_align;
+    /// Writes the allocation header and returns the aligned user pointer.
+    #[inline]
+    fn write_allocation_header(base_addr: usize, size: usize, align: usize) -> *mut c_void {
+        let user_addr = (base_addr + HEADER_SIZE).div_ceil(align) * align;
+        let header_addr = user_addr - HEADER_SIZE;
 
-        let layout = match std::alloc::Layout::from_size_align(total_size, actual_align) {
-            Ok(layout) => layout,
-            Err(_) => {
-                log::error!("Invalid layout: size={}, align={}", total_size, actual_align);
-                return std::ptr::null_mut();
+        let header = AllocationHeader { size };
+        unsafe {
+            std::ptr::write(header_addr as *mut AllocationHeader, header);
+        }
+
+        user_addr as *mut c_void
+    }
+
+    /// Attempts a single bump allocation.
+    #[inline]
+    fn try_single_bump_alloc(&self, layout: std::alloc::Layout, size: usize, align: usize) -> Option<*mut c_void> {
+        let bump_guard = self.bump.read();
+        let bump = (*bump_guard).as_ref()?;
+        let ptr = bump.try_alloc_layout(layout).ok()?;
+
+        let user_ptr = Self::write_allocation_header(ptr.as_ptr() as usize, size, align);
+        self.total_allocated.fetch_add(size, Ordering::Release);
+        Some(user_ptr)
+    }
+
+    /// Attempts to allocate from the bump allocator with retry logic.
+    #[inline]
+    fn try_bump_alloc(&self, layout: std::alloc::Layout, size: usize, align: usize) -> Option<*mut c_void> {
+        for attempt in 0..BUMP_ALLOC_RETRY_ATTEMPTS {
+            if let Some(ptr) = self.try_single_bump_alloc(layout, size, align) {
+                return Some(ptr);
             }
-        };
 
-        // Try bump allocator with read lock for concurrent allocations
-        // Retry twice to handle race where reset happens between attempts
-        for attempt in 0..2 {
-            let bump_guard = self.bump.read();
-            if let Some(ref bump) = *bump_guard
-                && let Ok(ptr) = bump.try_alloc_layout(layout) {
-                    let base_addr = ptr.as_ptr() as usize;
-
-                    // Find the first aligned address after the header
-                    let user_addr = (base_addr + HEADER_SIZE).div_ceil(actual_align) * actual_align;
-                    let header_addr = user_addr - HEADER_SIZE;
-
-                    let header = AllocationHeader { size };
-                    unsafe {
-                        std::ptr::write(header_addr as *mut AllocationHeader, header);
-                    }
-
-                    let user_ptr = user_addr as *mut c_void;
-                    self.total_allocated.fetch_add(size, Ordering::Release);
-
-                    return user_ptr;
-                }
-
-            // Bump is full or None - if first attempt, retry once
-            // (another thread might reset between attempts)
+            // Retry once if first attempt fails (another thread might have reset)
             if attempt == 0 {
-                drop(bump_guard);
                 std::hint::spin_loop();
             }
         }
+        None
+    }
 
-        // Bump allocator truly exhausted after retries
+    /// Allocates memory using the fallback allocator (mimalloc).
+    #[inline]
+    fn fallback_alloc(&self, total_size: usize, size: usize, align: usize) -> *mut c_void {
         let bump_allocated = self.total_allocated.load(Ordering::Acquire);
         let bump_freed = self.total_freed.load(Ordering::Acquire);
         let bump_outstanding = bump_allocated.saturating_sub(bump_freed);
@@ -164,60 +174,165 @@ impl ScrapHeapInstance {
         );
 
         unsafe {
-            let ptr = libmimalloc::mi_malloc_aligned(total_size, actual_align);
+            let ptr = libmimalloc::mi_malloc_aligned(total_size, align);
             if ptr.is_null() {
                 log::error!("Sheap {:p} fallback allocation failed!", self.sheap_ptr);
                 return std::ptr::null_mut();
             }
 
-            let base_addr = ptr as usize;
+            let user_ptr = Self::write_allocation_header(ptr as usize, size, align);
 
-            // Find the first aligned address after the header
-            let user_addr = (base_addr + HEADER_SIZE).div_ceil(actual_align) * actual_align;
-            let header_addr = user_addr - HEADER_SIZE;
-
-            let header = AllocationHeader { size };
-            std::ptr::write(header_addr as *mut AllocationHeader, header);
-
-            // Set fallback flag AFTER successful allocation
             self.using_fallback.store(true, Ordering::Release);
             self.fallback_allocated.fetch_add(size, Ordering::Release);
 
-            user_addr as *mut c_void
+            user_ptr
+        }
+    }
+
+    #[inline(always)]
+    fn malloc_aligned(&self, size: usize, align: usize) -> *mut c_void {
+        let actual_align = Self::calculate_alignment(align);
+
+        let layout = match Self::create_allocation_layout(size, actual_align) {
+            Some(layout) => layout,
+            None => {
+                log::error!("Invalid layout: size={}, align={}", size, actual_align);
+                return std::ptr::null_mut();
+            }
+        };
+
+        // Try bump allocator first
+        if let Some(ptr) = self.try_bump_alloc(layout, size, actual_align) {
+            return ptr;
+        }
+
+        // Fall back to mimalloc
+        let total_size = size + HEADER_SIZE + actual_align;
+        self.fallback_alloc(total_size, size, actual_align)
+    }
+
+    /// Validates the allocation address and returns the header address.
+    #[inline]
+    fn validate_and_get_header_addr(addr: *mut c_void) -> Option<usize> {
+        if addr.is_null() {
+            return None;
+        }
+
+        let user_addr = addr as usize;
+
+        if user_addr < HEADER_SIZE {
+            log::debug!("(free:{:p}) Address too small to have our header, ignoring", addr);
+            return None;
+        }
+
+        Some(user_addr - HEADER_SIZE)
+    }
+
+    /// Attempts to free memory from the fallback allocator.
+    #[inline]
+    fn try_free_fallback(&self, header_addr: usize) -> bool {
+        if !self.using_fallback.load(Ordering::Acquire) {
+            return false;
+        }
+
+        unsafe {
+            if libmimalloc::mi_is_in_heap_region(header_addr as *const c_void) {
+                let header = std::ptr::read(header_addr as *const AllocationHeader);
+                libmimalloc::mi_free(header_addr as *mut c_void);
+                self.fallback_freed.fetch_add(header.size, Ordering::Release);
+                return true;
+            }
+        }
+
+        false
+    }
+
+    /// Checks if we can exit fallback mode and logs appropriate message.
+    #[inline]
+    fn check_fallback_recovery(&self) {
+        let fallback_alloc = self.fallback_allocated.load(Ordering::Acquire);
+        let fallback_free = self.fallback_freed.load(Ordering::Acquire);
+
+        if fallback_free >= fallback_alloc {
+            self.using_fallback.store(false, Ordering::Release);
+            self.fallback_allocated.store(0, Ordering::Release);
+            self.fallback_freed.store(0, Ordering::Release);
+            log::info!("Sheap {:p} recovered from fallback mode", self.sheap_ptr);
+        } else {
+            log::debug!(
+                "Sheap {:p} reset complete, {} fallback bytes still outstanding",
+                self.sheap_ptr, fallback_alloc - fallback_free
+            );
+        }
+    }
+
+    /// Resets the bump allocator and updates all tracking counters.
+    #[inline]
+    fn reset_bump_allocator(&self, bump: &mut Bump) {
+        bump.reset();
+
+        let (region_start, region_end) = Self::get_bump_region(bump);
+
+        self.region_start.store(region_start, Ordering::Release);
+        self.region_end.store(region_end, Ordering::Release);
+        self.total_allocated.store(0, Ordering::Release);
+        self.total_freed.store(0, Ordering::Release);
+        self.generation.fetch_add(1, Ordering::Release);
+    }
+
+    /// Checks if all allocations have been freed.
+    #[inline(always)]
+    fn all_allocations_freed(&self) -> bool {
+        let freed = self.total_freed.load(Ordering::Acquire);
+        let allocated = self.total_allocated.load(Ordering::Acquire);
+        freed >= allocated
+    }
+
+    /// Logs successful reset completion.
+    #[inline]
+    fn log_reset_success(&self, freed: usize, allocated: usize) {
+        if self.using_fallback.load(Ordering::Acquire) {
+            self.check_fallback_recovery();
+        } else {
+            log::trace!(
+                "Sheap {:p} auto-reset successful (freed={}, allocated={})",
+                self.sheap_ptr, freed, allocated
+            );
+        }
+    }
+
+    /// Attempts automatic reset when all allocations are freed.
+    #[inline]
+    fn try_auto_reset(&self, freed: usize, allocated: usize) {
+        if freed < allocated {
+            return;
+        }
+
+        let mut bump_guard = self.bump.write();
+
+        // Double-check after acquiring write lock to prevent TOCTOU race
+        if !self.all_allocations_freed() {
+            return;
+        }
+
+        if let Some(ref mut bump) = *bump_guard {
+            let freed_recheck = self.total_freed.load(Ordering::Acquire);
+            let allocated_recheck = self.total_allocated.load(Ordering::Acquire);
+
+            self.reset_bump_allocator(bump);
+            self.log_reset_success(freed_recheck, allocated_recheck);
         }
     }
 
     #[inline(always)]
     fn free(&self, addr: *mut c_void) -> bool {
-        if addr.is_null() {
-            return false;
-        }
-
-        let user_addr = addr as usize;
-
-        // Check for underflow before subtracting header size
-        if user_addr < HEADER_SIZE {
-            log::debug!("(free:{:p}) Address too small to have our header, ignoring", addr);
-            return false;
-        }
-
-        let header_addr = user_addr - HEADER_SIZE;
+        let header_addr = match Self::validate_and_get_header_addr(addr) {
+            Some(addr) => addr,
+            None => return false,
+        };
 
         if !self.contains_ptr(header_addr) {
-            if self.using_fallback.load(Ordering::Acquire) {
-                unsafe {
-                    if libmimalloc::mi_is_in_heap_region(header_addr as *const c_void) {
-                        let header = std::ptr::read(header_addr as *const AllocationHeader);
-                        libmimalloc::mi_free(header_addr as *mut c_void);
-
-                        self.fallback_freed.fetch_add(header.size, Ordering::Release);
-
-                        return true;
-                    }
-                }
-            }
-
-            return false;
+            return self.try_free_fallback(header_addr);
         }
 
         let header = unsafe { std::ptr::read(header_addr as *const AllocationHeader) };
@@ -225,59 +340,14 @@ impl ScrapHeapInstance {
         let freed = self.total_freed.fetch_add(header.size, Ordering::Release) + header.size;
         let allocated = self.total_allocated.load(Ordering::Acquire);
 
-        // Automatic reset when all bump allocations freed
-        if freed >= allocated {
-            let mut bump_guard = self.bump.write();
-
-            // Double-check after acquiring write lock
-            let freed_recheck = self.total_freed.load(Ordering::Acquire);
-            let allocated_recheck = self.total_allocated.load(Ordering::Acquire);
-
-            if freed_recheck >= allocated_recheck && let Some(ref mut bump) = *bump_guard {
-                // Reset bump allocator
-                bump.reset();
-
-                let (region_start, region_end) = Self::get_bump_region(bump);
-
-                self.region_start.store(region_start, Ordering::Release);
-                self.region_end.store(region_end, Ordering::Release);
-
-                self.total_allocated.store(0, Ordering::Release);
-                self.total_freed.store(0, Ordering::Release);
-
-                self.generation.fetch_add(1, Ordering::Release);
-
-                // Check if we can exit fallback mode
-                let using_fallback = self.using_fallback.load(Ordering::Acquire);
-                if using_fallback {
-                    let fallback_alloc = self.fallback_allocated.load(Ordering::Acquire);
-                    let fallback_free = self.fallback_freed.load(Ordering::Acquire);
-
-                    if fallback_free >= fallback_alloc {
-                        // All fallback allocations freed - exit fallback mode
-                        self.using_fallback.store(false, Ordering::Release);
-                        self.fallback_allocated.store(0, Ordering::Release);
-                        self.fallback_freed.store(0, Ordering::Release);
-
-                        log::info!("Sheap {:p} recovered from fallback mode", self.sheap_ptr);
-                    } else {
-                        log::debug!(
-                            "Sheap {:p} reset complete, {} fallback bytes still outstanding",
-                            self.sheap_ptr, fallback_alloc - fallback_free
-                        );
-                    }
-                } else {
-                    log::trace!("Sheap {:p} auto-reset successful (freed={}, allocated={})",
-                        self.sheap_ptr, freed_recheck, allocated_recheck);
-                }
-            }
-        }
+        self.try_auto_reset(freed, allocated);
 
         true
     }
 
+    /// Logs a warning if there are outstanding fallback allocations during purge.
     #[inline]
-    fn purge(&self) {
+    fn check_fallback_leaks(&self) {
         let fallback_alloc = self.fallback_allocated.load(Ordering::Acquire);
         let fallback_free = self.fallback_freed.load(Ordering::Acquire);
 
@@ -287,8 +357,11 @@ impl ScrapHeapInstance {
                 self.sheap_ptr, fallback_alloc - fallback_free
             );
         }
+    }
 
-        *self.bump.write() = None;
+    /// Resets all tracking counters to zero.
+    #[inline]
+    fn reset_counters(&self) {
         self.using_fallback.store(false, Ordering::Release);
         self.total_allocated.store(0, Ordering::Release);
         self.total_freed.store(0, Ordering::Release);
@@ -297,6 +370,13 @@ impl ScrapHeapInstance {
         self.region_start.store(0, Ordering::Release);
         self.region_end.store(0, Ordering::Release);
         self.generation.fetch_add(1, Ordering::Release);
+    }
+
+    #[inline]
+    fn purge(&self) {
+        self.check_fallback_leaks();
+        *self.bump.write() = None;
+        self.reset_counters();
     }
 }
 
@@ -316,160 +396,170 @@ impl ScrapHeapManager {
         }
     }
 
+    /// Updates the thread-local cache with the instance pointer and generation.
+    #[inline]
+    fn update_cache(sheap_key: usize, instance: &mut ScrapHeapInstance) {
+        let instance_ptr = instance as *mut ScrapHeapInstance;
+        let generation = instance.generation();
+        SHEAP_CACHE.with(|cache| cache.set((sheap_key, generation, instance_ptr)));
+    }
+
+    /// Reinitializes an existing instance with a fresh bump allocator.
+    #[inline]
+    fn reinit_existing_instance(instance: &mut ScrapHeapInstance, thread_id: u32) {
+        let bump = Bump::with_size(SHEAP_CAPACITY_BYTES);
+        let (region_start, region_end) = ScrapHeapInstance::get_bump_region(&bump);
+
+        *instance.bump.write() = Some(bump);
+        instance.using_fallback.store(false, Ordering::Release);
+        instance.total_allocated.store(0, Ordering::Release);
+        instance.total_freed.store(0, Ordering::Release);
+        instance.fallback_allocated.store(0, Ordering::Release);
+        instance.fallback_freed.store(0, Ordering::Release);
+        instance.region_start.store(region_start, Ordering::Release);
+        instance.region_end.store(region_end, Ordering::Release);
+        instance.generation.fetch_add(1, Ordering::Release);
+
+        // Update thread_id via unsafe pointer cast (immutable reference requirement)
+        unsafe {
+            let instance_mut = instance as *mut ScrapHeapInstance;
+            (*instance_mut).thread_id = thread_id;
+        }
+    }
+
     #[inline]
     pub fn init(&self, sheap_ptr: *mut c_void, thread_id: u32) {
         let mut instances = self.instances.lock();
-        let key = sheap_ptr as usize;
+        let sheap_key = sheap_ptr as usize;
 
-        if let Some(instance) = instances.get_mut(&key) {
-            let bump = Bump::with_size(SHEAP_CAPACITY_BYTES);
-            let (region_start, region_end) = ScrapHeapInstance::get_bump_region(&bump);
-
-            *instance.bump.write() = Some(bump);
-            instance.using_fallback.store(false, Ordering::Release);
-            instance.total_allocated.store(0, Ordering::Release);
-            instance.total_freed.store(0, Ordering::Release);
-            instance.fallback_allocated.store(0, Ordering::Release);
-            instance.fallback_freed.store(0, Ordering::Release);
-            instance.region_start.store(region_start, Ordering::Release);
-            instance.region_end.store(region_end, Ordering::Release);
-
-            unsafe {
-                let instance_mut = instance as *mut ScrapHeapInstance;
-                (*instance_mut).thread_id = thread_id;
-            }
-
-            instance.generation.fetch_add(1, Ordering::Release);
-
-            let instance_ptr = instance as *mut ScrapHeapInstance;
-            let generation = instance.generation();
-            SHEAP_CACHE.with(|c| c.set((key, generation, instance_ptr)));
-
+        if let Some(instance) = instances.get_mut(&sheap_key) {
+            Self::reinit_existing_instance(instance, thread_id);
+            Self::update_cache(sheap_key, instance);
             return;
         }
 
-        instances.insert(key, ScrapHeapInstance::new(sheap_ptr, thread_id));
+        instances.insert(sheap_key, ScrapHeapInstance::new(sheap_ptr, thread_id));
 
-        let instance = instances.get_mut(&key).unwrap();
-        let instance_ptr = instance as *mut ScrapHeapInstance;
-        let generation = instance.generation();
-        SHEAP_CACHE.with(|c| c.set((key, generation, instance_ptr)));
+        let instance = instances.get_mut(&sheap_key).unwrap();
+        Self::update_cache(sheap_key, instance);
+    }
+
+    /// Checks if the cached instance is valid for the given key.
+    #[inline(always)]
+    fn is_cache_valid(sheap_key: usize) -> Option<*mut ScrapHeapInstance> {
+        let (cached_key, cached_gen, cached_instance) = SHEAP_CACHE.with(|cache| cache.get());
+
+        if cached_key == sheap_key && !cached_instance.is_null() {
+            let current_gen = unsafe { (*cached_instance).generation() };
+            if cached_gen == current_gen {
+                return Some(cached_instance);
+            }
+        }
+
+        None
     }
 
     /// Allocates memory from the specified sheap using thread-local cache for fast lookups.
     #[inline(always)]
     pub fn alloc(&self, sheap_ptr: *mut c_void, size: usize, align: usize) -> *mut c_void {
-        let key = sheap_ptr as usize;
+        let sheap_key = sheap_ptr as usize;
 
-        let (cached_key, cached_gen, cached_instance) = SHEAP_CACHE.with(|c| c.get());
-
-        if cached_key == key && !cached_instance.is_null() {
-            // Validate generation to detect resets/purges
-            let current_gen = unsafe { (*cached_instance).generation() };
-            if cached_gen == current_gen {
-                return unsafe { (*cached_instance).malloc_aligned(size, align) };
-            }
+        if let Some(cached_instance) = Self::is_cache_valid(sheap_key) {
+            return unsafe { (*cached_instance).malloc_aligned(size, align) };
         }
 
-        self.alloc_slow(sheap_ptr, key, size, align)
+        self.alloc_slow(sheap_ptr, sheap_key, size, align)
+    }
+
+    /// Ensures the instance has a valid bump allocator, recreating if needed.
+    #[inline]
+    fn ensure_bump_allocator(instance: &mut ScrapHeapInstance) {
+        let bump_guard = instance.bump.read();
+        if bump_guard.is_some() {
+            return;
+        }
+        drop(bump_guard);
+
+        let bump = Bump::with_size(SHEAP_CAPACITY_BYTES);
+        let (region_start, region_end) = ScrapHeapInstance::get_bump_region(&bump);
+
+        *instance.bump.write() = Some(bump);
+        instance.region_start.store(region_start, Ordering::Release);
+        instance.region_end.store(region_end, Ordering::Release);
+        instance.generation.fetch_add(1, Ordering::Release);
+
+        unsafe {
+            let instance_mut = instance as *mut ScrapHeapInstance;
+            (*instance_mut).thread_id = get_current_thread_id();
+        }
     }
 
     #[inline(never)]
     #[cold]
-    fn alloc_slow(&self, sheap_ptr: *mut c_void, key: usize, size: usize, align: usize) -> *mut c_void {
+    fn alloc_slow(&self, sheap_ptr: *mut c_void, sheap_key: usize, size: usize, align: usize) -> *mut c_void {
         let mut instances = self.instances.lock();
 
-        if let Some(instance) = instances.get_mut(&key) {
-            {
-                let bump_guard = instance.bump.read();
-                if bump_guard.is_none() {
-                    drop(bump_guard);
-
-                    let bump = Bump::with_size(SHEAP_CAPACITY_BYTES);
-                    let (region_start, region_end) = ScrapHeapInstance::get_bump_region(&bump);
-
-                    *instance.bump.write() = Some(bump);
-                    instance.region_start.store(region_start, Ordering::Release);
-                    instance.region_end.store(region_end, Ordering::Release);
-
-                    unsafe {
-                        let instance_mut = instance as *mut ScrapHeapInstance;
-                        (*instance_mut).thread_id = get_current_thread_id();
-                    }
-
-                    instance.generation.fetch_add(1, Ordering::Release);
-                }
-            }
-
-            let instance_ptr = instance as *mut ScrapHeapInstance;
-            let generation = instance.generation();
-            SHEAP_CACHE.with(|c| c.set((key, generation, instance_ptr)));
-
+        if let Some(instance) = instances.get_mut(&sheap_key) {
+            Self::ensure_bump_allocator(instance);
+            Self::update_cache(sheap_key, instance);
             return instance.malloc_aligned(size, align);
         }
 
-        // Fix use-after-move: insert FIRST, then allocate
+        // Create new instance
         let thread_id = get_current_thread_id();
-        instances.insert(key, ScrapHeapInstance::new(sheap_ptr, thread_id));
+        instances.insert(sheap_key, ScrapHeapInstance::new(sheap_ptr, thread_id));
 
-        let instance = instances.get_mut(&key).unwrap();
+        let instance = instances.get_mut(&sheap_key).unwrap();
         let ptr = instance.malloc_aligned(size, align);
 
-        let instance_ptr = instance as *mut ScrapHeapInstance;
-        let generation = instance.generation();
-        SHEAP_CACHE.with(|c| c.set((key, generation, instance_ptr)));
+        Self::update_cache(sheap_key, instance);
 
         ptr
     }
 
     #[inline(always)]
     pub fn free(&self, sheap_ptr: *mut c_void, addr: *mut c_void) -> bool {
-        let key = sheap_ptr as usize;
+        let sheap_key = sheap_ptr as usize;
 
-        let (cached_key, cached_gen, cached_instance) = SHEAP_CACHE.with(|c| c.get());
-
-        if cached_key == key && !cached_instance.is_null() {
-            // Validate generation to detect resets/purges
-            let current_gen = unsafe { (*cached_instance).generation() };
-            if cached_gen == current_gen {
-                return unsafe { (*cached_instance).free(addr) };
-            }
+        if let Some(cached_instance) = Self::is_cache_valid(sheap_key) {
+            return unsafe { (*cached_instance).free(addr) };
         }
 
-        self.free_slow(key, addr)
+        self.free_slow(sheap_key, addr)
     }
 
     #[inline(never)]
     #[cold]
-    fn free_slow(&self, key: usize, addr: *mut c_void) -> bool {
+    fn free_slow(&self, sheap_key: usize, addr: *mut c_void) -> bool {
         let mut instances = self.instances.lock();
 
-        if let Some(instance) = instances.get_mut(&key) {
-            let instance_ptr = instance as *mut ScrapHeapInstance;
-            let generation = instance.generation();
-            SHEAP_CACHE.with(|c| c.set((key, generation, instance_ptr)));
-
+        if let Some(instance) = instances.get_mut(&sheap_key) {
+            Self::update_cache(sheap_key, instance);
             return instance.free(addr);
         }
 
         false
     }
 
+    /// Invalidates the cache entry for the given sheap key on the current thread.
+    #[inline]
+    fn invalidate_cache(sheap_key: usize) {
+        SHEAP_CACHE.with(|cache| {
+            let (cached_key, _, _) = cache.get();
+            if cached_key == sheap_key {
+                cache.set((0, 0, std::ptr::null_mut()));
+            }
+        });
+    }
+
     #[inline]
     pub fn purge(&self, sheap_ptr: *mut c_void) {
         let mut instances = self.instances.lock();
-        let key = sheap_ptr as usize;
+        let sheap_key = sheap_ptr as usize;
 
-        if let Some(instance) = instances.get_mut(&key) {
+        if let Some(instance) = instances.get_mut(&sheap_key) {
             instance.purge();
-
-            // Invalidate cache on current thread (generation check will invalidate on other threads)
-            SHEAP_CACHE.with(|c| {
-                let (cached_key, _, _) = c.get();
-                if cached_key == key {
-                    c.set((0, 0, std::ptr::null_mut()));
-                }
-            });
+            Self::invalidate_cache(sheap_key);
         }
     }
 }
