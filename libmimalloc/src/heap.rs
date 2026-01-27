@@ -6,22 +6,6 @@ use crate::{
     mi_heap_realloc, mi_heap_recalloc, mi_heap_t, mi_heap_zalloc, mi_reserve_os_memory_ex,
 };
 use libc::c_void;
-use thiserror::Error;
-
-
-#[derive(Debug, Error)]
-pub enum MiHeapError {
-    #[error("Heap is NULL! Check mi_heap_new usage!")]
-    HeapIsNull,
-
-    #[error("HeapArena is NULL! Check mi_heap_new_arena usage!")]
-    HeapArenaIsNull,
-
-    #[error("Memory reserve for arena failed with error code: {0}")]
-    ArenaMemoryReserveError(i32),
-}
-
-pub type MiHeapResult<T> = std::result::Result<T, MiHeapError>;
 
 /// Wrapper for MiMalloc's heap
 #[derive(Default)]
@@ -43,30 +27,6 @@ impl MiHeap {
             arena_size: 0,
             heap_ptr,
         }
-    }
-
-    /// Allocates new heap in MiMalloc arena.
-    /// `mi_reserve_os_memory_ex` called under the hood.
-    /// # Arguments
-    /// `arena_size` - allocated memory size for arena
-    pub fn new_arena(arena_size: usize) -> MiHeapResult<Self> {
-        let mut arena_id = 0;
-
-        let reserve_res =
-            unsafe { mi_reserve_os_memory_ex(arena_size, true, false, true, &mut arena_id) };
-
-        if reserve_res != 0 {
-            return Err(MiHeapError::ArenaMemoryReserveError(reserve_res));
-        }
-
-        let heap_ptr = unsafe { mi_heap_new_in_arena(arena_id) };
-
-        log::info!("[MIMALLOC] New arena heap created with address: {:p} and size {} bytes. Arena id: {}", heap_ptr, arena_size as f64 / 1024.0 / 1024.0, arena_id);
-        
-        Ok(Self {
-            heap_ptr,
-            arena_size,
-        })
     }
 
     pub fn get_arena_size(&self) -> usize {
