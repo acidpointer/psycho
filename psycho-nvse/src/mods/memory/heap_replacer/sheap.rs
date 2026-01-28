@@ -14,6 +14,8 @@ pub struct SheapMetaHeader {
     real_ptr: *mut c_void,
     size: usize,
     real_size: usize,
+    sheap_ptr: *mut c_void,
+    generation: u64,
 }
 
 /// Size of allocation header
@@ -31,6 +33,8 @@ pub struct SheapInstance {
 
     allocated: usize,
     freed: usize,
+    is_purged: bool,
+    generation: u64,
 }
 
 impl SheapInstance {
@@ -42,6 +46,8 @@ impl SheapInstance {
             bump,
             allocated: 0,
             freed: 0,
+            is_purged: false,
+            generation: 0,
         }
     }
 
@@ -59,15 +65,39 @@ impl SheapInstance {
 
     #[inline]
     pub fn is_our_ptr(&self, ptr: *mut c_void) -> bool {
+        // After purge, no valid memory exists
+        if self.is_purged {
+            return false;
+        }
+
         let (region_start, region_end) = self.get_bump_region();
 
         let addr = ptr as usize;
 
-        addr >= region_start && addr < region_end
+        // Check if pointer is in our memory region
+        if !(addr >= region_start && addr < region_end) {
+            return false;
+        }
+
+        // Read header to check generation
+        let header_ptr = ptr.wrapping_sub(SHEAP_HEADER_SIZE) as *mut SheapMetaHeader;
+        let header = unsafe { std::ptr::read(header_ptr) };
+
+        // Pointer belongs to us only if generation matches
+        header.generation == self.generation
+    }
+
+    /// Restore instance after purge, preparing it for new allocations
+    #[inline(always)]
+    pub fn restore_after_purge(&mut self) {
+        // Instance was purged, now being reused - clear the flag
+        self.is_purged = false;
+        // Generation was already incremented during purge
+        // Allocated and freed counters were already reset to 0
     }
 
     #[inline(always)]
-    pub fn malloc_aligned(&mut self, size: usize, align: usize) -> *mut c_void {
+    pub fn malloc_aligned(&mut self, sheap_ptr: *mut c_void, size: usize, align: usize) -> *mut c_void {
         let actual_align = align.max(std::mem::align_of::<SheapMetaHeader>());
 
         // Allocate extra space: header + alignment padding + size
@@ -114,6 +144,8 @@ impl SheapInstance {
             real_size,
             ptr: user_addr as *mut c_void,
             real_ptr: base_ptr as *mut c_void,
+            sheap_ptr,
+            generation: self.generation,
         };
 
         unsafe {
@@ -125,43 +157,49 @@ impl SheapInstance {
         user_addr as *mut c_void
     }
 
+    /// Internal method to perform the actual purge operation
+    #[inline(always)]
+    fn do_purge(&mut self) {
+        self.bump.reset();
+        self.freed = 0;
+        self.allocated = 0;
+        self.is_purged = true;
+        self.generation += 1;
+    }
+
     #[inline(always)]
     pub fn free(&mut self, ptr: *mut c_void) -> bool {
+        // is_our_ptr now checks generation and purged flag
         if !self.is_our_ptr(ptr) {
             return false;
         }
 
         let header_ptr = ptr.wrapping_sub(SHEAP_HEADER_SIZE) as *mut SheapMetaHeader;
-
         let header = unsafe { std::ptr::read(header_ptr) };
 
         self.freed += header.real_size;
 
-        // Automatic purge if requested free size equals total allocated size
+        // Automatic purge if all memory freed (game engine has purge call bugs)
         if self.freed == self.allocated {
-            self.bump.reset();
-            self.freed = 0;
-            self.allocated = 0;
+            log::debug!("Auto-purge triggered: all memory freed (allocated={}, freed={})", self.allocated, self.freed);
+            self.do_purge();
         }
 
         true
     }
 
     #[inline(always)]
-    pub fn purge(&mut self, sheap_ptr: *mut c_void) -> bool {
-        if sheap_ptr == self.sheap_ptr {
-            self.bump.reset();
-            self.freed = 0;
-            self.allocated = 0;
-
-            return true;
-        }
-
-        false
+    pub fn purge(&mut self, _sheap_ptr: *mut c_void) {
+        self.do_purge();
     }
 
     #[inline(always)]
     pub fn is_can_alloc(&self, size: usize) -> bool {
+        // After purge, instance is completely available
+        if self.is_purged {
+            return size + SHEAP_HEADER_SIZE <= SHEAP_SIZE;
+        }
+
         let used = self.allocated.saturating_sub(self.freed);
         SHEAP_SIZE.saturating_sub(used) >= size + SHEAP_HEADER_SIZE
     }
@@ -178,22 +216,29 @@ impl Sheap {
         SHEAP_INSTANCES.with(|sheaps| {
             let mut sheaps_vec = sheaps.borrow_mut();
 
+            // Find an instance for this exact sheap_ptr with available space
             for sheap in sheaps_vec.iter_mut() {
-                if sheap.is_can_alloc(size) {
-                    return sheap.malloc_aligned(size, align);
+                if sheap.sheap_ptr == sheap_ptr && sheap.is_can_alloc(size) {
+                    // Restore instance if it was purged
+                    if sheap.is_purged {
+                        sheap.restore_after_purge();
+                    }
+                    return sheap.malloc_aligned(sheap_ptr, size, align);
                 }
             }
 
-            log::debug!("Creating new SHEAP for pool...");
+            // No matching instance with space - create new one
+            log::debug!("Creating new SHEAP instance for sheap_ptr={:p}", sheap_ptr);
 
             let mut sheap_instance = SheapInstance::new(sheap_ptr);
 
-            let result = sheap_instance.malloc_aligned(size, align);
+            let result = sheap_instance.malloc_aligned(sheap_ptr, size, align);
 
             sheaps_vec.push(sheap_instance);
 
             log::debug!(
-                "New SHEAP added to pool. Total pool len: {}",
+                "New SHEAP instance added for {:p}. Total instances: {}",
+                sheap_ptr,
                 sheaps_vec.len()
             );
 
@@ -217,10 +262,21 @@ impl Sheap {
         SHEAP_INSTANCES.with(|sheaps| {
             let mut sheaps_vec = sheaps.borrow_mut();
 
-            // Purge all matching heaps
+            let mut purged_count = 0;
+
+            // Only purge instances that belong to this sheap_ptr
             for sheap in sheaps_vec.iter_mut() {
-                sheap.purge(sheap_ptr);
+                if sheap.sheap_ptr == sheap_ptr {
+                    sheap.purge(sheap_ptr);
+                    purged_count += 1;
+                }
             }
+
+            log::debug!(
+                "sheap_purge called for sheap_ptr={:p}, purged {} instances",
+                sheap_ptr,
+                purged_count
+            );
         })
     }
 }

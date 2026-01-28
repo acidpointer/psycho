@@ -83,6 +83,7 @@ pub(super) unsafe extern "fastcall" fn sheap_free(
         return;
     }
 
+    log::debug!("sheap_free called: heap={:p}, ptr={:p}", heap, ptr);
     Sheap::free(heap, ptr);
 }
 
@@ -95,6 +96,7 @@ pub(super) unsafe extern "fastcall" fn sheap_purge(heap: *mut c_void, _edx: *mut
         return;
     }
 
+    log::debug!("sheap_purge hook called with heap={:p}", heap);
     Sheap::purge(heap);
 }
 
