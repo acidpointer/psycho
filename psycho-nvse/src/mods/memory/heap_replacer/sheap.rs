@@ -14,33 +14,42 @@ pub struct SheapMetaHeader {
     real_ptr: *mut c_void,
     size: usize,
     real_size: usize,
-    sheap_ptr: *mut c_void,
     is_valid: bool,
 }
 
 /// Size of allocation header
 const SHEAP_HEADER_SIZE: usize = size_of::<SheapMetaHeader>();
 
+/// Align of allocation header
+const SHEAP_HEADER_ALIGN: usize = std::mem::align_of::<SheapMetaHeader>();
+
 /// Total size of scrap heap instance
-const SHEAP_SIZE: usize = 16 * 1024 * 1024; // 16 mb
+const SHEAP_SIZE: usize = 64 * 1024 * 1024; // 8 mb
 
 /// Instance of scrap heap.
 ///
 /// It is small re-usable heap with constant size.
 pub struct SheapInstance {
     bump: Bump,
-    sheap_ptr: *mut c_void,
     allocated: usize,
     freed: usize,
+    active_allocs: usize,
+    region_start: usize,
 }
 
 impl SheapInstance {
-    pub fn new(sheap_ptr: *mut c_void) -> Self {
+    pub fn new() -> Self {
+        let bump = Bump::with_size(SHEAP_SIZE);
+
+        let stats: bump_scope::stats::Stats<'_> = bump.stats();
+
+        let region_start = stats.current_chunk().chunk_start().as_ptr() as usize;
         Self {
-            sheap_ptr,
-            bump: Bump::with_size(SHEAP_SIZE),
+            bump,
             allocated: 0,
             freed: 0,
+            active_allocs: 0,
+            region_start,
         }
     }
 
@@ -62,9 +71,8 @@ impl SheapInstance {
     fn get_bump_region(&self) -> (usize, usize) {
         let stats = self.bump.stats();
         let chunk = stats.current_chunk();
-        let start = chunk.chunk_start().as_ptr() as usize;
-        let end = chunk.chunk_end().as_ptr() as usize;
-        (start, end)
+        let region_end = chunk.chunk_end().as_ptr() as usize;
+        (self.region_start, region_end)
     }
 
     #[inline]
@@ -78,16 +86,12 @@ impl SheapInstance {
 
         let header = Self::read_header(ptr);
 
-        if header.is_valid {
-            Some(header)
-        } else {
-            None
-        }
+        if header.is_valid { Some(header) } else { None }
     }
 
     #[inline(always)]
-    pub fn malloc_aligned(&mut self, sheap_ptr: *mut c_void, size: usize, align: usize) -> *mut c_void {
-        let actual_align = align.max(std::mem::align_of::<SheapMetaHeader>());
+    pub fn malloc_aligned(&mut self, size: usize, align: usize) -> *mut c_void {
+        let actual_align = align.max(SHEAP_HEADER_ALIGN);
         let real_size = size + SHEAP_HEADER_SIZE + actual_align;
 
         let alloc_layout = Layout::from_size_align(real_size, actual_align)
@@ -108,12 +112,12 @@ impl SheapInstance {
             real_size,
             ptr: user_addr as *mut c_void,
             real_ptr: base_ptr as *mut c_void,
-            sheap_ptr,
             is_valid: true,
         };
 
         Self::write_header(user_addr as *mut c_void, header);
         self.allocated += real_size;
+        self.active_allocs += 1;
 
         user_addr as *mut c_void
     }
@@ -144,29 +148,39 @@ impl SheapInstance {
             real_ptr: std::ptr::null_mut(),
             size: 0,
             real_size: 0,
-            sheap_ptr: std::ptr::null_mut(),
             is_valid: false,
         };
         Self::write_header(ptr, cleared_header);
 
+        self.active_allocs -= 1;
+
         // Auto-purge when all memory freed
-        if self.freed == self.allocated {
-            log::debug!("Auto-purge: allocated={}, freed={}", self.allocated, self.freed);
+        if self.active_allocs == 0 {
+            log::debug!(
+                "Auto-purge: allocated={}, freed={}",
+                self.allocated,
+                self.freed
+            );
+            self.purge();
+        }
+        // Logic: Pressure Valve - Reclaim if it's "mostly" junk
+        else if self.allocated > (SHEAP_SIZE * 9 / 10) && self.active_allocs < 3 {
+            log::warn!("Sheap pressure purge: reclaiming leaked memory.");
             self.purge();
         }
 
         true
     }
 
-    #[inline(always)]
-    pub fn is_can_alloc(&self, size: usize) -> bool {
-        const MAX_ALIGN: usize = 64;
-        let needed = size + SHEAP_HEADER_SIZE + MAX_ALIGN + (MAX_ALIGN - 1);
+    pub fn is_can_alloc(&self, size: usize, align: usize) -> bool {
+        let header_and_padding = SHEAP_HEADER_SIZE + align + 32; // Overestimate padding
+        let total_requested = size + header_and_padding;
 
-        // Use our tracking, not bump stats (bump may not reset stats on reset())
-        let available = SHEAP_SIZE.saturating_sub(self.allocated);
+        let stats = self.bump.stats();
+        // let capacity = stats.capacity();
+        let remaining = stats.remaining();
 
-        available >= needed
+        remaining >= total_requested
     }
 }
 
@@ -177,24 +191,26 @@ thread_local! {
 pub struct Sheap;
 
 impl Sheap {
-    pub fn malloc_aligned(sheap_ptr: *mut c_void, size: usize, align: usize) -> *mut c_void {
+    pub fn malloc_aligned(_sheap_ptr: *mut c_void, size: usize, align: usize) -> *mut c_void {
         SHEAP_INSTANCES.with(|sheaps| {
             let mut sheaps_vec = sheaps.borrow_mut();
 
             for sheap in sheaps_vec.iter_mut() {
-                if sheap.is_can_alloc(size) {
-                    sheap.sheap_ptr = sheap_ptr;
-                    return sheap.malloc_aligned(sheap_ptr, size, align);
+                if sheap.is_can_alloc(size, align) {
+                    return sheap.malloc_aligned(size, align);
                 }
             }
 
-            log::debug!("Creating SHEAP instance for {:p}", sheap_ptr);
+            log::warn!(
+                "New sheap instance will be created. Current amount: {}",
+                sheaps_vec.len()
+            );
 
-            let mut sheap_instance = SheapInstance::new(sheap_ptr);
-            let result = sheap_instance.malloc_aligned(sheap_ptr, size, align);
+            let mut sheap_instance = SheapInstance::new();
+            let result = sheap_instance.malloc_aligned(size, align);
             sheaps_vec.push(sheap_instance);
 
-            log::debug!("SHEAP instance created for {:p}, total: {}", sheap_ptr, sheaps_vec.len());
+            log::debug!("SHEAP instance created! total: {}", sheaps_vec.len());
 
             result
         })

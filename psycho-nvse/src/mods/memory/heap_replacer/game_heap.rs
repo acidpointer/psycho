@@ -1,16 +1,20 @@
-use libc::c_void;
+use std::sync::LazyLock;
 
-use super::gheap::Gheap;
+use libc::c_void;
+use libmimalloc::heap::MiHeap;
+
+
+static GAME_HEAP: LazyLock<MiHeap> = LazyLock::new(MiHeap::new);
 
 pub(super) unsafe extern "fastcall" fn game_heap_allocate(
     _self: *mut c_void,
     _edx: *mut c_void,
     size: usize,
 ) -> *mut c_void {
-    let result = Gheap::malloc(size);
+    let result = GAME_HEAP.malloc(size);
 
     if result.is_null() && size > 0 {
-        log::error!("[GHEAP] Allocation failed: size={}", size);
+        log::error!("game_heap_allocate: Allocation failed: size={}", size);
     }
 
     result
@@ -23,31 +27,13 @@ pub(super) unsafe extern "fastcall" fn game_heap_reallocate(
     size: usize,
 ) -> *mut c_void {
     if addr.is_null() {
-        return Gheap::malloc(size);
+        return GAME_HEAP.malloc(size);
     }
 
-    let is_ours = unsafe { libmimalloc::mi_is_in_heap_region(addr) } && Gheap::msize(addr) > 0;
-
-    if size == 0 {
-        if is_ours {
-            Gheap::free(addr);
-        } else {
-            match super::GAME_HEAP_FREE_HOOK.original() {
-                Ok(orig_free) => unsafe { orig_free(self_ptr, edx, addr) },
-                Err(err) => {
-                    log::error!(
-                        "game_heap_reallocate: Failed to call original free for {:p}: {:?}",
-                        addr,
-                        err
-                    );
-                }
-            }
-        }
-        return std::ptr::null_mut();
-    }
+    let is_ours = unsafe { libmimalloc::mi_is_in_heap_region(addr) };
 
     if is_ours {
-        return Gheap::realloc(addr, size);
+        return GAME_HEAP.realloc(addr, size);
     }
 
     match super::GAME_HEAP_REALLOCATE_HOOK_1.original() {
@@ -69,7 +55,7 @@ pub(super) unsafe extern "fastcall" fn game_heap_msize(
     addr: *mut c_void,
 ) -> usize {
     if unsafe { libmimalloc::mi_is_in_heap_region(addr) } {
-        let size = Gheap::msize(addr);
+        let size = unsafe { libmimalloc::mi_usable_size(addr) };
         if size > 0 {
             return size;
         }
@@ -97,8 +83,8 @@ pub(super) unsafe extern "fastcall" fn game_heap_free(
         return;
     }
 
-    if unsafe { libmimalloc::mi_is_in_heap_region(addr) } && Gheap::msize(addr) > 0 {
-        Gheap::free(addr);
+    if unsafe { libmimalloc::mi_is_in_heap_region(addr) } {
+        unsafe { libmimalloc::mi_free(addr) };
         return;
     }
 
