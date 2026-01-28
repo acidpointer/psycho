@@ -128,9 +128,11 @@ pub fn install_game_heap_hooks() -> anyhow::Result<()> {
     SHEAP_PURGE_HOOK.enable()?;
     log::info!("[INLINE] Hooked sheap_purge at {:#x}", SHEAP_PURGE_ADDR);
 
+    // NOP out game's sheap initialization - we handle it in our hooks
     unsafe {
         patch_memory_nop(0x00AA38CA as *mut c_void, 0x00AA38E8 - 0x00AA38CA)?;
     }
+
     // Initialize and enable sheap_get_thread_local hook
     SHEAP_GET_THREAD_LOCAL_HOOK.init(
         "sheap_get_thread_local",

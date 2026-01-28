@@ -22,7 +22,12 @@ pub(super) unsafe extern "fastcall" fn sheap_init_fix(heap: *mut c_void, _edx: *
         return;
     }
 
-    // NOOP
+    // Initialize sheap structure with NULL pointers
+    // This is safe because our hooks handle all actual allocations
+    let sheap = heap as *mut SheapStruct;
+    (*sheap).blocks = std::ptr::null_mut();
+    (*sheap).cur = std::ptr::null_mut();
+    (*sheap).last = std::ptr::null_mut();
 }
 
 /// Variable-size sheap initialization hook (0x00AA5410 FNV, 0x0086CB90 GECK).
@@ -38,7 +43,12 @@ pub(super) unsafe extern "fastcall" fn sheap_init_var(
         return;
     }
 
-    // NOOP
+    // Initialize sheap structure with NULL pointers
+    // This is safe because our hooks handle all actual allocations
+    let sheap = heap as *mut SheapStruct;
+    (*sheap).blocks = std::ptr::null_mut();
+    (*sheap).cur = std::ptr::null_mut();
+    (*sheap).last = std::ptr::null_mut();
 }
 
 /// Sheap allocation hook (0x00AA5430 FNV, 0x0086CBA0 GECK).
@@ -48,6 +58,15 @@ pub(super) unsafe extern "fastcall" fn sheap_alloc(
     size: usize,
     align: usize,
 ) -> *mut c_void {
+    // Validate sheap structure hasn't been corrupted
+    if !heap.is_null() {
+        let sheap = heap as *const SheapStruct;
+        let cur = (*sheap).cur;
+        if !cur.is_null() && (cur as usize) < 0x10000 {
+            log::error!("sheap_alloc: Detected corrupted sheap structure at {:p}, cur={:p}", heap, cur);
+        }
+    }
+
     Sheap::malloc_aligned(heap, size, align)
 }
 
@@ -79,9 +98,36 @@ pub(super) unsafe extern "fastcall" fn sheap_purge(heap: *mut c_void, _edx: *mut
     Sheap::purge(heap);
 }
 
+use std::cell::RefCell;
+
+thread_local! {
+    /// Fake scrap heap structure that the game can safely access.
+    /// Boxed and leaked to ensure stable address per thread.
+    static FAKE_SHEAP: RefCell<Option<*mut SheapStruct>> = RefCell::new(None);
+}
+
 /// Thread-local sheap getter hook (0x00AA42E0 FNV, 0x0086BCB0 GECK).
 ///
 /// Returns a thread-local sheap instance, allocating and initializing it on first access.
 pub(super) unsafe extern "C" fn sheap_get_thread_local() -> *mut c_void {
-    std::ptr::null_mut()
+    FAKE_SHEAP.with(|cell| {
+        let mut opt = cell.borrow_mut();
+
+        if let Some(ptr) = *opt {
+            // Already initialized, return existing pointer
+            ptr as *mut c_void
+        } else {
+            // First call on this thread - create and leak a fake sheap structure
+            let fake_sheap = Box::new(SheapStruct {
+                blocks: std::ptr::null_mut(),
+                cur: std::ptr::null_mut(),
+                last: std::ptr::null_mut(),
+            });
+
+            let ptr = Box::into_raw(fake_sheap);
+            *opt = Some(ptr);
+
+            ptr as *mut c_void
+        }
+    })
 }

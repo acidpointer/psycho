@@ -162,7 +162,8 @@ impl SheapInstance {
 
     #[inline(always)]
     pub fn is_can_alloc(&self, size: usize) -> bool {
-        SHEAP_SIZE - self.allocated >= size + SHEAP_HEADER_SIZE
+        let used = self.allocated.saturating_sub(self.freed);
+        SHEAP_SIZE.saturating_sub(used) >= size + SHEAP_HEADER_SIZE
     }
 }
 
