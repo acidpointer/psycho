@@ -83,7 +83,6 @@ pub(super) unsafe extern "fastcall" fn sheap_free(
         return;
     }
 
-    log::debug!("sheap_free called: heap={:p}, ptr={:p}", heap, ptr);
     Sheap::free(heap, ptr);
 }
 
@@ -93,11 +92,8 @@ pub(super) unsafe extern "fastcall" fn sheap_free(
 pub(super) unsafe extern "fastcall" fn sheap_purge(heap: *mut c_void, _edx: *mut c_void) {
     if heap.is_null() {
         log::error!("sheap_purge: NULL heap pointer");
-        return;
     }
-
-    log::debug!("sheap_purge hook called with heap={:p}", heap);
-    Sheap::purge(heap);
+    // NOOP
 }
 
 use std::cell::RefCell;
@@ -105,7 +101,7 @@ use std::cell::RefCell;
 thread_local! {
     /// Fake scrap heap structure that the game can safely access.
     /// Boxed and leaked to ensure stable address per thread.
-    static FAKE_SHEAP: RefCell<Option<*mut SheapStruct>> = RefCell::new(None);
+    static FAKE_SHEAP: RefCell<Option<*mut SheapStruct>> = const { RefCell::new(None) };
 }
 
 /// Thread-local sheap getter hook (0x00AA42E0 FNV, 0x0086BCB0 GECK).
