@@ -2,8 +2,8 @@
 
 use crate::{
     mi_heap_calloc, mi_heap_collect, mi_heap_delete, mi_heap_destroy, mi_heap_malloc,
-    mi_heap_malloc_aligned, mi_heap_malloc_small, mi_heap_new, mi_heap_new_in_arena,
-    mi_heap_realloc, mi_heap_recalloc, mi_heap_t, mi_heap_zalloc, mi_reserve_os_memory_ex,
+    mi_heap_malloc_aligned, mi_heap_malloc_small, mi_heap_new,
+    mi_heap_realloc, mi_heap_recalloc, mi_heap_t, mi_heap_zalloc,
 };
 use libc::c_void;
 

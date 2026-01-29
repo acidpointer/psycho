@@ -53,21 +53,21 @@ pub(super) unsafe extern "fastcall" fn sheap_init_var(
 
 /// Sheap allocation hook (0x00AA5430 FNV, 0x0086CBA0 GECK).
 pub(super) unsafe extern "fastcall" fn sheap_alloc(
-    heap: *mut c_void,
+    sheap_ptr: *mut c_void,
     _edx: *mut c_void,
     size: usize,
     align: usize,
 ) -> *mut c_void {
     // Validate sheap structure hasn't been corrupted
-    if !heap.is_null() {
-        let sheap = heap as *const SheapStruct;
+    if !sheap_ptr.is_null() {
+        let sheap = sheap_ptr as *const SheapStruct;
         let cur = (*sheap).cur;
         if !cur.is_null() && (cur as usize) < 0x10000 {
-            log::error!("sheap_alloc: Detected corrupted sheap structure at {:p}, cur={:p}", heap, cur);
+            log::error!("sheap_alloc: Detected corrupted sheap structure at {:p}, cur={:p}", sheap_ptr, cur);
         }
     }
 
-    Sheap::malloc_aligned(heap, size, align)
+    Sheap::malloc_aligned(sheap_ptr, size, align)
 }
 
 /// Sheap free hook.
@@ -75,25 +75,18 @@ pub(super) unsafe extern "fastcall" fn sheap_alloc(
 /// For bump allocator memory, this is a no-op (memory is reclaimed on purge).
 /// For mimalloc fallback allocations, frees the memory individually.
 pub(super) unsafe extern "fastcall" fn sheap_free(
-    heap: *mut c_void,
+    sheap_ptr: *mut c_void,
     _edx: *mut c_void,
     ptr: *mut c_void,
 ) {
-    if ptr.is_null() {
-        return;
-    }
-
-    Sheap::free(heap, ptr);
+    Sheap::free(sheap_ptr, ptr);
 }
 
 /// Sheap purge hook (0x00AA5460 FNV, 0x0086CAA0 GECK).
 ///
 /// Drops the bump allocator for the specified sheap, freeing all memory.
-pub(super) unsafe extern "fastcall" fn sheap_purge(heap: *mut c_void, _edx: *mut c_void) {
-    if heap.is_null() {
-        log::error!("sheap_purge: NULL heap pointer");
-    }
-    // NOOP
+pub(super) unsafe extern "fastcall" fn sheap_purge(sheap_ptr: *mut c_void, _edx: *mut c_void) {
+    Sheap::purge(sheap_ptr);
 }
 
 use std::cell::RefCell;
