@@ -81,20 +81,39 @@ impl SheapInstance {
 
     #[inline]
     fn check_ptr_and_get_header(&self, ptr: *mut c_void) -> Option<SheapMetaHeader> {
+        if ptr.is_null() {
+            return None;
+        }
+
         let (region_start, region_end) = self.get_bump_region();
         let addr = ptr as usize;
 
-        if !(addr >= region_start && addr < region_end) {
+        if addr < region_start || addr >= region_end {
+            return None;
+        }
+
+        let header_addr = (ptr as usize).checked_sub(SHEAP_HEADER_SIZE)?;
+        if header_addr < region_start {
+            log::error!("Header underflow detected for pointer {:p}", ptr);
             return None;
         }
 
         let header = Self::read_header(ptr);
 
-        if header.is_valid && header.sheap_addr == self.sheap_addr {
-            Some(header)
-        } else {
-            None
+        if !header.is_valid || header.sheap_addr != self.sheap_addr {
+            return None;
         }
+
+        if header.ptr != ptr {
+            log::error!(
+                "Header pointer mismatch: expected {:p}, got {:p}",
+                ptr,
+                header.ptr
+            );
+            return None;
+        }
+
+        Some(header)
     }
 
     #[inline(always)]
@@ -168,13 +187,24 @@ impl SheapInstance {
             return false;
         }
 
+        if self.active_allocs == 0 {
+            return false;
+        }
+
+        if ptr.is_null() {
+            return false;
+        }
+
         let Some(header) = self.check_ptr_and_get_header(ptr) else {
+            // Don't log warnings for this case as it might be a normal scenario
+            // where the same pointer is attempted to be freed multiple times
             return false;
         };
 
-        // Double-free protection
-        if self.freed + header.real_size > self.allocated {
-            return true;
+        // Check for integer overflow in freed counter
+        if self.freed.checked_add(header.real_size).is_none() {
+            log::error!("Integer overflow in freed counter for sheap {:p}", sheap_ptr);
+            return false;
         }
 
         self.freed += header.real_size;
@@ -191,16 +221,10 @@ impl SheapInstance {
         };
         Self::write_header(ptr, cleared_header);
 
-        // Auto-purge when all memory freed
-        // if self.active_allocs == 0 {
-        //     log::debug!(
-        //         "(SHEAP:{:X}) Auto-purge: allocated={}, freed={}",
-        //         self.sheap_addr,
-        //         self.allocated,
-        //         self.freed
-        //     );
-        //     self.purge(sheap_ptr);
-        // }
+        // Auto-purge if it was last allocation
+        if self.active_allocs == 0 {
+            self.purge(sheap_ptr);
+        }
 
         true
     }
@@ -240,22 +264,8 @@ impl Sheap {
                         Some(ptr) => return ptr,
                         None => continue,
                     }
-                } else if sheap.active_allocs == 0 && sheap.allocated == 0 {
-                    log::info!("Reusing idle instance for new sheap {:p}", sheap_ptr);
-                    sheap.sheap_addr = sheap_ptr as usize;
-                    // Region bounds are already correct from last purge
-                    match sheap.malloc_aligned(sheap_ptr, size, align) {
-                        Some(ptr) => return ptr,
-                        None => continue,
-                    }
                 }
             }
-
-/*             log::warn!(
-                "New sheap instance will be created for sheap: {:p}. Current amount: {}",
-                sheap_ptr,
-                pool.len(),
-            ); */
 
             let mut sheap_instance = SheapInstance::new(sheap_ptr);
             match sheap_instance.malloc_aligned(sheap_ptr, size, align) {
@@ -277,11 +287,24 @@ impl Sheap {
 
     pub fn free(sheap_ptr: *mut c_void, ptr: *mut c_void) {
         Self::with_pool(|pool| {
-            for sheap in pool.iter_mut() {
+            for (index, sheap) in pool.iter_mut().enumerate() {
                 if sheap.free(sheap_ptr, ptr) {
+
+                    // Clean-up after auto purge
+                    if sheap.active_allocs == 0 {
+                        pool.swap_remove(index);
+                    }
+
                     return;
                 }
             }
+            // If we reach here, the pointer wasn't found in any sheap instance
+            // It is critical bug
+            log::warn!(
+                "Free called for pointer {:p} from sheap {:p}, but no matching instance found in pool",
+                ptr,
+                sheap_ptr
+            );
         })
     }
 

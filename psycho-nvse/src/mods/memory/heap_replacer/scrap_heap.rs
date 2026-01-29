@@ -89,26 +89,59 @@ pub(super) unsafe extern "fastcall" fn sheap_purge(sheap_ptr: *mut c_void, _edx:
     Sheap::purge(sheap_ptr);
 }
 
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
+
+// thread_local! {
+//     /// Fake scrap heap structure that the game can safely access.
+//     /// Boxed and leaked to ensure stable address per thread.
+//     static FAKE_SHEAP: RefCell<Option<*mut SheapStruct>> = const { RefCell::new(None) };
+// }
+
+// /// Thread-local sheap getter hook (0x00AA42E0 FNV, 0x0086BCB0 GECK).
+// ///
+// /// Returns a thread-local sheap instance, allocating and initializing it on first access.
+// pub(super) unsafe extern "C" fn sheap_get_thread_local() -> *mut c_void {
+//     FAKE_SHEAP.with(|cell| {
+//         let mut opt = cell.borrow_mut();
+
+//         if let Some(ptr) = *opt {
+//             // Already initialized, return existing pointer
+//             ptr as *mut c_void
+//         } else {
+//             // First call on this thread - create and leak a fake sheap structure
+//             let fake_sheap = Box::new(SheapStruct {
+//                 blocks: std::ptr::null_mut(),
+//                 cur: std::ptr::null_mut(),
+//                 last: std::ptr::null_mut(),
+//             });
+
+//             let ptr = Box::into_raw(fake_sheap);
+//             *opt = Some(ptr);
+
+//             ptr as *mut c_void
+//         }
+//     })
+// }
 
 thread_local! {
-    /// Fake scrap heap structure that the game can safely access.
-    /// Boxed and leaked to ensure stable address per thread.
     static FAKE_SHEAP: RefCell<Option<*mut SheapStruct>> = const { RefCell::new(None) };
+    static THREAD_CLEANUP_REGISTERED: Cell<bool> = const { Cell::new(false) };
 }
 
-/// Thread-local sheap getter hook (0x00AA42E0 FNV, 0x0086BCB0 GECK).
-///
-/// Returns a thread-local sheap instance, allocating and initializing it on first access.
+// Register cleanup when first heap is created
 pub(super) unsafe extern "C" fn sheap_get_thread_local() -> *mut c_void {
     FAKE_SHEAP.with(|cell| {
         let mut opt = cell.borrow_mut();
 
         if let Some(ptr) = *opt {
-            // Already initialized, return existing pointer
             ptr as *mut c_void
         } else {
-            // First call on this thread - create and leak a fake sheap structure
+            // Register cleanup for this thread if not already done
+            if !THREAD_CLEANUP_REGISTERED.with(|c| c.get()) {
+                // Register cleanup function with thread
+                THREAD_CLEANUP_REGISTERED.with(|c| c.set(true));
+            }
+
             let fake_sheap = Box::new(SheapStruct {
                 blocks: std::ptr::null_mut(),
                 cur: std::ptr::null_mut(),
