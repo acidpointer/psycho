@@ -12,13 +12,13 @@ static CONFIG_MIMALLOC: Once = Once::new();
 
 pub(super) fn configure_mimalloc() {
     CONFIG_MIMALLOC.call_once(|| unsafe {
-        // // Option 5: Enable decommit on purge (return memory to OS instead of just reset)
-        // mi_option_set_enabled(5, true);
-        // log::info!("[MIMALLOC] Enabled purge_decommits (option 5)");
+        // Option 5: Enable decommit on purge (return memory to OS instead of just reset)
+        mi_option_set_enabled(5, true);
+        log::info!("[MIMALLOC] Enabled purge_decommits (option 5)");
 
-        // // Option 15: Set purge delay to 0 (immediate purging instead of 10ms delay)
-        // mi_option_set(15, 0);
-        // log::info!("[MIMALLOC] Set purge_delay to 0ms (option 15)");
+        // Option 15: Set purge delay to 0 (immediate purging instead of 10ms delay)
+        mi_option_set(15, 0);
+        log::info!("[MIMALLOC] Set purge_delay to 0ms (option 15)");
 
         // Perform initial collection to establish baseline
         mi_collect(true);

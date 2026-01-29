@@ -26,7 +26,7 @@ const SHEAP_HEADER_SIZE: usize = size_of::<SheapMetaHeader>();
 const SHEAP_HEADER_ALIGN: usize = std::mem::align_of::<SheapMetaHeader>();
 
 /// Total size of scrap heap instance
-const SHEAP_SIZE: usize = 2 * 1024 * 1024; // 2 mb per block
+const SHEAP_SIZE: usize = 2 * 1024 * 1024; // 2 Mb per block
 
 const SHEAP_MAGIC: u32 = 0x53484550; // 'SHEP' in hex
 
@@ -93,7 +93,6 @@ impl SheapInstance {
         // Verify that the pointer has space for a header before it
         let ptr_addr = ptr as usize;
         if ptr_addr < SHEAP_HEADER_SIZE {
-            // Return a default invalid header instead of panicking
             return SheapMetaHeader {
                 ptr: std::ptr::null_mut(),
                 real_ptr: std::ptr::null_mut(),
@@ -106,6 +105,7 @@ impl SheapInstance {
         }
 
         let header_ptr = (ptr as usize - SHEAP_HEADER_SIZE) as *const SheapMetaHeader;
+
         // Add additional safety check to ensure the header pointer is valid
         // Check for obviously invalid addresses (NULL, very low addresses, or extremely high addresses)
         if header_ptr as usize > 0x10000 && (header_ptr as usize) < 0xFFF00000 {
@@ -136,6 +136,7 @@ impl SheapInstance {
         }
 
         let header_ptr = (ptr as usize - SHEAP_HEADER_SIZE) as *mut SheapMetaHeader;
+
         // Add additional safety check to ensure the header pointer is valid
         // Check for obviously invalid addresses (NULL, very low addresses, or extremely high addresses)
         if header_ptr as usize > 0x10000 && (header_ptr as usize) < 0xFFF00000 {
@@ -332,7 +333,7 @@ impl SheapInstance {
         Self::write_header(ptr, cleared_header);
 
         // Auto-purge if it was last allocation
-        if self.active_allocs == 0 {
+        if self.active_allocs == 0 || self.freed == self.allocated {
             self.purge(sheap_ptr);
         }
 
@@ -366,7 +367,7 @@ impl SheapInstance {
         let current_offset = self.current_ptr as usize - self.base_ptr as usize;
         let remaining_space = match SHEAP_SIZE.checked_sub(current_offset) {
             Some(val) => val,
-            None => return false, // This shouldn't happen in normal circumstances
+            None => return false,
         };
 
         remaining_space >= total_size_needed
@@ -384,32 +385,8 @@ impl Sheap {
         callback(&mut pool)
     }
 
-    /// Clean up empty sheap instances to prevent pool growth
-    fn cleanup_pool() {
-        // Only hold the lock briefly to get the indices to remove
-        let indices_to_remove: Vec<usize> = {
-            let pool = POOL.lock();
-            pool.iter()
-                .enumerate()
-                .filter(|(_, instance)| instance.active_allocs == 0)
-                .map(|(idx, _)| idx)
-                .collect()
-        };
-
-        // Remove the instances (in reverse order to maintain indices)
-        if !indices_to_remove.is_empty() {
-            let mut pool = POOL.lock();
-            for &idx in indices_to_remove.iter().rev() {
-                if idx < pool.len() {
-                    pool.remove(idx);
-                }
-            }
-        }
-    }
-
     pub fn malloc_aligned(sheap_ptr: *mut c_void, size: usize, align: usize) -> *mut c_void {
         Self::with_pool(|pool| {
-            // First, try to allocate from existing sheaps
             for sheap in pool.iter_mut() {
                 if sheap.is_can_alloc(sheap_ptr, size, align)
                     && let Some(ptr) = sheap.malloc_aligned(sheap_ptr, size, align)
@@ -424,7 +401,6 @@ impl Sheap {
                     pool.push(sheap_instance);
                     return ptr;
                 } else {
-                    // If the new instance can't allocate immediately, don't add it to the pool
                     log::error!(
                         "Newly created sheap {:p} failed to allocate memory first time! Discarding instance.",
                         sheap_ptr
@@ -451,43 +427,24 @@ impl Sheap {
     }
 
     pub fn free(sheap_ptr: *mut c_void, ptr: *mut c_void) {
-        Self::with_pool(|pool| {
-            // Check if the pointer is null before proceeding
-            if ptr.is_null() {
-                return;
-            }
+        if ptr.is_null() {
+            return;
+        }
 
+        if sheap_ptr.is_null() {
+            return;
+        }
+
+        Self::with_pool(|pool| {
             for (index, sheap) in pool.iter_mut().enumerate() {
-                // Make sure the sheap belongs to the correct parent sheap
-                if sheap.sheap_addr == sheap_ptr as usize && sheap.free(sheap_ptr, ptr) {
-                    // Clean-up after auto purge
+                if sheap.free(sheap_ptr, ptr) {
                     if sheap.active_allocs == 0 {
                         pool.swap_remove(index);
                     }
                     return;
                 }
             }
-            // If we reach here, the pointer wasn't found in any sheap instance
-            // This can happen if the sheap was already purged but there are lingering references
-            // Don't log this as it can cause spam as seen in the bug report
         });
-
-        // Trigger cleanup more proactively when the pool grows large
-        // Use a static counter to avoid overhead
-        use std::sync::atomic::{AtomicUsize, Ordering};
-        static FREE_COUNTER: AtomicUsize = AtomicUsize::new(0);
-
-        let count = FREE_COUNTER.fetch_add(1, Ordering::Relaxed);
-        // Cleanup every 1000 frees if pool is large (more frequent than before)
-        if count.is_multiple_of(1000) {
-            // Check pool size under lock to avoid race condition
-            let pool_len = POOL.lock().len();
-            if pool_len > 5 {
-                // Lower threshold (was 10)
-                // Only cleanup if we have many instances
-                Self::cleanup_pool();
-            }
-        }
     }
 
     pub fn purge(sheap_ptr: *mut c_void) {
