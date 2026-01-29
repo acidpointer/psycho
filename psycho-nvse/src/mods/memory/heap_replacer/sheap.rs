@@ -1,7 +1,7 @@
-use std::alloc::Layout;
-use std::mem::size_of;
 use libc::c_void;
 use parking_lot::Mutex;
+use std::alloc::Layout;
+use std::mem::size_of;
 
 /// Header with metadata, which appends to each allocation
 ///
@@ -26,7 +26,7 @@ const SHEAP_HEADER_SIZE: usize = size_of::<SheapMetaHeader>();
 const SHEAP_HEADER_ALIGN: usize = std::mem::align_of::<SheapMetaHeader>();
 
 /// Total size of scrap heap instance
-const SHEAP_SIZE: usize = 8 * 1024 * 1024; // 8 mb per block
+const SHEAP_SIZE: usize = 2 * 1024 * 1024; // 2 mb per block
 
 const SHEAP_MAGIC: u32 = 0x53484550; // 'SHEP' in hex
 
@@ -106,7 +106,22 @@ impl SheapInstance {
         }
 
         let header_ptr = (ptr as usize - SHEAP_HEADER_SIZE) as *const SheapMetaHeader;
-        unsafe { std::ptr::read(header_ptr) }
+        // Add additional safety check to ensure the header pointer is valid
+        // Check for obviously invalid addresses (NULL, very low addresses, or extremely high addresses)
+        if header_ptr as usize > 0x10000 && (header_ptr as usize) < 0xFFF00000 {
+            unsafe { std::ptr::read(header_ptr) }
+        } else {
+            // Return a default invalid header if the header pointer is clearly invalid
+            SheapMetaHeader {
+                ptr: std::ptr::null_mut(),
+                real_ptr: std::ptr::null_mut(),
+                size: 0,
+                real_size: 0,
+                is_valid: false,
+                sheap_addr: 0,
+                magic: 0,
+            }
+        }
     }
 
     /// SAFETY: must have space for header before ptr
@@ -121,7 +136,16 @@ impl SheapInstance {
         }
 
         let header_ptr = (ptr as usize - SHEAP_HEADER_SIZE) as *mut SheapMetaHeader;
-        unsafe { std::ptr::write(header_ptr, header) }
+        // Add additional safety check to ensure the header pointer is valid
+        // Check for obviously invalid addresses (NULL, very low addresses, or extremely high addresses)
+        if header_ptr as usize > 0x10000 && (header_ptr as usize) < 0xFFF00000 {
+            unsafe { std::ptr::write(header_ptr, header) }
+        } else {
+            log::error!(
+                "Attempted to write header to invalid header address: {:p}",
+                header_ptr
+            );
+        }
     }
 
     #[inline(always)]
@@ -388,9 +412,10 @@ impl Sheap {
             // First, try to allocate from existing sheaps
             for sheap in pool.iter_mut() {
                 if sheap.is_can_alloc(sheap_ptr, size, align)
-                    && let Some(ptr) = sheap.malloc_aligned(sheap_ptr, size, align) {
-                        return ptr;
-                    }
+                    && let Some(ptr) = sheap.malloc_aligned(sheap_ptr, size, align)
+                {
+                    return ptr;
+                }
             }
 
             // If no existing sheap can allocate, try to create a new one
@@ -434,14 +459,13 @@ impl Sheap {
 
             for (index, sheap) in pool.iter_mut().enumerate() {
                 // Make sure the sheap belongs to the correct parent sheap
-                if sheap.sheap_addr == sheap_ptr as usize
-                    && sheap.free(sheap_ptr, ptr) {
-                        // Clean-up after auto purge
-                        if sheap.active_allocs == 0 {
-                            pool.swap_remove(index);
-                        }
-                        return;
+                if sheap.sheap_addr == sheap_ptr as usize && sheap.free(sheap_ptr, ptr) {
+                    // Clean-up after auto purge
+                    if sheap.active_allocs == 0 {
+                        pool.swap_remove(index);
                     }
+                    return;
+                }
             }
             // If we reach here, the pointer wasn't found in any sheap instance
             // This can happen if the sheap was already purged but there are lingering references
@@ -458,7 +482,8 @@ impl Sheap {
         if count.is_multiple_of(1000) {
             // Check pool size under lock to avoid race condition
             let pool_len = POOL.lock().len();
-            if pool_len > 5 {  // Lower threshold (was 10)
+            if pool_len > 5 {
+                // Lower threshold (was 10)
                 // Only cleanup if we have many instances
                 Self::cleanup_pool();
             }

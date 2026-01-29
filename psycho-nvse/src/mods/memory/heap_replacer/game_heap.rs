@@ -30,9 +30,9 @@ pub(super) unsafe extern "fastcall" fn game_heap_reallocate(
         return GAME_HEAP.malloc(size);
     }
 
-    let is_ours = unsafe { libmimalloc::mi_is_in_heap_region(ptr) };
+    let is_mimalloc = unsafe { libmimalloc::mi_is_in_heap_region(ptr) };
 
-    if is_ours {
+    if is_mimalloc {
         return GAME_HEAP.realloc(ptr, size);
     }
 
