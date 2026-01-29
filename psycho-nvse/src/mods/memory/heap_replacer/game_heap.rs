@@ -23,25 +23,25 @@ pub(super) unsafe extern "fastcall" fn game_heap_allocate(
 pub(super) unsafe extern "fastcall" fn game_heap_reallocate(
     self_ptr: *mut c_void,
     edx: *mut c_void,
-    addr: *mut c_void,
+    ptr: *mut c_void,
     size: usize,
 ) -> *mut c_void {
-    if addr.is_null() {
+    if ptr.is_null() {
         return GAME_HEAP.malloc(size);
     }
 
-    let is_ours = unsafe { libmimalloc::mi_is_in_heap_region(addr) };
+    let is_ours = unsafe { libmimalloc::mi_is_in_heap_region(ptr) };
 
     if is_ours {
-        return GAME_HEAP.realloc(addr, size);
+        return GAME_HEAP.realloc(ptr, size);
     }
 
     match super::GAME_HEAP_REALLOCATE_HOOK_1.original() {
-        Ok(orig_realloc) => unsafe { orig_realloc(self_ptr, edx, addr, size) },
+        Ok(orig_realloc) => unsafe { orig_realloc(self_ptr, edx, ptr, size) },
         Err(err) => {
             log::error!(
                 "game_heap_reallocate: Failed to call original for {:p}: {:?}",
-                addr,
+                ptr,
                 err
             );
             std::ptr::null_mut()
@@ -77,25 +77,25 @@ pub(super) unsafe extern "fastcall" fn game_heap_msize(
 pub(super) unsafe extern "fastcall" fn game_heap_free(
     self_ptr: *mut c_void,
     edx: *mut c_void,
-    addr: *mut c_void,
+    ptr: *mut c_void,
 ) {
-    if addr.is_null() {
+    if ptr.is_null() {
         return;
     }
 
-    if unsafe { libmimalloc::mi_is_in_heap_region(addr) } {
-        unsafe { libmimalloc::mi_free(addr) };
+    if unsafe { libmimalloc::mi_is_in_heap_region(ptr) } {
+        unsafe { libmimalloc::mi_free(ptr) };
         return;
     }
 
     match super::GAME_HEAP_FREE_HOOK.original() {
         Ok(orig_free) => {
-            unsafe { orig_free(self_ptr, edx, addr) };
+            unsafe { orig_free(self_ptr, edx, ptr) };
         }
         Err(err) => {
             log::error!(
                 "game_heap_free: Failed to call original for {:p}: {:?}",
-                addr,
+                ptr,
                 err
             );
         }
