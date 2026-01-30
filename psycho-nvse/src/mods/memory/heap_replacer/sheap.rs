@@ -1,7 +1,7 @@
 use libc::c_void;
 use parking_lot::Mutex;
 use std::alloc::Layout;
-use std::mem::size_of;
+use std::mem::{size_of, align_of};
 
 /// Header with metadata, which appends to each allocation
 ///
@@ -23,7 +23,7 @@ pub struct SheapMetaHeader {
 const SHEAP_HEADER_SIZE: usize = size_of::<SheapMetaHeader>();
 
 /// Align of allocation header
-const SHEAP_HEADER_ALIGN: usize = std::mem::align_of::<SheapMetaHeader>();
+const SHEAP_HEADER_ALIGN: usize = align_of::<SheapMetaHeader>();
 
 /// Total size of scrap heap instance
 const SHEAP_SIZE: usize = 2 * 1024 * 1024; // 2 Mb per block
@@ -87,116 +87,6 @@ impl SheapInstance {
         }
     }
 
-    /// SAFETY: ptr must point to valid allocation with header
-    #[inline(always)]
-    fn read_header(ptr: *mut c_void) -> SheapMetaHeader {
-        // Verify that the pointer has space for a header before it
-        let ptr_addr = ptr as usize;
-        if ptr_addr < SHEAP_HEADER_SIZE {
-            return SheapMetaHeader {
-                ptr: std::ptr::null_mut(),
-                real_ptr: std::ptr::null_mut(),
-                size: 0,
-                real_size: 0,
-                is_valid: false,
-                sheap_addr: 0,
-                magic: 0,
-            };
-        }
-
-        let header_ptr = (ptr as usize - SHEAP_HEADER_SIZE) as *const SheapMetaHeader;
-
-        // Add additional safety check to ensure the header pointer is valid
-        // Check for obviously invalid addresses (NULL, very low addresses, or extremely high addresses)
-        if header_ptr as usize > 0x10000 && (header_ptr as usize) < 0xFFF00000 {
-            unsafe { std::ptr::read(header_ptr) }
-        } else {
-            // Return a default invalid header if the header pointer is clearly invalid
-            SheapMetaHeader {
-                ptr: std::ptr::null_mut(),
-                real_ptr: std::ptr::null_mut(),
-                size: 0,
-                real_size: 0,
-                is_valid: false,
-                sheap_addr: 0,
-                magic: 0,
-            }
-        }
-    }
-
-    /// SAFETY: must have space for header before ptr
-    #[inline(always)]
-    fn write_header(ptr: *mut c_void, header: SheapMetaHeader) {
-        // Verify that the pointer has space for a header before it
-        let ptr_addr = ptr as usize;
-        if ptr_addr < SHEAP_HEADER_SIZE {
-            // Log error but don't panic to avoid crashing the game
-            log::error!("Attempted to write header to invalid address: {:p}", ptr);
-            return;
-        }
-
-        let header_ptr = (ptr as usize - SHEAP_HEADER_SIZE) as *mut SheapMetaHeader;
-
-        // Add additional safety check to ensure the header pointer is valid
-        // Check for obviously invalid addresses (NULL, very low addresses, or extremely high addresses)
-        if header_ptr as usize > 0x10000 && (header_ptr as usize) < 0xFFF00000 {
-            unsafe { std::ptr::write(header_ptr, header) }
-        } else {
-            log::error!(
-                "Attempted to write header to invalid header address: {:p}",
-                header_ptr
-            );
-        }
-    }
-
-    #[inline(always)]
-    fn check_ptr_and_get_header(&self, ptr: *mut c_void) -> Option<SheapMetaHeader> {
-        if ptr.is_null() {
-            return None;
-        }
-
-        // Basic address validation to prevent obvious wild pointers
-        let addr = ptr as usize;
-        if !(0x10000..=0x7FFF0000).contains(&addr) {
-            // More conservative upper bound
-            return None;
-        }
-
-        // Validate that the address is within our heap's range
-        let heap_start = self.base_ptr as usize;
-        let heap_end = heap_start + SHEAP_SIZE;
-        if addr < heap_start || addr >= heap_end {
-            return None;
-        }
-
-        // Also validate that there's space for a header before this address
-        if addr < SHEAP_HEADER_SIZE {
-            return None;
-        }
-
-        let header = Self::read_header(ptr);
-
-        // If it's not our magic, it's not our pointer. Instant return.
-        if header.magic != SHEAP_MAGIC || !header.is_valid || header.sheap_addr != self.sheap_addr {
-            return None;
-        }
-
-        // Validate that the size values make sense
-        if header.size > SHEAP_SIZE || header.real_size > SHEAP_SIZE {
-            return None;
-        }
-
-        // Additional validation: check if the stored real_ptr points to a reasonable location
-        // (should be near the user data pointer)
-        let real_ptr_addr = header.real_ptr as usize;
-        let user_ptr_addr = ptr as usize;
-        if real_ptr_addr != user_ptr_addr - SHEAP_HEADER_SIZE {
-            return None; // The real_ptr should point to the header location
-        }
-
-        Some(header)
-    }
-
     #[inline(always)]
     pub fn malloc_aligned(
         &mut self,
@@ -206,22 +96,25 @@ impl SheapInstance {
     ) -> Option<*mut c_void> {
         let actual_align = align.max(SHEAP_HEADER_ALIGN);
 
-        // Check for potential overflow in size calculations
-        let max_padding = if actual_align > 0 {
-            actual_align - 1
-        } else {
-            0
-        };
-        let total_size_needed = size
-            .checked_add(SHEAP_HEADER_SIZE)?
-            .checked_add(max_padding)?;
+        // Calculate the earliest possible user data address
+        // It must be at least SHEAP_HEADER_SIZE bytes after current_ptr
+        let min_user_addr = (self.current_ptr as usize).checked_add(SHEAP_HEADER_SIZE)?;
 
-        // Check if we have enough space left in the heap
-        let current_offset = self.current_ptr as usize - self.base_ptr as usize;
-        let space_remaining = SHEAP_SIZE.checked_sub(current_offset)?;
-        if total_size_needed > space_remaining {
+        // Align THAT address to satisfy the game's alignment requirement
+        let aligned_user_addr = (min_user_addr + actual_align - 1) & !(actual_align - 1);
+
+        // The header MUST be placed exactly SHEAP_HEADER_SIZE before the aligned user address
+        // This ensures read_header (ptr - SHEAP_HEADER_SIZE) always hits the struct
+        let header_addr = aligned_user_addr - SHEAP_HEADER_SIZE;
+
+        // Calculate where this allocation ends
+        let final_current_ptr = aligned_user_addr.checked_add(size)?;
+
+        // Boundary check
+        let base_addr = self.base_ptr as usize;
+        if final_current_ptr > base_addr.checked_add(SHEAP_SIZE)? {
             log::error!(
-                "(SHEAP:{:X}) Not enough space for allocation of size {}, align {}",
+                "(SHEAP:{:X}) Allocation would exceed heap bounds (Size: {}, Align: {})",
                 self.sheap_addr,
                 size,
                 align
@@ -229,45 +122,27 @@ impl SheapInstance {
             return None;
         }
 
-        // Calculate aligned user address
-        let potential_user_addr = (self.current_ptr as usize).checked_add(SHEAP_HEADER_SIZE)?;
-        let aligned_user_addr = (potential_user_addr + actual_align - 1) & !(actual_align - 1);
-
-        // Calculate where the final pointer will be
-        let final_current_ptr = aligned_user_addr.checked_add(size)?;
-
-        // Verify that the calculated addresses are within bounds
-        let base_addr = self.base_ptr as usize;
-        if final_current_ptr > base_addr.checked_add(SHEAP_SIZE)? {
-            log::error!(
-                "(SHEAP:{:X}) Allocation would exceed heap bounds",
-                self.sheap_addr
-            );
-            return None;
-        }
-
-        // Calculate the actual size used including padding due to alignment
-        let actual_start = self.current_ptr as usize;
-        let actual_end = final_current_ptr;
-        let actual_size_used = actual_end - actual_start;
+        // Calculate actual size used (including the padding we just created)
+        let actual_size_used = final_current_ptr - (self.current_ptr as usize);
 
         let header = SheapMetaHeader {
             size,
             real_size: actual_size_used,
             ptr: aligned_user_addr as *mut c_void,
-            real_ptr: (aligned_user_addr - SHEAP_HEADER_SIZE) as *mut c_void, // Point to the header location
+            real_ptr: self.current_ptr, // We store the actual start of the bump segment
             is_valid: true,
             sheap_addr: sheap_ptr as usize,
             magic: SHEAP_MAGIC,
         };
 
-        Self::write_header(aligned_user_addr as *mut c_void, header);
+        // Write the header to its calculated position
+        unsafe {
+            std::ptr::write(header_addr as *mut SheapMetaHeader, header);
+        }
 
-        // Update statistics with overflow checking
+        // Update stats and bump pointer
         self.allocated = self.allocated.checked_add(actual_size_used)?;
         self.active_allocs = self.active_allocs.checked_add(1)?;
-
-        // Update current_ptr after successful allocation
         self.current_ptr = final_current_ptr as *mut c_void;
 
         Some(aligned_user_addr as *mut c_void)
@@ -290,37 +165,48 @@ impl SheapInstance {
 
     #[inline(always)]
     pub fn free(&mut self, sheap_ptr: *mut c_void, ptr: *mut c_void) -> bool {
-        if self.active_allocs == 0 {
+        if self.active_allocs == 0 || ptr.is_null() {
             return false;
         }
 
-        if ptr.is_null() {
+        let addr = ptr as usize;
+        let heap_start = self.base_ptr as usize;
+        let heap_end = heap_start + SHEAP_SIZE;
+
+        if addr < (heap_start + SHEAP_HEADER_SIZE) || addr >= heap_end {
+            // Not in this specific instance's memory range
             return false;
         }
 
-        let Some(header) = self.check_ptr_and_get_header(ptr) else {
-            return false;
-        };
+        // Locate Header (Sticky positioning)
+        let header_ptr = (addr - SHEAP_HEADER_SIZE) as *mut SheapMetaHeader;
 
-        // Additional safety check: make sure the header size is reasonable
-        if header.size == 0 || header.real_size == 0 {
-            log::error!("Invalid header size detected for pointer {:p}", ptr);
-            return false;
-        }
-
-        // Check for integer overflow in freed counter
-        if self.freed.checked_add(header.real_size).is_none() {
-            log::error!(
-                "Integer overflow in freed counter for sheap {:p}",
-                sheap_ptr
+        // Safety check: Ensure header_ptr is aligned to SheapMetaHeader requirements
+        if !(header_ptr as usize).is_multiple_of(SHEAP_HEADER_ALIGN) {
+            log::debug!(
+                "(SHEAP) Rejecting unaligned header pointer: {:p}",
+                header_ptr
             );
+            return false;
+        }
+
+        let header = unsafe { std::ptr::read(header_ptr) };
+
+        // If the magic doesn't match, this is a serious logic error or
+        // the pointer wasn't allocated by our Sheap system.
+        if header.magic != SHEAP_MAGIC {
+            return false;
+        }
+
+        if !header.is_valid || header.sheap_addr != self.sheap_addr {
             return false;
         }
 
         self.freed += header.real_size;
         self.active_allocs -= 1;
 
-        // Clear header to invalidate this pointer
+        // Invalidate the Header
+        // We wipe the magic and is_valid flag so we don't double-free
         let cleared_header = SheapMetaHeader {
             ptr: std::ptr::null_mut(),
             real_ptr: std::ptr::null_mut(),
@@ -328,14 +214,16 @@ impl SheapInstance {
             real_size: 0,
             is_valid: false,
             sheap_addr: 0,
-            magic: SHEAP_MAGIC,
+            magic: 0, // Clear magic!
         };
-        Self::write_header(ptr, cleared_header);
+        unsafe { std::ptr::write(header_ptr, cleared_header) };
 
-        // Auto-purge if it was last allocation
-        if self.active_allocs == 0 || self.freed == self.allocated {
-            self.purge(sheap_ptr);
-        }
+        // Auto-Purge Logic
+        // If this was the last active allocation, or if the math says we've
+        // freed everything we allocated, reset the bump pointer to the start.
+        // if self.active_allocs == 0 || self.freed >= self.allocated {
+        //     self.purge(sheap_ptr);
+        // }
 
         true
     }
@@ -444,6 +332,11 @@ impl Sheap {
                     return;
                 }
             }
+
+            log::debug!(
+                "[SHEAP] Pointer {:p} was not found in any active pool instance",
+                ptr
+            );
         });
     }
 
