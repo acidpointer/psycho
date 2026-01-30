@@ -1,353 +1,483 @@
+use ahash::AHashMap;
 use libc::c_void;
+use libmimalloc::heap::MiHeap;
 use parking_lot::Mutex;
 use std::alloc::Layout;
-use std::mem::{size_of, align_of};
+use std::mem::{align_of, size_of};
+use std::ptr::NonNull;
 
-/// Header with metadata, which appends to each allocation
-///
-/// Memory layout:
-/// [HEADER][allocated_data]
-/// Where `HEADER` is always constant size
-#[repr(C)]
-pub struct SheapMetaHeader {
-    ptr: *mut c_void,
-    real_ptr: *mut c_void,
-    size: usize,
-    real_size: usize,
-    is_valid: bool,
-    sheap_addr: usize,
-    magic: u32,
-}
+// =============================================================================
+// Constants
+// =============================================================================
+
+/// Magic number for header validation: 'SHEP'
+const MAGIC: u32 = 0x53484550;
+
+/// Size of each memory block
+const BLOCK_SIZE: usize = 8 * 1024 * 1024; // 8 MB
+
+/// Maximum active blocks per game heap to prevent OOM
+const MAX_BLOCKS_PER_HEAP: usize = 16;
+
+/// Maximum empty blocks to cache per heap for reuse
+const MAX_CACHED_BLOCKS: usize = 2;
 
 /// Size of allocation header
-const SHEAP_HEADER_SIZE: usize = size_of::<SheapMetaHeader>();
+const HEADER_SIZE: usize = size_of::<AllocationHeader>();
 
-/// Align of allocation header
-const SHEAP_HEADER_ALIGN: usize = align_of::<SheapMetaHeader>();
+/// Alignment requirement for headers
+const HEADER_ALIGN: usize = align_of::<AllocationHeader>();
 
-/// Total size of scrap heap instance
-const SHEAP_SIZE: usize = 2 * 1024 * 1024; // 2 Mb per block
+// Compile-time safety assertions
+const _: () = assert!(
+    HEADER_SIZE % HEADER_ALIGN == 0,
+    "Header size must be multiple of alignment"
+);
+const _: () = assert!(BLOCK_SIZE > HEADER_SIZE, "Block size must exceed header size");
 
-const SHEAP_MAGIC: u32 = 0x53484550; // 'SHEP' in hex
+// =============================================================================
+// Allocation Header
+// =============================================================================
 
-/// Instance of scrap heap.
+/// Metadata header prepended to each allocation.
 ///
-/// It is small re-usable heap with constant size.
-pub struct SheapInstance {
-    //bump: Bump,
-    base_ptr: *mut c_void,
-    current_ptr: *mut c_void,
-    layout: Layout,
-    allocated: usize,
-    freed: usize,
-    active_allocs: usize,
-    sheap_addr: usize,
+/// Memory layout: [HEADER][user_data]
+#[repr(C)]
+struct AllocationHeader {
+    /// Pointer to user data (aligned)
+    user_ptr: NonNull<c_void>,
+    /// Pointer to bump allocation start
+    bump_start: NonNull<c_void>,
+    /// Size requested by user
+    user_size: usize,
+    /// Total bytes consumed including padding
+    total_size: usize,
+    /// Game heap identifier
+    heap_id: usize,
+    /// Magic number for validation
+    magic: u32,
+    /// Validity flag for double-free detection
+    is_valid: bool,
 }
 
-unsafe impl Send for SheapInstance {}
-unsafe impl Sync for SheapInstance {}
+impl AllocationHeader {
+    /// Creates a cleared header for invalidation.
+    #[inline(always)]
+    fn cleared() -> Self {
+        Self {
+            user_ptr: NonNull::dangling(),
+            bump_start: NonNull::dangling(),
+            user_size: 0,
+            total_size: 0,
+            heap_id: 0,
+            magic: 0,
+            is_valid: false,
+        }
+    }
 
-impl Drop for SheapInstance {
+    /// Validates header integrity.
+    #[inline(always)]
+    fn validate(&self, expected_heap_id: usize) -> bool {
+        self.magic == MAGIC && self.is_valid && self.heap_id == expected_heap_id
+    }
+}
+
+// =============================================================================
+// Memory Block
+// =============================================================================
+
+/// Fixed-size memory block using bump allocation strategy.
+///
+/// Extremely fast O(1) allocations via pointer bumping. Individual frees
+/// only update accounting; memory is reclaimed in bulk on reset.
+pub struct SheapBlock {
+    /// Base address of the block
+    base: NonNull<u8>,
+    /// Current bump pointer
+    current: NonNull<u8>,
+    /// Layout for deallocation
+    layout: Layout,
+    /// Number of active allocations
+    active_count: usize,
+    /// Game heap identifier this block serves
+    heap_id: usize,
+}
+
+unsafe impl Send for SheapBlock {}
+unsafe impl Sync for SheapBlock {}
+
+impl Drop for SheapBlock {
     fn drop(&mut self) {
         unsafe {
-            std::alloc::dealloc(self.base_ptr as *mut u8, self.layout);
+            libmimalloc::mi_free(self.base.as_ptr() as *mut c_void);
         }
     }
 }
 
-impl SheapInstance {
-    pub fn try_new(sheap_ptr: *mut c_void) -> Option<Self> {
-        match std::alloc::Layout::from_size_align(SHEAP_SIZE, SHEAP_HEADER_ALIGN) {
-            Ok(layout) => {
-                let ptr = unsafe { std::alloc::alloc(layout) };
+impl SheapBlock {
+    /// Creates a new memory block for the specified game heap.
+    #[inline]
+    fn new(mi_heap: &MiHeap, heap_id: usize) -> Option<Self> {
+        let layout = Layout::from_size_align(BLOCK_SIZE, HEADER_ALIGN).ok()?;
+        let ptr = mi_heap.malloc_aligned(layout.size(), layout.align());
 
-                if !ptr.is_null() {
-                    Some(Self {
-                        base_ptr: ptr as *mut c_void,
-                        current_ptr: ptr as *mut c_void,
-                        allocated: 0,
-                        active_allocs: 0,
-                        freed: 0,
-                        sheap_addr: sheap_ptr as usize,
-                        layout,
-                    })
-                } else {
-                    log::error!(
-                        "(SHEAP:{:p}) Sheap allocation failed with NULLPTR",
-                        sheap_ptr
-                    );
-                    None
-                }
-            }
-
-            Err(err) => {
-                log::error!("(SHEAP:{:p}) Sheap allocation failed: {:?}", sheap_ptr, err);
-                None
-            }
-        }
-    }
-
-    #[inline(always)]
-    pub fn malloc_aligned(
-        &mut self,
-        sheap_ptr: *mut c_void,
-        size: usize,
-        align: usize,
-    ) -> Option<*mut c_void> {
-        let actual_align = align.max(SHEAP_HEADER_ALIGN);
-
-        // Calculate the earliest possible user data address
-        // It must be at least SHEAP_HEADER_SIZE bytes after current_ptr
-        let min_user_addr = (self.current_ptr as usize).checked_add(SHEAP_HEADER_SIZE)?;
-
-        // Align THAT address to satisfy the game's alignment requirement
-        let aligned_user_addr = (min_user_addr + actual_align - 1) & !(actual_align - 1);
-
-        // The header MUST be placed exactly SHEAP_HEADER_SIZE before the aligned user address
-        // This ensures read_header (ptr - SHEAP_HEADER_SIZE) always hits the struct
-        let header_addr = aligned_user_addr - SHEAP_HEADER_SIZE;
-
-        // Calculate where this allocation ends
-        let final_current_ptr = aligned_user_addr.checked_add(size)?;
-
-        // Boundary check
-        let base_addr = self.base_ptr as usize;
-        if final_current_ptr > base_addr.checked_add(SHEAP_SIZE)? {
-            log::error!(
-                "(SHEAP:{:X}) Allocation would exceed heap bounds (Size: {}, Align: {})",
-                self.sheap_addr,
-                size,
-                align
-            );
+        if ptr.is_null() {
+            log::error!("(SHEAP:{:#X}) Block allocation failed", heap_id);
             return None;
         }
 
-        // Calculate actual size used (including the padding we just created)
-        let actual_size_used = final_current_ptr - (self.current_ptr as usize);
+        let base = NonNull::new(ptr as *mut u8)?;
 
-        let header = SheapMetaHeader {
-            size,
-            real_size: actual_size_used,
-            ptr: aligned_user_addr as *mut c_void,
-            real_ptr: self.current_ptr, // We store the actual start of the bump segment
+        Some(Self {
+            base,
+            current: base,
+            layout,
+            active_count: 0,
+            heap_id,
+        })
+    }
+
+    /// Checks if allocation request can be satisfied.
+    #[inline(always)]
+    fn can_allocate(&self, size: usize, align: usize) -> bool {
+        let actual_align = align.max(HEADER_ALIGN);
+
+        // Calculate actual padding needed from current position
+        let current_addr = self.current.as_ptr() as usize;
+        let min_user_addr = match current_addr.checked_add(HEADER_SIZE) {
+            Some(addr) => addr,
+            None => return false,
+        };
+
+        let aligned_user_addr = align_up(min_user_addr, actual_align);
+        let Some(alloc_end) = aligned_user_addr.and_then(|a| a.checked_add(size)) else {
+            return false;
+        };
+
+        let base_addr = self.base.as_ptr() as usize;
+        let block_end = match base_addr.checked_add(BLOCK_SIZE) {
+            Some(end) => end,
+            None => return false,
+        };
+
+        alloc_end <= block_end
+    }
+
+    /// Allocates aligned memory from this block.
+    #[inline]
+    fn allocate(&mut self, size: usize, align: usize) -> Option<NonNull<c_void>> {
+        let actual_align = align.max(HEADER_ALIGN);
+
+        // Calculate aligned user address after header
+        let min_user_addr = (self.current.as_ptr() as usize).checked_add(HEADER_SIZE)?;
+        let aligned_user_addr = align_up(min_user_addr, actual_align)?;
+
+        // Header placed exactly HEADER_SIZE before user data
+        let header_addr = aligned_user_addr.checked_sub(HEADER_SIZE)?;
+        let alloc_end = aligned_user_addr.checked_add(size)?;
+
+        // Validate bounds
+        let base_addr = self.base.as_ptr() as usize;
+        if alloc_end > base_addr.checked_add(BLOCK_SIZE)? {
+            return None;
+        }
+
+        let total_consumed = alloc_end - (self.current.as_ptr() as usize);
+
+        // Create NonNull for user pointer (guaranteed non-null by bounds check)
+        let user_ptr = unsafe { NonNull::new_unchecked(aligned_user_addr as *mut c_void) };
+        let bump_start = NonNull::new(self.current.as_ptr() as *mut c_void)?;
+
+        // Write allocation header
+        let header = AllocationHeader {
+            user_ptr,
+            bump_start,
+            user_size: size,
+            total_size: total_consumed,
+            heap_id: self.heap_id,
+            magic: MAGIC,
             is_valid: true,
-            sheap_addr: sheap_ptr as usize,
-            magic: SHEAP_MAGIC,
         };
 
-        // Write the header to its calculated position
         unsafe {
-            std::ptr::write(header_addr as *mut SheapMetaHeader, header);
+            std::ptr::write(header_addr as *mut AllocationHeader, header);
         }
 
-        // Update stats and bump pointer
-        self.allocated = self.allocated.checked_add(actual_size_used)?;
-        self.active_allocs = self.active_allocs.checked_add(1)?;
-        self.current_ptr = final_current_ptr as *mut c_void;
+        // Update block state
+        self.active_count = self.active_count.saturating_add(1);
+        self.current = unsafe { NonNull::new_unchecked(alloc_end as *mut u8) };
 
-        Some(aligned_user_addr as *mut c_void)
+        Some(user_ptr)
     }
 
+    /// Checks if pointer falls within this block's valid range.
     #[inline(always)]
-    pub fn purge(&mut self, sheap_ptr: *mut c_void) -> bool {
-        if sheap_ptr as usize != self.sheap_addr {
+    fn owns_pointer(&self, ptr: NonNull<c_void>) -> bool {
+        let addr = ptr.as_ptr() as usize;
+        let start = (self.base.as_ptr() as usize).saturating_add(HEADER_SIZE);
+        let end = (self.base.as_ptr() as usize).saturating_add(BLOCK_SIZE);
+
+        addr >= start && addr < end
+    }
+
+    /// Attempts to free an allocation within this block.
+    ///
+    /// Returns true if pointer was successfully freed.
+    #[inline]
+    fn free(&mut self, ptr: NonNull<c_void>) -> bool {
+        if self.active_count == 0 || !self.owns_pointer(ptr) {
             return false;
         }
 
-        // Reset the bump allocator by returning to the base pointer
-        self.current_ptr = self.base_ptr;
-        self.freed = 0;
-        self.allocated = 0;
-        self.active_allocs = 0;
+        // Calculate header address
+        let header_addr = (ptr.as_ptr() as usize).wrapping_sub(HEADER_SIZE);
+
+        // Validate header alignment
+        if !is_aligned(header_addr, HEADER_ALIGN) {
+            return false;
+        }
+
+        // Read and validate header
+        let header = unsafe { std::ptr::read(header_addr as *const AllocationHeader) };
+
+        if !header.validate(self.heap_id) {
+            return false;
+        }
+
+        // Update accounting
+        self.active_count = self.active_count.saturating_sub(1);
+
+        // Invalidate header to prevent double-free
+        unsafe {
+            std::ptr::write(header_addr as *mut AllocationHeader, AllocationHeader::cleared());
+        }
 
         true
     }
 
-    #[inline(always)]
-    pub fn free(&mut self, sheap_ptr: *mut c_void, ptr: *mut c_void) -> bool {
-        if self.active_allocs == 0 || ptr.is_null() {
-            return false;
-        }
-
-        let addr = ptr as usize;
-        let heap_start = self.base_ptr as usize;
-        let heap_end = heap_start + SHEAP_SIZE;
-
-        if addr < (heap_start + SHEAP_HEADER_SIZE) || addr >= heap_end {
-            // Not in this specific instance's memory range
-            return false;
-        }
-
-        // Locate Header (Sticky positioning)
-        let header_ptr = (addr - SHEAP_HEADER_SIZE) as *mut SheapMetaHeader;
-
-        // Safety check: Ensure header_ptr is aligned to SheapMetaHeader requirements
-        if !(header_ptr as usize).is_multiple_of(SHEAP_HEADER_ALIGN) {
-            log::debug!(
-                "(SHEAP) Rejecting unaligned header pointer: {:p}",
-                header_ptr
-            );
-            return false;
-        }
-
-        let header = unsafe { std::ptr::read(header_ptr) };
-
-        // If the magic doesn't match, this is a serious logic error or
-        // the pointer wasn't allocated by our Sheap system.
-        if header.magic != SHEAP_MAGIC {
-            return false;
-        }
-
-        if !header.is_valid || header.sheap_addr != self.sheap_addr {
-            return false;
-        }
-
-        self.freed += header.real_size;
-        self.active_allocs -= 1;
-
-        // Invalidate the Header
-        // We wipe the magic and is_valid flag so we don't double-free
-        let cleared_header = SheapMetaHeader {
-            ptr: std::ptr::null_mut(),
-            real_ptr: std::ptr::null_mut(),
-            size: 0,
-            real_size: 0,
-            is_valid: false,
-            sheap_addr: 0,
-            magic: 0, // Clear magic!
-        };
-        unsafe { std::ptr::write(header_ptr, cleared_header) };
-
-        // Auto-Purge Logic
-        // If this was the last active allocation, or if the math says we've
-        // freed everything we allocated, reset the bump pointer to the start.
-        // if self.active_allocs == 0 || self.freed >= self.allocated {
-        //     self.purge(sheap_ptr);
-        // }
-
-        true
+    /// Resets block to initial state for reuse.
+    #[inline]
+    fn reset(&mut self) {
+        self.current = self.base;
+        self.active_count = 0;
     }
 
+    /// Returns true if all allocations have been freed.
     #[inline(always)]
-    pub fn is_can_alloc(&self, sheap_ptr: *mut c_void, size: usize, align: usize) -> bool {
-        if sheap_ptr as usize != self.sheap_addr {
-            return false;
-        }
-
-        let actual_align = align.max(SHEAP_HEADER_ALIGN);
-        let max_padding = if actual_align > 0 {
-            actual_align - 1
-        } else {
-            0
-        };
-
-        // Check for potential overflow in size calculations
-        let total_size_needed = match size.checked_add(SHEAP_HEADER_SIZE) {
-            Some(val) => val,
-            None => return false,
-        };
-        let total_size_needed = match total_size_needed.checked_add(max_padding) {
-            Some(val) => val,
-            None => return false,
-        };
-
-        // Check if we have enough space left in the heap
-        let current_offset = self.current_ptr as usize - self.base_ptr as usize;
-        let remaining_space = match SHEAP_SIZE.checked_sub(current_offset) {
-            Some(val) => val,
-            None => return false,
-        };
-
-        remaining_space >= total_size_needed
+    fn is_empty(&self) -> bool {
+        self.active_count == 0
     }
 }
 
-static POOL: Mutex<Vec<SheapInstance>> = const { Mutex::new(vec![]) };
+// =============================================================================
+// Sheap Allocator
+// =============================================================================
 
-pub struct Sheap;
+/// Fast bump allocator for short-lived allocations.
+///
+/// Organizes memory into 8MB blocks per game heap. Thread-safe.
+/// Designed for high-frequency allocation patterns with bulk deallocation.
+pub struct Sheap {
+    /// Maps game heap ID to its memory blocks
+    blocks: Mutex<AHashMap<usize, Vec<SheapBlock>>>,
+    /// Underlying MiMalloc heap for block allocation
+    mi_heap: MiHeap,
+}
 
 impl Sheap {
-    fn with_pool<T: Copy, F: Fn(&mut Vec<SheapInstance>) -> T>(callback: F) -> T {
-        let mut pool = POOL.lock();
-
-        callback(&mut pool)
+    /// Creates a new sheap allocator.
+    #[inline]
+    pub fn new() -> Self {
+        Self {
+            blocks: Mutex::new(AHashMap::new()),
+            mi_heap: MiHeap::new(),
+        }
     }
 
-    pub fn malloc_aligned(sheap_ptr: *mut c_void, size: usize, align: usize) -> *mut c_void {
-        Self::with_pool(|pool| {
-            for sheap in pool.iter_mut() {
-                if sheap.is_can_alloc(sheap_ptr, size, align)
-                    && let Some(ptr) = sheap.malloc_aligned(sheap_ptr, size, align)
-                {
-                    return ptr;
-                }
-            }
-
-            // If no existing sheap can allocate, try to create a new one
-            if let Some(mut sheap_instance) = SheapInstance::try_new(sheap_ptr) {
-                if let Some(ptr) = sheap_instance.malloc_aligned(sheap_ptr, size, align) {
-                    pool.push(sheap_instance);
-                    return ptr;
-                } else {
-                    log::error!(
-                        "Newly created sheap {:p} failed to allocate memory first time! Discarding instance.",
-                        sheap_ptr
-                    );
-                }
-            }
-
-            let mut total_pool_active = 0;
-            let mut total_pool_allocated = 0;
-            let mut total_pool_freed = 0;
-            for sheap in pool.iter() {
-                total_pool_active += sheap.active_allocs;
-                total_pool_allocated += sheap.allocated;
-                total_pool_freed += sheap.freed;
-            }
-
-            log::warn!("STATISTICS:");
-            log::warn!("Total allocated in pool: {} bytes", total_pool_allocated);
-            log::warn!("Total active allocations: {}", total_pool_active);
-            log::warn!("Total freed by pool: {}", total_pool_freed);
-
-            std::ptr::null_mut()
-        })
-    }
-
-    pub fn free(sheap_ptr: *mut c_void, ptr: *mut c_void) {
-        if ptr.is_null() {
-            return;
+    /// Allocates aligned memory from the specified game heap.
+    ///
+    /// Returns null pointer on failure or if size is zero.
+    /// Zero-sized allocations are not supported.
+    pub fn malloc_aligned(
+        &self,
+        heap_ptr: *mut c_void,
+        size: usize,
+        align: usize,
+    ) -> *mut c_void {
+        if heap_ptr.is_null() || size == 0 {
+            return std::ptr::null_mut();
         }
 
-        if sheap_ptr.is_null() {
-            return;
+        let heap_id = heap_ptr as usize;
+        let mut blocks_map = self.blocks.lock();
+        let heap_blocks = blocks_map.entry(heap_id).or_insert_with(Vec::new);
+
+        // Try existing blocks (prioritize empty blocks for reuse)
+        if let Some(ptr) = self.try_allocate_from_existing(heap_blocks, size, align) {
+            return ptr;
         }
 
-        Self::with_pool(|pool| {
-            for (index, sheap) in pool.iter_mut().enumerate() {
-                if sheap.free(sheap_ptr, ptr) {
-                    if sheap.active_allocs == 0 {
-                        pool.swap_remove(index);
-                    }
-                    return;
-                }
-            }
-
-            log::debug!(
-                "[SHEAP] Pointer {:p} was not found in any active pool instance",
-                ptr
+        // Check block limit to prevent OOM
+        if heap_blocks.len() >= MAX_BLOCKS_PER_HEAP {
+            log::error!(
+                "(SHEAP:{:#X}) Block limit ({}) reached",
+                heap_id,
+                MAX_BLOCKS_PER_HEAP
             );
-        });
+            return std::ptr::null_mut();
+        }
+
+        // Trigger GC before growing pool
+        self.mi_heap.heap_collect(true);
+
+        // Create new block
+        self.allocate_from_new_block(heap_blocks, heap_id, size, align)
     }
 
-    pub fn purge(sheap_ptr: *mut c_void) {
-        Self::with_pool(|pool| {
-            for (index, sheap) in pool.iter_mut().enumerate() {
-                if sheap.purge(sheap_ptr) {
-                    pool.swap_remove(index);
+    /// Attempts allocation from existing blocks.
+    #[inline]
+    fn try_allocate_from_existing(
+        &self,
+        blocks: &mut [SheapBlock],
+        size: usize,
+        align: usize,
+    ) -> Option<*mut c_void> {
+        // Try empty blocks first (better locality, potential reset)
+        for block in blocks.iter_mut() {
+            if block.is_empty() && block.can_allocate(size, align) {
+                return block
+                    .allocate(size, align)
+                    .map(|p| p.as_ptr() as *mut c_void);
+            }
+        }
+
+        // Try non-empty blocks
+        for block in blocks.iter_mut() {
+            if !block.is_empty() && block.can_allocate(size, align) {
+                return block
+                    .allocate(size, align)
+                    .map(|p| p.as_ptr() as *mut c_void);
+            }
+        }
+
+        None
+    }
+
+    /// Allocates from a newly created block.
+    #[inline]
+    fn allocate_from_new_block(
+        &self,
+        blocks: &mut Vec<SheapBlock>,
+        heap_id: usize,
+        size: usize,
+        align: usize,
+    ) -> *mut c_void {
+        match SheapBlock::new(&self.mi_heap, heap_id) {
+            Some(mut block) => match block.allocate(size, align) {
+                Some(ptr) => {
+                    blocks.push(block);
+                    ptr.as_ptr() as *mut c_void
+                }
+                None => {
+                    log::error!("(SHEAP:{:#X}) New block immediate allocation failed", heap_id);
+                    std::ptr::null_mut()
+                }
+            },
+            None => std::ptr::null_mut(),
+        }
+    }
+
+    /// Frees a pointer allocated from any heap.
+    ///
+    /// heap_ptr is used as optimization hint but not required.
+    /// Silently ignores null pointers.
+    pub fn free(&self, heap_ptr: *mut c_void, ptr: *mut c_void) {
+        let Some(ptr_nn) = NonNull::new(ptr) else {
+            return;
+        };
+
+        let mut blocks_map = self.blocks.lock();
+
+        // Try heap hint first for fast path
+        if !heap_ptr.is_null() {
+            let heap_id = heap_ptr as usize;
+            if let Some(heap_blocks) = blocks_map.get_mut(&heap_id) {
+                if self.try_free_from_blocks(heap_blocks, ptr_nn) {
                     return;
                 }
             }
-        })
+        }
+
+        // Search all heaps (slow path)
+        for heap_blocks in blocks_map.values_mut() {
+            if self.try_free_from_blocks(heap_blocks, ptr_nn) {
+                return;
+            }
+        }
+
+        log::debug!("(SHEAP) Pointer {:p} not found in any block", ptr);
     }
+
+    /// Attempts to free pointer from block list, managing empty blocks.
+    #[inline]
+    fn try_free_from_blocks(&self, blocks: &mut Vec<SheapBlock>, ptr: NonNull<c_void>) -> bool {
+        for i in 0..blocks.len() {
+            if blocks[i].free(ptr) {
+                // If block became empty, reset it for reuse
+                if blocks[i].is_empty() {
+                    blocks[i].reset();
+
+                    // Evict excess empty blocks (keep hot block, remove others)
+                    let empty_count = blocks.iter().filter(|b| b.is_empty()).count();
+                    if empty_count > MAX_CACHED_BLOCKS {
+                        // Find first empty block that's NOT the one we just freed from
+                        if let Some(evict_idx) = blocks
+                            .iter()
+                            .enumerate()
+                            .position(|(idx, b)| idx != i && b.is_empty())
+                        {
+                            blocks.swap_remove(evict_idx);
+                        }
+                    }
+                }
+                return true;
+            }
+        }
+        false
+    }
+
+    /// Purges all blocks for the specified game heap.
+    ///
+    /// All allocations from this heap are invalidated.
+    pub fn purge(&self, heap_ptr: *mut c_void) {
+        if heap_ptr.is_null() {
+            return;
+        }
+
+        let heap_id = heap_ptr as usize;
+        let mut blocks_map = self.blocks.lock();
+
+        // Remove all blocks for this heap (Drop will free memory)
+        blocks_map.remove(&heap_id);
+    }
+}
+
+// =============================================================================
+// Utility Functions
+// =============================================================================
+
+/// Aligns address up to the specified power-of-two alignment.
+#[inline(always)]
+fn align_up(addr: usize, align: usize) -> Option<usize> {
+    debug_assert!(align.is_power_of_two(), "Alignment must be power of two");
+
+    addr.checked_add(align.wrapping_sub(1))
+        .map(|a| a & !align.wrapping_sub(1))
+}
+
+/// Checks if address is aligned to the specified alignment.
+#[inline(always)]
+fn is_aligned(addr: usize, align: usize) -> bool {
+    debug_assert!(align > 0 && align.is_power_of_two(), "Invalid alignment");
+    addr % align == 0
 }

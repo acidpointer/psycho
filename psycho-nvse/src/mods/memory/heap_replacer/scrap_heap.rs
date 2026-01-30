@@ -4,7 +4,10 @@
 //! All hooks delegate to the ScrapHeapManager which manages bump allocator instances.
 
 use libc::c_void;
+use std::{cell::{Cell, RefCell}, sync::LazyLock};
 use super::sheap::*;
+
+static SHEAP: LazyLock<Sheap> = LazyLock::new(Sheap::new);
 
 /// Game's scrap heap structure (12 bytes, FFI boundary).
 /// Must match the game's struct layout exactly.
@@ -67,7 +70,7 @@ pub(super) unsafe extern "fastcall" fn sheap_alloc(
         }
     }
 
-    Sheap::malloc_aligned(sheap_ptr, size, align)
+    SHEAP.malloc_aligned(sheap_ptr, size, align)
 }
 
 /// Sheap free hook.
@@ -79,49 +82,16 @@ pub(super) unsafe extern "fastcall" fn sheap_free(
     _edx: *mut c_void,
     ptr: *mut c_void,
 ) {
-    Sheap::free(sheap_ptr, ptr);
+    SHEAP.free(sheap_ptr, ptr);
 }
 
 /// Sheap purge hook (0x00AA5460 FNV, 0x0086CAA0 GECK).
 ///
 /// Drops the bump allocator for the specified sheap, freeing all memory.
 pub(super) unsafe extern "fastcall" fn sheap_purge(sheap_ptr: *mut c_void, _edx: *mut c_void) {
-    Sheap::purge(sheap_ptr);
+    SHEAP.purge(sheap_ptr);
 }
 
-use std::cell::{Cell, RefCell};
-
-// thread_local! {
-//     /// Fake scrap heap structure that the game can safely access.
-//     /// Boxed and leaked to ensure stable address per thread.
-//     static FAKE_SHEAP: RefCell<Option<*mut SheapStruct>> = const { RefCell::new(None) };
-// }
-
-// /// Thread-local sheap getter hook (0x00AA42E0 FNV, 0x0086BCB0 GECK).
-// ///
-// /// Returns a thread-local sheap instance, allocating and initializing it on first access.
-// pub(super) unsafe extern "C" fn sheap_get_thread_local() -> *mut c_void {
-//     FAKE_SHEAP.with(|cell| {
-//         let mut opt = cell.borrow_mut();
-
-//         if let Some(ptr) = *opt {
-//             // Already initialized, return existing pointer
-//             ptr as *mut c_void
-//         } else {
-//             // First call on this thread - create and leak a fake sheap structure
-//             let fake_sheap = Box::new(SheapStruct {
-//                 blocks: std::ptr::null_mut(),
-//                 cur: std::ptr::null_mut(),
-//                 last: std::ptr::null_mut(),
-//             });
-
-//             let ptr = Box::into_raw(fake_sheap);
-//             *opt = Some(ptr);
-
-//             ptr as *mut c_void
-//         }
-//     })
-// }
 
 thread_local! {
     static FAKE_SHEAP: RefCell<Option<*mut SheapStruct>> = const { RefCell::new(None) };

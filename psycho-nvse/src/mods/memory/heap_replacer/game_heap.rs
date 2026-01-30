@@ -27,13 +27,19 @@ pub(super) unsafe extern "fastcall" fn game_heap_reallocate(
     size: usize,
 ) -> *mut c_void {
     if ptr.is_null() {
-        return GAME_HEAP.malloc(size);
+        return unsafe { game_heap_allocate(self_ptr, edx, size) }
     }
 
     let is_mimalloc = unsafe { libmimalloc::mi_is_in_heap_region(ptr) };
 
     if is_mimalloc {
-        return GAME_HEAP.realloc(ptr, size);
+        let result = GAME_HEAP.realloc(ptr, size);
+
+        if !result.is_null() {
+            return result
+        }
+
+        log::error!("game_heap_reallocate: Relocation failed: ptr={:p} size={}", ptr, size);
     }
 
     match super::GAME_HEAP_REALLOCATE_HOOK_1.original() {
@@ -54,6 +60,8 @@ pub(super) unsafe extern "fastcall" fn game_heap_msize(
     edx: *mut c_void,
     addr: *mut c_void,
 ) -> usize {
+    // Okay, msize kinda work
+
     if unsafe { libmimalloc::mi_is_in_heap_region(addr) } {
         let size = unsafe { libmimalloc::mi_usable_size(addr) };
         if size > 0 {
@@ -74,17 +82,26 @@ pub(super) unsafe extern "fastcall" fn game_heap_msize(
     }
 }
 
+
+
 pub(super) unsafe extern "fastcall" fn game_heap_free(
     self_ptr: *mut c_void,
     edx: *mut c_void,
     ptr: *mut c_void,
 ) {
+    // Research insight
+    // Did you know that if you call mi_collect/mi_heap_collect here,
+    // game will crash even not reach main menu!
+    // Funny, isnt it?
+
+
     if ptr.is_null() {
         return;
     }
 
     if unsafe { libmimalloc::mi_is_in_heap_region(ptr) } {
         unsafe { libmimalloc::mi_free(ptr) };
+
         return;
     }
 
