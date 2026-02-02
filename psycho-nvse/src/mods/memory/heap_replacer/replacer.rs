@@ -1,3 +1,4 @@
+use libpsycho::os::windows::winapi;
 use libpsycho::os::windows::winapi::{patch_bytes, patch_memory_nop, patch_nop_call, patch_ret};
 
 use super::*;
@@ -11,6 +12,15 @@ use super::scrap_heap::*;
 /// Replaces the game's allocators with MiMalloc (game heap) and bump allocators (scrap heap).
 /// Also applies memory patches to disable original heap initialization and cleanup code.
 pub fn install_game_heap_hooks() -> anyhow::Result<()> {
+    let is_laa = winapi::is_large_address_aware()?;
+
+    if !is_laa {
+        log::warn!("⚠ Game executable does NOT have Large Address Aware flag set!");
+        log::warn!("⚠ This limits address space to ~2GB instead of 4GB");
+    } else {
+        log::info!("✓ Large Address Aware flag is set");
+    }
+
     configure_mimalloc();
 
     GAME_HEAP_ALLOCATE_HOOK.init(
@@ -75,16 +85,17 @@ pub fn install_game_heap_hooks() -> anyhow::Result<()> {
     );
 
     unsafe {
-        patch_ret(0x00AA6840 as *mut c_void)?;
-        patch_ret(0x00866E00 as *mut c_void)?;
-        patch_ret(0x00866770 as *mut c_void)?;
-        patch_ret(0x00AA6F90 as *mut c_void)?;
-        patch_ret(0x00AA7030 as *mut c_void)?;
-        patch_ret(0x00AA7290 as *mut c_void)?;
-        patch_ret(0x00AA7300 as *mut c_void)?;
-        patch_ret(0x00AA58D0 as *mut c_void)?;
-        patch_ret(0x00866D10 as *mut c_void)?;
-        patch_ret(0x00AA5C80 as *mut c_void)?;
+        // Try commenting out these cleanup functions to see if they're needed
+        // patch_ret(0x00AA6840 as *mut c_void)?;
+        // patch_ret(0x00866E00 as *mut c_void)?;
+        // patch_ret(0x00866770 as *mut c_void)?;
+        // patch_ret(0x00AA6F90 as *mut c_void)?;
+        // patch_ret(0x00AA7030 as *mut c_void)?;
+        // patch_ret(0x00AA7290 as *mut c_void)?;
+        // patch_ret(0x00AA7300 as *mut c_void)?;
+        // patch_ret(0x00AA58D0 as *mut c_void)?;
+        // patch_ret(0x00866D10 as *mut c_void)?;
+        // patch_ret(0x00AA5C80 as *mut c_void)?;
     }
 
     // Initialize and enable sheap inline hooks
@@ -129,9 +140,10 @@ pub fn install_game_heap_hooks() -> anyhow::Result<()> {
     log::info!("[INLINE] Hooked sheap_purge at {:#x}", SHEAP_PURGE_ADDR);
 
     // NOP out game's sheap initialization - we handle it in our hooks
-    unsafe {
-        patch_memory_nop(0x00AA38CA as *mut c_void, 0x00AA38E8 - 0x00AA38CA)?;
-    }
+    // TESTING: Try NOT disabling this to see if game needs it
+    // unsafe {
+    //     patch_memory_nop(0x00AA38CA as *mut c_void, 0x00AA38E8 - 0x00AA38CA)?;
+    // }
 
     // Initialize and enable sheap_get_thread_local hook
     SHEAP_GET_THREAD_LOCAL_HOOK.init(
@@ -149,9 +161,12 @@ pub fn install_game_heap_hooks() -> anyhow::Result<()> {
     unsafe {
         patch_nop_call(0x00AA3060 as *mut c_void)?;
         patch_nop_call(0x0086C56F as *mut c_void)?;
+
+        // These prevent exception raising during cleanup/transitions
         patch_nop_call(0x00C42EB1 as *mut c_void)?;
         patch_nop_call(0x00EC1701 as *mut c_void)?;
-        patch_bytes(0x0086EED4 as *mut c_void, &[0xEB, 0x55])?;
+
+        //patch_bytes(0x0086EED4 as *mut c_void, &[0xEB, 0x55])?;
     }
     log::info!("[HEAP REPLACER] All hooks and patches applied successfully");
 

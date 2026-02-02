@@ -1,483 +1,571 @@
+//! Epoch-based region allocator for temporary allocations.
+//!
+//! Design philosophy:
+//! - Allocations are fast: O(1) bump pointer
+//! - Frees are no-ops: O(1) validation only
+//! - Memory is reclaimed only during purge (epoch boundary)
+//!
+//! This is intentional: individual frees do NOT reclaim memory.
+//! All reclamation happens at purge time when the epoch ends.
+
 use ahash::AHashMap;
 use libc::c_void;
 use libmimalloc::heap::MiHeap;
-use parking_lot::Mutex;
-use std::alloc::Layout;
-use std::mem::{align_of, size_of};
 use std::ptr::NonNull;
+use std::sync::LazyLock;
 
-// =============================================================================
-// Constants
-// =============================================================================
-
-/// Magic number for header validation: 'SHEP'
-const MAGIC: u32 = 0x53484550;
-
-/// Size of each memory block
-const BLOCK_SIZE: usize = 8 * 1024 * 1024; // 8 MB
-
-/// Maximum active blocks per game heap to prevent OOM
-const MAX_BLOCKS_PER_HEAP: usize = 16;
-
-/// Maximum empty blocks to cache per heap for reuse
-const MAX_CACHED_BLOCKS: usize = 2;
-
-/// Size of allocation header
-const HEADER_SIZE: usize = size_of::<AllocationHeader>();
-
-/// Alignment requirement for headers
-const HEADER_ALIGN: usize = align_of::<AllocationHeader>();
-
-// Compile-time safety assertions
-const _: () = assert!(
-    HEADER_SIZE % HEADER_ALIGN == 0,
-    "Header size must be multiple of alignment"
-);
-const _: () = assert!(BLOCK_SIZE > HEADER_SIZE, "Block size must exceed header size");
-
-// =============================================================================
-// Allocation Header
-// =============================================================================
-
-/// Metadata header prepended to each allocation.
+/// Default region size: 4 MiB
 ///
-/// Memory layout: [HEADER][user_data]
-#[repr(C)]
-struct AllocationHeader {
-    /// Pointer to user data (aligned)
-    user_ptr: NonNull<c_void>,
-    /// Pointer to bump allocation start
-    bump_start: NonNull<c_void>,
-    /// Size requested by user
-    user_size: usize,
-    /// Total bytes consumed including padding
-    total_size: usize,
-    /// Game heap identifier
-    heap_id: usize,
-    /// Magic number for validation
-    magic: u32,
-    /// Validity flag for double-free detection
-    is_valid: bool,
-}
+/// Very conservative for 32-bit: 28+ heap instances created by game.
+/// Start small, grow if needed. Address space is precious.
+const REGION_SIZE: usize = 4 * 1024 * 1024;
 
-impl AllocationHeader {
-    /// Creates a cleared header for invalidation.
-    #[inline(always)]
-    fn cleared() -> Self {
-        Self {
-            user_ptr: NonNull::dangling(),
-            bump_start: NonNull::dangling(),
-            user_size: 0,
-            total_size: 0,
-            heap_id: 0,
-            magic: 0,
-            is_valid: false,
-        }
-    }
+/// Minimum alignment for all allocations
+const MIN_ALIGN: usize = 16;
 
-    /// Validates header integrity.
-    #[inline(always)]
-    fn validate(&self, expected_heap_id: usize) -> bool {
-        self.magic == MAGIC && self.is_valid && self.heap_id == expected_heap_id
-    }
-}
-
-// =============================================================================
-// Memory Block
-// =============================================================================
-
-/// Fixed-size memory block using bump allocation strategy.
+/// Number of purge cycles a region must be unused before deallocation.
 ///
-/// Extremely fast O(1) allocations via pointer bumping. Individual frees
-/// only update accounting; memory is reclaimed in bulk on reset.
-pub struct SheapBlock {
-    /// Base address of the block
-    base: NonNull<u8>,
-    /// Current bump pointer
-    current: NonNull<u8>,
-    /// Layout for deallocation
-    layout: Layout,
-    /// Number of active allocations
-    active_count: usize,
-    /// Game heap identifier this block serves
-    heap_id: usize,
+/// Set very high for New Vegas - memory stability > aggressive reclamation.
+/// Better to hold memory than risk crashes from premature deallocation.
+const EMPTY_THRESHOLD: usize = 1000;
+
+/// Minimum number of regions to keep allocated.
+///
+/// Conservative: start with 1, grow as needed.
+/// Multiple heap instances make aggressive MIN_REGIONS dangerous.
+const MIN_REGIONS: usize = 1;
+
+/// Maximum number of heap instances to create.
+///
+/// Game creates 65+ heap instances during gameplay. Cap at reasonable limit to prevent OOM.
+const MAX_HEAP_INSTANCES: usize = 128;
+
+/// Page shift for 4KB pages (2^12 = 4096)
+const PAGE_SHIFT: usize = 12;
+
+/// Page size in bytes
+const PAGE_SIZE: usize = 1 << PAGE_SHIFT;
+
+/// Contiguous memory region with bump allocation.
+///
+/// Allocations advance a pointer forward. Memory is reclaimed
+/// only when the region is reset during purge.
+struct Region {
+    /// Start of memory buffer
+    start: NonNull<u8>,
+
+    /// Total capacity in bytes
+    capacity: usize,
+
+    /// Current allocation offset from start
+    offset: usize,
+
+    /// Allocations made in current epoch (for statistics)
+    alloc_count: usize,
+
+    /// Consecutive purges where offset remained at zero
+    empty_cycles: usize,
 }
 
-unsafe impl Send for SheapBlock {}
-unsafe impl Sync for SheapBlock {}
-
-impl Drop for SheapBlock {
-    fn drop(&mut self) {
-        unsafe {
-            libmimalloc::mi_free(self.base.as_ptr() as *mut c_void);
-        }
-    }
-}
-
-impl SheapBlock {
-    /// Creates a new memory block for the specified game heap.
-    #[inline]
-    fn new(mi_heap: &MiHeap, heap_id: usize) -> Option<Self> {
-        let layout = Layout::from_size_align(BLOCK_SIZE, HEADER_ALIGN).ok()?;
-        let ptr = mi_heap.malloc_aligned(layout.size(), layout.align());
-
-        if ptr.is_null() {
-            log::error!("(SHEAP:{:#X}) Block allocation failed", heap_id);
+impl Region {
+    /// Creates a new region by allocating from the backing heap.
+    fn new(backing_heap: &MiHeap, capacity: usize, align: usize) -> Option<Self> {
+        if capacity == 0 {
+            log::error!("Cannot create region with zero capacity");
             return None;
         }
 
-        let base = NonNull::new(ptr as *mut u8)?;
+        let ptr = backing_heap.malloc_aligned(capacity, align);
+        let start = NonNull::new(ptr as *mut u8)?;
 
         Some(Self {
-            base,
-            current: base,
-            layout,
-            active_count: 0,
-            heap_id,
+            start,
+            capacity,
+            offset: 0,
+            alloc_count: 0,
+            empty_cycles: 0,
         })
     }
 
-    /// Checks if allocation request can be satisfied.
-    #[inline(always)]
-    fn can_allocate(&self, size: usize, align: usize) -> bool {
-        let actual_align = align.max(HEADER_ALIGN);
+    /// Allocates memory with specified size and alignment.
+    ///
+    /// Returns None if insufficient space remains.
+    fn allocate(&mut self, size: usize, align: usize) -> Option<NonNull<u8>> {
+        let current_addr = (self.start.as_ptr() as usize).checked_add(self.offset)?;
+        let aligned_addr = align_up(current_addr, align)?;
+        let padding = aligned_addr.checked_sub(current_addr)?;
+        let total_size = padding.checked_add(size)?;
 
-        // Calculate actual padding needed from current position
-        let current_addr = self.current.as_ptr() as usize;
-        let min_user_addr = match current_addr.checked_add(HEADER_SIZE) {
+        if self.offset.checked_add(total_size)? > self.capacity {
+            return None;
+        }
+
+        self.offset = self.offset.checked_add(total_size)?;
+        self.alloc_count = self.alloc_count.checked_add(1)?;
+        self.empty_cycles = 0;
+
+        NonNull::new(aligned_addr as *mut u8)
+    }
+
+    /// Checks if region can satisfy an allocation request.
+    fn has_capacity_for(&self, size: usize, align: usize) -> bool {
+        let current_addr = match (self.start.as_ptr() as usize).checked_add(self.offset) {
             Some(addr) => addr,
             None => return false,
         };
 
-        let aligned_user_addr = align_up(min_user_addr, actual_align);
-        let Some(alloc_end) = aligned_user_addr.and_then(|a| a.checked_add(size)) else {
-            return false;
+        let aligned_addr = match align_up(current_addr, align) {
+            Some(addr) => addr,
+            None => return false,
         };
 
-        let base_addr = self.base.as_ptr() as usize;
-        let block_end = match base_addr.checked_add(BLOCK_SIZE) {
+        let padding = match aligned_addr.checked_sub(current_addr) {
+            Some(p) => p,
+            None => return false,
+        };
+
+        let total_size = match padding.checked_add(size) {
+            Some(s) => s,
+            None => return false,
+        };
+
+        match self.offset.checked_add(total_size) {
+            Some(new_offset) => new_offset <= self.capacity,
+            None => false,
+        }
+    }
+
+    /// Checks if pointer belongs to this region.
+    fn contains(&self, ptr: *const u8) -> bool {
+        let addr = ptr as usize;
+        let start_addr = self.start.as_ptr() as usize;
+        let end_addr = match start_addr.checked_add(self.capacity) {
             Some(end) => end,
             None => return false,
         };
 
-        alloc_end <= block_end
+        addr >= start_addr && addr < end_addr
     }
 
-    /// Allocates aligned memory from this block.
-    #[inline]
-    fn allocate(&mut self, size: usize, align: usize) -> Option<NonNull<c_void>> {
-        let actual_align = align.max(HEADER_ALIGN);
-
-        // Calculate aligned user address after header
-        let min_user_addr = (self.current.as_ptr() as usize).checked_add(HEADER_SIZE)?;
-        let aligned_user_addr = align_up(min_user_addr, actual_align)?;
-
-        // Header placed exactly HEADER_SIZE before user data
-        let header_addr = aligned_user_addr.checked_sub(HEADER_SIZE)?;
-        let alloc_end = aligned_user_addr.checked_add(size)?;
-
-        // Validate bounds
-        let base_addr = self.base.as_ptr() as usize;
-        if alloc_end > base_addr.checked_add(BLOCK_SIZE)? {
-            return None;
-        }
-
-        let total_consumed = alloc_end - (self.current.as_ptr() as usize);
-
-        // Create NonNull for user pointer (guaranteed non-null by bounds check)
-        let user_ptr = unsafe { NonNull::new_unchecked(aligned_user_addr as *mut c_void) };
-        let bump_start = NonNull::new(self.current.as_ptr() as *mut c_void)?;
-
-        // Write allocation header
-        let header = AllocationHeader {
-            user_ptr,
-            bump_start,
-            user_size: size,
-            total_size: total_consumed,
-            heap_id: self.heap_id,
-            magic: MAGIC,
-            is_valid: true,
-        };
-
-        unsafe {
-            std::ptr::write(header_addr as *mut AllocationHeader, header);
-        }
-
-        // Update block state
-        self.active_count = self.active_count.saturating_add(1);
-        self.current = unsafe { NonNull::new_unchecked(alloc_end as *mut u8) };
-
-        Some(user_ptr)
-    }
-
-    /// Checks if pointer falls within this block's valid range.
-    #[inline(always)]
-    fn owns_pointer(&self, ptr: NonNull<c_void>) -> bool {
-        let addr = ptr.as_ptr() as usize;
-        let start = (self.base.as_ptr() as usize).saturating_add(HEADER_SIZE);
-        let end = (self.base.as_ptr() as usize).saturating_add(BLOCK_SIZE);
-
-        addr >= start && addr < end
-    }
-
-    /// Attempts to free an allocation within this block.
+    /// Resets region for reuse.
     ///
-    /// Returns true if pointer was successfully freed.
-    #[inline]
-    fn free(&mut self, ptr: NonNull<c_void>) -> bool {
-        if self.active_count == 0 || !self.owns_pointer(ptr) {
-            return false;
-        }
-
-        // Calculate header address
-        let header_addr = (ptr.as_ptr() as usize).wrapping_sub(HEADER_SIZE);
-
-        // Validate header alignment
-        if !is_aligned(header_addr, HEADER_ALIGN) {
-            return false;
-        }
-
-        // Read and validate header
-        let header = unsafe { std::ptr::read(header_addr as *const AllocationHeader) };
-
-        if !header.validate(self.heap_id) {
-            return false;
-        }
-
-        // Update accounting
-        self.active_count = self.active_count.saturating_sub(1);
-
-        // Invalidate header to prevent double-free
-        unsafe {
-            std::ptr::write(header_addr as *mut AllocationHeader, AllocationHeader::cleared());
-        }
-
-        true
-    }
-
-    /// Resets block to initial state for reuse.
-    #[inline]
+    /// Called during purge to reclaim all memory in this region.
     fn reset(&mut self) {
-        self.current = self.base;
-        self.active_count = 0;
+        let was_empty = self.offset == 0;
+
+        self.offset = 0;
+        self.alloc_count = 0;
+
+        if was_empty {
+            self.empty_cycles += 1;
+        } else {
+            self.empty_cycles = 0;
+        }
     }
 
-    /// Returns true if all allocations have been freed.
-    #[inline(always)]
-    fn is_empty(&self) -> bool {
-        self.active_count == 0
+    /// Checks if region should be deallocated.
+    fn should_deallocate(&self) -> bool {
+        self.offset == 0 && self.empty_cycles >= EMPTY_THRESHOLD
+    }
+
+    /// Returns percentage of used capacity.
+    fn utilization(&self) -> f32 {
+        if self.capacity == 0 {
+            return 0.0;
+        }
+        (self.offset as f32 / self.capacity as f32) * 100.0
     }
 }
 
-// =============================================================================
-// Sheap Allocator
-// =============================================================================
+impl Drop for Region {
+    fn drop(&mut self) {
+        unsafe {
+            libmimalloc::mi_free(self.start.as_ptr() as *mut c_void);
+        }
+    }
+}
 
-/// Fast bump allocator for short-lived allocations.
+unsafe impl Send for Region {}
+unsafe impl Sync for Region {}
+
+/// Epoch-based allocator managing multiple memory regions.
 ///
-/// Organizes memory into 8MB blocks per game heap. Thread-safe.
-/// Designed for high-frequency allocation patterns with bulk deallocation.
-pub struct Sheap {
-    /// Maps game heap ID to its memory blocks
-    blocks: Mutex<AHashMap<usize, Vec<SheapBlock>>>,
-    /// Underlying MiMalloc heap for block allocation
-    mi_heap: MiHeap,
+/// Provides fast allocation and efficient bulk deallocation.
+/// Individual frees are no-ops - memory is reclaimed only during purge.
+pub struct ScrapHeap {
+    /// Active memory regions
+    regions: Vec<Region>,
+
+    /// Fast O(1) pointer-to-region lookup (page_number -> region_index)
+    region_map: AHashMap<usize, usize>,
+
+    /// Index of current allocation target
+    active_index: usize,
+
+    /// Backing allocator for regions
+    backing_heap: MiHeap,
+
+    /// Current epoch number (incremented on each purge)
+    current_epoch: u32,
+
+    /// Total allocation requests served
+    total_allocs: usize,
+
+    /// Total free calls (for statistics only)
+    total_frees: usize,
+
+    /// Total purge operations performed
+    total_purges: usize,
+
+    /// Free calls with invalid pointers
+    invalid_frees: usize,
 }
 
-impl Sheap {
-    /// Creates a new sheap allocator.
-    #[inline]
+unsafe impl Send for ScrapHeap {}
+unsafe impl Sync for ScrapHeap {}
+
+impl ScrapHeap {
+    /// Creates a new ScrapHeap.
     pub fn new() -> Self {
         Self {
-            blocks: Mutex::new(AHashMap::new()),
-            mi_heap: MiHeap::new(),
+            regions: Vec::new(),
+            region_map: AHashMap::new(),
+            active_index: 0,
+            backing_heap: MiHeap::new(),
+            current_epoch: 0,
+            total_allocs: 0,
+            total_frees: 0,
+            total_purges: 0,
+            invalid_frees: 0,
         }
     }
 
-    /// Allocates aligned memory from the specified game heap.
-    ///
-    /// Returns null pointer on failure or if size is zero.
-    /// Zero-sized allocations are not supported.
-    pub fn malloc_aligned(
-        &self,
-        heap_ptr: *mut c_void,
-        size: usize,
-        align: usize,
-    ) -> *mut c_void {
-        if heap_ptr.is_null() || size == 0 {
+    /// Allocates memory with specified size and alignment.
+    pub fn alloc_aligned(&mut self, size: usize, align: usize) -> *mut c_void {
+        if size == 0 {
             return std::ptr::null_mut();
         }
 
-        let heap_id = heap_ptr as usize;
-        let mut blocks_map = self.blocks.lock();
-        let heap_blocks = blocks_map.entry(heap_id).or_insert_with(Vec::new);
-
-        // Try existing blocks (prioritize empty blocks for reuse)
-        if let Some(ptr) = self.try_allocate_from_existing(heap_blocks, size, align) {
-            return ptr;
-        }
-
-        // Check block limit to prevent OOM
-        if heap_blocks.len() >= MAX_BLOCKS_PER_HEAP {
+        if align == 0 || !align.is_power_of_two() {
             log::error!(
-                "(SHEAP:{:#X}) Block limit ({}) reached",
-                heap_id,
-                MAX_BLOCKS_PER_HEAP
+                "Invalid alignment: {} (must be non-zero power of 2)",
+                align
             );
             return std::ptr::null_mut();
         }
 
-        // Trigger GC before growing pool
-        self.mi_heap.heap_collect(true);
+        let align = align.max(MIN_ALIGN);
 
-        // Create new block
-        self.allocate_from_new_block(heap_blocks, heap_id, size, align)
+        // Try active region first
+        if let Some(region) = self.regions.get_mut(self.active_index) {
+            if let Some(ptr) = region.allocate(size, align) {
+                self.total_allocs += 1;
+                return ptr.as_ptr() as *mut c_void;
+            }
+        }
+
+        // Find or create a region with capacity
+        if let Some(ptr) = self.find_available_region(size, align) {
+            self.total_allocs += 1;
+            return ptr;
+        }
+
+        // Allocate new region
+        match self.create_region(size, align) {
+            Some(ptr) => {
+                self.total_allocs += 1;
+                ptr
+            }
+            None => {
+                log::error!("ScrapHeap: Failed to create new region");
+                std::ptr::null_mut()
+            }
+        }
     }
 
-    /// Attempts allocation from existing blocks.
-    #[inline]
-    fn try_allocate_from_existing(
-        &self,
-        blocks: &mut [SheapBlock],
-        size: usize,
-        align: usize,
-    ) -> Option<*mut c_void> {
-        // Try empty blocks first (better locality, potential reset)
-        for block in blocks.iter_mut() {
-            if block.is_empty() && block.can_allocate(size, align) {
-                return block
-                    .allocate(size, align)
-                    .map(|p| p.as_ptr() as *mut c_void);
+    /// Frees a previously allocated pointer.
+    ///
+    /// This is intentionally a no-op in epoch-based allocation.
+    /// Memory is reclaimed only during purge when the epoch ends.
+    ///
+    /// We validate the pointer for debugging but don't track individual frees.
+    pub fn free(&mut self, ptr: *mut c_void) {
+        if ptr.is_null() {
+            return;
+        }
+
+        self.total_frees += 1;
+
+        // Optional: validate pointer belongs to our regions using O(1) lookup
+        #[cfg(debug_assertions)]
+        {
+            let addr = ptr as usize;
+            let found = self.find_region_for_ptr(addr).is_some();
+
+            if !found {
+                self.invalid_frees += 1;
+                if self.invalid_frees % 100 == 1 {
+                    log::warn!(
+                        "ScrapHeap::free: Pointer {:p} not from this heap ({} invalid frees)",
+                        ptr,
+                        self.invalid_frees
+                    );
+                }
             }
         }
 
-        // Try non-empty blocks
-        for block in blocks.iter_mut() {
-            if !block.is_empty() && block.can_allocate(size, align) {
-                return block
-                    .allocate(size, align)
-                    .map(|p| p.as_ptr() as *mut c_void);
+        // Free is a no-op - memory reclaimed only during purge
+    }
+
+    /// Reclaims all memory by resetting all regions.
+    ///
+    /// This ends the current epoch and begins a new one.
+    /// All allocations from the previous epoch become invalid.
+    pub fn purge(&mut self) {
+        self.total_purges += 1;
+        self.current_epoch = self.current_epoch.wrapping_add(1);
+
+        // Reset all regions
+        for region in &mut self.regions {
+            region.reset();
+        }
+
+        // Remove regions that have been empty for too long
+        let initial_count = self.regions.len();
+        if self.regions.len() > MIN_REGIONS {
+            self.regions.retain(|r| !r.should_deallocate());
+        }
+
+        let deallocated = initial_count - self.regions.len();
+
+        // Only rebuild page map if regions were actually deallocated
+        // (rebuilding is expensive with thousands of purges per second)
+        if deallocated > 0 {
+            log::debug!("ScrapHeap: Deallocated {} regions", deallocated);
+
+            // Rebuild region map after removal (indices have changed)
+            self.region_map.clear();
+            for (idx, region) in self.regions.iter().enumerate() {
+                let start_addr = region.start.as_ptr() as usize;
+                let end_addr = start_addr + region.capacity;
+
+                // Register all pages this region spans
+                let start_page = start_addr >> PAGE_SHIFT;
+                let end_page = (end_addr - 1) >> PAGE_SHIFT;
+
+                for page in start_page..=end_page {
+                    self.region_map.insert(page, idx);
+                }
             }
         }
 
+        // Set active index to first region, or 0 if no regions
+        self.active_index = 0;
+
+        // Only log purges occasionally to avoid spam
+        if self.total_purges % 100 == 0 || deallocated > 0 {
+            log::debug!(
+                "ScrapHeap: Epoch {} complete (regions: {}, deallocated: {})",
+                self.current_epoch,
+                self.regions.len(),
+                deallocated
+            );
+        }
+    }
+
+    /// Statistics for debugging and monitoring.
+    #[allow(dead_code)]
+    pub fn stats(&self) -> HeapStats {
+        let total_capacity: usize = self.regions.iter().map(|r| r.capacity).sum();
+        let total_used: usize = self.regions.iter().map(|r| r.offset).sum();
+        let epoch_allocations: usize = self.regions.iter().map(|r| r.alloc_count).sum();
+
+        HeapStats {
+            current_epoch: self.current_epoch,
+            region_count: self.regions.len(),
+            total_capacity,
+            total_used,
+            epoch_allocations,
+            total_allocs: self.total_allocs,
+            total_frees: self.total_frees,
+            total_purges: self.total_purges,
+            invalid_frees: self.invalid_frees,
+        }
+    }
+
+    /// Finds the region index containing a given pointer address.
+    ///
+    /// True O(1) lookup using page-granularity mapping.
+    fn find_region_for_ptr(&self, addr: usize) -> Option<usize> {
+        let page_addr = addr >> PAGE_SHIFT;
+        self.region_map.get(&page_addr).copied()
+    }
+
+    /// Searches for a region that can satisfy the request.
+    ///
+    /// Skips the active region as it was already tried.
+    fn find_available_region(&mut self, size: usize, align: usize) -> Option<*mut c_void> {
+        for (index, region) in self.regions.iter_mut().enumerate() {
+            if index == self.active_index {
+                continue;
+            }
+
+            if region.has_capacity_for(size, align) {
+                if let Some(ptr) = region.allocate(size, align) {
+                    self.active_index = index;
+                    return Some(ptr.as_ptr() as *mut c_void);
+                }
+            }
+        }
         None
     }
 
-    /// Allocates from a newly created block.
-    #[inline]
-    fn allocate_from_new_block(
-        &self,
-        blocks: &mut Vec<SheapBlock>,
-        heap_id: usize,
-        size: usize,
-        align: usize,
-    ) -> *mut c_void {
-        match SheapBlock::new(&self.mi_heap, heap_id) {
-            Some(mut block) => match block.allocate(size, align) {
-                Some(ptr) => {
-                    blocks.push(block);
-                    ptr.as_ptr() as *mut c_void
-                }
-                None => {
-                    log::error!("(SHEAP:{:#X}) New block immediate allocation failed", heap_id);
-                    std::ptr::null_mut()
-                }
-            },
-            None => std::ptr::null_mut(),
-        }
-    }
+    /// Creates a new region sized to fit the request.
+    fn create_region(&mut self, size: usize, align: usize) -> Option<*mut c_void> {
+        let capacity = REGION_SIZE.max(size.checked_add(align)?);
 
-    /// Frees a pointer allocated from any heap.
-    ///
-    /// heap_ptr is used as optimization hint but not required.
-    /// Silently ignores null pointers.
-    pub fn free(&self, heap_ptr: *mut c_void, ptr: *mut c_void) {
-        let Some(ptr_nn) = NonNull::new(ptr) else {
-            return;
+        let mut region = match Region::new(&self.backing_heap, capacity, MIN_ALIGN) {
+            Some(r) => r,
+            None => {
+                log::error!(
+                    "ScrapHeap: Failed to allocate region (capacity: {} MiB, total regions: {}, total capacity: {} MiB)",
+                    capacity / (1024 * 1024),
+                    self.regions.len(),
+                    self.regions.iter().map(|r| r.capacity).sum::<usize>() / (1024 * 1024)
+                );
+                return None;
+            }
         };
 
-        let mut blocks_map = self.blocks.lock();
+        let ptr = region.allocate(size, align)?;
 
-        // Try heap hint first for fast path
-        if !heap_ptr.is_null() {
-            let heap_id = heap_ptr as usize;
-            if let Some(heap_blocks) = blocks_map.get_mut(&heap_id) {
-                if self.try_free_from_blocks(heap_blocks, ptr_nn) {
-                    return;
-                }
-            }
+        let new_index = self.regions.len();
+        let start_addr = region.start.as_ptr() as usize;
+        let end_addr = start_addr.checked_add(capacity)?;
+
+        // Register all pages that this region spans for O(1) lookup
+        let start_page = start_addr >> PAGE_SHIFT;
+        let end_page = (end_addr - 1) >> PAGE_SHIFT;
+
+        for page in start_page..=end_page {
+            self.region_map.insert(page, new_index);
         }
 
-        // Search all heaps (slow path)
-        for heap_blocks in blocks_map.values_mut() {
-            if self.try_free_from_blocks(heap_blocks, ptr_nn) {
-                return;
-            }
+        self.regions.push(region);
+        self.active_index = new_index;
+
+        // Only log first few region creations to avoid spam
+        if self.regions.len() <= 3 {
+            log::debug!(
+                "ScrapHeap: Created region #{} at {:p} (capacity: {} MiB, pages: {})",
+                self.regions.len(),
+                start_addr as *const u8,
+                capacity / (1024 * 1024),
+                end_page - start_page + 1
+            );
         }
 
-        log::debug!("(SHEAP) Pointer {:p} not found in any block", ptr);
-    }
-
-    /// Attempts to free pointer from block list, managing empty blocks.
-    #[inline]
-    fn try_free_from_blocks(&self, blocks: &mut Vec<SheapBlock>, ptr: NonNull<c_void>) -> bool {
-        for i in 0..blocks.len() {
-            if blocks[i].free(ptr) {
-                // If block became empty, reset it for reuse
-                if blocks[i].is_empty() {
-                    blocks[i].reset();
-
-                    // Evict excess empty blocks (keep hot block, remove others)
-                    let empty_count = blocks.iter().filter(|b| b.is_empty()).count();
-                    if empty_count > MAX_CACHED_BLOCKS {
-                        // Find first empty block that's NOT the one we just freed from
-                        if let Some(evict_idx) = blocks
-                            .iter()
-                            .enumerate()
-                            .position(|(idx, b)| idx != i && b.is_empty())
-                        {
-                            blocks.swap_remove(evict_idx);
-                        }
-                    }
-                }
-                return true;
-            }
-        }
-        false
-    }
-
-    /// Purges all blocks for the specified game heap.
-    ///
-    /// All allocations from this heap are invalidated.
-    pub fn purge(&self, heap_ptr: *mut c_void) {
-        if heap_ptr.is_null() {
-            return;
-        }
-
-        let heap_id = heap_ptr as usize;
-        let mut blocks_map = self.blocks.lock();
-
-        // Remove all blocks for this heap (Drop will free memory)
-        blocks_map.remove(&heap_id);
+        Some(ptr.as_ptr() as *mut c_void)
     }
 }
 
-// =============================================================================
-// Utility Functions
-// =============================================================================
+/// Statistics snapshot for heap monitoring.
+#[allow(dead_code)]
+pub struct HeapStats {
+    pub current_epoch: u32,
+    pub region_count: usize,
+    pub total_capacity: usize,
+    pub total_used: usize,
+    pub epoch_allocations: usize,
+    pub total_allocs: usize,
+    pub total_frees: usize,
+    pub total_purges: usize,
+    pub invalid_frees: usize,
+}
 
-/// Aligns address up to the specified power-of-two alignment.
+/// Aligns address upward to alignment boundary.
+///
+/// Returns None on overflow.
 #[inline(always)]
 fn align_up(addr: usize, align: usize) -> Option<usize> {
-    debug_assert!(align.is_power_of_two(), "Alignment must be power of two");
+    debug_assert!(align.is_power_of_two());
+    debug_assert!(align > 0);
 
-    addr.checked_add(align.wrapping_sub(1))
-        .map(|a| a & !align.wrapping_sub(1))
+    addr.checked_add(align - 1).map(|a| a & !(align - 1))
 }
 
-/// Checks if address is aligned to the specified alignment.
-#[inline(always)]
-fn is_aligned(addr: usize, align: usize) -> bool {
-    debug_assert!(align > 0 && align.is_power_of_two(), "Invalid alignment");
-    addr % align == 0
+// ============================================================================
+// Public API
+// ============================================================================
+
+/// Global map of game heap pointers to our ScrapHeap instances.
+///
+/// Each game heap gets its own isolated allocator instance.
+static HEAPS: LazyLock<parking_lot::Mutex<AHashMap<usize, ScrapHeap>>> =
+    LazyLock::new(|| parking_lot::Mutex::new(AHashMap::new()));
+
+/// Gets or creates a ScrapHeap for the given game heap pointer.
+fn get_or_create_heap(sheap_ptr: *mut c_void) -> parking_lot::MutexGuard<'static, AHashMap<usize, ScrapHeap>> {
+    let mut heaps = HEAPS.lock();
+    let key = sheap_ptr as usize;
+
+    if !heaps.contains_key(&key) {
+        if heaps.len() >= MAX_HEAP_INSTANCES {
+            log::error!(
+                "ScrapHeap: Max heap instances ({}) reached, cannot create heap for {:p}",
+                MAX_HEAP_INSTANCES,
+                sheap_ptr
+            );
+            // Don't create new heap, will return None on subsequent operations
+        } else {
+            log::info!(
+                "ScrapHeap: Creating heap instance #{} for game heap {:p}",
+                heaps.len() + 1,
+                sheap_ptr
+            );
+            heaps.insert(key, ScrapHeap::new());
+        }
+    }
+
+    heaps
+}
+
+/// Allocates memory from the scrap heap associated with `sheap_ptr`.
+///
+/// Each game heap pointer gets its own isolated allocator instance.
+pub fn sheap_alloc_align(sheap_ptr: *mut c_void, size: usize, align: usize) -> *mut c_void {
+    let mut heaps = get_or_create_heap(sheap_ptr);
+    let key = sheap_ptr as usize;
+
+    if let Some(heap) = heaps.get_mut(&key) {
+        heap.alloc_aligned(size, align)
+    } else {
+        log::error!("ScrapHeap: Failed to get heap for {:p}", sheap_ptr);
+        std::ptr::null_mut()
+    }
+}
+
+/// Marks memory as freed (no-op in epoch-based allocation).
+///
+/// Memory is NOT reclaimed until purge is called.
+/// This is intentional: epoch-based allocators defer reclamation.
+pub fn sheap_free(sheap_ptr: *mut c_void, ptr: *mut c_void) {
+    let mut heaps = get_or_create_heap(sheap_ptr);
+    let key = sheap_ptr as usize;
+
+    if let Some(heap) = heaps.get_mut(&key) {
+        heap.free(ptr);
+    }
+}
+
+/// Purges all regions in the heap associated with `sheap_ptr`.
+///
+/// This ends the current epoch. All previous allocations become invalid.
+pub fn sheap_purge(sheap_ptr: *mut c_void) {
+    let mut heaps = get_or_create_heap(sheap_ptr);
+    let key = sheap_ptr as usize;
+
+    if let Some(heap) = heaps.get_mut(&key) {
+        heap.purge();
+    }
 }
