@@ -10,7 +10,7 @@ use libpsycho::os::windows::hook::inline::inlinehook::InlineHookContainer;
 pub(super) mod game_heap;
 pub(super) mod scrap_heap;
 pub(super) mod sheap;
-//pub(super) mod gheap;
+pub(super) mod gheap;
 
 mod types;
 mod replacer;
