@@ -267,12 +267,11 @@ impl ScrapHeap {
         let align = align.max(MIN_ALIGN);
 
         // Try active region first
-        if let Some(region) = self.regions.get_mut(self.active_index) {
-            if let Some(ptr) = region.allocate(size, align) {
+        if let Some(region) = self.regions.get_mut(self.active_index)
+            && let Some(ptr) = region.allocate(size, align) {
                 self.total_allocs += 1;
                 return ptr.as_ptr() as *mut c_void;
             }
-        }
 
         // Find or create a region with capacity
         if let Some(ptr) = self.find_available_region(size, align) {
@@ -344,7 +343,19 @@ impl ScrapHeap {
         let before_count = self.regions.len();
 
         if self.regions.len() > MIN_REGIONS {
-            self.regions.retain(|r| !r.should_deallocate());
+            // Aggressive deallocation if we have too many regions (fragmentation)
+            let threshold = if before_count > 100 {
+                // Emergency: deallocate after just 5 empty cycles
+                5
+            } else if before_count > 20 {
+                // Moderate: deallocate after 10 empty cycles
+                10
+            } else {
+                // Normal: use configured threshold
+                EMPTY_THRESHOLD
+            };
+
+            self.regions.retain(|r| r.empty_cycles < threshold);
         }
 
         let after_count = self.regions.len();
@@ -374,7 +385,7 @@ impl ScrapHeap {
         self.active_index = 0;
 
         // Only log purges occasionally to avoid spam
-        if self.total_purges % 100 == 0 || deallocated > 0 {
+        if self.total_purges.is_multiple_of(100) || deallocated > 0 {
             log::debug!(
                 "ScrapHeap: Epoch {} complete (regions: {}, deallocated: {})",
                 self.current_epoch,
@@ -421,19 +432,26 @@ impl ScrapHeap {
                 continue;
             }
 
-            if region.has_capacity_for(size, align) {
-                if let Some(ptr) = region.allocate(size, align) {
+            if region.has_capacity_for(size, align)
+                && let Some(ptr) = region.allocate(size, align) {
                     self.active_index = index;
                     return Some(ptr.as_ptr() as *mut c_void);
                 }
-            }
         }
         None
     }
 
     /// Creates a new region sized to fit the request.
     fn create_region(&mut self, size: usize, align: usize) -> Option<*mut c_void> {
-        let capacity = REGION_SIZE.max(size.checked_add(align)?);
+        // Adaptive sizing: if we have many regions, double the region size
+        // to reduce fragmentation. Cap at 4 MiB.
+        let base_size = if self.regions.len() > 10 {
+            (REGION_SIZE * 2).min(4 * 1024 * 1024)  // 512 KB, max 4 MiB
+        } else {
+            REGION_SIZE  // 256 KB
+        };
+
+        let capacity = base_size.max(size.checked_add(align)?);
 
         let mut region = match Region::new(&self.backing_heap, capacity, MIN_ALIGN) {
             Some(r) => r,
@@ -581,7 +599,7 @@ pub fn sheap_alloc_align(sheap_ptr: *mut c_void, size: usize, align: usize) -> *
     let key = sheap_ptr as usize;
 
     // Periodic cleanup every 50000 operations
-    if current_tick % 50000 == 0 {
+    if current_tick.is_multiple_of(50000) {
         cleanup_inactive_heaps(&mut heaps, current_tick);
     }
 
