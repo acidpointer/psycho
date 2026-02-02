@@ -8,7 +8,7 @@ use cty::{c_char, c_int, c_long, c_ulonglong};
 /// in the `_small` family ([`mi_malloc_small`], [`mi_zalloc_small`], etc).
 pub const MI_SMALL_SIZE_MAX: usize = 128 * core::mem::size_of::<*mut c_void>();
 
-extern "C" {
+unsafe extern "C" {
     /// Allocate `count` items of `size` length each.
     ///
     /// Returns `null` if `count * size` overflows or on out-of-memory.
@@ -548,7 +548,7 @@ pub const mi_option_max_segment_reclaim: mi_option_t = 21;
 /// Last option.
 pub const _mi_option_last: mi_option_t = 37;
 
-extern "C" {
+unsafe extern "C" {
     // Note: mi_option_{enable,disable} aren't exposed because they're redundant
     // and because of https://github.com/microsoft/mimalloc/issues/266.
 
@@ -678,7 +678,7 @@ pub type mi_block_visit_fun = Option<
     ) -> bool,
 >;
 
-extern "C" {
+unsafe extern "C" {
     /// Create a new heap that can be used for allocation.
     pub fn mi_heap_new() -> *mut mi_heap_t;
 
@@ -989,10 +989,10 @@ extern "C" {
     ///
     /// - `start` Start of the memory area
     /// - `size` The size of the memory area. Must be large than `MI_ARENA_BLOCK_SIZE` (e.g. 64MB
-    ///          on x86_64 machines).
+    ///   on x86_64 machines).
     /// - `commit` Set true if the memory range is already commited.
     /// - `is_large` Set true if the memory range consists of large files, or if the memory should
-    ///              not be decommitted or protected (like rdma etc.).
+    ///   not be decommitted or protected (like rdma etc.).
     /// - `is_zero` Set true if the memory range consists only of zeros.
     /// - `numa_node` Possible associated numa node or `-1`.
     /// - `exclusive` Only allow allocations if specifically for this arena.
