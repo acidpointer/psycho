@@ -14,31 +14,37 @@ use libmimalloc::heap::MiHeap;
 use std::ptr::NonNull;
 use std::sync::LazyLock;
 
-/// Default region size: 4 MiB
+/// Default region size: 256 KB
 ///
-/// Very conservative for 32-bit: 28+ heap instances created by game.
-/// Start small, grow if needed. Address space is precious.
-const REGION_SIZE: usize = 4 * 1024 * 1024;
+/// Extremely conservative for 32-bit with 120+ heap instances.
+/// 120 * 256 KB = 30 MiB baseline, much better than 120+ MiB.
+const REGION_SIZE: usize = 256 * 1024;
 
 /// Minimum alignment for all allocations
 const MIN_ALIGN: usize = 16;
 
 /// Number of purge cycles a region must be unused before deallocation.
 ///
-/// Set very high for New Vegas - memory stability > aggressive reclamation.
-/// Better to hold memory than risk crashes from premature deallocation.
-const EMPTY_THRESHOLD: usize = 1000;
+/// Aggressive reclamation to minimize memory footprint with many heap instances.
+/// With thousands of purges per second, even 50 is substantial.
+const EMPTY_THRESHOLD: usize = 50;
 
 /// Minimum number of regions to keep allocated.
 ///
-/// Conservative: start with 1, grow as needed.
-/// Multiple heap instances make aggressive MIN_REGIONS dangerous.
-const MIN_REGIONS: usize = 1;
+/// Set to 0 to allow complete deallocation when heap is unused.
+const MIN_REGIONS: usize = 0;
 
-/// Maximum number of heap instances to create.
+/// Maximum number of heap instances allowed.
 ///
-/// Game creates 65+ heap instances during gameplay. Cap at reasonable limit to prevent OOM.
+/// Game creates 120+ heaps. Beyond this, allocations fall back to MiMalloc.
 const MAX_HEAP_INSTANCES: usize = 128;
+
+/// Heap inactivity threshold for cleanup.
+///
+/// Heaps unused for this many operations are candidates for removal.
+/// Set very high to avoid removing heaps during save/load pauses.
+/// Better to leak some memory than crash by removing active heaps.
+const HEAP_INACTIVITY_THRESHOLD: u64 = 500000;
 
 /// Page shift for 4KB pages (2^12 = 4096)
 const PAGE_SHIFT: usize = 12;
@@ -219,6 +225,9 @@ pub struct ScrapHeap {
 
     /// Free calls with invalid pointers
     invalid_frees: usize,
+
+    /// Monotonic counter for inactivity detection
+    last_access: u64,
 }
 
 unsafe impl Send for ScrapHeap {}
@@ -237,6 +246,7 @@ impl ScrapHeap {
             total_frees: 0,
             total_purges: 0,
             invalid_frees: 0,
+            last_access: 0,
         }
     }
 
@@ -331,19 +341,20 @@ impl ScrapHeap {
         }
 
         // Remove regions that have been empty for too long
-        let initial_count = self.regions.len();
+        let before_count = self.regions.len();
+
         if self.regions.len() > MIN_REGIONS {
             self.regions.retain(|r| !r.should_deallocate());
         }
 
-        let deallocated = initial_count - self.regions.len();
+        let after_count = self.regions.len();
+        let deallocated = before_count - after_count;
 
-        // Only rebuild page map if regions were actually deallocated
-        // (rebuilding is expensive with thousands of purges per second)
+        // Rebuild page map if any regions were removed (indices shifted)
         if deallocated > 0 {
             log::debug!("ScrapHeap: Deallocated {} regions", deallocated);
 
-            // Rebuild region map after removal (indices have changed)
+            // Rebuild region map after removal (ALL indices after removal point shifted)
             self.region_map.clear();
             for (idx, region) in self.regions.iter().enumerate() {
                 let start_addr = region.start.as_ptr() as usize;
@@ -428,10 +439,10 @@ impl ScrapHeap {
             Some(r) => r,
             None => {
                 log::error!(
-                    "ScrapHeap: Failed to allocate region (capacity: {} MiB, total regions: {}, total capacity: {} MiB)",
-                    capacity / (1024 * 1024),
+                    "ScrapHeap: Failed to allocate region (capacity: {} KB, total regions: {}, total capacity: {} KB)",
+                    capacity / 1024,
                     self.regions.len(),
-                    self.regions.iter().map(|r| r.capacity).sum::<usize>() / (1024 * 1024)
+                    self.regions.iter().map(|r| r.capacity).sum::<usize>() / 1024
                 );
                 return None;
             }
@@ -457,10 +468,10 @@ impl ScrapHeap {
         // Only log first few region creations to avoid spam
         if self.regions.len() <= 3 {
             log::debug!(
-                "ScrapHeap: Created region #{} at {:p} (capacity: {} MiB, pages: {})",
+                "ScrapHeap: Created region #{} at {:p} (capacity: {} KB, pages: {})",
                 self.regions.len(),
                 start_addr as *const u8,
-                capacity / (1024 * 1024),
+                capacity / 1024,
                 end_page - start_page + 1
             );
         }
@@ -495,34 +506,37 @@ fn align_up(addr: usize, align: usize) -> Option<usize> {
 }
 
 // ============================================================================
-// Public API
+// Public API - Per-Heap Instances with Lifecycle Management
 // ============================================================================
 
-/// Global map of game heap pointers to our ScrapHeap instances.
+use std::sync::atomic::{AtomicU64, Ordering};
+
+/// Global monotonic counter for heap activity tracking.
+static GLOBAL_TICK: AtomicU64 = AtomicU64::new(0);
+
+/// Global map of game heap pointers to ScrapHeap instances.
 ///
-/// Each game heap gets its own isolated allocator instance.
+/// Each game heap MUST have isolated epochs. Pooling breaks this.
+/// Dead heaps are cleaned up periodically based on inactivity.
 static HEAPS: LazyLock<parking_lot::Mutex<AHashMap<usize, ScrapHeap>>> =
     LazyLock::new(|| parking_lot::Mutex::new(AHashMap::new()));
 
 /// Gets or creates a ScrapHeap for the given game heap pointer.
-fn get_or_create_heap(sheap_ptr: *mut c_void) -> parking_lot::MutexGuard<'static, AHashMap<usize, ScrapHeap>> {
+fn get_or_create_heap(
+    sheap_ptr: *mut c_void,
+) -> parking_lot::MutexGuard<'static, AHashMap<usize, ScrapHeap>> {
     let mut heaps = HEAPS.lock();
     let key = sheap_ptr as usize;
 
     if !heaps.contains_key(&key) {
         if heaps.len() >= MAX_HEAP_INSTANCES {
-            log::error!(
-                "ScrapHeap: Max heap instances ({}) reached, cannot create heap for {:p}",
+            // Fallback: don't create, will return null from MiMalloc in alloc
+            log::warn!(
+                "ScrapHeap: Max heap instances ({}) reached, heap {:p} will use fallback allocator",
                 MAX_HEAP_INSTANCES,
                 sheap_ptr
             );
-            // Don't create new heap, will return None on subsequent operations
         } else {
-            log::info!(
-                "ScrapHeap: Creating heap instance #{} for game heap {:p}",
-                heaps.len() + 1,
-                sheap_ptr
-            );
             heaps.insert(key, ScrapHeap::new());
         }
     }
@@ -530,42 +544,78 @@ fn get_or_create_heap(sheap_ptr: *mut c_void) -> parking_lot::MutexGuard<'static
     heaps
 }
 
-/// Allocates memory from the scrap heap associated with `sheap_ptr`.
+/// Cleans up inactive heaps to prevent memory leaks from dead threads.
 ///
-/// Each game heap pointer gets its own isolated allocator instance.
+/// Removes heaps that haven't been accessed recently.
+fn cleanup_inactive_heaps(heaps: &mut AHashMap<usize, ScrapHeap>, current_tick: u64) {
+    let before_count = heaps.len();
+
+    heaps.retain(|&heap_ptr, heap| {
+        let inactive_for = current_tick.saturating_sub(heap.last_access);
+        let should_keep = inactive_for < HEAP_INACTIVITY_THRESHOLD;
+
+        if !should_keep {
+            let total_kb = heap.regions.iter().map(|r| r.capacity).sum::<usize>() / 1024;
+            log::info!(
+                "ScrapHeap: Removing inactive heap {:p} (idle for {} ticks, {} regions, {} KB)",
+                heap_ptr as *const c_void,
+                inactive_for,
+                heap.regions.len(),
+                total_kb
+            );
+        }
+
+        should_keep
+    });
+
+    let removed = before_count - heaps.len();
+    if removed > 0 {
+        log::info!("ScrapHeap: Cleaned up {} inactive heap(s), {} active remaining", removed, heaps.len());
+    }
+}
+
+/// Allocates memory from the scrap heap for the given game heap pointer.
 pub fn sheap_alloc_align(sheap_ptr: *mut c_void, size: usize, align: usize) -> *mut c_void {
+    let current_tick = GLOBAL_TICK.fetch_add(1, Ordering::Relaxed);
     let mut heaps = get_or_create_heap(sheap_ptr);
     let key = sheap_ptr as usize;
 
+    // Periodic cleanup every 50000 operations
+    if current_tick % 50000 == 0 {
+        cleanup_inactive_heaps(&mut heaps, current_tick);
+    }
+
     if let Some(heap) = heaps.get_mut(&key) {
+        heap.last_access = current_tick;
         heap.alloc_aligned(size, align)
     } else {
-        log::error!("ScrapHeap: Failed to get heap for {:p}", sheap_ptr);
-        std::ptr::null_mut()
+        // Fallback to MiMalloc for heaps beyond limit
+        let heap = MiHeap::new();
+        heap.malloc_aligned(size, align)
     }
 }
 
 /// Marks memory as freed (no-op in epoch-based allocation).
-///
-/// Memory is NOT reclaimed until purge is called.
-/// This is intentional: epoch-based allocators defer reclamation.
 pub fn sheap_free(sheap_ptr: *mut c_void, ptr: *mut c_void) {
+    let current_tick = GLOBAL_TICK.fetch_add(1, Ordering::Relaxed);
     let mut heaps = get_or_create_heap(sheap_ptr);
     let key = sheap_ptr as usize;
 
     if let Some(heap) = heaps.get_mut(&key) {
+        heap.last_access = current_tick;
         heap.free(ptr);
     }
+    // If beyond limit, ignore free (MiMalloc handles it)
 }
 
-/// Purges all regions in the heap associated with `sheap_ptr`.
-///
-/// This ends the current epoch. All previous allocations become invalid.
+/// Purges all regions in the heap associated with the game heap pointer.
 pub fn sheap_purge(sheap_ptr: *mut c_void) {
+    let current_tick = GLOBAL_TICK.fetch_add(1, Ordering::Relaxed);
     let mut heaps = get_or_create_heap(sheap_ptr);
     let key = sheap_ptr as usize;
 
     if let Some(heap) = heaps.get_mut(&key) {
+        heap.last_access = current_tick;
         heap.purge();
     }
 }
