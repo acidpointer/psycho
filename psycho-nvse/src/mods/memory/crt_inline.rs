@@ -9,6 +9,8 @@ use libpsycho::os::windows::{
     types::{CallocFn, FreeFn, MallocFn, MsizeFn, ReallocFn, RecallocFn},
 };
 
+use crate::mods::memory::gheap;
+
 // Source: https://github.com/iranrmrf/Heap-Replacer/blob/master/heap_replacer/main/heap_replacer.h
 
 const CRT_MALLOC_ADDR_1: usize = 0x00ECD1C7;
@@ -53,40 +55,50 @@ pub static CRT_INLINE_FREE_HOOK: LazyLock<InlineHookContainer<FreeFn>> =
     LazyLock::new(InlineHookContainer::new);
 
 unsafe extern "C" fn hook_malloc(size: usize) -> *mut c_void {
-    let result = unsafe { mi_malloc(size) };
+    let result = gheap::gheap_alloc(size);
     log::trace!("malloc({}) -> {:p}", size, result);
     result
 }
 
 unsafe extern "C" fn hook_calloc(count: usize, size: usize) -> *mut c_void {
-    let result = unsafe { mi_calloc(count, size) };
+    let total_size = count * size;
+    let result = gheap::gheap_alloc(total_size);
+
+    // Zero out the allocated memory (calloc behavior)
+    if !result.is_null() {
+        unsafe {
+            std::ptr::write_bytes(result, 0, total_size);
+        }
+    }
+
     log::trace!("calloc({}, {}) -> {:p}", count, size, result);
     result
 }
 
 unsafe extern "C" fn hook_realloc(raw_ptr: *mut c_void, size: usize) -> *mut c_void {
-    let is_mimalloc = unsafe { mi_is_in_heap_region(raw_ptr) };
-
-    if is_mimalloc {
-        let result = unsafe { mi_realloc(raw_ptr, size) };
-        log::trace!(
-            "realloc({:p}, {}) -> {:p} [mimalloc]",
-            raw_ptr,
-            size,
+    // Check if the pointer belongs to our gheap allocator
+    match gheap::gheap_realloc(raw_ptr, size) {
+        Some(result) => {
+            log::trace!(
+                "realloc({:p}, {}) -> {:p} [gheap]",
+                raw_ptr,
+                size,
+                result
+            );
             result
-        );
-        return result;
-    }
-
-    match CRT_INLINE_REALLOC_HOOK_1.original() {
-        Ok(orig_realloc) => {
-            unsafe { orig_realloc(raw_ptr, size) }
         }
-
-        Err(err) => {
-            log::error!("Failed to call original realloc: {:?}", err);
-
-            null_mut()
+        None => {
+            // Pointer was allocated before our allocator was initialized
+            // Forward to original function
+            match CRT_INLINE_REALLOC_HOOK_1.original() {
+                Ok(orig_realloc) => {
+                    unsafe { orig_realloc(raw_ptr, size) }
+                }
+                Err(err) => {
+                    log::error!("Failed to call original realloc: {:?}", err);
+                    null_mut()
+                }
+            }
         }
     }
 }
@@ -96,45 +108,78 @@ unsafe extern "C" fn hook_recalloc(
     count: usize,
     size: usize,
 ) -> *mut c_void {
-    unsafe { mi_recalloc(raw_ptr, count, size) }
+    let new_size = count * size;
+
+    // Use realloc to resize, then zero out the new portion
+    match gheap::gheap_realloc(raw_ptr, new_size) {
+        Some(result) => {
+            // Zero out the new portion if expanding
+            let old_size = gheap::gheap_msize(raw_ptr).unwrap_or(0);
+            if new_size > old_size {
+                unsafe {
+                    let new_ptr = result.add(old_size);
+                    std::ptr::write_bytes(new_ptr, 0, new_size - old_size);
+                }
+            }
+            result
+        }
+        None => {
+            // Pointer was allocated before our allocator was initialized
+            // Forward to original function
+            match CRT_INLINE_RECALLOC_HOOK_1.original() {
+                Ok(orig_recalloc) => {
+                    unsafe { orig_recalloc(raw_ptr, count, size) }
+                }
+                Err(err) => {
+                    log::error!("Failed to call original recalloc: {:?}", err);
+                    null_mut()
+                }
+            }
+        }
+    }
 }
 
 unsafe extern "C" fn hook_msize(raw_ptr: *mut c_void) -> usize {
-    let is_mimalloc = unsafe { mi_is_in_heap_region(raw_ptr) };
-
-    if is_mimalloc {
-        return unsafe { mi_usable_size(raw_ptr) };
-    }
-
-    match CRT_INLINE_MSIZE_HOOK.original() {
-        Ok(orig_msize) => {
-            let orig_size = unsafe { orig_msize(raw_ptr) };
-
-            if orig_size == usize::MAX {
-                log::warn!("hook_msize: pointer is unknown {:p}!", raw_ptr);
-                return 0;
-            }
-            orig_size
+    // Check if the pointer belongs to our gheap allocator
+    match gheap::gheap_msize(raw_ptr) {
+        Some(size) => {
+            size
         }
-        Err(err) => {
-            log::error!("Failed to call original msize: {:?}", err);
-            0
+        None => {
+            // Pointer was allocated before our allocator was initialized
+            // Forward to original function
+            match CRT_INLINE_MSIZE_HOOK.original() {
+                Ok(orig_msize) => {
+                    let orig_size = unsafe { orig_msize(raw_ptr) };
+
+                    if orig_size == usize::MAX {
+                        log::warn!("hook_msize: pointer is unknown {:p}!", raw_ptr);
+                        return 0;
+                    }
+                    orig_size
+                }
+                Err(err) => {
+                    log::error!("Failed to call original msize: {:?}", err);
+                    0
+                }
+            }
         }
     }
 }
 
 unsafe extern "C" fn hook_free(raw_ptr: *mut c_void) {
-    let is_mimalloc = unsafe { mi_is_in_heap_region(raw_ptr) };
-
-    if is_mimalloc {
-        return unsafe { mi_free(raw_ptr) };
+    // Check if the pointer belongs to our gheap allocator
+    if gheap::gheap_free(raw_ptr) {
+        // Our allocator handled it
+        return;
     }
 
+    // Pointer was allocated before our allocator was initialized
+    // Forward to original function
     match CRT_INLINE_FREE_HOOK.original() {
         Ok(orig_free) => {
             unsafe { orig_free(raw_ptr) };
         }
-
         Err(err) => {
             log::error!(
                 "Failed to call original free for pointer={:p}; Error: {:?}",
