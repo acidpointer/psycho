@@ -19,9 +19,22 @@
 //! - Quarantine system: Delayed reuse of freed memory
 //! - Epoch-based purging: Periodic cleanup of quarantined blocks
 //! - Large allocation isolation: Prevents poisoning of general heap
+//! 
+//! 
+//! # WARNING
+//! ## LOCK ORDERING RULES:
+//! 
+//! To prevent deadlocks, always acquire locks in this order:
+//!  1. large_objects
+//!  2. small_arenas
+//!  3. medium_arenas
+//!  4. quarantine
+//!  5. stats
+//! 
+//! Never acquire a lock if a "higher" numbered lock is already held.
 
+#![allow(dead_code)]
 use std::alloc::{Layout, alloc, dealloc};
-use std::collections::HashSet;
 use std::ptr;
 use std::sync::{Arc, OnceLock};
 use parking_lot::Mutex;
@@ -29,18 +42,6 @@ use ahash::AHashMap;
 use std::collections::VecDeque;
 use std::sync::atomic::{AtomicU32, AtomicUsize, Ordering};
 use libc::c_void;
-
-/*
-LOCK ORDERING RULES:
-To prevent deadlocks, always acquire locks in this order:
-1. large_objects
-2. small_arenas
-3. medium_arenas
-4. quarantine
-5. stats
-
-Never acquire a lock if a "higher" numbered lock is already held.
-*/
 
 /// Minimal header stored before each allocation in an arena
 #[repr(C)]
@@ -110,8 +111,6 @@ struct Arena {
     is_full: bool,
     /// Next allocation ID to assign
     next_alloc_id: u32,
-    /// Track active allocation IDs (not yet quarantined)
-    active_alloc_ids: HashSet<u32>,
 }
 
 /// Large object allocation info
@@ -155,55 +154,111 @@ impl Arena {
                     used_size: 0,
                     is_full: false,
                     next_alloc_id: 1,  // Start from 1 to distinguish from uninitialized
-                    active_alloc_ids: HashSet::new(),
                 })
             }
         }
     }
 
-    /// Allocate memory within this arena
+    /// Allocate memory within this arena.
+    /// Each slot is exactly size_class bytes of user space (plus header + padding),
+    /// so that slots never overlap regardless of the actual requested_size.
     fn allocate(&mut self, requested_size: usize) -> Option<*mut u8> {
         if self.is_full {
             return None;
         }
 
-        // Calculate total size needed (header + user data + potential padding for alignment)
         let header_size = std::mem::size_of::<AllocHeader>();
-        let align = self.alignment.max(std::mem::align_of::<u64>()); // Minimum alignment
+        let align = std::cmp::max(self.alignment.max(std::mem::align_of::<u64>()), 16);
 
-        // Use canonical allocator formula for alignment
-        let user_start = (self.offset + header_size + align - 1) & !(align - 1);
-        let header_start = user_start - header_size;
-        let allocation_end = user_start + requested_size;
+        // Layout: [padding] [header: 8 bytes] [user data: size_class bytes]
+        // 1. Header starts at self.offset (no alignment requirement on header itself)
+        // 2. User data starts immediately after header, aligned up to `align`
+        let after_header = match self.offset.checked_add(header_size) {
+            Some(v) => v,
+            None => { self.is_full = true; return None; }
+        };
+
+        let aligned_user_start = (after_header + align - 1) & !(align - 1);
+
+        // header_start is always >= self.offset because aligned_user_start >= after_header >= offset + 8
+        let header_start = aligned_user_start - header_size;
+        debug_assert!(header_start >= self.offset);
+
+        // Advance offset by the full size_class slot, not just requested_size.
+        // This guarantees non-overlapping slots for all requests routed to this arena.
+        let allocation_end = match aligned_user_start.checked_add(self.size_class) {
+            Some(end) => end,
+            None => { self.is_full = true; return None; }
+        };
 
         if allocation_end > self.size {
             self.is_full = true;
             return None;
         }
 
-        // Store header before the user data
         let header_ptr = unsafe { self.base_ptr.0.add(header_start) };
-        let user_ptr = unsafe { self.base_ptr.0.add(user_start) };
+        let user_ptr = unsafe { self.base_ptr.0.add(aligned_user_start) };
 
-        // Write the header with the requested size and allocation ID
         unsafe {
             let header = &mut *(header_ptr as *mut AllocHeader);
             header.size = requested_size as u32;
             header.alloc_id = self.next_alloc_id;
         }
 
-        // Track this allocation ID as active
-        self.active_alloc_ids.insert(self.next_alloc_id);
-        self.next_alloc_id = self.next_alloc_id.wrapping_add(1); // Prevent overflow
+        let alloc_id = self.next_alloc_id;
+        self.next_alloc_id = self.next_alloc_id.wrapping_add(1);
         self.offset = allocation_end;
         self.used_size = allocation_end;
+
+        log::trace!(
+            "[gheap] Arena::allocate id={} class={} req={} | arena={:p} hdr_off={} usr_off={} end={} used={}",
+            alloc_id, self.size_class, requested_size,
+            self.base_ptr.0, header_start, aligned_user_start, allocation_end, self.used_size
+        );
 
         Some(user_ptr)
     }
 
+    /// Try to grow the last allocation in place (fast path).
+    /// Only succeeds if `ptr` is the very last allocation in this arena
+    /// (its slot ends at used_size) AND the new size fits within the arena.
+    /// Updates offset/used_size on success.
+    fn try_grow_allocation(&mut self, ptr: *mut u8, _current_size: usize, new_size: usize) -> Option<*mut u8> {
+        if !self.contains_ptr(ptr) {
+            return None;
+        }
+
+        let ptr_offset = ptr as usize - self.base_ptr.0 as usize;
+
+        // This allocation's slot ends at used_size only if it is the last one.
+        // The slot started at ptr_offset, so its end is used_size.
+        // Verify: the slot must be the tail slot.
+        if self.used_size < ptr_offset {
+            return None;
+        }
+
+        let new_end = ptr_offset.checked_add(new_size)?;
+
+        if new_end > self.size {
+            return None; // Would exceed arena bounds
+        }
+
+        // Confirm this is the last allocation: the current used_size must be
+        // within [ptr_offset, ptr_offset + size_class] (i.e. this slot is at the tail)
+        if self.used_size < ptr_offset || self.used_size > ptr_offset + self.size_class {
+            return None;
+        }
+
+        // Extend in place: advance used_size and offset to cover the new size
+        self.used_size = new_end;
+        self.offset = new_end;
+
+        Some(ptr)
+    }
+
 
     /// Check if this arena contains the given pointer
-    /// Range-based check for bump allocator compatibility
+    /// Only returns true for pointers within the actually-allocated portion of the arena.
     fn contains_ptr(&self, ptr: *mut u8) -> bool {
         let p = ptr as usize;
         let base = self.base_ptr.0 as usize;
@@ -218,24 +273,29 @@ impl Arena {
         }
 
         // Check that the header location is also valid
-        let header_ptr = unsafe {
-            ptr.sub(std::mem::size_of::<AllocHeader>())
-        };
+        let ptr_addr = ptr as usize;
+        let base_addr = self.base_ptr.0 as usize;
+        let header_size = std::mem::size_of::<AllocHeader>();
+
+        // Make sure we don't underflow when subtracting header size
+        if ptr_addr < base_addr + header_size {
+            return false; // Not enough space for header before this pointer
+        }
+
+        let header_ptr = (ptr_addr - header_size) as *const u8;
 
         // Header must also be inside arena bounds
         let h = header_ptr as usize;
-        let base = self.base_ptr.0 as usize;
-        if !(h >= base && h + std::mem::size_of::<AllocHeader>() <= base + self.used_size) {
+
+        if !(h >= base_addr && h + header_size <= base_addr + self.used_size) {
             return false;
         }
 
-        // Validate the allocation ID to ensure this is a real allocation and not stale pointer
-        let header = unsafe { &*(header_ptr as *const AllocHeader) };
-        if header.alloc_id > 0 && header.alloc_id < self.next_alloc_id {
-            // Also verify that this allocation ID is currently active (not quarantined)
-            self.active_alloc_ids.contains(&header.alloc_id)
-        } else {
-            false
+        // Basic validation that the header is within reasonable bounds
+        // Don't check active status - game expects stale pointers to be handled gracefully
+        unsafe {
+            let header = &*(header_ptr as *const AllocHeader);
+            header.alloc_id > 0 && header.alloc_id < self.next_alloc_id
         }
     }
 
@@ -246,7 +306,6 @@ impl Arena {
         self.used_size = 0;
         self.is_full = false;
         self.next_alloc_id = 1;
-        self.active_alloc_ids.clear();
     }
 }
 
@@ -330,29 +389,40 @@ impl GameHeap {
             }
         }
 
-        // For small/medium objects, we need to search arenas
-        // This is an approximation since exact sizes aren't tracked
-        // In a real implementation, we'd store size metadata
-        self.find_allocation_size(ptr).unwrap_or(0)
+        // For small/medium objects, read from header
+        match self.find_allocation_size(ptr) {
+            Some(size) => size,
+            None => {
+                log::warn!("[gheap] msize({:p}) -> 0 (header not found)", ptr);
+                0
+            }
+        }
     }
 
     /// Perform a garbage collection/purge operation
     pub fn purge(&self) {
-        // Atomically increment the epoch counter
         let epoch = self.current_epoch.fetch_add(1, Ordering::Relaxed) + 1;
 
-        // Clean quarantined blocks that are old enough
-        self.purge_quarantine(epoch);
+        let small_count = self.small_arenas.lock().len();
+        let medium_count = self.medium_arenas.lock().len();
+        let large_count = self.large_objects.lock().len();
+        let quarantine_len = self.quarantine.lock().len();
 
-        // Clean marked large objects
-        self.purge_large_objects(epoch);
+        log::debug!(
+            "[gheap] purge epoch={} | arenas: small={} medium={} | large_objects={} | quarantine={}/{}  | stats: alloc={} freed={}",
+            epoch,
+            small_count, medium_count,
+            large_count,
+            quarantine_len, QUARANTINE_CAPACITY,
+            self.stats.total_allocated.load(Ordering::Relaxed),
+            self.stats.total_freed.load(Ordering::Relaxed),
+        );
 
-        // Optionally reset empty arenas (conservative approach)
         self.reset_empty_arenas();
     }
 
     /// Allocate small or medium-sized memory
-    fn alloc_small_medium(&self, size: usize, alignment: usize) -> *mut u8 {
+    fn alloc_small_medium(&self, size: usize, _alignment: usize) -> *mut u8 {
         // If size is large enough, route to large object allocator immediately
         if size >= LARGE_SIZE_THRESHOLD {
             return self.alloc_large(size);
@@ -406,7 +476,7 @@ impl GameHeap {
         drop(arenas);
 
         if let Some(mut new_arena) = Arena::new(ARENA_SIZE, size_class, alignment) {
-            // Try allocation in the new arena
+            log::debug!("[gheap] new arena {:p} class={} size={}", new_arena.base_ptr.0, size_class, ARENA_SIZE);
             if let Some(ptr) = new_arena.allocate(size) {
                 let mut new_arenas = arena_pool.lock();
                 new_arenas.push(new_arena);
@@ -421,11 +491,18 @@ impl GameHeap {
 
     /// Allocate large memory (> 1MB)
     fn alloc_large(&self, size: usize) -> *mut u8 {
-        let layout = Layout::from_size_align(size, 8).ok().unwrap();
+        let layout = match Layout::from_size_align(size, 16) {
+            Ok(layout) => layout,
+            Err(_) => {
+                log::warn!("[gheap] alloc_large({}) -> layout error", size);
+                return ptr::null_mut();
+            }
+        };
 
         unsafe {
             let ptr = alloc(layout);
             if ptr.is_null() {
+                log::warn!("[gheap] alloc_large({}) -> OOM", size);
                 return ptr::null_mut();
             }
 
@@ -443,31 +520,41 @@ impl GameHeap {
                 },
             );
 
+            log::trace!("[gheap] alloc_large({}) -> {:p}", size, ptr);
             ptr
         }
     }
 
     /// Reallocate small/medium memory
     fn realloc_small_medium(&self, ptr: *mut u8, new_size: usize) -> *mut u8 {
-        // Find the original allocation size by looking for the arena
         let orig_size = self.find_allocation_size(ptr).unwrap_or(0);
 
+        if orig_size == 0 {
+            log::warn!("[gheap] realloc_small_medium({:p}, {}) -> orig_size=0, ptr not found in any arena", ptr, new_size);
+        }
+
         if new_size <= orig_size {
-            // Shrinking - just return the same pointer (ignore shrink requests)
-            // This preserves the old memory and avoids invalidating pointers
+            log::trace!("[gheap] realloc_small_medium({:p}) {} -> {} SHRINK, same ptr", ptr, orig_size, new_size);
             return ptr;
         }
 
-        // Growing - allocate new memory and copy
+        // Check if in-place growth is possible
+        if let Some(grown_ptr) = self.try_realloc_in_place(ptr, orig_size, new_size) {
+            self.update_allocation_size(ptr, new_size as u32);
+            log::trace!("[gheap] realloc_small_medium({:p}) {} -> {} GREW IN PLACE", ptr, orig_size, new_size);
+            return grown_ptr;
+        }
+
+        // Growing in-place not possible - allocate new memory and copy
         let new_ptr = self.alloc(new_size);
         if !new_ptr.is_null() {
             unsafe {
                 ptr::copy_nonoverlapping(ptr, new_ptr, orig_size.min(new_size));
             }
-
-            // Quarantine the old block instead of freeing immediately
-            // This maintains corruption tolerance by keeping old memory valid
             self.quarantine_block(ptr);
+            log::trace!("[gheap] realloc_small_medium({:p}) {} -> {} COPIED to {:p}, old quarantined", ptr, orig_size, new_size, new_ptr);
+        } else {
+            log::warn!("[gheap] realloc_small_medium({:p}) {} -> {} FAILED, new alloc returned NULL", ptr, orig_size, new_size);
         }
 
         new_ptr
@@ -475,7 +562,6 @@ impl GameHeap {
 
     /// Reallocate large memory
     fn realloc_large(&self, ptr: *mut u8, new_size: usize) -> *mut u8 {
-        // Find the original large object
         let orig_obj_info = {
             let large_objects = self.large_objects.lock();
             large_objects.get(&RawPtr(ptr)).cloned()
@@ -483,46 +569,48 @@ impl GameHeap {
 
         if let Some(orig_obj) = orig_obj_info {
             if new_size <= orig_obj.size {
-                // Shrinking - just return the same pointer
+                log::trace!("[gheap] realloc_large({:p}) {} -> {} SHRINK, same ptr", ptr, orig_obj.size, new_size);
                 return ptr;
             }
 
-            // Growing - allocate new, copy, and mark old for later freeing
             let new_ptr = self.alloc_large(new_size);
             if !new_ptr.is_null() {
                 unsafe {
                     ptr::copy_nonoverlapping(ptr, new_ptr, orig_obj.size.min(new_size));
                 }
 
-                // Mark the old large object for later freeing
                 let mut large_objects = self.large_objects.lock();
                 let current_epoch = self.current_epoch.load(Ordering::Relaxed);
                 if let Some(large_obj) = large_objects.get_mut(&RawPtr(ptr)) {
-                    large_obj.in_use = false;  // Mark as not in use anymore
-                    large_obj.marked_for_free = true;  // Mark for purge
-                    large_obj.marked_epoch = current_epoch;  // Record when it was marked
+                    large_obj.in_use = false;
+                    large_obj.marked_for_free = true;
+                    large_obj.marked_epoch = current_epoch;
                 }
+                log::trace!("[gheap] realloc_large({:p}) {} -> {} COPIED to {:p}, old marked for purge", ptr, orig_obj.size, new_size, new_ptr);
+            } else {
+                log::warn!("[gheap] realloc_large({:p}) {} -> {} FAILED, new alloc returned NULL", ptr, orig_obj.size, new_size);
             }
 
             new_ptr
         } else {
-            ptr::null_mut() // Invalid pointer
+            log::warn!("[gheap] realloc_large({:p}, {}) -> ptr not in large_objects map", ptr, new_size);
+            ptr::null_mut()
         }
     }
 
     /// Free small/medium memory
     fn free_small_medium(&self, ptr: *mut u8) {
-        // First, find which arena contains this pointer and get the size and alloc_id
         let info = self.find_allocation_info(ptr);
 
         if let Some((size, alloc_id)) = info {
-            // Remove the allocation ID from the active set before quarantining
-            self.remove_active_alloc_id(ptr, alloc_id);
-
-            // Now quarantine with the size we captured earlier (no locks held)
+            log::trace!("[gheap] free_small_medium({:p}) size={} id={} -> quarantined", ptr, size, alloc_id);
             self.quarantine_block_with_size(ptr, size);
+        } else {
+            // Pointer is in arena address range (passed is_pointer_from_our_allocator)
+            // but header lookup failed. This is the exact scenario that caused the
+            // crash loop in the previous version -- log it prominently.
+            log::warn!("[gheap] free_small_medium({:p}) -> header not found, silently ignored (corruption tolerance)", ptr);
         }
-        // If lookup failed, treat as invalid free and ignore (corruption tolerance)
     }
 
     /// Free large memory
@@ -530,35 +618,33 @@ impl GameHeap {
         let mut large_objects = self.large_objects.lock();
         let current_epoch = self.current_epoch.load(Ordering::Relaxed);
 
-        if large_objects.contains_key(&RawPtr(ptr)) {
-            // Mark for later freeing instead of immediate free
-            // This maintains corruption tolerance
-            // Large objects are only freed during explicit purge
-            if let Some(large_obj) = large_objects.get_mut(&RawPtr(ptr)) {
-                large_obj.in_use = false;  // Mark as not in use anymore
-                large_obj.marked_for_free = true;  // Mark for purge
-                large_obj.marked_epoch = current_epoch;  // Record when it was marked
-            }
+        if let Some(large_obj) = large_objects.get_mut(&RawPtr(ptr)) {
+            let size = large_obj.size;
+            large_obj.in_use = false;
+            large_obj.marked_for_free = true;
+            large_obj.marked_epoch = current_epoch;
+            log::trace!("[gheap] free_large({:p}) size={} -> marked for purge at epoch {}", ptr, size, current_epoch);
+        } else {
+            log::warn!("[gheap] free_large({:p}) -> not in large_objects map, ignored", ptr);
         }
-        // If ptr not found, treat as invalid free and ignore (corruption tolerance)
     }
 
-    /// Quarantine a block (store only pointer and epoch)
+    /// Quarantine a freed block: record it for epoch-based cleanup.
+    /// Memory stays in the arena so stale pointers remain readable until purged.
     fn quarantine_block_with_size(&self, ptr: *mut u8, size: usize) {
         let current_epoch = self.current_epoch.load(Ordering::Relaxed);
         let mut quarantine = self.quarantine.lock();
 
-        // Enforce quarantine capacity limit to prevent unbounded growth
-        if quarantine.len() >= QUARANTINE_CAPACITY {
-            quarantine.pop_front(); // forget oldest entry
-        }
+        if quarantine.len() >= QUARANTINE_CAPACITY
+            && let Some(evicted) = quarantine.pop_front() {
+                log::debug!("[gheap] quarantine full (cap={}), evicted {:p} from epoch {}", QUARANTINE_CAPACITY, evicted.ptr.0, evicted.epoch);
+            }
 
         quarantine.push_back(QuarantinedBlock {
             ptr: RawPtr(ptr),
             epoch: current_epoch,
         });
 
-        // Update statistics atomically without blocking the core path
         self.stats.quarantined_blocks.fetch_add(1, Ordering::Relaxed);
         self.stats.total_freed.fetch_add(size, Ordering::Relaxed);
     }
@@ -571,20 +657,30 @@ impl GameHeap {
 
     /// Find the allocation info (size and alloc_id) by reading the header stored before the pointer
     fn find_allocation_info(&self, ptr: *mut u8) -> Option<(usize, u32)> {
+        let header_size = std::mem::size_of::<AllocHeader>();
+        let ptr_addr = ptr as usize;
+
         // Search in small arenas
         {
             let arenas = self.small_arenas.lock();
             for arena in arenas.iter() {
-                if arena.is_valid_arena_ptr(ptr) {
-                    // Read the actual size from the header before the user pointer
-                    let header_ptr = unsafe { ptr.sub(std::mem::size_of::<AllocHeader>()) };
-                    let header = unsafe { &*(header_ptr as *const AllocHeader) };
-                    let size = header.size as usize;
-                    // Sanity check: validate that the size is reasonable
-                    if size == 0 || size > arena.size_class {
-                        return None; // Header is corrupted, return None
+                if arena.contains_ptr(ptr) {
+                    let base_addr = arena.base_ptr.0 as usize;
+
+                    if ptr_addr >= base_addr + header_size {
+                        let header_addr = ptr_addr - header_size;
+
+                        if header_addr + header_size <= base_addr + arena.used_size {
+                            let header = unsafe { &*(header_addr as *const AllocHeader) };
+                            let size = header.size as usize;
+
+                            if size == 0 {
+                                log::warn!("[gheap] find_allocation_info({:p}) -> header size=0 in small arena {:p} class={}, corrupted", ptr, arena.base_ptr.0, arena.size_class);
+                                continue;
+                            }
+                            return Some((size, header.alloc_id));
+                        }
                     }
-                    return Some((size, header.alloc_id));
                 }
             }
         }
@@ -593,16 +689,23 @@ impl GameHeap {
         {
             let arenas = self.medium_arenas.lock();
             for arena in arenas.iter() {
-                if arena.is_valid_arena_ptr(ptr) {
-                    // Read the actual size from the header before the user pointer
-                    let header_ptr = unsafe { ptr.sub(std::mem::size_of::<AllocHeader>()) };
-                    let header = unsafe { &*(header_ptr as *const AllocHeader) };
-                    let size = header.size as usize;
-                    // Sanity check: validate that the size is reasonable
-                    if size == 0 || size > arena.size_class {
-                        return None; // Header is corrupted, return None
+                if arena.contains_ptr(ptr) {
+                    let base_addr = arena.base_ptr.0 as usize;
+
+                    if ptr_addr >= base_addr + header_size {
+                        let header_addr = ptr_addr - header_size;
+
+                        if header_addr + header_size <= base_addr + arena.used_size {
+                            let header = unsafe { &*(header_addr as *const AllocHeader) };
+                            let size = header.size as usize;
+
+                            if size == 0 {
+                                log::warn!("[gheap] find_allocation_info({:p}) -> header size=0 in medium arena {:p} class={}, corrupted", ptr, arena.base_ptr.0, arena.size_class);
+                                continue;
+                            }
+                            return Some((size, header.alloc_id));
+                        }
                     }
-                    return Some((size, header.alloc_id));
                 }
             }
         }
@@ -615,29 +718,78 @@ impl GameHeap {
         self.find_allocation_info(ptr).map(|(size, _)| size)
     }
 
-    /// Remove an allocation ID from the active set when quarantining
-    fn remove_active_alloc_id(&self, ptr: *mut u8, alloc_id: u32) {
+    /// Update the size in the allocation header
+    fn update_allocation_size(&self, ptr: *mut u8, new_size: u32) {
         // Search in small arenas
         {
-            let mut arenas = self.small_arenas.lock();
-            for arena in arenas.iter_mut() {
-                if arena.contains_ptr(ptr) {  // Use contains_ptr, not is_valid_arena_ptr to avoid recursion
-                    arena.active_alloc_ids.remove(&alloc_id);
-                    return;
+            let arenas = self.small_arenas.lock();
+            for arena in arenas.iter() {
+                if arena.contains_ptr(ptr) {
+                    let ptr_addr = ptr as usize;
+                    let base_addr = arena.base_ptr.0 as usize;
+                    let header_size = std::mem::size_of::<AllocHeader>();
+
+                    if ptr_addr >= base_addr + header_size {
+                        let header_ptr = (ptr_addr - header_size) as *const u8;
+                        let header_addr = header_ptr as usize;
+
+                        if header_addr >= base_addr && header_addr + header_size <= base_addr + arena.used_size {
+                            unsafe {
+                                let header = &mut *((header_ptr as *const AllocHeader) as *mut AllocHeader);
+                                header.size = new_size;
+                            }
+                        }
+                    }
                 }
             }
         }
 
         // Search in medium arenas
         {
-            let mut arenas = self.medium_arenas.lock();
-            for arena in arenas.iter_mut() {
-                if arena.contains_ptr(ptr) {  // Use contains_ptr, not is_valid_arena_ptr to avoid recursion
-                    arena.active_alloc_ids.remove(&alloc_id);
-                    return;
+            let arenas = self.medium_arenas.lock();
+            for arena in arenas.iter() {
+                if arena.contains_ptr(ptr) {
+                    let ptr_addr = ptr as usize;
+                    let base_addr = arena.base_ptr.0 as usize;
+                    let header_size = std::mem::size_of::<AllocHeader>();
+
+                    if ptr_addr >= base_addr + header_size {
+                        let header_ptr = (ptr_addr - header_size) as *const u8;
+                        let header_addr = header_ptr as usize;
+
+                        if header_addr >= base_addr && header_addr + header_size <= base_addr + arena.used_size {
+                            unsafe {
+                                let header = &mut *((header_ptr as *const AllocHeader) as *mut AllocHeader);
+                                header.size = new_size;
+                            }
+                        }
+                    }
                 }
             }
         }
+    }
+
+    /// Try to reallocate in place if possible (fast path for bump allocation growth)
+    fn try_realloc_in_place(&self, ptr: *mut u8, current_size: usize, new_size: usize) -> Option<*mut u8> {
+        {
+            let mut arenas = self.small_arenas.lock();
+            for arena in arenas.iter_mut() {
+                if arena.contains_ptr(ptr) {
+                    return arena.try_grow_allocation(ptr, current_size, new_size);
+                }
+            }
+        }
+
+        {
+            let mut arenas = self.medium_arenas.lock();
+            for arena in arenas.iter_mut() {
+                if arena.contains_ptr(ptr) {
+                    return arena.try_grow_allocation(ptr, current_size, new_size);
+                }
+            }
+        }
+
+        None
     }
 
     /// Check if a pointer is from a large object allocation
@@ -722,19 +874,25 @@ pub fn get_game_heap() -> Option<Arc<GameHeap>> {
 /// Allocate memory (matches engine API)
 pub fn gheap_alloc(size: usize) -> *mut c_void {
     let heap = init_game_heap();
-    heap.alloc(size) as *mut c_void
+    let result = heap.alloc(size) as *mut c_void;
+    if result.is_null() && size > 0 {
+        log::warn!("[gheap] alloc({}) -> NULL", size);
+    } else {
+        log::trace!("[gheap] alloc({}) -> {:p}", size, result);
+    }
+    result
 }
 
 /// Reallocate memory (matches engine API)
 /// Returns Some(result) if our allocator handled it, None if original function should be called
 pub fn gheap_realloc(ptr: *mut c_void, size: usize) -> Option<*mut c_void> {
     let heap = init_game_heap();
-    // Check if this pointer belongs to our allocator
     if is_pointer_from_our_allocator(ptr) {
         let result = heap.realloc(ptr as *mut u8, size) as *mut c_void;
+        log::trace!("[gheap] realloc({:p}, {}) -> {:p}", ptr, size, result);
         Some(result)
     } else {
-        // Pointer was allocated before our allocator was initialized
+        log::trace!("[gheap] realloc({:p}, {}) -> FALLBACK (not ours)", ptr, size);
         None
     }
 }
@@ -743,12 +901,12 @@ pub fn gheap_realloc(ptr: *mut c_void, size: usize) -> Option<*mut c_void> {
 /// Returns true if our allocator handled it, false if original function should be called
 pub fn gheap_free(ptr: *mut c_void) -> bool {
     let heap = init_game_heap();
-    // Check if this pointer belongs to our allocator
     if is_pointer_from_our_allocator(ptr) {
         heap.free(ptr as *mut u8);
+        log::trace!("[gheap] free({:p}) -> handled", ptr);
         true
     } else {
-        // Pointer was allocated before our allocator was initialized
+        log::trace!("[gheap] free({:p}) -> FALLBACK (not ours)", ptr);
         false
     }
 }
@@ -757,12 +915,12 @@ pub fn gheap_free(ptr: *mut c_void) -> bool {
 /// Returns Some(size) if our allocator handled it, None if original function should be called
 pub fn gheap_msize(ptr: *mut c_void) -> Option<usize> {
     let heap = init_game_heap();
-    // Check if this pointer belongs to our allocator
     if is_pointer_from_our_allocator(ptr) {
         let size = heap.msize(ptr as *mut u8);
+        log::trace!("[gheap] msize({:p}) -> {}", ptr, size);
         Some(size)
     } else {
-        // Pointer was allocated before our allocator was initialized
+        log::trace!("[gheap] msize({:p}) -> FALLBACK (not ours)", ptr);
         None
     }
 }

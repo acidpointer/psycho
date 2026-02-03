@@ -44,7 +44,7 @@ pub extern "system" fn DllMain(hmodule: HINSTANCE, reason: u32, _reserved: LPVOI
         // Initialize logger with both console and file output
         Logger::new()
             .with_file_rotating("./psycho-nvse-latest.log")
-            .with_level(log::LevelFilter::Debug)
+            .with_level(log::LevelFilter::Trace)
             .init()
             .expect("Failed to initialize logger");
     });

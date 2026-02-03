@@ -7,8 +7,6 @@ pub(super) unsafe extern "fastcall" fn game_heap_allocate(
     _edx: *mut c_void,
     size: usize,
 ) -> *mut c_void {
-    //let result = GAME_HEAP.malloc(size);
-
     let result = gheap::gheap_alloc(size);
     if result.is_null() && size > 0 {
         log::error!("game_heap_allocate: Allocation failed: size={}", size);

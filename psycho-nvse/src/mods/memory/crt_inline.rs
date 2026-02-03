@@ -61,7 +61,12 @@ unsafe extern "C" fn hook_malloc(size: usize) -> *mut c_void {
 }
 
 unsafe extern "C" fn hook_calloc(count: usize, size: usize) -> *mut c_void {
-    let total_size = count * size;
+    // Check for multiplication overflow
+    let total_size = match count.checked_mul(size) {
+        Some(size) => size,
+        None => return std::ptr::null_mut(), // Overflow occurred
+    };
+
     let result = gheap::gheap_alloc(total_size);
 
     // Zero out the allocated memory (calloc behavior)
@@ -108,7 +113,11 @@ unsafe extern "C" fn hook_recalloc(
     count: usize,
     size: usize,
 ) -> *mut c_void {
-    let new_size = count * size;
+    // Check for multiplication overflow
+    let new_size = match count.checked_mul(size) {
+        Some(size) => size,
+        None => return std::ptr::null_mut(), // Overflow occurred
+    };
 
     // Use realloc to resize, then zero out the new portion
     match gheap::gheap_realloc(raw_ptr, new_size) {
