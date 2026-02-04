@@ -119,15 +119,15 @@ unsafe extern "C" fn hook_recalloc(
         None => return std::ptr::null_mut(), // Overflow occurred
     };
 
-    // Use realloc to resize, then zero out the new portion
+    // Read old size BEFORE realloc: in-place grow updates the header,
+    // so gheap_msize after realloc would return new_size and skip zeroing.
+    let old_size = gheap::gheap_msize(raw_ptr).unwrap_or(0);
+
     match gheap::gheap_realloc(raw_ptr, new_size) {
         Some(result) => {
-            // Zero out the new portion if expanding
-            let old_size = gheap::gheap_msize(raw_ptr).unwrap_or(0);
             if new_size > old_size {
                 unsafe {
-                    let new_ptr = result.add(old_size);
-                    std::ptr::write_bytes(new_ptr, 0, new_size - old_size);
+                    std::ptr::write_bytes(result.add(old_size), 0, new_size - old_size);
                 }
             }
             result
