@@ -49,9 +49,6 @@ const HEAP_INACTIVITY_THRESHOLD: u64 = 500000;
 /// Page shift for 4KB pages (2^12 = 4096)
 const PAGE_SHIFT: usize = 12;
 
-/// Page size in bytes
-const PAGE_SIZE: usize = 1 << PAGE_SHIFT;
-
 /// Contiguous memory region with bump allocation.
 ///
 /// Allocations advance a pointer forward. Memory is reclaimed
@@ -140,19 +137,7 @@ impl Region {
             None => false,
         }
     }
-
-    /// Checks if pointer belongs to this region.
-    fn contains(&self, ptr: *const u8) -> bool {
-        let addr = ptr as usize;
-        let start_addr = self.start.as_ptr() as usize;
-        let end_addr = match start_addr.checked_add(self.capacity) {
-            Some(end) => end,
-            None => return false,
-        };
-
-        addr >= start_addr && addr < end_addr
-    }
-
+    
     /// Resets region for reuse.
     ///
     /// Called during purge to reclaim all memory in this region.
@@ -167,19 +152,6 @@ impl Region {
         } else {
             self.empty_cycles = 0;
         }
-    }
-
-    /// Checks if region should be deallocated.
-    fn should_deallocate(&self) -> bool {
-        self.offset == 0 && self.empty_cycles >= EMPTY_THRESHOLD
-    }
-
-    /// Returns percentage of used capacity.
-    fn utilization(&self) -> f32 {
-        if self.capacity == 0 {
-            return 0.0;
-        }
-        (self.offset as f32 / self.capacity as f32) * 100.0
     }
 }
 
