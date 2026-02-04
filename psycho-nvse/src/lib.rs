@@ -5,10 +5,10 @@
 //!
 //! At the moment, arhitecture of this plugin is unstable and may significantly change.
 
-use libmimalloc::MiMalloc;
+// use libmimalloc::MiMalloc;
 
-#[global_allocator]
-static GLOBAL: MiMalloc = MiMalloc;
+// #[global_allocator]
+// static GLOBAL: MiMalloc = MiMalloc;
 
 mod plugininfo;
 mod entry;

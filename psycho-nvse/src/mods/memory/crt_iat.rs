@@ -10,65 +10,43 @@ use libpsycho::os::windows::{
     winapi::get_module_handle_a,
 };
 
-pub static MALLOC_IAT_HOOK: LazyLock<IatHookContainer<MallocFn>> = LazyLock::new(IatHookContainer::new);
-pub static CALLOC_IAT_HOOK: LazyLock<IatHookContainer<CallocFn>> = LazyLock::new(IatHookContainer::new);
+pub static MALLOC_IAT_HOOK: LazyLock<IatHookContainer<MallocFn>> =
+    LazyLock::new(IatHookContainer::new);
+pub static CALLOC_IAT_HOOK: LazyLock<IatHookContainer<CallocFn>> =
+    LazyLock::new(IatHookContainer::new);
 pub static REALLOC_IAT_HOOK: LazyLock<IatHookContainer<ReallocFn>> =
     LazyLock::new(IatHookContainer::new);
 pub static RECALLOC_IAT_HOOK: LazyLock<IatHookContainer<RecallocFn>> =
     LazyLock::new(IatHookContainer::new);
-pub static MSIZE_IAT_HOOK: LazyLock<IatHookContainer<MsizeFn>> = LazyLock::new(IatHookContainer::new);
+pub static MSIZE_IAT_HOOK: LazyLock<IatHookContainer<MsizeFn>> =
+    LazyLock::new(IatHookContainer::new);
 pub static FREE_IAT_HOOK: LazyLock<IatHookContainer<FreeFn>> = LazyLock::new(IatHookContainer::new);
-
 
 // Hook implementations - redirect to mimalloc
 pub unsafe extern "C" fn hook_malloc(size: usize) -> *mut c_void {
-    let result = unsafe { mi_malloc(size) };
-    log::trace!("malloc({}) -> {:p} [iat]", size, result);
-    result
+    unsafe { mi_malloc(size) }
 }
 
 pub unsafe extern "C" fn hook_calloc(count: usize, size: usize) -> *mut c_void {
-    let result = unsafe { mi_calloc(count, size) };
-    log::trace!("calloc({}, {}) -> {:p} [iat]", count, size, result);
-    result
+    unsafe { mi_calloc(count, size) }
 }
 
 pub unsafe extern "C" fn hook_realloc(raw_ptr: *mut c_void, size: usize) -> *mut c_void {
     if raw_ptr.is_null() {
         // Realloc with null pointer is same as malloc
-        let result = unsafe { mi_malloc(size) };
-
-        log::trace!("realloc(null, {}) -> {:p} [iat]", size, result);
-
-        return result;
+        return unsafe { mi_malloc(size) };
     }
 
     let is_mimalloc = unsafe { mi_is_in_heap_region(raw_ptr) };
 
     if is_mimalloc {
-        let result = unsafe { mi_realloc(raw_ptr, size) };
-
-        log::trace!("realloc({:p}, {}) -> {:p} [iat]", raw_ptr, size, result);
-
-        return result;
+        return unsafe { mi_realloc(raw_ptr, size) };
     }
 
     // Fallback: try with original realloc
     if let Ok(original_realloc) = REALLOC_IAT_HOOK.original() {
-        let result = unsafe { original_realloc(raw_ptr, size) };
-        log::trace!(
-            "realloc({:p}, {}) -> {:p} [iat-fallback]",
-            raw_ptr,
-            size,
-            result
-        );
-        result
+        unsafe { original_realloc(raw_ptr, size) }
     } else {
-        log::trace!(
-            "realloc({:p}, {}) -> null [no fallback available]",
-            raw_ptr,
-            size
-        );
         std::ptr::null_mut()
     }
 }
@@ -80,46 +58,25 @@ pub unsafe extern "C" fn hook_recalloc(
 ) -> *mut c_void {
     if raw_ptr.is_null() {
         // Recalloc with null pointer is same as calloc
-        let result = unsafe { mi_calloc(count, size) };
-
-        log::trace!("recalloc(null, {}) -> {:p} [iat]", size, result);
-
-        return result;
+        return unsafe { mi_calloc(count, size) };
     }
 
     let is_mimalloc = unsafe { mi_is_in_heap_region(raw_ptr) };
 
     if is_mimalloc {
-        let result = unsafe { mi_recalloc(raw_ptr, count, size) };
-
-        log::trace!("recalloc({:p}, {}) -> {:p} [iat]", raw_ptr, size, result);
-
-        return result;
+        return unsafe { mi_recalloc(raw_ptr, count, size) };
     }
 
     // Fallback: try with original realloc
     if let Ok(original_realloc) = RECALLOC_IAT_HOOK.original() {
-        let result = unsafe { original_realloc(raw_ptr, count, size) };
-        log::trace!(
-            "recalloc({:p}, {}) -> {:p} [iat-fallback]",
-            raw_ptr,
-            size,
-            result
-        );
-        result
+        unsafe { original_realloc(raw_ptr, count, size) }
     } else {
-        log::trace!(
-            "recalloc({:p}, {}) -> null [no fallback available]",
-            raw_ptr,
-            size
-        );
         std::ptr::null_mut()
     }
 }
 
 pub unsafe extern "C" fn hook_msize(raw_ptr: *mut c_void) -> usize {
     if raw_ptr.is_null() {
-        log::trace!("_msize(null) -> 0 [iat]");
         return 0;
     }
 
@@ -127,15 +84,12 @@ pub unsafe extern "C" fn hook_msize(raw_ptr: *mut c_void) -> usize {
 
     if is_mimalloc {
         let size = unsafe { mi_usable_size(raw_ptr) };
-        log::trace!("_msize({:p}) -> {} [iat-mimalloc]", raw_ptr, size);
 
         return size;
     }
 
     if let Ok(original_msize) = MSIZE_IAT_HOOK.original() {
-        let result = unsafe { original_msize(raw_ptr) };
-        log::trace!("_msize({:p}) -> {} [iat-original]", raw_ptr, result);
-        result
+        unsafe { original_msize(raw_ptr) }
     } else {
         log::warn!("_msize({:p}) -> 0 [no fallback available]", raw_ptr);
         0
@@ -144,7 +98,6 @@ pub unsafe extern "C" fn hook_msize(raw_ptr: *mut c_void) -> usize {
 
 pub unsafe extern "C" fn hook_free(raw_ptr: *mut c_void) {
     if raw_ptr.is_null() {
-        log::trace!("free(null) [iat-ignored]");
         return;
     }
 
@@ -152,13 +105,11 @@ pub unsafe extern "C" fn hook_free(raw_ptr: *mut c_void) {
 
     if is_mimalloc {
         unsafe { mi_free(raw_ptr) }
-        log::trace!("free({:p}) [mimalloc]", raw_ptr);
 
         return;
     }
 
     if let Ok(original_free) = FREE_IAT_HOOK.original() {
-        log::trace!("free({:p}) [iat-original]", raw_ptr);
         unsafe { original_free(raw_ptr) }
     } else {
         log::warn!(

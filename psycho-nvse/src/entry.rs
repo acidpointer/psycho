@@ -171,36 +171,7 @@ pub unsafe extern "C" fn NVSEPlugin_Load(nvse: *const NVSEInterfaceFFI) -> BOOL 
 fn start(nvse_ptr: *const NVSEInterfaceFFI) -> anyhow::Result<()> {
     log::info!("start() called!");
 
-    let mut nvse_interface = NVSEInterface::from_raw(nvse_ptr)?;
-
-    let msg_interface = nvse_interface.messaging_interface_mut();
-
-    // See, you can use closures for registering listeners for NVSEMessagingInterface!
-    msg_interface.register_listener("NVSE", |msg| {
-        let msg_type = msg.get_type();
-
-        if msg_type == NVSEMessageType::MainGameLoop
-            || msg_type == NVSEMessageType::OnFramePresent
-            || msg_type == NVSEMessageType::ScriptCompile
-            || msg_type == NVSEMessageType::EventListDestroyed
-            || msg_type == NVSEMessageType::ScriptPrecompile
-        {
-            return;
-        }
-
-        log::debug!("Message received: {}", msg.get_type());
-
-        if msg.get_type() == NVSEMessageType::DeferredInit {
-            match show_message_box("psycho-nvse loaded! Have FUN!", "YUP", || {
-                log::info!("YES! BUTTON PRESSED!!!!")
-            }) {
-                Ok(_) => {}
-                Err(err) => {
-                    log::error!("show_message_box error: {:?}", err);
-                }
-            }
-        }
-    })?;
+    let nvse_interface = NVSEInterface::from_raw(nvse_ptr)?;
 
     install_zlib_hooks(&nvse_interface)?;
 

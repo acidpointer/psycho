@@ -1,51 +1,46 @@
-//! Game heap hook implementations.
-//!
-//! Replaces the game's primary heap allocator with MiMalloc.
-//! Falls back to original implementation for pre-hook allocations.
-
-use std::sync::LazyLock;
-
 use libc::c_void;
-use libmimalloc::{heap::MiHeap, mi_free, mi_is_in_heap_region, mi_usable_size};
 
-static GAME_HEAP: LazyLock<MiHeap> = LazyLock::new(MiHeap::new);
+use crate::mods::memory::gheap;
 
 pub(super) unsafe extern "fastcall" fn game_heap_allocate(
     _self: *mut c_void,
     _edx: *mut c_void,
     size: usize,
 ) -> *mut c_void {
-    GAME_HEAP.malloc(size)
+    let result = gheap::gheap_alloc(size);
+    if result.is_null() && size > 0 {
+        log::error!("game_heap_allocate: Allocation failed: size={}", size);
+    }
+
+    result
 }
 
 pub(super) unsafe extern "fastcall" fn game_heap_reallocate(
     self_ptr: *mut c_void,
     edx: *mut c_void,
-    addr: *mut c_void,
+    ptr: *mut c_void,
     size: usize,
 ) -> *mut c_void {
-    if addr.is_null() {
-        return GAME_HEAP.malloc(size);
+    if ptr.is_null() {
+        return gheap::gheap_alloc(size);
     }
 
-    if unsafe { mi_is_in_heap_region(addr) } {
-        if size == 0 {
-            unsafe { mi_free(addr) };
-            return std::ptr::null_mut();
-        }
-
-        return GAME_HEAP.realloc(addr, size);
-    }
-
-    match super::GAME_HEAP_REALLOCATE_HOOK_1.original() {
-        Ok(orig_realloc) => unsafe { orig_realloc(self_ptr, edx, addr, size) },
-        Err(err) => {
-            log::error!(
-                "game_heap_reallocate: Failed to call original for {:p}: {:?}",
-                addr,
-                err
-            );
-            std::ptr::null_mut()
+    // Try our allocator first
+    match gheap::gheap_realloc(ptr, size) {
+        Some(result) => result,  // Our allocator handled it
+        None => {
+            // Our allocator doesn't recognize this pointer, use original
+            match super::GAME_HEAP_REALLOCATE_HOOK_1.original() {
+                Ok(orig_realloc) => unsafe { orig_realloc(self_ptr, edx, ptr, size) },
+                Err(err) => {
+                    log::error!(
+                        "game_heap_reallocate: Failed to call original for {:p}: {:?}",
+                        ptr,
+                        err
+                    );
+                    std::ptr::null_mut()
+                }
+            }
         }
     }
 }
@@ -53,55 +48,60 @@ pub(super) unsafe extern "fastcall" fn game_heap_reallocate(
 pub(super) unsafe extern "fastcall" fn game_heap_msize(
     self_ptr: *mut c_void,
     edx: *mut c_void,
-    addr: *mut c_void,
+    ptr: *mut c_void,
 ) -> usize {
-    if addr.is_null() {
-        return 0;
-    }
-
-    let is_mimalloc = unsafe { mi_is_in_heap_region(addr) };
-
-    if is_mimalloc {
-        return unsafe { mi_usable_size(addr) };
-    }
-
-    match super::GAME_HEAP_MSIZE_HOOK.original() {
-        Ok(orig_msize) => unsafe { orig_msize(self_ptr, edx, addr) },
-        Err(err) => {
-            log::error!(
-                "game_heap_msize: Failed to call original for {:p}: {:?}",
-                addr,
-                err
-            );
-            0
+    // Try our allocator first
+    match gheap::gheap_msize(ptr) {
+        Some(size) => size,  // Our allocator handled it
+        None => {
+            // Our allocator doesn't recognize this pointer, use original
+            match super::GAME_HEAP_MSIZE_HOOK.original() {
+                Ok(orig_msize) => unsafe { orig_msize(self_ptr, edx, ptr) },
+                Err(err) => {
+                    log::error!(
+                        "game_heap_msize: Failed to call original for {:p}: {:?}",
+                        ptr,
+                        err
+                    );
+                    0
+                }
+            }
         }
     }
 }
 
+
+
 pub(super) unsafe extern "fastcall" fn game_heap_free(
     self_ptr: *mut c_void,
     edx: *mut c_void,
-    addr: *mut c_void,
+    ptr: *mut c_void,
 ) {
-    if addr.is_null() {
+    // Research insight
+    // Did you know that if you call mi_collect/mi_heap_collect here,
+    // game will crash even not reach main menu!
+    // Funny, isnt it?
+
+
+    if ptr.is_null() {
         return;
     }
 
-    let is_mimalloc = unsafe { mi_is_in_heap_region(addr) };
-
-    if is_mimalloc {
-        unsafe { mi_free(addr) };
+    // Try our allocator first
+    if gheap::gheap_free(ptr) {
+        // Our allocator handled it
         return;
     }
 
+    // Our allocator doesn't recognize this pointer, use original
     match super::GAME_HEAP_FREE_HOOK.original() {
         Ok(orig_free) => {
-            unsafe { orig_free(self_ptr, edx, addr) };
+            unsafe { orig_free(self_ptr, edx, ptr) };
         }
         Err(err) => {
             log::error!(
                 "game_heap_free: Failed to call original for {:p}: {:?}",
-                addr,
+                ptr,
                 err
             );
         }

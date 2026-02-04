@@ -1,11 +1,7 @@
 [package]
 name = "libmimalloc"
 version = "0.1.42"
-authors = [
-  "Octavian Oncescu <octavonce@gmail.com>",
-  "stillflow500 <stillflow500@proton.me>",
-]
-edition = "2018"
+edition = "2024"
 description = "Sys crate wrapping the mimalloc allocator"
 repository = "https://github.com/purpleprotocol/mimalloc_rust/tree/master/libmimalloc-sys"
 license = "MIT"
@@ -40,7 +36,7 @@ cc = "1.0"
 arena = []
 debug = []
 debug_in_debug = []
-default = ["extended", "arena"]
+default = ["extended", "arena", "local_dynamic_tls"]
 extended = ["cty"]
 local_dynamic_tls = []
 no_thp = []

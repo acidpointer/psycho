@@ -1154,3 +1154,67 @@ pub unsafe fn patch_bytes(ptr: *mut c_void, bytes: &[u8]) -> WinapiResult<()> {
     flush_instructions_cache(ptr, bytes.len())?;
     Ok(())
 }
+
+/// Check if the current process has the Large Address Aware (LAA) flag set
+///
+/// This reads the PE header from the current process's executable to determine
+/// if the IMAGE_FILE_LARGE_ADDRESS_AWARE flag (0x0020) is set in the characteristics field.
+///
+/// On 32-bit Windows:
+/// - Without LAA: Process limited to ~2GB address space
+/// - With LAA: Process can use ~3GB address space
+///
+/// On 64-bit Windows:
+/// - Without LAA: Process limited to ~2GB address space
+/// - With LAA: Process can use full 4GB address space
+///
+/// # Returns
+/// - `Ok(true)` if LAA flag is set
+/// - `Ok(false)` if LAA flag is not set
+/// - `Err` if unable to read PE header
+pub fn is_large_address_aware() -> WinapiResult<bool> {
+    // Get handle to the current process executable
+    let module_handle = get_module_handle_a(None)?;
+    let base_address = module_handle.as_ptr() as *const u8;
+
+    // Read DOS header
+    unsafe {
+        // Check DOS signature "MZ" (0x5A4D)
+        let dos_signature = std::ptr::read_unaligned(base_address as *const u16);
+        if dos_signature != 0x5A4D {
+            return Err(WinapiError::WindowsCore(
+                windows::core::Error::from_win32()
+            ));
+        }
+
+        // Read e_lfanew offset (at offset 0x3C in DOS header)
+        let e_lfanew_offset = std::ptr::read_unaligned(
+            base_address.add(0x3C) as *const u32
+        );
+
+        // Get PE header address
+        let pe_header = base_address.add(e_lfanew_offset as usize);
+
+        // Check PE signature "PE\0\0" (0x00004550)
+        let pe_signature = std::ptr::read_unaligned(pe_header as *const u32);
+        if pe_signature != 0x00004550 {
+            return Err(WinapiError::WindowsCore(
+                windows::core::Error::from_win32()
+            ));
+        }
+
+        // Read Characteristics field from COFF File Header
+        // PE signature is 4 bytes, then COFF header starts
+        // Characteristics is at offset 18 (0x12) in COFF header
+        let characteristics_offset = pe_header.add(4 + 0x12);
+        let characteristics = std::ptr::read_unaligned(
+            characteristics_offset as *const u16
+        );
+
+        // IMAGE_FILE_LARGE_ADDRESS_AWARE = 0x0020
+        const IMAGE_FILE_LARGE_ADDRESS_AWARE: u16 = 0x0020;
+        let is_laa = (characteristics & IMAGE_FILE_LARGE_ADDRESS_AWARE) != 0;
+
+        Ok(is_laa)
+    }
+}
