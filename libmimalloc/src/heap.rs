@@ -14,6 +14,13 @@ pub struct MiHeap {
     heap_ptr: *mut mi_heap_t,
 }
 
+impl Drop for MiHeap {
+    fn drop(&mut self) {
+        log::debug!("[MIMALLOC] Drop for heap: {:p}", self.heap_ptr);
+        self.heap_delete();
+    }
+}
+
 unsafe impl Send for MiHeap {}
 unsafe impl Sync for MiHeap {}
 

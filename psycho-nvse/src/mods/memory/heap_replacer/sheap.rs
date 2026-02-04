@@ -1,18 +1,30 @@
 //! Epoch-based region allocator for temporary allocations.
 //!
+//! This is intentional: individual frees do NOT reclaim memory.
+//! All reclamation happens at purge time when the epoch ends.
+//! 
 //! Design philosophy:
 //! - Allocations are fast: O(1) bump pointer
 //! - Frees are no-ops: O(1) validation only
 //! - Memory is reclaimed only during purge (epoch boundary)
-//!
-//! This is intentional: individual frees do NOT reclaim memory.
-//! All reclamation happens at purge time when the epoch ends.
+//! 
+//! Technical details:
+//! - Fast hashmaps with ahash hasher for performance reasons
+//! - ScrapHeap instances are thread local
+//! - Tick counter is global for ALL instances(from other threads too)
+//! - MiMalloc heap used as baking heap
+//! - Heap corruption tolerance - theoretical atm(scrap heap is thread local)
+//! - Automated cleanup of dead heaps
+
+
 
 use ahash::AHashMap;
 use libc::c_void;
 use libmimalloc::heap::MiHeap;
+use std::cell::RefCell;
 use std::ptr::NonNull;
 use std::sync::LazyLock;
+use std::sync::atomic::{AtomicU64, Ordering};
 
 /// Default region size: 256 KB
 ///
@@ -48,6 +60,9 @@ const HEAP_INACTIVITY_THRESHOLD: u64 = 500000;
 
 /// Page shift for 4KB pages (2^12 = 4096)
 const PAGE_SHIFT: usize = 12;
+
+/// Special MiHeap instance for fallback allocations
+static MI_HEAP_FALLBACK: LazyLock<MiHeap> = LazyLock::new(MiHeap::new);
 
 /// Contiguous memory region with bump allocation.
 ///
@@ -93,51 +108,33 @@ impl Region {
     /// Allocates memory with specified size and alignment.
     ///
     /// Returns None if insufficient space remains.
+    #[inline]
     fn allocate(&mut self, size: usize, align: usize) -> Option<NonNull<u8>> {
-        let current_addr = (self.start.as_ptr() as usize).checked_add(self.offset)?;
-        let aligned_addr = align_up(current_addr, align)?;
-        let padding = aligned_addr.checked_sub(current_addr)?;
-        let total_size = padding.checked_add(size)?;
+        let current_addr = self.start.as_ptr() as usize + self.offset;
+        let aligned_addr = align_up(current_addr, align);
+        let new_offset = self.offset + (aligned_addr - current_addr) + size;
 
-        if self.offset.checked_add(total_size)? > self.capacity {
+        if new_offset > self.capacity {
             return None;
         }
 
-        self.offset = self.offset.checked_add(total_size)?;
-        self.alloc_count = self.alloc_count.checked_add(1)?;
+        self.offset = new_offset;
+        self.alloc_count += 1;
         self.empty_cycles = 0;
 
+        // aligned_addr is within [start, start+capacity) which is a valid allocation from the backing heap.
         NonNull::new(aligned_addr as *mut u8)
     }
 
-    /// Checks if region can satisfy an allocation request.
-    fn has_capacity_for(&self, size: usize, align: usize) -> bool {
-        let current_addr = match (self.start.as_ptr() as usize).checked_add(self.offset) {
-            Some(addr) => addr,
-            None => return false,
-        };
-
-        let aligned_addr = match align_up(current_addr, align) {
-            Some(addr) => addr,
-            None => return false,
-        };
-
-        let padding = match aligned_addr.checked_sub(current_addr) {
-            Some(p) => p,
-            None => return false,
-        };
-
-        let total_size = match padding.checked_add(size) {
-            Some(s) => s,
-            None => return false,
-        };
-
-        match self.offset.checked_add(total_size) {
-            Some(new_offset) => new_offset <= self.capacity,
-            None => false,
-        }
+    /// Returns the half-open page range [start_page, end_page) this region spans.
+    #[inline]
+    fn page_range(&self) -> std::ops::Range<usize> {
+        let start_addr = self.start.as_ptr() as usize;
+        let start_page = start_addr >> PAGE_SHIFT;
+        let end_page = (start_addr + self.capacity - 1) >> PAGE_SHIFT;
+        start_page..end_page + 1
     }
-    
+
     /// Resets region for reuse.
     ///
     /// Called during purge to reclaim all memory in this region.
@@ -163,7 +160,10 @@ impl Drop for Region {
     }
 }
 
+// Safety: ScrapHeap is thread_local, region lives on single thread, so no issues
 unsafe impl Send for Region {}
+
+// Safety: ScrapHeap is thread_local, region lives on single thread, so no issues
 unsafe impl Sync for Region {}
 
 /// Epoch-based allocator managing multiple memory regions.
@@ -229,10 +229,7 @@ impl ScrapHeap {
         }
 
         if align == 0 || !align.is_power_of_two() {
-            log::error!(
-                "Invalid alignment: {} (must be non-zero power of 2)",
-                align
-            );
+            log::error!("Invalid alignment: {} (must be non-zero power of 2)", align);
             return std::ptr::null_mut();
         }
 
@@ -240,10 +237,11 @@ impl ScrapHeap {
 
         // Try active region first
         if let Some(region) = self.regions.get_mut(self.active_index)
-            && let Some(ptr) = region.allocate(size, align) {
-                self.total_allocs += 1;
-                return ptr.as_ptr() as *mut c_void;
-            }
+            && let Some(ptr) = region.allocate(size, align)
+        {
+            self.total_allocs += 1;
+            return ptr.as_ptr() as *mut c_void;
+        }
 
         // Find or create a region with capacity
         if let Some(ptr) = self.find_available_region(size, align) {
@@ -337,20 +335,7 @@ impl ScrapHeap {
         if deallocated > 0 {
             log::debug!("ScrapHeap: Deallocated {} regions", deallocated);
 
-            // Rebuild region map after removal (ALL indices after removal point shifted)
-            self.region_map.clear();
-            for (idx, region) in self.regions.iter().enumerate() {
-                let start_addr = region.start.as_ptr() as usize;
-                let end_addr = start_addr + region.capacity;
-
-                // Register all pages this region spans
-                let start_page = start_addr >> PAGE_SHIFT;
-                let end_page = (end_addr - 1) >> PAGE_SHIFT;
-
-                for page in start_page..=end_page {
-                    self.region_map.insert(page, idx);
-                }
-            }
+            self.rebuild_region_map();
         }
 
         // Set active index to first region, or 0 if no regions
@@ -395,6 +380,22 @@ impl ScrapHeap {
         self.region_map.get(&page_addr).copied()
     }
 
+    /// Inserts all pages spanned by `regions[idx]` into the page map.
+    fn register_region_pages(&mut self, idx: usize) {
+        for page in self.regions[idx].page_range() {
+            self.region_map.insert(page, idx);
+        }
+    }
+
+    /// Clears and fully rebuilds the page map from the current region list.
+    /// Must be called after any operation that shifts Vec indices (e.g. retain).
+    fn rebuild_region_map(&mut self) {
+        self.region_map.clear();
+        for idx in 0..self.regions.len() {
+            self.register_region_pages(idx);
+        }
+    }
+
     /// Searches for a region that can satisfy the request.
     ///
     /// Skips the active region as it was already tried.
@@ -404,11 +405,10 @@ impl ScrapHeap {
                 continue;
             }
 
-            if region.has_capacity_for(size, align)
-                && let Some(ptr) = region.allocate(size, align) {
-                    self.active_index = index;
-                    return Some(ptr.as_ptr() as *mut c_void);
-                }
+            if let Some(ptr) = region.allocate(size, align) {
+                self.active_index = index;
+                return Some(ptr.as_ptr() as *mut c_void);
+            }
         }
         None
     }
@@ -418,9 +418,9 @@ impl ScrapHeap {
         // Adaptive sizing: if we have many regions, double the region size
         // to reduce fragmentation. Cap at 4 MiB.
         let base_size = if self.regions.len() > 10 {
-            (REGION_SIZE * 2).min(4 * 1024 * 1024)  // 512 KB, max 4 MiB
+            (REGION_SIZE * 2).min(4 * 1024 * 1024) // 512 KB, max 4 MiB
         } else {
-            REGION_SIZE  // 256 KB
+            REGION_SIZE // 256 KB
         };
 
         let capacity = base_size.max(size.checked_add(align)?);
@@ -441,28 +441,19 @@ impl ScrapHeap {
         let ptr = region.allocate(size, align)?;
 
         let new_index = self.regions.len();
-        let start_addr = region.start.as_ptr() as usize;
-        let end_addr = start_addr.checked_add(capacity)?;
-
-        // Register all pages that this region spans for O(1) lookup
-        let start_page = start_addr >> PAGE_SHIFT;
-        let end_page = (end_addr - 1) >> PAGE_SHIFT;
-
-        for page in start_page..=end_page {
-            self.region_map.insert(page, new_index);
-        }
+        let page_count = region.page_range().len();
 
         self.regions.push(region);
+        self.register_region_pages(new_index);
         self.active_index = new_index;
 
-        // Only log first few region creations to avoid spam
         if self.regions.len() <= 3 {
             log::debug!(
                 "ScrapHeap: Created region #{} at {:p} (capacity: {} KB, pages: {})",
                 self.regions.len(),
-                start_addr as *const u8,
+                self.regions[new_index].start.as_ptr(),
                 capacity / 1024,
-                end_page - start_page + 1
+                page_count
             );
         }
 
@@ -484,54 +475,32 @@ pub struct HeapStats {
     pub invalid_frees: usize,
 }
 
-/// Aligns address upward to alignment boundary.
+/// Aligns address upward to the nearest `align` boundary.
 ///
-/// Returns None on overflow.
+/// `align` must be a non-zero power of two. Callers guarantee that `addr` is
+/// within a region whose capacity is bounded well below `usize::MAX`, so
+/// overflow is not possible.
 #[inline(always)]
-fn align_up(addr: usize, align: usize) -> Option<usize> {
+fn align_up(addr: usize, align: usize) -> usize {
     debug_assert!(align.is_power_of_two());
     debug_assert!(align > 0);
 
-    addr.checked_add(align - 1).map(|a| a & !(align - 1))
+    (addr + (align - 1)) & !(align - 1)
 }
 
 // ============================================================================
 // Public API - Per-Heap Instances with Lifecycle Management
 // ============================================================================
 
-use std::sync::atomic::{AtomicU64, Ordering};
-
 /// Global monotonic counter for heap activity tracking.
 static GLOBAL_TICK: AtomicU64 = AtomicU64::new(0);
 
-/// Global map of game heap pointers to ScrapHeap instances.
-///
-/// Each game heap MUST have isolated epochs. Pooling breaks this.
-/// Dead heaps are cleaned up periodically based on inactivity.
-static HEAPS: LazyLock<parking_lot::Mutex<AHashMap<usize, ScrapHeap>>> =
-    LazyLock::new(|| parking_lot::Mutex::new(AHashMap::new()));
-
-/// Gets or creates a ScrapHeap for the given game heap pointer.
-fn get_or_create_heap(
-    sheap_ptr: *mut c_void,
-) -> parking_lot::MutexGuard<'static, AHashMap<usize, ScrapHeap>> {
-    let mut heaps = HEAPS.lock();
-    let key = sheap_ptr as usize;
-
-    if !heaps.contains_key(&key) {
-        if heaps.len() >= MAX_HEAP_INSTANCES {
-            // Fallback: don't create, will return null from MiMalloc in alloc
-            log::warn!(
-                "ScrapHeap: Max heap instances ({}) reached, heap {:p} will use fallback allocator",
-                MAX_HEAP_INSTANCES,
-                sheap_ptr
-            );
-        } else {
-            heaps.insert(key, ScrapHeap::new());
-        }
-    }
-
-    heaps
+thread_local! {
+    /// Global map of game heap pointers to ScrapHeap instances.
+    ///
+    /// Each game heap MUST have isolated epochs. Pooling breaks this.
+    /// Dead heaps are cleaned up periodically based on inactivity.
+    static HEAPS: RefCell<AHashMap<usize, ScrapHeap>> = RefCell::new(AHashMap::new());
 }
 
 /// Cleans up inactive heaps to prevent memory leaks from dead threads.
@@ -560,52 +529,67 @@ fn cleanup_inactive_heaps(heaps: &mut AHashMap<usize, ScrapHeap>, current_tick: 
 
     let removed = before_count - heaps.len();
     if removed > 0 {
-        log::info!("ScrapHeap: Cleaned up {} inactive heap(s), {} active remaining", removed, heaps.len());
+        log::info!(
+            "ScrapHeap: Cleaned up {} inactive heap(s), {} active remaining",
+            removed,
+            heaps.len()
+        );
     }
 }
 
 /// Allocates memory from the scrap heap for the given game heap pointer.
+#[inline]
 pub fn sheap_alloc_align(sheap_ptr: *mut c_void, size: usize, align: usize) -> *mut c_void {
     let current_tick = GLOBAL_TICK.fetch_add(1, Ordering::Relaxed);
-    let mut heaps = get_or_create_heap(sheap_ptr);
-    let key = sheap_ptr as usize;
 
-    // Periodic cleanup every 50000 operations
-    if current_tick.is_multiple_of(50000) {
-        cleanup_inactive_heaps(&mut heaps, current_tick);
-    }
+    HEAPS.with_borrow_mut(|heaps| {
+        // Periodic cleanup every 50000 alloc operations
+        if current_tick.is_multiple_of(50000) {
+            cleanup_inactive_heaps(heaps, current_tick);
+        }
 
-    if let Some(heap) = heaps.get_mut(&key) {
+        let key = sheap_ptr as usize;
+
+        if heaps.len() >= MAX_HEAP_INSTANCES && !heaps.contains_key(&key) {
+            log::warn!(
+                "ScrapHeap: Max heap instances ({}) reached, heap {:p} will use fallback allocator",
+                MAX_HEAP_INSTANCES,
+                sheap_ptr
+            );
+            return MI_HEAP_FALLBACK.malloc_aligned(size, align);
+        }
+
+        let heap = heaps.entry(key).or_insert_with(|| {
+            log::info!("Creating new ScrapHeap instance for: {:p}", sheap_ptr);
+            ScrapHeap::new()
+        });
+
         heap.last_access = current_tick;
         heap.alloc_aligned(size, align)
-    } else {
-        // Fallback to MiMalloc for heaps beyond limit
-        let heap = MiHeap::new();
-        heap.malloc_aligned(size, align)
-    }
+    })
 }
 
 /// Marks memory as freed (no-op in epoch-based allocation).
+#[inline]
 pub fn sheap_free(sheap_ptr: *mut c_void, ptr: *mut c_void) {
-    let current_tick = GLOBAL_TICK.fetch_add(1, Ordering::Relaxed);
-    let mut heaps = get_or_create_heap(sheap_ptr);
-    let key = sheap_ptr as usize;
-
-    if let Some(heap) = heaps.get_mut(&key) {
-        heap.last_access = current_tick;
-        heap.free(ptr);
-    }
-    // If beyond limit, ignore free (MiMalloc handles it)
+    HEAPS.with_borrow_mut(|heaps| {
+        if let Some(heap) = heaps.get_mut(&(sheap_ptr as usize)) {
+            heap.free(ptr);
+        }
+        // If heap doesn't exist, pointer was either from MiMalloc fallback
+        // (which manages its own frees) or already purged. Either way: no-op.
+    })
 }
 
 /// Purges all regions in the heap associated with the game heap pointer.
+#[inline]
 pub fn sheap_purge(sheap_ptr: *mut c_void) {
     let current_tick = GLOBAL_TICK.fetch_add(1, Ordering::Relaxed);
-    let mut heaps = get_or_create_heap(sheap_ptr);
-    let key = sheap_ptr as usize;
 
-    if let Some(heap) = heaps.get_mut(&key) {
-        heap.last_access = current_tick;
-        heap.purge();
-    }
+    HEAPS.with_borrow_mut(|heaps| {
+        if let Some(heap) = heaps.get_mut(&(sheap_ptr as usize)) {
+            heap.last_access = current_tick;
+            heap.purge();
+        }
+    })
 }
