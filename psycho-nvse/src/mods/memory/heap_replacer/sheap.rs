@@ -66,8 +66,8 @@ impl Region {
     fn new(capacity: usize, align: usize) -> Option<Self> {
         let ptr = MI_HEAP.malloc_aligned(capacity, align);
         let start = NonNull::new(ptr as *mut u8)?;
-
         let total = TOTAL_ALLOCATED_MEM.fetch_add(capacity, Ordering::Relaxed) + capacity;
+
         debug!(
             "Region::new: Allocated {} KB (Global: {} MB)",
             capacity / 1024,
@@ -95,6 +95,7 @@ impl Region {
 
         self.offset = new_offset;
         self.empty_cycles = 0;
+
         NonNull::new(aligned_addr as *mut u8)
     }
 
@@ -103,6 +104,7 @@ impl Region {
     fn page_range(&self) -> std::ops::Range<usize> {
         let start_page = (self.start.as_ptr() as usize) >> PAGE_SHIFT;
         let end_page = (self.start.as_ptr() as usize + self.capacity - 1) >> PAGE_SHIFT;
+
         start_page..end_page + 1
     }
 }
@@ -110,6 +112,7 @@ impl Region {
 impl Drop for Region {
     fn drop(&mut self) {
         TOTAL_ALLOCATED_MEM.fetch_sub(self.capacity, Ordering::Relaxed);
+
         unsafe {
             libmimalloc::mi_free(self.start.as_ptr() as *mut c_void);
         }
@@ -139,6 +142,7 @@ impl ScrapHeap {
         if size == 0 {
             return std::ptr::null_mut();
         }
+
         let align = align.max(MIN_ALIGN);
 
         // 1. Try the current active region (Highest probability of success)
@@ -153,6 +157,7 @@ impl ScrapHeap {
             if i == self.active_index {
                 continue;
             }
+
             if let Some(ptr) = region.allocate(size, align) {
                 self.active_index = i;
                 return ptr.as_ptr() as *mut c_void;
@@ -188,6 +193,7 @@ impl ScrapHeap {
     /// Resets all offsets for the next epoch and prunes unused regions.
     pub fn purge(&mut self) {
         let old_count = self.regions.len();
+
         for r in &mut self.regions {
             if r.offset == 0 {
                 r.empty_cycles += 1;
@@ -198,10 +204,11 @@ impl ScrapHeap {
         }
 
         let threshold = get_purge_threshold();
+
         self.regions.retain(|r| r.empty_cycles < threshold);
 
         if self.regions.len() != old_count {
-            // FIX: Manual replacement instead of std::mem::take to avoid Default trait error
+            // Manual replacement instead of std::mem::take to avoid Default trait error
             if self.regions.is_empty() {
                 self.region_map = AHashMap::with_capacity_and_hasher(0, IdentityHasher::default());
             } else {
@@ -210,10 +217,13 @@ impl ScrapHeap {
                     &mut self.region_map,
                     AHashMap::with_capacity_and_hasher(0, IdentityHasher::default()),
                 );
+
                 self.rebuild_region_map();
             }
+
             self.conditionally_shrink();
         }
+
         self.active_index = 0;
     }
 
@@ -231,12 +241,14 @@ impl ScrapHeap {
                 new_map.insert(page, idx);
             }
         }
+
         self.region_map = new_map;
     }
 
     fn conditionally_shrink(&mut self) {
         if self.regions.capacity() > self.regions.len() * 2 {
             self.regions.shrink_to_fit();
+
             self.region_map.shrink_to_fit();
         }
     }
@@ -270,9 +282,9 @@ struct TlsCache {
 }
 
 thread_local! {
-        /// TLS cache to avoid shard locking for the same heap pointer in a hot loop.
-
+    /// TLS cache to avoid shard locking for the same heap pointer in a hot loop.
     static RECENT_HEAP: RefCell<Option<TlsCache>> = const { RefCell::new(None) };
+
 }
 
 // --- Helper Functions ---
@@ -360,6 +372,7 @@ pub fn sheap_alloc_align(sheap_ptr: *mut c_void, size: usize, align: usize) -> *
     });
 
     heap.last_access = tick;
+
     heap.alloc_aligned(size, align)
 }
 
@@ -379,13 +392,13 @@ pub fn sheap_purge(sheap_ptr: *mut c_void) {
 /// This prevents the AHashMap from growing infinitely with pointers the game has already freed.
 fn maintenance_cycle(current_tick: u64) {
     let mut total_evicted = 0;
-    
+
     // Check if we are nearing the danger zone (400MB+ for FNV is risky)
     let is_emergency = TOTAL_ALLOCATED_MEM.load(Ordering::Relaxed) > (300 * 1024 * 1024);
 
     for shard_obj in SHARDS.iter() {
         let mut shard = shard_obj.heaps.lock();
-        
+
         // In emergency (level transition/bloat), be 5x more aggressive
         let expiry = if is_emergency { 20_000 } else { 100_000 };
 
@@ -393,7 +406,7 @@ fn maintenance_cycle(current_tick: u64) {
             let inactive = current_tick.saturating_sub(heap.last_access);
             if inactive > expiry {
                 total_evicted += 1;
-                return false; 
+                return false;
             }
             // Purge active but idle heaps faster during transitions
             if is_emergency && inactive > 2_000 && !heap.regions.is_empty() {
@@ -401,7 +414,7 @@ fn maintenance_cycle(current_tick: u64) {
             }
             true
         });
-        
+
         if total_evicted > 0 {
             shard.shrink_to_fit();
         }
@@ -409,7 +422,8 @@ fn maintenance_cycle(current_tick: u64) {
 
     if total_evicted > 0 {
         GLOBAL_EVICTION_COUNT.fetch_add(1, Ordering::SeqCst);
+
         // Force mimalloc to actually release these pages to the OS
-        MI_HEAP.heap_collect(true); 
+        MI_HEAP.heap_collect(true);
     }
 }
