@@ -44,6 +44,8 @@ pub(super) unsafe extern "fastcall" fn sheap_init_fix(heap: *mut c_void, _edx: *
     sheap_mut.blocks = null_mut();
     sheap_mut.cur = null_mut();
     sheap_mut.last = null_mut();
+
+    sheap::sheap_purge(heap);
 }
 
 /// Variable-size sheap initialization hook (0x00AA5410 FNV, 0x0086CB90 GECK).
@@ -65,6 +67,8 @@ pub(super) unsafe extern "fastcall" fn sheap_init_var(
     sheap_mut.blocks = null_mut();
     sheap_mut.cur = null_mut();
     sheap_mut.last = null_mut();
+
+    sheap::sheap_purge(heap);
 }
 
 
@@ -84,7 +88,9 @@ pub(super) unsafe extern "fastcall" fn sheap_free(
     _edx: *mut c_void,
     ptr: *mut c_void,
 ) {
-    sheap::sheap_free(sheap_ptr, ptr)
+    //sheap::sheap_free(sheap_ptr, ptr)
+
+    // NOOP
 }
 
 /// Sheap purge hook (0x00AA5460 FNV, 0x0086CAA0 GECK).

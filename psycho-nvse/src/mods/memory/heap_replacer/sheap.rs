@@ -1,595 +1,415 @@
-//! Epoch-based region allocator for temporary allocations.
+//! # High-Performance Epoch-Based Region Allocator (ScrapHeap)
 //!
-//! This is intentional: individual frees do NOT reclaim memory.
-//! All reclamation happens at purge time when the epoch ends.
-//! 
-//! Design philosophy:
-//! - Allocations are fast: O(1) bump pointer
-//! - Frees are no-ops: O(1) validation only
-//! - Memory is reclaimed only during purge (epoch boundary)
-//! 
-//! Technical details:
-//! - Fast hashmaps with ahash hasher for performance reasons
-//! - ScrapHeap instances are thread local
-//! - Tick counter is global for ALL instances(from other threads too)
-//! - MiMalloc heap used as baking heap
-//! - Heap corruption tolerance - theoretical atm(scrap heap is thread local)
-//! - Automated cleanup of dead heaps
-
-
+//! ## Architectural Overview
+//! Fallout: New Vegas (and the Gamebryo engine) utilizes a "Scrap Heap" for short-lived,
+//! high-frequency allocations—often related to frame-local processing, string formatting,
+//! or temporary AI pathing data. In the original 32-bit engine, the default allocator
+//! is prone to fragmentation and significant mutex contention.
+//!
+//! ### Why This Algorithm?
+//! 1. **Region-Based (Arena) Allocation:** Instead of individual `malloc`/`free` calls,
+//!    we allocate large 256KB "Regions". Allocating is a simple pointer bump (O(1)).
+//! 2. **Epoch-Based Purging:** Memory is not freed manually. Instead, the game calls
+//!    `purge` at the end of a cycle (e.g., a frame or a script execution block).
+//! 3. **Sharded Registry:** To prevent global lock contention in a multi-threaded
+//!    environment (like NVTF-enhanced FNV), the heaps are split across 16 shards.
+//! 4. **Fast-Path Caching:** A Thread-Local Storage (TLS) cache stores the most recently
+//!    accessed heap, bypassing sharding and locking entirely for repeated calls.
+//! 5. **32-bit Reclamation:** Active monitoring of "Zombie Heaps" ensures that inactive
+//!    memory is returned to `mimalloc` to prevent the dreaded "Out of Memory" (0xC0000005)
+//!    crashes in the 4GB address space.
 
 use ahash::AHashMap;
 use libc::c_void;
 use libmimalloc::heap::MiHeap;
+use log::{debug, error};
+use parking_lot::Mutex;
 use std::cell::RefCell;
-use std::ptr::NonNull;
+use std::ptr::{NonNull, null_mut};
 use std::sync::LazyLock;
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 
-/// Default region size: 256 KB
-///
-/// Extremely conservative for 32-bit with 120+ heap instances.
-/// 120 * 256 KB = 30 MiB baseline, much better than 120+ MiB.
+// --- Constants ---
+
 const REGION_SIZE: usize = 256 * 1024;
-
-/// Minimum alignment for all allocations
 const MIN_ALIGN: usize = 16;
-
-/// Number of purge cycles a region must be unused before deallocation.
-///
-/// Aggressive reclamation to minimize memory footprint with many heap instances.
-/// With thousands of purges per second, even 50 is substantial.
-const EMPTY_THRESHOLD: usize = 50;
-
-/// Minimum number of regions to keep allocated.
-///
-/// Set to 0 to allow complete deallocation when heap is unused.
-const MIN_REGIONS: usize = 0;
-
-/// Maximum number of heap instances allowed.
-///
-/// Game creates 120+ heaps. Beyond this, allocations fall back to MiMalloc.
-const MAX_HEAP_INSTANCES: usize = 128;
-
-/// Heap inactivity threshold for cleanup.
-///
-/// Heaps unused for this many operations are candidates for removal.
-/// Set very high to avoid removing heaps during save/load pauses.
-/// Better to leak some memory than crash by removing active heaps.
-const HEAP_INACTIVITY_THRESHOLD: u64 = 500000;
-
-/// Page shift for 4KB pages (2^12 = 4096)
+const EMPTY_THRESHOLD: usize = 5;
+const MAX_SHARDS: usize = 16;
 const PAGE_SHIFT: usize = 12;
+const GLOBAL_MEMORY_LIMIT: usize = 512 * 1024 * 1024; // 512 MiB
 
-/// Special MiHeap instance for fallback allocations
-static MI_HEAP_FALLBACK: LazyLock<MiHeap> = LazyLock::new(MiHeap::new);
+// --- Globals ---
 
-/// Contiguous memory region with bump allocation.
-///
-/// Allocations advance a pointer forward. Memory is reclaimed
-/// only when the region is reset during purge.
+static MI_HEAP: LazyLock<MiHeap> = LazyLock::new(MiHeap::new);
+static GLOBAL_TICK: AtomicU64 = AtomicU64::new(0);
+static TOTAL_ALLOCATED_MEM: AtomicUsize = AtomicUsize::new(0);
+
+/// Incremented whenever a heap is removed. Invalidates all TLS caches.
+static GLOBAL_EVICTION_COUNT: AtomicU64 = AtomicU64::new(0);
+
+/// An Identity Hasher that bypasses the CPU cost of hashing for keys that are already
+/// unique (memory addresses/pointers).
+type IdentityHasher = std::hash::BuildHasherDefault<ahash::AHasher>;
+
+// --- Core Structures ---
+
+/// A contiguous block of memory used for bump-pointer allocation.
 struct Region {
-    /// Start of memory buffer
     start: NonNull<u8>,
-
-    /// Total capacity in bytes
     capacity: usize,
-
-    /// Current allocation offset from start
     offset: usize,
-
-    /// Allocations made in current epoch (for statistics)
-    alloc_count: usize,
-
-    /// Consecutive purges where offset remained at zero
     empty_cycles: usize,
 }
 
 impl Region {
-    /// Creates a new region by allocating from the backing heap.
-    fn new(backing_heap: &MiHeap, capacity: usize, align: usize) -> Option<Self> {
-        if capacity == 0 {
-            log::error!("Cannot create region with zero capacity");
-            return None;
-        }
-
-        let ptr = backing_heap.malloc_aligned(capacity, align);
+    /// Creates a new memory region backed by mimalloc.
+    fn new(capacity: usize, align: usize) -> Option<Self> {
+        let ptr = MI_HEAP.malloc_aligned(capacity, align);
         let start = NonNull::new(ptr as *mut u8)?;
+
+        let total = TOTAL_ALLOCATED_MEM.fetch_add(capacity, Ordering::Relaxed) + capacity;
+        debug!(
+            "Region::new: Allocated {} KB (Global: {} MB)",
+            capacity / 1024,
+            total / (1024 * 1024)
+        );
 
         Some(Self {
             start,
             capacity,
             offset: 0,
-            alloc_count: 0,
             empty_cycles: 0,
         })
     }
 
-    /// Allocates memory with specified size and alignment.
-    ///
-    /// Returns None if insufficient space remains.
+    /// Performs a bump-pointer allocation within the region.
     #[inline]
     fn allocate(&mut self, size: usize, align: usize) -> Option<NonNull<u8>> {
         let current_addr = self.start.as_ptr() as usize + self.offset;
         let aligned_addr = align_up(current_addr, align);
-        let new_offset = self.offset + (aligned_addr - current_addr) + size;
+        let new_offset = (aligned_addr - self.start.as_ptr() as usize) + size;
 
         if new_offset > self.capacity {
             return None;
         }
 
         self.offset = new_offset;
-        self.alloc_count += 1;
         self.empty_cycles = 0;
-
-        // aligned_addr is within [start, start+capacity) which is a valid allocation from the backing heap.
         NonNull::new(aligned_addr as *mut u8)
     }
 
-    /// Returns the half-open page range [start_page, end_page) this region spans.
+    /// Returns the range of memory pages covered by this region for the lookup map.
     #[inline]
     fn page_range(&self) -> std::ops::Range<usize> {
-        let start_addr = self.start.as_ptr() as usize;
-        let start_page = start_addr >> PAGE_SHIFT;
-        let end_page = (start_addr + self.capacity - 1) >> PAGE_SHIFT;
+        let start_page = (self.start.as_ptr() as usize) >> PAGE_SHIFT;
+        let end_page = (self.start.as_ptr() as usize + self.capacity - 1) >> PAGE_SHIFT;
         start_page..end_page + 1
-    }
-
-    /// Resets region for reuse.
-    ///
-    /// Called during purge to reclaim all memory in this region.
-    fn reset(&mut self) {
-        let was_empty = self.offset == 0;
-
-        self.offset = 0;
-        self.alloc_count = 0;
-
-        if was_empty {
-            self.empty_cycles += 1;
-        } else {
-            self.empty_cycles = 0;
-        }
     }
 }
 
 impl Drop for Region {
     fn drop(&mut self) {
+        TOTAL_ALLOCATED_MEM.fetch_sub(self.capacity, Ordering::Relaxed);
         unsafe {
             libmimalloc::mi_free(self.start.as_ptr() as *mut c_void);
         }
     }
 }
 
-// Safety: ScrapHeap is thread_local, region lives on single thread, so no issues
-unsafe impl Send for Region {}
-
-// Safety: ScrapHeap is thread_local, region lives on single thread, so no issues
-unsafe impl Sync for Region {}
-
-/// Epoch-based allocator managing multiple memory regions.
-///
-/// Provides fast allocation and efficient bulk deallocation.
-/// Individual frees are no-ops - memory is reclaimed only during purge.
+/// A collection of Regions representing a single game-engine ScrapHeap instance.
 pub struct ScrapHeap {
-    /// Active memory regions
     regions: Vec<Region>,
-
-    /// Fast O(1) pointer-to-region lookup (page_number -> region_index)
-    region_map: AHashMap<usize, usize>,
-
-    /// Index of current allocation target
+    region_map: AHashMap<usize, usize, IdentityHasher>,
     active_index: usize,
-
-    /// Backing allocator for regions
-    backing_heap: MiHeap,
-
-    /// Current epoch number (incremented on each purge)
-    current_epoch: u32,
-
-    /// Total allocation requests served
-    total_allocs: usize,
-
-    /// Total free calls (for statistics only)
-    total_frees: usize,
-
-    /// Total purge operations performed
-    total_purges: usize,
-
-    /// Free calls with invalid pointers
-    invalid_frees: usize,
-
-    /// Monotonic counter for inactivity detection
-    last_access: u64,
+    pub last_access: u64,
 }
 
-unsafe impl Send for ScrapHeap {}
-unsafe impl Sync for ScrapHeap {}
-
 impl ScrapHeap {
-    /// Creates a new ScrapHeap.
     pub fn new() -> Self {
         Self {
-            regions: Vec::new(),
-            region_map: AHashMap::new(),
+            regions: Vec::with_capacity(4),
+            region_map: AHashMap::with_capacity_and_hasher(64, IdentityHasher::default()),
             active_index: 0,
-            backing_heap: MiHeap::new(),
-            current_epoch: 0,
-            total_allocs: 0,
-            total_frees: 0,
-            total_purges: 0,
-            invalid_frees: 0,
             last_access: 0,
         }
     }
 
-    /// Allocates memory with specified size and alignment.
+    /// Primary allocation entry point for a specific heap.
     pub fn alloc_aligned(&mut self, size: usize, align: usize) -> *mut c_void {
         if size == 0 {
             return std::ptr::null_mut();
         }
-
-        if align == 0 || !align.is_power_of_two() {
-            log::error!("Invalid alignment: {} (must be non-zero power of 2)", align);
-            return std::ptr::null_mut();
-        }
-
         let align = align.max(MIN_ALIGN);
 
-        // Try active region first
+        // 1. Try the current active region (Highest probability of success)
         if let Some(region) = self.regions.get_mut(self.active_index)
             && let Some(ptr) = region.allocate(size, align)
         {
-            self.total_allocs += 1;
             return ptr.as_ptr() as *mut c_void;
         }
 
-        // Find or create a region with capacity
-        if let Some(ptr) = self.find_available_region(size, align) {
-            self.total_allocs += 1;
-            return ptr;
-        }
-
-        // Allocate new region
-        match self.create_region(size, align) {
-            Some(ptr) => {
-                self.total_allocs += 1;
-                ptr
-            }
-            None => {
-                log::error!("ScrapHeap: Failed to create new region");
-                std::ptr::null_mut()
-            }
-        }
-    }
-
-    /// Frees a previously allocated pointer.
-    ///
-    /// This is intentionally a no-op in epoch-based allocation.
-    /// Memory is reclaimed only during purge when the epoch ends.
-    ///
-    /// We validate the pointer for debugging but don't track individual frees.
-    pub fn free(&mut self, ptr: *mut c_void) {
-        if ptr.is_null() {
-            return;
-        }
-
-        self.total_frees += 1;
-
-        // Optional: validate pointer belongs to our regions using O(1) lookup
-        #[cfg(debug_assertions)]
-        {
-            let addr = ptr as usize;
-            let found = self.find_region_for_ptr(addr).is_some();
-
-            if !found {
-                self.invalid_frees += 1;
-                if self.invalid_frees % 100 == 1 {
-                    log::warn!(
-                        "ScrapHeap::free: Pointer {:p} not from this heap ({} invalid frees)",
-                        ptr,
-                        self.invalid_frees
-                    );
-                }
-            }
-        }
-
-        // Free is a no-op - memory reclaimed only during purge
-    }
-
-    /// Reclaims all memory by resetting all regions.
-    ///
-    /// This ends the current epoch and begins a new one.
-    /// All allocations from the previous epoch become invalid.
-    pub fn purge(&mut self) {
-        self.total_purges += 1;
-        self.current_epoch = self.current_epoch.wrapping_add(1);
-
-        // Reset all regions
-        for region in &mut self.regions {
-            region.reset();
-        }
-
-        // Remove regions that have been empty for too long
-        let before_count = self.regions.len();
-
-        if self.regions.len() > MIN_REGIONS {
-            // Aggressive deallocation if we have too many regions (fragmentation)
-            let threshold = if before_count > 100 {
-                // Emergency: deallocate after just 5 empty cycles
-                5
-            } else if before_count > 20 {
-                // Moderate: deallocate after 10 empty cycles
-                10
-            } else {
-                // Normal: use configured threshold
-                EMPTY_THRESHOLD
-            };
-
-            self.regions.retain(|r| r.empty_cycles < threshold);
-        }
-
-        let after_count = self.regions.len();
-        let deallocated = before_count - after_count;
-
-        // Rebuild page map if any regions were removed (indices shifted)
-        if deallocated > 0 {
-            log::debug!("ScrapHeap: Deallocated {} regions", deallocated);
-
-            self.rebuild_region_map();
-        }
-
-        // Set active index to first region, or 0 if no regions
-        self.active_index = 0;
-
-        // Only log purges occasionally to avoid spam
-        if self.total_purges.is_multiple_of(100) || deallocated > 0 {
-            log::debug!(
-                "ScrapHeap: Epoch {} complete (regions: {}, deallocated: {})",
-                self.current_epoch,
-                self.regions.len(),
-                deallocated
-            );
-        }
-    }
-
-    /// Statistics for debugging and monitoring.
-    #[allow(dead_code)]
-    pub fn stats(&self) -> HeapStats {
-        let total_capacity: usize = self.regions.iter().map(|r| r.capacity).sum();
-        let total_used: usize = self.regions.iter().map(|r| r.offset).sum();
-        let epoch_allocations: usize = self.regions.iter().map(|r| r.alloc_count).sum();
-
-        HeapStats {
-            current_epoch: self.current_epoch,
-            region_count: self.regions.len(),
-            total_capacity,
-            total_used,
-            epoch_allocations,
-            total_allocs: self.total_allocs,
-            total_frees: self.total_frees,
-            total_purges: self.total_purges,
-            invalid_frees: self.invalid_frees,
-        }
-    }
-
-    /// Finds the region index containing a given pointer address.
-    ///
-    /// True O(1) lookup using page-granularity mapping.
-    fn find_region_for_ptr(&self, addr: usize) -> Option<usize> {
-        let page_addr = addr >> PAGE_SHIFT;
-        self.region_map.get(&page_addr).copied()
-    }
-
-    /// Inserts all pages spanned by `regions[idx]` into the page map.
-    fn register_region_pages(&mut self, idx: usize) {
-        for page in self.regions[idx].page_range() {
-            self.region_map.insert(page, idx);
-        }
-    }
-
-    /// Clears and fully rebuilds the page map from the current region list.
-    /// Must be called after any operation that shifts Vec indices (e.g. retain).
-    fn rebuild_region_map(&mut self) {
-        self.region_map.clear();
-        for idx in 0..self.regions.len() {
-            self.register_region_pages(idx);
-        }
-    }
-
-    /// Searches for a region that can satisfy the request.
-    ///
-    /// Skips the active region as it was already tried.
-    fn find_available_region(&mut self, size: usize, align: usize) -> Option<*mut c_void> {
-        for (index, region) in self.regions.iter_mut().enumerate() {
-            if index == self.active_index {
+        // 2. Search other existing regions
+        for (i, region) in self.regions.iter_mut().enumerate() {
+            if i == self.active_index {
                 continue;
             }
-
             if let Some(ptr) = region.allocate(size, align) {
-                self.active_index = index;
-                return Some(ptr.as_ptr() as *mut c_void);
+                self.active_index = i;
+                return ptr.as_ptr() as *mut c_void;
             }
         }
-        None
+
+        // 3. Create new region if needed
+        self.expand_and_allocate(size, align)
     }
 
-    /// Creates a new region sized to fit the request.
-    fn create_region(&mut self, size: usize, align: usize) -> Option<*mut c_void> {
-        // Adaptive sizing: if we have many regions, double the region size
-        // to reduce fragmentation. Cap at 4 MiB.
-        let base_size = if self.regions.len() > 10 {
-            (REGION_SIZE * 2).min(4 * 1024 * 1024) // 512 KB, max 4 MiB
-        } else {
-            REGION_SIZE // 256 KB
-        };
+    fn expand_and_allocate(&mut self, size: usize, align: usize) -> *mut c_void {
+        let capacity = calculate_required_capacity(size, align);
 
-        let capacity = base_size.max(size.checked_add(align)?);
+        if let Some(mut region) = Region::new(capacity, MIN_ALIGN) {
+            let ptr = region
+                .allocate(size, align)
+                .expect("Allocation must succeed in new region");
+            let new_idx = self.regions.len();
 
-        let mut region = match Region::new(&self.backing_heap, capacity, MIN_ALIGN) {
-            Some(r) => r,
-            None => {
-                log::error!(
-                    "ScrapHeap: Failed to allocate region (capacity: {} KB, total regions: {}, total capacity: {} KB)",
-                    capacity / 1024,
-                    self.regions.len(),
-                    self.regions.iter().map(|r| r.capacity).sum::<usize>() / 1024
+            for page in region.page_range() {
+                self.region_map.insert(page, new_idx);
+            }
+
+            self.regions.push(region);
+            self.active_index = new_idx;
+            return ptr.as_ptr() as *mut c_void;
+        }
+
+        error!("ScrapHeap: Critical allocation failure! Falling back to global heap.");
+        MI_HEAP.malloc_aligned(size, align)
+    }
+
+    /// Resets all offsets for the next epoch and prunes unused regions.
+    pub fn purge(&mut self) {
+        let old_count = self.regions.len();
+        for r in &mut self.regions {
+            if r.offset == 0 {
+                r.empty_cycles += 1;
+            } else {
+                r.offset = 0;
+                r.empty_cycles = 0;
+            }
+        }
+
+        let threshold = get_purge_threshold();
+        self.regions.retain(|r| r.empty_cycles < threshold);
+
+        if self.regions.len() != old_count {
+            // FIX: Manual replacement instead of std::mem::take to avoid Default trait error
+            if self.regions.is_empty() {
+                self.region_map = AHashMap::with_capacity_and_hasher(0, IdentityHasher::default());
+            } else {
+                // Swap out the old map for a fresh one, then rebuild
+                let _old_map = std::mem::replace(
+                    &mut self.region_map,
+                    AHashMap::with_capacity_and_hasher(0, IdentityHasher::default()),
                 );
-                return None;
+                self.rebuild_region_map();
             }
-        };
-
-        let ptr = region.allocate(size, align)?;
-
-        let new_index = self.regions.len();
-        let page_count = region.page_range().len();
-
-        self.regions.push(region);
-        self.register_region_pages(new_index);
-        self.active_index = new_index;
-
-        if self.regions.len() <= 3 {
-            log::debug!(
-                "ScrapHeap: Created region #{} at {:p} (capacity: {} KB, pages: {})",
-                self.regions.len(),
-                self.regions[new_index].start.as_ptr(),
-                capacity / 1024,
-                page_count
-            );
+            self.conditionally_shrink();
         }
+        self.active_index = 0;
+    }
 
-        Some(ptr.as_ptr() as *mut c_void)
+    /// Forces a rebuild of the region map to ensure zero ghost-memory.
+    fn rebuild_region_map(&mut self) {
+        // Pre-calculate to avoid re-allocations
+        let total_pages: usize = self.regions.iter().map(|r| r.page_range().count()).sum();
+
+        // Ensure we have a fresh map with exactly the capacity we need
+        let mut new_map =
+            AHashMap::with_capacity_and_hasher(total_pages, IdentityHasher::default());
+
+        for (idx, region) in self.regions.iter().enumerate() {
+            for page in region.page_range() {
+                new_map.insert(page, idx);
+            }
+        }
+        self.region_map = new_map;
+    }
+
+    fn conditionally_shrink(&mut self) {
+        if self.regions.capacity() > self.regions.len() * 2 {
+            self.regions.shrink_to_fit();
+            self.region_map.shrink_to_fit();
+        }
     }
 }
 
-/// Statistics snapshot for heap monitoring.
-#[allow(dead_code)]
-pub struct HeapStats {
-    pub current_epoch: u32,
-    pub region_count: usize,
-    pub total_capacity: usize,
-    pub total_used: usize,
-    pub epoch_allocations: usize,
-    pub total_allocs: usize,
-    pub total_frees: usize,
-    pub total_purges: usize,
-    pub invalid_frees: usize,
+// --- Global Management & Sharding ---
+
+struct Shard {
+    heaps: Mutex<AHashMap<usize, Box<ScrapHeap>, IdentityHasher>>,
 }
 
-/// Aligns address upward to the nearest `align` boundary.
-///
-/// `align` must be a non-zero power of two. Callers guarantee that `addr` is
-/// within a region whose capacity is bounded well below `usize::MAX`, so
-/// overflow is not possible.
+// Safety: Contains single mutex, so no issues
+unsafe impl Send for Shard {}
+unsafe impl Sync for Shard {}
+
+static SHARDS: LazyLock<Vec<Shard>> = LazyLock::new(|| {
+    (0..MAX_SHARDS)
+        .map(|_| Shard {
+            heaps: Mutex::new(AHashMap::with_capacity_and_hasher(
+                16,
+                IdentityHasher::default(),
+            )),
+        })
+        .collect()
+});
+
+struct TlsCache {
+    key: usize,
+    ptr: *mut ScrapHeap,
+    generation: u64, // Tracks if a maintenance cycle happened
+}
+
+thread_local! {
+        /// TLS cache to avoid shard locking for the same heap pointer in a hot loop.
+
+    static RECENT_HEAP: RefCell<Option<TlsCache>> = const { RefCell::new(None) };
+}
+
+// --- Helper Functions ---
+
 #[inline(always)]
 fn align_up(addr: usize, align: usize) -> usize {
-    debug_assert!(align.is_power_of_two());
-    debug_assert!(align > 0);
-
     (addr + (align - 1)) & !(align - 1)
 }
 
-// ============================================================================
-// Public API - Per-Heap Instances with Lifecycle Management
-// ============================================================================
-
-/// Global monotonic counter for heap activity tracking.
-static GLOBAL_TICK: AtomicU64 = AtomicU64::new(0);
-
-thread_local! {
-    /// Global map of game heap pointers to ScrapHeap instances.
-    ///
-    /// Each game heap MUST have isolated epochs. Pooling breaks this.
-    /// Dead heaps are cleaned up periodically based on inactivity.
-    static HEAPS: RefCell<AHashMap<usize, ScrapHeap>> = RefCell::new(AHashMap::new());
+#[inline(always)]
+fn get_shard_idx(key: usize) -> usize {
+    // Basic bit-mix to ensure pointer alignment doesn't cluster keys in one shard.
+    let hash = key ^ (key >> 16);
+    (hash >> 4) % MAX_SHARDS
 }
 
-/// Cleans up inactive heaps to prevent memory leaks from dead threads.
-///
-/// Removes heaps that haven't been accessed recently.
-fn cleanup_inactive_heaps(heaps: &mut AHashMap<usize, ScrapHeap>, current_tick: u64) {
-    let before_count = heaps.len();
-
-    heaps.retain(|&heap_ptr, heap| {
-        let inactive_for = current_tick.saturating_sub(heap.last_access);
-        let should_keep = inactive_for < HEAP_INACTIVITY_THRESHOLD;
-
-        if !should_keep {
-            let total_kb = heap.regions.iter().map(|r| r.capacity).sum::<usize>() / 1024;
-            log::info!(
-                "ScrapHeap: Removing inactive heap {:p} (idle for {} ticks, {} regions, {} KB)",
-                heap_ptr as *const c_void,
-                inactive_for,
-                heap.regions.len(),
-                total_kb
-            );
-        }
-
-        should_keep
-    });
-
-    let removed = before_count - heaps.len();
-    if removed > 0 {
-        log::info!(
-            "ScrapHeap: Cleaned up {} inactive heap(s), {} active remaining",
-            removed,
-            heaps.len()
-        );
+fn calculate_required_capacity(size: usize, align: usize) -> usize {
+    if size > REGION_SIZE / 2 {
+        size.checked_add(align).unwrap_or(size)
+    } else {
+        REGION_SIZE
     }
 }
 
-/// Allocates memory from the scrap heap for the given game heap pointer.
+fn get_purge_threshold() -> usize {
+    if TOTAL_ALLOCATED_MEM.load(Ordering::Relaxed) > GLOBAL_MEMORY_LIMIT {
+        1 // Aggressive: remove immediately if empty
+    } else {
+        EMPTY_THRESHOLD
+    }
+}
+
+// --- Public API ---
+
+/// Aligned allocation for a ScrapHeap identified by `sheap_ptr`.
 #[inline]
 pub fn sheap_alloc_align(sheap_ptr: *mut c_void, size: usize, align: usize) -> *mut c_void {
-    let current_tick = GLOBAL_TICK.fetch_add(1, Ordering::Relaxed);
+    let key = sheap_ptr as usize;
+    let tick = GLOBAL_TICK.fetch_add(1, Ordering::Relaxed);
 
-    HEAPS.with_borrow_mut(|heaps| {
-        // Periodic cleanup every 50000 alloc operations
-        if current_tick.is_multiple_of(50000) {
-            cleanup_inactive_heaps(heaps, current_tick);
+    // 1. Thread-Local Fast Path
+    // Check generation BEFORE using the pointer
+    let tl_fp = RECENT_HEAP.with_borrow_mut(|cache_opt| {
+        if let Some(cache) = cache_opt
+            && cache.key == key
+        {
+            // We must check the CURRENT global count against the cached one
+            let latest_gen = GLOBAL_EVICTION_COUNT.load(Ordering::Acquire);
+            if cache.generation == latest_gen {
+                let h = unsafe { &mut *cache.ptr };
+                h.last_access = tick;
+                return h.alloc_aligned(size, align);
+            }
         }
+        null_mut()
+    });
 
-        let key = sheap_ptr as usize;
+    if !tl_fp.is_null() {
+        return tl_fp;
+    }
 
-        if heaps.len() >= MAX_HEAP_INSTANCES && !heaps.contains_key(&key) {
-            log::warn!(
-                "ScrapHeap: Max heap instances ({}) reached, heap {:p} will use fallback allocator",
-                MAX_HEAP_INSTANCES,
-                sheap_ptr
-            );
-            return MI_HEAP_FALLBACK.malloc_aligned(size, align);
-        }
+    // 2. Sharded Slow Path
+    let shard_idx = get_shard_idx(key);
+    let mut shard = SHARDS[shard_idx].heaps.lock();
 
-        let heap = heaps.entry(key).or_insert_with(|| {
-            log::info!("Creating new ScrapHeap instance for: {:p}", sheap_ptr);
-            ScrapHeap::new()
-        });
+    // Maintenance Trigger (ensure it happens before we insert/cache)
+    if (tick & 0xFFFF) == 0 {
+        drop(shard);
+        maintenance_cycle(tick);
+        shard = SHARDS[shard_idx].heaps.lock();
+    }
 
-        heap.last_access = current_tick;
-        heap.alloc_aligned(size, align)
-    })
+    let heap = shard
+        .entry(key)
+        .or_insert_with(|| Box::new(ScrapHeap::new()));
+    let ptr = &mut **heap as *mut ScrapHeap;
+    let cur_gen = GLOBAL_EVICTION_COUNT.load(Ordering::Acquire);
+
+    RECENT_HEAP.with_borrow_mut(|r| {
+        *r = Some(TlsCache {
+            key,
+            ptr,
+            generation: cur_gen,
+        })
+    });
+
+    heap.last_access = tick;
+    heap.alloc_aligned(size, align)
 }
 
-/// Marks memory as freed (no-op in epoch-based allocation).
-#[inline]
-pub fn sheap_free(sheap_ptr: *mut c_void, ptr: *mut c_void) {
-    HEAPS.with_borrow_mut(|heaps| {
-        if let Some(heap) = heaps.get_mut(&(sheap_ptr as usize)) {
-            heap.free(ptr);
-        }
-        // If heap doesn't exist, pointer was either from MiMalloc fallback
-        // (which manages its own frees) or already purged. Either way: no-op.
-    })
-}
-
-/// Purges all regions in the heap associated with the game heap pointer.
-#[inline]
+/// Purges the specified ScrapHeap.
 pub fn sheap_purge(sheap_ptr: *mut c_void) {
-    let current_tick = GLOBAL_TICK.fetch_add(1, Ordering::Relaxed);
+    let key = sheap_ptr as usize;
+    let tick = GLOBAL_TICK.fetch_add(1, Ordering::Relaxed);
+    let shard_idx = get_shard_idx(key);
 
-    HEAPS.with_borrow_mut(|heaps| {
-        if let Some(heap) = heaps.get_mut(&(sheap_ptr as usize)) {
-            heap.last_access = current_tick;
-            heap.purge();
+    if let Some(heap) = SHARDS[shard_idx].heaps.lock().get_mut(&key) {
+        heap.last_access = tick;
+        heap.purge();
+    }
+}
+
+/// Background maintenance to reclaim memory and EVICT dead heap handles.
+/// This prevents the AHashMap from growing infinitely with pointers the game has already freed.
+fn maintenance_cycle(current_tick: u64) {
+    let mut total_evicted = 0;
+    
+    // Check if we are nearing the danger zone (400MB+ for FNV is risky)
+    let is_emergency = TOTAL_ALLOCATED_MEM.load(Ordering::Relaxed) > (300 * 1024 * 1024);
+
+    for shard_obj in SHARDS.iter() {
+        let mut shard = shard_obj.heaps.lock();
+        
+        // In emergency (level transition/bloat), be 5x more aggressive
+        let expiry = if is_emergency { 20_000 } else { 100_000 };
+
+        shard.retain(|_, heap| {
+            let inactive = current_tick.saturating_sub(heap.last_access);
+            if inactive > expiry {
+                total_evicted += 1;
+                return false; 
+            }
+            // Purge active but idle heaps faster during transitions
+            if is_emergency && inactive > 2_000 && !heap.regions.is_empty() {
+                heap.purge();
+            }
+            true
+        });
+        
+        if total_evicted > 0 {
+            shard.shrink_to_fit();
         }
-    })
+    }
+
+    if total_evicted > 0 {
+        GLOBAL_EVICTION_COUNT.fetch_add(1, Ordering::SeqCst);
+        // Force mimalloc to actually release these pages to the OS
+        MI_HEAP.heap_collect(true); 
+    }
 }
