@@ -81,6 +81,9 @@ struct Region {
     /// Number of consecutive purge cycles where the region was empty
     empty_cycles: AtomicUsize,
 
+    /// Tracks the size of the very last successful allocation for reclamation
+    last_alloc_size: usize,
+
     start_page: usize,
     end_page: usize,
 }
@@ -113,6 +116,7 @@ impl Region {
             capacity,
             offset: 0,
             empty_cycles: AtomicUsize::new(0),
+            last_alloc_size: 0,
             start_page: start_ptr >> PAGE_SHIFT,
             end_page: (start_ptr + capacity - 1) >> PAGE_SHIFT,
         })
@@ -131,15 +135,34 @@ impl Region {
         let current_addr = self.start.as_ptr() as usize + self.offset;
         let aligned_addr = align_up(current_addr, align);
         let new_offset = (aligned_addr - self.start.as_ptr() as usize) + size;
+        let padding = aligned_addr - current_addr;
 
         if new_offset > self.capacity {
             return None;
         }
 
         self.offset = new_offset;
+        // Store the total space consumed (size + alignment padding)
+        // to allow perfect pointer rollback
+        self.last_alloc_size = size + padding;
         self.empty_cycles.store(0, Ordering::Release);
 
         NonNull::new(aligned_addr as *mut u8)
+    }
+
+    /// Attempts to undo the last allocation if the pointer matches.
+    #[inline]
+    fn try_free(&mut self, ptr: *mut c_void) -> bool {
+        let addr = ptr as usize;
+        let current_start = self.start.as_ptr() as usize;
+
+        // Check if this pointer is exactly the start of the last allocation
+        if addr == current_start + (self.offset - self.last_alloc_size) {
+            self.offset -= self.last_alloc_size;
+            self.last_alloc_size = 0; // Can only reclaim one level deep without a stack
+            return true;
+        }
+        false
     }
 }
 
@@ -160,13 +183,13 @@ impl Drop for Region {
 pub struct ScrapHeap {
     /// List of regions owned by this heap
     regions: Vec<Region>,
-    
+
     /// Vec from page number to region index for fast pointer lookup
     page_to_region: Vec<(usize, usize)>,
 
     /// Index of the currently active region (most likely to have free space)
     active_index: usize,
-    
+
     /// Last global tick when this heap was accessed
     last_access: u64,
 }
@@ -597,12 +620,18 @@ pub fn sheap_free(sheap_ptr: *mut c_void, ptr: *mut c_void) {
             let latest_gen = GLOBAL_EVICTION_COUNT.load(Ordering::Acquire);
 
             if cache.generation == latest_gen {
-                let heap = unsafe { &*cache.ptr };
+                let heap = unsafe { &mut *cache.ptr };
 
                 // Check bloat factor WITHOUT locking
                 if heap.regions.len() > 32
                     && let Some(idx) = heap.get_region_index_for_addr(ptr as usize)
                 {
+                    let region = &mut heap.regions[idx];
+                    // Attempt physical reclamation
+                    if region.try_free(ptr) {
+                        return true;
+                    }
+
                     // Safety: We only use Relaxed atomics here.
                     // No pointers are invalidated because we don't mutate the Vec.
                     heap.regions[idx]
@@ -622,14 +651,16 @@ pub fn sheap_free(sheap_ptr: *mut c_void, ptr: *mut c_void) {
     // We cant use TLS cache, so go with regular locking
     // try_lock here really save us from shit!
     let shard_idx = get_shard_idx(key);
-    if let Some(shard_lock) = SHARDS[shard_idx].heaps.try_lock()
-        && let Some(heap) = shard_lock.get(&key)
-        && heap.regions.len() > 32
+    if let Some(mut shard_lock) = SHARDS[shard_idx].heaps.try_lock()
+        && let Some(heap) = shard_lock.get_mut(&key)
         && let Some(idx) = heap.get_region_index_for_addr(ptr as usize)
     {
-        heap.regions[idx]
-            .empty_cycles
-            .fetch_add(1, Ordering::Relaxed);
+        let heap_reg_len = heap.regions.len();
+        let region = &mut heap.regions[idx];
+
+        if !region.try_free(ptr) && heap_reg_len > 32 {
+            region.empty_cycles.fetch_add(1, Ordering::Relaxed);
+        }
     }
 }
 
