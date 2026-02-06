@@ -4,7 +4,8 @@ use libpsycho::os::windows::winapi::patch_nop_call;
 use super::*;
 use crate::mods::memory::configure_mimalloc;
 use libc::c_void;
-use super::scrap_heap::*;
+
+use scrap_heap::hooks::*;
 
 /// Installs all heap and scrap heap replacement hooks.
 ///
