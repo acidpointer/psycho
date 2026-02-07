@@ -21,6 +21,8 @@ pub fn install_game_heap_hooks() -> anyhow::Result<()> {
         log::info!("[LAA] Large Address Aware flag is set");
     }
 
+    scrap_heap::spawn_scavenger_thread();
+
     configure_mimalloc();
 
     // Game heap is in very eraly stage! Dont even try this out!
