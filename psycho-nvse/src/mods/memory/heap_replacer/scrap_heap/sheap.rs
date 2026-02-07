@@ -45,12 +45,9 @@ const PAGE_SHIFT: usize = 12;
 /// Global memory limit before aggressive purging (512 MiB)
 const GLOBAL_MEMORY_LIMIT: usize = 512 * 1024 * 1024;
 
-/// Ticks before an idle heap's regions are purged.
-const IDLE_PURGE_THRESHOLD_TICKS: u64 = 1_000;
-
 /// How often the scavenger thread wakes up.
 /// Frequent wakes with small work chunks are better than huge 30s pauses.
-const SCAVENGER_SLEEP_DURATION: Duration = Duration::from_secs(5);
+const SCAVENGER_SLEEP_DURATION: Duration = Duration::from_millis(500);
 
 // ============================================================================
 // GLOBAL STATE
@@ -207,24 +204,60 @@ impl Region {
     /// `Some(NonNull<u8>)` if allocation succeeded, `None` if region is full
     #[inline]
     fn allocate(&self, size: usize, align: usize) -> Option<NonNull<u8>> {
-        // We need space for: [U32 SIZE HEADER] + [PADDING FOR ALIGN] + [ACTUAL DATA]
-        // However, to keep it simple and fast, we align the HEADER itself.
         let start_addr = self.start.as_ptr() as usize;
         let mut current_offset = self.offset.load(Ordering::Relaxed);
 
+        // SMALL OBJECT FAST PATH
+        // If size is small and alignment is standard, use simplified math.
+        if size <= 12 && align <= 16 {
+            loop {
+                let data_addr = align_up(start_addr + current_offset + 4, 16);
+                let next_offset = (data_addr - start_addr) + size;
+
+                if next_offset > self.capacity {
+                    return None;
+                }
+
+                match self.offset.compare_exchange_weak(
+                    current_offset,
+                    next_offset,
+                    Ordering::AcqRel,
+                    Ordering::Relaxed,
+                ) {
+                    Ok(_) => {
+                        unsafe {
+                            *((data_addr - 4) as *mut u32) = size as u32;
+                        }
+                        return NonNull::new(data_addr as *mut u8);
+                    }
+                    Err(next) => current_offset = next,
+                }
+            }
+        }
+
         loop {
-            // 1. Find where the header starts (aligned to 4 or 8 bytes)
+            // Calculate the necessary padding and alignment
             let header_addr = align_up(start_addr + current_offset, 4);
             let data_addr = align_up(header_addr + 4, align);
+            let requested_end = (data_addr - start_addr) + size;
 
-            // 2. The total size consumed by this "block"
-            let new_offset = (data_addr - start_addr) + size;
+            // Branchless Boundary Check
+            // If requested_end > capacity, 'is_invalid' will be 0xFFFF... (all 1s)
+            // otherwise it will be 0x0000... (all 0s)
+            let is_invalid = ((self.capacity as isize).wrapping_sub(requested_end as isize))
+                >> (std::mem::size_of::<isize>() * 8 - 1);
+            
+            // If invalid, we force new_offset to current_offset (no change)
+            // If valid, new_offset = requested_end
+            let mask = is_invalid as usize;
+            let new_offset = (requested_end & !mask) | (current_offset & mask);
 
-            if new_offset > self.capacity {
+            // Early return if invalid (This is a single branch, but now it's highly predictable)
+            if is_invalid != 0 {
                 return None;
             }
 
-            // 3. Attempt to claim the space
+            // Atomic Swap
             match self.offset.compare_exchange_weak(
                 current_offset,
                 new_offset,
@@ -232,8 +265,6 @@ impl Region {
                 Ordering::Relaxed,
             ) {
                 Ok(_) => {
-                    // 4. Store the size of the DATA portion specifically
-                    // so try_free knows exactly how much to roll back.
                     unsafe {
                         let size_ptr = (data_addr - 4) as *mut u32;
                         size_ptr.write(size as u32);
@@ -521,11 +552,13 @@ impl ScrapHeap {
 ///
 /// Each shard has its own mutex, allowing concurrent access to different
 /// heaps without contention.
+#[allow(clippy::vec_box)]
 struct Shard {
     /// Map from heap key to heap instance, protected by a mutex
     heaps: Mutex<AHashMap<usize, Box<ScrapHeap>>>,
 
     /// Heaps to be deleted after a grace period (next tick)
+    // Vec<Box<>> here is okay, it should be
     limbo: Mutex<Vec<Box<ScrapHeap>>>,
 }
 
@@ -537,8 +570,8 @@ unsafe impl Sync for Shard {}
 static SHARDS: LazyLock<Vec<Shard>> = LazyLock::new(|| {
     (0..MAX_SHARDS)
         .map(|_| Shard {
-            heaps: Mutex::new(AHashMap::with_capacity(16)),
-            limbo: Mutex::new(Vec::new()),
+            heaps: Mutex::new(AHashMap::with_capacity(512)),
+            limbo: Mutex::new(Vec::with_capacity(64)),
         })
         .collect()
 });
@@ -580,6 +613,9 @@ pub fn spawn_scavenger_thread() {
             debug!("ScrapHeap: Scavenger thread started.");
             loop {
                 thread::sleep(SCAVENGER_SLEEP_DURATION);
+
+                // Increment tick once per 500ms. This is plenty for "recency" tracking.
+                GLOBAL_TICK.fetch_add(1, Ordering::Relaxed);
                 perform_global_maintenance();
             }
         });
@@ -587,47 +623,55 @@ pub fn spawn_scavenger_thread() {
 }
 
 fn perform_global_maintenance() {
-    let current_tick = GLOBAL_TICK.load(Ordering::Relaxed);
+    static LAST_TICK_CHECK: AtomicU64 = AtomicU64::new(0);
     
-    // Only process ONE shard per call to spread the load
-    let shard_to_process = CURRENT_MAINTENANCE_SHARD.fetch_add(1, Ordering::Relaxed) % MAX_SHARDS;
-    let shard = &SHARDS[shard_to_process];
+    let current_tick = GLOBAL_TICK.load(Ordering::Relaxed);
+    let last_tick = LAST_TICK_CHECK.swap(current_tick, Ordering::Relaxed);
 
-    // Fast Limbo Cleanup
+    // If the tick hasn't advanced since the last scavenger wake, 
+    // the game main thread is likely HUNG (loading/unloading a cell).
+    // Abort maintenance to avoid deleting a heap the game is about to use.
+    if current_tick == last_tick {
+        return; 
+    }
+
+    let shard_idx = CURRENT_MAINTENANCE_SHARD.fetch_add(1, Ordering::Relaxed) % MAX_SHARDS;
+    let shard = &SHARDS[shard_idx];
+
+    // Limbo Cleanup (Delayed Deletion)
     if let Some(mut limbo_lock) = shard.limbo.try_lock() {
-        let limbo_len = limbo_lock.len();
-        
-        // Drop in chunks if the list is huge to avoid long lock hold
-        if limbo_len > 100 {
-            limbo_lock.truncate(limbo_len - 100);
-        } else {
-            limbo_lock.clear();
+        // Only drop 16 heaps at a time to prevent frame spikes
+        let to_drop = limbo_lock.len().min(16);
+        limbo_lock.drain(0..to_drop);
+    }
+
+    // Identify Idle Heaps
+    let mut extracted = Vec::new();
+    if let Some(mut shard_lock) = shard.heaps.try_lock() {
+        let mut keys_to_remove = Vec::new();
+        for (&key, heap) in shard_lock.iter().take(100) {
+            // Increased threshold: 30 seconds of inactivity (60 scavenger cycles)
+            if current_tick.saturating_sub(heap.last_access) > 60 {
+                keys_to_remove.push(key);
+            }
+        }
+        for key in keys_to_remove {
+            if let Some(h) = shard_lock.remove(&key) {
+                extracted.push(h);
+            }
         }
     }
 
-    // Non-blocking Shard Scan
-    if let Some(mut shard_lock) = shard.heaps.try_lock() {
-        let mut dead_keys = Vec::new();
-
-        // Only scan up to 200 heaps per wake-up to keep stutters low
-        for (&key, heap) in shard_lock.iter_mut().take(200) {
-            let inactive_ticks = current_tick.saturating_sub(heap.last_access);
-            if inactive_ticks > IDLE_PURGE_THRESHOLD_TICKS * 50 {
-                dead_keys.push(key);
+    // Move to Limbo (Grace Period)
+    if !extracted.is_empty() {
+        if let Some(mut limbo_lock) = shard.limbo.try_lock() {
+            for mut h in extracted {
+                h.purge_aggressive();
+                limbo_lock.push(h);
             }
         }
-
-        if !dead_keys.is_empty()
-            && let Some(mut limbo_lock) = shard.limbo.try_lock()
-        {
-            for key in dead_keys {
-                if let Some(mut dead_heap) = shard_lock.remove(&key) {
-                    dead_heap.purge_aggressive();
-                    limbo_lock.push(dead_heap);
-                }
-            }
-            GLOBAL_EVICTION_COUNT.fetch_add(1, Ordering::SeqCst);
-        }
+        // Invalidate TLS so threads stop using old pointers
+        GLOBAL_EVICTION_COUNT.fetch_add(1, Ordering::SeqCst);
     }
 }
 
@@ -649,12 +693,16 @@ fn perform_global_maintenance() {
 /// Pointer to allocated memory, or null pointer if allocation failed
 #[inline]
 pub fn sheap_alloc_align(sheap_ptr: *mut c_void, size: usize, align: usize) -> *mut c_void {
+    if (sheap_ptr as usize) < 0x10000 {
+        return std::ptr::null_mut();
+    }
+
     if sheap_ptr.is_null() || size == 0 {
         return std::ptr::null_mut();
     }
     let key = sheap_ptr as usize;
 
-    // 1. Validation check (Acquire ordering is critical here to prevent crashes)
+    // Validation check (Acquire ordering is critical here to prevent crashes)
     let current_gen = GLOBAL_EVICTION_COUNT.load(Ordering::Acquire);
 
     let res = RECENT_HEAP.with_borrow_mut(|cache_opt| {
@@ -676,14 +724,19 @@ pub fn sheap_alloc_align(sheap_ptr: *mut c_void, size: usize, align: usize) -> *
     let shard = &SHARDS[shard_idx];
 
     // INCREASE spin count. 5 is too low for NV, leading to too many fallbacks.
-    // 50-100 spins is still sub-microsecond but prevents 99% of fallbacks.
+    // 40-100 spins is still sub-microsecond but prevents 99% of fallbacks.
     let mut shard_lock = None;
-    for _ in 0..50 {
+    for i in 0..40 {
         if let Some(guard) = shard.heaps.try_lock() {
             shard_lock = Some(guard);
             break;
         }
-        std::hint::spin_loop();
+        if i < 10 {
+            std::hint::spin_loop();
+        } else {
+            // Tell Windows to let someone else run, then try again immediately
+            thread::yield_now();
+        }
     }
 
     // If still locked, use a real lock. Fallback to MiMalloc is a LEAK
@@ -698,9 +751,8 @@ pub fn sheap_alloc_align(sheap_ptr: *mut c_void, size: usize, align: usize) -> *
         .entry(key)
         .or_insert_with(|| Box::new(ScrapHeap::new()));
 
-    // Update access and tick
-    let tick = GLOBAL_TICK.fetch_add(1, Ordering::Relaxed);
-    heap.last_access = tick;
+    // Just read global tick, we update in in maintenance thread
+    heap.last_access = GLOBAL_TICK.load(Ordering::Relaxed);
 
     let result = heap.alloc_aligned(size, align);
     let heap_ptr = &mut **heap as *mut ScrapHeap;
