@@ -570,6 +570,8 @@ thread_local! {
 
 static SCAVENGER_START: Once = Once::new();
 
+static CURRENT_MAINTENANCE_SHARD: AtomicUsize = AtomicUsize::new(0);
+
 /// Spawns the background maintenance thread.
 /// Call this once during your plugin/DLL initialization.
 pub fn spawn_scavenger_thread() {
@@ -587,39 +589,44 @@ pub fn spawn_scavenger_thread() {
 fn perform_global_maintenance() {
     let current_tick = GLOBAL_TICK.load(Ordering::Relaxed);
     
-    for shard in SHARDS.iter() {
-        // Physical drop of heaps moved to limbo 5-10 seconds ago
-        if let Some(mut limbo_lock) = shard.limbo.try_lock() {
-            limbo_lock.clear(); 
+    // Only process ONE shard per call to spread the load
+    let shard_to_process = CURRENT_MAINTENANCE_SHARD.fetch_add(1, Ordering::Relaxed) % MAX_SHARDS;
+    let shard = &SHARDS[shard_to_process];
+
+    // Fast Limbo Cleanup
+    if let Some(mut limbo_lock) = shard.limbo.try_lock() {
+        let limbo_len = limbo_lock.len();
+        
+        // Drop in chunks if the list is huge to avoid long lock hold
+        if limbo_len > 100 {
+            limbo_lock.truncate(limbo_len - 100);
+        } else {
+            limbo_lock.clear();
+        }
+    }
+
+    // Non-blocking Shard Scan
+    if let Some(mut shard_lock) = shard.heaps.try_lock() {
+        let mut dead_keys = Vec::new();
+
+        // Only scan up to 200 heaps per wake-up to keep stutters low
+        for (&key, heap) in shard_lock.iter_mut().take(200) {
+            let inactive_ticks = current_tick.saturating_sub(heap.last_access);
+            if inactive_ticks > IDLE_PURGE_THRESHOLD_TICKS * 50 {
+                dead_keys.push(key);
+            }
         }
 
-        if let Some(mut shard_lock) = shard.heaps.try_lock() {
-            let mut dead_keys = Vec::new();
-
-            for (&key, heap) in shard_lock.iter_mut() {
-                let inactive_ticks = current_tick.saturating_sub(heap.last_access);
-
-                // TRIPLE the threshold. NV is erratic.
-                if inactive_ticks > IDLE_PURGE_THRESHOLD_TICKS * 30 {
-                    dead_keys.push(key);
-                } 
-                // REMOVED: heap.purge_aggressive() from here.
-                // Resetting offsets is okay, but deleting Regions (truncate) 
-                // while the heap is "active" is what's killing your game.
-            }
-
-            if !dead_keys.is_empty()
-                && let Some(mut limbo_lock) = shard.limbo.try_lock() {
-                    for key in dead_keys {
-                        if let Some(mut dead_heap) = shard_lock.remove(&key) {
-                            // NOW it is safe to shrink it because we've 
-                            // removed it from the reach of sheap_alloc.
-                            dead_heap.purge_aggressive(); 
-                            limbo_lock.push(dead_heap);
-                        }
-                    }
-                    GLOBAL_EVICTION_COUNT.fetch_add(1, Ordering::SeqCst);
+        if !dead_keys.is_empty()
+            && let Some(mut limbo_lock) = shard.limbo.try_lock()
+        {
+            for key in dead_keys {
+                if let Some(mut dead_heap) = shard_lock.remove(&key) {
+                    dead_heap.purge_aggressive();
+                    limbo_lock.push(dead_heap);
                 }
+            }
+            GLOBAL_EVICTION_COUNT.fetch_add(1, Ordering::SeqCst);
         }
     }
 }
@@ -671,7 +678,7 @@ pub fn sheap_alloc_align(sheap_ptr: *mut c_void, size: usize, align: usize) -> *
     // INCREASE spin count. 5 is too low for NV, leading to too many fallbacks.
     // 50-100 spins is still sub-microsecond but prevents 99% of fallbacks.
     let mut shard_lock = None;
-    for _ in 0..100 {
+    for _ in 0..50 {
         if let Some(guard) = shard.heaps.try_lock() {
             shard_lock = Some(guard);
             break;
@@ -681,7 +688,11 @@ pub fn sheap_alloc_align(sheap_ptr: *mut c_void, size: usize, align: usize) -> *
 
     // If still locked, use a real lock. Fallback to MiMalloc is a LEAK
     // unless we have a complex tracking system. Better to stall for 1ms than crash/leak.
-    let mut shard_lock = shard_lock.unwrap_or_else(|| shard.heaps.lock());
+    let mut shard_lock = shard_lock.unwrap_or_else(|| {
+        // On Windows, yielding is better than a hard block if we want to avoid stutters
+        thread::yield_now();
+        shard.heaps.lock()
+    });
 
     let heap = shard_lock
         .entry(key)
