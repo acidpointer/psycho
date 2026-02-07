@@ -28,10 +28,9 @@ use windows::Win32::System::ProcessStatus::{
 };
 use windows::Win32::System::Threading::{
     CRITICAL_SECTION, GetCurrentThreadId as WinGetCurrentThreadId, InitializeCriticalSection,
-    SetThreadPriority, THREAD_PRIORITY, THREAD_PRIORITY_ABOVE_NORMAL,
-    THREAD_PRIORITY_BELOW_NORMAL, THREAD_PRIORITY_HIGHEST, THREAD_PRIORITY_IDLE,
-    THREAD_PRIORITY_LOWEST, THREAD_PRIORITY_MIN, THREAD_PRIORITY_NORMAL,
-    THREAD_PRIORITY_TIME_CRITICAL,
+    SetThreadPriority, THREAD_PRIORITY, THREAD_PRIORITY_ABOVE_NORMAL, THREAD_PRIORITY_BELOW_NORMAL,
+    THREAD_PRIORITY_HIGHEST, THREAD_PRIORITY_IDLE, THREAD_PRIORITY_LOWEST, THREAD_PRIORITY_MIN,
+    THREAD_PRIORITY_NORMAL, THREAD_PRIORITY_TIME_CRITICAL,
 };
 use windows::Win32::System::{
     Diagnostics::Debug::FlushInstructionCache, Memory::VirtualQuery, Threading::GetCurrentProcess,
@@ -83,6 +82,23 @@ pub struct MemoryBasicInformation {
     pub state: u32,
     pub protect: PAGE_PROTECTION_FLAGS,
     pub r#type: u32,
+}
+
+mod sys {
+    use libc::c_void;
+
+    #[link(name = "kernel32")]
+    unsafe extern "system" {
+        pub fn IsBadReadPtr(lp: *const c_void, ucb: usize) -> i32;
+    }
+}
+
+/// WinAPI: IsBadReadPtr(...)
+/// 
+/// # Safety
+/// Unsafe WinAPI call. Pointers must be valid
+pub unsafe fn is_bad_read_ptr(ptr: *const c_void, ucb: usize) -> bool {
+    unsafe { sys::IsBadReadPtr(ptr, ucb) == 0 }
 }
 
 /// Query memory with VirtualQuery(...)
@@ -1182,15 +1198,11 @@ pub fn is_large_address_aware() -> WinapiResult<bool> {
         // Check DOS signature "MZ" (0x5A4D)
         let dos_signature = std::ptr::read_unaligned(base_address as *const u16);
         if dos_signature != 0x5A4D {
-            return Err(WinapiError::WindowsCore(
-                windows::core::Error::from_win32()
-            ));
+            return Err(WinapiError::WindowsCore(windows::core::Error::from_win32()));
         }
 
         // Read e_lfanew offset (at offset 0x3C in DOS header)
-        let e_lfanew_offset = std::ptr::read_unaligned(
-            base_address.add(0x3C) as *const u32
-        );
+        let e_lfanew_offset = std::ptr::read_unaligned(base_address.add(0x3C) as *const u32);
 
         // Get PE header address
         let pe_header = base_address.add(e_lfanew_offset as usize);
@@ -1198,18 +1210,14 @@ pub fn is_large_address_aware() -> WinapiResult<bool> {
         // Check PE signature "PE\0\0" (0x00004550)
         let pe_signature = std::ptr::read_unaligned(pe_header as *const u32);
         if pe_signature != 0x00004550 {
-            return Err(WinapiError::WindowsCore(
-                windows::core::Error::from_win32()
-            ));
+            return Err(WinapiError::WindowsCore(windows::core::Error::from_win32()));
         }
 
         // Read Characteristics field from COFF File Header
         // PE signature is 4 bytes, then COFF header starts
         // Characteristics is at offset 18 (0x12) in COFF header
         let characteristics_offset = pe_header.add(4 + 0x12);
-        let characteristics = std::ptr::read_unaligned(
-            characteristics_offset as *const u16
-        );
+        let characteristics = std::ptr::read_unaligned(characteristics_offset as *const u16);
 
         // IMAGE_FILE_LARGE_ADDRESS_AWARE = 0x0020
         const IMAGE_FILE_LARGE_ADDRESS_AWARE: u16 = 0x0020;

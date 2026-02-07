@@ -22,3 +22,4 @@ libnvse = { path = "../libnvse" }
 libpsycho = { path = "../libpsycho" }
 libz-rs-sys = { version = "0.5.5", features = ["rust-allocator"] }
 ahash = { workspace = true }
+scc = { workspace = true }

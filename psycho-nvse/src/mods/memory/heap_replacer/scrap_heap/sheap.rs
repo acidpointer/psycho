@@ -11,9 +11,9 @@
 //! 4. **Thread-Local Caching**: Hot-path optimization bypassing sharding for repeated calls
 //! 5. **Memory Reclamation**: Active monitoring returns unused memory to mimalloc
 
-use ahash::AHashMap;
 use libc::c_void;
 use libmimalloc::heap::MiHeap;
+use libpsycho::os::windows::winapi;
 use log::{debug, error};
 use parking_lot::{Mutex, Once};
 use std::cell::RefCell;
@@ -22,6 +22,10 @@ use std::sync::LazyLock;
 use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use std::thread;
 use std::time::Duration;
+
+/// SCC HashMap with ahash hasher
+/// Fast enougth for allocator needs
+type AHashMap<K, V> = scc::HashMap<K, V, ahash::RandomState>;
 
 // ============================================================================
 // CONSTANTS
@@ -207,66 +211,32 @@ impl Region {
         let start_addr = self.start.as_ptr() as usize;
         let mut current_offset = self.offset.load(Ordering::Relaxed);
 
-        // SMALL OBJECT FAST PATH
-        // If size is small and alignment is standard, use simplified math.
-        if size <= 12 && align <= 16 {
-            loop {
-                let data_addr = align_up(start_addr + current_offset + 4, 16);
-                let next_offset = (data_addr - start_addr) + size;
-
-                if next_offset > self.capacity {
-                    return None;
-                }
-
-                match self.offset.compare_exchange_weak(
-                    current_offset,
-                    next_offset,
-                    Ordering::AcqRel,
-                    Ordering::Relaxed,
-                ) {
-                    Ok(_) => {
-                        unsafe {
-                            *((data_addr - 4) as *mut u32) = size as u32;
-                        }
-                        return NonNull::new(data_addr as *mut u8);
-                    }
-                    Err(next) => current_offset = next,
-                }
-            }
-        }
-
         loop {
-            // Calculate the necessary padding and alignment
-            let header_addr = align_up(start_addr + current_offset, 4);
-            let data_addr = align_up(header_addr + 4, align);
+            // 1. Calculate the earliest possible data address
+            // We must leave at least 4 bytes for the header.
+            let min_data_addr = start_addr + current_offset + 4;
+
+            // 2. Align the data pointer to the requested alignment
+            let data_addr = align_up(min_data_addr, align);
+
+            // 3. The header is NOW guaranteed to be exactly 4 bytes before data
+            let header_addr = data_addr - 4;
+
             let requested_end = (data_addr - start_addr) + size;
 
-            // Branchless Boundary Check
-            // If requested_end > capacity, 'is_invalid' will be 0xFFFF... (all 1s)
-            // otherwise it will be 0x0000... (all 0s)
-            let is_invalid = ((self.capacity as isize).wrapping_sub(requested_end as isize))
-                >> (std::mem::size_of::<isize>() * 8 - 1);
-            
-            // If invalid, we force new_offset to current_offset (no change)
-            // If valid, new_offset = requested_end
-            let mask = is_invalid as usize;
-            let new_offset = (requested_end & !mask) | (current_offset & mask);
-
-            // Early return if invalid (This is a single branch, but now it's highly predictable)
-            if is_invalid != 0 {
+            if requested_end > self.capacity {
                 return None;
             }
 
-            // Atomic Swap
             match self.offset.compare_exchange_weak(
                 current_offset,
-                new_offset,
+                requested_end, // New offset is the end of the data
                 Ordering::AcqRel,
                 Ordering::Relaxed,
             ) {
                 Ok(_) => {
                     unsafe {
-                        let size_ptr = (data_addr - 4) as *mut u32;
+                        let size_ptr = header_addr as *mut u32;
                         size_ptr.write(size as u32);
                     }
                     return NonNull::new(data_addr as *mut u8);
@@ -479,24 +449,6 @@ impl ScrapHeap {
         self.active_index = 0;
     }
 
-    /// Clears memory and drops all but the primary region.
-    pub fn purge_aggressive(&mut self) {
-        // Drop all regions except the first one to prevent allocation churn
-        // but still reclaim the bulk of the memory.
-        if self.regions.len() > 1 {
-            self.regions.truncate(1);
-        }
-
-        if let Some(r) = self.regions.get_mut(0) {
-            r.offset.store(0, Ordering::Release);
-            // We don't need to track last_alloc_size anymore because
-            // the size is now stored in the memory header.
-        }
-
-        self.rebuild_region_map();
-        self.active_index = 0;
-    }
-
     /// Rebuilds the page-to-region map from scratch.
     ///
     /// Ensures the map accurately reflects current regions after purging.
@@ -555,11 +507,11 @@ impl ScrapHeap {
 #[allow(clippy::vec_box)]
 struct Shard {
     /// Map from heap key to heap instance, protected by a mutex
-    heaps: Mutex<AHashMap<usize, Box<ScrapHeap>>>,
+    heaps: AHashMap<usize, Box<ScrapHeap>>,
 
-    /// Heaps to be deleted after a grace period (next tick)
+    /// Heaps to be deleted after a grace period (next tick) + the tick they were evicted
     // Vec<Box<>> here is okay, it should be
-    limbo: Mutex<Vec<Box<ScrapHeap>>>,
+    limbo: Mutex<Vec<(Box<ScrapHeap>, u64)>>,
 }
 
 // Shard can be safely sent between threads (contains only a Mutex)
@@ -570,7 +522,7 @@ unsafe impl Sync for Shard {}
 static SHARDS: LazyLock<Vec<Shard>> = LazyLock::new(|| {
     (0..MAX_SHARDS)
         .map(|_| Shard {
-            heaps: Mutex::new(AHashMap::with_capacity(512)),
+            heaps: AHashMap::with_hasher(ahash::RandomState::new()),
             limbo: Mutex::new(Vec::with_capacity(64)),
         })
         .collect()
@@ -595,6 +547,17 @@ thread_local! {
     ///
     /// Bypasses shard locking for repeated allocations from the same heap.
     static RECENT_HEAP: RefCell<Option<TlsCache>> = const { RefCell::new(None) };
+}
+
+#[inline(always)]
+fn update_tls(key: usize, ptr: *mut ScrapHeap, generation: u64) {
+    RECENT_HEAP.with_borrow_mut(|cache| {
+        *cache = Some(TlsCache {
+            key,
+            ptr,
+            generation,
+        });
+    });
 }
 
 // ============================================================================
@@ -624,54 +587,56 @@ pub fn spawn_scavenger_thread() {
 
 fn perform_global_maintenance() {
     static LAST_TICK_CHECK: AtomicU64 = AtomicU64::new(0);
-    
+
     let current_tick = GLOBAL_TICK.load(Ordering::Relaxed);
     let last_tick = LAST_TICK_CHECK.swap(current_tick, Ordering::Relaxed);
 
-    // If the tick hasn't advanced since the last scavenger wake, 
-    // the game main thread is likely HUNG (loading/unloading a cell).
-    // Abort maintenance to avoid deleting a heap the game is about to use.
     if current_tick == last_tick {
-        return; 
+        return;
     }
 
     let shard_idx = CURRENT_MAINTENANCE_SHARD.fetch_add(1, Ordering::Relaxed) % MAX_SHARDS;
     let shard = &SHARDS[shard_idx];
 
-    // Limbo Cleanup (Delayed Deletion)
+    // 1. GENTLE Limbo Cleanup
+    // We only drop memory that has survived in limbo for ~5 seconds.
     if let Some(mut limbo_lock) = shard.limbo.try_lock() {
-        // Only drop 16 heaps at a time to prevent frame spikes
-        let to_drop = limbo_lock.len().min(16);
-        limbo_lock.drain(0..to_drop);
+        limbo_lock.retain(|(_, evicted_at)| {
+            current_tick.saturating_sub(*evicted_at) < 10 
+        });
     }
 
-    // Identify Idle Heaps
-    let mut extracted = Vec::new();
-    if let Some(mut shard_lock) = shard.heaps.try_lock() {
-        let mut keys_to_remove = Vec::new();
-        for (&key, heap) in shard_lock.iter().take(100) {
-            // Increased threshold: 30 seconds of inactivity (60 scavenger cycles)
-            if current_tick.saturating_sub(heap.last_access) > 60 {
-                keys_to_remove.push(key);
-            }
-        }
-        for key in keys_to_remove {
-            if let Some(h) = shard_lock.remove(&key) {
-                extracted.push(h);
-            }
-        }
-    }
+    // 2. Identify Victims
+    // We use for_each to safely inspect the map without holding a global lock.
+    let mut keys_to_evict = Vec::new();
+    shard.heaps.iter_sync(|key, heap| {
+        let is_ghost = unsafe { winapi::is_bad_read_ptr(*key as *const c_void, 4) };
+        let is_idle = current_tick.saturating_sub(heap.last_access) > 240;
 
-    // Move to Limbo (Grace Period)
-    if !extracted.is_empty() {
-        if let Some(mut limbo_lock) = shard.limbo.try_lock() {
-            for mut h in extracted {
-                h.purge_aggressive();
-                limbo_lock.push(h);
-            }
+        if is_ghost || is_idle {
+            keys_to_evict.push(*key);
         }
-        // Invalidate TLS so threads stop using old pointers
+
+        true
+    });
+
+    // 3. Move to Limbo (The "Grace Period" Hand-off)
+    if !keys_to_evict.is_empty() {
+        // Invalidate TLS caches globally BEFORE we start moving heaps.
         GLOBAL_EVICTION_COUNT.fetch_add(1, Ordering::SeqCst);
+
+        for key in keys_to_evict {
+            // remove_sync returns the Box<ScrapHeap>, giving us ownership.
+            if let Some((_, heap_box)) = shard.heaps.remove_sync(&key) {
+                if let Some(mut limbo_lock) = shard.limbo.try_lock() {
+                    limbo_lock.push((heap_box, current_tick));
+                } else {
+                    // Fallback: If limbo is locked, we just let it drop.
+                    // This is still safer than keeping it in the map and risking a race.
+                    drop(heap_box);
+                }
+            }
+        }
     }
 }
 
@@ -693,18 +658,14 @@ fn perform_global_maintenance() {
 /// Pointer to allocated memory, or null pointer if allocation failed
 #[inline]
 pub fn sheap_alloc_align(sheap_ptr: *mut c_void, size: usize, align: usize) -> *mut c_void {
-    if (sheap_ptr as usize) < 0x10000 {
-        return std::ptr::null_mut();
-    }
-
-    if sheap_ptr.is_null() || size == 0 {
-        return std::ptr::null_mut();
-    }
     let key = sheap_ptr as usize;
+    if key < 0x10000 {
+        return std::ptr::null_mut();
+    }
 
-    // Validation check (Acquire ordering is critical here to prevent crashes)
-    let current_gen = GLOBAL_EVICTION_COUNT.load(Ordering::Acquire);
+    let current_gen = GLOBAL_EVICTION_COUNT.load(Ordering::SeqCst);
 
+    // 1. TLS FAST PATH (Essential to bypass locks during save-load storms)
     let res = RECENT_HEAP.with_borrow_mut(|cache_opt| {
         if let Some(cache) = cache_opt
             && cache.key == key
@@ -719,53 +680,41 @@ pub fn sheap_alloc_align(sheap_ptr: *mut c_void, size: usize, align: usize) -> *
         return p;
     }
 
-    // 2. Shard Access
     let shard_idx = get_shard_idx(key);
     let shard = &SHARDS[shard_idx];
 
-    // INCREASE spin count. 5 is too low for NV, leading to too many fallbacks.
-    // 40-100 spins is still sub-microsecond but prevents 99% of fallbacks.
-    let mut shard_lock = None;
-    for i in 0..40 {
-        if let Some(guard) = shard.heaps.try_lock() {
-            shard_lock = Some(guard);
-            break;
-        }
-        if i < 10 {
-            std::hint::spin_loop();
-        } else {
-            // Tell Windows to let someone else run, then try again immediately
-            thread::yield_now();
-        }
+    // 2. NON-BLOCKING LOOKUP
+    // We use get_sync and a temporary raw pointer to minimize lock hold time.
+    if let Some(mut heap_guard) = shard.heaps.get_sync(&key) {
+        // Since we need &mut and scc guards are primarily for shared access,
+        // we use the get_mut() on the guard if available, or we use our Box.
+        let heap = heap_guard.get_mut();
+
+        heap.last_access = GLOBAL_TICK.load(Ordering::Relaxed);
+        let ptr = heap.alloc_aligned(size, align);
+
+        // Update TLS so we don't have to lock this shard again for this heap
+        update_tls(key, &mut **heap as *mut ScrapHeap, current_gen);
+        return ptr;
     }
 
-    // If still locked, use a real lock. Fallback to MiMalloc is a LEAK
-    // unless we have a complex tracking system. Better to stall for 1ms than crash/leak.
-    let mut shard_lock = shard_lock.unwrap_or_else(|| {
-        // On Windows, yielding is better than a hard block if we want to avoid stutters
-        thread::yield_now();
-        shard.heaps.lock()
-    });
+    // 3. ATOMIC INSERTION
+    let mut new_box = Box::new(ScrapHeap::new());
+    new_box.last_access = GLOBAL_TICK.load(Ordering::Relaxed);
+    let final_ptr = new_box.alloc_aligned(size, align);
+    let raw_ptr = &mut *new_box as *mut ScrapHeap;
 
-    let heap = shard_lock
-        .entry(key)
-        .or_insert_with(|| Box::new(ScrapHeap::new()));
-
-    // Just read global tick, we update in in maintenance thread
-    heap.last_access = GLOBAL_TICK.load(Ordering::Relaxed);
-
-    let result = heap.alloc_aligned(size, align);
-    let heap_ptr = &mut **heap as *mut ScrapHeap;
-
-    RECENT_HEAP.with_borrow_mut(|cache| {
-        *cache = Some(TlsCache {
-            key,
-            ptr: heap_ptr,
-            generation: current_gen,
-        });
-    });
-
-    result
+    // Use insert_sync. If it fails, someone else beat us to it.
+    match shard.heaps.insert_sync(key, new_box) {
+        Ok(_) => {
+            update_tls(key, raw_ptr, current_gen);
+            final_ptr
+        }
+        Err(_) => {
+            // Conflict during load: Recurse. The TLS or get_sync path will catch it.
+            sheap_alloc_align(sheap_ptr, size, align)
+        }
+    }
 }
 
 /// Purges all allocations from a specific ScrapHeap.
@@ -780,11 +729,7 @@ pub fn sheap_purge(sheap_ptr: *mut c_void) {
     let key = sheap_ptr as usize;
     let shard_idx = get_shard_idx(key);
 
-    // try_lock is better here; if we can't lock it, another thread is using it
-    // or purging it, so we don't want to wait and tank FPS.
-    if let Some(mut shard_lock) = SHARDS[shard_idx].heaps.try_lock()
-        && let Some(heap) = shard_lock.get_mut(&key)
-    {
+    if let Some(mut heap) = SHARDS[shard_idx].heaps.get_sync(&key) {
         heap.last_access = GLOBAL_TICK.load(Ordering::Relaxed);
         heap.purge();
     }
@@ -797,10 +742,10 @@ pub fn sheap_contains_ptr(sheap_ptr: *mut c_void, addr_ptr: *mut c_void) -> bool
     let addr = addr_ptr as usize;
     let shard_idx = get_shard_idx(key);
 
-    let shard_lock = SHARDS[shard_idx].heaps.lock();
-    if let Some(heap) = shard_lock.get(&key) {
+    if let Some(heap) = SHARDS[shard_idx].heaps.get_sync(&key) {
         return heap.get_region_index_for_addr(addr).is_some();
     }
+
     false
 }
 
@@ -836,9 +781,7 @@ pub fn sheap_free(sheap_ptr: *mut c_void, ptr: *mut c_void) {
 
     // If TLS fails, we MUST attempt a try_lock to see if this was a MiMalloc fallback.
     let shard_idx = get_shard_idx(key);
-    if let Some(mut shard_lock) = SHARDS[shard_idx].heaps.try_lock()
-        && let Some(heap) = shard_lock.get_mut(&key)
-    {
+    if let Some(heap) = SHARDS[shard_idx].heaps.get_sync(&key) {
         if let Some(idx) = heap.get_region_index_for_addr(ptr as usize) {
             heap.regions[idx].try_free(ptr);
         } else {
