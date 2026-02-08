@@ -50,8 +50,8 @@ const PAGE_SHIFT: usize = 12;
 const GLOBAL_MEMORY_LIMIT: usize = 512 * 1024 * 1024;
 
 /// How often the scavenger thread wakes up.
-/// Frequent wakes with small work chunks are better than huge 30s pauses.
-const SCAVENGER_SLEEP_DURATION: Duration = Duration::from_millis(500);
+/// For our implementation 2 secs is good balance
+const SCAVENGER_SLEEP_DURATION: Duration = Duration::from_secs(2);
 
 // ============================================================================
 // GLOBAL STATE
@@ -311,12 +311,19 @@ pub struct ScrapHeap {
 impl ScrapHeap {
     /// Creates a new empty ScrapHeap.
     pub fn new() -> Self {
-        Self {
+        let mut heap = Self {
             regions: Vec::with_capacity(8),
             page_to_region: Vec::with_capacity(4),
             active_index: 0,
-            last_access: 0,
+            last_access: GLOBAL_TICK.load(Ordering::Relaxed),
+        };
+
+        // Pre-allocate first region to avoid a mid-frame mimalloc hit later
+        if let Some(region) = Region::new(REGION_SIZE, MIN_ALIGN) {
+            heap.page_to_region.push((region.start_page, 0));
+            heap.regions.push(region);
         }
+        heap
     }
 
     /// Primary allocation entry point for this heap.
@@ -333,6 +340,13 @@ impl ScrapHeap {
         }
         let align = align.max(MIN_ALIGN);
 
+        // 1. Try the ACTIVE region first (Highest probability of success)
+        if let Some(region) = self.regions.get(self.active_index)
+            && let Some(ptr) = region.allocate(size, align) {
+                return ptr.as_ptr() as *mut c_void;
+            }
+
+        // 2. Try the FIRST region (Prevents "Region Creep" if it was recently purged)
         // If the active_index failed, don't just search forward.
         // Check if the FIRST region has space. This prevents "Region Creep."
         if self.active_index != 0
@@ -601,9 +615,7 @@ fn perform_global_maintenance() {
     // 1. GENTLE Limbo Cleanup
     // We only drop memory that has survived in limbo for ~5 seconds.
     if let Some(mut limbo_lock) = shard.limbo.try_lock() {
-        limbo_lock.retain(|(_, evicted_at)| {
-            current_tick.saturating_sub(*evicted_at) < 10 
-        });
+        limbo_lock.retain(|(_, evicted_at)| current_tick.saturating_sub(*evicted_at) < 10);
     }
 
     // 2. Identify Victims
