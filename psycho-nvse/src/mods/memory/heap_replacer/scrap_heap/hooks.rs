@@ -2,8 +2,27 @@
 
 use super::sheap;
 use libc::c_void;
+use libpsycho::os::windows::hook::inline::inlinehook::InlineHookContainer;
 use std::cell::UnsafeCell;
 use std::ptr::null_mut;
+use std::sync::LazyLock;
+
+use super::types::*;
+
+/// Scrap heap hooks
+pub static SHEAP_INIT_FIX_HOOK: LazyLock<InlineHookContainer<SheapInitFixFn>> =
+    LazyLock::new(InlineHookContainer::new);
+pub static SHEAP_INIT_VAR_HOOK: LazyLock<InlineHookContainer<SheapInitVarFn>> =
+    LazyLock::new(InlineHookContainer::new);
+pub static SHEAP_ALLOC_HOOK: LazyLock<InlineHookContainer<SheapAllocFn>> =
+    LazyLock::new(InlineHookContainer::new);
+pub static SHEAP_FREE_HOOK: LazyLock<InlineHookContainer<SheapFreeFn>> =
+    LazyLock::new(InlineHookContainer::new);
+pub static SHEAP_PURGE_HOOK: LazyLock<InlineHookContainer<SheapPurgeFn>> =
+    LazyLock::new(InlineHookContainer::new);
+pub static SHEAP_GET_THREAD_LOCAL_HOOK: LazyLock<InlineHookContainer<SheapGetThreadLocalFn>> =
+    LazyLock::new(InlineHookContainer::new);
+
 
 /// Game's scrap heap structure.
 /// Must match the game's struct layout exactly.

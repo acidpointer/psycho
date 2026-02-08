@@ -2,7 +2,7 @@ use std::sync::Once;
 
 use libnvse::{
     NVSEInterfaceFFI, PluginInfoFFI,
-    api::{interface::NVSEInterface, message_box::show_message_box, messaging::NVSEMessageType},
+    api::interface::NVSEInterface,
 };
 use libpsycho::{
     common::exe_version::ExeVersion,

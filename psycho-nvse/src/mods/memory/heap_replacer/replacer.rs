@@ -5,6 +5,7 @@ use super::*;
 use crate::mods::memory::configure_mimalloc;
 use libc::c_void;
 
+use game_heap::hooks::*;
 use scrap_heap::hooks::*;
 
 /// Installs all heap and scrap heap replacement hooks.
@@ -27,66 +28,66 @@ pub fn install_game_heap_hooks() -> anyhow::Result<()> {
 
     // Game heap is in very eraly stage! Dont even try this out!
 
-    // GAME_HEAP_ALLOCATE_HOOK.init(
-    //     "game_heap_allocate",
-    //     GAME_HEAP_ALLOCATE_ADDR as *mut c_void,
-    //     game_heap_allocate,
-    // )?;
+    GAME_HEAP_ALLOCATE_HOOK.init(
+        "game_heap_allocate",
+        GAME_HEAP_ALLOCATE_ADDR as *mut c_void,
+        game_heap_allocate,
+    )?;
 
-    // GAME_HEAP_REALLOCATE_HOOK_1.init(
-    //     "game_heap_reallocate_1",
-    //     GAME_HEAP_REALLOCATE_ADDR_1 as *mut c_void,
-    //     game_heap_reallocate,
-    // )?;
+    GAME_HEAP_REALLOCATE_HOOK_1.init(
+        "game_heap_reallocate_1",
+        GAME_HEAP_REALLOCATE_ADDR_1 as *mut c_void,
+        game_heap_reallocate,
+    )?;
 
-    // GAME_HEAP_REALLOCATE_HOOK_2.init(
-    //     "game_heap_reallocate_2",
-    //     GAME_HEAP_REALLOCATE_ADDR_2 as *mut c_void,
-    //     game_heap_reallocate,
-    // )?;
+    GAME_HEAP_REALLOCATE_HOOK_2.init(
+        "game_heap_reallocate_2",
+        GAME_HEAP_REALLOCATE_ADDR_2 as *mut c_void,
+        game_heap_reallocate,
+    )?;
 
-    // GAME_HEAP_MSIZE_HOOK.init(
-    //     "game_heap_msize",
-    //     GAME_HEAP_MSIZE_ADDR as *mut c_void,
-    //     game_heap_msize,
-    // )?;
+    GAME_HEAP_MSIZE_HOOK.init(
+        "game_heap_msize",
+        GAME_HEAP_MSIZE_ADDR as *mut c_void,
+        game_heap_msize,
+    )?;
 
-    // GAME_HEAP_FREE_HOOK.init(
-    //     "game_heap_free",
-    //     GAME_HEAP_FREE_ADDR as *mut c_void,
-    //     game_heap_free,
-    // )?;
+    GAME_HEAP_FREE_HOOK.init(
+        "game_heap_free",
+        GAME_HEAP_FREE_ADDR as *mut c_void,
+        game_heap_free,
+    )?;
 
-    // // Enable game heap hooks
-    // GAME_HEAP_ALLOCATE_HOOK.enable()?;
-    // log::info!(
-    //     "[INLINE] Hooked game_heap_allocate at {:#x}",
-    //     GAME_HEAP_ALLOCATE_ADDR
-    // );
+    // Enable game heap hooks
+    GAME_HEAP_ALLOCATE_HOOK.enable()?;
+    log::info!(
+        "[INLINE] Hooked game_heap_allocate at {:#x}",
+        GAME_HEAP_ALLOCATE_ADDR
+    );
 
-    // GAME_HEAP_REALLOCATE_HOOK_1.enable()?;
-    // log::info!(
-    //     "[INLINE] Hooked game_heap_reallocate_1 at {:#x}",
-    //     GAME_HEAP_REALLOCATE_ADDR_1
-    // );
+    GAME_HEAP_REALLOCATE_HOOK_1.enable()?;
+    log::info!(
+        "[INLINE] Hooked game_heap_reallocate_1 at {:#x}",
+        GAME_HEAP_REALLOCATE_ADDR_1
+    );
 
-    // GAME_HEAP_REALLOCATE_HOOK_2.enable()?;
-    // log::info!(
-    //     "[INLINE] Hooked game_heap_reallocate_2 at {:#x}",
-    //     GAME_HEAP_REALLOCATE_ADDR_2
-    // );
+    GAME_HEAP_REALLOCATE_HOOK_2.enable()?;
+    log::info!(
+        "[INLINE] Hooked game_heap_reallocate_2 at {:#x}",
+        GAME_HEAP_REALLOCATE_ADDR_2
+    );
 
-    // GAME_HEAP_MSIZE_HOOK.enable()?;
-    // log::info!(
-    //     "[INLINE] Hooked game_heap_msize at {:#x}",
-    //     GAME_HEAP_MSIZE_ADDR
-    // );
+    GAME_HEAP_MSIZE_HOOK.enable()?;
+    log::info!(
+        "[INLINE] Hooked game_heap_msize at {:#x}",
+        GAME_HEAP_MSIZE_ADDR
+    );
 
-    // GAME_HEAP_FREE_HOOK.enable()?;
-    // log::info!(
-    //     "[INLINE] Hooked game_heap_free at {:#x}",
-    //     GAME_HEAP_FREE_ADDR
-    // );
+    GAME_HEAP_FREE_HOOK.enable()?;
+    log::info!(
+        "[INLINE] Hooked game_heap_free at {:#x}",
+        GAME_HEAP_FREE_ADDR
+    );
 
     // unsafe {
     //     patch_ret(0x00AA6840 as *mut c_void)?;
