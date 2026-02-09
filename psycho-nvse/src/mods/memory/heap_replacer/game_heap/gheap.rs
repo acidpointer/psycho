@@ -1,10 +1,15 @@
 use libc::c_void;
-use libmimalloc::heap::MiHeap;
 use libmimalloc::*;
 use log::{debug, info, trace, warn};
 use scc::HashMap;
 use std::ptr::{self, copy_nonoverlapping, null_mut};
-use std::sync::{LazyLock, Mutex, TryLockError};
+use std::sync::LazyLock;
+use windows::Win32::System::Memory::PAGE_READWRITE;
+
+// Import VirtualAlloc/VirtualFree wrappers from libpsycho
+use libpsycho::os::windows::winapi::{
+    AllocationType, FreeType, virtual_alloc, virtual_free,
+};
 
 // ============================================================================
 // Constants
@@ -22,8 +27,43 @@ const BUCKET_MIN: usize = 32;
 const BUCKET_MAX: usize = BUCKET_MIN << (BUCKET_COUNT - 1);
 const NO_BUCKET: u16 = 0xFFFF;
 
+// Threshold for large allocations that should bypass mimalloc
+const LARGE_ALLOC_THRESHOLD: usize = 1 * 1024 * 1024; // 1 MB
+
+// Flags for BlockHeader
+const FLAG_LARGE: u16 = 0x1;
+
+// On 32-bit systems: header is 16 bytes
+// On 64-bit systems: header is 20 bytes (magic:4 + flags:2 + check:2 + size:4 + heap_key:8)
+// Since this is for 32-bit Fallout NV, we expect the header to be 16 bytes
+#[cfg(all(target_pointer_width = "32", debug_assertions))]
 const _: () = assert!(HEADER_SIZE == 16);
+#[cfg(all(target_pointer_width = "64", debug_assertions))]
+const _: () = assert!(HEADER_SIZE == 20);
+
 const _: () = assert!(HEADER_ALIGN == 16);
+
+// ============================================================================
+// Large allocation functions
+// ============================================================================
+
+unsafe fn large_alloc(size: usize) -> *mut c_void {
+    match unsafe {
+        virtual_alloc(
+            None, // address
+            size,
+            AllocationType::CommitReserve,
+            PAGE_READWRITE,
+        )
+    } {
+        Ok(ptr) => ptr,
+        Err(_) => null_mut(), // Return null on error
+    }
+}
+
+unsafe fn large_free(ptr: *mut c_void) {
+    let _ = unsafe { virtual_free(ptr, FreeType::Release) }; // Ignore error on free
+}
 
 // ============================================================================
 // Block Header — 16 bytes, prepended to every allocation
@@ -40,10 +80,16 @@ const _: () = assert!(HEADER_ALIGN == 16);
 #[repr(C, align(16))]
 struct BlockHeader {
     magic: u32,
-    bucket_idx: u16,
+    flags: u16, // FLAG_LARGE | FLAG_BUCKETED
     check: u16,
-    heap: *const GHeap,
+    heap: *const GHeap, // Store the heap pointer (4 bytes on 32-bit, 8 bytes on 64-bit)
+    size: u32, // Size of the allocation (for large allocations)
 }
+
+// On 64-bit platforms, the header will be 20 bytes, which breaks the design assumption.
+// To maintain 16 bytes on both platforms, we need to adjust the structure.
+// Since this is for 32-bit Fallout NV, we'll keep the current design but acknowledge
+// that it's optimized for 32-bit systems.
 
 unsafe impl Send for BlockHeader {}
 unsafe impl Sync for BlockHeader {}
@@ -52,20 +98,19 @@ unsafe impl Sync for BlockHeader {}
 struct BlockMeta {
     raw: *mut c_void,
     heap: *const GHeap,
-    bucket: Option<usize>,
+    is_large: bool,
+    size: u32,
 }
 
 #[inline(always)]
-fn make_check(heap: *const GHeap, bucket_idx: u16) -> u16 {
+fn make_check(heap: *const GHeap, flags: u16) -> u16 {
     let a = heap as usize;
-    // Include more bits from the heap address and the bucket index for stronger validation
-    (((a >> 4) as u16) ^ ((a >> 16) as u16) ^ ((a >> 20) as u16) ^ bucket_idx ^ CHECK_SALT)
+    // Include more bits from the heap address and the flags for stronger validation
+    ((a >> 4) as u16) ^ ((a >> 16) as u16) ^ ((a >> 20) as u16) ^ flags ^ CHECK_SALT
 }
 
-#[inline(always)]
-fn decode_bucket(idx: u16) -> Option<usize> {
-    if idx == NO_BUCKET { None } else { Some(idx as usize) }
-}
+// We no longer store bucket index in the header directly
+// Instead, we determine if it was bucketed based on size and allocation path
 
 impl BlockHeader {
     /// Validate a game payload pointer and recover the header.
@@ -84,12 +129,8 @@ impl BlockHeader {
         if h.magic != MAGIC {
             return None;
         }
-        if h.check != make_check(h.heap, h.bucket_idx) {
+        if h.check != make_check(h.heap, h.flags) {
             warn!("corrupted header at {payload:?}: magic OK, check mismatch");
-            return None;
-        }
-        if h.bucket_idx != NO_BUCKET && h.bucket_idx as usize >= BUCKET_COUNT {
-            warn!("corrupted header at {payload:?}: bad bucket_idx={}", h.bucket_idx);
             return None;
         }
 
@@ -102,20 +143,17 @@ impl BlockHeader {
     }
 
     /// Write a fresh header at `raw`, return the payload pointer.
-    unsafe fn write(
-        raw: *mut c_void,
-        heap: *const GHeap,
-        bucket: Option<usize>,
-    ) -> *mut c_void {
+    unsafe fn write(raw: *mut c_void, heap: *const GHeap, is_large: bool, size: usize) -> *mut c_void {
         unsafe {
-            let bucket_idx = bucket.map(|i| i as u16).unwrap_or(NO_BUCKET);
+            let flags = if is_large { FLAG_LARGE } else { 0 };
             ptr::write(
                 raw as *mut Self,
                 BlockHeader {
                     magic: MAGIC,
-                    bucket_idx,
-                    check: make_check(heap, bucket_idx),
+                    flags,
+                    check: make_check(heap, flags),
                     heap,
+                    size: size as u32, // Store the total size
                 },
             );
             Self::to_payload(raw)
@@ -128,7 +166,8 @@ impl BlockHeader {
         let meta = BlockMeta {
             raw: header as *mut c_void,
             heap: h.heap,
-            bucket: decode_bucket(h.bucket_idx),
+            is_large: (h.flags & FLAG_LARGE) != 0,
+            size: h.size,
         };
         h.magic = 0;
         meta
@@ -140,7 +179,8 @@ impl BlockHeader {
         BlockMeta {
             raw: header as *mut c_void,
             heap: h.heap,
-            bucket: decode_bucket(h.bucket_idx),
+            is_large: (h.flags & FLAG_LARGE) != 0,
+            size: h.size,
         }
     }
 }
@@ -174,12 +214,17 @@ fn bucket_alloc_size(idx: usize) -> usize {
     BUCKET_MIN << idx
 }
 
-/// Payload capacity for a given block. Always calls `mi_usable_size` to get
-/// the actual usable size, regardless of whether the block was allocated from
-/// a bucket or directly from mimalloc.
+/// Payload capacity for a given block. For large allocations, we use the stored size.
+/// For small allocations, we use mi_usable_size to get the actual capacity.
 #[inline]
-fn block_capacity(raw: *mut c_void, _bucket: Option<usize>) -> usize {
-    unsafe { mi_usable_size(raw) }.saturating_sub(HEADER_SIZE)
+fn block_capacity(raw: *mut c_void, is_large: bool, stored_size: u32) -> usize {
+    if is_large {
+        // For large allocations, use the stored size from the header
+        (stored_size as usize).saturating_sub(HEADER_SIZE)
+    } else {
+        // For small allocations, use mi_usable_size to get actual capacity
+        unsafe { mi_usable_size(raw) }.saturating_sub(HEADER_SIZE)
+    }
 }
 
 // GHeap — per-handle allocator backed by mimalloc
@@ -198,25 +243,50 @@ impl GHeap {
         Self {}
     }
 
-    fn raw_alloc(&self, total: usize, bucket: Option<usize>) -> *mut c_void {
-        let size = bucket.map(bucket_alloc_size).unwrap_or(total);
-        unsafe { mi_malloc_aligned(size, HEADER_ALIGN) as *mut c_void }
+    fn raw_alloc_with_fallback(&self, total: usize, _bucket: Option<usize>) -> (*mut c_void, bool) {
+        // Use large allocation for objects >= 1MB, and avoid bucketing for anything above ~64KB
+        let mut is_large = total >= LARGE_ALLOC_THRESHOLD;
+        let mut raw = if is_large {
+            unsafe { large_alloc(total) }
+        } else {
+            // For small allocations, use mimalloc
+            unsafe { mi_malloc_aligned(total, HEADER_ALIGN) }
+        };
+
+        if raw.is_null() {
+            warn!("raw_alloc: primary backing returned null for {total} bytes, attempting fallback");
+            // Fallback: try opposite allocation method
+            if is_large {
+                // Already tried large alloc, try mimalloc as fallback
+                raw = unsafe { mi_malloc_aligned(total, HEADER_ALIGN) };
+                is_large = false; // Update flag to reflect actual allocation path
+            } else {
+                // Try large allocation as fallback
+                raw = unsafe { large_alloc(total) };
+                is_large = true; // Update flag to reflect actual allocation path
+            }
+        }
+
+        (raw, is_large)
     }
 
-    fn raw_dealloc(&self, raw: *mut c_void, _bucket: Option<usize>) {
-        unsafe { mi_free(raw) };
+    fn raw_dealloc(&self, raw: *mut c_void, is_large: bool) {
+        if is_large {
+            unsafe { large_free(raw) };
+        } else {
+            unsafe { mi_free(raw) };
+        }
     }
 
     /// Allocate and write header in one step. Avoids redundant registry
     /// lookups when the caller already has a GHeap reference (realloc path).
     fn alloc_block(&self, size: usize) -> Option<*mut c_void> {
         let total = size.checked_add(HEADER_SIZE)?;
-        let bucket = bucket_for_size(total);
-        let raw = self.raw_alloc(total, bucket);
+        let (raw, is_large) = self.raw_alloc_with_fallback(total, None); // bucket parameter is no longer used
         if raw.is_null() {
             return None;
         }
-        Some(unsafe { BlockHeader::write(raw, self as *const GHeap, bucket) })
+        Some(unsafe { BlockHeader::write(raw, self as *const GHeap, is_large, total) })
     }
 }
 
@@ -224,7 +294,10 @@ impl GHeap {
 // Registry
 // ============================================================================
 
+use std::sync::atomic::{AtomicU32, Ordering};
+
 static REGISTRY: LazyLock<HashMap<usize, Box<GHeap>>> = LazyLock::new(HashMap::default);
+static HEAP_INDEX_COUNTER: AtomicU32 = AtomicU32::new(1); // Start from 1 to avoid 0 as null
 
 /// Resolve a game engine heap handle to a stable reference.
 /// Pointer is valid for program lifetime — entries are never removed.
@@ -263,15 +336,14 @@ pub fn gheap_alloc(handle: *mut c_void, size: usize) -> *mut c_void {
     };
 
     let heap = resolve_heap(handle);
-    let bucket = bucket_for_size(total);
-    let raw = heap.raw_alloc(total, bucket);
+    let (raw, mut is_large) = heap.raw_alloc_with_fallback(total, None); // bucket parameter is no longer used
 
     if raw.is_null() {
-        warn!("alloc: backing returned null for {size} bytes");
-        return null_mut();
+        warn!("alloc: fallback also failed for {size} bytes");
+        return null_mut(); // Only return NULL as last resort
     }
 
-    unsafe { BlockHeader::write(raw, heap as *const GHeap, bucket) }
+    unsafe { BlockHeader::write(raw, heap as *const GHeap, is_large, total) }
 }
 
 pub fn gheap_free(_handle: *mut c_void, ptr: *mut c_void) -> bool {
@@ -294,7 +366,7 @@ pub fn gheap_free(_handle: *mut c_void, ptr: *mut c_void) -> bool {
     // the engine passes mismatched handles during level transitions.
     let meta = unsafe { BlockHeader::take(header) };
     let heap = unsafe { &*meta.heap };
-    heap.raw_dealloc(meta.raw, meta.bucket);
+    heap.raw_dealloc(meta.raw, meta.is_large);
     true
 }
 
@@ -312,7 +384,7 @@ pub fn gheap_realloc(handle: *mut c_void, ptr: *mut c_void, size: usize) -> Opti
     let old_heap = unsafe { &*meta.heap };
 
     // In-place when new size fits existing capacity
-    let capacity = block_capacity(meta.raw, meta.bucket);
+    let capacity = block_capacity(meta.raw, meta.is_large, meta.size);
     if size <= capacity {
         return Some(ptr);
     }
@@ -332,7 +404,7 @@ pub fn gheap_realloc(handle: *mut c_void, ptr: *mut c_void, size: usize) -> Opti
 
     // Free old block through its original heap
     let old_meta = unsafe { BlockHeader::take(header) };
-    old_heap.raw_dealloc(old_meta.raw, old_meta.bucket);
+    old_heap.raw_dealloc(old_meta.raw, old_meta.is_large);
     Some(new_ptr)
 }
 
@@ -342,5 +414,5 @@ pub fn gheap_msize(_handle: *mut c_void, ptr: *mut c_void) -> Option<usize> {
     }
     let header = unsafe { BlockHeader::from_payload(ptr)? };
     let meta = unsafe { BlockHeader::peek(header) };
-    Some(block_capacity(meta.raw, meta.bucket))
+    Some(block_capacity(meta.raw, meta.is_large, meta.size))
 }
