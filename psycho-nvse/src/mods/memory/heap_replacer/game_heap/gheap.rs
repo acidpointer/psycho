@@ -20,7 +20,6 @@ const HEADER_ALIGN: usize = align_of::<BlockHeader>();
 const BUCKET_COUNT: usize = 9;
 const BUCKET_MIN: usize = 32;
 const BUCKET_MAX: usize = BUCKET_MIN << (BUCKET_COUNT - 1);
-const BUCKET_DEPTH: usize = 48;
 const NO_BUCKET: u16 = 0xFFFF;
 
 const _: () = assert!(HEADER_SIZE == 16);
@@ -57,9 +56,10 @@ struct BlockMeta {
 }
 
 #[inline(always)]
-fn make_check(heap: *const GHeap) -> u16 {
+fn make_check(heap: *const GHeap, bucket_idx: u16) -> u16 {
     let a = heap as usize;
-    ((a >> 4) as u16) ^ ((a >> 20) as u16) ^ CHECK_SALT
+    // Include more bits from the heap address and the bucket index for stronger validation
+    (((a >> 4) as u16) ^ ((a >> 16) as u16) ^ ((a >> 20) as u16) ^ bucket_idx ^ CHECK_SALT)
 }
 
 #[inline(always)]
@@ -84,7 +84,7 @@ impl BlockHeader {
         if h.magic != MAGIC {
             return None;
         }
-        if h.check != make_check(h.heap) {
+        if h.check != make_check(h.heap, h.bucket_idx) {
             warn!("corrupted header at {payload:?}: magic OK, check mismatch");
             return None;
         }
@@ -108,12 +108,13 @@ impl BlockHeader {
         bucket: Option<usize>,
     ) -> *mut c_void {
         unsafe {
+            let bucket_idx = bucket.map(|i| i as u16).unwrap_or(NO_BUCKET);
             ptr::write(
                 raw as *mut Self,
                 BlockHeader {
                     magic: MAGIC,
-                    bucket_idx: bucket.map(|i| i as u16).unwrap_or(NO_BUCKET),
-                    check: make_check(heap),
+                    bucket_idx,
+                    check: make_check(heap, bucket_idx),
                     heap,
                 },
             );
@@ -154,8 +155,18 @@ fn bucket_for_size(total: usize) -> Option<usize> {
     if !(BUCKET_MIN..=BUCKET_MAX).contains(&total) {
         return None;
     }
-    let order = (usize::BITS - (total - 1).leading_zeros()) as usize;
-    order.checked_sub(5).filter(|&i| i < BUCKET_COUNT)
+
+    // Calculate the next power of 2 that can hold the total size
+    let required_size = total.max(BUCKET_MIN).next_power_of_two();
+
+    // Calculate the bucket index: 32->0, 64->1, 128->2, etc.
+    let bucket_idx = (required_size / BUCKET_MIN).trailing_zeros() as usize;
+
+    if bucket_idx < BUCKET_COUNT {
+        Some(bucket_idx)
+    } else {
+        None
+    }
 }
 
 #[inline(always)]
@@ -163,72 +174,20 @@ fn bucket_alloc_size(idx: usize) -> usize {
     BUCKET_MIN << idx
 }
 
-/// Payload capacity for a given block. Only calls `mi_usable_size` on
-/// non-bucketed blocks (which are guaranteed to be our mimalloc allocations).
+/// Payload capacity for a given block. Always calls `mi_usable_size` to get
+/// the actual usable size, regardless of whether the block was allocated from
+/// a bucket or directly from mimalloc.
 #[inline]
-fn block_capacity(raw: *mut c_void, bucket: Option<usize>) -> usize {
-    match bucket {
-        Some(idx) => bucket_alloc_size(idx) - HEADER_SIZE,
-        None => unsafe { mi_usable_size(raw) }.saturating_sub(HEADER_SIZE),
-    }
+fn block_capacity(raw: *mut c_void, _bucket: Option<usize>) -> usize {
+    unsafe { mi_usable_size(raw) }.saturating_sub(HEADER_SIZE)
 }
 
-// ============================================================================
-// BucketStack — fixed-capacity, zero-heap-alloc, inline LIFO
-// ============================================================================
-
-/// Inline array + length. No heap allocation on construction — critical
-/// because `GHeap::new()` runs inside the registry's insert closure where
-/// reentrant allocator calls would deadlock the engine's heap hooks.
-struct BucketStack {
-    items: [*mut c_void; BUCKET_DEPTH],
-    len: usize,
-}
-
-unsafe impl Send for BucketStack {}
-
-impl BucketStack {
-    const fn new() -> Self {
-        Self {
-            items: [null_mut(); BUCKET_DEPTH],
-            len: 0,
-        }
-    }
-
-    fn push(&mut self, ptr: *mut c_void) -> bool {
-        if self.len >= BUCKET_DEPTH {
-            return false;
-        }
-        self.items[self.len] = ptr;
-        self.len += 1;
-        true
-    }
-
-    fn pop(&mut self) -> Option<*mut c_void> {
-        if self.len == 0 || self.len > BUCKET_DEPTH {
-            self.len = 0; // Recover from corruption
-            return None;
-        }
-        self.len -= 1;
-        let ptr = self.items[self.len];
-        self.items[self.len] = null_mut();
-        Some(ptr)
-    }
-
-    fn clear(&mut self) {
-        self.len = 0;
-    }
-}
-
-// ============================================================================
 // GHeap — per-handle allocator backed by mimalloc
 // ============================================================================
 
 pub struct GHeap {
-    mi: MiHeap,
-    /// Per-bucket Mutex with `try_lock`: non-blocking on contention (falls
-    /// through to mimalloc), recovers from poison (clears cache).
-    buckets: [Mutex<BucketStack>; BUCKET_COUNT],
+    // Empty struct - just serves as identifier for registry
+    // All allocations use the global mimalloc heap to ensure thread safety
 }
 
 unsafe impl Send for GHeap {}
@@ -236,26 +195,15 @@ unsafe impl Sync for GHeap {}
 
 impl GHeap {
     fn new() -> Self {
-        Self {
-            mi: MiHeap::new(),
-            buckets: std::array::from_fn(|_| Mutex::new(BucketStack::new())),
-        }
+        Self {}
     }
 
     fn raw_alloc(&self, total: usize, bucket: Option<usize>) -> *mut c_void {
-        if let Some(idx) = bucket
-            && let Some(cached) = self.bucket_pop(idx) {
-                return cached;
-            }
         let size = bucket.map(bucket_alloc_size).unwrap_or(total);
-        self.mi.malloc_aligned(size, HEADER_ALIGN)
+        unsafe { mi_malloc_aligned(size, HEADER_ALIGN) as *mut c_void }
     }
 
-    fn raw_dealloc(&self, raw: *mut c_void, bucket: Option<usize>) {
-        if let Some(idx) = bucket
-            && self.bucket_push(idx, raw) {
-                return;
-            }
+    fn raw_dealloc(&self, raw: *mut c_void, _bucket: Option<usize>) {
         unsafe { mi_free(raw) };
     }
 
@@ -269,31 +217,6 @@ impl GHeap {
             return None;
         }
         Some(unsafe { BlockHeader::write(raw, self as *const GHeap, bucket) })
-    }
-
-    fn bucket_pop(&self, idx: usize) -> Option<*mut c_void> {
-        match self.buckets[idx].try_lock() {
-            Ok(mut g) => g.pop(),
-            Err(TryLockError::Poisoned(e)) => {
-                warn!("bucket {idx}: recovering poisoned mutex");
-                e.into_inner().clear();
-                None
-            }
-            Err(TryLockError::WouldBlock) => None,
-        }
-    }
-
-    fn bucket_push(&self, idx: usize, ptr: *mut c_void) -> bool {
-        match self.buckets[idx].try_lock() {
-            Ok(mut g) => g.push(ptr),
-            Err(TryLockError::Poisoned(e)) => {
-                warn!("bucket {idx}: recovering poisoned mutex on push");
-                let mut g = e.into_inner();
-                g.clear();
-                g.push(ptr)
-            }
-            Err(TryLockError::WouldBlock) => false,
-        }
     }
 }
 
@@ -360,6 +283,9 @@ pub fn gheap_free(_handle: *mut c_void, ptr: *mut c_void) -> bool {
         Some(h) => h,
         None => {
             trace!("free: foreign pointer {ptr:?}");
+            // For foreign pointers (CRT/vanilla heap allocations), return false
+            // to indicate that this pointer was not allocated by our system.
+            // The caller should delegate to the original game's free function.
             return false;
         }
     };
