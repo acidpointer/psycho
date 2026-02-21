@@ -74,35 +74,10 @@ static MI_HEAP: LazyLock<MiHeap> = LazyLock::new(MiHeap::new);
 /// Fast Send + Sync non-blocking hashmap with ahash hasher
 type HashMapSync<K, V> = ClashMap<K, V, ahash::RandomState>;
 
-/// Number of sub-pools per region pool for reduced lock contention
-const POOL_SHARDS: usize = 4;
-
-/// Sharded pool structure with RwLock for efficient concurrent access
-/// Multiple sub-pools reduce lock contention - GC only blocks 1/4 of allocations
-struct ShardedPool {
-    /// Multiple sub-pools, each with independent RwLock
-    /// Read locks: multiple threads can allocate concurrently
-    /// Write locks: only GC needs this (for removing idle regions)
-    sub_pools: [RwLock<Vec<Region>>; POOL_SHARDS],
-}
-
-impl ShardedPool {
-    fn new() -> Self {
-        Self {
-            sub_pools: [
-                RwLock::new(Vec::new()),
-                RwLock::new(Vec::new()),
-                RwLock::new(Vec::new()),
-                RwLock::new(Vec::new()),
-            ],
-        }
-    }
-}
-
-/// Shared region pool with multiple sub-pools for lock-free concurrency
-/// Each sub-pool has its own RwLock, allowing GC to process one sub-pool
-/// while allocations continue on the other 3 sub-pools (75% reduction in blocking)
-type RegionPool = Arc<ShardedPool>;
+/// Single region pool per sheap - simplified design
+/// Read locks: multiple threads allocate concurrently
+/// Write locks: only GC (brief, removes idle regions)
+type RegionPool = Arc<RwLock<Vec<Region>>>;
 
 /// Computes which shard should handle a given heap key.
 ///
@@ -129,15 +104,6 @@ fn get_shard_idx(key: usize) -> usize {
     let high_bits = hash >> (usize::BITS as usize / 2);
 
     high_bits % SHARDS_AMOUNT
-}
-
-/// Computes which sub-pool within a region pool should handle allocation/insertion.
-///
-/// Uses simple modulo for round-robin distribution across POOL_SHARDS.
-/// The tick counter provides natural rotation over time.
-#[inline(always)]
-fn get_pool_shard_idx(tick: u64) -> usize {
-    (tick as usize) % POOL_SHARDS
 }
 
 struct Region {
@@ -334,43 +300,26 @@ impl AllocatorStats {
 // TLS CACHE
 // ==========================================================================================
 
-/// Number of cached pools per thread
-/// Tuned for typical game usage where a thread uses 4-8 different heaps
-const TLS_CACHE_SIZE: usize = 8;
-
-/// Thread-local cache entry
-#[derive(Clone)]
-struct TlsCacheEntry {
-    sheap_id: usize,
-    pool: RegionPool,
-}
-
 /// Thread-local cache for fast repeated allocations
 ///
-/// Caches multiple (sheap_id, pool) pairs to handle threads that use multiple heaps.
-/// Uses a simple array with linear search - fast enough for small sizes (8 entries).
+/// Simple single-entry cache - most game threads use only one heap repeatedly.
+/// Generation counter ensures cache is invalidated on purge events.
 struct TlsCache {
-    /// Array of cached entries (sheap_id -> pool mappings)
-    entries: [Option<TlsCacheEntry>; TLS_CACHE_SIZE],
-
-    /// Round-robin index for cache eviction
-    next_evict_idx: usize,
-
-    /// Generation counter for cache invalidation
+    sheap_id: usize,
+    pool: Option<RegionPool>,
     generation: u64,
 }
 
 impl TlsCache {
     fn new() -> Self {
         Self {
-            entries: [const { None }; TLS_CACHE_SIZE],
-            next_evict_idx: 0,
+            sheap_id: 0,
+            pool: None,
             generation: 0,
         }
     }
 
     /// Check if cache contains entry and return the cached region pool
-    /// Linear search is fast for small arrays (8 entries ~ 8 comparisons)
     #[inline(always)]
     fn get(&self, sheap_id: usize, global_generation: u64) -> Option<RegionPool> {
         // Generation mismatch - cache is stale
@@ -378,40 +327,26 @@ impl TlsCache {
             return None;
         }
 
-        // Linear search through cache entries
-        for cached in self.entries.iter().flatten() {
-            if cached.sheap_id == sheap_id {
-                return Some(cached.pool.clone());
-            }
+        // Check if cached sheap_id matches
+        if self.sheap_id == sheap_id {
+            self.pool.clone()
+        } else {
+            None
         }
-
-        None
     }
 
-    /// Add entry to cache using round-robin eviction
+    /// Update cache entry
     #[inline(always)]
     fn set(&mut self, sheap_id: usize, pool: RegionPool, generation: u64) {
+        self.sheap_id = sheap_id;
+        self.pool = Some(pool);
         self.generation = generation;
+    }
 
-        // Check if already cached (update existing)
-        for cached in self.entries.iter_mut().flatten() {
-            if cached.sheap_id == sheap_id {
-                cached.pool = pool;
-                return;
-            }
-        }
-
-        // Find empty slot first
-        for entry in &mut self.entries {
-            if entry.is_none() {
-                *entry = Some(TlsCacheEntry { sheap_id, pool });
-                return;
-            }
-        }
-
-        // Cache full - evict using round-robin
-        self.entries[self.next_evict_idx] = Some(TlsCacheEntry { sheap_id, pool });
-        self.next_evict_idx = (self.next_evict_idx + 1) % TLS_CACHE_SIZE;
+    /// Invalidate cache entry
+    #[inline(always)]
+    fn invalidate(&mut self) {
+        self.pool = None;
     }
 }
 
@@ -551,7 +486,7 @@ impl RegionAllocator {
         let pool = if let Some(existing) = shard.get(&sheap_id) {
             existing.clone()
         } else {
-            let new_pool = Arc::new(ShardedPool::new());
+            let new_pool = Arc::new(RwLock::new(Vec::new()));
             let _ = shard.insert(sheap_id, new_pool.clone());
             new_pool
         };
@@ -566,71 +501,54 @@ impl RegionAllocator {
 
     /// Garbage collector aka GC
     ///
-    /// Iterates over all sheaps per shard and recycles IDLE regions.
-    /// Processes each sub-pool separately to minimize lock contention -
-    /// only 1/POOL_SHARDS of regions are locked at a time!
-    ///
-    /// PRIORITY: Purged pools are cleaned up IMMEDIATELY to prevent memory spikes.
+    /// Iterates over all sheaps in this shard and recycles IDLE regions.
+    /// Takes a brief write lock per sheap to remove idle regions.
     fn gc(&self, shard_index: usize) {
         let shard = &self.shards[shard_index];
         let tick = self.tick.load(Ordering::Acquire);
 
-        // Iterate over all entries in this shard
+        // Iterate over all sheaps in this shard
         shard.iter().for_each(|entry| {
             let sheap_id = entry.key();
             let pool = entry.value();
 
-            let mut total_recycled = 0;
+            // Take write lock BRIEFLY to remove idle regions
+            let mut regions = pool.write();
 
-            pool.sub_pools.iter().enumerate().for_each(|(sub_idx, sub_pool)| {
-                // Take write lock BRIEFLY to remove idle regions
-                // This is the ONLY time we take write lock - very short duration
-                let mut regions = sub_pool.write();
+            let old_len = regions.len();
+            let mut i = 0;
 
-                let old_len = regions.len();
-                let mut i = 0;
+            // Remove idle regions and push them back to empty_regions queue
+            while i < regions.len() {
+                let region = &regions[i];
+                let is_idle =
+                    (tick - region.last_access.load(Ordering::Acquire)) > IDLE_TICKS_DELTA;
 
-                // Remove idle regions and push them back to empty_regions queue
-                while i < regions.len() {
-                    let region = &regions[i];
-                    let is_idle = (tick - region.last_access.load(Ordering::Acquire)) > IDLE_TICKS_DELTA;
+                if is_idle {
+                    // Remove the region using swap_remove (O(1) operation)
+                    let region = regions.swap_remove(i);
 
-                    if is_idle {
-                        // Remove the region using swap_remove (O(1) operation)
-                        let region = regions.swap_remove(i);
+                    // Reset region state
+                    region.offset.store(0, Ordering::Release);
+                    region.sheap_id.store(0, Ordering::Release);
+                    region.last_access.store(0, Ordering::Release);
 
-                        // Reset region state
-                        region.offset.store(0, Ordering::Release);
-                        region.sheap_id.store(0, Ordering::Release);
-                        region.last_access.store(0, Ordering::Release);
+                    // Push back to empty_regions for reuse
+                    let _ = self.empty_regions.push(region);
 
-                        // Push back to empty_regions for reuse
-                        let _ = self.empty_regions.push(region);
-
-                        // Don't increment i since we swapped a new element into this position
-                    } else {
-                        i += 1;
-                    }
+                    // Don't increment i since we swapped a new element into this position
+                } else {
+                    i += 1;
                 }
+            }
 
-                let new_len = regions.len();
-                let recycled = old_len - new_len;
-                total_recycled += recycled;
+            let new_len = regions.len();
+            let recycled = old_len - new_len;
 
-                if recycled > 0 {
-                    log::debug!(
-                        "RegionAllocator: [GC] recycled {} regions from sub-pool {} (sheap_id={:X})",
-                        recycled,
-                        sub_idx,
-                        sheap_id
-                    );
-                }
-            });
-
-            if total_recycled > 0 {
+            if recycled > 0 {
                 log::info!(
-                    "RegionAllocator: [GC] recycled {} total regions from sheap_id={:X}",
-                    total_recycled,
+                    "RegionAllocator: [GC] recycled {} regions from sheap_id={:X}",
+                    recycled,
                     sheap_id
                 );
             }
@@ -659,9 +577,8 @@ impl RegionAllocator {
                 region.sheap_id.store(sheap_id, Ordering::Release);
                 region.last_access.store(tick, Ordering::Release);
 
-                // Add to sub-pool using round-robin distribution
-                let sub_pool_idx = get_pool_shard_idx(tick);
-                pool.sub_pools[sub_pool_idx].write().push(region);
+                // Add to pool
+                pool.write().push(region);
 
                 return ptr.as_ptr();
             }
@@ -674,10 +591,10 @@ impl RegionAllocator {
             }
         }
 
-        // Step 2. Try to allocate from existing regions in ALL sub-pools
+        // Step 2. Try to allocate from existing regions
         // Use read lock - allows multiple threads to allocate concurrently
-        for sub_pool in pool.sub_pools.iter() {
-            let regions = sub_pool.read();
+        {
+            let regions = pool.read();
             for region in regions.iter() {
                 if let Some(ptr) = region.allocate(size, align) {
                     region.last_access.store(tick, Ordering::Release);
@@ -693,9 +610,8 @@ impl RegionAllocator {
             region.last_access.store(tick, Ordering::Release);
             region.sheap_id.store(sheap_id, Ordering::Release);
 
-            // Add to sub-pool using round-robin distribution
-            let sub_pool_idx = get_pool_shard_idx(tick);
-            pool.sub_pools[sub_pool_idx].write().push(region);
+            // Add to pool
+            pool.write().push(region);
 
             return ptr.as_ptr();
         }
@@ -712,32 +628,27 @@ impl RegionAllocator {
 
     /// Purge all regions which belongs to provided sheap_ptr
     ///
-    /// CRITICAL FAST PATH: Remove from HashMap IMMEDIATELY!
-    /// This prevents UAF - no allocations can happen after HashMap removal.
-    /// The actual region cleanup happens in background (GC recycles them).
+    /// CRITICAL: Remove from HashMap + invalidate TLS caches to allow GC to recycle.
     #[inline(always)]
     pub fn purge(&self, sheap_ptr: *mut c_void) {
         let sheap_id = sheap_ptr as usize;
         let shard_idx = get_shard_idx(sheap_id);
         let shard = &self.shards[shard_idx];
 
-        // CRITICAL: Remove from HashMap IMMEDIATELY to prevent further allocations
-        // This is BLAZINGLY FAST - just HashMap remove, no region cleanup, no cache invalidation!
-        //
-        // Why we DON'T invalidate TLS caches:
-        // - Cached Arc<ShardedPool> references are SAFE - Arc keeps the pool alive
-        // - get_or_create_pool() will create a NEW pool if called again (HashMap miss)
-        // - Old cached entries will naturally age out of the TLS cache (round-robin eviction)
-        // - This makes purge INSTANT with zero cross-thread synchronization!
+        // Step 1: Remove from HashMap IMMEDIATELY to prevent further allocations
         shard.remove(&sheap_id);
 
-        // Regions will be cleaned up by GC when the Arc refcount drops to 0
+        // Step 2: Increment generation to invalidate ALL TLS caches
+        // This is CRITICAL - without this, TLS caches hold Arc references preventing GC!
+        self.generation.fetch_add(1, Ordering::Release);
+
+        // Regions will be cleaned up by GC when Arc refcount drops to 0
     }
 
     /// Attempt to free memory
     ///
     /// Tries to do LIFO free, otherwise NOOP.
-    /// Searches all sub-pools to find the region owning this pointer.
+    /// Searches the pool to find the region owning this pointer.
     #[inline(always)]
     pub fn free(&self, sheap_ptr: *mut c_void, ptr: *mut c_void) -> bool {
         let sheap_id = sheap_ptr as usize;
@@ -745,14 +656,12 @@ impl RegionAllocator {
         let shard = &self.shards[shard_idx];
 
         if let Some(pool) = shard.get(&sheap_id) {
-            // Search all sub-pools for the region owning this pointer
+            // Search for the region owning this pointer
             // Use read lock - allows concurrent frees
-            for sub_pool in pool.sub_pools.iter() {
-                let regions = sub_pool.read();
-                for region in regions.iter() {
-                    if region.is_our_ptr(ptr) {
-                        return region.try_free(ptr);
-                    }
+            let regions = pool.read();
+            for region in regions.iter() {
+                if region.is_our_ptr(ptr) {
+                    return region.try_free(ptr);
                 }
             }
         }
