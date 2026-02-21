@@ -13,10 +13,10 @@
 
 use libc::c_void;
 use libmimalloc::heap::MiHeap;
+use libpsycho::common::align_up;
 use log::{debug, error};
 use parking_lot::{Mutex, Once};
 use std::cell::RefCell;
-use std::collections::BTreeMap;
 use std::ptr::NonNull;
 use std::sync::LazyLock;
 use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
@@ -31,20 +31,20 @@ type AHashMap<K, V> = scc::HashMap<K, V, ahash::RandomState>;
 // CONSTANTS
 // ============================================================================
 
-/// Size of each allocation region in bytes (256KB)
-/// 
+/// Size of each allocation region in bytes
+///
 /// Recommended minimum: 128Kb
 /// Recommended maximum: 512Kb
-/// 
+///
 /// Everything that less 128Kb will lead to crash
-const REGION_SIZE: usize = 256 * 1024;
+const REGION_SIZE: usize = 128 * 1024;
 
 /// Minimum alignment guarantee for all allocations
 /// Friendly advice: do not even think of touching this!
 const MIN_ALIGN: usize = 16;
 
 /// Number of empty cycles before a region is considered for purging
-const EMPTY_THRESHOLD: usize = 8; // 5
+const EMPTY_THRESHOLD: usize = 5; // 5
 
 /// Minimum allowed regions per ScrapHeap instance
 /// Basically, amount of pre-warmed regions
@@ -63,9 +63,11 @@ const PAGE_SHIFT: usize = 12;
 /// Global memory limit before aggressive purging (512 MiB)
 const GLOBAL_MEMORY_LIMIT: usize = 512 * 1024 * 1024;
 
+/// How many ticks should pass to mark heap as IDLE
+const HEAP_IDLE_TICKS_DIFF: u64 = 10;
+
 /// How often the scavenger thread wakes up.
-/// For our implementation 2 secs is good balance
-const SCAVENGER_SLEEP_DURATION: Duration = Duration::from_secs(1); // 2
+const SCAVENGER_SLEEP_DURATION: Duration = Duration::from_millis(500);
 
 // ============================================================================
 // GLOBAL STATE
@@ -96,18 +98,6 @@ static TOTAL_HEAPS_DROPPED: AtomicUsize = AtomicUsize::new(0);
 // HELPER FUNCTIONS
 // ============================================================================
 
-/// Aligns an address upward to the specified alignment.
-///
-/// # Arguments
-/// * `addr` - Address to align
-/// * `align` - Alignment requirement (must be power of two)
-///
-/// # Returns
-/// Aligned address
-#[inline(always)]
-fn align_up(addr: usize, align: usize) -> usize {
-    (addr + (align - 1)) & !(align - 1)
-}
 
 /// Computes which shard should handle a given heap key.
 ///
@@ -263,39 +253,6 @@ impl Region {
             }
         }
     }
-
-    /// Attempts to undo the last allocation if the pointer matches.
-    #[inline]
-    fn try_free(&self, ptr: *mut c_void) -> bool {
-        let addr = ptr as usize;
-        let start_addr = self.start.as_ptr() as usize;
-
-        // Check if pointer is within the physical bounds of this region
-        if addr < start_addr + 4 || addr >= (start_addr + self.capacity) {
-            return false;
-        }
-
-        // ATOMIC SAFETY: Ensure we don't read a size header that is currently being written
-        let size = unsafe { *((addr - 4) as *const u32) } as usize;
-        if size > self.capacity {
-            return false;
-        } // Corruption check
-
-        let curr_offset = self.offset.load(Ordering::Acquire);
-        if addr + size == start_addr + curr_offset {
-            // Only roll back if we are definitely the top
-            return self
-                .offset
-                .compare_exchange_weak(
-                    curr_offset,
-                    curr_offset - size - 4,
-                    Ordering::AcqRel,
-                    Ordering::Relaxed,
-                )
-                .is_ok();
-        }
-        false
-    }
 }
 
 impl Drop for Region {
@@ -315,9 +272,6 @@ impl Drop for Region {
 pub struct ScrapHeap {
     /// List of regions owned by this heap
     regions: Vec<Region>,
-
-    /// Vec from page number to region index for fast pointer lookup
-    page_to_region: BTreeMap<usize, usize>,
 
     /// Index of the currently active region (most likely to have free space)
     active_index: usize,
@@ -339,22 +293,16 @@ impl ScrapHeap {
     /// Creates a new empty ScrapHeap.
     pub fn new() -> Self {
         let current_tick = GLOBAL_TICK.load(Ordering::Relaxed);
-        let mut heap = Self {
-            regions: Vec::with_capacity(8),
-            page_to_region: BTreeMap::new(),
+        let heap = Self {
+            regions: (0..MIN_REGIONS_PER_HEAP)
+                .map(|_| Region::new(REGION_SIZE, MIN_ALIGN))
+                .filter(|region| region.is_some())
+                .map(|region| region.unwrap())
+                .collect(),
             active_index: 0,
             last_access: current_tick,
             last_purge_tick: current_tick,
         };
-
-        // Pre-allocate a few regions with correct indices
-        for _ in 0..3 {
-            if let Some(region) = Region::new(REGION_SIZE, MIN_ALIGN) {
-                let idx = heap.regions.len();
-                heap.page_to_region.insert(region.start_page, idx);
-                heap.regions.push(region);
-            }
-        }
 
         TOTAL_ACTIVE_HEAPS.fetch_add(1, Ordering::Relaxed);
         TOTAL_HEAPS_CREATED.fetch_add(1, Ordering::Relaxed);
@@ -409,19 +357,23 @@ impl ScrapHeap {
         let capacity = calculate_required_capacity(size, align);
 
         if let Some(region) = Region::new(capacity, align) {
-            let ptr = region
-                .allocate(size, align)
-                .expect("Critical: Allocation failed in a fresh region");
+            match region.allocate(size, align) {
+                Some(ptr) => {
+                    let new_idx = self.regions.len();
 
-            let new_idx = self.regions.len();
+                    self.regions.push(region);
+                    self.active_index = new_idx;
 
-            // BTreeMap - just insert, no sorting needed
-            self.page_to_region.insert(region.start_page, new_idx);
+                    return ptr.as_ptr() as *mut c_void;
+                }
 
-            self.regions.push(region);
-            self.active_index = new_idx;
-
-            return ptr.as_ptr() as *mut c_void;
+                None => {
+                    error!(
+                        "ScrapHeap: Failed to allocate on region (expand_and_allocate) size={}, align={}",
+                        size, align
+                    );
+                }
+            }
         }
 
         // Fallback
@@ -439,7 +391,7 @@ impl ScrapHeap {
     pub fn purge(&mut self) {
         let old_len = self.regions.len();
 
-        for r in &mut self.regions {
+        for r in &self.regions {
             let off = r.offset.load(Ordering::Acquire);
             if off == 0 {
                 r.empty_cycles.fetch_add(1, Ordering::Relaxed);
@@ -464,32 +416,7 @@ impl ScrapHeap {
             self.regions.truncate(MAX_REGIONS_PER_HEAP);
         }
 
-        self.rebuild_region_map();
-
         self.active_index = 0;
-    }
-
-    /// Rebuilds the page-to-region map from scratch.
-    ///
-    /// Ensures the map accurately reflects current regions after purging.
-    fn rebuild_region_map(&mut self) {
-        self.page_to_region.clear();
-        for (idx, region) in self.regions.iter().enumerate() {
-            self.page_to_region.insert(region.start_page, idx);
-        }
-    }
-
-    #[inline]
-    pub fn get_region_index_for_addr(&self, addr: usize) -> Option<usize> {
-        let page = addr >> PAGE_SHIFT;
-
-        self.page_to_region
-            .range(..=page)
-            .next_back()
-            .and_then(|(&_start_page, &region_idx)| {
-                let region = self.regions.get(region_idx)?;
-                (page <= region.end_page).then_some(region_idx)
-            })
     }
 }
 
@@ -503,6 +430,8 @@ impl ScrapHeap {
 /// heaps without contention.
 #[allow(clippy::vec_box)]
 struct Shard {
+    id: usize,
+
     /// Map from heap key to heap instance, protected by a mutex
     heaps: AHashMap<usize, Box<ScrapHeap>>,
 
@@ -511,19 +440,22 @@ struct Shard {
     limbo: Mutex<Vec<(Box<ScrapHeap>, u64)>>,
 }
 
+impl Shard {
+    pub fn new(id: usize) -> Self {
+        Self {
+            id,
+            heaps: AHashMap::with_hasher(ahash::RandomState::new()),
+            limbo: Mutex::new(Vec::with_capacity(16)),
+        }
+    }
+}
+
 // Shard can be safely sent between threads (contains only a Mutex)
 unsafe impl Send for Shard {}
 unsafe impl Sync for Shard {}
 
-/// Array of 16 shards for distributing heap registry access
-static SHARDS: LazyLock<Vec<Shard>> = LazyLock::new(|| {
-    (0..MAX_SHARDS)
-        .map(|_| Shard {
-            heaps: AHashMap::with_hasher(ahash::RandomState::new()),
-            limbo: Mutex::new(Vec::with_capacity(64)),
-        })
-        .collect()
-});
+/// Array of shards for distributing heap registry access
+static SHARDS: LazyLock<Vec<Shard>> = LazyLock::new(|| (0..MAX_SHARDS).map(Shard::new).collect());
 
 // ----------------------------------------------------------------------------
 // Thread-Local Cache
@@ -533,8 +465,10 @@ static SHARDS: LazyLock<Vec<Shard>> = LazyLock::new(|| {
 struct TlsCache {
     /// Key identifying the cached heap
     key: usize,
+
     /// Cached pointer to the heap
     ptr: *mut ScrapHeap,
+
     /// Generation counter at time of caching
     generation: u64,
 }
@@ -563,42 +497,50 @@ fn update_tls(key: usize, ptr: *mut ScrapHeap, generation: u64) {
 
 static SCAVENGER_START: Once = Once::new();
 
-static CURRENT_MAINTENANCE_SHARD: AtomicUsize = AtomicUsize::new(0);
-
 /// Spawns the background maintenance thread.
 /// Call this once during your plugin/DLL initialization.
 pub fn spawn_scavenger_thread() {
     SCAVENGER_START.call_once(|| {
+        // Tick counter thread
         thread::spawn(|| {
             debug!("ScrapHeap: Scavenger thread started.");
             loop {
                 thread::sleep(SCAVENGER_SLEEP_DURATION);
+                let current_tick = GLOBAL_TICK.fetch_add(1, Ordering::Relaxed);
 
-                // Increment tick once per 500ms. This is plenty for "recency" tracking.
-                GLOBAL_TICK.fetch_add(1, Ordering::Relaxed);
-                perform_global_maintenance();
+                if current_tick.is_multiple_of(15) {
+                    debug!("[SCAVENGER] ScrapHeap: calling mi_collect(false)");
+
+                    // This call should kindly ask mimalloc to return memory to OS
+                    unsafe {
+                        libmimalloc::mi_collect(false);
+                    }
+                }
             }
         });
+
+        // Spawn maintenance thread per shard
+        for (shard_idx, _) in SHARDS.iter().enumerate() {
+            thread::spawn(move || {
+                loop {
+                    thread::sleep(SCAVENGER_SLEEP_DURATION);
+                    perform_global_maintenance(shard_idx);
+                }
+            });
+        }
     });
 }
 
-fn perform_global_maintenance() {
+fn perform_global_maintenance(shard_idx: usize) {
+    let shard = &SHARDS[shard_idx];
     static LAST_TICK_CHECK: AtomicU64 = AtomicU64::new(0);
 
     let current_tick = GLOBAL_TICK.load(Ordering::Relaxed);
     let last_tick = LAST_TICK_CHECK.swap(current_tick, Ordering::Relaxed);
+
     if current_tick == last_tick {
         return;
     }
-
-    let total_mem = TOTAL_ALLOCATED_MEM.load(Ordering::Relaxed);
-
-    if current_tick.is_multiple_of(2) {
-        log::info!("Scrap heap memory usage: {} MB", total_mem / (1024 * 1024));
-    }
-
-    let shard_idx = CURRENT_MAINTENANCE_SHARD.fetch_add(1, Ordering::Relaxed) % MAX_SHARDS;
-    let shard = &SHARDS[shard_idx];
 
     // 1. Final drop from limbo
     if let Some(mut limbo) = shard.limbo.try_lock() {
@@ -606,10 +548,9 @@ fn perform_global_maintenance() {
         limbo.retain(|(_, t)| current_tick.saturating_sub(*t) < 4);
         let dropped = before - limbo.len();
         if dropped > 0 {
-            TOTAL_HEAPS_DROPPED.fetch_add(dropped, Ordering::Relaxed);
             debug!(
-                "ScrapHeap: Dropped {} zombie heaps from limbo (shard {})",
-                dropped, shard_idx
+                "[SHARD #{}] ScrapHeap: Dropped {} zombie heaps from limbo",
+                shard_idx, dropped,
             );
         }
     }
@@ -617,9 +558,20 @@ fn perform_global_maintenance() {
     // 2. Evict idle heaps (fixed borrowing)
     let mut keys_to_evict = Vec::new();
     shard.heaps.iter_sync(|&key, heap| {
-        if current_tick.saturating_sub(heap.last_access) > 25 {
+        if current_tick.saturating_sub(heap.last_access) > HEAP_IDLE_TICKS_DIFF {
             keys_to_evict.push(key);
         }
+
+        let reg_len = heap.regions.len();
+
+        // Log heap with regions x3 of minimum
+        if reg_len > MIN_REGIONS_PER_HEAP * 3 && current_tick.is_multiple_of(10) {
+            debug!(
+                "[SHARD #{}] ScrapHeap: instance[{:X}]  Regions amount: {}",
+                shard_idx, key, reg_len,
+            );
+        }
+
         true
     });
 
@@ -632,7 +584,8 @@ fn perform_global_maintenance() {
                 if let Some(mut limbo) = shard.limbo.try_lock() {
                     limbo.push((heap_box, current_tick));
                 } else {
-                    drop(heap_box); // Triggers Drop for ScrapHeap
+                    // Trigger ScrapHeap instance drop
+                    drop(heap_box);
                 }
             }
         }
@@ -641,18 +594,14 @@ fn perform_global_maintenance() {
     // 3. Stats
     if current_tick.is_multiple_of(10) {
         debug!(
-            "ScrapHeap stats → active: {} | created: {} | dropped: {} | tick: {}",
+            "[SHARD #{}] ScrapHeap: stats:   active: {} | created: {} | dropped: {} | tick: {} | allocated: {} MB",
+            shard_idx,
             TOTAL_ACTIVE_HEAPS.load(Ordering::Relaxed),
             TOTAL_HEAPS_CREATED.load(Ordering::Relaxed),
             TOTAL_HEAPS_DROPPED.load(Ordering::Relaxed),
-            current_tick
+            current_tick,
+            TOTAL_ALLOCATED_MEM.load(Ordering::Relaxed) / 1024 / 1024,
         );
-    }
-
-    if current_tick.is_multiple_of(15) {
-        unsafe {
-            libmimalloc::mi_collect(false);
-        }
     }
 }
 
@@ -746,58 +695,4 @@ pub fn sheap_purge(sheap_ptr: *mut c_void) {
 
     heap.last_purge_tick = now;
     heap.purge();
-}
-
-#[allow(dead_code)]
-#[inline]
-pub fn sheap_contains_ptr(sheap_ptr: *mut c_void, addr_ptr: *mut c_void) -> bool {
-    let key = sheap_ptr as usize;
-    let addr = addr_ptr as usize;
-    let shard_idx = get_shard_idx(key);
-
-    if let Some(heap) = SHARDS[shard_idx].heaps.get_sync(&key) {
-        return heap.get_region_index_for_addr(addr).is_some();
-    }
-
-    false
-}
-
-/// Attempts to free a specific pointer within a ScrapHeap.
-///
-/// Note: Since this is a bump allocator, we can only truly reclaim space
-/// if the pointer being freed was the absolute last allocation made in its region.
-pub fn sheap_free(sheap_ptr: *mut c_void, ptr: *mut c_void) {
-    if ptr.is_null() || (ptr as usize) < 0x10000 {
-        return;
-    }
-
-    let key = sheap_ptr as usize;
-    let current_gen = GLOBAL_EVICTION_COUNT.load(Ordering::Acquire);
-
-    // TLS fast path (very common)
-    let handled = RECENT_HEAP.with_borrow(|cache| {
-        if let Some(c) = cache
-            && c.key == key
-            && c.generation == current_gen
-        {
-            let heap = unsafe { &mut *c.ptr };
-            if let Some(idx) = heap.get_region_index_for_addr(ptr as usize) {
-                heap.regions[idx].try_free(ptr);
-                return true;
-            }
-        }
-        false
-    });
-
-    if handled {
-        return;
-    }
-
-    // Fallback (rare)
-    let shard_idx = get_shard_idx(key);
-    if let Some(heap) = SHARDS[shard_idx].heaps.get_sync(&key)
-        && let Some(idx) = heap.get_region_index_for_addr(ptr as usize)
-    {
-        heap.regions[idx].try_free(ptr);
-    }
 }

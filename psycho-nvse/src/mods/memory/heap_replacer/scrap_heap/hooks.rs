@@ -1,9 +1,12 @@
 //! Scrap heap hooks.
 
-use super::sheap;
+use crate::mods::memory::scrap_heap::region_allocator::RegionAllocator;
+
+use super::region_allocator;
 use libc::c_void;
 use std::cell::UnsafeCell;
 use std::ptr::null_mut;
+use std::sync::{Arc, LazyLock};
 
 /// Game's scrap heap structure.
 /// Must match the game's struct layout exactly.
@@ -26,6 +29,8 @@ pub unsafe extern "C" fn sheap_get_thread_local() -> *mut c_void {
     DUMMY_SHEAP.with(|d| d.get() as *mut c_void)
 }
 
+static RA: LazyLock<Arc<RegionAllocator>> = LazyLock::new(RegionAllocator::new);
+
 /// Fixed-size sheap initialization hook (0x00AA53F0 FNV, 0x0086CB70 GECK).
 pub unsafe extern "fastcall" fn sheap_init_fix(heap: *mut c_void, _edx: *mut c_void) {
     if heap.is_null() {
@@ -41,7 +46,8 @@ pub unsafe extern "fastcall" fn sheap_init_fix(heap: *mut c_void, _edx: *mut c_v
     sheap_mut.cur = null_mut();
     sheap_mut.last = null_mut();
 
-    sheap::sheap_purge(heap);
+    //sheap::sheap_purge(heap);
+    RA.purge(heap);
 }
 
 /// Variable-size sheap initialization hook (0x00AA5410 FNV, 0x0086CB90 GECK).
@@ -64,7 +70,8 @@ pub unsafe extern "fastcall" fn sheap_init_var(
     sheap_mut.cur = null_mut();
     sheap_mut.last = null_mut();
 
-    sheap::sheap_purge(heap);
+    //sheap::sheap_purge(heap);
+    RA.purge(heap);
 }
 
 
@@ -75,7 +82,8 @@ pub unsafe extern "fastcall" fn sheap_alloc(
     size: usize,
     align: usize,
 ) -> *mut c_void {
-    sheap::sheap_alloc_align(sheap_ptr, size, align)
+    //sheap::sheap_alloc_align(sheap_ptr, size, align)
+    RA.alloc_align(sheap_ptr, size, align)
 }
 
 /// Sheap free hook.
@@ -84,10 +92,12 @@ pub unsafe extern "fastcall" fn sheap_free(
     _edx: *mut c_void,
     ptr: *mut c_void,
 ) {
-    sheap::sheap_free(sheap_ptr, ptr)
+    //sheap::sheap_free(sheap_ptr, ptr)
+    RA.free(sheap_ptr, ptr);
 }
 
 /// Sheap purge hook (0x00AA5460 FNV, 0x0086CAA0 GECK).
 pub unsafe extern "fastcall" fn sheap_purge(sheap_ptr: *mut c_void, _edx: *mut c_void) {
-    sheap::sheap_purge(sheap_ptr);
+    //sheap::sheap_purge(sheap_ptr);
+    RA.purge(sheap_ptr);
 }

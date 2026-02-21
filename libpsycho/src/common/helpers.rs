@@ -35,3 +35,16 @@ pub fn format_duration(ms: usize) -> String {
         format!("{}ms", ms)
     }
 }
+
+/// Aligns an address upward to the specified alignment.
+///
+/// # Arguments
+/// * `addr` - Address to align
+/// * `align` - Alignment requirement (must be power of two)
+///
+/// # Returns
+/// Aligned address
+#[inline(always)]
+pub fn align_up(addr: usize, align: usize) -> usize {
+    (addr + (align - 1)) & !(align - 1)
+}
