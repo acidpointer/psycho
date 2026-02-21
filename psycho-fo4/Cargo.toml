@@ -16,7 +16,7 @@ lto = true
 
 
 [dependencies]
-dashmap = { workspace = true }
+clashmap = { workspace = true }
 parking_lot = { workspace = true }
 humantime = "2.2"
 log = { workspace = true }

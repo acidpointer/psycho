@@ -8,7 +8,7 @@ iced-x86 = { version = "1.21.0", features = ["code_asm", "encoder", "intel"] }
 bitflags = "2.9.2"
 goblin = { version = "0.10.4", features=["pe32","pe64", "std"]}
 libc = { workspace = true }
-dashmap = { workspace = true }
+clashmap = { workspace = true }
 log = { workspace = true }
 thiserror = { workspace = true }
 anyhow = { workspace = true }

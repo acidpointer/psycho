@@ -4,7 +4,7 @@
 //! so you can subscribe to events or emit them, while dealing
 //! with addresses relocation.
 
-use dashmap::DashMap;
+use clashmap::ClashMap;
 use parking_lot::RwLock;
 use std::hash::Hash;
 use std::sync::Arc;
@@ -56,7 +56,7 @@ pub struct EventEmitter<'a, E: Send + Sync + Copy + Clone + Eq + Hash, P: Send +
     /// DashMap is quite good for such type of task, because
     /// it offers built-in concurrency support and already
     /// correctly implements needed synchronizations under the hood.
-    listeners: DashMap<E, DashMap<ListenerId, Listener<'a, P>>>,
+    listeners: ClashMap<E, ClashMap<ListenerId, Listener<'a, P>>>,
 }
 
 impl<'a, E: Send + Sync + Copy + Clone + Eq + Hash, P: Send + Sync> Default for EventEmitter<'a, E, P> {
@@ -84,7 +84,7 @@ impl<'a, E: Send + Sync + Copy + Clone + Eq + Hash, P: Send + Sync> EventEmitter
         if let Some(listeners) = self.listeners.get_mut(&event) {
             listeners.insert(*listener_id, listener);
         } else {
-            let map = DashMap::new();
+            let map = ClashMap::new();
             map.insert(*listener_id, listener);
 
             self.listeners.insert(event, map);

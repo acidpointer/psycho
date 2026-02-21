@@ -1,39 +1,48 @@
 [workspace]
 resolver = "3"
-members = ["libf4se", "libmimalloc", "libpsycho", "psycho-fo4", "drifter", "libnvse", "psycho-nvse"]
+members = [
+  "drifter",
+  "libf4se",
+  "libmimalloc",
+  "libnvse",
+  "libpsycho",
+  "psycho-fo4",
+  "psycho-nvse"
+]
 
 [workspace.dependencies]
-closure-ffi = { version = "5.0.1" }
+ahash = "0.8.12"
 anyhow = { version = "1.0" }
-dashmap = { version = "7.0.0-rc2", features = ["inline-more"] }
+clashmap = { version = "1.2.1", features = ["inline"] }
+closure-ffi = { version = "5.0.1" }
+crossbeam-queue = "0.3"
 fern = "0.7.1"
 libc = { version = "0.2.178", features = ["extra_traits"] }
 log = { version = "0.4", features = ["std"] }
+orx-concurrent-vec = { version = "3.10.0", features = ["default"] }
 parking_lot = "0.12.5"
-thiserror = "2.0.17"
-crossbeam-queue = "0.3"
-ahash = "0.8.12"
 scc = { version = "3.5.6" }
-windows = { version = "=0.60", features = [ 
-  "Data_Xml_Dom", 
-  "UI_WindowManagement", 
-  "Wdk_System_SystemServices", 
-  "Win32_Security", 
-  "Win32_System_Threading", 
-  "Win32_UI_WindowsAndMessaging", 
-  "Win32_Graphics_Direct3D11", 
-  "Win32_System_LibraryLoader",
-  "Win32_System_Performance",
+thiserror = "2.0.17"
+windows = { version = "=0.60", features = [
+  "Data_Xml_Dom",
+  "UI_WindowManagement",
+  "Wdk_System_SystemServices",
   "Win32_Foundation",
-  "Win32_System_SystemServices",
-  "Win32_System_Console",
-  "Win32_System_Memory",
-  "Win32_System_Diagnostics_Debug",
-  "Win32_System_SystemInformation",
-  "Win32_System_WindowsProgramming",
-  "Win32_System_ProcessStatus",
   "Win32_Graphics_Direct3D",
-  "Win32_System_Com",
+  "Win32_Graphics_Direct3D11",
   "Win32_Graphics_Gdi",
+  "Win32_Security",
+  "Win32_System_Com",
+  "Win32_System_Console",
+  "Win32_System_Diagnostics_Debug",
   "Win32_System_Kernel",
+  "Win32_System_LibraryLoader",
+  "Win32_System_Memory",
+  "Win32_System_Performance",
+  "Win32_System_ProcessStatus",
+  "Win32_System_SystemInformation",
+  "Win32_System_SystemServices",
+  "Win32_System_Threading",
+  "Win32_System_WindowsProgramming",
+  "Win32_UI_WindowsAndMessaging",
 ] }
