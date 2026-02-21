@@ -11,6 +11,7 @@ use libpsycho::common::align_up;
 use parking_lot::RwLock;
 use std::{
     cell::RefCell,
+    collections::BTreeMap,
     ptr::NonNull,
     sync::{
         Arc, LazyLock,
@@ -51,7 +52,7 @@ const GC_DURATION: Duration = Duration::from_millis(1000);
 /// Amount of delta ticks for non-idle regions
 ///
 /// In other words, allowed delta after which we can consider region as IDLE
-const IDLE_TICKS_DELTA: u64 = 20;
+const IDLE_TICKS_DELTA: u64 = 50; // 20
 
 // GUARDS:
 
@@ -74,10 +75,50 @@ static MI_HEAP: LazyLock<MiHeap> = LazyLock::new(MiHeap::new);
 /// Fast Send + Sync non-blocking hashmap with ahash hasher
 type HashMapSync<K, V> = ClashMap<K, V, ahash::RandomState>;
 
-/// Single region pool per sheap - simplified design
+/// BTree-based region pool for O(log n) lookups
+///
+/// This design achieves:
+/// - O(log n) free() via BTreeMap range query to find region owner
+/// - O(1) amortized alloc_align() via available_regions Vec
+struct PoolData {
+    /// ALL regions sorted by start_page address
+    /// Key: start_page (region start address >> PAGE_SHIFT)
+    /// Used for O(log n) lookup during free()
+    regions_by_addr: BTreeMap<usize, Region>,
+
+    /// Start pages of regions with available space
+    /// Used for O(1) allocation attempts
+    /// Maintained by removing exhausted regions and adding new/reset regions
+    available_regions: Vec<usize>,
+}
+
+impl PoolData {
+    fn new() -> Self {
+        Self {
+            regions_by_addr: BTreeMap::new(),
+            available_regions: Vec::new(),
+        }
+    }
+
+    /// Clean up exhausted regions from available list
+    fn clean_exhausted_regions(&mut self) {
+        // Remove exhausted regions from available_regions
+        self.available_regions.retain(|&start_page| {
+            if let Some(region) = self.regions_by_addr.get(&start_page) {
+                // Check if region has space by attempting a small allocation
+                let current_offset = region.offset.load(Ordering::Acquire);
+                current_offset < region.capacity
+            } else {
+                false
+            }
+        });
+    }
+}
+
+/// Single region pool per sheap - simplified design with optimizations
 /// Read locks: multiple threads allocate concurrently
 /// Write locks: only GC (brief, removes idle regions)
-type RegionPool = Arc<RwLock<Vec<Region>>>;
+type RegionPool = Arc<RwLock<PoolData>>;
 
 /// Computes which shard should handle a given heap key.
 ///
@@ -255,6 +296,7 @@ impl Region {
     }
 
     /// Returns true if pointer belongs to this region
+    #[allow(dead_code)]
     pub fn is_our_ptr(&self, ptr: *mut c_void) -> bool {
         let addr = ptr as usize;
         let page = addr >> PAGE_SHIFT;
@@ -344,6 +386,7 @@ impl TlsCache {
     }
 
     /// Invalidate cache entry
+    #[allow(dead_code)]
     #[inline(always)]
     fn invalidate(&mut self) {
         self.pool = None;
@@ -471,22 +514,25 @@ impl RegionAllocator {
     #[inline(always)]
     fn get_or_create_pool(&self, sheap_id: usize) -> RegionPool {
         let generation = self.generation.load(Ordering::Acquire);
-
-        // Try TLS cache first (HOT PATH - skips HashMap entirely!)
-        if let Some(cached_pool) = TLS_CACHE.with(|cache| cache.borrow().get(sheap_id, generation))
-        {
-            return cached_pool;
-        }
-
-        // Cache miss - look up in HashMap (COLD PATH)
         let shard_idx = get_shard_idx(sheap_id);
         let shard = &self.shards[shard_idx];
 
-        // Get existing pool or create a new one
+        // Try TLS cache first (HOT PATH)
+        if let Some(cached_pool) = TLS_CACHE.with(|cache| cache.borrow().get(sheap_id, generation))
+        {
+            // Verify cached pool is still valid in HashMap
+            // If purged, HashMap won't have it - cached Arc is stale!
+            if shard.contains_key(&sheap_id) {
+                return cached_pool;
+            }
+            // Cache hit but pool was purged - fall through to HashMap lookup
+        }
+
+        // Cache miss or stale - look up in HashMap (COLD PATH)
         let pool = if let Some(existing) = shard.get(&sheap_id) {
             existing.clone()
         } else {
-            let new_pool = Arc::new(RwLock::new(Vec::new()));
+            let new_pool = Arc::new(RwLock::new(PoolData::new()));
             let _ = shard.insert(sheap_id, new_pool.clone());
             new_pool
         };
@@ -513,21 +559,29 @@ impl RegionAllocator {
             let pool = entry.value();
 
             // Take write lock BRIEFLY to remove idle regions
-            let mut regions = pool.write();
+            let mut pool_data = pool.write();
 
-            let old_len = regions.len();
-            let mut i = 0;
+            let old_len = pool_data.regions_by_addr.len();
 
             // Remove idle regions and push them back to empty_regions queue
-            while i < regions.len() {
-                let region = &regions[i];
-                let is_idle =
-                    (tick - region.last_access.load(Ordering::Acquire)) > IDLE_TICKS_DELTA;
 
-                if is_idle {
-                    // Remove the region using swap_remove (O(1) operation)
-                    let region = regions.swap_remove(i);
+            let regions_to_remove: Vec<usize> = pool_data
+                .regions_by_addr
+                .iter()
+                .filter_map(|(address, region)| {
+                    let is_idle =
+                        (tick - region.last_access.load(Ordering::Acquire)) > IDLE_TICKS_DELTA;
 
+                    if is_idle {
+                        return Some(*address);
+                    }
+
+                    None
+                })
+                .collect();
+
+            for address in regions_to_remove {
+                if let Some(region) = pool_data.regions_by_addr.remove(&address) {
                     // Reset region state
                     region.offset.store(0, Ordering::Release);
                     region.sheap_id.store(0, Ordering::Release);
@@ -535,14 +589,10 @@ impl RegionAllocator {
 
                     // Push back to empty_regions for reuse
                     let _ = self.empty_regions.push(region);
-
-                    // Don't increment i since we swapped a new element into this position
-                } else {
-                    i += 1;
                 }
             }
 
-            let new_len = regions.len();
+            let new_len = pool_data.regions_by_addr.len();
             let recycled = old_len - new_len;
 
             if recycled > 0 {
@@ -577,8 +627,12 @@ impl RegionAllocator {
                 region.sheap_id.store(sheap_id, Ordering::Release);
                 region.last_access.store(tick, Ordering::Release);
 
-                // Add to pool
-                pool.write().push(region);
+                let start_page = region.start_page;
+
+                // Add to pool - use write lock
+                let mut pool_data = pool.write();
+                pool_data.regions_by_addr.insert(start_page, region);
+                pool_data.available_regions.push(start_page);
 
                 return ptr.as_ptr();
             }
@@ -591,16 +645,28 @@ impl RegionAllocator {
             }
         }
 
-        // Step 2. Try to allocate from existing regions
-        // Use read lock - allows multiple threads to allocate concurrently
+        // Step 2. Try to allocate from existing available regions
+        // Use read lock first for fast path
         {
-            let regions = pool.read();
-            for region in regions.iter() {
-                if let Some(ptr) = region.allocate(size, align) {
+            let pool_data = pool.read();
+
+            // Try available regions - O(1) access to regions with free space!
+            for &start_page in pool_data.available_regions.iter() {
+                if let Some(region) = pool_data.regions_by_addr.get(&start_page)
+                    && let Some(ptr) = region.allocate(size, align)
+                {
                     region.last_access.store(tick, Ordering::Release);
                     return ptr.as_ptr();
                 }
+                // Region is now full - will be cleaned up by next allocation attempt
             }
+        }
+
+        // Step 2b. Clean up exhausted regions from available list (need write lock)
+        {
+            let mut pool_data = pool.write();
+
+            pool_data.clean_exhausted_regions();
         }
 
         // Step 3. Allocate new region as last resort
@@ -610,8 +676,12 @@ impl RegionAllocator {
             region.last_access.store(tick, Ordering::Release);
             region.sheap_id.store(sheap_id, Ordering::Release);
 
+            let start_page = region.start_page;
+
             // Add to pool
-            pool.write().push(region);
+            let mut pool_data = pool.write();
+            pool_data.regions_by_addr.insert(start_page, region);
+            pool_data.available_regions.push(start_page);
 
             return ptr.as_ptr();
         }
@@ -628,7 +698,7 @@ impl RegionAllocator {
 
     /// Purge all regions which belongs to provided sheap_ptr
     ///
-    /// CRITICAL: Remove from HashMap + invalidate TLS caches to allow GC to recycle.
+    /// Remove from HashMap + invalidate TLS caches to allow GC to recycle.
     #[inline(always)]
     pub fn purge(&self, sheap_ptr: *mut c_void) {
         let sheap_id = sheap_ptr as usize;
@@ -648,7 +718,7 @@ impl RegionAllocator {
     /// Attempt to free memory
     ///
     /// Tries to do LIFO free, otherwise NOOP.
-    /// Searches the pool to find the region owning this pointer.
+    /// Searches regions to find the owner (simple and safe).
     #[inline(always)]
     pub fn free(&self, sheap_ptr: *mut c_void, ptr: *mut c_void) -> bool {
         let sheap_id = sheap_ptr as usize;
@@ -657,12 +727,10 @@ impl RegionAllocator {
 
         if let Some(pool) = shard.get(&sheap_id) {
             // Search for the region owning this pointer
-            // Use read lock - allows concurrent frees
-            let regions = pool.read();
-            for region in regions.iter() {
-                if region.is_our_ptr(ptr) {
-                    return region.try_free(ptr);
-                }
+            let pool_data = pool.read();
+
+            if let Some(region) = pool_data.regions_by_addr.get(&(ptr as usize)) {
+                return region.try_free(ptr);
             }
         }
 
