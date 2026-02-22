@@ -676,7 +676,14 @@ impl RegionAllocator {
             return std::ptr::null_mut();
         }
 
-        let tick = self.tick.load(Ordering::Acquire);
+        // Debug assertions - catch bugs early in development
+        debug_assert!(size > 0, "RegionAllocator: zero-size allocation");
+        debug_assert!(size <= REGION_SIZE, "RegionAllocator: allocation too large for region (size={}, max={})", size, REGION_SIZE);
+        debug_assert!(align.is_power_of_two(), "RegionAllocator: alignment must be power of two (align={})", align);
+        debug_assert!(align <= REGION_ALIGN, "RegionAllocator: alignment too large for region (align={}, max={})", align, REGION_ALIGN);
+
+        // Relaxed ordering: tick only needs eventual consistency (performance optimization)
+        let tick = self.tick.load(Ordering::Relaxed);
 
         // Get cached region pool (skips HashMap lookup on cache hit!)
         let pool = self.get_or_create_pool(sheap_id);
@@ -708,29 +715,21 @@ impl RegionAllocator {
         }
 
         // Step 2. Try to allocate from existing available regions
-        // Use read lock first for fast path
+        // Use read lock for fast concurrent path
         {
             let pool_data = pool.read();
 
-            // Try available regions - O(1) access to regions with free space!
-            for &start_page in pool_data.available_regions.iter() {
+            // LIFO optimization: try NEWEST regions first (most likely to have space)
+            // Reversed iteration = O(1) hot path instead of O(n) scan!
+            for &start_page in pool_data.available_regions.iter().rev() {
                 if let Some(region) = pool_data.regions_by_addr.get(&start_page)
                     && let Some(ptr) = region.allocate(size, align)
                 {
                     region.last_access.store(tick, Ordering::Release);
                     return ptr.as_ptr();
                 }
-                // Region is now full - will be cleaned up by next allocation attempt
+                // Region is now full - GC will clean it up, no write lock needed!
             }
-        }
-
-        // Step 2b. Clean up exhausted regions periodically (lightweight)
-        // Only clean if we failed to allocate - don't block with expensive scans
-        {
-            let mut pool_data = pool.write();
-            pool_data.clean_exhausted_regions();
-            // Don't scan ALL regions here - too expensive under write lock!
-            // Just let GC handle cleanup, and Step 3 will allocate new region if needed
         }
 
         // Step 3. Allocate new region as last resort
@@ -750,7 +749,8 @@ impl RegionAllocator {
             return ptr.as_ptr();
         }
 
-        // Step 4. Failed all allocation attempts - return null
+        // Step 4. Failed - return null
+        // If we can't allocate, we can't. This means GC or memory management is fucked.
         log::error!(
             "RegionAllocator: alloc_align() failed! sheap_ptr={:p}, size={}, align={}",
             sheap_ptr,
