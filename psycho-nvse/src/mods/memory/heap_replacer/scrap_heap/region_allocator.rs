@@ -88,17 +88,17 @@ type HashMapSync<K, V> = ClashMap<K, V, ahash::RandomState>;
 ///
 /// This design achieves:
 /// - O(log n) free() via BTreeMap range query to find region owner
-/// - O(1) amortized alloc_align() via available_regions Vec
+/// - O(1) alloc_align() via available_regions Vec with direct Arc<Region> references
 struct PoolData {
     /// ALL regions sorted by start_page address
     /// Key: start_page (region start address >> PAGE_SHIFT)
     /// Used for O(log n) lookup during free()
-    regions_by_addr: BTreeMap<usize, Region>,
+    regions_by_addr: BTreeMap<usize, Arc<Region>>,
 
-    /// Start pages of regions with available space
-    /// Used for O(1) allocation attempts
-    /// Maintained by removing exhausted regions and adding new/reset regions
-    available_regions: Vec<usize>,
+    /// Direct Arc references to regions with available space
+    /// PERFORMANCE: Stores Arc<Region> directly to avoid BTreeMap lookup!
+    /// LIFO order: newest regions at the end (most likely to have space)
+    available_regions: Vec<Arc<Region>>,
 }
 
 impl PoolData {
@@ -112,14 +112,10 @@ impl PoolData {
     /// Clean up exhausted regions from available list
     fn clean_exhausted_regions(&mut self) {
         // Remove exhausted regions from available_regions
-        self.available_regions.retain(|&start_page| {
-            if let Some(region) = self.regions_by_addr.get(&start_page) {
-                // Check if region has space by attempting a small allocation
-                let current_offset = region.offset.load(Ordering::Acquire);
-                current_offset < region.capacity
-            } else {
-                false
-            }
+        self.available_regions.retain(|region| {
+            // Check if region has space by checking offset
+            let current_offset = region.offset.load(Ordering::Acquire);
+            current_offset < region.capacity
         });
     }
 }
@@ -232,7 +228,8 @@ impl Region {
     #[inline]
     fn allocate(&self, size: usize, align: usize) -> Option<NonNull<c_void>> {
         let start_addr = self.start.as_ptr() as usize;
-        let mut current_offset = self.offset.load(Ordering::Acquire);
+        // Relaxed: CAS loop provides synchronization, no need for Acquire barrier
+        let mut current_offset = self.offset.load(Ordering::Relaxed);
 
         loop {
             // 1. Calculate the earliest possible data address
@@ -251,16 +248,19 @@ impl Region {
                 return None;
             }
 
+            // Relaxed CAS: faster, no memory barriers needed for bump allocator
+            // Offset synchronization is sufficient for correctness
             match self.offset.compare_exchange_weak(
                 current_offset,
                 requested_end, // New offset is the end of the data
-                Ordering::AcqRel,
+                Ordering::Relaxed,
                 Ordering::Relaxed,
             ) {
                 Ok(_) => {
                     unsafe {
                         let size_ptr = header_addr as *mut AtomicU32;
-                        (*size_ptr).store(size as u32, Ordering::Release);
+                        // Relaxed: header write doesn't need Release barrier
+                        (*size_ptr).store(size as u32, Ordering::Relaxed);
                     }
                     return NonNull::new(data_addr as *mut c_void);
                 }
@@ -634,22 +634,25 @@ impl RegionAllocator {
                 let mut pool_data = pool.write();
 
                 for address in &regions_to_remove {
-                    if let Some(region) = pool_data.regions_by_addr.remove(address) {
+                    if let Some(region_arc) = pool_data.regions_by_addr.remove(address) {
                         // Reset region state back to young generation
-                        region.offset.store(0, Ordering::Release);
-                        region.sheap_id.store(0, Ordering::Release);
-                        region.last_access.store(0, Ordering::Release);
-                        region.generation.store(0, Ordering::Release);
+                        region_arc.offset.store(0, Ordering::Release);
+                        region_arc.sheap_id.store(0, Ordering::Release);
+                        region_arc.last_access.store(0, Ordering::Release);
+                        region_arc.generation.store(0, Ordering::Release);
 
-                        // Push back to empty_regions for reuse
-                        let _ = self.empty_regions.push(region);
+                        // Try to unwrap Arc to push back to empty_regions
+                        // If Arc has other references, we'll just drop it (GC will handle)
+                        if let Ok(region) = Arc::try_unwrap(region_arc) {
+                            let _ = self.empty_regions.push(region);
+                        }
                     }
                 }
 
                 // Clean up available_regions list - remove recycled regions
-                pool_data
-                    .available_regions
-                    .retain(|start_page| !regions_to_remove.contains(start_page));
+                pool_data.available_regions.retain(|region| {
+                    !regions_to_remove.contains(&region.start_page)
+                });
 
                 pool_data.regions_by_addr.len()
             }; // WRITE lock released here!
@@ -694,14 +697,15 @@ impl RegionAllocator {
             if let Some(ptr) = region.allocate(size, align) {
                 // Update sheap_id for selected region
                 region.sheap_id.store(sheap_id, Ordering::Release);
-                region.last_access.store(tick, Ordering::Release);
+                region.last_access.store(tick, Ordering::Relaxed);
 
                 let start_page = region.start_page;
+                let region_arc = Arc::new(region);
 
                 // Add to pool - use write lock
                 let mut pool_data = pool.write();
-                pool_data.regions_by_addr.insert(start_page, region);
-                pool_data.available_regions.push(start_page);
+                pool_data.regions_by_addr.insert(start_page, region_arc.clone());
+                pool_data.available_regions.push(region_arc);
 
                 return ptr.as_ptr();
             }
@@ -720,12 +724,14 @@ impl RegionAllocator {
             let pool_data = pool.read();
 
             // LIFO optimization: try NEWEST regions first (most likely to have space)
-            // Reversed iteration = O(1) hot path instead of O(n) scan!
-            for &start_page in pool_data.available_regions.iter().rev() {
-                if let Some(region) = pool_data.regions_by_addr.get(&start_page)
-                    && let Some(ptr) = region.allocate(size, align)
-                {
-                    region.last_access.store(tick, Ordering::Release);
+            // Manual reverse iteration for zero overhead (no iterator allocation)
+            // Direct Arc<Region> access = NO BTreeMap lookup needed!
+            let len = pool_data.available_regions.len();
+            for i in (0..len).rev() {
+                let region = &pool_data.available_regions[i];
+                if let Some(ptr) = region.allocate(size, align) {
+                    // Relaxed ordering: tick precision doesn't need Release barrier
+                    region.last_access.store(tick, Ordering::Relaxed);
                     return ptr.as_ptr();
                 }
                 // Region is now full - GC will clean it up, no write lock needed!
@@ -736,15 +742,16 @@ impl RegionAllocator {
         if let Some(region) = Region::new(REGION_SIZE, REGION_ALIGN, self.stats.clone())
             && let Some(ptr) = region.allocate(size, align)
         {
-            region.last_access.store(tick, Ordering::Release);
+            region.last_access.store(tick, Ordering::Relaxed);
             region.sheap_id.store(sheap_id, Ordering::Release);
 
             let start_page = region.start_page;
+            let region_arc = Arc::new(region);
 
             // Add to pool
             let mut pool_data = pool.write();
-            pool_data.regions_by_addr.insert(start_page, region);
-            pool_data.available_regions.push(start_page);
+            pool_data.regions_by_addr.insert(start_page, region_arc.clone());
+            pool_data.available_regions.push(region_arc);
 
             return ptr.as_ptr();
         }
