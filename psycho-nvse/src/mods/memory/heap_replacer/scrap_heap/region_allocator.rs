@@ -47,12 +47,21 @@ const SHARDS_AMOUNT: usize = 16;
 const TICK_DURATION: Duration = Duration::from_millis(500);
 
 /// Delay between gc cycles
-const GC_DURATION: Duration = Duration::from_millis(1000);
+const GC_DURATION: Duration = Duration::from_millis(500);
 
-/// Amount of delta ticks for non-idle regions
-///
-/// In other words, allowed delta after which we can consider region as IDLE
-const IDLE_TICKS_DELTA: u64 = 50; // 20
+/// Generational GC: Young generation idle threshold (aggressive)
+/// Young regions = short-lived (projectiles, particles, sounds)
+/// 30 ticks × 500ms = 15 seconds idle before recycling
+const YOUNG_GEN_IDLE_TICKS: u64 = 30;
+
+/// Generational GC: Old generation idle threshold (relaxed)
+/// Old regions = long-lived (game state, level data)
+/// 200 ticks × 500ms = 100 seconds idle before recycling
+const OLD_GEN_IDLE_TICKS: u64 = 200;
+
+/// Generational GC: Promotion threshold
+/// Region survives this many GC cycles → promoted to old generation
+const OLD_GEN_THRESHOLD: usize = 3;
 
 // GUARDS:
 
@@ -171,6 +180,11 @@ struct Region {
     /// Value 0 means that region is clear and not belongs to any heap
     last_access: AtomicU64,
 
+    /// Generation for generational GC
+    /// 0 = young generation (scanned frequently)
+    /// Increments each time region survives GC, caps at OLD_GEN_THRESHOLD
+    generation: AtomicUsize,
+
     stats: Arc<AllocatorStats>,
 }
 
@@ -202,6 +216,7 @@ impl Region {
             offset: AtomicUsize::new(0),
             start_page: start_ptr >> PAGE_SHIFT,
             end_page: (start_ptr + capacity) >> PAGE_SHIFT,
+            generation: AtomicUsize::new(0), // Start as young generation
             stats,
         })
     }
@@ -481,16 +496,17 @@ impl RegionAllocator {
             }
         });
 
-        // Garbage collector threads
+        // Parallel generational GC: one thread per shard
         for shard_index in 0..SHARDS_AMOUNT {
             let instance2 = instance_arc.clone();
             thread::spawn(move || {
-                let instance = instance2.clone();
+                let instance = instance2;
 
                 log::info!(
-                    "RegionAllocator: Garbage collector thread for SHARD#{} initialized!",
+                    "RegionAllocator: Generational GC thread for SHARD#{} initialized!",
                     shard_index
                 );
+
                 loop {
                     let is_run = instance.run_gc.load(Ordering::Acquire);
 
@@ -498,7 +514,7 @@ impl RegionAllocator {
                         return;
                     }
 
-                    instance.gc(shard_index);
+                    instance.gc_shard(shard_index);
                     thread::sleep(GC_DURATION);
                 }
             });
@@ -545,59 +561,105 @@ impl RegionAllocator {
         pool
     }
 
-    /// Garbage collector aka GC
+    /// Parallel generational garbage collector for a single shard
     ///
-    /// Iterates over all sheaps in this shard and recycles IDLE regions.
-    /// Takes a brief write lock per sheap to remove idle regions.
-    fn gc(&self, shard_index: usize) {
-        let shard = &self.shards[shard_index];
+    /// Uses generational GC strategy:
+    /// - Young generation (gen 0-2): Aggressive collection - short-lived allocations
+    /// - Old generation (gen 3+): Relaxed collection - long-lived allocations
+    ///
+    /// Each shard has its own GC thread running in parallel.
+    fn gc_shard(&self, shard_index: usize) {
         let tick = self.tick.load(Ordering::Acquire);
+        let shard = &self.shards[shard_index];
 
-        // Iterate over all sheaps in this shard
+        // Early exit if shard is empty (avoid iterating empty shards)
+        if shard.is_empty() {
+            return;
+        }
+
+        // Process ALL pools in this shard (parallel GC!)
         shard.iter().for_each(|entry| {
             let sheap_id = entry.key();
             let pool = entry.value();
 
-            // Take write lock BRIEFLY to remove idle regions
-            let mut pool_data = pool.write();
+            // PHASE 1: Scan regions under READ lock (concurrent with allocations!)
+            let (regions_to_remove, old_len) = {
+                let pool_data = pool.read();
+                let old_len = pool_data.regions_by_addr.len();
 
-            let old_len = pool_data.regions_by_addr.len();
-
-            // Remove idle regions and push them back to empty_regions queue
-
-            let regions_to_remove: Vec<usize> = pool_data
-                .regions_by_addr
-                .iter()
-                .filter_map(|(address, region)| {
-                    let is_idle =
-                        (tick - region.last_access.load(Ordering::Acquire)) > IDLE_TICKS_DELTA;
-
-                    if is_idle {
-                        return Some(*address);
-                    }
-
-                    None
-                })
-                .collect();
-
-            for address in regions_to_remove {
-                if let Some(region) = pool_data.regions_by_addr.remove(&address) {
-                    // Reset region state
-                    region.offset.store(0, Ordering::Release);
-                    region.sheap_id.store(0, Ordering::Release);
-                    region.last_access.store(0, Ordering::Release);
-
-                    // Push back to empty_regions for reuse
-                    let _ = self.empty_regions.push(region);
+                // Early exit if pool is empty
+                if old_len == 0 {
+                    return;
                 }
+
+                // Generational GC: separate young and old regions
+                let regions_to_remove: Vec<usize> = pool_data
+                    .regions_by_addr
+                    .iter()
+                    .filter_map(|(address, region)| {
+                        let generation = region.generation.load(Ordering::Acquire);
+                        let last_tick = region.last_access.load(Ordering::Acquire);
+                        let idle_ticks = tick.saturating_sub(last_tick);
+
+                        // Young generation: aggressive collection (short-lived allocations)
+                        if generation < OLD_GEN_THRESHOLD {
+                            if idle_ticks > YOUNG_GEN_IDLE_TICKS {
+                                // Idle young region → recycle it
+                                return Some(*address);
+                            } else if idle_ticks > 0 {
+                                // Active young region → promote it
+                                region.generation.store(generation + 1, Ordering::Release);
+                            }
+                        }
+                        // Old generation: relaxed collection (long-lived allocations)
+                        else if idle_ticks > OLD_GEN_IDLE_TICKS {
+                            // Idle old region → recycle it
+                            return Some(*address);
+                        }
+
+                        None
+                    })
+                    .collect();
+
+                (regions_to_remove, old_len)
+            }; // READ lock released here!
+
+            // Early exit if nothing to recycle
+            if regions_to_remove.is_empty() {
+                return;
             }
 
-            let new_len = pool_data.regions_by_addr.len();
+            // PHASE 2: Remove regions under WRITE lock (brief, only for removal!)
+            let new_len = {
+                let mut pool_data = pool.write();
+
+                for address in &regions_to_remove {
+                    if let Some(region) = pool_data.regions_by_addr.remove(address) {
+                        // Reset region state back to young generation
+                        region.offset.store(0, Ordering::Release);
+                        region.sheap_id.store(0, Ordering::Release);
+                        region.last_access.store(0, Ordering::Release);
+                        region.generation.store(0, Ordering::Release);
+
+                        // Push back to empty_regions for reuse
+                        let _ = self.empty_regions.push(region);
+                    }
+                }
+
+                // Clean up available_regions list - remove recycled regions
+                pool_data
+                    .available_regions
+                    .retain(|start_page| !regions_to_remove.contains(start_page));
+
+                pool_data.regions_by_addr.len()
+            }; // WRITE lock released here!
+
             let recycled = old_len - new_len;
 
             if recycled > 0 {
                 log::info!(
-                    "RegionAllocator: [GC] recycled {} regions from sheap_id={:X}",
+                    "RegionAllocator: [GC SHARD#{}] recycled {} regions from sheap_id={:X}",
+                    shard_index,
                     recycled,
                     sheap_id
                 );
@@ -662,11 +724,13 @@ impl RegionAllocator {
             }
         }
 
-        // Step 2b. Clean up exhausted regions from available list (need write lock)
+        // Step 2b. Clean up exhausted regions periodically (lightweight)
+        // Only clean if we failed to allocate - don't block with expensive scans
         {
             let mut pool_data = pool.write();
-
             pool_data.clean_exhausted_regions();
+            // Don't scan ALL regions here - too expensive under write lock!
+            // Just let GC handle cleanup, and Step 3 will allocate new region if needed
         }
 
         // Step 3. Allocate new region as last resort
@@ -718,7 +782,7 @@ impl RegionAllocator {
     /// Attempt to free memory
     ///
     /// Tries to do LIFO free, otherwise NOOP.
-    /// Searches regions to find the owner (simple and safe).
+    /// Uses BTreeMap range query for O(log n) region lookup.
     #[inline(always)]
     pub fn free(&self, sheap_ptr: *mut c_void, ptr: *mut c_void) -> bool {
         let sheap_id = sheap_ptr as usize;
@@ -726,11 +790,19 @@ impl RegionAllocator {
         let shard = &self.shards[shard_idx];
 
         if let Some(pool) = shard.get(&sheap_id) {
-            // Search for the region owning this pointer
             let pool_data = pool.read();
+            let page = (ptr as usize) >> PAGE_SHIFT;
 
-            if let Some(region) = pool_data.regions_by_addr.get(&(ptr as usize)) {
-                return region.try_free(ptr);
+            // Use BTreeMap range query to find the region containing this pointer
+            // Find the largest start_page that is <= our page
+            // This is O(log n) binary search!
+            if let Some((&_start_page, region)) =
+                pool_data.regions_by_addr.range(..=page).next_back()
+            {
+                // Verify the pointer is actually in this region's range
+                if region.is_our_ptr(ptr) {
+                    return region.try_free(ptr);
+                }
             }
         }
 
