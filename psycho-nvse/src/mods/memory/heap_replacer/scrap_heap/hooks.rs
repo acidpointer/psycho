@@ -93,7 +93,7 @@ pub unsafe extern "fastcall" fn sheap_free(
     ptr: *mut c_void,
 ) {
     //sheap::sheap_free(sheap_ptr, ptr)
-    RA.free(sheap_ptr, ptr);
+    //RA.free(sheap_ptr, ptr);
 }
 
 /// Sheap purge hook (0x00AA5460 FNV, 0x0086CAA0 GECK).
