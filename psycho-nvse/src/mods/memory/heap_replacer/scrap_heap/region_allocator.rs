@@ -368,12 +368,17 @@ impl AllocatorStats {
 
 /// Thread-local cache for fast repeated allocations
 ///
-/// Simple single-entry cache - most game threads use only one heap repeatedly.
-/// Generation counter ensures cache is invalidated on purge events.
+/// Two-level cache:
+/// 1. Direct region cache - ultra-fast path, skips all locks
+/// 2. Pool cache - fast path, skips HashMap lookup
+///    Generation counter ensures cache is invalidated on purge events.
 struct TlsCache {
     sheap_id: usize,
     pool: Option<RegionPool>,
     generation: u64,
+    /// Direct Arc reference to last successfully used region
+    /// ULTRA-FAST PATH: Skip pool lookup + read lock + Vec iteration
+    last_region: Option<Arc<Region>>,
 }
 
 impl TlsCache {
@@ -382,6 +387,7 @@ impl TlsCache {
             sheap_id: 0,
             pool: None,
             generation: 0,
+            last_region: None,
         }
     }
 
@@ -401,12 +407,29 @@ impl TlsCache {
         }
     }
 
+    /// Check if cache contains last_region and return it
+    #[inline(always)]
+    fn get_last_region(&self, sheap_id: usize, global_generation: u64) -> Option<Arc<Region>> {
+        // Fast validation: generation + sheap_id match
+        if self.generation == global_generation && self.sheap_id == sheap_id {
+            self.last_region.clone()
+        } else {
+            None
+        }
+    }
+
     /// Update cache entry
     #[inline(always)]
     fn set(&mut self, sheap_id: usize, pool: RegionPool, generation: u64) {
         self.sheap_id = sheap_id;
         self.pool = Some(pool);
         self.generation = generation;
+    }
+
+    /// Update last_region cache
+    #[inline(always)]
+    fn set_last_region(&mut self, region: Arc<Region>) {
+        self.last_region = Some(region);
     }
 
     /// Invalidate cache entry
@@ -536,6 +559,8 @@ impl RegionAllocator {
     ///
     /// This is the HOT PATH optimization - we cache the Arc<RwLock<Vec<Region>>>
     /// to completely skip HashMap lookups on repeated allocations!
+    ///
+    /// If pool is purged, generation increments and TLS cache fails on generation mismatch
     #[inline(always)]
     fn get_or_create_pool(&self, sheap_id: usize) -> RegionPool {
         let generation = self.generation.load(Ordering::Acquire);
@@ -543,14 +568,10 @@ impl RegionAllocator {
         let shard = &self.shards[shard_idx];
 
         // Try TLS cache first (HOT PATH)
+        // Trust generation counter - no need for expensive contains_key() validation
         if let Some(cached_pool) = TLS_CACHE.with(|cache| cache.borrow().get(sheap_id, generation))
         {
-            // Verify cached pool is still valid in HashMap
-            // If purged, HashMap won't have it - cached Arc is stale!
-            if shard.contains_key(&sheap_id) {
-                return cached_pool;
-            }
-            // Cache hit but pool was purged - fall through to HashMap lookup
+            return cached_pool;
         }
 
         // Cache miss or stale - look up in HashMap (COLD PATH)
@@ -642,11 +663,14 @@ impl RegionAllocator {
             let new_len = {
                 let mut pool_data = pool.write();
 
+                // Collect all pages to remove first (optimization: single pass)
+                let mut pages_to_remove = Vec::with_capacity(regions_to_remove.len() * 64);
+
                 for address in &regions_to_remove {
                     if let Some(region_arc) = pool_data.regions_by_addr.remove(address) {
-                        // Clean up page_to_region HashMap entries for this region
+                        // Collect pages for batch removal
                         for page in region_arc.start_page..=region_arc.end_page {
-                            pool_data.page_to_region.remove(&page);
+                            pages_to_remove.push(page);
                         }
 
                         // Reset region state back to young generation
@@ -661,6 +685,11 @@ impl RegionAllocator {
                             let _ = self.empty_regions.push(region);
                         }
                     }
+                }
+
+                // Batch remove pages from page_to_region HashMap
+                for page in pages_to_remove {
+                    pool_data.page_to_region.remove(&page);
                 }
 
                 // Clean up available_regions list - remove recycled regions
@@ -704,6 +733,20 @@ impl RegionAllocator {
 
         // Relaxed ordering: tick only needs eventual consistency (performance optimization)
         let tick = self.tick.load(Ordering::Relaxed);
+        let generation = self.generation.load(Ordering::Relaxed);
+
+        // Try TLS-cached last region directly
+        // This skips: pool lookup, read lock, Vec iteration - just direct bump allocation!
+        if let Some(region) = TLS_CACHE.with(|cache| {
+            let c = cache.borrow();
+            c.get_last_region(sheap_id, generation)
+        }) {
+            if let Some(ptr) = region.allocate(size, align) {
+                region.last_access.store(tick, Ordering::Relaxed);
+                return ptr.as_ptr();
+            }
+            // Region exhausted - fall through to normal path
+        }
 
         // Get cached region pool (skips HashMap lookup on cache hit!)
         let pool = self.get_or_create_pool(sheap_id);
@@ -724,11 +767,18 @@ impl RegionAllocator {
                 pool_data.regions_by_addr.insert(start_page, region_arc.clone());
 
                 // Populate page_to_region HashMap for O(1) free() lookups
+                // Eager population is critical to avoid write lock contention in free()
                 for page in region_arc.start_page..=region_arc.end_page {
                     pool_data.page_to_region.insert(page, region_arc.clone());
                 }
 
-                pool_data.available_regions.push(region_arc);
+                pool_data.available_regions.push(region_arc.clone());
+                drop(pool_data); // Release write lock early
+
+                // Cache this region in TLS for next allocation (OPTIMIZATION #3)
+                TLS_CACHE.with(|cache| {
+                    cache.borrow_mut().set_last_region(region_arc);
+                });
 
                 return ptr.as_ptr();
             }
@@ -755,6 +805,14 @@ impl RegionAllocator {
                 if let Some(ptr) = region.allocate(size, align) {
                     // Relaxed ordering: tick precision doesn't need Release barrier
                     region.last_access.store(tick, Ordering::Relaxed);
+
+                    // Cache this region in TLS for next allocation (OPTIMIZATION #3)
+                    let region_clone = region.clone();
+                    drop(pool_data); // Release read lock early
+                    TLS_CACHE.with(|cache| {
+                        cache.borrow_mut().set_last_region(region_clone);
+                    });
+
                     return ptr.as_ptr();
                 }
                 // Region is now full - GC will clean it up, no write lock needed!
@@ -776,11 +834,18 @@ impl RegionAllocator {
             pool_data.regions_by_addr.insert(start_page, region_arc.clone());
 
             // Populate page_to_region HashMap for O(1) free() lookups
+            // Eager population is critical to avoid write lock contention in free()
             for page in region_arc.start_page..=region_arc.end_page {
                 pool_data.page_to_region.insert(page, region_arc.clone());
             }
 
-            pool_data.available_regions.push(region_arc);
+            pool_data.available_regions.push(region_arc.clone());
+            drop(pool_data); // Release write lock early
+
+            // Cache this region in TLS for next allocation (OPTIMIZATION #3)
+            TLS_CACHE.with(|cache| {
+                cache.borrow_mut().set_last_region(region_arc);
+            });
 
             return ptr.as_ptr();
         }
@@ -819,6 +884,8 @@ impl RegionAllocator {
     ///
     /// Tries to do LIFO free, otherwise NOOP.
     /// Uses page_to_region HashMap for O(1) region lookup.
+    ///
+    /// LOCK-FREE: Only uses read lock for fast concurrent free operations.
     #[inline(always)]
     pub fn free(&self, sheap_ptr: *mut c_void, ptr: *mut c_void) -> bool {
         let sheap_id = sheap_ptr as usize;
