@@ -3,6 +3,7 @@
 //! It aims to be high performance and it have deffered purge and automatic memory
 //! clean-up through detection of IDLE regions and dropping them.
 
+use ahash::AHashMap;
 use clashmap::ClashMap;
 use crossfire::flavor::{self, Queue};
 use libc::c_void;
@@ -84,19 +85,26 @@ static MI_HEAP: LazyLock<MiHeap> = LazyLock::new(MiHeap::new);
 /// Fast Send + Sync non-blocking hashmap with ahash hasher
 type HashMapSync<K, V> = ClashMap<K, V, ahash::RandomState>;
 
-/// BTree-based region pool for O(log n) lookups
+/// Hybrid region pool for optimal allocation and freeing performance
 ///
 /// This design achieves:
-/// - O(log n) free() via BTreeMap range query to find region owner
+/// - O(1) free() via page_to_region HashMap for direct page-to-region lookup
 /// - O(1) alloc_align() via available_regions Vec with direct Arc<Region> references
+/// - O(log n) GC cleanup via BTreeMap for efficient region removal
 struct PoolData {
     /// ALL regions sorted by start_page address
     /// Key: start_page (region start address >> PAGE_SHIFT)
-    /// Used for O(log n) lookup during free()
+    /// Used for O(log n) GC region cleanup
     regions_by_addr: BTreeMap<usize, Arc<Region>>,
 
+    /// Direct page-to-region mapping for O(1) free() lookups
+    /// Key: page number (address >> PAGE_SHIFT)
+    /// Value: Arc<Region> that owns this page
+    /// Memory overhead: ~512 bytes per 256KB region (64 pages × 8 bytes)
+    page_to_region: AHashMap<usize, Arc<Region>>,
+
     /// Direct Arc references to regions with available space
-    /// PERFORMANCE: Stores Arc<Region> directly to avoid BTreeMap lookup!
+    /// PERFORMANCE: Stores Arc<Region> directly to avoid HashMap lookup!
     /// LIFO order: newest regions at the end (most likely to have space)
     available_regions: Vec<Arc<Region>>,
 }
@@ -105,6 +113,7 @@ impl PoolData {
     fn new() -> Self {
         Self {
             regions_by_addr: BTreeMap::new(),
+            page_to_region: AHashMap::new(),
             available_regions: Vec::new(),
         }
     }
@@ -635,6 +644,11 @@ impl RegionAllocator {
 
                 for address in &regions_to_remove {
                     if let Some(region_arc) = pool_data.regions_by_addr.remove(address) {
+                        // Clean up page_to_region HashMap entries for this region
+                        for page in region_arc.start_page..=region_arc.end_page {
+                            pool_data.page_to_region.remove(&page);
+                        }
+
                         // Reset region state back to young generation
                         region_arc.offset.store(0, Ordering::Release);
                         region_arc.sheap_id.store(0, Ordering::Release);
@@ -653,6 +667,9 @@ impl RegionAllocator {
                 pool_data.available_regions.retain(|region| {
                     !regions_to_remove.contains(&region.start_page)
                 });
+
+                // Clean up exhausted regions from available_regions list
+                pool_data.clean_exhausted_regions();
 
                 pool_data.regions_by_addr.len()
             }; // WRITE lock released here!
@@ -705,6 +722,12 @@ impl RegionAllocator {
                 // Add to pool - use write lock
                 let mut pool_data = pool.write();
                 pool_data.regions_by_addr.insert(start_page, region_arc.clone());
+
+                // Populate page_to_region HashMap for O(1) free() lookups
+                for page in region_arc.start_page..=region_arc.end_page {
+                    pool_data.page_to_region.insert(page, region_arc.clone());
+                }
+
                 pool_data.available_regions.push(region_arc);
 
                 return ptr.as_ptr();
@@ -751,6 +774,12 @@ impl RegionAllocator {
             // Add to pool
             let mut pool_data = pool.write();
             pool_data.regions_by_addr.insert(start_page, region_arc.clone());
+
+            // Populate page_to_region HashMap for O(1) free() lookups
+            for page in region_arc.start_page..=region_arc.end_page {
+                pool_data.page_to_region.insert(page, region_arc.clone());
+            }
+
             pool_data.available_regions.push(region_arc);
 
             return ptr.as_ptr();
@@ -789,7 +818,7 @@ impl RegionAllocator {
     /// Attempt to free memory
     ///
     /// Tries to do LIFO free, otherwise NOOP.
-    /// Uses BTreeMap range query for O(log n) region lookup.
+    /// Uses page_to_region HashMap for O(1) region lookup.
     #[inline(always)]
     pub fn free(&self, sheap_ptr: *mut c_void, ptr: *mut c_void) -> bool {
         let sheap_id = sheap_ptr as usize;
@@ -800,16 +829,10 @@ impl RegionAllocator {
             let pool_data = pool.read();
             let page = (ptr as usize) >> PAGE_SHIFT;
 
-            // Use BTreeMap range query to find the region containing this pointer
-            // Find the largest start_page that is <= our page
-            // This is O(log n) binary search!
-            if let Some((&_start_page, region)) =
-                pool_data.regions_by_addr.range(..=page).next_back()
-            {
-                // Verify the pointer is actually in this region's range
-                if region.is_our_ptr(ptr) {
-                    return region.try_free(ptr);
-                }
+            // O(1) HashMap lookup to find the region containing this pointer
+            if let Some(region) = pool_data.page_to_region.get(&page) {
+                // Direct lookup - no need for redundant is_our_ptr() check
+                return region.try_free(ptr);
             }
         }
 

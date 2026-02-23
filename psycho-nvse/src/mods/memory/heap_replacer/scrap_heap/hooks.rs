@@ -1,8 +1,6 @@
 //! Scrap heap hooks.
 
-use crate::mods::memory::scrap_heap::region_allocator::RegionAllocator;
-
-use super::region_allocator;
+use super::region_allocator::RegionAllocator;
 use libc::c_void;
 use std::cell::UnsafeCell;
 use std::ptr::null_mut;
@@ -46,7 +44,6 @@ pub unsafe extern "fastcall" fn sheap_init_fix(heap: *mut c_void, _edx: *mut c_v
     sheap_mut.cur = null_mut();
     sheap_mut.last = null_mut();
 
-    //sheap::sheap_purge(heap);
     RA.purge(heap);
 }
 
@@ -70,7 +67,6 @@ pub unsafe extern "fastcall" fn sheap_init_var(
     sheap_mut.cur = null_mut();
     sheap_mut.last = null_mut();
 
-    //sheap::sheap_purge(heap);
     RA.purge(heap);
 }
 
@@ -82,7 +78,6 @@ pub unsafe extern "fastcall" fn sheap_alloc(
     size: usize,
     align: usize,
 ) -> *mut c_void {
-    //sheap::sheap_alloc_align(sheap_ptr, size, align)
     RA.alloc_align(sheap_ptr, size, align)
 }
 
@@ -92,12 +87,10 @@ pub unsafe extern "fastcall" fn sheap_free(
     _edx: *mut c_void,
     ptr: *mut c_void,
 ) {
-    //sheap::sheap_free(sheap_ptr, ptr)
-    //RA.free(sheap_ptr, ptr);
+    RA.free(sheap_ptr, ptr);
 }
 
 /// Sheap purge hook (0x00AA5460 FNV, 0x0086CAA0 GECK).
 pub unsafe extern "fastcall" fn sheap_purge(sheap_ptr: *mut c_void, _edx: *mut c_void) {
-    //sheap::sheap_purge(sheap_ptr);
     RA.purge(sheap_ptr);
 }
