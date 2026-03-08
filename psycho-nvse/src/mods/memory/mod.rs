@@ -1,9 +1,7 @@
 mod crt_iat;
-mod crt_inline;
 
 mod heap_replacer;
 pub use crt_iat::*;
-pub use crt_inline::*;
 pub use heap_replacer::*;
 use libmimalloc::{mi_collect, mi_option_set, mi_option_set_enabled};
 use parking_lot::Once;

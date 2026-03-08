@@ -13,3 +13,4 @@ pub type SheapAllocFn = unsafe extern "fastcall" fn(*mut c_void, *mut c_void, us
 pub type SheapFreeFn = unsafe extern "fastcall" fn(*mut c_void, *mut c_void, *mut c_void);
 pub type SheapPurgeFn = unsafe extern "fastcall" fn(*mut c_void, *mut c_void);
 pub type SheapGetThreadLocalFn = unsafe extern "C" fn() -> *mut c_void;
+pub type SheapMaintenanceFn = unsafe extern "C" fn(*mut c_void);

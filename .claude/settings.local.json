@@ -1,0 +1,18 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(find:*)",
+      "Bash(cargo clean:*)",
+      "Bash(rustc --version:*)",
+      "Bash(rustup show:*)",
+      "Bash(rustup target add:*)",
+      "Bash(cd /data/storage0/Workspace/psycho && cargo build:*)",
+      "Bash(ls:*)",
+      "Bash(cargo build:*)",
+      "Bash(curl:*)",
+      "Bash(cargo tree:*)"
+    ],
+    "deny": [],
+    "ask": []
+  }
+}

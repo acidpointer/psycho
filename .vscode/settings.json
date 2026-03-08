@@ -5,7 +5,6 @@
     "rust-analyzer.procMacro.attributes.enable": true,
     "rust-analyzer.diagnostics.experimental.enable": true,
     "rust-analyzer.cargo.target": "i686-pc-windows-gnu",
-
     "files.watcherExclude": {
         "**/.git/objects/**": true,
         "**/.git/subtree-cache/**": true,
@@ -13,5 +12,10 @@
         "**/logs/**": true,
         "**/.hg/store/**": true,
         "**/.wine_psycho/**": true,
-    }
+    },
+    "files.readonlyInclude": {
+        "**/.cargo/registry/src/**/*.rs": true,
+        "**/.cargo/git/checkouts/**/*.rs": true,
+        "**/lib/rustlib/src/rust/library/**/*.rs": true,
+    },
 }

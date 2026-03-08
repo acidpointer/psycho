@@ -709,6 +709,7 @@ dependencies = [
  "libz-rs-sys",
  "log",
  "parking_lot",
+ "rustc-hash",
  "scc",
  "windows",
 ]

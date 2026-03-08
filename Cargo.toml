@@ -12,9 +12,11 @@ members = [
 
 [workspace.dependencies]
 ahash = "0.8.12"
+rustc-hash = { version = "2.1", default-features = false }
 anyhow = { version = "1.0" }
 clashmap = { version = "1.2.1", features = ["inline"] }
 closure-ffi = { version = "5.0.1" }
+criterion = "0.5"
 crossbeam-queue = "0.3"
 fern = "0.7.1"
 libc = { version = "0.2.178", features = ["extra_traits"] }
