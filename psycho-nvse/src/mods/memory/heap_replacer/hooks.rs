@@ -104,7 +104,7 @@ pub(super) unsafe extern "C" fn hook_msize(raw_ptr: *mut c_void) -> usize {
             let orig_size = unsafe { orig_msize(raw_ptr) };
 
             if orig_size == usize::MAX {
-                log::warn!("hook_msize: pointer is unknown {:p}!", raw_ptr);
+                log::warn!("hook_msize: pointer={:p} is unknown (orig_size==usize::MAX)!", raw_ptr);
                 return 0;
             }
             orig_size
@@ -138,11 +138,61 @@ pub(super) unsafe extern "C" fn hook_free(raw_ptr: *mut c_void) {
     }
 }
 
+pub(super) unsafe extern "thiscall" fn hook_gheap_alloc(_this: *mut c_void, size: usize) -> *mut c_void {
+    unsafe { mi_malloc(size) }
+}
+
+pub(super) unsafe extern "thiscall" fn hook_gheap_free(this: *mut c_void, ptr: *mut c_void) {
+    let is_mimalloc = unsafe { mi_is_in_heap_region(ptr) };
+
+    if is_mimalloc {
+        return unsafe { mi_free(ptr) };
+    }
+
+    match super::replacer::GHEAP_FREE_HOOK.original() {
+        Ok(orig_free) => {
+            unsafe { orig_free(this, ptr) };
+        }
+
+        Err(err) => {
+            log::error!(
+                "Failed to call original gheap_free for pointer={:p}; Error: {:?}",
+                ptr,
+                err
+            );
+        }
+    }
+}
+
+pub(super) unsafe extern "thiscall" fn hook_gheap_msize(this: *mut c_void, ptr: *mut c_void) -> usize {
+    let is_mimalloc = unsafe { mi_is_in_heap_region(ptr) };
+
+    if is_mimalloc {
+        return unsafe { mi_usable_size(ptr) };
+    }
+
+    match super::replacer::GHEAP_MSIZE_HOOK.original() {
+        Ok(orig_msize) => {
+            let orig_size = unsafe { orig_msize(this, ptr) };
+
+            if orig_size == usize::MAX {
+                log::warn!("hook_gheap_msize: pointer is unknown {:p}!", ptr);
+                return 0;
+            }
+            orig_size
+        }
+        Err(err) => {
+            log::error!("Failed to call original gheap_msize: {:?}", err);
+            0
+        }
+    }
+}
+
 /// Game's scrap heap structure.
 /// Must match the game's struct layout exactly.
 #[repr(C)]
 struct SheapStruct {
-    blocks: *mut *mut c_void, // 0x00
+    blocks: *mut *mut c_void,  // 0x00
     cur: *mut c_void,          // 0x04
     last: *mut c_void,         // 0x08
 }
@@ -218,7 +268,7 @@ pub unsafe extern "fastcall" fn sheap_purge(sheap_ptr: *mut c_void, _edx: *mut c
 }
 
 pub unsafe extern "C" fn sheap_maintenance(sheap_ptr: *mut c_void) {
-    log::debug!("MAINTENANCE CALLED YAAAAY!");
+    log::warn!("sheap_maintenance: maintenance function called! IDK why and how, but i'll purge sheap (sheap_ptr={:p})", sheap_ptr);
 
     // Redirect the engine's internal maintenance to our safe purge
     RegionAllocator::purge(sheap_ptr);

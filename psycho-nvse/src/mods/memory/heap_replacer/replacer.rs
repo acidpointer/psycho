@@ -1,4 +1,19 @@
+//! Heap replacer `mr. Blyat` edition.
+//! 
+//! # HELL YEAH
+//! 
+//! Here we fuck the Gamebryo with many interesting ways!
+//! * `CRT` hooks   - we basically replace all Visual Studio 2008 allocator with mimalloc
+//! * `GHeap` hooks - we fuck GHeap and replace alloc/free/msize with mimalloc!
+//! * `SHeap` hooks - we implement our own region based bump allocator with garbage collector and replace engine shit
+//! 
+//! # BIG THANKS
+//! I need to say big "THANK YOU" to `mr. Blyat` (Google Gemini 3) for pointing me to some correct approaches.
+//! Also i used claude code for code review, but who cares...
+
+
 use std::sync::LazyLock;
+use libc::c_void;
 
 use libpsycho::os::windows::winapi::{patch_bytes, patch_nop_call};
 use libpsycho::os::windows::winapi::{patch_memory_nop, patch_ret};
@@ -10,7 +25,6 @@ use libpsycho::os::windows::{
 use super::hooks::*;
 use super::types::*;
 use crate::mods::memory::configure_mimalloc;
-use libc::c_void;
 
 // CRT allocator
 const CRT_MALLOC_ADDR_1: usize = 0x00ECD1C7;
@@ -38,7 +52,15 @@ const SHEAP_PURGE_ADDR: usize = 0x00AA5460;
 const SHEAP_GET_THREAD_LOCAL_ADDR: usize = 0x00AA42E0;
 const SHEAP_MAINTENANCE_ADDR: usize = 0x00AA7260;
 
+// RNG
 const RNG_ADDRESS: usize = 0x00AA5230;
+
+/// Game heap function addresses (Fallout New Vegas)
+const GHEAP_ALLOC_ADDR: usize = 0x00AA3E40;
+//const GHEAP_REALLOC_ADDR_1: usize = 0x00AA4150;
+//const GHEAP_REALLOC_ADDR_2: usize = 0x00AA4200;
+const GHEAP_MSIZE_ADDR: usize = 0x00AA44C0;
+const GHEAP_FREE_ADDR: usize = 0x00AA4060;
 
 pub static CRT_INLINE_MALLOC_HOOK_1: LazyLock<InlineHookContainer<MallocFn>> =
     LazyLock::new(InlineHookContainer::new);
@@ -65,6 +87,18 @@ pub static CRT_INLINE_MSIZE_HOOK: LazyLock<InlineHookContainer<MsizeFn>> =
 pub static CRT_INLINE_FREE_HOOK: LazyLock<InlineHookContainer<FreeFn>> =
     LazyLock::new(InlineHookContainer::new);
 
+
+// Gheap
+// Mister "Blyat" forced me to hook GHEAP also. Honestly, i wont.
+pub static GHEAP_MSIZE_HOOK: LazyLock<InlineHookContainer<GameHeapMsizeFn>> =
+    LazyLock::new(InlineHookContainer::new);
+
+pub static GHEAP_ALLOC_HOOK: LazyLock<InlineHookContainer<GameHeapAllocateFn>> =
+    LazyLock::new(InlineHookContainer::new);
+
+pub static GHEAP_FREE_HOOK: LazyLock<InlineHookContainer<GameHeapFreeFn>> =
+    LazyLock::new(InlineHookContainer::new);
+
 /// Scrap heap hooks
 pub static SHEAP_INIT_FIX_HOOK: LazyLock<InlineHookContainer<SheapInitFixFn>> =
     LazyLock::new(InlineHookContainer::new);
@@ -81,17 +115,28 @@ pub static SHEAP_GET_THREAD_LOCAL_HOOK: LazyLock<InlineHookContainer<SheapGetThr
 pub static SHEAP_MAINTENANCE_HOOK: LazyLock<InlineHookContainer<SheapMaintenanceFn>> =
     LazyLock::new(InlineHookContainer::new);
 
-pub static RNG_HOOK: LazyLock<InlineHookContainer<RngFn>> =
-    LazyLock::new(InlineHookContainer::new);
+pub static RNG_HOOK: LazyLock<InlineHookContainer<RngFn>> = LazyLock::new(InlineHookContainer::new);
 
 /// Installs all heap and scrap heap replacement hooks.
 ///
 /// Replaces the game's allocators with MiMalloc (game heap) and bump allocators (scrap heap).
 /// Also applies memory patches to disable original heap initialization and cleanup code.
 pub fn install_game_heap_hooks() -> anyhow::Result<()> {
+    log::info!("------------------------------------------");
+    log::info!(" Heap replaced mod 'mr. Blyat' edition is initializing...");
+    log::info!("------------------------------------------");
+
     configure_mimalloc();
 
     unsafe {
+        // 1. Force GHeap::Allocate to always take the fallback path (0x00AA4290)
+        // This byte sequence replaces the initial check with a JMP to the fallback call.
+        //patch_bytes(GHEAP_ALLOC_ADDR as *mut c_void, &[0xEB, 0x03])?;
+
+        // 2. Force GHeap::Free to always take the fallback path (0x00AA42C0)
+        // Similarly, skip the pool checks and jump to the system free call.
+        //patch_bytes(GHEAP_FREE_ADDR as *mut c_void, &[0xEB, 0x03])?;
+
         // That address is the Statistics and Global State Reset function for the Small Block Manager (SBM).
         patch_ret(0x00AA6840 as *mut c_void)?;
 
@@ -159,6 +204,24 @@ pub fn install_game_heap_hooks() -> anyhow::Result<()> {
 
     CRT_INLINE_REALLOC_HOOK_1.init("realloc1", CRT_REALLOC_ADDR_1 as *mut c_void, hook_realloc)?;
     CRT_INLINE_REALLOC_HOOK_2.init("realloc2", CRT_REALLOC_ADDR_2 as *mut c_void, hook_realloc)?;
+
+    GHEAP_ALLOC_HOOK.init("gheap_alloc", GHEAP_ALLOC_ADDR as *mut c_void, hook_gheap_alloc)?;
+    GHEAP_FREE_HOOK.init("gheap_alloc", GHEAP_FREE_ADDR as *mut c_void, hook_gheap_free)?;
+    GHEAP_MSIZE_HOOK.init("gheap_msize", GHEAP_MSIZE_ADDR as *mut c_void, hook_gheap_msize)?;
+
+
+    GHEAP_ALLOC_HOOK.enable()?;
+
+    log::info!("[INLINE] GHeap::alloc hook enabled!");
+
+
+    GHEAP_FREE_HOOK.enable()?;
+
+    log::info!("[INLINE] GHeap::free hook enabled!");
+
+    GHEAP_MSIZE_HOOK.enable()?;
+
+    log::info!("[INLINE] GHeap::msize hook enabled!");
 
     CRT_INLINE_RECALLOC_HOOK_1.init(
         "recalloc1",
@@ -298,11 +361,11 @@ pub fn install_game_heap_hooks() -> anyhow::Result<()> {
         //patch_bytes(0x0086EED4 as *mut c_void, &[0xEB, 0x55])?;
 
         // Disables the frame-based ScrapHeap maintenance trigger in the Main Loop.
-        // 
+        //
         // This patch NOPs the call to the periodic maintenance routine (FUN_00aa7290).
-        // By silencing this, we prevent the engine from attempting to perform 
-        // background pointer re-linking (Merge Sort) and reference counter updates 
-        // on our custom-managed memory, ensuring our Rust allocator remains the 
+        // By silencing this, we prevent the engine from attempting to perform
+        // background pointer re-linking (Merge Sort) and reference counter updates
+        // on our custom-managed memory, ensuring our Rust allocator remains the
         // sole owner of the heap state and improving frame-time consistency.
         patch_memory_nop(0x0086EF0E as *mut c_void, 5)?;
     }
