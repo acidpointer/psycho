@@ -1,14 +1,48 @@
 //! Scrap heap hooks.
 
 use libc::c_void;
-use std::cell::UnsafeCell;
+use std::cell::{RefCell, UnsafeCell};
 use std::ptr::null_mut;
 use libmimalloc::{
     mi_calloc, mi_free, mi_is_in_heap_region, mi_malloc, mi_realloc, mi_recalloc, mi_usable_size,
 };
 
+use rand::{Rng, RngExt};
+use rand::rngs::SmallRng;
+
 
 use super::small_blocks_allocator::region_allocator::RegionAllocator;
+
+
+thread_local! {
+    // We use a thread-local RNG so we don't need a Mutex/Lock
+    static RNG: RefCell<SmallRng> = RefCell::new(rand::make_rng());
+}
+
+// Why this is here? Because, i wont to mess with new structure for rng mod.
+// Did you know that Fallout: New Vegas uses 20+ years old RNG generation algorithm?
+// And did you know that rng call is... HOT. Very hot.
+// So, what we do here is use actually fast and modern SmallRng.
+// It is extremely fast and has a tiny state compared to the 2.5KB state array of the engine's Mersenne Twister.
+pub(super) unsafe extern "thiscall" fn hook_rng(_this: *mut c_void, param_1: u32) -> u32 {
+    if param_1 == 0 {
+        return 0;
+    }
+
+    RNG.with(|rng_cell| {
+        let mut rng = rng_cell.borrow_mut();
+        
+        // Match the engine's original logic for specific bitmasks
+        if param_1 == 0xFFFFFFFF {
+            rng.next_u32()
+        } else if param_1 == 0x7FFF {
+            rng.next_u32() & 0x7FFF
+        } else {
+            // gen_range is significantly optimized compared to a simple modulo
+            rng.random_range(0..param_1)
+        }
+    })
+}
 
 
 pub(super) unsafe extern "C" fn hook_malloc(size: usize) -> *mut c_void {

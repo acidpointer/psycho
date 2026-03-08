@@ -25,6 +25,7 @@ orx-concurrent-vec = { version = "3.10.0", features = ["default"] }
 parking_lot = "0.12.5"
 scc = { version = "3.5.6" }
 thiserror = "2.0.17"
+rand = { version = "0.10" }
 windows = { version = "=0.60", features = [
   "Data_Xml_Dom",
   "UI_WindowManagement",

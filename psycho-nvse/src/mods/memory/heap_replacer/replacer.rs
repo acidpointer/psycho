@@ -38,6 +38,8 @@ const SHEAP_PURGE_ADDR: usize = 0x00AA5460;
 const SHEAP_GET_THREAD_LOCAL_ADDR: usize = 0x00AA42E0;
 const SHEAP_MAINTENANCE_ADDR: usize = 0x00AA7260;
 
+const RNG_ADDRESS: usize = 0x00AA5230;
+
 pub static CRT_INLINE_MALLOC_HOOK_1: LazyLock<InlineHookContainer<MallocFn>> =
     LazyLock::new(InlineHookContainer::new);
 pub static CRT_INLINE_MALLOC_HOOK_2: LazyLock<InlineHookContainer<MallocFn>> =
@@ -77,6 +79,9 @@ pub static SHEAP_PURGE_HOOK: LazyLock<InlineHookContainer<SheapPurgeFn>> =
 pub static SHEAP_GET_THREAD_LOCAL_HOOK: LazyLock<InlineHookContainer<SheapGetThreadLocalFn>> =
     LazyLock::new(InlineHookContainer::new);
 pub static SHEAP_MAINTENANCE_HOOK: LazyLock<InlineHookContainer<SheapMaintenanceFn>> =
+    LazyLock::new(InlineHookContainer::new);
+
+pub static RNG_HOOK: LazyLock<InlineHookContainer<RngFn>> =
     LazyLock::new(InlineHookContainer::new);
 
 /// Installs all heap and scrap heap replacement hooks.
@@ -144,6 +149,8 @@ pub fn install_game_heap_hooks() -> anyhow::Result<()> {
     //     log::info!("[SBM] Divergence patch applied successfully at 0x00AA3EE0");
     // }
 
+    RNG_HOOK.init("rng", RNG_ADDRESS as *mut c_void, hook_rng)?;
+
     CRT_INLINE_MALLOC_HOOK_1.init("malloc1", CRT_MALLOC_ADDR_1 as *mut c_void, hook_malloc)?;
     CRT_INLINE_MALLOC_HOOK_2.init("malloc2", CRT_MALLOC_ADDR_2 as *mut c_void, hook_malloc)?;
 
@@ -167,6 +174,9 @@ pub fn install_game_heap_hooks() -> anyhow::Result<()> {
     CRT_INLINE_FREE_HOOK.init("free", CRT_FREE_ADDR as *mut c_void, hook_free)?;
 
     CRT_INLINE_MSIZE_HOOK.init("msize", CRT_MSIZE_ADDR as *mut c_void, hook_msize)?;
+
+    RNG_HOOK.enable()?;
+    log::info!("[INLINE] Hooked RNG");
 
     CRT_INLINE_MALLOC_HOOK_1.enable()?;
     log::info!("[INLINE] Hooked malloc_1");
