@@ -29,7 +29,7 @@ const HEAP_IDLE_THRESHOLD: u64 = 20;
 
 pub struct Heap {
     /// Regions pool
-    pool: RwLock<Vec<Region>>,
+    pool: RwLock<Vec<Arc<Region>>>,
 
     /// Arced allocator stats
     stats: Arc<AllocatorStats>,
@@ -42,11 +42,18 @@ pub struct Heap {
 
     /// Last access tick
     last_access: AtomicU64,
+
+    /// Generation
+    generation: usize,
+
+    /// Sheap id
+    sheap_id: usize,
 }
 
 impl Heap {
     pub fn new(
         sheap_id: usize,
+        generation: usize,
         mi_heap: Arc<MiHeap>,
         stats: Arc<AllocatorStats>,
         ticker: Arc<Ticker>,
@@ -58,12 +65,24 @@ impl Heap {
         let initial_tick = ticker.get_current_tick();
 
         Self {
+            generation,
+            sheap_id,
             pool: RwLock::new(Vec::new()),
             mi_heap,
             stats,
             last_access: AtomicU64::new(initial_tick),
             ticker,
         }
+    }
+
+    #[inline(always)]
+    pub fn get_sheap_id(&self) -> usize {
+        self.sheap_id
+    }
+
+    #[inline(always)]
+    pub fn get_generation(&self) -> usize {
+        self.generation
     }
 
     #[inline(always)]
@@ -114,7 +133,7 @@ impl Heap {
                 self.stats.clone(),
             ) && let Some(ptr) = region.allocate(size, align)
             {
-                pool_lock.push(region);
+                pool_lock.push(Arc::new(region));
                 return Some(ptr.as_ptr());
             }
         }
@@ -152,12 +171,11 @@ impl Heap {
     /// # Warning
     /// All allocations from this heap become invalid after this call.
     pub fn purge(&self) {
-        let pool_lock = self.pool.read();
+        let mut pool_lock = self.pool.write();
 
-        // Purge is purge! GC will drop heap later
-        for region in pool_lock.iter() {
-            region.purge();
-        }
+        pool_lock.clear();
+
+        self.update_last_access();
     }
 
     #[inline]

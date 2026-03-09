@@ -2,16 +2,16 @@
 //! This is very basic yet important building block for
 //! scrap heap allocator for Fallout: New Vegas.
 
+use libc::c_void;
+use libmimalloc::heap::MiHeap;
+use libpsycho::common::align_up;
 use std::{
     ptr::NonNull,
     sync::{
         Arc,
-        atomic::{AtomicU32, AtomicUsize, Ordering},
+        atomic::{AtomicBool, AtomicU32, AtomicUsize, Ordering},
     },
 };
-use libmimalloc::heap::MiHeap;
-use libpsycho::common::align_up;
-use libc::c_void;
 
 use super::stats::AllocatorStats;
 
@@ -36,6 +36,9 @@ pub struct Region {
 
     /// Arced statistics to track allocations
     stats: Arc<AllocatorStats>,
+
+    /// Flag which shows if region was purged
+    is_purged: AtomicBool,
 }
 
 // Safety: Safe, because all inner state is atomic
@@ -51,7 +54,12 @@ impl Region {
     ///
     /// # Returns
     /// `Some(Region)` if allocation succeeded, `None` otherwise
-    pub fn new(capacity: usize, align: usize, mi_heap: Arc<MiHeap>, stats: Arc<AllocatorStats>) -> Option<Self> {
+    pub fn new(
+        capacity: usize,
+        align: usize,
+        mi_heap: Arc<MiHeap>,
+        stats: Arc<AllocatorStats>,
+    ) -> Option<Self> {
         let ptr = mi_heap.malloc_aligned(capacity, align);
         let start = NonNull::new(ptr as *mut u8)?;
 
@@ -66,6 +74,7 @@ impl Region {
             start_page: start_ptr >> PAGE_SHIFT,
             end_page: (start_ptr + capacity) >> PAGE_SHIFT,
             stats,
+            is_purged: AtomicBool::new(false),
         })
     }
 
@@ -75,7 +84,7 @@ impl Region {
     /// * `size` - Size of allocation in bytes
     /// * `align` - Required alignment for allocation
     /// # Returns
-    /// `true` if allocation is possible 
+    /// `true` if allocation is possible
     #[inline]
     pub fn is_allocate_possible(&self, size: usize, align: usize) -> bool {
         let current_offset = self.offset.load(Ordering::Relaxed);
@@ -103,47 +112,77 @@ impl Region {
     /// `Some(NonNull<u8>)` if allocation succeeded, `None` if region is full
     #[inline]
     pub fn allocate(&self, size: usize, align: usize) -> Option<NonNull<c_void>> {
-        let start_addr = self.start.as_ptr() as usize;
-        // Relaxed: CAS loop provides synchronization, no need for Acquire barrier
-        let mut current_offset = self.offset.load(Ordering::Relaxed);
+        // We reserve the maximum possible space we might need:
+        // size + align + 4 (header)
+        let reservation = size + align + 4;
 
-        loop {
-            // 1. Calculate the earliest possible data address
-            // We must leave at least 4 bytes for the header.
-            let min_data_addr = start_addr + current_offset + 4;
+        // Single atomic operation. No loop. No contention retries.
+        let old_offset = self.offset.fetch_add(reservation, Ordering::Relaxed);
 
-            // 2. Align the data pointer to the requested alignment
-            let data_addr = align_up(min_data_addr, align);
-
-            // 3. The header is NOW guaranteed to be exactly 4 bytes before data
-            let header_addr = data_addr - 4;
-
-            let requested_end = (data_addr - start_addr) + size;
-
-            if requested_end > self.capacity {
-                return None;
-            }
-
-            // Relaxed CAS: faster, no memory barriers needed for bump allocator
-            // Offset synchronization is sufficient for correctness
-            match self.offset.compare_exchange_weak(
-                current_offset,
-                requested_end, // New offset is the end of the data
-                Ordering::Relaxed,
-                Ordering::Relaxed,
-            ) {
-                Ok(_) => {
-                    unsafe {
-                        let size_ptr = header_addr as *mut AtomicU32;
-                        // Relaxed: header write doesn't need Release barrier
-                        (*size_ptr).store(size as u32, Ordering::Relaxed);
-                    }
-                    return NonNull::new(data_addr as *mut c_void);
-                }
-                Err(next_val) => current_offset = next_val,
-            }
+        if old_offset + reservation > self.capacity {
+            // We over-allocated or the region is full.
+            // Note: This technically "wastes" the reservation if we fail,
+            // but for a 128KB region, it's better than stuttering.
+            return None;
         }
+
+        let start_addr = self.start.as_ptr() as usize;
+
+        // Now we calculate the actual pointer within our RESERVED block
+        let min_data_addr = start_addr + old_offset + 4;
+        let data_addr = align_up(min_data_addr, align);
+        let header_addr = data_addr - 4;
+
+        unsafe {
+            let size_ptr = header_addr as *mut AtomicU32;
+            (*size_ptr).store(size as u32, Ordering::Relaxed);
+        }
+
+        NonNull::new(data_addr as *mut c_void)
     }
+
+    // pub fn allocate(&self, size: usize, align: usize) -> Option<NonNull<c_void>> {
+    //     let start_addr = self.start.as_ptr() as usize;
+    //     // Relaxed: CAS loop provides synchronization, no need for Acquire barrier
+    //     let mut current_offset = self.offset.load(Ordering::Relaxed);
+
+    //     loop {
+    //         // 1. Calculate the earliest possible data address
+    //         // We must leave at least 4 bytes for the header.
+    //         let min_data_addr = start_addr + current_offset + 4;
+
+    //         // 2. Align the data pointer to the requested alignment
+    //         let data_addr = align_up(min_data_addr, align);
+
+    //         // 3. The header is NOW guaranteed to be exactly 4 bytes before data
+    //         let header_addr = data_addr - 4;
+
+    //         let requested_end = (data_addr - start_addr) + size;
+
+    //         if requested_end > self.capacity {
+    //             return None;
+    //         }
+
+    //         // Relaxed CAS: faster, no memory barriers needed for bump allocator
+    //         // Offset synchronization is sufficient for correctness
+    //         match self.offset.compare_exchange_weak(
+    //             current_offset,
+    //             requested_end, // New offset is the end of the data
+    //             Ordering::Relaxed,
+    //             Ordering::Relaxed,
+    //         ) {
+    //             Ok(_) => {
+    //                 unsafe {
+    //                     let size_ptr = header_addr as *mut AtomicU32;
+    //                     // Relaxed: header write doesn't need Release barrier
+    //                     (*size_ptr).store(size as u32, Ordering::Relaxed);
+    //                 }
+    //                 return NonNull::new(data_addr as *mut c_void);
+    //             }
+    //             Err(next_val) => current_offset = next_val,
+    //         }
+    //     }
+    // }
 
     /// Attempts to perform LIFO(Last Input First Output) free operation.
     ///
@@ -206,7 +245,7 @@ impl Region {
     /// Deallocates all memory, making all allocations invalid
     #[inline]
     pub fn purge(&self) {
-       self.offset.store(0, Ordering::Release); 
+        self.offset.store(0, Ordering::Release);
     }
 }
 

@@ -1,6 +1,7 @@
+use std::cell::Cell;
 use std::ptr::null_mut;
 use std::sync::Arc;
-use std::sync::atomic::AtomicBool;
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::thread::{self, JoinHandle};
 use std::time::Duration;
 
@@ -16,6 +17,12 @@ const GC_DURATION: Duration = Duration::from_secs(1);
 
 type HeapMap<K, V> = clashmap::ClashMap<K, V, rustc_hash::FxBuildHasher>;
 
+thread_local! {
+    /// Each thread keeps a safe, strong reference to the last Heap it used.
+    /// This ensures the Heap cannot be dropped while this thread is using it.
+    static LAST_HEAP: Cell<(usize, *const Heap)> = const { Cell::new((0, std::ptr::null())) };
+}
+
 /// Allocator runtime
 ///
 /// Basically, this struct controls all background activities
@@ -27,6 +34,9 @@ pub struct Runtime {
     /// Who will count your ticks? It's ticker!
     ticker: Arc<Ticker>,
 
+    /// Global generation counter
+    global_generation: AtomicUsize,
+
     /// Stats will record all necessary statistics
     /// # Note
     /// AllocatorStats shared deeply to region layer
@@ -37,7 +47,7 @@ pub struct Runtime {
 
     /// `ShardPool` is special storage for shards
     //shard_pool: Arc<ShardPool<usize, Heap>>,
-    pool: Arc<HeapMap<usize, Heap>>,
+    pool: Arc<HeapMap<usize, Arc<Heap>>>,
 
     /// Control flag for garbage collector
     gc_run: Arc<AtomicBool>,
@@ -55,10 +65,10 @@ impl Runtime {
         let gc_run = Arc::new(AtomicBool::new(true));
 
         let mut instance = Self {
+            global_generation: AtomicUsize::new(0),
             ticker: Arc::new(Ticker::new()),
             stats: Arc::new(AllocatorStats::new()),
             mi_heap: Arc::new(MiHeap::new()),
-            //shard_pool: Arc::new(ShardPool::new(SHARDS_AMOUNT)),
             pool: Arc::new(HeapMap::default()),
             gc_run: gc_run.clone(),
             gc_handle: None,
@@ -104,8 +114,9 @@ impl Runtime {
                     })
                     .collect();
                 for sheap_id in to_remove {
-                    if let Some((_, _heap)) = pool.remove(&sheap_id) {
-                        log::info!("[GC] [sheap_id={:X}] Heap dropped (idle)", sheap_id,);
+                    if let Some(heap_ref) = pool.get(&sheap_id) {
+                        heap_ref.purge();
+                        log::info!("[GC] [sheap_id={:X}] Heap purged (idle)", sheap_id,);
                     }
                 }
             }
@@ -114,8 +125,26 @@ impl Runtime {
         self.gc_handle = Some(gc_handle);
     }
 
+    #[inline]
     pub fn alloc(&self, sheap_ptr: *mut c_void, size: usize, align: usize) -> *mut c_void {
         let sheap_id = sheap_ptr as usize;
+
+        // Very fast path: thread-local cache
+        let (cached_gen, last_heap_ptr) = LAST_HEAP.with(|c| c.get());
+
+        if !last_heap_ptr.is_null() {
+            let heap_ref = unsafe { &* last_heap_ptr };
+
+            // Validation of generation is absolute required here
+            if heap_ref.get_sheap_id() == sheap_id && cached_gen == heap_ref.get_generation() {
+                if let Some(ptr) = heap_ref.try_alloc(size, align) {
+                    return ptr;
+                }
+            } else {
+                // Poison the cache: It's a stale or wrong heap
+                LAST_HEAP.with(|c| c.set((0, std::ptr::null())));
+            }
+        }
 
         // Fast path: heap already exists and has capacity.
         // get() holds a shared ClashMap read lock for the duration — multiple
@@ -123,6 +152,15 @@ impl Runtime {
         if let Some(heap) = self.pool.get(&sheap_id)
             && let Some(ptr) = heap.try_alloc(size, align)
         {
+            // Update TLC
+            LAST_HEAP.with(|last_heap| {
+                let heap_arc = heap.value();
+                let heap_gen = heap_arc.get_generation();
+                let stable_ptr = Arc::as_ptr(heap_arc);
+                
+                last_heap.set((heap_gen, stable_ptr));
+            });
+
             return ptr;
         }
 
@@ -139,9 +177,22 @@ impl Runtime {
         let heap_ref = self
             .pool
             .entry(sheap_id)
-            .or_insert_with(|| Heap::new(sheap_id, mi_heap, stats, ticker));
+            .or_insert_with(|| {
+                let generation = self.global_generation.fetch_add(1, Ordering::Relaxed);
+
+                Arc::new(Heap::new(sheap_id, generation, mi_heap, stats, ticker))
+            });
 
         if let Some(ptr) = heap_ref.try_alloc(size, align) {
+            // Update TLC
+            LAST_HEAP.with(|last_heap| {
+                let heap_arc = heap_ref.value();
+                let heap_gen = heap_arc.get_generation();
+                let stable_ptr = Arc::as_ptr(heap_arc);
+                
+                last_heap.set((heap_gen, stable_ptr));
+            });
+
             return ptr;
         }
 
@@ -153,6 +204,7 @@ impl Runtime {
         null_mut()
     }
 
+    #[inline]
     pub fn free(&self, sheap_ptr: *mut c_void, ptr: *mut c_void) -> bool {
         if ptr.is_null() {
             return false;
@@ -160,20 +212,72 @@ impl Runtime {
 
         let sheap_id = sheap_ptr as usize;
 
+        // Very fast path: thread-local cache
+        let (cached_gen, last_heap_ptr) = LAST_HEAP.with(|c| c.get());
+
+        if !last_heap_ptr.is_null() {
+            let heap_ref = unsafe { &* last_heap_ptr };
+
+            // Validation of generation is absolute required here
+            if heap_ref.get_sheap_id() == sheap_id && cached_gen == heap_ref.get_generation() {
+                return heap_ref.try_free(ptr);
+            } else {
+                // Poison the cache: It's a stale or wrong heap
+                LAST_HEAP.with(|c| c.set((0, std::ptr::null())));
+            }
+        }
+
+        // Slow path: get from pool
         if let Some(heap) = self.pool.get(&sheap_id) {
+            // Update TLC
+            LAST_HEAP.with(|last_heap| {
+                let heap_arc = heap.value();
+                let heap_gen = heap_arc.get_generation();
+                let stable_ptr = Arc::as_ptr(heap_arc);
+                
+                last_heap.set((heap_gen, stable_ptr));
+            });
+
             return heap.try_free(ptr);
         }
 
         false
     }
 
+    #[inline]
     pub fn purge(&self, sheap_ptr: *mut c_void) -> bool {
         let sheap_id = sheap_ptr as usize;
 
+        // Very fast path: thread-local cache
+        let (cached_gen, last_heap_ptr) = LAST_HEAP.with(|c| c.get());
+
+        if !last_heap_ptr.is_null() {
+            let heap_ref = unsafe { &* last_heap_ptr };
+
+            // Validation of generation is absolute required here
+            if heap_ref.get_sheap_id() == sheap_id && cached_gen == heap_ref.get_generation() {
+                heap_ref.purge();
+                return true;
+            } else {
+                // Poison the cache: It's a stale or wrong heap
+                LAST_HEAP.with(|c| c.set((0, std::ptr::null())));
+            }
+        }
+
         if let Some(heap) = self.pool.get(&sheap_id) {
+            // Update TLC
+            LAST_HEAP.with(|last_heap| {
+                let heap_arc = heap.value();
+                let heap_gen = heap_arc.get_generation();
+                let stable_ptr = Arc::as_ptr(heap_arc);
+                
+                last_heap.set((heap_gen, stable_ptr));
+            });
+
             heap.purge();
             return true;
         }
+
         false
     }
 }
