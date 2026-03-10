@@ -46,7 +46,6 @@ pub struct Runtime {
     mi_heap: Arc<MiHeap>,
 
     /// `ShardPool` is special storage for shards
-    //shard_pool: Arc<ShardPool<usize, Heap>>,
     pool: Arc<HeapMap<usize, Arc<Heap>>>,
 
     /// Control flag for garbage collector
@@ -165,11 +164,6 @@ impl Runtime {
         }
 
         // Slow path: heap is missing (first use or post-GC) or all regions full.
-        //
-        // entry().or_insert_with() atomically inserts a new Heap if the key is
-        // absent, eliminating the double-create race where two threads both see
-        // get() → None, both construct a Heap, and the second insert() drops the
-        // first heap while thread 1 holds a live pointer into its regions.
         let mi_heap = self.mi_heap.clone();
         let stats = self.stats.clone();
         let ticker = self.ticker.clone();

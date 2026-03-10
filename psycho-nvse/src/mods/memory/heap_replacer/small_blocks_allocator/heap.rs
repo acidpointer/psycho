@@ -6,7 +6,7 @@ use libc::c_void;
 use libmimalloc::heap::MiHeap;
 use parking_lot::RwLock;
 use std::sync::Arc;
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 
 /// Region size in bytes
 /// Recommended values:
@@ -28,8 +28,13 @@ const FREE_DEPTH: usize = 3;
 const HEAP_IDLE_THRESHOLD: u64 = 20;
 
 pub struct Heap {
-    /// Regions pool
-    pool: RwLock<Vec<Arc<Region>>>,
+    /// A/B region pools.
+    /// While Pool A clears in purge(), pool B used in alloc,
+    /// thus we avoid lock contention
+    pools: [RwLock<Vec<Arc<Region>>>; 2],
+
+    /// Active pool index
+    active_pool_idx: AtomicUsize,
 
     /// Arced allocator stats
     stats: Arc<AllocatorStats>,
@@ -67,7 +72,8 @@ impl Heap {
         Self {
             generation,
             sheap_id,
-            pool: RwLock::new(Vec::new()),
+            active_pool_idx: AtomicUsize::new(0),
+            pools: [RwLock::new(Vec::new()), RwLock::new(Vec::new())],
             mi_heap,
             stats,
             last_access: AtomicU64::new(initial_tick),
@@ -98,9 +104,12 @@ impl Heap {
     pub fn try_alloc(&self, size: usize, align: usize) -> Option<*mut c_void> {
         self.update_last_access();
 
+        let pool_idx = self.active_pool_idx.load(Ordering::Acquire);
+        let pool = &self.pools[pool_idx];
+
         // Step 1. Read lock — fast path: allocate from the last (newest) region.
         {
-            let pool_lock = self.pool.read();
+            let pool_lock = pool.read();
 
             if let Some(last_region) = pool_lock.last()
                 && let Some(ptr) = last_region.allocate(size, align)
@@ -111,7 +120,7 @@ impl Heap {
 
         // Step 2. Write lock — slow path: create a new region.
         {
-            let mut pool_lock = self.pool.write();
+            let mut pool_lock = pool.write();
 
             // Re-check: another thread may have pushed a new region while we were
             // waiting for the write lock.
@@ -146,8 +155,10 @@ impl Heap {
     /// `FREE_DEPTH` constant declares how many regions from the pool end
     /// will participate in attempting to perform LIFO free.
     pub fn try_free(&self, ptr: *mut c_void) -> bool {
+        let pool_idx = self.active_pool_idx.load(Ordering::Acquire);
+        let pool = &self.pools[pool_idx];
 
-        let pool_lock = self.pool.read();
+        let pool_lock = pool.read();
 
         if !pool_lock.is_empty() {
             for (i, region) in pool_lock.iter().rev().enumerate() {
@@ -171,7 +182,13 @@ impl Heap {
     /// # Warning
     /// All allocations from this heap become invalid after this call.
     pub fn purge(&self) {
-        let mut pool_lock = self.pool.write();
+        let old_idx = self.active_pool_idx.load(Ordering::Acquire);
+
+        // Update active pool index, so alloc is not blocked
+        let new_idx = 1 - old_idx;
+        self.active_pool_idx.store(new_idx, Ordering::Release);
+
+        let mut pool_lock = self.pools[old_idx].write();
 
         pool_lock.clear();
 
