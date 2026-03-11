@@ -9,7 +9,7 @@ use std::{
     ptr::NonNull,
     sync::{
         Arc,
-        atomic::{AtomicBool, AtomicU32, AtomicUsize, Ordering},
+        atomic::{AtomicU32, AtomicUsize, Ordering},
     },
 };
 
@@ -36,9 +36,6 @@ pub struct Region {
 
     /// Arced statistics to track allocations
     stats: Arc<AllocatorStats>,
-
-    /// Flag which shows if region was purged
-    is_purged: AtomicBool,
 }
 
 // Safety: Safe, because all inner state is atomic
@@ -74,32 +71,7 @@ impl Region {
             start_page: start_ptr >> PAGE_SHIFT,
             end_page: (start_ptr + capacity) >> PAGE_SHIFT,
             stats,
-            is_purged: AtomicBool::new(false),
         })
-    }
-
-    /// Check if allocation possible on this region
-    ///
-    /// # Arguments
-    /// * `size` - Size of allocation in bytes
-    /// * `align` - Required alignment for allocation
-    /// # Returns
-    /// `true` if allocation is possible
-    #[inline]
-    pub fn is_allocate_possible(&self, size: usize, align: usize) -> bool {
-        let current_offset = self.offset.load(Ordering::Relaxed);
-        let start_addr = self.start.as_ptr() as usize;
-
-        // 1. Calculate the earliest possible data address
-        // We must leave at least 4 bytes for the header.
-        let min_data_addr = start_addr + current_offset + 4;
-
-        // 2. Align the data pointer to the requested alignment
-        let data_addr = align_up(min_data_addr, align);
-
-        let requested_end = (data_addr - start_addr) + size;
-
-        requested_end <= self.capacity
     }
 
     /// Performs a bump-pointer allocation within the region.
@@ -141,52 +113,10 @@ impl Region {
         NonNull::new(data_addr as *mut c_void)
     }
 
-    // pub fn allocate(&self, size: usize, align: usize) -> Option<NonNull<c_void>> {
-    //     let start_addr = self.start.as_ptr() as usize;
-    //     // Relaxed: CAS loop provides synchronization, no need for Acquire barrier
-    //     let mut current_offset = self.offset.load(Ordering::Relaxed);
-
-    //     loop {
-    //         // 1. Calculate the earliest possible data address
-    //         // We must leave at least 4 bytes for the header.
-    //         let min_data_addr = start_addr + current_offset + 4;
-
-    //         // 2. Align the data pointer to the requested alignment
-    //         let data_addr = align_up(min_data_addr, align);
-
-    //         // 3. The header is NOW guaranteed to be exactly 4 bytes before data
-    //         let header_addr = data_addr - 4;
-
-    //         let requested_end = (data_addr - start_addr) + size;
-
-    //         if requested_end > self.capacity {
-    //             return None;
-    //         }
-
-    //         // Relaxed CAS: faster, no memory barriers needed for bump allocator
-    //         // Offset synchronization is sufficient for correctness
-    //         match self.offset.compare_exchange_weak(
-    //             current_offset,
-    //             requested_end, // New offset is the end of the data
-    //             Ordering::Relaxed,
-    //             Ordering::Relaxed,
-    //         ) {
-    //             Ok(_) => {
-    //                 unsafe {
-    //                     let size_ptr = header_addr as *mut AtomicU32;
-    //                     // Relaxed: header write doesn't need Release barrier
-    //                     (*size_ptr).store(size as u32, Ordering::Relaxed);
-    //                 }
-    //                 return NonNull::new(data_addr as *mut c_void);
-    //             }
-    //             Err(next_val) => current_offset = next_val,
-    //         }
-    //     }
-    // }
-
     /// Attempts to perform LIFO(Last Input First Output) free operation.
     ///
     /// Returns true on success, otherwise returns false.
+    #[allow(dead_code)]
     #[inline]
     pub fn try_free(&self, ptr: *mut c_void) -> bool {
         let addr = ptr as usize;
@@ -243,6 +173,7 @@ impl Region {
     }
 
     /// Deallocates all memory, making all allocations invalid
+    #[allow(dead_code)]
     #[inline]
     pub fn purge(&self) {
         self.offset.store(0, Ordering::Release);

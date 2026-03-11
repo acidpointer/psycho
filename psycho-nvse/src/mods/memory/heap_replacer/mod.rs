@@ -6,9 +6,7 @@
 
 mod hooks;
 mod types;
-mod replacer;
-mod small_blocks_allocator;
-
-pub use replacer::install_game_heap_hooks;
+pub mod replacer;
+pub mod sbm;
 
 

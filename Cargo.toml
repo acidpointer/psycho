@@ -1,12 +1,10 @@
 [workspace]
 resolver = "3"
 members = [
-  "drifter",
   "libf4se",
   "libmimalloc",
   "libnvse",
   "libpsycho",
-  "psycho-fo4",
   "psycho-nvse"
 ]
 

@@ -9,7 +9,7 @@ use std::ptr::NonNull;
 use libc::c_void;
 use thiserror::Error;
 use windows::Win32::Foundation::{
-    GetLastError, HANDLE, HMODULE, HWND, INVALID_HANDLE_VALUE, SetLastError, WIN32_ERROR,
+    CloseHandle, GetLastError, HANDLE, HMODULE, HWND, INVALID_HANDLE_VALUE, STILL_ACTIVE, SetLastError, WIN32_ERROR
 };
 use windows::Win32::System::Console::{
     AllocConsole, CONSOLE_MODE, ENABLE_VIRTUAL_TERMINAL_PROCESSING, GetConsoleMode, GetStdHandle,
@@ -27,10 +27,7 @@ use windows::Win32::System::ProcessStatus::{
     EnumProcessModules, GetModuleBaseNameA, GetModuleInformation, MODULEINFO,
 };
 use windows::Win32::System::Threading::{
-    CRITICAL_SECTION, GetCurrentThreadId as WinGetCurrentThreadId, InitializeCriticalSection,
-    SetThreadPriority, THREAD_PRIORITY, THREAD_PRIORITY_ABOVE_NORMAL, THREAD_PRIORITY_BELOW_NORMAL,
-    THREAD_PRIORITY_HIGHEST, THREAD_PRIORITY_IDLE, THREAD_PRIORITY_LOWEST, THREAD_PRIORITY_MIN,
-    THREAD_PRIORITY_NORMAL, THREAD_PRIORITY_TIME_CRITICAL,
+    CRITICAL_SECTION, GetCurrentThreadId as WinGetCurrentThreadId, GetExitCodeThread, InitializeCriticalSection, OpenThread, SetThreadPriority, THREAD_PRIORITY, THREAD_PRIORITY_ABOVE_NORMAL, THREAD_PRIORITY_BELOW_NORMAL, THREAD_PRIORITY_HIGHEST, THREAD_PRIORITY_IDLE, THREAD_PRIORITY_LOWEST, THREAD_PRIORITY_MIN, THREAD_PRIORITY_NORMAL, THREAD_PRIORITY_TIME_CRITICAL, THREAD_QUERY_LIMITED_INFORMATION
 };
 use windows::Win32::System::{
     Diagnostics::Debug::FlushInstructionCache, Memory::VirtualQuery, Threading::GetCurrentProcess,
@@ -354,6 +351,29 @@ pub fn get_current_process() -> WinapiResult<Handle> {
 /// This is a safe wrapper around the Windows API call.
 pub fn get_current_thread_id() -> u32 {
     unsafe { WinGetCurrentThreadId() }
+}
+
+/// Check if thread alive by `thread_id`
+/// # Returns
+/// `true`  - if thread is alive
+/// `false` - if thread is death
+pub fn is_thread_alive(thread_id: u32) -> bool {
+    unsafe {
+        // 1. Try to get a handle to the thread
+        let handle = OpenThread(THREAD_QUERY_LIMITED_INFORMATION, false, thread_id);
+        
+        if let Ok(h) = handle {
+            let mut exit_code: u32 = 0;
+            let success = GetExitCodeThread(h, &mut exit_code);
+            let _ = CloseHandle(h); // Always close the handle!
+
+            if success.is_ok() {
+                return exit_code == STILL_ACTIVE.0 as u32;
+            }
+        }
+    }
+
+    false // If we can't open it or it's not active, assume it's dead
 }
 
 /// Wrapper for WinAPI HMODULE type.

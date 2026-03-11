@@ -1,9 +1,7 @@
 use std::sync::Once;
 
-use libnvse::{
-    NVSEInterfaceFFI, PluginInfoFFI,
-    api::{interface::NVSEInterface, message_box::show_message_box, messaging::NVSEMessageType},
-};
+use libnvse::{NVSEInterfaceFFI, PluginInfoFFI, api::{interface::NVSEInterface, messaging::NVSEMessageType}}
+;
 use libpsycho::{
     common::exe_version::ExeVersion,
     logger::Logger,
@@ -21,7 +19,10 @@ use windows::{
 
 use crate::{
     mods::{
-        memory::{install_crt_hooks, install_game_heap_hooks},
+        memory::{
+            install_crt_hooks, replacer::install_game_heap_hooks,
+            sbm::runtime::Runtime,
+        },
         zlib::install_zlib_hooks,
     },
     plugininfo,
@@ -158,7 +159,14 @@ pub unsafe extern "C" fn NVSEPlugin_Load(nvse: *const NVSEInterfaceFFI) -> BOOL 
 fn start(nvse_ptr: *const NVSEInterfaceFFI) -> anyhow::Result<()> {
     log::info!("start() called!");
 
-    let nvse_interface = NVSEInterface::from_raw(nvse_ptr)?;
+    let mut nvse_interface = NVSEInterface::from_raw(nvse_ptr)?;
+    let msg_interface = nvse_interface.messaging_interface_mut();
+
+    msg_interface.register_listener("NVSE", |msg| {
+        if let NVSEMessageType::MainGameLoop = msg.get_type() {
+            Runtime::get_instance().tick();
+        }
+    })?;
 
     install_zlib_hooks(&nvse_interface)?;
 

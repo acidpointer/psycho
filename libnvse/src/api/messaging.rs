@@ -1,4 +1,4 @@
-//!
+//! Messaging NVSE API wrapper
 //! 
 //! You can do something like this:
 //! ```

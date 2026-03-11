@@ -1,9 +1,9 @@
 use super::region::Region;
 use super::stats::AllocatorStats;
-use super::ticker::Ticker;
 
 use libc::c_void;
 use libmimalloc::heap::MiHeap;
+use libpsycho::os::windows::winapi::get_current_thread_id;
 use parking_lot::RwLock;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
@@ -15,17 +15,13 @@ use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 /// # Notes
 /// * `REGION_SIZE` < `128Kb` will lead to crashes!
 /// * `REGION_SIZE` > `512Kb` will lead to OOM(Out-Of-Memory)!
-const REGION_SIZE: usize = 128 * 1024;
+const REGION_SIZE: usize = 256 * 1024;
 
 /// Region align
 const REGION_ALIGN: usize = 16;
 
-/// How many regions should be tried free backwards
-/// For example, for value 3, only 3 latest regions will be tried.
-const FREE_DEPTH: usize = 3;
-
 /// Amount of ticks of inactivity to consider heap as IDLE
-const HEAP_IDLE_THRESHOLD: u64 = 20;
+const HEAP_IDLE_THRESHOLD: u64 = 100;
 
 pub struct Heap {
     /// A/B region pools.
@@ -39,8 +35,8 @@ pub struct Heap {
     /// Arced allocator stats
     stats: Arc<AllocatorStats>,
 
-    /// Arced ticker for easy tick access
-    ticker: Arc<Ticker>,
+    /// Arced tick counter
+    current_tick: Arc<AtomicU64>,
 
     /// Arced mi heap instance
     mi_heap: Arc<MiHeap>,
@@ -53,6 +49,12 @@ pub struct Heap {
 
     /// Sheap id
     sheap_id: usize,
+
+    /// Thread id
+    thread_id: u32,
+
+    /// Allocations counter for this heap
+    alloc_count: AtomicUsize,
 }
 
 impl Heap {
@@ -61,13 +63,15 @@ impl Heap {
         generation: usize,
         mi_heap: Arc<MiHeap>,
         stats: Arc<AllocatorStats>,
-        ticker: Arc<Ticker>,
+        current_tick: Arc<AtomicU64>,
     ) -> Self {
         // Initialise last_access to the current tick so that a brand-new heap
         // is never considered idle (is_idle() = false) until it has actually
         // gone unused for HEAP_IDLE_THRESHOLD ticks. Starting at 0 would make
         // every heap created after 30 ticks of uptime immediately collectible.
-        let initial_tick = ticker.get_current_tick();
+        let initial_tick = current_tick.load(Ordering::Acquire);
+
+        let thread_id = get_current_thread_id();
 
         Self {
             generation,
@@ -77,8 +81,15 @@ impl Heap {
             mi_heap,
             stats,
             last_access: AtomicU64::new(initial_tick),
-            ticker,
+            current_tick,
+            thread_id,
+            alloc_count: AtomicUsize::new(0),
         }
+    }
+
+    #[inline(always)]
+    pub fn get_thread_id(&self) -> u32 {
+        self.thread_id
     }
 
     #[inline(always)]
@@ -93,14 +104,17 @@ impl Heap {
 
     #[inline(always)]
     fn update_last_access(&self) {
+        let current_tick = self.current_tick.load(Ordering::Acquire);
+
         self.last_access
-            .store(self.ticker.get_current_tick(), Ordering::Relaxed);
+            .store(current_tick, Ordering::Relaxed);
     }
 
     /// Allocates memory from the region pool.
     ///
     /// Returns `None` if this heap is dead (GC-collected and pending removal),
     /// or if allocation genuinely fails (OOM).
+    #[inline]
     pub fn try_alloc(&self, size: usize, align: usize) -> Option<*mut c_void> {
         self.update_last_access();
 
@@ -114,6 +128,7 @@ impl Heap {
             if let Some(last_region) = pool_lock.last()
                 && let Some(ptr) = last_region.allocate(size, align)
             {
+                self.alloc_count.fetch_add(1, Ordering::Release);
                 return Some(ptr.as_ptr());
             }
         }
@@ -127,6 +142,7 @@ impl Heap {
             if let Some(last_region) = pool_lock.last()
                 && let Some(ptr) = last_region.allocate(size, align)
             {
+                self.alloc_count.fetch_add(1, Ordering::Release);
                 return Some(ptr.as_ptr());
             }
 
@@ -143,6 +159,7 @@ impl Heap {
             ) && let Some(ptr) = region.allocate(size, align)
             {
                 pool_lock.push(Arc::new(region));
+                self.alloc_count.fetch_add(1, Ordering::Release);
                 return Some(ptr.as_ptr());
             }
         }
@@ -150,30 +167,9 @@ impl Heap {
         None
     }
 
-    /// Try to LIFO free.
-    ///
-    /// `FREE_DEPTH` constant declares how many regions from the pool end
-    /// will participate in attempting to perform LIFO free.
-    pub fn try_free(&self, ptr: *mut c_void) -> bool {
-        let pool_idx = self.active_pool_idx.load(Ordering::Acquire);
-        let pool = &self.pools[pool_idx];
-
-        let pool_lock = pool.read();
-
-        if !pool_lock.is_empty() {
-            for (i, region) in pool_lock.iter().rev().enumerate() {
-                if i >= FREE_DEPTH {
-                    break;
-                }
-
-                if region.try_free(ptr) {
-                    self.update_last_access();
-                    return true;
-                }
-            }
-        }
-
-        false
+    #[inline]
+    pub fn free(&self, _ptr: *mut c_void) {
+        self.alloc_count.fetch_sub(1, Ordering::Release);
     }
 
     /// Purge all regions. Called by game-initiated sheap resets.
@@ -181,7 +177,10 @@ impl Heap {
     ///
     /// # Warning
     /// All allocations from this heap become invalid after this call.
-    pub fn purge(&self) {
+    /// # Returns
+    /// Amount of purged regions
+    #[inline]
+    pub fn purge(&self) -> usize {
         let old_idx = self.active_pool_idx.load(Ordering::Acquire);
 
         // Update active pool index, so alloc is not blocked
@@ -190,15 +189,57 @@ impl Heap {
 
         let mut pool_lock = self.pools[old_idx].write();
 
-        pool_lock.clear();
+        let old_len = pool_lock.len();
+
+        if !pool_lock.is_empty() {
+            pool_lock.clear();
+        }
 
         self.update_last_access();
+
+        old_len
+    }
+
+    /// Returns len of (active) pool
+    /// 
+    /// Even if we have A/B pool logic implemented,
+    /// valid len is only for active pool.
+    #[inline]
+    pub fn get_pool_len(&self) -> usize {
+        let active_idx = self.active_pool_idx.load(Ordering::Acquire);
+        let active_pool = self.pools[active_idx].read();
+
+        active_pool.len()
+    }
+
+    /// Checked purge
+    /// 
+    /// Calls for regular `purge` if:
+    /// * `alloc_count == 0` 
+    /// * `selg.get_pool_len() > 0`
+    /// 
+    /// Used by garbage collector.
+    #[inline]
+    pub fn checked_purge(&self) -> usize {
+        let alloc_count = self.alloc_count.load(Ordering::Acquire);
+
+        let curr_pool_len = self.get_pool_len();
+
+        if curr_pool_len == 0 {
+            return 0;
+        }
+
+        if alloc_count == 0 && curr_pool_len > 0 {
+            return self.purge();
+        }
+
+        0
     }
 
     #[inline]
     pub fn is_idle(&self) -> bool {
         let last_access = self.last_access.load(Ordering::Relaxed);
-        let current_tick = self.ticker.get_current_tick();
+        let current_tick = self.current_tick.load(Ordering::Acquire);
 
         current_tick - last_access >= HEAP_IDLE_THRESHOLD
     }

@@ -12,14 +12,14 @@ opt-level = 3
 lto = "thin"
 
 [dependencies]
+libmimalloc = { path = "../libmimalloc" }
+libnvse = { path = "../libnvse" }
+libpsycho = { path = "../libpsycho" }
 windows = { workspace = true }
 log = { workspace = true }
 anyhow = { workspace = true }
 parking_lot = { workspace = true }
 libc = { workspace = true }
-libmimalloc = { path = "../libmimalloc" }
-libnvse = { path = "../libnvse" }
-libpsycho = { path = "../libpsycho" }
 libz-rs-sys = { version = "0.5.5", features = ["rust-allocator"] }
 ahash = { workspace = true }
 rustc-hash = { workspace = true }
@@ -27,3 +27,4 @@ scc = { workspace = true }
 crossfire = "3.1.1"
 rand = { workspace = true }
 clashmap = { workspace = true }
+orx-concurrent-vec = { workspace = true }
