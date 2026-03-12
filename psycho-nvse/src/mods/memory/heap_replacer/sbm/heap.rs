@@ -1,3 +1,5 @@
+use crate::mods::memory::sbm::ticker::Ticker;
+
 use super::region::Region;
 use super::stats::AllocatorStats;
 
@@ -20,7 +22,7 @@ const REGION_SIZE: usize = 256 * 1024;
 const REGION_ALIGN: usize = 16;
 
 /// Amount of ticks of inactivity to consider heap as IDLE
-const HEAP_IDLE_THRESHOLD: u64 = 100;
+const HEAP_IDLE_THRESHOLD: u64 = 5;
 
 pub struct Heap {
     /// A/B region pools.
@@ -34,8 +36,8 @@ pub struct Heap {
     /// Arced allocator stats
     stats: Arc<AllocatorStats>,
 
-    /// Arced tick counter
-    current_tick: Arc<AtomicU64>,
+    /// Arced ticker
+    ticker: Arc<Ticker>,
 
     /// Arced mi heap instance
     mi_heap: Arc<MiHeap>,
@@ -59,13 +61,13 @@ impl Heap {
         generation: usize,
         mi_heap: Arc<MiHeap>,
         stats: Arc<AllocatorStats>,
-        current_tick: Arc<AtomicU64>,
+        ticker: Arc<Ticker>,
     ) -> Self {
         // Initialise last_access to the current tick so that a brand-new heap
         // is never considered idle (is_idle() = false) until it has actually
         // gone unused for HEAP_IDLE_THRESHOLD ticks. Starting at 0 would make
         // every heap created after 30 ticks of uptime immediately collectible.
-        let initial_tick = current_tick.load(Ordering::Acquire);
+        let initial_tick = ticker.get_current_tick();
 
         Self {
             generation,
@@ -75,7 +77,7 @@ impl Heap {
             mi_heap,
             stats,
             last_access: AtomicU64::new(initial_tick),
-            current_tick,
+            ticker,
             alloc_count: AtomicUsize::new(0),
         }
     }
@@ -92,7 +94,7 @@ impl Heap {
 
     #[inline(always)]
     fn update_last_access(&self) {
-        let current_tick = self.current_tick.load(Ordering::Acquire);
+        let current_tick = self.ticker.get_current_tick();
 
         self.last_access
             .store(current_tick, Ordering::Relaxed);
@@ -235,7 +237,7 @@ impl Heap {
     #[inline]
     pub fn is_idle(&self) -> bool {
         let last_access = self.last_access.load(Ordering::Relaxed);
-        let current_tick = self.current_tick.load(Ordering::Acquire);
+        let current_tick = self.ticker.get_current_tick();
 
         current_tick - last_access >= HEAP_IDLE_THRESHOLD
     }

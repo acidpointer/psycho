@@ -1,6 +1,6 @@
 use std::cell::Cell;
 use std::ptr::null_mut;
-use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, LazyLock};
 use std::thread::{self, JoinHandle};
 use std::time::Duration;
@@ -8,11 +8,12 @@ use std::time::Duration;
 use libc::c_void;
 use libmimalloc::heap::MiHeap;
 
+use super::ticker::Ticker;
 use super::heap::Heap;
 use super::stats::AllocatorStats;
 
 /// Duration between GC cycles
-const GC_DURATION: Duration = Duration::from_secs(1);
+const GC_DURATION: Duration = Duration::from_millis(777);
 
 /// ClashMap with FxHasher is beast
 type HeapMap<K, V> = clashmap::ClashMap<K, V, rustc_hash::FxBuildHasher>;
@@ -37,7 +38,7 @@ pub struct Runtime {
     global_generation: AtomicUsize,
 
     /// Tick counter
-    current_tick: Arc<AtomicU64>,
+    ticker: Arc<Ticker>,
 
     /// Stats will record all necessary statistics
     /// # Note
@@ -65,7 +66,7 @@ impl Runtime {
 
         let mut instance = Self {
             global_generation: AtomicUsize::new(0),
-            current_tick: Arc::new(AtomicU64::new(0)),
+            ticker: Arc::new(Ticker::new()),
             stats: Arc::new(AllocatorStats::new()),
             mi_heap: Arc::new(MiHeap::new()),
             pool: Arc::new(HeapMap::default()),
@@ -85,32 +86,32 @@ impl Runtime {
         let gc_run = self.gc_run.clone();
         let pool = self.pool.clone();
         let stats = self.stats.clone();
-        let current_tick = self.current_tick.clone();
+        let ticker = self.ticker.clone();
         let gc_handle = thread::spawn(move || {
             loop {
-                thread::sleep(GC_DURATION);
-
-                let is_run = gc_run.load(std::sync::atomic::Ordering::Acquire);
-
-                if !is_run {
+                // Check run flag first
+                if gc_run.load(Ordering::Acquire) {
                     return;
                 }
 
-                let current_tick = current_tick.load(Ordering::Acquire);
-                let curr_mem = stats.get_total_alloc_mem();
+                thread::sleep(GC_DURATION);
 
+                let current_tick = ticker.get_current_tick();
+                let curr_mem = stats.get_total_alloc_mem();
                 let heaps_len = pool.len();
-                log::info!(
-                    "[STATS] [tick={}] Memory usage: {}Mb ({}Kb);  Total heaps amount: {}",
-                    current_tick,
-                    curr_mem / 1024 / 1024,
-                    curr_mem / 1024,
-                    heaps_len
-                );
+
+                if current_tick.is_multiple_of(8) {
+                    log::info!(
+                        "[SBM] [tick={}] Memory usage: ({} MB) ({} KB) ({} bytes);  Total heaps amount: {}",
+                        current_tick,
+                        curr_mem / 1024 / 1024,
+                        curr_mem / 1024,
+                        curr_mem,
+                        heaps_len
+                    );
+                }
 
                 for heap_ref in pool.iter() {
-                    
-
                     if heap_ref.is_idle() {
                         let purged_amount = heap_ref.checked_purge();
 
@@ -171,18 +172,12 @@ impl Runtime {
         // Slow path: heap is missing (first use or post-GC) or all regions full.
         let mi_heap = self.mi_heap.clone();
         let stats = self.stats.clone();
-        let curr_tick_clone = self.current_tick.clone();
+        let ticker = self.ticker.clone();
 
         let heap_ref = self.pool.entry(sheap_id).or_insert_with(|| {
             let generation = self.global_generation.fetch_add(1, Ordering::Relaxed);
 
-            Arc::new(Heap::new(
-                sheap_id,
-                generation,
-                mi_heap,
-                stats,
-                curr_tick_clone,
-            ))
+            Arc::new(Heap::new(sheap_id, generation, mi_heap, stats, ticker))
         });
 
         if let Some(ptr) = heap_ref.try_alloc(size, align) {
@@ -294,21 +289,11 @@ impl Runtime {
         &RT
     }
 
-    /// Update tick counter - increment by one
-    /// 
-    /// # Warning
-    /// This should NEVER be called by you! This is ONLY for
-    /// NVSE callback, so SBM ticks managed by game engine
-    #[inline(always)]
-    pub fn tick(&self) {
-        self.current_tick.fetch_add(1, Ordering::Release);
-    }
-
     /// Get current tick
     #[allow(dead_code)]
     #[inline]
     pub fn get_current_tick(&self) -> u64 {
-        self.current_tick.load(Ordering::Acquire)
+        self.ticker.get_current_tick()
     }
 }
 
