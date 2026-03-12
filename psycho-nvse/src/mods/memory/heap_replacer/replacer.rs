@@ -17,18 +17,13 @@ use crate::mods::memory::configure_mimalloc;
 // CRT allocator
 const CRT_MALLOC_ADDR_1: usize = 0x00ECD1C7;
 const CRT_MALLOC_ADDR_2: usize = 0x00ED0CDF;
-
 const CRT_CALLOC_ADDR_1: usize = 0x00EDDD7D;
 const CRT_CALLOC_ADDR_2: usize = 0x00ED0D24;
-
 const CRT_REALLOC_ADDR_1: usize = 0x00ECCF5D;
 const CRT_REALLOC_ADDR_2: usize = 0x00ED0D70;
-
 const CRT_RECALLOC_ADDR_1: usize = 0x00EE1700;
 const CRT_RECALLOC_ADDR_2: usize = 0x00ED0DBE;
-
 const CRT_MSIZE_ADDR: usize = 0x00ECD31F;
-
 const CRT_FREE_ADDR: usize = 0x00ECD291;
 
 /// Scrap heap function addresses (Fallout New Vegas)
@@ -41,6 +36,8 @@ const SHEAP_GET_THREAD_LOCAL_ADDR: usize = 0x00AA42E0;
 
 // RNG
 const RNG_ADDRESS: usize = 0x00AA5230;
+
+// Gheap
 
 /// Game heap function addresses (Fallout New Vegas)
 const GHEAP_ALLOC_ADDR: usize = 0x00AA3E40;
@@ -75,7 +72,6 @@ pub static CRT_INLINE_FREE_HOOK: LazyLock<InlineHookContainer<FreeFn>> =
     LazyLock::new(InlineHookContainer::new);
 
 // Gheap
-// Mister "Blyat" forced me to hook GHEAP also. Honestly, i wont.
 pub static GHEAP_MSIZE_HOOK: LazyLock<InlineHookContainer<GameHeapMsizeFn>> =
     LazyLock::new(InlineHookContainer::new);
 
@@ -101,196 +97,39 @@ pub static SHEAP_GET_THREAD_LOCAL_HOOK: LazyLock<InlineHookContainer<SheapGetThr
 
 pub static RNG_HOOK: LazyLock<InlineHookContainer<RngFn>> = LazyLock::new(InlineHookContainer::new);
 
-/// Installs all heap and scrap heap replacement hooks.
-///
-/// Replaces the game's allocators with MiMalloc (game heap) and bump allocators (scrap heap).
-/// Also applies memory patches to disable original heap initialization and cleanup code.
+/// Applies patches and installs heap replacement hooks
 pub fn install_game_heap_hooks() -> anyhow::Result<()> {
-    configure_mimalloc();
+    // unsafe {
+    //     // That address is the Statistics and Global State Reset function for the Small Block Manager (SBM).
+    //     patch_ret(0x00AA6840 as *mut c_void)?;
 
-    unsafe {
-        // // That address is the Statistics and Global State Reset function for the Small Block Manager (SBM).
-        // patch_ret(0x00AA6840 as *mut c_void)?;
-
-        // // Small Block Manager (SBM) Configuration Table
-        // patch_ret(0x00866770 as *mut c_void)?;
-
-        // // SBM::PurgeUnusedArenas
-        patch_ret(0x00AA6F90 as *mut c_void)?;
-
-        // // SBM Global Cleanup Dispatcher
-        patch_ret(0x00AA7030 as *mut c_void)?;
-
-        // // SBM::DecrementArenaReference
-        patch_ret(0x00AA7290 as *mut c_void)?;
-
-        // // SBM::ReleaseArenaByPointer
-        patch_ret(0x00AA7300 as *mut c_void)?;
-
-        // // SBM::DeallocateAllArenas
-        patch_ret(0x00AA5C80 as *mut c_void)?;
-
-        // Prevent the engine from trying to allocate its own "Backing Regions"
-        // Status: seems okay
-        patch_ret(0x00AA57B0 as *mut c_void)?;
-    }
-
-    {
-        RNG_HOOK.init("rng", RNG_ADDRESS as *mut c_void, hook_rng)?;
-        RNG_HOOK.enable()?;
-        log::info!("[INLINE] Hooked RNG");
-    }
-
-    // {
-    //     GHEAP_ALLOC_HOOK.init(
-    //         "gheap_alloc",
-    //         GHEAP_ALLOC_ADDR as *mut c_void,
-    //         hook_gheap_alloc,
-    //     )?;
-    //     GHEAP_FREE_HOOK.init(
-    //         "gheap_alloc",
-    //         GHEAP_FREE_ADDR as *mut c_void,
-    //         hook_gheap_free,
-    //     )?;
-    //     GHEAP_MSIZE_HOOK.init(
-    //         "gheap_msize",
-    //         GHEAP_MSIZE_ADDR as *mut c_void,
-    //         hook_gheap_msize,
-    //     )?;
-
-    //     GHEAP_ALLOC_HOOK.enable()?;
-
-    //     log::info!("[INLINE] GHeap::alloc hook enabled!");
-
-    //     GHEAP_FREE_HOOK.enable()?;
-
-    //     log::info!("[INLINE] GHeap::free hook enabled!");
-
-    //     GHEAP_MSIZE_HOOK.enable()?;
-
-    //     log::info!("[INLINE] GHeap::msize hook enabled!");
+    //     // Small Block Manager (SBM) Configuration Table
+    //     patch_ret(0x00866770 as *mut c_void)?;
     // }
 
-    {
-        CRT_INLINE_MALLOC_HOOK_1.init("malloc1", CRT_MALLOC_ADDR_1 as *mut c_void, hook_malloc)?;
-        CRT_INLINE_MALLOC_HOOK_2.init("malloc2", CRT_MALLOC_ADDR_2 as *mut c_void, hook_malloc)?;
+    // Prevents SBM functions to execute - we own SBM
+    // Status: seems okay
+    unsafe {
+        // SBM::PurgeUnusedArenas
+        patch_ret(0x00AA6F90 as *mut c_void)?;
 
-        CRT_INLINE_CALLOC_HOOK_1.init("calloc1", CRT_CALLOC_ADDR_1 as *mut c_void, hook_calloc)?;
-        CRT_INLINE_CALLOC_HOOK_2.init("calloc2", CRT_CALLOC_ADDR_2 as *mut c_void, hook_calloc)?;
+        // SBM Global Cleanup Dispatcher
+        patch_ret(0x00AA7030 as *mut c_void)?;
 
-        CRT_INLINE_REALLOC_HOOK_1.init(
-            "realloc1",
-            CRT_REALLOC_ADDR_1 as *mut c_void,
-            hook_realloc,
-        )?;
-        CRT_INLINE_REALLOC_HOOK_2.init(
-            "realloc2",
-            CRT_REALLOC_ADDR_2 as *mut c_void,
-            hook_realloc,
-        )?;
+        // SBM::DecrementArenaReference
+        patch_ret(0x00AA7290 as *mut c_void)?;
 
-        CRT_INLINE_RECALLOC_HOOK_1.init(
-            "recalloc1",
-            CRT_RECALLOC_ADDR_1 as *mut c_void,
-            hook_recalloc,
-        )?;
-        CRT_INLINE_RECALLOC_HOOK_2.init(
-            "recalloc2",
-            CRT_RECALLOC_ADDR_2 as *mut c_void,
-            hook_recalloc,
-        )?;
+        // SBM::ReleaseArenaByPointer
+        patch_ret(0x00AA7300 as *mut c_void)?;
 
-        CRT_INLINE_FREE_HOOK.init("free", CRT_FREE_ADDR as *mut c_void, hook_free)?;
-
-        CRT_INLINE_MSIZE_HOOK.init("msize", CRT_MSIZE_ADDR as *mut c_void, hook_msize)?;
-
-        CRT_INLINE_MALLOC_HOOK_1.enable()?;
-        log::info!("[INLINE] Hooked malloc_1");
-
-        CRT_INLINE_MALLOC_HOOK_2.enable()?;
-        log::info!("[INLINE] Hooked malloc_2");
-
-        CRT_INLINE_CALLOC_HOOK_1.enable()?;
-        log::info!("[INLINE] Hooked calloc_1");
-
-        CRT_INLINE_CALLOC_HOOK_2.enable()?;
-        log::info!("[INLINE] Hooked calloc_2");
-
-        CRT_INLINE_REALLOC_HOOK_1.enable()?;
-        log::info!("[INLINE] Hooked realloc_1");
-
-        CRT_INLINE_REALLOC_HOOK_2.enable()?;
-        log::info!("[INLINE] Hooked realloc_2");
-
-        CRT_INLINE_RECALLOC_HOOK_1.enable()?;
-        log::info!("[INLINE] Hooked recalloc_1");
-
-        CRT_INLINE_RECALLOC_HOOK_2.enable()?;
-        log::info!("[INLINE] Hooked recalloc_2");
-
-        CRT_INLINE_FREE_HOOK.enable()?;
-        log::info!("[INLINE] Hooked free");
-
-        CRT_INLINE_MSIZE_HOOK.enable()?;
-        log::info!("[INLINE] Hooked msize");
-
-        log::info!("[INLINE] All CRT hooks installed!");
+        // SBM::DeallocateAllArenas
+        patch_ret(0x00AA5C80 as *mut c_void)?;
     }
 
-    // Initialize and enable sheap inline hooks
-    {
-        SHEAP_GET_THREAD_LOCAL_HOOK.init(
-            "sheap_get_thread_local",
-            SHEAP_GET_THREAD_LOCAL_ADDR as *mut c_void,
-            sheap_get_thread_local,
-        )?;
-
-        SHEAP_INIT_FIX_HOOK.init(
-            "sheap_init_fix",
-            SHEAP_INIT_FIX_ADDR as *mut c_void,
-            sheap_init_fix,
-        )?;
-
-        SHEAP_INIT_VAR_HOOK.init(
-            "sheap_init_var",
-            SHEAP_INIT_VAR_ADDR as *mut c_void,
-            sheap_init_var,
-        )?;
-
-        SHEAP_ALLOC_HOOK.init("sheap_alloc", SHEAP_ALLOC_ADDR as *mut c_void, sheap_alloc)?;
-
-        SHEAP_FREE_HOOK.init("sheap_free", SHEAP_FREE_ADDR as *mut c_void, sheap_free)?;
-
-        SHEAP_PURGE_HOOK.init("sheap_purge", SHEAP_PURGE_ADDR as *mut c_void, sheap_purge)?;
-
-        // Enable sheap hooks
-
-        SHEAP_GET_THREAD_LOCAL_HOOK.enable()?;
-        log::info!(
-            "[INLINE] Hooked sheap_get_thread_local at {:#x}",
-            SHEAP_GET_THREAD_LOCAL_ADDR
-        );
-
-        SHEAP_INIT_FIX_HOOK.enable()?;
-        log::info!(
-            "[INLINE] Hooked sheap_init_fix at {:#x}",
-            SHEAP_INIT_FIX_ADDR
-        );
-
-        SHEAP_INIT_VAR_HOOK.enable()?;
-        log::info!(
-            "[INLINE] Hooked sheap_init_var at {:#x}",
-            SHEAP_INIT_VAR_ADDR
-        );
-
-        SHEAP_ALLOC_HOOK.enable()?;
-        log::info!("[INLINE] Hooked sheap_alloc at {:#x}", SHEAP_ALLOC_ADDR);
-
-        SHEAP_FREE_HOOK.enable()?;
-        log::info!("[INLINE] Hooked sheap_free at {:#x}", SHEAP_FREE_ADDR);
-
-        SHEAP_PURGE_HOOK.enable()?;
-        log::info!("[INLINE] Hooked sheap_purge at {:#x}", SHEAP_PURGE_ADDR);
+    // Prevent the engine from trying to allocate its own "Backing Regions"
+    // Status: seems okay
+    unsafe {
+        patch_ret(0x00AA57B0 as *mut c_void)?;
     }
 
     // Status: seems okay
@@ -328,6 +167,120 @@ pub fn install_game_heap_hooks() -> anyhow::Result<()> {
     // sole owner of the heap state and improving frame-time consistency.
     unsafe {
         patch_memory_nop(0x0086EF0E as *mut c_void, 5)?;
+    }
+
+    // ===========================
+    //   HOOKS
+    // ===========================
+
+    configure_mimalloc();
+
+    // Patch RNG
+    {
+        RNG_HOOK.init("rng", RNG_ADDRESS as *mut c_void, hook_rng)?;
+        RNG_HOOK.enable()?;
+    }
+
+    // GHEAP_* hooks are very unstable and potentially requires additional patching
+
+    // {
+    //     GHEAP_ALLOC_HOOK.init(
+    //         "gheap_alloc",
+    //         GHEAP_ALLOC_ADDR as *mut c_void,
+    //         hook_gheap_alloc,
+    //     )?;
+    //     GHEAP_FREE_HOOK.init(
+    //         "gheap_alloc",
+    //         GHEAP_FREE_ADDR as *mut c_void,
+    //         hook_gheap_free,
+    //     )?;
+    //     GHEAP_MSIZE_HOOK.init(
+    //         "gheap_msize",
+    //         GHEAP_MSIZE_ADDR as *mut c_void,
+    //         hook_gheap_msize,
+    //     )?;
+
+    //     GHEAP_ALLOC_HOOK.enable()?;
+    //     GHEAP_FREE_HOOK.enable()?;
+    //     GHEAP_MSIZE_HOOK.enable()?;
+    // }
+
+    {
+        CRT_INLINE_MALLOC_HOOK_1.init("malloc1", CRT_MALLOC_ADDR_1 as *mut c_void, hook_malloc)?;
+        CRT_INLINE_MALLOC_HOOK_2.init("malloc2", CRT_MALLOC_ADDR_2 as *mut c_void, hook_malloc)?;
+
+        CRT_INLINE_CALLOC_HOOK_1.init("calloc1", CRT_CALLOC_ADDR_1 as *mut c_void, hook_calloc)?;
+        CRT_INLINE_CALLOC_HOOK_2.init("calloc2", CRT_CALLOC_ADDR_2 as *mut c_void, hook_calloc)?;
+
+        CRT_INLINE_REALLOC_HOOK_1.init(
+            "realloc1",
+            CRT_REALLOC_ADDR_1 as *mut c_void,
+            hook_realloc,
+        )?;
+        CRT_INLINE_REALLOC_HOOK_2.init(
+            "realloc2",
+            CRT_REALLOC_ADDR_2 as *mut c_void,
+            hook_realloc,
+        )?;
+
+        CRT_INLINE_RECALLOC_HOOK_1.init(
+            "recalloc1",
+            CRT_RECALLOC_ADDR_1 as *mut c_void,
+            hook_recalloc,
+        )?;
+        CRT_INLINE_RECALLOC_HOOK_2.init(
+            "recalloc2",
+            CRT_RECALLOC_ADDR_2 as *mut c_void,
+            hook_recalloc,
+        )?;
+        CRT_INLINE_FREE_HOOK.init("free", CRT_FREE_ADDR as *mut c_void, hook_free)?;
+        CRT_INLINE_MSIZE_HOOK.init("msize", CRT_MSIZE_ADDR as *mut c_void, hook_msize)?;
+
+        CRT_INLINE_MALLOC_HOOK_1.enable()?;
+        CRT_INLINE_MALLOC_HOOK_2.enable()?;
+        CRT_INLINE_CALLOC_HOOK_1.enable()?;
+        CRT_INLINE_CALLOC_HOOK_2.enable()?;
+        CRT_INLINE_REALLOC_HOOK_1.enable()?;
+        CRT_INLINE_REALLOC_HOOK_2.enable()?;
+        CRT_INLINE_RECALLOC_HOOK_1.enable()?;
+        CRT_INLINE_RECALLOC_HOOK_2.enable()?;
+        CRT_INLINE_FREE_HOOK.enable()?;
+        CRT_INLINE_MSIZE_HOOK.enable()?;
+
+        log::info!("[INLINE] All CRT hooks initialized and enabled!");
+    }
+
+    // Initialize and enable sheap inline hooks
+    {
+        SHEAP_GET_THREAD_LOCAL_HOOK.init(
+            "sheap_get_thread_local",
+            SHEAP_GET_THREAD_LOCAL_ADDR as *mut c_void,
+            sheap_get_thread_local,
+        )?;
+
+        SHEAP_INIT_FIX_HOOK.init(
+            "sheap_init_fix",
+            SHEAP_INIT_FIX_ADDR as *mut c_void,
+            sheap_init_fix,
+        )?;
+
+        SHEAP_INIT_VAR_HOOK.init(
+            "sheap_init_var",
+            SHEAP_INIT_VAR_ADDR as *mut c_void,
+            sheap_init_var,
+        )?;
+
+        SHEAP_ALLOC_HOOK.init("sheap_alloc", SHEAP_ALLOC_ADDR as *mut c_void, sheap_alloc)?;
+        SHEAP_FREE_HOOK.init("sheap_free", SHEAP_FREE_ADDR as *mut c_void, sheap_free)?;
+        SHEAP_PURGE_HOOK.init("sheap_purge", SHEAP_PURGE_ADDR as *mut c_void, sheap_purge)?;
+
+        // Enable sheap hooks
+        SHEAP_GET_THREAD_LOCAL_HOOK.enable()?;
+        SHEAP_INIT_FIX_HOOK.enable()?;
+        SHEAP_INIT_VAR_HOOK.enable()?;
+        SHEAP_ALLOC_HOOK.enable()?;
+        SHEAP_FREE_HOOK.enable()?;
+        SHEAP_PURGE_HOOK.enable()?;
     }
 
     log::info!("[HEAP REPLACER] All hooks and patches applied successfully");
