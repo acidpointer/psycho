@@ -3,7 +3,6 @@ use super::stats::AllocatorStats;
 
 use libc::c_void;
 use libmimalloc::heap::MiHeap;
-use libpsycho::os::windows::winapi::get_current_thread_id;
 use parking_lot::RwLock;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
@@ -50,9 +49,6 @@ pub struct Heap {
     /// Sheap id
     sheap_id: usize,
 
-    /// Thread id
-    thread_id: u32,
-
     /// Allocations counter for this heap
     alloc_count: AtomicUsize,
 }
@@ -71,8 +67,6 @@ impl Heap {
         // every heap created after 30 ticks of uptime immediately collectible.
         let initial_tick = current_tick.load(Ordering::Acquire);
 
-        let thread_id = get_current_thread_id();
-
         Self {
             generation,
             sheap_id,
@@ -82,14 +76,8 @@ impl Heap {
             stats,
             last_access: AtomicU64::new(initial_tick),
             current_tick,
-            thread_id,
             alloc_count: AtomicUsize::new(0),
         }
-    }
-
-    #[inline(always)]
-    pub fn get_thread_id(&self) -> u32 {
-        self.thread_id
     }
 
     #[inline(always)]
@@ -121,6 +109,8 @@ impl Heap {
         let pool_idx = self.active_pool_idx.load(Ordering::Acquire);
         let pool = &self.pools[pool_idx];
 
+        let alloc_count = self.alloc_count.load(Ordering::Acquire);
+
         // Step 1. Read lock — fast path: allocate from the last (newest) region.
         {
             let pool_lock = pool.read();
@@ -128,7 +118,7 @@ impl Heap {
             if let Some(last_region) = pool_lock.last()
                 && let Some(ptr) = last_region.allocate(size, align)
             {
-                self.alloc_count.fetch_add(1, Ordering::Release);
+                self.alloc_count.store(alloc_count + 1, Ordering::Release);
                 return Some(ptr.as_ptr());
             }
         }
@@ -142,7 +132,7 @@ impl Heap {
             if let Some(last_region) = pool_lock.last()
                 && let Some(ptr) = last_region.allocate(size, align)
             {
-                self.alloc_count.fetch_add(1, Ordering::Release);
+                self.alloc_count.store(alloc_count + 1, Ordering::Release);
                 return Some(ptr.as_ptr());
             }
 
@@ -159,7 +149,7 @@ impl Heap {
             ) && let Some(ptr) = region.allocate(size, align)
             {
                 pool_lock.push(Arc::new(region));
-                self.alloc_count.fetch_add(1, Ordering::Release);
+                self.alloc_count.store(alloc_count + 1, Ordering::Release);
                 return Some(ptr.as_ptr());
             }
         }
@@ -169,7 +159,13 @@ impl Heap {
 
     #[inline]
     pub fn free(&self, _ptr: *mut c_void) {
-        self.alloc_count.fetch_sub(1, Ordering::Release);
+        let alloc_count = self.alloc_count.load(Ordering::Acquire);
+
+        let new_count = alloc_count - 1;
+        // if new_count == 0 {
+        //     log::debug!("Heap: free: 0 alloc_count!");
+        // }
+        self.alloc_count.store(new_count, Ordering::Release);
     }
 
     /// Purge all regions. Called by game-initiated sheap resets.

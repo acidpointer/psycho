@@ -1,3 +1,4 @@
+#![allow(dead_code)]
 use libc::c_void;
 
 // Gentlemans. Remember!

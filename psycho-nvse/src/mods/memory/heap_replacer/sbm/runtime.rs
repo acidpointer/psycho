@@ -108,46 +108,19 @@ impl Runtime {
                     heaps_len
                 );
 
-                let mut to_remove: Vec<usize> = Vec::new();
-
-                // GC here iterates over all heaps in pool and call
-                // heap.checked_purge() on each.
-                // Checked purge will do real purge ONLY if allocations
-                // count in this heap is 0.
-                // Allocations counter increases on allocation and decreases
-                // on free, so at the moment of checked_purge call, lot of
-                // chances that heap ready for real clean-up.
-                // I have no idea why we cant rely on engine, but it is as it is.
                 for heap_ref in pool.iter() {
-                    let purged_amount = heap_ref.checked_purge();
-
-                    if purged_amount > 0 {
-                        log::info!(
-                            "[GC] [sheap_id={:#x}] Heap purged {} regions (IDLE)",
-                            heap_ref.get_sheap_id(),
-                            purged_amount
-                        );
-                    }
+                    
 
                     if heap_ref.is_idle() {
-                        to_remove.push(heap_ref.get_sheap_id());
-                    }
-                }
+                        let purged_amount = heap_ref.checked_purge();
 
-                // Pool clean-up
-                // WARNING! We additionally MUST check for pool len, because other thread
-                // may already allocate from our to_remove list, so check for zero is extreme
-                // important here!
-                // Remember - real gentleman NEVER drop heap with live regions. Never.
-                for sheap_id in to_remove {
-                    if let Some((removed_id, removed_heap)) =
-                        pool.remove_if(&sheap_id, |_, heap| heap.get_pool_len() == 0)
-                    {
-                        log::debug!(
-                            "[GC] [sheap_id={:#x}] (IDLE) Heap removed from pool with allocated regions: {}",
-                            removed_id,
-                            removed_heap.get_pool_len()
-                        );
+                        if purged_amount > 0 {
+                            log::info!(
+                                "[GC] [sheap_id={:#x}] Heap purged {} regions (IDLE)",
+                                heap_ref.get_sheap_id(),
+                                purged_amount
+                            );
+                        }
                     }
                 }
             }
@@ -321,11 +294,18 @@ impl Runtime {
         &RT
     }
 
+    /// Update tick counter - increment by one
+    /// 
+    /// # Warning
+    /// This should NEVER be called by you! This is ONLY for
+    /// NVSE callback, so SBM ticks managed by game engine
     #[inline(always)]
     pub fn tick(&self) {
         self.current_tick.fetch_add(1, Ordering::Release);
     }
 
+    /// Get current tick
+    #[allow(dead_code)]
     #[inline]
     pub fn get_current_tick(&self) -> u64 {
         self.current_tick.load(Ordering::Acquire)
