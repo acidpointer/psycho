@@ -1,5 +1,3 @@
-use crate::mods::memory::sbm::ticker::Ticker;
-
 use super::region::Region;
 use super::stats::AllocatorStats;
 
@@ -7,7 +5,7 @@ use libc::c_void;
 use libmimalloc::heap::MiHeap;
 use parking_lot::RwLock;
 use std::sync::Arc;
-use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicUsize, Ordering};
 
 /// Region size in bytes
 /// Recommended values:
@@ -21,9 +19,6 @@ const REGION_SIZE: usize = 256 * 1024;
 /// Region align
 const REGION_ALIGN: usize = 16;
 
-/// Amount of ticks of inactivity to consider heap as IDLE
-const HEAP_IDLE_THRESHOLD: u64 = 5;
-
 pub struct Heap {
     /// A/B region pools.
     /// While Pool A clears in purge(), pool B used in alloc,
@@ -36,14 +31,8 @@ pub struct Heap {
     /// Arced allocator stats
     stats: Arc<AllocatorStats>,
 
-    /// Arced ticker
-    ticker: Arc<Ticker>,
-
     /// Arced mi heap instance
     mi_heap: Arc<MiHeap>,
-
-    /// Last access tick
-    last_access: AtomicU64,
 
     /// Generation
     generation: usize,
@@ -61,14 +50,7 @@ impl Heap {
         generation: usize,
         mi_heap: Arc<MiHeap>,
         stats: Arc<AllocatorStats>,
-        ticker: Arc<Ticker>,
     ) -> Self {
-        // Initialise last_access to the current tick so that a brand-new heap
-        // is never considered idle (is_idle() = false) until it has actually
-        // gone unused for HEAP_IDLE_THRESHOLD ticks. Starting at 0 would make
-        // every heap created after 30 ticks of uptime immediately collectible.
-        let initial_tick = ticker.get_current_tick();
-
         Self {
             generation,
             sheap_id,
@@ -76,8 +58,6 @@ impl Heap {
             pools: [RwLock::new(Vec::new()), RwLock::new(Vec::new())],
             mi_heap,
             stats,
-            last_access: AtomicU64::new(initial_tick),
-            ticker,
             alloc_count: AtomicUsize::new(0),
         }
     }
@@ -92,13 +72,6 @@ impl Heap {
         self.generation
     }
 
-    #[inline(always)]
-    fn update_last_access(&self) {
-        let current_tick = self.ticker.get_current_tick();
-
-        self.last_access
-            .store(current_tick, Ordering::Relaxed);
-    }
 
     /// Allocates memory from the region pool.
     ///
@@ -106,8 +79,6 @@ impl Heap {
     /// or if allocation genuinely fails (OOM).
     #[inline]
     pub fn try_alloc(&self, size: usize, align: usize) -> Option<*mut c_void> {
-        self.update_last_access();
-
         let pool_idx = self.active_pool_idx.load(Ordering::Acquire);
         let pool = &self.pools[pool_idx];
 
@@ -165,7 +136,8 @@ impl Heap {
 
         let new_count = alloc_count - 1;
         // if new_count == 0 {
-        //     log::debug!("Heap: free: 0 alloc_count!");
+        //     //log::debug!("Heap: free: calling automatic purge, because alloc counter is 0");
+        //     self.purge();
         // }
         self.alloc_count.store(new_count, Ordering::Release);
     }
@@ -192,8 +164,6 @@ impl Heap {
         if !pool_lock.is_empty() {
             pool_lock.clear();
         }
-
-        self.update_last_access();
 
         old_len
     }
@@ -232,13 +202,5 @@ impl Heap {
         }
 
         0
-    }
-
-    #[inline]
-    pub fn is_idle(&self) -> bool {
-        let last_access = self.last_access.load(Ordering::Relaxed);
-        let current_tick = self.ticker.get_current_tick();
-
-        current_tick - last_access >= HEAP_IDLE_THRESHOLD
     }
 }

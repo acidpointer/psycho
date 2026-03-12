@@ -8,12 +8,12 @@ use std::time::Duration;
 use libc::c_void;
 use libmimalloc::heap::MiHeap;
 
-use super::ticker::Ticker;
 use super::heap::Heap;
 use super::stats::AllocatorStats;
+use super::ticker::Ticker;
 
 /// Duration between GC cycles
-const GC_DURATION: Duration = Duration::from_millis(777);
+const GC_DURATION: Duration = Duration::from_millis(1000 * 5);
 
 /// ClashMap with FxHasher is beast
 type HeapMap<K, V> = clashmap::ClashMap<K, V, rustc_hash::FxBuildHasher>;
@@ -90,7 +90,7 @@ impl Runtime {
         let gc_handle = thread::spawn(move || {
             loop {
                 // Check run flag first
-                if gc_run.load(Ordering::Acquire) {
+                if !gc_run.load(Ordering::Acquire) {
                     return;
                 }
 
@@ -100,28 +100,23 @@ impl Runtime {
                 let curr_mem = stats.get_total_alloc_mem();
                 let heaps_len = pool.len();
 
-                if current_tick.is_multiple_of(8) {
-                    log::info!(
-                        "[SBM] [tick={}] Memory usage: ({} MB) ({} KB) ({} bytes);  Total heaps amount: {}",
-                        current_tick,
-                        curr_mem / 1024 / 1024,
-                        curr_mem / 1024,
-                        curr_mem,
-                        heaps_len
-                    );
-                }
+                log::info!(
+                    "[SBM] [tick={}] Memory usage: ({} MB) ({} KB) ({} bytes);  Total heaps amount: {}",
+                    current_tick,
+                    curr_mem / 1024 / 1024,
+                    curr_mem / 1024,
+                    curr_mem,
+                    heaps_len
+                );
 
                 for heap_ref in pool.iter() {
-                    if heap_ref.is_idle() {
-                        let purged_amount = heap_ref.checked_purge();
-
-                        if purged_amount > 0 {
-                            log::info!(
-                                "[GC] [sheap_id={:#x}] Heap purged {} regions (IDLE)",
-                                heap_ref.get_sheap_id(),
-                                purged_amount
-                            );
-                        }
+                    let purged_amount = heap_ref.checked_purge();
+                    if purged_amount > 0 {
+                        log::info!(
+                            "[GC] [sheap_id={:#x}] Heap purged {} regions (IDLE)",
+                            heap_ref.get_sheap_id(),
+                            purged_amount
+                        );
                     }
                 }
             }
@@ -172,12 +167,11 @@ impl Runtime {
         // Slow path: heap is missing (first use or post-GC) or all regions full.
         let mi_heap = self.mi_heap.clone();
         let stats = self.stats.clone();
-        let ticker = self.ticker.clone();
 
         let heap_ref = self.pool.entry(sheap_id).or_insert_with(|| {
             let generation = self.global_generation.fetch_add(1, Ordering::Relaxed);
 
-            Arc::new(Heap::new(sheap_id, generation, mi_heap, stats, ticker))
+            Arc::new(Heap::new(sheap_id, generation, mi_heap, stats))
         });
 
         if let Some(ptr) = heap_ref.try_alloc(size, align) {
