@@ -1,32 +1,112 @@
 # Project PSYCHO
 
-Something that started as fun attempt to write F4SE mod which replace Fallout 4 memory allocator with `MiMalloc`.
+> *Psycho was always in the Wasteland. Now it's in your engine.*
 
-Rust - is perfect choice for game modding as it can protect developer from large amount of errors. For game modding it's actually critical, because it involves low-level memory manipulation and other hacks which may break game or introduce hard to debug errors.
+An experimental NVSE plugin written entirely in **Rust** that replaces core Fallout: New Vegas engine subsystems with modern, high-performance alternatives. Started as a fun attempt to write a memory allocator replacement, grew into a full Rust modding infrastructure for Bethesda-engine games.
 
-Why psycho? In Fallout 4 modding we have good tradition to name some core plugin with chem:
-- (Buffout 4 NG)[https://google.com]
+Source: [https://github.com/acidpointer/psycho](https://github.com/acidpointer/psycho)
 
-# Project structure
+---
 
-- `libpsycho` - core hacking library and winapi wrapper
-- `libmimalloc` - fork of `mimalloc` crate. It uses more recent c library sources and may contain other changes.
-- `libf4se` - in-progress bindings to F4SE. Support ONLY Fallout 4 1.10.163 (old-gen) and small subset of F4SE C API. Also introduce various abstractions to make modding even easier.
-- `drifter` - runtime testing utility which is main tool for `libpsycho` testing
-- `psycho-fo4` - experimental in-progress plugin for Fallout 4. All project started from here :D
+## Why Rust?
 
-# Cross compilation
+Rust is a natural fit for game modding. Modding inherently involves unsafe low-level memory manipulation, hooking, and patching — exactly the domain where memory safety bugs are most destructive and hardest to debug. Rust lets you write unsafe code where necessary while keeping the rest of the codebase honest. The compiler catches entire categories of bugs before they become a 3-hour debugging session in x64dbg.
 
-I know, it's strange to have supported cross-compilation for game hacking project. But why not? Lots of developers use Linux for coding and gaming, so we will support them!
+---
 
-## Supported targets
+## Workspace Structure
 
-- `x86_64-pc-windows-gnu` - Windows cross-compilation with `mingw-w64`. Works fine, `rust-analyzer` support it out of the box. Produce large binaries which may be inacceptable for some cases
+### `psycho-nvse`
+The main plugin. A `cdylib` loaded by xNVSE at startup. Performs all engine patches:
+- CRT allocator replacement via IAT hooks (mimalloc)
+- Scrap heap replacement (custom region bump allocator)
+- zlib reimplementation (zlib-rs backend)
 
-- `x86_64-pc-windows-msvc` - Windows cross-compilation with LLVM and `cargo-xwin`. produce small binaries, but not supported by `rust-analyzer`. 
+### `libpsycho`
+Core library providing the low-level infrastructure everything else is built on.
 
-Support for `i686-pc-windows-gnu` and `i686-pc-windows-msvc` planned too, but it's low priority task. While code developed with 32 bit support in mind, it's absolutely not tested.
+- **WinAPI wrappers** — safe abstractions over `VirtualProtect`, memory patching, NOP/CALL writing, PE parsing, and related Win32 operations
+- **IAT hooking** — rewrites Import Address Table entries at runtime to redirect function calls
+- **Inline hooking** — JMP-trampoline hooks with disassembly-aware trampoline generation via `iced-x86`. Handles cases where patching overwrites partial instructions correctly
+- **VMT hooking** — Virtual Method Table hooking, implemented but not yet battle-tested in production
+- **Logging** — a forked `simplelog` with a threaded writer backend. Log calls return immediately; a dedicated thread handles the actual I/O. Suitable for high-frequency logging scenarios without stalling the game thread
 
-# Help needed!
+### `libnvse`
+Rust bindings to **xNVSE**, auto-generated from official C++ headers via `bindgen` at build time. Provides safe(r) Rust wrappers around the raw FFI types. Work in progress — not all of the xNVSE API surface is covered, but enough to write functional plugins without touching C++.
 
-I appreciate any help. Development of such project is complex task. I absolute beginner in unsafe Rust and so low level programming, so my approaches may not be the best. Any help is investment in large community of game moders. Let's build something cool!
+Uses `closure-ffi` for safely passing Rust closures across FFI boundaries.
+
+### `libmimalloc`
+A fork of the `mimalloc` Rust crate tracking the upstream mimalloc C library directly rather than waiting on crates.io releases. Exposes:
+- A global allocator interface (implements `GlobalAlloc`)
+- A per-heap `MiHeap` API used internally by the scrap heap replacer
+
+### `libf4se`
+⚠️ **Deprecated.** Early-stage Rust bindings to **F4SE** for Fallout 4. Supports only old-gen (1.10.163) and a small subset of the F4SE C API. Not actively maintained.
+
+Still usable as a starting point or reference for anyone wanting to build Fallout 4 tooling in Rust. The infrastructure in `libpsycho` is fully compatible.
+
+---
+
+## Dependencies
+
+Key third-party crates used across the workspace:
+
+| Crate | Purpose |
+|---|---|
+| `parking_lot` | Fast synchronization primitives — `Mutex`, `RwLock`, `Once`. Significantly faster than `std::sync` equivalents |
+| `clashmap` | Concurrent hashmap (fork of DashMap). Used for the scrap heap registry and other shared concurrent state |
+| `rustc-hash` (`FxHash`) | Extremely fast non-cryptographic hasher. Used where key distribution is trusted and speed matters |
+| `ahash` | Fast, DoS-resistant non-cryptographic hasher. Used where slightly more hash quality is needed |
+| `crossbeam-queue` | Lock-free MPMC queue used in the GC and thread communication |
+| `iced-x86` | x86/x64 disassembler and assembler. Used by the inline hook engine for instruction-aware trampoline generation |
+| `goblin` | PE32/PE64 binary parsing. Used for IAT resolution and module inspection |
+| `windows` | Official Microsoft Rust bindings to the Windows API |
+| `libz-rs-sys` | Rust-native zlib reimplementation (zlib-rs). Drop-in replacement for the C zlib ABI |
+| `closure-ffi` | Safely pass Rust closures across FFI boundaries |
+| `anyhow` / `thiserror` | Error handling |
+| `bindgen` | Auto-generate Rust FFI bindings from C/C++ headers (build dependency for `libnvse`) |
+
+---
+
+## Cross-Compilation
+
+The project is developed on **Linux** and **cross-compiled to Windows targets**. This is a deliberate design constraint, not an afterthought.
+
+### Supported Targets
+
+| Target | Toolchain | Notes |
+|---|---|---|
+| `i686-pc-windows-gnu` | `mingw-w64` | Only supported target. 32-bit, required for FNV/xNVSE compatibility. Full `rust-analyzer` support |
+
+The codebase is written with 32-bit in mind throughout. All pointer arithmetic and struct layouts account for 32-bit targets. Other targets are not supported.
+
+---
+
+## Building
+
+```sh
+# Install the target
+rustup target add i686-pc-windows-gnu
+
+# Build the plugin
+cargo build --release --target i686-pc-windows-gnu -p psycho-nvse
+```
+
+Requires `mingw-w64` (`i686-w64-mingw32-gcc`) on `$PATH`.
+
+---
+
+## Contributing
+
+Contributions are welcome — especially on the library side (`libpsycho`, `libnvse`). The more complete and robust these become, the more useful the infrastructure is for the broader Rust modding community.
+
+If you want to write your own NVSE plugin in Rust, this repository is a working starting point. The libraries are designed to be reusable independently of `psycho-nvse` itself.
+
+Bug reports, API improvements, new hook types, better test coverage — all appreciated. Open an issue or a PR on GitHub.
+
+---
+
+## Inspiration
+
+This project started after reading the source code of **NVHR (New Vegas Heap Replacer)**. NVHR is a well-engineered mod and worth reading. Psycho asks what the same problem space looks like approached entirely in Rust.
