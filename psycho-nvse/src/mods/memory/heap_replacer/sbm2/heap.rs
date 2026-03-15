@@ -1,12 +1,15 @@
+#![allow(clippy::vec_box)]
+
 use super::region::Region;
 use super::stats::AllocatorStats;
 use super::runtime::SeqQueue;
 
 use crossfire::flavor::Queue;
 use libc::c_void;
-use parking_lot::RwLock;
+use parking_lot::Mutex;
+use std::ptr;
 use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicPtr, AtomicUsize, Ordering, fence};
 
 /// Region size in bytes
 /// Recommended values:
@@ -21,14 +24,19 @@ const REGION_SIZE: usize = 256 * 1024;
 const REGION_ALIGN: usize = 16;
 
 pub struct Heap {
-    /// Region pool protected by RwLock.
-    /// Read lock for allocation (fast path), write lock for new region creation.
-    pool: RwLock<Vec<Region>>,
+    /// Region pool — Mutex, only taken on slow path (new region / purge).
+    /// Box<Region> ensures stable pointers across Vec growth.
+    pool: Mutex<Vec<Box<Region>>>,
+
+    /// Current (last) region for lock-free fast-path allocation.
+    /// Loaded with Acquire, stored with Release. Null after purge.
+    hot_region: AtomicPtr<Region>,
 
     /// Shared allocator statistics — owned by Runtime, outlives all Heaps.
     stats: Arc<AllocatorStats>,
 
-    /// Live allocation count — only modified after confirmed success
+    /// Live allocation count.
+    /// Pre-incremented on fast path to prevent concurrent GC purge.
     alloc_count: AtomicUsize,
 
     /// Whether this heap's ID is already in the GC queue.
@@ -52,7 +60,8 @@ impl Heap {
         stats: Arc<AllocatorStats>,
     ) -> Self {
         Self {
-            pool: RwLock::new(Vec::with_capacity(8)),
+            pool: Mutex::new(Vec::with_capacity(8)),
+            hot_region: AtomicPtr::new(ptr::null_mut()),
             gc_queue,
             stats,
             alloc_count: AtomicUsize::new(0),
@@ -67,55 +76,68 @@ impl Heap {
         self.generation.load(Ordering::Acquire)
     }
 
-    /// Allocates memory from the region pool.
+    /// Lock-free fast-path allocation.
     ///
-    /// Fast path: read lock, try last region (lock-free bump inside region).
-    /// Slow path: write lock, create new region, allocate from it.
+    /// Pre-increments `alloc_count` to prevent concurrent GC purge from
+    /// freeing the hot region while we're using it. Rolls back on failure.
     ///
-    /// `alloc_count` is only incremented AFTER confirmed allocation success.
+    /// Caller must have validated generation (TLC check).
     #[inline]
-    pub fn try_alloc(&self, size: usize, align: usize) -> Option<*mut c_void> {
-        // Fast path: read lock — allocate from last (newest) region
-        {
-            let pool = self.pool.read();
+    pub fn try_alloc_fast(&self, size: usize, align: usize) -> Option<*mut c_void> {
+        // Pre-increment: prevents GC checked_purge from seeing 0 and purging
+        self.alloc_count.fetch_add(1, Ordering::Relaxed);
 
-            if let Some(last_region) = pool.last()
-                && let Some(ptr) = last_region.allocate(size, align)
-            {
-                self.alloc_count.fetch_add(1, Ordering::Release);
-                return Some(ptr.as_ptr());
-            }
-        }
-
-        // Slow path: write lock — create a new region
-        {
-            let mut pool = self.pool.write();
-
-            // Re-check: another thread may have pushed a new region
-            if let Some(last_region) = pool.last()
-                && let Some(ptr) = last_region.allocate(size, align)
-            {
-                self.alloc_count.fetch_add(1, Ordering::Release);
+        let region = self.hot_region.load(Ordering::Acquire);
+        if !region.is_null()
+            && let Some(ptr) = unsafe { &*region }.allocate(size, align) {
                 return Some(ptr.as_ptr());
             }
 
-            // Oversized allocations get a dedicated region
-            let region_capacity = REGION_SIZE.max(size + align + 4);
-
-            // Pass &AllocatorStats — Region stores raw pointer, no Arc clone
-            if let Some(region) = Region::new(
-                region_capacity,
-                REGION_ALIGN,
-                &self.stats,
-            ) && let Some(ptr) = region.allocate(size, align)
-            {
-                pool.push(region);
-                self.alloc_count.fetch_add(1, Ordering::Release);
-                return Some(ptr.as_ptr());
-            }
-        }
-
+        // Allocation failed — rollback the pre-increment
+        self.rollback_alloc_count();
         None
+    }
+
+    /// Slow path — takes Mutex, creates new region if needed.
+    #[cold]
+    pub fn try_alloc_slow(&self, size: usize, align: usize) -> Option<*mut c_void> {
+        let mut pool = self.pool.lock();
+
+        // Re-check: another thread may have pushed a new region while we waited
+        if let Some(last) = pool.last()
+            && let Some(ptr) = last.allocate(size, align) {
+                self.hot_region.store(&**last as *const Region as *mut Region, Ordering::Release);
+                self.alloc_count.fetch_add(1, Ordering::Relaxed);
+                return Some(ptr.as_ptr());
+            }
+
+        // Oversized allocations get a dedicated region
+        let region_capacity = REGION_SIZE.max(size + align + 4);
+
+        // Pass &AllocatorStats — Region stores raw pointer, no Arc clone
+        let region = Region::new(region_capacity, REGION_ALIGN, &self.stats)?;
+        let ptr = region.allocate(size, align)?;
+
+        let boxed = Box::new(region);
+        let region_ptr = &*boxed as *const Region as *mut Region;
+        pool.push(boxed);
+
+        self.hot_region.store(region_ptr, Ordering::Release);
+        self.alloc_count.fetch_add(1, Ordering::Relaxed);
+
+        Some(ptr.as_ptr())
+    }
+
+    /// Rollback a pre-incremented alloc_count and check if GC should be queued.
+    #[inline]
+    fn rollback_alloc_count(&self) {
+        let prev = self.alloc_count.fetch_sub(1, Ordering::Relaxed);
+
+        // If our rollback dropped count to 0, another thread's free() may have
+        // missed the prev==1 trigger. Enqueue for GC to prevent leak.
+        if prev == 1 {
+            self.try_enqueue_gc();
+        }
     }
 
     /// Decrements the allocation count and enqueues for GC if count reaches zero.
@@ -124,16 +146,22 @@ impl Heap {
         let prev = self.alloc_count.fetch_sub(1, Ordering::Release);
 
         // prev is the value BEFORE subtraction, so prev == 1 means new count is 0
-        if prev == 1
-            && !self.gc_queued.swap(true, Ordering::Acquire)
-            && let Err(failed_id) = self.gc_queue.push(self.sheap_id)
-        {
-            log::error!(
-                "heap: free: failed to push sheap_id={:#x} to gc_queue!",
-                failed_id
-            );
-            self.gc_queued.store(false, Ordering::Release);
+        if prev == 1 {
+            self.try_enqueue_gc();
         }
+    }
+
+    /// Enqueue this heap for GC if not already queued.
+    #[inline]
+    fn try_enqueue_gc(&self) {
+        if !self.gc_queued.swap(true, Ordering::Acquire)
+            && let Err(failed_id) = self.gc_queue.push(self.sheap_id) {
+                log::error!(
+                    "heap: failed to push sheap_id={:#x} to gc_queue!",
+                    failed_id
+                );
+                self.gc_queued.store(false, Ordering::Release);
+            }
     }
 
     /// Purge all regions. Called by game-initiated sheap resets.
@@ -142,9 +170,64 @@ impl Heap {
     ///
     /// # Warning
     /// All allocations from this heap become invalid after this call.
+    /// Game must ensure no concurrent allocations on this sheap.
     #[inline]
     pub fn purge(&self) -> usize {
-        let mut pool = self.pool.write();
+        let mut pool = self.pool.lock();
+        self.purge_inner(&mut pool)
+    }
+
+    /// GC-initiated purge. Only purges if no threads are actively using this heap.
+    ///
+    /// Uses Dekker-style mutual exclusion with `try_alloc_fast`:
+    /// - GC writes `hot_region = null`, then reads `alloc_count`
+    /// - Allocator writes `alloc_count += 1`, then reads `hot_region`
+    /// - SeqCst fence ensures at least one side sees the other's write
+    ///
+    /// This guarantees: either GC sees alloc_count > 0 (aborts), or the
+    /// allocator sees hot_region == null (gets None, rolls back).
+    #[inline]
+    pub fn checked_purge(&self) -> usize {
+        self.gc_queued.store(false, Ordering::Release);
+
+        // Quick check without lock — avoids Mutex if heap is active
+        if self.alloc_count.load(Ordering::Acquire) != 0 {
+            return 0;
+        }
+
+        let mut pool = self.pool.lock();
+
+        // Null hot_region under Mutex: no new fast-path allocs can succeed after this
+        self.hot_region.store(ptr::null_mut(), Ordering::Release);
+
+        // SeqCst fence: prevents x86 store-load reorder between the null store
+        // above and the alloc_count re-check below. Without this, GC could read
+        // a stale alloc_count == 0 while a thread already loaded the old hot_region.
+        fence(Ordering::SeqCst);
+
+        // Re-check: a fast-path alloc may have pre-incremented between our
+        // lockless check and nulling hot_region. Since hot_region is now null,
+        // no new fast-path allocs can succeed — but an in-flight one may have
+        // already loaded the old pointer. If alloc_count > 0, that thread is
+        // still using the region, so we must NOT free it.
+        if self.alloc_count.load(Ordering::Acquire) != 0 {
+            // Restore hot_region — someone has an active allocation
+            if let Some(last) = pool.last() {
+                self.hot_region.store(
+                    &**last as *const Region as *mut Region,
+                    Ordering::Release,
+                );
+            }
+            return 0;
+        }
+
+        // alloc_count == 0 AND hot_region is null → safe to purge
+        self.purge_inner(&mut pool)
+    }
+
+    /// Actual purge logic. Caller must hold the Mutex.
+    fn purge_inner(&self, pool: &mut Vec<Box<Region>>) -> usize {
+        self.hot_region.store(ptr::null_mut(), Ordering::Release);
 
         let old_len = pool.len();
         pool.clear();
@@ -155,19 +238,5 @@ impl Heap {
         self.generation.fetch_add(1, Ordering::Release);
 
         old_len
-    }
-
-    /// GC-initiated purge. Only purges if alloc_count == 0.
-    /// Goes straight to write lock — no double-lock overhead.
-    #[inline]
-    pub fn checked_purge(&self) -> usize {
-        // Clear the queued flag — we're processing this entry
-        self.gc_queued.store(false, Ordering::Release);
-
-        if self.alloc_count.load(Ordering::Acquire) == 0 {
-            return self.purge();
-        }
-
-        0
     }
 }

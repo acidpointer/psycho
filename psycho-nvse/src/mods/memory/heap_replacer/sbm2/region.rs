@@ -60,28 +60,32 @@ impl Region {
     /// Uses a single `fetch_add` to reserve space atomically.
     /// Concurrent threads can allocate from the same region without locking.
     ///
-    /// Reservation is `align_up(size + 4, align)` — tighter than naive
-    /// `size + align + 4` because the 4-byte header fits in alignment padding.
+    /// Reservation uses the tight formula `align_up(size + 4, align)` which
+    /// packs consecutive allocations without gaps (each allocation's alignment
+    /// padding absorbs the previous one's overflow). The bounds check uses
+    /// the exact write range (`data_addr + size`) rather than the reservation,
+    /// because the last allocation's footprint can exceed its reservation by
+    /// up to `align - 1` bytes (no subsequent allocation to absorb the gap).
     #[inline]
     pub fn allocate(&self, size: usize, align: usize) -> Option<NonNull<c_void>> {
-        // Tight reservation: header (4 bytes) + data (size), rounded up to align.
-        // The header always fits in the alignment gap when align >= 4 (always true
-        // since sheap_alloc forces align >= 16).
         let reservation = align_up(size + 4, align);
 
         // Single atomic op. No loop, no contention retries.
         let old_offset = self.offset.fetch_add(reservation, Ordering::Relaxed);
 
-        if old_offset + reservation > self.capacity {
-            // Region is full. Wasted reservation is acceptable for 256KB regions.
-            return None;
-        }
-
         let start_addr = self.start.as_ptr() as usize;
+        let end_addr = start_addr + self.capacity;
 
         let min_data_addr = start_addr + old_offset + 4;
         let data_addr = align_up(min_data_addr, align);
         let header_addr = data_addr - 4;
+
+        // Exact bounds check: verify header + data fit within the region.
+        // This catches both normal exhaustion and the boundary case where
+        // alignment padding pushes the write past the reservation range.
+        if data_addr + size > end_addr {
+            return None;
+        }
 
         unsafe {
             // Write inline size header

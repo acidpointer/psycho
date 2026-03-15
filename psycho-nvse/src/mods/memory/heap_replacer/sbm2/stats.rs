@@ -6,8 +6,6 @@ pub struct AllocatorStats {
     total_allocated_mem: AtomicU64,
 }
 
-
-
 impl AllocatorStats {
     pub fn new() -> Self {
         Self {
@@ -15,7 +13,6 @@ impl AllocatorStats {
         }
     }
 
-    
     #[inline]
     pub(super) fn add_total_alloc_mem(&self, size: u64) -> u64 {
         self.total_allocated_mem.fetch_add(size, Ordering::Relaxed)

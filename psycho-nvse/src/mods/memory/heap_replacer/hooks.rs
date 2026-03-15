@@ -284,4 +284,3 @@ pub(super) unsafe extern "fastcall" fn sheap_free(
 pub(super) unsafe extern "fastcall" fn sheap_purge(sheap_ptr: *mut c_void, _edx: *mut c_void) {
     Runtime::get_instance().purge(sheap_ptr);
 }
-

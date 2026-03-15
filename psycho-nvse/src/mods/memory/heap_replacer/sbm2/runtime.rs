@@ -169,10 +169,42 @@ impl Runtime {
         f(heap)
     }
 
+    /// Allocates memory from the scrap heap.
+    ///
+    /// Ultra-fast path: TLC hit + lock-free bump from hot_region (zero locks).
+    /// Fast path: TLC hit + Mutex slow alloc (new region creation).
+    /// Cold path: ClashMap lookup + slow alloc.
     #[inline]
     pub fn alloc(&self, sheap_ptr: *mut c_void, size: usize, align: usize) -> *mut c_void {
-        self.with_heap(sheap_ptr, |heap| {
-            heap.try_alloc(size, align).unwrap_or(null_mut())
+        let sheap_id = sheap_ptr as usize;
+        let tlc = TLC.with(|c| c.get());
+
+        if tlc.sheap_id == sheap_id && !tlc.heap.is_null() {
+            let heap = unsafe { &*tlc.heap };
+
+            if heap.get_generation() == tlc.generation {
+                // Ultra-fast: lock-free bump from hot_region
+                if let Some(ptr) = heap.try_alloc_fast(size, align) {
+                    return ptr;
+                }
+
+                // Hot region full: slow path (Mutex, new region)
+                return heap.try_alloc_slow(size, align).unwrap_or(null_mut());
+            }
+        }
+
+        // Cold: ClashMap lookup
+        self.alloc_cold(sheap_id, size, align)
+    }
+
+    #[cold]
+    fn alloc_cold(&self, sheap_id: usize, size: usize, align: usize) -> *mut c_void {
+        self.with_heap_slow(sheap_id, |heap| {
+            // After ClashMap lookup, try fast path first (hot_region may exist)
+            if let Some(ptr) = heap.try_alloc_fast(size, align) {
+                return ptr;
+            }
+            heap.try_alloc_slow(size, align).unwrap_or(null_mut())
         })
     }
 
