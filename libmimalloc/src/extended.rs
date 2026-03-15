@@ -487,66 +487,111 @@ pub const mi_option_show_stats: mi_option_t = 1;
 /// Print verbose messages to `stderr`.
 pub const mi_option_verbose: mi_option_t = 2;
 
-/// ### The following options are experimental
-///
-/// Option (experimental) Use large OS pages (2MiB in size) if possible.
-///
-/// Use large OS pages (2MiB) when available; for some workloads this can
-/// significantly improve performance. Use mi_option_verbose to check if
-/// the large OS pages are enabled -- usually one needs to explicitly allow
-/// large OS pages (as on Windows and Linux). However, sometimes the OS is
-/// very slow to reserve contiguous physical memory for large OS pages so
-/// use with care on systems that can have fragmented memory (for that
-/// reason, we generally recommend to use mi_option_reserve_huge_os_pages
-/// instead whenever possible).
-pub const mi_option_large_os_pages: mi_option_t = 6;
+// ---- advanced options ----
 
-/// Option (experimental) The number of huge OS pages (1GiB in size) to reserve at the start of the program.
-///
-/// This reserves the huge pages at startup and sometimes this can give a large (latency) performance
-/// improvement on big workloads. Usually it is better to not use MIMALLOC_LARGE_OS_PAGES in
-/// combination with this setting. Just like large OS pages, use with care as reserving contiguous
-/// physical memory can take a long time when memory is fragmented (but reserving the huge pages is
-/// done at startup only once). Note that we usually need to explicitly enable huge OS pages (as on
-/// Windows and Linux)). With huge OS pages, it may be beneficial to set the setting
-/// mi_option_eager_commit_delay=N (N is 1 by default) to delay the initial N segments (of 4MiB) of
-/// a thread to not allocate in the huge OS pages; this prevents threads that are short lived and
-/// allocate just a little to take up space in the huge OS page area (which cannot be reset).
+/// Eager commit arenas. Use 2 to enable just on overcommit systems (=2).
+pub const mi_option_arena_eager_commit: mi_option_t = 4;
+
+/// Should a memory purge decommit? (=1).
+/// Set to 0 to use memory reset on a purge (instead of decommit).
+pub const mi_option_purge_decommits: mi_option_t = 5;
+
+/// Allow use of large (2 or 4 MiB) OS pages, implies eager commit.
+pub const mi_option_allow_large_os_pages: mi_option_t = 6;
+/// Legacy alias.
+pub const mi_option_large_os_pages: mi_option_t = mi_option_allow_large_os_pages;
+
+/// Reserve N huge OS pages (1GiB pages) at startup.
 pub const mi_option_reserve_huge_os_pages: mi_option_t = 7;
 
-/// Option (experimental) Reserve huge OS pages at node N.
-///
-/// The huge pages are usually allocated evenly among NUMA nodes.
-/// You can use mi_option_reserve_huge_os_pages_at=N where `N` is the numa node (starting at 0) to allocate all
-/// the huge pages at a specific numa node instead.
+/// Reserve huge OS pages at a specific NUMA node.
 pub const mi_option_reserve_huge_os_pages_at: mi_option_t = 8;
 
-/// Option (experimental) Reserve specified amount of OS memory at startup, e.g. "1g" or "512m".
+/// Reserve specified amount of OS memory in an arena at startup
+/// (internally in KiB; use `mi_option_get_size`).
 pub const mi_option_reserve_os_memory: mi_option_t = 9;
 
-/// Option (experimental) the first N segments per thread are not eagerly committed (=1).
-pub const mi_option_eager_commit_delay: mi_option_t = 14;
+/// Memory purging is delayed by N milliseconds.
+/// Use 0 for immediate purging or -1 for no purging at all. (=10)
+pub const mi_option_purge_delay: mi_option_t = 15;
 
-/// Option (experimental) Pretend there are at most N NUMA nodes; Use 0 to use the actual detected NUMA nodes at runtime.
+/// 0 = use all available NUMA nodes, otherwise use at most N nodes.
 pub const mi_option_use_numa_nodes: mi_option_t = 16;
 
-/// Option (experimental) If set to 1, do not use OS memory for allocation (but only pre-reserved arenas)
-pub const mi_option_limit_os_alloc: mi_option_t = 17;
+/// 1 = do not use OS memory for allocation (but only pre-reserved arenas).
+pub const mi_option_disallow_os_alloc: mi_option_t = 17;
+/// Legacy alias.
+pub const mi_option_limit_os_alloc: mi_option_t = mi_option_disallow_os_alloc;
 
-/// Option (experimental) OS tag to assign to mimalloc'd memory
+/// OS tag to assign to mimalloc'd memory (macOS only, =100).
 pub const mi_option_os_tag: mi_option_t = 18;
 
-/// Option (experimental)
+/// Issue at most N error messages.
 pub const mi_option_max_errors: mi_option_t = 19;
 
-/// Option (experimental)
+/// Issue at most N warning messages.
 pub const mi_option_max_warnings: mi_option_t = 20;
 
-/// Option (experimental)
-pub const mi_option_max_segment_reclaim: mi_option_t = 21;
+/// If set, release all memory on exit; can be unsafe for dynamic unloading.
+pub const mi_option_destroy_on_exit: mi_option_t = 22;
 
-/// Last option.
-pub const _mi_option_last: mi_option_t = 37;
+/// Initial memory size for arena reservation (=1GiB on 64-bit)
+/// (internally in KiB; use `mi_option_get_size`).
+pub const mi_option_arena_reserve: mi_option_t = 23;
+
+/// Multiplier for `purge_delay` for arena purging delay (=10).
+pub const mi_option_arena_purge_mult: mi_option_t = 24;
+
+/// 1 = do not use arenas for allocation (except with specific arena IDs).
+pub const mi_option_disallow_arena_alloc: mi_option_t = 26;
+
+/// Retry on out-of-memory for N milliseconds (=400). Windows only. 0 = disable.
+pub const mi_option_retry_on_oom: mi_option_t = 27;
+
+/// Allow visiting heap blocks from abandoned threads (=0).
+pub const mi_option_visit_abandoned: mi_option_t = 28;
+
+/// Collect theaps every N generic allocation calls (=10000).
+pub const mi_option_generic_collect: mi_option_t = 34;
+
+/// Reclaim abandoned pages on a free (=0).
+/// -1 = disallow always, 0 = allow if page originated from current theap, 1 = allow always.
+pub const mi_option_page_reclaim_on_free: mi_option_t = 35;
+
+/// Retain N full (small) pages per size class (=2).
+pub const mi_option_page_full_retain: mi_option_t = 36;
+
+/// Max candidate pages to consider for allocation (=4).
+pub const mi_option_page_max_candidates: mi_option_t = 37;
+
+/// Max user space virtual address bits to consider (=48).
+pub const mi_option_max_vabits: mi_option_t = 38;
+
+/// Commit the full pagemap to catch invalid pointer uses (=0).
+pub const mi_option_pagemap_commit: mi_option_t = 39;
+
+/// Commit page memory on-demand.
+pub const mi_option_page_commit_on_demand: mi_option_t = 40;
+
+/// Don't reclaim pages from the same theap if we already own N pages
+/// in that size class (=-1, unlimited).
+pub const mi_option_page_max_reclaim: mi_option_t = 41;
+
+/// Don't reclaim pages across threads if we already own N pages
+/// in that size class (=16).
+pub const mi_option_page_cross_thread_max_reclaim: mi_option_t = 42;
+
+/// Allow transparent huge pages (=1, Android =0). Set to 0 to disable THP.
+pub const mi_option_allow_thp: mi_option_t = 43;
+
+/// Minimal purge size in KiB (=0). Defaults to 64 or 2048 if THP enabled.
+pub const mi_option_minimal_purge_size: mi_option_t = 44;
+
+/// Max object size for arena allocation in KiB (=2GiB on 64-bit).
+pub const mi_option_arena_max_object_size: mi_option_t = 45;
+
+/// Last option sentinel.
+pub const _mi_option_last: mi_option_t = 46;
 
 unsafe extern "C" {
     // Note: mi_option_{enable,disable} aren't exposed because they're redundant
@@ -610,6 +655,17 @@ unsafe extern "C" {
     ///
     /// Note: this function is not thread safe.
     pub fn mi_option_set_default(option: mi_option_t, value: c_long);
+
+    /// Returns the value of the provided option, clamped to [min, max].
+    ///
+    /// Note: this function is not thread safe.
+    pub fn mi_option_get_clamp(option: mi_option_t, min: c_long, max: c_long) -> c_long;
+
+    /// Returns the size value of the provided option (in bytes).
+    /// Used for options specified in KiB internally (e.g. `mi_option_reserve_os_memory`).
+    ///
+    /// Note: this function is not thread safe.
+    pub fn mi_option_get_size(option: mi_option_t) -> usize;
 }
 
 /// First-class heaps that can be destroyed in one go.
