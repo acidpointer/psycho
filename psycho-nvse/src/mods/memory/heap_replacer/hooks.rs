@@ -195,7 +195,7 @@ pub(super) unsafe extern "thiscall" fn hook_gheap_msize(
 //
 // ===========================================================================
 
-use super::sbm::runtime::Runtime;
+use super::sbm2::runtime::Runtime;
 
 /// Game's scrap heap structure.
 /// Must match the game's struct layout exactly.
@@ -285,12 +285,3 @@ pub(super) unsafe extern "fastcall" fn sheap_purge(sheap_ptr: *mut c_void, _edx:
     Runtime::get_instance().purge(sheap_ptr);
 }
 
-pub(super) unsafe extern "C" fn sheap_maintenance(sheap_ptr: *mut c_void) {
-    log::warn!(
-        "sheap_maintenance: maintenance function called! IDK why and how, but i'll purge sheap (sheap_ptr={:p})",
-        sheap_ptr
-    );
-
-    // Redirect the engine's internal maintenance to our safe purge
-    Runtime::get_instance().purge(sheap_ptr);
-}
