@@ -16,7 +16,7 @@ use parking_lot::Once;
 
 static CONFIG_MIMALLOC: Once = Once::new();
 
-pub(super) fn configure_mimalloc() {
+pub fn configure_mimalloc() {
     CONFIG_MIMALLOC.call_once(|| unsafe {
         // ---------------------------------------------------------------
         // Mimalloc is the GLOBAL allocator for the entire game process

@@ -1,15 +1,15 @@
 #![allow(clippy::vec_box)]
 
 use super::region::Region;
-use super::stats::AllocatorStats;
 use super::runtime::SeqQueue;
+use super::stats::AllocatorStats;
 
 use crossfire::flavor::Queue;
 use libc::c_void;
 use parking_lot::Mutex;
 use std::ptr;
-use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicPtr, AtomicUsize, Ordering, fence};
+use std::sync::Arc;
 
 /// Region size in bytes
 /// Recommended values:
@@ -23,34 +23,82 @@ const REGION_SIZE: usize = 256 * 1024;
 /// Region alignment
 const REGION_ALIGN: usize = 16;
 
-pub struct Heap {
-    /// Region pool — Mutex, only taken on slow path (new region / purge).
-    /// Box<Region> ensures stable pointers across Vec growth.
-    pool: Mutex<Vec<Box<Region>>>,
+// ---------------------------------------------------------------------------
+// Cache line layout
+// ---------------------------------------------------------------------------
+//
+// On x86, a cache line is 64 bytes. When multiple atomic fields share the
+// same cache line, writing to *any* of them invalidates the entire line for
+// every other core -- even cores that only *read* a different field on that
+// line. This is called "false sharing".
+//
+// The Heap struct is laid out so that fields with different access patterns
+// live on **separate cache lines**:
+//
+//   Line 1 (offset 0):   hot_region, generation    - READ-heavy on fast path
+//   Line 2 (offset 64):  alloc_count               - READ-WRITE (fetch_add/sub) on every alloc/free
+//   Line 3+ (offset 128): pool, stats, gc_*        - cold (slow path / purge only)
+//
+// This means:
+// - `alloc_count` bouncing between cores (alloc <-> free) does NOT invalidate
+//   the line holding `hot_region`/`generation`, so Dekker checks and TLC
+//   generation reads stay fast.
+// - `hot_region` writes (rare: GC purge, slow-path publish) do NOT invalidate
+//   the `alloc_count` line.
 
-    /// Current (last) region for lock-free fast-path allocation.
-    /// Loaded with Acquire, stored with Release. Null after purge.
+const CACHE_LINE: usize = 64;
+
+/// Scrap heap allocator for a single sheap identity.
+///
+/// See module-level docs for the cache line layout rationale.
+#[repr(C, align(64))]
+pub struct Heap {
+    // === Cache line 1: read-heavy on fast path ===
+    /// Dekker signal + last published region pointer.
+    ///
+    /// - Non-null: points to the most recently created/used `Region` in the pool.
+    ///   Used by `try_alloc_fast` purely as a **Dekker signal** (null = GC active).
+    ///   Also used by Runtime to seed the TLC region cache on cold path.
+    /// - Null: GC may be purging -- fast path must abort.
     hot_region: AtomicPtr<Region>,
 
-    /// Shared allocator statistics — owned by Runtime, outlives all Heaps.
-    stats: Arc<AllocatorStats>,
+    /// Generation counter -- incremented on purge to invalidate TLC entries.
+    generation: AtomicUsize,
 
+    // Pad to fill the rest of cache line 1.
+    // 2 * usize (AtomicPtr + AtomicUsize) on i686 = 8 bytes, pad to 64.
+    _pad_read: [u8; CACHE_LINE - 2 * size_of::<usize>()],
+
+    // === Cache line 2: RMW-heavy on fast path ===
     /// Live allocation count.
-    /// Pre-incremented on fast path to prevent concurrent GC purge.
+    ///
+    /// Incremented on every successful allocation (fast or slow path),
+    /// decremented on every `free()`. When it reaches 0, the heap is
+    /// enqueued for GC.
+    ///
+    /// Also serves as the allocator side of the Dekker protocol:
+    /// fast path does `alloc_count += 1` **before** reading `hot_region`,
+    /// preventing GC from seeing count == 0 while an allocation is in flight.
     alloc_count: AtomicUsize,
 
+    _pad_write: [u8; CACHE_LINE - size_of::<usize>()],
+
+    // === Cache line 3+: cold (slow path / purge only) ===
+    /// Region pool -- Mutex, only taken on slow path (new region / purge).
+    /// `Box<Region>` ensures stable pointers across `Vec` growth.
+    pool: Mutex<Vec<Box<Region>>>,
+
+    /// Shared allocator statistics -- owned by Runtime, outlives all Heaps.
+    stats: Arc<AllocatorStats>,
+
     /// Whether this heap's ID is already in the GC queue.
-    /// Prevents duplicate pushes on rapid alloc/free cycles.
     gc_queued: AtomicBool,
 
-    /// Reference to the shared GC queue
+    /// Reference to the shared GC queue.
     gc_queue: Arc<SeqQueue<usize>>,
 
-    /// Sheap identity (the sheap_ptr address used as key)
+    /// Sheap identity (the sheap_ptr address used as key).
     sheap_id: usize,
-
-    /// Generation counter — incremented on purge to invalidate TLC entries
-    generation: AtomicUsize,
 }
 
 impl Heap {
@@ -60,61 +108,104 @@ impl Heap {
         stats: Arc<AllocatorStats>,
     ) -> Self {
         Self {
-            pool: Mutex::new(Vec::with_capacity(8)),
             hot_region: AtomicPtr::new(ptr::null_mut()),
-            gc_queue,
-            stats,
-            alloc_count: AtomicUsize::new(0),
-            gc_queued: AtomicBool::new(false),
-            sheap_id,
             generation: AtomicUsize::new(0),
+            _pad_read: [0; CACHE_LINE - 2 * size_of::<usize>()],
+            alloc_count: AtomicUsize::new(0),
+            _pad_write: [0; CACHE_LINE - size_of::<usize>()],
+            pool: Mutex::new(Vec::with_capacity(8)),
+            stats,
+            gc_queued: AtomicBool::new(false),
+            gc_queue,
+            sheap_id,
         }
     }
 
+    /// Returns the current generation. Used by TLC to detect stale entries.
     #[inline(always)]
     pub fn get_generation(&self) -> usize {
         self.generation.load(Ordering::Acquire)
     }
 
-    /// Lock-free fast-path allocation.
+    /// Returns a raw pointer to the current hot region (may be null).
     ///
-    /// Pre-increments `alloc_count` to prevent concurrent GC purge from
-    /// freeing the hot region while we're using it. Rolls back on failure.
+    /// Used by Runtime to seed the TLC region cache after a slow-path
+    /// allocation or cold-path lookup. The returned pointer is valid
+    /// as long as the generation hasn't changed (i.e., no purge occurred).
+    #[inline(always)]
+    pub fn hot_region_ptr(&self) -> *const Region {
+        self.hot_region.load(Ordering::Acquire)
+    }
+
+    /// Lock-free fast-path allocation from a caller-provided region.
     ///
-    /// Caller must have validated generation (TLC check).
+    /// The caller (Runtime) provides a `&Region` from its thread-local cache.
+    /// This avoids contention on a shared `hot_region` pointer -- each thread
+    /// bumps its own cached region's offset independently.
+    ///
+    /// # Dekker protocol (GC safety)
+    ///
+    /// The pre-increment of `alloc_count` and the `hot_region` null-check form
+    /// a Dekker-style mutual exclusion with `checked_purge`:
+    ///
+    /// ```text
+    /// Allocator (this fn)           GC (checked_purge)
+    /// ---------------------         ----------------------
+    /// alloc_count += 1              hot_region = null
+    ///   | (x86: lock xadd             | (store)
+    ///      = full barrier)          SeqCst fence (mfence)
+    /// read hot_region               read alloc_count
+    /// ```
+    ///
+    /// At least one side sees the other's write:
+    /// - If the allocator sees `hot_region == null` -> aborts, rolls back count.
+    /// - If GC sees `alloc_count > 0` -> aborts purge.
+    /// - Both seeing the other's write is also safe (allocator aborts).
+    ///
+    /// On x86, `lock xadd` (fetch_add) provides a full barrier, so no
+    /// explicit fence is needed on the allocator side.
     #[inline]
-    pub fn try_alloc_fast(&self, size: usize, align: usize) -> Option<*mut c_void> {
-        // Pre-increment: prevents GC checked_purge from seeing 0 and purging
+    pub fn try_alloc_fast(&self, region: &Region, size: usize, align: usize) -> Option<*mut c_void> {
+        // Step 1: pre-increment (Dekker: write alloc_count)
         self.alloc_count.fetch_add(1, Ordering::Relaxed);
 
-        let region = self.hot_region.load(Ordering::Acquire);
-        if !region.is_null()
-            && let Some(ptr) = unsafe { &*region }.allocate(size, align) {
-                return Some(ptr.as_ptr());
-            }
+        // Step 2: Dekker check (read hot_region as GC signal)
+        if self.hot_region.load(Ordering::Acquire).is_null() {
+            self.rollback_alloc_count();
+            return None;
+        }
 
-        // Allocation failed — rollback the pre-increment
+        // Step 3: bump-allocate from the caller's cached region
+        if let Some(ptr) = region.allocate(size, align) {
+            return Some(ptr.as_ptr());
+        }
+
         self.rollback_alloc_count();
         None
     }
 
-    /// Slow path — takes Mutex, creates new region if needed.
+    /// Slow path -- takes Mutex, creates new region if needed.
+    ///
+    /// After a successful allocation, `hot_region` is updated to point to
+    /// the used region. The caller should read `hot_region_ptr()` to update
+    /// its thread-local region cache.
     #[cold]
     pub fn try_alloc_slow(&self, size: usize, align: usize) -> Option<*mut c_void> {
         let mut pool = self.pool.lock();
 
         // Re-check: another thread may have pushed a new region while we waited
         if let Some(last) = pool.last()
-            && let Some(ptr) = last.allocate(size, align) {
-                self.hot_region.store(&**last as *const Region as *mut Region, Ordering::Release);
-                self.alloc_count.fetch_add(1, Ordering::Relaxed);
-                return Some(ptr.as_ptr());
-            }
+            && let Some(ptr) = last.allocate(size, align)
+        {
+            self.hot_region
+                .store(&**last as *const Region as *mut Region, Ordering::Release);
+            self.alloc_count.fetch_add(1, Ordering::Relaxed);
+            return Some(ptr.as_ptr());
+        }
 
         // Oversized allocations get a dedicated region
         let region_capacity = REGION_SIZE.max(size + align + 4);
 
-        // Pass &AllocatorStats — Region stores raw pointer, no Arc clone
         let region = Region::new(region_capacity, REGION_ALIGN, &self.stats)?;
         let ptr = region.allocate(size, align)?;
 
@@ -155,13 +246,14 @@ impl Heap {
     #[inline]
     fn try_enqueue_gc(&self) {
         if !self.gc_queued.swap(true, Ordering::Acquire)
-            && let Err(failed_id) = self.gc_queue.push(self.sheap_id) {
-                log::error!(
-                    "heap: failed to push sheap_id={:#x} to gc_queue!",
-                    failed_id
-                );
-                self.gc_queued.store(false, Ordering::Release);
-            }
+            && let Err(failed_id) = self.gc_queue.push(self.sheap_id)
+        {
+            log::error!(
+                "heap: failed to push sheap_id={:#x} to gc_queue!",
+                failed_id
+            );
+            self.gc_queued.store(false, Ordering::Release);
+        }
     }
 
     /// Purge all regions. Called by game-initiated sheap resets.
@@ -179,18 +271,13 @@ impl Heap {
 
     /// GC-initiated purge. Only purges if no threads are actively using this heap.
     ///
-    /// Uses Dekker-style mutual exclusion with `try_alloc_fast`:
-    /// - GC writes `hot_region = null`, then reads `alloc_count`
-    /// - Allocator writes `alloc_count += 1`, then reads `hot_region`
-    /// - SeqCst fence ensures at least one side sees the other's write
-    ///
-    /// This guarantees: either GC sees alloc_count > 0 (aborts), or the
-    /// allocator sees hot_region == null (gets None, rolls back).
+    /// Uses Dekker-style mutual exclusion with `try_alloc_fast` -- see the
+    /// protocol diagram in `try_alloc_fast` docs.
     #[inline]
     pub fn checked_purge(&self) -> usize {
         self.gc_queued.store(false, Ordering::Release);
 
-        // Quick check without lock — avoids Mutex if heap is active
+        // Quick check without lock -- avoids Mutex if heap is active
         if self.alloc_count.load(Ordering::Acquire) != 0 {
             return 0;
         }
@@ -201,17 +288,13 @@ impl Heap {
         self.hot_region.store(ptr::null_mut(), Ordering::Release);
 
         // SeqCst fence: prevents x86 store-load reorder between the null store
-        // above and the alloc_count re-check below. Without this, GC could read
-        // a stale alloc_count == 0 while a thread already loaded the old hot_region.
+        // above and the alloc_count re-check below.
         fence(Ordering::SeqCst);
 
         // Re-check: a fast-path alloc may have pre-incremented between our
-        // lockless check and nulling hot_region. Since hot_region is now null,
-        // no new fast-path allocs can succeed — but an in-flight one may have
-        // already loaded the old pointer. If alloc_count > 0, that thread is
-        // still using the region, so we must NOT free it.
+        // lockless check and nulling hot_region. If alloc_count > 0, that thread
+        // is still using a region -- we must NOT free it.
         if self.alloc_count.load(Ordering::Acquire) != 0 {
-            // Restore hot_region — someone has an active allocation
             if let Some(last) = pool.last() {
                 self.hot_region.store(
                     &**last as *const Region as *mut Region,
@@ -221,7 +304,7 @@ impl Heap {
             return 0;
         }
 
-        // alloc_count == 0 AND hot_region is null → safe to purge
+        // alloc_count == 0 AND hot_region is null -> safe to purge
         self.purge_inner(&mut pool)
     }
 

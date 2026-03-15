@@ -87,7 +87,7 @@ impl ExeVersion {
     /// - Bits 0-3: sub version
     ///
     /// Note: Some script extenders (e.g., NVSE, OBSE) may omit an implicit
-    /// major version component, so "1.4.0.525" is stored as (4, 0, 525) → 0x040020D0
+    /// major version component, so "1.4.0.525" is stored as (4, 0, 525) -> 0x040020D0
     pub fn from_u32(version: u32) -> Self {
         let major = get_exe_version_major(version);
         let minor = get_exe_version_minor(version);

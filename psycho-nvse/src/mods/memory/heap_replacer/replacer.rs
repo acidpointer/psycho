@@ -12,7 +12,6 @@ use libpsycho::os::windows::{
 
 use super::hooks::*;
 use super::types::*;
-use crate::mods::memory::configure_mimalloc;
 
 // CRT allocator
 const CRT_MALLOC_ADDR_1: usize = 0x00ECD1C7;
@@ -172,8 +171,6 @@ pub fn install_game_heap_hooks() -> anyhow::Result<()> {
     // ===========================
     //   HOOKS
     // ===========================
-
-    configure_mimalloc();
 
     // Patch RNG
     {

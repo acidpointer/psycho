@@ -18,7 +18,7 @@ use windows::{
 
 use crate::{
     mods::{
-        memory::{install_crt_hooks, replacer::install_game_heap_hooks},
+        memory::{configure_mimalloc, install_crt_hooks, replacer::install_game_heap_hooks},
         zlib::install_zlib_hooks,
     },
     plugininfo,
@@ -50,6 +50,8 @@ pub extern "system" fn DllMain(hmodule: HINSTANCE, reason: u32, _reserved: LPVOI
             log::info!("Process attach - initializing");
 
             log::info!("(DllMain) HMODULE: {:p}", hmodule.0);
+
+            configure_mimalloc();
 
             CRT_IAT_HOOKS_INIT.call_once(|| match install_crt_hooks() {
                 Ok(_) => {
