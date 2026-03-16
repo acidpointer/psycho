@@ -2,7 +2,7 @@
 //!
 //! FNV calls `InitializeCriticalSection` 51 times throughout the engine,
 //! all with the default spin count of 0. This means every lock contention
-//! immediately transitions to kernel mode (expensive context switch ~15µs),
+//! immediately transitions to kernel mode (expensive context switch ~15us),
 //! even for locks held for only a few hundred nanoseconds.
 //!
 //! By hooking `InitializeCriticalSection` via IAT, we redirect all 51 call
@@ -23,8 +23,8 @@ use libpsycho::os::windows::{
 
 /// Spin count for all critical sections.
 /// 4096 is the recommended value from Microsoft for general-purpose locks.
-/// Each spin iteration is ~10ns on modern CPUs, so 4096 spins ≈ ~40µs max
-/// before falling back to kernel — well below the ~15µs+ context switch cost
+/// Each spin iteration is ~10ns on modern CPUs, so 4096 spins ~= ~40us max
+/// before falling back to kernel - well below the ~15us+ context switch cost
 /// that would happen at spin count 0.
 const CS_SPIN_COUNT: u32 = 4096;
 
@@ -37,7 +37,7 @@ pub static CS_INIT_IAT_HOOK: LazyLock<IatHookContainer<InitializeCriticalSection
 /// Our detour: calls `InitializeCriticalSectionAndSpinCount` with CS_SPIN_COUNT.
 ///
 /// # Safety
-/// The `cs` pointer must be a valid `LPCRITICAL_SECTION` — guaranteed by the
+/// The `cs` pointer must be a valid `LPCRITICAL_SECTION` - guaranteed by the
 /// caller (the game engine) since this replaces the original import.
 unsafe extern "system" fn hook_initialize_critical_section(cs: *mut c_void) {
     unsafe {

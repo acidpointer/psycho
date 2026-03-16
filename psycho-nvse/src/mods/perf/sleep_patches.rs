@@ -15,7 +15,7 @@
 //!
 //! Additionally, FUN_00c3dfa0 (data loading) uses Sleep(50ms) as a throttle
 //! when the loader is ahead of the consumer. Reducing to 1ms speeds up
-//! loading without risk — it's purely a yield.
+//! loading without risk - it's purely a yield.
 
 use libc::c_void;
 use libpsycho::os::windows::winapi::patch_bytes;
@@ -23,20 +23,20 @@ use libpsycho::os::windows::winapi::patch_bytes;
 /// Patch all oversized Sleep durations to 1ms.
 pub fn install_sleep_patches() -> anyhow::Result<()> {
     unsafe {
-        // FUN_00b01080: I/O thread sync — Sleep(50ms) → Sleep(1ms)
+        // FUN_00b01080: I/O thread sync - Sleep(50ms) -> Sleep(1ms)
         // Instruction: PUSH 0x32 (6A 32) at 0x00b010ba
         // Patch the immediate byte from 0x32 to 0x01
         patch_bytes(0x00B010BB as *mut c_void, &[0x01])?;
 
-        // FUN_00b010d0: I/O "begin op" wait — Sleep(10ms) → Sleep(1ms)
+        // FUN_00b010d0: I/O "begin op" wait - Sleep(10ms) -> Sleep(1ms)
         // Instruction: PUSH 0x0A (6A 0A) at 0x00b01121
         patch_bytes(0x00B01122 as *mut c_void, &[0x01])?;
 
-        // FUN_00b01130: I/O "begin op" wait — Sleep(10ms) → Sleep(1ms)
+        // FUN_00b01130: I/O "begin op" wait - Sleep(10ms) -> Sleep(1ms)
         // Instruction: PUSH 0x0A (6A 0A) at 0x00b01195
         patch_bytes(0x00B01196 as *mut c_void, &[0x01])?;
 
-        // FUN_00c3dfa0: Data loading throttle — Sleep(50ms) → Sleep(1ms)
+        // FUN_00c3dfa0: Data loading throttle - Sleep(50ms) -> Sleep(1ms)
         // Instruction: PUSH 0x32 (6A 32) at 0x00c3e105
         patch_bytes(0x00C3E106 as *mut c_void, &[0x01])?;
     }

@@ -147,7 +147,7 @@ impl Runtime {
         }
 
         // Fast path: heap already exists and has capacity.
-        // get() holds a shared ClashMap read lock for the duration — multiple
+        // get() holds a shared ClashMap read lock for the duration - multiple
         // threads can proceed concurrently.
         if let Some(heap) = self.pool.get(&sheap_id)
             && let Some(ptr) = heap.try_alloc(size, align)

@@ -251,7 +251,7 @@ impl Disasm {
             }
 
             // Check for IP-relative memory operands (RIP on x64, EIP on x86).
-            // On x64, these are common and BlockEncoder can handle them if trampoline is within ±2GB.
+            // On x64, these are common and BlockEncoder can handle them if trampoline is within +/-2GB.
             // On x86, these are rare but also relocatable within the 4GB address space.
             // We log them for debugging but allow BlockEncoder to handle the relocation.
             if let Some(target) = instr.rip_operand_target() {

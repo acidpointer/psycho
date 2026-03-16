@@ -84,7 +84,7 @@ impl Heap {
 
         let alloc_count = self.alloc_count.load(Ordering::Acquire);
 
-        // Step 1. Read lock — fast path: allocate from the last (newest) region.
+        // Step 1. Read lock - fast path: allocate from the last (newest) region.
         {
             let pool_lock = pool.read();
 
@@ -96,7 +96,7 @@ impl Heap {
             }
         }
 
-        // Step 2. Write lock — slow path: create a new region.
+        // Step 2. Write lock - slow path: create a new region.
         {
             let mut pool_lock = pool.write();
 

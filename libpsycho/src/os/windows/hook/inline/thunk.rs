@@ -43,7 +43,7 @@ fn calculate_displacement(source: usize, destination: usize, instruction_size: u
         .wrapping_sub(instruction_size as isize);
 
     // On x86 (32-bit), all addresses fit within 4GB, so displacement always fits in i32
-    // On x86_64, we need to verify it's within ±2GB range
+    // On x86_64, we need to verify it's within +/-2GB range
     #[cfg(target_arch = "x86_64")]
     {
         const MAX_DISPLACEMENT: isize = 0x7FFFFFFF;

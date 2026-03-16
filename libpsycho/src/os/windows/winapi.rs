@@ -58,7 +58,7 @@ pub enum WinapiError {
     NulError(#[from] NulError),
 
     #[error(
-        "Target address 0x{target_addr:x} is out of range from source 0x{source_addr:x} (distance: {distance}). Relative CALL is limited to ±2GB on x86_64."
+        "Target address 0x{target_addr:x} is out of range from source 0x{source_addr:x} (distance: {distance}). Relative CALL is limited to +/-2GB on x86_64."
     )]
     CallTargetOutOfRange {
         source_addr: usize,
@@ -1022,7 +1022,7 @@ pub unsafe fn patch_memory_nop(ptr: *mut c_void, size: usize) -> WinapiResult<()
 ///
 /// # Platform Support
 /// - **x86**: Full address space accessible via relative calls
-/// - **x86_64**: Target must be within ±2GB of source (i32 range limitation)
+/// - **x86_64**: Target must be within +/-2GB of source (i32 range limitation)
 ///
 /// # Errors
 /// Returns `WinapiError::CallTargetOutOfRange` if target is out of range on x86_64.
@@ -1040,7 +1040,7 @@ pub unsafe fn replace_call(jump_src: *mut c_void, func: *mut c_void) -> WinapiRe
     // Calculate the signed distance from the end of the CALL to the target
     let distance = jump_tgt_addr.wrapping_sub(next_instruction) as isize;
 
-    // On x86_64, verify the target is within ±2GB range (i32::MIN to i32::MAX)
+    // On x86_64, verify the target is within +/-2GB range (i32::MIN to i32::MAX)
     // On x86, isize == i32 so this check always passes
     #[cfg(target_arch = "x86_64")]
     {
@@ -1099,7 +1099,7 @@ pub unsafe fn patch_ret(ptr: *mut c_void) -> WinapiResult<()> {
 ///
 /// # Platform Support
 /// - **x86**: Full address space accessible via relative jumps
-/// - **x86_64**: Target must be within ±2GB of source (i32 range limitation)
+/// - **x86_64**: Target must be within +/-2GB of source (i32 range limitation)
 ///
 /// # Safety
 /// Caller must ensure:
@@ -1120,7 +1120,7 @@ pub unsafe fn patch_jmp(ptr: *mut c_void, target: *mut c_void) -> WinapiResult<(
     // Calculate the signed distance from the end of the JMP to the target
     let distance = jump_tgt_addr.wrapping_sub(next_instruction) as isize;
 
-    // On x86_64, verify the target is within ±2GB range (i32::MIN to i32::MAX)
+    // On x86_64, verify the target is within +/-2GB range (i32::MIN to i32::MAX)
     // On x86, isize == i32 so this check always passes
     #[cfg(target_arch = "x86_64")]
     {

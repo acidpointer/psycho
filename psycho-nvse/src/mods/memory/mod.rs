@@ -35,7 +35,7 @@ pub fn configure_mimalloc() {
         // On Proton/Wine, overcommit detection is unreliable. Eager commit
         // ensures memory is physically backed on allocation, not on first
         // page fault. This eliminates page fault stutters during gameplay
-        // that manifest as micro-freezes — especially noticeable because
+        // that manifest as micro-freezes - especially noticeable because
         // every single malloc/free in the game goes through mimalloc.
         mi_option_set(mi_option_arena_eager_commit, 1);
         log::info!("[MIMALLOC] arena_eager_commit = 1 (always eager)");
@@ -48,7 +48,7 @@ pub fn configure_mimalloc() {
         // When scrap heap GC drops 256KB regions (via mi_free), mimalloc
         // should decommit those pages immediately rather than holding them
         // for 10ms. Also helps the general allocator return memory faster.
-        // Critical for Steam Deck where 16GB RAM is shared with GPU —
+        // Critical for Steam Deck where 16GB RAM is shared with GPU -
         // every MB of stale allocator pages is a MB less VRAM.
         mi_option_set(mi_option_purge_delay, 0);
         log::info!("[MIMALLOC] purge_delay = 0ms (immediate)");
@@ -58,7 +58,7 @@ pub fn configure_mimalloc() {
         // Default: 0 (only reclaim pages from own theap)
         // Set to:  1 (allow reclaiming from any theap)
         //
-        // The game's sheap_ptr crosses thread boundaries — thread A
+        // The game's sheap_ptr crosses thread boundaries - thread A
         // allocates, thread B frees. With IAT hooks, this pattern applies
         // to ALL game allocations too. Without this option, freed pages
         // pile up as "abandoned" in mimalloc's internal bookkeeping and
@@ -98,7 +98,7 @@ pub fn configure_mimalloc() {
         // Set to:  1 (release all memory on exit)
         //
         // We are a DLL injected into a game process. On game exit, there is
-        // no benefit to walking every allocation and freeing individually —
+        // no benefit to walking every allocation and freeing individually -
         // the process is terminating. This tells mimalloc to bulk-release
         // everything, avoiding slow shutdown that can cause the game to
         // hang on exit (especially with hundreds of MBs allocated).

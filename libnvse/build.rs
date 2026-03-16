@@ -101,7 +101,7 @@ fn main() {
         .write_to_file(&bindings_path)
         .expect("Couldn't write bindings");
 
-    eprintln!("✓ Generated xNVSE bindings at {}", bindings_path.display());
+    eprintln!("[OK] Generated xNVSE bindings at {}", bindings_path.display());
 
     // Rerun triggers
     println!("cargo:rerun-if-changed=wrapper/nvse_wrapper.h");
@@ -122,7 +122,7 @@ fn patch_xnvse_headers(nvse_dir: &PathBuf) {
             if content.contains("[[nodiscard]]") {
                 let patched = content.replace("[[nodiscard]]", "");
                 fs::write(&plugin_api, patched).ok();
-                eprintln!("✓ Patched PluginAPI.h (removed [[nodiscard]] attributes)");
+                eprintln!("[OK] Patched PluginAPI.h (removed [[nodiscard]] attributes)");
             }
         }
 }

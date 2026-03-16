@@ -19,7 +19,11 @@ use windows::{
 use crate::{
     mods::{
         memory::{configure_mimalloc, install_crt_hooks, replacer::install_game_heap_hooks},
-        perf::{install_critical_section_hooks, install_sleep_patches},
+        perf::{
+            boost_main_thread_priority, install_critical_section_hooks, install_sleep_patches,
+            patch_deferred_task_budget, set_timer_resolution,
+        },
+        stability::install_null_deref_guards,
         zlib::install_zlib_hooks,
     },
     plugininfo,
@@ -66,6 +70,36 @@ pub extern "system" fn DllMain(hmodule: HINSTANCE, reason: u32, _reserved: LPVOI
                 }
             });
 
+            // Stability: null pointer dereference guards
+            match install_null_deref_guards() {
+                Ok(_) => {
+                    log::info!("Null deref guards installed");
+                }
+                Err(err) => {
+                    log::error!("Null deref guards error: {:?}", err);
+                }
+            }
+
+            // Set timer resolution to 1ms - critical for Sleep patches and frame pacing
+            match set_timer_resolution() {
+                Ok(_) => {
+                    log::info!("Timer resolution set to 1ms");
+                }
+                Err(err) => {
+                    log::error!("Timer resolution error: {:?}", err);
+                }
+            }
+
+            // Boost main thread priority to reduce scheduler jitter
+            match boost_main_thread_priority() {
+                Ok(_) => {
+                    log::info!("Main thread priority boosted");
+                }
+                Err(err) => {
+                    log::error!("Thread priority boost error: {:?}", err);
+                }
+            }
+
             CS_HOOK_INIT.call_once(|| match install_critical_section_hooks() {
                 Ok(_) => {
                     log::info!("Critical section spin count hooks installed");
@@ -75,13 +109,23 @@ pub extern "system" fn DllMain(hmodule: HINSTANCE, reason: u32, _reserved: LPVOI
                 }
             });
 
-            // Sleep duration patches — reduce I/O polling from 10-50ms to 1ms
+            // Sleep duration patches - reduce I/O polling from 10-50ms to 1ms
             match install_sleep_patches() {
                 Ok(_) => {
                     log::info!("Sleep patches installed");
                 }
                 Err(err) => {
                     log::error!("Sleep patches install error: {:?}", err);
+                }
+            }
+
+            // Deferred task budget - reduce 1000ms overflow budget to 100ms
+            match patch_deferred_task_budget() {
+                Ok(_) => {
+                    log::info!("Deferred task budget patched");
+                }
+                Err(err) => {
+                    log::error!("Deferred task budget patch error: {:?}", err);
                 }
             }
 
