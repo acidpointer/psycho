@@ -106,8 +106,40 @@ pub fn install_game_heap_hooks() -> anyhow::Result<()> {
     //     patch_ret(0x00866770 as *mut c_void)?;
     // }
 
-    // Prevents SBM functions to execute - we own SBM
-    // Status: seems okay
+    // ===========================
+    //   SBM PATCHES
+    // ===========================
+    //
+    // The game's Small Block Manager (SBM) is shared between ScrapHeap and
+    // GameHeap. We fully replace the ScrapHeap side via hooks. To complete
+    // the picture, we also disconnect the GameHeap from the SBM allocation
+    // path by patching its conditional branch to an unconditional jump.
+    // This forces all NEW GameHeap allocations through the HeapAllocator
+    // vtable / CRT fallback paths (no SBM arenas touched).
+    //
+    // GameHeap::Free still does the SBM arena lookup (ptr >> 24) for
+    // pointers that were allocated from the SBM before our patches.
+    // SBM_free (0x00AA6C70) is NOT patched -- it correctly frees those
+    // pre-existing blocks. New pointers (from HeapAllocator/CRT) won't
+    // match any SBM arena and fall through to the correct free path.
+    //
+    // With no new SBM allocations happening, the maintenance routines
+    // are pure overhead and can be safely disabled.
+
+    // Disconnect GameHeap::Allocate from the SBM fast path.
+    //
+    // Original:  JZ 0x00aa3f39  (0x74 = skip SBM if flag == 0)
+    // Patched:   JMP 0x00aa3f39 (0xEB = always skip SBM)
+    //
+    // This is at the check: MOVZX ECX, byte ptr [EAX + 0x129]; TEST; JZ
+    // By making the jump unconditional, the SBM path is never taken
+    // regardless of the flag's runtime value.
+    unsafe {
+        patch_bytes(0x00AA3ED7 as *mut c_void, &[0xEB])?;
+    }
+
+    // Disable SBM maintenance -- no new arenas are created after the
+    // GameHeap disconnect above.
     unsafe {
         // SBM::PurgeUnusedArenas
         patch_ret(0x00AA6F90 as *mut c_void)?;
@@ -125,23 +157,24 @@ pub fn install_game_heap_hooks() -> anyhow::Result<()> {
         patch_ret(0x00AA5C80 as *mut c_void)?;
     }
 
-    // Prevent the engine from trying to allocate its own "Backing Regions"
-    // Status: seems okay
+    // Prevent the engine from allocating ScrapHeap backing regions via the SBM.
     unsafe {
         patch_ret(0x00AA57B0 as *mut c_void)?;
     }
 
-    // Status: seems okay
     unsafe {
-        // This is where the engine takes the data from GlobalMemoryStatusEx and decides if the SBM is allowed to exist.
+        // NOP the GlobalMemoryStatusEx check that gates SBM creation.
         patch_memory_nop(0x00AA38CA as *mut c_void, 0x00AA38E8 - 0x00AA38CA)?;
 
-        // Kill the entire maintenance routine inside FUN_00aa7290
-        // By putting a RET (0xC3) at the very start, we skip the locks, the sort, and the counter updates.
+        // Kill the frame-based maintenance trigger in the Main Loop.
+        // DecrementArenaRef is already RET'd above, but NOPing the call site
+        // avoids the overhead of calling into a RET stub every frame.
+        patch_memory_nop(0x0086EF0E as *mut c_void, 5)?;
+
+        // Belt-and-suspenders: also write RET at the function entry.
         patch_bytes(0x00AA7290 as *mut c_void, &[0xC3])?;
     }
 
-    // Status: okay
     unsafe {
         patch_nop_call(0x00AA3060 as *mut c_void)?;
 
@@ -151,21 +184,6 @@ pub fn install_game_heap_hooks() -> anyhow::Result<()> {
         // These prevent exception raising during cleanup/transitions
         patch_nop_call(0x00C42EB1 as *mut c_void)?;
         patch_nop_call(0x00EC1701 as *mut c_void)?;
-    }
-
-    // Status: okay, but not sure
-
-    // WARNING! Highly experimental patch!
-    //
-    // Disables the frame-based ScrapHeap maintenance trigger in the Main Loop.
-    //
-    // This patch NOPs the call to the periodic maintenance routine (FUN_00aa7290).
-    // By silencing this, we prevent the engine from attempting to perform
-    // background pointer re-linking (Merge Sort) and reference counter updates
-    // on our custom-managed memory, ensuring our Rust allocator remains the
-    // sole owner of the heap state and improving frame-time consistency.
-    unsafe {
-        patch_memory_nop(0x0086EF0E as *mut c_void, 5)?;
     }
 
     // ===========================

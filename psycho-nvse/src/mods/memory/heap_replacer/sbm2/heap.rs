@@ -137,11 +137,11 @@ impl Heap {
         self.hot_region.load(Ordering::Acquire)
     }
 
-    /// Lock-free fast-path allocation from a caller-provided region.
+    /// Lock-free fast-path allocation from a TLC-cached region pointer.
     ///
-    /// The caller (Runtime) provides a `&Region` from its thread-local cache.
-    /// This avoids contention on a shared `hot_region` pointer -- each thread
-    /// bumps its own cached region's offset independently.
+    /// The caller provides a raw `*const Region` from its thread-local cache.
+    /// This pointer is only dereferenced AFTER the Dekker protocol confirms
+    /// no GC purge is in progress, ensuring the region is still alive.
     ///
     /// # Dekker protocol (GC safety)
     ///
@@ -164,19 +164,31 @@ impl Heap {
     ///
     /// On x86, `lock xadd` (fetch_add) provides a full barrier, so no
     /// explicit fence is needed on the allocator side.
+    ///
+    /// # Safety
+    ///
+    /// `region` must point to a `Region` in this Heap's pool, obtained while
+    /// the current generation was valid. The pointer is only dereferenced
+    /// after the Dekker check confirms no purge is in progress.
     #[inline]
-    pub fn try_alloc_fast(&self, region: &Region, size: usize, align: usize) -> Option<*mut c_void> {
+    pub unsafe fn try_alloc_fast(&self, region: *const Region, size: usize, align: usize) -> Option<*mut c_void> {
         // Step 1: pre-increment (Dekker: write alloc_count)
         self.alloc_count.fetch_add(1, Ordering::Relaxed);
 
         // Step 2: Dekker check (read hot_region as GC signal)
+        // If GC nulled hot_region, a purge may be in progress.
+        // On x86, the preceding lock xadd acts as a full barrier, so this
+        // load is guaranteed to see the null store if it happened before
+        // our fetch_add.
         if self.hot_region.load(Ordering::Acquire).is_null() {
             self.rollback_alloc_count();
             return None;
         }
 
-        // Step 3: bump-allocate from the caller's cached region
-        if let Some(ptr) = region.allocate(size, align) {
+        // Step 3: SAFE to dereference -- Dekker guarantees the region is alive.
+        // If GC had purged (freeing this region), it would have nulled
+        // hot_region first, and we would have returned None above.
+        if let Some(ptr) = unsafe { (*region).allocate(size, align) } {
             return Some(ptr.as_ptr());
         }
 
@@ -220,9 +232,19 @@ impl Heap {
     }
 
     /// Rollback a pre-incremented alloc_count and check if GC should be queued.
+    ///
+    /// This should never underflow because we only call it after a successful
+    /// fetch_add. The check is defensive against hypothetical bugs.
     #[inline]
     fn rollback_alloc_count(&self) {
         let prev = self.alloc_count.fetch_sub(1, Ordering::Relaxed);
+
+        debug_assert!(prev > 0, "rollback_alloc_count: underflow on sheap_id={:#x}", self.sheap_id);
+
+        if prev == 0 {
+            self.alloc_count.fetch_add(1, Ordering::Relaxed);
+            return;
+        }
 
         // If our rollback dropped count to 0, another thread's free() may have
         // missed the prev==1 trigger. Enqueue for GC to prevent leak.
@@ -232,9 +254,25 @@ impl Heap {
     }
 
     /// Decrements the allocation count and enqueues for GC if count reaches zero.
+    ///
+    /// Detects underflow (game bug: double-free, free-after-purge, or wrong
+    /// sheap_ptr). On underflow the decrement is rolled back to prevent
+    /// alloc_count from wrapping to usize::MAX, which would permanently
+    /// prevent GC from collecting this heap.
     #[inline]
     pub fn free(&self, _ptr: *mut c_void) {
         let prev = self.alloc_count.fetch_sub(1, Ordering::Release);
+
+        if prev == 0 {
+            // Underflow: count was already 0 before this free().
+            // Roll back to keep count at 0 instead of usize::MAX.
+            self.alloc_count.fetch_add(1, Ordering::Relaxed);
+            log::error!(
+                "heap: alloc_count underflow on sheap_id={:#x} (double-free or free-after-purge)",
+                self.sheap_id
+            );
+            return;
+        }
 
         // prev is the value BEFORE subtraction, so prev == 1 means new count is 0
         if prev == 1 {
@@ -309,13 +347,17 @@ impl Heap {
     }
 
     /// Actual purge logic. Caller must hold the Mutex.
+    ///
+    /// Non-zero alloc_count at purge time is normal for scrap heaps -- the game
+    /// bulk-allocates then purges without individual frees.
     fn purge_inner(&self, pool: &mut Vec<Box<Region>>) -> usize {
         self.hot_region.store(ptr::null_mut(), Ordering::Release);
 
         let old_len = pool.len();
         pool.clear();
 
-        // Reset state
+        // Reset state. alloc_count > 0 is expected (scrap heap pattern:
+        // bulk alloc then purge without individual frees).
         self.alloc_count.store(0, Ordering::Release);
         self.gc_queued.store(false, Ordering::Release);
         self.generation.fetch_add(1, Ordering::Release);

@@ -219,10 +219,12 @@ impl Runtime {
                 // Each thread typically has its own region, so offset.fetch_add
                 // doesn't contend with other threads.
                 if !tlc.region.is_null() {
-                    // SAFETY: region pointer validated by generation check above.
-                    let region = unsafe { &*tlc.region };
-
-                    if let Some(ptr) = heap.try_alloc_fast(region, size, align) {
+                    // SAFETY: The raw pointer is NOT dereferenced here -- it is
+                    // passed to try_alloc_fast which only dereferences it AFTER
+                    // the Dekker protocol confirms no GC purge is in progress.
+                    // The generation check above ensures the pointer was valid
+                    // at cache time; Dekker ensures it remains valid at use time.
+                    if let Some(ptr) = unsafe { heap.try_alloc_fast(tlc.region, size, align) } {
                         return ptr;
                     }
                 }

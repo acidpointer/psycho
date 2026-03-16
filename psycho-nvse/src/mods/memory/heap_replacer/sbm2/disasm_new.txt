@@ -1,0 +1,326 @@
+=== ScrapHeap::GetThreadLocal @ 0x00AA42E0 ===
+
+void * __fastcall FUN_00aa42e0(int param_1)
+
+{
+  void *pvVar1;
+  int *unaff_FS_OFFSET;
+  void *local_3c;
+  void *local_18;
+  DWORD local_14;
+  int local_10;
+  undefined1 *puStack_c;
+  undefined4 local_8;
+  
+  local_8 = 0xffffffff;
+  puStack_c = &LAB_00f1ec9b;
+  local_10 = *unaff_FS_OFFSET;
+  *unaff_FS_OFFSET = (int)&local_10;
+  local_14 = GetCurrentThreadId();
+  local_18 = (void *)0x0;
+  FUN_00a1e380((void *)(param_1 + 0x114),local_14,&local_18);
+  if (local_18 == (void *)0x0) {
+    pvVar1 = FUN_00aa3e40(&DAT_011f6238,0x10);
+    local_8 = 0;
+    if (pvVar1 == (void *)0x0) {
+      local_3c = (void *)0x0;
+    }
+    else {
+      local_3c = FUN_00aa53f0(pvVar1);
+    }
+    local_8 = 0xffffffff;
+    local_18 = local_3c;
+    FUN_00aa4860((void *)(param_1 + 0x114),local_14,local_3c);
+  }
+  *unaff_FS_OFFSET = local_10;
+  return local_18;
+}
+
+
+()
+=== ScrapHeap::Init_Fix @ 0x00AA53F0 ===
+
+void * __fastcall FUN_00aa53f0(void *param_1)
+
+{
+  FUN_00aa57b0(param_1,0x10000);
+  return param_1;
+}
+
+
+()
+=== ScrapHeap::Init_Var @ 0x00AA5410 ===
+
+void * __thiscall FUN_00aa5410(void *this,uint param_1)
+
+{
+  undefined4 local_c;
+  
+  if ((param_1 & 0xffff) == 0) {
+    local_c = param_1;
+  }
+  else {
+    local_c = param_1 + 0x10000 & 0xffff0000;
+  }
+  FUN_00aa57b0(this,local_c);
+  return this;
+}
+
+
+()
+=== ScrapHeap::Purge @ 0x00AA5460 ===
+
+void __fastcall FUN_00aa5460(int *param_1)
+
+{
+  void *this;
+  int iVar1;
+  LPVOID pvVar2;
+  
+  iVar1 = param_1[2] - *param_1;
+  pvVar2 = (LPVOID)*param_1;
+  this = (void *)FUN_00866d10();
+  FUN_00aa5b70(this,pvVar2,iVar1);
+  *param_1 = 0;
+  param_1[1] = 0;
+  return;
+}
+
+
+()
+=== ScrapHeap::Allocate @ 0x00AA54A0 ===
+
+uint __thiscall FUN_00aa54a0(void *this,int param_1,int param_2)
+
+{
+  int iVar1;
+  uint uVar2;
+  uint uVar3;
+  int iVar4;
+  uint local_38;
+  int local_28;
+  uint local_20;
+  uint local_14;
+  int *local_c;
+  uint local_8;
+  
+  local_8 = 0;
+  local_14 = *(int *)((int)this + 4) + 8;
+  if (param_2 == 0) {
+    local_38 = 0;
+  }
+  else {
+    local_38 = param_2 - 1U & local_14;
+  }
+  if (local_38 == 0) {
+    local_c = *(int **)((int)this + 4);
+  }
+  else {
+    local_14 = (param_2 - local_38) + local_14;
+    local_c = (int *)(local_14 - 8);
+  }
+  uVar3 = local_14 + param_1;
+  if ((*(uint *)((int)this + 8) <= uVar3) &&
+     (uVar2 = *(int *)((int)this + 8) - *(int *)this, uVar2 < 0x800000)) {
+    local_28 = uVar2 * 2;
+    local_20 = uVar2;
+    while (local_20 < uVar3 - *(int *)((int)this + 8)) {
+      local_28 = local_28 * 2;
+      local_20 = local_28 - uVar2;
+    }
+    iVar1 = *(int *)((int)this + 8) - *(int *)this;
+    iVar4 = *(int *)this;
+    uVar2 = local_20;
+    FUN_00866d10();
+    FUN_00aa5e30(iVar4,iVar1,uVar2);
+    *(uint *)((int)this + 8) = *(int *)((int)this + 8) + local_20;
+  }
+  if (uVar3 < *(uint *)((int)this + 8)) {
+    *local_c = param_1;
+    local_c[1] = *(int *)((int)this + 0xc);
+    *(int **)((int)this + 0xc) = local_c;
+    *(uint *)((int)this + 4) = uVar3;
+    local_8 = local_14;
+  }
+  return local_8;
+}
+
+
+()
+=== ScrapHeap::Free @ 0x00AA5610 ===
+
+void __thiscall FUN_00aa5610(void *this,int param_1)
+
+{
+  uint *puVar1;
+  uint uVar2;
+  uint uVar3;
+  int iVar4;
+  int iVar5;
+  
+  if ((param_1 != 0) && (puVar1 = (uint *)(param_1 + -8), (*puVar1 & 0x80000000) == 0)) {
+    *puVar1 = *puVar1 | 0x80000000;
+    while (*(int *)((int)this + 0xc) != 0) {
+      if ((**(uint **)((int)this + 0xc) & 0x80000000) == 0) {
+        *(int *)((int)this + 4) = *(int *)((int)this + 0xc) + 8 + **(int **)((int)this + 0xc);
+        goto LAB_00aa56a2;
+      }
+      *(undefined4 *)((int)this + 0xc) = *(undefined4 *)(*(int *)((int)this + 0xc) + 4);
+    }
+    *(undefined4 *)((int)this + 4) = *(undefined4 *)this;
+LAB_00aa56a2:
+    uVar3 = *(int *)((int)this + 8) - *(int *)this;
+    uVar2 = uVar3 >> 1;
+    if ((uVar2 < (uint)(*(int *)((int)this + 8) - *(int *)((int)this + 4))) && (0x10000 < uVar3)) {
+      iVar4 = *(int *)((int)this + 8) - *(int *)this;
+      iVar5 = *(int *)this;
+      uVar3 = uVar2;
+      FUN_00866d10();
+      FUN_00aa5e90(iVar5,iVar4,uVar3);
+      *(uint *)((int)this + 8) = *(int *)((int)this + 8) - uVar2;
+    }
+  }
+  return;
+}
+
+
+()
+=== BackingRegionAlloc @ 0x00AA57B0 ===
+
+void __thiscall FUN_00aa57b0(void *this,uint param_1)
+
+{
+  void *this_00;
+  LPVOID pvVar1;
+  uint *puVar2;
+  
+  puVar2 = &param_1;
+  this_00 = (void *)FUN_00866d10();
+  pvVar1 = FUN_00aa59b0(this_00,puVar2);
+  *(LPVOID *)this = pvVar1;
+  *(undefined4 *)((int)this + 4) = *(undefined4 *)this;
+  *(uint *)((int)this + 8) = *(int *)this + param_1;
+  *(undefined4 *)((int)this + 0xc) = 0;
+  return;
+}
+
+
+()
+=== SBM::DeallocateAllArenas @ 0x00AA5C80 ===
+
+void __fastcall FUN_00aa5c80(int param_1)
+
+{
+  undefined4 local_8;
+  
+  if (*(int *)(param_1 + 0x200) != 0) {
+    FUN_0040fbf0((LONG *)(param_1 + 0x220));
+    for (local_8 = 0; local_8 < *(uint *)(param_1 + 0x200); local_8 = local_8 + 1) {
+      FUN_00aa5f30(*(LPVOID *)(param_1 + local_8 * 8));
+    }
+    *(undefined4 *)(param_1 + 0x200) = 0;
+    *(undefined4 *)(param_1 + 0x204) = 0;
+    *(int *)(param_1 + 0x224) = *(int *)(param_1 + 0x224) + -1;
+    if (*(int *)(param_1 + 0x224) == 0) {
+      *(undefined4 *)(param_1 + 0x220) = 0;
+    }
+  }
+  return;
+}
+
+
+()
+=== SBM::PurgeUnusedArenas @ 0x00AA6F90 ===
+
+void __fastcall FUN_00aa6f90(void *param_1)
+
+{
+  bool bVar1;
+  undefined4 local_c;
+  
+  FUN_0040fbf0((LONG *)((int)param_1 + 0x20));
+  bVar1 = false;
+  for (local_c = 0; local_c < *(uint *)((int)param_1 + 0x4c); local_c = local_c + 1) {
+    if (*(short *)(*(int *)((int)param_1 + 0x48) + local_c * 2) == 0) {
+      if (!bVar1) {
+        FUN_00aa7260((int)param_1);
+        bVar1 = true;
+      }
+      FUN_00aa6eb0(param_1,local_c,'\0');
+    }
+  }
+  *(int *)((int)param_1 + 0x24) = *(int *)((int)param_1 + 0x24) + -1;
+  if (*(int *)((int)param_1 + 0x24) == 0) {
+    *(undefined4 *)((int)param_1 + 0x20) = 0;
+  }
+  return;
+}
+
+
+()
+=== SBM::GlobalCleanup @ 0x00AA7030 ===
+
+void FUN_00aa7030(void)
+
+{
+  uint local_8;
+  
+  if ((DAT_011f6bd0 & 1) == 0) {
+    DAT_011f6bd0 = DAT_011f6bd0 | 1;
+    InitializeCriticalSection((LPCRITICAL_SECTION)&lpCriticalSection_011f6bb8);
+    _atexit(FUN_00fdb2a0);
+  }
+  EnterCriticalSection((LPCRITICAL_SECTION)&lpCriticalSection_011f6bb8);
+  for (local_8 = 0; local_8 < 0x100; local_8 = local_8 + 1) {
+    if (*(int *)(&DAT_011f67b8 + local_8 * 4) != 0) {
+      FUN_00aa6f90(*(void **)(&DAT_011f67b8 + local_8 * 4));
+    }
+  }
+  LeaveCriticalSection((LPCRITICAL_SECTION)&lpCriticalSection_011f6bb8);
+  return;
+}
+
+
+()
+=== SBM::DecrementArenaRef @ 0x00AA7290 ===
+
+void __cdecl FUN_00aa7290(int param_1)
+
+{
+  int iVar1;
+  
+  if (*(int *)(&DAT_011f67b8 + param_1 * 4) != 0) {
+    FUN_0040fbf0((LONG *)(*(int *)(&DAT_011f67b8 + param_1 * 4) + 0x20));
+    FUN_00aa7260(*(int *)(&DAT_011f67b8 + param_1 * 4));
+    iVar1 = *(int *)(&DAT_011f67b8 + param_1 * 4);
+    *(int *)(iVar1 + 0x24) = *(int *)(iVar1 + 0x24) + -1;
+    if (*(int *)(iVar1 + 0x24) == 0) {
+      *(undefined4 *)(iVar1 + 0x20) = 0;
+    }
+  }
+  return;
+}
+
+
+()
+=== SBM::ReleaseArenaByPtr @ 0x00AA7300 ===
+
+void __fastcall FUN_00aa7300(int param_1)
+
+{
+  undefined4 local_8;
+  
+  FUN_0040fbf0((LONG *)(param_1 + 0x20));
+  if (8 < *(uint *)(param_1 + 0x40)) {
+    for (local_8 = *(int *)(param_1 + 8); local_8 != 0; local_8 = *(int *)(local_8 + 4)) {
+    }
+  }
+  *(int *)(param_1 + 0x24) = *(int *)(param_1 + 0x24) + -1;
+  if (*(int *)(param_1 + 0x24) == 0) {
+    *(undefined4 *)(param_1 + 0x20) = 0;
+  }
+  return;
+}
+
+
+()
