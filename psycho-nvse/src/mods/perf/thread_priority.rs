@@ -25,8 +25,6 @@
 //! the scheduler CAN still use E-cores under extreme load or after alt-tab,
 //! avoiding the contention issues that hard-pinning causes.
 
-use std::ptr::null_mut;
-
 use windows::Win32::System::Threading::{
     GetCurrentProcess, GetCurrentThread, SetThreadPriority, THREAD_PRIORITY_ABOVE_NORMAL,
 };

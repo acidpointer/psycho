@@ -23,8 +23,54 @@
 //!   RET
 //!   NOP; NOP               ; padding
 
+use std::sync::LazyLock;
+
 use libc::c_void;
-use libpsycho::os::windows::winapi::patch_bytes;
+use libpsycho::os::windows::{
+    hook::inline::inlinehook::InlineHookContainer,
+    winapi::patch_bytes,
+};
+
+// ---------------------------------------------------------------------------
+// FUN_00a6df40 - Matrix-to-quaternion decomposition (HAVOK physics)
+// ---------------------------------------------------------------------------
+
+/// FUN_00a6df40: __thiscall(this=output_quat, param_1=input_3x3_matrix)
+/// Called from HAVOK ragdoll bone processing (FUN_00c79680) during NPC loading.
+/// Crashes when param_1 = 0x34 (NULL bone struct + 0x34 offset) because
+/// the NPC's ragdoll physics data isn't fully initialized during queue processing.
+const MATRIX_DECOMP_ADDR: usize = 0x00A6DF40;
+
+type MatrixDecompFn = unsafe extern "thiscall" fn(this: *mut c_void, matrix: *const f32);
+
+static MATRIX_DECOMP_HOOK: LazyLock<InlineHookContainer<MatrixDecompFn>> =
+    LazyLock::new(InlineHookContainer::new);
+
+/// Guard: if the matrix pointer is in the null page, write an identity
+/// quaternion (0,0,0,1) to the output and return without crashing.
+///
+/// # Safety
+/// Called by the game engine via the inline hook trampoline.
+unsafe extern "thiscall" fn hook_matrix_decomp(this: *mut c_void, matrix: *const f32) {
+    if (matrix as usize) < 0x10000 {
+        // Write identity quaternion to output (w=1, x=y=z=0)
+        let out = this as *mut f32;
+        unsafe {
+            *out = 0.0;            // x or scale
+            *out.add(1) = 0.0;     // y
+            *out.add(2) = 0.0;     // z
+            *out.add(3) = 1.0;     // w (identity)
+        }
+        return;
+    }
+
+    match MATRIX_DECOMP_HOOK.original() {
+        Ok(original) => unsafe { original(this, matrix) },
+        Err(err) => {
+            log::error!("Matrix decomp: failed to call original: {:?}", err);
+        }
+    }
+}
 
 /// Install null dereference guards on crash-prone getter functions.
 pub fn install_null_deref_guards() -> anyhow::Result<()> {
@@ -131,6 +177,21 @@ pub fn install_null_deref_guards() -> anyhow::Result<()> {
 
     log::info!(
         "[STABILITY] Null deref guard installed at 0x0040FE80 (bit flag checker)"
+    );
+
+    // FUN_00a6df40: matrix-to-quaternion decomposition in HAVOK ragdoll processing.
+    // Crashes when a ragdoll bone struct is NULL, producing param_1 = 0x34
+    // (NULL + bone transform offset). Uses inline hook to check param_1
+    // and return identity quaternion if invalid.
+    MATRIX_DECOMP_HOOK.init(
+        "matrix_decomp_guard",
+        MATRIX_DECOMP_ADDR as *mut c_void,
+        hook_matrix_decomp,
+    )?;
+    MATRIX_DECOMP_HOOK.enable()?;
+
+    log::info!(
+        "[STABILITY] Null deref guard installed at 0x00A6DF40 (HAVOK matrix decomp)"
     );
 
     Ok(())
