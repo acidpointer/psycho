@@ -19,6 +19,7 @@ use windows::{
 use crate::{
     mods::{
         memory::{configure_mimalloc, install_crt_hooks, replacer::install_game_heap_hooks},
+        perf::install_critical_section_hooks,
         zlib::install_zlib_hooks,
     },
     plugininfo,
@@ -30,6 +31,8 @@ pub extern "system" fn DllMain(hmodule: HINSTANCE, reason: u32, _reserved: LPVOI
     static LOGGER_INIT: Once = Once::new();
 
     static CRT_IAT_HOOKS_INIT: Once = Once::new();
+
+    static CS_HOOK_INIT: Once = Once::new();
 
     static HEAP_PATCH_INIT: Once = Once::new();
 
@@ -60,6 +63,15 @@ pub extern "system" fn DllMain(hmodule: HINSTANCE, reason: u32, _reserved: LPVOI
 
                 Err(err) => {
                     log::error!("IAT CRT hooks install error: {:?}", err);
+                }
+            });
+
+            CS_HOOK_INIT.call_once(|| match install_critical_section_hooks() {
+                Ok(_) => {
+                    log::info!("Critical section spin count hooks installed");
+                }
+                Err(err) => {
+                    log::error!("Critical section hooks install error: {:?}", err);
                 }
             });
 
