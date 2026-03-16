@@ -19,7 +19,7 @@ use windows::{
 use crate::{
     mods::{
         memory::{configure_mimalloc, install_crt_hooks, replacer::install_game_heap_hooks},
-        perf::install_critical_section_hooks,
+        perf::{install_critical_section_hooks, install_sleep_patches},
         zlib::install_zlib_hooks,
     },
     plugininfo,
@@ -74,6 +74,16 @@ pub extern "system" fn DllMain(hmodule: HINSTANCE, reason: u32, _reserved: LPVOI
                     log::error!("Critical section hooks install error: {:?}", err);
                 }
             });
+
+            // Sleep duration patches — reduce I/O polling from 10-50ms to 1ms
+            match install_sleep_patches() {
+                Ok(_) => {
+                    log::info!("Sleep patches installed");
+                }
+                Err(err) => {
+                    log::error!("Sleep patches install error: {:?}", err);
+                }
+            }
 
             HEAP_PATCH_INIT.call_once(|| match install_game_heap_hooks() {
                 Ok(_) => {
