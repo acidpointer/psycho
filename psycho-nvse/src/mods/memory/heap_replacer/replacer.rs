@@ -131,11 +131,31 @@ pub fn install_game_heap_hooks() -> anyhow::Result<()> {
     // Original:  JZ 0x00aa3f39  (0x74 = skip SBM if flag == 0)
     // Patched:   JMP 0x00aa3f39 (0xEB = always skip SBM)
     //
-    // This is at the check: MOVZX ECX, byte ptr [EAX + 0x129]; TEST; JZ
-    // By making the jump unconditional, the SBM path is never taken
-    // regardless of the flag's runtime value.
+    // Disable the SBM by clearing its enable flag in the heap manager.
+    //
+    // The SBM flag at heap_manager + 0x129 controls whether GameHeap::Allocate
+    // tries the Small Block Manager path. Setting it to 0 makes the engine
+    // skip SBM entirely and go straight to the HeapAllocator (CRT -> mimalloc).
+    //
+    // This is SAFER than patching the JZ instruction at 0x00AA3ED7 because:
+    // - It's a data write, not a code modification (no conflict with jip_nvse)
+    // - It uses the engine's own "SBM disabled" codepath
+    // - GameHeap::Free still correctly handles pre-existing SBM allocations
+    //   via the arena lookup (ptr >> 24), which falls through for non-SBM ptrs
+    //
+    // GAME_HEAP (heap manager singleton) = 0x11F6238
+    // SBM enable flag = GAME_HEAP + 0x129 = 0x11F6361
+    const SBM_ENABLE_FLAG: usize = 0x11F6361;
+
     unsafe {
-        patch_bytes(0x00AA3ED7 as *mut c_void, &[0xEB])?;
+        let flag_ptr = SBM_ENABLE_FLAG as *mut u8;
+        let old_value = std::ptr::read_volatile(flag_ptr);
+        std::ptr::write_volatile(flag_ptr, 0);
+        log::info!(
+            "[HEAP] SBM disabled via flag at 0x{:08X} (was: {}, now: 0)",
+            SBM_ENABLE_FLAG,
+            old_value
+        );
     }
 
     // Disable SBM maintenance -- no new arenas are created after the

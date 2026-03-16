@@ -11,6 +11,8 @@ libc = { workspace = true }
 clashmap = { workspace = true }
 log = { workspace = true }
 thiserror = { workspace = true }
+toml = { workspace = true }
+serde = { workspace = true }
 anyhow = { workspace = true }
 parking_lot = { workspace = true }
 crossbeam-queue = { workspace = true }

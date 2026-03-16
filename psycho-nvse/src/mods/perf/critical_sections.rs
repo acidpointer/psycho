@@ -55,11 +55,16 @@ unsafe extern "system" fn hook_initialize_critical_section(cs: *mut c_void) {
 pub fn install_critical_section_hooks() -> anyhow::Result<()> {
     let module_base = get_module_handle_a(None)?.as_ptr();
 
+    // IMPORTANT: Use Some("KERNEL32.dll") to restrict to FalloutNV.exe's import
+    // of InitializeCriticalSection FROM kernel32. Without this filter, the scanner
+    // also hooks KERNEL32.DLL's own import from api-ms-win-core-synch, which
+    // applies spin counts to EVERY module in the process (DXVK, jip_nvse, CRT, etc.)
+    // and causes rendering crashes in DXVK's D3D9->Vulkan translation layer.
     unsafe {
         CS_INIT_IAT_HOOK.init(
             "cs_init",
             module_base,
-            None,
+            Some("KERNEL32.dll"),
             "InitializeCriticalSection",
             hook_initialize_critical_section,
         )?;

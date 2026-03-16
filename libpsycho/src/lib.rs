@@ -10,6 +10,7 @@ compile_error!("Unsupported architecture - only x86/x64 supported");
 compile_error!("Unsupported OS - Windows is only supported target OS for now");
 
 pub mod common;
+pub mod config;
 pub mod ffi;
 pub mod hook;
 pub mod os;

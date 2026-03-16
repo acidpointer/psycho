@@ -1,0 +1,423 @@
+======================================================================
+=== CRASH ANALYSIS: 0x00A1E38C (shader creation, EAX=0) ===
+======================================================================
+
+--- CRASH SITE: 0x00a1e38c ---
+  Function: FUN_00a1e380 @ 0x00a1e380 (114 bytes, offset +0xC)
+  Disassembly:
+  0x00a1e380: PUSH EBP
+  0x00a1e381: MOV EBP,ESP
+  0x00a1e383: SUB ESP,0xc
+  0x00a1e386: MOV dword ptr [EBP + -0xc],ECX
+  0x00a1e389: MOV EAX,dword ptr [EBP + 0x8]
+  0x00a1e38c: PUSH EAX
+  0x00a1e38d: MOV ECX,dword ptr [EBP + -0xc]
+  0x00a1e390: MOV EDX,dword ptr [ECX]
+  0x00a1e392: MOV ECX,dword ptr [EBP + -0xc]
+  0x00a1e395: MOV EAX,dword ptr [EDX + 0x4]
+  0x00a1e398: CALL EAX
+  0x00a1e39a: MOV dword ptr [EBP + -0x4],EAX
+  0x00a1e39d: MOV ECX,dword ptr [EBP + -0xc]
+  0x00a1e3a0: MOV EDX,dword ptr [ECX + 0x8]
+  0x00a1e3a3: MOV EAX,dword ptr [EBP + -0x4]
+  Decompiled:
+
+uint __thiscall FUN_00a1e380(void *this,undefined4 param_1,undefined4 *param_2)
+
+{
+  undefined4 uVar1;
+  char cVar2;
+  uint uVar3;
+  undefined4 *local_c;
+  
+  uVar3 = (**(code **)(*(int *)this + 4))(param_1);
+  local_c = *(undefined4 **)(*(int *)((int)this + 8) + uVar3 * 4);
+  while( true ) {
+    if (local_c == (undefined4 *)0x0) {
+      return uVar3 & 0xffffff00;
+    }
+    cVar2 = (**(code **)(*(int *)this + 8))(param_1,local_c[1]);
+    if (cVar2 != '\0') break;
+    local_c = (undefined4 *)*local_c;
+    uVar3 = 0;
+  }
+  uVar1 = local_c[2];
+  *param_2 = uVar1;
+  return CONCAT31((int3)((uint)uVar1 >> 8),1);
+}
+
+
+  Called by:
+    FUN_00a00940 @ 0x00a00940 (from 0x00a00985)
+    FUN_00a01860 @ 0x00a01860 (from 0x00a018a5)
+    FUN_00a09200 @ 0x00a09200 (from 0x00a09257)
+    FUN_00a09410 @ 0x00a09410 (from 0x00a09575)
+    FUN_00a0a130 @ 0x00a0a130 (from 0x00a0a195)
+    FUN_00a0a220 @ 0x00a0a220 (from 0x00a0a23a)
+    FUN_00a1c9b0 @ 0x00a1c9b0 (from 0x00a1c9d9)
+    FUN_00a1ca20 @ 0x00a1ca20 (from 0x00a1ca49)
+    FUN_00a1ca20 @ 0x00a1ca20 (from 0x00a1caa5)
+    FUN_00aa42e0 @ 0x00aa42e0 (from 0x00aa4329)
+    FUN_00ada330 @ 0x00ada330 (from 0x00ada402)
+    FUN_00adc7d0 @ 0x00adc7d0 (from 0x00adc7f2)
+    FUN_00adc830 @ 0x00adc830 (from 0x00adc864)
+    FUN_00adc8b0 @ 0x00adc8b0 (from 0x00adc8e2)
+    FUN_00adc910 @ 0x00adc910 (from 0x00adc93d)
+    FUN_00ada5d0 @ 0x00ada5d0 (from 0x00adaa11)
+    FUN_00adea90 @ 0x00adea90 (from 0x00adec24)
+    FUN_00a09330 @ 0x00a09330 (from 0x00a09355)
+    FUN_00adf080 @ 0x00adf080 (from 0x00adf542)
+    FUN_00adf080 @ 0x00adf080 (from 0x00adf60f)
+    FUN_00adf080 @ 0x00adf080 (from 0x00adf68e)
+    FUN_00adf080 @ 0x00adf080 (from 0x00adf958)
+    FUN_00adf080 @ 0x00adf080 (from 0x00adfa05)
+    FUN_00adf080 @ 0x00adf080 (from 0x00adfadc)
+    FUN_00adf080 @ 0x00adf080 (from 0x00ae020f)
+    FUN_00adf080 @ 0x00adf080 (from 0x00ae02f7)
+    FUN_00adf080 @ 0x00adf080 (from 0x00ae03db)
+    FUN_00adf080 @ 0x00adf080 (from 0x00ae04dc)
+    FUN_00adf080 @ 0x00adf080 (from 0x00ae0c83)
+    FUN_00adf080 @ 0x00adf080 (from 0x00ae1415)
+    FUN_00adf080 @ 0x00adf080 (from 0x00ae1e1f)
+    FUN_00adf080 @ 0x00adf080 (from 0x00ae22d6)
+    FUN_00adf080 @ 0x00adf080 (from 0x00ae2837)
+    FUN_00adf080 @ 0x00adf080 (from 0x00ae29cb)
+    FUN_00adf080 @ 0x00adf080 (from 0x00ae2a37)
+    FUN_00adf080 @ 0x00adf080 (from 0x00ae2af7)
+    FUN_00adf080 @ 0x00adf080 (from 0x00ae2bc3)
+    FUN_00adf080 @ 0x00adf080 (from 0x00ae2cea)
+    FUN_00adf080 @ 0x00adf080 (from 0x00ae3b40)
+    FUN_00adf080 @ 0x00adf080 (from 0x00ae3d6b)
+    FUN_00adf080 @ 0x00adf080 (from 0x00ae410a)
+    FUN_00adf080 @ 0x00adf080 (from 0x00ae4195)
+    FUN_00adf080 @ 0x00adf080 (from 0x00ae4220)
+    FUN_00adf080 @ 0x00adf080 (from 0x00ae43d8)
+    FUN_00adf080 @ 0x00adf080 (from 0x00ae46dc)
+    FUN_00adf080 @ 0x00adf080 (from 0x00ae4947)
+    FUN_00adf080 @ 0x00adf080 (from 0x00ae503d)
+    FUN_00adf080 @ 0x00adf080 (from 0x00ae5190)
+    FUN_00adf080 @ 0x00adf080 (from 0x00ae51ee)
+    FUN_00adf080 @ 0x00adf080 (from 0x00ae5359)
+    FUN_00adf080 @ 0x00adf080 (from 0x00ae54b4)
+    FUN_00a1cb30 @ 0x00a1cb30 (from 0x00a1cb4a)
+    FUN_00ad9870 @ 0x00ad9870 (from 0x00ad9be2)
+    FUN_00adc9a0 @ 0x00adc9a0 (from 0x00adc9cd)
+  Raw bytes: 55 8B EC 83 EC 0C 89 4D F4 8B 45 08 50 8B 4D F4 8B 11 8B 4D F4 8B 42 04 FF D0 89 45 FC 8B 4D F4
+
+--- Original caller (BSShader::CreateVertexShader): 0x00b74005 ---
+  Function: FUN_00b71bf0 @ 0x00b71bf0 (9756 bytes, offset +0x2415)
+  Disassembly:
+  0x00b73ff1: [no instruction]
+  Decompiled (first 6000 chars):
+
+/* WARNING: Function: __alloca_probe replaced with injection: alloca_probe */
+
+void FUN_00b71bf0(void)
+
+{
+  char **ppcVar1;
+  int *piVar2;
+  LONG LVar3;
+  int *piVar4;
+  char **ppcVar5;
+  int iVar6;
+  char **local_3064 [2];
+  char *local_305c;
+  undefined4 local_3058;
+  undefined1 local_3054 [68];
+  char *local_3010;
+  undefined *local_300c;
+  undefined *local_3008;
+  undefined4 local_3004;
+  undefined1 local_3000 [60];
+  char *local_2fc4;
+  char *local_2fc0;
+  undefined *local_2fbc;
+  char *local_2fb8;
+  undefined *local_2fb4;
+  char *local_2fb0;
+  undefined *local_2fac;
+  undefined4 local_2fa8;
+  undefined1 local_2fa4 [44];
+  char *local_2f78;
+  undefined *local_2f74;
+  undefined *local_2f70;
+  undefined4 local_2f6c;
+  undefined1 local_2f68 [60];
+  char *local_2f2c;
+  char *local_2f28;
+  undefined *local_2f24;
+  undefined4 local_2f20;
+  undefined1 local_2f1c [60];
+  char *local_2ee0;
+  char *local_2edc;
+  undefined *local_2ed8;
+  char *local_2ed4;
+  undefined *local_2ed0;
+  char *local_2ecc;
+  undefined *local_2ec8;
+  char *local_2ec4;
+  undefined *local_2ec0;
+  undefined4 local_2ebc;
+  undefined4 local_2eb8;
+  undefined4 local_2eb4;
+  undefined4 local_2eb0;
+  undefined4 local_2eac;
+  undefined4 local_2ea8;
+  undefined4 local_2ea4;
+  undefined4 local_2ea0;
+  undefined4 local_2e9c;
+  undefined4 local_2e98;
+  char *local_2e94;
+  undefined *local_2e90;
+  undefined *local_2e8c;
+  char *local_2e88;
+  undefined *local_2e84;
+  undefined4 local_2e80;
+  undefined1 local_2e7c [52];
+  char *local_2e48;
+  undefined *local_2e44;
+  undefined *local_2e40;
+  undefined4 local_2e3c;
+  undefined1 local_2e38 [60];
+  char *local_2dfc;
+  char *local_2df8;
+  undefined *local_2df4;
+  undefined4 local_2df0;
+  undefined1 local_2dec [60];
+  char *local_2db0;
+  char *local_2dac;
+  undefined *local_2da8;
+  undefined *local_2da4;
+  undefined *local_2da0;
+  undefined4 local_2d9c;
+  undefined1 local_2d98 [52];
+  char *local_2d64;
+  char *local_2d60;
+  undefined *local_2d5c;
+  char *local_2d58;
+  undefined *local_2d54;
+  undefined4 local_2d50;
+  undefined1 local_2d4c [52];
+  char *local_2d18;
+  char *local_2d14;
+  undefined *local_2d10;
+  undefined *local_2d0c;
+  undefined *local_2d08;
+  char *local_2d04;
+  undefined *local_2d00;
+  undefined4 local_2cfc;
+  undefined1 local_2cf8 [44];
+  char *local_2ccc;
+  char *local_2cc8;
+  undefined *local_2cc4;
+  undefined4 local_2cc0;
+  undefined1 local_2cbc [60];
+  char *local_2c80;
+  char *local_2c7c;
+  undefined *local_2c78;
+  undefined *local_2c74;
+  undefined *local_2c70;
+  undefined4 local_2c6c;
+  undefined1 local_2c68 [52];
+  char *local_2c34;
+  char *local_2c30;
+  undefined *local_2c2c;
+  char *local_2c28;
+  undefined *local_2c24;
+  undefined4 local_2c20;
+  undefined1 local_2c1c [52];
+  char *local_2be8;
+  char *local_2be4;
+  undefined *local_2be0;
+  undefined *local_2bdc;
+  undefined *local_2bd8;
+  char *local_2bd4;
+  undefined *local_2bd0;
+  undefined4 local_2bcc;
+  undefined1 local_2bc8 [44];
+  char *local_2b9c;
+  char *local_2b98;
+  undefined *local_2b94;
+  char *local_2b90;
+  undefined *local_2b8c;
+  undefined4 local_2b88;
+  undefined1 local_2b84 [52];
+  char *local_2b50;
+  char *local_2b4c;
+  undefined *local_2b48;
+  char *local_2b44;
+  undefined *local_2b40;
+  undefined *local_2b3c;
+  undefined *local_2b38;
+  undefined4 local_2b34;
+  undefined1 local_2b30 [44];
+  char *local_2b04;
+  char *local_2b00;
+  undefined *local_2afc;
+  char *local_2af8;
+  undefined *local_2af4;
+  char *local_2af0;
+  undefined *local_2aec;
+  undefined4 local_2ae8;
+  undefined1 local_2ae4 [44];
+  char *local_2ab8;
+  char *local_2ab4;
+  undefined *local_2ab0;
+  char *local_2aac;
+  undefined *local_2aa8;
+  undefined *local_2aa4;
+  undefined *local_2aa0;
+  char *local_2a9c;
+  undefined *local_2a98;
+  undefined4 local_2a94;
+  undefined4 local_2a90;
+  undefined4 local_2a8c;
+  undefined4 local_2a88;
+  undefined4 local_2a84;
+  undefined4 local_2a80;
+  undefined4 local_2a7c;
+  undefined4 local_2a78;
+  undefined4 local_2a74;
+  undefined4 local_2a70;
+  char *local_2a6c;
+  char *local_2a68;
+  undefined *local_2a64;
+  undefined4 local_2a60;
+  undefined1 local_2a5c [60];
+  char *local_2a20;
+  char *local_2a1c;
+  undefined *local_2a18;
+  undefined *local_2a14;
+  undefined *local_2a10;
+  undefined4 local_2a0c;
+  undefined1 local_2a08 [52];
+  char *local_29d4;
+  char *local_29d0;
+  undefined *local_29cc;
+  undefined4 local_29c8;
+  undefined1 local_29c4 [60];
+  char *local_2988;
+  undefined *local_2984;
+  undefined *local_2980;
+  char *local_297c;
+  undefined *local_2978;
+  undefined4 local_2974;
+  undefined1 local_2970 [52];
+  char *local_293c;
+  char *local_2938;
+  undefined *local_2934;
+  undefined *local_2930;
+  undefined *local_292c;
+  undefined4 local_2928;
+  undefined1 local_2924 [52];
+  char *local_28f0;
+  char *local_28ec;
+  undefined *local_28e8;
+  char *local_28e4;
+  undefined *local_28e0;
+  undefined4 local_28dc;
+  undefined1 local_28d8 [52];
+  char *local_28a4;
+  undefined *local_28a0;
+  undefined *local_289c;
+  char *local_2898;
+  undefined *local_2894;
+  char *local_2890;
+  undefined *local_288c;
+  undefined4 local_2888;
+  undefined1 local_2884 [44];
+  char *local_2858;
+  char *local_2854;
+  undefined *local_2850;
+  char *local_284c;
+  undefined *local_2848;
+  undefined *local_2844;
+  undefined *local_2840;
+  undefined4 local_283c;
+  undefined1 local_2838 [44];
+  char *local_280c;
+  char *local_2808;
+  undefined *local_2804;
+  undefined4 local_2800;
+  undefined1 local_27fc [60];
+  char *local_27c0;
+  char *local_27bc;
+  undefined *local_27b8;
+  undefined *local_27b4;
+  undefined *local_27b0;
+  undefined4 local_27ac;
+  undefined1 local_27a8 [52];
+  char *local_2774;
+  char *local_2770;
+  undefined *local_276c;
+  char *local_2768;
+  undefined *local_2764;
+  undefined4 local_2760;
+  undefined1 local_275c [52];
+  char *local_2728;
+  char *local_2724;
+  undefined *local_2720;
+  undefined *local_271c;
+  undefined *local_2718;
+  char *local_2714;
+  undefined *local_2710;
+  undefined4 local_270c;
+  und
+  ... [truncated, total 55369]
+  Called by:
+  Raw bytes: B8 64 30 00 00 E8 66 6A 35 00 A1 BC 16 1C 01 33 C4 89 84 24 60 30 00 00 53 55 56 57 33 FF 6A 44
+
+
+=== SHADER-RELATED SYMBOLS ===
+  D3DX9_38.DLL @ NO ADDRESS
+  D3DXPlaneTransform @ EXTERNAL:000000f9
+  D3DXPlaneTransform @ 00ee6dc8
+  D3DXPlaneNormalize @ EXTERNAL:000000ff
+  D3DXPlaneNormalize @ 00ee6dce
+  D3DXMatrixTranspose @ EXTERNAL:000000fe
+  D3DXMatrixTranspose @ 00ee6dd4
+  D3DXMatrixInverse @ EXTERNAL:000000fd
+  D3DXMatrixInverse @ 00ee6dda
+  D3DXMatrixMultiply @ EXTERNAL:000000fc
+  D3DXMatrixMultiply @ 00ee6de0
+  D3DXLoadSurfaceFromSurface @ EXTERNAL:000000e7
+  D3DXLoadSurfaceFromSurface @ 00ee6de6
+  D3DXMatrixRotationYawPitchRoll @ EXTERNAL:000000f6
+  D3DXMatrixRotationYawPitchRoll @ 00ee6e04
+  D3DXCompileShader @ EXTERNAL:000000f5
+  D3DXCompileShader @ 00ee6e0a
+  D3DXSaveTextureToFileA @ EXTERNAL:000000e8
+  D3DXSaveTextureToFileA @ 00ee6dc2
+  D3DXVec3Normalize @ EXTERNAL:000000fa
+  D3DXVec3Normalize @ 00ee6dec
+  D3DXVec3TransformNormal @ EXTERNAL:000000fb
+  D3DXVec3TransformNormal @ 00ee6df2
+  D3DXVec3TransformCoord @ EXTERNAL:000000f8
+  D3DXVec3TransformCoord @ 00ee6df8
+  D3DXMatrixMultiplyTranspose @ EXTERNAL:000000f7
+  D3DXMatrixMultiplyTranspose @ 00ee6dfe
+  D3DXCreateVolumeTextureFromFileInMemory @ EXTERNAL:000000f4
+  D3DXCreateVolumeTextureFromFileInMemory @ 00ee6e10
+  D3DXCreateCubeTextureFromFileInMemory @ EXTERNAL:000000f3
+  D3DXCreateCubeTextureFromFileInMemory @ 00ee6e16
+  D3DXCreateTextureFromFileInMemory @ EXTERNAL:000000f2
+  D3DXCreateTextureFromFileInMemory @ 00ee6e1c
+  D3DXGetImageInfoFromFileInMemory @ EXTERNAL:000000f1
+  D3DXGetImageInfoFromFileInMemory @ 00ee6e22
+  D3DXGetPixelShaderProfile @ EXTERNAL:000000f0
+  D3DXGetPixelShaderProfile @ 00ee6e28
+  D3DXGetVertexShaderProfile @ EXTERNAL:000000ef
+  D3DXGetVertexShaderProfile @ 00ee6e2e
+  D3DXVec4Transform @ EXTERNAL:000000ee
+  D3DXVec4Transform @ 00ee6e34
+  D3DXGetShaderConstantTable @ EXTERNAL:000000ec
+  D3DXGetShaderConstantTable @ 00ee6e40
+  D3DXCompileShaderFromFileA @ EXTERNAL:000000eb
+  D3DXCompileShaderFromFileA @ 00ee6e46
+  D3DXCreateBuffer @ EXTERNAL:000000ed
+  D3DXCreateBuffer @ 00ee6e3a
+  D3DXAssembleShaderFromFileA @ EXTERNAL:000000ea
+  D3DXAssembleShaderFromFileA @ 00ee6e4c
+  D3DXAssembleShader @ EXTERNAL:000000e9
+  D3DXAssembleShader @ 00ee6e52

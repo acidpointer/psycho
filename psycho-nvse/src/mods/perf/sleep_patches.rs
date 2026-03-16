@@ -5,43 +5,54 @@
 //! point during asset streaming (cell transitions, new objects entering
 //! view, combat with many actors/effects).
 //!
-//! The three functions form a coordination triangle:
+//! The three I/O functions form a coordination triangle:
 //!   - FUN_00b01080: Sets ready flag, spins Sleep(50ms) waiting for state change
 //!   - FUN_00b010d0: Sets state=2, spins Sleep(10ms) waiting for ready flag
 //!   - FUN_00b01130: Sets state=3, spins Sleep(10ms) waiting for ready flag
 //!
-//! Reducing these to Sleep(1ms) cuts coordination latency by 10-50x while
-//! still yielding the timeslice (no busy-wait CPU burn).
+//! These are pure polling loops - reducing to Sleep(1ms) cuts coordination
+//! latency by 10-50x while still yielding the timeslice.
 //!
-//! Additionally, FUN_00c3dfa0 (data loading) uses Sleep(50ms) as a throttle
-//! when the loader is ahead of the consumer. Reducing to 1ms speeds up
-//! loading without risk - it's purely a yield.
+//! FUN_00c3dfa0 (data loading) uses Sleep(50ms) as a BACKOFF when the loaded
+//! reference count decreases (something got unloaded/reloaded). This gives
+//! worker threads time to finish reinitializing 3D and physics data before
+//! the queue processor dispatches the next reference. Reducing too aggressively
+//! (1ms) causes race conditions where references are processed before their
+//! data is ready - manifesting as null pointer crashes in scene graph and
+//! HAVOK physics code on heavily modded setups.
+//! Compromise: Sleep(5ms) - still 10x faster than vanilla, but gives enough
+//! breathing room for data initialization.
 
 use libc::c_void;
 use libpsycho::os::windows::winapi::patch_bytes;
 
-/// Patch all oversized Sleep durations to 1ms.
+/// Patch oversized Sleep durations.
 pub fn install_sleep_patches() -> anyhow::Result<()> {
     unsafe {
         // FUN_00b01080: I/O thread sync - Sleep(50ms) -> Sleep(1ms)
+        // Pure polling loop, safe to minimize.
         // Instruction: PUSH 0x32 (6A 32) at 0x00b010ba
-        // Patch the immediate byte from 0x32 to 0x01
         patch_bytes(0x00B010BB as *mut c_void, &[0x01])?;
 
         // FUN_00b010d0: I/O "begin op" wait - Sleep(10ms) -> Sleep(1ms)
+        // Pure polling loop, safe to minimize.
         // Instruction: PUSH 0x0A (6A 0A) at 0x00b01121
         patch_bytes(0x00B01122 as *mut c_void, &[0x01])?;
 
         // FUN_00b01130: I/O "begin op" wait - Sleep(10ms) -> Sleep(1ms)
+        // Pure polling loop, safe to minimize.
         // Instruction: PUSH 0x0A (6A 0A) at 0x00b01195
         patch_bytes(0x00B01196 as *mut c_void, &[0x01])?;
 
-        // FUN_00c3dfa0: Data loading throttle - Sleep(50ms) -> Sleep(1ms)
+        // FUN_00c3dfa0: Data loading throttle - Sleep(50ms) -> Sleep(5ms)
+        // BACKOFF when loaded count decreases. Must give worker threads
+        // time to finish initializing 3D/physics data for queued references.
+        // 50ms -> 5ms = 10x faster, but safe for data initialization.
         // Instruction: PUSH 0x32 (6A 32) at 0x00c3e105
-        patch_bytes(0x00C3E106 as *mut c_void, &[0x01])?;
+        patch_bytes(0x00C3E106 as *mut c_void, &[0x05])?;
     }
 
-    log::info!("[PERF] Sleep patches applied: 50ms->1ms (x2), 10ms->1ms (x2)");
+    log::info!("[PERF] Sleep patches applied: I/O sync 50/10ms->1ms, data loading 50ms->5ms");
 
     Ok(())
 }
