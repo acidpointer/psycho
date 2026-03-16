@@ -20,8 +20,8 @@ use crate::{
     mods::{
         memory::{configure_mimalloc, install_crt_hooks, replacer::install_game_heap_hooks},
         perf::{
-            boost_main_thread_priority, install_critical_section_hooks, install_sleep_patches,
-            patch_deferred_task_budget, set_timer_resolution,
+            boost_main_thread_priority, install_critical_section_hooks, install_detection_budget,
+            install_sleep_patches, patch_deferred_task_budget, set_timer_resolution,
         },
         stability::install_null_deref_guards,
         zlib::install_zlib_hooks,
@@ -126,6 +126,16 @@ pub extern "system" fn DllMain(hmodule: HINSTANCE, reason: u32, _reserved: LPVOI
                 }
                 Err(err) => {
                     log::error!("Deferred task budget patch error: {:?}", err);
+                }
+            }
+
+            // Detection processing throttle - reduce O(N*M) combat detection cost
+            match install_detection_budget() {
+                Ok(_) => {
+                    log::info!("Detection budget throttle installed");
+                }
+                Err(err) => {
+                    log::error!("Detection budget throttle error: {:?}", err);
                 }
             }
 

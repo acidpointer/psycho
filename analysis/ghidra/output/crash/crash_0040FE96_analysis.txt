@@ -1,0 +1,3233 @@
+======================================================================
+=== CRASH ANALYSIS: 0x0040FE96 (ECX=2, ACCESS_VIOLATION) ===
+======================================================================
+
+
+=== 1. CRASH SITE: 0x0040FE96 ===
+
+--- Disassembly (0x0040FE80 - 0x0040FF20) ---
+  0x0040fe80: PUSH EBP
+  0x0040fe81: MOV EBP,ESP
+  0x0040fe83: SUB ESP,0xc
+  0x0040fe86: MOV dword ptr [EBP + -0xc],ECX
+  0x0040fe89: MOVZX EAX,byte ptr [EBP + 0x8]
+  0x0040fe8d: SAR EAX,0x3
+  0x0040fe90: MOV dword ptr [EBP + -0x8],EAX
+  0x0040fe93: CMP dword ptr [EBP + -0x8],0x15
+  0x0040fe97: JNC 0x0040feca
+  0x0040fe99: MOV ECX,dword ptr [EBP + -0xc]
+  0x0040fe9c: ADD ECX,dword ptr [EBP + -0x8]
+  0x0040fe9f: MOVZX EDX,byte ptr [ECX + 0x8]
+  0x0040fea3: MOVZX EAX,byte ptr [EBP + 0x8]
+  0x0040fea7: MOV ECX,EAX
+  0x0040fea9: AND ECX,0x80000007
+  0x0040feaf: JNS 0x0040feb6
+  0x0040feb1: DEC ECX
+  0x0040feb2: OR ECX,0xfffffff8
+  0x0040feb5: INC ECX
+  0x0040feb6: MOV EAX,0x1
+  0x0040febb: SHL EAX,CL
+  0x0040febd: AND EDX,EAX
+  0x0040febf: NEG EDX
+  0x0040fec1: SBB EDX,EDX
+  0x0040fec3: NEG EDX
+  0x0040fec5: MOV byte ptr [EBP + -0x1],DL
+  0x0040fec8: JMP 0x0040fece
+  0x0040feca: MOV byte ptr [EBP + -0x1],0x0
+  0x0040fece: MOV AL,byte ptr [EBP + -0x1]
+  0x0040fed1: MOV ESP,EBP
+
+--- Function: FUN_0040fe80 @ 0x0040fe80 (87 bytes) ---
+
+/* WARNING: Removing unreachable block (ram,0x0040feb1) */
+
+undefined4 __thiscall FUN_0040fe80(void *this,byte param_1)
+
+{
+  int iVar1;
+  uint uVar2;
+  bool local_5;
+  
+  uVar2 = (int)(uint)param_1 >> 3;
+  if (uVar2 < 0x15) {
+    iVar1 = uVar2 + 8;
+    uVar2 = 1 << (param_1 & 7);
+    local_5 = (*(byte *)((int)this + iVar1) & uVar2) != 0;
+  }
+  else {
+    local_5 = false;
+  }
+  return CONCAT31((int3)(uVar2 >> 8),local_5);
+}
+
+
+
+--- Called by: ---
+  FUN_00410220 @ 0x00410220
+  FUN_004102d0 @ 0x004102d0
+  FUN_00418750 @ 0x00418750
+  FUN_00418ab0 @ 0x00418ab0
+  FUN_00418ab0 @ 0x00418ab0
+  FUN_00418ab0 @ 0x00418ab0
+  FUN_00418b10 @ 0x00418b10
+  FUN_0041aa20 @ 0x0041aa20
+  FUN_0041aa20 @ 0x0041aa20
+  FUN_004216d0 @ 0x004216d0
+  FUN_00418a80 @ 0x00418a80
+  FUN_0041ab70 @ 0x0041ab70
+  FUN_0041a960 @ 0x0041a960
+
+--- Raw bytes (first 64): ---
+  55 8B EC 83 EC 0C 89 4D F4 0F B6 45 08 C1 F8 03 89 45 F8 83 7D F8 15 73 31 8B 4D F4 03 4D F8 0F B6 51 08 0F B6 45 08 8B C8 81 E1 07 00 00 80 79 05 49 83 C9 F8 41 B8 01 00 00 00 D3 E0 23 D0 F7
+
+
+=== 2. IMMEDIATE CALLER: 0x004182C3 ===
+
+  0x004182b0: PUSH EBP
+  0x004182b1: MOV EBP,ESP
+  0x004182b3: SUB ESP,0x8
+  0x004182b6: MOV dword ptr [EBP + -0x8],ECX
+  0x004182b9: PUSH 0x2a
+  0x004182bb: MOV ECX,dword ptr [EBP + -0x8]
+  0x004182be: CALL 0x00410220
+  0x004182c3: MOV dword ptr [EBP + -0x4],EAX
+  0x004182c6: CMP dword ptr [EBP + -0x4],0x0
+  0x004182ca: JZ 0x004182d4
+  0x004182cc: MOV EAX,dword ptr [EBP + -0x4]
+  0x004182cf: MOV EAX,dword ptr [EAX + 0xc]
+  0x004182d2: JMP 0x004182d6
+  0x004182d4: XOR EAX,EAX
+  0x004182d6: MOV ESP,EBP
+
+--- Function: FUN_004182b0 @ 0x004182b0 ---
+
+undefined4 __fastcall FUN_004182b0(void *param_1)
+
+{
+  int iVar1;
+  undefined4 uVar2;
+  
+  iVar1 = FUN_00410220(param_1,0x2a);
+  if (iVar1 == 0) {
+    uVar2 = 0;
+  }
+  else {
+    uVar2 = *(undefined4 *)(iVar1 + 0xc);
+  }
+  return uVar2;
+}
+
+
+
+
+=== 3. FULL CRASH CHAIN ===
+
+
+--- 0x0040fe96 in FUN_0040fe80 (entry 0x0040fe80 +0x16) ---
+  0x0040fe86: MOV dword ptr [EBP + -0xc],ECX
+  0x0040fe89: MOVZX EAX,byte ptr [EBP + 0x8]
+  0x0040fe8d: SAR EAX,0x3
+  0x0040fe90: MOV dword ptr [EBP + -0x8],EAX
+  0x0040fe93: CMP dword ptr [EBP + -0x8],0x15
+  0x0040fe97: JNC 0x0040feca
+  0x0040fe99: MOV ECX,dword ptr [EBP + -0xc]
+  0x0040fe9c: ADD ECX,dword ptr [EBP + -0x8]
+  0x0040fe9f: MOVZX EDX,byte ptr [ECX + 0x8]
+  0x0040fea3: MOVZX EAX,byte ptr [EBP + 0x8]
+
+/* WARNING: Removing unreachable block (ram,0x0040feb1) */
+
+undefined4 __thiscall FUN_0040fe80(void *this,byte param_1)
+
+{
+  int iVar1;
+  uint uVar2;
+  bool local_5;
+  
+  uVar2 = (int)(uint)param_1 >> 3;
+  if (uVar2 < 0x15) {
+    iVar1 = uVar2 + 8;
+    uVar2 = 1 << (param_1 & 7);
+    local_5 = (*(byte *)((int)this + iVar1) & uVar2) != 0;
+  }
+  else {
+    local_5 = false;
+  }
+  return CONCAT31((int3)(uVar2 >> 8),local_5);
+}
+
+
+
+--- 0x004182c3 in FUN_004182b0 (entry 0x004182b0 +0x13) ---
+  0x004182b3: SUB ESP,0x8
+  0x004182b6: MOV dword ptr [EBP + -0x8],ECX
+  0x004182b9: PUSH 0x2a
+  0x004182bb: MOV ECX,dword ptr [EBP + -0x8]
+  0x004182be: CALL 0x00410220
+  0x004182c3: MOV dword ptr [EBP + -0x4],EAX
+  0x004182c6: CMP dword ptr [EBP + -0x4],0x0
+  0x004182ca: JZ 0x004182d4
+  0x004182cc: MOV EAX,dword ptr [EBP + -0x4]
+  0x004182cf: MOV EAX,dword ptr [EAX + 0xc]
+
+undefined4 __fastcall FUN_004182b0(void *param_1)
+
+{
+  int iVar1;
+  undefined4 uVar2;
+  
+  iVar1 = FUN_00410220(param_1,0x2a);
+  if (iVar1 == 0) {
+    uVar2 = 0;
+  }
+  else {
+    uVar2 = *(undefined4 *)(iVar1 + 0xc);
+  }
+  return uVar2;
+}
+
+
+
+--- 0x00569156 in FUN_00569140 (entry 0x00569140 +0x16) ---
+  0x00569146: [no instruction]
+
+void __fastcall FUN_00569140(int param_1)
+
+{
+  void *pvVar1;
+  
+  pvVar1 = (void *)FUN_005d43c0(param_1);
+  FUN_004182b0(pvVar1);
+  return;
+}
+
+
+
+--- 0x005691a6 in FUN_00569160 (entry 0x00569160 +0x46) ---
+  0x00569196: [no instruction]
+
+int __fastcall FUN_00569160(int param_1)
+
+{
+  undefined4 *puVar1;
+  int iVar2;
+  undefined4 local_8;
+  
+  local_8 = FUN_00569140(param_1);
+  if (local_8 == 0) {
+    puVar1 = (undefined4 *)FUN_00568e50(param_1);
+    if (puVar1 != (undefined4 *)0x0) {
+      iVar2 = FUN_00559450(puVar1);
+      if (iVar2 != 0) {
+        iVar2 = FUN_00559450(puVar1);
+        local_8 = FUN_00569140(iVar2);
+      }
+    }
+  }
+  return local_8;
+}
+
+
+
+--- 0x005cc178 in FUN_005cc120 (entry 0x005cc120 +0x58) ---
+  0x005cc168: [no instruction]
+
+/* WARNING: Removing unreachable block (ram,0x005cc199) */
+/* WARNING: Removing unreachable block (ram,0x005cc1aa) */
+
+uint __cdecl
+FUN_005cc120(int param_1,int param_2,int *param_3,undefined4 param_4,int *param_5,int param_6,
+            undefined4 param_7,float *param_8)
+
+{
+  undefined1 uVar1;
+  uint in_EAX;
+  uint uVar2;
+  void *pvVar3;
+  int iVar4;
+  undefined3 extraout_var;
+  undefined4 uVar5;
+  int unaff_FS_OFFSET;
+  
+  if (param_3 == (int *)0x0) {
+    uVar2 = in_EAX & 0xffffff00;
+  }
+  else {
+    uVar2 = FUN_005accb0(param_1,param_2,param_8,(int)param_3,param_4,param_5,param_6);
+    if ((uVar2 & 0xff) == 0) {
+      uVar2 = uVar2 & 0xffffff00;
+    }
+    else {
+      pvVar3 = (void *)FUN_00569160((int)param_3);
+      if (pvVar3 == (void *)0x0) {
+        iVar4 = FUN_007af430((int)param_3);
+        uVar1 = FUN_00401170(iVar4);
+        if (CONCAT31(extraout_var,uVar1) == 0x17) {
+          pvVar3 = (void *)FUN_007af430((int)param_3);
+          FUN_00501b40(pvVar3,(int)param_3);
+          FUN_00501930(param_3,'\0');
+        }
+      }
+      else {
+        FUN_00430a90(pvVar3,'\0');
+        FUN_005789b0(param_3);
+        (**(code **)(*param_3 + 200))(1);
+      }
+      uVar5 = 0;
+      if (*(char *)(*(int *)(*(int *)(unaff_FS_OFFSET + 0x2c) + _tls_index * 4) + 0x268) != '\0') {
+        FUN_0055d520((int)param_3);
+        uVar5 = FUN_00703c00("Unlocked %s ");
+      }
+      uVar2 = CONCAT31((int3)((uint)uVar5 >> 8),1);
+    }
+  }
+  return uVar2;
+}
+
+
+
+--- 0x005e234b in FUN_005e1550 (entry 0x005e1550 +0xDFB) ---
+  0x005e233b: [no instruction]
+
+/* WARNING: Globals starting with '_' overlap smaller symbols at the same address */
+
+void __thiscall
+FUN_005e1550(void *this,int *param_1,int param_2,int *param_3,int *param_4,float param_5,
+            int *param_6,undefined4 param_7,byte param_8,char param_9)
+
+{
+  float fVar1;
+  char cVar2;
+  bool bVar3;
+  uint uVar4;
+  int iVar5;
+  undefined4 uVar6;
+  char *pcVar7;
+  undefined4 extraout_EDX;
+  undefined4 extraout_EDX_00;
+  int *unaff_FS_OFFSET;
+  float10 fVar8;
+  ulonglong uVar9;
+  undefined1 local_ec8 [12];
+  code *local_ebc;
+  double local_eb8;
+  short local_eac;
+  short local_ea8;
+  CArray<class_CMFCRibbonInfo::XQAT::XQATItem,class_CMFCRibbonInfo::XQAT::XQATItem> local_ea4 [8];
+  undefined *local_e9c;
+  CArray<class_CMFCRibbonInfo::XQAT::XQATItem,class_CMFCRibbonInfo::XQAT::XQATItem> local_e98 [8];
+  short local_e90;
+  short local_e8c;
+  undefined4 local_e88 [452];
+  short local_778;
+  int *local_774;
+  int local_770;
+  int local_76c;
+  short local_768;
+  int *local_764;
+  undefined4 local_760 [452];
+  uint local_50;
+  char local_49;
+  short local_48;
+  int local_44;
+  double local_40;
+  short local_38;
+  undefined **local_34;
+  double local_30;
+  int local_28;
+  int local_24;
+  code *local_20;
+  int local_1c;
+  int local_18;
+  float local_14;
+  int local_10;
+  undefined1 *puStack_c;
+  undefined4 local_8;
+  
+  local_8 = 0xffffffff;
+  puStack_c = &LAB_00ef9c6c;
+  local_10 = *unaff_FS_OFFSET;
+  uVar4 = DAT_011c16bc ^ (uint)&stack0xfffffffc;
+  *unaff_FS_OFFSET = (int)&local_10;
+  local_14 = param_5;
+  local_50 = uVar4;
+  local_18 = FUN_00671d10((int)param_1);
+  if (param_2 == 0x10) {
+    local_1c = (int)*(short *)(local_18 + (int)local_14);
+    if ((local_1c < 0) || (0x25 < local_1c)) {
+      local_14 = (float)((int)local_14 + 2);
+      FUN_0084e3a0((int)param_1);
+      (**(code **)(*param_1 + 0x130))();
+      FUN_005b5e40();
+    }
+    else {
+      local_24 = *(int *)(local_18 + (int)local_14 + 2);
+      local_14 = (float)((int)local_14 + 6);
+      local_28 = *(int *)(&DAT_0118e304 + local_1c * 0x28);
+      local_20 = (code *)(&PTR_FUN_0118e308)[local_1c * 10];
+      if (param_8 == 0) {
+        if (((&DAT_0118e300)[local_1c * 0x28] == '\0') || (param_3 != (int *)0x0)) {
+          if ((local_20 == (code *)0x0) ||
+             (cVar2 = (*local_20)(local_28,local_18,param_3,*(undefined4 *)this,param_1,
+                                  *(undefined4 *)((int)this + 8),&local_30,&local_14), cVar2 == '\0'
+             )) {
+            (**(code **)(*param_1 + 0x130))(param_7,local_14);
+            FUN_005b5e40();
+          }
+          else if ((local_30 == 0.0) || (param_9 != '\0')) {
+            *param_4 = *param_4 + local_24;
+          }
+        }
+        else {
+          (**(code **)(*param_1 + 0x130))();
+          FUN_005b5e40();
+        }
+      }
+      else if ((local_28 != 0) && (*param_4 != 0)) {
+        FUN_005accb0(local_28,local_18,&local_14,(int)param_3,*(undefined4 *)this,param_1,
+                     *(int *)((int)this + 8));
+      }
+    }
+    goto LAB_005e238c;
+  }
+  if (param_9 != '\0') goto LAB_005e238c;
+  switch(param_2) {
+  case 0x10:
+    break;
+  case 0x11:
+    break;
+  case 0x15:
+    local_49 = *(char *)(local_18 + (int)local_14);
+    local_48 = 0;
+    local_764 = *(int **)((int)this + 8);
+    local_44 = 0;
+    if ((local_49 == 'G') || (fVar1 = (float)((int)local_14 + 1), local_49 == 'r')) {
+      local_768 = *(short *)(local_18 + (int)local_14 + 1);
+      fVar1 = (float)((int)local_14 + 3);
+      if (local_49 == 'r') {
+        local_49 = *(char *)(local_18 + (int)local_14 + 3);
+        fVar1 = (float)((int)local_14 + 4);
+      }
+      local_14 = fVar1;
+      local_44 = FUN_005ac4f0(param_1,(int)local_768,*(int *)((int)this + 8));
+      fVar1 = local_14;
+      if (param_8 == 0) {
+        if (((local_49 == 'r') || (local_44 == 0)) || (*(int *)(local_44 + 8) == 0)) {
+          FUN_0084e3a0((int)param_1);
+          (**(code **)(*param_1 + 0x130))();
+          FUN_005b5e40();
+          break;
+        }
+        loc
+  ... [truncated, total 14094]
+
+--- 0x005e101f in FUN_005e0d20 (entry 0x005e0d20 +0x2FF) ---
+  0x005e100f: PUSH ECX
+  0x005e1010: MOV EDX,dword ptr [EBP + 0x8]
+  0x005e1013: PUSH EDX
+  0x005e1014: MOV ECX,dword ptr [EBP + 0xfffff88c]
+  0x005e101a: CALL 0x005e1550
+  0x005e101f: MOVZX EAX,AL
+  0x005e1022: TEST EAX,EAX
+  0x005e1024: JNZ 0x005e102c
+  0x005e1026: MOV byte ptr [EBP + -0x35],0x1
+  0x005e102a: JMP 0x005e103a
+
+/* WARNING: Globals starting with '_' overlap smaller symbols at the same address */
+
+void __thiscall
+FUN_005e0d20(void *this,int *param_1,int *param_2,int param_3,undefined4 param_4,char param_5,
+            undefined1 param_6,undefined1 param_7,undefined4 param_8)
+
+{
+  bool bVar1;
+  char cVar2;
+  uint uVar3;
+  undefined4 uVar4;
+  int iVar5;
+  int *unaff_FS_OFFSET;
+  undefined4 local_760 [453];
+  uint local_4c;
+  wchar_t *local_48;
+  int local_44;
+  float local_40;
+  char local_39;
+  LARGE_INTEGER local_38;
+  char local_29;
+  int local_28;
+  int *local_24;
+  LARGE_INTEGER local_20;
+  int local_18;
+  int local_14;
+  int local_10;
+  undefined1 *puStack_c;
+  undefined4 local_8;
+  
+  local_8 = 0xffffffff;
+  puStack_c = &LAB_00ef9bcb;
+  local_10 = *unaff_FS_OFFSET;
+  uVar3 = DAT_011c16bc ^ (uint)&stack0xfffffffc;
+  *unaff_FS_OFFSET = (int)&local_10;
+  local_4c = uVar3;
+  local_29 = FUN_00702fc0();
+  local_20.s.LowPart = 0;
+  local_20.s.HighPart = 0;
+  if (local_29 != '\0') {
+    if (lpFrequency_011caec8 == (LARGE_INTEGER *)0x0 && _DAT_011caecc == 0) {
+      QueryPerformanceFrequency((LARGE_INTEGER *)&lpFrequency_011caec8);
+    }
+    QueryPerformanceCounter(&local_20);
+  }
+  *(undefined1 *)((int)this + 0xa1) = 0;
+  if ((param_1 != (int *)0x0) && (bVar1 = FUN_004013e0((int)param_1), bVar1)) {
+    if (*(int *)((int)this + 0x14) == 0) {
+      *(int **)((int)this + 0x14) = param_1;
+      FUN_00593490(local_760);
+      local_8 = 0;
+      local_48 = (wchar_t *)0x0;
+      *(undefined4 *)((int)this + 0x24) = 0;
+      *(undefined4 *)((int)this + 0x20) = 0;
+      local_28 = 0xffff;
+      local_40 = 0.0;
+      *(undefined4 *)this = param_4;
+      if (param_2 == (int *)0x0) {
+        *(undefined4 *)((int)this + 4) = 0;
+      }
+      else {
+        uVar4 = FUN_007af430((int)param_2);
+        *(undefined4 *)((int)this + 4) = uVar4;
+      }
+      if (param_3 == 0) {
+        local_48 = FUN_005abf60((int)param_1);
+        *(wchar_t **)((int)this + 8) = local_48;
+      }
+      else {
+        *(int *)((int)this + 8) = param_3;
+      }
+      iVar5 = FUN_00500940((int)param_1);
+      if (*(char *)(iVar5 + 0x11) != '\0') {
+        if (*(int *)(*(int *)((int)this + 8) + 0x10) == 0) {
+          uVar4 = FUN_00401000(8);
+          *(undefined4 *)(*(int *)((int)this + 8) + 0x10) = uVar4;
+        }
+        **(undefined1 **)(*(int *)((int)this + 8) + 0x10) = param_6;
+        *(undefined1 *)(*(int *)(*(int *)((int)this + 8) + 0x10) + 1) = param_7;
+        *(undefined4 *)(*(int *)(*(int *)((int)this + 8) + 0x10) + 4) = param_8;
+      }
+      local_18 = 0;
+      local_24 = (int *)0x0;
+      local_14 = 0;
+      local_39 = '\0';
+      local_44 = 0;
+      while (iVar5 = FUN_00500940((int)param_1), (uint)local_40 < (uint)*(float *)(iVar5 + 8)) {
+        local_44 = local_44 + 1;
+        *(undefined4 *)((int)this + 0x10) = 0;
+        local_18 = 0;
+        uVar3 = FUN_005e13a0(this,param_1,&local_28,(int *)&local_40,&local_18,(int *)&local_24,
+                             local_14 != 0);
+        if ((uVar3 & 0xff) == 0) {
+          iVar5 = FUN_00500940((int)param_1);
+          *(undefined4 *)(iVar5 + 8) = 0;
+          break;
+        }
+        if (local_14 == 0) {
+          if (local_28 == 0x1e) break;
+          if (local_24 == (int *)0x0) {
+            local_24 = param_2;
+          }
+          cVar2 = FUN_005e1550(this,param_1,local_28,local_24,&local_18,local_40,&local_14,local_44,
+                               0,'\0');
+          if (cVar2 == '\0') {
+            local_39 = '\x01';
+            break;
+          }
+        }
+        else {
+          local_14 = local_14 + -1;
+        }
+        local_40 = (float)((int)local_40 + local_18);
+      }
+      if ((param_5 == '\0') && (local_39 == '\0')) {
+        FUN_005a8ea0(*(int *)((int)this + 8));
+      }
+      if ((local_48 != (wchar_t *)0x0) && (local_48 != (wchar_t *)0x0)) {
+        FUN_0041af70(local_48,1);
+      }
+      *(undefined4 *)((int)this + 0x14) = 0;
+      if (local_29 != '\0') {
+        QueryPerformanceCounter(
+  ... [truncated, total 4793]
+
+--- 0x005e265b in FUN_005e2590 (entry 0x005e2590 +0xCB) ---
+  0x005e264b: [no instruction]
+
+undefined1 __thiscall
+FUN_005e2590(void *this,int *param_1,int *param_2,int param_3,undefined4 param_4,char param_5,
+            undefined1 param_6,undefined1 param_7,undefined4 param_8)
+
+{
+  undefined4 uVar1;
+  int iVar2;
+  undefined4 *puVar3;
+  int *unaff_FS_OFFSET;
+  undefined4 *local_3c;
+  undefined4 *local_38;
+  undefined1 local_11;
+  int local_10;
+  undefined1 *puStack_c;
+  undefined4 local_8;
+  
+  local_8 = 0xffffffff;
+  puStack_c = &LAB_00ef9ce6;
+  local_10 = *unaff_FS_OFFSET;
+  *unaff_FS_OFFSET = (int)&local_10;
+  iVar2 = FUN_0040b460((LONG *)&DAT_011caedc);
+  if (iVar2 == 1) {
+    if (*(int *)this == 0) {
+      puVar3 = (undefined4 *)FUN_00401000(0xa4);
+      local_8 = 0;
+      if (puVar3 == (undefined4 *)0x0) {
+        local_38 = (undefined4 *)0x0;
+      }
+      else {
+        local_38 = FUN_005e0c60(puVar3);
+      }
+      local_8 = 0xffffffff;
+      *(undefined4 **)this = local_38;
+    }
+    *(undefined4 *)((int)this + 4) = *(undefined4 *)this;
+    local_11 = FUN_005e0d20(*(void **)this,param_1,param_2,param_3,param_4,param_5,param_6,param_7,
+                            param_8);
+    *(undefined4 *)((int)this + 4) = 0;
+  }
+  else {
+    puVar3 = (undefined4 *)FUN_00401000(0xa4);
+    local_8 = 1;
+    if (puVar3 == (undefined4 *)0x0) {
+      local_3c = (undefined4 *)0x0;
+    }
+    else {
+      local_3c = FUN_005e0c60(puVar3);
+    }
+    local_8 = 0xffffffff;
+    uVar1 = *(undefined4 *)((int)this + 4);
+    *(undefined4 **)((int)this + 4) = local_3c;
+    local_11 = FUN_005e0d20(local_3c,param_1,param_2,param_3,param_4,param_5,param_6,param_7,param_8
+                           );
+    *(undefined4 *)((int)this + 4) = uVar1;
+    FUN_00401030(local_3c);
+  }
+  FUN_004019a0((LONG *)&DAT_011caedc);
+  *unaff_FS_OFFSET = local_10;
+  return local_11;
+}
+
+
+
+--- 0x005ac29a in FUN_005ac1e0 (entry 0x005ac1e0 +0xBA) ---
+  0x005ac28a: MOV EAX,dword ptr [EBP + -0x8]
+  0x005ac28d: PUSH EAX
+  0x005ac28e: CALL 0x005e24d0
+  0x005ac293: MOV ECX,EAX
+  0x005ac295: CALL 0x005e2590
+  0x005ac29a: MOV byte ptr [EBP + -0x1],AL
+  0x005ac29d: MOV ECX,dword ptr [EBP + -0x8]
+  0x005ac2a0: CALL 0x00500940
+  0x005ac2a5: MOVZX ECX,byte ptr [EAX + 0x10]
+  0x005ac2a9: TEST ECX,ECX
+
+/* WARNING: Globals starting with '_' overlap smaller symbols at the same address */
+
+undefined1 __thiscall
+FUN_005ac1e0(void *this,int *param_1,int param_2,undefined4 param_3,char param_4)
+
+{
+  undefined1 uVar1;
+  int iVar2;
+  undefined *this_00;
+  float *pfVar3;
+  float10 fVar4;
+  int *piVar5;
+  undefined1 uVar6;
+  undefined4 uVar7;
+  
+  if ((param_4 == '\0') && (iVar2 = FUN_00500940((int)this), *(uint *)(iVar2 + 8) < 5)) {
+    return 0;
+  }
+  iVar2 = FUN_00500940((int)this);
+  if ((*(char *)(iVar2 + 0x10) != '\0') && ((float)_DAT_01012060 < *(float *)((int)this + 0x38))) {
+    fVar4 = FUN_0084d030(0x11f6394);
+    *(float *)((int)this + 0x38) = (float)((float10)*(float *)((int)this + 0x38) - fVar4);
+    fVar4 = FUN_0084d030(0x11f6394);
+    *(float *)((int)this + 0x3c) = (float)(fVar4 + (float10)*(float *)((int)this + 0x3c));
+    if ((float)_DAT_01012060 < *(float *)((int)this + 0x38)) {
+      return 0;
+    }
+  }
+  uVar7 = 0;
+  uVar6 = 0;
+  uVar1 = 0;
+  piVar5 = this;
+  this_00 = FID_conflict__Immortalize<class_std::_Generic_error_category>();
+  uVar1 = FUN_005e2590(this_00,piVar5,param_1,param_2,param_3,param_4,uVar1,uVar6,uVar7);
+  iVar2 = FUN_00500940((int)this);
+  if ((*(char *)(iVar2 + 0x10) != '\0') &&
+     (pfVar3 = (float *)FUN_00403e20(0x11cac68), (float)_DAT_01012060 < *pfVar3)) {
+    if ((*(int *)((int)this + 0x40) == 0) ||
+       (fVar4 = FUN_00792760(*(int *)((int)this + 0x40)), fVar4 <= (float10)_DAT_01012060)) {
+      pfVar3 = (float *)FUN_00403e20(0x11cac68);
+      *(float *)((int)this + 0x38) = *(float *)((int)this + 0x38) + *pfVar3;
+    }
+    else {
+      fVar4 = FUN_00792760(*(int *)((int)this + 0x40));
+      *(float *)((int)this + 0x38) = (float)(fVar4 + (float10)*(float *)((int)this + 0x38));
+    }
+    *(undefined4 *)((int)this + 0x3c) = 0;
+  }
+  FUN_005ae2e0((int)this);
+  return uVar1;
+}
+
+
+
+--- 0x00913550 in FUN_00913510 (entry 0x00913510 +0x40) ---
+  0x00913540: [no instruction]
+
+void __thiscall FUN_00913510(void *this,int *param_1,int param_2)
+
+{
+  void *this_00;
+  void *pvVar1;
+  int iVar2;
+  undefined4 uVar3;
+  char cVar4;
+  
+  if (param_2 != 0) {
+    this_00 = (void *)FUN_00903bd0(param_2);
+    if (this_00 != (void *)0x0) {
+      cVar4 = '\x01';
+      uVar3 = 0;
+      pvVar1 = (void *)FUN_005d43c0((int)param_1);
+      iVar2 = FUN_00418830(pvVar1);
+      FUN_005ac1e0(this_00,param_1,iVar2,uVar3,cVar4);
+    }
+    iVar2 = FUN_00903bb0(param_2);
+    if (iVar2 != 0) {
+      (**(code **)(*(int *)this + 0x2a4))(param_1,iVar2,0,0,1,0);
+    }
+  }
+  if (param_1 != (int *)0x0) {
+    FUN_00884f80((int)param_1);
+  }
+  return;
+}
+
+
+
+--- 0x0090ac00 in FUN_0090a1a0 (entry 0x0090a1a0 +0xA60) ---
+  0x0090abf0: MOV EDX,dword ptr [EBP + -0x30]
+  0x0090abf3: MOV EAX,dword ptr [EDX]
+  0x0090abf5: MOV ECX,dword ptr [EBP + -0x30]
+  0x0090abf8: MOV EDX,dword ptr [EAX + 0x598]
+  0x0090abfe: CALL EDX
+  0x0090ac00: PUSH 0x0
+  0x0090ac02: MOV EAX,dword ptr [EBP + -0x30]
+  0x0090ac05: MOV EDX,dword ptr [EAX]
+  0x0090ac07: MOV ECX,dword ptr [EBP + -0x30]
+  0x0090ac0a: MOV EAX,dword ptr [EDX + 0x5a8]
+
+/* WARNING: Globals starting with '_' overlap smaller symbols at the same address */
+
+char __thiscall FUN_0090a1a0(void *this,int *param_1,char param_2)
+
+{
+  char cVar1;
+  bool bVar2;
+  uint uVar3;
+  int iVar4;
+  int iVar5;
+  int *piVar6;
+  float *pfVar7;
+  float *pfVar8;
+  void *pvVar9;
+  undefined4 *puVar10;
+  undefined4 uVar11;
+  undefined4 uVar12;
+  undefined4 extraout_ECX;
+  int extraout_ECX_00;
+  undefined4 extraout_EDX;
+  int extraout_EDX_00;
+  int extraout_EDX_01;
+  undefined4 extraout_EDX_02;
+  float10 fVar13;
+  ulonglong uVar14;
+  float fVar15;
+  float fVar16;
+  code *pcVar17;
+  undefined1 uVar18;
+  void *local_28;
+  int local_24;
+  int *local_20;
+  char local_19;
+  int local_18;
+  char local_12;
+  char local_11;
+  float local_10;
+  int *local_c;
+  undefined4 local_8;
+  
+  fVar13 = FUN_00867da0(0x11de7b8);
+  local_10 = (float)fVar13;
+  local_c = (int *)(**(code **)(*(int *)this + 0x22c))();
+  if ((param_2 == '\0') &&
+     ((uVar3 = FUN_008a61b0((int)param_1), (uVar3 & 0xff) != 0 ||
+      (cVar1 = FUN_00493bb0((int)param_1), cVar1 != '\0')))) {
+    return '\0';
+  }
+  local_8 = 0;
+  iVar4 = (**(code **)(*(int *)this + 0x22c))();
+  if (iVar4 != 0) {
+    iVar4 = (**(code **)(*(int *)this + 0x22c))();
+    bVar2 = FUN_00670ef0(iVar4);
+    if (!bVar2) {
+      iVar4 = (**(code **)(*(int *)this + 0x22c))();
+      bVar2 = FUN_00670f10(iVar4);
+      if (!bVar2) goto LAB_0090a261;
+    }
+    local_8 = (**(code **)(*(int *)this + 0x22c))();
+  }
+LAB_0090a261:
+  local_11 = '\0';
+  if (local_c == (int *)0x0) {
+    local_11 = '\x01';
+    FUN_00907700(this,param_1);
+    iVar4 = (**(code **)(*(int *)this + 0x22c))();
+    if (iVar4 == 0) {
+      local_11 = '\0';
+    }
+    local_c = (int *)(**(code **)(*(int *)this + 0x22c))();
+    (**(code **)(*(int *)this + 300))(0);
+    (**(code **)(*(int *)this + 0x4ec))(0);
+    goto LAB_0090a7e6;
+  }
+  iVar4 = FUN_0041d8a0((int)local_c);
+  iVar4 = FUN_00726070(iVar4);
+  if ((iVar4 == 0) || (bVar2 = FUN_0067efd0((int)local_c), !bVar2)) {
+    bVar2 = FUN_0067efd0((int)local_c);
+    if (bVar2) {
+      piVar6 = (int *)FUN_008d8520((int)param_1);
+      cVar1 = (**(code **)(*piVar6 + 0x11c))();
+      if (cVar1 == '\0') {
+        iVar4 = FUN_009611e0((int)local_c);
+        if (iVar4 != -1) {
+          iVar4 = FUN_009611e0((int)local_c);
+          iVar5 = (**(code **)(*(int *)this + 0x280))();
+          if (*(int *)((&PTR_DAT_011a3ff0)[iVar4] + iVar5 * 4) == 0x36) goto LAB_0090a540;
+        }
+        local_11 = '\0';
+        param_2 = '\0';
+      }
+      else {
+LAB_0090a540:
+        if (local_c != (int *)0x0) {
+          bVar2 = FUN_00670f90((int)local_c);
+          if (bVar2 != 0) {
+            uVar14 = FUN_00867d60(0x11de7b8,(uint)bVar2);
+            (**(code **)(*param_1 + 0x28c))(local_c,(uint)uVar14 & 0xff);
+          }
+        }
+        local_11 = '\x01';
+      }
+    }
+    else {
+      bVar2 = FUN_008b1ff0((int)local_c);
+      if ((bVar2) && (cVar1 = (**(code **)(*param_1 + 0x26c))(), cVar1 == '\0')) {
+        iVar4 = FUN_009611e0((int)local_c);
+        if (iVar4 == -1) {
+LAB_0090a67d:
+          param_2 = '\0';
+        }
+        else {
+          cVar1 = (**(code **)(*local_c + 0x13c))(param_1,0,DAT_01012054,0);
+          if (cVar1 == '\0') {
+            iVar4 = FUN_009611e0((int)local_c);
+            iVar5 = (**(code **)(*(int *)this + 0x280))();
+            if (*(int *)((&PTR_DAT_011a3ff0)[iVar4] + iVar5 * 4) != 0x36) goto LAB_0090a67d;
+          }
+          iVar4 = FUN_009611e0((int)local_c);
+          iVar5 = (**(code **)(*(int *)this + 0x280))();
+          if ((*(int *)((&PTR_DAT_011a3ff0)[iVar4] + iVar5 * 4) == 0x36) && (local_c != (int *)0x0))
+          {
+            bVar2 = FUN_00670f90((int)local_c);
+            if (bVar2 != 0) {
+              uVar14 = FUN_00867d60(0x11de7b8,(uint)bVar2);
+              (**(code **)(*param_1 + 0x28c))(local_c,(uint)uVar14 & 0xff);
+            }
+          }
+          local_11 = '\x01';
+        }
+      }
+      else {
+        local_11 = '\x01';
+      }
+    }
+  }
+ 
+  ... [truncated, total 11976]
+
+--- 0x008933bb in FUN_00893340 (entry 0x00893340 +0x7B) ---
+  0x008933ab: MOV EAX,dword ptr [EDX + 0x68]
+  0x008933ae: MOV ECX,dword ptr [EBP + -0x1c]
+  0x008933b1: MOV ECX,dword ptr [ECX + 0x68]
+  0x008933b4: MOV EDX,dword ptr [EAX]
+  0x008933b6: MOV EAX,dword ptr [EDX + 0x24]
+  0x008933b9: CALL EAX
+  0x008933bb: MOV ECX,dword ptr [EBP + -0x1c]
+  0x008933be: MOV EDX,dword ptr [ECX + 0x68]
+  0x008933c1: MOV EAX,dword ptr [EBP + -0x1c]
+  0x008933c4: MOV ECX,dword ptr [EAX + 0x68]
+
+/* WARNING: Globals starting with '_' overlap smaller symbols at the same address */
+
+void __thiscall FUN_00893340(void *this,char param_1)
+
+{
+  bool bVar1;
+  char cVar2;
+  uint uVar3;
+  int iVar4;
+  char *pcVar5;
+  float *pfVar6;
+  float local_1c [3];
+  void *local_10;
+  void *local_c;
+  int *local_8;
+  
+  bVar1 = FUN_00440da0((int)this);
+  if (bVar1) {
+    return;
+  }
+  if (param_1 == '\0') {
+    (**(code **)(**(int **)((int)this + 0x68) + 0x28))();
+    uVar3 = FUN_005653d0(this);
+    if ((uVar3 & 0xff) != 0) {
+      (**(code **)(**(int **)((int)this + 0x68) + 0x14))(this,0);
+    }
+    (**(code **)(**(int **)((int)this + 0x68) + 0x24))(this,0);
+  }
+  local_8 = (int *)(**(code **)(**(int **)((int)this + 0x68) + 0x22c))();
+  cVar2 = FUN_004f1540(DAT_011dea0c);
+  if ((cVar2 == '\0') && (*(int *)((int)this + 0x198) == 0)) {
+    *(int **)((int)this + 0x198) = local_8;
+  }
+  if (param_1 != '\0') {
+    local_8 = *(int **)((int)this + 0x198);
+  }
+  if (((local_8 != (int *)0x0) && (iVar4 = FUN_0041ca90((int)local_8), 2 < iVar4)) &&
+     (cVar2 = (**(code **)(*local_8 + 0x13c))(this,0,DAT_01012054,0), cVar2 == '\0')) {
+    local_10 = (void *)FUN_00675c20(local_8,this);
+    local_c = (void *)FUN_00675a50(local_8,this);
+    FUN_00575770(this,_DAT_01016970);
+    iVar4 = FUN_0055b980((int)local_8);
+    if (iVar4 != 0) {
+      pcVar5 = (char *)FUN_0055b980((int)local_8);
+      iVar4 = FUN_00678ca0(pcVar5);
+      if (iVar4 == 1) goto LAB_008934ec;
+    }
+    iVar4 = FUN_0041ca90((int)local_8);
+    if (iVar4 != 0xd) {
+      pfVar6 = FUN_00675de0(local_8,local_1c,this);
+      (**(code **)(*(int *)this + 0x2a8))(pfVar6);
+      FUN_00573800(this,local_10,local_c);
+    }
+  }
+LAB_008934ec:
+  FUN_008a6a40(this);
+  return;
+}
+
+
+
+--- 0x00970ecc in FUN_00970d50 (entry 0x00970d50 +0x17C) ---
+  0x00970ebc: [no instruction]
+
+/* WARNING: Globals starting with '_' overlap smaller symbols at the same address */
+
+void __fastcall FUN_00970d50(int param_1)
+
+{
+  char cVar1;
+  bool bVar2;
+  uint uVar3;
+  int *piVar4;
+  void *pvVar5;
+  int iVar6;
+  undefined4 extraout_EDX;
+  undefined4 extraout_EDX_00;
+  float10 fVar7;
+  ulonglong uVar8;
+  int *local_10;
+  uint local_c;
+  
+  fVar7 = FUN_00867da0(0x11de7b8);
+  _DAT_011e0358 = (float)fVar7;
+  uVar8 = FUN_00867c60((int *)&DAT_011de7b8,extraout_EDX);
+  DAT_011e035c = (undefined4)uVar8;
+  DAT_011a39c4 = FUN_00867d20(0x11de7b8);
+  uVar8 = FUN_00867d60(0x11de7b8,extraout_EDX_00);
+  DAT_011e0360 = (undefined1)uVar8;
+  for (local_c = FUN_005de0f0((void *)(param_1 + 4),3);
+      uVar3 = FUN_005be5c0((void *)(param_1 + 4),3), local_c < uVar3; local_c = local_c + 1) {
+    local_10 = (int *)0x0;
+    piVar4 = (int *)FUN_00968670((void *)(param_1 + 4),local_c);
+    if ((piVar4 != (int *)0x0) && (cVar1 = (**(code **)(*piVar4 + 0x100))(), cVar1 != '\0')) {
+      local_10 = piVar4;
+    }
+    if (local_10 != (int *)0x0) {
+      pvVar5 = (void *)FUN_005d43c0((int)local_10);
+      FUN_005ac190(local_10,pvVar5);
+      bVar2 = FUN_00440d80((int)local_10);
+      if (((bVar2) || (iVar6 = FUN_007af430((int)local_10), iVar6 == 0)) ||
+         (iVar6 = (**(code **)(local_10[0x29] + 8))(0x10), iVar6 < 1)) {
+        bVar2 = FUN_00440d80((int)local_10);
+        if (((!bVar2) && (iVar6 = FUN_007af430((int)local_10), iVar6 != 0)) &&
+           (iVar6 = (**(code **)(local_10[0x29] + 8))(0x10), iVar6 < 1)) {
+          FUN_008a1800(local_10,2);
+        }
+        iVar6 = FUN_008d8520((int)local_10);
+        if (iVar6 != 0) {
+          FUN_0096aaf0((void *)(param_1 + 4),(int)piVar4,3);
+        }
+      }
+      else {
+        FUN_00893340(local_10,'\0');
+      }
+    }
+  }
+  return;
+}
+
+
+
+
+=== 4. NULL GUARD CROSS-REFERENCE ===
+
+Checking if crash chain calls our patched 0x0044DDC0:
+  No overlap
+
+  All callers of 0x0044DDC0:
+    FUN_0086a850 @ 0x0086a850
+    FUN_004a4340 @ 0x004a4340
+    FUN_004dee10 @ 0x004dee10
+    FUN_00410220 @ 0x00410220
+    FUN_0040ff60 @ 0x0040ff60
+    FUN_0040ff60 @ 0x0040ff60
+    FUN_00410020 @ 0x00410020
+    FUN_00410020 @ 0x00410020
+    FUN_004102d0 @ 0x004102d0
+    FUN_00464f60 @ 0x00464f60
+    FUN_005516c0 @ 0x005516c0
+    FUN_00410140 @ 0x00410140
+    FUN_00410140 @ 0x00410140
+    FUN_00410140 @ 0x00410140
+    FUN_00565450 @ 0x00565450
+    FUN_005497c0 @ 0x005497c0
+    FUN_00564e60 @ 0x00564e60
+    FUN_005516f0 @ 0x005516f0
+    FUN_00620b80 @ 0x00620b80
+    FUN_006c09f0 @ 0x006c09f0
+    FUN_006c09f0 @ 0x006c09f0
+    FUN_006993c0 @ 0x006993c0
+    FUN_00699000 @ 0x00699000
+    FUN_00699000 @ 0x00699000
+    FUN_00699690 @ 0x00699690
+    FUN_00699690 @ 0x00699690
+    FUN_006bbc50 @ 0x006bbc50
+    FUN_006bbd30 @ 0x006bbd30
+    FUN_006bbd30 @ 0x006bbd30
+    FUN_006bbd30 @ 0x006bbd30
+    FUN_006bbd30 @ 0x006bbd30
+    FUN_00558200 @ 0x00558200
+    FUN_006987d0 @ 0x006987d0
+    FUN_006bc3e0 @ 0x006bc3e0
+    FUN_006bc3e0 @ 0x006bc3e0
+    FUN_006bc3e0 @ 0x006bc3e0
+    FUN_006bc3e0 @ 0x006bc3e0
+    FUN_006bc3e0 @ 0x006bc3e0
+    FUN_006bc940 @ 0x006bc940
+    FUN_006bc940 @ 0x006bc940
+    FUN_006bca20 @ 0x006bca20
+    FUN_006bca20 @ 0x006bca20
+    FUN_006bca20 @ 0x006bca20
+    FUN_006bcc60 @ 0x006bcc60
+    FUN_00697b70 @ 0x00697b70
+    FUN_006bd540 @ 0x006bd540
+    FUN_006bd540 @ 0x006bd540
+    FUN_006bdcb0 @ 0x006bdcb0
+    FUN_006bde50 @ 0x006bde50
+    FUN_006bde50 @ 0x006bde50
+    FUN_006bdf50 @ 0x006bdf50
+    FUN_006bdf50 @ 0x006bdf50
+    FUN_006be120 @ 0x006be120
+    FUN_006be120 @ 0x006be120
+    FUN_006be120 @ 0x006be120
+    FUN_006be660 @ 0x006be660
+    FUN_006be6f0 @ 0x006be6f0
+    FUN_006be770 @ 0x006be770
+    FUN_006be830 @ 0x006be830
+    FUN_006be950 @ 0x006be950
+    FUN_006be950 @ 0x006be950
+    FUN_006910a0 @ 0x006910a0
+    FUN_006bec40 @ 0x006bec40
+    FUN_006beea0 @ 0x006beea0
+    FUN_006bf170 @ 0x006bf170
+    FUN_006bf220 @ 0x006bf220
+    FUN_006bf2d0 @ 0x006bf2d0
+    FUN_006c0c80 @ 0x006c0c80
+    FUN_006c5460 @ 0x006c5460
+    FUN_006f83f0 @ 0x006f83f0
+    FUN_004e5140 @ 0x004e5140
+    FUN_006f86e0 @ 0x006f86e0
+    FUN_0048fef0 @ 0x0048fef0
+    FUN_0071d620 @ 0x0071d620
+    FUN_0071d380 @ 0x0071d380
+    FUN_0071d380 @ 0x0071d380
+    FUN_0071d380 @ 0x0071d380
+    FUN_0071d380 @ 0x0071d380
+    FUN_00771700 @ 0x00771700
+    FUN_00775a00 @ 0x00775a00
+    FUN_00775a00 @ 0x00775a00
+    FUN_00775a00 @ 0x00775a00
+    FUN_00775a00 @ 0x00775a00
+    FUN_00412380 @ 0x00412380
+    FUN_004bd400 @ 0x004bd400
+    FUN_00525980 @ 0x00525980
+    FUN_00525980 @ 0x00525980
+    FUN_004c8fd0 @ 0x004c8fd0
+    FUN_004c8fd0 @ 0x004c8fd0
+    FUN_004c8fd0 @ 0x004c8fd0
+    FUN_004c8fd0 @ 0x004c8fd0
+    FUN_0040fae0 @ 0x0040fae0
+    FUN_0040fe20 @ 0x0040fe20
+    FUN_0057b460 @ 0x0057b460
+    FUN_007700f0 @ 0x007700f0
+    FUN_00773190 @ 0x00773190
+    FUN_0078ada0 @ 0x0078ada0
+    FUN_0078adc0 @ 0x0078adc0
+    FUN_0078adc0 @ 0x0078adc0
+    FUN_00713fb0 @ 0x00713fb0
+    FUN_00713fb0 @ 0x00713fb0
+    FUN_00713e20 @ 0x00713e20
+    FUN_007aa480 @ 0x007aa480
+    FUN_007a92a0 @ 0x007a92a0
+    FUN_007cbaf0 @ 0x007cbaf0
+    FUN_007aaf20 @ 0x007aaf20
+    FUN_007ce6b0 @ 0x007ce6b0
+    FUN_007ce6b0 @ 0x007ce6b0
+    FUN_007d3aa0 @ 0x007d3aa0
+    FUN_00834260 @ 0x00834260
+    FUN_0071d0a0 @ 0x0071d0a0
+    FUN_0071d0a0 @ 0x0071d0a0
+    FUN_0071d0a0 @ 0x0071d0a0
+    FUN_0071d0a0 @ 0x0071d0a0
+    FUN_0061a7d0 @ 0x0061a7d0
+    FUN_008492b0 @ 0x008492b0
+    FUN_008492b0 @ 0x008492b0
+    FUN_005651e0 @ 0x005651e0
+    FUN_008427f0 @ 0x008427f0
+    FUN_008427f0 @ 0x008427f0
+    FUN_008432e0 @ 0x008432e0
+    FUN_00843380 @ 0x00843380
+    FUN_00843bb0 @ 0x00843bb0
+    FUN_00843bb0 @ 0x00843bb0
+    FUN_005f9e00 @ 0x005f9e00
+    FUN_005f9e00 @ 0x005f9e00
+    FUN_005f9e00 @ 0x005f9e00
+    FUN_005f9e00 @ 0x005f9e00
+    FUN_005f9e00 @ 0x005f9e00
+    FUN_004bfe50 @ 0x004bfe50
+    FUN_004bfe50 @ 0x004bfe50
+    FUN_004126c0 @ 0x004126c0
+    FUN_004126c0 @ 0x004126c0
+    FUN_004c7400 @ 0x004c7400
+    FUN_004c7400 @ 0x004c7400
+    FUN_004c8c10 @ 0x004c8c10
+    FUN_004c8c10 @ 0x004c8c10
+    FUN_004c8c10 @ 0x004c8c10
+    FUN_004c8c10 @ 0x004c8c10
+    FUN_004c8c10 @ 0x004c8c10
+    FUN_00571b50 @ 0x00571b50
+    FUN_006047c0 @ 0x006047c0
+    FUN_006047c0 @ 0x006047c0
+    FUN_006047c0 @ 0x006047c0
+    FUN_006047c0 @ 0x006047c0
+    FUN_00804560 @ 0x00804560
+    FUN_00804cd0 @ 0x00804cd0
+    FUN_0081c630 @ 0x0081c630
+    FUN_0081f350 @ 0x0081f350
+    FUN_0081f350 @ 0x0081f350
+    FUN_00843330 @ 0x00843330
+    FUN_004c29a0 @ 0x004c29a0
+    FUN_004c3380 @ 0x004c3380
+    FUN_004c3380 @ 0x004c3380
+    FUN_004d1960 @ 0x004d1960
+    FUN_00564c60 @ 0x00564c60
+    FUN_00564eb0 @ 0x00564eb0
+    FUN_00565480 @ 0x00565480
+    FUN_0044c640 @ 0x0044c640
+    FUN_00852d20 @ 0x00852d20
+    FUN_0049b050 @ 0x0049b050
+    FUN_004949a0 @ 0x004949a0
+    FUN_00498290 @ 0x00498290
+    FUN_00498290 @ 0x00498290
+    FUN_0043b540 @ 0x0043b540
+    FUN_004a3a40 @ 0x004a3a40
+    FUN_00853500 @ 0x00853500
+    FUN_00853570 @ 0x00853570
+    FUN_004e5370 @ 0x004e5370
+    FUN_0062e500 @ 0x0062e500
+    FUN_0045aba0 @ 0x0045aba0
+    GetSubItemsCount @ 0x004d7d50
+    FUN_004d7d70 @ 0x004d7d70
+    FUN_006fcf30 @ 0x006fcf30
+    FUN_00443270 @ 0x00443270
+    FUN_0045ac80 @ 0x0045ac80
+    FUN_0084df90 @ 0x0084df90
+    FUN_00868d70 @ 0x00868d70
+    FUN_00869510 @ 0x00869510
+    FUN_004d2480 @ 0x004d2480
+    FUN_00411fd0 @ 0x00411fd0
+    FUN_00411ec0 @ 0x00411ec0
+    FUN_00431120 @ 0x00431120
+    FUN_0086e650 @ 0x0086e650
+    FUN_00454450 @ 0x00454450
+    FUN_0049c930 @ 0x0049c930
+    FUN_0049c930 @ 0x0049c930
+    FUN_0049db60 @ 0x0049db60
+    FUN_0049db60 @ 0x0049db60
+    FUN_0049db60 @ 0x0049db60
+    FUN_0049db60 @ 0x0049db60
+    FUN_004a0030 @ 0x004a0030
+    FUN_004a8230 @ 0x004a8230
+    FUN_004a82d0 @ 0x004a82d0
+    FUN_004dc360 @ 0x004dc360
+    FUN_0057d4f0 @ 0x0057d4f0
+    FUN_00623290 @ 0x00623290
+    FUN_006271b0 @ 0x006271b0
+    FUN_0062bc90 @ 0x0062bc90
+    FUN_0068b220 @ 0x0068b220
+    FUN_00691620 @ 0x00691620
+    FUN_006c3920 @ 0x006c3920
+    FUN_006c3970 @ 0x006c3970
+    FUN_006c3ba0 @ 0x006c3ba0
+    FUN_006c3ba0 @ 0x006c3ba0
+    FUN_006c3ba0 @ 0x006c3ba0
+    FUN_006c3ba0 @ 0x006c3ba0
+    FUN_006c44d0 @ 0x006c44d0
+    FUN_006c4540 @ 0x006c4540
+    FUN_006c45e0 @ 0x006c45e0
+    FUN_006c1190 @ 0x006c1190
+    FUN_006c1190 @ 0x006c1190
+    FUN_006c1920 @ 0x006c1920
+    FUN_006c1920 @ 0x006c1920
+    FUN_006c1920 @ 0x006c1920
+    FUN_006c1920 @ 0x006c1920
+    FUN_006c2050 @ 0x006c2050
+    FUN_006c47e0 @ 0x006c47e0
+    FUN_006c1590 @ 0x006c1590
+    FUN_006c1590 @ 0x006c1590
+    FUN_006c1760 @ 0x006c1760
+    FUN_006c1760 @ 0x006c1760
+    FUN_006c4c30 @ 0x006c4c30
+    FUN_006c4fb0 @ 0x006c4fb0
+    FUN_006c4fb0 @ 0x006c4fb0
+    FUN_006c5190 @ 0x006c5190
+    FUN_006c5190 @ 0x006c5190
+    FUN_006c85e0 @ 0x006c85e0
+    FUN_0069bb90 @ 0x0069bb90
+    FUN_005a4320 @ 0x005a4320
+    FUN_006c94c0 @ 0x006c94c0
+    FUN_006c94c0 @ 0x006c94c0
+    FUN_006b9180 @ 0x006b9180
+    FUN_006c9b20 @ 0x006c9b20
+    FUN_006c9b20 @ 0x006c9b20
+    FUN_006ca850 @ 0x006ca850
+    FUN_006ca850 @ 0x006ca850
+    FUN_006ca500 @ 0x006ca500
+    FUN_006cb950 @ 0x006cb950
+    FUN_006cb950 @ 0x006cb950
+    FUN_006cb950 @ 0x006cb950
+    FUN_006cb950 @ 0x006cb950
+    FUN_006cac90 @ 0x006cac90
+    FUN_006cc5e0 @ 0x006cc5e0
+    FUN_006cc5e0 @ 0x006cc5e0
+    FUN_006c9350 @ 0x006c9350
+    FUN_006a6b70 @ 0x006a6b70
+    FUN_006a6b70 @ 0x006a6b70
+    FUN_006a8010 @ 0x006a8010
+    FUN_006cd8a0 @ 0x006cd8a0
+    FUN_006cd8a0 @ 0x006cd8a0
+    FUN_0069f010 @ 0x0069f010
+    FUN_0069f010 @ 0x0069f010
+    FUN_0069f010 @ 0x0069f010
+    FUN_0069f010 @ 0x0069f010
+    FUN_0069f010 @ 0x0069f010
+    FUN_0069f010 @ 0x0069f010
+    FUN_0069f010 @ 0x0069f010
+    FUN_0069e3b0 @ 0x0069e3b0
+    FUN_0069e3b0 @ 0x0069e3b0
+    FUN_0069e3b0 @ 0x0069e3b0
+    FUN_0069e3b0 @ 0x0069e3b0
+    FUN_0069e3b0 @ 0x0069e3b0
+    FUN_0069e3b0 @ 0x0069e3b0
+    FUN_0069e3b0 @ 0x0069e3b0
+    FUN_0069e3b0 @ 0x0069e3b0
+    FUN_0069e3b0 @ 0x0069e3b0
+    FUN_0069e3b0 @ 0x0069e3b0
+    FUN_0069e3b0 @ 0x0069e3b0
+    FUN_0069e3b0 @ 0x0069e3b0
+    FUN_0069e3b0 @ 0x0069e3b0
+    FUN_0069e3b0 @ 0x0069e3b0
+    FUN_0069a830 @ 0x0069a830
+    FUN_00699b60 @ 0x00699b60
+    FUN_00699b60 @ 0x00699b60
+    FUN_006a1cf0 @ 0x006a1cf0
+    FUN_006ad770 @ 0x006ad770
+    FUN_006ad770 @ 0x006ad770
+    FUN_006ad770 @ 0x006ad770
+    FUN_006ad770 @ 0x006ad770
+    FUN_006ad770 @ 0x006ad770
+    FUN_006ad770 @ 0x006ad770
+    FUN_006ad770 @ 0x006ad770
+    FUN_006ad770 @ 0x006ad770
+    FUN_00699af0 @ 0x00699af0
+    FUN_006ae370 @ 0x006ae370
+    FUN_006ae370 @ 0x006ae370
+    FUN_006ae370 @ 0x006ae370
+    FUN_006ae370 @ 0x006ae370
+    FUN_006ae370 @ 0x006ae370
+    FUN_006ae370 @ 0x006ae370
+    FUN_006ae370 @ 0x006ae370
+    FUN_006aea90 @ 0x006aea90
+    FUN_006aea90 @ 0x006aea90
+    FUN_006aeb00 @ 0x006aeb00
+    FUN_006aeb00 @ 0x006aeb00
+    FUN_006aeba0 @ 0x006aeba0
+    FUN_006aeba0 @ 0x006aeba0
+    FUN_006aeba0 @ 0x006aeba0
+    FUN_006aeba0 @ 0x006aeba0
+    FUN_006aefc0 @ 0x006aefc0
+    FUN_006af2b0 @ 0x006af2b0
+    FUN_006af2b0 @ 0x006af2b0
+    FUN_006afcc0 @ 0x006afcc0
+    FUN_006afcc0 @ 0x006afcc0
+    FUN_006afcc0 @ 0x006afcc0
+    FUN_006b2c00 @ 0x006b2c00
+    FUN_006b2fc0 @ 0x006b2fc0
+    FUN_006b3a30 @ 0x006b3a30
+    FUN_006cdb40 @ 0x006cdb40
+    FUN_00697010 @ 0x00697010
+    FUN_006cde50 @ 0x006cde50
+    FUN_00697590 @ 0x00697590
+    FUN_00697590 @ 0x00697590
+    FUN_006ce2d0 @ 0x006ce2d0
+    FUN_006ce8b0 @ 0x006ce8b0
+    FUN_006d4120 @ 0x006d4120
+    FUN_006d4120 @ 0x006d4120
+    FUN_006d4120 @ 0x006d4120
+    FUN_006d4570 @ 0x006d4570
+    FUN_006d4570 @ 0x006d4570
+    FUN_006d4570 @ 0x006d4570
+    FUN_006d62e0 @ 0x006d62e0
+    FUN_006d62e0 @ 0x006d62e0
+    FUN_00696cf0 @ 0x00696cf0
+    FUN_00696cf0 @ 0x00696cf0
+    FUN_00696a50 @ 0x00696a50
+    FUN_006d8a40 @ 0x006d8a40
+    FUN_006d8a40 @ 0x006d8a40
+    FUN_006d8a40 @ 0x006d8a40
+    FUN_006d8a40 @ 0x006d8a40
+    FUN_006dd280 @ 0x006dd280
+    FUN_006dd6f0 @ 0x006dd6f0
+    FUN_006dd6f0 @ 0x006dd6f0
+    FUN_006dd6f0 @ 0x006dd6f0
+    FUN_0069bea0 @ 0x0069bea0
+    FUN_0069c070 @ 0x0069c070
+    FUN_006ddc00 @ 0x006ddc00
+    FUN_006de250 @ 0x006de250
+    FUN_006de250 @ 0x006de250
+    FUN_006de490 @ 0x006de490
+    FUN_006de490 @ 0x006de490
+    FUN_006de490 @ 0x006de490
+    FUN_006de490 @ 0x006de490
+    FUN_006de490 @ 0x006de490
+    FUN_006de490 @ 0x006de490
+    FUN_006de490 @ 0x006de490
+    FUN_006de490 @ 0x006de490
+    FUN_006de490 @ 0x006de490
+    FUN_006de490 @ 0x006de490
+    FUN_006e7230 @ 0x006e7230
+    FUN_006ea780 @ 0x006ea780
+    FUN_006ea510 @ 0x006ea510
+    FUN_006ea350 @ 0x006ea350
+    FUN_006ea490 @ 0x006ea490
+    FUN_006ed220 @ 0x006ed220
+    FUN_006ed220 @ 0x006ed220
+    FUN_006ed220 @ 0x006ed220
+    FUN_006ed220 @ 0x006ed220
+    FUN_006ed220 @ 0x006ed220
+    FUN_006ed530 @ 0x006ed530
+    FUN_006ed530 @ 0x006ed530
+    FUN_006ed530 @ 0x006ed530
+    FUN_006ed530 @ 0x006ed530
+    FUN_006ed530 @ 0x006ed530
+    FUN_006ed530 @ 0x006ed530
+    FUN_006ed850 @ 0x006ed850
+    FUN_006ee150 @ 0x006ee150
+    FUN_006ee150 @ 0x006ee150
+    FUN_006ee390 @ 0x006ee390
+    FUN_006ee390 @ 0x006ee390
+    FUN_006ee5d0 @ 0x006ee5d0
+    FUN_006ee5d0 @ 0x006ee5d0
+    FUN_006eef80 @ 0x006eef80
+    FUN_006eef80 @ 0x006eef80
+    FUN_006ef0c0 @ 0x006ef0c0
+    FUN_006ee740 @ 0x006ee740
+    FUN_006eec00 @ 0x006eec00
+    FUN_006eec00 @ 0x006eec00
+    FUN_006eecc0 @ 0x006eecc0
+    FUN_006ef920 @ 0x006ef920
+    FUN_006ef920 @ 0x006ef920
+    FUN_006f02e0 @ 0x006f02e0
+    FUN_006f03a0 @ 0x006f03a0
+    FUN_006f0450 @ 0x006f0450
+    FUN_006f0450 @ 0x006f0450
+    FUN_006f0450 @ 0x006f0450
+    FUN_006f0450 @ 0x006f0450
+    FUN_006f0450 @ 0x006f0450
+    FUN_006f0d20 @ 0x006f0d20
+    FUN_006f0d20 @ 0x006f0d20
+    FUN_006f0d20 @ 0x006f0d20
+    FUN_006f0d20 @ 0x006f0d20
+    FUN_006f0d20 @ 0x006f0d20
+    FUN_006f10d0 @ 0x006f10d0
+    FUN_006f10d0 @ 0x006f10d0
+    FUN_006f10d0 @ 0x006f10d0
+    FUN_006f10d0 @ 0x006f10d0
+    FUN_006f1440 @ 0x006f1440
+    FUN_006f1440 @ 0x006f1440
+    FUN_006f1440 @ 0x006f1440
+    FUN_006f1440 @ 0x006f1440
+    FUN_006f1440 @ 0x006f1440
+    FUN_006f1c10 @ 0x006f1c10
+    FUN_006f1ed0 @ 0x006f1ed0
+    FUN_006f1ed0 @ 0x006f1ed0
+    FUN_006f1fc0 @ 0x006f1fc0
+    FUN_006f3fb0 @ 0x006f3fb0
+    FUN_006fca90 @ 0x006fca90
+    FUN_006fca90 @ 0x006fca90
+    FUN_006fca90 @ 0x006fca90
+    FUN_006fca90 @ 0x006fca90
+    FUN_006f8c40 @ 0x006f8c40
+    FUN_006f8c40 @ 0x006f8c40
+    FUN_006f8910 @ 0x006f8910
+    FUN_006f90a0 @ 0x006f90a0
+    FUN_006f91a0 @ 0x006f91a0
+    FUN_006f9300 @ 0x006f9300
+    FUN_0084e0d0 @ 0x0084e0d0
+    FUN_0084d4b0 @ 0x0084d4b0
+    FUN_00623640 @ 0x00623640
+    FUN_0049a1c0 @ 0x0049a1c0
+    FUN_004ce380 @ 0x004ce380
+    FUN_004ce380 @ 0x004ce380
+    FUN_004ce380 @ 0x004ce380
+    FUN_004ce380 @ 0x004ce380
+    FUN_004ce380 @ 0x004ce380
+    FUN_004ce380 @ 0x004ce380
+    FUN_004ce380 @ 0x004ce380
+    FUN_004c37d0 @ 0x004c37d0
+    FUN_004c37d0 @ 0x004c37d0
+    FUN_004c37d0 @ 0x004c37d0
+    FUN_004c37d0 @ 0x004c37d0
+    FUN_004c37d0 @ 0x004c37d0
+    FUN_004c37d0 @ 0x004c37d0
+    FUN_004c37d0 @ 0x004c37d0
+    FUN_004c37d0 @ 0x004c37d0
+    FUN_004c37d0 @ 0x004c37d0
+    FUN_004c37d0 @ 0x004c37d0
+    FUN_004c37d0 @ 0x004c37d0
+    FUN_004c37d0 @ 0x004c37d0
+    FUN_004c37d0 @ 0x004c37d0
+    FUN_004c37d0 @ 0x004c37d0
+    FUN_00412490 @ 0x00412490
+    FUN_004bf800 @ 0x004bf800
+    FUN_004bf800 @ 0x004bf800
+    FUN_004bf330 @ 0x004bf330
+    FUN_00727680 @ 0x00727680
+    FUN_0072dc30 @ 0x0072dc30
+    FUN_0072dc30 @ 0x0072dc30
+    FUN_0072dc30 @ 0x0072dc30
+    FUN_0072dc30 @ 0x0072dc30
+    FUN_0046f310 @ 0x0046f310
+    FUN_004be2d0 @ 0x004be2d0
+    FUN_004d26d0 @ 0x004d26d0
+    FUN_004d26d0 @ 0x004d26d0
+    FUN_004d3660 @ 0x004d3660
+    FUN_004d3660 @ 0x004d3660
+    FUN_004d4b00 @ 0x004d4b00
+    FUN_004ca330 @ 0x004ca330
+    FUN_004ca330 @ 0x004ca330
+    FUN_004ca330 @ 0x004ca330
+    FUN_00719ef0 @ 0x00719ef0
+    FUN_0071a200 @ 0x0071a200
+    FUN_0072e570 @ 0x0072e570
+    FUN_0072e570 @ 0x0072e570
+    FUN_0072e570 @ 0x0072e570
+    FUN_0072e570 @ 0x0072e570
+    FUN_0072e570 @ 0x0072e570
+    FUN_0072e6c0 @ 0x0072e6c0
+    FUN_0072e6c0 @ 0x0072e6c0
+    FUN_0072e6c0 @ 0x0072e6c0
+    FUN_0072e6c0 @ 0x0072e6c0
+    FUN_0072e6c0 @ 0x0072e6c0
+    FUN_0072e6c0 @ 0x0072e6c0
+    FUN_0075c280 @ 0x0075c280
+    FUN_00782a90 @ 0x00782a90
+    FUN_00782a90 @ 0x00782a90
+    FUN_00781680 @ 0x00781680
+    FUN_00781680 @ 0x00781680
+    FUN_00781860 @ 0x00781860
+    FUN_00781860 @ 0x00781860
+    FUN_004d4bd0 @ 0x004d4bd0
+    FUN_0070c4a0 @ 0x0070c4a0
+    FUN_0070c4a0 @ 0x0070c4a0
+    FUN_0070c4a0 @ 0x0070c4a0
+    FUN_0070f4e0 @ 0x0070f4e0
+    FUN_00716320 @ 0x00716320
+    FUN_0071b210 @ 0x0071b210
+    FUN_0071b210 @ 0x0071b210
+    FUN_0071b210 @ 0x0071b210
+    FUN_0071b210 @ 0x0071b210
+    FUN_0071b210 @ 0x0071b210
+    FUN_0071d770 @ 0x0071d770
+    FUN_007a8e60 @ 0x007a8e60
+    FUN_007a8e60 @ 0x007a8e60
+    FUN_00868850 @ 0x00868850
+    FUN_00868850 @ 0x00868850
+    FUN_00868850 @ 0x00868850
+    FUN_00564d80 @ 0x00564d80
+    FUN_0086f260 @ 0x0086f260
+    FUN_0086f390 @ 0x0086f390
+    FUN_0070bc20 @ 0x0070bc20
+    FUN_004b5820 @ 0x004b5820
+    FUN_004b5820 @ 0x004b5820
+    FUN_0086ff70 @ 0x0086ff70
+    FUN_0086ff70 @ 0x0086ff70
+    FUN_0086ff70 @ 0x0086ff70
+    FUN_004e21b0 @ 0x004e21b0
+    FUN_004e62e0 @ 0x004e62e0
+    FUN_004e8ec0 @ 0x004e8ec0
+    FUN_00872b00 @ 0x00872b00
+    FUN_00875110 @ 0x00875110
+    FUN_00875e40 @ 0x00875e40
+    FUN_00875e40 @ 0x00875e40
+    FUN_00876850 @ 0x00876850
+    FUN_00876dd0 @ 0x00876dd0
+    FUN_0087d160 @ 0x0087d160
+    FUN_00823c40 @ 0x00823c40
+    FUN_00822c30 @ 0x00822c30
+    FUN_00824400 @ 0x00824400
+    FUN_00825610 @ 0x00825610
+    FUN_004cffe0 @ 0x004cffe0
+    FUN_004cffe0 @ 0x004cffe0
+    FUN_004cffe0 @ 0x004cffe0
+    FUN_004cffe0 @ 0x004cffe0
+    FUN_004cffe0 @ 0x004cffe0
+    FUN_004cffe0 @ 0x004cffe0
+    FUN_00894940 @ 0x00894940
+    FUN_00897910 @ 0x00897910
+    FUN_0089d900 @ 0x0089d900
+    FUN_0089d900 @ 0x0089d900
+    FUN_0089d900 @ 0x0089d900
+    FUN_0089d900 @ 0x0089d900
+    FUN_0089d900 @ 0x0089d900
+    FUN_0089f580 @ 0x0089f580
+    FUN_0089f580 @ 0x0089f580
+    FUN_0089f580 @ 0x0089f580
+    FUN_0089f580 @ 0x0089f580
+    FUN_0089f580 @ 0x0089f580
+    FUN_008a1710 @ 0x008a1710
+    FUN_00887d00 @ 0x00887d00
+    FUN_00566970 @ 0x00566970
+    FUN_008a6970 @ 0x008a6970
+    FUN_00672930 @ 0x00672930
+    FUN_008a73e0 @ 0x008a73e0
+    FUN_008adcf0 @ 0x008adcf0
+    FUN_008adcf0 @ 0x008adcf0
+    FUN_008b28c0 @ 0x008b28c0
+    FUN_008b6800 @ 0x008b6800
+    FUN_004387b0 @ 0x004387b0
+    FUN_004387b0 @ 0x004387b0
+    FUN_00605e70 @ 0x00605e70
+    FUN_008b52a0 @ 0x008b52a0
+    FUN_006833b0 @ 0x006833b0
+    FUN_004305f0 @ 0x004305f0
+    FUN_008bb650 @ 0x008bb650
+    FUN_008bb650 @ 0x008bb650
+    FUN_008bb650 @ 0x008bb650
+    FUN_008bb650 @ 0x008bb650
+    FUN_008bb650 @ 0x008bb650
+    FUN_008bb650 @ 0x008bb650
+    FUN_008bb650 @ 0x008bb650
+    FUN_008bbd90 @ 0x008bbd90
+    FUN_008c0460 @ 0x008c0460
+    FUN_008c17c0 @ 0x008c17c0
+    FUN_008c1940 @ 0x008c1940
+    FUN_008c26e0 @ 0x008c26e0
+    FUN_008c26e0 @ 0x008c26e0
+    FUN_008c26e0 @ 0x008c26e0
+    FUN_008c26e0 @ 0x008c26e0
+    FUN_00822b90 @ 0x00822b90
+    FUN_008c1cd0 @ 0x008c1cd0
+    FUN_008c2b60 @ 0x008c2b60
+    FUN_008c2b60 @ 0x008c2b60
+    FUN_0088b660 @ 0x0088b660
+    FUN_0088b660 @ 0x0088b660
+    FUN_00906570 @ 0x00906570
+    FUN_00938180 @ 0x00938180
+    FUN_0087e130 @ 0x0087e130
+    FUN_0093c200 @ 0x0093c200
+    FUN_0045a9a0 @ 0x0045a9a0
+    FUN_008885e0 @ 0x008885e0
+    FUN_0062c430 @ 0x0062c430
+    FUN_0062c430 @ 0x0062c430
+    FUN_008bcdf0 @ 0x008bcdf0
+    FUN_00885d90 @ 0x00885d90
+    FUN_00885d90 @ 0x00885d90
+    FUN_008a7d50 @ 0x008a7d50
+    FUN_008b3230 @ 0x008b3230
+    FUN_008d3ed0 @ 0x008d3ed0
+    FUN_00621ad0 @ 0x00621ad0
+    FUN_00885ed0 @ 0x00885ed0
+    FUN_00885ed0 @ 0x00885ed0
+    FUN_004d1180 @ 0x004d1180
+    FUN_004d1180 @ 0x004d1180
+    FUN_004d1180 @ 0x004d1180
+    FUN_008b8f90 @ 0x008b8f90
+    FUN_0089a760 @ 0x0089a760
+    FUN_0089a760 @ 0x0089a760
+    FUN_0089a760 @ 0x0089a760
+    FUN_0089a760 @ 0x0089a760
+    FUN_0089a760 @ 0x0089a760
+    FUN_0089a760 @ 0x0089a760
+    FUN_00498d30 @ 0x00498d30
+    FUN_00498d30 @ 0x00498d30
+    FUN_00498d30 @ 0x00498d30
+    FUN_00498d30 @ 0x00498d30
+    FUN_00817970 @ 0x00817970
+    FUN_00824110 @ 0x00824110
+    FUN_00824570 @ 0x00824570
+    FUN_00824df0 @ 0x00824df0
+    FUN_00623150 @ 0x00623150
+    FUN_0088fb00 @ 0x0088fb00
+    FUN_008a5340 @ 0x008a5340
+    FUN_006f49c0 @ 0x006f49c0
+    FUN_0093e530 @ 0x0093e530
+    FUN_009466d0 @ 0x009466d0
+    FUN_009466d0 @ 0x009466d0
+    FUN_00850d60 @ 0x00850d60
+    FUN_00895110 @ 0x00895110
+    FUN_00895110 @ 0x00895110
+    FUN_004985f0 @ 0x004985f0
+    FUN_008ba600 @ 0x008ba600
+    FUN_008ba600 @ 0x008ba600
+    FUN_008ba600 @ 0x008ba600
+    FUN_008ba600 @ 0x008ba600
+    FUN_008ba600 @ 0x008ba600
+    FUN_008ba600 @ 0x008ba600
+    FUN_008ba600 @ 0x008ba600
+    FUN_00498170 @ 0x00498170
+    FUN_00498f80 @ 0x00498f80
+    FUN_00523150 @ 0x00523150
+    FUN_00523150 @ 0x00523150
+    FUN_00646260 @ 0x00646260
+    FUN_00893a40 @ 0x00893a40
+    FUN_00893a40 @ 0x00893a40
+    FUN_004981f0 @ 0x004981f0
+    FUN_00899200 @ 0x00899200
+    FUN_00899200 @ 0x00899200
+    FUN_00899200 @ 0x00899200
+    FUN_008990f0 @ 0x008990f0
+    FUN_008990f0 @ 0x008990f0
+    FUN_00899cb0 @ 0x00899cb0
+    FUN_00899cb0 @ 0x00899cb0
+    FUN_00899cb0 @ 0x00899cb0
+    FUN_008ae660 @ 0x008ae660
+    FUN_008ae660 @ 0x008ae660
+    FUN_008ae660 @ 0x008ae660
+    FUN_008ae660 @ 0x008ae660
+    FUN_008acff0 @ 0x008acff0
+    FUN_008b0dd0 @ 0x008b0dd0
+    FUN_008b0dd0 @ 0x008b0dd0
+    FUN_008b0dd0 @ 0x008b0dd0
+    FUN_009445b0 @ 0x009445b0
+    FUN_00948310 @ 0x00948310
+    FUN_00948310 @ 0x00948310
+    FUN_00948310 @ 0x00948310
+    FUN_00948310 @ 0x00948310
+    FUN_00948310 @ 0x00948310
+    FUN_0094ae40 @ 0x0094ae40
+    FUN_0094ae40 @ 0x0094ae40
+    FUN_0094ae40 @ 0x0094ae40
+    FUN_0094a0c0 @ 0x0094a0c0
+    FUN_0094a0c0 @ 0x0094a0c0
+    FUN_0094a0c0 @ 0x0094a0c0
+    FUN_00620bc0 @ 0x00620bc0
+    FUN_004d4530 @ 0x004d4530
+    FUN_00951a10 @ 0x00951a10
+    FUN_00951a10 @ 0x00951a10
+    FUN_006d4f70 @ 0x006d4f70
+    FUN_0095f930 @ 0x0095f930
+    FUN_0095f930 @ 0x0095f930
+    FUN_00960520 @ 0x00960520
+    FUN_00564db0 @ 0x00564db0
+    FUN_00964260 @ 0x00964260
+    FUN_00964260 @ 0x00964260
+    FUN_00964260 @ 0x00964260
+    FUN_00964260 @ 0x00964260
+    FUN_00965270 @ 0x00965270
+    FUN_00965270 @ 0x00965270
+    FUN_008a0d10 @ 0x008a0d10
+    FUN_00891be0 @ 0x00891be0
+    FUN_00969040 @ 0x00969040
+    FUN_00969110 @ 0x00969110
+    FUN_00969110 @ 0x00969110
+    FUN_0096c970 @ 0x0096c970
+    FUN_0096c970 @ 0x0096c970
+    FUN_00881650 @ 0x00881650
+    FUN_0096eb40 @ 0x0096eb40
+    FUN_0096eb40 @ 0x0096eb40
+    FUN_0096f600 @ 0x0096f600
+    FUN_006e7e70 @ 0x006e7e70
+    FUN_00954a70 @ 0x00954a70
+    FUN_00954a70 @ 0x00954a70
+    FUN_00954a70 @ 0x00954a70
+    FUN_009746c0 @ 0x009746c0
+    FUN_009746c0 @ 0x009746c0
+    FUN_009746c0 @ 0x009746c0
+    FUN_008216c0 @ 0x008216c0
+    FUN_008c30a0 @ 0x008c30a0
+    FUN_006801a0 @ 0x006801a0
+    FUN_009839b0 @ 0x009839b0
+    FUN_00986500 @ 0x00986500
+    FUN_00986610 @ 0x00986610
+    FUN_00986760 @ 0x00986760
+    FUN_00986760 @ 0x00986760
+    FUN_00986b00 @ 0x00986b00
+    FUN_00986b00 @ 0x00986b00
+    GetCount @ 0x00990890
+    GetFirstViewPosition @ 0x00990a60
+    FUN_00985f90 @ 0x00985f90
+    FUN_009878b0 @ 0x009878b0
+    FUN_009878b0 @ 0x009878b0
+    FUN_006dfd20 @ 0x006dfd20
+    FUN_006df230 @ 0x006df230
+    FUN_006df230 @ 0x006df230
+    FUN_006df230 @ 0x006df230
+    FUN_006df230 @ 0x006df230
+    FUN_006e1500 @ 0x006e1500
+    FUN_006e1670 @ 0x006e1670
+    FUN_00988750 @ 0x00988750
+    FUN_0098a580 @ 0x0098a580
+    FUN_006d7ca0 @ 0x006d7ca0
+    FUN_006d7f40 @ 0x006d7f40
+    FUN_006d7f40 @ 0x006d7f40
+    FUN_006d7f40 @ 0x006d7f40
+    FUN_006d7f40 @ 0x006d7f40
+    GetCount @ 0x006d8990
+    FUN_006e04b0 @ 0x006e04b0
+    FUN_006e05f0 @ 0x006e05f0
+    FUN_006dfba0 @ 0x006dfba0
+    FUN_006dfd70 @ 0x006dfd70
+    FUN_006df440 @ 0x006df440
+    FUN_006df440 @ 0x006df440
+    FUN_0098b8c0 @ 0x0098b8c0
+    FUN_0098b8c0 @ 0x0098b8c0
+    FUN_0098b8c0 @ 0x0098b8c0
+    FUN_0054dc00 @ 0x0054dc00
+    FUN_0098c0d0 @ 0x0098c0d0
+    FUN_0098c590 @ 0x0098c590
+    FUN_0098d2c0 @ 0x0098d2c0
+    FUN_0098d2c0 @ 0x0098d2c0
+    FUN_0098d2c0 @ 0x0098d2c0
+    FUN_0098dc40 @ 0x0098dc40
+    FUN_0098dc40 @ 0x0098dc40
+    FUN_009993c0 @ 0x009993c0
+    FUN_009993c0 @ 0x009993c0
+    FUN_009993c0 @ 0x009993c0
+    FUN_009993c0 @ 0x009993c0
+    FUN_009993c0 @ 0x009993c0
+    FUN_009993c0 @ 0x009993c0
+    FUN_009993c0 @ 0x009993c0
+    FUN_009993c0 @ 0x009993c0
+    FUN_004d4830 @ 0x004d4830
+    FUN_00982ff0 @ 0x00982ff0
+    FUN_009a60e0 @ 0x009a60e0
+    FUN_00965620 @ 0x00965620
+    FUN_00965620 @ 0x00965620
+    FUN_0062bfb0 @ 0x0062bfb0
+    FUN_009ac9c0 @ 0x009ac9c0
+    FUN_009afef0 @ 0x009afef0
+    FUN_009b0920 @ 0x009b0920
+    FUN_009b5170 @ 0x009b5170
+    FUN_009b5170 @ 0x009b5170
+    FUN_008b3d70 @ 0x008b3d70
+    FUN_009b5a30 @ 0x009b5a30
+    FUN_00822650 @ 0x00822650
+    FUN_009b73d0 @ 0x009b73d0
+    FUN_009bb080 @ 0x009bb080
+    FUN_009bbef0 @ 0x009bbef0
+    FUN_009bbef0 @ 0x009bbef0
+    FUN_009bbef0 @ 0x009bbef0
+    FUN_00968f90 @ 0x00968f90
+    FUN_00968f90 @ 0x00968f90
+    FUN_00968be0 @ 0x00968be0
+    FUN_00968be0 @ 0x00968be0
+    FUN_009ca2c0 @ 0x009ca2c0
+    FUN_009eb660 @ 0x009eb660
+    FUN_009f8420 @ 0x009f8420
+    FUN_005e0860 @ 0x005e0860
+    FUN_00962290 @ 0x00962290
+    FUN_0075ec60 @ 0x0075ec60
+    FUN_006c7a30 @ 0x006c7a30
+    FUN_006c7a30 @ 0x006c7a30
+    FUN_006c7a30 @ 0x006c7a30
+    FUN_006c7a30 @ 0x006c7a30
+    FUN_00467bd0 @ 0x00467bd0
+    FUN_007ad860 @ 0x007ad860
+    FUN_007ad860 @ 0x007ad860
+    FUN_007af610 @ 0x007af610
+    FUN_0069bca0 @ 0x0069bca0
+    FUN_007b16d0 @ 0x007b16d0
+    FUN_0072e6c0 @ 0x0072e6c0
+    FUN_0041d030 @ 0x0041d030
+    FUN_009869a0 @ 0x009869a0
+    FUN_00962590 @ 0x00962590
+    FUN_0070ee80 @ 0x0070ee80
+    FUN_00491180 @ 0x00491180
+    FUN_00491180 @ 0x00491180
+    FUN_005edd00 @ 0x005edd00
+    FUN_005edd00 @ 0x005edd00
+    FUN_005edd00 @ 0x005edd00
+    FUN_0098de90 @ 0x0098de90
+    FUN_0098de90 @ 0x0098de90
+    FUN_0098de90 @ 0x0098de90
+    FUN_0098de90 @ 0x0098de90
+    FUN_0098de90 @ 0x0098de90
+    FUN_006dffc0 @ 0x006dffc0
+    FUN_0057b4b0 @ 0x0057b4b0
+    FUN_006df9c0 @ 0x006df9c0
+    FUN_0079dbb0 @ 0x0079dbb0
+    FUN_005cbb70 @ 0x005cbb70
+    FUN_0077a400 @ 0x0077a400
+    FUN_0079f7e0 @ 0x0079f7e0
+    FUN_0079f7e0 @ 0x0079f7e0
+    FUN_0079f7e0 @ 0x0079f7e0
+    FUN_0079f7e0 @ 0x0079f7e0
+    FUN_0079f8d0 @ 0x0079f8d0
+    FUN_0079f8d0 @ 0x0079f8d0
+    FUN_00866da0 @ 0x00866da0
+    FUN_004ff1a0 @ 0x004ff1a0
+    FUN_004ff1a0 @ 0x004ff1a0
+    FUN_00775a00 @ 0x00775a00
+    FUN_0087b990 @ 0x0087b990
+    FUN_0087b990 @ 0x0087b990
+    FUN_0087b990 @ 0x0087b990
+    FUN_0087b990 @ 0x0087b990
+    FUN_0087d030 @ 0x0087d030
+    FUN_007917a0 @ 0x007917a0
+    FUN_007917a0 @ 0x007917a0
+    FUN_007917a0 @ 0x007917a0
+    FUN_007917a0 @ 0x007917a0
+    FUN_0087b990 @ 0x0087b990
+    FUN_004c0cf0 @ 0x004c0cf0
+    FUN_004c0cf0 @ 0x004c0cf0
+    FUN_004c0cf0 @ 0x004c0cf0
+    FUN_004c0cf0 @ 0x004c0cf0
+    FUN_004c0cf0 @ 0x004c0cf0
+    FUN_0098e990 @ 0x0098e990
+    FUN_0098e990 @ 0x0098e990
+    FUN_00980ae0 @ 0x00980ae0
+    FUN_009c7240 @ 0x009c7240
+    FUN_009c7240 @ 0x009c7240
+    FUN_009c7240 @ 0x009c7240
+    FUN_005659f0 @ 0x005659f0
+    FUN_005659f0 @ 0x005659f0
+    FUN_005659f0 @ 0x005659f0
+    FUN_00606540 @ 0x00606540
+    FUN_00606540 @ 0x00606540
+    FUN_00606050 @ 0x00606050
+    FUN_0088db20 @ 0x0088db20
+    FUN_0088db20 @ 0x0088db20
+    FUN_0088db20 @ 0x0088db20
+    FUN_0088db20 @ 0x0088db20
+    FUN_006d34d0 @ 0x006d34d0
+    FUN_006dc9f0 @ 0x006dc9f0
+    FUN_004127e0 @ 0x004127e0
+    FUN_004127e0 @ 0x004127e0
+    FUN_004127e0 @ 0x004127e0
+    FUN_009462c0 @ 0x009462c0
+    FUN_009462c0 @ 0x009462c0
+    FUN_0088c830 @ 0x0088c830
+    FUN_009445b0 @ 0x009445b0
+    FUN_009445b0 @ 0x009445b0
+    FUN_009445b0 @ 0x009445b0
+    FUN_009445b0 @ 0x009445b0
+    FUN_009445b0 @ 0x009445b0
+    FUN_0095d160 @ 0x0095d160
+    FUN_0095e6f0 @ 0x0095e6f0
+    FUN_0095de30 @ 0x0095de30
+    FUN_0095de30 @ 0x0095de30
+    FUN_0095de30 @ 0x0095de30
+    FUN_0095de30 @ 0x0095de30
+    FUN_0095de30 @ 0x0095de30
+    FUN_0095de30 @ 0x0095de30
+    FUN_0095de30 @ 0x0095de30
+    FUN_0041d120 @ 0x0041d120
+    FUN_004985b0 @ 0x004985b0
+    FUN_006d0be0 @ 0x006d0be0
+    FUN_007ddf00 @ 0x007ddf00
+    FUN_006d1c60 @ 0x006d1c60
+    FUN_006d1660 @ 0x006d1660
+    FUN_007e08a0 @ 0x007e08a0
+    FUN_006d1f80 @ 0x006d1f80
+    FUN_006d23d0 @ 0x006d23d0
+    FUN_0099d480 @ 0x0099d480
+    FUN_0099d480 @ 0x0099d480
+    FUN_0099d480 @ 0x0099d480
+    FUN_0099d480 @ 0x0099d480
+    FUN_0067dad0 @ 0x0067dad0
+    FUN_006d5490 @ 0x006d5490
+    FUN_006d5490 @ 0x006d5490
+    FUN_006d5490 @ 0x006d5490
+    FUN_006d5490 @ 0x006d5490
+    FUN_006d5490 @ 0x006d5490
+    FUN_006d5490 @ 0x006d5490
+    FUN_006d5490 @ 0x006d5490
+    FUN_006d5490 @ 0x006d5490
+    FUN_006d5490 @ 0x006d5490
+    FUN_00982df0 @ 0x00982df0
+    FUN_0099cb00 @ 0x0099cb00
+    FUN_007ac730 @ 0x007ac730
+    FUN_00980ae0 @ 0x00980ae0
+    FUN_00980ae0 @ 0x00980ae0
+    FUN_00491180 @ 0x00491180
+    FUN_005f2b60 @ 0x005f2b60
+    FUN_0083a930 @ 0x0083a930
+    FUN_004bffe0 @ 0x004bffe0
+    FUN_004bffe0 @ 0x004bffe0
+    FUN_009c7240 @ 0x009c7240
+    FUN_0047b560 @ 0x0047b560
+    FUN_0047b560 @ 0x0047b560
+    FUN_00404de0 @ 0x00404de0
+    FUN_00404de0 @ 0x00404de0
+    FUN_00404de0 @ 0x00404de0
+    FUN_00404de0 @ 0x00404de0
+    FUN_00404f90 @ 0x00404f90
+    FUN_00404f90 @ 0x00404f90
+    FUN_004855a0 @ 0x004855a0
+    FUN_004120b0 @ 0x004120b0
+    FUN_004121e0 @ 0x004121e0
+    FUN_00412970 @ 0x00412970
+    FUN_00416be0 @ 0x00416be0
+    FUN_0067dbf0 @ 0x0067dbf0
+    FUN_00435d40 @ 0x00435d40
+    FUN_00435e20 @ 0x00435e20
+    FUN_00435e40 @ 0x00435e40
+    FUN_00422c40 @ 0x00422c40
+    FUN_004235e0 @ 0x004235e0
+    FUN_00426a30 @ 0x00426a30
+    FUN_00428150 @ 0x00428150
+    FUN_004302d0 @ 0x004302d0
+    FUN_00430660 @ 0x00430660
+    FUN_00430660 @ 0x00430660
+    FUN_00430660 @ 0x00430660
+    FUN_00431030 @ 0x00431030
+    FUN_00431030 @ 0x00431030
+    FUN_00431030 @ 0x00431030
+    FUN_0043caa0 @ 0x0043caa0
+    FUN_0043e080 @ 0x0043e080
+    FUN_006502f0 @ 0x006502f0
+    FUN_00565210 @ 0x00565210
+    FUN_008b73f0 @ 0x008b73f0
+    FUN_00446990 @ 0x00446990
+    FUN_004412e0 @ 0x004412e0
+    FUN_004412e0 @ 0x004412e0
+    FUN_008c2e50 @ 0x008c2e50
+    FUN_004457d0 @ 0x004457d0
+    FUN_004457d0 @ 0x004457d0
+    FUN_004c6f60 @ 0x004c6f60
+    FUN_00446cb0 @ 0x00446cb0
+    FUN_0044b8d0 @ 0x0044b8d0
+    FUN_00446f40 @ 0x00446f40
+    FUN_00446fc0 @ 0x00446fc0
+    FUN_00449750 @ 0x00449750
+    FUN_00449cb0 @ 0x00449cb0
+    FUN_0044f770 @ 0x0044f770
+    FUN_0044f770 @ 0x0044f770
+    FUN_0044f770 @ 0x0044f770
+    FUN_0046f640 @ 0x0046f640
+    FUN_0046f640 @ 0x0046f640
+    FUN_0046f640 @ 0x0046f640
+    FUN_0046f640 @ 0x0046f640
+    FUN_0046f640 @ 0x0046f640
+    FUN_00472e60 @ 0x00472e60
+    FUN_00475b20 @ 0x00475b20
+    FUN_00475b20 @ 0x00475b20
+    FUN_00475b20 @ 0x00475b20
+    FUN_009bc8f0 @ 0x009bc8f0
+    FUN_0047b5d0 @ 0x0047b5d0
+    FUN_0047b630 @ 0x0047b630
+    FUN_0047b630 @ 0x0047b630
+    FUN_00485340 @ 0x00485340
+    FUN_004853e0 @ 0x004853e0
+    FUN_004853e0 @ 0x004853e0
+    FUN_0048f450 @ 0x0048f450
+    FUN_0048f450 @ 0x0048f450
+    FUN_004b0730 @ 0x004b0730
+    FUN_004b6740 @ 0x004b6740
+    FUN_004b6740 @ 0x004b6740
+    FUN_004b6740 @ 0x004b6740
+    FUN_004b6740 @ 0x004b6740
+    FUN_004b68a0 @ 0x004b68a0
+    FUN_004b68a0 @ 0x004b68a0
+    FUN_004b68a0 @ 0x004b68a0
+    FUN_004b68a0 @ 0x004b68a0
+    FUN_004b6a00 @ 0x004b6a00
+    FUN_004b6a00 @ 0x004b6a00
+    FUN_004b6a00 @ 0x004b6a00
+    FUN_004b6a00 @ 0x004b6a00
+    FUN_004b9f10 @ 0x004b9f10
+    FUN_004bd030 @ 0x004bd030
+    FUN_004bfc80 @ 0x004bfc80
+    FUN_004bfc80 @ 0x004bfc80
+    FUN_004c94f0 @ 0x004c94f0
+    FUN_004c94f0 @ 0x004c94f0
+    FUN_004c94f0 @ 0x004c94f0
+    FUN_004cb5f0 @ 0x004cb5f0
+    FUN_004cb5f0 @ 0x004cb5f0
+    FUN_004cba70 @ 0x004cba70
+    FUN_004cbbc0 @ 0x004cbbc0
+    FUN_004cbbc0 @ 0x004cbbc0
+    FUN_004cbbc0 @ 0x004cbbc0
+    FUN_004cbbc0 @ 0x004cbbc0
+    FUN_004cd9c0 @ 0x004cd9c0
+    FUN_004cd9c0 @ 0x004cd9c0
+    FUN_004cd9c0 @ 0x004cd9c0
+    FUN_004cd9c0 @ 0x004cd9c0
+    FUN_004d0900 @ 0x004d0900
+    FUN_004d3cc0 @ 0x004d3cc0
+    FUN_004d4160 @ 0x004d4160
+    FUN_004d43c0 @ 0x004d43c0
+    FUN_004d4480 @ 0x004d4480
+    FUN_004d4ca0 @ 0x004d4ca0
+    FUN_004d4ca0 @ 0x004d4ca0
+    FUN_0050fbf0 @ 0x0050fbf0
+    FUN_004fd440 @ 0x004fd440
+    FUN_004fd440 @ 0x004fd440
+    FUN_004fd510 @ 0x004fd510
+    FUN_004fd510 @ 0x004fd510
+    FUN_005113d0 @ 0x005113d0
+    FUN_005444c0 @ 0x005444c0
+    FUN_00586230 @ 0x00586230
+    FUN_00511370 @ 0x00511370
+    FUN_005273c0 @ 0x005273c0
+    FUN_005273c0 @ 0x005273c0
+    FUN_00544490 @ 0x00544490
+    FUN_00975320 @ 0x00975320
+    FUN_00986670 @ 0x00986670
+    FUN_009a0f40 @ 0x009a0f40
+    FUN_009a4120 @ 0x009a4120
+    FUN_009a4120 @ 0x009a4120
+    FUN_00560870 @ 0x00560870
+    FUN_00560a10 @ 0x00560a10
+    FUN_00560e70 @ 0x00560e70
+    FUN_00561b40 @ 0x00561b40
+    FUN_00561b40 @ 0x00561b40
+    FUN_00561b40 @ 0x00561b40
+    FUN_00561b40 @ 0x00561b40
+    FUN_005649b0 @ 0x005649b0
+    FUN_00564a00 @ 0x00564a00
+    FUN_00564ab0 @ 0x00564ab0
+    FUN_00564b00 @ 0x00564b00
+    FUN_00564c10 @ 0x00564c10
+    FUN_00564cd0 @ 0x00564cd0
+    FUN_00564d20 @ 0x00564d20
+    FUN_00567050 @ 0x00567050
+    FUN_005750a0 @ 0x005750a0
+    FUN_005750a0 @ 0x005750a0
+    FUN_009691d0 @ 0x009691d0
+    FUN_005764f0 @ 0x005764f0
+    FUN_005764f0 @ 0x005764f0
+    FUN_00577450 @ 0x00577450
+    FUN_00594e40 @ 0x00594e40
+    FUN_00594e40 @ 0x00594e40
+    FUN_00594e40 @ 0x00594e40
+    FUN_008d3110 @ 0x008d3110
+    FUN_008d3110 @ 0x008d3110
+    FUN_005a05e0 @ 0x005a05e0
+    FUN_005a05e0 @ 0x005a05e0
+    FUN_005a05e0 @ 0x005a05e0
+    FUN_005a09b0 @ 0x005a09b0
+    FUN_005a09b0 @ 0x005a09b0
+    FUN_005a09b0 @ 0x005a09b0
+    FUN_00972600 @ 0x00972600
+    FUN_005a2590 @ 0x005a2590
+    FUN_005a25f0 @ 0x005a25f0
+    FUN_005a2ce0 @ 0x005a2ce0
+    FUN_005a2ce0 @ 0x005a2ce0
+    FUN_005a2ce0 @ 0x005a2ce0
+    FUN_005a5270 @ 0x005a5270
+    FUN_005a8f40 @ 0x005a8f40
+    FUN_005ba8f0 @ 0x005ba8f0
+    FUN_005ba8f0 @ 0x005ba8f0
+    FUN_005ba8f0 @ 0x005ba8f0
+    FUN_005bac90 @ 0x005bac90
+    FUN_005be900 @ 0x005be900
+    FUN_005be900 @ 0x005be900
+    FUN_005be900 @ 0x005be900
+    FUN_005be900 @ 0x005be900
+    FUN_005beb00 @ 0x005beb00
+    FUN_005beb00 @ 0x005beb00
+    FUN_005beb00 @ 0x005beb00
+    FUN_005bf130 @ 0x005bf130
+    FUN_008249d0 @ 0x008249d0
+    FUN_005c25f0 @ 0x005c25f0
+    FUN_005c25f0 @ 0x005c25f0
+    FUN_007c6ce0 @ 0x007c6ce0
+    FUN_007c6ce0 @ 0x007c6ce0
+    FUN_0073ca50 @ 0x0073ca50
+    FUN_0073d650 @ 0x0073d650
+    FUN_0073d650 @ 0x0073d650
+    FUN_00749740 @ 0x00749740
+    FUN_00749740 @ 0x00749740
+    FUN_00749740 @ 0x00749740
+    FUN_00749740 @ 0x00749740
+    FUN_00749740 @ 0x00749740
+    FUN_0074a2c0 @ 0x0074a2c0
+    FUN_0074a2c0 @ 0x0074a2c0
+    FUN_0074a2c0 @ 0x0074a2c0
+    FUN_0074a2c0 @ 0x0074a2c0
+    FUN_0074a2c0 @ 0x0074a2c0
+    FUN_0074a2c0 @ 0x0074a2c0
+    FUN_00795e20 @ 0x00795e20
+    FUN_00795e20 @ 0x00795e20
+    FUN_00795e20 @ 0x00795e20
+    FUN_00795e20 @ 0x00795e20
+    FUN_00795e20 @ 0x00795e20
+    FUN_00795e20 @ 0x00795e20
+    FUN_00994f10 @ 0x00994f10
+    FUN_00993db0 @ 0x00993db0
+    FUN_009959f0 @ 0x009959f0
+    FUN_00995ef0 @ 0x00995ef0
+    FUN_00995e30 @ 0x00995e30
+    FUN_00995e30 @ 0x00995e30
+    FUN_00996860 @ 0x00996860
+    FUN_005d6b60 @ 0x005d6b60
+    FUN_005d6d40 @ 0x005d6d40
+    FUN_005d6d40 @ 0x005d6d40
+    FUN_005dae10 @ 0x005dae10
+    FUN_005daf90 @ 0x005daf90
+    FUN_005dfe90 @ 0x005dfe90
+    FUN_005ec920 @ 0x005ec920
+    FUN_005ec920 @ 0x005ec920
+    FUN_005ec920 @ 0x005ec920
+    FUN_005ec920 @ 0x005ec920
+    FUN_005ec920 @ 0x005ec920
+    FUN_005ec920 @ 0x005ec920
+    FUN_005ecb30 @ 0x005ecb30
+    FUN_005ecb30 @ 0x005ecb30
+    FUN_005ecb30 @ 0x005ecb30
+    FUN_005ecb30 @ 0x005ecb30
+    FUN_005ecb30 @ 0x005ecb30
+    FUN_005ece50 @ 0x005ece50
+    FUN_005ece50 @ 0x005ece50
+    FUN_005ece50 @ 0x005ece50
+    FUN_005ece50 @ 0x005ece50
+    FUN_005ece50 @ 0x005ece50
+    FUN_005ece50 @ 0x005ece50
+    FUN_005ecfd0 @ 0x005ecfd0
+    FUN_005ecfd0 @ 0x005ecfd0
+    FUN_005ecfd0 @ 0x005ecfd0
+    FUN_005ecfd0 @ 0x005ecfd0
+    FUN_005ecfd0 @ 0x005ecfd0
+    FUN_005ed1e0 @ 0x005ed1e0
+    FUN_005ed1e0 @ 0x005ed1e0
+    FUN_005ed1e0 @ 0x005ed1e0
+    FUN_005ed1e0 @ 0x005ed1e0
+    FUN_005ed1e0 @ 0x005ed1e0
+    FUN_005ed1e0 @ 0x005ed1e0
+    FUN_005ed360 @ 0x005ed360
+    FUN_005ed360 @ 0x005ed360
+    FUN_005ed360 @ 0x005ed360
+    FUN_005ed360 @ 0x005ed360
+    FUN_005ed360 @ 0x005ed360
+    FUN_005edfb0 @ 0x005edfb0
+    FUN_005edfb0 @ 0x005edfb0
+    FUN_005edfb0 @ 0x005edfb0
+    FUN_005ee110 @ 0x005ee110
+    FUN_005ee110 @ 0x005ee110
+    FUN_005ee110 @ 0x005ee110
+    FUN_005ee110 @ 0x005ee110
+    FUN_005ee110 @ 0x005ee110
+    FUN_005ee110 @ 0x005ee110
+    FUN_005ee640 @ 0x005ee640
+    FUN_005ee640 @ 0x005ee640
+    FUN_005f0f50 @ 0x005f0f50
+    FUN_008c00e0 @ 0x008c00e0
+    FUN_008c00e0 @ 0x008c00e0
+    FUN_00609220 @ 0x00609220
+    FUN_00618aa0 @ 0x00618aa0
+    FUN_00618aa0 @ 0x00618aa0
+    FUN_00618aa0 @ 0x00618aa0
+    FUN_00619030 @ 0x00619030
+    FUN_00620810 @ 0x00620810
+    FUN_00623cb0 @ 0x00623cb0
+    FUN_00623cb0 @ 0x00623cb0
+    FUN_009b4950 @ 0x009b4950
+    FUN_009b4950 @ 0x009b4950
+    FUN_00624340 @ 0x00624340
+    FUN_00624340 @ 0x00624340
+    FUN_00624580 @ 0x00624580
+    FUN_0062a510 @ 0x0062a510
+    FUN_0062a510 @ 0x0062a510
+    FUN_0062a690 @ 0x0062a690
+    FUN_0062cc90 @ 0x0062cc90
+    FUN_0062cc90 @ 0x0062cc90
+    FUN_0062d640 @ 0x0062d640
+    FUN_00620340 @ 0x00620340
+    FUN_00643ff0 @ 0x00643ff0
+    FUN_006787e0 @ 0x006787e0
+    FUN_006787e0 @ 0x006787e0
+    FUN_0064ed60 @ 0x0064ed60
+    FUN_0064aec0 @ 0x0064aec0
+    FUN_0064aec0 @ 0x0064aec0
+    FUN_0064aec0 @ 0x0064aec0
+    FUN_0064aec0 @ 0x0064aec0
+    FUN_0064aec0 @ 0x0064aec0
+    FUN_0064aec0 @ 0x0064aec0
+    FUN_0064b0f0 @ 0x0064b0f0
+    FUN_0064b0f0 @ 0x0064b0f0
+    FUN_0064b0f0 @ 0x0064b0f0
+    FUN_0064ca60 @ 0x0064ca60
+    FUN_0064ca60 @ 0x0064ca60
+    FUN_0064ca60 @ 0x0064ca60
+    FUN_00680220 @ 0x00680220
+    FUN_00680220 @ 0x00680220
+    FUN_00683330 @ 0x00683330
+    FUN_00683c10 @ 0x00683c10
+    FUN_00687d90 @ 0x00687d90
+    FUN_00685ef0 @ 0x00685ef0
+    FUN_0068cb60 @ 0x0068cb60
+    FUN_0068f6d0 @ 0x0068f6d0
+    FUN_0068f6d0 @ 0x0068f6d0
+    FUN_0068f6d0 @ 0x0068f6d0
+    FUN_0068f6d0 @ 0x0068f6d0
+    FUN_0068f6d0 @ 0x0068f6d0
+    FUN_0068f6d0 @ 0x0068f6d0
+    FUN_0068f6d0 @ 0x0068f6d0
+    FUN_0068f6d0 @ 0x0068f6d0
+    FUN_0068f6d0 @ 0x0068f6d0
+    FUN_0068f6d0 @ 0x0068f6d0
+    FUN_0068f6d0 @ 0x0068f6d0
+    FUN_0068f6d0 @ 0x0068f6d0
+    FUN_0068f6d0 @ 0x0068f6d0
+    FUN_00690e90 @ 0x00690e90
+    FUN_00690e90 @ 0x00690e90
+    FUN_00691350 @ 0x00691350
+    FUN_00691660 @ 0x00691660
+    FUN_00692950 @ 0x00692950
+    FUN_00692950 @ 0x00692950
+    FUN_00692950 @ 0x00692950
+    FUN_00692950 @ 0x00692950
+    FUN_00692950 @ 0x00692950
+    FUN_00692950 @ 0x00692950
+    FUN_00692950 @ 0x00692950
+    FUN_00692950 @ 0x00692950
+    FUN_00692950 @ 0x00692950
+    FUN_00692950 @ 0x00692950
+    FUN_00692950 @ 0x00692950
+    FUN_00692950 @ 0x00692950
+    FUN_00692950 @ 0x00692950
+    FUN_00692950 @ 0x00692950
+    FUN_00692950 @ 0x00692950
+    FUN_00692950 @ 0x00692950
+    FUN_00692950 @ 0x00692950
+    FUN_00692950 @ 0x00692950
+    FUN_006b5560 @ 0x006b5560
+    FUN_006b5560 @ 0x006b5560
+    FUN_006b5560 @ 0x006b5560
+    FUN_006b5a90 @ 0x006b5a90
+    FUN_00693f30 @ 0x00693f30
+    FUN_006953b0 @ 0x006953b0
+    FUN_006953b0 @ 0x006953b0
+    FUN_006953b0 @ 0x006953b0
+    FUN_006953b0 @ 0x006953b0
+    FUN_00695370 @ 0x00695370
+    FUN_0069d4b0 @ 0x0069d4b0
+    FUN_0069d4b0 @ 0x0069d4b0
+    FUN_0069d4b0 @ 0x0069d4b0
+    FUN_006995c0 @ 0x006995c0
+    FUN_006997e0 @ 0x006997e0
+    FUN_00699a30 @ 0x00699a30
+    FUN_0069c460 @ 0x0069c460
+    FUN_0069c460 @ 0x0069c460
+    FUN_0069c4c0 @ 0x0069c4c0
+    FUN_0069c4c0 @ 0x0069c4c0
+    FUN_0069c4c0 @ 0x0069c4c0
+    FUN_0069c4c0 @ 0x0069c4c0
+    FUN_0069c8f0 @ 0x0069c8f0
+    FUN_0069c8f0 @ 0x0069c8f0
+    FUN_0069c8f0 @ 0x0069c8f0
+    FUN_0069c8f0 @ 0x0069c8f0
+    FUN_0069c8f0 @ 0x0069c8f0
+    FUN_0069c8f0 @ 0x0069c8f0
+    FUN_0069f9d0 @ 0x0069f9d0
+    FUN_0069f9d0 @ 0x0069f9d0
+    FUN_006a0940 @ 0x006a0940
+    FUN_006a0940 @ 0x006a0940
+    FUN_006a0ac0 @ 0x006a0ac0
+    FUN_006a0ac0 @ 0x006a0ac0
+    FUN_006a6fa0 @ 0x006a6fa0
+    FUN_006a6fa0 @ 0x006a6fa0
+    FUN_006dc990 @ 0x006dc990
+    FUN_006d9480 @ 0x006d9480
+    FUN_006d9480 @ 0x006d9480
+    FUN_006d9480 @ 0x006d9480
+    FUN_006ab180 @ 0x006ab180
+    FUN_006abce0 @ 0x006abce0
+    FUN_006abe40 @ 0x006abe40
+    FUN_006b0ad0 @ 0x006b0ad0
+    FUN_006b0ad0 @ 0x006b0ad0
+    FUN_006b0ad0 @ 0x006b0ad0
+    FUN_006b0ad0 @ 0x006b0ad0
+    FUN_006b0ad0 @ 0x006b0ad0
+    FUN_006b0ad0 @ 0x006b0ad0
+    FUN_006b0ad0 @ 0x006b0ad0
+    FUN_006b0ad0 @ 0x006b0ad0
+    FUN_006b0ad0 @ 0x006b0ad0
+    FUN_006b4e10 @ 0x006b4e10
+    FUN_006b4e10 @ 0x006b4e10
+    FUN_006b4e10 @ 0x006b4e10
+    FUN_006b4e80 @ 0x006b4e80
+    FUN_006b4e80 @ 0x006b4e80
+    FUN_006b4e80 @ 0x006b4e80
+    FUN_006b4e80 @ 0x006b4e80
+    FUN_006b4e80 @ 0x006b4e80
+    FUN_006b4e80 @ 0x006b4e80
+    FUN_006b5490 @ 0x006b5490
+    FUN_006b5d80 @ 0x006b5d80
+    FUN_006b63c0 @ 0x006b63c0
+    FUN_006b7cb0 @ 0x006b7cb0
+    FUN_006b7cb0 @ 0x006b7cb0
+    FUN_006b7cb0 @ 0x006b7cb0
+    FUN_006b6c60 @ 0x006b6c60
+    FUN_006b6c60 @ 0x006b6c60
+    FUN_006b6c60 @ 0x006b6c60
+    FUN_006b6c60 @ 0x006b6c60
+    FUN_006b6c60 @ 0x006b6c60
+    FUN_006b6c60 @ 0x006b6c60
+    FUN_006b6c60 @ 0x006b6c60
+    FUN_006b6c60 @ 0x006b6c60
+    FUN_006b6c60 @ 0x006b6c60
+    FUN_006b8490 @ 0x006b8490
+    FUN_006b8490 @ 0x006b8490
+    FUN_006b8490 @ 0x006b8490
+    FUN_006c8170 @ 0x006c8170
+    FUN_006c8170 @ 0x006c8170
+    FUN_006c8170 @ 0x006c8170
+    FUN_006c8170 @ 0x006c8170
+    FUN_006cf6a0 @ 0x006cf6a0
+    FUN_006cfc20 @ 0x006cfc20
+    FUN_006de790 @ 0x006de790
+    FUN_006de790 @ 0x006de790
+    FUN_006de790 @ 0x006de790
+    FUN_006df5f0 @ 0x006df5f0
+    FUN_006df5f0 @ 0x006df5f0
+    FUN_006df5f0 @ 0x006df5f0
+    FUN_006df780 @ 0x006df780
+    FUN_006df780 @ 0x006df780
+    FUN_006df780 @ 0x006df780
+    FUN_006df780 @ 0x006df780
+    FUN_006df780 @ 0x006df780
+    FUN_006dfdc0 @ 0x006dfdc0
+    FUN_006dfe90 @ 0x006dfe90
+    FUN_006dfe90 @ 0x006dfe90
+    FUN_006e4fd0 @ 0x006e4fd0
+    FUN_006e4fd0 @ 0x006e4fd0
+    FUN_006e3230 @ 0x006e3230
+    FUN_006e5b20 @ 0x006e5b20
+    FUN_006e8b10 @ 0x006e8b10
+    FUN_006e8b10 @ 0x006e8b10
+    FUN_006e8b10 @ 0x006e8b10
+    FUN_006e8b10 @ 0x006e8b10
+    FUN_006e9e20 @ 0x006e9e20
+    FUN_006f2c40 @ 0x006f2c40
+    FUN_006f2ed0 @ 0x006f2ed0
+    FUN_006f36d0 @ 0x006f36d0
+    FUN_006f8470 @ 0x006f8470
+    FUN_006f8470 @ 0x006f8470
+    FUN_006f8470 @ 0x006f8470
+    FUN_006f8470 @ 0x006f8470
+    FUN_00701520 @ 0x00701520
+    FUN_00701520 @ 0x00701520
+    FUN_00701520 @ 0x00701520
+    FUN_007017b0 @ 0x007017b0
+    FUN_007019e0 @ 0x007019e0
+    FUN_007019e0 @ 0x007019e0
+    FUN_007019e0 @ 0x007019e0
+    FUN_007019e0 @ 0x007019e0
+    FUN_007019e0 @ 0x007019e0
+    FUN_007019e0 @ 0x007019e0
+    FUN_007019e0 @ 0x007019e0
+    FUN_00701e80 @ 0x00701e80
+    FUN_00701e80 @ 0x00701e80
+    FUN_00701e80 @ 0x00701e80
+    FUN_00701e80 @ 0x00701e80
+    FUN_00701e80 @ 0x00701e80
+    FUN_00701e80 @ 0x00701e80
+    FUN_00701e80 @ 0x00701e80
+    FUN_007aa5c0 @ 0x007aa5c0
+    FUN_007e9200 @ 0x007e9200
+    FUN_007e9200 @ 0x007e9200
+    FUN_007f52c0 @ 0x007f52c0
+    FUN_00707e30 @ 0x00707e30
+    FUN_00707e30 @ 0x00707e30
+    FUN_00707e30 @ 0x00707e30
+    FUN_00707e30 @ 0x00707e30
+    FUN_00707e30 @ 0x00707e30
+    FUN_00707e30 @ 0x00707e30
+    FUN_00707e30 @ 0x00707e30
+    FUN_00707e30 @ 0x00707e30
+    FUN_00707e30 @ 0x00707e30
+    FUN_00707e30 @ 0x00707e30
+    FUN_00719790 @ 0x00719790
+    FUN_00719790 @ 0x00719790
+    FUN_00719790 @ 0x00719790
+    FUN_00719cf0 @ 0x00719cf0
+    FUN_00719cf0 @ 0x00719cf0
+    FUN_00719da0 @ 0x00719da0
+    FUN_00719de0 @ 0x00719de0
+    FUN_00719de0 @ 0x00719de0
+    FUN_00719e30 @ 0x00719e30
+    FUN_00719e30 @ 0x00719e30
+    FUN_00719e30 @ 0x00719e30
+    FUN_00719e30 @ 0x00719e30
+    FUN_00719e30 @ 0x00719e30
+    FUN_00719e30 @ 0x00719e30
+    FUN_00719e30 @ 0x00719e30
+    FUN_0072eac0 @ 0x0072eac0
+    FUN_0072ed00 @ 0x0072ed00
+    FUN_0072ed00 @ 0x0072ed00
+    FUN_0072ed00 @ 0x0072ed00
+    FUN_0072ed00 @ 0x0072ed00
+    FUN_0072ed00 @ 0x0072ed00
+    FUN_0072f120 @ 0x0072f120
+    FUN_0072f120 @ 0x0072f120
+    FUN_0072f6f0 @ 0x0072f6f0
+    FUN_0072f6f0 @ 0x0072f6f0
+    FUN_0072faa0 @ 0x0072faa0
+    FUN_0072fd10 @ 0x0072fd10
+    FUN_0072fd10 @ 0x0072fd10
+    FUN_007304b0 @ 0x007304b0
+    FUN_007306d0 @ 0x007306d0
+    FUN_007306d0 @ 0x007306d0
+    FUN_007306d0 @ 0x007306d0
+    FUN_007306d0 @ 0x007306d0
+    FUN_0073bba0 @ 0x0073bba0
+    FUN_0073bba0 @ 0x0073bba0
+    FUN_0073bba0 @ 0x0073bba0
+    FUN_0073bba0 @ 0x0073bba0
+    FUN_0073bba0 @ 0x0073bba0
+    FUN_0073bba0 @ 0x0073bba0
+    FUN_0073bba0 @ 0x0073bba0
+    FUN_0073bba0 @ 0x0073bba0
+    FUN_0073ea90 @ 0x0073ea90
+    FUN_0073ea90 @ 0x0073ea90
+    FUN_0073ea90 @ 0x0073ea90
+    FUN_0073ea90 @ 0x0073ea90
+    FUN_0073ea90 @ 0x0073ea90
+    FUN_0073ea90 @ 0x0073ea90
+    FUN_0073ea90 @ 0x0073ea90
+    FUN_0073ea90 @ 0x0073ea90
+    FUN_0074d730 @ 0x0074d730
+    FUN_0074d730 @ 0x0074d730
+    FUN_0074d730 @ 0x0074d730
+    FUN_0074d730 @ 0x0074d730
+    FUN_0074ee70 @ 0x0074ee70
+    FUN_0074ee70 @ 0x0074ee70
+    FUN_0074ee70 @ 0x0074ee70
+    FUN_0074ee70 @ 0x0074ee70
+    FUN_0074cc70 @ 0x0074cc70
+    FUN_0074cc70 @ 0x0074cc70
+    FUN_0074d190 @ 0x0074d190
+    FUN_0074d190 @ 0x0074d190
+    FUN_0074d190 @ 0x0074d190
+    FUN_0074d190 @ 0x0074d190
+    FUN_0074e6d0 @ 0x0074e6d0
+    FUN_0074f6c0 @ 0x0074f6c0
+    FUN_0074f6c0 @ 0x0074f6c0
+    FUN_0074f6c0 @ 0x0074f6c0
+    FUN_0074f6c0 @ 0x0074f6c0
+    FUN_0074f6c0 @ 0x0074f6c0
+    FUN_0074f6c0 @ 0x0074f6c0
+    FUN_0074f6c0 @ 0x0074f6c0
+    FUN_0074f360 @ 0x0074f360
+    FUN_0074f600 @ 0x0074f600
+    FUN_0074fdc0 @ 0x0074fdc0
+    FUN_0074fdc0 @ 0x0074fdc0
+    FUN_0074fdc0 @ 0x0074fdc0
+    FUN_0074fdc0 @ 0x0074fdc0
+    FUN_0074fdc0 @ 0x0074fdc0
+    FUN_0074fdc0 @ 0x0074fdc0
+    FUN_0074fdc0 @ 0x0074fdc0
+    FUN_0074fdc0 @ 0x0074fdc0
+    FUN_0074fdc0 @ 0x0074fdc0
+    FUN_0074fdc0 @ 0x0074fdc0
+    FUN_0074fdc0 @ 0x0074fdc0
+    FUN_0074fdc0 @ 0x0074fdc0
+    FUN_0074fdc0 @ 0x0074fdc0
+    FUN_0074fdc0 @ 0x0074fdc0
+    FUN_0074fdc0 @ 0x0074fdc0
+    FUN_0074fdc0 @ 0x0074fdc0
+    FUN_0074fdc0 @ 0x0074fdc0
+    FUN_0074fdc0 @ 0x0074fdc0
+    FUN_0074fdc0 @ 0x0074fdc0
+    FUN_0074fdc0 @ 0x0074fdc0
+    FUN_0074fdc0 @ 0x0074fdc0
+    FUN_0074fdc0 @ 0x0074fdc0
+    FUN_0074fdc0 @ 0x0074fdc0
+    FUN_0074fdc0 @ 0x0074fdc0
+    FUN_0074fdc0 @ 0x0074fdc0
+    FUN_0074fdc0 @ 0x0074fdc0
+    FUN_0074fdc0 @ 0x0074fdc0
+    FUN_0074fdc0 @ 0x0074fdc0
+    FUN_0074fdc0 @ 0x0074fdc0
+    FUN_00752cb0 @ 0x00752cb0
+    FUN_00752d40 @ 0x00752d40
+    FUN_00752e20 @ 0x00752e20
+    FUN_00752e20 @ 0x00752e20
+    FUN_00752e20 @ 0x00752e20
+    FUN_00752e20 @ 0x00752e20
+    FUN_007573d0 @ 0x007573d0
+    FUN_00756490 @ 0x00756490
+    FUN_00756490 @ 0x00756490
+    FUN_0075cfc0 @ 0x0075cfc0
+    FUN_0075cfc0 @ 0x0075cfc0
+    FUN_0075cfc0 @ 0x0075cfc0
+    FUN_0075cfc0 @ 0x0075cfc0
+    FUN_0075cfc0 @ 0x0075cfc0
+    FUN_0075d510 @ 0x0075d510
+    FUN_0075d510 @ 0x0075d510
+    FUN_0075d6b0 @ 0x0075d6b0
+    FUN_0075d6b0 @ 0x0075d6b0
+    FUN_0075d6b0 @ 0x0075d6b0
+    FUN_0075d6b0 @ 0x0075d6b0
+    FUN_0075d6b0 @ 0x0075d6b0
+    FUN_0075d6b0 @ 0x0075d6b0
+    FUN_0075d6b0 @ 0x0075d6b0
+    FUN_0075d6b0 @ 0x0075d6b0
+    FUN_0075d6b0 @ 0x0075d6b0
+    FUN_009687b0 @ 0x009687b0
+    FUN_009687b0 @ 0x009687b0
+    FUN_0075da60 @ 0x0075da60
+    FUN_0075dc80 @ 0x0075dc80
+    FUN_0075dc80 @ 0x0075dc80
+    FUN_0075dc80 @ 0x0075dc80
+    FUN_0075e650 @ 0x0075e650
+    FUN_0075e650 @ 0x0075e650
+    FUN_0075e650 @ 0x0075e650
+    FUN_0075eac0 @ 0x0075eac0
+    FUN_0075eac0 @ 0x0075eac0
+    FUN_0075eac0 @ 0x0075eac0
+    FUN_0075eac0 @ 0x0075eac0
+    FUN_0075f2a0 @ 0x0075f2a0
+    FUN_0075f2a0 @ 0x0075f2a0
+    FUN_0075f2a0 @ 0x0075f2a0
+    FUN_0075f910 @ 0x0075f910
+    FUN_0075f910 @ 0x0075f910
+    FUN_00766b80 @ 0x00766b80
+    FUN_0076ad50 @ 0x0076ad50
+    FUN_0076ad50 @ 0x0076ad50
+    FUN_00770430 @ 0x00770430
+    FUN_00770430 @ 0x00770430
+    FUN_00770430 @ 0x00770430
+    FUN_007721c0 @ 0x007721c0
+    FUN_007721c0 @ 0x007721c0
+    FUN_007721c0 @ 0x007721c0
+    FUN_00775230 @ 0x00775230
+    FUN_00779070 @ 0x00779070
+    FUN_0077a650 @ 0x0077a650
+    FUN_0077c4e0 @ 0x0077c4e0
+    FUN_00780c50 @ 0x00780c50
+    FUN_00780c50 @ 0x00780c50
+    FUN_00780d60 @ 0x00780d60
+    FUN_00780d60 @ 0x00780d60
+    FUN_00780d60 @ 0x00780d60
+    FUN_00780d60 @ 0x00780d60
+    FUN_00780d60 @ 0x00780d60
+    FUN_00780ff0 @ 0x00780ff0
+    FUN_00780ff0 @ 0x00780ff0
+    FUN_00780ff0 @ 0x00780ff0
+    FUN_00780ff0 @ 0x00780ff0
+    FUN_00780ff0 @ 0x00780ff0
+    FUN_00967b70 @ 0x00967b70
+    FUN_00967b70 @ 0x00967b70
+    FUN_00781ba0 @ 0x00781ba0
+    FUN_00781ba0 @ 0x00781ba0
+    FUN_00781ba0 @ 0x00781ba0
+    FUN_00781ba0 @ 0x00781ba0
+    FUN_00781ba0 @ 0x00781ba0
+    FUN_00781ba0 @ 0x00781ba0
+    FUN_00782620 @ 0x00782620
+    FUN_00782810 @ 0x00782810
+    FUN_00782850 @ 0x00782850
+    FUN_00782850 @ 0x00782850
+    FUN_00782850 @ 0x00782850
+    FUN_00782850 @ 0x00782850
+    FUN_00782850 @ 0x00782850
+    FUN_007832a0 @ 0x007832a0
+    FUN_007836d0 @ 0x007836d0
+    FUN_007836d0 @ 0x007836d0
+    FUN_007838a0 @ 0x007838a0
+    FUN_007838a0 @ 0x007838a0
+    FUN_00783af0 @ 0x00783af0
+    FUN_00783af0 @ 0x00783af0
+    FUN_00783af0 @ 0x00783af0
+    FUN_00784710 @ 0x00784710
+    FUN_00784710 @ 0x00784710
+    FUN_00784710 @ 0x00784710
+    FUN_00784710 @ 0x00784710
+    FUN_00784710 @ 0x00784710
+    FUN_007840f0 @ 0x007840f0
+    FUN_007840f0 @ 0x007840f0
+    FUN_007840f0 @ 0x007840f0
+    FUN_007840f0 @ 0x007840f0
+    FUN_007840f0 @ 0x007840f0
+    FUN_007840f0 @ 0x007840f0
+    FUN_007840f0 @ 0x007840f0
+    FUN_007840f0 @ 0x007840f0
+    FUN_007840f0 @ 0x007840f0
+    FUN_00783ed0 @ 0x00783ed0
+    FUN_007867a0 @ 0x007867a0
+    FUN_007867a0 @ 0x007867a0
+    FUN_00786240 @ 0x00786240
+    FUN_007aae70 @ 0x007aae70
+    FUN_007ad7f0 @ 0x007ad7f0
+    FUN_007ad7f0 @ 0x007ad7f0
+    FUN_007ad8d0 @ 0x007ad8d0
+    FUN_007ad8d0 @ 0x007ad8d0
+    FUN_007ad9c0 @ 0x007ad9c0
+    FUN_007ada40 @ 0x007ada40
+    FUN_007af770 @ 0x007af770
+    FUN_007ae420 @ 0x007ae420
+    FUN_007ae420 @ 0x007ae420
+    FUN_007b5b40 @ 0x007b5b40
+    FUN_007b5d80 @ 0x007b5d80
+    FUN_007b5d80 @ 0x007b5d80
+    FUN_007b5d80 @ 0x007b5d80
+    FUN_007b7020 @ 0x007b7020
+    FUN_007b6aa0 @ 0x007b6aa0
+    FUN_007b6aa0 @ 0x007b6aa0
+    FUN_007b6aa0 @ 0x007b6aa0
+    FUN_007b6aa0 @ 0x007b6aa0
+    FUN_007b6aa0 @ 0x007b6aa0
+    FUN_007b6aa0 @ 0x007b6aa0
+    FUN_007b6120 @ 0x007b6120
+    FUN_007b6120 @ 0x007b6120
+    FUN_007b6120 @ 0x007b6120
+    FUN_007b6120 @ 0x007b6120
+    FUN_007b6120 @ 0x007b6120
+    FUN_007b7920 @ 0x007b7920
+    FUN_007b7b40 @ 0x007b7b40
+    FUN_007b7f70 @ 0x007b7f70
+    FUN_007b7f70 @ 0x007b7f70
+    FUN_007b7f70 @ 0x007b7f70
+    FUN_007b7f70 @ 0x007b7f70
+    FUN_007b82f0 @ 0x007b82f0
+    FUN_007b82f0 @ 0x007b82f0
+    FUN_007b82f0 @ 0x007b82f0
+    FUN_007b82f0 @ 0x007b82f0
+    FUN_007b82f0 @ 0x007b82f0
+    FUN_007b82f0 @ 0x007b82f0
+    FUN_007b82f0 @ 0x007b82f0
+    FUN_007b82f0 @ 0x007b82f0
+    FUN_007b82f0 @ 0x007b82f0
+    FUN_007b82f0 @ 0x007b82f0
+    FUN_007cacd0 @ 0x007cacd0
+    FUN_007cacd0 @ 0x007cacd0
+    FUN_007d49a0 @ 0x007d49a0
+    FUN_007d42b0 @ 0x007d42b0
+    FUN_007d42b0 @ 0x007d42b0
+    FUN_007db380 @ 0x007db380
+    FUN_007db380 @ 0x007db380
+    FUN_007e7850 @ 0x007e7850
+    FUN_007e7850 @ 0x007e7850
+    FUN_007ec3a0 @ 0x007ec3a0
+    FUN_007ec3a0 @ 0x007ec3a0
+    FUN_007ec3a0 @ 0x007ec3a0
+    FUN_007ec3a0 @ 0x007ec3a0
+    FUN_007ec3a0 @ 0x007ec3a0
+    FUN_007f48e0 @ 0x007f48e0
+    FUN_007f5050 @ 0x007f5050
+    FUN_007ec810 @ 0x007ec810
+    FUN_007ec810 @ 0x007ec810
+    FUN_007ec810 @ 0x007ec810
+    FUN_007ec810 @ 0x007ec810
+    FUN_007ec810 @ 0x007ec810
+    FUN_007ec810 @ 0x007ec810
+    FUN_007ec810 @ 0x007ec810
+    FUN_007ec810 @ 0x007ec810
+    FUN_007ec810 @ 0x007ec810
+    FUN_007ec810 @ 0x007ec810
+    FUN_007ec810 @ 0x007ec810
+    FUN_007ec810 @ 0x007ec810
+    FUN_007ec810 @ 0x007ec810
+    FUN_007ec810 @ 0x007ec810
+    FUN_007ec810 @ 0x007ec810
+    FUN_007ec810 @ 0x007ec810
+    FUN_007efa10 @ 0x007efa10
+    FUN_007efa10 @ 0x007efa10
+    FUN_007efa10 @ 0x007efa10
+    FUN_007f07a0 @ 0x007f07a0
+    FUN_007f07a0 @ 0x007f07a0
+    FUN_007f07a0 @ 0x007f07a0
+    FUN_007f07a0 @ 0x007f07a0
+    FUN_007f07a0 @ 0x007f07a0
+    FUN_007f07a0 @ 0x007f07a0
+    FUN_007f1840 @ 0x007f1840
+    FUN_007f1840 @ 0x007f1840
+    FUN_007f1840 @ 0x007f1840
+    FUN_007f1840 @ 0x007f1840
+    FUN_007f28d0 @ 0x007f28d0
+    FUN_007f28d0 @ 0x007f28d0
+    FUN_007f28d0 @ 0x007f28d0
+    FUN_007f3070 @ 0x007f3070
+    FUN_007f3070 @ 0x007f3070
+    FUN_007f3e00 @ 0x007f3e00
+    FUN_007f3e00 @ 0x007f3e00
+    FUN_007f3e00 @ 0x007f3e00
+    FUN_007f3e00 @ 0x007f3e00
+    FUN_007f1290 @ 0x007f1290
+    FUN_007f1290 @ 0x007f1290
+    FUN_007eecb0 @ 0x007eecb0
+    FUN_007f4c50 @ 0x007f4c50
+    FUN_007ef710 @ 0x007ef710
+    FUN_0082be10 @ 0x0082be10
+    FUN_0082c000 @ 0x0082c000
+    FUN_0082c000 @ 0x0082c000
+    FUN_0082c660 @ 0x0082c660
+    FUN_00807ee0 @ 0x00807ee0
+    FUN_00807ee0 @ 0x00807ee0
+    FUN_00807ee0 @ 0x00807ee0
+    FUN_00807ee0 @ 0x00807ee0
+    FUN_00807ee0 @ 0x00807ee0
+    FUN_00807ee0 @ 0x00807ee0
+    FUN_008082c0 @ 0x008082c0
+    FUN_008082c0 @ 0x008082c0
+    FUN_008082c0 @ 0x008082c0
+    FUN_00808680 @ 0x00808680
+    FUN_00808680 @ 0x00808680
+    FUN_00808680 @ 0x00808680
+    FUN_00808680 @ 0x00808680
+    FUN_00808800 @ 0x00808800
+    FUN_00808a30 @ 0x00808a30
+    FUN_00808a30 @ 0x00808a30
+    FUN_00808a30 @ 0x00808a30
+    FUN_00808a30 @ 0x00808a30
+    FUN_00808a30 @ 0x00808a30
+    FUN_008091a0 @ 0x008091a0
+    FUN_008091a0 @ 0x008091a0
+    FUN_008091a0 @ 0x008091a0
+    FUN_008091a0 @ 0x008091a0
+    FUN_008091a0 @ 0x008091a0
+    FUN_008091a0 @ 0x008091a0
+    FUN_008091a0 @ 0x008091a0
+    FUN_008091a0 @ 0x008091a0
+    FUN_008091a0 @ 0x008091a0
+    FUN_008091a0 @ 0x008091a0
+    FUN_008091a0 @ 0x008091a0
+    FUN_008091a0 @ 0x008091a0
+    FUN_0080a700 @ 0x0080a700
+    FUN_00809e60 @ 0x00809e60
+    FUN_0080a2d0 @ 0x0080a2d0
+    FUN_0080a2d0 @ 0x0080a2d0
+    FUN_0080a2d0 @ 0x0080a2d0
+    FUN_0080a2d0 @ 0x0080a2d0
+    FUN_0080a2d0 @ 0x0080a2d0
+    FUN_00824630 @ 0x00824630
+    FUN_00824630 @ 0x00824630
+    FUN_0080d540 @ 0x0080d540
+    FUN_0080d540 @ 0x0080d540
+    FUN_0080da00 @ 0x0080da00
+    FUN_0081a960 @ 0x0081a960
+    FUN_0081f770 @ 0x0081f770
+    FUN_0081f770 @ 0x0081f770
+    FUN_0081f770 @ 0x0081f770
+    FUN_0081fc70 @ 0x0081fc70
+    FUN_0081fc70 @ 0x0081fc70
+    FUN_0081fc70 @ 0x0081fc70
+    FUN_0081fc70 @ 0x0081fc70
+    FUN_0081fc70 @ 0x0081fc70
+    FUN_0081fc70 @ 0x0081fc70
+    FUN_0081fc70 @ 0x0081fc70
+    FUN_00820c10 @ 0x00820c10
+    FUN_00820f30 @ 0x00820f30
+    FUN_00820f30 @ 0x00820f30
+    FUN_00820f30 @ 0x00820f30
+    FUN_00820f30 @ 0x00820f30
+    FUN_00820f30 @ 0x00820f30
+    FUN_00821bd0 @ 0x00821bd0
+    FUN_00821f70 @ 0x00821f70
+    FUN_00823210 @ 0x00823210
+    FUN_00824af0 @ 0x00824af0
+    FUN_00824c00 @ 0x00824c00
+    FUN_00828590 @ 0x00828590
+    FUN_00828590 @ 0x00828590
+    FUN_00828610 @ 0x00828610
+    FUN_00828610 @ 0x00828610
+    FUN_008287e0 @ 0x008287e0
+    FUN_008287e0 @ 0x008287e0
+    FUN_008289e0 @ 0x008289e0
+    FUN_008289e0 @ 0x008289e0
+    FUN_0082c490 @ 0x0082c490
+    FUN_00845050 @ 0x00845050
+    FUN_00872570 @ 0x00872570
+    FUN_0097efe0 @ 0x0097efe0
+    FUN_00980360 @ 0x00980360
+    FUN_00885a50 @ 0x00885a50
+    FUN_00885a50 @ 0x00885a50
+    FUN_00885bf0 @ 0x00885bf0
+    FUN_00885bf0 @ 0x00885bf0
+    FUN_00886360 @ 0x00886360
+    FUN_00887b90 @ 0x00887b90
+    FUN_00888070 @ 0x00888070
+    FUN_00891360 @ 0x00891360
+    FUN_00891360 @ 0x00891360
+    FUN_00891360 @ 0x00891360
+    FUN_00891360 @ 0x00891360
+    FUN_00891360 @ 0x00891360
+    FUN_00891360 @ 0x00891360
+    FUN_00891360 @ 0x00891360
+    FUN_00891360 @ 0x00891360
+    FUN_00891360 @ 0x00891360
+    FUN_00891360 @ 0x00891360
+    FUN_00891360 @ 0x00891360
+    FUN_00891360 @ 0x00891360
+    FUN_00891e00 @ 0x00891e00
+    FUN_00891e00 @ 0x00891e00
+    FUN_00891e00 @ 0x00891e00
+    FUN_00891e00 @ 0x00891e00
+    FUN_00891e00 @ 0x00891e00
+    FUN_00891e00 @ 0x00891e00
+    FUN_00892520 @ 0x00892520
+    FUN_00892520 @ 0x00892520
+    FUN_00892520 @ 0x00892520
+    FUN_00892520 @ 0x00892520
+    FUN_00892520 @ 0x00892520
+    FUN_008929a0 @ 0x008929a0
+    FUN_00892e90 @ 0x00892e90
+    FUN_008935f0 @ 0x008935f0
+    FUN_00980400 @ 0x00980400
+    FUN_00998a50 @ 0x00998a50
+    FUN_00998a50 @ 0x00998a50
+    FUN_0099f6d0 @ 0x0099f6d0
+    FUN_0099f6d0 @ 0x0099f6d0
+    FUN_009a9a20 @ 0x009a9a20
+    FUN_0089fcf0 @ 0x0089fcf0
+    FUN_0089fcf0 @ 0x0089fcf0
+    FUN_0089fcf0 @ 0x0089fcf0
+    FUN_0089fcf0 @ 0x0089fcf0
+    FUN_00987530 @ 0x00987530
+    FUN_00987530 @ 0x00987530
+    FUN_00987530 @ 0x00987530
+    FUN_00987530 @ 0x00987530
+    FUN_009877c0 @ 0x009877c0
+    FUN_0097da50 @ 0x0097da50
+    FUN_00982e70 @ 0x00982e70
+    FUN_008a3ed0 @ 0x008a3ed0
+    FUN_008a5580 @ 0x008a5580
+    FUN_008a8420 @ 0x008a8420
+    FUN_008a88f0 @ 0x008a88f0
+    FUN_008a89a0 @ 0x008a89a0
+    FUN_008a89a0 @ 0x008a89a0
+    FUN_008a89a0 @ 0x008a89a0
+    FUN_008a89a0 @ 0x008a89a0
+    FUN_008a89a0 @ 0x008a89a0
+    FUN_008a89a0 @ 0x008a89a0
+    FUN_008a89a0 @ 0x008a89a0
+    FUN_008ab3a0 @ 0x008ab3a0
+    FUN_008ab3a0 @ 0x008ab3a0
+    FUN_008ab3a0 @ 0x008ab3a0
+    FUN_008ac9d0 @ 0x008ac9d0
+    FUN_008ac9d0 @ 0x008ac9d0
+    FUN_008b1070 @ 0x008b1070
+    FUN_008b1070 @ 0x008b1070
+    FUN_008b19c0 @ 0x008b19c0
+    FUN_008b2c30 @ 0x008b2c30
+    FUN_009e71b0 @ 0x009e71b0
+    FUN_009e6900 @ 0x009e6900
+    FUN_008bed50 @ 0x008bed50
+    FUN_008c2190 @ 0x008c2190
+    FUN_008c2190 @ 0x008c2190
+    FUN_008c2190 @ 0x008c2190
+    FUN_008c2190 @ 0x008c2190
+    FUN_008c4ab0 @ 0x008c4ab0
+    FUN_008c4ab0 @ 0x008c4ab0
+    FUN_0096cda0 @ 0x0096cda0
+    FUN_0096cda0 @ 0x0096cda0
+    FUN_008cf440 @ 0x008cf440
+    FUN_008cba30 @ 0x008cba30
+    FUN_008d2110 @ 0x008d2110
+    FUN_008d22b0 @ 0x008d22b0
+    FUN_008dab40 @ 0x008dab40
+    FUN_008db4f0 @ 0x008db4f0
+    FUN_008db810 @ 0x008db810
+    FUN_009f7d70 @ 0x009f7d70
+    FUN_009f7f20 @ 0x009f7f20
+    FUN_009f7fe0 @ 0x009f7fe0
+    FUN_009f8020 @ 0x009f8020
+    FUN_009f8020 @ 0x009f8020
+    FUN_009f76e0 @ 0x009f76e0
+    FUN_009f76e0 @ 0x009f76e0
+    FUN_009f8330 @ 0x009f8330
+    FUN_009f8330 @ 0x009f8330
+    FUN_009f8570 @ 0x009f8570
+    FUN_009f8570 @ 0x009f8570
+    FUN_009f8660 @ 0x009f8660
+    FUN_008dbe30 @ 0x008dbe30
+    FUN_008dbe30 @ 0x008dbe30
+    FUN_008dbe30 @ 0x008dbe30
+    FUN_009f6900 @ 0x009f6900
+    FUN_008ddac0 @ 0x008ddac0
+    FUN_008dddf0 @ 0x008dddf0
+    FUN_008dddf0 @ 0x008dddf0
+    FUN_009f1440 @ 0x009f1440
+    FUN_009f1440 @ 0x009f1440
+    FUN_008dfa10 @ 0x008dfa10
+    FUN_008dfa10 @ 0x008dfa10
+    FUN_008dfa10 @ 0x008dfa10
+    FUN_008dfa10 @ 0x008dfa10
+    FUN_008dfa10 @ 0x008dfa10
+    FUN_008e3140 @ 0x008e3140
+    FUN_008e3140 @ 0x008e3140
+    FUN_008e3140 @ 0x008e3140
+    FUN_008e3140 @ 0x008e3140
+    FUN_008e5730 @ 0x008e5730
+    FUN_008e5e90 @ 0x008e5e90
+    FUN_008e5e90 @ 0x008e5e90
+    FUN_008e8600 @ 0x008e8600
+    FUN_008e8600 @ 0x008e8600
+    FUN_009ee0a0 @ 0x009ee0a0
+    FUN_009ee0a0 @ 0x009ee0a0
+    FUN_009ee0a0 @ 0x009ee0a0
+    FUN_009ee0a0 @ 0x009ee0a0
+    FUN_009ee0a0 @ 0x009ee0a0
+    FUN_009ee0a0 @ 0x009ee0a0
+    FUN_008ecbb0 @ 0x008ecbb0
+    FUN_008ecf20 @ 0x008ecf20
+    FUN_008ee3e0 @ 0x008ee3e0
+    FUN_008eeec0 @ 0x008eeec0
+    FUN_008eeec0 @ 0x008eeec0
+    FUN_009f4640 @ 0x009f4640
+    FUN_009f4640 @ 0x009f4640
+    FUN_008f2610 @ 0x008f2610
+    FUN_008f2610 @ 0x008f2610
+    FUN_008f2610 @ 0x008f2610
+    FUN_008f2610 @ 0x008f2610
+    FUN_008f2610 @ 0x008f2610
+    FUN_009f2ea0 @ 0x009f2ea0
+    FUN_009f2ea0 @ 0x009f2ea0
+    FUN_009f2ea0 @ 0x009f2ea0
+    FUN_009f2ea0 @ 0x009f2ea0
+    FUN_009f30d0 @ 0x009f30d0
+    FUN_009f2b30 @ 0x009f2b30
+    FUN_009f31c0 @ 0x009f31c0
+    FUN_00972570 @ 0x00972570
+    FUN_008f7730 @ 0x008f7730
+    FUN_008f7730 @ 0x008f7730
+    FUN_008f7730 @ 0x008f7730
+    FUN_008f9180 @ 0x008f9180
+    FUN_008f9180 @ 0x008f9180
+    FUN_00927000 @ 0x00927000
+    FUN_00927000 @ 0x00927000
+    FUN_0091e780 @ 0x0091e780
+    FUN_00902290 @ 0x00902290
+    FUN_009026c0 @ 0x009026c0
+    FUN_009026c0 @ 0x009026c0
+    FUN_00902bd0 @ 0x00902bd0
+    FUN_00902c80 @ 0x00902c80
+    FUN_00902c80 @ 0x00902c80
+    FUN_00902c80 @ 0x00902c80
+    FUN_00902c80 @ 0x00902c80
+    FUN_00903bb0 @ 0x00903bb0
+    GetFirstDocPosition @ 0x00903cd0
+    FUN_00903e00 @ 0x00903e00
+    FUN_00904000 @ 0x00904000
+    FUN_00908cd0 @ 0x00908cd0
+    FUN_00909430 @ 0x00909430
+    FUN_00909430 @ 0x00909430
+    FUN_00909d00 @ 0x00909d00
+    FUN_0090d240 @ 0x0090d240
+    FUN_0090dd80 @ 0x0090dd80
+    FUN_0090dd80 @ 0x0090dd80
+    FUN_0090dd80 @ 0x0090dd80
+    FUN_0090e660 @ 0x0090e660
+    FUN_0090e660 @ 0x0090e660
+    FUN_00912b00 @ 0x00912b00
+    FUN_00912db0 @ 0x00912db0
+    FUN_009130f0 @ 0x009130f0
+    FUN_00915d60 @ 0x00915d60
+    FUN_00916df0 @ 0x00916df0
+    FUN_00916df0 @ 0x00916df0
+    FUN_00916df0 @ 0x00916df0
+    FUN_00917a70 @ 0x00917a70
+    FUN_00918600 @ 0x00918600
+    FUN_00919320 @ 0x00919320
+    FUN_0091c810 @ 0x0091c810
+    FUN_0091c810 @ 0x0091c810
+    FUN_0091c810 @ 0x0091c810
+    FUN_0091c810 @ 0x0091c810
+    FUN_0091c810 @ 0x0091c810
+    FUN_0091d790 @ 0x0091d790
+    FUN_0091ded0 @ 0x0091ded0
+    FUN_0091e100 @ 0x0091e100
+    FUN_0091e100 @ 0x0091e100
+    FUN_0091e100 @ 0x0091e100
+    FUN_0091e100 @ 0x0091e100
+    FUN_0091e100 @ 0x0091e100
+    FUN_0091e100 @ 0x0091e100
+    FUN_0091efe0 @ 0x0091efe0
+    FUN_00923020 @ 0x00923020
+    FUN_009231d0 @ 0x009231d0
+    FUN_009231d0 @ 0x009231d0
+    FUN_009231d0 @ 0x009231d0
+    FUN_009231d0 @ 0x009231d0
+    FUN_009231d0 @ 0x009231d0
+    FUN_009231d0 @ 0x009231d0
+    FUN_00924100 @ 0x00924100
+    FUN_00924100 @ 0x00924100
+    FUN_00928d90 @ 0x00928d90
+    FUN_00929d40 @ 0x00929d40
+    FUN_00929df0 @ 0x00929df0
+    FUN_009f4680 @ 0x009f4680
+    FUN_009f4700 @ 0x009f4700
+    FUN_009f4700 @ 0x009f4700
+    FUN_009f54d0 @ 0x009f54d0
+    FUN_0092b550 @ 0x0092b550
+    FUN_0092b9e0 @ 0x0092b9e0
+    FUN_0092baa0 @ 0x0092baa0
+    FUN_0092bd00 @ 0x0092bd00
+    FUN_0092bd00 @ 0x0092bd00
+    FUN_0092c120 @ 0x0092c120
+    FUN_009339a0 @ 0x009339a0
+    FUN_009690a0 @ 0x009690a0
+    FUN_0094e1d0 @ 0x0094e1d0
+    FUN_0094ec90 @ 0x0094ec90
+    FUN_00950530 @ 0x00950530
+    FUN_00950530 @ 0x00950530
+    FUN_00953ff0 @ 0x00953ff0
+    FUN_00953ff0 @ 0x00953ff0
+    FUN_00953ff0 @ 0x00953ff0
+    FUN_00953ff0 @ 0x00953ff0
+    FUN_009590f0 @ 0x009590f0
+    FUN_0095a3b0 @ 0x0095a3b0
+    FUN_0095d450 @ 0x0095d450
+    FUN_0095d850 @ 0x0095d850
+    FUN_0095e900 @ 0x0095e900
+    FUN_009678a0 @ 0x009678a0
+    FUN_00967950 @ 0x00967950
+    FUN_00967da0 @ 0x00967da0
+    FUN_00967da0 @ 0x00967da0
+    FUN_00971fd0 @ 0x00971fd0
+    FUN_009f84d0 @ 0x009f84d0
+    FUN_009bd860 @ 0x009bd860
+    FUN_009bd860 @ 0x009bd860
+    FUN_009c3190 @ 0x009c3190
+    FUN_009bf5a0 @ 0x009bf5a0
+    FUN_00980270 @ 0x00980270
+    FUN_009819f0 @ 0x009819f0
+    FUN_009a17a0 @ 0x009a17a0
+    FUN_009a17a0 @ 0x009a17a0
+    FUN_009a17a0 @ 0x009a17a0
+    FUN_009a2f50 @ 0x009a2f50
+    FUN_00982080 @ 0x00982080
+    FUN_00982f40 @ 0x00982f40
+    FUN_0098c3d0 @ 0x0098c3d0
+    FUN_0099b8e0 @ 0x0099b8e0
+    FUN_009a0d70 @ 0x009a0d70
+    FUN_009a0e10 @ 0x009a0e10
+    FUN_009a0e10 @ 0x009a0e10
+    FUN_0099ebe0 @ 0x0099ebe0
+    FUN_009c52f0 @ 0x009c52f0
+    FUN_009b7cc0 @ 0x009b7cc0
+    FUN_009b90b0 @ 0x009b90b0
+    FUN_009c1b70 @ 0x009c1b70
+    FUN_009da7c0 @ 0x009da7c0
+    FUN_009e4cf0 @ 0x009e4cf0
+    FUN_009e5ae0 @ 0x009e5ae0
+    FUN_009e5ae0 @ 0x009e5ae0
+    FUN_009f2c30 @ 0x009f2c30
+    FUN_009f33d0 @ 0x009f33d0
+    FUN_009f3610 @ 0x009f3610
+    FUN_009f40c0 @ 0x009f40c0
+    FUN_009f5a60 @ 0x009f5a60
+    FUN_009f5ea0 @ 0x009f5ea0
+    FUN_009f5ea0 @ 0x009f5ea0
+    FUN_009f7500 @ 0x009f7500
+    FUN_009f87d0 @ 0x009f87d0
+    FUN_009f8a10 @ 0x009f8a10
+    FUN_008a2d40 @ 0x008a2d40
+    FUN_005a1210 @ 0x005a1210
+    FUN_008a40e0 @ 0x008a40e0
+    FUN_00967b70 @ 0x00967b70
+    FUN_00707e30 @ 0x00707e30
+    FUN_00707e30 @ 0x00707e30
+    FUN_00707e30 @ 0x00707e30
+    FUN_00707e30 @ 0x00707e30
+    FUN_00707e30 @ 0x00707e30
+    FUN_00707e30 @ 0x00707e30
+    FUN_00707e30 @ 0x00707e30
+    FUN_00707e30 @ 0x00707e30
+    FUN_00707e30 @ 0x00707e30
+    FUN_00426a30 @ 0x00426a30
+    FUN_00426a30 @ 0x00426a30
+    FUN_00426a30 @ 0x00426a30
+    FUN_00426a30 @ 0x00426a30
+    FUN_00428150 @ 0x00428150
+    FUN_00428150 @ 0x00428150
+    FUN_007adce0 @ 0x007adce0
+    FUN_007adce0 @ 0x007adce0
+    FUN_007adce0 @ 0x007adce0
+    FUN_007adce0 @ 0x007adce0
+    FUN_0090ac40 @ 0x0090ac40
+    FUN_007274b0 @ 0x007274b0
+    FUN_007274b0 @ 0x007274b0
+    FUN_007eecb0 @ 0x007eecb0
+    FUN_008ed420 @ 0x008ed420
+    FUN_0092d050 @ 0x0092d050
+    FUN_0092d050 @ 0x0092d050
+    FUN_007c6550 @ 0x007c6550
+    FUN_00780140 @ 0x00780140
+    FUN_00780140 @ 0x00780140
+    FUN_00780140 @ 0x00780140
+    FUN_00780140 @ 0x00780140
+    FUN_00780140 @ 0x00780140
+    FUN_00780140 @ 0x00780140
+    FUN_00780140 @ 0x00780140
+    FUN_00780140 @ 0x00780140
+    FUN_00780140 @ 0x00780140
+    FUN_00780140 @ 0x00780140
+    FUN_00780140 @ 0x00780140
+    FUN_00747d30 @ 0x00747d30
+    FUN_00747d30 @ 0x00747d30
+    FUN_00747d30 @ 0x00747d30
+    FUN_00747d30 @ 0x00747d30
+    FUN_00747d30 @ 0x00747d30
+    FUN_00747d30 @ 0x00747d30
+    FUN_00747d30 @ 0x00747d30
+    FUN_00747d30 @ 0x00747d30
+    FUN_00791e40 @ 0x00791e40
+    FUN_00791e40 @ 0x00791e40
+    FUN_008ee220 @ 0x008ee220
+    FUN_00910e20 @ 0x00910e20
+    FUN_00910e20 @ 0x00910e20
+    FUN_00910e20 @ 0x00910e20
+    FUN_00910e20 @ 0x00910e20
+    FUN_00910e20 @ 0x00910e20
+    FUN_00910e20 @ 0x00910e20
+    FUN_00910e20 @ 0x00910e20
+    FUN_00910e20 @ 0x00910e20
+    FUN_00910e20 @ 0x00910e20
+    FUN_00910e20 @ 0x00910e20
+    FUN_00910e20 @ 0x00910e20
+    FUN_00910e20 @ 0x00910e20
+    FUN_00910e20 @ 0x00910e20
+    FUN_00910e20 @ 0x00910e20
+    FUN_00910e20 @ 0x00910e20
+    FUN_0075be80 @ 0x0075be80
+    FUN_0075be80 @ 0x0075be80
+    FUN_0090f670 @ 0x0090f670
+    FUN_00929fc0 @ 0x00929fc0
+    FUN_00929fc0 @ 0x00929fc0
+    FUN_00929fc0 @ 0x00929fc0
+    FUN_009213e0 @ 0x009213e0
+    FUN_007e1b10 @ 0x007e1b10
+    FUN_00919f60 @ 0x00919f60
+    FUN_00919f60 @ 0x00919f60
+    FUN_00741500 @ 0x00741500
+    FUN_00741500 @ 0x00741500
+    FUN_00741500 @ 0x00741500
+    FUN_00741500 @ 0x00741500
+    FUN_00741500 @ 0x00741500
+    FUN_00741500 @ 0x00741500
+    FUN_00741500 @ 0x00741500
+    FUN_00741500 @ 0x00741500
+    FUN_00741500 @ 0x00741500
+    FUN_00741500 @ 0x00741500
+    FUN_00741500 @ 0x00741500
+    FUN_00741500 @ 0x00741500
+    FUN_00741500 @ 0x00741500
+    FUN_00741500 @ 0x00741500
+    FUN_00741500 @ 0x00741500
+    FUN_00741500 @ 0x00741500
+    FUN_00741500 @ 0x00741500
+    FUN_00741500 @ 0x00741500
+    FUN_00741500 @ 0x00741500
+    FUN_00741500 @ 0x00741500
+    FUN_00741500 @ 0x00741500
+    FUN_00741500 @ 0x00741500
+    FUN_00741500 @ 0x00741500
+    FUN_00741500 @ 0x00741500
+    FUN_00741500 @ 0x00741500
+    FUN_00741500 @ 0x00741500
+    FUN_00741500 @ 0x00741500
+    FUN_00741500 @ 0x00741500
+    FUN_00741500 @ 0x00741500
+    FUN_00741500 @ 0x00741500
+    FUN_00741500 @ 0x00741500
+    FUN_00741500 @ 0x00741500
+    FUN_00741500 @ 0x00741500
+    FUN_00741500 @ 0x00741500
+    FUN_00741500 @ 0x00741500
+    FUN_00741500 @ 0x00741500
+    FUN_00741500 @ 0x00741500
+    FUN_00741500 @ 0x00741500
+    FUN_00741500 @ 0x00741500
+    FUN_00741500 @ 0x00741500
+    FUN_00741500 @ 0x00741500
+    FUN_00741500 @ 0x00741500
+    FUN_00741500 @ 0x00741500
+    FUN_00741500 @ 0x00741500
+    FUN_00741500 @ 0x00741500
+    FUN_00741500 @ 0x00741500
+    FUN_00741500 @ 0x00741500
+    FUN_00741500 @ 0x00741500
+    FUN_00741500 @ 0x00741500
+    FUN_00741500 @ 0x00741500
+    FUN_00741500 @ 0x00741500
+    FUN_00741500 @ 0x00741500
+    FUN_00741500 @ 0x00741500
+    FUN_008f7730 @ 0x008f7730
+    FUN_008f7730 @ 0x008f7730
+    FUN_008f7730 @ 0x008f7730
+    FUN_008f7730 @ 0x008f7730
+    FUN_008f7730 @ 0x008f7730
+    FUN_008f7730 @ 0x008f7730
+    FUN_008f7730 @ 0x008f7730
+    FUN_008f7730 @ 0x008f7730
+    FUN_008f7730 @ 0x008f7730
+    FUN_008eeec0 @ 0x008eeec0
+    FUN_00630170 @ 0x00630170
+    FUN_0090ad40 @ 0x0090ad40
+    FUN_0090ad40 @ 0x0090ad40

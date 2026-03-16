@@ -59,5 +59,79 @@ pub fn install_null_deref_guards() -> anyhow::Result<()> {
         "[STABILITY] Null deref guard installed at 0x0044DDC0 (AI path getter)"
     );
 
+    // FUN_0040fe80: __thiscall bit flag checker
+    // Checks bit 'param' in a bitfield at this+8.
+    // Called from scene graph processing (FUN_00569140 -> FUN_004182b0 -> FUN_00410220)
+    // during actor init in FUN_00970d50.
+    //
+    // Crash: When an actor's 3D data is not yet loaded (e.g., creature in an
+    // unloaded cell), FUN_005d43c0 returns a garbage pointer (value 2).
+    // This garbage becomes 'this' in FUN_0040fe80, which tries to read
+    // *(byte*)(2 + (param>>3) + 8) -> access violation in the null page.
+    //
+    // Our sleep patches change loading timing, exposing this race condition
+    // on certain mod configurations (TTW + Smashed Patch with Vault34 refs).
+    //
+    // Fix: Guard the function entry - if this < 0x10000, return false.
+    // Original function: 87 bytes. Replacement: 49 bytes + 38 NOP padding.
+    //
+    // Original logic (thiscall: ECX=this, [ESP+4]=byte param):
+    //   idx = param >> 3;
+    //   if (idx < 0x15) return (*(byte*)(this + idx + 8) & (1 << (param & 7))) != 0;
+    //   return false;
+    //
+    // Guarded replacement:
+    //   if (this < 0x10000) return false;  // NEW: null page guard
+    //   idx = param >> 3;
+    //   if (idx < 0x15) return (*(byte*)(this + idx + 8) & (1 << (param & 7))) != 0;
+    //   return false;
+    #[rustfmt::skip]
+    let patched_bitcheck: [u8; 87] = [
+        // Guard: CMP ECX, 0x10000 / JB return_zero
+        0x81, 0xF9, 0x00, 0x00, 0x01, 0x00, // CMP ECX, 0x10000
+        0x72, 0x24,                           // JB +36 (to return_zero at offset 44)
+        // MOVZX EAX, byte ptr [ESP+4]        ; param_1
+        0x0F, 0xB6, 0x44, 0x24, 0x04,
+        // MOV EDX, EAX
+        0x8B, 0xD0,
+        // SHR EDX, 3                         ; idx = param >> 3
+        0xC1, 0xEA, 0x03,
+        // CMP EDX, 0x15                      ; if (idx >= 0x15)
+        0x83, 0xFA, 0x15,
+        // JAE return_zero
+        0x73, 0x15,                           // JAE +21 (to return_zero at offset 44)
+        // AND EAX, 7                         ; bit = param & 7
+        0x83, 0xE0, 0x07,
+        // ADD EDX, ECX                       ; addr = this + idx
+        0x03, 0xD1,
+        // MOVZX ECX, byte ptr [EDX+8]        ; byte_val = *(byte*)(this + idx + 8)
+        0x0F, 0xB6, 0x4A, 0x08,
+        // BT ECX, EAX                        ; test bit 'bit' of byte_val
+        0x0F, 0xA3, 0xC1,
+        // SETB AL                            ; AL = carry flag = tested bit
+        0x0F, 0x92, 0xC0,
+        // MOVZX EAX, AL                      ; zero-extend result
+        0x0F, 0xB6, 0xC0,
+        // RET 4                              ; return (thiscall, 1 stack param)
+        0xC2, 0x04, 0x00,
+        // return_zero: (offset 44)
+        0x33, 0xC0,                           // XOR EAX, EAX
+        0xC2, 0x04, 0x00,                     // RET 4
+        // NOP padding (38 bytes)
+        0xCC, 0xCC, 0xCC, 0xCC, 0xCC, 0xCC, 0xCC, 0xCC,
+        0xCC, 0xCC, 0xCC, 0xCC, 0xCC, 0xCC, 0xCC, 0xCC,
+        0xCC, 0xCC, 0xCC, 0xCC, 0xCC, 0xCC, 0xCC, 0xCC,
+        0xCC, 0xCC, 0xCC, 0xCC, 0xCC, 0xCC, 0xCC, 0xCC,
+        0xCC, 0xCC, 0xCC, 0xCC, 0xCC, 0xCC,
+    ];
+
+    unsafe {
+        patch_bytes(0x0040FE80 as *mut c_void, &patched_bitcheck)?;
+    }
+
+    log::info!(
+        "[STABILITY] Null deref guard installed at 0x0040FE80 (bit flag checker)"
+    );
+
     Ok(())
 }
