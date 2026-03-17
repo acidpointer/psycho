@@ -151,15 +151,16 @@ impl Runtime {
     /// without blocking other threads in the same shard.
     #[cold]
     fn get_or_create_heap(&self, sheap_id: usize) -> Arc<Heap> {
+        let gc_queue = &self.gc_queue;
+        let stats = &self.stats;
         let guard = self.pool.entry(sheap_id).or_insert_with(|| {
             Arc::new(Heap::new(
                 sheap_id,
-                self.gc_queue.clone(),
-                self.stats.clone(),
+                Arc::clone(gc_queue),
+                Arc::clone(stats),
             ))
         });
         Arc::clone(&guard)
-        // `guard` dropped here -> shard lock released
     }
 
     /// Resolves sheap_ptr to a Heap via TLC (fast) or ClashMap (slow).

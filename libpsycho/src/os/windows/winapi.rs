@@ -1276,6 +1276,7 @@ pub fn get_process_heaps() -> Vec<isize> {
 ///
 /// Returns `true` if the heap recognizes the pointer as a valid allocation.
 /// This is a relatively expensive call - use sparingly (fallback path only).
+#[allow(clippy::not_unsafe_ptr_arg_deref)]
 pub fn heap_validate(heap: isize, ptr: *const c_void) -> bool {
     unsafe { HeapValidate(heap, 0, ptr) != 0 }
 }
@@ -1285,12 +1286,7 @@ pub fn heap_validate(heap: isize, ptr: *const c_void) -> bool {
 /// Iterates all process heaps and calls `HeapValidate` on each.
 /// Returns the heap handle, or `None` if no heap claims the pointer.
 pub fn find_owning_heap(heaps: &[isize], ptr: *const c_void) -> Option<isize> {
-    for &heap in heaps {
-        if heap_validate(heap, ptr) {
-            return Some(heap);
-        }
-    }
-    None
+    heaps.iter().find(|&&heap| heap_validate(heap, ptr)).copied()
 }
 
 /// Free a pointer through a specific Windows heap handle.
