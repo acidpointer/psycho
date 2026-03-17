@@ -1246,3 +1246,77 @@ pub fn is_large_address_aware() -> WinapiResult<bool> {
         Ok(is_laa)
     }
 }
+
+// ---------------------------------------------------------------------------
+// Heap validation primitives
+// ---------------------------------------------------------------------------
+
+#[link(name = "kernel32")]
+unsafe extern "system" {
+    fn GetProcessHeaps(number_of_heaps: u32, process_heaps: *mut isize) -> u32;
+    fn HeapValidate(heap: isize, flags: u32, mem: *const c_void) -> i32;
+    fn HeapFree(heap: isize, flags: u32, mem: *mut c_void) -> i32;
+    fn HeapSize(heap: isize, flags: u32, mem: *const c_void) -> usize;
+    fn HeapReAlloc(heap: isize, flags: u32, mem: *mut c_void, bytes: usize) -> *mut c_void;
+}
+
+/// Maximum number of heap handles returned by `get_process_heaps`.
+const MAX_PROCESS_HEAPS: usize = 64;
+
+/// Enumerate all heap handles in the current process.
+pub fn get_process_heaps() -> Vec<isize> {
+    let mut handles = [0isize; MAX_PROCESS_HEAPS];
+    let count =
+        unsafe { GetProcessHeaps(MAX_PROCESS_HEAPS as u32, handles.as_mut_ptr()) } as usize;
+
+    handles[..count.min(MAX_PROCESS_HEAPS)].to_vec()
+}
+
+/// Check if a pointer belongs to the given Windows heap.
+///
+/// Returns `true` if the heap recognizes the pointer as a valid allocation.
+/// This is a relatively expensive call - use sparingly (fallback path only).
+pub fn heap_validate(heap: isize, ptr: *const c_void) -> bool {
+    unsafe { HeapValidate(heap, 0, ptr) != 0 }
+}
+
+/// Find which process heap owns the given pointer.
+///
+/// Iterates all process heaps and calls `HeapValidate` on each.
+/// Returns the heap handle, or `None` if no heap claims the pointer.
+pub fn find_owning_heap(heaps: &[isize], ptr: *const c_void) -> Option<isize> {
+    for &heap in heaps {
+        if heap_validate(heap, ptr) {
+            return Some(heap);
+        }
+    }
+    None
+}
+
+/// Free a pointer through a specific Windows heap handle.
+///
+/// # Safety
+/// The pointer must belong to the specified heap.
+pub unsafe fn heap_free(heap: isize, ptr: *mut c_void) -> bool {
+    unsafe { HeapFree(heap, 0, ptr) != 0 }
+}
+
+/// Query the allocated size of a pointer through a specific Windows heap.
+///
+/// Returns `usize::MAX` on error (same as `HeapSize` returning `(SIZE_T)-1`).
+///
+/// # Safety
+/// The pointer must belong to the specified heap.
+pub unsafe fn heap_size(heap: isize, ptr: *const c_void) -> usize {
+    unsafe { HeapSize(heap, 0, ptr) }
+}
+
+/// Reallocate a pointer through a specific Windows heap.
+///
+/// Returns null on failure.
+///
+/// # Safety
+/// The pointer must belong to the specified heap.
+pub unsafe fn heap_realloc(heap: isize, ptr: *mut c_void, size: usize) -> *mut c_void {
+    unsafe { HeapReAlloc(heap, 0, ptr, size) }
+}

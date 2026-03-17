@@ -119,10 +119,19 @@ pub unsafe extern "C" fn hook_free(raw_ptr: *mut c_void) {
     }
 }
 
-/// Install memory allocation hooks targeting NVSE runtime
+/// Install memory allocation hooks for the game's CRT (msvcrt.dll).
+///
+/// IMPORTANT: We restrict to `msvcrt.dll` imports only. Using `None` (all DLLs)
+/// would also hook VCRUNTIME140 / api-ms-win-crt-heap imports used by NVSE and
+/// other plugins, causing cross-heap corruption when those DLLs free pointers
+/// allocated before our hooks were installed.
 pub fn install_crt_hooks() -> anyhow::Result<()> {
     let module_base = get_module_handle_a(None)?.as_ptr();
 
+    // Hook ALL CRT imports (msvcrt.dll + api-ms-win-crt-heap + ucrtbase).
+    // We need broad coverage because game DLLs (DSOUND, d3dx9_38, etc.)
+    // may allocate/free memory that interacts with the game's heap.
+    // Cross-heap safety is handled by HeapValidate fallback in hook_free/realloc.
     log::info!("Initializing IAT CRT hooks...");
 
     unsafe {

@@ -98,6 +98,9 @@ pub static RNG_HOOK: LazyLock<InlineHookContainer<RngFn>> = LazyLock::new(Inline
 
 /// Applies patches and installs heap replacement hooks
 pub fn install_game_heap_hooks() -> anyhow::Result<()> {
+    // Initialize heap validation cache for cross-heap pointer routing.
+    // Must be called early, before any free/realloc hooks fire.
+    super::heap_validate::init_heap_cache();
     // unsafe {
     //     // That address is the Statistics and Global State Reset function for the Small Block Manager (SBM).
     //     patch_ret(0x00AA6840 as *mut c_void)?;

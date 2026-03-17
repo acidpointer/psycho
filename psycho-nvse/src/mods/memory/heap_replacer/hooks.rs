@@ -53,28 +53,29 @@ pub(super) unsafe extern "C" fn hook_calloc(count: usize, size: usize) -> *mut c
 }
 
 pub(super) unsafe extern "C" fn hook_realloc(raw_ptr: *mut c_void, size: usize) -> *mut c_void {
-    let is_mimalloc = unsafe { mi_is_in_heap_region(raw_ptr) };
+    // realloc(NULL, size) = malloc(size)
+    if raw_ptr.is_null() {
+        return unsafe { mi_malloc(size) };
+    }
 
-    if is_mimalloc {
-        let result = unsafe { mi_realloc(raw_ptr, size) };
-        log::trace!(
-            "realloc({:p}, {}) -> {:p} [mimalloc]",
-            raw_ptr,
-            size,
-            result
-        );
+    // Fast path: mimalloc pointer
+    if unsafe { mi_is_in_heap_region(raw_ptr) } {
+        return unsafe { mi_realloc(raw_ptr, size) };
+    }
+
+    // Try game's CRT realloc first
+    if let Ok(orig_realloc) = super::replacer::CRT_INLINE_REALLOC_HOOK_1.original() {
+        return unsafe { orig_realloc(raw_ptr, size) };
+    }
+
+    // Last resort: HeapValidate-based realloc
+    let result = unsafe { super::heap_validate::heap_validated_realloc(raw_ptr, size) };
+    if !result.is_null() {
         return result;
     }
 
-    match super::replacer::CRT_INLINE_REALLOC_HOOK_1.original() {
-        Ok(orig_realloc) => unsafe { orig_realloc(raw_ptr, size) },
-
-        Err(err) => {
-            log::error!("Failed to call original realloc: {:?}", err);
-
-            null_mut()
-        }
-    }
+    log::error!("realloc({:p}, {}): no heap owns this pointer!", raw_ptr, size);
+    null_mut()
 }
 
 pub(super) unsafe extern "C" fn hook_recalloc(
@@ -86,52 +87,56 @@ pub(super) unsafe extern "C" fn hook_recalloc(
 }
 
 pub(super) unsafe extern "C" fn hook_msize(raw_ptr: *mut c_void) -> usize {
-    let is_mimalloc = unsafe { mi_is_in_heap_region(raw_ptr) };
+    if raw_ptr.is_null() {
+        return 0;
+    }
 
-    if is_mimalloc {
+    // Fast path: mimalloc pointer
+    if unsafe { mi_is_in_heap_region(raw_ptr) } {
         return unsafe { mi_usable_size(raw_ptr) };
     }
 
-    match super::replacer::CRT_INLINE_MSIZE_HOOK.original() {
-        Ok(orig_msize) => {
-            let orig_size = unsafe { orig_msize(raw_ptr) };
-
-            if orig_size == usize::MAX {
-                log::warn!(
-                    "hook_msize: pointer={:p} is unknown (orig_size==usize::MAX)!",
-                    raw_ptr
-                );
-                return 0;
-            }
-            orig_size
-        }
-        Err(err) => {
-            log::error!("Failed to call original msize: {:?}", err);
-            0
+    // Try game's CRT _msize first
+    if let Ok(orig_msize) = super::replacer::CRT_INLINE_MSIZE_HOOK.original() {
+        let size = unsafe { orig_msize(raw_ptr) };
+        if size != usize::MAX {
+            return size;
         }
     }
+
+    // Fallback: HeapValidate-based size query
+    let size = unsafe { super::heap_validate::heap_validated_size(raw_ptr as *const c_void) };
+    if size != usize::MAX {
+        return size;
+    }
+
+    // Unknown pointer - return usize::MAX (error) so callers handle gracefully
+    usize::MAX
 }
 
 pub(super) unsafe extern "C" fn hook_free(raw_ptr: *mut c_void) {
-    let is_mimalloc = unsafe { mi_is_in_heap_region(raw_ptr) };
+    if raw_ptr.is_null() {
+        return;
+    }
 
-    if is_mimalloc {
+    // Fast path: mimalloc pointer
+    if unsafe { mi_is_in_heap_region(raw_ptr) } {
         return unsafe { mi_free(raw_ptr) };
     }
 
-    match super::replacer::CRT_INLINE_FREE_HOOK.original() {
-        Ok(orig_free) => {
-            unsafe { orig_free(raw_ptr) };
-        }
-
-        Err(err) => {
-            log::error!(
-                "Failed to call original free for pointer={:p}; Error: {:?}",
-                raw_ptr,
-                err
-            );
-        }
+    // Try game's CRT free first (most common case for non-mimalloc pointers).
+    // If this is the wrong heap, fall back to HeapValidate-based routing.
+    if let Ok(orig_free) = super::replacer::CRT_INLINE_FREE_HOOK.original() {
+        unsafe { orig_free(raw_ptr) };
+        return;
     }
+
+    // Last resort: find the correct heap via Windows HeapValidate
+    if unsafe { super::heap_validate::heap_validated_free(raw_ptr) } {
+        return;
+    }
+
+    log::error!("free({:p}): no heap owns this pointer!", raw_ptr);
 }
 
 pub(super) unsafe extern "thiscall" fn hook_gheap_alloc(

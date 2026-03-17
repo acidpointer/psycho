@@ -4,6 +4,7 @@
 //! Based on https://github.com/iranrmrf/Heap-Replacer
 
 
+pub mod heap_validate;
 mod hooks;
 mod types;
 pub mod replacer;
