@@ -470,7 +470,7 @@ impl<T: Copy + 'static> InlineHookContainer<T> {
     }
 
     pub fn original(&self) -> InlineHookResult<T> {
-        let hook_lock = self.hook.write();
+        let hook_lock = self.hook.read();
 
         match hook_lock.as_ref() {
             Some(hook) => {

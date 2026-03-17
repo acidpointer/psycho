@@ -1,0 +1,119 @@
+=== HeapCompact (called on alloc fail) @ 0x00866a90 ===
+  Size: 602 bytes
+
+int __thiscall FUN_00866a90(void *this,undefined4 param_1,int param_2,char *param_3)
+
+{
+  char cVar1;
+  int iVar2;
+  int iVar3;
+  void *this_00;
+  uint uVar4;
+  bool bVar5;
+  
+  *param_3 = '\x01';
+  iVar2 = FUN_0040fc90();
+  iVar3 = FUN_0044edb0(DAT_011dea0c);
+  bVar5 = iVar2 == iVar3;
+  switch(param_2) {
+  case 0:
+    DAT_011de70c = 0;
+    if (bVar5) {
+      FUN_00452490(DAT_011dea10,'\0');
+    }
+    break;
+  case 1:
+    iVar2 = FUN_00866d10();
+    FUN_00aa5c80(iVar2);
+    break;
+  case 2:
+    iVar2 = FUN_00652110();
+    if (iVar2 != 0) {
+      iVar2 = FUN_00652110();
+      cVar1 = FUN_00529ea0(iVar2);
+      if ((cVar1 != '\0') && (bVar5 = FUN_00652160(), bVar5)) {
+        iVar2 = FUN_00652130();
+        if (iVar2 == 1) {
+          cVar1 = '\0';
+          this_00 = (void *)FUN_00652110();
+          FUN_00650a30(this_00,cVar1);
+        }
+        FUN_00652190();
+      }
+    }
+    break;
+  case 5:
+    if (!bVar5) break;
+    FUN_00869190(0);
+    uVar4 = FUN_00453a80((int)DAT_011dea10);
+    if ((uVar4 & 0xff) == 0) {
+      FUN_004539a0(DAT_011dea10,'\x01','\0');
+    }
+    else {
+      param_2 = param_2 + -1;
+    }
+    FUN_00452490(DAT_011dea10,'\0');
+    FUN_00869190(1);
+    FUN_00868d70('\x01');
+  case 4:
+    bVar5 = FUN_0078d200((LONG *)&DAT_011f11a0);
+    if (bVar5) {
+      FUN_00868d70('\x01');
+      FUN_0040fba0((undefined4 *)&DAT_011f11a0);
+    }
+  case 3:
+    FUN_00c459d0('\x01');
+    break;
+  case 6:
+    if (bVar5) {
+      FUN_00aa7030();
+    }
+    break;
+  case 7:
+    if ((*param_3 == '\0') && (bVar5)) {
+      *param_3 = '\x01';
+      break;
+    }
+  case 8:
+    if (!bVar5) {
+      *(undefined4 *)((int)this + 0x134) = 6;
+      if (DAT_011de70c < 15000) {
+        iVar2 = FUN_00866da0(DAT_01202d98,0);
+        iVar3 = FUN_0040fc90();
+        if (iVar2 == iVar3) {
+          FUN_00866dc0(DAT_01202d98,0);
+          FUN_00866de0(DAT_01202d98,0);
+        }
+        iVar2 = FUN_00866da0(DAT_01202d98,1);
+        iVar3 = FUN_0040fc90();
+        if (iVar2 == iVar3) {
+          FUN_00866dc0(DAT_01202d98,1);
+          FUN_00866de0(DAT_01202d98,1);
+        }
+        FUN_0040fca0(1);
+        DAT_011de70c = DAT_011de70c + 1;
+        param_2 = param_2 + -1;
+      }
+      else if (*param_3 == '\0') {
+        *param_3 = '\x01';
+      }
+    }
+  }
+  return param_2 + 1;
+}
+
+
+
+=== FallbackAllocator @ 0x00aa4290 ===
+  Size: 39 bytes
+
+void * FUN_00aa4290(size_t param_1)
+
+{
+  void *pvVar1;
+  
+  pvVar1 = _malloc(param_1);
+  return pvVar1;
+}
+
+

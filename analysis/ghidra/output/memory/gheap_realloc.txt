@@ -1,0 +1,51 @@
+=== GameHeap::Realloc1 @ 0x00aa4150 ===
+  Size: 140 bytes
+
+void * __thiscall FUN_00aa4150(void *this,undefined4 *param_1,uint param_2)
+
+{
+  undefined4 local_c;
+  undefined4 local_8;
+  
+  local_c = FUN_00aa44c0(this,param_1);
+  if (local_c == 0) {
+    local_8 = _realloc(param_1,param_2);
+  }
+  else {
+    local_8 = FUN_00aa3e40(this,param_2);
+    if (param_2 < local_c) {
+      local_c = param_2;
+    }
+    _memcpy(local_8,param_1,local_c);
+    FUN_00aa4060(this,param_1);
+  }
+  return local_8;
+}
+
+
+
+=== GameHeap::Realloc2 @ 0x00aa4200 ===
+  Size: 140 bytes
+
+void * __thiscall FUN_00aa4200(void *this,undefined4 *param_1,uint param_2)
+
+{
+  undefined4 local_c;
+  undefined4 local_8;
+  
+  local_c = FUN_00aa44c0(this,param_1);
+  if (local_c == 0) {
+    local_8 = _realloc(param_1,param_2);
+  }
+  else {
+    local_8 = FUN_00aa3e40(this,param_2);
+    if (param_2 < local_c) {
+      local_c = param_2;
+    }
+    _memcpy(local_8,param_1,local_c);
+    FUN_00aa4060(this,param_1);
+  }
+  return local_8;
+}
+
+

@@ -1,0 +1,8 @@
+Function: FUN_00877a30 @ 0x00877a30 (25 bytes)
+
+int __thiscall FUN_00877a30(void *this,int param_1)
+
+{
+  return *(int *)((int)this + 4) + param_1 * 4;
+}
+

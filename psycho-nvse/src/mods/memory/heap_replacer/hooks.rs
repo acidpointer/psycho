@@ -1,44 +1,13 @@
-//! Scrap heap hooks.
+//! Game heap and scrap heap hooks.
 
 use libc::c_void;
 use libmimalloc::{
-    mi_calloc, mi_free, mi_is_in_heap_region, mi_malloc, mi_realloc, mi_recalloc, mi_usable_size,
+    mi_calloc, mi_collect, mi_free, mi_is_in_heap_region, mi_malloc, mi_malloc_aligned, mi_realloc,
+    mi_realloc_aligned, mi_recalloc, mi_usable_size,
 };
-use std::cell::{RefCell, UnsafeCell};
+
+use std::cell::UnsafeCell;
 use std::ptr::null_mut;
-
-use rand::rngs::SmallRng;
-use rand::{Rng, RngExt};
-
-thread_local! {
-    // We use a thread-local RNG so we don't need a Mutex/Lock
-    static RNG: RefCell<SmallRng> = RefCell::new(rand::make_rng());
-}
-
-// Why this is here? Because, i wont to mess with new structure for rng mod.
-// Did you know that Fallout: New Vegas uses 20+ years old RNG generation algorithm?
-// And did you know that rng call is... HOT. Very hot.
-// So, what we do here is use actually fast and modern SmallRng.
-// It is extremely fast and has a tiny state compared to the 2.5KB state array of the engine's Mersenne Twister.
-pub(super) unsafe extern "thiscall" fn hook_rng(_this: *mut c_void, param_1: u32) -> u32 {
-    if param_1 == 0 {
-        return 0;
-    }
-
-    RNG.with(|rng_cell| {
-        let mut rng = rng_cell.borrow_mut();
-
-        // Match the engine's original logic for specific bitmasks
-        if param_1 == 0xFFFFFFFF {
-            rng.next_u32()
-        } else if param_1 == 0x7FFF {
-            rng.next_u32() & 0x7FFF
-        } else {
-            // gen_range is significantly optimized compared to a simple modulo
-            rng.random_range(0..param_1)
-        }
-    })
-}
 
 pub(super) unsafe extern "C" fn hook_malloc(size: usize) -> *mut c_void {
     let result = unsafe { mi_malloc(size) };
@@ -139,60 +108,112 @@ pub(super) unsafe extern "C" fn hook_free(raw_ptr: *mut c_void) {
     log::error!("free({:p}): no heap owns this pointer!", raw_ptr);
 }
 
+// ===========================================================================
+//   GAME HEAP — Complete ownership via raw mimalloc
+//
+//   ALL allocations: mi_malloc_aligned(size, 16)
+//   ALL frees: mi_is_in_heap_region → mi_free, else HeapValidate (pre-hook)
+//   No original GameHeap trampoline. No SBM. No pool. No overhead.
+//
+//   Pre-hook pointers (allocated before DllMain) are a finite, shrinking set.
+//   They are detected by mi_is_in_heap_region returning false, and freed
+//   via Windows HeapValidate-based routing.
+// ===========================================================================
+
+const GHEAP_ALIGN: usize = 16;
+
 pub(super) unsafe extern "thiscall" fn hook_gheap_alloc(
     _this: *mut c_void,
     size: usize,
 ) -> *mut c_void {
-    unsafe { mi_malloc(size) }
+    let ptr = unsafe { mi_malloc_aligned(size, GHEAP_ALIGN) };
+    if !ptr.is_null() {
+        return ptr;
+    }
+
+    // OOM: force collection and retry once
+    unsafe { mi_collect(true) };
+    unsafe { mi_malloc_aligned(size, GHEAP_ALIGN) }
 }
 
-pub(super) unsafe extern "thiscall" fn hook_gheap_free(this: *mut c_void, ptr: *mut c_void) {
-    let is_mimalloc = unsafe { mi_is_in_heap_region(ptr) };
-
-    if is_mimalloc {
-        return unsafe { mi_free(ptr) };
+pub(super) unsafe extern "thiscall" fn hook_gheap_free(_this: *mut c_void, ptr: *mut c_void) {
+    if ptr.is_null() {
+        return;
     }
 
-    match super::replacer::GHEAP_FREE_HOOK.original() {
-        Ok(orig_free) => {
-            unsafe { orig_free(this, ptr) };
-        }
-
-        Err(err) => {
-            log::error!(
-                "Failed to call original gheap_free for pointer={:p}; Error: {:?}",
-                ptr,
-                err
-            );
-        }
+    if unsafe { mi_is_in_heap_region(ptr as *const c_void) } {
+        unsafe { mi_free(ptr) };
+        return;
     }
+
+    // Pre-hook pointer: free via Windows HeapValidate routing
+    unsafe { super::heap_validate::heap_validated_free(ptr) };
 }
 
 pub(super) unsafe extern "thiscall" fn hook_gheap_msize(
-    this: *mut c_void,
+    _this: *mut c_void,
     ptr: *mut c_void,
 ) -> usize {
-    let is_mimalloc = unsafe { mi_is_in_heap_region(ptr) };
-
-    if is_mimalloc {
-        return unsafe { mi_usable_size(ptr) };
+    if ptr.is_null() {
+        return 0;
     }
 
-    match super::replacer::GHEAP_MSIZE_HOOK.original() {
-        Ok(orig_msize) => {
-            let orig_size = unsafe { orig_msize(this, ptr) };
-
-            if orig_size == usize::MAX {
-                log::warn!("hook_gheap_msize: pointer is unknown {:p}!", ptr);
-                return 0;
-            }
-            orig_size
-        }
-        Err(err) => {
-            log::error!("Failed to call original gheap_msize: {:?}", err);
-            0
-        }
+    if unsafe { mi_is_in_heap_region(ptr as *const c_void) } {
+        return unsafe { mi_usable_size(ptr as *const c_void) };
     }
+
+    // Pre-hook pointer
+    let size = unsafe { super::heap_validate::heap_validated_size(ptr as *const c_void) };
+    if size != usize::MAX {
+        return size;
+    }
+
+    0
+}
+
+pub(super) unsafe extern "thiscall" fn hook_gheap_realloc(
+    _this: *mut c_void,
+    ptr: *mut c_void,
+    new_size: usize,
+) -> *mut c_void {
+    if ptr.is_null() {
+        return unsafe { hook_gheap_alloc(_this, new_size) };
+    }
+
+    if new_size == 0 {
+        unsafe { hook_gheap_free(_this, ptr) };
+        return null_mut();
+    }
+
+    // mimalloc pointer: native realloc (can expand in-place)
+    if unsafe { mi_is_in_heap_region(ptr as *const c_void) } {
+        let new_ptr = unsafe { mi_realloc_aligned(ptr, new_size, GHEAP_ALIGN) };
+        if !new_ptr.is_null() {
+            return new_ptr;
+        }
+        // OOM: collect and retry
+        unsafe { mi_collect(true) };
+        return unsafe { mi_realloc_aligned(ptr, new_size, GHEAP_ALIGN) };
+    }
+
+    // Pre-hook pointer: migrate to mimalloc
+    let old_size = unsafe { super::heap_validate::heap_validated_size(ptr as *const c_void) };
+    if old_size == usize::MAX || old_size == 0 {
+        return null_mut();
+    }
+
+    let new_ptr = unsafe { mi_malloc_aligned(new_size, GHEAP_ALIGN) };
+    if !new_ptr.is_null() {
+        unsafe {
+            std::ptr::copy_nonoverlapping(
+                ptr as *const u8,
+                new_ptr as *mut u8,
+                old_size.min(new_size),
+            )
+        };
+        unsafe { super::heap_validate::heap_validated_free(ptr) };
+    }
+    new_ptr
 }
 
 // ===========================================================================

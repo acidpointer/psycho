@@ -8,7 +8,7 @@ use libc::c_void;
 /// Game heap function signatures (fastcall convention).
 pub type GameHeapAllocateFn = unsafe extern "thiscall" fn(*mut c_void, usize) -> *mut c_void;
 pub type GameHeapReallocateFn =
-    unsafe extern "fastcall" fn(*mut c_void, *mut c_void, *mut c_void, usize) -> *mut c_void;
+    unsafe extern "thiscall" fn(*mut c_void, *mut c_void, usize) -> *mut c_void;
 pub type GameHeapMsizeFn = unsafe extern "thiscall" fn(*mut c_void, *mut c_void) -> usize;
 pub type GameHeapFreeFn = unsafe extern "thiscall" fn(*mut c_void, *mut c_void);
 
@@ -25,6 +25,4 @@ pub type SheapMaintenanceFn = unsafe extern "C" fn(*mut c_void);
 //(void *this,undefined4 param_1,undefined4 param_2)
 pub type SheapRegisterFn = unsafe extern "thiscall" fn(*mut c_void, u32, *mut c_void);
 
-// RNG
-pub type RngFn = unsafe extern "thiscall" fn(*mut c_void, u32) -> u32;
 

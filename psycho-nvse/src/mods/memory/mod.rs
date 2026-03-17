@@ -4,105 +4,107 @@ mod heap_replacer;
 pub use crt_iat::*;
 pub use heap_replacer::*;
 use libmimalloc::{
-    mi_option_set, mi_option_set_enabled,
+    mi_arena_id_t, mi_option_set, mi_option_set_enabled, mi_reserve_os_memory_ex,
     mi_option_arena_eager_commit,
+    mi_option_arena_reserve,
     mi_option_purge_delay,
     mi_option_page_reclaim_on_free,
     mi_option_page_cross_thread_max_reclaim,
     mi_option_arena_purge_mult,
     mi_option_destroy_on_exit,
+    mi_option_page_full_retain,
+    mi_option_purge_decommits,
+    mi_option_retry_on_oom,
 };
 use parking_lot::Once;
 
 static CONFIG_MIMALLOC: Once = Once::new();
 
+const MB: usize = 1024 * 1024;
+
 pub fn configure_mimalloc() {
     CONFIG_MIMALLOC.call_once(|| unsafe {
         // ---------------------------------------------------------------
         // Mimalloc is the GLOBAL allocator for the entire game process
-        // (via IAT hooks on all loaded DLLs) AND backs scrap heap regions
-        // (via mi_malloc_aligned). These options are tuned for:
-        //   - Fallout: New Vegas (32-bit, multi-threaded game)
-        //   - Running on Windows, Proton, and Steam Deck
-        //   - Bursty alloc/free patterns with cross-thread memory access
+        // (via IAT hooks on all loaded DLLs, inline CRT hooks, and
+        // GameHeap hooks). Tuned for 32-bit FNV with ~4GB VA (LAA).
         // ---------------------------------------------------------------
 
-        // ARENA EAGER COMMIT (option 4) = always eager
-        //
-        // Default: 2 (auto-detect overcommit)
-        // Set to:  1 (always eager commit)
-        //
-        // On Proton/Wine, overcommit detection is unreliable. Eager commit
-        // ensures memory is physically backed on allocation, not on first
-        // page fault. This eliminates page fault stutters during gameplay
-        // that manifest as micro-freezes - especially noticeable because
-        // every single malloc/free in the game goes through mimalloc.
-        mi_option_set(mi_option_arena_eager_commit, 1);
-        log::info!("[MIMALLOC] arena_eager_commit = 1 (always eager)");
+        // PRE-RESERVE ARENA — try sizes from largest to smallest.
+        // Uses mi_reserve_os_memory_ex for explicit error reporting.
+        // commit=false → demand-page (zero physical RAM upfront).
+        let arena_sizes = [512 * MB, 384 * MB, 256 * MB, 128 * MB];
+        let mut reserved = 0usize;
+        for &size in &arena_sizes {
+            let mut arena_id: mi_arena_id_t = 0;
+            let result = mi_reserve_os_memory_ex(
+                size,
+                false, // commit: false = demand-page
+                false, // allow_large: no huge pages on 32-bit
+                false, // exclusive: allow fallback arenas too
+                &mut arena_id,
+            );
+            if result == 0 {
+                reserved = size;
+                log::info!("[MIMALLOC] Reserved {}MB arena (id={:?})", size / MB, arena_id);
+                break;
+            }
+            log::warn!("[MIMALLOC] Failed to reserve {}MB (err={}), trying smaller...", size / MB, result);
+        }
+        if reserved == 0 {
+            log::error!("[MIMALLOC] Could not reserve ANY arena! Falling back to dynamic arenas.");
+        }
 
-        // PURGE DELAY (option 15) = immediate
-        //
-        // Default: 10ms
-        // Set to:  0 (immediate purge)
-        //
-        // When scrap heap GC drops 256KB regions (via mi_free), mimalloc
-        // should decommit those pages immediately rather than holding them
-        // for 10ms. Also helps the general allocator return memory faster.
-        // Critical for Steam Deck where 16GB RAM is shared with GPU -
-        // every MB of stale allocator pages is a MB less VRAM.
-        mi_option_set(mi_option_purge_delay, 0);
-        log::info!("[MIMALLOC] purge_delay = 0ms (immediate)");
+        // 32MB overflow arenas if pre-reserved block fills up.
+        mi_option_set(mi_option_arena_reserve, 32 * 1024); // KiB
+        log::info!("[MIMALLOC] arena_reserve = 32MB");
 
-        // PAGE RECLAIM ON FREE (option 35) = always allow
+        // Demand-page: reserve VA, commit on first touch.
+        mi_option_set(mi_option_arena_eager_commit, 0);
+
+        // PURGE DELAY = 1000ms (1 second)
         //
-        // Default: 0 (only reclaim pages from own theap)
-        // Set to:  1 (allow reclaiming from any theap)
+        // purge_delay=0:   millions of VirtualAlloc syscalls/sec → stutters
+        // purge_delay=100: still causes churn under memory pressure
+        // purge_delay=-1:  no decommit, but internal fragmentation grows
+        //                  (partially-occupied pages never repurposed)
         //
-        // The game's sheap_ptr crosses thread boundaries - thread A
-        // allocates, thread B frees. With IAT hooks, this pattern applies
-        // to ALL game allocations too. Without this option, freed pages
-        // pile up as "abandoned" in mimalloc's internal bookkeeping and
-        // never get reclaimed by the freeing thread. With =1, any thread
-        // can immediately reclaim abandoned pages on free, preventing
-        // memory bloat and fragmentation.
+        // 1 second is the sweet spot:
+        // - During normal gameplay (alloc/free within 1s): pages stay committed,
+        //   instantly reusable. No VirtualAlloc calls.
+        // - After 1s idle: pages decommit, freeing physical RAM and allowing
+        //   mimalloc to repurpose segments for different size classes.
+        // - During cell transitions (~2-3s): burst allocs reuse existing pages,
+        //   old pages decommit after the burst settles.
+        mi_option_set(mi_option_purge_delay, 1000);
+        log::info!("[MIMALLOC] purge_delay = 1000ms");
+
+        // Decommit on purge (not full release) — keeps VA reservation.
+        mi_option_set(mi_option_purge_decommits, 1);
+
+        // RETRY ON OOM = 0 (disabled)
+        //
+        // Default: 400ms. When OOM, mimalloc retries for 400ms — that's a
+        // 400ms freeze on the calling thread! The game runs at 60fps
+        // (16ms/frame). A 400ms stall = 25 dropped frames = "crazy stutters".
+        // Disable: if we can't allocate, fail immediately. The hook has its
+        // own mi_collect + retry logic.
+        mi_option_set(mi_option_retry_on_oom, 0);
+        log::info!("[MIMALLOC] retry_on_oom = 0 (disabled, we handle OOM ourselves)");
+
+        // Cross-thread reclaim: essential for FNV's multi-threaded alloc/free pattern.
         mi_option_set(mi_option_page_reclaim_on_free, 1);
-        log::info!("[MIMALLOC] page_reclaim_on_free = 1 (always)");
-
-        // PAGE CROSS-THREAD MAX RECLAIM (option 42) = higher limit
-        //
-        // Default: 16
-        // Set to:  32
-        //
-        // Controls how many pages a thread will reclaim from other threads'
-        // abandoned pools (per size class). Higher limit is beneficial
-        // because the game has 10+ threads all routing malloc/free through
-        // mimalloc. Default 16 can leave abandoned pages unreclaimed when
-        // cross-thread free is heavy (which it is in FNV).
         mi_option_set(mi_option_page_cross_thread_max_reclaim, 32);
-        log::info!("[MIMALLOC] page_cross_thread_max_reclaim = 32");
 
-        // ARENA PURGE MULTIPLIER (option 24) = faster arena purge
-        //
-        // Default: 10 (arena purge delay = purge_delay * 10)
-        // Set to:  2  (arena purge delay = purge_delay * 2 = 0ms)
-        //
-        // Since purge_delay is 0, this multiplier has minimal effect, but
-        // lowering it ensures arena-level memory is also returned to the OS
-        // without unnecessary delay if purge_delay is ever changed.
+        // Arena purge mult: with 100ms delay, arena purge = 200ms.
         mi_option_set(mi_option_arena_purge_mult, 2);
-        log::info!("[MIMALLOC] arena_purge_mult = 2");
 
-        // DESTROY ON EXIT (option 22) = enabled
-        //
-        // Default: 0 (disabled)
-        // Set to:  1 (release all memory on exit)
-        //
-        // We are a DLL injected into a game process. On game exit, there is
-        // no benefit to walking every allocation and freeing individually -
-        // the process is terminating. This tells mimalloc to bulk-release
-        // everything, avoiding slow shutdown that can cause the game to
-        // hang on exit (especially with hundreds of MBs allocated).
+        // Don't retain full pages — saves memory on 32-bit.
+        mi_option_set(mi_option_page_full_retain, 0);
+
+        // Bulk-release on exit — avoid slow teardown.
         mi_option_set_enabled(mi_option_destroy_on_exit, true);
-        log::info!("[MIMALLOC] destroy_on_exit = true");
+
+        log::info!("[MIMALLOC] Configuration complete (reserved={}MB)", reserved / MB);
     });
 }

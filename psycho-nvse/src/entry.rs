@@ -1,9 +1,9 @@
 //! Plugin entry points: DllMain, NVSEPlugin_Query, NVSEPlugin_Load.
 //!
 //! DllMain (early load) installs patches that must be active before the
-//! engine initializes: allocator replacement, stability guards, and
-//! performance tweaks. NVSEPlugin_Load (late load) handles patches that
-//! depend on NVSE infrastructure, such as zlib hooks.
+//! engine initializes: allocator replacement and performance tweaks.
+//! NVSEPlugin_Load (late load) handles patches that depend on NVSE
+//! infrastructure, such as zlib hooks.
 
 use std::sync::Once;
 
@@ -27,10 +27,7 @@ use crate::{
     config::{PsychoConfig, load_config},
     mods::{
         memory::{configure_mimalloc, install_crt_hooks, replacer::install_game_heap_hooks},
-        perf::{
-            boost_main_thread_priority, install_critical_section_hooks, install_detection_budget,
-            install_sleep_patches, patch_deferred_task_budget, set_timer_resolution,
-        },
+        perf::{install_rng_hook, set_timer_resolution},
         stability::install_null_deref_guards,
         zlib::install_zlib_hooks,
     },
@@ -69,11 +66,7 @@ fn early_load(cfg: &PsychoConfig) {
     install_if(cfg.memory.game_heap_hooks, "Game heap hooks", install_game_heap_hooks);
     install_if(cfg.stability.null_deref_guards, "Null deref guards", install_null_deref_guards);
     install_if(cfg.perf.timer_resolution, "Timer resolution", set_timer_resolution);
-    install_if(cfg.perf.thread_priority, "Thread priority", boost_main_thread_priority);
-    install_if(cfg.perf.critical_section_spin, "CS spin counts", install_critical_section_hooks);
-    install_if(cfg.perf.sleep_patches, "Sleep patches", install_sleep_patches);
-    install_if(cfg.perf.deferred_task_budget, "Deferred task budget", patch_deferred_task_budget);
-    install_if(cfg.perf.detection_budget, "Detection budget", install_detection_budget);
+    install_if(cfg.perf.rng, "RNG replacement", install_rng_hook);
 }
 
 // -----------------------------------------------------------------------

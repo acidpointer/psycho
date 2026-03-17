@@ -56,25 +56,13 @@ pub struct PerfConfig {
     /// Set Windows timer resolution to 1ms (timeBeginPeriod).
     pub timer_resolution: bool,
 
-    /// Boost main thread priority to ABOVE_NORMAL and opt out of power throttling.
-    pub thread_priority: bool,
-
-    /// Add spin count (4096) to all game critical sections.
-    pub critical_section_spin: bool,
-
-    /// Reduce I/O polling Sleep durations (50/10ms -> 1ms).
-    pub sleep_patches: bool,
-
-    /// Reduce deferred task queue overflow budget (1000ms -> 100ms).
-    pub deferred_task_budget: bool,
-
-    /// Throttle per-frame detection/actor updates to every 2nd frame.
-    pub detection_budget: bool,
+    /// Replace the game's Mersenne Twister RNG with modern SmallRng (WyRand).
+    pub rng: bool,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
 pub struct StabilityConfig {
-    /// Guard FUN_0044DDC0 (AI path getter) against null pointer dereference.
+    /// Guard known null pointer crash sites with code caves.
     pub null_deref_guards: bool,
 }
 
@@ -95,15 +83,11 @@ impl Default for PsychoConfig {
                 game_heap_hooks: true,
             },
             perf: PerfConfig {
-                timer_resolution: true,
-                thread_priority: true,
-                critical_section_spin: true,
-                sleep_patches: true,
-                deferred_task_budget: true,
-                detection_budget: true,
+                timer_resolution: false,
+                rng: true,
             },
             stability: StabilityConfig {
-                null_deref_guards: true,
+                null_deref_guards: false,
             },
             zlib: ZlibConfig {
                 enabled: true,

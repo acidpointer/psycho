@@ -1316,3 +1316,28 @@ pub unsafe fn heap_size(heap: isize, ptr: *const c_void) -> usize {
 pub unsafe fn heap_realloc(heap: isize, ptr: *mut c_void, size: usize) -> *mut c_void {
     unsafe { HeapReAlloc(heap, 0, ptr, size) }
 }
+
+// ---------------------------------------------------------------------------
+// Virtual memory primitives
+// ---------------------------------------------------------------------------
+
+/// Allocate virtual memory with the specified protection.
+///
+/// Wrapper around `VirtualAlloc`. Returns a valid pointer or an error.
+/// If `address` is null, the system determines the allocation address.
+pub fn virtual_alloc_rwx(size: usize) -> WinapiResult<*mut c_void> {
+    let ptr = unsafe {
+        VirtualAlloc(
+            None,
+            size,
+            MEM_COMMIT | MEM_RESERVE,
+            PAGE_EXECUTE_READWRITE,
+        )
+    };
+
+    if ptr.is_null() {
+        return Err(WinapiError::WindowsCore(windows::core::Error::from_win32()));
+    }
+
+    Ok(ptr)
+}

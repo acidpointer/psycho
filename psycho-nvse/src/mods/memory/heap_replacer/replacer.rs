@@ -33,15 +33,12 @@ const SHEAP_FREE_ADDR: usize = 0x00AA5610;
 const SHEAP_PURGE_ADDR: usize = 0x00AA5460;
 const SHEAP_GET_THREAD_LOCAL_ADDR: usize = 0x00AA42E0;
 
-// RNG
-const RNG_ADDRESS: usize = 0x00AA5230;
-
 // Gheap
 
 /// Game heap function addresses (Fallout New Vegas)
 const GHEAP_ALLOC_ADDR: usize = 0x00AA3E40;
-//const GHEAP_REALLOC_ADDR_1: usize = 0x00AA4150;
-//const GHEAP_REALLOC_ADDR_2: usize = 0x00AA4200;
+const GHEAP_REALLOC_ADDR_1: usize = 0x00AA4150;
+const GHEAP_REALLOC_ADDR_2: usize = 0x00AA4200;
 const GHEAP_MSIZE_ADDR: usize = 0x00AA44C0;
 const GHEAP_FREE_ADDR: usize = 0x00AA4060;
 
@@ -80,6 +77,12 @@ pub static GHEAP_ALLOC_HOOK: LazyLock<InlineHookContainer<GameHeapAllocateFn>> =
 pub static GHEAP_FREE_HOOK: LazyLock<InlineHookContainer<GameHeapFreeFn>> =
     LazyLock::new(InlineHookContainer::new);
 
+pub static GHEAP_REALLOC_HOOK_1: LazyLock<InlineHookContainer<GameHeapReallocateFn>> =
+    LazyLock::new(InlineHookContainer::new);
+
+pub static GHEAP_REALLOC_HOOK_2: LazyLock<InlineHookContainer<GameHeapReallocateFn>> =
+    LazyLock::new(InlineHookContainer::new);
+
 /// Scrap heap hooks
 pub static SHEAP_INIT_FIX_HOOK: LazyLock<InlineHookContainer<SheapInitFixFn>> =
     LazyLock::new(InlineHookContainer::new);
@@ -94,154 +97,108 @@ pub static SHEAP_PURGE_HOOK: LazyLock<InlineHookContainer<SheapPurgeFn>> =
 pub static SHEAP_GET_THREAD_LOCAL_HOOK: LazyLock<InlineHookContainer<SheapGetThreadLocalFn>> =
     LazyLock::new(InlineHookContainer::new);
 
-pub static RNG_HOOK: LazyLock<InlineHookContainer<RngFn>> = LazyLock::new(InlineHookContainer::new);
-
-/// Applies patches and installs heap replacement hooks
+/// Applies patches and installs heap replacement hooks.
+/// mimalloc is already configured by the time this runs (mod.rs configure_mimalloc).
 pub fn install_game_heap_hooks() -> anyhow::Result<()> {
-    // Initialize heap validation cache for cross-heap pointer routing.
-    // Must be called early, before any free/realloc hooks fire.
+    // Initialize heap validation cache for routing pre-hook pointers
+    // (allocated by the original GameHeap before our hooks were installed).
     super::heap_validate::init_heap_cache();
-    // unsafe {
-    //     // That address is the Statistics and Global State Reset function for the Small Block Manager (SBM).
-    //     patch_ret(0x00AA6840 as *mut c_void)?;
-
-    //     // Small Block Manager (SBM) Configuration Table
-    //     patch_ret(0x00866770 as *mut c_void)?;
-    // }
 
     // ===========================
-    //   SBM PATCHES
+    //   SBM DISABLE PATCHES
     // ===========================
     //
-    // The game's Small Block Manager (SBM) is shared between ScrapHeap and
-    // GameHeap. We fully replace the ScrapHeap side via hooks. To complete
-    // the picture, we also disconnect the GameHeap from the SBM allocation
-    // path by patching its conditional branch to an unconditional jump.
-    // This forces all NEW GameHeap allocations through the HeapAllocator
-    // vtable / CRT fallback paths (no SBM arenas touched).
+    // With mimalloc handling ALL GameHeap allocations, the SBM is completely
+    // bypassed for new allocations. Its maintenance routines now operate on
+    // stale pre-hook arena state — purging, cleanup, and refcount ops on
+    // arenas that mimalloc doesn't manage. This causes crashes and wastes CPU.
     //
-    // GameHeap::Free still does the SBM arena lookup (ptr >> 24) for
-    // pointers that were allocated from the SBM before our patches.
-    // SBM_free (0x00AA6C70) is NOT patched -- it correctly frees those
-    // pre-existing blocks. New pointers (from HeapAllocator/CRT) won't
-    // match any SBM arena and fall through to the correct free path.
-    //
-    // With no new SBM allocations happening, the maintenance routines
-    // are pure overhead and can be safely disabled.
-
-    // Disconnect GameHeap::Allocate from the SBM fast path.
-    //
-    // Original:  JZ 0x00aa3f39  (0x74 = skip SBM if flag == 0)
-    // Patched:   JMP 0x00aa3f39 (0xEB = always skip SBM)
-    //
-    // Disable the SBM by clearing its enable flag in the heap manager.
-    //
-    // The SBM flag at heap_manager + 0x129 controls whether GameHeap::Allocate
-    // tries the Small Block Manager path. Setting it to 0 makes the engine
-    // skip SBM entirely and go straight to the HeapAllocator (CRT -> mimalloc).
-    //
-    // This is SAFER than patching the JZ instruction at 0x00AA3ED7 because:
-    // - It's a data write, not a code modification (no conflict with jip_nvse)
-    // - It uses the engine's own "SBM disabled" codepath
-    // - GameHeap::Free still correctly handles pre-existing SBM allocations
-    //   via the arena lookup (ptr >> 24), which falls through for non-SBM ptrs
-    //
-    // GAME_HEAP (heap manager singleton) = 0x11F6238
-    // SBM enable flag = GAME_HEAP + 0x129 = 0x11F6361
-    const SBM_ENABLE_FLAG: usize = 0x11F6361;
-
+    // NOTE: Earlier testing found 0x00AA7030/0x00AA5C80 RET patches caused
+    // "heap fills to 98%" — but that was when we USED the original GameHeap.
+    // Now mimalloc owns everything, so there's nothing to compact. Disabling
+    // these prevents stale arena corruption.
     unsafe {
-        let flag_ptr = SBM_ENABLE_FLAG as *mut u8;
-        let old_value = std::ptr::read_volatile(flag_ptr);
-        std::ptr::write_volatile(flag_ptr, 0);
-        log::info!(
-            "[HEAP] SBM disabled via flag at 0x{:08X} (was: {}, now: 0)",
-            SBM_ENABLE_FLAG,
-            old_value
-        );
-    }
+        // --- RET patches: SBM functions return immediately ---
 
-    // Disable SBM maintenance -- no new arenas are created after the
-    // GameHeap disconnect above.
-    unsafe {
-        // SBM::PurgeUnusedArenas
+        // SBM statistics/global state reset — just resets counters
+        patch_ret(0x00AA6840 as *mut c_void)?;
+        // SBM config table init — unused, we hook all GameHeap paths
+        patch_ret(0x00866770 as *mut c_void)?;
+        // SBM-related init — SBM config unused with mimalloc ownership
+        patch_ret(0x00866E00 as *mut c_void)?;
+        // Get SBM singleton — callers are sheap ops, all hooked by our Runtime
+        patch_ret(0x00866D10 as *mut c_void)?;
+        // SBM::PurgeUnusedArenas — would free pre-hook arenas still in use
         patch_ret(0x00AA6F90 as *mut c_void)?;
-
-        // SBM Global Cleanup Dispatcher
+        // SBM::GlobalCleanup — shutdown, process frees everything anyway
         patch_ret(0x00AA7030 as *mut c_void)?;
-
-        // SBM::DecrementArenaReference
+        // SBM::DecrementArenaRef — stale arena refcount modification
         patch_ret(0x00AA7290 as *mut c_void)?;
-
-        // SBM::ReleaseArenaByPointer
+        // SBM::ReleaseArenaByPtr — would release arenas with live pre-hook objects
         patch_ret(0x00AA7300 as *mut c_void)?;
-
-        // SBM::DeallocateAllArenas
+        // SBM::DeallocateAllArenas — bulk deallocation of stale arenas
         patch_ret(0x00AA5C80 as *mut c_void)?;
-    }
+        // Sheap SBM cleanup — we fully hook sheap via Runtime
+        patch_ret(0x00AA58D0 as *mut c_void)?;
 
-    // Prevent the engine from allocating ScrapHeap backing regions via the SBM.
-    unsafe {
-        patch_ret(0x00AA57B0 as *mut c_void)?;
-    }
+        // --- Main loop / construction patches ---
 
-    unsafe {
-        // NOP the GlobalMemoryStatusEx check that gates SBM creation.
-        patch_memory_nop(0x00AA38CA as *mut c_void, 0x00AA38E8 - 0x00AA38CA)?;
-
-        // Kill the frame-based maintenance trigger in the Main Loop.
-        // DecrementArenaRef is already RET'd above, but NOPing the call site
-        // avoids the overhead of calling into a RET stub every frame.
-        patch_memory_nop(0x0086EF0E as *mut c_void, 5)?;
-
-        // Belt-and-suspenders: also write RET at the function entry.
-        patch_bytes(0x00AA7290 as *mut c_void, &[0xC3])?;
-    }
-
-    unsafe {
-        patch_nop_call(0x00AA3060 as *mut c_void)?;
-
-        // stops the game from "double-checking" its heaps during construction
+        // JMP over SBM maintenance block in main loop
+        patch_bytes(0x0086EED4 as *mut c_void, &[0xEB, 0x55])?;
+        // Heap construction double-check
         patch_nop_call(0x0086C56F as *mut c_void)?;
-
-        // These prevent exception raising during cleanup/transitions
+        // CRT heap init calls — safe to skip, we own all allocation paths
         patch_nop_call(0x00C42EB1 as *mut c_void)?;
         patch_nop_call(0x00EC1701 as *mut c_void)?;
+        // Heap accounting call — SBM accounting unused with mimalloc
+        patch_nop_call(0x00AA3060 as *mut c_void)?;
+
+        log::info!("[SBM] Disabled SBM (15 patches applied)");
     }
 
     // ===========================
     //   HOOKS
     // ===========================
 
-    // Patch RNG
+    // GHEAP hooks: fully replace GameHeap::Allocate/Free/Msize with mimalloc.
+    // This eliminates the game's heap accounting, SBM, and 500MB budget.
+    // Pre-hook allocations are handled via original trampoline + HeapValidate.
     {
-        RNG_HOOK.init("rng", RNG_ADDRESS as *mut c_void, hook_rng)?;
-        RNG_HOOK.enable()?;
+        GHEAP_ALLOC_HOOK.init(
+            "gheap_alloc",
+            GHEAP_ALLOC_ADDR as *mut c_void,
+            hook_gheap_alloc,
+        )?;
+        GHEAP_FREE_HOOK.init(
+            "gheap_free",
+            GHEAP_FREE_ADDR as *mut c_void,
+            hook_gheap_free,
+        )?;
+        GHEAP_MSIZE_HOOK.init(
+            "gheap_msize",
+            GHEAP_MSIZE_ADDR as *mut c_void,
+            hook_gheap_msize,
+        )?;
+
+        GHEAP_REALLOC_HOOK_1.init(
+            "gheap_realloc1",
+            GHEAP_REALLOC_ADDR_1 as *mut c_void,
+            hook_gheap_realloc,
+        )?;
+        GHEAP_REALLOC_HOOK_2.init(
+            "gheap_realloc2",
+            GHEAP_REALLOC_ADDR_2 as *mut c_void,
+            hook_gheap_realloc,
+        )?;
+
+        GHEAP_ALLOC_HOOK.enable()?;
+        GHEAP_FREE_HOOK.enable()?;
+        GHEAP_MSIZE_HOOK.enable()?;
+        GHEAP_REALLOC_HOOK_1.enable()?;
+        GHEAP_REALLOC_HOOK_2.enable()?;
+
+        log::info!("[GHEAP] GameHeap fully replaced with mimalloc (alloc/free/realloc/msize)");
     }
-
-    // GHEAP_* hooks are very unstable and potentially requires additional patching
-
-    // {
-    //     GHEAP_ALLOC_HOOK.init(
-    //         "gheap_alloc",
-    //         GHEAP_ALLOC_ADDR as *mut c_void,
-    //         hook_gheap_alloc,
-    //     )?;
-    //     GHEAP_FREE_HOOK.init(
-    //         "gheap_alloc",
-    //         GHEAP_FREE_ADDR as *mut c_void,
-    //         hook_gheap_free,
-    //     )?;
-    //     GHEAP_MSIZE_HOOK.init(
-    //         "gheap_msize",
-    //         GHEAP_MSIZE_ADDR as *mut c_void,
-    //         hook_gheap_msize,
-    //     )?;
-
-    //     GHEAP_ALLOC_HOOK.enable()?;
-    //     GHEAP_FREE_HOOK.enable()?;
-    //     GHEAP_MSIZE_HOOK.enable()?;
-    // }
 
     {
         CRT_INLINE_MALLOC_HOOK_1.init("malloc1", CRT_MALLOC_ADDR_1 as *mut c_void, hook_malloc)?;
