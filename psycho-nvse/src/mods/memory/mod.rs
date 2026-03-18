@@ -62,22 +62,18 @@ pub fn configure_mimalloc() {
         // Demand-page: reserve VA, commit on first touch.
         mi_option_set(mi_option_arena_eager_commit, 0);
 
-        // PURGE DELAY = 1000ms (1 second)
+        // PURGE DELAY = 0 (immediate decommit)
         //
-        // purge_delay=0:   millions of VirtualAlloc syscalls/sec → stutters
-        // purge_delay=100: still causes churn under memory pressure
-        // purge_delay=-1:  no decommit, but internal fragmentation grows
-        //                  (partially-occupied pages never repurposed)
+        // Earlier purge_delay=0 caused stutters from VirtualAlloc churn.
+        // But that was WITHOUT a pre-reserved arena — mimalloc was creating
+        // NEW arenas via MEM_RESERVE (expensive kernel call).
         //
-        // 1 second is the sweet spot:
-        // - During normal gameplay (alloc/free within 1s): pages stay committed,
-        //   instantly reusable. No VirtualAlloc calls.
-        // - After 1s idle: pages decommit, freeing physical RAM and allowing
-        //   mimalloc to repurpose segments for different size classes.
-        // - During cell transitions (~2-3s): burst allocs reuse existing pages,
-        //   old pages decommit after the burst settles.
-        mi_option_set(mi_option_purge_delay, 1000);
-        log::info!("[MIMALLOC] purge_delay = 1000ms");
+        // Now with 512MB pre-reserved arena: commit/decommit within the
+        // reservation is just page table flips — very cheap. No new VAs.
+        // Immediate decommit prevents commit from growing monotonically
+        // during rapid cell transitions (the 14MB/sec leak with delay=1000).
+        mi_option_set(mi_option_purge_delay, 0);
+        log::info!("[MIMALLOC] purge_delay = 0 (immediate, cheap within pre-reserved arena)");
 
         // Decommit on purge (not full release) — keeps VA reservation.
         mi_option_set(mi_option_purge_decommits, 1);

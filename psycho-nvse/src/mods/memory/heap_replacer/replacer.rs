@@ -122,38 +122,44 @@ pub fn install_game_heap_hooks() -> anyhow::Result<()> {
 
         // SBM statistics/global state reset — just resets counters
         patch_ret(0x00AA6840 as *mut c_void)?;
-        // SBM config table init — unused, we hook all GameHeap paths
+        // --- RET patches: disable SBM functions that are pure overhead ---
+        // Statistics/global state reset — just resets counters
+        patch_ret(0x00AA6840 as *mut c_void)?;
+        // SBM config table init — unused with mimalloc ownership
         patch_ret(0x00866770 as *mut c_void)?;
-        // SBM-related init — SBM config unused with mimalloc ownership
+        // SBM-related init
         patch_ret(0x00866E00 as *mut c_void)?;
         // Get SBM singleton — callers are sheap ops, all hooked by our Runtime
         patch_ret(0x00866D10 as *mut c_void)?;
-        // SBM::PurgeUnusedArenas — would free pre-hook arenas still in use
-        patch_ret(0x00AA6F90 as *mut c_void)?;
-        // SBM::GlobalCleanup — shutdown, process frees everything anyway
+        // GlobalCleanup — shutdown only, process frees everything
         patch_ret(0x00AA7030 as *mut c_void)?;
-        // SBM::DecrementArenaRef — stale arena refcount modification
-        patch_ret(0x00AA7290 as *mut c_void)?;
-        // SBM::ReleaseArenaByPtr — would release arenas with live pre-hook objects
-        patch_ret(0x00AA7300 as *mut c_void)?;
-        // SBM::DeallocateAllArenas — bulk deallocation of stale arenas
+        // DeallocateAllArenas — bulk deallocation, only on shutdown
         patch_ret(0x00AA5C80 as *mut c_void)?;
-        // Sheap SBM cleanup — we fully hook sheap via Runtime
+        // Sheap SBM cleanup — sheap fully hooked via Runtime
         patch_ret(0x00AA58D0 as *mut c_void)?;
 
-        // --- Main loop / construction patches ---
+        // --- KEEP ALIVE: SBM arena cleanup functions ---
+        // Pre-hook allocations are freed via original trampoline → SBM arenas
+        // empty out over time. These functions MUST work so empty arenas get
+        // released back to the OS, freeing committed memory.
+        //
+        // NOT patched (left functional):
+        //   0x00AA6F90 — PurgeUnusedArenas (frees empty arenas)
+        //   0x00AA7290 — DecrementArenaRef (tracks arena occupancy)
+        //   0x00AA7300 — ReleaseArenaByPtr (releases individual arenas)
 
-        // JMP over SBM maintenance block in main loop
-        patch_bytes(0x0086EED4 as *mut c_void, &[0xEB, 0x55])?;
-        // Heap construction double-check
+        // --- Main loop: KEEP SBM maintenance running ---
+        // The main loop maintenance block calls PurgeUnusedArenas.
+        // We NEED this to run so empty SBM arenas are periodically freed.
+        // Previously we JMP'd over it (0x0086EED4) — now we let it execute.
+
+        // Heap construction double-check — safe to skip
         patch_nop_call(0x0086C56F as *mut c_void)?;
-        // CRT heap init calls — safe to skip, we own all allocation paths
+        // CRT heap init calls — safe to skip
         patch_nop_call(0x00C42EB1 as *mut c_void)?;
         patch_nop_call(0x00EC1701 as *mut c_void)?;
-        // Heap accounting call — SBM accounting unused with mimalloc
-        patch_nop_call(0x00AA3060 as *mut c_void)?;
 
-        log::info!("[SBM] Disabled SBM (15 patches applied)");
+        log::info!("[SBM] Patched SBM (10 patches: 7 RET + 3 NOP, arena cleanup kept alive)");
     }
 
     // ===========================
@@ -279,6 +285,36 @@ pub fn install_game_heap_hooks() -> anyhow::Result<()> {
     }
 
     log::info!("[HEAP REPLACER] All hooks and patches applied successfully");
+
+    // Spawn background thread to log memory stats every 30 seconds.
+    // This gives us clear visibility into memory growth patterns.
+    std::thread::Builder::new()
+        .name("psycho-mem-stats".into())
+        .spawn(|| {
+            use libmimalloc::{mi_collect, process_info::MiMallocProcessInfo};
+
+            // Wait for game to fully load before first report
+            std::thread::sleep(std::time::Duration::from_secs(30));
+
+            loop {
+                let info = MiMallocProcessInfo::get();
+                log::info!(
+                    "[MEM] RSS: {} | Peak: {} | Commit: {} | PeakCommit: {} | Faults: {:.1}/s | CPU eff: {:.0}%",
+                    info.memory_usage_human(),
+                    info.peak_memory_usage_human(),
+                    info.virtual_memory_usage_human(),
+                    libpsycho::common::helpers::format_bytes(info.get_peak_commit()),
+                    info.page_fault_rate_per_second(),
+                    info.cpu_efficiency_percent(),
+                );
+                // Force mimalloc to reclaim empty segments and abandoned heaps.
+                // true = aggressive collection (walks all segments).
+                unsafe { mi_collect(true) };
+
+                std::thread::sleep(std::time::Duration::from_secs(5));
+            }
+        })
+        .ok();
 
     Ok(())
 }

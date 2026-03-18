@@ -28,7 +28,6 @@ use crate::{
     mods::{
         memory::{configure_mimalloc, install_crt_hooks, replacer::install_game_heap_hooks},
         perf::{install_rng_hook, set_timer_resolution},
-        stability::install_null_deref_guards,
         zlib::install_zlib_hooks,
     },
     plugininfo,
@@ -64,7 +63,6 @@ fn early_load(cfg: &PsychoConfig) {
 
     install_if(cfg.memory.crt_hooks, "CRT hooks", install_crt_hooks);
     install_if(cfg.memory.game_heap_hooks, "Game heap hooks", install_game_heap_hooks);
-    install_if(cfg.stability.null_deref_guards, "Null deref guards", install_null_deref_guards);
     install_if(cfg.perf.timer_resolution, "Timer resolution", set_timer_resolution);
     install_if(cfg.perf.rng, "RNG replacement", install_rng_hook);
 }

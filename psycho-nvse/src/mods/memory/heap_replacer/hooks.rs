@@ -122,18 +122,39 @@ pub(super) unsafe extern "C" fn hook_free(raw_ptr: *mut c_void) {
 
 const GHEAP_ALIGN: usize = 16;
 
+/// GameHeap singleton (DAT_011f6238 in Ghidra).
+/// Used ONLY for pre-hook pointer free/msize via original trampoline.
+/// The original GameHeap::Free knows about SBM arenas; HeapValidate does NOT.
+const GHEAP_SINGLETON: usize = 0x011F6238;
+
 pub(super) unsafe extern "thiscall" fn hook_gheap_alloc(
     _this: *mut c_void,
     size: usize,
 ) -> *mut c_void {
+    // Fast path: mimalloc succeeds (99.99% of calls)
     let ptr = unsafe { mi_malloc_aligned(size, GHEAP_ALIGN) };
     if !ptr.is_null() {
         return ptr;
     }
 
-    // OOM: force collection and retry once
+    // OOM: collect mimalloc garbage and retry
     unsafe { mi_collect(true) };
-    unsafe { mi_malloc_aligned(size, GHEAP_ALIGN) }
+    let ptr = unsafe { mi_malloc_aligned(size, GHEAP_ALIGN) };
+    if !ptr.is_null() {
+        return ptr;
+    }
+
+    // Still OOM: fall back to original GameHeap::Allocate.
+    // This triggers the game's heap compaction loop (FUN_00866A90) which
+    // unloads cells, flushes texture caches, purges render targets — the
+    // game's built-in response to memory pressure. Without this, the game
+    // loads content faster than it frees during rapid cell transitions,
+    // and commit grows monotonically until OOM.
+    if let Ok(orig_alloc) = super::replacer::GHEAP_ALLOC_HOOK.original() {
+        return unsafe { orig_alloc(GHEAP_SINGLETON as *mut c_void, size) };
+    }
+
+    null_mut()
 }
 
 pub(super) unsafe extern "thiscall" fn hook_gheap_free(_this: *mut c_void, ptr: *mut c_void) {
@@ -146,7 +167,15 @@ pub(super) unsafe extern "thiscall" fn hook_gheap_free(_this: *mut c_void, ptr: 
         return;
     }
 
-    // Pre-hook pointer: free via Windows HeapValidate routing
+    // Pre-hook pointer: use original GameHeap::Free trampoline.
+    // HeapValidate can't find SBM arena pointers (they're VirtualAlloc blocks,
+    // not Windows heaps). The original Free knows about SBM arenas.
+    if let Ok(orig_free) = super::replacer::GHEAP_FREE_HOOK.original() {
+        unsafe { orig_free(GHEAP_SINGLETON as *mut c_void, ptr) };
+        return;
+    }
+
+    // Last resort fallback
     unsafe { super::heap_validate::heap_validated_free(ptr) };
 }
 
@@ -162,7 +191,15 @@ pub(super) unsafe extern "thiscall" fn hook_gheap_msize(
         return unsafe { mi_usable_size(ptr as *const c_void) };
     }
 
-    // Pre-hook pointer
+    // Pre-hook pointer: original msize knows SBM arena sizes
+    if let Ok(orig_msize) = super::replacer::GHEAP_MSIZE_HOOK.original() {
+        let size = unsafe { orig_msize(GHEAP_SINGLETON as *mut c_void, ptr) };
+        if size != 0 {
+            return size;
+        }
+    }
+
+    // Fallback
     let size = unsafe { super::heap_validate::heap_validated_size(ptr as *const c_void) };
     if size != usize::MAX {
         return size;
@@ -196,9 +233,10 @@ pub(super) unsafe extern "thiscall" fn hook_gheap_realloc(
         return unsafe { mi_realloc_aligned(ptr, new_size, GHEAP_ALIGN) };
     }
 
-    // Pre-hook pointer: migrate to mimalloc
-    let old_size = unsafe { super::heap_validate::heap_validated_size(ptr as *const c_void) };
-    if old_size == usize::MAX || old_size == 0 {
+    // Pre-hook pointer: get size from original msize, alloc new in mimalloc,
+    // copy, free old via original trampoline (handles SBM arenas)
+    let old_size = unsafe { hook_gheap_msize(_this, ptr) };
+    if old_size == 0 {
         return null_mut();
     }
 
@@ -211,7 +249,7 @@ pub(super) unsafe extern "thiscall" fn hook_gheap_realloc(
                 old_size.min(new_size),
             )
         };
-        unsafe { super::heap_validate::heap_validated_free(ptr) };
+        unsafe { hook_gheap_free(_this, ptr) };
     }
     new_ptr
 }

@@ -29,9 +29,6 @@ pub struct PsychoConfig {
     /// Performance optimization patches.
     pub perf: PerfConfig,
 
-    /// Stability guard patches (null dereference protection).
-    pub stability: StabilityConfig,
-
     /// Zlib replacement (libz-rs).
     pub zlib: ZlibConfig,
 }
@@ -61,12 +58,6 @@ pub struct PerfConfig {
 }
 
 #[derive(Debug, Deserialize, Serialize)]
-pub struct StabilityConfig {
-    /// Guard known null pointer crash sites with code caves.
-    pub null_deref_guards: bool,
-}
-
-#[derive(Debug, Deserialize, Serialize)]
 pub struct ZlibConfig {
     /// Replace zlib 1.2.3 with libz-rs 1.3.1.
     pub enabled: bool,
@@ -85,9 +76,6 @@ impl Default for PsychoConfig {
             perf: PerfConfig {
                 timer_resolution: false,
                 rng: true,
-            },
-            stability: StabilityConfig {
-                null_deref_guards: false,
             },
             zlib: ZlibConfig {
                 enabled: true,
