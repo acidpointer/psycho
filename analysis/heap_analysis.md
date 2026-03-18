@@ -12,6 +12,18 @@ stack-only).
 
 ---
 
+## Glossary
+
+| Term | Full Name | Description |
+|------|-----------|-------------|
+| **PDD** | ProcessDeferredDestruction | FNV's internal batch object destructor (`0x00868D70`). Instead of destroying game objects immediately (which could crash concurrent systems like rendering or AI), the engine queues them for deferred destruction. PDD then processes these queues at safe, synchronized points in the frame — typically between major subsystem ticks (post-render, during cell transitions, etc.). It maintains 6 internal queues organized by object type (NiNodes, textures, physics wrappers, etc.), each gated by a bitmask and a try-lock so individual queues can be skipped if contended. See [Section 5](#5-processdeferreddestruction) for full details. |
+| **PPL** | Parallel Patterns Library | Microsoft's C++ concurrency framework (`Concurrency::task_group`), shipped as part of the MSVC CRT. FNV uses PPL task groups for **audio streaming only** — NOT for AI thread coordination. The two PPL task groups (`DAT_011dd5bc`, `DAT_011dd638`) are drained/waited by the music system (`FUN_008324e0`). AI threads use a separate synchronization model based on Windows Events (`SetEvent`/`WaitForSingleObject`) and Semaphores. This distinction is critical: draining PPL task groups does NOT pause AI threads. See [Section 4](#4-ai-thread-architecture) and [Section 6](#6-cell-transition-handler) for details. |
+| **SBM** | Small Block Manager | FNV's pool allocator for small allocations (replaced by mimalloc in psycho-nvse). |
+| **TLS** | Thread-Local Storage | Per-thread data accessed via `_tls_index`. FNV stores per-thread flags (deferred cleanup mode, allocator pool index) in TLS slots. |
+| **VA** | Virtual Address (space) | The 32-bit process address space. A 32-bit Windows process can address ~2GB (or ~3GB with LAA). OOM occurs when committed memory approaches this limit (~1.8GB in practice). |
+
+---
+
 ## Table of Contents
 
 1. [Original Game Heap Architecture](#1-original-game-heap-architecture)
@@ -28,6 +40,7 @@ stack-only).
 12. [Function Address Map](#12-function-address-map)
 13. [Ghidra Analysis Scripts](#13-ghidra-analysis-scripts)
 14. [Key Lessons Learned](#14-key-lessons-learned)
+15. [SpeedTree Cache Analysis](#15-speedtree-cache-analysis)
 
 ---
 
@@ -258,8 +271,14 @@ if post-render work is signaled.
 
 ## 4. AI Thread Architecture
 
-FNV uses a multi-threaded AI system with Windows Events and Semaphores for
-synchronization.
+FNV uses a multi-threaded AI system with dedicated "AI Linear Task Threads"
+(typically 2 threads, named `[FNV] AI Linear Task Thread 1` and `2`).
+
+**Synchronization model:** AI threads use **Windows Events and Semaphores** —
+NOT PPL (Parallel Patterns Library) task groups. The main thread dispatches AI
+work via `SetEvent`, and waits for completion via `WaitForSingleObject` on a
+semaphore. This is entirely separate from the PPL Concurrency Runtime used for
+audio streaming. Draining PPL task groups has zero effect on AI threads.
 
 ### AI Thread Main Loop
 
@@ -337,13 +356,38 @@ shapes) directly from memory without going through the allocator.
 
 ---
 
-## 5. ProcessDeferredDestruction
+## 5. ProcessDeferredDestruction (PDD)
 
 **Address:** `0x00868D70` | **Size:** 1037 bytes | **Convention:** cdecl
 
-This function batch-destroys queued game objects from multiple internal lists. It is
-the game's primary mechanism for safely deferring object destruction to a controlled
-point in the frame.
+ProcessDeferredDestruction (PDD) is FNV's deferred object destruction system. The
+engine cannot destroy game objects immediately when their refcount reaches zero,
+because multiple subsystems may hold live pointers to the same object concurrently:
+
+- The **render pipeline** caches pointers to NiNode scene graph nodes (including
+  BSTreeNode for SpeedTree vegetation) in draw lists that persist across frames.
+- **AI Linear Task Threads** hold pointers to Havok collision shapes
+  (hkBSHeightFieldShape) for raycasting during pathfinding.
+- The **IO Manager** asynchronously loads textures via a lock-free queue and holds
+  pointers to QueuedTexture objects until loading completes.
+
+To avoid use-after-free crashes, the engine queues objects for destruction instead
+of freeing them immediately. PDD then processes these queues at carefully chosen
+synchronization points — typically between major subsystem ticks where the engine
+can guarantee no other thread holds references to the queued objects.
+
+PDD uses a **try-lock** model: with `param_1 = 1` (non-blocking mode), it calls
+`TryEnterCriticalSection` on a global lock (`DAT_011de8e0`). If the lock is held
+(e.g., by another thread already running PDD), the entire call is skipped. This
+prevents deadlocks but means PDD may silently skip a cycle.
+
+A **reentrancy guard** (`DAT_011de958`) prevents recursive PDD calls — if PDD is
+already running, a nested call returns immediately.
+
+The **TLS deferred flag** (`_tls_index + 0x298`) controls whether objects are
+queued or destroyed immediately. When flag=1 (default), freeing an object with
+refcount=0 enqueues it for PDD. When flag=0, the object is destroyed inline.
+HeapCompact Stage 5 sets this to 0 for immediate cleanup; we must keep it at 1.
 
 ### Destruction Queues
 
@@ -388,19 +432,106 @@ point in the frame.
 Callers of `DeferredCleanup_Small` (0x00878250):
 - `FUN_004556d0`, `FUN_008782b0`, `FUN_0093cdf0`, `FUN_0093d500`, `FUN_005b6cd0`
 
-### Why We Cannot Call It From Our Hook
+### Queue Gate Function
 
-ProcessDeferredDestruction destroys Havok physics wrappers (bit 0x20). If called at
-the wrong time:
+**Address:** `0x00869180` | **Size:** 16 bytes | **Convention:** cdecl
 
-- **Pre-render:** Destroys NiNode trees -> BSTreeNode use-after-free (SpeedTree
-  has cached draw list pointers)
-- **Post-render:** AI threads may hold references to Havok heightfield shapes
-- **Any time:** Havok physics world may internally reference objects being destroyed
-  -> crash with exception code C0000417
+```c
+// Returns nonzero if the queue should be SKIPPED
+uint FUN_00869180(uint flag) {
+    return (DAT_011de804 & flag) != 0;
+}
+```
 
-The game calls it conditionally at specific frame points with specific state guards.
-Our hook does NOT call it; we rely on the game's own deferred destruction schedule.
+The global `DAT_011de804` is a bitmask. If a queue's bit is set, that queue is
+skipped during PDD. We use this to implement selective PDD by writing to
+`0x011DE804` before calling PDD, then restoring the original value after.
+
+### Queue Lock Functions
+
+Each queue has a try-lock guard (`FUN_00868250` calls `FUN_008691b0`) that
+determines whether the queue can be processed. With `param_1 = 1` (non-blocking),
+PDD calls `TryEnterCriticalSection` — if the lock is held by another thread, that
+queue is silently skipped.
+
+Queue 0x10 (forms) uses a separate lock: `FUN_0078d1f0` → `FUN_0078d200(DAT_011f4480)`.
+
+### Selective PDD: Queue Safety Analysis (from hook at 0x008705D0)
+
+Each queue was tested independently from our post-render hook position. Results:
+
+| Bit  | Queue Address  | Destructor      | Content                 | Safety     | Crash Evidence                                    |
+|------|----------------|-----------------|-------------------------|------------|---------------------------------------------------|
+| 0x10 | DAT_011de828   | Queue flush     | Pending form deletions  | **SAFE**   | No crash observed                                 |
+| 0x08 | DAT_011de808   | FUN_00418d20(1) | NiNode / BSTreeNode     | **UNSAFE** | BSTreeNode RefCount:0, SpeedTree cached draw list |
+| 0x04 | DAT_011de910   | FUN_00418e00(1) | Texture/material refs   | **UNSAFE** | QueuedTexture NULL vtable, async IO race          |
+| 0x02 | DAT_011de888   | FUN_00868ce0    | Animation/controller    | **SAFE**   | Just clears bit 0x40000000, no destruction        |
+| 0x01 | DAT_011de874   | vtable+0x10(1)  | Generic ref-counted     | **UNSAFE** | Unknown object types, caused early crash          |
+| 0x20 | DAT_011de924   | FUN_00401970    | Havok physics wrappers  | **UNSAFE** | hkBSHeightFieldShape UAF on AI thread             |
+
+### Why Each Unsafe Queue Crashes
+
+**Queue 0x08 (NiNodes/BSTreeNode):**
+SpeedTree maintains a global model cache (`BSTreeManager` at `DAT_011d5c48`) with
+persistent draw list pointers. These point to BSTreeNode objects across frames.
+Destroying a BSTreeNode via PDD leaves stale pointers in the cache → next frame's
+render dereferences freed memory → crash with `BSTreeNode RefCount: 0`.
+
+**Queue 0x20 (Havok physics wrappers):**
+AI Linear Task Threads perform raycasting via `FUN_0096c330` → `hkBSHeightFieldShape`.
+These threads run concurrently with the main thread. Destroying physics wrappers in
+PDD frees `hkBSHeightFieldShape` objects while AI threads hold live references →
+crash `EXCEPTION_ACCESS_VIOLATION` on AI thread.
+
+**Queue 0x04 (Textures/materials):**
+The game's `IOManager` loads textures asynchronously via `LockFreeQueue<IOTask>`.
+Destroying texture references in PDD invalidates objects the IO system is actively
+processing → NULL vtable call (`eip = 0x00000000`), `QueuedTexture` on stack.
+
+**Queue 0x01 (Generic ref-counted):**
+Calls `vtable+0x10(1)` (virtual destructor) on arbitrary ref-counted objects. This
+can include any NiRefObject subclass. Combined with other unsafe operations, caused
+early crashes during aggressive testing.
+
+### Current Selective PDD Strategy
+
+Skip only `0x08` (NiNode queue). This is the **minimum viable skip** that prevents
+the BSTreeNode crash while still processing physics, textures, animations, and
+forms. The broader skip mask (0x08 | 0x20 | 0x04) was tested but caused FASTER
+crashes, likely because the game's own PDD logic expects to find objects in those
+queues and crashes when they're missing from expected state.
+
+```rust
+unsafe {
+    let skip_mask = 0x011DE804 as *mut u32;
+    let original = skip_mask.read_volatile();
+    skip_mask.write_volatile(original | 0x08);  // skip NiNode queue only
+    process_deferred(1);  // non-blocking
+    skip_mask.write_volatile(original);
+}
+```
+
+### TLS Deferred Cleanup Flag
+
+**Critical:** The TLS flag at `_tls_index + 0x298` controls whether object
+destruction is immediate (flag=0) or deferred (flag=1).
+
+- **Flag = 0 (immediate):** When an object's refcount drops to 0 during
+  `FindCellToUnload`, it is destroyed immediately — including BSTreeNodes.
+  This bypasses the deferred queue entirely, so our PDD queue skip cannot
+  protect against the SpeedTree crash.
+- **Flag = 1 (deferred, default):** Objects go into deferred queues when their
+  refcount hits 0. Our selective PDD then processes all queues except 0x08.
+
+We MUST keep TLS flag at 1. Setting it to 0 was the root cause of BSTreeNode
+crashes even when queue 0x08 was skipped in PDD.
+
+### mi_collect Safety
+
+- `mi_collect(false)` — thread-local collection only. Safe from any thread.
+- `mi_collect(true)` — forces cross-thread segment purge. **UNSAFE** — races
+  with AI thread allocations, causes `EXCEPTION_ACCESS_VIOLATION` inside
+  `psycho_nvse` on AI Linear Task Thread.
 
 ---
 
@@ -571,20 +702,39 @@ the results:
   | Crash Type                 | Cause                                     | Hook Position    |
   +----------------------------+-------------------------------------------+------------------+
   | AI thread crash            | ProcessDeferredDestruction destroys       | ANY position     |
-  | (hkBSHeightFieldShape)     | heightfields while AI threads raycast     | (concurrent)     |
-  |                            | against them                              |                  |
+  | (hkBSHeightFieldShape)     | heightfields while AI threads raycast     | (PDD queue 0x20) |
+  | EXCEPTION_ACCESS_VIOLATION | against them. AI threads hold persistent  |                  |
+  |                            | references, no safe sync point exists.    |                  |
   +----------------------------+-------------------------------------------+------------------+
   | Render crash               | FindCellToUnload destroys BSTreeNodes     | Pre-render       |
   | (BSTreeNode UAF)           | while SpeedTree has cached draw list      | (0x0086F940,     |
   |                            | pointers to them                          |  0x0086FF70)     |
   +----------------------------+-------------------------------------------+------------------+
-  | Havok allocator crash      | ProcessDeferredDestruction destroys       | ANY position     |
-  | (C0000417)                 | Havok objects still internally referenced | (unconditional   |
-  |                            | by the physics world                      |  PDD call)       |
+  | SpeedTree post-render      | PDD queue 0x08 destroys BSTreeNodes.      | Post-render      |
+  | (BSTreeNode RefCount:0)    | BSTreeManager global cache holds cross-   | (PDD queue 0x08) |
+  | C0000417                   | frame references. Also triggered by TLS   |                  |
+  |                            | flag=0 causing immediate destruction      |                  |
+  |                            | during FindCellToUnload.                  |                  |
+  +----------------------------+-------------------------------------------+------------------+
+  | Texture IO race            | PDD queue 0x04 destroys texture refs      | Post-render      |
+  | (NULL vtable, eip=0)       | while IOManager async loads textures      | (PDD queue 0x04) |
+  | QueuedTexture on stack     | via LockFreeQueue<IOTask>.                |                  |
+  +----------------------------+-------------------------------------------+------------------+
+  | mi_collect(true) race      | Forced cross-thread segment purge races   | Post-render      |
+  | EXCEPTION_ACCESS_VIOLATION | with AI thread allocations. Crash inside  | (mi_collect)     |
+  | inside psycho_nvse DLL     | psycho_nvse on AI Linear Task Thread.     |                  |
   +----------------------------+-------------------------------------------+------------------+
   | OOM crash                  | 32-bit VA space exhaustion at ~1.8GB      | Post-render      |
-  | (fatal in exception        | commit. Deferred objects pile up without  | (no PDD)         |
-  | handler)                   | ProcessDeferredDestruction                |                  |
+  | (fatal in exception        | commit. Without PDD, deferred objects     | (no PDD)         |
+  | handler)                   | pile up unboundedly. With selective PDD   |                  |
+  |                            | (skip 0x08), commit climbs slowly as      |                  |
+  |                            | NiNode queue accumulates.                 |                  |
+  +----------------------------+-------------------------------------------+------------------+
+  | Aggressive cell unload     | Reducing cooldown (<500ms) or increasing  | Post-render      |
+  | AI crash                   | max cells causes AI threads to access     | (aggressive      |
+  | (hkBSHeightFieldShape)     | entities in cells being unloaded. AI      |  tuning)         |
+  |                            | threads hold refs to cell objects beyond   |                  |
+  |                            | the frame boundary.                       |                  |
   +----------------------------+-------------------------------------------+------------------+
   | Music broken               | FUN_008324e0(0) stops music system.       | N/A              |
   |                            | FUN_008324e0(1) crashes on NULL music     | (misidentified   |
@@ -640,31 +790,63 @@ have zero contention overhead.
                 |
                 +-- === PRESSURE RELIEF ===
                 |
-                +-- SetTlsCleanupFlag(0)         -- enable immediate cleanup
-                |
                 +-- Loop (up to 20 iterations):
                 |     FindCellToUnload(manager)
                 |     if returned 0: break        -- no more cells
                 |
                 +-- ProcessPendingCleanup(manager, 0)
                 |
-                +-- SetTlsCleanupFlag(1)          -- restore deferred mode
+                +-- Selective PDD:
+                |     Set DAT_011de804 |= 0x08    -- skip NiNode queue
+                |     ProcessDeferredDestruction(1) -- non-blocking
+                |     Restore DAT_011de804         -- restore original mask
                 |
                 +-- mi_collect(false)             -- nudge mimalloc to decommit
     ...
 ```
 
-### What We Do NOT Do
+**Key changes from earlier versions:**
 
-We do **NOT** call `ProcessDeferredDestruction`. The game's own deferred
-destruction runs at controlled points:
+1. **No TLS flag manipulation.** Setting `SetTlsCleanupFlag(0)` caused immediate
+   BSTreeNode destruction during `FindCellToUnload`, bypassing deferred queues.
+2. **Selective PDD with skip mask.** We call PDD but skip queue 0x08 (NiNodes)
+   via `DAT_011de804`. All other queues are processed by PDD.
+3. **Only `mi_collect(false)`.** Never `mi_collect(true)` — it races with AI threads.
+
+### Game's Own PDD Call Sites
+
+The game also calls PDD at internally-synchronized points:
 
 - Line 271-273: `FUN_008782b0` -> `ProcessDeferredDestruction(1)` (loading state)
 - Line 273: `FUN_0086f940` -> `FUN_0093bea0` -> `ProcessDeferredDestruction(1)`
   (cell transitions)
 - Line 347: `FUN_004556d0` -> `FUN_00878250` -> `ProcessDeferredDestruction(1)`
 
-Calling it ourselves risks destroying Havok objects or NiNode trees at unsafe times.
+These internal calls process ALL queues (including 0x08) because they run at
+points where the SpeedTree cache has been properly invalidated.
+
+### Remaining Issue: OOM Under Extreme Stress
+
+During extreme stress testing (flying across map at maximum speed), commit
+climbs to ~1.7-1.8GB and eventually OOMs. The NiNode queue (0x08) accumulates
+because we skip it. Cell unloading alone cannot keep up with loading rate.
+
+Observed memory behavior during stress:
+- Idle gameplay: commit stable ~760MB
+- Normal movement: ~1.0-1.1GB, pressure relief keeps up
+- Max-speed flying: commit climbs ~30-50MB per relief cycle despite unloading
+  11 cells per cycle. Eventually hits 32-bit VA limit (~1.8GB).
+
+### Tuning Experiments and Results
+
+| Config (threshold/cooldown/cells) | PDD                  | Result                        |
+|-----------------------------------|----------------------|-------------------------------|
+| 700MB / 2000ms / 20              | None                 | OOM at ~1.8GB after ~3min     |
+| 700MB / 2000ms / 20              | Skip 0x08 only       | Best stability, OOM ~1.7GB    |
+| 700MB / 2000ms / 20              | Full (all queues)    | AI thread crash (hkBSHeight)  |
+| 700MB / 2000ms / 20              | Skip 0x08+0x20+0x04  | FASTER crash (unknown cause)  |
+| 512MB / 500ms / 30               | Skip 0x08+0x20       | AI crash (too aggressive)     |
+| 512MB / 500ms / 30               | Skip 0x08+0x20+0x04  | Texture NULL vtable crash     |
 
 ### mimalloc Configuration
 
@@ -752,14 +934,35 @@ The scrap heap (per-thread bump allocator) is separately hooked:
 | `DAT_011DD5BC` | PPL task group 1 (audio streaming, NOT AI)          |
 | `DAT_011DD638` | PPL task group 2 (audio streaming, NOT AI)          |
 
+### Deferred Destruction
+
+| Address                  | Description                                    |
+|--------------------------|------------------------------------------------|
+| `DAT_011DE804`           | PDD queue skip bitmask (bit set = queue skip)  |
+| `DAT_011DE808`           | PDD queue: NiNode / BSTreeNode (bit 0x08)      |
+| `DAT_011DE828`           | PDD queue: Pending form deletions (bit 0x10)   |
+| `DAT_011DE874`           | PDD queue: Generic ref-counted (bit 0x01)      |
+| `DAT_011DE888`           | PDD queue: Animation/controller (bit 0x02)     |
+| `DAT_011DE910`           | PDD queue: Texture/material refs (bit 0x04)    |
+| `DAT_011DE924`           | PDD queue: Havok physics wrappers (bit 0x20)   |
+| `DAT_011DE958`           | PDD reentrancy guard flag                      |
+
+### SpeedTree
+
+| Address                  | Description                                    |
+|--------------------------|------------------------------------------------|
+| `DAT_011D5C48`           | BSTreeManager singleton pointer                |
+
 ### Synchronization
 
 | Address                  | Description                                    |
 |--------------------------|------------------------------------------------|
 | `DAT_011DE70C`           | HeapCompact retry counter                      |
+| `DAT_011DE8E0`           | PDD critical section (lock object)             |
 | `DAT_011DFA18`           | AI frame dispatch flag                         |
 | `DAT_011DFA19`           | AI frame active flag                           |
 | `DAT_011F11A0`           | Global lock for deferred destruction           |
+| `DAT_011F4480`           | Queue 0x10 lock (form deletions)               |
 | `_tls_index + 0x298`     | TLS deferred cleanup flag (per-thread)         |
 | `_tls_index + 0x2B4`     | TLS per-thread allocator pool index            |
 
@@ -790,6 +993,7 @@ The scrap heap (per-thread bump allocator) is separately hooked:
 |--------------|-----------------------------|------------|------------|-----------------------------|
 | `0x00866A90` | HeapCompact                 | 602 bytes  | thiscall   | Multi-stage state machine   |
 | `0x00868D70` | ProcessDeferredDestruction  | 1037 bytes | cdecl      | Batch object destructor     |
+| `0x00869180` | PDD_QueueGateCheck          | 16 bytes   | cdecl      | Check DAT_011de804 skip mask|
 | `0x00869190` | SetTlsCleanupFlag          | 29 bytes   | cdecl      | Sets TLS[0x298]             |
 | `0x00453A80` | FindCellToUnload            | 824 bytes  | fastcall   | Cell eviction               |
 | `0x00452490` | ProcessPendingCleanup       | 85 bytes   | thiscall   | Flush cleanup queue         |
@@ -855,6 +1059,15 @@ The scrap heap (per-thread bump allocator) is separately hooked:
 
 ### PPL Task Group Functions (Audio)
 
+PPL (Parallel Patterns Library) is Microsoft's C++ concurrency framework, part of
+the MSVC Concurrency Runtime. FNV uses `Concurrency::task_group` objects for audio
+streaming work — queuing decode/playback tasks that run on the CRT's thread pool.
+
+**These are NOT related to AI threads.** AI coordination uses a completely separate
+mechanism (Windows Events + Semaphores, see Section 4). This distinction matters
+because draining PPL task groups (via `TaskGroupDrain`/`TaskGroupWait`) only
+affects audio tasks. It does NOT pause or synchronize AI Linear Task Threads.
+
 | Address      | Name                  | Size      | Convention | Description                      |
 |--------------|-----------------------|-----------|------------|----------------------------------|
 | `0x00AD88F0` | TaskGroupDrain        | 51 bytes  | fastcall   | Drain PPL task group             |
@@ -869,6 +1082,35 @@ The scrap heap (per-thread bump allocator) is separately hooked:
 | `0x00AA7290` | DecrementArenaRef     | 110 bytes | cdecl      | Arena reference counting         |
 | `0x00AA7300` | ReleaseArenaByPtr     | 106 bytes | fastcall   | Release arena by pointer         |
 | `0x00AA68A0` | SBM_ResetStats        | 125 bytes | —          | Calls GameHeap::Free on pools    |
+
+### SpeedTree / BSTreeManager
+
+| Address      | Name                  | Size      | Convention | Description                      |
+|--------------|-----------------------|-----------|------------|----------------------------------|
+| `0x0043DA00` | TreeMgr_AddTree       | 149 bytes | fastcall   | Add tree to BSTreeManager        |
+| `0x0043DAC0` | TreeMgr_RemoveOnState | 53 bytes  | thiscall   | Remove tree if state > 3         |
+| `0x00664840` | TreeMgr_GetOrCreate   | 37 bytes  | cdecl      | Lazy-init BSTreeManager          |
+| `0x00664870` | TreeMgr_Create        | 199 bytes | cdecl      | Allocate + construct manager     |
+| `0x00664940` | TreeMgr_Destroy       | 71 bytes  | —          | Cleanup + set singleton=NULL     |
+| `0x00664990` | TreeMgr_Cleanup       | 44 bytes  | thiscall   | Internal cleanup via FUN_00664740|
+| `0x00664F50` | TreeMgr_FindOrCreate  | 874 bytes | thiscall   | Find/create tree by reference    |
+| `0x00665B80` | TreeMgr_RemoveEntry   | 95 bytes  | thiscall   | Remove entry from map            |
+| `0x00665BE0` | TreeMgr_RemoveByKey   | 99 bytes  | thiscall   | Remove from treeNodesMap by key  |
+| `0x00666650` | BSTreeModel_Ctor      | 372 bytes | —          | BSTreeModel constructor          |
+| `0x00666800` | BSTreeModel_Init      | 261 bytes | —          | BSTreeModel initialization       |
+| `0x0066B120` | BSTreeNode_Ctor       | 1161 bytes| —          | BSTreeNode constructor/update    |
+| `0x0066B6C0` | BSTreeNode_Init       | 264 bytes | —          | BSTreeNode setup                 |
+
+### PDD Queue Destructors
+
+| Address      | Name                  | Size      | Convention | Queue | Description                |
+|--------------|-----------------------|-----------|------------|-------|----------------------------|
+| `0x00418D20` | NiNode_Release        | 44 bytes  | thiscall   | 0x08  | NiRefObject release+free   |
+| `0x00418E00` | Texture_Release       | 44 bytes  | thiscall   | 0x04  | Texture/material release   |
+| `0x00868CE0` | Anim_ClearFlag        | 39 bytes  | fastcall   | 0x02  | Clear bit 0x40000000       |
+| `0x00401970` | Havok_Release         | —         | —          | 0x20  | Havok wrapper release      |
+| `0x00868250` | PDD_TryLock           | 21 bytes  | fastcall   | 0x08/04/01 | Try-lock for queue     |
+| `0x0078D1F0` | PDD_FormLock          | 15 bytes  | —          | 0x10  | Lock for form queue        |
 
 ### Misc Utilities
 
@@ -916,6 +1158,8 @@ All scripts are located in `analysis/ghidra/scripts/`. Analysis outputs are in
 | `find_deferred_safe_point.txt` | Safe point analysis                                 |
 | `safe_hook_point.txt`          | Hook point decompilation                            |
 | `havok_direct.txt`             | Havok/music functions                               |
+| `speedtree_cache.txt`          | BSTreeManager, PDD queues, gate function, locks     |
+| `speedtree_cache2.txt`         | Queue gate, destructors, tree manager CRUD, locks   |
 
 ---
 
@@ -944,17 +1188,16 @@ code accesses `hkBSHeightFieldShape` objects directly from loaded cells without 
 through the game allocator. This means an allocation-barrier approach (blocking AI
 threads when they try to allocate during pressure relief) cannot work.
 
-### 4. ProcessDeferredDestruction Cannot Be Safely Called From Any Hook Position
+### 4. Selective PDD Is Possible via DAT_011de804 Skip Mask
 
-| Position    | Problem                                                        |
-|-------------|----------------------------------------------------------------|
-| Pre-render  | BSTreeNode use-after-free (SpeedTree cached draw list pointers)|
-| Post-render | AI threads may hold references to Havok heightfield shapes    |
-| Pre-AI      | Same as pre-render                                             |
-| Any         | Havok world may internally reference objects being destroyed   |
+Full PDD from our hook is unsafe, but **selective PDD** works by writing to the
+skip mask at `DAT_011de804` before calling PDD. The gate function `FUN_00869180(flag)`
+checks `(DAT_011de804 & flag) != 0` to skip queues. Currently we skip only 0x08
+(NiNode queue) as the minimum viable skip.
 
-The game calls PDD conditionally at specific points with specific state guards. Our
-hook relies on the game's own PDD schedule.
+Skipping additional queues (0x20, 0x04) was tested but caused FASTER crashes.
+The hypothesis is that the game's internal state management expects objects to be
+processed from those queues, and leaving them orphaned creates inconsistencies.
 
 ### 5. FindCellToUnload Is Safe Post-Render
 
@@ -964,6 +1207,10 @@ FindCellToUnload works safely at our hook position (post-render, line 486) becau
 - Physics objects are queued for deferred destruction, not immediately removed from
   the Havok world
 - AI threads do not directly reference cell array entries by index
+
+**However:** Too-aggressive cell unloading (cooldown < 2000ms, > 20 cells/cycle)
+causes AI thread crashes. AI threads hold references to entities in cells beyond
+the frame boundary — not just heightfields, but placed objects, navmesh data, etc.
 
 ### 6. PPL Task Groups in FUN_008324e0 Are Audio, Not AI
 
@@ -981,6 +1228,111 @@ All fallible operations must use graceful error handling (match, if-let, unwrap_
 A single `AtomicU32::fetch_add(1, Relaxed)` on every allocation causes 5-7 FPS
 regression due to cache line bouncing between CPU cores. The solution is thread-local
 counters that are only checked periodically, with zero cross-core contention.
+
+### 9. TLS Cleanup Flag Controls Immediate vs Deferred Destruction
+
+The TLS flag at `_tls_index + 0x298` is a per-thread toggle:
+- **Flag = 0:** Objects destroyed immediately when refcount hits 0
+- **Flag = 1:** Objects queued into deferred destruction lists
+
+Setting flag to 0 during `FindCellToUnload` causes BSTreeNodes to be freed
+immediately (bypassing the deferred queue), which makes our PDD skip mask
+useless. The SpeedTree cache still holds pointers to the now-freed nodes.
+**Always keep TLS flag at 1 (default).**
+
+### 10. mi_collect(true) Is Thread-Unsafe
+
+`mi_collect(true)` forces mimalloc to purge segments across ALL threads. If an
+AI thread is actively allocating from a segment being purged by the main thread,
+the result is a use-after-free inside mimalloc itself. Crash manifests as
+`EXCEPTION_ACCESS_VIOLATION` inside `psycho_nvse` DLL on AI thread stack.
+**Only use `mi_collect(false)` (thread-local collection).**
+
+### 11. BSTreeManager Global Cache Holds Cross-Frame References
+
+The `BSTreeManager` singleton at `DAT_011d5c48` maintains:
+- `treeModelsMap` (offset 0x00): `TESObjectTREE*` → `BSTreeModel*`
+- `treeNodesMap` (offset 0x1C): `TESObjectREFR*` → `BSTreeNode*`
+
+Key functions:
+- `FUN_00664f50`: Find/create tree in manager (874 bytes)
+- `FUN_00665b80`: Remove tree entry (95 bytes)
+- `FUN_00665be0`: Remove by key from treeNodesMap (99 bytes)
+- `FUN_00664940`: Full cleanup — calls `FUN_00664990(1)` then sets singleton to NULL
+- `FUN_0043dac0`: Removes tree from manager when state > 3 (being unloaded)
+
+The SpeedTree render cache is NOT rebuilt every frame. BSTreeNode pointers persist
+across frames in the model cache. Destroying a BSTreeNode without first removing
+it from the cache leaves stale pointers.
+
+### 12. Skipping More PDD Queues Makes Things Worse
+
+Counter-intuitively, skipping more queues (0x08 | 0x20 | 0x04) caused FASTER
+crashes than skipping only 0x08. The game's internal state management likely
+expects that PDD eventually processes all queues. Orphaning objects in multiple
+queues creates cascading inconsistencies (e.g., a form references a texture
+that should have been freed, or a physics wrapper references a collision shape
+that's in a stale state).
+
+---
+
+## 15. SpeedTree Cache Analysis
+
+### BSTreeManager Singleton
+
+**Address:** `DAT_011d5c48` | **Size:** 0x20 bytes
+
+The BSTreeManager owns all active SpeedTree vegetation instances. It is created
+lazily by `FUN_00664870` and destroyed by `FUN_00664940`.
+
+### Functions Referencing BSTreeManager
+
+| Address      | Name / Action                  | Size      | Description                           |
+|--------------|--------------------------------|-----------|---------------------------------------|
+| `0x0043DA00` | Add tree to manager            | 149 bytes | Lock → find/create → insert           |
+| `0x0043DAC0` | Remove tree on state change    | 53 bytes  | If state > 3: remove from treeNodesMap|
+| `0x00664840` | Get/create manager             | 37 bytes  | Lazy init, returns DAT_011d5c48       |
+| `0x00664870` | Create manager                 | 199 bytes | Allocates 0x20 bytes, constructs      |
+| `0x00664940` | Destroy manager                | 71 bytes  | Calls cleanup(1), sets singleton=NULL |
+| `0x00664990` | BSTreeManager cleanup          | 44 bytes  | Calls FUN_00664740, optionally frees  |
+
+### BSTreeModel / BSTreeNode Vtable Functions
+
+| Address      | Vtable         | Size       | Description                             |
+|--------------|----------------|------------|-----------------------------------------|
+| `0x00666650` | BSTreeModel    | 372 bytes  | BSTreeModel constructor                 |
+| `0x00666800` | BSTreeModel    | 261 bytes  | BSTreeModel setup / initialization      |
+| `0x0066B120` | BSTreeNode     | 1161 bytes | BSTreeNode constructor / update         |
+| `0x0066B6C0` | BSTreeNode     | 264 bytes  | BSTreeNode setup                        |
+
+### Pre-Destruction Setup (FUN_00878160)
+
+**Address:** `0x00878160` | Called before PDD during cell transitions.
+
+```c
+void FUN_00878160(int param_1, char param_2, char param_3, char param_4) {
+    FUN_00c3e310(DAT_01202d98);          // Havok world lock?
+    // ... state setup ...
+    FUN_008781e0(0x7fffffff);            // Set DAT_011a95fc = MAX
+    FUN_00703980();                       // Pre-destruction call
+}
+```
+
+`FUN_00703980` calls `FUN_007160b0` conditionally — this may be the scene graph
+invalidation that makes queue 0x08 safe during cell transitions. We have NOT
+been able to safely call this from our hook position.
+
+### Open Problem: NiNode Queue Accumulation
+
+Without processing queue 0x08, NiNode/BSTreeNode objects accumulate in
+`DAT_011de808` indefinitely. During sustained cell loading (stress test),
+this is the primary source of memory growth leading to OOM.
+
+Potential solutions (not yet tested):
+1. Find and call the SpeedTree cache invalidation before processing queue 0x08
+2. Manually remove BSTreeNodes from `BSTreeManager` maps before PDD
+3. Hook BSTreeNode destruction to update the cache atomically
+4. Accept OOM under extreme stress and focus on normal gameplay stability
 
 ---
 
