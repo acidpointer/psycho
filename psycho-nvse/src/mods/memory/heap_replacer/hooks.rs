@@ -109,10 +109,10 @@ pub(super) unsafe extern "C" fn hook_free(raw_ptr: *mut c_void) {
 }
 
 // ===========================================================================
-//   GAME HEAP — Complete ownership via raw mimalloc
+//   GAME HEAP -- Complete ownership via raw mimalloc
 //
 //   ALL allocations: mi_malloc_aligned(size, 16)
-//   ALL frees: mi_is_in_heap_region → mi_free, else HeapValidate (pre-hook)
+//   ALL frees: mi_is_in_heap_region -> mi_free, else HeapValidate (pre-hook)
 //   No original GameHeap trampoline. No SBM. No pool. No overhead.
 //
 //   Pre-hook pointers (allocated before DllMain) are a finite, shrinking set.
@@ -123,38 +123,20 @@ pub(super) unsafe extern "C" fn hook_free(raw_ptr: *mut c_void) {
 const GHEAP_ALIGN: usize = 16;
 
 /// GameHeap singleton (DAT_011f6238 in Ghidra).
-/// Used ONLY for pre-hook pointer free/msize via original trampoline.
-/// The original GameHeap::Free knows about SBM arenas; HeapValidate does NOT.
 const GHEAP_SINGLETON: usize = 0x011F6238;
 
 pub(super) unsafe extern "thiscall" fn hook_gheap_alloc(
     _this: *mut c_void,
     size: usize,
 ) -> *mut c_void {
-    // Fast path: mimalloc succeeds (99.99% of calls)
     let ptr = unsafe { mi_malloc_aligned(size, GHEAP_ALIGN) };
     if !ptr.is_null() {
         return ptr;
     }
 
-    // OOM: collect mimalloc garbage and retry
+    // OOM: collect and retry
     unsafe { mi_collect(true) };
-    let ptr = unsafe { mi_malloc_aligned(size, GHEAP_ALIGN) };
-    if !ptr.is_null() {
-        return ptr;
-    }
-
-    // Still OOM: fall back to original GameHeap::Allocate.
-    // This triggers the game's heap compaction loop (FUN_00866A90) which
-    // unloads cells, flushes texture caches, purges render targets — the
-    // game's built-in response to memory pressure. Without this, the game
-    // loads content faster than it frees during rapid cell transitions,
-    // and commit grows monotonically until OOM.
-    if let Ok(orig_alloc) = super::replacer::GHEAP_ALLOC_HOOK.original() {
-        return unsafe { orig_alloc(GHEAP_SINGLETON as *mut c_void, size) };
-    }
-
-    null_mut()
+    unsafe { mi_malloc_aligned(size, GHEAP_ALIGN) }
 }
 
 pub(super) unsafe extern "thiscall" fn hook_gheap_free(_this: *mut c_void, ptr: *mut c_void) {

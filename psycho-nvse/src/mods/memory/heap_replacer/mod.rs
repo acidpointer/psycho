@@ -6,5 +6,4 @@ pub mod heap_validate;
 mod hooks;
 mod types;
 pub mod replacer;
-pub mod sbm;
 pub mod sbm2;

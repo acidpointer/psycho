@@ -30,9 +30,9 @@ pub fn configure_mimalloc() {
         // GameHeap hooks). Tuned for 32-bit FNV with ~4GB VA (LAA).
         // ---------------------------------------------------------------
 
-        // PRE-RESERVE ARENA — try sizes from largest to smallest.
+        // PRE-RESERVE ARENA -- try sizes from largest to smallest.
         // Uses mi_reserve_os_memory_ex for explicit error reporting.
-        // commit=false → demand-page (zero physical RAM upfront).
+        // commit=false -> demand-page (zero physical RAM upfront).
         let arena_sizes = [512 * MB, 384 * MB, 256 * MB, 128 * MB];
         let mut reserved = 0usize;
         for &size in &arena_sizes {
@@ -65,22 +65,22 @@ pub fn configure_mimalloc() {
         // PURGE DELAY = 0 (immediate decommit)
         //
         // Earlier purge_delay=0 caused stutters from VirtualAlloc churn.
-        // But that was WITHOUT a pre-reserved arena — mimalloc was creating
+        // But that was WITHOUT a pre-reserved arena -- mimalloc was creating
         // NEW arenas via MEM_RESERVE (expensive kernel call).
         //
         // Now with 512MB pre-reserved arena: commit/decommit within the
-        // reservation is just page table flips — very cheap. No new VAs.
+        // reservation is just page table flips -- very cheap. No new VAs.
         // Immediate decommit prevents commit from growing monotonically
         // during rapid cell transitions (the 14MB/sec leak with delay=1000).
         mi_option_set(mi_option_purge_delay, 0);
         log::info!("[MIMALLOC] purge_delay = 0 (immediate, cheap within pre-reserved arena)");
 
-        // Decommit on purge (not full release) — keeps VA reservation.
+        // Decommit on purge (not full release) -- keeps VA reservation.
         mi_option_set(mi_option_purge_decommits, 1);
 
         // RETRY ON OOM = 0 (disabled)
         //
-        // Default: 400ms. When OOM, mimalloc retries for 400ms — that's a
+        // Default: 400ms. When OOM, mimalloc retries for 400ms -- that's a
         // 400ms freeze on the calling thread! The game runs at 60fps
         // (16ms/frame). A 400ms stall = 25 dropped frames = "crazy stutters".
         // Disable: if we can't allocate, fail immediately. The hook has its
@@ -95,10 +95,10 @@ pub fn configure_mimalloc() {
         // Arena purge mult: with 100ms delay, arena purge = 200ms.
         mi_option_set(mi_option_arena_purge_mult, 2);
 
-        // Don't retain full pages — saves memory on 32-bit.
+        // Don't retain full pages -- saves memory on 32-bit.
         mi_option_set(mi_option_page_full_retain, 0);
 
-        // Bulk-release on exit — avoid slow teardown.
+        // Bulk-release on exit -- avoid slow teardown.
         mi_option_set_enabled(mi_option_destroy_on_exit, true);
 
         log::info!("[MIMALLOC] Configuration complete (reserved={}MB)", reserved / MB);

@@ -107,6 +107,8 @@ impl Runtime {
         let gc_queue = self.gc_queue.clone();
 
         let gc_handle = thread::spawn(move || {
+            use libmimalloc::{mi_collect, process_info::MiMallocProcessInfo};
+
             loop {
                 if !gc_run.load(Ordering::Acquire) {
                     return;
@@ -114,9 +116,21 @@ impl Runtime {
 
                 thread::sleep(GC_DURATION);
 
+                // --- mimalloc process stats ---
+                let info = MiMallocProcessInfo::get();
+                log::info!(
+                    "[MEM] RSS: {} | Peak: {} | Commit: {} | PeakCommit: {} | Faults: {:.1}/s | CPU eff: {:.0}%",
+                    info.memory_usage_human(),
+                    info.peak_memory_usage_human(),
+                    info.virtual_memory_usage_human(),
+                    libpsycho::common::helpers::format_bytes(info.get_peak_commit()),
+                    info.page_fault_rate_per_second(),
+                    info.cpu_efficiency_percent(),
+                );
+
+                // --- sbm2 stats ---
                 let curr_mem = stats.get_total_alloc_mem();
                 let heaps_len = pool.len();
-
                 log::info!(
                     "[SBM] Memory: {} MB ({} KB, {} B); Heaps: {}",
                     curr_mem / 1024 / 1024,
@@ -125,10 +139,10 @@ impl Runtime {
                     heaps_len
                 );
 
+                // --- sbm2 GC: purge idle regions ---
                 while let Some(sheap_id) = gc_queue.pop() {
                     if let Some(heap) = pool.get(&sheap_id) {
                         let purged = heap.checked_purge();
-
                         if purged > 0 {
                             log::debug!(
                                 "[GC] sheap_id={:#x}: purged {} regions",
@@ -138,6 +152,9 @@ impl Runtime {
                         }
                     }
                 }
+
+                // --- mimalloc GC: reclaim empty segments + abandoned heaps ---
+                unsafe { mi_collect(true) };
             }
         });
 

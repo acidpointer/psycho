@@ -1,7 +1,7 @@
 //! Modern RNG replacement for Fallout: New Vegas.
 //!
 //! The game uses a 20+ year old Mersenne Twister with a 2.5KB state array.
-//! This replaces it with SmallRng (WyRand) — tiny state, extremely fast,
+//! This replaces it with SmallRng (WyRand) -- tiny state, extremely fast,
 //! and statistically better for game use cases.
 
 use std::cell::RefCell;

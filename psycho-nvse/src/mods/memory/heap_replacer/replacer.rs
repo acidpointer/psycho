@@ -1,10 +1,9 @@
-//! Heap replacer mod
+//! Heap replacer: replaces GameHeap + CRT + ScrapHeap with mimalloc.
 
 use libc::c_void;
 use std::sync::LazyLock;
 
-use libpsycho::os::windows::winapi::{patch_bytes, patch_nop_call};
-use libpsycho::os::windows::winapi::{patch_memory_nop, patch_ret};
+use libpsycho::os::windows::winapi::{patch_nop_call, patch_ret};
 use libpsycho::os::windows::{
     hook::inline::inlinehook::InlineHookContainer,
     types::{CallocFn, FreeFn, MallocFn, MsizeFn, ReallocFn, RecallocFn},
@@ -110,52 +109,52 @@ pub fn install_game_heap_hooks() -> anyhow::Result<()> {
     //
     // With mimalloc handling ALL GameHeap allocations, the SBM is completely
     // bypassed for new allocations. Its maintenance routines now operate on
-    // stale pre-hook arena state — purging, cleanup, and refcount ops on
+    // stale pre-hook arena state -- purging, cleanup, and refcount ops on
     // arenas that mimalloc doesn't manage. This causes crashes and wastes CPU.
     //
     // NOTE: Earlier testing found 0x00AA7030/0x00AA5C80 RET patches caused
-    // "heap fills to 98%" — but that was when we USED the original GameHeap.
+    // "heap fills to 98%" -- but that was when we USED the original GameHeap.
     // Now mimalloc owns everything, so there's nothing to compact. Disabling
     // these prevents stale arena corruption.
     unsafe {
         // --- RET patches: SBM functions return immediately ---
 
-        // SBM statistics/global state reset — just resets counters
+        // SBM statistics/global state reset -- just resets counters
         patch_ret(0x00AA6840 as *mut c_void)?;
         // --- RET patches: disable SBM functions that are pure overhead ---
-        // Statistics/global state reset — just resets counters
+        // Statistics/global state reset -- just resets counters
         patch_ret(0x00AA6840 as *mut c_void)?;
-        // SBM config table init — unused with mimalloc ownership
+        // SBM config table init -- unused with mimalloc ownership
         patch_ret(0x00866770 as *mut c_void)?;
         // SBM-related init
         patch_ret(0x00866E00 as *mut c_void)?;
-        // Get SBM singleton — callers are sheap ops, all hooked by our Runtime
+        // Get SBM singleton -- callers are sheap ops, all hooked by our Runtime
         patch_ret(0x00866D10 as *mut c_void)?;
-        // GlobalCleanup — shutdown only, process frees everything
+        // GlobalCleanup -- shutdown only, process frees everything
         patch_ret(0x00AA7030 as *mut c_void)?;
-        // DeallocateAllArenas — bulk deallocation, only on shutdown
+        // DeallocateAllArenas -- bulk deallocation, only on shutdown
         patch_ret(0x00AA5C80 as *mut c_void)?;
-        // Sheap SBM cleanup — sheap fully hooked via Runtime
+        // Sheap SBM cleanup -- sheap fully hooked via Runtime
         patch_ret(0x00AA58D0 as *mut c_void)?;
 
         // --- KEEP ALIVE: SBM arena cleanup functions ---
-        // Pre-hook allocations are freed via original trampoline → SBM arenas
+        // Pre-hook allocations are freed via original trampoline -> SBM arenas
         // empty out over time. These functions MUST work so empty arenas get
         // released back to the OS, freeing committed memory.
         //
         // NOT patched (left functional):
-        //   0x00AA6F90 — PurgeUnusedArenas (frees empty arenas)
-        //   0x00AA7290 — DecrementArenaRef (tracks arena occupancy)
-        //   0x00AA7300 — ReleaseArenaByPtr (releases individual arenas)
+        //   0x00AA6F90 -- PurgeUnusedArenas (frees empty arenas)
+        //   0x00AA7290 -- DecrementArenaRef (tracks arena occupancy)
+        //   0x00AA7300 -- ReleaseArenaByPtr (releases individual arenas)
 
         // --- Main loop: KEEP SBM maintenance running ---
         // The main loop maintenance block calls PurgeUnusedArenas.
         // We NEED this to run so empty SBM arenas are periodically freed.
-        // Previously we JMP'd over it (0x0086EED4) — now we let it execute.
+        // Previously we JMP'd over it (0x0086EED4) -- now we let it execute.
 
-        // Heap construction double-check — safe to skip
+        // Heap construction double-check -- safe to skip
         patch_nop_call(0x0086C56F as *mut c_void)?;
-        // CRT heap init calls — safe to skip
+        // CRT heap init calls -- safe to skip
         patch_nop_call(0x00C42EB1 as *mut c_void)?;
         patch_nop_call(0x00EC1701 as *mut c_void)?;
 
@@ -285,36 +284,6 @@ pub fn install_game_heap_hooks() -> anyhow::Result<()> {
     }
 
     log::info!("[HEAP REPLACER] All hooks and patches applied successfully");
-
-    // Spawn background thread to log memory stats every 30 seconds.
-    // This gives us clear visibility into memory growth patterns.
-    std::thread::Builder::new()
-        .name("psycho-mem-stats".into())
-        .spawn(|| {
-            use libmimalloc::{mi_collect, process_info::MiMallocProcessInfo};
-
-            // Wait for game to fully load before first report
-            std::thread::sleep(std::time::Duration::from_secs(30));
-
-            loop {
-                let info = MiMallocProcessInfo::get();
-                log::info!(
-                    "[MEM] RSS: {} | Peak: {} | Commit: {} | PeakCommit: {} | Faults: {:.1}/s | CPU eff: {:.0}%",
-                    info.memory_usage_human(),
-                    info.peak_memory_usage_human(),
-                    info.virtual_memory_usage_human(),
-                    libpsycho::common::helpers::format_bytes(info.get_peak_commit()),
-                    info.page_fault_rate_per_second(),
-                    info.cpu_efficiency_percent(),
-                );
-                // Force mimalloc to reclaim empty segments and abandoned heaps.
-                // true = aggressive collection (walks all segments).
-                unsafe { mi_collect(true) };
-
-                std::thread::sleep(std::time::Duration::from_secs(5));
-            }
-        })
-        .ok();
 
     Ok(())
 }
