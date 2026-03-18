@@ -1,0 +1,355 @@
+======================================================================
+SpeedTree Cache Analysis
+======================================================================
+
+======================================================================
+PART 1: Functions referencing BSTreeManager singleton (0x11D5C48)
+======================================================================
+Found 5 functions referencing BSTreeManager singleton:
+
+  0x0043DA00  FUN_0043da00  (149 bytes)
+  0x0043DAC0  FUN_0043dac0  (53 bytes)
+  0x00664840  FUN_00664840  (37 bytes)
+  0x00664870  FUN_00664870  (199 bytes)
+  0x00664940  FUN_00664940  (71 bytes)
+
+======================================================================
+PART 2: Decompilation of BSTreeManager-referencing functions
+======================================================================
+
+------------------------------------------------------------
+Function: FUN_0043da00 @ 0x0043DA00 (149 bytes)
+------------------------------------------------------------
+
+void __fastcall FUN_0043da00(int param_1)
+
+{
+  undefined4 *puVar1;
+  int *unaff_FS_OFFSET;
+  undefined4 local_14;
+  int local_10;
+  undefined1 *puStack_c;
+  undefined4 local_8;
+  
+  local_8 = 0xffffffff;
+  puStack_c = &LAB_00ef9b98;
+  local_10 = *unaff_FS_OFFSET;
+  *unaff_FS_OFFSET = (int)&local_10;
+  FUN_00404eb0(&local_14,0x1e);
+  local_8 = 0;
+  puVar1 = FUN_00664f50(DAT_011d5c48,*(int *)(param_1 + 0x48),*(int *)(param_1 + 0x4c));
+  FUN_00665b80(DAT_011d5c48,*(undefined4 *)(param_1 + 0x48),puVar1);
+  local_8 = 0xffffffff;
+  FUN_00404ee0(&local_14);
+  *unaff_FS_OFFSET = local_10;
+  return;
+}
+
+
+
+------------------------------------------------------------
+Function: FUN_0043dac0 @ 0x0043DAC0 (53 bytes)
+------------------------------------------------------------
+
+void __thiscall FUN_0043dac0(void *this,int param_1,int param_2)
+
+{
+  FUN_00c3cb70(this,param_1,param_2);
+  if (3 < param_1) {
+    FUN_00665be0(DAT_011d5c48,*(undefined4 *)((int)this + 0x48));
+  }
+  return;
+}
+
+
+
+------------------------------------------------------------
+Function: FUN_00664840 @ 0x00664840 (37 bytes)
+------------------------------------------------------------
+
+int __cdecl FUN_00664840(char param_1)
+
+{
+  if ((DAT_011d5c48 == 0) && (param_1 != '\0')) {
+    FUN_00664870('\0');
+  }
+  return DAT_011d5c48;
+}
+
+
+
+------------------------------------------------------------
+Function: FUN_00664870 @ 0x00664870 (199 bytes)
+------------------------------------------------------------
+
+void __cdecl FUN_00664870(char param_1)
+
+{
+  undefined4 *puVar1;
+  int *unaff_FS_OFFSET;
+  undefined4 *local_20;
+  undefined4 local_14;
+  int local_10;
+  undefined1 *puStack_c;
+  undefined4 local_8;
+  
+  local_8 = 0xffffffff;
+  puStack_c = &LAB_00eee943;
+  local_10 = *unaff_FS_OFFSET;
+  *unaff_FS_OFFSET = (int)&local_10;
+  FUN_00404eb0(&local_14,0x1f);
+  local_8 = 0;
+  if (DAT_011d5c48 != (undefined4 *)0x0) {
+    if (param_1 == '\0') {
+      local_8 = 0xffffffff;
+      FUN_00404ee0(&local_14);
+      goto LAB_00664928;
+    }
+    FUN_00664940();
+  }
+  puVar1 = (undefined4 *)FUN_00401000(0x20);
+  local_8 = CONCAT31(local_8._1_3_,1);
+  if (puVar1 == (undefined4 *)0x0) {
+    local_20 = (undefined4 *)0x0;
+  }
+  else {
+    local_20 = FUN_00664440(puVar1);
+  }
+  DAT_011d5c48 = local_20;
+  local_8 = 0xffffffff;
+  FUN_00404ee0(&local_14);
+LAB_00664928:
+  *unaff_FS_OFFSET = local_10;
+  return;
+}
+
+
+
+------------------------------------------------------------
+Function: FUN_00664940 @ 0x00664940 (71 bytes)
+------------------------------------------------------------
+
+void FUN_00664940(void)
+
+{
+  if (DAT_011d5c48 != (void *)0x0) {
+    if (DAT_011d5c48 != (void *)0x0) {
+      FUN_00664990(DAT_011d5c48,1);
+    }
+    DAT_011d5c48 = (void *)0x0;
+  }
+  return;
+}
+
+
+
+======================================================================
+PART 3: Functions referencing BSTreeModel vtable (0x01066768)
+======================================================================
+Found 2 functions referencing BSTreeModel vtable:
+  0x00666650  FUN_00666650  (372 bytes)
+  0x00666800  FUN_00666800  (261 bytes)
+
+======================================================================
+PART 4: Functions referencing BSTreeNode vtable (0x010668E4)
+======================================================================
+Found 2 functions referencing BSTreeNode vtable:
+  0x0066B120  FUN_0066b120  (1161 bytes)
+  0x0066B6C0  FUN_0066b6c0  (264 bytes)
+
+======================================================================
+PART 5: ProcessDeferredDestruction (0x00868D70) full decompilation
+======================================================================
+
+void __cdecl FUN_00868d70(char param_1)
+
+{
+  undefined1 uVar1;
+  char cVar2;
+  undefined2 uVar3;
+  uint uVar4;
+  undefined2 extraout_var;
+  undefined4 *puVar5;
+  undefined2 extraout_var_00;
+  undefined2 extraout_var_01;
+  int iVar6;
+  int *piVar7;
+  undefined2 extraout_var_02;
+  int unaff_FS_OFFSET;
+  uint local_2c;
+  uint local_24;
+  uint local_1c;
+  uint local_10;
+  char local_5;
+  
+  if (DAT_011de958 == '\0') {
+    local_5 = '\x01';
+    if (param_1 == '\0') {
+      FUN_00867f50();
+    }
+    else {
+      local_5 = FUN_00867f70();
+    }
+    if (local_5 != '\0') {
+      DAT_011de958 = 1;
+      uVar1 = *(undefined1 *)(*(int *)(*(int *)(unaff_FS_OFFSET + 0x2c) + _tls_index * 4) + 0x298);
+      *(undefined1 *)(*(int *)(*(int *)(unaff_FS_OFFSET + 0x2c) + _tls_index * 4) + 0x298) = 0;
+      uVar4 = FUN_00869180(0x10);
+      if (((uVar4 & 0xff) == 0) && (cVar2 = FUN_0078d1f0(), cVar2 != '\0')) {
+        FUN_004dffa0(0x11de828);
+        FUN_00452530();
+      }
+      uVar4 = FUN_00869180(8);
+      if (((uVar4 & 0xff) == 0) && (cVar2 = FUN_00868250(DAT_011c3b3c), cVar2 != '\0')) {
+        uVar3 = FUN_00658930(0x11de808);
+        for (local_10 = 0; local_10 < CONCAT22(extraout_var,uVar3); local_10 = local_10 + 1) {
+          puVar5 = (undefined4 *)FUN_00877a30(&DAT_011de808,local_10);
+          if ((void *)*puVar5 != (void *)0x0) {
+            FUN_00418d20((void *)*puVar5,1);
+          }
+        }
+        FUN_005e03d0(0x11de808);
+        FUN_004aaf10(DAT_011c3b3c);
+      }
+      uVar4 = FUN_00869180(4);
+      if (((uVar4 & 0xff) == 0) && (cVar2 = FUN_00868250(DAT_011c3b3c), cVar2 != '\0')) {
+        uVar3 = FUN_00658930(0x11de910);
+        for (local_1c = 0; local_1c < CONCAT22(extraout_var_00,uVar3); local_1c = local_1c + 1) {
+          puVar5 = (undefined4 *)FUN_00877a30(&DAT_011de910,local_1c);
+          if ((void *)*puVar5 != (void *)0x0) {
+            FUN_00418e00((void *)*puVar5,1);
+          }
+        }
+        FUN_005e03d0(0x11de910);
+        FUN_004aaf10(DAT_011c3b3c);
+      }
+      uVar4 = FUN_00869180(2);
+      if ((uVar4 & 0xff) == 0) {
+        for (local_24 = 0; uVar3 = FUN_00658930(0x11de888),
+            local_24 < CONCAT22(extraout_var_01,uVar3); local_24 = local_24 + 1) {
+          puVar5 = (undefined4 *)FUN_00877a30(&DAT_011de888,local_24);
+          iVar6 = FUN_00559450(puVar5);
+          if (iVar6 != 0) {
+            piVar7 = (int *)FUN_00877a30(&DAT_011de888,local_24);
+            FUN_00868ce0(*piVar7);
+          }
+        }
+        FUN_004dffa0(0x11de888);
+      }
+      uVar4 = FUN_00869180(1);
+      if (((uVar4 & 0xff) == 0) && (cVar2 = FUN_00868250(DAT_011c3b3c), cVar2 != '\0')) {
+        while (uVar3 = FUN_00658930(0x11de874), CONCAT22(extraout_var_02,uVar3) != 0) {
+          piVar7 = (int *)FUN_00877a30(&DAT_011de874,0);
+          if ((int *)*piVar7 != (int *)0x0) {
+            (**(code **)(*(int *)*piVar7 + 0x10))(1);
+          }
+        }
+        FUN_005e03d0(0x11de874);
+        FUN_004aaf10(DAT_011c3b3c);
+      }
+      uVar4 = FUN_00869180(0x20);
+      if ((uVar4 & 0xff) == 0) {
+        for (local_2c = 0; uVar4 = FUN_0044ddc0(0x11de924), local_2c < uVar4;
+            local_2c = local_2c + 1) {
+          piVar7 = (int *)FUN_00877a30(&DAT_011de924,local_2c);
+          FUN_00401970((int *)(*piVar7 + 0x1c));
+        }
+        FUN_008454f0(&DAT_011de924,'\x01');
+      }
+      *(undefined1 *)(*(int *)(*(int *)(unaff_FS_OFFSET + 0x2c) + _tls_index * 4) + 0x298) = uVar1;
+      if (*(char *)(*(int *)(*(int *)(unaff_FS_OFFSET + 0x2c) + _tls_index * 4) + 0x298) != '\0') {
+        FUN_008694c0(&DAT_011de8bc,&DAT_011de874);
+        FUN_005e03d0(0x11de8bc);
+        FUN_00869420(&DAT_011de848,&DAT_011de888);
+        FUN_004dffa0(0x11de848);
+        FUN_008694c0(&DAT_011de838,&DAT_011de910);
+        FUN_005e03d0(0x11de838);
+        FUN_00869560(&DAT_011de858,&DAT_011de828);
+        FUN_004dffa0(0x11de858);
+        FUN_00869510(&DAT_011de898,&DAT_011de924);
+        FUN_008454f0(&DAT_011de898,'\x01');
+      }
+      DAT_011de958 = '\0';
+      FUN_00867f80();
+    }
+  }
+  return;
+}
+
+
+
+======================================================================
+PART 6: References to deferred destruction flag DAT_011de808
+======================================================================
+Found 5 functions referencing 0x011de808:
+  0x00868330  FUN_00868330
+  0x00868850  FUN_00868850
+  0x00868D70  FUN_00868d70
+  0x00FA1F30  FUN_00fa1f30
+  0x00FD8DA0  FUN_00fd8da0
+
+======================================================================
+PART 7: FUN_00878250 (caller of ProcessDeferredDestruction)
+======================================================================
+
+void __cdecl FUN_00878250(char param_1)
+
+{
+  void *pvVar1;
+  
+  FUN_00868d70('\x01');
+  pvVar1 = (void *)FUN_00450b80(0);
+  FUN_00b5fd60(pvVar1);
+  FUN_00c459d0('\0');
+  if (param_1 != '\0') {
+    FUN_00651e30();
+    FUN_00651f40();
+  }
+  FUN_00448620(DAT_011c3b3c,'\x01');
+  FUN_00452490(DAT_011dea10,'\0');
+  return;
+}
+
+
+
+======================================================================
+PART 8: FUN_00878160 (pre-destruction setup)
+======================================================================
+
+void __cdecl FUN_00878160(int param_1,char param_2,undefined1 param_3,char param_4)
+
+{
+  bool bVar1;
+  int iVar2;
+  undefined4 uVar3;
+  
+  FUN_00c3e310(DAT_01202d98);
+  if (param_4 == '\0') {
+    *(undefined1 *)(param_1 + 5) = 0;
+  }
+  else {
+    bVar1 = FUN_00652160();
+    *(bool *)(param_1 + 5) = bVar1;
+  }
+  if (param_2 != '\0') {
+    iVar2 = FUN_0043c4b0();
+    FUN_004a0370(iVar2);
+  }
+  *(char *)(param_1 + 3) = param_2;
+  *(undefined1 *)(param_1 + 4) = param_3;
+  uVar3 = FUN_008781f0();
+  *(undefined4 *)(param_1 + 8) = uVar3;
+  FUN_008781e0(0x7fffffff);
+  FUN_00703980();
+  return;
+}
+
+
+
+======================================================================
+PART 9: Cross-reference - functions in both BSTreeManager AND model/node sets
+======================================================================
+
+======================================================================
+DONE
+======================================================================

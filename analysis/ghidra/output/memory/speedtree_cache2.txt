@@ -1,0 +1,448 @@
+SpeedTree Cache Analysis - Part 2
+============================================================
+
+============================================================
+Queue gate function (checks if queue should be skipped) @ 0x00869180
+============================================================
+Function: FUN_00869180, Size: 16 bytes
+
+
+undefined4 __cdecl FUN_00869180(uint param_1)
+
+{
+  return CONCAT31((int3)((DAT_011de804 & param_1) >> 8),(DAT_011de804 & param_1) != 0);
+}
+
+
+
+============================================================
+Pre-destruction call (from FUN_00878160) @ 0x00703980
+============================================================
+Function: FUN_00703980, Size: 45 bytes
+
+
+void FUN_00703980(void)
+
+{
+  char cVar1;
+  int iVar2;
+  undefined1 *puVar3;
+  
+  iVar2 = FUN_004b7210();
+  if (iVar2 != 0) {
+    puVar3 = (undefined1 *)FUN_004b7210();
+    cVar1 = FUN_009373f0(puVar3);
+    if (cVar1 != '\0') {
+      iVar2 = FUN_004b7210();
+      FUN_007160b0(iVar2);
+    }
+  }
+  return;
+}
+
+
+
+============================================================
+BSTreeManager cleanup (FUN_00664990) @ 0x00664990
+============================================================
+Function: FUN_00664990, Size: 44 bytes
+
+
+undefined4 * __thiscall FUN_00664990(void *this,uint param_1)
+
+{
+  FUN_00664740((int)this);
+  if ((param_1 & 1) != 0) {
+    FUN_00401030(this);
+  }
+  return this;
+}
+
+
+
+============================================================
+PDD lock function A (param_1==0) @ 0x00867F50
+============================================================
+Function: FUN_00867f50, Size: 19 bytes
+
+
+void FUN_00867f50(void)
+
+{
+  FUN_0040fbf0((LONG *)&DAT_011de8e0);
+  return;
+}
+
+
+
+============================================================
+PDD lock function B (param_1==1) @ 0x00867F70
+============================================================
+Function: FUN_00867f70, Size: 15 bytes
+
+
+void FUN_00867f70(void)
+
+{
+  FUN_0078d200((LONG *)&DAT_011de8e0);
+  return;
+}
+
+
+
+============================================================
+NiObject destructor (queue 0x08 and 0x10) @ 0x00418D20
+============================================================
+Function: FUN_00418d20, Size: 44 bytes
+
+
+undefined4 * __thiscall FUN_00418d20(void *this,uint param_1)
+
+{
+  FUN_0048fb50(this);
+  if ((param_1 & 1) != 0) {
+    FUN_00401030(this);
+  }
+  return this;
+}
+
+
+
+============================================================
+Queue 0x04 destructor @ 0x00418E00
+============================================================
+Function: FUN_00418e00, Size: 44 bytes
+
+
+undefined4 * __thiscall FUN_00418e00(void *this,uint param_1)
+
+{
+  FUN_004aae50(this);
+  if ((param_1 & 1) != 0) {
+    FUN_00401030(this);
+  }
+  return this;
+}
+
+
+
+============================================================
+Queue 0x02 handler (physics?) @ 0x00868CE0
+============================================================
+Function: FUN_00868ce0, Size: 39 bytes
+
+
+void __fastcall FUN_00868ce0(int param_1)
+
+{
+  FUN_00868770((LONG *)(param_1 + 4),*(uint *)(param_1 + 4) & 0xbfffffff);
+  return;
+}
+
+
+
+============================================================
+Post-PDD call 1 (from FUN_00878250) @ 0x00651E30
+============================================================
+Function: FUN_00651e30, Size: 49 bytes
+
+
+void FUN_00651e30(void)
+
+{
+  if ((DAT_011d59e8 != 0) && (*(int *)(DAT_011d59e8 + 0x1194) != 0)) {
+    FUN_006503b0(*(int *)(DAT_011d59e8 + 0x1194));
+  }
+  return;
+}
+
+
+
+============================================================
+Post-PDD call 2 (from FUN_00878250) @ 0x00651F40
+============================================================
+Function: FUN_00651f40, Size: 45 bytes
+
+
+void FUN_00651f40(void)
+
+{
+  if ((DAT_011d59e8 != 0) && (*(int *)(DAT_011d59e8 + 0x1194) != 0)) {
+    FUN_00651e70(*(int *)(DAT_011d59e8 + 0x1194));
+  }
+  return;
+}
+
+
+
+============================================================
+Pre-PDD flag set (0x7fffffff) @ 0x008781E0
+============================================================
+Function: FUN_008781e0, Size: 13 bytes
+
+
+void __cdecl FUN_008781e0(undefined4 param_1)
+
+{
+  DAT_011a95fc = param_1;
+  return;
+}
+
+
+
+============================================================
+References TO 0x00869180 (Queue gate function)
+============================================================
+Found 1 functions:
+  0x00868D70  FUN_00868d70  (1037 bytes)
+
+============================================================
+Remove tree from manager @ 0x00665BE0
+============================================================
+Function: FUN_00665be0, Size: 99 bytes
+
+
+void __thiscall FUN_00665be0(void *this,undefined4 param_1)
+
+{
+  char cVar1;
+  int *local_8;
+  
+  local_8 = (int *)0x0;
+  cVar1 = (**(code **)(**(int **)((int)this + 0x1c) + 8))(param_1,&local_8);
+  if (cVar1 != '\0') {
+    (**(code **)(**(int **)((int)this + 0x1c) + 0x14))(param_1);
+    if (local_8 != (int *)0x0) {
+      FUN_00c45830(local_8);
+    }
+  }
+  return;
+}
+
+
+
+============================================================
+Find tree in manager @ 0x00664F50
+============================================================
+Function: FUN_00664f50, Size: 874 bytes
+
+
+void * __thiscall FUN_00664f50(void *this,int param_1,int param_2)
+
+{
+  char cVar1;
+  uint uVar2;
+  int iVar3;
+  void *pvVar4;
+  byte *pbVar5;
+  int *piVar6;
+  int *unaff_FS_OFFSET;
+  float10 fVar7;
+  int iVar8;
+  cancellation_token_source *pcVar9;
+  int *local_60;
+  int local_54;
+  void *local_50;
+  void *local_4c;
+  int *local_48;
+  int *local_44;
+  undefined4 *local_40;
+  int *local_3c;
+  void *local_38;
+  void *local_34;
+  void *local_30;
+  int local_2c;
+  int *local_28;
+  void *local_24;
+  float local_20;
+  undefined4 local_1c;
+  cancellation_token_source local_18 [4];
+  void *local_14;
+  int local_10;
+  undefined1 *puStack_c;
+  uint local_8;
+  
+  local_8 = 0xffffffff;
+  puStack_c = &LAB_00effd67;
+  local_10 = *unaff_FS_OFFSET;
+  uVar2 = DAT_011c16bc ^ (uint)&stack0xfffffffc;
+  *unaff_FS_OFFSET = (int)&local_10;
+  FUN_00404eb0(&local_1c,0x1e);
+  local_8 = 0;
+  FUN_00633c90(local_18,0);
+  local_8 = CONCAT31(local_8._1_3_,1);
+  local_28 = (int *)0x0;
+  cVar1 = FUN_0051d740();
+  if ((((cVar1 == '\0') || (param_2 == 0)) ||
+      (iVar3 = (**(code **)(*(int *)(param_2 + 0x30) + 0x14))(uVar2), iVar3 == 0)) ||
+     ((iVar3 = FUN_0048cee0(param_2 + 0x30), iVar3 == 0 ||
+      ((param_1 != 0 && (iVar3 = FUN_007af430(param_1), iVar3 != param_2)))))) {
+    local_30 = (void *)0x0;
+    local_8 = local_8 & 0xffffff00;
+    Concurrency::cancellation_token_source::~cancellation_token_source(local_18);
+    local_8 = 0xffffffff;
+    FUN_00404ee0(&local_1c);
+    pvVar4 = local_30;
+  }
+  else {
+    local_24 = (void *)0x0;
+    cVar1 = (**(code **)(**(int **)((int)this + 0x1c) + 8))(param_1,&local_24);
+    if (cVar1 == '\0') {
+      local_2c = 1;
+      if (param_1 != 0) {
+        local_2c = FUN_005692d0(param_1);
+      }
+      pcVar9 = local_18;
+      iVar3 = param_2;
+      iVar8 = local_2c;
+      pvVar4 = (void *)FUN_00664840('\x01');
+      FUN_00664b50(pvVar4,iVar3,iVar8,pcVar9);
+      iVar3 = FUN_00559450((undefined4 *)local_18);
+      if (iVar3 == 0) {
+        local_38 = (void *)0x0;
+        local_8 = local_8 & 0xffffff00;
+        Concurrency::cancellation_token_source::~cancellation_token_source(local_18);
+        local_8 = 0xffffffff;
+        FUN_00404ee0(&local_1c);
+        pvVar4 = local_38;
+      }
+      else {
+        iVar3 = FUN_00559450((undefined4 *)local_18);
+        uVar2 = FUN_00726070(iVar3);
+        if (uVar2 < 3) {
+          iVar3 = param_2;
+          iVar8 = local_2c;
+          pvVar4 = (void *)FUN_00559450((undefined4 *)local_18);
+          cVar1 = FUN_0066ac40(pvVar4,iVar3,iVar8);
+          if (cVar1 == '\0') {
+            local_50 = (void *)0x0;
+            local_8 = local_8 & 0xffffff00;
+            Concurrency::cancellation_token_source::~cancellation_token_source(local_18);
+            local_8 = 0xffffffff;
+            FUN_00404ee0(&local_1c);
+            pvVar4 = local_50;
+            goto LAB_006652a9;
+          }
+          local_28 = (int *)FUN_00559450((undefined4 *)local_18);
+        }
+        else {
+          local_40 = (undefined4 *)FUN_00aa13e0(0x50);
+          local_8._0_1_ = 2;
+          if (local_40 == (undefined4 *)0x0) {
+            local_60 = (int *)0x0;
+          }
+          else {
+            local_60 = FUN_00666650(local_40);
+          }
+          local_3c = local_60;
+          local_8 = CONCAT31(local_8._1_3_,1);
+          local_28 = local_60;
+          iVar3 = FUN_00559450((undefined4 *)local_18);
+          uVar2 = FUN_0066a650(local_28,iVar3);
+          if ((uVar2 & 0xff) == 0) {
+            local_48 = local_28;
+            local_44 = local_28;
+            if (local_28 != (int *)0x0) {
+              (**(code **)*local_28)(1);
+            }
+            local_4c = (void *)0x0;
+            local_8 = local_8 & 0xffffff00;
+            Concurrency::cancellation_token_source::~cancellation_token_source(local_18);
+            local_8 = 0xffffffff;
+            FUN_00404ee0(&local_1c);
+            pvVar4 = local_4c;
+            goto LAB_006652a9;
+          }
+        }
+        local_20 = 1.0;
+        if (param_1 != 0) {
+          fVar7 = FUN_00567400(param_1);
+          local_20 = (float)fVar7;
+        }
+        local_14 = (void *)(**(code **)(*local_28 + 0xc))(local_20);
+        if (local_14 != (void *)0x0) {
+          pbVar5 = (byte *)(**(code **)(*(int *)(param_2 + 0x30) + 0x14))();
+          piVar6 = FUN_00438170(&local_54,pbVar5);
+          local_8._0_1_ = 3;
+          FUN_00a5b950(local_14,piVar6);
+          local_8 = CONCAT31(local_8._1_3_,1);
+          FUN_004381b0(&local_54);
+        }
+        FUN_006652c0(local_28,1);
+        pvVar4 = local_14;
+        local_8 = local_8 & 0xffffff00;
+        Concurrency::cancellation_token_source::~cancellation_token_source(local_18);
+        local_8 = 0xffffffff;
+        FUN_00404ee0(&local_1c);
+      }
+    }
+    else {
+      (**(code **)(**(int **)((int)this + 0x1c) + 0x14))(param_1);
+      local_34 = local_24;
+      local_8 = local_8 & 0xffffff00;
+      Concurrency::cancellation_token_source::~cancellation_token_source(local_18);
+      local_8 = 0xffffffff;
+      FUN_00404ee0(&local_1c);
+      pvVar4 = local_34;
+    }
+  }
+LAB_006652a9:
+  *unaff_FS_OFFSET = local_10;
+  return pvVar4;
+}
+
+
+
+============================================================
+Remove tree entry from manager @ 0x00665B80
+============================================================
+Function: FUN_00665b80, Size: 95 bytes
+
+
+void __thiscall FUN_00665b80(void *this,undefined4 param_1,undefined4 *param_2)
+
+{
+  char cVar1;
+  
+  cVar1 = (**(code **)(**(int **)((int)this + 0x1c) + 0x10))(param_1,&param_2,0);
+  if ((cVar1 == '\0') && (param_2 != (undefined4 *)0x0)) {
+    (**(code **)*param_2)(1);
+  }
+  return;
+}
+
+
+
+============================================================
+Queue 0x10 gate check @ 0x0078D1F0
+============================================================
+Function: FUN_0078d1f0, Size: 15 bytes
+
+
+void FUN_0078d1f0(void)
+
+{
+  FUN_0078d200((LONG *)&DAT_011f4480);
+  return;
+}
+
+
+
+============================================================
+Queue 0x08/0x04/0x01 gate check (lock acquire?) @ 0x00868250
+============================================================
+Function: FUN_00868250, Size: 21 bytes
+
+
+void __fastcall FUN_00868250(int *param_1)
+
+{
+  FUN_008691b0(*param_1);
+  return;
+}
+
+
+
+============================================================
+DONE
+============================================================

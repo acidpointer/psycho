@@ -1,19 +1,25 @@
 //! Memory pressure relief for the game heap.
 //!
-//! # Hook position: FUN_0086ff70 (post-render, line 485)
+//! # Hook position: FUN_008705d0 (post-render, line 486)
 //!
 //! The hook runs AFTER both the render pipeline and AI tasks have completed
 //! for the current frame. This is the only safe position:
 //!
 //! - **Pre-render hooks (line 273)**: Crash — render pipeline still needs
 //!   scene graph data from cells we're unloading (BSTreeNode use-after-free).
-//! - **Post-AI hooks (line 485)**: Safe for cell unloading — render is done,
+//! - **Post-AI hooks (line 486)**: Safe for cell unloading — render is done,
 //!   AI tasks are done, scene data is no longer needed for this frame.
 //!
-//! We only call `FindCellToUnload + ProcessPendingCleanup`. We do NOT call
-//! `ProcessDeferredDestruction` — AI threads from the NEXT frame's dispatch
-//! may hold references to physics objects. The game's own deferred destruction
-//! runs at internally-synchronized points.
+//! # Selective ProcessDeferredDestruction
+//!
+//! After cell unloading, we call `ProcessDeferredDestruction` with the NiNode
+//! queue (bit 0x08) masked off via `DAT_011de804`. This processes deferred
+//! physics wrappers, textures, animations, and other objects that accumulate
+//! during gameplay, while skipping BSTreeNode destruction that would crash
+//! SpeedTree's cached draw lists.
+//!
+//! The skip bitmask `DAT_011de804` is read by `FUN_00869180(flag)`:
+//! `(DAT_011de804 & flag) != 0` → queue is skipped.
 
 use libc::c_void;
 use std::sync::atomic::{AtomicBool, AtomicI64, AtomicU64, Ordering};
@@ -22,7 +28,7 @@ use std::sync::LazyLock;
 use libmimalloc::mi_collect;
 use libpsycho::ffi::fnptr::FnPtr;
 
-use super::types::{FindCellToUnloadFn, ProcessPendingCleanupFn, SetTlsCleanupFlagFn};
+use super::types::{FindCellToUnloadFn, ProcessDeferredDestructionFn, ProcessPendingCleanupFn};
 
 // ---------------------------------------------------------------------------
 // Configuration
@@ -43,10 +49,12 @@ const COOLDOWN_MS: u64 = 2000;
 
 const FIND_CELL_TO_UNLOAD: usize = 0x00453A80;
 const PROCESS_PENDING_CLEANUP: usize = 0x00452490;
-const SET_TLS_CLEANUP_FLAG: usize = 0x00869190;
-
+const PROCESS_DEFERRED_DESTRUCTION: usize = 0x00868D70;
 /// DAT_011dea10 — pointer to the game's TES/DataHandler manager singleton.
 const GAME_MANAGER_PTR: usize = 0x011DEA10;
+/// DAT_011de804 — bitmask controlling which PDD queues to skip.
+/// Bit set = queue skipped. Bit 0x08 = NiNode/BSTreeNode queue.
+const PDD_SKIP_MASK_PTR: usize = 0x011DE804;
 
 // ---------------------------------------------------------------------------
 // PressureRelief
@@ -61,7 +69,7 @@ pub struct PressureRelief {
 
     find_cell: FnPtr<FindCellToUnloadFn>,
     process_cleanup: FnPtr<ProcessPendingCleanupFn>,
-    set_tls_flag: FnPtr<SetTlsCleanupFlagFn>,
+    process_deferred: FnPtr<ProcessDeferredDestructionFn>,
 }
 
 impl PressureRelief {
@@ -75,7 +83,7 @@ impl PressureRelief {
                 cells_unloaded: AtomicI64::new(0),
                 find_cell: FnPtr::from_raw(FIND_CELL_TO_UNLOAD as *mut c_void)?,
                 process_cleanup: FnPtr::from_raw(PROCESS_PENDING_CLEANUP as *mut c_void)?,
-                set_tls_flag: FnPtr::from_raw(SET_TLS_CLEANUP_FLAG as *mut c_void)?,
+                process_deferred: FnPtr::from_raw(PROCESS_DEFERRED_DESTRUCTION as *mut c_void)?,
             }
         };
 
@@ -170,16 +178,20 @@ impl PressureRelief {
                 return;
             }
         };
-        let set_tls_flag = match unsafe { self.set_tls_flag.as_fn() } {
+        let process_deferred = match unsafe { self.process_deferred.as_fn() } {
             Ok(f) => f,
             Err(err) => {
-                log::error!("[PRESSURE] SetTlsCleanupFlag: {:?}", err);
+                log::error!("[PRESSURE] ProcessDeferredDestruction: {:?}", err);
                 self.active.store(false, Ordering::Release);
                 return;
             }
         };
-        unsafe { set_tls_flag(0) };
 
+        // Keep TLS deferred flag at 1 (default). With flag=0, objects freed
+        // during FindCellToUnload are destroyed IMMEDIATELY — BSTreeNodes
+        // get freed before SpeedTree invalidates its cached draw list.
+        // With flag=1, freed objects go into deferred queues instead, and
+        // our selective PDD below processes everything except NiNodes.
         let mut cells: usize = 0;
         for _ in 0..MAX_CELLS_PER_CYCLE {
             let result = unsafe { find_cell(manager) };
@@ -191,7 +203,17 @@ impl PressureRelief {
         }
 
         unsafe { process_cleanup(manager, 0) };
-        unsafe { set_tls_flag(1) };
+
+        // Selective PDD: skip NiNode queue (bit 0x08) to avoid BSTreeNode
+        // use-after-free in SpeedTree's cached draw lists. All other queues
+        // (physics 0x20, animations 0x02, textures 0x04, etc.) are processed.
+        unsafe {
+            let skip_mask = PDD_SKIP_MASK_PTR as *mut u32;
+            let original = skip_mask.read_volatile();
+            skip_mask.write_volatile(original | 0x08);
+            process_deferred(1);
+            skip_mask.write_volatile(original);
+        }
 
         unsafe { mi_collect(false) };
 
