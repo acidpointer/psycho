@@ -1,0 +1,1459 @@
+================================================================================
+SECTION 1: DECOMPILATION OF UNHOOKED FUNCTIONS
+================================================================================
+
+--- FallbackAlloc (NOT HOOKED) @ 0x00aa4290 ---
+  Function: FUN_00aa4290, size: 39 bytes
+
+void * FUN_00aa4290(size_t param_1)
+
+{
+  void *pvVar1;
+  
+  pvVar1 = _malloc(param_1);
+  return pvVar1;
+}
+
+
+
+
+--- FallbackFree (NOT HOOKED) @ 0x00aa42c0 ---
+  Function: FUN_00aa42c0, size: 25 bytes
+
+void FUN_00aa42c0(void *param_1)
+
+{
+  _free(param_1);
+  return;
+}
+
+
+
+
+--- FindAllocator (NOT HOOKED) @ 0x00aa45a0 ---
+  Function: FUN_00aa45a0, size: 99 bytes
+
+int * __thiscall FUN_00aa45a0(void *this,undefined4 param_1)
+
+{
+  int *piVar1;
+  char cVar2;
+  ushort local_8;
+  
+  local_8 = 0;
+  while( true ) {
+    if (*(ushort *)((int)this + 2) <= local_8) {
+      return (int *)0x0;
+    }
+    piVar1 = *(int **)(*(int *)((int)this + 8) + (uint)local_8 * 4);
+    cVar2 = (**(code **)(*piVar1 + 0x10))(param_1);
+    if (cVar2 != '\0') break;
+    local_8 = local_8 + 1;
+  }
+  return piVar1;
+}
+
+
+
+
+--- FindAllocator2 (NOT HOOKED) @ 0x00aa4610 ---
+  Function: FUN_00aa4610, size: 137 bytes
+
+int __thiscall FUN_00aa4610(void *this,undefined4 param_1)
+
+{
+  char cVar1;
+  ushort local_c;
+  int local_8;
+  
+  local_8 = 0;
+  local_c = 0;
+  while ((local_c < *(ushort *)((int)this + 4) && (local_8 == 0))) {
+    cVar1 = (**(code **)(**(int **)(*(int *)((int)this + 0x124) + (uint)local_c * 4) + 0x10))
+                      (param_1);
+    if (cVar1 != '\0') {
+      local_8 = *(int *)(*(int *)((int)this + 0x124) + (uint)local_c * 4);
+    }
+    local_c = local_c + 1;
+  }
+  return local_8;
+}
+
+
+
+
+--- SBM_GetPool (NOT HOOKED) @ 0x00aa4960 ---
+  Function: FUN_00aa4960, size: 238 bytes
+
+/* WARNING: Globals starting with '_' overlap smaller symbols at the same address */
+
+uint __cdecl FUN_00aa4960(uint param_1)
+
+{
+  uint local_14;
+  uint local_10;
+  uint local_c;
+  uint local_8;
+  
+  local_8 = 0;
+  if (param_1 < 300) {
+    if (param_1 < 0x3fd) {
+      local_c = *(uint *)(&DAT_011f67b8 + (param_1 + 0xf & 0xfffffff0));
+    }
+    else {
+      local_c = 0;
+    }
+    local_8 = local_c;
+  }
+  else if (param_1 < 0x200) {
+    if (param_1 < 0x3fd) {
+      local_10 = *(uint *)(&DAT_011f67b8 + (param_1 + 0xf & 0xfffffff0));
+    }
+    else {
+      local_10 = 0;
+    }
+    local_8 = local_10;
+    if (local_10 == 0) {
+      if (param_1 < 0x3fd) {
+        local_14 = *(uint *)(&DAT_011f67b8 + (param_1 + 0x1f & 0xffffffe0));
+      }
+      else {
+        local_14 = 0;
+      }
+      local_8 = local_14;
+    }
+  }
+  else if (param_1 < 0x240) {
+    local_8 = ~-(uint)(0x3fc < param_1) & _DAT_011f69f8;
+  }
+  if (local_8 == 0) {
+    local_8 = 0;
+  }
+  return local_8;
+}
+
+
+
+
+--- SBM_ArenaAlloc (NOT HOOKED) @ 0x00aa6aa0 ---
+  Function: FUN_00aa6aa0, size: 462 bytes
+
+int __fastcall FUN_00aa6aa0(void *param_1)
+
+{
+  uint uVar1;
+  int *piVar2;
+  bool bVar3;
+  uint uVar4;
+  uint local_18;
+  int local_c;
+  int in_stack_fffffff8;
+  int iVar5;
+  
+  FUN_0040fbf0((LONG *)((int)param_1 + 0x20));
+  if (*(int *)((int)param_1 + 8) == 0) {
+    uVar4 = FUN_00aa6db0((int)param_1);
+    if (uVar4 == 0xffffffff) {
+      *(int *)((int)param_1 + 0x24) = *(int *)((int)param_1 + 0x24) + -1;
+      if (*(int *)((int)param_1 + 0x24) != 0) {
+        return in_stack_fffffff8;
+      }
+      *(undefined4 *)((int)param_1 + 0x20) = 0;
+      return in_stack_fffffff8;
+    }
+    local_c = 0;
+    uVar1 = *(uint *)((int)param_1 + 0x40);
+    bVar3 = FUN_00aa6610(param_1,uVar4,&local_c);
+    if (!bVar3) {
+      *(int *)((int)param_1 + 0x24) = *(int *)((int)param_1 + 0x24) + -1;
+      if (*(int *)((int)param_1 + 0x24) != 0) {
+        return in_stack_fffffff8;
+      }
+      *(undefined4 *)((int)param_1 + 0x20) = 0;
+      return in_stack_fffffff8;
+    }
+    *(undefined2 *)(*(int *)((int)param_1 + 0x48) + uVar4 * 2) = 0;
+    for (local_18 = 0; local_18 < (uint)(0x1000 / (ulonglong)uVar1); local_18 = local_18 + 1) {
+      FUN_00aa6e00(param_1,(undefined4 *)(local_18 * *(int *)((int)param_1 + 0x40) + local_c));
+    }
+    *(int *)((int)param_1 + 0x58) = *(int *)((int)param_1 + 0x58) + 1;
+    if (*(uint *)((int)param_1 + 0x44) < *(uint *)((int)param_1 + 0x58)) {
+      *(undefined4 *)((int)param_1 + 0x44) = *(undefined4 *)((int)param_1 + 0x58);
+    }
+  }
+  iVar5 = 0;
+  if (*(int *)((int)param_1 + 8) != 0) {
+    iVar5 = *(int *)((int)param_1 + 8);
+    piVar2 = *(int **)((int)param_1 + 8);
+    *(undefined4 *)((int)param_1 + 8) = *(undefined4 *)(*(int *)((int)param_1 + 8) + 4);
+    FUN_00aa6e60(param_1,piVar2);
+    uVar4 = (uint)(iVar5 - *(int *)((int)param_1 + 4)) >> 0xc;
+    *(short *)(*(int *)((int)param_1 + 0x48) + uVar4 * 2) =
+         *(short *)(*(int *)((int)param_1 + 0x48) + uVar4 * 2) + 1;
+  }
+  *(int *)((int)param_1 + 0x24) = *(int *)((int)param_1 + 0x24) + -1;
+  if (*(int *)((int)param_1 + 0x24) == 0) {
+    *(undefined4 *)((int)param_1 + 0x20) = 0;
+  }
+  return iVar5;
+}
+
+
+
+
+--- SBM_ArenaFree (NOT HOOKED) @ 0x00aa6c70 ---
+  Function: FUN_00aa6c70, size: 138 bytes
+
+void __thiscall FUN_00aa6c70(void *this,undefined4 *param_1)
+
+{
+  uint uVar1;
+  
+  if (param_1 != (undefined4 *)0x0) {
+    FUN_0040fbf0((LONG *)((int)this + 0x20));
+    FUN_00aa6e00(this,param_1);
+    uVar1 = (uint)((int)param_1 - *(int *)((int)this + 4)) >> 0xc;
+    *(short *)(*(int *)((int)this + 0x48) + uVar1 * 2) =
+         *(short *)(*(int *)((int)this + 0x48) + uVar1 * 2) + -1;
+    *(int *)((int)this + 0x24) = *(int *)((int)this + 0x24) + -1;
+    if (*(int *)((int)this + 0x24) == 0) {
+      *(undefined4 *)((int)this + 0x20) = 0;
+    }
+  }
+  return;
+}
+
+
+
+================================================================================
+SECTION 2: CALLERS OF UNHOOKED FUNCTIONS
+(These callers bypass our hooks - potential leak sources)
+================================================================================
+
+--- FallbackAlloc (NOT HOOKED) @ 0x00aa4290: 4 xrefs ---
+  [INTERNAL] 0x00aa3e5c in FUN_00aa3e40 (0x00aa3e40)
+  [INTERNAL] 0x00aa3e81 in FUN_00aa3e40 (0x00aa3e40)
+  [INTERNAL] 0x00aa3fff in FUN_00aa3e40 (0x00aa3e40)
+  [EXTERNAL - POTENTIAL LEAK] 0x00aa7484 in FUN_00aa7400 (0x00aa7400)
+
+--- FallbackFree (NOT HOOKED) @ 0x00aa42c0: 4 xrefs ---
+  [INTERNAL] 0x00aa4087 in FUN_00aa4060 (0x00aa4060)
+  [INTERNAL] 0x00aa40ac in FUN_00aa4060 (0x00aa4060)
+  [INTERNAL] 0x00aa4141 in FUN_00aa4060 (0x00aa4060)
+  [EXTERNAL - POTENTIAL LEAK] 0x00aa7504 in FUN_00aa74c0 (0x00aa74c0)
+
+--- FindAllocator (NOT HOOKED) @ 0x00aa45a0: 2 xrefs ---
+  [INTERNAL] 0x00aa4115 in FUN_00aa4060 (0x00aa4060)
+  [INTERNAL] 0x00aa4525 in FUN_00aa44c0 (0x00aa44c0)
+
+--- FindAllocator2 (NOT HOOKED) @ 0x00aa4610: 1 xrefs ---
+  [INTERNAL] 0x00aa4552 in FUN_00aa44c0 (0x00aa44c0)
+
+--- SBM_GetPool (NOT HOOKED) @ 0x00aa4960: 1 xrefs ---
+  [INTERNAL] 0x00aa3f0b in FUN_00aa3e40 (0x00aa3e40)
+
+--- SBM_ArenaAlloc (NOT HOOKED) @ 0x00aa6aa0: 1 xrefs ---
+  [INTERNAL] 0x00aa3f23 in FUN_00aa3e40 (0x00aa3e40)
+
+--- SBM_ArenaFree (NOT HOOKED) @ 0x00aa6c70: 1 xrefs ---
+  [INTERNAL] 0x00aa4107 in FUN_00aa4060 (0x00aa4060)
+
+================================================================================
+SECTION 3: GAMEHEAP VTABLE / SINGLETON ANALYSIS
+================================================================================
+
+GameHeap singleton at 0x011F6238
+Vtable pointer: 0x00000000
+
+Vtable entries:
+  vtable[ 0] = [read error]
+
+================================================================================
+SECTION 4: REFERENCES TO GAMEHEAP SINGLETON (0x011F6238)
+================================================================================
+
+1156 unique functions reference the GameHeap singleton:
+  0x00401020 FUN_00401020  refs: 0x00401023
+  0x009ff690 FUN_009ff690  refs: 0x009ff78d
+  0x00a00a30 FUN_00a00a30  refs: 0x00a00abf, 0x00a00b10
+  0x00a00c20 FUN_00a00c20  refs: 0x00a00c6d, 0x00a00cbe, 0x00a00d03, 0x00a00d48, 0x00a00db8 (+1 more)
+  0x00a01000 FUN_00a01000  refs: 0x00a010bb
+  0x00a01b00 FUN_00a01b00  refs: 0x00a01d74
+  0x00a01e20 FUN_00a01e20  refs: 0x00a01e5b
+  0x00a02d40 FUN_00a02d40  refs: 0x00a02e03, 0x00a02f86, 0x00a03058, 0x00a030a2, 0x00a0316c
+  0x00a06dd0 FUN_00a06dd0  refs: 0x00a070f1
+  0x00a07c60 FUN_00a07c60  refs: 0x00a07c9e
+  0x00a07dc0 FUN_00a07dc0  refs: 0x00a07e8d
+  0x00a080d0 FUN_00a080d0  refs: 0x00a086d2
+  0x00a09080 FUN_00a09080  refs: 0x00a09094
+  0x00a09130 FUN_00a09130  refs: 0x00a09144
+  0x00a09200 FUN_00a09200  refs: 0x00a092ad, 0x00a09312
+  0x00a09330 FUN_00a09330  refs: 0x00a093b8, 0x00a093e8
+  0x00a09410 FUN_00a09410  refs: 0x00a09747, 0x00a09765, 0x00a09ef4, 0x00a09f05
+  0x00a0a130 FUN_00a0a130  refs: 0x00a0a138, 0x00a0a1f2
+  0x00a0a270 FUN_00a0a270  refs: 0x00a0a2c9
+  0x00a0a300 FUN_00a0a300  refs: 0x00a0a37f, 0x00a0a3af
+  0x00a0ab70 FUN_00a0ab70  refs: 0x00a0abbf
+  0x00a0ac80 FUN_00a0ac80  refs: 0x00a0accd
+  0x00a0ad40 FUN_00a0ad40  refs: 0x00a0ada1, 0x00a0ae14
+  0x00a0ae70 FUN_00a0ae70  refs: 0x00a0ae9a
+  0x00a0b8d0 FUN_00a0b8d0  refs: 0x00a0b92e
+  0x00a0b950 FUN_00a0b950  refs: 0x00a0b9d9
+  0x00a0ba50 FUN_00a0ba50  refs: 0x00a0baad
+  0x00a0bbf0 FUN_00a0bbf0  refs: 0x00a0bc62
+  0x00a0bde0 FUN_00a0bde0  refs: 0x00a0bdfb
+  0x00a0be10 FUN_00a0be10  refs: 0x00a0be2f, 0x00a0be4f
+  0x00a0be70 FUN_00a0be70  refs: 0x00a0be8f
+  0x00a0c7c0 FUN_00a0c7c0  refs: 0x00a0c7dd
+  0x00a0cbe0 FUN_00a0cbe0  refs: 0x00a0ccbe, 0x00a0cd22
+  0x00a0d220 FUN_00a0d220  refs: 0x00a0d246
+  0x00a0d4d0 FUN_00a0d4d0  refs: 0x00a0d505
+  0x00a0d520 FUN_00a0d520  refs: 0x00a0d593
+  0x00a0d5c0 FUN_00a0d5c0  refs: 0x00a0d5dd
+  0x00a0d670 FUN_00a0d670  refs: 0x00a0d6e3
+  0x00a0d7f0 FUN_00a0d7f0  refs: 0x00a0d825
+  0x00a0d840 FUN_00a0d840  refs: 0x00a0d8b3
+  0x00a0d990 FUN_00a0d990  refs: 0x00a0d9c5
+  0x00a0d9e0 FUN_00a0d9e0  refs: 0x00a0da62
+  0x00a0dae0 FUN_00a0dae0  refs: 0x00a0db19
+  0x00a0dcc0 FUN_00a0dcc0  refs: 0x00a0dde9
+  0x00a0df80 FUN_00a0df80  refs: 0x00a0e17c, 0x00a0e275
+  0x00a0e770 FUN_00a0e770  refs: 0x00a0f6bb, 0x00a0f6f3
+  0x00a0f730 FUN_00a0f730  refs: 0x00a0f7f0, 0x00a0f853
+  0x00a0f8b0 FUN_00a0f8b0  refs: 0x00a0fbaf, 0x00a0fdb8
+  0x00a10c00 FUN_00a10c00  refs: 0x00a11384
+  0x00a11c00 FUN_00a11c00  refs: 0x00a11c0b
+  0x00a11d80 FUN_00a11d80  refs: 0x00a11d9b
+  0x00a11e10 FUN_00a11e10  refs: 0x00a11eb3
+  0x00a11fa0 FUN_00a11fa0  refs: 0x00a11ffe
+  0x00a12020 FUN_00a12020  refs: 0x00a12153
+  0x00a121e0 FUN_00a121e0  refs: 0x00a1221b, 0x00a1224e
+  0x00a12300 FUN_00a12300  refs: 0x00a12352
+  0x00a12fb0 FUN_00a12fb0  refs: 0x00a130ba, 0x00a13112, 0x00a13544, 0x00a13656, 0x00a13740 (+5 more)
+  0x00a14a20 FUN_00a14a20  refs: 0x00a14a77, 0x00a14af0
+  0x00a14da0 FUN_00a14da0  refs: 0x00a14e1e, 0x00a14ed0
+  0x00a15320 FUN_00a15320  refs: 0x00a154b1
+  0x00a15ee0 FUN_00a15ee0  refs: 0x00a16015, 0x00a160a7
+  0x00a167c0 FUN_00a167c0  refs: 0x00a167f0
+  0x00a16850 FUN_00a16850  refs: 0x00a16889
+  0x00a168b0 FUN_00a168b0  refs: 0x00a1691e, 0x00a1698b, 0x00a169f9, 0x00a16a67, 0x00a16ad5 (+3 more)
+  0x00a16d20 FUN_00a16d20  refs: 0x00a16d6f
+  0x00a16ea0 FUN_00a16ea0  refs: 0x00a17107, 0x00a172c2
+  0x00a17390 FUN_00a17390  refs: 0x00a17428, 0x00a1774d, 0x00a1884b
+  0x00a18a30 FUN_00a18a30  refs: 0x00a18ae4
+  0x00a18f00 FUN_00a18f00  refs: 0x00a18f90
+  0x00a19060 FUN_00a19060  refs: 0x00a192a1
+  0x00a19a10 FUN_00a19a10  refs: 0x00a19a7b
+  0x00a19c00 FUN_00a19c00  refs: 0x00a19c8c, 0x00a19de0
+  0x00a19f70 FUN_00a19f70  refs: 0x00a1a01a, 0x00a1a12d, 0x00a1a153, 0x00a1a1cb, 0x00a1a2fb
+  0x00a1a800 FUN_00a1a800  refs: 0x00a1a837, 0x00a1a8a5
+  0x00a1b660 FUN_00a1b660  refs: 0x00a1b68a
+  0x00a1b990 FUN_00a1b990  refs: 0x00a1b9fb
+  0x00a1ba50 FUN_00a1ba50  refs: 0x00a1babb
+  0x00a1bb10 FUN_00a1bb10  refs: 0x00a1bb82
+  0x00a1c020 FUN_00a1c020  refs: 0x00a1c030
+  0x00a1c050 FUN_00a1c050  refs: 0x00a1c062
+  0x00a1c080 FUN_00a1c080  refs: 0x00a1c0da
+  0x00a1c100 FUN_00a1c100  refs: 0x00a1c11b
+  0x00a1c2d0 FUN_00a1c2d0  refs: 0x00a1c309
+  0x00a1c520 FUN_00a1c520  refs: 0x00a1c64d
+  0x00a1c6f0 FUN_00a1c6f0  refs: 0x00a1c717
+  0x00a1c790 FUN_00a1c790  refs: 0x00a1c7dc
+  0x00a1c800 FUN_00a1c800  refs: 0x00a1c93d
+  0x00a1ca20 FUN_00a1ca20  refs: 0x00a1caf7
+  0x00a1cb80 FUN_00a1cb80  refs: 0x00a1cbed, 0x00a1ce46
+  0x00a1ce70 FUN_00a1ce70  refs: 0x00a1cf12, 0x00a1cfac, 0x00a1d227, 0x00a1d233
+  0x00a1d280 FUN_00a1d280  refs: 0x00a1d2e8, 0x00a1d3a9, 0x00a1d3bf
+  0x00a1d410 FUN_00a1d410  refs: 0x00a1d5a4
+  0x00a1ddb0 FUN_00a1ddb0  refs: 0x00a1dea3, 0x00a1df41
+  0x00a1e170 FUN_00a1e170  refs: 0x00a1e18b
+  0x00a1e1d0 FUN_00a1e1d0  refs: 0x00a1e20b
+  0x00a1e400 FUN_00a1e400  refs: 0x00a1e433
+  0x00a1e7e0 FUN_00a1e7e0  refs: 0x00a1e853
+  0x00a1e8b0 FUN_00a1e8b0  refs: 0x00a1e8e5
+  0x00a1ea70 FUN_00a1ea70  refs: 0x00a1ea8d
+  0x00a1eb20 FUN_00a1eb20  refs: 0x00a1eb93
+  0x00a1ebf0 FUN_00a1ebf0  refs: 0x00a1ec25
+  0x00a1ec40 FUN_00a1ec40  refs: 0x00a1ec5d
+  0x00a1ee60 FUN_00a1ee60  refs: 0x00a1ee93
+  0x00a1fd50 FUN_00a1fd50  refs: 0x00a1fdbb, 0x00a1fe30
+  0x00a219e0 FUN_00a219e0  refs: 0x00a219fb
+  0x00a22660 FUN_00a22660  refs: 0x00a22a9a, 0x00a22aee
+  0x00a22bf0 FUN_00a22bf0  refs: 0x00a22ca0
+  0x00a255b0 FUN_00a255b0  refs: 0x00a255fe
+  0x00a25880 FUN_00a25880  refs: 0x00a258b3
+  0x00a25920 FUN_00a25920  refs: 0x00a25953
+  0x00a25b00 FUN_00a25b00  refs: 0x00a25b62
+  0x00a26240 FUN_00a26240  refs: 0x00a26296
+  0x00a27040 FUN_00a27040  refs: 0x00a27064
+  0x00a27080 FUN_00a27080  refs: 0x00a270dc, 0x00a27228
+  0x00a27c40 FUN_00a27c40  refs: 0x00a27c64
+  0x00a28f00 FUN_00a28f00  refs: 0x00a28f24
+  0x00a29db0 FUN_00a29db0  refs: 0x00a29dd4
+  0x00a2a1b0 FUN_00a2a1b0  refs: 0x00a2a1d4
+  0x00a2ab40 FUN_00a2ab40  refs: 0x00a2ab64
+  0x00a2af30 FUN_00a2af30  refs: 0x00a2af54
+  0x00a2be60 FUN_00a2be60  refs: 0x00a2be84
+  0x00a2c660 FUN_00a2c660  refs: 0x00a2c684
+  0x00a2cc90 FUN_00a2cc90  refs: 0x00a2ccb4
+  0x00a2ced0 FUN_00a2ced0  refs: 0x00a2cef4
+  0x00a2dd70 FUN_00a2dd70  refs: 0x00a2de08, 0x00a2de2a
+  0x00a2e4d0 FUN_00a2e4d0  refs: 0x00a2e4f2
+  0x00a2e510 FUN_00a2e510  refs: 0x00a2e53f
+  0x00a2e550 FUN_00a2e550  refs: 0x00a2e560
+  0x00a2e790 FUN_00a2e790  refs: 0x00a2e7b2
+  0x00a2eb40 FUN_00a2eb40  refs: 0x00a2eb6f
+  0x00a2eb80 FUN_00a2eb80  refs: 0x00a2eb9d
+  0x00a2ebb0 FUN_00a2ebb0  refs: 0x00a2ebdb
+  0x00a2eed0 FUN_00a2eed0  refs: 0x00a2ef55
+  0x00a2efa0 FUN_00a2efa0  refs: 0x00a2f08c
+  0x00a2fb70 FUN_00a2fb70  refs: 0x00a2fba6
+  0x00a2feb0 FUN_00a2feb0  refs: 0x00a2fed1
+  0x00a30160 FUN_00a30160  refs: 0x00a3018d, 0x00a301a3
+  0x00a31140 FUN_00a31140  refs: 0x00a3115d
+  0x00a31500 FUN_00a31500  refs: 0x00a3157b, 0x00a3159a
+  0x00a315b0 FUN_00a315b0  refs: 0x00a31645, 0x00a31664
+  0x00a31740 FUN_00a31740  refs: 0x00a3178e, 0x00a317c6
+  0x00a32330 FUN_00a32330  refs: 0x00a3236e, 0x00a323b8
+  0x00a32a10 FUN_00a32a10  refs: 0x00a32afc, 0x00a32b4a
+  0x00a33570 FUN_00a33570  refs: 0x00a335e8, 0x00a33634, 0x00a338ad
+  0x00a33e40 FUN_00a33e40  refs: 0x00a33ed1, 0x00a33f1d, 0x00a3407b, 0x00a340cd, 0x00a3436e
+  0x00a34450 FUN_00a34450  refs: 0x00a3446d
+  0x00a352f0 FUN_00a352f0  refs: 0x00a35452
+  0x00a35960 FUN_00a35960  refs: 0x00a35985, 0x00a359aa
+  0x00a35a80 FUN_00a35a80  refs: 0x00a35aa9, 0x00a35b52
+  0x00a363b0 FUN_00a363b0  refs: 0x00a36442
+  0x00a370b0 FUN_00a370b0  refs: 0x00a37139
+  0x00a37170 FUN_00a37170  refs: 0x00a371cb
+  0x00a37510 FUN_00a37510  refs: 0x00a37557
+  0x00a37690 FUN_00a37690  refs: 0x00a376e1, 0x00a3778f
+  0x00a37980 FUN_00a37980  refs: 0x00a37a72
+  0x00a39290 FUN_00a39290  refs: 0x00a39297
+  0x00a3a450 FUN_00a3a450  refs: 0x00a3a47c
+  0x00a3af10 FUN_00a3af10  refs: 0x00a3af8b
+  0x00a3b150 FUN_00a3b150  refs: 0x00a3b268
+  0x00a3b460 FUN_00a3b460  refs: 0x00a3b4a7, 0x00a3b4eb
+  0x00a3d630 FUN_00a3d630  refs: 0x00a3d693
+  0x00a41450 FUN_00a41450  refs: 0x00a41491
+  0x00a414c0 FUN_00a414c0  refs: 0x00a414dd
+  0x00a41520 FUN_00a41520  refs: 0x00a4153b
+  0x00a41610 FUN_00a41610  refs: 0x00a41618
+  0x00a41660 FUN_00a41660  refs: 0x00a41687, 0x00a416d1, 0x00a416f1
+  0x00a41940 FUN_00a41940  refs: 0x00a419c0
+  0x00a43690 FUN_00a43690  refs: 0x00a436f2, 0x00a43724
+  0x00a43840 FUN_00a43840  refs: 0x00a4388f
+  0x00a438d0 FUN_00a438d0  refs: 0x00a43929
+  0x00a44970 FUN_00a44970  refs: 0x00a449a3
+  0x00a44af0 FUN_00a44af0  refs: 0x00a44b43
+  0x00a46490 FUN_00a46490  refs: 0x00a46525
+  0x00a46c20 FUN_00a46c20  refs: 0x00a46c81
+  0x00a46d50 FUN_00a46d50  refs: 0x00a46d82
+  0x00a47600 FUN_00a47600  refs: 0x00a47648
+  0x00a47ba0 FUN_00a47ba0  refs: 0x00a47bbd
+  0x00a4d700 FUN_00a4d700  refs: 0x00a4d722
+  0x00a4d740 FUN_00a4d740  refs: 0x00a4d76f
+  0x00a4d810 FUN_00a4d810  refs: 0x00a4d99f
+  0x00a4da00 FUN_00a4da00  refs: 0x00a4da10
+  0x00a4db80 FUN_00a4db80  refs: 0x00a4dc8d
+  0x00a4f610 FUN_00a4f610  refs: 0x00a4f70c
+  0x00a53a10 FUN_00a53a10  refs: 0x00a53a24
+  0x00a540d0 FUN_00a540d0  refs: 0x00a540f2
+  0x00a54160 FUN_00a54160  refs: 0x00a5417d
+  0x00a54370 FUN_00a54370  refs: 0x00a5439f
+  0x00a54410 FUN_00a54410  refs: 0x00a5442d
+  0x00a54440 FUN_00a54440  refs: 0x00a544a1, 0x00a5461e, 0x00a546bf
+  0x00a54c40 FUN_00a54c40  refs: 0x00a54ce6, 0x00a54e72, 0x00a54f34
+  0x00a55190 FUN_00a55190  refs: 0x00a551b8, 0x00a55249, 0x00a55271
+  0x00a56ce0 FUN_00a56ce0  refs: 0x00a56ceb
+  0x00a56df0 FUN_00a56df0  refs: 0x00a56e20, 0x00a56e39
+  0x00a56e60 FUN_00a56e60  refs: 0x00a56e69
+  0x00a59dc0 FUN_00a59dc0  refs: 0x00a59dcb
+  0x00a5a040 FUN_00a5a040  refs: 0x00a5a06d, 0x00a5a0b1
+  0x00a5a170 FUN_00a5a170  refs: 0x00a5a19c
+  0x00a5a390 FUN_00a5a390  refs: 0x00a5a3a2
+  0x00a5b630 FUN_00a5b630  refs: 0x00a5b635
+  0x00a5b660 FUN_00a5b660  refs: 0x00a5b673
+  0x00a5c780 FUN_00a5c780  refs: 0x00a5c79d
+  0x00a5db60 FUN_00a5db60  refs: 0x00a5dbcf
+  0x00a5e3a0 FUN_00a5e3a0  refs: 0x00a5e3da, 0x00a5e426
+  0x00a615c0 FUN_00a615c0  refs: 0x00a615e2
+  0x00a61610 FUN_00a61610  refs: 0x00a61630
+  0x00a61670 FUN_00a61670  refs: 0x00a616c0
+  0x00a617c0 FUN_00a617c0  refs: 0x00a61829
+  0x00a61890 FUN_00a61890  refs: 0x00a61906
+  0x00a61ad0 FUN_00a61ad0  refs: 0x00a61aee, 0x00a61b32
+  0x00a61ec0 FUN_00a61ec0  refs: 0x00a61efa
+  0x00a62090 FUN_00a62090  refs: 0x00a620a8, 0x00a620f3
+  0x00a639e0 FUN_00a639e0  refs: 0x00a63a02
+  0x00a63a20 FUN_00a63a20  refs: 0x00a63a4f
+  0x00a63a60 FUN_00a63a60  refs: 0x00a63a82
+  0x00a63aa0 FUN_00a63aa0  refs: 0x00a63acf
+  0x00a63ae0 FUN_00a63ae0  refs: 0x00a63b04
+  0x00a63b30 FUN_00a63b30  refs: 0x00a63b4d
+  0x00a63b60 FUN_00a63b60  refs: 0x00a63b82
+  0x00a63ba0 FUN_00a63ba0  refs: 0x00a63bcf
+  0x00a64470 FUN_00a64470  refs: 0x00a6448d
+  0x00a644a0 FUN_00a644a0  refs: 0x00a644db
+  0x00a65140 FUN_00a65140  refs: 0x00a652b7
+  0x00a652d0 FUN_00a652d0  refs: 0x00a652ed
+  0x00a66030 FUN_00a66030  refs: 0x00a66040
+  0x00a66050 FUN_00a66050  refs: 0x00a66060
+  0x00a66070 FUN_00a66070  refs: 0x00a6608d
+  0x00a660a0 FUN_00a660a0  refs: 0x00a660a4, 0x00a660fe
+  0x00a66350 FUN_00a66350  refs: 0x00a66360
+  0x00a669f0 FUN_00a669f0  refs: 0x00a66a27
+  0x00a66a60 FUN_00a66a60  refs: 0x00a66ab8, 0x00a66b17
+  0x00a67000 FUN_00a67000  refs: 0x00a6700b
+  0x00a670c0 FUN_00a670c0  refs: 0x00a6719f, 0x00a671b3, 0x00a671c7, 0x00a671dd
+  0x00a67c70 FUN_00a67c70  refs: 0x00a67d6d, 0x00a67d7b, 0x00a67d89, 0x00a67d97
+  0x00a67ea0 FUN_00a67ea0  refs: 0x00a68026, 0x00a68184, 0x00a6828b, 0x00a68414, 0x00a68485 (+1 more)
+  0x00a6a050 FUN_00a6a050  refs: 0x00a6a06d
+  0x00a6a080 FUN_00a6a080  refs: 0x00a6a09d
+  0x00a6a8b0 FUN_00a6a8b0  refs: 0x00a6a8e9
+  0x00a6a9f0 FUN_00a6a9f0  refs: 0x00a6a9f8, 0x00a6aa2e
+  0x00a6abb0 FUN_00a6abb0  refs: 0x00a6ac1c
+  0x00a6ad60 FUN_00a6ad60  refs: 0x00a6af19, 0x00a6af79, 0x00a6afdc, 0x00a6b0e9, 0x00a6b162
+  0x00a6b640 FUN_00a6b640  refs: 0x00a6b7fd
+  0x00a6bb00 FUN_00a6bb00  refs: 0x00a6bb55, 0x00a6bcab, 0x00a6bd16
+  0x00a6c720 FUN_00a6c720  refs: 0x00a6c753
+  0x00a6c900 FUN_00a6c900  refs: 0x00a6c94d
+  0x00a6ea00 FUN_00a6ea00  refs: 0x00a6ea22
+  0x00a6eb20 FUN_00a6eb20  refs: 0x00a6eb4f
+  0x00a6ed90 FUN_00a6ed90  refs: 0x00a6eddd, 0x00a6eea6
+  0x00a70b40 FUN_00a70b40  refs: 0x00a70b4b
+  0x00a73080 FUN_00a73080  refs: 0x00a730af
+  0x00a730e0 FUN_00a730e0  refs: 0x00a73100, 0x00a73145
+  0x00a73160 FUN_00a73160  refs: 0x00a731d7
+  0x00a7b110 FUN_00a7b110  refs: 0x00a7b133, 0x00a7b197, 0x00a7b1ef
+  0x00a7b880 FUN_00a7b880  refs: 0x00a7b8a4
+  0x00a7b8c0 FUN_00a7b8c0  refs: 0x00a7b8fb, 0x00a7b909
+  0x00a7b940 FUN_00a7b940  refs: 0x00a7ba3b, 0x00a7ba69, 0x00a7bb10
+  0x00a7e630 FUN_00a7e630  refs: 0x00a7e64c
+  0x00a80710 FUN_00a80710  refs: 0x00a8076a
+  0x00a824d0 FUN_00a824d0  refs: 0x00a8250f
+  0x00a82670 FUN_00a82670  refs: 0x00a82692
+  0x00a82cf0 FUN_00a82cf0  refs: 0x00a82d1f
+  0x00a839d0 FUN_00a839d0  refs: 0x00a83af2, 0x00a83b45
+  0x00a83d40 FUN_00a83d40  refs: 0x00a83f40, 0x00a8417e, 0x00a84275, 0x00a842a3
+  0x00a84810 FUN_00a84810  refs: 0x00a8483a, 0x00a8495d
+  0x00a84980 FUN_00a84980  refs: 0x00a84a95, 0x00a84b55, 0x00a84c3a
+  0x00a84ca0 FUN_00a84ca0  refs: 0x00a84cbc
+  0x00a84e70 FUN_00a84e70  refs: 0x00a84e95, 0x00a84ed9
+  0x00a84ef0 FUN_00a84ef0  refs: 0x00a84f03
+  0x00a853c0 FUN_00a853c0  refs: 0x00a854a0
+  0x00a871a0 FUN_00a871a0  refs: 0x00a871c1, 0x00a87207
+  0x00a87290 FUN_00a87290  refs: 0x00a8729a
+  0x00a873b0 FUN_00a873b0  refs: 0x00a873ce, 0x00a87416
+  0x00a87ae0 FUN_00a87ae0  refs: 0x00a87cca, 0x00a87cf3, 0x00a87d1d, 0x00a87d3b, 0x00a87dc2 (+3 more)
+  0x00a881e0 FUN_00a881e0  refs: 0x00a8828e, 0x00a882b6, 0x00a8833e, 0x00a8839a
+  0x00a8a200 FUN_00a8a200  refs: 0x00a8a213
+  0x00a8a240 FUN_00a8a240  refs: 0x00a8a253
+  0x00a8ae80 FUN_00a8ae80  refs: 0x00a8aeaf
+  0x00a8b080 FUN_00a8b080  refs: 0x00a8b0b9
+  0x00a8b110 FUN_00a8b110  refs: 0x00a8b144
+  0x00a8b190 FUN_00a8b190  refs: 0x00a8b1cb, 0x00a8b1ec
+  0x00a8b270 FUN_00a8b270  refs: 0x00a8b277
+  0x00a8b2c0 FUN_00a8b2c0  refs: 0x00a8b337, 0x00a8b359
+  0x00a8d850 FUN_00a8d850  refs: 0x00a8d86f, 0x00a8d894
+  0x00a8da50 FUN_00a8da50  refs: 0x00a8da71, 0x00a8da92
+  0x00a8e480 FUN_00a8e480  refs: 0x00a8e49e
+  0x00a8f910 FUN_00a8f910  refs: 0x00a8f932
+  0x00a8fa10 FUN_00a8fa10  refs: 0x00a8fa3f
+  0x00a8fa50 FUN_00a8fa50  refs: 0x00a8fa54
+  0x00a90260 FUN_00a90260  refs: 0x00a9027d
+  0x00a90290 FUN_00a90290  refs: 0x00a902b4
+  0x00a90560 FUN_00a90560  refs: 0x00a90567, 0x00a9057b, 0x00a90589
+  0x00a90ac0 FUN_00a90ac0  refs: 0x00a90aec, 0x00a90b05
+  0x00a90d70 FUN_00a90d70  refs: 0x00a90dbe, 0x00a90e62, 0x00a90f05
+  0x00a910f0 FUN_00a910f0  refs: 0x00a9110d
+  0x00a91120 FUN_00a91120  refs: 0x00a91129
+  0x00a911d0 FUN_00a911d0  refs: 0x00a9121e, 0x00a9122c, 0x00a9123a
+  0x00a91290 FUN_00a91290  refs: 0x00a91292
+  0x00a918e0 FUN_00a918e0  refs: 0x00a918fd
+  0x00a91930 FUN_00a91930  refs: 0x00a91943
+  0x00a96800 FUN_00a96800  refs: 0x00a96822, 0x00a9683c, 0x00a9684e, 0x00a96860
+  0x00a968a0 FUN_00a968a0  refs: 0x00a968a7
+  0x00a968c0 FUN_00a968c0  refs: 0x00a968c7
+  0x00a96910 FUN_00a96910  refs: 0x00a96931, 0x00a96953
+  0x00a96cf0 FUN_00a96cf0  refs: 0x00a96f6f, 0x00a9704e, 0x00a970b2, 0x00a97197
+  0x00a9bbc0 FUN_00a9bbc0  refs: 0x00a9bbdd
+  0x00a9c2a0 FUN_00a9c2a0  refs: 0x00a9c2d9, 0x00a9f561
+  0x00a9fda0 FUN_00a9fda0  refs: 0x00a9fdde, 0x00a9fe2a
+  0x00aa00d0 FUN_00aa00d0  refs: 0x00aa00fe
+  0x00aa02b0 FUN_00aa02b0  refs: 0x00aa02d2
+  0x00aa02f0 FUN_00aa02f0  refs: 0x00aa031f
+  0x00aa18c0 FUN_00aa18c0  refs: 0x00aa1901
+  0x00aa1920 FUN_00aa1920  refs: 0x00aa1926
+  0x00aa1980 FUN_00aa1980  refs: 0x00aa1986
+  0x00aa1b60 FUN_00aa1b60  refs: 0x00aa1b62
+  0x00aa2020 FUN_00aa2020  refs: 0x00aa2022
+  0x00aa20b0 FUN_00aa20b0  refs: 0x00aa20e6
+  0x00aa2170 FUN_00aa2170  refs: 0x00aa21bd
+  0x00aa2200 FUN_00aa2200  refs: 0x00aa2205
+  0x00aa2d90 FUN_00aa2d90  refs: 0x00aa2dc0
+  0x00aa3a40 FUN_00aa3a40  refs: 0x00aa3b0e, 0x00aa3beb, 0x00aa3c87
+  0x00aa3cc0 FUN_00aa3cc0  refs: 0x00aa3d65, 0x00aa3de7
+  0x00aa42e0 FUN_00aa42e0  refs: 0x00aa4336
+  0x00aa4400 FUN_00aa4400  refs: 0x00aa4437
+  0x00aa47e0 FUN_00aa47e0  refs: 0x00aa481b
+  0x00aa4a60 FUN_00aa4a60  refs: 0x00aa4ac6
+  0x00aa4ae0 FUN_00aa4ae0  refs: 0x00aa4b08
+  0x00aa4b20 FUN_00aa4b20  refs: 0x00aa4b3d
+  0x00aa4b50 FUN_00aa4b50  refs: 0x00aa4b78, 0x00aa4b8e
+  0x00aa4bb0 FUN_00aa4bb0  refs: 0x00aa4bcd
+  0x00aa4d00 FUN_00aa4d00  refs: 0x00aa4d1b
+  0x00aa58d0 FUN_00aa58d0  refs: 0x00aa58fa
+  0x00aa5950 FUN_00aa5950  refs: 0x00aa5980
+  0x00aa5e30 FUN_00aa5e30  refs: 0x00aa5e73
+  0x00aa5ec0 FUN_00aa5ec0  refs: 0x00aa5f17
+  0x00aa66a0 FUN_00aa66a0  refs: 0x00aa6775
+  0x00aa6800 FUN_00aa6800  refs: 0x00aa682f
+  0x00aa68a0 FUN_00aa68a0  refs: 0x00aa68f0
+  0x00aa7400 FUN_00aa7400  refs: 0x00aa747f
+  0x00aa74c0 FUN_00aa74c0  refs: 0x00aa74ff
+  0x00aa77e0 FUN_00aa77e0  refs: 0x00aa77fb
+  0x00aa7840 FUN_00aa7840  refs: 0x00aa785c
+  0x00aa7e20 FUN_00aa7e20  refs: 0x00aa7e3b
+  0x00aa7eb0 FUN_00aa7eb0  refs: 0x00aa7ed7, 0x00aa7f40, 0x00aa7fa9, 0x00aa7fe6, 0x00aa8052 (+2 more)
+  0x00aa81d0 FUN_00aa81d0  refs: 0x00aa833c, 0x00aa838e, 0x00aa83e1
+  0x00aa8850 FUN_00aa8850  refs: 0x00aa8885, 0x00aa88b0
+  0x00aa88d0 FUN_00aa88d0  refs: 0x00aa892c
+  0x00aa8950 FUN_00aa8950  refs: 0x00aa89ac
+  0x00aa89d0 FUN_00aa89d0  refs: 0x00aa89eb
+  0x00aa8b00 FUN_00aa8b00  refs: 0x00aa8b0b
+  0x00aa8b20 FUN_00aa8b20  refs: 0x00aa8b3c
+  0x00aa8b50 FUN_00aa8b50  refs: 0x00aa8b6c
+  0x00aaa5b0 FUN_00aaa5b0  refs: 0x00aaa5cb
+  0x00aaab00 FUN_00aaab00  refs: 0x00aaab1d
+  0x00aaab90 FUN_00aaab90  refs: 0x00aaabeb
+  0x00aaaf10 FUN_00aaaf10  refs: 0x00aab7fe, 0x00aab846, 0x00aab93e, 0x00aab986, 0x00aabc2d (+1 more)
+  0x00aabdb0 FUN_00aabdb0  refs: 0x00aabed1
+  0x00aabf30 FUN_00aabf30  refs: 0x00aac104, 0x00aac146
+  0x00aac170 FUN_00aac170  refs: 0x00aac37a, 0x00aac3bc
+  0x00aacdb0 FUN_00aacdb0  refs: 0x00aacef2
+  0x00aacf40 FUN_00aacf40  refs: 0x00aad0d4, 0x00aad116
+  0x00aad140 FUN_00aad140  refs: 0x00aad391, 0x00aad3cd, 0x00aad488, 0x00aad4c4
+  0x00aad890 FUN_00aad890  refs: 0x00aad98c, 0x00aada50, 0x00aada92
+  0x00aadac0 FUN_00aadac0  refs: 0x00aadc5d, 0x00aadc93, 0x00aadcd5
+  0x00aae200 FUN_00aae200  refs: 0x00aae367
+  0x00aae3a0 FUN_00aae3a0  refs: 0x00aae81f
+  0x00aafc80 FUN_00aafc80  refs: 0x00aafe2b, 0x00ab09c8
+  0x00ab0d50 FUN_00ab0d50  refs: 0x00ab0fa1
+  0x00ab0fd0 FUN_00ab0fd0  refs: 0x00ab1469
+  0x00ab1800 FUN_00ab1800  refs: 0x00ab1c73, 0x00ab2120
+  0x00ab3370 FUN_00ab3370  refs: 0x00ab376c
+  0x00ab3a40 FUN_00ab3a40  refs: 0x00ab3ebc
+  0x00ab7f40 FUN_00ab7f40  refs: 0x00ab9346, 0x00ab9648, 0x00ab969c, 0x00ab99ef, 0x00ab9b01 (+1 more)
+  0x00aba1a0 FUN_00aba1a0  refs: 0x00aba1f1
+  0x00abb930 FUN_00abb930  refs: 0x00abbaa9
+  0x00abbd10 FUN_00abbd10  refs: 0x00abbe77
+  0x00abc0a0 FUN_00abc0a0  refs: 0x00abc0f2
+  0x00abc120 FUN_00abc120  refs: 0x00abc15b
+  0x00abc320 FUN_00abc320  refs: 0x00abc734
+  0x00abca90 FUN_00abca90  refs: 0x00abcf32
+  0x00abd2e0 FUN_00abd2e0  refs: 0x00abd75d
+  0x00abdb10 FUN_00abdb10  refs: 0x00abdf78
+  0x00abe310 FUN_00abe310  refs: 0x00abe69c
+  0x00abeb00 FUN_00abeb00  refs: 0x00abeeb1
+  0x00abf210 FUN_00abf210  refs: 0x00abf675, 0x00abf6b7
+  0x00abfa90 FUN_00abfa90  refs: 0x00abfef5, 0x00abff37
+  0x00ac1720 FUN_00ac1720  refs: 0x00ac1771
+  0x00ac27c0 FUN_00ac27c0  refs: 0x00ac2b0d
+  0x00ac2ca0 FUN_00ac2ca0  refs: 0x00ac2ed5
+  0x00ac3fe0 FUN_00ac3fe0  refs: 0x00ac42dd
+  0x00ac43b0 FUN_00ac43b0  refs: 0x00ac48d1
+  0x00ac4b00 FUN_00ac4b00  refs: 0x00ac4c57, 0x00ac4dbd, 0x00ac4df8, 0x00ac4ecf
+  0x00ac4f00 FUN_00ac4f00  refs: 0x00ac5057, 0x00ac51f2
+  0x00ac5540 FUN_00ac5540  refs: 0x00ac5b7b, 0x00ac5bad
+  0x00ad8790 FUN_00ad8790  refs: 0x00ad87ab
+  0x00ad9640 FUN_00ad9640  refs: 0x00ad96d7, 0x00ad9748, 0x00ad97b7, 0x00ad9813
+  0x00ad9870 FUN_00ad9870  refs: 0x00ad9915, 0x00ad9985, 0x00ad9c31, 0x00ad9c7d, 0x00ad9d84
+  0x00ada330 FUN_00ada330  refs: 0x00ada451, 0x00ada4c3
+  0x00ada5d0 FUN_00ada5d0  refs: 0x00adaae2
+  0x00add960 FUN_00add960  refs: 0x00addaff
+  0x00adf080 FUN_00adf080  refs: 0x00adf2db
+  0x00ae5a50 FUN_00ae5a50  refs: 0x00ae5c9f
+  0x00ae5ff0 FUN_00ae5ff0  refs: 0x00ae6023, 0x00ae60ba, 0x00ae627c, 0x00ae62f7, 0x00ae6329 (+3 more)
+  0x00ae7550 FUN_00ae7550  refs: 0x00ae75c6
+  0x00ae75f0 FUN_00ae75f0  refs: 0x00ae765b
+  0x00ae76b0 FUN_00ae76b0  refs: 0x00ae772c
+  0x00ae77a0 FUN_00ae77a0  refs: 0x00ae77bb
+  0x00ae7870 FUN_00ae7870  refs: 0x00ae788b
+  0x00ae7b10 FUN_00ae7b10  refs: 0x00ae7b2b
+  0x00ae81e0 FUN_00ae81e0  refs: 0x00ae82df
+  0x00ae83e0 FUN_00ae83e0  refs: 0x00ae8436
+  0x00ae8f20 FUN_00ae8f20  refs: 0x00ae8f55
+  0x00ae8f70 FUN_00ae8f70  refs: 0x00ae8fe3
+  0x00ae9010 FUN_00ae9010  refs: 0x00ae9045
+  0x00ae9060 FUN_00ae9060  refs: 0x00ae90d3
+  0x00ae9100 FUN_00ae9100  refs: 0x00ae9135
+  0x00ae9150 FUN_00ae9150  refs: 0x00ae91c3
+  0x00ae9ec0 FUN_00ae9ec0  refs: 0x00ae9edb
+  0x00aea230 FUN_00aea230  refs: 0x00aea3ed
+  0x00aea5c0 FUN_00aea5c0  refs: 0x00aea5ed
+  0x00aea700 FUN_00aea700  refs: 0x00aea71b
+  0x00aeaa80 FUN_00aeaa80  refs: 0x00aeaa9b
+  0x00aeabb0 FUN_00aeabb0  refs: 0x00aeabd6
+  0x00aeac20 FUN_00aeac20  refs: 0x00aead5f
+  0x00aeae10 FUN_00aeae10  refs: 0x00aeaf08
+  0x00aeafb0 FUN_00aeafb0  refs: 0x00aeb0f5, 0x00aeb128, 0x00aeb171, 0x00aeb19d, 0x00aeb1c9 (+2 more)
+  0x00aeb270 FUN_00aeb270  refs: 0x00aebd65
+  0x00aebff0 FUN_00aebff0  refs: 0x00aec01e, 0x00aec0af, 0x00aec347
+  0x00aec530 FUN_00aec530  refs: 0x00aec61b, 0x00aec741, 0x00aec776, 0x00aec7ae, 0x00aeca7b (+1 more)
+  0x00af0630 FUN_00af0630  refs: 0x00af1080, 0x00af1147, 0x00af1188, 0x00af11c9
+  0x00af1430 FUN_00af1430  refs: 0x00af16d8, 0x00af1764, 0x00af17f1, 0x00af19a2, 0x00af1acc
+  0x00af1cc0 FUN_00af1cc0  refs: 0x00af1cdb
+  0x00af22d0 FUN_00af22d0  refs: 0x00af2300
+  0x00af2370 FUN_00af2370  refs: 0x00af23a9
+  0x00af2420 FUN_00af2420  refs: 0x00af242b
+  0x00af2480 FUN_00af2480  refs: 0x00af250d
+  0x00af25b0 FUN_00af25b0  refs: 0x00af25e7
+  0x00af26c0 FUN_00af26c0  refs: 0x00af26f0
+  0x00af2760 FUN_00af2760  refs: 0x00af2799
+  0x00af2940 FUN_00af2940  refs: 0x00af29dd
+  0x00af2a60 FUN_00af2a60  refs: 0x00af2adb
+  0x00af2c90 FUN_00af2c90  refs: 0x00af2cc0
+  0x00af2fc0 FUN_00af2fc0  refs: 0x00af2fdb
+  0x00af33c0 FUN_00af33c0  refs: 0x00af33db
+  0x00af3440 FUN_00af3440  refs: 0x00af345b
+  0x00af3680 FUN_00af3680  refs: 0x00af36bf
+  0x00af36e0 FUN_00af36e0  refs: 0x00af3707, 0x00af373b
+  0x00af37a0 FUN_00af37a0  refs: 0x00af37bb
+  0x00af3950 FUN_00af3950  refs: 0x00af396b
+  0x00af3a10 FUN_00af3a10  refs: 0x00af3a2b
+  0x00af3af0 FUN_00af3af0  refs: 0x00af3b0b
+  0x00af3ba0 FUN_00af3ba0  refs: 0x00af3bbb
+  0x00af43a0 FUN_00af43a0  refs: 0x00af43ca, 0x00af4400
+  0x00af4490 FUN_00af4490  refs: 0x00af44ba
+  0x00af44f0 FUN_00af44f0  refs: 0x00af450b, 0x00af452b
+  0x00af4550 FUN_00af4550  refs: 0x00af46d2, 0x00af4ba5
+  0x00af4be0 FUN_00af4be0  refs: 0x00af4de9
+  0x00af5820 FUN_00af5820  refs: 0x00af5864, 0x00af58ca, 0x00af594a
+  0x00af5ab0 FUN_00af5ab0  refs: 0x00af5bfb, 0x00af5c80, 0x00af5d07, 0x00af5d65
+  0x00af6ba0 FUN_00af6ba0  refs: 0x00af6e02, 0x00af6e1e
+  0x00af7060 FUN_00af7060  refs: 0x00af70e2, 0x00af711f, 0x00af736d
+  0x00af7eb0 FUN_00af7eb0  refs: 0x00af8286, 0x00af82c5, 0x00af8481, 0x00af84a4, 0x00af84c7 (+8 more)
+  0x00af8f10 FUN_00af8f10  refs: 0x00af8fc2, 0x00af8fde, 0x00af8ff8, 0x00af9012, 0x00af9051 (+1 more)
+  0x00af9230 FUN_00af9230  refs: 0x00af926c, 0x00af9292
+  0x00af92f0 FUN_00af92f0  refs: 0x00af9330, 0x00af9397, 0x00af93b3
+  0x00af9410 FUN_00af9410  refs: 0x00af947c, 0x00af9498
+  0x00af94c0 FUN_00af94c0  refs: 0x00af962f, 0x00af9651
+  0x00af96d0 FUN_00af96d0  refs: 0x00af9751, 0x00af9774, 0x00af98d6, 0x00af99f0, 0x00af9a66 (+1 more)
+  0x00af9c50 FUN_00af9c50  refs: 0x00af9f8d, 0x00af9fc5, 0x00afa0e0, 0x00afa0fa
+  0x00afa120 FUN_00afa120  refs: 0x00afa3a2, 0x00afa3da, 0x00afa514, 0x00afa52e
+  0x00afa550 FUN_00afa550  refs: 0x00afa5fd, 0x00afa667
+  0x00afa750 FUN_00afa750  refs: 0x00afa7d5, 0x00afa84f
+  0x00afa8e0 FUN_00afa8e0  refs: 0x00afa9e9, 0x00afaa24, 0x00afab7d, 0x00afab9a, 0x00afabd9 (+1 more)
+  0x00afb520 FUN_00afb520  refs: 0x00afb56e
+  0x00afb5f0 FUN_00afb5f0  refs: 0x00afb643
+  0x00afbfe0 FUN_00afbfe0  refs: 0x00afc020, 0x00afc046
+  0x00afc430 FUN_00afc430  refs: 0x00afc4a6, 0x00afc56a, 0x00afc5c7
+  0x00afc6c0 FUN_00afc6c0  refs: 0x00afc6db
+  0x00afc6f0 FUN_00afc6f0  refs: 0x00afc70b
+  0x00afc880 FUN_00afc880  refs: 0x00afc8b8
+  0x00afc960 FUN_00afc960  refs: 0x00afca5e, 0x00afcac3
+  0x00afcaf0 FUN_00afcaf0  refs: 0x00afcb65
+  0x00afcc10 FUN_00afcc10  refs: 0x00afcc5e
+  0x00afcd10 FUN_00afcd10  refs: 0x00afcd20
+  0x00afcd40 FUN_00afcd40  refs: 0x00afcd4b
+  0x00afcd60 FUN_00afcd60  refs: 0x00afcd72
+  0x00afcd90 FUN_00afcd90  refs: 0x00afcdab
+  0x00afdcf0 FUN_00afdcf0  refs: 0x00afdd51
+  0x00afdda0 FUN_00afdda0  refs: 0x00afddf2
+  0x00afdf20 FUN_00afdf20  refs: 0x00afdf6a, 0x00afe039
+  0x00afe420 FUN_00afe420  refs: 0x00afe48e, 0x00afe562
+  0x00afe5b0 FUN_00afe5b0  refs: 0x00afe5c4, 0x00afe6ce, 0x00afe77e
+  0x00aff490 FUN_00aff490  refs: 0x00aff565
+  0x00affa60 FUN_00affa60  refs: 0x00affa74, 0x00affadb
+  0x00affd10 FUN_00affd10  refs: 0x00affd51
+  0x00affd80 FUN_00affd80  refs: 0x00affe5f, 0x00affe7f, 0x00affeb7
+  0x00afff20 FUN_00afff20  refs: 0x00afff3b
+  0x00afff50 FUN_00afff50  refs: 0x00affff7, 0x00b0005f, 0x00b000b6
+  0x00b00e90 FUN_00b00e90  refs: 0x00b00eac
+  0x00b01310 FUN_00b01310  refs: 0x00b0132b
+  0x00b013f0 FUN_00b013f0  refs: 0x00b0141a
+  0x00b01480 FUN_00b01480  refs: 0x00b0149b
+  0x00b01930 FUN_00b01930  refs: 0x00b019dc
+  0x00b01d20 FUN_00b01d20  refs: 0x00b01d3b
+  0x00b02010 FUN_00b02010  refs: 0x00b0203a
+  0x00b02640 FUN_00b02640  refs: 0x00b0265b
+  0x00b02780 FUN_00b02780  refs: 0x00b027a9
+  0x00b02970 FUN_00b02970  refs: 0x00b0298b
+  0x00b029c0 FUN_00b029c0  refs: 0x00b029dc
+  0x00b02e80 FUN_00b02e80  refs: 0x00b02e96, 0x00b02eb7
+  0x00b02ef0 FUN_00b02ef0  refs: 0x00b0308f, 0x00b030f6, 0x00b03169, 0x00b031d9, 0x00b0323d (+6 more)
+  0x00b036d0 FUN_00b036d0  refs: 0x00b03912
+  0x00b03b30 FUN_00b03b30  refs: 0x00b03e58, 0x00b03eba, 0x00b03ee9, 0x00b03f03, 0x00b03f4d (+13 more)
+  0x00b04420 FUN_00b04420  refs: 0x00b04436, 0x00b04457, 0x00b04478
+  0x00b05210 FUN_00b05210  refs: 0x00b05258
+  0x00b05420 FUN_00b05420  refs: 0x00b054e1, 0x00b05597
+  0x00b059e0 FUN_00b059e0  refs: 0x00b05f3b
+  0x00b061e0 FUN_00b061e0  refs: 0x00b0623a
+  0x00b07f20 FUN_00b07f20  refs: 0x00b07f67, 0x00b07f9c
+  0x00b087d0 FUN_00b087d0  refs: 0x00b08820
+  0x00b088d0 FUN_00b088d0  refs: 0x00b0897a
+  0x00b09730 FUN_00b09730  refs: 0x00b09765
+  0x00b09960 FUN_00b09960  refs: 0x00b0999d, 0x00b09a7d, 0x00b09b4f, 0x00b09c7d
+  0x00b0a490 FUN_00b0a490  refs: 0x00b0a4ca
+  0x00b0a7a0 FUN_00b0a7a0  refs: 0x00b0a852
+  0x00b0cb10 FUN_00b0cb10  refs: 0x00b0cb92
+  0x00b0cd40 FUN_00b0cd40  refs: 0x00b0cd6a
+  0x00b0d040 FUN_00b0d040  refs: 0x00b0d10c, 0x00b0d232
+  0x00b0d7c0 FUN_00b0d7c0  refs: 0x00b0d7dc
+  0x00b0e1a0 FUN_00b0e1a0  refs: 0x00b0e1db
+  0x00b0e7f0 FUN_00b0e7f0  refs: 0x00b0e845
+  0x00b0ea80 FUN_00b0ea80  refs: 0x00b0eaf7
+  0x00b0ecf0 FUN_00b0ecf0  refs: 0x00b0f0ec
+  0x00b0f410 FUN_00b0f410  refs: 0x00b0f824
+  0x00b0fc00 FUN_00b0fc00  refs: 0x00b100a2
+  0x00b10830 FUN_00b10830  refs: 0x00b10881
+  0x00b108e0 FUN_00b108e0  refs: 0x00b10931
+  0x00b4df30 FUN_00b4df30  refs: 0x00b4df5c
+  0x00b4e270 FUN_00b4e270  refs: 0x00b4e320
+  0x00b4e380 FUN_00b4e380  refs: 0x00b4e3cc
+  0x00b4ed70 FUN_00b4ed70  refs: 0x00b4edcd, 0x00b4ee45, 0x00b4eeb9
+  0x00b54630 FUN_00b54630  refs: 0x00b548cf, 0x00b548f1, 0x00b549a4, 0x00b54a9a
+  0x00b54b60 FUN_00b54b60  refs: 0x00b54c80, 0x00b54ca0, 0x00b54dc2, 0x00b54e0e, 0x00b552d7 (+1 more)
+  0x00b57420 FUN_00b57420  refs: 0x00b57485, 0x00b574a9, 0x00b57502, 0x00b57577, 0x00b575b4 (+2 more)
+  0x00b578a0 FUN_00b578a0  refs: 0x00b5790a, 0x00b5792c, 0x00b57941, 0x00b57981
+  0x00b58400 FUN_00b58400  refs: 0x00b58410
+  0x00b584e0 FUN_00b584e0  refs: 0x00b584e5
+  0x00b58530 FUN_00b58530  refs: 0x00b58545
+  0x00b587c0 FUN_00b587c0  refs: 0x00b58a05, 0x00b58a26, 0x00b58a47, 0x00b58a9a, 0x00b58abd (+8 more)
+  0x00b595b0 FUN_00b595b0  refs: 0x00b59634
+  0x00b596a0 FUN_00b596a0  refs: 0x00b5975c, 0x00b59805
+  0x00b59890 FUN_00b59890  refs: 0x00b59900
+  0x00b59940 FUN_00b59940  refs: 0x00b59a08
+  0x00b5a110 FUN_00b5a110  refs: 0x00b5a163
+  0x00b5a480 FUN_00b5a480  refs: 0x00b5a490
+  0x00b5a4a0 FUN_00b5a4a0  refs: 0x00b5a4d1
+  0x00b5a700 FUN_00b5a700  refs: 0x00b5a710
+  0x00b5a720 FUN_00b5a720  refs: 0x00b5a753, 0x00b5a7f8
+  0x00b5dac0 FUN_00b5dac0  refs: 0x00b5db19
+  0x00b5e0f0 FUN_00b5e0f0  refs: 0x00b5e429
+  0x00b5f170 FUN_00b5f170  refs: 0x00b5f2c9, 0x00b5f5f6
+  0x00b5f9b0 FUN_00b5f9b0  refs: 0x00b5fa2d
+  0x00b605a0 FUN_00b605a0  refs: 0x00b605c2
+  0x00b605e0 FUN_00b605e0  refs: 0x00b60602
+  0x00b60620 FUN_00b60620  refs: 0x00b60630
+  0x00b60c70 FUN_00b60c70  refs: 0x00b60c80
+  0x00b60c90 FUN_00b60c90  refs: 0x00b60ca0
+  0x00b60d80 FUN_00b60d80  refs: 0x00b60df7
+  0x00b61250 FUN_00b61250  refs: 0x00b612d4
+  0x00b61370 FUN_00b61370  refs: 0x00b6150d
+  0x00b61570 FUN_00b61570  refs: 0x00b6175a
+  0x00b61980 FUN_00b61980  refs: 0x00b61ad9, 0x00b61b84, 0x00b61df0, 0x00b61e11, 0x00b61e32 (+10 more)
+  0x00b62970 FUN_00b62970  refs: 0x00b629e0
+  0x00b62a20 FUN_00b62a20  refs: 0x00b62af1
+  0x00b62bd0 FUN_00b62bd0  refs: 0x00b62c7e, 0x00b62d31, 0x00b62d3d
+  0x00b631d0 FUN_00b631d0  refs: 0x00b63222, 0x00b63270, 0x00b632ce, 0x00b632fa
+  0x00b63540 FUN_00b63540  refs: 0x00b635f8
+  0x00b63620 FUN_00b63620  refs: 0x00b63659
+  0x00b63680 FUN_00b63680  refs: 0x00b63721
+  0x00b63bf0 FUN_00b63bf0  refs: 0x00b63c23
+  0x00b63c60 FUN_00b63c60  refs: 0x00b63c74
+  0x00b63e30 FUN_00b63e30  refs: 0x00b63e52
+  0x00b63e70 FUN_00b63e70  refs: 0x00b63e80
+  0x00b64bf0 FUN_00b64bf0  refs: 0x00b64c48
+  0x00b64ec0 FUN_00b64ec0  refs: 0x00b64eec
+  0x00b64f20 FUN_00b64f20  refs: 0x00b64f59
+  0x00b655b0 FUN_00b655b0  refs: 0x00b655e0, 0x00b655ee
+  0x00b656e0 FUN_00b656e0  refs: 0x00b65763, 0x00b6579c, 0x00b657aa, 0x00b65851, 0x00b6587a (+4 more)
+  0x00b65f60 FUN_00b65f60  refs: 0x00b65f8c
+  0x00b66050 FUN_00b66050  refs: 0x00b6609a, 0x00b660ad
+  0x00b660d0 FUN_00b660d0  refs: 0x00b66245, 0x00b662cc, 0x00b663c0, 0x00b663e7, 0x00b663fe (+1 more)
+  0x00b66850 FUN_00b66850  refs: 0x00b66867, 0x00b66886
+  0x00b66e20 FUN_00b66e20  refs: 0x00b66e56
+  0x00b66f50 FUN_00b66f50  refs: 0x00b6701b, 0x00b670b1, 0x00b670cc
+  0x00b67380 FUN_00b67380  refs: 0x00b67445, 0x00b67462, 0x00b67473, 0x00b674e9
+  0x00b676a0 FUN_00b676a0  refs: 0x00b67712, 0x00b67742, 0x00b677a1, 0x00b677b2, 0x00b677c4 (+1 more)
+  0x00b68450 FUN_00b68450  refs: 0x00b68493, 0x00b685cd, 0x00b685fd, 0x00b68609, 0x00b6861a (+1 more)
+  0x00b69be0 FUN_00b69be0  refs: 0x00b69c67, 0x00b69cc6
+  0x00b69f30 FUN_00b69f30  refs: 0x00b69f6d
+  0x00b6ba70 FUN_00b6ba70  refs: 0x00b6ba94, 0x00b6bac5
+  0x00b6c130 FUN_00b6c130  refs: 0x00b6c157, 0x00b6c17d
+  0x00b6d5e0 FUN_00b6d5e0  refs: 0x00b6d82f
+  0x00b6dd00 FUN_00b6dd00  refs: 0x00b6dd55
+  0x00b6f0b0 FUN_00b6f0b0  refs: 0x00b6f21c, 0x00b6f2cd
+  0x00b6fd30 FUN_00b6fd30  refs: 0x00b6fd9c
+  0x00b79a60 FUN_00b79a60  refs: 0x00b79aa5
+  0x00b7ce30 FUN_00b7ce30  refs: 0x00b7ce4e
+  0x00b7e2b0 FUN_00b7e2b0  refs: 0x00b7e2d6, 0x00b7e2e9
+  0x00b7fa40 FUN_00b7fa40  refs: 0x00b7fa5b
+  0x00b7fd00 FUN_00b7fd00  refs: 0x00b7fd10
+  0x00b7fd20 FUN_00b7fd20  refs: 0x00b7fd30
+  0x00b7fd50 FUN_00b7fd50  refs: 0x00b7fd5a, 0x00b7fd72
+  0x00b7fd90 FUN_00b7fd90  refs: 0x00b7fdba
+  0x00b7fe40 FUN_00b7fe40  refs: 0x00b7febc, 0x00b7ff13
+  0x00b7ff40 FUN_00b7ff40  refs: 0x00b80002
+  0x00b899a0 FUN_00b899a0  refs: 0x00b899e4, 0x00b89a90, 0x00b89abf
+  0x00b8a7e0 FUN_00b8a7e0  refs: 0x00b8a830, 0x00b8a845
+  0x00b8a8e0 FUN_00b8a8e0  refs: 0x00b8a96a
+  0x00b8aaf0 FUN_00b8aaf0  refs: 0x00b8ab00
+  0x00b8ab10 FUN_00b8ab10  refs: 0x00b8ac20, 0x00b8ac42, 0x00b8ac8e, 0x00b8acb0
+  0x00b8d4d0 FUN_00b8d4d0  refs: 0x00b8d52e
+  0x00b94520 FUN_00b94520  refs: 0x00b9454f, 0x00b94592, 0x00b945cf, 0x00b9460c, 0x00b94649 (+17 more)
+  0x00b98e20 FUN_00b98e20  refs: 0x00b98e38
+  0x00b99730 FUN_00b99730  refs: 0x00b99753
+  0x00b99770 FUN_00b99770  refs: 0x00b997cc, 0x00b997fe
+  0x00b99b70 FUN_00b99b70  refs: 0x00b99b9e
+  0x00b9a5b0 FUN_00b9a5b0  refs: 0x00b9a674, 0x00b9a6c6, 0x00b9a736, 0x00b9a771, 0x00b9a79d (+15 more)
+  0x00b9aa80 FUN_00b9aa80  refs: 0x00b9aadd, 0x00b9aaf9, 0x00b9ab1f, 0x00b9ab40, 0x00b9ab59
+  0x00b9ac80 FUN_00b9ac80  refs: 0x00b9acc2
+  0x00b9aec0 FUN_00b9aec0  refs: 0x00b9af07, 0x00b9af44
+  0x00b9af60 FUN_00b9af60  refs: 0x00b9b0e0
+  0x00b9b930 FUN_00b9b930  refs: 0x00b9b940
+  0x00b9b950 FUN_00b9b950  refs: 0x00b9b9d0, 0x00b9ba42
+  0x00b9e920 FUN_00b9e920  refs: 0x00b9e954
+  0x00ba04c0 FUN_00ba04c0  refs: 0x00ba04fd, 0x00ba0576, 0x00ba05e8, 0x00ba0653, 0x00ba06be (+4 more)
+  0x00ba11e0 FUN_00ba11e0  refs: 0x00ba1214
+  0x00ba1230 FUN_00ba1230  refs: 0x00ba1240
+  0x00ba1750 FUN_00ba1750  refs: 0x00ba1760
+  0x00ba1770 FUN_00ba1770  refs: 0x00ba17ad, 0x00ba181f, 0x00ba188a, 0x00ba18f5, 0x00ba1960 (+2 more)
+  0x00ba1ac0 FUN_00ba1ac0  refs: 0x00ba1b31, 0x00ba1b50, 0x00ba1c93, 0x00ba1c9e, 0x00ba1cdd (+1 more)
+  0x00ba2590 FUN_00ba2590  refs: 0x00ba25ab, 0x00ba25d2, 0x00ba2601, 0x00ba262b, 0x00ba267b (+3 more)
+  0x00ba2e00 FUN_00ba2e00  refs: 0x00ba2e69
+  0x00ba2ff0 FUN_00ba2ff0  refs: 0x00ba3015
+  0x00ba3190 FUN_00ba3190  refs: 0x00ba3322
+  0x00ba3390 FUN_00ba3390  refs: 0x00ba34d9
+  0x00ba3b10 FUN_00ba3b10  refs: 0x00ba3b16
+  0x00ba3b50 FUN_00ba3b50  refs: 0x00ba3b56
+  0x00ba3ba0 FUN_00ba3ba0  refs: 0x00ba3ba6
+  0x00ba3c00 FUN_00ba3c00  refs: 0x00ba3c06
+  0x00ba3ce0 FUN_00ba3ce0  refs: 0x00ba3cfd
+  0x00ba3d30 FUN_00ba3d30  refs: 0x00ba3d82
+  0x00ba4050 FUN_00ba4050  refs: 0x00ba406d
+  0x00ba4170 FUN_00ba4170  refs: 0x00ba4180
+  0x00ba46a0 FUN_00ba46a0  refs: 0x00ba46b0
+  0x00ba46c0 FUN_00ba46c0  refs: 0x00ba4729, 0x00ba47d4
+  0x00ba4920 FUN_00ba4920  refs: 0x00ba4930
+  0x00ba4940 FUN_00ba4940  refs: 0x00ba4973, 0x00ba4b67, 0x00ba4bf9, 0x00ba4c8b
+  0x00ba53f0 FUN_00ba53f0  refs: 0x00ba56e4
+  0x00ba5740 FUN_00ba5740  refs: 0x00ba57a9
+  0x00ba63e0 FUN_00ba63e0  refs: 0x00ba6469
+  0x00ba64e0 FUN_00ba64e0  refs: 0x00ba6581, 0x00ba65a5, 0x00ba65c4
+  0x00ba73a0 FUN_00ba73a0  refs: 0x00ba73ca
+  0x00ba7df0 FUN_00ba7df0  refs: 0x00ba7e64, 0x00ba7e7e, 0x00ba7eb9
+  0x00ba7f70 FUN_00ba7f70  refs: 0x00ba8221
+  0x00ba8b80 FUN_00ba8b80  refs: 0x00ba8bbd
+  0x00ba8c00 FUN_00ba8c00  refs: 0x00ba8c19
+  0x00ba8c30 FUN_00ba8c30  refs: 0x00ba8c3b
+  0x00ba8c50 FUN_00ba8c50  refs: 0x00ba8c67, 0x00ba8c8c
+  0x00ba8cd0 FUN_00ba8cd0  refs: 0x00ba8ce1
+  0x00ba8d30 FUN_00ba8d30  refs: 0x00ba8da8, 0x00ba8df7, 0x00ba8e0e
+  0x00ba8e20 FUN_00ba8e20  refs: 0x00ba8e27, 0x00ba8e3f
+  0x00ba8ec0 FUN_00ba8ec0  refs: 0x00ba8f11
+  0x00ba9520 FUN_00ba9520  refs: 0x00ba9578, 0x00ba9586, 0x00ba95a0
+  0x00ba95e0 FUN_00ba95e0  refs: 0x00ba961a
+  0x00ba9660 FUN_00ba9660  refs: 0x00ba968c
+  0x00ba96d0 FUN_00ba96d0  refs: 0x00ba96fc
+  0x00ba9740 FUN_00ba9740  refs: 0x00ba976c
+  0x00ba97b0 FUN_00ba97b0  refs: 0x00ba97dc
+  0x00ba9820 FUN_00ba9820  refs: 0x00ba984c
+  0x00ba9ee0 FUN_00ba9ee0  refs: 0x00ba9f16
+  0x00baa000 FUN_00baa000  refs: 0x00baa019, 0x00baa035, 0x00baa051, 0x00baa06d, 0x00baa089 (+2 more)
+  0x00baa220 FUN_00baa220  refs: 0x00baa230
+  0x00baa240 FUN_00baa240  refs: 0x00baa27b
+  0x00baa570 FUN_00baa570  refs: 0x00baa5a5
+  0x00bacd00 FUN_00bacd00  refs: 0x00bace96
+  0x00bad560 FUN_00bad560  refs: 0x00bad570
+  0x00bad580 FUN_00bad580  refs: 0x00bad5fd, 0x00bad679, 0x00bad720, 0x00bad7c3, 0x00bad86a (+6 more)
+  0x00baec90 FUN_00baec90  refs: 0x00baed5b
+  0x00bb3470 FUN_00bb3470  refs: 0x00bb34b5
+  0x00bb3950 FUN_00bb3950  refs: 0x00bb3995
+  0x00bb3b10 FUN_00bb3b10  refs: 0x00bb3b4e
+  0x00bb5dd0 FUN_00bb5dd0  refs: 0x00bb5e3e, 0x00bb5ed7
+  0x00bb6300 FUN_00bb6300  refs: 0x00bb63c2
+  0x00bb6c30 FUN_00bb6c30  refs: 0x00bb6dd7
+  0x00bb7170 FUN_00bb7170  refs: 0x00bb71cb
+  0x00bb7370 FUN_00bb7370  refs: 0x00bb73a2
+  0x00bb7d70 FUN_00bb7d70  refs: 0x00bb7ddf
+  0x00bb83d0 FUN_00bb83d0  refs: 0x00bb84e5, 0x00bb8519, 0x00bb854d
+  0x00bb8990 FUN_00bb8990  refs: 0x00bb89a0
+  0x00bb89b0 FUN_00bb89b0  refs: 0x00bb8a28, 0x00bb8a7c, 0x00bb8acf, 0x00bb8bbb, 0x00bb8ccb
+  0x00bb8ea0 FUN_00bb8ea0  refs: 0x00bb8f3e, 0x00bb8f72, 0x00bb8fa6
+  0x00bb91e0 FUN_00bb91e0  refs: 0x00bb91f0
+  0x00bb9200 FUN_00bb9200  refs: 0x00bb9274, 0x00bb92c7, 0x00bb9316, 0x00bb93d3
+  0x00bc0360 FUN_00bc0360  refs: 0x00bc044b, 0x00bc047f, 0x00bc04b3
+  0x00bc06a0 FUN_00bc06a0  refs: 0x00bc06b0
+  0x00bc06c0 FUN_00bc06c0  refs: 0x00bc0734, 0x00bc0788, 0x00bc07cf, 0x00bc082d
+  0x00bc0b70 FUN_00bc0b70  refs: 0x00bc0bc5
+  0x00bc0c50 FUN_00bc0c50  refs: 0x00bc0c5a
+  0x00bc0c90 FUN_00bc0c90  refs: 0x00bc0f1f
+  0x00bc0f80 FUN_00bc0f80  refs: 0x00bc0fe9
+  0x00bc15a0 FUN_00bc15a0  refs: 0x00bc1642, 0x00bc1669
+  0x00bc1d40 FUN_00bc1d40  refs: 0x00bc1f05
+  0x00bc1fa0 FUN_00bc1fa0  refs: 0x00bc1fd2
+  0x00bd5330 FUN_00bd5330  refs: 0x00bd53e5
+  0x00bd5670 FUN_00bd5670  refs: 0x00bd58be
+  0x00bd6190 FUN_00bd6190  refs: 0x00bd622d, 0x00bd624f
+  0x00bd6570 FUN_00bd6570  refs: 0x00bd6624, 0x00bd6635
+  0x00bd6bb0 FUN_00bd6bb0  refs: 0x00bd6c4d, 0x00bd6d4d, 0x00bd6df8
+  0x00bd6fa0 FUN_00bd6fa0  refs: 0x00bd6fb0
+  0x00bd71e0 FUN_00bd71e0  refs: 0x00bd71f0
+  0x00bd8ae0 FUN_00bd8ae0  refs: 0x00bd8b8e, 0x00bd8bb0
+  0x00bd8f90 FUN_00bd8f90  refs: 0x00bd9071, 0x00bd9082
+  0x00bd9120 FUN_00bd9120  refs: 0x00bd9139
+  0x00bd9150 FUN_00bd9150  refs: 0x00bd9153
+  0x00bd9400 FUN_00bd9400  refs: 0x00bd9410
+  0x00bd9420 FUN_00bd9420  refs: 0x00bd945d
+  0x00bdb380 FUN_00bdb380  refs: 0x00bdb419, 0x00bdb44b
+  0x00be0fe0 FUN_00be0fe0  refs: 0x00be11fc, 0x00be1399, 0x00be156f, 0x00be1611, 0x00be16e6
+  0x00be1750 FUN_00be1750  refs: 0x00be199f, 0x00be1b40, 0x00be1cda, 0x00be1d7c, 0x00be1e51
+  0x00c033f0 FUN_00c033f0  refs: 0x00c03400
+  0x00c03410 FUN_00c03410  refs: 0x00c0344d, 0x00c034c8
+  0x00c03580 FUN_00c03580  refs: 0x00c035d3, 0x00c03607
+  0x00c03890 FUN_00c03890  refs: 0x00c038a0
+  0x00c038b0 FUN_00c038b0  refs: 0x00c0398f
+  0x00c04620 FUN_00c04620  refs: 0x00c04668
+  0x00c04710 FUN_00c04710  refs: 0x00c04720
+  0x00c04730 FUN_00c04730  refs: 0x00c0476e, 0x00c04806
+  0x00c04a80 FUN_00c04a80  refs: 0x00c04a90
+  0x00c04aa0 FUN_00c04aa0  refs: 0x00c04ad1
+  0x00c05160 FUN_00c05160  refs: 0x00c05170
+  0x00c05180 FUN_00c05180  refs: 0x00c051bb
+  0x00c054a0 FUN_00c054a0  refs: 0x00c054b0
+  0x00c054c0 FUN_00c054c0  refs: 0x00c054fd, 0x00c055d6
+  0x00c05760 FUN_00c05760  refs: 0x00c05770
+  0x00c05780 FUN_00c05780  refs: 0x00c057bb
+  0x00c1a3b0 FUN_00c1a3b0  refs: 0x00c1a3e4
+  0x00c1a4a0 FUN_00c1a4a0  refs: 0x00c1a4ab
+  0x00c1d740 FUN_00c1d740  refs: 0x00c1d764
+  0x00c1d790 FUN_00c1d790  refs: 0x00c1d7b4
+  0x00c1d980 FUN_00c1d980  refs: 0x00c1d99d
+  0x00c1d9b0 FUN_00c1d9b0  refs: 0x00c1d9cd
+  0x00c24ef0 FUN_00c24ef0  refs: 0x00c24ef7
+  0x00c24f20 FUN_00c24f20  refs: 0x00c24f4a, 0x00c24f8e, 0x00c24fca, 0x00c2503a, 0x00c25106 (+2 more)
+  0x00c25280 FUN_00c25280  refs: 0x00c25287
+  0x00c25340 FUN_00c25340  refs: 0x00c2538c, 0x00c253e9
+  0x00c25990 FUN_00c25990  refs: 0x00c2599b
+  0x00c25b30 FUN_00c25b30  refs: 0x00c25b39
+  0x00c2d720 FUN_00c2d720  refs: 0x00c2d72d, 0x00c2d761
+  0x00c2dca0 FUN_00c2dca0  refs: 0x00c2dca7
+  0x00c309a0 FUN_00c309a0  refs: 0x00c309bd
+  0x00c30f90 FUN_00c30f90  refs: 0x00c31022
+  0x00c31090 FUN_00c31090  refs: 0x00c311a1
+  0x00c33170 FUN_00c33170  refs: 0x00c331d9, 0x00c33258
+  0x00c3a640 FUN_00c3a640  refs: 0x00c3a650
+  0x00c3a670 FUN_00c3a670  refs: 0x00c3a682
+  0x00c3a6a0 FUN_00c3a6a0  refs: 0x00c3a6bb
+  0x00c3b3f0 FUN_00c3b3f0  refs: 0x00c3b55c
+  0x00c3c430 FUN_00c3c430  refs: 0x00c3c44b
+  0x00c3c460 FUN_00c3c460  refs: 0x00c3c487
+  0x00c3c700 FUN_00c3c700  refs: 0x00c3c733
+  0x00c3c7e0 FUN_00c3c7e0  refs: 0x00c3c813
+  0x00c3cea0 FUN_00c3cea0  refs: 0x00c3cebf
+  0x00c3cee0 FUN_00c3cee0  refs: 0x00c3cf05
+  0x00c3d380 FUN_00c3d380  refs: 0x00c3d39b
+  0x00c3d3b0 FUN_00c3d3b0  refs: 0x00c3d3cb
+  0x00c3d3e0 FUN_00c3d3e0  refs: 0x00c3d3fb
+  0x00c3d410 FUN_00c3d410  refs: 0x00c3d42b
+  0x00c3d5e0 FUN_00c3d5e0  refs: 0x00c3d666
+  0x00c3d950 FUN_00c3d950  refs: 0x00c3d96b
+  0x00c3d980 FUN_00c3d980  refs: 0x00c3d9eb
+  0x00c3da50 FUN_00c3da50  refs: 0x00c3dad7
+  0x00c3e3f0 FUN_00c3e3f0  refs: 0x00c3e40b
+  0x00c3e4f0 FUN_00c3e4f0  refs: 0x00c3e57b, 0x00c3e5d6, 0x00c3e60b
+  0x00c3e8b0 FUN_00c3e8b0  refs: 0x00c3e950, 0x00c3e985
+  0x00c3ec80 FUN_00c3ec80  refs: 0x00c3ed4f, 0x00c3edce, 0x00c3edef
+  0x00c3eeb0 FUN_00c3eeb0  refs: 0x00c3ef55, 0x00c3efef, 0x00c3f007
+  0x00c3f130 FUN_00c3f130  refs: 0x00c3f14b
+  0x00c3f530 FUN_00c3f530  refs: 0x00c3f598
+  0x00c3f7a0 FUN_00c3f7a0  refs: 0x00c3f808
+  0x00c3f8c0 FUN_00c3f8c0  refs: 0x00c3f90f, 0x00c3f92c
+  0x00c3fa70 FUN_00c3fa70  refs: 0x00c3fb09, 0x00c3fb20
+  0x00c3ffb0 FUN_00c3ffb0  refs: 0x00c4009a, 0x00c4015c
+  0x00c40930 FUN_00c40930  refs: 0x00c4094b
+  0x00c40960 FUN_00c40960  refs: 0x00c4097b
+  0x00c409b0 FUN_00c409b0  refs: 0x00c409cb
+  0x00c409e0 FUN_00c409e0  refs: 0x00c40a53
+  0x00c40a70 FUN_00c40a70  refs: 0x00c40a8b
+  0x00c40aa0 FUN_00c40aa0  refs: 0x00c40af5
+  0x00c40b40 FUN_00c40b40  refs: 0x00c40b5c
+  0x00c40b70 FUN_00c40b70  refs: 0x00c40c65, 0x00c40d9c
+  0x00c41330 FUN_00c41330  refs: 0x00c413df, 0x00c414ae, 0x00c414e3, 0x00c4155a
+  0x00c41fe0 FUN_00c41fe0  refs: 0x00c4203b
+  0x00c420d0 FUN_00c420d0  refs: 0x00c42133, 0x00c4215b
+  0x00c42180 FUN_00c42180  refs: 0x00c4221a
+  0x00c422d0 FUN_00c422d0  refs: 0x00c42333, 0x00c4235b
+  0x00c42960 FUN_00c42960  refs: 0x00c429fc, 0x00c42ae7
+  0x00c42b80 FUN_00c42b80  refs: 0x00c42c1b, 0x00c42d24, 0x00c42d4c
+  0x00c43500 FUN_00c43500  refs: 0x00c43527
+  0x00c435a0 FUN_00c435a0  refs: 0x00c435ec
+  0x00c44980 FUN_00c44980  refs: 0x00c449f0, 0x00c44a2c
+  0x00c44b70 FUN_00c44b70  refs: 0x00c44c29
+  0x00c44df0 FUN_00c44df0  refs: 0x00c44e0b
+  0x00c46170 FUN_00c46170  refs: 0x00c461c1
+  0x00c46420 FUN_00c46420  refs: 0x00c46457, 0x00c464a3
+  0x00c464c0 FUN_00c464c0  refs: 0x00c4650f
+  0x00c49050 FUN_00c49050  refs: 0x00c49059
+  0x00c49100 FUN_00c49100  refs: 0x00c49177
+  0x00c49850 FUN_00c49850  refs: 0x00c49917
+  0x00c4a860 FUN_00c4a860  refs: 0x00c4a870
+  0x00c4a890 FUN_00c4a890  refs: 0x00c4a89b
+  0x00c4a8b0 FUN_00c4a8b0  refs: 0x00c4a8c2
+  0x00c4a900 FUN_00c4a900  refs: 0x00c4a910
+  0x00c4a930 FUN_00c4a930  refs: 0x00c4a942
+  0x00c4a960 FUN_00c4a960  refs: 0x00c4a97b
+  0x00c4a990 FUN_00c4a990  refs: 0x00c4a9ab
+  0x00c4cf80 FUN_00c4cf80  refs: 0x00c4d185
+  0x00c4db20 FUN_00c4db20  refs: 0x00c4db57
+  0x00c4e1e0 FUN_00c4e1e0  refs: 0x00c4e235, 0x00c4e2d2, 0x00c4e36f, 0x00c4e40c
+  0x00c4f460 FUN_00c4f460  refs: 0x00c4f4b9
+  0x00c4f550 FUN_00c4f550  refs: 0x00c4f5b6
+  0x00c503d0 FUN_00c503d0  refs: 0x00c50421, 0x00c50469
+  0x00c504e0 FUN_00c504e0  refs: 0x00c50528, 0x00c50588
+  0x00c50610 FUN_00c50610  refs: 0x00c5068f, 0x00c508e0
+  0x00c509f0 FUN_00c509f0  refs: 0x00c50abd, 0x00c50b24
+  0x00c515d0 FUN_00c515d0  refs: 0x00c51605, 0x00c5162b
+  0x00c517b0 FUN_00c517b0  refs: 0x00c51862
+  0x00c51df0 FUN_00c51df0  refs: 0x00c51e9f
+  0x00c52880 FUN_00c52880  refs: 0x00c528ea
+  0x00c52d80 FUN_00c52d80  refs: 0x00c52f5b
+  0x00c53030 FUN_00c53030  refs: 0x00c53116, 0x00c531f8
+  0x00c53430 FUN_00c53430  refs: 0x00c534cc
+  0x00c53870 FUN_00c53870  refs: 0x00c53901
+  0x00c53fa0 FUN_00c53fa0  refs: 0x00c53ffd
+  0x00c546c0 FUN_00c546c0  refs: 0x00c546e7
+  0x00c54760 FUN_00c54760  refs: 0x00c547ac
+  0x00c54810 FUN_00c54810  refs: 0x00c54835
+  0x00c54850 FUN_00c54850  refs: 0x00c54a20
+  0x00c54bc0 FUN_00c54bc0  refs: 0x00c54be6
+  0x00c54d70 FUN_00c54d70  refs: 0x00c54d95, 0x00c54dab
+  0x00c55200 FUN_00c55200  refs: 0x00c55227
+  0x00c552a0 FUN_00c552a0  refs: 0x00c552ec
+  0x00c55360 FUN_00c55360  refs: 0x00c553c2, 0x00c55430, 0x00c554a8, 0x00c55559, 0x00c555c7
+  0x00c55920 FUN_00c55920  refs: 0x00c55a84, 0x00c55b67, 0x00c55c2a
+  0x00c55d50 FUN_00c55d50  refs: 0x00c55d7a, 0x00c564b2, 0x00c565bb
+  0x00c56680 FUN_00c56680  refs: 0x00c56821, 0x00c568d2, 0x00c5698d, 0x00c56a81, 0x00c56b25 (+6 more)
+  0x00c57d70 FUN_00c57d70  refs: 0x00c57e16, 0x00c57ea7, 0x00c57f54, 0x00c58038, 0x00c58071
+  0x00c584a0 FUN_00c584a0  refs: 0x00c58509, 0x00c5859a, 0x00c5864d, 0x00c5873c, 0x00c587dd (+1 more)
+  0x00c58f00 FUN_00c58f00  refs: 0x00c58f49, 0x00c58f9e, 0x00c58fdc
+  0x00c59200 FUN_00c59200  refs: 0x00c5922c, 0x00c5937e, 0x00c594fe
+  0x00c59660 FUN_00c59660  refs: 0x00c59698, 0x00c597d3, 0x00c59904
+  0x00c59a50 FUN_00c59a50  refs: 0x00c59b1f, 0x00c59dbf, 0x00c59f80
+  0x00c5a0f0 FUN_00c5a0f0  refs: 0x00c5a266, 0x00c5a62c
+  0x00c5eca0 FUN_00c5eca0  refs: 0x00c5ecd3
+  0x00c5f240 FUN_00c5f240  refs: 0x00c5f267
+  0x00c5f2e0 FUN_00c5f2e0  refs: 0x00c5f32c
+  0x00c5fb80 FUN_00c5fb80  refs: 0x00c5fbcd
+  0x00c616c0 FUN_00c616c0  refs: 0x00c616e7
+  0x00c61760 FUN_00c61760  refs: 0x00c617ac
+  0x00c618f0 FUN_00c618f0  refs: 0x00c61917
+  0x00c61990 FUN_00c61990  refs: 0x00c619dc
+  0x00c62090 FUN_00c62090  refs: 0x00c620af
+  0x00c63210 FUN_00c63210  refs: 0x00c63243
+  0x00c63b40 FUN_00c63b40  refs: 0x00c63bae
+  0x00c63c30 FUN_00c63c30  refs: 0x00c63c7a, 0x00c63e50
+  0x00c640f0 FUN_00c640f0  refs: 0x00c6415d
+  0x00c64270 FUN_00c64270  refs: 0x00c642de
+  0x00c64710 FUN_00c64710  refs: 0x00c64749
+  0x00c64780 FUN_00c64780  refs: 0x00c64796, 0x00c647c6
+  0x00c64e70 FUN_00c64e70  refs: 0x00c64efd
+  0x00c65490 FUN_00c65490  refs: 0x00c654ba
+  0x00c65530 FUN_00c65530  refs: 0x00c65557
+  0x00c655d0 FUN_00c655d0  refs: 0x00c6561c
+  0x00c65710 FUN_00c65710  refs: 0x00c65743
+  0x00c66670 FUN_00c66670  refs: 0x00c666fb
+  0x00c67f20 FUN_00c67f20  refs: 0x00c67f68
+  0x00c68230 FUN_00c68230  refs: 0x00c68700
+  0x00c68b50 FUN_00c68b50  refs: 0x00c68b65
+  0x00c68f50 FUN_00c68f50  refs: 0x00c68fae, 0x00c68ffc
+  0x00c69010 FUN_00c69010  refs: 0x00c690dc, 0x00c69102, 0x00c69123, 0x00c69144, 0x00c69165
+  0x00c6aca0 FUN_00c6aca0  refs: 0x00c6ad4a, 0x00c6ad58, 0x00c6ad66, 0x00c6ad74, 0x00c6ad82
+  0x00c6b070 FUN_00c6b070  refs: 0x00c6b08c
+  0x00c6d260 FUN_00c6d260  refs: 0x00c6d27c
+  0x00c70bd0 FUN_00c70bd0  refs: 0x00c70c10, 0x00c70c40
+  0x00c70c60 FUN_00c70c60  refs: 0x00c70c7c
+  0x00c711d0 FUN_00c711d0  refs: 0x00c715f1
+  0x00c72410 FUN_00c72410  refs: 0x00c73056
+  0x00c74780 FUN_00c74780  refs: 0x00c74790
+  0x00c74ea0 FUN_00c74ea0  refs: 0x00c74ea8
+  0x00c75f40 FUN_00c75f40  refs: 0x00c75f4f
+  0x00c76030 FUN_00c76030  refs: 0x00c76052
+  0x00c76070 FUN_00c76070  refs: 0x00c76092
+  0x00c760b0 FUN_00c760b0  refs: 0x00c760d2
+  0x00c76240 FUN_00c76240  refs: 0x00c762bf
+  0x00c7a570 FUN_00c7a570  refs: 0x00c7a580
+  0x00c7a590 FUN_00c7a590  refs: 0x00c7a5a0
+  0x00c7a5b0 FUN_00c7a5b0  refs: 0x00c7a5c0
+  0x00c7a690 FUN_00c7a690  refs: 0x00c7a6c4
+  0x00c7a6e0 FUN_00c7a6e0  refs: 0x00c7a714
+  0x00c7b4f0 FUN_00c7b4f0  refs: 0x00c7b50f
+  0x00c7cb50 FUN_00c7cb50  refs: 0x00c7cbec, 0x00c7cc3f, 0x00c7cc8c, 0x00c7cdf6
+  0x00c7de30 FUN_00c7de30  refs: 0x00c7de4c
+  0x00c7e3b0 FUN_00c7e3b0  refs: 0x00c7e6f2
+  0x00c7fc20 FUN_00c7fc20  refs: 0x00c7fc2f
+  0x00c80130 FUN_00c80130  refs: 0x00c801a2
+  0x00c80570 FUN_00c80570  refs: 0x00c805ce, 0x00c8061c
+  0x00c80660 FUN_00c80660  refs: 0x00c80694
+  0x00c80a30 FUN_00c80a30  refs: 0x00c80a45
+  0x00c80aa0 FUN_00c80aa0  refs: 0x00c80ac9
+  0x00c84fa0 FUN_00c84fa0  refs: 0x00c85037, 0x00c8505d
+  0x00c87100 FUN_00c87100  refs: 0x00c87164
+  0x00c871c0 FUN_00c871c0  refs: 0x00c87226
+  0x00c877b0 FUN_00c877b0  refs: 0x00c87811
+  0x00c88990 FUN_00c88990  refs: 0x00c889e4
+  0x00c8b9e0 FUN_00c8b9e0  refs: 0x00c8ba42
+  0x00c8be30 FUN_00c8be30  refs: 0x00c8be98
+  0x00c8ca60 FUN_00c8ca60  refs: 0x00c8cac4
+  0x00c8f5a0 FUN_00c8f5a0  refs: 0x00c8f607
+  0x00c8f670 FUN_00c8f670  refs: 0x00c8f6c2
+  0x00c9a040 FUN_00c9a040  refs: 0x00c9a05e
+  0x00c9ae80 FUN_00c9ae80  refs: 0x00c9ae9d
+  0x00c9bbb0 FUN_00c9bbb0  refs: 0x00c9bd0d
+  0x00c9fa20 FUN_00c9fa20  refs: 0x00c9fa88
+  0x00ca0090 FUN_00ca0090  refs: 0x00ca00f5
+  0x00ca0840 FUN_00ca0840  refs: 0x00ca08a4
+  0x00ca0d70 FUN_00ca0d70  refs: 0x00ca0da4
+  0x00ca20e0 FUN_00ca20e0  refs: 0x00ca2102
+  0x00ca2aa0 FUN_00ca2aa0  refs: 0x00ca2abc
+  0x00ca2ad0 FUN_00ca2ad0  refs: 0x00ca2e41, 0x00ca3177, 0x00ca32dd
+  0x00ca3570 FUN_00ca3570  refs: 0x00ca3581, 0x00ca3593, 0x00ca35a5, 0x00ca35b7
+  0x00ca3f10 FUN_00ca3f10  refs: 0x00ca3f57, 0x00ca4037, 0x00ca40a6
+  0x00ca4440 FUN_00ca4440  refs: 0x00ca445d
+  0x00ca4a90 FUN_00ca4a90  refs: 0x00ca4aac
+  0x00ca57a0 FUN_00ca57a0  refs: 0x00ca5804
+  0x00ca5a80 FUN_00ca5a80  refs: 0x00ca5aee
+  0x00ca5da0 FUN_00ca5da0  refs: 0x00ca62d6, 0x00ca63bd
+  0x00ca6a80 FUN_00ca6a80  refs: 0x00ca6ad1
+  0x00ca6d40 FUN_00ca6d40  refs: 0x00ca6da8
+  0x00ca6e60 FUN_00ca6e60  refs: 0x00ca6eda
+  0x00ca9f40 FUN_00ca9f40  refs: 0x00ca9fa2
+  0x00caa5d0 FUN_00caa5d0  refs: 0x00caa632
+  0x00cab000 FUN_00cab000  refs: 0x00cab064
+  0x00cb30a0 FUN_00cb30a0  refs: 0x00cb30bc
+  0x00cb39d0 FUN_00cb39d0  refs: 0x00cb39f3
+  0x00cb3a40 FUN_00cb3a40  refs: 0x00cb3aa9
+  0x00cb8270 FUN_00cb8270  refs: 0x00cb82d4
+  0x00cb8330 FUN_00cb8330  refs: 0x00cb83b4
+  0x00cb87e0 FUN_00cb87e0  refs: 0x00cb8844
+  0x00cb9260 FUN_00cb9260  refs: 0x00cb927c
+  0x00cb9320 FUN_00cb9320  refs: 0x00cb936c
+  0x00cb94a0 FUN_00cb94a0  refs: 0x00cb950e
+  0x00cb96c0 FUN_00cb96c0  refs: 0x00cb96ef
+  0x00cb9cb0 FUN_00cb9cb0  refs: 0x00cb9cb0
+  0x00cba030 FUN_00cba030  refs: 0x00cba064
+  0x00cba080 FUN_00cba080  refs: 0x00cba0b4
+  0x00cba340 FUN_00cba340  refs: 0x00cba586, 0x00cba5b5, 0x00cba5f3, 0x00cba61b, 0x00cba649
+  0x00cbaec0 FUN_00cbaec0  refs: 0x00cbaf06
+  0x00cbc7b0 FUN_00cbc7b0  refs: 0x00cbc7c5
+  0x00cbc810 FUN_00cbc810  refs: 0x00cbc863, 0x00cbc892
+  0x00cbc8b0 FUN_00cbc8b0  refs: 0x00cbc8d2
+  0x00cbc920 FUN_00cbc920  refs: 0x00cbc9da
+  0x00cbcad0 FUN_00cbcad0  refs: 0x00cbcb35
+  0x00cbcbd0 FUN_00cbcbd0  refs: 0x00cbcc49
+  0x00cbd4e0 FUN_00cbd4e0  refs: 0x00cbd4f0
+  0x00cbde40 FUN_00cbde40  refs: 0x00cbdea2
+  0x00cc1520 FUN_00cc1520  refs: 0x00cc159f, 0x00cc15c1, 0x00cc15d5
+  0x00cc1730 FUN_00cc1730  refs: 0x00cc17e0, 0x00cc1883, 0x00cc18c6
+  0x00cc19e0 FUN_00cc19e0  refs: 0x00cc19fd
+  0x00cc2a00 FUN_00cc2a00  refs: 0x00cc2a65
+  0x00cc2f90 FUN_00cc2f90  refs: 0x00cc2ff6
+  0x00cc3630 FUN_00cc3630  refs: 0x00cc3694
+  0x00cc3e50 FUN_00cc3e50  refs: 0x00cc3eb4
+  0x00cc4560 FUN_00cc4560  refs: 0x00cc45c4
+  0x00cc4d40 FUN_00cc4d40  refs: 0x00cc4da2
+  0x00cc54d0 FUN_00cc54d0  refs: 0x00cc5532
+  0x00cc5c70 FUN_00cc5c70  refs: 0x00cc5cd2
+  0x00cc6310 FUN_00cc6310  refs: 0x00cc6372
+  0x00cc6ab0 FUN_00cc6ab0  refs: 0x00cc6b12
+  0x00cc7970 FUN_00cc7970  refs: 0x00cc79d2
+  0x00cc83b0 FUN_00cc83b0  refs: 0x00cc8412
+  0x00cc8850 FUN_00cc8850  refs: 0x00cc88b2
+  0x00cc8920 FUN_00cc8920  refs: 0x00cc8938
+  0x00cc9540 FUN_00cc9540  refs: 0x00cc9550
+  0x00cc9560 FUN_00cc9560  refs: 0x00cc95c2
+  0x00cc9a20 FUN_00cc9a20  refs: 0x00cc9a82
+  0x00cca2a0 FUN_00cca2a0  refs: 0x00cca304
+  0x00ccadb0 FUN_00ccadb0  refs: 0x00ccae14
+  0x00ccb730 FUN_00ccb730  refs: 0x00ccb794
+  0x00ccbb50 FUN_00ccbb50  refs: 0x00ccbba9, 0x00ccbbbb, 0x00ccbbd3
+  0x00ccbfa0 FUN_00ccbfa0  refs: 0x00ccc00b
+  0x00ccc2f0 FUN_00ccc2f0  refs: 0x00ccc34d, 0x00ccc376
+  0x00ccc440 FUN_00ccc440  refs: 0x00ccc4d2, 0x00ccc546, 0x00ccc5ca
+  0x00ccc720 FUN_00ccc720  refs: 0x00ccc79f
+  0x00ccc7e0 FUN_00ccc7e0  refs: 0x00ccc880
+  0x00ccc980 FUN_00ccc980  refs: 0x00ccca75, 0x00cccd0a, 0x00cccd8d, 0x00cccdac
+  0x00ccd520 FUN_00ccd520  refs: 0x00ccd584
+  0x00cce1c0 FUN_00cce1c0  refs: 0x00cce222
+  0x00cce860 FUN_00cce860  refs: 0x00cce8c8
+  0x00ccee60 FUN_00ccee60  refs: 0x00cceecb
+  0x00ccf680 FUN_00ccf680  refs: 0x00ccf6e4
+  0x00ccffd0 FUN_00ccffd0  refs: 0x00cd0034
+  0x00cd05e0 FUN_00cd05e0  refs: 0x00cd0665
+  0x00cf4840 FUN_00cf4840  refs: 0x00cf48a4, 0x00cf48c4, 0x00cf48e4, 0x00cf4904, 0x00cf4924 (+6 more)
+  0x00d502d0 FUN_00d502d0  refs: 0x00d50332
+  0x00e68a80 FUN_00e68a80  refs: 0x00e68d5f, 0x00e68db1
+  0x00e6dfc0 FUN_00e6dfc0  refs: 0x00e6e55c, 0x00e6e5a5
+  0x00e6e8f0 FUN_00e6e8f0  refs: 0x00e6e912
+  0x00e6e930 FUN_00e6e930  refs: 0x00e6e95f
+  0x00e6e970 FUN_00e6e970  refs: 0x00e6e992
+  0x00e6e9b0 FUN_00e6e9b0  refs: 0x00e6e9df
+  0x00e6e9f0 FUN_00e6e9f0  refs: 0x00e6ea12
+  0x00e6ea30 FUN_00e6ea30  refs: 0x00e6ea5f
+  0x00e6ea70 FUN_00e6ea70  refs: 0x00e6ea92
+  0x00e6eab0 FUN_00e6eab0  refs: 0x00e6eadf
+  0x00e6eaf0 FUN_00e6eaf0  refs: 0x00e6eb12
+  0x00e6eb30 FUN_00e6eb30  refs: 0x00e6eb5f
+  0x00e6eb70 FUN_00e6eb70  refs: 0x00e6eb8d
+  0x00e6eba0 FUN_00e6eba0  refs: 0x00e6ebc2
+  0x00e6ebe0 FUN_00e6ebe0  refs: 0x00e6ec0f
+  0x00e723a0 FUN_00e723a0  refs: 0x00e7243d, 0x00e7244e, 0x00e7245f, 0x00e7247c, 0x00e7249f (+1 more)
+  0x00e72df0 FUN_00e72df0  refs: 0x00e72e0d
+  0x00e72e20 FUN_00e72e20  refs: 0x00e72e3d
+  0x00e75a70 FUN_00e75a70  refs: 0x00e75b28, 0x00e75e81, 0x00e75fbb, 0x00e75fcc, 0x00e75fdd
+  0x00e76a80 FUN_00e76a80  refs: 0x00e76af6, 0x00e76b35
+  0x00e78510 FUN_00e78510  refs: 0x00e78517
+  0x00e7a610 FUN_00e7a610  refs: 0x00e7a62d
+  0x00e7a860 FUN_00e7a860  refs: 0x00e7a862
+  0x00e7afc0 FUN_00e7afc0  refs: 0x00e7afe2
+  0x00e7b000 FUN_00e7b000  refs: 0x00e7b02f
+  0x00e7b200 FUN_00e7b200  refs: 0x00e7b21d
+  0x00e7b230 FUN_00e7b230  refs: 0x00e7b24d
+  0x00e7c500 FUN_00e7c500  refs: 0x00e7c503
+  0x00e7d180 FUN_00e7d180  refs: 0x00e7d19d
+  0x00e7d1b0 FUN_00e7d1b0  refs: 0x00e7d1ef
+  0x00e7d490 FUN_00e7d490  refs: 0x00e7d4ad
+  0x00e7d4e0 FUN_00e7d4e0  refs: 0x00e7d51f
+  0x00e7d560 FUN_00e7d560  refs: 0x00e7d57d
+  0x00e7d620 FUN_00e7d620  refs: 0x00e7d643
+  0x00e7dbc0 FUN_00e7dbc0  refs: 0x00e7dc13
+  0x00e7e7a0 FUN_00e7e7a0  refs: 0x00e7e7b0
+  0x00e7eb50 FUN_00e7eb50  refs: 0x00e7eb59
+  0x00e7ec60 FUN_00e7ec60  refs: 0x00e7ec7f
+  0x00e7ec90 FUN_00e7ec90  refs: 0x00e7ec92
+  0x00e7ed80 FUN_00e7ed80  refs: 0x00e7edb7, 0x00e7edcd
+  0x00e7f050 FUN_00e7f050  refs: 0x00e7f060
+  0x00e7f070 FUN_00e7f070  refs: 0x00e7f08f
+  0x00e7f160 FUN_00e7f160  refs: 0x00e7f169
+  0x00e7f210 FUN_00e7f210  refs: 0x00e7f218
+  0x00e7f2b0 FUN_00e7f2b0  refs: 0x00e7f2b3, 0x00e7f2e8
+  0x00e7f610 FUN_00e7f610  refs: 0x00e7f633, 0x00e7f649, 0x00e7f688, 0x00e7f69e
+  0x00e7f790 FUN_00e7f790  refs: 0x00e7f7ad
+  0x00e7f900 FUN_00e7f900  refs: 0x00e7f910
+  0x00e7fc80 FUN_00e7fc80  refs: 0x00e7fc9d, 0x00e7fcb6
+  0x00e7fcd0 FUN_00e7fcd0  refs: 0x00e7fd0b
+  0x00e7fe70 FUN_00e7fe70  refs: 0x00e7fe8d
+  0x00e80150 FUN_00e80150  refs: 0x00e80152
+  0x00e80390 FUN_00e80390  refs: 0x00e8039b
+  0x00e803f0 FUN_00e803f0  refs: 0x00e80403
+  0x00e80420 FUN_00e80420  refs: 0x00e80429
+  0x00e89440 FUN_00e89440  refs: 0x00e89450
+  0x00e894b0 FUN_00e894b0  refs: 0x00e894b9
+  0x00e89560 FUN_00e89560  refs: 0x00e89589
+  0x00e895a0 FUN_00e895a0  refs: 0x00e895d8
+  0x00e895f0 FUN_00e895f0  refs: 0x00e895f2
+  0x00e89740 FUN_00e89740  refs: 0x00e89753
+  0x00e8b4e0 FUN_00e8b4e0  refs: 0x00e8b502
+  0x00e8b520 FUN_00e8b520  refs: 0x00e8b54f
+  0x00e8ce30 FUN_00e8ce30  refs: 0x00e8ce52
+  0x00e8ce70 FUN_00e8ce70  refs: 0x00e8ce9f
+  0x00e8d540 FUN_00e8d540  refs: 0x00e8d566
+  0x00e8ef10 FUN_00e8ef10  refs: 0x00e8efdf
+  0x00e8f170 FUN_00e8f170  refs: 0x00e8f180
+  0x00e8f7c0 FUN_00e8f7c0  refs: 0x00e8f7e2
+  0x00e8f800 FUN_00e8f800  refs: 0x00e8f82f
+  0x00e92610 FUN_00e92610  refs: 0x00e92632
+  0x00e92650 FUN_00e92650  refs: 0x00e9267f
+  0x00e92690 FUN_00e92690  refs: 0x00e926a0
+  0x00e926b0 FUN_00e926b0  refs: 0x00e926d2
+  0x00e926f0 FUN_00e926f0  refs: 0x00e9271f
+  0x00e92cd0 FUN_00e92cd0  refs: 0x00e92ce0
+  0x00e92cf0 FUN_00e92cf0  refs: 0x00e92d14, 0x00e92d63
+  0x00e935d0 FUN_00e935d0  refs: 0x00e935f2
+  0x00e93610 FUN_00e93610  refs: 0x00e9363f
+  0x00e93650 FUN_00e93650  refs: 0x00e93660
+  0x00e93670 FUN_00e93670  refs: 0x00e93692
+  0x00e936b0 FUN_00e936b0  refs: 0x00e936df
+  0x00e936f0 FUN_00e936f0  refs: 0x00e93700
+  0x00e93710 FUN_00e93710  refs: 0x00e93732
+  0x00e93750 FUN_00e93750  refs: 0x00e9377f
+  0x00e93ab0 FUN_00e93ab0  refs: 0x00e93ac0
+  0x00e93ad0 FUN_00e93ad0  refs: 0x00e93af3, 0x00e93b4a
+  0x00e93d80 FUN_00e93d80  refs: 0x00e93d83
+  0x00e94390 FUN_00e94390  refs: 0x00e943ad
+  0x00e94810 FUN_00e94810  refs: 0x00e94832
+  0x00e94850 FUN_00e94850  refs: 0x00e9487f
+  0x00e94a80 FUN_00e94a80  refs: 0x00e94a9d
+  0x00e952c0 FUN_00e952c0  refs: 0x00e952e2
+  0x00e95300 FUN_00e95300  refs: 0x00e9532f
+  0x00e95340 FUN_00e95340  refs: 0x00e95362
+  0x00e95380 FUN_00e95380  refs: 0x00e953af
+  0x00e95500 FUN_00e95500  refs: 0x00e95510
+  0x00e95780 FUN_00e95780  refs: 0x00e9579d
+  0x00e98b10 FUN_00e98b10  refs: 0x00e98b2d
+  0x00e98cb0 FUN_00e98cb0  refs: 0x00e98d65
+  0x00e98e90 FUN_00e98e90  refs: 0x00e98eec
+  0x00e98fd0 FUN_00e98fd0  refs: 0x00e98fe0
+  0x00e99330 FUN_00e99330  refs: 0x00e9935d
+  0x00e9e730 FUN_00e9e730  refs: 0x00e9e736
+  0x00e9ec90 FUN_00e9ec90  refs: 0x00e9ecad
+  0x00e9ee20 FUN_00e9ee20  refs: 0x00e9ee4f
+  0x00e9efb0 FUN_00e9efb0  refs: 0x00e9efb5
+  0x00ea0700 FUN_00ea0700  refs: 0x00ea0705
+  0x00ea7d10 FUN_00ea7d10  refs: 0x00ea7d15
+  0x00eacac0 FUN_00eacac0  refs: 0x00eacac5
+  0x00eacb00 FUN_00eacb00  refs: 0x00eacb9b
+  0x00eacde0 FUN_00eacde0  refs: 0x00eacde7, 0x00eacdfb
+  0x00ead1e0 FUN_00ead1e0  refs: 0x00ead225
+  0x00ead380 FUN_00ead380  refs: 0x00ead3fb, 0x00ead4fa, 0x00ead542
+  0x00eaee30 FUN_00eaee30  refs: 0x00eaee40
+  0x00eb5f10 FUN_00eb5f10  refs: 0x00eb5f1e
+  0x00eb5fc0 FUN_00eb5fc0  refs: 0x00eb5fe0
+  0x00eb6b50 FUN_00eb6b50  refs: 0x00eb6b60
+  0x00eb9fa0 FUN_00eb9fa0  refs: 0x00eba010, 0x00eba07c, 0x00eba0ca, 0x00eba15c
+  0x00eba1b0 FUN_00eba1b0  refs: 0x00eba1fd, 0x00eba44f
+  0x00ebf8e0 FUN_00ebf8e0  refs: 0x00ebf983, 0x00ebfc5c
+  0x00ebfd20 FUN_00ebfd20  refs: 0x00ebfd89
+  0x00ec19d0 FUN_00ec19d0  refs: 0x00ec19eb
+  0x00ec1a40 FUN_00ec1a40  refs: 0x00ec1a4b
+  0x00ec1a60 FUN_00ec1a60  refs: 0x00ec1a7d
+  0x00ec1df0 FUN_00ec1df0  refs: 0x00ec1e25
+  0x00ec1e40 FUN_00ec1e40  refs: 0x00ec1eb3
+  0x00ec1ee0 FUN_00ec1ee0  refs: 0x00ec1f06
+  0x00ec1ff0 FUN_00ec1ff0  refs: 0x00ec2057
+  0x00ec20a0 FUN_00ec20a0  refs: 0x00ec20a7
+  0x00ec2200 FUN_00ec2200  refs: 0x00ec2268
+  0x00ec2320 FUN_00ec2320  refs: 0x00ec23cb
+  0x00ec2490 FUN_00ec2490  refs: 0x00ec2533
+  0x00ec25e0 FUN_00ec25e0  refs: 0x00ec261d
+  0x00ec2760 FUN_00ec2760  refs: 0x00ec27e9, 0x00ec2910
+  0x00ec2ca0 lpStartAddress_00ec2ca0  refs: 0x00ec2cc7
+  0x00ec2d80 FUN_00ec2d80  refs: 0x00ec2d9f
+  0x00ec2e50 FUN_00ec2e50  refs: 0x00ec2ee3
+  0x00ec2f00 FUN_00ec2f00  refs: 0x00ec2f8c
+  0x00ec2ff0 FUN_00ec2ff0  refs: 0x00ec300d
+  0x00ee9070 FUN_00ee9070  refs: 0x00ee9092
+  0x00ee90b0 FUN_00ee90b0  refs: 0x00ee90df
+  0x00fb66a0 FUN_00fb66a0  refs: 0x00fb66a3
+  0x00fdb290 FUN_00fdb290  refs: 0x00fdb293
+  0x00fdc410 FUN_00fdc410  refs: 0x00fdc460
+
+================================================================================
+SECTION 5: DECOMPILATION OF KEY EXTERNAL CALLERS
+================================================================================
+
+--- FUN_00aa74c0 @ 0x00aa74c0 ---
+  Function: FUN_00aa74c0, size: 104 bytes
+
+void __fastcall FUN_00aa74c0(undefined4 *param_1)
+
+{
+  int *unaff_FS_OFFSET;
+  int local_10;
+  undefined1 *puStack_c;
+  undefined4 local_8;
+  
+  puStack_c = &LAB_00f1ed7b;
+  local_10 = *unaff_FS_OFFSET;
+  *unaff_FS_OFFSET = (int)&local_10;
+  *param_1 = &PTR_FUN_010a2884;
+  local_8 = 0;
+  FUN_00aa42c0((void *)param_1[3]);
+  *param_1 = &PTR_FUN_010a28c8;
+  *unaff_FS_OFFSET = local_10;
+  return;
+}
+
+

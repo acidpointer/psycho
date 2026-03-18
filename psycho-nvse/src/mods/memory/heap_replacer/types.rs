@@ -25,4 +25,5 @@ pub type SheapMaintenanceFn = unsafe extern "C" fn(*mut c_void);
 //(void *this,undefined4 param_1,undefined4 param_2)
 pub type SheapRegisterFn = unsafe extern "thiscall" fn(*mut c_void, u32, *mut c_void);
 
-
+/// Main loop pre-render maintenance function (FUN_0086ff70).
+pub type MainLoopMaintenanceFn = unsafe extern "thiscall" fn(*mut c_void);

@@ -82,6 +82,12 @@ pub static GHEAP_REALLOC_HOOK_1: LazyLock<InlineHookContainer<GameHeapReallocate
 pub static GHEAP_REALLOC_HOOK_2: LazyLock<InlineHookContainer<GameHeapReallocateFn>> =
     LazyLock::new(InlineHookContainer::new);
 
+// Main loop hook for deferred pressure relief
+const MAIN_LOOP_MAINTENANCE_ADDR: usize = 0x0086FF70;
+
+pub static MAIN_LOOP_MAINTENANCE_HOOK: LazyLock<InlineHookContainer<MainLoopMaintenanceFn>> =
+    LazyLock::new(InlineHookContainer::new);
+
 /// Scrap heap hooks
 pub static SHEAP_INIT_FIX_HOOK: LazyLock<InlineHookContainer<SheapInitFixFn>> =
     LazyLock::new(InlineHookContainer::new);
@@ -102,6 +108,14 @@ pub fn install_game_heap_hooks() -> anyhow::Result<()> {
     // Initialize heap validation cache for routing pre-hook pointers
     // (allocated by the original GameHeap before our hooks were installed).
     super::heap_validate::init_heap_cache();
+
+    // Initialize memory pressure relief (triggers LazyLock construction + logging).
+    // Returns None if game function pointers are invalid — logged internally.
+    super::gheap::pressure::PressureRelief::instance();
+
+    // Start gheap monitor thread (mimalloc stats + balance + pressure logging).
+    // Leaked intentionally — the monitor runs for the entire process lifetime.
+    std::mem::forget(super::gheap::monitor::Monitor::start());
 
     // ===========================
     //   SBM DISABLE PATCHES
@@ -203,6 +217,17 @@ pub fn install_game_heap_hooks() -> anyhow::Result<()> {
         GHEAP_REALLOC_HOOK_2.enable()?;
 
         log::info!("[GHEAP] GameHeap fully replaced with mimalloc (alloc/free/realloc/msize)");
+    }
+
+    // Main-loop hook for deferred pressure relief (runs between frames, safe context)
+    {
+        MAIN_LOOP_MAINTENANCE_HOOK.init(
+            "main_loop_maintenance",
+            MAIN_LOOP_MAINTENANCE_ADDR as *mut c_void,
+            hook_main_loop_maintenance,
+        )?;
+        MAIN_LOOP_MAINTENANCE_HOOK.enable()?;
+        log::info!("[PRESSURE] Main-loop maintenance hook installed at 0x{:08X}", MAIN_LOOP_MAINTENANCE_ADDR);
     }
 
     {
