@@ -1328,11 +1328,62 @@ Without processing queue 0x08, NiNode/BSTreeNode objects accumulate in
 `DAT_011de808` indefinitely. During sustained cell loading (stress test),
 this is the primary source of memory growth leading to OOM.
 
-Potential solutions (not yet tested):
-1. Find and call the SpeedTree cache invalidation before processing queue 0x08
-2. Manually remove BSTreeNodes from `BSTreeManager` maps before PDD
-3. Hook BSTreeNode destruction to update the cache atomically
-4. Accept OOM under extreme stress and focus on normal gameplay stability
+#### Attempted: Scene Graph Invalidation (FAILED)
+
+Ghidra analysis (`bstree_ninode_drain.py`) revealed that the game's 5
+normal-gameplay PDD callers ALL call `FUN_00878160` (pre-destruction setup)
+which calls `FUN_00703980` → `FUN_007160b0` (scene graph invalidation)
+before `DeferredCleanup_Small`. This rebuilds SpeedTree draw lists.
+
+We attempted to call this from our post-render hook:
+```
+FindCellToUnload → ProcessPendingCleanup
+  → SetDistanceThreshold(INT_MAX) → FUN_00703980()  // scene graph invalidation
+  → ProcessDeferredDestruction(1)  // all queues
+```
+
+**Result: CRASH.** Two failure modes:
+
+1. **Main thread crash in scene graph cull/update** — `FUN_007160b0` calls
+   `vtable+0x1c()` which traverses the scene graph and accesses heightfield
+   data (`hkBSHeightFieldShape`) from cells we just freed via
+   `FindCellToUnload`. The game's own callers run BEFORE cell unloading
+   (lines 271, 347), when the scene graph is still consistent.
+
+2. **AI thread crash (hkBSHeightFieldShape)** — Full PDD processes queue
+   0x20 (Havok wrappers), freeing heightfield shapes that AI threads hold
+   live references to during raycasting.
+
+**Key finding:** Scene graph invalidation CANNOT be called after
+`FindCellToUnload` — the cull/update accesses freed cell data. And it
+cannot be called before either — the draw lists would still reference
+the about-to-be-destroyed BSTreeNodes.
+
+The game's safe PDD callers work because they run early in the frame
+(lines 271, 347) where no cells have been freed and the scene graph is
+consistent. The draw lists are rebuilt, PDD destroys nodes, and later
+render (line 486) uses the fresh draw lists.
+
+#### Current approach: Boosted per-frame drain (FUN_00868850 hook)
+
+Deep research (`two_phase_hook_research.py`) revealed that `FUN_00868850`
+(1166 bytes) runs **every frame** at line ~802, BEFORE AI dispatch (line ~855)
+and BEFORE render (line ~904). It's the game's own per-frame queue processor
+that drains ALL PDD queues with limited batch sizes (10-20 items per queue).
+
+This function safely destroys BSTreeNodes because:
+- AI threads are idle (not yet dispatched for this frame)
+- Render hasn't built draw lists yet (destroyed nodes won't appear)
+- The game itself runs this function every frame — proven safe
+
+We hook `FUN_00868850` and under memory pressure, call the original
+function 10 times total (1 normal + 9 extra rounds). Each round drains
+up to 10-20 NiNodes, for ~100-200 NiNodes per frame total. This should
+keep up with cell loading rate during stress.
+
+The selective PDD at the post-render hook (skip 0x08) remains as the
+primary cell unloading mechanism. The boosted early-frame drain handles
+the NiNode accumulation that selective PDD can't address.
 
 ---
 

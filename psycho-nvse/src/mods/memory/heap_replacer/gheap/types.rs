@@ -356,3 +356,80 @@ pub type TaskGroupWaitFn = unsafe extern "fastcall" fn(task_group: *mut i32) -> 
 /// // Havok restart happens later in the cell loading process
 /// ```
 pub type HavokStopStartFn = unsafe extern "C" fn(mode: u8) -> u8;
+
+/// Invalidates the scene graph, forcing SpeedTree draw list rebuild.
+///
+/// # Address
+///
+/// `0x00703980` — `FUN_00703980` (45 bytes)
+///
+/// # Calling convention
+///
+/// `__stdcall` — no parameters.
+///
+/// # Behavior
+///
+/// 1. Calls `FUN_004b7210()` to get the scene graph / renderer object.
+///    If NULL, returns immediately (no scene graph active).
+/// 2. Calls `FUN_009373f0(scene)` — condition check (likely "is exterior").
+///    If false, returns (no invalidation needed for interiors).
+/// 3. Calls `FUN_007160b0(scene)` — the actual invalidation:
+///    - `FUN_007ffe00()` — setup
+///    - `FUN_00586150(scene)` → `vtable+0x1c()` — scene graph cull/update
+///      that rebuilds SpeedTree draw lists, clearing stale BSTreeNode pointers
+///    - `FUN_007a1670()` — cleanup
+///    - `ProcessPendingCleanup(manager, flush=TRUE)` — flushes cleanup queue
+///
+/// # Why this is needed
+///
+/// SpeedTree maintains internal draw list caches with raw pointers to
+/// BSTreeNode objects that persist across frames. When cells are unloaded,
+/// BSTreeNodes are removed from BSTreeManager's maps (via vtable dispatch
+/// in TreeMgr_RemoveOnState), but the draw list pointers remain stale.
+/// This function forces the draw lists to be rebuilt, making it safe to
+/// then process PDD queue 0x08 (NiNode/BSTreeNode destruction).
+///
+/// # Callers in the game
+///
+/// Called exclusively by `FUN_00878160` (pre-destruction setup), which is
+/// called by the same 5 functions that call `DeferredCleanup_Small`:
+/// `FUN_004556d0`, `FUN_005b6cd0`, `FUN_008782b0`, `FUN_0093cdf0`,
+/// `FUN_0093d500`. The pattern is always: setup → invalidate → PDD → cleanup.
+///
+/// # Thread safety
+///
+/// **Main thread only.** Accesses the scene graph and SpeedTree internals
+/// which are not synchronized. Must be called after render completes.
+pub type SceneGraphInvalidateFn = unsafe extern "stdcall" fn();
+
+/// Sets the cell distance threshold used by the scene graph cull system.
+///
+/// # Address
+///
+/// `0x008781E0` — `FUN_008781e0` (16 bytes)
+///
+/// # Calling convention
+///
+/// `__cdecl` — distance value on stack.
+///
+/// # Parameters
+///
+/// - `distance`: The distance threshold. The pre-destruction setup passes
+///   `0x7FFFFFFF` (INT_MAX) to ensure all cells are considered for culling
+///   during scene graph invalidation.
+///
+/// # Behavior
+///
+/// Sets the global `DAT_011a95fc` to the given value. This controls
+/// the maximum distance at which cells are considered visible during
+/// scene graph operations. Setting to INT_MAX ensures the invalidation
+/// covers all loaded cells.
+///
+/// # Usage
+///
+/// Called by `FUN_00878160` immediately before `FUN_00703980`:
+/// ```text
+/// FUN_008781e0(0x7fffffff);  // consider all cells
+/// FUN_00703980();             // invalidate scene graph
+/// ```
+pub type SetDistanceThresholdFn = unsafe extern "C" fn(distance: i32);

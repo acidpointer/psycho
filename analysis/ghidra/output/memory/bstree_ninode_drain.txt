@@ -1,0 +1,1789 @@
+BSTreeManager + NiNode Queue Drain Analysis
+======================================================================
+
+CONTEXT: We need to safely drain PDD queue 0x08 (NiNode/BSTreeNode)
+from our post-render hook at 0x008705D0. Currently skipped because
+BSTreeManager holds cross-frame pointers to BSTreeNodes.
+
+######################################################################
+# PART 1: Cell Destruction Path
+######################################################################
+
+======================================================================
+DestroyCell (called by FindCellToUnload) @ 0x00462290
+======================================================================
+  Function: FUN_00462290, Size: 341 bytes, Convention: __stdcall
+
+void FUN_00462290(int *param_1)
+
+{
+  bool bVar1;
+  char cVar2;
+  undefined4 uVar3;
+  void *pvVar4;
+  char local_5;
+  
+  if ((param_1 != (int *)0x0) && (bVar1 = FUN_00440d80((int)param_1), !bVar1)) {
+    FUN_0044ada0(1);
+    local_5 = '\0';
+    bVar1 = FUN_0042ce10(DAT_011ddf38);
+    if (bVar1) {
+      uVar3 = FUN_004623f0('\0');
+      local_5 = (char)uVar3;
+    }
+    FUN_00552bd0(param_1,'\x01');
+    FUN_009740a0(&DAT_011e0e80,(int)param_1);
+    FUN_004512a0(param_1,1);
+    FUN_005508b0(param_1);
+    FUN_0054b750((int)param_1);
+    while (bVar1 = FUN_00551620((int)param_1), bVar1) {
+      FUN_00551480(param_1,'\0');
+    }
+    cVar2 = FUN_004226e0(DAT_011c3f2c);
+    if (cVar2 == '\0') {
+      bVar1 = FUN_0094df60(DAT_011dea3c);
+      FUN_0054af40(param_1,!bVar1);
+    }
+    bVar1 = FUN_00425fd0((int)param_1);
+    if (!bVar1) {
+      pvVar4 = (void *)FUN_00546fb0((int)param_1);
+      FUN_00536d80(pvVar4);
+    }
+    FUN_00546970(param_1);
+    FUN_00961f30(param_1,0);
+    bVar1 = FUN_00425fd0((int)param_1);
+    if (!bVar1) {
+      pvVar4 = (void *)FUN_0054ddd0((int)param_1);
+      FUN_00585e00(pvVar4,param_1);
+    }
+    bVar1 = FUN_0042ce10(DAT_011ddf38);
+    if (bVar1) {
+      FUN_004623f0(local_5);
+    }
+    FUN_0044ada0(0);
+  }
+  return;
+}
+
+
+
+
+----------------------------------------------------------------------
+Calls FROM 0x00462290 (DestroyCell)
+----------------------------------------------------------------------
+  Calls 21 unique functions:
+    -> 0x004226e0  FUN_004226e0  (20 bytes)
+    -> 0x00425fd0  FUN_00425fd0  (24 bytes)
+    -> 0x0042ce10  FUN_0042ce10  (26 bytes)
+    -> 0x00440d80  FUN_00440d80  (23 bytes)
+    -> 0x0044ada0  FUN_0044ada0  (13 bytes)
+    -> 0x004512a0  FUN_004512a0  (22 bytes)
+    -> 0x004623f0  FUN_004623f0  (131 bytes)
+    -> 0x00536d80  FUN_00536d80  (893 bytes)
+    -> 0x00546970  FUN_00546970  (129 bytes)
+    -> 0x00546fb0  FUN_00546fb0  (228 bytes)
+    -> 0x0054af40  FUN_0054af40  (53 bytes)
+    -> 0x0054b750  FUN_0054b750  (164 bytes)
+    -> 0x0054ddd0  FUN_0054ddd0  (50 bytes)
+    -> 0x005508b0  FUN_005508b0  (936 bytes)
+    -> 0x00551480  FUN_00551480  (402 bytes)
+    -> 0x00551620  FUN_00551620  (34 bytes)
+    -> 0x00552bd0  FUN_00552bd0  (462 bytes)
+    -> 0x00585e00  FUN_00585e00  (210 bytes)
+    -> 0x0094df60  FUN_0094df60  (29 bytes)
+    -> 0x00961f30  FUN_00961f30  (22 bytes)
+    -> 0x009740a0  FUN_009740a0  (491 bytes)
+
+======================================================================
+TreeMgr_RemoveOnState (remove tree when state > 3) @ 0x0043dac0
+======================================================================
+  Function: FUN_0043dac0, Size: 53 bytes, Convention: __thiscall
+
+void __thiscall FUN_0043dac0(void *this,int param_1,int param_2)
+
+{
+  FUN_00c3cb70(this,param_1,param_2);
+  if (3 < param_1) {
+    FUN_00665be0(DAT_011d5c48,*(undefined4 *)((int)this + 0x48));
+  }
+  return;
+}
+
+
+
+
+----------------------------------------------------------------------
+References TO 0x0043dac0 (TreeMgr_RemoveOnState)
+----------------------------------------------------------------------
+  1 references from 0 functions:
+
+######################################################################
+# PART 2: BSTreeManager Map Structure
+######################################################################
+
+======================================================================
+BSTreeManager Create (constructor) @ 0x00664870
+======================================================================
+  Function: FUN_00664870, Size: 199 bytes, Convention: __cdecl
+
+void __cdecl FUN_00664870(char param_1)
+
+{
+  undefined4 *puVar1;
+  int *unaff_FS_OFFSET;
+  undefined4 *local_20;
+  undefined4 local_14;
+  int local_10;
+  undefined1 *puStack_c;
+  undefined4 local_8;
+  
+  local_8 = 0xffffffff;
+  puStack_c = &LAB_00eee943;
+  local_10 = *unaff_FS_OFFSET;
+  *unaff_FS_OFFSET = (int)&local_10;
+  FUN_00404eb0(&local_14,0x1f);
+  local_8 = 0;
+  if (DAT_011d5c48 != (undefined4 *)0x0) {
+    if (param_1 == '\0') {
+      local_8 = 0xffffffff;
+      FUN_00404ee0(&local_14);
+      goto LAB_00664928;
+    }
+    FUN_00664940();
+  }
+  puVar1 = (undefined4 *)FUN_00401000(0x20);
+  local_8 = CONCAT31(local_8._1_3_,1);
+  if (puVar1 == (undefined4 *)0x0) {
+    local_20 = (undefined4 *)0x0;
+  }
+  else {
+    local_20 = FUN_00664440(puVar1);
+  }
+  DAT_011d5c48 = local_20;
+  local_8 = 0xffffffff;
+  FUN_00404ee0(&local_14);
+LAB_00664928:
+  *unaff_FS_OFFSET = local_10;
+  return;
+}
+
+
+
+
+======================================================================
+BSTreeManager internal cleanup (called by FUN_00664990) @ 0x00664740
+======================================================================
+  Function: FUN_00664740, Size: 217 bytes, Convention: __fastcall
+
+void __fastcall FUN_00664740(int param_1)
+
+{
+  int *unaff_FS_OFFSET;
+  int local_10;
+  undefined1 *puStack_c;
+  int local_8;
+  
+  puStack_c = &LAB_00effc9c;
+  local_10 = *unaff_FS_OFFSET;
+  *unaff_FS_OFFSET = (int)&local_10;
+  local_8 = 3;
+  FUN_00664cd0('\0');
+  FUN_00664820(0);
+  FUN_00451570(0);
+  FUN_00451520(1);
+  FUN_004f3310();
+  if (*(undefined4 **)(param_1 + 0x1c) != (undefined4 *)0x0) {
+    (**(code **)**(undefined4 **)(param_1 + 0x1c))(1);
+  }
+  local_8._0_1_ = 2;
+  Concurrency::cancellation_token_source::~cancellation_token_source
+            ((cancellation_token_source *)(param_1 + 0x10));
+  local_8._0_1_ = 1;
+  Concurrency::cancellation_token_source::~cancellation_token_source
+            ((cancellation_token_source *)(param_1 + 0xc));
+  local_8 = (uint)local_8._1_3_ << 8;
+  Concurrency::cancellation_token_source::~cancellation_token_source
+            ((cancellation_token_source *)(param_1 + 8));
+  local_8 = 0xffffffff;
+  Concurrency::cancellation_token_source::~cancellation_token_source
+            ((cancellation_token_source *)(param_1 + 4));
+  *unaff_FS_OFFSET = local_10;
+  return;
+}
+
+
+
+
+======================================================================
+BSTreeManager Cleanup @ 0x00664990
+======================================================================
+  Function: FUN_00664990, Size: 44 bytes, Convention: __thiscall
+
+undefined4 * __thiscall FUN_00664990(void *this,uint param_1)
+
+{
+  FUN_00664740((int)this);
+  if ((param_1 & 1) != 0) {
+    FUN_00401030(this);
+  }
+  return this;
+}
+
+
+
+
+======================================================================
+BSTreeManager Destroy @ 0x00664940
+======================================================================
+  Function: FUN_00664940, Size: 71 bytes, Convention: __stdcall
+
+void FUN_00664940(void)
+
+{
+  if (DAT_011d5c48 != (void *)0x0) {
+    if (DAT_011d5c48 != (void *)0x0) {
+      FUN_00664990(DAT_011d5c48,1);
+    }
+    DAT_011d5c48 = (void *)0x0;
+  }
+  return;
+}
+
+
+
+
+======================================================================
+TreeMgr_RemoveByKey (from treeNodesMap) @ 0x00665be0
+======================================================================
+  Function: FUN_00665be0, Size: 99 bytes, Convention: __thiscall
+
+void __thiscall FUN_00665be0(void *this,undefined4 param_1)
+
+{
+  char cVar1;
+  int *local_8;
+  
+  local_8 = (int *)0x0;
+  cVar1 = (**(code **)(**(int **)((int)this + 0x1c) + 8))(param_1,&local_8);
+  if (cVar1 != '\0') {
+    (**(code **)(**(int **)((int)this + 0x1c) + 0x14))(param_1);
+    if (local_8 != (int *)0x0) {
+      FUN_00c45830(local_8);
+    }
+  }
+  return;
+}
+
+
+
+
+======================================================================
+TreeMgr_RemoveEntry (from map) @ 0x00665b80
+======================================================================
+  Function: FUN_00665b80, Size: 95 bytes, Convention: __thiscall
+
+void __thiscall FUN_00665b80(void *this,undefined4 param_1,undefined4 *param_2)
+
+{
+  char cVar1;
+  
+  cVar1 = (**(code **)(**(int **)((int)this + 0x1c) + 0x10))(param_1,&param_2,0);
+  if ((cVar1 == '\0') && (param_2 != (undefined4 *)0x0)) {
+    (**(code **)*param_2)(1);
+  }
+  return;
+}
+
+
+
+
+======================================================================
+TreeMgr_FindOrCreate (874 bytes, reveals map layout) @ 0x00664f50
+======================================================================
+  Function: FUN_00664f50, Size: 874 bytes, Convention: __thiscall
+
+void * __thiscall FUN_00664f50(void *this,int param_1,int param_2)
+
+{
+  char cVar1;
+  uint uVar2;
+  int iVar3;
+  void *pvVar4;
+  byte *pbVar5;
+  int *piVar6;
+  int *unaff_FS_OFFSET;
+  float10 fVar7;
+  int iVar8;
+  cancellation_token_source *pcVar9;
+  int *local_60;
+  int local_54;
+  void *local_50;
+  void *local_4c;
+  int *local_48;
+  int *local_44;
+  undefined4 *local_40;
+  int *local_3c;
+  void *local_38;
+  void *local_34;
+  void *local_30;
+  int local_2c;
+  int *local_28;
+  void *local_24;
+  float local_20;
+  undefined4 local_1c;
+  cancellation_token_source local_18 [4];
+  void *local_14;
+  int local_10;
+  undefined1 *puStack_c;
+  uint local_8;
+  
+  local_8 = 0xffffffff;
+  puStack_c = &LAB_00effd67;
+  local_10 = *unaff_FS_OFFSET;
+  uVar2 = DAT_011c16bc ^ (uint)&stack0xfffffffc;
+  *unaff_FS_OFFSET = (int)&local_10;
+  FUN_00404eb0(&local_1c,0x1e);
+  local_8 = 0;
+  FUN_00633c90(local_18,0);
+  local_8 = CONCAT31(local_8._1_3_,1);
+  local_28 = (int *)0x0;
+  cVar1 = FUN_0051d740();
+  if ((((cVar1 == '\0') || (param_2 == 0)) ||
+      (iVar3 = (**(code **)(*(int *)(param_2 + 0x30) + 0x14))(uVar2), iVar3 == 0)) ||
+     ((iVar3 = FUN_0048cee0(param_2 + 0x30), iVar3 == 0 ||
+      ((param_1 != 0 && (iVar3 = FUN_007af430(param_1), iVar3 != param_2)))))) {
+    local_30 = (void *)0x0;
+    local_8 = local_8 & 0xffffff00;
+    Concurrency::cancellation_token_source::~cancellation_token_source(local_18);
+    local_8 = 0xffffffff;
+    FUN_00404ee0(&local_1c);
+    pvVar4 = local_30;
+  }
+  else {
+    local_24 = (void *)0x0;
+    cVar1 = (**(code **)(**(int **)((int)this + 0x1c) + 8))(param_1,&local_24);
+    if (cVar1 == '\0') {
+      local_2c = 1;
+      if (param_1 != 0) {
+        local_2c = FUN_005692d0(param_1);
+      }
+      pcVar9 = local_18;
+      iVar3 = param_2;
+      iVar8 = local_2c;
+      pvVar4 = (void *)FUN_00664840('\x01');
+      FUN_00664b50(pvVar4,iVar3,iVar8,pcVar9);
+      iVar3 = FUN_00559450((undefined4 *)local_18);
+      if (iVar3 == 0) {
+        local_38 = (void *)0x0;
+        local_8 = local_8 & 0xffffff00;
+        Concurrency::cancellation_token_source::~cancellation_token_source(local_18);
+        local_8 = 0xffffffff;
+        FUN_00404ee0(&local_1c);
+        pvVar4 = local_38;
+      }
+      else {
+        iVar3 = FUN_00559450((undefined4 *)local_18);
+        uVar2 = FUN_00726070(iVar3);
+        if (uVar2 < 3) {
+          iVar3 = param_2;
+          iVar8 = local_2c;
+          pvVar4 = (void *)FUN_00559450((undefined4 *)local_18);
+          cVar1 = FUN_0066ac40(pvVar4,iVar3,iVar8);
+          if (cVar1 == '\0') {
+            local_50 = (void *)0x0;
+            local_8 = local_8 & 0xffffff00;
+            Concurrency::cancellation_token_source::~cancellation_token_source(local_18);
+            local_8 = 0xffffffff;
+            FUN_00404ee0(&local_1c);
+            pvVar4 = local_50;
+            goto LAB_006652a9;
+          }
+          local_28 = (int *)FUN_00559450((undefined4 *)local_18);
+        }
+        else {
+          local_40 = (undefined4 *)FUN_00aa13e0(0x50);
+          local_8._0_1_ = 2;
+          if (local_40 == (undefined4 *)0x0) {
+            local_60 = (int *)0x0;
+          }
+          else {
+            local_60 = FUN_00666650(local_40);
+          }
+          local_3c = local_60;
+          local_8 = CONCAT31(local_8._1_3_,1);
+          local_28 = local_60;
+          iVar3 = FUN_00559450((undefined4 *)local_18);
+          uVar2 = FUN_0066a650(local_28,iVar3);
+          if ((uVar2 & 0xff) == 0) {
+            local_48 = local_28;
+            local_44 = local_28;
+            if (local_28 != (int *)0x0) {
+              (**(code **)*local_28)(1);
+            }
+            local_4c = (void *)0x0;
+            local_8 = local_8 & 0xffffff00;
+            Concurrency::cancellation_token_source::~cancellation_token_source(local_18);
+            local_8 = 0xffffffff;
+            FUN_00404ee0(&local_1c);
+            pvVar4 = local_4c;
+            goto LAB_006652a9;
+          }
+        }
+        local_20 = 1.0;
+        if (param_1 != 0) {
+          fVar7 = FUN_00567400(param_1);
+          local_20 = (float)fVar7;
+        }
+        local_14 = (void *)(**(code **)(*local_28 + 0xc))(local_20);
+        if (local_14 != (void *)0x0) {
+          pbVar5 = (byte *)(**(code **)(*(int *)(param_2 + 0x30) + 0x14))();
+          piVar6 = FUN_00438170(&local_54,pbVar5);
+          local_8._0_1_ = 3;
+          FUN_00a5b950(local_14,piVar6);
+          local_8 = CONCAT31(local_8._1_3_,1);
+          FUN_004381b0(&local_54);
+        }
+        FUN_006652c0(local_28,1);
+        pvVar4 = local_14;
+        local_8 = local_8 & 0xffffff00;
+        Concurrency::cancellation_token_source::~cancellation_token_source(local_18);
+        local_8 = 0xffffffff;
+        FUN_00404ee0(&local_1c);
+      }
+    }
+    else {
+      (**(code **)(**(int **)((int)this + 0x1c) + 0x14))(param_1);
+      local_34 = local_24;
+      local_8 = local_8 & 0xffffff00;
+      Concurrency::cancellation_token_source::~cancellation_token_source(local_18);
+      local_8 = 0xffffffff;
+      FUN_00404ee0(&local_1c);
+      pvVar4 = local_34;
+    }
+  }
+LAB_006652a9:
+  *unaff_FS_OFFSET = local_10;
+  return pvVar4;
+}
+
+
+
+
+######################################################################
+# PART 3: Scene Graph Invalidation (pre-destruction setup)
+######################################################################
+
+======================================================================
+Pre-destruction setup (FUN_00878160) @ 0x00878160
+======================================================================
+  Function: FUN_00878160, Size: 113 bytes, Convention: __cdecl
+
+void __cdecl FUN_00878160(int param_1,char param_2,undefined1 param_3,char param_4)
+
+{
+  bool bVar1;
+  int iVar2;
+  undefined4 uVar3;
+  
+  FUN_00c3e310(DAT_01202d98);
+  if (param_4 == '\0') {
+    *(undefined1 *)(param_1 + 5) = 0;
+  }
+  else {
+    bVar1 = FUN_00652160();
+    *(bool *)(param_1 + 5) = bVar1;
+  }
+  if (param_2 != '\0') {
+    iVar2 = FUN_0043c4b0();
+    FUN_004a0370(iVar2);
+  }
+  *(char *)(param_1 + 3) = param_2;
+  *(undefined1 *)(param_1 + 4) = param_3;
+  uVar3 = FUN_008781f0();
+  *(undefined4 *)(param_1 + 8) = uVar3;
+  FUN_008781e0(0x7fffffff);
+  FUN_00703980();
+  return;
+}
+
+
+
+
+----------------------------------------------------------------------
+References TO 0x00878160 (Pre-destruction setup)
+----------------------------------------------------------------------
+  5 references from 5 functions:
+    0x004556d0  FUN_004556d0  (3611 bytes)
+    0x005b6cd0  FUN_005b6cd0  (70 bytes)
+    0x008782b0  FUN_008782b0  (130 bytes)
+    0x0093cdf0  FUN_0093cdf0  (1779 bytes)
+    0x0093d500  FUN_0093d500  (352 bytes)
+
+======================================================================
+Pre-destruction call (from FUN_00878160) @ 0x00703980
+======================================================================
+  Function: FUN_00703980, Size: 45 bytes, Convention: __stdcall
+
+void FUN_00703980(void)
+
+{
+  char cVar1;
+  int iVar2;
+  undefined1 *puVar3;
+  
+  iVar2 = FUN_004b7210();
+  if (iVar2 != 0) {
+    puVar3 = (undefined1 *)FUN_004b7210();
+    cVar1 = FUN_009373f0(puVar3);
+    if (cVar1 != '\0') {
+      iVar2 = FUN_004b7210();
+      FUN_007160b0(iVar2);
+    }
+  }
+  return;
+}
+
+
+
+
+----------------------------------------------------------------------
+Calls FROM 0x00703980 (Pre-destruction call)
+----------------------------------------------------------------------
+  Calls 3 unique functions:
+    -> 0x004b7210  FUN_004b7210  (10 bytes)
+    -> 0x007160b0  FUN_007160b0  (60 bytes)
+    -> 0x009373f0  FUN_009373f0  (16 bytes)
+
+======================================================================
+Scene graph invalidation? (FUN_007160b0) @ 0x007160b0
+======================================================================
+  Function: FUN_007160b0, Size: 60 bytes, Convention: __fastcall
+
+void __fastcall FUN_007160b0(int param_1)
+
+{
+  int *piVar1;
+  
+  FUN_007ffe00();
+  piVar1 = (int *)FUN_00586150(param_1);
+  (**(code **)(*piVar1 + 0x1c))();
+  FUN_007a1670();
+  FUN_00452490(DAT_011dea10,'\x01');
+  return;
+}
+
+
+
+
+----------------------------------------------------------------------
+References TO 0x007160b0 (FUN_007160b0)
+----------------------------------------------------------------------
+  1 references from 1 functions:
+    0x00703980  FUN_00703980  (45 bytes)
+
+----------------------------------------------------------------------
+Calls FROM 0x007160b0 (FUN_007160b0)
+----------------------------------------------------------------------
+  Calls 4 unique functions:
+    -> 0x00452490  FUN_00452490  (85 bytes)
+    -> 0x00586150  FUN_00586150  (20 bytes)
+    -> 0x007a1670  FUN_007a1670  (219 bytes)
+    -> 0x007ffe00  FUN_007ffe00  (52 bytes)
+
+######################################################################
+# PART 4: NiNode Destructor Chain (Queue 0x08)
+######################################################################
+
+======================================================================
+NiNode_Release (queue 0x08 destructor) @ 0x00418d20
+======================================================================
+  Function: FUN_00418d20, Size: 44 bytes, Convention: __thiscall
+
+undefined4 * __thiscall FUN_00418d20(void *this,uint param_1)
+
+{
+  FUN_0048fb50(this);
+  if ((param_1 & 1) != 0) {
+    FUN_00401030(this);
+  }
+  return this;
+}
+
+
+
+
+----------------------------------------------------------------------
+Calls FROM 0x00418d20 (NiNode_Release)
+----------------------------------------------------------------------
+  Calls 2 unique functions:
+    -> 0x00401030  FUN_00401030  (21 bytes)
+    -> 0x0048fb50  FUN_0048fb50  (923 bytes)
+
+######################################################################
+# PART 5: Cell Transition Safe PDD Path
+######################################################################
+
+======================================================================
+CellTransitionHandler (safe full PDD) @ 0x008774a0
+======================================================================
+  Function: FUN_008774a0, Size: 561 bytes, Convention: __thiscall
+
+void __thiscall FUN_008774a0(void *this,char param_1)
+
+{
+  undefined1 uVar1;
+  bool bVar2;
+  int iVar3;
+  void *this_00;
+  int *piVar4;
+  int *piVar5;
+  undefined *puVar6;
+  undefined4 local_20;
+  undefined4 local_18;
+  
+  uVar1 = FUN_004f1540((int)this);
+  FUN_004f15a0(this,0);
+  FUN_00877700((int)DAT_011dea3c);
+  bVar2 = FUN_007d6bd0(DAT_011ddf38,'\0');
+  FUN_00453a70();
+  FUN_00ad8780();
+  FUN_008324e0('\0');
+  iVar3 = FUN_008d6f30((int)DAT_011dea3c);
+  if (iVar3 != 0) {
+    piVar4 = DAT_011dea3c;
+    this_00 = (void *)FUN_008d6f30((int)DAT_011dea3c);
+    FUN_0054ca90(this_00,piVar4);
+  }
+  piVar4 = (int *)FUN_00950bb0(DAT_011dea3c,'\x01');
+  if (piVar4 == (int *)0x0) {
+    local_18 = 0;
+  }
+  else {
+    local_18 = (**(code **)(*piVar4 + 0xc))();
+  }
+  if (local_18 != 0) {
+    iVar3 = FUN_009611e0(local_18);
+    if (iVar3 != 0) {
+      piVar5 = (int *)FUN_009611e0(local_18);
+      (**(code **)(*piVar5 + 0xe8))(piVar4);
+    }
+  }
+  piVar4 = (int *)FUN_00950bb0(DAT_011dea3c,'\0');
+  if (piVar4 == (int *)0x0) {
+    local_20 = 0;
+  }
+  else {
+    local_20 = (**(code **)(*piVar4 + 0xc))();
+  }
+  if (local_20 != 0) {
+    iVar3 = FUN_009611e0(local_20);
+    if (iVar3 != 0) {
+      piVar5 = (int *)FUN_009611e0(local_20);
+      (**(code **)(*piVar5 + 0xe8))(piVar4);
+    }
+  }
+  FUN_004539a0(DAT_011dea10,'\0','\0');
+  FUN_007037c0(DAT_011dea10,0x7fffffff);
+  FUN_0061cc40(DAT_011dea10,0x7fffffff);
+  puVar6 = FUN_006c0720();
+  FUN_006c09f0(puVar6);
+  FUN_00868d70('\0');
+  FUN_00c459d0('\0');
+  (**(code **)(*DAT_011dea3c + 0x1cc))(0,0);
+  FUN_0084a840(DAT_011ddf38);
+  FUN_00970d50(0x11e0e80);
+  FUN_004614e0(DAT_011c3f2c);
+  iVar3 = FUN_00b4f5c0();
+  FUN_00b631d0(iVar3);
+  FUN_0040fbe0();
+  FUN_00706320();
+  FUN_0045ac80((int)DAT_011dea10);
+  if (param_1 != '\0') {
+    FUN_007053f0();
+  }
+  FUN_007d6bd0(DAT_011ddf38,bVar2);
+  FUN_008776e0((int)DAT_011dea0c);
+  FUN_004f15a0(DAT_011dea0c,uVar1);
+  return;
+}
+
+
+
+
+----------------------------------------------------------------------
+Calls FROM 0x008774a0 (CellTransitionHandler)
+----------------------------------------------------------------------
+  Calls 28 unique functions:
+    -> 0x0040fbe0  FUN_0040fbe0  (5 bytes)
+    -> 0x004539a0  FUN_004539a0  (196 bytes)
+    -> 0x00453a70  FUN_00453a70  (10 bytes)
+    -> 0x0045ac80  FUN_0045ac80  (415 bytes)
+    -> 0x004614e0  FUN_004614e0  (113 bytes)
+    -> 0x004f1540  FUN_004f1540  (17 bytes)
+    -> 0x004f15a0  FUN_004f15a0  (22 bytes)
+    -> 0x0054ca90  FUN_0054ca90  (651 bytes)
+    -> 0x0061cc40  FUN_0061cc40  (22 bytes)
+    -> 0x006c0720  FUN_006c0720  (162 bytes)
+    -> 0x006c09f0  FUN_006c09f0  (574 bytes)
+    -> 0x007037c0  FUN_007037c0  (22 bytes)
+    -> 0x007053f0  FUN_007053f0  (45 bytes)
+    -> 0x00706320  FUN_00706320  (568 bytes)
+    -> 0x007d6bd0  FUN_007d6bd0  (81 bytes)
+    -> 0x008324e0  FUN_008324e0  (184 bytes)
+    -> 0x0084a840  FUN_0084a840  (61 bytes)
+    -> 0x00868d70  FUN_00868d70  (1037 bytes)
+    -> 0x008776e0  FUN_008776e0  (25 bytes)
+    -> 0x00877700  FUN_00877700  (30 bytes)
+    -> 0x008d6f30  FUN_008d6f30  (17 bytes)
+    -> 0x00950bb0  FUN_00950bb0  (45 bytes)
+    -> 0x009611e0  FUN_009611e0  (17 bytes)
+    -> 0x00970d50  FUN_00970d50  (389 bytes)
+    -> 0x00ad8780  FUN_00ad8780  (13 bytes)
+    -> 0x00b4f5c0  FUN_00b4f5c0  (6 bytes)
+    -> 0x00b631d0  FUN_00b631d0  (321 bytes)
+    -> 0x00c459d0  FUN_00c459d0  (172 bytes)
+
+======================================================================
+CellTransition_Conditional (calls PDD) @ 0x0093bea0
+======================================================================
+  Function: FUN_0093bea0, Size: 832 bytes, Convention: __fastcall
+
+undefined4 __fastcall FUN_0093bea0(void *param_1)
+
+{
+  int iVar1;
+  char cVar2;
+  bool bVar3;
+  void *this;
+  uint uVar4;
+  int *piVar5;
+  undefined4 *puVar6;
+  int iVar7;
+  undefined3 extraout_var;
+  undefined3 extraout_var_00;
+  undefined3 extraout_var_01;
+  undefined3 uVar8;
+  int *local_2c;
+  char local_5;
+  
+  local_5 = '\0';
+  if (*(int *)((int)param_1 + 0x1ec) != 0) {
+    FUN_00452eb0();
+    FUN_0066b0d0((void *)((int)param_1 + 0xd3c),0);
+    if (*(int *)(*(int *)((int)param_1 + 0x1ec) + 0x30) == 0) {
+      if ((**(int **)((int)param_1 + 0x1ec) == 0) &&
+         (*(int *)(*(int *)((int)param_1 + 0x1ec) + 4) == 0)) {
+        FUN_005b5e40();
+      }
+      else {
+        if (**(int **)((int)param_1 + 0x1ec) == 0) {
+          iVar7 = *(int *)((int)param_1 + 0x1ec);
+          iVar1 = *(int *)((int)param_1 + 0x1ec);
+          FUN_0093c200(*(float *)(iVar1 + 8),*(undefined4 *)(iVar1 + 0xc),
+                       *(undefined4 *)(iVar1 + 0x10),*(float *)(iVar7 + 0x14),
+                       *(float *)(iVar7 + 0x18),*(float *)(iVar7 + 0x1c),
+                       *(void **)(*(int *)((int)param_1 + 0x1ec) + 4),
+                       *(char *)(*(int *)((int)param_1 + 0x1ec) + 0x20));
+        }
+        else {
+          iVar7 = *(int *)((int)param_1 + 0x1ec);
+          iVar1 = *(int *)((int)param_1 + 0x1ec);
+          FUN_0093cce0(param_1,*(float *)(iVar1 + 8),*(float *)(iVar1 + 0xc),
+                       *(undefined4 *)(iVar1 + 0x10),*(float *)(iVar7 + 0x14),
+                       *(float *)(iVar7 + 0x18),*(float *)(iVar7 + 0x1c),
+                       (void *)**(undefined4 **)((int)param_1 + 0x1ec),
+                       *(char *)(*(int *)((int)param_1 + 0x1ec) + 0x20));
+        }
+        this = (void *)FUN_009306d0((int)param_1);
+        FUN_00573f20(this,*(undefined4 *)(*(int *)((int)param_1 + 0x1ec) + 0x10));
+        if (*(int *)(*(int *)((int)param_1 + 0x1ec) + 0x24) != 0) {
+          (**(code **)(*(int *)((int)param_1 + 0x1ec) + 0x24))
+                    (*(undefined4 *)(*(int *)((int)param_1 + 0x1ec) + 0x28));
+        }
+        local_5 = '\x01';
+      }
+      if ((*(int *)(*(int *)((int)param_1 + 0x1ec) + 0x2c) != 0) &&
+         (uVar4 = FUN_00568680(*(int *)(*(int *)((int)param_1 + 0x1ec) + 0x2c)), (uVar4 & 0xff) != 0
+         )) {
+        piVar5 = (int *)FUN_008d8520((int)param_1);
+        puVar6 = (undefined4 *)(**(code **)(*piVar5 + 0x4d4))();
+        iVar7 = FUN_007af430(*(int *)(*(int *)((int)param_1 + 0x1ec) + 0x2c));
+        bVar3 = FUN_00509420(iVar7);
+        uVar4 = FUN_005682c0(*(void **)(*(int *)((int)param_1 + 0x1ec) + 0x2c),'\x01');
+        if ((uVar4 != 0xffffffff) &&
+           (cVar2 = FUN_00568500(*(void **)(*(int *)((int)param_1 + 0x1ec) + 0x2c),uVar4,puVar6),
+           cVar2 != '\0')) {
+          FUN_0088d2f0(param_1,*(void **)(*(int *)((int)param_1 + 0x1ec) + 0x2c),(int)puVar6,uVar4,
+                       bVar3);
+        }
+      }
+    }
+    else {
+      local_2c = (int *)FUN_00569b80(*(int *)(*(int *)((int)param_1 + 0x1ec) + 0x30));
+      if (local_2c == (int *)0x0) {
+        local_2c = *(int **)(*(int *)((int)param_1 + 0x1ec) + 0x30);
+      }
+      FUN_0093cdf0(DAT_011dea3c,local_2c);
+      local_5 = '\x01';
+    }
+    FUN_00868d70('\x01');
+    FUN_00401030(*(undefined4 **)((int)param_1 + 0x1ec));
+    *(undefined4 *)((int)param_1 + 0x1ec) = 0;
+  }
+  uVar8 = 0;
+  if (((local_5 != '\0') && (bVar3 = FUN_0042ce10(DAT_011ddf38), uVar8 = extraout_var, !bVar3)) &&
+     (bVar3 = FUN_0093c1e0((int)DAT_011dea3c), uVar8 = extraout_var_00, !bVar3)) {
+    FUN_005d14d0(DAT_011dea3c,'\x01');
+    uVar8 = extraout_var_01;
+  }
+  return CONCAT31(uVar8,local_5);
+}
+
+
+
+
+======================================================================
+DeferredCleanup_Small (calls PDD(1)) @ 0x00878250
+======================================================================
+  Function: FUN_00878250, Size: 86 bytes, Convention: __cdecl
+
+void __cdecl FUN_00878250(char param_1)
+
+{
+  void *pvVar1;
+  
+  FUN_00868d70('\x01');
+  pvVar1 = (void *)FUN_00450b80(0);
+  FUN_00b5fd60(pvVar1);
+  FUN_00c459d0('\0');
+  if (param_1 != '\0') {
+    FUN_00651e30();
+    FUN_00651f40();
+  }
+  FUN_00448620(DAT_011c3b3c,'\x01');
+  FUN_00452490(DAT_011dea10,'\0');
+  return;
+}
+
+
+
+
+----------------------------------------------------------------------
+References TO 0x00878250 (DeferredCleanup_Small)
+----------------------------------------------------------------------
+  5 references from 5 functions:
+    0x004556d0  FUN_004556d0  (3611 bytes)
+    0x005b6cd0  FUN_005b6cd0  (70 bytes)
+    0x008782b0  FUN_008782b0  (130 bytes)
+    0x0093cdf0  FUN_0093cdf0  (1779 bytes)
+    0x0093d500  FUN_0093d500  (352 bytes)
+
+######################################################################
+# PART 6: HeapCompact Stage 5
+######################################################################
+
+======================================================================
+HeapCompact (stage 5 = cell unload + PDD) @ 0x00866a90
+======================================================================
+  Function: FUN_00866a90, Size: 602 bytes, Convention: __thiscall
+
+int __thiscall FUN_00866a90(void *this,undefined4 param_1,int param_2,char *param_3)
+
+{
+  char cVar1;
+  int iVar2;
+  int iVar3;
+  void *this_00;
+  uint uVar4;
+  bool bVar5;
+  
+  *param_3 = '\x01';
+  iVar2 = FUN_0040fc90();
+  iVar3 = FUN_0044edb0(DAT_011dea0c);
+  bVar5 = iVar2 == iVar3;
+  switch(param_2) {
+  case 0:
+    DAT_011de70c = 0;
+    if (bVar5) {
+      FUN_00452490(DAT_011dea10,'\0');
+    }
+    break;
+  case 1:
+    iVar2 = FUN_00866d10();
+    FUN_00aa5c80(iVar2);
+    break;
+  case 2:
+    iVar2 = FUN_00652110();
+    if (iVar2 != 0) {
+      iVar2 = FUN_00652110();
+      cVar1 = FUN_00529ea0(iVar2);
+      if ((cVar1 != '\0') && (bVar5 = FUN_00652160(), bVar5)) {
+        iVar2 = FUN_00652130();
+        if (iVar2 == 1) {
+          cVar1 = '\0';
+          this_00 = (void *)FUN_00652110();
+          FUN_00650a30(this_00,cVar1);
+        }
+        FUN_00652190();
+      }
+    }
+    break;
+  case 5:
+    if (!bVar5) break;
+    FUN_00869190(0);
+    uVar4 = FUN_00453a80((int)DAT_011dea10);
+    if ((uVar4 & 0xff) == 0) {
+      FUN_004539a0(DAT_011dea10,'\x01','\0');
+    }
+    else {
+      param_2 = param_2 + -1;
+    }
+    FUN_00452490(DAT_011dea10,'\0');
+    FUN_00869190(1);
+    FUN_00868d70('\x01');
+  case 4:
+    bVar5 = FUN_0078d200((LONG *)&DAT_011f11a0);
+    if (bVar5) {
+      FUN_00868d70('\x01');
+      FUN_0040fba0((undefined4 *)&DAT_011f11a0);
+    }
+  case 3:
+    FUN_00c459d0('\x01');
+    break;
+  case 6:
+    if (bVar5) {
+      FUN_00aa7030();
+    }
+    break;
+  case 7:
+    if ((*param_3 == '\0') && (bVar5)) {
+      *param_3 = '\x01';
+      break;
+    }
+  case 8:
+    if (!bVar5) {
+      *(undefined4 *)((int)this + 0x134) = 6;
+      if (DAT_011de70c < 15000) {
+        iVar2 = FUN_00866da0(DAT_01202d98,0);
+        iVar3 = FUN_0040fc90();
+        if (iVar2 == iVar3) {
+          FUN_00866dc0(DAT_01202d98,0);
+          FUN_00866de0(DAT_01202d98,0);
+        }
+        iVar2 = FUN_00866da0(DAT_01202d98,1);
+        iVar3 = FUN_0040fc90();
+        if (iVar2 == iVar3) {
+          FUN_00866dc0(DAT_01202d98,1);
+          FUN_00866de0(DAT_01202d98,1);
+        }
+        FUN_0040fca0(1);
+        DAT_011de70c = DAT_011de70c + 1;
+        param_2 = param_2 + -1;
+      }
+      else if (*param_3 == '\0') {
+        *param_3 = '\x01';
+      }
+    }
+  }
+  return param_2 + 1;
+}
+
+
+
+
+======================================================================
+ProcessPendingCleanup @ 0x00452490
+======================================================================
+  Function: FUN_00452490, Size: 85 bytes, Convention: __thiscall
+
+void __thiscall FUN_00452490(void *this,char param_1)
+
+{
+  char cVar1;
+  uint uVar2;
+  
+  uVar2 = FUN_00452540();
+  if ((uVar2 & 0xff) != 0) {
+    FUN_00452510();
+    FUN_00664cd0('\x01');
+    cVar1 = FUN_004524f0((int)this);
+    if ((cVar1 != '\0') || (param_1 != '\0')) {
+      FUN_00a61cd0();
+    }
+    FUN_00664cd0('\x01');
+    FUN_00452530();
+  }
+  return;
+}
+
+
+
+
+######################################################################
+# PART 7: BSTreeNode Lifecycle
+######################################################################
+
+======================================================================
+BSTreeNode constructor (1161 bytes) @ 0x0066b120
+======================================================================
+  Function: FUN_0066b120, Size: 1161 bytes, Convention: __thiscall
+
+/* WARNING: Globals starting with '_' overlap smaller symbols at the same address */
+
+undefined4 * __thiscall FUN_0066b120(void *this,int param_1,int *param_2)
+
+{
+  void *pvVar1;
+  undefined4 *puVar2;
+  int iVar3;
+  uint uVar4;
+  uint uVar5;
+  int *piVar6;
+  int *unaff_FS_OFFSET;
+  int *local_84;
+  int *local_80;
+  int *local_7c;
+  uint *local_78;
+  uint *local_74;
+  undefined4 *local_70;
+  undefined4 *local_6c;
+  undefined4 *local_68;
+  ushort local_14;
+  int local_10;
+  undefined1 *puStack_c;
+  undefined4 local_8;
+  
+  local_8 = 0xffffffff;
+  puStack_c = &LAB_00f003bf;
+  local_10 = *unaff_FS_OFFSET;
+  *unaff_FS_OFFSET = (int)&local_10;
+  FUN_00b4e150(this);
+  local_8 = 0;
+  *(undefined ***)this = &PTR_FUN_010668e4;
+  FUN_00633c90((void *)((int)this + 0xe4),0);
+  local_8._0_1_ = 1;
+  FUN_00633c90((void *)((int)this + 0xf0),0);
+  local_8._0_1_ = 2;
+  FUN_00b4dec0(this,6);
+  FUN_0066b0d0((void *)((int)this + 0xe4),param_1);
+  FUN_004902f0(this,'\x01');
+  pvVar1 = (void *)FUN_00aa13e0(0xac);
+  local_8._0_1_ = 3;
+  if (pvVar1 == (void *)0x0) {
+    local_68 = (undefined4 *)0x0;
+  }
+  else {
+    local_68 = FUN_00a5ecb0(pvVar1,0);
+  }
+  local_8._0_1_ = 2;
+  FUN_00a93ea0(this,(int *)0x0,local_68);
+  pvVar1 = (void *)FUN_00aa13e0(0xac);
+  local_8._0_1_ = 4;
+  if (pvVar1 == (void *)0x0) {
+    local_6c = (undefined4 *)0x0;
+  }
+  else {
+    local_6c = FUN_00a5ecb0(pvVar1,0);
+  }
+  local_8._0_1_ = 2;
+  FUN_00a93ea0(this,(int *)&DAT_00000001,local_6c);
+  puVar2 = (undefined4 *)FUN_00aa13e0(0xb4);
+  local_8._0_1_ = 5;
+  if (puVar2 == (undefined4 *)0x0) {
+    local_70 = (undefined4 *)0x0;
+  }
+  else {
+    local_70 = FUN_0051cf00(puVar2);
+  }
+  local_8._0_1_ = 2;
+  FUN_0051d000(local_70,1);
+  FUN_006404b0(local_70,_DAT_01016b78,1.0,0.0,0.0);
+  FUN_00a93ea0(this,(int *)0x2,local_70);
+  iVar3 = FUN_00559450((undefined4 *)((int)this + 0xe4));
+  uVar4 = FUN_00669990(iVar3);
+  if ((ushort)uVar4 == 0) {
+    *(undefined4 *)((int)this + 0xe8) = 0;
+  }
+  else {
+    uVar5 = uVar4 & 0xffff;
+    local_74 = (uint *)FUN_00401000(-(uint)(0xfffffffb < uVar5 * 4) | uVar5 * 4 + 4);
+    local_8._0_1_ = 6;
+    if (local_74 == (uint *)0x0) {
+      local_74 = (uint *)0x0;
+    }
+    else {
+      *local_74 = uVar5;
+      _eh_vector_constructor_iterator_
+                (local_74 + 1,4,uVar5,FUN_006694e0,
+                 Concurrency::cancellation_token_source::~cancellation_token_source);
+      local_74 = local_74 + 1;
+    }
+    local_8._0_1_ = 2;
+    *(uint **)((int)this + 0xe8) = local_74;
+    for (local_14 = 0; local_14 < (ushort)uVar4; local_14 = local_14 + 1) {
+      FUN_0066b0d0((void *)(*(int *)((int)this + 0xe8) + (uint)local_14 * 4),0);
+    }
+  }
+  iVar3 = FUN_00559450((undefined4 *)((int)this + 0xe4));
+  uVar4 = FUN_006699d0(iVar3);
+  if ((ushort)uVar4 == 0) {
+    *(undefined4 *)((int)this + 0xec) = 0;
+  }
+  else {
+    uVar5 = uVar4 & 0xffff;
+    local_78 = (uint *)FUN_00401000(-(uint)(0xfffffffb < uVar5 * 4) | uVar5 * 4 + 4);
+    local_8._0_1_ = 7;
+    if (local_78 == (uint *)0x0) {
+      local_78 = (uint *)0x0;
+    }
+    else {
+      *local_78 = uVar5;
+      _eh_vector_constructor_iterator_
+                (local_78 + 1,4,uVar5,FUN_006694e0,
+                 Concurrency::cancellation_token_source::~cancellation_token_source);
+      local_78 = local_78 + 1;
+    }
+    local_8._0_1_ = 2;
+    *(uint **)((int)this + 0xec) = local_78;
+    for (local_14 = 0; local_14 < (ushort)uVar4; local_14 = local_14 + 1) {
+      FUN_0066b0d0((void *)(*(int *)((int)this + 0xec) + (uint)local_14 * 4),0);
+    }
+  }
+  FUN_0066b0d0((void *)((int)this + 0xf0),0);
+  piVar6 = (int *)FUN_0066b660();
+  FUN_00a5bca0(this,piVar6);
+  if (param_2 == (int *)0x0) {
+    iVar3 = FUN_00559450((undefined4 *)((int)this + 0xe4));
+    local_7c = (int *)FUN_0066a630(iVar3);
+  }
+  else {
+    local_7c = param_2;
+  }
+  if (local_7c != (int *)0x0) {
+    puVar2 = (undefined4 *)FUN_00aa13e0(0x14);
+    local_8._0_1_ = 8;
+    if (puVar2 == (undefined4 *)0x0) {
+      local_80 = (int *)0x0;
+    }
+    else {
+      local_80 = FUN_0066b640(puVar2);
+    }
+    local_8 = CONCAT31(local_8._1_3_,2);
+    if (param_2 == (int *)0x0) {
+      iVar3 = FUN_00559450((undefined4 *)((int)this + 0xe4));
+      local_84 = (int *)FUN_0066a630(iVar3);
+    }
+    else {
+      local_84 = param_2;
+    }
+    FUN_00c6b980(local_80,local_84);
+    (**(code **)(*local_80 + 0x8c))(this);
+  }
+  *(undefined4 *)((int)this + 0xf4) = 0;
+  *unaff_FS_OFFSET = local_10;
+  return this;
+}
+
+
+
+
+======================================================================
+TreeMgr_AddTree (adds to BSTreeManager) @ 0x0043da00
+======================================================================
+  Function: FUN_0043da00, Size: 149 bytes, Convention: __fastcall
+
+void __fastcall FUN_0043da00(int param_1)
+
+{
+  undefined4 *puVar1;
+  int *unaff_FS_OFFSET;
+  undefined4 local_14;
+  int local_10;
+  undefined1 *puStack_c;
+  undefined4 local_8;
+  
+  local_8 = 0xffffffff;
+  puStack_c = &LAB_00ef9b98;
+  local_10 = *unaff_FS_OFFSET;
+  *unaff_FS_OFFSET = (int)&local_10;
+  FUN_00404eb0(&local_14,0x1e);
+  local_8 = 0;
+  puVar1 = FUN_00664f50(DAT_011d5c48,*(int *)(param_1 + 0x48),*(int *)(param_1 + 0x4c));
+  FUN_00665b80(DAT_011d5c48,*(undefined4 *)(param_1 + 0x48),puVar1);
+  local_8 = 0xffffffff;
+  FUN_00404ee0(&local_14);
+  *unaff_FS_OFFSET = local_10;
+  return;
+}
+
+
+
+
+======================================================================
+BSTreeNode init/setup @ 0x0066b6c0
+======================================================================
+  Function: FUN_0066b6c0, Size: 264 bytes, Convention: __fastcall
+
+void __fastcall FUN_0066b6c0(int *param_1)
+
+{
+  int *unaff_FS_OFFSET;
+  int local_10;
+  undefined1 *puStack_c;
+  int local_8;
+  
+  puStack_c = &LAB_00f00404;
+  local_10 = *unaff_FS_OFFSET;
+  *unaff_FS_OFFSET = (int)&local_10;
+  *param_1 = (int)&PTR_FUN_010668e4;
+  local_8 = 2;
+  if (param_1[0x3a] != 0) {
+    if ((void *)param_1[0x3a] != (void *)0x0) {
+      FID_conflict__vector_deleting_destructor_((void *)param_1[0x3a],3);
+    }
+    param_1[0x3a] = 0;
+  }
+  if (param_1[0x3b] != 0) {
+    if ((void *)param_1[0x3b] != (void *)0x0) {
+      FID_conflict__vector_deleting_destructor_((void *)param_1[0x3b],3);
+    }
+    param_1[0x3b] = 0;
+  }
+  local_8._0_1_ = 1;
+  Concurrency::cancellation_token_source::~cancellation_token_source
+            ((cancellation_token_source *)(param_1 + 0x3c));
+  local_8 = (uint)local_8._1_3_ << 8;
+  Concurrency::cancellation_token_source::~cancellation_token_source
+            ((cancellation_token_source *)(param_1 + 0x39));
+  local_8 = 0xffffffff;
+  FUN_00b4e1e0(param_1);
+  *unaff_FS_OFFSET = local_10;
+  return;
+}
+
+
+
+
+######################################################################
+# PART 8: Generic Pre-Cleanup
+######################################################################
+
+======================================================================
+Generic cleanup (FUN_00453a70) @ 0x00453a70
+======================================================================
+  Function: FUN_00453a70, Size: 10 bytes, Convention: __stdcall
+
+undefined4 FUN_00453a70(void)
+
+{
+  return DAT_011f6d98;
+}
+
+
+
+
+######################################################################
+# PART 9: NiNode Queue + BSTreeManager Cross-References
+######################################################################
+
+----------------------------------------------------------------------
+References TO 0x011de808 (DAT_011de808 (NiNode PDD queue))
+----------------------------------------------------------------------
+  10 references from 5 functions:
+    0x00868330  FUN_00868330  (339 bytes)
+    0x00868850  FUN_00868850  (1166 bytes)
+    0x00868d70  FUN_00868d70  (1037 bytes)
+    0x00fa1f30  FUN_00fa1f30  (35 bytes)
+    0x00fd8da0  FUN_00fd8da0  (15 bytes)
+
+----------------------------------------------------------------------
+References TO 0x011d5c48 (DAT_011d5c48 (BSTreeManager singleton))
+----------------------------------------------------------------------
+  10 references from 5 functions:
+    0x0043da00  FUN_0043da00  (149 bytes)
+    0x0043dac0  FUN_0043dac0  (53 bytes)
+    0x00664840  FUN_00664840  (37 bytes)
+    0x00664870  FUN_00664870  (199 bytes)
+    0x00664940  FUN_00664940  (71 bytes)
+
+######################################################################
+# PART 10: Big Update Function
+######################################################################
+
+======================================================================
+Big update function (8357 bytes, calls PDD) @ 0x0045dfe0
+======================================================================
+  Function: FUN_0045dfe0, Size: 8357 bytes, Convention: __fastcall
+
+/* WARNING: Globals starting with '_' overlap smaller symbols at the same address */
+
+undefined4 __fastcall FUN_0045dfe0(void *param_1)
+
+{
+  bool bVar1;
+  char cVar2;
+  undefined1 uVar3;
+  undefined2 uVar4;
+  _ExceptionHolder *p_Var5;
+  int *piVar6;
+  undefined2 extraout_var_00;
+  int iVar7;
+  undefined4 *puVar8;
+  undefined *puVar9;
+  undefined3 extraout_var;
+  undefined4 uVar10;
+  char *local_3e4;
+  int *local_108;
+  undefined4 local_104;
+  int local_100;
+  int *local_fc;
+  int local_f8;
+  int *local_f4;
+  int *local_f0;
+  int *local_ec;
+  int *local_e8;
+  int *local_e4;
+  int *local_e0;
+  int *local_dc;
+  int *local_d8;
+  int local_d4;
+  int *local_d0;
+  int *local_cc;
+  int *local_c8;
+  int *local_c4;
+  int *local_c0;
+  int *local_bc;
+  int *local_b8;
+  int *local_b4;
+  int *local_b0;
+  int *local_ac;
+  int *local_a8;
+  int *local_a4;
+  int *local_a0;
+  int *local_9c;
+  int *local_98;
+  int local_94;
+  int *local_90;
+  int *local_8c;
+  int *local_88;
+  int *local_84;
+  int *local_80;
+  int *local_7c;
+  int *local_78;
+  int *local_74;
+  int *local_70;
+  int *local_6c;
+  int *local_68;
+  int *local_64;
+  int *local_60;
+  int *local_5c;
+  uint local_58;
+  int *local_54;
+  int *local_50;
+  int *local_4c;
+  int *local_48;
+  int *local_44;
+  int *local_40;
+  int *local_3c;
+  int *local_38;
+  int *local_34;
+  int *local_30;
+  int *local_2c;
+  int *local_28;
+  int *local_24;
+  int *local_20;
+  int *local_1c;
+  int *local_18;
+  int *local_14;
+  int *local_10;
+  int *local_c;
+  int *local_8;
+  
+  *(undefined1 *)((int)param_1 + 0x61d) = 1;
+  FUN_00464e50(param_1);
+  FUN_00863db0(DAT_011c54c4);
+  FUN_004539a0(DAT_011dea10,'\0','\0');
+  FUN_00460170((int)DAT_011dea10);
+  p_Var5 = std::_Ref_count_obj<struct_Concurrency::details::_ExceptionHolder>::_Getptr(DAT_011dea10)
+  ;
+  FUN_004ee920(p_Var5);
+  FUN_00868d70('\0');
+  FUN_004ff190();
+  FUN_00952f90((int)DAT_011dea3c);
+  FUN_004c1c40();
+  FUN_00593210();
+  FUN_0058d710();
+  FUN_00460190();
+  while( true ) {
+    local_b0 = (int *)FUN_006815c0((int)param_1 + 200);
+    local_b0 = (int *)*local_b0;
+    if (local_b0 == (int *)0x0) break;
+    FUN_0063f7b0((undefined4 *)((int)param_1 + 200));
+    if (local_b0 != (int *)0x0) {
+      (**(code **)(*local_b0 + 0x10))(1);
+    }
+  }
+  while( true ) {
+    local_a0 = (int *)FUN_006815c0((int)param_1 + 400);
+    local_a0 = (int *)*local_a0;
+    if (local_a0 == (int *)0x0) break;
+    FUN_0063f7b0((undefined4 *)((int)param_1 + 400));
+    if (local_a0 != (int *)0x0) {
+      (**(code **)(*local_a0 + 0x10))(1);
+    }
+  }
+  while( true ) {
+    local_40 = (int *)FUN_006815c0((int)param_1 + 0x198);
+    local_40 = (int *)*local_40;
+    if (local_40 == (int *)0x0) break;
+    FUN_0063f7b0((undefined4 *)((int)param_1 + 0x198));
+    if (local_40 != (int *)0x0) {
+      (**(code **)(*local_40 + 0x10))(1);
+    }
+  }
+  while( true ) {
+    local_24 = (int *)FUN_006815c0((int)param_1 + 0x48);
+    local_24 = (int *)*local_24;
+    if (local_24 == (int *)0x0) break;
+    FUN_0063f7b0((undefined4 *)((int)param_1 + 0x48));
+    if (local_24 != (int *)0x0) {
+      (**(code **)(*local_24 + 0x10))(1);
+    }
+  }
+  while( true ) {
+    local_ac = (int *)FUN_006815c0((int)param_1 + 0x50);
+    local_ac = (int *)*local_ac;
+    if (local_ac == (int *)0x0) break;
+    FUN_0063f7b0((undefined4 *)((int)param_1 + 0x50));
+    if (local_ac != (int *)0x0) {
+      (**(code **)(*local_ac + 0x10))(1);
+    }
+  }
+  while( true ) {
+    local_4c = (int *)FUN_006815c0((int)param_1 + 0x58);
+    local_4c = (int *)*local_4c;
+    if (local_4c == (int *)0x0) break;
+    FUN_0063f7b0((undefined4 *)((int)param_1 + 0x58));
+    if (local_4c != (int *)0x0) {
+      (**(code **)(*local_4c + 0x10))(1);
+    }
+  }
+  while( true ) {
+    local_b8 = (int *)FUN_006815c0((int)param_1 + 0x60);
+    local_b8 = (int *)*local_b8;
+    if (local_b8 == (int *)0x0) break;
+    FUN_0063f7b0((undefined4 *)((int)param_1 + 0x60));
+    if (local_b8 != (int *)0x0) {
+      (**(code **)(*local_b8 + 0x10))(1);
+    }
+  }
+  _DAT_011cb96c = 0;
+  local_b8 = (int *)0x0;
+  while( true ) {
+    local_48 = (int *)FUN_006815c0((int)param_1 + 0x68);
+    local_48 = (int *)*local_48;
+    if (local_48 == (int *)0x0) break;
+    FUN_0063f7b0((undefined4 *)((int)param_1 + 0x68));
+    if (local_48 != (int *)0x0) {
+      (**(code **)(*local_48 + 0x10))(1);
+    }
+  }
+  while( true ) {
+    local_d8 = (int *)FUN_006815c0((int)param_1 + 0x18);
+    local_d8 = (int *)*local_d8;
+    if (local_d8 == (int *)0x0) break;
+    FUN_0063f7b0((undefined4 *)((int)param_1 + 0x18));
+    if (local_d8 != (int *)0x0) {
+      (**(code **)(*local_d8 + 0x10))(1);
+    }
+  }
+  while( true ) {
+    local_30 = (int *)FUN_006815c0((int)param_1 + 0x30);
+    local_30 = (int *)*local_30;
+    if (local_30 == (int *)0x0) break;
+    FUN_0063f7b0((undefined4 *)((int)param_1 + 0x30));
+    if (local_30 != (int *)0x0) {
+      (**(code **)(*local_30 + 0x10))(1);
+    }
+  }
+  while( true ) {
+    local_9c = (int *)FUN_006815c0((int)param_1 + 0x80);
+    local_9c = (int *)*local_9c;
+    if (local_9c == (int *)0x0) break;
+    FUN_0063f7b0((undefined4 *)((int)param_1 + 0x80));
+    if (local_9c != (int *)0x0) {
+      (**(code **)(*local_9c + 0x10))(1);
+    }
+  }
+  while( true ) {
+    local_c8 = (int *)FUN_006815c0((int)param_1 + 0x88);
+    local_c8 = (int *)*local_c8;
+    if (local_c8 == (int *)0x0) break;
+    FUN_0063f7b0((undefined4 *)((int)param_1 + 0x88));
+    if (local_c8 != (int *)0x0) {
+      (**(code **)(*local_c8 + 0x10))(1);
+    }
+  }
+  while( true ) {
+    local_e4 = (int *)FUN_006815c0((int)param_1 + 0x98);
+    local_e4 = (int *)*local_e4;
+    if (local_e4 == (int *)0x0) break;
+    FUN_0063f7b0((undefined4 *)((int)param_1 + 0x98));
+    if (local_e4 != (int *)0x0) {
+      (**(code **)(*local_e4 + 0x10))(1);
+    }
+  }
+  while( true ) {
+    local_20 = (int *)FUN_006815c0((int)param_1 + 0x90);
+    local_20 = (int *)*local_20;
+    if (local_20 == (int *)0x0) break;
+    FUN_0063f7b0((undefined4 *)((int)param_1 + 0x90));
+    if (local_20 != (int *)0x0) {
+      (**(code **)(*local_20 + 0x10))(1);
+    }
+  }
+  while( true ) {
+    local_f4 = (int *)FUN_006815c0((int)param_1 + 0xa0);
+    local_f4 = (int *)*local_f4;
+    if (local_f4 == (int *)0x0) break;
+    FUN_0063f7b0((undefined4 *)((int)param_1 + 0xa0));
+    if (local_f4 != (int *)0x0) {
+      (**(code **)(*local_f4 + 0x10))(1);
+    }
+  }
+  while( true ) {
+    local_c4 = (int *)FUN_006815c0((int)param_1 + 0xb8);
+    local_c4 = (int *)*local_c4;
+    if (local_c4 == (int *)0x0) break;
+    FUN_0063f7b0((undefined4 *)((int)param_1 + 0xb8));
+    if (local_c4 != (int *)0x0) {
+      (**(code **)(*local_c4 + 0x10))(1);
+    }
+  }
+  while( true ) {
+    local_78 = (int *)FUN_006815c0((int)param_1 + 0xa8);
+    local_78 = (int *)*local_78;
+    if (local_78 == (int *)0x0) break;
+    FUN_0063f7b0((undefined4 *)((int)param_1 + 0xa8));
+    if (local_78 != (int *)0x0) {
+      (**(code **)(*local_78 + 0x10))(1);
+    }
+  }
+  while( true ) {
+    local_a8 = (int *)FUN_006815c0((int)param_1 + 0xb0);
+    local_a8 = (int *)*local_a8;
+    if (local_a8 == (int *)0x0) break;
+    FUN_0063f7b0((undefined4 *)((int)param_1 + 0xb0));
+    if (local_a8 != (int *)0x0) {
+      (**(code **)(*local_a8 + 0x10))(1);
+    }
+  }
+  while( true ) {
+    local_3c = (int *)FUN_006815c0((int)param_1 + 0xe8);
+    local_3c = (int *)*local_3c;
+    if (local_3c == (int *)0x0) break;
+    FUN_0063f7b0((undefined4 *)((int)param_1 + 0xe8));
+    if (local_3c != (int *)0x0) {
+      (**(code **)(*local_3c + 0x10))(1);
+    }
+  }
+  while( true ) {
+    local_f0 = (int *)FUN_006815c0((int)param_1 + 0xf0);
+    local_f0 = (int *)*local_f0;
+    if (local_f0 == (int *)0x0) break;
+    FUN_0063f7b0((undefined4 *)((int)param_1 + 0xf0));
+    if (local_f0 != (int *)0x0) {
+      (**(code **)(*local_f0 + 0x10))(1);
+    }
+  }
+  while( true ) {
+    local_68 = (int *)FUN_006815c0((int)param_1 + 0xf8);
+    local_68 = (int *)*local_68;
+    if (local_68 == (int *)0x0) break;
+    FUN_0063f7b0((undefined4 *)((int)param_1 + 0xf8));
+    if (local_68 != (int *)0x0) {
+      (**(code **)(*local_68 + 0x10))(1);
+    }
+  }
+  while( true ) {
+    local_1c = (int *)FUN_006815c0((int)param_1 + 0x100);
+    local_1c = (int *)*local_1c;
+    if (local_1c == (int *)0x0) break;
+    FUN_0063f7b0((undefined4 *)((int)param_1 + 0x100));
+    if (local_1c != (int *)0x0) {
+      (**(code **)(*local_1c + 0x10))(1);
+    }
+  }
+  while( true ) {
+    local_98 = (int *)FUN_006815c0((int)param_1 + 0x118);
+    local_98 = (int *)*local_98;
+    if (local_98 == (int *)0x0) break;
+    FUN_0063f7b0((undefined4 *)((int)param_1 + 0x118));
+    if (local_98 != (int *)0x0) {
+      (**(code **)(*local_98 + 0x10))(1);
+    }
+  }
+  while( true ) {
+    local_8c = (int *)FUN_006815c0((int)param_1 + 0x108);
+    local_8c = (int *)*local_8c;
+    if (local_8c == (int *)0x0) break;
+    FUN_0063f7b0((undefined4 *)((int)param_1 + 0x108));
+    if (local_8c != (int *)0x0) {
+      (**(code **)(*local_8c + 0x10))(1);
+    }
+  }
+  FUN_0061a270();
+  while( true ) {
+    piVar6 = (int *)FUN_006815c0((int)param_1 + 0x110);
+    local_94 = *piVar6;
+    if (local_94 == 0) break;
+    FUN_0063f7b0((undefined4 *)((int)param_1 + 0x110));
+  }
+  uVar4 = FUN_00658930((int)param_1 + 0x1dc);
+  local_d4 = CONCAT22(extraout_var_00,uVar4);
+  for (local_f8 = 0; local_f8 < local_d4; local_f8 = local_f8 + 1) {
+    local_fc = (int *)FUN_00877a30((void *)((int)param_1 + 0x1dc),local_f8);
+    local_fc = (int *)*local_fc;
+    if ((local_fc != (int *)0x0) && (local_fc != (int *)0x0)) {
+      (**(code **)(*local_fc + 0x10))(1);
+    }
+  }
+  FUN_0096ad30((void *)((int)param_1 + 0x1dc),0);
+  while( true ) {
+    local_18 = (int *)FUN_006815c0((int)param_1 + 0x10);
+    local_18 = (int *)*local_18;
+    if (local_18 == (int *)0x0) break;
+    FUN_0063f7b0((undefined4 *)((int)param_1 + 0x10));
+    if (local_18 != (int *)0x0) {
+      (**(code **)(*local_18 + 0x10))(1);
+    }
+  }
+  FUN_00868d70('\0');
+  while( true ) {
+    local_e0 = (int *)FUN_006815c0((int)param_1 + 0xd0);
+    local_e0 = (int *)*local_e0;
+    if (local_e0 == (int *)0x0) break;
+    FUN_0063f7b0((undefined4 *)((int)param_1 + 0xd0));
+    if (local_e0 != (int *)0x0) {
+      (**(code **)(*local_e0 + 0x10))(1);
+    }
+  }
+  while( true ) {
+    iVar7 = FUN_00460090((int)param_1);
+    local_54 = (int *)FUN_006815c0(iVar7);
+    local_54 = (int *)*local_54;
+    if (local_54 == (int *)0x0) break;
+    puVar8 = (undefined4 *)FUN_00460090((int)param_1);
+    FUN_0063f7b0(puVar8);
+    if (local_54 != (int *)0x0) {
+      (**(code **)(*local_54 + 0x10))(1);
+    }
+  }
+  while( true ) {
+    iVar7 = FUN_004600b0((int)param_1);
+    local_64 = (int *)FUN_006815c0(iVar7);
+    local_64 = (int *)*local_64;
+    if (local_64 == (int *)0x0) break;
+    puVar8 = (undefined4 *)FUN_004600b0((int)param_1);
+    FUN_0063f7b0(puVar8);
+    if (local_64 != (int *)0x0) {
+      (**(code **)(*local_64 + 0x10))(1);
+    }
+  }
+  while( true ) {
+    iVar7 = FUN_004600d0((int)param_1);
+    local_14 = (int *)FUN_006815c0(iVar7);
+    local_14 = (int *)*local_14;
+    if (local_14 == (int *)0x0) break;
+    puVar8 = (undefined4 *)FUN_004600d0((int)param_1);
+    FUN_0063f7b0(puVar8);
+    if (local_14 != (int *)0x0) {
+      (**(code **)(*local_14 + 0x10))(1);
+    }
+  }
+  while( true ) {
+    local_74 = (int *)FUN_006815c0((int)param_1 + 0xd8);
+    local_74 = (int *)*local_74;
+    if (local_74 == (int *)0x0) break;
+    FUN_0063f7b0((undefined4 *)((int)param_1 + 0xd8));
+    if (local_74 != (int *)0x0) {
+      (**(code **)(*local_74 + 0x10))(1);
+    }
+  }
+  while( true ) {
+    local_2c = (int *)FUN_006815c0((int)param_1 + 0x70);
+    local_2c = (int *)*local_2c;
+    if (local_2c == (int *)0x0) break;
+    FUN_0063f7b0((undefined4 *)((int)param_1 + 0x70));
+    if (local_2c != (int *)0x0) {
+      (**(code **)(*local_2c + 0x10))(1);
+    }
+  }
+  while( true ) {
+    local_90 = (int *)FUN_006815c0((int)param_1 + 0x1a8);
+    local_90 = (int *)*local_90;
+    if (local_90 == (int *)0x0) break;
+    FUN_0063f7b0((undefined4 *)((int)param_1 + 0x1a8));
+    if (local_90 != (int *)0x0)
+  ... [truncated at 12000 chars]
+
+
+----------------------------------------------------------------------
+Calls FROM 0x0045dfe0 (Big update function)
+----------------------------------------------------------------------
+  Calls 51 unique functions:
+    -> 0x00401170  FUN_00401170  (18 bytes)
+    -> 0x00408de0  FUN_00408de0  (15 bytes)
+    -> 0x0043b2b0  FUN_0043b2b0  (69 bytes)
+    -> 0x0043b5d0  _Getptr  (17 bytes)
+    -> 0x00440e30  FUN_00440e30  (27 bytes)
+    -> 0x004539a0  FUN_004539a0  (196 bytes)
+    -> 0x0045af00  FUN_0045af00  (174 bytes)
+    -> 0x0045afb0  FUN_0045afb0  (109 bytes)
+    -> 0x00460090  FUN_00460090  (19 bytes)
+    -> 0x004600b0  FUN_004600b0  (19 bytes)
+    -> 0x004600d0  FUN_004600d0  (19 bytes)
+    -> 0x004600f0  FUN_004600f0  (20 bytes)
+    -> 0x00460110  FUN_00460110  (38 bytes)
+    -> 0x00460160  FUN_00460160  (15 bytes)
+    -> 0x00460170  FUN_00460170  (24 bytes)
+    -> 0x00460190  FUN_00460190  (15 bytes)
+    -> 0x004601a0  FUN_004601a0  (44 bytes)
+    -> 0x00464e50  FUN_00464e50  (209 bytes)
+    -> 0x00464f30  FUN_00464f30  (8 bytes)
+    -> 0x00471d90  FUN_00471d90  (65 bytes)
+    -> 0x00484e60  FUN_00484e60  (119 bytes)
+    -> 0x004b9ba0  FUN_004b9ba0  (75 bytes)
+    -> 0x004c1c40  FUN_004c1c40  (76 bytes)
+    -> 0x004ee920  FUN_004ee920  (196 bytes)
+    -> 0x004f6640  FUN_004f6640  (120 bytes)
+    -> 0x004f6de0  FUN_004f6de0  (17 bytes)
+    -> 0x004ff190  FUN_004ff190  (15 bytes)
+    -> 0x005102e0  FUN_005102e0  (124 bytes)
+    -> 0x0058ba40  FUN_0058ba40  (271 bytes)
+    -> 0x0058d710  FUN_0058d710  (76 bytes)
+    -> 0x00593210  FUN_00593210  (15 bytes)
+    -> 0x005b5e40  FUN_005b5e40  (18 bytes)
+    -> 0x005e03d0  FUN_005e03d0  (85 bytes)
+    -> 0x005ffd20  FUN_005ffd20  (623 bytes)
+    -> 0x00600030  FUN_00600030  (306 bytes)
+    -> 0x0061a270  FUN_0061a270  (94 bytes)
+    -> 0x0063f7b0  FUN_0063f7b0  (114 bytes)
+    -> 0x00658930  FUN_00658930  (18 bytes)
+    -> 0x0066f110  FUN_0066f110  (122 bytes)
+    -> 0x006815c0  FUN_006815c0  (14 bytes)
+    -> 0x006b7f20  FUN_006b7f20  (161 bytes)
+    -> 0x006c0720  FUN_006c0720  (162 bytes)
+    -> 0x006c09f0  FUN_006c09f0  (574 bytes)
+    -> 0x00844700  FUN_00844700  (212 bytes)
+    -> 0x0084e3a0  FUN_0084e3a0  (17 bytes)
+    -> 0x00863db0  FUN_00863db0  (80 bytes)
+    -> 0x00868d70  FUN_00868d70  (1037 bytes)
+    -> 0x00877a30  FUN_00877a30  (25 bytes)
+    -> 0x00891170  FUN_00891170  (17 bytes)
+    -> 0x00952f90  FUN_00952f90  (91 bytes)
+    -> 0x0096ad30  FUN_0096ad30  (342 bytes)
+
+======================================================================
+ANALYSIS COMPLETE
+======================================================================

@@ -10,16 +10,24 @@
 //! - **Post-AI hooks (line 486)**: Safe for cell unloading — render is done,
 //!   AI tasks are done, scene data is no longer needed for this frame.
 //!
-//! # Selective ProcessDeferredDestruction
+//! # Selective PDD (skip NiNode queue)
 //!
 //! After cell unloading, we call `ProcessDeferredDestruction` with the NiNode
-//! queue (bit 0x08) masked off via `DAT_011de804`. This processes deferred
-//! physics wrappers, textures, animations, and other objects that accumulate
-//! during gameplay, while skipping BSTreeNode destruction that would crash
-//! SpeedTree's cached draw lists.
+//! queue (bit 0x08) skipped via the `DAT_011de804` bitmask. This processes
+//! deferred forms, animations, and other objects, while skipping BSTreeNode
+//! destruction that would crash SpeedTree's cached draw lists.
 //!
-//! The skip bitmask `DAT_011de804` is read by `FUN_00869180(flag)`:
-//! `(DAT_011de804 & flag) != 0` → queue is skipped.
+//! **Why we can't process queue 0x08 from post-render:**
+//! - Scene graph invalidation (`FUN_00703980`) accesses heightfield data from
+//!   cells we just freed via `FindCellToUnload` — causes main thread crash.
+//! - Without invalidation, SpeedTree draw lists hold stale BSTreeNode pointers
+//!   across frames — next frame's render crashes.
+//! - The game's own safe PDD callers (lines 271, 347) run BEFORE render and
+//!   BEFORE cell unloading, when the scene graph is consistent.
+//!
+//! Queue 0x08 is drained by the game's own internally-synchronized PDD calls
+//! at safe frame points (lines 271, 273, 347). Under extreme stress, NiNodes
+//! may accumulate faster than the game drains them.
 
 use libc::c_void;
 use std::sync::atomic::{AtomicBool, AtomicI64, AtomicU64, Ordering};
@@ -121,6 +129,10 @@ impl PressureRelief {
         }
     }
 
+    pub fn is_requested(&self) -> bool {
+        self.requested.load(Ordering::Relaxed)
+    }
+
     pub fn stats(&self) -> (i64, i64) {
         (
             self.relief_count.load(Ordering::Relaxed),
@@ -207,6 +219,14 @@ impl PressureRelief {
         // Selective PDD: skip NiNode queue (bit 0x08) to avoid BSTreeNode
         // use-after-free in SpeedTree's cached draw lists. All other queues
         // (physics 0x20, animations 0x02, textures 0x04, etc.) are processed.
+        //
+        // Queue 0x08 cannot be safely processed from post-render because:
+        // - Scene graph invalidation (FUN_00703980) accesses heightfield data
+        //   from cells we just freed → main thread crash.
+        // - Without invalidation, SpeedTree draw lists hold stale BSTreeNode
+        //   pointers across frames → next frame render crash.
+        // The game's own PDD callers at lines 271/347 drain queue 0x08 at
+        // safe early-frame points where the scene graph is consistent.
         unsafe {
             let skip_mask = PDD_SKIP_MASK_PTR as *mut u32;
             let original = skip_mask.read_volatile();

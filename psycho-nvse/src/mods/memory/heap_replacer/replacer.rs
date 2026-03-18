@@ -94,7 +94,16 @@ pub static GHEAP_REALLOC_HOOK_2: LazyLock<InlineHookContainer<GameHeapReallocate
 // - FUN_008705d0 (line 486, POST-render): Render done, tree lists consumed → SAFE
 const MAIN_LOOP_MAINTENANCE_ADDR: usize = 0x008705D0;
 
+// Per-frame queue processor (FUN_00868850).
+// Runs at main loop line ~802, BEFORE AI dispatch (line ~855) and render (line ~904).
+// Processes deferred destruction queues with limited batch sizes (10-20 items).
+// We hook this to boost NiNode (queue 0x08) drain rate under memory pressure.
+const PER_FRAME_QUEUE_DRAIN_ADDR: usize = 0x00868850;
+
 pub static MAIN_LOOP_MAINTENANCE_HOOK: LazyLock<InlineHookContainer<MainLoopMaintenanceFn>> =
+    LazyLock::new(InlineHookContainer::new);
+
+pub static PER_FRAME_QUEUE_DRAIN_HOOK: LazyLock<InlineHookContainer<PerFrameQueueDrainFn>> =
     LazyLock::new(InlineHookContainer::new);
 
 /// Scrap heap hooks
@@ -236,7 +245,20 @@ pub fn install_game_heap_hooks() -> anyhow::Result<()> {
             hook_main_loop_maintenance,
         )?;
         MAIN_LOOP_MAINTENANCE_HOOK.enable()?;
-        log::info!("[PRESSURE] Main-loop maintenance hook installed at 0x{:08X}", MAIN_LOOP_MAINTENANCE_ADDR);
+        log::info!("[PRESSURE] Post-render hook installed at 0x{:08X}", MAIN_LOOP_MAINTENANCE_ADDR);
+    }
+
+    // Per-frame queue drain hook: boosts NiNode drain rate under pressure.
+    // FUN_00868850 runs every frame pre-AI, pre-render. It drains 10-20 NiNodes
+    // per call. Under pressure we call it additional times to drain faster.
+    {
+        PER_FRAME_QUEUE_DRAIN_HOOK.init(
+            "per_frame_queue_drain",
+            PER_FRAME_QUEUE_DRAIN_ADDR as *mut c_void,
+            hook_per_frame_queue_drain,
+        )?;
+        PER_FRAME_QUEUE_DRAIN_HOOK.enable()?;
+        log::info!("[PRESSURE] Per-frame queue drain hook installed at 0x{:08X}", PER_FRAME_QUEUE_DRAIN_ADDR);
     }
 
     {

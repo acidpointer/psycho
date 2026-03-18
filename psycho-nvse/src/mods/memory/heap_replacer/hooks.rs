@@ -174,8 +174,10 @@ pub(super) unsafe extern "thiscall" fn hook_gheap_alloc(
         return ptr;
     }
 
-    // OOM: collect and retry
-    unsafe { mi_collect(true) };
+    // OOM: thread-local collect and retry.
+    // NEVER mi_collect(true) — it purges cross-thread segments and races with
+    // AI Linear Task Threads (EXCEPTION_ACCESS_VIOLATION inside psycho_nvse).
+    unsafe { mi_collect(false) };
     unsafe { mi_malloc_aligned(size, GHEAP_ALIGN) }
 }
 
@@ -244,7 +246,8 @@ pub(super) unsafe extern "thiscall" fn hook_gheap_realloc(
         if !new_ptr.is_null() {
             return new_ptr;
         }
-        unsafe { mi_collect(true) };
+        // NEVER mi_collect(true) — races with AI threads. See hook_gheap_alloc.
+        unsafe { mi_collect(false) };
         return unsafe { mi_realloc_aligned(ptr, new_size, GHEAP_ALIGN) };
     }
 
@@ -279,6 +282,40 @@ pub(super) unsafe extern "thiscall" fn hook_main_loop_maintenance(this: *mut c_v
 
     if let Some(pr) = PressureRelief::instance() {
         unsafe { pr.relieve() };
+    }
+}
+
+// ===========================================================================
+//   PER-FRAME QUEUE DRAIN HOOK — boost NiNode drain under pressure
+// ===========================================================================
+
+/// Extra rounds of FUN_00868850 to call when under memory pressure.
+/// Each round drains ~10-20 NiNodes from queue 0x08 (the game's own
+/// batch size). 9 extra rounds = ~100-200 NiNodes per frame total.
+const EXTRA_DRAIN_ROUNDS: u32 = 9;
+
+pub(super) unsafe extern "C" fn hook_per_frame_queue_drain() {
+    // Call original — game's normal per-frame drain (10-20 items from highest-priority queue)
+    if let Ok(original) = super::replacer::PER_FRAME_QUEUE_DRAIN_HOOK.original() {
+        unsafe { original() };
+
+        // Under memory pressure, call the drain function additional times.
+        // Each call processes up to 10-20 NiNodes from queue 0x08 (if non-empty).
+        //
+        // This is safe because:
+        // - FUN_00868850 runs at line ~802, BEFORE AI dispatch and render
+        // - AI threads are idle — no concurrent heightfield access
+        // - The game itself calls this function here every frame
+        // - The function uses internal try-locks for queue access
+        // - Render hasn't built draw lists yet — destroyed BSTreeNodes won't
+        //   appear in this frame's draw lists
+        if let Some(pr) = PressureRelief::instance() {
+            if pr.is_requested() {
+                for _ in 0..EXTRA_DRAIN_ROUNDS {
+                    unsafe { original() };
+                }
+            }
+        }
     }
 }
 
