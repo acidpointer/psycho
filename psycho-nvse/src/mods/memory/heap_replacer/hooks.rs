@@ -291,8 +291,12 @@ pub(super) unsafe extern "thiscall" fn hook_main_loop_maintenance(this: *mut c_v
 
 /// Extra rounds of FUN_00868850 to call when under memory pressure.
 /// Each round drains ~10-20 NiNodes from queue 0x08 (the game's own
-/// batch size). 9 extra rounds = ~100-200 NiNodes per frame total.
-const EXTRA_DRAIN_ROUNDS: u32 = 9;
+/// batch size). 19 extra rounds = ~200-400 NiNodes per frame total.
+const EXTRA_DRAIN_ROUNDS: u32 = 19;
+
+/// NiNode PDD queue (DAT_011de808). Queue count is at offset +0x0A (u16).
+const NINODE_QUEUE_ADDR: usize = 0x011DE808;
+const NINODE_QUEUE_COUNT_OFFSET: usize = 0x0A;
 
 pub(super) unsafe extern "C" fn hook_per_frame_queue_drain() {
     // Call original — game's normal per-frame drain (10-20 items from highest-priority queue)
@@ -301,6 +305,12 @@ pub(super) unsafe extern "C" fn hook_per_frame_queue_drain() {
 
         // Under memory pressure, call the drain function additional times.
         // Each call processes up to 10-20 NiNodes from queue 0x08 (if non-empty).
+        //
+        // CRITICAL: Stop as soon as queue 0x08 is empty. FUN_00868850
+        // processes queues in priority order (0x08 first). If queue 0x08
+        // empties, subsequent calls fall through to queue 0x20 (Havok),
+        // and over-draining Havok shapes causes PathingSearchRayCast
+        // crashes later in the frame.
         //
         // This is safe because:
         // - FUN_00868850 runs at line ~802, BEFORE AI dispatch and render
@@ -312,6 +322,12 @@ pub(super) unsafe extern "C" fn hook_per_frame_queue_drain() {
         if let Some(pr) = PressureRelief::instance() {
             if pr.is_requested() {
                 for _ in 0..EXTRA_DRAIN_ROUNDS {
+                    let count = unsafe {
+                        *((NINODE_QUEUE_ADDR + NINODE_QUEUE_COUNT_OFFSET) as *const u16)
+                    };
+                    if count == 0 {
+                        break;
+                    }
                     unsafe { original() };
                 }
             }
