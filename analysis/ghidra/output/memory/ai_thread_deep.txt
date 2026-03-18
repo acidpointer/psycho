@@ -1,0 +1,692 @@
+DEEP DIVE: AI THREAD SYNCHRONIZATION
+======================================================================
+
+PART 1: FUN_00877700 and FUN_00ad8da0 (potential AI wait)
+
+======================================================================
+CellTransition_PreCleanup @ 0x00877700
+======================================================================
+  Function: FUN_00877700, Size: 30 bytes
+
+void __fastcall FUN_00877700(int param_1)
+
+{
+  FUN_00ad8da0((void *)(param_1 + 0x77c),1000);
+  return;
+}
+
+
+
+
+======================================================================
+PotentialAIWait (called with timeout 1000) @ 0x00ad8da0
+======================================================================
+  Function: FUN_00ad8da0, Size: 60 bytes
+
+bool __thiscall FUN_00ad8da0(void *this,undefined4 param_1)
+
+{
+  int iVar1;
+  undefined *this_00;
+  undefined4 uVar2;
+  uint uVar3;
+  
+  iVar1 = *(int *)this;
+  if (iVar1 != -1) {
+    uVar3 = 0x26;
+    uVar2 = *(undefined4 *)this;
+    this_00 = FID_conflict__Immortalize<class_std::_Generic_error_category>();
+    FUN_00adc560(this_00,uVar2,param_1,uVar3);
+    *(undefined4 *)this = 0xffffffff;
+  }
+  return iVar1 != -1;
+}
+
+
+
+
+======================================================================
+CellTransition_AfterPreCleanup @ 0x00ad8780
+======================================================================
+  Function: FUN_00ad8780, Size: 13 bytes
+
+void FUN_00ad8780(void)
+
+{
+  return;
+}
+
+
+
+
+======================================================================
+OurHookTarget (pre-render maintenance) @ 0x0086ff70
+======================================================================
+  Function: FUN_0086ff70, Size: 1616 bytes
+
+/* WARNING: Globals starting with '_' overlap smaller symbols at the same address */
+
+void __fastcall FUN_0086ff70(void *param_1)
+
+{
+  char cVar1;
+  bool bVar2;
+  void *pvVar3;
+  int iVar4;
+  undefined *puVar5;
+  uint uVar6;
+  char *pcVar7;
+  int *piVar8;
+  undefined3 extraout_var;
+  uint *puVar9;
+  float10 fVar10;
+  char cVar11;
+  int iVar12;
+  undefined4 uVar13;
+  char local_124 [268];
+  uint local_18;
+  int local_14;
+  char local_e;
+  char local_d;
+  int *local_c;
+  int local_8;
+  
+  local_18 = DAT_011c16bc ^ (uint)&stack0xfffffffc;
+  local_8 = FUN_0043c4b0();
+  FUN_004a0370(local_8);
+  if (DAT_011d890a != '\0') {
+    DAT_011d890a = '\0';
+    pvVar3 = (void *)FUN_00950bb0(DAT_011dea3c,'\x01');
+    local_d = FUN_00456610(pvVar3);
+    pvVar3 = (void *)FUN_00950bb0(DAT_011dea3c,'\0');
+    local_e = FUN_00456610(pvVar3);
+    cVar1 = '\x01';
+    pvVar3 = (void *)FUN_00950bb0(DAT_011dea3c,'\x01');
+    FUN_00450f90(pvVar3,cVar1);
+    cVar1 = '\x01';
+    pvVar3 = (void *)FUN_00950bb0(DAT_011dea3c,'\0');
+    FUN_00450f90(pvVar3,cVar1);
+    FUN_00871dc0(param_1);
+    cVar1 = local_d;
+    pvVar3 = (void *)FUN_00950bb0(DAT_011dea3c,'\x01');
+    FUN_00450f90(pvVar3,cVar1);
+    cVar1 = local_e;
+    pvVar3 = (void *)FUN_00950bb0(DAT_011dea3c,'\0');
+    FUN_00450f90(pvVar3,cVar1);
+  }
+  iVar4 = FUN_0043c4b0();
+  FUN_005585e0(iVar4);
+  FUN_00a29680();
+  FUN_0040fbe0();
+  puVar5 = FUN_004ea970();
+  FUN_00ba2f30((int)puVar5);
+  if (DAT_011c6fb8 != '\0') {
+    FUN_004dcef0();
+  }
+  uVar6 = FUN_00701450(1);
+  if (((uVar6 & 0xff) == 0) && (uVar6 = FUN_00701450(2), (uVar6 & 0xff) == 0)) {
+    _DAT_011def00 = 0.0;
+    DAT_011def04 = 0;
+  }
+  else {
+    if (DAT_011def04 == 0) {
+      FUN_00457d70(DAT_011dea10,'\0',0,'\0');
+      FUN_0040fbe0();
+      FUN_0096cfa0(0x11e0e80);
+    }
+    fVar10 = FUN_007013e0(0x11f6394);
+    _DAT_011def00 = (float)(fVar10 + (float10)_DAT_011def00);
+    DAT_011def04 = DAT_011def04 + 1;
+    if (((float)_DAT_01012070 <= _DAT_011def00) && (9 < DAT_011def04)) {
+      FUN_007010e0(1,'\0');
+      FUN_007010e0(2,'\0');
+      FUN_004534f0();
+      cVar1 = FUN_0047c850();
+      if (cVar1 != '\0') {
+        FUN_004534f0();
+        FUN_00483710();
+      }
+      FUN_00877430();
+    }
+  }
+  local_c = (int *)0x0;
+  if ((((DAT_011dea29 == '\0') && (cVar1 = FUN_0070edf0(), cVar1 == '\0')) &&
+      (iVar4 = (**(code **)(*DAT_011dea3c + 0x1d0))(), iVar4 != 0)) &&
+     (uVar6 = FUN_00701400(1), (uVar6 & 0xff) == 0)) {
+    iVar4 = FUN_005f36f0((int)DAT_011dea10);
+    if (iVar4 == 0) {
+      iVar4 = FUN_004fd3e0((int)DAT_011dea10);
+      pcVar7 = (char *)FUN_00548210(iVar4);
+      if ((*pcVar7 != '\0') && (iVar4 = FUN_0044ddc0((int)DAT_011dea10), iVar4 != 0)) {
+        FUN_0044ddc0((int)DAT_011dea10);
+        cVar1 = FUN_008705c0();
+        if (cVar1 != '\0') {
+          pvVar3 = (void *)FUN_0044ddc0((int)DAT_011dea10);
+          FUN_004baf10(pvVar3);
+        }
+      }
+    }
+    FUN_008706b0(param_1,0,'\0','\0');
+  }
+  else {
+    cVar1 = FUN_007079b0();
+    if (((cVar1 == '\0') && (bVar2 = FUN_00702360(), bVar2)) ||
+       (cVar1 = FUN_00702680(0x3f5,0), cVar1 != '\0')) {
+      for (local_14 = 1; local_14 < 0x17; local_14 = local_14 + 1) {
+        iVar4 = 0;
+        puVar5 = FUN_004ea970();
+        FUN_00ba30f0(puVar5,iVar4);
+        iVar12 = 1;
+        iVar4 = local_14;
+        puVar5 = FUN_004ea970();
+        FUN_00ba3130(puVar5,iVar12,iVar4);
+      }
+      FUN_00871a50();
+      cVar1 = FUN_00702680(0x41e,0);
+      if (((((cVar1 == '\0') && (cVar1 = FUN_00702680(0x3f6,0), cVar1 == '\0')) &&
+           (cVar1 = FUN_00702680(0x424,0), cVar1 == '\0')) &&
+          ((cVar1 = FUN_00702680(0x432,0), cVar1 == '\0' &&
+           (cVar1 = FUN_00702680(0x438,0), cVar1 == '\0')))) &&
+         ((cVar1 = FUN_00702680(0x439,0), cVar1 == '\0' &&
+          ((cVar1 = FUN_00702680(0x43a,0), cVar1 == '\0' &&
+           (cVar1 = FUN_00702680(0x43b,0), cVar1 == '\0')))))) {
+        iVar4 = FUN_00559450((undefined4 *)&DAT_011ded3c);
+        if (iVar4 != 0) {
+          uVar6 = 0;
+          cVar1 = FUN_004dc310();
+          iVar4 = local_8;
+          pvVar3 = (void *)FUN_004e3270();
+          FUN_00874b90(pvVar3,iVar4,cVar1,uVar6);
+        }
+      }
+      else {
+        FUN_00872940(param_1,0);
+      }
+    }
+    else {
+      iVar4 = (**(code **)(*DAT_011dea3c + 0x1d0))();
+      if (iVar4 != 0) {
+        cVar11 = '\0';
+        cVar1 = FUN_007079b0();
+        FUN_008706b0(param_1,0,cVar1,cVar11);
+      }
+    }
+  }
+  cVar1 = FUN_005d4a40();
+  if (cVar1 == '\x01') {
+    FUN_00b55a10();
+  }
+  FUN_00709b40();
+  FUN_00559450((undefined4 *)&DAT_011dec64);
+  FUN_007028b0();
+  puVar5 = FUN_004ea970();
+  FUN_00ba2fa0((int)puVar5);
+  iVar4 = FUN_00559450((undefined4 *)&DAT_011dec64);
+  if (iVar4 != 0) {
+    piVar8 = (int *)FUN_00559450((undefined4 *)&DAT_011dec64);
+    pvVar3 = (void *)FUN_004a0ea0();
+    FUN_00b6da10(pvVar3,piVar8);
+    FUN_0066b0d0(&DAT_011dec64,0);
+  }
+  iVar12 = 1;
+  iVar4 = 0x1e;
+  pvVar3 = (void *)FUN_007fdf30();
+  uVar6 = FUN_00a24660(pvVar3,iVar4,iVar12);
+  if (uVar6 != 0) {
+    uVar13 = 0;
+    iVar4 = 0x9d;
+    pvVar3 = (void *)FUN_007fdf30();
+    bVar2 = FUN_00a24180(pvVar3,iVar4,uVar13);
+    if ((CONCAT31(extraout_var,bVar2) == 0) && (DAT_011dea40 == '\0')) {
+      FUN_00878860((char *)0x0);
+    }
+    else {
+      DAT_011dea40 = '\x01' - (DAT_011dea40 != '\0');
+      if (DAT_011dea40 == '\0') {
+        FUN_0086d4c0(&DAT_011f6394,0);
+      }
+      else {
+        _DAT_011dea44 = 0;
+        piVar8 = (int *)FUN_0043d4d0(0x11deecc);
+        FUN_0045ce80(&DAT_011deecc,*piVar8 + 1);
+        FUN_0043d4d0(0x11deecc);
+        FUN_00403df0(0x11deb04);
+        FUN_00406d00(local_124,0x104,"%s%03d");
+        CreateDirectoryA(local_124,(LPSECURITY_ATTRIBUTES)0x0);
+        puVar9 = (uint *)FUN_0043d4d0(0x11dee00);
+        FUN_0086d4c0(&DAT_011f6394,*puVar9);
+      }
+    }
+  }
+  FUN_00c458f0();
+  iVar4 = FUN_004e9530(local_8);
+  if (iVar4 != 0) {
+    FUN_00b6b730();
+  }
+  if (local_c != (int *)0x0) {
+    piVar8 = local_c;
+    pvVar3 = (void *)FUN_004a0ea0();
+    FUN_00b6da10(pvVar3,piVar8);
+    local_c = (int *)0x0;
+  }
+  iVar4 = FUN_00559450((undefined4 *)&DAT_011deb7c);
+  FUN_00c51f20(iVar4);
+  FUN_004a03c0(local_8);
+  piVar8 = (int *)FUN_0043d4d0(0x11c3ea4);
+  if (1 < *piVar8) {
+    FUN_008c80e0('\0');
+  }
+  __security_check_cookie(local_18 ^ (uint)&stack0xfffffffc);
+  return;
+}
+
+
+
+
+======================================================================
+RenderUpdate (called right after our hook) @ 0x008705d0
+======================================================================
+  Function: FUN_008705d0, Size: 55 bytes
+
+void __fastcall FUN_008705d0(int param_1)
+
+{
+  int *piVar1;
+  
+  FUN_0086f640();
+  FUN_0086f890(param_1);
+  piVar1 = (int *)FUN_0043d4d0(0x11c3ea4);
+  if (1 < *piVar1) {
+    FUN_00552570();
+  }
+  FUN_0086f670();
+  return;
+}
+
+
+
+
+======================================================================
+AITaskExecution (runs on AI thread) @ 0x008c7f50
+======================================================================
+  Function: FUN_008c7f50, Size: 346 bytes
+
+void FUN_008c7f50(void)
+
+{
+  undefined *puVar1;
+  int *piVar2;
+  float10 fVar3;
+  int iVar4;
+  int iVar5;
+  
+  iVar5 = 0;
+  iVar4 = 1;
+  puVar1 = FUN_00713d80();
+  FUN_008c79e0(puVar1,iVar4,iVar5);
+  iVar5 = 1;
+  iVar4 = 0;
+  puVar1 = FUN_00713d80();
+  FUN_008c7a70(puVar1,iVar4,iVar5);
+  piVar2 = (int *)FUN_004537b0();
+  FUN_0087a6b0(piVar2);
+  FUN_0096c330(0x11e0e80);
+  iVar5 = 1;
+  iVar4 = 1;
+  puVar1 = FUN_00713d80();
+  FUN_008c79e0(puVar1,iVar4,iVar5);
+  iVar5 = 2;
+  iVar4 = 1;
+  puVar1 = FUN_00713d80();
+  FUN_008c79e0(puVar1,iVar4,iVar5);
+  iVar5 = 2;
+  iVar4 = 0;
+  puVar1 = FUN_00713d80();
+  FUN_008c7a70(puVar1,iVar4,iVar5);
+  FUN_0096db30(0.0,0,0);
+  iVar5 = 3;
+  iVar4 = 1;
+  puVar1 = FUN_00713d80();
+  FUN_008c79e0(puVar1,iVar4,iVar5);
+  FUN_008d0600();
+  FUN_0096cb50(0x11e0e80);
+  iVar5 = 4;
+  iVar4 = 1;
+  puVar1 = FUN_00713d80();
+  FUN_008c79e0(puVar1,iVar4,iVar5);
+  FUN_004772f0();
+  iVar5 = 5;
+  iVar4 = 1;
+  puVar1 = FUN_00713d80();
+  FUN_008c79e0(puVar1,iVar4,iVar5);
+  iVar5 = 4;
+  iVar4 = 0;
+  puVar1 = FUN_00713d80();
+  FUN_008c7a70(puVar1,iVar4,iVar5);
+  fVar3 = FUN_00453850();
+  FUN_00453550(DAT_011dea10,(float)fVar3);
+  iVar5 = 6;
+  iVar4 = 1;
+  puVar1 = FUN_00713d80();
+  FUN_008c79e0(puVar1,iVar4,iVar5);
+  piVar2 = (int *)FUN_004537b0();
+  FUN_0087a6d0(piVar2);
+  iVar5 = 8;
+  iVar4 = 0;
+  puVar1 = FUN_00713d80();
+  FUN_008c7a70(puVar1,iVar4,iVar5);
+  iVar5 = 7;
+  iVar4 = 1;
+  puVar1 = FUN_00713d80();
+  FUN_008c79e0(puVar1,iVar4,iVar5);
+  FUN_005ae270();
+  FUN_005a9d60();
+  iVar5 = 9;
+  iVar4 = 0;
+  puVar1 = FUN_00713d80();
+  FUN_008c7a70(puVar1,iVar4,iVar5);
+  iVar5 = 0xb;
+  iVar4 = 0;
+  puVar1 = FUN_00713d80();
+  FUN_008c7a70(puVar1,iVar4,iVar5);
+  return;
+}
+
+
+
+
+======================================================================
+AIProcess1 (from task execution) @ 0x0096c330
+======================================================================
+  Function: FUN_0096c330, Size: 991 bytes
+
+/* WARNING: Globals starting with '_' overlap smaller symbols at the same address */
+
+void __fastcall FUN_0096c330(int param_1)
+
+{
+  ulonglong uVar1;
+  char cVar2;
+  bool bVar3;
+  undefined1 uVar4;
+  uint uVar5;
+  int iVar6;
+  int *piVar7;
+  float *pfVar8;
+  float10 fVar9;
+  byte local_35;
+  int local_34;
+  byte local_2e;
+  undefined1 local_2d;
+  int local_2c;
+  float local_28;
+  float local_24;
+  float local_20;
+  IScheduler *local_1c;
+  uint local_18;
+  uint local_14;
+  float local_10;
+  IScheduler *local_c;
+  IScheduler *local_8;
+  
+  local_c = (IScheduler *)0x0;
+  local_8 = (IScheduler *)0x0;
+  local_14 = FUN_005be5c0((void *)(param_1 + 4),0);
+  uVar1 = (ulonglong)local_14;
+  fVar9 = FUN_0084d030(0x11f6394);
+  local_10 = (float)(fVar9 * (float10)uVar1);
+  fVar9 = FUN_0040ebd0(local_10,_DAT_0101712c);
+  local_10 = (float)fVar9;
+  if (local_14 == 0) {
+    FUN_008c8bb0(DAT_011dea3c,0);
+  }
+  local_18 = FUN_005de0f0((void *)(param_1 + 4),0);
+  while (uVar5 = FUN_005be5c0((void *)(param_1 + 4),0), local_18 < uVar5) {
+    local_8 = (IScheduler *)FUN_00968670((void *)(param_1 + 4),local_18);
+    if ((local_8 != (IScheduler *)0x0) &&
+       (cVar2 = (**(code **)(*(int *)local_8 + 0x100))(), cVar2 != '\0')) {
+      local_c = local_8;
+      local_1c = local_8;
+      if ((local_8[0xbc] != (IScheduler)0x0) &&
+         (iVar6 = (**(code **)(*(int *)local_8 + 0x1d0))(), iVar6 != 0)) {
+        fVar9 = FUN_005723b0(local_1c,(int *)DAT_011dea3c,'\0','\0');
+        local_20 = (float)fVar9;
+        if ((local_1c != DAT_011dea3c) && (cVar2 = FUN_0047c850(), cVar2 == '\0')) {
+          fVar9 = (float10)(**(code **)(*(int *)local_c + 0x2b4))();
+          local_24 = (float)fVar9;
+          if (local_18 == 0) {
+            FUN_008c8bb0(DAT_011dea3c,0);
+          }
+          if ((((float)_DAT_01012060 <= local_24) || (bVar3 = FUN_00437bd0((int)local_1c), bVar3))
+             || (cVar2 = (**(code **)(*(int *)local_c + 0x22c))(0), cVar2 != '\0')) {
+            if (local_24 < (float)_DAT_01012060) {
+              FUN_00967350(DAT_011dea3c,(int)local_c);
+            }
+            (**(code **)(*(int *)local_c + 0x2b8))();
+          }
+          else {
+            fVar9 = FUN_007014e0(1);
+            if (fVar9 < (float10)_DAT_01012060 != (fVar9 == (float10)_DAT_01012060)) {
+              fVar9 = (float10)FUN_00476b70(0.0,local_10);
+              local_28 = (float)fVar9;
+              (**(code **)(*(int *)local_c + 0x2b0))(local_28);
+              iVar6 = FUN_004181e0((int)local_1c);
+              cVar2 = (**(code **)(*(int *)(iVar6 + 0x30) + 0x20))();
+              if (cVar2 == '\0') {
+                piVar7 = (int *)FUN_008d8520((int)local_1c);
+                cVar2 = (**(code **)(*piVar7 + 0x70))(local_1c);
+                if (cVar2 != '\0') {
+                  local_2e = 0;
+                  uVar4 = FUN_00493bb0((int)local_c);
+                  local_35 = 0;
+                  local_2c = FUN_008a0d10(DAT_011dea3c,'\x01',local_c,&local_2e,uVar4,'\0',0,
+                                          &local_35);
+                  local_34 = 0;
+                  local_2d = 0;
+                  cVar2 = FUN_008b06d0(local_c,(int *)DAT_011dea3c,'\0',&local_34,'\0');
+                  if ((cVar2 == '\0') && (uVar5 = FUN_008bc700((int)local_c), (uVar5 & 0xff) == 0))
+                  {
+                    if ((local_34 == 0) || (local_34 == 1)) {
+                      iVar6 = FUN_004181e0((int)local_c);
+                      cVar2 = FUN_00705cf0(iVar6 + 0x90);
+                      if ((cVar2 != '\0') && (bVar3 = FUN_008a78f0(local_c,6), !bVar3)) {
+                        local_2d = 1;
+                      }
+                    }
+                  }
+                  else {
+                    local_2d = 1;
+                  }
+                  if ((local_c != (IScheduler *)0x0) &&
+                     (pfVar8 = (float *)FUN_00403e20(0x11ccf94), local_20 < *pfVar8)) {
+                    FUN_0096e3c0(&DAT_011e0e80,(int)local_1c);
+                  }
+                  iVar6 = local_2c;
+                  pfVar8 = (float *)FUN_00403e20(0x11d13c8);
+                  if ((float)iVar6 <= *pfVar8) {
+                    if ((local_35 == 0) && (local_2e == 0)) {
+                      FUN_00967350(DAT_011dea3c,(int)local_c);
+                    }
+                    else {
+                      FUN_00966f20(DAT_011dea3c,(int *)local_c,local_2d,1);
+                    }
+                  }
+                  else {
+                    FUN_00966f20(DAT_011dea3c,(int *)local_c,local_2d,0);
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+    local_18 = local_18 + 1;
+  }
+  return;
+}
+
+
+
+
+======================================================================
+AIProcess2 (from task execution) @ 0x0096cb50
+======================================================================
+  Function: FUN_0096cb50, Size: 292 bytes
+
+void __fastcall FUN_0096cb50(int param_1)
+
+{
+  bool bVar1;
+  char cVar2;
+  uint uVar3;
+  int *piVar4;
+  int iVar5;
+  void *pvVar6;
+  uint local_8;
+  
+  local_8 = FUN_005de0f0((void *)(param_1 + 4),0);
+  do {
+    uVar3 = FUN_005be5c0((void *)(param_1 + 4),0);
+    if (uVar3 <= local_8) {
+      return;
+    }
+    piVar4 = (int *)FUN_00968670((void *)(param_1 + 4),local_8);
+    if (piVar4 != (int *)0x0) {
+      cVar2 = (**(code **)(*piVar4 + 0x100))();
+      if (cVar2 != '\0') {
+        if (piVar4[0x2b] == 0) {
+LAB_0096cbf1:
+          bVar1 = false;
+        }
+        else {
+          cVar2 = FUN_00552490(piVar4[0x2b]);
+          if (cVar2 == '\0') goto LAB_0096cbf1;
+          bVar1 = true;
+        }
+        iVar5 = (**(code **)(*piVar4 + 0x1d0))();
+        if ((iVar5 != 0) && (bVar1)) {
+          pvVar6 = (void *)(**(code **)(*piVar4 + 0x1d0))();
+          cVar2 = FUN_00552470(pvVar6);
+          if (cVar2 == '\0') {
+            uVar3 = FUN_00933840((int)piVar4);
+            if ((uVar3 & 0xff) == 0) {
+              FUN_00888970((int)piVar4);
+              goto LAB_0096cb6b;
+            }
+          }
+        }
+        if (bVar1) {
+          FUN_0096cc80((void *)piVar4[0x2b],1);
+        }
+      }
+    }
+LAB_0096cb6b:
+    local_8 = local_8 + 1;
+  } while( true );
+}
+
+
+
+
+======================================================================
+SetPauseFlag @ 0x004f15a0
+======================================================================
+  Function: FUN_004f15a0, Size: 22 bytes
+
+void __thiscall FUN_004f15a0(void *this,undefined1 param_1)
+
+{
+  *(undefined1 *)((int)this + 4) = param_1;
+  return;
+}
+
+
+
+
+======================================================================
+PART 2: Who reads the pause flag at DAT_011dea0c + 0x4?
+======================================================================
+References to DAT_011dea10 (nearby the flag):
+  0x0086b1b9 in FUN_0086a850
+  0x0086b351 in FUN_0086a850
+  0x0086b774 in FUN_0086a850
+  0x0086b783 in FUN_0086a850
+  0x0086b802 in FUN_0086a850
+  0x00458364 in FUN_00458200
+  0x00458378 in FUN_00458200
+  0x004583a9 in FUN_00458200
+  0x00552c1d in FUN_00552bd0
+  0x00552c45 in FUN_00552bd0
+  0x00552c56 in FUN_00552bd0
+  0x00552c86 in FUN_00552bd0
+  0x00552d34 in FUN_00552bd0
+  0x0055751c in FUN_005574d0
+  0x0055752f in FUN_005574d0
+  0x00561f91 in FUN_00561ef0
+  0x00573a27 in FUN_00573800
+  0x00573b55 in FUN_00573800
+  0x00573bd2 in FUN_00573800
+  0x00548493 in FUN_00548230
+  0x0054859a in FUN_00548230
+  0x0054893e in FUN_00548880
+  0x005492d7 in FUN_00548880
+  0x004e4be6 in FUN_004e4730
+  0x004e4bf5 in FUN_004e4730
+  0x004e4c1d in FUN_004e4730
+  0x006c5635 in FUN_006c5460
+  0x006c567a in FUN_006c5460
+  0x006fb410 in FUN_006fb3d0
+  0x006fb44a in FUN_006fb3d0
+  0x006fb4fa in FUN_006fb3d0
+  ... (truncated, 31+ refs)
+
+======================================================================
+PART 3: What does RenderUpdate call? (AI sync points)
+======================================================================
+RenderUpdate (0x008705D0) calls 5 unique functions:
+  -> 0x0043d4d0 FUN_0043d4d0
+  -> 0x00552570 FUN_00552570
+  -> 0x0086f640 FUN_0086f640
+  -> 0x0086f670 FUN_0086f670
+  -> 0x0086f890 FUN_0086f890
+
+======================================================================
+PART 4: Who dispatches AI tasks (callers of FUN_008c79e0)?
+======================================================================
+  0x008c7bde in FUN_008c7bd0 (entry=0x008c7bd0)
+  0x008c7bf9 in FUN_008c7bd0 (entry=0x008c7bd0)
+  0x008c7dae in FUN_008c7da0 (entry=0x008c7da0)
+  0x008c7dc9 in FUN_008c7da0 (entry=0x008c7da0)
+  0x008c7e0d in FUN_008c7da0 (entry=0x008c7da0)
+  0x008c7e28 in FUN_008c7da0 (entry=0x008c7da0)
+  0x008c7e43 in FUN_008c7da0 (entry=0x008c7da0)
+  0x008c7e5d in FUN_008c7da0 (entry=0x008c7da0)
+  0x008c7e7f in FUN_008c7da0 (entry=0x008c7da0)
+  0x008c7e94 in FUN_008c7da0 (entry=0x008c7da0)
+  0x008c7ece in FUN_008c7da0 (entry=0x008c7da0)
+  0x008c7eea in FUN_008c7da0 (entry=0x008c7da0)
+  0x008c7f0f in FUN_008c7da0 (entry=0x008c7da0)
+  0x008c7f46 in FUN_008c7da0 (entry=0x008c7da0)
+  0x008c7f5e in FUN_008c7f50 (entry=0x008c7f50)
+  0x008c7f94 in FUN_008c7f50 (entry=0x008c7f50)
+  0x008c7fa4 in FUN_008c7f50 (entry=0x008c7f50)
+  0x008c7fd8 in FUN_008c7f50 (entry=0x008c7f50)
+  0x008c8004 in FUN_008c7f50 (entry=0x008c7f50)
+  0x008c8019 in FUN_008c7f50 (entry=0x008c7f50)
+  0x008c804d in FUN_008c7f50 (entry=0x008c7f50)
+  0x008c8079 in FUN_008c7f50 (entry=0x008c7f50)
+
+======================================================================
+PART 5: Who waits for AI tasks (callers of FUN_008c7a70)?
+======================================================================
+  0x00713ca4 in FUN_00713c70 (entry=0x00713c70)
+  0x008c7ea4 in FUN_008c7da0 (entry=0x008c7da0)
+  0x008c7eb4 in FUN_008c7da0 (entry=0x008c7da0)
+  0x008c7efa in FUN_008c7da0 (entry=0x008c7da0)
+  0x008c7f6e in FUN_008c7f50 (entry=0x008c7f50)
+  0x008c7fb4 in FUN_008c7f50 (entry=0x008c7f50)
+  0x008c8029 in FUN_008c7f50 (entry=0x008c7f50)
+  0x008c8069 in FUN_008c7f50 (entry=0x008c7f50)
+  0x008c8093 in FUN_008c7f50 (entry=0x008c7f50)
+  0x008c80a3 in FUN_008c7f50 (entry=0x008c7f50)

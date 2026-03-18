@@ -1,0 +1,195 @@
+======================================================================
+SafeHookTarget (pre-AI, calls ProcessDeferredDestruction) @ 0x0086f940
+======================================================================
+  Function: FUN_0086f940, Size: 595 bytes
+
+void __fastcall FUN_0086f940(int param_1)
+
+{
+  bool bVar1;
+  char cVar2;
+  uint uVar3;
+  int iVar4;
+  void *pvVar5;
+  float *pfVar6;
+  undefined4 uVar7;
+  float10 fVar8;
+  float10 fVar9;
+  float local_14;
+  float local_10;
+  float local_c;
+  undefined1 local_5;
+  
+  uVar3 = FUN_0093bea0(DAT_011dea3c);
+  if ((uVar3 & 0xff) == 0) {
+    if ((DAT_011dea2b == '\0') || (bVar1 = FUN_00709bc0(), bVar1)) {
+      if (*(char *)(param_1 + 6) == '\0') {
+        iVar4 = (**(code **)(*DAT_011dea3c + 0x1d0))();
+        if (iVar4 != 0) {
+          DAT_011e07a8 = DAT_011e07a8 + '\x01';
+          fVar8 = FUN_0084d030(0x11f6394);
+          fVar9 = FUN_009c8cc0(0x11f2250);
+          (**(code **)(*DAT_011dea3c + 0x2f8))((float)(fVar9 * (float10)(double)fVar8));
+          DAT_011e07a8 = DAT_011e07a8 + -1;
+        }
+        local_5 = 0;
+        pvVar5 = (void *)FUN_008d6f30((int)DAT_011dea3c);
+        pfVar6 = (float *)FUN_00436aa0((int)DAT_011dea3c);
+        local_14 = *pfVar6;
+        local_10 = pfVar6[1];
+        local_c = pfVar6[2];
+        if (((pvVar5 != (void *)0x0) && (bVar1 = FUN_00425fd0((int)pvVar5), !bVar1)) &&
+           (uVar3 = FUN_00550200(pvVar5,&local_14), (uVar3 & 0xff) == 0)) {
+          cVar2 = '\x01';
+          pvVar5 = (void *)FUN_0054ddd0((int)pvVar5);
+          pvVar5 = (void *)FUN_00461bc0(DAT_011c3f2c,local_14,local_10,pvVar5,cVar2);
+          if (pvVar5 != (void *)0x0) {
+            uVar3 = FUN_00450fb0((int)pvVar5);
+            if (((uVar3 & 0xff) == 0) && (uVar3 = FUN_00450ff0((int)pvVar5), (uVar3 & 0xff) == 0)) {
+              FUN_00452580(DAT_011dea10,&local_14,'\x01');
+              cVar2 = FUN_00451530((int)DAT_011dea10);
+              if (cVar2 != '\0') {
+                FUN_00457d70(DAT_011dea10,'\0',0,'\0');
+              }
+            }
+            FUN_0086fba0(1);
+            FUN_0086fbc0(DAT_011dea3c,1);
+            FUN_00548230(pvVar5,DAT_011dea3c,0);
+            uVar7 = FUN_00547590((int)pvVar5);
+            FUN_0086fbb0(uVar7);
+            FUN_0086fbc0(DAT_011dea3c,0);
+            FUN_0086fba0(0);
+            iVar4 = FUN_00b4f5c0();
+            if (iVar4 != 0) {
+              FUN_00b655b0(iVar4);
+            }
+          }
+        }
+      }
+      else {
+        iVar4 = (**(code **)(*DAT_011dea3c + 0x1d0))();
+        if (iVar4 != 0) {
+          cVar2 = *(char *)(param_1 + 7);
+          fVar8 = FUN_0084d030(0x11f6394);
+          FUN_009466d0(DAT_011dea3c,(float)fVar8,cVar2);
+        }
+      }
+    }
+    else {
+      FUN_009481d0(DAT_011dea3c);
+    }
+  }
+  return;
+}
+
+
+
+======================================================================
+AI_StartFrame (signals AI threads) @ 0x008c80e0
+======================================================================
+  Function: FUN_008c80e0, Size: 46 bytes
+
+void __cdecl FUN_008c80e0(char param_1)
+
+{
+  if ((DAT_011dfa18 != '\0') && (param_1 == '\0')) {
+    DAT_011dfa18 = param_1;
+    FUN_008c80c0();
+  }
+  DAT_011dfa18 = param_1;
+  return;
+}
+
+
+
+======================================================================
+AI_WaitFrame (waits for AI threads) @ 0x008c78c0
+======================================================================
+  Function: FUN_008c78c0, Size: 198 bytes
+
+void __fastcall FUN_008c78c0(int param_1)
+
+{
+  undefined4 local_14;
+  undefined4 local_10;
+  undefined4 local_c;
+  undefined4 local_8;
+  
+  for (local_8 = 0; local_8 < 0xc; local_8 = local_8 + 1) {
+    ResetEvent(*(HANDLE *)(param_1 + 0x3c + local_8 * 4));
+  }
+  for (local_c = 0; local_c < 8; local_c = local_c + 1) {
+    ResetEvent(*(HANDLE *)(param_1 + 0x6c + local_c * 4));
+  }
+  for (local_10 = 0; local_10 < 2; local_10 = local_10 + 1) {
+    *(undefined4 *)(param_1 + 0xc + local_10 * 4) = 0;
+  }
+  DAT_011dfa19 = 1;
+  for (local_14 = 0; local_14 < 2; local_14 = local_14 + 1) {
+    if (*(int *)(param_1 + local_14 * 4) != 0) {
+      FUN_008c9fb0(*(int *)(param_1 + local_14 * 4));
+    }
+  }
+  return;
+}
+
+
+
+======================================================================
+AI_PostRender (post-render AI signal) @ 0x008c7990
+======================================================================
+  Function: FUN_008c7990, Size: 72 bytes
+
+void __fastcall FUN_008c7990(int param_1)
+
+{
+  undefined4 local_8;
+  
+  for (local_8 = 0; local_8 < 2; local_8 = local_8 + 1) {
+    if (*(int *)(param_1 + local_8 * 4) != 0) {
+      FUN_008c7490(*(int *)(param_1 + local_8 * 4));
+    }
+  }
+  DAT_011dfa19 = 0;
+  return;
+}
+
+
+
+======================================================================
+AnotherSafePoint (calls 00878250 which calls ProcessDeferredDestruction) @ 0x008782b0
+======================================================================
+  Function: FUN_008782b0, Size: 130 bytes
+
+void FUN_008782b0(void)
+
+{
+  char cVar1;
+  int iVar2;
+  void *this;
+  undefined1 local_10 [5];
+  char local_b;
+  
+  FUN_00878160((int)local_10,'\x01',1,'\x01');
+  FUN_00878250(local_b);
+  cVar1 = FUN_00878340(DAT_011dea3c);
+  if (cVar1 != '\0') {
+    iVar2 = FUN_00652110();
+    if (iVar2 != 0) {
+      iVar2 = FUN_00652110();
+      cVar1 = FUN_00529ea0(iVar2);
+      if (cVar1 != '\0') {
+        iVar2 = FUN_00a09030(0x40c);
+        if (iVar2 == 0) {
+          cVar1 = '\0';
+          this = (void *)FUN_00652110();
+          FUN_00650a30(this,cVar1);
+        }
+      }
+    }
+  }
+  FUN_00878200((int)local_10);
+  return;
+}
+
+

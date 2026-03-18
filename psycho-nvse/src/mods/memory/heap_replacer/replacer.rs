@@ -82,8 +82,17 @@ pub static GHEAP_REALLOC_HOOK_1: LazyLock<InlineHookContainer<GameHeapReallocate
 pub static GHEAP_REALLOC_HOOK_2: LazyLock<InlineHookContainer<GameHeapReallocateFn>> =
     LazyLock::new(InlineHookContainer::new);
 
-// Main loop hook for deferred pressure relief
-const MAIN_LOOP_MAINTENANCE_ADDR: usize = 0x0086FF70;
+// Main loop hook for pressure relief.
+// FUN_008705d0: the render/update function, called at main loop line 486.
+// We hook it to run pressure relief AFTER the render completes (post-render).
+// After the original function returns, the render pipeline is done with all
+// scene graph data (BSTreeNodes, NiTriShapes, etc.) — safe to unload cells.
+//
+// Previous hook positions and why they failed:
+// - FUN_0086f940 (line 273, pre-AI): Trees freed before render → BSTreeNode crash
+// - FUN_0086ff70 (line 485, pre-render): Same issue, render uses cached tree lists
+// - FUN_008705d0 (line 486, POST-render): Render done, tree lists consumed → SAFE
+const MAIN_LOOP_MAINTENANCE_ADDR: usize = 0x008705D0;
 
 pub static MAIN_LOOP_MAINTENANCE_HOOK: LazyLock<InlineHookContainer<MainLoopMaintenanceFn>> =
     LazyLock::new(InlineHookContainer::new);
