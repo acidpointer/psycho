@@ -1,7 +1,7 @@
 //! Game heap monitor thread.
 //!
-//! Periodically logs mimalloc process stats, gheap balance, and pressure
-//! relief stats. Runs on its own thread, separate from sbm2 GC.
+//! Periodically logs mimalloc process stats and pressure relief stats.
+//! Runs on its own thread, separate from sbm2 GC.
 
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
@@ -11,7 +11,6 @@ use std::time::Duration;
 use libmimalloc::process_info::MiMallocProcessInfo;
 
 use super::pressure::PressureRelief;
-use super::stats;
 
 const MONITOR_INTERVAL: Duration = Duration::from_secs(5);
 
@@ -26,7 +25,6 @@ impl Monitor {
         let run_clone = run.clone();
 
         let handle = thread::spawn(move || {
-
             loop {
                 if !run_clone.load(Ordering::Acquire) {
                     return;
@@ -34,8 +32,11 @@ impl Monitor {
 
                 thread::sleep(MONITOR_INTERVAL);
 
-                // --- mimalloc process stats ---
                 let info = MiMallocProcessInfo::get();
+                let (relief, cells) = PressureRelief::instance()
+                    .map(|pr| pr.stats())
+                    .unwrap_or((0, 0));
+
                 log::info!(
                     "[MEM] RSS: {} | Peak: {} | Commit: {} | PeakCommit: {} | Faults: {:.1}/s | CPU eff: {:.0}%",
                     info.memory_usage_human(),
@@ -46,19 +47,13 @@ impl Monitor {
                     info.cpu_efficiency_percent(),
                 );
 
-                // --- gheap balance ---
-                let s = stats::instance();
-                let (relief, cells) = PressureRelief::instance()
-                    .map(|pr| pr.stats())
-                    .unwrap_or((0, 0));
-                log::info!(
-                    "[GHEAP] balance: {} (allocs: {}, frees: {}) | pressure: {} reliefs, {} cells unloaded",
-                    s.balance(),
-                    s.alloc_count(),
-                    s.free_count(),
-                    relief,
-                    cells,
-                );
+                if relief > 0 {
+                    log::info!(
+                        "[PRESSURE] cumulative: {} reliefs, {} cells unloaded",
+                        relief,
+                        cells,
+                    );
+                }
             }
         });
 

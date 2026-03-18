@@ -12,18 +12,23 @@
 //! - `check()` is called periodically from `hook_gheap_alloc` to detect pressure.
 //! - `relieve()` is called from the main-loop hook (between frames) to perform
 //!   cell unloading at a safe point — no render objects or AI physics in use.
+//!
+//! # What we do NOT call
+//!
+//! `ProcessDeferredDestruction` (FUN_00868d70) is intentionally excluded.
+//! It destroys queued physics objects (hkBSHeightFieldShape, etc.) that AI
+//! worker threads hold persistent references to for raycasting. Calling it
+//! from any point causes use-after-free crashes on AI Linear Task Threads,
+//! regardless of cooldown timing. The game's own deferred destruction cycle
+//! runs at internally-synchronized points where AI threads are idle.
 
 use libc::c_void;
 use std::sync::atomic::{AtomicBool, AtomicI64, AtomicU64, Ordering};
 use std::sync::LazyLock;
 
-use libmimalloc::mi_collect;
 use libpsycho::ffi::fnptr::FnPtr;
 
-use super::types::{
-    FindCellToUnloadFn, ProcessDeferredDestructionFn, ProcessPendingCleanupFn,
-    SetTlsCleanupFlagFn,
-};
+use super::types::{FindCellToUnloadFn, ProcessPendingCleanupFn, SetTlsCleanupFlagFn};
 
 // ---------------------------------------------------------------------------
 // Configuration
@@ -36,8 +41,7 @@ const THRESHOLD: usize = 700 * 1024 * 1024;
 const MAX_CELLS_PER_CYCLE: usize = 15;
 
 /// Minimum milliseconds between relief cycles.
-/// AI threads hold references to physics objects in cells — this cooldown
-/// gives them time to finish current raycasts before we unload more cells.
+/// Provides backpressure without overwhelming the game's internal state.
 const COOLDOWN_MS: u64 = 3000;
 
 // ---------------------------------------------------------------------------
@@ -47,7 +51,6 @@ const COOLDOWN_MS: u64 = 3000;
 const FIND_CELL_TO_UNLOAD: usize = 0x00453A80;
 const PROCESS_PENDING_CLEANUP: usize = 0x00452490;
 const SET_TLS_CLEANUP_FLAG: usize = 0x00869190;
-const PROCESS_DEFERRED_DESTRUCTION: usize = 0x00868D70;
 
 /// DAT_011dea10 — pointer to the game's TES/DataHandler manager singleton.
 const GAME_MANAGER_PTR: usize = 0x011DEA10;
@@ -74,7 +77,6 @@ pub struct PressureRelief {
     find_cell: FnPtr<FindCellToUnloadFn>,
     process_cleanup: FnPtr<ProcessPendingCleanupFn>,
     set_tls_flag: FnPtr<SetTlsCleanupFlagFn>,
-    process_deferred: FnPtr<ProcessDeferredDestructionFn>,
 }
 
 impl PressureRelief {
@@ -89,7 +91,6 @@ impl PressureRelief {
                 find_cell: FnPtr::from_raw(FIND_CELL_TO_UNLOAD as *mut c_void)?,
                 process_cleanup: FnPtr::from_raw(PROCESS_PENDING_CLEANUP as *mut c_void)?,
                 set_tls_flag: FnPtr::from_raw(SET_TLS_CLEANUP_FLAG as *mut c_void)?,
-                process_deferred: FnPtr::from_raw(PROCESS_DEFERRED_DESTRUCTION as *mut c_void)?,
             }
         };
 
@@ -204,16 +205,11 @@ impl PressureRelief {
                 return;
             }
         };
-        let process_deferred = match unsafe { self.process_deferred.as_fn() } {
-            Ok(f) => f,
-            Err(err) => {
-                log::error!("[PRESSURE] ProcessDeferredDestruction resolve failed: {:?}", err);
-                self.active.store(false, Ordering::Release);
-                return;
-            }
-        };
 
-        // HeapCompact stages 4+5 (between frames):
+        // HeapCompact stage 5 — cell unloading only.
+        // We do NOT call ProcessDeferredDestruction (stage 4) — it destroys
+        // physics objects that AI threads hold persistent references to.
+        // The game's own deferred destruction runs at safe sync points.
         unsafe { set_tls_flag(0) };
 
         let mut cells: usize = 0;
@@ -228,15 +224,6 @@ impl PressureRelief {
 
         unsafe { process_cleanup(manager, 0) };
         unsafe { set_tls_flag(1) };
-        unsafe { process_deferred(1) };
-        unsafe { mi_collect(false) };
-
-        // Re-check commit after cleanup
-        let info2 = libmimalloc::process_info::MiMallocProcessInfo::get();
-        let new_commit = info2.get_current_commit();
-        if new_commit < THRESHOLD {
-            self.requested.store(false, Ordering::Release);
-        }
 
         self.last_time_ms.store(now_ms, Ordering::Relaxed);
 
@@ -244,11 +231,13 @@ impl PressureRelief {
             self.relief_count.fetch_add(1, Ordering::Relaxed);
             self.cells_unloaded.fetch_add(cells as i64, Ordering::Relaxed);
             log::info!(
-                "[PRESSURE] Unloaded {} cells (commit={}MB -> {}MB)",
+                "[PRESSURE] Unloaded {} cells (commit={}MB)",
                 cells,
                 commit / 1024 / 1024,
-                new_commit / 1024 / 1024,
             );
+        } else {
+            // No cells to unload — stop requesting until commit grows again
+            self.requested.store(false, Ordering::Release);
         }
 
         self.active.store(false, Ordering::Release);

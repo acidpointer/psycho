@@ -13,7 +13,6 @@ use std::cell::UnsafeCell;
 use std::ptr::null_mut;
 
 use super::gheap::pressure::PressureRelief;
-use super::gheap::stats as gheap_stats;
 use super::sbm2::runtime::Runtime;
 
 // ===========================================================================
@@ -26,7 +25,13 @@ const GHEAP_ALIGN: usize = 16;
 const GHEAP_SINGLETON: usize = 0x011F6238;
 
 /// Pressure check interval (every N gheap allocations).
-const PRESSURE_CHECK_INTERVAL: i64 = 50_000;
+const PRESSURE_CHECK_INTERVAL: u32 = 50_000;
+
+// Thread-local allocation counter for pressure check interval.
+// No atomic ops, no cache contention — each thread has its own counter.
+thread_local! {
+    static ALLOC_COUNTER: std::cell::Cell<u32> = const { std::cell::Cell::new(0) };
+}
 
 // ===========================================================================
 //   CRT HOOKS — malloc/calloc/realloc/recalloc/msize/free
@@ -155,23 +160,23 @@ pub(super) unsafe extern "thiscall" fn hook_gheap_alloc(
 ) -> *mut c_void {
     let ptr = unsafe { mi_malloc_aligned(size, GHEAP_ALIGN) };
     if !ptr.is_null() {
-        let count = gheap_stats::instance().on_alloc();
-
-        if count % PRESSURE_CHECK_INTERVAL == 0
-            && let Some(pr) = PressureRelief::instance() {
-                unsafe { pr.check() };
+        // Periodic pressure check using thread-local counter (zero contention).
+        ALLOC_COUNTER.with(|c| {
+            let count = c.get().wrapping_add(1);
+            c.set(count);
+            if count % PRESSURE_CHECK_INTERVAL == 0 {
+                if let Some(pr) = PressureRelief::instance() {
+                    unsafe { pr.check() };
+                }
             }
+        });
 
         return ptr;
     }
 
     // OOM: collect and retry
     unsafe { mi_collect(true) };
-    let ptr = unsafe { mi_malloc_aligned(size, GHEAP_ALIGN) };
-    if !ptr.is_null() {
-        gheap_stats::instance().on_alloc();
-    }
-    ptr
+    unsafe { mi_malloc_aligned(size, GHEAP_ALIGN) }
 }
 
 pub(super) unsafe extern "thiscall" fn hook_gheap_free(_this: *mut c_void, ptr: *mut c_void) {
@@ -180,7 +185,6 @@ pub(super) unsafe extern "thiscall" fn hook_gheap_free(_this: *mut c_void, ptr: 
     }
 
     if unsafe { mi_is_in_heap_region(ptr as *const c_void) } {
-        gheap_stats::instance().on_free();
         unsafe { mi_free(ptr) };
         return;
     }
