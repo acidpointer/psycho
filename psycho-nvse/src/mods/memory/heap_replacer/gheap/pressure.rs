@@ -8,27 +8,28 @@
 //! HeapCompact never triggers. The game loads cells without bound during fast
 //! travel/movement, exhausting the 32-bit address space.
 //!
-//! This module implements a deferred pressure relief system:
-//! - `check()` is called periodically from `hook_gheap_alloc` to detect pressure.
-//! - `relieve()` is called from the main-loop hook (between frames) to perform
-//!   cell unloading at a safe point — no render objects or AI physics in use.
+//! # Thread safety for deferred destruction
 //!
-//! # What we do NOT call
+//! `ProcessDeferredDestruction` destroys physics objects (hkBSHeightFieldShape)
+//! that AI worker threads reference during raycasting. The game's cell transition
+//! handler (FUN_008774a0) calls `FUN_008324e0(0)` before destruction, which
+//! drains PPL Concurrency Runtime task groups — this waits for all background
+//! tasks (including AI physics) to complete before proceeding.
 //!
-//! `ProcessDeferredDestruction` (FUN_00868d70) is intentionally excluded.
-//! It destroys queued physics objects (hkBSHeightFieldShape, etc.) that AI
-//! worker threads hold persistent references to for raycasting. Calling it
-//! from any point causes use-after-free crashes on AI Linear Task Threads,
-//! regardless of cooldown timing. The game's own deferred destruction cycle
-//! runs at internally-synchronized points where AI threads are idle.
+//! We replicate only the task group drain/wait (not the music stop/start
+//! that `FUN_008324e0` also performs).
 
 use libc::c_void;
 use std::sync::atomic::{AtomicBool, AtomicI64, AtomicU64, Ordering};
 use std::sync::LazyLock;
 
+use libmimalloc::mi_collect;
 use libpsycho::ffi::fnptr::FnPtr;
 
-use super::types::{FindCellToUnloadFn, ProcessPendingCleanupFn, SetTlsCleanupFlagFn};
+use super::types::{
+    FindCellToUnloadFn, ProcessDeferredDestructionFn, ProcessPendingCleanupFn,
+    SetTlsCleanupFlagFn, TaskGroupDrainFn, TaskGroupWaitFn,
+};
 
 // ---------------------------------------------------------------------------
 // Configuration
@@ -41,7 +42,6 @@ const THRESHOLD: usize = 700 * 1024 * 1024;
 const MAX_CELLS_PER_CYCLE: usize = 15;
 
 /// Minimum milliseconds between relief cycles.
-/// Provides backpressure without overwhelming the game's internal state.
 const COOLDOWN_MS: u64 = 3000;
 
 // ---------------------------------------------------------------------------
@@ -51,32 +51,35 @@ const COOLDOWN_MS: u64 = 3000;
 const FIND_CELL_TO_UNLOAD: usize = 0x00453A80;
 const PROCESS_PENDING_CLEANUP: usize = 0x00452490;
 const SET_TLS_CLEANUP_FLAG: usize = 0x00869190;
+const PROCESS_DEFERRED_DESTRUCTION: usize = 0x00868D70;
+const TASK_GROUP_DRAIN: usize = 0x00AD88F0;
+const TASK_GROUP_WAIT: usize = 0x00AD8D10;
 
 /// DAT_011dea10 — pointer to the game's TES/DataHandler manager singleton.
 const GAME_MANAGER_PTR: usize = 0x011DEA10;
+
+/// PPL task group handles used by the game for background work (AI physics, etc).
+/// Draining + waiting on these ensures no AI thread is actively using physics data.
+const TASK_GROUP_1: usize = 0x011DD5BC;
+const TASK_GROUP_2: usize = 0x011DD638;
 
 // ---------------------------------------------------------------------------
 // PressureRelief
 // ---------------------------------------------------------------------------
 
 pub struct PressureRelief {
-    /// Set by `check()` when commit > threshold. Cleared after relief.
     requested: AtomicBool,
-
-    /// Reentrancy guard — cell unloading re-enters our alloc/free hooks.
     active: AtomicBool,
-
-    /// Timestamp of last relief (ms since process start).
     last_time_ms: AtomicU64,
-
-    /// Cumulative stats.
     relief_count: AtomicI64,
     cells_unloaded: AtomicI64,
 
-    // Cached game function pointers (validated once at construction).
     find_cell: FnPtr<FindCellToUnloadFn>,
     process_cleanup: FnPtr<ProcessPendingCleanupFn>,
     set_tls_flag: FnPtr<SetTlsCleanupFlagFn>,
+    process_deferred: FnPtr<ProcessDeferredDestructionFn>,
+    task_drain: FnPtr<TaskGroupDrainFn>,
+    task_wait: FnPtr<TaskGroupWaitFn>,
 }
 
 impl PressureRelief {
@@ -91,6 +94,9 @@ impl PressureRelief {
                 find_cell: FnPtr::from_raw(FIND_CELL_TO_UNLOAD as *mut c_void)?,
                 process_cleanup: FnPtr::from_raw(PROCESS_PENDING_CLEANUP as *mut c_void)?,
                 set_tls_flag: FnPtr::from_raw(SET_TLS_CLEANUP_FLAG as *mut c_void)?,
+                process_deferred: FnPtr::from_raw(PROCESS_DEFERRED_DESTRUCTION as *mut c_void)?,
+                task_drain: FnPtr::from_raw(TASK_GROUP_DRAIN as *mut c_void)?,
+                task_wait: FnPtr::from_raw(TASK_GROUP_WAIT as *mut c_void)?,
             }
         };
 
@@ -104,7 +110,6 @@ impl PressureRelief {
         Ok(instance)
     }
 
-    /// Singleton access. Returns `None` if initialization failed.
     pub fn instance() -> Option<&'static Self> {
         static INSTANCE: LazyLock<Option<PressureRelief>> = LazyLock::new(|| {
             match PressureRelief::new() {
@@ -118,21 +123,17 @@ impl PressureRelief {
         INSTANCE.as_ref()
     }
 
-    /// Lightweight pressure check. Sets a flag if commit > threshold.
-    /// Called periodically from `hook_gheap_alloc`.
     #[cold]
     pub unsafe fn check(&self) {
         if self.requested.load(Ordering::Relaxed) {
             return;
         }
-
         let info = libmimalloc::process_info::MiMallocProcessInfo::get();
         if info.get_current_commit() >= THRESHOLD {
             self.requested.store(true, Ordering::Release);
         }
     }
 
-    /// Returns `(relief_count, cells_unloaded)` for logging.
     pub fn stats(&self) -> (i64, i64) {
         (
             self.relief_count.load(Ordering::Relaxed),
@@ -140,9 +141,32 @@ impl PressureRelief {
         )
     }
 
-    /// Perform pressure relief if requested. Called from the main-loop hook
-    /// (between frames, on the main thread, before rendering).
-    ///
+    /// Drain PPL task groups and wait for completion.
+    /// After this returns, no AI thread is actively using physics objects.
+    unsafe fn drain_task_groups(&self) {
+        let drain = match unsafe { self.task_drain.as_fn() } {
+            Ok(f) => f,
+            Err(err) => {
+                log::error!("[PRESSURE] TaskGroupDrain: {:?}", err);
+                return;
+            }
+        };
+        let wait = match unsafe { self.task_wait.as_fn() } {
+            Ok(f) => f,
+            Err(err) => {
+                log::error!("[PRESSURE] TaskGroupWait: {:?}", err);
+                return;
+            }
+        };
+
+        unsafe {
+            drain(TASK_GROUP_1 as *mut i32);
+            wait(TASK_GROUP_1 as *mut i32);
+            drain(TASK_GROUP_2 as *mut i32);
+            wait(TASK_GROUP_2 as *mut i32);
+        }
+    }
+
     /// # Safety
     ///
     /// Must be called on the main thread, between frames.
@@ -155,7 +179,6 @@ impl PressureRelief {
             return;
         }
 
-        // Cooldown
         let info = libmimalloc::process_info::MiMallocProcessInfo::get();
         let now_ms = info.get_elapsed_ms() as u64;
         let last_ms = self.last_time_ms.load(Ordering::Relaxed);
@@ -164,7 +187,6 @@ impl PressureRelief {
             return;
         }
 
-        // Re-check commit
         let commit = info.get_current_commit();
         if commit < THRESHOLD {
             self.requested.store(false, Ordering::Release);
@@ -172,7 +194,6 @@ impl PressureRelief {
             return;
         }
 
-        // Read game manager pointer
         let manager = unsafe { *(GAME_MANAGER_PTR as *const *mut c_void) };
         if manager.is_null() {
             self.requested.store(false, Ordering::Release);
@@ -180,11 +201,10 @@ impl PressureRelief {
             return;
         }
 
-        // Resolve cached function pointers
         let find_cell = match unsafe { self.find_cell.as_fn() } {
             Ok(f) => f,
             Err(err) => {
-                log::error!("[PRESSURE] FindCellToUnload resolve failed: {:?}", err);
+                log::error!("[PRESSURE] FindCellToUnload: {:?}", err);
                 self.active.store(false, Ordering::Release);
                 return;
             }
@@ -192,7 +212,7 @@ impl PressureRelief {
         let process_cleanup = match unsafe { self.process_cleanup.as_fn() } {
             Ok(f) => f,
             Err(err) => {
-                log::error!("[PRESSURE] ProcessPendingCleanup resolve failed: {:?}", err);
+                log::error!("[PRESSURE] ProcessPendingCleanup: {:?}", err);
                 self.active.store(false, Ordering::Release);
                 return;
             }
@@ -200,16 +220,39 @@ impl PressureRelief {
         let set_tls_flag = match unsafe { self.set_tls_flag.as_fn() } {
             Ok(f) => f,
             Err(err) => {
-                log::error!("[PRESSURE] SetTlsCleanupFlag resolve failed: {:?}", err);
+                log::error!("[PRESSURE] SetTlsCleanupFlag: {:?}", err);
+                self.active.store(false, Ordering::Release);
+                return;
+            }
+        };
+        let process_deferred = match unsafe { self.process_deferred.as_fn() } {
+            Ok(f) => f,
+            Err(err) => {
+                log::error!("[PRESSURE] ProcessDeferredDestruction: {:?}", err);
                 self.active.store(false, Ordering::Release);
                 return;
             }
         };
 
-        // HeapCompact stage 5 — cell unloading only.
-        // We do NOT call ProcessDeferredDestruction (stage 4) — it destroys
-        // physics objects that AI threads hold persistent references to.
-        // The game's own deferred destruction runs at safe sync points.
+        // ===================================================================
+        // Safe cleanup sequence:
+        //
+        // 1. Drain PPL task groups — waits for all AI physics tasks to finish.
+        //    No AI thread is touching hkBSHeightFieldShape after this.
+        //    (Same mechanism used by cell transition handler FUN_008774a0,
+        //     but without touching the music system.)
+        //
+        // 2. Unload cells + process pending cleanup
+        //
+        // 3. ProcessDeferredDestruction — safe: AI tasks drained
+        //
+        // 4. Collect freed mimalloc pages
+        // ===================================================================
+
+        // 1. Drain AI tasks
+        unsafe { self.drain_task_groups() };
+
+        // 2. Unload cells
         unsafe { set_tls_flag(0) };
 
         let mut cells: usize = 0;
@@ -225,6 +268,12 @@ impl PressureRelief {
         unsafe { process_cleanup(manager, 0) };
         unsafe { set_tls_flag(1) };
 
+        // 3. Deferred destruction — safe: AI tasks are drained
+        unsafe { process_deferred(1) };
+
+        // 4. Collect freed pages
+        unsafe { mi_collect(false) };
+
         self.last_time_ms.store(now_ms, Ordering::Relaxed);
 
         if cells > 0 {
@@ -236,7 +285,6 @@ impl PressureRelief {
                 commit / 1024 / 1024,
             );
         } else {
-            // No cells to unload — stop requesting until commit grows again
             self.requested.store(false, Ordering::Release);
         }
 

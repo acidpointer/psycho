@@ -1,0 +1,256 @@
+
+======================================================================
+HavokWorldStopStart (called by 008324e0) @ 0x008325a0
+======================================================================
+  Function: FUN_008325a0, Size: 13 bytes
+
+void __cdecl FUN_008325a0(undefined1 param_1)
+
+{
+  DAT_011dd313 = param_1;
+  return;
+}
+
+
+
+
+======================================================================
+HavokPre (called before 008325a0) @ 0x008304a0
+======================================================================
+  Function: FUN_008304a0, Size: 20 bytes
+
+void FUN_008304a0(void)
+
+{
+  FUN_00830470();
+  FUN_0082fa30();
+  FUN_00830490();
+  return;
+}
+
+
+
+
+======================================================================
+HavokPost (called after 008325a0 in start mode) @ 0x008304c0
+======================================================================
+  Function: FUN_008304c0, Size: 46 bytes
+
+void FUN_008304c0(void)
+
+{
+  FUN_00830470();
+  DAT_011dd310 = DAT_011dd310 & 0xfd;
+  DAT_011dd311 = DAT_011dd311 & 0xfd;
+  FUN_00830490();
+  return;
+}
+
+
+
+
+======================================================================
+HavokStepInit (called during start mode) @ 0x008300c0
+======================================================================
+  Function: FUN_008300c0, Size: 944 bytes
+
+/* WARNING: Globals starting with '_' overlap smaller symbols at the same address */
+
+void __cdecl
+FUN_008300c0(int param_1,char *param_2,int param_3,char param_4,char param_5,float param_6,
+            undefined4 param_7)
+
+{
+  bool bVar1;
+  int iVar2;
+  int *unaff_FS_OFFSET;
+  float10 fVar3;
+  undefined4 local_178 [87];
+  uint local_1c;
+  char *local_18;
+  int local_14;
+  int local_10;
+  undefined1 *puStack_c;
+  undefined4 local_8;
+  
+  local_8 = 0xffffffff;
+  puStack_c = &LAB_00f11d7b;
+  local_10 = *unaff_FS_OFFSET;
+  local_1c = DAT_011c16bc ^ (uint)&stack0xfffffffc;
+  *unaff_FS_OFFSET = (int)&local_10;
+  FUN_00830470();
+  if (param_1 == 9) {
+    FUN_0082fa30();
+    FUN_00830490();
+  }
+  else if ((param_1 == 8) || (DAT_011dcfa5 == '\0')) {
+    if ((param_2 == (char *)0x0) || (*param_2 == '\0')) {
+      FUN_00830490();
+    }
+    else if ((param_5 == '\0') &&
+            (((param_1 < DAT_011dd314 && (DAT_011dd36c == 1)) ||
+             ((param_1 < DAT_011dd348 && (DAT_011dd36c == 0)))))) {
+      FUN_005b5e40();
+      FUN_00830490();
+    }
+    else {
+      local_18 = param_2;
+      FUN_00b00260(local_178,param_2,0,0x4000,'\0');
+      local_8 = 0;
+      bVar1 = FUN_00affc60((int)local_178);
+      if (bVar1) {
+        local_8 = 0xffffffff;
+        FID_conflict__CListBox(local_178);
+        iVar2 = FUN_00453a70();
+        local_14 = FUN_0063d040(iVar2);
+        bVar1 = DAT_011dd36c != 0;
+        if (bVar1) {
+          _DAT_011dd338 = 0;
+          _DAT_011dd33c = 0;
+          fVar3 = FUN_0082fec0(param_1,param_6);
+          _DAT_011dd340 = (float)fVar3;
+          _DAT_011dd344 = param_6;
+          DAT_011dd311 = -(param_4 != '\0') & 0x20U | 0x10;
+          FUN_00406d30(&DAT_011dd1f8,0x104,param_2);
+          DAT_011dd348 = param_1;
+          DAT_011dd34c = param_7;
+          DAT_011dd35c = param_3;
+          DAT_011dd360 = local_14 + param_3;
+          _DAT_011dd364 = 0;
+          DAT_011dd368 = DAT_011a163c;
+          _DAT_011dd3c4 = DAT_011a163c;
+          DAT_011a163c = DAT_011a163c + 1;
+          _DAT_011dd3c8 = DAT_011dd36c;
+          FUN_0082f760((void *)(DAT_011dd36c * 0x4c + DAT_011dd1f4),&DAT_011dd3c4);
+          DAT_011dd310 = DAT_011dd310 | 0x18;
+          _DAT_011dd304 = _DAT_011dd300;
+          _DAT_011dd308 = 0.0;
+        }
+        else {
+          _DAT_011dd300 = 0;
+          _DAT_011dd304 = 0;
+          fVar3 = FUN_0082fec0(param_1,param_6);
+          _DAT_011dd308 = (float)fVar3;
+          _DAT_011dd30c = param_6;
+          DAT_011dd310 = -(param_4 != '\0') & 0x20U | 0x10;
+          FUN_00406d30(&DAT_011dd0f0,0x104,param_2);
+          DAT_011dd314 = param_1;
+          DAT_011dd318 = param_7;
+          DAT_011dd328 = param_3;
+          DAT_011dd32c = local_14 + param_3;
+          _DAT_011dd330 = 0;
+          DAT_011dd334 = DAT_011a163c;
+          _DAT_011dd3c4 = DAT_011a163c;
+          DAT_011a163c = DAT_011a163c + 1;
+          _DAT_011dd3c8 = DAT_011dd36c;
+          FUN_0082f760((void *)(DAT_011dd36c * 0x4c + DAT_011dd1f4),&DAT_011dd3c4);
+          DAT_011dd311 = DAT_011dd311 | 0x18;
+          _DAT_011dd33c = _DAT_011dd338;
+          _DAT_011dd340 = 0.0;
+          DAT_011dd35c = DAT_011dd328;
+          DAT_011dd360 = DAT_011dd32c;
+        }
+        DAT_011dd36c = (uint)!bVar1;
+        DAT_011dd328 = DAT_011dd35c;
+        DAT_011dd32c = DAT_011dd360;
+        FUN_00830490();
+      }
+      else {
+        FUN_005b5e40();
+        FUN_00830490();
+        local_8 = 0xffffffff;
+        FID_conflict__CListBox(local_178);
+      }
+    }
+  }
+  else {
+    FUN_00830490();
+  }
+  *unaff_FS_OFFSET = local_10;
+  __security_check_cookie(local_1c ^ (uint)&stack0xfffffffc);
+  return;
+}
+
+
+
+
+======================================================================
+HavokIsRunning (checked before stop) @ 0x00830ad0
+======================================================================
+  Function: FUN_00830ad0, Size: 92 bytes
+
+undefined1 FUN_00830ad0(void)
+
+{
+  undefined1 local_c;
+  
+  FUN_00830470();
+  if ((((DAT_011dd334 == 0) || (DAT_011dd314 != 7)) && ((DAT_011dd368 == 0 || (DAT_011dd348 != 7))))
+     && (DAT_011dd313 == '\0')) {
+    local_c = 0;
+  }
+  else {
+    local_c = 1;
+  }
+  FUN_00830490();
+  return local_c;
+}
+
+
+
+
+======================================================================
+QueueDrain (drains task queue) @ 0x00ad88f0
+======================================================================
+  Function: FUN_00ad88f0, Size: 51 bytes
+
+uint __fastcall FUN_00ad88f0(int *param_1)
+
+{
+  undefined *this;
+  uint uVar1;
+  int iVar2;
+  
+  if (*param_1 == -1) {
+    uVar1 = (uint)param_1 & 0xffffff00;
+  }
+  else {
+    param_1[2] = 2;
+    iVar2 = *param_1;
+    this = FID_conflict__Immortalize<class_std::_Generic_error_category>();
+    uVar1 = FUN_00adb610(this,iVar2);
+  }
+  return uVar1;
+}
+
+
+
+
+======================================================================
+QueueWait (waits for queue completion) @ 0x00ad8d10
+======================================================================
+  Function: FUN_00ad8d10, Size: 66 bytes
+
+uint __fastcall FUN_00ad8d10(int *param_1)
+
+{
+  undefined *this;
+  uint uVar1;
+  int iVar2;
+  
+  if (*param_1 == -1) {
+    uVar1 = (uint)param_1 & 0xffffff00;
+  }
+  else {
+    iVar2 = *param_1;
+    this = FID_conflict__Immortalize<class_std::_Generic_error_category>();
+    uVar1 = FUN_00adbf50(this,iVar2);
+    if ((char)uVar1 != '\0') {
+      *param_1 = -1;
+    }
+    uVar1 = uVar1 & 0xff;
+  }
+  return uVar1;
+}
+
+

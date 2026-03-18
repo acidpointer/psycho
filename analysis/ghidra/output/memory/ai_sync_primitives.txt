@@ -1,0 +1,292 @@
+AI THREAD SYNC PRIMITIVES + CELL TRANSITION HANDLER
+======================================================================
+
+======================================================================
+AI_WaitForWork (called in AI thread loop) @ 0x004424e0
+======================================================================
+  Function: FUN_004424e0, Size: 38 bytes
+
+void __fastcall FUN_004424e0(LONG *param_1)
+
+{
+  WaitForSingleObject((HANDLE)param_1[1],0xffffffff);
+  FUN_004019a0(param_1);
+  return;
+}
+
+
+
+
+======================================================================
+AI_SignalCompletion (called after task) @ 0x00442550
+======================================================================
+  Function: FUN_00442550, Size: 40 bytes
+
+void __fastcall FUN_00442550(LONG *param_1)
+
+{
+  ReleaseSemaphore((HANDLE)param_1[1],1,(LPLONG)0x0);
+  FUN_0040b460(param_1);
+  return;
+}
+
+
+
+
+======================================================================
+CellTransition_SaveState (called before ProcessDeferredDestruction) @ 0x004f1540
+======================================================================
+  Function: FUN_004f1540, Size: 17 bytes
+
+undefined1 __fastcall FUN_004f1540(int param_1)
+
+{
+  return *(undefined1 *)(param_1 + 4);
+}
+
+
+
+
+======================================================================
+CellTransition_SetState (called before/after) @ 0x004f15a0
+======================================================================
+  Function: FUN_004f15a0, Size: 22 bytes
+
+void __thiscall FUN_004f15a0(void *this,undefined1 param_1)
+
+{
+  *(undefined1 *)((int)this + 4) = param_1;
+  return;
+}
+
+
+
+
+======================================================================
+CellTransition_PauseResume (saves/restores state around cleanup) @ 0x007d6bd0
+======================================================================
+  Function: FUN_007d6bd0, Size: 81 bytes
+
+bool __thiscall FUN_007d6bd0(void *this,char param_1)
+
+{
+  bool bVar1;
+  
+  bVar1 = FUN_00570f40((int)this);
+  if (param_1 == '\0') {
+    *(uint *)((int)this + 0x244) = *(uint *)((int)this + 0x244) | 1;
+  }
+  else {
+    *(uint *)((int)this + 0x244) = *(uint *)((int)this + 0x244) & 0xfffffffe;
+  }
+  return bVar1;
+}
+
+
+
+
+======================================================================
+CellTransition_Unknown (called before ProcessDeferredDestruction) @ 0x008324e0
+======================================================================
+  Function: FUN_008324e0, Size: 184 bytes
+
+char __cdecl FUN_008324e0(char param_1)
+
+{
+  char cVar1;
+  
+  if (DAT_011dd436 == '\0') {
+    if (param_1 == '\0') {
+      cVar1 = FUN_00830ad0();
+      if (cVar1 != '\0') {
+        FUN_008304a0();
+        FUN_008325a0(0);
+      }
+      FUN_00ad88f0((int *)&DAT_011dd5bc);
+      FUN_00ad8d10((int *)&DAT_011dd5bc);
+      DAT_011dd42c = 0;
+      FUN_00ad88f0((int *)&DAT_011dd638);
+      FUN_00ad8d10((int *)&DAT_011dd638);
+    }
+    else if (DAT_011dd437 == '\0') {
+      FUN_008304a0();
+      FUN_008325a0(1);
+      FUN_008300c0(7,(char *)0x0,1000,'\0','\0',0.0,0);
+      FUN_008304c0();
+    }
+    DAT_011dd434 = param_1;
+  }
+  else {
+    param_1 = '\0';
+  }
+  return param_1;
+}
+
+
+
+
+======================================================================
+CellTransitionHandler (calls ProcessDeferredDestruction blocking) @ 0x008774a0
+======================================================================
+  Function: FUN_008774a0, Size: 561 bytes
+
+void __thiscall FUN_008774a0(void *this,char param_1)
+
+{
+  undefined1 uVar1;
+  bool bVar2;
+  int iVar3;
+  void *this_00;
+  int *piVar4;
+  int *piVar5;
+  undefined *puVar6;
+  undefined4 local_20;
+  undefined4 local_18;
+  
+  uVar1 = FUN_004f1540((int)this);
+  FUN_004f15a0(this,0);
+  FUN_00877700((int)DAT_011dea3c);
+  bVar2 = FUN_007d6bd0(DAT_011ddf38,'\0');
+  FUN_00453a70();
+  FUN_00ad8780();
+  FUN_008324e0('\0');
+  iVar3 = FUN_008d6f30((int)DAT_011dea3c);
+  if (iVar3 != 0) {
+    piVar4 = DAT_011dea3c;
+    this_00 = (void *)FUN_008d6f30((int)DAT_011dea3c);
+    FUN_0054ca90(this_00,piVar4);
+  }
+  piVar4 = (int *)FUN_00950bb0(DAT_011dea3c,'\x01');
+  if (piVar4 == (int *)0x0) {
+    local_18 = 0;
+  }
+  else {
+    local_18 = (**(code **)(*piVar4 + 0xc))();
+  }
+  if (local_18 != 0) {
+    iVar3 = FUN_009611e0(local_18);
+    if (iVar3 != 0) {
+      piVar5 = (int *)FUN_009611e0(local_18);
+      (**(code **)(*piVar5 + 0xe8))(piVar4);
+    }
+  }
+  piVar4 = (int *)FUN_00950bb0(DAT_011dea3c,'\0');
+  if (piVar4 == (int *)0x0) {
+    local_20 = 0;
+  }
+  else {
+    local_20 = (**(code **)(*piVar4 + 0xc))();
+  }
+  if (local_20 != 0) {
+    iVar3 = FUN_009611e0(local_20);
+    if (iVar3 != 0) {
+      piVar5 = (int *)FUN_009611e0(local_20);
+      (**(code **)(*piVar5 + 0xe8))(piVar4);
+    }
+  }
+  FUN_004539a0(DAT_011dea10,'\0','\0');
+  FUN_007037c0(DAT_011dea10,0x7fffffff);
+  FUN_0061cc40(DAT_011dea10,0x7fffffff);
+  puVar6 = FUN_006c0720();
+  FUN_006c09f0(puVar6);
+  FUN_00868d70('\0');
+  FUN_00c459d0('\0');
+  (**(code **)(*DAT_011dea3c + 0x1cc))(0,0);
+  FUN_0084a840(DAT_011ddf38);
+  FUN_00970d50(0x11e0e80);
+  FUN_004614e0(DAT_011c3f2c);
+  iVar3 = FUN_00b4f5c0();
+  FUN_00b631d0(iVar3);
+  FUN_0040fbe0();
+  FUN_00706320();
+  FUN_0045ac80((int)DAT_011dea10);
+  if (param_1 != '\0') {
+    FUN_007053f0();
+  }
+  FUN_007d6bd0(DAT_011ddf38,bVar2);
+  FUN_008776e0((int)DAT_011dea0c);
+  FUN_004f15a0(DAT_011dea0c,uVar1);
+  return;
+}
+
+
+
+
+======================================================================
+AnotherDeferredCaller @ 0x00878250
+======================================================================
+  Function: FUN_00878250, Size: 86 bytes
+
+void __cdecl FUN_00878250(char param_1)
+
+{
+  void *pvVar1;
+  
+  FUN_00868d70('\x01');
+  pvVar1 = (void *)FUN_00450b80(0);
+  FUN_00b5fd60(pvVar1);
+  FUN_00c459d0('\0');
+  if (param_1 != '\0') {
+    FUN_00651e30();
+    FUN_00651f40();
+  }
+  FUN_00448620(DAT_011c3b3c,'\x01');
+  FUN_00452490(DAT_011dea10,'\0');
+  return;
+}
+
+
+
+
+======================================================================
+FUN_0045dfe0 - who calls this?
+======================================================================
+  Called from 0x00450882 in FUN_00450770
+
+======================================================================
+CellTransition_PreCleanup (called before everything) @ 0x00877700
+======================================================================
+  Function: FUN_00877700, Size: 30 bytes
+
+void __fastcall FUN_00877700(int param_1)
+
+{
+  FUN_00ad8da0((void *)(param_1 + 0x77c),1000);
+  return;
+}
+
+
+
+
+======================================================================
+AI_DispatchTask @ 0x008c79e0
+======================================================================
+  Function: FUN_008c79e0, Size: 70 bytes
+
+void __thiscall FUN_008c79e0(void *this,int param_1,int param_2)
+
+{
+  if ((param_1 < 2) && (*(int *)((int)this + param_1 * 4) != 0)) {
+    SetEvent(*(HANDLE *)(*(int *)((int)this + param_1 * 4 + 0x8c) + param_2 * 4));
+    *(int *)((int)this + param_1 * 4 + 0xc) = param_2;
+  }
+  return;
+}
+
+
+
+
+======================================================================
+AI_DispatchTask2 @ 0x008c7a70
+======================================================================
+  Function: FUN_008c7a70, Size: 41 bytes
+
+void __thiscall FUN_008c7a70(void *this,int param_1,int param_2)
+
+{
+  WaitForSingleObject(*(HANDLE *)(*(int *)((int)this + param_1 * 4 + 0x8c) + param_2 * 4),0xffffffff
+                     );
+  return;
+}
+
+

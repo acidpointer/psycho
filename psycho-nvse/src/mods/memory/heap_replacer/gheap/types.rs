@@ -255,3 +255,104 @@ pub type SetTlsCleanupFlagFn = unsafe extern "C" fn(value: u8);
 /// }
 /// ```
 pub type ProcessDeferredDestructionFn = unsafe extern "C" fn(try_lock: u8);
+
+/// Drains a PPL Concurrency Runtime task group, requesting cancellation/completion
+/// of all running tasks.
+///
+/// # Address
+///
+/// `0x00AD88F0` — `FUN_00ad88f0` (51 bytes)
+///
+/// # Calling convention
+///
+/// `__fastcall` — task group pointer in ECX.
+///
+/// # Parameters
+///
+/// - `task_group`: Pointer to a PPL task group handle structure.
+///   - If `*task_group == -1`: no-op (group not initialized).
+///   - Otherwise: sets `task_group[2] = 2` (cancellation flag) and calls
+///     the PPL runtime to drain.
+///
+/// # Usage in cell transition handler (FUN_008774a0 → FUN_008324e0)
+///
+/// Called on two task group globals before `ProcessDeferredDestruction`:
+/// ```text
+/// FUN_00ad88f0(&DAT_011dd5bc);  // drain task group 1
+/// FUN_00ad8d10(&DAT_011dd5bc);  // wait for group 1
+/// FUN_00ad88f0(&DAT_011dd638);  // drain task group 2
+/// FUN_00ad8d10(&DAT_011dd638);  // wait for group 2
+/// ```
+///
+/// These task groups are used by the PPL runtime for background work including
+/// AI physics tasks. Draining them ensures no AI thread is actively
+/// using physics objects when deferred destruction runs.
+pub type TaskGroupDrainFn = unsafe extern "fastcall" fn(task_group: *mut i32) -> u32;
+
+/// Waits for a PPL task group to complete after draining.
+///
+/// # Address
+///
+/// `0x00AD8D10` — `FUN_00ad8d10` (66 bytes)
+///
+/// # Calling convention
+///
+/// `__fastcall` — task group pointer in ECX.
+///
+/// # Parameters
+///
+/// - `task_group`: Same pointer passed to `TaskGroupDrainFn`.
+///   Blocks until the task group has fully completed. On success,
+///   sets `*task_group = -1` (marks group as not initialized).
+pub type TaskGroupWaitFn = unsafe extern "fastcall" fn(task_group: *mut i32) -> u32;
+
+/// Stops or starts the Havok physics simulation and drains AI task queues.
+///
+/// # Address
+///
+/// `0x008324E0` — `FUN_008324e0` (184 bytes)
+///
+/// # Calling convention
+///
+/// `__cdecl` — standard C calling convention.
+///
+/// # Parameters
+///
+/// - `mode`:
+///   - `0`: **STOP** — Stops the Havok physics simulation and drains all
+///     running physics tasks. After this call returns, no AI thread is
+///     touching any `hkBSHeightFieldShape`, collision shape, or physics
+///     world data. This makes it safe to call `ProcessDeferredDestruction`.
+///     Internally calls:
+///     - `FUN_008325a0(0)` — Stops the Havok world simulation
+///     - `FUN_00ad88f0(&DAT_011dd5bc)` + `FUN_00ad8d10(&DAT_011dd5bc)` —
+///       Drains and waits for physics task queue 1
+///     - `FUN_00ad88f0(&DAT_011dd638)` + `FUN_00ad8d10(&DAT_011dd638)` —
+///       Drains and waits for physics task queue 2
+///     - Sets `DAT_011dd42c = 0` and `DAT_011dd434 = 0`
+///   - `1`: **START** — Restarts the Havok simulation (only if
+///     `DAT_011dd437 == 0`). Calls `FUN_008325a0(1)` to resume,
+///     then `FUN_008300c0(7, NULL, 1000, 0, 0, 0.0, 0)` to initialize
+///     the physics step. Sets `DAT_011dd434 = 1`.
+///
+/// # Guard
+///
+/// The function is gated by `DAT_011dd436`. If non-zero, the function
+/// does nothing and returns `0`. This prevents nested stop/start calls.
+///
+/// # Thread safety
+///
+/// **Main thread only.** The stop mode blocks until all AI physics tasks
+/// complete — this is the synchronization mechanism that makes deferred
+/// destruction safe.
+///
+/// # Usage in cell transition handler (FUN_008774a0)
+///
+/// ```text
+/// FUN_008324e0(0);               // STOP Havok, drain AI tasks
+/// // ... cell unloading, cleanup ...
+/// ProcessDeferredDestruction(0); // safe: no AI threads active
+/// // ... more cleanup ...
+/// // Havok restart happens later in the cell loading process
+/// ```
+pub type HavokStopStartFn = unsafe extern "C" fn(mode: u8) -> u8;
