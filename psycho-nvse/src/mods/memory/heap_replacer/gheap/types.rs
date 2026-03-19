@@ -357,6 +357,28 @@ pub type TaskGroupWaitFn = unsafe extern "fastcall" fn(task_group: *mut i32) -> 
 /// ```
 pub type HavokStopStartFn = unsafe extern "C" fn(mode: u8) -> u8;
 
+/// Flushes the async operation queue (IO, audio streaming, etc.).
+///
+/// # Address
+///
+/// `0x00C459D0` — `FUN_00c459d0` (172 bytes)
+///
+/// # Parameters
+///
+/// - `non_blocking`:
+///   - `0`: Blocking — waits for all async operations to complete.
+///   - `1`: Non-blocking — uses TryEnterCriticalSection, skips if busy.
+///
+/// # Why this is needed
+///
+/// When cells are unloaded, BSAudioManager::soundPlayingObjects still holds
+/// NiAVObject pointers from the freed cell. The async queue flush cleans up
+/// stale audio/IO references, preventing JIP LN NVSE's PlayingSoundsIterator
+/// from accessing freed NiNodes via GetParentRef().
+///
+/// Called by DeferredCleanup_Small (FUN_00878250) and HeapCompact Stage 3.
+pub type AsyncQueueFlushFn = unsafe extern "C" fn(non_blocking: u8);
+
 /// Invalidates the scene graph, forcing SpeedTree draw list rebuild.
 ///
 /// # Address

@@ -23,11 +23,13 @@
 //! Under pressure, we call it 20x instead of 1x, draining ~200-400 NiNodes
 //! per frame. Stops when queue 0x08 empties to avoid over-draining Havok.
 //!
-//! ## Layer 3: Boosted cleanup dispatch rate (DAT_011a95fc)
-//! FUN_00a61cd0 (cleanup dispatcher) limits items per call via DAT_011a95fc.
-//! Under pressure, we temporarily set this to 2000 (vs default ~small value),
-//! so ProcessPendingCleanup processes more items. This accelerates the game's
-//! own cleanup at its natural safe frame position.
+//! ## Layer 3: HeapCompact trigger (heap_singleton + 0x134)
+//! Under pressure, we write `5` to the HeapCompact trigger field. On the
+//! NEXT frame, FUN_00878080 at line ~797 runs HeapCompact stages 0-5.
+//! Stage 5 does TLS=0 → FindCellToUnload → full PDD (all queues).
+//! With TLS=0, BSTreeNodes are freed immediately and removed from
+//! BSTreeManager maps — render later builds draw lists WITHOUT them.
+//! This is the game's own cleanup at its native safe position.
 
 use libc::c_void;
 use std::sync::atomic::{AtomicBool, AtomicI64, AtomicU64, Ordering};
@@ -67,25 +69,20 @@ const GAME_MANAGER_PTR: usize = 0x011DEA10;
 /// Bit set = queue skipped. Bit 0x08 = NiNode/BSTreeNode queue.
 const PDD_SKIP_MASK_PTR: usize = 0x011DE804;
 
-/// DAT_011a95fc — cleanup dispatch rate limiter.
+/// HeapCompact trigger field: heap_singleton + 0x134.
 ///
-/// FUN_00a61cd0 (main cleanup dispatcher) processes items in a loop
-/// bounded by `local_1c < DAT_011a95fc`. Default is a small value,
-/// limiting cleanup per call. The pre-destruction setup (FUN_00878160)
-/// sets this to 0x7FFFFFFF (INT_MAX) for unlimited cleanup.
+/// The heap singleton is &DAT_011F6238 (FUN_00401020 returns its address).
+/// FUN_00878110 reads *(heap + 0x134) to get the max stage to run.
+/// FUN_00878080 at MainLoop line ~797 checks this every frame.
 ///
-/// We boost this under pressure to accelerate the game's own cleanup
-/// dispatcher, which runs at safe frame positions (MainLoop line ~800,
-/// ProcessPendingCleanup). This is safe because:
-/// - We only write one integer — no function calls, no side effects
-/// - The cleanup dispatcher already runs at internally-synchronized points
-/// - The game itself sets this to INT_MAX during pre-destruction setup
-const CLEANUP_RATE_LIMIT_PTR: usize = 0x011A95FC;
-
-/// Boosted cleanup rate during pressure relief.
-/// The pre-destruction setup uses 0x7FFFFFFF (INT_MAX).
-/// We use a high but bounded value to prevent frame stalls.
-const BOOSTED_CLEANUP_RATE: u32 = 2000;
+/// Writing a value N here causes HeapCompact stages 0..N to run on the
+/// NEXT FRAME at line ~797 — BEFORE AI dispatch (line ~855), BEFORE
+/// render (line ~904). This is the game's native cleanup mechanism:
+/// - Stage 5: TLS=0, FindCellToUnload, ProcessPendingCleanup, TLS=1, full PDD
+/// - With TLS=0, BSTreeNodes are freed immediately and removed from
+///   BSTreeManager maps via TreeMgr_RemoveOnState vtable dispatch
+/// - Render later builds draw lists from the map — freed nodes are gone
+const HEAP_COMPACT_TRIGGER_PTR: usize = 0x011F636C; // 0x011F6238 + 0x134
 
 // ---------------------------------------------------------------------------
 // PressureRelief
@@ -149,6 +146,16 @@ impl PressureRelief {
         let info = libmimalloc::process_info::MiMallocProcessInfo::get();
         if info.get_current_commit() >= THRESHOLD {
             self.requested.store(true, Ordering::Release);
+
+            // Trigger HeapCompact on the NEXT frame. Write 5 to the trigger
+            // field so stages 0-5 run from FUN_00878080 at line ~797.
+            // Stage 5 does: TLS=0 → FindCellToUnload → PDD (all queues)
+            // This runs BEFORE AI dispatch and render — the game's own
+            // safe cleanup mechanism at its native position.
+            unsafe {
+                let trigger = HEAP_COMPACT_TRIGGER_PTR as *mut u32;
+                trigger.write_volatile(5);
+            }
         }
     }
 
@@ -237,22 +244,20 @@ impl PressureRelief {
             }
         }
 
-        // Boost cleanup dispatch rate: set DAT_011a95fc to a high value
-        // so FUN_00a61cd0 (called by ProcessPendingCleanup and by the game's
-        // MainLoop at line ~800) processes more items per call. This
-        // accelerates the game's own cleanup path at its natural safe
-        // position — no new function calls, just one integer write.
-        let rate_limit = CLEANUP_RATE_LIMIT_PTR as *mut u32;
-        let original_rate = unsafe { rate_limit.read_volatile() };
-        unsafe { rate_limit.write_volatile(BOOSTED_CLEANUP_RATE) };
-
         unsafe { process_cleanup(manager, 0) };
 
-        // Restore original cleanup rate after our cleanup is done.
-        // The boosted rate also helps the game's own cleanup dispatcher
-        // in the NEXT frame (MainLoop line ~800), but we restore to avoid
-        // permanent side effects on normal gameplay.
-        unsafe { rate_limit.write_volatile(original_rate) };
+        // Trigger HeapCompact for the NEXT frame. HeapCompact at line ~797
+        // runs BEFORE AI dispatch and render, handling cell unloading with
+        // proper TLS=0 (immediate BSTreeNode destruction + map removal)
+        // and full PDD (all queues including 0x08 and 0x20).
+        //
+        // This complements our post-render cleanup: we unload cells here
+        // (post-render, safe for cell data), and HeapCompact handles the
+        // deferred destruction at its native safe position next frame.
+        unsafe {
+            let trigger = HEAP_COMPACT_TRIGGER_PTR as *mut u32;
+            trigger.write_volatile(5);
+        }
 
         // Selective PDD: skip NiNode queue (bit 0x08) to avoid BSTreeNode
         // use-after-free in SpeedTree's cached draw lists. All other queues
@@ -272,6 +277,13 @@ impl PressureRelief {
             process_deferred(1);
             skip_mask.write_volatile(original);
         }
+
+        // NOTE: Async queue flush (FUN_00c459d0) was tested here but REMOVED.
+        // It disrupts NVTF's Geometry Precache Queue thread — flushing async IO
+        // completes operations that NVTF's background thread depends on, causing
+        // NiGeometryBufferData UAF crashes. The JIP PlayingSoundsIterator UAF
+        // (BSAudioManager stale refs) is a rare mod-specific issue that doesn't
+        // justify breaking NVTF's geometry precaching.
 
         unsafe { mi_collect(false) };
 

@@ -1364,26 +1364,96 @@ The game's safe PDD callers work because they run early in the frame
 consistent. The draw lists are rebuilt, PDD destroys nodes, and later
 render (line 486) uses the fresh draw lists.
 
-#### Current approach: Boosted per-frame drain (FUN_00868850 hook)
+#### Current approach: Multi-layer pressure relief
 
-Deep research (`two_phase_hook_research.py`) revealed that `FUN_00868850`
-(1166 bytes) runs **every frame** at line ~802, BEFORE AI dispatch (line ~855)
-and BEFORE render (line ~904). It's the game's own per-frame queue processor
-that drains ALL PDD queues with limited batch sizes (10-20 items per queue).
+Deep research (`two_phase_hook_research.py`, `ai_pause_mechanism.py`,
+`commit_growth_analysis.py`) revealed multiple mechanisms that work together.
 
-This function safely destroys BSTreeNodes because:
-- AI threads are idle (not yet dispatched for this frame)
-- Render hasn't built draw lists yet (destroyed nodes won't appear)
-- The game itself runs this function every frame — proven safe
+**Layer 1: Post-render cell unloading + selective PDD (FUN_008705d0 hook)**
 
-We hook `FUN_00868850` and under memory pressure, call the original
-function 10 times total (1 normal + 9 extra rounds). Each round drains
-up to 10-20 NiNodes, for ~100-200 NiNodes per frame total. This should
-keep up with cell loading rate during stress.
+Our primary hook at line ~904. After render completes:
+1. `FindCellToUnload` × 20 cells max
+2. Boost `DAT_011a95fc` to 2000 (cleanup dispatch rate limiter)
+3. `ProcessPendingCleanup(manager, 0)` — with boosted rate
+4. Restore `DAT_011a95fc`
+5. Selective PDD (skip queue 0x08, NiNode)
+6. `FUN_00c459d0(1)` — async queue flush (audio/IO cleanup)
+7. `mi_collect(false)`
 
-The selective PDD at the post-render hook (skip 0x08) remains as the
-primary cell unloading mechanism. The boosted early-frame drain handles
-the NiNode accumulation that selective PDD can't address.
+**Layer 2: Boosted per-frame NiNode drain (FUN_00868850 hook)**
+
+Hook at line ~802, BEFORE AI dispatch and render. The game's own
+per-frame queue processor drains 10-20 items per call. Under pressure,
+we call it 20× total (1 normal + 19 extra). Stops when queue 0x08
+empties to avoid over-draining Havok queue 0x20.
+
+Safe because:
+- AI threads are idle (not yet dispatched)
+- Render hasn't built draw lists (destroyed BSTreeNodes won't appear)
+- The game itself runs this function here every frame
+
+**Layer 3: Boosted cleanup dispatch rate (DAT_011a95fc)**
+
+`FUN_00a61cd0` (main cleanup dispatcher) processes items in a loop
+bounded by `local_1c < DAT_011a95fc`. Default is a small value. The
+pre-destruction setup (`FUN_00878160`) sets it to `0x7FFFFFFF` for
+unlimited cleanup. We temporarily set it to 2000 during pressure
+relief, accelerating `ProcessPendingCleanup` at its natural safe
+frame position.
+
+**Layer 4: Async queue flush (FUN_00c459d0)**
+
+After PDD, we flush the async operation queue. When cells are unloaded,
+`BSAudioManager::soundPlayingObjects` retains stale `NiAVObject*`
+pointers to freed cell nodes. Without flushing, JIP LN NVSE's
+`PlayingSoundsIterator` (called from mod scripts like `IsSoundPlaying`)
+dereferences these stale pointers via `NiAVObject::GetParentRef()`,
+walking up a freed NiNode parent chain → UAF crash.
+
+The game's own `DeferredCleanup_Small` (FUN_00878250) calls
+`FUN_00c459d0('\0')` (blocking) after PDD. We use non-blocking (1)
+to avoid frame stalls.
+
+#### Key discoveries from deep research
+
+**FUN_00868850 (per-frame queue processor, 1166 bytes):**
+Runs every frame at line ~802, processes ALL PDD queues with limited
+batch sizes. Uses priority order: 0x08 first, then 0x04, 0x02, 0x01,
+0x20. Batch size = `local_1c × N` where N varies per queue (10 for
+0x08, 5 for 0x20). `local_1c` = 1 normally, 2 when `FUN_00878360`
+returns true (heap headroom check: tight headroom → 2× drain).
+
+**DAT_011a95fc (cleanup rate limiter):**
+Controls `FUN_00a61cd0` loop bound. Set to INT_MAX by pre-destruction
+setup. Default is small. Used by both MainLoop (line ~800) and
+`ProcessPendingCleanup`. Writing a high value here accelerates the
+game's own cleanup at safe positions without calling new functions.
+
+**AI thread lifecycle:**
+AI threads use Event/Semaphore, NOT PPL. `DAT_011dfa18` = dispatch
+flag. `DAT_011dfa19` = active flag (1 = active, 0 = idle between
+frames). AI dispatch is conditional — when `bVar1` is false (loading
+screens, menus), AI threads are never dispatched.
+
+**BSAudioManager stale reference problem:**
+`soundPlayingObjects` (NiTPtrMap at manager+0x84) maps sound keys to
+`NiAVObject*` pointers. These persist after cell unloading — the game
+assumes cells outlive their sounds. JIP LN NVSE's `PlayingSoundsIterator`
+iterates `playingSounds` map, looks up `soundPlayingObjects`, then
+calls `GetParentRef()` which walks the NiNode parent chain. Freed
+NiNodes have stale parent pointers → crash. Fixed by async queue
+flush after PDD.
+
+#### Tuning experiments (final)
+
+| Config | Drain boost | Rate boost | Async flush | Result |
+|--------|-------------|------------|-------------|--------|
+| 700/2s/20 | None | None | None | OOM ~1.7GB after ~3min |
+| 700/2s/20 | 10× | None | None | 40 reliefs, ~4min, OOM ~1.7GB |
+| 700/2s/20 | 20× + guard | None | None | 55 reliefs, ~4.5min, OOM ~1.7GB |
+| 600/2s/30 | 20× + guard | None | None | Faster crash (BSTreeNode UAF) |
+| 700/2s/20 | 20× + guard | 2000 | None | JIP sound UAF |
+| 700/2s/20 | 20× + guard | 2000 | Yes (1) | **Testing** |
 
 ---
 
