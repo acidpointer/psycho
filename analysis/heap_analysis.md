@@ -326,6 +326,24 @@ streaming. They are drained by `FUN_008324e0` (the music system).
 confusion during analysis. The PPL task groups are audio groups. Draining them
 has zero effect on AI threads.
 
+### Havok Memory System
+
+Havok's memory allocator (`hkFreeListAllocator` at `0x01204454`, `hkLargeBlockAllocator`
+RTTI `0x010D7C34`) has ZERO direct references in game code. All Havok allocations go
+through Bethesda's wrapper which calls `GameHeap::Allocate` (`FUN_00aa3e40`) and
+`GameHeap::Free` (`FUN_00aa4060`). This means our quarantine covers 100% of Havok
+allocations. Confirmed by:
+
+- `bhkCollisionObject_dtor` calls `FUN_00aa4060` (`GameHeap::Free`)
+- `hkWorld_RemoveEntry` (`FUN_00c41fe0`) calls `FUN_00aa4060`
+- `hkAllocate_Dispatcher` (`FUN_00c3e1b0`) dispatches through vtable to `GameHeap`
+
+**Havok OOM retry loop:** `hkMemory_Manager` (`FUN_00c3dfa0`, 513 bytes) has an internal
+retry loop with `Sleep(0x32)` (50ms sleep) when allocation fails. It keeps retrying until
+memory becomes available. At the 32-bit VA ceiling (~1.8GB), this retry eventually fails,
+leaving Havok's internal state corrupted. The next broadphase raycast (pathfinding or AI)
+then crashes.
+
 ---
 
 ## Chapter 4: Object Lifecycle
@@ -643,6 +661,19 @@ rebuild SpeedTree draw lists, creating a safe window for full PDD.
 **PostDestructionRestore confirmed:** 80 bytes, state struct is 12 bytes.
 Game callers use `local_10[5] + local_b` pattern. Calls hkWorld_Unlock
 (`FUN_00c3e340`) at the end.
+
+### hkWorld_RemoveEntry (FUN_00c41fe0, 122 bytes)
+
+```c
+void FUN_00c41fe0(void *this, undefined4 *param_1) {
+    (**(code **)(*(int *)this + 0x28))(*param_1, param_1[1]);  // removes from broadphase
+    FUN_00aa4060(&DAT_011f6238, param_1);                       // GameHeap::Free
+}
+```
+
+The vtable+0x28 call removes the entity from the Havok world's broadphase BEFORE
+freeing memory. This is called during PDD queue 0x20 processing inside our
+hkWorld_Lock, so no concurrent raycasting can access stale broadphase entries.
 
 ### Function Signatures
 
@@ -984,7 +1015,7 @@ when consecutive allocations overlapped.
 
 ## Chapter 11: Crash Types and Root Causes
 
-> **TL;DR:** Every crash we encountered falls into one of 8 categories. Each has
+> **TL;DR:** Every crash we encountered falls into one of these categories. Each has
 > a specific root cause and a specific fix. The Pre-Destruction Protocol eliminated
 > most of them.
 
@@ -997,6 +1028,7 @@ when consecutive allocations overlapped.
 | Texture IO race | NULL vtable (eip=0x00000000), QueuedTexture on stack | PDD destroys texture refs while IOManager loads async | Quarantine system (3-frame delay) |
 | mi_collect(true) race | EXCEPTION_ACCESS_VIOLATION inside psycho_nvse | Forced cross-thread segment purge races with AI allocations | Only use mi_collect(false) |
 | OOM | Fatal in exception handler at ~1.8GB | 32-bit VA space exhaustion | Pressure relief system (irreducible at extreme stress) |
+| Havok Broadphase OOM | EXCEPTION_ACCESS_VIOLATION on main thread, stack: PathingSearchRayCast → hkp3AxisSweep → hkLargeBlockAllocator | At 1.4-1.5GB commit, Havok's internal allocator (backed by GameHeap → mimalloc) fails at VA ceiling. Broadphase (hkp3AxisSweep) data structures corrupted from failed allocations. hkpWorldRayCaster → hkpClosestRayHitCollector crashes. | Irreducible 32-bit VA limit — cannot be fixed by allocator replacement |
 | Aggressive cell unload | AI thread crash on hkBSHeightFieldShape | Cooldown < 2000ms or > 20 cells causes AI to access unloading cells | Conservative tuning (2s/20 cells) |
 | Music broken | Crash on NULL music path in FUN_008300c0 | Misidentified FUN_008324e0 as Havok instead of music | Don't call FUN_008324e0(1) |
 | sbm2 region overlap | Memory corruption in scrap heap | Bump allocator new_offset didn't account for alignment padding | Fixed offset calculation |
@@ -1005,7 +1037,7 @@ when consecutive allocations overlapped.
 
 ## Chapter 12: Key Lessons Learned
 
-> **TL;DR:** 16 hard-won lessons from development. The most important: the 500MB budget
+> **TL;DR:** 17 hard-won lessons from development. The most important: the 500MB budget
 > was a synchronization barrier, the Pre-Destruction Protocol is mandatory for safe PDD,
 > and per-allocation atomics destroy performance.
 
@@ -1093,6 +1125,14 @@ Flush after PostDestructionRestore when hkWorld is unlocked.
 
 Syscalls per free cause severe frame drops. Use counter-based staleness instead.
 
+### 17. Havok Uses GameHeap for ALL Allocations
+
+The `hkFreeListAllocator` at `0x01204454` has zero references in game code. All Havok
+memory operations go through Bethesda's wrapper (`FUN_00c3e1b0`) which calls
+`GameHeap::Allocate`/`Free`. This means our quarantine covers 100% of Havok allocations
+— no bypass paths exist. The Havok-related crashes during stress testing are purely OOM
+at the 32-bit VA ceiling, not quarantine coverage gaps.
+
 ---
 
 ## Chapter 13: Tuning Experiments
@@ -1151,6 +1191,16 @@ data from freed cells, and AI threads race on Havok access.
 **Aggressive tuning 600MB/30cells:** More cells per cycle causes BSTreeNode UAF
 faster than per-frame drain can handle.
 
+### sbm2 Region Overlap Bug (FIXED)
+
+The scrap heap's bump allocator had a memory corruption bug in `region.rs`. The
+`new_offset` calculation used `old_offset + align_up(size + 4, align)` which didn't
+account for alignment padding between `old_offset + 4` and the actual aligned data
+address. This caused subsequent allocations to overlap previous ones when alignment
+padding was needed. Fixed by computing `new_offset = (data_addr + size) - start_addr`
+— using the actual allocated position instead of an independent reservation calculation.
+This was likely the root cause of the documented "sbm2 region offset leak" bug.
+
 ---
 
 # PART 5: REFERENCE TABLES
@@ -1198,6 +1248,20 @@ All Rust FFI signatures are `unsafe extern "<conv>"`.
 | `0x00C3E340` | hkWorld_Unlock | 49b | fastcall | `fn(world: *mut c_void)` |
 | `0x00C3E750` | hkWorld_Lock_Inner | 124b | fastcall | `fn(world: *mut c_void) -> u32` |
 | `0x00C3E7D0` | hkWorld_Unlock_Inner | 134b | fastcall | `fn(world: *mut c_void) -> u32` |
+
+### Havok Memory and Broadphase Functions
+
+| Address | Name | Size | Conv | Rust FFI Signature | Description |
+|---------|------|------|------|--------------------|-------------|
+| `0x00C3E1B0` | hkAllocate_Dispatcher | 352b | thiscall | `fn(this: *mut c_void, param_1: i32, param_2: i32)` | Dispatches Havok allocations through vtable |
+| `0x00C3E420` | hkWorld_AllocateInternal | 97b | thiscall | `fn(this: *mut c_void, param_1: *mut i32) -> u32` | Internal allocation dispatch |
+| `0x00C3E860` | hkFreeList_CountEntries | 71b | thiscall | `fn(this: *mut c_void, param_1: u32) -> i32` | Counts entries in free list |
+| `0x00C3DFA0` | hkMemory_Manager | 513b | thiscall | `fn(this: *mut c_void, param_1: i32)` | Memory pool manager with retry loop |
+| `0x00C41FE0` | hkWorld_RemoveEntry | 122b | thiscall | `fn(this: *mut c_void, param_1: *mut c_void)` | Removes entity from broadphase, frees via GameHeap |
+| `0x00C696D0` | hkWorld_CastRay | 656b | thiscall | `fn(this: *mut c_void, param_1: *mut f32)` | Broadphase raycast entry point |
+| `0x006E6320` | Pathfinding_RayCast | 1960b | thiscall | `fn(this: *mut c_void, param_1: *mut i32, param_2: *mut c_void) -> u32` | Pathfinding raycasting |
+
+All Rust FFI signatures are `unsafe extern "<conv>"`.
 
 ### Cleanup Functions
 
@@ -1406,6 +1470,17 @@ All Rust FFI signatures are `unsafe extern "<conv>"`.
 | `_tls_index + 0x298` | TLS deferred cleanup flag (per-thread) |
 | `_tls_index + 0x2B4` | TLS per-thread allocator pool index |
 
+### Havok Memory and Broadphase
+
+| Address | Description |
+|---------|-------------|
+| `0x01204454` | hkFreeListAllocator global (zero references — unused, all Havok allocs go through GameHeap wrapper) |
+| `0x010D7C34` | hkLargeBlockAllocator RTTI |
+| `0x010CD5CC` | hkp3AxisSweep RTTI (broadphase spatial data structure) |
+| `0x010C3BC4` | ahkpWorld RTTI |
+| `0x010CE310` | hkpClosestRayHitCollector vtable |
+| `0x011AF70C` | Havok memory manager completion flag |
+
 ### Key Data Addresses
 
 | Address | Description |
@@ -1434,6 +1509,11 @@ All Rust FFI signatures are `unsafe extern "<conv>"`.
 | `find_deferred_safe_point.py` | Find safe frame points for PDD |
 | `decompile_0086f940.py` | Decompile the safe hook point |
 | `havok_direct.py` | Decompile Havok/music stop/start functions |
+| `havok_broadphase_crash.py` | Research crash at 0x00CAFED5 — broadphase raycasting, PDD queue 0x20 destructor chain, pathfinding raycast path |
+| `havok_memory_system.py` | Research hkFreeListAllocator, Havok memory wrapper, hkMemory_Manager retry loop |
+| `scene_graph_post_render_safety.py` | Verify SceneGraphInvalidate safety from post-render hook position |
+| `io_thread_sync_points.py` | Research AsyncQueueFlush blocking mechanism, IO thread sync primitives |
+| `post_destruction_restore.py` | Decompile FUN_00878200 (PostDestructionRestore), verify hkWorld_Unlock call |
 
 ### Analysis Outputs
 
@@ -1456,6 +1536,11 @@ All Rust FFI signatures are `unsafe extern "<conv>"`.
 | `cell_transition_free_paths.txt` | Cell transition free path analysis |
 | `ai_cell_transition_race.txt` | AI thread vs cell transition race analysis |
 | `io_thread_lifecycle.txt` | BSTaskManagerThread, IOManager, LockFreeQueue |
+| `havok_broadphase_crash.txt` | Broadphase crash analysis, PDD destructor chain, pathfinding raycast |
+| `havok_memory_system.txt` | Havok allocator analysis, memory wrapper, retry loop |
+| `scene_graph_post_render_safety.txt` | SceneGraphInvalidate chain, exterior-only check |
+| `io_thread_sync_points.txt` | AsyncQueueFlush mechanism, IO dequeue |
+| `post_destruction_restore.txt` | FUN_00878200 decompilation, function boundary map |
 
 ---
 

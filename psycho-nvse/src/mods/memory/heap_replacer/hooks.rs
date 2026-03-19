@@ -5,7 +5,7 @@
 
 use libc::c_void;
 use libmimalloc::{
-    mi_calloc, mi_collect, mi_free, mi_is_in_heap_region, mi_malloc, mi_realloc, mi_recalloc,
+    mi_calloc, mi_free, mi_is_in_heap_region, mi_malloc, mi_realloc, mi_recalloc,
     mi_usable_size,
 };
 

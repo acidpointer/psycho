@@ -62,22 +62,18 @@ pub fn configure_mimalloc() {
         // Demand-page: reserve VA, commit on first touch.
         mi_option_set(mi_option_arena_eager_commit, 0);
 
-        // PURGE DELAY = 500ms
+        // PURGE DELAY = 0 (immediate decommit)
         //
-        // Controls how long empty pages stay committed before being decommitted.
-        // Within the pre-reserved arena, decommit is just a page table flip (cheap).
+        // Within the pre-reserved 512MB arena, decommit is just a page table
+        // flip — very cheap. Immediate decommit prevents commit from growing
+        // during rapid cell transitions (old + new pages both committed).
         //
-        // Previously 0 (immediate decommit). Increased to 500ms so that pages
-        // freed during cell unloading stay committed and readable for a short
-        // window. The IO thread (BSTaskManagerThread) and other subsystems may
-        // hold stale pointers to freed cell data — with purge_delay=0, accessing
-        // a decommitted page is a hard page fault. With 500ms delay, the page
-        // stays committed and stale reads see intact (zombie) data.
-        //
-        // This doesn't prevent block REUSE (freed blocks can be returned by
-        // mi_malloc immediately), but prevents the decommit-class of crashes.
-        mi_option_set(mi_option_purge_delay, 500);
-        log::info!("[MIMALLOC] purge_delay = 500ms (zombie window for stale page reads)");
+        // Previously 500ms to protect stale page reads. No longer needed:
+        // the quarantine keeps zombie BLOCK data intact, hkWorld_Lock prevents
+        // AI raycasting, SceneGraphInvalidate prevents SpeedTree crashes,
+        // and DeferredCleanupSmall's blocking async flush drains IO tasks.
+        mi_option_set(mi_option_purge_delay, 0);
+        log::info!("[MIMALLOC] purge_delay = 0 (immediate, cheap within pre-reserved arena)");
 
         // Decommit on purge (not full release) -- keeps VA reservation.
         mi_option_set(mi_option_purge_decommits, 1);
