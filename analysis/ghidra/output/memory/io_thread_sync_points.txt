@@ -1,0 +1,481 @@
+======================================================================
+IO THREAD SYNCHRONIZATION POINTS
+======================================================================
+
+######################################################################
+# PART 1: AsyncQueueFlush (FUN_00c459d0) ? blocking mode
+# param=0 blocks. What does it wait on? How does it drain?
+######################################################################
+
+======================================================================
+AsyncQueueFlush (172 bytes) @ 0x00c459d0
+======================================================================
+  Function: FUN_00c459d0, Size: 172 bytes
+
+/* WARNING: Globals starting with '_' overlap smaller symbols at the same address */
+
+void __cdecl FUN_00c459d0(char param_1)
+
+{
+  BOOL BVar1;
+  bool local_5;
+  
+  local_5 = true;
+  if (param_1 == '\0') {
+    FUN_0040fbf0((LONG *)&DAT_01202e40);
+  }
+  else {
+    local_5 = FUN_0078d200((LONG *)&DAT_01202e40);
+  }
+  if ((local_5 == false) ||
+     (BVar1 = TryEnterCriticalSection((LPCRITICAL_SECTION)&lpCriticalSection_011f4380), BVar1 != 0))
+  {
+    if (local_5 != false) {
+      FUN_00c46080(0x1202e20);
+      FUN_00c45a80();
+      LeaveCriticalSection((LPCRITICAL_SECTION)&lpCriticalSection_011f4380);
+      DAT_01202e44 = DAT_01202e44 + -1;
+      if (DAT_01202e44 == 0) {
+        _DAT_01202e40 = 0;
+      }
+    }
+  }
+  else {
+    DAT_01202e44 = DAT_01202e44 + -1;
+    if (DAT_01202e44 == 0) {
+      _DAT_01202e40 = 0;
+    }
+  }
+  return;
+}
+
+
+
+######################################################################
+# PART 2: How does the IO thread signal task completion?
+######################################################################
+
+======================================================================
+IO_DequeueTask (FUN_00c40e70) @ 0x00c40e70
+======================================================================
+  Function: FUN_00c40e70, Size: 462 bytes
+
+/* WARNING: Removing unreachable block (ram,0x00c40fbd) */
+/* WARNING: Removing unreachable block (ram,0x00c40f13) */
+/* WARNING: Removing unreachable block (ram,0x00c40f9f) */
+
+undefined4 __thiscall
+FUN_00c40e70(void *this,int param_1,undefined4 *param_2,int *param_3,char param_4)
+
+{
+  LPVOID pvVar1;
+  undefined4 uVar2;
+  undefined4 *puVar3;
+  int iVar4;
+  int iVar5;
+  uint *******pppppppuVar6;
+  int *piVar7;
+  char local_5;
+  
+  FUN_0040fbf0((LONG *)((int)this + 0x20));
+  if ((*(byte *)(param_1 + 0x18) & 2) == 0) {
+    while( true ) {
+      if ((*(byte *)(param_1 + 0x18) & 1) == 0) {
+        iVar4 = param_1 + 0x10;
+        iVar5 = *(int *)(param_1 + 8);
+        piVar7 = param_3;
+        pvVar1 = FUN_00c3f750(this);
+        uVar2 = FUN_00c42380(pvVar1,iVar5,iVar4,piVar7);
+        local_5 = (char)uVar2;
+        *(byte *)(param_1 + 0x18) = *(byte *)(param_1 + 0x18) | 1;
+      }
+      else {
+        puVar3 = (undefined4 *)(param_1 + 0x10);
+        pppppppuVar6 = *(uint ********)(param_1 + 8);
+        piVar7 = param_3;
+        pvVar1 = FUN_00c3f750(this);
+        local_5 = FUN_00c42560(pvVar1,pppppppuVar6,puVar3,piVar7);
+      }
+      if (local_5 != '\0') break;
+      *(int *)(param_1 + 8) = *(int *)(param_1 + 8) + 1;
+      if (*(uint *)((int)this + 8) <= *(uint *)(param_1 + 8)) {
+        *(byte *)(param_1 + 0x18) = *(byte *)(param_1 + 0x18) | 2;
+        goto LAB_00c40ffe;
+      }
+      if (param_4 == '\0') goto LAB_00c40ffe;
+      *(byte *)(param_1 + 0x18) = *(byte *)(param_1 + 0x18) & 0xfe;
+    }
+    *param_2 = *(undefined4 *)(param_1 + 0x10);
+    param_2[1] = *(undefined4 *)(param_1 + 0x14);
+  }
+  else {
+    local_5 = '\0';
+  }
+LAB_00c40ffe:
+  puVar3 = (undefined4 *)(*(int *)((int)this + 0x24) + -1);
+  *(undefined4 **)((int)this + 0x24) = puVar3;
+  if (*(int *)((int)this + 0x24) == 0) {
+    *(undefined4 *)((int)this + 0x20) = 0;
+    puVar3 = (undefined4 *)((int)this + 0x20);
+  }
+  return CONCAT31((int3)((uint)puVar3 >> 8),local_5);
+}
+
+
+
+======================================================================
+IO_SignalCompletion (FUN_00c42060) @ 0x00c42060
+======================================================================
+  Function: FUN_00c42060, Size: 111 bytes
+
+/* WARNING: Removing unreachable block (ram,0x00c42081) */
+/* WARNING: Removing unreachable block (ram,0x00c420a7) */
+
+void __thiscall FUN_00c42060(void *this,int param_1)
+
+{
+  (**(code **)(*(int *)this + 4))();
+  *(int *)((int)this + 8) = param_1;
+  *(byte *)((int)this + 0x18) = *(byte *)((int)this + 0x18) & 0xfe;
+  *(byte *)((int)this + 0x18) = *(byte *)((int)this + 0x18) & 0xfd;
+  return;
+}
+
+
+
+######################################################################
+# PART 3: IOManager fields ? is there a pending task count?
+######################################################################
+
+======================================================================
+IOTask_Enqueue (FUN_00449150) @ 0x00449150
+======================================================================
+  Function: FUN_00449150, Size: 21 bytes
+
+void __fastcall FUN_00449150(int param_1)
+
+{
+  *(undefined4 *)(param_1 + 0xc) = 5;
+  return;
+}
+
+
+
+======================================================================
+IOTask_DecRef (FUN_0044dd60) @ 0x0044dd60
+======================================================================
+  Function: FUN_0044dd60, Size: 81 bytes
+
+void __fastcall FUN_0044dd60(undefined4 *param_1)
+
+{
+  int iVar1;
+  
+  iVar1 = FUN_004019a0(param_1 + 2);
+  if ((iVar1 == 0) && (param_1 != (undefined4 *)0x0)) {
+    (**(code **)*param_1)(1);
+  }
+  return;
+}
+
+
+
+======================================================================
+GetQueueCount (FUN_0044ddc0) @ 0x0044ddc0
+======================================================================
+  Function: FUN_0044ddc0, Size: 17 bytes
+
+undefined4 __fastcall FUN_0044ddc0(int param_1)
+
+{
+  return *(undefined4 *)(param_1 + 8);
+}
+
+
+
+######################################################################
+# PART 4: BSTaskManagerThread sync primitives
+######################################################################
+
+======================================================================
+BSTaskManager_ThreadEntry (37 bytes) @ 0x00c42da0
+======================================================================
+  Function: lpStartAddress_00c42da0, Size: 37 bytes
+
+/* lpStartAddress parameter of CreateThread
+    */
+
+undefined4 lpStartAddress_00c42da0(int *param_1)
+
+{
+  FUN_00c80130(param_1 + 9);
+  (**(code **)(*param_1 + 4))();
+  return 0;
+}
+
+
+
+======================================================================
+BSTaskManager_MainLoop (633 bytes) @ 0x00c410b0
+======================================================================
+  Function: FUN_00c410b0, Size: 633 bytes
+
+/* WARNING: Removing unreachable block (ram,0x00c411bc) */
+/* WARNING: Removing unreachable block (ram,0x00c412b6) */
+
+void __fastcall FUN_00c410b0(int param_1)
+
+{
+  DWORD DVar1;
+  uint uVar2;
+  LONG LVar3;
+  int *unaff_FS_OFFSET;
+  undefined4 local_40 [2];
+  undefined4 *local_38;
+  char local_31;
+  undefined **local_30 [2];
+  undefined4 local_28;
+  undefined4 local_20;
+  undefined4 local_1c;
+  byte local_18;
+  int local_10;
+  undefined1 *puStack_c;
+  uint local_8;
+  
+  puStack_c = &LAB_00f2e0a0;
+  local_10 = *unaff_FS_OFFSET;
+  *unaff_FS_OFFSET = (int)&local_10;
+  while (local_8 = 0xffffffff, *(char *)(*(int *)(param_1 + 0x30) + 0x40) != '\x01') {
+    WaitForSingleObject(*(HANDLE *)(param_1 + 0x10),0xffffffff);
+    InterlockedDecrement((LONG *)(param_1 + 0xc));
+    local_28 = 0;
+    local_20 = 0;
+    local_1c = 0;
+    local_18 = 0;
+    local_30[0] = &PTR_FUN_010c1664;
+    local_8 = 0;
+    local_31 = '\0';
+    while ((local_18 & 2) == 0) {
+      DVar1 = WaitForSingleObject(*(HANDLE *)(param_1 + 0x1c),0);
+      if (DVar1 == 0x102) {
+        WaitForSingleObject(*(HANDLE *)(param_1 + 0x1c),0xffffffff);
+        InterlockedDecrement((LONG *)(param_1 + 0x18));
+        FUN_00c42060(local_30,0);
+      }
+      local_38 = (undefined4 *)0x0;
+      local_8 = CONCAT31(local_8._1_3_,1);
+      uVar2 = FUN_00c40e70(*(void **)(param_1 + 0x30),(int)local_30,local_40,(int *)&local_38,
+                           local_31 == '\0');
+      if ((uVar2 & 0xff) == 0) {
+        if ((local_18 & 2) == 0) {
+          FUN_00c42060(local_30,0);
+          local_31 = '\0';
+        }
+      }
+      else if ((local_38[3] == 1) &&
+              (LVar3 = InterlockedCompareExchange(local_38 + 3,3,1), LVar3 == 1)) {
+        local_31 = '\x01';
+        (**(code **)(**(int **)(param_1 + 0x30) + 0x4c))(local_38);
+        (**(code **)(**(int **)(param_1 + 0x30) + 0x50))(local_38);
+      }
+      if (local_38 != (undefined4 *)0x0) {
+        if (local_38 != (undefined4 *)0x0) {
+          FUN_0044dd60(local_38);
+        }
+        local_38 = (undefined4 *)0x0;
+      }
+      ReleaseSemaphore(*(HANDLE *)(param_1 + 0x1c),1,(LPLONG)0x0);
+      InterlockedIncrement((LONG *)(param_1 + 0x18));
+      local_8 = local_8 & 0xffffff00;
+      if (local_38 != (undefined4 *)0x0) {
+        FUN_0044dd60(local_38);
+      }
+    }
+    local_30[0] = &PTR_FUN_010c1670;
+  }
+  *unaff_FS_OFFSET = local_10;
+  return;
+}
+
+
+
+######################################################################
+# PART 5: FUN_00b5fd60 ? called between PDD and AsyncFlush
+######################################################################
+
+======================================================================
+DCS_Middle (FUN_00b5fd60) @ 0x00b5fd60
+======================================================================
+  Function: FUN_00b5fd60, Size: 718 bytes
+
+/* WARNING: Globals starting with '_' overlap smaller symbols at the same address */
+
+void __fastcall FUN_00b5fd60(void *param_1)
+
+{
+  undefined4 *puVar1;
+  int *piVar2;
+  void *pvVar3;
+  LONG *lpAddend;
+  LONG LVar4;
+  int *piVar5;
+  int iVar6;
+  undefined4 *puVar7;
+  int *unaff_FS_OFFSET;
+  bool bVar8;
+  char cVar9;
+  int *local_14;
+  int *piStack_10;
+  int local_c;
+  undefined1 *puStack_8;
+  undefined4 local_4;
+  
+  local_4 = 0xffffffff;
+  puStack_8 = &LAB_00f27a50;
+  local_c = *unaff_FS_OFFSET;
+  *unaff_FS_OFFSET = (int)&local_c;
+  FUN_0040fbf0((LONG *)&DAT_011f9ea0);
+  puVar1 = *(undefined4 **)((int)param_1 + 0xe4);
+  while (puVar1 != (undefined4 *)0x0) {
+    piVar2 = (int *)puVar1[2];
+    puVar1 = (undefined4 *)*puVar1;
+    if (piVar2 != (int *)0x0) {
+      if ((char)piVar2[0x3b] == '\0') {
+        FUN_00b5eca0(param_1,piVar2);
+      }
+      else {
+        FUN_00b5cd00(param_1,piVar2);
+      }
+    }
+  }
+  puVar1 = *(undefined4 **)((int)param_1 + 0xfc);
+  while (puVar1 != (undefined4 *)0x0) {
+    pvVar3 = (void *)puVar1[2];
+    puVar1 = (undefined4 *)*puVar1;
+    if (pvVar3 != (void *)0x0) {
+      if (*(char *)((int)pvVar3 + 0xfc) == '\0') {
+        FUN_00b5d300(param_1,pvVar3);
+      }
+      else {
+        FUN_00b5d930(param_1,pvVar3);
+      }
+    }
+  }
+  puVar1 = *(undefined4 **)((int)param_1 + 0xf0);
+  piVar2 = piStack_10;
+  while (puVar1 != (undefined4 *)0x0) {
+    piStack_10 = (int *)puVar1[2];
+    puVar1 = (undefined4 *)*puVar1;
+    if (piStack_10 != (int *)0x0) {
+      if ((char)piStack_10[0x3b] == '\0') {
+        InterlockedIncrement(piStack_10 + 1);
+        local_4 = 1;
+        FUN_00b5ef90(param_1,(int *)&piStack_10);
+        piVar5 = piStack_10;
+LAB_00b5feb7:
+        bVar8 = piVar5 == (int *)0x0;
+      }
+      else {
+        lpAddend = piStack_10 + 1;
+        local_14 = piStack_10;
+        piStack_10 = piVar2;
+        InterlockedIncrement(lpAddend);
+        local_4 = 0;
+        bVar8 = local_14 == (int *)0x0;
+        piVar5 = local_14;
+        if (!bVar8) {
+          FUN_00b6d4c0(DAT_011f91a8,(int *)local_14[0x43]);
+          piVar2 = (int *)local_14[0x43];
+          piVar5 = local_14 + 0x43;
+          if (piVar2 != (int *)0x0) {
+            LVar4 = InterlockedDecrement(piVar2 + 1);
+            if (LVar4 == 0) {
+              (**(code **)(*piVar2 + 4))();
+            }
+            *piVar5 = 0;
+          }
+          FUN_00b5ef90(param_1,(int *)&local_14);
+          piVar5 = local_14;
+          goto LAB_00b5feb7;
+        }
+      }
+      local_4 = 0xffffffff;
+      piVar2 = piStack_10;
+      if ((!bVar8) && (LVar4 = InterlockedDecrement(piVar5 + 1), piVar2 = piStack_10, LVar4 == 0)) {
+        (**(code **)(*piVar5 + 4))();
+        piVar2 = piStack_10;
+      }
+    }
+  }
+  piStack_10 = piVar2;
+  FUN_0040fbf0((LONG *)&DAT_011f9ec0);
+  puVar1 = *(undefined4 **)((int)param_1 + 0x114);
+  while (puVar1 != (undefined4 *)0x0) {
+    piVar2 = (int *)puVar1[2];
+    puVar1 = (undefined4 *)*puVar1;
+    if (piVar2 != (int *)0x0) {
+      iVar6 = (**(code **)(*piVar2 + 0xc))();
+      if (iVar6 == 0) {
+LAB_00b5ff39:
+        cVar9 = '\0';
+      }
+      else {
+        puVar7 = (undefined4 *)piVar2[8];
+        if (puVar7 == (undefined4 *)0x0) {
+          puVar7 = &DAT_011f4288;
+        }
+        if (_DAT_010231d0 <= (float)puVar7[3]) goto LAB_00b5ff39;
+        cVar9 = '\x01';
+      }
+      FUN_00b5dac0(piVar2,(int)param_1,1,cVar9);
+    }
+  }
+  puVar1 = *(undefined4 **)((int)param_1 + 0x108);
+  do {
+    do {
+      if (puVar1 == (undefined4 *)0x0) {
+        if (*(void **)((int)param_1 + 0x1e0) != (void *)0x0) {
+          FUN_00c5b8d0(*(void **)((int)param_1 + 0x1e0));
+        }
+        FUN_00e74d40((undefined4 *)((int)param_1 + 0xe4));
+        FUN_00e74d40((undefined4 *)((int)param_1 + 0xf0));
+        FUN_00e74d40((undefined4 *)((int)param_1 + 0xfc));
+        FUN_00e74d40((undefined4 *)((int)param_1 + 0x108));
+        FUN_00e74d40((undefined4 *)((int)param_1 + 0x114));
+        *(undefined1 *)((int)param_1 + 0x1fc) = 1;
+        _DAT_011f9ec4 = _DAT_011f9ec4 + -1;
+        if (_DAT_011f9ec4 == 0) {
+          _DAT_011f9ec0 = 0;
+        }
+        _DAT_011f9ea4 = _DAT_011f9ea4 + -1;
+        if (_DAT_011f9ea4 == 0) {
+          _DAT_011f9ea0 = 0;
+        }
+        *unaff_FS_OFFSET = local_c;
+        return;
+      }
+      piVar2 = (int *)puVar1[2];
+      puVar1 = (undefined4 *)*puVar1;
+    } while (piVar2 == (int *)0x0);
+    iVar6 = (**(code **)(*piVar2 + 0xc))();
+    if (iVar6 == 0) {
+LAB_00b5ff99:
+      cVar9 = '\0';
+    }
+    else {
+      puVar7 = (undefined4 *)piVar2[8];
+      if (puVar7 == (undefined4 *)0x0) {
+        puVar7 = &DAT_011f4288;
+      }
+      if (_DAT_010231d0 <= (float)puVar7[3]) goto LAB_00b5ff99;
+      cVar9 = '\x01';
+    }
+    FUN_00b5dac0(piVar2,(int)param_1,0,cVar9);
+  } while( true );
+}
+
+
+
+======================================================================
+RESEARCH COMPLETE
+======================================================================

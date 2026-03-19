@@ -67,12 +67,18 @@ impl Region {
             let data_addr = checked_align_up(min_data_addr, align)?;
 
             // Bounds check BEFORE committing.
-            if data_addr.checked_add(size)? > end_addr {
+            let alloc_end = data_addr.checked_add(size)?;
+            if alloc_end > end_addr {
                 return None;
             }
 
-            let reservation = checked_align_up(size.checked_add(4)?, align)?;
-            let new_offset = old_offset.checked_add(reservation)?;
+            // new_offset = actual consumed space from region start.
+            // Must use data_addr (which includes alignment padding), NOT a
+            // separate reservation calculation. The old code computed
+            // reservation = align_up(size + 4, align) independently, which
+            // didn't account for padding between old_offset+4 and data_addr.
+            // This caused subsequent allocations to overlap previous ones.
+            let new_offset = alloc_end - start_addr;
 
             if self
                 .offset

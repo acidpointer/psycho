@@ -41,6 +41,9 @@ stack-only).
 13. [Ghidra Analysis Scripts](#13-ghidra-analysis-scripts)
 14. [Key Lessons Learned](#14-key-lessons-learned)
 15. [SpeedTree Cache Analysis](#15-speedtree-cache-analysis)
+16. [Pre-Destruction Protocol](#16-pre-destruction-protocol)
+17. [Quarantine Coverage Audit](#17-quarantine-coverage-audit)
+18. [Delayed Free Quarantine](#18-delayed-free-quarantine)
 
 ---
 
@@ -51,15 +54,15 @@ FNV uses a singleton allocator called `MemoryHeap`, stored at global address
 
 ### Allocator Functions
 
-| Address      | Name                  | Convention | Description                            |
-|--------------|-----------------------|------------|----------------------------------------|
-| `0x00AA3E40` | `GameHeap::Allocate`  | thiscall   | Main allocator entry point (HOOKED)    |
-| `0x00AA4060` | `GameHeap::Free`      | thiscall   | Main free entry point (HOOKED)         |
-| `0x00AA4150` | `GameHeap::Realloc1`  | thiscall   | Realloc variant 1 (HOOKED)            |
-| `0x00AA4200` | `GameHeap::Realloc2`  | thiscall   | Realloc variant 2 (HOOKED)            |
-| `0x00AA44C0` | `GameHeap::Msize`     | thiscall   | Size query (HOOKED)                   |
-| `0x00AA4290` | `FallbackAlloc`       | cdecl      | 39 bytes, calls CRT `_malloc()`       |
-| `0x00AA42C0` | `FallbackFree`        | cdecl      | 25 bytes, calls CRT `_free()`         |
+| Address      | Name                  | Convention | Rust FFI Signature | Description                            |
+|--------------|-----------------------|------------|--------------------|----------------------------------------|
+| `0x00AA3E40` | `GameHeap::Allocate`  | thiscall   | `unsafe extern "thiscall" fn(this: *mut c_void, size: u32) -> *mut c_void` | Main allocator entry point (HOOKED)    |
+| `0x00AA4060` | `GameHeap::Free`      | thiscall   | `unsafe extern "thiscall" fn(this: *mut c_void, ptr: *mut c_void)` | Main free entry point (HOOKED)         |
+| `0x00AA4150` | `GameHeap::Realloc1`  | thiscall   | `unsafe extern "thiscall" fn(this: *mut c_void, ptr: *mut c_void, size: u32) -> *mut c_void` | Realloc variant 1 (HOOKED)            |
+| `0x00AA4200` | `GameHeap::Realloc2`  | thiscall   | `unsafe extern "thiscall" fn(this: *mut c_void, ptr: *mut c_void, size: u32) -> *mut c_void` | Realloc variant 2 (HOOKED)            |
+| `0x00AA44C0` | `GameHeap::Msize`     | thiscall   | `unsafe extern "thiscall" fn(this: *mut c_void, ptr: *mut c_void) -> u32` | Size query (HOOKED)                   |
+| `0x00AA4290` | `FallbackAlloc`       | cdecl      | `unsafe extern "C" fn(size: u32) -> *mut c_void` | 39 bytes, calls CRT `_malloc()`       |
+| `0x00AA42C0` | `FallbackFree`        | cdecl      | `unsafe extern "C" fn(ptr: *mut c_void)` | 25 bytes, calls CRT `_free()`         |
 
 ### Allocation Flow
 
@@ -119,6 +122,16 @@ RET-patched (see Section 10).
 ## 2. HeapCompact State Machine
 
 **Address:** `0x00866A90` | **Size:** 602 bytes | **Convention:** thiscall
+
+```rust
+// Rust FFI signature
+unsafe extern "thiscall" fn HeapCompact(
+    this: *mut c_void,
+    param_1: u32,
+    stage: i32,
+    done_flag: *mut u8,
+) -> i32;
+```
 
 HeapCompact is a multi-stage state machine invoked when allocation fails. It is
 called with an incrementing stage parameter (0 through 8), each stage attempting
@@ -360,6 +373,13 @@ shapes) directly from memory without going through the allocator.
 
 **Address:** `0x00868D70` | **Size:** 1037 bytes | **Convention:** cdecl
 
+```rust
+// Rust FFI signature
+unsafe extern "C" fn ProcessDeferredDestruction(blocking: u8);
+// blocking=0: EnterCriticalSection (waits)
+// blocking=1: TryEnterCriticalSection (skip if busy)
+```
+
 ProcessDeferredDestruction (PDD) is FNV's deferred object destruction system. The
 engine cannot destroy game objects immediately when their refcount reaches zero,
 because multiple subsystems may hold live pointers to the same object concurrently:
@@ -454,7 +474,7 @@ determines whether the queue can be processed. With `param_1 = 1` (non-blocking)
 PDD calls `TryEnterCriticalSection` — if the lock is held by another thread, that
 queue is silently skipped.
 
-Queue 0x10 (forms) uses a separate lock: `FUN_0078d1f0` → `FUN_0078d200(DAT_011f4480)`.
+Queue 0x10 (forms) uses a separate lock: `FUN_0078d1f0` -> `FUN_0078d200(DAT_011f4480)`.
 
 ### Selective PDD: Queue Safety Analysis (from hook at 0x008705D0)
 
@@ -474,19 +494,19 @@ Each queue was tested independently from our post-render hook position. Results:
 **Queue 0x08 (NiNodes/BSTreeNode):**
 SpeedTree maintains a global model cache (`BSTreeManager` at `DAT_011d5c48`) with
 persistent draw list pointers. These point to BSTreeNode objects across frames.
-Destroying a BSTreeNode via PDD leaves stale pointers in the cache → next frame's
-render dereferences freed memory → crash with `BSTreeNode RefCount: 0`.
+Destroying a BSTreeNode via PDD leaves stale pointers in the cache -> next frame's
+render dereferences freed memory -> crash with `BSTreeNode RefCount: 0`.
 
 **Queue 0x20 (Havok physics wrappers):**
-AI Linear Task Threads perform raycasting via `FUN_0096c330` → `hkBSHeightFieldShape`.
+AI Linear Task Threads perform raycasting via `FUN_0096c330` -> `hkBSHeightFieldShape`.
 These threads run concurrently with the main thread. Destroying physics wrappers in
-PDD frees `hkBSHeightFieldShape` objects while AI threads hold live references →
+PDD frees `hkBSHeightFieldShape` objects while AI threads hold live references ->
 crash `EXCEPTION_ACCESS_VIOLATION` on AI thread.
 
 **Queue 0x04 (Textures/materials):**
 The game's `IOManager` loads textures asynchronously via `LockFreeQueue<IOTask>`.
 Destroying texture references in PDD invalidates objects the IO system is actively
-processing → NULL vtable call (`eip = 0x00000000`), `QueuedTexture` on stack.
+processing -> NULL vtable call (`eip = 0x00000000`), `QueuedTexture` on stack.
 
 **Queue 0x01 (Generic ref-counted):**
 Calls `vtable+0x10(1)` (virtual destructor) on arbitrary ref-counted objects. This
@@ -539,9 +559,21 @@ crashes even when queue 0x08 was skipped in PDD.
 
 **Address:** `0x008774A0` | **Size:** 561 bytes | **Convention:** thiscall
 
+```rust
+// Rust FFI signature
+unsafe extern "thiscall" fn CellTransitionHandler(this: *mut c_void, param_1: u8);
+```
+
 This function orchestrates safe object destruction during cell transitions (e.g.,
 entering/leaving a building, fast travel). It is the canonical example of how the
 game coordinates cleanup across subsystems.
+
+**Important:** CellTransitionHandler does NOT use the PreDestruction protocol
+(hkWorld_Lock + SceneGraphInvalidate). It calls PDD in BLOCKING mode
+(`FUN_00868d70(0)`) and the async queue flush in BLOCKING mode
+(`FUN_00c459d0(0)`), which is safe because this function runs during a full
+cell transition where AI threads are already paused and the render pipeline
+is quiesced.
 
 ### Sequence Diagram
 
@@ -606,6 +638,12 @@ a significant source of confusion during analysis:
 ## 7. FindCellToUnload
 
 **Address:** `0x00453A80` | **Size:** 824 bytes | **Convention:** fastcall
+
+```rust
+// Rust FFI signature
+unsafe extern "fastcall" fn FindCellToUnload(manager: *mut c_void) -> u32;
+// Returns 1 (low byte) if a cell was found and destroyed, 0 otherwise
+```
 
 Parameter: TES manager singleton (`DAT_011dea10`).
 
@@ -764,7 +802,10 @@ Per-allocation atomic counters (e.g., `AtomicU32::fetch_add`) cause **5-7 FPS
 regression** from CPU cache line bouncing between cores. Thread-local counters
 have zero contention overhead.
 
-### Hook Architecture
+### Hook Architecture — Protocol-Based Approach
+
+The pressure relief system now uses the game's own PreDestruction protocol
+(see [Section 16](#16-pre-destruction-protocol)) for safe, comprehensive cleanup.
 
 ```
   Original frame:
@@ -788,30 +829,49 @@ have zero contention overhead.
                 +-- Check cooldown timer
                 |     elapsed < 2000ms? --> return (too soon)
                 |
-                +-- === PRESSURE RELIEF ===
+                +-- === PRESSURE RELIEF (Protocol-Based) ===
                 |
-                +-- Loop (up to 20 iterations):
-                |     FindCellToUnload(manager)
-                |     if returned 0: break        -- no more cells
+                +-- Step 1: PreDestructionSetup (0x00878160)
+                |     hkWorld_Lock(DAT_01202d98)
+                |     SceneGraphInvalidate (FUN_00703980)
+                |     Set cleanup rate = INT_MAX
                 |
-                +-- ProcessPendingCleanup(manager, 0)
+                +-- Step 2: FindCellToUnload x 20
+                |     Loop up to 20 iterations
+                |     if returned 0: break (no more cells)
                 |
-                +-- Selective PDD:
-                |     Set DAT_011de804 |= 0x08    -- skip NiNode queue
-                |     ProcessDeferredDestruction(1) -- non-blocking
-                |     Restore DAT_011de804         -- restore original mask
+                +-- Step 3: DeferredCleanupSmall (0x00878250)
+                |     PDD(1) -- NON-BLOCKING, ALL queues
+                |     AsyncFlush(0) -- BLOCKING
+                |     ProcessPendingCleanup
                 |
-                +-- mi_collect(false)             -- nudge mimalloc to decommit
+                +-- Step 4: PostDestructionRestore (0x00878200)
+                |     hkWorld_Unlock(DAT_01202d98)
+                |     Restore cleanup rate
+                |
+                +-- Step 5: Flush quarantine immediately
+                |     Prevents OOM from queued frees
+                |
+                +-- Step 6: HeapCompact trigger
+                |     *(0x011F636C) = 3
+                |     Stages 0-2 on next frame
+                |
+                +-- Step 7: mi_collect(false)
+                |     Thread-local decommit nudge
     ...
 ```
 
 **Key changes from earlier versions:**
 
-1. **No TLS flag manipulation.** Setting `SetTlsCleanupFlag(0)` caused immediate
-   BSTreeNode destruction during `FindCellToUnload`, bypassing deferred queues.
-2. **Selective PDD with skip mask.** We call PDD but skip queue 0x08 (NiNodes)
-   via `DAT_011de804`. All other queues are processed by PDD.
-3. **Only `mi_collect(false)`.** Never `mi_collect(true)` — it races with AI threads.
+1. **Protocol-based approach.** We now call PreDestructionSetup/PostDestructionRestore
+   around cell unloading + PDD, matching what the game's own 5 normal PDD callers do.
+   hkWorld_Lock prevents AI thread Havok access during cleanup. SceneGraphInvalidate
+   rebuilds SpeedTree draw lists so queue 0x08 is safe.
+2. **No selective PDD needed.** With the protocol, ALL PDD queues can be processed
+   safely, including 0x08 (NiNodes) and 0x20 (Havok).
+3. **Immediate quarantine flush.** After DeferredCleanupSmall, quarantine is flushed
+   to prevent OOM during rapid cell transitions.
+4. **Only `mi_collect(false)`.** Never `mi_collect(true)` — it races with AI threads.
 
 ### Game's Own PDD Call Sites
 
@@ -823,7 +883,8 @@ The game also calls PDD at internally-synchronized points:
 - Line 347: `FUN_004556d0` -> `FUN_00878250` -> `ProcessDeferredDestruction(1)`
 
 These internal calls process ALL queues (including 0x08) because they run at
-points where the SpeedTree cache has been properly invalidated.
+points where the SpeedTree cache has been properly invalidated via the
+PreDestruction protocol.
 
 ### Remaining Issue: OOM Under Extreme Stress
 
@@ -853,7 +914,7 @@ Observed memory behavior during stress:
 | Parameter        | Value  | Rationale                                     |
 |------------------|--------|-----------------------------------------------|
 | Reserve          | 512 MB | Pre-reserved VA space                         |
-| `purge_delay`    | 100 ms | How quickly freed pages are decommitted       |
+| `purge_delay`    | 0      | Immediate decommit of freed pages             |
 | `retry_on_oom`   | 0      | Do not retry on OOM (let pressure relief work)|
 | `eager_commit`   | 0      | Do not eagerly commit reserved pages          |
 
@@ -922,6 +983,7 @@ The scrap heap (per-thread bump allocator) is separately hooked:
 | `DAT_011DEA0C` | Game main controller         | Thread ID at offset +0x10               |
 | `DAT_011DEA3C` | Player character pointer     | bhkCharacterProxy                        |
 | `DAT_011DDF38` | BSRenderedLandData           | Flags at offset +0x244                  |
+| `DAT_01202D98` | Havok world singleton        | hkWorld pointer for Lock/Unlock          |
 
 ### Music System (NOT Havok)
 
@@ -963,6 +1025,9 @@ The scrap heap (per-thread bump allocator) is separately hooked:
 | `DAT_011DFA19`           | AI frame active flag                           |
 | `DAT_011F11A0`           | Global lock for deferred destruction           |
 | `DAT_011F4480`           | Queue 0x10 lock (form deletions)               |
+| `DAT_01202D98`           | Havok world singleton (hkWorld_Lock target)    |
+| `DAT_01202DF0`           | hkWorld lock state flag                        |
+| `DAT_01202E40`           | Async queue flush lock                         |
 | `_tls_index + 0x298`     | TLS deferred cleanup flag (per-thread)         |
 | `_tls_index + 0x2B4`     | TLS per-thread allocator pool index            |
 
@@ -972,90 +1037,123 @@ The scrap heap (per-thread bump allocator) is separately hooked:
 
 ### Heap Functions
 
-| Address      | Name                  | Size      | Convention | Description                |
-|--------------|-----------------------|-----------|------------|----------------------------|
-| `0x00AA3E40` | GameHeap::Allocate    | —         | thiscall   | Main allocator (HOOKED)    |
-| `0x00AA4060` | GameHeap::Free        | —         | thiscall   | Main free (HOOKED)         |
-| `0x00AA4150` | GameHeap::Realloc1    | —         | thiscall   | Realloc variant 1 (HOOKED) |
-| `0x00AA4200` | GameHeap::Realloc2    | —         | thiscall   | Realloc variant 2 (HOOKED) |
-| `0x00AA44C0` | GameHeap::Msize       | —         | thiscall   | Size query (HOOKED)        |
-| `0x00AA4290` | FallbackAlloc         | 39 bytes  | cdecl      | Calls `_malloc()`          |
-| `0x00AA42C0` | FallbackFree          | 25 bytes  | cdecl      | Calls `_free()`            |
-| `0x00AA45A0` | FindAllocator         | 99 bytes  | thiscall   | Resolve allocator          |
-| `0x00AA4610` | FindAllocator2        | 137 bytes | thiscall   | Resolve allocator          |
-| `0x00AA4960` | SBM_GetPool           | 238 bytes | cdecl      | Find pool for size         |
-| `0x00AA6AA0` | SBM_ArenaAlloc        | 462 bytes | fastcall   | Allocate from arena        |
-| `0x00AA6C70` | SBM_ArenaFree         | 138 bytes | thiscall   | Free to arena              |
+| Address      | Name                  | Size      | Convention | Rust FFI Signature | Description                |
+|--------------|-----------------------|-----------|------------|-------------------|----------------------------|
+| `0x00AA3E40` | GameHeap::Allocate    | —         | thiscall   | `unsafe extern "thiscall" fn(this: *mut c_void, size: u32) -> *mut c_void` | Main allocator (HOOKED)    |
+| `0x00AA4060` | GameHeap::Free        | 236 bytes | thiscall   | `unsafe extern "thiscall" fn(this: *mut c_void, ptr: *mut c_void)` | Main free (HOOKED)         |
+| `0x00AA4150` | GameHeap::Realloc1    | —         | thiscall   | `unsafe extern "thiscall" fn(this: *mut c_void, ptr: *mut c_void, size: u32) -> *mut c_void` | Realloc variant 1 (HOOKED) |
+| `0x00AA4200` | GameHeap::Realloc2    | —         | thiscall   | `unsafe extern "thiscall" fn(this: *mut c_void, ptr: *mut c_void, size: u32) -> *mut c_void` | Realloc variant 2 (HOOKED) |
+| `0x00AA44C0` | GameHeap::Msize       | —         | thiscall   | `unsafe extern "thiscall" fn(this: *mut c_void, ptr: *mut c_void) -> u32` | Size query (HOOKED)        |
+| `0x00AA4290` | FallbackAlloc         | 39 bytes  | cdecl      | `unsafe extern "C" fn(size: u32) -> *mut c_void` | Calls `_malloc()`          |
+| `0x00AA42C0` | FallbackFree          | 25 bytes  | cdecl      | `unsafe extern "C" fn(ptr: *mut c_void)` | Calls `_free()`            |
+| `0x00AA45A0` | FindAllocator         | 99 bytes  | thiscall   | `unsafe extern "thiscall" fn(this: *mut c_void, ptr: *mut c_void) -> *mut i32` | Resolve allocator          |
+| `0x00AA4610` | FindAllocator2        | 137 bytes | thiscall   | `unsafe extern "thiscall" fn(this: *mut c_void, ptr: *mut c_void) -> *mut i32` | Resolve allocator          |
+| `0x00AA4960` | SBM_GetPool           | 238 bytes | cdecl      | `unsafe extern "C" fn(size: u32) -> *mut c_void` | Find pool for size         |
+| `0x00AA6AA0` | SBM_ArenaAlloc        | 462 bytes | fastcall   | `unsafe extern "fastcall" fn(pool: *mut c_void) -> *mut c_void` | Allocate from arena        |
+| `0x00AA6C70` | SBM_ArenaFree         | 138 bytes | thiscall   | `unsafe extern "thiscall" fn(this: *mut c_void, ptr: *mut c_void)` | Free to arena              |
+| `0x00401030` | CommonDelete          | 21 bytes  | cdecl      | `unsafe extern "C" fn(ptr: *mut c_void)` | Calls GameHeap::Free — ALL NiObject deletions go through this |
+
+### Pre-Destruction Protocol Functions
+
+| Address      | Name                        | Size      | Convention | Rust FFI Signature | Description                 |
+|--------------|-----------------------------|-----------|------------|-------------------|-----------------------------|
+| `0x00878160` | PreDestructionSetup         | 113 bytes | cdecl      | `unsafe extern "C" fn(state: *mut c_void, flush_textures: u8, param_3: u8, save_cell_lock: u8)` | hkWorld_Lock + SceneGraphInvalidate |
+| `0x00878200` | PostDestructionRestore      | 80 bytes  | cdecl      | `unsafe extern "C" fn(state: *mut c_void)` | hkWorld_Unlock + restore |
+| `0x00878250` | DeferredCleanupSmall        | 86 bytes  | cdecl      | `unsafe extern "C" fn(param_1: u8)` | PDD(1) + AsyncFlush(0) + ProcessPendingCleanup |
+
+### Havok World Lock Functions
+
+| Address      | Name                        | Size      | Convention | Rust FFI Signature | Description                 |
+|--------------|-----------------------------|-----------|------------|-------------------|-----------------------------|
+| `0x00C3E310` | hkWorld_Lock                | 43 bytes  | fastcall   | `unsafe extern "fastcall" fn(world: *mut c_void)` | Lock Havok world (InterlockedIncrement world+0x48) |
+| `0x00C3E340` | hkWorld_Unlock              | 49 bytes  | fastcall   | `unsafe extern "fastcall" fn(world: *mut c_void)` | Unlock Havok world (InterlockedDecrement world+0x48) |
+| `0x00C3E750` | hkWorld_Lock_Inner          | 124 bytes | fastcall   | `unsafe extern "fastcall" fn(world: *mut c_void) -> u32` | Actual lock + spin-wait on world+0x44 |
+| `0x00C3E7D0` | hkWorld_Unlock_Inner        | 134 bytes | fastcall   | `unsafe extern "fastcall" fn(world: *mut c_void) -> u32` | Actual unlock + wait for workers |
 
 ### Cleanup Functions
 
-| Address      | Name                        | Size       | Convention | Description                 |
-|--------------|-----------------------------|------------|------------|-----------------------------|
-| `0x00866A90` | HeapCompact                 | 602 bytes  | thiscall   | Multi-stage state machine   |
-| `0x00868D70` | ProcessDeferredDestruction  | 1037 bytes | cdecl      | Batch object destructor     |
-| `0x00869180` | PDD_QueueGateCheck          | 16 bytes   | cdecl      | Check DAT_011de804 skip mask|
-| `0x00869190` | SetTlsCleanupFlag          | 29 bytes   | cdecl      | Sets TLS[0x298]             |
-| `0x00453A80` | FindCellToUnload            | 824 bytes  | fastcall   | Cell eviction               |
-| `0x00452490` | ProcessPendingCleanup       | 85 bytes   | thiscall   | Flush cleanup queue         |
-| `0x004539A0` | ForceUnloadCell             | 196 bytes  | thiscall   | Force cell unload           |
-| `0x00462290` | DestroyCell                 | —          | —          | Called by FindCellToUnload  |
+| Address      | Name                        | Size       | Convention | Rust FFI Signature | Description                 |
+|--------------|-----------------------------|------------|------------|-------------------|-----------------------------|
+| `0x00866A90` | HeapCompact                 | 602 bytes  | thiscall   | `unsafe extern "thiscall" fn(this: *mut c_void, p1: u32, stage: i32, done: *mut u8) -> i32` | Multi-stage state machine   |
+| `0x00868D70` | ProcessDeferredDestruction  | 1037 bytes | cdecl      | `unsafe extern "C" fn(blocking: u8)` | Batch object destructor     |
+| `0x00869180` | PDD_QueueGateCheck          | 16 bytes   | cdecl      | `unsafe extern "C" fn(flag: u32) -> u32` | Check DAT_011de804 skip mask|
+| `0x00869190` | SetTlsCleanupFlag          | 29 bytes   | cdecl      | `unsafe extern "C" fn(value: u32)` | Sets TLS[0x298]             |
+| `0x00453A80` | FindCellToUnload            | 824 bytes  | fastcall   | `unsafe extern "fastcall" fn(manager: *mut c_void) -> u32` | Cell eviction               |
+| `0x00452490` | ProcessPendingCleanup       | 85 bytes   | thiscall   | `unsafe extern "thiscall" fn(manager: *mut c_void, param: u8)` | Flush cleanup queue         |
+| `0x004539A0` | ForceUnloadCell             | 196 bytes  | thiscall   | `unsafe extern "thiscall" fn(this: *mut c_void, p1: u8, p2: u8)` | Force cell unload           |
+| `0x00462290` | DestroyCell                 | 341 bytes  | cdecl      | `unsafe extern "C" fn(cell: *mut i32)` | Called by FindCellToUnload  |
+| `0x00C459D0` | AsyncQueueFlush             | 172 bytes  | cdecl      | `unsafe extern "C" fn(try_lock: u8)` | Flush async IO queue        |
+| `0x00703980` | SceneGraphInvalidate        | 45 bytes   | cdecl      | `unsafe extern "C" fn()` | Rebuild scene graph + SpeedTree draw lists |
+| `0x007160B0` | SceneGraph_CullUpdate       | 60 bytes   | fastcall   | `unsafe extern "fastcall" fn(scene: *mut c_void)` | vtable+0x1c cull/update traversal |
+| `0x008781E0` | SetDistanceThreshold        | 13 bytes   | cdecl      | `unsafe extern "C" fn(value: u32)` | Sets DAT_011a95fc |
+| `0x008781F0` | GetDistanceThreshold        | 10 bytes   | cdecl      | `unsafe extern "C" fn() -> u32` | Reads DAT_011a95fc |
 
 ### Cell Transition Functions
 
-| Address      | Name                        | Size      | Convention | Description                   |
-|--------------|-----------------------------|-----------|------------|-------------------------------|
-| `0x008774A0` | CellTransitionHandler       | 561 bytes | thiscall   | Full cell transition sequence |
-| `0x00877700` | CellTransition_PreCleanup   | 30 bytes  | fastcall   | Wait with timeout             |
-| `0x008782B0` | CellTransition_SafePoint    | 130 bytes | —          | Conditional PDD call          |
-| `0x00878250` | DeferredCleanup_Small       | 86 bytes  | —          | Calls PDD(1)                  |
-| `0x0093BEA0` | CellTransition_Conditional  | 832 bytes | fastcall   | Conditional cell transition   |
+| Address      | Name                        | Size      | Convention | Rust FFI Signature | Description                   |
+|--------------|-----------------------------|-----------|------------|-------------------|-------------------------------|
+| `0x008774A0` | CellTransitionHandler       | 561 bytes | thiscall   | `unsafe extern "thiscall" fn(this: *mut c_void, param_1: u8)` | Full cell transition sequence |
+| `0x00877700` | CellTransition_PreCleanup   | 30 bytes  | fastcall   | `unsafe extern "fastcall" fn(player: *mut c_void)` | Wait with timeout             |
+| `0x008782B0` | CellTransition_SafePoint    | 130 bytes | cdecl      | `unsafe extern "C" fn()` | PreSetup + PDD + PostRestore  |
+| `0x00878250` | DeferredCleanup_Small       | 86 bytes  | cdecl      | `unsafe extern "C" fn(param_1: u8)` | Calls PDD(1) + flush          |
+| `0x0093BEA0` | CellTransition_Conditional  | 832 bytes | fastcall   | `unsafe extern "fastcall" fn(param_1: *mut c_void)` | Conditional cell transition   |
 
 ### Music System Functions (NOT Havok)
 
-| Address      | Name              | Size      | Convention | Description                    |
-|--------------|-------------------|-----------|------------|--------------------------------|
-| `0x008324E0` | MusicStopStart    | 184 bytes | cdecl      | Stop/start music + drain PPL   |
-| `0x008325A0` | MusicFlagSet      | 13 bytes  | cdecl      | Sets DAT_011dd313 = param      |
-| `0x008304A0` | MusicPre          | 20 bytes  | —          | Music pre-step                 |
-| `0x008304C0` | MusicPost         | 46 bytes  | —          | Music post-step                |
-| `0x008300C0` | MusicStepInit     | 944 bytes | cdecl      | Music crossfade initialization |
-| `0x00830AD0` | MusicIsRunning    | 92 bytes  | —          | Check music state              |
+| Address      | Name              | Size      | Convention | Rust FFI Signature | Description                    |
+|--------------|-------------------|-----------|------------|-------------------|--------------------------------|
+| `0x008324E0` | MusicStopStart    | 184 bytes | cdecl      | `unsafe extern "C" fn(start: u8)` | Stop/start music + drain PPL   |
+| `0x008325A0` | MusicFlagSet      | 13 bytes  | cdecl      | `unsafe extern "C" fn(value: u8)` | Sets DAT_011dd313 = param      |
+| `0x008304A0` | MusicPre          | 20 bytes  | —          | — | Music pre-step                 |
+| `0x008304C0` | MusicPost         | 46 bytes  | —          | — | Music post-step                |
+| `0x008300C0` | MusicStepInit     | 944 bytes | cdecl      | — | Music crossfade initialization |
+| `0x00830AD0` | MusicIsRunning    | 92 bytes  | —          | — | Check music state              |
 
 ### Main Loop Functions
 
-| Address      | Name                  | Size       | Convention | Description                    |
-|--------------|-----------------------|------------|------------|--------------------------------|
-| `0x0086E650` | MainLoop              | 2272 bytes | fastcall   | Per-frame function             |
-| `0x0086F940` | PreAI_CellHandler     | 595 bytes  | fastcall   | Calls FUN_0093bea0             |
-| `0x0086FF70` | PreRender_Maintenance | 1616 bytes | fastcall   | Pre-render maintenance         |
-| `0x008705D0` | RenderUpdate          | 55 bytes   | fastcall   | OUR HOOK TARGET                |
-| `0x0086F640` | RenderUpdate_Pre      | 45 bytes   | —          | Render setup                   |
-| `0x0086F670` | RenderUpdate_Post     | 48 bytes   | —          | Render teardown                |
-| `0x0086F890` | RenderUpdate_Inner    | 161 bytes  | fastcall   | Inner render loop              |
+| Address      | Name                  | Size       | Convention | Rust FFI Signature | Description                    |
+|--------------|-----------------------|------------|------------|-------------------|--------------------------------|
+| `0x0086E650` | MainLoop              | 2272 bytes | fastcall   | `unsafe extern "fastcall" fn(param_1: *mut c_void)` | Per-frame function             |
+| `0x0086F940` | PreAI_CellHandler     | 595 bytes  | fastcall   | `unsafe extern "fastcall" fn(param_1: *mut c_void)` | Calls FUN_0093bea0             |
+| `0x0086FF70` | PreRender_Maintenance | 1616 bytes | fastcall   | `unsafe extern "fastcall" fn(param_1: *mut c_void)` | Pre-render maintenance         |
+| `0x008705D0` | RenderUpdate          | 55 bytes   | fastcall   | `unsafe extern "fastcall" fn(param_1: *mut c_void)` | OUR HOOK TARGET                |
+| `0x0086F640` | RenderUpdate_Pre      | 45 bytes   | —          | — | Render setup                   |
+| `0x0086F670` | RenderUpdate_Post     | 48 bytes   | —          | — | Render teardown                |
+| `0x0086F890` | RenderUpdate_Inner    | 161 bytes  | fastcall   | `unsafe extern "fastcall" fn(param_1: *mut c_void)` | Inner render loop              |
+| `0x00878080` | MainLoop_HeapCompact  | 137 bytes  | fastcall   | `unsafe extern "fastcall" fn(param_1: *mut c_void)` | Reads trigger from heap+0x134 |
 
 ### AI Thread Functions
 
-| Address      | Name                  | Size      | Convention | Description                      |
-|--------------|-----------------------|-----------|------------|----------------------------------|
-| `0x00AA64D0` | ThreadEntry           | 20 bytes  | stdcall    | lpStartAddress, calls vtable[1]  |
-| `0x008C7720` | AIThread_MainLoop     | 111 bytes | fastcall   | Wait/execute/signal loop         |
-| `0x008C7190` | AIThread_TaskDispatch | 28 bytes  | fastcall   | Calls fn ptr at offset 0x4c      |
-| `0x008C7F50` | AITask_FrameUpdate    | 346 bytes | —          | AI frame task                    |
-| `0x008C7DA0` | AI_MainCoordinator    | 429 bytes | —          | Dispatch + wait orchestrator     |
-| `0x008C7BD0` | AI_Dispatcher2        | 418 bytes | —          | Alternative dispatcher           |
-| `0x008C7290` | AI_CoordinatorCaller  | —         | —          | Calls both coordinators          |
-| `0x008C79E0` | AI_Dispatch           | 70 bytes  | thiscall   | SetEvent for AI thread           |
-| `0x008C7A70` | AI_Wait               | 41 bytes  | thiscall   | WaitForSingleObject for AI       |
-| `0x008C80E0` | AI_StartFrame         | 46 bytes  | cdecl      | Sets DAT_011dfa18 flag           |
-| `0x008C78C0` | AI_ResetEvents        | 198 bytes | fastcall   | ResetEvent on all AI events      |
-| `0x008C7990` | AI_PostRender         | 72 bytes  | fastcall   | Post-render AI signal            |
+| Address      | Name                  | Size      | Convention | Rust FFI Signature | Description                      |
+|--------------|-----------------------|-----------|------------|-------------------|----------------------------------|
+| `0x00AA64D0` | ThreadEntry           | 20 bytes  | stdcall    | `unsafe extern "stdcall" fn(param: *mut c_void) -> u32` | lpStartAddress, calls vtable[1]  |
+| `0x008C7720` | AIThread_MainLoop     | 111 bytes | fastcall   | `unsafe extern "fastcall" fn(param_1: *mut c_void)` | Wait/execute/signal loop         |
+| `0x008C7190` | AIThread_TaskDispatch | 28 bytes  | fastcall   | `unsafe extern "fastcall" fn(param_1: *mut c_void)` | Calls fn ptr at offset 0x4c      |
+| `0x008C7F50` | AITask_FrameUpdate    | 346 bytes | —          | — | AI frame task                    |
+| `0x008C7DA0` | AI_MainCoordinator    | 429 bytes | —          | — | Dispatch + wait orchestrator     |
+| `0x008C7BD0` | AI_Dispatcher2        | 418 bytes | —          | — | Alternative dispatcher           |
+| `0x008C7290` | AI_CoordinatorCaller  | —         | —          | — | Calls both coordinators          |
+| `0x008C79E0` | AI_Dispatch           | 70 bytes  | thiscall   | `unsafe extern "thiscall" fn(this: *mut c_void)` | SetEvent for AI thread           |
+| `0x008C7A70` | AI_Wait               | 41 bytes  | thiscall   | `unsafe extern "thiscall" fn(this: *mut c_void)` | WaitForSingleObject for AI       |
+| `0x008C80E0` | AI_StartFrame         | 46 bytes  | cdecl      | `unsafe extern "C" fn(param: u8)` | Sets DAT_011dfa18 flag           |
+| `0x008C78C0` | AI_ResetEvents        | 198 bytes | fastcall   | `unsafe extern "fastcall" fn(param_1: *mut c_void)` | ResetEvent on all AI events      |
+| `0x008C7990` | AI_PostRender         | 72 bytes  | fastcall   | `unsafe extern "fastcall" fn(param_1: *mut c_void)` | Post-render AI signal            |
 
 ### AI Processing
 
-| Address      | Name                  | Size      | Convention | Description                      |
-|--------------|-----------------------|-----------|------------|----------------------------------|
-| `0x0096C330` | AIProcess_Main        | 991 bytes | fastcall   | Raycasting, physics queries      |
-| `0x0096CB50` | AIProcess_Secondary   | —         | fastcall   | Additional AI processing         |
+| Address      | Name                  | Size      | Convention | Rust FFI Signature | Description                      |
+|--------------|-----------------------|-----------|------------|-------------------|----------------------------------|
+| `0x0096C330` | AIProcess_Main        | 991 bytes | fastcall   | `unsafe extern "fastcall" fn(param_1: *mut c_void)` | Raycasting, physics queries      |
+| `0x0096CB50` | AIProcess_Secondary   | —         | fastcall   | `unsafe extern "fastcall" fn(param_1: *mut c_void)` | Additional AI processing         |
+
+### IO Thread Functions
+
+| Address      | Name                       | Size      | Convention | Rust FFI Signature | Description                      |
+|--------------|----------------------------|-----------|------------|-------------------|----------------------------------|
+| `0x00C42DA0` | BSTaskManagerThread_Main   | 37 bytes  | stdcall    | `unsafe extern "stdcall" fn(param: *mut i32) -> u32` | IO thread entry point            |
+| `0x00C410B0` | BSTaskManagerThread_Loop   | 633 bytes | fastcall   | `unsafe extern "fastcall" fn(param_1: *mut c_void)` | Task processing loop             |
+| `0x00C3FB50` | IOManager_ProcessTask      | 299 bytes | thiscall   | `unsafe extern "thiscall" fn(this: *mut c_void, task: *mut u32) -> bool` | Process single IO task           |
+| `0x00C3DBF0` | IOManager_Inner            | 646 bytes | fastcall   | `unsafe extern "fastcall" fn(param_1: *mut c_void) -> u8` | Inner task loop with timing      |
 
 ### PPL Task Group Functions (Audio)
 
@@ -1068,60 +1166,69 @@ mechanism (Windows Events + Semaphores, see Section 4). This distinction matters
 because draining PPL task groups (via `TaskGroupDrain`/`TaskGroupWait`) only
 affects audio tasks. It does NOT pause or synchronize AI Linear Task Threads.
 
-| Address      | Name                  | Size      | Convention | Description                      |
-|--------------|-----------------------|-----------|------------|----------------------------------|
-| `0x00AD88F0` | TaskGroupDrain        | 51 bytes  | fastcall   | Drain PPL task group             |
-| `0x00AD8D10` | TaskGroupWait         | 66 bytes  | fastcall   | Wait for PPL task completion     |
-| `0x00AD8DA0` | TaskGroupWaitTimeout  | 60 bytes  | thiscall   | Wait with timeout                |
+| Address      | Name                  | Size      | Convention | Rust FFI Signature | Description                      |
+|--------------|-----------------------|-----------|------------|-------------------|----------------------------------|
+| `0x00AD88F0` | TaskGroupDrain        | 51 bytes  | fastcall   | `unsafe extern "fastcall" fn(group: *mut c_void)` | Drain PPL task group             |
+| `0x00AD8D10` | TaskGroupWait         | 66 bytes  | fastcall   | `unsafe extern "fastcall" fn(group: *mut c_void)` | Wait for PPL task completion     |
+| `0x00AD8DA0` | TaskGroupWaitTimeout  | 60 bytes  | thiscall   | `unsafe extern "thiscall" fn(this: *mut c_void, timeout_ms: u32)` | Wait with timeout                |
 
 ### SBM Maintenance (Left Alive)
 
-| Address      | Name                  | Size      | Convention | Description                      |
-|--------------|-----------------------|-----------|------------|----------------------------------|
-| `0x00AA6F90` | PurgeUnusedArenas     | 157 bytes | fastcall   | Purge unused SBM arenas          |
-| `0x00AA7290` | DecrementArenaRef     | 110 bytes | cdecl      | Arena reference counting         |
-| `0x00AA7300` | ReleaseArenaByPtr     | 106 bytes | fastcall   | Release arena by pointer         |
-| `0x00AA68A0` | SBM_ResetStats        | 125 bytes | —          | Calls GameHeap::Free on pools    |
+| Address      | Name                  | Size      | Convention | Rust FFI Signature | Description                      |
+|--------------|-----------------------|-----------|------------|-------------------|----------------------------------|
+| `0x00AA6F90` | PurgeUnusedArenas     | 157 bytes | fastcall   | `unsafe extern "fastcall" fn(pool: *mut c_void)` | Purge unused SBM arenas          |
+| `0x00AA7290` | DecrementArenaRef     | 110 bytes | cdecl      | `unsafe extern "C" fn(arena: *mut c_void)` | Arena reference counting         |
+| `0x00AA7300` | ReleaseArenaByPtr     | 106 bytes | fastcall   | `unsafe extern "fastcall" fn(arena: *mut c_void)` | Release arena by pointer         |
+| `0x00AA68A0` | SBM_ResetStats        | 125 bytes | —          | — | Calls GameHeap::Free on pools    |
 
 ### SpeedTree / BSTreeManager
 
-| Address      | Name                  | Size      | Convention | Description                      |
-|--------------|-----------------------|-----------|------------|----------------------------------|
-| `0x0043DA00` | TreeMgr_AddTree       | 149 bytes | fastcall   | Add tree to BSTreeManager        |
-| `0x0043DAC0` | TreeMgr_RemoveOnState | 53 bytes  | thiscall   | Remove tree if state > 3         |
-| `0x00664840` | TreeMgr_GetOrCreate   | 37 bytes  | cdecl      | Lazy-init BSTreeManager          |
-| `0x00664870` | TreeMgr_Create        | 199 bytes | cdecl      | Allocate + construct manager     |
-| `0x00664940` | TreeMgr_Destroy       | 71 bytes  | —          | Cleanup + set singleton=NULL     |
-| `0x00664990` | TreeMgr_Cleanup       | 44 bytes  | thiscall   | Internal cleanup via FUN_00664740|
-| `0x00664F50` | TreeMgr_FindOrCreate  | 874 bytes | thiscall   | Find/create tree by reference    |
-| `0x00665B80` | TreeMgr_RemoveEntry   | 95 bytes  | thiscall   | Remove entry from map            |
-| `0x00665BE0` | TreeMgr_RemoveByKey   | 99 bytes  | thiscall   | Remove from treeNodesMap by key  |
-| `0x00666650` | BSTreeModel_Ctor      | 372 bytes | —          | BSTreeModel constructor          |
-| `0x00666800` | BSTreeModel_Init      | 261 bytes | —          | BSTreeModel initialization       |
-| `0x0066B120` | BSTreeNode_Ctor       | 1161 bytes| —          | BSTreeNode constructor/update    |
-| `0x0066B6C0` | BSTreeNode_Init       | 264 bytes | —          | BSTreeNode setup                 |
+| Address      | Name                  | Size      | Convention | Rust FFI Signature | Description                      |
+|--------------|-----------------------|-----------|------------|-------------------|----------------------------------|
+| `0x0043DA00` | TreeMgr_AddTree       | 149 bytes | fastcall   | `unsafe extern "fastcall" fn(param_1: *mut c_void)` | Add tree to BSTreeManager        |
+| `0x0043DAC0` | TreeMgr_RemoveOnState | 53 bytes  | thiscall   | `unsafe extern "thiscall" fn(this: *mut c_void)` | Remove tree if state > 3         |
+| `0x00664840` | TreeMgr_GetOrCreate   | 37 bytes  | cdecl      | `unsafe extern "C" fn() -> *mut c_void` | Lazy-init BSTreeManager          |
+| `0x00664870` | TreeMgr_Create        | 199 bytes | cdecl      | `unsafe extern "C" fn() -> *mut c_void` | Allocate + construct manager     |
+| `0x00664940` | TreeMgr_Destroy       | 71 bytes  | —          | — | Cleanup + set singleton=NULL     |
+| `0x00664990` | TreeMgr_Cleanup       | 44 bytes  | thiscall   | `unsafe extern "thiscall" fn(this: *mut c_void)` | Internal cleanup via FUN_00664740|
+| `0x00664F50` | TreeMgr_FindOrCreate  | 874 bytes | thiscall   | `unsafe extern "thiscall" fn(this: *mut c_void) -> *mut c_void` | Find/create tree by reference    |
+| `0x00665B80` | TreeMgr_RemoveEntry   | 95 bytes  | thiscall   | `unsafe extern "thiscall" fn(this: *mut c_void)` | Remove entry from map            |
+| `0x00665BE0` | TreeMgr_RemoveByKey   | 99 bytes  | thiscall   | `unsafe extern "thiscall" fn(this: *mut c_void)` | Remove from treeNodesMap by key  |
+| `0x00666650` | BSTreeModel_Ctor      | 372 bytes | —          | — | BSTreeModel constructor          |
+| `0x00666800` | BSTreeModel_Init      | 261 bytes | —          | — | BSTreeModel initialization       |
+| `0x0066B120` | BSTreeNode_Ctor       | 1161 bytes| —          | — | BSTreeNode constructor/update    |
+| `0x0066B6C0` | BSTreeNode_Init       | 264 bytes | —          | — | BSTreeNode setup                 |
 
 ### PDD Queue Destructors
 
-| Address      | Name                  | Size      | Convention | Queue | Description                |
-|--------------|-----------------------|-----------|------------|-------|----------------------------|
-| `0x00418D20` | NiNode_Release        | 44 bytes  | thiscall   | 0x08  | NiRefObject release+free   |
-| `0x00418E00` | Texture_Release       | 44 bytes  | thiscall   | 0x04  | Texture/material release   |
-| `0x00868CE0` | Anim_ClearFlag        | 39 bytes  | fastcall   | 0x02  | Clear bit 0x40000000       |
-| `0x00401970` | Havok_Release         | —         | —          | 0x20  | Havok wrapper release      |
-| `0x00868250` | PDD_TryLock           | 21 bytes  | fastcall   | 0x08/04/01 | Try-lock for queue     |
-| `0x0078D1F0` | PDD_FormLock          | 15 bytes  | —          | 0x10  | Lock for form queue        |
+| Address      | Name                  | Size      | Convention | Rust FFI Signature | Queue | Description                |
+|--------------|-----------------------|-----------|------------|-------------------|-------|----------------------------|
+| `0x00418D20` | NiNode_Release        | 44 bytes  | thiscall   | `unsafe extern "thiscall" fn(this: *mut c_void, flags: u32) -> *mut u32` | 0x08  | NiRefObject release+free   |
+| `0x00418E00` | Texture_Release       | 44 bytes  | thiscall   | `unsafe extern "thiscall" fn(this: *mut c_void, flags: u32) -> *mut u32` | 0x04  | Texture/material release   |
+| `0x00868CE0` | Anim_ClearFlag        | 39 bytes  | fastcall   | `unsafe extern "fastcall" fn(param_1: *mut c_void)` | 0x02  | Clear bit 0x40000000       |
+| `0x00401970` | Havok_Release         | 43 bytes  | fastcall   | `unsafe extern "fastcall" fn(param_1: *mut i32)` | 0x20  | Havok wrapper release      |
+| `0x00868250` | PDD_TryLock           | 21 bytes  | fastcall   | `unsafe extern "fastcall" fn(lock: *mut c_void) -> bool` | 0x08/04/01 | Try-lock for queue     |
+| `0x0078D1F0` | PDD_FormLock          | 15 bytes  | cdecl      | `unsafe extern "C" fn()` | 0x10  | Lock for form queue        |
+
+### Key Data Addresses
+
+| Address        | Name                        | Description                              |
+|----------------|-----------------------------|------------------------------------------|
+| `0x01202D98`   | DAT_01202d98                | Havok world singleton pointer            |
+| `0x011F636C`   | HeapCompact trigger         | heap_singleton + 0x134, write N to run stages 0..N |
+| `0x011A95FC`   | DAT_011a95fc                | Cleanup rate limiter / distance threshold |
 
 ### Misc Utilities
 
-| Address      | Name                  | Size      | Convention | Description                      |
-|--------------|-----------------------|-----------|------------|----------------------------------|
-| `0x0040FBF0` | EnterLock             | —         | fastcall   | Custom lock acquire              |
-| `0x0040FBA0` | ReleaseLock           | —         | fastcall   | Custom lock release              |
-| `0x0040FC90` | GetCurrentThreadId    | —         | —          | Wrapper                          |
-| `0x0040FCA0` | Sleep                 | —         | —          | Wrapper                          |
-| `0x0044EDB0` | GetMainThreadId       | —         | —          | Reads offset 0x10 from param     |
-| `0x00401020` | GetGameHeapSingleton  | —         | —          | Returns &DAT_011f6238            |
+| Address      | Name                  | Size      | Convention | Rust FFI Signature | Description                      |
+|--------------|-----------------------|-----------|------------|-------------------|----------------------------------|
+| `0x0040FBF0` | EnterLock             | —         | fastcall   | `unsafe extern "fastcall" fn(lock: *mut i32)` | Custom lock acquire              |
+| `0x0040FBA0` | ReleaseLock           | —         | fastcall   | `unsafe extern "fastcall" fn(lock: *mut u32)` | Custom lock release              |
+| `0x0040FC90` | GetCurrentThreadId    | —         | cdecl      | `unsafe extern "C" fn() -> u32` | Wrapper                          |
+| `0x0040FCA0` | Sleep                 | —         | cdecl      | `unsafe extern "C" fn(ms: u32)` | Wrapper                          |
+| `0x0044EDB0` | GetMainThreadId       | —         | cdecl      | `unsafe extern "C" fn(controller: *mut c_void) -> u32` | Reads offset 0x10 from param     |
+| `0x00401020` | GetGameHeapSingleton  | —         | cdecl      | `unsafe extern "C" fn() -> *mut c_void` | Returns &DAT_011f6238            |
+| `0x00401030` | CommonDelete          | 21 bytes  | cdecl      | `unsafe extern "C" fn(ptr: *mut c_void)` | Calls GameHeap::Free — universal NiObject delete |
 
 ---
 
@@ -1160,6 +1267,11 @@ All scripts are located in `analysis/ghidra/scripts/`. Analysis outputs are in
 | `havok_direct.txt`             | Havok/music functions                               |
 | `speedtree_cache.txt`          | BSTreeManager, PDD queues, gate function, locks     |
 | `speedtree_cache2.txt`         | Queue gate, destructors, tree manager CRUD, locks   |
+| `pre_destruction_protocol.txt` | Full PreDestruction protocol analysis               |
+| `quarantine_coverage_audit.txt`| Proof that all game frees go through GameHeap::Free |
+| `cell_transition_free_paths.txt`| Cell transition free path analysis                 |
+| `ai_cell_transition_race.txt`  | AI thread vs cell transition race analysis          |
+| `io_thread_lifecycle.txt`      | BSTaskManagerThread, IOManager, LockFreeQueue       |
 
 ---
 
@@ -1251,8 +1363,8 @@ the result is a use-after-free inside mimalloc itself. Crash manifests as
 ### 11. BSTreeManager Global Cache Holds Cross-Frame References
 
 The `BSTreeManager` singleton at `DAT_011d5c48` maintains:
-- `treeModelsMap` (offset 0x00): `TESObjectTREE*` → `BSTreeModel*`
-- `treeNodesMap` (offset 0x1C): `TESObjectREFR*` → `BSTreeNode*`
+- `treeModelsMap` (offset 0x00): `TESObjectTREE*` -> `BSTreeModel*`
+- `treeNodesMap` (offset 0x1C): `TESObjectREFR*` -> `BSTreeNode*`
 
 Key functions:
 - `FUN_00664f50`: Find/create tree in manager (874 bytes)
@@ -1274,6 +1386,58 @@ queues creates cascading inconsistencies (e.g., a form references a texture
 that should have been freed, or a physics wrapper references a collision shape
 that's in a stale state).
 
+### 13. PreDestruction Protocol Is REQUIRED for Safe PDD from Non-Native Positions
+
+**CRITICAL DISCOVERY:** All 5 normal-gameplay PDD callers (callers of
+`DeferredCleanupSmall` at `0x00878250`) follow a strict protocol:
+
+1. `PreDestructionSetup(0x00878160)` — locks hkWorld + invalidates scene graph
+2. `DeferredCleanupSmall(0x00878250)` — PDD(1) + AsyncFlush(0) + ProcessPendingCleanup
+3. `PostDestructionRestore(0x00878200)` — unlocks hkWorld + restores state
+
+Without this protocol, calling PDD from our post-render hook causes:
+- **AI thread crashes** (hkWorld not locked, AI raycasts during Havok wrapper destruction)
+- **SpeedTree crashes** (scene graph not invalidated, stale draw list pointers)
+
+With the protocol, ALL PDD queues (including 0x08 and 0x20) can be safely processed.
+See [Section 16](#16-pre-destruction-protocol) for full details.
+
+### 14. ALL Game Object Frees Go Through GameHeap::Free — Quarantine Has Complete Coverage
+
+Ghidra audit of **1036 callers** of `GameHeap::Free(0x00AA4060)` proves complete
+coverage:
+
+- `CommonDelete(0x00401030)` calls `GameHeap::Free` — ALL NiObject deletions covered
+- `FallbackFree(0x00AA42C0)` is ONLY called from inside `GameHeap::Free` body (3 calls)
+  and from one SBM destructor (`FUN_00aa74c0`) — no bypass path exists
+- CRT `_free` callers are ALL CRT internals (`__freebuf`, `__setmbcp`, `__freetlocinfo`, etc.)
+- Havok uses `GameHeap::Free` (bhkCollisionObject_dtor at line 567 calls `FUN_00aa4060`)
+
+This means our quarantine system (which intercepts `GameHeap::Free`) has **complete
+coverage** over all game object frees. No game code bypasses the quarantine.
+
+### 15. Quarantine Must Flush Immediately After DeferredCleanupSmall to Prevent OOM
+
+During cell transitions, `DeferredCleanupSmall` processes all PDD queues, generating
+a burst of frees that enter the quarantine ring buffer. If quarantine is not flushed
+immediately after, these deferred frees accumulate during rapid cell transitions,
+consuming VA space that could cause OOM before the normal 3-frame delay expires.
+
+The flush must happen AFTER `PostDestructionRestore` (hkWorld is unlocked, scene
+graph is restored) to ensure no thread holds references to quarantined memory.
+
+### 16. now_ms()/mi_process_info on Every Free Is Catastrophically Expensive
+
+Early quarantine implementations called `now_ms()` or `mi_process_info()` on every
+`GameHeap::Free` to determine whether to flush. This caused **severe frame drops**
+because:
+- `now_ms()` involves a syscall (QueryPerformanceCounter) on every free
+- `mi_process_info()` walks internal mimalloc data structures
+
+The solution is a **counter-based approach**: increment a per-thread push counter on
+each quarantine push, and check staleness by comparing push counters across frames
+rather than querying wall-clock time.
+
 ---
 
 ## 15. SpeedTree Cache Analysis
@@ -1289,7 +1453,7 @@ lazily by `FUN_00664870` and destroyed by `FUN_00664940`.
 
 | Address      | Name / Action                  | Size      | Description                           |
 |--------------|--------------------------------|-----------|---------------------------------------|
-| `0x0043DA00` | Add tree to manager            | 149 bytes | Lock → find/create → insert           |
+| `0x0043DA00` | Add tree to manager            | 149 bytes | Lock -> find/create -> insert           |
 | `0x0043DAC0` | Remove tree on state change    | 53 bytes  | If state > 3: remove from treeNodesMap|
 | `0x00664840` | Get/create manager             | 37 bytes  | Lazy init, returns DAT_011d5c48       |
 | `0x00664870` | Create manager                 | 199 bytes | Allocates 0x20 bytes, constructs      |
@@ -1311,16 +1475,16 @@ lazily by `FUN_00664870` and destroyed by `FUN_00664940`.
 
 ```c
 void FUN_00878160(int param_1, char param_2, char param_3, char param_4) {
-    FUN_00c3e310(DAT_01202d98);          // Havok world lock?
+    FUN_00c3e310(DAT_01202d98);          // hkWorld_Lock
     // ... state setup ...
     FUN_008781e0(0x7fffffff);            // Set DAT_011a95fc = MAX
-    FUN_00703980();                       // Pre-destruction call
+    FUN_00703980();                       // SceneGraphInvalidate
 }
 ```
 
-`FUN_00703980` calls `FUN_007160b0` conditionally — this may be the scene graph
-invalidation that makes queue 0x08 safe during cell transitions. We have NOT
-been able to safely call this from our hook position.
+`FUN_00703980` calls `FUN_007160b0` conditionally — this is the scene graph
+invalidation that makes queue 0x08 safe during cell transitions. See
+[Section 16](#16-pre-destruction-protocol) for the full protocol analysis.
 
 ### Open Problem: NiNode Queue Accumulation
 
@@ -1328,18 +1492,18 @@ Without processing queue 0x08, NiNode/BSTreeNode objects accumulate in
 `DAT_011de808` indefinitely. During sustained cell loading (stress test),
 this is the primary source of memory growth leading to OOM.
 
-#### Attempted: Scene Graph Invalidation (FAILED)
+#### Attempted: Scene Graph Invalidation (FAILED without protocol)
 
 Ghidra analysis (`bstree_ninode_drain.py`) revealed that the game's 5
 normal-gameplay PDD callers ALL call `FUN_00878160` (pre-destruction setup)
-which calls `FUN_00703980` → `FUN_007160b0` (scene graph invalidation)
+which calls `FUN_00703980` -> `FUN_007160b0` (scene graph invalidation)
 before `DeferredCleanup_Small`. This rebuilds SpeedTree draw lists.
 
 We attempted to call this from our post-render hook:
 ```
-FindCellToUnload → ProcessPendingCleanup
-  → SetDistanceThreshold(INT_MAX) → FUN_00703980()  // scene graph invalidation
-  → ProcessDeferredDestruction(1)  // all queues
+FindCellToUnload -> ProcessPendingCleanup
+  -> SetDistanceThreshold(INT_MAX) -> FUN_00703980()  // scene graph invalidation
+  -> ProcessDeferredDestruction(1)  // all queues
 ```
 
 **Result: CRASH.** Two failure modes:
@@ -1354,10 +1518,9 @@ FindCellToUnload → ProcessPendingCleanup
    0x20 (Havok wrappers), freeing heightfield shapes that AI threads hold
    live references to during raycasting.
 
-**Key finding:** Scene graph invalidation CANNOT be called after
-`FindCellToUnload` — the cull/update accesses freed cell data. And it
-cannot be called before either — the draw lists would still reference
-the about-to-be-destroyed BSTreeNodes.
+**Key finding:** The protocol (hkWorld_Lock + SceneGraphInvalidate) MUST be
+used together. SceneGraphInvalidate without hkWorld_Lock still crashes because
+AI threads are not blocked from Havok access.
 
 The game's safe PDD callers work because they run early in the frame
 (lines 271, 347) where no cells have been freed and the scene graph is
@@ -1370,20 +1533,22 @@ Deep research (`two_phase_hook_research.py`, `ai_pause_mechanism.py`,
 `commit_growth_analysis.py`, `heapcompact_trigger.py`) revealed multiple
 mechanisms that work together.
 
-**Layer 1: Post-render cell unloading + selective PDD (FUN_008705d0 hook)**
+**Layer 1: Post-render cell unloading + protocol-based PDD (FUN_008705d0 hook)**
 
 Our primary hook at line ~904. After render completes:
-1. `FindCellToUnload` × 20 cells max
-2. `ProcessPendingCleanup(manager, 0)`
-3. Selective PDD (skip 0x08 NiNode + 0x20 Havok; process 0x10/0x04/0x02/0x01)
-4. Trigger HeapCompact for next frame: `*(0x011F636C) = 3`
-5. `mi_collect(false)`
+1. `PreDestructionSetup` (hkWorld_Lock + SceneGraphInvalidate)
+2. `FindCellToUnload` x 20 cells max
+3. `DeferredCleanupSmall` (FULL PDD, all queues)
+4. `PostDestructionRestore` (hkWorld_Unlock)
+5. Flush quarantine immediately
+6. Trigger HeapCompact for next frame: `*(0x011F636C) = 3`
+7. `mi_collect(false)`
 
 **Layer 2: Boosted per-frame NiNode drain (FUN_00868850 hook)**
 
 Hook at line ~802, BEFORE AI dispatch and render. The game's own
 per-frame queue processor drains 10-20 items per call. Under pressure,
-we call it 20× total (1 normal + 19 extra). Stops when queue 0x08
+we call it 20x total (1 normal + 19 extra). Stops when queue 0x08
 empties to avoid over-draining Havok queue 0x20.
 
 Safe because:
@@ -1396,16 +1561,16 @@ Safe because:
 The game's own cleanup mechanism, re-enabled by writing one integer.
 
 ```
-FUN_00878110(heap) → return *(heap + 0x134)   // read trigger
-FUN_00878130(heap) → *(heap + 0x134) = 0      // reset after run
-FUN_00401020()     → return &DAT_011F6238     // heap IS DAT_011F6238
+FUN_00878110(heap) -> return *(heap + 0x134)   // read trigger
+FUN_00878130(heap) -> *(heap + 0x134) = 0      // reset after run
+FUN_00401020()     -> return &DAT_011F6238     // heap IS DAT_011F6238
 Trigger address:     0x011F6238 + 0x134 = 0x011F636C
 ```
 
 Writing `3` to `0x011F636C` causes FUN_00878080 at line ~797 to run
 HeapCompact stages 0-3 on the NEXT frame:
 - Stage 0: Reset + ProcessPendingCleanup
-- Stage 1: SBM arena teardown (RET-patched → no-op)
+- Stage 1: SBM arena teardown (RET-patched -> no-op)
 - Stage 2: Cell/resource cleanup (FUN_00650a30 — BSA/texture caches)
 - Stage 3: Async queue flush (FUN_00c459d0 — audio/IO cleanup)
 
@@ -1416,7 +1581,7 @@ HeapCompact stages 0-3 on the NEXT frame:
 - Stage 5: TLS=0 immediate destruction — incompatible with mimalloc.
   The original SBM allocator keeps freed memory as "zombies" in pools
   (data intact until arena purge). mimalloc's `mi_free()` returns memory
-  immediately → data overwritten → BSTreeNode RefCount becomes 0 →
+  immediately -> data overwritten -> BSTreeNode RefCount becomes 0 ->
   SpeedTree crash (C0000417).
 
 Stages 0-3 provide critical resource cleanup (BSA caches, texture refs,
@@ -1428,19 +1593,20 @@ this contributes to the commit plateau improvement.
 **DAT_011a95fc cleanup rate boost (REJECTED):**
 Boosting the cleanup dispatch rate limiter accelerates `FUN_00a61cd0`,
 which finalizes texture/IO objects faster than the async IO system
-(`IOManager`, `LockFreeQueue<IOTask>`) can process them → QueuedTexture
+(`IOManager`, `LockFreeQueue<IOTask>`) can process them -> QueuedTexture
 vtable call through freed memory. The game's default rate exists to
 prevent IO races.
 
 **Async queue flush FUN_00c459d0 (REJECTED):**
 Flushing the async queue disrupts NVTF's Geometry Precache Queue thread —
-completing IO operations that NVTF's background thread depends on →
+completing IO operations that NVTF's background thread depends on ->
 NiGeometryBufferData UAF crash. The JIP PlayingSoundsIterator UAF from
 BSAudioManager stale refs is a rare mod-specific issue.
 
-**Scene graph invalidation FUN_00703980 (REJECTED):**
-Cannot be called after FindCellToUnload — the cull/update (vtable+0x1c)
-accesses hkBSHeightFieldShape data from cells we just freed.
+**Scene graph invalidation FUN_00703980 alone (REJECTED):**
+Cannot be called after FindCellToUnload without hkWorld_Lock — the cull/update
+(vtable+0x1c) accesses hkBSHeightFieldShape data from cells we just freed,
+and AI threads race on Havok access.
 
 **Aggressive tuning 600MB/30cells (REJECTED):**
 More cells per cycle causes BSTreeNode UAF faster than the per-frame drain
@@ -1459,9 +1625,9 @@ entire native cleanup mechanism.
 **FUN_00868850 (per-frame queue processor, 1166 bytes):**
 Runs every frame at line ~802, processes ALL PDD queues with limited
 batch sizes. Uses priority order: 0x08 first, then 0x04, 0x02, 0x01,
-0x20. Batch size = `local_1c × N` where N varies per queue (10 for
+0x20. Batch size = `local_1c x N` where N varies per queue (10 for
 0x08, 5 for 0x20). `local_1c` = 1 normally, 2 when `FUN_00878360`
-returns true (heap headroom check: tight headroom → 2× drain).
+returns true (heap headroom check: tight headroom -> 2x drain).
 
 **DAT_011a95fc (cleanup rate limiter):**
 Controls `FUN_00a61cd0` loop bound. Set to INT_MAX by pre-destruction
@@ -1479,7 +1645,7 @@ screens, menus), AI threads are never dispatched.
 `NiAVObject*` pointers. These persist after cell unloading. JIP LN
 NVSE's `PlayingSoundsIterator` iterates `playingSounds` map, looks up
 `soundPlayingObjects`, then calls `GetParentRef()` which walks the
-NiNode parent chain → UAF. Async queue flush fixes this but breaks
+NiNode parent chain -> UAF. Async queue flush fixes this but breaks
 NVTF. HeapCompact Stage 3 handles it naturally via its own async flush.
 
 #### Tuning experiments
@@ -1487,15 +1653,15 @@ NVTF. HeapCompact Stage 3 handles it naturally via its own async flush.
 | Config | Drain | HeapCompact | Other | Result |
 |--------|-------|-------------|-------|--------|
 | 700/2s/20 | None | No | — | OOM ~1.7GB, ~3min |
-| 700/2s/20 | 10× | No | — | 40 reliefs, ~4min, OOM |
-| 700/2s/20 | 20×+guard | No | — | 55 reliefs, ~4.5min, OOM |
-| 600/2s/30 | 20×+guard | No | — | Faster crash (BSTreeNode) |
-| 700/2s/20 | 20×+guard | No | Rate boost | QueuedTexture IO race |
-| 700/2s/20 | 20×+guard | No | Async flush | NVTF geometry crash |
-| 700/2s/20 | 20×+guard | Yes (5) | — | 46 reliefs, 500 cells, BSTreeNode C0000417 (TLS=0 + mimalloc) |
-| 700/2s/20 | 20×+guard | Yes (4) | — | Fast crash — Stage 4 full PDD frees Havok during AI post-render |
-| 700/2s/20 | 20×+guard | Yes (3), skip 0x08 | — | Fast crash — post-render PDD still processes Havok queue 0x20 |
-| 700/2s/20 | 20×+guard | **Yes (3), skip 0x28** | — | **57 reliefs, 627 cells, 3+ min stress, OOM ~1.65GB** |
+| 700/2s/20 | 10x | No | — | 40 reliefs, ~4min, OOM |
+| 700/2s/20 | 20x+guard | No | — | 55 reliefs, ~4.5min, OOM |
+| 600/2s/30 | 20x+guard | No | — | Faster crash (BSTreeNode) |
+| 700/2s/20 | 20x+guard | No | Rate boost | QueuedTexture IO race |
+| 700/2s/20 | 20x+guard | No | Async flush | NVTF geometry crash |
+| 700/2s/20 | 20x+guard | Yes (5) | — | 46 reliefs, 500 cells, BSTreeNode C0000417 (TLS=0 + mimalloc) |
+| 700/2s/20 | 20x+guard | Yes (4) | — | Fast crash — Stage 4 full PDD frees Havok during AI post-render |
+| 700/2s/20 | 20x+guard | Yes (3), skip 0x08 | — | Fast crash — post-render PDD still processes Havok queue 0x20 |
+| 700/2s/20 | 20x+guard | **Yes (3), skip 0x28** | — | **57 reliefs, 627 cells, 3+ min stress, OOM ~1.65GB** |
 
 #### Remaining limitation: 32-bit VA ceiling
 
@@ -1522,6 +1688,448 @@ climbs. This proves the remaining growth is from LIVE cell data (newly
 loaded cells) and mimalloc page fragmentation (partially-occupied pages
 can't be decommitted). This is irreducible — the game loads cells faster
 than they can be unloaded during extreme traversal.
+
+---
+
+## 16. Pre-Destruction Protocol
+
+### Discovery
+
+**CRITICAL FINDING:** ALL 5 normal-gameplay PDD callers (the 5 callers of
+`DeferredCleanupSmall` at `0x00878250`) follow an identical 3-step protocol.
+This protocol is what makes their PDD calls safe — it locks the Havok physics
+world to block AI thread access, invalidates the scene graph to rebuild
+SpeedTree draw lists, then unlocks after cleanup.
+
+Without this protocol, PDD from non-native positions (like our post-render hook)
+crashes because:
+- AI threads raycast against Havok shapes being destroyed (queue 0x20)
+- SpeedTree draw lists reference NiNodes being destroyed (queue 0x08)
+
+### The Protocol
+
+```
+  ┌─────────────────────────────────────────────────────────────┐
+  │  STEP 1: PreDestructionSetup (0x00878160)                   │
+  │                                                             │
+  │    hkWorld_Lock(DAT_01202d98)      // block AI Havok access │
+  │    Save cell lock state            // state+5               │
+  │    Optionally flush textures       // FUN_004a0370          │
+  │    Save cleanup rate               // state+8               │
+  │    SetDistanceThreshold(INT_MAX)   // DAT_011a95fc = MAX    │
+  │    SceneGraphInvalidate()          // FUN_00703980           │
+  │      -> FUN_007160b0              // rebuild draw lists     │
+  │      -> ProcessPendingCleanup     // flush cleanup queue    │
+  └─────────────────────────────────────────────────────────────┘
+                              |
+                              v
+  ┌─────────────────────────────────────────────────────────────┐
+  │  STEP 2: DeferredCleanupSmall (0x00878250)                  │
+  │                                                             │
+  │    ProcessDeferredDestruction(1)   // ALL queues, non-block │
+  │    AsyncFlush(0)                   // FUN_00c459d0(0)       │
+  │    ProcessPendingCleanup           // FUN_00452490           │
+  └─────────────────────────────────────────────────────────────┘
+                              |
+                              v
+  ┌─────────────────────────────────────────────────────────────┐
+  │  STEP 3: PostDestructionRestore (0x00878200)                │
+  │                                                             │
+  │    Restore cleanup rate            // from state+8          │
+  │    hkWorld_Unlock(DAT_01202d98)    // unblock AI access     │
+  │    Restore cell lock state         // from state+5          │
+  └─────────────────────────────────────────────────────────────┘
+```
+
+### Function Signatures
+
+#### PreDestructionSetup (0x00878160, 113 bytes)
+
+```rust
+/// Lock Havok world, invalidate scene graph, prepare for safe PDD.
+/// `state` is a caller-allocated buffer (12+ bytes) for saving/restoring state.
+/// `flush_textures`: if nonzero, flush texture queue via FUN_004a0370.
+/// `param_3`: stored at state+4.
+/// `save_cell_lock`: if nonzero, saves current cell lock state from FUN_00652160.
+unsafe extern "C" fn PreDestructionSetup(
+    state: *mut c_void,       // caller stack buffer for state save
+    flush_textures: u8,       // nonzero = flush textures
+    param_3: u8,              // stored at state+4
+    save_cell_lock: u8,       // nonzero = save/restore cell lock
+);
+```
+
+Decompiled body:
+```c
+void FUN_00878160(int state, char flush_textures, char param_3, char save_cell_lock) {
+    FUN_00c3e310(DAT_01202d98);          // hkWorld_Lock
+    if (save_cell_lock == 0) {
+        *(state + 5) = 0;
+    } else {
+        *(state + 5) = FUN_00652160();   // save cell lock state
+    }
+    if (flush_textures != 0) {
+        int mgr = FUN_0043c4b0();
+        FUN_004a0370(mgr);               // flush texture queue
+    }
+    *(state + 3) = flush_textures;
+    *(state + 4) = param_3;
+    *(state + 8) = FUN_008781f0();       // save current distance threshold
+    FUN_008781e0(0x7fffffff);            // set threshold to INT_MAX
+    FUN_00703980();                       // SceneGraphInvalidate
+}
+```
+
+#### PostDestructionRestore (0x00878200, 80 bytes)
+
+```rust
+/// Restore state saved by PreDestructionSetup: unlock Havok world, restore thresholds.
+unsafe extern "C" fn PostDestructionRestore(state: *mut c_void);
+```
+
+This function:
+1. Restores the distance threshold from `state+8` via `FUN_008781e0`
+2. Calls `hkWorld_Unlock(DAT_01202d98)` via `FUN_00c3e340`
+3. Conditionally restores cell lock state from `state+5`
+
+#### DeferredCleanupSmall (0x00878250, 86 bytes)
+
+```rust
+/// The actual cleanup: PDD + async flush + pending cleanup.
+/// `param_1` controls whether additional resource cleanup runs.
+unsafe extern "C" fn DeferredCleanupSmall(param_1: u8);
+```
+
+Decompiled body:
+```c
+void FUN_00878250(char param_1) {
+    FUN_00868d70(1);                     // PDD (non-blocking, ALL queues)
+    void *mgr = FUN_00450b80(0);
+    FUN_00b5fd60(mgr);                   // flush something
+    FUN_00c459d0(0);                     // AsyncQueueFlush (BLOCKING)
+    if (param_1 != 0) {
+        FUN_00651e30();                  // additional resource cleanup
+        FUN_00651f40();                  // additional resource cleanup
+    }
+    FUN_00448620(DAT_011c3b3c, 1);       // lock-related
+    FUN_00452490(DAT_011dea10, 0);       // ProcessPendingCleanup
+}
+```
+
+### hkWorld_Lock Mechanism
+
+The Havok world singleton lives at `DAT_01202d98`. The lock mechanism uses
+`InterlockedIncrement`/`InterlockedDecrement` on `world+0x48` with spin-wait
+on `world+0x44`:
+
+```
+  hkWorld_Lock (FUN_00c3e310 -> FUN_00c3e750):
+  ┌────────────────────────────────────────────────────┐
+  │  InterlockedIncrement(world + 0x48)                │
+  │  if result == 1:                                   │
+  │    // We are the first locker                      │
+  │    while (*(world + 0x44) != 0) { Sleep(1); }     │
+  │    // Wait for all workers (world+0x4c count)      │
+  │    for i in 0..*(world+0x4c):                      │
+  │      FUN_00446f70(*(*(world+0x50) + i*4))          │
+  │      InterlockedIncrement(world + 0x44)            │
+  │    return 1 (acquired)                             │
+  │  else:                                             │
+  │    return 0 (nested/reentrant)                     │
+  └────────────────────────────────────────────────────┘
+
+  hkWorld_Unlock (FUN_00c3e340 -> FUN_00c3e7d0):
+  ┌────────────────────────────────────────────────────┐
+  │  if *(world + 0x48) == 0: return 0 (not locked)   │
+  │  InterlockedDecrement(world + 0x48)                │
+  │  if result == 0:                                   │
+  │    // We are the last unlocker                     │
+  │    while (*(world+0x44) != *(world+0x4c)):         │
+  │      Sleep(1);  // wait for workers to finish      │
+  │    for i in 0..*(world+0x4c):                      │
+  │      FUN_00446ff0(*(*(world+0x50) + i*4))          │
+  │      InterlockedDecrement(world + 0x44)            │
+  │    return 1 (released)                             │
+  │  else:                                             │
+  │    return 0 (still locked by other)                │
+  └────────────────────────────────────────────────────┘
+```
+
+**Key fields on hkWorld:**
+| Offset | Type  | Description |
+|--------|-------|-------------|
+| +0x44  | LONG  | Worker count (spin-wait target) |
+| +0x48  | LONG  | Lock count (InterlockedIncrement/Decrement) |
+| +0x4C  | uint  | Number of physics workers |
+| +0x50  | ptr   | Array of worker thread handles |
+| +0x7C  | ptr   | Lock callback (called after lock acquired) |
+| +0x80  | ptr   | Unlock callback (called after unlock released) |
+
+### ALL 5 Callers Follow the Protocol — Proof
+
+Every caller of `DeferredCleanupSmall(0x00878250)` wraps it in PreSetup/PostRestore:
+
+| # | Caller Address | Name | Protocol Pattern |
+|---|----------------|------|------------------|
+| 1 | `0x004556D0` | Big update function (3611 bytes) | `FUN_00878160(local_48, 1, 1, 1)` ... `FUN_00878250(local_43)` ... `FUN_00878200(local_48)` |
+| 2 | `0x008782B0` | CellTransition_SafePoint (130 bytes) | `FUN_00878160(local_10, 1, 1, 1)` ... `FUN_00878250(local_b)` ... `FUN_00878200(local_10)` |
+| 3 | `0x0093CDF0` | Fast travel handler (1779 bytes) | `FUN_00878160(local_48, 1, 1, 1)` ... `FUN_00878250(local_43)` ... `FUN_00878200(local_48)` |
+| 4 | `0x0093D500` | Cell load handler (352 bytes) | `FUN_00878160(local_18, 0, 1, 0)` ... `FUN_00878250(local_13)` ... `FUN_00878200(local_18)` |
+| 5 | `0x005B6CD0` | Cleanup helper (70 bytes) | `FUN_00878160(local_10, 1, 1, 1)` ... `FUN_00878250(local_b)` ... `FUN_00878200(local_10)` |
+
+All callers allocate a local stack buffer (at least 12 bytes) for state,
+pass it to PreSetup which saves state into it, and pass it to PostRestore
+which reads it back.
+
+### Why CellTransitionHandler and HeapCompact Stage 5 DON'T Use the Protocol
+
+**CellTransitionHandler (0x008774A0):**
+Does NOT call PreDestructionSetup. Instead it:
+1. Pauses the entire game state (render flags, music, player wait)
+2. Force-unloads cells with BLOCKING calls
+3. Calls PDD in BLOCKING mode (`FUN_00868d70(0)`)
+4. Flushes async queue in BLOCKING mode (`FUN_00c459d0(0)`)
+
+This is safe without the protocol because the entire game is quiesced — AI
+threads are not running, render is stopped, IO is blocked. The function
+orchestrates a complete state transition rather than an incremental cleanup.
+
+**HeapCompact Stage 5:**
+Does NOT use hkWorld_Lock or SceneGraphInvalidate. Instead it:
+1. Sets TLS[0x298] = 0 (immediate destruction mode)
+2. Calls FindCellToUnload
+3. Calls ProcessPendingCleanup
+4. Restores TLS[0x298] = 1
+5. Calls PDD(1)
+
+This works in the original game because:
+- Stage 5 only runs on the main thread during allocation failure
+- The original SBM allocator keeps freed memory as "zombies" (data intact)
+- BSTreeNode data remains readable even after "free" until arena purge
+- With mimalloc, freed memory is immediately overwritten, breaking this
+
+### Why the Per-Frame Drain (FUN_00868850) Doesn't Need the Protocol
+
+The per-frame queue processor at `0x00868850` runs at line ~802, BEFORE AI
+dispatch (line 431) and BEFORE render (line 486). At this point:
+- AI threads are IDLE (waiting on events from previous frame)
+- Render hasn't built draw lists yet
+- Scene graph is not being traversed
+
+The function drains queues in small batches (10-20 items), and since no
+concurrent system holds references at this point in the frame, the protocol's
+hkWorld_Lock and SceneGraphInvalidate are unnecessary.
+
+---
+
+## 17. Quarantine Coverage Audit
+
+### Purpose
+
+The delayed-free quarantine system intercepts `GameHeap::Free(0x00AA4060)` and
+holds freed pointers in a ring buffer for 3 frames before actually freeing them.
+For this to work, **every** game object free MUST go through `GameHeap::Free`.
+If any code path bypasses it, objects could be freed immediately, causing
+use-after-free when other threads access stale memory.
+
+### Audit Results: Complete Coverage Proven
+
+A comprehensive Ghidra audit of ALL callers of the three relevant free functions
+proves that the quarantine has complete coverage:
+
+#### GameHeap::Free (0x00AA4060) — 1036 callers
+
+ALL game code frees go through this function. The audit found **1036 unconditional
+call sites** spanning the entire codebase. Key examples:
+
+| Caller Address | Function | Significance |
+|----------------|----------|--------------|
+| `0x0040103E` | `CommonDelete(0x00401030)` | ALL NiObject deletions — this is the universal `operator delete` for game objects |
+| `0x00C40C6A` | `bhkCollisionObject_dtor(0x00C40B70)` | Havok physics objects freed through GameHeap::Free |
+| `0x00C42040` | `hkWorld_FreeEntry(0x00C41FE0)` | Havok world hash table entries |
+| `0x005533AA` | BSA/archive cleanup | Asset management |
+| `0x00B631D0+` | Renderer resource cleanup | Multiple calls in renderer |
+
+#### CommonDelete (0x00401030) — The Universal Delete
+
+```c
+// 21 bytes at 0x00401030
+void __cdecl FUN_00401030(void *ptr) {
+    FUN_00aa4060(&DAT_011f6238, ptr);  // GameHeap::Free(singleton, ptr)
+}
+```
+
+This is the `operator delete` override for ALL NiRefObject-derived classes. Both
+PDD queue destructors call it:
+- `NiNode_Release(0x00418D20)`: `FUN_0048fb50(this); if (flags & 1) FUN_00401030(this);`
+- `Texture_Release(0x00418E00)`: `FUN_004aae50(this); if (flags & 1) FUN_00401030(this);`
+
+Every NiObject destruction goes through CommonDelete -> GameHeap::Free -> quarantine.
+
+#### FallbackFree (0x00AA42C0) — No Bypass
+
+`FallbackFree` calls CRT `_free()` directly, bypassing our quarantine. The audit
+found only **4 call sites**, ALL inside `GameHeap::Free` itself:
+
+| Call Site | Context |
+|-----------|---------|
+| `0x00AA4087` | `GameHeap::Free` — early-init path (`*(this) == 0`) |
+| `0x00AA40AC` | `GameHeap::Free` — no-SBM path (`*(this+0x110) == 0`) |
+| `0x00AA4141` | `GameHeap::Free` — fallback after FindAllocator returns NULL |
+| `0x00AA7504` | `FUN_00aa74c0` — SBM destructor (only during SBM teardown) |
+
+The first 3 calls are inside `GameHeap::Free` — which we hook. The 4th is the
+SBM destructor which only runs during engine shutdown. **No game code directly
+calls FallbackFree.**
+
+#### CRT _free — CRT Internals Only
+
+The audit found **50 callers** of CRT `_free`, ALL in CRT internal functions:
+
+```
+__freea, __stat64i32, __fclose_nolock, _realloc, ___freetlocinfo,
+__crtLCMapStringA_stat, __getptd_noexit, __mtdeletelocks, ___updatetmbcinfo,
+__fullpath, __getdrive, __freebuf, __getstream, __read_nolock, __setmbcp,
+__setenvp, ___crtGetEnvironmentStringsA, __mtinitlocknum, ___free_lc_time, ...
+```
+
+None of these are game-object frees. They are CRT housekeeping (locale setup,
+file streams, thread data) that operate on CRT-allocated memory, not game heap
+memory.
+
+#### Havok Uses GameHeap::Free
+
+The Havok physics system does NOT have its own allocator. `bhkCollisionObject_dtor`
+(`0x00C40B70`, 754 bytes) explicitly calls `FUN_00aa4060(&DAT_011f6238, puVar3)`
+at line 567 to free Havok hash table entries. All Havok object frees go through
+`GameHeap::Free`.
+
+### Conclusion
+
+```
+  ALL game object frees
+       |
+       v
+  GameHeap::Free (0x00AA4060)  <-- OUR HOOK (quarantine intercept)
+       |
+       +-- SBM_ArenaFree (pool memory)
+       +-- FindAllocator -> delegate free
+       +-- FallbackFree -> CRT _free (only for non-pool, non-SBM memory)
+
+  NO game code bypasses GameHeap::Free.
+  CRT _free is only called by CRT internals.
+  Quarantine coverage is COMPLETE.
+```
+
+---
+
+## 18. Delayed Free Quarantine
+
+### Design
+
+The quarantine system protects against use-after-free by delaying the actual
+`mi_free()` call for freed game objects. When `GameHeap::Free` is called, the
+pointer is pushed into a per-thread ring buffer instead of being freed immediately.
+After a configurable delay, the pointer is actually freed via `mi_free()`.
+
+### Architecture
+
+```
+  GameHeap::Free(ptr) — our hook
+       |
+       v
+  ┌──────────────────────────────────────┐
+  │  Per-Thread Ring Buffer              │
+  │                                      │
+  │  [frame N] [frame N] [frame N-1]... │
+  │  ◄── push here     pop from here ──►│
+  │                                      │
+  │  Capacity: configurable              │
+  │  Delay: 3 frames                     │
+  └──────────────────────────────────────┘
+       |
+       v (after delay)
+  mi_free(ptr)  — actual deallocation
+```
+
+### Key Design Decisions
+
+#### Per-Thread Ring Buffers (No Contention)
+
+Each thread gets its own ring buffer. This eliminates all cross-thread contention
+on the hot path (`GameHeap::Free`). No locks, no atomics, no cache line bouncing.
+
+#### 3-Frame Delay
+
+The delay is measured in frames, not wall-clock time. This is critical because:
+- Wall-clock measurement (`now_ms()`) requires a syscall per free — catastrophically expensive
+- Frame-based delay naturally aligns with the game's rendering/AI cycle
+- Objects freed in frame N are guaranteed safe to actually free by frame N+3,
+  because all subsystems have had 3 full frames to release their references
+
+#### Loading Screen Detection via Stale Push Counter
+
+During loading screens, the game stops rendering frames but continues allocating
+and freeing memory. The per-frame flush mechanism would stall because no frames
+are completing. Detection works by monitoring the push counter:
+
+```
+  If push_counter hasn't changed for several check intervals:
+    -> We are on a loading screen
+    -> Flush immediately to prevent OOM
+```
+
+#### Immediate Flush After DeferredCleanupSmall
+
+During pressure relief, `DeferredCleanupSmall` processes ALL PDD queues, generating
+a large burst of frees (potentially thousands of objects). These all enter the
+quarantine. Without immediate flushing, they would sit in the ring buffer for 3
+frames, consuming VA space during a period when we are actively trying to REDUCE
+memory pressure.
+
+The flush sequence:
+1. `PreDestructionSetup` (hkWorld_Lock)
+2. `FindCellToUnload` x N
+3. `DeferredCleanupSmall` (PDD + async flush) — generates burst of quarantine entries
+4. `PostDestructionRestore` (hkWorld_Unlock) — all threads safe now
+5. **Flush quarantine** — actually free the burst of objects
+
+The flush MUST happen after PostDestructionRestore because hkWorld_Unlock ensures
+AI threads have finished any in-progress Havok operations and are blocked from
+starting new ones before we actually free the memory.
+
+### Why Quarantine Protects the IO Thread Specifically
+
+The `BSTaskManagerThread` (IO thread) is the most vulnerable to use-after-free:
+
+1. It runs asynchronously via `WaitForSingleObject` on a semaphore
+2. It processes `LockFreeQueue<IOTask>` entries that reference game objects
+3. Tasks are dequeued and processed with `InterlockedCompareExchange`-based
+   state transitions (state 1->3)
+4. Between dequeue and completion, the IO thread holds a raw pointer to the task
+
+If PDD destroys a `QueuedTexture` while the IO thread has dequeued it but not
+yet completed processing, the IO thread dereferences freed memory. The quarantine
+prevents this by holding the memory alive for 3 frames — long enough for the IO
+thread to complete any in-progress task.
+
+The IO thread loop (`0x00C410B0`, 633 bytes):
+```
+  while (!shutdown) {
+    WaitForSingleObject(event, INFINITE);
+    InterlockedDecrement(count);
+    // ...
+    task = dequeue();  // task pointer could be to freed QueuedTexture
+    if (InterlockedCompareExchange(task+3, 3, 1) == 1) {
+      vtable_process(task);   // <-- CRASH if memory already freed
+      vtable_complete(task);
+    }
+    // ...
+  }
+```
+
+With quarantine: the QueuedTexture memory stays valid for 3 frames after PDD
+marks it for destruction, giving the IO thread time to complete processing.
 
 ---
 

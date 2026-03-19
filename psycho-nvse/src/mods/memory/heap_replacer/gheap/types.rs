@@ -455,3 +455,98 @@ pub type SceneGraphInvalidateFn = unsafe extern "stdcall" fn();
 /// FUN_00703980();             // invalidate scene graph
 /// ```
 pub type SetDistanceThresholdFn = unsafe extern "C" fn(distance: i32);
+
+/// Pre-destruction setup: locks Havok world + invalidates scene graph.
+///
+/// # Address
+///
+/// `0x00878160` — `FUN_00878160` (113 bytes)
+///
+/// # Calling convention
+///
+/// `__cdecl` — all parameters on stack.
+///
+/// # Parameters
+///
+/// - `state`: Pointer to a 12-byte local struct that saves/restores state.
+///   The caller allocates this on the stack (e.g. `local_10[12]`).
+///   - `state+3`: saved `param_2` (flush textures flag)
+///   - `state+4`: saved `param_3`
+///   - `state+5`: saved exterior cell manager lock state
+///   - `state+8`: saved distance threshold (restored by PostDestruction)
+/// - `flush_textures`: If nonzero, calls `FUN_0043c4b0` → `FUN_004a0370`
+///   to flush texture/model queues before destruction.
+/// - `param_3`: Stored into `state+4`, purpose unclear (passed through).
+/// - `save_cell_lock`: If nonzero, saves exterior cell manager lock state
+///   via `FUN_00652160`. If zero, sets `state+5 = 0`.
+///
+/// # Behavior
+///
+/// 1. `FUN_00c3e310(DAT_01202d98)` — **hkWorld_Lock**: locks the Havok
+///    physics world. AI raycasting threads will block until unlock.
+/// 2. Saves state into the `state` struct.
+/// 3. `FUN_008781e0(0x7fffffff)` — **SetDistanceThreshold(INT_MAX)**: ensures
+///    all cells are considered during scene graph cull.
+/// 4. `FUN_00703980()` — **SceneGraphInvalidate**: rebuilds SpeedTree draw
+///    lists, removing stale BSTreeNode pointers from the cache.
+///
+/// # Thread safety
+///
+/// After this call returns, the Havok world is LOCKED. AI raycasting
+/// threads are blocked. SpeedTree draw lists are rebuilt. It is now safe
+/// to run PDD (all queues) and cell unloading without races.
+///
+/// # Usage
+///
+/// ALL 5 normal PDD callers follow this exact pattern:
+/// ```text
+/// FUN_00878160(local_state, flush, param3, save_lock);  // lock + invalidate
+/// FUN_00878250(local_state[local_b]);                   // PDD + async flush + cleanup
+/// FUN_00878200(local_state);                            // unlock + restore
+/// ```
+pub type PreDestructionSetupFn = unsafe extern "C" fn(
+    state: *mut c_void,
+    flush_textures: u8,
+    param_3: u8,
+    save_cell_lock: u8,
+);
+
+/// Post-destruction restore: unlocks Havok world + restores state.
+///
+/// # Address
+///
+/// `0x00878200` — `FUN_00878200` (80 bytes)
+///
+/// # Parameters
+///
+/// - `state`: The same state struct passed to `PreDestructionSetupFn`.
+///   Restores the distance threshold from `state+8` and unlocks the
+///   Havok world via `FUN_00c3e340(DAT_01202d98)`.
+///
+/// # Behavior
+///
+/// 1. Restores distance threshold from saved value.
+/// 2. Conditionally restores exterior cell manager lock.
+/// 3. `FUN_00c3e340(DAT_01202d98)` — **hkWorld_Unlock**: releases the
+///    Havok world lock. AI raycasting threads resume.
+pub type PostDestructionRestoreFn = unsafe extern "C" fn(state: *mut c_void);
+
+/// Combined PDD + async flush + cleanup (DeferredCleanup_Small).
+///
+/// # Address
+///
+/// `0x00878250` — `FUN_00878250` (86 bytes)
+///
+/// # Parameters
+///
+/// - `param_1`: Controls whether BSA cache cleanup runs after PDD.
+///   From the PreDestruction state struct (`state[local_b]`).
+///
+/// # Behavior
+///
+/// 1. `FUN_00868d70(1)` — PDD with try-lock (all queues)
+/// 2. `FUN_00b5fd60` — some cleanup
+/// 3. `FUN_00c459d0(0)` — blocking async queue flush
+/// 4. Optional BSA cache cleanup
+/// 5. `FUN_00452490(manager, 0)` — ProcessPendingCleanup
+pub type DeferredCleanupSmallFn = unsafe extern "C" fn(param_1: u8);

@@ -41,5 +41,6 @@ extended = ["cty"]
 local_dynamic_tls = []
 no_thp = []
 override = []
+encoded_freelist = []
 secure = []
 

@@ -25,6 +25,14 @@ fn main() {
 
     if env::var_os("CARGO_FEATURE_SECURE").is_some() {
         build.define("MI_SECURE", "4");
+    } else if env::var_os("CARGO_FEATURE_ENCODED_FREELIST").is_some() {
+        // MI_SECURE=2: encoded free lists only.
+        // XOR-encodes free list pointers with a per-page random key.
+        // Catches double-free and use-after-free heap corruption from
+        // mods (e.g., JohnnyGuitar muzzle flash hook) that the original
+        // SBM tolerated because freed memory stayed intact as "zombies".
+        // Much lighter than full MI_SECURE=4 (no guard pages, no delayed free).
+        build.define("MI_SECURE", "2");
     }
 
     let dynamic_tls = env::var("CARGO_FEATURE_LOCAL_DYNAMIC_TLS").is_ok();

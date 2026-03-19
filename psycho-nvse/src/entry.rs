@@ -45,11 +45,15 @@ fn init_logger(console: bool) {
         let _ = alloc_console();
     }
 
-    Logger::new()
+    if let Err(e) = Logger::new()
         .with_file_rotating("./psycho-nvse-latest.log")
         .with_level(log::LevelFilter::Debug)
         .init()
-        .expect("Failed to initialize logger");
+    {
+        // Cannot panic in DllMain — would crash the entire game process.
+        // Best effort: write to stderr (visible if console is open).
+        eprintln!("psycho-nvse: Failed to initialize logger: {:?}", e);
+    }
 }
 
 // -----------------------------------------------------------------------

@@ -1,0 +1,1189 @@
+###############################################################
+# CELL TRANSITION FREE PATHS ANALYSIS
+# Goal: Find ALL paths where game objects are freed during
+# cell transitions, and whether they go through GameHeap::Free
+# (0x00AA4060, our quarantine) or CRT _free (bypasses quarantine)
+###############################################################
+
+
+### SECTION 1: Cell Transition Handler
+
+======================================================================
+CellTransitionHandler (561 bytes) @ 0x008774a0
+======================================================================
+  Function: FUN_008774a0, Size: 561 bytes
+
+void __thiscall FUN_008774a0(void *this,char param_1)
+
+{
+  undefined1 uVar1;
+  bool bVar2;
+  int iVar3;
+  void *this_00;
+  int *piVar4;
+  int *piVar5;
+  undefined *puVar6;
+  undefined4 local_20;
+  undefined4 local_18;
+  
+  uVar1 = FUN_004f1540((int)this);
+  FUN_004f15a0(this,0);
+  FUN_00877700((int)DAT_011dea3c);
+  bVar2 = FUN_007d6bd0(DAT_011ddf38,'\0');
+  FUN_00453a70();
+  FUN_00ad8780();
+  FUN_008324e0('\0');
+  iVar3 = FUN_008d6f30((int)DAT_011dea3c);
+  if (iVar3 != 0) {
+    piVar4 = DAT_011dea3c;
+    this_00 = (void *)FUN_008d6f30((int)DAT_011dea3c);
+    FUN_0054ca90(this_00,piVar4);
+  }
+  piVar4 = (int *)FUN_00950bb0(DAT_011dea3c,'\x01');
+  if (piVar4 == (int *)0x0) {
+    local_18 = 0;
+  }
+  else {
+    local_18 = (**(code **)(*piVar4 + 0xc))();
+  }
+  if (local_18 != 0) {
+    iVar3 = FUN_009611e0(local_18);
+    if (iVar3 != 0) {
+      piVar5 = (int *)FUN_009611e0(local_18);
+      (**(code **)(*piVar5 + 0xe8))(piVar4);
+    }
+  }
+  piVar4 = (int *)FUN_00950bb0(DAT_011dea3c,'\0');
+  if (piVar4 == (int *)0x0) {
+    local_20 = 0;
+  }
+  else {
+    local_20 = (**(code **)(*piVar4 + 0xc))();
+  }
+  if (local_20 != 0) {
+    iVar3 = FUN_009611e0(local_20);
+    if (iVar3 != 0) {
+      piVar5 = (int *)FUN_009611e0(local_20);
+      (**(code **)(*piVar5 + 0xe8))(piVar4);
+    }
+  }
+  FUN_004539a0(DAT_011dea10,'\0','\0');
+  FUN_007037c0(DAT_011dea10,0x7fffffff);
+  FUN_0061cc40(DAT_011dea10,0x7fffffff);
+  puVar6 = FUN_006c0720();
+  FUN_006c09f0(puVar6);
+  FUN_00868d70('\0');
+  FUN_00c459d0('\0');
+  (**(code **)(*DAT_011dea3c + 0x1cc))(0,0);
+  FUN_0084a840(DAT_011ddf38);
+  FUN_00970d50(0x11e0e80);
+  FUN_004614e0(DAT_011c3f2c);
+  iVar3 = FUN_00b4f5c0();
+  FUN_00b631d0(iVar3);
+  FUN_0040fbe0();
+  FUN_00706320();
+  FUN_0045ac80((int)DAT_011dea10);
+  if (param_1 != '\0') {
+    FUN_007053f0();
+  }
+  FUN_007d6bd0(DAT_011ddf38,bVar2);
+  FUN_008776e0((int)DAT_011dea0c);
+  FUN_004f15a0(DAT_011dea0c,uVar1);
+  return;
+}
+
+
+
+
+### SECTION 2: PDD Queue Destructors
+
+======================================================================
+ProcessDeferredDestruction (1037 bytes) @ 0x00868d70
+======================================================================
+  Function: FUN_00868d70, Size: 1037 bytes
+
+void __cdecl FUN_00868d70(char param_1)
+
+{
+  undefined1 uVar1;
+  char cVar2;
+  undefined2 uVar3;
+  uint uVar4;
+  undefined2 extraout_var;
+  undefined4 *puVar5;
+  undefined2 extraout_var_00;
+  undefined2 extraout_var_01;
+  int iVar6;
+  int *piVar7;
+  undefined2 extraout_var_02;
+  int unaff_FS_OFFSET;
+  uint local_2c;
+  uint local_24;
+  uint local_1c;
+  uint local_10;
+  char local_5;
+  
+  if (DAT_011de958 == '\0') {
+    local_5 = '\x01';
+    if (param_1 == '\0') {
+      FUN_00867f50();
+    }
+    else {
+      local_5 = FUN_00867f70();
+    }
+    if (local_5 != '\0') {
+      DAT_011de958 = 1;
+      uVar1 = *(undefined1 *)(*(int *)(*(int *)(unaff_FS_OFFSET + 0x2c) + _tls_index * 4) + 0x298);
+      *(undefined1 *)(*(int *)(*(int *)(unaff_FS_OFFSET + 0x2c) + _tls_index * 4) + 0x298) = 0;
+      uVar4 = FUN_00869180(0x10);
+      if (((uVar4 & 0xff) == 0) && (cVar2 = FUN_0078d1f0(), cVar2 != '\0')) {
+        FUN_004dffa0(0x11de828);
+        FUN_00452530();
+      }
+      uVar4 = FUN_00869180(8);
+      if (((uVar4 & 0xff) == 0) && (cVar2 = FUN_00868250(DAT_011c3b3c), cVar2 != '\0')) {
+        uVar3 = FUN_00658930(0x11de808);
+        for (local_10 = 0; local_10 < CONCAT22(extraout_var,uVar3); local_10 = local_10 + 1) {
+          puVar5 = (undefined4 *)FUN_00877a30(&DAT_011de808,local_10);
+          if ((void *)*puVar5 != (void *)0x0) {
+            FUN_00418d20((void *)*puVar5,1);
+          }
+        }
+        FUN_005e03d0(0x11de808);
+        FUN_004aaf10(DAT_011c3b3c);
+      }
+      uVar4 = FUN_00869180(4);
+      if (((uVar4 & 0xff) == 0) && (cVar2 = FUN_00868250(DAT_011c3b3c), cVar2 != '\0')) {
+        uVar3 = FUN_00658930(0x11de910);
+        for (local_1c = 0; local_1c < CONCAT22(extraout_var_00,uVar3); local_1c = local_1c + 1) {
+          puVar5 = (undefined4 *)FUN_00877a30(&DAT_011de910,local_1c);
+          if ((void *)*puVar5 != (void *)0x0) {
+            FUN_00418e00((void *)*puVar5,1);
+          }
+        }
+        FUN_005e03d0(0x11de910);
+        FUN_004aaf10(DAT_011c3b3c);
+      }
+      uVar4 = FUN_00869180(2);
+      if ((uVar4 & 0xff) == 0) {
+        for (local_24 = 0; uVar3 = FUN_00658930(0x11de888),
+            local_24 < CONCAT22(extraout_var_01,uVar3); local_24 = local_24 + 1) {
+          puVar5 = (undefined4 *)FUN_00877a30(&DAT_011de888,local_24);
+          iVar6 = FUN_00559450(puVar5);
+          if (iVar6 != 0) {
+            piVar7 = (int *)FUN_00877a30(&DAT_011de888,local_24);
+            FUN_00868ce0(*piVar7);
+          }
+        }
+        FUN_004dffa0(0x11de888);
+      }
+      uVar4 = FUN_00869180(1);
+      if (((uVar4 & 0xff) == 0) && (cVar2 = FUN_00868250(DAT_011c3b3c), cVar2 != '\0')) {
+        while (uVar3 = FUN_00658930(0x11de874), CONCAT22(extraout_var_02,uVar3) != 0) {
+          piVar7 = (int *)FUN_00877a30(&DAT_011de874,0);
+          if ((int *)*piVar7 != (int *)0x0) {
+            (**(code **)(*(int *)*piVar7 + 0x10))(1);
+          }
+        }
+        FUN_005e03d0(0x11de874);
+        FUN_004aaf10(DAT_011c3b3c);
+      }
+      uVar4 = FUN_00869180(0x20);
+      if ((uVar4 & 0xff) == 0) {
+        for (local_2c = 0; uVar4 = FUN_0044ddc0(0x11de924), local_2c < uVar4;
+            local_2c = local_2c + 1) {
+          piVar7 = (int *)FUN_00877a30(&DAT_011de924,local_2c);
+          FUN_00401970((int *)(*piVar7 + 0x1c));
+        }
+        FUN_008454f0(&DAT_011de924,'\x01');
+      }
+      *(undefined1 *)(*(int *)(*(int *)(unaff_FS_OFFSET + 0x2c) + _tls_index * 4) + 0x298) = uVar1;
+      if (*(char *)(*(int *)(*(int *)(unaff_FS_OFFSET + 0x2c) + _tls_index * 4) + 0x298) != '\0') {
+        FUN_008694c0(&DAT_011de8bc,&DAT_011de874);
+        FUN_005e03d0(0x11de8bc);
+        FUN_00869420(&DAT_011de848,&DAT_011de888);
+        FUN_004dffa0(0x11de848);
+        FUN_008694c0(&DAT_011de838,&DAT_011de910);
+        FUN_005e03d0(0x11de838);
+        FUN_00869560(&DAT_011de858,&DAT_011de828);
+        FUN_004dffa0(0x11de858);
+        FUN_00869510(&DAT_011de898,&DAT_011de924);
+        FUN_008454f0(&DAT_011de898,'\x01');
+      }
+      DAT_011de958 = '\0';
+      FUN_00867f80();
+    }
+  }
+  return;
+}
+
+
+
+======================================================================
+NiNode_Release (queue 0x08, 44 bytes) @ 0x00418d20
+======================================================================
+  Function: FUN_00418d20, Size: 44 bytes
+
+undefined4 * __thiscall FUN_00418d20(void *this,uint param_1)
+
+{
+  FUN_0048fb50(this);
+  if ((param_1 & 1) != 0) {
+    FUN_00401030(this);
+  }
+  return this;
+}
+
+
+
+======================================================================
+Texture_Release (queue 0x04, 44 bytes) @ 0x00418e00
+======================================================================
+  Function: FUN_00418e00, Size: 44 bytes
+
+undefined4 * __thiscall FUN_00418e00(void *this,uint param_1)
+
+{
+  FUN_004aae50(this);
+  if ((param_1 & 1) != 0) {
+    FUN_00401030(this);
+  }
+  return this;
+}
+
+
+
+======================================================================
+Havok_Release (queue 0x20) @ 0x00401970
+======================================================================
+  Function: FUN_00401970, Size: 43 bytes
+
+void __fastcall FUN_00401970(int *param_1)
+
+{
+  int iVar1;
+  
+  iVar1 = FUN_004019a0(param_1 + 1);
+  if (iVar1 == 0) {
+    (**(code **)(*param_1 + 4))();
+  }
+  return;
+}
+
+
+
+======================================================================
+Anim_ClearFlag (queue 0x02, 39 bytes) @ 0x00868ce0
+======================================================================
+  Function: FUN_00868ce0, Size: 39 bytes
+
+void __fastcall FUN_00868ce0(int param_1)
+
+{
+  FUN_00868770((LONG *)(param_1 + 4),*(uint *)(param_1 + 4) & 0xbfffffff);
+  return;
+}
+
+
+
+======================================================================
+PDD_FormLock (queue 0x10, 15 bytes) @ 0x0078d1f0
+======================================================================
+  Function: FUN_0078d1f0, Size: 15 bytes
+
+void FUN_0078d1f0(void)
+
+{
+  FUN_0078d200((LONG *)&DAT_011f4480);
+  return;
+}
+
+
+
+
+### SECTION 3: NiRefObject Release ? Delete chain
+# When refcount hits 0, does the delete go through GameHeap::Free?
+
+======================================================================
+NiRefObject_DecRef (common release) @ 0x0040f9e0
+======================================================================
+  Function: FUN_0040f9e0, Size: 93 bytes
+
+undefined4 __cdecl FUN_0040f9e0(int param_1,int param_2)
+
+{
+  int unaff_FS_OFFSET;
+  undefined4 local_8;
+  
+  local_8 = 0;
+  if (param_1 == *(int *)(*(int *)(*(int *)(unaff_FS_OFFSET + 0x2c) + _tls_index * 4) + 8)) {
+    FUN_0040f900();
+    if ((-1 < param_2) && (param_2 < 0x93)) {
+      local_8 = *(undefined4 *)
+                 (*(int *)(*(int *)(unaff_FS_OFFSET + 0x2c) + _tls_index * 4) + 0x10 + param_2 * 4);
+    }
+  }
+  return local_8;
+}
+
+
+
+======================================================================
+NiRefObject_Delete (operator delete) @ 0x0040fa60
+======================================================================
+  Function: FUN_0040fa40, Size: 147 bytes
+
+void __cdecl FUN_0040fa40(int param_1,int param_2)
+
+{
+  int iVar1;
+  byte bVar2;
+  int unaff_FS_OFFSET;
+  
+  if ((param_1 != 0) && (param_2 != 0)) {
+    if (param_1 != *(int *)(*(int *)(*(int *)(unaff_FS_OFFSET + 0x2c) + _tls_index * 4) + 8)) {
+      std::_Fiopen((wchar_t *)(*(int *)(*(int *)(unaff_FS_OFFSET + 0x2c) + _tls_index * 4) + 0x10),0
+                   ,0x24c);
+      *(int *)(*(int *)(*(int *)(unaff_FS_OFFSET + 0x2c) + _tls_index * 4) + 8) = param_1;
+    }
+    iVar1 = *(int *)(*(int *)(unaff_FS_OFFSET + 0x2c) + _tls_index * 4);
+    bVar2 = FUN_004f1540(param_2);
+    *(int *)(iVar1 + 0x10 + (uint)bVar2 * 4) = param_2;
+  }
+  return;
+}
+
+
+
+======================================================================
+GameHeap::Free (hooked) @ 0x00aa4060
+======================================================================
+  Function: FUN_00aa4060, Size: 236 bytes
+
+void __thiscall FUN_00aa4060(void *this,undefined4 *param_1)
+
+{
+  void *this_00;
+  bool bVar1;
+  int *piVar2;
+  
+  if (param_1 != (undefined4 *)0x0) {
+    if (*(char *)this == '\0') {
+      FUN_00aa42c0(param_1);
+    }
+    else if (*(int *)((int)this + 0x110) == 0) {
+      FUN_00aa42c0(param_1);
+    }
+    else {
+      this_00 = *(void **)(&DAT_011f63b8 + ((uint)param_1 >> 0x18) * 4);
+      if (this_00 != (void *)0x0) {
+        if ((param_1 < *(undefined4 **)((int)this_00 + 4)) ||
+           ((undefined4 *)(*(int *)((int)this_00 + 4) + *(int *)((int)this_00 + 0x50)) <= param_1))
+        {
+          bVar1 = false;
+        }
+        else {
+          bVar1 = true;
+        }
+        if (bVar1) {
+          FUN_00aa6c70(this_00,param_1);
+          return;
+        }
+      }
+      piVar2 = FUN_00aa45a0(this,param_1);
+      if (piVar2 == (int *)0x0) {
+        FUN_00aa42c0(param_1);
+      }
+      else {
+        (**(code **)(*piVar2 + 0xc))(param_1,0);
+      }
+    }
+  }
+  return;
+}
+
+
+
+======================================================================
+FallbackFree (25 bytes, calls CRT _free) @ 0x00aa42c0
+======================================================================
+  Function: FUN_00aa42c0, Size: 25 bytes
+
+void FUN_00aa42c0(void *param_1)
+
+{
+  _free(param_1);
+  return;
+}
+
+
+
+
+### SECTION 4: Havok object free paths
+# hkBSHeightFieldShape destruction ? does it use GameHeap or CRT?
+
+======================================================================
+hkDeallocate (Havok dealloc) @ 0x00c3e170
+======================================================================
+  Function: FUN_00c3dfa0, Size: 513 bytes
+
+/* WARNING: Globals starting with '_' overlap smaller symbols at the same address */
+
+void __thiscall FUN_00c3dfa0(void *this,int param_1)
+
+{
+  uint uVar1;
+  int iVar2;
+  int iVar3;
+  uint uVar4;
+  uint uVar5;
+  int local_40;
+  int local_2c;
+  int local_28;
+  uint local_10;
+  char local_9;
+  
+  if (*(int *)((int)this + 0x68) != 7) {
+    DAT_011af70c = 0;
+    if ((*(int *)((int)this + 0x18) == 0) &&
+       (iVar2 = (**(code **)(**(int **)((int)this + 100) + 0xc))(), iVar2 == 0)) {
+      if (*(int *)((int)this + 0x6c) == 0) {
+        local_28 = 0;
+      }
+      else {
+        local_28 = (**(code **)((int)this + 0x6c))();
+      }
+      if (local_28 == 0) {
+        *(undefined4 *)((int)this + 0x68) = 6;
+        DAT_011af70c = 1;
+        return;
+      }
+    }
+    *(int *)((int)this + 0x68) = param_1;
+    FUN_00c3e1b0(this,param_1,0);
+    iVar2 = (**(code **)(**(int **)((int)this + 100) + 0xc))();
+    if (*(int *)((int)this + 0x6c) == 0) {
+      local_2c = 0;
+    }
+    else {
+      local_2c = (**(code **)((int)this + 0x6c))();
+    }
+    iVar3 = FUN_00c3e860(this,param_1 * 4 + 3);
+    uVar4 = iVar3 + iVar2 + local_2c;
+    local_9 = '\0';
+    local_10 = uVar4;
+    while ((local_10 != 0 || (local_9 == '\0'))) {
+      if (*(int *)((int)this + 0x78) != 0) {
+        (**(code **)((int)this + 0x78))
+                  ((float)(((float10)(uVar4 - local_10) / (float10)uVar4) * (float10)_DAT_01017a40))
+        ;
+      }
+      uVar1 = *(uint *)((int)this + 0x18);
+      uVar5 = (**(code **)(**(int **)((int)this + 100) + 0xc))();
+      if (uVar5 < uVar1) {
+        Sleep(0x32);
+      }
+      local_9 = FUN_00c3dbf0((int)this);
+      iVar2 = (**(code **)(**(int **)((int)this + 100) + 0xc))();
+      if (*(int *)((int)this + 0x6c) == 0) {
+        local_40 = 0;
+      }
+      else {
+        local_40 = (**(code **)((int)this + 0x6c))();
+      }
+      iVar3 = FUN_00c3e860(this,param_1 * 4 + 3);
+      local_10 = iVar3 + iVar2 + local_40;
+    }
+    *(undefined4 *)((int)this + 0x68) = 6;
+    if (*(int *)((int)this + 0x78) != 0) {
+      (**(code **)((int)this + 0x78))(DAT_01016410);
+    }
+    DAT_011af70c = 1;
+  }
+  return;
+}
+
+
+
+======================================================================
+hkAllocate (Havok alloc) @ 0x00c3e0d0
+======================================================================
+  Function: FUN_00c3dfa0, Size: 513 bytes
+
+/* WARNING: Globals starting with '_' overlap smaller symbols at the same address */
+
+void __thiscall FUN_00c3dfa0(void *this,int param_1)
+
+{
+  uint uVar1;
+  int iVar2;
+  int iVar3;
+  uint uVar4;
+  uint uVar5;
+  int local_40;
+  int local_2c;
+  int local_28;
+  uint local_10;
+  char local_9;
+  
+  if (*(int *)((int)this + 0x68) != 7) {
+    DAT_011af70c = 0;
+    if ((*(int *)((int)this + 0x18) == 0) &&
+       (iVar2 = (**(code **)(**(int **)((int)this + 100) + 0xc))(), iVar2 == 0)) {
+      if (*(int *)((int)this + 0x6c) == 0) {
+        local_28 = 0;
+      }
+      else {
+        local_28 = (**(code **)((int)this + 0x6c))();
+      }
+      if (local_28 == 0) {
+        *(undefined4 *)((int)this + 0x68) = 6;
+        DAT_011af70c = 1;
+        return;
+      }
+    }
+    *(int *)((int)this + 0x68) = param_1;
+    FUN_00c3e1b0(this,param_1,0);
+    iVar2 = (**(code **)(**(int **)((int)this + 100) + 0xc))();
+    if (*(int *)((int)this + 0x6c) == 0) {
+      local_2c = 0;
+    }
+    else {
+      local_2c = (**(code **)((int)this + 0x6c))();
+    }
+    iVar3 = FUN_00c3e860(this,param_1 * 4 + 3);
+    uVar4 = iVar3 + iVar2 + local_2c;
+    local_9 = '\0';
+    local_10 = uVar4;
+    while ((local_10 != 0 || (local_9 == '\0'))) {
+      if (*(int *)((int)this + 0x78) != 0) {
+        (**(code **)((int)this + 0x78))
+                  ((float)(((float10)(uVar4 - local_10) / (float10)uVar4) * (float10)_DAT_01017a40))
+        ;
+      }
+      uVar1 = *(uint *)((int)this + 0x18);
+      uVar5 = (**(code **)(**(int **)((int)this + 100) + 0xc))();
+      if (uVar5 < uVar1) {
+        Sleep(0x32);
+      }
+      local_9 = FUN_00c3dbf0((int)this);
+      iVar2 = (**(code **)(**(int **)((int)this + 100) + 0xc))();
+      if (*(int *)((int)this + 0x6c) == 0) {
+        local_40 = 0;
+      }
+      else {
+        local_40 = (**(code **)((int)this + 0x6c))();
+      }
+      iVar3 = FUN_00c3e860(this,param_1 * 4 + 3);
+      local_10 = iVar3 + iVar2 + local_40;
+    }
+    *(undefined4 *)((int)this + 0x68) = 6;
+    if (*(int *)((int)this + 0x78) != 0) {
+      (**(code **)((int)this + 0x78))(DAT_01016410);
+    }
+    DAT_011af70c = 1;
+  }
+  return;
+}
+
+
+
+======================================================================
+bhkCollisionObject_dtor @ 0x00c40dc0
+======================================================================
+  Function: FUN_00c40b70, Size: 754 bytes
+
+void __thiscall FUN_00c40b70(void *this,char param_1)
+
+{
+  undefined4 uVar1;
+  uint uVar2;
+  uint *puVar3;
+  uint uVar4;
+  int *piVar5;
+  void *this_00;
+  int *unaff_FS_OFFSET;
+  uint *local_98;
+  undefined4 *local_20;
+  uint local_1c;
+  int local_10;
+  undefined1 *puStack_c;
+  undefined4 local_8;
+  
+  puStack_c = &LAB_00f2e063;
+  local_10 = *unaff_FS_OFFSET;
+  *unaff_FS_OFFSET = (int)&local_10;
+  uVar1 = *(undefined4 *)(*(int *)(unaff_FS_OFFSET[0xb] + _tls_index * 4) + 0x2b4);
+  *(undefined4 *)(*(int *)(unaff_FS_OFFSET[0xb] + _tls_index * 4) + 0x2b4) = 6;
+  local_8 = 0;
+  if (*(int *)((int)this + 0x14) == 0) {
+    *(undefined4 *)(*(int *)(unaff_FS_OFFSET[0xb] + _tls_index * 4) + 0x2b4) = uVar1;
+  }
+  else {
+    FUN_0040fbf0((LONG *)((int)this + 0x20));
+    uVar2 = **(uint **)((int)this + 0x14);
+    puVar3 = *(uint **)((int)this + 0x14);
+    if (puVar3 != (uint *)0x0) {
+      FUN_00c420d0(puVar3);
+      FUN_00aa4060(&DAT_011f6238,puVar3);
+    }
+    *(undefined4 *)((int)this + 0x14) = 0;
+    *(undefined4 *)((int)this + 0x18) = 0;
+    for (local_1c = 0; local_1c < *(uint *)((int)this + 8); local_1c = local_1c + 1) {
+      uVar4 = *(uint *)(*(int *)((int)this + 0xc) + local_1c * 4);
+      *(undefined4 *)(*(int *)((int)this + 0xc) + local_1c * 4) = 0;
+      while (local_20 = (undefined4 *)(uVar4 & 0xfffffffe), local_20 != (undefined4 *)0x0) {
+        uVar4 = local_20[3];
+        local_20[3] = 0;
+        piVar5 = local_20 + 2;
+        if (*piVar5 != 0) {
+          if (*piVar5 != 0) {
+            FUN_0044dd60((undefined4 *)*piVar5);
+          }
+          *piVar5 = 0;
+          if (*piVar5 != 0) {
+            InterlockedIncrement((LONG *)(*piVar5 + 8));
+          }
+        }
+        FUN_00c41fe0(this,local_20);
+      }
+    }
+    if (param_1 == '\0') {
+      this_00 = FUN_00aa3e40(&DAT_011f6238,0x10);
+      local_8 = CONCAT31(local_8._1_3_,1);
+      if (this_00 == (void *)0x0) {
+        local_98 = (uint *)0x0;
+      }
+      else {
+        local_98 = FUN_00c42180(this_00,uVar2);
+      }
+      *(uint **)((int)this + 0x14) = local_98;
+    }
+    *(int *)((int)this + 0x24) = *(int *)((int)this + 0x24) + -1;
+    if (*(int *)((int)this + 0x24) == 0) {
+      *(undefined4 *)((int)this + 0x20) = 0;
+    }
+    *(undefined4 *)(*(int *)(unaff_FS_OFFSET[0xb] + _tls_index * 4) + 0x2b4) = uVar1;
+  }
+  *unaff_FS_OFFSET = local_10;
+  return;
+}
+
+
+
+
+### SECTION 5: DestroyCell ? what gets freed
+
+======================================================================
+DestroyCell (called by FindCellToUnload) @ 0x00462290
+======================================================================
+  Function: FUN_00462290, Size: 341 bytes
+
+void FUN_00462290(int *param_1)
+
+{
+  bool bVar1;
+  char cVar2;
+  undefined4 uVar3;
+  void *pvVar4;
+  char local_5;
+  
+  if ((param_1 != (int *)0x0) && (bVar1 = FUN_00440d80((int)param_1), !bVar1)) {
+    FUN_0044ada0(1);
+    local_5 = '\0';
+    bVar1 = FUN_0042ce10(DAT_011ddf38);
+    if (bVar1) {
+      uVar3 = FUN_004623f0('\0');
+      local_5 = (char)uVar3;
+    }
+    FUN_00552bd0(param_1,'\x01');
+    FUN_009740a0(&DAT_011e0e80,(int)param_1);
+    FUN_004512a0(param_1,1);
+    FUN_005508b0(param_1);
+    FUN_0054b750((int)param_1);
+    while (bVar1 = FUN_00551620((int)param_1), bVar1) {
+      FUN_00551480(param_1,'\0');
+    }
+    cVar2 = FUN_004226e0(DAT_011c3f2c);
+    if (cVar2 == '\0') {
+      bVar1 = FUN_0094df60(DAT_011dea3c);
+      FUN_0054af40(param_1,!bVar1);
+    }
+    bVar1 = FUN_00425fd0((int)param_1);
+    if (!bVar1) {
+      pvVar4 = (void *)FUN_00546fb0((int)param_1);
+      FUN_00536d80(pvVar4);
+    }
+    FUN_00546970(param_1);
+    FUN_00961f30(param_1,0);
+    bVar1 = FUN_00425fd0((int)param_1);
+    if (!bVar1) {
+      pvVar4 = (void *)FUN_0054ddd0((int)param_1);
+      FUN_00585e00(pvVar4,param_1);
+    }
+    bVar1 = FUN_0042ce10(DAT_011ddf38);
+    if (bVar1) {
+      FUN_004623f0(local_5);
+    }
+    FUN_0044ada0(0);
+  }
+  return;
+}
+
+
+
+======================================================================
+ForceUnloadCell (196 bytes) @ 0x004539a0
+======================================================================
+  Function: FUN_004539a0, Size: 196 bytes
+
+void __thiscall FUN_004539a0(void *this,char param_1,char param_2)
+
+{
+  undefined4 *puVar1;
+  int iVar2;
+  uint uVar3;
+  int *piVar4;
+  
+  puVar1 = (undefined4 *)FUN_0045bb80((int)this);
+  FUN_00470470(puVar1);
+  if (param_1 != '\0') {
+    iVar2 = FUN_005f36f0((int)this);
+    if (iVar2 == 0) goto LAB_004539d2;
+  }
+  FUN_00453940((int)this);
+LAB_004539d2:
+  FUN_00453a70();
+  FUN_00483710();
+  FUN_00455200(this,param_1,0);
+  iVar2 = FUN_005f36f0((int)this);
+  if ((iVar2 != 0) && (param_1 == '\0')) {
+    iVar2 = FUN_005f36f0((int)this);
+    uVar3 = FUN_00454bd0(this,iVar2);
+    if ((uVar3 & 0xff) == 0) {
+      piVar4 = (int *)FUN_005f36f0((int)this);
+      FUN_00462290(piVar4);
+    }
+  }
+  FUN_00454d50(this,param_1);
+  if ((param_1 == '\0') && (param_2 == '\0')) {
+    FUN_008d7dc0(this,0);
+  }
+  *(undefined1 *)((int)this + 0xb4) = 1;
+  return;
+}
+
+
+
+
+### SECTION 6: AI thread heightfield access pattern
+# Where exactly does the AI thread read hkBSHeightFieldShape?
+
+======================================================================
+AIProcess_Main (991 bytes, raycasting) @ 0x0096c330
+======================================================================
+  Function: FUN_0096c330, Size: 991 bytes
+
+/* WARNING: Globals starting with '_' overlap smaller symbols at the same address */
+
+void __fastcall FUN_0096c330(int param_1)
+
+{
+  ulonglong uVar1;
+  char cVar2;
+  bool bVar3;
+  undefined1 uVar4;
+  uint uVar5;
+  int iVar6;
+  int *piVar7;
+  float *pfVar8;
+  float10 fVar9;
+  byte local_35;
+  int local_34;
+  byte local_2e;
+  undefined1 local_2d;
+  int local_2c;
+  float local_28;
+  float local_24;
+  float local_20;
+  IScheduler *local_1c;
+  uint local_18;
+  uint local_14;
+  float local_10;
+  IScheduler *local_c;
+  IScheduler *local_8;
+  
+  local_c = (IScheduler *)0x0;
+  local_8 = (IScheduler *)0x0;
+  local_14 = FUN_005be5c0((void *)(param_1 + 4),0);
+  uVar1 = (ulonglong)local_14;
+  fVar9 = FUN_0084d030(0x11f6394);
+  local_10 = (float)(fVar9 * (float10)uVar1);
+  fVar9 = FUN_0040ebd0(local_10,_DAT_0101712c);
+  local_10 = (float)fVar9;
+  if (local_14 == 0) {
+    FUN_008c8bb0(DAT_011dea3c,0);
+  }
+  local_18 = FUN_005de0f0((void *)(param_1 + 4),0);
+  while (uVar5 = FUN_005be5c0((void *)(param_1 + 4),0), local_18 < uVar5) {
+    local_8 = (IScheduler *)FUN_00968670((void *)(param_1 + 4),local_18);
+    if ((local_8 != (IScheduler *)0x0) &&
+       (cVar2 = (**(code **)(*(int *)local_8 + 0x100))(), cVar2 != '\0')) {
+      local_c = local_8;
+      local_1c = local_8;
+      if ((local_8[0xbc] != (IScheduler)0x0) &&
+         (iVar6 = (**(code **)(*(int *)local_8 + 0x1d0))(), iVar6 != 0)) {
+        fVar9 = FUN_005723b0(local_1c,(int *)DAT_011dea3c,'\0','\0');
+        local_20 = (float)fVar9;
+        if ((local_1c != DAT_011dea3c) && (cVar2 = FUN_0047c850(), cVar2 == '\0')) {
+          fVar9 = (float10)(**(code **)(*(int *)local_c + 0x2b4))();
+          local_24 = (float)fVar9;
+          if (local_18 == 0) {
+            FUN_008c8bb0(DAT_011dea3c,0);
+          }
+          if ((((float)_DAT_01012060 <= local_24) || (bVar3 = FUN_00437bd0((int)local_1c), bVar3))
+             || (cVar2 = (**(code **)(*(int *)local_c + 0x22c))(0), cVar2 != '\0')) {
+            if (local_24 < (float)_DAT_01012060) {
+              FUN_00967350(DAT_011dea3c,(int)local_c);
+            }
+            (**(code **)(*(int *)local_c + 0x2b8))();
+          }
+          else {
+            fVar9 = FUN_007014e0(1);
+            if (fVar9 < (float10)_DAT_01012060 != (fVar9 == (float10)_DAT_01012060)) {
+              fVar9 = (float10)FUN_00476b70(0.0,local_10);
+              local_28 = (float)fVar9;
+              (**(code **)(*(int *)local_c + 0x2b0))(local_28);
+              iVar6 = FUN_004181e0((int)local_1c);
+              cVar2 = (**(code **)(*(int *)(iVar6 + 0x30) + 0x20))();
+              if (cVar2 == '\0') {
+                piVar7 = (int *)FUN_008d8520((int)local_1c);
+                cVar2 = (**(code **)(*piVar7 + 0x70))(local_1c);
+                if (cVar2 != '\0') {
+                  local_2e = 0;
+                  uVar4 = FUN_00493bb0((int)local_c);
+                  local_35 = 0;
+                  local_2c = FUN_008a0d10(DAT_011dea3c,'\x01',local_c,&local_2e,uVar4,'\0',0,
+                                          &local_35);
+                  local_34 = 0;
+                  local_2d = 0;
+                  cVar2 = FUN_008b06d0(local_c,(int *)DAT_011dea3c,'\0',&local_34,'\0');
+                  if ((cVar2 == '\0') && (uVar5 = FUN_008bc700((int)local_c), (uVar5 & 0xff) == 0))
+                  {
+                    if ((local_34 == 0) || (local_34 == 1)) {
+                      iVar6 = FUN_004181e0((int)local_c);
+                      cVar2 = FUN_00705cf0(iVar6 + 0x90);
+                      if ((cVar2 != '\0') && (bVar3 = FUN_008a78f0(local_c,6), !bVar3)) {
+                        local_2d = 1;
+                      }
+                    }
+                  }
+                  else {
+                    local_2d = 1;
+                  }
+                  if ((local_c != (IScheduler *)0x0) &&
+                     (pfVar8 = (float *)FUN_00403e20(0x11ccf94), local_20 < *pfVar8)) {
+                    FUN_0096e3c0(&DAT_011e0e80,(int)local_1c);
+                  }
+                  iVar6 = local_2c;
+                  pfVar8 = (float *)FUN_00403e20(0x11d13c8);
+                  if ((float)iVar6 <= *pfVar8) {
+                    if ((local_35 == 0) && (local_2e == 0)) {
+                      FUN_00967350(DAT_011dea3c,(int)local_c);
+                    }
+                    else {
+                      FUN_00966f20(DAT_011dea3c,(int *)local_c,local_2d,1);
+                    }
+                  }
+                  else {
+                    FUN_00966f20(DAT_011dea3c,(int *)local_c,local_2d,0);
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+    local_18 = local_18 + 1;
+  }
+  return;
+}
+
+
+
+
+### SECTION 7: HeapCompact Stage 2 (cell/resource cleanup)
+# What does Stage 2 actually do? Does it unload cells?
+
+======================================================================
+HeapCompact (602 bytes) @ 0x00866a90
+======================================================================
+  Function: FUN_00866a90, Size: 602 bytes
+
+int __thiscall FUN_00866a90(void *this,undefined4 param_1,int param_2,char *param_3)
+
+{
+  char cVar1;
+  int iVar2;
+  int iVar3;
+  void *this_00;
+  uint uVar4;
+  bool bVar5;
+  
+  *param_3 = '\x01';
+  iVar2 = FUN_0040fc90();
+  iVar3 = FUN_0044edb0(DAT_011dea0c);
+  bVar5 = iVar2 == iVar3;
+  switch(param_2) {
+  case 0:
+    DAT_011de70c = 0;
+    if (bVar5) {
+      FUN_00452490(DAT_011dea10,'\0');
+    }
+    break;
+  case 1:
+    iVar2 = FUN_00866d10();
+    FUN_00aa5c80(iVar2);
+    break;
+  case 2:
+    iVar2 = FUN_00652110();
+    if (iVar2 != 0) {
+      iVar2 = FUN_00652110();
+      cVar1 = FUN_00529ea0(iVar2);
+      if ((cVar1 != '\0') && (bVar5 = FUN_00652160(), bVar5)) {
+        iVar2 = FUN_00652130();
+        if (iVar2 == 1) {
+          cVar1 = '\0';
+          this_00 = (void *)FUN_00652110();
+          FUN_00650a30(this_00,cVar1);
+        }
+        FUN_00652190();
+      }
+    }
+    break;
+  case 5:
+    if (!bVar5) break;
+    FUN_00869190(0);
+    uVar4 = FUN_00453a80((int)DAT_011dea10);
+    if ((uVar4 & 0xff) == 0) {
+      FUN_004539a0(DAT_011dea10,'\x01','\0');
+    }
+    else {
+      param_2 = param_2 + -1;
+    }
+    FUN_00452490(DAT_011dea10,'\0');
+    FUN_00869190(1);
+    FUN_00868d70('\x01');
+  case 4:
+    bVar5 = FUN_0078d200((LONG *)&DAT_011f11a0);
+    if (bVar5) {
+      FUN_00868d70('\x01');
+      FUN_0040fba0((undefined4 *)&DAT_011f11a0);
+    }
+  case 3:
+    FUN_00c459d0('\x01');
+    break;
+  case 6:
+    if (bVar5) {
+      FUN_00aa7030();
+    }
+    break;
+  case 7:
+    if ((*param_3 == '\0') && (bVar5)) {
+      *param_3 = '\x01';
+      break;
+    }
+  case 8:
+    if (!bVar5) {
+      *(undefined4 *)((int)this + 0x134) = 6;
+      if (DAT_011de70c < 15000) {
+        iVar2 = FUN_00866da0(DAT_01202d98,0);
+        iVar3 = FUN_0040fc90();
+        if (iVar2 == iVar3) {
+          FUN_00866dc0(DAT_01202d98,0);
+          FUN_00866de0(DAT_01202d98,0);
+        }
+        iVar2 = FUN_00866da0(DAT_01202d98,1);
+        iVar3 = FUN_0040fc90();
+        if (iVar2 == iVar3) {
+          FUN_00866dc0(DAT_01202d98,1);
+          FUN_00866de0(DAT_01202d98,1);
+        }
+        FUN_0040fca0(1);
+        DAT_011de70c = DAT_011de70c + 1;
+        param_2 = param_2 + -1;
+      }
+      else if (*param_3 == '\0') {
+        *param_3 = '\x01';
+      }
+    }
+  }
+  return param_2 + 1;
+}
+
+
+
+======================================================================
+Stage2_CellManager (exterior cell manager) @ 0x00652110
+======================================================================
+  Function: FUN_00652110, Size: 29 bytes
+
+undefined4 FUN_00652110(void)
+
+{
+  undefined4 uVar1;
+  
+  if (DAT_011d59e8 == 0) {
+    uVar1 = 0;
+  }
+  else {
+    uVar1 = *(undefined4 *)(DAT_011d59e8 + 0x1194);
+  }
+  return uVar1;
+}
+
+
+
+======================================================================
+Stage2_ResourceCleanup (BSA/texture caches) @ 0x00650a30
+======================================================================
+  Function: FUN_00650a30, Size: 355 bytes
+
+void __thiscall FUN_00650a30(void *this,char param_1)
+
+{
+  bool bVar1;
+  int iVar2;
+  uint uVar3;
+  int *unaff_FS_OFFSET;
+  char local_1d;
+  cancellation_token_source local_1c [4];
+  undefined4 local_18;
+  int local_14;
+  int local_10;
+  undefined1 *puStack_c;
+  undefined4 local_8;
+  
+  local_8 = 0xffffffff;
+  puStack_c = &LAB_00f005c8;
+  local_10 = *unaff_FS_OFFSET;
+  *unaff_FS_OFFSET = (int)&local_10;
+  local_18 = 0;
+  FUN_00633c90(local_1c,0);
+  local_8 = 0;
+  local_1d = param_1;
+  if (param_1 == '\0') {
+    local_1d = FUN_00652160();
+  }
+  else {
+    FUN_00652140();
+  }
+  if (local_1d != '\0') {
+    bVar1 = false;
+    local_14 = FUN_004b9ba0((int)this + 4);
+    while (local_14 != 0) {
+      FUN_00559120((void *)((int)this + 4),&local_14,&local_18,local_1c);
+      iVar2 = FUN_00559450((undefined4 *)local_1c);
+      iVar2 = FUN_00559450((undefined4 *)(iVar2 + 8));
+      iVar2 = FUN_00726070(iVar2);
+      if (iVar2 == 1) {
+        FUN_00405430((void *)((int)this + 4),local_18);
+      }
+      else {
+        iVar2 = FUN_00559450((undefined4 *)local_1c);
+        if (iVar2 != 0) {
+          iVar2 = FUN_00559450((undefined4 *)local_1c);
+          iVar2 = FUN_00559450((undefined4 *)(iVar2 + 8));
+          if (iVar2 != 0) {
+            iVar2 = FUN_00559450((undefined4 *)local_1c);
+            iVar2 = FUN_00559450((undefined4 *)(iVar2 + 8));
+            uVar3 = FUN_0065c090(iVar2);
+            if ((uVar3 & 0xff) == 0) {
+              bVar1 = true;
+            }
+            iVar2 = FUN_00559450((undefined4 *)local_1c);
+            iVar2 = FUN_00559450((undefined4 *)(iVar2 + 8));
+            FUN_0065c3a0(iVar2);
+          }
+        }
+      }
+    }
+    if (!bVar1) {
+      *(undefined1 *)((int)this + 0x20) = 0;
+    }
+    FUN_00652190();
+  }
+  local_8 = 0xffffffff;
+  Concurrency::cancellation_token_source::~cancellation_token_source(local_1c);
+  *unaff_FS_OFFSET = local_10;
+  return;
+}
+
+
+
+
+### SECTION 8: IOManager / QueuedTexture lifecycle
+# How does IOManager process tasks? Where does it read QueuedTexture?
+
+======================================================================
+IO_ProcessTask (around crash addr 0x0043BFC1) @ 0x0043bf00
+======================================================================
+  Function: FUN_0043bef0, Size: 140 bytes
+
+undefined4 * __thiscall FUN_0043bef0(void *this,int param_1)
+
+{
+  int *unaff_FS_OFFSET;
+  int local_10;
+  undefined1 *puStack_c;
+  undefined4 local_8;
+  
+  local_8 = 0xffffffff;
+  puStack_c = &LAB_00eebe53;
+  local_10 = *unaff_FS_OFFSET;
+  *unaff_FS_OFFSET = (int)&local_10;
+  FUN_00c3ce60(this);
+  local_8 = 0;
+  *(undefined ***)this = &PTR_FUN_01016788;
+  FUN_00633c90((void *)((int)this + 0x30),0);
+  local_8 = CONCAT31(local_8._1_3_,1);
+  *(undefined1 *)((int)this + 0x34) = 0;
+  FUN_0066b0d0((void *)((int)this + 0x30),param_1);
+  FUN_00449150((int)this);
+  *unaff_FS_OFFSET = local_10;
+  return this;
+}
+
+
+
+======================================================================
+IO_TaskDispatch (caller) @ 0x0043be00
+======================================================================
+  Function: FUN_0043bde0, Size: 37 bytes
+
+void __fastcall FUN_0043bde0(int *param_1)
+
+{
+  FUN_0043be10(param_1[8]);
+  (**(code **)(*param_1 + 0x28))();
+  return;
+}
+
+
+
+======================================================================
+IO_QueueProcessor @ 0x0044dd00
+======================================================================
+  Function: FUN_0044dce0, Size: 44 bytes
+
+undefined4 * __thiscall FUN_0044dce0(void *this,uint param_1)
+
+{
+  FUN_0044cae0(this);
+  if ((param_1 & 1) != 0) {
+    FUN_00401030(this);
+  }
+  return this;
+}
+

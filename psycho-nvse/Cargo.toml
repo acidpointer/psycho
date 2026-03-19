@@ -12,7 +12,7 @@ opt-level = 3
 lto = "thin"
 
 [dependencies]
-libmimalloc = { path = "../libmimalloc" }
+libmimalloc = { path = "../libmimalloc", features = ["encoded_freelist"] }
 libnvse = { path = "../libnvse" }
 libpsycho = { path = "../libpsycho" }
 windows = { workspace = true }

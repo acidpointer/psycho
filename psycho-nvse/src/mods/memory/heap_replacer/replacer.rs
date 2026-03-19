@@ -149,12 +149,9 @@ pub fn install_game_heap_hooks() -> anyhow::Result<()> {
     // Now mimalloc owns everything, so there's nothing to compact. Disabling
     // these prevents stale arena corruption.
     unsafe {
-        // --- RET patches: SBM functions return immediately ---
+        // --- RET patches: disable SBM functions that are pure overhead ---
 
         // SBM statistics/global state reset -- just resets counters
-        patch_ret(0x00AA6840 as *mut c_void)?;
-        // --- RET patches: disable SBM functions that are pure overhead ---
-        // Statistics/global state reset -- just resets counters
         patch_ret(0x00AA6840 as *mut c_void)?;
         // SBM config table init -- unused with mimalloc ownership
         patch_ret(0x00866770 as *mut c_void)?;

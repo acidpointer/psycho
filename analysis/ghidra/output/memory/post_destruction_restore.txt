@@ -1,0 +1,263 @@
+======================================================================
+POST-DESTRUCTION RESTORE ANALYSIS
+======================================================================
+
+# Checking function boundaries around 0x00878200
+
+======================================================================
+PostDestructionRestore @ 0x00878200 @ 0x00878200
+======================================================================
+  Function: FUN_00878200 @ 0x00878200, Size: 80 bytes
+
+void __cdecl FUN_00878200(int param_1)
+
+{
+  int iVar1;
+  
+  FUN_00a5b460();
+  FUN_00aa7030();
+  if (*(char *)(param_1 + 5) != '\0') {
+    FUN_00652190();
+  }
+  FUN_008781e0(*(undefined4 *)(param_1 + 8));
+  if (*(char *)(param_1 + 3) != '\0') {
+    iVar1 = FUN_0043c4b0();
+    FUN_004a03c0(iVar1);
+  }
+  FUN_00c3e340(DAT_01202d98);
+  return;
+}
+
+
+
+======================================================================
+PreDestructionSetup @ 0x00878160 @ 0x00878160
+======================================================================
+  Function: FUN_00878160 @ 0x00878160, Size: 113 bytes
+
+void __cdecl FUN_00878160(int param_1,char param_2,undefined1 param_3,char param_4)
+
+{
+  bool bVar1;
+  int iVar2;
+  undefined4 uVar3;
+  
+  FUN_00c3e310(DAT_01202d98);
+  if (param_4 == '\0') {
+    *(undefined1 *)(param_1 + 5) = 0;
+  }
+  else {
+    bVar1 = FUN_00652160();
+    *(bool *)(param_1 + 5) = bVar1;
+  }
+  if (param_2 != '\0') {
+    iVar2 = FUN_0043c4b0();
+    FUN_004a0370(iVar2);
+  }
+  *(char *)(param_1 + 3) = param_2;
+  *(undefined1 *)(param_1 + 4) = param_3;
+  uVar3 = FUN_008781f0();
+  *(undefined4 *)(param_1 + 8) = uVar3;
+  FUN_008781e0(0x7fffffff);
+  FUN_00703980();
+  return;
+}
+
+
+
+# Checking if 0x00878200 is a function entry point
+  YES: FUN_00878200 @ 0x00878200 (size 80)
+
+# Functions in range 0x00878100 - 0x00878300:
+  0x00878110  FUN_00878110  (20 bytes)
+  0x00878130  FUN_00878130  (33 bytes)
+  0x00878160  FUN_00878160  (113 bytes)
+  0x008781e0  FUN_008781e0  (13 bytes)
+  0x008781f0  FUN_008781f0  (10 bytes)
+  0x00878200  FUN_00878200  (80 bytes)
+  0x00878250  FUN_00878250  (86 bytes)
+  0x008782b0  FUN_008782b0  (130 bytes)
+
+# Decompiling all functions in range:
+
+======================================================================
+FUN_00878110 @ 0x00878110
+======================================================================
+  Function: FUN_00878110 @ 0x00878110, Size: 20 bytes
+
+undefined4 __fastcall FUN_00878110(int param_1)
+
+{
+  return *(undefined4 *)(param_1 + 0x134);
+}
+
+
+
+======================================================================
+FUN_00878130 @ 0x00878130
+======================================================================
+  Function: FUN_00878130 @ 0x00878130, Size: 33 bytes
+
+undefined4 __fastcall FUN_00878130(int param_1)
+
+{
+  *(undefined4 *)(param_1 + 0x134) = 0;
+  return *(undefined4 *)(param_1 + 0x134);
+}
+
+
+
+======================================================================
+FUN_00878160 @ 0x00878160
+======================================================================
+  Function: FUN_00878160 @ 0x00878160, Size: 113 bytes
+
+void __cdecl FUN_00878160(int param_1,char param_2,undefined1 param_3,char param_4)
+
+{
+  bool bVar1;
+  int iVar2;
+  undefined4 uVar3;
+  
+  FUN_00c3e310(DAT_01202d98);
+  if (param_4 == '\0') {
+    *(undefined1 *)(param_1 + 5) = 0;
+  }
+  else {
+    bVar1 = FUN_00652160();
+    *(bool *)(param_1 + 5) = bVar1;
+  }
+  if (param_2 != '\0') {
+    iVar2 = FUN_0043c4b0();
+    FUN_004a0370(iVar2);
+  }
+  *(char *)(param_1 + 3) = param_2;
+  *(undefined1 *)(param_1 + 4) = param_3;
+  uVar3 = FUN_008781f0();
+  *(undefined4 *)(param_1 + 8) = uVar3;
+  FUN_008781e0(0x7fffffff);
+  FUN_00703980();
+  return;
+}
+
+
+
+======================================================================
+FUN_008781e0 @ 0x008781e0
+======================================================================
+  Function: FUN_008781e0 @ 0x008781e0, Size: 13 bytes
+
+void __cdecl FUN_008781e0(undefined4 param_1)
+
+{
+  DAT_011a95fc = param_1;
+  return;
+}
+
+
+
+======================================================================
+FUN_008781f0 @ 0x008781f0
+======================================================================
+  Function: FUN_008781f0 @ 0x008781f0, Size: 10 bytes
+
+undefined4 FUN_008781f0(void)
+
+{
+  return DAT_011a95fc;
+}
+
+
+
+======================================================================
+FUN_00878200 @ 0x00878200
+======================================================================
+  Function: FUN_00878200 @ 0x00878200, Size: 80 bytes
+
+void __cdecl FUN_00878200(int param_1)
+
+{
+  int iVar1;
+  
+  FUN_00a5b460();
+  FUN_00aa7030();
+  if (*(char *)(param_1 + 5) != '\0') {
+    FUN_00652190();
+  }
+  FUN_008781e0(*(undefined4 *)(param_1 + 8));
+  if (*(char *)(param_1 + 3) != '\0') {
+    iVar1 = FUN_0043c4b0();
+    FUN_004a03c0(iVar1);
+  }
+  FUN_00c3e340(DAT_01202d98);
+  return;
+}
+
+
+
+======================================================================
+FUN_00878250 @ 0x00878250
+======================================================================
+  Function: FUN_00878250 @ 0x00878250, Size: 86 bytes
+
+void __cdecl FUN_00878250(char param_1)
+
+{
+  void *pvVar1;
+  
+  FUN_00868d70('\x01');
+  pvVar1 = (void *)FUN_00450b80(0);
+  FUN_00b5fd60(pvVar1);
+  FUN_00c459d0('\0');
+  if (param_1 != '\0') {
+    FUN_00651e30();
+    FUN_00651f40();
+  }
+  FUN_00448620(DAT_011c3b3c,'\x01');
+  FUN_00452490(DAT_011dea10,'\0');
+  return;
+}
+
+
+
+======================================================================
+FUN_008782b0 @ 0x008782b0
+======================================================================
+  Function: FUN_008782b0 @ 0x008782b0, Size: 130 bytes
+
+void FUN_008782b0(void)
+
+{
+  char cVar1;
+  int iVar2;
+  void *this;
+  undefined1 local_10 [5];
+  char local_b;
+  
+  FUN_00878160((int)local_10,'\x01',1,'\x01');
+  FUN_00878250(local_b);
+  cVar1 = FUN_00878340(DAT_011dea3c);
+  if (cVar1 != '\0') {
+    iVar2 = FUN_00652110();
+    if (iVar2 != 0) {
+      iVar2 = FUN_00652110();
+      cVar1 = FUN_00529ea0(iVar2);
+      if (cVar1 != '\0') {
+        iVar2 = FUN_00a09030(0x40c);
+        if (iVar2 == 0) {
+          cVar1 = '\0';
+          this = (void *)FUN_00652110();
+          FUN_00650a30(this,cVar1);
+        }
+      }
+    }
+  }
+  FUN_00878200((int)local_10);
+  return;
+}
+
+
+
+======================================================================
+RESEARCH COMPLETE
+======================================================================

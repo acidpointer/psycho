@@ -24,12 +24,13 @@
 //! per frame. Stops when queue 0x08 empties to avoid over-draining Havok.
 //!
 //! ## Layer 3: HeapCompact trigger (heap_singleton + 0x134)
-//! Under pressure, we write `5` to the HeapCompact trigger field. On the
-//! NEXT frame, FUN_00878080 at line ~797 runs HeapCompact stages 0-5.
-//! Stage 5 does TLS=0 → FindCellToUnload → full PDD (all queues).
-//! With TLS=0, BSTreeNodes are freed immediately and removed from
-//! BSTreeManager maps — render later builds draw lists WITHOUT them.
-//! This is the game's own cleanup at its native safe position.
+//! Under pressure, we write `2` to the HeapCompact trigger field. On the
+//! NEXT frame, FUN_00878080 at line ~797 runs HeapCompact stages 0-2:
+//! Stage 0 (reset + ProcessPendingCleanup), Stage 1 (SBM no-op),
+//! Stage 2 (BSA/texture cache cleanup).
+//! Stages 3+ are EXCLUDED — Stage 3 async queue flush completes stale IO
+//! tasks on freed cell data (QueuedTexture NULL vtable), Stage 4 full PDD
+//! races with IO/AI threads, Stage 5 TLS=0 + mimalloc = BSTreeNode crash.
 
 use libc::c_void;
 use std::sync::atomic::{AtomicBool, AtomicI64, AtomicU64, Ordering};
@@ -38,19 +39,27 @@ use std::sync::LazyLock;
 use libmimalloc::mi_collect;
 use libpsycho::ffi::fnptr::FnPtr;
 
-use super::types::{FindCellToUnloadFn, ProcessDeferredDestructionFn, ProcessPendingCleanupFn};
+use super::types::{
+    DeferredCleanupSmallFn, FindCellToUnloadFn, PostDestructionRestoreFn,
+    PreDestructionSetupFn,
+};
 
 // ---------------------------------------------------------------------------
 // Configuration
 // ---------------------------------------------------------------------------
 
+/// Enable manual cell unloading via FindCellToUnload.
+/// When true, pressure relief actively unloads cells + runs selective PDD.
+/// When false, relies solely on HeapCompact stages 0-2 + boosted per-frame
+/// drain. Disabling eliminates all stale-pointer crashes (QueuedTexture,
+/// hkBSHeightFieldShape, BSTreeNode) at the cost of higher commit under
+/// extreme stress (32-bit VA ceiling reached sooner).
+const CELL_UNLOAD_ENABLED: bool = true;
+
 /// Trigger cell cleanup when commit exceeds this (bytes).
 const THRESHOLD: usize = 700 * 1024 * 1024;
 
 /// Max cells to unload per relief cycle.
-/// 20 is the proven sweet spot. Higher values (30+) cause BSTreeNode
-/// use-after-free: cells unload faster than the per-frame NiNode drain
-/// can clean SpeedTree's cached draw list pointers.
 const MAX_CELLS_PER_CYCLE: usize = 20;
 
 /// Minimum milliseconds between relief cycles.
@@ -63,26 +72,19 @@ const COOLDOWN_MS: u64 = 2000;
 const FIND_CELL_TO_UNLOAD: usize = 0x00453A80;
 const PROCESS_PENDING_CLEANUP: usize = 0x00452490;
 const PROCESS_DEFERRED_DESTRUCTION: usize = 0x00868D70;
+/// PreDestruction_Setup: hkWorld_Lock + SceneGraphInvalidate.
+const PRE_DESTRUCTION_SETUP: usize = 0x00878160;
+/// PostDestruction_Restore: hkWorld_Unlock + restore state.
+const POST_DESTRUCTION_RESTORE: usize = 0x00878200;
+/// DeferredCleanup_Small: PDD(1) + AsyncFlush(0) + ProcessPendingCleanup.
+const DEFERRED_CLEANUP_SMALL: usize = 0x00878250;
+
 /// DAT_011dea10 — pointer to the game's TES/DataHandler manager singleton.
 const GAME_MANAGER_PTR: usize = 0x011DEA10;
-/// DAT_011de804 — bitmask controlling which PDD queues to skip.
-/// Bit 0x08 = NiNode/BSTreeNode queue, Bit 0x20 = Havok physics wrappers.
-const PDD_SKIP_MASK_PTR: usize = 0x011DE804;
 
 /// HeapCompact trigger field: heap_singleton + 0x134.
-///
-/// The heap singleton is &DAT_011F6238 (FUN_00401020 returns its address).
-/// FUN_00878110 reads *(heap + 0x134) to get the max stage to run.
-/// FUN_00878080 at MainLoop line ~797 checks this every frame.
-///
-/// Writing a value N here causes HeapCompact stages 0..N to run on the
-/// NEXT FRAME at line ~797 — BEFORE AI dispatch (line ~855), BEFORE
-/// render (line ~904). This is the game's native cleanup mechanism:
-/// - Stage 5: TLS=0, FindCellToUnload, ProcessPendingCleanup, TLS=1, full PDD
-/// - With TLS=0, BSTreeNodes are freed immediately and removed from
-///   BSTreeManager maps via TreeMgr_RemoveOnState vtable dispatch
-/// - Render later builds draw lists from the map — freed nodes are gone
-const HEAP_COMPACT_TRIGGER_PTR: usize = 0x011F636C; // 0x011F6238 + 0x134
+/// Writing N causes HeapCompact stages 0..N to run on the NEXT FRAME.
+const HEAP_COMPACT_TRIGGER_PTR: usize = 0x011F636C;
 
 // ---------------------------------------------------------------------------
 // PressureRelief
@@ -96,8 +98,9 @@ pub struct PressureRelief {
     cells_unloaded: AtomicI64,
 
     find_cell: FnPtr<FindCellToUnloadFn>,
-    process_cleanup: FnPtr<ProcessPendingCleanupFn>,
-    process_deferred: FnPtr<ProcessDeferredDestructionFn>,
+    pre_destruction: FnPtr<PreDestructionSetupFn>,
+    post_destruction: FnPtr<PostDestructionRestoreFn>,
+    deferred_cleanup: FnPtr<DeferredCleanupSmallFn>,
 }
 
 impl PressureRelief {
@@ -110,8 +113,9 @@ impl PressureRelief {
                 relief_count: AtomicI64::new(0),
                 cells_unloaded: AtomicI64::new(0),
                 find_cell: FnPtr::from_raw(FIND_CELL_TO_UNLOAD as *mut c_void)?,
-                process_cleanup: FnPtr::from_raw(PROCESS_PENDING_CLEANUP as *mut c_void)?,
-                process_deferred: FnPtr::from_raw(PROCESS_DEFERRED_DESTRUCTION as *mut c_void)?,
+                pre_destruction: FnPtr::from_raw(PRE_DESTRUCTION_SETUP as *mut c_void)?,
+                post_destruction: FnPtr::from_raw(POST_DESTRUCTION_RESTORE as *mut c_void)?,
+                deferred_cleanup: FnPtr::from_raw(DEFERRED_CLEANUP_SMALL as *mut c_void)?,
             }
         };
 
@@ -147,28 +151,13 @@ impl PressureRelief {
         if info.get_current_commit() >= THRESHOLD {
             self.requested.store(true, Ordering::Release);
 
-            // Trigger HeapCompact on the NEXT frame. Write 5 to the trigger
-            // field so stages 0-5 run from FUN_00878080 at line ~797.
-            // Stage 5 does: TLS=0 → FindCellToUnload → PDD (all queues)
-            // This runs BEFORE AI dispatch and render — the game's own
-            // safe cleanup mechanism at its native position.
-            // Trigger HeapCompact stages 0-3 for the next frame.
-            //
+            // Trigger HeapCompact stages 0-2 for the next frame.
             // Stage 0: Reset + ProcessPendingCleanup
             // Stage 1: SBM arena teardown (RET-patched → no-op)
-            // Stage 2: Cell/resource cleanup (FUN_00650a30) — frees BSA/texture caches
-            // Stage 3: Async queue flush (FUN_00c459d0) — safe from line ~797
-            //
-            // Stages 4+ are EXCLUDED:
-            // - Stage 4: Full PDD (all queues) — processes queue 0x20 (Havok)
-            //   while AI threads may still be doing post-render work from previous
-            //   frame (dispatched at line ~917, still active at line ~797 next frame)
-            //   → hkpRigidBody UAF on AI thread
-            // - Stage 5: TLS=0 immediate destruction — mimalloc frees for real
-            //   (unlike SBM pools which keep "zombie" data) → BSTreeNode RefCount:0
+            // Stage 2: Cell/resource cleanup (BSA/texture caches)
             unsafe {
                 let trigger = HEAP_COMPACT_TRIGGER_PTR as *mut u32;
-                trigger.write_volatile(3);
+                trigger.write_volatile(2);
             }
         }
     }
@@ -226,88 +215,96 @@ impl PressureRelief {
                 return;
             }
         };
-        let process_cleanup = match unsafe { self.process_cleanup.as_fn() } {
+        let pre_destruction = match unsafe { self.pre_destruction.as_fn() } {
             Ok(f) => f,
             Err(err) => {
-                log::error!("[PRESSURE] ProcessPendingCleanup: {:?}", err);
+                log::error!("[PRESSURE] PreDestructionSetup: {:?}", err);
                 self.active.store(false, Ordering::Release);
                 return;
             }
         };
-        let process_deferred = match unsafe { self.process_deferred.as_fn() } {
+        let post_destruction = match unsafe { self.post_destruction.as_fn() } {
             Ok(f) => f,
             Err(err) => {
-                log::error!("[PRESSURE] ProcessDeferredDestruction: {:?}", err);
+                log::error!("[PRESSURE] PostDestructionRestore: {:?}", err);
+                self.active.store(false, Ordering::Release);
+                return;
+            }
+        };
+        let deferred_cleanup = match unsafe { self.deferred_cleanup.as_fn() } {
+            Ok(f) => f,
+            Err(err) => {
+                log::error!("[PRESSURE] DeferredCleanupSmall: {:?}", err);
                 self.active.store(false, Ordering::Release);
                 return;
             }
         };
 
-        // Keep TLS deferred flag at 1 (default). With flag=0, objects freed
-        // during FindCellToUnload are destroyed IMMEDIATELY — BSTreeNodes
-        // get freed before SpeedTree invalidates its cached draw list.
-        // With flag=1, freed objects go into deferred queues instead, and
-        // our selective PDD below processes everything except NiNodes.
         let mut cells: usize = 0;
-        for _ in 0..MAX_CELLS_PER_CYCLE {
-            let result = unsafe { find_cell(manager) };
-            if (result & 0xFF) != 0 {
-                cells += 1;
-            } else {
-                break;
+
+        if CELL_UNLOAD_ENABLED {
+            // === PRE-DESTRUCTION PROTOCOL ===
+            //
+            // Follow the EXACT same sequence as the game's 5 normal PDD
+            // callers (FUN_004556d0, FUN_008782b0, FUN_0093cdf0, etc.):
+            //
+            // 1. PreDestructionSetup — hkWorld_Lock + SceneGraphInvalidate
+            // 2. FindCellToUnload (our addition — cells freed with zombies)
+            // 3. DeferredCleanupSmall — full PDD (all queues) + async flush
+            // 4. PostDestructionRestore — hkWorld_Unlock + restore
+            //
+            // hkWorld_Lock blocks AI raycasting threads → no heightfield UAF.
+            // SceneGraphInvalidate rebuilds SpeedTree draw lists → no BSTreeNode UAF.
+            // Full PDD processes ALL queues (no selective skip needed).
+            // Quarantine keeps zombie data → IO thread reads intact QueuedTextures.
+
+            // 12-byte state struct on stack (matches game's local_10/local_48)
+            let mut state = [0u8; 12];
+            let state_ptr = state.as_mut_ptr() as *mut c_void;
+
+            // Step 1: Lock Havok world + invalidate scene graph
+            unsafe { pre_destruction(state_ptr, 1, 1, 1) };
+
+            // Step 2: Unload cells (our pressure relief)
+            for _ in 0..MAX_CELLS_PER_CYCLE {
+                let result = unsafe { find_cell(manager) };
+                if (result & 0xFF) != 0 {
+                    cells += 1;
+                } else {
+                    break;
+                }
             }
+
+            // Step 3: Full PDD + async flush + ProcessPendingCleanup
+            // DeferredCleanupSmall processes ALL PDD queues (no skip mask).
+            // Safe because: Havok locked (AI blocked), scene graph rebuilt
+            // (SpeedTree clean), quarantine protects IO thread zombie data.
+            unsafe { deferred_cleanup(state[5]) };
+
+            // Step 4: Unlock Havok world + restore state
+            unsafe { post_destruction(state_ptr) };
+
+            // Step 5: Flush quarantine immediately.
+            // The blocking async flush in DeferredCleanupSmall already drained
+            // all stale IO tasks — zombie data served its purpose. Release it
+            // NOW so the game can reuse the memory for loading new cells.
+            // Without this, quarantine holds ~200MB of zombie cell data for 3
+            // frames while the game tries to load exterior (~500MB) → OOM.
+            unsafe { super::delayed_free::flush_current_thread() };
         }
 
-        unsafe { process_cleanup(manager, 0) };
-
-        // Trigger HeapCompact for the NEXT frame. HeapCompact at line ~797
-        // runs BEFORE AI dispatch and render, handling cell unloading with
-        // proper TLS=0 (immediate BSTreeNode destruction + map removal)
-        // and full PDD (all queues including 0x08 and 0x20).
-        //
-        // This complements our post-render cleanup: we unload cells here
-        // (post-render, safe for cell data), and HeapCompact handles the
-        // deferred destruction at its native safe position next frame.
+        // Trigger HeapCompact stages 0-2 for the NEXT frame.
         unsafe {
             let trigger = HEAP_COMPACT_TRIGGER_PTR as *mut u32;
-            trigger.write_volatile(5);
+            trigger.write_volatile(2);
         }
-
-        // Selective PDD: skip NiNode (0x08) and Havok (0x20) queues.
-        // Remaining queues processed: 0x10 (forms), 0x04 (textures),
-        // 0x02 (animations), 0x01 (generic ref-counted).
-        //
-        // Queue 0x08 (NiNode/BSTreeNode): Cannot process from post-render —
-        //   SpeedTree draw lists hold stale pointers across frames.
-        //   Drained by FUN_00868850 (pre-AI, pre-render, 20× under pressure).
-        //
-        // Queue 0x20 (Havok physics): Cannot process from post-render —
-        //   AI threads dispatched at line ~917 (post-render signal) are still
-        //   active, holding live references to hkBSHeightFieldShape / hkpRigidBody.
-        //   Drained by FUN_00868850 at line ~802 (AI idle, 5 items/call).
-        //
-        // Both queues are drained to 0 by FUN_00868850 (confirmed by diagnostics).
-        unsafe {
-            let skip_mask = PDD_SKIP_MASK_PTR as *mut u32;
-            let original = skip_mask.read_volatile();
-            skip_mask.write_volatile(original | 0x08 | 0x20);
-            process_deferred(1);
-            skip_mask.write_volatile(original);
-        }
-
-        // NOTE: Async queue flush (FUN_00c459d0) was tested here but REMOVED.
-        // It disrupts NVTF's Geometry Precache Queue thread — flushing async IO
-        // completes operations that NVTF's background thread depends on, causing
-        // NiGeometryBufferData UAF crashes. The JIP PlayingSoundsIterator UAF
-        // (BSAudioManager stale refs) is a rare mod-specific issue that doesn't
-        // justify breaking NVTF's geometry precaching.
 
         unsafe { mi_collect(false) };
 
         self.last_time_ms.store(now_ms, Ordering::Relaxed);
+        self.relief_count.fetch_add(1, Ordering::Relaxed);
 
-        if cells > 0 {
-            self.relief_count.fetch_add(1, Ordering::Relaxed);
+        if CELL_UNLOAD_ENABLED && cells > 0 {
             self.cells_unloaded.fetch_add(cells as i64, Ordering::Relaxed);
             log::info!(
                 "[PRESSURE] Unloaded {} cells (commit={}MB)",
@@ -316,6 +313,10 @@ impl PressureRelief {
             );
         } else {
             self.requested.store(false, Ordering::Release);
+            log::info!(
+                "[PRESSURE] Relief cycle (commit={}MB)",
+                commit / 1024 / 1024,
+            );
         }
 
         self.active.store(false, Ordering::Release);

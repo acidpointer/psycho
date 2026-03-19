@@ -62,18 +62,22 @@ pub fn configure_mimalloc() {
         // Demand-page: reserve VA, commit on first touch.
         mi_option_set(mi_option_arena_eager_commit, 0);
 
-        // PURGE DELAY = 0 (immediate decommit)
+        // PURGE DELAY = 500ms
         //
-        // Earlier purge_delay=0 caused stutters from VirtualAlloc churn.
-        // But that was WITHOUT a pre-reserved arena -- mimalloc was creating
-        // NEW arenas via MEM_RESERVE (expensive kernel call).
+        // Controls how long empty pages stay committed before being decommitted.
+        // Within the pre-reserved arena, decommit is just a page table flip (cheap).
         //
-        // Now with 512MB pre-reserved arena: commit/decommit within the
-        // reservation is just page table flips -- very cheap. No new VAs.
-        // Immediate decommit prevents commit from growing monotonically
-        // during rapid cell transitions (the 14MB/sec leak with delay=1000).
-        mi_option_set(mi_option_purge_delay, 0);
-        log::info!("[MIMALLOC] purge_delay = 0 (immediate, cheap within pre-reserved arena)");
+        // Previously 0 (immediate decommit). Increased to 500ms so that pages
+        // freed during cell unloading stay committed and readable for a short
+        // window. The IO thread (BSTaskManagerThread) and other subsystems may
+        // hold stale pointers to freed cell data — with purge_delay=0, accessing
+        // a decommitted page is a hard page fault. With 500ms delay, the page
+        // stays committed and stale reads see intact (zombie) data.
+        //
+        // This doesn't prevent block REUSE (freed blocks can be returned by
+        // mi_malloc immediately), but prevents the decommit-class of crashes.
+        mi_option_set(mi_option_purge_delay, 500);
+        log::info!("[MIMALLOC] purge_delay = 500ms (zombie window for stale page reads)");
 
         // Decommit on purge (not full release) -- keeps VA reservation.
         mi_option_set(mi_option_purge_decommits, 1);

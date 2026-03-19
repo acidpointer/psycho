@@ -1,0 +1,633 @@
+###############################################################
+# IO THREAD LIFECYCLE ANALYSIS
+# Goal: Understand BSTaskManagerThread, IOManager, LockFreeQueue
+# Find: queue count/empty check, sync points, completion hooks
+###############################################################
+
+
+### SECTION 1: IOManager structure
+# IOManager RTTI at 0x010C1604
+# LockFreeQueue<IOTask> RTTI at 0x010C1760
+# LockFreePriorityQueue<IOTask> RTTI at 0x010C16DC
+
+======================================================================
+BSTaskManagerThread_Main (IO thread entry) @ 0x00c42da0
+======================================================================
+  Function: lpStartAddress_00c42da0, Size: 37 bytes
+
+/* lpStartAddress parameter of CreateThread
+    */
+
+undefined4 lpStartAddress_00c42da0(int *param_1)
+
+{
+  FUN_00c80130(param_1 + 9);
+  (**(code **)(*param_1 + 4))();
+  return 0;
+}
+
+
+
+======================================================================
+BSTaskManagerThread_Loop (task processing) @ 0x00c41200
+======================================================================
+  Function: FUN_00c410b0, Size: 633 bytes
+
+/* WARNING: Removing unreachable block (ram,0x00c411bc) */
+/* WARNING: Removing unreachable block (ram,0x00c412b6) */
+
+void __fastcall FUN_00c410b0(int param_1)
+
+{
+  DWORD DVar1;
+  uint uVar2;
+  LONG LVar3;
+  int *unaff_FS_OFFSET;
+  undefined4 local_40 [2];
+  undefined4 *local_38;
+  char local_31;
+  undefined **local_30 [2];
+  undefined4 local_28;
+  undefined4 local_20;
+  undefined4 local_1c;
+  byte local_18;
+  int local_10;
+  undefined1 *puStack_c;
+  uint local_8;
+  
+  puStack_c = &LAB_00f2e0a0;
+  local_10 = *unaff_FS_OFFSET;
+  *unaff_FS_OFFSET = (int)&local_10;
+  while (local_8 = 0xffffffff, *(char *)(*(int *)(param_1 + 0x30) + 0x40) != '\x01') {
+    WaitForSingleObject(*(HANDLE *)(param_1 + 0x10),0xffffffff);
+    InterlockedDecrement((LONG *)(param_1 + 0xc));
+    local_28 = 0;
+    local_20 = 0;
+    local_1c = 0;
+    local_18 = 0;
+    local_30[0] = &PTR_FUN_010c1664;
+    local_8 = 0;
+    local_31 = '\0';
+    while ((local_18 & 2) == 0) {
+      DVar1 = WaitForSingleObject(*(HANDLE *)(param_1 + 0x1c),0);
+      if (DVar1 == 0x102) {
+        WaitForSingleObject(*(HANDLE *)(param_1 + 0x1c),0xffffffff);
+        InterlockedDecrement((LONG *)(param_1 + 0x18));
+        FUN_00c42060(local_30,0);
+      }
+      local_38 = (undefined4 *)0x0;
+      local_8 = CONCAT31(local_8._1_3_,1);
+      uVar2 = FUN_00c40e70(*(void **)(param_1 + 0x30),(int)local_30,local_40,(int *)&local_38,
+                           local_31 == '\0');
+      if ((uVar2 & 0xff) == 0) {
+        if ((local_18 & 2) == 0) {
+          FUN_00c42060(local_30,0);
+          local_31 = '\0';
+        }
+      }
+      else if ((local_38[3] == 1) &&
+              (LVar3 = InterlockedCompareExchange(local_38 + 3,3,1), LVar3 == 1)) {
+        local_31 = '\x01';
+        (**(code **)(**(int **)(param_1 + 0x30) + 0x4c))(local_38);
+        (**(code **)(**(int **)(param_1 + 0x30) + 0x50))(local_38);
+      }
+      if (local_38 != (undefined4 *)0x0) {
+        if (local_38 != (undefined4 *)0x0) {
+          FUN_0044dd60(local_38);
+        }
+        local_38 = (undefined4 *)0x0;
+      }
+      ReleaseSemaphore(*(HANDLE *)(param_1 + 0x1c),1,(LPLONG)0x0);
+      InterlockedIncrement((LONG *)(param_1 + 0x18));
+      local_8 = local_8 & 0xffffff00;
+      if (local_38 != (undefined4 *)0x0) {
+        FUN_0044dd60(local_38);
+      }
+    }
+    local_30[0] = &PTR_FUN_010c1670;
+  }
+  *unaff_FS_OFFSET = local_10;
+  return;
+}
+
+
+
+======================================================================
+IOManager_ProcessTask @ 0x00c3fc00
+======================================================================
+  Function: FUN_00c3fb50, Size: 299 bytes
+
+bool __thiscall FUN_00c3fb50(void *this,undefined4 *param_1)
+
+{
+  uint uVar1;
+  int *unaff_FS_OFFSET;
+  bool bVar2;
+  undefined4 *local_20;
+  char local_19;
+  int local_18;
+  int local_14;
+  int local_10;
+  undefined1 *puStack_c;
+  undefined4 local_8;
+  
+  local_8 = 0xffffffff;
+  puStack_c = &LAB_00f2dfb8;
+  local_10 = *unaff_FS_OFFSET;
+  uVar1 = DAT_011c16bc ^ (uint)&stack0xfffffffc;
+  *unaff_FS_OFFSET = (int)&local_10;
+  param_1[3] = 1;
+  local_14 = (**(code **)(*(int *)this + 0x24))(param_1[4],param_1[5],uVar1);
+  local_18 = (**(code **)(*(int *)this + 0x58))(param_1);
+  local_20 = param_1;
+  if (param_1 != (undefined4 *)0x0) {
+    InterlockedIncrement(param_1 + 2);
+  }
+  local_8 = 0;
+  local_19 = (**(code **)(*(int *)this + 0x10))(param_1[4],param_1[5],&local_20,0);
+  local_8 = 0xffffffff;
+  if (local_20 != (undefined4 *)0x0) {
+    FUN_0044dd60(local_20);
+  }
+  bVar2 = local_19 != '\0';
+  if (bVar2) {
+    InterlockedIncrement((LONG *)(*(int *)((int)this + 0x54) + local_14 * 4));
+    InterlockedIncrement((LONG *)((int)this + 0x58));
+    FUN_00442600(*(int *)(*(int *)((int)this + 0x50) + local_18 * 4));
+  }
+  *unaff_FS_OFFSET = local_10;
+  return bVar2;
+}
+
+
+
+======================================================================
+IOManager_Inner @ 0x00c3dd00
+======================================================================
+  Function: FUN_00c3dbf0, Size: 646 bytes
+
+/* WARNING: Removing unreachable block (ram,0x00c3dc63) */
+/* WARNING: Removing unreachable block (ram,0x00c3dc9f) */
+/* WARNING: Removing unreachable block (ram,0x00c3dd3c) */
+/* WARNING: Removing unreachable block (ram,0x00c3de2a) */
+/* WARNING: Removing unreachable block (ram,0x00c3de5c) */
+
+undefined1 __fastcall FUN_00c3dbf0(int param_1)
+
+{
+  bool bVar1;
+  uint uVar2;
+  int iVar3;
+  int *unaff_FS_OFFSET;
+  longlong lVar4;
+  ulonglong uVar5;
+  longlong lVar6;
+  uint local_28;
+  int local_24;
+  undefined1 local_15;
+  int *local_14;
+  int local_10;
+  undefined1 *puStack_c;
+  undefined4 local_8;
+  
+  local_8 = 0xffffffff;
+  puStack_c = &LAB_00f2dd89;
+  local_10 = *unaff_FS_OFFSET;
+  uVar2 = DAT_011c16bc ^ (uint)&stack0xfffffffc;
+  *unaff_FS_OFFSET = (int)&local_10;
+  if (DAT_01202dd8 == '\0') {
+    local_15 = 1;
+    DAT_01202dd8 = 1;
+    lVar4 = FUN_00aa4d80();
+    uVar5 = FUN_00ec62f6();
+    if (*(int *)(param_1 + 0x74) != 0) {
+      local_15 = (**(code **)(param_1 + 0x74))(uVar2);
+    }
+    local_14 = (int *)0x0;
+    local_8 = 0;
+    FUN_00c3e420(*(void **)(param_1 + 100),(int *)&local_14);
+    while (local_14 != (int *)0x0) {
+      (**(code **)(*local_14 + 0x14))();
+      if (*(int *)(param_1 + 0x70) != 0) {
+        (**(code **)(param_1 + 0x70))();
+      }
+      lVar6 = FUN_00aa4d80();
+      iVar3 = (int)((ulonglong)(lVar6 - lVar4) >> 0x20);
+      local_24 = (int)(uVar5 >> 0x20);
+      if ((iVar3 < local_24) ||
+         ((iVar3 <= local_24 && (local_28 = (uint)uVar5, (uint)(lVar6 - lVar4) <= local_28)))) {
+        bVar1 = false;
+      }
+      else {
+        bVar1 = true;
+      }
+      if (bVar1) {
+        if (local_14 != (int *)0x0) {
+          if (local_14 != (int *)0x0) {
+            FUN_0044dd60(local_14);
+          }
+          local_14 = (int *)0x0;
+        }
+      }
+      else {
+        FUN_00c3e420(*(void **)(param_1 + 100),(int *)&local_14);
+      }
+    }
+    DAT_01202dd8 = '\0';
+  }
+  else {
+    local_15 = 1;
+  }
+  *unaff_FS_OFFSET = local_10;
+  return local_15;
+}
+
+
+
+
+### SECTION 2: QueuedTexture virtual calls
+# QueuedTexture vtable at 0x01016788
+# Crash at 0x0043BFC1 (return addr from virtual call)
+
+======================================================================
+QueuedTexture_Process (crash area) @ 0x0043bf00
+======================================================================
+  Function: FUN_0043bef0, Size: 140 bytes
+
+undefined4 * __thiscall FUN_0043bef0(void *this,int param_1)
+
+{
+  int *unaff_FS_OFFSET;
+  int local_10;
+  undefined1 *puStack_c;
+  undefined4 local_8;
+  
+  local_8 = 0xffffffff;
+  puStack_c = &LAB_00eebe53;
+  local_10 = *unaff_FS_OFFSET;
+  *unaff_FS_OFFSET = (int)&local_10;
+  FUN_00c3ce60(this);
+  local_8 = 0;
+  *(undefined ***)this = &PTR_FUN_01016788;
+  FUN_00633c90((void *)((int)this + 0x30),0);
+  local_8 = CONCAT31(local_8._1_3_,1);
+  *(undefined1 *)((int)this + 0x34) = 0;
+  FUN_0066b0d0((void *)((int)this + 0x30),param_1);
+  FUN_00449150((int)this);
+  *unaff_FS_OFFSET = local_10;
+  return this;
+}
+
+
+
+======================================================================
+QueuedTexture_Caller @ 0x0043bd00
+======================================================================
+  Function: FUN_0043bd00, Size: 10 bytes
+
+undefined4 FUN_0043bd00(void)
+
+{
+  return DAT_011f6388;
+}
+
+
+
+======================================================================
+QueuedTexture_Outer @ 0x0043c400
+======================================================================
+  Function: FUN_0043c3f0, Size: 29 bytes
+
+void __cdecl FUN_0043c3f0(undefined4 param_1)
+
+{
+  int unaff_FS_OFFSET;
+  
+  *(undefined4 *)(*(int *)(*(int *)(unaff_FS_OFFSET + 0x2c) + _tls_index * 4) + 0x29c) = param_1;
+  return;
+}
+
+
+
+
+### SECTION 3: LockFreeQueue<IOTask> operations
+# How are tasks enqueued/dequeued? Is there a count/empty check?
+
+======================================================================
+LockFreeQueue_Op1 @ 0x0043c1b0
+======================================================================
+  Function: FUN_0043c150, Size: 606 bytes
+
+void __fastcall FUN_0043c150(void *param_1)
+
+{
+  undefined1 uVar1;
+  char cVar2;
+  int iVar3;
+  uint uVar4;
+  undefined3 extraout_var;
+  char *pcVar5;
+  int *piVar6;
+  int *piVar7;
+  int *piVar8;
+  int *unaff_FS_OFFSET;
+  int *piVar9;
+  int local_24;
+  byte *local_20;
+  undefined4 local_1c;
+  int *local_18;
+  undefined4 local_14;
+  int local_10;
+  undefined1 *puStack_c;
+  int local_8;
+  
+  local_8 = 0xffffffff;
+  puStack_c = &LAB_00eebe80;
+  local_10 = *unaff_FS_OFFSET;
+  *unaff_FS_OFFSET = (int)&local_10;
+  FUN_00404eb0(&local_14,*(undefined4 *)((int)param_1 + 0x18));
+  local_8 = 0;
+  iVar3 = FUN_0055b980((int)param_1);
+  if (iVar3 == 0) {
+    iVar3 = FUN_0045cd60((int)param_1);
+    if (iVar3 != 0) {
+      piVar8 = (int *)((int)param_1 + 0x30);
+      pcVar5 = (char *)FUN_0045cd60((int)param_1);
+      FUN_00a61b90(pcVar5,piVar8);
+    }
+  }
+  else {
+    piVar8 = (int *)((int)param_1 + 0x30);
+    uVar4 = FUN_0055b980((int)param_1);
+    FUN_0043c4c0(uVar4,piVar8);
+  }
+  iVar3 = FUN_00559450((undefined4 *)((int)param_1 + 0x30));
+  if (iVar3 == 0) {
+    local_18 = (int *)FUN_00c3cff0(param_1,1,2);
+    if (local_18 == (int *)0x0) {
+      iVar3 = FUN_0055b980((int)param_1);
+      if (iVar3 == 0) {
+        iVar3 = FUN_0045cd60((int)param_1);
+        if (iVar3 != 0) {
+          FUN_0045cd60((int)param_1);
+          FUN_005b5e40();
+        }
+      }
+      else {
+        iVar3 = FUN_0055b980((int)param_1);
+        FUN_0062a100(iVar3);
+        iVar3 = FUN_0055b980((int)param_1);
+        FUN_0043c3b0(iVar3);
+        FUN_005b5e40();
+      }
+    }
+    else {
+      local_20 = (byte *)(**(code **)(*local_18 + 0x18))();
+      local_1c = FUN_0043c410();
+      cVar2 = FUN_0043c3d0((int)param_1);
+      if (cVar2 != '\0') {
+        FUN_0043c3f0(1);
+      }
+      pcVar5 = _strstr((char *)local_20,"_e.dd");
+      if (pcVar5 == (char *)0x0) {
+        piVar8 = FUN_00a5fe30((int)local_18,local_20,(int *)&DAT_011a9598,1);
+        FUN_0066b0d0((void *)((int)param_1 + 0x30),(int)piVar8);
+      }
+      else {
+        piVar9 = (int *)&DAT_011a9598;
+        piVar6 = (int *)FUN_0043c4b0();
+        piVar8 = local_18;
+        piVar7 = FUN_00438170(&local_24,local_20);
+        local_8._0_1_ = 1;
+        piVar8 = FUN_00a61040(piVar7,(int)piVar8,piVar6,piVar9);
+        FUN_0066b0d0((void *)((int)param_1 + 0x30),(int)piVar8);
+        local_8 = (uint)local_8._1_3_ << 8;
+        FUN_004381b0(&local_24);
+      }
+      FUN_0043c3f0(local_1c);
+    }
+    local_8 = 0xffffffff;
+    FUN_00404ee0(&local_14);
+  }
+  else {
+    FUN_0043e480(param_1,'\x01');
+    iVar3 = FUN_00559450((undefined4 *)((int)param_1 + 0x30));
+    uVar1 = FUN_0043c430(iVar3);
+    if (CONCAT31(extraout_var,uVar1) == 3) {
+      cVar2 = FUN_0043c3d0((int)param_1);
+      if (cVar2 == '\0') {
+        piVar8 = (int *)FUN_00559450((undefined4 *)((int)param_1 + 0x30));
+        (**(code **)(*piVar8 + 0x8c))();
+      }
+    }
+    local_8 = 0xffffffff;
+    FUN_00404ee0(&local_14);
+  }
+  *unaff_FS_OFFSET = local_10;
+  return;
+}
+
+
+
+======================================================================
+LockFreeQueue_Op2 @ 0x0043c4d0
+======================================================================
+  Function: FUN_0043c4c0, Size: 34 bytes
+
+void __cdecl FUN_0043c4c0(uint param_1,int *param_2)
+
+{
+  FUN_0066b0d0(param_2,0);
+  FUN_0043c4f0(DAT_011f4468,param_1,param_2);
+  return;
+}
+
+
+
+
+### SECTION 4: Async queue flush
+# FUN_00c459d0 ? what exactly does it flush?
+
+======================================================================
+AsyncQueueFlush (172 bytes) @ 0x00c459d0
+======================================================================
+  Function: FUN_00c459d0, Size: 172 bytes
+
+/* WARNING: Globals starting with '_' overlap smaller symbols at the same address */
+
+void __cdecl FUN_00c459d0(char param_1)
+
+{
+  BOOL BVar1;
+  bool local_5;
+  
+  local_5 = true;
+  if (param_1 == '\0') {
+    FUN_0040fbf0((LONG *)&DAT_01202e40);
+  }
+  else {
+    local_5 = FUN_0078d200((LONG *)&DAT_01202e40);
+  }
+  if ((local_5 == false) ||
+     (BVar1 = TryEnterCriticalSection((LPCRITICAL_SECTION)&lpCriticalSection_011f4380), BVar1 != 0))
+  {
+    if (local_5 != false) {
+      FUN_00c46080(0x1202e20);
+      FUN_00c45a80();
+      LeaveCriticalSection((LPCRITICAL_SECTION)&lpCriticalSection_011f4380);
+      DAT_01202e44 = DAT_01202e44 + -1;
+      if (DAT_01202e44 == 0) {
+        _DAT_01202e40 = 0;
+      }
+    }
+  }
+  else {
+    DAT_01202e44 = DAT_01202e44 + -1;
+    if (DAT_01202e44 == 0) {
+      _DAT_01202e40 = 0;
+    }
+  }
+  return;
+}
+
+
+
+
+### SECTION 5: QueuedTexture release
+# When PDD queue 0x04 frees a texture, what happens?
+# Does it invalidate the IO queue entry?
+
+QueuedTexture vtable entries:
+  [0] +0x00: 0043be30
+  [1] +0x04: 0043c150
+  [2] +0x08: 0043c550
+  [3] +0x0c: 0043c650
+  [4] +0x10: 0043c6b0
+  [5] +0x14: 00483710
+  [6] +0x18: 00c3d440
+  [7] +0x1c: 00c3cae0
+
+
+### SECTION 6: Does CellTransitionHandler wait for IO?
+
+======================================================================
+CellTransitionHandler (561 bytes) @ 0x008774a0
+======================================================================
+  Function: FUN_008774a0, Size: 561 bytes
+
+void __thiscall FUN_008774a0(void *this,char param_1)
+
+{
+  undefined1 uVar1;
+  bool bVar2;
+  int iVar3;
+  void *this_00;
+  int *piVar4;
+  int *piVar5;
+  undefined *puVar6;
+  undefined4 local_20;
+  undefined4 local_18;
+  
+  uVar1 = FUN_004f1540((int)this);
+  FUN_004f15a0(this,0);
+  FUN_00877700((int)DAT_011dea3c);
+  bVar2 = FUN_007d6bd0(DAT_011ddf38,'\0');
+  FUN_00453a70();
+  FUN_00ad8780();
+  FUN_008324e0('\0');
+  iVar3 = FUN_008d6f30((int)DAT_011dea3c);
+  if (iVar3 != 0) {
+    piVar4 = DAT_011dea3c;
+    this_00 = (void *)FUN_008d6f30((int)DAT_011dea3c);
+    FUN_0054ca90(this_00,piVar4);
+  }
+  piVar4 = (int *)FUN_00950bb0(DAT_011dea3c,'\x01');
+  if (piVar4 == (int *)0x0) {
+    local_18 = 0;
+  }
+  else {
+    local_18 = (**(code **)(*piVar4 + 0xc))();
+  }
+  if (local_18 != 0) {
+    iVar3 = FUN_009611e0(local_18);
+    if (iVar3 != 0) {
+      piVar5 = (int *)FUN_009611e0(local_18);
+      (**(code **)(*piVar5 + 0xe8))(piVar4);
+    }
+  }
+  piVar4 = (int *)FUN_00950bb0(DAT_011dea3c,'\0');
+  if (piVar4 == (int *)0x0) {
+    local_20 = 0;
+  }
+  else {
+    local_20 = (**(code **)(*piVar4 + 0xc))();
+  }
+  if (local_20 != 0) {
+    iVar3 = FUN_009611e0(local_20);
+    if (iVar3 != 0) {
+      piVar5 = (int *)FUN_009611e0(local_20);
+      (**(code **)(*piVar5 + 0xe8))(piVar4);
+    }
+  }
+  FUN_004539a0(DAT_011dea10,'\0','\0');
+  FUN_007037c0(DAT_011dea10,0x7fffffff);
+  FUN_0061cc40(DAT_011dea10,0x7fffffff);
+  puVar6 = FUN_006c0720();
+  FUN_006c09f0(puVar6);
+  FUN_00868d70('\0');
+  FUN_00c459d0('\0');
+  (**(code **)(*DAT_011dea3c + 0x1cc))(0,0);
+  FUN_0084a840(DAT_011ddf38);
+  FUN_00970d50(0x11e0e80);
+  FUN_004614e0(DAT_011c3f2c);
+  iVar3 = FUN_00b4f5c0();
+  FUN_00b631d0(iVar3);
+  FUN_0040fbe0();
+  FUN_00706320();
+  FUN_0045ac80((int)DAT_011dea10);
+  if (param_1 != '\0') {
+    FUN_007053f0();
+  }
+  FUN_007d6bd0(DAT_011ddf38,bVar2);
+  FUN_008776e0((int)DAT_011dea0c);
+  FUN_004f15a0(DAT_011dea0c,uVar1);
+  return;
+}
+
+
+
+======================================================================
+CellTransition_PreCleanup (wait) @ 0x00877700
+======================================================================
+  Function: FUN_00877700, Size: 30 bytes
+
+void __fastcall FUN_00877700(int param_1)
+
+{
+  FUN_00ad8da0((void *)(param_1 + 0x77c),1000);
+  return;
+}
+
+
+
+======================================================================
+Pre-cleanup generic @ 0x00453a70
+======================================================================
+  Function: FUN_00453a70, Size: 10 bytes
+
+undefined4 FUN_00453a70(void)
+
+{
+  return DAT_011f6d98;
+}
+
+
+
+
+### SECTION 7: IOManager singleton
+# Need to find the global pointer to IOManager to read queue state
+
+--- XRefs to IOManager_vtable (0x010c1604) ---
+  DATA @ 0x00c3da90 (in FUN_00c3da50)
+  DATA @ 0x00c3db8b (in FUN_00c3db60)
+  Total: 2 refs

@@ -1,37 +1,19 @@
 //! Hook functions for game heap, CRT, scrap heap, and main loop.
 //!
-//! This module contains ONLY extern hook functions and the minimal glue
-//! to dispatch into business logic modules (mimalloc, sbm2, pressure, etc.).
+//! Extern hook functions are thin wrappers. GameHeap logic lives in
+//! `gheap::Gheap`, scrap heap logic in `sbm2::Runtime`.
 
 use libc::c_void;
 use libmimalloc::{
-    mi_calloc, mi_collect, mi_free, mi_is_in_heap_region, mi_malloc, mi_malloc_aligned, mi_realloc,
-    mi_realloc_aligned, mi_recalloc, mi_usable_size,
+    mi_calloc, mi_collect, mi_free, mi_is_in_heap_region, mi_malloc, mi_realloc, mi_recalloc,
+    mi_usable_size,
 };
 
 use std::cell::UnsafeCell;
 use std::ptr::null_mut;
 
-use super::gheap::pressure::PressureRelief;
+use super::gheap::Gheap;
 use super::sbm2::runtime::Runtime;
-
-// ===========================================================================
-//   GAME HEAP CONSTANTS
-// ===========================================================================
-
-const GHEAP_ALIGN: usize = 16;
-
-/// GameHeap singleton (DAT_011f6238 in Ghidra).
-const GHEAP_SINGLETON: usize = 0x011F6238;
-
-/// Pressure check interval (every N gheap allocations).
-const PRESSURE_CHECK_INTERVAL: u32 = 50_000;
-
-// Thread-local allocation counter for pressure check interval.
-// No atomic ops, no cache contention — each thread has its own counter.
-thread_local! {
-    static ALLOC_COUNTER: std::cell::Cell<u32> = const { std::cell::Cell::new(0) };
-}
 
 // ===========================================================================
 //   CRT HOOKS — malloc/calloc/realloc/recalloc/msize/free
@@ -151,80 +133,25 @@ pub(super) unsafe extern "C" fn hook_free(raw_ptr: *mut c_void) {
 }
 
 // ===========================================================================
-//   GAME HEAP HOOKS — GameHeap::Allocate/Free/Realloc/Msize
+//   GAME HEAP HOOKS — thin wrappers delegating to Gheap
 // ===========================================================================
 
 pub(super) unsafe extern "thiscall" fn hook_gheap_alloc(
     _this: *mut c_void,
     size: usize,
 ) -> *mut c_void {
-    let ptr = unsafe { mi_malloc_aligned(size, GHEAP_ALIGN) };
-    if !ptr.is_null() {
-        // Periodic pressure check using thread-local counter (zero contention).
-        ALLOC_COUNTER.with(|c| {
-            let count = c.get().wrapping_add(1);
-            c.set(count);
-            if count % PRESSURE_CHECK_INTERVAL == 0 {
-                if let Some(pr) = PressureRelief::instance() {
-                    unsafe { pr.check() };
-                }
-            }
-        });
-
-        return ptr;
-    }
-
-    // OOM: thread-local collect and retry.
-    // NEVER mi_collect(true) — it purges cross-thread segments and races with
-    // AI Linear Task Threads (EXCEPTION_ACCESS_VIOLATION inside psycho_nvse).
-    unsafe { mi_collect(false) };
-    unsafe { mi_malloc_aligned(size, GHEAP_ALIGN) }
+    unsafe { Gheap::alloc(size) }
 }
 
 pub(super) unsafe extern "thiscall" fn hook_gheap_free(_this: *mut c_void, ptr: *mut c_void) {
-    if ptr.is_null() {
-        return;
-    }
-
-    if unsafe { mi_is_in_heap_region(ptr as *const c_void) } {
-        unsafe { mi_free(ptr) };
-        return;
-    }
-
-    // Pre-hook pointer: original trampoline handles SBM arenas
-    if let Ok(orig_free) = super::replacer::GHEAP_FREE_HOOK.original() {
-        unsafe { orig_free(GHEAP_SINGLETON as *mut c_void, ptr) };
-        return;
-    }
-
-    unsafe { super::heap_validate::heap_validated_free(ptr) };
+    unsafe { Gheap::free(ptr) }
 }
 
 pub(super) unsafe extern "thiscall" fn hook_gheap_msize(
     _this: *mut c_void,
     ptr: *mut c_void,
 ) -> usize {
-    if ptr.is_null() {
-        return 0;
-    }
-
-    if unsafe { mi_is_in_heap_region(ptr as *const c_void) } {
-        return unsafe { mi_usable_size(ptr as *const c_void) };
-    }
-
-    if let Ok(orig_msize) = super::replacer::GHEAP_MSIZE_HOOK.original() {
-        let size = unsafe { orig_msize(GHEAP_SINGLETON as *mut c_void, ptr) };
-        if size != 0 {
-            return size;
-        }
-    }
-
-    let size = unsafe { super::heap_validate::heap_validated_size(ptr as *const c_void) };
-    if size != usize::MAX {
-        return size;
-    }
-
-    0
+    unsafe { Gheap::msize(ptr) }
 }
 
 pub(super) unsafe extern "thiscall" fn hook_gheap_realloc(
@@ -232,47 +159,11 @@ pub(super) unsafe extern "thiscall" fn hook_gheap_realloc(
     ptr: *mut c_void,
     new_size: usize,
 ) -> *mut c_void {
-    if ptr.is_null() {
-        return unsafe { hook_gheap_alloc(_this, new_size) };
-    }
-
-    if new_size == 0 {
-        unsafe { hook_gheap_free(_this, ptr) };
-        return null_mut();
-    }
-
-    if unsafe { mi_is_in_heap_region(ptr as *const c_void) } {
-        let new_ptr = unsafe { mi_realloc_aligned(ptr, new_size, GHEAP_ALIGN) };
-        if !new_ptr.is_null() {
-            return new_ptr;
-        }
-        // NEVER mi_collect(true) — races with AI threads. See hook_gheap_alloc.
-        unsafe { mi_collect(false) };
-        return unsafe { mi_realloc_aligned(ptr, new_size, GHEAP_ALIGN) };
-    }
-
-    // Pre-hook pointer: alloc new, copy, free old via trampoline
-    let old_size = unsafe { hook_gheap_msize(_this, ptr) };
-    if old_size == 0 {
-        return null_mut();
-    }
-
-    let new_ptr = unsafe { mi_malloc_aligned(new_size, GHEAP_ALIGN) };
-    if !new_ptr.is_null() {
-        unsafe {
-            std::ptr::copy_nonoverlapping(
-                ptr as *const u8,
-                new_ptr as *mut u8,
-                old_size.min(new_size),
-            )
-        };
-        unsafe { hook_gheap_free(_this, ptr) };
-    }
-    new_ptr
+    unsafe { Gheap::realloc(ptr, new_size) }
 }
 
 // ===========================================================================
-//   MAIN LOOP HOOK — pressure relief between frames
+//   MAIN LOOP HOOK — frame tick + pressure relief
 // ===========================================================================
 
 pub(super) unsafe extern "thiscall" fn hook_main_loop_maintenance(this: *mut c_void) {
@@ -280,9 +171,7 @@ pub(super) unsafe extern "thiscall" fn hook_main_loop_maintenance(this: *mut c_v
         unsafe { original(this) };
     }
 
-    if let Some(pr) = PressureRelief::instance() {
-        unsafe { pr.relieve() };
-    }
+    unsafe { Gheap::on_frame_tick() };
 }
 
 // ===========================================================================
@@ -302,10 +191,10 @@ const NINODE_QUEUE_COUNT_OFFSET: usize = 0x0A;
 const HEAP_COMPACT_TRIGGER_PTR: usize = 0x011F636C;
 
 /// All PDD queue addresses — count at offset +0x0A (u16) each.
-const TEXTURE_QUEUE_ADDR: usize = 0x011DE910;  // queue 0x04
-const ANIM_QUEUE_ADDR: usize = 0x011DE888;     // queue 0x02
-const GENERIC_QUEUE_ADDR: usize = 0x011DE874;   // queue 0x01
-const FORM_QUEUE_ADDR: usize = 0x011DE828;      // queue 0x10
+const TEXTURE_QUEUE_ADDR: usize = 0x011DE910; // queue 0x04
+const ANIM_QUEUE_ADDR: usize = 0x011DE888; // queue 0x02
+const GENERIC_QUEUE_ADDR: usize = 0x011DE874; // queue 0x01
+const FORM_QUEUE_ADDR: usize = 0x011DE828; // queue 0x10
 // Havok queue at 0x011DE924 uses different structure (not u16 count)
 
 /// Diagnostic counter — log queue states every N frames when under pressure.
@@ -320,8 +209,8 @@ pub(super) unsafe extern "C" fn hook_per_frame_queue_drain() {
     if let Ok(original) = super::replacer::PER_FRAME_QUEUE_DRAIN_HOOK.original() {
         unsafe { original() };
 
-        if let Some(pr) = PressureRelief::instance() {
-            if pr.is_requested() {
+        if let Some(pr) = super::gheap::pressure::PressureRelief::instance()
+            && pr.is_requested() {
                 // Diagnostic: this hook runs at line ~802, RIGHT AFTER
                 // HeapCompact (line ~797). Check if HeapCompact consumed
                 // our trigger (reset to 0) or if it's still pending.
@@ -329,9 +218,8 @@ pub(super) unsafe extern "C" fn hook_per_frame_queue_drain() {
                     let count = c.get().wrapping_add(1);
                     c.set(count);
                     if count % DIAG_LOG_INTERVAL == 0 {
-                        let trigger_val = unsafe {
-                            *(HEAP_COMPACT_TRIGGER_PTR as *const u32)
-                        };
+                        let trigger_val =
+                            unsafe { *(HEAP_COMPACT_TRIGGER_PTR as *const u32) };
                         let ninode_q = unsafe {
                             *((NINODE_QUEUE_ADDR + NINODE_QUEUE_COUNT_OFFSET) as *const u16)
                         };
@@ -365,7 +253,6 @@ pub(super) unsafe extern "C" fn hook_per_frame_queue_drain() {
                     unsafe { original() };
                 }
             }
-        }
     }
 }
 

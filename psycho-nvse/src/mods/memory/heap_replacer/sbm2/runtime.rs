@@ -107,8 +107,6 @@ impl Runtime {
         let gc_queue = self.gc_queue.clone();
 
         let gc_handle = thread::spawn(move || {
-            use libmimalloc::mi_collect;
-
             loop {
                 if !gc_run.load(Ordering::Acquire) {
                     return;
@@ -140,9 +138,6 @@ impl Runtime {
                         }
                     }
                 }
-
-                // --- mimalloc GC: reclaim empty segments + abandoned heaps ---
-                unsafe { mi_collect(true) };
             }
         });
 
