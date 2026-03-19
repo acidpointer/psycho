@@ -1375,8 +1375,8 @@ mechanisms that work together.
 Our primary hook at line ~904. After render completes:
 1. `FindCellToUnload` × 20 cells max
 2. `ProcessPendingCleanup(manager, 0)`
-3. Selective PDD (skip queue 0x08, NiNode)
-4. Trigger HeapCompact for next frame: `*(0x011F636C) = 5`
+3. Selective PDD (skip 0x08 NiNode + 0x20 Havok; process 0x10/0x04/0x02/0x01)
+4. Trigger HeapCompact for next frame: `*(0x011F636C) = 3`
 5. `mi_collect(false)`
 
 **Layer 2: Boosted per-frame NiNode drain (FUN_00868850 hook)**
@@ -1402,24 +1402,26 @@ FUN_00401020()     → return &DAT_011F6238     // heap IS DAT_011F6238
 Trigger address:     0x011F6238 + 0x134 = 0x011F636C
 ```
 
-Writing `5` to `0x011F636C` causes FUN_00878080 at line ~797 to run
-HeapCompact stages 0-5 on the NEXT frame:
+Writing `3` to `0x011F636C` causes FUN_00878080 at line ~797 to run
+HeapCompact stages 0-3 on the NEXT frame:
 - Stage 0: Reset + ProcessPendingCleanup
 - Stage 1: SBM arena teardown (RET-patched → no-op)
-- Stage 2: Cell/resource cleanup
-- Stage 3: Async queue flush
-- Stage 4: PDD with global lock
-- Stage 5: **TLS=0 → FindCellToUnload → ProcessPendingCleanup → TLS=1 → full PDD**
+- Stage 2: Cell/resource cleanup (FUN_00650a30 — BSA/texture caches)
+- Stage 3: Async queue flush (FUN_00c459d0 — audio/IO cleanup)
 
-Stage 5 is the key: with TLS=0, BSTreeNodes are freed IMMEDIATELY during
-FindCellToUnload. The immediate destruction triggers TreeMgr_RemoveOnState
-(vtable), which removes the BSTreeNode from BSTreeManager's treeNodesMap.
-When render runs later at line ~904, it builds draw lists from the map —
-the freed nodes are already gone. No stale draw list pointers.
+**Stages 4-5 are EXCLUDED:**
+- Stage 4: Full PDD (all queues) — processes queue 0x20 (Havok) while
+  AI threads may be doing post-render work from the previous frame
+  (dispatched at line ~917, still active at line ~797 next frame).
+- Stage 5: TLS=0 immediate destruction — incompatible with mimalloc.
+  The original SBM allocator keeps freed memory as "zombies" in pools
+  (data intact until arena purge). mimalloc's `mi_free()` returns memory
+  immediately → data overwritten → BSTreeNode RefCount becomes 0 →
+  SpeedTree crash (C0000417).
 
-This runs at the game's native safe position: BEFORE AI dispatch (line ~855),
-BEFORE render (line ~904). The game itself uses this exact mechanism when
-the original heap budget is exhausted.
+Stages 0-3 provide critical resource cleanup (BSA caches, texture refs,
+async IO queues) that we weren't performing before. Diagnostics confirm
+this contributes to the commit plateau improvement.
 
 #### Attempted and rejected approaches
 
@@ -1490,7 +1492,10 @@ NVTF. HeapCompact Stage 3 handles it naturally via its own async flush.
 | 600/2s/30 | 20×+guard | No | — | Faster crash (BSTreeNode) |
 | 700/2s/20 | 20×+guard | No | Rate boost | QueuedTexture IO race |
 | 700/2s/20 | 20×+guard | No | Async flush | NVTF geometry crash |
-| 700/2s/20 | 20×+guard | **Yes (5)** | — | **46 reliefs, 500 cells, less stutters, OOM ~1.6GB** |
+| 700/2s/20 | 20×+guard | Yes (5) | — | 46 reliefs, 500 cells, BSTreeNode C0000417 (TLS=0 + mimalloc) |
+| 700/2s/20 | 20×+guard | Yes (4) | — | Fast crash — Stage 4 full PDD frees Havok during AI post-render |
+| 700/2s/20 | 20×+guard | Yes (3), skip 0x08 | — | Fast crash — post-render PDD still processes Havok queue 0x20 |
+| 700/2s/20 | 20×+guard | **Yes (3), skip 0x28** | — | **57 reliefs, 627 cells, 3+ min stress, OOM ~1.65GB** |
 
 #### Remaining limitation: 32-bit VA ceiling
 
@@ -1500,9 +1505,23 @@ eventually reaches ~1.6-1.7GB and OOM crashes. This is the fundamental
 manifests as QueuedTexture NULL vtable (`eip=0x00000000`) — the IO system
 tries to load a texture but allocation fails or returns just-freed memory.
 
+**Final stress test results (best configuration):**
+- 57 reliefs, 627 cells unloaded over 3+ minutes of extreme stress
+- Commit plateau at ~1.3-1.5GB (vs monotonic climb to 1.7GB without system)
+- All PDD queues consistently drained to 0 (confirmed by diagnostics)
+- HeapCompact confirmed running every frame (trigger=0 at every check)
+- Less stutters than baseline during stress testing
+- Crash at ~1.65GB — pure VA ceiling
+
 Normal gameplay is completely stable (~760MB idle, ~1.0-1.1GB moving).
 The OOM only occurs under artificial extreme stress that no real player
 would sustain.
+
+**Key diagnostic insight:** All PDD queues drain to 0 but commit still
+climbs. This proves the remaining growth is from LIVE cell data (newly
+loaded cells) and mimalloc page fragmentation (partially-occupied pages
+can't be decommitted). This is irreducible — the game loads cells faster
+than they can be unloaded during extreme traversal.
 
 ---
 

@@ -66,7 +66,7 @@ const PROCESS_DEFERRED_DESTRUCTION: usize = 0x00868D70;
 /// DAT_011dea10 — pointer to the game's TES/DataHandler manager singleton.
 const GAME_MANAGER_PTR: usize = 0x011DEA10;
 /// DAT_011de804 — bitmask controlling which PDD queues to skip.
-/// Bit set = queue skipped. Bit 0x08 = NiNode/BSTreeNode queue.
+/// Bit 0x08 = NiNode/BSTreeNode queue, Bit 0x20 = Havok physics wrappers.
 const PDD_SKIP_MASK_PTR: usize = 0x011DE804;
 
 /// HeapCompact trigger field: heap_singleton + 0x134.
@@ -152,9 +152,23 @@ impl PressureRelief {
             // Stage 5 does: TLS=0 → FindCellToUnload → PDD (all queues)
             // This runs BEFORE AI dispatch and render — the game's own
             // safe cleanup mechanism at its native position.
+            // Trigger HeapCompact stages 0-3 for the next frame.
+            //
+            // Stage 0: Reset + ProcessPendingCleanup
+            // Stage 1: SBM arena teardown (RET-patched → no-op)
+            // Stage 2: Cell/resource cleanup (FUN_00650a30) — frees BSA/texture caches
+            // Stage 3: Async queue flush (FUN_00c459d0) — safe from line ~797
+            //
+            // Stages 4+ are EXCLUDED:
+            // - Stage 4: Full PDD (all queues) — processes queue 0x20 (Havok)
+            //   while AI threads may still be doing post-render work from previous
+            //   frame (dispatched at line ~917, still active at line ~797 next frame)
+            //   → hkpRigidBody UAF on AI thread
+            // - Stage 5: TLS=0 immediate destruction — mimalloc frees for real
+            //   (unlike SBM pools which keep "zombie" data) → BSTreeNode RefCount:0
             unsafe {
                 let trigger = HEAP_COMPACT_TRIGGER_PTR as *mut u32;
-                trigger.write_volatile(5);
+                trigger.write_volatile(3);
             }
         }
     }
@@ -259,21 +273,24 @@ impl PressureRelief {
             trigger.write_volatile(5);
         }
 
-        // Selective PDD: skip NiNode queue (bit 0x08) to avoid BSTreeNode
-        // use-after-free in SpeedTree's cached draw lists. All other queues
-        // (physics 0x20, animations 0x02, textures 0x04, etc.) are processed.
+        // Selective PDD: skip NiNode (0x08) and Havok (0x20) queues.
+        // Remaining queues processed: 0x10 (forms), 0x04 (textures),
+        // 0x02 (animations), 0x01 (generic ref-counted).
         //
-        // Queue 0x08 cannot be safely processed from post-render because:
-        // - Scene graph invalidation (FUN_00703980) accesses heightfield data
-        //   from cells we just freed → main thread crash.
-        // - Without invalidation, SpeedTree draw lists hold stale BSTreeNode
-        //   pointers across frames → next frame render crash.
-        // The game's own PDD callers at lines 271/347 drain queue 0x08 at
-        // safe early-frame points where the scene graph is consistent.
+        // Queue 0x08 (NiNode/BSTreeNode): Cannot process from post-render —
+        //   SpeedTree draw lists hold stale pointers across frames.
+        //   Drained by FUN_00868850 (pre-AI, pre-render, 20× under pressure).
+        //
+        // Queue 0x20 (Havok physics): Cannot process from post-render —
+        //   AI threads dispatched at line ~917 (post-render signal) are still
+        //   active, holding live references to hkBSHeightFieldShape / hkpRigidBody.
+        //   Drained by FUN_00868850 at line ~802 (AI idle, 5 items/call).
+        //
+        // Both queues are drained to 0 by FUN_00868850 (confirmed by diagnostics).
         unsafe {
             let skip_mask = PDD_SKIP_MASK_PTR as *mut u32;
             let original = skip_mask.read_volatile();
-            skip_mask.write_volatile(original | 0x08);
+            skip_mask.write_volatile(original | 0x08 | 0x20);
             process_deferred(1);
             skip_mask.write_volatile(original);
         }

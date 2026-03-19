@@ -298,29 +298,63 @@ const EXTRA_DRAIN_ROUNDS: u32 = 19;
 const NINODE_QUEUE_ADDR: usize = 0x011DE808;
 const NINODE_QUEUE_COUNT_OFFSET: usize = 0x0A;
 
+/// HeapCompact trigger field (heap_singleton + 0x134).
+const HEAP_COMPACT_TRIGGER_PTR: usize = 0x011F636C;
+
+/// All PDD queue addresses — count at offset +0x0A (u16) each.
+const TEXTURE_QUEUE_ADDR: usize = 0x011DE910;  // queue 0x04
+const ANIM_QUEUE_ADDR: usize = 0x011DE888;     // queue 0x02
+const GENERIC_QUEUE_ADDR: usize = 0x011DE874;   // queue 0x01
+const FORM_QUEUE_ADDR: usize = 0x011DE828;      // queue 0x10
+// Havok queue at 0x011DE924 uses different structure (not u16 count)
+
+/// Diagnostic counter — log queue states every N frames when under pressure.
+const DIAG_LOG_INTERVAL: u32 = 300; // ~5 seconds at 60fps
+
+thread_local! {
+    static DIAG_COUNTER: std::cell::Cell<u32> = const { std::cell::Cell::new(0) };
+}
+
 pub(super) unsafe extern "C" fn hook_per_frame_queue_drain() {
     // Call original — game's normal per-frame drain (10-20 items from highest-priority queue)
     if let Ok(original) = super::replacer::PER_FRAME_QUEUE_DRAIN_HOOK.original() {
         unsafe { original() };
 
-        // Under memory pressure, call the drain function additional times.
-        // Each call processes up to 10-20 NiNodes from queue 0x08 (if non-empty).
-        //
-        // CRITICAL: Stop as soon as queue 0x08 is empty. FUN_00868850
-        // processes queues in priority order (0x08 first). If queue 0x08
-        // empties, subsequent calls fall through to queue 0x20 (Havok),
-        // and over-draining Havok shapes causes PathingSearchRayCast
-        // crashes later in the frame.
-        //
-        // This is safe because:
-        // - FUN_00868850 runs at line ~802, BEFORE AI dispatch and render
-        // - AI threads are idle — no concurrent heightfield access
-        // - The game itself calls this function here every frame
-        // - The function uses internal try-locks for queue access
-        // - Render hasn't built draw lists yet — destroyed BSTreeNodes won't
-        //   appear in this frame's draw lists
         if let Some(pr) = PressureRelief::instance() {
             if pr.is_requested() {
+                // Diagnostic: this hook runs at line ~802, RIGHT AFTER
+                // HeapCompact (line ~797). Check if HeapCompact consumed
+                // our trigger (reset to 0) or if it's still pending.
+                DIAG_COUNTER.with(|c| {
+                    let count = c.get().wrapping_add(1);
+                    c.set(count);
+                    if count % DIAG_LOG_INTERVAL == 0 {
+                        let trigger_val = unsafe {
+                            *(HEAP_COMPACT_TRIGGER_PTR as *const u32)
+                        };
+                        let ninode_q = unsafe {
+                            *((NINODE_QUEUE_ADDR + NINODE_QUEUE_COUNT_OFFSET) as *const u16)
+                        };
+                        let texture_q = unsafe {
+                            *((TEXTURE_QUEUE_ADDR + NINODE_QUEUE_COUNT_OFFSET) as *const u16)
+                        };
+                        let anim_q = unsafe {
+                            *((ANIM_QUEUE_ADDR + NINODE_QUEUE_COUNT_OFFSET) as *const u16)
+                        };
+                        let generic_q = unsafe {
+                            *((GENERIC_QUEUE_ADDR + NINODE_QUEUE_COUNT_OFFSET) as *const u16)
+                        };
+                        let form_q = unsafe {
+                            *((FORM_QUEUE_ADDR + NINODE_QUEUE_COUNT_OFFSET) as *const u16)
+                        };
+                        log::info!(
+                            "[DIAG] trigger={} queues: NiNode={} Tex={} Anim={} Gen={} Form={}",
+                            trigger_val, ninode_q, texture_q, anim_q, generic_q, form_q
+                        );
+                    }
+                });
+
+                // Boosted drain: call original additional times for NiNode queue
                 for _ in 0..EXTRA_DRAIN_ROUNDS {
                     let count = unsafe {
                         *((NINODE_QUEUE_ADDR + NINODE_QUEUE_COUNT_OFFSET) as *const u16)
