@@ -29,3 +29,4 @@ rand = { workspace = true }
 clashmap = { workspace = true }
 orx-concurrent-vec = { workspace = true }
 serde = { workspace = true }
+toml = { workspace = true }

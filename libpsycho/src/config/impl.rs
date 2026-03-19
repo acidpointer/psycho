@@ -1,8 +1,8 @@
 //! TOML Configuration Loader
 //!
 //! Generic configuration module for loading, saving, and managing TOML-based
-//! configuration files. Provides automatic default generation when config
-//! files are missing, with serde-based deserialization/serialization.
+//! configuration files. Provides automatic default generation, and schema
+//! migration (adds missing fields, removes stale ones).
 //!
 //! # Usage
 //!
@@ -10,20 +10,18 @@
 //! use serde::{Deserialize, Serialize};
 //! use libpsycho::config::Config;
 //!
-//! #[derive(Debug, Deserialize, Serialize)]
+//! #[derive(Debug, Default, Deserialize, Serialize)]
+//! #[serde(default)]
 //! struct MyConfig {
 //!     enabled: bool,
 //!     sleep_ms: u32,
 //! }
 //!
-//! impl Default for MyConfig {
-//!     fn default() -> Self {
-//!         Self { enabled: true, sleep_ms: 5 }
-//!     }
-//! }
+//! // Simple load (no migration):
+//! let cfg = Config::load_or_default::<MyConfig>("./my_plugin.toml").unwrap();
 //!
-//! let config = Config::load_or_default::<MyConfig>("./my_plugin.toml")
-//!     .expect("config load failed");
+//! // Load with automatic schema migration:
+//! let cfg = Config::load_or_migrate::<MyConfig>("./my_plugin.toml");
 //! ```
 
 use std::path::Path;
@@ -32,7 +30,7 @@ use serde::{Serialize, de::DeserializeOwned};
 
 use super::errors::{ConfigError, ConfigResult};
 
-/// TOML configuration loader with automatic default generation.
+/// TOML configuration loader with automatic default generation and migration.
 pub struct Config;
 
 impl Config {
@@ -99,5 +97,55 @@ impl Config {
 
             Ok(config)
         }
+    }
+
+    /// Load config with automatic schema migration.
+    ///
+    /// - If the file doesn't exist → creates it with defaults.
+    /// - If the file has missing fields → fills them with defaults.
+    /// - If the file has removed fields → prunes them.
+    /// - Re-writes the file only when the schema changed.
+    /// - On parse error → logs warning, returns defaults, overwrites file.
+    ///
+    /// Requires `T` to derive `Default` and use `#[serde(default)]` on all
+    /// structs so that missing fields deserialize to their defaults.
+    pub fn load_or_migrate<T>(path: impl AsRef<Path>) -> T
+    where
+        T: DeserializeOwned + Serialize + Default,
+    {
+        let path = path.as_ref();
+        let content = std::fs::read_to_string(path).unwrap_or_default();
+
+        let cfg: T = match toml::from_str(&content) {
+            Ok(cfg) => cfg,
+            Err(err) => {
+                if !content.is_empty() {
+                    log::warn!(
+                        "Config parse error in '{}': {}. Using defaults.",
+                        path.display(),
+                        err
+                    );
+                }
+                T::default()
+            }
+        };
+
+        // Re-serialize and write back if schema changed
+        if let Ok(updated) = toml::to_string_pretty(&cfg) {
+            if updated != content {
+                if let Some(parent) = path.parent() {
+                    let _ = std::fs::create_dir_all(parent);
+                }
+                if let Err(err) = std::fs::write(path, &updated) {
+                    log::warn!("Failed to sync config '{}': {}", path.display(), err);
+                } else if content.is_empty() {
+                    log::info!("Config created at '{}'", path.display());
+                } else {
+                    log::info!("Config schema updated in '{}'", path.display());
+                }
+            }
+        }
+
+        cfg
     }
 }

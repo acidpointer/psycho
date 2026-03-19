@@ -1,9 +1,8 @@
 //! psycho-nvse configuration
 //!
-//! TOML-based configuration for toggling individual patches.
-//! On first run, a default config file is created at `./psycho-nvse.toml`
-//! with all patches enabled. Users can edit the file and restart the game
-//! to selectively disable patches for troubleshooting.
+//! TOML-based configuration with automatic schema migration.
+//! Uses `libpsycho::config::Config::load_or_migrate` — missing fields
+//! get defaults, removed fields get pruned, file synced on load.
 
 use std::sync::OnceLock;
 
@@ -11,99 +10,81 @@ use serde::{Deserialize, Serialize};
 
 use libpsycho::config::Config;
 
-/// Default config file path (standard NVSE plugin directory).
 const CONFIG_PATH: &str = "Data/NVSE/Plugins/psycho-nvse.toml";
 
-/// Global config singleton, loaded once at startup.
 static CONFIG: OnceLock<PsychoConfig> = OnceLock::new();
 
-/// Top-level configuration for psycho-nvse.
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Debug, Default, Deserialize, Serialize)]
+#[serde(default)]
 pub struct PsychoConfig {
-    /// General settings.
     pub general: GeneralConfig,
-
-    /// Memory allocator patches (mimalloc, heap replacement, scrap heap).
     pub memory: MemoryConfig,
-
-    /// Performance optimization patches.
     pub perf: PerfConfig,
-
-    /// Zlib replacement (libz-rs).
     pub zlib: ZlibConfig,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
+#[serde(default)]
+#[derive(Default)]
 pub struct GeneralConfig {
     /// Open a Windows console window for real-time log output.
     pub console: bool,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
+#[serde(default)]
 pub struct MemoryConfig {
     /// Replace CRT allocator (malloc/free/etc.) with mimalloc via IAT hooks.
     pub crt_hooks: bool,
-
     /// Replace game heap (GameHeap::Allocate/Free) with mimalloc via inline hooks.
     pub game_heap_hooks: bool,
 }
 
+impl Default for MemoryConfig {
+    fn default() -> Self {
+        Self {
+            crt_hooks: true,
+            game_heap_hooks: true,
+        }
+    }
+}
+
 #[derive(Debug, Deserialize, Serialize)]
+#[serde(default)]
 pub struct PerfConfig {
     /// Replace the game's Mersenne Twister RNG with modern SmallRng (WyRand).
     pub rng: bool,
 }
 
+impl Default for PerfConfig {
+    fn default() -> Self {
+        Self { rng: true }
+    }
+}
+
 #[derive(Debug, Deserialize, Serialize)]
+#[serde(default)]
 pub struct ZlibConfig {
     /// Replace zlib 1.2.3 with libz-rs 1.3.1.
     pub enabled: bool,
 }
 
-impl Default for PsychoConfig {
+impl Default for ZlibConfig {
     fn default() -> Self {
-        Self {
-            general: GeneralConfig {
-                console: false,
-            },
-            memory: MemoryConfig {
-                crt_hooks: true,
-                game_heap_hooks: true,
-            },
-            perf: PerfConfig {
-                rng: true,
-            },
-            zlib: ZlibConfig {
-                enabled: true,
-            },
-        }
+        Self { enabled: true }
     }
 }
 
-/// Load the global configuration. Call once at startup.
-///
-/// Creates a default `psycho-nvse.toml` if it doesn't exist.
-/// Falls back to defaults on any error (logs the error but doesn't crash).
+/// Load the global configuration with automatic schema migration.
 pub fn load_config() -> &'static PsychoConfig {
     CONFIG.get_or_init(|| {
-        match Config::load_or_default::<PsychoConfig>(CONFIG_PATH) {
-            Ok(cfg) => {
-                log::info!("[CONFIG] Loaded from '{}'", CONFIG_PATH);
-                cfg
-            }
-            Err(err) => {
-                log::error!(
-                    "[CONFIG] Failed to load '{}': {:?}. Using defaults.",
-                    CONFIG_PATH,
-                    err
-                );
-                PsychoConfig::default()
-            }
-        }
+        let cfg = Config::load_or_migrate::<PsychoConfig>(CONFIG_PATH);
+        log::info!("[CONFIG] Ready");
+        cfg
     })
 }
 
-/// Get the global config reference. Returns an error if `load_config()` hasn't been called.
+/// Get the global config reference.
 pub fn get_config() -> anyhow::Result<&'static PsychoConfig> {
     CONFIG
         .get()

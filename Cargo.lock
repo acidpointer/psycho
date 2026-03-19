@@ -773,6 +773,7 @@ dependencies = [
  "rustc-hash",
  "scc",
  "serde",
+ "toml",
  "windows",
 ]
 
