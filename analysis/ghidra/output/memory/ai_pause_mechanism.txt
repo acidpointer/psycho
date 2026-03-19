@@ -1,0 +1,1909 @@
+AI THREAD PAUSE/RESUME + HEAPCOMPACT SYNC MECHANISM
+======================================================================
+
+######################################################################
+# PART 1: AI Start/Stop Dispatch Control
+######################################################################
+
+======================================================================
+AI_StartFrame (dispatch control) @ 0x008c80e0
+======================================================================
+  Function: FUN_008c80e0, Size: 46 bytes, Convention: __cdecl
+
+void __cdecl FUN_008c80e0(char param_1)
+
+{
+  if ((DAT_011dfa18 != '\0') && (param_1 == '\0')) {
+    DAT_011dfa18 = param_1;
+    FUN_008c80c0();
+  }
+  DAT_011dfa18 = param_1;
+  return;
+}
+
+
+
+
+======================================================================
+FUN_008c80c0 (called when AI stops) @ 0x008c80c0
+======================================================================
+  Function: FUN_008c80c0, Size: 15 bytes, Convention: __stdcall
+
+void FUN_008c80c0(void)
+
+{
+  FUN_00442550((LONG *)&DAT_011dfafc);
+  return;
+}
+
+
+
+
+----------------------------------------------------------------------
+Calls FROM 0x008c80c0 (FUN_008c80c0)
+----------------------------------------------------------------------
+  Calls 1 unique functions:
+    -> 0x00442550  FUN_00442550  (40 bytes)
+
+======================================================================
+FUN_008c80d0 (called at end of AI coordinator) @ 0x008c80d0
+======================================================================
+  Function: FUN_008c80d0, Size: 10 bytes, Convention: __stdcall
+
+void FUN_008c80d0(void)
+
+{
+  FUN_008c80b0();
+  return;
+}
+
+
+
+
+----------------------------------------------------------------------
+References TO 0x011dfa18 (DAT_011dfa18 (AI dispatch flag))
+----------------------------------------------------------------------
+  4 references from 2 functions:
+    0x008c7bc0  FUN_008c7bc0  (10 bytes)
+    0x008c80e0  FUN_008c80e0  (46 bytes)
+
+----------------------------------------------------------------------
+References TO 0x011dfa19 (DAT_011dfa19 (AI active flag))
+----------------------------------------------------------------------
+  3 references from 3 functions:
+    0x00713d90  FUN_00713d90  (10 bytes)
+    0x008c78c0  FUN_008c78c0  (198 bytes)
+    0x008c7990  FUN_008c7990  (72 bytes)
+
+######################################################################
+# PART 2: AI Wait/Signal Primitives
+######################################################################
+
+======================================================================
+AI_Dispatch (SetEvent for AI) @ 0x008c79e0
+======================================================================
+  Function: FUN_008c79e0, Size: 70 bytes, Convention: __thiscall
+
+void __thiscall FUN_008c79e0(void *this,int param_1,int param_2)
+
+{
+  if ((param_1 < 2) && (*(int *)((int)this + param_1 * 4) != 0)) {
+    SetEvent(*(HANDLE *)(*(int *)((int)this + param_1 * 4 + 0x8c) + param_2 * 4));
+    *(int *)((int)this + param_1 * 4 + 0xc) = param_2;
+  }
+  return;
+}
+
+
+
+
+======================================================================
+AI_Wait (WaitForSingleObject) @ 0x008c7a70
+======================================================================
+  Function: FUN_008c7a70, Size: 41 bytes, Convention: __thiscall
+
+void __thiscall FUN_008c7a70(void *this,int param_1,int param_2)
+
+{
+  WaitForSingleObject(*(HANDLE *)(*(int *)((int)this + param_1 * 4 + 0x8c) + param_2 * 4),0xffffffff
+                     );
+  return;
+}
+
+
+
+
+======================================================================
+FUN_008c7490 (AI post-render per-thread) @ 0x008c7490
+======================================================================
+  Function: FUN_008c7490, Size: 22 bytes, Convention: __fastcall
+
+void __fastcall FUN_008c7490(int param_1)
+
+{
+  FUN_004424e0((LONG *)(param_1 + 0x3c));
+  return;
+}
+
+
+
+
+----------------------------------------------------------------------
+Calls FROM 0x008c7490 (FUN_008c7490)
+----------------------------------------------------------------------
+  Calls 1 unique functions:
+    -> 0x004424e0  FUN_004424e0  (38 bytes)
+
+======================================================================
+FUN_008c9fb0 (AI dispatch per-thread) @ 0x008c9fb0
+======================================================================
+  Function: FUN_008c9fb0, Size: 22 bytes, Convention: __fastcall
+
+void __fastcall FUN_008c9fb0(int param_1)
+
+{
+  FUN_00442550((LONG *)(param_1 + 0x30));
+  return;
+}
+
+
+
+
+----------------------------------------------------------------------
+Calls FROM 0x008c9fb0 (FUN_008c9fb0)
+----------------------------------------------------------------------
+  Calls 1 unique functions:
+    -> 0x00442550  FUN_00442550  (40 bytes)
+
+======================================================================
+FUN_008ca070 (single-threaded AI) @ 0x008ca070
+======================================================================
+  Function: FUN_008ca070, Size: 612 bytes, Convention: __fastcall
+
+void __fastcall FUN_008ca070(void *param_1)
+
+{
+  int *piVar1;
+  char *pcVar2;
+  void *pvVar3;
+  undefined4 uVar4;
+  int iVar5;
+  uint uVar6;
+  undefined1 local_40 [12];
+  undefined1 local_34 [12];
+  undefined1 local_28 [12];
+  undefined1 local_1c [12];
+  uint local_10;
+  uint local_c;
+  int local_8;
+  
+  piVar1 = (int *)FUN_0043d4d0(0x11c3ea4);
+  if ((*piVar1 == 1) &&
+     (((pcVar2 = FUN_00408d60(0x11dfc70), *pcVar2 != '\0' ||
+       (pcVar2 = FUN_00408d60(0x11dfb88), *pcVar2 != '\0')) && (DAT_011f1220 != '\0')))) {
+    iVar5 = 0;
+    pvVar3 = (void *)FUN_00717e50(0x11e0e80);
+    local_8 = FUN_005be5c0(pvVar3,iVar5);
+    if (local_8 != 0) {
+      iVar5 = 0;
+      pvVar3 = (void *)FUN_00717e50(0x11e0e80);
+      local_c = FUN_005be5c0(pvVar3,iVar5);
+      pcVar2 = FUN_00408d60(0x11dfc70);
+      if (*pcVar2 != '\0') {
+        FUN_008c9a20(local_1c,local_c);
+        FUN_008ca010(param_1,local_1c);
+      }
+      pcVar2 = FUN_00408d60(0x11dfb88);
+      if (*pcVar2 != '\0') {
+        FUN_008c9a20(local_28,local_c);
+        FUN_008ca010((void *)((int)param_1 + 0x138),local_28);
+      }
+      for (local_10 = 0; local_10 < local_c; local_10 = local_10 + 1) {
+        pcVar2 = FUN_00408d60(0x11dfc70);
+        if (*pcVar2 != '\0') {
+          uVar6 = local_10;
+          pvVar3 = (void *)FUN_00717e50(0x11e0e80);
+          uVar4 = FUN_00968670(pvVar3,uVar6);
+          FUN_008c9a50(local_34,uVar4);
+          FUN_008ca010(param_1,local_34);
+        }
+        pcVar2 = FUN_00408d60(0x11dfb88);
+        if (*pcVar2 != '\0') {
+          uVar6 = local_10;
+          pvVar3 = (void *)FUN_00717e50(0x11e0e80);
+          uVar4 = FUN_00968670(pvVar3,uVar6);
+          FUN_008c9a50(local_40,uVar4);
+          FUN_008ca010((void *)((int)param_1 + 0x138),local_40);
+        }
+      }
+      pcVar2 = FUN_00408d60(0x11dfc70);
+      if (*pcVar2 != '\0') {
+        FUN_008ca040((int)param_1);
+      }
+      pcVar2 = FUN_00408d60(0x11dfb88);
+      if (*pcVar2 != '\0') {
+        FUN_008ca040((int)param_1 + 0x138);
+      }
+      pcVar2 = FUN_00408d60(0x11dfb68);
+      if (*pcVar2 == '\0') {
+        pcVar2 = FUN_00408d60(0x11dfc70);
+        if (*pcVar2 != '\0') {
+          FUN_008c8240(param_1,0);
+        }
+        pcVar2 = FUN_00408d60(0x11dfb88);
+        if (*pcVar2 != '\0') {
+          FUN_008c8240((void *)((int)param_1 + 0x138),0);
+        }
+      }
+      else {
+        pcVar2 = FUN_00408d60(0x11dfc70);
+        if (*pcVar2 != '\0') {
+          FUN_008c9a80(&DAT_011dfb98,param_1);
+        }
+        pcVar2 = FUN_00408d60(0x11dfb88);
+        if (*pcVar2 != '\0') {
+          FUN_008c9a80(&DAT_011dfb98,(int)param_1 + 0x138);
+        }
+        FUN_008ca2e0(&DAT_011dfc24,2);
+        *(undefined1 *)((int)param_1 + 0x10180) = 1;
+      }
+    }
+  }
+  return;
+}
+
+
+
+
+----------------------------------------------------------------------
+Calls FROM 0x008ca070 (FUN_008ca070)
+----------------------------------------------------------------------
+  Calls 12 unique functions:
+    -> 0x00408d60  FUN_00408d60  (53 bytes)
+    -> 0x0043d4d0  FUN_0043d4d0  (56 bytes)
+    -> 0x005be5c0  FUN_005be5c0  (23 bytes)
+    -> 0x00717e50  FUN_00717e50  (17 bytes)
+    -> 0x008c8240  FUN_008c8240  (87 bytes)
+    -> 0x008c9a20  FUN_008c9a20  (44 bytes)
+    -> 0x008c9a50  FUN_008c9a50  (34 bytes)
+    -> 0x008c9a80  FUN_008c9a80  (82 bytes)
+    -> 0x008ca010  FUN_008ca010  (34 bytes)
+    -> 0x008ca040  FUN_008ca040  (39 bytes)
+    -> 0x008ca2e0  FUN_008ca2e0  (27 bytes)
+    -> 0x00968670  FUN_00968670  (27 bytes)
+
+======================================================================
+FUN_008ca300 (single-threaded post-render AI) @ 0x008ca300
+======================================================================
+  Function: FUN_008ca300, Size: 47 bytes, Convention: __fastcall
+
+void __fastcall FUN_008ca300(int param_1)
+
+{
+  if (*(char *)(param_1 + 0x10180) != '\0') {
+    FUN_008ca330(&DAT_011dfc24,2);
+    *(undefined1 *)(param_1 + 0x10180) = 0;
+  }
+  return;
+}
+
+
+
+
+######################################################################
+# PART 3: HeapCompact Thread Sync (Stage 8)
+######################################################################
+
+======================================================================
+FUN_00866da0 (Stage 8 thread check) @ 0x00866da0
+======================================================================
+  Function: FUN_00866da0, Size: 30 bytes, Convention: __thiscall
+
+void __thiscall FUN_00866da0(void *this,int param_1)
+
+{
+  FUN_0044ddc0(*(int *)(*(int *)((int)this + 0x50) + param_1 * 4));
+  return;
+}
+
+
+
+
+======================================================================
+FUN_00866dc0 (Stage 8 thread op 1) @ 0x00866dc0
+======================================================================
+  Function: FUN_00866dc0, Size: 30 bytes, Convention: __thiscall
+
+void __thiscall FUN_00866dc0(void *this,int param_1)
+
+{
+  FUN_00442530(*(int *)(*(int *)((int)this + 0x50) + param_1 * 4));
+  return;
+}
+
+
+
+
+======================================================================
+FUN_00866de0 (Stage 8 thread op 2) @ 0x00866de0
+======================================================================
+  Function: FUN_00866de0, Size: 30 bytes, Convention: __thiscall
+
+void __thiscall FUN_00866de0(void *this,int param_1)
+
+{
+  FUN_004424c0(*(int *)(*(int *)((int)this + 0x50) + param_1 * 4));
+  return;
+}
+
+
+
+
+======================================================================
+FUN_00c3dbf0 (called on DAT_01202d98 in MainLoop) @ 0x00c3dbf0
+======================================================================
+  Function: FUN_00c3dbf0, Size: 646 bytes, Convention: __fastcall
+
+/* WARNING: Removing unreachable block (ram,0x00c3dc63) */
+/* WARNING: Removing unreachable block (ram,0x00c3dc9f) */
+/* WARNING: Removing unreachable block (ram,0x00c3dd3c) */
+/* WARNING: Removing unreachable block (ram,0x00c3de2a) */
+/* WARNING: Removing unreachable block (ram,0x00c3de5c) */
+
+undefined1 __fastcall FUN_00c3dbf0(int param_1)
+
+{
+  bool bVar1;
+  uint uVar2;
+  int iVar3;
+  int *unaff_FS_OFFSET;
+  longlong lVar4;
+  ulonglong uVar5;
+  longlong lVar6;
+  uint local_28;
+  int local_24;
+  undefined1 local_15;
+  int *local_14;
+  int local_10;
+  undefined1 *puStack_c;
+  undefined4 local_8;
+  
+  local_8 = 0xffffffff;
+  puStack_c = &LAB_00f2dd89;
+  local_10 = *unaff_FS_OFFSET;
+  uVar2 = DAT_011c16bc ^ (uint)&stack0xfffffffc;
+  *unaff_FS_OFFSET = (int)&local_10;
+  if (DAT_01202dd8 == '\0') {
+    local_15 = 1;
+    DAT_01202dd8 = 1;
+    lVar4 = FUN_00aa4d80();
+    uVar5 = FUN_00ec62f6();
+    if (*(int *)(param_1 + 0x74) != 0) {
+      local_15 = (**(code **)(param_1 + 0x74))(uVar2);
+    }
+    local_14 = (int *)0x0;
+    local_8 = 0;
+    FUN_00c3e420(*(void **)(param_1 + 100),(int *)&local_14);
+    while (local_14 != (int *)0x0) {
+      (**(code **)(*local_14 + 0x14))();
+      if (*(int *)(param_1 + 0x70) != 0) {
+        (**(code **)(param_1 + 0x70))();
+      }
+      lVar6 = FUN_00aa4d80();
+      iVar3 = (int)((ulonglong)(lVar6 - lVar4) >> 0x20);
+      local_24 = (int)(uVar5 >> 0x20);
+      if ((iVar3 < local_24) ||
+         ((iVar3 <= local_24 && (local_28 = (uint)uVar5, (uint)(lVar6 - lVar4) <= local_28)))) {
+        bVar1 = false;
+      }
+      else {
+        bVar1 = true;
+      }
+      if (bVar1) {
+        if (local_14 != (int *)0x0) {
+          if (local_14 != (int *)0x0) {
+            FUN_0044dd60(local_14);
+          }
+          local_14 = (int *)0x0;
+        }
+      }
+      else {
+        FUN_00c3e420(*(void **)(param_1 + 100),(int *)&local_14);
+      }
+    }
+    DAT_01202dd8 = '\0';
+  }
+  else {
+    local_15 = 1;
+  }
+  *unaff_FS_OFFSET = local_10;
+  return local_15;
+}
+
+
+
+
+######################################################################
+# PART 4: Safe Window Functions (after AI wait, before render)
+######################################################################
+
+======================================================================
+FUN_0086fc60 (post-AI dispatch) @ 0x0086fc60
+======================================================================
+  Function: FUN_0086fc60, Size: 261 bytes, Convention: __fastcall
+
+/* WARNING: Globals starting with '_' overlap smaller symbols at the same address */
+
+void __fastcall FUN_0086fc60(int param_1)
+
+{
+  int *piVar1;
+  void *pvVar2;
+  float10 fVar3;
+  undefined1 *puVar4;
+  undefined1 local_10 [12];
+  
+  if ((((DAT_011dea2b == '\0') || (DAT_011dea2c != '\0')) || (DAT_011dea2d != '\0')) &&
+     (*(char *)(param_1 + 7) == '\0')) {
+    piVar1 = (int *)FUN_0043d4d0(0x11c3ea4);
+    if (*piVar1 < 2) {
+      fVar3 = FUN_0084d030(0x11f6394);
+      FUN_00974420(&DAT_011e0e80,(float)fVar3);
+    }
+    else {
+      fVar3 = FUN_0084d030(0x11f6394);
+      FUN_009746c0(&DAT_011e0e80,(float)fVar3);
+    }
+    piVar1 = (int *)FUN_0043d4d0(0x11c3ea4);
+    if ((*piVar1 == 1) && (DAT_011dea2b == '\0')) {
+      FUN_00453550(DAT_011dea10,_DAT_011dea30);
+    }
+    else {
+      FUN_004537c0((int)DAT_011dea10);
+    }
+    FUN_0043d410(local_10,_DAT_011dea30,1,0);
+    piVar1 = (int *)FUN_0043d4d0(0x11c3ea4);
+    if (*piVar1 < 2) {
+      puVar4 = local_10;
+      pvVar2 = (void *)FUN_0045a190();
+      FUN_00c50610(pvVar2,(uint)puVar4);
+    }
+    else {
+      puVar4 = local_10;
+      pvVar2 = (void *)FUN_0045a190();
+      FUN_00c50610(pvVar2,(uint)puVar4);
+    }
+  }
+  return;
+}
+
+
+
+
+----------------------------------------------------------------------
+Calls FROM 0x0086fc60 (FUN_0086fc60)
+----------------------------------------------------------------------
+  Calls 9 unique functions:
+    -> 0x0043d410  FUN_0043d410  (63 bytes)
+    -> 0x0043d4d0  FUN_0043d4d0  (56 bytes)
+    -> 0x00453550  FUN_00453550  (394 bytes)
+    -> 0x004537c0  FUN_004537c0  (131 bytes)
+    -> 0x0045a190  FUN_0045a190  (15 bytes)
+    -> 0x0084d030  FUN_0084d030  (17 bytes)
+    -> 0x00974420  FUN_00974420  (663 bytes)
+    -> 0x009746c0  FUN_009746c0  (661 bytes)
+    -> 0x00c50610  FUN_00c50610  (785 bytes)
+
+======================================================================
+FUN_0086fbe0 (mid-frame) @ 0x0086fbe0
+======================================================================
+  Function: FUN_0086fbe0, Size: 126 bytes, Convention: __fastcall
+
+void __fastcall FUN_0086fbe0(int param_1)
+
+{
+  char cVar1;
+  float *pfVar2;
+  int iVar3;
+  
+  if (((DAT_011dea2b == '\0') && (DAT_011d8907 == '\0')) && (*(char *)(param_1 + 7) == '\0')) {
+    cVar1 = '\x01';
+    pfVar2 = (float *)FUN_00436aa0(DAT_011dea3c);
+    FUN_00452580(DAT_011dea10,pfVar2,cVar1);
+    cVar1 = FUN_00451530((int)DAT_011dea10);
+    if (cVar1 != '\0') {
+      iVar3 = FUN_005f36f0((int)DAT_011dea10);
+      if (iVar3 == 0) {
+        FUN_00575d70(DAT_011dea3c);
+        FUN_004fd3e0((int)DAT_011dea10);
+      }
+    }
+  }
+  return;
+}
+
+
+
+
+----------------------------------------------------------------------
+Calls FROM 0x0086fbe0 (FUN_0086fbe0)
+----------------------------------------------------------------------
+  Calls 6 unique functions:
+    -> 0x00436aa0  FUN_00436aa0  (17 bytes)
+    -> 0x00451530  FUN_00451530  (54 bytes)
+    -> 0x00452580  FUN_00452580  (2105 bytes)
+    -> 0x004fd3e0  FUN_004fd3e0  (20 bytes)
+    -> 0x00575d70  FUN_00575d70  (76 bytes)
+    -> 0x005f36f0  FUN_005f36f0  (17 bytes)
+
+======================================================================
+FUN_0086fd70 (frame maintenance) @ 0x0086fd70
+======================================================================
+  Function: FUN_0086fd70, Size: 26 bytes, Convention: __stdcall
+
+void FUN_0086fd70(void)
+
+{
+  FUN_007027e0();
+  FUN_00702810();
+  FUN_00702840();
+  return;
+}
+
+
+
+
+----------------------------------------------------------------------
+Calls FROM 0x0086fd70 (FUN_0086fd70)
+----------------------------------------------------------------------
+  Calls 3 unique functions:
+    -> 0x007027e0  FUN_007027e0  (45 bytes)
+    -> 0x00702810  FUN_00702810  (45 bytes)
+    -> 0x00702840  FUN_00702840  (45 bytes)
+
+======================================================================
+FUN_00713d80 (get AI event handle object) @ 0x00713d80
+======================================================================
+  Function: FUN_00713d80, Size: 10 bytes, Convention: __stdcall
+
+undefined * FUN_00713d80(void)
+
+{
+  return &DAT_011dfa50;
+}
+
+
+
+
+######################################################################
+# PART 5: AI Coordinator Dispatch/Wait Sequence Details
+######################################################################
+
+======================================================================
+AI_Dispatcher2 (418 bytes) @ 0x008c7bd0
+======================================================================
+  Function: FUN_008c7bd0, Size: 418 bytes, Convention: __stdcall
+
+void FUN_008c7bd0(void)
+
+{
+  char cVar1;
+  undefined *puVar2;
+  int *piVar3;
+  char *pcVar4;
+  LPCRITICAL_SECTION p_Var5;
+  float10 fVar6;
+  int iVar7;
+  int iVar8;
+  undefined4 uVar9;
+  
+  iVar8 = 0;
+  iVar7 = 0;
+  puVar2 = FUN_00713d80();
+  FUN_008c79e0(puVar2,iVar7,iVar8);
+  FUN_0086fd70();
+  iVar8 = 1;
+  iVar7 = 0;
+  puVar2 = FUN_00713d80();
+  FUN_008c79e0(puVar2,iVar7,iVar8);
+  piVar3 = (int *)FUN_004537b0();
+  FUN_0087a6b0(piVar3);
+  cVar1 = FUN_005c42d0();
+  FUN_00991500(DAT_011f1958,cVar1);
+  FUN_0040fbf0((LONG *)&DAT_011f11a0);
+  FUN_0096cca0(0x11e0e80);
+  FUN_0096cda0(0x11e0e80);
+  FUN_0040fba0((undefined4 *)&DAT_011f11a0);
+  FUN_00455640((int)DAT_011dea10);
+  FUN_0040fbf0((LONG *)&DAT_011f11a0);
+  FUN_009784c0(0x11e0e80);
+  FUN_0040fba0((undefined4 *)&DAT_011f11a0);
+  FUN_00991dc0(DAT_011f1958);
+  FUN_0040fbf0((LONG *)&DAT_011f11a0);
+  FUN_0096bcd0(&DAT_011e0e80,0);
+  FUN_0096d520();
+  FUN_0096c330(0x11e0e80);
+  FUN_0096db30(0.0,0,0);
+  FUN_008d0600();
+  FUN_0096c7c0(0x11e0e80);
+  FUN_0096cb50(0x11e0e80);
+  FUN_004772f0();
+  FUN_0040fba0((undefined4 *)&DAT_011f11a0);
+  fVar6 = FUN_00453850();
+  FUN_00453550(DAT_011dea10,(float)fVar6);
+  uVar9 = 6;
+  iVar7 = 1;
+  puVar2 = FUN_00713d80();
+  FUN_008c7d80(puVar2,iVar7,uVar9);
+  FUN_008c80d0();
+  pcVar4 = FUN_00408d60(0x11d73e4);
+  if (*pcVar4 != '\0') {
+    p_Var5 = (LPCRITICAL_SECTION)FUN_006c0720();
+    FUN_006c3640(p_Var5);
+  }
+  piVar3 = (int *)FUN_004537b0();
+  FUN_0087a6d0(piVar3);
+  FUN_005ae270();
+  FUN_005a9d60();
+  uVar9 = 0xb;
+  iVar7 = 0;
+  puVar2 = FUN_00713d80();
+  FUN_008c7d80(puVar2,iVar7,uVar9);
+  uVar9 = 7;
+  iVar7 = 1;
+  puVar2 = FUN_00713d80();
+  FUN_008c7d80(puVar2,iVar7,uVar9);
+  return;
+}
+
+
+
+
+----------------------------------------------------------------------
+Calls FROM 0x008c7bd0 (AI_Dispatcher2)
+----------------------------------------------------------------------
+  Calls 32 unique functions:
+    -> 0x00408d60  FUN_00408d60  (53 bytes)
+    -> 0x0040fba0  FUN_0040fba0  (49 bytes)
+    -> 0x0040fbf0  FUN_0040fbf0  (149 bytes)
+    -> 0x00453550  FUN_00453550  (394 bytes)
+    -> 0x004537b0  FUN_004537b0  (10 bytes)
+    -> 0x00453850  FUN_00453850  (11 bytes)
+    -> 0x00455640  FUN_00455640  (56 bytes)
+    -> 0x004772f0  FUN_004772f0  (286 bytes)
+    -> 0x005a9d60  FUN_005a9d60  (80 bytes)
+    -> 0x005ae270  FUN_005ae270  (105 bytes)
+    -> 0x005c42d0  FUN_005c42d0  (10 bytes)
+    -> 0x006c0720  FUN_006c0720  (162 bytes)
+    -> 0x006c3640  FUN_006c3640  (722 bytes)
+    -> 0x00713d80  FUN_00713d80  (10 bytes)
+    -> 0x0086fd70  FUN_0086fd70  (26 bytes)
+    -> 0x0087a6b0  FUN_0087a6b0  (21 bytes)
+    -> 0x0087a6d0  FUN_0087a6d0  (21 bytes)
+    -> 0x008c79e0  FUN_008c79e0  (70 bytes)
+    -> 0x008c7d80  FUN_008c7d80  (26 bytes)
+    -> 0x008c80d0  FUN_008c80d0  (10 bytes)
+    -> 0x008d0600  FUN_008d0600  (13 bytes)
+    -> 0x0096bcd0  FUN_0096bcd0  (1379 bytes)
+    -> 0x0096c330  FUN_0096c330  (991 bytes)
+    -> 0x0096c7c0  FUN_0096c7c0  (149 bytes)
+    -> 0x0096cb50  FUN_0096cb50  (292 bytes)
+    -> 0x0096cca0  FUN_0096cca0  (251 bytes)
+    -> 0x0096cda0  FUN_0096cda0  (440 bytes)
+    -> 0x0096d520  FUN_0096d520  (737 bytes)
+    -> 0x0096db30  FUN_0096db30  (377 bytes)
+    -> 0x009784c0  FUN_009784c0  (132 bytes)
+    -> 0x00991500  FUN_00991500  (221 bytes)
+    -> 0x00991dc0  FUN_00991dc0  (180 bytes)
+
+======================================================================
+AI_CoordinatorCaller @ 0x008c7290
+======================================================================
+  Function: FUN_008c7290, Size: 259 bytes, Convention: __fastcall
+
+/* WARNING: Globals starting with '_' overlap smaller symbols at the same address */
+
+void __fastcall FUN_008c7290(int *param_1)
+
+{
+  HANDLE pvVar1;
+  int *piVar2;
+  undefined4 *puVar3;
+  code *pcVar4;
+  char *pcVar5;
+  SIZE_T SVar6;
+  int local_c;
+  int local_8;
+  
+  for (local_8 = 0; local_8 < 0xc; local_8 = local_8 + 1) {
+    pvVar1 = CreateEventA((LPSECURITY_ATTRIBUTES)0x0,1,0,(LPCSTR)0x0);
+    param_1[local_8 + 0xf] = (int)pvVar1;
+  }
+  for (local_c = 0; local_c < 8; local_c = local_c + 1) {
+    pvVar1 = CreateEventA((LPSECURITY_ATTRIBUTES)0x0,1,0,(LPCSTR)0x0);
+    param_1[local_c + 0x1b] = (int)pvVar1;
+  }
+  piVar2 = (int *)FUN_0043d4d0(0x11c3ea4);
+  if (*piVar2 < 3) {
+    SVar6 = 0x10000;
+    pcVar5 = "AI Linear Task Thread";
+    pcVar4 = FUN_008c7bd0;
+    puVar3 = (undefined4 *)FUN_0043d4d0(0x11dfb34);
+    FUN_008c74d0(param_1,0,*puVar3,pcVar4,(int)pcVar5,SVar6);
+  }
+  else {
+    SVar6 = 0x10000;
+    pcVar5 = "AI Linear Task Thread 1";
+    pcVar4 = FUN_008c7da0;
+    puVar3 = (undefined4 *)FUN_0043d4d0(0x11dfb34);
+    FUN_008c74d0(param_1,0,*puVar3,pcVar4,(int)pcVar5,SVar6);
+    SVar6 = 0x10000;
+    pcVar5 = "AI Linear Task Thread 2";
+    pcVar4 = FUN_008c7f50;
+    puVar3 = (undefined4 *)FUN_0043d4d0(0x11dfb18);
+    FUN_008c74d0(param_1,1,*puVar3,pcVar4,(int)pcVar5,SVar6);
+  }
+  _DAT_011dfa10 = FUN_0059bb30(*param_1);
+  return;
+}
+
+
+
+
+----------------------------------------------------------------------
+Calls FROM 0x008c7290 (AI_CoordinatorCaller)
+----------------------------------------------------------------------
+  Calls 4 unique functions:
+    -> 0x00000029  ???  (0 bytes)
+    -> 0x0043d4d0  FUN_0043d4d0  (56 bytes)
+    -> 0x0059bb30  FUN_0059bb30  (17 bytes)
+    -> 0x008c74d0  FUN_008c74d0  (343 bytes)
+
+----------------------------------------------------------------------
+References TO 0x008c7290 (AI_CoordinatorCaller)
+----------------------------------------------------------------------
+  1 references from 1 functions:
+    0x0086a850  FUN_0086a850  (4532 bytes)
+
+######################################################################
+# PART 6: FUN_00868d10 (post-queue-drain)
+######################################################################
+
+======================================================================
+FUN_00868d10 (called after per-frame drain) @ 0x00868d10
+======================================================================
+  Function: FUN_00868d10, Size: 83 bytes, Convention: __stdcall
+
+void FUN_00868d10(void)
+
+{
+  char cVar1;
+  undefined2 uVar2;
+  undefined2 extraout_var;
+  
+  uVar2 = FUN_00658930(0x11de828);
+  if (CONCAT22(extraout_var,uVar2) != 0) {
+    cVar1 = FUN_00868250(DAT_011c3b3c);
+    if (cVar1 != '\0') {
+      FUN_00867f50();
+      FUN_004dffa0(0x11de828);
+      FUN_004aaf10(DAT_011c3b3c);
+      FUN_00867f80();
+    }
+  }
+  return;
+}
+
+
+
+
+----------------------------------------------------------------------
+Calls FROM 0x00868d10 (FUN_00868d10)
+----------------------------------------------------------------------
+  Calls 6 unique functions:
+    -> 0x004aaf10  FUN_004aaf10  (21 bytes)
+    -> 0x004dffa0  FUN_004dffa0  (173 bytes)
+    -> 0x00658930  FUN_00658930  (18 bytes)
+    -> 0x00867f50  FUN_00867f50  (19 bytes)
+    -> 0x00867f80  FUN_00867f80  (15 bytes)
+    -> 0x00868250  FUN_00868250  (21 bytes)
+
+######################################################################
+# PART 7: Drain Multiplier Control
+######################################################################
+
+======================================================================
+FUN_00878360 (drain multiplier check, 20 bytes) @ 0x00878360
+======================================================================
+  Function: FUN_00878360, Size: 58 bytes, Convention: __fastcall
+
+undefined1 __fastcall FUN_00878360(int param_1)
+
+{
+  undefined1 local_5;
+  
+  local_5 = 1;
+  if ((*(uint *)(param_1 + 8) < *(uint *)(param_1 + 0x10)) &&
+     (FUN_00500000 < (code *)(*(int *)(param_1 + 0x10) - *(int *)(param_1 + 8)))) {
+    local_5 = 0;
+  }
+  return local_5;
+}
+
+
+
+
+----------------------------------------------------------------------
+References TO 0x00878360 (FUN_00878360)
+----------------------------------------------------------------------
+  1 references from 1 functions:
+    0x00868850  FUN_00868850  (1166 bytes)
+
+======================================================================
+FUN_00878340 (post-PDD check) @ 0x00878340
+======================================================================
+  Function: FUN_00878340, Size: 20 bytes, Convention: __fastcall
+
+undefined1 __fastcall FUN_00878340(int param_1)
+
+{
+  return *(undefined1 *)(param_1 + 0x75d);
+}
+
+
+
+
+######################################################################
+# PART 8: Post-Destruction State Restore
+######################################################################
+
+======================================================================
+FUN_00878200 (post-destruction restore, 80 bytes) @ 0x00878200
+======================================================================
+  Function: FUN_00878200, Size: 80 bytes, Convention: __cdecl
+
+void __cdecl FUN_00878200(int param_1)
+
+{
+  int iVar1;
+  
+  FUN_00a5b460();
+  FUN_00aa7030();
+  if (*(char *)(param_1 + 5) != '\0') {
+    FUN_00652190();
+  }
+  FUN_008781e0(*(undefined4 *)(param_1 + 8));
+  if (*(char *)(param_1 + 3) != '\0') {
+    iVar1 = FUN_0043c4b0();
+    FUN_004a03c0(iVar1);
+  }
+  FUN_00c3e340(DAT_01202d98);
+  return;
+}
+
+
+
+
+----------------------------------------------------------------------
+Calls FROM 0x00878200 (FUN_00878200)
+----------------------------------------------------------------------
+  Calls 7 unique functions:
+    -> 0x0043c4b0  FUN_0043c4b0  (10 bytes)
+    -> 0x004a03c0  FUN_004a03c0  (46 bytes)
+    -> 0x00652190  FUN_00652190  (28 bytes)
+    -> 0x008781e0  FUN_008781e0  (13 bytes)
+    -> 0x00a5b460  FUN_00a5b460  (11 bytes)
+    -> 0x00aa7030  FUN_00aa7030  (136 bytes)
+    -> 0x00c3e340  FUN_00c3e340  (49 bytes)
+
+######################################################################
+# PART 9: ForceUnloadCell (HeapCompact fallback)
+######################################################################
+
+======================================================================
+ForceUnloadCell (196 bytes) @ 0x004539a0
+======================================================================
+  Function: FUN_004539a0, Size: 196 bytes, Convention: __thiscall
+
+void __thiscall FUN_004539a0(void *this,char param_1,char param_2)
+
+{
+  undefined4 *puVar1;
+  int iVar2;
+  uint uVar3;
+  int *piVar4;
+  
+  puVar1 = (undefined4 *)FUN_0045bb80((int)this);
+  FUN_00470470(puVar1);
+  if (param_1 != '\0') {
+    iVar2 = FUN_005f36f0((int)this);
+    if (iVar2 == 0) goto LAB_004539d2;
+  }
+  FUN_00453940((int)this);
+LAB_004539d2:
+  FUN_00453a70();
+  FUN_00483710();
+  FUN_00455200(this,param_1,0);
+  iVar2 = FUN_005f36f0((int)this);
+  if ((iVar2 != 0) && (param_1 == '\0')) {
+    iVar2 = FUN_005f36f0((int)this);
+    uVar3 = FUN_00454bd0(this,iVar2);
+    if ((uVar3 & 0xff) == 0) {
+      piVar4 = (int *)FUN_005f36f0((int)this);
+      FUN_00462290(piVar4);
+    }
+  }
+  FUN_00454d50(this,param_1);
+  if ((param_1 == '\0') && (param_2 == '\0')) {
+    FUN_008d7dc0(this,0);
+  }
+  *(undefined1 *)((int)this + 0xb4) = 1;
+  return;
+}
+
+
+
+
+----------------------------------------------------------------------
+Calls FROM 0x004539a0 (ForceUnloadCell)
+----------------------------------------------------------------------
+  Calls 11 unique functions:
+    -> 0x00453940  FUN_00453940  (63 bytes)
+    -> 0x00453a70  FUN_00453a70  (10 bytes)
+    -> 0x00454bd0  FUN_00454bd0  (73 bytes)
+    -> 0x00454d50  FUN_00454d50  (199 bytes)
+    -> 0x00455200  FUN_00455200  (294 bytes)
+    -> 0x0045bb80  FUN_0045bb80  (19 bytes)
+    -> 0x00462290  FUN_00462290  (341 bytes)
+    -> 0x00470470  FUN_00470470  (110 bytes)
+    -> 0x00483710  FUN_00483710  (11 bytes)
+    -> 0x005f36f0  FUN_005f36f0  (17 bytes)
+    -> 0x008d7dc0  FUN_008d7dc0  (22 bytes)
+
+######################################################################
+# PART 10: Per-Frame Drain Setup/Cleanup
+######################################################################
+
+======================================================================
+FUN_00867f50 (per-frame drain setup) @ 0x00867f50
+======================================================================
+  Function: FUN_00867f50, Size: 19 bytes, Convention: __stdcall
+
+void FUN_00867f50(void)
+
+{
+  FUN_0040fbf0((LONG *)&DAT_011de8e0);
+  return;
+}
+
+
+
+
+----------------------------------------------------------------------
+Calls FROM 0x00867f50 (FUN_00867f50)
+----------------------------------------------------------------------
+  Calls 1 unique functions:
+    -> 0x0040fbf0  FUN_0040fbf0  (149 bytes)
+
+======================================================================
+FUN_00867f80 (per-frame drain cleanup) @ 0x00867f80
+======================================================================
+  Function: FUN_00867f80, Size: 15 bytes, Convention: __stdcall
+
+void FUN_00867f80(void)
+
+{
+  FUN_0040fba0((undefined4 *)&DAT_011de8e0);
+  return;
+}
+
+
+
+
+----------------------------------------------------------------------
+Calls FROM 0x00867f80 (FUN_00867f80)
+----------------------------------------------------------------------
+  Calls 1 unique functions:
+    -> 0x0040fba0  FUN_0040fba0  (49 bytes)
+
+######################################################################
+# PART 11: Cell Management Between AI and Render
+######################################################################
+
+======================================================================
+FUN_0045bc80 (cell management, called pre-render) @ 0x0045bc80
+======================================================================
+  Function: FUN_0045bc80, Size: 2066 bytes, Convention: __thiscall
+
+void __thiscall FUN_0045bc80(void *this,char param_1,char param_2)
+
+{
+  bool bVar1;
+  uint uVar2;
+  uint uVar3;
+  int iVar4;
+  uint *puVar5;
+  void *pvVar6;
+  undefined4 *puVar7;
+  int *piVar8;
+  int iVar9;
+  undefined4 *puVar10;
+  void *pvVar11;
+  int *unaff_FS_OFFSET;
+  undefined4 uVar12;
+  void *local_d0;
+  int local_cc;
+  undefined4 *local_b0;
+  undefined4 *local_98;
+  undefined4 *local_8c;
+  int local_80;
+  int local_7c;
+  cancellation_token_source local_78 [4];
+  int local_74;
+  int local_70;
+  int local_6c;
+  undefined4 *local_68;
+  int local_64;
+  int local_60;
+  uint local_5c;
+  int local_58;
+  int local_54;
+  uint local_50;
+  int *local_4c;
+  int *local_48;
+  uint local_44;
+  void *local_40;
+  void *local_3c;
+  undefined4 *local_38;
+  uint local_34;
+  uint local_30;
+  int local_2c;
+  int *local_28;
+  int *local_24;
+  uint local_20;
+  void *local_1c;
+  int *local_18;
+  void *local_14;
+  int local_10;
+  undefined1 *puStack_c;
+  undefined4 local_8;
+  
+  local_8 = 0xffffffff;
+  puStack_c = &LAB_00eed6b8;
+  local_10 = *unaff_FS_OFFSET;
+  uVar2 = DAT_011c16bc ^ (uint)&stack0xfffffffc;
+  *unaff_FS_OFFSET = (int)&local_10;
+  if (*(int *)((int)this + 0x34) == 0) {
+    iVar4 = FUN_004fd3e0((int)this);
+    if (iVar4 == 0) {
+      local_cc = 0;
+    }
+    else {
+      pvVar6 = (void *)FUN_004fd3e0((int)this);
+      local_cc = FUN_00586170(pvVar6);
+    }
+    local_2c = local_cc;
+    if (local_cc != 0) {
+      FUN_006fd130(local_cc);
+    }
+    local_30 = 0;
+    while (puVar5 = (uint *)FUN_0043d4d0(0x11c63cc), local_30 < *puVar5) {
+      local_34 = 0;
+      while (puVar5 = (uint *)FUN_0043d4d0(0x11c63cc), local_34 < *puVar5) {
+        local_38 = (undefined4 *)FUN_004ba490(*(void **)((int)this + 8),local_30,local_34);
+        local_3c = (void *)*local_38;
+        if (local_3c != (void *)0x0) {
+          local_40 = (void *)FUN_00456fc0(local_3c,7);
+          if (local_40 != (void *)0x0) {
+            local_44 = 0;
+            while (uVar2 = FUN_0043b480((int)local_40), local_44 < uVar2) {
+              local_48 = (int *)FUN_0043b4a0(local_40,local_44);
+              if (local_48 != (int *)0x0) {
+                local_4c = local_48;
+                (**(code **)(*local_48 + 0xbc))();
+                iVar4 = FUN_006629f0((int)local_4c);
+                iVar4 = FUN_0043b230(iVar4);
+                FUN_00528820(iVar4);
+              }
+              local_44 = local_44 + 1;
+            }
+          }
+          if (param_1 != '\0') {
+            local_40 = (void *)FUN_00456fc0(local_3c,2);
+            local_50 = 0;
+            while (uVar2 = FUN_0043b480((int)local_40), local_50 < uVar2) {
+              local_54 = FUN_0043b4a0(local_40,local_50);
+              if (local_54 != 0) {
+                local_58 = local_54;
+                iVar4 = FUN_006629f0(local_54);
+                iVar4 = FUN_0043b230(iVar4);
+                FUN_00528820(iVar4);
+              }
+              local_50 = local_50 + 1;
+            }
+          }
+        }
+        local_34 = local_34 + 1;
+      }
+      local_30 = local_30 + 1;
+    }
+  }
+  else {
+    local_1c = (void *)FUN_00456fc0(*(void **)((int)this + 0x34),7);
+    if (local_1c != (void *)0x0) {
+      local_20 = 0;
+      while (uVar3 = FUN_0043b480((int)local_1c), local_20 < uVar3) {
+        local_24 = (int *)FUN_0043b4a0(local_1c,local_20);
+        if ((local_24 != (int *)0x0) &&
+           (local_28 = local_24, iVar4 = (**(code **)(*local_24 + 0x104))(uVar2), iVar4 == 0)) {
+          iVar4 = FUN_006629f0((int)local_28);
+          iVar4 = FUN_0043b230(iVar4);
+          FUN_00528820(iVar4);
+        }
+        local_20 = local_20 + 1;
+      }
+    }
+  }
+  uVar2 = 6;
+  pvVar6 = (void *)FUN_00450b80(0);
+  local_18 = (int *)FUN_0045bc00(pvVar6,uVar2);
+  if (local_18 == (int *)0x0) {
+    local_d0 = (void *)0x0;
+  }
+  else {
+    local_d0 = (void *)(**(code **)(*local_18 + 0xc))();
+  }
+  local_14 = local_d0;
+  if (local_d0 != (void *)0x0) {
+    local_5c = 0;
+    while (uVar2 = FUN_0043b480((int)local_14), local_5c < uVar2) {
+      local_60 = FUN_0043b4a0(local_14,local_5c);
+      if (local_60 != 0) {
+        local_64 = local_60;
+        iVar4 = FUN_006629f0(local_60);
+        iVar4 = FUN_0043b230(iVar4);
+        FUN_00528820(iVar4);
+      }
+      local_5c = local_5c + 1;
+    }
+  }
+  iVar4 = FUN_00450b80(0);
+  iVar4 = FUN_00454b30(iVar4);
+  if (iVar4 != 0) {
+    iVar4 = FUN_00450b80(0);
+    iVar4 = FUN_00454b30(iVar4);
+    puVar7 = (undefined4 *)FUN_00413f40(iVar4);
+    local_6c = FUN_00559450(puVar7);
+    while (local_6c != 0) {
+      piVar8 = &local_6c;
+      iVar4 = FUN_00450b80(0);
+      iVar4 = FUN_00454b30(iVar4);
+      FUN_00413f40(iVar4);
+      piVar8 = (int *)FUN_0057cbe0(piVar8);
+      local_70 = *piVar8;
+      if (local_70 != 0) {
+        FUN_0045c4a0(local_70);
+      }
+    }
+    iVar4 = FUN_00450b80(0);
+    iVar4 = FUN_00454b30(iVar4);
+    local_68 = (undefined4 *)FUN_00891170(iVar4);
+    bVar1 = FUN_0076b610((int)local_68);
+    if ((!bVar1) && (param_2 != '\0')) {
+      local_74 = FUN_00559450(local_68);
+      while (local_74 != 0) {
+        piVar8 = (int *)FUN_0057cbe0(&local_74);
+        FUN_00559a40(local_78,piVar8);
+        local_8 = 0;
+        iVar4 = FUN_00559450((undefined4 *)local_78);
+        if (iVar4 != 0) {
+          piVar8 = (int *)FUN_00559450((undefined4 *)local_78);
+          (**(code **)(*piVar8 + 0xbc))();
+          uVar12 = 3;
+          pvVar6 = (void *)FUN_00559450((undefined4 *)local_78);
+          FUN_0045c570(pvVar6,uVar12);
+          iVar4 = 0;
+          pvVar6 = (void *)FUN_00559450((undefined4 *)local_78);
+          FUN_0045c4e0(pvVar6,iVar4);
+          iVar4 = FUN_00559450((undefined4 *)local_78);
+          puVar7 = (undefined4 *)FUN_006ab360(iVar4);
+          local_7c = FUN_00559450(puVar7);
+          while (local_7c != 0) {
+            piVar8 = &local_7c;
+            iVar4 = FUN_00559450((undefined4 *)local_78);
+            FUN_006ab360(iVar4);
+            piVar8 = (int *)FUN_0057cbe0(piVar8);
+            iVar4 = *piVar8;
+            if (iVar4 != 0) {
+              FUN_0045c4a0(iVar4);
+              iVar9 = FUN_0045c4c0(iVar4);
+              iVar9 = FUN_004f9bf0(iVar9);
+              if (iVar9 != 0) {
+                iVar9 = 0;
+                iVar4 = FUN_0045c4c0(iVar4);
+                pvVar6 = (void *)FUN_004f9bf0(iVar4);
+                FUN_00c47980(pvVar6,iVar9);
+              }
+            }
+          }
+          iVar4 = FUN_00559450((undefined4 *)local_78);
+          puVar7 = (undefined4 *)FUN_00514f30(iVar4);
+          local_80 = FUN_00559450(puVar7);
+          while (local_80 != 0) {
+            piVar8 = &local_80;
+            iVar4 = FUN_00559450((undefined4 *)local_78);
+            FUN_00514f30(iVar4);
+            piVar8 = (int *)FUN_0057cbe0(piVar8);
+            if (*piVar8 != 0) {
+              FUN_0045c4a0(*piVar8);
+            }
+          }
+        }
+        local_8 = 0xffffffff;
+        Concurrency::cancellation_token_source::~cancellation_token_source(local_78);
+      }
+    }
+  }
+  iVar4 = FUN_0070ec90((int)this);
+  if (iVar4 != 0) {
+    iVar4 = FUN_0070ec90((int)this);
+    puVar7 = (undefined4 *)FUN_005a8080(iVar4);
+    puVar7 = (undefined4 *)FUN_00559450(puVar7);
+    while (local_8c = puVar7, local_8c != (undefined4 *)0x0) {
+      puVar7 = local_8c;
+      iVar4 = FUN_0070ec90((int)this);
+      FUN_005a8080(iVar4);
+      puVar7 = (undefined4 *)FUN_007b52d0(puVar7);
+      if (local_8c != (undefined4 *)0x0) {
+        iVar4 = FUN_0070ec90((int)this);
+        FUN_005a8080(iVar4);
+        piVar8 = (int *)FUN_006317a0((int)local_8c);
+        puVar10 = (undefined4 *)FUN_00559450((undefined4 *)(*piVar8 + 0x24));
+        while (local_98 = puVar10, local_98 != (undefined4 *)0x0) {
+          puVar10 = (undefined4 *)FUN_007b52d0(local_98);
+          if (local_98 != (undefined4 *)0x0) {
+            piVar8 = (int *)FUN_006317a0((int)local_98);
+            piVar8 = (int *)*piVar8;
+            FUN_007af430((int)piVar8);
+            pvVar6 = (void *)(**(code **)(*piVar8 + 0x1d0))();
+            pvVar11 = (void *)FUN_0043b4a0(pvVar6,0);
+            bVar1 = FUN_0045bad0(0x1202e74,pvVar11);
+            if (bVar1) {
+              iVar4 = FUN_0043b4a0(pvVar6,0);
+              iVar4 = FUN_006629f0(iVar4);
+              iVar4 = FUN_0043b230(iVar4);
+              FUN_00528820(iVar4);
+            }
+          }
+        }
+      }
+    }
+    iVar4 = FUN_0070ec90((int)this);
+    iVar4 = FUN_006733e0(iVar4);
+    if (iVar4 != 0) {
+      puVar7 = (undefined4 *)FUN_00559450((undefined4 *)(iVar4 + 0x24));
+      while (local_b0 = puVar7, local_b0 != (undefined4 *)0x0) {
+        puVar7 = (undefined4 *)FUN_007b52d0(local_b0);
+        if (local_b0 != (undefined4 *)0x0) {
+          piVar8 = (int *)FUN_006317a0((int)local_b0);
+          piVar8 = (int *)*piVar8;
+          FUN_007af430((int)piVar8);
+          pvVar6 = (void *)(**(code **)(*piVar8 + 0x1d0))();
+          pvVar11 = (void *)FUN_0043b4a0(pvVar6,0);
+          bVar1 = FUN_0045bad0(0x1202e74,pvVar11);
+          if (bVar1) {
+            iVar4 = FUN_0043b4a0(pvVar6,0);
+            iVar4 = FUN_006629f0(iVar4);
+            iVar4 = FUN_0043b230(iVar4);
+            FUN_00528820(iVar4);
+          }
+        }
+      }
+    }
+  }
+  *unaff_FS_OFFSET = local_10;
+  return;
+}
+
+
+
+
+----------------------------------------------------------------------
+Calls FROM 0x0045bc80 (FUN_0045bc80)
+----------------------------------------------------------------------
+  Calls 36 unique functions:
+    -> 0x00413f40  FUN_00413f40  (17 bytes)
+    -> 0x0043b230  FUN_0043b230  (22 bytes)
+    -> 0x0043b480  FUN_0043b480  (25 bytes)
+    -> 0x0043b4a0  FUN_0043b4a0  (38 bytes)
+    -> 0x0043d4d0  FUN_0043d4d0  (56 bytes)
+    -> 0x00450b80  FUN_00450b80  (15 bytes)
+    -> 0x00454b30  FUN_00454b30  (20 bytes)
+    -> 0x00456fc0  FUN_00456fc0  (59 bytes)
+    -> 0x0045bad0  FUN_0045bad0  (27 bytes)
+    -> 0x0045bc00  FUN_0045bc00  (61 bytes)
+    -> 0x0045c4a0  FUN_0045c4a0  (21 bytes)
+    -> 0x0045c4c0  FUN_0045c4c0  (25 bytes)
+    -> 0x0045c4e0  FUN_0045c4e0  (59 bytes)
+    -> 0x0045c570  FUN_0045c570  (119 bytes)
+    -> 0x0045cec0  ~cancellation_token_source  (29 bytes)
+    -> 0x004ba490  FUN_004ba490  (70 bytes)
+    -> 0x004f9bf0  FUN_004f9bf0  (20 bytes)
+    -> 0x004fd3e0  FUN_004fd3e0  (20 bytes)
+    -> 0x00514f30  FUN_00514f30  (19 bytes)
+    -> 0x00528820  FUN_00528820  (21 bytes)
+    -> 0x00559450  FUN_00559450  (16 bytes)
+    -> 0x00559a40  FUN_00559a40  (44 bytes)
+    -> 0x0057cbe0  FUN_0057cbe0  (41 bytes)
+    -> 0x00586170  FUN_00586170  (50 bytes)
+    -> 0x005a8080  FUN_005a8080  (17 bytes)
+    -> 0x006317a0  FUN_006317a0  (19 bytes)
+    -> 0x006629f0  FUN_006629f0  (25 bytes)
+    -> 0x006733e0  FUN_006733e0  (17 bytes)
+    -> 0x006ab360  FUN_006ab360  (19 bytes)
+    -> 0x006fd130  FUN_006fd130  (30 bytes)
+    -> 0x0070ec90  FUN_0070ec90  (17 bytes)
+    -> 0x0076b610  FUN_0076b610  (25 bytes)
+    -> 0x007af430  FUN_007af430  (17 bytes)
+    -> 0x007b52d0  FUN_007b52d0  (41 bytes)
+    -> 0x00891170  FUN_00891170  (17 bytes)
+    -> 0x00c47980  FUN_00c47980  (126 bytes)
+
+======================================================================
+FUN_0045b070 (cell management 2) @ 0x0045b070
+======================================================================
+  Function: FUN_0045b070, Size: 2650 bytes, Convention: __thiscall
+
+void __thiscall FUN_0045b070(void *this,void *param_1)
+
+{
+  bool bVar1;
+  char cVar2;
+  float *pfVar3;
+  uint uVar4;
+  int iVar5;
+  uint *puVar6;
+  undefined4 *puVar7;
+  int *piVar8;
+  void *pvVar9;
+  int *unaff_FS_OFFSET;
+  undefined1 *puVar10;
+  float fVar11;
+  void *local_188;
+  void *local_184;
+  undefined1 local_17c [12];
+  undefined4 local_170 [3];
+  int *local_164;
+  int local_160;
+  undefined4 *local_15c;
+  cancellation_token_source local_158 [4];
+  undefined1 local_154 [15];
+  char local_145;
+  void *local_144;
+  void *local_140;
+  undefined4 local_13c;
+  void *local_138;
+  int *local_134;
+  undefined4 *local_130;
+  undefined4 *local_12c;
+  void *local_128;
+  undefined4 local_124;
+  void *local_120;
+  int *local_11c;
+  undefined4 *local_118;
+  undefined4 *local_114;
+  int local_110;
+  undefined4 *local_10c;
+  undefined4 *local_108;
+  void *local_104;
+  void *local_100;
+  uint local_fc;
+  void *local_f8;
+  void *local_f4;
+  uint local_f0;
+  void *local_ec;
+  void *local_e8;
+  uint local_e4;
+  void *local_e0;
+  void *local_dc;
+  undefined4 *local_d8;
+  uint local_d4;
+  uint local_d0;
+  void *local_cc;
+  int *local_c8;
+  int *local_c4;
+  uint local_c0;
+  void *local_bc;
+  undefined4 local_b8 [36];
+  float local_28;
+  float local_24;
+  float local_20;
+  void *local_1c;
+  int *local_18;
+  void *local_14;
+  int local_10;
+  undefined1 *puStack_c;
+  uint local_8;
+  
+  local_8 = 0xffffffff;
+  puStack_c = &LAB_00eed686;
+  local_10 = *unaff_FS_OFFSET;
+  *unaff_FS_OFFSET = (int)&local_10;
+  FUN_00483710();
+  FUN_00a69400(local_b8,0);
+  local_8 = 0;
+  FUN_0041fd00(local_b8,param_1);
+  pfVar3 = (float *)FUN_0045bbe0((int)param_1);
+  FUN_00a694a0(local_b8,pfVar3);
+  pfVar3 = (float *)FUN_0045bb80((int)param_1);
+  local_28 = *pfVar3;
+  local_24 = pfVar3[1];
+  local_20 = pfVar3[2];
+  local_1c = (void *)FUN_00450b80(0);
+  if (*(int *)((int)this + 0x34) == 0) {
+    iVar5 = FUN_004fd3e0((int)this);
+    if (iVar5 == 0) {
+      local_184 = (void *)0x0;
+    }
+    else {
+      pvVar9 = (void *)FUN_004fd3e0((int)this);
+      local_184 = (void *)FUN_00586170(pvVar9);
+    }
+    local_cc = local_184;
+    if (local_184 != (void *)0x0) {
+      FUN_006fd080(local_184,(int)param_1);
+    }
+    local_d0 = 0;
+    while (puVar6 = (uint *)FUN_0043d4d0(0x11c63cc), local_d0 < *puVar6) {
+      local_d4 = 0;
+      while (puVar6 = (uint *)FUN_0043d4d0(0x11c63cc), local_d4 < *puVar6) {
+        local_d8 = (undefined4 *)FUN_004ba490(*(void **)((int)this + 8),local_d0,local_d4);
+        local_dc = (void *)*local_d8;
+        if (local_dc != (void *)0x0) {
+          local_e0 = (void *)FUN_00456fc0(local_dc,7);
+          if (local_e0 != (void *)0x0) {
+            local_e4 = 0;
+            while (uVar4 = FUN_0043b480((int)local_e0), local_e4 < uVar4) {
+              local_e8 = (void *)FUN_0043b4a0(local_e0,local_e4);
+              if (local_e8 != (void *)0x0) {
+                local_ec = local_e8;
+                FUN_00b5bbe0(local_1c,local_e8,local_28,local_24,local_20,(int)local_b8);
+              }
+              local_e4 = local_e4 + 1;
+            }
+          }
+          local_e0 = (void *)FUN_00456fc0(local_dc,2);
+          local_f0 = 0;
+          while (uVar4 = FUN_0043b480((int)local_e0), local_f0 < uVar4) {
+            local_f4 = (void *)FUN_0043b4a0(local_e0,local_f0);
+            if (local_f4 != (void *)0x0) {
+              local_f8 = local_f4;
+              FUN_00b5bbe0(local_1c,local_f4,local_28,local_24,local_20,(int)local_b8);
+            }
+            local_f0 = local_f0 + 1;
+          }
+        }
+        local_d4 = local_d4 + 1;
+      }
+      local_d0 = local_d0 + 1;
+    }
+  }
+  else {
+    local_bc = (void *)FUN_00456fc0(*(void **)((int)this + 0x34),7);
+    if (local_bc != (void *)0x0) {
+      local_c0 = 0;
+      while (uVar4 = FUN_0043b480((int)local_bc), local_c0 < uVar4) {
+        local_c4 = (int *)FUN_0043b4a0(local_bc,local_c0);
+        if ((local_c4 != (int *)0x0) &&
+           (local_c8 = local_c4, iVar5 = (**(code **)(*local_c4 + 0x104))(), iVar5 == 0)) {
+          FUN_00b5bbe0(local_1c,local_c8,local_28,local_24,local_20,(int)local_b8);
+        }
+        local_c0 = local_c0 + 1;
+      }
+    }
+  }
+  local_18 = (int *)FUN_0045bc00(local_1c,6);
+  if (local_18 == (int *)0x0) {
+    local_188 = (void *)0x0;
+  }
+  else {
+    local_188 = (void *)(**(code **)(*local_18 + 0xc))();
+  }
+  local_14 = local_188;
+  if (local_188 != (void *)0x0) {
+    local_fc = 0;
+    while (uVar4 = FUN_0043b480((int)local_14), local_fc < uVar4) {
+      local_100 = (void *)FUN_0043b4a0(local_14,local_fc);
+      if (local_100 != (void *)0x0) {
+        local_104 = local_100;
+        FUN_00b5bbe0(local_1c,local_100,local_28,local_24,local_20,(int)local_b8);
+      }
+      local_fc = local_fc + 1;
+    }
+  }
+  iVar5 = FUN_0070ec90((int)this);
+  if (iVar5 != 0) {
+    local_110 = 0;
+    iVar5 = FUN_0070ec90((int)this);
+    puVar7 = (undefined4 *)FUN_005a8080(iVar5);
+    local_108 = (undefined4 *)FUN_00559450(puVar7);
+    local_10c = (undefined4 *)0x0;
+    while (local_108 != (undefined4 *)0x0) {
+      puVar7 = local_108;
+      iVar5 = FUN_0070ec90((int)this);
+      FUN_005a8080(iVar5);
+      local_10c = (undefined4 *)FUN_007b52d0(puVar7);
+      if (local_108 != (undefined4 *)0x0) {
+        puVar7 = local_108;
+        iVar5 = FUN_0070ec90((int)this);
+        FUN_005a8080(iVar5);
+        piVar8 = (int *)FUN_006317a0((int)puVar7);
+        local_110 = *piVar8;
+        local_114 = (undefined4 *)FUN_00559450((undefined4 *)(local_110 + 0x24));
+        local_118 = (undefined4 *)0x0;
+        while (local_114 != (undefined4 *)0x0) {
+          local_118 = (undefined4 *)FUN_007b52d0(local_114);
+          if (local_114 != (undefined4 *)0x0) {
+            local_11c = (int *)FUN_006317a0((int)local_114);
+            local_11c = (int *)*local_11c;
+            local_124 = FUN_007af430((int)local_11c);
+            local_120 = (void *)(**(code **)(*local_11c + 0x1d0))();
+            pvVar9 = (void *)FUN_0043b4a0(local_120,0);
+            bVar1 = FUN_0045bad0(0x1202e74,pvVar9);
+            if (bVar1) {
+              local_128 = (void *)FUN_0043b4a0(local_120,0);
+              FUN_00b5bbe0(local_1c,local_128,local_28,local_24,local_20,(int)local_b8);
+            }
+          }
+          local_114 = local_118;
+        }
+      }
+      local_108 = local_10c;
+    }
+    iVar5 = FUN_0070ec90((int)this);
+    local_110 = FUN_006733e0(iVar5);
+    if (local_110 != 0) {
+      local_12c = (undefined4 *)FUN_00559450((undefined4 *)(local_110 + 0x24));
+      local_130 = (undefined4 *)0x0;
+      while (local_12c != (undefined4 *)0x0) {
+        local_130 = (undefined4 *)FUN_007b52d0(local_12c);
+        if (local_12c != (undefined4 *)0x0) {
+          local_134 = (int *)FUN_006317a0((int)local_12c);
+          local_134 = (int *)*local_134;
+          local_13c = FUN_007af430((int)local_134);
+          local_138 = (void *)(**(code **)(*local_134 + 0x1d0))();
+          pvVar9 = (void *)FUN_0043b4a0(local_138,0);
+          bVar1 = FUN_0045bad0(0x1202e74,pvVar9);
+          if (bVar1) {
+            local_140 = (void *)FUN_0043b4a0(local_138,0);
+            FUN_00b5bbe0(local_1c,local_140,local_28,local_24,local_20,(int)local_b8);
+          }
+        }
+        local_12c = local_130;
+      }
+    }
+  }
+  iVar5 = FUN_00450b80(0);
+  iVar5 = FUN_00454b30(iVar5);
+  if (iVar5 != 0) {
+    iVar5 = FUN_00450b80(0);
+    iVar5 = FUN_00454b30(iVar5);
+    FUN_0045bc60(iVar5);
+    iVar5 = FUN_00450b80(0);
+    iVar5 = FUN_00454b30(iVar5);
+    iVar5 = FUN_0056c7f0(iVar5);
+    FUN_00633c90(local_158,iVar5);
+    local_8 = CONCAT31(local_8._1_3_,1);
+    local_144 = param_1;
+    iVar5 = FUN_0045bbe0((int)param_1);
+    fVar11 = *(float *)(iVar5 + 0x10);
+    puVar10 = local_17c;
+    puVar7 = FUN_0045bba0(param_1,local_170);
+    pfVar3 = FUN_0045bb20(puVar7,puVar10,fVar11);
+    puVar10 = local_154;
+    pvVar9 = (void *)FUN_0045bb80((int)param_1);
+    FUN_00439e90(pvVar9,puVar10,pfVar3);
+    iVar5 = FUN_00559450((undefined4 *)local_158);
+    if (iVar5 != 0) {
+      piVar8 = (int *)FUN_00559450((undefined4 *)local_158);
+      cVar2 = (**(code **)(*piVar8 + 0x108))(local_154);
+      if (cVar2 == '\0') {
+        FUN_0066b0d0(local_158,0);
+      }
+      else {
+        cVar2 = '\x01';
+        pfVar3 = (float *)FUN_005d8a70((int)local_b8);
+        iVar5 = FUN_0084e3a0((int)local_b8);
+        piVar8 = (int *)FUN_00559450((undefined4 *)local_158);
+        FUN_00b5f170(local_1c,piVar8,iVar5,pfVar3,cVar2);
+      }
+    }
+    local_145 = '\x01';
+    iVar5 = FUN_00559450((undefined4 *)local_158);
+    if (iVar5 == 0) {
+      iVar5 = FUN_00454b30((int)local_1c);
+      local_15c = (undefined4 *)FUN_00891170(iVar5);
+      bVar1 = FUN_0076b610((int)local_15c);
+      if (!bVar1) {
+        local_160 = FUN_00559450(local_15c);
+        while (local_160 != 0) {
+          puVar7 = (undefined4 *)FUN_0057cbe0(&local_160);
+          local_164 = (int *)FUN_00559450(puVar7);
+          if ((local_164 != (int *)0x0) &&
+             (cVar2 = (**(code **)(*local_164 + 0x108))(local_154), cVar2 != '\0')) {
+            cVar2 = local_145;
+            pfVar3 = (float *)FUN_005d8a70((int)local_b8);
+            iVar5 = FUN_0084e3a0((int)local_b8);
+            FUN_00b5f170(local_1c,local_164,iVar5,pfVar3,cVar2);
+            iVar5 = FUN_00559450((undefined4 *)local_158);
+            if (iVar5 == 0) {
+              FUN_0066b0d0(local_158,(int)local_164);
+              local_145 = '\0';
+            }
+          }
+        }
+      }
+    }
+    iVar5 = FUN_00559450((undefined4 *)local_158);
+    if (iVar5 == 0) {
+      cVar2 = local_145;
+      pfVar3 = (float *)FUN_005d8a70((int)local_b8);
+      iVar5 = FUN_0084e3a0((int)local_b8);
+      FUN_00b5f170(local_1c,(int *)0x0,iVar5,pfVar3,cVar2);
+    }
+    iVar5 = FUN_00559450((undefined4 *)local_158);
+    pvVar9 = (void *)FUN_00454b30((int)local_1c);
+    FUN_0045bc40(pvVar9,iVar5);
+    local_8 = local_8 & 0xffffff00;
+    Concurrency::cancellation_token_source::~cancellation_token_source(local_158);
+  }
+  FUN_00483710();
+  local_8 = 0xffffffff;
+  FUN_00a693e0(local_b8);
+  *unaff_FS_OFFSET = local_10;
+  return;
+}
+
+
+
+
+----------------------------------------------------------------------
+Calls FROM 0x0045b070 (FUN_0045b070)
+----------------------------------------------------------------------
+  Calls 42 unique functions:
+    -> 0x0041fd00  FUN_0041fd00  (22 bytes)
+    -> 0x00439e90  FUN_00439e90  (90 bytes)
+    -> 0x0043b480  FUN_0043b480  (25 bytes)
+    -> 0x0043b4a0  FUN_0043b4a0  (38 bytes)
+    -> 0x0043d4d0  FUN_0043d4d0  (56 bytes)
+    -> 0x00450b80  FUN_00450b80  (15 bytes)
+    -> 0x00454b30  FUN_00454b30  (20 bytes)
+    -> 0x00456fc0  FUN_00456fc0  (59 bytes)
+    -> 0x0045bad0  FUN_0045bad0  (27 bytes)
+    -> 0x0045bb20  FUN_0045bb20  (82 bytes)
+    -> 0x0045bb80  FUN_0045bb80  (19 bytes)
+    -> 0x0045bba0  FUN_0045bba0  (63 bytes)
+    -> 0x0045bbe0  FUN_0045bbe0  (19 bytes)
+    -> 0x0045bc00  FUN_0045bc00  (61 bytes)
+    -> 0x0045bc40  FUN_0045bc40  (28 bytes)
+    -> 0x0045bc60  FUN_0045bc60  (22 bytes)
+    -> 0x0045cec0  ~cancellation_token_source  (29 bytes)
+    -> 0x00483710  FUN_00483710  (11 bytes)
+    -> 0x004ba490  FUN_004ba490  (70 bytes)
+    -> 0x004fd3e0  FUN_004fd3e0  (20 bytes)
+    -> 0x00559450  FUN_00559450  (16 bytes)
+    -> 0x0056c7f0  FUN_0056c7f0  (22 bytes)
+    -> 0x0057cbe0  FUN_0057cbe0  (41 bytes)
+    -> 0x00586170  FUN_00586170  (50 bytes)
+    -> 0x005a8080  FUN_005a8080  (17 bytes)
+    -> 0x005d8a70  FUN_005d8a70  (17 bytes)
+    -> 0x006317a0  FUN_006317a0  (19 bytes)
+    -> 0x00633c90  FUN_00633c90  (42 bytes)
+    -> 0x0066b0d0  FUN_0066b0d0  (70 bytes)
+    -> 0x006733e0  FUN_006733e0  (17 bytes)
+    -> 0x006fd080  FUN_006fd080  (172 bytes)
+    -> 0x0070ec90  FUN_0070ec90  (17 bytes)
+    -> 0x0076b610  FUN_0076b610  (25 bytes)
+    -> 0x007af430  FUN_007af430  (17 bytes)
+    -> 0x007b52d0  FUN_007b52d0  (41 bytes)
+    -> 0x0084e3a0  FUN_0084e3a0  (17 bytes)
+    -> 0x00891170  FUN_00891170  (17 bytes)
+    -> 0x00a693e0  FUN_00a693e0  (7 bytes)
+    -> 0x00a69400  FUN_00a69400  (109 bytes)
+    -> 0x00a694a0  FUN_00a694a0  (57 bytes)
+    -> 0x00b5bbe0  FUN_00b5bbe0  (182 bytes)
+    -> 0x00b5f170  FUN_00b5f170  (2055 bytes)
+
+######################################################################
+# PART 12: All PDD Queue Addresses and Size Reading
+######################################################################
+
+======================================================================
+Queue init (FUN_00869c60) @ 0x00869c60
+======================================================================
+  Function: FUN_00869c60, Size: 41 bytes, Convention: __thiscall
+
+undefined4 * __thiscall FUN_00869c60(void *this,undefined2 param_1,undefined2 param_2)
+
+{
+  FUN_00869d40(this,param_1,param_2);
+  *(undefined ***)this = &PTR_FUN_01082808;
+  return this;
+}
+
+
+
+
+======================================================================
+FUN_008693c0 (enqueue to NiNode queue, 33 bytes) @ 0x008693c0
+======================================================================
+  Function: FUN_008693c0, Size: 33 bytes, Convention: __thiscall
+
+void __thiscall FUN_008693c0(void *this,int *param_1)
+
+{
+  FUN_00869640(this,(uint)*(ushort *)((int)this + 10),param_1);
+  return;
+}
+
+
+
+
+----------------------------------------------------------------------
+Calls FROM 0x008693c0 (FUN_008693c0)
+----------------------------------------------------------------------
+  Calls 1 unique functions:
+    -> 0x00869640  FUN_00869640  (63 bytes)
+
+======================================================================
+FUN_00869420 (enqueue function) @ 0x00869420
+======================================================================
+  Function: FUN_00869420, Size: 152 bytes, Convention: __cdecl
+
+void __cdecl FUN_00869420(void *param_1,void *param_2)
+
+{
+  undefined2 uVar1;
+  undefined2 extraout_var;
+  int *piVar2;
+  int iVar3;
+  int *unaff_FS_OFFSET;
+  cancellation_token_source local_18 [4];
+  uint local_14;
+  int local_10;
+  undefined1 *puStack_c;
+  undefined4 local_8;
+  
+  local_8 = 0xffffffff;
+  puStack_c = &LAB_00f13d88;
+  local_10 = *unaff_FS_OFFSET;
+  *unaff_FS_OFFSET = (int)&local_10;
+  local_14 = 0;
+  while( true ) {
+    uVar1 = FUN_00658930((int)param_1);
+    if (CONCAT22(extraout_var,uVar1) <= local_14) break;
+    piVar2 = (int *)FUN_00877a30(param_1,local_14);
+    FUN_00559a40(local_18,piVar2);
+    local_8 = 0;
+    iVar3 = FUN_00559450((undefined4 *)local_18);
+    if (iVar3 != 0) {
+      FUN_004afc50(param_2,(int *)local_18);
+    }
+    local_8 = 0xffffffff;
+    Concurrency::cancellation_token_source::~cancellation_token_source(local_18);
+    local_14 = local_14 + 1;
+  }
+  *unaff_FS_OFFSET = local_10;
+  return;
+}
+
+
+
+
+======================================================================
+FUN_00869510 (enqueue function) @ 0x00869510
+======================================================================
+  Function: FUN_00869510, Size: 78 bytes, Convention: __cdecl
+
+void __cdecl FUN_00869510(void *param_1,void *param_2)
+
+{
+  uint uVar1;
+  int *piVar2;
+  int local_c;
+  uint local_8;
+  
+  local_8 = 0;
+  while( true ) {
+    uVar1 = FUN_0044ddc0((int)param_1);
+    if (uVar1 <= local_8) break;
+    piVar2 = (int *)FUN_006a7ad0(param_1,local_8);
+    local_c = *piVar2;
+    if (local_c != 0) {
+      FUN_007cb2e0(param_2,&local_c);
+    }
+    local_8 = local_8 + 1;
+  }
+  return;
+}
+
+
+
+
+======================================================================
+FUN_008694c0 (enqueue function) @ 0x008694c0
+======================================================================
+  Function: FUN_008694c0, Size: 78 bytes, Convention: __cdecl
+
+void __cdecl FUN_008694c0(void *param_1,void *param_2)
+
+{
+  undefined2 uVar1;
+  undefined2 extraout_var;
+  int *piVar2;
+  int local_c;
+  uint local_8;
+  
+  local_8 = 0;
+  while( true ) {
+    uVar1 = FUN_00658930((int)param_1);
+    if (CONCAT22(extraout_var,uVar1) <= local_8) break;
+    piVar2 = (int *)FUN_00877a30(param_1,local_8);
+    local_c = *piVar2;
+    if (local_c != 0) {
+      FUN_008693c0(param_2,&local_c);
+    }
+    local_8 = local_8 + 1;
+  }
+  return;
+}
+
+
+
+
+######################################################################
+# PART 13: AI Thread Idle Detection
+######################################################################
+
+======================================================================
+AIThread_MainLoop (111 bytes) @ 0x008c7720
+======================================================================
+  Function: FUN_008c7720, Size: 111 bytes, Convention: __fastcall
+
+undefined4 __fastcall FUN_008c7720(int *param_1)
+
+{
+  (**(code **)(*param_1 + 8))();
+  while (((char)param_1[0x12] == '\0' && (FUN_004424e0(param_1 + 0xc), (char)param_1[0x12] == '\0'))
+        ) {
+    (**(code **)(*param_1 + 0x10))();
+    FUN_00442550(param_1 + 0xf);
+  }
+  (**(code **)(*param_1 + 0xc))();
+  FUN_00442550(param_1 + 0xf);
+  return 0;
+}
+
+
+
+
+======================================================================
+AIThread_TaskDispatch (28 bytes) @ 0x008c7190
+======================================================================
+  Function: FUN_008c7190, Size: 28 bytes, Convention: __fastcall
+
+void __fastcall FUN_008c7190(int param_1)
+
+{
+  if (*(int *)(param_1 + 0x4c) != 0) {
+    (**(code **)(param_1 + 0x4c))();
+  }
+  return;
+}
+
+
+
+
+======================================================================
+RESEARCH COMPLETE
+======================================================================

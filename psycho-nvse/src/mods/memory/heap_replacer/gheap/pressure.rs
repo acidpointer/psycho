@@ -10,24 +10,24 @@
 //! - **Post-AI hooks (line 486)**: Safe for cell unloading — render is done,
 //!   AI tasks are done, scene data is no longer needed for this frame.
 //!
-//! # Selective PDD (skip NiNode queue)
+//! # Multi-layer pressure relief
 //!
-//! After cell unloading, we call `ProcessDeferredDestruction` with the NiNode
-//! queue (bit 0x08) skipped via the `DAT_011de804` bitmask. This processes
-//! deferred forms, animations, and other objects, while skipping BSTreeNode
-//! destruction that would crash SpeedTree's cached draw lists.
+//! Three mechanisms work together to prevent OOM:
 //!
-//! **Why we can't process queue 0x08 from post-render:**
-//! - Scene graph invalidation (`FUN_00703980`) accesses heightfield data from
-//!   cells we just freed via `FindCellToUnload` — causes main thread crash.
-//! - Without invalidation, SpeedTree draw lists hold stale BSTreeNode pointers
-//!   across frames — next frame's render crashes.
-//! - The game's own safe PDD callers (lines 271, 347) run BEFORE render and
-//!   BEFORE cell unloading, when the scene graph is consistent.
+//! ## Layer 1: Post-render cell unloading + selective PDD (this module)
+//! Unloads cells and runs PDD with NiNode queue (0x08) skipped. Safe because
+//! render is done and scene data is consumed.
 //!
-//! Queue 0x08 is drained by the game's own internally-synchronized PDD calls
-//! at safe frame points (lines 271, 273, 347). Under extreme stress, NiNodes
-//! may accumulate faster than the game drains them.
+//! ## Layer 2: Boosted per-frame NiNode drain (FUN_00868850 hook)
+//! The game's per-frame queue processor runs at line ~802, before AI dispatch.
+//! Under pressure, we call it 20x instead of 1x, draining ~200-400 NiNodes
+//! per frame. Stops when queue 0x08 empties to avoid over-draining Havok.
+//!
+//! ## Layer 3: Boosted cleanup dispatch rate (DAT_011a95fc)
+//! FUN_00a61cd0 (cleanup dispatcher) limits items per call via DAT_011a95fc.
+//! Under pressure, we temporarily set this to 2000 (vs default ~small value),
+//! so ProcessPendingCleanup processes more items. This accelerates the game's
+//! own cleanup at its natural safe frame position.
 
 use libc::c_void;
 use std::sync::atomic::{AtomicBool, AtomicI64, AtomicU64, Ordering};
@@ -46,6 +46,9 @@ use super::types::{FindCellToUnloadFn, ProcessDeferredDestructionFn, ProcessPend
 const THRESHOLD: usize = 700 * 1024 * 1024;
 
 /// Max cells to unload per relief cycle.
+/// 20 is the proven sweet spot. Higher values (30+) cause BSTreeNode
+/// use-after-free: cells unload faster than the per-frame NiNode drain
+/// can clean SpeedTree's cached draw list pointers.
 const MAX_CELLS_PER_CYCLE: usize = 20;
 
 /// Minimum milliseconds between relief cycles.
@@ -63,6 +66,26 @@ const GAME_MANAGER_PTR: usize = 0x011DEA10;
 /// DAT_011de804 — bitmask controlling which PDD queues to skip.
 /// Bit set = queue skipped. Bit 0x08 = NiNode/BSTreeNode queue.
 const PDD_SKIP_MASK_PTR: usize = 0x011DE804;
+
+/// DAT_011a95fc — cleanup dispatch rate limiter.
+///
+/// FUN_00a61cd0 (main cleanup dispatcher) processes items in a loop
+/// bounded by `local_1c < DAT_011a95fc`. Default is a small value,
+/// limiting cleanup per call. The pre-destruction setup (FUN_00878160)
+/// sets this to 0x7FFFFFFF (INT_MAX) for unlimited cleanup.
+///
+/// We boost this under pressure to accelerate the game's own cleanup
+/// dispatcher, which runs at safe frame positions (MainLoop line ~800,
+/// ProcessPendingCleanup). This is safe because:
+/// - We only write one integer — no function calls, no side effects
+/// - The cleanup dispatcher already runs at internally-synchronized points
+/// - The game itself sets this to INT_MAX during pre-destruction setup
+const CLEANUP_RATE_LIMIT_PTR: usize = 0x011A95FC;
+
+/// Boosted cleanup rate during pressure relief.
+/// The pre-destruction setup uses 0x7FFFFFFF (INT_MAX).
+/// We use a high but bounded value to prevent frame stalls.
+const BOOSTED_CLEANUP_RATE: u32 = 2000;
 
 // ---------------------------------------------------------------------------
 // PressureRelief
@@ -214,7 +237,22 @@ impl PressureRelief {
             }
         }
 
+        // Boost cleanup dispatch rate: set DAT_011a95fc to a high value
+        // so FUN_00a61cd0 (called by ProcessPendingCleanup and by the game's
+        // MainLoop at line ~800) processes more items per call. This
+        // accelerates the game's own cleanup path at its natural safe
+        // position — no new function calls, just one integer write.
+        let rate_limit = CLEANUP_RATE_LIMIT_PTR as *mut u32;
+        let original_rate = unsafe { rate_limit.read_volatile() };
+        unsafe { rate_limit.write_volatile(BOOSTED_CLEANUP_RATE) };
+
         unsafe { process_cleanup(manager, 0) };
+
+        // Restore original cleanup rate after our cleanup is done.
+        // The boosted rate also helps the game's own cleanup dispatcher
+        // in the NEXT frame (MainLoop line ~800), but we restore to avoid
+        // permanent side effects on normal gameplay.
+        unsafe { rate_limit.write_volatile(original_rate) };
 
         // Selective PDD: skip NiNode queue (bit 0x08) to avoid BSTreeNode
         // use-after-free in SpeedTree's cached draw lists. All other queues
