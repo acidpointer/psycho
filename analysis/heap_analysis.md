@@ -742,11 +742,13 @@ unsafe extern "C" fn DeferredCleanupSmall(param_1: u8);
 | 4 | `0x0093D500` | Cell load (352 bytes) | `FUN_00878160(local_18,0,1,0)` ... `FUN_00878250(local_13)` ... `FUN_00878200(local_18)` |
 | 5 | `0x005B6CD0` | Cleanup helper (70 bytes) | `FUN_00878160(local_10,1,1,1)` ... `FUN_00878250(local_b)` ... `FUN_00878200(local_10)` |
 
-### Why CellTransitionHandler Doesn't Need the Protocol
+### Why CellTransitionHandler Doesn't Need the Protocol (WRONG — See Bug Fix Below)
 
-CellTransitionHandler (`0x008774A0`) quiesces the entire game state first -- AI threads
-are stopped, render is stopped, IO is blocked. It uses BLOCKING PDD and BLOCKING async
-flush. The protocol is for incremental cleanup where other threads are still running.
+~~CellTransitionHandler (`0x008774A0`) quiesces the entire game state first -- AI threads
+are stopped, render is stopped, IO is blocked.~~ This was our original assumption but it
+is WRONG. CellTransitionHandler runs at main loop line 273, BEFORE AI threads are idle.
+AI threads from the previous frame's post-render signal may still be raycasting. See
+[CellTransitionHandler Engine Bug Fix](#celltransitionhandler-engine-bug-fix) below.
 
 ### Why HeapCompact Stage 5 Doesn't Need the Protocol (in the original game)
 
@@ -780,6 +782,51 @@ This is safe from post-render because render has already consumed the draw lists
 The per-frame queue processor `FUN_00868850` runs at line ~802, BEFORE AI dispatch
 and BEFORE render. AI threads are idle, render hasn't built draw lists, and the
 function drains small batches (10-20 items). No concurrent system holds references.
+
+### CellTransitionHandler Engine Bug Fix
+
+CellTransitionHandler (FUN_008774a0, 561 bytes) is the ONE function in the game that calls BLOCKING PDD (FUN_00868d70 with param=0) WITHOUT locking the Havok world first.
+
+**The bug:** CellTransitionHandler runs at main loop line 273 (via FUN_0086f940 → FUN_0093bea0). AI threads from the PREVIOUS frame's post-render signal (line 497) may still be active doing physics raycasting. The BLOCKING PDD frees hkpSimulationIsland data while AI threads are reading it → EXCEPTION_ACCESS_VIOLATION on AI Linear Task Thread.
+
+**Why the original game doesn't crash:** SBM keeps zombie data. The AI thread reads freed-but-intact simulation island data → continues without crashing. With mimalloc, freed data is recycled → AI thread reads garbage → crash.
+
+**All PDD callers comparison:**
+
+| Caller | PDD mode | hkWorld_Lock? | Safe? |
+|--------|----------|---------------|-------|
+| 5 normal PDD callers | try-lock (1) | YES (PreDestructionSetup) | YES |
+| DeferredCleanupSmall | try-lock (1) | YES (called inside protocol) | YES |
+| HeapCompact Stage 4/5 | try-lock (1) | NO but threads sleeping (Stage 8) | YES |
+| CellTransition_Conditional | try-lock (1) | NO but non-blocking | OK |
+| Save/load functions | blocking (0) | NO but during loading (AI idle) | OK |
+| **CellTransitionHandler** | **blocking (0)** | **NO — AI may be active** | **BUG** |
+
+**The fix:** We inline-hook CellTransitionHandler and wrap it with hkWorld_Lock/Unlock + loading state counter:
+
+```rust
+pub(super) unsafe extern "thiscall" fn hook_cell_transition_handler(
+    this: *mut c_void, param_1: u8,
+) {
+    // Lock Havok world — blocks AI raycasting
+    let world = *(0x01202D98 as *const *mut c_void);
+    if !world.is_null() {
+        hkWorld_Lock(world);  // FUN_00c3e310
+    }
+    // Suppress NVSE events
+    loading_counter.fetch_add(1, AcqRel);
+
+    original(this, param_1);  // game's CellTransitionHandler
+
+    loading_counter.fetch_sub(1, AcqRel);
+    if !world.is_null() {
+        hkWorld_Unlock(world);  // FUN_00c3e340
+    }
+}
+```
+
+Hook address: 0x008774A0 (standard prologue: PUSH EBP; MOV EBP,ESP; SUB ESP,0x20).
+Only 1 caller: FUN_0086a850 at 0x0086b664.
 
 ---
 
@@ -1077,6 +1124,7 @@ when consecutive allocations overlapped.
 | Music broken | Crash on NULL music path in FUN_008300c0 | Misidentified FUN_008324e0 as Havok instead of music | Don't call FUN_008324e0(1) |
 | sbm2 region overlap | Memory corruption in scrap heap | Bump allocator new_offset didn't account for alignment padding | Fixed offset calculation |
 | NVSE event dispatch during cell destruction | EXCEPTION_ACCESS_VIOLATION in nvse_stewie_tweaks LowProcess__Func011F or johnnyguitar HandlePLChangeEvent | FindCellToUnload triggers actor process changes during cell destruction, which fires NVSE plugin event handlers (PLChangeEvent). These handlers access objects mid-destruction (refcount 0). | Set loading state counter DAT_01202d6c > 0 before FindCellToUnload |
+| CellTransitionHandler AI thread crash (ENGINE BUG) | EXCEPTION_ACCESS_VIOLATION on AI Linear Task Thread, hkpSimulationIsland / hkScaledMoppBvTreeShape with ecx=NULL | Game's own CellTransitionHandler runs BLOCKING PDD without hkWorld_Lock. AI threads from post-render signal race with freed physics data. | Hook CellTransitionHandler, wrap with hkWorld_Lock/Unlock + loading state counter |
 
 ### NVSE Event Dispatch During Cell Destruction (Detail)
 
@@ -1101,6 +1149,7 @@ All crash classes except 32-bit VA ceiling eliminated:
 | Freeze during loading | Stale push counter bypass | FIXED |
 | OOM during cell transition | Immediate flush + purge_delay=0 | FIXED |
 | sbm2 region overlap | new_offset = actual consumed | FIXED |
+| CellTransitionHandler AI crash (engine bug) | Hook with hkWorld_Lock + loading counter | FIXED |
 | 32-bit VA ceiling | Irreducible 32-bit limit | DOCUMENTED |
 
 Stress test result: 440+ cells unloaded, 3+ minutes extreme traversal, zero stale-pointer crashes, zero event crashes, zero AI crashes. Only crash is OOM at ~1.8GB VA ceiling.
@@ -1109,10 +1158,10 @@ Stress test result: 440+ cells unloaded, 3+ minutes extreme traversal, zero stal
 
 ## Chapter 12: Key Lessons Learned
 
-> **TL;DR:** 20 hard-won lessons from development. The most important: the 500MB budget
+> **TL;DR:** 21 hard-won lessons from development. The most important: the 500MB budget
 > was a synchronization barrier, the Pre-Destruction Protocol is mandatory for safe PDD,
-> per-allocation atomics destroy performance, and NVSE plugins require event suppression
-> during cell destruction.
+> per-allocation atomics destroy performance, NVSE plugins require event suppression
+> during cell destruction, and CellTransitionHandler is a genuine Bethesda engine bug.
 
 ### 1. The 500MB Budget Was a Synchronization Barrier
 
@@ -1217,6 +1266,10 @@ NVSE plugins like Stewie's Tweaks hold references to game objects for many frame
 ### 20. purge_delay Must Be 0 for Cell Transitions
 
 purge_delay=500ms caused old freed pages to stay committed for 500ms during cell transitions. Old pages + new cell data = double VA usage, pushing commit from 1.3GB to 1.5GB+ → OOM. With purge_delay=0, empty pages are decommitted immediately (cheap within pre-reserved arena), preventing VA pressure during rapid cell transitions.
+
+### 21. CellTransitionHandler Is the Only PDD Caller Without hkWorld_Lock
+
+Out of 8 PDD callers in the game, CellTransitionHandler is the only one that calls BLOCKING PDD while AI threads may be active AND without locking the Havok world. The 5 normal callers use PreDestructionSetup. HeapCompact has implicit synchronization (Stage 8 sleeping). Save/load runs during loading (AI idle). CellTransition_Conditional uses non-blocking PDD. Only CellTransitionHandler is genuinely buggy — a Bethesda engine bug masked by SBM zombies for 15+ years.
 
 ---
 
@@ -1377,13 +1430,13 @@ All Rust FFI signatures are `unsafe extern "<conv>"`.
 
 ### Cell Transition Functions
 
-| Address | Name | Size | Conv | Rust FFI Signature |
-|---------|------|------|------|--------------------|
-| `0x008774A0` | CellTransitionHandler | 561b | thiscall | `fn(this: *mut c_void, param_1: u8)` |
-| `0x00877700` | CellTransition_PreCleanup | 30b | fastcall | `fn(player: *mut c_void)` |
-| `0x008782B0` | CellTransition_SafePoint | 130b | cdecl | `fn()` |
-| `0x00878250` | DeferredCleanup_Small | 86b | cdecl | `fn(param_1: u8)` |
-| `0x0093BEA0` | CellTransition_Conditional | 832b | fastcall | `fn(param_1: *mut c_void)` |
+| Address | Name | Size | Conv | Rust FFI Signature | Description |
+|---------|------|------|------|--------------------|-------------|
+| `0x008774A0` | CellTransitionHandler | 561b | thiscall | `fn(this: *mut c_void, param_1: u8)` | Cell transition orchestrator. HOOKED to fix engine bug (adds hkWorld_Lock). |
+| `0x00877700` | CellTransition_PreCleanup | 30b | fastcall | `fn(player: *mut c_void)` | |
+| `0x008782B0` | CellTransition_SafePoint | 130b | cdecl | `fn()` | |
+| `0x00878250` | DeferredCleanup_Small | 86b | cdecl | `fn(param_1: u8)` | |
+| `0x0093BEA0` | CellTransition_Conditional | 832b | fastcall | `fn(param_1: *mut c_void)` | |
 
 ### Music System Functions (NOT Havok)
 
@@ -1610,6 +1663,7 @@ All Rust FFI signatures are `unsafe extern "<conv>"`.
 | `io_thread_sync_points.py` | Research AsyncQueueFlush blocking mechanism, IO thread sync primitives |
 | `post_destruction_restore.py` | Decompile FUN_00878200 (PostDestructionRestore), verify hkWorld_Unlock call |
 | `event_dispatch_suppress.py` | Research NVSE event dispatching during cell destruction, loading state counter DAT_01202d6c, FUN_0043b2b0 mechanism |
+| `cell_transition_havok_race.py` | Research CellTransitionHandler Havok race — PDD callers, AI timing, hookability |
 
 ### Analysis Outputs
 
@@ -1638,6 +1692,7 @@ All Rust FFI signatures are `unsafe extern "<conv>"`.
 | `io_thread_sync_points.txt` | AsyncQueueFlush mechanism, IO dequeue |
 | `post_destruction_restore.txt` | FUN_00878200 decompilation, function boundary map |
 | `event_dispatch_suppress.txt` | Event dispatch chain, loading counter, DestroyCell guard, ForceUnloadCell flags |
+| `cell_transition_havok_race.txt` | CellTransitionHandler decompilation, all PDD callers, AI dispatch timing, hook prologue |
 
 ---
 
