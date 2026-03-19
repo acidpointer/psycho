@@ -47,14 +47,19 @@ use std::sync::atomic::{AtomicU64, Ordering};
 /// - Game's own deferred systems: variable delay
 ///
 /// The original SBM kept zombies FOREVER (until arena purge). We can't
-/// do that, but 60 frames (1 second at 60fps) covers most cases.
-/// Memory overhead: ~60 frames × ~2MB/frame = ~120MB zombie data max.
-/// At 800MB idle commit, this is well within the ~1.8GB VA ceiling.
+/// do that, but 30 frames (500ms at 60fps) covers NVSE plugin access
+/// patterns (dead creature weapon refs, process state changes, etc.).
+/// Memory overhead: ~30 frames × ~1MB/frame = ~30MB zombie data.
+/// At 800MB idle commit, well within the ~1.8GB VA ceiling.
 ///
 /// The pressure relief system flushes quarantine immediately after
 /// DeferredCleanupSmall, so during cell transitions the actual zombie
 /// window is much shorter (same-frame flush).
-const QUARANTINE_FRAMES: usize = 60;
+///
+/// Tuning: 3 frames was too short (Stewie's Tweaks crash on dead
+/// creature weapon ref). 60 frames added unnecessary ~60MB overhead
+/// that contributed to VA pressure during stress testing.
+const QUARANTINE_FRAMES: usize = 30;
 
 /// If this many pushes happen on a single thread without a frame advance,
 /// we're likely in a loading screen. Start bypassing to mi_free.
