@@ -460,6 +460,7 @@ dependencies = [
  "ahash",
  "anyhow",
  "bindgen",
+ "bitflags",
  "closure-ffi",
  "libc",
  "libpsycho",

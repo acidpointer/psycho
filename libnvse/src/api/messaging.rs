@@ -36,7 +36,6 @@ use crate::{
 use ahash::AHashMap;
 use closure_ffi::BareFn;
 use libpsycho::os::windows::winapi::{WinString, WinapiError};
-use parking_lot::RwLock;
 use std::{ffi::CStr, fmt::Display, ptr::NonNull};
 use thiserror::Error;
 
@@ -200,10 +199,14 @@ pub struct NVSEMessage {
 impl From<&NVSEMessagingInterface_Message> for NVSEMessage {
     fn from(val: &NVSEMessagingInterface_Message) -> Self {
         let msg_type: NVSEMessageType = val.into();
-        let sender = unsafe { CStr::from_ptr(val.sender) }
-            .to_str()
-            .unwrap_or("UNKNOWN")
-            .to_string();
+        let sender = if val.sender.is_null() {
+            "UNKNOWN".to_string()
+        } else {
+            unsafe { CStr::from_ptr(val.sender) }
+                .to_str()
+                .unwrap_or("UNKNOWN")
+                .to_string()
+        };
 
         Self {
             data: val.data,
@@ -215,8 +218,42 @@ impl From<&NVSEMessagingInterface_Message> for NVSEMessage {
 }
 
 impl NVSEMessage {
+    /// Get the message type.
     pub fn get_type(&self) -> NVSEMessageType {
         self.msg_type
+    }
+
+    /// Get the sender plugin name.
+    pub fn sender(&self) -> &str {
+        &self.sender
+    }
+
+    /// Get the raw data pointer and length.
+    pub fn raw_data(&self) -> (*mut c_void, u32) {
+        (self.data, self.data_len)
+    }
+
+    /// Interpret the message data as a file path string.
+    ///
+    /// Many NVSE messages (LoadGame, SaveGame, DeleteGame, etc.) pass
+    /// a C string path as their data. Returns None if data is NULL or
+    /// not valid UTF-8.
+    pub fn data_as_path(&self) -> Option<&str> {
+        if self.data.is_null() || self.data_len == 0 {
+            return None;
+        }
+        let cstr = unsafe { CStr::from_ptr(self.data as *const i8) };
+        cstr.to_str().ok()
+    }
+
+    /// Interpret the message data as a bool (used by PostLoadGame).
+    ///
+    /// Returns None if data is NULL.
+    pub fn data_as_bool(&self) -> Option<bool> {
+        if self.data.is_null() {
+            return None;
+        }
+        Some(unsafe { *(self.data as *const bool) })
     }
 }
 
@@ -245,8 +282,6 @@ pub struct NVSEMessagingInterface<'a> {
         AHashMap<String, BareFn<'a, unsafe extern "C" fn(*mut NVSEMessagingInterface_Message)>>,
 
     plugin_handle: NVSEPluginHandle,
-
-    _guard: RwLock<()>,
 }
 
 impl<'a> NVSEMessagingInterface<'a> {
@@ -266,7 +301,6 @@ impl<'a> NVSEMessagingInterface<'a> {
             msg_ptr,
             plugin_handle,
             listeners: AHashMap::new(),
-            _guard: RwLock::new(()),
         })
     }
 
@@ -275,8 +309,6 @@ impl<'a> NVSEMessagingInterface<'a> {
         sender: &str,
         cb: F,
     ) -> NVSEMessagingInterfaceResult<()> {
-        let _lock = self._guard.write();
-
         if self.listeners.contains_key(sender) {
             return Err(NVSEMessagingInterfaceError::ListenerAlreadyRegistered(
                 sender.to_string(),
@@ -317,8 +349,58 @@ impl<'a> NVSEMessagingInterface<'a> {
     }
 
     pub fn is_listener_registered(&self, sender: &str) -> bool {
-        let _lock = self._guard.read();
-
         self.listeners.contains_key(sender)
+    }
+
+    /// Dispatch a message to a specific plugin or all plugins.
+    ///
+    /// - `message_type` - Your plugin-defined message type ID
+    /// - `data` - Raw data bytes to send (receiver must know the format)
+    /// - `receiver` - Target plugin name, or None to broadcast to all
+    ///
+    /// Returns true if any listeners received the message.
+    pub fn dispatch(
+        &self,
+        message_type: u32,
+        data: &[u8],
+        receiver: Option<&str>,
+    ) -> NVSEMessagingInterfaceResult<bool> {
+        let msg_ref = unsafe { self.msg_ptr.as_ref() };
+
+        let dispatch_fn = msg_ref
+            .Dispatch
+            .ok_or(NVSEMessagingInterfaceError::InterfaceIsNull)?;
+
+        let data_ptr = if data.is_empty() {
+            std::ptr::null_mut()
+        } else {
+            data.as_ptr() as *mut c_void
+        };
+
+        let result = match receiver {
+            Some(name) => {
+                let win_name = WinString::new(name)?;
+                win_name.with_ansi(|name_ptr| unsafe {
+                    dispatch_fn(
+                        self.plugin_handle.get_handle(),
+                        message_type,
+                        data_ptr,
+                        data.len() as u32,
+                        name_ptr,
+                    )
+                })
+            }
+            None => unsafe {
+                dispatch_fn(
+                    self.plugin_handle.get_handle(),
+                    message_type,
+                    data_ptr,
+                    data.len() as u32,
+                    std::ptr::null(),
+                )
+            },
+        };
+
+        Ok(result)
     }
 }
