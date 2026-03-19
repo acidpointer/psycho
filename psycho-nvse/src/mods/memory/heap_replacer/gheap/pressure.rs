@@ -86,6 +86,20 @@ const GAME_MANAGER_PTR: usize = 0x011DEA10;
 /// Writing N causes HeapCompact stages 0..N to run on the NEXT FRAME.
 const HEAP_COMPACT_TRIGGER_PTR: usize = 0x011F636C;
 
+/// DAT_01202d6c — Loading/destruction state counter.
+///
+/// FUN_0043b2b0(1) increments, FUN_0043b2b0(0) decrements (InterlockedIncrement/Decrement).
+/// When > 0, the game is in a loading/destruction state. Actor processing during
+/// cell destruction skips event dispatching (PLChangeEvent, etc.), preventing NVSE
+/// plugins (JohnnyGuitar, Stewie's Tweaks) from accessing mid-destruction objects.
+///
+/// The game's own PDD caller (FUN_004556d0) sets this to 1 before cleanup.
+/// CellTransitionHandler runs during loading screens where this is already > 0.
+/// HeapCompact Stage 5 runs in the allocation retry loop where events don't fire.
+///
+/// We must set this > 0 before FindCellToUnload to suppress event dispatching.
+const LOADING_STATE_COUNTER_PTR: usize = 0x01202D6C;
+
 // ---------------------------------------------------------------------------
 // PressureRelief
 // ---------------------------------------------------------------------------
@@ -243,20 +257,35 @@ impl PressureRelief {
         let mut cells: usize = 0;
 
         if CELL_UNLOAD_ENABLED {
-            // === PRE-DESTRUCTION PROTOCOL ===
+            // === FULL DESTRUCTION PROTOCOL ===
             //
-            // Follow the EXACT same sequence as the game's 5 normal PDD
-            // callers (FUN_004556d0, FUN_008782b0, FUN_0093cdf0, etc.):
+            // Replicates the EXACT sequence the game uses for safe cleanup:
             //
+            // 0. Enter loading state (suppress NVSE event dispatching)
             // 1. PreDestructionSetup — hkWorld_Lock + SceneGraphInvalidate
             // 2. FindCellToUnload (our addition — cells freed with zombies)
             // 3. DeferredCleanupSmall — full PDD (all queues) + async flush
             // 4. PostDestructionRestore — hkWorld_Unlock + restore
+            // 5. Exit loading state
+            // 6. Flush quarantine (zombie data no longer needed)
             //
-            // hkWorld_Lock blocks AI raycasting threads → no heightfield UAF.
-            // SceneGraphInvalidate rebuilds SpeedTree draw lists → no BSTreeNode UAF.
-            // Full PDD processes ALL queues (no selective skip needed).
-            // Quarantine keeps zombie data → IO thread reads intact QueuedTextures.
+            // Each step addresses a specific crash vector:
+            // - Loading state: prevents NVSE plugins from firing event handlers
+            //   on mid-destruction objects (PLChangeEvent, OnCellDetach, etc.)
+            // - hkWorld_Lock: blocks AI raycasting → no heightfield UAF
+            // - SceneGraphInvalidate: rebuilds SpeedTree draw lists → no BSTreeNode UAF
+            // - Full PDD: all queues, no selective skip needed
+            // - Quarantine: IO thread reads intact zombie data during async flush
+            // - Immediate flush: reclaims zombie memory before new cell loading
+
+            // Step 0: Enter loading state — suppress NVSE event dispatching.
+            // DAT_01202d6c is an InterlockedIncrement/Decrement counter.
+            // When > 0, actor process changes during cell destruction skip
+            // event dispatch, preventing NVSE plugins from accessing
+            // mid-destruction objects (refcount 0, partially freed).
+            let loading_counter =
+                unsafe { &*(LOADING_STATE_COUNTER_PTR as *const std::sync::atomic::AtomicI32) };
+            loading_counter.fetch_add(1, std::sync::atomic::Ordering::AcqRel);
 
             // 12-byte state struct on stack (matches game's local_10/local_48)
             let mut state = [0u8; 12];
@@ -276,20 +305,17 @@ impl PressureRelief {
             }
 
             // Step 3: Full PDD + async flush + ProcessPendingCleanup
-            // DeferredCleanupSmall processes ALL PDD queues (no skip mask).
-            // Safe because: Havok locked (AI blocked), scene graph rebuilt
-            // (SpeedTree clean), quarantine protects IO thread zombie data.
             unsafe { deferred_cleanup(state[5]) };
 
             // Step 4: Unlock Havok world + restore state
             unsafe { post_destruction(state_ptr) };
 
-            // Step 5: Flush quarantine immediately.
+            // Step 5: Exit loading state
+            loading_counter.fetch_sub(1, std::sync::atomic::Ordering::AcqRel);
+
+            // Step 6: Flush quarantine immediately.
             // The blocking async flush in DeferredCleanupSmall already drained
-            // all stale IO tasks — zombie data served its purpose. Release it
-            // NOW so the game can reuse the memory for loading new cells.
-            // Without this, quarantine holds ~200MB of zombie cell data for 3
-            // frames while the game tries to load exterior (~500MB) → OOM.
+            // all stale IO tasks — zombie data served its purpose.
             unsafe { super::delayed_free::flush_current_thread() };
         }
 

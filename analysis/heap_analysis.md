@@ -64,8 +64,9 @@ the SBM pool system. To prevent 32-bit address space exhaustion (~1.8GB usable),
 a pressure relief system monitors commit size and triggers coordinated cleanup using
 the game's own Pre-Destruction Protocol (hkWorld_Lock + SceneGraphInvalidate + PDD).
 
-A delayed-free quarantine protects against use-after-free from the IO thread by
-holding freed pointers in per-thread ring buffers for 3 frames before actual deallocation.
+A delayed-free quarantine protects against use-after-free from the IO thread and NVSE
+plugins by holding freed pointers in per-thread ring buffers for 60 frames before actual
+deallocation.
 
 ---
 
@@ -109,15 +110,16 @@ holding freed pointers in per-thread ring buffers for 3 frames before actual dea
   GameHeap::Free ─────────────────────> Quarantine Ring Buffer
        |                                     |
        +── SBM arena free    [DISABLED]      +── per-thread, lock-free
-       +── CRT _free                         +── 3-frame delay
+       +── CRT _free                         +── 60-frame delay
                                              +── mi_free() after delay
                                              |
   HeapCompact (500MB budget) ─────────> Pressure Relief System
        |                                     |
        +── stages 0-8                        +── 700MB threshold
-       +── implicit thread sync              +── PreDestruction Protocol
+       +── implicit thread sync              +── Loading state counter
+                                             +── PreDestruction Protocol
                                              +── FindCellToUnload x20
-                                             +── HeapCompact trigger (stages 0-3)
+                                             +── HeapCompact trigger (stages 0-2)
                                              +── Immediate quarantine flush
 ```
 
@@ -616,7 +618,43 @@ kept "zombie" data intact until arena purge).
 > queues safe from our hook. Without it, AI threads crash on Havok shapes and
 > SpeedTree crashes on stale draw lists.
 
-### Discovery
+### Step 0: Loading State Counter (DAT_01202d6c)
+
+**Address:** `0x01202D6C`
+**Type:** `i32` (InterlockedIncrement/Decrement counter)
+**Rust:** `AtomicI32::fetch_add(1, AcqRel)` / `AtomicI32::fetch_sub(1, AcqRel)`
+
+When this counter is > 0, the game is in a loading/destruction state. Actor processing during cell destruction (FUN_0054af40 → FUN_0096e150) skips event dispatching. This prevents NVSE plugins (JohnnyGuitar HandlePLChangeEvent, Stewie's Tweaks LowProcess__Func011F) from firing event handlers on mid-destruction objects (refcount 0, partially freed).
+
+Discovery: DestroyCell (FUN_00462290) calls FUN_0044ada0(1) at start and FUN_0044ada0(0) at end — this sets DAT_01202df0 (a separate destruction-in-progress flag). But the EVENT SUPPRESSION is controlled by DAT_01202d6c, set by FUN_0043b2b0:
+```c
+void FUN_0043b2b0(char param_1) {
+    if (param_1 == 0)
+        InterlockedDecrement(&DAT_01202d6c);
+    else
+        InterlockedIncrement(&DAT_01202d6c);
+    if (DAT_01202d6c < 0) DAT_01202d6c = 0;
+}
+```
+
+The game's PDD caller FUN_004556d0 sets this to 1 before cleanup. CellTransitionHandler runs during loading screens where this is already > 0. HeapCompact Stage 5 runs in the allocation retry loop where events don't fire naturally.
+
+### Full Protocol Sequence
+
+The complete pre-destruction protocol with the loading state counter:
+```
+0. InterlockedIncrement(DAT_01202d6c)  — enter loading state (suppress events)
+1. PreDestructionSetup                  — hkWorld_Lock + SceneGraphInvalidate
+2. FindCellToUnload × 20               — cells freed (quarantine holds zombies)
+3. DeferredCleanupSmall                 — full PDD + blocking async flush
+4. PostDestructionRestore               — hkWorld_Unlock + restore
+5. InterlockedDecrement(DAT_01202d6c)  — exit loading state
+6. flush_current_thread                 — quarantine release
+7. HeapCompact trigger (stages 0-2)
+8. mi_collect(false)
+```
+
+### Discovery (Protocol Pattern)
 
 Every caller of `DeferredCleanupSmall` (`0x00878250`) follows an identical pattern.
 The protocol locks Havok to block AI raycasting, and invalidates the scene graph to
@@ -771,6 +809,9 @@ bouncing. Thread-local counters have zero cross-core contention.
 ```
   PRESSURE RELIEF (at hook position, post-render):
   |
+  +-- Step 0: InterlockedIncrement(DAT_01202d6c)
+  |     Enter loading state — suppress NVSE event dispatching
+  |
   +-- Step 1: PreDestructionSetup (0x00878160)
   |     hkWorld_Lock(DAT_01202d98)
   |     SceneGraphInvalidate (FUN_00703980)
@@ -790,14 +831,17 @@ bouncing. Thread-local counters have zero cross-core contention.
   |     hkWorld_Unlock(DAT_01202d98)
   |     Restore cleanup rate
   |
-  +-- Step 5: Flush quarantine immediately
+  +-- Step 5: InterlockedDecrement(DAT_01202d6c)
+  |     Exit loading state — re-enable NVSE event dispatching
+  |
+  +-- Step 6: Flush quarantine immediately
   |     Prevents OOM from queued frees
   |
-  +-- Step 6: HeapCompact trigger
-  |     *(0x011F636C) = 3
-  |     Stages 0-3 on next frame
+  +-- Step 7: HeapCompact trigger
+  |     *(0x011F636C) = 2
+  |     Stages 0-2 on next frame
   |
-  +-- Step 7: mi_collect(false)
+  +-- Step 8: mi_collect(false)
         Thread-local decommit nudge
 ```
 
@@ -1032,14 +1076,43 @@ when consecutive allocations overlapped.
 | Aggressive cell unload | AI thread crash on hkBSHeightFieldShape | Cooldown < 2000ms or > 20 cells causes AI to access unloading cells | Conservative tuning (2s/20 cells) |
 | Music broken | Crash on NULL music path in FUN_008300c0 | Misidentified FUN_008324e0 as Havok instead of music | Don't call FUN_008324e0(1) |
 | sbm2 region overlap | Memory corruption in scrap heap | Bump allocator new_offset didn't account for alignment padding | Fixed offset calculation |
+| NVSE event dispatch during cell destruction | EXCEPTION_ACCESS_VIOLATION in nvse_stewie_tweaks LowProcess__Func011F or johnnyguitar HandlePLChangeEvent | FindCellToUnload triggers actor process changes during cell destruction, which fires NVSE plugin event handlers (PLChangeEvent). These handlers access objects mid-destruction (refcount 0). | Set loading state counter DAT_01202d6c > 0 before FindCellToUnload |
+
+### NVSE Event Dispatch During Cell Destruction (Detail)
+
+- **Crash:** EXCEPTION_ACCESS_VIOLATION in nvse_stewie_tweaks LowProcess__Func011F or johnnyguitar HandlePLChangeEvent
+- **Stack shows:** psycho_nvse → FindCellToUnload → DestroyCell → actor cleanup → event dispatch → NVSE handler → access refcount-0 object
+- **Cause:** FindCellToUnload triggers actor process changes during cell destruction, which fires NVSE plugin event handlers (PLChangeEvent). These handlers access objects mid-destruction.
+- **Fix:** Set loading state counter DAT_01202d6c > 0 before FindCellToUnload. Actor processing skips event dispatching when this counter is set.
+- **Why original game doesn't crash:** HeapCompact Stage 5 runs in allocation retry loop (no events). CellTransitionHandler runs during loading (counter already set).
+
+### Final Crash Resolution Summary (Session Result)
+
+All crash classes except 32-bit VA ceiling eliminated:
+
+| Crash | Fix | Status |
+|-------|-----|--------|
+| QueuedTexture NULL vtable (IO) | Quarantine + immediate flush | FIXED |
+| hkBSHeightFieldShape UAF (AI) | hkWorld_Lock in protocol | FIXED |
+| BSTreeNode RefCount:0 (SpeedTree) | SceneGraphInvalidate in protocol | FIXED |
+| NVSE PLChangeEvent (plugins) | Loading state counter DAT_01202d6c | FIXED |
+| mimalloc corruption (mods) | encoded_freelist MI_SECURE=2 | MITIGATED |
+| HeapCompact Stage 4/5 unsafe | Trigger limited to stages 0-2 | FIXED |
+| Freeze during loading | Stale push counter bypass | FIXED |
+| OOM during cell transition | Immediate flush + purge_delay=0 | FIXED |
+| sbm2 region overlap | new_offset = actual consumed | FIXED |
+| 32-bit VA ceiling | Irreducible 32-bit limit | DOCUMENTED |
+
+Stress test result: 440+ cells unloaded, 3+ minutes extreme traversal, zero stale-pointer crashes, zero event crashes, zero AI crashes. Only crash is OOM at ~1.8GB VA ceiling.
 
 ---
 
 ## Chapter 12: Key Lessons Learned
 
-> **TL;DR:** 17 hard-won lessons from development. The most important: the 500MB budget
+> **TL;DR:** 20 hard-won lessons from development. The most important: the 500MB budget
 > was a synchronization barrier, the Pre-Destruction Protocol is mandatory for safe PDD,
-> and per-allocation atomics destroy performance.
+> per-allocation atomics destroy performance, and NVSE plugins require event suppression
+> during cell destruction.
 
 ### 1. The 500MB Budget Was a Synchronization Barrier
 
@@ -1132,6 +1205,18 @@ memory operations go through Bethesda's wrapper (`FUN_00c3e1b0`) which calls
 `GameHeap::Allocate`/`Free`. This means our quarantine covers 100% of Havok allocations
 — no bypass paths exist. The Havok-related crashes during stress testing are purely OOM
 at the 32-bit VA ceiling, not quarantine coverage gaps.
+
+### 18. FindCellToUnload Triggers NVSE Event Dispatching
+
+FindCellToUnload → DestroyCell triggers actor process changes on creatures in the unloading cell. This fires NVSE event handlers (PLChangeEvent, OnCellDetach) that access mid-destruction objects (refcount 0). The game's own callers avoid this because they run in contexts where event dispatching is naturally suppressed (HeapCompact retry loop, loading screens). Our post-render hook runs during normal gameplay where the event system is active. Fix: set DAT_01202d6c > 0 (loading state counter) to suppress events.
+
+### 19. QUARANTINE_FRAMES Must Be Large Enough for NVSE Plugins
+
+NVSE plugins like Stewie's Tweaks hold references to game objects for many frames after those objects are freed (e.g., dead creature's weapon reference persists for dozens of frames after HAVOK_DEATH). The original SBM kept zombie data forever. A 3-frame quarantine was insufficient — increased to 60 frames (1 second at 60fps). The pressure relief system flushes quarantine immediately after DeferredCleanupSmall, so the 60-frame window only applies to normal gameplay frees (~120MB overhead at 2MB/frame).
+
+### 20. purge_delay Must Be 0 for Cell Transitions
+
+purge_delay=500ms caused old freed pages to stay committed for 500ms during cell transitions. Old pages + new cell data = double VA usage, pushing commit from 1.3GB to 1.5GB+ → OOM. With purge_delay=0, empty pages are decommitted immediately (cheap within pre-reserved arena), preventing VA pressure during rapid cell transitions.
 
 ---
 
@@ -1281,6 +1366,15 @@ All Rust FFI signatures are `unsafe extern "<conv>"`.
 | `0x008781E0` | SetDistanceThreshold | 13b | cdecl | `fn(value: u32)` |
 | `0x008781F0` | GetDistanceThreshold | 10b | cdecl | `fn() -> u32` |
 
+### Loading State and Cell Destruction Functions
+
+| Address | Name | Size | Conv | Rust FFI Signature | Description |
+|---------|------|------|------|--------------------|-------------|
+| `0x0043B2B0` | SetLoadingState | 69b | cdecl | `unsafe extern "C" fn(param_1: u8)` | Increments/decrements DAT_01202d6c loading counter |
+| `0x0044ADA0` | SetDestructionFlag | 13b | cdecl | `unsafe extern "C" fn(param_1: u8)` | Sets DAT_01202df0 destruction-in-progress flag |
+| `0x0054AF40` | CellCleanup_ActorProcess | 53b | thiscall | `unsafe extern "thiscall" fn(this: *mut c_void, param_1: u8)` | Iterates actors in cell, triggers process changes |
+| `0x0096E150` | ActorProcess_EventTrigger | 311b | thiscall | `unsafe extern "thiscall" fn(this: *mut c_void, param_1: i32, param_2: u8)` | Processes actors during cell unload, dispatches events |
+
 ### Cell Transition Functions
 
 | Address | Name | Size | Conv | Rust FFI Signature |
@@ -1421,6 +1515,7 @@ All Rust FFI signatures are `unsafe extern "<conv>"`.
 | `DAT_011DEA0C` | Game main controller | Thread ID at offset +0x10 |
 | `DAT_011DEA3C` | Player character pointer | bhkCharacterProxy |
 | `DAT_011DDF38` | BSRenderedLandData | Flags at offset +0x244 |
+| `DAT_01202D6C` | Loading state counter | InterlockedIncrement/Decrement. When > 0, actor event dispatching is suppressed during cell destruction. Set by FUN_0043b2b0 |
 | `DAT_01202D98` | Havok world singleton | hkWorld pointer for Lock/Unlock |
 
 ### Music System (NOT Havok)
@@ -1464,7 +1559,7 @@ All Rust FFI signatures are `unsafe extern "<conv>"`.
 | `DAT_011F11A0` | Global lock for deferred destruction |
 | `DAT_011F4480` | Queue 0x10 lock (form deletions) |
 | `DAT_01202D98` | Havok world singleton (hkWorld_Lock target) |
-| `DAT_01202DF0` | hkWorld lock state flag |
+| `DAT_01202DF0` | Cell destruction in-progress flag. Set by FUN_0044ada0(1) at start of DestroyCell, cleared by FUN_0044ada0(0) at end |
 | `DAT_01202E40` | Async queue flush lock |
 | `DAT_01202E44` | Async queue counter (decremented by flush) |
 | `_tls_index + 0x298` | TLS deferred cleanup flag (per-thread) |
@@ -1514,6 +1609,7 @@ All Rust FFI signatures are `unsafe extern "<conv>"`.
 | `scene_graph_post_render_safety.py` | Verify SceneGraphInvalidate safety from post-render hook position |
 | `io_thread_sync_points.py` | Research AsyncQueueFlush blocking mechanism, IO thread sync primitives |
 | `post_destruction_restore.py` | Decompile FUN_00878200 (PostDestructionRestore), verify hkWorld_Unlock call |
+| `event_dispatch_suppress.py` | Research NVSE event dispatching during cell destruction, loading state counter DAT_01202d6c, FUN_0043b2b0 mechanism |
 
 ### Analysis Outputs
 
@@ -1541,6 +1637,7 @@ All Rust FFI signatures are `unsafe extern "<conv>"`.
 | `scene_graph_post_render_safety.txt` | SceneGraphInvalidate chain, exterior-only check |
 | `io_thread_sync_points.txt` | AsyncQueueFlush mechanism, IO dequeue |
 | `post_destruction_restore.txt` | FUN_00878200 decompilation, function boundary map |
+| `event_dispatch_suppress.txt` | Event dispatch chain, loading counter, DestroyCell guard, ForceUnloadCell flags |
 
 ---
 

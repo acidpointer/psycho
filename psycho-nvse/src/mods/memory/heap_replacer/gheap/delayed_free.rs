@@ -37,7 +37,24 @@ use std::sync::atomic::{AtomicU64, Ordering};
 // ---------------------------------------------------------------------------
 
 /// Number of frames to hold freed pointers before releasing to mimalloc.
-const QUARANTINE_FRAMES: usize = 3;
+///
+/// Must be large enough for ALL subsystems to finish using stale references:
+/// - IO thread: 1-2 frames (texture load tasks)
+/// - AI threads: 1 frame (raycasting within single dispatch)
+/// - SpeedTree: 1 frame (draw list consumed by render)
+/// - NVSE plugins (Stewie's Tweaks, etc.): access deleted objects via
+///   stale process/weapon refs for many frames after HAVOK_DEATH
+/// - Game's own deferred systems: variable delay
+///
+/// The original SBM kept zombies FOREVER (until arena purge). We can't
+/// do that, but 60 frames (1 second at 60fps) covers most cases.
+/// Memory overhead: ~60 frames × ~2MB/frame = ~120MB zombie data max.
+/// At 800MB idle commit, this is well within the ~1.8GB VA ceiling.
+///
+/// The pressure relief system flushes quarantine immediately after
+/// DeferredCleanupSmall, so during cell transitions the actual zombie
+/// window is much shorter (same-frame flush).
+const QUARANTINE_FRAMES: usize = 60;
 
 /// If this many pushes happen on a single thread without a frame advance,
 /// we're likely in a loading screen. Start bypassing to mi_free.
@@ -66,13 +83,12 @@ pub fn tick() {
     QUARANTINE.with(|q| {
         let q = unsafe { &mut *q.get() };
         let frame = FRAME_COUNTER.load(Ordering::Relaxed);
-        if let Some(last) = q.last_frame {
-            if frame != last {
+        if let Some(last) = q.last_frame
+            && frame != last {
                 q.flush_stale(last, frame);
                 q.last_frame = Some(frame);
                 q.stale_pushes = 0;
             }
-        }
     });
 }
 
