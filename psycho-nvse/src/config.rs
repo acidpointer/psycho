@@ -50,9 +50,6 @@ pub struct MemoryConfig {
 
 #[derive(Debug, Deserialize, Serialize)]
 pub struct PerfConfig {
-    /// Set Windows timer resolution to 1ms (timeBeginPeriod).
-    pub timer_resolution: bool,
-
     /// Replace the game's Mersenne Twister RNG with modern SmallRng (WyRand).
     pub rng: bool,
 }
@@ -74,7 +71,6 @@ impl Default for PsychoConfig {
                 game_heap_hooks: true,
             },
             perf: PerfConfig {
-                timer_resolution: false,
                 rng: true,
             },
             zlib: ZlibConfig {
