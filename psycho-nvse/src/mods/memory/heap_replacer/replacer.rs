@@ -100,10 +100,18 @@ const MAIN_LOOP_MAINTENANCE_ADDR: usize = 0x008705D0;
 // We hook this to boost NiNode (queue 0x08) drain rate under memory pressure.
 const PER_FRAME_QUEUE_DRAIN_ADDR: usize = 0x00868850;
 
+// CellTransitionHandler (FUN_008774a0).
+// ENGINE BUG FIX: wraps the game's own cell transition with hkWorld_Lock
+// to prevent AI thread physics crashes during BLOCKING PDD.
+const CELL_TRANSITION_HANDLER_ADDR: usize = 0x008774A0;
+
 pub static MAIN_LOOP_MAINTENANCE_HOOK: LazyLock<InlineHookContainer<MainLoopMaintenanceFn>> =
     LazyLock::new(InlineHookContainer::new);
 
 pub static PER_FRAME_QUEUE_DRAIN_HOOK: LazyLock<InlineHookContainer<PerFrameQueueDrainFn>> =
+    LazyLock::new(InlineHookContainer::new);
+
+pub static CELL_TRANSITION_HANDLER_HOOK: LazyLock<InlineHookContainer<CellTransitionHandlerFn>> =
     LazyLock::new(InlineHookContainer::new);
 
 /// Scrap heap hooks
@@ -256,6 +264,20 @@ pub fn install_game_heap_hooks() -> anyhow::Result<()> {
         )?;
         PER_FRAME_QUEUE_DRAIN_HOOK.enable()?;
         log::info!("[PRESSURE] Per-frame queue drain hook installed at 0x{:08X}", PER_FRAME_QUEUE_DRAIN_ADDR);
+    }
+
+    // ENGINE BUG FIX: CellTransitionHandler does BLOCKING PDD without
+    // hkWorld_Lock. AI threads from previous frame's post-render signal
+    // crash on freed hkpSimulationIsland data. We wrap it with the same
+    // protections used by the 5 normal PDD callers.
+    {
+        CELL_TRANSITION_HANDLER_HOOK.init(
+            "cell_transition_handler",
+            CELL_TRANSITION_HANDLER_ADDR as *mut c_void,
+            hook_cell_transition_handler,
+        )?;
+        CELL_TRANSITION_HANDLER_HOOK.enable()?;
+        log::info!("[ENGINE FIX] CellTransitionHandler hook installed at 0x{:08X}", CELL_TRANSITION_HANDLER_ADDR);
     }
 
     {

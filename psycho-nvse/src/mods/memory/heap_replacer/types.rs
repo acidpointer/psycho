@@ -28,6 +28,22 @@ pub type SheapRegisterFn = unsafe extern "thiscall" fn(*mut c_void, u32, *mut c_
 /// Main loop pre-render maintenance function (FUN_008705d0).
 pub type MainLoopMaintenanceFn = unsafe extern "thiscall" fn(*mut c_void);
 
+/// CellTransitionHandler (FUN_008774a0, 561 bytes).
+///
+/// Orchestrates safe object destruction during cell transitions (entering/
+/// leaving buildings, fast travel). Called from the main game loop setup
+/// (FUN_0086a850) — only 1 caller.
+///
+/// BUG: The original function calls BLOCKING PDD (FUN_00868d70('\0'))
+/// and async flush (FUN_00c459d0('\0')) WITHOUT locking the Havok world.
+/// AI threads from the previous frame's post-render signal may still be
+/// doing physics raycasting → hkpSimulationIsland crash on AI thread.
+///
+/// FIX: We hook this function and wrap it with hkWorld_Lock/Unlock +
+/// loading state counter to prevent AI physics races and NVSE event
+/// dispatch during destruction.
+pub type CellTransitionHandlerFn = unsafe extern "thiscall" fn(*mut c_void, u8);
+
 /// Per-frame queue processor (FUN_00868850, line ~802).
 ///
 /// Runs every frame BEFORE AI dispatch and BEFORE render. Processes

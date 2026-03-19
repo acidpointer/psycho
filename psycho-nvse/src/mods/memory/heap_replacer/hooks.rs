@@ -163,6 +163,58 @@ pub(super) unsafe extern "thiscall" fn hook_gheap_realloc(
 }
 
 // ===========================================================================
+//   ENGINE BUG FIX — CellTransitionHandler Havok race
+// ===========================================================================
+
+/// DAT_01202d98 — Havok world singleton pointer.
+const HAVOK_WORLD_PTR: usize = 0x01202D98;
+
+/// DAT_01202d6c — Loading state counter.
+const LOADING_STATE_COUNTER: usize = 0x01202D6C;
+
+/// hkWorld_Lock (FUN_00c3e310) — locks Havok physics world.
+const HK_WORLD_LOCK: usize = 0x00C3E310;
+
+/// hkWorld_Unlock (FUN_00c3e340) — unlocks Havok physics world.
+const HK_WORLD_UNLOCK: usize = 0x00C3E340;
+
+/// Wraps the game's CellTransitionHandler with hkWorld_Lock + loading
+/// state counter. Fixes an ENGINE BUG where the game runs BLOCKING PDD
+/// during cell transitions without locking the Havok world, causing AI
+/// threads to crash on freed hkpSimulationIsland physics data.
+pub(super) unsafe extern "thiscall" fn hook_cell_transition_handler(
+    this: *mut c_void,
+    param_1: u8,
+) {
+    // Lock Havok world — blocks AI raycasting threads
+    let world = unsafe { *(HAVOK_WORLD_PTR as *const *mut c_void) };
+    if !world.is_null() {
+        let lock_fn: unsafe extern "fastcall" fn(*mut c_void) =
+            unsafe { std::mem::transmute(HK_WORLD_LOCK as *const ()) };
+        unsafe { lock_fn(world) };
+    }
+
+    // Enter loading state — suppress NVSE event dispatching
+    let counter = unsafe { &*(LOADING_STATE_COUNTER as *const std::sync::atomic::AtomicI32) };
+    counter.fetch_add(1, std::sync::atomic::Ordering::AcqRel);
+
+    // Call original CellTransitionHandler
+    if let Ok(original) = super::replacer::CELL_TRANSITION_HANDLER_HOOK.original() {
+        unsafe { original(this, param_1) };
+    }
+
+    // Exit loading state
+    counter.fetch_sub(1, std::sync::atomic::Ordering::AcqRel);
+
+    // Unlock Havok world
+    if !world.is_null() {
+        let unlock_fn: unsafe extern "fastcall" fn(*mut c_void) =
+            unsafe { std::mem::transmute(HK_WORLD_UNLOCK as *const ()) };
+        unsafe { unlock_fn(world) };
+    }
+}
+
+// ===========================================================================
 //   MAIN LOOP HOOK — frame tick + pressure relief
 // ===========================================================================
 
