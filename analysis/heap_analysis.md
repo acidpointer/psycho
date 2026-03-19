@@ -1367,18 +1367,17 @@ render (line 486) uses the fresh draw lists.
 #### Current approach: Multi-layer pressure relief
 
 Deep research (`two_phase_hook_research.py`, `ai_pause_mechanism.py`,
-`commit_growth_analysis.py`) revealed multiple mechanisms that work together.
+`commit_growth_analysis.py`, `heapcompact_trigger.py`) revealed multiple
+mechanisms that work together.
 
 **Layer 1: Post-render cell unloading + selective PDD (FUN_008705d0 hook)**
 
 Our primary hook at line ~904. After render completes:
 1. `FindCellToUnload` × 20 cells max
-2. Boost `DAT_011a95fc` to 2000 (cleanup dispatch rate limiter)
-3. `ProcessPendingCleanup(manager, 0)` — with boosted rate
-4. Restore `DAT_011a95fc`
-5. Selective PDD (skip queue 0x08, NiNode)
-6. `FUN_00c459d0(1)` — async queue flush (audio/IO cleanup)
-7. `mi_collect(false)`
+2. `ProcessPendingCleanup(manager, 0)`
+3. Selective PDD (skip queue 0x08, NiNode)
+4. Trigger HeapCompact for next frame: `*(0x011F636C) = 5`
+5. `mi_collect(false)`
 
 **Layer 2: Boosted per-frame NiNode drain (FUN_00868850 hook)**
 
@@ -1392,29 +1391,68 @@ Safe because:
 - Render hasn't built draw lists (destroyed BSTreeNodes won't appear)
 - The game itself runs this function here every frame
 
-**Layer 3: Boosted cleanup dispatch rate (DAT_011a95fc)**
+**Layer 3: HeapCompact trigger (heap_singleton + 0x134)**
 
-`FUN_00a61cd0` (main cleanup dispatcher) processes items in a loop
-bounded by `local_1c < DAT_011a95fc`. Default is a small value. The
-pre-destruction setup (`FUN_00878160`) sets it to `0x7FFFFFFF` for
-unlimited cleanup. We temporarily set it to 2000 during pressure
-relief, accelerating `ProcessPendingCleanup` at its natural safe
-frame position.
+The game's own cleanup mechanism, re-enabled by writing one integer.
 
-**Layer 4: Async queue flush (FUN_00c459d0)**
+```
+FUN_00878110(heap) → return *(heap + 0x134)   // read trigger
+FUN_00878130(heap) → *(heap + 0x134) = 0      // reset after run
+FUN_00401020()     → return &DAT_011F6238     // heap IS DAT_011F6238
+Trigger address:     0x011F6238 + 0x134 = 0x011F636C
+```
 
-After PDD, we flush the async operation queue. When cells are unloaded,
-`BSAudioManager::soundPlayingObjects` retains stale `NiAVObject*`
-pointers to freed cell nodes. Without flushing, JIP LN NVSE's
-`PlayingSoundsIterator` (called from mod scripts like `IsSoundPlaying`)
-dereferences these stale pointers via `NiAVObject::GetParentRef()`,
-walking up a freed NiNode parent chain → UAF crash.
+Writing `5` to `0x011F636C` causes FUN_00878080 at line ~797 to run
+HeapCompact stages 0-5 on the NEXT frame:
+- Stage 0: Reset + ProcessPendingCleanup
+- Stage 1: SBM arena teardown (RET-patched → no-op)
+- Stage 2: Cell/resource cleanup
+- Stage 3: Async queue flush
+- Stage 4: PDD with global lock
+- Stage 5: **TLS=0 → FindCellToUnload → ProcessPendingCleanup → TLS=1 → full PDD**
 
-The game's own `DeferredCleanup_Small` (FUN_00878250) calls
-`FUN_00c459d0('\0')` (blocking) after PDD. We use non-blocking (1)
-to avoid frame stalls.
+Stage 5 is the key: with TLS=0, BSTreeNodes are freed IMMEDIATELY during
+FindCellToUnload. The immediate destruction triggers TreeMgr_RemoveOnState
+(vtable), which removes the BSTreeNode from BSTreeManager's treeNodesMap.
+When render runs later at line ~904, it builds draw lists from the map —
+the freed nodes are already gone. No stale draw list pointers.
+
+This runs at the game's native safe position: BEFORE AI dispatch (line ~855),
+BEFORE render (line ~904). The game itself uses this exact mechanism when
+the original heap budget is exhausted.
+
+#### Attempted and rejected approaches
+
+**DAT_011a95fc cleanup rate boost (REJECTED):**
+Boosting the cleanup dispatch rate limiter accelerates `FUN_00a61cd0`,
+which finalizes texture/IO objects faster than the async IO system
+(`IOManager`, `LockFreeQueue<IOTask>`) can process them → QueuedTexture
+vtable call through freed memory. The game's default rate exists to
+prevent IO races.
+
+**Async queue flush FUN_00c459d0 (REJECTED):**
+Flushing the async queue disrupts NVTF's Geometry Precache Queue thread —
+completing IO operations that NVTF's background thread depends on →
+NiGeometryBufferData UAF crash. The JIP PlayingSoundsIterator UAF from
+BSAudioManager stale refs is a rare mod-specific issue.
+
+**Scene graph invalidation FUN_00703980 (REJECTED):**
+Cannot be called after FindCellToUnload — the cull/update (vtable+0x1c)
+accesses hkBSHeightFieldShape data from cells we just freed.
+
+**Aggressive tuning 600MB/30cells (REJECTED):**
+More cells per cycle causes BSTreeNode UAF faster than the per-frame drain
+can handle. 700MB/20cells is the sweet spot.
 
 #### Key discoveries from deep research
+
+**HeapCompact trigger mechanism (`heapcompact_trigger.py`):**
+`FUN_00878110` reads `*(heap + 0x134)` — the "compact request" field.
+`FUN_00878130` resets it to 0 after completion. HeapCompact Stage 8
+(non-main thread) writes `6` here to request cleanup from the main thread.
+Writing any value N causes stages 0..N to run from FUN_00878080 at
+line ~797 on the next frame. ONE INTEGER WRITE re-enables the game's
+entire native cleanup mechanism.
 
 **FUN_00868850 (per-frame queue processor, 1166 bytes):**
 Runs every frame at line ~802, processes ALL PDD queues with limited
@@ -1425,9 +1463,8 @@ returns true (heap headroom check: tight headroom → 2× drain).
 
 **DAT_011a95fc (cleanup rate limiter):**
 Controls `FUN_00a61cd0` loop bound. Set to INT_MAX by pre-destruction
-setup. Default is small. Used by both MainLoop (line ~800) and
-`ProcessPendingCleanup`. Writing a high value here accelerates the
-game's own cleanup at safe positions without calling new functions.
+setup. Default is small. Boosting causes QueuedTexture IO races — the
+game's default prevents this.
 
 **AI thread lifecycle:**
 AI threads use Event/Semaphore, NOT PPL. `DAT_011dfa18` = dispatch
@@ -1437,23 +1474,35 @@ screens, menus), AI threads are never dispatched.
 
 **BSAudioManager stale reference problem:**
 `soundPlayingObjects` (NiTPtrMap at manager+0x84) maps sound keys to
-`NiAVObject*` pointers. These persist after cell unloading — the game
-assumes cells outlive their sounds. JIP LN NVSE's `PlayingSoundsIterator`
-iterates `playingSounds` map, looks up `soundPlayingObjects`, then
-calls `GetParentRef()` which walks the NiNode parent chain. Freed
-NiNodes have stale parent pointers → crash. Fixed by async queue
-flush after PDD.
+`NiAVObject*` pointers. These persist after cell unloading. JIP LN
+NVSE's `PlayingSoundsIterator` iterates `playingSounds` map, looks up
+`soundPlayingObjects`, then calls `GetParentRef()` which walks the
+NiNode parent chain → UAF. Async queue flush fixes this but breaks
+NVTF. HeapCompact Stage 3 handles it naturally via its own async flush.
 
-#### Tuning experiments (final)
+#### Tuning experiments
 
-| Config | Drain boost | Rate boost | Async flush | Result |
-|--------|-------------|------------|-------------|--------|
-| 700/2s/20 | None | None | None | OOM ~1.7GB after ~3min |
-| 700/2s/20 | 10× | None | None | 40 reliefs, ~4min, OOM ~1.7GB |
-| 700/2s/20 | 20× + guard | None | None | 55 reliefs, ~4.5min, OOM ~1.7GB |
-| 600/2s/30 | 20× + guard | None | None | Faster crash (BSTreeNode UAF) |
-| 700/2s/20 | 20× + guard | 2000 | None | JIP sound UAF |
-| 700/2s/20 | 20× + guard | 2000 | Yes (1) | **Testing** |
+| Config | Drain | HeapCompact | Other | Result |
+|--------|-------|-------------|-------|--------|
+| 700/2s/20 | None | No | — | OOM ~1.7GB, ~3min |
+| 700/2s/20 | 10× | No | — | 40 reliefs, ~4min, OOM |
+| 700/2s/20 | 20×+guard | No | — | 55 reliefs, ~4.5min, OOM |
+| 600/2s/30 | 20×+guard | No | — | Faster crash (BSTreeNode) |
+| 700/2s/20 | 20×+guard | No | Rate boost | QueuedTexture IO race |
+| 700/2s/20 | 20×+guard | No | Async flush | NVTF geometry crash |
+| 700/2s/20 | 20×+guard | **Yes (5)** | — | **46 reliefs, 500 cells, less stutters, OOM ~1.6GB** |
+
+#### Remaining limitation: 32-bit VA ceiling
+
+Under extreme stress (max-speed flying across entire map), commit
+eventually reaches ~1.6-1.7GB and OOM crashes. This is the fundamental
+32-bit virtual address space limit (~1.8GB usable with LAA). The crash
+manifests as QueuedTexture NULL vtable (`eip=0x00000000`) — the IO system
+tries to load a texture but allocation fails or returns just-freed memory.
+
+Normal gameplay is completely stable (~760MB idle, ~1.0-1.1GB moving).
+The OOM only occurs under artificial extreme stress that no real player
+would sustain.
 
 ---
 
