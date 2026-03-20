@@ -7,7 +7,8 @@
 
 use std::sync::Once;
 
-use libnvse::{NVSEInterfaceFFI, PluginInfoFFI, api::interface::NVSEInterface};
+use libnvse::plugin::PluginContext;
+use libnvse::{NVSEInterfaceFFI, PluginInfoFFI};
 use libpsycho::{
     common::exe_version::ExeVersion,
     logger::Logger,
@@ -39,7 +40,6 @@ use crate::{
 
 static INIT: Once = Once::new();
 
-/// Initialize logger and optionally the console window.
 fn init_logger(console: bool) {
     if console {
         let _ = alloc_console();
@@ -50,36 +50,49 @@ fn init_logger(console: bool) {
         .with_level(log::LevelFilter::Debug)
         .init()
     {
-        // Cannot panic in DllMain — would crash the entire game process.
-        // Best effort: write to stderr (visible if console is open).
         eprintln!("psycho-nvse: Failed to initialize logger: {:?}", e);
     }
 }
 
 // -----------------------------------------------------------------------
-// Early load (DllMain) - patches that must be active before engine init
+// Early load (DllMain) -- patches before engine init
 // -----------------------------------------------------------------------
 
-/// Install all early-load patches. Errors are logged but never propagated
-/// (DllMain cannot return errors meaningfully).
 fn early_load(cfg: &PsychoConfig) {
     configure_mimalloc();
 
     install_if(cfg.memory.crt_hooks, "CRT hooks", install_crt_hooks);
-    install_if(cfg.memory.game_heap_hooks, "Game heap hooks", install_game_heap_hooks);
+    install_if(
+        cfg.memory.game_heap_hooks,
+        "Game heap hooks",
+        install_game_heap_hooks,
+    );
     install_if(cfg.perf.rng, "RNG replacement", install_rng_hook);
 }
 
 // -----------------------------------------------------------------------
-// Late load (NVSEPlugin_Load) - patches that need NVSE infrastructure
+// Late load (NVSEPlugin_Load) -- patches that need NVSE
 // -----------------------------------------------------------------------
 
 fn late_load(nvse_ptr: *const NVSEInterfaceFFI) -> anyhow::Result<()> {
-    let nvse = NVSEInterface::from_raw(nvse_ptr)?;
+    let ctx = PluginContext::new(nvse_ptr, plugininfo::PLUGIN_NAME)?;
+
+    if ctx.is_editor() {
+        log::info!("Running inside GECK editor -- skipping all game modifications");
+        return Ok(());
+    }
+
+    log::info!(
+        "xNVSE {}, Runtime {}",
+        ctx.nvse_version(),
+        ctx.runtime_version()
+    );
+
     let cfg = crate::config::get_config()?;
 
     if cfg.zlib.enabled {
-        install_zlib_hooks(&nvse)?;
+        // zlib hooks need low-level access for is_editor() + memory patching
+        install_zlib_hooks(ctx.low_level())?;
         log::info!("[OK] Zlib replacement");
     } else {
         log::warn!("[SKIP] Zlib replacement");
@@ -92,8 +105,6 @@ fn late_load(nvse_ptr: *const NVSEInterfaceFFI) -> anyhow::Result<()> {
 // Helper
 // -----------------------------------------------------------------------
 
-/// Run an install function if the config flag is enabled.
-/// Logs success/failure/skip uniformly.
 fn install_if<F>(enabled: bool, name: &str, f: F)
 where
     F: FnOnce() -> anyhow::Result<()>,
@@ -144,8 +155,6 @@ pub extern "C" fn NVSEPlugin_Preload() -> BOOL {
     true.into()
 }
 
-/// # Safety
-/// Called by NVSE. Pointers must be valid.
 #[unsafe(no_mangle)]
 #[allow(non_snake_case)]
 pub unsafe extern "C" fn NVSEPlugin_Query(
@@ -158,7 +167,11 @@ pub unsafe extern "C" fn NVSEPlugin_Query(
     let nvse_version = ExeVersion::from_u32(nvse.nvseVersion);
     let runtime_version = ExeVersion::from_u32(nvse.runtimeVersion);
 
-    log::info!("NVSE version: {}, Runtime: {}", nvse_version, runtime_version);
+    log::info!(
+        "NVSE version: {}, Runtime: {}",
+        nvse_version,
+        runtime_version
+    );
 
     info.name = plugininfo::PLUGIN_NAME.as_ptr();
     info.version = plugininfo::PLUGIN_VERSION;
@@ -166,8 +179,6 @@ pub unsafe extern "C" fn NVSEPlugin_Query(
     true.into()
 }
 
-/// # Safety
-/// Called by NVSE. Pointer must be valid.
 #[unsafe(no_mangle)]
 #[allow(non_snake_case)]
 pub unsafe extern "C" fn NVSEPlugin_Load(nvse: *const NVSEInterfaceFFI) -> BOOL {
