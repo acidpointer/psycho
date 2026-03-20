@@ -550,3 +550,34 @@ pub type PostDestructionRestoreFn = unsafe extern "C" fn(state: *mut c_void);
 /// 4. Optional BSA cache cleanup
 /// 5. `FUN_00452490(manager, 0)` — ProcessPendingCleanup
 pub type DeferredCleanupSmallFn = unsafe extern "C" fn(param_1: u8);
+
+/// Returns the AI thread manager singleton pointer.
+///
+/// # Address
+///
+/// `0x00713D80` — `FUN_00713d80`
+///
+/// # Return value
+///
+/// Pointer to the AI thread manager (passed to `AIThreadJoinFn`).
+pub type GetAIThreadManagerFn = unsafe extern "cdecl" fn() -> *mut c_void;
+
+/// Waits for all AI Linear Task Threads to complete their current work item.
+///
+/// # Address
+///
+/// `0x008C7990` — `FUN_008c7990` (72 bytes)
+///
+/// # Calling convention
+///
+/// `__fastcall` — AI thread manager pointer in ECX.
+///
+/// # Behavior
+///
+/// Iterates over AI thread pool (2 entries), calling `FUN_008c7490`
+/// per thread which does `WaitForSingleObject` on the thread's
+/// completion semaphore. Returns when all AI threads are idle.
+///
+/// The main loop calls this at `0x0086ee4e` AFTER our hook position
+/// (`0x0086edf0`). We must call it explicitly before cell unloading.
+pub type AIThreadJoinFn = unsafe extern "fastcall" fn(mgr: *mut c_void);

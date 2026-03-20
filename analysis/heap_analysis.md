@@ -65,7 +65,7 @@ a pressure relief system monitors commit size and triggers coordinated cleanup u
 the game's own Pre-Destruction Protocol (hkWorld_Lock + SceneGraphInvalidate + PDD).
 
 A delayed-free quarantine protects against use-after-free from the IO thread and NVSE
-plugins by holding freed pointers in per-thread ring buffers for 60 frames before actual
+plugins by holding freed pointers in per-thread ring buffers for 30 frames before actual
 deallocation.
 
 ---
@@ -91,7 +91,7 @@ deallocation.
 2. **SBM disabled:** The pool allocator is RET-patched out; mimalloc's size classes handle small allocations natively
 3. **Pressure relief:** Replaces the implicit synchronization of the 500MB budget ceiling with explicit monitoring (700MB threshold, 2s cooldown, 20 cells/cycle)
 4. **Pre-Destruction Protocol adopted:** We call the game's own PreDestructionSetup/PostDestructionRestore around cleanup, making ALL PDD queues safe from our hook position
-5. **Quarantine system:** Per-thread ring buffers delay actual `mi_free()` by 3 frames, protecting the IO thread from use-after-free on QueuedTexture objects
+5. **Quarantine system:** Per-thread ring buffers delay actual `mi_free()` by 30 frames, protecting the IO thread from use-after-free on QueuedTexture objects
 
 ---
 
@@ -110,17 +110,18 @@ deallocation.
   GameHeap::Free ─────────────────────> Quarantine Ring Buffer
        |                                     |
        +── SBM arena free    [DISABLED]      +── per-thread, lock-free
-       +── CRT _free                         +── 60-frame delay
+       +── CRT _free                         +── 30-frame delay
                                              +── mi_free() after delay
                                              |
   HeapCompact (500MB budget) ─────────> Pressure Relief System
        |                                     |
        +── stages 0-8                        +── 700MB threshold
-       +── implicit thread sync              +── Loading state counter
+       +── implicit thread sync              +── BSTaskManagerThread guard (TES+0x77c)
+                                             +── AI thread join (FUN_008c7990)
+                                             +── Loading state counter
                                              +── PreDestruction Protocol
                                              +── FindCellToUnload x20
                                              +── HeapCompact trigger (stages 0-2)
-                                             +── Immediate quarantine flush
 ```
 
 ---
@@ -201,41 +202,24 @@ synchronization. The pressure relief system is our replacement.
 ```
   FUN_0086e650 (MainLoop) -- ONE FRAME
   |
-  |  Line 271: FUN_008782b0()
-  |              Conditionally calls PDD(1) during loading state
+  |  0x0086e897: FUN_00c3dbf0(Havok)          -- Havok world step
+  |  0x0086e987: FUN_004556d0(PDD)            -- Game's own PDD
+  |  0x0086e9e4: FUN_00455640(CellUpdate)     -- Cell grid update (single-thread)
+  |  0x0086eac9: FUN_00878080(HeapCompact)    -- HeapCompact stages 0-2
+  |  0x0086eadf: FUN_00868850(QueueDrain)     -- Per-frame queue drain
   |
-  |  Line 273: FUN_0086f940(param_1)           <-- Cell transition handler
-  |              Conditionally calls FUN_0093bea0 -> PDD(1)
+  |  ============ AI DISPATCH ==================
+  |  0x0086ec78: FUN_008c80e0(AI_PREP)        -- AI threads signaled
+  |  0x0086ec87: FUN_008c78c0(AI_START)       -- AI threads ACTIVE
+  |  ... (work while AI threads run) ...
   |
-  |  ... frame setup (lines 274-430) ...
+  |  ============ RENDER + OUR HOOK ============
+  |  0x0086ede8: FUN_0086ff70(RENDER)         -- Render
+  |  0x0086edf0: FUN_008705d0(OUR_HOOK)       -- Post-render (AI STILL ACTIVE)
   |
-  |  Line 347: FUN_004556d0()
-  |              Conditionally calls FUN_00878250 -> PDD(1)
-  |
-  |  Lines 359-377: Physics stepping, AI setup
-  |
-  |  Line 379: FUN_00878080()                  <-- Calls HeapCompact
-  |
-  |  ============ AI THREAD LIFECYCLE ============
-  |
-  |  Line 431-440: AI THREAD DISPATCH + WAIT
-  |    Line 437: FUN_008c80e0('\x01')           <-- Signal AI threads START
-  |    Line 439: FUN_008c78c0(puVar11)          <-- Reset AI thread events
-  |
-  |  ... frame work (lines 442-484) ...
-  |
-  |  ============ RENDER PHASE ==================
-  |
-  |  Line 485: FUN_0086ff70(param_1)            <-- Pre-render maintenance
-  |  Line 486: FUN_008705d0(param_1)            <-- RENDER/UPDATE
-  |             ^^^ OUR HOOK wraps this ^^^
-  |
-  |  ============ POST-RENDER ===================
-  |
-  |  Lines 487-510: Post-render
-  |    Lines 497-499: FUN_008c7990()            <-- Signal AI threads (post-render)
-  |
-  |  Line 502: FUN_0086f6a0()                  <-- Post-render cleanup
+  |  ============ AI JOIN ======================
+  |  0x0086ee4e: FUN_008c7990(AI_JOIN)        -- AI threads JOINED
+  |  0x0086ee62: FUN_0086f6a0(POST_AI)        -- Post-AI cleanup
   |
   |  END FRAME
 ```
@@ -245,22 +229,16 @@ synchronization. The pressure relief system is our replacement.
 ```
   Frame timeline:
   ──────────────────────────────────────────────────────────────────────>
-  |         |              |         |          |           |          |
-  setup   line 379       line 431  line 440   line 486    line 497   end
-          HeapCompact    AI START  AI WAIT    RENDER      AI POST
-                                   DONE       (hook)      RENDER
+  |            |            |            |          |          |        |
+  HeapCompact  QueueDrain   AI START    RENDER     OUR HOOK   AI JOIN  END
+  0x0086eac9   0x0086eadf  0x0086ec87  0x0086ede8 0x0086edf0 0x0086ee4e
 
-  AI threads:
-  ──────IDLE──────────────|ACTIVE|──IDLE──────────────────|ACTIVE?|───
-                           ^        ^                      ^
-                        dispatch   wait                  post-render
-                                   complete              signal
+  AI threads:   IDLE────────|ACTIVE──────────────────────────|IDLE─────
+                             ^                                ^
+                          dispatch                          join
 ```
 
-**Key Takeaway:** AI threads are IDLE before line 431 and after line 440. They may
-be ACTIVE between dispatch (line 431) and wait completion, and again after post-render
-signal (line 497). Our hook at line 486 runs while AI threads are idle from the
-main dispatch, but post-render AI work may be signaled shortly after.
+**Key Takeaway:** AI threads are ACTIVE from dispatch (0x0086ec87) until join (0x0086ee4e). Our hook at 0x0086edf0 runs while AI threads are active. We call FUN_008c7990 (AI thread join) before cell unloading in pressure relief to ensure AI threads are idle.
 
 ---
 
@@ -486,9 +464,9 @@ are queued for deferred destruction, and AI threads don't index cell arrays dire
 ## Chapter 5: HeapCompact
 
 > **TL;DR:** HeapCompact is a multi-stage state machine invoked on allocation failure.
-> Stages 0-3 do lightweight cleanup. Stages 4-5 are aggressive (full PDD, cell unloading).
-> Stage 8 is a non-main-thread sleep loop. We trigger stages 0-3 from pressure relief
-> but exclude 4-5 because they are incompatible with mimalloc.
+> Stages 0-2 do lightweight cleanup. Stages 4-5 are aggressive (full PDD, cell unloading).
+> Stage 8 is a non-main-thread sleep loop. We trigger stages 0-2 from pressure relief
+> but exclude 3-5 because they are incompatible with mimalloc.
 
 **Address:** `0x00866A90` | 602 bytes | thiscall
 
@@ -551,11 +529,14 @@ The game reads `*(heap + 0x134)` via `FUN_00878110`. Writing value N to
 FUN_00878080 at line 379 on the next frame. `FUN_00878130` resets it to 0
 after completion. One integer write re-enables the game's native cleanup.
 
-**Key Takeaway:** We trigger stages 0-3 by writing `3` to `0x011F636C`.
+**Key Takeaway:** We trigger stages 0-2 by writing `2` to `0x011F636C`.
+Stage 3 is excluded because its async flush from check() ran on any thread without synchronization, causing NiPixelData/NiSourceTexture UAF.
 Stages 4-5 are excluded because Stage 4's full PDD frees Havok wrappers
 during potential AI post-render activity, and Stage 5's TLS=0 mode causes
 BSTreeNode data to be immediately overwritten by mimalloc (the original SBM
 kept "zombie" data intact until arena purge).
+
+**Note:** check() (called every 50K allocs from any thread) no longer writes the trigger. It only sets `requested=true`. The trigger is written from relieve() on the main thread after the full destruction protocol.
 
 ---
 
@@ -566,8 +547,8 @@ kept "zombie" data intact until arena purge).
 ## Chapter 6: Hook Architecture
 
 > **TL;DR:** We hook at `FUN_008705d0` (line 486, post-render). This is the only safe
-> position -- render has consumed SpeedTree draw lists, AI threads from the main
-> dispatch are done. Every other tested position crashed.
+> position -- render has consumed SpeedTree draw lists. AI threads are still active
+> at this position — we join them via FUN_008c7990 before cell unloading. Every other tested position crashed.
 
 ### Hook Position Analysis
 
@@ -608,6 +589,10 @@ kept "zombie" data intact until arena purge).
        |     (see Chapter 8)
 ```
 
+### Hook Rollback Guard
+
+install_game_heap_hooks() uses a HookGuard that tracks all enabled hooks. If any hook enable fails, the guard's Drop impl disables all previously-enabled hooks in reverse order, preventing split-heap corruption (e.g., alloc→mimalloc but free→original SBM). SBM patches are applied AFTER hook commit — they only execute when all hooks are confirmed working.
+
 ---
 
 ## Chapter 7: The Pre-Destruction Protocol
@@ -625,6 +610,8 @@ kept "zombie" data intact until arena purge).
 **Rust:** `AtomicI32::fetch_add(1, AcqRel)` / `AtomicI32::fetch_sub(1, AcqRel)`
 
 When this counter is > 0, the game is in a loading/destruction state. Actor processing during cell destruction (FUN_0054af40 → FUN_0096e150) skips event dispatching. This prevents NVSE plugins (JohnnyGuitar HandlePLChangeEvent, Stewie's Tweaks LowProcess__Func011F) from firing event handlers on mid-destruction objects (refcount 0, partially freed).
+
+**Note:** Ghidra audit shows DAT_01202d6c has only 4 references, all in FUN_0043b2b0. No vanilla game code checks this counter for event suppression. The suppression behavior is implemented by NVSE plugins (JohnnyGuitar, Stewie's Tweaks) that check this counter in their event handlers.
 
 Discovery: DestroyCell (FUN_00462290) calls FUN_0044ada0(1) at start and FUN_0044ada0(0) at end — this sets DAT_01202df0 (a separate destruction-in-progress flag). But the EVENT SUPPRESSION is controlled by DAT_01202d6c, set by FUN_0043b2b0:
 ```c
@@ -649,9 +636,8 @@ The complete pre-destruction protocol with the loading state counter:
 3. DeferredCleanupSmall                 — full PDD + blocking async flush
 4. PostDestructionRestore               — hkWorld_Unlock + restore
 5. InterlockedDecrement(DAT_01202d6c)  — exit loading state
-6. flush_current_thread                 — quarantine release
-7. HeapCompact trigger (stages 0-2)
-8. mi_collect(false)
+6. HeapCompact trigger (stages 0-2)
+7. mi_collect(false)
 ```
 
 ### Discovery (Protocol Pattern)
@@ -833,8 +819,8 @@ Only 1 caller: FUN_0086a850 at 0x0086b664.
 ## Chapter 8: Pressure Relief System
 
 > **TL;DR:** When process commit exceeds 700MB, we run the full Pre-Destruction Protocol:
-> lock Havok, invalidate scene graph, unload up to 20 cells, run full PDD, flush
-> quarantine, trigger HeapCompact stages 0-3 for next frame. Cooldown is 2 seconds.
+> lock Havok, invalidate scene graph, unload up to 20 cells, run full PDD,
+> trigger HeapCompact stages 0-2 for next frame. Cooldown is 2 seconds.
 > Thread-local counters avoid atomic contention on the hot path.
 
 ### Configuration
@@ -856,48 +842,38 @@ bouncing. Thread-local counters have zero cross-core contention.
 ```
   PRESSURE RELIEF (at hook position, post-render):
   |
+  +-- Guard: Check TES+0x77c
+  |     If != -1: BSTaskManagerThread loading cells, skip this cycle
+  |
+  +-- Guard: AI Thread Join (FUN_008c7990)
+  |     Wait for all AI Linear Task Threads to complete current work
+  |
   +-- Step 0: InterlockedIncrement(DAT_01202d6c)
-  |     Enter loading state — suppress NVSE event dispatching
+  |     Enter loading state
   |
   +-- Step 1: PreDestructionSetup (0x00878160)
-  |     hkWorld_Lock(DAT_01202d98)
-  |     SceneGraphInvalidate (FUN_00703980)
-  |     Set cleanup rate = INT_MAX
+  |     hkWorld_Lock + SceneGraphInvalidate
   |
   +-- Step 2: FindCellToUnload x 20
-  |     Loop up to 20 iterations
-  |     Break early if returned 0 (no more cells)
   |
   +-- Step 3: DeferredCleanupSmall (0x00878250)
-  |     PDD(1) -- NON-BLOCKING, ALL queues
-  |     FUN_00b5fd60 -> resource flush
-  |     AsyncFlush(0) -- BLOCKING IO drain
-  |     ProcessPendingCleanup
+  |     PDD(1) + AsyncFlush(0) + ProcessPendingCleanup
   |
   +-- Step 4: PostDestructionRestore (0x00878200)
-  |     hkWorld_Unlock(DAT_01202d98)
-  |     Restore cleanup rate
+  |     hkWorld_Unlock
   |
   +-- Step 5: InterlockedDecrement(DAT_01202d6c)
-  |     Exit loading state — re-enable NVSE event dispatching
+  |     Exit loading state
   |
-  +-- Step 6: Flush quarantine immediately
-  |     Prevents OOM from queued frees
+  +-- Step 6: HeapCompact trigger
+  |     *(0x011F636C) = 2 (stages 0-2 on next frame)
   |
-  +-- Step 7: HeapCompact trigger
-  |     *(0x011F636C) = 2
-  |     Stages 0-2 on next frame
-  |
-  +-- Step 8: mi_collect(false)
-        Thread-local decommit nudge
+  +-- Step 7: mi_collect(false)
 ```
 
-### Quarantine Immediate Flush Rationale
+### Why Quarantine Is NOT Flushed During Pressure Relief
 
-After DeferredCleanupSmall completes its BLOCKING async flush, all stale IO tasks
-are drained. Quarantine zombie data is no longer needed -- IO tasks that held
-references have completed. Flushing immediately prevents OOM during cell transitions
-where old and new cell data compete for VA space.
+The quarantine is NOT flushed after DeferredCleanupSmall. Although the blocking async flush drains currently-queued IO tasks, BSTaskManagerThread can immediately pick up NEW tasks (e.g., QueuedTexture, ExteriorCellLoaderTask) that reference memory still in quarantine. Flushing would free that memory via mi_free, causing use-after-free. The 30-frame natural expiration handles cleanup safely.
 
 ### AsyncQueueFlush Mechanism
 
@@ -926,8 +902,8 @@ render hasn't built draw lists.
 
 **Layer 3: HeapCompact trigger**
 
-Writing `3` to `0x011F636C` triggers stages 0-3 next frame: reset, SBM teardown
-(no-op), BSA/texture cache cleanup, async IO flush.
+Writing `2` to `0x011F636C` triggers stages 0-2 next frame: reset, SBM teardown
+(no-op), BSA/texture cache cleanup.
 
 ### mimalloc Configuration
 
@@ -955,7 +931,7 @@ traversal.
 
 ## Chapter 9: Delayed Free Quarantine
 
-> **TL;DR:** Per-thread ring buffers hold freed pointers for 3 frames before actual
+> **TL;DR:** Per-thread ring buffers hold freed pointers for 30 frames before actual
 > mi_free(). This protects the IO thread from use-after-free on QueuedTexture objects.
 > No locks, no atomics, no syscalls on the hot path.
 
@@ -980,20 +956,16 @@ traversal.
 **Per-thread ring buffers:** Zero contention on the hot path. No locks, no atomics,
 no cache line bouncing.
 
-**3-frame delay measured in frames, not wall-clock time:**
+**30-frame delay measured in frames, not wall-clock time:**
 - `now_ms()` requires a syscall per free -- catastrophically expensive
 - Frame-based delay aligns with the game's rendering/AI cycle
-- Objects freed in frame N are safe by frame N+3
+- Objects freed in frame N are safe by frame N+30
 
 **Loading screen detection via stale push counter:**
 During loading screens, no frames complete but allocation continues. If push_counter
 hasn't changed for several check intervals, flush immediately to prevent OOM.
 
-**Immediate flush after DeferredCleanupSmall:**
-PDD generates a burst of frees during pressure relief. Without immediate flushing,
-these sit in the buffer for 3 frames, consuming VA space during a period when we
-are actively trying to reduce pressure. Flush happens after PostDestructionRestore
-(hkWorld_Unlock ensures AI threads finished in-progress Havok operations).
+**No immediate flush after DeferredCleanupSmall:** Originally flushed quarantine immediately after PDD. Removed because BSTaskManagerThread picks up new IO tasks referencing quarantined memory between async flush and mi_free. The 30-frame natural expiration is always respected.
 
 ### Why Quarantine Protects the IO Thread
 
@@ -1021,7 +993,7 @@ The IO thread is the most vulnerable to use-after-free:
 Without quarantine: PDD destroys QueuedTexture while IO thread holds it -> NULL
 vtable call (`eip = 0x00000000`).
 
-With quarantine: memory stays valid for 3 frames, giving the IO thread time to
+With quarantine: memory stays valid for 30 frames, giving the IO thread time to
 complete processing.
 
 ### Quarantine Coverage: Complete
@@ -1116,7 +1088,7 @@ when consecutive allocations overlapped.
 | Render (BSTreeNode UAF) | Crash during render pass | FindCellToUnload destroys BSTreeNodes pre-render | Hook at post-render position (line 486) |
 | SpeedTree post-render | C0000417, BSTreeNode RefCount:0 | PDD queue 0x08 destroys nodes; cache holds cross-frame refs | Pre-Destruction Protocol (SceneGraphInvalidate) |
 | SpeedTree TLS=0 | C0000417, BSTreeNode RefCount:0 | TLS flag=0 causes immediate destruction during FindCellToUnload | Keep TLS flag at 1 (default) |
-| Texture IO race | NULL vtable (eip=0x00000000), QueuedTexture on stack | PDD destroys texture refs while IOManager loads async | Quarantine system (3-frame delay) |
+| Texture IO race | NULL vtable (eip=0x00000000), QueuedTexture on stack | PDD destroys texture refs while IOManager loads async | Quarantine system (30-frame delay) |
 | mi_collect(true) race | EXCEPTION_ACCESS_VIOLATION inside psycho_nvse | Forced cross-thread segment purge races with AI allocations | Only use mi_collect(false) |
 | OOM | Fatal in exception handler at ~1.8GB | 32-bit VA space exhaustion | Pressure relief system (irreducible at extreme stress) |
 | Havok Broadphase OOM | EXCEPTION_ACCESS_VIOLATION on main thread, stack: PathingSearchRayCast → hkp3AxisSweep → hkLargeBlockAllocator | At 1.4-1.5GB commit, Havok's internal allocator (backed by GameHeap → mimalloc) fails at VA ceiling. Broadphase (hkp3AxisSweep) data structures corrupted from failed allocations. hkpWorldRayCaster → hkpClosestRayHitCollector crashes. | Irreducible 32-bit VA limit — cannot be fixed by allocator replacement |
@@ -1140,14 +1112,14 @@ All crash classes except 32-bit VA ceiling eliminated:
 
 | Crash | Fix | Status |
 |-------|-----|--------|
-| QueuedTexture NULL vtable (IO) | Quarantine + immediate flush | FIXED |
+| QueuedTexture NULL vtable (IO) | Quarantine (30-frame delay) | FIXED |
 | hkBSHeightFieldShape UAF (AI) | hkWorld_Lock in protocol | FIXED |
 | BSTreeNode RefCount:0 (SpeedTree) | SceneGraphInvalidate in protocol | FIXED |
 | NVSE PLChangeEvent (plugins) | Loading state counter DAT_01202d6c | FIXED |
 | mimalloc corruption (mods) | encoded_freelist MI_SECURE=2 | MITIGATED |
 | HeapCompact Stage 4/5 unsafe | Trigger limited to stages 0-2 | FIXED |
 | Freeze during loading | Stale push counter bypass | FIXED |
-| OOM during cell transition | Immediate flush + purge_delay=0 | FIXED |
+| OOM during cell transition | purge_delay=0 + quarantine | FIXED |
 | sbm2 region overlap | new_offset = actual consumed | FIXED |
 | CellTransitionHandler AI crash (engine bug) | Hook with hkWorld_Lock + loading counter | FIXED |
 | 32-bit VA ceiling | Irreducible 32-bit limit | DOCUMENTED |
@@ -1237,11 +1209,9 @@ locked) and SpeedTree crashes (scene graph not invalidated).
 1036 callers audited. CommonDelete is the universal NiObject delete. FallbackFree
 is only called from inside GameHeap::Free. Quarantine coverage is complete.
 
-### 15. Quarantine Must Flush Immediately After DeferredCleanupSmall
+### 15. Quarantine Must NOT Flush During Pressure Relief
 
-During pressure relief, PDD generates a burst of frees. Without immediate flush,
-quarantine entries consume VA space during a period of active memory reduction.
-Flush after PostDestructionRestore when hkWorld is unlocked.
+Originally we flushed quarantine after DeferredCleanupSmall for immediate memory reclaim. This caused BSTaskManagerThread to crash on QueuedTexture UAF — new IO tasks pick up references to quarantined memory between async flush return and mi_free. The quarantine now always respects its 30-frame window.
 
 ### 16. now_ms()/mi_process_info on Every Free Is Catastrophic
 
@@ -1261,7 +1231,7 @@ FindCellToUnload → DestroyCell triggers actor process changes on creatures in 
 
 ### 19. QUARANTINE_FRAMES Must Be Large Enough for NVSE Plugins
 
-NVSE plugins like Stewie's Tweaks hold references to game objects for many frames after those objects are freed (e.g., dead creature's weapon reference persists for dozens of frames after HAVOK_DEATH). The original SBM kept zombie data forever. A 3-frame quarantine was insufficient — increased to 60 frames (1 second at 60fps). The pressure relief system flushes quarantine immediately after DeferredCleanupSmall, so the 60-frame window only applies to normal gameplay frees (~120MB overhead at 2MB/frame).
+NVSE plugins like Stewie's Tweaks hold references to game objects for many frames after those objects are freed (e.g., dead creature's weapon reference persists for dozens of frames after HAVOK_DEATH). The original SBM kept zombie data forever. A 3-frame quarantine (initial value) was insufficient — increased to 30 frames (0.5 second at 60fps). The quarantine always respects its 30-frame window, including during pressure relief.
 
 ### 20. purge_delay Must Be 0 for Cell Transitions
 
@@ -1276,7 +1246,7 @@ Out of 8 PDD callers in the game, CellTransitionHandler is the only one that cal
 ## Chapter 13: Tuning Experiments
 
 > **TL;DR:** The best configuration is 700MB/2s/20 with protocol-based PDD, boosted
-> drain, and HeapCompact stages 0-3. Normal gameplay is stable. OOM at ~1.65GB only
+> drain, and HeapCompact stages 0-2. Normal gameplay is stable. OOM at ~1.65GB only
 > under artificial extreme stress.
 
 ### Pressure Relief Tuning
@@ -1304,6 +1274,7 @@ Out of 8 PDD callers in the game, CellTransitionHandler is the only one that cal
 | 700/2s/20 | 20x+guard | Yes (4) | -- | Fast crash, Stage 4 PDD frees Havok |
 | 700/2s/20 | 20x+guard | Yes (3), skip 0x08 | -- | Fast crash, post-render PDD Havok |
 | **700/2s/20** | **20x+guard** | **Yes (3), skip 0x28** | -- | **57 reliefs, 627 cells, 3+min, OOM ~1.65GB** |
+| **700/2s/20** | **20x+guard** | **Yes (2)** | **AI join + IO guard** | **Current: AI-safe cell unloading** |
 
 ### Final Stress Test Results (Best Configuration)
 
@@ -1437,6 +1408,7 @@ All Rust FFI signatures are `unsafe extern "<conv>"`.
 | `0x008782B0` | CellTransition_SafePoint | 130b | cdecl | `fn()` | |
 | `0x00878250` | DeferredCleanup_Small | 86b | cdecl | `fn(param_1: u8)` | |
 | `0x0093BEA0` | CellTransition_Conditional | 832b | fastcall | `fn(param_1: *mut c_void)` | |
+| `0x00552570` | DeferredRefPlacement | 312b | cdecl | `fn()` | Drains deferred ref queue (NOT AI sync) |
 
 ### Music System Functions (NOT Havok)
 
@@ -1477,7 +1449,8 @@ All Rust FFI signatures are `unsafe extern "<conv>"`.
 | `0x008C7A70` | AI_Wait | 41b | thiscall | `fn(this: *mut c_void)` |
 | `0x008C80E0` | AI_StartFrame | 46b | cdecl | `fn(param: u8)` |
 | `0x008C78C0` | AI_ResetEvents | 198b | fastcall | `fn(param_1: *mut c_void)` |
-| `0x008C7990` | AI_PostRender | 72b | fastcall | `fn(param_1: *mut c_void)` |
+| `0x008C7990` | AIThreadJoin | 72b | fastcall | `fn(param_1: *mut c_void)` |
+| `0x00713D80` | GetAIThreadManager | -- | cdecl | `fn() -> *mut c_void` |
 
 ### AI Processing
 
@@ -1566,7 +1539,7 @@ All Rust FFI signatures are `unsafe extern "<conv>"`.
 | `DAT_011F6238` | GameHeap singleton | The MemoryHeap instance |
 | `DAT_011DEA10` | TES game manager | Cell arrays, data handler, world state |
 | `DAT_011DEA0C` | Game main controller | Thread ID at offset +0x10 |
-| `DAT_011DEA3C` | Player character pointer | bhkCharacterProxy |
+| `DAT_011DEA3C` | TES singleton | Game world manager. TES+0x77c = pending cell load task handle for BSTaskManagerThread |
 | `DAT_011DDF38` | BSRenderedLandData | Flags at offset +0x244 |
 | `DAT_01202D6C` | Loading state counter | InterlockedIncrement/Decrement. When > 0, actor event dispatching is suppressed during cell destruction. Set by FUN_0043b2b0 |
 | `DAT_01202D98` | Havok world singleton | hkWorld pointer for Lock/Unlock |
@@ -1664,6 +1637,21 @@ All Rust FFI signatures are `unsafe extern "<conv>"`.
 | `post_destruction_restore.py` | Decompile FUN_00878200 (PostDestructionRestore), verify hkWorld_Unlock call |
 | `event_dispatch_suppress.py` | Research NVSE event dispatching during cell destruction, loading state counter DAT_01202d6c, FUN_0043b2b0 mechanism |
 | `cell_transition_havok_race.py` | Research CellTransitionHandler Havok race — PDD callers, AI timing, hookability |
+| `exterior_cell_loader_race.py` | ExteriorCellLoaderTask race with cell unloading — crash on BSTaskManagerThread |
+| `vanillaplus_crash_geometry.py` | VanillaPlusSkin geometry crash on BSTaskManagerThread |
+| `async_flush_scope.py` | AsyncQueueFlush scope — what it drains vs what it doesn't |
+| `globalcleanup_and_celltransition.py` | GlobalCleanup (0x00AA7030) callers + CellTransitionHandler internals |
+| `func_877700_io_wait.py` | FUN_00877700 IO wait mechanism (TES+0x77c) |
+| `func_ad8da0_wait_semantics.py` | FUN_00AD8DA0 wait/timeout semantics |
+| `plchange_event_dispatch.py` | PLChangeEvent dispatch path on AI threads |
+| `audit_ret_patch_callers.py` | Comprehensive audit: all callers of 7 RET-patched + 3 NOP-patched functions |
+| `audit_free_path_coverage.py` | Comprehensive audit: all memory free paths (100% coverage confirmed) |
+| `audit_thread_safety.py` | Comprehensive audit: thread safety of all hooked functions |
+| `audit_heapcompact_stages.py` | Comprehensive audit: HeapCompact stages 0-5 behavior |
+| `audit_pressure_side_effects.py` | Comprehensive audit: side effects of all game functions we call |
+| `audit_mainloop_timeline.py` | Comprehensive audit: exact main loop execution order |
+| `audit_func_552570.py` | FUN_00552570 analysis — deferred ref placement, NOT AI sync |
+| `audit_ai_join_point.py` | AI thread join point — confirmed 0x0086ee4e AFTER our hook |
 
 ### Analysis Outputs
 
@@ -1703,6 +1691,14 @@ The psycho-nvse plugin must be built with:
 ```
 --target i686-pc-windows-gnu
 ```
+
+### Two-Phase DLL Initialization
+
+DllMain (Phase 1, loader lock held) performs only: config read (no write-back), logger registration (no thread/file I/O), mimalloc config, hook installation. NO thread creation, NO disk writes.
+
+NVSEPlugin_Load (Phase 2, loader lock released) performs: logger thread spawn + log file creation, config write-back, monitor thread spawn, NVSE services.
+
+This prevents deadlocks from thread creation under the Windows loader lock.
 
 ---
 

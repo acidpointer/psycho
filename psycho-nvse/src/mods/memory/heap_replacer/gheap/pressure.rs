@@ -1,14 +1,21 @@
 //! Memory pressure relief for the game heap.
 //!
-//! # Hook position: FUN_008705d0 (post-render, line 486)
+//! # Hook position: FUN_008705d0 (post-render)
 //!
-//! The hook runs AFTER both the render pipeline and AI tasks have completed
-//! for the current frame. This is the only safe position:
+//! The hook runs after render but BEFORE the main loop's AI thread join
+//! (FUN_008c7990 at 0x0086ee4e). AI Linear Task Threads are still active
+//! at our hook position. Frame timeline (from Ghidra disassembly):
 //!
-//! - **Pre-render hooks (line 273)**: Crash — render pipeline still needs
-//!   scene graph data from cells we're unloading (BSTreeNode use-after-free).
-//! - **Post-AI hooks (line 486)**: Safe for cell unloading — render is done,
-//!   AI tasks are done, scene data is no longer needed for this frame.
+//! ```text
+//! 0x0086ec87  AI_START                ← AI threads dispatched
+//! 0x0086ede8  RENDER                  ← Render
+//! 0x0086edf0  OUR_HOOK (0x008705d0)   ← We are here
+//! 0x0086ee4e  AI_JOIN (0x008c7990)    ← AI threads joined
+//! 0x0086ee62  POST_AI (0x0086f6a0)    ← Post-AI cleanup
+//! ```
+//!
+//! Before cell unloading, we explicitly call FUN_008c7990 to join AI
+//! threads, and check TES+0x77c for pending BSTaskManagerThread loads.
 //!
 //! # Multi-layer pressure relief
 //!
@@ -39,8 +46,8 @@ use libmimalloc::mi_collect;
 use libpsycho::ffi::fnptr::FnPtr;
 
 use super::types::{
-    DeferredCleanupSmallFn, FindCellToUnloadFn, PostDestructionRestoreFn,
-    PreDestructionSetupFn,
+    AIThreadJoinFn, DeferredCleanupSmallFn, FindCellToUnloadFn, GetAIThreadManagerFn,
+    PostDestructionRestoreFn, PreDestructionSetupFn,
 };
 
 // ---------------------------------------------------------------------------
@@ -77,6 +84,18 @@ const PRE_DESTRUCTION_SETUP: usize = 0x00878160;
 const POST_DESTRUCTION_RESTORE: usize = 0x00878200;
 /// DeferredCleanup_Small: PDD(1) + AsyncFlush(0) + ProcessPendingCleanup.
 const DEFERRED_CLEANUP_SMALL: usize = 0x00878250;
+
+/// FUN_00713d80 — returns the AI thread manager singleton pointer.
+const GET_AI_THREAD_MANAGER: usize = 0x00713D80;
+
+/// FUN_008c7990 — waits for all AI Linear Task Threads to finish
+/// their current work item. Called with the AI thread manager pointer.
+///
+/// The main loop calls this at 0x0086ee4e AFTER our hook (0x0086edf0).
+/// Our hook runs between render and AI join — AI threads are ACTIVE.
+/// We must call this before cell unloading to prevent AI threads from
+/// accessing Havok/actor data for cells we're about to destroy.
+const AI_THREAD_JOIN: usize = 0x008C7990;
 
 /// DAT_011dea10 — pointer to the game's TES/DataHandler manager singleton.
 const GAME_MANAGER_PTR: usize = 0x011DEA10;
@@ -124,6 +143,8 @@ pub struct PressureRelief {
     pre_destruction: FnPtr<PreDestructionSetupFn>,
     post_destruction: FnPtr<PostDestructionRestoreFn>,
     deferred_cleanup: FnPtr<DeferredCleanupSmallFn>,
+    get_ai_mgr: FnPtr<GetAIThreadManagerFn>,
+    ai_join: FnPtr<AIThreadJoinFn>,
 }
 
 impl PressureRelief {
@@ -137,6 +158,8 @@ impl PressureRelief {
                 pre_destruction: FnPtr::from_raw(PRE_DESTRUCTION_SETUP as *mut c_void)?,
                 post_destruction: FnPtr::from_raw(POST_DESTRUCTION_RESTORE as *mut c_void)?,
                 deferred_cleanup: FnPtr::from_raw(DEFERRED_CLEANUP_SMALL as *mut c_void)?,
+                get_ai_mgr: FnPtr::from_raw(GET_AI_THREAD_MANAGER as *mut c_void)?,
+                ai_join: FnPtr::from_raw(AI_THREAD_JOIN as *mut c_void)?,
             }
         };
 
@@ -254,6 +277,22 @@ impl PressureRelief {
                 return;
             }
         };
+        let get_ai_mgr = match unsafe { self.get_ai_mgr.as_fn() } {
+            Ok(f) => f,
+            Err(err) => {
+                log::error!("[PRESSURE] GetAIThreadManager: {:?}", err);
+                self.active.store(false, Ordering::Release);
+                return;
+            }
+        };
+        let ai_join = match unsafe { self.ai_join.as_fn() } {
+            Ok(f) => f,
+            Err(err) => {
+                log::error!("[PRESSURE] AIThreadJoin: {:?}", err);
+                self.active.store(false, Ordering::Release);
+                return;
+            }
+        };
 
         let mut cells: usize = 0;
 
@@ -285,9 +324,31 @@ impl PressureRelief {
                 return;
             }
 
+            // === GUARD: Wait for AI Linear Task Threads to finish ===
+            //
+            // Our hook runs at 0x008705d0 (post-render, line ~486).
+            // The main loop dispatches AI threads at 0x0086ec87 and joins
+            // them at 0x0086ee4e (FUN_008c7990) — AFTER our hook.
+            // AI threads are ACTIVE during our hook.
+            //
+            // Without this join, AI threads crash accessing Havok/actor
+            // data for cells we destroy (bhkWorldM corruption, JohnnyGuitar
+            // PLChangeEvent on freed NPC, etc.).
+            //
+            // FUN_008c7990 calls FUN_008c7490 per thread which does
+            // WaitForSingleObject — blocks until each AI thread completes
+            // its current work item and signals via ReleaseSemaphore.
+            unsafe {
+                let mgr = get_ai_mgr();
+                if !mgr.is_null() {
+                    ai_join(mgr);
+                }
+            }
+
             // === FULL DESTRUCTION PROTOCOL ===
             //
-            // Replicates the EXACT sequence the game uses for safe cleanup:
+            // Now safe: BSTaskManagerThread idle (TES+0x77c check),
+            // AI threads joined (FUN_008c7990), hkWorld locked.
             //
             // 0. Enter loading state (suppress NVSE event dispatching)
             // 1. PreDestructionSetup — hkWorld_Lock + SceneGraphInvalidate
@@ -295,16 +356,6 @@ impl PressureRelief {
             // 3. DeferredCleanupSmall — full PDD (all queues) + async flush
             // 4. PostDestructionRestore — hkWorld_Unlock + restore
             // 5. Exit loading state
-            //
-            // Quarantine is NOT flushed here — the 30-frame zombie window
-            // protects BSTaskManagerThread from picking up new QueuedTexture
-            // tasks that reference quarantined memory after the async flush.
-            //
-            // Each step addresses a specific crash vector:
-            // - Loading state: prevents NVSE plugins from firing event handlers
-            //   on mid-destruction objects (PLChangeEvent, OnCellDetach, etc.)
-            // - hkWorld_Lock: blocks AI raycasting → no heightfield UAF
-            // - SceneGraphInvalidate: rebuilds SpeedTree draw lists → no BSTreeNode UAF
             // - Full PDD: all queues, no selective skip needed
             // - Quarantine: IO thread reads intact zombie data during async flush
 

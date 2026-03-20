@@ -1,0 +1,542 @@
+======================================================================
+AUDIT: THREAD SAFETY OF HOOKED FUNCTIONS
+======================================================================
+
+### Known game thread entries:
+  Main thread: WinMain -> main loop (FUN_0086a850)
+  AI Linear Task: 0x00AA64E0 -> FUN_008c7764
+  BSTaskManager: 0x00C42DA0 -> FUN_00c410b0
+  Render: via Direct3D Present
+  Audio: BSAudioManager thread
+
+######################################################################
+# SECTION 1: GameHeap alloc/free ? multi-thread hot path
+# These are called from EVERY thread. Our hooks MUST be thread-safe.
+######################################################################
+
+GameHeap::Allocate (0x00AA3E40):
+  Our hook: Gheap::alloc -> mi_malloc_aligned + pressure check
+  Thread safety: mi_malloc is thread-safe. Pressure check uses
+  thread-local counter + atomic requested flag.
+  RISK: PressureRelief::check() writes HEAP_COMPACT_TRIGGER from any thread
+
+GameHeap::Free (0x00AA4060):
+  Our hook: Gheap::free -> quarantine_free (thread-local) or trampoline
+  Thread safety: quarantine is thread-local. mi_is_in_heap_region is safe.
+  RISK: original trampoline calls into game code ? thread-safe?
+
+######################################################################
+# SECTION 2: CRT malloc/free ? NVSE plugins use these
+######################################################################
+CRT hooks route to mi_malloc/mi_free (thread-safe).
+CRT realloc has a cross-heap copy path ? is it safe?
+
+======================================================================
+GameHeap_Realloc_1 (trampoline target) @ 0x00aa4150
+======================================================================
+  Function: FUN_00aa4150, Size: 140 bytes
+
+void * __thiscall FUN_00aa4150(void *this,undefined4 *param_1,uint param_2)
+
+{
+  undefined4 local_c;
+  undefined4 local_8;
+  
+  local_c = FUN_00aa44c0(this,param_1);
+  if (local_c == 0) {
+    local_8 = _realloc(param_1,param_2);
+  }
+  else {
+    local_8 = FUN_00aa3e40(this,param_2);
+    if (param_2 < local_c) {
+      local_c = param_2;
+    }
+    _memcpy(local_8,param_1,local_c);
+    FUN_00aa4060(this,param_1);
+  }
+  return local_8;
+}
+
+
+
+======================================================================
+GameHeap_Realloc_2 (trampoline target) @ 0x00aa4200
+======================================================================
+  Function: FUN_00aa4200, Size: 140 bytes
+
+void * __thiscall FUN_00aa4200(void *this,undefined4 *param_1,uint param_2)
+
+{
+  undefined4 local_c;
+  undefined4 local_8;
+  
+  local_c = FUN_00aa44c0(this,param_1);
+  if (local_c == 0) {
+    local_8 = _realloc(param_1,param_2);
+  }
+  else {
+    local_8 = FUN_00aa3e40(this,param_2);
+    if (param_2 < local_c) {
+      local_c = param_2;
+    }
+    _memcpy(local_8,param_1,local_c);
+    FUN_00aa4060(this,param_1);
+  }
+  return local_8;
+}
+
+
+
+######################################################################
+# SECTION 3: ScrapHeap hooks ? supposed to be per-thread
+# Game uses TLS for scrap heap. Our hooks replace with Runtime.
+# Is Runtime::alloc/free thread-safe?
+######################################################################
+
+ScrapHeap::GetThreadLocal (0x00AA42E0):
+  Our hook returns a dummy SheapStruct per thread (thread_local)
+
+ScrapHeap::Alloc (0x00AA54A0):
+  Our hook: Runtime::alloc -> ClashMap lookup + Heap::alloc
+  ClashMap is concurrent. But Heap::alloc uses Mutex internally.
+
+======================================================================
+ScrapHeap_Alloc_Original @ 0x00aa54a0
+======================================================================
+  Function: FUN_00aa54a0, Size: 309 bytes
+
+uint __thiscall FUN_00aa54a0(void *this,int param_1,int param_2)
+
+{
+  int iVar1;
+  uint uVar2;
+  uint uVar3;
+  int iVar4;
+  uint local_38;
+  int local_28;
+  uint local_20;
+  uint local_14;
+  int *local_c;
+  uint local_8;
+  
+  local_8 = 0;
+  local_14 = *(int *)((int)this + 4) + 8;
+  if (param_2 == 0) {
+    local_38 = 0;
+  }
+  else {
+    local_38 = param_2 - 1U & local_14;
+  }
+  if (local_38 == 0) {
+    local_c = *(int **)((int)this + 4);
+  }
+  else {
+    local_14 = (param_2 - local_38) + local_14;
+    local_c = (int *)(local_14 - 8);
+  }
+  uVar3 = local_14 + param_1;
+  if ((*(uint *)((int)this + 8) <= uVar3) &&
+     (uVar2 = *(int *)((int)this + 8) - *(int *)this, uVar2 < 0x800000)) {
+    local_28 = uVar2 * 2;
+    local_20 = uVar2;
+    while (local_20 < uVar3 - *(int *)((int)this + 8)) {
+      local_28 = local_28 * 2;
+      local_20 = local_28 - uVar2;
+    }
+    iVar1 = *(int *)((int)this + 8) - *(int *)this;
+    iVar4 = *(int *)this;
+    uVar2 = local_20;
+    FUN_00866d10();
+    FUN_00aa5e30(iVar4,iVar1,uVar2);
+    *(uint *)((int)this + 8) = *(int *)((int)this + 8) + local_20;
+  }
+  if (uVar3 < *(uint *)((int)this + 8)) {
+    *local_c = param_1;
+    local_c[1] = *(int *)((int)this + 0xc);
+    *(int **)((int)this + 0xc) = local_c;
+    *(uint *)((int)this + 4) = uVar3;
+    local_8 = local_14;
+  }
+  return local_8;
+}
+
+
+
+ScrapHeap::Free (0x00AA5610):
+  Our hook: Runtime::free -> ClashMap lookup + Region free
+
+======================================================================
+ScrapHeap_Free_Original @ 0x00aa5610
+======================================================================
+  Function: FUN_00aa5610, Size: 251 bytes
+
+void __thiscall FUN_00aa5610(void *this,int param_1)
+
+{
+  uint *puVar1;
+  uint uVar2;
+  uint uVar3;
+  int iVar4;
+  int iVar5;
+  
+  if ((param_1 != 0) && (puVar1 = (uint *)(param_1 + -8), (*puVar1 & 0x80000000) == 0)) {
+    *puVar1 = *puVar1 | 0x80000000;
+    while (*(int *)((int)this + 0xc) != 0) {
+      if ((**(uint **)((int)this + 0xc) & 0x80000000) == 0) {
+        *(int *)((int)this + 4) = *(int *)((int)this + 0xc) + 8 + **(int **)((int)this + 0xc);
+        goto LAB_00aa56a2;
+      }
+      *(undefined4 *)((int)this + 0xc) = *(undefined4 *)(*(int *)((int)this + 0xc) + 4);
+    }
+    *(undefined4 *)((int)this + 4) = *(undefined4 *)this;
+LAB_00aa56a2:
+    uVar3 = *(int *)((int)this + 8) - *(int *)this;
+    uVar2 = uVar3 >> 1;
+    if ((uVar2 < (uint)(*(int *)((int)this + 8) - *(int *)((int)this + 4))) && (0x10000 < uVar3)) {
+      iVar4 = *(int *)((int)this + 8) - *(int *)this;
+      iVar5 = *(int *)this;
+      uVar3 = uVar2;
+      FUN_00866d10();
+      FUN_00aa5e90(iVar5,iVar4,uVar3);
+      *(uint *)((int)this + 8) = *(int *)((int)this + 8) - uVar2;
+    }
+  }
+  return;
+}
+
+
+
+######################################################################
+# SECTION 4: Main loop hook (0x008705D0) ? called from where?
+######################################################################
+
+======================================================================
+MainLoop_Maintenance (our hook target) @ 0x008705d0
+======================================================================
+  Function: FUN_008705d0, Size: 55 bytes
+
+void __fastcall FUN_008705d0(int param_1)
+
+{
+  int *piVar1;
+  
+  FUN_0086f640();
+  FUN_0086f890(param_1);
+  piVar1 = (int *)FUN_0043d4d0(0x11c3ea4);
+  if (1 < *piVar1) {
+    FUN_00552570();
+  }
+  FUN_0086f670();
+  return;
+}
+
+
+
+Callers of 0x008705D0:
+  UNCONDITIONAL_CALL @ 0x0086edf0 in FUN_0086e650
+
+######################################################################
+# SECTION 5: Per-frame queue drain (0x00868850) ? callers
+######################################################################
+
+Callers of 0x00868850:
+  UNCONDITIONAL_CALL @ 0x0086eadf in FUN_0086e650
+
+######################################################################
+# SECTION 6: CellTransitionHandler (0x008774A0) ? callers
+######################################################################
+
+Callers of 0x008774A0:
+  UNCONDITIONAL_CALL @ 0x0086b664 in FUN_0086a850
+
+======================================================================
+CellTransitionHandler (our hook target) @ 0x008774a0
+======================================================================
+  Function: FUN_008774a0, Size: 561 bytes
+
+void __thiscall FUN_008774a0(void *this,char param_1)
+
+{
+  undefined1 uVar1;
+  bool bVar2;
+  int iVar3;
+  void *this_00;
+  int *piVar4;
+  int *piVar5;
+  undefined *puVar6;
+  undefined4 local_20;
+  undefined4 local_18;
+  
+  uVar1 = FUN_004f1540((int)this);
+  FUN_004f15a0(this,0);
+  FUN_00877700((int)DAT_011dea3c);
+  bVar2 = FUN_007d6bd0(DAT_011ddf38,'\0');
+  FUN_00453a70();
+  FUN_00ad8780();
+  FUN_008324e0('\0');
+  iVar3 = FUN_008d6f30((int)DAT_011dea3c);
+  if (iVar3 != 0) {
+    piVar4 = DAT_011dea3c;
+    this_00 = (void *)FUN_008d6f30((int)DAT_011dea3c);
+    FUN_0054ca90(this_00,piVar4);
+  }
+  piVar4 = (int *)FUN_00950bb0(DAT_011dea3c,'\x01');
+  if (piVar4 == (int *)0x0) {
+    local_18 = 0;
+  }
+  else {
+    local_18 = (**(code **)(*piVar4 + 0xc))();
+  }
+  if (local_18 != 0) {
+    iVar3 = FUN_009611e0(local_18);
+    if (iVar3 != 0) {
+      piVar5 = (int *)FUN_009611e0(local_18);
+      (**(code **)(*piVar5 + 0xe8))(piVar4);
+    }
+  }
+  piVar4 = (int *)FUN_00950bb0(DAT_011dea3c,'\0');
+  if (piVar4 == (int *)0x0) {
+    local_20 = 0;
+  }
+  else {
+    local_20 = (**(code **)(*piVar4 + 0xc))();
+  }
+  if (local_20 != 0) {
+    iVar3 = FUN_009611e0(local_20);
+    if (iVar3 != 0) {
+      piVar5 = (int *)FUN_009611e0(local_20);
+      (**(code **)(*piVar5 + 0xe8))(piVar4);
+    }
+  }
+  FUN_004539a0(DAT_011dea10,'\0','\0');
+  FUN_007037c0(DAT_011dea10,0x7fffffff);
+  FUN_0061cc40(DAT_011dea10,0x7fffffff);
+  puVar6 = FUN_006c0720();
+  FUN_006c09f0(puVar6);
+  FUN_00868d70('\0');
+  FUN_00c459d0('\0');
+  (**(code **)(*DAT_011dea3c + 0x1cc))(0,0);
+  FUN_0084a840(DAT_011ddf38);
+  FUN_00970d50(0x11e0e80);
+  FUN_004614e0(DAT_011c3f2c);
+  iVar3 = FUN_00b4f5c0();
+  FUN_00b631d0(iVar3);
+  FUN_0040fbe0();
+  FUN_00706320();
+  FUN_0045ac80((int)DAT_011dea10);
+  if (param_1 != '\0') {
+    FUN_007053f0();
+  }
+  FUN_007d6bd0(DAT_011ddf38,bVar2);
+  FUN_008776e0((int)DAT_011dea0c);
+  FUN_004f15a0(DAT_011dea0c,uVar1);
+  return;
+}
+
+
+
+######################################################################
+# SECTION 7: AI thread main loop ? what allocations does it do?
+######################################################################
+
+======================================================================
+AI_ThreadDispatch @ 0x008c7764
+======================================================================
+  Function: FUN_008c7720, Size: 111 bytes
+
+undefined4 __fastcall FUN_008c7720(int *param_1)
+
+{
+  (**(code **)(*param_1 + 8))();
+  while (((char)param_1[0x12] == '\0' && (FUN_004424e0(param_1 + 0xc), (char)param_1[0x12] == '\0'))
+        ) {
+    (**(code **)(*param_1 + 0x10))();
+    FUN_00442550(param_1 + 0xf);
+  }
+  (**(code **)(*param_1 + 0xc))();
+  FUN_00442550(param_1 + 0xf);
+  return 0;
+}
+
+
+
+======================================================================
+AI_ActorProcess @ 0x00886580
+======================================================================
+  Function: FUN_00886360, Size: 1957 bytes
+
+/* WARNING: Globals starting with '_' overlap smaller symbols at the same address */
+
+void __thiscall FUN_00886360(void *this,float param_1)
+
+{
+  bool bVar1;
+  char cVar2;
+  undefined4 uVar3;
+  int iVar4;
+  int *piVar5;
+  uint *puVar6;
+  void *pvVar7;
+  char *pcVar8;
+  uint uVar9;
+  undefined4 *puVar10;
+  uint uVar11;
+  float *pfVar12;
+  undefined4 extraout_EDX;
+  undefined4 extraout_EDX_00;
+  undefined4 extraout_EDX_01;
+  undefined4 extraout_EDX_02;
+  undefined4 extraout_EDX_03;
+  float10 fVar13;
+  undefined8 uVar14;
+  ulonglong uVar15;
+  float local_24;
+  float local_20;
+  float local_1c;
+  char local_15;
+  float local_14;
+  int *local_10;
+  uint local_c;
+  float local_8;
+  
+  bVar1 = FUN_00440da0((int)this);
+  if (bVar1) {
+    return;
+  }
+  if (*(char *)((int)this + 0xbc) == '\0') {
+    return;
+  }
+  FUN_00483710();
+  (**(code **)(*(int *)this + 0x140))();
+  uVar3 = FUN_008a40e0(this,(IScheduler *)0x0);
+  *(char *)((int)this + 0x15d) = (char)uVar3;
+  fVar13 = FUN_0084d030(0x11f6394);
+  local_8 = (float)fVar13;
+  iVar4 = FUN_0044ddc0(0x11f2250);
+  if ((iVar4 == 4) && (this == DAT_011f21cc)) {
+    fVar13 = FUN_009c8d60(0x11f2250);
+    local_8 = (float)(fVar13 * (float10)local_8);
+  }
+  if (*(float *)((int)this + 0x154) <= (float)_DAT_01012060) {
+    *(undefined4 *)((int)this + 0x150) = 0;
+  }
+  else {
+    *(float *)((int)this + 0x154) = *(float *)((int)this + 0x154) - local_8;
+  }
+  iVar4 = FUN_008d8520((int)this);
+  if ((iVar4 != 0) && (cVar2 = (**(code **)(*(int *)this + 0x22c))(0), cVar2 == '\0')) {
+    piVar5 = (int *)FUN_008d8520((int)this);
+    uVar14 = (**(code **)(*piVar5 + 0x30))();
+    uVar15 = FUN_00867d60(0x11de7b8,(int)((ulonglong)uVar14 >> 0x20));
+    if ((int)uVar14 == (int)(char)uVar15) {
+      *(undefined1 *)((int)this + 0x175) = 0;
+    }
+    else {
+      if (*(char *)((int)this + 0x175) == '\0') {
+        local_c = FUN_00867ef0(0x11de7b8);
+        puVar6 = (uint *)FUN_0043d4d0(0x11d058c);
+        if ((local_c == *puVar6) || (puVar6 = (uint *)FUN_0043d4d0(0x11d0c3c), local_c == *puVar6))
+        {
+          pvVar7 = (void *)FUN_005d43c0((int)this);
+          local_10 = (int *)FUN_00421400(pvVar7);
+          if (local_10 != (int *)0x0) {
+            cVar2 = FUN_0056ae60((int)local_10);
+            (**(code **)(*local_10 + 0x208))(cVar2 == '\0');
+          }
+        }
+      }
+      *(undefined1 *)((int)this + 0x175) = 1;
+    }
+  }
+  iVar4 = FUN_008d8520((int)this);
+  iVar4 = FUN_0045cd60(iVar4);
+  if ((iVar4 != 0) || (bVar1 = FUN_0094df60((int)DAT_011dea3c), bVar1)) {
+    local_14 = param_1;
+    bVar1 = FUN_0094df60((int)DAT_011dea3c);
+    if (bVar1) {
+      local_14 = _DAT_01084838;
+    }
+    else {
+      cVar2 = FUN_00493bb0((int)this);
+      if (cVar2 != '\0') {
+        local_14 = 0.0;
+      }
+    }
+    FUN_008b3230(this,local_14);
+    FUN_008c3c40(this,'\0','\0');
+  }
+  cVar2 = (**(code **)(*(int *)this + 0x22c))(0);
+  if ((((cVar2 != '\0') || (*(char *)((int)this + 0x118) != '\0')) || (DAT_011f1220 == '\0')) ||
+     (iVar4 = FUN_004f8960((int)this), iVar4 == 6)) {
+    cVar2 = (**(code **)(*(int *)this + 0x22c))(0);
+    if (cVar2 != '\0') {
+      iVar4 = FUN_004f8960((int)this);
+      if (iVar4 == 1) {
+        iVar4 = FUN_004f8960((int)this);
+        if (iVar4 == 1) {
+          pcVar8 = FUN_00408d60(0x11e0888);
+          if ((*pcVar8 == '\0') || (cVar2 = FUN_0087f3d0((int)this), cVar2 == '\0')) {
+            (**(code **)(**(int **)((int)this + 0x68) + 0x10))(this);
+          }
+          else {
+            (**(code **)(*(int *)this + 0x324))(0,0,1);
+          }
+        }
+      }
+      else {
+        (**(code **)(**(int **)((int)this + 0x68) + 0x28))();
+        *(float *)((int)this + 200) = *(float *)((int)this + 200) - local_8;
+        *(float *)((int)this + 0xcc) = *(float *)((int)this + 0xcc) - local_8;
+        if (*(float *)((int)this + 0xcc) < (float)_DAT_01012060 !=
+            (*(float *)((int)this + 0xcc) == (float)_DAT_01012060)) {
+          if (*(void **)((int)this + 0xc0) == DAT_011dea3c) {
+            piVar5 = (int *)FUN_008d8520((int)DAT_011dea3c);
+            iVar4 = (**(code **)(*piVar5 + 0xf8))(DAT_011dea3c);
+            if (iVar4 == 0) {
+              piVar5 = (int *)FUN_008d8520((int)DAT_011dea3c);
+              puVar10 = (undefined4 *)(**(code **)(*(int *)this + 500))(1,4,0);
+              (**(code **)(*piVar5 + 0xfc))(DAT_011dea3c,*puVar10,puVar10[1],puVar10[2]);
+            }
+          }
+          *(undefined4 *)((int)this + 0xcc) = DAT_01017718;
+        }
+      }
+      cVar2 = FUN_0087f3d0((int)this);
+      if ((cVar2 == '\0') && (cVar2 = FUN_0087f4a0((int)this), cVar2 != '\0')) {
+        cVar2 = '\0';
+        iVar4 = FUN_008d6f30((int)this);
+        uVar9 = FUN_004511e0(iVar4,cVar2);
+        if (((uVar9 & 0xff) == 0) && (iVar4 = FUN_008d8520((int)this), iVar4 != 0)) {
+          piVar5 = (int *)FUN_008d8520((int)this);
+          fVar13 = (float10)(**(code **)(*piVar5 + 0x69c))();
+          if (fVar13 != (float10)_DAT_01012060) {
+            piVar5 = (int *)FUN_008d8520((int)this);
+            fVar13 = (float10)(**(code **)(*piVar5 + 0x69c))();
+            uVar9 = FUN_00526100();
+            uVar11 = FUN_00867e30(0x11de7b8);
+            if ((double)uVar9 + (double)fVar13 < (double)uVar11) {
+              FUN_0096e870(&DAT_011e0e80,this);
+            }
+          }
+        }
+      }
+    }
+    goto LAB_00886a1b;
+  }
+  pcVar8 = FUN_00408d60(0x11df6b0);
+  if ((((*pcVar8 != '\0') &&
+       (cVar2 = (**(code **)(**(int **)((int)this + 0x68) + 0x35c))(), cVar2 == '\0')) &&
+      (*(int *)((int)this + 400) != 0)) &&
+     (uVar9 = FUN_009dcb90(*(uint *)((int)this + 400)), (uVar9 & 0xff) != 0)) {
+    FUN_008985d0(this);
+  }
+  local_15 = (**(code **)(**(int **)((int)this + 0x68) + 0x30))();
+  uVar15 = FUN_00867d60(0x11de7b8,extraout_EDX);
+  if ((char)uVar15 != local_15) {
+    pvVar7 = (void *)FUN_005d43c0((int)this);
+    FUN_0042e040(pvVar7);
+  }
+  cVar2 = (**(code **)(*(int *)this + 0x26c))();
+  if (cVar2 != '\0') {
+    cVar2 = FUN_00886b10((int)this);
+    FU

@@ -1,0 +1,259 @@
+======================================================================
+FUN_00552570 ? AI SYNC OR NOT?
+======================================================================
+
+Called from our hook target FUN_008705d0 when multi-threaded.
+If this waits for AI threads, our cell unloading is safe.
+
+######################################################################
+# SECTION 1: FUN_00552570 full decompile + call graph
+######################################################################
+
+======================================================================
+FUN_00552570 @ 0x00552570
+======================================================================
+  Function: FUN_00552570, Size: 312 bytes
+
+void FUN_00552570(void)
+
+{
+  char cVar1;
+  int *piVar2;
+  int iVar3;
+  void *pvVar4;
+  int *unaff_FS_OFFSET;
+  char cVar5;
+  cancellation_token_source local_14 [4];
+  int local_10;
+  undefined1 *puStack_c;
+  undefined4 local_8;
+  
+  local_8 = 0xffffffff;
+  puStack_c = &LAB_00f03808;
+  local_10 = *unaff_FS_OFFSET;
+  *unaff_FS_OFFSET = (int)&local_10;
+  FUN_0040fbf0((LONG *)&DAT_011ca1a0);
+  while( true ) {
+    cVar1 = FUN_004a4460(&DAT_011ca174);
+    if (cVar1 != '\0') break;
+    piVar2 = (int *)FUN_006815c0(&DAT_011ca174);
+    FUN_00559a40(local_14,piVar2);
+    local_8 = 0;
+    FUN_004ee8a0(&DAT_011ca174);
+    piVar2 = (int *)FUN_00559450((undefined4 *)local_14);
+    FUN_005526f0(piVar2);
+    iVar3 = FUN_00559450((undefined4 *)local_14);
+    if (iVar3 != 0) {
+      piVar2 = (int *)FUN_00559450((undefined4 *)local_14);
+      iVar3 = (**(code **)(*piVar2 + 0x10))();
+      if (iVar3 != 0) {
+        pvVar4 = (void *)FUN_00559450((undefined4 *)local_14);
+        cVar1 = FUN_005526b0(pvVar4);
+        if (cVar1 != '\0') {
+          piVar2 = (int *)FUN_00559450((undefined4 *)local_14);
+          piVar2 = FUN_0056f930(piVar2);
+          if (piVar2 != (int *)0x0) {
+            iVar3 = FUN_008d6f30((int)piVar2);
+            if (iVar3 != 0) {
+              cVar5 = '\0';
+              cVar1 = '\x01';
+              pvVar4 = (void *)FUN_008d6f30((int)piVar2);
+              FUN_0054a070(pvVar4,piVar2,cVar1,cVar5);
+              cVar1 = '\0';
+              pvVar4 = (void *)FUN_00559450((undefined4 *)local_14);
+              FUN_005526d0(pvVar4,cVar1);
+            }
+          }
+        }
+      }
+    }
+    local_8 = 0xffffffff;
+    Concurrency::cancellation_token_source::~cancellation_token_source(local_14);
+  }
+  FUN_0040fba0((undefined4 *)&DAT_011ca1a0);
+  *unaff_FS_OFFSET = local_10;
+  return;
+}
+
+
+
+--- XRefs to FUN_00552570 (0x00552570) ---
+  UNCONDITIONAL_CALL @ 0x0086f7b0 (in FUN_0086f6a0)
+  UNCONDITIONAL_CALL @ 0x008705f6 (in FUN_008705d0)
+  Total: 2 refs
+
+--- Calls FROM FUN_00552570 (0x00552570) ---
+  CALL 0x0040fbf0 -> FUN_0040fbf0
+  CALL 0x004a4460 -> FUN_004a4460
+  CALL 0x006815c0 -> FUN_006815c0
+  CALL 0x00559a40 -> FUN_00559a40
+  CALL 0x004ee8a0 -> FUN_004ee8a0
+  CALL 0x00559450 -> FUN_00559450
+  CALL 0x005526f0 -> FUN_005526f0
+  CALL 0x005526b0 -> FUN_005526b0
+  CALL 0x0056f930 -> FUN_0056f930
+  CALL 0x008d6f30 -> FUN_008d6f30
+  CALL 0x0054a070 -> FUN_0054a070
+  CALL 0x005526d0 -> FUN_005526d0
+  CALL 0x0045cec0 -> ~cancellation_token_source
+  CALL 0x0040fba0 -> FUN_0040fba0
+  Total unique calls: 14
+
+######################################################################
+# SECTION 2: FUN_008705d0 (our hook) ? what calls FUN_00552570?
+######################################################################
+
+======================================================================
+OurHookTarget_008705d0 @ 0x008705d0
+======================================================================
+  Function: FUN_008705d0, Size: 55 bytes
+
+void __fastcall FUN_008705d0(int param_1)
+
+{
+  int *piVar1;
+  
+  FUN_0086f640();
+  FUN_0086f890(param_1);
+  piVar1 = (int *)FUN_0043d4d0(0x11c3ea4);
+  if (1 < *piVar1) {
+    FUN_00552570();
+  }
+  FUN_0086f670();
+  return;
+}
+
+
+
+--- Calls FROM OurHookTarget_008705d0 (0x008705d0) ---
+  CALL 0x0086f640 -> FUN_0086f640
+  CALL 0x0086f890 -> FUN_0086f890
+  CALL 0x0043d4d0 -> FUN_0043d4d0
+  CALL 0x00552570 -> FUN_00552570
+  CALL 0x0086f670 -> FUN_0086f670
+  Total unique calls: 5
+
+######################################################################
+# SECTION 3: Deep dive into FUN_00552570 subcalls
+######################################################################
+
+######################################################################
+# SECTION 4: Other functions in our hook target
+######################################################################
+
+======================================================================
+FUN_0086f640_PreHook @ 0x0086f640
+======================================================================
+  Function: FUN_0086f640, Size: 45 bytes
+
+void FUN_0086f640(void)
+
+{
+  FUN_00453a70();
+  FUN_00ad7740();
+  FUN_00832ad0('\0');
+  FUN_0082fb70();
+  FUN_0082d7c0();
+  return;
+}
+
+
+
+======================================================================
+FUN_0086f890_MidHook @ 0x0086f890
+======================================================================
+  Function: FUN_0086f890, Size: 161 bytes
+
+void __fastcall FUN_0086f890(int param_1)
+
+{
+  int *piVar1;
+  
+  piVar1 = (int *)FUN_0043d4d0(0x11c3ea4);
+  if (*piVar1 == 1) {
+    FUN_0096eb40(0x11e0e80);
+  }
+  if ((((DAT_011dea2b == '\0') || (DAT_011dea2d != '\0')) && (DAT_011dea2e == '\0')) &&
+     (*(char *)(param_1 + 7) == '\0')) {
+    piVar1 = (int *)FUN_0043d4d0(0x11c3ea4);
+    if (*piVar1 == 1) {
+      FUN_008c94e0(&DAT_011e0fe0);
+      FUN_00991dc0(DAT_011f1958);
+    }
+    FUN_0096d810((float *)&DAT_011e0e80);
+  }
+  else if ((DAT_011dea2b != '\0') || (*(char *)(param_1 + 7) != '\0')) {
+    FUN_00964260(DAT_011dea3c);
+  }
+  return;
+}
+
+
+
+======================================================================
+FUN_0086f670_PostHook @ 0x0086f670
+======================================================================
+  Function: FUN_0086f670, Size: 48 bytes
+
+void FUN_0086f670(void)
+
+{
+  DAT_012682f8 = 0;
+  DAT_011df678 = 0;
+  DAT_011dea2a = 0;
+  FUN_005a38e0();
+  FUN_00455490(DAT_011dea10);
+  return;
+}
+
+
+
+######################################################################
+# SECTION 5: Known AI barrier functions for pattern matching
+######################################################################
+
+======================================================================
+AI_SetBarrier @ 0x008c79e0
+======================================================================
+  Function: FUN_008c79e0, Size: 70 bytes
+
+void __thiscall FUN_008c79e0(void *this,int param_1,int param_2)
+
+{
+  if ((param_1 < 2) && (*(int *)((int)this + param_1 * 4) != 0)) {
+    SetEvent(*(HANDLE *)(*(int *)((int)this + param_1 * 4 + 0x8c) + param_2 * 4));
+    *(int *)((int)this + param_1 * 4 + 0xc) = param_2;
+  }
+  return;
+}
+
+
+
+======================================================================
+AI_WaitBarrier @ 0x008c7a70
+======================================================================
+  Function: FUN_008c7a70, Size: 41 bytes
+
+void __thiscall FUN_008c7a70(void *this,int param_1,int param_2)
+
+{
+  WaitForSingleObject(*(HANDLE *)(*(int *)((int)this + param_1 * 4 + 0x8c) + param_2 * 4),0xffffffff
+                     );
+  return;
+}
+
+
+
+======================================================================
+AI_ThreadSync_00442550 @ 0x00442550
+======================================================================
+  Function: FUN_00442550, Size: 40 bytes
+
+void __fastcall FUN_00442550(LONG *param_1)
+
+{
+  ReleaseSemaphore((HANDLE)param_1[1],1,(LPLONG)0x0);
+  FUN_0040b460(param_1);
+  return;
+}
+
