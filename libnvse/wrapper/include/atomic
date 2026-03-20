@@ -1,0 +1,14 @@
+#pragma once
+namespace std {
+    template<typename T>
+    class atomic {
+        T _val;
+    public:
+        atomic() : _val{} {}
+        atomic(T v) : _val(v) {}
+        T load() const { return _val; }
+        void store(T v) { _val = v; }
+        operator T() const { return _val; }
+        T exchange(T v) { T old = _val; _val = v; return old; }
+    };
+}

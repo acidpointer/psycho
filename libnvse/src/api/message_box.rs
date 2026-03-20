@@ -177,34 +177,45 @@ impl<'a> MessageBox<'a> {
         let bare_ptr = callback.bare();
 
         // Convert up to 10 button labels to WinStrings
-        let mut win_buttons: Vec<WinString> = Vec::with_capacity(buttons.len().min(10));
+        let btn_count = buttons.len().min(10);
+        let mut win_buttons: Vec<WinString> = Vec::with_capacity(btn_count);
         for btn in buttons.iter().take(10) {
             win_buttons.push(WinString::new(btn)?);
         }
 
+        // Build nested with_ansi calls so all pointers are valid
+        // simultaneously. We pad to exactly 10 slots with nulls.
         win_message.with_ansi(|msg| {
-            // Collect ANSI pointers -- each with_ansi borrows the WinString
-            // so we build the pointer array manually.
-            let mut ptrs: [*const i8; 10] = [std::ptr::null(); 10];
-            for (i, wb) in win_buttons.iter().enumerate() {
-                wb.with_ansi(|p| ptrs[i] = p);
+            // Use a recursive helper to nest with_ansi calls.
+            // Each level enters one with_ansi, keeping the pointer alive
+            // for all inner levels including the final FFI call.
+            fn call_nested(
+                show_fn: ShowMessageBoxFn,
+                msg: *const i8,
+                bare_ptr: ShowMessageBoxCallbackFn,
+                buttons: &[WinString],
+                ptrs: &mut [*const i8; 10],
+                idx: usize,
+            ) {
+                if idx < buttons.len() {
+                    buttons[idx].with_ansi(|p| {
+                        ptrs[idx] = p;
+                        call_nested(show_fn, msg, bare_ptr, buttons, ptrs, idx + 1);
+                    });
+                } else {
+                    unsafe {
+                        show_fn(
+                            msg, 0, 0, Some(bare_ptr), 0, 0x17, 0.0, 0.0,
+                            ptrs[0], ptrs[1], ptrs[2], ptrs[3], ptrs[4],
+                            ptrs[5], ptrs[6], ptrs[7], ptrs[8], ptrs[9],
+                            std::ptr::null::<i8>(),
+                        );
+                    }
+                }
             }
 
-            unsafe {
-                show_fn(
-                    msg,
-                    0,
-                    0,
-                    Some(bare_ptr),
-                    0,
-                    0x17,
-                    0.0,
-                    0.0,
-                    ptrs[0], ptrs[1], ptrs[2], ptrs[3], ptrs[4],
-                    ptrs[5], ptrs[6], ptrs[7], ptrs[8], ptrs[9],
-                    std::ptr::null::<i8>(),
-                );
-            }
+            let mut ptrs: [*const i8; 10] = [std::ptr::null(); 10];
+            call_nested(show_fn, msg, bare_ptr, &win_buttons, &mut ptrs, 0);
         });
 
         Ok(Self {

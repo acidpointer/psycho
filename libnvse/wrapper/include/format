@@ -1,0 +1,7 @@
+#pragma once
+// C++20 <format> stub -- xNVSE may reference it but bindgen
+// does not need a working implementation.
+namespace std {
+    template<typename... Args>
+    class format_string {};
+}

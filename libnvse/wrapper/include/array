@@ -1,0 +1,14 @@
+#pragma once
+#include "cstddef"
+namespace std {
+    template<typename T, unsigned int N>
+    struct array {
+        typedef T value_type;
+        T _data[N];
+        T& operator[](unsigned int i) { return _data[i]; }
+        const T& operator[](unsigned int i) const { return _data[i]; }
+        T* data() { return _data; }
+        const T* data() const { return _data; }
+        constexpr unsigned int size() const { return N; }
+    };
+}

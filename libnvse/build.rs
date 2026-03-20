@@ -1,19 +1,23 @@
 use std::env;
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 fn main() {
     let target = env::var("TARGET").expect("TARGET not set");
 
-    // xNVSE is 32-bit only - enforce i686 architecture
+    // xNVSE is 32-bit only
     if !target.contains("i686") && !target.contains("i586") {
-        panic!("libnvse only supports i686 (32-bit) targets. xNVSE is designed for 32-bit Fallout New Vegas.");
+        panic!(
+            "libnvse only supports i686 (32-bit) targets. \
+             xNVSE is designed for 32-bit Fallout New Vegas."
+        );
     }
+
+    let is_msvc = target.contains("msvc");
 
     // Use xNVSE from git submodule
     let nvse_dir = PathBuf::from("xnvse");
 
-    // Verify submodule exists
     if !nvse_dir.exists() || !nvse_dir.join("nvse/nvse/PluginAPI.h").exists() {
         panic!(
             "xNVSE submodule not found or not initialized.\n\
@@ -21,31 +25,35 @@ fn main() {
         );
     }
 
-    // Patch headers if needed (done in-place in submodule)
     patch_xnvse_headers(&nvse_dir);
 
-    // Determine clang target
+    // Clang target must match the ABI of the game binary (MSVC).
+    // Even when compiling with MinGW, we target MSVC ABI because
+    // xNVSE and Fallout NV are MSVC-compiled binaries.
     let clang_target = "i686-pc-windows-msvc";
-    eprintln!("Generating bindings for xNVSE 6.4.4 (target: {})", clang_target);
 
-    // Generate bindings
-    let bindings = bindgen::Builder::default()
+    eprintln!(
+        "Generating bindings for xNVSE 6.4.4 (rust_target={}, clang_target={})",
+        target, clang_target
+    );
+
+    let mut builder = bindgen::Builder::default()
         .header("wrapper/nvse_wrapper.h")
-        // Include paths
-        .clang_arg(format!("-I{}", "wrapper/include"))
+        // Include paths: xNVSE source
         .clang_arg(format!("-I{}", nvse_dir.display()))
         .clang_arg(format!("-I{}", nvse_dir.join("nvse").display()))
         // Target and defines
-        .clang_arg("-target").clang_arg(clang_target)
+        .clang_arg("-target")
+        .clang_arg(clang_target)
         .clang_arg("-DRUNTIME=1")
         .clang_arg("-D_WIN32")
         // C++ configuration
-        .clang_arg("-x").clang_arg("c++")
+        .clang_arg("-x")
+        .clang_arg("c++")
         .clang_arg("-std=c++17")
         .clang_arg("-fms-compatibility")
         .clang_arg("-fms-extensions")
-        .clang_arg("-nostdinc++")
-        // Suppress warnings and allow C++17 attributes
+        // Suppress warnings
         .clang_arg("-Wno-unknown-attributes")
         .clang_arg("-Wno-ignored-attributes")
         .clang_arg("-Wno-error")
@@ -54,10 +62,20 @@ fn main() {
         .clang_arg("-D_MM_MALLOC_H_INCLUDED")
         .clang_arg("-D_INTRIN_H_")
         .clang_arg("-D__INTRIN_H")
-        .clang_arg("-D_INC_MALLOC")
+        .clang_arg("-D_INC_MALLOC");
+
+    // Use our stub headers for both MSVC and MinGW targets.
+    // This guarantees identical bindings regardless of host OS
+    // and removes the Windows SDK dependency for bindgen.
+    let _ = is_msvc; // acknowledged; both paths use stubs
+    builder = builder
+        .clang_arg("-nostdinc++")
+        .clang_arg(format!("-I{}", "wrapper/include"));
+
+    let bindings = builder
         // Bindgen configuration
         .parse_callbacks(Box::new(bindgen::CargoCallbacks::new()))
-        // Block most std types but allow string and string_view which are used by NVSE API
+        // Block C++ stdlib types (we don't cross the FFI boundary with them)
         .blocklist_type("std::vector.*")
         .blocklist_type("std::map.*")
         .blocklist_type("std::unordered_map.*")
@@ -81,48 +99,46 @@ fn main() {
         .allowlist_function(".*")
         .allowlist_type(".*")
         .allowlist_var(".*")
-        .default_enum_style(bindgen::EnumVariation::Rust { non_exhaustive: false })
+        .default_enum_style(bindgen::EnumVariation::Rust {
+            non_exhaustive: false,
+        })
         .use_core()
         .derive_default(true)
         .derive_debug(true)
         .derive_copy(true)
         .enable_cxx_namespaces()
         .layout_tests(false)
-        // Suppress unsafe_op_in_unsafe_fn warnings in generated code
-        .raw_line("// Suppress unsafe_op_in_unsafe_fn warnings in generated code")
-        .raw_line("// We can consider ALL bindings code unsafe, so warn specific lines makes no sense.")
         .raw_line("#![allow(unsafe_op_in_unsafe_fn)]")
         .generate()
         .expect("Unable to generate bindings");
 
-    // Write bindings to a fixed location for rust-analyzer
     let bindings_path = PathBuf::from("src/bindings/nvse.rs");
     bindings
         .write_to_file(&bindings_path)
         .expect("Couldn't write bindings");
 
-    eprintln!("[OK] Generated xNVSE bindings at {}", bindings_path.display());
+    eprintln!(
+        "[OK] Generated xNVSE bindings at {}",
+        bindings_path.display()
+    );
 
     // Rerun triggers
     println!("cargo:rerun-if-changed=wrapper/nvse_wrapper.h");
     println!("cargo:rerun-if-changed=wrapper/include");
     println!("cargo:rerun-if-changed=xnvse/nvse/nvse/PluginAPI.h");
+    println!("cargo:rerun-if-changed=xnvse/nvse/nvse/GameAPI.h");
     println!("cargo:rerun-if-changed=build.rs");
 }
 
-fn patch_xnvse_headers(nvse_dir: &PathBuf) {
+fn patch_xnvse_headers(nvse_dir: &Path) {
     // Remove [[nodiscard]] attributes that cause clang parsing errors.
-    // This is necessary because the clang version used by bindgen doesn't fully support
-    // C++17 attribute syntax in all positions. Since [[nodiscard]] is just a compiler hint
-    // and doesn't affect the ABI, removing it is safe and doesn't break the bindings.
+    // [[nodiscard]] is a compiler hint only, removing it is ABI-safe.
     let plugin_api = nvse_dir.join("nvse/nvse/PluginAPI.h");
-    if plugin_api.exists()
-        && let Ok(content) = fs::read_to_string(&plugin_api) {
-            // Only patch if [[nodiscard]] is present
-            if content.contains("[[nodiscard]]") {
-                let patched = content.replace("[[nodiscard]]", "");
-                fs::write(&plugin_api, patched).ok();
-                eprintln!("[OK] Patched PluginAPI.h (removed [[nodiscard]] attributes)");
-            }
+    if let Ok(content) = fs::read_to_string(&plugin_api) {
+        if content.contains("[[nodiscard]]") {
+            let patched = content.replace("[[nodiscard]]", "");
+            fs::write(&plugin_api, patched).ok();
+            eprintln!("[OK] Patched PluginAPI.h (removed [[nodiscard]] attributes)");
         }
+    }
 }

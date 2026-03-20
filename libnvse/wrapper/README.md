@@ -1,56 +1,42 @@
 # xNVSE C++ Wrapper
 
-This directory contains the wrapper infrastructure for generating Rust FFI bindings to xNVSE (Extended New Vegas Script Extender).
+Wrapper infrastructure for generating Rust FFI bindings to xNVSE via bindgen.
 
-# AI Warning
+## Supported targets
 
-C++ wrapper, stubs, build.rs and this README.md was done with significant help of AI tools, as im not C++ developer at all. If you hate the way it done - please, feel free to provide pull request with better solution, i'll appreciate any help.
+| Rust target | Host OS | Status |
+|---|---|---|
+| `i686-pc-windows-gnu` | Linux (cross-compile) | Primary |
+| `i686-pc-windows-gnu` | Windows (MSYS2/MinGW) | Supported |
+| `i686-pc-windows-msvc` | Windows | Supported |
 
-## Structure
+All targets use the same stub headers and produce identical bindings.
+No Windows SDK required for bindgen -- the stubs satisfy all type declarations.
 
-```
-wrapper/
-├── nvse_wrapper.h          # Main wrapper header that includes xNVSE headers
-└── include/                # Minimal C++ standard library stubs for cross-compilation
-    ├── cstddef
-    ├── cstdarg
-    ├── cstdint
-    ├── type_traits
-    ├── string
-    ├── string_view
-    ├── vector
-    ├── map
-    ├── unordered_map
-    ├── list
-    ├── functional
-    ├── memory
-    ├── tuple
-    ├── utility
-    ├── algorithm
-    ├── cmath
-    ├── initializer_list
-    ├── span
-    └── bit
-```
+## How it works
 
-## Why Custom C++ Headers?
+1. `build.rs` patches xNVSE headers (removes `[[nodiscard]]` for older clang)
+2. Clang parses `nvse_wrapper.h` with `-nostdinc++` using our stubs
+3. bindgen generates Rust FFI bindings from the parsed AST
+4. The clang target is always `i686-pc-windows-msvc` because the game and xNVSE
+   are MSVC-compiled binaries -- our plugin must match their ABI
 
-We provide minimal C++ standard library stubs because:
+## Why custom C++ headers?
 
-1. **Cross-compilation**: Building Windows binaries from Linux without Windows SDK
-2. **i686 (32-bit) target**: xNVSE is 32-bit only (Fallout New Vegas is a 32-bit game)
-3. **Avoiding system headers**: Linux C++ headers aren't compatible with Windows MSVC target
-4. **Minimal dependencies**: Only include what's actually needed by xNVSE headers
+We provide minimal C++ stdlib stubs because:
 
-## How It Works
-
-1. `build.rs` downloads xNVSE source from GitHub
-2. Clang uses these stubs instead of system C++ headers (`-nostdinc++`)
-3. bindgen generates Rust FFI bindings from `nvse_wrapper.h`
-4. C++ stdlib types are marked as opaque (not fully generated) in Rust
+- Cross-compilation from Linux has no Windows headers
+- Avoids Windows SDK dependency for bindgen
+- Guarantees reproducible bindings regardless of host environment
+- Only declares types that xNVSE headers reference (no full implementations needed)
 
 ## Modifying
 
-- To add new types, create stub headers in `include/`
-- To change what's included, edit `nvse_wrapper.h`
-- All changes automatically trigger rebuild via `cargo:rerun-if-changed`
+- To support new xNVSE headers, add stub headers in `include/`
+- To change what xNVSE APIs are exposed, edit `nvse_wrapper.h`
+- All changes trigger rebuild via `cargo:rerun-if-changed`
+
+## AI Warning
+
+This wrapper was built with significant AI assistance. If you see issues
+or know a better approach, pull requests are welcome.

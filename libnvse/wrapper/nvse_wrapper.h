@@ -1,7 +1,11 @@
+#pragma once
 // Wrapper header for xNVSE bindings
-// This file is used by bindgen to generate Rust FFI bindings
+// Used by bindgen to generate Rust FFI bindings.
+// Works with both i686-pc-windows-gnu (MinGW) and i686-pc-windows-msvc targets.
 
-// Include minimal C++ stdlib headers (stubs provided in OUT_DIR/include)
+// ---------------------------------------------------------------------------
+// Minimal C++ stdlib stubs (provided in wrapper/include/)
+// ---------------------------------------------------------------------------
 #include <cstddef>
 #include <cstdarg>
 #include <cstdint>
@@ -22,29 +26,32 @@
 #include <span>
 #include <bit>
 
-// NVSE macros that need to be defined before including NVSE headers
-// For bindgen, we disable STATIC_ASSERT as it causes issues with incomplete types
+// ---------------------------------------------------------------------------
+// NVSE macros (must be defined before including NVSE headers)
+// ---------------------------------------------------------------------------
+
+// Disable static asserts -- they reference incomplete types during parsing
 #define STATIC_ASSERT(a)
 #define RUNTIME 1
 
-// ASSERT macro - for bindgen we just make it a no-op
+// No-op assert macros
 #define ASSERT(a) do { } while(0)
 #define ASSERT_STR(a, b) do { } while(0)
 #define ASSERT_CODE(a, b) do { } while(0)
 #define ASSERT_STR_CODE(a, b, c) do { } while(0)
 
-// C++17 attributes compatibility - remove [[nodiscard]] entirely for bindgen
-// We need to handle the entire [[...]] syntax, not just the keyword
+// Strip [[nodiscard]] -- older clang versions used by bindgen choke on it
 #define nodiscard
 
-// Minimal ranges namespace for C++20 compatibility
-namespace std {
-    namespace ranges {
-        // Empty namespace - just needs to exist for namespace alias
-    }
-}
+// Minimal std::ranges namespace (xNVSE references it via namespace alias)
+namespace std { namespace ranges {} }
 
-// Windows API stubs for types used by NVSE
+// ---------------------------------------------------------------------------
+// Windows API stubs
+// ---------------------------------------------------------------------------
+// These satisfy the declarations that xNVSE headers reference.
+// Actual implementations come from the Windows SDK at link time.
+
 typedef struct _RTL_CRITICAL_SECTION {
     void* DebugInfo;
     long LockCount;
@@ -58,23 +65,21 @@ extern "C" {
     void EnterCriticalSection(CRITICAL_SECTION*);
     void LeaveCriticalSection(CRITICAL_SECTION*);
 
-    // FILE type from stdio
     typedef struct _iobuf FILE;
 
-    // Memory functions
-    void* malloc(unsigned long);
+    void* malloc(unsigned int);  // size_t = unsigned int on i686
     void free(void*);
 
-    // Windows API functions
     unsigned long GetCurrentThreadId();
     void Sleep(unsigned long);
 }
 
-// Interlocked functions - need to be outside extern "C" for overloading
+// Interlocked intrinsics -- declared (not defined) for bindgen parsing.
+// At link time these resolve to compiler builtins or kernel32.
 long InterlockedCompareExchange(long volatile* dest, long exchange, long comparand);
 unsigned long InterlockedCompareExchange(unsigned long volatile* dest, unsigned long exchange, unsigned long comparand);
 
-// Interlocked functions - overloaded for different pointer types
+// Inline stubs -- bindgen only parses, never links, so bodies are fine.
 inline long InterlockedIncrement(long volatile* p) { return ++(*p); }
 inline long InterlockedDecrement(long volatile* p) { return --(*p); }
 inline unsigned long InterlockedIncrement(unsigned long volatile* p) { return ++(*p); }
@@ -82,7 +87,7 @@ inline unsigned long InterlockedDecrement(unsigned long volatile* p) { return --
 inline unsigned int InterlockedIncrement(unsigned int volatile* p) { return ++(*p); }
 inline unsigned int InterlockedDecrement(unsigned int volatile* p) { return --(*p); }
 
-// Non-volatile overloads for reinterpret_cast usage (size_t* is unsigned int* on i686)
+// Non-volatile overloads (xNVSE casts size_t* to these on i686)
 inline long InterlockedIncrement(long* p) { return ++(*p); }
 inline long InterlockedDecrement(long* p) { return --(*p); }
 inline unsigned long InterlockedIncrement(unsigned long* p) { return ++(*p); }
@@ -90,23 +95,31 @@ inline unsigned long InterlockedDecrement(unsigned long* p) { return --(*p); }
 inline unsigned int InterlockedIncrement(unsigned int* p) { return ++(*p); }
 inline unsigned int InterlockedDecrement(unsigned int* p) { return --(*p); }
 
+// ---------------------------------------------------------------------------
 // Windows types
+// ---------------------------------------------------------------------------
 typedef unsigned long DWORD;
 typedef unsigned char byte;
 
-// Global utility functions (some NVSE code uses these without std:: prefix)
-// Template versions for same types
+// ---------------------------------------------------------------------------
+// Global min/max (some xNVSE code uses these without std:: prefix)
+// ---------------------------------------------------------------------------
 template<typename T>
 inline const T& max(const T& a, const T& b) { return (a < b) ? b : a; }
 
 template<typename T>
 inline const T& min(const T& a, const T& b) { return (b < a) ? b : a; }
 
-// Specific overloads for mixed signed/unsigned comparisons commonly used in NVSE
-inline long max(long a, unsigned long b) { return (static_cast<unsigned long>(a) < b) ? static_cast<long>(b) : a; }
-inline long max(unsigned long a, long b) { return (a < static_cast<unsigned long>(b)) ? b : static_cast<long>(a); }
+// Mixed signed/unsigned overloads -- xNVSE calls max(SInt32, UInt32) etc.
+inline long max(long a, unsigned long b) { return (a < 0 || static_cast<unsigned long>(a) < b) ? static_cast<long>(b) : a; }
+inline long max(unsigned long a, long b) { return (b < 0 || a > static_cast<unsigned long>(b)) ? static_cast<long>(a) : b; }
+inline long min(long a, unsigned long b) { return (a < 0 || static_cast<unsigned long>(a) < b) ? a : static_cast<long>(b); }
+inline long min(unsigned long a, long b) { return (b < 0 || a > static_cast<unsigned long>(b)) ? b : static_cast<long>(a); }
 
-// Define basic integer types from ITypes.h to avoid C++ stdlib dependencies
+// ---------------------------------------------------------------------------
+// Basic integer types (mirrors ITypes.h -- defined here so we don't
+// depend on ITypes.h include order)
+// ---------------------------------------------------------------------------
 typedef unsigned char       UInt8;
 typedef unsigned short      UInt16;
 typedef unsigned long       UInt32;
@@ -118,7 +131,9 @@ typedef signed long long    SInt64;
 typedef float               Float32;
 typedef double              Float64;
 
-// Bitfield types from ITypes.h
+// ---------------------------------------------------------------------------
+// Bitfield template (mirrors ITypes.h)
+// ---------------------------------------------------------------------------
 template <typename T>
 class Bitfield {
 public:
@@ -152,14 +167,10 @@ typedef Bitfield<UInt32> Bitfield32;
 typedef Bitfield<UInt16> Bitfield16;
 typedef Bitfield<UInt8>  Bitfield8;
 
-// NVSE custom containers (include before PluginAPI)
+// ---------------------------------------------------------------------------
+// xNVSE headers
+// ---------------------------------------------------------------------------
 #include "nvse/containers.h"
-
-// Include main plugin API (path will be adjusted by build.rs with -I flags)
 #include "nvse/PluginAPI.h"
-
-// Include game API for runtime functions (ShowMessageBox, etc.)
 #include "nvse/GameAPI.h"
-
-// Include utilities (ShowErrorMessageBox, etc.)
 #include "nvse/Utilities.h"

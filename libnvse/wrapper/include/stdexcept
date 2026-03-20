@@ -1,0 +1,11 @@
+#pragma once
+namespace std {
+    class exception {
+    public:
+        virtual const char* what() const noexcept { return ""; }
+    };
+    class runtime_error : public exception {};
+    class logic_error : public exception {};
+    class out_of_range : public logic_error {};
+    class invalid_argument : public logic_error {};
+}

@@ -434,8 +434,9 @@ pub struct PluginContext {
     inner: NVSEInterface<'static>,
     /// Plugin name for player controls per-mod tracking.
     plugin_name: &'static CStr,
-    /// Whether serialization callbacks have been registered.
-    cosave_setup: bool,
+    /// Serialization interface -- must be kept alive for the entire game
+    /// session because it owns the BareFn closures that NVSE calls back.
+    serialization: Option<crate::api::serialization::Serialization<'static>>,
 }
 
 impl PluginContext {
@@ -453,7 +454,7 @@ impl PluginContext {
         Ok(Self {
             inner,
             plugin_name,
-            cosave_setup: false,
+            serialization: None,
         })
     }
 
@@ -588,6 +589,19 @@ impl PluginContext {
 
     // -- Co-save (serialization) --------------------------------------------
 
+    /// Lazily initialize and return a mutable reference to the
+    /// serialization interface. The instance is kept alive in `self`
+    /// so that registered BareFn closures are never freed.
+    fn serialization_mut(
+        &mut self,
+    ) -> Result<&mut crate::api::serialization::Serialization<'static>, PluginError> {
+        if self.serialization.is_none() {
+            let ser = self.inner.query_serialization()?;
+            self.serialization = Some(ser);
+        }
+        Ok(self.serialization.as_mut().expect("just initialized"))
+    }
+
     /// Register a save callback.
     ///
     /// Called each time the player saves the game. Put your data
@@ -596,9 +610,8 @@ impl PluginContext {
     where
         F: Fn() + 'static,
     {
-        let mut ser = self.inner.query_serialization()?;
         let handle = self.inner.get_plugin_handle().get_handle();
-        ser.set_save_callback(handle, cb)?;
+        self.serialization_mut()?.set_save_callback(handle, cb)?;
         Ok(())
     }
 
@@ -610,9 +623,8 @@ impl PluginContext {
     where
         F: Fn() + 'static,
     {
-        let mut ser = self.inner.query_serialization()?;
         let handle = self.inner.get_plugin_handle().get_handle();
-        ser.set_load_callback(handle, cb)?;
+        self.serialization_mut()?.set_load_callback(handle, cb)?;
         Ok(())
     }
 
@@ -624,9 +636,9 @@ impl PluginContext {
     where
         F: Fn() + 'static,
     {
-        let mut ser = self.inner.query_serialization()?;
         let handle = self.inner.get_plugin_handle().get_handle();
-        ser.set_new_game_callback(handle, cb)?;
+        self.serialization_mut()?
+            .set_new_game_callback(handle, cb)?;
         Ok(())
     }
 

@@ -1,0 +1,21 @@
+#pragma once
+namespace std {
+    struct nullopt_t {};
+    inline constexpr nullopt_t nullopt{};
+
+    template<typename T>
+    class optional {
+        bool _has;
+        T _val;
+    public:
+        optional() : _has(false), _val{} {}
+        optional(nullopt_t) : _has(false), _val{} {}
+        optional(const T& v) : _has(true), _val(v) {}
+        bool has_value() const { return _has; }
+        explicit operator bool() const { return _has; }
+        T& value() { return _val; }
+        const T& value() const { return _val; }
+        T& operator*() { return _val; }
+        const T& operator*() const { return _val; }
+    };
+}

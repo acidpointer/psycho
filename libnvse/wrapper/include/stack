@@ -1,0 +1,12 @@
+#pragma once
+namespace std {
+    template<typename T>
+    class stack {
+    public:
+        typedef T value_type;
+        bool empty() const;
+        void push(const T&);
+        void pop();
+        T& top();
+    };
+}

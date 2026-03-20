@@ -1,0 +1,14 @@
+#pragma once
+namespace std {
+    template<typename T>
+    class queue {
+    public:
+        typedef T value_type;
+    };
+
+    template<typename T>
+    class priority_queue {
+    public:
+        typedef T value_type;
+    };
+}
