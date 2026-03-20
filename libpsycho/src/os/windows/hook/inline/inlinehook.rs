@@ -21,7 +21,7 @@ pub struct InlineHook<F: Copy + 'static> {
     detour_fn: FnPtr<F>,
     original_fn: FnPtr<F>,
 
-    trampoline: Trampoline,
+    trampoline: std::mem::ManuallyDrop<Trampoline>,
 
     enabled: AtomicBool,
     failed: AtomicBool,
@@ -72,7 +72,7 @@ impl<F: Copy + 'static> InlineHook<F> {
             name,
             target_ptr,
             detour_fn,
-            trampoline,
+            trampoline: std::mem::ManuallyDrop::new(trampoline),
             original_fn,
             enabled: AtomicBool::new(false),
             failed: AtomicBool::new(false),
@@ -255,20 +255,26 @@ impl<F: Copy + 'static> InlineHook<F> {
 
 impl<F: Copy + 'static> Drop for InlineHook<F> {
     fn drop(&mut self) {
-        if !self.is_enabled() || self.is_failed() {
-            return;
+        if self.is_enabled() && !self.is_failed() {
+            match self.disable() {
+                Ok(_) => {
+                    log::debug!("[{}] Hook disabled and original bytes restored in Drop", self.name);
+                }
+                Err(err) => {
+                    // CRITICAL: disable() failed — original bytes NOT restored.
+                    // Target function still jumps to our trampoline.
+                    // Leak the trampoline to prevent use-after-free.
+                    log::error!(
+                        "[{}] Failed to disable in Drop: {}. Leaking trampoline to prevent UAF.",
+                        self.name, err
+                    );
+                    return; // skip ManuallyDrop::drop below — intentional leak
+                }
+            }
         }
 
-        let restore_result = self.disable();
-
-        match restore_result {
-            Ok(_) => {
-                log::debug!("[{}] Hook disabled and original bytes restored in Drop", self.name);
-            }
-            Err(err) => {
-                log::error!("[{}] Failed to drop: {}", self.name, err);
-            }
-        }
+        // Safe to free trampoline — hook is disabled or was never enabled
+        unsafe { std::mem::ManuallyDrop::drop(&mut self.trampoline) };
     }
 }
 
@@ -350,7 +356,12 @@ impl<F: Copy + 'static> ScopedInlineHook<F> {
         impl<'a, F: Copy + 'static> Drop for EnableGuard<'a, F> {
             fn drop(&mut self) {
                 if self.should_enable {
-                    let _ = self.hook.enable();
+                    if let Err(err) = self.hook.enable() {
+                        log::error!(
+                            "[{}] Failed to re-enable hook after with_disabled: {}",
+                            self.hook.name, err
+                        );
+                    }
                 }
             }
         }
@@ -429,17 +440,16 @@ impl<T: Copy + 'static> InlineHookContainer<T> {
     }
 
     pub fn enable(&self) -> InlineHookResult<()> {
-        let mut hook_lock = self.hook.write();
+        let hook_lock = self.hook.read();
 
-        match hook_lock.as_mut() {
+        match hook_lock.as_ref() {
             Some(hook) => {
                 log::debug!("Enabling inline hook '{}'...", hook.name);
 
                 hook.enable()?;
 
                 log::info!("Inline hook '{}' enabled without errors!", hook.name);
-                
-        
+
                 Ok(())
             },
 
@@ -450,16 +460,16 @@ impl<T: Copy + 'static> InlineHookContainer<T> {
     }
 
     pub fn disable(&self) -> InlineHookResult<()> {
-        let mut hook_lock = self.hook.write();
+        let hook_lock = self.hook.read();
 
-        match hook_lock.as_mut() {
+        match hook_lock.as_ref() {
             Some(hook) => {
                 log::debug!("Disabling inline hook '{}'...", hook.name);
 
                 hook.disable()?;
 
                 log::info!("Inline hook '{}' disabled without errors!", hook.name);
-        
+
                 Ok(())
             },
 

@@ -4,7 +4,7 @@
 //! This replaces it with SmallRng (WyRand) -- tiny state, extremely fast,
 //! and statistically better for game use cases.
 
-use std::cell::RefCell;
+use std::cell::UnsafeCell;
 use std::sync::LazyLock;
 
 use libc::c_void;
@@ -21,8 +21,12 @@ type RngFn = unsafe extern "thiscall" fn(*mut c_void, u32) -> u32;
 static RNG_HOOK: LazyLock<InlineHookContainer<RngFn>> =
     LazyLock::new(InlineHookContainer::new);
 
+// Use UnsafeCell instead of RefCell to avoid panic on re-entrance.
+// SAFETY: thread_local ensures single-thread access. The RNG hook is
+// non-recursive (game's RNG function never calls itself), but using
+// UnsafeCell eliminates the theoretical re-entrance panic via FFI.
 thread_local! {
-    static RNG: RefCell<SmallRng> = RefCell::new(rand::make_rng());
+    static RNG: UnsafeCell<SmallRng> = UnsafeCell::new(rand::make_rng());
 }
 
 unsafe extern "thiscall" fn hook_rng(_this: *mut c_void, param_1: u32) -> u32 {
@@ -31,7 +35,7 @@ unsafe extern "thiscall" fn hook_rng(_this: *mut c_void, param_1: u32) -> u32 {
     }
 
     RNG.with(|rng_cell| {
-        let mut rng = rng_cell.borrow_mut();
+        let rng = unsafe { &mut *rng_cell.get() };
 
         if param_1 == 0xFFFFFFFF {
             rng.next_u32()

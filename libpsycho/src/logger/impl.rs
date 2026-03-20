@@ -633,22 +633,24 @@ impl Logger {
                         let _ = file.write_all(msg.text.as_bytes());
                         let _ = file.flush(); // Immediate flush for crash safety
                     }
-                }
-                //  else {
-                //     idle_count = idle_count.saturating_add(1);
+                } else {
+                    idle_count = idle_count.saturating_add(1);
 
-                //     if idle_count < 10 {
-                //         thread::yield_now();
-                //     } else if idle_count < 100 {
-                //         thread::sleep(std::time::Duration::from_micros(10));
-                //     } else {
-                //         thread::sleep(std::time::Duration::from_millis(1));
-                //     }
-                // }
+                    if idle_count < 10 {
+                        thread::yield_now();
+                    } else if idle_count < 100 {
+                        thread::sleep(std::time::Duration::from_micros(10));
+                    } else {
+                        thread::sleep(std::time::Duration::from_millis(1));
+                    }
+                }
             }
         });
 
-        *LOGGER_THREAD.lock().unwrap() = Some(handle);
+        match LOGGER_THREAD.lock() {
+            Ok(mut guard) => *guard = Some(handle),
+            Err(poisoned) => *poisoned.into_inner() = Some(handle),
+        }
 
         log::set_max_level(self.max_level());
         log::set_boxed_logger(Box::new(self))
@@ -697,7 +699,11 @@ impl Logger {
     pub fn shutdown() {
         SHUTDOWN.store(true, Ordering::Release);
 
-        if let Some(handle) = LOGGER_THREAD.lock().unwrap().take() {
+        let handle = match LOGGER_THREAD.lock() {
+            Ok(mut guard) => guard.take(),
+            Err(poisoned) => poisoned.into_inner().take(),
+        };
+        if let Some(handle) = handle {
             let _ = handle.join();
         }
     }
@@ -770,34 +776,29 @@ impl Log for Logger {
             let timestamp = {
                 match self.timestamps {
                     Timestamps::None => "".to_string(),
-                    Timestamps::Local => format!(
-                        "{} ",
-                        OffsetDateTime::now_local()
-                            .expect(concat!(
-                                "Could not determine the UTC offset on this system. ",
-                                "Consider displaying UTC time instead. ",
-                                "Possible causes are that the time crate does not implement \"local_offset_at\" ",
-                                "on your system, or that you are running in a multi-threaded environment and ",
-                                "the time crate is returning \"None\" from \"local_offset_at\" to avoid unsafe ",
-                                "behaviour. See the time crate's documentation for more information. ",
-                                "(https://time-rs.github.io/internal-api/time/index.html#feature-flags)"
-                            ))
-                            .format(&self.timestamps_format.unwrap_or(TIMESTAMP_FORMAT_OFFSET))
-                            .unwrap()
-                    ),
-                    Timestamps::Utc => format!(
-                        "{} ",
-                        OffsetDateTime::now_utc()
-                            .format(&self.timestamps_format.unwrap_or(TIMESTAMP_FORMAT_UTC))
-                            .unwrap()
-                    ),
-                    Timestamps::UtcOffset(offset) => format!(
-                        "{} ",
-                        OffsetDateTime::now_utc()
-                            .to_offset(offset)
-                            .format(&self.timestamps_format.unwrap_or(TIMESTAMP_FORMAT_OFFSET))
-                            .unwrap()
-                    ),
+                    Timestamps::Local => {
+                        let dt = OffsetDateTime::now_local()
+                            .unwrap_or_else(|_| OffsetDateTime::now_utc());
+                        let fmt = self.timestamps_format.unwrap_or(TIMESTAMP_FORMAT_OFFSET);
+                        match dt.format(fmt) {
+                            Ok(s) => format!("{} ", s),
+                            Err(_) => "<timestamp-err> ".to_string(),
+                        }
+                    },
+                    Timestamps::Utc => {
+                        let fmt = self.timestamps_format.unwrap_or(TIMESTAMP_FORMAT_UTC);
+                        match OffsetDateTime::now_utc().format(fmt) {
+                            Ok(s) => format!("{} ", s),
+                            Err(_) => "<timestamp-err> ".to_string(),
+                        }
+                    },
+                    Timestamps::UtcOffset(offset) => {
+                        let fmt = self.timestamps_format.unwrap_or(TIMESTAMP_FORMAT_OFFSET);
+                        match OffsetDateTime::now_utc().to_offset(offset).format(fmt) {
+                            Ok(s) => format!("{} ", s),
+                            Err(_) => "<timestamp-err> ".to_string(),
+                        }
+                    },
                 }
             };
 

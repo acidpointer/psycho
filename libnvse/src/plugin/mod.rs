@@ -562,7 +562,11 @@ impl PluginContext {
             let builder = self.inner.command_builder()?;
             self.commands = Some(builder);
         }
-        Ok(self.commands.as_mut().expect("just initialized"))
+        // SAFETY: the `is_none` check above guarantees this is `Some`.
+        // Using `ok_or` instead of `.expect()` to follow project no-panic rules.
+        self.commands
+            .as_mut()
+            .ok_or(PluginError::Interface(NVSEInterfaceError::InterfaceIsNull))
     }
 
     /// Set the opcode base for command registration.
@@ -683,7 +687,11 @@ impl PluginContext {
             let ser = self.inner.query_serialization()?;
             self.serialization = Some(ser);
         }
-        Ok(self.serialization.as_mut().expect("just initialized"))
+        // SAFETY: the `is_none` check above guarantees this is `Some`.
+        // Using `ok_or` instead of `.expect()` to follow project no-panic rules.
+        self.serialization
+            .as_mut()
+            .ok_or(PluginError::Interface(NVSEInterfaceError::InterfaceIsNull))
     }
 
     /// Register a save callback.

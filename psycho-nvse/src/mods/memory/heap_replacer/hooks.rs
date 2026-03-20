@@ -287,8 +287,8 @@ pub(super) unsafe extern "C" fn hook_per_frame_queue_drain() {
                         let form_q = unsafe {
                             *((FORM_QUEUE_ADDR + NINODE_QUEUE_COUNT_OFFSET) as *const u16)
                         };
-                        log::info!(
-                            "[DIAG] trigger={} queues: NiNode={} Tex={} Anim={} Gen={} Form={}",
+                        log::debug!(
+                            "[GHEAP-DEBUG] trigger={} queues: NiNode={} Tex={} Anim={} Gen={} Form={}",
                             trigger_val, ninode_q, texture_q, anim_q, generic_q, form_q
                         );
                     }
@@ -359,6 +359,9 @@ pub(super) unsafe extern "fastcall" fn sheap_init_var(
     Runtime::get_instance().purge(sheap_ptr);
 }
 
+/// Maximum OOM retry attempts before giving up.
+const SHEAP_OOM_RETRIES: u32 = 3;
+
 pub(super) unsafe extern "fastcall" fn sheap_alloc(
     sheap_ptr: *mut c_void,
     _edx: *mut c_void,
@@ -367,10 +370,50 @@ pub(super) unsafe extern "fastcall" fn sheap_alloc(
 ) -> *mut c_void {
     if sheap_ptr.is_null() {
         log::error!("sheap_alloc: sheap_ptr is NULL!");
-        return sheap_ptr;
+        return null_mut();
     }
     let actual_align = align.max(16);
-    Runtime::get_instance().alloc(sheap_ptr, size, actual_align)
+    let rt = Runtime::get_instance();
+
+    let ptr = rt.alloc(sheap_ptr, size, actual_align);
+    if !ptr.is_null() {
+        return ptr;
+    }
+
+    // OOM recovery: flush quarantine to reclaim zombie memory, then retry.
+    // This is the same cleanup mechanism used by gheap pressure relief.
+    // FPS drops briefly during recovery but prevents crashes.
+    unsafe { sheap_alloc_oom_recovery(rt, sheap_ptr, size, actual_align) }
+}
+
+#[cold]
+unsafe fn sheap_alloc_oom_recovery(
+    rt: &Runtime,
+    sheap_ptr: *mut c_void,
+    size: usize,
+    align: usize,
+) -> *mut c_void {
+    for attempt in 1..=SHEAP_OOM_RETRIES {
+        log::warn!(
+            "[SBM] OOM on sheap_alloc(size={}, align={}), attempt {}/{}",
+            size, align, attempt, SHEAP_OOM_RETRIES
+        );
+
+        // Flush quarantine on this thread — reclaims zombie memory
+        unsafe { super::gheap::delayed_free::flush_current_thread() };
+
+        let ptr = rt.alloc(sheap_ptr, size, align);
+        if !ptr.is_null() {
+            log::info!("[SBM] OOM recovered on attempt {}", attempt);
+            return ptr;
+        }
+    }
+
+    log::error!(
+        "[SBM] CRITICAL: sheap_alloc failed after {} retries (size={}, align={})",
+        SHEAP_OOM_RETRIES, size, align
+    );
+    null_mut()
 }
 
 pub(super) unsafe extern "fastcall" fn sheap_free(

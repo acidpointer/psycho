@@ -90,12 +90,21 @@ mod sys {
     }
 }
 
-/// WinAPI: IsBadReadPtr(...)
-/// 
+/// Returns `true` if the memory region is readable, `false` if it is bad.
+///
+/// Wraps WinAPI `IsBadReadPtr`. Note: Microsoft deprecates this function;
+/// prefer `VirtualQuery`-based checks where possible.
+///
 /// # Safety
-/// Unsafe WinAPI call. Pointers must be valid
-pub unsafe fn is_bad_read_ptr(ptr: *const c_void, ucb: usize) -> bool {
+/// Unsafe WinAPI call.
+pub unsafe fn is_readable_ptr(ptr: *const c_void, ucb: usize) -> bool {
     unsafe { sys::IsBadReadPtr(ptr, ucb) == 0 }
+}
+
+/// Backwards compatibility alias (deprecated — name was misleading).
+#[deprecated(note = "Use is_readable_ptr instead — is_bad_read_ptr returned inverted results")]
+pub unsafe fn is_bad_read_ptr(ptr: *const c_void, ucb: usize) -> bool {
+    unsafe { is_readable_ptr(ptr, ucb) }
 }
 
 /// Query memory with VirtualQuery(...)

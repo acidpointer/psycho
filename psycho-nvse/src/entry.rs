@@ -112,7 +112,7 @@ fn late_load(nvse_ptr: *const NVSEInterfaceFFI) -> anyhow::Result<()> {
     if let Err(e) = ctx.set_opcode_base(0x3F00) {
         log::error!("[FAIL] set_opcode_base: {}", e);
     } else {
-        log::info!("[OK] Opcode base set to 0x3A00");
+        log::info!("[OK] Opcode base set to 0x3F00");
         crate::commands::register(&mut ctx);
     }
 
@@ -221,9 +221,13 @@ pub unsafe extern "C" fn NVSEPlugin_Query(
 #[allow(non_snake_case)]
 pub unsafe extern "C" fn NVSEPlugin_Load(nvse: *const NVSEInterfaceFFI) -> BOOL {
     match late_load(nvse) {
-        Ok(_) => log::info!("Plugin loaded successfully"),
-        Err(err) => log::error!("Plugin load error: {:?}", err),
+        Ok(_) => {
+            log::info!("Plugin loaded successfully");
+            true.into()
+        }
+        Err(err) => {
+            log::error!("Plugin load error: {:?}", err);
+            false.into()
+        }
     }
-
-    true.into()
 }

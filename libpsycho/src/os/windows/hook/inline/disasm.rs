@@ -503,7 +503,10 @@ impl Disasm {
                         );
 
                         // Extract condition code from original instruction
-                        let condition = thunk::extract_jcc_condition(instr_bytes);
+                        let condition = thunk::extract_jcc_condition(instr_bytes)
+                            .ok_or_else(|| DisasmError::UnsupportedInstruction(
+                                format!("Failed to extract Jcc condition from instruction at 0x{:X}", instr.ip())
+                            ))?;
 
                         // Generate long-form conditional jump (6 bytes)
                         let jcc_bytes = thunk::generate_jcc_rel32(

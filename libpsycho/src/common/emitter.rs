@@ -78,22 +78,20 @@ impl<'a, E: Send + Sync + Copy + Clone + Eq + Hash, P: Send + Sync> EventEmitter
     pub fn on<F: Fn(&P) + Send + Sync + 'a>(&self, event: E, callback: F) -> ListenerId {
         let mut listener_id = self.last_id.write();
 
-        let listener = Listener::new(*listener_id, callback);
-
+        let id = *listener_id;
+        let listener = Listener::new(id, callback);
 
         if let Some(listeners) = self.listeners.get_mut(&event) {
-            listeners.insert(*listener_id, listener);
+            listeners.insert(id, listener);
         } else {
             let map = ClashMap::new();
-            map.insert(*listener_id, listener);
-
+            map.insert(id, listener);
             self.listeners.insert(event, map);
         }
 
-        *listener_id +=1;
+        *listener_id += 1;
 
-
-        *listener_id
+        id
     }
 
     /// Remove listener from EventEmitter by listener id

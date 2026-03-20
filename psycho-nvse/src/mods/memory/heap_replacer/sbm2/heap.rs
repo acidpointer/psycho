@@ -155,22 +155,33 @@ impl Heap {
 
     /// Decrement alloc_count and trigger GC if count reaches zero.
     /// Handles underflow defensively (game bugs: double-free, free-after-purge).
+    /// Uses compare_exchange loop to prevent the non-atomic fetch_sub+fetch_add race.
     #[inline]
     fn dec_alloc_count(&self) {
-        let prev = self.alloc_count.fetch_sub(1, Ordering::Release);
+        loop {
+            let current = self.alloc_count.load(Ordering::Acquire);
+            if current == 0 {
+                log::error!(
+                    "[SBM] alloc_count underflow on sheap_id={:#x}",
+                    self.sheap_id
+                );
+                return;
+            }
 
-        if prev == 0 {
-            // Underflow: was already 0 before sub. Roll back to prevent wrap.
-            self.alloc_count.fetch_add(1, Ordering::Relaxed);
-            log::error!(
-                "[SBM] alloc_count underflow on sheap_id={:#x}",
-                self.sheap_id
-            );
-            return;
-        }
-
-        if prev == 1 {
-            self.try_enqueue_gc();
+            match self.alloc_count.compare_exchange_weak(
+                current,
+                current - 1,
+                Ordering::AcqRel,
+                Ordering::Relaxed,
+            ) {
+                Ok(_) => {
+                    if current == 1 {
+                        self.try_enqueue_gc();
+                    }
+                    return;
+                }
+                Err(_) => continue, // retry — another thread modified count
+            }
         }
     }
 

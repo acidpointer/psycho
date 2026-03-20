@@ -165,17 +165,16 @@ pub fn generate_jcc_rel32(source: usize, destination: usize, condition: u8) -> V
 ///
 /// # Returns
 /// The condition code (0-15)
-pub fn extract_jcc_condition(instruction_bytes: &[u8]) -> u8 {
+pub fn extract_jcc_condition(instruction_bytes: &[u8]) -> Option<u8> {
     // Find the primary opcode (skip 0x0F prefix for long jumps)
     let primary_opcode = instruction_bytes
         .iter()
-        .find(|&&byte| byte != 0x0F)
-        .expect("Failed to find primary opcode in Jcc instruction");
+        .find(|&&byte| byte != 0x0F)?;
 
     // Extract condition: opcode & 0x0F
     // For example: 0x74 (JZ) -> 0x74 & 0x0F = 0x04
     // For long form: 0x84 (JZ long) -> 0x84 & 0x0F = 0x04
-    primary_opcode & 0x0F
+    Some(primary_opcode & 0x0F)
 }
 
 #[cfg(test)]
@@ -223,15 +222,15 @@ mod tests {
     fn test_extract_jcc_condition() {
         // Short JNZ: 75 XX
         let short_jnz = vec![0x75, 0x10];
-        assert_eq!(extract_jcc_condition(&short_jnz), 0x5);
+        assert_eq!(extract_jcc_condition(&short_jnz), Some(0x5));
 
         // Long JNZ: 0F 85 XX XX XX XX
         let long_jnz = vec![0x0F, 0x85, 0x00, 0x00, 0x00, 0x00];
-        assert_eq!(extract_jcc_condition(&long_jnz), 0x5);
+        assert_eq!(extract_jcc_condition(&long_jnz), Some(0x5));
 
         // JZ: 74 XX
         let jz = vec![0x74, 0x20];
-        assert_eq!(extract_jcc_condition(&jz), 0x4);
+        assert_eq!(extract_jcc_condition(&jz), Some(0x4));
     }
 
     #[test]

@@ -188,7 +188,7 @@ impl From<&NVSEMessagingInterface_Message> for NVSEMessageType {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct NVSEMessage {
     data: *mut c_void,
     data_len: u32,
@@ -250,7 +250,7 @@ impl NVSEMessage {
     ///
     /// Returns None if data is NULL.
     pub fn data_as_bool(&self) -> Option<bool> {
-        if self.data.is_null() {
+        if self.data.is_null() || self.data_len < 1 {
             return None;
         }
         Some(unsafe { *(self.data as *const bool) })

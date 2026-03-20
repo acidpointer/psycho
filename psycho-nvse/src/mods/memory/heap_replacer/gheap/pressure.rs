@@ -324,6 +324,10 @@ impl PressureRelief {
 
         let commit_mb = commit / 1024 / 1024;
 
+        // Always clear requested so check() can re-evaluate on the next trigger.
+        // If commit is still above threshold, check() will re-set it.
+        self.requested.store(false, Ordering::Release);
+
         if CELL_UNLOAD_ENABLED && cells > 0 {
             log::info!(
                 "[PRESSURE] Unloaded {} cells (commit={}MB)",
@@ -331,7 +335,6 @@ impl PressureRelief {
                 commit_mb,
             );
         } else {
-            self.requested.store(false, Ordering::Release);
             log::info!("[PRESSURE] Relief cycle (commit={}MB)", commit_mb);
         }
 
