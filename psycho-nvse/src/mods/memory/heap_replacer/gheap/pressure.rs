@@ -335,12 +335,17 @@ impl PressureRelief {
             log::info!("[PRESSURE] Relief cycle (commit={}MB)", commit_mb);
         }
 
-        // HUD notification only when commit is critically high.
-        // No console spam -- detailed info available via console command.
-        if stats.should_notify_player() {
-            crate::nvse_services::show_notification(
-                &format!("Pip-Boy warning: memory at {}MB. Cleaning up...", commit_mb),
-            );
+        // HUD notification only under heavy memory pressure
+        if commit_mb >= 1500 {
+            if cells > 0 {
+                crate::nvse_services::show_notification(
+                    &format!("Pip-Boy: {}MB, freed {} sectors", commit_mb, cells),
+                );
+            } else {
+                crate::nvse_services::show_notification(
+                    &format!("Pip-Boy: {}MB, cache optimized", commit_mb),
+                );
+            }
         }
 
         self.active.store(false, Ordering::Release);

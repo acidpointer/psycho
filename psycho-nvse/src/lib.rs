@@ -10,6 +10,7 @@
 // #[global_allocator]
 // static GLOBAL: MiMalloc = MiMalloc;
 
+mod commands;
 mod config;
 mod entry;
 mod mods;

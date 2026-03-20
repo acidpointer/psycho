@@ -75,23 +75,48 @@ fn early_load(cfg: &PsychoConfig) {
 // -----------------------------------------------------------------------
 
 fn late_load(nvse_ptr: *const NVSEInterfaceFFI) -> anyhow::Result<()> {
-    let ctx = PluginContext::new(nvse_ptr, plugininfo::PLUGIN_NAME)?;
+    let mut ctx = PluginContext::new(nvse_ptr, plugininfo::PLUGIN_NAME)?;
 
     if ctx.is_editor() {
         log::info!("Running inside GECK editor -- skipping all game modifications");
         return Ok(());
     }
 
-    // Initialize global services so subsystems can access console/UI.
-    // We store only the raw pointer -- no NVSEInterface reconstruction
-    // during pressure callbacks (that would call GetPluginHandle again).
     crate::nvse_services::init(nvse_ptr);
+
+    // Store console interface globally so command handlers can print
+    if let Ok(console) = ctx.low_level().query_console() {
+        console.set_global();
+    }
 
     log::info!(
         "xNVSE {}, Runtime {}",
         ctx.nvse_version(),
         ctx.runtime_version()
     );
+
+    // -- Message listener ---------------------------------------------------
+
+    ctx.on_message(|msg| {
+        use libnvse::api::messaging::NVSEMessageType;
+        if msg.get_type() == NVSEMessageType::DeferredInit {
+            crate::nvse_services::set_game_ready();
+            log::info!("[NVSE] Game engine ready");
+        }
+    })?;
+
+    // -- Console commands ---------------------------------------------------
+
+    // 0x3F00 -- temporary dev range. Must request official allocation
+    // from xNVSE team before release: https://geckwiki.com/index.php?title=NVSE_Opcode_Base
+    if let Err(e) = ctx.set_opcode_base(0x3F00) {
+        log::error!("[FAIL] set_opcode_base: {}", e);
+    } else {
+        log::info!("[OK] Opcode base set to 0x3A00");
+        crate::commands::register(&mut ctx);
+    }
+
+    // -- Hooks --------------------------------------------------------------
 
     let cfg = crate::config::get_config()?;
 
@@ -102,46 +127,16 @@ fn late_load(nvse_ptr: *const NVSEInterfaceFFI) -> anyhow::Result<()> {
         log::warn!("[SKIP] Zlib replacement");
     }
 
-    // Register message handler AFTER all hooks are installed.
-    register_nvse_listener(nvse_ptr);
+    // PluginContext owns:
+    //   - messaging BareFn closures (NVSE holds raw pointers)
+    //   - command BareFn trampolines (NVSE holds raw pointers)
+    //   - serialization BareFn closures (if any)
+    // All must stay alive for the game session. Leak the context.
+    // This is the standard pattern for NVSE plugins -- C++ plugins
+    // store their interfaces as globals that are never freed.
+    std::mem::forget(ctx);
 
     Ok(())
-}
-
-/// Register NVSE message listener using a leaked BareFn.
-///
-/// Separated from late_load so the NVSEInterface (and its messaging
-/// sub-interface) can be dropped cleanly without needing forget().
-fn register_nvse_listener(nvse_ptr: *const NVSEInterfaceFFI) {
-    let mut nvse = match libnvse::api::interface::NVSEInterface::from_raw(nvse_ptr) {
-        Ok(n) => n,
-        Err(e) => {
-            log::error!("Failed to create NVSEInterface for listener: {}", e);
-            return;
-        }
-    };
-
-    let result = nvse.messaging_interface_mut().register_listener("NVSE", |msg| {
-        use libnvse::api::messaging::NVSEMessageType;
-        if msg.get_type() == NVSEMessageType::DeferredInit {
-            crate::nvse_services::set_game_ready();
-            log::info!("[NVSE] Game engine ready");
-        }
-    });
-
-    match result {
-        Ok(_) => log::info!("[OK] NVSE message listener"),
-        Err(e) => log::error!("[FAIL] NVSE message listener: {}", e),
-    }
-
-    // nvse is dropped here. The NVSEMessagingInterface inside it holds
-    // the BareFn in its HashMap. When dropped, the BareFn is freed.
-    // This means the listener callback becomes a dangling pointer!
-    //
-    // To keep the closure alive, we leak the entire NVSEInterface.
-    // This is the same pattern used by every C++ NVSE plugin (they
-    // store g_messagingInterface as a global that's never freed).
-    std::mem::forget(nvse);
 }
 
 // -----------------------------------------------------------------------

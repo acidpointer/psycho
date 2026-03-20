@@ -14,13 +14,6 @@ use libmimalloc::process_info::MiMallocProcessInfo;
 use libpsycho::common::helpers::format_bytes;
 
 // ---------------------------------------------------------------------------
-// Configuration
-// ---------------------------------------------------------------------------
-
-/// Commit threshold for showing HUD notification (bytes).
-const NOTIFICATION_THRESHOLD: usize = 1550 * 1024 * 1024;
-
-// ---------------------------------------------------------------------------
 // MemStats
 // ---------------------------------------------------------------------------
 
@@ -82,12 +75,6 @@ impl MemStats {
     }
 
     // -- Queries --
-
-    /// Whether current commit is high enough to show HUD notification.
-    pub fn should_notify_player(&self) -> bool {
-        let info = MiMallocProcessInfo::get();
-        info.get_current_commit() >= NOTIFICATION_THRESHOLD
-    }
 
     /// Short one-line summary for HUD notification.
     pub fn hud_summary() -> String {

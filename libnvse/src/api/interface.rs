@@ -434,7 +434,7 @@ impl<'a> NVSEInterface<'a> {
 
     /// Create a command builder for registering custom script commands.
     ///
-    /// Use this to register new console/script commands during plugin load.
+    /// Create a command builder for registering custom script commands.
     pub fn command_builder(&self) -> NVSEInterfaceResult<CommandBuilder> {
         Ok(CommandBuilder::from_raw(self.nvse_ptr.as_ptr())?)
     }

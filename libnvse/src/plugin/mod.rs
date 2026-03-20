@@ -239,6 +239,7 @@ pub mod prelude {
     pub use super::cosave::{LoadReader, Record, SaveError, SaveWriter};
     pub use super::types::{ArrayId, FormId, Value};
     pub use super::{PluginContext, PluginError};
+    pub use crate::api::command::{CommandContext, Param, ParamType, ReturnType};
     pub use crate::api::hud::Emotion;
     pub use crate::api::messaging::NVSEMessageType as MessageType;
     pub use crate::api::player_controls::ControlFlags as Controls;
@@ -280,6 +281,9 @@ pub enum PluginError {
 
     #[error("HUD error: {0}")]
     Hud(#[from] crate::api::hud::HudError),
+
+    #[error("Command error: {0}")]
+    Command(#[from] crate::api::command::CommandError),
 }
 
 // ---------------------------------------------------------------------------
@@ -441,6 +445,8 @@ pub struct PluginContext {
     /// Serialization interface -- must be kept alive for the entire game
     /// session because it owns the BareFn closures that NVSE calls back.
     serialization: Option<crate::api::serialization::Serialization<'static>>,
+    /// Command builder -- keeps leaked strings and param arrays alive.
+    commands: Option<crate::api::command::CommandBuilder>,
 }
 
 impl PluginContext {
@@ -459,6 +465,7 @@ impl PluginContext {
             inner,
             plugin_name,
             serialization: None,
+            commands: None,
         })
     }
 
@@ -543,6 +550,57 @@ impl PluginContext {
     pub fn console(&self) -> Result<ConsoleApi, PluginError> {
         let inner = self.inner.query_console()?;
         Ok(ConsoleApi::new(inner))
+    }
+
+    // -- Commands -----------------------------------------------------------
+
+    /// Lazily initialize the command builder.
+    fn commands_mut(
+        &mut self,
+    ) -> Result<&mut crate::api::command::CommandBuilder, PluginError> {
+        if self.commands.is_none() {
+            let builder = self.inner.command_builder()?;
+            self.commands = Some(builder);
+        }
+        Ok(self.commands.as_mut().expect("just initialized"))
+    }
+
+    /// Set the opcode base for command registration.
+    ///
+    /// Must be called before registering any commands.
+    /// The base is assigned by the xNVSE team to avoid conflicts.
+    pub fn set_opcode_base(&mut self, opcode: u32) -> Result<(), PluginError> {
+        self.commands_mut()?.set_opcode_base(opcode)?;
+        Ok(())
+    }
+
+    /// Register a command. Use `nvse_command!` macro to define the handler.
+    ///
+    /// ```no_run
+    /// use libnvse::nvse_command;
+    ///
+    /// nvse_command!(MyCmd, cmd, {
+    ///     cmd.print("Hello!");
+    ///     cmd.set_result(1.0);
+    ///     true
+    /// });
+    ///
+    /// ctx.set_opcode_base(0x3000)?;
+    /// ctx.register_command("MyCmd", "mc", "Does something",
+    ///     false, &[], MY_CMD_EXECUTE)?;
+    /// ```
+    pub fn register_command(
+        &mut self,
+        name: &str,
+        short_name: &str,
+        help: &str,
+        needs_ref: bool,
+        params: &[crate::api::command::Param],
+        execute: crate::Cmd_Execute,
+    ) -> Result<(), PluginError> {
+        self.commands_mut()?
+            .register(name, short_name, help, needs_ref, params, execute)?;
+        Ok(())
     }
 
     // -- Player controls ----------------------------------------------------

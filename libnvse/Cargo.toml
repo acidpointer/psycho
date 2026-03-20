@@ -13,6 +13,7 @@ parking_lot = { workspace = true }
 closure-ffi = { workspace = true }
 ahash = { workspace = true }
 bitflags = "2"
+paste = "1"
 libpsycho = { path = "../libpsycho" }
 
 [build-dependencies]

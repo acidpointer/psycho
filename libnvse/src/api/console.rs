@@ -1,28 +1,25 @@
 //! Safe wrapper for the NVSE console interface.
 //!
-//! Allows executing console commands programmatically from Rust plugins.
-//!
 //! # Usage
 //!
 //! ```no_run
-//! // Execute a console command
 //! console.run("player.additem 000000F 100")?;
-//!
-//! // Execute silently (no console echo)
 //! console.run_silent("set MyGlobal to 1")?;
-//!
-//! // Execute on a specific reference (target a form)
-//! // Pass a raw TESObjectREFR pointer obtained from the game engine.
-//! console.run_on(some_ref_ptr, "disable")?;
+//! console.print("Hello from Rust!")?;
 //! ```
 
 use std::ptr::NonNull;
+use std::sync::OnceLock;
 
 use libpsycho::os::windows::winapi::{WinString, WinapiError};
 use thiserror::Error;
 
 use crate::NVSEConsoleInterface as NVSEConsoleInterfaceFFI;
 use crate::TESObjectREFR;
+
+/// Stored console interface pointer for `console_print`.
+/// Set once via `Console::set_global`, used by `console_print`.
+static GLOBAL_CONSOLE: OnceLock<usize> = OnceLock::new();
 
 #[derive(Debug, Error)]
 pub enum ConsoleError {
@@ -35,6 +32,9 @@ pub enum ConsoleError {
     #[error("Console command execution failed")]
     ExecutionFailed,
 
+    #[error("Console not initialized (call Console::set_global first)")]
+    NotInitialized,
+
     #[error("WinAPI error: {0}")]
     WinapiError(#[from] WinapiError),
 }
@@ -42,46 +42,41 @@ pub enum ConsoleError {
 pub type ConsoleResult<T> = Result<T, ConsoleError>;
 
 /// Safe wrapper around NVSEConsoleInterface.
-///
-/// Provides methods to execute console commands from Rust code,
-/// equivalent to typing them in the in-game console (~).
 pub struct Console {
     ptr: NonNull<NVSEConsoleInterfaceFFI>,
 }
 
 impl Console {
-    /// Create a Console wrapper from a raw FFI pointer.
-    ///
-    /// Returns an error if the pointer is NULL.
     pub fn from_raw(raw: *mut NVSEConsoleInterfaceFFI) -> ConsoleResult<Self> {
         let ptr = NonNull::new(raw).ok_or(ConsoleError::InterfaceIsNull)?;
         Ok(Self { ptr })
     }
 
-    /// Get the raw FFI pointer.
+    /// Store this console instance's pointer globally for `console_print`.
+    ///
+    /// Call once during plugin load after querying the console interface.
+    pub fn set_global(&self) {
+        let _ = GLOBAL_CONSOLE.set(self.ptr.as_ptr() as usize);
+    }
+
     pub fn as_raw_ptr(&self) -> *mut NVSEConsoleInterfaceFFI {
         self.ptr.as_ptr()
     }
 
-    /// Execute a console command string.
-    ///
-    /// Equivalent to typing the command in the game console.
-    /// Output will appear in the console window.
+    /// Print text to the console via `RunScriptLine("print ...")`.
+    pub fn print(&self, message: &str) -> ConsoleResult<()> {
+        let cmd = format!("print \"{}\"", message.replace('"', "'"));
+        self.run_silent(&cmd)
+    }
+
     pub fn run(&self, command: &str) -> ConsoleResult<()> {
         self.run_on_ref(command, std::ptr::null_mut(), false)
     }
 
-    /// Execute a console command silently (suppresses console output).
     pub fn run_silent(&self, command: &str) -> ConsoleResult<()> {
         self.run_on_ref(command, std::ptr::null_mut(), true)
     }
 
-    /// Execute a console command on a specific object reference.
-    ///
-    /// # Safety contract
-    ///
-    /// The caller must ensure `object` points to a valid TESObjectREFR
-    /// or is NULL (in which case the command runs without a target).
     pub fn run_on(&self, object: *mut TESObjectREFR, command: &str) -> ConsoleResult<()> {
         self.run_on_ref(command, object, false)
     }
@@ -95,9 +90,6 @@ impl Console {
         let iface = unsafe { self.ptr.as_ref() };
         let cmd = WinString::new(command)?;
 
-        // Prefer RunScriptLine2 (has suppress_output param).
-        // Fall back to RunScriptLine (no suppress param) only if
-        // RunScriptLine2 is unavailable.
         let success = if let Some(run2) = iface.RunScriptLine2 {
             cmd.with_ansi(|buf| unsafe { run2(buf, object, suppress_output) })
         } else {
@@ -113,4 +105,16 @@ impl Console {
             Err(ConsoleError::ExecutionFailed)
         }
     }
+}
+
+/// Print a line to the in-game console.
+///
+/// Uses the globally stored Console interface pointer. Call
+/// `Console::set_global()` during plugin load to initialize.
+///
+/// Safe to call from command handlers and the main game thread.
+pub fn console_print(message: &str) -> ConsoleResult<()> {
+    let &ptr = GLOBAL_CONSOLE.get().ok_or(ConsoleError::NotInitialized)?;
+    let console = Console::from_raw(ptr as *mut NVSEConsoleInterfaceFFI)?;
+    console.print(message)
 }

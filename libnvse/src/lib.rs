@@ -89,7 +89,15 @@ mod nvse_bindings;
 // Re-export bindings at the crate root for easier access
 pub(crate) use nvse_bindings::root::*;
 
-pub use nvse_bindings::root::{NVSEInterface as NVSEInterfaceFFI, PluginInfo as PluginInfoFFI};
+pub use nvse_bindings::root::{
+    NVSEInterface as NVSEInterfaceFFI,
+    PluginInfo as PluginInfoFFI,
+    Cmd_Execute,
+};
 
 pub mod api;
 pub mod plugin;
+
+// Re-export paste for the nvse_command! macro
+#[doc(hidden)]
+pub use paste;

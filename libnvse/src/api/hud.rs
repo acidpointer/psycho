@@ -74,11 +74,36 @@ pub fn hud_message_with(message: &str, emotion: Emotion, duration: f32) -> HudRe
         queue_fn(
             msg_ptr,
             emotion as u32,
-            std::ptr::null(), // no custom icon
-            std::ptr::null(), // no custom sound
+            std::ptr::null(),
+            std::ptr::null(),
             duration,
             false,
         );
+    });
+
+    Ok(())
+}
+
+/// Show a HUD corner notification with a custom icon.
+///
+/// - `icon_path` -- path to a .dds texture relative to Data/Textures/
+/// - `duration` -- display time in seconds
+pub fn hud_message_icon(message: &str, icon_path: &str, duration: f32) -> HudResult<()> {
+    let win_msg = WinString::new(message)?;
+    let win_icon = WinString::new(icon_path)?;
+    let queue_fn = queue_ui_message();
+
+    win_msg.with_ansi(|msg_ptr| {
+        win_icon.with_ansi(|icon_ptr| unsafe {
+            queue_fn(
+                msg_ptr,
+                0,
+                icon_ptr,
+                std::ptr::null(),
+                duration,
+                false,
+            );
+        });
     });
 
     Ok(())
