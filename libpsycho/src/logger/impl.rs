@@ -208,6 +208,14 @@ static SHUTDOWN: AtomicBool = AtomicBool::new(false);
 
 static LOGGER_THREAD: LazyLock<Mutex<Option<JoinHandle<()>>>> = LazyLock::new(|| Mutex::new(None));
 
+/// Stores the FileOutput config when using deferred initialization.
+/// `init_deferred()` stores it; `start_deferred()` consumes it.
+static DEFERRED_FILE_OUTPUT: Mutex<Option<FileOutput>> = Mutex::new(None);
+
+/// Atomic flag to ensure `start_deferred()` spawns the thread exactly once.
+/// Prevents TOCTOU race where multiple callers pass the LOGGER_THREAD check.
+static DEFERRED_STARTED: AtomicBool = AtomicBool::new(false);
+
 const TIMESTAMP_FORMAT_OFFSET: &[FormatItem] = time::macros::format_description!(
     "[year]-[month]-[day]T[hour]:[minute]:[second].[subsecond digits:3][offset_hour sign:mandatory]:[offset_minute]"
 );
@@ -602,6 +610,9 @@ impl Logger {
     /// Logger::shutdown();
     /// ```
     pub fn init(self) -> Result<(), SetLoggerError> {
+        // Mark as started so start_deferred() is a no-op if called later.
+        DEFERRED_STARTED.store(true, Ordering::Release);
+
         let mut log_file = create_log_file(&self.file_output);
 
         let handle = thread::spawn(move || {
@@ -654,6 +665,100 @@ impl Logger {
 
         log::set_max_level(self.max_level());
         log::set_boxed_logger(Box::new(self))
+    }
+
+    /// Initialize the logger WITHOUT spawning a background thread or opening
+    /// log files. Messages are queued in memory until [`start_deferred`] is
+    /// called.
+    ///
+    /// **Use this inside `DllMain`** where thread creation and file I/O are
+    /// unsafe (Windows loader lock). Call [`start_deferred`] later (e.g. from
+    /// `NVSEPlugin_Load`) to open the log file and spawn the consumer thread.
+    ///
+    /// [`start_deferred`]: Logger::start_deferred
+    pub fn init_deferred(self) -> Result<(), SetLoggerError> {
+        // Store the file output config for start_deferred() to consume later.
+        match DEFERRED_FILE_OUTPUT.lock() {
+            Ok(mut guard) => *guard = Some(self.file_output.clone()),
+            Err(poisoned) => *poisoned.into_inner() = Some(self.file_output.clone()),
+        }
+
+        log::set_max_level(self.max_level());
+        log::set_boxed_logger(Box::new(self))
+    }
+
+    /// Start the deferred background thread and open the log file.
+    ///
+    /// Must be called **outside** `DllMain` (after the Windows loader lock is
+    /// released). Drains any messages that were queued during the deferred
+    /// period.
+    ///
+    /// Safe to call multiple times — only the first call spawns the thread.
+    pub fn start_deferred() {
+        // Atomic CAS ensures exactly one caller proceeds — no TOCTOU race.
+        if DEFERRED_STARTED.compare_exchange(
+            false, true, Ordering::AcqRel, Ordering::Relaxed
+        ).is_err() {
+            return; // Another call already spawned (or init() was used).
+        }
+
+        let file_output = {
+            let mut guard = match DEFERRED_FILE_OUTPUT.lock() {
+                Ok(g) => g,
+                Err(p) => p.into_inner(),
+            };
+            guard.take().unwrap_or(FileOutput::None)
+        };
+
+        let mut log_file = create_log_file(&file_output);
+
+        let handle = thread::spawn(move || {
+            let mut idle_count = 0u32;
+            let mut stdout = std::io::stdout();
+            loop {
+                if SHUTDOWN.load(Ordering::Acquire) {
+                    while let Some(msg) = MSG_QUEUE.pop() {
+                        let _ = stdout.write_all(msg.text.as_bytes());
+                        if let Some(file) = &mut log_file {
+                            let _ = file.write_all(msg.text.as_bytes());
+                        }
+                    }
+                    let _ = stdout.flush();
+                    if let Some(file) = &mut log_file {
+                        let _ = file.flush();
+                    }
+                    break;
+                }
+
+                if let Some(msg) = MSG_QUEUE.pop() {
+                    idle_count = 0;
+
+                    if stdout.write_all(msg.text.as_bytes()).is_err() {
+                        continue;
+                    }
+
+                    if let Some(file) = &mut log_file {
+                        let _ = file.write_all(msg.text.as_bytes());
+                        let _ = file.flush();
+                    }
+                } else {
+                    idle_count = idle_count.saturating_add(1);
+
+                    if idle_count < 10 {
+                        thread::yield_now();
+                    } else if idle_count < 100 {
+                        thread::sleep(std::time::Duration::from_micros(10));
+                    } else {
+                        thread::sleep(std::time::Duration::from_millis(1));
+                    }
+                }
+            }
+        });
+
+        match LOGGER_THREAD.lock() {
+            Ok(mut guard) => *guard = Some(handle),
+            Err(poisoned) => *poisoned.into_inner() = Some(handle),
+        }
     }
 
     /// Shutdown the logger thread gracefully and flush all pending messages.

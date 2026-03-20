@@ -75,13 +75,27 @@ impl Default for ZlibConfig {
     }
 }
 
-/// Load the global configuration with automatic schema migration.
+/// Load the global configuration (read-only, no file write-back).
+///
+/// Safe to call under the Windows loader lock (DllMain). Only does a single
+/// file read + TOML parse. Call [`sync_config`] later to write-back schema
+/// changes.
 pub fn load_config() -> &'static PsychoConfig {
     CONFIG.get_or_init(|| {
-        let cfg = Config::load_or_migrate::<PsychoConfig>(CONFIG_PATH);
-        log::info!("[CONFIG] Ready");
+        let cfg = Config::load_readonly::<PsychoConfig>(CONFIG_PATH);
+        log::info!("[CONFIG] Loaded (read-only)");
         cfg
     })
+}
+
+/// Write config to disk if schema changed (adds missing fields, prunes stale).
+///
+/// Must be called OUTSIDE DllMain (no loader lock). Typically from
+/// NVSEPlugin_Load.
+pub fn sync_config() {
+    if let Some(cfg) = CONFIG.get() {
+        Config::sync_to_disk(CONFIG_PATH, cfg);
+    }
 }
 
 /// Get the global config reference.

@@ -99,6 +99,63 @@ impl Config {
         }
     }
 
+    /// Load config from disk (read-only, no write-back).
+    ///
+    /// Safe to call under the Windows loader lock — only does a single file
+    /// read and TOML parse. If the file is missing or unparseable, returns
+    /// `T::default()`.
+    ///
+    /// Call [`sync_to_disk`] later (outside DllMain) to write back schema
+    /// changes.
+    pub fn load_readonly<T>(path: impl AsRef<Path>) -> T
+    where
+        T: DeserializeOwned + Default,
+    {
+        let path = path.as_ref();
+        let content = std::fs::read_to_string(path).unwrap_or_default();
+
+        match toml::from_str(&content) {
+            Ok(cfg) => cfg,
+            Err(err) => {
+                if !content.is_empty() {
+                    log::warn!(
+                        "Config parse error in '{}': {}. Using defaults.",
+                        path.display(),
+                        err
+                    );
+                }
+                T::default()
+            }
+        }
+    }
+
+    /// Write config to disk if the schema has changed.
+    ///
+    /// Must be called OUTSIDE DllMain (no loader lock).
+    /// Typically called from NVSEPlugin_Load after the loader lock is released.
+    pub fn sync_to_disk<T>(path: impl AsRef<Path>, cfg: &T)
+    where
+        T: Serialize,
+    {
+        let path = path.as_ref();
+        let content = std::fs::read_to_string(path).unwrap_or_default();
+
+        if let Ok(updated) = toml::to_string_pretty(cfg) {
+            if updated != content {
+                if let Some(parent) = path.parent() {
+                    let _ = std::fs::create_dir_all(parent);
+                }
+                if let Err(err) = std::fs::write(path, &updated) {
+                    log::warn!("Failed to sync config '{}': {}", path.display(), err);
+                } else if content.is_empty() {
+                    log::info!("Config created at '{}'", path.display());
+                } else {
+                    log::info!("Config schema updated in '{}'", path.display());
+                }
+            }
+        }
+    }
+
     /// Load config with automatic schema migration.
     ///
     /// - If the file doesn't exist → creates it with defaults.

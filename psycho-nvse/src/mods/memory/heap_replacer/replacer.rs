@@ -12,6 +12,63 @@ use libpsycho::os::windows::{
 use super::hooks::*;
 use super::types::*;
 
+// ---------------------------------------------------------------------------
+// Hook rollback guard — disables all enabled hooks on drop unless committed.
+// ---------------------------------------------------------------------------
+
+/// Type-erased disable function for any InlineHookContainer.
+type DisableFn = Box<dyn Fn() + Send + Sync>;
+
+/// Collects enabled hooks and rolls them all back if the guard is dropped
+/// without calling `commit()`. Prevents split-heap corruption when a later
+/// hook in the sequence fails to install.
+struct HookGuard {
+    rollbacks: Vec<(&'static str, DisableFn)>,
+    committed: bool,
+}
+
+impl HookGuard {
+    fn new() -> Self {
+        Self {
+            rollbacks: Vec::new(),
+            committed: false,
+        }
+    }
+
+    /// Enable a hook and register it for rollback. Returns error if enable fails.
+    fn enable_hook<T: Copy + 'static>(
+        &mut self,
+        name: &'static str,
+        hook: &'static LazyLock<InlineHookContainer<T>>,
+    ) -> anyhow::Result<()> {
+        let container: &InlineHookContainer<T> = hook;
+        container.enable().map_err(|e| anyhow::anyhow!("{}: {:?}", name, e))?;
+        self.rollbacks.push((name, Box::new(move || {
+            let container: &InlineHookContainer<T> = hook;
+            let _ = container.disable();
+        })));
+        Ok(())
+    }
+
+    /// Mark all hooks as committed — drop will NOT roll back.
+    fn commit(mut self) {
+        self.committed = true;
+    }
+}
+
+impl Drop for HookGuard {
+    fn drop(&mut self) {
+        if self.committed {
+            return;
+        }
+        log::error!("[HEAP REPLACER] Rolling back {} hooks due to installation failure", self.rollbacks.len());
+        for (name, disable) in self.rollbacks.iter().rev() {
+            disable();
+            log::warn!("[ROLLBACK] Disabled {}", name);
+        }
+    }
+}
+
 // CRT allocator
 const CRT_MALLOC_ADDR_1: usize = 0x00ECD1C7;
 const CRT_MALLOC_ADDR_2: usize = 0x00ED0CDF;
@@ -139,13 +196,185 @@ pub fn install_game_heap_hooks() -> anyhow::Result<()> {
     // Returns None if game function pointers are invalid — logged internally.
     super::gheap::pressure::PressureRelief::instance();
 
-    // Start gheap monitor thread (mimalloc stats + balance + pressure logging).
-    // Leaked intentionally — the monitor runs for the entire process lifetime.
-    std::mem::forget(super::gheap::monitor::Monitor::start());
+    // NOTE: Monitor thread is NOT started here — DllMain holds the Windows
+    // loader lock, and thread::spawn can deadlock under loader lock.
+    // Call start_deferred_threads() from NVSEPlugin_Load instead.
+
+    // ===========================
+    //   HOOKS (with rollback guard)
+    // ===========================
+    //
+    // All hooks are enabled through HookGuard. If ANY enable fails, all
+    // previously-enabled hooks are rolled back (disabled) to prevent
+    // split-heap corruption (e.g. alloc→mimalloc but free→original).
+
+    let mut guard = HookGuard::new();
+
+    // GHEAP hooks: fully replace GameHeap::Allocate/Free/Msize with mimalloc.
+    // This eliminates the game's heap accounting, SBM, and 500MB budget.
+    // Pre-hook allocations are handled via original trampoline + HeapValidate.
+    {
+        GHEAP_ALLOC_HOOK.init(
+            "gheap_alloc",
+            GHEAP_ALLOC_ADDR as *mut c_void,
+            hook_gheap_alloc,
+        )?;
+        GHEAP_FREE_HOOK.init(
+            "gheap_free",
+            GHEAP_FREE_ADDR as *mut c_void,
+            hook_gheap_free,
+        )?;
+        GHEAP_MSIZE_HOOK.init(
+            "gheap_msize",
+            GHEAP_MSIZE_ADDR as *mut c_void,
+            hook_gheap_msize,
+        )?;
+
+        GHEAP_REALLOC_HOOK_1.init(
+            "gheap_realloc1",
+            GHEAP_REALLOC_ADDR_1 as *mut c_void,
+            hook_gheap_realloc,
+        )?;
+        GHEAP_REALLOC_HOOK_2.init(
+            "gheap_realloc2",
+            GHEAP_REALLOC_ADDR_2 as *mut c_void,
+            hook_gheap_realloc,
+        )?;
+
+        guard.enable_hook("gheap_alloc", &GHEAP_ALLOC_HOOK)?;
+        guard.enable_hook("gheap_free", &GHEAP_FREE_HOOK)?;
+        guard.enable_hook("gheap_msize", &GHEAP_MSIZE_HOOK)?;
+        guard.enable_hook("gheap_realloc1", &GHEAP_REALLOC_HOOK_1)?;
+        guard.enable_hook("gheap_realloc2", &GHEAP_REALLOC_HOOK_2)?;
+
+        log::info!("[GHEAP] GameHeap fully replaced with mimalloc (alloc/free/realloc/msize)");
+    }
+
+    // Main-loop hook for deferred pressure relief (runs between frames, safe context)
+    {
+        MAIN_LOOP_MAINTENANCE_HOOK.init(
+            "main_loop_maintenance",
+            MAIN_LOOP_MAINTENANCE_ADDR as *mut c_void,
+            hook_main_loop_maintenance,
+        )?;
+        guard.enable_hook("main_loop_maintenance", &MAIN_LOOP_MAINTENANCE_HOOK)?;
+        log::info!("[PRESSURE] Post-render hook installed at 0x{:08X}", MAIN_LOOP_MAINTENANCE_ADDR);
+    }
+
+    // Per-frame queue drain hook: boosts NiNode drain rate under pressure.
+    // FUN_00868850 runs every frame pre-AI, pre-render. It drains 10-20 NiNodes
+    // per call. Under pressure we call it additional times to drain faster.
+    {
+        PER_FRAME_QUEUE_DRAIN_HOOK.init(
+            "per_frame_queue_drain",
+            PER_FRAME_QUEUE_DRAIN_ADDR as *mut c_void,
+            hook_per_frame_queue_drain,
+        )?;
+        guard.enable_hook("per_frame_queue_drain", &PER_FRAME_QUEUE_DRAIN_HOOK)?;
+        log::info!("[PRESSURE] Per-frame queue drain hook installed at 0x{:08X}", PER_FRAME_QUEUE_DRAIN_ADDR);
+    }
+
+    // ENGINE BUG FIX: CellTransitionHandler does BLOCKING PDD without
+    // hkWorld_Lock. AI threads from previous frame's post-render signal
+    // crash on freed hkpSimulationIsland data. We wrap it with the same
+    // protections used by the 5 normal PDD callers.
+    {
+        CELL_TRANSITION_HANDLER_HOOK.init(
+            "cell_transition_handler",
+            CELL_TRANSITION_HANDLER_ADDR as *mut c_void,
+            hook_cell_transition_handler,
+        )?;
+        guard.enable_hook("cell_transition_handler", &CELL_TRANSITION_HANDLER_HOOK)?;
+        log::info!("[ENGINE FIX] CellTransitionHandler hook installed at 0x{:08X}", CELL_TRANSITION_HANDLER_ADDR);
+    }
+
+    {
+        CRT_INLINE_MALLOC_HOOK_1.init("malloc1", CRT_MALLOC_ADDR_1 as *mut c_void, hook_malloc)?;
+        CRT_INLINE_MALLOC_HOOK_2.init("malloc2", CRT_MALLOC_ADDR_2 as *mut c_void, hook_malloc)?;
+
+        CRT_INLINE_CALLOC_HOOK_1.init("calloc1", CRT_CALLOC_ADDR_1 as *mut c_void, hook_calloc)?;
+        CRT_INLINE_CALLOC_HOOK_2.init("calloc2", CRT_CALLOC_ADDR_2 as *mut c_void, hook_calloc)?;
+
+        CRT_INLINE_REALLOC_HOOK_1.init(
+            "realloc1",
+            CRT_REALLOC_ADDR_1 as *mut c_void,
+            hook_realloc,
+        )?;
+        CRT_INLINE_REALLOC_HOOK_2.init(
+            "realloc2",
+            CRT_REALLOC_ADDR_2 as *mut c_void,
+            hook_realloc,
+        )?;
+
+        CRT_INLINE_RECALLOC_HOOK_1.init(
+            "recalloc1",
+            CRT_RECALLOC_ADDR_1 as *mut c_void,
+            hook_recalloc,
+        )?;
+        CRT_INLINE_RECALLOC_HOOK_2.init(
+            "recalloc2",
+            CRT_RECALLOC_ADDR_2 as *mut c_void,
+            hook_recalloc,
+        )?;
+        CRT_INLINE_FREE_HOOK.init("free", CRT_FREE_ADDR as *mut c_void, hook_free)?;
+        CRT_INLINE_MSIZE_HOOK.init("msize", CRT_MSIZE_ADDR as *mut c_void, hook_msize)?;
+
+        guard.enable_hook("malloc1", &CRT_INLINE_MALLOC_HOOK_1)?;
+        guard.enable_hook("malloc2", &CRT_INLINE_MALLOC_HOOK_2)?;
+        guard.enable_hook("calloc1", &CRT_INLINE_CALLOC_HOOK_1)?;
+        guard.enable_hook("calloc2", &CRT_INLINE_CALLOC_HOOK_2)?;
+        guard.enable_hook("realloc1", &CRT_INLINE_REALLOC_HOOK_1)?;
+        guard.enable_hook("realloc2", &CRT_INLINE_REALLOC_HOOK_2)?;
+        guard.enable_hook("recalloc1", &CRT_INLINE_RECALLOC_HOOK_1)?;
+        guard.enable_hook("recalloc2", &CRT_INLINE_RECALLOC_HOOK_2)?;
+        guard.enable_hook("free", &CRT_INLINE_FREE_HOOK)?;
+        guard.enable_hook("msize", &CRT_INLINE_MSIZE_HOOK)?;
+
+        log::info!("[INLINE] All CRT hooks initialized and enabled!");
+    }
+
+    // Initialize and enable sheap inline hooks
+    {
+        SHEAP_GET_THREAD_LOCAL_HOOK.init(
+            "sheap_get_thread_local",
+            SHEAP_GET_THREAD_LOCAL_ADDR as *mut c_void,
+            sheap_get_thread_local,
+        )?;
+
+        SHEAP_INIT_FIX_HOOK.init(
+            "sheap_init_fix",
+            SHEAP_INIT_FIX_ADDR as *mut c_void,
+            sheap_init_fix,
+        )?;
+
+        SHEAP_INIT_VAR_HOOK.init(
+            "sheap_init_var",
+            SHEAP_INIT_VAR_ADDR as *mut c_void,
+            sheap_init_var,
+        )?;
+
+        SHEAP_ALLOC_HOOK.init("sheap_alloc", SHEAP_ALLOC_ADDR as *mut c_void, sheap_alloc)?;
+        SHEAP_FREE_HOOK.init("sheap_free", SHEAP_FREE_ADDR as *mut c_void, sheap_free)?;
+        SHEAP_PURGE_HOOK.init("sheap_purge", SHEAP_PURGE_ADDR as *mut c_void, sheap_purge)?;
+
+        guard.enable_hook("sheap_get_thread_local", &SHEAP_GET_THREAD_LOCAL_HOOK)?;
+        guard.enable_hook("sheap_init_fix", &SHEAP_INIT_FIX_HOOK)?;
+        guard.enable_hook("sheap_init_var", &SHEAP_INIT_VAR_HOOK)?;
+        guard.enable_hook("sheap_alloc", &SHEAP_ALLOC_HOOK)?;
+        guard.enable_hook("sheap_free", &SHEAP_FREE_HOOK)?;
+        guard.enable_hook("sheap_purge", &SHEAP_PURGE_HOOK)?;
+    }
+
+    // All hooks installed successfully — commit the guard (no rollback on drop).
+    guard.commit();
 
     // ===========================
     //   SBM DISABLE PATCHES
     // ===========================
+    //
+    // Applied AFTER all hooks are committed. If hooks failed, the guard would
+    // have rolled them back and returned Err before reaching this point.
+    // Disabling SBM without active hooks would leave the heap in a split state.
     //
     // With mimalloc handling ALL GameHeap allocations, the SBM is completely
     // bypassed for new allocations. Its maintenance routines now operate on
@@ -198,167 +427,18 @@ pub fn install_game_heap_hooks() -> anyhow::Result<()> {
         log::info!("[SBM] Patched SBM (10 patches: 7 RET + 3 NOP, arena cleanup kept alive)");
     }
 
-    // ===========================
-    //   HOOKS
-    // ===========================
-
-    // GHEAP hooks: fully replace GameHeap::Allocate/Free/Msize with mimalloc.
-    // This eliminates the game's heap accounting, SBM, and 500MB budget.
-    // Pre-hook allocations are handled via original trampoline + HeapValidate.
-    {
-        GHEAP_ALLOC_HOOK.init(
-            "gheap_alloc",
-            GHEAP_ALLOC_ADDR as *mut c_void,
-            hook_gheap_alloc,
-        )?;
-        GHEAP_FREE_HOOK.init(
-            "gheap_free",
-            GHEAP_FREE_ADDR as *mut c_void,
-            hook_gheap_free,
-        )?;
-        GHEAP_MSIZE_HOOK.init(
-            "gheap_msize",
-            GHEAP_MSIZE_ADDR as *mut c_void,
-            hook_gheap_msize,
-        )?;
-
-        GHEAP_REALLOC_HOOK_1.init(
-            "gheap_realloc1",
-            GHEAP_REALLOC_ADDR_1 as *mut c_void,
-            hook_gheap_realloc,
-        )?;
-        GHEAP_REALLOC_HOOK_2.init(
-            "gheap_realloc2",
-            GHEAP_REALLOC_ADDR_2 as *mut c_void,
-            hook_gheap_realloc,
-        )?;
-
-        GHEAP_ALLOC_HOOK.enable()?;
-        GHEAP_FREE_HOOK.enable()?;
-        GHEAP_MSIZE_HOOK.enable()?;
-        GHEAP_REALLOC_HOOK_1.enable()?;
-        GHEAP_REALLOC_HOOK_2.enable()?;
-
-        log::info!("[GHEAP] GameHeap fully replaced with mimalloc (alloc/free/realloc/msize)");
-    }
-
-    // Main-loop hook for deferred pressure relief (runs between frames, safe context)
-    {
-        MAIN_LOOP_MAINTENANCE_HOOK.init(
-            "main_loop_maintenance",
-            MAIN_LOOP_MAINTENANCE_ADDR as *mut c_void,
-            hook_main_loop_maintenance,
-        )?;
-        MAIN_LOOP_MAINTENANCE_HOOK.enable()?;
-        log::info!("[PRESSURE] Post-render hook installed at 0x{:08X}", MAIN_LOOP_MAINTENANCE_ADDR);
-    }
-
-    // Per-frame queue drain hook: boosts NiNode drain rate under pressure.
-    // FUN_00868850 runs every frame pre-AI, pre-render. It drains 10-20 NiNodes
-    // per call. Under pressure we call it additional times to drain faster.
-    {
-        PER_FRAME_QUEUE_DRAIN_HOOK.init(
-            "per_frame_queue_drain",
-            PER_FRAME_QUEUE_DRAIN_ADDR as *mut c_void,
-            hook_per_frame_queue_drain,
-        )?;
-        PER_FRAME_QUEUE_DRAIN_HOOK.enable()?;
-        log::info!("[PRESSURE] Per-frame queue drain hook installed at 0x{:08X}", PER_FRAME_QUEUE_DRAIN_ADDR);
-    }
-
-    // ENGINE BUG FIX: CellTransitionHandler does BLOCKING PDD without
-    // hkWorld_Lock. AI threads from previous frame's post-render signal
-    // crash on freed hkpSimulationIsland data. We wrap it with the same
-    // protections used by the 5 normal PDD callers.
-    {
-        CELL_TRANSITION_HANDLER_HOOK.init(
-            "cell_transition_handler",
-            CELL_TRANSITION_HANDLER_ADDR as *mut c_void,
-            hook_cell_transition_handler,
-        )?;
-        CELL_TRANSITION_HANDLER_HOOK.enable()?;
-        log::info!("[ENGINE FIX] CellTransitionHandler hook installed at 0x{:08X}", CELL_TRANSITION_HANDLER_ADDR);
-    }
-
-    {
-        CRT_INLINE_MALLOC_HOOK_1.init("malloc1", CRT_MALLOC_ADDR_1 as *mut c_void, hook_malloc)?;
-        CRT_INLINE_MALLOC_HOOK_2.init("malloc2", CRT_MALLOC_ADDR_2 as *mut c_void, hook_malloc)?;
-
-        CRT_INLINE_CALLOC_HOOK_1.init("calloc1", CRT_CALLOC_ADDR_1 as *mut c_void, hook_calloc)?;
-        CRT_INLINE_CALLOC_HOOK_2.init("calloc2", CRT_CALLOC_ADDR_2 as *mut c_void, hook_calloc)?;
-
-        CRT_INLINE_REALLOC_HOOK_1.init(
-            "realloc1",
-            CRT_REALLOC_ADDR_1 as *mut c_void,
-            hook_realloc,
-        )?;
-        CRT_INLINE_REALLOC_HOOK_2.init(
-            "realloc2",
-            CRT_REALLOC_ADDR_2 as *mut c_void,
-            hook_realloc,
-        )?;
-
-        CRT_INLINE_RECALLOC_HOOK_1.init(
-            "recalloc1",
-            CRT_RECALLOC_ADDR_1 as *mut c_void,
-            hook_recalloc,
-        )?;
-        CRT_INLINE_RECALLOC_HOOK_2.init(
-            "recalloc2",
-            CRT_RECALLOC_ADDR_2 as *mut c_void,
-            hook_recalloc,
-        )?;
-        CRT_INLINE_FREE_HOOK.init("free", CRT_FREE_ADDR as *mut c_void, hook_free)?;
-        CRT_INLINE_MSIZE_HOOK.init("msize", CRT_MSIZE_ADDR as *mut c_void, hook_msize)?;
-
-        CRT_INLINE_MALLOC_HOOK_1.enable()?;
-        CRT_INLINE_MALLOC_HOOK_2.enable()?;
-        CRT_INLINE_CALLOC_HOOK_1.enable()?;
-        CRT_INLINE_CALLOC_HOOK_2.enable()?;
-        CRT_INLINE_REALLOC_HOOK_1.enable()?;
-        CRT_INLINE_REALLOC_HOOK_2.enable()?;
-        CRT_INLINE_RECALLOC_HOOK_1.enable()?;
-        CRT_INLINE_RECALLOC_HOOK_2.enable()?;
-        CRT_INLINE_FREE_HOOK.enable()?;
-        CRT_INLINE_MSIZE_HOOK.enable()?;
-
-        log::info!("[INLINE] All CRT hooks initialized and enabled!");
-    }
-
-    // Initialize and enable sheap inline hooks
-    {
-        SHEAP_GET_THREAD_LOCAL_HOOK.init(
-            "sheap_get_thread_local",
-            SHEAP_GET_THREAD_LOCAL_ADDR as *mut c_void,
-            sheap_get_thread_local,
-        )?;
-
-        SHEAP_INIT_FIX_HOOK.init(
-            "sheap_init_fix",
-            SHEAP_INIT_FIX_ADDR as *mut c_void,
-            sheap_init_fix,
-        )?;
-
-        SHEAP_INIT_VAR_HOOK.init(
-            "sheap_init_var",
-            SHEAP_INIT_VAR_ADDR as *mut c_void,
-            sheap_init_var,
-        )?;
-
-        SHEAP_ALLOC_HOOK.init("sheap_alloc", SHEAP_ALLOC_ADDR as *mut c_void, sheap_alloc)?;
-        SHEAP_FREE_HOOK.init("sheap_free", SHEAP_FREE_ADDR as *mut c_void, sheap_free)?;
-        SHEAP_PURGE_HOOK.init("sheap_purge", SHEAP_PURGE_ADDR as *mut c_void, sheap_purge)?;
-
-        // Enable sheap hooks
-        SHEAP_GET_THREAD_LOCAL_HOOK.enable()?;
-        SHEAP_INIT_FIX_HOOK.enable()?;
-        SHEAP_INIT_VAR_HOOK.enable()?;
-        SHEAP_ALLOC_HOOK.enable()?;
-        SHEAP_FREE_HOOK.enable()?;
-        SHEAP_PURGE_HOOK.enable()?;
-    }
-
     log::info!("[HEAP REPLACER] All hooks and patches applied successfully");
 
     Ok(())
+}
+
+/// Start background threads that were deferred from `install_game_heap_hooks()`
+/// because DllMain holds the Windows loader lock (thread::spawn can deadlock).
+///
+/// Must be called OUTSIDE DllMain — e.g. from NVSEPlugin_Load.
+pub fn start_deferred_threads() {
+    // Monitor thread (mimalloc stats + pressure logging).
+    // Leaked intentionally — runs for the entire process lifetime.
+    std::mem::forget(super::gheap::monitor::Monitor::start());
+    log::info!("[HEAP REPLACER] Deferred threads started");
 }
