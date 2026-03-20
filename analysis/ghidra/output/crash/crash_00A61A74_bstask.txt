@@ -1,0 +1,612 @@
+======================================================================
+BSTaskManagerThread CRASH at 0x00A61A74
+Thread: BSTaskManagerThread
+QueuedTexture bodymods texture, EAX=0x200, EDI=0
+Callchain: A61A74 -> 43C4E0 -> 43C1BB -> C3FC94 -> C41257 -> C42DBF
+======================================================================
+
+######################################################################
+# SECTION 1: Crash point 0x00A61A74
+######################################################################
+
+======================================================================
+CRASH_POINT @ 0x00a61a74
+======================================================================
+  Function: FUN_00a61a60, Size: 103 bytes
+  Entry: 0x00a61a60
+
+uint __thiscall FUN_00a61a60(void *this,int param_1,int param_2,int *param_3)
+
+{
+  int *piVar1;
+  int *piVar2;
+  int iVar3;
+  LONG LVar4;
+  uint uVar5;
+  undefined4 *puVar6;
+  
+  puVar6 = *(undefined4 **)((int)this + param_1 * 4);
+  uVar5 = param_1 & 0xffffff00;
+  if (puVar6 != (undefined4 *)0x0) {
+    while (piVar1 = (int *)*puVar6, param_2 != piVar1[1]) {
+      puVar6 = (undefined4 *)puVar6[1];
+      if (puVar6 == (undefined4 *)0x0) {
+        return uVar5;
+      }
+    }
+    piVar2 = (int *)*param_3;
+    if (piVar2 != (int *)*piVar1) {
+      if ((piVar2 != (int *)0x0) && (LVar4 = InterlockedDecrement(piVar2 + 1), LVar4 == 0)) {
+        (**(code **)(*piVar2 + 4))();
+      }
+      iVar3 = *piVar1;
+      *param_3 = iVar3;
+      uVar5 = 0;
+      if (iVar3 != 0) {
+        uVar5 = InterlockedIncrement((LONG *)(iVar3 + 4));
+      }
+    }
+    uVar5 = CONCAT31((int3)(uVar5 >> 8),1);
+  }
+  return uVar5;
+}
+
+
+
+Disasm around crash:
+  0x00a61a50: POP EDI
+  0x00a61a51: SETNZ AL
+  0x00a61a54: POP ESI
+  0x00a61a55: POP ECX
+  0x00a61a56: RET 0x8
+  0x00a61a60: MOV EAX,dword ptr [ESP + 0x4]
+  0x00a61a64: MOV ECX,dword ptr [ECX + EAX*0x4]
+  0x00a61a67: XOR AL,AL
+  0x00a61a69: TEST ECX,ECX
+  0x00a61a6b: JZ 0x00a61ac4
+  0x00a61a6d: MOV EDX,dword ptr [ESP + 0x8]
+  0x00a61a71: PUSH ESI
+  0x00a61a72: MOV ESI,dword ptr [ECX]
+  0x00a61a74: CMP EDX,dword ptr [ESI + 0x4]
+  0x00a61a77: JZ 0x00a61a84
+  0x00a61a79: MOV ECX,dword ptr [ECX + 0x4]
+  0x00a61a7c: TEST ECX,ECX
+  0x00a61a7e: JNZ 0x00a61a72
+  0x00a61a80: POP ESI
+  0x00a61a81: RET 0xc
+
+######################################################################
+# SECTION 2: BSTaskManagerThread call chain
+######################################################################
+
+======================================================================
+CALLER_1_0043C4E0 @ 0x0043c4e0
+======================================================================
+  Function: FUN_0043c4c0, Size: 34 bytes
+  Entry: 0x0043c4c0
+
+void __cdecl FUN_0043c4c0(uint param_1,int *param_2)
+
+{
+  FUN_0066b0d0(param_2,0);
+  FUN_0043c4f0(DAT_011f4468,param_1,param_2);
+  return;
+}
+
+
+
+--- Calls FROM CALLER_1 (0x0043c4e0) ---
+  CALL 0x0066b0d0 -> FUN_0066b0d0 (from 0x0043c4c8)
+  CALL 0x0043c4f0 -> FUN_0043c4f0 (from 0x0043c4db)
+  Total: 2 calls
+
+======================================================================
+CALLER_2_0043C1BB @ 0x0043c1bb
+======================================================================
+  Function: FUN_0043c150, Size: 606 bytes
+  Entry: 0x0043c150
+
+void __fastcall FUN_0043c150(void *param_1)
+
+{
+  undefined1 uVar1;
+  char cVar2;
+  int iVar3;
+  uint uVar4;
+  undefined3 extraout_var;
+  char *pcVar5;
+  int *piVar6;
+  int *piVar7;
+  int *piVar8;
+  int *unaff_FS_OFFSET;
+  int *piVar9;
+  int local_24;
+  byte *local_20;
+  undefined4 local_1c;
+  int *local_18;
+  undefined4 local_14;
+  int local_10;
+  undefined1 *puStack_c;
+  int local_8;
+  
+  local_8 = 0xffffffff;
+  puStack_c = &LAB_00eebe80;
+  local_10 = *unaff_FS_OFFSET;
+  *unaff_FS_OFFSET = (int)&local_10;
+  FUN_00404eb0(&local_14,*(undefined4 *)((int)param_1 + 0x18));
+  local_8 = 0;
+  iVar3 = FUN_0055b980((int)param_1);
+  if (iVar3 == 0) {
+    iVar3 = FUN_0045cd60((int)param_1);
+    if (iVar3 != 0) {
+      piVar8 = (int *)((int)param_1 + 0x30);
+      pcVar5 = (char *)FUN_0045cd60((int)param_1);
+      FUN_00a61b90(pcVar5,piVar8);
+    }
+  }
+  else {
+    piVar8 = (int *)((int)param_1 + 0x30);
+    uVar4 = FUN_0055b980((int)param_1);
+    FUN_0043c4c0(uVar4,piVar8);
+  }
+  iVar3 = FUN_00559450((undefined4 *)((int)param_1 + 0x30));
+  if (iVar3 == 0) {
+    local_18 = (int *)FUN_00c3cff0(param_1,1,2);
+    if (local_18 == (int *)0x0) {
+      iVar3 = FUN_0055b980((int)param_1);
+      if (iVar3 == 0) {
+        iVar3 = FUN_0045cd60((int)param_1);
+        if (iVar3 != 0) {
+          FUN_0045cd60((int)param_1);
+          FUN_005b5e40();
+        }
+      }
+      else {
+        iVar3 = FUN_0055b980((int)param_1);
+        FUN_0062a100(iVar3);
+        iVar3 = FUN_0055b980((int)param_1);
+        FUN_0043c3b0(iVar3);
+        FUN_005b5e40();
+      }
+    }
+    else {
+      local_20 = (byte *)(**(code **)(*local_18 + 0x18))();
+      local_1c = FUN_0043c410();
+      cVar2 = FUN_0043c3d0((int)param_1);
+      if (cVar2 != '\0') {
+        FUN_0043c3f0(1);
+      }
+      pcVar5 = _strstr((char *)local_20,"_e.dd");
+      if (pcVar5 == (char *)0x0) {
+        piVar8 = FUN_00a5fe30((int)local_18,local_20,(int *)&DAT_011a9598,1);
+        FUN_0066b0d0((void *)((int)param_1 + 0x30),(int)piVar8);
+      }
+      else {
+        piVar9 = (int *)&DAT_011a9598;
+        piVar6 = (int *)FUN_0043c4b0();
+        piVar8 = local_18;
+        piVar7 = FUN_00438170(&local_24,local_20);
+        local_8._0_1_ = 1;
+        piVar8 = FUN_00a61040(piVar7,(int)piVar8,piVar6,piVar9);
+        FUN_0066b0d0((void *)((int)param_1 + 0x30),(int)piVar8);
+        local_8 = (uint)local_8._1_3_ << 8;
+        FUN_004381b0(&local_24);
+      }
+      FUN_0043c3f0(local_1c);
+    }
+    local_8 = 0xffffffff;
+    FUN_00404ee0(&local_14);
+  }
+  else {
+    FUN_0043e480(param_1,'\x01');
+    iVar3 = FUN_00559450((undefined4 *)((int)param_1 + 0x30));
+    uVar1 = FUN_0043c430(iVar3);
+    if (CONCAT31(extraout_var,uVar1) == 3) {
+      cVar2 = FUN_0043c3d0((int)param_1);
+      if (cVar2 == '\0') {
+        piVar8 = (int *)FUN_00559450((undefined4 *)((int)param_1 + 0x30));
+        (**(code **)(*piVar8 + 0x8c))();
+      }
+    }
+    local_8 = 0xffffffff;
+    FUN_00404ee0(&local_14);
+  }
+  *unaff_FS_OFFSET = local_10;
+  return;
+}
+
+
+
+======================================================================
+IO_TaskDispatch_0x00C3FC94 @ 0x00c3fc94
+======================================================================
+  Function: FUN_00c3fc80, Size: 26 bytes
+  Entry: 0x00c3fc80
+
+void __thiscall FUN_00c3fc80(void *this,int *param_1)
+
+{
+  (**(code **)(*param_1 + 4))(this);
+  return;
+}
+
+
+
+Disasm around 0x00C41257 (inside BSTaskManagerThread_Loop):
+  0x00c41244: MOV EDX,dword ptr [ECX + 0x30]
+  0x00c41247: MOV EAX,dword ptr [EBP + 0xffffff78]
+  0x00c4124d: MOV ECX,dword ptr [EAX + 0x30]
+  0x00c41250: MOV EDX,dword ptr [EDX]
+  0x00c41252: MOV EAX,dword ptr [EDX + 0x4c]
+  0x00c41255: CALL EAX
+  0x00c41257: MOV ECX,dword ptr [EBP + -0x34]
+  0x00c4125a: PUSH ECX
+  0x00c4125b: MOV EDX,dword ptr [EBP + 0xffffff78]
+  0x00c41261: MOV EAX,dword ptr [EDX + 0x30]
+  0x00c41264: MOV ECX,dword ptr [EBP + 0xffffff78]
+  0x00c4126a: MOV ECX,dword ptr [ECX + 0x30]
+  0x00c4126d: MOV EDX,dword ptr [EAX]
+  0x00c4126f: MOV EAX,dword ptr [EDX + 0x50]
+  0x00c41272: CALL EAX
+
+######################################################################
+# SECTION 3: 0x0043C51C ? return address from crash function
+######################################################################
+
+======================================================================
+RETURN_ADDR_0043C51C @ 0x0043c51c
+======================================================================
+  Function: FUN_0043c4f0, Size: 50 bytes
+  Entry: 0x0043c4f0
+
+void __thiscall FUN_0043c4f0(void *this,uint param_1,int *param_2)
+
+{
+  uint uVar1;
+  
+  uVar1 = FUN_0043c530(param_1);
+  FUN_00a61a60(this,uVar1,param_1,param_2);
+  return;
+}
+
+
+
+Disasm around 0x0043C51C:
+  0x0043c502: ADD ESP,0x4
+  0x0043c505: MOV dword ptr [EBP + -0x4],EAX
+  0x0043c508: MOV ECX,dword ptr [EBP + 0xc]
+  0x0043c50b: PUSH ECX
+  0x0043c50c: MOV EDX,dword ptr [EBP + 0x8]
+  0x0043c50f: PUSH EDX
+  0x0043c510: MOV EAX,dword ptr [EBP + -0x4]
+  0x0043c513: PUSH EAX
+  0x0043c514: MOV ECX,dword ptr [EBP + -0x8]
+  0x0043c517: CALL 0x00a61a60
+  0x0043c51c: MOV ESP,EBP
+  0x0043c51e: POP EBP
+  0x0043c51f: RET 0x8
+  0x0043c530: PUSH EBP
+  0x0043c531: MOV EBP,ESP
+
+######################################################################
+# SECTION 4: QueuedTexture class ? vtable and processing
+######################################################################
+
+--- XRefs to QueuedTexture_RTTI (0x01016788) ---
+  DATA @ 0x0043bd5d (in FUN_0043bd10)
+  DATA @ 0x0043be9c (in FUN_0043be60)
+  DATA @ 0x0043bf2c (in FUN_0043bef0)
+  DATA @ 0x0043bfa9 (in FUN_0043bf80)
+  Total: 4 refs
+
+######################################################################
+# SECTION 5: FUN_00448620 internals ? what tasks does it cancel?
+######################################################################
+
+======================================================================
+CancelStaleTasks @ 0x00448620
+======================================================================
+  Function: FUN_00448620, Size: 758 bytes
+  Entry: 0x00448620
+
+void __thiscall FUN_00448620(void *this,char param_1)
+
+{
+  bool bVar1;
+  char cVar2;
+  int iVar3;
+  int *unaff_FS_OFFSET;
+  void *local_248;
+  undefined4 local_244;
+  TaskStack local_240 [272];
+  void *local_130;
+  undefined4 local_12c;
+  TaskStack local_128 [276];
+  uint local_14;
+  int local_10;
+  undefined1 *puStack_c;
+  undefined4 local_8;
+  
+  local_8 = 0xffffffff;
+  puStack_c = &LAB_00eecd06;
+  local_10 = *unaff_FS_OFFSET;
+  local_14 = DAT_011c16bc ^ (uint)&stack0xfffffffc;
+  *unaff_FS_OFFSET = (int)&local_10;
+  if (((param_1 == '\0') && (DAT_011ddf38 != 0)) && (bVar1 = FUN_0042ce10(DAT_011ddf38), bVar1)) {
+    *(undefined1 *)((int)this + 0x2c) = 1;
+  }
+  else {
+    if (*(int *)this != 0) {
+      FUN_004498e0(local_128);
+      local_8 = 0;
+      while (bVar1 = FUN_006ebde0((int)local_128), !bVar1) {
+        local_130 = (void *)0x0;
+        local_12c = 0;
+        cVar2 = FUN_0044c640(*(void **)this,local_128,&local_12c,&local_130,'\x01');
+        if (((cVar2 != '\0') && (local_130 != (void *)0x0)) &&
+           ((iVar3 = FUN_00443190((int)local_130), iVar3 == 0 &&
+            ((**(code **)(**(int **)this + 0x14))(local_12c), local_130 != (void *)0x0)))) {
+          FUN_004431f0(local_130,1);
+        }
+      }
+      local_8 = 0xffffffff;
+      FUN_004431d0((undefined4 *)local_128);
+    }
+    if (*(int *)((int)this + 4) != 0) {
+      FUN_00449960(local_240);
+      local_8 = 1;
+      while (bVar1 = FUN_006ebde0((int)local_240), !bVar1) {
+        local_248 = (void *)0x0;
+        local_244 = 0;
+        cVar2 = FUN_0044c640(*(void **)((int)this + 4),local_240,&local_244,&local_248,'\x01');
+        if (((cVar2 != '\0') && (local_248 != (void *)0x0)) &&
+           (iVar3 = FUN_004431b0((int)local_248), iVar3 == 0)) {
+          bVar1 = true;
+          iVar3 = FUN_005585e0((int)local_248);
+          if (iVar3 != 0) {
+            iVar3 = FUN_005585e0((int)local_248);
+            iVar3 = FUN_005f2420(iVar3);
+            if (0x5b < iVar3) {
+              iVar3 = FUN_005585e0((int)local_248);
+              iVar3 = FUN_005f2420(iVar3);
+              if (iVar3 < 0x66) {
+                bVar1 = false;
+              }
+            }
+          }
+          if ((bVar1) &&
+             ((**(code **)(**(int **)((int)this + 4) + 0x14))(local_244), local_248 != (void *)0x0))
+          {
+            FUN_00443240(local_248,1);
+          }
+        }
+      }
+      local_8 = 0xffffffff;
+      FUN_00443220((undefined4 *)local_240);
+    }
+    *(undefined1 *)((int)this + 0x2c) = 0;
+  }
+  *unaff_FS_OFFSET = local_10;
+  __security_check_cookie(local_14 ^ (uint)&stack0xfffffffc);
+  return;
+}
+
+
+
+######################################################################
+# SECTION 6: When does BSTaskManagerThread process QueuedTexture?
+# Is it during CellTransitionHandler or between transitions?
+######################################################################
+
+======================================================================
+IO_TaskDispatch @ 0x00c3fc80
+======================================================================
+  Function: FUN_00c3fc80, Size: 26 bytes
+  Entry: 0x00c3fc80
+
+void __thiscall FUN_00c3fc80(void *this,int *param_1)
+
+{
+  (**(code **)(*param_1 + 4))(this);
+  return;
+}
+
+
+
+######################################################################
+# SECTION 7: QueuedTexture task processing path
+######################################################################
+
+======================================================================
+QueuedTexture_Process_area @ 0x0043c1b0
+======================================================================
+  Function: FUN_0043c150, Size: 606 bytes
+  Entry: 0x0043c150
+
+void __fastcall FUN_0043c150(void *param_1)
+
+{
+  undefined1 uVar1;
+  char cVar2;
+  int iVar3;
+  uint uVar4;
+  undefined3 extraout_var;
+  char *pcVar5;
+  int *piVar6;
+  int *piVar7;
+  int *piVar8;
+  int *unaff_FS_OFFSET;
+  int *piVar9;
+  int local_24;
+  byte *local_20;
+  undefined4 local_1c;
+  int *local_18;
+  undefined4 local_14;
+  int local_10;
+  undefined1 *puStack_c;
+  int local_8;
+  
+  local_8 = 0xffffffff;
+  puStack_c = &LAB_00eebe80;
+  local_10 = *unaff_FS_OFFSET;
+  *unaff_FS_OFFSET = (int)&local_10;
+  FUN_00404eb0(&local_14,*(undefined4 *)((int)param_1 + 0x18));
+  local_8 = 0;
+  iVar3 = FUN_0055b980((int)param_1);
+  if (iVar3 == 0) {
+    iVar3 = FUN_0045cd60((int)param_1);
+    if (iVar3 != 0) {
+      piVar8 = (int *)((int)param_1 + 0x30);
+      pcVar5 = (char *)FUN_0045cd60((int)param_1);
+      FUN_00a61b90(pcVar5,piVar8);
+    }
+  }
+  else {
+    piVar8 = (int *)((int)param_1 + 0x30);
+    uVar4 = FUN_0055b980((int)param_1);
+    FUN_0043c4c0(uVar4,piVar8);
+  }
+  iVar3 = FUN_00559450((undefined4 *)((int)param_1 + 0x30));
+  if (iVar3 == 0) {
+    local_18 = (int *)FUN_00c3cff0(param_1,1,2);
+    if (local_18 == (int *)0x0) {
+      iVar3 = FUN_0055b980((int)param_1);
+      if (iVar3 == 0) {
+        iVar3 = FUN_0045cd60((int)param_1);
+        if (iVar3 != 0) {
+          FUN_0045cd60((int)param_1);
+          FUN_005b5e40();
+        }
+      }
+      else {
+        iVar3 = FUN_0055b980((int)param_1);
+        FUN_0062a100(iVar3);
+        iVar3 = FUN_0055b980((int)param_1);
+        FUN_0043c3b0(iVar3);
+        FUN_005b5e40();
+      }
+    }
+    else {
+      local_20 = (byte *)(**(code **)(*local_18 + 0x18))();
+      local_1c = FUN_0043c410();
+      cVar2 = FUN_0043c3d0((int)param_1);
+      if (cVar2 != '\0') {
+        FUN_0043c3f0(1);
+      }
+      pcVar5 = _strstr((char *)local_20,"_e.dd");
+      if (pcVar5 == (char *)0x0) {
+        piVar8 = FUN_00a5fe30((int)local_18,local_20,(int *)&DAT_011a9598,1);
+        FUN_0066b0d0((void *)((int)param_1 + 0x30),(int)piVar8);
+      }
+      else {
+        piVar9 = (int *)&DAT_011a9598;
+        piVar6 = (int *)FUN_0043c4b0();
+        piVar8 = local_18;
+        piVar7 = FUN_00438170(&local_24,local_20);
+        local_8._0_1_ = 1;
+        piVar8 = FUN_00a61040(piVar7,(int)piVar8,piVar6,piVar9);
+        FUN_0066b0d0((void *)((int)param_1 + 0x30),(int)piVar8);
+        local_8 = (uint)local_8._1_3_ << 8;
+        FUN_004381b0(&local_24);
+      }
+      FUN_0043c3f0(local_1c);
+    }
+    local_8 = 0xffffffff;
+    FUN_00404ee0(&local_14);
+  }
+  else {
+    FUN_0043e480(param_1,'\x01');
+    iVar3 = FUN_00559450((undefined4 *)((int)param_1 + 0x30));
+    uVar1 = FUN_0043c430(iVar3);
+    if (CONCAT31(extraout_var,uVar1) == 3) {
+      cVar2 = FUN_0043c3d0((int)param_1);
+      if (cVar2 == '\0') {
+        piVar8 = (int *)FUN_00559450((undefined4 *)((int)param_1 + 0x30));
+        (**(code **)(*piVar8 + 0x8c))();
+      }
+    }
+    local_8 = 0xffffffff;
+    FUN_00404ee0(&local_14);
+  }
+  *unaff_FS_OFFSET = local_10;
+  return;
+}
+
+
+
+--- Calls FROM QueuedTexture_Process_area (0x0043c1b0) ---
+  CALL 0x00404eb0 -> FUN_00404eb0 (from 0x0043c18e)
+  CALL 0x0055b980 -> FUN_0055b980 (from 0x0043c19d)
+  CALL 0x0055b980 -> FUN_0055b980 (from 0x0043c1b0)
+  CALL 0x0043c4c0 -> FUN_0043c4c0 (from 0x0043c1b6)
+  CALL 0x0045cd60 -> FUN_0045cd60 (from 0x0043c1c3)
+  CALL 0x0045cd60 -> FUN_0045cd60 (from 0x0043c1d6)
+  CALL 0x00a61b90 -> FUN_00a61b90 (from 0x0043c1dc)
+  CALL 0x00559450 -> FUN_00559450 (from 0x0043c1ea)
+  CALL 0x0043e480 -> FUN_0043e480 (from 0x0043c1f8)
+  CALL 0x00559450 -> FUN_00559450 (from 0x0043c203)
+  CALL 0x0043c430 -> FUN_0043c430 (from 0x0043c20a)
+  CALL 0x0043c3d0 -> FUN_0043c3d0 (from 0x0043c217)
+  CALL 0x00559450 -> FUN_00559450 (from 0x0043c229)
+  CALL 0x00404ee0 -> FUN_00404ee0 (from 0x0043c24b)
+  CALL 0x00c3cff0 -> FUN_00c3cff0 (from 0x0043c25c)
+  CALL 0x0043c410 -> FUN_0043c410 (from 0x0043c27e)
+  CALL 0x0043c3d0 -> FUN_0043c3d0 (from 0x0043c289)
+  CALL 0x0043c3f0 -> FUN_0043c3f0 (from 0x0043c297)
+  CALL 0x00ec7750 -> _strstr (from 0x0043c2a8)
+  CALL 0x0043c4b0 -> FUN_0043c4b0 (from 0x0043c2b9)
+  CALL 0x00438170 -> FUN_00438170 (from 0x0043c2ca)
+  CALL 0x00a61040 -> FUN_00a61040 (from 0x0043c2e0)
+  CALL 0x0066b0d0 -> FUN_0066b0d0 (from 0x0043c2ef)
+  CALL 0x004381b0 -> FUN_004381b0 (from 0x0043c2fb)
+  CALL 0x00a5fe30 -> FUN_00a5fe30 (from 0x0043c311)
+  CALL 0x0066b0d0 -> FUN_0066b0d0 (from 0x0043c320)
+  CALL 0x0043c3f0 -> FUN_0043c3f0 (from 0x0043c329)
+  CALL 0x0055b980 -> FUN_0055b980 (from 0x0043c336)
+  CALL 0x0055b980 -> FUN_0055b980 (from 0x0043c342)
+  CALL 0x0062a100 -> FUN_0062a100 (from 0x0043c349)
+  CALL 0x0055b980 -> FUN_0055b980 (from 0x0043c352)
+  CALL 0x0043c3b0 -> FUN_0043c3b0 (from 0x0043c359)
+  CALL 0x005b5e40 -> FUN_005b5e40 (from 0x0043c364)
+  CALL 0x0045cd60 -> FUN_0045cd60 (from 0x0043c371)
+  CALL 0x0045cd60 -> FUN_0045cd60 (from 0x0043c37d)
+  CALL 0x005b5e40 -> FUN_005b5e40 (from 0x0043c388)
+  CALL 0x00404ee0 -> FUN_00404ee0 (from 0x0043c39a)
+  Total: 37 calls
+
+======================================================================
+QueuedTexture_Process_outer @ 0x0043c4b0
+======================================================================
+  Function: FUN_0043c4b0, Size: 10 bytes
+  Entry: 0x0043c4b0
+
+undefined4 FUN_0043c4b0(void)
+
+{
+  return DAT_011f4748;
+}
+
+
+
+--- Calls FROM QueuedTexture_Process_outer (0x0043c4b0) ---
+  Total: 0 calls
+
+######################################################################
+# SECTION 8: hkFreeListAllocator presence on stack
+######################################################################
+
+--- XRefs to hkFreeListAllocator_RTTI (0x010d1464) ---
+  DATA @ 0x00d5ffd5 (in FUN_00d5ffd0)
+  DATA @ 0x00d6027e (in FUN_00d60270)
+  Total: 2 refs
+
+######################################################################
+# SECTION 9: Who creates/submits QueuedTexture tasks?
+######################################################################
+
+--- XRefs to QueuedTexture_vtable_assign (0x01016788) ---
+  DATA @ 0x0043bd5d (in FUN_0043bd10)
+  DATA @ 0x0043be9c (in FUN_0043be60)
+  DATA @ 0x0043bf2c (in FUN_0043bef0)
+  DATA @ 0x0043bfa9 (in FUN_0043bf80)
+  Total: 4 refs

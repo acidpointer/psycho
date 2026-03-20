@@ -182,6 +182,15 @@ pub static CELL_TRANSITION_HANDLER_HOOK: LazyLock<InlineHookContainer<CellTransi
 pub static AI_THREAD_JOIN_HOOK: LazyLock<InlineHookContainer<AIThreadJoinFn>> =
     LazyLock::new(InlineHookContainer::new);
 
+// TextureCacheFind (FUN_00a61a60).
+// Hash table find function for the texture cache (DAT_011f4468).
+// Keys are stored inside value objects at +4. With mimalloc, freed values
+// are recycled → NULL → crash at [NULL+4]. Hook adds NULL value guard.
+const TEXTURE_CACHE_FIND_ADDR: usize = 0x00A61A60;
+
+pub static TEXTURE_CACHE_FIND_HOOK: LazyLock<InlineHookContainer<TextureCacheFindFn>> =
+    LazyLock::new(InlineHookContainer::new);
+
 /// Scrap heap hooks
 pub static SHEAP_INIT_FIX_HOOK: LazyLock<InlineHookContainer<SheapInitFixFn>> =
     LazyLock::new(InlineHookContainer::new);
@@ -311,6 +320,19 @@ pub fn install_game_heap_hooks() -> anyhow::Result<()> {
         )?;
         guard.enable_hook("ai_thread_join", &AI_THREAD_JOIN_HOOK)?;
         log::info!("[PRESSURE] AI thread join hook installed at 0x{:08X}", AI_THREAD_JOIN_ADDR);
+    }
+
+    // Texture cache hash table find — NULL value guard.
+    // FUN_00a61a60 stores keys inside value objects. With mimalloc, freed
+    // values are recycled → NULL → crash at [NULL+4] on BSTaskManagerThread.
+    {
+        TEXTURE_CACHE_FIND_HOOK.init(
+            "texture_cache_find",
+            TEXTURE_CACHE_FIND_ADDR as *mut c_void,
+            hook_texture_cache_find,
+        )?;
+        guard.enable_hook("texture_cache_find", &TEXTURE_CACHE_FIND_HOOK)?;
+        log::info!("[TEXTURE] Cache find hook installed at 0x{:08X}", TEXTURE_CACHE_FIND_ADDR);
     }
 
     {

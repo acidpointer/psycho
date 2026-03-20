@@ -172,35 +172,110 @@ const HAVOK_WORLD_PTR: usize = 0x01202D98;
 /// DAT_01202d6c — Loading state counter.
 const LOADING_STATE_COUNTER: usize = 0x01202D6C;
 
-/// hkWorld_Lock (FUN_00c3e310) — locks Havok physics world.
-const HK_WORLD_LOCK: usize = 0x00C3E310;
+/// DAT_011c3b3c — Task queue manager singleton, passed to FUN_00448620.
+const TASK_QUEUE_MANAGER_PTR: usize = 0x011C3B3C;
 
-/// hkWorld_Unlock (FUN_00c3e340) — unlocks Havok physics world.
-const HK_WORLD_UNLOCK: usize = 0x00C3E340;
+type HkWorldLockFn = unsafe extern "fastcall" fn(*mut c_void);
+type CancelStaleTasksFn = unsafe extern "thiscall" fn(*mut c_void, u8);
+
+use libpsycho::ffi::fnptr::FnPtr;
+
+/// Cached game function pointers for CellTransitionHandler hook.
+/// Initialized once on first use via LazyLock.
+struct CellTransitionFns {
+    hk_lock: FnPtr<HkWorldLockFn>,
+    hk_unlock: FnPtr<HkWorldLockFn>,
+    cancel_tasks: FnPtr<CancelStaleTasksFn>,
+}
+
+impl CellTransitionFns {
+    fn init() -> Option<Self> {
+        unsafe {
+            Some(Self {
+                hk_lock: FnPtr::from_raw(0x00C3E310 as *mut c_void).ok()?,
+                hk_unlock: FnPtr::from_raw(0x00C3E340 as *mut c_void).ok()?,
+                cancel_tasks: FnPtr::from_raw(0x00448620 as *mut c_void).ok()?,
+            })
+        }
+    }
+
+    fn instance() -> Option<&'static Self> {
+        use std::sync::LazyLock;
+        static INSTANCE: LazyLock<Option<CellTransitionFns>> =
+            LazyLock::new(|| CellTransitionFns::init());
+        INSTANCE.as_ref()
+    }
+}
 
 /// Wraps the game's CellTransitionHandler with hkWorld_Lock + loading
-/// state counter. Fixes an ENGINE BUG where the game runs BLOCKING PDD
-/// during cell transitions without locking the Havok world, causing AI
-/// threads to crash on freed hkpSimulationIsland physics data.
+/// state counter + IO dequeue lock + stale task cancellation.
+///
+/// Fixes THREE issues:
+///
+/// 1. ENGINE BUG: Game runs BLOCKING PDD during cell transitions without
+///    locking the Havok world → AI threads crash on freed physics data.
+///    Fix: hkWorld_Lock/Unlock around the original call.
+///
+/// 2. IO THREAD RACE: CellTransitionHandler's blocking PDD destroys
+///    QueuedTexture/NiSourceTexture objects while BSTaskManagerThread
+///    holds raw pointers to them. PDD destructors zero vtable/fields,
+///    then GameHeap::Free enters quarantine — but with many frees (>50K)
+///    the quarantine's stale-push bypass calls mi_free immediately.
+///    BSTaskManagerThread reads recycled memory → EIP=0 (NULL vtable).
+///    Fix: IO dequeue lock prevents BSTaskManagerThread from processing
+///    tasks during the transition's PDD.
+///
+/// 3. STALE TASK CANCELLATION: CellTransitionHandler does PDD + AsyncFlush
+///    but does NOT call FUN_00448620 (task cancellation). DeferredCleanupSmall
+///    does. Without cancellation, BSTaskManagerThread dequeues stale tasks
+///    after IO lock release — CAS(task+3, 3, 1) succeeds on uncancelled
+///    tasks → processes freed objects → crash.
+///    Fix: call FUN_00448620 after the original returns, before IO unlock.
 pub(super) unsafe extern "thiscall" fn hook_cell_transition_handler(
     this: *mut c_void,
     param_1: u8,
 ) {
+    let fns = CellTransitionFns::instance();
+
     // Lock Havok world — blocks AI raycasting threads
     let world = unsafe { *(HAVOK_WORLD_PTR as *const *mut c_void) };
     if !world.is_null() {
-        let lock_fn: unsafe extern "fastcall" fn(*mut c_void) =
-            unsafe { std::mem::transmute(HK_WORLD_LOCK as *const ()) };
-        unsafe { lock_fn(world) };
+        if let Some(f) = fns {
+            if let Ok(lock) = unsafe { f.hk_lock.as_fn() } {
+                unsafe { lock(world) };
+            }
+        }
     }
 
     // Enter loading state — suppress NVSE event dispatching
     let counter = unsafe { &*(LOADING_STATE_COUNTER as *const std::sync::atomic::AtomicI32) };
     counter.fetch_add(1, std::sync::atomic::Ordering::AcqRel);
 
-    // Call original CellTransitionHandler
+    // Acquire IO dequeue lock — BSTaskManagerThread can't dequeue new tasks
+    // during the transition's blocking PDD. Wait for in-flight task to finish.
+    let io_locked = unsafe {
+        super::gheap::pressure::PressureRelief::io_lock_acquire()
+    };
+
+    // Call original CellTransitionHandler (includes blocking PDD + AsyncFlush)
     if let Ok(original) = super::replacer::CELL_TRANSITION_HANDLER_HOOK.original() {
         unsafe { original(this, param_1) };
+    }
+
+    // Cancel stale IO tasks BEFORE releasing the IO lock.
+    if let Some(f) = fns {
+        let task_mgr = unsafe { *(TASK_QUEUE_MANAGER_PTR as *const *mut c_void) };
+        if !task_mgr.is_null() {
+            if let Ok(cancel) = unsafe { f.cancel_tasks.as_fn() } {
+                unsafe { cancel(task_mgr, 1) };
+            }
+        }
+    }
+
+    // Release IO dequeue lock — BSTaskManagerThread resumes.
+    // Stale tasks' CAS(task+3, 3, 1) now fails (cancelled above).
+    if io_locked {
+        unsafe { super::gheap::pressure::PressureRelief::io_lock_release() };
     }
 
     // Exit loading state
@@ -208,9 +283,11 @@ pub(super) unsafe extern "thiscall" fn hook_cell_transition_handler(
 
     // Unlock Havok world
     if !world.is_null() {
-        let unlock_fn: unsafe extern "fastcall" fn(*mut c_void) =
-            unsafe { std::mem::transmute(HK_WORLD_UNLOCK as *const ()) };
-        unsafe { unlock_fn(world) };
+        if let Some(f) = fns {
+            if let Ok(unlock) = unsafe { f.hk_unlock.as_fn() } {
+                unsafe { unlock(world) };
+            }
+        }
     }
 }
 
@@ -231,20 +308,16 @@ pub(super) unsafe extern "thiscall" fn hook_main_loop_maintenance(this: *mut c_v
 // ===========================================================================
 
 /// Wraps the game's AI thread join (FUN_008c7990). After the original
-/// completes, AI threads are guaranteed idle. If pressure relief deferred
-/// cell unloading (because AI threads were active at the main hook),
-/// we run it here.
+/// completes, AI threads are guaranteed idle.
+///
+/// Previously ran deferred cell unloading here (Hook 2). Moved to the
+/// per-frame drain hook which runs BEFORE AI dispatch — correct position
+/// for Havok broadphase lifecycle (remove → step → query).
 ///
 /// Only called on multi-threaded systems (processor count > 1).
 pub(super) unsafe extern "fastcall" fn hook_ai_thread_join(mgr: *mut c_void) {
-    // Call original — waits for AI threads to complete, sets DAT_011dfa19 = 0
     if let Ok(original) = super::replacer::AI_THREAD_JOIN_HOOK.original() {
         unsafe { original(mgr) };
-    }
-
-    // AI threads are now idle. Run deferred cell unloading if requested.
-    if let Some(pr) = super::gheap::pressure::PressureRelief::instance() {
-        unsafe { pr.run_deferred_unload() };
     }
 }
 
@@ -283,11 +356,18 @@ pub(super) unsafe extern "C" fn hook_per_frame_queue_drain() {
     if let Ok(original) = super::replacer::PER_FRAME_QUEUE_DRAIN_HOOK.original() {
         unsafe { original() };
 
-        if let Some(pr) = super::gheap::pressure::PressureRelief::instance()
-            && pr.is_requested() {
-                // Diagnostic: this hook runs at line ~802, RIGHT AFTER
-                // HeapCompact (line ~797). Check if HeapCompact consumed
-                // our trigger (reset to 0) or if it's still pending.
+        if let Some(pr) = super::gheap::pressure::PressureRelief::instance() {
+            // === DEFERRED CELL UNLOADING ===
+            // Run destruction here (before AI dispatch, before render) instead
+            // of at Hook 2 (after AI join). This position is correct for:
+            // - Havok broadphase: remove → AI step (processes removals) → AI query
+            // - SpeedTree: draw lists not built yet (render hasn't run)
+            // - AI threads: idle (not dispatched yet)
+            // - BSTaskManagerThread: IO lock prevents task processing during PDD
+            unsafe { pr.run_deferred_unload() };
+
+            if pr.is_requested() {
+                // Diagnostic: log queue states periodically
                 DIAG_COUNTER.with(|c| {
                     let count = c.get().wrapping_add(1);
                     c.set(count);
@@ -327,7 +407,59 @@ pub(super) unsafe extern "C" fn hook_per_frame_queue_drain() {
                     unsafe { original() };
                 }
             }
+        }
     }
+}
+
+// ===========================================================================
+//   TEXTURE CACHE HASH TABLE — NULL value guard
+// ===========================================================================
+
+/// Replaces FUN_00a61a60 (hash table find, 103 bytes, thiscall).
+///
+/// The texture cache hash table (DAT_011f4468) stores entries where the KEY
+/// is embedded inside the VALUE object at offset +4. When a NiSourceTexture
+/// is freed by PDD, the hash entry's value becomes NULL/stale (SBM zombies
+/// masked this — freed memory stayed readable). The original find function
+/// dereferences the value pointer without a NULL check:
+///
+///   piVar1 = *puVar6;           // value pointer — can be NULL
+///   param_2 != piVar1[1]        // KEY at value+4 — CRASH if NULL
+///
+/// Our replacement adds a NULL check: skip entries with NULL values and
+/// continue traversing the chain. This is safe because:
+/// - The hash table never removes entries (no remove function exists)
+/// - NULL values mean "freed texture" — lookup should not match
+/// - The chain structure (puVar6[1] = next) is separate from values
+///
+/// Crash: 0x00A61A74 on BSTaskManagerThread during QueuedTexture processing.
+pub(super) unsafe extern "thiscall" fn hook_texture_cache_find(
+    this: *mut c_void,
+    param_1: i32,
+    param_2: i32,
+    param_3: *mut *mut i32,
+) -> u32 {
+    // Try the original first — if the hash table is clean, this is the fast path.
+    // The original only crashes when a linked list node VALUE is NULL.
+    // We catch that case by falling back to our NULL-tolerant traversal.
+    if let Ok(original) = super::replacer::TEXTURE_CACHE_FIND_HOOK.original() {
+        // Check if the bucket entry's value is NULL before calling original.
+        // Bucket = this[param_1 * 4], value = *bucket
+        let bucket_ptr = unsafe {
+            *((this as *const u8).add((param_1 as usize) * 4) as *const *const *const i32)
+        };
+        if !bucket_ptr.is_null() {
+            let value = unsafe { *bucket_ptr };
+            if value.is_null() {
+                // Stale entry with NULL value — skip entire lookup.
+                // The texture was freed; returning "not found" is correct.
+                return 0;
+            }
+        }
+        // Bucket is clean (value non-NULL or empty) — call original
+        return unsafe { original(this, param_1, param_2, param_3) };
+    }
+    0
 }
 
 // ===========================================================================

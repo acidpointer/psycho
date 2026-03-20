@@ -581,3 +581,4 @@ pub type GetAIThreadManagerFn = unsafe extern "cdecl" fn() -> *mut c_void;
 /// The main loop calls this at `0x0086ee4e` AFTER our hook position
 /// (`0x0086edf0`). We must call it explicitly before cell unloading.
 pub type AIThreadJoinFn = unsafe extern "fastcall" fn(mgr: *mut c_void);
+

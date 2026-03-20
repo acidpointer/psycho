@@ -67,3 +67,9 @@ pub type PerFrameQueueDrainFn = unsafe extern "C" fn();
 ///
 /// We hook this to run deferred cell unloading after AI threads are idle.
 pub type AIThreadJoinFn = unsafe extern "fastcall" fn(*mut c_void);
+
+/// Texture cache hash table find (FUN_00a61a60, 103 bytes, thiscall).
+/// Keys stored inside value objects at +4. With mimalloc, freed values
+/// are recycled → NULL → crash at [NULL+4]. Hook adds NULL guard.
+pub type TextureCacheFindFn =
+    unsafe extern "thiscall" fn(*mut c_void, i32, i32, *mut *mut i32) -> u32;

@@ -144,6 +144,13 @@ const AI_ACTIVE_FLAG_PTR: usize = 0x011DFA19;
 /// Writing N causes HeapCompact stages 0..N to run on the NEXT FRAME.
 const HEAP_COMPACT_TRIGGER_PTR: usize = 0x011F636C;
 
+/// DAT_011dea2b — Game loading/menu state flag.
+/// Set to 1 during loading screens, cell transitions, and menu states.
+/// The main loop guards per-frame PDD (FUN_004556d0) with this flag.
+/// FUN_00868850 (per-frame drain) runs unconditionally — we must check
+/// this flag ourselves before running destruction.
+const GAME_LOADING_FLAG_PTR: usize = 0x011DEA2B;
+
 /// DAT_01202d6c — Loading/destruction state counter.
 ///
 /// FUN_0043b2b0(1) increments, FUN_0043b2b0(0) decrements (InterlockedIncrement/Decrement).
@@ -189,18 +196,6 @@ const IO_THREAD_SEM_COUNT_OFFSET: usize = 0x18;
 /// its current task after acquiring the dequeue lock.
 const IO_DRAIN_TIMEOUT_MS: u32 = 50;
 
-/// DAT_011de804 — PDD queue skip mask.
-/// Bits set = queues skipped by FUN_00869180 gate check.
-/// We temporarily set bit 0x20 (Havok physics wrappers) during our PDD
-/// because the Havok broadphase requires a step-after-removal lifecycle:
-///   remove → hkpWorld::step (processes deferred removal) → query
-/// Our hook runs AFTER AI join (end of frame). The next Havok step runs
-/// during AI work on the NEXT frame. But AI dispatch queries the broadphase
-/// BEFORE the step processes our removals → NULL entity → crash at 0x00CFFA08.
-/// The game's per-frame PDD (FUN_004556d0) runs BEFORE AI dispatch, so the
-/// Havok step processes removals before AI queries. Deferring queue 0x20 to
-/// per-frame PDD respects the broadphase lifecycle.
-const PDD_QUEUE_SKIP_MASK: usize = 0x011DE804;
 
 // ---------------------------------------------------------------------------
 // PressureRelief
@@ -312,101 +307,16 @@ impl PressureRelief {
             return;
         }
 
-        let manager = unsafe { *(GAME_MANAGER_PTR as *const *mut c_void) };
-        if manager.is_null() {
-            self.requested.store(false, Ordering::Release);
-            self.active.store(false, Ordering::Release);
-            return;
-        }
-
-        let find_cell = match unsafe { self.find_cell.as_fn() } {
-            Ok(f) => f,
-            Err(err) => {
-                log::error!("[PRESSURE] FindCellToUnload: {:?}", err);
-                self.active.store(false, Ordering::Release);
-                return;
-            }
-        };
-        let pre_destruction = match unsafe { self.pre_destruction.as_fn() } {
-            Ok(f) => f,
-            Err(err) => {
-                log::error!("[PRESSURE] PreDestructionSetup: {:?}", err);
-                self.active.store(false, Ordering::Release);
-                return;
-            }
-        };
-        let post_destruction = match unsafe { self.post_destruction.as_fn() } {
-            Ok(f) => f,
-            Err(err) => {
-                log::error!("[PRESSURE] PostDestructionRestore: {:?}", err);
-                self.active.store(false, Ordering::Release);
-                return;
-            }
-        };
-        let deferred_cleanup = match unsafe { self.deferred_cleanup.as_fn() } {
-            Ok(f) => f,
-            Err(err) => {
-                log::error!("[PRESSURE] DeferredCleanupSmall: {:?}", err);
-                self.active.store(false, Ordering::Release);
-                return;
-            }
-        };
-
-        let mut cells: usize = 0;
-
         if CELL_UNLOAD_ENABLED {
-            // === GUARD: Skip if BSTaskManagerThread is loading cells ===
-            //
-            // TES+0x77c holds a pending cell load task handle. When != -1,
-            // BSTaskManagerThread is actively running ExteriorCellLoaderTask(s).
-            // Unloading cells while the IO thread loads them causes:
-            // - ExteriorCellLoaderTask::AddReference on NotLoaded cell → crash
-            // - VanillaPlusSkin reading geometry from unloaded cell → ACCESS_VIOLATION
-            //
-            // The game's CellTransitionHandler (FUN_008774a0) WAITS for this
-            // via FUN_00877700 before touching cells. We do a non-blocking check
-            // and skip this cycle if busy. Pressure retries in COOLDOWN_MS.
-            let io_busy = unsafe {
-                let tes = *(TES_SINGLETON_PTR as *const *const u8);
-                if tes.is_null() {
-                    true // TES not initialized, skip
-                } else {
-                    let handle_ptr = tes.add(TES_PENDING_CELL_LOAD_OFFSET) as *const i32;
-                    (*handle_ptr) != -1
-                }
-            };
-
-            if io_busy {
-                log::debug!("[PRESSURE] Skipping cell unload — BSTaskManagerThread busy");
-                self.active.store(false, Ordering::Release);
-                return;
-            }
-
-            // === AI THREAD SAFETY: Two-hook architecture ===
-            //
-            // Our hook runs at 0x008705d0, between AI dispatch (0x0086ec87)
-            // and AI join (0x0086ee4e). AI threads are ACTIVE.
-            //
-            // On multi-threaded systems: defer cell unloading to the AI join
-            // hook (FUN_008c7990 wrapper) which runs AFTER AI threads are idle.
-            // On single-threaded systems: no AI threads exist, unload directly.
-            let ai_active = unsafe {
-                *(AI_ACTIVE_FLAG_PTR as *const u8) != 0
-            };
-
-            if ai_active {
-                // Multi-threaded: defer to AI join hook
-                self.deferred_unload.store(true, Ordering::Release);
-                log::debug!("[PRESSURE] Cell unload deferred to AI join");
-            } else {
-                // Single-threaded: no AI threads, safe to unload directly
-                cells = unsafe {
-                    Self::destruction_protocol(
-                        find_cell, pre_destruction, post_destruction,
-                        deferred_cleanup, manager,
-                    )
-                };
-            }
+            // Always defer cell unloading to the per-frame drain hook
+            // (FUN_00868850, line ~802), which runs BEFORE AI dispatch and
+            // render. This is the correct lifecycle position for:
+            // - Havok broadphase: remove → AI step (deferred removals) → query
+            // - SpeedTree: draw lists not built yet
+            // - AI threads: idle (not dispatched)
+            // - BSTaskManagerThread: IO lock during PDD
+            self.deferred_unload.store(true, Ordering::Release);
+            log::debug!("[PRESSURE] Cell unload deferred to per-frame drain");
         }
 
         // Trigger HeapCompact stages 0-2 for the NEXT frame.
@@ -419,37 +329,19 @@ impl PressureRelief {
 
         self.last_time_ms.store(now_ms, Ordering::Relaxed);
 
-        // Record stats in the shared MemStats (clean separation of concerns).
-        let stats = crate::mods::memory::heap_replacer::mem_stats::global();
-        stats.record_pressure_relief(cells);
-
         let commit_mb = commit / 1024 / 1024;
 
         // Always clear requested so check() can re-evaluate on the next trigger.
         // If commit is still above threshold, check() will re-set it.
         self.requested.store(false, Ordering::Release);
 
-        if CELL_UNLOAD_ENABLED && cells > 0 {
-            log::info!(
-                "[PRESSURE] Unloaded {} cells (commit={}MB)",
-                cells,
-                commit_mb,
-            );
-        } else {
-            log::info!("[PRESSURE] Relief cycle (commit={}MB)", commit_mb);
-        }
+        log::info!("[PRESSURE] Relief cycle (commit={}MB)", commit_mb);
 
         // HUD notification only under heavy memory pressure
-        if commit_mb >= 1550 {
-            if cells > 0 {
-                crate::nvse_services::show_notification(
-                    &format!("Pip-Boy: {}MB, freed {} sectors", commit_mb, cells),
-                );
-            } else {
-                crate::nvse_services::show_notification(
-                    &format!("Pip-Boy: {}MB, cache optimized", commit_mb),
-                );
-            }
+        if commit_mb >= 1800 {
+            crate::nvse_services::show_notification(
+                &format!("Pip-Boy: {}MB, cache optimized", commit_mb),
+            );
         }
 
         self.active.store(false, Ordering::Release);
@@ -460,11 +352,24 @@ impl PressureRelief {
     ///
     /// # Safety
     ///
-    /// Must be called on the main thread, after AI thread join.
+    /// Must be called on the main thread, BEFORE AI dispatch and render
+    /// (per-frame drain hook at FUN_00868850, line ~802).
     pub unsafe fn run_deferred_unload(&self) {
-        if !self.deferred_unload.swap(false, Ordering::AcqRel) {
+        if !self.deferred_unload.load(Ordering::Acquire) {
             return;
         }
+
+        // FUN_00868850 runs unconditionally — including during loading screens
+        // and cell transitions. The game's own per-frame PDD (FUN_004556d0) is
+        // guarded by DAT_011dea2b == 0. We must do the same: only run during
+        // normal gameplay, not during loading/menu states.
+        let loading = unsafe { *(GAME_LOADING_FLAG_PTR as *const u8) != 0 };
+        if loading {
+            return; // keep flag set, retry next frame
+        }
+
+        // Now consume the flag
+        self.deferred_unload.store(false, Ordering::Release);
 
         let manager = unsafe { *(GAME_MANAGER_PTR as *const *mut c_void) };
         if manager.is_null() {
@@ -503,7 +408,7 @@ impl PressureRelief {
             return;
         }
 
-        // AI threads are idle (join completed), BSTaskManagerThread idle.
+        // AI threads idle (not dispatched yet), BSTaskManagerThread idle.
         // Run the full destruction protocol.
         let cells = unsafe {
             Self::destruction_protocol(find_cell, pre_destruction, post_destruction,
@@ -574,21 +479,7 @@ impl PressureRelief {
             false
         };
 
-        // === HAVOK BROADPHASE LIFECYCLE ===
-        // Skip Havok queue 0x20 during our PDD. The broadphase requires:
-        //   remove entity → hkpWorld::step → query broadphase
-        // Our hook is after AI join (end of frame). The Havok step runs
-        // during AI work on the NEXT frame, but AI dispatch queries the
-        // broadphase first → stale NULL entries → crash at 0x00CFFA08.
-        // Per-frame PDD (FUN_004556d0) handles queue 0x20 at the correct
-        // lifecycle position (before AI dispatch → step → query).
-        let skip_mask_ptr = PDD_QUEUE_SKIP_MASK as *mut u32;
-        let old_mask = unsafe { std::ptr::read_volatile(skip_mask_ptr) };
-        unsafe { std::ptr::write_volatile(skip_mask_ptr, old_mask | 0x20) };
-
         unsafe { deferred_cleanup(state[5]) };
-
-        unsafe { std::ptr::write_volatile(skip_mask_ptr, old_mask) };
 
         if io_locked {
             unsafe { Self::io_lock_release() };
@@ -603,7 +494,7 @@ impl PressureRelief {
 
     /// Acquire the IO dequeue spin-lock and wait for BSTaskManagerThread
     /// to finish any in-flight task. Returns true if lock was acquired.
-    unsafe fn io_lock_acquire() -> bool {
+    pub(in crate::mods::memory::heap_replacer) unsafe fn io_lock_acquire() -> bool {
         let io_mgr = unsafe { *(IO_MANAGER_SINGLETON_PTR as *const *mut u8) };
         if io_mgr.is_null() {
             return false;
@@ -663,7 +554,7 @@ impl PressureRelief {
     }
 
     /// Release the IO dequeue spin-lock.
-    unsafe fn io_lock_release() {
+    pub(in crate::mods::memory::heap_replacer) unsafe fn io_lock_release() {
         let io_mgr = unsafe { *(IO_MANAGER_SINGLETON_PTR as *const *mut u8) };
         if io_mgr.is_null() {
             return;
