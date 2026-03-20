@@ -37,6 +37,12 @@ pub enum StringVarError {
     #[error("CreateString function pointer is NULL")]
     CreateStringIsNull,
 
+    #[error("Register function pointer is NULL")]
+    RegisterIsNull,
+
+    #[error("Assign function pointer is NULL")]
+    AssignIsNull,
+
     #[error("GetString returned NULL for ID {0}")]
     StringNotFound(u32),
 
@@ -113,10 +119,62 @@ impl StringVars {
         Ok(id)
     }
 
-    /// Get a raw pointer to the underlying FFI interface.
+    /// Register this interface for %z format specifier support.
     ///
-    /// Useful for passing to RegisterStringVarInterface() to enable
-    /// %z format specifier support in your plugin's commands.
+    /// Call this once during plugin load if your commands use the %z
+    /// format specifier to insert string variable contents into strings.
+    /// Only needs to be called once per game session.
+    pub fn register_format_specifier(&self) -> StringVarResult<()> {
+        let iface = unsafe { self.ptr.as_ref() };
+        let register_fn = iface.Register.ok_or(StringVarError::RegisterIsNull)?;
+        unsafe { register_fn(self.ptr.as_ptr()) };
+        Ok(())
+    }
+
+    /// Assign a string as the result of a command execution.
+    ///
+    /// Call this inside a `Cmd_Execute` handler to return a string value.
+    /// The COMMAND_ARGS are forwarded directly from the handler signature.
+    ///
+    /// # Safety contract
+    ///
+    /// All pointer parameters must be the exact values received in the
+    /// command handler's COMMAND_ARGS. Do not fabricate these.
+    #[allow(clippy::too_many_arguments, clippy::not_unsafe_ptr_arg_deref)]
+    pub fn assign_string(
+        &self,
+        param_info: *mut crate::ParamInfo,
+        script_data: *mut libc::c_void,
+        this_obj: *mut crate::TESObjectREFR,
+        containing_obj: *mut crate::TESObjectREFR,
+        script_obj: *mut crate::Script,
+        event_list: *mut crate::ScriptEventList,
+        result: *mut f64,
+        opcode_offset: *mut u32,
+        value: &str,
+    ) -> StringVarResult<bool> {
+        let iface = unsafe { self.ptr.as_ref() };
+        let assign_fn = iface.Assign.ok_or(StringVarError::AssignIsNull)?;
+
+        let win_str = WinString::new(value)?;
+        let success = win_str.with_ansi(|val_ptr| unsafe {
+            assign_fn(
+                param_info,
+                script_data,
+                this_obj,
+                containing_obj,
+                script_obj,
+                event_list,
+                result,
+                opcode_offset,
+                val_ptr,
+            )
+        });
+
+        Ok(success)
+    }
+
+    /// Get a raw pointer to the underlying FFI interface.
     pub fn as_raw_ptr(&self) -> *mut NVSEStringVarInterfaceFFI {
         self.ptr.as_ptr()
     }

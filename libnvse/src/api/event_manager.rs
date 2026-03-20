@@ -321,6 +321,46 @@ impl EventManager {
         }
     }
 
+    /// Remove a prioritized native event handler.
+    ///
+    /// Must specify the same priority used when registering.
+    /// Returns `Ok(true)` if the handler was found and removed.
+    pub fn remove_native_handler_with_priority(
+        &self,
+        event_name: &str,
+        handler: NativeEventHandlerFFI,
+        priority: i32,
+    ) -> EventManagerResult<bool> {
+        let iface = unsafe { self.ptr.as_ref() };
+        let remove_fn = iface
+            .RemoveNativeEventHandlerWithPriority
+            .ok_or(EventManagerError::RemoveNativeHandlerIsNull)?;
+
+        let win_name = WinString::new(event_name)?;
+        let success = win_name
+            .with_ansi(|name_ptr| unsafe { remove_fn(name_ptr, handler, priority) });
+
+        Ok(success)
+    }
+
+    /// Set the return value for the current native event handler.
+    ///
+    /// Call this inside a native event handler to provide a result
+    /// value back to the event dispatcher. If never called, a NULL
+    /// element is passed by default.
+    pub fn set_handler_result(
+        &self,
+        value: &mut crate::NVSEArrayVarInterface_Element,
+    ) -> EventManagerResult<()> {
+        let iface = unsafe { self.ptr.as_ref() };
+        let set_fn = iface
+            .SetNativeHandlerFunctionValue
+            .ok_or(EventManagerError::SetNativeHandlerIsNull)?;
+
+        unsafe { set_fn(value) };
+        Ok(())
+    }
+
     /// Get the raw DispatchEvent function pointer for variadic dispatch.
     ///
     /// Since Rust cannot express C variadic calls through a safe API,

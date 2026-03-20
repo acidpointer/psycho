@@ -405,6 +405,42 @@ impl ArrayVars {
         Ok(())
     }
 
+    /// Get all elements and keys from an array at once.
+    ///
+    /// Allocates and returns two Vecs: (values, keys).
+    /// For zero-indexed arrays the keys are numeric indices (0.0, 1.0, ...).
+    /// For maps the keys match the map's key type.
+    ///
+    /// Returns empty Vecs if the array is invalid or empty.
+    pub fn get_elements(
+        &self,
+        arr: ArrayHandle,
+    ) -> ArrayVarResult<(Vec<ElementFFI>, Vec<ElementFFI>)> {
+        let size = self.len(arr)?;
+        if size == 0 {
+            return Ok((Vec::new(), Vec::new()));
+        }
+
+        let iface = unsafe { self.ptr.as_ref() };
+        let get_fn = iface
+            .GetElements
+            .ok_or(ArrayVarError::GetElementIsNull)?;
+
+        let mut values: Vec<ElementFFI> =
+            (0..size).map(|_| ElementFFI::default()).collect();
+        let mut keys: Vec<ElementFFI> =
+            (0..size).map(|_| ElementFFI::default()).collect();
+
+        let success =
+            unsafe { get_fn(arr.0, values.as_mut_ptr(), keys.as_mut_ptr()) };
+
+        if success {
+            Ok((values, keys))
+        } else {
+            Ok((Vec::new(), Vec::new()))
+        }
+    }
+
     /// Check if an array contains a specific key.
     pub fn has_key(&self, arr: ArrayHandle, key: &ElementFFI) -> bool {
         let iface = unsafe { self.ptr.as_ref() };

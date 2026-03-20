@@ -148,6 +148,55 @@ impl CommandTable {
         Ok(Self { ptr })
     }
 
+    /// Get all registered commands as a Vec.
+    ///
+    /// Iterates the entire command table from Start() to End().
+    /// Useful for introspection, logging, or building command indexes.
+    pub fn all_commands(&self) -> Vec<CommandRef> {
+        let iface = unsafe { self.ptr.as_ref() };
+        let (start_fn, end_fn) = match (iface.Start, iface.End) {
+            (Some(s), Some(e)) => (s, e),
+            _ => return Vec::new(),
+        };
+
+        let start = unsafe { start_fn() };
+        let end = unsafe { end_fn() };
+
+        if start.is_null() || end.is_null() || start >= end {
+            return Vec::new();
+        }
+
+        let count = unsafe { end.offset_from(start) } as usize;
+        let mut result = Vec::with_capacity(count);
+
+        for i in 0..count {
+            let ptr = unsafe { start.add(i) };
+            if let Some(cmd) = CommandRef::new(ptr) {
+                result.push(cmd);
+            }
+        }
+
+        result
+    }
+
+    /// Get the number of registered commands.
+    pub fn count(&self) -> usize {
+        let iface = unsafe { self.ptr.as_ref() };
+        let (start_fn, end_fn) = match (iface.Start, iface.End) {
+            (Some(s), Some(e)) => (s, e),
+            _ => return 0,
+        };
+
+        let start = unsafe { start_fn() };
+        let end = unsafe { end_fn() };
+
+        if start.is_null() || end.is_null() || start >= end {
+            return 0;
+        }
+
+        unsafe { end.offset_from(start) as usize }
+    }
+
     /// Look up a command by its opcode.
     pub fn get_by_opcode(&self, opcode: u32) -> Option<CommandRef> {
         let iface = unsafe { self.ptr.as_ref() };
