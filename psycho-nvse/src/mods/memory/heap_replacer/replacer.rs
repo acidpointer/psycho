@@ -162,6 +162,14 @@ const PER_FRAME_QUEUE_DRAIN_ADDR: usize = 0x00868850;
 // to prevent AI thread physics crashes during BLOCKING PDD.
 const CELL_TRANSITION_HANDLER_ADDR: usize = 0x008774A0;
 
+// AIThreadJoin (FUN_008c7990).
+// Called at 0x0086ee4e AFTER our main hook and AFTER render.
+// Waits for AI Linear Task Threads to complete via WaitForSingleObject.
+// We hook this to run deferred cell unloading AFTER AI threads are idle.
+// Only called on multi-threaded systems (processor count > 1).
+// Single-threaded systems call FUN_008ca300 instead (no AI threads).
+const AI_THREAD_JOIN_ADDR: usize = 0x008C7990;
+
 pub static MAIN_LOOP_MAINTENANCE_HOOK: LazyLock<InlineHookContainer<MainLoopMaintenanceFn>> =
     LazyLock::new(InlineHookContainer::new);
 
@@ -169,6 +177,9 @@ pub static PER_FRAME_QUEUE_DRAIN_HOOK: LazyLock<InlineHookContainer<PerFrameQueu
     LazyLock::new(InlineHookContainer::new);
 
 pub static CELL_TRANSITION_HANDLER_HOOK: LazyLock<InlineHookContainer<CellTransitionHandlerFn>> =
+    LazyLock::new(InlineHookContainer::new);
+
+pub static AI_THREAD_JOIN_HOOK: LazyLock<InlineHookContainer<AIThreadJoinFn>> =
     LazyLock::new(InlineHookContainer::new);
 
 /// Scrap heap hooks
@@ -286,6 +297,20 @@ pub fn install_game_heap_hooks() -> anyhow::Result<()> {
         )?;
         guard.enable_hook("cell_transition_handler", &CELL_TRANSITION_HANDLER_HOOK)?;
         log::info!("[ENGINE FIX] CellTransitionHandler hook installed at 0x{:08X}", CELL_TRANSITION_HANDLER_ADDR);
+    }
+
+    // AI Thread Join hook: deferred cell unloading AFTER AI threads are idle.
+    // FUN_008c7990 is called at 0x0086ee4e, after render and after our main hook.
+    // Only called on multi-threaded systems. On single-threaded, cell unloading
+    // runs directly from the main hook (no AI threads to worry about).
+    {
+        AI_THREAD_JOIN_HOOK.init(
+            "ai_thread_join",
+            AI_THREAD_JOIN_ADDR as *mut c_void,
+            hook_ai_thread_join,
+        )?;
+        guard.enable_hook("ai_thread_join", &AI_THREAD_JOIN_HOOK)?;
+        log::info!("[PRESSURE] AI thread join hook installed at 0x{:08X}", AI_THREAD_JOIN_ADDR);
     }
 
     {

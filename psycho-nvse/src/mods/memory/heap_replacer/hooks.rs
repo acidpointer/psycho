@@ -227,6 +227,28 @@ pub(super) unsafe extern "thiscall" fn hook_main_loop_maintenance(this: *mut c_v
 }
 
 // ===========================================================================
+//   AI THREAD JOIN HOOK — deferred cell unloading after AI threads idle
+// ===========================================================================
+
+/// Wraps the game's AI thread join (FUN_008c7990). After the original
+/// completes, AI threads are guaranteed idle. If pressure relief deferred
+/// cell unloading (because AI threads were active at the main hook),
+/// we run it here.
+///
+/// Only called on multi-threaded systems (processor count > 1).
+pub(super) unsafe extern "fastcall" fn hook_ai_thread_join(mgr: *mut c_void) {
+    // Call original — waits for AI threads to complete, sets DAT_011dfa19 = 0
+    if let Ok(original) = super::replacer::AI_THREAD_JOIN_HOOK.original() {
+        unsafe { original(mgr) };
+    }
+
+    // AI threads are now idle. Run deferred cell unloading if requested.
+    if let Some(pr) = super::gheap::pressure::PressureRelief::instance() {
+        unsafe { pr.run_deferred_unload() };
+    }
+}
+
+// ===========================================================================
 //   PER-FRAME QUEUE DRAIN HOOK — boost NiNode drain under pressure
 // ===========================================================================
 

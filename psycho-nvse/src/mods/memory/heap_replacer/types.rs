@@ -57,3 +57,13 @@ pub type CellTransitionHandlerFn = unsafe extern "thiscall" fn(*mut c_void, u8);
 /// Safe to call multiple times: uses internal try-locks, processes one
 /// queue per call, returns when batch limit reached.
 pub type PerFrameQueueDrainFn = unsafe extern "C" fn();
+
+/// AI thread join (FUN_008c7990, 72 bytes, fastcall).
+///
+/// Waits for all AI Linear Task Threads to complete their current work
+/// via WaitForSingleObject on per-thread completion semaphores. Called
+/// at 0x0086ee4e in the per-frame function, AFTER render and AFTER our
+/// main hook. Only called on multi-threaded systems (processor count > 1).
+///
+/// We hook this to run deferred cell unloading after AI threads are idle.
+pub type AIThreadJoinFn = unsafe extern "fastcall" fn(*mut c_void);

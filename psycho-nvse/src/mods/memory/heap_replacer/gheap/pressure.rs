@@ -46,7 +46,7 @@ use libmimalloc::mi_collect;
 use libpsycho::ffi::fnptr::FnPtr;
 
 use super::types::{
-    AIThreadJoinFn, DeferredCleanupSmallFn, FindCellToUnloadFn, GetAIThreadManagerFn,
+    DeferredCleanupSmallFn, FindCellToUnloadFn,
     PostDestructionRestoreFn, PreDestructionSetupFn,
 };
 
@@ -112,6 +112,13 @@ const TES_SINGLETON_PTR: usize = 0x011DEA3C;
 /// Offset into TES where the pending cell load task handle lives.
 const TES_PENDING_CELL_LOAD_OFFSET: usize = 0x77C;
 
+/// DAT_011dfa19 — AI thread active flag.
+/// Set to 1 by FUN_008c78c0 (AI Start, at 0x0086ec87 in per-frame).
+/// Set to 0 by FUN_008c7990 (AI Join, at 0x0086ee4e in per-frame).
+/// At our Hook 1 position (between dispatch and join), this is 1 when
+/// AI threads are active, 0 when they were not dispatched this frame.
+const AI_ACTIVE_FLAG_PTR: usize = 0x011DFA19;
+
 /// HeapCompact trigger field: heap_singleton + 0x134.
 /// Writing N causes HeapCompact stages 0..N to run on the NEXT FRAME.
 const HEAP_COMPACT_TRIGGER_PTR: usize = 0x011F636C;
@@ -139,12 +146,15 @@ pub struct PressureRelief {
     active: AtomicBool,
     last_time_ms: AtomicU64,
 
+    /// Set by relieve() on multi-threaded systems when cell unloading is needed
+    /// but AI threads are still active. Cleared by run_deferred_unload() which
+    /// runs from the AI thread join hook (after AI threads are idle).
+    deferred_unload: AtomicBool,
+
     find_cell: FnPtr<FindCellToUnloadFn>,
     pre_destruction: FnPtr<PreDestructionSetupFn>,
     post_destruction: FnPtr<PostDestructionRestoreFn>,
     deferred_cleanup: FnPtr<DeferredCleanupSmallFn>,
-    get_ai_mgr: FnPtr<GetAIThreadManagerFn>,
-    ai_join: FnPtr<AIThreadJoinFn>,
 }
 
 impl PressureRelief {
@@ -153,13 +163,12 @@ impl PressureRelief {
             Self {
                 requested: AtomicBool::new(false),
                 active: AtomicBool::new(false),
+                deferred_unload: AtomicBool::new(false),
                 last_time_ms: AtomicU64::new(0),
                 find_cell: FnPtr::from_raw(FIND_CELL_TO_UNLOAD as *mut c_void)?,
                 pre_destruction: FnPtr::from_raw(PRE_DESTRUCTION_SETUP as *mut c_void)?,
                 post_destruction: FnPtr::from_raw(POST_DESTRUCTION_RESTORE as *mut c_void)?,
                 deferred_cleanup: FnPtr::from_raw(DEFERRED_CLEANUP_SMALL as *mut c_void)?,
-                get_ai_mgr: FnPtr::from_raw(GET_AI_THREAD_MANAGER as *mut c_void)?,
-                ai_join: FnPtr::from_raw(AI_THREAD_JOIN as *mut c_void)?,
             }
         };
 
@@ -277,22 +286,6 @@ impl PressureRelief {
                 return;
             }
         };
-        let get_ai_mgr = match unsafe { self.get_ai_mgr.as_fn() } {
-            Ok(f) => f,
-            Err(err) => {
-                log::error!("[PRESSURE] GetAIThreadManager: {:?}", err);
-                self.active.store(false, Ordering::Release);
-                return;
-            }
-        };
-        let ai_join = match unsafe { self.ai_join.as_fn() } {
-            Ok(f) => f,
-            Err(err) => {
-                log::error!("[PRESSURE] AIThreadJoin: {:?}", err);
-                self.active.store(false, Ordering::Release);
-                return;
-            }
-        };
 
         let mut cells: usize = 0;
 
@@ -324,71 +317,31 @@ impl PressureRelief {
                 return;
             }
 
-            // === GUARD: Wait for AI Linear Task Threads to finish ===
+            // === AI THREAD SAFETY: Two-hook architecture ===
             //
-            // Our hook runs at 0x008705d0 (post-render, line ~486).
-            // The main loop dispatches AI threads at 0x0086ec87 and joins
-            // them at 0x0086ee4e (FUN_008c7990) — AFTER our hook.
-            // AI threads are ACTIVE during our hook.
+            // Our hook runs at 0x008705d0, between AI dispatch (0x0086ec87)
+            // and AI join (0x0086ee4e). AI threads are ACTIVE.
             //
-            // Without this join, AI threads crash accessing Havok/actor
-            // data for cells we destroy (bhkWorldM corruption, JohnnyGuitar
-            // PLChangeEvent on freed NPC, etc.).
-            //
-            // FUN_008c7990 calls FUN_008c7490 per thread which does
-            // WaitForSingleObject — blocks until each AI thread completes
-            // its current work item and signals via ReleaseSemaphore.
-            unsafe {
-                let mgr = get_ai_mgr();
-                if !mgr.is_null() {
-                    ai_join(mgr);
-                }
+            // On multi-threaded systems: defer cell unloading to the AI join
+            // hook (FUN_008c7990 wrapper) which runs AFTER AI threads are idle.
+            // On single-threaded systems: no AI threads exist, unload directly.
+            let ai_active = unsafe {
+                *(AI_ACTIVE_FLAG_PTR as *const u8) != 0
+            };
+
+            if ai_active {
+                // Multi-threaded: defer to AI join hook
+                self.deferred_unload.store(true, Ordering::Release);
+                log::debug!("[PRESSURE] Cell unload deferred to AI join");
+            } else {
+                // Single-threaded: no AI threads, safe to unload directly
+                cells = unsafe {
+                    Self::destruction_protocol(
+                        find_cell, pre_destruction, post_destruction,
+                        deferred_cleanup, manager,
+                    )
+                };
             }
-
-            // === FULL DESTRUCTION PROTOCOL ===
-            //
-            // Now safe: BSTaskManagerThread idle (TES+0x77c check),
-            // AI threads joined (FUN_008c7990), hkWorld locked.
-            //
-            // 0. Enter loading state (suppress NVSE event dispatching)
-            // 1. PreDestructionSetup — hkWorld_Lock + SceneGraphInvalidate
-            // 2. FindCellToUnload (our addition — cells freed with zombies)
-            // 3. DeferredCleanupSmall — full PDD (all queues) + async flush
-            // 4. PostDestructionRestore — hkWorld_Unlock + restore
-            // 5. Exit loading state
-            // - Full PDD: all queues, no selective skip needed
-            // - Quarantine: IO thread reads intact zombie data during async flush
-
-            // Step 0: Enter loading state — suppress NVSE event dispatching.
-            let loading_counter =
-                unsafe { &*(LOADING_STATE_COUNTER_PTR as *const std::sync::atomic::AtomicI32) };
-            loading_counter.fetch_add(1, std::sync::atomic::Ordering::AcqRel);
-
-            // 12-byte state struct on stack (matches game's local_10/local_48)
-            let mut state = [0u8; 12];
-            let state_ptr = state.as_mut_ptr() as *mut c_void;
-
-            // Step 1: Lock Havok world + invalidate scene graph
-            unsafe { pre_destruction(state_ptr, 1, 1, 1) };
-
-            // Step 2: Unload cells (our pressure relief)
-            for _ in 0..MAX_CELLS_PER_CYCLE {
-                let result = unsafe { find_cell(manager) };
-                if (result & 0xFF) != 0 {
-                    cells += 1;
-                } else {
-                    break;
-                }
-            }
-
-            // Step 3: Full PDD + async flush + ProcessPendingCleanup
-            unsafe { deferred_cleanup(state[5]) };
-
-            // Step 4: Unlock Havok world + restore state
-            unsafe { post_destruction(state_ptr) };
-
-            // Step 5: Exit loading state
-            loading_counter.fetch_sub(1, std::sync::atomic::Ordering::AcqRel);
         }
 
         // Trigger HeapCompact stages 0-2 for the NEXT frame.
@@ -435,5 +388,112 @@ impl PressureRelief {
         }
 
         self.active.store(false, Ordering::Release);
+    }
+
+    /// Run deferred cell unloading. Called from the AI thread join hook
+    /// (FUN_008c7990 wrapper) AFTER AI threads have completed their work.
+    ///
+    /// # Safety
+    ///
+    /// Must be called on the main thread, after AI thread join.
+    pub unsafe fn run_deferred_unload(&self) {
+        if !self.deferred_unload.swap(false, Ordering::AcqRel) {
+            return;
+        }
+
+        let manager = unsafe { *(GAME_MANAGER_PTR as *const *mut c_void) };
+        if manager.is_null() {
+            return;
+        }
+
+        let find_cell = match unsafe { self.find_cell.as_fn() } {
+            Ok(f) => f,
+            Err(_) => return,
+        };
+        let pre_destruction = match unsafe { self.pre_destruction.as_fn() } {
+            Ok(f) => f,
+            Err(_) => return,
+        };
+        let post_destruction = match unsafe { self.post_destruction.as_fn() } {
+            Ok(f) => f,
+            Err(_) => return,
+        };
+        let deferred_cleanup = match unsafe { self.deferred_cleanup.as_fn() } {
+            Ok(f) => f,
+            Err(_) => return,
+        };
+
+        // Check BSTaskManagerThread guard again (state may have changed)
+        let io_busy = unsafe {
+            let tes = *(TES_SINGLETON_PTR as *const *const u8);
+            if tes.is_null() {
+                true
+            } else {
+                let handle_ptr = tes.add(TES_PENDING_CELL_LOAD_OFFSET) as *const i32;
+                (*handle_ptr) != -1
+            }
+        };
+        if io_busy {
+            log::debug!("[PRESSURE] Deferred unload skipped — BSTaskManagerThread busy");
+            return;
+        }
+
+        // AI threads are idle (join completed), BSTaskManagerThread idle.
+        // Run the full destruction protocol.
+        let cells = unsafe {
+            Self::destruction_protocol(find_cell, pre_destruction, post_destruction,
+                                       deferred_cleanup, manager)
+        };
+
+        let info = libmimalloc::process_info::MiMallocProcessInfo::get();
+        let commit_mb = info.get_current_commit() / 1024 / 1024;
+
+        let stats = crate::mods::memory::heap_replacer::mem_stats::global();
+        stats.record_pressure_relief(cells);
+
+        if cells > 0 {
+            log::info!(
+                "[PRESSURE] Deferred unload: {} cells (commit={}MB)",
+                cells, commit_mb,
+            );
+        }
+    }
+
+    /// The actual cell unloading + PDD sequence. Extracted so both
+    /// relieve() (single-threaded) and run_deferred_unload() (multi-threaded)
+    /// can use the same code.
+    unsafe fn destruction_protocol(
+        find_cell: FindCellToUnloadFn,
+        pre_destruction: PreDestructionSetupFn,
+        post_destruction: PostDestructionRestoreFn,
+        deferred_cleanup: DeferredCleanupSmallFn,
+        manager: *mut c_void,
+    ) -> usize {
+        let mut cells: usize = 0;
+
+        let loading_counter =
+            unsafe { &*(LOADING_STATE_COUNTER_PTR as *const std::sync::atomic::AtomicI32) };
+        loading_counter.fetch_add(1, std::sync::atomic::Ordering::AcqRel);
+
+        let mut state = [0u8; 12];
+        let state_ptr = state.as_mut_ptr() as *mut c_void;
+
+        unsafe { pre_destruction(state_ptr, 1, 1, 1) };
+
+        for _ in 0..MAX_CELLS_PER_CYCLE {
+            let result = unsafe { find_cell(manager) };
+            if (result & 0xFF) != 0 {
+                cells += 1;
+            } else {
+                break;
+            }
+        }
+
+        unsafe { deferred_cleanup(state[5]) };
+        unsafe { post_destruction(state_ptr) };
+
+        loading_counter.fetch_sub(1, std::sync::atomic::Ordering::AcqRel);
+
+        cells
     }
 }

@@ -1,0 +1,251 @@
+======================================================================
+POST-AI-JOIN HOOK POSITION RESEARCH
+======================================================================
+
+Frame: ...RENDER -> OUR_HOOK(008705d0) -> AI_JOIN(008c7990) -> POST_AI(0086f6a0)
+
+Can we do cell unloading AFTER AI join?
+
+######################################################################
+# SECTION 1: FUN_008c7990 ? can we hook it?
+# 72 bytes, fastcall. How many callers? Only per-frame or also elsewhere?
+######################################################################
+
+======================================================================
+AIThreadJoin_008c7990 @ 0x008c7990
+======================================================================
+  Function: FUN_008c7990, Size: 72 bytes
+
+void __fastcall FUN_008c7990(int param_1)
+
+{
+  undefined4 local_8;
+  
+  for (local_8 = 0; local_8 < 2; local_8 = local_8 + 1) {
+    if (*(int *)(param_1 + local_8 * 4) != 0) {
+      FUN_008c7490(*(int *)(param_1 + local_8 * 4));
+    }
+  }
+  DAT_011dfa19 = 0;
+  return;
+}
+
+
+
+--- XRefs to AIThreadJoin_008c7990 (0x008c7990) ---
+  UNCONDITIONAL_CALL @ 0x0086ee4e (in FUN_0086e650)
+  Total: 1 refs
+
+######################################################################
+# SECTION 2: FUN_0086f6a0 ? post-AI, called at 0x0086ee62
+# Is it safe for cell unloading + SceneGraphInvalidate?
+######################################################################
+
+======================================================================
+PostAI_0086f6a0 @ 0x0086f6a0
+======================================================================
+  Function: FUN_0086f6a0, Size: 396 bytes
+
+/* WARNING: Globals starting with '_' overlap smaller symbols at the same address */
+
+void __fastcall FUN_0086f6a0(int param_1)
+
+{
+  char cVar1;
+  bool bVar2;
+  int *piVar3;
+  undefined4 *puVar4;
+  float10 fVar5;
+  char local_15;
+  
+  cVar1 = FUN_007050d0();
+  if (cVar1 != '\0') {
+    bVar2 = FUN_00703d50();
+    if (!bVar2) {
+      cVar1 = FUN_0086f860();
+      if (cVar1 == '\0') {
+        piVar3 = (int *)FUN_007624d0();
+        if (piVar3 != (int *)0x0) {
+          cVar1 = (**(code **)(*piVar3 + 0x100))();
+          if (cVar1 != '\0') {
+            (**(code **)(*piVar3 + 0x404))(0);
+          }
+        }
+      }
+    }
+  }
+  FUN_0096c240(0x11e0e80);
+  piVar3 = (int *)FUN_0043d4d0(0x11c3ea4);
+  if (*piVar3 < 2) {
+    FUN_0096c860(0x11e0e80);
+  }
+  else {
+    FUN_0096c970(0x11e0e80);
+  }
+  FUN_0096c710(0x11e0e80);
+  fVar5 = FUN_0084d030(0x11f6394);
+  FUN_009781d0(&DAT_011e0e80,(float)fVar5);
+  piVar3 = (int *)FUN_00705990();
+  cVar1 = FUN_0086f840((int)piVar3);
+  if (cVar1 != '\0') {
+    FUN_007fa990(piVar3);
+  }
+  piVar3 = (int *)FUN_0043d4d0(0x11c3ea4);
+  if (1 < *piVar3) {
+    FUN_0054ae30();
+    piVar3 = (int *)FUN_004537b0();
+    FUN_0087a6d0(piVar3);
+    puVar4 = (undefined4 *)FUN_004537b0();
+    FUN_0087a790(puVar4);
+    FUN_00552570();
+    FUN_0086f830(_DAT_011c3c08);
+    piVar3 = (int *)FUN_004537b0();
+    FUN_0087a6b0(piVar3);
+  }
+  puVar4 = (undefined4 *)FUN_0043d4d0(0x11d10d4);
+  FUN_007034c0(*puVar4);
+  FUN_00703490();
+  if (((DAT_011dea2b == '\0') && (DAT_011dea2d == '\0')) && (*(char *)(param_1 + 7) == '\0')) {
+    local_15 = '\0';
+  }
+  else {
+    local_15 = '\x01';
+  }
+  FUN_00991600(DAT_011f1958,local_15);
+  return;
+}
+
+
+
+--- XRefs to PostAI_0086f6a0 (0x0086f6a0) ---
+  UNCONDITIONAL_CALL @ 0x0086ee62 (in FUN_0086e650)
+  UNCONDITIONAL_CALL @ 0x00850d74 (in FUN_00850d60)
+  Total: 2 refs
+
+######################################################################
+# SECTION 3: DAT_011dfa19 ? when is it set/cleared?
+# FUN_008c7990 clears it. Who sets it?
+######################################################################
+
+--- XRefs to DAT_011dfa19 (0x011dfa19) ---
+  READ @ 0x00713d93 (in FUN_00713d90)
+  WRITE @ 0x008c7947 (in FUN_008c78c0)
+  WRITE @ 0x008c79cd (in FUN_008c7990)
+  Total: 3 refs
+
+######################################################################
+# SECTION 4: Disassembly 0x0086ee4e to 0x0086ee70
+# What happens between AI join and FUN_0086f6a0 call?
+######################################################################
+
+--- Disasm 0x0086ee40 to 0x0086ee80 ---
+  0x0086ee42  CMP dword ptr [EAX], 0x1
+  0x0086ee45  JLE 0x0086ee55
+  0x0086ee47  CALL 0x00713d80
+  0x0086ee4c  MOV ECX, EAX
+  0x0086ee4e  CALL 0x008c7990
+  0x0086ee53  JMP 0x0086ee5f
+  0x0086ee55  MOV ECX, 0x11e0fe0
+  0x0086ee5a  CALL 0x008ca300
+  0x0086ee5f  MOV ECX, dword ptr [EBP + -0x18]
+  0x0086ee62  CALL 0x0086f6a0
+  0x0086ee67  MOV ECX, dword ptr [EBP + -0x18]
+  0x0086ee6a  CALL 0x00870610
+  0x0086ee6f  CALL 0x0070ed10
+  0x0086ee74  MOVZX EAX, AL
+  0x0086ee77  TEST EAX, EAX
+  0x0086ee79  JZ 0x0086ee8a
+  0x0086ee7b  PUSH 0x0
+  0x0086ee7d  CALL 0x0070ed20
+
+######################################################################
+# SECTION 5: FUN_008ca300 ? called when processor count == 1
+# (instead of AI dispatch+join)
+######################################################################
+
+======================================================================
+SingleThread_008ca300 @ 0x008ca300
+======================================================================
+  Function: FUN_008ca300, Size: 47 bytes
+
+void __fastcall FUN_008ca300(int param_1)
+
+{
+  if (*(char *)(param_1 + 0x10180) != '\0') {
+    FUN_008ca330(&DAT_011dfc24,2);
+    *(undefined1 *)(param_1 + 0x10180) = 0;
+  }
+  return;
+}
+
+
+
+######################################################################
+# SECTION 6: Full conditional block around AI dispatch/join
+# bVar1 controls whether AI is dispatched
+######################################################################
+
+--- Disasm 0x0086ec50 to 0x0086eca0 (AI dispatch block) ---
+  0x0086ec50  JMP 0x0086ec59
+  0x0086ec52  MOV dword ptr [EBP + -0x40], 0x0
+  0x0086ec59  MOV DL, byte ptr [EBP + -0x40]
+  0x0086ec5c  MOV byte ptr [EBP + -0xe], DL
+  0x0086ec5f  MOVZX EAX, byte ptr [EBP + -0xe]
+  0x0086ec63  TEST EAX, EAX
+  0x0086ec65  JZ 0x0086ec98
+  0x0086ec67  MOV ECX, 0x11c3ea4
+  0x0086ec6c  CALL 0x0043d4d0
+  0x0086ec71  CMP dword ptr [EAX], 0x1
+  0x0086ec74  JLE 0x0086ec8e
+  0x0086ec76  PUSH 0x1
+  0x0086ec78  CALL 0x008c80e0
+  0x0086ec7d  ADD ESP, 0x4
+  0x0086ec80  CALL 0x00713d80
+  0x0086ec85  MOV ECX, EAX
+  0x0086ec87  CALL 0x008c78c0
+  0x0086ec8c  JMP 0x0086ec98
+  0x0086ec8e  MOV ECX, 0x11e0fe0
+  0x0086ec93  CALL 0x008ca070
+  0x0086ec98  MOV ECX, dword ptr [EBP + -0x18]
+  0x0086ec9b  CALL 0x0086fc60
+
+######################################################################
+# SECTION 7: FUN_00870610 ? called at 0x0086ee6a, after PostAI
+# Could this be a better hook point?
+######################################################################
+
+======================================================================
+PostPostAI_00870610 @ 0x00870610
+======================================================================
+  Function: FUN_00870610, Size: 101 bytes
+
+void FUN_00870610(void)
+
+{
+  int *piVar1;
+  int iVar2;
+  undefined4 *puVar3;
+  
+  FUN_005aa720();
+  piVar1 = (int *)FUN_0043d4d0(0x11c3ea4);
+  if (1 < *piVar1) {
+    iVar2 = FUN_004537b0();
+    FUN_0087a710(iVar2);
+    puVar3 = (undefined4 *)FUN_004537b0();
+    FUN_0087a850(puVar3);
+    iVar2 = FUN_004537b0();
+    FUN_0087a6f0(iVar2);
+  }
+  FUN_007094f0();
+  iVar2 = FUN_004b7210();
+  FUN_00870680(iVar2);
+  puVar3 = FUN_00a0d9e0('\x01');
+  FUN_00a0e770((int)puVar3);
+  return;
+}
+
+
+
+--- XRefs to PostPostAI_00870610 (0x00870610) ---
+  UNCONDITIONAL_CALL @ 0x0086ee6a (in FUN_0086e650)
+  Total: 1 refs

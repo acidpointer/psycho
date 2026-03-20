@@ -1,0 +1,791 @@
+======================================================================
+AI JOIN SAFETY + HAVOK WORLD STEP CRASH
+======================================================================
+
+Crash: FUN_00c3dbf0 (Havok step) -> JIP DoQueuedRefHook ->
+  ragdoll setup -> FUN_00a6df48 (CRASH, eax=garbage)
+  bhkWorldM corrupt, NPC Bittercup, QueuedCharacter on stack
+
+Question 1: Does our FUN_008c7990 call consume a semaphore
+  that the game's own join needs?
+Question 2: Does FUN_00c3dbf0 process queued references?
+Question 3: Could previous frame cell unload corrupt Havok?
+
+######################################################################
+# SECTION 1: FUN_008c7990 semaphore mechanics
+# What does it wait on? What does the AI thread signal?
+# Is the wait/signal pair consumed or reusable?
+######################################################################
+
+======================================================================
+AIThreadJoin @ 0x008c7990
+======================================================================
+  Function: FUN_008c7990, Size: 72 bytes
+
+void __fastcall FUN_008c7990(int param_1)
+
+{
+  undefined4 local_8;
+  
+  for (local_8 = 0; local_8 < 2; local_8 = local_8 + 1) {
+    if (*(int *)(param_1 + local_8 * 4) != 0) {
+      FUN_008c7490(*(int *)(param_1 + local_8 * 4));
+    }
+  }
+  DAT_011dfa19 = 0;
+  return;
+}
+
+
+
+======================================================================
+AIThreadJoin_PerThread @ 0x008c7490
+======================================================================
+  Function: FUN_008c7490, Size: 22 bytes
+
+void __fastcall FUN_008c7490(int param_1)
+
+{
+  FUN_004424e0((LONG *)(param_1 + 0x3c));
+  return;
+}
+
+
+
+======================================================================
+WaitPrimitive_004424e0 @ 0x004424e0
+======================================================================
+  Function: FUN_004424e0, Size: 38 bytes
+
+void __fastcall FUN_004424e0(LONG *param_1)
+
+{
+  WaitForSingleObject((HANDLE)param_1[1],0xffffffff);
+  FUN_004019a0(param_1);
+  return;
+}
+
+
+
+======================================================================
+SignalPrimitive_00442550 @ 0x00442550
+======================================================================
+  Function: FUN_00442550, Size: 40 bytes
+
+void __fastcall FUN_00442550(LONG *param_1)
+
+{
+  ReleaseSemaphore((HANDLE)param_1[1],1,(LPLONG)0x0);
+  FUN_0040b460(param_1);
+  return;
+}
+
+
+
+######################################################################
+# SECTION 2: Game's own AI join at 0x0086ee4e
+# Disassembly around the join to understand the conditional
+######################################################################
+
+--- Disassembly 0x0086ee40 to 0x0086ee70 ---
+  0x0086ee42  CMP dword ptr [EAX], 0x1
+  0x0086ee45  JLE 0x0086ee55
+  0x0086ee47  CALL 0x00713d80
+  0x0086ee4c  MOV ECX, EAX
+  0x0086ee4e  CALL 0x008c7990
+  0x0086ee53  JMP 0x0086ee5f
+  0x0086ee55  MOV ECX, 0x11e0fe0
+  0x0086ee5a  CALL 0x008ca300
+  0x0086ee5f  MOV ECX, dword ptr [EBP + -0x18]
+  0x0086ee62  CALL 0x0086f6a0
+  0x0086ee67  MOV ECX, dword ptr [EBP + -0x18]
+  0x0086ee6a  CALL 0x00870610
+  0x0086ee6f  CALL 0x0070ed10
+
+######################################################################
+# SECTION 3: FUN_00c3dbf0 - called with DAT_01202d98 (Havok world)
+# Is it truly Havok step or does it do reference processing?
+######################################################################
+
+======================================================================
+HavokStep_or_Other_00c3dbf0 @ 0x00c3dbf0
+======================================================================
+  Function: FUN_00c3dbf0, Size: 646 bytes
+
+/* WARNING: Removing unreachable block (ram,0x00c3dc63) */
+/* WARNING: Removing unreachable block (ram,0x00c3dc9f) */
+/* WARNING: Removing unreachable block (ram,0x00c3dd3c) */
+/* WARNING: Removing unreachable block (ram,0x00c3de2a) */
+/* WARNING: Removing unreachable block (ram,0x00c3de5c) */
+
+undefined1 __fastcall FUN_00c3dbf0(int param_1)
+
+{
+  bool bVar1;
+  uint uVar2;
+  int iVar3;
+  int *unaff_FS_OFFSET;
+  longlong lVar4;
+  ulonglong uVar5;
+  longlong lVar6;
+  uint local_28;
+  int local_24;
+  undefined1 local_15;
+  int *local_14;
+  int local_10;
+  undefined1 *puStack_c;
+  undefined4 local_8;
+  
+  local_8 = 0xffffffff;
+  puStack_c = &LAB_00f2dd89;
+  local_10 = *unaff_FS_OFFSET;
+  uVar2 = DAT_011c16bc ^ (uint)&stack0xfffffffc;
+  *unaff_FS_OFFSET = (int)&local_10;
+  if (DAT_01202dd8 == '\0') {
+    local_15 = 1;
+    DAT_01202dd8 = 1;
+    lVar4 = FUN_00aa4d80();
+    uVar5 = FUN_00ec62f6();
+    if (*(int *)(param_1 + 0x74) != 0) {
+      local_15 = (**(code **)(param_1 + 0x74))(uVar2);
+    }
+    local_14 = (int *)0x0;
+    local_8 = 0;
+    FUN_00c3e420(*(void **)(param_1 + 100),(int *)&local_14);
+    while (local_14 != (int *)0x0) {
+      (**(code **)(*local_14 + 0x14))();
+      if (*(int *)(param_1 + 0x70) != 0) {
+        (**(code **)(param_1 + 0x70))();
+      }
+      lVar6 = FUN_00aa4d80();
+      iVar3 = (int)((ulonglong)(lVar6 - lVar4) >> 0x20);
+      local_24 = (int)(uVar5 >> 0x20);
+      if ((iVar3 < local_24) ||
+         ((iVar3 <= local_24 && (local_28 = (uint)uVar5, (uint)(lVar6 - lVar4) <= local_28)))) {
+        bVar1 = false;
+      }
+      else {
+        bVar1 = true;
+      }
+      if (bVar1) {
+        if (local_14 != (int *)0x0) {
+          if (local_14 != (int *)0x0) {
+            FUN_0044dd60(local_14);
+          }
+          local_14 = (int *)0x0;
+        }
+      }
+      else {
+        FUN_00c3e420(*(void **)(param_1 + 100),(int *)&local_14);
+      }
+    }
+    DAT_01202dd8 = '\0';
+  }
+  else {
+    local_15 = 1;
+  }
+  *unaff_FS_OFFSET = local_10;
+  return local_15;
+}
+
+
+
+--- Calls FROM HavokStep_or_Other_00c3dbf0 (0x00c3dbf0) ---
+  CALL 0x00aa4d80 -> FUN_00aa4d80 @ site 0x00c3dce0
+  CALL 0x00ec62f6 -> FUN_00ec62f6 @ site 0x00c3dd0a
+  CALL 0xEXTERNAL:00000066 -> InterlockedIncrement @ site 0x00c3dd49
+  CALL 0x00c3e420 -> FUN_00c3e420 @ site 0x00c3dd63
+  CALL 0x0044dd60 -> FUN_0044dd60 @ site 0x00c3de18
+  Total: 5
+
+######################################################################
+# SECTION 4: Crash site FUN_00a6df48 + ragdoll chain
+######################################################################
+
+======================================================================
+CrashSite_00a6df48 @ 0x00a6df48
+======================================================================
+  Function: FUN_00a6df40, Size: 427 bytes
+
+/* WARNING: Globals starting with '_' overlap smaller symbols at the same address */
+
+void __thiscall FUN_00a6df40(void *this,float *param_1)
+
+{
+  int iVar1;
+  int iVar2;
+  float fVar3;
+  uint uVar4;
+  float10 fVar5;
+  int local_c [3];
+  
+  if (0.0 < *param_1 + param_1[4] + param_1[8]) {
+    fVar5 = (float10)FUN_00ec6040();
+    fVar3 = (float)_DAT_01011588;
+    *(float *)this = (float)fVar5 * fVar3;
+    fVar3 = fVar3 / (float)fVar5;
+    *(float *)((int)this + 4) = fVar3 * (param_1[7] - param_1[5]);
+    *(float *)((int)this + 8) = (param_1[2] - param_1[6]) * fVar3;
+    *(float *)((int)this + 0xc) = (param_1[3] - param_1[1]) * fVar3;
+    return;
+  }
+  uVar4 = (uint)(*param_1 < param_1[4]);
+  if (param_1[uVar4 * 4] < param_1[8]) {
+    uVar4 = 2;
+  }
+  iVar1 = *(int *)(&DAT_011a9e98 + uVar4 * 4);
+  iVar2 = *(int *)(&DAT_011a9e98 + iVar1 * 4);
+  fVar5 = (float10)FUN_00ec6040();
+  local_c[0] = (int)this + 4;
+  fVar3 = (float)_DAT_01011588;
+  local_c[1] = (int)this + 8;
+  local_c[2] = (int)this + 0xc;
+  *(float *)local_c[uVar4] = (float)fVar5 * fVar3;
+  fVar3 = fVar3 / (float)fVar5;
+  *(float *)this = fVar3 * (param_1[iVar2 * 3 + iVar1] - param_1[iVar1 * 3 + iVar2]);
+  *(float *)local_c[iVar1] = (param_1[uVar4 * 3 + iVar1] + param_1[iVar1 * 3 + uVar4]) * fVar3;
+  *(float *)local_c[iVar2] = (param_1[uVar4 * 3 + iVar2] + param_1[iVar2 * 3 + uVar4]) * fVar3;
+  return;
+}
+
+
+
+======================================================================
+Havok_Ragdoll_00c796f7 @ 0x00c796f7
+======================================================================
+  Function: FUN_00c79680, Size: 963 bytes
+
+/* WARNING: Globals starting with '_' overlap smaller symbols at the same address */
+
+void __fastcall FUN_00c79680(int param_1)
+
+{
+  uint *puVar1;
+  undefined4 *puVar2;
+  undefined1 auVar3 [16];
+  short sVar4;
+  int iVar5;
+  uint uVar6;
+  undefined4 uVar7;
+  undefined4 uVar8;
+  undefined4 uVar9;
+  float fVar10;
+  int iVar11;
+  float *pfVar12;
+  undefined4 *puVar13;
+  int *piVar14;
+  float *pfVar15;
+  int iVar16;
+  float fVar17;
+  float fVar18;
+  float fVar19;
+  float fVar20;
+  float fVar21;
+  float fVar22;
+  float fVar25;
+  float fVar26;
+  undefined1 auVar23 [16];
+  undefined1 auVar24 [16];
+  float fVar27;
+  float fVar28;
+  undefined1 auStack_b4 [12];
+  int local_a8;
+  int local_a4;
+  int local_a0;
+  int local_9c;
+  int local_98;
+  int local_94;
+  int local_90;
+  float local_8c;
+  int local_88;
+  int local_84;
+  float local_80;
+  float fStack_7c;
+  float fStack_78;
+  float fStack_74;
+  float local_70;
+  float fStack_6c;
+  float fStack_68;
+  float fStack_64;
+  float local_60;
+  float fStack_5c;
+  float fStack_58;
+  float fStack_54;
+  float local_50;
+  float fStack_4c;
+  float fStack_48;
+  float fStack_44;
+  float local_40;
+  float fStack_3c;
+  float fStack_38;
+  float fStack_34;
+  float local_30;
+  float fStack_2c;
+  float fStack_28;
+  float fStack_24;
+  uint local_14;
+  
+  local_14 = DAT_011c16bc ^ (uint)auStack_b4;
+  local_8c = *(float *)(*(int *)(param_1 + 0x58) + 0x98);
+  local_88 = *(int *)(*(int *)(*(int *)(param_1 + 0x2a4) + 0xc) + 0x1c);
+  local_90 = param_1;
+  if (0 < local_88) {
+    local_94 = 0;
+    local_a0 = 0;
+    local_a4 = 1;
+    local_9c = local_88;
+    do {
+      iVar16 = local_90;
+      iVar11 = local_94;
+      FUN_00c74dd0(&local_80,(float *)(*(int *)(local_94 + *(int *)(local_90 + 0xa4)) + 0x34));
+      piVar14 = *(int **)(iVar16 + 0x88);
+      iVar16 = *(int *)(*piVar14 + 0x1c);
+      puVar1 = (uint *)(piVar14[7] + iVar11);
+      *puVar1 = *puVar1 | 4;
+      fVar17 = local_8c * local_80;
+      fVar18 = local_8c * fStack_7c;
+      fVar19 = local_8c * fStack_78;
+      fVar20 = local_8c * fStack_74;
+      local_98 = local_a4;
+      iVar5 = local_a4;
+      fStack_74 = fVar20;
+      fStack_78 = fVar19;
+      fStack_7c = fVar18;
+      local_80 = fVar17;
+      local_84 = iVar16;
+      if (local_a4 < iVar16) {
+        local_a8 = local_a0 + 0x30;
+        do {
+          sVar4 = *(short *)(*(int *)(*piVar14 + 0xc) + local_98 * 2);
+          if ((sVar4 != -1) && (iVar5 = piVar14[7], (*(byte *)(iVar5 + sVar4 * 4) & 4) != 0)) {
+            if ((*(byte *)(iVar5 + local_98 * 4) & 1) != 0) {
+              iVar16 = piVar14[4];
+              if (sVar4 == -1) {
+                puVar2 = (undefined4 *)(iVar16 + local_a8);
+                uVar7 = puVar2[1];
+                uVar8 = puVar2[2];
+                uVar9 = puVar2[3];
+                puVar13 = (undefined4 *)(piVar14[1] + local_a8);
+                *puVar13 = *puVar2;
+                puVar13[1] = uVar7;
+                puVar13[2] = uVar8;
+                puVar13[3] = uVar9;
+                puVar2 = (undefined4 *)(iVar16 + 0x10 + local_a8);
+                uVar7 = puVar2[1];
+                uVar8 = puVar2[2];
+                uVar9 = puVar2[3];
+                puVar13[4] = *puVar2;
+                puVar13[5] = uVar7;
+                puVar13[6] = uVar8;
+                puVar13[7] = uVar9;
+                puVar2 = (undefined4 *)(iVar16 + 0x20 + local_a8);
+                uVar7 = puVar2[1];
+                uVar8 = puVar2[2];
+                uVar9 = puVar2[3];
+                puVar13[8] = *puVar2;
+                puVar13[9] = uVar7;
+                puVar13[10] = uVar8;
+                puVar13[0xb] = uVar9;
+              }
+              else {
+                iVar11 = (int)sVar4;
+                if ((*(byte *)(iVar5 + iVar11 * 4) & 2) == 0) {
+                  pfVar12 = (float *)(iVar11 * 0x30 + iVar16);
+                }
+                else {
+                  pfVar12 = (float *)FUN_00cda180(piVar14,iVar11);
+                }
+                fVar17 = pfVar12[4];
+                fVar18 = pfVar12[5];
+                fVar19 = pfVar12[6];
+                fVar20 = pfVar12[7];
+                fVar22 = *pfVar12;
+                fVar26 = pfVar12[1];
+                fVar28 = pfVar12[2];
+                fVar10 = pfVar12[3];
+                fVar27 = fVar28 * fVar19 + fVar26 * fVar18 + fVar22 * fVar17;
+                fVar21 = (fVar26 * fVar19 - fVar28 * fVar18) * fVar20 +
+                         (fVar20 * fVar20 + _DAT_010c71e0) * fVar22 + fVar27 * fVar17;
+                fVar25 = (fVar28 * fVar17 - fVar22 * fVar19) * fVar20 +
+                         (fVar20 * fVar20 + _UNK_010c71e4) * fVar26 + fVar27 * fVar18;
+                fVar17 = (fVar22 * fVar18 - fVar26 * fVar17) * fVar20 +
+                         (fVar20 * fVar20 + _UNK_010c71e8) * fVar28 + fVar27 * fVar19;
+                fVar18 = (fVar10 * fVar20 - fVar10 * fVar20) * fVar20 +
+                         (fVar20 * fVar20 + _UNK_010c71ec) * fVar10 + fVar27 * fVar20;
+                local_50 = (float)((uint)(fVar21 + fVar21) ^ _DAT_010c44d0);
+                fStack_4c = (float)((uint)(fVar25 + fVar25) ^ _UNK_010c44d4);
+                fStack_48 = (float)((uint)(fVar17 + fVar17) ^ _UNK_010c44d8);
+                fStack_44 = (float)((uint)(fVar18 + fVar18) ^ _UNK_010c44dc);
+                local_40 = (float)(_DAT_010c4c00 ^ (uint)pfVar12[4]);
+                fStack_3c = (float)(_UNK_010c4c04 ^ (uint)pfVar12[5]);
+                fStack_38 = (float)(_UNK_010c4c08 ^ (uint)pfVar12[6]);
+                fStack_34 = (float)(_UNK_010c4c0c ^ (uint)pfVar12[7]);
+                auVar3 = *(undefined1 (*) [16])(pfVar12 + 8);
+                auVar23._4_4_ = _UNK_010c7178;
+                auVar23._0_4_ = auVar3._8_4_;
+                auVar23._8_4_ = auVar3._12_4_;
+                auVar23._12_4_ = _UNK_010c717c;
+                auVar24._12_4_ = _UNK_010c717c;
+                auVar24._0_12_ = auVar3._0_12_;
+                auVar24 = rcpps(auVar23,auVar24);
+                fVar17 = auVar24._0_4_;
+                fVar18 = auVar24._4_4_;
+                fVar19 = auVar24._8_4_;
+                fVar20 = auVar24._12_4_;
+                local_30 = (float)((uint)((fVar17 + fVar17) - fVar17 * auVar3._0_4_ * fVar17) &
+                                  _DAT_010c4c10);
+                fStack_2c = (float)((uint)((fVar18 + fVar18) - fVar18 * auVar3._4_4_ * fVar18) &
+                                   _UNK_010c4c14);
+                fStack_28 = (float)((uint)((fVar19 + fVar19) - fVar19 * auVar3._8_4_ * fVar19) &
+                                   _UNK_010c4c18);
+                fStack_24 = (float)((uint)((fVar20 + fVar20) - fVar20 * _UNK_010c717c * fVar20) &
+                                   _UNK_010c4c1c);
+                pfVar12 = (float *)(iVar16 + local_a8);
+                fVar17 = *pfVar12;
+                fVar18 = pfVar12[1];
+                fVar19 = pfVar12[2];
+                fVar20 = pfVar12[3];
+                fVar28 = fVar19 * fStack_38 + fVar18 * fStack_3c + fVar17 * local_40;
+                pfVar15 = (float *)(piVar14[1] + local_a8);
+                fVar22 = (fVar19 * fStack_3c - fVar18 * fStack_38) * fStack_34 +
+                         (fStack_34 * fStack_34 + _DAT_010c71e0) * fVar17 + fVar28 * local_40;
+                fVar26 = (fVar17 * fStack_38 - fVar19 * local_40) * fStack_34 +
+                         (fStack_34 * fStack_34 + _UNK_010c71e4) * fVar18 + fVar28 * fStack_3c;
+                fVar17 = (fVar18 * local_40 - fVar17 * fStack_3c) * fStack_34 +
+                         (fStack_34 * fStack_34 + _UNK_010c71e8) * fVar19 + fVar28 * fStack_38;
+                fVar18 = (fVar20 * fStack_34 - fVar20 * fStack_34) * fStack_34 +
+                         (fStack_34 * fStack_34 + _UNK_010c71ec) * fVar20 + fVar28 * fStack_34;
+                *pfVar15 = fVar22 + fVar22 + local_50;
+                pfVar15[1] = fVar26 + fVar26 + fStack_4c;
+                pfVar15[2] = fVar17 + fVar17 + fStack_48;
+                pfVar15[3] = fVar18 + fVar18 + fStack_44;
+                FUN_00c66320(pfVar15 + 4,&local_40,(float *)(iVar16 + 0x10 + local_a8));
+                pfVar12 = (float *)(iVar16 + 0x20 + local_a8);
+                fVar17 = pfVar12[1];
+                fVar18 = pfVar12[2];
+                fVar19 = pfVar12[3];
+                pfVar15[8] = *pfVar12 * local_30;
+                pfVar15[9] = fVar17 * fStack_2c;
+                pfVar15[10] = fVar18 * fStack_28;
+                pfVar15[0xb] = fVar19 * fStack_24;
+                fVar17 = local_80;
+                fVar18 = fStack_7c;
+                fVar19 = fStack_78;
+                fVar20 = fStack_74;
+              }
+              puVar1 = (uint *)(piVar14[7] + local_98 * 4);
+              *puVar1 = *puVar1 & 0xfffffffe;
+              iVar16 = local_84;
+            }
+            puVar1 = (uint *)(piVar14[7] + local_98 * 4);
+            *puVar1 = *puVar1 | 4;
+            *(undefined1 *)(piVar14 + 10) = 0;
+          }
+          local_a8 = local_a8 + 0x30;
+          local_98 = local_98 + 1;
+          iVar5 = local_a4;
+          iVar11 = local_94;
+        } while (local_98 < iVar16);
+      }
+      for (; iVar5 < iVar16; iVar5 = iVar5 + 1) {
+        uVar6 = *(uint *)(piVar14[7] + iVar5 * 4);
+        if ((uVar6 & 4) != 0) {
+          *(uint *)(piVar14[7] + iVar5 * 4) = uVar6 & 0xfffffffb | 2;
+        }
+      }
+      pfVar12 = (float *)(piVar14[1] + local_a0);
+      *pfVar12 = fVar17;
+      pfVar12[1] = fVar18;
+      pfVar12[2] = fVar19;
+      pfVar12[3] = fVar20;
+      pfVar12[4] = local_70;
+      pfVar12[5] = fStack_6c;
+      pfVar12[6] = fStack_68;
+      pfVar12[7] = fStack_64;
+      pfVar12[8] = local_60;
+      pfVar12[9] = fStack_5c;
+      pfVar12[10] = fStack_58;
+      pfVar12[0xb] = fStack_54;
+      local_a4 = local_a4 + 1;
+      *(undefined4 *)(iVar11 + piVar14[7]) = 2;
+      local_a0 = local_a0 + 0x30;
+      local_94 = iVar11 + 4;
+      local_9c = local_9c + -1;
+      *(undefined1 *)(piVar14 + 10) = 0;
+    } while (local_9c != 0);
+    local_9c = 0;
+  }
+  iVar5 = local_88;
+  iVar16 = l
+
+======================================================================
+Havok_Ragdoll2_00c7d866 @ 0x00c7d866
+======================================================================
+  Function: FUN_00c7d810, Size: 127 bytes
+
+void __fastcall FUN_00c7d810(void *param_1)
+
+{
+  undefined4 uVar1;
+  float *pfVar2;
+  int iVar3;
+  float *pfVar4;
+  float local_58 [9];
+  float local_34 [12];
+  undefined4 local_4;
+  
+  pfVar2 = (float *)(*(int *)((int)param_1 + 0x58) + 0x68);
+  pfVar4 = local_34;
+  for (iVar3 = 0xd; iVar3 != 0; iVar3 = iVar3 + -1) {
+    *pfVar4 = *pfVar2;
+    pfVar2 = pfVar2 + 1;
+    pfVar4 = pfVar4 + 1;
+  }
+  pfVar2 = FUN_0043f8d0((void *)((int)param_1 + 0x60),local_58,local_34);
+  pfVar4 = local_34;
+  for (iVar3 = 9; iVar3 != 0; iVar3 = iVar3 + -1) {
+    *pfVar4 = *pfVar2;
+    pfVar2 = pfVar2 + 1;
+    pfVar4 = pfVar4 + 1;
+  }
+  local_4 = 0x3f800000;
+  FUN_00c74dd0((float *)((int)param_1 + 0x10),local_34);
+  FUN_00c79680((int)param_1);
+  uVar1 = *(undefined4 *)((int)param_1 + 0xc);
+  *(undefined4 *)((int)param_1 + 0xc) = 1;
+  FUN_00c7d030(param_1,(undefined4 *)0x0);
+  *(undefined4 *)((int)param_1 + 0xc) = uVar1;
+  if (*(int *)((int)param_1 + 0x4c) != 0) {
+    FUN_00cdb3e0(*(int *)((int)param_1 + 0x4c));
+  }
+  return;
+}
+
+
+
+######################################################################
+# SECTION 5: FUN_0045211d - what JIP hooks
+######################################################################
+
+======================================================================
+QueuedRef_Process_0045211d @ 0x0045211d
+======================================================================
+  Function: FUN_00451ef0, Size: 1147 bytes
+
+/* WARNING: Globals starting with '_' overlap smaller symbols at the same address */
+
+void __thiscall
+FUN_00451ef0(void *this,int *param_1,ScheduleGroupBase *param_2,int *param_3,char param_4)
+
+{
+  char cVar1;
+  char cVar2;
+  undefined1 uVar3;
+  bool bVar4;
+  int iVar5;
+  uint uVar6;
+  int *piVar7;
+  undefined3 extraout_var;
+  void *pvVar8;
+  float *pfVar9;
+  undefined4 uVar10;
+  float10 fVar11;
+  float10 fVar12;
+  undefined **ppuVar13;
+  undefined **ppuVar14;
+  undefined4 local_54;
+  int *local_18;
+  
+  if (param_1 != (int *)0x0) {
+    cVar1 = (**(code **)(*param_1 + 0x224))();
+    if (cVar1 == '\0') {
+      cVar1 = (**(code **)(*param_1 + 0x220))();
+      if (cVar1 == '\0') {
+        FUN_00451da0(param_1);
+        iVar5 = FUN_007af430((int)param_1);
+        cVar1 = FUN_00401170(iVar5);
+        uVar6 = FUN_00451e40((int)param_1);
+        if ((uVar6 & 0xff) != 0) {
+          if (param_4 == '\0') {
+            FUN_00451ea0(this,param_1);
+          }
+          if ((param_3 == (int *)0x0) || (iVar5 = FUN_005d8710((int)param_3), iVar5 == 0)) {
+            local_18 = (int *)(**(code **)(*param_1 + 0x1c8))(0);
+          }
+          else {
+            local_18 = (int *)FUN_005d8710((int)param_3);
+            iVar5 = FUN_0043fcd0((int)param_1);
+            if (iVar5 == 0) {
+              FUN_00570f70(param_1,(int)local_18);
+            }
+          }
+          if (param_3 != (int *)0x0) {
+            (**(code **)(*param_3 + 0x40))();
+          }
+          if (local_18 != (int *)0x0) {
+            if ((cVar1 == ',') || (cVar1 == '-')) {
+              iVar5 = FUN_009611e0((int)local_18);
+              if (iVar5 != 0) {
+                piVar7 = (int *)FUN_009611e0((int)local_18);
+                (**(code **)(*piVar7 + 0xe8))(local_18);
+              }
+            }
+            else {
+              FUN_00545cf0(param_2);
+              piVar7 = local_18;
+              pvVar8 = (void *)FUN_00450b80(0);
+              FUN_00b5eeb0(pvVar8,piVar7);
+              cVar2 = (**(code **)(*param_1 + 0x100))();
+              if (cVar2 != '\0') {
+                piVar7 = local_18;
+                pvVar8 = (void *)FUN_00450b80(0);
+                FUN_00b5cbd0(pvVar8,piVar7);
+              }
+              uVar6 = FUN_00564e60((int)param_1);
+              if ((uVar6 & 0xff) != 0) {
+                FUN_00452390((int)param_2);
+              }
+              bVar4 = true;
+              iVar5 = FUN_007af430((int)param_1);
+              uVar3 = FUN_00401170(iVar5);
+              if (CONCAT31(extraout_var,uVar3) == 0x23) {
+                pvVar8 = (void *)FUN_007af430((int)param_1);
+                cVar2 = FUN_00452440(pvVar8);
+                if (cVar2 != '\0') {
+                  bVar4 = false;
+                }
+              }
+              if (bVar4) {
+                FUN_00548880(param_2,param_1);
+                FUN_0056f700(param_1);
+              }
+              bVar4 = FUN_00452370((int)param_1);
+              if ((bVar4) && (bVar4 = FUN_0057b200((int)param_1), bVar4)) {
+                FUN_00578170(local_18);
+              }
+              else {
+                bVar4 = FUN_004523e0(param_1,2);
+                if ((bVar4) &&
+                   ((uVar6 = FUN_00450ff0((int)param_2), (uVar6 & 0xff) != 0 ||
+                    (uVar6 = FUN_004523c0((int)param_2), (uVar6 & 0xff) != 0)))) {
+                  FUN_00578060(local_18);
+                }
+              }
+              cVar2 = (**(code **)(*param_1 + 0x100))();
+              if ((cVar2 != '\0') && (param_1 != (int *)0x0)) {
+                FUN_00483710();
+              }
+              if (cVar1 == '\x1e') {
+                FUN_00430830((int)param_1);
+                FUN_007af430((int)param_1);
+                FUN_004534f0();
+              }
+              else {
+                piVar7 = (int *)0x0;
+                pvVar8 = (void *)FUN_00450b80(0);
+                FUN_00b5d9f0(pvVar8,local_18,piVar7);
+              }
+            }
+          }
+          FUN_00565730(param_1);
+          bVar4 = FUN_0042ce10(DAT_011ddf38);
+          if (!bVar4) {
+            pvVar8 = (void *)FUN_005d43c0((int)param_1);
+            FUN_005ac190(param_1,pvVar8);
+            uVar6 = 0x1000;
+            pvVar8 = (void *)FUN_005d43c0((int)param_1);
+            FUN_005ac750((int)param_1,pvVar8,uVar6);
+          }
+          if (cVar1 == '%') {
+            iVar5 = 0;
+            ppuVar14 = &PTR_PTR_01186060;
+            ppuVar13 = &PTR_PTR_01183108;
+            piVar7 = (int *)FUN_007af430((int)param_1);
+            piVar7 = (int *)FUN_00ec43fb(piVar7,0,(_s_RTTICompleteObjectLocator *)ppuVar13,
+                                         (TypeDescriptor *)ppuVar14,iVar5);
+            if ((piVar7 != (int *)0x0) && (cVar1 = FUN_00452480(), cVar1 != '\0')) {
+              pfVar9 = (float *)FUN_0045bb80((int)piVar7);
+              if (((float)_DAT_010179e0 < *pfVar9) && ((float)_DAT_010179e0 < pfVar9[1])) {
+                fVar11 = (float10)(**(code **)(*piVar7 + 0x1bc))(0x3f800000);
+                fVar12 = FUN_00567400((int)param_1);
+                local_54 = (undefined4)(longlong)ROUND(fVar12 * (float10)(double)fVar11);
+                (**(code **)(*param_1 + 500))(local_54);
+                FUN_00547ad0(param_2);
+              }
+            }
+          }
+          cVar1 = (**(code **)(*param_1 + 0x100))();
+          if ((cVar1 != '\0') && (FUN_008c4640(param_1), param_1 != DAT_011dea3c)) {
+            uVar10 = FUN_0084e3a0((int)param_1);
+            piVar7 = (int *)FUN_0043fcd0((int)param_1);
+            FUN_004b6dc0(piVar7,uVar10);
+          }
+        }
+      }
+      else {
+        (**(code **)(*param_1 + 0x304))();
+      }
+    }
+    else {
+      (**(code **)(*param_1 + 0x308))();
+    }
+  }
+  return;
+}
+
+
+
+######################################################################
+# SECTION 6: AI dispatch condition - when are threads NOT dispatched?
+# If threads aren't dispatched, our join would be a no-op?
+######################################################################
+
+======================================================================
+AI_DispatchPrep_008c80e0 @ 0x008c80e0
+======================================================================
+  Function: FUN_008c80e0, Size: 46 bytes
+
+void __cdecl FUN_008c80e0(char param_1)
+
+{
+  if ((DAT_011dfa18 != '\0') && (param_1 == '\0')) {
+    DAT_011dfa18 = param_1;
+    FUN_008c80c0();
+  }
+  DAT_011dfa18 = param_1;
+  return;
+}
+
+
+
+======================================================================
+AI_Start_008c78c0 @ 0x008c78c0
+======================================================================
+  Function: FUN_008c78c0, Size: 198 bytes
+
+void __fastcall FUN_008c78c0(int param_1)
+
+{
+  undefined4 local_14;
+  undefined4 local_10;
+  undefined4 local_c;
+  undefined4 local_8;
+  
+  for (local_8 = 0; local_8 < 0xc; local_8 = local_8 + 1) {
+    ResetEvent(*(HANDLE *)(param_1 + 0x3c + local_8 * 4));
+  }
+  for (local_c = 0; local_c < 8; local_c = local_c + 1) {
+    ResetEvent(*(HANDLE *)(param_1 + 0x6c + local_c * 4));
+  }
+  for (local_10 = 0; local_10 < 2; local_10 = local_10 + 1) {
+    *(undefined4 *)(param_1 + 0xc + local_10 * 4) = 0;
+  }
+  DAT_011dfa19 = 1;
+  for (local_14 = 0; local_14 < 2; local_14 = local_14 + 1) {
+    if (*(int *)(param_1 + local_14 * 4) != 0) {
+      FUN_008c9fb0(*(int *)(param_1 + local_14 * 4));
+    }
+  }
+  return;
+}
+

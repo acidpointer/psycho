@@ -117,7 +117,7 @@ deallocation.
        |                                     |
        +── stages 0-8                        +── 700MB threshold
        +── implicit thread sync              +── BSTaskManagerThread guard (TES+0x77c)
-                                             +── AI thread join (FUN_008c7990)
+                                             +── Two-hook architecture (defer to AI join)
                                              +── Loading state counter
                                              +── PreDestruction Protocol
                                              +── FindCellToUnload x20
@@ -202,24 +202,25 @@ synchronization. The pressure relief system is our replacement.
 ```
   FUN_0086e650 (MainLoop) -- ONE FRAME
   |
-  |  0x0086e897: FUN_00c3dbf0(Havok)          -- Havok world step
-  |  0x0086e987: FUN_004556d0(PDD)            -- Game's own PDD
-  |  0x0086e9e4: FUN_00455640(CellUpdate)     -- Cell grid update (single-thread)
-  |  0x0086eac9: FUN_00878080(HeapCompact)    -- HeapCompact stages 0-2
-  |  0x0086eadf: FUN_00868850(QueueDrain)     -- Per-frame queue drain
+  |  0x0086e897: FUN_00c3dbf0              -- IOManager task processing
+  |  0x0086e987: FUN_004556d0              -- Game's own PDD
+  |  0x0086eac9: FUN_00878080              -- HeapCompact stages 0-2
+  |  0x0086eadf: FUN_00868850              -- Per-frame queue drain
   |
   |  ============ AI DISPATCH ==================
-  |  0x0086ec78: FUN_008c80e0(AI_PREP)        -- AI threads signaled
-  |  0x0086ec87: FUN_008c78c0(AI_START)       -- AI threads ACTIVE
-  |  ... (work while AI threads run) ...
+  |  0x0086ec78: FUN_008c80e0              -- AI dispatch prep
+  |  0x0086ec87: FUN_008c78c0              -- AI threads START (DAT_011dfa19 = 1)
   |
-  |  ============ RENDER + OUR HOOK ============
-  |  0x0086ede8: FUN_0086ff70(RENDER)         -- Render
-  |  0x0086edf0: FUN_008705d0(OUR_HOOK)       -- Post-render (AI STILL ACTIVE)
+  |  ============ RENDER + HOOK 1 ==============
+  |  0x0086ede8: FUN_0086ff70              -- Render
+  |  0x0086edf0: FUN_008705d0              -- HOOK 1: pressure detect + defer
   |
-  |  ============ AI JOIN ======================
-  |  0x0086ee4e: FUN_008c7990(AI_JOIN)        -- AI threads JOINED
-  |  0x0086ee62: FUN_0086f6a0(POST_AI)        -- Post-AI cleanup
+  |  ============ AI JOIN + HOOK 2 =============
+  |  0x0086ee4e: FUN_008c7990              -- HOOK 2: AI join + deferred unload
+  |                                           (DAT_011dfa19 = 0)
+  |
+  |  ============ POST-AI ======================
+  |  0x0086ee62: FUN_0086f6a0              -- Post-AI cleanup
   |
   |  END FRAME
 ```
@@ -230,15 +231,16 @@ synchronization. The pressure relief system is our replacement.
   Frame timeline:
   ──────────────────────────────────────────────────────────────────────>
   |            |            |            |          |          |        |
-  HeapCompact  QueueDrain   AI START    RENDER     OUR HOOK   AI JOIN  END
+  HeapCompact  QueueDrain   AI START    RENDER     HOOK 1     HOOK 2   END
   0x0086eac9   0x0086eadf  0x0086ec87  0x0086ede8 0x0086edf0 0x0086ee4e
 
   AI threads:   IDLE────────|ACTIVE──────────────────────────|IDLE─────
                              ^                                ^
-                          dispatch                          join
+                          dispatch                       join+unload
+                          DAT_011dfa19=1                 DAT_011dfa19=0
 ```
 
-**Key Takeaway:** AI threads are ACTIVE from dispatch (0x0086ec87) until join (0x0086ee4e). Our hook at 0x0086edf0 runs while AI threads are active. We call FUN_008c7990 (AI thread join) before cell unloading in pressure relief to ensure AI threads are idle.
+**Key Takeaway:** AI threads are ACTIVE from dispatch (0x0086ec87) until join (0x0086ee4e). Hook 1 detects pressure and defers cell unloading via the deferred_unload flag. Hook 2 wraps FUN_008c7990 -- after the original joins AI threads, it runs the deferred destruction protocol. This ensures cell unloading ONLY happens when AI threads are idle.
 
 ---
 
@@ -589,6 +591,35 @@ kept "zombie" data intact until arena purge).
        |     (see Chapter 8)
 ```
 
+### Two-Hook Architecture for Cell Unloading
+
+Cell unloading cannot run from Hook 1 (FUN_008705d0) on multi-threaded systems because AI threads are active at that position. FUN_008c7990 (AI thread join) cannot be called directly -- it consumes a counting semaphore (WaitForSingleObject) that the game's own join at 0x0086ee4e needs. Calling it causes deadlock/corruption on the next frame.
+
+Solution: two hooks with a deferred flag.
+
+```
+Hook 1 (FUN_008705d0, post-render — existing):
+  → on_frame_tick() (quarantine, pressure detection)
+  → Check DAT_011dfa19 (AI active flag):
+    - If 1 (AI active): set deferred_unload flag, skip cell unloading
+    - If 0 (AI idle): run destruction protocol directly
+  → HeapCompact trigger + mi_collect always run
+
+Hook 2 (FUN_008c7990, AI thread join — NEW):
+  → Call original (AI threads join, DAT_011dfa19 = 0)
+  → Check deferred_unload flag:
+    - If set: re-check TES+0x77c (BSTaskManager guard)
+    - Run full destruction protocol
+    - Clear flag
+```
+
+DAT_011dfa19 lifecycle:
+- Set to 1 by FUN_008c78c0 (AI Start, called at 0x0086ec87)
+- Set to 0 by FUN_008c7990 (AI Join, called at 0x0086ee4e)
+- At Hook 1 position: 1 when AI threads dispatched, 0 when not
+
+Hook 2 only fires on multi-threaded systems (processor count > 1). On single-threaded systems, AI threads don't exist, DAT_011dfa19 stays 0, and Hook 1 handles everything directly.
+
 ### Hook Rollback Guard
 
 install_game_heap_hooks() uses a HookGuard that tracks all enabled hooks. If any hook enable fails, the guard's Drop impl disables all previously-enabled hooks in reverse order, preventing split-heap corruption (e.g., alloc→mimalloc but free→original SBM). SBM patches are applied AFTER hook commit — they only execute when all hooks are confirmed working.
@@ -840,35 +871,39 @@ bouncing. Thread-local counters have zero cross-core contention.
 ### Full Relief Sequence
 
 ```
-  PRESSURE RELIEF (at hook position, post-render):
+  PRESSURE RELIEF (two-hook architecture):
   |
-  +-- Guard: Check TES+0x77c
-  |     If != -1: BSTaskManagerThread loading cells, skip this cycle
+  HOOK 1 (FUN_008705d0, post-render):
   |
-  +-- Guard: AI Thread Join (FUN_008c7990)
-  |     Wait for all AI Linear Task Threads to complete current work
+  +-- Check commit > 700MB threshold
+  +-- Check cooldown (2000ms)
+  +-- Check TES+0x77c (BSTaskManagerThread guard)
+  |     If != -1: skip this cycle
   |
-  +-- Step 0: InterlockedIncrement(DAT_01202d6c)
-  |     Enter loading state
+  +-- Check DAT_011dfa19 (AI active flag)
+  |     If 1 (multi-threaded, AI active):
+  |       Set deferred_unload = true
+  |       Skip cell unloading → proceed to HeapCompact trigger
+  |     If 0 (single-threaded or AI not dispatched):
+  |       Run destruction protocol directly (steps 0-5 below)
   |
-  +-- Step 1: PreDestructionSetup (0x00878160)
-  |     hkWorld_Lock + SceneGraphInvalidate
+  +-- HeapCompact trigger: *(0x011F636C) = 2
+  +-- mi_collect(false)
   |
-  +-- Step 2: FindCellToUnload x 20
+  HOOK 2 (FUN_008c7990, AI thread join — multi-threaded only):
   |
-  +-- Step 3: DeferredCleanupSmall (0x00878250)
-  |     PDD(1) + AsyncFlush(0) + ProcessPendingCleanup
+  +-- Call original (waits for AI threads via WaitForSingleObject)
+  +-- Check deferred_unload flag
+  |     If not set: return
+  +-- Re-check TES+0x77c
+  +-- Run destruction protocol (steps 0-5):
   |
-  +-- Step 4: PostDestructionRestore (0x00878200)
-  |     hkWorld_Unlock
-  |
-  +-- Step 5: InterlockedDecrement(DAT_01202d6c)
-  |     Exit loading state
-  |
-  +-- Step 6: HeapCompact trigger
-  |     *(0x011F636C) = 2 (stages 0-2 on next frame)
-  |
-  +-- Step 7: mi_collect(false)
+  |  Step 0: InterlockedIncrement(DAT_01202d6c) — loading state
+  |  Step 1: PreDestructionSetup — hkWorld_Lock + SceneGraphInvalidate
+  |  Step 2: FindCellToUnload × 20
+  |  Step 3: DeferredCleanupSmall — PDD + async flush
+  |  Step 4: PostDestructionRestore — hkWorld_Unlock
+  |  Step 5: InterlockedDecrement(DAT_01202d6c)
 ```
 
 ### Why Quarantine Is NOT Flushed During Pressure Relief
@@ -1097,6 +1132,7 @@ when consecutive allocations overlapped.
 | sbm2 region overlap | Memory corruption in scrap heap | Bump allocator new_offset didn't account for alignment padding | Fixed offset calculation |
 | NVSE event dispatch during cell destruction | EXCEPTION_ACCESS_VIOLATION in nvse_stewie_tweaks LowProcess__Func011F or johnnyguitar HandlePLChangeEvent | FindCellToUnload triggers actor process changes during cell destruction, which fires NVSE plugin event handlers (PLChangeEvent). These handlers access objects mid-destruction (refcount 0). | Set loading state counter DAT_01202d6c > 0 before FindCellToUnload |
 | CellTransitionHandler AI thread crash (ENGINE BUG) | EXCEPTION_ACCESS_VIOLATION on AI Linear Task Thread, hkpSimulationIsland / hkScaledMoppBvTreeShape with ecx=NULL | Game's own CellTransitionHandler runs BLOCKING PDD without hkWorld_Lock. AI threads from post-render signal race with freed physics data. | Hook CellTransitionHandler, wrap with hkWorld_Lock/Unlock + loading state counter |
+| AI thread join semaphore | Havok world corruption, ragdoll crash on next frame | Calling FUN_008c7990 from our hook consumes the completion semaphore; game's own join deadlocks | Two-hook architecture: defer cell unloading to Hook 2 (AI join wrapper) instead of calling join directly |
 
 ### NVSE Event Dispatch During Cell Destruction (Detail)
 
@@ -1130,10 +1166,11 @@ Stress test result: 440+ cells unloaded, 3+ minutes extreme traversal, zero stal
 
 ## Chapter 12: Key Lessons Learned
 
-> **TL;DR:** 21 hard-won lessons from development. The most important: the 500MB budget
+> **TL;DR:** 23 hard-won lessons from development. The most important: the 500MB budget
 > was a synchronization barrier, the Pre-Destruction Protocol is mandatory for safe PDD,
 > per-allocation atomics destroy performance, NVSE plugins require event suppression
-> during cell destruction, and CellTransitionHandler is a genuine Bethesda engine bug.
+> during cell destruction, CellTransitionHandler is a genuine Bethesda engine bug, and
+> AI thread join consumes counting semaphores that cannot be called from our hook.
 
 ### 1. The 500MB Budget Was a Synchronization Barrier
 
@@ -1240,6 +1277,14 @@ purge_delay=500ms caused old freed pages to stay committed for 500ms during cell
 ### 21. CellTransitionHandler Is the Only PDD Caller Without hkWorld_Lock
 
 Out of 8 PDD callers in the game, CellTransitionHandler is the only one that calls BLOCKING PDD while AI threads may be active AND without locking the Havok world. The 5 normal callers use PreDestructionSetup. HeapCompact has implicit synchronization (Stage 8 sleeping). Save/load runs during loading (AI idle). CellTransition_Conditional uses non-blocking PDD. Only CellTransitionHandler is genuinely buggy — a Bethesda engine bug masked by SBM zombies for 15+ years.
+
+### 22. FUN_008c7990 (AI Join) Consumes a Counting Semaphore
+
+The AI completion mechanism uses Windows counting semaphores (ReleaseSemaphore/WaitForSingleObject). FUN_008c7990 waits on each AI thread's completion semaphore, consuming the count. Calling it from our hook steals the signal that the game's own join at 0x0086ee4e needs — causing deadlock or frame corruption on the next frame. Solution: hook FUN_008c7990 itself and run cell unloading AFTER the original returns.
+
+### 23. DAT_011DFA19 Is the Reliable AI Active Flag
+
+The game sets DAT_011dfa19 = 1 when AI threads are dispatched (FUN_008c78c0 at 0x0086ec87) and clears it to 0 when joined (FUN_008c7990 at 0x0086ee4e). Reading this byte at our Hook 1 position reliably indicates whether AI threads are active. This is more reliable than reading the processor count (which requires calling FUN_0043d4d0, a settings getter — direct pointer dereference reads wrong values).
 
 ---
 
@@ -1448,7 +1493,7 @@ All Rust FFI signatures are `unsafe extern "<conv>"`.
 | `0x008C79E0` | AI_Dispatch | 70b | thiscall | `fn(this: *mut c_void)` |
 | `0x008C7A70` | AI_Wait | 41b | thiscall | `fn(this: *mut c_void)` |
 | `0x008C80E0` | AI_StartFrame | 46b | cdecl | `fn(param: u8)` |
-| `0x008C78C0` | AI_ResetEvents | 198b | fastcall | `fn(param_1: *mut c_void)` |
+| `0x008C78C0` | AI_Start | 198b | fastcall | `fn(mgr: *mut c_void)` |
 | `0x008C7990` | AIThreadJoin | 72b | fastcall | `fn(param_1: *mut c_void)` |
 | `0x00713D80` | GetAIThreadManager | -- | cdecl | `fn() -> *mut c_void` |
 
@@ -1581,7 +1626,7 @@ All Rust FFI signatures are `unsafe extern "<conv>"`.
 | `DAT_011DE70C` | HeapCompact retry counter |
 | `DAT_011DE8E0` | PDD critical section (lock object) |
 | `DAT_011DFA18` | AI frame dispatch flag |
-| `DAT_011DFA19` | AI frame active flag |
+| `DAT_011DFA19` | AI active flag. Set to 1 by AI dispatch (FUN_008c78c0), cleared to 0 by AI join (FUN_008c7990). Reliable indicator of AI thread state at our hook position. |
 | `DAT_011F11A0` | Global lock for deferred destruction |
 | `DAT_011F4480` | Queue 0x10 lock (form deletions) |
 | `DAT_01202D98` | Havok world singleton (hkWorld_Lock target) |
@@ -1652,6 +1697,8 @@ All Rust FFI signatures are `unsafe extern "<conv>"`.
 | `audit_mainloop_timeline.py` | Comprehensive audit: exact main loop execution order |
 | `audit_func_552570.py` | FUN_00552570 analysis — deferred ref placement, NOT AI sync |
 | `audit_ai_join_point.py` | AI thread join point — confirmed 0x0086ee4e AFTER our hook |
+| `ai_join_safety.py` | Verify AI thread join safety — semaphore mechanics, Havok world step identity |
+| `post_ai_join_hook.py` | Research post-AI-join hook positions — DAT_011dfa19 lifecycle, hookability |
 
 ### Analysis Outputs
 
