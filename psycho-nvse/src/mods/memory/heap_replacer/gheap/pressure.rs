@@ -161,14 +161,15 @@ impl PressureRelief {
         if info.get_current_commit() >= THRESHOLD {
             self.requested.store(true, Ordering::Release);
 
-            // Trigger HeapCompact stages 0-2 for the next frame.
-            // Stage 0: Reset + ProcessPendingCleanup
-            // Stage 1: SBM arena teardown (RET-patched → no-op)
-            // Stage 2: Cell/resource cleanup (BSA/texture caches)
-            unsafe {
-                let trigger = HEAP_COMPACT_TRIGGER_PTR as *mut u32;
-                trigger.write_volatile(2);
-            }
+            // Do NOT trigger HeapCompact here. check() runs from any thread
+            // (including BSTaskManagerThread) every 50K allocs. HeapCompact
+            // Stage 2 cleans BSA/texture caches, but without the blocking
+            // async flush from relieve(), the IO thread may still hold refs
+            // to textures being cleaned — NiPixelData/NiSourceTexture UAF.
+            //
+            // HeapCompact is triggered in relieve() after the full destruction
+            // protocol (loading state, Havok lock, DeferredCleanupSmall with
+            // blocking async flush) ensures all IO tasks are drained first.
         }
     }
 
@@ -256,7 +257,10 @@ impl PressureRelief {
             // 3. DeferredCleanupSmall — full PDD (all queues) + async flush
             // 4. PostDestructionRestore — hkWorld_Unlock + restore
             // 5. Exit loading state
-            // 6. Flush quarantine (zombie data no longer needed)
+            //
+            // Quarantine is NOT flushed here — the 30-frame zombie window
+            // protects BSTaskManagerThread from picking up new QueuedTexture
+            // tasks that reference quarantined memory after the async flush.
             //
             // Each step addresses a specific crash vector:
             // - Loading state: prevents NVSE plugins from firing event handlers
@@ -265,7 +269,6 @@ impl PressureRelief {
             // - SceneGraphInvalidate: rebuilds SpeedTree draw lists → no BSTreeNode UAF
             // - Full PDD: all queues, no selective skip needed
             // - Quarantine: IO thread reads intact zombie data during async flush
-            // - Immediate flush: reclaims zombie memory before new cell loading
 
             // Step 0: Enter loading state — suppress NVSE event dispatching.
             // DAT_01202d6c is an InterlockedIncrement/Decrement counter.
@@ -302,10 +305,10 @@ impl PressureRelief {
             // Step 5: Exit loading state
             loading_counter.fetch_sub(1, std::sync::atomic::Ordering::AcqRel);
 
-            // Step 6: Flush quarantine immediately.
-            // The blocking async flush in DeferredCleanupSmall already drained
-            // all stale IO tasks — zombie data served its purpose.
-            unsafe { super::delayed_free::flush_current_thread() };
+            // Do NOT flush quarantine here. BSTaskManagerThread may have already
+            // picked up new QueuedTexture tasks referencing memory in quarantine.
+            // Let the normal 30-frame expiration handle it (~30MB overhead, well
+            // within VA ceiling).
         }
 
         // Trigger HeapCompact stages 0-2 for the NEXT frame.

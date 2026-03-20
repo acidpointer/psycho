@@ -52,9 +52,10 @@ use std::sync::atomic::{AtomicU64, Ordering};
 /// Memory overhead: ~30 frames × ~1MB/frame = ~30MB zombie data.
 /// At 800MB idle commit, well within the ~1.8GB VA ceiling.
 ///
-/// The pressure relief system flushes quarantine immediately after
-/// DeferredCleanupSmall, so during cell transitions the actual zombie
-/// window is much shorter (same-frame flush).
+/// The pressure relief system no longer flushes quarantine — the full
+/// 30-frame window is always respected. This prevents a race where
+/// BSTaskManagerThread picks up new QueuedTexture tasks referencing
+/// quarantined memory between async flush return and mi_free.
 ///
 /// Tuning: 3 frames was too short (Stewie's Tweaks crash on dead
 /// creature weapon ref). 60 frames added unnecessary ~60MB overhead
