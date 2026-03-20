@@ -14,9 +14,10 @@
 //!
 //! Three mechanisms work together to prevent OOM:
 //!
-//! ## Layer 1: Post-render cell unloading + selective PDD (this module)
-//! Unloads cells and runs PDD with NiNode queue (0x08) skipped. Safe because
-//! render is done and scene data is consumed.
+//! ## Layer 1: Post-render cell unloading + full PDD (this module)
+//! Unloads cells using the game's full destruction protocol: loading state
+//! counter, hkWorld_Lock, SceneGraphInvalidate, FindCellToUnload,
+//! DeferredCleanupSmall (full PDD + blocking async flush).
 //!
 //! ## Layer 2: Boosted per-frame NiNode drain (FUN_00868850 hook)
 //! The game's per-frame queue processor runs at line ~802, before AI dispatch.
@@ -28,9 +29,7 @@
 //! NEXT frame, FUN_00878080 at line ~797 runs HeapCompact stages 0-2:
 //! Stage 0 (reset + ProcessPendingCleanup), Stage 1 (SBM no-op),
 //! Stage 2 (BSA/texture cache cleanup).
-//! Stages 3+ are EXCLUDED — Stage 3 async queue flush completes stale IO
-//! tasks on freed cell data (QueuedTexture NULL vtable), Stage 4 full PDD
-//! races with IO/AI threads, Stage 5 TLS=0 + mimalloc = BSTreeNode crash.
+//! Stages 3+ are EXCLUDED — Stage 5 TLS=0 + mimalloc = BSTreeNode crash.
 
 use libc::c_void;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
@@ -81,6 +80,18 @@ const DEFERRED_CLEANUP_SMALL: usize = 0x00878250;
 
 /// DAT_011dea10 — pointer to the game's TES/DataHandler manager singleton.
 const GAME_MANAGER_PTR: usize = 0x011DEA10;
+
+/// DAT_011dea3c — pointer to the TES singleton (player, world, cells).
+/// TES+0x77c holds a pending cell load task handle for BSTaskManagerThread.
+/// When -1 (0xFFFFFFFF), no cell loads are pending — safe to unload cells.
+/// When != -1, BSTaskManagerThread is loading cells — unloading would race.
+///
+/// The game's CellTransitionHandler (FUN_008774a0) waits for this via
+/// FUN_00877700 → FUN_00ad8da0(TES+0x77c, 1000ms) before any cell work.
+const TES_SINGLETON_PTR: usize = 0x011DEA3C;
+
+/// Offset into TES where the pending cell load task handle lives.
+const TES_PENDING_CELL_LOAD_OFFSET: usize = 0x77C;
 
 /// HeapCompact trigger field: heap_singleton + 0x134.
 /// Writing N causes HeapCompact stages 0..N to run on the NEXT FRAME.
@@ -247,6 +258,33 @@ impl PressureRelief {
         let mut cells: usize = 0;
 
         if CELL_UNLOAD_ENABLED {
+            // === GUARD: Skip if BSTaskManagerThread is loading cells ===
+            //
+            // TES+0x77c holds a pending cell load task handle. When != -1,
+            // BSTaskManagerThread is actively running ExteriorCellLoaderTask(s).
+            // Unloading cells while the IO thread loads them causes:
+            // - ExteriorCellLoaderTask::AddReference on NotLoaded cell → crash
+            // - VanillaPlusSkin reading geometry from unloaded cell → ACCESS_VIOLATION
+            //
+            // The game's CellTransitionHandler (FUN_008774a0) WAITS for this
+            // via FUN_00877700 before touching cells. We do a non-blocking check
+            // and skip this cycle if busy. Pressure retries in COOLDOWN_MS.
+            let io_busy = unsafe {
+                let tes = *(TES_SINGLETON_PTR as *const *const u8);
+                if tes.is_null() {
+                    true // TES not initialized, skip
+                } else {
+                    let handle_ptr = tes.add(TES_PENDING_CELL_LOAD_OFFSET) as *const i32;
+                    (*handle_ptr) != -1
+                }
+            };
+
+            if io_busy {
+                log::debug!("[PRESSURE] Skipping cell unload — BSTaskManagerThread busy");
+                self.active.store(false, Ordering::Release);
+                return;
+            }
+
             // === FULL DESTRUCTION PROTOCOL ===
             //
             // Replicates the EXACT sequence the game uses for safe cleanup:
@@ -271,10 +309,6 @@ impl PressureRelief {
             // - Quarantine: IO thread reads intact zombie data during async flush
 
             // Step 0: Enter loading state — suppress NVSE event dispatching.
-            // DAT_01202d6c is an InterlockedIncrement/Decrement counter.
-            // When > 0, actor process changes during cell destruction skip
-            // event dispatch, preventing NVSE plugins from accessing
-            // mid-destruction objects (refcount 0, partially freed).
             let loading_counter =
                 unsafe { &*(LOADING_STATE_COUNTER_PTR as *const std::sync::atomic::AtomicI32) };
             loading_counter.fetch_add(1, std::sync::atomic::Ordering::AcqRel);
@@ -304,11 +338,6 @@ impl PressureRelief {
 
             // Step 5: Exit loading state
             loading_counter.fetch_sub(1, std::sync::atomic::Ordering::AcqRel);
-
-            // Do NOT flush quarantine here. BSTaskManagerThread may have already
-            // picked up new QueuedTexture tasks referencing memory in quarantine.
-            // Let the normal 30-frame expiration handle it (~30MB overhead, well
-            // within VA ceiling).
         }
 
         // Trigger HeapCompact stages 0-2 for the NEXT frame.

@@ -1,0 +1,99 @@
+======================================================================
+FUN_00ad8da0 WAIT SEMANTICS
+======================================================================
+
+Called as: FUN_00ad8da0(TES+0x77c, 1000)
+Need: what it waits on, return value, can we use timeout=0?
+
+######################################################################
+# SECTION 1: FUN_00ad8da0 full decompile
+######################################################################
+
+======================================================================
+FUN_00ad8da0_IOWait @ 0x00ad8da0
+======================================================================
+  Function: FUN_00ad8da0, Size: 60 bytes
+
+bool __thiscall FUN_00ad8da0(void *this,undefined4 param_1)
+
+{
+  int iVar1;
+  undefined *this_00;
+  undefined4 uVar2;
+  uint uVar3;
+  
+  iVar1 = *(int *)this;
+  if (iVar1 != -1) {
+    uVar3 = 0x26;
+    uVar2 = *(undefined4 *)this;
+    this_00 = FID_conflict__Immortalize<class_std::_Generic_error_category>();
+    FUN_00adc560(this_00,uVar2,param_1,uVar3);
+    *(undefined4 *)this = 0xffffffff;
+  }
+  return iVar1 != -1;
+}
+
+
+
+--- XRefs to FUN_00ad8da0 (0x00ad8da0) ---
+  UNCONDITIONAL_CALL @ 0x0075b790 (in FUN_0075b750)
+  UNCONDITIONAL_CALL @ 0x0082ebd0 (in FUN_0082eb70)
+  UNCONDITIONAL_CALL @ 0x0082db1c (in FUN_0082d7c0)
+  UNCONDITIONAL_CALL @ 0x0082dcdb (in FUN_0082d7c0)
+  UNCONDITIONAL_CALL @ 0x0082deee (in FUN_0082d7c0)
+  UNCONDITIONAL_CALL @ 0x0082e0a3 (in FUN_0082d7c0)
+  UNCONDITIONAL_CALL @ 0x0082e4b2 (in FUN_0082d7c0)
+  UNCONDITIONAL_CALL @ 0x0082e90b (in FUN_0082d7c0)
+  UNCONDITIONAL_CALL @ 0x0082ea12 (in FUN_0082d7c0)
+  UNCONDITIONAL_CALL @ 0x0082eb25 (in FUN_0082eae0)
+  UNCONDITIONAL_CALL @ 0x00877715 (in FUN_00877700)
+  UNCONDITIONAL_CALL @ 0x0088d9cb (in FUN_0088d7d0)
+  UNCONDITIONAL_CALL @ 0x0088da17 (in FUN_0088d7d0)
+  UNCONDITIONAL_CALL @ 0x0089d9c3 (in FUN_0089d900)
+  UNCONDITIONAL_CALL @ 0x0089da1b (in FUN_0089d900)
+  UNCONDITIONAL_CALL @ 0x007739d9 (in FUN_007738c0)
+  UNCONDITIONAL_CALL @ 0x0057a1a6 (in FUN_00579ac0)
+  UNCONDITIONAL_CALL @ 0x0075528f (in FUN_00755270)
+  UNCONDITIONAL_CALL @ 0x0093b58f (in FUN_0093b3a0)
+  UNCONDITIONAL_CALL @ 0x0093b992 (in FUN_0093b7a0)
+  ... (truncated at 20)
+  Total: 20 refs
+
+--- Calls FROM FUN_00ad8da0 (0x00ad8da0) ---
+  CALL 0x00ad9060 -> FID_conflict:_Immortalize<class_std::_Generic_error_category>
+  CALL 0x00adc560 -> FUN_00adc560
+  Total unique calls: 2
+
+######################################################################
+# SECTION 2: What is at TES+0x77c? (DAT_011dea3c + 0x77c)
+# This is the object passed to the wait function
+######################################################################
+TES singleton ptr: DAT_011dea3c
+Wait target: *(DAT_011dea3c) + 0x77c
+
+######################################################################
+# SECTION 3: Decompile subcalls to understand wait mechanism
+######################################################################
+
+######################################################################
+# SECTION 4: Other callers of FUN_00ad8da0 - timeout patterns
+######################################################################
+
+######################################################################
+# SECTION 5: FUN_008776e0 (end of CellTransition)
+# Does it re-enable task processing?
+######################################################################
+
+======================================================================
+FUN_008776e0_ReenableIO @ 0x008776e0
+======================================================================
+  Function: FUN_008776e0, Size: 25 bytes
+
+void __fastcall FUN_008776e0(int param_1)
+
+{
+  *(undefined1 *)(param_1 + 2) = 0;
+  *(undefined1 *)(param_1 + 5) = 0;
+  return;
+}
+

@@ -1,0 +1,304 @@
+======================================================================
+FUN_00877700 ANALYSIS - THE MISSING FUNCTION
+======================================================================
+
+CellTransitionHandler calls FUN_00877700(DAT_011dea3c) FIRST
+before any cell unloading. Our pressure relief SKIPS this.
+This likely waits for BSTaskManagerThread to finish pending
+ExteriorCellLoaderTasks.
+
+######################################################################
+# SECTION 1: FUN_00877700 - full decompile + call graph
+######################################################################
+
+======================================================================
+FUN_00877700_CriticalMissing @ 0x00877700
+======================================================================
+  Function: FUN_00877700, Size: 30 bytes
+
+void __fastcall FUN_00877700(int param_1)
+
+{
+  FUN_00ad8da0((void *)(param_1 + 0x77c),1000);
+  return;
+}
+
+
+
+--- XRefs to FUN_00877700 (0x00877700) ---
+  UNCONDITIONAL_CALL @ 0x008774c4 (in FUN_008774a0)
+  Total: 1 refs
+
+--- Calls FROM FUN_00877700 (0x00877700) ---
+  CALL 0x00ad8da0 -> FUN_00ad8da0
+  Total unique calls: 1
+
+######################################################################
+# SECTION 2: FUN_00453a70 (CellTransition uses) vs
+# FUN_00453a80 (FindCellToUnload - we use)
+######################################################################
+
+======================================================================
+FUN_00453a70_CellTransitionPrep @ 0x00453a70
+======================================================================
+  Function: FUN_00453a70, Size: 10 bytes
+
+undefined4 FUN_00453a70(void)
+
+{
+  return DAT_011f6d98;
+}
+
+
+
+--- XRefs to FUN_00453a70 (0x00453a70) ---
+  UNCONDITIONAL_CALL @ 0x0086b3f8 (in FUN_0086a850)
+  UNCONDITIONAL_CALL @ 0x0086b415 (in FUN_0086a850)
+  UNCONDITIONAL_CALL @ 0x0086b537 (in FUN_0086a850)
+  UNCONDITIONAL_CALL @ 0x0086b554 (in FUN_0086a850)
+  UNCONDITIONAL_CALL @ 0x0086b7b3 (in FUN_0086a850)
+  UNCONDITIONAL_CALL @ 0x00579feb (in FUN_00579ac0)
+  UNCONDITIONAL_CALL @ 0x0057a09e (in FUN_00579ac0)
+  UNCONDITIONAL_CALL @ 0x0057a5f0 (in FUN_0057a410)
+  UNCONDITIONAL_CALL @ 0x007896ef (in FUN_007890e0)
+  UNCONDITIONAL_CALL @ 0x00789713 (in FUN_007890e0)
+  UNCONDITIONAL_CALL @ 0x00789728 (in FUN_007890e0)
+  UNCONDITIONAL_CALL @ 0x0078974d (in FUN_007890e0)
+  UNCONDITIONAL_CALL @ 0x00789760 (in FUN_007890e0)
+  UNCONDITIONAL_CALL @ 0x00789775 (in FUN_007890e0)
+  UNCONDITIONAL_CALL @ 0x00789799 (in FUN_007890e0)
+  UNCONDITIONAL_CALL @ 0x007a9391 (in FUN_007a92e0)
+  UNCONDITIONAL_CALL @ 0x007a9442 (in FUN_007a92e0)
+  UNCONDITIONAL_CALL @ 0x007a9499 (in FUN_007a92e0)
+  UNCONDITIONAL_CALL @ 0x0082ebf2 (in FUN_0082eb70)
+  UNCONDITIONAL_CALL @ 0x008301f7 (in FUN_008300c0)
+  UNCONDITIONAL_CALL @ 0x0082fee8 (in FUN_0082fec0)
+  UNCONDITIONAL_CALL @ 0x0082fef9 (in FUN_0082fec0)
+  UNCONDITIONAL_CALL @ 0x0082ff83 (in FUN_0082fec0)
+  UNCONDITIONAL_CALL @ 0x00832757 (in FUN_008325b0)
+  UNCONDITIONAL_CALL @ 0x00832f88 (in FUN_00832cb0)
+  UNCONDITIONAL_CALL @ 0x00833e37 (in FUN_00833d00)
+  UNCONDITIONAL_CALL @ 0x00834112 (in FUN_00833d00)
+  UNCONDITIONAL_CALL @ 0x0077556b (in FUN_00775380)
+  UNCONDITIONAL_CALL @ 0x008323c0 (in FUN_00832240)
+  UNCONDITIONAL_CALL @ 0x00834310 (in FUN_00834260)
+  ... (truncated at 30)
+  Total: 30 refs
+
+######################################################################
+# SECTION 3: Subcalls of FUN_00877700 (deep dive)
+######################################################################
+
+======================================================================
+FUN_008776e0_CellTransition_End @ 0x008776e0
+======================================================================
+  Function: FUN_008776e0, Size: 25 bytes
+
+void __fastcall FUN_008776e0(int param_1)
+
+{
+  *(undefined1 *)(param_1 + 2) = 0;
+  *(undefined1 *)(param_1 + 5) = 0;
+  return;
+}
+
+
+
+--- XRefs to FUN_008776e0 (0x008776e0) ---
+  UNCONDITIONAL_CALL @ 0x008776b6 (in FUN_008774a0)
+  Total: 1 refs
+
+######################################################################
+# SECTION 4: FUN_004539a0 - CellTransition cell grid management
+######################################################################
+
+======================================================================
+FUN_004539a0_CellGridManage @ 0x004539a0
+======================================================================
+  Function: FUN_004539a0, Size: 196 bytes
+
+void __thiscall FUN_004539a0(void *this,char param_1,char param_2)
+
+{
+  undefined4 *puVar1;
+  int iVar2;
+  uint uVar3;
+  int *piVar4;
+  
+  puVar1 = (undefined4 *)FUN_0045bb80((int)this);
+  FUN_00470470(puVar1);
+  if (param_1 != '\0') {
+    iVar2 = FUN_005f36f0((int)this);
+    if (iVar2 == 0) goto LAB_004539d2;
+  }
+  FUN_00453940((int)this);
+LAB_004539d2:
+  FUN_00453a70();
+  FUN_00483710();
+  FUN_00455200(this,param_1,0);
+  iVar2 = FUN_005f36f0((int)this);
+  if ((iVar2 != 0) && (param_1 == '\0')) {
+    iVar2 = FUN_005f36f0((int)this);
+    uVar3 = FUN_00454bd0(this,iVar2);
+    if ((uVar3 & 0xff) == 0) {
+      piVar4 = (int *)FUN_005f36f0((int)this);
+      FUN_00462290(piVar4);
+    }
+  }
+  FUN_00454d50(this,param_1);
+  if ((param_1 == '\0') && (param_2 == '\0')) {
+    FUN_008d7dc0(this,0);
+  }
+  *(undefined1 *)((int)this + 0xb4) = 1;
+  return;
+}
+
+
+
+######################################################################
+# SECTION 5: FUN_0045ac80 - CellTransition late stage
+######################################################################
+
+======================================================================
+FUN_0045ac80_CellTransition_Late @ 0x0045ac80
+======================================================================
+  Function: FUN_0045ac80, Size: 415 bytes
+
+void __fastcall FUN_0045ac80(int param_1)
+
+{
+  void *pvVar1;
+  char *pcVar2;
+  CCmdUI *pCVar3;
+  void *local_8;
+  
+  pvVar1 = *(void **)(param_1 + 0xb0);
+  while (local_8 = pvVar1, local_8 != (void *)0x0) {
+    pvVar1 = (void *)FUN_0044ddc0((int)local_8);
+    if (local_8 != (void *)0x0) {
+      FUN_0045ae20(local_8,1);
+    }
+  }
+  *(undefined4 *)(param_1 + 0xb0) = 0;
+  pcVar2 = (char *)FUN_00403df0(0x11cebb0);
+  if (*pcVar2 != '\0') {
+    pCVar3 = (CCmdUI *)FUN_00403df0(0x11cebb0);
+    CRichEditView::OnUpdateCharBold(DAT_011c3b3c,pCVar3);
+  }
+  pcVar2 = (char *)FUN_00403df0(0x11d12c0);
+  if (*pcVar2 != '\0') {
+    pCVar3 = (CCmdUI *)FUN_00403df0(0x11d12c0);
+    CRichEditView::OnUpdateCharBold(DAT_011c3b3c,pCVar3);
+  }
+  pcVar2 = (char *)FUN_00403df0(0x11ce1a0);
+  if (*pcVar2 != '\0') {
+    pCVar3 = (CCmdUI *)FUN_00403df0(0x11ce1a0);
+    CRichEditView::OnUpdateCharBold(DAT_011c3b3c,pCVar3);
+  }
+  pcVar2 = (char *)FUN_00403df0(0x11cf3a4);
+  if (*pcVar2 != '\0') {
+    pCVar3 = (CCmdUI *)FUN_00403df0(0x11cf3a4);
+    CRichEditView::OnUpdateCharBold(DAT_011c3b3c,pCVar3);
+  }
+  pcVar2 = (char *)FUN_00403df0(0x11cf54c);
+  if (*pcVar2 != '\0') {
+    pCVar3 = (CCmdUI *)FUN_00403df0(0x11cf54c);
+    CRichEditView::OnUpdateCharBold(DAT_011c3b3c,pCVar3);
+  }
+  pcVar2 = (char *)FUN_00403df0(0x11cfa64);
+  if (*pcVar2 != '\0') {
+    pCVar3 = (CCmdUI *)FUN_00403df0(0x11cfa64);
+    CRichEditView::OnUpdateCharBold(DAT_011c3b3c,pCVar3);
+  }
+  pcVar2 = (char *)FUN_00403df0(0x11ce0c0);
+  if (*pcVar2 != '\0') {
+    pCVar3 = (CCmdUI *)FUN_00403df0(0x11ce0c0);
+    CRichEditView::OnUpdateCharBold(DAT_011c3b3c,pCVar3);
+  }
+  pcVar2 = (char *)FUN_00403df0(0x11cfa28);
+  if (*pcVar2 != '\0') {
+    pCVar3 = (CCmdUI *)FUN_00403df0(0x11cfa28);
+    CRichEditView::OnUpdateCharBold(DAT_011c3b3c,pCVar3);
+  }
+  return;
+}
+
+
+
+--- Calls FROM FUN_0045ac80 (0x0045ac80) ---
+  CALL 0x0044ddc0 -> FUN_0044ddc0
+  CALL 0x0045ae20 -> FUN_0045ae20
+  CALL 0x00403df0 -> FUN_00403df0
+  CALL 0x0045a5e0 -> OnUpdateCharBold
+  Total unique calls: 4
+
+######################################################################
+# SECTION 6: FUN_005283c0 - creates ExteriorCellLoaderTask
+# (only caller of ExteriorCellLoader constructor)
+######################################################################
+
+======================================================================
+CreateExteriorCellLoaderTask @ 0x005283c0
+======================================================================
+  Function: FUN_005283c0, Size: 372 bytes
+
+void __thiscall FUN_005283c0(void *this,void *param_1,int param_2,int param_3)
+
+{
+  char cVar1;
+  void *this_00;
+  undefined4 uVar2;
+  int *unaff_FS_OFFSET;
+  undefined4 *local_34;
+  int local_1c;
+  int local_18;
+  undefined4 *local_14;
+  int local_10;
+  undefined1 *puStack_c;
+  undefined4 local_8;
+  
+  local_8 = 0xffffffff;
+  puStack_c = &LAB_00ef5083;
+  local_10 = *unaff_FS_OFFSET;
+  *unaff_FS_OFFSET = (int)&local_10;
+  if (param_1 != (void *)0x0) {
+    local_18 = FUN_005875a0(param_1,param_2,param_3);
+    if ((local_18 == 0) || (cVar1 = FUN_00453490(DAT_011dea10,local_18), cVar1 == '\0')) {
+      cVar1 = FUN_00528080(this,(short)param_2,(short)param_3);
+      if ((cVar1 == '\0') &&
+         (local_14 = FUN_005285c0(this,(int)param_1,param_2,param_3), local_14 != (undefined4 *)0x0)
+         ) {
+        this_00 = (void *)FUN_00401000(0x20);
+        local_8 = 0;
+        if (this_00 == (void *)0x0) {
+          local_34 = (undefined4 *)0x0;
+        }
+        else {
+          local_34 = FUN_00527c00(this_00,this,local_14);
+        }
+        local_8 = 0xffffffff;
+        FUN_00528cb0(&local_1c,(int)local_34);
+        local_8 = 1;
+        uVar2 = FUN_00587410((short)param_2,(short)param_3);
+        (**(code **)(*(int *)this + 0x10))(uVar2,&local_1c,1);
+        uVar2 = FUN_00559450(&local_1c);
+        (**(code **)(*DAT_01202d98 + 0x48))(uVar2);
+        local_8 = 0xffffffff;
+        FUN_0044cbf0(&local_1c);
+      }
+    }
+    else {
+      FUN_00454b90(DAT_011dea10,local_18);
+    }
+  }
+  *unaff_FS_OFFSET = local_10;
+  return;
+}
+
+
+
+--- XRefs to CreateExteriorCellLoaderTask (0x005283c0) ---
+  UNCONDITIONAL_CALL @ 0x004528ba (in FUN_00452580)
+  UNCONDITIONAL_CALL @ 0x00452920 (in FUN_00452580)
+  UNCONDITIONAL_CALL @ 0x0045294a (in FUN_00452580)
+  Total: 3 refs
