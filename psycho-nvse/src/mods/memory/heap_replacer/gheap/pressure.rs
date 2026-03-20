@@ -21,10 +21,31 @@
 //!
 //! Three mechanisms work together to prevent OOM:
 //!
-//! ## Layer 1: Post-render cell unloading + full PDD (this module)
-//! Unloads cells using the game's full destruction protocol: loading state
+//! ## Layer 1: Post-render cell unloading + PDD (this module)
+//! Unloads cells using the game's destruction protocol: loading state
 //! counter, hkWorld_Lock, SceneGraphInvalidate, FindCellToUnload,
-//! DeferredCleanupSmall (full PDD + blocking async flush).
+//! DeferredCleanupSmall (PDD + blocking async flush).
+//!
+//! Two subsystem-specific synchronizations protect against cross-thread
+//! use-after-free during PDD:
+//!
+//! **IO dequeue lock (BSTaskManagerThread):** Before PDD, we acquire the
+//! game's IO dequeue spin-lock (IOManager+0x20, same lock IO_DequeueTask
+//! uses). BSTaskManagerThread can't start new tasks. We wait for any
+//! in-flight task to complete (sem_count at BSTaskManagerThread+0x18).
+//! DeferredCleanupSmall's FUN_00448620 cancels stale queued tasks
+//! (sets task state != 1, so BSTaskManagerThread's CAS safely fails).
+//! Without this: NiSourceTexture destructor zeroes pixelData →
+//! BSFile::Read(NULL) → __VEC_memcpy crash at 0x00ED17A0.
+//!
+//! **Havok queue 0x20 skip:** The Havok broadphase requires a
+//! step-after-removal lifecycle (remove → hkpWorld::step → query).
+//! Our hook runs after AI join (end of frame). The next Havok step
+//! runs during AI work on the NEXT frame, but AI dispatch queries
+//! the broadphase before the step processes our removals → NULL entity
+//! → crash at 0x00CFFA08 in addEntitiesBatch. Queue 0x20 is deferred
+//! to the game's per-frame PDD (FUN_004556d0) which runs before AI
+//! dispatch at the correct lifecycle position.
 //!
 //! ## Layer 2: Boosted per-frame NiNode drain (FUN_00868850 hook)
 //! The game's per-frame queue processor runs at line ~802, before AI dispatch.
@@ -136,6 +157,50 @@ const HEAP_COMPACT_TRIGGER_PTR: usize = 0x011F636C;
 ///
 /// We must set this > 0 before FindCellToUnload to suppress event dispatching.
 const LOADING_STATE_COUNTER_PTR: usize = 0x01202D6C;
+
+// ---------------------------------------------------------------------------
+// BSTaskManagerThread IO synchronization
+// ---------------------------------------------------------------------------
+
+/// DAT_01202d98 — Unified runtime manager singleton pointer.
+/// Object contains Havok world fields (+0x44/+0x48/+0x7c) AND
+/// IOManager/BSTaskManager fields (+0x20 dequeue lock, +0x50 thread array).
+/// Confirmed by Ghidra disassembly:
+///   Main loop:           MOV ECX,[0x01202d98]; CALL FUN_00c3dbf0 (IO processing)
+///   PreDestructionSetup: MOV ECX,[0x01202d98]; CALL FUN_00c3e310 (hkWorld_Lock)
+///   IO_DequeueTask:      ADD ECX,0x20; CALL FUN_0040fbf0 (spin-lock acquire)
+///   BSTaskManagerBase_ctor: *(this+0x20) = 0; *(this+0x24) = 0 (lock init)
+const IO_MANAGER_SINGLETON_PTR: usize = 0x01202D98;
+
+/// Offset of the IO dequeue spin-lock within the runtime manager.
+const IO_DEQUEUE_LOCK_OFFSET: usize = 0x20;
+
+/// Reentrance counter at lock + 4.
+const IO_DEQUEUE_LOCK_COUNTER_OFFSET: usize = 0x24;
+
+/// BSTaskManagerThread pointer array within the runtime manager.
+const IO_THREAD_ARRAY_OFFSET: usize = 0x50;
+
+/// Iteration semaphore count within BSTaskManagerThread.
+/// InterlockedIncrement'd after each task iteration.
+const IO_THREAD_SEM_COUNT_OFFSET: usize = 0x18;
+
+/// Maximum milliseconds to wait for BSTaskManagerThread to finish
+/// its current task after acquiring the dequeue lock.
+const IO_DRAIN_TIMEOUT_MS: u32 = 50;
+
+/// DAT_011de804 — PDD queue skip mask.
+/// Bits set = queues skipped by FUN_00869180 gate check.
+/// We temporarily set bit 0x20 (Havok physics wrappers) during our PDD
+/// because the Havok broadphase requires a step-after-removal lifecycle:
+///   remove → hkpWorld::step (processes deferred removal) → query
+/// Our hook runs AFTER AI join (end of frame). The next Havok step runs
+/// during AI work on the NEXT frame. But AI dispatch queries the broadphase
+/// BEFORE the step processes our removals → NULL entity → crash at 0x00CFFA08.
+/// The game's per-frame PDD (FUN_004556d0) runs BEFORE AI dispatch, so the
+/// Havok step processes removals before AI queries. Deferring queue 0x20 to
+/// per-frame PDD respects the broadphase lifecycle.
+const PDD_QUEUE_SKIP_MASK: usize = 0x011DE804;
 
 // ---------------------------------------------------------------------------
 // PressureRelief
@@ -462,6 +527,17 @@ impl PressureRelief {
     /// The actual cell unloading + PDD sequence. Extracted so both
     /// relieve() (single-threaded) and run_deferred_unload() (multi-threaded)
     /// can use the same code.
+    ///
+    /// IO synchronization: Before DeferredCleanupSmall (which runs PDD),
+    /// we acquire the IO dequeue spin-lock and wait for BSTaskManagerThread
+    /// to finish any in-flight task. This prevents a use-after-free where
+    /// PDD runs the NiSourceTexture destructor (zeroing pixelData) while
+    /// BSTaskManagerThread reads it for BSFile::Read → __VEC_memcpy(NULL,...)
+    /// → EXCEPTION_ACCESS_VIOLATION at 0x00ED17A0.
+    ///
+    /// DeferredCleanupSmall calls FUN_00448620 which cancels stale queued
+    /// tasks (sets task state != 1), so BSTaskManagerThread's CAS(task+3,3,1)
+    /// safely fails for stale tasks after we release the lock.
     unsafe fn destruction_protocol(
         find_cell: FindCellToUnloadFn,
         pre_destruction: PreDestructionSetupFn,
@@ -489,11 +565,134 @@ impl PressureRelief {
             }
         }
 
+        // === IO SYNCHRONIZATION ===
+        // Acquire the IO dequeue lock so BSTaskManagerThread cannot dequeue
+        // new tasks during PDD. Wait for any in-flight task to complete.
+        let io_locked = if cells > 0 {
+            unsafe { Self::io_lock_acquire() }
+        } else {
+            false
+        };
+
+        // === HAVOK BROADPHASE LIFECYCLE ===
+        // Skip Havok queue 0x20 during our PDD. The broadphase requires:
+        //   remove entity → hkpWorld::step → query broadphase
+        // Our hook is after AI join (end of frame). The Havok step runs
+        // during AI work on the NEXT frame, but AI dispatch queries the
+        // broadphase first → stale NULL entries → crash at 0x00CFFA08.
+        // Per-frame PDD (FUN_004556d0) handles queue 0x20 at the correct
+        // lifecycle position (before AI dispatch → step → query).
+        let skip_mask_ptr = PDD_QUEUE_SKIP_MASK as *mut u32;
+        let old_mask = unsafe { std::ptr::read_volatile(skip_mask_ptr) };
+        unsafe { std::ptr::write_volatile(skip_mask_ptr, old_mask | 0x20) };
+
         unsafe { deferred_cleanup(state[5]) };
+
+        unsafe { std::ptr::write_volatile(skip_mask_ptr, old_mask) };
+
+        if io_locked {
+            unsafe { Self::io_lock_release() };
+        }
+
         unsafe { post_destruction(state_ptr) };
 
         loading_counter.fetch_sub(1, std::sync::atomic::Ordering::AcqRel);
 
         cells
+    }
+
+    /// Acquire the IO dequeue spin-lock and wait for BSTaskManagerThread
+    /// to finish any in-flight task. Returns true if lock was acquired.
+    unsafe fn io_lock_acquire() -> bool {
+        let io_mgr = unsafe { *(IO_MANAGER_SINGLETON_PTR as *const *mut u8) };
+        if io_mgr.is_null() {
+            return false;
+        }
+
+        // Read BSTaskManagerThread's iteration count BEFORE the lock.
+        let bst_count_before = unsafe { Self::read_bst_sem_count(io_mgr) };
+
+        // Acquire the dequeue spin-lock via the game's spin-lock function.
+        //
+        // FUN_0040fbf0 calling convention (verified by disassembly):
+        //   fastcall: ECX = lock pointer
+        //   stack:    1 parameter (debug name/flags, always 0 in release)
+        //   cleanup:  RET 0x4 (callee cleans stack param)
+        //
+        // We use inline asm to match this exactly — push 0, load ECX, call.
+        let lock_ptr = unsafe { io_mgr.add(IO_DEQUEUE_LOCK_OFFSET) };
+        unsafe {
+            std::arch::asm!(
+                "push 0",
+                "call {func}",
+                func = in(reg) 0x0040FBF0u32,
+                in("ecx") lock_ptr,
+                // SpinLock_Acquire clobbers EAX, EDX (GetCurrentThreadId + CAS)
+                out("eax") _,
+                out("edx") _,
+            );
+        }
+
+        // Wait for BSTaskManagerThread to finish its current in-flight task.
+        // After acquiring the lock, BSTaskManagerThread will complete its
+        // current vtable_process/vtable_complete, then block on IO_DequeueTask.
+        // The sem count at BSTaskManagerThread+0x18 increments each iteration.
+        // If unchanged within timeout, BSTaskManagerThread was already idle.
+        if let Some(count_before) = bst_count_before {
+            let start = unsafe {
+                windows::Win32::System::SystemInformation::GetTickCount()
+            };
+            loop {
+                let current = unsafe { Self::read_bst_sem_count(io_mgr) };
+                match current {
+                    Some(c) if c != count_before => break,
+                    _ => {}
+                }
+                let elapsed = unsafe {
+                    windows::Win32::System::SystemInformation::GetTickCount()
+                        .wrapping_sub(start)
+                };
+                if elapsed >= IO_DRAIN_TIMEOUT_MS {
+                    break;
+                }
+                unsafe { windows::Win32::System::Threading::Sleep(0) };
+            }
+        }
+
+        true
+    }
+
+    /// Release the IO dequeue spin-lock.
+    unsafe fn io_lock_release() {
+        let io_mgr = unsafe { *(IO_MANAGER_SINGLETON_PTR as *const *mut u8) };
+        if io_mgr.is_null() {
+            return;
+        }
+        let counter_ptr =
+            unsafe { io_mgr.add(IO_DEQUEUE_LOCK_COUNTER_OFFSET) as *mut i32 };
+        let lock_ptr =
+            unsafe { io_mgr.add(IO_DEQUEUE_LOCK_OFFSET) as *mut i32 };
+
+        let new_count = unsafe { std::ptr::read_volatile(counter_ptr) } - 1;
+        unsafe { std::ptr::write_volatile(counter_ptr, new_count) };
+        if new_count == 0 {
+            unsafe { std::ptr::write_volatile(lock_ptr, 0) };
+        }
+    }
+
+    /// Read BSTaskManagerThread's iteration semaphore count.
+    unsafe fn read_bst_sem_count(io_mgr: *const u8) -> Option<i32> {
+        let thread_array_ptr =
+            unsafe { io_mgr.add(IO_THREAD_ARRAY_OFFSET) as *const *const *const u8 };
+        let thread_array = unsafe { *thread_array_ptr };
+        if thread_array.is_null() {
+            return None;
+        }
+        let bst = unsafe { *thread_array };
+        if bst.is_null() {
+            return None;
+        }
+        let count_ptr = unsafe { bst.add(IO_THREAD_SEM_COUNT_OFFSET) as *const i32 };
+        Some(unsafe { std::ptr::read_volatile(count_ptr) })
     }
 }

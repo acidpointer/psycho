@@ -1,0 +1,983 @@
+======================================================================
+IO THREAD QUIESCE MECHANISM ? DEEP RESEARCH
+How does the game ensure BSTaskManagerThread is idle before PDD?
+======================================================================
+
+######################################################################
+# SECTION 1: IO flush chain (FUN_00c45830, FUN_00c458f0, FUN_00c459d0)
+# These all reference IO_FlushLock/Counter/QueueBase
+######################################################################
+
+======================================================================
+IO_FlushRequest @ 0x00c45830
+======================================================================
+  Function: FUN_00c45830, Size: 192 bytes
+  Entry: 0x00c45830
+
+/* WARNING: Globals starting with '_' overlap smaller symbols at the same address */
+
+void __cdecl FUN_00c45830(int *param_1)
+
+{
+  int *piVar1;
+  uint uVar2;
+  LONG LVar3;
+  int *unaff_FS_OFFSET;
+  int *local_14;
+  int local_10;
+  undefined1 *puStack_c;
+  undefined4 local_8;
+  
+  local_8 = 0xffffffff;
+  puStack_c = &LAB_00f2e568;
+  local_10 = *unaff_FS_OFFSET;
+  uVar2 = DAT_011c16bc ^ (uint)&stack0xfffffffc;
+  *unaff_FS_OFFSET = (int)&local_10;
+  FUN_0040fbf0((LONG *)&DAT_01202e40);
+  local_14 = param_1;
+  if (param_1 != (int *)0x0) {
+    InterlockedIncrement(param_1 + 1);
+  }
+  local_8 = 0;
+  FUN_00c45e00(&DAT_01202e20,(int *)&local_14);
+  piVar1 = local_14;
+  local_8 = 0xffffffff;
+  if (local_14 != (int *)0x0) {
+    LVar3 = InterlockedDecrement(local_14 + 1);
+    if (LVar3 == 0) {
+      (**(code **)(*piVar1 + 4))(uVar2);
+    }
+  }
+  DAT_01202e44 = DAT_01202e44 + -1;
+  if (DAT_01202e44 == 0) {
+    _DAT_01202e40 = 0;
+  }
+  *unaff_FS_OFFSET = local_10;
+  return;
+}
+
+
+
+--- Calls FROM IO_FlushRequest (0x00c45830) ---
+  CALL 0x0040fbf0 -> FUN_0040fbf0 (from 0x00c4585c)
+  CALL 0x00fdf1c0 -> unknown_0x00fdf1c0 (from 0x00c4587a)
+  CALL 0x00000066 -> unknown_0x00000066 (from 0x00c4587a)
+  CALL 0x00c45e00 -> FUN_00c45e00 (from 0x00c45890)
+  CALL 0x00fdf1c4 -> unknown_0x00fdf1c4 (from 0x00c458af)
+  CALL 0x00000067 -> unknown_0x00000067 (from 0x00c458af)
+  Total: 6 calls
+
+======================================================================
+IO_DeferredTaskBudget @ 0x00c458f0
+======================================================================
+  Function: FUN_00c458f0, Size: 218 bytes
+  Entry: 0x00c458f0
+
+/* WARNING: Globals starting with '_' overlap smaller symbols at the same address */
+
+void FUN_00c458f0(void)
+
+{
+  int *piVar1;
+  DWORD DVar2;
+  LONG LVar3;
+  int *local_14;
+  uint local_10;
+  uint local_c;
+  uint local_8;
+  
+  FUN_0040fbf0((LONG *)&DAT_01202e40);
+  DVar2 = GetTickCount();
+  local_10 = DVar2 + _DAT_011af758;
+  local_c = 0;
+  local_8 = (uint)DAT_01202e2c;
+  if (200 < local_8) {
+    local_10 = local_10 + 1000;
+  }
+  while ((local_8 != 0 && (local_c < local_10))) {
+    FUN_00c45e50(&DAT_01202e20,(int *)&local_14,local_8 - 1);
+    piVar1 = local_14;
+    if ((local_14 != (int *)0x0) && (LVar3 = InterlockedDecrement(local_14 + 1), LVar3 == 0)) {
+      (**(code **)(*piVar1 + 4))();
+    }
+    local_c = GetTickCount();
+    local_8 = local_8 - 1;
+  }
+  if (local_8 == 0) {
+    FUN_00c45a80();
+  }
+  DAT_01202e44 = DAT_01202e44 + -1;
+  if (DAT_01202e44 == 0) {
+    _DAT_01202e40 = 0;
+  }
+  return;
+}
+
+
+
+--- Calls FROM IO_DeferredTaskBudget (0x00c458f0) ---
+  CALL 0x0040fbf0 -> FUN_0040fbf0 (from 0x00c458fd)
+  CALL 0x00fdf060 -> unknown_0x00fdf060 (from 0x00c45902)
+  CALL 0x0000000e -> unknown_0x0000000e (from 0x00c45902)
+  CALL 0x00c45e50 -> FUN_00c45e50 (from 0x00c45966)
+  CALL 0x00fdf1c4 -> unknown_0x00fdf1c4 (from 0x00c4597e)
+  CALL 0x00000067 -> unknown_0x00000067 (from 0x00c4597e)
+  CALL 0x00fdf060 -> unknown_0x00fdf060 (from 0x00c45995)
+  CALL 0x0000000e -> unknown_0x0000000e (from 0x00c45995)
+  CALL 0x00c45a80 -> FUN_00c45a80 (from 0x00c459a6)
+  Total: 9 calls
+
+--- XRefs to IO_FlushRequest (0x00c45830) ---
+  UNCONDITIONAL_CALL @ 0x006fa537 (in FUN_006fa420)
+  UNCONDITIONAL_CALL @ 0x006fa54b (in FUN_006fa420)
+  UNCONDITIONAL_CALL @ 0x006fa55f (in FUN_006fa420)
+  UNCONDITIONAL_CALL @ 0x006f54dc (in FUN_006f5370)
+  UNCONDITIONAL_CALL @ 0x006f54f0 (in FUN_006f5370)
+  UNCONDITIONAL_CALL @ 0x00adae43 (in FUN_00adad80)
+  UNCONDITIONAL_CALL @ 0x00ade5b5 (in FUN_00adddd0)
+  UNCONDITIONAL_CALL @ 0x00adb063 (in FUN_00adafa0)
+  UNCONDITIONAL_CALL @ 0x00aded86 (in FUN_00adea90)
+  UNCONDITIONAL_CALL @ 0x00adeed6 (in FUN_00adea90)
+  UNCONDITIONAL_CALL @ 0x00ae871b (in FUN_00ae86d0)
+  UNCONDITIONAL_CALL @ 0x00adf7c8 (in FUN_00adf080)
+  UNCONDITIONAL_CALL @ 0x00ae46b3 (in FUN_00adf080)
+  UNCONDITIONAL_CALL @ 0x00665c35 (in FUN_00665be0)
+  UNCONDITIONAL_CALL @ 0x00570c17 (in FUN_005702e0)
+  UNCONDITIONAL_CALL @ 0x009ff54f (in FUN_009ff340)
+  Total: 16 refs
+
+--- XRefs to IO_DeferredTaskBudget (0x00c458f0) ---
+  UNCONDITIONAL_CALL @ 0x0087054d (in FUN_0086ff70)
+  Total: 1 refs
+
+######################################################################
+# SECTION 2: PreCellUnload_cleanup inner functions
+######################################################################
+
+======================================================================
+UnloadPrep @ 0x00455200
+======================================================================
+  Function: FUN_00455200, Size: 294 bytes
+  Entry: 0x00455200
+
+int __thiscall FUN_00455200(void *this,char param_1,int param_2)
+
+{
+  char cVar1;
+  uint uVar2;
+  int iVar3;
+  void *pvVar4;
+  uint local_c;
+  int local_8;
+  
+  local_8 = 0;
+  for (local_c = 0; uVar2 = FUN_004503f0(0x11c3c90), local_c < uVar2; local_c = local_c + 1) {
+    if (((*(int *)(*(int *)((int)this + 0x3c) + local_c * 4) != 0) &&
+        (((param_1 == '\0' ||
+          (uVar2 = FUN_004511e0(*(int *)(*(int *)((int)this + 0x3c) + local_c * 4),'\x01'),
+          (uVar2 & 0xff) == 0)) &&
+         (cVar1 = FUN_00557090(*(int *)(*(int *)((int)this + 0x3c) + local_c * 4)), cVar1 == '\0')))
+        ) && ((param_2 == 0 ||
+              (iVar3 = FUN_0054ddd0(*(int *)(*(int *)((int)this + 0x3c) + local_c * 4)),
+              iVar3 == param_2)))) {
+      FUN_00462290(*(int **)(*(int *)((int)this + 0x3c) + local_c * 4));
+      *(undefined4 *)(*(int *)((int)this + 0x3c) + local_c * 4) = 0;
+      local_8 = local_8 + 1;
+    }
+  }
+  if ((**(int **)((int)this + 0x3c) == 0) && (iVar3 = FUN_004fd3e0((int)this), iVar3 != 0)) {
+    pvVar4 = (void *)FUN_004fd3e0((int)this);
+    iVar3 = FUN_00586170(pvVar4);
+    if (iVar3 != 0) {
+      pvVar4 = (void *)FUN_004fd3e0((int)this);
+      iVar3 = FUN_00586170(pvVar4);
+      FUN_006fce00(iVar3);
+    }
+  }
+  return local_8;
+}
+
+
+
+--- Calls FROM UnloadPrep (0x00455200) ---
+  CALL 0x004503f0 -> FUN_004503f0 (from 0x00455227)
+  CALL 0x004511e0 -> FUN_004511e0 (from 0x00455262)
+  CALL 0x00557090 -> FUN_00557090 (from 0x0045527a)
+  CALL 0x0054ddd0 -> FUN_0054ddd0 (from 0x00455298)
+  CALL 0x00462290 -> FUN_00462290 (from 0x004552ba)
+  CALL 0x004fd3e0 -> FUN_004fd3e0 (from 0x004552eb)
+  CALL 0x004fd3e0 -> FUN_004fd3e0 (from 0x004552f7)
+  CALL 0x00586170 -> FUN_00586170 (from 0x004552fe)
+  CALL 0x004fd3e0 -> FUN_004fd3e0 (from 0x0045530a)
+  CALL 0x00586170 -> FUN_00586170 (from 0x00455311)
+  CALL 0x006fce00 -> FUN_006fce00 (from 0x00455318)
+  Total: 11 calls
+
+======================================================================
+LOD_Cleanup_maybe @ 0x008d7dc0
+======================================================================
+  Function: FUN_008d7dc0, Size: 22 bytes
+  Entry: 0x008d7dc0
+
+void __thiscall FUN_008d7dc0(void *this,undefined4 param_1)
+
+{
+  *(undefined4 *)((int)this + 0x34) = param_1;
+  return;
+}
+
+
+
+--- Calls FROM LOD_Cleanup_maybe (0x008d7dc0) ---
+  Total: 0 calls
+
+======================================================================
+PreUnload_Inner @ 0x00453940
+======================================================================
+  Function: FUN_00453940, Size: 63 bytes
+  Entry: 0x00453940
+
+void __fastcall FUN_00453940(int param_1)
+
+{
+  if (DAT_011c3f2c != 0) {
+    (**(code **)(**(int **)(param_1 + 8) + 8))();
+    FUN_00451570(0);
+    FUN_00451520(1);
+  }
+  return;
+}
+
+
+
+--- Calls FROM PreUnload_Inner (0x00453940) ---
+  CALL 0x00451570 -> FUN_00451570 (from 0x00453969)
+  CALL 0x00451520 -> FUN_00451520 (from 0x00453973)
+  Total: 2 calls
+
+======================================================================
+PostUnload_Cleanup @ 0x00454d50
+======================================================================
+  Function: FUN_00454d50, Size: 199 bytes
+  Entry: 0x00454d50
+
+int __thiscall FUN_00454d50(void *this,char param_1)
+
+{
+  char cVar1;
+  uint uVar2;
+  int iVar3;
+  int iVar4;
+  uint local_c;
+  int local_8;
+  
+  local_8 = 0;
+  local_c = 0;
+  do {
+    uVar2 = FUN_004503f0(0x11c3e38);
+    if (uVar2 <= local_c) {
+      return local_8;
+    }
+    if (*(int *)(*(int *)((int)this + 0x38) + local_c * 4) != 0) {
+      if (param_1 != '\0') {
+        iVar3 = FUN_005f36f0((int)this);
+        if (iVar3 != 0) {
+          iVar3 = *(int *)((int)this + 0x38);
+          iVar4 = FUN_005f36f0((int)this);
+          if (*(int *)(iVar3 + local_c * 4) == iVar4) goto LAB_00454d6a;
+        }
+      }
+      cVar1 = FUN_00557090(*(int *)(*(int *)((int)this + 0x38) + local_c * 4));
+      if (cVar1 == '\0') {
+        FUN_00462290(*(int **)(*(int *)((int)this + 0x38) + local_c * 4));
+        *(undefined4 *)(*(int *)((int)this + 0x38) + local_c * 4) = 0;
+        local_8 = local_8 + 1;
+      }
+    }
+LAB_00454d6a:
+    local_c = local_c + 1;
+  } while( true );
+}
+
+
+
+--- Calls FROM PostUnload_Cleanup (0x00454d50) ---
+  CALL 0x004503f0 -> FUN_004503f0 (from 0x00454d78)
+  CALL 0x005f36f0 -> FUN_005f36f0 (from 0x00454da0)
+  CALL 0x005f36f0 -> FUN_005f36f0 (from 0x00454db2)
+  CALL 0x00557090 -> FUN_00557090 (from 0x00454dcb)
+  CALL 0x00462290 -> FUN_00462290 (from 0x00454dea)
+  Total: 5 calls
+
+######################################################################
+# SECTION 3: Force unload functions from CellTransitionHandler
+######################################################################
+
+======================================================================
+ForceUnloadCells @ 0x007037c0
+======================================================================
+  Function: FUN_007037c0, Size: 22 bytes
+  Entry: 0x007037c0
+
+void __thiscall FUN_007037c0(void *this,undefined4 param_1)
+
+{
+  *(undefined4 *)((int)this + 0x24) = param_1;
+  return;
+}
+
+
+
+--- Calls FROM ForceUnloadCells (0x007037c0) ---
+  Total: 0 calls
+
+======================================================================
+ForceUnloadCells2 @ 0x0061cc40
+======================================================================
+  Function: FUN_0061cc40, Size: 22 bytes
+  Entry: 0x0061cc40
+
+void __thiscall FUN_0061cc40(void *this,undefined4 param_1)
+
+{
+  *(undefined4 *)((int)this + 0x28) = param_1;
+  return;
+}
+
+
+
+--- Calls FROM ForceUnloadCells2 (0x0061cc40) ---
+  Total: 0 calls
+
+######################################################################
+# SECTION 4: IO queue pending count queries
+######################################################################
+
+======================================================================
+IO_GetPendingCount @ 0x00c45ae0
+======================================================================
+  Function: FUN_00c45ae0, Size: 36 bytes
+  Entry: 0x00c45ae0
+
+void __cdecl FUN_00c45ae0(uint param_1)
+
+{
+  if (DAT_01202e2a < param_1) {
+    FUN_00c45b20(&DAT_01202e20,param_1);
+  }
+  return;
+}
+
+
+
+######################################################################
+# SECTION 5: BSTaskManagerThread singleton access
+######################################################################
+
+======================================================================
+BSTaskManagerThread_GetSingleton_maybe @ 0x00c3ee70
+======================================================================
+  Function: FUN_00c3ee70, Size: 51 bytes
+  Entry: 0x00c3ee70
+
+undefined4 * __thiscall FUN_00c3ee70(void *this,undefined4 param_1,undefined4 param_2)
+
+{
+  FUN_00c42dd0(this,param_2,0x10c1748);
+  *(undefined ***)this = &PTR_FUN_010c1740;
+  *(undefined4 *)((int)this + 0x30) = param_1;
+  return this;
+}
+
+
+
+--- XRefs to BSTaskManagerThread_GetSingleton (0x00c3ee70) ---
+  UNCONDITIONAL_CALL @ 0x00c3e630 (in FUN_00c3e4f0)
+  Total: 1 refs
+
+======================================================================
+IOManager_Create_maybe @ 0x00c3da50
+======================================================================
+  Function: FUN_00c3da50, Size: 257 bytes
+  Entry: 0x00c3da50
+
+undefined4 * __fastcall FUN_00c3da50(undefined4 *param_1)
+
+{
+  void *this;
+  int *unaff_FS_OFFSET;
+  undefined4 *local_24;
+  int local_10;
+  undefined1 *puStack_c;
+  undefined4 local_8;
+  
+  local_8 = 0xffffffff;
+  puStack_c = &LAB_00f2dd43;
+  local_10 = *unaff_FS_OFFSET;
+  *unaff_FS_OFFSET = (int)&local_10;
+  FUN_00c3e4f0(param_1,10,1,0x78);
+  local_8 = 0;
+  *param_1 = &PTR_FUN_010c1604;
+  param_1[0x1c] = 0;
+  param_1[0x1e] = 0;
+  param_1[0x1b] = 0;
+  param_1[0x1f] = 0;
+  param_1[0x20] = 0;
+  param_1[0x1a] = 6;
+  this = FUN_00aa3e40(&DAT_011f6238,0x10);
+  local_8 = CONCAT31(local_8._1_3_,1);
+  if (this == (void *)0x0) {
+    local_24 = (undefined4 *)0x0;
+  }
+  else {
+    local_24 = FUN_00c3e8b0(this,6,7,8);
+  }
+  param_1[0x19] = local_24;
+  param_1[0x18] = *(undefined4 *)(*(int *)param_1[0x14] + 8);
+  *unaff_FS_OFFSET = local_10;
+  return param_1;
+}
+
+
+
+######################################################################
+# SECTION 6: Functions that enter lpCriticalSection_011f4380
+# These are the ones that block AsyncFlush TryEnter
+######################################################################
+
+======================================================================
+CS_Holder_1 @ 0x00a5b990
+======================================================================
+  Function: FUN_00a5b990, Size: 167 bytes
+  Entry: 0x00a5b990
+
+void __thiscall FUN_00a5b990(void *this,ushort param_1)
+
+{
+  undefined4 *puVar1;
+  int *piVar2;
+  LONG LVar3;
+  uint uVar4;
+  uint uVar5;
+  
+  EnterCriticalSection((LPCRITICAL_SECTION)&lpCriticalSection_011f4380);
+  if (param_1 < *(ushort *)((int)this + 0x14)) {
+    uVar5 = (uint)param_1;
+    if (*(int *)(*(int *)((int)this + 0x10) + uVar5 * 4) != 0) {
+      piVar2 = *(int **)(*(int *)((int)this + 0x10) + uVar5 * 4);
+      LVar3 = InterlockedDecrement(piVar2 + 1);
+      if (LVar3 == 0) {
+        (**(code **)(*piVar2 + 4))();
+      }
+    }
+    uVar4 = (uint)param_1;
+    if ((int)uVar5 < (int)(*(ushort *)((int)this + 0x14) - 1)) {
+      do {
+        puVar1 = (undefined4 *)(*(int *)((int)this + 0x10) + uVar5 * 4);
+        *puVar1 = puVar1[1];
+        uVar4 = uVar4 + 1;
+        uVar5 = uVar4 & 0xffff;
+      } while ((int)uVar5 < (int)(*(ushort *)((int)this + 0x14) - 1));
+    }
+    *(short *)((int)this + 0x14) = *(short *)((int)this + 0x14) + -1;
+    *(undefined4 *)(*(int *)((int)this + 0x10) + (uint)*(ushort *)((int)this + 0x14) * 4) = 0;
+                    /* WARNING: Could not recover jumptable at 0x00a5ba31. Too many branches */
+                    /* WARNING: Treating indirect jump as call */
+    LeaveCriticalSection((LPCRITICAL_SECTION)&lpCriticalSection_011f4380);
+    return;
+  }
+                    /* WARNING: Could not recover jumptable at 0x00a5b9b4. Too many branches */
+                    /* WARNING: Treating indirect jump as call */
+  LeaveCriticalSection((LPCRITICAL_SECTION)&lpCriticalSection_011f4380);
+  return;
+}
+
+
+
+======================================================================
+CS_Holder_2 @ 0x00a5ba40
+======================================================================
+  Function: FUN_00a5ba40, Size: 347 bytes
+  Entry: 0x00a5ba40
+
+uint __thiscall FUN_00a5ba40(void *this,int param_1)
+
+{
+  short sVar1;
+  int iVar2;
+  int iVar3;
+  undefined4 uVar4;
+  int iVar5;
+  ushort uVar6;
+  uint in_EAX;
+  int *piVar7;
+  undefined4 extraout_EAX;
+  void *_Dst;
+  undefined4 extraout_EAX_00;
+  uint extraout_EAX_01;
+  uint uVar8;
+  
+  if (param_1 == 0) {
+    return in_EAX & 0xffffff00;
+  }
+  InterlockedIncrement((LONG *)(param_1 + 4));
+  EnterCriticalSection((LPCRITICAL_SECTION)&lpCriticalSection_011f4380);
+  sVar1 = *(short *)((int)this + 0x16);
+  if (sVar1 == 0) {
+    *(undefined2 *)((int)this + 0x16) = 1;
+    *(undefined2 *)((int)this + 0x14) = 1;
+    piVar7 = (int *)FUN_00aa1070(4);
+    *(int **)((int)this + 0x10) = piVar7;
+    *piVar7 = param_1;
+    LeaveCriticalSection((LPCRITICAL_SECTION)&lpCriticalSection_011f4380);
+    return CONCAT31((int3)((uint)extraout_EAX >> 8),1);
+  }
+  if (*(short *)((int)this + 0x14) == sVar1) {
+    uVar6 = sVar1 * 2 + 1;
+    *(ushort *)((int)this + 0x16) = uVar6;
+    _Dst = (void *)FUN_00aa1070((uint)uVar6 * 4);
+    _memcpy(_Dst,*(void **)((int)this + 0x10),(uint)*(ushort *)((int)this + 0x14) * 4);
+    FUN_00aa10f0(*(int *)((int)this + 0x10));
+    *(void **)((int)this + 0x10) = _Dst;
+  }
+  *(int *)(*(int *)((int)this + 0x10) + (uint)*(ushort *)((int)this + 0x14) * 4) = param_1;
+  *(short *)((int)this + 0x14) = *(short *)((int)this + 0x14) + 1;
+  uVar6 = *(ushort *)((int)this + 0x14);
+  if (uVar6 < *(ushort *)((int)this + 0x16)) {
+    do {
+      uVar8 = (uint)uVar6;
+      uVar6 = uVar6 + 1;
+      *(undefined4 *)(*(int *)((int)this + 0x10) + uVar8 * 4) = 0;
+    } while (uVar6 < *(ushort *)((int)this + 0x16));
+  }
+  uVar6 = *(ushort *)((int)this + 0x14);
+  while (uVar6 = uVar6 - 1, uVar6 != 0) {
+    iVar5 = (uint)uVar6 * 4;
+    piVar7 = (int *)FUN_00a62660(*(int *)(*(int *)((int)this + 0x10) + -4 + iVar5));
+    iVar2 = *piVar7;
+    piVar7 = (int *)FUN_00a62660(*(int *)(*(int *)((int)this + 0x10) + iVar5));
+    iVar3 = *piVar7;
+    if (iVar2 == iVar3) {
+      FUN_00a5b990(this,uVar6);
+      LeaveCriticalSection((LPCRITICAL_SECTION)&lpCriticalSection_011f4380);
+      return extraout_EAX_01 & 0xffffff00;
+    }
+    if (iVar2 == iVar3 || iVar2 - iVar3 < 0) break;
+    iVar2 = *(int *)((int)this + 0x10);
+    uVar4 = *(undefined4 *)(iVar2 + -4 + iVar5);
+    *(undefined4 *)(iVar2 + iVar5 + -4) = *(undefined4 *)(iVar2 + iVar5);
+    *(undefined4 *)(iVar5 + *(int *)((int)this + 0x10)) = uVar4;
+  }
+  LeaveCriticalSection((LPCRITICAL_SECTION)&lpCriticalSection_011f4380);
+  return CONCAT31((int3)((uint)extraout_EAX_00 >> 8),1);
+}
+
+
+
+======================================================================
+CS_Holder_3 @ 0x00a5bba0
+======================================================================
+  Function: FUN_00a5bba0, Size: 153 bytes
+  Entry: 0x00a5bba0
+
+uint __thiscall FUN_00a5bba0(void *this,ushort param_1)
+
+{
+  short sVar1;
+  uint in_EAX;
+  undefined4 uVar2;
+  undefined4 extraout_EAX;
+  void *_Dst;
+  undefined4 extraout_EAX_00;
+  
+  if (param_1 == 0) {
+    return in_EAX & 0xffffff00;
+  }
+  EnterCriticalSection((LPCRITICAL_SECTION)&lpCriticalSection_011f4380);
+  sVar1 = *(short *)((int)this + 0x16);
+  *(ushort *)((int)this + 0x16) = param_1;
+  if (sVar1 == 0) {
+    uVar2 = FUN_00aa1070((uint)param_1 * 4);
+    *(undefined4 *)((int)this + 0x10) = uVar2;
+    *(undefined2 *)((int)this + 0x14) = 0;
+    LeaveCriticalSection((LPCRITICAL_SECTION)&lpCriticalSection_011f4380);
+    return CONCAT31((int3)((uint)extraout_EAX >> 8),1);
+  }
+  _Dst = (void *)FUN_00aa1070((uint)param_1 * 4);
+  _memcpy(_Dst,*(void **)((int)this + 0x10),(uint)*(ushort *)((int)this + 0x14) * 4);
+  FUN_00aa10f0(*(int *)((int)this + 0x10));
+  *(void **)((int)this + 0x10) = _Dst;
+  LeaveCriticalSection((LPCRITICAL_SECTION)&lpCriticalSection_011f4380);
+  return CONCAT31((int3)((uint)extraout_EAX_00 >> 8),1);
+}
+
+
+
+======================================================================
+CS_Holder_4 @ 0x0078d080
+======================================================================
+  Function: FUN_0078d080, Size: 331 bytes
+  Entry: 0x0078d080
+
+void FUN_0078d080(void)
+
+{
+  bool bVar1;
+  char cVar2;
+  int iVar3;
+  LPCRITICAL_SECTION p_Var4;
+  undefined *puVar5;
+  void *pvVar6;
+  int iVar7;
+  int local_c;
+  
+  iVar3 = FUN_0043c4b0();
+  FUN_004a0370(iVar3);
+  p_Var4 = (LPCRITICAL_SECTION)FUN_00713d70();
+  bVar1 = FUN_0044b130(p_Var4);
+  if (bVar1) {
+    iVar3 = FUN_0078d1d0((LPCRITICAL_SECTION)&lpCriticalSection_011f4380);
+    if (iVar3 == 0) {
+      FUN_0082f1f0(p_Var4);
+      iVar3 = FUN_0043c4b0();
+      FUN_004a03c0(iVar3);
+    }
+    else {
+      if ((DAT_011a0295 != '\0') && (cVar2 = FUN_0078d1f0(), cVar2 == '\0')) {
+        FUN_0082f1f0((LPCRITICAL_SECTION)&lpCriticalSection_011f4380);
+        FUN_0082f1f0(p_Var4);
+        iVar3 = FUN_0043c4b0();
+        FUN_004a03c0(iVar3);
+        return;
+      }
+      if (DAT_011a0295 != '\0') {
+        FUN_00a04200('\x01');
+        FUN_00452530();
+      }
+      puVar5 = FUN_004ea970();
+      FUN_00ba2f30((int)puVar5);
+      for (local_c = 1; local_c < 0x17; local_c = local_c + 1) {
+        iVar3 = 0;
+        puVar5 = FUN_004ea970();
+        FUN_00ba30f0(puVar5,iVar3);
+        iVar7 = 1;
+        iVar3 = local_c;
+        puVar5 = FUN_004ea970();
+        FUN_00ba3130(puVar5,iVar7,iVar3);
+      }
+      DAT_011c70f8 = 1;
+      pvVar6 = (void *)FUN_004b7210();
+      FUN_00713fb0(pvVar6);
+      DAT_011c70f8 = 0;
+      puVar5 = FUN_004ea970();
+      FUN_00ba2fa0((int)puVar5);
+      iVar3 = FUN_0043c4b0();
+      FUN_004a03c0(iVar3);
+      FUN_0082f1f0(p_Var4);
+      FUN_0082f1f0((LPCRITICAL_SECTION)&lpCriticalSection_011f4380);
+    }
+  }
+  else {
+    iVar3 = FUN_0043c4b0();
+    FUN_004a03c0(iVar3);
+  }
+  return;
+}
+
+
+
+======================================================================
+CS_Holder_5_IOArea @ 0x00c5f680
+======================================================================
+  Function: FUN_00c5f680, Size: 1042 bytes
+  Entry: 0x00c5f680
+
+/* WARNING: Removing unreachable block (ram,0x00c5f9ad) */
+/* WARNING: Removing unreachable block (ram,0x00c5f9ec) */
+/* WARNING: Removing unreachable block (ram,0x00c5fa09) */
+
+int * __thiscall FUN_00c5f680(void *this,int *param_1,char param_2)
+
+{
+  int *piVar1;
+  bool bVar2;
+  uint uVar3;
+  undefined4 uVar4;
+  int iVar5;
+  int *piVar6;
+  int *piVar7;
+  int *unaff_FS_OFFSET;
+  double dVar8;
+  undefined *local_48;
+  char local_39;
+  uint local_24;
+  int *local_1c;
+  int local_10;
+  undefined1 *puStack_c;
+  int local_8;
+  
+  local_8 = 0xffffffff;
+  puStack_c = &LAB_00f2ff43;
+  local_10 = *unaff_FS_OFFSET;
+  uVar3 = DAT_011c16bc ^ (uint)&stack0xfffffffc;
+  *unaff_FS_OFFSET = (int)&local_10;
+  FUN_00a5ecb0(this,0);
+  local_8 = 0;
+  *(undefined ***)this = &PTR__scalar_deleting_destructor__010c31a4;
+  bVar2 = true;
+  piVar1 = (int *)param_1[6];
+  FUN_00a5b950(this,param_1 + 2);
+  if (param_2 != '\0') {
+    if (param_1[3] == 0) {
+      if (param_1 == (int *)0x0) {
+        local_39 = '\0';
+      }
+      else {
+        uVar4 = FUN_006532c0(param_1,0x11f4aa0);
+        local_39 = (char)uVar4;
+      }
+      if (local_39 == '\0') goto LAB_00c5f73f;
+    }
+    bVar2 = false;
+    FUN_00c5fb80((int)param_1,"Anim");
+  }
+LAB_00c5f73f:
+  if (bVar2) {
+    local_1c = (int *)param_1[3];
+    while (local_1c != (int *)0x0) {
+      piVar6 = (int *)local_1c[0xc];
+      if (local_1c == (int *)0x0) {
+        bVar2 = false;
+      }
+      else {
+        for (local_48 = (undefined *)(**(code **)(*local_1c + 8))(uVar3);
+            local_48 != (undefined *)0x0; local_48 = *(undefined **)(local_48 + 4)) {
+          if (local_48 == &DAT_011f36ac) {
+            bVar2 = true;
+            goto LAB_00c5f7b9;
+          }
+        }
+        bVar2 = false;
+      }
+LAB_00c5f7b9:
+      if (bVar2) {
+        FUN_00a6d450(local_1c,this);
+        local_1c = piVar6;
+      }
+      else {
+        (**(code **)(*local_1c + 0x98))();
+        local_1c = piVar6;
+      }
+    }
+    FUN_0062bc90(this,param_1[7]);
+    FUN_0062bc90(param_1,0);
+    for (local_24 = 0; local_24 < *(ushort *)((int)param_1 + 0xa6); local_24 = local_24 + 1) {
+      piVar6 = *(int **)(param_1[0x28] + local_24 * 4);
+      if (piVar6 != (int *)0x0) {
+        FUN_00a5ed10(this,piVar6,(int *)&DAT_00000001);
+      }
+    }
+    while (param_1[0xb] != 0) {
+      piVar6 = *(int **)(param_1[9] + 8);
+      FUN_00439410(this,piVar6);
+      FUN_00654640(param_1,(int)piVar6);
+    }
+    *(int *)((int)this + 0x58) = param_1[0x16];
+    *(int *)((int)this + 0x5c) = param_1[0x17];
+    *(int *)((int)this + 0x60) = param_1[0x18];
+    piVar6 = param_1 + 0xd;
+    piVar7 = (int *)((int)this + 0x34);
+    for (iVar5 = 9; iVar5 != 0; iVar5 = iVar5 + -1) {
+      *piVar7 = *piVar6;
+      piVar6 = piVar6 + 1;
+      piVar7 = piVar7 + 1;
+    }
+    dVar8 = _fabs((double)(float)param_1[0x19]);
+    *(float *)((int)this + 100) = (float)dVar8;
+    EnterCriticalSection((LPCRITICAL_SECTION)&lpCriticalSection_011f4380);
+    FUN_00a5bba0(this,*(ushort *)(param_1 + 5));
+    while ((short)param_1[5] != 0) {
+      FUN_00a5bca0(this,*(int **)param_1[4]);
+      FUN_00a5bf50(param_1,0);
+    }
+    LeaveCriticalSection((LPCRITICAL_SECTION)&lpCriticalSection_011f4380);
+    if (piVar1 != (int *)0x0) {
+      local_8._0_1_ = 1;
+      (**(code **)(*piVar1 + 0xe4))(param_1);
+      local_8 = (uint)local_8._1_3_ << 8;
+    }
+    FUN_00c5f5a0(this,(int)this,(int)this);
+  }
+  else {
+    FUN_00a5ed10(this,param_1,(int *)&DAT_00000001);
+  }
+  if (piVar1 != (int *)0x0) {
+    (**(code **)(*piVar1 + 0xdc))(this,1);
+  }
+  FUN_00a5e2d0(this);
+  *unaff_FS_OFFSET = local_10;
+  return this;
+}
+
+
+
+######################################################################
+# SECTION 7: Wait mechanism ? FUN_00adc560
+######################################################################
+
+======================================================================
+WaitForObject_WithTimeout @ 0x00adc560
+======================================================================
+  Function: FUN_00adc560, Size: 139 bytes
+  Entry: 0x00adc560
+
+/* WARNING: Removing unreachable block (ram,0x00adc5b6) */
+/* WARNING: Restarted to delay deadcode elimination for space: stack */
+
+void __thiscall FUN_00adc560(void *this,undefined4 param_1,undefined4 param_2,uint param_3)
+
+{
+  FUN_00adb1a0(this,9,param_1,0,param_2,(int *)0x0,(float)param_3,0,0);
+  return;
+}
+
+
+
+--- Calls FROM WaitForObject_WithTimeout (0x00adc560) ---
+  CALL 0x00fdf1c0 -> unknown_0x00fdf1c0 (from 0x00adc5c5)
+  CALL 0x00000066 -> unknown_0x00000066 (from 0x00adc5c5)
+  CALL 0x00adb1a0 -> FUN_00adb1a0 (from 0x00adc5e0)
+  Total: 3 calls
+
+--- XRefs to WaitForObject_WithTimeout (0x00adc560) ---
+  UNCONDITIONAL_CALL @ 0x00ad8dc6 (in FUN_00ad8da0)
+  UNCONDITIONAL_CALL @ 0x00ad8e10 (in FUN_00ad8de0)
+  Total: 2 refs
+
+######################################################################
+# SECTION 8: FUN_00ad8780 ? post-IO-wait quiescing?
+######################################################################
+
+======================================================================
+PostIOWait_Quiesce @ 0x00ad8780
+======================================================================
+  Function: FUN_00ad8780, Size: 13 bytes
+  Entry: 0x00ad8780
+
+void FUN_00ad8780(void)
+
+{
+  return;
+}
+
+
+
+--- Calls FROM PostIOWait_Quiesce (0x00ad8780) ---
+  Total: 0 calls
+
+######################################################################
+# SECTION 9: Task submission to BSTaskManagerThread
+######################################################################
+
+======================================================================
+IOQueue_CreateTLS @ 0x00c41610
+======================================================================
+  Function: FUN_00c41610, Size: 137 bytes
+  Entry: 0x00c41610
+
+LPVOID __thiscall FUN_00c41610(void *this,int *param_1)
+
+{
+  LONG LVar1;
+  uint uVar2;
+  DWORD DVar3;
+  undefined4 local_8;
+  
+  local_8 = (LPVOID)0x0;
+  LVar1 = InterlockedIncrement((LONG *)((int)this + 0xc));
+  uVar2 = LVar1 - 1;
+  if (uVar2 < *(uint *)this) {
+    local_8 = (LPVOID)(**(code **)(*param_1 + 4))(uVar2);
+    *(LPVOID *)(*(int *)((int)this + 8) + 4 + uVar2 * 8) = local_8;
+    DVar3 = GetCurrentThreadId();
+    *(DWORD *)(*(int *)((int)this + 8) + uVar2 * 8) = DVar3;
+    TlsSetValue(*(DWORD *)((int)this + 4),local_8);
+  }
+  return local_8;
+}
+
+
+
+======================================================================
+IOQueue_ProcessNext @ 0x00c416a0
+======================================================================
+  Function: FUN_00c416a0, Size: 1044 bytes
+  Entry: 0x00c416a0
+
+/* WARNING: Removing unreachable block (ram,0x00c41859) */
+/* WARNING: Removing unreachable block (ram,0x00c41996) */
+/* WARNING: Removing unreachable block (ram,0x00c41aa9) */
+/* WARNING: Restarted to delay deadcode elimination for space: stack */
+
+uint ******* __thiscall
+FUN_00c416a0(void *this,uint *******param_1,undefined4 param_2,undefined4 param_3)
+
+{
+  undefined4 uVar1;
+  undefined4 uVar2;
+  char cVar3;
+  uint *******pppppppuVar4;
+  uint uVar5;
+  uint Comperand;
+  undefined4 *puVar6;
+  uint local_10;
+  undefined1 local_9;
+  int local_8;
+  
+  local_8 = *(int *)(*(int *)this + 0xc) + (int)param_1 * 4;
+  do {
+    do {
+      local_9 = 0;
+      *(int *)((int)this + 0x10) = local_8;
+      *(undefined4 *)((int)this + 0x14) = **(undefined4 **)((int)this + 0x10);
+      **(uint **)((int)this + 8) = *(uint *)((int)this + 0x14) & 0xfffffffe;
+      local_10 = *(uint *)((int)this + 0x14) & 0xfffffffe;
+      FUN_0044e010(&local_10,'\0');
+    } while (**(uint **)((int)this + 0x10) != local_10);
+    while( true ) {
+      if ((*(uint *)((int)this + 0x14) & 0xfffffffe) == 0) {
+        return (uint *******)((uint)((int)this + 0x14) & 0xffffff00);
+      }
+      *(undefined4 *)((int)this + 0x18) =
+           *(undefined4 *)((*(uint *)((int)this + 0x14) & 0xfffffffe) + 0xc);
+      **(uint **)((int)this + 4) = *(uint *)((int)this + 0x18) & 0xfffffffe;
+      if (*(int *)((int)this + 0x18) != *(int *)((*(uint *)((int)this + 0x14) & 0xfffffffe) + 0xc))
+      break;
+      puVar6 = (undefined4 *)(*(uint *)((int)this + 0x14) & 0xfffffffe);
+      uVar1 = *puVar6;
+      uVar2 = puVar6[1];
+      Comperand = *(uint *)((int)this + 0x14) & 0xfffffffe;
+      if (**(uint **)((int)this + 0x10) != Comperand) break;
+      if ((*(uint *)((int)this + 0x18) & 1) == 0) {
+        cVar3 = (**(code **)(**(int **)this + 0x34))(uVar1,uVar2,param_2,param_3);
+        if (cVar3 != '\0') {
+          pppppppuVar4 = (uint *******)
+                         (**(code **)(**(int **)this + 0x38))(uVar1,uVar2,param_2,param_3);
+          return pppppppuVar4;
+        }
+        *(uint *)((int)this + 0x10) = (*(uint *)((int)this + 0x14) & 0xfffffffe) + 0xc;
+        **(uint **)((int)this + 0xc) = *(uint *)((int)this + 0x14) & 0xfffffffe;
+      }
+      else {
+        uVar5 = InterlockedCompareExchange
+                          (*(LONG **)((int)this + 0x10),*(uint *)((int)this + 0x18) & 0xfffffffe,
+                           Comperand);
+        if (uVar5 != Comperand) break;
+        FUN_00c41f40(this,*(uint *)((int)this + 0x14) & 0xfffffffe);
+      }
+      *(undefined4 *)((int)this + 0x14) = *(undefined4 *)((int)this + 0x18);
+      **(uint **)((int)this + 8) = *(uint *)((int)this + 0x18) & 0xfffffffe;
+    }
+  } while( true );
+}
+

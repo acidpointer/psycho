@@ -1,0 +1,953 @@
+======================================================================
+CRASH ANALYSIS: BSTaskManagerThread LOD Texture Loading
+Exception: EXCEPTION_ACCESS_VIOLATION (C0000005)
+eip=0x00ED17A0, eax=0x00000000 (NULL dereference)
+Calltrace: 0x00ED17A0 -> 0x00ED1846 -> 0x00AA17F1
+Stack: NiSourceTexture(RefCount:0), BSFile(wastelandnv.buildings.dds)
+======================================================================
+
+######################################################################
+# SECTION 1: Crash callstack addresses
+######################################################################
+
+======================================================================
+CRASH_POINT_eip @ 0x00ed17a0
+======================================================================
+  Function: FUN_00ed176d, Size: 129 bytes
+  Entry: 0x00ed176d
+  Signature: undefined FUN_00ed176d(undefined4 * param_1, undefined4 * param_2, uint param_3)
+
+void __cdecl FUN_00ed176d(undefined4 *param_1,undefined4 *param_2,uint param_3)
+
+{
+  undefined4 uVar1;
+  undefined4 uVar2;
+  undefined4 uVar3;
+  undefined4 uVar4;
+  undefined4 uVar5;
+  undefined4 uVar6;
+  undefined4 uVar7;
+  undefined4 uVar8;
+  undefined4 uVar9;
+  undefined4 uVar10;
+  undefined4 uVar11;
+  undefined4 uVar12;
+  undefined4 uVar13;
+  undefined4 uVar14;
+  undefined4 uVar15;
+  uint uVar16;
+  
+  uVar16 = param_3 >> 7;
+  do {
+    uVar1 = param_2[1];
+    uVar2 = param_2[2];
+    uVar3 = param_2[3];
+    uVar4 = param_2[4];
+    uVar5 = param_2[5];
+    uVar6 = param_2[6];
+    uVar7 = param_2[7];
+    uVar8 = param_2[8];
+    uVar9 = param_2[9];
+    uVar10 = param_2[10];
+    uVar11 = param_2[0xb];
+    uVar12 = param_2[0xc];
+    uVar13 = param_2[0xd];
+    uVar14 = param_2[0xe];
+    uVar15 = param_2[0xf];
+    *param_1 = *param_2;
+    param_1[1] = uVar1;
+    param_1[2] = uVar2;
+    param_1[3] = uVar3;
+    param_1[4] = uVar4;
+    param_1[5] = uVar5;
+    param_1[6] = uVar6;
+    param_1[7] = uVar7;
+    param_1[8] = uVar8;
+    param_1[9] = uVar9;
+    param_1[10] = uVar10;
+    param_1[0xb] = uVar11;
+    param_1[0xc] = uVar12;
+    param_1[0xd] = uVar13;
+    param_1[0xe] = uVar14;
+    param_1[0xf] = uVar15;
+    uVar1 = param_2[0x11];
+    uVar2 = param_2[0x12];
+    uVar3 = param_2[0x13];
+    uVar4 = param_2[0x14];
+    uVar5 = param_2[0x15];
+    uVar6 = param_2[0x16];
+    uVar7 = param_2[0x17];
+    uVar8 = param_2[0x18];
+    uVar9 = param_2[0x19];
+    uVar10 = param_2[0x1a];
+    uVar11 = param_2[0x1b];
+    uVar12 = param_2[0x1c];
+    uVar13 = param_2[0x1d];
+    uVar14 = param_2[0x1e];
+    uVar15 = param_2[0x1f];
+    param_1[0x10] = param_2[0x10];
+    param_1[0x11] = uVar1;
+    param_1[0x12] = uVar2;
+    param_1[0x13] = uVar3;
+    param_1[0x14] = uVar4;
+    param_1[0x15] = uVar5;
+    param_1[0x16] = uVar6;
+    param_1[0x17] = uVar7;
+    param_1[0x18] = uVar8;
+    param_1[0x19] = uVar9;
+    param_1[0x1a] = uVar10;
+    param_1[0x1b] = uVar11;
+    param_1[0x1c] = uVar12;
+    param_1[0x1d] = uVar13;
+    param_1[0x1e] = uVar14;
+    param_1[0x1f] = uVar15;
+    param_2 = param_2 + 0x20;
+    param_1 = param_1 + 0x20;
+    uVar16 = uVar16 - 1;
+  } while (uVar16 != 0);
+  return;
+}
+
+
+
+--- Disassembly around 0x00ed17a0 ---
+  0x00ed178d: MOVDQA XMM0,xmmword ptr [ESI]
+  0x00ed1791: MOVDQA XMM1,xmmword ptr [ESI + 0x10]
+  0x00ed1796: MOVDQA XMM2,xmmword ptr [ESI + 0x20]
+  0x00ed179b: MOVDQA XMM3,xmmword ptr [ESI + 0x30]
+  0x00ed17a0: MOVDQA xmmword ptr [EDI],XMM0 <<< CRASH
+  0x00ed17a4: MOVDQA xmmword ptr [EDI + 0x10],XMM1
+  0x00ed17a9: MOVDQA xmmword ptr [EDI + 0x20],XMM2
+  0x00ed17ae: MOVDQA xmmword ptr [EDI + 0x30],XMM3
+  0x00ed17b3: MOVDQA XMM4,xmmword ptr [ESI + 0x40]
+  0x00ed17b8: MOVDQA XMM5,xmmword ptr [ESI + 0x50]
+  0x00ed17bd: MOVDQA XMM6,xmmword ptr [ESI + 0x60]
+  0x00ed17c2: MOVDQA XMM7,xmmword ptr [ESI + 0x70]
+  0x00ed17c7: MOVDQA xmmword ptr [EDI + 0x40],XMM4
+  0x00ed17cc: MOVDQA xmmword ptr [EDI + 0x50],XMM5
+  0x00ed17d1: MOVDQA xmmword ptr [EDI + 0x60],XMM6
+  0x00ed17d6: MOVDQA xmmword ptr [EDI + 0x70],XMM7
+  0x00ed17db: LEA ESI,[ESI + 0x80]
+  0x00ed17e1: LEA EDI,[EDI + 0x80]
+  0x00ed17e7: DEC ECX
+  0x00ed17e8: JNZ 0x00ed178d
+  0x00ed17ea: MOV ESI,dword ptr [EBP + -0x8]
+  0x00ed17ed: MOV EDI,dword ptr [EBP + -0x4]
+  0x00ed17f0: MOV ESP,EBP
+  0x00ed17f2: POP EBP
+  0x00ed17f3: RET
+  0x00ed17f4: PUSH EBP
+  0x00ed17f5: MOV EBP,ESP
+  0x00ed17f7: SUB ESP,0x1c
+  0x00ed17fa: MOV dword ptr [EBP + -0xc],EDI
+  0x00ed17fd: MOV dword ptr [EBP + -0x8],ESI
+  0x00ed1800: MOV dword ptr [EBP + -0x4],EBX
+  0x00ed1803: MOV EBX,dword ptr [EBP + 0xc]
+  0x00ed1806: MOV EAX,EBX
+  0x00ed1808: CDQ
+  0x00ed1809: MOV ECX,EAX
+  0x00ed180b: MOV EAX,dword ptr [EBP + 0x8]
+  0x00ed180e: XOR ECX,EDX
+  0x00ed1810: SUB ECX,EDX
+  0x00ed1812: AND ECX,0xf
+  0x00ed1815: XOR ECX,EDX
+
+--- Calls FROM CRASH_POINT (0x00ed17a0) ---
+  Total unique calls: 0
+
+======================================================================
+CALLER_1 @ 0x00ed1846
+======================================================================
+  Function: __VEC_memcpy, Size: 227 bytes
+  Entry: 0x00ed17f4
+  Signature: undefined4 * __VEC_memcpy(undefined4 * param_1, undefined4 * param_2, uint param_3)
+
+/* Library Function - Single Match
+    __VEC_memcpy
+   
+   Libraries: Visual Studio 2005 Debug, Visual Studio 2005 Release, Visual Studio 2008 Debug, Visual
+   Studio 2008 Release */
+
+undefined4 * __cdecl __VEC_memcpy(undefined4 *param_1,undefined4 *param_2,uint param_3)
+
+{
+  int iVar1;
+  int iVar2;
+  uint uVar3;
+  undefined1 *puVar4;
+  undefined4 *puVar5;
+  uint uVar6;
+  undefined1 *puVar7;
+  undefined4 *puVar8;
+  
+  uVar3 = (int)param_2 >> 0x1f;
+  iVar1 = (((uint)param_2 ^ uVar3) - uVar3 & 0xf ^ uVar3) - uVar3;
+  uVar3 = (int)param_1 >> 0x1f;
+  uVar6 = ((uint)param_1 ^ uVar3) - uVar3 & 0xf ^ uVar3;
+  if (iVar1 == 0 && uVar6 == uVar3) {
+    uVar3 = param_3 & 0x7f;
+    if (param_3 != uVar3) {
+      FUN_00ed176d(param_1,param_2,param_3 - uVar3);
+    }
+    if (uVar3 != 0) {
+      puVar4 = (undefined1 *)((int)param_2 + (param_3 - uVar3));
+      puVar7 = (undefined1 *)((int)param_1 + (param_3 - uVar3));
+      for (; uVar3 != 0; uVar3 = uVar3 - 1) {
+        *puVar7 = *puVar4;
+        puVar4 = puVar4 + 1;
+        puVar7 = puVar7 + 1;
+      }
+    }
+  }
+  else if (iVar1 == uVar6 - uVar3) {
+    iVar1 = 0x10 - iVar1;
+    puVar5 = param_2;
+    puVar8 = param_1;
+    for (iVar2 = iVar1; iVar2 != 0; iVar2 = iVar2 + -1) {
+      *(undefined1 *)puVar8 = *(undefined1 *)puVar5;
+      puVar5 = (undefined4 *)((int)puVar5 + 1);
+      puVar8 = (undefined4 *)((int)puVar8 + 1);
+    }
+    __VEC_memcpy((undefined4 *)((int)param_1 + iVar1),(undefined4 *)((int)param_2 + iVar1),
+                 param_3 - iVar1);
+  }
+  else {
+    puVar5 = param_1;
+    for (uVar3 = param_3 >> 2; uVar3 != 0; uVar3 = uVar3 - 1) {
+      *puVar5 = *param_2;
+      param_2 = param_2 + 1;
+      puVar5 = puVar5 + 1;
+    }
+    for (uVar3 = param_3 & 3; uVar3 != 0; uVar3 = uVar3 - 1) {
+      *(undefined1 *)puVar5 = *(undefined1 *)param_2;
+      param_2 = (undefined4 *)((int)param_2 + 1);
+      puVar5 = (undefined4 *)((int)puVar5 + 1);
+    }
+  }
+  return param_1;
+}
+
+
+
+--- Disassembly around 0x00ed1846 ---
+  0x00ed1835: MOV dword ptr [EBP + -0x18],ECX
+  0x00ed1838: CMP ESI,ECX
+  0x00ed183a: JZ 0x00ed184f
+  0x00ed183c: SUB ESI,ECX
+  0x00ed183e: PUSH ESI
+  0x00ed183f: PUSH EBX
+  0x00ed1840: PUSH EAX
+  0x00ed1841: CALL 0x00ed176d
+  0x00ed1846: ADD ESP,0xc <<< CRASH
+  0x00ed1849: MOV EAX,dword ptr [EBP + 0x8]
+  0x00ed184c: MOV ECX,dword ptr [EBP + -0x18]
+  0x00ed184f: TEST ECX,ECX
+  0x00ed1851: JZ 0x00ed18ca
+  0x00ed1853: MOV EBX,dword ptr [EBP + 0x10]
+  0x00ed1856: MOV EDX,dword ptr [EBP + 0xc]
+  0x00ed1859: ADD EDX,EBX
+  0x00ed185b: SUB EDX,ECX
+  0x00ed185d: MOV dword ptr [EBP + -0x14],EDX
+  0x00ed1860: ADD EBX,EAX
+  0x00ed1862: SUB EBX,ECX
+  0x00ed1864: MOV dword ptr [EBP + -0x10],EBX
+  0x00ed1867: MOV ESI,dword ptr [EBP + -0x14]
+  0x00ed186a: MOV EDI,dword ptr [EBP + -0x10]
+  0x00ed186d: MOV ECX,dword ptr [EBP + -0x18]
+  0x00ed1870: MOVSB.REP ES:EDI,ESI
+  0x00ed1872: MOV EAX,dword ptr [EBP + 0x8]
+  0x00ed1875: JMP 0x00ed18ca
+  0x00ed1877: CMP ECX,EDI
+  0x00ed1879: JNZ 0x00ed18b0
+  0x00ed187b: NEG ECX
+
+======================================================================
+CALLER_2 @ 0x00aa17f1
+======================================================================
+  Function: FUN_00aa1750, Size: 189 bytes
+  Entry: 0x00aa1750
+  Signature: int FUN_00aa1750(void * this, void * param_1, uint param_2)
+
+int __thiscall FUN_00aa1750(void *this,void *param_1,uint param_2)
+
+{
+  int iVar1;
+  uint uVar2;
+  undefined4 local_4;
+  
+  if (*(char *)((int)this + 0x2c) == '\0') {
+    return 0;
+  }
+  uVar2 = *(int *)((int)this + 0x14) - *(int *)((int)this + 0x18);
+  local_4 = 0;
+  if (uVar2 < param_2) {
+    if (uVar2 != 0) {
+      _memcpy(param_1,(void *)(*(int *)((int)this + 0x20) + *(int *)((int)this + 0x18)),uVar2);
+      param_1 = (void *)((int)param_1 + uVar2);
+      param_2 = param_2 - uVar2;
+      local_4 = uVar2;
+    }
+    FUN_00aa15a0((int)this);
+    if (*(uint *)((int)this + 0x10) < param_2) {
+      iVar1 = FUN_00aa8610(param_1,1,param_2,*(undefined4 *)((int)this + 0x24));
+      *(int *)((int)this + 0x1c) = *(int *)((int)this + 0x1c) + iVar1;
+      return iVar1 + local_4;
+    }
+    uVar2 = FUN_00aa8610(*(undefined4 *)((int)this + 0x20),1,*(uint *)((int)this + 0x10),
+                         *(undefined4 *)((int)this + 0x24));
+    *(int *)((int)this + 0x1c) = *(int *)((int)this + 0x1c) + uVar2;
+    *(uint *)((int)this + 0x14) = uVar2;
+    if (uVar2 < param_2) {
+      param_2 = uVar2;
+    }
+  }
+  _memcpy(param_1,(void *)(*(int *)((int)this + 0x20) + *(int *)((int)this + 0x18)),param_2);
+  *(int *)((int)this + 0x18) = *(int *)((int)this + 0x18) + param_2;
+  return local_4 + param_2;
+}
+
+
+
+--- Disassembly around 0x00aa17f1 ---
+  0x00aa17df: JNC 0x00aa17e3
+  0x00aa17e1: MOV EBX,EAX
+  0x00aa17e3: MOV EAX,dword ptr [ESI + 0x20]
+  0x00aa17e6: ADD EAX,dword ptr [ESI + 0x18]
+  0x00aa17e9: PUSH EBX
+  0x00aa17ea: PUSH EAX
+  0x00aa17eb: PUSH EBP
+  0x00aa17ec: CALL 0x00ec44d0
+  0x00aa17f1: MOV ECX,dword ptr [ESP + 0x1c] <<< CRASH
+  0x00aa17f5: ADD ESP,0xc
+  0x00aa17f8: ADD dword ptr [ESI + 0x18],EBX
+  0x00aa17fb: POP EDI
+  0x00aa17fc: POP EBP
+  0x00aa17fd: LEA EAX,[ECX + EBX*0x1]
+  0x00aa1800: POP EBX
+  0x00aa1801: POP ESI
+  0x00aa1802: POP ECX
+  0x00aa1803: RET 0x8
+  0x00aa1806: XOR EAX,EAX
+  0x00aa1808: POP ESI
+  0x00aa1809: POP ECX
+  0x00aa180a: RET 0x8
+  0x00aa1810: PUSH ECX
+  0x00aa1811: PUSH ESI
+  0x00aa1812: MOV ESI,ECX
+  0x00aa1814: CMP byte ptr [ESI + 0x2c],0x0
+  0x00aa1818: JZ 0x00aa18b8
+  0x00aa181e: MOV EAX,dword ptr [ESI + 0x18]
+  0x00aa1821: PUSH EBX
+  0x00aa1822: MOV EBX,dword ptr [ESP + 0x14]
+
+######################################################################
+# SECTION 2: Functions near crash addresses
+######################################################################
+
+======================================================================
+Functions in range 0x00ed1600 - 0x00ed1a00 (CRT area near crash)
+======================================================================
+  0x00ed16a2 (103 bytes): _Type_info_dtor -- void _Type_info_dtor(type_info * param_1)
+  0x00ed1709 (9 bytes): FUN_00ed1709 -- undefined FUN_00ed1709(void)
+  0x00ed1714 (69 bytes): __SEH_prolog4 -- undefined __SEH_prolog4(undefined4 param_1, int param_2)
+  0x00ed1759 (20 bytes): __SEH_epilog4 -- undefined __SEH_epilog4(void)
+  0x00ed176d (129 bytes): FUN_00ed176d -- undefined FUN_00ed176d(undefined4 * param_1, undefined4 * param_2, uint param_3)
+  0x00ed17f4 (227 bytes): __VEC_memcpy -- undefined4 * __VEC_memcpy(undefined4 * param_1, undefined4 * param_2, uint param_3)
+  0x00ed18d7 (45 bytes): FUN_00ed18d7 -- undefined4 FUN_00ed18d7(void)
+  0x00ed1927 (98 bytes): __get_sse2_info -- undefined4 __get_sse2_info(void)
+  0x00ed1996 (115 bytes): __forcdecpt_l -- void __forcdecpt_l(char * _Buf, _locale_t _Locale)
+  Total: 9 functions
+
+======================================================================
+Functions in range 0x00aa1600 - 0x00aa1a00 (near 0x00AA17F1)
+======================================================================
+  0x00aa1650 (19 bytes): FUN_00aa1650 -- bool FUN_00aa1650(LPCSTR param_1)
+  0x00aa1670 (26 bytes): FUN_00aa1670 -- uint FUN_00aa1670(LPCSTR param_1)
+  0x00aa1690 (58 bytes): FUN_00aa1690 -- undefined FUN_00aa1690(undefined4 * param_1)
+  0x00aa16d0 (119 bytes): FUN_00aa16d0 -- undefined FUN_00aa16d0(void * this, int param_1, int param_2)
+  0x00aa1750 (189 bytes): FUN_00aa1750 -- int FUN_00aa1750(void * this, void * param_1, uint param_2)
+  0x00aa1810 (175 bytes): FUN_00aa1810 -- int FUN_00aa1810(void * this, void * param_1, size_t param_2)
+  0x00aa18c0 (81 bytes): FUN_00aa18c0 -- undefined4 * FUN_00aa18c0(void * this, byte param_1)
+  0x00aa1920 (83 bytes): FUN_00aa1920 -- undefined FUN_00aa1920(void)
+  0x00aa1980 (17 bytes): FUN_00aa1980 -- undefined FUN_00aa1980(void)
+  0x00aa19e0 (58 bytes): FUN_00aa19e0 -- int FUN_00aa19e0(void * param_1, undefined1 * param_2, uint param_3, int param_4, uint param_5)
+  Total: 10 functions
+
+######################################################################
+# SECTION 3: Who uses lpCriticalSection_011f4380?
+######################################################################
+
+--- XRefs to lpCriticalSection_011f4380 (0x011f4380) ---
+  DATA @ 0x00a5b992 (in FUN_00a5b990)
+  DATA @ 0x00a5b9ac (in FUN_00a5b990)
+  DATA @ 0x00a5ba29 (in FUN_00a5b990)
+  DATA @ 0x00a5ba5d (in FUN_00a5ba40)
+  DATA @ 0x00a5ba8e (in FUN_00a5ba40)
+  DATA @ 0x00a5bb6b (in FUN_00a5ba40)
+  DATA @ 0x00a5bb87 (in FUN_00a5ba40)
+  DATA @ 0x00a5bbb5 (in FUN_00a5bba0)
+  DATA @ 0x00a5bbdd (in FUN_00a5bba0)
+  DATA @ 0x00a5bc24 (in FUN_00a5bba0)
+  DATA @ 0x00a5bdf0 (in FUN_00a5bdd0)
+  DATA @ 0x00a5be4c (in FUN_00a5bdd0)
+  DATA @ 0x00a5be61 (in FUN_00a5bdd0)
+  DATA @ 0x00a5be9f (in FUN_00a5be90)
+  DATA @ 0x00a5beb8 (in FUN_00a5be90)
+  DATA @ 0x00a5bf1c (in FUN_00a5be90)
+  DATA @ 0x00a5bf3b (in FUN_00a5be90)
+  DATA @ 0x00a5bfa2 (in FUN_00a5bfa0)
+  DATA @ 0x00a5bfde (in FUN_00a5bfa0)
+  DATA @ 0x00a5bf51 (in FUN_00a5bf50)
+  DATA @ 0x00a5bf70 (in FUN_00a5bf50)
+  DATA @ 0x00a5bf81 (in FUN_00a5bf50)
+  DATA @ 0x00c5f91e (in FUN_00c5f680)
+  DATA @ 0x00c5f98f (in FUN_00c5f680)
+  DATA @ 0x00a5c725 (in FUN_00a5c6a0)
+  DATA @ 0x00a5c73a (in FUN_00a5c6a0)
+  DATA @ 0x00c45a05 (in FUN_00c459d0)
+  DATA @ 0x00c45a54 (in FUN_00c459d0)
+  DATA @ 0x0078d0ba (in FUN_0078d080)
+  DATA @ 0x0078d0f8 (in FUN_0078d080)
+  ... (truncated at 30)
+  Total: 30 refs
+
+######################################################################
+# SECTION 4: BSTaskManagerThread task processing path
+######################################################################
+
+======================================================================
+BSTaskManagerThread_Create @ 0x00c42da0
+======================================================================
+  Function: lpStartAddress_00c42da0, Size: 37 bytes
+  Entry: 0x00c42da0
+  Signature: undefined4 lpStartAddress_00c42da0(int * param_1)
+
+/* lpStartAddress parameter of CreateThread
+    */
+
+undefined4 lpStartAddress_00c42da0(int *param_1)
+
+{
+  FUN_00c80130(param_1 + 9);
+  (**(code **)(*param_1 + 4))();
+  return 0;
+}
+
+
+
+======================================================================
+BSTaskManagerThread_Loop @ 0x00c410b0
+======================================================================
+  Function: FUN_00c410b0, Size: 633 bytes
+  Entry: 0x00c410b0
+  Signature: undefined FUN_00c410b0(int param_1)
+
+/* WARNING: Removing unreachable block (ram,0x00c411bc) */
+/* WARNING: Removing unreachable block (ram,0x00c412b6) */
+
+void __fastcall FUN_00c410b0(int param_1)
+
+{
+  DWORD DVar1;
+  uint uVar2;
+  LONG LVar3;
+  int *unaff_FS_OFFSET;
+  undefined4 local_40 [2];
+  undefined4 *local_38;
+  char local_31;
+  undefined **local_30 [2];
+  undefined4 local_28;
+  undefined4 local_20;
+  undefined4 local_1c;
+  byte local_18;
+  int local_10;
+  undefined1 *puStack_c;
+  uint local_8;
+  
+  puStack_c = &LAB_00f2e0a0;
+  local_10 = *unaff_FS_OFFSET;
+  *unaff_FS_OFFSET = (int)&local_10;
+  while (local_8 = 0xffffffff, *(char *)(*(int *)(param_1 + 0x30) + 0x40) != '\x01') {
+    WaitForSingleObject(*(HANDLE *)(param_1 + 0x10),0xffffffff);
+    InterlockedDecrement((LONG *)(param_1 + 0xc));
+    local_28 = 0;
+    local_20 = 0;
+    local_1c = 0;
+    local_18 = 0;
+    local_30[0] = &PTR_FUN_010c1664;
+    local_8 = 0;
+    local_31 = '\0';
+    while ((local_18 & 2) == 0) {
+      DVar1 = WaitForSingleObject(*(HANDLE *)(param_1 + 0x1c),0);
+      if (DVar1 == 0x102) {
+        WaitForSingleObject(*(HANDLE *)(param_1 + 0x1c),0xffffffff);
+        InterlockedDecrement((LONG *)(param_1 + 0x18));
+        FUN_00c42060(local_30,0);
+      }
+      local_38 = (undefined4 *)0x0;
+      local_8 = CONCAT31(local_8._1_3_,1);
+      uVar2 = FUN_00c40e70(*(void **)(param_1 + 0x30),(int)local_30,local_40,(int *)&local_38,
+                           local_31 == '\0');
+      if ((uVar2 & 0xff) == 0) {
+        if ((local_18 & 2) == 0) {
+          FUN_00c42060(local_30,0);
+          local_31 = '\0';
+        }
+      }
+      else if ((local_38[3] == 1) &&
+              (LVar3 = InterlockedCompareExchange(local_38 + 3,3,1), LVar3 == 1)) {
+        local_31 = '\x01';
+        (**(code **)(**(int **)(param_1 + 0x30) + 0x4c))(local_38);
+        (**(code **)(**(int **)(param_1 + 0x30) + 0x50))(local_38);
+      }
+      if (local_38 != (undefined4 *)0x0) {
+        if (local_38 != (undefined4 *)0x0) {
+          FUN_0044dd60(local_38);
+        }
+        local_38 = (undefined4 *)0x0;
+      }
+      ReleaseSemaphore(*(HANDLE *)(param_1 + 0x1c),1,(LPLONG)0x0);
+      InterlockedIncrement((LONG *)(param_1 + 0x18));
+      local_8 = local_8 & 0xffffff00;
+      if (local_38 != (undefined4 *)0x0) {
+        FUN_0044dd60(local_38);
+      }
+    }
+    local_30[0] = &PTR_FUN_010c1670;
+  }
+  *unaff_FS_OFFSET = local_10;
+  return;
+}
+
+
+
+======================================================================
+IO_ProcessTask_Variant1 @ 0x00c42380
+======================================================================
+  Function: FUN_00c42380, Size: 463 bytes
+  Entry: 0x00c42380
+  Signature: undefined4 FUN_00c42380(void * this, int param_1, undefined4 param_2, int * param_3)
+
+/* WARNING: Removing unreachable block (ram,0x00c423ff) */
+/* WARNING: Restarted to delay deadcode elimination for space: stack */
+
+undefined4 __thiscall FUN_00c42380(void *this,int param_1,undefined4 param_2,int *param_3)
+
+{
+  undefined4 *puVar1;
+  int *piVar2;
+  undefined1 local_5;
+  
+  do {
+    do {
+      *(int *)((int)this + 0x10) = *(int *)(*(int *)this + 0xc) + param_1 * 4;
+      *(undefined4 *)((int)this + 0x14) = **(undefined4 **)((int)this + 0x10);
+      **(uint **)((int)this + 8) = *(uint *)((int)this + 0x14) & 0xfffffffe;
+    } while (**(uint **)((int)this + 0x10) != (*(uint *)((int)this + 0x14) & 0xfffffffe));
+    if ((*(uint *)((int)this + 0x14) & 0xfffffffe) == 0) {
+      local_5 = 0;
+      break;
+    }
+    puVar1 = (undefined4 *)(*(uint *)((int)this + 0x14) & 0xfffffffe);
+    (**(code **)(**(int **)this + 0x30))(*puVar1,puVar1[1],param_2);
+    piVar2 = (int *)((*(uint *)((int)this + 0x14) & 0xfffffffe) + 8);
+    if (*param_3 != *piVar2) {
+      if (*param_3 != 0) {
+        FUN_0044dd60((undefined4 *)*param_3);
+      }
+      *param_3 = *piVar2;
+      if (*param_3 != 0) {
+        InterlockedIncrement((LONG *)(*param_3 + 8));
+      }
+    }
+    local_5 = 1;
+  } while ((*(uint *)((*(uint *)((int)this + 0x14) & 0xfffffffe) + 0xc) & 1) != 0);
+  **(undefined4 **)((int)this + 4) = 0;
+  puVar1 = *(undefined4 **)((int)this + 8);
+  *puVar1 = 0;
+  **(undefined4 **)((int)this + 0xc) = 0;
+  return CONCAT31((int3)((uint)puVar1 >> 8),local_5);
+}
+
+
+
+======================================================================
+IO_ProcessTask_Variant2 @ 0x00c42560
+======================================================================
+  Function: FUN_00c42560, Size: 1004 bytes
+  Entry: 0x00c42560
+  Signature: char FUN_00c42560(void * this, uint * * * * * * * param_1, undefined4 * param_2, int * param_3)
+
+char __thiscall FUN_00c42560(void *this,uint *******param_1,undefined4 *param_2,int *param_3)
+
+{
+  uint *******pppppppuVar1;
+  int *piVar2;
+  undefined4 *puVar3;
+  char local_5;
+  
+  do {
+    while (pppppppuVar1 = FUN_00c416a0(this,param_1,*param_2,param_2[1]), (char)pppppppuVar1 == '\0'
+          ) {
+      if ((*(uint *)((int)this + 0x14) & 0xfffffffe) == 0) {
+        local_5 = '\0';
+LAB_00c42924:
+        **(undefined4 **)((int)this + 4) = 0;
+        **(undefined4 **)((int)this + 8) = 0;
+        **(undefined4 **)((int)this + 0xc) = 0;
+        return local_5;
+      }
+      if ((*(uint *)((*(uint *)((int)this + 0x14) & 0xfffffffe) + 0xc) & 1) == 0) {
+        puVar3 = (undefined4 *)(*(uint *)((int)this + 0x14) & 0xfffffffe);
+        (**(code **)(**(int **)this + 0x30))(*puVar3,puVar3[1],param_2);
+        piVar2 = (int *)((*(uint *)((int)this + 0x14) & 0xfffffffe) + 8);
+        if (*param_3 != *piVar2) {
+          if (*param_3 != 0) {
+            FUN_0044dd60((undefined4 *)*param_3);
+          }
+          *param_3 = *piVar2;
+          if (*param_3 != 0) {
+            InterlockedIncrement((LONG *)(*param_3 + 8));
+          }
+        }
+        local_5 = '\x01';
+        if ((*(uint *)((*(uint *)((int)this + 0x14) & 0xfffffffe) + 0xc) & 1) == 0)
+        goto LAB_00c42924;
+        if (*param_3 != 0) {
+          if (*param_3 != 0) {
+            FUN_0044dd60((undefined4 *)*param_3);
+          }
+          *param_3 = 0;
+          if (*param_3 != 0) {
+            InterlockedIncrement((LONG *)(*param_3 + 8));
+          }
+        }
+      }
+    }
+    if ((*(uint *)((int)this + 0x18) & 0xfffffffe) == 0) {
+      local_5 = '\0';
+      goto LAB_00c42924;
+    }
+    if ((*(uint *)((*(uint *)((int)this + 0x18) & 0xfffffffe) + 0xc) & 1) == 0) {
+      puVar3 = (undefined4 *)(*(uint *)((int)this + 0x18) & 0xfffffffe);
+      (**(code **)(**(int **)this + 0x30))(*puVar3,puVar3[1],param_2);
+      piVar2 = (int *)((*(uint *)((int)this + 0x18) & 0xfffffffe) + 8);
+      if (*param_3 != *piVar2) {
+        if (*param_3 != 0) {
+          FUN_0044dd60((undefined4 *)*param_3);
+        }
+        *param_3 = *piVar2;
+        if (*param_3 != 0) {
+          InterlockedIncrement((LONG *)(*param_3 + 8));
+        }
+      }
+      local_5 = '\x01';
+      if ((*(uint *)((*(uint *)((int)this + 0x18) & 0xfffffffe) + 0xc) & 1) == 0) goto LAB_00c42924;
+      if (*param_3 != 0) {
+        if (*param_3 != 0) {
+          FUN_0044dd60((undefined4 *)*param_3);
+        }
+        *param_3 = 0;
+        if (*param_3 != 0) {
+          InterlockedIncrement((LONG *)(*param_3 + 8));
+        }
+      }
+    }
+  } while( true );
+}
+
+
+
+######################################################################
+# SECTION 5: NiSourceTexture / texture loading on IO thread
+######################################################################
+
+======================================================================
+NiSourceTexture_area @ 0x00a6df48
+======================================================================
+  Function: FUN_00a6df40, Size: 427 bytes
+  Entry: 0x00a6df40
+  Signature: undefined FUN_00a6df40(void * this, float * param_1)
+
+/* WARNING: Globals starting with '_' overlap smaller symbols at the same address */
+
+void __thiscall FUN_00a6df40(void *this,float *param_1)
+
+{
+  int iVar1;
+  int iVar2;
+  float fVar3;
+  uint uVar4;
+  float10 fVar5;
+  int local_c [3];
+  
+  if (0.0 < *param_1 + param_1[4] + param_1[8]) {
+    fVar5 = (float10)FUN_00ec6040();
+    fVar3 = (float)_DAT_01011588;
+    *(float *)this = (float)fVar5 * fVar3;
+    fVar3 = fVar3 / (float)fVar5;
+    *(float *)((int)this + 4) = fVar3 * (param_1[7] - param_1[5]);
+    *(float *)((int)this + 8) = (param_1[2] - param_1[6]) * fVar3;
+    *(float *)((int)this + 0xc) = (param_1[3] - param_1[1]) * fVar3;
+    return;
+  }
+  uVar4 = (uint)(*param_1 < param_1[4]);
+  if (param_1[uVar4 * 4] < param_1[8]) {
+    uVar4 = 2;
+  }
+  iVar1 = *(int *)(&DAT_011a9e98 + uVar4 * 4);
+  iVar2 = *(int *)(&DAT_011a9e98 + iVar1 * 4);
+  fVar5 = (float10)FUN_00ec6040();
+  local_c[0] = (int)this + 4;
+  fVar3 = (float)_DAT_01011588;
+  local_c[1] = (int)this + 8;
+  local_c[2] = (int)this + 0xc;
+  *(float *)local_c[uVar4] = (float)fVar5 * fVar3;
+  fVar3 = fVar3 / (float)fVar5;
+  *(float *)this = fVar3 * (param_1[iVar2 * 3 + iVar1] - param_1[iVar1 * 3 + iVar2]);
+  *(float *)local_c[iVar1] = (param_1[uVar4 * 3 + iVar1] + param_1[iVar1 * 3 + uVar4]) * fVar3;
+  *(float *)local_c[iVar2] = (param_1[uVar4 * 3 + iVar2] + param_1[iVar2 * 3 + uVar4]) * fVar3;
+  return;
+}
+
+
+
+--- XRefs to NiSourceTexture_RTTI (0x0109b9ec) ---
+  DATA @ 0x00a5fcab (in FUN_00a5fca0)
+  DATA @ 0x00a5fc40 (in FUN_00a5fc10)
+  Total: 2 refs
+
+######################################################################
+# SECTION 6: AsyncQueueFlush internals (0x00c459d0)
+######################################################################
+
+======================================================================
+AsyncQueueFlush @ 0x00c459d0
+======================================================================
+  Function: FUN_00c459d0, Size: 172 bytes
+  Entry: 0x00c459d0
+  Signature: undefined FUN_00c459d0(char param_1)
+
+/* WARNING: Globals starting with '_' overlap smaller symbols at the same address */
+
+void __cdecl FUN_00c459d0(char param_1)
+
+{
+  BOOL BVar1;
+  bool local_5;
+  
+  local_5 = true;
+  if (param_1 == '\0') {
+    FUN_0040fbf0((LONG *)&DAT_01202e40);
+  }
+  else {
+    local_5 = FUN_0078d200((LONG *)&DAT_01202e40);
+  }
+  if ((local_5 == false) ||
+     (BVar1 = TryEnterCriticalSection((LPCRITICAL_SECTION)&lpCriticalSection_011f4380), BVar1 != 0))
+  {
+    if (local_5 != false) {
+      FUN_00c46080(0x1202e20);
+      FUN_00c45a80();
+      LeaveCriticalSection((LPCRITICAL_SECTION)&lpCriticalSection_011f4380);
+      DAT_01202e44 = DAT_01202e44 + -1;
+      if (DAT_01202e44 == 0) {
+        _DAT_01202e40 = 0;
+      }
+    }
+  }
+  else {
+    DAT_01202e44 = DAT_01202e44 + -1;
+    if (DAT_01202e44 == 0) {
+      _DAT_01202e40 = 0;
+    }
+  }
+  return;
+}
+
+
+
+======================================================================
+AsyncFlush_Inner1 @ 0x00c46080
+======================================================================
+  Function: FUN_00c46080, Size: 229 bytes
+  Entry: 0x00c46080
+  Signature: undefined FUN_00c46080(int param_1)
+
+/* WARNING: Removing unreachable block (ram,0x00c460d8) */
+
+void __fastcall FUN_00c46080(int param_1)
+
+{
+  int *piVar1;
+  uint uVar2;
+  LONG LVar3;
+  int *unaff_FS_OFFSET;
+  int *local_18;
+  ushort local_14;
+  int local_10;
+  undefined1 *puStack_c;
+  undefined4 local_8;
+  
+  puStack_c = &LAB_00f2e618;
+  local_10 = *unaff_FS_OFFSET;
+  uVar2 = DAT_011c16bc ^ (uint)&stack0xfffffffc;
+  *unaff_FS_OFFSET = (int)&local_10;
+  for (local_14 = 0; local_14 < *(ushort *)(param_1 + 10); local_14 = local_14 + 1) {
+    local_18 = (int *)0x0;
+    local_8 = 0;
+    FUN_00c46270((void *)(*(int *)(param_1 + 4) + (uint)local_14 * 4),(int *)&local_18);
+    piVar1 = local_18;
+    local_8 = 0xffffffff;
+    if ((local_18 != (int *)0x0) && (LVar3 = InterlockedDecrement(local_18 + 1), LVar3 == 0)) {
+      (**(code **)(*piVar1 + 4))(uVar2);
+    }
+  }
+  *(undefined2 *)(param_1 + 10) = 0;
+  *(undefined2 *)(param_1 + 0xc) = 0;
+  *unaff_FS_OFFSET = local_10;
+  return;
+}
+
+
+
+======================================================================
+AsyncFlush_Inner2 @ 0x00c45a80
+======================================================================
+  Function: FUN_00c45a80, Size: 34 bytes
+  Entry: 0x00c45a80
+  Signature: undefined FUN_00c45a80(void)
+
+void FUN_00c45a80(void)
+
+{
+  if (100 < DAT_01202e2a) {
+    FUN_00c45b20(&DAT_01202e20,100);
+  }
+  return;
+}
+
+
+
+======================================================================
+BlockingLockAcquire @ 0x0040fbf0
+======================================================================
+  Function: FUN_0040fbf0, Size: 149 bytes
+  Entry: 0x0040fbf0
+  Signature: undefined FUN_0040fbf0(LONG * param_1)
+
+void __fastcall FUN_0040fbf0(LONG *param_1)
+
+{
+  int iVar1;
+  int iVar2;
+  uint local_64;
+  
+  iVar1 = FUN_0040fc90();
+  if (*param_1 == iVar1) {
+    param_1[1] = param_1[1] + 1;
+  }
+  else {
+    local_64 = 0;
+    while (iVar2 = FUN_0043b460(param_1,0,iVar1), iVar2 != 0) {
+      local_64 = local_64 + 1;
+      if (local_64 < 0x2711) {
+        FUN_0040fca0(0);
+      }
+      else {
+        FUN_0040fca0(1);
+      }
+    }
+    FUN_0040fbe0();
+    param_1[1] = 1;
+  }
+  return;
+}
+
+
+
+======================================================================
+TryLockAcquire @ 0x0078d200
+======================================================================
+  Function: FUN_0078d200, Size: 123 bytes
+  Entry: 0x0078d200
+  Signature: bool FUN_0078d200(LONG * param_1)
+
+bool __fastcall FUN_0078d200(LONG *param_1)
+
+{
+  int iVar1;
+  char local_25;
+  
+  iVar1 = FUN_0040fc90();
+  if (*param_1 == iVar1) {
+    param_1[1] = param_1[1] + 1;
+    local_25 = '\x01';
+  }
+  else {
+    iVar1 = FUN_0043b460(param_1,0,iVar1);
+    local_25 = '\x01' - (iVar1 != 0);
+    if (local_25 != '\0') {
+      FUN_0040fbe0();
+      param_1[1] = 1;
+    }
+  }
+  return (bool)local_25;
+}
+
+
+
+######################################################################
+# SECTION 7: IO queue pending count mechanism
+######################################################################
+
+======================================================================
+GetQueueCount @ 0x0044ddc0
+======================================================================
+  Function: FUN_0044ddc0, Size: 17 bytes
+  Entry: 0x0044ddc0
+  Signature: undefined4 FUN_0044ddc0(int param_1)
+
+undefined4 __fastcall FUN_0044ddc0(int param_1)
+
+{
+  return *(undefined4 *)(param_1 + 8);
+}
+
+
+
+======================================================================
+IOTask_Enqueue @ 0x00449150
+======================================================================
+  Function: FUN_00449150, Size: 21 bytes
+  Entry: 0x00449150
+  Signature: undefined FUN_00449150(int param_1)
+
+void __fastcall FUN_00449150(int param_1)
+
+{
+  *(undefined4 *)(param_1 + 0xc) = 5;
+  return;
+}
+
+
+
+======================================================================
+IOTask_DecRef @ 0x0044dd60
+======================================================================
+  Function: FUN_0044dd60, Size: 81 bytes
+  Entry: 0x0044dd60
+  Signature: undefined FUN_0044dd60(undefined4 * param_1)
+
+void __fastcall FUN_0044dd60(undefined4 *param_1)
+
+{
+  int iVar1;
+  
+  iVar1 = FUN_004019a0(param_1 + 2);
+  if ((iVar1 == 0) && (param_1 != (undefined4 *)0x0)) {
+    (**(code **)*param_1)(1);
+  }
+  return;
+}
+

@@ -1,0 +1,342 @@
+======================================================================
+VERIFY IOManager SINGLETON POINTER
+Is DAT_01202D98 the IOManager or the Havok world?
+======================================================================
+
+######################################################################
+# SECTION 1: Main loop disasm around FUN_00c3dbf0 call
+# Looking for what gets loaded into ECX before the CALL
+######################################################################
+
+Found CALL to FUN_00c3dbf0 at 0x0086e897
+Disasm before and after:
+  0x0086e87a: JNZ 0x0086e881
+  0x0086e87c: CALL 0x0086ef40
+  0x0086e881: MOV ECX,dword ptr [EBP + -0x18]
+  0x0086e884: CALL 0x0086f260
+  0x0086e889: MOV ECX,dword ptr [EBP + -0x18]
+  0x0086e88c: CALL 0x0086f390
+  0x0086e891: MOV ECX,dword ptr [0x01202d98]
+  0x0086e897: CALL 0x00c3dbf0
+  0x0086e89c: CALL 0x0086efa0
+  0x0086e8a1: MOVZX EDX,AL
+  0x0086e8a4: TEST EDX,EDX
+  0x0086e8a6: JNZ 0x0086e8d8
+  0x0086e8a8: CALL 0x0070edf0
+  0x0086e8ad: MOVZX EAX,AL
+  0x0086e8b0: TEST EAX,EAX
+  0x0086e8b2: JZ 0x0086e8bb
+  0x0086e8b4: CALL 0x0078cfc0
+  0x0086e8b9: JMP 0x0086e8d8
+  0x0086e8bb: CALL 0x00705ea0
+  0x0086e8c0: MOVZX ECX,AL
+
+######################################################################
+# SECTION 2: PreDestructionSetup ? what global is the Havok world?
+######################################################################
+
+======================================================================
+PreDestructionSetup @ 0x00878160
+======================================================================
+  Function: FUN_00878160, Size: 113 bytes
+
+void __cdecl FUN_00878160(int param_1,char param_2,undefined1 param_3,char param_4)
+
+{
+  bool bVar1;
+  int iVar2;
+  undefined4 uVar3;
+  
+  FUN_00c3e310(DAT_01202d98);
+  if (param_4 == '\0') {
+    *(undefined1 *)(param_1 + 5) = 0;
+  }
+  else {
+    bVar1 = FUN_00652160();
+    *(bool *)(param_1 + 5) = bVar1;
+  }
+  if (param_2 != '\0') {
+    iVar2 = FUN_0043c4b0();
+    FUN_004a0370(iVar2);
+  }
+  *(char *)(param_1 + 3) = param_2;
+  *(undefined1 *)(param_1 + 4) = param_3;
+  uVar3 = FUN_008781f0();
+  *(undefined4 *)(param_1 + 8) = uVar3;
+  FUN_008781e0(0x7fffffff);
+  FUN_00703980();
+  return;
+}
+
+
+
+PreDestructionSetup disasm:
+  0x00878160: PUSH EBP
+  0x00878161: MOV EBP,ESP
+  0x00878163: MOV ECX,dword ptr [0x01202d98]
+  0x00878169: CALL 0x00c3e310
+  0x0087816e: MOVZX EAX,byte ptr [EBP + 0x14]
+  0x00878172: TEST EAX,EAX
+  0x00878174: JZ 0x00878183
+  0x00878176: CALL 0x00652160
+  0x0087817b: MOV ECX,dword ptr [EBP + 0x8]
+  0x0087817e: MOV byte ptr [ECX + 0x5],AL
+  0x00878181: JMP 0x0087818c
+  0x00878183: MOV EDX,dword ptr [EBP + 0x8]
+  0x00878186: MOV AL,byte ptr [EBP + 0x14]
+  0x00878189: MOV byte ptr [EDX + 0x5],AL
+  0x0087818c: MOVZX ECX,byte ptr [EBP + 0xc]
+  0x00878190: TEST ECX,ECX
+  0x00878192: JZ 0x008781a0
+  0x00878194: CALL 0x0043c4b0
+  0x00878199: MOV ECX,EAX
+  0x0087819b: CALL 0x004a0370
+  0x008781a0: MOV EDX,dword ptr [EBP + 0x8]
+  0x008781a3: MOV AL,byte ptr [EBP + 0xc]
+  0x008781a6: MOV byte ptr [EDX + 0x3],AL
+  0x008781a9: MOV ECX,dword ptr [EBP + 0x8]
+  0x008781ac: MOV DL,byte ptr [EBP + 0x10]
+  0x008781af: MOV byte ptr [ECX + 0x4],DL
+  0x008781b2: CALL 0x008781f0
+  0x008781b7: MOV ECX,dword ptr [EBP + 0x8]
+  0x008781ba: MOV dword ptr [ECX + 0x8],EAX
+  0x008781bd: PUSH 0x7fffffff
+  0x008781c2: CALL 0x008781e0
+  0x008781c7: ADD ESP,0x4
+  0x008781ca: CALL 0x00703980
+  0x008781cf: POP EBP
+  0x008781d0: RET
+  0x008781e0: PUSH EBP
+  0x008781e1: MOV EBP,ESP
+  0x008781e3: MOV EAX,dword ptr [EBP + 0x8]
+  0x008781e6: MOV [0x011a95fc],EAX
+  0x008781eb: POP EBP
+
+######################################################################
+# SECTION 3: hkWorld_Lock ? what offsets does it use?
+######################################################################
+
+======================================================================
+hkWorld_Lock @ 0x00c3e310
+======================================================================
+  Function: FUN_00c3e310, Size: 43 bytes
+
+void __fastcall FUN_00c3e310(int param_1)
+
+{
+  uint uVar1;
+  
+  uVar1 = FUN_00c3e750(param_1);
+  if (((uVar1 & 0xff) != 0) && (*(int *)(param_1 + 0x7c) != 0)) {
+    (**(code **)(param_1 + 0x7c))();
+  }
+  return;
+}
+
+
+
+hkWorld_Lock disasm:
+  0x00c3e310: PUSH EBP
+  0x00c3e311: MOV EBP,ESP
+  0x00c3e313: PUSH ECX
+  0x00c3e314: MOV dword ptr [EBP + -0x4],ECX
+  0x00c3e317: MOV ECX,dword ptr [EBP + -0x4]
+  0x00c3e31a: CALL 0x00c3e750
+  0x00c3e31f: MOVZX EAX,AL
+  0x00c3e322: TEST EAX,EAX
+  0x00c3e324: JZ 0x00c3e337
+  0x00c3e326: MOV ECX,dword ptr [EBP + -0x4]
+  0x00c3e329: CMP dword ptr [ECX + 0x7c],0x0
+  0x00c3e32d: JZ 0x00c3e337
+  0x00c3e32f: MOV EDX,dword ptr [EBP + -0x4]
+  0x00c3e332: MOV EAX,dword ptr [EDX + 0x7c]
+  0x00c3e335: CALL EAX
+  0x00c3e337: MOV ESP,EBP
+  0x00c3e339: POP EBP
+  0x00c3e33a: RET
+  0x00c3e340: PUSH EBP
+  0x00c3e341: MOV EBP,ESP
+
+######################################################################
+# SECTION 4: IO_DequeueTask disasm ? verify lock offset
+######################################################################
+
+IO_DequeueTask first 20 instructions:
+  0x00c40e70: PUSH EBP
+  0x00c40e71: MOV EBP,ESP
+  0x00c40e73: SUB ESP,0xc8
+  0x00c40e79: MOV dword ptr [EBP + 0xffffff38],ECX
+  0x00c40e7f: PUSH 0x0
+  0x00c40e81: MOV ECX,dword ptr [EBP + 0xffffff38]
+  0x00c40e87: ADD ECX,0x20
+  0x00c40e8a: CALL 0x0040fbf0
+  0x00c40e8f: MOV byte ptr [EBP + -0x1],0x0
+  0x00c40e93: MOV EAX,dword ptr [EBP + 0x8]
+  0x00c40e96: MOVZX ECX,byte ptr [EAX + 0x18]
+  0x00c40e9a: AND ECX,0x2
+  0x00c40e9d: SETNZ DL
+  0x00c40ea0: MOVZX EAX,DL
+  0x00c40ea3: TEST EAX,EAX
+  0x00c40ea5: JZ 0x00c40eb0
+  0x00c40ea7: MOV byte ptr [EBP + -0x1],0x0
+  0x00c40eab: JMP 0x00c40ffe
+  0x00c40eb0: MOV ECX,0x1
+  0x00c40eb5: TEST ECX,ECX
+
+######################################################################
+# SECTION 5: IOManager_Create callers ? where is singleton stored?
+######################################################################
+
+--- XRefs to IOManager_Create (0x00c3da50) ---
+  UNCONDITIONAL_CALL @ 0x0044febe (in FUN_0044fb20)
+  Total: 1 refs
+
+--- XRefs to BSTaskManager_ctor (0x00c3e4f0) ---
+  UNCONDITIONAL_CALL @ 0x00c3da81 (in FUN_00c3da50)
+  Total: 1 refs
+
+######################################################################
+# SECTION 6: BSTaskManager base ctor (FUN_00c3ec80)
+# What does it initialize at offset +0x20?
+######################################################################
+
+======================================================================
+BSTaskManagerBase_ctor @ 0x00c3ec80
+======================================================================
+  Function: FUN_00c3ec80, Size: 495 bytes
+
+undefined4 * __thiscall FUN_00c3ec80(void *this,uint param_1,undefined4 param_2,undefined4 param_3)
+
+{
+  undefined4 uVar1;
+  longlong lVar2;
+  void *pvVar3;
+  int *unaff_FS_OFFSET;
+  uint *local_58;
+  undefined4 *local_54;
+  uint local_44;
+  undefined4 *local_40;
+  int local_10;
+  undefined1 *puStack_c;
+  undefined1 local_8;
+  undefined3 uStack_7;
+  
+  puStack_c = &LAB_00f2de5b;
+  local_10 = *unaff_FS_OFFSET;
+  *unaff_FS_OFFSET = (int)&local_10;
+  *(undefined ***)this = &PTR_FUN_01017458;
+  *(undefined ***)this = &PTR_FUN_010c16f4;
+  *(undefined4 *)((int)this + 0x20) = 0;
+  *(undefined4 *)((int)this + 0x24) = 0;
+  uVar1 = *(undefined4 *)(*(int *)(unaff_FS_OFFSET[0xb] + _tls_index * 4) + 0x2b4);
+  *(undefined4 *)(*(int *)(unaff_FS_OFFSET[0xb] + _tls_index * 4) + 0x2b4) = 6;
+  local_8 = 1;
+  uStack_7 = 0;
+  *(undefined4 *)((int)this + 0x18) = 0;
+  *(undefined4 *)((int)this + 8) = param_2;
+  local_44 = *(uint *)((int)this + 8);
+  local_54 = FUN_00aa3e40(&DAT_011f6238,
+                          -(uint)((int)((ulonglong)local_44 * 4 >> 0x20) != 0) |
+                          (uint)((ulonglong)local_44 * 4));
+  local_40 = local_54;
+  if (local_54 == (undefined4 *)0x0) {
+    local_54 = (undefined4 *)0x0;
+  }
+  else {
+    while (local_44 = local_44 - 1, -1 < (int)local_44) {
+      *local_40 = 0;
+      local_40 = local_40 + 1;
+    }
+  }
+  *(undefined4 **)((int)this + 0xc) = local_54;
+  lVar2 = (ulonglong)(param_1 * 3) * 4;
+  pvVar3 = FUN_00aa3e40(&DAT_011f6238,-(uint)((int)((ulonglong)lVar2 >> 0x20) != 0) | (uint)lVar2);
+  *(void **)((int)this + 4) = pvVar3;
+  *(undefined4 *)((int)this + 0x10) = param_3;
+  pvVar3 = FUN_00aa3e40(&DAT_011f6238,0x10);
+  _local_8 = CONCAT31(uStack_7,2);
+  if (pvVar3 == (void *)0x0) {
+    local_58 = (uint *)0x0;
+  }
+  else {
+    local_58 = FUN_00c42180(pvVar3,param_1);
+  }
+  *(uint **)((int)this + 0x14) = local_58;
+  *(undefined4 *)(*(int *)(unaff_FS_OFFSET[0xb] + _tls_index * 4) + 0x2b4) = uVar1;
+  *unaff_FS_OFFSET = local_10;
+  return this;
+}
+
+
+
+######################################################################
+# SECTION 7: Globals near 0x01202D98
+######################################################################
+  0x01202d80 = 0x00000000 (0 xrefs)
+  0x01202d84 = 0x00000000 (0 xrefs)
+  0x01202d88 = 0x00000000 (0 xrefs)
+  0x01202d8c = 0x00000000 (0 xrefs)
+  0x01202d90 = 0x00000000 (0 xrefs)
+  0x01202d94 = 0x00000000 (1 xrefs)
+  0x01202d98 = 0x00000000 (123 xrefs)
+  0x01202d9c = 0x00000000 (3 xrefs)
+  0x01202da0 = 0x00000000 (1 xrefs)
+  0x01202da4 = 0x00000000 (0 xrefs)
+
+######################################################################
+# SECTION 8: All xrefs to DAT_01202D98
+######################################################################
+
+--- XRefs to DAT_01202d98 (0x01202d98) ---
+  READ @ 0x0086b2c1 (in FUN_0086a850)
+  READ @ 0x00448448 (in FUN_00448420)
+  READ @ 0x004484b1 (in FUN_00448420)
+  READ @ 0x00448532 (in FUN_00448420)
+  READ @ 0x004485a6 (in FUN_00448420)
+  READ @ 0x004485bf (in FUN_00448420)
+  READ @ 0x004485c7 (in FUN_00448420)
+  READ @ 0x004485d2 (in FUN_00448420)
+  READ @ 0x004455d6 (in FUN_00445570)
+  READ @ 0x00445637 (in FUN_00445570)
+  READ @ 0x0054a5bc (in FUN_0054a070)
+  READ @ 0x0054a5c3 (in FUN_0054a070)
+  READ @ 0x0063fc3a (in FUN_0063fb70)
+  READ @ 0x0063fc42 (in FUN_0063fb70)
+  READ @ 0x006fa516 (in FUN_006fa420)
+  READ @ 0x006f549d (in FUN_006f5370)
+  READ @ 0x006f54c5 (in FUN_006f5370)
+  READ @ 0x006f7711 (in FUN_006f76b0)
+  READ @ 0x00837181 (in FUN_00837060)
+  READ @ 0x00837189 (in FUN_00837060)
+  Total: 20 refs
+
+######################################################################
+# SECTION 9: FUN_00c3e420 ? IOManager task dequeue
+######################################################################
+
+======================================================================
+IOManager_TaskDequeue @ 0x00c3e420
+======================================================================
+  Function: FUN_00c3e420, Size: 97 bytes
+
+uint __thiscall FUN_00c3e420(void *this,int *param_1)
+
+{
+  uint in_EAX;
+  undefined4 uVar1;
+  uint local_8;
+  
+  local_8 = 0;
+  while( true ) {
+    if (*(uint *)((int)this + 8) <= local_8) {
+      return in_EAX & 0xffffff00;
+    }
+    uVar1 = FUN_00c3e490(*(void **)(*(int *)((int)this + 4) + local_8 * 4),param_1);
+    if ((char)uVar1 != '\0') break;
+    in_EAX = local_8 + 1;
+    local_8 = in_EAX;
+  }
+  uVar1 = (**(code **)(*(int *)this + 8))();
+  return CONCAT31((int3)((uint)uVar1 >> 8),1);
+}
+
