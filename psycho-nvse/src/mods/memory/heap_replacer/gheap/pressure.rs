@@ -339,7 +339,7 @@ impl PressureRelief {
         }
 
         // HUD notification only under heavy memory pressure
-        if commit_mb >= 1500 {
+        if commit_mb >= 1550 {
             if cells > 0 {
                 crate::nvse_services::show_notification(
                     &format!("Pip-Boy: {}MB, freed {} sectors", commit_mb, cells),

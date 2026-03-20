@@ -129,30 +129,28 @@ impl<'a> MessageBox<'a> {
         let bare_ptr = callback.bare();
 
         win_message.with_ansi(|msg| {
-            win_button.with_ansi(|btn| {
-                unsafe {
-                    show_fn(
-                        msg,
-                        0,
-                        0,
-                        Some(bare_ptr),
-                        0,
-                        0x17,
-                        0.0,
-                        0.0,
-                        btn,
-                        std::ptr::null(),
-                        std::ptr::null(),
-                        std::ptr::null(),
-                        std::ptr::null(),
-                        std::ptr::null(),
-                        std::ptr::null(),
-                        std::ptr::null(),
-                        std::ptr::null(),
-                        std::ptr::null(),
-                        std::ptr::null::<i8>(),
-                    );
-                }
+            win_button.with_ansi(|btn| unsafe {
+                show_fn(
+                    msg,
+                    0,
+                    0,
+                    Some(bare_ptr),
+                    0,
+                    0x17,
+                    0.0,
+                    0.0,
+                    btn,
+                    std::ptr::null(),
+                    std::ptr::null(),
+                    std::ptr::null(),
+                    std::ptr::null(),
+                    std::ptr::null(),
+                    std::ptr::null(),
+                    std::ptr::null(),
+                    std::ptr::null(),
+                    std::ptr::null(),
+                    std::ptr::null::<i8>(),
+                );
             });
         });
 
@@ -205,9 +203,24 @@ impl<'a> MessageBox<'a> {
                 } else {
                     unsafe {
                         show_fn(
-                            msg, 0, 0, Some(bare_ptr), 0, 0x17, 0.0, 0.0,
-                            ptrs[0], ptrs[1], ptrs[2], ptrs[3], ptrs[4],
-                            ptrs[5], ptrs[6], ptrs[7], ptrs[8], ptrs[9],
+                            msg,
+                            0,
+                            0,
+                            Some(bare_ptr),
+                            0,
+                            0x17,
+                            0.0,
+                            0.0,
+                            ptrs[0],
+                            ptrs[1],
+                            ptrs[2],
+                            ptrs[3],
+                            ptrs[4],
+                            ptrs[5],
+                            ptrs[6],
+                            ptrs[7],
+                            ptrs[8],
+                            ptrs[9],
                             std::ptr::null::<i8>(),
                         );
                     }
@@ -233,30 +246,28 @@ impl<'a> MessageBox<'a> {
         let default_cb = nvse_show_message_box_callback();
 
         win_message.with_ansi(|msg| {
-            win_button.with_ansi(|btn| {
-                unsafe {
-                    show_fn(
-                        msg,
-                        0,
-                        0,
-                        Some(default_cb),
-                        0,
-                        0x17,
-                        0.0,
-                        0.0,
-                        btn,
-                        std::ptr::null(),
-                        std::ptr::null(),
-                        std::ptr::null(),
-                        std::ptr::null(),
-                        std::ptr::null(),
-                        std::ptr::null(),
-                        std::ptr::null(),
-                        std::ptr::null(),
-                        std::ptr::null(),
-                        std::ptr::null::<i8>(),
-                    );
-                }
+            win_button.with_ansi(|btn| unsafe {
+                show_fn(
+                    msg,
+                    0,
+                    0,
+                    Some(default_cb),
+                    0,
+                    0x17,
+                    0.0,
+                    0.0,
+                    btn,
+                    std::ptr::null(),
+                    std::ptr::null(),
+                    std::ptr::null(),
+                    std::ptr::null(),
+                    std::ptr::null(),
+                    std::ptr::null(),
+                    std::ptr::null(),
+                    std::ptr::null(),
+                    std::ptr::null(),
+                    std::ptr::null::<i8>(),
+                );
             });
         });
 

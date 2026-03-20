@@ -23,7 +23,7 @@ use std::ptr::NonNull;
 use thiserror::Error;
 
 use crate::{
-    CommandInfo as CommandInfoFFI, CommandReturnType, Cmd_Execute,
+    Cmd_Execute, CommandInfo as CommandInfoFFI, CommandReturnType,
     NVSEInterface as NVSEInterfaceFFI, ParamInfo as ParamInfoFFI,
 };
 
@@ -51,7 +51,11 @@ impl CommandContext {
 
     /// Get the current result value.
     pub fn get_result(&self) -> f64 {
-        if self.result.is_null() { 0.0 } else { unsafe { *self.result } }
+        if self.result.is_null() {
+            0.0
+        } else {
+            unsafe { *self.result }
+        }
     }
 
     /// Check if this command was called on a reference.
@@ -158,36 +162,96 @@ macro_rules! nvse_command {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 #[repr(u32)]
 pub enum ParamType {
-    String = 0, Integer = 1, Float = 2, ObjectID = 3, ObjectRef = 4,
-    ActorValue = 5, Actor = 6, SpellItem = 7, Axis = 8, Cell = 9,
-    AnimationGroup = 10, MagicItem = 11, Sound = 12, Topic = 13,
-    Quest = 14, Race = 15, Class = 16, Faction = 17, Sex = 18,
-    Global = 19, Furniture = 20, TESObject = 21, VariableName = 22,
-    QuestStage = 23, MapMarker = 24, ActorBase = 25, Container = 26,
-    WorldSpace = 27, CrimeType = 28, AcousticSpace = 29, Package = 30,
-    CombatStyle = 31, MagicEffect = 32, FormType = 33, WeatherID = 34,
-    NPC = 35, Owner = 36, EffectShader = 37, FormList = 38,
-    MenuIcon = 39, Perk = 40, Note = 41, MiscStat = 42,
-    ImageSpaceModifier = 43, ImageSpace = 44, Double = 45,
-    Unassigned = 46, ObjectType = 47, EncounterZone = 48,
-    IdleForm = 49, Message = 50, InvObjOrFormList = 51,
-    Alignment = 52, EquipType = 53, NonFormList = 54, SoundFile = 55,
-    CriticalStage = 56, LeveledOrBaseChar = 57, LeveledOrBaseCreature = 58,
-    LeveledChar = 59, LeveledCreature = 60, LeveledItem = 61,
-    Reputation = 62, Casino = 63, CasinoChip = 64, Challenge = 65,
-    CaravanMoney = 66, CaravanCard = 67, CaravanDeck = 68,
-    Region = 69, AnyForm = 70, StringVar = 71, Array = 72,
+    String = 0,
+    Integer = 1,
+    Float = 2,
+    ObjectID = 3,
+    ObjectRef = 4,
+    ActorValue = 5,
+    Actor = 6,
+    SpellItem = 7,
+    Axis = 8,
+    Cell = 9,
+    AnimationGroup = 10,
+    MagicItem = 11,
+    Sound = 12,
+    Topic = 13,
+    Quest = 14,
+    Race = 15,
+    Class = 16,
+    Faction = 17,
+    Sex = 18,
+    Global = 19,
+    Furniture = 20,
+    TESObject = 21,
+    VariableName = 22,
+    QuestStage = 23,
+    MapMarker = 24,
+    ActorBase = 25,
+    Container = 26,
+    WorldSpace = 27,
+    CrimeType = 28,
+    AcousticSpace = 29,
+    Package = 30,
+    CombatStyle = 31,
+    MagicEffect = 32,
+    FormType = 33,
+    WeatherID = 34,
+    NPC = 35,
+    Owner = 36,
+    EffectShader = 37,
+    FormList = 38,
+    MenuIcon = 39,
+    Perk = 40,
+    Note = 41,
+    MiscStat = 42,
+    ImageSpaceModifier = 43,
+    ImageSpace = 44,
+    Double = 45,
+    Unassigned = 46,
+    ObjectType = 47,
+    EncounterZone = 48,
+    IdleForm = 49,
+    Message = 50,
+    InvObjOrFormList = 51,
+    Alignment = 52,
+    EquipType = 53,
+    NonFormList = 54,
+    SoundFile = 55,
+    CriticalStage = 56,
+    LeveledOrBaseChar = 57,
+    LeveledOrBaseCreature = 58,
+    LeveledChar = 59,
+    LeveledCreature = 60,
+    LeveledItem = 61,
+    Reputation = 62,
+    Casino = 63,
+    CasinoChip = 64,
+    Challenge = 65,
+    CaravanMoney = 66,
+    CaravanCard = 67,
+    CaravanDeck = 68,
+    Region = 69,
+    AnyForm = 70,
+    StringVar = 71,
+    Array = 72,
 }
 
 impl ParamType {
     pub fn type_str(&self) -> &'static CStr {
         match self {
-            Self::String => c"String", Self::Integer => c"Integer",
-            Self::Float => c"Float", Self::ObjectID => c"ObjectID",
-            Self::ObjectRef => c"ObjectRef", Self::ActorValue => c"ActorValue",
-            Self::Actor => c"Actor", Self::Quest => c"Quest",
-            Self::AnyForm => c"AnyForm", Self::StringVar => c"StringVar",
-            Self::Array => c"Array", _ => c"Unknown",
+            Self::String => c"String",
+            Self::Integer => c"Integer",
+            Self::Float => c"Float",
+            Self::ObjectID => c"ObjectID",
+            Self::ObjectRef => c"ObjectRef",
+            Self::ActorValue => c"ActorValue",
+            Self::Actor => c"Actor",
+            Self::Quest => c"Quest",
+            Self::AnyForm => c"AnyForm",
+            Self::StringVar => c"StringVar",
+            Self::Array => c"Array",
+            _ => c"Unknown",
         }
     }
 }
@@ -195,8 +259,12 @@ impl ParamType {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 #[repr(u8)]
 pub enum ReturnType {
-    Default = 0, Form = 1, String = 2, Array = 3,
-    ArrayIndex = 4, Ambiguous = 5,
+    Default = 0,
+    Form = 1,
+    String = 2,
+    Array = 3,
+    ArrayIndex = 4,
+    Ambiguous = 5,
 }
 
 #[derive(Debug, Clone)]
@@ -208,10 +276,18 @@ pub struct Param {
 
 impl Param {
     pub fn required(param_type: ParamType) -> Self {
-        Self { type_str: param_type.type_str(), type_id: param_type, optional: false }
+        Self {
+            type_str: param_type.type_str(),
+            type_id: param_type,
+            optional: false,
+        }
     }
     pub fn optional(param_type: ParamType) -> Self {
-        Self { type_str: param_type.type_str(), type_id: param_type, optional: true }
+        Self {
+            type_str: param_type.type_str(),
+            type_id: param_type,
+            optional: true,
+        }
     }
 }
 
@@ -254,8 +330,8 @@ pub struct CommandBuilder {
 
 impl CommandBuilder {
     pub fn from_raw(nvse_ptr: *const NVSEInterfaceFFI) -> CommandResult<Self> {
-        let nvse_ptr = NonNull::new(nvse_ptr as *mut NVSEInterfaceFFI)
-            .ok_or(CommandError::InterfaceIsNull)?;
+        let nvse_ptr =
+            NonNull::new(nvse_ptr as *mut NVSEInterfaceFFI).ok_or(CommandError::InterfaceIsNull)?;
         Ok(Self {
             nvse_ptr,
             _param_storage: Vec::new(),
@@ -265,21 +341,35 @@ impl CommandBuilder {
 
     pub fn set_opcode_base(&self, opcode: u32) -> CommandResult<()> {
         let nvse = unsafe { self.nvse_ptr.as_ref() };
-        let f = nvse.SetOpcodeBase.ok_or(CommandError::SetOpcodeBaseIsNull)?;
+        let f = nvse
+            .SetOpcodeBase
+            .ok_or(CommandError::SetOpcodeBaseIsNull)?;
         unsafe { f(opcode) };
         Ok(())
     }
 
     /// Register a command. Use `nvse_command!` macro to create the execute handler.
     pub fn register(
-        &mut self, name: &str, short_name: &str, help: &str,
-        needs_ref: bool, params: &[Param], execute: Cmd_Execute,
+        &mut self,
+        name: &str,
+        short_name: &str,
+        help: &str,
+        needs_ref: bool,
+        params: &[Param],
+        execute: Cmd_Execute,
     ) -> CommandResult<()> {
-        if name.is_empty() { return Err(CommandError::EmptyName); }
-        if params.len() > MAX_PARAMS { return Err(CommandError::TooManyParams(params.len())); }
+        if name.is_empty() {
+            return Err(CommandError::EmptyName);
+        }
+        if params.len() > MAX_PARAMS {
+            return Err(CommandError::TooManyParams(params.len()));
+        }
         let nvse = unsafe { self.nvse_ptr.as_ref() };
-        let f = nvse.RegisterCommand.ok_or(CommandError::RegisterCommandIsNull)?;
-        let mut cmd = self.build_command_info(name, short_name, help, needs_ref, params, execute)?;
+        let f = nvse
+            .RegisterCommand
+            .ok_or(CommandError::RegisterCommandIsNull)?;
+        let mut cmd =
+            self.build_command_info(name, short_name, help, needs_ref, params, execute)?;
         if !unsafe { f(&mut cmd) } {
             return Err(CommandError::RegistrationFailed(name.to_string()));
         }
@@ -288,14 +378,27 @@ impl CommandBuilder {
 
     #[allow(clippy::too_many_arguments)]
     pub fn register_typed(
-        &mut self, name: &str, short_name: &str, help: &str,
-        needs_ref: bool, params: &[Param], execute: Cmd_Execute, return_type: ReturnType,
+        &mut self,
+        name: &str,
+        short_name: &str,
+        help: &str,
+        needs_ref: bool,
+        params: &[Param],
+        execute: Cmd_Execute,
+        return_type: ReturnType,
     ) -> CommandResult<()> {
-        if name.is_empty() { return Err(CommandError::EmptyName); }
-        if params.len() > MAX_PARAMS { return Err(CommandError::TooManyParams(params.len())); }
+        if name.is_empty() {
+            return Err(CommandError::EmptyName);
+        }
+        if params.len() > MAX_PARAMS {
+            return Err(CommandError::TooManyParams(params.len()));
+        }
         let nvse = unsafe { self.nvse_ptr.as_ref() };
-        let f = nvse.RegisterTypedCommand.ok_or(CommandError::RegisterTypedCommandIsNull)?;
-        let mut cmd = self.build_command_info(name, short_name, help, needs_ref, params, execute)?;
+        let f = nvse
+            .RegisterTypedCommand
+            .ok_or(CommandError::RegisterTypedCommandIsNull)?;
+        let mut cmd =
+            self.build_command_info(name, short_name, help, needs_ref, params, execute)?;
         if !unsafe { f(&mut cmd, Self::to_ffi_rt(return_type)) } {
             return Err(CommandError::RegistrationFailed(name.to_string()));
         }
@@ -304,15 +407,28 @@ impl CommandBuilder {
 
     #[allow(clippy::too_many_arguments)]
     pub fn register_typed_version(
-        &mut self, name: &str, short_name: &str, help: &str,
-        needs_ref: bool, params: &[Param], execute: Cmd_Execute,
-        return_type: ReturnType, required_version: u32,
+        &mut self,
+        name: &str,
+        short_name: &str,
+        help: &str,
+        needs_ref: bool,
+        params: &[Param],
+        execute: Cmd_Execute,
+        return_type: ReturnType,
+        required_version: u32,
     ) -> CommandResult<()> {
-        if name.is_empty() { return Err(CommandError::EmptyName); }
-        if params.len() > MAX_PARAMS { return Err(CommandError::TooManyParams(params.len())); }
+        if name.is_empty() {
+            return Err(CommandError::EmptyName);
+        }
+        if params.len() > MAX_PARAMS {
+            return Err(CommandError::TooManyParams(params.len()));
+        }
         let nvse = unsafe { self.nvse_ptr.as_ref() };
-        let f = nvse.RegisterTypedCommandVersion.ok_or(CommandError::RegisterTypedCommandIsNull)?;
-        let mut cmd = self.build_command_info(name, short_name, help, needs_ref, params, execute)?;
+        let f = nvse
+            .RegisterTypedCommandVersion
+            .ok_or(CommandError::RegisterTypedCommandIsNull)?;
+        let mut cmd =
+            self.build_command_info(name, short_name, help, needs_ref, params, execute)?;
         if !unsafe { f(&mut cmd, Self::to_ffi_rt(return_type), required_version) } {
             return Err(CommandError::RegistrationFailed(name.to_string()));
         }
@@ -331,8 +447,13 @@ impl CommandBuilder {
     }
 
     fn build_command_info(
-        &mut self, name: &str, short_name: &str, help: &str,
-        needs_ref: bool, params: &[Param], execute: Cmd_Execute,
+        &mut self,
+        name: &str,
+        short_name: &str,
+        help: &str,
+        needs_ref: bool,
+        params: &[Param],
+        execute: Cmd_Execute,
     ) -> CommandResult<CommandInfoFFI> {
         let name_cstr = self.leak_cstring(name);
         let short_cstr = self.leak_cstring(short_name);
@@ -341,11 +462,14 @@ impl CommandBuilder {
         let (params_ptr, num_params) = if params.is_empty() {
             (std::ptr::null_mut(), 0u16)
         } else {
-            let pi: Vec<ParamInfoFFI> = params.iter().map(|p| ParamInfoFFI {
-                typeStr: p.type_str.as_ptr(),
-                typeID: p.type_id as u32,
-                isOptional: if p.optional { 1 } else { 0 },
-            }).collect();
+            let pi: Vec<ParamInfoFFI> = params
+                .iter()
+                .map(|p| ParamInfoFFI {
+                    typeStr: p.type_str.as_ptr(),
+                    typeID: p.type_id as u32,
+                    isOptional: if p.optional { 1 } else { 0 },
+                })
+                .collect();
             let boxed: Box<[ParamInfoFFI]> = pi.into_boxed_slice();
             let ptr = boxed.as_ptr() as *mut ParamInfoFFI;
             self._param_storage.push(boxed);

@@ -1,5 +1,5 @@
 //! Messaging NVSE API wrapper
-//! 
+//!
 //! You can do something like this:
 //! ```
 //!    // See, you can use closures for registering listeners for NVSEMessagingInterface!
@@ -31,7 +31,7 @@
 //! ```
 
 use crate::{
-    NVSEMessagingInterface as NVSEMessagingInterfaceFFI, api::interface::NVSEPluginHandle
+    NVSEMessagingInterface as NVSEMessagingInterfaceFFI, api::interface::NVSEPluginHandle,
 };
 use ahash::AHashMap;
 use closure_ffi::BareFn;
@@ -337,7 +337,11 @@ impl<'a> NVSEMessagingInterface<'a> {
         let sender_winstr = WinString::new(sender)?;
 
         sender_winstr.with_ansi(|sender| unsafe {
-            register_listener_fn(self.plugin_handle.get_handle(), sender, Some(bare_fn.bare()))
+            register_listener_fn(
+                self.plugin_handle.get_handle(),
+                sender,
+                Some(bare_fn.bare()),
+            )
         });
 
         // This is closure lifetime preservation program

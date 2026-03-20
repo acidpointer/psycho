@@ -42,8 +42,7 @@ use crate::{
     NVSEEventManagerInterface_DispatchReturn as DispatchReturnFFI,
     NVSEEventManagerInterface_EventFlags as EventFlagsFFI,
     NVSEEventManagerInterface_NativeEventHandler as NativeEventHandlerFFI,
-    NVSEEventManagerInterface_ParamType as ParamTypeFFI,
-    TESObjectREFR,
+    NVSEEventManagerInterface_ParamType as ParamTypeFFI, TESObjectREFR,
 };
 
 // -- Parameter types --------------------------------------------------------
@@ -337,8 +336,8 @@ impl EventManager {
             .ok_or(EventManagerError::RemoveNativeHandlerIsNull)?;
 
         let win_name = WinString::new(event_name)?;
-        let success = win_name
-            .with_ansi(|name_ptr| unsafe { remove_fn(name_ptr, handler, priority) });
+        let success =
+            win_name.with_ansi(|name_ptr| unsafe { remove_fn(name_ptr, handler, priority) });
 
         Ok(success)
     }
@@ -379,11 +378,7 @@ impl EventManager {
     pub fn raw_dispatch_fn(
         &self,
     ) -> EventManagerResult<
-        unsafe extern "C" fn(
-            eventName: *const i8,
-            thisObj: *mut TESObjectREFR,
-            ...
-        ) -> bool,
+        unsafe extern "C" fn(eventName: *const i8, thisObj: *mut TESObjectREFR, ...) -> bool,
     > {
         let iface = unsafe { self.ptr.as_ref() };
         iface
