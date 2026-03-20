@@ -468,41 +468,6 @@ The build script (`build.rs`) will:
 
 Bindings are gitignored and regenerated on each build. No network access required.
 
-## Project structure
-
-```
-libnvse/
-├── build.rs                   Bindgen build script
-├── xnvse/                     Git submodule (xNVSE 6.4.4 source)
-├── wrapper/
-│   ├── nvse_wrapper.h         Main header for bindgen
-│   └── include/               Minimal C++ stdlib stubs (cross-platform)
-└── src/
-    ├── lib.rs                 Crate root, re-exports
-    ├── bindings/
-    │   └── nvse.rs            Auto-generated FFI (gitignored)
-    ├── api/                   Low-level 1:1 interface wrappers
-    │   ├── interface.rs       NVSEInterface -- main entry point
-    │   ├── messaging.rs       Plugin messaging + listeners
-    │   ├── console.rs         Console command execution
-    │   ├── logging.rs         Plugin log path
-    │   ├── command.rs         Command registration + nvse_command! macro
-    │   ├── command_table.rs   Command/plugin registry queries
-    │   ├── string_var.rs      NVSE string variables
-    │   ├── array_var.rs       NVSE arrays, maps, string maps
-    │   ├── script.rs          Script compilation + UDF calls
-    │   ├── serialization.rs   Co-save read/write
-    │   ├── event_manager.rs   Custom event registration + dispatch
-    │   ├── player_controls.rs Player input toggling
-    │   ├── data.rs            NVSE internal data access
-    │   ├── message_box.rs     In-game dialog popups
-    │   └── hud.rs             Vault Boy corner notifications
-    └── plugin/                High-level zero-unsafe API
-        ├── mod.rs             PluginContext + safe wrappers
-        ├── types.rs           FormId, ArrayId, Value
-        ├── cosave.rs          SaveWriter, LoadReader, Record
-        └── prelude            Glob re-exports for convenience
-```
 
 ## Dependencies
 
