@@ -4,6 +4,7 @@ pub mod command_table;
 pub mod console;
 pub mod data;
 pub mod event_manager;
+pub mod hud;
 pub mod interface;
 pub mod logging;
 pub mod message_box;

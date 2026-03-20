@@ -2,7 +2,6 @@
 
 use super::region::Region;
 use super::runtime::SeqQueue;
-use super::stats::AllocatorStats;
 
 use crossfire::flavor::Queue;
 use libc::c_void;
@@ -43,7 +42,6 @@ pub struct Heap {
 
     // === Cache line 3+: cold ===
     pool: Mutex<Vec<Box<Region>>>,
-    stats: Arc<AllocatorStats>,
     gc_queued: AtomicBool,
     gc_queue: Arc<SeqQueue<usize>>,
     sheap_id: usize,
@@ -53,7 +51,6 @@ impl Heap {
     pub fn new(
         sheap_id: usize,
         gc_queue: Arc<SeqQueue<usize>>,
-        stats: Arc<AllocatorStats>,
     ) -> Self {
         Self {
             hot_region: AtomicPtr::new(ptr::null_mut()),
@@ -62,7 +59,6 @@ impl Heap {
             alloc_count: AtomicUsize::new(0),
             _pad_write: [0; CACHE_LINE - size_of::<usize>()],
             pool: Mutex::new(Vec::with_capacity(8)),
-            stats,
             gc_queued: AtomicBool::new(false),
             gc_queue,
             sheap_id,
@@ -139,7 +135,7 @@ impl Heap {
         // Create new region. Checked arithmetic prevents overflow on 32-bit.
         let min_capacity = size.checked_add(align)?.checked_add(4)?;
         let region_capacity = REGION_SIZE.max(min_capacity);
-        let region = Region::new(region_capacity, REGION_ALIGN, &self.stats)?;
+        let region = Region::new(region_capacity, REGION_ALIGN)?;
         let ptr = region.allocate(size, align)?;
 
         let boxed = Box::new(region);

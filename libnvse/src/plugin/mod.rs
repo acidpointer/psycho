@@ -239,6 +239,7 @@ pub mod prelude {
     pub use super::cosave::{LoadReader, Record, SaveError, SaveWriter};
     pub use super::types::{ArrayId, FormId, Value};
     pub use super::{PluginContext, PluginError};
+    pub use crate::api::hud::Emotion;
     pub use crate::api::messaging::NVSEMessageType as MessageType;
     pub use crate::api::player_controls::ControlFlags as Controls;
 }
@@ -276,6 +277,9 @@ pub enum PluginError {
 
     #[error("Message box error: {0}")]
     MessageBox(#[from] MessageBoxError),
+
+    #[error("HUD error: {0}")]
+    Hud(#[from] crate::api::hud::HudError),
 }
 
 // ---------------------------------------------------------------------------
@@ -585,6 +589,28 @@ impl PluginContext {
         on_click: F,
     ) -> Result<MessageBox<'static>, PluginError> {
         Ok(MessageBox::show(message, button_text, on_click)?)
+    }
+
+    // -- HUD notifications ---------------------------------------------------
+
+    /// Show a corner notification with the default Vault Boy face.
+    ///
+    /// These are the small auto-dismissing messages in the top-left corner.
+    /// Fire-and-forget, no ownership concerns.
+    pub fn hud_message(&self, message: &str) -> Result<(), PluginError> {
+        crate::api::hud::hud_message(message)?;
+        Ok(())
+    }
+
+    /// Show a corner notification with a specific emotion and duration.
+    pub fn hud_message_with(
+        &self,
+        message: &str,
+        emotion: crate::api::hud::Emotion,
+        duration: f32,
+    ) -> Result<(), PluginError> {
+        crate::api::hud::hud_message_with(message, emotion, duration)?;
+        Ok(())
     }
 
     // -- Co-save (serialization) --------------------------------------------

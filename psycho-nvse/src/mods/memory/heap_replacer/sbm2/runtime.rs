@@ -10,7 +10,8 @@ use libc::c_void;
 
 use super::heap::Heap;
 use super::region::Region;
-use super::stats::AllocatorStats;
+
+use crate::mods::memory::heap_replacer::mem_stats;
 
 pub type SeqQueue<T> = crossfire::flavor::List<T>;
 
@@ -65,9 +66,6 @@ thread_local! {
 }
 
 pub struct Runtime {
-    /// Stats shared down to region layer
-    stats: Arc<AllocatorStats>,
-
     /// HeapMap: sheap_ptr (as usize) -> Arc<Heap>
     pool: Arc<HeapMap<usize, Arc<Heap>>>,
 
@@ -89,7 +87,6 @@ impl Runtime {
         let gc_run = Arc::new(AtomicBool::new(true));
 
         let mut instance = Self {
-            stats: Arc::new(AllocatorStats::new()),
             pool: Arc::new(HeapMap::default()),
             gc_queue: Arc::new(SeqQueue::new()),
             gc_run: gc_run.clone(),
@@ -103,7 +100,6 @@ impl Runtime {
     fn init_gc(&mut self) {
         let gc_run = self.gc_run.clone();
         let pool = self.pool.clone();
-        let stats = self.stats.clone();
         let gc_queue = self.gc_queue.clone();
 
         let gc_handle = thread::spawn(move || {
@@ -114,18 +110,15 @@ impl Runtime {
 
                 thread::sleep(GC_DURATION);
 
-                // --- sbm2 stats ---
-                let curr_mem = stats.get_total_alloc_mem();
+                let sbm2_mem = mem_stats::global().sbm2_allocated();
                 let heaps_len = pool.len();
                 log::info!(
-                    "[SBM] Memory: {} MB ({} KB, {} B); Heaps: {}",
-                    curr_mem / 1024 / 1024,
-                    curr_mem / 1024,
-                    curr_mem,
-                    heaps_len
+                    "[SBM] Memory: {}MB ({}KB); Heaps: {}",
+                    sbm2_mem / 1024 / 1024,
+                    sbm2_mem / 1024,
+                    heaps_len,
                 );
 
-                // --- sbm2 GC: purge idle regions ---
                 while let Some(sheap_id) = gc_queue.pop() {
                     if let Some(heap) = pool.get(&sheap_id) {
                         let purged = heap.checked_purge();
@@ -152,13 +145,8 @@ impl Runtime {
     #[cold]
     fn get_or_create_heap(&self, sheap_id: usize) -> Arc<Heap> {
         let gc_queue = &self.gc_queue;
-        let stats = &self.stats;
         let guard = self.pool.entry(sheap_id).or_insert_with(|| {
-            Arc::new(Heap::new(
-                sheap_id,
-                Arc::clone(gc_queue),
-                Arc::clone(stats),
-            ))
+            Arc::new(Heap::new(sheap_id, Arc::clone(gc_queue)))
         });
         Arc::clone(&guard)
     }

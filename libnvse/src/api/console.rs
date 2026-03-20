@@ -58,6 +58,11 @@ impl Console {
         Ok(Self { ptr })
     }
 
+    /// Get the raw FFI pointer.
+    pub fn as_raw_ptr(&self) -> *mut NVSEConsoleInterfaceFFI {
+        self.ptr.as_ptr()
+    }
+
     /// Execute a console command string.
     ///
     /// Equivalent to typing the command in the game console.

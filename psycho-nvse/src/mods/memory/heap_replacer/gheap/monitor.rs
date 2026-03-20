@@ -10,7 +10,7 @@ use std::time::Duration;
 
 use libmimalloc::process_info::MiMallocProcessInfo;
 
-use super::pressure::PressureRelief;
+use crate::mods::memory::heap_replacer::mem_stats;
 
 const MONITOR_INTERVAL: Duration = Duration::from_secs(5);
 
@@ -33,9 +33,9 @@ impl Monitor {
                 thread::sleep(MONITOR_INTERVAL);
 
                 let info = MiMallocProcessInfo::get();
-                let (relief, cells) = PressureRelief::instance()
-                    .map(|pr| pr.stats())
-                    .unwrap_or((0, 0));
+                let stats = mem_stats::global();
+                let relief = stats.pressure_cycles();
+                let cells = stats.pressure_cells_unloaded();
 
                 log::info!(
                     "[MEM] RSS: {} | Peak: {} | Commit: {} | PeakCommit: {} | Faults: {:.1}/s | CPU eff: {:.0}%",

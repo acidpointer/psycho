@@ -3,10 +3,10 @@
 use libc::c_void;
 use std::{
     ptr::NonNull,
-    sync::{Arc, atomic::{AtomicUsize, Ordering}},
+    sync::atomic::{AtomicUsize, Ordering},
 };
 
-use super::stats::AllocatorStats;
+use crate::mods::memory::heap_replacer::mem_stats;
 
 /// Align `addr` up to `align`, returning `None` on overflow.
 #[inline(always)]
@@ -24,10 +24,6 @@ pub struct Region {
 
     /// Current allocation offset within the region (atomic for cross-thread access).
     offset: AtomicUsize,
-
-    /// Shared stats, owned by Runtime (outlives all Regions).
-    /// Using Arc avoids raw pointer and unsafe Send/Sync impls.
-    stats: Arc<AllocatorStats>,
 }
 
 // Safety: All mutable state is atomic. `start` is never mutated after construction.
@@ -36,17 +32,16 @@ unsafe impl Sync for Region {}
 
 impl Region {
     /// Creates a new memory region using global `mi_malloc_aligned`.
-    pub fn new(capacity: usize, align: usize, stats: &Arc<AllocatorStats>) -> Option<Self> {
+    pub fn new(capacity: usize, align: usize) -> Option<Self> {
         let ptr = unsafe { libmimalloc::mi_malloc_aligned(capacity, align) };
         let start = NonNull::new(ptr as *mut u8)?;
 
-        stats.add_total_alloc_mem(capacity as u64);
+        mem_stats::global().sbm2_add(capacity as u64);
 
         Some(Self {
             start,
             capacity,
             offset: AtomicUsize::new(0),
-            stats: Arc::clone(stats),
         })
     }
 
@@ -73,11 +68,6 @@ impl Region {
             }
 
             // new_offset = actual consumed space from region start.
-            // Must use data_addr (which includes alignment padding), NOT a
-            // separate reservation calculation. The old code computed
-            // reservation = align_up(size + 4, align) independently, which
-            // didn't account for padding between old_offset+4 and data_addr.
-            // This caused subsequent allocations to overlap previous ones.
             let new_offset = alloc_end - start_addr;
 
             if self
@@ -100,6 +90,6 @@ impl Drop for Region {
         unsafe {
             libmimalloc::mi_free(self.start.as_ptr() as *mut c_void);
         }
-        self.stats.sub_total_alloc_mem(self.capacity as u64);
+        mem_stats::global().sbm2_sub(self.capacity as u64);
     }
 }

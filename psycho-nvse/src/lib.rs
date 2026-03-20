@@ -11,6 +11,7 @@
 // static GLOBAL: MiMalloc = MiMalloc;
 
 mod config;
-mod plugininfo;
 mod entry;
 mod mods;
+pub(crate) mod nvse_services;
+mod plugininfo;

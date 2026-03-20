@@ -33,7 +33,7 @@
 //! races with IO/AI threads, Stage 5 TLS=0 + mimalloc = BSTreeNode crash.
 
 use libc::c_void;
-use std::sync::atomic::{AtomicBool, AtomicI64, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::LazyLock;
 
 use libmimalloc::mi_collect;
@@ -108,8 +108,6 @@ pub struct PressureRelief {
     requested: AtomicBool,
     active: AtomicBool,
     last_time_ms: AtomicU64,
-    relief_count: AtomicI64,
-    cells_unloaded: AtomicI64,
 
     find_cell: FnPtr<FindCellToUnloadFn>,
     pre_destruction: FnPtr<PreDestructionSetupFn>,
@@ -124,8 +122,6 @@ impl PressureRelief {
                 requested: AtomicBool::new(false),
                 active: AtomicBool::new(false),
                 last_time_ms: AtomicU64::new(0),
-                relief_count: AtomicI64::new(0),
-                cells_unloaded: AtomicI64::new(0),
                 find_cell: FnPtr::from_raw(FIND_CELL_TO_UNLOAD as *mut c_void)?,
                 pre_destruction: FnPtr::from_raw(PRE_DESTRUCTION_SETUP as *mut c_void)?,
                 post_destruction: FnPtr::from_raw(POST_DESTRUCTION_RESTORE as *mut c_void)?,
@@ -178,13 +174,6 @@ impl PressureRelief {
 
     pub fn is_requested(&self) -> bool {
         self.requested.load(Ordering::Relaxed)
-    }
-
-    pub fn stats(&self) -> (i64, i64) {
-        (
-            self.relief_count.load(Ordering::Relaxed),
-            self.cells_unloaded.load(Ordering::Relaxed),
-        )
     }
 
     /// # Safety
@@ -328,20 +317,29 @@ impl PressureRelief {
         unsafe { mi_collect(false) };
 
         self.last_time_ms.store(now_ms, Ordering::Relaxed);
-        self.relief_count.fetch_add(1, Ordering::Relaxed);
+
+        // Record stats in the shared MemStats (clean separation of concerns).
+        let stats = crate::mods::memory::heap_replacer::mem_stats::global();
+        stats.record_pressure_relief(cells);
+
+        let commit_mb = commit / 1024 / 1024;
 
         if CELL_UNLOAD_ENABLED && cells > 0 {
-            self.cells_unloaded.fetch_add(cells as i64, Ordering::Relaxed);
             log::info!(
                 "[PRESSURE] Unloaded {} cells (commit={}MB)",
                 cells,
-                commit / 1024 / 1024,
+                commit_mb,
             );
         } else {
             self.requested.store(false, Ordering::Release);
-            log::info!(
-                "[PRESSURE] Relief cycle (commit={}MB)",
-                commit / 1024 / 1024,
+            log::info!("[PRESSURE] Relief cycle (commit={}MB)", commit_mb);
+        }
+
+        // HUD notification only when commit is critically high.
+        // No console spam -- detailed info available via console command.
+        if stats.should_notify_player() {
+            crate::nvse_services::show_notification(
+                &format!("Pip-Boy warning: memory at {}MB. Cleaning up...", commit_mb),
             );
         }
 
