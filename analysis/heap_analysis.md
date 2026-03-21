@@ -1142,25 +1142,31 @@ when consecutive allocations overlapped.
 - **Fix:** Set loading state counter DAT_01202d6c > 0 before FindCellToUnload. Actor processing skips event dispatching when this counter is set.
 - **Why original game doesn't crash:** HeapCompact Stage 5 runs in allocation retry loop (no events). CellTransitionHandler runs during loading (counter already set).
 
-### Final Crash Resolution Summary (Session Result)
-
-All crash classes except 32-bit VA ceiling eliminated:
+### Final Crash Resolution Summary (Updated 2026-03-21)
 
 | Crash | Fix | Status |
 |-------|-----|--------|
-| QueuedTexture NULL vtable (IO) | Quarantine (30-frame delay) | FIXED |
+| QueuedTexture NULL vtable (IO) | IO dequeue lock + quarantine bypass fix | FIXED |
+| BSFile::Read NULL (NiSourceTexture) | IO dequeue lock + semaphore probe + dead set | FIXED |
+| Texture cache stale entries | Dead set (ClashMap) + NiSourceTexture dtor hook | FIXED |
 | hkBSHeightFieldShape UAF (AI) | hkWorld_Lock in protocol | FIXED |
-| BSTreeNode RefCount:0 (SpeedTree) | SceneGraphInvalidate in protocol | FIXED |
+| BSTreeNode RefCount:0 (SpeedTree) | SceneGraphInvalidate + post-render position | FIXED |
 | NVSE PLChangeEvent (plugins) | Loading state counter DAT_01202d6c | FIXED |
 | mimalloc corruption (mods) | encoded_freelist MI_SECURE=2 | MITIGATED |
 | HeapCompact Stage 4/5 unsafe | Trigger limited to stages 0-2 | FIXED |
-| Freeze during loading | Stale push counter bypass | FIXED |
+| Quarantine OOM during loading | Stale push bypass with loading flag check | FIXED |
 | OOM during cell transition | purge_delay=0 + quarantine | FIXED |
 | sbm2 region overlap | new_offset = actual consumed | FIXED |
 | CellTransitionHandler AI crash (engine bug) | Hook with hkWorld_Lock + loading counter | FIXED |
-| 32-bit VA ceiling | Irreducible 32-bit limit | DOCUMENTED |
+| CellTransitionHandler IO crash | IO lock + FUN_00448620 task cancellation | FIXED |
+| PDD queue cross-dependency | Removed queue skip, process all queues together | FIXED |
+| Destruction during loading screen | DAT_011dea2b guard in run_deferred_unload | FIXED |
+| Havok broadphase NULL entity | Partially mitigated by post-render position | UNDER INVESTIGATION |
+| Extreme stress crash (225+ cells) | Dead set + all above fixes | UNDER INVESTIGATION |
 
-Stress test result: 440+ cells unloaded, 3+ minutes extreme traversal, zero stale-pointer crashes, zero event crashes, zero AI crashes. Only crash is OOM at ~1.8GB VA ceiling.
+Stress test result (latest): 27 reliefs, 225 cells unloaded, ~2 minutes extreme traversal.
+Crash with "Fatal error in exception handler" (no stack trace). Likely Havok broadphase
+or other stale-reference crash type not yet covered by dead set.
 
 ---
 
@@ -1744,6 +1750,427 @@ The psycho-nvse plugin must be built with:
 DllMain (Phase 1, loader lock held) performs only: config read (no write-back), logger registration (no thread/file I/O), mimalloc config, hook installation. NO thread creation, NO disk writes.
 
 NVSEPlugin_Load (Phase 2, loader lock released) performs: logger thread spawn + log file creation, config write-back, monitor thread spawn, NVSE services.
+
+This prevents deadlocks from thread creation under the Windows loader lock.
+
+---
+
+# PART 6: BSTaskManagerThread IO SYNCHRONIZATION (Session 2026-03-21)
+
+---
+
+## Chapter 17: BSTaskManagerThread Race Condition
+
+> **TL;DR:** BSTaskManagerThread processes IO tasks (QueuedTexture, QueuedModel) via a
+> lock-free queue. IO tasks hold RAW POINTERS to NiSourceTexture objects without refcounting.
+> When our pressure relief runs PDD, NiSourceTexture destructors zero critical fields
+> (pixelData, DX9TextureData). BSTaskManagerThread reads zeroed fields → crash. The game
+> never encounters this because HeapCompact Stage 5 only runs during OOM when
+> BSTaskManagerThread is stuck in Stage 8's Sleep loop.
+
+### The Original Crash
+
+```
+BSTaskManagerThread → FUN_0043c150 (QueuedTexture processing)
+  → FUN_0043c4c0 (texture cache lookup)
+    → FUN_0043c4f0 → FUN_00a61a60 (hash table find)
+  → FUN_00c3cff0 → BSFile::Read(dest=NULL)
+    → __VEC_memcpy(NULL, src, size) → CRASH at 0x00ED17A0
+```
+
+`FUN_00aa1750` (BSFile::Read, thiscall, 189 bytes) receives a NULL destination buffer.
+The NULL comes from a destroyed NiSourceTexture whose pixelData was zeroed by PDD.
+
+### BSTaskManagerThread Object Layout
+
+```
+BSTaskManagerThread struct (created by FUN_00c42dd0, 292 bytes ctor):
+  +0x04: HANDLE thread_handle (CreateThread)
+  +0x08: DWORD thread_id
+  +0x0C: LONG pending_wake_count (InterlockedDecrement on wake)
+  +0x10: HANDLE wake_semaphore (initial=0, max=0x7FFFFFFF)
+  +0x14: LONG wake_sem_max (0x7FFFFFFF)
+  +0x18: LONG iter_sem_count (initial=1, InterlockedIncrement after each iteration)
+  +0x1C: HANDLE iter_semaphore (initial=1, max=1)
+  +0x20: LONG iter_sem_max (1)
+  +0x24: 0 (reserved)
+  +0x28: 0 (reserved)
+  +0x2C: DWORD thread_id_copy
+  +0x30: ptr → IOManager/BSTaskManager (parent, set by BSTaskManagerThread_ctor)
+```
+
+### BSTaskManagerThread_Loop State Machine (FUN_00c410b0, 633 bytes)
+
+```c
+while (!shutdown) {
+    WaitForSingleObject(wake_semaphore, INFINITE);  // IDLE STATE
+    InterlockedDecrement(pending_wake_count);
+
+    while ((flags & 2) == 0) {  // PROCESSING STATE
+        // Flow control: check iter_semaphore
+        if (WaitForSingleObject(iter_semaphore, 0) == WAIT_TIMEOUT) {
+            WaitForSingleObject(iter_semaphore, INFINITE);
+            InterlockedDecrement(iter_sem_count);
+            SignalCompletion(0);
+        }
+        // Dequeue task (acquires IO dequeue lock at IOManager+0x20)
+        result = IO_DequeueTask(queue_mgr, ...);
+        if (result == 0) {
+            SignalCompletion(0);
+        } else if (task[3] == 1 && CAS(task+3, 3, 1) == 1) {
+            vtable_process(task);   // ← reads NiSourceTexture
+            vtable_complete(task);  // ← enters lpCriticalSection_011f4380
+        }
+        DecRef(task);
+        ReleaseSemaphore(iter_semaphore, 1, 0);  // count → 1
+        InterlockedIncrement(iter_sem_count);     // +0x18 changes
+    }
+    // BACK TO IDLE
+}
+```
+
+### IO Dequeue Lock (IOManager+0x20)
+
+The spin-lock at `IOManager+0x20` (counter at +0x24) is acquired by `IO_DequeueTask`
+(FUN_00c40e70) during task dequeue. By acquiring this lock ourselves, we prevent
+BSTaskManagerThread from dequeuing new tasks during PDD.
+
+Lock mechanism (`FUN_0040fbf0`, 149 bytes, **non-standard ABI**):
+- Calling convention: fastcall ECX + 1 stack param + **RET 0x4** (callee cleans)
+- CAS with `GetCurrentThreadId()` as lock value (threadID-based, reentrant)
+- Spin: Sleep(0) for first 10001 iterations, then Sleep(1)
+- Counter at lock+4 tracks reentrancy
+
+**CRITICAL:** The `RET 0x4` means the function pops 4 bytes from the stack on return.
+Calling without pushing the stack parameter corrupts the return address →
+`EXCEPTION_PRIV_INSTRUCTION` at garbage EIP.
+
+### Semaphore Probe for Idle Detection
+
+After acquiring the IO lock, we probe the iter_semaphore (+0x1C) with non-blocking
+`WaitForSingleObject(handle, 0)`:
+
+| iter_sem count | BSTaskManagerThread state | Probe result | Action |
+|---|---|---|---|
+| 1 | Between iterations (idle or about to dequeue) | Signaled | Release back, proceed immediately |
+| 0 | Mid-iteration (processing task) | Timeout | Wait up to 5ms for iter_count change |
+| 0 | Blocked on our IO lock | Timeout | 5ms timeout → proceed (safe, not processing) |
+
+The 5ms timeout distinguishes "mid-task" (iter_count changes within ms after task finishes)
+from "blocked on lock" (iter_count frozen, BSTaskManagerThread stuck in IO_DequeueTask).
+
+**WARNING:** Using an infinite wait here causes DEADLOCK — BSTaskManagerThread is blocked
+on our lock → iter_count never changes → infinite loop.
+
+---
+
+## Chapter 18: Texture Cache Hash Table (DAT_011f4468)
+
+> **TL;DR:** The texture cache is a write-only hash table with no individual entry removal.
+> Entries persist after NiSourceTexture destruction. The game only does full resets during
+> worldspace transitions. Our pressure relief runs during normal gameplay — stale entries
+> cause BSTaskManagerThread crashes. Fix: dead set tracks destroyed NiSourceTextures.
+
+### Hash Table Structure
+
+```
+DAT_011f4468: hash table pointer
+  0x3E9 (1001) buckets
+  Each bucket: singly-linked chain of entries
+
+chain_entry {
+    [0]: value_ptr → wrapper object
+    [4]: next_entry_ptr → next chain_entry
+}
+
+wrapper (value) {
+    [0]: inner_ptr → NiSourceTexture*
+    [4]: key_hash (worldspace hash)
+    [8]: iter_next (iteration linked list)
+}
+```
+
+### Hash Table Operations
+
+| Address | Name | Operation |
+|---------|------|-----------|
+| `0x00A61A60` | Find | Traverse chain, match key at value[1], return value[0] with AddRef |
+| `0x00A61920` | BucketOp | Search/add in specific bucket |
+| `0x00A619B0` | Iterator | Traverse all buckets for iteration |
+| `0x00A615C0` | Cleanup | Free ALL chain entries in ALL 0x3E9 buckets |
+| `0x00A62030` | PreReset | Acquire lock, cleanup all entries + texture array |
+| `0x00A62090` | FullReset | PreReset + free hash table + free texture array + NULL globals |
+
+### Hash Table Lock
+
+`DAT_011f4480` — Bethesda's spin-lock protecting the hash table. Acquired by
+PreReset (FUN_00a62030), texture load/add (FUN_00a61b90), and other operations.
+
+### Why Stale Entries Persist
+
+1. No individual "remove entry" function exists in the game
+2. Full reset (FUN_00a62090) only called during worldspace transitions from FUN_0086a850
+3. Full reset is called at address `0x0086b976` in the outer update function
+4. Our pressure relief (FindCellToUnload + PDD) never triggers the outer update
+
+### NiSourceTexture Destructor (FUN_00a5fca0, 207 bytes, fastcall)
+
+```c
+void FUN_00a5fca0(undefined4 *param_1) {
+    *param_1 = &PTR_FUN_0109b9ec;  // vtable (unchanged initially)
+    // DecRef + zero NiDX9SourceTextureData at offset 0x3C
+    param_1[0xf] = 0;
+    // DecRef + zero NiPixelData at offset 0x38
+    param_1[0xe] = 0;
+    // ... more cleanup ...
+    *param_1 = &PTR_FUN_0109b944;  // vtable CHANGED to base class
+    // ... base class destructor ...
+}
+```
+
+**After destruction:** vtable changed (0x0109b9ec → 0x0109b944), pixelData zeroed,
+DX9TextureData zeroed, but the hash table entry still points to this object via
+the wrapper's inner_ptr.
+
+### Dead Set Fix
+
+`ClashMap<usize, (), FxBuildHasher>` tracks destroyed NiSourceTexture addresses:
+
+- **Insert:** NiSourceTexture destructor hook (FUN_00a5fca0) inserts `this` before original runs
+- **Check:** Hash table find hook (FUN_00a61a60) checks inner_ptr against dead set
+- **Clear:** `tick()` clears the dead set every frame
+
+Fast path: if no dead entries in bucket chain → call original find directly (zero overhead).
+Slow path: traverse chain skipping dead entries, handle refcount swap manually.
+
+### Texture Cache Reset Functions
+
+| Address | Name | Caller | When |
+|---------|------|--------|------|
+| `0x00A62030` | PreReset | FUN_00a62090 | Worldspace transition |
+| `0x00A62090` | FullReset | `0x0086b976` in FUN_0086a850 | Worldspace transition |
+
+FUN_00a62090 is called exactly ONCE — from the outer update function during worldspace
+transitions. It destroys the entire hash table and texture array, then reallocates.
+**Too heavy for per-pressure-relief use** (forces ALL textures to reload from disk → massive stutter).
+
+---
+
+## Chapter 19: Quarantine Stale-Push Bypass
+
+> **TL;DR:** The quarantine's stale-push bypass (>50K pushes → mi_free) was the root
+> cause of multiple crash types. Fixed by splitting behavior: mi_free during loading
+> screens (AI/IO idle), oldest-bucket-flush during gameplay (AI/IO active).
+
+### Original Bypass
+
+```rust
+if self.stale_pushes > STALE_PUSH_LIMIT {
+    mi_free(ptr);  // UNSAFE during gameplay — BSTaskManagerThread active
+    return;
+}
+```
+
+During PDD, 20 cells × ~5K objects = ~100K frees per frame. After 50K, the bypass
+fires → mi_free immediately → memory recycled → BSTaskManagerThread reads recycled
+memory → crash.
+
+### Fixed Bypass
+
+```rust
+if self.stale_pushes > STALE_PUSH_LIMIT {
+    let loading = *(0x011DEA2B as *const u8) != 0;
+    if loading {
+        mi_free(ptr);  // SAFE: loading screen, AI/IO idle
+        return;
+    }
+    // SAFE: flush oldest bucket (30+ frames old, no live references)
+    if self.stale_pushes % STALE_PUSH_LIMIT == 1 {
+        let oldest_idx = (frame.wrapping_add(1) as usize) % QUARANTINE_FRAMES;
+        Self::drain_bucket(&mut self.buckets[oldest_idx]);
+    }
+}
+```
+
+### Why Loading Screen Bypass Is Safe
+
+During loading screens (DAT_011dea2b != 0):
+- BSTaskManagerThread is loading data for the NEW state, not referencing OLD freed objects
+- AI threads are not dispatched
+- The frame counter is stale (no tick() calls)
+- Without bypass: quarantine grows unboundedly → OOM (D3D9 allocation failure at ~1.9GB)
+
+### Why Gameplay Bypass Was Unsafe
+
+During normal gameplay (DAT_011dea2b == 0):
+- BSTaskManagerThread holds raw pointers to quarantined QueuedTexture objects
+- AI threads reference Havok collision shapes from unloaded cells
+- Texture cache hash table has entries pointing to quarantined NiSourceTextures
+- mi_free recycles the memory → all readers crash
+
+---
+
+## Chapter 20: CellTransitionHandler IO Synchronization
+
+> **TL;DR:** CellTransitionHandler (FUN_008774a0) does BLOCKING PDD without IO
+> thread synchronization or stale task cancellation. Our hook adds both.
+
+### CellTransitionHandler vs DeferredCleanupSmall
+
+```
+DeferredCleanupSmall:   PDD(1) → FUN_00b5fd60 → AsyncFlush(0) → FUN_00448620(cancel) → cleanup
+CellTransitionHandler:  PDD(0) → AsyncFlush(0)                                        ← NO CANCEL
+```
+
+FUN_00448620 (task cancellation, 758 bytes) is called by DeferredCleanupSmall but NOT
+by CellTransitionHandler. Without it, BSTaskManagerThread's `CAS(task+3, 3, 1)` succeeds
+on uncancelled stale tasks → processes freed objects → crash.
+
+### Cell-Specific Task Cancellation
+
+`FUN_00445670(DAT_011c3b3c, cell)` — called from CellState_Change (FUN_00552bd0, 462 bytes)
+inside DestroyCell. Iterates task queue (`this+8`), finds tasks where
+`FUN_008d6f30(task) == cell`, calls `FUN_00445570(this, task)` to cancel.
+Only 1 caller: CellState_Change.
+
+### IO Object Cleanup
+
+`FUN_00c5ba50(this, object)` — called 4 times from CellState_Change with different
+cell objects (FUN_0054aa60, FUN_0054a050, FUN_00456fc0, FUN_00524cf0 results).
+Finds matching entry in IO task array (`this+0x6c`) and calls FUN_00c5bef0 to cancel.
+
+### Our Hook (hook_cell_transition_handler)
+
+Wraps the original with:
+1. hkWorld_Lock (FUN_00c3e310) — blocks Havok worker threads
+2. Loading state counter (DAT_01202d6c) — suppresses NVSE event dispatching
+3. IO dequeue lock (IOManager+0x20) — blocks BSTaskManagerThread dequeue
+4. Original CellTransitionHandler call
+5. FUN_00448620(DAT_011c3b3c, 1) — cancel stale tasks
+6. IO dequeue lock release
+7. Loading state counter decrement
+8. hkWorld_Unlock (FUN_00c3e340)
+
+---
+
+## Chapter 21: Destruction Protocol Position Analysis
+
+> **TL;DR:** Post-AI-join (Hook 2) is the ONLY safe position for PDD. Pre-AI (per-frame drain)
+> crashes SpeedTree. The Havok broadphase lifecycle issue remains under extreme stress.
+
+### Frame Timeline with Hook Positions
+
+```
+  HeapCompact    QueueDrain   PDD    AI_START     RENDER    HOOK1    AI_JOIN(HOOK2)
+  0x0086eac9    0x0086eadf  ~987   0x0086ec87  0x0086ede8  0x008705d0  0x008c7990
+                                    |           |           |           |
+  PerFrameDrain position:           |           |           |           |
+  SpeedTree UNSAFE (draw lists not built)       |           |           |
+                                                |           |           |
+                                    Hook 2 position:        |           ←
+                                    SpeedTree SAFE (consumed by render) |
+                                    AI SAFE (joined)                    |
+                                    Havok LIFECYCLE: removal persists until next frame's step
+```
+
+### Why Per-Frame Drain Position Crashes SpeedTree
+
+Moving destruction to per-frame drain (FUN_00868850, line ~802) runs BEFORE render.
+BSTreeNode objects freed by PDD are still cached in SpeedTree draw lists. Render
+accesses freed BSTreeNode → `C0000417` (CRT invalid parameter) during rendering.
+
+The heap_analysis documented this: "PreRender position: CRASH — BSTreeNode UAF,
+render hasn't consumed tree data."
+
+### PDD Queue Cross-Dependencies (Why Queue Skip Is Wrong)
+
+PDD queues have dependencies between each other:
+- Queue 0x08 (NiNode) destructors release references to queue 0x20 (Havok) objects
+- Skipping one queue but processing others creates over-decremented refcounts
+- CellTransitionHandler's PDD processes all queues together for this reason
+- Skipping queue 0x20 during our PDD → Havok wrapper refcount corruption →
+  crash during subsequent CellTransitionHandler (free path crash in ntdll)
+
+---
+
+## Chapter 22: New Function Address Map
+
+### IO Synchronization Functions
+
+| Address | Name | Size | Conv | Description |
+|---------|------|------|------|-------------|
+| `0x0040FBF0` | SpinLock_Acquire | 149b | fastcall+stack+RET4 | ThreadID-based CAS spin-lock |
+| `0x0040FC90` | GetCurrentThreadId_wrap | 11b | cdecl | Wraps GetCurrentThreadId |
+| `0x0043B460` | InterlockedCAS_wrap | 23b | cdecl | Wraps InterlockedCompareExchange |
+| `0x0040FCA0` | SpinLock_Sleep | 15b | cdecl | Sleep(param) |
+| `0x0040FBE0` | SpinLock_PostAcquire | 5b | cdecl | NOP (empty function) |
+| `0x00C42DD0` | BSTaskThread_init | 292b | thiscall | Creates thread + semaphores |
+| `0x00C42DA0` | BSTaskThread_entry | 37b | stdcall | Thread entry point |
+| `0x00C410B0` | BSTaskManagerThread_Loop | 633b | fastcall | Main task processing loop |
+| `0x00C40E70` | IO_DequeueTask | 462b | thiscall | Dequeue with spin-lock |
+| `0x00C42060` | IO_SignalCompletion | 111b | thiscall | Signal task completion |
+| `0x00C3FC80` | IO_TaskDispatch | 26b | thiscall | vtable+4 call on task |
+| `0x00C42F50` | BSTaskThread_Start | 24b | fastcall | ResumeThread |
+
+### Texture Cache Functions
+
+| Address | Name | Size | Conv | Description |
+|---------|------|------|------|-------------|
+| `0x00A61A60` | TextureCacheFind | 103b | thiscall | Hash table find (HOOKED) |
+| `0x00A61920` | TextureCacheBucketOp | 137b | thiscall | Bucket search/add |
+| `0x00A619B0` | TextureCacheIterator | 169b | thiscall | Iterate all entries |
+| `0x00A615C0` | TextureCacheCleanup | 71b | fastcall | Free all chain entries |
+| `0x00A62030` | TextureCachePreReset | 83b | cdecl | Lock + cleanup + iterate array |
+| `0x00A62090` | TextureCacheFullReset | 123b | cdecl | PreReset + free + NULL globals |
+| `0x00A61AD0` | TextureCacheInit | 185b | cdecl | Allocate hash table + array |
+| `0x00A5FCA0` | NiSourceTexture_dtor | 207b | fastcall | Destructor (HOOKED for dead set) |
+| `0x00A5FC10` | NiSourceTexture_ctor | 99b | fastcall | Constructor |
+
+### Cell Transition Functions
+
+| Address | Name | Size | Conv | Description |
+|---------|------|------|------|-------------|
+| `0x00552BD0` | CellState_Change | 462b | thiscall | Cell state transition (detach) |
+| `0x00445670` | CancelCellTasks | 217b | thiscall | Cancel IO tasks for specific cell |
+| `0x00C5BA50` | IOTask_CellCleanup | 129b | thiscall | Cancel IO ref for cell object |
+| `0x00448620` | CancelStaleTasks | 758b | thiscall | Cancel all stale queued tasks |
+| `0x0086A850` | OuterUpdate | 4532b | stdcall | Main loop outer update (huge) |
+
+### Global Addresses
+
+| Address | Name | Description |
+|---------|------|-------------|
+| `0x011F4468` | DAT_011f4468 | Texture cache hash table pointer |
+| `0x011F4464` | DAT_011f4464 | Texture cache array pointer |
+| `0x011F4480` | DAT_011f4480 | Texture cache spin-lock |
+| `0x011C3B3C` | DAT_011c3b3c | Task queue manager singleton (20+ xrefs) |
+| `0x01202D98` | DAT_01202d98 | Unified runtime manager (IOManager + Havok world) |
+| `0x011DEA2B` | DAT_011dea2b | Game loading/menu state flag |
+
+---
+
+## Chapter 23: Ghidra Scripts Index (Session 2026-03-21)
+
+| Script | Output | Purpose |
+|--------|--------|---------|
+| crash_ed17a0_analysis.py | crash/crash_00ED17A0_analysis.txt | BSTaskManagerThread __VEC_memcpy crash analysis |
+| io_thread_wait_mechanism.py | memory/io_thread_wait_mechanism.txt | BSTaskManagerThread sync primitive research |
+| io_thread_quiesce_mechanism.py | memory/io_thread_quiesce_mechanism.txt | IO flush chain and quiescing research |
+| io_manager_singleton.py | memory/io_manager_singleton.txt | IOManager pointer chain + dequeue lock |
+| verify_io_manager_ptr.py | memory/verify_io_manager_ptr.txt | Verify IOManager at DAT_01202D98 |
+| verify_spinlock_ret.py | memory/verify_spinlock_ret.txt | SpinLock_Acquire RET 0x4 confirmation |
+| crash_cffa08_analysis.py | crash/crash_00CFFA08_analysis.txt | Havok broadphase NULL entity crash |
+| havok_broadphase_step.py | memory/havok_broadphase_step.txt | Havok step/update function research |
+| crash_a61a74_bstask.py | crash/crash_00A61A74_bstask.txt | Texture cache hash table crash |
+| texture_hashtable_cleanup.py | memory/texture_hashtable_cleanup.txt | Hash table cleanup mechanism |
+| deep_io_lifecycle.py | memory/deep_io_lifecycle.txt | Complete QueuedTexture lifecycle |
+| deep_cell_unload_flow.py | memory/deep_cell_unload_flow.txt | Cell unload reference invalidation |
+| texture_cache_reset_context.py | memory/texture_cache_reset_context.txt | TextureCache_Reset call context |
+| havok_ai_raycast_crash.py | crash/havok_ai_raycast_crash.txt | AI thread Havok raycasting crash |
+| bstask_idle_detection.py | memory/bstask_idle_detection.txt | BSTaskManagerThread idle detection |
+| hashtable_node_layout.py | memory/hashtable_node_layout.txt | Hash table node structure |
+
+---
 
 This prevents deadlocks from thread creation under the Windows loader lock.
 
