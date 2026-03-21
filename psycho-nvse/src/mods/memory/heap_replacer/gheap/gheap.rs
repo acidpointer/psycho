@@ -187,15 +187,30 @@ impl Gheap {
             }
         };
 
-        // Replicate vanilla do-while: escalate stages 0-8.
-        // Main thread: all stages. Worker thread: only safe stages (1, 3, 8).
-        while stage <= 8 {
-            // Skip unsafe stages on worker threads
-            if !is_main_thread && matches!(stage, 0 | 2 | 4 | 5 | 6) {
-                stage += 1;
-                continue;
+        if !is_main_thread {
+            // Worker thread (BSTaskManagerThread): DON'T call FUN_00866a90.
+            // Calling OOM stages from inside IO task processing causes
+            // re-entrancy crashes — the IO system is mid-operation.
+            // Instead: signal main thread to do cleanup, then sleep/retry.
+            unsafe {
+                let trigger = (heap_singleton as *mut u8).add(0x134) as *mut u32;
+                std::ptr::write_volatile(trigger, 6); // HeapCompact stages 0-6
             }
+            for _ in 0..50 {
+                unsafe { libpsycho::os::windows::winapi::sleep(1) };
+                if DELAYED_FREE {
+                    unsafe { delayed_free::flush_current_thread() };
+                }
+                unsafe { mi_collect(true) };
+                let ptr = unsafe { mi_malloc_aligned(size, ALIGN) };
+                if !ptr.is_null() {
+                    return ptr;
+                }
+            }
+        }
 
+        // Main thread: call game's OOM stages 0-8.
+        while stage <= 8 {
             done = 0;
             stage = unsafe {
                 type OomStageExecFn =
