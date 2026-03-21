@@ -1,0 +1,486 @@
+======================================================================
+ANIMATION SYSTEM STALE FORM CRASH
+======================================================================
+
+# SECTION 1: 0x0087C9AE - crash return addr (animation processing)
+  0x0087c991: LEA EAX,[EBP + 0xfffffe50]
+  0x0087c997: PUSH EAX
+  0x0087c998: MOV ECX,dword ptr [EBP + 0xfffffe4c]
+  0x0087c99e: MOV EDX,dword ptr [ECX]
+  0x0087c9a0: MOV ECX,dword ptr [EBP + 0xfffffe4c]
+  0x0087c9a6: MOV EAX,dword ptr [EDX + 0x2a8]
+  0x0087c9ac: CALL EAX
+  0x0087c9ae: JMP 0x0087cd76
+  0x0087c9b3: MOV ECX,dword ptr [EBP + 0x8]
+  0x0087c9b6: MOV EDX,dword ptr [ECX + 0x4]
+  0x0087c9b9: MOV dword ptr [EBP + 0xfffffe44],EDX
+  0x0087c9bf: MOV EAX,dword ptr [EBP + 0x8]
+  0x0087c9c2: MOV ECX,dword ptr [EAX + 0x8]
+  0x0087c9c5: MOV dword ptr [EBP + 0xfffffe48],ECX
+  0x0087c9cb: CMP dword ptr [EBP + 0xfffffe44],0x0
+  0x0087c9d2: JZ 0x0087c9fb
+  0x0087c9d4: PUSH 0x1
+  0x0087c9d6: PUSH 0x0
+  0x0087c9d8: PUSH 0x1
+  0x0087c9da: MOV EDX,dword ptr [EBP + 0xfffffe48]
+
+======================================================================
+AnimCrashPoint @ 0x0087c9ae
+======================================================================
+  Function: FUN_0087b990, Size: 5109 bytes
+  Entry: 0x0087b990
+
+/* WARNING: Globals starting with '_' overlap smaller symbols at the same address */
+
+void __cdecl FUN_0087b990(undefined4 *param_1)
+
+{
+  char cVar1;
+  int iVar2;
+  undefined4 uVar3;
+  char *pcVar4;
+  int *piVar5;
+  undefined *puVar6;
+  int *piVar7;
+  void *pvVar8;
+  float *pfVar9;
+  undefined4 *puVar10;
+  int *unaff_FS_OFFSET;
+  float10 fVar11;
+  undefined8 uVar12;
+  float fVar13;
+  int *local_23c;
+  int local_238;
+  float local_1e4;
+  float local_1e0;
+  float local_1dc;
+  float local_1d8;
+  float local_1d4;
+  float local_1d0;
+  float local_1cc;
+  void *local_1c8;
+  char local_1c1;
+  int *local_1c0;
+  undefined4 local_1bc;
+  int *local_1b8;
+  undefined1 local_1b4 [14];
+  char local_1a6;
+  char local_1a5;
+  int *local_1a4;
+  int local_1a0;
+  int local_19c;
+  int local_198;
+  int *local_194;
+  int *local_190;
+  undefined4 local_18c;
+  int *local_188;
+  int *local_184;
+  undefined4 local_180;
+  int *local_17c;
+  char local_175;
+  int local_174;
+  char local_16d;
+  void *local_16c;
+  int local_168;
+  int local_164;
+  int local_160;
+  int *local_15c;
+  int *local_158;
+  void *local_154;
+  int *local_150;
+  int local_14c;
+  void *local_148;
+  int *local_144;
+  int *local_140;
+  void *local_13c;
+  int *local_138;
+  void *local_134;
+  undefined4 local_130;
+  int local_12c;
+  undefined4 local_128 [3];
+  char local_119;
+  void *local_118;
+  char local_111;
+  void *local_110;
+  undefined4 *local_10c;
+  int *local_108;
+  int *local_104;
+  char local_fd;
+  int *local_fc;
+  int *local_f8;
+  undefined *local_f4;
+  undefined4 local_f0;
+  char local_e9;
+  int *local_e8;
+  undefined4 local_e4;
+  undefined1 local_dd;
+  int local_dc;
+  int *local_d8;
+  int *local_d4;
+  int *local_d0;
+  uint local_cc;
+  int *local_c8;
+  undefined1 local_c4 [12];
+  int *local_b8;
+  int local_b4;
+  int *local_b0;
+  int *local_ac;
+  int *local_a8;
+  int *local_a4;
+  char local_9d;
+  int *local_9c;
+  undefined1 local_95;
+  int *local_94;
+  int *local_90;
+  char local_89;
+  void *local_88;
+  undefined1 local_84 [16];
+  undefined4 local_74 [5];
+  undefined1 local_60 [16];
+  int local_50;
+  void *local_4c;
+  int *local_48;
+  float local_44;
+  float local_40;
+  int *local_3c;
+  float local_38;
+  uint local_34;
+  undefined4 local_30;
+  int *local_2c;
+  void *local_28;
+  int *local_24;
+  int local_20 [3];
+  int *local_14;
+  int local_10;
+  undefined1 *puStack_c;
+  undefined4 local_8;
+  
+  local_8 = 0xffffffff;
+  puStack_c = &LAB_00f14608;
+  local_10 = *unaff_FS_OFFSET;
+  *unaff_FS_OFFSET = (int)&local_10;
+  switch(*param_1) {
+  case 0:
+    FUN_005b5e40();
+    break;
+  case 1:
+    FUN_005b5e40();
+    break;
+  case 2:
+    local_14 = (int *)param_1[1];
+    FUN_00416870(local_20,param_1[2],param_1[3],param_1[4]);
+    FUN_00b553d0(local_14,local_20);
+    break;
+  case 3:
+    local_88 = (void *)param_1[1];
+    FUN_00552390(local_88);
+    break;
+  case 4:
+    iVar2 = FUN_0044ddc0(0x11df244);
+    if (iVar2 != 0) {
+      uVar3 = FUN_0044ddc0(0x11df244);
+      FUN_0087cf10(local_60,FUN_0087cfb0,&DAT_011df244,uVar3);
+      FUN_00c44c90(DAT_01202df4,local_60);
+      FUN_008454f0(&DAT_011df244,'\0');
+    }
+    iVar2 = FUN_0044ddc0(0x11df1c4);
+    if (iVar2 != 0) {
+      FUN_0087d1b0(local_74);
+      local_8 = 0;
+      FUN_0087d030(local_74);
+      uVar3 = FUN_0044ddc0((int)local_74);
+      FUN_0087cf10(local_84,FUN_0087cf50,local_74,uVar3);
+      FUN_00c44c90(DAT_01202df4,local_84);
+      local_8 = 0xffffffff;
+      FUN_0087d230(local_74);
+    }
+    pcVar4 = FUN_00408d60(0x11df1b8);
+    if (*pcVar4 == '\0') {
+      FUN_00453900((int)DAT_011dea10);
+    }
+    break;
+  case 5:
+    local_90 = (int *)param_1[1];
+    local_89 = '\0';
+    fVar11 = (float10)FUN_0087ce50((int)local_90);
+    if (fVar11 == (float10)_DAT_01012060) {
+      local_89 = '\x01';
+    }
+    FUN_005526f0(local_90);
+    if ((local_89 != '\0') &&
+       (fVar11 = (float10)FUN_0087ce50((int)local_90), (float10)_DAT_01012060 < fVar11)) {
+      uVar12 = 0;
+      piVar7 = FUN_0056f930(local_90);
+      piVar5 = FUN_00457070(DAT_011dea10);
+      FUN_0054a070(piVar5,piVar7,(char)uVar12,(char)((ulonglong)uVar12 >> 0x20));
+    }
+    FUN_00401970(local_90);
+    break;
+  case 6:
+    local_94 = (int *)param_1[1];
+    FUN_00552790(local_94);
+    FUN_00401970(local_94);
+    break;
+  case 7:
+    local_9c = (int *)param_1[1];
+    local_a4 = (int *)param_1[2];
+    local_95 = *(undefined1 *)(param_1 + 3);
+    local_9d = *(char *)(param_1 + 4);
+    (**(code **)(*local_a4 + 0xdc))();
+    (**(code **)(*local_9c + 0xd0))();
+    if (local_9d != '\0') {
+      FUN_00a5a040(local_9c);
+    }
+    FUN_00401970(local_9c);
+    FUN_00401970(local_a4);
+    break;
+  case 8:
+    local_a8 = (int *)param_1[1];
+    local_ac = (int *)FUN_009611e0((int)local_a8);
+    if (local_ac != (int *)0x0) {
+      (**(code **)(*local_ac + 0xe8))();
+    }
+    FUN_00401970(local_a8);
+    break;
+  case 9:
+    local_b8 = (int *)param_1[1];
+    local_b4 = FUN_00450b80(param_1[2]);
+    if (local_b4 != 0) {
+      FUN_00b5b1c0(local_b8);
+    }
+    FUN_00401970(local_b8);
+    break;
+  case 10:
+    local_c8 = (int *)param_1[1];
+    FUN_0043d410(local_c4,0,0,0);
+    FUN_00a59c60(local_c8,local_c4);
+    FUN_00401970(local_c8);
+    break;
+  case 0xb:
+    local_cc = param_1[1];
+    local_d0 = (int *)param_1[2];
+    FUN_0088e8d0((float)local_d0[5],local_d0);
+    if (*local_d0 != 0) {
+      FUN_0088fb00((void *)*local_d0,(float)local_d0[5],local_d0,local_cc);
+    }
+    FUN_0087cea0(local_d0);
+    break;
+  case 0xc:
+    local_d4 = (int *)param_1[1];
+    cVar1 = (**(code **)(*local_d4 + 0x220))();
+    if (cVar1 != '\0') {
+      local_d8 = local_d4;
+      (**(code **)(*local_d4 + 0x304))();
+    }
+  case 0xd:
+    local_e8 = (int *)param_1[1];
+    local_f0 = param_1[2];
+    local_dd = *(undefined1 *)(param_1 + 3);
+    local_e9 = '\0';
+    local_f4 = FUN_0087ce70();
+    local_dc = FUN_004b9ba0((int)local_f4);
+    local_e4 = 0;
+    while ((local_dc != 0 && (local_e9 == '\0'))) {
+      local_f8 = (int *)0x0;
+      FUN_006b7f20(local_f4,&local_dc,&local_f8,&l
+
+# SECTION 2: 0x0087A82D - animation caller
+  0x0087a811: MOV EAX,dword ptr [EDX + 0x10]
+  0x0087a814: CALL EAX
+  0x0087a816: MOV byte ptr [EBP + -0x25],AL
+  0x0087a819: MOVZX ECX,byte ptr [EBP + -0x25]
+  0x0087a81d: TEST ECX,ECX
+  0x0087a81f: JZ 0x0087a830
+  0x0087a821: LEA EDX,[EBP + -0x24]
+  0x0087a824: PUSH EDX
+  0x0087a825: MOV EAX,dword ptr [EBP + -0x2c]
+  0x0087a828: MOV ECX,dword ptr [EAX + 0x20]
+  0x0087a82b: CALL ECX
+  0x0087a82d: ADD ESP,0x4
+  0x0087a830: JMP 0x0087a7ee
+  0x0087a832: MOV EDX,dword ptr [EBP + -0x2c]
+  0x0087a835: MOV byte ptr [EDX + 0x24],0x0
+
+======================================================================
+AnimCaller1 @ 0x0087a82d
+======================================================================
+  Function: FUN_0087a7d0, Size: 122 bytes
+  Entry: 0x0087a7d0
+
+void __fastcall FUN_0087a7d0(int *param_1)
+
+{
+  int iVar1;
+  char local_29;
+  undefined1 local_28 [32];
+  uint local_8;
+  
+  local_8 = DAT_011c16bc ^ (uint)&stack0xfffffffc;
+  *(undefined1 *)(param_1 + 9) = 1;
+  local_29 = '\x01';
+  while ((local_29 != '\0' || (iVar1 = FUN_00559450(param_1 + 5), 0 < iVar1))) {
+    local_29 = (**(code **)(*param_1 + 0x10))(local_28);
+    if (local_29 != '\0') {
+      (*(code *)param_1[8])(local_28);
+    }
+  }
+  *(undefined1 *)(param_1 + 9) = 0;
+  __security_check_cookie(local_8 ^ (uint)&stack0xfffffffc);
+  return;
+}
+
+
+
+# SECTION 3: 0x0087A7B8 - outer animation caller
+  0x0087a7a0: MOV dword ptr [EAX + 0x8],EDX
+  0x0087a7a3: CALL 0x0040fc90
+  0x0087a7a8: MOV ECX,dword ptr [EBP + -0x4]
+  0x0087a7ab: MOV dword ptr [ECX + 0xc],EAX
+  0x0087a7ae: MOV EDX,dword ptr [EBP + -0x4]
+  0x0087a7b1: MOV ECX,dword ptr [EDX]
+  0x0087a7b3: CALL 0x0087a7d0
+  0x0087a7b8: MOV EAX,dword ptr [EBP + -0x4]
+  0x0087a7bb: MOV dword ptr [EAX + 0xc],0x0
+  0x0087a7c2: MOV ESP,EBP
+  0x0087a7c4: POP EBP
+  0x0087a7c5: RET
+  0x0087a7d0: PUSH EBP
+  0x0087a7d1: MOV EBP,ESP
+  0x0087a7d3: SUB ESP,0x2c
+
+# SECTION 4: 0x0086F7B0 - POST_AI processing
+
+======================================================================
+PostAI_area @ 0x0086f7b0
+======================================================================
+  Function: FUN_0086f6a0, Size: 396 bytes
+  Entry: 0x0086f6a0
+
+/* WARNING: Globals starting with '_' overlap smaller symbols at the same address */
+
+void __fastcall FUN_0086f6a0(int param_1)
+
+{
+  char cVar1;
+  bool bVar2;
+  int *piVar3;
+  undefined4 *puVar4;
+  float10 fVar5;
+  char local_15;
+  
+  cVar1 = FUN_007050d0();
+  if (cVar1 != '\0') {
+    bVar2 = FUN_00703d50();
+    if (!bVar2) {
+      cVar1 = FUN_0086f860();
+      if (cVar1 == '\0') {
+        piVar3 = (int *)FUN_007624d0();
+        if (piVar3 != (int *)0x0) {
+          cVar1 = (**(code **)(*piVar3 + 0x100))();
+          if (cVar1 != '\0') {
+            (**(code **)(*piVar3 + 0x404))(0);
+          }
+        }
+      }
+    }
+  }
+  FUN_0096c240(0x11e0e80);
+  piVar3 = (int *)FUN_0043d4d0(0x11c3ea4);
+  if (*piVar3 < 2) {
+    FUN_0096c860(0x11e0e80);
+  }
+  else {
+    FUN_0096c970(0x11e0e80);
+  }
+  FUN_0096c710(0x11e0e80);
+  fVar5 = FUN_0084d030(0x11f6394);
+  FUN_009781d0(&DAT_011e0e80,(float)fVar5);
+  piVar3 = (int *)FUN_00705990();
+  cVar1 = FUN_0086f840((int)piVar3);
+  if (cVar1 != '\0') {
+    FUN_007fa990(piVar3);
+  }
+  piVar3 = (int *)FUN_0043d4d0(0x11c3ea4);
+  if (1 < *piVar3) {
+    FUN_0054ae30();
+    piVar3 = (int *)FUN_004537b0();
+    FUN_0087a6d0(piVar3);
+    puVar4 = (undefined4 *)FUN_004537b0();
+    FUN_0087a790(puVar4);
+    FUN_00552570();
+    FUN_0086f830(_DAT_011c3c08);
+    piVar3 = (int *)FUN_004537b0();
+    FUN_0087a6b0(piVar3);
+  }
+  puVar4 = (undefined4 *)FUN_0043d4d0(0x11d10d4);
+  FUN_007034c0(*puVar4);
+  FUN_00703490();
+  if (((DAT_011dea2b == '\0') && (DAT_011dea2d == '\0')) && (*(char *)(param_1 + 7) == '\0')) {
+    local_15 = '\0';
+  }
+  else {
+    local_15 = '\x01';
+  }
+  FUN_00991600(DAT_011f1958,local_15);
+  return;
+}
+
+
+
+# SECTION 5: 0x0086EE67 - near AI_JOIN in main loop
+  0x0086ee53: JMP 0x0086ee5f
+  0x0086ee55: MOV ECX,0x11e0fe0
+  0x0086ee5a: CALL 0x008ca300
+  0x0086ee5f: MOV ECX,dword ptr [EBP + -0x18]
+  0x0086ee62: CALL 0x0086f6a0
+  0x0086ee67: MOV ECX,dword ptr [EBP + -0x18]
+  0x0086ee6a: CALL 0x00870610
+  0x0086ee6f: CALL 0x0070ed10
+  0x0086ee74: MOVZX EAX,AL
+  0x0086ee77: TEST EAX,EAX
+  0x0086ee79: JZ 0x0086ee8a
+  0x0086ee7b: PUSH 0x0
+  0x0086ee7d: CALL 0x0070ed20
+  0x0086ee82: ADD ESP,0x4
+  0x0086ee85: CALL 0x00703e10
+
+# SECTION 6: 0x00A2F849 - on crash stack
+  0x00a2f833: SUB ESP,0x8
+  0x00a2f836: FSTP float ptr [ESP + 0x4]
+  0x00a2f83a: MOV ECX,EAX
+  0x00a2f83c: FLD float ptr [ESP + 0x28]
+  0x00a2f840: FSTP float ptr [ESP]
+  0x00a2f843: PUSH ESI
+  0x00a2f844: CALL 0x00a350d0
+  0x00a2f849: POP ESI
+  0x00a2f84a: RET 0x14
+  0x00a2f850: PUSH ESI
+  0x00a2f851: PUSH EDI
+  0x00a2f852: PUSH 0x7c
+  0x00a2f854: MOV EDI,ECX
+  0x00a2f856: CALL 0x00aa13e0
+  0x00a2f85b: ADD ESP,0x4
+
+======================================================================
+StackFunc_A2F849 @ 0x00a2f849
+======================================================================
+  Function: FUN_00a2f800, Size: 77 bytes
+  Entry: 0x00a2f800
+
+uint __thiscall
+FUN_00a2f800(void *this,void *param_1,int param_2,char param_3,undefined4 param_4,undefined4 param_5
+            )
+
+{
+  uint in_EAX;
+  int *this_00;
+  uint uVar1;
+  
+  if (*(int *)((int)param_1 + 0x44) != 0) {
+    return in_EAX & 0xffffff00;
+  }
+  this_00 = FUN_00a2f170(this,param_1,param_5);
+  uVar1 = FUN_00a350d0(this_00,param_1,param_3,param_2,param_4,0x3f800000);
+  return uVar1;
+}
+

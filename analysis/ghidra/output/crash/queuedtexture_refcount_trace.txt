@@ -1,0 +1,140 @@
+======================================================================
+QueuedTexture REFCOUNT LIFECYCLE TRACE
+======================================================================
+
+# SECTION 1: FUN_004019a0 - DecRef (called by FUN_0044dd60)
+
+======================================================================
+DecRef @ 0x004019a0
+======================================================================
+  Function: FUN_004019a0, Size: 15 bytes
+  Entry: 0x004019a0
+
+void __cdecl FUN_004019a0(LONG *param_1)
+
+{
+  InterlockedDecrement(param_1);
+  return;
+}
+
+
+
+# SECTION 2: FUN_00c3ce60 - IOTask base class constructor
+
+======================================================================
+IOTask_BaseCtor @ 0x00c3ce60
+======================================================================
+  Function: FUN_00c3ce60, Size: 57 bytes
+  Entry: 0x00c3ce60
+
+undefined4 * __fastcall FUN_00c3ce60(undefined4 *param_1)
+
+{
+  FUN_00c3c590(param_1);
+  *param_1 = &PTR_FUN_010c1554;
+  param_1[10] = 0;
+  param_1[0xb] = 0;
+  return param_1;
+}
+
+
+
+--- Calls FROM IOTask_BaseCtor (0x00c3ce60) ---
+  CALL 0x00c3c590 -> FUN_00c3c590 (from 0x00c3ce6e)
+  Total: 1 calls
+
+# SECTION 3: FUN_00449150 - task submission to IO system
+
+======================================================================
+TaskSubmit @ 0x00449150
+======================================================================
+  Function: FUN_00449150, Size: 21 bytes
+  Entry: 0x00449150
+
+void __fastcall FUN_00449150(int param_1)
+
+{
+  *(undefined4 *)(param_1 + 0xc) = 5;
+  return;
+}
+
+
+
+--- Calls FROM TaskSubmit (0x00449150) ---
+  Total: 0 calls
+
+# SECTION 4: All callers of FUN_004019a0 (DecRef)
+
+--- XRefs to DecRef_callers (0x004019a0) ---
+  UNCONDITIONAL_CALL @ 0x0044dd70 (in FUN_0044dd60)
+  UNCONDITIONAL_CALL @ 0x004381f6 (in FUN_004381d0)
+  UNCONDITIONAL_CALL @ 0x0040197e (in FUN_00401970)
+  UNCONDITIONAL_CALL @ 0x0043b2d3 (in FUN_0043b2b0)
+  UNCONDITIONAL_CALL @ 0x004424fa (in FUN_004424e0)
+  UNCONDITIONAL_CALL @ 0x007149e1 (in FUN_007149b0)
+  UNCONDITIONAL_CALL @ 0x0043acc7 (in FUN_0043acb0)
+  UNCONDITIONAL_CALL @ 0x005e2714 (in FUN_005e2590)
+  UNCONDITIONAL_CALL @ 0x0040c13e (in FUN_0040c130)
+  UNCONDITIONAL_CALL @ 0x0043bad7 (in FUN_0043bac0)
+  UNCONDITIONAL_CALL @ 0x0044b05e (in FUN_0044b050)
+  UNCONDITIONAL_CALL @ 0x00496925 (in FUN_00496910)
+  UNCONDITIONAL_CALL @ 0x0066e2c0 (in FUN_0066e2b0)
+  UNCONDITIONAL_CALL @ 0x008c6040 (in FUN_008c6030)
+  UNCONDITIONAL_CALL @ 0x004b0f00 (in FUN_004b0ef0)
+  ... (truncated)
+  Total: 15 refs
+
+# SECTION 5: FUN_00c3cff0 - get file handle during processing
+
+======================================================================
+GetFileHandle @ 0x00c3cff0
+======================================================================
+  Function: FUN_00c3cff0, Size: 158 bytes
+  Entry: 0x00c3cff0
+
+void __thiscall FUN_00c3cff0(void *this,int param_1,uint param_2)
+
+{
+  char local_114 [264];
+  uint local_c;
+  undefined4 *local_8;
+  
+  local_c = DAT_011c16bc ^ (uint)&stack0xfffffffc;
+  local_8 = (undefined4 *)0x0;
+  if (*(int *)((int)this + 0x2c) != 0) {
+    local_8 = FUN_00af6340(param_1,*(uint *)((int)this + 0x2c),-1,(char *)0x0);
+  }
+  if ((*(int *)((int)this + 0x28) != 0) && (local_8 == (undefined4 *)0x0)) {
+    FUN_00c3d090(this,param_1,local_114);
+    local_8 = (undefined4 *)FUN_00afdf20(local_114,0,-1,param_2);
+  }
+  __security_check_cookie(local_c ^ (uint)&stack0xfffffffc);
+  return;
+}
+
+
+
+# SECTION 6: FUN_00401980 - AddRef?
+
+======================================================================
+AddRef @ 0x00401980
+======================================================================
+  Function: FUN_00401970, Size: 43 bytes
+  Entry: 0x00401970
+
+void __fastcall FUN_00401970(int *param_1)
+
+{
+  int iVar1;
+  
+  iVar1 = FUN_004019a0(param_1 + 1);
+  if (iVar1 == 0) {
+    (**(code **)(*param_1 + 4))();
+  }
+  return;
+}
+
+
+
+--- XRefs to AddRef_callers (0x00401980) ---
+  Total: 0 refs

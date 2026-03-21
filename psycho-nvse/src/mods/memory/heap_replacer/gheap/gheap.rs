@@ -49,10 +49,14 @@ const COMMIT_CEILING: usize = 1600 * 1024 * 1024;
 // No atomic ops, no cache contention — each thread has its own counter.
 thread_local! {
     static ALLOC_COUNTER: std::cell::Cell<u32> = const { std::cell::Cell::new(0) };
-    /// Set when commit exceeds COMMIT_CEILING. Checked on every alloc.
-    /// Cleared after OOM recovery frees enough memory.
-    static OVER_CEILING: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
 }
+
+/// GLOBAL ceiling flag. When ANY thread detects commit > COMMIT_CEILING,
+/// ALL threads see it immediately and trigger OOM recovery on next alloc.
+/// Must be global — thread-local missed BSTaskManagerThread allocations,
+/// allowing commit to reach 2.4GB during loading.
+static OVER_CEILING: std::sync::atomic::AtomicBool =
+    std::sync::atomic::AtomicBool::new(false);
 
 // ---------------------------------------------------------------------------
 // Gheap
@@ -78,8 +82,7 @@ impl Gheap {
         // OVER_CEILING is set periodically (every PRESSURE_CHECK_INTERVAL)
         // and checked on every alloc. This avoids expensive mi_process_info
         // calls on the hot path while ensuring the ceiling is enforced.
-        let over = OVER_CEILING.with(|c| c.get());
-        if over {
+        if OVER_CEILING.load(std::sync::atomic::Ordering::Relaxed) {
             // Try to free memory via game's OOM handler before allocating
             let ptr = unsafe { Self::oom_recover(size) };
             if !ptr.is_null() {
@@ -87,7 +90,7 @@ impl Gheap {
                 let commit = libmimalloc::process_info::MiMallocProcessInfo::get()
                     .get_current_commit();
                 if commit < COMMIT_CEILING {
-                    OVER_CEILING.with(|c| c.set(false));
+                    OVER_CEILING.store(false, std::sync::atomic::Ordering::Relaxed);
                 }
                 return ptr;
             }
@@ -104,9 +107,9 @@ impl Gheap {
                     let info = libmimalloc::process_info::MiMallocProcessInfo::get();
                     let commit = info.get_current_commit();
 
-                    // Check hard ceiling
+                    // Check hard ceiling — global flag, all threads see it
                     if commit >= COMMIT_CEILING {
-                        OVER_CEILING.with(|f| f.set(true));
+                        OVER_CEILING.store(true, std::sync::atomic::Ordering::Relaxed);
                     }
 
                     // Check pressure threshold

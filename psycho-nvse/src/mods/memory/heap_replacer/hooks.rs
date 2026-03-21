@@ -448,6 +448,49 @@ pub fn clear_texture_dead_set() {
     TEXTURE_DEAD_SET.clear();
 }
 
+// ===========================================================================
+//   IOTask RELEASE HOOK — prevent double-release on recycled memory
+// ===========================================================================
+//
+// FUN_0044dd60 (81 bytes, fastcall) does DecRef at this+8. If result == 0,
+// calls vtable[0](1) (destructor). When the IO completion queue holds a
+// stale pointer to a freed task, the memory is recycled. DecRef on recycled
+// memory can return 0 (if +8 happened to contain 1), triggering destructor
+// on garbage → EIP=0.
+//
+// Fix: validate the object before calling original. Check:
+// 1. vtable pointer in .rdata range (valid game object)
+// 2. refcount at +8 > 0 (not already freed)
+// If either fails, the object is recycled memory — skip release.
+
+/// Game module .rdata range for vtable validation.
+const RDATA_START: usize = 0x01000000;
+const RDATA_END: usize = 0x01300000;
+
+pub(super) unsafe extern "fastcall" fn hook_task_release(this: *mut c_void) {
+    if this.is_null() {
+        return;
+    }
+
+    // Validate: vtable pointer must be in .rdata section
+    let vtable = unsafe { *(this as *const usize) };
+    if vtable < RDATA_START || vtable >= RDATA_END {
+        return; // recycled memory, not a game object
+    }
+
+    // Validate: refcount at +8 must be > 0
+    let refcount = unsafe {
+        std::ptr::read_volatile((this as *const u8).add(8) as *const i32)
+    };
+    if refcount <= 0 {
+        return; // already freed (zombie data), skip double-release
+    }
+
+    if let Ok(original) = super::replacer::TASK_RELEASE_HOOK.original() {
+        unsafe { original(this) };
+    }
+}
+
 /// NiSourceTexture destructor hook (FUN_00a5fca0, 207 bytes, fastcall).
 /// Inserts `this` into the dead set BEFORE calling the original destructor.
 /// The destructor zeroes pixelData fields — after it runs, the object is

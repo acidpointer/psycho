@@ -62,6 +62,10 @@ use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 /// Tuning: 3 frames was too short (Stewie's Tweaks crash on dead
 /// creature weapon ref). 60 frames added unnecessary ~60MB overhead
 /// that contributed to VA pressure during stress testing.
+/// 30 frames (500ms at 60fps). The IOTask release hook (FUN_0044dd60)
+/// handles the IO completion queue double-release case directly —
+/// no need for extended quarantine window. 30 frames covers NVSE
+/// plugin stale refs (Stewie's Tweaks, JIP dead actor access).
 const QUARANTINE_FRAMES: usize = 30;
 
 /// If this many pushes happen on a single thread without a frame advance,
@@ -268,10 +272,17 @@ impl Quarantine {
         if self.stale_pushes >= STALE_PUSH_LIMIT {
             let io_held = IO_LOCK_HELD.with(|f| f.get());
             if io_held {
-                // Case 1: PDD — IO locked, safe to flush everything.
+                // Case 1: PDD — IO locked, flush OLD buckets only.
+                // Keep current frame's bucket as zombies. Objects freed during
+                // THIS frame's PDD might still be referenced by BSTaskManagerThread
+                // (task already dequeued before IO lock, 50ms probe is a heuristic).
+                // The current bucket ages normally via tick() flush_stale.
                 self.stale_pushes = 0;
-                for bucket in self.buckets.iter_mut() {
-                    Self::drain_bucket(bucket);
+                let current_idx = (self.last_frame.unwrap_or(frame) as usize) % QUARANTINE_FRAMES;
+                for (i, bucket) in self.buckets.iter_mut().enumerate() {
+                    if i != current_idx {
+                        Self::drain_bucket(bucket);
+                    }
                 }
             } else {
                 let loading = unsafe { *(0x011DEA2B as *const u8) != 0 };

@@ -198,6 +198,14 @@ const NISOURCETEXTURE_DTOR_ADDR: usize = 0x00A5FCA0;
 pub static NISOURCETEXTURE_DTOR_HOOK: LazyLock<InlineHookContainer<NiSourceTextureDtorFn>> =
     LazyLock::new(InlineHookContainer::new);
 
+// IOTask release (FUN_0044dd60).
+// Hook validates the object before DecRef to prevent double-release
+// on recycled memory from the IO completion queue.
+const TASK_RELEASE_ADDR: usize = 0x0044DD60;
+
+pub static TASK_RELEASE_HOOK: LazyLock<InlineHookContainer<TaskReleaseFn>> =
+    LazyLock::new(InlineHookContainer::new);
+
 /// Scrap heap hooks
 pub static SHEAP_INIT_FIX_HOOK: LazyLock<InlineHookContainer<SheapInitFixFn>> =
     LazyLock::new(InlineHookContainer::new);
@@ -348,6 +356,17 @@ pub fn install_game_heap_hooks() -> anyhow::Result<()> {
         guard.enable_hook("nisourcetexture_dtor", &NISOURCETEXTURE_DTOR_HOOK)?;
         log::info!("[TEXTURE] Dead set hooks installed (find=0x{:08X}, dtor=0x{:08X})",
             TEXTURE_CACHE_FIND_ADDR, NISOURCETEXTURE_DTOR_ADDR);
+    }
+
+    // IOTask release hook — prevents double-release crash on recycled memory.
+    {
+        TASK_RELEASE_HOOK.init(
+            "task_release",
+            TASK_RELEASE_ADDR as *mut c_void,
+            hook_task_release,
+        )?;
+        guard.enable_hook("task_release", &TASK_RELEASE_HOOK)?;
+        log::info!("[IO_TASK] Release hook installed at 0x{:08X}", TASK_RELEASE_ADDR);
     }
 
     {

@@ -28,6 +28,10 @@ pub type SheapRegisterFn = unsafe extern "thiscall" fn(*mut c_void, u32, *mut c_
 /// Main loop pre-render maintenance function (FUN_008705d0).
 pub type MainLoopMaintenanceFn = unsafe extern "thiscall" fn(*mut c_void);
 
+/// IOTask release function (FUN_0044dd60, 81 bytes, fastcall).
+/// DecRef at this+8, if 0 → call vtable[0](1) destructor.
+pub type TaskReleaseFn = unsafe extern "fastcall" fn(*mut c_void);
+
 /// CellTransitionHandler (FUN_008774a0, 561 bytes).
 ///
 /// Orchestrates safe object destruction during cell transitions (entering/

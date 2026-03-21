@@ -1,0 +1,334 @@
+======================================================================
+IO COMPLETED TASK QUEUE LIFECYCLE
+======================================================================
+
+# SECTION 1: FUN_00c3dbf0 - main thread IO processing (full)
+
+======================================================================
+IO_MainThreadProcess @ 0x00c3dbf0
+======================================================================
+  Function: FUN_00c3dbf0, Size: 646 bytes
+  Entry: 0x00c3dbf0
+
+/* WARNING: Removing unreachable block (ram,0x00c3dc63) */
+/* WARNING: Removing unreachable block (ram,0x00c3dc9f) */
+/* WARNING: Removing unreachable block (ram,0x00c3dd3c) */
+/* WARNING: Removing unreachable block (ram,0x00c3de2a) */
+/* WARNING: Removing unreachable block (ram,0x00c3de5c) */
+
+undefined1 __fastcall FUN_00c3dbf0(int param_1)
+
+{
+  bool bVar1;
+  uint uVar2;
+  int iVar3;
+  int *unaff_FS_OFFSET;
+  longlong lVar4;
+  ulonglong uVar5;
+  longlong lVar6;
+  uint local_28;
+  int local_24;
+  undefined1 local_15;
+  int *local_14;
+  int local_10;
+  undefined1 *puStack_c;
+  undefined4 local_8;
+  
+  local_8 = 0xffffffff;
+  puStack_c = &LAB_00f2dd89;
+  local_10 = *unaff_FS_OFFSET;
+  uVar2 = DAT_011c16bc ^ (uint)&stack0xfffffffc;
+  *unaff_FS_OFFSET = (int)&local_10;
+  if (DAT_01202dd8 == '\0') {
+    local_15 = 1;
+    DAT_01202dd8 = 1;
+    lVar4 = FUN_00aa4d80();
+    uVar5 = FUN_00ec62f6();
+    if (*(int *)(param_1 + 0x74) != 0) {
+      local_15 = (**(code **)(param_1 + 0x74))(uVar2);
+    }
+    local_14 = (int *)0x0;
+    local_8 = 0;
+    FUN_00c3e420(*(void **)(param_1 + 100),(int *)&local_14);
+    while (local_14 != (int *)0x0) {
+      (**(code **)(*local_14 + 0x14))();
+      if (*(int *)(param_1 + 0x70) != 0) {
+        (**(code **)(param_1 + 0x70))();
+      }
+      lVar6 = FUN_00aa4d80();
+      iVar3 = (int)((ulonglong)(lVar6 - lVar4) >> 0x20);
+      local_24 = (int)(uVar5 >> 0x20);
+      if ((iVar3 < local_24) ||
+         ((iVar3 <= local_24 && (local_28 = (uint)uVar5, (uint)(lVar6 - lVar4) <= local_28)))) {
+        bVar1 = false;
+      }
+      else {
+        bVar1 = true;
+      }
+      if (bVar1) {
+        if (local_14 != (int *)0x0) {
+          if (local_14 != (int *)0x0) {
+            FUN_0044dd60(local_14);
+          }
+          local_14 = (int *)0x0;
+        }
+      }
+      else {
+        FUN_00c3e420(*(void **)(param_1 + 100),(int *)&local_14);
+      }
+    }
+    DAT_01202dd8 = '\0';
+  }
+  else {
+    local_15 = 1;
+  }
+  *unaff_FS_OFFSET = local_10;
+  return local_15;
+}
+
+
+
+# SECTION 2: FUN_00c3e420 - completed task dequeue
+
+======================================================================
+CompletedQueue_Dequeue @ 0x00c3e420
+======================================================================
+  Function: FUN_00c3e420, Size: 97 bytes
+  Entry: 0x00c3e420
+
+uint __thiscall FUN_00c3e420(void *this,int *param_1)
+
+{
+  uint in_EAX;
+  undefined4 uVar1;
+  uint local_8;
+  
+  local_8 = 0;
+  while( true ) {
+    if (*(uint *)((int)this + 8) <= local_8) {
+      return in_EAX & 0xffffff00;
+    }
+    uVar1 = FUN_00c3e490(*(void **)(*(int *)((int)this + 4) + local_8 * 4),param_1);
+    if ((char)uVar1 != '\0') break;
+    in_EAX = local_8 + 1;
+    local_8 = in_EAX;
+  }
+  uVar1 = (**(code **)(*(int *)this + 8))();
+  return CONCAT31((int3)((uint)uVar1 >> 8),1);
+}
+
+
+
+# SECTION 3: IOManager vtable+0x48 - task completion notification
+# Called at end of QueuedTexture task body: (*DAT_01202d98->vtable+0x48)(this)
+
+--- XRefs to IOManager_RTTI (0x010c1604) ---
+  DATA @ 0x00c3da90 (in FUN_00c3da50)
+  DATA @ 0x00c3db8b (in FUN_00c3db60)
+  Total: 2 refs
+
+# SECTION 4: FUN_0044dd60 callers - who releases tasks?
+
+--- XRefs to TaskRelease_callers (0x0044dd60) ---
+  UNCONDITIONAL_CALL @ 0x0044cc04 (in FUN_0044cbf0)
+  UNCONDITIONAL_CALL @ 0x006f750e (in FUN_006f74f0)
+  UNCONDITIONAL_CALL @ 0x0092c840 (in FUN_0092c820)
+  UNCONDITIONAL_CALL @ 0x00c3c7bc (in FUN_00c3c700)
+  UNCONDITIONAL_CALL @ 0x00c3c907 (in FUN_00c3c7e0)
+  UNCONDITIONAL_CALL @ 0x00c3c6d0 (in FUN_00c3c620)
+  UNCONDITIONAL_CALL @ 0x00c3d5a2 (in FUN_00c3d4f0)
+  UNCONDITIONAL_CALL @ 0x00c3de18 (in FUN_00c3dbf0)
+  UNCONDITIONAL_CALL @ 0x00c3de5f (in FUN_00c3dbf0)
+  UNCONDITIONAL_CALL @ 0x00c3e2b4 (in FUN_00c3e1b0)
+  ... (truncated)
+  Total: 10 refs
+
+# SECTION 5: FUN_00c42b80 - BSTaskManagerThread cleanup
+
+======================================================================
+BSTask_Cleanup @ 0x00c42b80
+======================================================================
+  Function: FUN_00c42b80, Size: 540 bytes
+  Entry: 0x00c42b80
+
+void __fastcall FUN_00c42b80(int *param_1)
+
+{
+  undefined4 uVar1;
+  int iVar2;
+  undefined4 *puVar3;
+  longlong lVar4;
+  bool bVar5;
+  undefined4 *_Dst;
+  uint uVar6;
+  int *unaff_FS_OFFSET;
+  uint local_30;
+  int local_20;
+  undefined4 *local_18;
+  int local_10;
+  undefined1 *puStack_c;
+  undefined4 local_8;
+  
+  puStack_c = &LAB_00f2e188;
+  local_10 = *unaff_FS_OFFSET;
+  *unaff_FS_OFFSET = (int)&local_10;
+  uVar1 = *(undefined4 *)(*(int *)(unaff_FS_OFFSET[0xb] + _tls_index * 4) + 0x2b4);
+  *(undefined4 *)(*(int *)(unaff_FS_OFFSET[0xb] + _tls_index * 4) + 0x2b4) = 6;
+  local_8 = 0;
+  iVar2 = **(int **)(*param_1 + 0x14);
+  uVar6 = iVar2 << 1;
+  lVar4 = (ulonglong)uVar6 * 4;
+  _Dst = FUN_00aa3e40(&DAT_011f6238,-(uint)((int)((ulonglong)lVar4 >> 0x20) != 0) | (uint)lVar4);
+  _memcpy(_Dst,*(void **)(*param_1 + 0x10),iVar2 << 3);
+  local_18 = (undefined4 *)0x0;
+  local_20 = 0;
+  do {
+    if (param_1[4] == 0) {
+      FUN_00aa4060(&DAT_011f6238,_Dst);
+      param_1[4] = (int)local_18;
+      param_1[3] = local_20;
+      *(undefined4 *)(*(int *)(unaff_FS_OFFSET[0xb] + _tls_index * 4) + 0x2b4) = uVar1;
+      *unaff_FS_OFFSET = local_10;
+      return;
+    }
+    puVar3 = (undefined4 *)param_1[4];
+    param_1[4] = *(int *)(param_1[4] + 4);
+    bVar5 = false;
+    for (local_30 = 0; local_30 < uVar6; local_30 = local_30 + 1) {
+      if (puVar3 == (undefined4 *)_Dst[local_30]) {
+        bVar5 = true;
+        break;
+      }
+    }
+    if (bVar5) {
+      puVar3[1] = local_18;
+      local_20 = local_20 + 1;
+      local_18 = puVar3;
+    }
+    else {
+      puVar3[1] = 0;
+      if (puVar3 != (undefined4 *)0x0) {
+        if (puVar3[1] != 0) {
+          FUN_0044dd60((undefined4 *)puVar3[1]);
+        }
+        FUN_00aa4060(&DAT_011f6238,puVar3);
+      }
+    }
+  } while( true );
+}
+
+
+
+# SECTION 6: FUN_00448620 - task cancellation internals
+
+======================================================================
+TaskCancel @ 0x00448620
+======================================================================
+  Function: FUN_00448620, Size: 758 bytes
+  Entry: 0x00448620
+
+void __thiscall FUN_00448620(void *this,char param_1)
+
+{
+  bool bVar1;
+  char cVar2;
+  int iVar3;
+  int *unaff_FS_OFFSET;
+  void *local_248;
+  undefined4 local_244;
+  TaskStack local_240 [272];
+  void *local_130;
+  undefined4 local_12c;
+  TaskStack local_128 [276];
+  uint local_14;
+  int local_10;
+  undefined1 *puStack_c;
+  undefined4 local_8;
+  
+  local_8 = 0xffffffff;
+  puStack_c = &LAB_00eecd06;
+  local_10 = *unaff_FS_OFFSET;
+  local_14 = DAT_011c16bc ^ (uint)&stack0xfffffffc;
+  *unaff_FS_OFFSET = (int)&local_10;
+  if (((param_1 == '\0') && (DAT_011ddf38 != 0)) && (bVar1 = FUN_0042ce10(DAT_011ddf38), bVar1)) {
+    *(undefined1 *)((int)this + 0x2c) = 1;
+  }
+  else {
+    if (*(int *)this != 0) {
+      FUN_004498e0(local_128);
+      local_8 = 0;
+      while (bVar1 = FUN_006ebde0((int)local_128), !bVar1) {
+        local_130 = (void *)0x0;
+        local_12c = 0;
+        cVar2 = FUN_0044c640(*(void **)this,local_128,&local_12c,&local_130,'\x01');
+        if (((cVar2 != '\0') && (local_130 != (void *)0x0)) &&
+           ((iVar3 = FUN_00443190((int)local_130), iVar3 == 0 &&
+            ((**(code **)(**(int **)this + 0x14))(local_12c), local_130 != (void *)0x0)))) {
+          FUN_004431f0(local_130,1);
+        }
+      }
+      local_8 = 0xffffffff;
+      FUN_004431d0((undefined4 *)local_128);
+    }
+    if (*(int *)((int)this + 4) != 0) {
+      FUN_00449960(local_240);
+      local_8 = 1;
+      while (bVar1 = FUN_006ebde0((int)local_240), !bVar1) {
+        local_248 = (void *)0x0;
+        local_244 = 0;
+        cVar2 = FUN_0044c640(*(void **)((int)this + 4),local_240,&local_244,&local_248,'\x01');
+        if (((cVar2 != '\0') && (local_248 != (void *)0x0)) &&
+           (iVar3 = FUN_004431b0((int)local_248), iVar3 == 0)) {
+          bVar1 = true;
+          iVar3 = FUN_005585e0((int)local_248);
+          if (iVar3 != 0) {
+            iVar3 = FUN_005585e0((int)local_248);
+            iVar3 = FUN_005f2420(iVar3);
+            if (0x5b < iVar3) {
+              iVar3 = FUN_005585e0((int)local_248);
+              iVar3 = FUN_005f2420(iVar3);
+              if (iVar3 < 0x66) {
+                bVar1 = false;
+              }
+            }
+          }
+          if ((bVar1) &&
+             ((**(code **)(**(int **)((int)this + 4) + 0x14))(local_244), local_248 != (void *)0x0))
+          {
+            FUN_00443240(local_248,1);
+          }
+        }
+      }
+      local_8 = 0xffffffff;
+      FUN_00443220((undefined4 *)local_240);
+    }
+    *(undefined1 *)((int)this + 0x2c) = 0;
+  }
+  *unaff_FS_OFFSET = local_10;
+  __security_check_cookie(local_14 ^ (uint)&stack0xfffffffc);
+  return;
+}
+
+
+
+--- Calls FROM TaskCancel (0x00448620) ---
+  CALL 0x0042ce10 -> FUN_0042ce10 (from 0x00448668)
+  CALL 0x004498e0 -> FUN_004498e0 (from 0x00448698)
+  CALL 0x006ebde0 -> FUN_006ebde0 (from 0x004486aa)
+  CALL 0x0044c640 -> FUN_0044c640 (from 0x004486ed)
+  CALL 0x00443190 -> FUN_00443190 (from 0x00448708)
+  CALL 0x004431f0 -> FUN_004431f0 (from 0x00448758)
+  CALL 0x004431d0 -> FUN_004431d0 (from 0x00448781)
+  CALL 0x00449960 -> FUN_00449960 (from 0x0044879c)
+  CALL 0x006ebde0 -> FUN_006ebde0 (from 0x004487ae)
+  CALL 0x0044c640 -> FUN_0044c640 (from 0x004487f2)
+  CALL 0x004431b0 -> FUN_004431b0 (from 0x00448815)
+  CALL 0x005585e0 -> FUN_005585e0 (from 0x0044882f)
+  CALL 0x005585e0 -> FUN_005585e0 (from 0x0044883e)
+  CALL 0x005f2420 -> FUN_005f2420 (from 0x00448845)
+  CALL 0x005585e0 -> FUN_005585e0 (from 0x00448855)
+  CALL 0x005f2420 -> FUN_005f2420 (from 0x0044885c)
+  CALL 0x00443240 -> FUN_00443240 (from 0x004488c3)
+  CALL 0x00443220 -> FUN_00443220 (from 0x004488ec)
+  CALL 0x00ec408c -> __security_check_cookie (from 0x0044890b)
+  Total: 19 calls

@@ -1,0 +1,198 @@
+======================================================================
+IOTask DEAD SET HOOK POINTS
+======================================================================
+
+# SECTION 1: FUN_0044dd60 - full disasm (need size for inline hook)
+  0x0044dd60: PUSH EBP
+  0x0044dd61: MOV EBP,ESP
+  0x0044dd63: SUB ESP,0x14
+  0x0044dd66: MOV dword ptr [EBP + -0x10],ECX
+  0x0044dd69: MOV EAX,dword ptr [EBP + -0x10]
+  0x0044dd6c: ADD EAX,0x8
+  0x0044dd6f: PUSH EAX
+  0x0044dd70: CALL 0x004019a0
+  0x0044dd75: ADD ESP,0x4
+  0x0044dd78: MOV dword ptr [EBP + -0x4],EAX
+  0x0044dd7b: CMP dword ptr [EBP + -0x4],0x0
+  0x0044dd7f: JNZ 0x0044ddad
+  0x0044dd81: MOV ECX,dword ptr [EBP + -0x10]
+  0x0044dd84: MOV dword ptr [EBP + -0xc],ECX
+  0x0044dd87: MOV EDX,dword ptr [EBP + -0xc]
+  0x0044dd8a: MOV dword ptr [EBP + -0x8],EDX
+  0x0044dd8d: CMP dword ptr [EBP + -0x8],0x0
+  0x0044dd91: JZ 0x0044dda6
+  0x0044dd93: PUSH 0x1
+  0x0044dd95: MOV EAX,dword ptr [EBP + -0x8]
+  0x0044dd98: MOV EDX,dword ptr [EAX]
+  0x0044dd9a: MOV ECX,dword ptr [EBP + -0x8]
+  0x0044dd9d: MOV EAX,dword ptr [EDX]
+  0x0044dd9f: CALL EAX
+  0x0044dda1: MOV dword ptr [EBP + -0x14],EAX
+  0x0044dda4: JMP 0x0044ddad
+  0x0044dda6: MOV dword ptr [EBP + -0x14],0x0
+  0x0044ddad: MOV ESP,EBP
+  0x0044ddaf: POP EBP
+  0x0044ddb0: RET
+
+======================================================================
+TaskRelease @ 0x0044dd60
+======================================================================
+  Function: FUN_0044dd60, Size: 81 bytes
+  Entry: 0x0044dd60
+
+void __fastcall FUN_0044dd60(undefined4 *param_1)
+
+{
+  int iVar1;
+  
+  iVar1 = FUN_004019a0(param_1 + 2);
+  if ((iVar1 == 0) && (param_1 != (undefined4 *)0x0)) {
+    (**(code **)*param_1)(1);
+  }
+  return;
+}
+
+
+
+# SECTION 2: FUN_00c3c590 - NiRefObject base ctor
+
+======================================================================
+NiRefObject_BaseCtor @ 0x00c3c590
+======================================================================
+  Function: FUN_00c3c590, Size: 140 bytes
+  Entry: 0x00c3c590
+
+undefined4 * __fastcall FUN_00c3c590(undefined4 *param_1)
+
+{
+  int *piVar1;
+  int unaff_FS_OFFSET;
+  
+  FUN_00440540(param_1);
+  *param_1 = &PTR_FUN_010c1524;
+  piVar1 = param_1 + 7;
+  *piVar1 = 0;
+  if (*piVar1 != 0) {
+    InterlockedIncrement((LONG *)(*piVar1 + 8));
+  }
+  param_1[8] = 0;
+  param_1[9] = 0;
+  param_1[6] = *(undefined4 *)(*(int *)(*(int *)(unaff_FS_OFFSET + 0x2c) + _tls_index * 4) + 0x2b4);
+  return param_1;
+}
+
+
+
+# SECTION 3: IOTask base vtable at 0x010c1554
+
+======================================================================
+IOTask_BaseDtor_area @ 0x0044cbf0
+======================================================================
+  Function: FUN_0044cbf0, Size: 29 bytes
+  Entry: 0x0044cbf0
+
+void __fastcall FUN_0044cbf0(int *param_1)
+
+{
+  if (*param_1 != 0) {
+    FUN_0044dd60((undefined4 *)*param_1);
+  }
+  return;
+}
+
+
+
+# SECTION 4: FUN_00c3cea0 - IOTask base destructor
+
+======================================================================
+IOTask_BaseDtor @ 0x00c3cea0
+======================================================================
+  Function: FUN_00c3cea0, Size: 53 bytes
+  Entry: 0x00c3cea0
+
+void __fastcall FUN_00c3cea0(undefined4 *param_1)
+
+{
+  *param_1 = &PTR_FUN_010c1554;
+  FUN_00aa4060(&DAT_011f6238,(undefined4 *)param_1[10]);
+  FUN_00c3c620(param_1);
+  return;
+}
+
+
+
+--- Calls FROM IOTask_BaseDtor (0x00c3cea0) ---
+  CALL 0x00aa4060 -> FUN_00aa4060 (from 0x00c3cec4)
+  CALL 0x00c3c620 -> FUN_00c3c620 (from 0x00c3cecc)
+  Total: 2 calls
+
+# SECTION 5: FUN_00401030 - GameHeap free after destructor
+
+======================================================================
+GameHeap_Free_wrapper @ 0x00401030
+======================================================================
+  Function: FUN_00401030, Size: 21 bytes
+  Entry: 0x00401030
+
+void __cdecl FUN_00401030(undefined4 *param_1)
+
+{
+  undefined *this;
+  
+  this = FUN_00401020();
+  FUN_00aa4060(this,param_1);
+  return;
+}
+
+
+
+# SECTION 6: FUN_0044dd60 first bytes (hook feasibility)
+  0x0044dd60: PUSH EBP
+  0x0044dd61: MOV EBP,ESP
+  0x0044dd63: SUB ESP,0x14
+  0x0044dd66: MOV dword ptr [EBP + -0x10],ECX
+  0x0044dd69: MOV EAX,dword ptr [EBP + -0x10]
+  0x0044dd6c: ADD EAX,0x8
+  0x0044dd6f: PUSH EAX
+  0x0044dd70: CALL 0x004019a0
+
+# SECTION 7: FUN_004019a0 - DecRef (15 bytes)
+  0x004019a0: PUSH EBP
+  0x004019a1: MOV EBP,ESP
+  0x004019a3: MOV EAX,dword ptr [EBP + 0x8]
+  0x004019a6: PUSH EAX
+  0x004019a7: CALL dword ptr [0x00fdf1c4]
+  0x004019ad: POP EBP
+  0x004019ae: RET
+  0x004019b0: PUSH EBP
+
+# SECTION 8: FUN_00443190 - task alive check
+
+======================================================================
+TaskAliveCheck1 @ 0x00443190
+======================================================================
+  Function: FUN_00443190, Size: 23 bytes
+  Entry: 0x00443190
+
+int __fastcall FUN_00443190(int param_1)
+
+{
+  return *(int *)(param_1 + 4) + *(int *)(param_1 + 8);
+}
+
+
+
+# SECTION 8b: FUN_004431b0 - task alive check 2
+
+======================================================================
+TaskAliveCheck2 @ 0x004431b0
+======================================================================
+  Function: FUN_004431b0, Size: 23 bytes
+  Entry: 0x004431b0
+
+int __fastcall FUN_004431b0(int param_1)
+
+{
+  return *(int *)(param_1 + 0xc) + *(int *)(param_1 + 0x10);
+}
+

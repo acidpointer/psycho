@@ -81,11 +81,17 @@ use super::types::{
 /// drain. Disabling eliminates all stale-pointer crashes (QueuedTexture,
 /// hkBSHeightFieldShape, BSTreeNode) at the cost of higher commit under
 /// extreme stress (32-bit VA ceiling reached sooner).
-/// Enable manual cell unloading via FindCellToUnload.
-/// Required to keep commit below the 32-bit VA ceiling under stress.
-/// NVSE compatibility: quarantine keeps zombie data intact during loading
-/// screens so JIP LN NVSE's CellChange events access readable memory.
-const CELL_UNLOAD_ENABLED: bool = true;
+/// Cell unloading during gameplay is unsafe — the game has multiple
+/// deferred processing queues (IO completion, animation, POST_AI tasks)
+/// that hold raw pointers to forms in loaded cells. Unloading cells
+/// invalidates these pointers, causing crashes in every queue.
+///
+/// Instead, the commit ceiling (COMMIT_CEILING in gheap.rs) triggers the
+/// game's OWN OOM handler (FUN_00866a90 Stage 5) which unloads cells
+/// INSIDE the allocator retry loop. At that point, the main thread is
+/// blocked — all deferred queues are idle, no stale pointer access.
+/// This is exactly how the vanilla game with SBM handles memory pressure.
+const CELL_UNLOAD_ENABLED: bool = false;
 
 /// Maximum commit GROWTH above baseline before triggering pressure relief.
 /// Baseline is measured when PressureRelief initializes (after game loads).
