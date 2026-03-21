@@ -99,6 +99,13 @@ const COOLDOWN_MS: u64 = 2000;
 const FIND_CELL_TO_UNLOAD: usize = 0x00453A80;
 const PROCESS_PENDING_CLEANUP: usize = 0x00452490;
 const PROCESS_DEFERRED_DESTRUCTION: usize = 0x00868D70;
+
+/// FUN_00a62030 — TextureCache_PreReset.
+/// Clears ALL texture cache hash table entries (DAT_011f4468) and texture
+/// array entries (DAT_011f4464). The game calls this during cell transitions
+/// (from FUN_0086a850) to invalidate stale entries. Without it, freed
+/// NiSourceTexture pointers persist in the cache → BSTaskManagerThread crash.
+const TEXTURE_CACHE_PRE_RESET: usize = 0x00A62030;
 /// PreDestruction_Setup: hkWorld_Lock + SceneGraphInvalidate.
 const PRE_DESTRUCTION_SETUP: usize = 0x00878160;
 /// PostDestruction_Restore: hkWorld_Unlock + restore state.
@@ -192,9 +199,16 @@ const IO_THREAD_ARRAY_OFFSET: usize = 0x50;
 /// InterlockedIncrement'd after each task iteration.
 const IO_THREAD_SEM_COUNT_OFFSET: usize = 0x18;
 
-/// Maximum milliseconds to wait for BSTaskManagerThread to finish
-/// its current task after acquiring the dequeue lock.
-const IO_DRAIN_TIMEOUT_MS: u32 = 50;
+/// Inter-iteration semaphore HANDLE within BSTaskManagerThread.
+/// Created by BSTaskThread_init with initial count=1, max=1.
+/// Count=1 when idle/between-iterations, 0 when mid-task processing.
+/// Used by io_lock_acquire to probe whether BSTaskManagerThread is mid-task.
+const IO_THREAD_ITER_SEM_HANDLE_OFFSET: usize = 0x1C;
+
+/// FUN_0040fbf0 — Bethesda's spin-lock acquire (threadID-based CAS).
+/// Non-standard ABI: fastcall ECX + 1 stack param + RET 0x4.
+const SPIN_LOCK_ACQUIRE: usize = 0x0040FBF0;
+
 
 
 // ---------------------------------------------------------------------------
@@ -308,15 +322,14 @@ impl PressureRelief {
         }
 
         if CELL_UNLOAD_ENABLED {
-            // Always defer cell unloading to the per-frame drain hook
-            // (FUN_00868850, line ~802), which runs BEFORE AI dispatch and
-            // render. This is the correct lifecycle position for:
-            // - Havok broadphase: remove → AI step (deferred removals) → query
-            // - SpeedTree: draw lists not built yet
-            // - AI threads: idle (not dispatched)
-            // - BSTaskManagerThread: IO lock during PDD
+            // Defer cell unloading to the AI join hook (Hook 2,
+            // FUN_008c7990 wrapper). This post-render, post-AI-join
+            // position is the only safe one:
+            // - SpeedTree: render consumed draw lists ✓
+            // - AI threads: idle (joined) ✓
+            // - BSTaskManagerThread: IO dequeue lock during PDD ✓
             self.deferred_unload.store(true, Ordering::Release);
-            log::debug!("[PRESSURE] Cell unload deferred to per-frame drain");
+            log::debug!("[PRESSURE] Cell unload deferred to AI join");
         }
 
         // Trigger HeapCompact stages 0-2 for the NEXT frame.
@@ -495,58 +508,62 @@ impl PressureRelief {
     /// Acquire the IO dequeue spin-lock and wait for BSTaskManagerThread
     /// to finish any in-flight task. Returns true if lock was acquired.
     pub(in crate::mods::memory::heap_replacer) unsafe fn io_lock_acquire() -> bool {
+        use libpsycho::os::windows::winapi::{
+            self, WaitResult,
+        };
+
         let io_mgr = unsafe { *(IO_MANAGER_SINGLETON_PTR as *const *mut u8) };
         if io_mgr.is_null() {
             return false;
         }
 
-        // Read BSTaskManagerThread's iteration count BEFORE the lock.
         let bst_count_before = unsafe { Self::read_bst_sem_count(io_mgr) };
 
-        // Acquire the dequeue spin-lock via the game's spin-lock function.
+        // Acquire the IO dequeue spin-lock (FUN_0040fbf0).
         //
-        // FUN_0040fbf0 calling convention (verified by disassembly):
-        //   fastcall: ECX = lock pointer
-        //   stack:    1 parameter (debug name/flags, always 0 in release)
-        //   cleanup:  RET 0x4 (callee cleans stack param)
-        //
-        // We use inline asm to match this exactly — push 0, load ECX, call.
+        // Non-standard calling convention (verified by Ghidra disassembly):
+        //   fastcall ECX = lock pointer, 1 stack param (debug), RET 0x4.
+        // No Rust ABI matches this — inline asm is the only correct way.
         let lock_ptr = unsafe { io_mgr.add(IO_DEQUEUE_LOCK_OFFSET) };
         unsafe {
             std::arch::asm!(
                 "push 0",
                 "call {func}",
-                func = in(reg) 0x0040FBF0u32,
+                func = in(reg) SPIN_LOCK_ACQUIRE as u32,
                 in("ecx") lock_ptr,
-                // SpinLock_Acquire clobbers EAX, EDX (GetCurrentThreadId + CAS)
                 out("eax") _,
                 out("edx") _,
             );
         }
 
-        // Wait for BSTaskManagerThread to finish its current in-flight task.
-        // After acquiring the lock, BSTaskManagerThread will complete its
-        // current vtable_process/vtable_complete, then block on IO_DequeueTask.
-        // The sem count at BSTaskManagerThread+0x18 increments each iteration.
-        // If unchanged within timeout, BSTaskManagerThread was already idle.
-        if let Some(count_before) = bst_count_before {
-            let start = unsafe {
-                windows::Win32::System::SystemInformation::GetTickCount()
-            };
-            loop {
-                let current = unsafe { Self::read_bst_sem_count(io_mgr) };
-                match current {
-                    Some(c) if c != count_before => break,
-                    _ => {}
+        // Probe BSTaskManagerThread's inter-iteration semaphore (+0x1c).
+        // Count=1 → idle/between-iterations. Count=0 → mid-task.
+        if let Some(sem_handle) = unsafe { Self::read_bst_iter_sem_handle(io_mgr) } {
+            match winapi::wait_for_single_object(sem_handle, 0) {
+                WaitResult::Signaled => {
+                    // Not mid-task — restore semaphore count.
+                    if let Err(e) = winapi::release_semaphore(sem_handle, 1) {
+                        log::error!("[IO_SYNC] ReleaseSemaphore failed: {:?}", e);
+                    }
                 }
-                let elapsed = unsafe {
-                    windows::Win32::System::SystemInformation::GetTickCount()
-                        .wrapping_sub(start)
-                };
-                if elapsed >= IO_DRAIN_TIMEOUT_MS {
-                    break;
+                _ => {
+                    // Mid-task or blocked on our lock. Wait up to 5ms for
+                    // iter_count change. If no change → blocked on lock (safe).
+                    if let Some(count_before) = bst_count_before {
+                        let start = winapi::get_tick_count();
+                        loop {
+                            winapi::sleep(0);
+                            if let Some(c) = unsafe { Self::read_bst_sem_count(io_mgr) } {
+                                if c != count_before {
+                                    break;
+                                }
+                            }
+                            if winapi::get_tick_count().wrapping_sub(start) >= 5 {
+                                break;
+                            }
+                        }
+                    }
                 }
-                unsafe { windows::Win32::System::Threading::Sleep(0) };
             }
         }
 
@@ -573,6 +590,29 @@ impl PressureRelief {
 
     /// Read BSTaskManagerThread's iteration semaphore count.
     unsafe fn read_bst_sem_count(io_mgr: *const u8) -> Option<i32> {
+        let bst = unsafe { Self::read_bst_ptr(io_mgr) }?;
+        let count_ptr = unsafe { bst.add(IO_THREAD_SEM_COUNT_OFFSET) as *const i32 };
+        Some(unsafe { std::ptr::read_volatile(count_ptr) })
+    }
+
+    /// Read BSTaskManagerThread's inter-iteration semaphore HANDLE.
+    /// This is the semaphore at +0x1c that BSTaskManagerThread waits on
+    /// between iterations. Count=1 when idle/between-iterations, 0 when mid-task.
+    unsafe fn read_bst_iter_sem_handle(
+        io_mgr: *const u8,
+    ) -> Option<windows::Win32::Foundation::HANDLE> {
+        let bst = unsafe { Self::read_bst_ptr(io_mgr) }?;
+        let handle_ptr =
+            unsafe { bst.add(IO_THREAD_ITER_SEM_HANDLE_OFFSET) as *const windows::Win32::Foundation::HANDLE };
+        let handle = unsafe { std::ptr::read_volatile(handle_ptr) };
+        if handle.is_invalid() {
+            return None;
+        }
+        Some(handle)
+    }
+
+    /// Get BSTaskManagerThread object pointer from IOManager.
+    unsafe fn read_bst_ptr(io_mgr: *const u8) -> Option<*const u8> {
         let thread_array_ptr =
             unsafe { io_mgr.add(IO_THREAD_ARRAY_OFFSET) as *const *const *const u8 };
         let thread_array = unsafe { *thread_array_ptr };
@@ -583,7 +623,6 @@ impl PressureRelief {
         if bst.is_null() {
             return None;
         }
-        let count_ptr = unsafe { bst.add(IO_THREAD_SEM_COUNT_OFFSET) as *const i32 };
-        Some(unsafe { std::ptr::read_volatile(count_ptr) })
+        Some(bst)
     }
 }

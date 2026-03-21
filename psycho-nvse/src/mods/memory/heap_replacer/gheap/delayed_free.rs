@@ -85,6 +85,10 @@ static FRAME_COUNTER: AtomicU64 = AtomicU64::new(0);
 pub fn tick() {
     FRAME_COUNTER.fetch_add(1, Ordering::Relaxed);
 
+    // Clear the texture dead set — after one frame, any new QueuedTexture
+    // tasks will load fresh textures (not reference destroyed ones).
+    crate::mods::memory::heap_replacer::hooks::clear_texture_dead_set();
+
     // Proactively flush stale buckets on the main thread.
     QUARANTINE.with(|q| {
         let q = unsafe { &mut *q.get() };
@@ -169,14 +173,36 @@ impl Quarantine {
             _ => {}
         }
 
-        // Loading screen detection: if the frame counter hasn't advanced
-        // after many pushes, the main loop isn't running. AI/IO threads
-        // are idle during loading — bypass quarantine to prevent unbounded
-        // growth. No syscalls — just a counter comparison.
+        // Stale push tracking: many pushes without frame advance means the
+        // main loop isn't running (loading screen, CellTransitionHandler,
+        // or our PDD freeing many objects in one frame).
+        //
+        // The bypass behavior depends on game state:
+        //
+        // LOADING SCREEN (DAT_011dea2b != 0): AI/IO threads are idle.
+        //   Safe to mi_free immediately. MUST do so to prevent unbounded
+        //   quarantine growth → OOM (D3D9 allocation failure at ~1.9GB).
+        //   During loading, no frames advance, oldest buckets are empty,
+        //   and flushing them releases nothing.
+        //
+        // NORMAL GAMEPLAY (DAT_011dea2b == 0): AI/IO threads hold raw
+        //   pointers to quarantined memory. NEVER mi_free — causes UAF
+        //   crashes (QueuedTexture vtable, broadphase entities, hash table).
+        //   Instead flush the OLDEST bucket to bound growth.
         self.stale_pushes += 1;
         if self.stale_pushes > STALE_PUSH_LIMIT {
-            unsafe { libmimalloc::mi_free(ptr) };
-            return;
+            let loading = unsafe { *(0x011DEA2B as *const u8) != 0 };
+            if loading {
+                // Loading screen: AI/IO idle, safe to free immediately.
+                unsafe { libmimalloc::mi_free(ptr) };
+                return;
+            }
+            // Normal gameplay: flush oldest bucket to bound growth,
+            // but keep recent pushes quarantined for thread safety.
+            if self.stale_pushes % STALE_PUSH_LIMIT == 1 {
+                let oldest_idx = (frame.wrapping_add(1) as usize) % QUARANTINE_FRAMES;
+                Self::drain_bucket(&mut self.buckets[oldest_idx]);
+            }
         }
 
         let idx = (frame as usize) % QUARANTINE_FRAMES;

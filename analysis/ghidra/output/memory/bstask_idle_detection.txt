@@ -1,0 +1,288 @@
+======================================================================
+BSTaskManagerThread IDLE DETECTION RESEARCH
+Goal: Distinguish 'idle' from 'busy processing' without timeout
+======================================================================
+
+######################################################################
+# SECTION 1: BSTaskManagerThread_Loop ? state transitions
+# Identify flags/counters that indicate 'idle' vs 'processing'
+######################################################################
+
+======================================================================
+BSTaskManagerThread_Loop @ 0x00c410b0
+======================================================================
+  Function: FUN_00c410b0, Size: 633 bytes
+  Entry: 0x00c410b0
+
+/* WARNING: Removing unreachable block (ram,0x00c411bc) */
+/* WARNING: Removing unreachable block (ram,0x00c412b6) */
+
+void __fastcall FUN_00c410b0(int param_1)
+
+{
+  DWORD DVar1;
+  uint uVar2;
+  LONG LVar3;
+  int *unaff_FS_OFFSET;
+  undefined4 local_40 [2];
+  undefined4 *local_38;
+  char local_31;
+  undefined **local_30 [2];
+  undefined4 local_28;
+  undefined4 local_20;
+  undefined4 local_1c;
+  byte local_18;
+  int local_10;
+  undefined1 *puStack_c;
+  uint local_8;
+  
+  puStack_c = &LAB_00f2e0a0;
+  local_10 = *unaff_FS_OFFSET;
+  *unaff_FS_OFFSET = (int)&local_10;
+  while (local_8 = 0xffffffff, *(char *)(*(int *)(param_1 + 0x30) + 0x40) != '\x01') {
+    WaitForSingleObject(*(HANDLE *)(param_1 + 0x10),0xffffffff);
+    InterlockedDecrement((LONG *)(param_1 + 0xc));
+    local_28 = 0;
+    local_20 = 0;
+    local_1c = 0;
+    local_18 = 0;
+    local_30[0] = &PTR_FUN_010c1664;
+    local_8 = 0;
+    local_31 = '\0';
+    while ((local_18 & 2) == 0) {
+      DVar1 = WaitForSingleObject(*(HANDLE *)(param_1 + 0x1c),0);
+      if (DVar1 == 0x102) {
+        WaitForSingleObject(*(HANDLE *)(param_1 + 0x1c),0xffffffff);
+        InterlockedDecrement((LONG *)(param_1 + 0x18));
+        FUN_00c42060(local_30,0);
+      }
+      local_38 = (undefined4 *)0x0;
+      local_8 = CONCAT31(local_8._1_3_,1);
+      uVar2 = FUN_00c40e70(*(void **)(param_1 + 0x30),(int)local_30,local_40,(int *)&local_38,
+                           local_31 == '\0');
+      if ((uVar2 & 0xff) == 0) {
+        if ((local_18 & 2) == 0) {
+          FUN_00c42060(local_30,0);
+          local_31 = '\0';
+        }
+      }
+      else if ((local_38[3] == 1) &&
+              (LVar3 = InterlockedCompareExchange(local_38 + 3,3,1), LVar3 == 1)) {
+        local_31 = '\x01';
+        (**(code **)(**(int **)(param_1 + 0x30) + 0x4c))(local_38);
+        (**(code **)(**(int **)(param_1 + 0x30) + 0x50))(local_38);
+      }
+      if (local_38 != (undefined4 *)0x0) {
+        if (local_38 != (undefined4 *)0x0) {
+          FUN_0044dd60(local_38);
+        }
+        local_38 = (undefined4 *)0x0;
+      }
+      ReleaseSemaphore(*(HANDLE *)(param_1 + 0x1c),1,(LPLONG)0x0);
+      InterlockedIncrement((LONG *)(param_1 + 0x18));
+      local_8 = local_8 & 0xffffff00;
+      if (local_38 != (undefined4 *)0x0) {
+        FUN_0044dd60(local_38);
+      }
+    }
+    local_30[0] = &PTR_FUN_010c1670;
+  }
+  *unaff_FS_OFFSET = local_10;
+  return;
+}
+
+
+
+######################################################################
+# SECTION 2: Who increments BSTaskManagerThread+0x0c?
+# (pending event count ? InterlockedIncrement when task submitted)
+######################################################################
+
+======================================================================
+BSTaskThread_Start @ 0x00c42f50
+======================================================================
+  Function: FUN_00c42f50, Size: 24 bytes
+  Entry: 0x00c42f50
+
+void __fastcall FUN_00c42f50(int param_1)
+
+{
+  ResumeThread(*(HANDLE *)(param_1 + 4));
+  return;
+}
+
+
+
+######################################################################
+# SECTION 3: Task submission ? who signals BSTaskManagerThread?
+######################################################################
+
+======================================================================
+IOTask_Submit_maybe @ 0x00c3f860
+======================================================================
+  Function: FUN_00c3f7a0, Size: 255 bytes
+  Entry: 0x00c3f7a0
+
+undefined4 * __thiscall FUN_00c3f7a0(void *this,int param_1)
+
+{
+  undefined4 uVar1;
+  void *this_00;
+  int *unaff_FS_OFFSET;
+  undefined4 *local_30;
+  int local_10;
+  undefined1 *puStack_c;
+  undefined4 local_8;
+  
+  puStack_c = &LAB_00f2df03;
+  local_10 = *unaff_FS_OFFSET;
+  *unaff_FS_OFFSET = (int)&local_10;
+  uVar1 = *(undefined4 *)(*(int *)(unaff_FS_OFFSET[0xb] + _tls_index * 4) + 0x2b4);
+  *(undefined4 *)(*(int *)(unaff_FS_OFFSET[0xb] + _tls_index * 4) + 0x2b4) = 6;
+  local_8 = 0;
+  this_00 = FUN_00aa3e40(&DAT_011f6238,0x14);
+  local_8 = CONCAT31(local_8._1_3_,1);
+  if (this_00 == (void *)0x0) {
+    local_30 = (undefined4 *)0x0;
+  }
+  else {
+    local_30 = FUN_0044cd00(this_00,this,*(int *)((int)this + 0x10) + param_1 * 8,
+                            *(int *)((int)this + 0x10) + 4 + param_1 * 8);
+  }
+  *(undefined4 *)(*(int *)(unaff_FS_OFFSET[0xb] + _tls_index * 4) + 0x2b4) = uVar1;
+  *unaff_FS_OFFSET = local_10;
+  return local_30;
+}
+
+
+
+======================================================================
+IOTask_Related1 @ 0x00c40990
+======================================================================
+  Function: FUN_00c40990, Size: 20 bytes
+  Entry: 0x00c40990
+
+void __fastcall FUN_00c40990(undefined4 *param_1)
+
+{
+  *param_1 = &PTR_FUN_010c1670;
+  return;
+}
+
+
+
+======================================================================
+IOTask_Related2 @ 0x00c40b40
+======================================================================
+  Function: FUN_00c40b40, Size: 47 bytes
+  Entry: 0x00c40b40
+
+undefined4 * __thiscall FUN_00c40b40(void *this,uint param_1)
+
+{
+  *(undefined ***)this = &PTR_FUN_010c1670;
+  if ((param_1 & 1) != 0) {
+    FUN_00aa4060(&DAT_011f6238,this);
+  }
+  return this;
+}
+
+
+
+######################################################################
+# SECTION 4: Queue exhausted flag (bit 2 of local_18)
+# When set, BSTaskManagerThread exits inner loop ? goes to WaitForSingleObject
+######################################################################
+
+######################################################################
+# SECTION 5: Semaphore handle at +0x10 ? can we WaitForSingleObject on it?
+# If we wait on the same semaphore with 0 timeout, we can detect if
+# there are pending tasks (wait succeeds) or not (WAIT_TIMEOUT)
+######################################################################
+
+######################################################################
+# SECTION 6: BSTaskManagerThread thread handle location
+# BSTaskThread_init creates the thread ? handle at +0x04?
+######################################################################
+
+======================================================================
+BSTaskThread_init @ 0x00c42dd0
+======================================================================
+  Function: FUN_00c42dd0, Size: 292 bytes
+  Entry: 0x00c42dd0
+
+undefined4 * __thiscall FUN_00c42dd0(void *this,undefined4 param_1,int param_2)
+
+{
+  HANDLE pvVar1;
+  int *unaff_FS_OFFSET;
+  int local_10;
+  undefined1 *puStack_c;
+  undefined4 local_8;
+  
+  local_8 = 0xffffffff;
+  puStack_c = &LAB_00f2e346;
+  local_10 = *unaff_FS_OFFSET;
+  *unaff_FS_OFFSET = (int)&local_10;
+  *(undefined ***)this = &PTR_FUN_010c1844;
+  *(LONG *)((int)this + 0xc) = 0;
+  *(undefined4 *)((int)this + 0x14) = 0x7fffffff;
+  pvVar1 = CreateSemaphoreA((LPSECURITY_ATTRIBUTES)0x0,*(LONG *)((int)this + 0xc),
+                            *(LONG *)((int)this + 0x14),(LPCSTR)0x0);
+  *(HANDLE *)((int)this + 0x10) = pvVar1;
+  local_8 = 0;
+  *(LONG *)((int)this + 0x18) = 1;
+  *(undefined4 *)((int)this + 0x20) = 1;
+  pvVar1 = CreateSemaphoreA((LPSECURITY_ATTRIBUTES)0x0,*(LONG *)((int)this + 0x18),
+                            *(LONG *)((int)this + 0x20),(LPCSTR)0x0);
+  *(HANDLE *)((int)this + 0x1c) = pvVar1;
+  local_8 = CONCAT31(local_8._1_3_,1);
+  pvVar1 = CreateThread((LPSECURITY_ATTRIBUTES)0x0,0,lpStartAddress_00c42da0,this,4,
+                        (LPDWORD)((int)this + 8));
+  *(HANDLE *)((int)this + 4) = pvVar1;
+  if (param_2 != 0) {
+    FUN_00aa2740(*(undefined4 *)((int)this + 8),param_2);
+  }
+  *(undefined4 *)((int)this + 0x24) = 0;
+  *(undefined4 *)((int)this + 0x28) = 0;
+  *(undefined4 *)((int)this + 0x2c) = *(undefined4 *)((int)this + 8);
+  *unaff_FS_OFFSET = local_10;
+  return this;
+}
+
+
+
+######################################################################
+# SECTION 7: Can we safely wait on the +0x1c semaphore?
+######################################################################
+BSTaskManagerThread_Loop semaphore usage:
+  0x00c41102: MOV EDX,dword ptr [ECX + 0x4]
+  0x00c41105: PUSH EDX
+  0x00c41106: CALL dword ptr [0x00fdf1c8]
+  0x00c4110c: MOV EAX,dword ptr [EBP + -0x40]
+  0x00c4110f: PUSH EAX
+  0x00c41110: CALL dword ptr [0x00fdf1c4]
+  0x00c41116: MOV dword ptr [EBP + -0x2c],0x10c1670
+  0x00c4111d: MOV dword ptr [EBP + -0x24],0x0
+  0x00c41124: MOV dword ptr [EBP + -0x1c],0x0
+  0x00c4112b: MOV dword ptr [EBP + -0x18],0x0
+  0x00c41132: MOV byte ptr [EBP + -0x14],0x0
+  0x00c41136: MOV dword ptr [EBP + -0x2c],0x10c1664
+  0x00c4113d: MOV dword ptr [EBP + -0x4],0x0
+  0x00c41144: MOV byte ptr [EBP + -0x2d],0x0
+  0x00c41148: MOVZX ECX,byte ptr [EBP + -0x14]
+  0x00c4114c: AND ECX,0x2
+  0x00c4114f: SETNZ DL
+  0x00c41152: MOVZX EAX,DL
+  0x00c41155: TEST EAX,EAX
+  0x00c41157: JNZ 0x00c41307
+  0x00c4115d: PUSH 0x0
+  0x00c4115f: MOV ECX,dword ptr [EBP + 0xffffff78]
+  0x00c41165: MOV EDX,dword ptr [ECX + 0x1c]
+  0x00c41168: PUSH EDX
+  0x00c41169: CALL dword ptr [0x00fdf1c8]
+  0x00c4116f: XOR ECX,ECX
+  0x00c41171: CMP EAX,0x102
+  0x00c41176: SETZ CL
+  0x00c41179: MOVZX EDX,CL
+  0x00c4117c: TEST EDX,EDX

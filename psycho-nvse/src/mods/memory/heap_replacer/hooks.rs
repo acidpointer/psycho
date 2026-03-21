@@ -308,16 +308,26 @@ pub(super) unsafe extern "thiscall" fn hook_main_loop_maintenance(this: *mut c_v
 // ===========================================================================
 
 /// Wraps the game's AI thread join (FUN_008c7990). After the original
-/// completes, AI threads are guaranteed idle.
+/// completes, AI threads are guaranteed idle. Runs deferred cell unloading
+/// with IO synchronization.
 ///
-/// Previously ran deferred cell unloading here (Hook 2). Moved to the
-/// per-frame drain hook which runs BEFORE AI dispatch — correct position
-/// for Havok broadphase lifecycle (remove → step → query).
+/// This position (post-render, post-AI-join) is the only safe position:
+/// - SpeedTree draw lists consumed by render ✓
+/// - AI threads idle (joined) ✓
+/// - BSTaskManagerThread synchronized via IO dequeue lock ✓
+///
+/// The pre-AI position (per-frame drain) crashes SpeedTree because render
+/// hasn't consumed draw lists yet. Post-render is the only safe choice.
 ///
 /// Only called on multi-threaded systems (processor count > 1).
 pub(super) unsafe extern "fastcall" fn hook_ai_thread_join(mgr: *mut c_void) {
     if let Ok(original) = super::replacer::AI_THREAD_JOIN_HOOK.original() {
         unsafe { original(mgr) };
+    }
+
+    // AI threads are now idle. Run deferred cell unloading if requested.
+    if let Some(pr) = super::gheap::pressure::PressureRelief::instance() {
+        unsafe { pr.run_deferred_unload() };
     }
 }
 
@@ -356,17 +366,8 @@ pub(super) unsafe extern "C" fn hook_per_frame_queue_drain() {
     if let Ok(original) = super::replacer::PER_FRAME_QUEUE_DRAIN_HOOK.original() {
         unsafe { original() };
 
-        if let Some(pr) = super::gheap::pressure::PressureRelief::instance() {
-            // === DEFERRED CELL UNLOADING ===
-            // Run destruction here (before AI dispatch, before render) instead
-            // of at Hook 2 (after AI join). This position is correct for:
-            // - Havok broadphase: remove → AI step (processes removals) → AI query
-            // - SpeedTree: draw lists not built yet (render hasn't run)
-            // - AI threads: idle (not dispatched yet)
-            // - BSTaskManagerThread: IO lock prevents task processing during PDD
-            unsafe { pr.run_deferred_unload() };
-
-            if pr.is_requested() {
+        if let Some(pr) = super::gheap::pressure::PressureRelief::instance()
+            && pr.is_requested() {
                 // Diagnostic: log queue states periodically
                 DIAG_COUNTER.with(|c| {
                     let count = c.get().wrapping_add(1);
@@ -407,59 +408,183 @@ pub(super) unsafe extern "C" fn hook_per_frame_queue_drain() {
                     unsafe { original() };
                 }
             }
-        }
     }
 }
 
 // ===========================================================================
-//   TEXTURE CACHE HASH TABLE — NULL value guard
+//   TEXTURE DEAD SET — NiSourceTexture eviction for texture cache
 // ===========================================================================
+//
+// The texture cache hash table (DAT_011f4468) is a write-only cache — entries
+// are added but NEVER removed individually. The game only does full resets
+// during worldspace transitions (FUN_00a62090). Between transitions, entries
+// persist even after NiSourceTexture objects are destroyed by PDD.
+//
+// In the vanilla game with SBM, freed NiSourceTextures are zombies (memory
+// readable). HeapCompact Stage 5 pauses BSTaskManagerThread (allocation
+// failure → Sleep loop). Stale entries never cause crashes.
+//
+// With mimalloc, freed memory is recycled. Our pressure relief runs during
+// normal gameplay with BSTaskManagerThread active. Stale cache entries →
+// BSTaskManagerThread reads recycled/destroyed NiSourceTexture → crash.
+//
+// Fix: maintain a dead set of destroyed NiSourceTexture addresses.
+// - NiSourceTexture destructor hook: insert `this` into dead set (O(1))
+// - Hash table find hook: check inner_ptr against dead set (O(1))
+// - tick(): clear dead set every frame
 
-/// Replaces FUN_00a61a60 (hash table find, 103 bytes, thiscall).
+use clashmap::ClashMap;
+use rustc_hash::FxBuildHasher;
+
+type DeadSet = ClashMap<usize, (), FxBuildHasher>;
+
+static TEXTURE_DEAD_SET: std::sync::LazyLock<DeadSet> =
+    std::sync::LazyLock::new(|| ClashMap::with_hasher(FxBuildHasher));
+
+/// Called from `delayed_free::tick()` every frame to clear the dead set.
+/// After one full frame, any new QueuedTexture tasks will load fresh
+/// textures — they won't reference the destroyed ones.
+pub fn clear_texture_dead_set() {
+    TEXTURE_DEAD_SET.clear();
+}
+
+/// NiSourceTexture destructor hook (FUN_00a5fca0, 207 bytes, fastcall).
+/// Inserts `this` into the dead set BEFORE calling the original destructor.
+/// The destructor zeroes pixelData fields — after it runs, the object is
+/// destroyed but the texture cache still has a stale entry pointing to it.
+pub(super) unsafe extern "fastcall" fn hook_nisourcetexture_dtor(this: *mut c_void) {
+    // Record this NiSourceTexture as dead BEFORE destructor zeroes fields
+    TEXTURE_DEAD_SET.insert(this as usize, ());
+
+    if let Ok(original) = super::replacer::NISOURCETEXTURE_DTOR_HOOK.original() {
+        unsafe { original(this) };
+    }
+}
+
+/// Texture cache hash table find hook (FUN_00a61a60, 103 bytes, thiscall).
 ///
-/// The texture cache hash table (DAT_011f4468) stores entries where the KEY
-/// is embedded inside the VALUE object at offset +4. When a NiSourceTexture
-/// is freed by PDD, the hash entry's value becomes NULL/stale (SBM zombies
-/// masked this — freed memory stayed readable). The original find function
-/// dereferences the value pointer without a NULL check:
+/// Chain entry layout: { [0]: value_ptr (wrapper), [4]: next_ptr }
+/// Wrapper layout:     { [0]: inner_ptr (NiSourceTexture*), [4]: key }
 ///
-///   piVar1 = *puVar6;           // value pointer — can be NULL
-///   param_2 != piVar1[1]        // KEY at value+4 — CRASH if NULL
-///
-/// Our replacement adds a NULL check: skip entries with NULL values and
-/// continue traversing the chain. This is safe because:
-/// - The hash table never removes entries (no remove function exists)
-/// - NULL values mean "freed texture" — lookup should not match
-/// - The chain structure (puVar6[1] = next) is separate from values
-///
-/// Crash: 0x00A61A74 on BSTaskManagerThread during QueuedTexture processing.
+/// Before calling the original, checks if the bucket's entries reference
+/// dead NiSourceTextures. If the first entry's inner_ptr is in the dead
+/// set, we need custom traversal to skip it. Otherwise, call original
+/// directly (fast path — no dead entries in this bucket).
 pub(super) unsafe extern "thiscall" fn hook_texture_cache_find(
     this: *mut c_void,
     param_1: i32,
     param_2: i32,
     param_3: *mut *mut i32,
 ) -> u32 {
-    // Try the original first — if the hash table is clean, this is the fast path.
-    // The original only crashes when a linked list node VALUE is NULL.
-    // We catch that case by falling back to our NULL-tolerant traversal.
-    if let Ok(original) = super::replacer::TEXTURE_CACHE_FIND_HOOK.original() {
-        // Check if the bucket entry's value is NULL before calling original.
-        // Bucket = this[param_1 * 4], value = *bucket
-        let bucket_ptr = unsafe {
-            *((this as *const u8).add((param_1 as usize) * 4) as *const *const *const i32)
-        };
-        if !bucket_ptr.is_null() {
-            let value = unsafe { *bucket_ptr };
-            if value.is_null() {
-                // Stale entry with NULL value — skip entire lookup.
-                // The texture was freed; returning "not found" is correct.
+    // Fast path: bucket head
+    let bucket_head = unsafe {
+        *((this as *const u8).add((param_1 as usize) * 4) as *const *const u32)
+    };
+
+    if bucket_head.is_null() {
+        return 0;
+    }
+
+    // Check if ANY entry in this bucket chain has a dead inner_ptr.
+    // If not, call original directly (zero overhead for clean buckets).
+    let has_dead = unsafe { chain_has_dead_entry(bucket_head) };
+    if !has_dead {
+        if let Ok(original) = super::replacer::TEXTURE_CACHE_FIND_HOOK.original() {
+            return unsafe { original(this, param_1, param_2, param_3) };
+        }
+        return 0;
+    }
+
+    // Slow path: traverse chain skipping dead entries
+    unsafe { find_skipping_dead(bucket_head, param_2, param_3) }
+}
+
+/// Check if any entry in the chain has a dead NiSourceTexture.
+unsafe fn chain_has_dead_entry(mut entry: *const u32) -> bool {
+    unsafe {
+        loop {
+            let value_ptr = *entry as *const i32;
+            if !value_ptr.is_null() {
+                let inner_ptr = *value_ptr as usize;
+                if inner_ptr != 0 && TEXTURE_DEAD_SET.contains_key(&inner_ptr) {
+                    return true;
+                }
+            }
+            let next = *(entry.add(1)) as *const u32;
+            if next.is_null() {
+                return false;
+            }
+            entry = next;
+        }
+    }
+}
+
+/// Traverse the hash chain, skipping entries with dead NiSourceTextures.
+/// Matches the original FUN_00a61a60 logic but adds dead-set filtering.
+unsafe fn find_skipping_dead(
+    mut entry: *const u32,
+    key: i32,
+    out: *mut *mut i32,
+) -> u32 {
+    unsafe {
+        loop {
+            let value_ptr = *entry as *const i32;
+
+            if !value_ptr.is_null() {
+                let inner_ptr = *value_ptr as usize;
+
+                // Skip dead entries (NiSourceTexture destroyed by PDD)
+                if inner_ptr == 0 || TEXTURE_DEAD_SET.contains_key(&inner_ptr) {
+                    let next = *(entry.add(1)) as *const u32;
+                    if next.is_null() {
+                        return 0;
+                    }
+                    entry = next;
+                    continue;
+                }
+
+                let entry_key = *value_ptr.add(1);
+                if key == entry_key {
+                    // Found live match — swap refcounted pointer
+                    let old_val = *out;
+                    let new_inner = inner_ptr as *mut i32;
+                    if old_val != new_inner {
+                        if !old_val.is_null() {
+                            // DecRef old: InterlockedDecrement(old+4)
+                            let rc = std::sync::atomic::AtomicI32::from_ptr(old_val.add(1))
+                                .fetch_sub(1, std::sync::atomic::Ordering::AcqRel)
+                                - 1;
+                            if rc == 0 {
+                                // vtable[1] = destructor (thiscall)
+                                let vtable = *(old_val as *const *const usize);
+                                let dtor_addr = *vtable.add(1) as *mut c_void;
+                                if let Ok(dtor) = libpsycho::ffi::fnptr::FnPtr::<
+                                    unsafe extern "thiscall" fn(*mut c_void),
+                                >::from_raw(dtor_addr) {
+                                    if let Ok(f) = dtor.as_fn() {
+                                        f(old_val as *mut c_void);
+                                    }
+                                }
+                            }
+                        }
+                        *out = new_inner;
+                        if !new_inner.is_null() {
+                            // AddRef new: InterlockedIncrement(new+4)
+                            std::sync::atomic::AtomicI32::from_ptr(new_inner.add(1))
+                                .fetch_add(1, std::sync::atomic::Ordering::AcqRel);
+                        }
+                    }
+                    return 1;
+                }
+            }
+
+            let next = *(entry.add(1)) as *const u32;
+            if next.is_null() {
                 return 0;
             }
+            entry = next;
         }
-        // Bucket is clean (value non-NULL or empty) — call original
-        return unsafe { original(this, param_1, param_2, param_3) };
     }
-    0
 }
 
 // ===========================================================================

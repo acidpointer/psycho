@@ -27,8 +27,14 @@ use windows::Win32::System::ProcessStatus::{
     EnumProcessModules, GetModuleBaseNameA, GetModuleInformation, MODULEINFO,
 };
 use windows::Win32::System::Threading::{
-    CRITICAL_SECTION, GetCurrentThreadId as WinGetCurrentThreadId, GetExitCodeThread, InitializeCriticalSection, OpenThread, SetThreadPriority, THREAD_PRIORITY, THREAD_PRIORITY_ABOVE_NORMAL, THREAD_PRIORITY_BELOW_NORMAL, THREAD_PRIORITY_HIGHEST, THREAD_PRIORITY_IDLE, THREAD_PRIORITY_LOWEST, THREAD_PRIORITY_MIN, THREAD_PRIORITY_NORMAL, THREAD_PRIORITY_TIME_CRITICAL, THREAD_QUERY_LIMITED_INFORMATION
+    CRITICAL_SECTION, GetCurrentThreadId as WinGetCurrentThreadId, GetExitCodeThread,
+    InitializeCriticalSection, OpenThread, ReleaseSemaphore as WinReleaseSemaphore,
+    SetThreadPriority, Sleep as WinSleep, WaitForSingleObject as WinWaitForSingleObject,
+    THREAD_PRIORITY, THREAD_PRIORITY_ABOVE_NORMAL, THREAD_PRIORITY_BELOW_NORMAL,
+    THREAD_PRIORITY_HIGHEST, THREAD_PRIORITY_IDLE, THREAD_PRIORITY_LOWEST, THREAD_PRIORITY_MIN,
+    THREAD_PRIORITY_NORMAL, THREAD_PRIORITY_TIME_CRITICAL, THREAD_QUERY_LIMITED_INFORMATION,
 };
+use windows::Win32::System::SystemInformation::GetTickCount as WinGetTickCount;
 use windows::Win32::System::{
     Diagnostics::Debug::FlushInstructionCache, Memory::VirtualQuery, Threading::GetCurrentProcess,
 };
@@ -1349,4 +1355,49 @@ pub fn virtual_alloc_rwx(size: usize) -> WinapiResult<*mut c_void> {
     }
 
     Ok(ptr)
+}
+
+// ---------------------------------------------------------------------------
+// Synchronization primitives
+// ---------------------------------------------------------------------------
+
+/// Wait result from `wait_for_single_object`.
+pub enum WaitResult {
+    /// The object was signaled (WAIT_OBJECT_0).
+    Signaled,
+    /// The timeout expired (WAIT_TIMEOUT).
+    Timeout,
+    /// Wait was abandoned.
+    Abandoned,
+    /// Wait failed with error code.
+    Failed(u32),
+}
+
+/// Waits for a kernel object (semaphore, event, etc.) to be signaled.
+/// `timeout_ms` = 0 for non-blocking probe, u32::MAX for infinite wait.
+pub fn wait_for_single_object(handle: HANDLE, timeout_ms: u32) -> WaitResult {
+    let result = unsafe { WinWaitForSingleObject(handle, timeout_ms) };
+    match result.0 {
+        0 => WaitResult::Signaled,       // WAIT_OBJECT_0
+        0x80 => WaitResult::Abandoned,    // WAIT_ABANDONED
+        0x102 => WaitResult::Timeout,     // WAIT_TIMEOUT
+        _ => WaitResult::Failed(unsafe { GetLastError().0 }),
+    }
+}
+
+/// Release a semaphore, incrementing its count by `release_count`.
+pub fn release_semaphore(handle: HANDLE, release_count: i32) -> WinapiResult<()> {
+    unsafe { WinReleaseSemaphore(handle, release_count, None)? };
+    Ok(())
+}
+
+/// Yield the current thread's time slice.
+/// `millis` = 0 yields without sleeping.
+pub fn sleep(millis: u32) {
+    unsafe { WinSleep(millis) };
+}
+
+/// Returns the number of milliseconds since system start.
+pub fn get_tick_count() -> u32 {
+    unsafe { WinGetTickCount() }
 }

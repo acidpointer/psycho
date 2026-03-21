@@ -191,6 +191,13 @@ const TEXTURE_CACHE_FIND_ADDR: usize = 0x00A61A60;
 pub static TEXTURE_CACHE_FIND_HOOK: LazyLock<InlineHookContainer<TextureCacheFindFn>> =
     LazyLock::new(InlineHookContainer::new);
 
+// NiSourceTexture destructor (FUN_00a5fca0).
+// Hook inserts `this` into the texture dead set before destruction.
+const NISOURCETEXTURE_DTOR_ADDR: usize = 0x00A5FCA0;
+
+pub static NISOURCETEXTURE_DTOR_HOOK: LazyLock<InlineHookContainer<NiSourceTextureDtorFn>> =
+    LazyLock::new(InlineHookContainer::new);
+
 /// Scrap heap hooks
 pub static SHEAP_INIT_FIX_HOOK: LazyLock<InlineHookContainer<SheapInitFixFn>> =
     LazyLock::new(InlineHookContainer::new);
@@ -332,7 +339,15 @@ pub fn install_game_heap_hooks() -> anyhow::Result<()> {
             hook_texture_cache_find,
         )?;
         guard.enable_hook("texture_cache_find", &TEXTURE_CACHE_FIND_HOOK)?;
-        log::info!("[TEXTURE] Cache find hook installed at 0x{:08X}", TEXTURE_CACHE_FIND_ADDR);
+
+        NISOURCETEXTURE_DTOR_HOOK.init(
+            "nisourcetexture_dtor",
+            NISOURCETEXTURE_DTOR_ADDR as *mut c_void,
+            hook_nisourcetexture_dtor,
+        )?;
+        guard.enable_hook("nisourcetexture_dtor", &NISOURCETEXTURE_DTOR_HOOK)?;
+        log::info!("[TEXTURE] Dead set hooks installed (find=0x{:08X}, dtor=0x{:08X})",
+            TEXTURE_CACHE_FIND_ADDR, NISOURCETEXTURE_DTOR_ADDR);
     }
 
     {

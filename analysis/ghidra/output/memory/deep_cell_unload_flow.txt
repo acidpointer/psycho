@@ -1,0 +1,702 @@
+======================================================================
+DEEP RESEARCH: Cell Unload Flow + Object Reference Invalidation
+======================================================================
+
+######################################################################
+# PART 1: FUN_00552bd0 ? cell state change (first call in DestroyCell)
+######################################################################
+
+======================================================================
+CellState_Change @ 0x00552bd0
+======================================================================
+  Function: FUN_00552bd0, Size: 462 bytes
+  Entry: 0x00552bd0
+
+void __thiscall FUN_00552bd0(void *this,char param_1)
+
+{
+  undefined1 uVar1;
+  bool bVar2;
+  char cVar3;
+  undefined3 extraout_var;
+  int *piVar4;
+  int *piVar5;
+  void *this_00;
+  uint uVar6;
+  void *pvVar7;
+  int iVar8;
+  
+  FUN_00541ac0((int)this);
+  uVar1 = FUN_00450fd0((int)this);
+  if ((CONCAT31(extraout_var,uVar1) == 6) || (CONCAT31(extraout_var,uVar1) == 5)) {
+    FUN_004512a0(this,4);
+    FUN_00557c40((int)this);
+    FUN_00445670(DAT_011c3b3c,(int)this);
+    FUN_00452e50((int)DAT_011dea10);
+    FUN_0054ba80(this,'\0');
+    bVar2 = FUN_00425fd0((int)this);
+    if (bVar2) {
+      FUN_00454c20(DAT_011dea10,(int)this);
+    }
+    else {
+      FUN_00455130(DAT_011dea10,(int)this);
+    }
+    if (param_1 != '\0') {
+      FUN_00553700((int)this);
+    }
+    FUN_005577b0(this,'\0');
+    piVar4 = FUN_00545cf0(this);
+    piVar5 = (int *)FUN_0084e3a0((int)DAT_011dea10);
+    (**(code **)(*piVar5 + 0xe8))(piVar4);
+    FUN_005574d0((int)this);
+    FUN_005576c0((int)this);
+    FUN_004512a0(this,3);
+    *(undefined1 *)((int)this + 0xd1) = 1;
+    cVar3 = FUN_00552da0(DAT_011de134);
+    if (cVar3 == '\0') {
+      FUN_0054af40(this,'\x01');
+    }
+    FUN_00546c70(this);
+    FUN_0054b950(this,'\0');
+    pvVar7 = this;
+    this_00 = (void *)FUN_00552ba0();
+    FUN_006a5bb0(this_00,pvVar7);
+    uVar6 = FUN_0084e3a0((int)this);
+    bVar2 = FUN_00469860(uVar6);
+    if (bVar2) {
+      FUN_0084a7c0(DAT_011ddf38,(int)this);
+    }
+    FUN_00452e50((int)DAT_011dea10);
+    pvVar7 = (void *)FUN_009d9f20((int)this);
+    iVar8 = FUN_0054aa60(this);
+    FUN_00c5ba50(pvVar7,iVar8);
+    iVar8 = FUN_0054a050(this);
+    FUN_00c5ba50(pvVar7,iVar8);
+    iVar8 = FUN_00456fc0(this,2);
+    FUN_00c5ba50(pvVar7,iVar8);
+    iVar8 = FUN_00524cf0(this);
+    FUN_00c5ba50(pvVar7,iVar8);
+  }
+  FUN_00541ae0((int)this);
+  return;
+}
+
+
+
+--- Calls FROM CellState_Change (0x00552bd0) ---
+  CALL 0x00541ac0 -> FUN_00541ac0 (from 0x00552bdc)
+  CALL 0x00450fd0 -> FUN_00450fd0 (from 0x00552be4)
+  CALL 0x004512a0 -> FUN_004512a0 (from 0x00552c01)
+  CALL 0x00557c40 -> FUN_00557c40 (from 0x00552c09)
+  CALL 0x00445670 -> FUN_00445670 (from 0x00552c18)
+  CALL 0x00452e50 -> FUN_00452e50 (from 0x00552c23)
+  CALL 0x0054ba80 -> FUN_0054ba80 (from 0x00552c2d)
+  CALL 0x00425fd0 -> FUN_00425fd0 (from 0x00552c35)
+  CALL 0x00454c20 -> FUN_00454c20 (from 0x00552c4b)
+  CALL 0x00455130 -> FUN_00455130 (from 0x00552c5c)
+  CALL 0x00553700 -> FUN_00553700 (from 0x00552c6c)
+  CALL 0x005577b0 -> FUN_005577b0 (from 0x00552c76)
+  CALL 0x00545cf0 -> FUN_00545cf0 (from 0x00552c7e)
+  CALL 0x0084e3a0 -> FUN_0084e3a0 (from 0x00552c8c)
+  CALL 0x005574d0 -> FUN_005574d0 (from 0x00552cab)
+  CALL 0x005576c0 -> FUN_005576c0 (from 0x00552cb3)
+  CALL 0x004512a0 -> FUN_004512a0 (from 0x00552cbd)
+  CALL 0x00552da0 -> FUN_00552da0 (from 0x00552cd2)
+  CALL 0x0054af40 -> FUN_0054af40 (from 0x00552ce3)
+  CALL 0x00546c70 -> FUN_00546c70 (from 0x00552ceb)
+  CALL 0x0054b950 -> FUN_0054b950 (from 0x00552cf5)
+  CALL 0x00552ba0 -> FUN_00552ba0 (from 0x00552cfe)
+  CALL 0x006a5bb0 -> FUN_006a5bb0 (from 0x00552d05)
+  CALL 0x0084e3a0 -> FUN_0084e3a0 (from 0x00552d0d)
+  CALL 0x00469860 -> FUN_00469860 (from 0x00552d19)
+  CALL 0x0084a7c0 -> FUN_0084a7c0 (from 0x00552d2f)
+  CALL 0x00452e50 -> FUN_00452e50 (from 0x00552d3a)
+  CALL 0x009d9f20 -> FUN_009d9f20 (from 0x00552d42)
+  CALL 0x0054aa60 -> FUN_0054aa60 (from 0x00552d4d)
+  CALL 0x00c5ba50 -> FUN_00c5ba50 (from 0x00552d56)
+  CALL 0x0054a050 -> FUN_0054a050 (from 0x00552d5e)
+  CALL 0x00c5ba50 -> FUN_00c5ba50 (from 0x00552d67)
+  CALL 0x00456fc0 -> FUN_00456fc0 (from 0x00552d71)
+  CALL 0x00c5ba50 -> FUN_00c5ba50 (from 0x00552d7a)
+  CALL 0x00524cf0 -> FUN_00524cf0 (from 0x00552d82)
+  CALL 0x00c5ba50 -> FUN_00c5ba50 (from 0x00552d8b)
+  CALL 0x00541ae0 -> FUN_00541ae0 (from 0x00552d93)
+  Total: 37 calls
+
+######################################################################
+# PART 2: FUN_004512a0 ? post state change
+######################################################################
+
+======================================================================
+DestroyCell_PostState @ 0x004512a0
+======================================================================
+  Function: FUN_004512a0, Size: 22 bytes
+  Entry: 0x004512a0
+
+void __thiscall FUN_004512a0(void *this,undefined1 param_1)
+
+{
+  *(undefined1 *)((int)this + 0x26) = param_1;
+  return;
+}
+
+
+
+######################################################################
+# PART 3: Reference removal loop in DestroyCell
+######################################################################
+
+======================================================================
+Cell_HasMoreRefs @ 0x00551620
+======================================================================
+  Function: FUN_00551620, Size: 34 bytes
+  Entry: 0x00551620
+
+bool __fastcall FUN_00551620(int param_1)
+
+{
+  int iVar1;
+  
+  iVar1 = FUN_00410220((void *)(param_1 + 0x28),9);
+  return iVar1 != 0;
+}
+
+
+
+======================================================================
+Cell_RemoveRef @ 0x00551480
+======================================================================
+  Function: FUN_00551480, Size: 402 bytes
+  Entry: 0x00551480
+
+void __thiscall FUN_00551480(void *this,char param_1)
+
+{
+  bool bVar1;
+  undefined4 *puVar2;
+  int *piVar3;
+  int *unaff_FS_OFFSET;
+  undefined **ppuVar4;
+  undefined **ppuVar5;
+  int iVar6;
+  undefined4 *local_2c;
+  int local_18;
+  undefined4 *local_14;
+  int local_10;
+  undefined1 *puStack_c;
+  undefined4 local_8;
+  
+  local_8 = 0xffffffff;
+  puStack_c = &LAB_00f01e5b;
+  local_10 = *unaff_FS_OFFSET;
+  *unaff_FS_OFFSET = (int)&local_10;
+  local_14 = (undefined4 *)FUN_00410220((void *)((int)this + 0x28),9);
+  if ((local_14 == (undefined4 *)0x0) && (param_1 != '\0')) {
+    puVar2 = (undefined4 *)FUN_00401000(0x10);
+    local_8 = 0;
+    if (puVar2 == (undefined4 *)0x0) {
+      local_2c = (undefined4 *)0x0;
+    }
+    else {
+      local_2c = FUN_0040f410(puVar2);
+    }
+    local_8 = 0xffffffff;
+    local_14 = local_2c;
+    FUN_0040ff60((void *)((int)this + 0x28),local_2c);
+    FUN_00541ac0((int)this);
+    local_18 = FUN_009604f0((int)this);
+    while ((local_18 != 0 && (piVar3 = (int *)FUN_006815c0(local_18), *piVar3 != 0))) {
+      iVar6 = 0;
+      ppuVar5 = &PTR_PTR_01184920;
+      ppuVar4 = &PTR_PTR_011841cc;
+      puVar2 = (undefined4 *)FUN_006815c0(local_18);
+      piVar3 = (int *)FUN_00ec43fb((int *)*puVar2,0,(_s_RTTICompleteObjectLocator *)ppuVar4,
+                                   (TypeDescriptor *)ppuVar5,iVar6);
+      local_18 = FUN_00726070(local_18);
+      if ((piVar3 != (int *)0x0) &&
+         (((bVar1 = FUN_00440da0((int)piVar3), !bVar1 &&
+           (iVar6 = FUN_008d8520((int)piVar3), iVar6 != 0)) &&
+          (iVar6 = FUN_00931850((int)piVar3), iVar6 == 3)))) {
+        FUN_0096e870(&DAT_011e0e80,piVar3);
+      }
+    }
+    FUN_00541ae0((int)this);
+  }
+  if (local_14 != (undefined4 *)0x0) {
+    if (param_1 == '\0') {
+      local_14[3] = local_14[3] + -1;
+    }
+    else {
+      local_14[3] = local_14[3] + 1;
+    }
+    if (local_14[3] == 0) {
+      FUN_00410020((void *)((int)this + 0x28),local_14,'\x01');
+    }
+  }
+  *unaff_FS_OFFSET = local_10;
+  return;
+}
+
+
+
+--- Calls FROM Cell_RemoveRef (0x00551480) ---
+  CALL 0x00410220 -> FUN_00410220 (from 0x005514b0)
+  CALL 0x00401000 -> FUN_00401000 (from 0x005514d0)
+  CALL 0x0040f410 -> FUN_0040f410 (from 0x005514eb)
+  CALL 0x0040ff60 -> FUN_0040ff60 (from 0x00551519)
+  CALL 0x00541ac0 -> FUN_00541ac0 (from 0x00551521)
+  CALL 0x009604f0 -> FUN_009604f0 (from 0x00551529)
+  CALL 0x006815c0 -> FUN_006815c0 (from 0x0055153a)
+  CALL 0x006815c0 -> FUN_006815c0 (from 0x00551553)
+  CALL 0x00ec43fb -> FUN_00ec43fb (from 0x0055155d)
+  CALL 0x00726070 -> FUN_00726070 (from 0x0055156b)
+  CALL 0x00440da0 -> FUN_00440da0 (from 0x0055157c)
+  CALL 0x008d8520 -> FUN_008d8520 (from 0x0055158b)
+  CALL 0x00931850 -> FUN_00931850 (from 0x00551597)
+  CALL 0x0096e870 -> FUN_0096e870 (from 0x005515aa)
+  CALL 0x00541ae0 -> FUN_00541ae0 (from 0x005515b4)
+  CALL 0x00410020 -> FUN_00410020 (from 0x005515fc)
+  Total: 16 calls
+
+######################################################################
+# PART 4: FUN_0054af40 ? actor processing in cell destruction
+######################################################################
+
+======================================================================
+ActorProcess_CellDestroy @ 0x0054af40
+======================================================================
+  Function: FUN_0054af40, Size: 53 bytes
+  Entry: 0x0054af40
+
+void __thiscall FUN_0054af40(void *this,char param_1)
+
+{
+  int iVar1;
+  
+  FUN_00541ac0((int)this);
+  iVar1 = FUN_009604f0((int)this);
+  FUN_0096e150(&DAT_011e0e80,iVar1,param_1);
+  FUN_00541ae0((int)this);
+  return;
+}
+
+
+
+--- Calls FROM ActorProcess_CellDestroy (0x0054af40) ---
+  CALL 0x00541ac0 -> FUN_00541ac0 (from 0x0054af4a)
+  CALL 0x009604f0 -> FUN_009604f0 (from 0x0054af57)
+  CALL 0x0096e150 -> FUN_0096e150 (from 0x0054af62)
+  CALL 0x00541ae0 -> FUN_00541ae0 (from 0x0054af6a)
+  Total: 4 calls
+
+######################################################################
+# PART 5: FUN_00961f30 ? cell finalization
+######################################################################
+
+======================================================================
+Cell_Finalize @ 0x00961f30
+======================================================================
+  Function: FUN_00961f30, Size: 22 bytes
+  Entry: 0x00961f30
+
+void __thiscall FUN_00961f30(void *this,undefined1 param_1)
+
+{
+  *(undefined1 *)((int)this + 0x54) = param_1;
+  return;
+}
+
+
+
+--- Calls FROM Cell_Finalize (0x00961f30) ---
+  Total: 0 calls
+
+######################################################################
+# PART 6: FUN_0043c150 ? QueuedTexture task processing
+# What ref does it hold to NiSourceTexture? How?
+######################################################################
+
+======================================================================
+GetWorldspace @ 0x0055b980
+======================================================================
+  Function: FUN_0055b980, Size: 17 bytes
+  Entry: 0x0055b980
+
+undefined4 __fastcall FUN_0055b980(int param_1)
+
+{
+  return *(undefined4 *)(param_1 + 0x2c);
+}
+
+
+
+======================================================================
+GetCellTextureInfo @ 0x0045cd60
+======================================================================
+  Function: FUN_0045cd60, Size: 17 bytes
+  Entry: 0x0045cd60
+
+undefined4 __fastcall FUN_0045cd60(int param_1)
+
+{
+  return *(undefined4 *)(param_1 + 0x28);
+}
+
+
+
+======================================================================
+QueuedTexture_GetIOData @ 0x00c3cff0
+======================================================================
+  Function: FUN_00c3cff0, Size: 158 bytes
+  Entry: 0x00c3cff0
+
+void __thiscall FUN_00c3cff0(void *this,int param_1,uint param_2)
+
+{
+  char local_114 [264];
+  uint local_c;
+  undefined4 *local_8;
+  
+  local_c = DAT_011c16bc ^ (uint)&stack0xfffffffc;
+  local_8 = (undefined4 *)0x0;
+  if (*(int *)((int)this + 0x2c) != 0) {
+    local_8 = FUN_00af6340(param_1,*(uint *)((int)this + 0x2c),-1,(char *)0x0);
+  }
+  if ((*(int *)((int)this + 0x28) != 0) && (local_8 == (undefined4 *)0x0)) {
+    FUN_00c3d090(this,param_1,local_114);
+    local_8 = (undefined4 *)FUN_00afdf20(local_114,0,-1,param_2);
+  }
+  __security_check_cookie(local_c ^ (uint)&stack0xfffffffc);
+  return;
+}
+
+
+
+######################################################################
+# PART 7: NiSourceTexture registration in texture cache
+######################################################################
+
+======================================================================
+TextureLoad_Direct @ 0x00a61b90
+======================================================================
+  Function: FUN_00a61b90, Size: 182 bytes
+  Entry: 0x00a61b90
+
+/* WARNING: Globals starting with '_' overlap smaller symbols at the same address */
+
+char __cdecl FUN_00a61b90(char *param_1,int *param_2)
+
+{
+  int *piVar1;
+  char cVar2;
+  int iVar3;
+  uint uVar4;
+  LONG LVar5;
+  uint uVar6;
+  uint uVar7;
+  int iVar8;
+  
+  uVar7 = 0;
+  if (DAT_011f4468 == 0) {
+    cVar2 = '\0';
+  }
+  else {
+    FUN_0040fbf0((LONG *)&DAT_011f4480);
+    iVar3 = FUN_00af4170(param_1,'\x01');
+    uVar4 = FUN_00a61530(param_1 + iVar3);
+    piVar1 = (int *)*param_2;
+    if (piVar1 != (int *)0x0) {
+      LVar5 = InterlockedDecrement(piVar1 + 1);
+      if (LVar5 == 0) {
+        (**(code **)(*piVar1 + 4))();
+      }
+      *param_2 = 0;
+    }
+    iVar8 = 0x4e18;
+    do {
+      cVar2 = (char)uVar7;
+      if (iVar8 == 0) break;
+      uVar6 = FUN_00a61920((void *)(iVar8 + -0xb28 + DAT_011f4464),uVar4,param_1 + iVar3,param_2);
+      uVar7 = uVar6 & 0xff;
+      cVar2 = (char)uVar6;
+      iVar8 = iVar8 + -0xb28;
+    } while (cVar2 == '\0');
+    _DAT_011f4484 = _DAT_011f4484 + -1;
+    if (_DAT_011f4484 == 0) {
+      _DAT_011f4480 = 0;
+      return cVar2;
+    }
+  }
+  return cVar2;
+}
+
+
+
+======================================================================
+TextureCreate_OrLookup @ 0x00a5fe30
+======================================================================
+  Function: FUN_00a5fe30, Size: 213 bytes
+  Entry: 0x00a5fe30
+
+int * __cdecl FUN_00a5fe30(int param_1,byte *param_2,int *param_3,undefined1 param_4)
+
+{
+  int *piVar1;
+  char cVar2;
+  undefined4 *puVar3;
+  int *piVar4;
+  byte *pbVar5;
+  
+  puVar3 = (undefined4 *)FUN_00aa13e0(0x48);
+  if (puVar3 == (undefined4 *)0x0) {
+    piVar4 = (int *)0x0;
+  }
+  else {
+    piVar4 = FUN_00a5fc10(puVar3);
+  }
+  piVar4[6] = *param_3;
+  piVar4[7] = param_3[1];
+  piVar4[8] = param_3[2];
+  *(undefined1 *)((int)piVar4 + 0x41) = param_4;
+  piVar4[0x11] = param_1;
+  if (param_2 != (byte *)0x0) {
+    pbVar5 = FUN_00a5b690(param_2);
+    piVar1 = piVar4 + 0xc;
+    if ((byte *)*piVar1 != pbVar5) {
+      if (pbVar5 != DAT_0109b220) {
+        InterlockedIncrement((LONG *)(pbVar5 + -8));
+      }
+      if ((byte *)*piVar1 != DAT_0109b220) {
+        InterlockedDecrement((LONG *)((byte *)*piVar1 + -8));
+      }
+      *piVar1 = (int)pbVar5;
+    }
+    FUN_00a57500(piVar1);
+    FUN_00a76960(piVar1,piVar4 + 0xd);
+    if (pbVar5 != DAT_0109b220) {
+      InterlockedDecrement((LONG *)(pbVar5 + -8));
+    }
+  }
+  if ((DAT_011a9594 != '\0') && (cVar2 = (**(code **)(*piVar4 + 0xac))(), cVar2 == '\0')) {
+    (**(code **)*piVar4)(1);
+    return (int *)0x0;
+  }
+  return piVar4;
+}
+
+
+
+======================================================================
+TextureCreate_EnvMap @ 0x00a61040
+======================================================================
+  Function: FUN_00a61040, Size: 212 bytes
+  Entry: 0x00a61040
+
+int * __cdecl FUN_00a61040(int *param_1,int param_2,int *param_3,int *param_4)
+
+{
+  int *piVar1;
+  int iVar2;
+  code *pcVar3;
+  char cVar4;
+  int *piVar5;
+  
+  piVar5 = (int *)FUN_00aa13e0(0x4c);
+  if (piVar5 == (int *)0x0) {
+    piVar5 = (int *)0x0;
+  }
+  else {
+    FUN_00a5fc10(piVar5);
+    *piVar5 = (int)&PTR_FUN_0109babc;
+    piVar5[0x12] = 0;
+  }
+  piVar5[6] = *param_4;
+  piVar5[7] = param_4[1];
+  piVar5[8] = param_4[2];
+  iVar2 = *param_1;
+  piVar1 = piVar5 + 0xc;
+  if (piVar5[0xc] != iVar2) {
+    if (iVar2 != DAT_0109b220) {
+      InterlockedIncrement((LONG *)(iVar2 + -8));
+    }
+    if (*piVar1 != DAT_0109b220) {
+      InterlockedDecrement((LONG *)(*piVar1 + -8));
+    }
+    *piVar1 = iVar2;
+  }
+  FUN_00a57500(piVar1);
+  FUN_00a76960(piVar1,piVar5 + 0xd);
+  if (piVar5[0x12] != 0) {
+    piVar5[0x12] = 0;
+  }
+  pcVar3 = *(code **)(*piVar5 + 0xa4);
+  piVar5[0x11] = param_2;
+  (*pcVar3)();
+  if (param_3 != (int *)0x0) {
+    cVar4 = (**(code **)(*param_3 + 0x144))(piVar5);
+    if (cVar4 == '\0') {
+      (**(code **)*piVar5)(1);
+      return (int *)0x0;
+    }
+  }
+  return piVar5;
+}
+
+
+
+######################################################################
+# PART 8: HeapCompact Stage 5 ? vanilla handling
+######################################################################
+
+======================================================================
+HeapCompact_Full @ 0x00866a90
+======================================================================
+  Function: FUN_00866a90, Size: 602 bytes
+  Entry: 0x00866a90
+
+int __thiscall FUN_00866a90(void *this,undefined4 param_1,int param_2,char *param_3)
+
+{
+  char cVar1;
+  int iVar2;
+  int iVar3;
+  void *this_00;
+  uint uVar4;
+  bool bVar5;
+  
+  *param_3 = '\x01';
+  iVar2 = FUN_0040fc90();
+  iVar3 = FUN_0044edb0(DAT_011dea0c);
+  bVar5 = iVar2 == iVar3;
+  switch(param_2) {
+  case 0:
+    DAT_011de70c = 0;
+    if (bVar5) {
+      FUN_00452490(DAT_011dea10,'\0');
+    }
+    break;
+  case 1:
+    iVar2 = FUN_00866d10();
+    FUN_00aa5c80(iVar2);
+    break;
+  case 2:
+    iVar2 = FUN_00652110();
+    if (iVar2 != 0) {
+      iVar2 = FUN_00652110();
+      cVar1 = FUN_00529ea0(iVar2);
+      if ((cVar1 != '\0') && (bVar5 = FUN_00652160(), bVar5)) {
+        iVar2 = FUN_00652130();
+        if (iVar2 == 1) {
+          cVar1 = '\0';
+          this_00 = (void *)FUN_00652110();
+          FUN_00650a30(this_00,cVar1);
+        }
+        FUN_00652190();
+      }
+    }
+    break;
+  case 5:
+    if (!bVar5) break;
+    FUN_00869190(0);
+    uVar4 = FUN_00453a80((int)DAT_011dea10);
+    if ((uVar4 & 0xff) == 0) {
+      FUN_004539a0(DAT_011dea10,'\x01','\0');
+    }
+    else {
+      param_2 = param_2 + -1;
+    }
+    FUN_00452490(DAT_011dea10,'\0');
+    FUN_00869190(1);
+    FUN_00868d70('\x01');
+  case 4:
+    bVar5 = FUN_0078d200((LONG *)&DAT_011f11a0);
+    if (bVar5) {
+      FUN_00868d70('\x01');
+      FUN_0040fba0((undefined4 *)&DAT_011f11a0);
+    }
+  case 3:
+    FUN_00c459d0('\x01');
+    break;
+  case 6:
+    if (bVar5) {
+      FUN_00aa7030();
+    }
+    break;
+  case 7:
+    if ((*param_3 == '\0') && (bVar5)) {
+      *param_3 = '\x01';
+      break;
+    }
+  case 8:
+    if (!bVar5) {
+      *(undefined4 *)((int)this + 0x134) = 6;
+      if (DAT_011de70c < 15000) {
+        iVar2 = FUN_00866da0(DAT_01202d98,0);
+        iVar3 = FUN_0040fc90();
+        if (iVar2 == iVar3) {
+          FUN_00866dc0(DAT_01202d98,0);
+          FUN_00866de0(DAT_01202d98,0);
+        }
+        iVar2 = FUN_00866da0(DAT_01202d98,1);
+        iVar3 = FUN_0040fc90();
+        if (iVar2 == iVar3) {
+          FUN_00866dc0(DAT_01202d98,1);
+          FUN_00866de0(DAT_01202d98,1);
+        }
+        FUN_0040fca0(1);
+        DAT_011de70c = DAT_011de70c + 1;
+        param_2 = param_2 + -1;
+      }
+      else if (*param_3 == '\0') {
+        *param_3 = '\x01';
+      }
+    }
+  }
+  return param_2 + 1;
+}
+
+
+
+######################################################################
+# PART 9: Texture cache reset ? FUN_00a62090
+######################################################################
+
+======================================================================
+TextureCache_Reset @ 0x00a62090
+======================================================================
+  Function: FUN_00a62090, Size: 123 bytes
+  Entry: 0x00a62090
+
+void FUN_00a62090(void)
+
+{
+  undefined4 *puVar1;
+  int iVar2;
+  int iVar3;
+  
+  FUN_00a62030();
+  puVar1 = DAT_011f4468;
+  if (DAT_011f4468 != (undefined4 *)0x0) {
+    FUN_00a615c0((int)DAT_011f4468);
+    FUN_00aa4060(&DAT_011f6238,puVar1);
+  }
+  DAT_011f4468 = (undefined4 *)0x0;
+  if (DAT_011f4464 != 0) {
+    iVar2 = *(int *)(DAT_011f4464 + -4);
+    puVar1 = (undefined4 *)(DAT_011f4464 + -4);
+    iVar3 = iVar2 * 0xb28 + DAT_011f4464;
+    while (iVar2 = iVar2 + -1, -1 < iVar2) {
+      iVar3 = iVar3 + -0xb28;
+      FUN_00a61ec0(iVar3);
+    }
+    FUN_00aa4060(&DAT_011f6238,puVar1);
+  }
+  DAT_011f4464 = 0;
+  return;
+}
+
+
+
+--- XRefs to TextureCache_Reset_callers (0x00a62090) ---
+  UNCONDITIONAL_CALL @ 0x0086b976 (in FUN_0086a850)
+  Total: 1 refs
