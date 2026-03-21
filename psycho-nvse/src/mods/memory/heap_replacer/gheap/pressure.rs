@@ -247,15 +247,15 @@ pub struct PressureRelief {
     post_destruction: FnPtr<PostDestructionRestoreFn>,
     deferred_cleanup: FnPtr<DeferredCleanupSmallFn>,
 
-    /// Commit at initialization time. Dynamic threshold = baseline + MAX_GROWTH.
-    baseline_commit: usize,
+    /// Commit when main loop first starts (first tick). 0 = not yet measured.
+    /// Dynamic threshold = baseline + MAX_GROWTH.
+    /// Measured at first tick() rather than DLL init because mods load
+    /// between init and main menu, inflating commit by 500MB+.
+    baseline_commit: std::sync::atomic::AtomicUsize,
 }
 
 impl PressureRelief {
     fn new() -> anyhow::Result<Self> {
-        let baseline = libmimalloc::process_info::MiMallocProcessInfo::get()
-            .get_current_commit();
-
         let instance = unsafe {
             Self {
                 requested: AtomicBool::new(false),
@@ -267,15 +267,13 @@ impl PressureRelief {
                 pre_destruction: FnPtr::from_raw(PRE_DESTRUCTION_SETUP as *mut c_void)?,
                 post_destruction: FnPtr::from_raw(POST_DESTRUCTION_RESTORE as *mut c_void)?,
                 deferred_cleanup: FnPtr::from_raw(DEFERRED_CLEANUP_SMALL as *mut c_void)?,
-                baseline_commit: baseline,
+                baseline_commit: std::sync::atomic::AtomicUsize::new(0),
             }
         };
 
-        let threshold_mb = (baseline + MAX_GROWTH_ABOVE_BASELINE) / 1024 / 1024;
         log::info!(
-            "[PRESSURE] Initialized (baseline={}MB, threshold={}MB, max_cells={}, cooldown={}ms)",
-            baseline / 1024 / 1024,
-            threshold_mb,
+            "[PRESSURE] Initialized (baseline=deferred, growth={}MB, max_cells={}, cooldown={}ms)",
+            MAX_GROWTH_ABOVE_BASELINE / 1024 / 1024,
             MAX_CELLS_PER_CYCLE,
             COOLDOWN_MS,
         );
@@ -284,9 +282,31 @@ impl PressureRelief {
     }
 
     /// Dynamic threshold: baseline commit + MAX_GROWTH_ABOVE_BASELINE.
+    /// Returns usize::MAX if baseline not yet measured (suppress all checks).
     #[inline]
     fn threshold(&self) -> usize {
-        self.baseline_commit + MAX_GROWTH_ABOVE_BASELINE
+        let baseline = self.baseline_commit.load(Ordering::Relaxed);
+        if baseline == 0 {
+            return usize::MAX; // not yet calibrated
+        }
+        baseline + MAX_GROWTH_ABOVE_BASELINE
+    }
+
+    /// Measure baseline commit on first tick (main loop started, mods loaded).
+    /// Called from tick() once.
+    pub fn calibrate_baseline(&self) {
+        if self.baseline_commit.load(Ordering::Relaxed) != 0 {
+            return; // already calibrated
+        }
+        let commit = libmimalloc::process_info::MiMallocProcessInfo::get()
+            .get_current_commit();
+        self.baseline_commit.store(commit, Ordering::Release);
+        let threshold_mb = (commit + MAX_GROWTH_ABOVE_BASELINE) / 1024 / 1024;
+        log::info!(
+            "[PRESSURE] Baseline calibrated: {}MB, threshold={}MB",
+            commit / 1024 / 1024,
+            threshold_mb,
+        );
     }
 
     pub fn instance() -> Option<&'static Self> {
@@ -600,47 +620,39 @@ impl PressureRelief {
             );
         }
 
-        // Wait for BSTaskManagerThread to finish any in-flight task.
+        // Wait for BOTH BSTaskManagerThread instances to finish in-flight tasks.
+        // The game has TWO IO threads (indices 0 and 1, confirmed by OOM Stage 8
+        // which checks FUN_00866da0(DAT_01202d98, 0) and (DAT_01202d98, 1)).
         //
-        // After acquiring our IO lock, BSTaskManagerThread is in one of:
+        // For each thread, after acquiring our IO lock, it's in one of:
         // a) Idle (semaphore count=1): probe succeeds immediately.
         // b) Blocked on our lock (consumed sem, trying to dequeue): count=0,
-        //    no in-flight task, safe to proceed immediately.
-        // c) Mid-task processing (dequeued before us, released lock): count=0,
+        //    no in-flight task, safe to proceed.
+        // c) Mid-task processing (dequeued before us): count=0,
         //    in-flight task, must wait for completion.
         //
-        // Cases (b) and (c) both show count=0. Distinguish via iter_count:
-        // - Read iter_count, poll for change. InterlockedIncrement(+0x18)
-        //   happens AFTER FUN_0044dd60 (task ref release) and ReleaseSemaphore.
-        //   When iter_count changes, all task refs are released.
-        // - If iter_count doesn't change within 50ms, BSTaskManagerThread is
-        //   blocked on our lock (case b) -- no task, safe to proceed.
-        //   50ms covers worst-case disk I/O (archive read + DDS decode).
-        //   This only fires during loading/fast travel (stale period),
-        //   never during normal gameplay or PDD (IoLockScope skips lock).
-        if let Some(sem_handle) = unsafe { Self::read_bst_iter_sem_handle(io_mgr) } {
-            match winapi::wait_for_single_object(sem_handle, 0) {
-                WaitResult::Signaled => {
-                    // Case (a): idle. Restore semaphore count.
-                    if let Err(e) = winapi::release_semaphore(sem_handle, 1) {
-                        log::error!("[IO_SYNC] ReleaseSemaphore failed: {:?}", e);
+        // Distinguish (b) vs (c) via iter_count polling (50ms timeout).
+        for bst_index in 0..2u32 {
+            if let Some(sem_handle) = unsafe { Self::read_bst_iter_sem_handle(io_mgr, bst_index) } {
+                match winapi::wait_for_single_object(sem_handle, 0) {
+                    WaitResult::Signaled => {
+                        if let Err(e) = winapi::release_semaphore(sem_handle, 1) {
+                            log::error!("[IO_SYNC] ReleaseSemaphore failed: {:?}", e);
+                        }
                     }
-                }
-                _ => {
-                    // Case (b) or (c): poll iter_count for change.
-                    if let Some(count_before) = unsafe { Self::read_bst_sem_count(io_mgr) } {
-                        let start = winapi::get_tick_count();
-                        loop {
-                            winapi::sleep(0);
-                            if let Some(c) = unsafe { Self::read_bst_sem_count(io_mgr) } {
-                                if c != count_before {
-                                    // Case (c) resolved: task completed, refs released.
+                    _ => {
+                        if let Some(count_before) = unsafe { Self::read_bst_sem_count(io_mgr, bst_index) } {
+                            let start = winapi::get_tick_count();
+                            loop {
+                                winapi::sleep(0);
+                                if let Some(c) = unsafe { Self::read_bst_sem_count(io_mgr, bst_index) } {
+                                    if c != count_before {
+                                        break;
+                                    }
+                                }
+                                if winapi::get_tick_count().wrapping_sub(start) >= 50 {
                                     break;
                                 }
-                            }
-                            if winapi::get_tick_count().wrapping_sub(start) >= 50 {
-                                // Case (b): blocked on lock, no task. Safe.
-                                break;
                             }
                         }
                     }
@@ -671,8 +683,8 @@ impl PressureRelief {
 
     /// Read BSTaskManagerThread's iteration semaphore count (+0x18).
     /// InterlockedIncrement'd AFTER task ref release and ReleaseSemaphore.
-    unsafe fn read_bst_sem_count(io_mgr: *const u8) -> Option<i32> {
-        let bst = unsafe { Self::read_bst_ptr(io_mgr) }?;
+    unsafe fn read_bst_sem_count(io_mgr: *const u8, index: u32) -> Option<i32> {
+        let bst = unsafe { Self::read_bst_ptr(io_mgr, index) }?;
         let count_ptr = unsafe { bst.add(IO_THREAD_SEM_COUNT_OFFSET) as *const i32 };
         Some(unsafe { std::ptr::read_volatile(count_ptr) })
     }
@@ -682,8 +694,9 @@ impl PressureRelief {
     /// between iterations. Count=1 when idle/between-iterations, 0 when mid-task.
     unsafe fn read_bst_iter_sem_handle(
         io_mgr: *const u8,
+        index: u32,
     ) -> Option<windows::Win32::Foundation::HANDLE> {
-        let bst = unsafe { Self::read_bst_ptr(io_mgr) }?;
+        let bst = unsafe { Self::read_bst_ptr(io_mgr, index) }?;
         let handle_ptr =
             unsafe { bst.add(IO_THREAD_ITER_SEM_HANDLE_OFFSET) as *const windows::Win32::Foundation::HANDLE };
         let handle = unsafe { std::ptr::read_volatile(handle_ptr) };
@@ -693,15 +706,16 @@ impl PressureRelief {
         Some(handle)
     }
 
-    /// Get BSTaskManagerThread object pointer from IOManager.
-    unsafe fn read_bst_ptr(io_mgr: *const u8) -> Option<*const u8> {
+    /// Get BSTaskManagerThread object pointer from IOManager by index.
+    /// Index 0 or 1 — the game has TWO IO worker threads.
+    unsafe fn read_bst_ptr(io_mgr: *const u8, index: u32) -> Option<*const u8> {
         let thread_array_ptr =
             unsafe { io_mgr.add(IO_THREAD_ARRAY_OFFSET) as *const *const *const u8 };
         let thread_array = unsafe { *thread_array_ptr };
         if thread_array.is_null() {
             return None;
         }
-        let bst = unsafe { *thread_array };
+        let bst = unsafe { *thread_array.add(index as usize) };
         if bst.is_null() {
             return None;
         }

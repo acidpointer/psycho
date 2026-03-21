@@ -133,10 +133,14 @@ impl Drop for IoLockScope {
 pub fn tick() {
     FRAME_COUNTER.fetch_add(1, Ordering::Relaxed);
 
-    // Decrement the loading state counter if destruction_protocol left it
-    // elevated. This runs at the start of the NEW frame, AFTER NVSE plugins
-    // processed events on the previous frame with the counter > 0.
     if let Some(pr) = super::pressure::PressureRelief::instance() {
+        // Calibrate baseline on first tick (main loop started, mods loaded).
+        // Must be here, not DLL init — mods load 500MB+ between init and main menu.
+        pr.calibrate_baseline();
+
+        // Decrement the loading state counter if destruction_protocol left it
+        // elevated. This runs at the start of the NEW frame, AFTER NVSE plugins
+        // processed events on the previous frame with the counter > 0.
         pr.flush_pending_counter_decrement();
     }
 
@@ -215,9 +219,14 @@ impl Quarantine {
     #[inline]
     fn push(&mut self, ptr: *mut c_void) {
         // Emergency flush: another thread hit OOM and needs us to free memory.
-        // Override all safety checks — at OOM, crash is guaranteed otherwise.
-        if EMERGENCY_FLUSH.swap(false, Ordering::AcqRel) {
-            self.flush_all();
+        // Respect AI thread state — flushing while AI holds Havok entity
+        // pointers causes broadphase crash. If AI active, defer to next push.
+        if EMERGENCY_FLUSH.load(Ordering::Relaxed) {
+            let ai_active = unsafe { *(0x011DFA19 as *const u8) != 0 };
+            if !ai_active {
+                EMERGENCY_FLUSH.store(false, Ordering::Release);
+                self.flush_all();
+            }
         }
 
         let frame = FRAME_COUNTER.load(Ordering::Relaxed);

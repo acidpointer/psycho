@@ -1,0 +1,880 @@
+================================================================================
+COMPREHENSIVE GHIDRA ENGINE ANALYSIS - psycho-nvse
+================================================================================
+Date: 2026-03-21
+Based on: All Ghidra output files from crash/ and memory/ directories
+
+================================================================================
+TABLE OF CONTENTS
+================================================================================
+1.  Complete Frame Timeline
+2.  OOM Handler Architecture (FUN_00866a90)
+3.  Allocator Retry Loop (FUN_00aa3e40)
+4.  BSTaskManagerThread Lifecycle
+5.  QueuedTexture Lifecycle & vtable Crash
+6.  Cell Unloading Mechanics
+7.  Havok Entity Lifecycle & Broadphase
+8.  D3D9 Resource Lifecycle & Texture Cache
+9.  SpinLock ABI Details
+10. Cross-System Connections & Patterns
+11. Risks & Bugs
+12. Key Addresses & Constants Reference
+
+================================================================================
+1. COMPLETE FRAME TIMELINE
+================================================================================
+
+The main loop is FUN_0086e650 (2272 bytes), called from FUN_0086a850 (4532 bytes,
+the outer game loop / WinMain equivalent).
+
+EXACT ORDER OF OPERATIONS IN ONE FRAME (from FUN_0086e650):
+--------------------------------------------------------------------------
+
+PHASE 1: FRAME SETUP
+  - FUN_0086a830()                  -- frame timer init
+  - GetAsyncKeyState(TAB/ALT)      -- Alt-Tab detection
+  - DAT_011dea2b = loading flag     -- set from FUN_00702360 (IsLoading) ||
+                                       FUN_00709bc0 (IsMenuMode)
+  - DAT_011dea2c = FUN_007050d0()   -- IsGameLoaded
+  - DAT_011dea2d = FUN_00701450(1)  -- cell loaded flag
+  - DAT_011dea2e = FUN_00703d50()   -- fast travel flag
+
+PHASE 2: PRE-RENDER WORK
+  - FUN_0086f940()                  -- input processing
+  - FUN_0086fd90()                  -- menu/HUD update
+  - DAT_011dea2b refreshed again    -- second loading check
+  - FUN_0086ef30/0086ef90/0086f190  -- misc frame work
+  - FUN_004e1610()                  -- increment DAT_011a2fe0 (frame counter)
+
+PHASE 3: IO PROCESSING
+  - FUN_00c3dbf0(DAT_01202d98)      -- IOManager main-thread processing
+    * Dequeues completed tasks via FUN_00c3e420
+    * Calls vtable+0x14 (Process) on each
+    * Time-limited: stops after budget expires
+    * Sets/clears DAT_01202dd8 reentrancy guard
+
+PHASE 4: CELL LOAD/UNLOAD (only when !loading && !paused)
+  - FUN_004556d0(DAT_011dea10, 0)   -- per-frame PDD (game's own)
+    * Calls FUN_00878250 (DeferredCleanupSmall) which does:
+      - FUN_00868d70(1)  -- purge deferred delete queue
+      - FUN_00b5fd60()   -- flush async
+      - FUN_00c459d0(0)  -- Havok garbage collect
+      - FUN_00651e30/00651f40 -- model cleanup
+      - FUN_00448620()   -- texture manager cleanup
+      - FUN_00452490()   -- texture cache flush
+
+PHASE 5: PROCESS MANAGER LOCK + HAVOK LOCK
+  - FUN_0040fbf0(&DAT_011f11a0)     -- acquire process manager lock
+  - FUN_00978550(0x11e0e80)          -- process manager work
+  - AI scheduling (if multicore):
+    * FUN_009777a0/008d0600/0096eb40/0096e9b0
+
+PHASE 6: HEAP COMPACT
+  - FUN_0040fba0(&DAT_011f11a0)     -- release process manager lock
+  - FUN_00878080()                   -- HeapCompact stage dispatcher
+    * Acquires critical section at offset +0x14
+    * Reads stage from offset +0x134 via FUN_00878110
+    * Iterates stages 0..N calling FUN_00866a90
+    * Resets stage to 0 via FUN_00878130
+
+PHASE 7: PER-FRAME DRAIN (OUR HOOK AREA)
+  - FUN_00868850()                   -- per-frame deferred delete drain
+  - FUN_00868d10()                   -- additional cleanup
+
+PHASE 8: AI DISPATCH
+  - FUN_008c80e0(1)                  -- PreAI setup (sets DAT_011dfa18=1)
+  - FUN_00713d80() -> get AI manager
+  - FUN_008c78c0()                   -- AI_START / AI dispatch
+    * Resets 12 events at +0x3c
+    * Resets 8 events at +0x6c
+    * Sets DAT_011dfa19 = 1 (AI running flag)
+    * Calls FUN_008c9fb0() for each of 2 worker threads
+
+PHASE 9: RENDER (while AI runs in parallel)
+  - FUN_0086fc60()                   -- render setup
+  - FUN_0086fd70()                   -- actual render call
+  - Various scene graph work
+
+PHASE 10: AI JOIN
+  - FUN_008c7990()                   -- AI_JOIN
+    * Calls FUN_008c7490() for each of 2 worker threads
+    * Sets DAT_011dfa19 = 0 (AI done flag)
+
+PHASE 11: POST-AI
+  - FUN_0086f6a0()                   -- PostAI processing
+    * Actor processing, process manager
+    * FUN_00991600/00991500 -- pathfinding
+
+PHASE 12: POST-RENDER HOOK
+  - FUN_008705d0()                   -- <<< OUR HOOK POSITION >>>
+    * This is AFTER AI_JOIN, AFTER PostAI
+    * AI threads are STOPPED at this point
+    * Safe for memory pressure operations
+
+PHASE 13: LATE FRAME
+  - Second AI_JOIN if needed (FUN_008c7990 at ~0x0086ee4e)
+  - FUN_0086f6a0() -- PostAI (second path)
+  - FUN_00870610()
+  - FUN_00aa7290() -- periodic allocator maintenance
+
+CRITICAL TIMING NOTE:
+  Our hook at FUN_008705d0 runs AFTER:
+    - AI threads joined (DAT_011dfa19 == 0)
+    - HeapCompact completed
+    - Per-frame drain completed
+    - Render completed
+  But BEFORE:
+    - Next frame's IO processing
+    - Next frame's AI dispatch
+
+================================================================================
+2. OOM HANDLER ARCHITECTURE (FUN_00866a90)
+================================================================================
+
+The vanilla OOM handler is a STAGED cleanup system. When an allocation fails,
+the allocator calls FUN_00866a90 with incrementing stage numbers to free
+progressively more memory.
+
+ENTRY: FUN_00866a90(this, allocator_ptr, stage, out_give_up)
+  - this = game heap object (DAT_011f6238)
+  - stage = current cleanup stage (0-8)
+  - out_give_up = flag set to 1 when giving up
+
+THREAD CHECK:
+  iVar2 = FUN_0040fc90()              -- GetCurrentThreadId()
+  iVar3 = FUN_0044edb0(DAT_011dea0c)  -- get main thread ID from TES object
+  bVar5 = (iVar2 == iVar3)            -- "am I the main thread?"
+
+  IMPORTANT: Many stages are MAIN-THREAD-ONLY. If OOM occurs on a worker
+  thread, only stages 1, 3, 6, and 8 execute meaningful work.
+
+STAGE 0: Reset + Texture Cache Flush
+  - DAT_011de70c = 0  (reset retry counter)
+  - If main thread: FUN_00452490(DAT_011dea10, 0)
+    * Flush texture cache via FUN_00a61cd0
+    * Acquires texture cache lock DAT_011f4480
+
+STAGE 1: Free Cached Geometry
+  - FUN_00866d10() -> get geometry cache
+  - FUN_00aa5c80(result) -> free cached data
+  * THREAD-SAFE: No main-thread check
+
+STAGE 2: Menu System Cleanup (main thread only)
+  - FUN_00652110() -> get menu manager
+  - FUN_00529ea0() -> check if can cleanup
+  - FUN_00652160() -> secondary check
+  - FUN_00652130() -> get active menu count
+  - If count == 1: FUN_00650a30(manager, 0) -> close menu
+  - FUN_00652190() -> finalize
+
+STAGE 3: Havok Garbage Collect
+  - FUN_00c459d0(1) -> Havok GC (force=true)
+  * THREAD-SAFE (well, safe from any thread calling it)
+  * NOTE: Falls through from stages 4 and 5
+
+STAGE 4: Deferred Delete + Havok GC
+  - FUN_0078d200(&DAT_011f11a0) -> TryAcquire process manager lock
+  - If acquired:
+    * FUN_00868d70(1) -> purge deferred delete queue
+    * FUN_0040fba0(&DAT_011f11a0) -> release lock
+  - Falls through to Stage 3 (Havok GC)
+
+STAGE 5: FindCellToUnload + Full Cleanup (CRITICAL - main thread only)
+  - FUN_00869190(0) -> disable something (PDD guard?)
+  - FUN_00453a80(DAT_011dea10) -> FindCellToUnload
+    * If found: cell is unloaded via FUN_00462290
+    * If not found: stage decremented (retries stage 4)
+  - FUN_004539a0(DAT_011dea10, 1, 0) -> grid management
+  - FUN_00452490(DAT_011dea10, 0) -> texture cache flush
+  - FUN_00869190(1) -> re-enable
+  - Falls through to Stage 4, then Stage 3
+
+STAGE 6: Allocator Defragmentation (main thread only)
+  - FUN_00aa7030() -> heap defrag/compaction
+  * Only runs on main thread
+
+STAGE 7: Conditional Give-Up Check
+  - If *out_give_up == 0 AND main thread: sets *out_give_up = 1
+  - Otherwise falls through to Stage 8
+
+STAGE 8: Worker Thread Sleep + Retry
+  - Only runs on WORKER THREADS (!bVar5)
+  - Sets allocator state to 6: *(this + 0x134) = 6
+  - If DAT_011de70c < 15000 (retry limit):
+    * Checks BSTaskManagerThread[0] owner via FUN_00866da0(DAT_01202d98, 0)
+    * If owned by current thread: release + signal
+    * Same for BSTaskManagerThread[1]
+    * Sleep(1)
+    * Increment DAT_011de70c
+    * Decrement stage (retry previous)
+  - If retries exhausted: set *out_give_up = 1
+
+RETURN VALUE: stage + 1 (next stage to try)
+
+KEY INSIGHT: Stage 8 shows the game KNOWS BSTaskManagerThread can OOM.
+It releases the IO thread's locks and sleeps to let the main thread do
+cleanup. The 15000 retry limit = ~15 seconds at Sleep(1).
+
+CALLER: FUN_00aa3e40 (Allocator_RetryLoop)
+  - Loops calling FUN_00866a90 with incrementing stages
+  - When out_give_up is set, falls back to CRT malloc (FUN_00aa4290)
+  - Called from 4 places (see Section 3)
+
+================================================================================
+3. ALLOCATOR RETRY LOOP (FUN_00aa3e40)
+================================================================================
+
+FUN_00aa3e40(this, size):
+  - this = allocator object (DAT_011f6238, size 0x130+ bytes)
+  - Key fields:
+    * +0x000: initialized flag
+    * +0x00C: TLS-indexed heap array (per-thread heaps)
+    * +0x110: primary heap pointer
+    * +0x129: small-alloc optimization enabled flag
+    * +0x134: HeapCompact stage
+
+FAST PATH:
+  1. If !initialized || no primary heap: fall back to CRT _malloc
+  2. Align size to 4 bytes (min 8)
+  3. Check TLS index for per-thread heap (offset 0x2b4 in TLS)
+  4. If small-alloc enabled (+0x129):
+     - Look up freelist at DAT_011f67b8[aligned_size]
+     - Try FUN_00aa4960 (small alloc optimizer, sizes < 0x240)
+     - Try FUN_00aa6aa0 to allocate from freelist
+
+RETRY LOOP:
+  do {
+    ptr = heap_vtable->alloc(size, 0)   // vtable+8
+    if (!ptr && per_thread_heap)
+      ptr = primary_heap->alloc(size, 0) // try global heap
+    if (!ptr)
+      stage = FUN_00866a90(this, heap, stage, &give_up)
+      if (give_up)
+        ptr = _malloc(size)              // CRT fallback
+  } while (!ptr)
+
+CALLERS OF FUN_00866a90:
+  0x008780e5 in FUN_00878080  -- HeapCompact dispatcher (per-frame)
+  0x00aa3fe6 in FUN_00aa3e40  -- allocator retry loop
+  0x00aa5e78 in FUN_00aa5e30  -- realloc retry
+  0x00aa5f1c in FUN_00aa5ec0  -- aligned alloc retry
+
+IMPORTANT FOR PSYCHO-NVSE:
+  We replace the allocator, so this retry loop never executes in our builds.
+  However, the HeapCompact dispatcher at FUN_00878080 still runs per-frame
+  (stage is set externally). We need to understand what happens when
+  HeapCompact fires and our allocator is in place.
+
+================================================================================
+4. BSTaskManagerThread LIFECYCLE
+================================================================================
+
+OBJECT LAYOUT (from constructor FUN_00c42dd0):
+  +0x00: vtable pointer (PTR_FUN_010c1844)
+  +0x04: thread HANDLE (CreateThread result)
+  +0x08: thread ID (DWORD, from CreateThread lpThreadId)
+  +0x0C: semaphore counter (LONG, init=0)
+  +0x10: work semaphore HANDLE (CreateSemaphoreA, max=0x7fffffff)
+  +0x14: max semaphore value (0x7fffffff)
+  +0x18: idle semaphore counter (LONG, init=1)
+  +0x1C: idle semaphore HANDLE (CreateSemaphoreA, init=1, max=1)
+  +0x20: reserved
+  +0x24: field_24 (init=0)
+  +0x28: field_28 (init=0)
+  +0x2C: copy of thread ID
+  +0x30: pointer to IOManager
+
+THREAD LOOP (FUN_00c410b0):
+  while (*(IOManager+0x40) != 1) {         // shutdown flag
+    WaitForSingleObject(+0x10, INFINITE);   // wait for work
+    InterlockedDecrement(+0x0C);            // consume signal
+
+    // Inner dequeue loop
+    while (!(flags & 2)) {                  // not exhausted
+      WaitForSingleObject(+0x1C, 0);       // probe idle semaphore
+      if (WAIT_TIMEOUT) {
+        WaitForSingleObject(+0x1C, INFINITE);
+        InterlockedDecrement(+0x18);
+        FUN_00c42060(state, 0);             // reset state
+      }
+
+      task = NULL;
+      result = FUN_00c40e70(IOManager, state, &output, &task, first_iter);
+
+      if (result && task[3]==1 && CAS(task+3, 1->3)) {
+        // Process task
+        (*(IOManager_vtable+0x4C))(task);   // process callback
+        (*(IOManager_vtable+0x50))(task);   // complete callback
+      }
+
+      if (task) FUN_0044dd60(task);         // release ref
+
+      ReleaseSemaphore(+0x1C, 1, NULL);    // signal idle
+      InterlockedIncrement(+0x18);          // increment idle count
+    }
+  }
+
+IO DEQUEUE LOCK (FUN_00c40e70):
+  - Acquires spin-lock at IOManager+0x20 via FUN_0040fbf0
+  - Dequeues task from priority queues
+  - Releases lock by decrementing refcount at +0x24
+  - When refcount hits 0: *(+0x20) = 0 (unlock)
+
+TASK STATE MACHINE:
+  task[3] = state:
+    1 = queued/ready
+    3 = being processed (set via InterlockedCompareExchange)
+  Only processed if CAS(1->3) succeeds (prevents double processing)
+
+SAFETY WINDOW FOR MEMORY OPS:
+  The idle semaphore at +0x1C is the key signal:
+  - When ReleaseSemaphore(+0x1C) fires, the thread is between tasks
+  - When WaitForSingleObject(+0x1C, 0) returns WAIT_TIMEOUT,
+    the thread is BUSY (semaphore count = 0)
+  - Our io_lock_acquire hooks this mechanism
+
+CRITICAL: There are TWO BSTaskManagerThread instances (indices 0 and 1).
+The OOM handler Stage 8 confirms this by checking both via
+FUN_00866da0(DAT_01202d98, 0) and FUN_00866da0(DAT_01202d98, 1).
+
+================================================================================
+5. QueuedTexture LIFECYCLE & VTABLE CRASH
+================================================================================
+
+VTABLE: PTR_FUN_01016788
+  [0]  0x0043be30 - destructor (calls FUN_0043bf80)
+  [1]  0x0043c150 - process (full texture load, 606 bytes)
+  [2]  0x0043c550
+  [3]  0x0043c650
+  [4]  0x0043c6b0
+  [5]  0x00483710
+  [6]  0x00c3d440
+  [7]  0x00c3cae0
+  [8]  0x0043c050 - task body (BSTaskManagerThread callback)
+  [9]  0x0043bde0
+  [10] 0x00c3c930
+  [11] 0x0043bfe0
+
+  PROBLEM: vtable[12]+  (offsets 0x30+) contain ASCII string data:
+    +0x30: 0x45444f4d = "MODE"
+    +0x34: 0x203a534c = "LS: "
+    +0x38: 0x6c756f43 = "Coul"
+    +0x3c: 0x6f6e2064 = "d no"
+  These are NOT function pointers. The IOManager dispatches via
+  vtable+0x4C and vtable+0x50 which land in this string data.
+
+  vtable+0x4C = 0x7420726f ("or t" as ASCII)
+  vtable+0x50 = 0x75747865 ("extu" as ASCII)
+
+  This means the IOManager's vtable is NOT the QueuedTexture vtable.
+  The IOManager has its OWN vtable at *(IOManager), and +0x4C/+0x50
+  are methods on the IOManager, not on the task.
+
+OBJECT LAYOUT:
+  +0x00: vtable (PTR_FUN_01016788)
+  +0x18: task name/handle
+  +0x2C: NiSourceTexture pointer (accessed via FUN_0055b980)
+  +0x30: NiRefObject (NiSourceTexture ref, init via FUN_00633c90)
+  +0x34: status byte (init=0)
+
+TASK BODY (FUN_0043c050, vtable[8]):
+  1. Get NiSourceTexture from +0x2C
+  2. If texture exists:
+     - FUN_00448ed0(DAT_011c3b3c, texture, this) -> texture load dispatch
+     - FUN_0043c100(this, result) -> post-load handler
+  3. Check FUN_0043c130() -> additional condition
+  4. FUN_0043c0d0(this, 1) if condition met
+  5. (*(DAT_01202d98->vtable + 0x48))(this) -> notify IOManager
+
+CRASH SCENARIO (EIP=0):
+  Stack: FUN_0044dd60 -> (*vtable[0])(1)
+  FUN_0044dd60 is task ref release:
+    refcount = InterlockedDecrement(task+8)
+    if (refcount == 0 && task != NULL)
+      (**(code**)*task)(1)  // call vtable[0] = destructor
+
+  If the vtable pointer at *task has been zeroed (use-after-free),
+  the indirect call goes to EIP=0.
+
+  ROOT CAUSE: Task object freed while BSTaskManagerThread still holds
+  a reference. The CAS at task[3] (1->3) should prevent this, but
+  if the task is freed between dequeue and CAS check, we get UAF.
+
+================================================================================
+6. CELL UNLOADING MECHANICS
+================================================================================
+
+FINDCELLTOINDEX: FUN_00453a80 (824 bytes)
+  Input: param_1 = TESObjectCELL grid manager (DAT_011dea10)
+
+  STRATEGY (exterior worldspace, FUN_005f36f0 != 0):
+  1. Scan grid cells from highest index downward
+  2. For each non-null cell:
+     a. FUN_004511e0(cell, 1) -> eligibility check
+     b. FUN_00557090(cell) -> reference list check
+  3. If no grid cell found, scan interior cell list
+  4. If still nothing, scan grid forward from index 0
+
+  STRATEGY (interior, FUN_005f36f0 == 0):
+  1. Scan interior cell list from end
+  2. If nothing, scan grid cells with same eligibility checks
+
+CELL ELIGIBILITY (FUN_004511e0):
+  - cell+0x26 = state byte (read via FUN_00450fd0)
+  - state - 2 -> switch:
+    * cases 0,1,2 (states 2,3,4): eligible if param_2==0
+    * cases 3,4 (states 5,6): always eligible
+    * default: not eligible
+
+  States 2-4 = loaded/attached states
+  States 5-6 = detaching/detached states (always safe to unload)
+
+REFERENCE LIST CHECK (FUN_00557090 -> FUN_005570b0):
+  - Checks cell+0x80 for active reference list
+  - Returns true if *(cell+0x80) != 0 (has refs = NOT eligible)
+
+CELL UNLOAD EXECUTION (FUN_00462290, 341 bytes):
+  1. FUN_00440d80(cell) -> check if cell is persistent
+     * If persistent, skip unload entirely
+  2. FUN_0044ada0(1) -> begin critical section
+  3. FUN_0042ce10(DAT_011ddf38) -> check if in exterior
+     * If yes: FUN_004623f0(0) -> save grid state
+  4. FUN_00552bd0(cell, 1) -> disconnect cell from world
+  5. FUN_009740a0(&DAT_011e0e80, cell) -> remove from process manager
+  6. FUN_004512a0(cell, 1) -> set cell state
+  7. FUN_005508b0(cell) -> remove cell from loaded list
+  8. FUN_0054b750(cell) -> cleanup cell data
+  9. LOOP: while FUN_00551620(cell):
+     * FUN_00551480(cell, 0) -> detach each reference
+       - Gets ref list item at cell+0x28 (type 9)
+       - For Actor refs with process level 3:
+         FUN_0096e870(&DAT_011e0e80, actor) -> remove from process mgr
+       - Decrements ref counter, removes when zero
+  10. FUN_004226e0(DAT_011c3f2c) -> check
+  11. FUN_0054af40(cell, is_exterior) -> finalize
+  12. FUN_00536d80(cell->pathdata) -> free path data
+  13. FUN_00546970(cell) -> additional cleanup
+  14. FUN_00961f30(cell, 0) -> clear from AI system
+  15. FUN_0054ddd0(cell) -> get extra data
+  16. FUN_00585e00(data, cell) -> free extra data
+  17. FUN_0044ada0(0) -> end critical section
+
+OOM STAGE 5 PATH:
+  The OOM handler calls FUN_00453a80 directly to find and unload cells.
+  This means cell unloading can happen MID-ALLOCATION on the main thread.
+  Our pressure system should never need this because we proactively unload.
+
+================================================================================
+7. HAVOK ENTITY LIFECYCLE & BROADPHASE
+================================================================================
+
+AI DISPATCH (FUN_008c78c0):
+  - Resets 12 + 8 Win32 events
+  - Sets DAT_011dfa19 = 1 (AI running)
+  - Calls FUN_008c9fb0 for each of 2 worker threads
+
+AI JOIN (FUN_008c7990):
+  - Calls FUN_008c7490 for each of 2 worker threads (blocking wait)
+  - Sets DAT_011dfa19 = 0 (AI stopped)
+
+BROADPHASE ADD (FUN_00c94bd0, 1495 bytes):
+  - Called with array of entity pointers + count
+  - For each entity:
+    1. Increment world entity counter: *(world+0x104) += 1
+    2. Store counter in entity: entity[0x35] = counter
+    3. FUN_00c90510(entity) -> initialize entity
+    4. If entity[6] == 0: call vtable[4]() to create collision shape
+    5. FUN_00cf1480(0, 0, entity+0x3C) -> clear AABB
+    6. Set entity[2] = world (back-pointer)
+    7. Calculate collision filter bits from world bytes at +0x305/+0x306/+0x307
+    8. If entity type == 5: add to static tree
+       Otherwise: add to dynamic tree, set bVar8=true
+    9. Set entity[0xC] = 1 (in-world flag)
+    10. If entity has broadphase proxy (entity[4]):
+        - Call proxy vtable[7] to update AABB
+        - FUN_00c9c040(entity, world, proxy) -> register with broadphase
+
+  KEY: entity[0xC] = 1 means "in broadphase". Must be 0 before safe removal.
+
+PREDESTRUCTION SETUP (FUN_00878160):
+  1. FUN_00c3e310(DAT_01202d98) -> lock Havok world
+     * FUN_00c3e750() -> recursive lock check
+     * If locked AND callback at world+0x7C: call it
+  2. Check exterior state via FUN_00652160
+  3. If param_2: invalidate scene graph via FUN_004a0370
+  4. FUN_008781e0(0x7FFFFFFF) -> set max distance
+  5. FUN_00703980() -> terrain/LOD work
+
+DEFERRED CLEANUP SMALL (FUN_00878250):
+  1. FUN_00868d70(1) -> purge deferred delete queue
+  2. FUN_00450b80(0) -> get something
+  3. FUN_00b5fd60() -> flush async operations
+  4. FUN_00c459d0(0) -> Havok GC (non-forced)
+  5. If param: FUN_00651e30/00651f40 -> model cleanup
+  6. FUN_00448620(DAT_011c3b3c, 1) -> texture manager cleanup
+  7. FUN_00452490(DAT_011dea10, 0) -> texture cache flush
+
+HAVOK GC (FUN_00c459d0):
+  Called in MULTIPLE places:
+  - DeferredCleanupSmall (with force=0)
+  - OOM handler stages 3/4/5 (with force=1)
+  - CellTransitionHandler (with force=0)
+  This is the primary mechanism for freeing dead Havok entities.
+
+RISK: If we unload cells while Havok entities reference them, the
+broadphase still contains stale AABBs. FUN_00c94da5 crash occurs when
+accessing entity+0xD4 of a freed entity during broadphase query.
+
+================================================================================
+8. D3D9 RESOURCE LIFECYCLE & TEXTURE CACHE
+================================================================================
+
+TEXTURE CACHE GLOBALS:
+  DAT_011f4468 = hash table pointer
+  DAT_011f4464 = cache array pointer
+  DAT_011f4480 = spin-lock protecting cache
+  DAT_011f4484 = lock reference count
+
+TEXTURE CACHE FIND (FUN_00a61a60, 103 bytes):
+  - Hash lookup: this[bucket_index] -> linked list traversal
+  - Compares param_2 against node->value[1] (texture hash)
+  - On match:
+    * InterlockedDecrement old ref (param_3 previous value)
+    * If old refcount hits 0: call vtable[1] (destructor)
+    * Store new ref: *param_3 = node->value
+    * InterlockedIncrement new ref (+4 offset)
+  - THREAD SAFETY: No lock held during find!
+    * Only InterlockedIncrement/Decrement for refcount
+    * Race condition if another thread frees the node between
+      finding it and incrementing its refcount
+
+  Called from: FUN_0043c4f0 (1 caller only)
+
+TEXTURE CACHE INSERT (FUN_00a61920, 137 bytes):
+  - Similar linked list traversal
+  - Compares via FUN_00a614d0 (string compare on texture name)
+  - Same refcount swap pattern
+
+TEXTURE CACHE PRERESET (FUN_00a62030):
+  - Acquires lock at DAT_011f4480
+  - FUN_00a615c0(hash_table) -> clear all buckets
+  - Iterates 7 slots (0x4e18 / 0xb28 = 7): FUN_00a61ec0 per slot
+  - Decrements lock refcount
+
+TEXTURE CACHE FULL RESET (FUN_00a62090):
+  - Calls PreReset first
+  - Frees hash table memory via FUN_00aa4060(&DAT_011f6238, ...)
+  - Sets DAT_011f4468 = NULL
+  - Frees cache array with per-slot cleanup
+  - Sets DAT_011f4464 = 0
+
+NIDX9RENDERER:
+  - Object size: 0xB80 (from destructor FUN_00e762f0)
+  - Vtable at 0x010EE4BC
+  - D3D device at: *(this + 0x288) -> IDirect3DDevice9
+  - DrawPrimitive dispatched via device vtable+0x144 (non-indexed)
+    and vtable+0x148 (indexed)
+
+DDS FILE LOADING (FUN_00a8d0d0, NiDDSReader vtable[2]):
+  - EnterCriticalSection at reader+0x80
+  - Validates dimensions against reader+0x100/0x104/0x108
+  - Creates NiPixelData (0x74 bytes) via FUN_00aa13e0
+  - Per-mipmap, per-face texture data copy:
+    * 16bpp: FUN_00a8cc40
+    * 24bpp: FUN_00a8c6e0
+    * 32bpp: FUN_00a8c7a0
+  - LeaveCriticalSection
+
+BSFile READ CRASH (0x00AA22A2):
+  - FUN_00aa4030 -> FUN_00aa3e40 (allocator) returns buffer
+  - FUN_00ec61c0 (memcpy) fills it
+  - If allocator returned NULL (OOM), memcpy writes to address 0
+    causing access violation
+  - This is the BSFile path, called from BSTaskManagerThread
+
+================================================================================
+9. SPINLOCK ABI DETAILS
+================================================================================
+
+FUN_0040fbf0 (SpinLock_Acquire):
+  - Signature: void __thiscall(LONG* lock, DWORD param)
+  - param pushed before CALL (RET 0x4 at end = callee cleanup)
+  - Lock structure:
+    * +0x00: owner thread ID (0 = free)
+    * +0x04: reentrance counter
+  - Algorithm:
+    1. GetCurrentThreadId()
+    2. If lock[0] == our_tid: lock[1]++ (reentrant)
+    3. Else: InterlockedCompareExchange(lock, 0, our_tid)
+       - If fails: spin with Sleep(0) up to 10000 times
+       - After 10000: Sleep(1) per spin (backoff)
+    4. On success: FUN_0040fbe0() (memory fence?) + lock[1] = 1
+
+FUN_0040fba0 (SpinLock_Release):
+  - FUN_0040fbe0() (memory fence)
+  - lock[1]-- (decrement reentrance)
+  - If lock[1] == 0: lock[0] = 0 (release)
+
+KEY LOCKS FOUND:
+  DAT_011f4480 = texture cache lock
+  DAT_011f11a0 = process manager lock
+  DAT_011c3920 = global object table lock
+  DAT_011c4000 = cell lock
+  DAT_011c5f80 = NiNode lock
+  DAT_011d89c0 = renderer lock
+
+================================================================================
+10. CROSS-SYSTEM CONNECTIONS & PATTERNS
+================================================================================
+
+CONNECTION 1: OOM -> Cell Unload -> Havok
+  Stage 5 of OOM handler calls FindCellToUnload, which calls FUN_00462290.
+  Cell unload removes actors from process manager (FUN_009740a0) and
+  detaches refs (FUN_00551480). Actor detach with process level 3 triggers
+  FUN_0096e870 which removes from AI system. The Havok world is NOT
+  explicitly locked during this OOM path - the lock only happens in
+  PreDestructionSetup (FUN_00878160).
+
+  RISK: If OOM stage 5 fires while AI threads are running (it shouldn't
+  because bVar5 requires main thread, but worth confirming), the Havok
+  entity removal would race with broadphase queries.
+
+CONNECTION 2: BSTaskManagerThread -> Texture Cache -> Allocator
+  QueuedTexture task body (FUN_0043c050) calls texture load dispatch
+  (FUN_00448ed0) which uses the texture cache. The texture cache find
+  (FUN_00a61a60) does InterlockedIncrement on NiSourceTexture refcount.
+  If the texture is being freed on the main thread simultaneously
+  (during TextureCache_PreReset), the decrement and free can race with
+  the find's increment, leading to use-after-free.
+
+CONNECTION 3: HeapCompact -> Texture Cache -> IO Thread
+  HeapCompact stage 0 calls FUN_00452490 which calls FUN_00a61cd0
+  (texture cache operation). This acquires the texture cache lock at
+  DAT_011f4480. If BSTaskManagerThread is in the middle of
+  FUN_0043c150 (QueuedTexture vtable[1]) which also touches the cache,
+  there could be a deadlock if lock ordering is violated.
+
+CONNECTION 4: Frame Timeline -> AI Thread Safety
+  The main loop acquires DAT_011f11a0 (process manager lock) BEFORE
+  dispatching AI threads and releases it BEFORE HeapCompact. This means
+  HeapCompact and AI threads can overlap with process manager access.
+  However, OOM stage 4 tries to acquire this same lock, creating a
+  potential lock ordering issue.
+
+CONNECTION 5: IOManager Reentracy Guard
+  FUN_00c3dbf0 uses DAT_01202dd8 as a reentrancy guard. If set, the
+  function returns immediately. This prevents main-thread IO processing
+  from nesting, but does NOT prevent BSTaskManagerThread from processing
+  concurrently (it has its own loop at FUN_00c410b0).
+
+PATTERN: Cascading Cleanup
+  The engine's cleanup pattern is: PDD -> flush -> Havok GC -> texture
+  cache flush. This appears in multiple places:
+  - DeferredCleanupSmall (FUN_00878250)
+  - OOM stages 3-5
+  - CellTransitionHandler (FUN_008774a0)
+  - Per-frame main loop sequence
+
+PATTERN: Thread Detection
+  FUN_0040fc90 (GetCurrentThreadId) + FUN_0044edb0(DAT_011dea0c)
+  (get main thread ID from TES object offset +0x10) appears in:
+  - OOM handler (decide which stages to run)
+  - Our hook should use this same pattern for safety checks
+
+PATTERN: NiRefObject Refcounting
+  InterlockedIncrement at obj+4, InterlockedDecrement at obj+4.
+  When decrement returns 0: call vtable[1] (destructor).
+  This pattern is used for NiSourceTexture, task objects, and
+  all NiObject derivatives.
+
+================================================================================
+11. RISKS & BUGS
+================================================================================
+
+RISK 1: TEXTURE CACHE FIND RACE (HIGH)
+  FUN_00a61a60 reads the hash table WITHOUT holding the texture cache lock.
+  It uses InterlockedIncrement for refcount safety, but the node itself
+  could be freed between the moment it's found and the increment.
+  If TextureCache_PreReset (FUN_00a62030) runs concurrently:
+    - Thread A: finds node, reads *node->value
+    - Thread B: FUN_00a615c0 clears all buckets
+    - Thread A: InterlockedIncrement on freed memory -> crash
+
+  MITIGATION: We may need to hold the texture cache lock around
+  our pressure-triggered cache flushes.
+
+RISK 2: QUEUEDTEXTURE VTABLE CONFUSION (CONFIRMED BUG ANALYSIS)
+  The QueuedTexture vtable at 0x01016788 only has 12 real function
+  entries (offsets 0x00-0x2C). Offsets 0x30+ contain an ASCII error
+  string "MODELS: Could not..." which means:
+  - The vtable is actually smaller than the IOManager expects
+  - The IOManager's process/complete callbacks at vtable+0x4C/+0x50
+    are on the IOManager's OWN vtable, not the task's
+
+  If someone confuses which vtable is being dispatched, they'll read
+  garbage function pointers from the string data.
+
+RISK 3: BSTaskManagerThread DOUBLE-FREE IN LOOP
+  In FUN_00c410b0, after the CAS and process/complete calls, the code
+  checks if local_38 != NULL twice:
+    if (local_38 != NULL) {
+      if (local_38 != NULL) { FUN_0044dd60(local_38); }
+      local_38 = NULL;
+    }
+    ...
+    if (local_38 != NULL) { FUN_0044dd60(local_38); }
+
+  The second FUN_0044dd60 call after ReleaseSemaphore should never
+  execute (local_38 was set to NULL), but this is suspicious decompiler
+  output. In practice, the second check is dead code.
+
+RISK 4: OOM STAGE 8 SLEEP STORM
+  If BSTaskManagerThread hits OOM repeatedly, Stage 8 sleeps for 1ms
+  up to 15000 times (15 seconds total). During this time:
+  - The IO thread is blocked
+  - No new textures load
+  - The game appears frozen
+  Our mimalloc replacement should prevent this, but if mimalloc itself
+  runs out of VA space, we need a different response.
+
+RISK 5: CELL UNLOAD DURING ACTIVE PATHFINDING
+  FUN_00462290 calls FUN_00961f30(cell, 0) to clear AI data, and
+  FUN_009740a0 to remove from process manager. If AI threads are
+  actively pathfinding through this cell, the navmesh data they
+  reference could be freed. The main loop does this only when
+  !loading && !paused, but AI threads may still be running from
+  the PREVIOUS frame's dispatch if AI_JOIN hasn't completed.
+
+  HOWEVER: Looking at the timeline, cell unload (Phase 4) happens
+  BEFORE AI dispatch (Phase 8), so this should be safe for normal
+  frames. The risk is during OOM stage 5, which can fire at any
+  allocation site.
+
+RISK 6: HAVOK BROADPHASE STALE ENTITY (KNOWN CRASH)
+  FUN_00c94bd0 at 0x00c94da5: MOV [ESI+0xD4], EAX
+  If ESI (entity pointer) points to freed memory, this crashes.
+  The entity was added to broadphase (entity[0xC]=1) but later freed
+  without proper removal. The broadphase query during AI step still
+  has the entity in its list.
+
+  The fix requires ensuring FUN_00c459d0 (Havok GC) runs after any
+  entity removal and before the next broadphase query.
+
+================================================================================
+12. KEY ADDRESSES & CONSTANTS REFERENCE
+================================================================================
+
+SINGLETONS:
+  0x011dea0c  TES object (main game object)
+  0x011dea10  TESObjectCELL grid manager
+  0x011dea3c  g_thePlayer / active cell list
+  0x011c3b3c  TextureManager
+  0x011c3f2c  DataHandler
+  0x011ddf38  BGSRenderManager / exterior manager
+  0x01202d98  IOManager singleton
+  0x011f6238  GameHeap allocator singleton
+  0x011e0e80  ProcessManager
+  0x011e0fe0  AI thread manager
+  0x011f1958  PathManager
+  0x011f2250  SomeManager (checked == 4 to skip render)
+
+FLAGS:
+  0x011dea2b  Loading/menu flag (char)
+  0x011dea2c  IsGameLoaded (char)
+  0x011dea2d  CellLoaded flag (char)
+  0x011dea2e  FastTravel flag (char)
+  0x011dfa18  PreAI flag (char)
+  0x011dfa19  AI running flag (char, 1=running, 0=stopped)
+  0x01202dd8  IO reentrancy guard (char)
+  0x011de70c  OOM retry counter (int, max 15000)
+  0x011c6fbb  Pending settings write flag
+  0x011a2fe0  Frame counter (int)
+
+LOCKS:
+  0x011f4480  Texture cache spin-lock
+  0x011f11a0  Process manager spin-lock
+  0x011c3920  Global object table spin-lock
+  0x011c4000  Cell spin-lock
+  0x011c5f80  NiNode spin-lock
+  0x011d89c0  Renderer spin-lock
+
+VTABLES:
+  0x01016788  QueuedTexture
+  0x010c1844  BSTaskManagerThread
+  0x010c1664  BSTask state A
+  0x010c1670  BSTask state B
+  0x010ee4bc  NiDX9Renderer
+  0x010f017c  NiGeometryBufferData
+  0x0109b9ec  NiSourceTexture
+  0x0109dbb4  NiPixelData
+  0x0109f48c  NiDDSReader
+
+KEY FUNCTIONS:
+  0x00401000  GameHeap_Alloc (our hook target)
+  0x00401020  GetGameHeap -> returns &DAT_011f6238
+  0x0040fbf0  SpinLock_Acquire (RET 0x4, callee-cleanup)
+  0x0040fba0  SpinLock_Release
+  0x0040fc90  GetCurrentThreadId wrapper
+  0x0044edb0  Get main thread ID from TES+0x10
+  0x00452490  TextureCacheFlush
+  0x00453a80  FindCellToUnload
+  0x004511e0  CellUnloadEligible
+  0x00462290  CellUnloadExecute
+  0x00557090  CellRefListCheck
+  0x00551480  CellDetachRef
+  0x00651e30  ModelCleanup1
+  0x00651f40  ModelCleanup2
+  0x00652110  GetMenuManager
+  0x00866a90  OOM StageExecutor
+  0x00866d10  GetGeometryCache
+  0x00868850  PerFrameDrain (our second hook area)
+  0x00868d70  PurgeDefDeleteQueue
+  0x00869190  PDD guard set/clear
+  0x00878080  HeapCompact dispatcher
+  0x00878110  HeapCompact_GetStage
+  0x00878130  HeapCompact_ResetStage
+  0x00878160  PreDestructionSetup
+  0x00878250  DeferredCleanupSmall
+  0x008705d0  PostRender (OUR HOOK)
+  0x008774a0  CellTransitionHandler
+  0x008c78c0  AI_Dispatch (AI_START)
+  0x008c7990  AI_Join
+  0x008c80e0  PreAI_Setup
+  0x008c9fb0  AI_WorkerStart
+  0x008ca070  AI_SingleThread
+  0x008ca300  AI_SingleThreadJoin
+  0x0086e650  MainLoop_PerFrame
+  0x0086a850  MainLoop_Outer (WinMain loop)
+  0x0086f6a0  PostAI_Processing
+  0x00a61a60  TextureCacheFind (NO LOCK!)
+  0x00a61920  TextureCacheInsert
+  0x00a62030  TextureCache_PreReset
+  0x00a62090  TextureCache_FullReset
+  0x00aa3e40  Allocator_RetryLoop
+  0x00aa4030  Allocator_Alloc wrapper
+  0x00aa4060  Allocator_Free
+  0x00aa4290  CRT_malloc fallback
+  0x00aa4960  SmallAlloc optimizer
+  0x00aa7030  HeapDefrag
+  0x00c3dbf0  IOManager_MainThreadProcess
+  0x00c3e310  hkWorld_Lock
+  0x00c3e420  Queue_Dequeue
+  0x00c40e70  IO_DequeueTask
+  0x00c410b0  BSTaskManagerThread_Loop
+  0x00c42060  BSTask_SetState
+  0x00c42dd0  BSTaskManagerThread_Constructor
+  0x00c459d0  Havok_GarbageCollect
+  0x00c94bd0  Havok_AddEntities (broadphase add)
+
+CONSTANTS:
+  15000      OOM retry limit (DAT_011de70c)
+  0x3FD      Small alloc max size for freelist
+  0x240      Extended small alloc threshold
+  0xB28      Texture cache slot size
+  7          Number of texture cache slots (0x4E18/0xB28)
+  0x7FFFFFFF Max semaphore value (BSTaskManagerThread)
+  0x2710     Spin count before Sleep(1) in SpinLock
+
+================================================================================
+END OF ANALYSIS
+================================================================================
