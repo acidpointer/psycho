@@ -391,40 +391,25 @@ impl PressureRelief {
             return;
         }
 
-        // Call the game's OOM stage executor (FUN_00866a90) with stages 0-6.
-        // Stage 5 = FindCellToUnload + full PDD.
+        // Trigger HeapCompact stages 0-6 for the NEXT frame.
+        // HeapCompact runs at Phase 6 (FUN_00878080) — BEFORE AI dispatch,
+        // BEFORE IO processing, BEFORE per-frame drain. This is the ONLY
+        // safe position for cell unloading (Stage 5):
+        // - AI threads idle (joined from previous frame)
+        // - IO processing hasn't started
+        // - No deferred queues are being processed
         //
-        // CRITICAL: Only run when AI threads are IDLE (DAT_011dfa19 == 0).
-        // Our hook (FUN_008705d0) runs BETWEEN RENDER and AI_JOIN —
-        // AI threads are still active. Stage 5 unloads cells that AI
-        // threads are pathfinding through → crash. Skip and retry next frame.
-        let ai_active = unsafe { *(0x011DFA19 as *const u8) != 0 };
-        if !ai_active {
-            const OOM_STAGE_EXEC: usize = 0x00866A90;
-            const PRIMARY_HEAP_OFFSET: usize = 0x110;
-            const HEAP_SINGLETON: usize = 0x011F6238;
-
-            let heap = HEAP_SINGLETON as *mut c_void;
-            let primary = unsafe {
-                let p = (heap as *const u8).add(PRIMARY_HEAP_OFFSET) as *const *mut c_void;
-                *p
-            };
-            let mut done: u8 = 0;
-
-            for stage in 0..=6i32 {
-                done = 0;
-                unsafe {
-                    type OomStageExecFn =
-                        unsafe extern "thiscall" fn(*mut c_void, *mut c_void, i32, *mut u8) -> i32;
-                    let f: OomStageExecFn = std::mem::transmute(OOM_STAGE_EXEC);
-                    f(heap, primary, stage, &mut done);
-                }
-            }
-        } else {
-            // AI active — skip heavy cleanup, just do mi_collect.
-            // relieve() will be called again next frame after AI_JOIN.
-            self.active.store(false, Ordering::Release);
-            return;
+        // Writing 6 to heap_singleton+0x134 causes the HeapCompact dispatcher
+        // to run FUN_00866a90 with stages 0-6, including:
+        //   Stage 5: FindCellToUnload + full PDD (cell unloading!)
+        //
+        // DO NOT call FUN_00866a90 directly from our hook — our hook runs
+        // at Phase 12 (between RENDER and AI_JOIN). Returning from our hook
+        // continues the frame loop which processes IO/deferred tasks that
+        // reference data from unloaded cells → crash.
+        unsafe {
+            let trigger = HEAP_COMPACT_TRIGGER_PTR as *mut u32;
+            trigger.write_volatile(6);
         }
 
         unsafe { mi_collect(false) };

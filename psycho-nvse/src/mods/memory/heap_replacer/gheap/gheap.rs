@@ -167,10 +167,35 @@ impl Gheap {
         let mut stage: i32 = 0;
         let mut done: u8 = 0;
 
+        // Check if we're on the main thread. Many OOM stages (4, 5, 6)
+        // are only safe on the main thread (PDD, cell unload, defrag).
+        // Worker threads should only run stages 1, 3, 8.
+        // FUN_0040fc90 = GetCurrentThreadId, FUN_0044edb0 = get main thread ID
+        const GET_THREAD_ID: usize = 0x0040FC90;
+        const GET_MAIN_THREAD_ID: usize = 0x0044EDB0;
+        const TES_OBJECT: usize = 0x011DEA0C;
+
+        let is_main_thread = unsafe {
+            let get_tid: unsafe extern "C" fn() -> u32 = std::mem::transmute(GET_THREAD_ID);
+            let get_main: unsafe extern "fastcall" fn(*mut c_void) -> u32 =
+                std::mem::transmute(GET_MAIN_THREAD_ID);
+            let tes = *(TES_OBJECT as *const *mut c_void);
+            if tes.is_null() {
+                false
+            } else {
+                get_tid() == get_main(tes)
+            }
+        };
+
         // Replicate vanilla do-while: escalate stages 0-8.
-        // done=1 is set at the top of EVERY call (CRT fallback flag,
-        // NOT loop exit). Only stop after all stages exhausted.
+        // Main thread: all stages. Worker thread: only safe stages (1, 3, 8).
         while stage <= 8 {
+            // Skip unsafe stages on worker threads
+            if !is_main_thread && matches!(stage, 0 | 2 | 4 | 5 | 6) {
+                stage += 1;
+                continue;
+            }
+
             done = 0;
             stage = unsafe {
                 type OomStageExecFn =
