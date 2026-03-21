@@ -216,19 +216,42 @@ impl Quarantine {
         }
 
         // Bound quarantine growth during stale periods (loading screens,
-        // CellTransitionHandler, PDD). When many frees happen without
-        // a frame advance, acquire the IO dequeue lock (blocks
-        // BSTaskManagerThread from dequeuing new tasks), flush all
-        // quarantine, then release. This gives us both:
-        // - No UAF: BSTaskManagerThread is blocked during flush
-        // - No VA pressure: memory is freed immediately
+        // CellTransitionHandler, PDD).
         //
-        // BSTaskManagerThread is ALWAYS active (Ghidra: FUN_00c410b0
-        // never checks DAT_011dea2b loading flag).
+        // Three strategies based on context:
+        //
+        // 1. IO_LOCK_HELD (PDD): flush directly, IO already locked.
+        //    BSTaskManagerThread blocked, no UAF risk.
+        //
+        // 2. Loading screen (DAT_011dea2b != 0): do NOT drain at all.
+        //    NVSE plugins (JIP LN) hold refs to forms destroyed during
+        //    loading. After loading, CellChange events access those refs.
+        //    ANY drain during loading risks recycling memory JIP needs.
+        //    Let quarantine grow unbounded. Gheap::alloc OOM recovery
+        //    (flush + mi_collect + retry) handles VA pressure as last resort.
+        //
+        // 3. Normal gameplay stale: io_locked_flush (blocks IO, flushes).
         self.stale_pushes += 1;
         if self.stale_pushes >= STALE_PUSH_LIMIT {
-            self.stale_pushes = 0;
-            unsafe { Self::io_locked_flush(&mut self.buckets) };
+            let io_held = IO_LOCK_HELD.with(|f| f.get());
+            if io_held {
+                // Case 1: PDD — IO locked, safe to flush everything.
+                self.stale_pushes = 0;
+                for bucket in self.buckets.iter_mut() {
+                    Self::drain_bucket(bucket);
+                }
+            } else {
+                let loading = unsafe { *(0x011DEA2B as *const u8) != 0 };
+                if loading {
+                    // Case 2: Loading screen — do nothing, keep zombies.
+                    // stale_pushes keeps counting but no drain occurs.
+                    // OOM recovery in Gheap::alloc is the safety valve.
+                } else {
+                    // Case 3: Normal gameplay — IO-locked flush.
+                    self.stale_pushes = 0;
+                    unsafe { Self::io_locked_flush(&mut self.buckets) };
+                }
+            }
         }
 
         let idx = (frame as usize) % QUARANTINE_FRAMES;

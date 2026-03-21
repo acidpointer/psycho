@@ -1,0 +1,298 @@
+======================================================================
+CELL ACTOR FILTER + HEAPCOMPACT EFFECTIVENESS RESEARCH
+======================================================================
+
+# SECTION 1: FUN_00450fd0 - cell state check (called by eligibility)
+
+======================================================================
+CellStateCheck @ 0x00450fd0
+======================================================================
+  Function: FUN_00450fd0, Size: 18 bytes
+  Entry: 0x00450fd0
+
+undefined1 __fastcall FUN_00450fd0(int param_1)
+
+{
+  return *(undefined1 *)(param_1 + 0x26);
+}
+
+
+
+# SECTION 2: FUN_005570b0 - cell reference list check
+
+======================================================================
+CellRefListCheck @ 0x005570b0
+======================================================================
+  Function: FUN_005570b0, Size: 23 bytes
+  Entry: 0x005570b0
+
+bool __fastcall FUN_005570b0(int *param_1)
+
+{
+  return *param_1 != 0;
+}
+
+
+
+# SECTION 3: FUN_009611e0 - get actor process level?
+
+======================================================================
+GetActorProcess @ 0x009611e0
+======================================================================
+  Function: FUN_009611e0, Size: 17 bytes
+  Entry: 0x009611e0
+
+undefined4 __fastcall FUN_009611e0(int param_1)
+
+{
+  return *(undefined4 *)(param_1 + 0x18);
+}
+
+
+
+# SECTION 4: FUN_00551620 - iterate cell references
+
+======================================================================
+CellIterateRefs @ 0x00551620
+======================================================================
+  Function: FUN_00551620, Size: 34 bytes
+  Entry: 0x00551620
+
+bool __fastcall FUN_00551620(int param_1)
+
+{
+  int iVar1;
+  
+  iVar1 = FUN_00410220((void *)(param_1 + 0x28),9);
+  return iVar1 != 0;
+}
+
+
+
+# SECTION 5: FUN_00551480 - detach single ref from cell
+
+======================================================================
+CellDetachRef @ 0x00551480
+======================================================================
+  Function: FUN_00551480, Size: 402 bytes
+  Entry: 0x00551480
+
+void __thiscall FUN_00551480(void *this,char param_1)
+
+{
+  bool bVar1;
+  undefined4 *puVar2;
+  int *piVar3;
+  int *unaff_FS_OFFSET;
+  undefined **ppuVar4;
+  undefined **ppuVar5;
+  int iVar6;
+  undefined4 *local_2c;
+  int local_18;
+  undefined4 *local_14;
+  int local_10;
+  undefined1 *puStack_c;
+  undefined4 local_8;
+  
+  local_8 = 0xffffffff;
+  puStack_c = &LAB_00f01e5b;
+  local_10 = *unaff_FS_OFFSET;
+  *unaff_FS_OFFSET = (int)&local_10;
+  local_14 = (undefined4 *)FUN_00410220((void *)((int)this + 0x28),9);
+  if ((local_14 == (undefined4 *)0x0) && (param_1 != '\0')) {
+    puVar2 = (undefined4 *)FUN_00401000(0x10);
+    local_8 = 0;
+    if (puVar2 == (undefined4 *)0x0) {
+      local_2c = (undefined4 *)0x0;
+    }
+    else {
+      local_2c = FUN_0040f410(puVar2);
+    }
+    local_8 = 0xffffffff;
+    local_14 = local_2c;
+    FUN_0040ff60((void *)((int)this + 0x28),local_2c);
+    FUN_00541ac0((int)this);
+    local_18 = FUN_009604f0((int)this);
+    while ((local_18 != 0 && (piVar3 = (int *)FUN_006815c0(local_18), *piVar3 != 0))) {
+      iVar6 = 0;
+      ppuVar5 = &PTR_PTR_01184920;
+      ppuVar4 = &PTR_PTR_011841cc;
+      puVar2 = (undefined4 *)FUN_006815c0(local_18);
+      piVar3 = (int *)FUN_00ec43fb((int *)*puVar2,0,(_s_RTTICompleteObjectLocator *)ppuVar4,
+                                   (TypeDescriptor *)ppuVar5,iVar6);
+      local_18 = FUN_00726070(local_18);
+      if ((piVar3 != (int *)0x0) &&
+         (((bVar1 = FUN_00440da0((int)piVar3), !bVar1 &&
+           (iVar6 = FUN_008d8520((int)piVar3), iVar6 != 0)) &&
+          (iVar6 = FUN_00931850((int)piVar3), iVar6 == 3)))) {
+        FUN_0096e870(&DAT_011e0e80,piVar3);
+      }
+    }
+    FUN_00541ae0((int)this);
+  }
+  if (local_14 != (undefined4 *)0x0) {
+    if (param_1 == '\0') {
+      local_14[3] = local_14[3] + -1;
+    }
+    else {
+      local_14[3] = local_14[3] + 1;
+    }
+    if (local_14[3] == 0) {
+      FUN_00410020((void *)((int)this + 0x28),local_14,'\x01');
+    }
+  }
+  *unaff_FS_OFFSET = local_10;
+  return;
+}
+
+
+
+# SECTION 6: FUN_00878080 - HeapCompact stages
+
+======================================================================
+HeapCompact @ 0x00878080
+======================================================================
+  Function: FUN_00878080, Size: 137 bytes
+  Entry: 0x00878080
+
+void __fastcall FUN_00878080(int param_1)
+
+{
+  bool bVar1;
+  undefined *puVar2;
+  int iVar3;
+  uint uVar4;
+  undefined4 uVar5;
+  char *pcVar6;
+  uint local_c;
+  char local_5;
+  
+  bVar1 = FUN_0044b130((LPCRITICAL_SECTION)(param_1 + 0x14));
+  if (bVar1) {
+    puVar2 = FUN_00401020();
+    iVar3 = FUN_00878110((int)puVar2);
+    if (iVar3 != 0) {
+      local_5 = '\x01';
+      local_c = 0;
+      while( true ) {
+        puVar2 = FUN_00401020();
+        uVar4 = FUN_00878110((int)puVar2);
+        if (uVar4 < local_c) break;
+        pcVar6 = &local_5;
+        uVar5 = 0;
+        uVar4 = local_c;
+        puVar2 = FUN_00401020();
+        FUN_00866a90(puVar2,uVar5,uVar4,pcVar6);
+        local_c = local_c + 1;
+      }
+      puVar2 = FUN_00401020();
+      FUN_00878130((int)puVar2);
+    }
+    FUN_0082f1f0((LPCRITICAL_SECTION)(param_1 + 0x14));
+  }
+  return;
+}
+
+
+
+--- Calls FROM HeapCompact (0x00878080) ---
+  CALL 0x0044b130 -> FUN_0044b130 (from 0x0087808f)
+  CALL 0x00401020 -> FUN_00401020 (from 0x0087809d)
+  CALL 0x00878110 -> FUN_00878110 (from 0x008780a4)
+  CALL 0x00401020 -> FUN_00401020 (from 0x008780c3)
+  CALL 0x00878110 -> FUN_00878110 (from 0x008780ca)
+  CALL 0x00401020 -> FUN_00401020 (from 0x008780de)
+  CALL 0x00866a90 -> FUN_00866a90 (from 0x008780e5)
+  CALL 0x00401020 -> FUN_00401020 (from 0x008780ec)
+  CALL 0x00878130 -> FUN_00878130 (from 0x008780f3)
+  CALL 0x0082f1f0 -> FUN_0082f1f0 (from 0x008780fe)
+  Total: 10 calls
+
+# SECTION 7: FUN_008774a0 - CellTransitionHandler
+# This runs during loading screens where NVSE is inactive
+
+======================================================================
+CellTransitionHandler @ 0x008774a0
+======================================================================
+  Function: FUN_008774a0, Size: 561 bytes
+  Entry: 0x008774a0
+
+void __thiscall FUN_008774a0(void *this,char param_1)
+
+{
+  undefined1 uVar1;
+  bool bVar2;
+  int iVar3;
+  void *this_00;
+  int *piVar4;
+  int *piVar5;
+  undefined *puVar6;
+  undefined4 local_20;
+  undefined4 local_18;
+  
+  uVar1 = FUN_004f1540((int)this);
+  FUN_004f15a0(this,0);
+  FUN_00877700((int)DAT_011dea3c);
+  bVar2 = FUN_007d6bd0(DAT_011ddf38,'\0');
+  FUN_00453a70();
+  FUN_00ad8780();
+  FUN_008324e0('\0');
+  iVar3 = FUN_008d6f30((int)DAT_011dea3c);
+  if (iVar3 != 0) {
+    piVar4 = DAT_011dea3c;
+    this_00 = (void *)FUN_008d6f30((int)DAT_011dea3c);
+    FUN_0054ca90(this_00,piVar4);
+  }
+  piVar4 = (int *)FUN_00950bb0(DAT_011dea3c,'\x01');
+  if (piVar4 == (int *)0x0) {
+    local_18 = 0;
+  }
+  else {
+    local_18 = (**(code **)(*piVar4 + 0xc))();
+  }
+  if (local_18 != 0) {
+    iVar3 = FUN_009611e0(local_18);
+    if (iVar3 != 0) {
+      piVar5 = (int *)FUN_009611e0(local_18);
+      (**(code **)(*piVar5 + 0xe8))(piVar4);
+    }
+  }
+  piVar4 = (int *)FUN_00950bb0(DAT_011dea3c,'\0');
+  if (piVar4 == (int *)0x0) {
+    local_20 = 0;
+  }
+  else {
+    local_20 = (**(code **)(*piVar4 + 0xc))();
+  }
+  if (local_20 != 0) {
+    iVar3 = FUN_009611e0(local_20);
+    if (iVar3 != 0) {
+      piVar5 = (int *)FUN_009611e0(local_20);
+      (**(code **)(*piVar5 + 0xe8))(piVar4);
+    }
+  }
+  FUN_004539a0(DAT_011dea10,'\0','\0');
+  FUN_007037c0(DAT_011dea10,0x7fffffff);
+  FUN_0061cc40(DAT_011dea10,0x7fffffff);
+  puVar6 = FUN_006c0720();
+  FUN_006c09f0(puVar6);
+  FUN_00868d70('\0');
+  FUN_00c459d0('\0');
+  (**(code **)(*DAT_011dea3c + 0x1cc))(0,0);
+  FUN_0084a840(DAT_011ddf38);
+  FUN_00970d50(0x11e0e80);
+  FUN_004614e0(DAT_011c3f2c);
+  iVar3 = FUN_00b4f5c0();
+  FUN_00b631d0(iVar3);
+  FUN_0040fbe0();
+  FUN_00706320();
+  FUN_0045ac80((int)DAT_011dea10);
+  if (param_1 != '\0') {
+    FUN_007053f0();
+  }
+  FUN_007d6bd0(DAT_011ddf38,bVar2);
+  FUN_008776e0((int)DAT_011dea0c);
+  FUN_004f15a0(DAT_011dea0c,uVar1);
+  return;
+}
+

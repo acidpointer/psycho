@@ -81,6 +81,10 @@ use super::types::{
 /// drain. Disabling eliminates all stale-pointer crashes (QueuedTexture,
 /// hkBSHeightFieldShape, BSTreeNode) at the cost of higher commit under
 /// extreme stress (32-bit VA ceiling reached sooner).
+/// Enable manual cell unloading via FindCellToUnload.
+/// Required to keep commit below the 32-bit VA ceiling under stress.
+/// NVSE compatibility: quarantine keeps zombie data intact during loading
+/// screens so JIP LN NVSE's CellChange events access readable memory.
 const CELL_UNLOAD_ENABLED: bool = true;
 
 /// Maximum commit GROWTH above baseline before triggering pressure relief.
