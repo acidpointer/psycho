@@ -83,14 +83,21 @@ use super::types::{
 /// extreme stress (32-bit VA ceiling reached sooner).
 const CELL_UNLOAD_ENABLED: bool = true;
 
-/// Trigger cell cleanup when commit exceeds this (bytes).
-const THRESHOLD: usize = 700 * 1024 * 1024;
+/// Maximum commit GROWTH above baseline before triggering pressure relief.
+/// Baseline is measured when PressureRelief initializes (after game loads).
+/// This adapts to any mod count:
+///   - 423 mods, baseline 500MB → triggers at ~1000MB
+///   - 1500 mods, baseline 1500MB → triggers at ~2000MB
+/// 500MB headroom leaves room for D3D9 textures (21MB+ each) and
+/// the 32-bit VA ceiling (~3.8GB usable with LAA).
+const MAX_GROWTH_ABOVE_BASELINE: usize = 500 * 1024 * 1024;
 
 /// Max cells to unload per relief cycle.
 const MAX_CELLS_PER_CYCLE: usize = 20;
 
 /// Minimum milliseconds between relief cycles.
-const COOLDOWN_MS: u64 = 2000;
+/// 1000ms allows faster response during extreme cell traversal.
+const COOLDOWN_MS: u64 = 1000;
 
 // ---------------------------------------------------------------------------
 // Game function addresses (Fallout New Vegas)
@@ -225,35 +232,57 @@ pub struct PressureRelief {
     /// runs from the AI thread join hook (after AI threads are idle).
     deferred_unload: AtomicBool,
 
+    /// Set by destruction_protocol when cells were unloaded. The loading state
+    /// counter (DAT_01202D6C) is kept elevated to suppress PLChangeEvent
+    /// dispatch. tick() decrements it on the next frame, AFTER NVSE plugins
+    /// have seen the elevated counter and skipped event processing.
+    pending_counter_decrement: AtomicBool,
+
     find_cell: FnPtr<FindCellToUnloadFn>,
     pre_destruction: FnPtr<PreDestructionSetupFn>,
     post_destruction: FnPtr<PostDestructionRestoreFn>,
     deferred_cleanup: FnPtr<DeferredCleanupSmallFn>,
+
+    /// Commit at initialization time. Dynamic threshold = baseline + MAX_GROWTH.
+    baseline_commit: usize,
 }
 
 impl PressureRelief {
     fn new() -> anyhow::Result<Self> {
+        let baseline = libmimalloc::process_info::MiMallocProcessInfo::get()
+            .get_current_commit();
+
         let instance = unsafe {
             Self {
                 requested: AtomicBool::new(false),
                 active: AtomicBool::new(false),
                 deferred_unload: AtomicBool::new(false),
+                pending_counter_decrement: AtomicBool::new(false),
                 last_time_ms: AtomicU64::new(0),
                 find_cell: FnPtr::from_raw(FIND_CELL_TO_UNLOAD as *mut c_void)?,
                 pre_destruction: FnPtr::from_raw(PRE_DESTRUCTION_SETUP as *mut c_void)?,
                 post_destruction: FnPtr::from_raw(POST_DESTRUCTION_RESTORE as *mut c_void)?,
                 deferred_cleanup: FnPtr::from_raw(DEFERRED_CLEANUP_SMALL as *mut c_void)?,
+                baseline_commit: baseline,
             }
         };
 
+        let threshold_mb = (baseline + MAX_GROWTH_ABOVE_BASELINE) / 1024 / 1024;
         log::info!(
-            "[PRESSURE] Initialized (threshold={}MB, max_cells={}, cooldown={}ms)",
-            THRESHOLD / 1024 / 1024,
+            "[PRESSURE] Initialized (baseline={}MB, threshold={}MB, max_cells={}, cooldown={}ms)",
+            baseline / 1024 / 1024,
+            threshold_mb,
             MAX_CELLS_PER_CYCLE,
             COOLDOWN_MS,
         );
 
         Ok(instance)
+    }
+
+    /// Dynamic threshold: baseline commit + MAX_GROWTH_ABOVE_BASELINE.
+    #[inline]
+    fn threshold(&self) -> usize {
+        self.baseline_commit + MAX_GROWTH_ABOVE_BASELINE
     }
 
     pub fn instance() -> Option<&'static Self> {
@@ -275,7 +304,7 @@ impl PressureRelief {
             return;
         }
         let info = libmimalloc::process_info::MiMallocProcessInfo::get();
-        if info.get_current_commit() >= THRESHOLD {
+        if info.get_current_commit() >= self.threshold() {
             self.requested.store(true, Ordering::Release);
 
             // Do NOT trigger HeapCompact here. check() runs from any thread
@@ -292,6 +321,17 @@ impl PressureRelief {
 
     pub fn is_requested(&self) -> bool {
         self.requested.load(Ordering::Relaxed)
+    }
+
+    /// Decrement the loading state counter if a previous destruction_protocol
+    /// left it elevated. Called from tick() on the next frame, AFTER NVSE
+    /// plugins have processed their events with the counter > 0.
+    pub fn flush_pending_counter_decrement(&self) {
+        if self.pending_counter_decrement.swap(false, Ordering::AcqRel) {
+            let loading_counter =
+                unsafe { &*(LOADING_STATE_COUNTER_PTR as *const std::sync::atomic::AtomicI32) };
+            loading_counter.fetch_sub(1, std::sync::atomic::Ordering::AcqRel);
+        }
     }
 
     /// # Safety
@@ -315,7 +355,7 @@ impl PressureRelief {
         }
 
         let commit = info.get_current_commit();
-        if commit < THRESHOLD {
+        if commit < self.threshold() {
             self.requested.store(false, Ordering::Release);
             self.active.store(false, Ordering::Release);
             return;
@@ -435,6 +475,8 @@ impl PressureRelief {
         stats.record_pressure_relief(cells);
 
         if cells > 0 {
+            // Loading counter still elevated — schedule decrement for next tick()
+            self.pending_counter_decrement.store(true, Ordering::Release);
             log::info!(
                 "[PRESSURE] Deferred unload: {} cells (commit={}MB)",
                 cells, commit_mb,
@@ -486,13 +528,23 @@ impl PressureRelief {
         // === IO SYNCHRONIZATION ===
         // Acquire the IO dequeue lock so BSTaskManagerThread cannot dequeue
         // new tasks during PDD. Wait for any in-flight task to complete.
+        // IoLockScope tells quarantine that flushes during PDD can skip
+        // lock acquisition (we already hold it).
         let io_locked = if cells > 0 {
             unsafe { Self::io_lock_acquire() }
         } else {
             false
         };
 
+        let _io_scope = if io_locked {
+            Some(super::delayed_free::IoLockScope::enter())
+        } else {
+            None
+        };
+
         unsafe { deferred_cleanup(state[5]) };
+
+        drop(_io_scope);
 
         if io_locked {
             unsafe { Self::io_lock_release() };
@@ -500,7 +552,17 @@ impl PressureRelief {
 
         unsafe { post_destruction(state_ptr) };
 
-        loading_counter.fetch_sub(1, std::sync::atomic::Ordering::AcqRel);
+        // If cells were unloaded, do NOT decrement the loading counter here.
+        // NVSE MainLoopHook fires immediately after FUN_0086a850 returns
+        // (at 0x00ecc470). JIP LN NVSE's LN_ProcessEvents dispatches cell
+        // change events from there. If the counter is 0, PLChangeEvent fires
+        // for destroyed actors → stale reference → crash.
+        //
+        // Keep counter > 0 so event dispatch is suppressed. tick() on the
+        // NEXT frame decrements it, after NVSE hooks have already run.
+        if cells == 0 {
+            loading_counter.fetch_sub(1, std::sync::atomic::Ordering::AcqRel);
+        }
 
         cells
     }
@@ -516,8 +578,6 @@ impl PressureRelief {
         if io_mgr.is_null() {
             return false;
         }
-
-        let bst_count_before = unsafe { Self::read_bst_sem_count(io_mgr) };
 
         // Acquire the IO dequeue spin-lock (FUN_0040fbf0).
         //
@@ -536,29 +596,46 @@ impl PressureRelief {
             );
         }
 
-        // Probe BSTaskManagerThread's inter-iteration semaphore (+0x1c).
-        // Count=1 → idle/between-iterations. Count=0 → mid-task.
+        // Wait for BSTaskManagerThread to finish any in-flight task.
+        //
+        // After acquiring our IO lock, BSTaskManagerThread is in one of:
+        // a) Idle (semaphore count=1): probe succeeds immediately.
+        // b) Blocked on our lock (consumed sem, trying to dequeue): count=0,
+        //    no in-flight task, safe to proceed immediately.
+        // c) Mid-task processing (dequeued before us, released lock): count=0,
+        //    in-flight task, must wait for completion.
+        //
+        // Cases (b) and (c) both show count=0. Distinguish via iter_count:
+        // - Read iter_count, poll for change. InterlockedIncrement(+0x18)
+        //   happens AFTER FUN_0044dd60 (task ref release) and ReleaseSemaphore.
+        //   When iter_count changes, all task refs are released.
+        // - If iter_count doesn't change within 50ms, BSTaskManagerThread is
+        //   blocked on our lock (case b) -- no task, safe to proceed.
+        //   50ms covers worst-case disk I/O (archive read + DDS decode).
+        //   This only fires during loading/fast travel (stale period),
+        //   never during normal gameplay or PDD (IoLockScope skips lock).
         if let Some(sem_handle) = unsafe { Self::read_bst_iter_sem_handle(io_mgr) } {
             match winapi::wait_for_single_object(sem_handle, 0) {
                 WaitResult::Signaled => {
-                    // Not mid-task — restore semaphore count.
+                    // Case (a): idle. Restore semaphore count.
                     if let Err(e) = winapi::release_semaphore(sem_handle, 1) {
                         log::error!("[IO_SYNC] ReleaseSemaphore failed: {:?}", e);
                     }
                 }
                 _ => {
-                    // Mid-task or blocked on our lock. Wait up to 5ms for
-                    // iter_count change. If no change → blocked on lock (safe).
-                    if let Some(count_before) = bst_count_before {
+                    // Case (b) or (c): poll iter_count for change.
+                    if let Some(count_before) = unsafe { Self::read_bst_sem_count(io_mgr) } {
                         let start = winapi::get_tick_count();
                         loop {
                             winapi::sleep(0);
                             if let Some(c) = unsafe { Self::read_bst_sem_count(io_mgr) } {
                                 if c != count_before {
+                                    // Case (c) resolved: task completed, refs released.
                                     break;
                                 }
                             }
-                            if winapi::get_tick_count().wrapping_sub(start) >= 5 {
+                            if winapi::get_tick_count().wrapping_sub(start) >= 50 {
+                                // Case (b): blocked on lock, no task. Safe.
                                 break;
                             }
                         }
@@ -588,7 +665,8 @@ impl PressureRelief {
         }
     }
 
-    /// Read BSTaskManagerThread's iteration semaphore count.
+    /// Read BSTaskManagerThread's iteration semaphore count (+0x18).
+    /// InterlockedIncrement'd AFTER task ref release and ReleaseSemaphore.
     unsafe fn read_bst_sem_count(io_mgr: *const u8) -> Option<i32> {
         let bst = unsafe { Self::read_bst_ptr(io_mgr) }?;
         let count_ptr = unsafe { bst.add(IO_THREAD_SEM_COUNT_OFFSET) as *const i32 };

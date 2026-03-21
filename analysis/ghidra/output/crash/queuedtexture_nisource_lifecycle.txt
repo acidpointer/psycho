@@ -1,0 +1,269 @@
+======================================================================
+QueuedTexture -> NiSourceTexture -> NiPixelData LIFECYCLE
+======================================================================
+
+# SECTION 1: QueuedTexture constructor (FUN_0043bd10)
+# vtable assigned at 0x0043bd5d. What fields are set?
+
+======================================================================
+QueuedTexture_ctor @ 0x0043bd10
+======================================================================
+  Function: FUN_0043bd10, Size: 208 bytes
+  Entry: 0x0043bd10
+
+void __thiscall FUN_0043bd10(void *this,char *param_1)
+
+{
+  int *unaff_FS_OFFSET;
+  char local_120 [268];
+  uint local_14;
+  int local_10;
+  undefined1 *puStack_c;
+  undefined4 local_8;
+  
+  local_8 = 0xffffffff;
+  puStack_c = &LAB_00eebe09;
+  local_10 = *unaff_FS_OFFSET;
+  local_14 = DAT_011c16bc ^ (uint)&stack0xfffffffc;
+  *unaff_FS_OFFSET = (int)&local_10;
+  FUN_00c3ce60(this);
+  local_8 = 0;
+  *(undefined ***)this = &PTR_FUN_01016788;
+  FUN_00633c90((void *)((int)this + 0x30),0);
+  local_8 = CONCAT31(local_8._1_3_,1);
+  *(undefined1 *)((int)this + 0x34) = 0;
+  FUN_00af4200(param_1,local_120,0x104);
+  FUN_00c3cee0(this,local_120);
+  FUN_00c3cf60(this,1);
+  local_8 = 0xffffffff;
+  *unaff_FS_OFFSET = local_10;
+  __security_check_cookie(local_14 ^ (uint)&stack0xfffffffc);
+  return;
+}
+
+
+
+# SECTION 2: FUN_0043be60 - QueuedTexture init 2
+
+======================================================================
+QueuedTexture_init2 @ 0x0043be60
+======================================================================
+  Function: FUN_0043be60, Size: 129 bytes
+  Entry: 0x0043be60
+
+undefined4 * __thiscall FUN_0043be60(void *this,undefined4 param_1)
+
+{
+  int *unaff_FS_OFFSET;
+  int local_10;
+  undefined1 *puStack_c;
+  undefined4 local_8;
+  
+  local_8 = 0xffffffff;
+  puStack_c = &LAB_00eebe53;
+  local_10 = *unaff_FS_OFFSET;
+  *unaff_FS_OFFSET = (int)&local_10;
+  FUN_00c3ce60(this);
+  local_8 = 0;
+  *(undefined ***)this = &PTR_FUN_01016788;
+  FUN_00633c90((void *)((int)this + 0x30),0);
+  local_8 = CONCAT31(local_8._1_3_,1);
+  *(undefined1 *)((int)this + 0x34) = 0;
+  FUN_00c3cf40(this,param_1);
+  *unaff_FS_OFFSET = local_10;
+  return this;
+}
+
+
+
+# SECTION 3: FUN_0043bef0 - QueuedTexture init 3
+
+======================================================================
+QueuedTexture_init3 @ 0x0043bef0
+======================================================================
+  Function: FUN_0043bef0, Size: 140 bytes
+  Entry: 0x0043bef0
+
+undefined4 * __thiscall FUN_0043bef0(void *this,int param_1)
+
+{
+  int *unaff_FS_OFFSET;
+  int local_10;
+  undefined1 *puStack_c;
+  undefined4 local_8;
+  
+  local_8 = 0xffffffff;
+  puStack_c = &LAB_00eebe53;
+  local_10 = *unaff_FS_OFFSET;
+  *unaff_FS_OFFSET = (int)&local_10;
+  FUN_00c3ce60(this);
+  local_8 = 0;
+  *(undefined ***)this = &PTR_FUN_01016788;
+  FUN_00633c90((void *)((int)this + 0x30),0);
+  local_8 = CONCAT31(local_8._1_3_,1);
+  *(undefined1 *)((int)this + 0x34) = 0;
+  FUN_0066b0d0((void *)((int)this + 0x30),param_1);
+  FUN_00449150((int)this);
+  *unaff_FS_OFFSET = local_10;
+  return this;
+}
+
+
+
+# SECTION 4: FUN_0043c050 - QueuedTexture task body (full)
+
+======================================================================
+QueuedTexture_TaskBody @ 0x0043c050
+======================================================================
+  Function: FUN_0043c050, Size: 116 bytes
+  Entry: 0x0043c050
+
+void __fastcall FUN_0043c050(void *param_1)
+
+{
+  char cVar1;
+  int iVar2;
+  undefined4 uVar3;
+  uint uVar4;
+  void *pvVar5;
+  
+  iVar2 = FUN_0055b980((int)param_1);
+  if (iVar2 != 0) {
+    pvVar5 = param_1;
+    uVar3 = FUN_0055b980((int)param_1);
+    cVar1 = FUN_00448ed0(DAT_011c3b3c,uVar3,(int)pvVar5);
+    FUN_0043c100(param_1,cVar1);
+  }
+  uVar4 = FUN_0043c130();
+  if ((uVar4 & 0xff) != 0) {
+    FUN_0043c0d0(param_1,'\x01');
+  }
+  (**(code **)(*DAT_01202d98 + 0x48))(param_1);
+  return;
+}
+
+
+
+--- Calls FROM QueuedTexture_TaskBody (0x0043c050) ---
+  CALL 0x0055b980 -> FUN_0055b980 (from 0x0043c05c)
+  CALL 0x0055b980 -> FUN_0055b980 (from 0x0043c06c)
+  CALL 0x00448ed0 -> FUN_00448ed0 (from 0x0043c078)
+  CALL 0x0043c100 -> FUN_0043c100 (from 0x0043c088)
+  CALL 0x0043c130 -> FUN_0043c130 (from 0x0043c093)
+  CALL 0x0043c0d0 -> FUN_0043c0d0 (from 0x0043c0a4)
+  Total: 6 calls
+
+# SECTION 5: FUN_0055b980 - get NiSourceTexture from QueuedTexture?
+
+======================================================================
+GetNiSourceTexture @ 0x0055b980
+======================================================================
+  Function: FUN_0055b980, Size: 17 bytes
+  Entry: 0x0055b980
+
+undefined4 __fastcall FUN_0055b980(int param_1)
+
+{
+  return *(undefined4 *)(param_1 + 0x2c);
+}
+
+
+
+# SECTION 6: FUN_00448ed0 - texture load dispatch
+
+======================================================================
+TextureLoadDispatch @ 0x00448ed0
+======================================================================
+  Function: FUN_00448ed0, Size: 128 bytes
+  Entry: 0x00448ed0
+
+undefined1 __thiscall FUN_00448ed0(void *this,undefined4 param_1,int param_2)
+
+{
+  uint uVar1;
+  int *unaff_FS_OFFSET;
+  int local_18;
+  undefined1 local_11;
+  int local_10;
+  undefined1 *puStack_c;
+  undefined4 local_8;
+  
+  local_8 = 0xffffffff;
+  puStack_c = &LAB_00eecd68;
+  local_10 = *unaff_FS_OFFSET;
+  uVar1 = DAT_011c16bc ^ (uint)&stack0xfffffffc;
+  *unaff_FS_OFFSET = (int)&local_10;
+  FUN_00528cb0(&local_18,param_2);
+  local_8 = 0;
+  local_11 = (**(code **)(**(int **)((int)this + 0x20) + 0x10))(param_1,&local_18,0,uVar1);
+  local_8 = 0xffffffff;
+  FUN_0044cbf0(&local_18);
+  *unaff_FS_OFFSET = local_10;
+  return local_11;
+}
+
+
+
+# SECTION 7: FUN_0043c100 - post-load handler
+
+======================================================================
+PostLoad_0043c100 @ 0x0043c100
+======================================================================
+  Function: FUN_0043c100, Size: 33 bytes
+  Entry: 0x0043c100
+
+void __thiscall FUN_0043c100(void *this,char param_1)
+
+{
+  FUN_0044aea0(param_1,(byte *)((int)this + 0x34));
+  return;
+}
+
+
+
+# SECTION 7b: FUN_0043c0d0 - secondary handler
+
+======================================================================
+PostLoad_0043c0d0 @ 0x0043c0d0
+======================================================================
+  Function: FUN_0043c0d0, Size: 33 bytes
+  Entry: 0x0043c0d0
+
+void __thiscall FUN_0043c0d0(void *this,char param_1)
+
+{
+  FUN_0044ae60(param_1,(byte *)((int)this + 0x34));
+  return;
+}
+
+
+
+# SECTION 8: 0x00AA22A2 - crash return address (BSFile::Read area)
+
+======================================================================
+CrashCaller_AA22A2 @ 0x00aa22a2
+======================================================================
+  [function not found]
+
+--- Calls FROM CrashCaller_AA22A2 (0x00aa22a2) ---
+  [function not found]
+
+# SECTION 9: NiPixelData destructor (vtable 0x0109DBB4)
+# vtable[1] is the destructor
+  NiPixelData vtable[1] = 0x00cfcc20
+
+======================================================================
+NiPixelData_dtor @ 0x00cfcc20
+======================================================================
+  Function: FUN_00cfcc20, Size: 13 bytes
+  Entry: 0x00cfcc20
+
+void __fastcall FUN_00cfcc20(undefined4 *param_1)
+
+{
+  if (param_1 != (undefined4 *)0x0) {
+    (**(code **)*param_1)(1);
+  }
+  return;
+}
+

@@ -1,0 +1,198 @@
+======================================================================
+BSTaskManagerThread IN-FLIGHT DETECTION RESEARCH
+======================================================================
+
+# SECTION 1: FUN_00c42060 - state setter in BSTaskManagerThread loop
+
+======================================================================
+BSTask_SetState @ 0x00c42060
+======================================================================
+  Function: FUN_00c42060, Size: 111 bytes
+  Entry: 0x00c42060
+
+/* WARNING: Removing unreachable block (ram,0x00c42081) */
+/* WARNING: Removing unreachable block (ram,0x00c420a7) */
+
+void __thiscall FUN_00c42060(void *this,int param_1)
+
+{
+  (**(code **)(*(int *)this + 4))();
+  *(int *)((int)this + 8) = param_1;
+  *(byte *)((int)this + 0x18) = *(byte *)((int)this + 0x18) & 0xfe;
+  *(byte *)((int)this + 0x18) = *(byte *)((int)this + 0x18) & 0xfd;
+  return;
+}
+
+
+
+# SECTION 2: State vtables - PTR_FUN_010c1664 and PTR_FUN_010c1670
+  010c1664[0]: 0x00c40b40 -> FUN_00c40b40
+  010c1664[1]: 0x00c40b20 -> FUN_00c40b20
+  010c1664[2]: 0x0112b4ac -> unknown
+  010c1664[3]: 0x00c40b40 -> FUN_00c40b40
+
+  010c1670[0]: 0x00c40b40 -> FUN_00c40b40
+  010c1670[1]: 0x00c40b20 -> FUN_00c40b20
+  010c1670[2]: 0x0112b540 -> unknown
+  010c1670[3]: 0x00c40960 -> FUN_00c40960
+
+# SECTION 3: BSTaskManagerThread constructor - object layout
+
+======================================================================
+BSTaskThread_init @ 0x00c42dd0
+======================================================================
+  Function: FUN_00c42dd0, Size: 292 bytes
+  Entry: 0x00c42dd0
+
+undefined4 * __thiscall FUN_00c42dd0(void *this,undefined4 param_1,int param_2)
+
+{
+  HANDLE pvVar1;
+  int *unaff_FS_OFFSET;
+  int local_10;
+  undefined1 *puStack_c;
+  undefined4 local_8;
+  
+  local_8 = 0xffffffff;
+  puStack_c = &LAB_00f2e346;
+  local_10 = *unaff_FS_OFFSET;
+  *unaff_FS_OFFSET = (int)&local_10;
+  *(undefined ***)this = &PTR_FUN_010c1844;
+  *(LONG *)((int)this + 0xc) = 0;
+  *(undefined4 *)((int)this + 0x14) = 0x7fffffff;
+  pvVar1 = CreateSemaphoreA((LPSECURITY_ATTRIBUTES)0x0,*(LONG *)((int)this + 0xc),
+                            *(LONG *)((int)this + 0x14),(LPCSTR)0x0);
+  *(HANDLE *)((int)this + 0x10) = pvVar1;
+  local_8 = 0;
+  *(LONG *)((int)this + 0x18) = 1;
+  *(undefined4 *)((int)this + 0x20) = 1;
+  pvVar1 = CreateSemaphoreA((LPSECURITY_ATTRIBUTES)0x0,*(LONG *)((int)this + 0x18),
+                            *(LONG *)((int)this + 0x20),(LPCSTR)0x0);
+  *(HANDLE *)((int)this + 0x1c) = pvVar1;
+  local_8 = CONCAT31(local_8._1_3_,1);
+  pvVar1 = CreateThread((LPSECURITY_ATTRIBUTES)0x0,0,lpStartAddress_00c42da0,this,4,
+                        (LPDWORD)((int)this + 8));
+  *(HANDLE *)((int)this + 4) = pvVar1;
+  if (param_2 != 0) {
+    FUN_00aa2740(*(undefined4 *)((int)this + 8),param_2);
+  }
+  *(undefined4 *)((int)this + 0x24) = 0;
+  *(undefined4 *)((int)this + 0x28) = 0;
+  *(undefined4 *)((int)this + 0x2c) = *(undefined4 *)((int)this + 8);
+  *unaff_FS_OFFSET = local_10;
+  return this;
+}
+
+
+
+--- Calls FROM BSTaskThread_init (0x00c42dd0) ---
+  CALL 0x00fdf0b4 -> unknown_0x00fdf0b4 (from 0x00c42e2e)
+  CALL 0x00000023 -> unknown_0x00000023 (from 0x00c42e2e)
+  CALL 0x00fdf0b4 -> unknown_0x00fdf0b4 (from 0x00c42e6e)
+  CALL 0x00000023 -> unknown_0x00000023 (from 0x00c42e6e)
+  CALL 0x00fdf124 -> unknown_0x00fdf124 (from 0x00c42e94)
+  CALL 0x0000003f -> unknown_0x0000003f (from 0x00c42e94)
+  CALL 0x00aa2740 -> FUN_00aa2740 (from 0x00c42eb1)
+  Total: 7 calls
+
+# SECTION 4: IOManager dispatch table layout
+# *(param_1+0x30) points to IOManager. Check fields near +0x4c/+0x50
+
+# SECTION 5: IO_DequeueTask - where does dequeued task go?
+# param_2 receives the task. Is it also stored in the thread object?
+  0x00c40e70: PUSH EBP
+  0x00c40e71: MOV EBP,ESP
+  0x00c40e73: SUB ESP,0xc8
+  0x00c40e79: MOV dword ptr [EBP + 0xffffff38],ECX
+  0x00c40e7f: PUSH 0x0
+  0x00c40e81: MOV ECX,dword ptr [EBP + 0xffffff38]
+  0x00c40e87: ADD ECX,0x20
+  0x00c40e8a: CALL 0x0040fbf0
+  0x00c40e8f: MOV byte ptr [EBP + -0x1],0x0
+  0x00c40e93: MOV EAX,dword ptr [EBP + 0x8]
+  0x00c40e96: MOVZX ECX,byte ptr [EAX + 0x18]
+  0x00c40e9a: AND ECX,0x2
+  0x00c40e9d: SETNZ DL
+  0x00c40ea0: MOVZX EAX,DL
+  0x00c40ea3: TEST EAX,EAX
+  0x00c40ea5: JZ 0x00c40eb0
+  0x00c40ea7: MOV byte ptr [EBP + -0x1],0x0
+  0x00c40eab: JMP 0x00c40ffe
+  0x00c40eb0: MOV ECX,0x1
+  0x00c40eb5: TEST ECX,ECX
+  0x00c40eb7: JZ 0x00c40ffe
+  0x00c40ebd: MOV EDX,dword ptr [EBP + 0x8]
+  0x00c40ec0: MOVZX EAX,byte ptr [EDX + 0x18]
+  0x00c40ec4: AND EAX,0x1
+  0x00c40ec7: SETNZ CL
+  0x00c40eca: MOVZX EDX,CL
+  0x00c40ecd: TEST EDX,EDX
+  0x00c40ecf: JNZ 0x00c40f25
+  0x00c40ed1: MOV EAX,dword ptr [EBP + 0x10]
+  0x00c40ed4: PUSH EAX
+
+# SECTION 6: FUN_00c3f750 - helper in dequeue path
+
+======================================================================
+Dequeue_Helper @ 0x00c3f750
+======================================================================
+  Function: FUN_00c3f750, Size: 76 bytes
+  Entry: 0x00c3f750
+
+LPVOID __fastcall FUN_00c3f750(int *param_1)
+
+{
+  void *this;
+  LPVOID local_24;
+  
+  this = (void *)param_1[5];
+  local_24 = TlsGetValue(*(DWORD *)((int)this + 4));
+  if (local_24 == (LPVOID)0x0) {
+    local_24 = FUN_00c41610(this,param_1);
+  }
+  return local_24;
+}
+
+
+
+# SECTION 7: Spin-lock internals (FUN_0040fbf0)
+# +0x00 = lock (threadID of holder, 0 = free)
+# +0x04 = reentrance counter
+# What threadID does BSTaskManagerThread have?
+  0x0040fbf0: PUSH EBX
+  0x0040fbf1: MOV EBX,ESP
+  0x0040fbf3: PUSH ECX
+  0x0040fbf4: AND ESP,0xffffffe0
+  0x0040fbf7: ADD ESP,0x4
+  0x0040fbfa: PUSH EBP
+  0x0040fbfb: MOV EBP,ESP
+  0x0040fbfd: SUB ESP,0x60
+  0x0040fc00: MOV dword ptr [EBP + -0x4],ECX
+  0x0040fc03: CALL 0x0040fc90
+  0x0040fc08: MOV dword ptr [EBP + -0x40],EAX
+  0x0040fc0b: MOV EAX,dword ptr [EBP + -0x4]
+  0x0040fc0e: MOV ECX,dword ptr [EAX]
+  0x0040fc10: CMP ECX,dword ptr [EBP + -0x40]
+  0x0040fc13: JNZ 0x0040fc26
+  0x0040fc15: MOV EDX,dword ptr [EBP + -0x4]
+  0x0040fc18: MOV EAX,dword ptr [EDX + 0x4]
+  0x0040fc1b: ADD EAX,0x1
+  0x0040fc1e: MOV ECX,dword ptr [EBP + -0x4]
+  0x0040fc21: MOV dword ptr [ECX + 0x4],EAX
+  0x0040fc24: JMP 0x0040fc7c
+  0x0040fc26: MOV dword ptr [EBP + -0x44],0x0
+  0x0040fc2d: MOV EDX,dword ptr [EBP + -0x40]
+  0x0040fc30: PUSH EDX
+  0x0040fc31: PUSH 0x0
+  0x0040fc33: MOV EAX,dword ptr [EBP + -0x4]
+  0x0040fc36: PUSH EAX
+  0x0040fc37: CALL 0x0043b460
+  0x0040fc3c: ADD ESP,0xc
+  0x0040fc3f: TEST EAX,EAX
+
+# SECTION 8: BSTaskManagerThread thread handle / ID
+# Need to find where the thread handle is stored in the object
+# to use GetThreadId or check against lock holder
+
+--- XRefs to BSTask_LoopFunc_callers (0x00c410b0) ---
+  Total: 0 refs

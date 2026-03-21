@@ -1,0 +1,192 @@
+======================================================================
+EIP=0 CRASH - QueuedTexture vtable NULL dispatch
+BSTaskManagerThread processing path
+======================================================================
+
+# SECTION 1: 0x0043BFC1 - crash return address
+# Disasm around the call that jumped to EIP=0
+  0x0043bf90: PUSH EAX
+  0x0043bf91: PUSH ECX
+  0x0043bf92: MOV EAX,[0x011c16bc]
+  0x0043bf97: XOR EAX,EBP
+  0x0043bf99: PUSH EAX
+  0x0043bf9a: LEA EAX,[EBP + -0xc]
+  0x0043bf9d: MOV FS:[0x0],EAX
+  0x0043bfa3: MOV dword ptr [EBP + -0x10],ECX
+  0x0043bfa6: MOV EAX,dword ptr [EBP + -0x10]
+  0x0043bfa9: MOV dword ptr [EAX],0x1016788
+  0x0043bfaf: MOV dword ptr [EBP + -0x4],0x0
+  0x0043bfb6: MOV ECX,dword ptr [EBP + -0x10]
+  0x0043bfb9: ADD ECX,0x30
+  0x0043bfbc: CALL 0x0045cec0
+  0x0043bfc1: MOV dword ptr [EBP + -0x4],0xffffffff
+  0x0043bfc8: MOV ECX,dword ptr [EBP + -0x10]
+  0x0043bfcb: CALL 0x00c3cea0
+  0x0043bfd0: MOV ECX,dword ptr [EBP + -0xc]
+  0x0043bfd3: MOV dword ptr FS:[0x0],ECX
+  0x0043bfda: POP ECX
+  0x0043bfdb: MOV ESP,EBP
+  0x0043bfdd: POP EBP
+  0x0043bfde: RET
+  0x0043bfe0: PUSH EBP
+  0x0043bfe1: MOV EBP,ESP
+
+# SECTION 2: Function containing crash point
+
+======================================================================
+CrashPoint @ 0x0043bfc1
+======================================================================
+  Function: FUN_0043bf80, Size: 95 bytes
+  Entry: 0x0043bf80
+
+void __fastcall FUN_0043bf80(undefined4 *param_1)
+
+{
+  int *unaff_FS_OFFSET;
+  int local_10;
+  undefined1 *puStack_c;
+  undefined4 local_8;
+  
+  puStack_c = &LAB_00f16ad8;
+  local_10 = *unaff_FS_OFFSET;
+  *unaff_FS_OFFSET = (int)&local_10;
+  *param_1 = &PTR_FUN_01016788;
+  local_8 = 0;
+  Concurrency::cancellation_token_source::~cancellation_token_source
+            ((cancellation_token_source *)(param_1 + 0xc));
+  local_8 = 0xffffffff;
+  FUN_00c3cea0(param_1);
+  *unaff_FS_OFFSET = local_10;
+  return;
+}
+
+
+
+--- Calls FROM CrashPoint (0x0043bfc1) ---
+  CALL 0x0045cec0 -> ~cancellation_token_source (from 0x0043bfbc)
+  CALL 0x00c3cea0 -> FUN_00c3cea0 (from 0x0043bfcb)
+  Total: 2 calls
+
+# SECTION 3: 0x0043BE3F - caller in chain
+  0x0043be23: ADD ESP,0x4
+  0x0043be26: MOV ESP,EBP
+  0x0043be28: POP EBP
+  0x0043be29: RET
+  0x0043be30: PUSH EBP
+  0x0043be31: MOV EBP,ESP
+  0x0043be33: PUSH ECX
+  0x0043be34: MOV dword ptr [EBP + -0x4],ECX
+  0x0043be37: MOV ECX,dword ptr [EBP + -0x4]
+  0x0043be3a: CALL 0x0043bf80
+  0x0043be3f: MOV EAX,dword ptr [EBP + 0x8]
+  0x0043be42: AND EAX,0x1
+  0x0043be45: JZ 0x0043be53
+  0x0043be47: MOV ECX,dword ptr [EBP + -0x4]
+  0x0043be4a: PUSH ECX
+  0x0043be4b: CALL 0x00401030
+  0x0043be50: ADD ESP,0x4
+  0x0043be53: MOV EAX,dword ptr [EBP + -0x4]
+  0x0043be56: MOV ESP,EBP
+  0x0043be58: POP EBP
+
+======================================================================
+Caller_0043BE3F @ 0x0043be3f
+======================================================================
+  Function: FUN_0043be30, Size: 44 bytes
+  Entry: 0x0043be30
+
+undefined4 * __thiscall FUN_0043be30(void *this,uint param_1)
+
+{
+  FUN_0043bf80(this);
+  if ((param_1 & 1) != 0) {
+    FUN_00401030(this);
+  }
+  return this;
+}
+
+
+
+# SECTION 4: 0x0044DDA1 - outer caller (task release?)
+  0x0044dd81: MOV ECX,dword ptr [EBP + -0x10]
+  0x0044dd84: MOV dword ptr [EBP + -0xc],ECX
+  0x0044dd87: MOV EDX,dword ptr [EBP + -0xc]
+  0x0044dd8a: MOV dword ptr [EBP + -0x8],EDX
+  0x0044dd8d: CMP dword ptr [EBP + -0x8],0x0
+  0x0044dd91: JZ 0x0044dda6
+  0x0044dd93: PUSH 0x1
+  0x0044dd95: MOV EAX,dword ptr [EBP + -0x8]
+  0x0044dd98: MOV EDX,dword ptr [EAX]
+  0x0044dd9a: MOV ECX,dword ptr [EBP + -0x8]
+  0x0044dd9d: MOV EAX,dword ptr [EDX]
+  0x0044dd9f: CALL EAX
+  0x0044dda1: MOV dword ptr [EBP + -0x14],EAX
+  0x0044dda4: JMP 0x0044ddad
+  0x0044dda6: MOV dword ptr [EBP + -0x14],0x0
+  0x0044ddad: MOV ESP,EBP
+  0x0044ddaf: POP EBP
+  0x0044ddb0: RET
+  0x0044ddc0: PUSH EBP
+  0x0044ddc1: MOV EBP,ESP
+
+======================================================================
+Caller_0044DDA1 @ 0x0044dda1
+======================================================================
+  Function: FUN_0044dd60, Size: 81 bytes
+  Entry: 0x0044dd60
+
+void __fastcall FUN_0044dd60(undefined4 *param_1)
+
+{
+  int iVar1;
+  
+  iVar1 = FUN_004019a0(param_1 + 2);
+  if ((iVar1 == 0) && (param_1 != (undefined4 *)0x0)) {
+    (**(code **)*param_1)(1);
+  }
+  return;
+}
+
+
+
+# SECTION 5: QueuedTexture vtable (0x01016788)
+# EDX held this value at crash time
+  [0] +0x00: 0x0043be30 -> FUN_0043be30
+  [1] +0x04: 0x0043c150 -> FUN_0043c150
+  [2] +0x08: 0x0043c550 -> FUN_0043c550
+  [3] +0x0c: 0x0043c650 -> FUN_0043c650
+  [4] +0x10: 0x0043c6b0 -> FUN_0043c6b0
+  [5] +0x14: 0x00483710 -> FUN_00483710
+  [6] +0x18: 0x00c3d440 -> FUN_00c3d440
+  [7] +0x1c: 0x00c3cae0 -> FUN_00c3cae0
+  [8] +0x20: 0x0043c050 -> FUN_0043c050
+  [9] +0x24: 0x0043bde0 -> FUN_0043bde0
+  [10] +0x28: 0x00c3c930 -> FUN_00c3c930
+  [11] +0x2c: 0x0043bfe0 -> FUN_0043bfe0
+  [12] +0x30: 0x45444f4d -> unknown
+  [13] +0x34: 0x203a534c -> unknown
+  [14] +0x38: 0x6c756f43 -> unknown
+  [15] +0x3c: 0x6f6e2064 -> unknown
+
+# SECTION 6: QueuedTexture process/complete (vtable+0x4c, +0x50)
+  vtable+0x4c (process): 0x7420726f
+  vtable+0x50 (complete): 0x75747865
+
+======================================================================
+QueuedTexture_Process @ 0x7420726f
+======================================================================
+  [function not found]
+
+======================================================================
+QueuedTexture_Complete @ 0x75747865
+======================================================================
+  [function not found]
+
+# SECTION 7: QueuedTexture constructor - what refs does it hold?
+
+--- XRefs to QueuedTexture_vtable_assign (0x01016788) ---
+  DATA @ 0x0043bd5d (in FUN_0043bd10)
+  DATA @ 0x0043be9c (in FUN_0043be60)
+  DATA @ 0x0043bf2c (in FUN_0043bef0)
+  DATA @ 0x0043bfa9 (in FUN_0043bf80)
+  Total: 4 refs

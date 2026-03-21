@@ -1,0 +1,451 @@
+======================================================================
+NVSE CELL CHANGE EVENT DISPATCH RESEARCH
+======================================================================
+
+# SECTION 1: NVSE MainLoopHook at 0x00ECC470
+# Where in the main loop does this run?
+  0x00ecc450: CALL 0x00edd655
+  0x00ecc455: TEST byte ptr [EBP + -0x3c],BL
+  0x00ecc458: JZ 0x00ecc460
+  0x00ecc45a: MOVZX ECX,word ptr [EBP + -0x38]
+  0x00ecc45e: JMP 0x00ecc463
+  0x00ecc460: PUSH 0xa
+  0x00ecc462: POP ECX
+  0x00ecc463: PUSH ECX
+  0x00ecc464: PUSH EAX
+  0x00ecc465: PUSH ESI
+  0x00ecc466: PUSH 0x400000
+  0x00ecc46b: CALL 0x0086a850
+  0x00ecc470: MOV dword ptr [EBP + -0x20],EAX
+  0x00ecc473: CMP dword ptr [EBP + -0x1c],ESI
+  0x00ecc476: JNZ 0x00ecc47e
+  0x00ecc478: PUSH EAX
+  0x00ecc479: CALL 0x00eccec5
+  0x00ecc47e: CALL 0x00eccef1
+  0x00ecc483: MOV dword ptr [EBP + -0x4],EDI
+  0x00ecc486: JMP 0x00ecc4bd
+
+--- XRefs to MainLoopHook_addr (0x00ecc470) ---
+  Total: 0 refs
+
+# SECTION 2: Main loop (FUN_0086e650) - key positions
+# Find where 0x00ECC470 is called relative to AI_START/RENDER/AI_JOIN
+  0x0086e650: PUSH EBP
+  0x0086e651: MOV EBP,ESP
+  0x0086e653: SUB ESP,0x4c
+  0x0086e656: PUSH ESI
+  0x0086e657: MOV dword ptr [EBP + -0x18],ECX
+  0x0086e65a: PUSH ECX
+  0x0086e65b: FLD float ptr [0x011a3010]
+  0x0086e661: FSTP float ptr [ESP]
+  0x0086e664: MOV ECX,dword ptr [EBP + -0x18]
+  0x0086e667: CALL 0x0086a830
+  0x0086e66c: PUSH 0x9
+  0x0086e66e: CALL dword ptr [0x00fdf308]
+  0x0086e674: MOV word ptr [EBP + -0x8],AX
+  0x0086e678: MOVSX EAX,word ptr [EBP + -0x8]
+  0x0086e67c: SAR EAX,0xf
+  0x0086e67f: AND EAX,0x1
+  0x0086e682: JZ 0x0086e6a1
+  0x0086e684: PUSH 0x12
+  0x0086e686: CALL dword ptr [0x00fdf308]
+  0x0086e68c: MOV word ptr [EBP + -0x8],AX
+  0x0086e690: MOVSX ECX,word ptr [EBP + -0x8]
+  0x0086e694: SAR ECX,0xf
+  0x0086e697: AND ECX,0x1
+  0x0086e69a: JZ 0x0086e6a1
+  0x0086e69c: JMP 0x0086ef2b
+
+Main loop around AI_START (0x0086ec87):
+  0x0086ec71: CMP dword ptr [EAX],0x1
+  0x0086ec74: JLE 0x0086ec8e
+  0x0086ec76: PUSH 0x1
+  0x0086ec78: CALL 0x008c80e0
+  0x0086ec7d: ADD ESP,0x4
+  0x0086ec80: CALL 0x00713d80
+  0x0086ec85: MOV ECX,EAX
+  0x0086ec87: CALL 0x008c78c0
+  0x0086ec8c: JMP 0x0086ec98
+  0x0086ec8e: MOV ECX,0x11e0fe0
+  0x0086ec93: CALL 0x008ca070
+  0x0086ec98: MOV ECX,dword ptr [EBP + -0x18]
+  0x0086ec9b: CALL 0x0086fc60
+  0x0086eca0: MOV ECX,0x11c3ea4
+  0x0086eca5: CALL 0x0043d4d0
+
+Main loop around AI_JOIN (0x0086ee4e):
+  0x0086ee30: MOVZX EDX,byte ptr [ECX + 0x7]
+  0x0086ee34: TEST EDX,EDX
+  0x0086ee36: JNZ 0x0086ee5f
+  0x0086ee38: MOV ECX,0x11c3ea4
+  0x0086ee3d: CALL 0x0043d4d0
+  0x0086ee42: CMP dword ptr [EAX],0x1
+  0x0086ee45: JLE 0x0086ee55
+  0x0086ee47: CALL 0x00713d80
+  0x0086ee4c: MOV ECX,EAX
+  0x0086ee4e: CALL 0x008c7990
+  0x0086ee53: JMP 0x0086ee5f
+  0x0086ee55: MOV ECX,0x11e0fe0
+  0x0086ee5a: CALL 0x008ca300
+  0x0086ee5f: MOV ECX,dword ptr [EBP + -0x18]
+  0x0086ee62: CALL 0x0086f6a0
+
+# SECTION 3: FUN_00453a80 - FindCellToUnload
+# Does it check for actors with active processes?
+
+======================================================================
+FindCellToUnload @ 0x00453a80
+======================================================================
+  Function: FUN_00453a80, Size: 824 bytes
+  Entry: 0x00453a80
+
+uint __fastcall FUN_00453a80(int param_1)
+
+{
+  int iVar1;
+  char cVar2;
+  int iVar3;
+  int *piVar4;
+  int iVar5;
+  uint uVar6;
+  undefined4 uVar7;
+  void *pvVar8;
+  int *local_24;
+  int *local_20;
+  int *local_1c;
+  int *local_14;
+  int *local_c;
+  int *local_8;
+  
+  local_8 = (int *)0x0;
+  iVar3 = FUN_005f36f0(param_1);
+  if (iVar3 == 0) {
+    piVar4 = (int *)FUN_0043d4d0(0x11c3e38);
+    piVar4 = (int *)(*piVar4 + -1);
+    for (local_c = piVar4; -1 < (int)local_c; local_c = (int *)((int)local_c + -1)) {
+      piVar4 = *(int **)(param_1 + 0x38);
+      if (piVar4[(int)local_c] != 0) {
+        local_8 = *(int **)(*(int *)(param_1 + 0x38) + (int)local_c * 4);
+        *(undefined4 *)(*(int *)(param_1 + 0x38) + (int)local_c * 4) = 0;
+        piVar4 = (int *)param_1;
+        break;
+      }
+    }
+    if (local_8 == (int *)0x0) {
+      FUN_00454fc0(param_1);
+      iVar3 = FUN_0084e3a0(*(int *)(param_1 + 8));
+      iVar5 = FUN_0084e3a0(*(int *)(param_1 + 8));
+      piVar4 = (int *)FUN_0043d4d0(0x11c3c90);
+      local_14 = (int *)(*piVar4 + -1);
+      while ((int *)(iVar3 * iVar5) <= local_14) {
+        if (*(int *)(*(int *)(param_1 + 0x3c) + (int)local_14 * 4) != 0) {
+          uVar6 = FUN_004511e0(*(int *)(*(int *)(param_1 + 0x3c) + (int)local_14 * 4),'\x01');
+          piVar4 = (int *)(uVar6 & 0xff);
+          if (((int *)(uVar6 & 0xff) == (int *)0x0) &&
+             (piVar4 = (int *)FUN_00557090(*(int *)(*(int *)(param_1 + 0x3c) + (int)local_14 * 4)),
+             ((uint)piVar4 & 0xff) == 0)) {
+            local_8 = *(int **)(*(int *)(param_1 + 0x3c) + (int)local_14 * 4);
+            *(undefined4 *)(*(int *)(param_1 + 0x3c) + (int)local_14 * 4) = 0;
+            piVar4 = (int *)param_1;
+          }
+          break;
+        }
+        piVar4 = (int *)((int)local_14 + -1);
+        local_14 = piVar4;
+      }
+    }
+  }
+  else {
+    iVar3 = FUN_0084e3a0(*(int *)(param_1 + 8));
+    iVar5 = FUN_0084e3a0(*(int *)(param_1 + 8));
+    piVar4 = (int *)FUN_0043d4d0(0x11c3c90);
+    local_1c = (int *)(*piVar4 + -1);
+    while ((int *)(iVar3 * iVar5) <= local_1c) {
+      if (((*(int *)(*(int *)(param_1 + 0x3c) + (int)local_1c * 4) != 0) &&
+          (uVar6 = FUN_004511e0(*(int *)(*(int *)(param_1 + 0x3c) + (int)local_1c * 4),'\x01'),
+          (uVar6 & 0xff) == 0)) &&
+         (cVar2 = FUN_00557090(*(int *)(*(int *)(param_1 + 0x3c) + (int)local_1c * 4)),
+         cVar2 == '\0')) {
+        local_8 = *(int **)(*(int *)(param_1 + 0x3c) + (int)local_1c * 4);
+        *(undefined4 *)(*(int *)(param_1 + 0x3c) + (int)local_1c * 4) = 0;
+        piVar4 = (int *)param_1;
+        break;
+      }
+      piVar4 = (int *)((int)local_1c + -1);
+      local_1c = piVar4;
+    }
+    if (local_8 == (int *)0x0) {
+      piVar4 = (int *)FUN_0043d4d0(0x11c3e38);
+      piVar4 = (int *)(*piVar4 + -1);
+      for (local_20 = piVar4; -1 < (int)local_20; local_20 = (int *)((int)local_20 + -1)) {
+        piVar4 = *(int **)(param_1 + 0x38);
+        if ((piVar4[(int)local_20] != 0) &&
+           (iVar1 = *(int *)(param_1 + 0x38), piVar4 = (int *)FUN_005f36f0(param_1),
+           *(int **)(iVar1 + (int)local_20 * 4) != piVar4)) {
+          local_8 = *(int **)(*(int *)(param_1 + 0x38) + (int)local_20 * 4);
+          *(undefined4 *)(*(int *)(param_1 + 0x38) + (int)local_20 * 4) = 0;
+          piVar4 = (int *)param_1;
+          break;
+        }
+      }
+    }
+    if (local_8 == (int *)0x0) {
+      local_24 = (int *)0x0;
+      while (local_24 < (int *)(iVar3 * iVar5)) {
+        if (((*(int *)(*(int *)(param_1 + 0x3c) + (int)local_24 * 4) != 0) &&
+            (uVar6 = FUN_004511e0(*(int *)(*(int *)(param_1 + 0x3c) + (int)local_24 * 4),'\x01'),
+            (uVar6 & 0xff) == 0)) &&
+           (cVar2 = FUN_00557090(*(int *)(*(int *)(param_1 + 0x3c) + (int)local_24 * 4)),
+           cVar2 == '\0')) {
+          local_8 = *(int **)(*(int *)(param_1 + 0x3c) + (int)local_24 * 4);
+          *(undefined4 *)(*(int *)(param_1 + 0x3c) + (int)local_24 * 4) = 0;
+          piVar4 = (int *)FUN_00453940(param_1);
+          break;
+        }
+        piVar4 = (int *)((int)local_24 + 1);
+        local_24 = piVar4;
+      }
+    }
+  }
+  if (local_8 == (int *)0x0) {
+    uVar6 = (uint)piVar4 & 0xffffff00;
+  }
+  else {
+    uVar7 = FUN_00462290(local_8);
+    if (**(int **)(param_1 + 0x3c) == 0) {
+      iVar3 = FUN_004fd3e0(param_1);
+      uVar7 = 0;
+      if (iVar3 != 0) {
+        pvVar8 = (void *)FUN_004fd3e0(param_1);
+        iVar3 = FUN_00586170(pvVar8);
+        uVar7 = FUN_006fce00(iVar3);
+      }
+    }
+    uVar6 = CONCAT31((int3)((uint)uVar7 >> 8),1);
+  }
+  return uVar6;
+}
+
+
+
+# SECTION 4: Actor detach during cell state change
+# FUN_0054a070 - cell detach? check what it does with actors
+
+======================================================================
+CellDetach_area @ 0x0054a070
+======================================================================
+  Function: FUN_0054a070, Size: 2488 bytes
+  Entry: 0x0054a070
+
+void __thiscall FUN_0054a070(void *this,int *param_1,char param_2,char param_3)
+
+{
+  char cVar1;
+  undefined1 uVar2;
+  bool bVar3;
+  uint uVar4;
+  int iVar5;
+  int iVar6;
+  void *pvVar7;
+  undefined3 extraout_var;
+  int *piVar8;
+  undefined4 uVar9;
+  int *piVar10;
+  undefined4 *puVar11;
+  void *pvVar12;
+  int *unaff_FS_OFFSET;
+  char *pcVar13;
+  undefined4 *local_b8;
+  cancellation_token_source local_94 [4];
+  void *local_90;
+  void *local_8c;
+  char local_86;
+  char local_85;
+  int local_84;
+  void *local_80;
+  char local_79;
+  int *local_78;
+  void *local_74;
+  cancellation_token_source local_70 [4];
+  int local_6c;
+  undefined4 *local_68;
+  int *local_64;
+  int *local_60;
+  cancellation_token_source local_5c [4];
+  int *local_58;
+  int local_54;
+  int local_50;
+  uint local_4c;
+  char local_45;
+  int local_44;
+  exception local_40 [36];
+  int local_1c;
+  cancellation_token_source local_18 [4];
+  char local_14 [4];
+  int local_10;
+  undefined1 *puStack_c;
+  uint local_8;
+  
+  local_8 = 0xffffffff;
+  puStack_c = &LAB_00ef6299;
+  local_10 = *unaff_FS_OFFSET;
+  uVar4 = DAT_011c16bc ^ (uint)&stack0xfffffffc;
+  *unaff_FS_OFFSET = (int)&local_10;
+  if ((((param_1 != (int *)0x0) && (iVar5 = (**(code **)(*param_1 + 0x1d0))(uVar4), iVar5 != 0)) &&
+      (iVar5 = FUN_007af430((int)param_1), iVar5 != DAT_011ca23c)) &&
+     (iVar5 = FUN_007af430((int)param_1), iVar5 != DAT_011ca238)) {
+    iVar5 = (**(code **)(*param_1 + 0x1d0))();
+    iVar5 = FUN_009611e0(iVar5);
+    iVar6 = FUN_005497a0(this);
+    if (iVar5 != iVar6) {
+      local_14[2] = '\0';
+      local_14[3] = 0;
+      cVar1 = FUN_00454af0(0x11ca118);
+      if ((cVar1 != '\0') && (param_1 != (int *)0x0)) {
+        pvVar7 = (void *)FUN_005d43c0((int)param_1);
+        iVar5 = FUN_00421e10(pvVar7);
+        if (iVar5 == 0) {
+          iVar5 = FUN_007af430((int)param_1);
+          uVar2 = FUN_00401170(iVar5);
+          switch(CONCAT31(extraout_var,uVar2)) {
+          case 0x2a:
+          case 0x2b:
+          case 0x2c:
+          case 0x2d:
+          case 0x33:
+          case 0x51:
+            break;
+          default:
+            local_14[2] = '\x01';
+          }
+        }
+      }
+      if ((local_14[2] != '\0') || (param_2 != '\0')) {
+        iVar5 = (**(code **)(*param_1 + 0x1d0))();
+        FUN_00633c90(local_18,iVar5);
+        local_8 = 0;
+        if (param_1 == DAT_011dea3c) {
+          iVar5 = FUN_00950be0((int)DAT_011dea3c);
+          FUN_0066b0d0(local_18,iVar5);
+        }
+        local_45 = '\0';
+        local_14[1] = 0;
+        local_14[0] = '\0';
+        FUN_005595e0(local_40,0x25,0);
+        local_8 = CONCAT31(local_8._1_3_,1);
+        pvVar7 = (void *)FUN_005d43c0((int)param_1);
+        local_44 = FUN_00421e10(pvVar7);
+        if ((local_44 != 0) && (param_3 == '\0')) {
+          FUN_005594e0(local_40,local_44,1);
+          cVar1 = '\0';
+          pcVar13 = local_14;
+          iVar5 = local_44;
+          piVar8 = (int *)FUN_00559450((undefined4 *)local_18);
+          uVar9 = FUN_005497c0(this,param_1,piVar8,iVar5,pcVar13,cVar1);
+          local_45 = (char)uVar9;
+          if (local_45 == '\0') {
+            pvVar7 = (void *)FUN_005d43c0(local_44);
+            for (local_4c = FUN_004207b0(pvVar7); local_4c != 0; local_4c = FUN_00726070(local_4c))
+            {
+              piVar8 = (int *)FUN_006815c0(local_4c);
+              local_50 = *piVar8;
+              if (local_50 != 0) {
+                iVar5 = 0;
+                pvVar7 = (void *)FUN_005d43c0(local_50);
+                local_54 = FUN_00420bc0(pvVar7,iVar5);
+                if (local_54 != 0) {
+                  FUN_005594e0(local_40,local_54,1);
+                  cVar1 = '\0';
+                  pcVar13 = local_14;
+                  iVar5 = local_54;
+                  piVar8 = (int *)FUN_00559450((undefined4 *)local_18);
+                  uVar9 = FUN_005497c0(this,param_1,piVar8,iVar5,pcVar13,cVar1);
+                  local_45 = (char)uVar9;
+                }
+                if (local_45 == '\0') {
+                  iVar5 = 1;
+                  pvVar7 = (void *)FUN_005d43c0(local_50);
+                  iVar5 = FUN_00420bc0(pvVar7,iVar5);
+                  local_54 = iVar5;
+                  if (iVar5 != 0) {
+                    cVar1 = '\0';
+                    pcVar13 = local_14;
+                    piVar8 = (int *)FUN_00559450((undefined4 *)local_18);
+                    uVar9 = FUN_005497c0(this,param_1,piVar8,iVar5,pcVar13,cVar1);
+                    local_45 = (char)uVar9;
+                    FUN_005594e0(local_40,local_54,1);
+                  }
+                }
+              }
+            }
+          }
+        }
+        local_1c = FUN_004b9ba0(*(int *)((int)this + 0xc4) + 0x3c);
+LAB_0054a35f:
+        if ((local_1c == 0) || (local_45 != '\0')) goto LAB_0054a620;
+        FUN_00633c90(local_5c,0);
+        local_8._0_1_ = 2;
+        local_58 = (int *)0x0;
+        FUN_00559120((void *)(*(int *)((int)this + 0xc4) + 0x3c),&local_1c,&local_58,local_5c);
+        if ((local_58 == (int *)0x0) ||
+           ((iVar5 = FUN_00559450((undefined4 *)local_5c), iVar5 == 0 ||
+            (uVar4 = FUN_0057c850(local_40,local_58,local_14 + 1), (uVar4 & 0xff) != 0)))) {
+LAB_0054a60f:
+          local_8 = CONCAT31(local_8._1_3_,1);
+          Concurrency::cancellation_token_source::~cancellation_token_source(local_5c);
+          goto LAB_0054a35f;
+        }
+        if ((local_14[2] == '\0') && (param_2 != '\0')) {
+          piVar8 = (int *)FUN_00559450((undefined4 *)local_5c);
+          iVar5 = (**(code **)(*piVar8 + 0x104))();
+          if (iVar5 != 0) goto LAB_0054a428;
+          local_8 = CONCAT31(local_8._1_3_,1);
+          Concurrency::cancellation_token_source::~cancellation_token_source(local_5c);
+          goto LAB_0054a35f;
+        }
+LAB_0054a428:
+        iVar5 = FUN_00559450((undefined4 *)local_5c);
+        local_60 = (int *)FUN_006629f0(iVar5);
+        if (local_60 == (int *)0x0) goto LAB_0054a60f;
+        bVar3 = FUN_005695a0(param_1,(int)local_60);
+        if ((bVar3) && (param_2
+
+# SECTION 5: What sets DAT_011dea2b during fast travel?
+# If we set it before our unload and clear after,
+# would NVSE hooks skip event dispatch?
+  0x0086e771: MOVZX EAX,byte ptr [0x011dea2b]
+  0x0086e778: TEST EAX,EAX
+  0x0086e77a: JNZ 0x0086e78d
+  0x0086e77c: MOV ECX,dword ptr [EBP + -0x18]
+  0x0086e77f: MOVZX EDX,byte ptr [ECX + 0x7]
+  0x0086e783: TEST EDX,EDX
+  0x0086e785: JNZ 0x0086e78d
+  0x0086e787: MOV byte ptr [EBP + -0x25],0x1
+  0x0086e78b: JMP 0x0086e791
+  0x0086e78d: MOV byte ptr [EBP + -0x25],0x0
+  0x0086e791: MOVZX EAX,byte ptr [EBP + -0x25]
+  0x0086e795: PUSH EAX
+  0x0086e796: MOV ECX,dword ptr [EBP + -0x18]
+  0x0086e799: CALL 0x0086fd90
+  0x0086e79e: CALL 0x00702360
+  0x0086e7a3: MOVZX ECX,AL
+  0x0086e7a6: TEST ECX,ECX
+  0x0086e7a8: JNZ 0x0086e7bf
+  0x0086e7aa: CALL 0x00709bc0
+  0x0086e7af: MOVZX EDX,AL
+  0x0086e7b2: TEST EDX,EDX
+  0x0086e7b4: JNZ 0x0086e7bf
+  0x0086e7b6: MOV dword ptr [EBP + -0x2c],0x0
+  0x0086e7bd: JMP 0x0086e7c6
+  0x0086e7bf: MOV dword ptr [EBP + -0x2c],0x1
+
+# SECTION 6: PLChangeEvent dispatch mechanism
+# DAT_01202d6c (loading counter) suppresses these
+# Does JIP use the same mechanism or its own?
+
+--- XRefs to LoadingStateCounter (0x01202d6c) ---
+  READ @ 0x0043b2de (in FUN_0043b2b0)
+  WRITE @ 0x0043b2e7 (in FUN_0043b2b0)
+  DATA @ 0x0043b2bc (in FUN_0043b2b0)
+  DATA @ 0x0043b2ce (in FUN_0043b2b0)
+  Total: 4 refs

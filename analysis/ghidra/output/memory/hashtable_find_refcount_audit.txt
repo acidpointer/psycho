@@ -1,0 +1,421 @@
+======================================================================
+TEXTURE CACHE FIND - REFCOUNT AUDIT
+FUN_00a61a60 (103 bytes, thiscall)
+======================================================================
+
+# SECTION 1: Full disasm of FUN_00a61a60
+# LOCK prefixed instructions marked with <<<ATOMIC>>>
+  0x00a61a60: MOV EAX,dword ptr [ESP + 0x4]
+  0x00a61a64: MOV ECX,dword ptr [ECX + EAX*0x4]
+  0x00a61a67: XOR AL,AL
+  0x00a61a69: TEST ECX,ECX
+  0x00a61a6b: JZ 0x00a61ac4
+  0x00a61a6d: MOV EDX,dword ptr [ESP + 0x8]
+  0x00a61a71: PUSH ESI
+  0x00a61a72: MOV ESI,dword ptr [ECX]
+  0x00a61a74: CMP EDX,dword ptr [ESI + 0x4]
+  0x00a61a77: JZ 0x00a61a84
+  0x00a61a79: MOV ECX,dword ptr [ECX + 0x4]
+  0x00a61a7c: TEST ECX,ECX
+  0x00a61a7e: JNZ 0x00a61a72
+  0x00a61a80: POP ESI
+  0x00a61a81: RET 0xc
+  0x00a61a84: PUSH EBX
+  0x00a61a85: MOV EBX,dword ptr [ESP + 0x14]
+  0x00a61a89: PUSH EDI
+  0x00a61a8a: MOV EDI,ESI
+  0x00a61a8c: MOV ESI,dword ptr [EBX]
+  0x00a61a8e: CMP ESI,dword ptr [EDI]
+  0x00a61a90: JZ 0x00a61abf
+  0x00a61a92: TEST ESI,ESI
+  0x00a61a94: JZ 0x00a61aad
+  0x00a61a96: LEA ECX,[ESI + 0x4]
+  0x00a61a99: PUSH ECX
+  0x00a61a9a: CALL dword ptr [0x00fdf1c4]
+  0x00a61aa0: TEST EAX,EAX
+  0x00a61aa2: JNZ 0x00a61aad
+  0x00a61aa4: MOV EDX,dword ptr [ESI]
+  0x00a61aa6: MOV EAX,dword ptr [EDX + 0x4]
+  0x00a61aa9: MOV ECX,ESI
+  0x00a61aab: CALL EAX
+  0x00a61aad: MOV EAX,dword ptr [EDI]
+  0x00a61aaf: MOV dword ptr [EBX],EAX
+  0x00a61ab1: TEST EAX,EAX
+  0x00a61ab3: JZ 0x00a61abf
+  0x00a61ab5: ADD EAX,0x4
+  0x00a61ab8: PUSH EAX
+  0x00a61ab9: CALL dword ptr [0x00fdf1c0]
+  0x00a61abf: POP EDI
+  0x00a61ac0: POP EBX
+  0x00a61ac1: MOV AL,0x1
+  0x00a61ac3: POP ESI
+  0x00a61ac4: RET 0xc
+
+# SECTION 2: Decompiled FUN_00a61a60
+
+======================================================================
+TextureCacheFind @ 0x00a61a60
+======================================================================
+  Function: FUN_00a61a60, Size: 103 bytes
+  Entry: 0x00a61a60
+
+uint __thiscall FUN_00a61a60(void *this,int param_1,int param_2,int *param_3)
+
+{
+  int *piVar1;
+  int *piVar2;
+  int iVar3;
+  LONG LVar4;
+  uint uVar5;
+  undefined4 *puVar6;
+  
+  puVar6 = *(undefined4 **)((int)this + param_1 * 4);
+  uVar5 = param_1 & 0xffffff00;
+  if (puVar6 != (undefined4 *)0x0) {
+    while (piVar1 = (int *)*puVar6, param_2 != piVar1[1]) {
+      puVar6 = (undefined4 *)puVar6[1];
+      if (puVar6 == (undefined4 *)0x0) {
+        return uVar5;
+      }
+    }
+    piVar2 = (int *)*param_3;
+    if (piVar2 != (int *)*piVar1) {
+      if ((piVar2 != (int *)0x0) && (LVar4 = InterlockedDecrement(piVar2 + 1), LVar4 == 0)) {
+        (**(code **)(*piVar2 + 4))();
+      }
+      iVar3 = *piVar1;
+      *param_3 = iVar3;
+      uVar5 = 0;
+      if (iVar3 != 0) {
+        uVar5 = InterlockedIncrement((LONG *)(iVar3 + 4));
+      }
+    }
+    uVar5 = CONCAT31((int3)(uVar5 >> 8),1);
+  }
+  return uVar5;
+}
+
+
+
+# SECTION 4: Calls from FUN_00a61a60
+
+--- Calls FROM TextureCacheFind (0x00a61a60) ---
+  CALL 0x00fdf1c4 -> unknown_0x00fdf1c4 (from 0x00a61a9a)
+  CALL 0x00000067 -> unknown_0x00000067 (from 0x00a61a9a)
+  CALL 0x00fdf1c0 -> unknown_0x00fdf1c0 (from 0x00a61ab9)
+  CALL 0x00000066 -> unknown_0x00000066 (from 0x00a61ab9)
+  Total: 4 calls
+
+# SECTION 5: NiRefObject DecRef / IncRef
+
+======================================================================
+Possible_DecRef @ 0x00401ea0
+======================================================================
+  Function: FUN_00401e20, Size: 245 bytes
+  Entry: 0x00401e20
+
+void __cdecl FUN_00401e20(int param_1)
+
+{
+  bool bVar1;
+  byte bVar2;
+  int iVar3;
+  uint *puVar4;
+  uint *puVar5;
+  uint local_18;
+  int local_10;
+  
+  bVar2 = (char)DAT_011c3198 + 1;
+  iVar3 = FUN_004024e0((uint)bVar2);
+  local_10 = 0;
+  bVar1 = false;
+  for (local_18 = 0; local_18 < DAT_011c3198; local_18 = local_18 + 1) {
+    puVar4 = (uint *)FUN_00500940(param_1);
+    puVar5 = (uint *)FUN_00500940(DAT_011c319c[local_18]);
+    if ((*puVar5 < *puVar4) && (!bVar1)) {
+      *(int *)(iVar3 + local_10 * 4) = param_1;
+      local_10 = local_10 + 1;
+      bVar1 = true;
+    }
+    *(undefined4 *)(iVar3 + local_10 * 4) = DAT_011c319c[local_18];
+    local_10 = local_10 + 1;
+  }
+  if (!bVar1) {
+    *(int *)(iVar3 + local_10 * 4) = param_1;
+  }
+  FUN_00401030(DAT_011c319c);
+  DAT_011c3198 = (uint)bVar2;
+  DAT_011c319c = (undefined4 *)iVar3;
+  return;
+}
+
+
+
+======================================================================
+Possible_IncRef @ 0x00770060
+======================================================================
+  Function: FUN_0076bfe0, Size: 16521 bytes
+  Entry: 0x0076bfe0
+
+/* WARNING: Globals starting with '_' overlap smaller symbols at the same address */
+
+int * FUN_0076bfe0(void)
+
+{
+  uint uVar1;
+  int iVar2;
+  int *piVar3;
+  LPCRITICAL_SECTION p_Var4;
+  void *pvVar5;
+  int iVar6;
+  undefined4 uVar7;
+  float *extraout_EAX;
+  float *pfVar8;
+  undefined4 *puVar9;
+  undefined4 extraout_ECX;
+  undefined4 extraout_ECX_00;
+  undefined4 extraout_ECX_01;
+  undefined4 extraout_ECX_02;
+  undefined4 extraout_ECX_03;
+  undefined4 extraout_ECX_04;
+  undefined4 extraout_ECX_05;
+  undefined4 extraout_EDX;
+  undefined4 extraout_EDX_00;
+  undefined4 extraout_EDX_01;
+  undefined4 extraout_EDX_02;
+  undefined4 extraout_EDX_03;
+  undefined4 extraout_EDX_04;
+  undefined4 extraout_EDX_05;
+  int *unaff_FS_OFFSET;
+  float10 fVar10;
+  float10 fVar11;
+  float10 fVar12;
+  float10 fVar13;
+  float10 fVar14;
+  float10 fVar15;
+  float10 fVar16;
+  ulonglong uVar17;
+  int *piVar18;
+  float fVar19;
+  undefined *puVar20;
+  undefined1 *puVar21;
+  undefined1 uVar22;
+  undefined4 uVar23;
+  char cVar24;
+  undefined1 uVar25;
+  char *pcVar26;
+  int iVar27;
+  undefined4 uVar28;
+  undefined4 *local_3e8;
+  int local_164;
+  undefined4 local_160;
+  float local_15c [9];
+  void *local_138;
+  undefined4 *local_134;
+  int local_130;
+  float local_12c [3];
+  undefined4 *local_120;
+  undefined4 *local_11c;
+  int *local_118;
+  int *local_114;
+  int local_110;
+  int local_10c;
+  int local_108;
+  int local_104;
+  int *local_100;
+  int local_fc;
+  int *local_f8;
+  int local_f4;
+  int *local_f0;
+  int local_ec;
+  float local_e8;
+  float local_e4;
+  float local_e0;
+  int local_dc;
+  float local_d8 [9];
+  int local_b4;
+  int local_b0;
+  void *local_ac;
+  int local_a8;
+  float local_a4;
+  int local_a0;
+  int local_9c;
+  float local_98;
+  int *local_94;
+  cancellation_token_source local_90 [4];
+  int local_8c;
+  int local_88;
+  int local_84;
+  undefined1 local_80 [36];
+  int *local_5c;
+  int local_58;
+  int local_54;
+  int local_50;
+  undefined4 local_4c;
+  undefined4 local_48;
+  int local_44;
+  undefined1 local_40 [12];
+  int local_34;
+  undefined1 local_30 [12];
+  int local_24;
+  int *local_20;
+  float local_1c;
+  int *local_18;
+  undefined4 *local_14;
+  int local_10;
+  undefined1 *puStack_c;
+  undefined4 local_8;
+  
+  local_8 = 0xffffffff;
+  puStack_c = &LAB_00f0b4e6;
+  local_10 = *unaff_FS_OFFSET;
+  uVar1 = DAT_011c16bc ^ (uint)&stack0xfffffffc;
+  *unaff_FS_OFFSET = (int)&local_10;
+  iVar2 = FUN_004b7210();
+  if (iVar2 == 0) {
+    piVar3 = (int *)0x0;
+  }
+  else {
+    iVar2 = FUN_00706f20();
+    local_14 = (undefined4 *)FUN_00a09030(iVar2);
+    if ((local_14 != (undefined4 *)0x0) &&
+       (local_120 = local_14, local_11c = local_14, local_14 != (undefined4 *)0x0)) {
+      (**(code **)*local_14)(1,uVar1);
+    }
+    local_24 = FUN_004b7210();
+    fVar10 = (float10)FUN_00a01530();
+    local_1c = (float)fVar10;
+    p_Var4 = (LPCRITICAL_SECTION)FUN_00713d70();
+    FUN_004538a0(p_Var4);
+    pcVar26 = "Data\\Menus\\Main\\hud_main_menu.xml";
+    pvVar5 = (void *)FUN_00586150(local_24);
+    local_18 = FUN_00a01b00(pvVar5,pcVar26);
+    local_20 = (int *)FUN_00a03c90((int)local_18);
+    if (local_20 != (int *)0x0) {
+      iVar2 = (**(code **)(*local_20 + 0x34))();
+      iVar6 = FUN_00706f20();
+      if (iVar2 == iVar6) {
+        FUN_00a1dc70(local_20,local_18,'\0');
+        DAT_011d96c0 = local_20;
+        FUN_00715d40();
+        uVar17 = FUN_00ec62c0(extraout_ECX,extraout_EDX);
+        local_58 = (int)uVar17;
+        FUN_00715da0();
+        uVar17 = FUN_00ec62c0(extraout_ECX_00,extraout_EDX_00);
+        local_8c = (int)uVar17;
+        FUN_007177c0();
+        uVar17 = FUN_00ec62c0(extraout_ECX_01,extraout_EDX_01);
+        local_a0 = (int)uVar17;
+        FUN_00717820();
+        uVar17 = FUN_00ec62c0(extraout_ECX_02,extraout_EDX_02);
+        local_54 = (int)uVar17;
+        local_a8 = FUN_00a00940("_OriginalX",-1);
+        local_b4 = FUN_00a00940("_TotalWidth",-1);
+        local_88 = FUN_00a00940("_ImageWidth",-1);
+        pcVar26 = "ActionPoints";
+        pvVar5 = (void *)FUN_00a09030(0x3ec);
+        iVar2 = FUN_00a08b20(pvVar5,pcVar26);
+        DAT_011d96c0[0x45] = iVar2;
+        cVar24 = '\x01';
+        iVar2 = local_58 + local_a0 * -2;
+        fVar10 = FUN_00a011b0((void *)DAT_011d96c0[0x45],0xfb1);
+        FUN_00a012d0((void *)DAT_011d96c0[0x45],0xfa1,
+                     (float)(((float10)iVar2 - fVar10) + (float10)_DAT_0101db88),cVar24);
+        cVar24 = '\x01';
+        iVar2 = local_8c + local_54 * -2;
+        fVar10 = FUN_00a011b0((void *)DAT_011d96c0[0x45],0xfb0);
+        FUN_00a012d0((void *)DAT_011d96c0[0x45],0xfa2,(float)((float10)iVar2 - fVar10),cVar24);
+        FUN_00700320((void *)DAT_011d96c0[0x45],0xfa8,1);
+        piVar3 = FUN_00a1ddb0(local_20,(void *)DAT_011d96c0[0x45],(byte *)"template_right_bracket",0
+                             );
+        DAT_011d96c0[0x35] = (int)piVar3;
+        FUN_00774800((void *)DAT_011d96c0[0x35],2);
+        FUN_00700320((void *)DAT_011d96c0[0x35],0xfa1,-0x25);
+        piVar3 = FUN_00a1ddb0(local_20,(void *)DAT_011d96c0[0x45],(byte *)0x10733f0,0);
+        DAT_011d96c0[0x11] = (int)piVar3;
+        FUN_00700320((void *)DAT_011d96c0[0x11],local_a8,0x146);
+        FUN_00a012d0((void *)DAT_011d96c0[0x11],0xfa2,_DAT_010733ec,'\x01');
+        FUN_00774800((void *)DAT_011d96c0[0x11],3);
+        piVar3 = FUN_00a1ddb0(local_20,(void *)DAT_011d96c0[0x45],
+                              (byte *)"template_justify_right_text",0);
+        DAT_011d96c0[0x12] = (int)piVar3;
+        FUN_00700320((void *)DAT_011d96c0[0x12],0xfa1,0x13b);
+        FUN_00700320((void *)DAT_011d96c0[0x12],0xfa2,8);
+        FUN_00774800((void *)DAT_011d96c0[0x12],0);
+        piVar3 = FUN_00a1ddb0(local_20,(void *)DAT_011d96c0[0x45],
+                              (byte *)"template_justify_right_text",0);
+        DAT_011d96c0[0x16] = (int)piVar3;
+        FUN_00700320((void *)DAT_011d96c0[0x16],0xfa1,0x13b);
+        FUN_00700320((void *)DAT_011d96c0[0x16],0xfa2,0x50);
+        FUN_00700320((void *)DAT_011d96c0[0x16],0xf
+
+# SECTION 6: FUN_00a61920 - hash table insert
+
+======================================================================
+HashTable_Insert @ 0x00a61920
+======================================================================
+  Function: FUN_00a61920, Size: 137 bytes
+  Entry: 0x00a61920
+
+uint __thiscall FUN_00a61920(void *this,int param_1,char *param_2,int *param_3)
+
+{
+  int iVar1;
+  int *piVar2;
+  uint uVar3;
+  int *piVar4;
+  
+  piVar4 = *(int **)((int)this + param_1 * 4);
+  if (piVar4 == (int *)0x0) {
+    return param_1 & 0xffffff00;
+  }
+  do {
+    piVar2 = (int *)(**(code **)(*(int *)*piVar4 + 0x9c))();
+    uVar3 = FUN_00a614d0(param_2,(char *)((int)*(short *)((int)piVar4 + 0xe) + *piVar2));
+    if ((char)uVar3 != '\0') {
+      piVar2 = (int *)*param_3;
+      if (piVar2 != (int *)*piVar4) {
+        if ((piVar2 != (int *)0x0) && (uVar3 = InterlockedDecrement(piVar2 + 1), uVar3 == 0)) {
+          uVar3 = (**(code **)(*piVar2 + 4))();
+        }
+        iVar1 = *piVar4;
+        *param_3 = iVar1;
+        if (iVar1 != 0) {
+          uVar3 = InterlockedIncrement((LONG *)(iVar1 + 4));
+        }
+      }
+      return CONCAT31((int3)(uVar3 >> 8),1);
+    }
+    piVar4 = (int *)piVar4[2];
+  } while (piVar4 != (int *)0x0);
+  return uVar3 & 0xffffff00;
+}
+
+
+
+# SECTION 7: All callers of FUN_00a61a60
+
+--- XRefs to TextureCacheFind_callers (0x00a61a60) ---
+  UNCONDITIONAL_CALL @ 0x0043c517 (in FUN_0043c4f0)
+  Total: 1 refs
+
+# SECTION 8: Texture cache lock DAT_011f4480
+
+--- XRefs to TextureCache_lock (0x011f4480) ---
+  WRITE @ 0x00a61c34 (in FUN_00a61b90)
+  WRITE @ 0x00a61cc5 (in FUN_00a61c50)
+  WRITE @ 0x00a61e39 (in FUN_00a61cd0)
+  WRITE @ 0x00a61f93 (in FUN_00a61f30)
+  WRITE @ 0x00a62000 (in FUN_00a61fb0)
+  WRITE @ 0x00a62078 (in FUN_00a62030)
+  DATA @ 0x00452515 (in FUN_00452510)
+  DATA @ 0x00452533 (in FUN_00452530)
+  DATA @ 0x0078d1f3 (in FUN_0078d1f0)
+  DATA @ 0x00a61ba6 (in FUN_00a61b90)
+  DATA @ 0x00a61c5e (in FUN_00a61c50)
+  DATA @ 0x00a61ce3 (in FUN_00a61cd0)
+  DATA @ 0x00a61f3f (in FUN_00a61f30)
+  DATA @ 0x00a61fc0 (in FUN_00a61fb0)
+  DATA @ 0x00a6203c (in FUN_00a62030)
+  ... (truncated)
+  Total: 15 refs

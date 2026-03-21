@@ -1,0 +1,773 @@
+======================================================================
+D3D9 RENDER PATH - FAST TRAVEL CRASH
+======================================================================
+
+# SECTION 1: 0x0046B5D0 - game caller into D3D9
+
+======================================================================
+GameCode_crash_stack @ 0x0046b5d0
+======================================================================
+  Function: FUN_0046a370, Size: 14667 bytes
+  Entry: 0x0046a370
+
+/* WARNING: Globals starting with '_' overlap smaller symbols at the same address */
+
+void __fastcall FUN_0046a370(int param_1)
+
+{
+  int *piVar1;
+  undefined4 *puVar2;
+  void *pvVar3;
+  char *pcVar4;
+  int *unaff_FS_OFFSET;
+  int **ppiVar5;
+  undefined **ppuVar6;
+  undefined **ppuVar7;
+  char cVar8;
+  int iVar9;
+  int *local_534;
+  int *local_530;
+  int *local_52c;
+  int *local_528;
+  int *local_524;
+  int *local_520;
+  int *local_51c;
+  int *local_518;
+  int *local_514;
+  int *local_510;
+  int *local_50c;
+  int *local_508;
+  int *local_504;
+  int *local_500;
+  int *local_4fc;
+  int *local_4f8;
+  int *local_4f4;
+  int *local_4f0;
+  int *local_4ec;
+  int *local_4e8;
+  int *local_4e4;
+  int *local_4e0;
+  int *local_4dc;
+  int *local_4d8;
+  int *local_4d4;
+  int *local_4d0;
+  int *local_4cc;
+  int *local_4c8;
+  int *local_4c4;
+  int *local_4c0;
+  int *local_4bc;
+  int *local_4b8;
+  int *local_4b4;
+  int *local_4b0;
+  int *local_4ac;
+  int *local_4a8;
+  int *local_4a4;
+  int *local_4a0;
+  int *local_49c;
+  int *local_498;
+  int *local_494;
+  int *local_490;
+  int *local_48c;
+  int *local_488;
+  int *local_484;
+  int *local_480;
+  int *local_47c;
+  int *local_478;
+  int *local_474;
+  int *local_470;
+  int *local_46c;
+  int *local_468;
+  int *local_464;
+  int *local_2b4;
+  int *local_2b0;
+  int *local_2ac;
+  int *local_2a8;
+  int *local_2a4;
+  int *local_2a0;
+  int *local_29c;
+  uint local_298;
+  int *local_294;
+  int *local_290;
+  int *local_28c;
+  int *local_288;
+  int *local_284;
+  int *local_280;
+  int *local_27c;
+  int *local_278;
+  int *local_274;
+  int *local_270;
+  int *local_26c;
+  int local_268;
+  int *local_264;
+  char *local_260 [4];
+  char *local_250;
+  char *local_24c;
+  char *local_248;
+  char *local_244;
+  char *local_240;
+  char *local_23c;
+  char *local_238;
+  char *local_234;
+  char *local_230;
+  char *local_22c;
+  char *local_228;
+  char *local_224;
+  char *local_220;
+  char *local_21c;
+  char *local_218;
+  char *local_214;
+  char *local_210;
+  char *local_20c;
+  char *local_208;
+  char *local_204;
+  char *local_200;
+  char *local_1fc;
+  char *local_1f8;
+  char *local_1f4;
+  char *local_1f0;
+  char *local_1ec;
+  char *local_1e8;
+  char *local_1e4;
+  char *local_1e0;
+  char *local_1dc;
+  char *local_1d8;
+  char *local_1d4;
+  char *local_1d0;
+  char *local_1cc;
+  char *local_1c8;
+  char *local_1c4;
+  int local_1c0 [5];
+  char *local_1ac;
+  char *local_1a8;
+  undefined4 local_1a4;
+  undefined4 local_1a0;
+  undefined4 local_19c;
+  undefined4 local_198;
+  undefined4 local_194;
+  undefined4 local_190;
+  undefined4 local_18c;
+  char *local_188;
+  char *local_184;
+  char *local_180;
+  char *local_17c;
+  undefined4 local_178;
+  char *local_174;
+  char *local_170;
+  char *local_16c;
+  char *local_168;
+  char *local_164;
+  char *local_160;
+  char *local_15c;
+  char *local_158;
+  char *local_154;
+  char *local_150;
+  char *local_14c;
+  char *local_148;
+  char *local_144;
+  char *local_140;
+  char *local_13c;
+  char *local_138;
+  char *local_134;
+  char *local_130;
+  char *local_12c;
+  char *local_128;
+  char *local_124;
+  char *local_120;
+  undefined4 local_11c;
+  undefined4 local_118;
+  undefined4 local_114;
+  undefined4 local_110;
+  undefined4 local_10c;
+  undefined4 local_108;
+  undefined4 local_104;
+  undefined4 local_100;
+  undefined4 local_fc;
+  undefined4 local_f8;
+  undefined4 local_f4;
+  undefined4 local_f0;
+  undefined4 local_ec;
+  undefined4 local_e8;
+  undefined4 local_e4;
+  undefined4 local_e0;
+  undefined4 local_dc;
+  undefined4 local_d8;
+  undefined4 local_d4;
+  undefined4 local_d0;
+  undefined4 local_cc;
+  undefined4 local_c8;
+  undefined4 local_c4;
+  undefined4 local_c0;
+  int *local_bc;
+  undefined4 local_b8 [41];
+  int local_14;
+  int local_10;
+  undefined1 *puStack_c;
+  int local_8;
+  
+  local_8 = 0xffffffff;
+  puStack_c = &LAB_00eee911;
+  local_10 = *unaff_FS_OFFSET;
+  *unaff_FS_OFFSET = (int)&local_10;
+  FUN_00404eb0(&local_c0,0x2f);
+  local_8 = 0;
+  DAT_011ca220 = (int *)0x0;
+  DAT_011ca230 = (int *)0x0;
+  DAT_011ca244 = (int *)0x0;
+  DAT_011ca248 = (int *)0x0;
+  DAT_011ca224 = (int *)0x0;
+  DAT_011ca228 = (int *)0x0;
+  DAT_011ca22c = (int *)0x0;
+  DAT_011ca254 = (int *)0x0;
+  DAT_011ca258 = (int *)0x0;
+  DAT_011ca25c = (int *)0x0;
+  DAT_011ca260 = (int *)0x0;
+  DAT_011ca250 = (int *)0x0;
+  DAT_011cb550 = (int *)0x0;
+  DAT_011ca268 = (int *)0x0;
+  DAT_011ca26c = (int *)0x0;
+  DAT_011ca53c = (int *)0x0;
+  _DAT_011cb96c = 0;
+  DAT_011cb600 = (int *)0x0;
+  DAT_011ca278 = (int *)0x0;
+  DAT_011cb298 = (int *)0x0;
+  DAT_011cb29c = (int *)0x0;
+  DAT_011ca27c = (int *)0x0;
+  DAT_011ca280 = (int *)0x0;
+  DAT_011ca284 = (int *)0x0;
+  DAT_011ca288 = (int *)0x0;
+  FUN_0066f260();
+  FUN_0058b850(DAT_011ca700);
+  iVar9 = 0;
+  ppuVar7 = &PTR_PTR_0118620c;
+  ppuVar6 = &PTR_PTR_01183028;
+  piVar1 = (int *)FUN_004839c0(0x1f5);
+  DAT_011ca284 = (int *)FUN_00ec43fb(piVar1,0,(_s_RTTICompleteObjectLocator *)ppuVar6,
+                                     (TypeDescriptor *)ppuVar7,iVar9);
+  if (DAT_011ca284 == (int *)0x0) {
+    puVar2 = (undefined4 *)FUN_00401000(0xa8);
+    local_8._0_1_ = 1;
+    if (puVar2 == (undefined4 *)0x0) {
+      local_464 = (int *)0x0;
+    }
+    else {
+      local_464 = FUN_004fabf0(puVar2);
+    }
+    local_8 = (uint)local_8._1_3_ << 8;
+    DAT_011ca284 = local_464;
+    (**(code **)(*local_464 + 0x128))(0x1f5,1);
+    (**(code **)(*DAT_011ca284 + 0x134))("Default Water Explosion");
+    FUN_00489100(DAT_011ca284 + 0xc,"Water Explosion");
+    piVar1 = (int *)&DAT_011ca284;
+    pvVar3 = (void *)FUN_00460ff0(param_1);
+    FUN_005ae3d0(pvVar3,piVar1);
+    (**(code **)(*DAT_011ca284 + 200))(0);
+  }
+  iVar9 = 0;
+  ppuVar7 = &PTR_PTR_01183998;
+  ppuVar6 = &PTR_PTR_01183028;
+  piVar1 = (int *)FUN_004839c0(0x1f6);
+  DAT_011ca288 = (int *)FUN_00ec43fb(piVar1,0,(_s_RTTICompleteObjectLocator *)ppuVar6,
+                                     (TypeDescriptor *)ppuVar7,iVar9);
+  if (DAT_011ca288 == (int *)0x0) {
+    puVar2 = (undefined4 *)FUN_00401000(0x388);
+    local_8._0_1_ = 2;
+    if (puVar2 == (undefined4 *)0x0) {
+      local_468 = (int *)0x0;
+    }
+    else {
+      local_468 = FUN_0051d770(puVar2);
+    }
+    local_8 = (uint)local_8._1_3_ << 8;
+    DAT_011ca288 = local_468;
+    (**(code **)(*local_468 + 0x128))(0x1f6,1);
+    (**(code **)(*DAT_011ca288 + 0x134))("GasTrap Dummy");
+    FUN_00489100(DAT_011ca288 + 0xc,"GasTrap Dummy");
+    FUN_005102b0(*(void **)(param_1 + 4),DAT_011ca288);
+    (**(code **)(*DAT_011ca288 + 200))(0);
+  }
+  iVar9 = 0;
+  ppuVar7 = &PTR_PTR_01186388;
+  ppuVar6 = &PTR_PTR_01183028;
+  piVar1 = (int *)FUN_004839c0(0x1a);
+  DAT_011cb600 = (int *)FUN_00ec43fb(piVar1,0,(_s_RTTICompleteObjectLocator *)ppuVar6,
+                                     (TypeDescriptor *)ppuVar7,iVar9);
+  if (DAT_011cb600 == (int *)0x0) {
+    puVar2 = (undefined4 *)FUN_00401000(0x34);
+    local_8._0_1_ = 3;
+    if (puVar2 == (undefined4 *)0x0) {
+      local_46c = (int *)0x0;
+    }
+    else {
+      local_46c = FUN_005fc050(puVar2);
+    }
+    local_8 = (uint)local_8._1_3_ << 8;
+    DAT_011cb600 = local_46c;
+    (**(code **)(*local_46c + 0x128))(0x1a,1);
+    (**(code **)(*DAT_011cb600 + 0x134))("eyeReanimate");
+    FUN_00489100(DAT_011cb600 + 6,"Reanimate Eyes");
+    piVar1 = (int *)&DAT_011cb600;
+    pvVar3 = (void *)FUN_0043c490(param_1);
+    FUN_005ae3d0(pvVar3,piVar1);
+    (**(code **)(*DAT_011cb600 + 200))(0);
+  }
+  iVar9 = 0;
+  ppuVar7 = &PTR_PTR_01186584;
+  ppuVar6 = &PTR_PTR_01183028;
+  piVar1 = (int *)FUN_004839c0(0x1b);
+  DAT_011ca27c = (int *)FUN_00ec43fb(piVar1,0,(_s_RTTICompleteObjectLocator *)ppuVar6,
+                                     (TypeDescriptor *)ppuVar7,iVar9);
+  if (DAT_011ca27c == (int *)0x0) {
+    puVar2 = (undefined4 *)FUN_00401000(0x90);
+    local_8._0_1_ = 4;
+    if (puVar2 == (undefined4 *)0x0) {
+      local_470 = (int *)0x0;
+    }
+    else {
+      local_470 = FUN_005104f0(puVar2);
+    }
+    local_8 = (uint)local_8._1_3_ << 8;
+    DAT_011ca27c = local_470;
+    (**(code **)(*local_470 + 0x128))(0x1b,1);
+    (**(co
+
+--- Calls FROM GameCode_crash_stack (0x0046b5d0) ---
+  CALL 0x00404eb0 -> FUN_00404eb0 (from 0x0046a3b2)
+  CALL 0x0066f260 -> FUN_0066f260 (from 0x0046a4b8)
+  CALL 0x0058b850 -> FUN_0058b850 (from 0x0046a4c3)
+  CALL 0x004839c0 -> FUN_004839c0 (from 0x0046a4d9)
+  CALL 0x00ec43fb -> FUN_00ec43fb (from 0x0046a4e4)
+  CALL 0x00401000 -> FUN_00401000 (from 0x0046a503)
+  CALL 0x004fabf0 -> FUN_004fabf0 (from 0x0046a524)
+  CALL 0x00489100 -> FUN_00489100 (from 0x0046a59c)
+  CALL 0x00460ff0 -> FUN_00460ff0 (from 0x0046a5ac)
+  CALL 0x005ae3d0 -> FUN_005ae3d0 (from 0x0046a5b3)
+  CALL 0x004839c0 -> FUN_004839c0 (from 0x0046a5e1)
+  CALL 0x00ec43fb -> FUN_00ec43fb (from 0x0046a5ec)
+  CALL 0x00401000 -> FUN_00401000 (from 0x0046a60b)
+  CALL 0x0051d770 -> FUN_0051d770 (from 0x0046a62c)
+  CALL 0x00489100 -> FUN_00489100 (from 0x0046a6a4)
+  CALL 0x005102b0 -> FUN_005102b0 (from 0x0046a6b9)
+  CALL 0x004839c0 -> FUN_004839c0 (from 0x0046a6e3)
+  CALL 0x00ec43fb -> FUN_00ec43fb (from 0x0046a6ee)
+  CALL 0x00401000 -> FUN_00401000 (from 0x0046a70a)
+  CALL 0x005fc050 -> FUN_005fc050 (from 0x0046a72b)
+  CALL 0x00489100 -> FUN_00489100 (from 0x0046a7a0)
+  CALL 0x0043c490 -> FUN_0043c490 (from 0x0046a7b0)
+  CALL 0x005ae3d0 -> FUN_005ae3d0 (from 0x0046a7b7)
+  CALL 0x004839c0 -> FUN_004839c0 (from 0x0046a7e2)
+  CALL 0x00ec43fb -> FUN_00ec43fb (from 0x0046a7ed)
+  CALL 0x00401000 -> FUN_00401000 (from 0x0046a80c)
+  CALL 0x005104f0 -> FUN_005104f0 (from 0x0046a82d)
+  CALL 0x00489100 -> FUN_00489100 (from 0x0046a8a2)
+  CALL 0x005102b0 -> FUN_005102b0 (from 0x0046a8b7)
+  CALL 0x004839c0 -> FUN_004839c0 (from 0x0046a8e1)
+  CALL 0x00ec43fb -> FUN_00ec43fb (from 0x0046a8ec)
+  CALL 0x00401000 -> FUN_00401000 (from 0x0046a90b)
+  CALL 0x005104f0 -> FUN_005104f0 (from 0x0046a92c)
+  CALL 0x00489100 -> FUN_00489100 (from 0x0046a9a1)
+  CALL 0x005102b0 -> FUN_005102b0 (from 0x0046a9b6)
+  CALL 0x004839c0 -> FUN_004839c0 (from 0x0046a9e0)
+  CALL 0x00ec43fb -> FUN_00ec43fb (from 0x0046a9eb)
+  CALL 0x00401000 -> FUN_00401000 (from 0x0046aa07)
+  CALL 0x005effc0 -> FUN_005effc0 (from 0x0046aa28)
+  CALL 0x004611b0 -> FUN_004611b0 (from 0x0046aa9a)
+  CALL 0x005ae3d0 -> FUN_005ae3d0 (from 0x0046aaa1)
+  CALL 0x004839c0 -> FUN_004839c0 (from 0x0046aacc)
+  CALL 0x00ec43fb -> FUN_00ec43fb (from 0x0046aad7)
+  CALL 0x00401000 -> FUN_00401000 (from 0x0046aaf3)
+  CALL 0x005effc0 -> FUN_005effc0 (from 0x0046ab14)
+  CALL 0x004611b0 -> FUN_004611b0 (from 0x0046ab86)
+  CALL 0x005ae3d0 -> FUN_005ae3d0 (from 0x0046ab8d)
+  CALL 0x004839c0 -> FUN_004839c0 (from 0x0046abb8)
+  CALL 0x00ec43fb -> FUN_00ec43fb (from 0x0046abc3)
+  CALL 0x00401000 -> FUN_00401000 (from 0x0046abe2)
+  CALL 0x0057eba0 -> FUN_0057eba0 (from 0x0046ac03)
+  CALL 0x0045a730 -> FUN_0045a730 (from 0x0046ac75)
+  CALL 0x005ae3d0 -> FUN_005ae3d0 (from 0x0046ac7c)
+  CALL 0x004839c0 -> FUN_004839c0 (from 0x0046aca7)
+  CALL 0x00ec43fb -> FUN_00ec43fb (from 0x0046acb2)
+  CALL 0x00401000 -> FUN_00401000 (from 0x0046acce)
+  CALL 0x0051b140 -> FUN_0051b140 (from 0x0046acef)
+  CALL 0x005102b0 -> FUN_005102b0 (from 0x0046ad81)
+  CALL 0x004839c0 -> FUN_004839c0 (from 0x0046adac)
+  CALL 0x00ec43fb -> FUN_00ec43fb (from 0x0046adb7)
+  CALL 0x00401000 -> FUN_00401000 (from 0x0046add6)
+  CALL 0x0051a6a0 -> FUN_0051a6a0 (from 0x0046adf7)
+  CALL 0x005102b0 -> FUN_005102b0 (from 0x0046ae6e)
+  CALL 0x004839c0 -> FUN_004839c0 (from 0x0046ae98)
+  CALL 0x00ec43fb -> FUN_00ec43fb (from 0x0046aea3)
+  CALL 0x00401000 -> FUN_00401000 (from 0x0046aebf)
+  CALL 0x0051b140 -> FUN_0051b140 (from 0x0046aee0)
+  CALL 0x005102b0 -> FUN_005102b0 (from 0x0046af72)
+  CALL 0x004839c0 -> FUN_004839c0 (from 0x0046af9d)
+  CALL 0x00ec43fb -> FUN_00ec43fb (from 0x0046afa8)
+  CALL 0x00460140 -> FUN_00460140 (from 0x0046afc1)
+  CALL 0x006815c0 -> FUN_006815c0 (from 0x0046afc8)
+  CALL 0x00460140 -> FUN_00460140 (from 0x0046afde)
+  CALL 0x00905330 -> FUN_00905330 (from 0x0046afe5)
+  CALL 0x00460140 -> FUN_00460140 (from 0x0046aff4)
+  CALL 0x005ae3d0 -> FUN_005ae3d0 (from 0x0046affb)
+  CALL 0x004839c0 -> FUN_004839c0 (from 0x0046b00e)
+  CALL 0x00ec43fb -> FUN_00ec43fb (from 0x0046b019)
+  CALL 0x00401000 -> FUN_00401000 (from 0x0046b035)
+  CALL 0x0051b140 -> FUN_0051b140 (from 0x0046b056)
+  CALL 0x005102b0 -> FUN_005102b0 (from 0x0046b0e8)
+  CALL 0x004839c0 -> FUN_004839c0 (from 0x0046b113)
+  CALL 0x00ec43fb -> FUN_00ec43fb (from 0x0046b11e)
+  CALL 0x00401000 -> FUN_00401000 (from 0x0046b13a)
+  CALL 0x0051b140 -> FUN_0051b140 (from 0x0046b15b)
+  CALL 0x005102b0 -> FUN_005102b0 (from 0x0046b1ed)
+  CALL 0x004839c0 -> FUN_004839c0 (from 0x0046b218)
+  CALL 0x00ec43fb -> FUN_00ec43fb (from 0x0046b223)
+  CALL 0x00401000 -> FUN_00401000 (from 0x0046b23f)
+  CALL 0x0051b140 -> FUN_0051b140 (from 0x0046b260)
+  CALL 0x005102b0 -> FUN_005102b0 (from 0x0046b2f2)
+  CALL 0x004839c0 -> FUN_004839c0 (from 0x0046b31d)
+  CALL 0x00ec43fb -> FUN_00ec43fb (from 0x0046b328)
+  CALL 0x00401000 -> FUN_00401000 (from 0x0046b344)
+  CALL 0x0051b140 -> FUN_0051b140 (from 0x0046b365)
+  CALL 0x005102b0 -> FUN_005102b0 (from 0x0046b3f7)
+  CALL 0x004839c0 -> FUN_004839c0 (from 0x0046b422)
+  CALL 0x00ec43fb -> FUN_00ec43fb (from 0x0046b42d)
+  CALL 0x00401000 -> FUN_00401000 (from 0x0046b449)
+  CALL 0x0051b140 -> FUN_0051b140 (from 0x0046b46a)
+  CALL 0x005102b0 -> FUN_005102b0 (from 0x0046b4fc)
+  CALL 0x004839c0 -> FUN_004839c0 (from 0x0046b527)
+  CALL 0x00ec43fb -> FUN_00ec43fb (from 0x0046b532)
+  CALL 0x00401000 -> FUN_00401000 (from 0x0046b54e)
+  CALL 0x0051b140 -> FUN_0051b140 (from 0x0046b56f)
+  CALL 0x005102b0 -> FUN_005102b0 (from 0x0046b601)
+  CALL 0x004839c0 -> FUN_004839c0 (from 0x0046b62c)
+  CALL 0x00ec43fb -> FUN_00ec43fb (from 0x0046b637)
+  CALL 0x00401000 -> FUN_00401000 (from 0x0046b653)
+  CALL 0x0051b140 -> FUN_0051b140 (from 0x0046b674)
+  CALL 0x005102b0 -> FUN_005102b0 (from 0x0046b706)
+  CALL 0x004839c0 -> FUN_004839c0 (from 0x0046b731)
+  CALL 0x00ec43fb -> FUN_00ec43fb (from 0x0046b73c)
+  CALL 0x00401000 -> FUN_00401000 (from 0x0046b758)
+  CALL 0x0051b140 -> FUN_0051b140 (from 0x0046b779)
+  CALL 0x005102b0 -> FUN_005102b0 (from 0x0046b80b)
+  CALL 0x004839c0 -> FUN_004839c0 (from 0x0046b836)
+  CALL 0x00ec43fb -> FUN_00ec43fb (from 0x0046b841)
+  CALL 0x00401000 -> FUN_00401000 (from 0x0046b85d)
+  CALL 0x0051b140 -> FUN_0051b140 (from 0x0046b87e)
+  CALL 0x005102b0 -> FUN_005102b0 (from 0x0046b910)
+  CALL 0x004839c0 -> FUN_004839c0 (from 0x0046b93b)
+  CALL 0x00ec43fb -> FUN_00ec43fb (from 0x0046b946)
+  CALL 0x00401000 -> FUN_00401000 (from 0x0046b962)
+  CALL 0x0051b140 -> FUN_0051b140 (from 0x0046b983)
+  CALL 0x005102b0 -> FUN_005102b0 (from 0x0046ba15)
+  CALL 0x004839c0 -> FUN_004839c0 (from 0x0046ba40)
+  CALL 0x00ec43fb -> FUN_00ec43fb (from 0x0046ba4b)
+  CALL 0x00401000 -> FUN_00401000 (from 0x0046ba67)
+  CALL 0x0051b140 -> FUN_0051b140 (from 0x0046ba88)
+  CALL 0x005102b0 -> FUN_005102b0 (from 0x0046bb1a)
+  CALL 0x004839c0 -> FUN_004839c0 (from 0x0046bb45)
+  CALL 0x00ec43fb -> FUN_00ec43fb (from 0x0046bb50)
+  CALL 0x00401000 -> FUN_00401000 (from 0x0046bb6c)
+  CALL 0x0051b140 -> FUN_0051b140 (from 0x0046bb8d)
+  CALL 0x005102b0 -> FUN_005102b0 (from 0x0046bc1f)
+  CALL 0x004839c0 -> FUN_004839c0 (from 0x0046bc4a)
+  CALL 0x00ec43fb -> FUN_00ec43fb (from 0x0046bc55)
+  CALL 0x00401000 -> FUN_00401000 (from 0x0046bc71)
+  CALL 0x0051b140 -> FUN_0051b140 (from 0x0046bc92)
+  CALL 0x005102b0 -> FUN_005102b0 (from 0x0046bd24)
+  CALL 0x004839c0 -> FUN_004839c0 (from 0x0046bd4f)
+  CALL 0x00ec43fb -> FUN_00ec43fb (from 0x0046bd5a)
+  CALL 0x00401000 -> FUN_00401000 (from 0x0046bd79)
+  CALL 0x005173e0 -> FUN_005173e0 (from 0x0046bd9a)
+  CALL 0x005102b0 -> FUN_005102b0 (from 0x0046be2c)
+  CALL 0x004839c0 -> FUN_004839c0 (from 0x0046be57)
+  CALL 0x00ec43fb -> FUN_00ec43fb (from 0x0046be62)
+  CALL 0x00401000 -> FUN_00401000 (from 0x0046be7e)
+  CALL 0x0051b140 -> FUN_0051b140 (from 0x0046be9f)
+  CALL 0x005102b0 -> FUN_005102b0 (from 0x0046bf31)
+  CALL 0x004839c0 -> FUN_004839c0 (from 0x0046bf5c)
+  CALL 0x00ec43fb -> FUN_00ec43fb (from 0x0046bf67)
+  CALL 0x00401000 -> FUN_00401000 (from 0x0046bf83)
+  CALL 0x0051b140 -> FUN_0051b140 (from 0x0046bfa4)
+  CALL 0x005102b0 -> FUN_005102b0 (from 0x0046c036)
+  CALL 0x004839c0 -> FUN_004839c0 (from 0x0046c061)
+  CALL 0x00ec43fb -> FUN_00ec43fb (from 0x0046c06c)
+  CALL 0x00401000 -> FUN_00401000 (from 0x0046c088)
+  CALL 0x0051b140 -> FUN_0051b140 (from 0x0046c0a9)
+  CALL 0x005102b0 -> FUN_005102b0 (from 0x0046c13b)
+  CALL 0x004839c0 -> FUN_004839c0 (from 0x0046c166)
+  CALL 0x00ec43fb -> FUN_00ec43fb (from 0x0046c171)
+  CALL 0x00401000 -> FUN_00401000 (from 0x0046c18d)
+  CALL 0x005fc680 -> FUN_005fc680 (from 0x0046c1ae)
+  CALL 0x00871a30 -> FUN_00871a30 (from 0x0046c220)
+  CALL 0x005ae3d0 -> FUN_005ae3d0 (from 0x0046c227)
+  CALL 0x0048bfc0 -> FUN_0048bfc0 (from 0x0046c23e)
+  CALL 0x005fd460 -> FUN_005fd460 (from 0x0046c249)
+  CALL 0x00484ab0 -> FUN_00484ab0 (from 0x0046c256)
+  CALL 0x004839c0 -> FUN_004839c0 (from 0x0046c275)
+  CALL 0x00401000 -> FUN_00401000 (from 0x0046c28a)
+  CALL 0x0051a6a0 -> FUN_0051a6a0 (from 0x0046c2ab)
+  CALL 0x005102b0 -> FUN_005102b0 (from 0x0046c323)
+  CALL 0x004839c0 -> FUN_004839c0 (from 0x0046c342)
+  CALL 0x00401000 -> FUN_00401000 (from 0x0046c361)
+  CALL 0x005160f0 -> FUN_005160f0 (from 0x0046c382)
+  CALL 0x0044a670 -> length (from 0x0046c41b)
+  CALL 0x005102b0 -> FUN_005102b0 (from 0x0046c452)
+  CALL 0x004839c0 -> FUN_004839c0 (from 0x0046c474)
+  CALL 0x00401000 -> FUN_00401000 (from 0x0046c493)
+  CALL 0x0051d770 -> FUN_0051d770 (from 0x0046c4b4)
+  CALL 0x0046dcc0 -> FUN_0046dcc0 (from 0x0046c526)
+  CALL 0x005102b0 -> FUN_005102b0 (from 0x0046c53b)
+  CALL 0x004839c0 -> FUN_004839c0 (from 0x0046c85c)
+  CALL 0x00401000 -> FUN_00401000 (from 0x0046c879)
+  CALL 0x0051b140 -> FUN_0051b140 (from 0x0046c89a)
+  CALL 0x005102b0 -> FUN_005102b0 (from 0x0046c927)
+  CALL 0x0061a040 -> FUN_0061a040 (from 0x0046c949)
+  CALL 0x004839c0 -> FUN_004839c0 (from 0x0046c950)
+  CALL 0x00401000 -> FUN_00401000 (from 0x0046c962)
+  CALL 0x005a6320 -> FUN_005a6320 (from 0x0046c983)
+  CALL 0x0046dce0 -> FUN_0046dce0 (from 0x0046c9fb)
+  CALL 0x00461190 -> FUN_00461190 (from 0x0046ca0d)
+  CALL 0x005ae3d0 -> FUN_005ae3d0 (from 0x0046ca14)
+  CALL 0x00470200 -> FUN_00470200 (from 0x0046ca2b)
+  CALL 0x004839c0 -> FUN_004839c0 (from 0x0046ca32)
+  CALL 0x00401000 -> FUN_00401000 (from 0x0046ca44)
+  CALL 0x005a6320 -> FUN_005a6320 (from 0x0046ca65)
+  CALL 0x0046dce0 -> FUN_0046dce0 (from 0x0046cadd)
+  CALL 0x00461190 -> FUN_00461190 (from 0x0046caef)
+  CALL 0x005ae3d0 -> FUN_005ae3d0 (from 0x0046caf6)
+  CALL 0x00470200 -> FUN_00470200 (from 0x0046cb0d)
+  CALL 0x004839c0 -> FUN_004839c0 (from 0x0046cb14)
+  CALL 0x00401000 -> FUN_00401000 (from 0x0046cb26)
+  CALL 0x005a6320 -> FUN_005a6320 (from 0x0046cb47)
+  CALL 0x0046dce0 -> FUN_0046dce0 (from 0x0046cbbf)
+  CALL 0x00461190 -> FUN_00461190 (from 0x0046cbd1)
+  CALL 0x005ae3d0 -> FUN_005ae3d0 (from 0x0046cbd8)
+  CALL 0x00470200 -> FUN_00470200 (from 0x0046cbef)
+  CALL 0x004839c0 -> FUN_004839c0 (from 0x0046cbf6)
+  CALL 0x00401000 -> FUN_00401000 (from 0x0046cc08)
+  CALL 0x005a6320 -> FUN_005a6320 (from 0x0046cc29)
+  CALL 0x0046dce0 -> FUN_0046dce0 (from 0x0046cca1)
+  CALL 0x00461190 -> FUN_00461190 (from 0x0046ccb3)
+  CALL 0x005ae3d0 -> FUN_005ae3d0 (from 0x0046ccba)
+  CALL 0x00470200 -> FUN_00470200 (from 0x0046ccd1)
+  CALL 0x004839c0 -> FUN_004839c0 (from 0x0046ccd8)
+  CALL 0x00401000 -> FUN_00401000 (from 0x0046ccea)
+  CALL 0x005a6320 -> FUN_005a6320 (from 0x0046cd0b)
+  CALL 0x0046dce0 -> FUN_0046dce0 (from 0x0046cd7f)
+  CALL 0x00461190 -> FUN_00461190 (from 0x0046cd91)
+  CALL 0x005ae3d0 -> FUN_005ae3d0 (from 0x0046cd98)
+  CALL 0x00470200 -> FUN_00470200 (from 0x0046cdaf)
+  CALL 0x004839c0 -> FUN_004839c0 (from 0x0046cdb6)
+  CALL 0x00401000 -> FUN_00401000 (from 0x0046cdc8)
+  CALL 0x005a6320 -> FUN_005a6320 (from 0x0046cde9)
+  CALL 0x0046dce0 -> FUN_0046dce0 (from 0x0046ce61)
+  CALL 0x00461190 -> FUN_00461190 (from 0x0046ce73)
+  CALL 0x005ae3d0 -> FUN_005ae3d0 (from 0x0046ce7a)
+  CALL 0x00470200 -> FUN_00470200 (from 0x0046ce91)
+  CALL 0x004839c0 -> FUN_004839c0 (from 0x0046cea4)
+  CALL 0x00ec43fb -> FUN_00ec43fb (from 0x0046ceaf)
+  CALL 0x00401000 -> FUN_00401000 (from 0x0046cecf)
+  CALL 0x00601170 -> FUN_00601170 (from 0x0046cef0)
+  CALL 0x005102b0 -> FUN_005102b0 (from 0x0046cf68)
+  CALL 0x004839c0 -> FUN_004839c0 (from 0x0046cf8a)
+  CALL 0x00401000 -> FUN_00401000 (from 0x0046cf9f)
+  CALL 0x005807f0 -> FUN_005807f0 (from 0x0046cfc0)
+  CALL 0x00581c00 -> FUN_00581c00 (from 0x0046d031)
+  CALL 0x00436aa0 -> FUN_00436aa0 (from 0x0046d043)
+  CALL 0x005ae3d0 -> FUN_005ae3d0 (from 0x0046d04a)
+  CALL 0x004839c0 -> FUN_004839c0 (from 0x0046d054)
+  CALL 0x00401000 -> FUN_00401000 (from 0x0046d066)
+  CALL 0x0052aaa0 -> FUN_0052aaa0 (from 0x0046d087)
+  CALL 0x0052b0f0 -> FUN_0052b0f0 (from 0x0046d0f8)
+  CALL 0x00500940 -> FUN_00500940 (from 0x0046d10a)
+  CALL 0x005ae3d0 -> FUN_005ae3d0 (from 0x0046d111)
+  CALL 0x0046dd00 -> FUN_0046dd00 (from 0x0046d11a)
+  CALL 0x0063c8f0 -> FUN_0063c8f0 (from 0x0046d121)
+  CALL 0x004839c0 -> FUN_004839c0 (from 0x0046d12b)
+  CALL 0x00401000 -> FUN_00401000 (from 0x0046d13d)
+  CALL 0x0058f9d0 -> FUN_0058f9d0 (from 0x0046d15e)
+  CALL 0x00461230 -> FUN_00461230 (from 0x0046d1d6)
+  CALL 0x005ae3d0 -> FUN_005ae3d0 (from 0x0046d1dd)
+  CALL 0x004839c0 -> FUN_004839c0 (from 0x0046d1e7)
+  CALL 0x00401000 -> FUN_00401000 (from 0x0046d1f9)
+  CALL 0x0058f9d0 -> FUN_0058f9d0 (from 0x0046d21a)
+  CALL 0x00461230 -> FUN_00461230 (from 0x0046d292)
+  CALL 0x005ae3d0 -> FUN_005ae3d0 (from 0x0046d299)
+  CALL 0x00401000 -> FUN_00401000 (from 0x0046d55c)
+  CALL 0x00590530 -> FUN_00590530 (from 0x0046d57d)
+  CALL 0x00461250 -> FUN_00461250 (from 0x0046d605)
+  CALL 0x005ae3d0 -> FUN_005ae3d0 (from 0x0046d60c)
+  CALL 0x004839c0 -> FUN_004839c0 (from 0x0046d61b)
+  CALL 0x00401000 -> FUN_00401000 (from 0x0046d630)
+  CALL 0x0052b310 -> FUN_0052b310 (from 0x0046d651)
+  CALL 0x0052b780 -> FUN_0052b780 (from 0x0046d6c2)
+  CALL 0x00891170 -> FUN_00891170 (from 0x0046d6d4)
+  CALL 0x005ae3d0 -> FUN_005ae3d0 (from 0x0046d6db)
+  CALL 0x00401000 -> FUN_00401000 (from 0x0046d6e5)
+  CALL 0x0052b310 -> FUN_0052b310 (from 0x0046d706)
+  CALL 0x0052b780 -> FUN_0052b780 (from 0x0046d777)
+  CALL 0x00891170 -> FUN_00891170 (from 0x0046d789)
+  CALL 0x005ae3d0 -> FUN_005ae3d0 (from 0x0046d790)
+  CALL 0x004839c0 -> FUN_004839c0 (from 0x0046d79a)
+  CALL 0x00401000 -> FUN_00401000 (from 0x0046d7af)
+  CALL 0x0052b8f0 -> FUN_0052b8f0 (from 0x0046d7d0)
+  CALL 0x005330a0 -> FUN_005330a0 (from 0x0046d841)
+  CALL 0x004610d0 -> FUN_004610d0 (from 0x0046d853)
+  CALL 0x005ae3d0 -> FUN_005ae3d0 (from 0x0046d85a)
+  CALL 0x004839c0 -> FUN_004839c0 (from 0x0046d864)
+  CALL 0x00401000 -> FUN_00401000 (from 0x0046d879)
+  CALL 0x0052b8f0 -> FUN_0052b8f0 (from 0x0046d89a)
+  CALL 0x005330a0 -> FUN_005330a0 (from 0x0046d90b)
+  CALL 0x004610d0 -> FUN_004610d0 (from 0x0046d91d)
+  CALL 0x005ae3d0 -> FUN_005ae3d0 (from 0x0046d924)
+  CALL 0x004839c0 -> FUN_004839c0 (from 0x0046d92e)
+  CALL 0x00401000 -> FUN_00401000 (from 0x0046d943)
+  CALL 0x0052b8f0 -> FUN_0052b8f0 (from 0x0046d964)
+  CALL 0x005330a0 -> FUN_005330a0 (from 0x0046d9d5)
+  CALL 0x004610d0 -> FUN_004610d0 (from 0x0046d9e7)
+  CALL 0x005ae3d0 -> FUN_005ae3d0 (from 0x0046d9ee)
+  CALL 0x0040ca50 -> FUN_0040ca50 (from 0x0046d9f3)
+  CALL 0x004839c0 -> FUN_004839c0 (from 0x0046d9fd)
+  CALL 0x00401000 -> FUN_00401000 (from 0x0046da12)
+  CALL 0x00407020 -> FUN_00407020 (from 0x0046da33)
+  CALL 0x00489100 -> FUN_00489100 (from 0x0046daac)
+  CALL 0x00409060 -> FUN_00409060 (from 0x0046dab8)
+  CALL 0x005e3600 -> FUN_005e3600 (from 0x0046dac0)
+  CALL 0x0058ea10 -> FUN_0058ea10 (from 0x0046dac5)
+  CALL 0x00479570 -> FUN_00479570 (from 0x0046daca)
+  CALL 0x005e53a0 -> FUN_005e53a0 (from 0x0046dacf)
+  CALL 0x00593140 -> FUN_00593140 (from 0x0046dad4)
+  CALL 0x00526340 -> FUN_00526340 (from 0x0046dad9)
+  CALL 0x004839c0 -> FUN_004839c0 (from 0x0046dae0)
+  CALL 0x00401000 -> FUN_00401000 (from 0x0046daf5)
+  CALL 0x00505010 -> FUN_00505010 (from 0x0046db16)
+  CALL 0x004610b0 -> FUN_004610b0 (from 0x0046db8b)
+  CALL 0x005ae3d0 -> FUN_005ae3d0 (from 0x0046db92)
+  CALL 0x004839c0 -> FUN_004839c0 (from 0x0046db99)
+  CALL 0x00401000 -> FUN_00401000 (from 0x0046dbb5)
+  CALL 0x005a6320 -> FUN_005a6320 (from 0x0046dbd6)
+  CALL 0x0046dce0 -> FUN_0046dce0 (from 0x0046dc49)
+  CALL 0x00461190 -> FUN_00461190 (from 0x0046dc59)
+  CALL 0x005ae3d0 -> FUN_005ae3d0 (from 0x0046dc60)
+  CALL 0x00470200 -> FUN_00470200 (from 0x0046dc77)
+  CALL 0x0058d680 -> FUN_0058d680 (from 0x0046dc7c)
+  CALL 0x00404ee0 -> FUN_00404ee0 (from 0x0046dca7)
+  Total: 319 calls
+
+# SECTION 2: NiSourceTexture destructor - D3D9 resource release
+
+======================================================================
+NiSourceTexture_dtor @ 0x00a5fca0
+======================================================================
+  Function: FUN_00a5fca0, Size: 207 bytes
+  Entry: 0x00a5fca0
+
+void __fastcall FUN_00a5fca0(undefined4 *param_1)
+
+{
+  int *piVar1;
+  LONG LVar2;
+  
+  *param_1 = &PTR_FUN_0109b9ec;
+  piVar1 = (int *)param_1[0xf];
+  if (piVar1 != (int *)0x0) {
+    LVar2 = InterlockedDecrement(piVar1 + 1);
+    if (LVar2 == 0) {
+      (**(code **)(*piVar1 + 4))();
+    }
+    param_1[0xf] = 0;
+  }
+  piVar1 = (int *)param_1[0xe];
+  if (piVar1 != (int *)0x0) {
+    LVar2 = InterlockedDecrement(piVar1 + 1);
+    if (LVar2 == 0) {
+      (**(code **)(*piVar1 + 4))();
+    }
+    param_1[0xe] = 0;
+  }
+  piVar1 = (int *)param_1[0xf];
+  if (piVar1 != (int *)0x0) {
+    LVar2 = InterlockedDecrement(piVar1 + 1);
+    if (LVar2 == 0) {
+      (**(code **)(*piVar1 + 4))();
+    }
+  }
+  piVar1 = (int *)param_1[0xe];
+  if (piVar1 != (int *)0x0) {
+    LVar2 = InterlockedDecrement(piVar1 + 1);
+    if (LVar2 == 0) {
+      (**(code **)(*piVar1 + 4))();
+    }
+  }
+  if (param_1[0xd] != DAT_0109b220) {
+    InterlockedDecrement((LONG *)(param_1[0xd] + -8));
+  }
+  if (param_1[0xc] != DAT_0109b220) {
+    InterlockedDecrement((LONG *)(param_1[0xc] + -8));
+  }
+  *param_1 = &PTR_FUN_0109b944;
+  if ((undefined4 *)param_1[9] != (undefined4 *)0x0) {
+    (*(code *)**(undefined4 **)param_1[9])(1);
+  }
+  FUN_00a5f800((int)param_1);
+  FUN_00a5c240(param_1);
+  return;
+}
+
+
+
+# SECTION 3: NiDX9SourceTextureData dtor - releases IDirect3DTexture9?
+
+======================================================================
+NiDX9SourceTextureData_dtor @ 0x00cfcc20
+======================================================================
+  Function: FUN_00cfcc20, Size: 13 bytes
+  Entry: 0x00cfcc20
+
+void __fastcall FUN_00cfcc20(undefined4 *param_1)
+
+{
+  if (param_1 != (undefined4 *)0x0) {
+    (**(code **)*param_1)(1);
+  }
+  return;
+}
+
+
+
+# SECTION 4: NiGeometryBufferData dtor - releases vertex/index buffers?
+
+======================================================================
+NiGeometryBufferData_dtor @ 0x00e8f080
+======================================================================
+  [function not found]
+
+# SECTION 5: Key vtables from crash stack
+
+--- NiDX9Renderer vtable (0x010ee4bc) ---
+  [0] +0x00: 0x00e762f0 -> FUN_00e762f0
+  [1] +0x04: 0x00cfcc20 -> FUN_00cfcc20
+  [2] +0x08: 0x00e757b0 -> unknown
+  [3] +0x0c: 0x00acbb70 -> FUN_00acbb70
+  [4] +0x10: 0x00acbb70 -> FUN_00acbb70
+  [5] +0x14: 0x00acbb70 -> FUN_00acbb70
+  [6] +0x18: 0x00acbb70 -> FUN_00acbb70
+  [7] +0x1c: 0x00acbb70 -> FUN_00acbb70
+
+--- NiGeometryBufferData vtable (0x010f017c) ---
+  [0] +0x00: 0x00e8f170 -> FUN_00e8f170
+  [1] +0x04: 0x00e8f080 -> unknown
+  [2] +0x08: 0x5844694e -> unknown
+  [3] +0x0c: 0x646e4939 -> unknown
+  [4] +0x10: 0x75427865 -> unknown
+  [5] +0x14: 0x72656666 -> unknown
+  [6] +0x18: 0x616e614d -> unknown
+  [7] +0x1c: 0x3a726567 -> unknown
+
+--- NiDX9SourceTextureData vtable (0x010ed37c) ---
+  [0] +0x00: 0x00e68ea0 -> FUN_00e68ea0
+  [1] +0x04: 0x00cfcc20 -> FUN_00cfcc20
+  [2] +0x08: 0x00529530 -> FUN_00529530
+  [3] +0x0c: 0x00acbb70 -> FUN_00acbb70
+  [4] +0x10: 0x00acbb70 -> FUN_00acbb70
+  [5] +0x14: 0x00acbb70 -> FUN_00acbb70
+  [6] +0x18: 0x00acbb70 -> FUN_00acbb70
+  [7] +0x1c: 0x00acbb70 -> FUN_00acbb70

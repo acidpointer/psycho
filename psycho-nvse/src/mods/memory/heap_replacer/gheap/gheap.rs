@@ -72,14 +72,36 @@ impl Gheap {
             return ptr;
         }
 
-        // OOM: flush quarantine + thread-local collect, then retry.
+        // OOM recovery. The original FUN_00aa3e40 had a do-while loop that
+        // retried forever with HeapCompact. We replicate escalating recovery:
+        //
+        // Stage 1: flush this thread's quarantine + thread-local collect
+        // Stage 2: mi_collect(false) to reclaim cross-thread abandoned segments
+        // Stage 3: log and return NULL (true VA exhaustion)
+        //
+        // NEVER mi_collect(true) -- races with AI threads.
+
+        // Stage 1: flush quarantine on this thread
         if DELAYED_FREE {
             unsafe { delayed_free::flush_current_thread() };
         }
-        // NEVER mi_collect(true) — it purges cross-thread segments and races
-        // with AI Linear Task Threads (EXCEPTION_ACCESS_VIOLATION).
+        let ptr = unsafe { mi_malloc_aligned(size, ALIGN) };
+        if !ptr.is_null() {
+            return ptr;
+        }
+
+        // Stage 2: collect abandoned segments from other threads
         unsafe { mi_collect(false) };
-        unsafe { mi_malloc_aligned(size, ALIGN) }
+        let ptr = unsafe { mi_malloc_aligned(size, ALIGN) };
+        if !ptr.is_null() {
+            return ptr;
+        }
+
+        log::error!(
+            "[GHEAP] OOM: mi_malloc_aligned({}, {}) failed after recovery",
+            size, ALIGN,
+        );
+        std::ptr::null_mut()
     }
 
     /// Free a GameHeap pointer.
@@ -166,12 +188,23 @@ impl Gheap {
             if !new_ptr.is_null() {
                 return new_ptr;
             }
-            // OOM: flush quarantine + collect, then retry.
+            // OOM: same escalating recovery as alloc
             if DELAYED_FREE {
                 unsafe { delayed_free::flush_current_thread() };
             }
+            let new_ptr = unsafe { mi_realloc_aligned(ptr, new_size, ALIGN) };
+            if !new_ptr.is_null() {
+                return new_ptr;
+            }
             unsafe { mi_collect(false) };
-            return unsafe { mi_realloc_aligned(ptr, new_size, ALIGN) };
+            let new_ptr = unsafe { mi_realloc_aligned(ptr, new_size, ALIGN) };
+            if new_ptr.is_null() {
+                log::error!(
+                    "[GHEAP] OOM: mi_realloc_aligned({}, {}) failed after recovery",
+                    new_size, ALIGN,
+                );
+            }
+            return new_ptr;
         }
 
         // Pre-hook pointer: alloc new via mimalloc, copy, free old via trampoline.

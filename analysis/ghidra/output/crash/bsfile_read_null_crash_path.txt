@@ -1,0 +1,466 @@
+======================================================================
+BSFile::Read NULL CRASH PATH TRACE
+======================================================================
+
+# SECTION 1: Function at 0x00AA22A2 - the BSFile::Read caller
+
+======================================================================
+BSFile_Read_Caller @ 0x00aa22a2
+======================================================================
+  [function not found]
+
+--- Calls FROM BSFile_Read_Caller (0x00aa22a2) ---
+  [function not found]
+
+# SECTION 2: Disasm around 0x00AA2290 (the memcpy call)
+  0x00aa2271: ADD EAX,EDX
+  0x00aa2273: MOV byte ptr [EAX + -0x1],BL
+  0x00aa2276: POP EBX
+  0x00aa2277: JMP 0x00aa2295
+  0x00aa2279: MOV EAX,dword ptr [ESP + 0x24]
+  0x00aa227d: MOV ECX,dword ptr [ESP + 0x20]
+  0x00aa2281: MOV EDX,dword ptr [ESP + 0x1c]
+  0x00aa2285: PUSH EAX
+  0x00aa2286: MOV EAX,dword ptr [EDI]
+  0x00aa2288: PUSH ECX
+  0x00aa2289: PUSH EDX
+  0x00aa228a: PUSH EAX
+  0x00aa228b: MOV ECX,0x11f6238
+  0x00aa2290: CALL 0x00aa4030
+  0x00aa2295: MOV ECX,dword ptr [EDI]
+  0x00aa2297: PUSH ECX
+  0x00aa2298: MOV ESI,EAX
+  0x00aa229a: PUSH 0x0
+  0x00aa229c: PUSH ESI
+  0x00aa229d: CALL 0x00ec61c0
+  0x00aa22a2: ADD ESP,0xc
+  0x00aa22a5: POP EDI
+  0x00aa22a6: MOV EAX,ESI
+  0x00aa22a8: POP ESI
+  0x00aa22a9: RET 0x1c
+
+# SECTION 3: Who calls the function containing 0x00AA22A2?
+
+--- XRefs to ReturnAddr_callers (0x00aa22a2) ---
+  Total: 0 refs
+
+# SECTION 4: FUN_00ec61c0 - memcpy function
+  0x00ec61c0: MOV EDX,dword ptr [ESP + 0xc]
+  0x00ec61c4: MOV ECX,dword ptr [ESP + 0x4]
+  0x00ec61c8: TEST EDX,EDX
+  0x00ec61ca: JZ 0x00ec6235
+  0x00ec61cc: XOR EAX,EAX
+  0x00ec61ce: MOV AL,byte ptr [ESP + 0x8]
+  0x00ec61d2: TEST AL,AL
+  0x00ec61d4: JNZ 0x00ec61ec
+  0x00ec61d6: CMP EDX,0x100
+  0x00ec61dc: JC 0x00ec61ec
+  0x00ec61de: CMP dword ptr [0x01270a6c],0x0
+  0x00ec61e5: JZ 0x00ec61ec
+  0x00ec61e7: JMP 0x00ed2cd5
+  0x00ec61ec: PUSH EDI
+  0x00ec61ed: MOV EDI,ECX
+  0x00ec61ef: CMP EDX,0x4
+  0x00ec61f2: JC 0x00ec6225
+  0x00ec61f4: NEG ECX
+  0x00ec61f6: AND ECX,0x3
+  0x00ec61f9: JZ 0x00ec6207
+
+# SECTION 5: What sets EDI (destination) before memcpy?
+# Trace back from 0x00AA229D to find where dest ptr comes from
+  0x00aa2261: CALL 0x00aa3e40
+  0x00aa2266: MOV CL,BL
+  0x00aa2268: DEC CL
+  0x00aa226a: AND CL,AL
+  0x00aa226c: SUB BL,CL
+  0x00aa226e: MOVZX EDX,BL
+  0x00aa2271: ADD EAX,EDX
+  0x00aa2273: MOV byte ptr [EAX + -0x1],BL
+  0x00aa2276: POP EBX
+  0x00aa2277: JMP 0x00aa2295
+  0x00aa2279: MOV EAX,dword ptr [ESP + 0x24]
+  0x00aa227d: MOV ECX,dword ptr [ESP + 0x20]
+  0x00aa2281: MOV EDX,dword ptr [ESP + 0x1c]
+  0x00aa2285: PUSH EAX
+  0x00aa2286: MOV EAX,dword ptr [EDI]
+  0x00aa2288: PUSH ECX
+  0x00aa2289: PUSH EDX
+  0x00aa228a: PUSH EAX
+  0x00aa228b: MOV ECX,0x11f6238
+  0x00aa2290: CALL 0x00aa4030
+  0x00aa2295: MOV ECX,dword ptr [EDI]
+  0x00aa2297: PUSH ECX
+  0x00aa2298: MOV ESI,EAX
+  0x00aa229a: PUSH 0x0
+  0x00aa229c: PUSH ESI
+  0x00aa229d: CALL 0x00ec61c0
+  0x00aa22a2: ADD ESP,0xc
+  0x00aa22a5: POP EDI
+  0x00aa22a6: MOV EAX,ESI
+  0x00aa22a8: POP ESI
+
+# SECTION 6: NiDDSReader vtable 0x0109F48C
+# What virtual functions does it have?
+  NiDDSReader vtable[1] = 0x00a8c0e0
+  NiDDSReader vtable[2] = 0x00a8d0d0
+
+======================================================================
+NiDDSReader_vtable2 @ 0x00a8d0d0
+======================================================================
+  Function: FUN_00a8d0d0, Size: 847 bytes
+  Entry: 0x00a8d0d0
+
+undefined4 * __thiscall FUN_00a8d0d0(void *this,int param_1)
+
+{
+  LPCRITICAL_SECTION lpCriticalSection;
+  undefined4 *puVar1;
+  char cVar2;
+  uint uVar3;
+  void *this_00;
+  undefined4 *puVar4;
+  int iVar5;
+  int iVar6;
+  LPCRITICAL_SECTION unaff_EBX;
+  undefined4 *puVar7;
+  char *pcVar8;
+  char *pcVar9;
+  uint unaff_EDI;
+  undefined4 auStack_120 [17];
+  undefined4 auStack_dc [14];
+  undefined4 uStack_a4;
+  char local_5c [12];
+  LPCRITICAL_SECTION local_50;
+  undefined1 local_44 [48];
+  int iStack_14;
+  undefined4 *puStack_10;
+  
+  FUN_00a7cca0(local_44);
+  lpCriticalSection = (LPCRITICAL_SECTION)((int)this + 0x80);
+  local_50 = lpCriticalSection;
+  EnterCriticalSection(lpCriticalSection);
+  pcVar9 = local_5c;
+  cVar2 = (**(code **)(*(int *)this + 0xc))();
+  puVar4 = puStack_10;
+  if (cVar2 != '\0') {
+    if ((((puStack_10 == (undefined4 *)0x0) ||
+         (*(int *)puStack_10[0x15] != *(int *)((int)this + 0x104))) ||
+        (*(int *)puStack_10[0x16] != *(int *)((int)this + 0x100))) ||
+       (((uVar3 = FUN_00a76540(puStack_10 + 2,local_5c), (char)uVar3 == '\0' ||
+         (puVar4[0x18] != *(int *)((int)this + 0x108))) || (puVar4[0x1b] != unaff_EDI)))) {
+      this_00 = (void *)FUN_00aa13e0(0x74);
+      if (this_00 == (void *)0x0) {
+        puVar4 = (undefined4 *)0x0;
+      }
+      else {
+        uStack_a4 = 0xa8d1b0;
+        puVar4 = FUN_00a7c190(this_00,*(uint *)((int)this + 0x104),*(uint *)((int)this + 0x100),
+                              (undefined4 *)local_5c,*(uint *)((int)this + 0x108),unaff_EDI);
+      }
+    }
+    puVar1 = (undefined4 *)puVar4[0x18];
+    uVar3 = FUN_00a76540(local_5c,(char *)((int)this + 0x110));
+    if ((char)uVar3 == '\0') {
+      if (unaff_EDI != 0) {
+        iVar5 = -1;
+        do {
+          switch(iVar5) {
+          case 0:
+            iStack_14 = 1;
+            break;
+          case 1:
+            iStack_14 = 2;
+            break;
+          case 2:
+            iStack_14 = 3;
+            break;
+          case 3:
+            iStack_14 = 4;
+            break;
+          case 4:
+            iStack_14 = 5;
+            break;
+          default:
+            iStack_14 = 0;
+          }
+          puStack_10 = (undefined4 *)0x0;
+          if (puVar1 != (undefined4 *)0x0) {
+            do {
+              cVar2 = *(char *)((int)this + 0x111);
+              if (cVar2 == '\x10') {
+                pcVar8 = local_5c;
+                puVar7 = auStack_dc;
+                this = pcVar9;
+                for (iVar6 = 0x11; iVar6 != 0; iVar6 = iVar6 + -1) {
+                  *puVar7 = *(undefined4 *)pcVar8;
+                  pcVar8 = pcVar8 + 4;
+                  puVar7 = puVar7 + 1;
+                }
+                pcVar9 = (char *)((int)this + 0x110);
+                puVar7 = auStack_120;
+                for (iVar6 = 0x11; iVar6 != 0; iVar6 = iVar6 + -1) {
+                  *puVar7 = *(undefined4 *)pcVar9;
+                  pcVar9 = pcVar9 + 4;
+                  puVar7 = puVar7 + 1;
+                }
+                FUN_00a8cc40(param_1,(int)puVar4);
+                pcVar9 = this;
+              }
+              else if (cVar2 == '\x18') {
+                pcVar8 = local_5c;
+                puVar7 = auStack_dc;
+                this = pcVar9;
+                for (iVar6 = 0x11; iVar6 != 0; iVar6 = iVar6 + -1) {
+                  *puVar7 = *(undefined4 *)pcVar8;
+                  pcVar8 = pcVar8 + 4;
+                  puVar7 = puVar7 + 1;
+                }
+                pcVar9 = (char *)((int)this + 0x110);
+                puVar7 = auStack_120;
+                for (iVar6 = 0x11; iVar6 != 0; iVar6 = iVar6 + -1) {
+                  *puVar7 = *(undefined4 *)pcVar9;
+                  pcVar9 = pcVar9 + 4;
+                  puVar7 = puVar7 + 1;
+                }
+                FUN_00a8c6e0(param_1,(int)puVar4);
+                pcVar9 = this;
+              }
+              else if (cVar2 == ' ') {
+                pcVar8 = local_5c;
+                puVar7 = auStack_dc;
+                this = pcVar9;
+                for (iVar6 = 0x11; iVar6 != 0; iVar6 = iVar6 + -1) {
+                  *puVar7 = *(undefined4 *)pcVar8;
+                  pcVar8 = pcVar8 + 4;
+                  puVar7 = puVar7 + 1;
+                }
+                pcVar9 = (char *)((int)this + 0x110);
+                puVar7 = auStack_120;
+                for (iVar6 = 0x11; iVar6 != 0; iVar6 = iVar6 + -1) {
+                  *puVar7 = *(undefined4 *)pcVar9;
+                  pcVar9 = pcVar9 + 4;
+                  puVar7 = puVar7 + 1;
+                }
+                FUN_00a8c7a0(param_1,(int)puVar4);
+                pcVar9 = this;
+              }
+              puStack_10 = (undefined4 *)((int)puStack_10 + 1);
+            } while (puStack_10 < puVar1);
+          }
+          uVar3 = iVar5 + 2;
+          iVar5 = iVar5 + 1;
+        } while (uVar3 < unaff_EDI);
+      }
+    }
+    else if (unaff_EDI != 0) {
+      iStack_14 = -1;
+      do {
+        switch(iStack_14) {
+        case 0:
+          break;
+        case 1:
+          break;
+        case 2:
+          break;
+        case 3:
+          break;
+        case 4:
+        }
+        puVar7 = (undefined4 *)0x0;
+        if (puVar1 != (undefined4 *)0x0) {
+          do {
+            puStack_10 = (undefined4 *)&DAT_00000001;
+            uStack_a4 = 0xa8d256;
+            iVar5 = (**(code **)(param_1 + 8))();
+            *(int *)(param_1 + 4) = *(int *)(param_1 + 4) + iVar5;
+            puVar7 = (undefined4 *)((int)puVar7 + 1);
+          } while (puVar7 < puVar1);
+        }
+        iVar5 = iStack_14 + 1;
+        uVar3 = iStack_14 + 2;
+        iStack_14 = iVar5;
+      } while (uVar3 < unaff_EDI);
+    }
+    LeaveCriticalSection(unaff_EBX);
+    return puVar4;
+  }
+  LeaveCriticalSection(lpCriticalSection);
+  return (undefined4 *)0x0;
+}
+
+
+
+# SECTION 7: FUN_0043c4b0 - texture cache lookup wrapper
+
+======================================================================
+TextureCacheLookup @ 0x0043c4b0
+======================================================================
+  Function: FUN_0043c4b0, Size: 10 bytes
+  Entry: 0x0043c4b0
+
+undefined4 FUN_0043c4b0(void)
+
+{
+  return DAT_011f4748;
+}
+
+
+
+# SECTION 8: FUN_0043c150 - QueuedTexture vtable[1] (process?)
+
+======================================================================
+QueuedTexture_vtable1 @ 0x0043c150
+======================================================================
+  Function: FUN_0043c150, Size: 606 bytes
+  Entry: 0x0043c150
+
+void __fastcall FUN_0043c150(void *param_1)
+
+{
+  undefined1 uVar1;
+  char cVar2;
+  int iVar3;
+  uint uVar4;
+  undefined3 extraout_var;
+  char *pcVar5;
+  int *piVar6;
+  int *piVar7;
+  int *piVar8;
+  int *unaff_FS_OFFSET;
+  int *piVar9;
+  int local_24;
+  byte *local_20;
+  undefined4 local_1c;
+  int *local_18;
+  undefined4 local_14;
+  int local_10;
+  undefined1 *puStack_c;
+  int local_8;
+  
+  local_8 = 0xffffffff;
+  puStack_c = &LAB_00eebe80;
+  local_10 = *unaff_FS_OFFSET;
+  *unaff_FS_OFFSET = (int)&local_10;
+  FUN_00404eb0(&local_14,*(undefined4 *)((int)param_1 + 0x18));
+  local_8 = 0;
+  iVar3 = FUN_0055b980((int)param_1);
+  if (iVar3 == 0) {
+    iVar3 = FUN_0045cd60((int)param_1);
+    if (iVar3 != 0) {
+      piVar8 = (int *)((int)param_1 + 0x30);
+      pcVar5 = (char *)FUN_0045cd60((int)param_1);
+      FUN_00a61b90(pcVar5,piVar8);
+    }
+  }
+  else {
+    piVar8 = (int *)((int)param_1 + 0x30);
+    uVar4 = FUN_0055b980((int)param_1);
+    FUN_0043c4c0(uVar4,piVar8);
+  }
+  iVar3 = FUN_00559450((undefined4 *)((int)param_1 + 0x30));
+  if (iVar3 == 0) {
+    local_18 = (int *)FUN_00c3cff0(param_1,1,2);
+    if (local_18 == (int *)0x0) {
+      iVar3 = FUN_0055b980((int)param_1);
+      if (iVar3 == 0) {
+        iVar3 = FUN_0045cd60((int)param_1);
+        if (iVar3 != 0) {
+          FUN_0045cd60((int)param_1);
+          FUN_005b5e40();
+        }
+      }
+      else {
+        iVar3 = FUN_0055b980((int)param_1);
+        FUN_0062a100(iVar3);
+        iVar3 = FUN_0055b980((int)param_1);
+        FUN_0043c3b0(iVar3);
+        FUN_005b5e40();
+      }
+    }
+    else {
+      local_20 = (byte *)(**(code **)(*local_18 + 0x18))();
+      local_1c = FUN_0043c410();
+      cVar2 = FUN_0043c3d0((int)param_1);
+      if (cVar2 != '\0') {
+        FUN_0043c3f0(1);
+      }
+      pcVar5 = _strstr((char *)local_20,"_e.dd");
+      if (pcVar5 == (char *)0x0) {
+        piVar8 = FUN_00a5fe30((int)local_18,local_20,(int *)&DAT_011a9598,1);
+        FUN_0066b0d0((void *)((int)param_1 + 0x30),(int)piVar8);
+      }
+      else {
+        piVar9 = (int *)&DAT_011a9598;
+        piVar6 = (int *)FUN_0043c4b0();
+        piVar8 = local_18;
+        piVar7 = FUN_00438170(&local_24,local_20);
+        local_8._0_1_ = 1;
+        piVar8 = FUN_00a61040(piVar7,(int)piVar8,piVar6,piVar9);
+        FUN_0066b0d0((void *)((int)param_1 + 0x30),(int)piVar8);
+        local_8 = (uint)local_8._1_3_ << 8;
+        FUN_004381b0(&local_24);
+      }
+      FUN_0043c3f0(local_1c);
+    }
+    local_8 = 0xffffffff;
+    FUN_00404ee0(&local_14);
+  }
+  else {
+    FUN_0043e480(param_1,'\x01');
+    iVar3 = FUN_00559450((undefined4 *)((int)param_1 + 0x30));
+    uVar1 = FUN_0043c430(iVar3);
+    if (CONCAT31(extraout_var,uVar1) == 3) {
+      cVar2 = FUN_0043c3d0((int)param_1);
+      if (cVar2 == '\0') {
+        piVar8 = (int *)FUN_00559450((undefined4 *)((int)param_1 + 0x30));
+        (**(code **)(*piVar8 + 0x8c))();
+      }
+    }
+    local_8 = 0xffffffff;
+    FUN_00404ee0(&local_14);
+  }
+  *unaff_FS_OFFSET = local_10;
+  return;
+}
+
+
+
+--- Calls FROM QueuedTexture_vtable1 (0x0043c150) ---
+  CALL 0x00404eb0 -> FUN_00404eb0 (from 0x0043c18e)
+  CALL 0x0055b980 -> FUN_0055b980 (from 0x0043c19d)
+  CALL 0x0055b980 -> FUN_0055b980 (from 0x0043c1b0)
+  CALL 0x0043c4c0 -> FUN_0043c4c0 (from 0x0043c1b6)
+  CALL 0x0045cd60 -> FUN_0045cd60 (from 0x0043c1c3)
+  CALL 0x0045cd60 -> FUN_0045cd60 (from 0x0043c1d6)
+  CALL 0x00a61b90 -> FUN_00a61b90 (from 0x0043c1dc)
+  CALL 0x00559450 -> FUN_00559450 (from 0x0043c1ea)
+  CALL 0x0043e480 -> FUN_0043e480 (from 0x0043c1f8)
+  CALL 0x00559450 -> FUN_00559450 (from 0x0043c203)
+  CALL 0x0043c430 -> FUN_0043c430 (from 0x0043c20a)
+  CALL 0x0043c3d0 -> FUN_0043c3d0 (from 0x0043c217)
+  CALL 0x00559450 -> FUN_00559450 (from 0x0043c229)
+  CALL 0x00404ee0 -> FUN_00404ee0 (from 0x0043c24b)
+  CALL 0x00c3cff0 -> FUN_00c3cff0 (from 0x0043c25c)
+  CALL 0x0043c410 -> FUN_0043c410 (from 0x0043c27e)
+  CALL 0x0043c3d0 -> FUN_0043c3d0 (from 0x0043c289)
+  CALL 0x0043c3f0 -> FUN_0043c3f0 (from 0x0043c297)
+  CALL 0x00ec7750 -> _strstr (from 0x0043c2a8)
+  CALL 0x0043c4b0 -> FUN_0043c4b0 (from 0x0043c2b9)
+  CALL 0x00438170 -> FUN_00438170 (from 0x0043c2ca)
+  CALL 0x00a61040 -> FUN_00a61040 (from 0x0043c2e0)
+  CALL 0x0066b0d0 -> FUN_0066b0d0 (from 0x0043c2ef)
+  CALL 0x004381b0 -> FUN_004381b0 (from 0x0043c2fb)
+  CALL 0x00a5fe30 -> FUN_00a5fe30 (from 0x0043c311)
+  CALL 0x0066b0d0 -> FUN_0066b0d0 (from 0x0043c320)
+  CALL 0x0043c3f0 -> FUN_0043c3f0 (from 0x0043c329)
+  CALL 0x0055b980 -> FUN_0055b980 (from 0x0043c336)
+  CALL 0x0055b980 -> FUN_0055b980 (from 0x0043c342)
+  CALL 0x0062a100 -> FUN_0062a100 (from 0x0043c349)
+  CALL 0x0055b980 -> FUN_0055b980 (from 0x0043c352)
+  CALL 0x0043c3b0 -> FUN_0043c3b0 (from 0x0043c359)
+  CALL 0x005b5e40 -> FUN_005b5e40 (from 0x0043c364)
+  CALL 0x0045cd60 -> FUN_0045cd60 (from 0x0043c371)
+  CALL 0x0045cd60 -> FUN_0045cd60 (from 0x0043c37d)
+  CALL 0x005b5e40 -> FUN_005b5e40 (from 0x0043c388)
+  CALL 0x00404ee0 -> FUN_00404ee0 (from 0x0043c39a)
+  Total: 37 calls

@@ -1,0 +1,139 @@
+======================================================================
+BSTaskManagerThread LIFECYCLE - PART 1: LOADING FLAG
+======================================================================
+
+# SECTION 1: DAT_011dea2b writers
+
+--- XRefs to DAT_011dea2b_loading_flag (0x011dea2b) ---
+  WRITE @ 0x0086e6e1 (in FUN_0086e650)
+  READ @ 0x0086e771 (in FUN_0086e650)
+  WRITE @ 0x0086e7c9 (in FUN_0086e650)
+  READ @ 0x0086e871 (in FUN_0086e650)
+  READ @ 0x0086e8e0 (in FUN_0086e650)
+  READ @ 0x0086e90f (in FUN_0086e650)
+  READ @ 0x0086e93d (in FUN_0086e650)
+  READ @ 0x0086ea0e (in FUN_0086e650)
+  READ @ 0x0086ea5a (in FUN_0086e650)
+  READ @ 0x0086eae9 (in FUN_0086e650)
+  READ @ 0x0086ec1d (in FUN_0086e650)
+  READ @ 0x0086ed1f (in FUN_0086e650)
+  READ @ 0x0086ee0c (in FUN_0086e650)
+  READ @ 0x0086f199 (in FUN_0086f190)
+  READ @ 0x0086f281 (in FUN_0086f260)
+  READ @ 0x0086f2e5 (in FUN_0086f260)
+  READ @ 0x0086f457 (in FUN_0086f450)
+  READ @ 0x0086f4fc (in FUN_0086f450)
+  READ @ 0x0086f7ed (in FUN_0086f6a0)
+  READ @ 0x0086f95f (in FUN_0086f940)
+  ... (truncated)
+  Total: 20 refs
+
+# SECTION 2: BSTaskManagerThread loop - does it check loading flag?
+
+======================================================================
+BSTaskManagerThread_Loop @ 0x00c42ca0
+======================================================================
+  Function: FUN_00c42b80, Size: 540 bytes
+  Entry: 0x00c42b80
+
+void __fastcall FUN_00c42b80(int *param_1)
+
+{
+  undefined4 uVar1;
+  int iVar2;
+  undefined4 *puVar3;
+  longlong lVar4;
+  bool bVar5;
+  undefined4 *_Dst;
+  uint uVar6;
+  int *unaff_FS_OFFSET;
+  uint local_30;
+  int local_20;
+  undefined4 *local_18;
+  int local_10;
+  undefined1 *puStack_c;
+  undefined4 local_8;
+  
+  puStack_c = &LAB_00f2e188;
+  local_10 = *unaff_FS_OFFSET;
+  *unaff_FS_OFFSET = (int)&local_10;
+  uVar1 = *(undefined4 *)(*(int *)(unaff_FS_OFFSET[0xb] + _tls_index * 4) + 0x2b4);
+  *(undefined4 *)(*(int *)(unaff_FS_OFFSET[0xb] + _tls_index * 4) + 0x2b4) = 6;
+  local_8 = 0;
+  iVar2 = **(int **)(*param_1 + 0x14);
+  uVar6 = iVar2 << 1;
+  lVar4 = (ulonglong)uVar6 * 4;
+  _Dst = FUN_00aa3e40(&DAT_011f6238,-(uint)((int)((ulonglong)lVar4 >> 0x20) != 0) | (uint)lVar4);
+  _memcpy(_Dst,*(void **)(*param_1 + 0x10),iVar2 << 3);
+  local_18 = (undefined4 *)0x0;
+  local_20 = 0;
+  do {
+    if (param_1[4] == 0) {
+      FUN_00aa4060(&DAT_011f6238,_Dst);
+      param_1[4] = (int)local_18;
+      param_1[3] = local_20;
+      *(undefined4 *)(*(int *)(unaff_FS_OFFSET[0xb] + _tls_index * 4) + 0x2b4) = uVar1;
+      *unaff_FS_OFFSET = local_10;
+      return;
+    }
+    puVar3 = (undefined4 *)param_1[4];
+    param_1[4] = *(int *)(param_1[4] + 4);
+    bVar5 = false;
+    for (local_30 = 0; local_30 < uVar6; local_30 = local_30 + 1) {
+      if (puVar3 == (undefined4 *)_Dst[local_30]) {
+        bVar5 = true;
+        break;
+      }
+    }
+    if (bVar5) {
+      puVar3[1] = local_18;
+      local_20 = local_20 + 1;
+      local_18 = puVar3;
+    }
+    else {
+      puVar3[1] = 0;
+      if (puVar3 != (undefined4 *)0x0) {
+        if (puVar3[1] != 0) {
+          FUN_0044dd60((undefined4 *)puVar3[1]);
+        }
+        FUN_00aa4060(&DAT_011f6238,puVar3);
+      }
+    }
+  } while( true );
+}
+
+
+
+# SECTION 3: Crash point 0x00ED2C9E and 0x00AA22A2
+  0x00ed2c81: SUB ESP,0x4
+  0x00ed2c84: MOV dword ptr [EBP + -0x4],EDI
+  0x00ed2c87: MOV EDI,dword ptr [EBP + 0x8]
+  0x00ed2c8a: MOV ECX,dword ptr [EBP + 0xc]
+  0x00ed2c8d: SHR ECX,0x7
+  0x00ed2c90: PXOR XMM0,XMM0
+  0x00ed2c94: JMP 0x00ed2c9e
+  0x00ed2c9e: MOVDQA xmmword ptr [EDI],XMM0
+  0x00ed2ca2: MOVDQA xmmword ptr [EDI + 0x10],XMM0
+  0x00ed2ca7: MOVDQA xmmword ptr [EDI + 0x20],XMM0
+  0x00ed2cac: MOVDQA xmmword ptr [EDI + 0x30],XMM0
+  0x00ed2cb1: MOVDQA xmmword ptr [EDI + 0x40],XMM0
+  0x00ed2cb6: MOVDQA xmmword ptr [EDI + 0x50],XMM0
+  0x00ed2cbb: MOVDQA xmmword ptr [EDI + 0x60],XMM0
+  0x00ed2cc0: MOVDQA xmmword ptr [EDI + 0x70],XMM0
+
+Return addr 0x00AA22A2:
+  0x00aa2281: MOV EDX,dword ptr [ESP + 0x1c]
+  0x00aa2285: PUSH EAX
+  0x00aa2286: MOV EAX,dword ptr [EDI]
+  0x00aa2288: PUSH ECX
+  0x00aa2289: PUSH EDX
+  0x00aa228a: PUSH EAX
+  0x00aa228b: MOV ECX,0x11f6238
+  0x00aa2290: CALL 0x00aa4030
+  0x00aa2295: MOV ECX,dword ptr [EDI]
+  0x00aa2297: PUSH ECX
+  0x00aa2298: MOV ESI,EAX
+  0x00aa229a: PUSH 0x0
+  0x00aa229c: PUSH ESI
+  0x00aa229d: CALL 0x00ec61c0
+  0x00aa22a2: ADD ESP,0xc

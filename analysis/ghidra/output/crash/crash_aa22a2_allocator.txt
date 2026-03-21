@@ -1,0 +1,248 @@
+======================================================================
+DAT_011f6238 ALLOCATOR + CRASH FUNCTION RESEARCH
+======================================================================
+
+# SECTION 1: FUN_00aa4030 - allocator that returned NULL
+
+======================================================================
+Allocator_aa4030 @ 0x00aa4030
+======================================================================
+  Function: FUN_00aa4030, Size: 33 bytes
+  Entry: 0x00aa4030
+
+void * __thiscall FUN_00aa4030(void *this,uint param_1)
+
+{
+  void *pvVar1;
+  
+  pvVar1 = FUN_00aa3e40(this,param_1);
+  return pvVar1;
+}
+
+
+
+# SECTION 2: FUN_00aa3e40 - related allocator
+
+======================================================================
+Allocator_aa3e40 @ 0x00aa3e40
+======================================================================
+  Function: FUN_00aa3e40, Size: 486 bytes
+  Entry: 0x00aa3e40
+
+void * __thiscall FUN_00aa3e40(void *this,uint param_1)
+
+{
+  int *piVar1;
+  int iVar2;
+  int *piVar3;
+  void *extraout_EAX;
+  int unaff_FS_OFFSET;
+  int *local_40;
+  int *local_3c;
+  void *local_38;
+  void *local_2c;
+  int local_28;
+  char local_d;
+  uint local_c;
+  void *local_8;
+  
+  if (*(char *)this == '\0') {
+    local_8 = FUN_00aa4290(param_1);
+  }
+  else {
+    piVar1 = *(int **)((int)this + 0x110);
+    if (piVar1 == (int *)0x0) {
+      local_8 = FUN_00aa4290(param_1);
+    }
+    else {
+      local_c = param_1;
+      local_8 = (void *)0x0;
+      if (param_1 < 9) {
+        param_1 = 8;
+      }
+      else {
+        param_1 = param_1 + 3 & 0xfffffffc;
+      }
+      iVar2 = *(int *)(*(int *)(*(int *)(unaff_FS_OFFSET + 0x2c) + _tls_index * 4) + 0x2b4);
+      if (*(char *)((int)this + 0x129) != '\0') {
+        if (param_1 < 0x3fd) {
+          local_38 = *(void **)(&DAT_011f67b8 + param_1);
+        }
+        else {
+          local_38 = (void *)0x0;
+        }
+        local_2c = local_38;
+        if (local_38 == (void *)0x0) {
+          local_2c = (void *)FUN_00aa4960(param_1);
+        }
+        if ((local_2c != (void *)0x0) &&
+           (FUN_00aa6aa0(local_2c), local_8 = extraout_EAX, extraout_EAX != (void *)0x0)) {
+          return extraout_EAX;
+        }
+      }
+      local_d = '\0';
+      local_28 = 0;
+      piVar3 = *(int **)((int)this + iVar2 * 4 + 0xc);
+      do {
+        local_3c = piVar1;
+        if (piVar3 != (int *)0x0) {
+          local_3c = piVar3;
+        }
+        local_8 = (void *)(**(code **)(*local_3c + 8))(param_1,0);
+        if ((local_8 == (void *)0x0) && (local_3c != piVar1)) {
+          local_8 = (void *)(**(code **)(*piVar1 + 8))(param_1,0);
+        }
+        if (local_8 == (void *)0x0) {
+          local_40 = piVar1;
+          if (piVar3 != (int *)0x0) {
+            local_40 = piVar3;
+          }
+          local_28 = FUN_00866a90(this,local_40,local_28,&local_d);
+          if (local_d != '\0') {
+            local_8 = FUN_00aa4290(param_1);
+          }
+        }
+      } while (local_8 == (void *)0x0);
+    }
+  }
+  return local_8;
+}
+
+
+
+# SECTION 3: DAT_011f6238 - allocator singleton xrefs
+
+--- XRefs to DAT_011f6238_allocator (0x011f6238) ---
+  DATA @ 0x00401023 (in FUN_00401020)
+  DATA @ 0x009ff78d (in FUN_009ff690)
+  DATA @ 0x00a00abf (in FUN_00a00a30)
+  DATA @ 0x00a00b10 (in FUN_00a00a30)
+  DATA @ 0x00a00c6d (in FUN_00a00c20)
+  DATA @ 0x00a00cbe (in FUN_00a00c20)
+  DATA @ 0x00a00d03 (in FUN_00a00c20)
+  DATA @ 0x00a00d48 (in FUN_00a00c20)
+  DATA @ 0x00a00db8 (in FUN_00a00c20)
+  DATA @ 0x00a00e19 (in FUN_00a00c20)
+  ... (truncated)
+  Total: 10 refs
+
+# SECTION 4: Search for function containing 0x00AA22A2
+# Disasm backwards from 0x00AA2200
+  0x00aa2170: PUSH ESI
+  0x00aa2171: XOR ESI,ESI
+  0x00aa2173: CMP dword ptr [0x011f6108],ESI
+  0x00aa2179: JBE 0x00aa2192
+  0x00aa217b: JMP 0x00aa2180
+  0x00aa2180: MOV EAX,dword ptr [ESI*0x4 + 0x11f6088]
+  0x00aa2187: CALL EAX
+  0x00aa2189: INC ESI
+  0x00aa218a: CMP ESI,dword ptr [0x011f6108]
+  0x00aa2190: JC 0x00aa2180
+  0x00aa2192: MOV EAX,[0x011f6114]
+  0x00aa2197: TEST EAX,EAX
+  0x00aa2199: JZ 0x00aa219d
+  0x00aa219b: CALL EAX
+  0x00aa219d: CALL 0x00aa3070
+  0x00aa21a2: CMP byte ptr [0x011f610d],0x0
+  0x00aa21a9: JZ 0x00aa21c7
+  0x00aa21ab: MOV ECX,dword ptr [0x011f6118]
+  0x00aa21b1: MOV ESI,ECX
+  0x00aa21b3: TEST ECX,ECX
+  0x00aa21b5: JZ 0x00aa21c7
+  0x00aa21b7: CALL 0x00aa21e0
+  0x00aa21bc: PUSH ESI
+  0x00aa21bd: MOV ECX,0x11f6238
+  0x00aa21c2: CALL 0x00aa4060
+
+# More context:
+  0x00aa21c2: CALL 0x00aa4060
+  0x00aa21c7: MOV byte ptr [0x011f610c],0x0
+  0x00aa21ce: POP ESI
+  0x00aa21cf: RET
+  0x00aa21d0: MOV EAX,ECX
+  0x00aa21d2: MOV ECX,dword ptr [ESP + 0x4]
+  0x00aa21d6: MOV dword ptr [EAX],ECX
+  0x00aa21d8: MOV byte ptr [EAX + 0x4],0x0
+  0x00aa21dc: RET 0x4
+  0x00aa21e0: CMP byte ptr [ECX + 0x4],0x0
+  0x00aa21e4: JZ 0x00aa21f4
+  0x00aa21e6: MOV ECX,dword ptr [ECX]
+  0x00aa21e8: TEST ECX,ECX
+  0x00aa21ea: JZ 0x00aa21f4
+  0x00aa21ec: MOV EAX,dword ptr [ECX]
+  0x00aa21ee: MOV EDX,dword ptr [EAX]
+  0x00aa21f0: PUSH 0x1
+  0x00aa21f2: CALL EDX
+  0x00aa21f4: RET
+  0x00aa2200: PUSH ESI
+  0x00aa2201: MOV ESI,ECX
+  0x00aa2203: PUSH 0x4
+  0x00aa2205: MOV ECX,0x11f6238
+  0x00aa220a: CALL 0x00aa3e40
+  0x00aa220f: TEST EAX,EAX
+
+# SECTION 5: Callers of FUN_00aa4030
+
+--- XRefs to Allocator_callers (0x00aa4030) ---
+  UNCONDITIONAL_CALL @ 0x00aa2290 (in ???)
+  UNCONDITIONAL_CALL @ 0x00aa23c0 (in ???)
+  Total: 2 refs
+
+# SECTION 6: FUN_00aa4060 - free function
+
+======================================================================
+Free_aa4060 @ 0x00aa4060
+======================================================================
+  Function: FUN_00aa4060, Size: 236 bytes
+  Entry: 0x00aa4060
+
+void __thiscall FUN_00aa4060(void *this,undefined4 *param_1)
+
+{
+  void *this_00;
+  bool bVar1;
+  int *piVar2;
+  
+  if (param_1 != (undefined4 *)0x0) {
+    if (*(char *)this == '\0') {
+      FUN_00aa42c0(param_1);
+    }
+    else if (*(int *)((int)this + 0x110) == 0) {
+      FUN_00aa42c0(param_1);
+    }
+    else {
+      this_00 = *(void **)(&DAT_011f63b8 + ((uint)param_1 >> 0x18) * 4);
+      if (this_00 != (void *)0x0) {
+        if ((param_1 < *(undefined4 **)((int)this_00 + 4)) ||
+           ((undefined4 *)(*(int *)((int)this_00 + 4) + *(int *)((int)this_00 + 0x50)) <= param_1))
+        {
+          bVar1 = false;
+        }
+        else {
+          bVar1 = true;
+        }
+        if (bVar1) {
+          FUN_00aa6c70(this_00,param_1);
+          return;
+        }
+      }
+      piVar2 = FUN_00aa45a0(this,param_1);
+      if (piVar2 == (int *)0x0) {
+        FUN_00aa42c0(param_1);
+      }
+      else {
+        (**(code **)(*piVar2 + 0xc))(param_1,0);
+      }
+    }
+  }
+  return;
+}
+
+
+
+# SECTION 7: Does GameHeap reference DAT_011f6238?
+
+--- Calls FROM GameHeap_Alloc (0x00401000) ---
+  CALL 0x00401020 -> FUN_00401020 (from 0x00401007)
+  CALL 0x00aa3e40 -> FUN_00aa3e40 (from 0x0040100e)
+  Total: 2 calls

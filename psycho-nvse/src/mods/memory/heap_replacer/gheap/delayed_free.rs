@@ -9,19 +9,20 @@
 //! - AI threads hold `hkBSHeightFieldShape` refs during raycasting
 //! - SpeedTree cache holds cross-frame `BSTreeNode` pointers
 //!
-//! All game object frees go through `GameHeap::Free` → our `Gheap::free` →
+//! All game object frees go through `GameHeap::Free` -> our `Gheap::free` ->
 //! this quarantine. Verified by Ghidra audit: no bypass paths exist.
 //!
 //! # Safety model
 //!
 //! During normal gameplay (main loop running, `tick()` called every frame):
-//! - No bucket limit — ALL frees are quarantined, zero bypass
-//! - Stale buckets flushed every frame (3-frame zombie window ≈ 50ms at 60fps)
+//! - No bucket limit -- ALL frees are quarantined, zero bypass
+//! - Stale buckets flushed every frame (QUARANTINE_FRAMES zombie window)
 //!
 //! During loading screens (main loop not running, `tick()` not called):
-//! - Frame counter is stale — detected by push count without frame advance
-//! - After `STALE_PUSH_LIMIT` pushes on a stale frame, bypass to mi_free
-//! - AI/IO threads are idle during loading, so no stale pointer risk
+//! - Frame counter is stale -- detected by push count without frame advance
+//! - After `STALE_PUSH_LIMIT` pushes, bucket rotation bounds memory growth
+//! - BSTaskManagerThread is ALWAYS active (Ghidra-verified: FUN_00c410b0
+//!   never checks DAT_011dea2b) -- NEVER mi_free directly during loading
 //!
 //! # Performance
 //!
@@ -30,6 +31,7 @@
 //! - Proactive flush every frame via `tick()`
 
 use libc::c_void;
+use std::cell::Cell;
 use std::sync::atomic::{AtomicU64, Ordering};
 
 // ---------------------------------------------------------------------------
@@ -63,9 +65,13 @@ use std::sync::atomic::{AtomicU64, Ordering};
 const QUARANTINE_FRAMES: usize = 30;
 
 /// If this many pushes happen on a single thread without a frame advance,
-/// we're likely in a loading screen. Start bypassing to mi_free.
-/// 50k pushes ≈ 5-15MB of zombie data — safe for 32-bit VA.
-/// AI/IO threads are idle during loading, so bypass is safe.
+/// perform an IO-locked flush: acquire the IO dequeue spin-lock (blocks
+/// BSTaskManagerThread), flush all quarantine buckets, then release.
+/// This prevents UAF (IO thread blocked) AND VA pressure (memory freed).
+///
+/// BSTaskManagerThread is ALWAYS active (Ghidra: FUN_00c410b0 never
+/// checks DAT_011dea2b). The IO lock is required before any flush
+/// during stale periods.
 const STALE_PUSH_LIMIT: u32 = 50_000;
 
 // ---------------------------------------------------------------------------
@@ -76,6 +82,36 @@ const STALE_PUSH_LIMIT: u32 = 50_000;
 static FRAME_COUNTER: AtomicU64 = AtomicU64::new(0);
 
 // ---------------------------------------------------------------------------
+// IO lock awareness
+// ---------------------------------------------------------------------------
+
+thread_local! {
+    /// Set to true when the current thread already holds the IO dequeue lock
+    /// (e.g., inside destruction_protocol). When set, io_locked_flush skips
+    /// lock acquisition and flushes directly — the caller already guarantees
+    /// BSTaskManagerThread can't dequeue.
+    static IO_LOCK_HELD: Cell<bool> = const { Cell::new(false) };
+}
+
+/// RAII guard that sets IO_LOCK_HELD for the current scope.
+/// Used by destruction_protocol to signal that quarantine flushes
+/// during PDD can skip lock acquisition.
+pub struct IoLockScope;
+
+impl IoLockScope {
+    pub fn enter() -> Self {
+        IO_LOCK_HELD.with(|f| f.set(true));
+        IoLockScope
+    }
+}
+
+impl Drop for IoLockScope {
+    fn drop(&mut self) {
+        IO_LOCK_HELD.with(|f| f.set(false));
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Public API (called from Gheap)
 // ---------------------------------------------------------------------------
 
@@ -84,6 +120,13 @@ static FRAME_COUNTER: AtomicU64 = AtomicU64::new(0);
 #[inline]
 pub fn tick() {
     FRAME_COUNTER.fetch_add(1, Ordering::Relaxed);
+
+    // Decrement the loading state counter if destruction_protocol left it
+    // elevated. This runs at the start of the NEW frame, AFTER NVSE plugins
+    // processed events on the previous frame with the counter > 0.
+    if let Some(pr) = super::pressure::PressureRelief::instance() {
+        pr.flush_pending_counter_decrement();
+    }
 
     // Clear the texture dead set — after one frame, any new QueuedTexture
     // tasks will load fresh textures (not reference destroyed ones).
@@ -165,7 +208,6 @@ impl Quarantine {
                 self.stale_pushes = 0;
             }
             Some(last) if frame != last => {
-                // Frame advanced — flush old buckets, reset stale counter.
                 self.flush_stale(last, frame);
                 self.last_frame = Some(frame);
                 self.stale_pushes = 0;
@@ -173,36 +215,20 @@ impl Quarantine {
             _ => {}
         }
 
-        // Stale push tracking: many pushes without frame advance means the
-        // main loop isn't running (loading screen, CellTransitionHandler,
-        // or our PDD freeing many objects in one frame).
+        // Bound quarantine growth during stale periods (loading screens,
+        // CellTransitionHandler, PDD). When many frees happen without
+        // a frame advance, acquire the IO dequeue lock (blocks
+        // BSTaskManagerThread from dequeuing new tasks), flush all
+        // quarantine, then release. This gives us both:
+        // - No UAF: BSTaskManagerThread is blocked during flush
+        // - No VA pressure: memory is freed immediately
         //
-        // The bypass behavior depends on game state:
-        //
-        // LOADING SCREEN (DAT_011dea2b != 0): AI/IO threads are idle.
-        //   Safe to mi_free immediately. MUST do so to prevent unbounded
-        //   quarantine growth → OOM (D3D9 allocation failure at ~1.9GB).
-        //   During loading, no frames advance, oldest buckets are empty,
-        //   and flushing them releases nothing.
-        //
-        // NORMAL GAMEPLAY (DAT_011dea2b == 0): AI/IO threads hold raw
-        //   pointers to quarantined memory. NEVER mi_free — causes UAF
-        //   crashes (QueuedTexture vtable, broadphase entities, hash table).
-        //   Instead flush the OLDEST bucket to bound growth.
+        // BSTaskManagerThread is ALWAYS active (Ghidra: FUN_00c410b0
+        // never checks DAT_011dea2b loading flag).
         self.stale_pushes += 1;
-        if self.stale_pushes > STALE_PUSH_LIMIT {
-            let loading = unsafe { *(0x011DEA2B as *const u8) != 0 };
-            if loading {
-                // Loading screen: AI/IO idle, safe to free immediately.
-                unsafe { libmimalloc::mi_free(ptr) };
-                return;
-            }
-            // Normal gameplay: flush oldest bucket to bound growth,
-            // but keep recent pushes quarantined for thread safety.
-            if self.stale_pushes % STALE_PUSH_LIMIT == 1 {
-                let oldest_idx = (frame.wrapping_add(1) as usize) % QUARANTINE_FRAMES;
-                Self::drain_bucket(&mut self.buckets[oldest_idx]);
-            }
+        if self.stale_pushes >= STALE_PUSH_LIMIT {
+            self.stale_pushes = 0;
+            unsafe { Self::io_locked_flush(&mut self.buckets) };
         }
 
         let idx = (frame as usize) % QUARANTINE_FRAMES;
@@ -225,6 +251,33 @@ impl Quarantine {
     fn flush_all(&mut self) {
         for bucket in &mut self.buckets {
             Self::drain_bucket(bucket);
+        }
+    }
+
+    /// Flush all quarantine buckets while holding the IO dequeue lock.
+    /// BSTaskManagerThread is blocked from dequeuing new tasks during flush,
+    /// preventing use-after-free on freed NiSourceTexture/NiPixelData.
+    ///
+    /// If IO_LOCK_HELD is set (caller already holds the lock, e.g.
+    /// destruction_protocol), skips lock acquisition to avoid redundant
+    /// spin-lock + semaphore probe overhead that causes FPS stutter.
+    unsafe fn io_locked_flush(buckets: &mut [Vec<*mut c_void>; QUARANTINE_FRAMES]) {
+        let already_held = IO_LOCK_HELD.with(|f| f.get());
+
+        let needs_release = if already_held {
+            false
+        } else {
+            use super::pressure::PressureRelief;
+            unsafe { PressureRelief::io_lock_acquire() }
+        };
+
+        for bucket in buckets.iter_mut() {
+            Self::drain_bucket(bucket);
+        }
+
+        if needs_release {
+            use super::pressure::PressureRelief;
+            unsafe { PressureRelief::io_lock_release() };
         }
     }
 

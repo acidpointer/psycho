@@ -1,0 +1,313 @@
+======================================================================
+IO LOCK PROTECTION SCOPE ANALYSIS
+======================================================================
+
+# SECTION 1: FUN_00c40e70 - IO_DequeueTask (called by BSTaskManagerThread)
+# This is where the IO lock at +0x20 is acquired
+
+======================================================================
+IO_DequeueTask @ 0x00c40e70
+======================================================================
+  Function: FUN_00c40e70, Size: 462 bytes
+  Entry: 0x00c40e70
+
+/* WARNING: Removing unreachable block (ram,0x00c40fbd) */
+/* WARNING: Removing unreachable block (ram,0x00c40f13) */
+/* WARNING: Removing unreachable block (ram,0x00c40f9f) */
+
+undefined4 __thiscall
+FUN_00c40e70(void *this,int param_1,undefined4 *param_2,int *param_3,char param_4)
+
+{
+  LPVOID pvVar1;
+  undefined4 uVar2;
+  undefined4 *puVar3;
+  int iVar4;
+  int iVar5;
+  uint *******pppppppuVar6;
+  int *piVar7;
+  char local_5;
+  
+  FUN_0040fbf0((LONG *)((int)this + 0x20));
+  if ((*(byte *)(param_1 + 0x18) & 2) == 0) {
+    while( true ) {
+      if ((*(byte *)(param_1 + 0x18) & 1) == 0) {
+        iVar4 = param_1 + 0x10;
+        iVar5 = *(int *)(param_1 + 8);
+        piVar7 = param_3;
+        pvVar1 = FUN_00c3f750(this);
+        uVar2 = FUN_00c42380(pvVar1,iVar5,iVar4,piVar7);
+        local_5 = (char)uVar2;
+        *(byte *)(param_1 + 0x18) = *(byte *)(param_1 + 0x18) | 1;
+      }
+      else {
+        puVar3 = (undefined4 *)(param_1 + 0x10);
+        pppppppuVar6 = *(uint ********)(param_1 + 8);
+        piVar7 = param_3;
+        pvVar1 = FUN_00c3f750(this);
+        local_5 = FUN_00c42560(pvVar1,pppppppuVar6,puVar3,piVar7);
+      }
+      if (local_5 != '\0') break;
+      *(int *)(param_1 + 8) = *(int *)(param_1 + 8) + 1;
+      if (*(uint *)((int)this + 8) <= *(uint *)(param_1 + 8)) {
+        *(byte *)(param_1 + 0x18) = *(byte *)(param_1 + 0x18) | 2;
+        goto LAB_00c40ffe;
+      }
+      if (param_4 == '\0') goto LAB_00c40ffe;
+      *(byte *)(param_1 + 0x18) = *(byte *)(param_1 + 0x18) & 0xfe;
+    }
+    *param_2 = *(undefined4 *)(param_1 + 0x10);
+    param_2[1] = *(undefined4 *)(param_1 + 0x14);
+  }
+  else {
+    local_5 = '\0';
+  }
+LAB_00c40ffe:
+  puVar3 = (undefined4 *)(*(int *)((int)this + 0x24) + -1);
+  *(undefined4 **)((int)this + 0x24) = puVar3;
+  if (*(int *)((int)this + 0x24) == 0) {
+    *(undefined4 *)((int)this + 0x20) = 0;
+    puVar3 = (undefined4 *)((int)this + 0x20);
+  }
+  return CONCAT31((int3)((uint)puVar3 >> 8),local_5);
+}
+
+
+
+--- Calls FROM IO_DequeueTask (0x00c40e70) ---
+  CALL 0x0040fbf0 -> FUN_0040fbf0 (from 0x00c40e8a)
+  CALL 0x00c3f750 -> FUN_00c3f750 (from 0x00c40ee9)
+  CALL 0x00c42380 -> FUN_00c42380 (from 0x00c40ef0)
+  CALL 0x00c3f750 -> FUN_00c3f750 (from 0x00c40f3d)
+  CALL 0x00c42560 -> FUN_00c42560 (from 0x00c40f44)
+  Total: 5 calls
+
+# SECTION 2: BSTaskManagerThread inner loop (FUN_00c410b0)
+# Where dequeue happens relative to task processing
+# Key: dequeue at FUN_00c40e70, process at vtable+0x4c, complete at vtable+0x50
+
+======================================================================
+BSTask_FullLoop @ 0x00c410b0
+======================================================================
+  Function: FUN_00c410b0, Size: 633 bytes
+  Entry: 0x00c410b0
+
+/* WARNING: Removing unreachable block (ram,0x00c411bc) */
+/* WARNING: Removing unreachable block (ram,0x00c412b6) */
+
+void __fastcall FUN_00c410b0(int param_1)
+
+{
+  DWORD DVar1;
+  uint uVar2;
+  LONG LVar3;
+  int *unaff_FS_OFFSET;
+  undefined4 local_40 [2];
+  undefined4 *local_38;
+  char local_31;
+  undefined **local_30 [2];
+  undefined4 local_28;
+  undefined4 local_20;
+  undefined4 local_1c;
+  byte local_18;
+  int local_10;
+  undefined1 *puStack_c;
+  uint local_8;
+  
+  puStack_c = &LAB_00f2e0a0;
+  local_10 = *unaff_FS_OFFSET;
+  *unaff_FS_OFFSET = (int)&local_10;
+  while (local_8 = 0xffffffff, *(char *)(*(int *)(param_1 + 0x30) + 0x40) != '\x01') {
+    WaitForSingleObject(*(HANDLE *)(param_1 + 0x10),0xffffffff);
+    InterlockedDecrement((LONG *)(param_1 + 0xc));
+    local_28 = 0;
+    local_20 = 0;
+    local_1c = 0;
+    local_18 = 0;
+    local_30[0] = &PTR_FUN_010c1664;
+    local_8 = 0;
+    local_31 = '\0';
+    while ((local_18 & 2) == 0) {
+      DVar1 = WaitForSingleObject(*(HANDLE *)(param_1 + 0x1c),0);
+      if (DVar1 == 0x102) {
+        WaitForSingleObject(*(HANDLE *)(param_1 + 0x1c),0xffffffff);
+        InterlockedDecrement((LONG *)(param_1 + 0x18));
+        FUN_00c42060(local_30,0);
+      }
+      local_38 = (undefined4 *)0x0;
+      local_8 = CONCAT31(local_8._1_3_,1);
+      uVar2 = FUN_00c40e70(*(void **)(param_1 + 0x30),(int)local_30,local_40,(int *)&local_38,
+                           local_31 == '\0');
+      if ((uVar2 & 0xff) == 0) {
+        if ((local_18 & 2) == 0) {
+          FUN_00c42060(local_30,0);
+          local_31 = '\0';
+        }
+      }
+      else if ((local_38[3] == 1) &&
+              (LVar3 = InterlockedCompareExchange(local_38 + 3,3,1), LVar3 == 1)) {
+        local_31 = '\x01';
+        (**(code **)(**(int **)(param_1 + 0x30) + 0x4c))(local_38);
+        (**(code **)(**(int **)(param_1 + 0x30) + 0x50))(local_38);
+      }
+      if (local_38 != (undefined4 *)0x0) {
+        if (local_38 != (undefined4 *)0x0) {
+          FUN_0044dd60(local_38);
+        }
+        local_38 = (undefined4 *)0x0;
+      }
+      ReleaseSemaphore(*(HANDLE *)(param_1 + 0x1c),1,(LPLONG)0x0);
+      InterlockedIncrement((LONG *)(param_1 + 0x18));
+      local_8 = local_8 & 0xffffff00;
+      if (local_38 != (undefined4 *)0x0) {
+        FUN_0044dd60(local_38);
+      }
+    }
+    local_30[0] = &PTR_FUN_010c1670;
+  }
+  *unaff_FS_OFFSET = local_10;
+  return;
+}
+
+
+
+# SECTION 3: Semaphore at +0x1c lifecycle in the loop
+# WaitForSingleObject(+0x1c, 0) probes idle state
+# ReleaseSemaphore(+0x1c, 1, NULL) signals iteration done
+# Our io_lock_acquire uses this to detect mid-task
+  0x00c41152: MOVZX EAX,DL
+  0x00c41155: TEST EAX,EAX
+  0x00c41157: JNZ 0x00c41307
+  0x00c4115d: PUSH 0x0
+  0x00c4115f: MOV ECX,dword ptr [EBP + 0xffffff78]
+  0x00c41165: MOV EDX,dword ptr [ECX + 0x1c]
+  0x00c41168: PUSH EDX
+  0x00c41169: CALL dword ptr [0x00fdf1c8]
+  0x00c4116f: XOR ECX,ECX
+  0x00c41171: CMP EAX,0x102
+  0x00c41176: SETZ CL
+  0x00c41179: MOVZX EDX,CL
+  0x00c4117c: TEST EDX,EDX
+  0x00c4117e: JZ 0x00c411af
+  0x00c41180: MOV EAX,dword ptr [EBP + 0xffffff78]
+  0x00c41186: ADD EAX,0x18
+  0x00c41189: MOV dword ptr [EBP + -0x44],EAX
+  0x00c4118c: PUSH -0x1
+  0x00c4118e: MOV ECX,dword ptr [EBP + -0x44]
+  0x00c41191: MOV EDX,dword ptr [ECX + 0x4]
+  0x00c41194: PUSH EDX
+  0x00c41195: CALL dword ptr [0x00fdf1c8]
+  0x00c4119b: MOV EAX,dword ptr [EBP + -0x44]
+  0x00c4119e: PUSH EAX
+  0x00c4119f: CALL dword ptr [0x00fdf1c4]
+  0x00c411a5: PUSH 0x0
+  0x00c411a7: LEA ECX,[EBP + -0x2c]
+  0x00c411aa: CALL 0x00c42060
+  0x00c411af: MOV dword ptr [EBP + -0x34],0x0
+  0x00c411b6: CMP dword ptr [EBP + -0x34],0x0
+  0x00c411ba: JZ 0x00c411cf
+  0x00c411bc: MOV ECX,dword ptr [EBP + -0x34]
+  0x00c411bf: MOV dword ptr [EBP + -0x48],ECX
+  0x00c411c2: MOV EDX,dword ptr [EBP + -0x48]
+  0x00c411c5: ADD EDX,0x8
+  0x00c411c8: PUSH EDX
+  0x00c411c9: CALL dword ptr [0x00fdf1c0]
+  0x00c411cf: MOV byte ptr [EBP + -0x4],0x1
+  0x00c411d3: MOVZX EAX,byte ptr [EBP + -0x2d]
+  0x00c411d7: TEST EAX,EAX
+
+# SECTION 4: FUN_0043C090 - QueuedTexture task body
+# What refs does it hold? What can be freed under it?
+
+======================================================================
+QueuedTexture_TaskBody @ 0x0043c090
+======================================================================
+  Function: FUN_0043c050, Size: 116 bytes
+  Entry: 0x0043c050
+
+void __fastcall FUN_0043c050(void *param_1)
+
+{
+  char cVar1;
+  int iVar2;
+  undefined4 uVar3;
+  uint uVar4;
+  void *pvVar5;
+  
+  iVar2 = FUN_0055b980((int)param_1);
+  if (iVar2 != 0) {
+    pvVar5 = param_1;
+    uVar3 = FUN_0055b980((int)param_1);
+    cVar1 = FUN_00448ed0(DAT_011c3b3c,uVar3,(int)pvVar5);
+    FUN_0043c100(param_1,cVar1);
+  }
+  uVar4 = FUN_0043c130();
+  if ((uVar4 & 0xff) != 0) {
+    FUN_0043c0d0(param_1,'\x01');
+  }
+  (**(code **)(*DAT_01202d98 + 0x48))(param_1);
+  return;
+}
+
+
+
+--- Calls FROM QueuedTexture_TaskBody (0x0043c090) ---
+  CALL 0x0055b980 -> FUN_0055b980 (from 0x0043c05c)
+  CALL 0x0055b980 -> FUN_0055b980 (from 0x0043c06c)
+  CALL 0x00448ed0 -> FUN_00448ed0 (from 0x0043c078)
+  CALL 0x0043c100 -> FUN_0043c100 (from 0x0043c088)
+  CALL 0x0043c130 -> FUN_0043c130 (from 0x0043c093)
+  CALL 0x0043c0d0 -> FUN_0043c0d0 (from 0x0043c0a4)
+  Total: 6 calls
+
+# SECTION 5: FUN_0044dd60 - task ref release
+
+======================================================================
+TaskRelease @ 0x0044dd60
+======================================================================
+  Function: FUN_0044dd60, Size: 81 bytes
+  Entry: 0x0044dd60
+
+void __fastcall FUN_0044dd60(undefined4 *param_1)
+
+{
+  int iVar1;
+  
+  iVar1 = FUN_004019a0(param_1 + 2);
+  if ((iVar1 == 0) && (param_1 != (undefined4 *)0x0)) {
+    (**(code **)*param_1)(1);
+  }
+  return;
+}
+
+
+
+# SECTION 6: FUN_00c3e420 - LockFreeQueue dequeue?
+
+======================================================================
+Queue_Dequeue @ 0x00c3e420
+======================================================================
+  Function: FUN_00c3e420, Size: 97 bytes
+  Entry: 0x00c3e420
+
+uint __thiscall FUN_00c3e420(void *this,int *param_1)
+
+{
+  uint in_EAX;
+  undefined4 uVar1;
+  uint local_8;
+  
+  local_8 = 0;
+  while( true ) {
+    if (*(uint *)((int)this + 8) <= local_8) {
+      return in_EAX & 0xffffff00;
+    }
+    uVar1 = FUN_00c3e490(*(void **)(*(int *)((int)this + 4) + local_8 * 4),param_1);
+    if ((char)uVar1 != '\0') break;
+    in_EAX = local_8 + 1;
+    local_8 = in_EAX;
+  }
+  uVar1 = (**(code **)(*(int *)this + 8))();
+  return CONCAT31((int3)((uint)uVar1 >> 8),1);
+}
+

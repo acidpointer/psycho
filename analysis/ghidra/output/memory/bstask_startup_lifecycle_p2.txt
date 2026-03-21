@@ -1,0 +1,261 @@
+======================================================================
+BSTaskManagerThread LIFECYCLE - PART 2: CREATION + IO SUBMISSION
+======================================================================
+
+# SECTION 1: Who writes IOManager singleton 0x01202D98?
+
+--- XRefs to IOManager_singleton_ptr (0x01202d98) ---
+  READ @ 0x0086b2c1 (in FUN_0086a850)
+  READ @ 0x00448448 (in FUN_00448420)
+  READ @ 0x004484b1 (in FUN_00448420)
+  READ @ 0x00448532 (in FUN_00448420)
+  READ @ 0x004485a6 (in FUN_00448420)
+  READ @ 0x004485bf (in FUN_00448420)
+  READ @ 0x004485c7 (in FUN_00448420)
+  READ @ 0x004485d2 (in FUN_00448420)
+  READ @ 0x004455d6 (in FUN_00445570)
+  READ @ 0x00445637 (in FUN_00445570)
+  READ @ 0x0054a5bc (in FUN_0054a070)
+  READ @ 0x0054a5c3 (in FUN_0054a070)
+  READ @ 0x0063fc3a (in FUN_0063fb70)
+  READ @ 0x0063fc42 (in FUN_0063fb70)
+  READ @ 0x006fa516 (in FUN_006fa420)
+  ... (truncated)
+  Total: 15 refs
+
+# SECTION 2: FUN_00c3dbf0 - IO processing (main loop)
+
+======================================================================
+IO_Processing @ 0x00c3dbf0
+======================================================================
+  Function: FUN_00c3dbf0, Size: 646 bytes
+  Entry: 0x00c3dbf0
+
+/* WARNING: Removing unreachable block (ram,0x00c3dc63) */
+/* WARNING: Removing unreachable block (ram,0x00c3dc9f) */
+/* WARNING: Removing unreachable block (ram,0x00c3dd3c) */
+/* WARNING: Removing unreachable block (ram,0x00c3de2a) */
+/* WARNING: Removing unreachable block (ram,0x00c3de5c) */
+
+undefined1 __fastcall FUN_00c3dbf0(int param_1)
+
+{
+  bool bVar1;
+  uint uVar2;
+  int iVar3;
+  int *unaff_FS_OFFSET;
+  longlong lVar4;
+  ulonglong uVar5;
+  longlong lVar6;
+  uint local_28;
+  int local_24;
+  undefined1 local_15;
+  int *local_14;
+  int local_10;
+  undefined1 *puStack_c;
+  undefined4 local_8;
+  
+  local_8 = 0xffffffff;
+  puStack_c = &LAB_00f2dd89;
+  local_10 = *unaff_FS_OFFSET;
+  uVar2 = DAT_011c16bc ^ (uint)&stack0xfffffffc;
+  *unaff_FS_OFFSET = (int)&local_10;
+  if (DAT_01202dd8 == '\0') {
+    local_15 = 1;
+    DAT_01202dd8 = 1;
+    lVar4 = FUN_00aa4d80();
+    uVar5 = FUN_00ec62f6();
+    if (*(int *)(param_1 + 0x74) != 0) {
+      local_15 = (**(code **)(param_1 + 0x74))(uVar2);
+    }
+    local_14 = (int *)0x0;
+    local_8 = 0;
+    FUN_00c3e420(*(void **)(param_1 + 100),(int *)&local_14);
+    while (local_14 != (int *)0x0) {
+      (**(code **)(*local_14 + 0x14))();
+      if (*(int *)(param_1 + 0x70) != 0) {
+        (**(code **)(param_1 + 0x70))();
+      }
+      lVar6 = FUN_00aa4d80();
+      iVar3 = (int)((ulonglong)(lVar6 - lVar4) >> 0x20);
+      local_24 = (int)(uVar5 >> 0x20);
+      if ((iVar3 < local_24) ||
+         ((iVar3 <= local_24 && (local_28 = (uint)uVar5, (uint)(lVar6 - lVar4) <= local_28)))) {
+        bVar1 = false;
+      }
+      else {
+        bVar1 = true;
+      }
+      if (bVar1) {
+        if (local_14 != (int *)0x0) {
+          if (local_14 != (int *)0x0) {
+            FUN_0044dd60(local_14);
+          }
+          local_14 = (int *)0x0;
+        }
+      }
+      else {
+        FUN_00c3e420(*(void **)(param_1 + 100),(int *)&local_14);
+      }
+    }
+    DAT_01202dd8 = '\0';
+  }
+  else {
+    local_15 = 1;
+  }
+  *unaff_FS_OFFSET = local_10;
+  return local_15;
+}
+
+
+
+--- Calls FROM IO_Processing (0x00c3dbf0) ---
+  CALL 0x00aa4d80 -> FUN_00aa4d80 (from 0x00c3dce0)
+  CALL 0x00ec62f6 -> FUN_00ec62f6 (from 0x00c3dd0a)
+  CALL 0x00fdf1c0 -> unknown_0x00fdf1c0 (from 0x00c3dd49)
+  CALL 0x00000066 -> unknown_0x00000066 (from 0x00c3dd49)
+  CALL 0x00c3e420 -> FUN_00c3e420 (from 0x00c3dd63)
+  CALL 0x00aa4d80 -> FUN_00aa4d80 (from 0x00c3dda5)
+  CALL 0x00c3e420 -> FUN_00c3e420 (from 0x00c3de02)
+  CALL 0x0044dd60 -> FUN_0044dd60 (from 0x00c3de18)
+  CALL 0x00fdf1c0 -> unknown_0x00fdf1c0 (from 0x00c3de37)
+  CALL 0x00000066 -> unknown_0x00000066 (from 0x00c3de37)
+  CALL 0x0044dd60 -> FUN_0044dd60 (from 0x00c3de5f)
+  Total: 11 calls
+
+# SECTION 3: BSTaskManager init / thread creation area
+
+======================================================================
+BSTaskManager_init_area @ 0x00c42060
+======================================================================
+  Function: FUN_00c42060, Size: 111 bytes
+  Entry: 0x00c42060
+
+/* WARNING: Removing unreachable block (ram,0x00c42081) */
+/* WARNING: Removing unreachable block (ram,0x00c420a7) */
+
+void __thiscall FUN_00c42060(void *this,int param_1)
+
+{
+  (**(code **)(*(int *)this + 4))();
+  *(int *)((int)this + 8) = param_1;
+  *(byte *)((int)this + 0x18) = *(byte *)((int)this + 0x18) & 0xfe;
+  *(byte *)((int)this + 0x18) = *(byte *)((int)this + 0x18) & 0xfd;
+  return;
+}
+
+
+
+# SECTION 4: FUN_00877700 - wait for pending cell loads
+
+======================================================================
+WaitForPendingCellLoad @ 0x00877700
+======================================================================
+  Function: FUN_00877700, Size: 30 bytes
+  Entry: 0x00877700
+
+void __fastcall FUN_00877700(int param_1)
+
+{
+  FUN_00ad8da0((void *)(param_1 + 0x77c),1000);
+  return;
+}
+
+
+
+--- XRefs to WaitForPendingCellLoad_callers (0x00877700) ---
+  UNCONDITIONAL_CALL @ 0x008774c4 (in FUN_008774a0)
+  Total: 1 refs
+
+# SECTION 5: Who creates NiSourceTexture?
+
+--- XRefs to NiSourceTexture_vtable_assign (0x0109b9ec) ---
+  DATA @ 0x00a5fcab (in FUN_00a5fca0)
+  DATA @ 0x00a5fc40 (in FUN_00a5fc10)
+  Total: 2 refs
+
+# SECTION 6: FUN_00c41240 - task dispatch within BSTaskManagerThread
+
+======================================================================
+BSTask_Dispatch @ 0x00c41240
+======================================================================
+  Function: FUN_00c410b0, Size: 633 bytes
+  Entry: 0x00c410b0
+
+/* WARNING: Removing unreachable block (ram,0x00c411bc) */
+/* WARNING: Removing unreachable block (ram,0x00c412b6) */
+
+void __fastcall FUN_00c410b0(int param_1)
+
+{
+  DWORD DVar1;
+  uint uVar2;
+  LONG LVar3;
+  int *unaff_FS_OFFSET;
+  undefined4 local_40 [2];
+  undefined4 *local_38;
+  char local_31;
+  undefined **local_30 [2];
+  undefined4 local_28;
+  undefined4 local_20;
+  undefined4 local_1c;
+  byte local_18;
+  int local_10;
+  undefined1 *puStack_c;
+  uint local_8;
+  
+  puStack_c = &LAB_00f2e0a0;
+  local_10 = *unaff_FS_OFFSET;
+  *unaff_FS_OFFSET = (int)&local_10;
+  while (local_8 = 0xffffffff, *(char *)(*(int *)(param_1 + 0x30) + 0x40) != '\x01') {
+    WaitForSingleObject(*(HANDLE *)(param_1 + 0x10),0xffffffff);
+    InterlockedDecrement((LONG *)(param_1 + 0xc));
+    local_28 = 0;
+    local_20 = 0;
+    local_1c = 0;
+    local_18 = 0;
+    local_30[0] = &PTR_FUN_010c1664;
+    local_8 = 0;
+    local_31 = '\0';
+    while ((local_18 & 2) == 0) {
+      DVar1 = WaitForSingleObject(*(HANDLE *)(param_1 + 0x1c),0);
+      if (DVar1 == 0x102) {
+        WaitForSingleObject(*(HANDLE *)(param_1 + 0x1c),0xffffffff);
+        InterlockedDecrement((LONG *)(param_1 + 0x18));
+        FUN_00c42060(local_30,0);
+      }
+      local_38 = (undefined4 *)0x0;
+      local_8 = CONCAT31(local_8._1_3_,1);
+      uVar2 = FUN_00c40e70(*(void **)(param_1 + 0x30),(int)local_30,local_40,(int *)&local_38,
+                           local_31 == '\0');
+      if ((uVar2 & 0xff) == 0) {
+        if ((local_18 & 2) == 0) {
+          FUN_00c42060(local_30,0);
+          local_31 = '\0';
+        }
+      }
+      else if ((local_38[3] == 1) &&
+              (LVar3 = InterlockedCompareExchange(local_38 + 3,3,1), LVar3 == 1)) {
+        local_31 = '\x01';
+        (**(code **)(**(int **)(param_1 + 0x30) + 0x4c))(local_38);
+        (**(code **)(**(int **)(param_1 + 0x30) + 0x50))(local_38);
+      }
+      if (local_38 != (undefined4 *)0x0) {
+        if (local_38 != (undefined4 *)0x0) {
+          FUN_0044dd60(local_38);
+        }
+        local_38 = (undefined4 *)0x0;
+      }
+      ReleaseSemaphore(*(HANDLE *)(param_1 + 0x1c),1,(LPLONG)0x0);
+      InterlockedIncrement((LONG *)(param_1 + 0x18));
+      local_8 = local_8 & 0xffffff00;
+      if (local_38 != (undefined4 *)0x0) {
+        FUN_0044dd60(local_38);
+      }
+    }
+    local_30[0] = &PTR_FUN_010c1670;
+  }
+  *unaff_FS_OFFSET = local_10;
+  return;
+}
+
