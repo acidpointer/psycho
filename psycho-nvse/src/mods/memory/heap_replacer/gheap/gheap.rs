@@ -189,9 +189,33 @@ impl Gheap {
             }
         }
 
+        // Final stage: force collect on current thread's heap.
+        // mi_collect only affects the CALLING thread's heap (verified in
+        // mimalloc source: mi_theap_collect(_mi_theap_default(), force)).
+        // force=true: frees ALL empty pages (not just retired), purges arenas.
+        // force=false: only frees pages with expired retirement.
+        // Neither touches other threads' heaps — no AI thread race.
+        //
+        // Also flush quarantine on this thread to release zombie pages.
+        if DELAYED_FREE {
+            unsafe { delayed_free::flush_current_thread() };
+        }
+        unsafe { mi_collect(true) };
+        let ptr = unsafe { mi_malloc_aligned(size, ALIGN) };
+        if !ptr.is_null() {
+            return ptr;
+        }
+
+        // Log detailed diagnostics for debugging
+        let info = libmimalloc::process_info::MiMallocProcessInfo::get();
         log::error!(
-            "[GHEAP] OOM: mi_malloc_aligned({}, {}) failed after all 9 stages",
+            "[GHEAP] OOM: mi_malloc_aligned({}, {}) failed after all recovery. \
+             RSS={}MB, Commit={}MB, PeakRSS={}MB, PeakCommit={}MB",
             size, ALIGN,
+            info.get_current_rss() / 1024 / 1024,
+            info.get_current_commit() / 1024 / 1024,
+            info.get_peak_rss() / 1024 / 1024,
+            info.get_peak_commit() / 1024 / 1024,
         );
         std::ptr::null_mut()
     }

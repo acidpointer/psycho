@@ -202,7 +202,7 @@ impl CellTransitionFns {
     fn instance() -> Option<&'static Self> {
         use std::sync::LazyLock;
         static INSTANCE: LazyLock<Option<CellTransitionFns>> =
-            LazyLock::new(|| CellTransitionFns::init());
+            LazyLock::new(CellTransitionFns::init);
         INSTANCE.as_ref()
     }
 }
@@ -239,13 +239,11 @@ pub(super) unsafe extern "thiscall" fn hook_cell_transition_handler(
 
     // Lock Havok world — blocks AI raycasting threads
     let world = unsafe { *(HAVOK_WORLD_PTR as *const *mut c_void) };
-    if !world.is_null() {
-        if let Some(f) = fns {
-            if let Ok(lock) = unsafe { f.hk_lock.as_fn() } {
+    if !world.is_null()
+        && let Some(f) = fns
+            && let Ok(lock) = unsafe { f.hk_lock.as_fn() } {
                 unsafe { lock(world) };
             }
-        }
-    }
 
     // Enter loading state — suppress NVSE event dispatching
     let counter = unsafe { &*(LOADING_STATE_COUNTER as *const std::sync::atomic::AtomicI32) };
@@ -265,11 +263,10 @@ pub(super) unsafe extern "thiscall" fn hook_cell_transition_handler(
     // Cancel stale IO tasks BEFORE releasing the IO lock.
     if let Some(f) = fns {
         let task_mgr = unsafe { *(TASK_QUEUE_MANAGER_PTR as *const *mut c_void) };
-        if !task_mgr.is_null() {
-            if let Ok(cancel) = unsafe { f.cancel_tasks.as_fn() } {
+        if !task_mgr.is_null()
+            && let Ok(cancel) = unsafe { f.cancel_tasks.as_fn() } {
                 unsafe { cancel(task_mgr, 1) };
             }
-        }
     }
 
     // Release IO dequeue lock — BSTaskManagerThread resumes.
@@ -282,13 +279,11 @@ pub(super) unsafe extern "thiscall" fn hook_cell_transition_handler(
     counter.fetch_sub(1, std::sync::atomic::Ordering::AcqRel);
 
     // Unlock Havok world
-    if !world.is_null() {
-        if let Some(f) = fns {
-            if let Ok(unlock) = unsafe { f.hk_unlock.as_fn() } {
+    if !world.is_null()
+        && let Some(f) = fns
+            && let Ok(unlock) = unsafe { f.hk_unlock.as_fn() } {
                 unsafe { unlock(world) };
             }
-        }
-    }
 }
 
 // ===========================================================================
@@ -474,7 +469,7 @@ pub(super) unsafe extern "fastcall" fn hook_task_release(this: *mut c_void) {
 
     // Validate: vtable pointer must be in .rdata section
     let vtable = unsafe { *(this as *const usize) };
-    if vtable < RDATA_START || vtable >= RDATA_END {
+    if !(RDATA_START..RDATA_END).contains(&vtable) {
         return; // recycled memory, not a game object
     }
 
@@ -603,11 +598,10 @@ unsafe fn find_skipping_dead(
                                 let dtor_addr = *vtable.add(1) as *mut c_void;
                                 if let Ok(dtor) = libpsycho::ffi::fnptr::FnPtr::<
                                     unsafe extern "thiscall" fn(*mut c_void),
-                                >::from_raw(dtor_addr) {
-                                    if let Ok(f) = dtor.as_fn() {
+                                >::from_raw(dtor_addr)
+                                    && let Ok(f) = dtor.as_fn() {
                                         f(old_val as *mut c_void);
                                     }
-                                }
                             }
                         }
                         *out = new_inner;
