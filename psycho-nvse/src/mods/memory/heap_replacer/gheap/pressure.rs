@@ -92,16 +92,16 @@ const CELL_UNLOAD_ENABLED: bool = true;
 /// This adapts to any mod count:
 ///   - 423 mods, baseline 500MB → triggers at ~1000MB
 ///   - 1500 mods, baseline 1500MB → triggers at ~2000MB
-/// 500MB headroom leaves room for D3D9 textures (21MB+ each) and
-/// the 32-bit VA ceiling (~3.8GB usable with LAA).
+/// Maximum commit growth above baseline before triggering pressure relief.
+/// 500MB balances normal gameplay headroom with stress test stability.
+/// Cell unloading + HeapCompact keep commit from climbing further.
 const MAX_GROWTH_ABOVE_BASELINE: usize = 500 * 1024 * 1024;
 
 /// Max cells to unload per relief cycle.
 const MAX_CELLS_PER_CYCLE: usize = 20;
 
 /// Minimum milliseconds between relief cycles.
-/// 1000ms allows faster response during extreme cell traversal.
-const COOLDOWN_MS: u64 = 1000;
+const COOLDOWN_MS: u64 = 2000;
 
 // ---------------------------------------------------------------------------
 // Game function addresses (Fallout New Vegas)

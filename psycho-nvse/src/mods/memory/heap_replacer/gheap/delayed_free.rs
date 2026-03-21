@@ -32,7 +32,7 @@
 
 use libc::c_void;
 use std::cell::Cell;
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 
 // ---------------------------------------------------------------------------
 // Configuration
@@ -80,6 +80,18 @@ const STALE_PUSH_LIMIT: u32 = 50_000;
 
 /// Global frame counter, incremented once per frame by the main loop hook.
 static FRAME_COUNTER: AtomicU64 = AtomicU64::new(0);
+
+/// Emergency flush flag. Set by Gheap::alloc OOM recovery when allocation
+/// fails and this thread's quarantine is empty (the big data is on another
+/// thread). Checked by push() on the main thread — when set, forces a
+/// quarantine drain even during loading screens. At OOM, crash is worse
+/// than stale reference risk.
+static EMERGENCY_FLUSH: AtomicBool = AtomicBool::new(false);
+
+/// Signal that an OOM occurred and quarantine needs emergency flushing.
+pub fn signal_emergency_flush() {
+    EMERGENCY_FLUSH.store(true, Ordering::Release);
+}
 
 // ---------------------------------------------------------------------------
 // IO lock awareness
@@ -138,7 +150,9 @@ pub fn tick() {
         let frame = FRAME_COUNTER.load(Ordering::Relaxed);
         if let Some(last) = q.last_frame
             && frame != last {
-                q.flush_stale(last, frame);
+                if frame > last {
+                    q.flush_stale(last, frame);
+                }
                 q.last_frame = Some(frame);
                 q.stale_pushes = 0;
             }
@@ -200,6 +214,12 @@ impl Quarantine {
 
     #[inline]
     fn push(&mut self, ptr: *mut c_void) {
+        // Emergency flush: another thread hit OOM and needs us to free memory.
+        // Override all safety checks — at OOM, crash is guaranteed otherwise.
+        if EMERGENCY_FLUSH.swap(false, Ordering::AcqRel) {
+            self.flush_all();
+        }
+
         let frame = FRAME_COUNTER.load(Ordering::Relaxed);
 
         match self.last_frame {
@@ -208,7 +228,11 @@ impl Quarantine {
                 self.stale_pushes = 0;
             }
             Some(last) if frame != last => {
-                self.flush_stale(last, frame);
+                // Only flush if real frame moved forward. If last > frame
+                // (synthetic rotation during loading), just sync back.
+                if frame > last {
+                    self.flush_stale(last, frame);
+                }
                 self.last_frame = Some(frame);
                 self.stale_pushes = 0;
             }
@@ -243,18 +267,39 @@ impl Quarantine {
             } else {
                 let loading = unsafe { *(0x011DEA2B as *const u8) != 0 };
                 if loading {
-                    // Case 2: Loading screen — do nothing, keep zombies.
-                    // stale_pushes keeps counting but no drain occurs.
-                    // OOM recovery in Gheap::alloc is the safety valve.
-                } else {
-                    // Case 3: Normal gameplay — IO-locked flush.
+                    // Case 2: Loading screen — bucket rotation.
+                    // Drain the oldest slot (data from QUARANTINE_FRAMES
+                    // rotations ago) but keep recent zombies for NVSE.
+                    // Prevents unbounded VA consumption during loading
+                    // while preserving zombie data for JIP CellChange events.
                     self.stale_pushes = 0;
-                    unsafe { Self::io_locked_flush(&mut self.buckets) };
+                    let current = self.last_frame.unwrap_or(frame);
+                    let next = current.wrapping_add(1);
+                    let idx = (next as usize) % QUARANTINE_FRAMES;
+                    Self::drain_bucket(&mut self.buckets[idx]);
+                    self.last_frame = Some(next);
+                } else {
+                    // Case 3: Normal gameplay — check AI thread state.
+                    // DAT_011dfa19: 1 = AI threads active, 0 = idle.
+                    // AI threads hold Havok entity pointers from simulation
+                    // islands. Flushing quarantine while AI is active recycles
+                    // entity memory -> NULL in addEntitiesBatch -> crash.
+                    // Only flush when BOTH IO and AI are safe.
+                    let ai_active = unsafe { *(0x011DFA19 as *const u8) != 0 };
+                    if ai_active {
+                        // AI active — do NOT flush. Keep zombies.
+                        // tick() will flush on next frame when AI is idle.
+                    } else {
+                        // AI idle + normal gameplay — IO-locked flush.
+                        self.stale_pushes = 0;
+                        unsafe { Self::io_locked_flush(&mut self.buckets) };
+                    }
                 }
             }
         }
 
-        let idx = (frame as usize) % QUARANTINE_FRAMES;
+        let slot = self.last_frame.unwrap_or(frame);
+        let idx = (slot as usize) % QUARANTINE_FRAMES;
         self.buckets[idx].push(ptr);
     }
 

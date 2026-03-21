@@ -1,0 +1,237 @@
+======================================================================
+FRAME TIMELINE: PDD vs AI DISPATCH vs HOOKS
+======================================================================
+
+# SECTION 1: Main loop start - before AI dispatch
+# Look for FUN_004556d0 (per-frame PDD) and FUN_00868850 (our hook)
+
+--- XRefs to PerFramePDD_callers (0x004556d0) ---
+  UNCONDITIONAL_CALL @ 0x0086e987 (in FUN_0086e650)
+  UNCONDITIONAL_CALL @ 0x005b7207 (in FUN_005b71b0)
+  Total: 2 refs
+
+# SECTION 2: FUN_00868850 callers (our per-frame drain hook)
+
+--- XRefs to PerFrameDrain_callers (0x00868850) ---
+  UNCONDITIONAL_CALL @ 0x0086eadf (in FUN_0086e650)
+  Total: 1 refs
+
+# SECTION 3: Main loop disasm near known positions
+
+Main loop around DAT_011dea2b check (0x0086e6e0):
+  0x0086e6d5: JMP 0x0086e6de
+  0x0086e6d7: MOV dword ptr [EBP + -0x20],0x1
+  0x0086e6de: MOV DL,byte ptr [EBP + -0x20]
+  0x0086e6e1: MOV byte ptr [0x011dea2b],DL
+  0x0086e6e7: CALL 0x007050d0
+  0x0086e6ec: MOV [0x011dea2c],AL
+  0x0086e6f1: PUSH 0x1
+  0x0086e6f3: MOV ECX,dword ptr [0x011d8804]
+  0x0086e6f9: CALL 0x00701450
+  0x0086e6fe: MOV [0x011dea2d],AL
+  0x0086e703: CALL 0x00703d50
+  0x0086e708: MOV [0x011dea2e],AL
+  0x0086e70d: CALL 0x00707ad0
+  0x0086e712: TEST EAX,EAX
+  0x0086e714: JZ 0x0086e72f
+  0x0086e716: CALL 0x00707ad0
+  0x0086e71b: MOV ESI,EAX
+  0x0086e71d: CALL 0x00705990
+  0x0086e722: CMP ESI,EAX
+  0x0086e724: JZ 0x0086e72f
+  0x0086e726: MOV dword ptr [EBP + -0x24],0x1
+  0x0086e72d: JMP 0x0086e736
+  0x0086e72f: MOV dword ptr [EBP + -0x24],0x0
+  0x0086e736: MOV AL,byte ptr [EBP + -0x24]
+  0x0086e739: MOV byte ptr [EBP + -0xd],AL
+
+# SECTION 4: Area between game's PDD and AI_START
+# Disasm 0x0086eb00 to 0x0086eca0 to see what happens
+  0x0086eb03: JMP 0x0086eb09
+  0x0086eb05: MOV byte ptr [EBP + -0x31],0x1
+  0x0086eb09: MOVZX EDX,byte ptr [EBP + -0x31]
+  0x0086eb0d: PUSH EDX
+  0x0086eb0e: CALL 0x00524c90
+  0x0086eb13: PUSH EAX
+  0x0086eb14: CALL 0x006652e0
+  0x0086eb19: ADD ESP,0x8
+  0x0086eb1c: MOV ECX,dword ptr [EBP + -0x18]
+  0x0086eb1f: CALL 0x0086fbe0
+  0x0086eb24: MOV ECX,0x11c3ea4
+  0x0086eb29: CALL 0x0043d4d0
+  0x0086eb2e: CMP dword ptr [EAX],0x1
+  0x0086eb31: JNZ 0x0086eb3b
+  0x0086eb33: MOV ECX,dword ptr [EBP + -0x18]
+  0x0086eb36: CALL 0x0086fd70
+  0x0086eb3b: MOV ECX,dword ptr [EBP + -0x18]
+  0x0086eb3e: CALL 0x00483710
+  0x0086eb43: CALL 0x0049fef0
+  0x0086eb48: MOV ECX,EAX
+  0x0086eb4a: CALL 0x0049fff0
+  0x0086eb4f: PUSH 0x11ad840
+  0x0086eb54: CALL 0x00524c90
+  0x0086eb59: MOV ECX,EAX
+  0x0086eb5b: CALL 0x00712e60
+  0x0086eb60: MOV ECX,0x11f2250
+  0x0086eb65: CALL 0x0044ddc0
+  0x0086eb6a: CMP EAX,0x4
+  0x0086eb6d: JZ 0x0086eb90
+  0x0086eb6f: PUSH 0x1
+
+# More context before AI_START:
+  0x0086ec41: MOVZX ECX,byte ptr [EAX + 0x7]
+  0x0086ec45: TEST ECX,ECX
+  0x0086ec47: JNZ 0x0086ec52
+  0x0086ec49: MOV dword ptr [EBP + -0x40],0x1
+  0x0086ec50: JMP 0x0086ec59
+  0x0086ec52: MOV dword ptr [EBP + -0x40],0x0
+  0x0086ec59: MOV DL,byte ptr [EBP + -0x40]
+  0x0086ec5c: MOV byte ptr [EBP + -0xe],DL
+  0x0086ec5f: MOVZX EAX,byte ptr [EBP + -0xe]
+  0x0086ec63: TEST EAX,EAX
+  0x0086ec65: JZ 0x0086ec98
+  0x0086ec67: MOV ECX,0x11c3ea4
+  0x0086ec6c: CALL 0x0043d4d0
+  0x0086ec71: CMP dword ptr [EAX],0x1
+  0x0086ec74: JLE 0x0086ec8e
+  0x0086ec76: PUSH 0x1
+  0x0086ec78: CALL 0x008c80e0
+  0x0086ec7d: ADD ESP,0x4
+  0x0086ec80: CALL 0x00713d80
+  0x0086ec85: MOV ECX,EAX
+  0x0086ec87: CALL 0x008c78c0
+  0x0086ec8c: JMP 0x0086ec98
+  0x0086ec8e: MOV ECX,0x11e0fe0
+  0x0086ec93: CALL 0x008ca070
+  0x0086ec98: MOV ECX,dword ptr [EBP + -0x18]
+
+# SECTION 5: FUN_0086f6a0 - POST_AI (after AI join)
+
+======================================================================
+PostAI @ 0x0086f6a0
+======================================================================
+  Function: FUN_0086f6a0, Size: 396 bytes
+  Entry: 0x0086f6a0
+
+/* WARNING: Globals starting with '_' overlap smaller symbols at the same address */
+
+void __fastcall FUN_0086f6a0(int param_1)
+
+{
+  char cVar1;
+  bool bVar2;
+  int *piVar3;
+  undefined4 *puVar4;
+  float10 fVar5;
+  char local_15;
+  
+  cVar1 = FUN_007050d0();
+  if (cVar1 != '\0') {
+    bVar2 = FUN_00703d50();
+    if (!bVar2) {
+      cVar1 = FUN_0086f860();
+      if (cVar1 == '\0') {
+        piVar3 = (int *)FUN_007624d0();
+        if (piVar3 != (int *)0x0) {
+          cVar1 = (**(code **)(*piVar3 + 0x100))();
+          if (cVar1 != '\0') {
+            (**(code **)(*piVar3 + 0x404))(0);
+          }
+        }
+      }
+    }
+  }
+  FUN_0096c240(0x11e0e80);
+  piVar3 = (int *)FUN_0043d4d0(0x11c3ea4);
+  if (*piVar3 < 2) {
+    FUN_0096c860(0x11e0e80);
+  }
+  else {
+    FUN_0096c970(0x11e0e80);
+  }
+  FUN_0096c710(0x11e0e80);
+  fVar5 = FUN_0084d030(0x11f6394);
+  FUN_009781d0(&DAT_011e0e80,(float)fVar5);
+  piVar3 = (int *)FUN_00705990();
+  cVar1 = FUN_0086f840((int)piVar3);
+  if (cVar1 != '\0') {
+    FUN_007fa990(piVar3);
+  }
+  piVar3 = (int *)FUN_0043d4d0(0x11c3ea4);
+  if (1 < *piVar3) {
+    FUN_0054ae30();
+    piVar3 = (int *)FUN_004537b0();
+    FUN_0087a6d0(piVar3);
+    puVar4 = (undefined4 *)FUN_004537b0();
+    FUN_0087a790(puVar4);
+    FUN_00552570();
+    FUN_0086f830(_DAT_011c3c08);
+    piVar3 = (int *)FUN_004537b0();
+    FUN_0087a6b0(piVar3);
+  }
+  puVar4 = (undefined4 *)FUN_0043d4d0(0x11d10d4);
+  FUN_007034c0(*puVar4);
+  FUN_00703490();
+  if (((DAT_011dea2b == '\0') && (DAT_011dea2d == '\0')) && (*(char *)(param_1 + 7) == '\0')) {
+    local_15 = '\0';
+  }
+  else {
+    local_15 = '\x01';
+  }
+  FUN_00991600(DAT_011f1958,local_15);
+  return;
+}
+
+
+
+# SECTION 6: What work do AI threads perform?
+# FUN_008c80e0 - called before AI dispatch at 0x0086ec78
+
+======================================================================
+PreAI_work @ 0x008c80e0
+======================================================================
+  Function: FUN_008c80e0, Size: 46 bytes
+  Entry: 0x008c80e0
+
+void __cdecl FUN_008c80e0(char param_1)
+
+{
+  if ((DAT_011dfa18 != '\0') && (param_1 == '\0')) {
+    DAT_011dfa18 = param_1;
+    FUN_008c80c0();
+  }
+  DAT_011dfa18 = param_1;
+  return;
+}
+
+
+
+# SECTION 7: FUN_00575e00 - near crash stack
+
+======================================================================
+CrashNearby_575e00 @ 0x00575e00
+======================================================================
+  Function: FUN_00575dc0, Size: 108 bytes
+  Entry: 0x00575dc0
+
+int __fastcall FUN_00575dc0(int param_1)
+
+{
+  bool bVar1;
+  int iVar2;
+  uint uVar3;
+  void *pvVar4;
+  
+  iVar2 = FUN_008d6f30(param_1 + -0x18);
+  uVar3 = FUN_005653d0((void *)(param_1 + -0x18));
+  if (((uVar3 & 0xff) == 0) && (bVar1 = FUN_004077c0(param_1 + -0x18), !bVar1)) {
+    return iVar2;
+  }
+  if ((iVar2 != 0) && (bVar1 = FUN_00425fd0(iVar2), bVar1)) {
+    return iVar2;
+  }
+  pvVar4 = (void *)FUN_005d43c0(param_1 + -0x18);
+  iVar2 = FUN_0041d460(pvVar4);
+  return iVar2;
+}
+

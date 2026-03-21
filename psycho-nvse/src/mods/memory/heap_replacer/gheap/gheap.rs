@@ -72,33 +72,69 @@ impl Gheap {
             return ptr;
         }
 
-        // OOM recovery. The original FUN_00aa3e40 had a do-while loop that
-        // retried forever with HeapCompact. We replicate escalating recovery:
+        // OOM recovery: replicate the vanilla allocator's escalating retry loop.
         //
-        // Stage 1: flush this thread's quarantine + thread-local collect
-        // Stage 2: mi_collect(false) to reclaim cross-thread abandoned segments
-        // Stage 3: log and return NULL (true VA exhaustion)
+        // The original FUN_00aa3e40 calls FUN_00866a90 (OOM stage executor)
+        // with escalating stages 0-8. Each stage frees different resources:
+        //   0: ProcessPendingCleanup
+        //   1: SBM cleanup
+        //   2: Texture/BSA cache cleanup
+        //   3: Async flush (blocking)
+        //   4: Lock + PDD + release
+        //   5: FindCellToUnload + full PDD (falls through to 4→3)
+        //   6: Pool compaction
+        //   7: Final flag
+        //   8: Worker thread: trigger HeapCompact + Sleep(1) retry
         //
-        // NEVER mi_collect(true) -- races with AI threads.
+        // The vanilla allocator NEVER returns NULL — it retries until success.
+        // We first try mimalloc-specific recovery, then call the game's handler.
 
-        // Stage 1: flush quarantine on this thread
+        // Stage 1: flush this thread's quarantine
         if DELAYED_FREE {
             unsafe { delayed_free::flush_current_thread() };
         }
-        let ptr = unsafe { mi_malloc_aligned(size, ALIGN) };
-        if !ptr.is_null() {
-            return ptr;
-        }
-
-        // Stage 2: collect abandoned segments from other threads
         unsafe { mi_collect(false) };
         let ptr = unsafe { mi_malloc_aligned(size, ALIGN) };
         if !ptr.is_null() {
             return ptr;
         }
 
+        // Stage 2: call the game's own OOM handler with escalating stages.
+        // FUN_00866a90(heap_singleton, pool_ptr, stage, &done_flag)
+        // Returns next stage. Loop until allocation succeeds.
+        type OomStageExecFn =
+            unsafe extern "thiscall" fn(*mut c_void, *mut c_void, i32, *mut u8) -> i32;
+        const OOM_STAGE_EXEC: usize = 0x00866A90;
+
+        let heap_singleton = SINGLETON as *mut c_void;
+        let mut stage: i32 = 0;
+        let mut done: u8 = 0;
+
+        // Replicate vanilla do-while loop: escalate through stages 0-8.
+        // FUN_00866a90 sets done=1 at the top of EVERY call (it's a flag
+        // for CRT fallback, NOT a loop exit). The vanilla loop continues
+        // as long as allocation returns NULL, regardless of done flag.
+        // Only stop after all stages are exhausted.
+        while stage <= 8 {
+            done = 0;
+            stage = unsafe {
+                let f: OomStageExecFn = std::mem::transmute(OOM_STAGE_EXEC);
+                f(heap_singleton, std::ptr::null_mut(), stage, &mut done)
+            };
+
+            // After each stage, flush quarantine + collect and retry
+            if DELAYED_FREE {
+                unsafe { delayed_free::flush_current_thread() };
+            }
+            unsafe { mi_collect(false) };
+            let ptr = unsafe { mi_malloc_aligned(size, ALIGN) };
+            if !ptr.is_null() {
+                return ptr;
+            }
+        }
+
         log::error!(
-            "[GHEAP] OOM: mi_malloc_aligned({}, {}) failed after recovery",
+            "[GHEAP] OOM: mi_malloc_aligned({}, {}) failed after all 9 stages",
             size, ALIGN,
         );
         std::ptr::null_mut()

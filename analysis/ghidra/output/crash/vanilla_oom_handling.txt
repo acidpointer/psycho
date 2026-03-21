@@ -1,0 +1,328 @@
+======================================================================
+VANILLA OOM HANDLING - ORIGINAL ALLOCATOR RETRY LOOP
+======================================================================
+
+# SECTION 1: FUN_00866a90 - HeapCompact stage executor (OOM handler)
+
+======================================================================
+OOM_StageExec @ 0x00866a90
+======================================================================
+  Function: FUN_00866a90, Size: 602 bytes
+  Entry: 0x00866a90
+
+int __thiscall FUN_00866a90(void *this,undefined4 param_1,int param_2,char *param_3)
+
+{
+  char cVar1;
+  int iVar2;
+  int iVar3;
+  void *this_00;
+  uint uVar4;
+  bool bVar5;
+  
+  *param_3 = '\x01';
+  iVar2 = FUN_0040fc90();
+  iVar3 = FUN_0044edb0(DAT_011dea0c);
+  bVar5 = iVar2 == iVar3;
+  switch(param_2) {
+  case 0:
+    DAT_011de70c = 0;
+    if (bVar5) {
+      FUN_00452490(DAT_011dea10,'\0');
+    }
+    break;
+  case 1:
+    iVar2 = FUN_00866d10();
+    FUN_00aa5c80(iVar2);
+    break;
+  case 2:
+    iVar2 = FUN_00652110();
+    if (iVar2 != 0) {
+      iVar2 = FUN_00652110();
+      cVar1 = FUN_00529ea0(iVar2);
+      if ((cVar1 != '\0') && (bVar5 = FUN_00652160(), bVar5)) {
+        iVar2 = FUN_00652130();
+        if (iVar2 == 1) {
+          cVar1 = '\0';
+          this_00 = (void *)FUN_00652110();
+          FUN_00650a30(this_00,cVar1);
+        }
+        FUN_00652190();
+      }
+    }
+    break;
+  case 5:
+    if (!bVar5) break;
+    FUN_00869190(0);
+    uVar4 = FUN_00453a80((int)DAT_011dea10);
+    if ((uVar4 & 0xff) == 0) {
+      FUN_004539a0(DAT_011dea10,'\x01','\0');
+    }
+    else {
+      param_2 = param_2 + -1;
+    }
+    FUN_00452490(DAT_011dea10,'\0');
+    FUN_00869190(1);
+    FUN_00868d70('\x01');
+  case 4:
+    bVar5 = FUN_0078d200((LONG *)&DAT_011f11a0);
+    if (bVar5) {
+      FUN_00868d70('\x01');
+      FUN_0040fba0((undefined4 *)&DAT_011f11a0);
+    }
+  case 3:
+    FUN_00c459d0('\x01');
+    break;
+  case 6:
+    if (bVar5) {
+      FUN_00aa7030();
+    }
+    break;
+  case 7:
+    if ((*param_3 == '\0') && (bVar5)) {
+      *param_3 = '\x01';
+      break;
+    }
+  case 8:
+    if (!bVar5) {
+      *(undefined4 *)((int)this + 0x134) = 6;
+      if (DAT_011de70c < 15000) {
+        iVar2 = FUN_00866da0(DAT_01202d98,0);
+        iVar3 = FUN_0040fc90();
+        if (iVar2 == iVar3) {
+          FUN_00866dc0(DAT_01202d98,0);
+          FUN_00866de0(DAT_01202d98,0);
+        }
+        iVar2 = FUN_00866da0(DAT_01202d98,1);
+        iVar3 = FUN_0040fc90();
+        if (iVar2 == iVar3) {
+          FUN_00866dc0(DAT_01202d98,1);
+          FUN_00866de0(DAT_01202d98,1);
+        }
+        FUN_0040fca0(1);
+        DAT_011de70c = DAT_011de70c + 1;
+        param_2 = param_2 + -1;
+      }
+      else if (*param_3 == '\0') {
+        *param_3 = '\x01';
+      }
+    }
+  }
+  return param_2 + 1;
+}
+
+
+
+--- Calls FROM OOM_StageExec (0x00866a90) ---
+  CALL 0x0040fc90 -> FUN_0040fc90 (from 0x00866aa0)
+  CALL 0x0044edb0 -> FUN_0044edb0 (from 0x00866aad)
+  CALL 0x00452490 -> FUN_00452490 (from 0x00866af0)
+  CALL 0x00866d10 -> FUN_00866d10 (from 0x00866afa)
+  CALL 0x00aa5c80 -> FUN_00aa5c80 (from 0x00866b01)
+  CALL 0x00652110 -> FUN_00652110 (from 0x00866b0b)
+  CALL 0x00652110 -> FUN_00652110 (from 0x00866b14)
+  CALL 0x00529ea0 -> FUN_00529ea0 (from 0x00866b1b)
+  CALL 0x00652160 -> FUN_00652160 (from 0x00866b27)
+  CALL 0x00652130 -> FUN_00652130 (from 0x00866b33)
+  CALL 0x00652110 -> FUN_00652110 (from 0x00866b3f)
+  CALL 0x00650a30 -> FUN_00650a30 (from 0x00866b46)
+  CALL 0x00652190 -> FUN_00652190 (from 0x00866b4b)
+  CALL 0x00869190 -> FUN_00869190 (from 0x00866b5f)
+  CALL 0x00453a80 -> FUN_00453a80 (from 0x00866b6d)
+  CALL 0x004539a0 -> FUN_004539a0 (from 0x00866b8e)
+  CALL 0x00452490 -> FUN_00452490 (from 0x00866b9b)
+  CALL 0x00869190 -> FUN_00869190 (from 0x00866ba2)
+  CALL 0x00868d70 -> FUN_00868d70 (from 0x00866bac)
+  CALL 0x0078d200 -> FUN_0078d200 (from 0x00866bc0)
+  CALL 0x00868d70 -> FUN_00868d70 (from 0x00866bce)
+  CALL 0x0040fba0 -> FUN_0040fba0 (from 0x00866bdb)
+  CALL 0x00c459d0 -> FUN_00c459d0 (from 0x00866be2)
+  CALL 0x00aa7030 -> FUN_00aa7030 (from 0x00866bf7)
+  CALL 0x00866da0 -> FUN_00866da0 (from 0x00866c4f)
+  CALL 0x0040fc90 -> FUN_0040fc90 (from 0x00866c56)
+  CALL 0x00866dc0 -> FUN_00866dc0 (from 0x00866c67)
+  CALL 0x00866de0 -> FUN_00866de0 (from 0x00866c74)
+  CALL 0x00866da0 -> FUN_00866da0 (from 0x00866c81)
+  CALL 0x0040fc90 -> FUN_0040fc90 (from 0x00866c88)
+  CALL 0x00866dc0 -> FUN_00866dc0 (from 0x00866c99)
+  CALL 0x00866de0 -> FUN_00866de0 (from 0x00866ca6)
+  CALL 0x0040fca0 -> FUN_0040fca0 (from 0x00866cad)
+  Total: 33 calls
+
+# SECTION 2: What does FUN_00866a90 do with stage=0?
+# And stage=1, 2, 3, 4, 5?
+# The function uses the stage number to dispatch different cleanup
+
+# SECTION 3: FUN_00aa4290 - CRT fallback allocator
+
+======================================================================
+CRT_Fallback @ 0x00aa4290
+======================================================================
+  Function: FUN_00aa4290, Size: 39 bytes
+  Entry: 0x00aa4290
+
+void * FUN_00aa4290(size_t param_1)
+
+{
+  void *pvVar1;
+  
+  pvVar1 = _malloc(param_1);
+  return pvVar1;
+}
+
+
+
+# SECTION 4: FUN_00aa4960 - small alloc optimization?
+
+======================================================================
+SmallAlloc @ 0x00aa4960
+======================================================================
+  Function: FUN_00aa4960, Size: 238 bytes
+  Entry: 0x00aa4960
+
+/* WARNING: Globals starting with '_' overlap smaller symbols at the same address */
+
+uint __cdecl FUN_00aa4960(uint param_1)
+
+{
+  uint local_14;
+  uint local_10;
+  uint local_c;
+  uint local_8;
+  
+  local_8 = 0;
+  if (param_1 < 300) {
+    if (param_1 < 0x3fd) {
+      local_c = *(uint *)(&DAT_011f67b8 + (param_1 + 0xf & 0xfffffff0));
+    }
+    else {
+      local_c = 0;
+    }
+    local_8 = local_c;
+  }
+  else if (param_1 < 0x200) {
+    if (param_1 < 0x3fd) {
+      local_10 = *(uint *)(&DAT_011f67b8 + (param_1 + 0xf & 0xfffffff0));
+    }
+    else {
+      local_10 = 0;
+    }
+    local_8 = local_10;
+    if (local_10 == 0) {
+      if (param_1 < 0x3fd) {
+        local_14 = *(uint *)(&DAT_011f67b8 + (param_1 + 0x1f & 0xffffffe0));
+      }
+      else {
+        local_14 = 0;
+      }
+      local_8 = local_14;
+    }
+  }
+  else if (param_1 < 0x240) {
+    local_8 = ~-(uint)(0x3fc < param_1) & _DAT_011f69f8;
+  }
+  if (local_8 == 0) {
+    local_8 = 0;
+  }
+  return local_8;
+}
+
+
+
+# SECTION 5: FUN_00aa3e40 retry loop - full re-read
+
+======================================================================
+Allocator_RetryLoop @ 0x00aa3e40
+======================================================================
+  Function: FUN_00aa3e40, Size: 486 bytes
+  Entry: 0x00aa3e40
+
+void * __thiscall FUN_00aa3e40(void *this,uint param_1)
+
+{
+  int *piVar1;
+  int iVar2;
+  int *piVar3;
+  void *extraout_EAX;
+  int unaff_FS_OFFSET;
+  int *local_40;
+  int *local_3c;
+  void *local_38;
+  void *local_2c;
+  int local_28;
+  char local_d;
+  uint local_c;
+  void *local_8;
+  
+  if (*(char *)this == '\0') {
+    local_8 = FUN_00aa4290(param_1);
+  }
+  else {
+    piVar1 = *(int **)((int)this + 0x110);
+    if (piVar1 == (int *)0x0) {
+      local_8 = FUN_00aa4290(param_1);
+    }
+    else {
+      local_c = param_1;
+      local_8 = (void *)0x0;
+      if (param_1 < 9) {
+        param_1 = 8;
+      }
+      else {
+        param_1 = param_1 + 3 & 0xfffffffc;
+      }
+      iVar2 = *(int *)(*(int *)(*(int *)(unaff_FS_OFFSET + 0x2c) + _tls_index * 4) + 0x2b4);
+      if (*(char *)((int)this + 0x129) != '\0') {
+        if (param_1 < 0x3fd) {
+          local_38 = *(void **)(&DAT_011f67b8 + param_1);
+        }
+        else {
+          local_38 = (void *)0x0;
+        }
+        local_2c = local_38;
+        if (local_38 == (void *)0x0) {
+          local_2c = (void *)FUN_00aa4960(param_1);
+        }
+        if ((local_2c != (void *)0x0) &&
+           (FUN_00aa6aa0(local_2c), local_8 = extraout_EAX, extraout_EAX != (void *)0x0)) {
+          return extraout_EAX;
+        }
+      }
+      local_d = '\0';
+      local_28 = 0;
+      piVar3 = *(int **)((int)this + iVar2 * 4 + 0xc);
+      do {
+        local_3c = piVar1;
+        if (piVar3 != (int *)0x0) {
+          local_3c = piVar3;
+        }
+        local_8 = (void *)(**(code **)(*local_3c + 8))(param_1,0);
+        if ((local_8 == (void *)0x0) && (local_3c != piVar1)) {
+          local_8 = (void *)(**(code **)(*piVar1 + 8))(param_1,0);
+        }
+        if (local_8 == (void *)0x0) {
+          local_40 = piVar1;
+          if (piVar3 != (int *)0x0) {
+            local_40 = piVar3;
+          }
+          local_28 = FUN_00866a90(this,local_40,local_28,&local_d);
+          if (local_d != '\0') {
+            local_8 = FUN_00aa4290(param_1);
+          }
+        }
+      } while (local_8 == (void *)0x0);
+    }
+  }
+  return local_8;
+}
+
+
+
+# SECTION 6: All callers of FUN_00866a90
+
+--- XRefs to StageExec_callers (0x00866a90) ---
+  UNCONDITIONAL_CALL @ 0x008780e5 (in FUN_00878080)
+  UNCONDITIONAL_CALL @ 0x00aa3fe6 (in FUN_00aa3e40)
+  UNCONDITIONAL_CALL @ 0x00aa5e78 (in FUN_00aa5e30)
+  UNCONDITIONAL_CALL @ 0x00aa5f1c (in FUN_00aa5ec0)
+  Total: 4 refs
