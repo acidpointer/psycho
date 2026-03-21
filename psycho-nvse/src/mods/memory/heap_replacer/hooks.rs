@@ -320,8 +320,11 @@ pub(super) unsafe extern "fastcall" fn hook_ai_thread_join(mgr: *mut c_void) {
         unsafe { original(mgr) };
     }
 
-    // AI threads are now idle. Run deferred cell unloading if requested.
+    // AI threads are now idle. This is the safe position for heavy cleanup.
     if let Some(pr) = super::gheap::pressure::PressureRelief::instance() {
+        // Run pressure relief with OOM stages (including Stage 5 cell unload).
+        // relieve() checks AI flag — at this point DAT_011dfa19 == 0 (idle).
+        unsafe { pr.relieve() };
         unsafe { pr.run_deferred_unload() };
     }
 }

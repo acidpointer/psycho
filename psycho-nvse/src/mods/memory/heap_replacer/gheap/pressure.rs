@@ -391,21 +391,40 @@ impl PressureRelief {
             return;
         }
 
-        if CELL_UNLOAD_ENABLED {
-            // Defer cell unloading to the AI join hook (Hook 2,
-            // FUN_008c7990 wrapper). This post-render, post-AI-join
-            // position is the only safe one:
-            // - SpeedTree: render consumed draw lists ✓
-            // - AI threads: idle (joined) ✓
-            // - BSTaskManagerThread: IO dequeue lock during PDD ✓
-            self.deferred_unload.store(true, Ordering::Release);
-            log::debug!("[PRESSURE] Cell unload deferred to AI join");
-        }
+        // Call the game's OOM stage executor (FUN_00866a90) with stages 0-6.
+        // Stage 5 = FindCellToUnload + full PDD.
+        //
+        // CRITICAL: Only run when AI threads are IDLE (DAT_011dfa19 == 0).
+        // Our hook (FUN_008705d0) runs BETWEEN RENDER and AI_JOIN —
+        // AI threads are still active. Stage 5 unloads cells that AI
+        // threads are pathfinding through → crash. Skip and retry next frame.
+        let ai_active = unsafe { *(0x011DFA19 as *const u8) != 0 };
+        if !ai_active {
+            const OOM_STAGE_EXEC: usize = 0x00866A90;
+            const PRIMARY_HEAP_OFFSET: usize = 0x110;
+            const HEAP_SINGLETON: usize = 0x011F6238;
 
-        // Trigger HeapCompact stages 0-2 for the NEXT frame.
-        unsafe {
-            let trigger = HEAP_COMPACT_TRIGGER_PTR as *mut u32;
-            trigger.write_volatile(2);
+            let heap = HEAP_SINGLETON as *mut c_void;
+            let primary = unsafe {
+                let p = (heap as *const u8).add(PRIMARY_HEAP_OFFSET) as *const *mut c_void;
+                *p
+            };
+            let mut done: u8 = 0;
+
+            for stage in 0..=6i32 {
+                done = 0;
+                unsafe {
+                    type OomStageExecFn =
+                        unsafe extern "thiscall" fn(*mut c_void, *mut c_void, i32, *mut u8) -> i32;
+                    let f: OomStageExecFn = std::mem::transmute(OOM_STAGE_EXEC);
+                    f(heap, primary, stage, &mut done);
+                }
+            }
+        } else {
+            // AI active — skip heavy cleanup, just do mi_collect.
+            // relieve() will be called again next frame after AI_JOIN.
+            self.active.store(false, Ordering::Release);
+            return;
         }
 
         unsafe { mi_collect(false) };
