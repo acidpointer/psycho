@@ -1,0 +1,339 @@
+======================================================================
+JIP CellChange STALE REF DEEP ANALYSIS
+======================================================================
+
+# SECTION 1: Game function containing 0x94CB35
+# This is where JIP hooks PCCellChangeHook
+  0x0094cb03: PUSH EAX
+  0x0094cb04: PUSH EBX
+  0x0094cb05: SUB ESP,0x25c
+  0x0094cb0b: MOV EAX,[0x011c16bc]
+  0x0094cb10: XOR EAX,EBP
+  0x0094cb12: MOV dword ptr [EBP + -0x14],EAX
+  0x0094cb15: PUSH ESI
+  0x0094cb16: PUSH EAX
+  0x0094cb17: LEA EAX,[EBP + -0xc]
+  0x0094cb1a: MOV FS:[0x0],EAX
+  0x0094cb20: MOV dword ptr [EBP + -0x18],ECX
+  0x0094cb23: MOV ECX,dword ptr [EBP + -0x18]
+  0x0094cb26: CALL 0x008d6f30
+  0x0094cb2b: CMP dword ptr [EBX + 0x8],EAX
+  0x0094cb2e: JNZ 0x0094cb35
+  0x0094cb30: JMP 0x0094db60
+  0x0094cb35: CALL 0x0094dba0
+  0x0094cb3a: MOVZX EAX,AL
+  0x0094cb3d: TEST EAX,EAX
+  0x0094cb3f: JNZ 0x0094cb7b
+  0x0094cb41: CMP dword ptr [EBX + 0x8],0x0
+  0x0094cb45: JZ 0x0094cb63
+  0x0094cb47: MOV ECX,dword ptr [EBX + 0x8]
+  0x0094cb4a: CALL 0x004518e0
+  0x0094cb4f: MOVZX ECX,AL
+
+# SECTION 2: FUN_0094dba0 - original target replaced by JIP
+
+======================================================================
+OrigPCCellCheck @ 0x0094dba0
+======================================================================
+  Function: FUN_0094dba0, Size: 10 bytes
+  Entry: 0x0094dba0
+
+undefined1 FUN_0094dba0(void)
+
+{
+  return DAT_011c7a5a;
+}
+
+
+
+# SECTION 3: FUN_008774a0 - CellTransitionHandler internals
+# Does it free old cells? When relative to returning?
+
+--- Calls FROM CellTransitionHandler (0x008774a0) ---
+  CALL 0x004f1540 -> FUN_004f1540 (from 0x008774ac)
+  CALL 0x004f15a0 -> FUN_004f15a0 (from 0x008774b9)
+  CALL 0x00877700 -> FUN_00877700 (from 0x008774c4)
+  CALL 0x007d6bd0 -> FUN_007d6bd0 (from 0x008774d1)
+  CALL 0x00453a70 -> FUN_00453a70 (from 0x008774db)
+  CALL 0x00ad8780 -> FUN_00ad8780 (from 0x008774e2)
+  CALL 0x008324e0 -> FUN_008324e0 (from 0x008774e9)
+  CALL 0x008d6f30 -> FUN_008d6f30 (from 0x008774f7)
+  CALL 0x008d6f30 -> FUN_008d6f30 (from 0x0087750c)
+  CALL 0x0054ca90 -> FUN_0054ca90 (from 0x00877513)
+  CALL 0x00950bb0 -> FUN_00950bb0 (from 0x00877520)
+  CALL 0x009611e0 -> FUN_009611e0 (from 0x00877556)
+  CALL 0x009611e0 -> FUN_009611e0 (from 0x00877562)
+  CALL 0x00950bb0 -> FUN_00950bb0 (from 0x00877586)
+  CALL 0x009611e0 -> FUN_009611e0 (from 0x008775bc)
+  CALL 0x009611e0 -> FUN_009611e0 (from 0x008775c8)
+  CALL 0x004539a0 -> FUN_004539a0 (from 0x008775ee)
+  CALL 0x007037c0 -> FUN_007037c0 (from 0x008775fe)
+  CALL 0x0061cc40 -> FUN_0061cc40 (from 0x0087760e)
+  CALL 0x006c0720 -> FUN_006c0720 (from 0x00877613)
+  CALL 0x006c09f0 -> FUN_006c09f0 (from 0x0087761a)
+  CALL 0x00868d70 -> FUN_00868d70 (from 0x00877621)
+  CALL 0x00c459d0 -> FUN_00c459d0 (from 0x0087762b)
+  CALL 0x0084a840 -> FUN_0084a840 (from 0x00877653)
+  CALL 0x00970d50 -> FUN_00970d50 (from 0x0087765d)
+  CALL 0x004614e0 -> FUN_004614e0 (from 0x00877668)
+  CALL 0x00b4f5c0 -> FUN_00b4f5c0 (from 0x0087766d)
+  CALL 0x00b631d0 -> FUN_00b631d0 (from 0x00877674)
+  CALL 0x0040fbe0 -> FUN_0040fbe0 (from 0x00877679)
+  CALL 0x00706320 -> FUN_00706320 (from 0x00877680)
+  CALL 0x0045ac80 -> FUN_0045ac80 (from 0x0087768e)
+  CALL 0x007053f0 -> FUN_007053f0 (from 0x0087769b)
+  CALL 0x007d6bd0 -> FUN_007d6bd0 (from 0x008776ab)
+  CALL 0x008776e0 -> FUN_008776e0 (from 0x008776b6)
+  CALL 0x004f15a0 -> FUN_004f15a0 (from 0x008776c6)
+  Total: 35 calls
+
+# SECTION 4: FUN_004539a0 - cell grid management
+
+======================================================================
+CellGridManage @ 0x004539a0
+======================================================================
+  Function: FUN_004539a0, Size: 196 bytes
+  Entry: 0x004539a0
+
+void __thiscall FUN_004539a0(void *this,char param_1,char param_2)
+
+{
+  undefined4 *puVar1;
+  int iVar2;
+  uint uVar3;
+  int *piVar4;
+  
+  puVar1 = (undefined4 *)FUN_0045bb80((int)this);
+  FUN_00470470(puVar1);
+  if (param_1 != '\0') {
+    iVar2 = FUN_005f36f0((int)this);
+    if (iVar2 == 0) goto LAB_004539d2;
+  }
+  FUN_00453940((int)this);
+LAB_004539d2:
+  FUN_00453a70();
+  FUN_00483710();
+  FUN_00455200(this,param_1,0);
+  iVar2 = FUN_005f36f0((int)this);
+  if ((iVar2 != 0) && (param_1 == '\0')) {
+    iVar2 = FUN_005f36f0((int)this);
+    uVar3 = FUN_00454bd0(this,iVar2);
+    if ((uVar3 & 0xff) == 0) {
+      piVar4 = (int *)FUN_005f36f0((int)this);
+      FUN_00462290(piVar4);
+    }
+  }
+  FUN_00454d50(this,param_1);
+  if ((param_1 == '\0') && (param_2 == '\0')) {
+    FUN_008d7dc0(this,0);
+  }
+  *(undefined1 *)((int)this + 0xb4) = 1;
+  return;
+}
+
+
+
+# SECTION 5: FUN_00868d70 - purge deferred delete queue
+
+======================================================================
+PurgeDeferredDelete @ 0x00868d70
+======================================================================
+  Function: FUN_00868d70, Size: 1037 bytes
+  Entry: 0x00868d70
+
+void __cdecl FUN_00868d70(char param_1)
+
+{
+  undefined1 uVar1;
+  char cVar2;
+  undefined2 uVar3;
+  uint uVar4;
+  undefined2 extraout_var;
+  undefined4 *puVar5;
+  undefined2 extraout_var_00;
+  undefined2 extraout_var_01;
+  int iVar6;
+  int *piVar7;
+  undefined2 extraout_var_02;
+  int unaff_FS_OFFSET;
+  uint local_2c;
+  uint local_24;
+  uint local_1c;
+  uint local_10;
+  char local_5;
+  
+  if (DAT_011de958 == '\0') {
+    local_5 = '\x01';
+    if (param_1 == '\0') {
+      FUN_00867f50();
+    }
+    else {
+      local_5 = FUN_00867f70();
+    }
+    if (local_5 != '\0') {
+      DAT_011de958 = 1;
+      uVar1 = *(undefined1 *)(*(int *)(*(int *)(unaff_FS_OFFSET + 0x2c) + _tls_index * 4) + 0x298);
+      *(undefined1 *)(*(int *)(*(int *)(unaff_FS_OFFSET + 0x2c) + _tls_index * 4) + 0x298) = 0;
+      uVar4 = FUN_00869180(0x10);
+      if (((uVar4 & 0xff) == 0) && (cVar2 = FUN_0078d1f0(), cVar2 != '\0')) {
+        FUN_004dffa0(0x11de828);
+        FUN_00452530();
+      }
+      uVar4 = FUN_00869180(8);
+      if (((uVar4 & 0xff) == 0) && (cVar2 = FUN_00868250(DAT_011c3b3c), cVar2 != '\0')) {
+        uVar3 = FUN_00658930(0x11de808);
+        for (local_10 = 0; local_10 < CONCAT22(extraout_var,uVar3); local_10 = local_10 + 1) {
+          puVar5 = (undefined4 *)FUN_00877a30(&DAT_011de808,local_10);
+          if ((void *)*puVar5 != (void *)0x0) {
+            FUN_00418d20((void *)*puVar5,1);
+          }
+        }
+        FUN_005e03d0(0x11de808);
+        FUN_004aaf10(DAT_011c3b3c);
+      }
+      uVar4 = FUN_00869180(4);
+      if (((uVar4 & 0xff) == 0) && (cVar2 = FUN_00868250(DAT_011c3b3c), cVar2 != '\0')) {
+        uVar3 = FUN_00658930(0x11de910);
+        for (local_1c = 0; local_1c < CONCAT22(extraout_var_00,uVar3); local_1c = local_1c + 1) {
+          puVar5 = (undefined4 *)FUN_00877a30(&DAT_011de910,local_1c);
+          if ((void *)*puVar5 != (void *)0x0) {
+            FUN_00418e00((void *)*puVar5,1);
+          }
+        }
+        FUN_005e03d0(0x11de910);
+        FUN_004aaf10(DAT_011c3b3c);
+      }
+      uVar4 = FUN_00869180(2);
+      if ((uVar4 & 0xff) == 0) {
+        for (local_24 = 0; uVar3 = FUN_00658930(0x11de888),
+            local_24 < CONCAT22(extraout_var_01,uVar3); local_24 = local_24 + 1) {
+          puVar5 = (undefined4 *)FUN_00877a30(&DAT_011de888,local_24);
+          iVar6 = FUN_00559450(puVar5);
+          if (iVar6 != 0) {
+            piVar7 = (int *)FUN_00877a30(&DAT_011de888,local_24);
+            FUN_00868ce0(*piVar7);
+          }
+        }
+        FUN_004dffa0(0x11de888);
+      }
+      uVar4 = FUN_00869180(1);
+      if (((uVar4 & 0xff) == 0) && (cVar2 = FUN_00868250(DAT_011c3b3c), cVar2 != '\0')) {
+        while (uVar3 = FUN_00658930(0x11de874), CONCAT22(extraout_var_02,uVar3) != 0) {
+          piVar7 = (int *)FUN_00877a30(&DAT_011de874,0);
+          if ((int *)*piVar7 != (int *)0x0) {
+            (**(code **)(*(int *)*piVar7 + 0x10))(1);
+          }
+        }
+        FUN_005e03d0(0x11de874);
+        FUN_004aaf10(DAT_011c3b3c);
+      }
+      uVar4 = FUN_00869180(0x20);
+      if ((uVar4 & 0xff) == 0) {
+        for (local_2c = 0; uVar4 = FUN_0044ddc0(0x11de924), local_2c < uVar4;
+            local_2c = local_2c + 1) {
+          piVar7 = (int *)FUN_00877a30(&DAT_011de924,local_2c);
+          FUN_00401970((int *)(*piVar7 + 0x1c));
+        }
+        FUN_008454f0(&DAT_011de924,'\x01');
+      }
+      *(undefined1 *)(*(int *)(*(int *)(unaff_FS_OFFSET + 0x2c) + _tls_index * 4) + 0x298) = uVar1;
+      if (*(char *)(*(int *)(*(int *)(unaff_FS_OFFSET + 0x2c) + _tls_index * 4) + 0x298) != '\0') {
+        FUN_008694c0(&DAT_011de8bc,&DAT_011de874);
+        FUN_005e03d0(0x11de8bc);
+        FUN_00869420(&DAT_011de848,&DAT_011de888);
+        FUN_004dffa0(0x11de848);
+        FUN_008694c0(&DAT_011de838,&DAT_011de910);
+        FUN_005e03d0(0x11de838);
+        FUN_00869560(&DAT_011de858,&DAT_011de828);
+        FUN_004dffa0(0x11de858);
+        FUN_00869510(&DAT_011de898,&DAT_011de924);
+        FUN_008454f0(&DAT_011de898,'\x01');
+      }
+      DAT_011de958 = '\0';
+      FUN_00867f80();
+    }
+  }
+  return;
+}
+
+
+
+--- Calls FROM PurgeDeferredDelete (0x00868d70) ---
+  CALL 0x00867f70 -> FUN_00867f70 (from 0x00868d92)
+  CALL 0x00867f50 -> FUN_00867f50 (from 0x00868da3)
+  CALL 0x00869180 -> FUN_00869180 (from 0x00868def)
+  CALL 0x0078d1f0 -> FUN_0078d1f0 (from 0x00868dfe)
+  CALL 0x004dffa0 -> FUN_004dffa0 (from 0x00868e0f)
+  CALL 0x00452530 -> FUN_00452530 (from 0x00868e14)
+  CALL 0x00869180 -> FUN_00869180 (from 0x00868e1b)
+  CALL 0x00868250 -> FUN_00868250 (from 0x00868e34)
+  CALL 0x00658930 -> FUN_00658930 (from 0x00868e45)
+  CALL 0x00877a30 -> FUN_00877a30 (from 0x00868e70)
+  CALL 0x00418d20 -> FUN_00418d20 (from 0x00868e91)
+  CALL 0x005e03d0 -> FUN_005e03d0 (from 0x00868ea9)
+  CALL 0x004aaf10 -> FUN_004aaf10 (from 0x00868eb4)
+  CALL 0x00869180 -> FUN_00869180 (from 0x00868ebb)
+  CALL 0x00868250 -> FUN_00868250 (from 0x00868ed4)
+  CALL 0x00658930 -> FUN_00658930 (from 0x00868ee5)
+  CALL 0x00877a30 -> FUN_00877a30 (from 0x00868f10)
+  CALL 0x00418e00 -> FUN_00418e00 (from 0x00868f31)
+  CALL 0x005e03d0 -> FUN_005e03d0 (from 0x00868f49)
+  CALL 0x004aaf10 -> FUN_004aaf10 (from 0x00868f54)
+  CALL 0x00869180 -> FUN_00869180 (from 0x00868f5b)
+  CALL 0x00658930 -> FUN_00658930 (from 0x00868f81)
+  CALL 0x00877a30 -> FUN_00877a30 (from 0x00868f94)
+  CALL 0x00559450 -> FUN_00559450 (from 0x00868f9b)
+  CALL 0x00877a30 -> FUN_00877a30 (from 0x00868fad)
+  CALL 0x00868ce0 -> FUN_00868ce0 (from 0x00868fb4)
+  CALL 0x004dffa0 -> FUN_004dffa0 (from 0x00868fc0)
+  CALL 0x00869180 -> FUN_00869180 (from 0x00868fc7)
+  CALL 0x00868250 -> FUN_00868250 (from 0x00868fdc)
+  CALL 0x00658930 -> FUN_00658930 (from 0x00868fed)
+  CALL 0x00877a30 -> FUN_00877a30 (from 0x00868ffd)
+  CALL 0x005e03d0 -> FUN_005e03d0 (from 0x0086903b)
+  CALL 0x004aaf10 -> FUN_004aaf10 (from 0x00869046)
+  CALL 0x00869180 -> FUN_00869180 (from 0x0086904d)
+  CALL 0x0044ddc0 -> FUN_0044ddc0 (from 0x00869073)
+  CALL 0x00877a30 -> FUN_00877a30 (from 0x00869086)
+  CALL 0x00401970 -> FUN_00401970 (from 0x00869090)
+  CALL 0x008454f0 -> FUN_008454f0 (from 0x0086909e)
+  CALL 0x008694c0 -> FUN_008694c0 (from 0x008690e4)
+  CALL 0x005e03d0 -> FUN_005e03d0 (from 0x008690f1)
+  CALL 0x00869420 -> FUN_00869420 (from 0x00869100)
+  CALL 0x004dffa0 -> FUN_004dffa0 (from 0x0086910d)
+  CALL 0x008694c0 -> FUN_008694c0 (from 0x0086911c)
+  CALL 0x005e03d0 -> FUN_005e03d0 (from 0x00869129)
+  CALL 0x00869560 -> FUN_00869560 (from 0x00869138)
+  CALL 0x004dffa0 -> FUN_004dffa0 (from 0x00869145)
+  CALL 0x00869510 -> FUN_00869510 (from 0x00869154)
+  CALL 0x008454f0 -> FUN_008454f0 (from 0x00869163)
+  CALL 0x00867f80 -> FUN_00867f80 (from 0x00869171)
+  Total: 49 calls
+
+# SECTION 6: Main loop around 0x00ECC470 (NVSE hook)
+  0x00ecc450: CALL 0x00edd655
+  0x00ecc455: TEST byte ptr [EBP + -0x3c],BL
+  0x00ecc458: JZ 0x00ecc460
+  0x00ecc45a: MOVZX ECX,word ptr [EBP + -0x38]
+  0x00ecc45e: JMP 0x00ecc463
+  0x00ecc460: PUSH 0xa
+  0x00ecc462: POP ECX
+  0x00ecc463: PUSH ECX
+  0x00ecc464: PUSH EAX
+  0x00ecc465: PUSH ESI
+  0x00ecc466: PUSH 0x400000
+  0x00ecc46b: CALL 0x0086a850
+  0x00ecc470: MOV dword ptr [EBP + -0x20],EAX
+  0x00ecc473: CMP dword ptr [EBP + -0x1c],ESI
+  0x00ecc476: JNZ 0x00ecc47e
+  0x00ecc478: PUSH EAX
+  0x00ecc479: CALL 0x00eccec5
+  0x00ecc47e: CALL 0x00eccef1
+  0x00ecc483: MOV dword ptr [EBP + -0x4],EDI
+  0x00ecc486: JMP 0x00ecc4bd
+
+# SECTION 7: What calls CellTransitionHandler?
+
+--- XRefs to CellTransitionHandler_callers (0x008774a0) ---
+  UNCONDITIONAL_CALL @ 0x0086b664 (in FUN_0086a850)
+  Total: 1 refs

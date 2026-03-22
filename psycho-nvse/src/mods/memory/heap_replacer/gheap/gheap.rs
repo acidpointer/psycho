@@ -37,7 +37,7 @@ const PRESSURE_CHECK_INTERVAL: u32 = 50_000;
 
 /// Hard commit ceiling. When mimalloc commit exceeds this, Gheap::alloc
 /// triggers the game's OOM handler (Stage 5 = cell unloading) instead of
-/// allocating more. This mimics SBM's arena limit — the vanilla game's
+/// allocating more. This mimics SBM's arena limit -- the vanilla game's
 /// allocator NEVER grows past its arena, forcing OOM recovery to free
 /// cells/textures. Without this ceiling, mimalloc consumes all VA during
 /// loading, starving D3D9 (which uses VirtualAlloc for GPU resources).
@@ -196,7 +196,10 @@ impl Gheap {
                 let trigger = (heap_singleton as *mut u8).add(0x134) as *mut u32;
                 std::ptr::write_volatile(trigger, 6); // HeapCompact stages 0-6
             }
-            for _ in 0..50 {
+            // Retry up to 15000 times (matching vanilla Stage 8's limit).
+            // During loading, the main thread may not run HeapCompact for
+            // seconds. We must wait for it. 15000 × 1ms = 15 seconds max.
+            for retry in 0..15000u32 {
                 unsafe { libpsycho::os::windows::winapi::sleep(1) };
                 if DELAYED_FREE {
                     unsafe { delayed_free::flush_current_thread() };
@@ -204,12 +207,32 @@ impl Gheap {
                 unsafe { mi_collect(true) };
                 let ptr = unsafe { mi_malloc_aligned(size, ALIGN) };
                 if !ptr.is_null() {
+                    if retry > 100 {
+                        log::info!("[GHEAP] OOM (worker): recovered after {} retries", retry);
+                    }
                     return ptr;
                 }
+                // Re-signal HeapCompact periodically
+                if retry % 1000 == 0 {
+                    unsafe {
+                        let trigger = (heap_singleton as *mut u8).add(0x134) as *mut u32;
+                        std::ptr::write_volatile(trigger, 6);
+                    }
+                }
             }
+            // 15 seconds exhausted — true VA exhaustion
+            let info = libmimalloc::process_info::MiMallocProcessInfo::get();
+            log::error!(
+                "[GHEAP] OOM (worker): mi_malloc_aligned({}, {}) failed after 15s. \
+                 RSS={}MB, Commit={}MB",
+                size, ALIGN,
+                info.get_current_rss() / 1024 / 1024,
+                info.get_current_commit() / 1024 / 1024,
+            );
+            return std::ptr::null_mut();
         }
 
-        // Main thread: call game's OOM stages 0-8.
+        // Main thread ONLY: call game's OOM stages 0-8.
         while stage <= 8 {
             done = 0;
             stage = unsafe {

@@ -1,0 +1,161 @@
+======================================================================
+FAST TRAVEL CELL FREE TIMELINE
+======================================================================
+
+# SECTION 1: Where does FUN_0086a850 call CellTransitionHandler?
+# And where does NVSE MainLoopHook fire relative to it?
+# Disasm around the CellTransition call
+  0x0086e881: MOV ECX,dword ptr [EBP + -0x18]
+  0x0086e884: CALL 0x0086f260
+  0x0086e889: MOV ECX,dword ptr [EBP + -0x18]
+  0x0086e88c: CALL 0x0086f390
+  0x0086e891: MOV ECX,dword ptr [0x01202d98]
+  0x0086e897: CALL 0x00c3dbf0
+  0x0086e89c: CALL 0x0086efa0
+  0x0086e8a1: MOVZX EDX,AL
+  0x0086e8a4: TEST EDX,EDX
+  0x0086e8a6: JNZ 0x0086e8d8
+  0x0086e8a8: CALL 0x0070edf0
+  0x0086e8ad: MOVZX EAX,AL
+  0x0086e8b0: TEST EAX,EAX
+  0x0086e8b2: JZ 0x0086e8bb
+  0x0086e8b4: CALL 0x0078cfc0
+  0x0086e8b9: JMP 0x0086e8d8
+  0x0086e8bb: CALL 0x00705ea0
+  0x0086e8c0: MOVZX ECX,AL
+  0x0086e8c3: TEST ECX,ECX
+  0x0086e8c5: JZ 0x0086e8d8
+
+# SECTION 2: Loading flag (DAT_011dea2b) set/clear during fast travel
+# Where in the main loop iteration is it set? Before or after CellTransition?
+  0x0086e6d5: JMP 0x0086e6de
+  0x0086e6d7: MOV dword ptr [EBP + -0x20],0x1
+  0x0086e6de: MOV DL,byte ptr [EBP + -0x20]
+  0x0086e6e1: MOV byte ptr [0x011dea2b],DL
+  0x0086e6e7: CALL 0x007050d0
+  0x0086e6ec: MOV [0x011dea2c],AL
+  0x0086e6f1: PUSH 0x1
+  0x0086e6f3: MOV ECX,dword ptr [0x011d8804]
+  0x0086e6f9: CALL 0x00701450
+  0x0086e6fe: MOV [0x011dea2d],AL
+  0x0086e703: CALL 0x00703d50
+  0x0086e708: MOV [0x011dea2e],AL
+  0x0086e70d: CALL 0x00707ad0
+  0x0086e712: TEST EAX,EAX
+  0x0086e714: JZ 0x0086e72f
+
+# SECTION 3: FUN_00453a70 - called at start of CellTransition
+
+======================================================================
+CellGridReset @ 0x00453a70
+======================================================================
+  Function: FUN_00453a70, Size: 10 bytes
+  Entry: 0x00453a70
+
+undefined4 FUN_00453a70(void)
+
+{
+  return DAT_011f6d98;
+}
+
+
+
+# SECTION 4: Is there a loading screen loop?
+# FUN_0086a850 is the outer loop. Does it have an inner loop for loading?
+# Disasm near cell loading area
+  0x0086b301: MOV EDX,0x1
+  0x0086b306: TEST EDX,EDX
+  0x0086b308: JZ 0x0086b66e
+  0x0086b30e: PUSH 0x1
+  0x0086b310: PUSH 0x0
+  0x0086b312: PUSH 0x0
+  0x0086b314: PUSH 0x0
+  0x0086b316: LEA EAX,[EBP + 0xfffffe94]
+  0x0086b31c: PUSH EAX
+  0x0086b31d: CALL dword ptr [0x00fdf29c]
+  0x0086b323: TEST EAX,EAX
+  0x0086b325: JZ 0x0086b343
+  0x0086b327: LEA ECX,[EBP + 0xfffffe94]
+  0x0086b32d: PUSH ECX
+  0x0086b32e: CALL dword ptr [0x00fdf298]
+  0x0086b334: LEA EDX,[EBP + 0xfffffe94]
+  0x0086b33a: PUSH EDX
+  0x0086b33b: CALL dword ptr [0x00fdf294]
+  0x0086b341: JMP 0x0086b30e
+  0x0086b343: CALL dword ptr [0x00fdf2fc]
+
+# SECTION 5: FUN_00c459d0 - Havok GC
+
+======================================================================
+HavokGC @ 0x00c459d0
+======================================================================
+  Function: FUN_00c459d0, Size: 172 bytes
+  Entry: 0x00c459d0
+
+/* WARNING: Globals starting with '_' overlap smaller symbols at the same address */
+
+void __cdecl FUN_00c459d0(char param_1)
+
+{
+  BOOL BVar1;
+  bool local_5;
+  
+  local_5 = true;
+  if (param_1 == '\0') {
+    FUN_0040fbf0((LONG *)&DAT_01202e40);
+  }
+  else {
+    local_5 = FUN_0078d200((LONG *)&DAT_01202e40);
+  }
+  if ((local_5 == false) ||
+     (BVar1 = TryEnterCriticalSection((LPCRITICAL_SECTION)&lpCriticalSection_011f4380), BVar1 != 0))
+  {
+    if (local_5 != false) {
+      FUN_00c46080(0x1202e20);
+      FUN_00c45a80();
+      LeaveCriticalSection((LPCRITICAL_SECTION)&lpCriticalSection_011f4380);
+      DAT_01202e44 = DAT_01202e44 + -1;
+      if (DAT_01202e44 == 0) {
+        _DAT_01202e40 = 0;
+      }
+    }
+  }
+  else {
+    DAT_01202e44 = DAT_01202e44 + -1;
+    if (DAT_01202e44 == 0) {
+      _DAT_01202e40 = 0;
+    }
+  }
+  return;
+}
+
+
+
+--- Calls FROM HavokGC (0x00c459d0) ---
+  CALL 0x0078d200 -> FUN_0078d200 (from 0x00c459e7)
+  CALL 0x0040fbf0 -> FUN_0040fbf0 (from 0x00c459f8)
+  CALL 0x00fdf1b0 -> unknown_0x00fdf1b0 (from 0x00c45a0a)
+  CALL 0x00000062 -> unknown_0x00000062 (from 0x00c45a0a)
+  CALL 0x00c46080 -> FUN_00c46080 (from 0x00c45a4a)
+  CALL 0x00c45a80 -> FUN_00c45a80 (from 0x00c45a4f)
+  CALL 0x00fdf100 -> unknown_0x00fdf100 (from 0x00c45a59)
+  CALL 0x00000036 -> unknown_0x00000036 (from 0x00c45a59)
+  Total: 8 calls
+
+# SECTION 6: When is loading flag cleared?
+# Search for writes to DAT_011dea2b that clear it
+  0x0086e7c6: MOV AL,byte ptr [EBP + -0x2c]
+  0x0086e7c9: MOV [0x011dea2b],AL
+  0x0086e7ce: CALL 0x007050d0
+  0x0086e7d3: MOV [0x011dea2c],AL
+  0x0086e7d8: PUSH 0x1
+  0x0086e7da: MOV ECX,dword ptr [0x011d8804]
+  0x0086e7e0: CALL 0x00701450
+  0x0086e7e5: MOV [0x011dea2d],AL
+  0x0086e7ea: CALL 0x00703d50
+  0x0086e7ef: MOV [0x011dea2e],AL
+  0x0086e7f4: MOVZX ECX,byte ptr [0x011deefc]
+  0x0086e7fb: TEST ECX,ECX
+  0x0086e7fd: JZ 0x0086e830
+  0x0086e7ff: PUSH 0x64
+  0x0086e801: PUSH 0x2
