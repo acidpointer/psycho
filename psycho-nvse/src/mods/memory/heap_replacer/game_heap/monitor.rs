@@ -1,7 +1,6 @@
 //! Game heap monitor thread.
 //!
-//! Periodically logs mimalloc process stats and pressure relief stats.
-//! Runs on its own thread, separate from sbm2 GC.
+//! Periodically logs mimalloc process stats and pressure relief counters.
 
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;

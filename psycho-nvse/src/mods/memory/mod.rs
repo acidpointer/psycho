@@ -66,15 +66,34 @@ pub fn configure_mimalloc() {
         // PURGE DELAY = 0 (immediate decommit)
         //
         // Within the pre-reserved 512MB arena, decommit is just a page table
-        // flip — very cheap. Immediate decommit prevents commit from growing
+        // flip -- very cheap. Immediate decommit prevents commit from growing
         // during rapid cell transitions (old + new pages both committed).
         //
         // Previously 500ms to protect stale page reads. No longer needed:
         // the quarantine keeps zombie BLOCK data intact, hkWorld_Lock prevents
         // AI raycasting, SceneGraphInvalidate prevents SpeedTree crashes,
         // and DeferredCleanupSmall's blocking async flush drains IO tasks.
-        mi_option_set(mi_option_purge_delay, 0);
-        log::info!("[MIMALLOC] purge_delay = 0 (immediate, cheap within pre-reserved arena)");
+        // PURGE DELAY = 500ms
+        //
+        // Freed pages stay committed (readable) for 500ms before mimalloc
+        // decommits them. This provides system-level zombie data protection
+        // for ALL stale pointer paths:
+        // - NVSE plugin event dispatch (JIP CellChange with stale form refs)
+        // - Ragdoll bone data (freed via Havok allocator)
+        // - BSA file handles (freed during DeferredCleanupSmall)
+        // - QueuedCharacter/QueuedTexture IO task references
+        //
+        // Within the pre-reserved 512MB arena, decommit is just a page table
+        // flip -- cheap. The 500ms window covers the gap between object
+        // destruction (PDD/cell transition) and stale access (NVSE dispatch,
+        // IO task processing, async flush). Physical RAM is freed after 500ms;
+        // only VA reservation persists.
+        //
+        // This replaces our removed quarantine system. Instead of per-pointer
+        // deferral with timing bugs, mimalloc handles it at the page level
+        // with battle-tested code.
+        mi_option_set(mi_option_purge_delay, 500);
+        log::info!("[MIMALLOC] purge_delay = 500ms (zombie window for stale pointer protection)");
 
         // Decommit on purge (not full release) -- keeps VA reservation.
         mi_option_set(mi_option_purge_decommits, 1);

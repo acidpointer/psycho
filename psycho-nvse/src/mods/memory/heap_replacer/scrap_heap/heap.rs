@@ -12,19 +12,10 @@ use std::sync::Arc;
 
 /// Default region size in bytes.
 /// 128KB fits easily into fragmented 32-bit address space.
-/// Oversized allocations get dedicated regions via REGION_SIZE.max(size + align + 4).
 const REGION_SIZE: usize = 128 * 1024;
 
 /// Region alignment.
 const REGION_ALIGN: usize = 16;
-
-// ---------------------------------------------------------------------------
-// Cache line layout
-// ---------------------------------------------------------------------------
-//
-//   Line 1 (offset 0):   hot_region, generation    - READ-heavy on fast path
-//   Line 2 (offset 64):  alloc_count               - RMW on every alloc/free
-//   Line 3+ (offset 128): pool, stats, gc_*        - cold (slow path / purge)
 
 const CACHE_LINE: usize = 64;
 
@@ -77,23 +68,8 @@ impl Heap {
 
     /// Lock-free fast-path allocation from a TLC-cached region pointer.
     ///
-    /// # Dekker protocol (GC safety)
-    ///
-    /// ```text
-    /// Allocator (this fn)           GC (checked_purge)
-    /// ---------------------         ----------------------
-    /// alloc_count += 1 (AcqRel)     hot_region = null (Release)
-    ///                               SeqCst fence
-    /// read hot_region (Acquire)     read alloc_count (Acquire)
-    /// ```
-    ///
-    /// AcqRel on fetch_add ensures the increment is visible to GC before
-    /// we read hot_region, satisfying the Dekker mutual exclusion.
-    ///
-    /// # Safety
-    ///
-    /// `region` must point to a `Region` in this Heap's pool, obtained while
-    /// the current generation was valid.
+    /// Uses a Dekker protocol with checked_purge to ensure the region
+    /// pointer is still valid before dereferencing.
     #[inline]
     pub unsafe fn try_alloc_fast(
         &self,
@@ -101,16 +77,13 @@ impl Heap {
         size: usize,
         align: usize,
     ) -> Option<*mut c_void> {
-        // Step 1: pre-increment with AcqRel barrier (Dekker write)
         self.alloc_count.fetch_add(1, Ordering::AcqRel);
 
-        // Step 2: Dekker check - if GC nulled hot_region, purge may be active
         if self.hot_region.load(Ordering::Acquire).is_null() {
             self.dec_alloc_count();
             return None;
         }
 
-        // Step 3: safe to dereference - Dekker guarantees region is alive
         if let Some(ptr) = unsafe { (*region).allocate(size, align) } {
             return Some(ptr.as_ptr());
         }
@@ -119,20 +92,19 @@ impl Heap {
         None
     }
 
-    /// Slow path - takes Mutex, creates new region if needed.
+    /// Slow path: takes Mutex, creates new region if needed.
     #[cold]
     pub fn try_alloc_slow(&self, size: usize, align: usize) -> Option<*mut c_void> {
         let mut pool = self.pool.lock();
 
-        // Re-check: another thread may have pushed a new region while we waited
         if let Some(last) = pool.last()
-            && let Some(ptr) = last.allocate(size, align) {
-                self.publish_region(last);
-                self.alloc_count.fetch_add(1, Ordering::Relaxed);
-                return Some(ptr.as_ptr());
-            }
+            && let Some(ptr) = last.allocate(size, align)
+        {
+            self.publish_region(last);
+            self.alloc_count.fetch_add(1, Ordering::Relaxed);
+            return Some(ptr.as_ptr());
+        }
 
-        // Create new region. Checked arithmetic prevents overflow on 32-bit.
         let min_capacity = size.checked_add(align)?.checked_add(4)?;
         let region_capacity = REGION_SIZE.max(min_capacity);
         let region = Region::new(region_capacity, REGION_ALIGN)?;
@@ -146,7 +118,6 @@ impl Heap {
         Some(ptr.as_ptr())
     }
 
-    /// Publish a region pointer to hot_region for TLC caching.
     #[inline]
     fn publish_region(&self, region: &Region) {
         self.hot_region
@@ -154,8 +125,6 @@ impl Heap {
     }
 
     /// Decrement alloc_count and trigger GC if count reaches zero.
-    /// Handles underflow defensively (game bugs: double-free, free-after-purge).
-    /// Uses compare_exchange loop to prevent the non-atomic fetch_sub+fetch_add race.
     #[inline]
     fn dec_alloc_count(&self) {
         loop {
@@ -180,32 +149,28 @@ impl Heap {
                     }
                     return;
                 }
-                Err(_) => continue, // retry — another thread modified count
+                Err(_) => continue,
             }
         }
     }
 
-    /// Decrements allocation count. Called by Runtime::free().
     #[inline]
     pub fn free(&self, _ptr: *mut c_void) {
         self.dec_alloc_count();
     }
 
-    /// Enqueue this heap for GC if not already queued.
     #[inline]
     fn try_enqueue_gc(&self) {
         if self.gc_queued.swap(true, Ordering::AcqRel) {
-            return; // already queued
+            return;
         }
 
         if let Err(failed_id) = self.gc_queue.push(self.sheap_id) {
             log::error!("[SBM] GC queue push failed for sheap_id={:#x}", failed_id);
-            // Reset so future frees can retry
             self.gc_queued.store(false, Ordering::Release);
         }
     }
 
-    /// Purge all regions. Called by game-initiated sheap resets.
     #[inline]
     pub fn purge(&self) -> usize {
         let mut pool = self.pool.lock();
@@ -213,39 +178,26 @@ impl Heap {
     }
 
     /// GC-initiated purge. Only purges if no threads are actively using this heap.
-    ///
-    /// Dekker protocol: null hot_region UNDER MUTEX, then check alloc_count.
-    /// This prevents the TOCTOU race where an allocation sneaks in between
-    /// the lockless check and the purge.
     #[inline]
     pub fn checked_purge(&self) -> usize {
         self.gc_queued.store(false, Ordering::Release);
 
-        // Take Mutex FIRST to prevent new slow-path allocations
         let mut pool = self.pool.lock();
 
-        // Null hot_region: fast-path allocations will abort after seeing null
         self.hot_region
             .store(ptr::null_mut(), Ordering::Release);
-
-        // SeqCst fence: ensures the null store above is visible before
-        // we read alloc_count below (prevents x86 store-load reorder)
         fence(Ordering::SeqCst);
 
-        // Check if any allocations are in flight
         if self.alloc_count.load(Ordering::Acquire) != 0 {
-            // Restore hot_region - allocations are still active
             if let Some(last) = pool.last() {
                 self.publish_region(last);
             }
             return 0;
         }
 
-        // alloc_count == 0 AND hot_region is null -> safe to purge
         self.purge_inner(&mut pool)
     }
 
-    /// Actual purge logic. Caller must hold the Mutex.
     fn purge_inner(&self, pool: &mut Vec<Box<Region>>) -> usize {
         self.hot_region
             .store(ptr::null_mut(), Ordering::Release);

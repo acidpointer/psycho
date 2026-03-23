@@ -3,7 +3,7 @@
 ####################
 ## EDIT THIS VAR  ##
 
-TARGET_DIR="/data/storage0/Games/FalloutNV_TTW/FalloutNV"
+TARGET_DIR="/data/storage0/Games/FalloutNV_TTW"
 
 
 
@@ -16,7 +16,9 @@ TARGET="i686-pc-windows-gnu"
 DLLNAME="psycho_nvse.dll"
 BUILD_TYPE="release"
 BIN="$DIR/../target/$TARGET/$BUILD_TYPE/$DLLNAME"
-PLUGIN_DIR="$TARGET_DIR/Data/NVSE/plugins"
+
+PLUGIN_DIR="$TARGET_DIR/mods/psycho_nvse/nvse/plugins"
+
 TARGET_PATH="$PLUGIN_DIR/$DLLNAME"
 
 function build_rust () {

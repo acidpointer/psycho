@@ -15,32 +15,11 @@ use crate::mods::memory::heap_replacer::mem_stats;
 
 pub type SeqQueue<T> = crossfire::flavor::List<T>;
 
-/// Duration between GC cycles
 const GC_DURATION: Duration = Duration::from_millis(1000 * 5);
 
-/// ClashMap with FxHasher
 type HeapMap<K, V> = clashmap::ClashMap<K, V, rustc_hash::FxBuildHasher>;
 
-// ---------------------------------------------------------------------------
-// Thread-Local Cache (TLC)
-// ---------------------------------------------------------------------------
-//
-// Each thread caches a pointer to the last-used Heap and Region, avoiding
-// the ClashMap lookup and reducing contention on the Region's atomic offset.
-//
-// # Safety invariants
-//
-// The raw pointers stored here are safe to dereference as long as
-// `Heap::get_generation() == generation`:
-//
-// - `heap: *const Heap` -- points into an `Arc<Heap>` inside the ClashMap.
-//   The ClashMap never removes entries, so the Arc (and thus the Heap)
-//   is never dropped during normal operation.
-//
-// - `region: *const Region` -- points into a `Box<Region>` inside the Heap's
-//   pool Vec. Box provides pointer stability across Vec growth. The pool is
-//   only cleared during purge, which bumps `generation`, invalidating this
-//   cache entry before the pointer can be used.
+// ---- Thread-Local Cache ----
 
 #[derive(Clone, Copy)]
 struct TlcEntry {
@@ -66,16 +45,9 @@ thread_local! {
 }
 
 pub struct Runtime {
-    /// HeapMap: sheap_ptr (as usize) -> Arc<Heap>
     pool: Arc<HeapMap<usize, Arc<Heap>>>,
-
-    /// GC queue: sheap IDs ready for checked_purge
     gc_queue: Arc<SeqQueue<usize>>,
-
-    /// Control flag for GC thread
     gc_run: Arc<AtomicBool>,
-
-    /// GC thread handle
     gc_handle: Option<JoinHandle<()>>,
 }
 
@@ -137,11 +109,6 @@ impl Runtime {
         self.gc_handle = Some(gc_handle);
     }
 
-    /// Looks up or creates a Heap for the given sheap_id.
-    ///
-    /// Returns an `Arc<Heap>` clone. The ClashMap shard lock is released
-    /// before returning, so the caller can do slow work (Mutex, mi_malloc)
-    /// without blocking other threads in the same shard.
     #[cold]
     fn get_or_create_heap(&self, sheap_id: usize) -> Arc<Heap> {
         let gc_queue = &self.gc_queue;
@@ -151,17 +118,13 @@ impl Runtime {
         Arc::clone(&guard)
     }
 
-    /// Resolves sheap_ptr to a Heap via TLC (fast) or ClashMap (slow).
-    /// Used by `free()` and `purge()` which don't need region caching.
     #[inline]
     fn with_heap<R>(&self, sheap_ptr: *mut c_void, f: impl FnOnce(&Heap) -> R) -> R {
         let sheap_id = sheap_ptr as usize;
         let tlc = TLC.with(|c| c.get());
 
         if tlc.sheap_id == sheap_id && !tlc.heap.is_null() {
-            // SAFETY: see TLC safety invariants at the top of this file.
             let heap = unsafe { &*tlc.heap };
-
             if heap.get_generation() == tlc.generation {
                 return f(heap);
             }
@@ -170,7 +133,6 @@ impl Runtime {
         self.with_heap_slow(sheap_id, f)
     }
 
-    /// Slow path for `with_heap`: ClashMap lookup, TLC refresh.
     #[cold]
     fn with_heap_slow<R>(&self, sheap_id: usize, f: impl FnOnce(&Heap) -> R) -> R {
         let heap = self.get_or_create_heap(sheap_id);
@@ -188,52 +150,30 @@ impl Runtime {
         f(&heap)
     }
 
-    /// Allocates memory from the scrap heap.
-    ///
-    /// Three-tier fast path:
-    /// 1. **Ultra-fast** -- TLC hit + cached region bump (per-thread, no offset contention)
-    /// 2. **Slow** -- TLC hit but region full -> Mutex + new region
-    /// 3. **Cold** -- TLC miss -> ClashMap lookup + slow alloc
     #[inline]
     pub fn alloc(&self, sheap_ptr: *mut c_void, size: usize, align: usize) -> *mut c_void {
         let sheap_id = sheap_ptr as usize;
         let tlc = TLC.with(|c| c.get());
 
         if tlc.sheap_id == sheap_id && !tlc.heap.is_null() {
-            // SAFETY: see TLC safety invariants at the top of this file.
             let heap = unsafe { &*tlc.heap };
 
             if heap.get_generation() == tlc.generation {
-                // Ultra-fast: lock-free bump from per-thread cached region.
-                // Each thread typically has its own region, so offset.fetch_add
-                // doesn't contend with other threads.
-                if !tlc.region.is_null() {
-                    // SAFETY: The raw pointer is NOT dereferenced here -- it is
-                    // passed to try_alloc_fast which only dereferences it AFTER
-                    // the Dekker protocol confirms no GC purge is in progress.
-                    // The generation check above ensures the pointer was valid
-                    // at cache time; Dekker ensures it remains valid at use time.
-                    if let Some(ptr) = unsafe { heap.try_alloc_fast(tlc.region, size, align) } {
+                if !tlc.region.is_null()
+                    && let Some(ptr) = unsafe { heap.try_alloc_fast(tlc.region, size, align) } {
                         return ptr;
                     }
-                }
-
-                // Cached region full or null: slow path (Mutex, new region)
                 return self.alloc_slow(heap, tlc, size, align);
             }
         }
 
-        // Cold: ClashMap lookup
         self.alloc_cold(sheap_id, size, align)
     }
 
-    /// Slow-path allocation: Mutex + new region creation.
-    /// Updates TLC with the new hot region for future fast-path hits.
     #[cold]
     fn alloc_slow(&self, heap: &Heap, tlc: TlcEntry, size: usize, align: usize) -> *mut c_void {
         match heap.try_alloc_slow(size, align) {
             Some(ptr) => {
-                // Cache the region that try_alloc_slow published
                 TLC.with(|c| {
                     c.set(TlcEntry {
                         region: heap.hot_region_ptr(),
@@ -246,7 +186,6 @@ impl Runtime {
         }
     }
 
-    /// Cold-path allocation: ClashMap lookup + slow alloc.
     #[cold]
     fn alloc_cold(&self, sheap_id: usize, size: usize, align: usize) -> *mut c_void {
         let heap = self.get_or_create_heap(sheap_id);
@@ -284,7 +223,6 @@ impl Runtime {
         self.with_heap(sheap_ptr, |heap| heap.purge())
     }
 
-    /// Singleton
     pub fn get_instance() -> &'static Self {
         static RT: LazyLock<Runtime> = LazyLock::new(Runtime::new);
         &RT

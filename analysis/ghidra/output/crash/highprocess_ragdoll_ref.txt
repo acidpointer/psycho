@@ -1,0 +1,525 @@
+======================================================================
+HighProcess+0x138 Ragdoll NiPointer Lifecycle
+Havok bone data freed via Havok allocator, NOT GameHeap.
+Quarantine never protected it. Need validation fix.
+======================================================================
+
+######################################################################
+# PART 1: FUN_00440ba0 ? QueuedCharacter actual processing
+######################################################################
+
+======================================================================
+QueuedCharacter_ActualProcess @ 0x00440ba0
+======================================================================
+  Function: FUN_00440ba0, Size: 467 bytes
+  Entry: 0x00440ba0
+
+void __fastcall FUN_00440ba0(int *param_1)
+
+{
+  bool bVar1;
+  int iVar2;
+  uint uVar3;
+  void *pvVar4;
+  ScheduleGroupBase *pSVar5;
+  int *unaff_FS_OFFSET;
+  int *piVar6;
+  char cVar7;
+  char local_20;
+  undefined4 local_18;
+  char local_11;
+  int local_10;
+  undefined1 *puStack_c;
+  undefined4 local_8;
+  
+  local_8 = 0xffffffff;
+  puStack_c = &LAB_00ef58b8;
+  local_10 = *unaff_FS_OFFSET;
+  *unaff_FS_OFFSET = (int)&local_10;
+  FUN_00404eb0(&local_18,param_1[6]);
+  local_8 = 0;
+  bVar1 = FUN_00449130((int)param_1);
+  if (bVar1) {
+    local_8 = 0xffffffff;
+    FUN_00404ee0(&local_18);
+    goto LAB_00440d64;
+  }
+  local_11 = 0;
+  bVar1 = FUN_00440da0(param_1[10]);
+  if (bVar1) {
+LAB_00440c3e:
+    local_20 = '\x01';
+  }
+  else {
+    bVar1 = FUN_00440d80(param_1[10]);
+    if (bVar1) goto LAB_00440c3e;
+    local_20 = '\0';
+  }
+  local_11 = local_20;
+  iVar2 = FUN_008d6f30(param_1[10]);
+  if (iVar2 != 0) {
+    iVar2 = FUN_008d6f30(param_1[10]);
+    FUN_00541ac0(iVar2);
+  }
+  if (local_11 == '\0') {
+    cVar7 = '\0';
+    iVar2 = FUN_008d6f30(param_1[10]);
+    uVar3 = FUN_004511e0(iVar2,cVar7);
+    if ((uVar3 & 0xff) != 0) {
+      iVar2 = FUN_00559450(param_1 + 0xc);
+      if (iVar2 != 0) {
+        iVar2 = FUN_00559450(param_1 + 0xc);
+        pvVar4 = (void *)FUN_0043b230(iVar2);
+        FUN_004489b0(DAT_011c3b3c,param_1[10],pvVar4);
+      }
+      cVar7 = '\0';
+      piVar6 = param_1;
+      pSVar5 = (ScheduleGroupBase *)FUN_008d6f30(param_1[10]);
+      FUN_00451ef0(DAT_011dea10,(int *)param_1[10],pSVar5,piVar6,cVar7);
+    }
+  }
+  FUN_004409e0(DAT_011c3b3c,param_1[10]);
+  iVar2 = FUN_008d6f30(param_1[10]);
+  if (iVar2 != 0) {
+    iVar2 = FUN_008d6f30(param_1[10]);
+    FUN_00440a10(iVar2);
+    bVar1 = FUN_00572350((int *)param_1[10]);
+    if (bVar1) {
+      iVar2 = FUN_008d6f30(param_1[10]);
+      FUN_00440a50(iVar2);
+    }
+    iVar2 = FUN_008d6f30(param_1[10]);
+    FUN_00541ae0(iVar2);
+  }
+  local_8 = 0xffffffff;
+  FUN_00404ee0(&local_18);
+LAB_00440d64:
+  *unaff_FS_OFFSET = local_10;
+  return;
+}
+
+
+
+--- Calls FROM QueuedCharacter_ActualProcess (0x00440ba0) ---
+  CALL 0x00404eb0 -> FUN_00404eb0 (from 0x00440bde)
+  CALL 0x00449130 -> FUN_00449130 (from 0x00440bed)
+  CALL 0x00404ee0 -> FUN_00404ee0 (from 0x00440c03)
+  CALL 0x00440da0 -> FUN_00440da0 (from 0x00440c17)
+  CALL 0x00440d80 -> FUN_00440d80 (from 0x00440c29)
+  CALL 0x008d6f30 -> FUN_008d6f30 (from 0x00440c51)
+  CALL 0x008d6f30 -> FUN_008d6f30 (from 0x00440c60)
+  CALL 0x00541ac0 -> FUN_00541ac0 (from 0x00440c67)
+  CALL 0x008d6f30 -> FUN_008d6f30 (from 0x00440c7c)
+  CALL 0x004511e0 -> FUN_004511e0 (from 0x00440c88)
+  CALL 0x00559450 -> FUN_00559450 (from 0x00440c9a)
+  CALL 0x00559450 -> FUN_00559450 (from 0x00440ca9)
+  CALL 0x0043b230 -> FUN_0043b230 (from 0x00440cb0)
+  CALL 0x004489b0 -> FUN_004489b0 (from 0x00440cc3)
+  CALL 0x008d6f30 -> FUN_008d6f30 (from 0x00440cd4)
+  CALL 0x00451ef0 -> FUN_00451ef0 (from 0x00440ce7)
+  CALL 0x004409e0 -> FUN_004409e0 (from 0x00440cf9)
+  CALL 0x008d6f30 -> FUN_008d6f30 (from 0x00440d04)
+  CALL 0x008d6f30 -> FUN_008d6f30 (from 0x00440d13)
+  CALL 0x00440a10 -> FUN_00440a10 (from 0x00440d1a)
+  CALL 0x00572350 -> FUN_00572350 (from 0x00440d25)
+  CALL 0x008d6f30 -> FUN_008d6f30 (from 0x00440d37)
+  CALL 0x00440a50 -> FUN_00440a50 (from 0x00440d3e)
+  CALL 0x008d6f30 -> FUN_008d6f30 (from 0x00440d49)
+  CALL 0x00541ae0 -> FUN_00541ae0 (from 0x00440d50)
+  CALL 0x00404ee0 -> FUN_00404ee0 (from 0x00440d5f)
+  Total: 26 calls
+
+######################################################################
+# PART 2: FUN_004411d0 ? QueuedReference base ctor
+######################################################################
+
+======================================================================
+QueuedReference_BaseCtor @ 0x004411d0
+======================================================================
+  Function: FUN_004411d0, Size: 41 bytes
+  Entry: 0x004411d0
+
+undefined4 * __thiscall FUN_004411d0(void *this,undefined4 param_1)
+
+{
+  FUN_0043fd40(this,param_1);
+  *(undefined ***)this = &PTR_FUN_01016ca4;
+  return this;
+}
+
+
+
+--- Calls FROM QueuedReference_BaseCtor (0x004411d0) ---
+  CALL 0x0043fd40 -> FUN_0043fd40 (from 0x004411e2)
+  Total: 1 calls
+
+######################################################################
+# PART 3: FUN_00559450 ? NiPointer accessor
+######################################################################
+
+======================================================================
+NiPointer_Get @ 0x00559450
+======================================================================
+  Function: FUN_00559450, Size: 16 bytes
+  Entry: 0x00559450
+
+undefined4 __fastcall FUN_00559450(undefined4 *param_1)
+
+{
+  return *param_1;
+}
+
+
+
+######################################################################
+# PART 4: FUN_00633c90 ? NiPointer assign (sets ragdoll ref)
+######################################################################
+
+======================================================================
+NiPointer_Assign @ 0x00633c90
+======================================================================
+  Function: FUN_00633c90, Size: 42 bytes
+  Entry: 0x00633c90
+
+int * __thiscall FUN_00633c90(void *this,int param_1)
+
+{
+  *(int *)this = param_1;
+  if (*(int *)this != 0) {
+    FUN_0040f6e0(*(int *)this);
+  }
+  return this;
+}
+
+
+
+--- XRefs to NiPointer_Assign_callers (0x00633c90) ---
+  UNCONDITIONAL_CALL @ 0x0045834a (in FUN_00458200)
+  UNCONDITIONAL_CALL @ 0x00456926 (in FUN_004568c0)
+  UNCONDITIONAL_CALL @ 0x0049fcfd (in FUN_0049fcd0)
+  UNCONDITIONAL_CALL @ 0x0049fd2f (in FUN_0049fcd0)
+  UNCONDITIONAL_CALL @ 0x0049fd40 (in FUN_0049fcd0)
+  UNCONDITIONAL_CALL @ 0x004dfff0 (in FUN_004dffa0)
+  UNCONDITIONAL_CALL @ 0x0041b9f2 (in FUN_0041b9a0)
+  UNCONDITIONAL_CALL @ 0x0040ede8 (in FUN_0040eda0)
+  UNCONDITIONAL_CALL @ 0x0040edf9 (in FUN_0040eda0)
+  UNCONDITIONAL_CALL @ 0x005450ad (in FUN_00545030)
+  UNCONDITIONAL_CALL @ 0x005335b9 (in FUN_00533420)
+  UNCONDITIONAL_CALL @ 0x00544f8b (in FUN_00544f60)
+  UNCONDITIONAL_CALL @ 0x00545919 (in FUN_00545740)
+  UNCONDITIONAL_CALL @ 0x005459b2 (in FUN_00545960)
+  UNCONDITIONAL_CALL @ 0x00545aa2 (in FUN_00545a30)
+  UNCONDITIONAL_CALL @ 0x0041bb62 (in FUN_0041bb10)
+  UNCONDITIONAL_CALL @ 0x004356d8 (in FUN_00435690)
+  UNCONDITIONAL_CALL @ 0x004358e8 (in FUN_004358a0)
+  UNCONDITIONAL_CALL @ 0x0043fda4 (in FUN_0043fd40)
+  UNCONDITIONAL_CALL @ 0x0043fdb5 (in FUN_0043fd40)
+  UNCONDITIONAL_CALL @ 0x004357e8 (in FUN_004357a0)
+  UNCONDITIONAL_CALL @ 0x00435868 (in FUN_00435820)
+  UNCONDITIONAL_CALL @ 0x004ed673 (in FUN_004ed5f0)
+  UNCONDITIONAL_CALL @ 0x004ed684 (in FUN_004ed5f0)
+  UNCONDITIONAL_CALL @ 0x004ed6d7 (in FUN_004ed5f0)
+  UNCONDITIONAL_CALL @ 0x004ed6eb (in FUN_004ed5f0)
+  UNCONDITIONAL_CALL @ 0x004ed6ff (in FUN_004ed5f0)
+  UNCONDITIONAL_CALL @ 0x004ed713 (in FUN_004ed5f0)
+  UNCONDITIONAL_CALL @ 0x0054a1ac (in FUN_0054a070)
+  UNCONDITIONAL_CALL @ 0x0054a37a (in FUN_0054a070)
+  ... (truncated at 30)
+  Total: 30 refs
+
+######################################################################
+# PART 5: FUN_008ac890 ? store ragdoll into process?
+######################################################################
+
+======================================================================
+StoreRagdollToProcess @ 0x008ac890
+======================================================================
+  Function: FUN_008ac890, Size: 25 bytes
+  Entry: 0x008ac890
+
+void __thiscall FUN_008ac890(void *this,undefined4 param_1)
+
+{
+  *(undefined4 *)((int)this + 0x80) = param_1;
+  return;
+}
+
+
+
+--- Calls FROM StoreRagdollToProcess (0x008ac890) ---
+  Total: 0 calls
+
+######################################################################
+# PART 6: Death processing ? what happens to ragdoll ref?
+######################################################################
+
+======================================================================
+DeathProcess_Sub1 @ 0x008e4e50
+======================================================================
+  Function: FUN_008e4e50, Size: 683 bytes
+  Entry: 0x008e4e50
+
+/* WARNING: Globals starting with '_' overlap smaller symbols at the same address */
+
+void FUN_008e4e50(int *param_1)
+
+{
+  uint uVar1;
+  int iVar2;
+  float *pfVar3;
+  uint *puVar4;
+  void *this;
+  int *piVar5;
+  undefined4 uVar6;
+  int *unaff_FS_OFFSET;
+  float10 fVar7;
+  undefined4 *local_b8;
+  undefined4 local_b0;
+  undefined4 local_ac;
+  undefined1 local_60 [16];
+  undefined4 local_50;
+  void *local_4c;
+  id local_48 [4];
+  int local_44;
+  int local_40;
+  int local_3c;
+  void *local_38;
+  float local_34;
+  float local_30;
+  float local_2c;
+  float local_28;
+  int *local_24;
+  undefined1 *puStack_20;
+  int local_1c;
+  undefined1 *puStack_18;
+  undefined4 local_14;
+  
+  puStack_20 = &stack0xfffffffc;
+  local_14 = 0xffffffff;
+  puStack_18 = &LAB_00f1641c;
+  local_1c = *unaff_FS_OFFSET;
+  uVar1 = DAT_011c16bc ^ (uint)&stack0xfffffff0;
+  *unaff_FS_OFFSET = (int)&local_1c;
+  iVar2 = (**(code **)(*(int *)param_1[0x1a] + 0x5f0))(uVar1);
+  if (iVar2 != 0) {
+    iVar2 = FUN_00559450(local_24 + 0x10d);
+    if (iVar2 == 0) {
+      iVar2 = (**(code **)(*(int *)param_1[0x1a] + 0x5f0))();
+      pfVar3 = (float *)FUN_00500940(iVar2);
+      local_30 = *pfVar3;
+      local_2c = pfVar3[1];
+      local_28 = pfVar3[2];
+      fVar7 = FUN_00567400((int)param_1);
+      local_34 = (float)fVar7;
+      if (local_2c <= local_28) {
+        local_2c = local_2c * (float)_DAT_01018c00;
+      }
+      local_2c = local_2c * local_34;
+      local_30 = local_30 * (float)_DAT_01011588 * local_34;
+      local_28 = local_28 * local_34;
+      local_38 = (void *)FUN_00aa13e0(0x14);
+      local_14 = 0;
+      if (local_38 == (void *)0x0) {
+        local_3c = 0;
+      }
+      else {
+        local_3c = FUN_008e5100(local_38,&local_30);
+      }
+      local_40 = local_3c;
+      local_14 = 0xffffffff;
+      local_44 = local_3c;
+      std::locale::id::id(local_48,0);
+      FUN_004a39f0(local_48,0x22);
+      local_4c = (void *)(**(code **)(*local_24 + 0x28c))();
+      if (local_4c != (void *)0x0) {
+        puVar4 = FUN_0070c440(local_4c,&local_50);
+        uVar1 = FUN_004a3a20(puVar4);
+        FUN_0059ce80(local_48,uVar1);
+      }
+      FUN_0056e090(&local_b0);
+      local_14 = 1;
+      local_b0 = FUN_00559450((undefined4 *)local_48);
+      local_ac = FUN_004ae750(local_44);
+      pfVar3 = (float *)(**(code **)(*param_1 + 500))();
+      FUN_004b4e50(local_60,pfVar3);
+      this = (void *)FUN_00aa13e0(0x18);
+      local_14._0_1_ = 2;
+      if (this == (void *)0x0) {
+        local_b8 = (undefined4 *)0x0;
+      }
+      else {
+        local_b8 = FUN_0056e2d0(this,&local_b0);
+      }
+      local_14 = CONCAT31(local_14._1_3_,1);
+      FUN_0066b0d0(local_24 + 0x10d,(int)local_b8);
+      piVar5 = (int *)FUN_00403e20(0x11e029c);
+      local_24[0x10e] = *piVar5;
+      local_14 = 0xffffffff;
+      FUN_0056ea90((int)&local_b0);
+    }
+    iVar2 = FUN_008d6f30((int)param_1);
+    uVar6 = FUN_004543c0(iVar2);
+    piVar5 = (int *)FUN_00559450(local_24 + 0x10d);
+    (**(code **)(*piVar5 + 0x9c))(uVar6);
+  }
+  *unaff_FS_OFFSET = local_1c;
+  return;
+}
+
+
+
+--- Calls FROM DeathProcess_Sub1 (0x008e4e50) ---
+  CALL 0x00559450 -> FUN_00559450 (from 0x008e4eb8)
+  CALL 0x00500940 -> FUN_00500940 (from 0x008e4edd)
+  CALL 0x00567400 -> FUN_00567400 (from 0x008e4ef6)
+  CALL 0x00aa13e0 -> FUN_00aa13e0 (from 0x008e4f41)
+  CALL 0x008e5100 -> FUN_008e5100 (from 0x008e4f60)
+  CALL 0x008c71b0 -> id (from 0x008e4f89)
+  CALL 0x004a39f0 -> FUN_004a39f0 (from 0x008e4f93)
+  CALL 0x0070c440 -> FUN_0070c440 (from 0x008e4fb8)
+  CALL 0x004a3a20 -> FUN_004a3a20 (from 0x008e4fbf)
+  CALL 0x0059ce80 -> FUN_0059ce80 (from 0x008e4fc8)
+  CALL 0x0056e090 -> FUN_0056e090 (from 0x008e4fd3)
+  CALL 0x00559450 -> FUN_00559450 (from 0x008e4fe2)
+  CALL 0x004ae750 -> FUN_004ae750 (from 0x008e4ff0)
+  CALL 0x004b4e50 -> FUN_004b4e50 (from 0x008e500f)
+  CALL 0x00aa13e0 -> FUN_00aa13e0 (from 0x008e5016)
+  CALL 0x0056e2d0 -> FUN_0056e2d0 (from 0x008e503e)
+  CALL 0x0066b0d0 -> FUN_0066b0d0 (from 0x008e5075)
+  CALL 0x00403e20 -> FUN_00403e20 (from 0x008e507f)
+  CALL 0x0056ea90 -> FUN_0056ea90 (from 0x008e509c)
+  CALL 0x008d6f30 -> FUN_008d6f30 (from 0x008e50a4)
+  CALL 0x004543c0 -> FUN_004543c0 (from 0x008e50ab)
+  CALL 0x00559450 -> FUN_00559450 (from 0x008e50bf)
+  Total: 22 calls
+
+======================================================================
+DeathProcess_Sub2 @ 0x008e5700
+======================================================================
+  Function: FUN_008e5700, Size: 35 bytes
+  Entry: 0x008e5700
+
+bool __fastcall FUN_008e5700(int param_1)
+
+{
+  int iVar1;
+  
+  iVar1 = FUN_00559450((undefined4 *)(param_1 + 0x434));
+  return iVar1 != 0;
+}
+
+
+
+######################################################################
+# PART 7: FUN_00c6d7a0 ? NiNode change handler
+######################################################################
+
+======================================================================
+NiNode_ChangeHandler @ 0x00c6d7a0
+======================================================================
+  Function: FUN_00c6d7a0, Size: 49 bytes
+  Entry: 0x00c6d7a0
+
+void __thiscall FUN_00c6d7a0(void *this,int param_1)
+
+{
+  if (*(void **)((int)this + 0x594) != (void *)0x0) {
+    FUN_00c85c10(*(void **)((int)this + 0x594),param_1,(undefined4 *)0x0);
+  }
+  if (*(void **)((int)this + 0x598) != (void *)0x0) {
+    FUN_00c85c10(*(void **)((int)this + 0x598),param_1,(undefined4 *)0x0);
+  }
+  return;
+}
+
+
+
+--- Calls FROM NiNode_ChangeHandler (0x00c6d7a0) ---
+  CALL 0x00c85c10 -> FUN_00c85c10 (from 0x00c6d7b5)
+  CALL 0x00c85c10 -> FUN_00c85c10 (from 0x00c6d7c7)
+  Total: 2 calls
+
+######################################################################
+# PART 8: FUN_00810640 ? ragdoll back-pointer to character
+######################################################################
+
+======================================================================
+Ragdoll_SetOwnerChar @ 0x00810640
+======================================================================
+  Function: FUN_00810640, Size: 30 bytes
+  Entry: 0x00810640
+
+void __thiscall FUN_00810640(void *this,int param_1)
+
+{
+  FUN_00c6e050(this,1000,param_1);
+  return;
+}
+
+
+
+######################################################################
+# PART 9: FUN_00c6a350 ? physics attachment to NiNode
+######################################################################
+
+======================================================================
+AttachPhysics @ 0x00c6a350
+======================================================================
+  Function: FUN_00c6a350, Size: 117 bytes
+  Entry: 0x00c6a350
+
+undefined1 __cdecl
+FUN_00c6a350(int *param_1,undefined4 param_2,undefined1 param_3,char param_4,byte param_5)
+
+{
+  int *piVar1;
+  undefined1 uVar2;
+  undefined4 local_1c;
+  undefined1 local_18;
+  undefined4 local_14;
+  undefined4 local_10;
+  uint local_c;
+  
+  uVar2 = 0;
+  if (param_1 != (int *)0x0) {
+    if (param_4 == '\0') {
+      piVar1 = FUN_00c43490(param_1);
+      if (piVar1 == (int *)0x0) {
+        return 0;
+      }
+      if ((piVar1[3] & 2U) == 0) {
+        return 0;
+      }
+    }
+    local_c = (uint)param_5;
+    local_18 = param_3;
+    uVar2 = 1;
+    local_1c = 0;
+    local_14 = 5;
+    local_10 = param_2;
+    if (PTR_LAB_011afe9c != (undefined *)0x0) {
+      FUN_00c68900(param_1,(int)&local_1c,PTR_LAB_011afe9c);
+    }
+  }
+  return uVar2;
+}
+
+
+
+--- Calls FROM AttachPhysics (0x00c6a350) ---
+  CALL 0x00c43490 -> FUN_00c43490 (from 0x00c6a366)
+  CALL 0x00c68900 -> FUN_00c68900 (from 0x00c6a3b5)
+  Total: 2 calls
+
+######################################################################
+# PART 10: bhkRagdollController inheritance chain
+# vtable 0x010C49C4 (from CreateRagdollController line 501)
+######################################################################
+
+bhkRagdollController vtable at 0x010c49c4 (from constructor):
+  [ 0] +0x00 -> 0x00c70c60 FUN_00c70c60
+  [ 1] +0x04 -> 0x00cfcc20 FUN_00cfcc20
+  [ 2] +0x08 -> 0x00806f00 FUN_00806f00
+  [ 3] +0x0c -> 0x00acbb70 FUN_00acbb70
+  [ 4] +0x10 -> 0x00acbb70 FUN_00acbb70
+  [ 5] +0x14 -> 0x00acbb70 FUN_00acbb70

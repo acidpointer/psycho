@@ -8,7 +8,6 @@ use std::{
 
 use crate::mods::memory::heap_replacer::mem_stats;
 
-/// Align `addr` up to `align`, returning `None` on overflow.
 #[inline(always)]
 fn checked_align_up(addr: usize, align: usize) -> Option<usize> {
     let mask = align.wrapping_sub(1);
@@ -16,22 +15,15 @@ fn checked_align_up(addr: usize, align: usize) -> Option<usize> {
 }
 
 pub struct Region {
-    /// Start address of the allocated memory block.
     start: NonNull<u8>,
-
-    /// Total capacity of the region in bytes.
     capacity: usize,
-
-    /// Current allocation offset within the region (atomic for cross-thread access).
     offset: AtomicUsize,
 }
 
-// Safety: All mutable state is atomic. `start` is never mutated after construction.
 unsafe impl Send for Region {}
 unsafe impl Sync for Region {}
 
 impl Region {
-    /// Creates a new memory region using global `mi_malloc_aligned`.
     pub fn new(capacity: usize, align: usize) -> Option<Self> {
         let ptr = unsafe { libmimalloc::mi_malloc_aligned(capacity, align) };
         let start = NonNull::new(ptr as *mut u8)?;
@@ -46,9 +38,6 @@ impl Region {
     }
 
     /// Lock-free bump-pointer allocation via CAS loop.
-    ///
-    /// The offset is only advanced on success - failed allocations (region full
-    /// or arithmetic overflow) do NOT leak offset space.
     #[inline]
     pub fn allocate(&self, size: usize, align: usize) -> Option<NonNull<c_void>> {
         let start_addr = self.start.as_ptr() as usize;
@@ -57,17 +46,14 @@ impl Region {
         loop {
             let old_offset = self.offset.load(Ordering::Relaxed);
 
-            // Compute aligned data address with overflow protection.
             let min_data_addr = start_addr.checked_add(old_offset)?.checked_add(4)?;
             let data_addr = checked_align_up(min_data_addr, align)?;
 
-            // Bounds check BEFORE committing.
             let alloc_end = data_addr.checked_add(size)?;
             if alloc_end > end_addr {
                 return None;
             }
 
-            // new_offset = actual consumed space from region start.
             let new_offset = alloc_end - start_addr;
 
             if self

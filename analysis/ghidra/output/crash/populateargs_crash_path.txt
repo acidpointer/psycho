@@ -1,0 +1,713 @@
+======================================================================
+PopulateArgs Crash Path ? What Game Data Is Stale?
+======================================================================
+
+######################################################################
+# PART 1: Script object layout and vtable
+######################################################################
+
+Script vtable at 0x01037094:
+  [ 0] +0x00 -> 0x00483710 FUN_00483710
+  [ 1] +0x04 -> 0x00483710 FUN_00483710
+  [ 2] +0x08 -> 0x00485340 FUN_00485340
+  [ 3] +0x0c -> 0x004853e0 FUN_004853e0
+  [ 4] +0x10 -> 0x005aa170 FUN_005aa170
+  [ 5] +0x14 -> 0x005aa220 FUN_005aa220
+  [ 6] +0x18 -> 0x005aa2a0 FUN_005aa2a0
+  [ 7] +0x1c -> 0x008d0360 FUN_008d0360
+  [ 8] +0x20 -> 0x005ab9f0 FUN_005ab9f0
+  [ 9] +0x24 -> 0x00401290 FUN_00401290
+  [10] +0x28 -> 0x00483d20 FUN_00483d20
+  [11] +0x2c -> 0x005abd90 FUN_005abd90
+
+--- XRefs to Script_vtable_refs (0x01037094) ---
+  DATA @ 0x005aa128 (in FUN_005aa0f0)
+  DATA @ 0x005aa1c9 (in ~CSettingsStore)
+  Total: 2 refs
+
+======================================================================
+Script_Execute_or_Constructor @ 0x005aa8a0
+======================================================================
+  Function: FUN_005aa720, Size: 411 bytes
+  Entry: 0x005aa720
+
+void FUN_005aa720(void)
+
+{
+  char cVar1;
+  undefined4 *puVar2;
+  int *piVar3;
+  uint uVar4;
+  void *local_30;
+  int *local_1c;
+  int *local_14;
+  int *local_10;
+  int *local_c;
+  int *local_8;
+  
+  FUN_004538a0((LPCRITICAL_SECTION)&DAT_011cacf8);
+  while (cVar1 = FUN_008256d0((int *)&DAT_011caca8), cVar1 == '\0') {
+    puVar2 = (undefined4 *)FUN_006815c0(&DAT_011caca8);
+    local_c = (int *)*puVar2;
+    FUN_0063f7b0((undefined4 *)&DAT_011caca8);
+    FUN_00573f40(local_c);
+  }
+  while (cVar1 = FUN_008256d0((int *)&DAT_011cac98), cVar1 == '\0') {
+    puVar2 = (undefined4 *)FUN_006815c0(&DAT_011cac98);
+    local_10 = (int *)*puVar2;
+    FUN_0063f7b0((undefined4 *)&DAT_011cac98);
+    FUN_00574400(local_10);
+  }
+  local_8 = (int *)&DAT_011cace8;
+  while ((local_8 != (int *)0x0 && (cVar1 = FUN_008256d0(local_8), cVar1 == '\0'))) {
+    local_1c = (int *)FUN_00726070((int)local_8);
+    puVar2 = (undefined4 *)FUN_006815c0(local_8);
+    local_14 = (int *)*puVar2;
+    piVar3 = (int *)(**(code **)(*local_14 + 0x1d0))();
+    if (piVar3 == (int *)0x0) {
+      local_30 = (void *)0x0;
+    }
+    else {
+      local_30 = (void *)(**(code **)(*piVar3 + 0x10))();
+    }
+    if ((local_30 == (void *)0x0) || (uVar4 = FUN_005aa8c0(local_30), (uVar4 & 0xff) == 0)) {
+      FUN_00574400(local_14);
+      FUN_00905330(&DAT_011cace8,(int *)&local_14);
+      if (local_8 == (int *)&DAT_011cace8) {
+        local_1c = (int *)&DAT_011cace8;
+      }
+    }
+    local_8 = local_1c;
+  }
+  while (cVar1 = FUN_008256d0((int *)&DAT_011cacb8), cVar1 == '\0') {
+    piVar3 = (int *)FUN_006815c0(&DAT_011cacb8);
+    piVar3 = (int *)*piVar3;
+    FUN_0063f7b0((undefined4 *)&DAT_011cacb8);
+    if (piVar3 != (int *)0x0) {
+      (**(code **)(*piVar3 + 0x10))(1);
+    }
+  }
+  FUN_004538c0((LPCRITICAL_SECTION)&DAT_011cacf8);
+  return;
+}
+
+
+
+######################################################################
+# PART 2: TESObjectCELL extra data that PDD frees
+######################################################################
+
+TESObjectCELL vtable at 0x0102e9b4:
+  [ 0] +0x00 -> 0x00483710 FUN_00483710
+  [ 1] +0x04 -> 0x00483710 FUN_00483710
+  [ 2] +0x08 -> 0x00485340 FUN_00485340
+  [ 3] +0x0c -> 0x004853e0 FUN_004853e0
+  [ 4] +0x10 -> 0x005417e0 FUN_005417e0
+  [ 5] +0x14 -> 0x00483710 FUN_00483710
+  [ 6] +0x18 -> 0x00541b00 FUN_00541b00
+  [ 7] +0x1c -> 0x008d0360 FUN_008d0360
+
+######################################################################
+# PART 3: DeferredCleanupSmall (FUN_00878250) ? what it frees
+######################################################################
+
+======================================================================
+DeferredCleanupSmall @ 0x00878250
+======================================================================
+  Function: FUN_00878250, Size: 86 bytes
+  Entry: 0x00878250
+
+void __cdecl FUN_00878250(char param_1)
+
+{
+  void *pvVar1;
+  
+  FUN_00868d70('\x01');
+  pvVar1 = (void *)FUN_00450b80(0);
+  FUN_00b5fd60(pvVar1);
+  FUN_00c459d0('\0');
+  if (param_1 != '\0') {
+    FUN_00651e30();
+    FUN_00651f40();
+  }
+  FUN_00448620(DAT_011c3b3c,'\x01');
+  FUN_00452490(DAT_011dea10,'\0');
+  return;
+}
+
+
+
+--- Calls FROM DeferredCleanupSmall (0x00878250) ---
+  CALL 0x00868d70 -> FUN_00868d70 (from 0x00878255)
+  CALL 0x00450b80 -> FUN_00450b80 (from 0x0087825f)
+  CALL 0x00b5fd60 -> FUN_00b5fd60 (from 0x00878269)
+  CALL 0x00c459d0 -> FUN_00c459d0 (from 0x00878270)
+  CALL 0x00651e30 -> FUN_00651e30 (from 0x00878280)
+  CALL 0x00651f40 -> FUN_00651f40 (from 0x00878285)
+  CALL 0x00448620 -> FUN_00448620 (from 0x00878292)
+  CALL 0x00452490 -> FUN_00452490 (from 0x0087829f)
+  Total: 8 calls
+
+######################################################################
+# PART 4: Who enqueues objects for PDD destruction?
+######################################################################
+
+======================================================================
+PDD_EnqueueFunction @ 0x00868330
+======================================================================
+  Function: FUN_00868330, Size: 339 bytes
+  Entry: 0x00868330
+
+void __cdecl FUN_00868330(void *param_1)
+
+{
+  bool bVar1;
+  int iVar2;
+  void *pvVar3;
+  int *piVar4;
+  int *unaff_FS_OFFSET;
+  undefined4 uVar5;
+  uint local_18 [2];
+  int local_10;
+  undefined1 *puStack_c;
+  undefined4 local_8;
+  
+  local_8 = 0xffffffff;
+  puStack_c = &LAB_00f13c38;
+  local_10 = *unaff_FS_OFFSET;
+  *unaff_FS_OFFSET = (int)&local_10;
+  FUN_008681c0(local_18,8);
+  local_8 = 0;
+  FUN_0048ff50(param_1);
+  iVar2 = FUN_00496940((int)param_1);
+  if (iVar2 != 0) {
+    uVar5 = 0;
+    pvVar3 = (void *)FUN_00496940((int)param_1);
+    FUN_0048fef0(pvVar3,uVar5);
+  }
+  pvVar3 = (void *)FUN_005585e0((int)param_1);
+  if (pvVar3 != (void *)0x0) {
+    piVar4 = FUN_00a5c570(pvVar3,0x11f36bc);
+    if (piVar4 != (int *)0x0) {
+      FUN_00a5c480(pvVar3,piVar4);
+    }
+    piVar4 = FUN_00a5c570(pvVar3,0x11f36e4);
+    if (piVar4 != (int *)0x0) {
+      FUN_00a5c480(pvVar3,piVar4);
+    }
+  }
+  FUN_00445430(DAT_011c3b3c,param_1);
+  if ((*(char *)(*(int *)(unaff_FS_OFFSET[0xb] + _tls_index * 4) + 0x298) == '\0') ||
+     ((DAT_011ddf38 != 0 && (bVar1 = FUN_0042ce10(DAT_011ddf38), bVar1)))) {
+    if (param_1 != (void *)0x0) {
+      FUN_00418d20(param_1,1);
+    }
+  }
+  else {
+    FUN_008693c0(&DAT_011de808,(int *)&param_1);
+  }
+  local_8 = 0xffffffff;
+  FUN_00868210(local_18);
+  *unaff_FS_OFFSET = local_10;
+  return;
+}
+
+
+
+--- Calls FROM PDD_EnqueueFunction (0x00868330) ---
+  CALL 0x008681c0 -> FUN_008681c0 (from 0x0086835f)
+  CALL 0x0048ff50 -> FUN_0048ff50 (from 0x0086836e)
+  CALL 0x00496940 -> FUN_00496940 (from 0x00868376)
+  CALL 0x00496940 -> FUN_00496940 (from 0x00868388)
+  CALL 0x0048fef0 -> FUN_0048fef0 (from 0x0086838f)
+  CALL 0x005585e0 -> FUN_005585e0 (from 0x00868397)
+  CALL 0x00a5c570 -> FUN_00a5c570 (from 0x008683ad)
+  CALL 0x00a5c480 -> FUN_00a5c480 (from 0x008683c2)
+  CALL 0x00a5c570 -> FUN_00a5c570 (from 0x008683cf)
+  CALL 0x00a5c480 -> FUN_00a5c480 (from 0x008683e4)
+  CALL 0x00445430 -> FUN_00445430 (from 0x008683f3)
+  CALL 0x0042ce10 -> FUN_0042ce10 (from 0x00868421)
+  CALL 0x00418d20 -> FUN_00418d20 (from 0x00868444)
+  CALL 0x008693c0 -> FUN_008693c0 (from 0x00868460)
+  CALL 0x00868210 -> FUN_00868210 (from 0x0086846f)
+  Total: 15 calls
+
+--- XRefs to PDD_Enqueue_callers (0x00868330) ---
+  UNCONDITIONAL_CALL @ 0x0091fec2 (in FUN_0091fe80)
+  Total: 1 refs
+
+######################################################################
+# PART 5: Form to reference resolution
+######################################################################
+
+======================================================================
+GetRefFromForm @ 0x005585e0
+======================================================================
+  Function: FUN_005585e0, Size: 22 bytes
+  Entry: 0x005585e0
+
+void __fastcall FUN_005585e0(int param_1)
+
+{
+  FUN_00559450((undefined4 *)(param_1 + 8));
+  return;
+}
+
+
+
+######################################################################
+# PART 6: Game's script argument resolution
+######################################################################
+
+======================================================================
+Script_ArgSetup @ 0x005ae790
+======================================================================
+  Function: FUN_005ae730, Size: 102 bytes
+  Entry: 0x005ae730
+
+void __fastcall FUN_005ae730(int param_1)
+
+{
+  char cVar1;
+  int *piVar2;
+  undefined4 *puVar3;
+  
+  piVar2 = (int *)FUN_005a8080(param_1);
+  while ((piVar2 != (int *)0x0 && (cVar1 = FUN_008256d0(piVar2), cVar1 == '\0'))) {
+    puVar3 = (undefined4 *)FUN_006815c0(piVar2);
+    if ((void *)*puVar3 != (void *)0x0) {
+      FUN_0061cb30((void *)*puVar3,1);
+    }
+    FUN_0063f7b0(piVar2);
+  }
+  return;
+}
+
+
+
+--- Calls FROM Script_ArgSetup (0x005ae790) ---
+  CALL 0x005a8080 -> FUN_005a8080 (from 0x005ae73c)
+  CALL 0x008256d0 -> FUN_008256d0 (from 0x005ae74d)
+  CALL 0x006815c0 -> FUN_006815c0 (from 0x005ae75c)
+  CALL 0x0061cb30 -> FUN_0061cb30 (from 0x005ae777)
+  CALL 0x0063f7b0 -> FUN_0063f7b0 (from 0x005ae78b)
+  Total: 5 calls
+
+######################################################################
+# PART 7: Fast travel cleanup ? FUN_0078d020
+######################################################################
+
+======================================================================
+FastTravel_Cleanup @ 0x0078d020
+======================================================================
+  Function: FUN_0078d020, Size: 34 bytes
+  Entry: 0x0078d020
+
+void FUN_0078d020(void)
+
+{
+  if ((DAT_011da0c0 != 0) && (DAT_011da0c4 != 0)) {
+    FUN_0078d570(DAT_011da0c4);
+  }
+  return;
+}
+
+
+
+--- Calls FROM FastTravel_Cleanup (0x0078d020) ---
+  CALL 0x0078d570 -> FUN_0078d570 (from 0x0078d03b)
+  Total: 1 calls
+
+######################################################################
+# PART 8: Outer loop post-frame code (0x0086b3e8 area)
+# What functions run between inner loop and next iteration?
+######################################################################
+
+======================================================================
+PostFastTravel @ 0x0078d020
+======================================================================
+  Function: FUN_0078d020, Size: 34 bytes
+  Entry: 0x0078d020
+
+void FUN_0078d020(void)
+
+{
+  if ((DAT_011da0c0 != 0) && (DAT_011da0c4 != 0)) {
+    FUN_0078d570(DAT_011da0c4);
+  }
+  return;
+}
+
+
+
+======================================================================
+LoadingPath_Check @ 0x0086bdf0
+======================================================================
+  Function: FUN_0086bdf0, Size: 54 bytes
+  Entry: 0x0086bdf0
+
+undefined1 FUN_0086bdf0(void)
+
+{
+  char cVar1;
+  
+  if ((DAT_011da0c4 != 0) && (cVar1 = FUN_007cfd00(DAT_011da0c4), cVar1 != '\0')) {
+    return 1;
+  }
+  return 0;
+}
+
+
+
+======================================================================
+PreLoading_Setup @ 0x0078cfc0
+======================================================================
+  Function: FUN_0078cfc0, Size: 91 bytes
+  Entry: 0x0078cfc0
+
+void FUN_0078cfc0(void)
+
+{
+  char cVar1;
+  
+  if ((DAT_011da0c0 != 0) && (DAT_011da0c4 != (void *)0x0)) {
+    cVar1 = FUN_008905f0((int)DAT_011da0c4);
+    if ((cVar1 != '\0') && (*(char *)((int)DAT_011da0c4 + 0x48) == '\0')) {
+      FUN_00aa6560(DAT_011da0c4,1);
+      *(undefined1 *)((int)DAT_011da0c4 + 0x48) = 1;
+      FUN_004424e0((LONG *)((int)DAT_011da0c4 + 0x3c));
+    }
+  }
+  return;
+}
+
+
+
+######################################################################
+# PART 9: What does blocking PDD (FUN_00868d70 with param=0) free?
+# vs non-blocking PDD (param=1)?
+######################################################################
+
+======================================================================
+PDD_Full @ 0x00868d70
+======================================================================
+  Function: FUN_00868d70, Size: 1037 bytes
+  Entry: 0x00868d70
+
+void __cdecl FUN_00868d70(char param_1)
+
+{
+  undefined1 uVar1;
+  char cVar2;
+  undefined2 uVar3;
+  uint uVar4;
+  undefined2 extraout_var;
+  undefined4 *puVar5;
+  undefined2 extraout_var_00;
+  undefined2 extraout_var_01;
+  int iVar6;
+  int *piVar7;
+  undefined2 extraout_var_02;
+  int unaff_FS_OFFSET;
+  uint local_2c;
+  uint local_24;
+  uint local_1c;
+  uint local_10;
+  char local_5;
+  
+  if (DAT_011de958 == '\0') {
+    local_5 = '\x01';
+    if (param_1 == '\0') {
+      FUN_00867f50();
+    }
+    else {
+      local_5 = FUN_00867f70();
+    }
+    if (local_5 != '\0') {
+      DAT_011de958 = 1;
+      uVar1 = *(undefined1 *)(*(int *)(*(int *)(unaff_FS_OFFSET + 0x2c) + _tls_index * 4) + 0x298);
+      *(undefined1 *)(*(int *)(*(int *)(unaff_FS_OFFSET + 0x2c) + _tls_index * 4) + 0x298) = 0;
+      uVar4 = FUN_00869180(0x10);
+      if (((uVar4 & 0xff) == 0) && (cVar2 = FUN_0078d1f0(), cVar2 != '\0')) {
+        FUN_004dffa0(0x11de828);
+        FUN_00452530();
+      }
+      uVar4 = FUN_00869180(8);
+      if (((uVar4 & 0xff) == 0) && (cVar2 = FUN_00868250(DAT_011c3b3c), cVar2 != '\0')) {
+        uVar3 = FUN_00658930(0x11de808);
+        for (local_10 = 0; local_10 < CONCAT22(extraout_var,uVar3); local_10 = local_10 + 1) {
+          puVar5 = (undefined4 *)FUN_00877a30(&DAT_011de808,local_10);
+          if ((void *)*puVar5 != (void *)0x0) {
+            FUN_00418d20((void *)*puVar5,1);
+          }
+        }
+        FUN_005e03d0(0x11de808);
+        FUN_004aaf10(DAT_011c3b3c);
+      }
+      uVar4 = FUN_00869180(4);
+      if (((uVar4 & 0xff) == 0) && (cVar2 = FUN_00868250(DAT_011c3b3c), cVar2 != '\0')) {
+        uVar3 = FUN_00658930(0x11de910);
+        for (local_1c = 0; local_1c < CONCAT22(extraout_var_00,uVar3); local_1c = local_1c + 1) {
+          puVar5 = (undefined4 *)FUN_00877a30(&DAT_011de910,local_1c);
+          if ((void *)*puVar5 != (void *)0x0) {
+            FUN_00418e00((void *)*puVar5,1);
+          }
+        }
+        FUN_005e03d0(0x11de910);
+        FUN_004aaf10(DAT_011c3b3c);
+      }
+      uVar4 = FUN_00869180(2);
+      if ((uVar4 & 0xff) == 0) {
+        for (local_24 = 0; uVar3 = FUN_00658930(0x11de888),
+            local_24 < CONCAT22(extraout_var_01,uVar3); local_24 = local_24 + 1) {
+          puVar5 = (undefined4 *)FUN_00877a30(&DAT_011de888,local_24);
+          iVar6 = FUN_00559450(puVar5);
+          if (iVar6 != 0) {
+            piVar7 = (int *)FUN_00877a30(&DAT_011de888,local_24);
+            FUN_00868ce0(*piVar7);
+          }
+        }
+        FUN_004dffa0(0x11de888);
+      }
+      uVar4 = FUN_00869180(1);
+      if (((uVar4 & 0xff) == 0) && (cVar2 = FUN_00868250(DAT_011c3b3c), cVar2 != '\0')) {
+        while (uVar3 = FUN_00658930(0x11de874), CONCAT22(extraout_var_02,uVar3) != 0) {
+          piVar7 = (int *)FUN_00877a30(&DAT_011de874,0);
+          if ((int *)*piVar7 != (int *)0x0) {
+            (**(code **)(*(int *)*piVar7 + 0x10))(1);
+          }
+        }
+        FUN_005e03d0(0x11de874);
+        FUN_004aaf10(DAT_011c3b3c);
+      }
+      uVar4 = FUN_00869180(0x20);
+      if ((uVar4 & 0xff) == 0) {
+        for (local_2c = 0; uVar4 = FUN_0044ddc0(0x11de924), local_2c < uVar4;
+            local_2c = local_2c + 1) {
+          piVar7 = (int *)FUN_00877a30(&DAT_011de924,local_2c);
+          FUN_00401970((int *)(*piVar7 + 0x1c));
+        }
+        FUN_008454f0(&DAT_011de924,'\x01');
+      }
+      *(undefined1 *)(*(int *)(*(int *)(unaff_FS_OFFSET + 0x2c) + _tls_index * 4) + 0x298) = uVar1;
+      if (*(char *)(*(int *)(*(int *)(unaff_FS_OFFSET + 0x2c) + _tls_index * 4) + 0x298) != '\0') {
+        FUN_008694c0(&DAT_011de8bc,&DAT_011de874);
+        FUN_005e03d0(0x11de8bc);
+        FUN_00869420(&DAT_011de848,&DAT_011de888);
+        FUN_004dffa0(0x11de848);
+        FUN_008694c0(&DAT_011de838,&DAT_011de910);
+        FUN_005e03d0(0x11de838);
+        FUN_00869560(&DAT_011de858,&DAT_011de828);
+        FUN_004dffa0(0x11de858);
+        FUN_00869510(&DAT_011de898,&DAT_011de924);
+        FUN_008454f0(&DAT_011de898,'\x01');
+      }
+      DAT_011de958 = '\0';
+      FUN_00867f80();
+    }
+  }
+  return;
+}
+
+
+
+######################################################################
+# PART 10: Form deletion flag management
+######################################################################
+
+======================================================================
+Form_SetFlags_area @ 0x00447ce0
+======================================================================
+  Function: FUN_00447bf0, Size: 1162 bytes
+  Entry: 0x00447bf0
+
+void __thiscall FUN_00447bf0(void *this,int *param_1,undefined4 param_2,int param_3,int param_4)
+
+{
+  char cVar1;
+  uint uVar2;
+  char *pcVar3;
+  int iVar4;
+  undefined4 uVar5;
+  void *pvVar6;
+  int iVar7;
+  int *piVar8;
+  int *unaff_FS_OFFSET;
+  cancellation_token_source *pcVar9;
+  undefined4 uVar10;
+  undefined4 *local_164;
+  undefined4 *local_15c;
+  int local_144;
+  CArray<class_CMFCRibbonInfo::XQAT::XQATItem,class_CMFCRibbonInfo::XQAT::XQATItem> local_140 [8];
+  int local_138;
+  CArray<class_CMFCRibbonInfo::XQAT::XQATItem,class_CMFCRibbonInfo::XQAT::XQATItem> local_134 [8];
+  int local_12c;
+  int local_128;
+  cancellation_token_source local_124 [4];
+  char local_120 [268];
+  uint local_14;
+  int local_10;
+  undefined1 *puStack_c;
+  int local_8;
+  
+  local_8 = 0xffffffff;
+  puStack_c = &LAB_00eecbfe;
+  local_10 = *unaff_FS_OFFSET;
+  uVar2 = DAT_011c16bc ^ (uint)&stack0xfffffffc;
+  *unaff_FS_OFFSET = (int)&local_10;
+  local_14 = uVar2;
+  FUN_00633c90(local_124,0);
+  local_8 = 0;
+  FUN_0044b270(&local_128,0);
+  local_8._0_1_ = 1;
+  FUN_00406d30(local_120,0x104,"Meshes\\");
+  pcVar3 = (char *)(**(code **)(*param_1 + 0x14))(uVar2);
+  FUN_00406d50(local_120,0x104,pcVar3);
+  if (param_4 == 9) {
+    for (local_12c = 0; local_12c < 2; local_12c = local_12c + 1) {
+      FUN_004037b0((undefined4 *)local_134);
+      local_8._0_1_ = 2;
+      FUN_00653520((undefined4 *)local_134,local_120,local_12c);
+      iVar4 = FUN_00652110();
+      if (iVar4 == 0) {
+LAB_00447e37:
+        uVar10 = 1;
+        uVar5 = param_2;
+        iVar4 = param_3;
+        pcVar3 = (char *)FUN_00559450((undefined4 *)local_134);
+        FUN_00447a40(this,pcVar3,uVar5,iVar4,uVar10);
+        local_8._0_1_ = 1;
+        CArray<class_CMFCRibbonInfo::XQAT::XQATItem,class_CMFCRibbonInfo::XQAT::XQATItem>::RemoveAll
+                  (local_134);
+      }
+      else {
+        piVar8 = &local_128;
+        pcVar9 = local_124;
+        uVar5 = FUN_00559450((undefined4 *)local_134);
+        pvVar6 = (void *)FUN_00652110();
+        cVar1 = FUN_006502f0(pvVar6,uVar5,(undefined4 *)pcVar9,piVar8);
+        if (((cVar1 == '\0') || (iVar4 = FUN_00559450((undefined4 *)local_124), iVar4 == 0)) ||
+           ((iVar4 = FUN_00559450(&local_128), iVar4 == 0 ||
+            (iVar4 = FUN_00559450(&local_128), *(int *)(iVar4 + 8) == 0)))) goto LAB_00447e37;
+        if (param_3 != 0) {
+          pvVar6 = (void *)FUN_00401000(0x40);
+          local_8._0_1_ = 3;
+          if (pvVar6 == (void *)0x0) {
+            local_15c = (undefined4 *)0x0;
+          }
+          else {
+            iVar4 = FUN_00559450(&local_128);
+            iVar7 = FUN_00559450((undefined4 *)local_124);
+            local_15c = FUN_00442130(pvVar6,iVar7,iVar4);
+          }
+          local_8._0_1_ = 2;
+          FUN_00528cb0(&local_138,(int)local_15c);
+          local_8._0_1_ = 4;
+          iVar4 = param_3;
+          pvVar6 = (void *)FUN_00559450(&local_138);
+          FUN_00443aa0(pvVar6,iVar4);
+          piVar8 = (int *)FUN_00559450(&local_138);
+          (**(code **)(*piVar8 + 0x28))();
+          local_8._0_1_ = 2;
+          FUN_0044cbf0(&local_138);
+        }
+        local_8._0_1_ = 1;
+        CArray<class_CMFCRibbonInfo::XQAT::XQATItem,class_CMFCRibbonInfo::XQAT::XQATItem>::RemoveAll
+                  (local_134);
+      }
+    }
+  }
+  else {
+    FUN_004037b0((undefined4 *)local_140);
+    local_8._0_1_ = 5;
+    FUN_00653520((undefined4 *)local_140,local_120,-1);
+    iVar4 = FUN_00652110();
+    if (iVar4 != 0) {
+      piVar8 = &local_128;
+      pcVar9 = local_124;
+      uVar5 = FUN_00559450((undefined4 *)local_140);
+      pvVar6 = (void *)FUN_00652110();
+      cVar1 = FUN_006502f0(pvVar6,uVar5,(undefined4 *)pcVar9,piVar8);
+      if ((((cVar1 != '\0') && (iVar4 = FUN_00559450((undefined4 *)local_124), iVar4 != 0)) &&
+          (iVar4 = FUN_00559450(&local_128), iVar4 != 0)) &&
+         (iVar4 = FUN_00559450(&local_128), *(int *)(iVar4 + 8) != 0)) {
+        if (param_3 != 0) {
+          pvVar6 = (void *)FUN_00401000(0x40);
+          local_8._0_1_ = 6;
+          if (pvVar6 == (void *)0x0) {
+            local_164 = (undefined4 *)0x0;
+          }
+          else {
+            iVar4 = FUN_00559450(&local_128);
+            iVar7 = FUN_00559450((undefined4 *)local_124);
+            local_164 = FUN_00442130(pvVar6,iVar7,iVar4);
+          }
+          local_8._0_1_ = 5;
+          FUN_00528cb0(&local_144,(int)local_164);
+          local_8._0_1_ = 7;
+          pvVar6 = (void *)FUN_00559450(&local_144);
+          FUN_00443aa0(pvVar6,param_3);
+          piVar8 = (int *)FUN_00559450(&local_144);
+          (**(code **)(*piVar8 + 0x28))();
+          local_8._0_1_ = 5;
+          FUN_0044cbf0(&local_144);
+        }
+        local_8._0_1_ = 1;
+        CArray<class_CMFCRibbonInfo::XQAT::XQATItem,class_CMFCRibbonInfo::XQAT::XQATItem>::RemoveAll
+                  (local_140);
+        local_8 = (uint)local_8._1_3_ << 8;
+        FUN_0044b2c0(&local_128);
+        local_8 = 0xffffffff;
+        Concurrency::cancellation_token_source::~cancellation_token_source(local_124);
+        goto LAB_0044805f;
+      }
+    }
+    uVar5 = 1;
+    pcVar3 = (char *)FUN_00559450((undefined4 *)local_140);
+    FUN_00447a40(this,pcVar3,param_2,param_3,uVar5);
+    local_8._0_1_ = 1;
+    CArray<class_CMFCRibbonInfo::XQAT::XQATItem,class_CMFCRibbonInfo::XQAT::XQATItem>::RemoveAll
+              (local_140);
+  }
+  local_8 = (uint)local_8._1_3_ << 8;
+  FUN_0044b2c0(&local_128);
+  local_8 = 0xffffffff;
+  Concurrency::cancellation_token_source::~cancellation_token_source(local_124);
+LAB_0044805f:
+  *unaff_FS_OFFSET = local_10;
+  __security_check_cookie(local_14 ^ (uint)&stack0xfffffffc);
+  return;
+}
+
+
+
+--- XRefs to IsDeleted_callers (0x00440d80) ---
+  UNCONDITIONAL_CALL @ 0x004622a2 (in FUN_00462290)
+  UNCONDITIONAL_CALL @ 0x00544db5 (in FUN_00544ce0)
+  UNCONDITIONAL_CALL @ 0x0054d100 (in FUN_0054d090)
+  UNCONDITIONAL_CALL @ 0x0056993f (in FUN_00569920)
+  UNCONDITIONAL_CALL @ 0x005699d2 (in FUN_005699b0)
+  UNCONDITIONAL_CALL @ 0x005728cc (in FUN_005728c0)
+  UNCONDITIONAL_CALL @ 0x0061a831 (in FUN_0061a7d0)
+  UNCONDITIONAL_CALL @ 0x0061e60d (in FUN_0061e600)
+  UNCONDITIONAL_CALL @ 0x0055724a (in FUN_005571a0)
+  UNCONDITIONAL_CALL @ 0x00557296 (in FUN_005571a0)
+  ... (truncated at 10)
+  Total: 10 refs
+
+======================================================================
+CommonDelete @ 0x00401030
+======================================================================
+  Function: FUN_00401030, Size: 21 bytes
+  Entry: 0x00401030
+
+void __cdecl FUN_00401030(undefined4 *param_1)
+
+{
+  undefined *this;
+  
+  this = FUN_00401020();
+  FUN_00aa4060(this,param_1);
+  return;
+}
+
