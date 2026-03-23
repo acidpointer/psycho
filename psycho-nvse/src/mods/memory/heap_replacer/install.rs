@@ -136,10 +136,18 @@ pub fn install_game_heap_hooks() -> anyhow::Result<()> {
     // the lock. The loading state counter is also redundant -- cell transitions
     // run during loading screens where DAT_01202d6c is already > 0.
 
-    // ---- AI thread join: deferred cell unloading after AI threads idle ----
+    // ---- AI thread synchronization: read lock from AI_Start to AI_Join ----
     {
         use game_heap::statics::*;
         use game_heap::hooks::*;
+
+        AI_THREAD_START_HOOK.init(
+            "ai_thread_start",
+            AI_THREAD_START_ADDR as *mut c_void,
+            hook_ai_thread_start,
+        )?;
+        guard.enable_hook("ai_thread_start", &AI_THREAD_START_HOOK)?;
+        log::info!("[SYNC] AI start read-lock at 0x{:08X}", AI_THREAD_START_ADDR);
 
         AI_THREAD_JOIN_HOOK.init(
             "ai_thread_join",
@@ -147,7 +155,7 @@ pub fn install_game_heap_hooks() -> anyhow::Result<()> {
             hook_ai_thread_join,
         )?;
         guard.enable_hook("ai_thread_join", &AI_THREAD_JOIN_HOOK)?;
-        log::info!("[PRESSURE] AI thread join hook installed at 0x{:08X}", AI_THREAD_JOIN_ADDR);
+        log::info!("[SYNC] AI join read-unlock at 0x{:08X}", AI_THREAD_JOIN_ADDR);
     }
 
     // ---- PDD: destruction guard around ProcessDeferredDestruction ----

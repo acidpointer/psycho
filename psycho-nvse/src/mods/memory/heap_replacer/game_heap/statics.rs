@@ -39,13 +39,19 @@ pub const MAIN_LOOP_MAINTENANCE_ADDR: usize = 0x008705D0;
 /// Drains 10-20 NiNodes per call; under pressure we call it extra times.
 pub const PER_FRAME_QUEUE_DRAIN_ADDR: usize = 0x00868850;
 
-/// AI thread join. Called at 0x0086ee4e AFTER render and our main hook.
+/// AI thread start. Called at Phase 6 to dispatch AI worker threads.
+/// Only on multi-threaded systems (processor count > 1).
+pub const AI_THREAD_START_ADDR: usize = 0x008C78C0;
+
+/// AI thread join. Called at Phase 9 to wait for AI worker threads.
 /// Only on multi-threaded systems (processor count > 1).
 pub const AI_THREAD_JOIN_ADDR: usize = 0x008C7990;
 
 pub static MAIN_LOOP_MAINTENANCE_HOOK: LazyLock<InlineHookContainer<MainLoopMaintenanceFn>> =
     LazyLock::new(InlineHookContainer::new);
 pub static PER_FRAME_QUEUE_DRAIN_HOOK: LazyLock<InlineHookContainer<PerFrameQueueDrainFn>> =
+    LazyLock::new(InlineHookContainer::new);
+pub static AI_THREAD_START_HOOK: LazyLock<InlineHookContainer<AIThreadStartFn>> =
     LazyLock::new(InlineHookContainer::new);
 pub static AI_THREAD_JOIN_HOOK: LazyLock<InlineHookContainer<AIThreadJoinFn>> =
     LazyLock::new(InlineHookContainer::new);

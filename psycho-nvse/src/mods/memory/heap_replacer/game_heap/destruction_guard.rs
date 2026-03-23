@@ -1,49 +1,72 @@
-//! Global destruction guard for cross-subsystem synchronization.
+//! Heap access guard — RwLock-based synchronization for game heap operations.
 //!
-//! Lightweight atomic flag that signals "destruction is in progress."
-//! Writers (PDD, cell cleanup, quarantine flush) set it before freeing
-//! game objects. Readers (skeleton update, queued ref processing,
-//! IOManager task dispatch) check it before accessing potentially
-//! stale data.
+//! Two usage patterns:
 //!
-//! This is defense-in-depth: the quarantine timing (flush at Phase 4)
-//! handles the common case. The destruction guard catches edge cases
-//! where destruction happens outside the normal phase ordering:
-//! - HeapCompact running PDD at non-standard times
-//! - Cell transition PDD from the outer loop
-//! - DeferredCleanupSmall called from the 5 normal PDD callers
-//!   at various frame positions
+//! 1. Short scopes (single function): `.read()` / `.write()` / `.try_write()`
+//!    with closure. Scope bounded by Rust ownership.
+//!
+//! 2. Phase-spanning scopes (across hooks): `begin_read_phase()` / `end_read_phase()`
+//!    for AI thread window (AI_Start → AI_Join) and BSTaskManagerThread tasks.
+//!    These use raw lock operations — caller MUST ensure pairing.
+//!
+//! Both patterns use the same underlying RwLock. Multiple read locks are
+//! allowed concurrently (parking_lot permits nested shared locks).
 
-use std::sync::atomic::{AtomicBool, Ordering};
+use parking_lot::RwLock;
+use parking_lot::lock_api::RawRwLock as RawRwLockTrait;
 
-/// Global flag: true when any destruction path is actively freeing
-/// game objects. Readers should skip or return safely when this is set.
-static DESTRUCTION_ACTIVE: AtomicBool = AtomicBool::new(false);
+/// Global heap access guard.
+static HEAP_GUARD: RwLock<()> = RwLock::new(());
 
-/// Check if destruction is currently in progress.
-/// Readers call this before accessing game object data that might
-/// be stale. If true, the reader should skip processing.
+// ---------------------------------------------------------------------------
+// Short scope API (closure-based, safe)
+// ---------------------------------------------------------------------------
+
+/// Execute `f` while holding READ lock. Multiple readers concurrent.
 #[inline]
-pub fn is_destruction_active() -> bool {
-    DESTRUCTION_ACTIVE.load(Ordering::Acquire)
+pub fn read<R>(f: impl FnOnce() -> R) -> R {
+    let _guard = HEAP_GUARD.read();
+    f()
 }
 
-/// RAII guard that sets DESTRUCTION_ACTIVE for its lifetime.
-/// Used by destruction paths (PDD hooks, quarantine flush).
-pub struct DestructionScope;
-
-impl DestructionScope {
-    /// Enter destruction mode. All reader hooks will see the flag.
-    #[inline]
-    pub fn enter() -> Self {
-        DESTRUCTION_ACTIVE.store(true, Ordering::Release);
-        DestructionScope
-    }
+/// Execute `f` while holding WRITE lock. Exclusive access.
+#[inline]
+pub fn write<R>(f: impl FnOnce() -> R) -> R {
+    let _guard = HEAP_GUARD.write();
+    f()
 }
 
-impl Drop for DestructionScope {
-    #[inline]
-    fn drop(&mut self) {
-        DESTRUCTION_ACTIVE.store(false, Ordering::Release);
-    }
+/// Try to execute `f` while holding WRITE lock (non-blocking).
+/// Returns None if any readers are active.
+#[inline]
+pub fn try_write<R>(f: impl FnOnce() -> R) -> Option<R> {
+    let _guard = HEAP_GUARD.try_write()?;
+    Some(f())
+}
+
+// ---------------------------------------------------------------------------
+// Phase-spanning API (raw lock, caller ensures pairing)
+// ---------------------------------------------------------------------------
+
+/// Acquire shared (read) lock for a long-running phase.
+/// Call `end_read_phase()` when the phase ends.
+///
+/// Used for AI thread window: AI_Start → AI_Join.
+/// During this phase, writers (PDD, quarantine flush) wait.
+///
+/// # Safety
+/// Caller MUST call `end_read_phase()` exactly once for each
+/// `begin_read_phase()`. Failing to do so permanently blocks writers.
+#[inline]
+pub unsafe fn begin_read_phase() {
+    HEAP_GUARD.raw().lock_shared();
+}
+
+/// Release shared (read) lock from a long-running phase.
+///
+/// # Safety
+/// Must be paired with a previous `begin_read_phase()`.
+#[inline]
+pub unsafe fn end_read_phase() {
+    HEAP_GUARD.raw().unlock_shared();
 }

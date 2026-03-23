@@ -42,6 +42,10 @@ pub type PDDFn = unsafe extern "C" fn(try_lock: u8);
 /// NVSE hooks the CALL to this function at 0x0086b3e3.
 pub type InnerLoopFn = unsafe extern "thiscall" fn(*mut c_void);
 
+/// FUN_008c78c0: dispatches AI Linear Task Threads (198 bytes, fastcall).
+/// Sets DAT_011dfa19 = 1, kicks 2 AI worker threads.
+pub type AIThreadStartFn = unsafe extern "fastcall" fn(mgr: *mut c_void);
+
 /// FUN_008c7990: waits for all AI Linear Task Threads to finish.
 pub type AIThreadJoinFn = unsafe extern "fastcall" fn(mgr: *mut c_void);
 

@@ -47,16 +47,32 @@ pub unsafe extern "thiscall" fn hook_main_loop_maintenance(this: *mut c_void) {
     unsafe { Gheap::on_frame_tick() };
 }
 
-// ---- AI thread join: deferred cell unloading after AI threads idle ----
+// ---- AI thread synchronization ----
 
-/// After the original AI join completes, AI threads are guaranteed idle.
-/// Runs deferred cell unloading with IO synchronization.
-///
-/// Only called on multi-threaded systems (processor count > 1).
+/// AI_Start: dispatch AI worker threads + acquire phase read lock.
+/// AI threads will read Havok data, NiNodes, collision shapes.
+/// The read lock prevents writers (PDD, quarantine flush) from
+/// recycling this data until AI_Join releases the lock.
+pub unsafe extern "fastcall" fn hook_ai_thread_start(mgr: *mut c_void) {
+    // Acquire read lock BEFORE dispatching AI threads.
+    // Writers must wait until AI_Join releases this.
+    unsafe { super::destruction_guard::begin_read_phase() };
+
+    if let Ok(original) = statics::AI_THREAD_START_HOOK.original() {
+        unsafe { original(mgr) };
+    }
+}
+
+/// AI_Join: wait for AI worker threads + release phase read lock.
+/// After this, AI threads are idle and writers can proceed safely.
 pub unsafe extern "fastcall" fn hook_ai_thread_join(mgr: *mut c_void) {
     if let Ok(original) = statics::AI_THREAD_JOIN_HOOK.original() {
         unsafe { original(mgr) };
     }
+
+    // Release read lock AFTER AI threads are joined.
+    // Writers (PDD, quarantine flush) can now proceed.
+    unsafe { super::destruction_guard::end_read_phase() };
 
     if let Some(pr) = PressureRelief::instance() {
         unsafe { pr.run_deferred_unload() };

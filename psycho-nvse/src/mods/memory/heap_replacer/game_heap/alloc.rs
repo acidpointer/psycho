@@ -1,15 +1,17 @@
-//! GameHeap replacement — routes alloc/free/realloc/msize through mimalloc.
+//! GameHeap replacement -- routes alloc/free/realloc/msize through mimalloc.
 //!
-//! Frees go through a per-thread quarantine (main thread: double-buffer
+//! Frees go through per-thread quarantine (main thread: double-buffer
 //! delayed by 1 frame, worker threads: immediate mi_free). Stale pointer
-//! issues are handled by the quarantine + targeted engine hooks (texture
-//! dead set, IO task validation, skeleton update guard, queued ref filter).
+//! issues handled by quarantine timing + targeted engine hooks.
+//!
+//! OOM recovery: react to allocation failures, not commit thresholds.
+//! VA exhaustion is about fragmentation, not total commit.
 
 use libc::c_void;
 use std::ptr::null_mut;
 
 use libmimalloc::{
-    mi_collect, mi_free, mi_is_in_heap_region, mi_malloc_aligned, mi_realloc_aligned,
+    mi_collect, mi_is_in_heap_region, mi_malloc_aligned, mi_realloc_aligned,
     mi_usable_size,
 };
 use libpsycho::ffi::fnptr::FnPtr;
@@ -22,26 +24,16 @@ use crate::mods::memory::heap_replacer::heap_validate;
 
 // ---- Configuration ----
 
-/// Alignment for all GameHeap allocations (matches original engine).
 const ALIGN: usize = 16;
-
-/// GameHeap singleton address (DAT_011f6238).
 const SINGLETON: usize = 0x011F6238;
 
-/// Check pressure every N gheap allocations per thread.
+/// Pressure check interval. Every N allocs, check if commit exceeds
+/// the dynamic threshold (baseline + 500MB) and trigger pressure relief.
 const PRESSURE_CHECK_INTERVAL: u32 = 50_000;
-
-/// Hard commit ceiling. When exceeded, route through oom_recover which
-/// does mi_collect before retrying. 1.5GB leaves ~2.5GB for D3D9.
-const COMMIT_CEILING: usize = 1500 * 1024 * 1024;
 
 thread_local! {
     static ALLOC_COUNTER: std::cell::Cell<u32> = const { std::cell::Cell::new(0) };
 }
-
-/// Set when commit exceeds COMMIT_CEILING. Cleared by periodic check.
-static OVER_CEILING: std::sync::atomic::AtomicBool =
-    std::sync::atomic::AtomicBool::new(false);
 
 // ---- OOM recovery game addresses ----
 
@@ -57,74 +49,60 @@ pub struct Gheap;
 
 impl Gheap {
     /// Allocate `size` bytes with 16-byte alignment.
+    ///
+    /// Fast path: mi_malloc_aligned directly. Periodic pressure check
+    /// every 50K allocs. On failure: oom_recover with escalating stages.
     #[inline]
     pub unsafe fn alloc(size: usize) -> *mut c_void {
-        // Over ceiling: route through oom_recover for cleanup.
-        if OVER_CEILING.load(std::sync::atomic::Ordering::Relaxed) {
-            let ptr = unsafe { Self::oom_recover(size) };
-            if !ptr.is_null() {
-                // Periodic check to clear the flag when commit drops.
-                ALLOC_COUNTER.with(|c| {
-                    let count = c.get().wrapping_add(1);
-                    c.set(count);
-                    if count % PRESSURE_CHECK_INTERVAL == 0 {
-                        let commit = libmimalloc::process_info::MiMallocProcessInfo::get()
-                            .get_current_commit();
-                        OVER_CEILING.store(
-                            commit >= COMMIT_CEILING,
-                            std::sync::atomic::Ordering::Relaxed,
-                        );
-                    }
-                });
-            }
-            return ptr;
-        }
-
-        // Fast path: allocate directly.
         let ptr = unsafe { mi_malloc_aligned(size, ALIGN) };
         if !ptr.is_null() {
-            // Periodic pressure check.
+            // Periodic pressure check (no ceiling, just dynamic threshold).
             ALLOC_COUNTER.with(|c| {
                 let count = c.get().wrapping_add(1);
                 c.set(count);
-                if count % PRESSURE_CHECK_INTERVAL == 0 {
-                    let commit = libmimalloc::process_info::MiMallocProcessInfo::get()
-                        .get_current_commit();
-
-                    OVER_CEILING.store(
-                        commit >= COMMIT_CEILING,
-                        std::sync::atomic::Ordering::Relaxed,
-                    );
-
-                    if let Some(pr) = PressureRelief::instance() {
+                if count % PRESSURE_CHECK_INTERVAL == 0
+                    && let Some(pr) = PressureRelief::instance() {
                         unsafe { pr.check() };
                     }
-                }
             });
             return ptr;
         }
 
-        // Slow path: OOM recovery.
+        // Allocation failed -- actual VA exhaustion or fragmentation.
         unsafe { Self::oom_recover(size) }
     }
 
-    /// OOM recovery with escalating stages.
+    /// OOM recovery with escalating stages + bounded retry.
+    ///
+    /// Only called when mi_malloc_aligned actually fails. Escalates:
+    /// 1. Collect this thread's empty pages
+    /// 2. Flush quarantine + force collect
+    /// 3. Main thread: game's OOM stages 0-8
+    /// 4. Retry loop with Sleep(1) — gives other threads time to free memory
+    ///
+    /// The vanilla allocator never returns NULL (retries for 15 seconds).
+    /// We retry for up to 3 seconds before giving up.
     #[cold]
     unsafe fn oom_recover(size: usize) -> *mut c_void {
-        // Stage 1: try alloc directly (OVER_CEILING path often succeeds).
-        let ptr = unsafe { mi_malloc_aligned(size, ALIGN) };
-        if !ptr.is_null() {
-            return ptr;
-        }
+        let is_main = unsafe { Self::is_main_thread() };
+        let info = libmimalloc::process_info::MiMallocProcessInfo::get();
+        log::warn!(
+            "[GHEAP] OOM recovery started: size={}, thread={}, RSS={}MB, Commit={}MB, Quarantine={}MB",
+            size,
+            if is_main { "main" } else { "worker" },
+            info.get_current_rss() / 1024 / 1024,
+            info.get_current_commit() / 1024 / 1024,
+            delayed_free::get_quarantine_usage() / 1024 / 1024,
+        );
 
-        // Stage 2: collect empty pages from this thread's heap.
+        // Stage 1: collect empty pages from this thread's heap.
         unsafe { mi_collect(false) };
         let ptr = unsafe { mi_malloc_aligned(size, ALIGN) };
         if !ptr.is_null() {
             return ptr;
         }
 
-        // Stage 3: flush quarantine to reclaim deferred memory.
+        // Stage 2: flush quarantine to reclaim deferred memory + force collect.
         unsafe { delayed_free::flush_current_thread() };
         unsafe { mi_collect(true) };
         let ptr = unsafe { mi_malloc_aligned(size, ALIGN) };
@@ -132,26 +110,47 @@ impl Gheap {
             return ptr;
         }
 
-        // Stage 4 (main thread only): game's OOM stages 0-8.
+        // Stage 3 (main thread only): game's OOM stages 0-8.
         if unsafe { Self::is_main_thread() } {
-            return unsafe { Self::run_game_oom_stages(size) };
+            let ptr = unsafe { Self::run_game_oom_stages(size) };
+            if !ptr.is_null() {
+                return ptr;
+            }
         }
 
-        // Worker thread: one more force collect as last resort.
-        unsafe { mi_collect(true) };
-        let ptr = unsafe { mi_malloc_aligned(size, ALIGN) };
-        if !ptr.is_null() {
-            return ptr;
+        // Stage 4: bounded retry loop. Give other threads time to free
+        // memory via pressure relief, quarantine flush, or OOM stages.
+        // 500 iterations * Sleep(1) = ~500ms max stutter.
+        // Uses mi_collect(false) per iteration (lightweight) with one
+        // force collect + quarantine flush at the halfway point.
+        for attempt in 0..500u32 {
+            libpsycho::os::windows::winapi::sleep(1);
+            unsafe { mi_collect(false) };
+            let ptr = unsafe { mi_malloc_aligned(size, ALIGN) };
+            if !ptr.is_null() {
+                if attempt > 10 {
+                    log::info!(
+                        "[GHEAP] OOM recovered after {} retries (size={})",
+                        attempt, size,
+                    );
+                }
+                return ptr;
+            }
+            // Halfway: force collect + quarantine flush as escalation.
+            if attempt == 250 {
+                unsafe { delayed_free::flush_current_thread() };
+                unsafe { mi_collect(true) };
+            }
         }
 
         let info = libmimalloc::process_info::MiMallocProcessInfo::get();
         log::error!(
-            "[GHEAP] OOM (worker): mi_malloc_aligned({}, {}) failed. \
+            "[GHEAP] OOM: mi_malloc_aligned({}, {}) failed after all recovery. \
              RSS={}MB, Commit={}MB, Quarantine={}MB",
             size, ALIGN,
             info.get_current_rss() / 1024 / 1024,
             info.get_current_commit() / 1024 / 1024,
-            delayed_free::get_quarantine_bytes() / 1024 / 1024,
+            delayed_free::get_quarantine_usage() / 1024 / 1024,
         );
         null_mut()
     }
@@ -243,7 +242,6 @@ impl Gheap {
         unsafe { heap_validate::heap_validated_free(ptr) };
     }
 
-    /// Get the usable size of a GameHeap pointer.
     #[inline]
     pub unsafe fn msize(ptr: *mut c_void) -> usize {
         if ptr.is_null() {
@@ -269,7 +267,6 @@ impl Gheap {
         0
     }
 
-    /// Reallocate a GameHeap pointer.
     #[inline]
     pub unsafe fn realloc(ptr: *mut c_void, new_size: usize) -> *mut c_void {
         if ptr.is_null() {
@@ -309,9 +306,7 @@ impl Gheap {
         new_ptr
     }
 
-    /// Called once per frame from the main loop hook (Phase 8, post-render).
-    /// Rotates quarantine buffers but does NOT flush — flush happens at
-    /// Phase 4 via on_pre_pdd().
+    /// Called once per frame from the main loop hook (Phase 8).
     pub unsafe fn on_frame_tick() {
         delayed_free::tick_rotate();
 
@@ -320,9 +315,7 @@ impl Gheap {
         }
     }
 
-    /// Called at Phase 4 entry (per-frame queue drain), BEFORE PDD runs.
-    /// Flushes the previous quarantine buffer. At this point all readers
-    /// (AI threads, NVSE dispatch, IOManager) have finished.
+    /// Called at Phase 4 entry (per-frame queue drain), BEFORE PDD.
     pub unsafe fn on_pre_pdd() {
         delayed_free::tick_flush();
     }

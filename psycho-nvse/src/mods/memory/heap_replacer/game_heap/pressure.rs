@@ -59,7 +59,13 @@ const MAX_GROWTH_ABOVE_BASELINE: usize = 500 * 1024 * 1024;
 const MAX_CELLS_PER_CYCLE: usize = 20;
 
 /// Minimum milliseconds between relief cycles.
+/// Normal relief: lightweight collect every 2 seconds.
 const COOLDOWN_MS: u64 = 2000;
+
+/// Minimum milliseconds between aggressive relief (mi_collect(true)).
+/// Force collect walks all pages — expensive but actually frees memory.
+/// Only triggers when commit exceeds baseline + 2x MAX_GROWTH.
+const AGGRESSIVE_COOLDOWN_MS: u64 = 10_000;
 
 // ---- Game addresses ----
 
@@ -219,6 +225,11 @@ impl PressureRelief {
     }
 
     /// Must be called on the main thread, between frames.
+    ///
+    /// Two-tier escalation:
+    /// - Normal (every 2s): mi_collect(false) — reclaim retired pages.
+    /// - Aggressive (every 10s, commit > 2x growth): mi_collect(true) +
+    ///   quarantine flush — force-walk all pages, reclaim cross-thread.
     pub unsafe fn relieve(&self) {
         if !self.requested.load(Ordering::Acquire) {
             return;
@@ -243,35 +254,48 @@ impl PressureRelief {
             return;
         }
 
-        // NOTE: We do NOT trigger HeapCompact here. HeapCompact stages 3+
-        // (PDD, cell unloading, async flush) access freed game objects
-        // (BSA file handles, NiRefObjects, BSTreeNodes). With SBM, freed
-        // memory stays readable as zombies. With mimalloc, it's recycled --
-        // HeapCompact reads garbage and crashes (CRT invalid parameter on
-        // recycled file handles, NULL vtable on recycled NiRefObjects).
-        //
-        // Actual OOM is handled by COMMIT_CEILING in Gheap::alloc, which
-        // routes through oom_recover. oom_recover flushes quarantine and
-        // calls FUN_00866a90 stages from the allocator retry context --
-        // that path is safe because the game expects it during allocation.
-        //
-        // mi_collect reclaims empty pages on the calling thread's heap.
-        unsafe { mi_collect(false) };
-
-        self.last_time_ms.store(now_ms, Ordering::Relaxed);
-
+        let baseline = self.baseline_commit.load(Ordering::Relaxed);
+        let aggressive_threshold = baseline + MAX_GROWTH_ABOVE_BASELINE * 2;
         let commit_mb = commit / 1024 / 1024;
+        let quarantine_mb = super::delayed_free::get_quarantine_usage() / 1024 / 1024;
 
-        self.requested.store(false, Ordering::Release);
+        if commit >= aggressive_threshold {
+            // Aggressive: force collect + quarantine flush.
+            // Rate-limited to avoid stutters (every 10s).
+            static LAST_AGGRESSIVE_MS: std::sync::atomic::AtomicU64 =
+                std::sync::atomic::AtomicU64::new(0);
+            let last_agg = LAST_AGGRESSIVE_MS.load(Ordering::Relaxed);
 
-        log::info!("[PRESSURE] Relief cycle (commit={}MB)", commit_mb);
-
-        if commit_mb >= 1800 {
-            crate::nvse_services::show_notification(
-                &format!("Pip-Boy: {}MB, cache optimized", commit_mb),
+            if now_ms.saturating_sub(last_agg) >= AGGRESSIVE_COOLDOWN_MS {
+                LAST_AGGRESSIVE_MS.store(now_ms, Ordering::Relaxed);
+                unsafe { super::delayed_free::flush_current_thread() };
+                unsafe { mi_collect(true) };
+                log::warn!(
+                    "[PRESSURE] Aggressive relief: commit={}MB (threshold={}MB), quarantine={}MB, RSS={}MB",
+                    commit_mb,
+                    aggressive_threshold / 1024 / 1024,
+                    quarantine_mb,
+                    info.get_current_rss() / 1024 / 1024,
+                );
+            } else {
+                // Between aggressive cycles: still do lightweight collect.
+                unsafe { mi_collect(false) };
+                log::info!(
+                    "[PRESSURE] Relief (waiting for aggressive cooldown): commit={}MB, quarantine={}MB",
+                    commit_mb, quarantine_mb,
+                );
+            }
+        } else {
+            // Normal: lightweight collect.
+            unsafe { mi_collect(false) };
+            log::info!(
+                "[PRESSURE] Relief: commit={}MB, quarantine={}MB",
+                commit_mb, quarantine_mb,
             );
         }
 
+        self.last_time_ms.store(now_ms, Ordering::Relaxed);
+        self.requested.store(false, Ordering::Release);
         self.active.store(false, Ordering::Release);
     }
 
