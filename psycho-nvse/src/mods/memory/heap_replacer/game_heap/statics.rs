@@ -50,6 +50,17 @@ pub static PER_FRAME_QUEUE_DRAIN_HOOK: LazyLock<InlineHookContainer<PerFrameQueu
 pub static AI_THREAD_JOIN_HOOK: LazyLock<InlineHookContainer<AIThreadJoinFn>> =
     LazyLock::new(InlineHookContainer::new);
 
+// ---- PDD (ProcessDeferredDestruction) ----
+
+/// FUN_00868d70: the core destruction function (1037 bytes, cdecl).
+/// Called by ALL destruction paths: 5 normal PDD callers,
+/// CellTransitionHandler, HeapCompact, per-frame drain.
+/// We hook this to set the destruction guard.
+pub const PDD_ADDR: usize = 0x00868D70;
+
+pub static PDD_HOOK: LazyLock<InlineHookContainer<PDDFn>> =
+    LazyLock::new(InlineHookContainer::new);
+
 // ---- Texture cache ----
 
 pub const TEXTURE_CACHE_FIND_ADDR: usize = 0x00A61A60;

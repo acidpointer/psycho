@@ -90,6 +90,12 @@ thread_local! {
 }
 
 pub unsafe extern "C" fn hook_per_frame_queue_drain() {
+    // Flush quarantine BEFORE PDD runs. At this point:
+    // - AI threads idle (joined in Phase 9 of previous frame)
+    // - NVSE dispatch completed (after previous inner loop)
+    // - IOManager Phase 3 completed (earlier this frame)
+    unsafe { Gheap::on_pre_pdd() };
+
     if let Ok(original) = statics::PER_FRAME_QUEUE_DRAIN_HOOK.original() {
         unsafe { original() };
 

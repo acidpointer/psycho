@@ -16,6 +16,7 @@
 
 use libc::c_void;
 
+use super::destruction_guard;
 use super::statics;
 
 /// TESForm flags field offset from object base.
@@ -29,6 +30,11 @@ const FLAG_HAVOK_DEATH: u32 = 0x10000;
 /// Skips processing for references with HAVOK_DEATH to prevent
 /// use-after-free on freed Havok ragdoll bone data.
 pub unsafe extern "fastcall" fn hook_queued_ref_process(refr: *mut c_void) {
+    // Defense-in-depth: skip if destruction is actively freeing objects.
+    if destruction_guard::is_destruction_active() {
+        return;
+    }
+
     if !refr.is_null() {
         let flags = unsafe { *((refr as *const u8).add(TESFORM_FLAGS_OFFSET) as *const u32) };
         if flags & FLAG_HAVOK_DEATH != 0 {

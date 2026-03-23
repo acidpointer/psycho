@@ -1,0 +1,317 @@
+======================================================================
+THREAD SYNCHRONIZATION POINTS
+======================================================================
+
+# PART 1: PDD locks (protect deferred destruction queues)
+
+PDD BlockingLock:
+  [PDD_BlockingLock] FUN_00867f50 @ 0x00867F50 (19 bytes)
+
+void FUN_00867f50(void)
+
+{
+  FUN_0040fbf0((LONG *)&DAT_011de8e0);
+  return;
+}
+
+
+
+PDD TryLock:
+  [PDD_TryLock] FUN_00867f70 @ 0x00867F70 (15 bytes)
+
+void FUN_00867f70(void)
+
+{
+  FUN_0078d200((LONG *)&DAT_011de8e0);
+  return;
+}
+
+
+
+Callers of PDD BlockingLock:
+    0x008681C0 FUN_008681c0 (at 0x008681D5)
+    0x00868D70 FUN_00868d70 (at 0x00868DA3)
+    0x00868850 FUN_00868850 (at 0x0086887C)
+    0x00868D10 FUN_00868d10 (at 0x00868D3A)
+    0x00868270 FUN_00868270 (at 0x0086827D)
+  [PDD_BlockingLock] 5 refs shown
+
+Callers of PDD TryLock:
+    0x00868D70 FUN_00868d70 (at 0x00868D92)
+  [PDD_TryLock] 1 refs shown
+
+# PART 2: hkWorld Lock/Unlock (Havok physics sync)
+
+  [hkWorld_Lock] FUN_00c3e310 @ 0x00C3E310 (43 bytes)
+
+void __fastcall FUN_00c3e310(int param_1)
+
+{
+  uint uVar1;
+  
+  uVar1 = FUN_00c3e750(param_1);
+  if (((uVar1 & 0xff) != 0) && (*(int *)(param_1 + 0x7c) != 0)) {
+    (**(code **)(param_1 + 0x7c))();
+  }
+  return;
+}
+
+
+
+  [hkWorld_Unlock] FUN_00c3e340 @ 0x00C3E340 (49 bytes)
+
+void __fastcall FUN_00c3e340(int param_1)
+
+{
+  uint uVar1;
+  
+  uVar1 = FUN_00c3e7d0(param_1);
+  if (((uVar1 & 0xff) != 0) && (*(int *)(param_1 + 0x80) != 0)) {
+    (**(code **)(param_1 + 0x80))();
+  }
+  return;
+}
+
+
+
+# PART 3: HavokStopStart (stop sim + drain AI)
+
+  [HavokStopStart] FUN_008324e0 @ 0x008324E0 (184 bytes)
+
+char __cdecl FUN_008324e0(char param_1)
+
+{
+  char cVar1;
+  
+  if (DAT_011dd436 == '\0') {
+    if (param_1 == '\0') {
+      cVar1 = FUN_00830ad0();
+      if (cVar1 != '\0') {
+        FUN_008304a0();
+        FUN_008325a0(0);
+      }
+      FUN_00ad88f0((int *)&DAT_011dd5bc);
+      FUN_00ad8d10((int *)&DAT_011dd5bc);
+      DAT_011dd42c = 0;
+      FUN_00ad88f0((int *)&DAT_011dd638);
+      FUN_00ad8d10((int *)&DAT_011dd638);
+    }
+    else if (DAT_011dd437 == '\0') {
+      FUN_008304a0();
+      FUN_008325a0(1);
+      FUN_008300c0(7,(char *)0x0,1000,'\0','\0',0.0,0);
+      FUN_008304c0();
+    }
+    DAT_011dd434 = param_1;
+  }
+  else {
+    param_1 = '\0';
+  }
+  return param_1;
+}
+
+
+
+# PART 4: AI Start/Join
+
+  [AI_Start] FUN_008c78c0 @ 0x008C78C0 (198 bytes)
+
+void __fastcall FUN_008c78c0(int param_1)
+
+{
+  undefined4 local_14;
+  undefined4 local_10;
+  undefined4 local_c;
+  undefined4 local_8;
+  
+  for (local_8 = 0; local_8 < 0xc; local_8 = local_8 + 1) {
+    ResetEvent(*(HANDLE *)(param_1 + 0x3c + local_8 * 4));
+  }
+  for (local_c = 0; local_c < 8; local_c = local_c + 1) {
+    ResetEvent(*(HANDLE *)(param_1 + 0x6c + local_c * 4));
+  }
+  for (local_10 = 0; local_10 < 2; local_10 = local_10 + 1) {
+    *(undefined4 *)(param_1 + 0xc + local_10 * 4) = 0;
+  }
+  DAT_011dfa19 = 1;
+  for (local_14 = 0; local_14 < 2; local_14 = local_14 + 1) {
+    if (*(int *)(param_1 + local_14 * 4) != 0) {
+      FUN_008c9fb0(*(int *)(param_1 + local_14 * 4));
+    }
+  }
+  return;
+}
+
+
+
+  [AI_Join] FUN_008c7990 @ 0x008C7990 (72 bytes)
+
+void __fastcall FUN_008c7990(int param_1)
+
+{
+  undefined4 local_8;
+  
+  for (local_8 = 0; local_8 < 2; local_8 = local_8 + 1) {
+    if (*(int *)(param_1 + local_8 * 4) != 0) {
+      FUN_008c7490(*(int *)(param_1 + local_8 * 4));
+    }
+  }
+  DAT_011dfa19 = 0;
+  return;
+}
+
+
+
+# PART 5: Async queue flush (blocking IO drain)
+
+  [AsyncFlush] FUN_00c459d0 @ 0x00C459D0 (172 bytes)
+
+/* WARNING: Globals starting with '_' overlap smaller symbols at the same address */
+
+void __cdecl FUN_00c459d0(char param_1)
+
+{
+  BOOL BVar1;
+  bool local_5;
+  
+  local_5 = true;
+  if (param_1 == '\0') {
+    FUN_0040fbf0((LONG *)&DAT_01202e40);
+  }
+  else {
+    local_5 = FUN_0078d200((LONG *)&DAT_01202e40);
+  }
+  if ((local_5 == false) ||
+     (BVar1 = TryEnterCriticalSection((LPCRITICAL_SECTION)&lpCriticalSection_011f4380), BVar1 != 0))
+  {
+    if (local_5 != false) {
+      FUN_00c46080(0x1202e20);
+      FUN_00c45a80();
+      LeaveCriticalSection((LPCRITICAL_SECTION)&lpCriticalSection_011f4380);
+      DAT_01202e44 = DAT_01202e44 + -1;
+      if (DAT_01202e44 == 0) {
+        _DAT_01202e40 = 0;
+      }
+    }
+  }
+  else {
+    DAT_01202e44 = DAT_01202e44 + -1;
+    if (DAT_01202e44 == 0) {
+      _DAT_01202e40 = 0;
+    }
+  }
+  return;
+}
+
+
+
+# PART 6: IOManager main-thread processing
+
+  [IOManager_MainThread] FUN_00c3dbf0 @ 0x00C3DBF0 (646 bytes)
+
+/* WARNING: Removing unreachable block (ram,0x00c3dc63) */
+/* WARNING: Removing unreachable block (ram,0x00c3dc9f) */
+/* WARNING: Removing unreachable block (ram,0x00c3dd3c) */
+/* WARNING: Removing unreachable block (ram,0x00c3de2a) */
+/* WARNING: Removing unreachable block (ram,0x00c3de5c) */
+
+undefined1 __fastcall FUN_00c3dbf0(int param_1)
+
+{
+  bool bVar1;
+  uint uVar2;
+  int iVar3;
+  int *unaff_FS_OFFSET;
+  longlong lVar4;
+  ulonglong uVar5;
+  longlong lVar6;
+  uint local_28;
+  int local_24;
+  undefined1 local_15;
+  int *local_14;
+  int local_10;
+  undefined1 *puStack_c;
+  undefined4 local_8;
+  
+  local_8 = 0xffffffff;
+  puStack_c = &LAB_00f2dd89;
+  local_10 = *unaff_FS_OFFSET;
+  uVar2 = DAT_011c16bc ^ (uint)&stack0xfffffffc;
+  *unaff_FS_OFFSET = (int)&local_10;
+  if (DAT_01202dd8 == '\0') {
+    local_15 = 1;
+    DAT_01202dd8 = 1;
+    lVar4 = FUN_00aa4d80();
+    uVar5 = FUN_00ec62f6();
+    if (*(int *)(param_1 + 0x74) != 0) {
+      local_15 = (**(code **)(param_1 + 0x74))(uVar2);
+    }
+    local_14 = (int *)0x0;
+    local_8 = 0;
+    FUN_00c3e420(*(void **)(param_1 + 100),(int *)&local_14);
+    while (local_14 != (int *)0x0) {
+      (**(code **)(*local_14 + 0x14))();
+      if (*(int *)(param_1 + 0x70) != 0) {
+        (**(code **)(param_1 + 0x70))();
+      }
+      lVar6 = FUN_00aa4d80();
+      iVar3 = (int)((ulonglong)(lVar6 - lVar4) >> 0x20);
+      local_24 = (int)(uVar5 >> 0x20);
+      if ((iVar3 < local_24) ||
+         ((iVar3 <= local_24 && (local_28 = (uint)uVar5, (uint)(lVar6 - lVar4) <= local_28)))) {
+        bVar1 = false;
+      }
+      else {
+        bVar1 = true;
+      }
+      if (bVar1) {
+        if (local_14 != (int *)0x0) {
+          if (local_14 != (int *)0x0) {
+            FUN_0044dd60(local_14);
+          }
+          local_14 = (int *)0x0;
+        }
+      }
+      else {
+        FUN_00c3e420(*(void **)(param_1 + 100),(int *)&local_14);
+      }
+    }
+    DAT_01202dd8 = '\0';
+  }
+  else {
+    local_15 = 1;
+  }
+  *unaff_FS_OFFSET = local_10;
+  return local_15;
+}
+
+
+
+# PART 7: Key global flags for thread coordination
+
+AI_Active_Flag (0x011DFA19):
+    0x00713D90 FUN_00713d90 (at 0x00713D93)
+    0x008C78C0 FUN_008c78c0 (at 0x008C7947)
+    0x008C7990 FUN_008c7990 (at 0x008C79CD)
+  [AI_Active_Flag] 3 refs shown
+
+Loading_Flag (0x011DEA2B):
+    0x0086E650 FUN_0086e650 (at 0x0086E6E1)
+    0x0086E650 FUN_0086e650 (at 0x0086E771)
+    0x0086E650 FUN_0086e650 (at 0x0086E7C9)
+    0x0086E650 FUN_0086e650 (at 0x0086E871)
+    0x0086E650 FUN_0086e650 (at 0x0086E8E0)
+    0x0086E650 FUN_0086e650 (at 0x0086E90F)
+    0x0086E650 FUN_0086e650 (at 0x0086E93D)
+    0x0086E650 FUN_0086e650 (at 0x0086EA0E)
+    0x0086E650 FUN_0086e650 (at 0x0086EA5A)
+    0x0086E650 FUN_0086e650 (at 0x0086EAE9)
+  ... (truncated at 10)
+  [Loading_Flag] 10 refs shown
+
+Loading_State_Counter (0x01202D6C):
+    0x0043B2B0 FUN_0043b2b0 (at 0x0043B2DE)
+    0x0043B2B0 FUN_0043b2b0 (at 0x0043B2E7)
+    0x0043B2B0 FUN_0043b2b0 (at 0x0043B2BC)
+    0x0043B2B0 FUN_0043b2b0 (at 0x0043B2CE)
+  [Loading_State_Counter] 4 refs shown

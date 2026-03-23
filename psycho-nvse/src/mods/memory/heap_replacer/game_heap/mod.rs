@@ -6,9 +6,12 @@
 
 mod alloc;
 pub mod cell_transition;
+pub mod delayed_free;
+pub mod destruction_guard;
 pub mod hooks;
 pub mod io_task;
 pub mod monitor;
+pub mod pdd_hook;
 pub mod pressure;
 pub mod queued_ref;
 pub mod skeleton_update;

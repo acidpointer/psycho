@@ -1,0 +1,1380 @@
+======================================================================
+OUTER LOOP FULL SEQUENCE
+======================================================================
+
+# PART 1: Outer game loop (FUN_0086a850)
+
+  [OuterLoop] FUN_0086a850 @ 0x0086A850 (4532 bytes)
+
+/* WARNING: Globals starting with '_' overlap smaller symbols at the same address */
+
+void FUN_0086a850(HINSTANCE param_1)
+
+{
+  char cVar1;
+  DWORD DVar2;
+  int iVar3;
+  undefined1 *puVar4;
+  DWORD *pDVar5;
+  int *piVar6;
+  undefined4 *puVar7;
+  undefined *puVar8;
+  void *pvVar9;
+  LPWSTR lpCmdLine;
+  undefined *puVar10;
+  undefined4 uVar11;
+  LPVOID pvVar12;
+  BOOL BVar13;
+  HWND pHVar14;
+  DWORD DVar15;
+  undefined1 uVar16;
+  undefined1 uVar17;
+  undefined1 uVar18;
+  code *pcVar19;
+  char *pcVar20;
+  wchar_t *pwVar21;
+  undefined4 uVar22;
+  undefined4 *local_360;
+  char *local_35c;
+  tagRECT local_318;
+  DWORD local_308;
+  tagRECT local_304;
+  DWORD local_2f4;
+  int local_2f0;
+  BYTE local_2ec [264];
+  HINSTANCE local_1e4;
+  wchar_t *local_1e0;
+  int local_1dc;
+  int local_1d8;
+  LPWSTR *local_1d4;
+  undefined1 local_1cd;
+  float local_1cc [3];
+  _SYSTEM_INFO local_1c0;
+  undefined4 local_19c;
+  WNDCLASSA local_198;
+  tagMSG local_170;
+  undefined4 local_154;
+  undefined4 local_150 [6];
+  HWND local_138;
+  wchar_t local_134 [132];
+  uint local_2c;
+  HWND local_28;
+  HANDLE local_24;
+  tagRECT local_20;
+  char local_d;
+  char *local_c;
+  HWND local_8;
+  
+  local_2c = DAT_011c16bc ^ (uint)&stack0xfffffffc;
+  local_24 = CreateMutexA((LPSECURITY_ATTRIBUTES)0x0,0,"FalloutNVGameMutex");
+  DVar2 = GetLastError();
+  if (DVar2 == 0xb7) {
+    MessageBoxA((HWND)0x0,"There is already an instance of Fallout: New Vegas running","Error",0);
+  }
+  else {
+    iVar3 = GetSystemMetrics(0x1000);
+    if (iVar3 == 0) {
+      local_1cd = 1;
+      pcVar19 = FUN_0086a580;
+      puVar4 = FUN_00408d60(0x11ded74);
+      uVar17 = *puVar4;
+      puVar4 = FUN_00408d60(0x11dee20);
+      uVar16 = *puVar4;
+      puVar4 = FUN_00408d60(0x11dec88);
+      FUN_00c3bd30(local_1cd,*puVar4,uVar16,uVar17,pcVar19);
+      FUN_00c3bb90("Warnings.txt");
+      FUN_00c3bbe0("ProgramFlow.txt");
+      FUN_00c3bc30("ProgrammerOutput.txt");
+      FUN_00c3bc80("StackTrace.txt");
+      GetSystemInfo(&local_1c0);
+      pDVar5 = (DWORD *)FUN_0043d4d0(0x11c3ea4);
+      *pDVar5 = local_1c0.dwNumberOfProcessors;
+      FUN_00876ad0(local_134);
+      piVar6 = (int *)FUN_0043d4d0(0x11c3ea4);
+      if (*piVar6 == 1) {
+        puVar7 = (undefined4 *)FUN_0043d4d0(0x11c3ea4);
+        *puVar7 = 2;
+      }
+      local_8 = FindWindowA(PTR_s_Fallout__New_Vegas_011a2fe8,(LPCSTR)0x0);
+      if (local_8 == (HWND)0x0) {
+        FUN_004b4a30();
+        pcVar19 = FUN_00869f30;
+        puVar8 = FID_conflict__Immortalize<class_std::_Generic_error_category>();
+        FUN_004fb090(puVar8,pcVar19);
+        pcVar19 = FUN_0086a020;
+        FID_conflict__Immortalize<class_std::_Generic_error_category>();
+        pvVar9 = (void *)FUN_008526c0();
+        FUN_006ecd40(pvVar9,pcVar19);
+        FUN_00aa20b0((undefined4 *)0x0);
+        FUN_00c5d4e0();
+        FUN_004b7920();
+        FUN_00a1c6f0();
+        FUN_00bc2940();
+        FUN_0045b020();
+        FUN_00404f30(0x3b);
+        FUN_0086bde0(FUN_0086a050);
+        FUN_0086bcd0(&LAB_00b4dfb0);
+        FUN_0086bcc0(1);
+        FUN_00c3a6d0();
+        FUN_0086bd70();
+        FUN_00404eb0(&local_154,0x10);
+        FUN_00453720();
+        FUN_00404f70(&local_154);
+        FUN_00404f00(&local_154,0xf);
+        FUN_00a61ad0();
+        FUN_00404f70(&local_154);
+        FUN_006ff610();
+        local_1d8 = 0;
+        piVar6 = &local_1d8;
+        lpCmdLine = GetCommandLineW();
+        local_1d4 = CommandLineToArgvW(lpCmdLine,piVar6);
+        if (local_1d4 != (LPWSTR *)0x0) {
+          for (local_1dc = 0; local_1dc < local_1d8; local_1dc = local_1dc + 1) {
+            if ((local_1d4[local_1dc] != (LPWSTR)0x0) && (*local_1d4[local_1dc] == L'-')) {
+              local_1e0 = local_1d4[local_1dc] + 1;
+              iVar3 = __wcsicmp(local_1e0,L"nocloud");
+              if (iVar3 == 0) {
+                uVar17 = 0;
+                pvVar9 = FUN_006ff580();
+                FUN_006ff880(pvVar9,uVar17);
+              }
+            }
+          }
+          LocalFree(local_1d4);
+        }
+        pcVar20 = "Software\\Bethesda Softworks\\Fallout";
+        pvVar9 = (void *)FUN_00877950();
+        FUN_005e0200(pvVar9,pcVar20);
+        pwVar21 = local_134;
+        pvVar9 = (void *)FUN_0044f560();
+        FUN_005e0200(pvVar9,(char *)pwVar21);
+        pcVar20 = FUN_004dc110();
+        FUN_00406d30((char *)local_134,0x104,pcVar20);
+        FUN_00406d50((char *)local_134,0x104,PTR_s_FALLOUT_INI_011a2ff0);
+        pwVar21 = local_134;
+        pvVar9 = (void *)FUN_004de490();
+        FUN_005e0200(pvVar9,(char *)pwVar21);
+        pcVar20 = FUN_004dc110();
+        FUN_00406d30((char *)local_134,0x104,pcVar20);
+        FUN_00406d50((char *)local_134,0x104,PTR_s_FalloutPrefs_ini_011a2ff8);
+        pwVar21 = local_134;
+        pvVar9 = (void *)FUN_0045d180();
+        FUN_005e0200(pvVar9,(char *)pwVar21);
+        pwVar21 = local_134;
+        pvVar9 = (void *)FUN_004de490();
+        FUN_005e0200(pvVar9,(char *)pwVar21);
+        piVar6 = (int *)FUN_0043d4d0(0x11c3ea4);
+        if (*piVar6 == 1) {
+          puVar7 = (undefined4 *)FUN_0043d4d0(0x11c3ea4);
+          *puVar7 = 2;
+        }
+        cVar1 = FUN_004da570();
+        if (cVar1 != '\0') {
+          FUN_004da4d0('\x01');
+          piVar6 = (int *)FUN_00b00a00();
+          (**(code **)(*piVar6 + 8))();
+          FUN_00876a70(local_2ec,0x104);
+          FUN_00406d50((char *)local_2ec,0x104,"FalloutNVLauncher.exe");
+          local_1e4 = ShellExecuteA((HWND)0x0,(LPCSTR)0x0,(LPCSTR)local_2ec,(LPCSTR)0x0,(LPCSTR)0x0,
+                                    1);
+          if (local_1e4 != (HINSTANCE)0x0) {
+            FUN_00404ee0(&local_154);
+            goto LAB_0086b9f3;
+          }
+        }
+        puVar8 = (undefined *)FUN_00403df0(0x11ded2c);
+        puVar10 = (undefined *)FUN_00403df0(0x11dee78);
+        FID_conflict__Immortalize<class_std::_Generic_error_category>();
+        FUN_00b012f0(puVar10,puVar8);
+        pvVar9 = (void *)FUN_00401000(0x10);
+        if (pvVar9 != (void *)0x0) {
+          uVar17 = 0;
+          puVar7 = (undefined4 *)FUN_0043d4d0(0x11dee6c);
+          uVar22 = *puVar7;
+          uVar11 = FUN_00403df0(0x11dece4);
+          FUN_00afdc60(pvVar9,uVar11,uVar22,uVar17);
+        }
+        FUN_0086bce0("DATA");
+        pcVar19 = FUN_0086a580;
+        puVar4 = FUN_00408d60(0x11ded74);
+        uVar17 = *puVar4;
+        puVar4 = FUN_00408d60(0x11dee20);
+        uVar16 = *puVar4;
+        puVar4 = FUN_00408d60(0x11dec88);
+        FUN_00c3bd30(local_1cd,*puVar4,uVar16,uVar17,pcVar19);
+        FUN_00c3bb90("Warnings.txt");
+        FUN_00c3bbe0("ProgramFlow.txt");
+        FUN_00c3bc30("ProgrammerOutput.txt");
+        FUN_00c3bc80("StackTrace.txt");
+        FUN_00404f00(&local_154,0x18);
+        FUN_0040fbe0();
+        puVar8 = FID_conflict__Immortalize<class_std::_Generic_error_category>();
+        FUN_0086bda0((int)puVar8);
+        FUN_00404f70(&local_154);
+        FUN_00404f00(&local_154,0x13);
+        FUN_00876d20();
+        FUN_00404f70(&local_154);
+        local_198.style = 3;
+        local_198.lpfnWndProc = FUN_0086a0a0;
+        local_198.cbClsExtra = 0;
+        local_198.cbWndExtra = 0;
+        local_198.hInstance = param_1;
+        local_198.hIcon = LoadIconA(param_1,(LPCSTR)0x65);
+        local_198.hCursor = (HCURSOR)0x0;
+        local_198.hbrBackground = GetStockObject(4);
+        local_198.lpszClassName = PTR_s_Fallout__New_Vegas_011a2fe8;
+        local_198.lpszMenuName = (LPCSTR)0x0;
+        RegisterClassA(&local_198);
+        local_20.left = 0;
+        local_20.top = 0;
+        local_20.right = 0x140;
+        local_20.bottom = 0xf0;
+        AdjustWindowRect(&local_20,0x10000000,0);
+        local_28 = CreateWindowExA(0,PTR_s_Fallout__New_Vegas_011a2fe8,
+                                   PTR_s_Fallout__New_Vegas_011a2fe8,0x10000000,0,0,
+                                   local_20.right - local_20.left,local_20.bottom - local_20.top,
+                                   (HWND)0x0,(HMENU)0x0,param_1,(LPVOID)0x0);
+        pvVar9 = (void *)FUN_00401000(0xa4);
+        if (pvVar9 == (void *)0x0) {
+          local_35c = (char *)0x0;
+        }
+        else {
+          local_35c = (char *)FUN_0086c160(pvVar9,local_28,param_1);
+        }
+        DAT_011dea0c = local_35c;
+        FUN_00404f00(&local_154,0xd);
+        puVar7 = (undefined4 *)FUN_00401000(8);
+        if (puVar7 == (undefined4 *)0x0) {
+          local_360 = (undefined4 *)0x0;
+        }
+        else {
+          local_360 = FUN_007005d0(puVar7);
+        }
+        DAT_011d8804 = local_360;
+        FUN_00404f70(&local_154);
+        FUN_0040fbe0();
+        FUN_0086d500((int)DAT_011dea0c);
+        DAT_011f4509 = 1;
+        iVar3 = FUN_0043c4b0();
+        FUN_004a0370(iVar3);
+        iVar3 = FUN_0043c4b0();
+        FUN_0086bbd0(iVar3);
+        iVar3 = FUN_0043c4b0();
+        FUN_0086bae0(iVar3);
+        FUN_0086bf70();
+        FUN_0086d590((int)DAT_011dea0c);
+        FUN_00702250('\x01');
+        FUN_006519f0();
+        FUN_00871c90(DAT_011dea0c,'\x01');
+        FUN_006a2920();
+        FUN_0086c010();
+        iVar3 = FUN_0043c4b0();
+        FUN_004a03c0(iVar3);
+        FUN_00866ff0();
+        uVar22 = 0;
+        uVar18 = 1;
+        uVar16 = 1;
+        iVar3 = -1;
+        uVar17 = 0;
+        pvVar12 = (LPVOID)FUN_00403df0(0x11de72c);
+        FUN_00ec16d0(DAT_0126fac4,pvVar12,uVar17,iVar3,uVar16,uVar18,uVar22);
+        FUN_00404f70(&local_154);
+        piVar6 = (int *)FUN_0045c670();
+        FUN_0086cf20(piVar6);
+        iVar3 = FUN_0045c670();
+        uVar22 = FUN_006629f0(iVar3);
+        FUN_0086be90(uVar22);
+        iVar3 = FUN_0045c670();
+        uVar22 = FUN_006629f0(iVar3);
+        FUN_0086be80(uVar22);
+        piVar6 = (int *)FUN_0043d4d0(0x11c3ea4);
+        if (1 < *piVar6) {
+          piVar6 = (int *)FUN_00713d80();
+          FUN_008c7290(piVar6);
+        }
+        FUN_006d0870();
+        puVar7 = (undefined4 *)FID_conflict__Immortalize<class_std::_Generic_error_category>();
+        FUN_006eb8c0(puVar7);
+        pcVar20 = FUN_00408d60(0x11d73e4);
+        if (*pcVar20 != '\0') {
+          puVar8 = FUN_006c0720();
+          FUN_006c07d0((int)puVar8);
+        }
+        FUN_004e0540();
+        FUN_004deb30();
+        local_19c = 0;
+        local_c = (char *)0x0;
+        FUN_00416870(local_1cc,_DAT_01018bfc,_DAT_01018bfc,_DAT_0101e704);
+        iVar3 = FUN_00460140(DAT_011c3f2c);
+        piVar6 = (int *)FUN_006815c0(iVar3);
+        FUN_00458200(DAT_011dea10,*piVar6);
+        FUN_0095ee80(DAT_011dea3c);
+        FUN_008a8150(DAT_011de45c,1);
+        FUN_0040fbe0();
+        FUN_00970d50(0x11e0e80);
+        FUN_004614e0(DAT_011c3f2c);
+        FUN_007d6bd0(DAT_011ddf38,'\x01');
+        FUN_0040fbe0();
+        FUN_00876dd0(local_c,local_1cc);
+        FUN_0040fbe0();
+        FUN_00877260();
+        FUN_007022c0();
+        FUN_00483710();
+        FUN_004f15a0(DAT_011dea0c,1);
+        FUN_00af4540();
+        iVar3 = FUN_008d6f30((int)DAT_011dea3c);
+        if (iVar3 == 0) {
+          FUN_004650a0(DAT_011c3f2c);
+          FUN_0040fbe0();
+          FUN_007053f0();
+          FUN_00ec1800((int)DAT_0126fac4);
+          FUN_0040fbe0();
+        }
+        else {
+          FUN_00ec1800((int)DAT_0126fac4);
+        }
+        FUN_00456520(DAT_01202d98);
+        FUN_0040fbe0();
+        std::_Fiopen((wchar_t *)&local_170,0,0x1c);
+        local_138 = (HWND)FUN_0044ddc0((int)DAT_011dea0c);
+        local_d = '\0';
+        while( true ) {
+          while (BVar13 = PeekMessageA(&local_170,(HWND)0x0,0,0,1), BVar13 != 0) {
+            TranslateMessage(&local_170);
+            DispatchMessageA(&local_170);
+          }
+          pHVar14 = GetActiveWindow();
+          if ((((pHVar14 == local_138) || (cVar1 = FUN_00451530((int)DAT_011dea10), cVar1 != '\0'))
+              || (iVar3 = FUN_00559450((undefined4 *)&DAT_011deb30), iVar3 != 0)) ||
+             (pcVar20 = FUN_00408d60(0x11deed8), *pcVar20 != '\0')) {
+            iVar3 = FUN_0043c4b0();
+            piVar6 = (int *)FUN_004dc020(iVar3);
+            local_2f0 = (**(code **)(*piVar6 + 0xc))(piVar6);
+       
+
+# PART 2: All calls from outer loop
+
+  [OuterLoop] 350 calls:
+    0x0086A86D -> 0x00FDF0FC ???
+    0x0086A86D -> 0x00000035 CreateMutexA
+    0x0086A876 -> 0x00FDF094 ???
+    0x0086A876 -> 0x0000001B GetLastError
+    0x0086A891 -> 0x00FDF2F4 ???
+    0x0086A891 -> 0x000000AE MessageBoxA
+    0x0086A8A3 -> 0x00FDF2B0 ???
+    0x0086A8A3 -> 0x0000009D GetSystemMetrics
+    0x0086A8BB -> 0x00FDF2F4 ???
+    0x0086A8BB -> 0x000000AE MessageBoxA
+    0x0086A8E0 -> 0x00408D60 FUN_00408d60
+    0x0086A8EE -> 0x00408D60 FUN_00408d60
+    0x0086A8FC -> 0x00408D60 FUN_00408d60
+    0x0086A90D -> 0x00C3BD30 FUN_00c3bd30
+    0x0086A91A -> 0x00C3BB90 FUN_00c3bb90
+    0x0086A927 -> 0x00C3BBE0 FUN_00c3bbe0
+    0x0086A934 -> 0x00C3BC30 FUN_00c3bc30
+    0x0086A941 -> 0x00C3BC80 FUN_00c3bc80
+    0x0086A950 -> 0x00FDF0F8 ???
+    0x0086A950 -> 0x00000034 GetSystemInfo
+    0x0086A95B -> 0x0043D4D0 FUN_0043d4d0
+    0x0086A96F -> 0x00876AD0 FUN_00876ad0
+    0x0086A97C -> 0x0043D4D0 FUN_0043d4d0
+    0x0086A98B -> 0x0043D4D0 FUN_0043d4d0
+    0x0086A99F -> 0x00FDF304 ???
+    0x0086A99F -> 0x000000B2 FindWindowA
+    0x0086A9B2 -> 0x00FDF300 ???
+    0x0086A9B2 -> 0x000000B1 SetForegroundWindow
+    0x0086A9C5 -> 0x004B4A30 FUN_004b4a30
+    0x0086A9D2 -> 0x00AF2640 FID_conflict:_Immortalize<class_std::_Generic_error_category>
+    0x0086A9D9 -> 0x004FB090 FUN_004fb090
+    0x0086A9E3 -> 0x00AF2640 FID_conflict:_Immortalize<class_std::_Generic_error_category>
+    0x0086A9EA -> 0x008526C0 FUN_008526c0
+    0x0086A9F1 -> 0x006ECD40 FUN_006ecd40
+    0x0086A9F8 -> 0x00AA20B0 FUN_00aa20b0
+    0x0086AA00 -> 0x00C5D4E0 FUN_00c5d4e0
+    0x0086AA05 -> 0x004B7920 FUN_004b7920
+    0x0086AA0A -> 0x00A1C6F0 FUN_00a1c6f0
+    0x0086AA0F -> 0x00BC2940 FUN_00bc2940
+    0x0086AA14 -> 0x0045B020 FUN_0045b020
+    0x0086AA1B -> 0x00404F30 FUN_00404f30
+    0x0086AA28 -> 0x0086BDE0 FUN_0086bde0
+    0x0086AA35 -> 0x0086BCD0 FUN_0086bcd0
+    0x0086AA3F -> 0x0086BCC0 FUN_0086bcc0
+    0x0086AA47 -> 0x00C3A6D0 FUN_00c3a6d0
+    0x0086AA4C -> 0x0086BD70 FUN_0086bd70
+    0x0086AA65 -> 0x00404EB0 FUN_00404eb0
+    0x0086AA6A -> 0x00453720 FUN_00453720
+    0x0086AA75 -> 0x00404F70 FUN_00404f70
+    0x0086AA8E -> 0x00404F00 FUN_00404f00
+    0x0086AA93 -> 0x00A61AD0 FUN_00a61ad0
+    0x0086AA9E -> 0x00404F70 FUN_00404f70
+    0x0086AAA3 -> 0x006FF610 FUN_006ff610
+    0x0086AAB9 -> 0x00FDF0F4 ???
+    0x0086AAB9 -> 0x00000033 GetCommandLineW
+    0x0086AAC0 -> 0x00FDF270 ???
+    0x0086AAC0 -> 0x000000BD CommandLineToArgvW
+    0x0086AB4F -> 0x00ECC071 __wcsicmp
+    0x0086AB5D -> 0x006FF580 FUN_006ff580
+    0x0086AB64 -> 0x006FF880 FUN_006ff880
+    0x0086AB75 -> 0x00FDF08C ???
+    0x0086AB75 -> 0x00000019 LocalFree
+    0x0086AB80 -> 0x00877950 FUN_00877950
+    0x0086AB87 -> 0x005E0200 FUN_005e0200
+    0x0086AB93 -> 0x0044F560 FUN_0044f560
+    0x0086AB9A -> 0x005E0200 FUN_005e0200
+    0x0086AB9F -> 0x004DC110 FUN_004dc110
+    0x0086ABB1 -> 0x00406D30 FUN_00406d30
+    0x0086ABCC -> 0x00406D50 FUN_00406d50
+    0x0086ABDB -> 0x004DE490 FUN_004de490
+    0x0086ABE2 -> 0x005E0200 FUN_005e0200
+    0x0086ABE7 -> 0x004DC110 FUN_004dc110
+    0x0086ABF9 -> 0x00406D30 FUN_00406d30
+    0x0086AC13 -> 0x00406D50 FUN_00406d50
+    0x0086AC22 -> 0x0045D180 FUN_0045d180
+    0x0086AC29 -> 0x005E0200 FUN_005e0200
+    0x0086AC35 -> 0x004DE490 FUN_004de490
+    0x0086AC3C -> 0x005E0200 FUN_005e0200
+    0x0086AC46 -> 0x0043D4D0 FUN_0043d4d0
+    0x0086AC55 -> 0x0043D4D0 FUN_0043d4d0
+    0x0086AC60 -> 0x004DA570 FUN_004da570
+    0x0086AC72 -> 0x004DA4D0 FUN_004da4d0
+    0x0086AC7A -> 0x00B00A00 FUN_00b00a00
+    0x0086ACA4 -> 0x00876A70 FUN_00876a70
+    0x0086ACBD -> 0x00406D50 FUN_00406d50
+    0x0086ACD6 -> 0x00FDF278 ???
+    0x0086ACD6 -> 0x000000BF ShellExecuteA
+    0x0086ACFB -> 0x00404EE0 FUN_00404ee0
+    0x0086AD10 -> 0x00403DF0 FUN_00403df0
+    0x0086AD1B -> 0x00403DF0 FUN_00403df0
+    0x0086AD21 -> 0x00AFF100 FID_conflict:_Immortalize<class_std::_Generic_error_category>
+    0x0086AD28 -> 0x00B012F0 FUN_00b012f0
+    0x0086AD2F -> 0x00401000 FUN_00401000
+    0x0086AD4D -> 0x0043D4D0 FUN_0043d4d0
+    0x0086AD5A -> 0x00403DF0 FUN_00403df0
+    0x0086AD66 -> 0x00AFDC60 FUN_00afdc60
+    0x0086AD8E -> 0x0086BCE0 FUN_0086bce0
+    0x0086ADA0 -> 0x00408D60 FUN_00408d60
+    0x0086ADAE -> 0x00408D60 FUN_00408d60
+    0x0086ADBC -> 0x00408D60 FUN_00408d60
+    0x0086ADCD -> 0x00C3BD30 FUN_00c3bd30
+    0x0086ADDA -> 0x00C3BB90 FUN_00c3bb90
+    0x0086ADE7 -> 0x00C3BBE0 FUN_00c3bbe0
+    0x0086ADF4 -> 0x00C3BC30 FUN_00c3bc30
+    0x0086AE01 -> 0x00C3BC80 FUN_00c3bc80
+    0x0086AE1D -> 0x00404F00 FUN_00404f00
+    0x0086AE22 -> 0x0040FBE0 FUN_0040fbe0
+    0x0086AE27 -> 0x00AFF100 FID_conflict:_Immortalize<class_std::_Generic_error_category>
+    0x0086AE2E -> 0x0086BDA0 FUN_0086bda0
+    0x0086AE39 -> 0x00404F70 FUN_00404f70
+    0x0086AE52 -> 0x00404F00 FUN_00404f00
+    0x0086AE57 -> 0x00876D20 FUN_00876d20
+    0x0086AE62 -> 0x00404F70 FUN_00404f70
+    0x0086AE9E -> 0x00FDF280 ???
+    0x0086AE9E -> 0x0133F37C ???
+    0x0086AEB6 -> 0x00FDF03C ???
+    0x0086AEB6 -> 0x000000B6 GetStockObject
+    0x0086AEDF -> 0x00FDF2B4 ???
+    0x0086AEDF -> 0x0000009E RegisterClassA
+    0x0086AF0C -> 0x00FDF310 ???
+    0x0086AF0C -> 0x000000B5 AdjustWindowRect
+    0x0086AF42 -> 0x00FDF2B8 ???
+    0x0086AF42 -> 0x0000009F CreateWindowExA
+    0x0086AF50 -> 0x00401000 FUN_00401000
+    0x0086AF75 -> 0x0086C160 FUN_0086c160
+    0x0086AFB8 -> 0x00404F00 FUN_00404f00
+    0x0086AFBF -> 0x00401000 FUN_00401000
+    0x0086AFDC -> 0x007005D0 FUN_007005d0
+    0x0086B010 -> 0x00404F70 FUN_00404f70
+    0x0086B01A -> 0x0040FBE0 FUN_0040fbe0
+    0x0086B028 -> 0x0086D500 FUN_0086d500
+    0x0086B034 -> 0x0043C4B0 FUN_0043c4b0
+    0x0086B03B -> 0x004A0370 FUN_004a0370
+    0x0086B047 -> 0x0043C4B0 FUN_0043c4b0
+    0x0086B04E -> 0x0086BBD0 FUN_0086bbd0
+    0x0086B05A -> 0x0043C4B0 FUN_0043c4b0
+    0x0086B061 -> 0x0086BAE0 FUN_0086bae0
+    0x0086B066 -> 0x0086BF70 FUN_0086bf70
+    0x0086B071 -> 0x0086D590 FUN_0086d590
+    0x0086B078 -> 0x00702250 FUN_00702250
+    0x0086B080 -> 0x006519F0 FUN_006519f0
+    0x0086B08D -> 0x00871C90 FUN_00871c90
+    0x0086B092 -> 0x006A2920 FUN_006a2920
+    0x0086B097 -> 0x0086C010 FUN_0086c010
+    0x0086B09C -> 0x0043C4B0 FUN_0043c4b0
+    0x0086B0A3 -> 0x004A03C0 FUN_004a03c0
+    0x0086B0A8 -> 0x00866FF0 FUN_00866ff0
+    0x0086B0C0 -> 0x00403DF0 FUN_00403df0
+    0x0086B0CC -> 0x00EC16D0 FUN_00ec16d0
+    0x0086B0D7 -> 0x00404F70 FUN_00404f70
+    0x0086B0DC -> 0x0045C670 FUN_0045c670
+    0x0086B0E8 -> 0x0086CF20 FUN_0086cf20
+    0x0086B0ED -> 0x0045C670 FUN_0045c670
+    0x0086B0F4 -> 0x006629F0 FUN_006629f0
+    0x0086B0FA -> 0x0086BE90 FUN_0086be90
+    0x0086B102 -> 0x0045C670 FUN_0045c670
+    0x0086B109 -> 0x006629F0 FUN_006629f0
+    0x0086B10F -> 0x0086BE80 FUN_0086be80
+    0x0086B11C -> 0x0043D4D0 FUN_0043d4d0
+    0x0086B126 -> 0x00713D80 FUN_00713d80
+    0x0086B12D -> 0x008C7290 FUN_008c7290
+    0x0086B132 -> 0x006D0870 FUN_006d0870
+    0x0086B137 -> 0x0047D0B0 FID_conflict:_Immortalize<class_std::_Generic_error_category>
+    0x0086B13E -> 0x006EB8C0 FUN_006eb8c0
+    0x0086B148 -> 0x00408D60 FUN_00408d60
+    0x0086B154 -> 0x006C0720 FUN_006c0720
+    0x0086B15B -> 0x006C07D0 FUN_006c07d0
+    0x0086B160 -> 0x004E0540 FUN_004e0540
+    0x0086B165 -> 0x004DEB30 FUN_004deb30
+    0x0086B19F -> 0x00416870 FUN_00416870
+    0x0086B1AA -> 0x00460140 FUN_00460140
+    0x0086B1B1 -> 0x006815C0 FUN_006815c0
+    0x0086B1BF -> 0x00458200 FUN_00458200
+    0x0086B1CA -> 0x0095EE80 FUN_0095ee80
+    0x0086B1D7 -> 0x008A8150 FUN_008a8150
+    0x0086B1E1 -> 0x0040FBE0 FUN_0040fbe0
+    0x0086B1EE -> 0x00970D50 FUN_00970d50
+    0x0086B1F9 -> 0x004614E0 FUN_004614e0
+    0x0086B206 -> 0x007D6BD0 FUN_007d6bd0
+    0x0086B210 -> 0x0040FBE0 FUN_0040fbe0
+    0x0086B223 -> 0x00876DD0 FUN_00876dd0
+    0x0086B230 -> 0x0040FBE0 FUN_0040fbe0
+    0x0086B254 -> 0x00877260 FUN_00877260
+    0x0086B25C -> 0x007022C0 FUN_007022c0
+    0x0086B267 -> 0x00483710 FUN_00483710
+    0x0086B274 -> 0x004F15A0 FUN_004f15a0
+    0x0086B279 -> 0x00AF4540 FUN_00af4540
+    0x0086B284 -> 0x008D6F30 FUN_008d6f30
+    0x0086B295 -> 0x004650A0 FUN_004650a0
+    0x0086B29A -> 0x0040FBE0 FUN_0040fbe0
+    0x0086B29F -> 0x007053F0 FUN_007053f0
+    0x0086B2AA -> 0x00EC1800 FUN_00ec1800
+    0x0086B2AF -> 0x0040FBE0 FUN_0040fbe0
+    0x0086B2BC -> 0x00EC1800 FUN_00ec1800
+    0x0086B2C7 -> 0x00456520 FUN_00456520
+    0x0086B2D1 -> 0x0040FBE0 FUN_0040fbe0
+    0x0086B2E4 -> 0x00403D30 _Fiopen
+    0x0086B2F2 -> 0x0044DDC0 FUN_0044ddc0
+    0x0086B31D -> 0x00FDF29C ???
+    0x0086B31D -> 0x00000098 PeekMessageA
+    0x0086B32E -> 0x00FDF298 ???
+    0x0086B32E -> 0x00000097 TranslateMessage
+    0x0086B33B -> 0x00FDF294 ???
+    0x0086B33B -> 0x00000096 DispatchMessageA
+    0x0086B343 -> 0x00FDF2FC ???
+    0x0086B343 -> 0x000000B0 GetActiveWindow
+    0x0086B357 -> 0x00451530 FUN_00451530
+    0x0086B368 -> 0x00559450 FUN_00559450
+    0x0086B376 -> 0x00408D60 FUN_00408d60
+    0x0086B386 -> 0x0043C4B0 FUN_0043c4b0
+    0x0086B38D -> 0x004DC020 FUN_004dc020
+    0x0086B3BB -> 0x0043C4B0 FUN_0043c4b0
+    0x0086B3C2 -> 0x0086BA10 FUN_0086ba10
+    0x0086B3C7 -> 0x0043C4B0 FUN_0043c4b0
+    0x0086B3CE -> 0x0086BA90 FUN_0086ba90
+    0x0086B3D5 -> 0x00FDF104 ???
+    0x0086B3D5 -> 0x00000037 Sleep
+    0x0086B3E3 -> 0x0086E650 FUN_0086e650
+    0x0086B3F8 -> 0x00453A70 FUN_00453a70
+    0x0086B3FF -> 0x00AD8740 FUN_00ad8740
+    0x0086B404 -> 0x00830660 FUN_00830660
+    0x0086B40B -> 0x00832AD0 FUN_00832ad0
+    0x0086B415 -> 0x00453A70 FUN_00453a70
+    0x0086B41C -> 0x00AD7740 FUN_00ad7740
+    0x0086B421 -> 0x00446E10 FUN_00446e10
+    0x0086B445 -> 0x004DC1F0 FUN_004dc1f0
+    0x0086B450 -> 0x004DC200 FUN_004dc200
+    0x0086B46B -> 0x00FDF2E8 ???
+    0x0086B46B -> 0x000000AB GetWindowLongA
+    0x0086B489 -> 0x00FDF2F8 ???
+    0x0086B489 -> 0x000000AF AdjustWindowRectEx
+    0x0086B4BF -> 0x00FDF2A4 ???
+    0x0086B4BF -> 0x0000009A SetWindowPos
+    0x0086B4E3 -> 0x0078D020 FUN_0078d020
+    0x0086B506 -> 0x0086BDF0 FUN_0086bdf0
+    0x0086B512 -> 0x00FDF1D0 ???
+    0x0086B512 -> 0x0000006A GetCurrentThreadId
+    0x0086B520 -> 0x0044EDB0 FUN_0044edb0
+    0x0086B529 -> 0x0078CFC0 FUN_0078cfc0
+    0x0086B537 -> 0x00453A70 FUN_00453a70
+    0x0086B53E -> 0x00AD8700 FUN_00ad8700
+    0x0086B543 -> 0x00830640 FUN_00830640
+    0x0086B54A -> 0x00832AD0 FUN_00832ad0
+    0x0086B554 -> 0x00453A70 FUN_00453a70
+    0x0086B55B -> 0x00AD7740 FUN_00ad7740
+    0x0086B566 -> 0x004E2190 FUN_004e2190
+    0x0086B56D -> 0x00B63620 FUN_00b63620
+    0x0086B572 -> 0x0049FEF0 FUN_0049fef0
+    0x0086B579 -> 0x004A4340 FUN_004a4340
+    0x0086B57E -> 0x00705910 FUN_00705910
+    0x0086B585 -> 0x008026B0 FUN_008026b0
+    0x0086B58A -> 0x00446E10 FUN_00446e10
+    0x0086B5AE -> 0x004DC1F0 FUN_004dc1f0
+    0x0086B5B9 -> 0x004DC200 FUN_004dc200
+    0x0086B5D4 -> 0x00FDF2E8 ???
+    0x0086B5D4 -> 0x000000AB GetWindowLongA
+    0x0086B5F2 -> 0x00FDF2F8 ???
+    0x0086B5F2 -> 0x000000AF AdjustWindowRectEx
+    0x0086B628 -> 0x00FDF2A4 ???
+    0x0086B628 -> 0x0000009A SetWindowPos
+    0x0086B630 -> 0x00FDF104 ???
+    0x0086B630 -> 0x00000037 Sleep
+    0x0086B63C -> 0x005DC960 FUN_005dc960
+    0x0086B650 -> 0x00678CE0 FUN_00678ce0
+    0x0086B664 -> 0x008774A0 FUN_008774a0
+    0x0086B676 -> 0x004F15A0 FUN_004f15a0
+    0x0086B67B -> 0x006FF620 FUN_006ff620
+    0x0086B680 -> 0x00703610 FUN_00703610
+    0x0086B687 -> 0x00706320 FUN_00706320
+    0x0086B694 -> 0x00559450 FUN_00559450
+    0x0086B6A2 -> 0x00559450 FUN_00559450
+    0x0086B6A8 -> 0x004A0EA0 FUN_004a0ea0
+    0x0086B6AF -> 0x00B6DA10 FUN_00b6da10
+    0x0086B6BB -> 0x0066B0D0 FUN_0066b0d0
+    0x0086B6C5 -> 0x00559450 FUN_00559450
+    0x0086B6D3 -> 0x00559450 FUN_00559450
+    0x0086B6D9 -> 0x004A0EA0 FUN_004a0ea0
+    0x0086B6E0 -> 0x00B6DA10 FUN_00b6da10
+    0x0086B6EC -> 0x0066B0D0 FUN_0066b0d0
+    0x0086B6F6 -> 0x00559450 FUN_00559450
+    0x0086B704 -> 0x00559450 FUN_00559450
+    0x0086B70A -> 0x004A0EA0 FUN_004a0ea0
+    0x0086B711 -> 0x00B6DA10 FUN_00b6da10
+    0x0086B71D -> 0x0066B0D0 FUN_0066b0d0
+    0x0086B724 -> 0x0086BEA0 FUN_0086bea0
+    0x0086B72C -> 0x00683A60 FUN_00683a60
+    0x0086B735 -> 0x00A819E0 FUN_00a819e0
+    0x0086B740 -> 0x00448420 FUN_00448420
+    0x0086B74A -> 0x0043D4D0 FUN_0043d4d0
+    0x0086B754 -> 0x00713D80 FUN_00713d80
+    0x0086B75B -> 0x008C73A0 FUN_008c73a0
+    0x0086B760 -> 0x00867090 FUN_00867090
+    0x0086B765 -> 0x004DC560 FUN_004dc560
+    0x0086B76A -> 0x004DC590 FUN_004dc590
+    0x0086B76F -> 0x00702330 FUN_00702330
+    0x0086B77A -> 0x008D8520 FUN_008d8520
+    0x0086B789 -> 0x008D8520 FUN_008d8520
+    0x0086B790 -> 0x0086BE30 FUN_0086be30
+    0x0086B795 -> 0x004E0800 FUN_004e0800
+    0x0086B79A -> 0x004DEF20 FUN_004def20
+    0x0086B79F -> 0x007FFE00 FUN_007ffe00
+    0x0086B7A4 -> 0x00832010 FUN_00832010
+    0x0086B7A9 -> 0x008304A0 FUN_008304a0
+    0x0086B7AE -> 0x0082F9C0 FUN_0082f9c0
+    0x0086B7B3 -> 0x00453A70 FUN_00453a70
+    0x0086B7D1 -> 0x0040FBE0 FUN_0040fbe0
+    0x0086B7D6 -> 0x0049FF80 FUN_0049ff80
+    0x0086B7DB -> 0x00622BC0 FUN_00622bc0
+    0x0086B7E0 -> 0x00626F10 FUN_00626f10
+    0x0086B7EA -> 0x00408D60 FUN_00408d60
+    0x0086B7F6 -> 0x006C0720 FUN_006c0720
+    0x0086B7FD -> 0x006C0900 FUN_006c0900
+    0x0086B82B -> 0x0086BEE0 FUN_0086bee0
+    0x0086B842 -> 0x0086BEB0 FUN_0086beb0
+    0x0086B847 -> 0x0047D0B0 FID_conflict:_Immortalize<class_std::_Generic_error_category>
+    0x0086B84E -> 0x006EB980 FUN_006eb980
+    0x0086B853 -> 0x00651AB0 FUN_00651ab0
+    0x0086B858 -> 0x00990FF0 FUN_00990ff0
+    0x0086B85D -> 0x00B00A00 FUN_00b00a00
+    0x0086B87B -> 0x00664940 FUN_00664940
+    0x0086B880 -> 0x00526EB0 FUN_00526eb0
+    0x0086B885 -> 0x00408DE0 FUN_00408de0
+    0x0086B88A -> 0x0086BDD0 FUN_0086bdd0
+    0x0086B8B8 -> 0x0086BF10 FUN_0086bf10
+    0x0086B8F7 -> 0x0086BF40 FUN_0086bf40
+    0x0086B918 -> 0x00AFF100 FID_conflict:_Immortalize<class_std::_Generic_error_category>
+    0x0086B936 -> 0x004DE490 FUN_004de490
+    0x0086B93D -> 0x00717E50 FUN_00717e50
+    0x0086B943 -> 0x004DE490 FUN_004de490
+    0x0086B94A -> 0x005E01B0 FUN_005e01b0
+    0x0086B954 -> 0x0043C4B0 FUN_0043c4b0
+    0x0086B95B -> 0x0086BB20 FUN_0086bb20
+    0x0086B965 -> 0x0043C4B0 FUN_0043c4b0
+    0x0086B96C -> 0x0086BC10 FUN_0086bc10
+    0x0086B971 -> 0x006A29A0 FUN_006a29a0
+    0x0086B976 -> 0x00A62090 FUN_00a62090
+    0x0086B97B -> 0x00BC2960 FUN_00bc2960
+    0x0086B982 -> 0x004DA4D0 FUN_004da4d0
+    0x0086B98A -> 0x0086BD00 FUN_0086bd00
+    0x0086B98F -> 0x0045B050 FUN_0045b050
+    0x0086B994 -> 0x00C5D520 FUN_00c5d520
+    0x0086B999 -> 0x004B8CF0 FUN_004b8cf0
+    0x0086B99E -> 0x00A1C790 FUN_00a1c790
+    0x0086B9A3 -> 0x00AA2170 FUN_00aa2170
+    0x0086B9B3 -> 0x008783C0 FUN_008783c0
+    0x0086B9C1 -> 0x00401020 FUN_00401020
+    0x0086B9C8 -> 0x00AA47C0 FUN_00aa47c0
+    0x0086B9DD -> 0x008784D0 FID_conflict:~CXMLParser
+    0x0086B9E8 -> 0x00404EE0 FUN_00404ee0
+    0x0086B9F9 -> 0x00EC408C __security_check_cookie
+
+# PART 3: Disasm around NVSE hook point (0x0086b3e3)
+
+  [NVSE_hook_area] Disasm 0x0086B3C0 - 0x0086B420:
+    0x0086B3C0  MOV ECX,EAX                             
+    0x0086B3C2  CALL 0x0086ba10                          -> FUN_0086ba10 (0x0086BA10)
+    0x0086B3C7  CALL 0x0043c4b0                          -> FUN_0043c4b0 (0x0043C4B0)
+    0x0086B3CC  MOV ECX,EAX                             
+    0x0086B3CE  CALL 0x0086ba90                          -> FUN_0086ba90 (0x0086BA90)
+    0x0086B3D3  PUSH 0x32                               
+    0x0086B3D5  CALL dword ptr [0x00fdf104]              -> Sleep (0x00000037)
+    0x0086B3DB  JMP 0x0086b3e8                          
+    0x0086B3DD  MOV ECX,dword ptr [0x011dea0c]          
+    0x0086B3E3  CALL 0x0086e650                          -> FUN_0086e650 (0x0086E650)
+    0x0086B3E8  MOVZX EAX,byte ptr [EBP + -0x9]         
+    0x0086B3EC  TEST EAX,EAX                            
+    0x0086B3EE  JZ 0x0086b4c5                           
+    0x0086B3F4  MOV byte ptr [EBP + -0x9],0x0           
+    0x0086B3F8  CALL 0x00453a70                          -> FUN_00453a70 (0x00453A70)
+    0x0086B3FD  MOV ECX,EAX                             
+    0x0086B3FF  CALL 0x00ad8740                          -> FUN_00ad8740 (0x00AD8740)
+    0x0086B404  CALL 0x00830660                          -> FUN_00830660 (0x00830660)
+    0x0086B409  PUSH 0x0                                
+    0x0086B40B  CALL 0x00832ad0                          -> FUN_00832ad0 (0x00832AD0)
+    0x0086B410  ADD ESP,0x4                             
+    0x0086B413  PUSH 0x1                                
+    0x0086B415  CALL 0x00453a70                          -> FUN_00453a70 (0x00453A70)
+    0x0086B41A  MOV ECX,EAX                             
+    0x0086B41C  CALL 0x00ad7740                          -> FUN_00ad7740 (0x00AD7740)
+
+# PART 4: Inner per-frame loop (FUN_0086e650) - calls only
+
+  [InnerLoop] 147 calls:
+    0x0086E667 -> 0x0086A830 FUN_0086a830
+    0x0086E66E -> 0x00FDF308 ???
+    0x0086E66E -> 0x000000B3 GetAsyncKeyState
+    0x0086E686 -> 0x00FDF308 ???
+    0x0086E686 -> 0x000000B3 GetAsyncKeyState
+    0x0086E6A1 -> 0x00AF2640 FID_conflict:_Immortalize<class_std::_Generic_error_category>
+    0x0086E6B6 -> 0x00702360 FUN_00702360
+    0x0086E6C2 -> 0x00709BC0 FUN_00709bc0
+    0x0086E6E7 -> 0x007050D0 FUN_007050d0
+    0x0086E6F9 -> 0x00701450 FUN_00701450
+    0x0086E703 -> 0x00703D50 FUN_00703d50
+    0x0086E70D -> 0x00707AD0 FUN_00707ad0
+    0x0086E716 -> 0x00707AD0 FUN_00707ad0
+    0x0086E71D -> 0x00705990 FUN_00705990
+    0x0086E73C -> 0x004B7210 FUN_004b7210
+    0x0086E743 -> 0x00424940 FUN_00424940
+    0x0086E758 -> 0x008782B0 FUN_008782b0
+    0x0086E760 -> 0x0086F940 FUN_0086f940
+    0x0086E765 -> 0x006FF580 FUN_006ff580
+    0x0086E76C -> 0x006FF860 FUN_006ff860
+    0x0086E799 -> 0x0086FD90 FUN_0086fd90
+    0x0086E79E -> 0x00702360 FUN_00702360
+    0x0086E7AA -> 0x00709BC0 FUN_00709bc0
+    0x0086E7CE -> 0x007050D0 FUN_007050d0
+    0x0086E7E0 -> 0x00701450 FUN_00701450
+    0x0086E7EA -> 0x00703D50 FUN_00703d50
+    0x0086E820 -> 0x008D6F30 FUN_008d6f30
+    0x0086E826 -> 0x006DA7C0 FUN_006da7c0
+    0x0086E836 -> 0x00851D90 FUN_00851d90
+    0x0086E83B -> 0x0086EF30 FUN_0086ef30
+    0x0086E840 -> 0x0086EF90 FUN_0086ef90
+    0x0086E848 -> 0x0086F190 FUN_0086f190
+    0x0086E850 -> 0x00483710 FUN_00483710
+    0x0086E855 -> 0x004E1610 FUN_004e1610
+    0x0086E87C -> 0x0086EF40 FUN_0086ef40
+    0x0086E884 -> 0x0086F260 FUN_0086f260
+    0x0086E88C -> 0x0086F390 FUN_0086f390
+    0x0086E897 -> 0x00C3DBF0 FUN_00c3dbf0
+    0x0086E89C -> 0x0086EFA0 FUN_0086efa0
+    0x0086E8A8 -> 0x0070EDF0 FUN_0070edf0
+    0x0086E8B4 -> 0x0078CFC0 FUN_0078cfc0
+    0x0086E8BB -> 0x00705EA0 FUN_00705ea0
+    0x0086E8D3 -> 0x00457D70 FUN_00457d70
+    0x0086E8DB -> 0x0086EFE0 FUN_0086efe0
+    0x0086E8E8 -> 0x00524C90 FUN_00524c90
+    0x0086E8EE -> 0x004A0EA0 FUN_004a0ea0
+    0x0086E8F5 -> 0x00B6DD00 FUN_00b6dd00
+    0x0086E8FD -> 0x0086F450 FUN_0086f450
+    0x0086E90A -> 0x007011D0 FUN_007011d0
+    0x0086E925 -> 0x004E0110 FUN_004e0110
+    0x0086E92A -> 0x004DE600 FUN_004de600
+    0x0086E92F -> 0x00683A60 FUN_00683a60
+    0x0086E938 -> 0x00A81A20 FUN_00a81a20
+    0x0086E961 -> 0x00451530 FUN_00451530
+    0x0086E973 -> 0x0086EF70 FUN_0086ef70
+    0x0086E987 -> 0x004556D0 FUN_004556d0
+    0x0086E991 -> 0x00559450 FUN_00559450
+    0x0086E99E -> 0x0084D030 FUN_0084d030
+    0x0086E9BC -> 0x0084D030 FUN_0084d030
+    0x0086E9CA -> 0x00867A40 FUN_00867a40
+    0x0086E9D4 -> 0x0043D4D0 FUN_0043d4d0
+    0x0086E9E4 -> 0x00455640 FUN_00455640
+    0x0086E9F0 -> 0x0040FBF0 FUN_0040fbf0
+    0x0086E9FA -> 0x00978550 FUN_00978550
+    0x0086EA04 -> 0x0043D4D0 FUN_0043d4d0
+    0x0086EA3F -> 0x009777A0 FUN_009777a0
+    0x0086EA49 -> 0x0096EB40 FUN_0096eb40
+    0x0086EA53 -> 0x0096E9B0 FUN_0096e9b0
+    0x0086EA8B -> 0x009777A0 FUN_009777a0
+    0x0086EA9D -> 0x008D0600 FUN_008d0600
+    0x0086EAA7 -> 0x0096EB40 FUN_0096eb40
+    0x0086EAB1 -> 0x0096E9B0 FUN_0096e9b0
+    0x0086EABB -> 0x0040FBA0 FUN_0040fba0
+    0x0086EAC2 -> 0x00446EF0 FUN_00446ef0
+    0x0086EAC9 -> 0x00878080 FUN_00878080
+    0x0086EACE -> 0x0086EF60 FUN_0086ef60
+    0x0086EADA -> 0x00A61CD0 FUN_00a61cd0
+    0x0086EADF -> 0x00868850 FUN_00868850
+    0x0086EAE4 -> 0x00868D10 FUN_00868d10
+    0x0086EB0E -> 0x00524C90 FUN_00524c90
+    0x0086EB14 -> 0x006652E0 FUN_006652e0
+    0x0086EB1F -> 0x0086FBE0 FUN_0086fbe0
+    0x0086EB29 -> 0x0043D4D0 FUN_0043d4d0
+    0x0086EB36 -> 0x0086FD70 FUN_0086fd70
+    0x0086EB3E -> 0x00483710 FUN_00483710
+    0x0086EB43 -> 0x0049FEF0 FUN_0049fef0
+    0x0086EB4A -> 0x0049FFF0 FUN_0049fff0
+    0x0086EB54 -> 0x00524C90 FUN_00524c90
+    0x0086EB5B -> 0x00712E60 FUN_00712e60
+    0x0086EB65 -> 0x0044DDC0 FUN_0044ddc0
+    0x0086EB7B -> 0x00710AB0 FUN_00710ab0
+    0x0086EB84 -> 0x0045C670 FUN_0045c670
+    0x0086EB8B -> 0x00C52020 FUN_00c52020
+    0x0086EB96 -> 0x00710AB0 FUN_00710ab0
+    0x0086EB9F -> 0x00B54000 FUN_00b54000
+    0x0086EBAC -> 0x00559450 FUN_00559450
+    0x0086EBB3 -> 0x006629F0 FUN_006629f0
+    0x0086EBCC -> 0x0045BC80 FUN_0045bc80
+    0x0086EBEB -> 0x00450B80 FUN_00450b80
+    0x0086EBF5 -> 0x00B5AC90 FUN_00b5ac90
+    0x0086EC18 -> 0x0045B070 FUN_0045b070
+    0x0086EC6C -> 0x0043D4D0 FUN_0043d4d0
+    0x0086EC78 -> 0x008C80E0 FUN_008c80e0
+    0x0086EC80 -> 0x00713D80 FUN_00713d80
+    0x0086EC87 -> 0x008C78C0 FUN_008c78c0
+    0x0086EC93 -> 0x008CA070 FUN_008ca070
+    0x0086EC9B -> 0x0086FC60 FUN_0086fc60
+    0x0086ECA5 -> 0x0043D4D0 FUN_0043d4d0
+    0x0086ECBA -> 0x0086FD70 FUN_0086fd70
+    0x0086ECBF -> 0x00702360 FUN_00702360
+    0x0086ECCB -> 0x007058E0 FUN_007058e0
+    0x0086ECDB -> 0x0047D0B0 FID_conflict:_Immortalize<class_std::_Generic_error_category>
+    0x0086ECE2 -> 0x006EBC50 FUN_006ebc50
+    0x0086ECE7 -> 0x00552BA0 FUN_00552ba0
+    0x0086ECEE -> 0x006A61B0 FUN_006a61b0
+    0x0086ECF8 -> 0x0043D4D0 FUN_0043d4d0
+    0x0086ED07 -> 0x00408D60 FUN_00408d60
+    0x0086ED13 -> 0x006C0720 FUN_006c0720
+    0x0086ED1A -> 0x006C3640 FUN_006c3640
+    0x0086ED55 -> 0x00991500 FUN_00991500
+    0x0086ED5A -> 0x00714A00 FUN_00714a00
+    0x0086ED66 -> 0x00A81A80 FUN_00a81a80
+    0x0086ED6B -> 0x007023C0 FUN_007023c0
+    0x0086ED77 -> 0x007056F0 FUN_007056f0
+    0x0086ED86 -> 0x00871DC0 FUN_00871dc0
+    0x0086ED8B -> 0x0057AB70 FUN_0057ab70
+    0x0086ED90 -> 0x00B60040 FUN_00b60040
+    0x0086EDBE -> 0x0047E040 FUN_0047e040
+    0x0086EDE8 -> 0x0086FF70 FUN_0086ff70
+    0x0086EDF0 -> 0x008705D0 FUN_008705d0
+    0x0086EE00 -> 0x004DC360 FUN_004dc360
+    0x0086EE3D -> 0x0043D4D0 FUN_0043d4d0
+    0x0086EE47 -> 0x00713D80 FUN_00713d80
+    0x0086EE4E -> 0x008C7990 FUN_008c7990
+    0x0086EE5A -> 0x008CA300 FUN_008ca300
+    0x0086EE62 -> 0x0086F6A0 FUN_0086f6a0
+    0x0086EE6A -> 0x00870610 FUN_00870610
+    0x0086EE6F -> 0x0070ED10 FUN_0070ed10
+    0x0086EE7D -> 0x0070ED20 FUN_0070ed20
+    0x0086EE85 -> 0x00703E10 FUN_00703e10
+    0x0086EE8A -> 0x00A29680 FUN_00a29680
+    0x0086EE8F -> 0x005AE270 FUN_005ae270
+    0x0086EE94 -> 0x005A9D60 FUN_005a9d60
+    0x0086EE9E -> 0x0084D030 FUN_0084d030
+    0x0086EEAF -> 0x00702360 FUN_00702360
+    0x0086EECA -> 0x00950090 FUN_00950090
+    0x0086EF0E -> 0x00AA7290 FUN_00aa7290
+
+# PART 5: FUN_0086f940 (calls PDD callers from inner loop)
+
+  [PDD_Phase] FUN_0086f940 @ 0x0086F940 (595 bytes)
+
+void __fastcall FUN_0086f940(int param_1)
+
+{
+  bool bVar1;
+  char cVar2;
+  uint uVar3;
+  int iVar4;
+  void *pvVar5;
+  float *pfVar6;
+  undefined4 uVar7;
+  float10 fVar8;
+  float10 fVar9;
+  float local_14;
+  float local_10;
+  float local_c;
+  undefined1 local_5;
+  
+  uVar3 = FUN_0093bea0(DAT_011dea3c);
+  if ((uVar3 & 0xff) == 0) {
+    if ((DAT_011dea2b == '\0') || (bVar1 = FUN_00709bc0(), bVar1)) {
+      if (*(char *)(param_1 + 6) == '\0') {
+        iVar4 = (**(code **)(*DAT_011dea3c + 0x1d0))();
+        if (iVar4 != 0) {
+          DAT_011e07a8 = DAT_011e07a8 + '\x01';
+          fVar8 = FUN_0084d030(0x11f6394);
+          fVar9 = FUN_009c8cc0(0x11f2250);
+          (**(code **)(*DAT_011dea3c + 0x2f8))((float)(fVar9 * (float10)(double)fVar8));
+          DAT_011e07a8 = DAT_011e07a8 + -1;
+        }
+        local_5 = 0;
+        pvVar5 = (void *)FUN_008d6f30((int)DAT_011dea3c);
+        pfVar6 = (float *)FUN_00436aa0((int)DAT_011dea3c);
+        local_14 = *pfVar6;
+        local_10 = pfVar6[1];
+        local_c = pfVar6[2];
+        if (((pvVar5 != (void *)0x0) && (bVar1 = FUN_00425fd0((int)pvVar5), !bVar1)) &&
+           (uVar3 = FUN_00550200(pvVar5,&local_14), (uVar3 & 0xff) == 0)) {
+          cVar2 = '\x01';
+          pvVar5 = (void *)FUN_0054ddd0((int)pvVar5);
+          pvVar5 = (void *)FUN_00461bc0(DAT_011c3f2c,local_14,local_10,pvVar5,cVar2);
+          if (pvVar5 != (void *)0x0) {
+            uVar3 = FUN_00450fb0((int)pvVar5);
+            if (((uVar3 & 0xff) == 0) && (uVar3 = FUN_00450ff0((int)pvVar5), (uVar3 & 0xff) == 0)) {
+              FUN_00452580(DAT_011dea10,&local_14,'\x01');
+              cVar2 = FUN_00451530((int)DAT_011dea10);
+              if (cVar2 != '\0') {
+                FUN_00457d70(DAT_011dea10,'\0',0,'\0');
+              }
+            }
+            FUN_0086fba0(1);
+            FUN_0086fbc0(DAT_011dea3c,1);
+            FUN_00548230(pvVar5,DAT_011dea3c,0);
+            uVar7 = FUN_00547590((int)pvVar5);
+            FUN_0086fbb0(uVar7);
+            FUN_0086fbc0(DAT_011dea3c,0);
+            FUN_0086fba0(0);
+            iVar4 = FUN_00b4f5c0();
+            if (iVar4 != 0) {
+              FUN_00b655b0(iVar4);
+            }
+          }
+        }
+      }
+      else {
+        iVar4 = (**(code **)(*DAT_011dea3c + 0x1d0))();
+        if (iVar4 != 0) {
+          cVar2 = *(char *)(param_1 + 7);
+          fVar8 = FUN_0084d030(0x11f6394);
+          FUN_009466d0(DAT_011dea3c,(float)fVar8,cVar2);
+        }
+      }
+    }
+    else {
+      FUN_009481d0(DAT_011dea3c);
+    }
+  }
+  return;
+}
+
+
+
+# PART 6: CellTransitionHandler (FUN_008774a0)
+
+  [CellTransition] FUN_008774a0 @ 0x008774A0 (561 bytes)
+
+void __thiscall FUN_008774a0(void *this,char param_1)
+
+{
+  undefined1 uVar1;
+  bool bVar2;
+  int iVar3;
+  void *this_00;
+  int *piVar4;
+  int *piVar5;
+  undefined *puVar6;
+  undefined4 local_20;
+  undefined4 local_18;
+  
+  uVar1 = FUN_004f1540((int)this);
+  FUN_004f15a0(this,0);
+  FUN_00877700((int)DAT_011dea3c);
+  bVar2 = FUN_007d6bd0(DAT_011ddf38,'\0');
+  FUN_00453a70();
+  FUN_00ad8780();
+  FUN_008324e0('\0');
+  iVar3 = FUN_008d6f30((int)DAT_011dea3c);
+  if (iVar3 != 0) {
+    piVar4 = DAT_011dea3c;
+    this_00 = (void *)FUN_008d6f30((int)DAT_011dea3c);
+    FUN_0054ca90(this_00,piVar4);
+  }
+  piVar4 = (int *)FUN_00950bb0(DAT_011dea3c,'\x01');
+  if (piVar4 == (int *)0x0) {
+    local_18 = 0;
+  }
+  else {
+    local_18 = (**(code **)(*piVar4 + 0xc))();
+  }
+  if (local_18 != 0) {
+    iVar3 = FUN_009611e0(local_18);
+    if (iVar3 != 0) {
+      piVar5 = (int *)FUN_009611e0(local_18);
+      (**(code **)(*piVar5 + 0xe8))(piVar4);
+    }
+  }
+  piVar4 = (int *)FUN_00950bb0(DAT_011dea3c,'\0');
+  if (piVar4 == (int *)0x0) {
+    local_20 = 0;
+  }
+  else {
+    local_20 = (**(code **)(*piVar4 + 0xc))();
+  }
+  if (local_20 != 0) {
+    iVar3 = FUN_009611e0(local_20);
+    if (iVar3 != 0) {
+      piVar5 = (int *)FUN_009611e0(local_20);
+      (**(code **)(*piVar5 + 0xe8))(piVar4);
+    }
+  }
+  FUN_004539a0(DAT_011dea10,'\0','\0');
+  FUN_007037c0(DAT_011dea10,0x7fffffff);
+  FUN_0061cc40(DAT_011dea10,0x7fffffff);
+  puVar6 = FUN_006c0720();
+  FUN_006c09f0(puVar6);
+  FUN_00868d70('\0');
+  FUN_00c459d0('\0');
+  (**(code **)(*DAT_011dea3c + 0x1cc))(0,0);
+  FUN_0084a840(DAT_011ddf38);
+  FUN_00970d50(0x11e0e80);
+  FUN_004614e0(DAT_011c3f2c);
+  iVar3 = FUN_00b4f5c0();
+  FUN_00b631d0(iVar3);
+  FUN_0040fbe0();
+  FUN_00706320();
+  FUN_0045ac80((int)DAT_011dea10);
+  if (param_1 != '\0') {
+    FUN_007053f0();
+  }
+  FUN_007d6bd0(DAT_011ddf38,bVar2);
+  FUN_008776e0((int)DAT_011dea0c);
+  FUN_004f15a0(DAT_011dea0c,uVar1);
+  return;
+}
+
+
+
+# PART 7: Script cleanup paths
+
+  [ScriptCleanup] FUN_00574400 @ 0x00574400 (1279 bytes)
+
+void __fastcall FUN_00574400(int *param_1)
+
+{
+  bool bVar1;
+  char cVar2;
+  void *pvVar3;
+  int *piVar4;
+  int iVar5;
+  uint uVar6;
+  int *piVar7;
+  undefined4 *puVar8;
+  int *local_1c;
+  int *local_10;
+  int *local_8;
+  
+  bVar1 = FUN_00440da0((int)param_1);
+  if ((!bVar1) && (param_1 != DAT_011dea3c)) {
+    (**(code **)(*param_1 + 0x1cc))(0,0);
+    pvVar3 = (void *)FUN_005d43c0((int)param_1);
+    piVar4 = (int *)FUN_0041e310(pvVar3);
+    if ((piVar4 != (int *)0x0) &&
+       ((iVar5 = FUN_007af430((int)param_1), iVar5 != DAT_011ca27c &&
+        (iVar5 = FUN_007af430((int)param_1), iVar5 != DAT_011ca280)))) {
+      FUN_00574400(piVar4);
+    }
+    FUN_00576760((int)param_1);
+    (**(code **)(*param_1 + 200))(1);
+    FUN_00484af0(param_1,'\x01');
+    local_8 = (int *)0x0;
+    cVar2 = (**(code **)(*param_1 + 0xfc))();
+    if (cVar2 != '\0') {
+      local_8 = param_1;
+    }
+    if ((local_8 != (int *)0x0) && (iVar5 = FUN_008d8520((int)local_8), iVar5 != 0)) {
+      cVar2 = (**(code **)(*local_8 + 0x100))();
+      if (cVar2 != '\0') {
+        FUN_008c2b60(local_8);
+        FUN_00824970(local_8 + 0x25);
+        iVar5 = FUN_00570f60();
+        if (0 < iVar5) {
+          FUN_008cddd0(param_1,'\x01');
+        }
+        FUN_0093a660(DAT_011dea3c,(int)local_8);
+        FUN_00967350(DAT_011dea3c,(int)local_8);
+        FUN_0096e6f0(&DAT_011e0e80,(int)local_8);
+        iVar5 = FUN_008d6f30((int)param_1);
+        if ((iVar5 != 0) && (cVar2 = FUN_005656d0(param_1), cVar2 != '\0')) {
+          iVar5 = FUN_008d6f30((int)param_1);
+          FUN_00545560(iVar5);
+        }
+        cVar2 = (**(code **)(*local_8 + 0x2e8))();
+        if (cVar2 != '\0') {
+          FUN_008b01c0(local_8);
+        }
+      }
+      (**(code **)(*local_8 + 0x2fc))();
+      iVar5 = FUN_00931850((int)local_8);
+      FUN_0096d470(&DAT_011e0e80,(int)local_8,iVar5);
+      cVar2 = (**(code **)(*param_1 + 0x100))();
+      if ((cVar2 != '\0') || (uVar6 = FUN_00564d80((int)param_1), (uVar6 & 0xff) != 0)) {
+        FUN_0096f600(&DAT_011e0e80,param_1,'\0');
+      }
+      iVar5 = FUN_008d8520((int)local_8);
+      if (iVar5 != 0) {
+        piVar4 = (int *)FUN_008d8520((int)local_8);
+        iVar5 = (**(code **)(*piVar4 + 0x22c))();
+        if (iVar5 != 0) {
+          local_1c = (int *)0x0;
+          if ((local_8 != (int *)0x0) && (cVar2 = (**(code **)(*local_8 + 0x100))(), cVar2 != '\0'))
+          {
+            local_1c = local_8;
+          }
+          if (local_1c == (int *)0x0) {
+            cVar2 = FUN_00574900((int)local_8);
+            if (cVar2 != '\0') {
+              (**(code **)(*local_8 + 0x288))();
+            }
+          }
+          else {
+            (**(code **)(*local_1c + 0x288))();
+            FUN_00881680(local_1c,'\0');
+          }
+        }
+      }
+      cVar2 = (**(code **)(*param_1 + 0x100))();
+      if (cVar2 != '\0') {
+        (**(code **)(*param_1 + 0x4c))(0x100000);
+        (**(code **)(*param_1 + 0x4c))(0x200000);
+      }
+      iVar5 = FUN_008d8520((int)local_8);
+      if (iVar5 != 0) {
+        piVar4 = (int *)FUN_008d8520((int)local_8);
+        iVar5 = (**(code **)(*piVar4 + 0x4c8))();
+        if (iVar5 != 0) {
+          cVar2 = (**(code **)(*local_8 + 0x100))();
+          if (cVar2 == '\0') {
+            piVar4 = (int *)FUN_008d8520((int)local_8);
+            piVar7 = (int *)FUN_008d8520((int)local_8);
+            cVar2 = '\0';
+            uVar6 = (**(code **)(*piVar4 + 0x4d0))();
+            pvVar3 = (void *)(**(code **)(*piVar7 + 0x4c8))();
+            FUN_00568020(pvVar3,uVar6,cVar2);
+          }
+          else {
+            FUN_0088d640(local_8);
+          }
+        }
+        puVar8 = (undefined4 *)FUN_008d8520((int)local_8);
+        if (puVar8 != (undefined4 *)0x0) {
+          (**(code **)*puVar8)(1);
+        }
+        FUN_00407800(local_8,0);
+      }
+    }
+    iVar5 = FUN_007af430((int)param_1);
+    bVar1 = FUN_00549580(iVar5);
+    if (bVar1) {
+      cVar2 = '\x01';
+      piVar4 = param_1;
+      pvVar3 = (void *)FUN_004fd3e0(DAT_011dea10);
+      pvVar3 = (void *)FUN_00586170(pvVar3);
+      FUN_006fcfa0(pvVar3,piVar4,cVar2);
+    }
+    FUN_0056c880(param_1,1,'\0');
+    FUN_00952c30(DAT_011dea3c,param_1);
+    local_10 = (int *)FUN_0056ac90((int)param_1);
+    while ((local_10 != (int *)0x0 && (cVar2 = FUN_008256d0(local_10), cVar2 == '\0'))) {
+      puVar8 = (undefined4 *)FUN_006815c0(local_10);
+      piVar4 = (int *)*puVar8;
+      cVar2 = FUN_0056aa70((int)piVar4);
+      if (cVar2 == '\0') {
+        FUN_00574400(piVar4);
+      }
+      else {
+        pvVar3 = (void *)FUN_005d43c0((int)piVar4);
+        bVar1 = FUN_0041dbd0(pvVar3);
+        if (bVar1) {
+          FUN_0056c780(piVar4,'\x01');
+        }
+        FUN_00573f40(piVar4);
+      }
+      local_10 = (int *)FUN_00726070((int)local_10);
+    }
+    pvVar3 = (void *)FUN_005d43c0((int)param_1);
+    piVar4 = (int *)FUN_0041df90(pvVar3);
+    while ((piVar4 != (int *)0x0 && (cVar2 = FUN_008256d0(piVar4), cVar2 == '\0'))) {
+      puVar8 = (undefined4 *)FUN_006815c0(piVar4);
+      piVar7 = 
+
+  [ScriptDataDestroy] FUN_00573f40 @ 0x00573F40 (1200 bytes)
+
+/* WARNING: Globals starting with '_' overlap smaller symbols at the same address */
+
+void __fastcall FUN_00573f40(int *param_1)
+
+{
+  bool bVar1;
+  char cVar2;
+  bool bVar3;
+  undefined1 uVar4;
+  uint uVar5;
+  int iVar6;
+  void *pvVar7;
+  int *piVar8;
+  undefined4 *puVar9;
+  undefined3 extraout_var;
+  undefined3 extraout_var_00;
+  undefined4 uVar10;
+  undefined3 extraout_var_01;
+  int *unaff_FS_OFFSET;
+  float10 fVar11;
+  undefined4 uVar12;
+  undefined4 *local_3c;
+  int *local_28;
+  int *local_1c;
+  int *local_14;
+  int local_10;
+  undefined1 *puStack_c;
+  undefined4 local_8;
+  
+  local_8 = 0xffffffff;
+  puStack_c = &LAB_00ef75ab;
+  local_10 = *unaff_FS_OFFSET;
+  uVar5 = DAT_011c16bc ^ (uint)&stack0xfffffffc;
+  *unaff_FS_OFFSET = (int)&local_10;
+  bVar1 = FUN_00440da0((int)param_1);
+  if (!bVar1) goto LAB_005743e1;
+  (**(code **)(*param_1 + 200))(1,uVar5);
+  FUN_00484af0(param_1,'\0');
+  iVar6 = FUN_008d6f30((int)param_1);
+  if (iVar6 != 0) {
+    cVar2 = (**(code **)(*param_1 + 0x100))();
+    if (cVar2 != '\0') {
+      iVar6 = FUN_008d6f30((int)param_1);
+      FUN_00545590(iVar6);
+    }
+  }
+  pvVar7 = (void *)FUN_005d43c0((int)param_1);
+  piVar8 = (int *)FUN_0041e310(pvVar7);
+  if (piVar8 != (int *)0x0) {
+    iVar6 = FUN_007af430((int)param_1);
+    if (iVar6 != DAT_011ca27c) {
+      iVar6 = FUN_007af430((int)param_1);
+      if (iVar6 != DAT_011ca280) {
+        FUN_00573f40(piVar8);
+      }
+    }
+  }
+  cVar2 = (**(code **)(*param_1 + 0x100))();
+  if (cVar2 != '\0') {
+    (**(code **)(*param_1 + 0x208))(1);
+  }
+  local_14 = (int *)0x0;
+  cVar2 = (**(code **)(*param_1 + 0xfc))();
+  if (cVar2 != '\0') {
+    local_14 = param_1;
+  }
+  if (local_14 != (int *)0x0) {
+    iVar6 = FUN_008d8520((int)local_14);
+    if (iVar6 == 0) {
+      puVar9 = (undefined4 *)FUN_00401000(0xb4);
+      local_8 = 0;
+      if (puVar9 == (undefined4 *)0x0) {
+        local_3c = (undefined4 *)0x0;
+      }
+      else {
+        local_3c = FUN_00906dc0(puVar9);
+      }
+      local_8 = 0xffffffff;
+      FUN_00407800(local_14,local_3c);
+      FUN_0096d450(&DAT_011e0e80,local_14,3);
+    }
+  }
+  bVar1 = false;
+  iVar6 = FUN_008d6f30((int)param_1);
+  if (iVar6 != 0) {
+    cVar2 = '\0';
+    iVar6 = FUN_008d6f30((int)param_1);
+    uVar5 = FUN_004511e0(iVar6,cVar2);
+    if ((uVar5 & 0xff) != 0) {
+      iVar6 = (**(code **)(*param_1 + 0x1d0))();
+      if (iVar6 == 0) {
+        cVar2 = FUN_00445750(DAT_011c3b3c,param_1);
+        if (cVar2 == '\0') {
+          bVar1 = true;
+          if (local_14 != (int *)0x0) {
+            cVar2 = (**(code **)(*local_14 + 0x100))();
+            if (cVar2 != '\0') {
+              FUN_0096e870(&DAT_011e0e80,local_14);
+            }
+          }
+          iVar6 = FUN_008d6f30((int)param_1);
+          uVar5 = FUN_00450ff0(iVar6);
+          if ((uVar5 & 0xff) != 0) {
+            FUN_00579ac0(param_1,'\x01');
+          }
+          bVar3 = FUN_00440d80((int)param_1);
+          if (!bVar3) {
+            iVar6 = FUN_007af430((int)param_1);
+            if (iVar6 != 0) {
+              iVar6 = FUN_007af430((int)param_1);
+              uVar4 = FUN_00401170(iVar6);
+              if (CONCAT31(extraout_var,uVar4) != 0x1e) {
+                iVar6 = FUN_007af430((int)param_1);
+                uVar4 = FUN_00401170(iVar6);
+                if (CONCAT31(extraout_var_00,uVar4) != 0x15) {
+                  cVar2 = FUN_00444ed0((int)param_1);
+                  if (cVar2 != '\0') goto LAB_005741fc;
+                }
+              }
+              cVar2 = '\0';
+              uVar12 = 0;
+              uVar10 = FUN_008d6f30((int)param_1);
+              iVar6 = FUN_00458be0(uVar10,uVar12);
+              FUN_00444850(DAT_011c3b3c,param_1,iVar6,cVar2);
+            }
+          }
+LAB_005741fc:
+          iVar6 = FUN_008d6f30((int)param_1);
+          uVar5 = FUN_00450ff0(iVar6);
+          if ((uVar5 & 0xff) != 0) {
+            iVar6 = (**(code **)(*param_1 + 0x1d0))();
+            if (iVar6 != 0) {
+              iVar6 = FUN_007af430((int)param_1);
+              if (iVar6 != 0) {
+                iVar6 = FUN_007af430((int)param_1);
+                uVar4 = FUN_00401170(iVar6);
+                if (CONCAT31(extraout_var_01,uVar4) == 0x1e) {
+                  puVar9 = (undefined4 *)FUN_005725f0((int)param_1);
+                  if (puVar9 != (undefined4 *)0x0) {
+                    iVar6 = FUN_00559450(puVar9);
+                    if (iVar6 != 0) {
+                      iVar6 = FUN_00559450(puVar9);
+                      pvVar7 = (void *)FUN_00450b80(0);
+                      FUN_00b5f080(pvVar7,iVar6);
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+  if (local_14 != (int *)0x0) {
+    if (!bVar1) {
+      (**(code **)(*local_14 + 0x260))();
+    }
+    local_28 = (int *)0x0;
+    if (local_14 != (int *)0x0) {
+      cVar2 = (**(code **)(*local_14 + 0x100))();
+      if (cVar2 != '\0') {
+        local_28 = local_14;
+      }
+    }
+    if (local_28 != (int *)0x0) {
+      iVar6 = FUN_008d85

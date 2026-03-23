@@ -92,8 +92,8 @@ pub fn configure_mimalloc() {
         // This replaces our removed quarantine system. Instead of per-pointer
         // deferral with timing bugs, mimalloc handles it at the page level
         // with battle-tested code.
-        mi_option_set(mi_option_purge_delay, 500);
-        log::info!("[MIMALLOC] purge_delay = 500ms (zombie window for stale pointer protection)");
+        mi_option_set(mi_option_purge_delay, 0);
+        log::info!("[MIMALLOC] purge_delay = 0ms (zombie window for stale pointer protection)");
 
         // Decommit on purge (not full release) -- keeps VA reservation.
         mi_option_set(mi_option_purge_decommits, 1);

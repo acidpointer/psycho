@@ -1,0 +1,279 @@
+======================================================================
+GAMEHEAP FREE THREAD ANALYSIS
+======================================================================
+
+# PART 1: Direct callers of GameHeap::Free (FUN_00aa4060)
+
+    0x00401030 FUN_00401030 (at 0x0040103E)
+    0x00553380 FUN_00553380 (at 0x005533AA)
+    0x00A00A30 FUN_00a00a30 (at 0x00A00AC4)
+    0x00A00A30 FUN_00a00a30 (at 0x00A00B15)
+    0x00A01B00 FUN_00a01b00 (at 0x00A01D79)
+    0x00A02D40 FUN_00a02d40 (at 0x00A02F8B)
+    0x00A02D40 FUN_00a02d40 (at 0x00A0305D)
+    0x00A02D40 FUN_00a02d40 (at 0x00A03171)
+    0x00A07DC0 FUN_00a07dc0 (at 0x00A07E92)
+    0x00A080D0 FUN_00a080d0 (at 0x00A086D7)
+    0x00A09200 FUN_00a09200 (at 0x00A092B2)
+    0x00A09200 FUN_00a09200 (at 0x00A09317)
+    0x00A09410 FUN_00a09410 (at 0x00A09EF9)
+    0x00A0A130 FUN_00a0a130 (at 0x00A0A1F7)
+    0x00A0A270 FUN_00a0a270 (at 0x00A0A2CE)
+    0x00A0A300 FUN_00a0a300 (at 0x00A0A384)
+    0x00A0AD40 FUN_00a0ad40 (at 0x00A0ADA6)
+    0x00A0AD40 FUN_00a0ad40 (at 0x00A0AE19)
+    0x00A0B8D0 FUN_00a0b8d0 (at 0x00A0B933)
+    0x00A0BE10 FUN_00a0be10 (at 0x00A0BE34)
+  ... (truncated at 20)
+  [GameHeap::Free] 20 refs found
+
+# PART 2: Trace 2nd-level callers for top entries
+# Shows which subsystem/thread context calls each direct caller
+
+
+--- FUN_00401030 @ 0x00401030 ---
+    0x004702F0 FUN_004702f0 (at 0x0047030B)
+    0x0049FFC0 FUN_0049ffc0 (at 0x0049FFDB)
+    0x004A4410 FUN_004a4410 (at 0x004A442B)
+    0x004B9900 FUN_004b9900 (at 0x004B991B)
+    0x00526EF0 FUN_00526ef0 (at 0x00526F0B)
+    0x0044ED50 FUN_0044ed50 (at 0x0044ED6B)
+    0x00529300 FUN_00529300 (at 0x0052931B)
+    0x00529330 FUN_00529330 (at 0x00529399)
+    0x005293C0 FUN_005293c0 (at 0x005293DB)
+    0x0044F070 FUN_0044f070 (at 0x0044F1BB)
+  ... (truncated at 10)
+  [parents of FUN_00401030] 10 refs found
+
+--- FUN_00553380 @ 0x00553380 ---
+    0x006E6DB0 FUN_006e6db0 (at 0x006E6DF0)
+    0x006E6DB0 FUN_006e6db0 (at 0x006E6E1B)
+    0x0087E9B0 FUN_0087e9b0 (at 0x0087E9B7)
+  [parents of FUN_00553380] 3 refs found
+
+--- FUN_00a00a30 @ 0x00A00A30 ---
+    0x0070A920 FUN_0070a920 (at 0x0070AACA)
+  [parents of FUN_00a00a30] 1 refs found
+
+--- FUN_00a01b00 @ 0x00A01B00 ---
+    0x0070ADB0 FUN_0070adb0 (at 0x0070AF72)
+    0x0076BFE0 FUN_0076bfe0 (at 0x0076C0A1)
+    0x00788CC0 FUN_00788cc0 (at 0x00788D4F)
+    0x007A8BA0 FUN_007a8ba0 (at 0x007A8C12)
+    0x007CB7D0 FUN_007cb7d0 (at 0x007CB9AB)
+    0x0071B210 FUN_0071b210 (at 0x0071B88C)
+    0x00715EC0 FUN_00715ec0 (at 0x00715F75)
+    0x0073AD50 FUN_0073ad50 (at 0x0073ADD1)
+    0x0075B310 FUN_0075b310 (at 0x0075B38E)
+    0x0077FC10 FUN_0077fc10 (at 0x0077FC79)
+  ... (truncated at 10)
+  [parents of FUN_00a01b00] 10 refs found
+
+--- FUN_00a02d40 @ 0x00A02D40 ---
+    0x00A01E20 FUN_00a01e20 (at 0x00A01F27)
+    0x00A02D40 FUN_00a02d40 (at 0x00A0317A)
+    0x00A1D410 FUN_00a1d410 (at 0x00A1D519)
+  [parents of FUN_00a02d40] 3 refs found
+
+--- FUN_00a07dc0 @ 0x00A07DC0 ---
+    0x007846A0 FUN_007846a0 (at 0x007846E8)
+    0x007A1490 FUN_007a1490 (at 0x007A154D)
+    0x007A1490 FUN_007a1490 (at 0x007A157E)
+    0x007B6FB0 FUN_007b6fb0 (at 0x007B6FF8)
+    0x00A07C60 FUN_00a07c60 (at 0x00A07C97)
+    0x009FF690 FUN_009ff690 (at 0x009FF7BD)
+    0x00772AA0 FUN_00772aa0 (at 0x00772BCF)
+    0x0077C4E0 FUN_0077c4e0 (at 0x0077C6D4)
+    0x00783650 FUN_00783650 (at 0x00783691)
+    0x007B5770 FUN_007b5770 (at 0x007B57B1)
+  ... (truncated at 10)
+  [parents of FUN_00a07dc0] 10 refs found
+
+--- FUN_00a080d0 @ 0x00A080D0 ---
+    0x00713C70 FUN_00713c70 (at 0x00713D09)
+  [parents of FUN_00a080d0] 1 refs found
+
+--- FUN_00a09200 @ 0x00A09200 ---
+    0x00764430 FUN_00764430 (at 0x0076465D)
+    0x007D6FF0 FUN_007d6ff0 (at 0x007D721D)
+    0x007D7DA0 FUN_007d7da0 (at 0x007D7FCD)
+    0x00729AE0 FUN_00729ae0 (at 0x00729D0D)
+    0x0071A320 FUN_0071a320 (at 0x0071A54D)
+    0x00754690 FUN_00754690 (at 0x007548BD)
+    0x00786CF0 FUN_00786cf0 (at 0x00786F1D)
+    0x007E0E70 FUN_007e0e70 (at 0x007E109D)
+    0x007E1190 FUN_007e1190 (at 0x007E13BD)
+    0x007E16D0 FUN_007e16d0 (at 0x007E18FD)
+  ... (truncated at 10)
+  [parents of FUN_00a09200] 10 refs found
+
+--- FUN_00a09410 @ 0x00A09410 ---
+    0x00764430 FUN_00764430 (at 0x007646A9)
+    0x00764EF0 FUN_00764ef0 (at 0x00764FEE)
+    0x00764EF0 FUN_00764ef0 (at 0x00765011)
+    0x007D6FF0 FUN_007d6ff0 (at 0x007D7269)
+    0x007D7DA0 FUN_007d7da0 (at 0x007D8019)
+    0x007D9140 FUN_007d9140 (at 0x007D923E)
+    0x007D9140 FUN_007d9140 (at 0x007D9261)
+    0x007D97A0 FUN_007d97a0 (at 0x007D989E)
+    0x007D97A0 FUN_007d97a0 (at 0x007D98C1)
+    0x00729AE0 FUN_00729ae0 (at 0x00729D59)
+  ... (truncated at 10)
+  [parents of FUN_00a09410] 10 refs found
+
+--- FUN_00a0a130 @ 0x00A0A130 ---
+    0x00A09130 FUN_00a09130 (at 0x00A091EC)
+  [parents of FUN_00a0a130] 1 refs found
+
+--- FUN_00a0a270 @ 0x00A0A270 ---
+    0x00A012D0 FUN_00a012d0 (at 0x00A01328)
+    0x00726DB0 FUN_00726db0 (at 0x00726DE5)
+    0x00700110 FUN_00700110 (at 0x0070015F)
+    0x00700110 FUN_00700110 (at 0x00700190)
+    0x007B3760 FUN_007b3760 (at 0x007B37F1)
+    0x006FFEA0 FUN_006ffea0 (at 0x006FFF02)
+    0x006FFEA0 FUN_006ffea0 (at 0x006FFF33)
+    0x006FFEA0 FUN_006ffea0 (at 0x00700064)
+    0x006FFEA0 FUN_006ffea0 (at 0x0070008A)
+    0x007585A0 FUN_007585a0 (at 0x00758666)
+  ... (truncated at 10)
+  [parents of FUN_00a0a270] 10 refs found
+
+# PART 3: BSTaskManagerThread free paths
+
+BSTaskManagerThread run loop:
+  [BSTaskMgr_Run] FUN_00c410b0 @ 0x00C410B0 (633 bytes)
+
+/* WARNING: Removing unreachable block (ram,0x00c411bc) */
+/* WARNING: Removing unreachable block (ram,0x00c412b6) */
+
+void __fastcall FUN_00c410b0(int param_1)
+
+{
+  DWORD DVar1;
+  uint uVar2;
+  LONG LVar3;
+  int *unaff_FS_OFFSET;
+  undefined4 local_40 [2];
+  undefined4 *local_38;
+  char local_31;
+  undefined **local_30 [2];
+  undefined4 local_28;
+  undefined4 local_20;
+  undefined4 local_1c;
+  byte local_18;
+  int local_10;
+  undefined1 *puStack_c;
+  uint local_8;
+  
+  puStack_c = &LAB_00f2e0a0;
+  local_10 = *unaff_FS_OFFSET;
+  *unaff_FS_OFFSET = (int)&local_10;
+  while (local_8 = 0xffffffff, *(char *)(*(int *)(param_1 + 0x30) + 0x40) != '\x01') {
+    WaitForSingleObject(*(HANDLE *)(param_1 + 0x10),0xffffffff);
+    InterlockedDecrement((LONG *)(param_1 + 0xc));
+    local_28 = 0;
+    local_20 = 0;
+    local_1c = 0;
+    local_18 = 0;
+    local_30[0] = &PTR_FUN_010c1664;
+    local_8 = 0;
+    local_31 = '\0';
+    while ((local_18 & 2) == 0) {
+      DVar1 = WaitForSingleObject(*(HANDLE *)(param_1 + 0x1c),0);
+      if (DVar1 == 0x102) {
+        WaitForSingleObject(*(HANDLE *)(param_1 + 0x1c),0xffffffff);
+        InterlockedDecrement((LONG *)(param_1 + 0x18));
+        FUN_00c42060(local_30,0);
+      }
+      local_38 = (undefined4 *)0x0;
+      local_8 = CONCAT31(local_8._1_3_,1);
+      uVar2 = FUN_00c40e70(*(void **)(param_1 + 0x30),(int)local_30,local_40,(int *)&local_38,
+                           local_31 == '\0');
+      if ((uVar2 & 0xff) == 0) {
+        if ((local_18 & 2) == 0) {
+          FUN_00c42060(local_30,0);
+          local_31 = '\0';
+        }
+      }
+      else if ((local_38[3] == 1) &&
+              (LVar3 = InterlockedCompareExchange(local_38 + 3,3,1), LVar3 == 1)) {
+        local_31 = '\x01';
+        (**(code **)(**(int **)(param_1 + 0x30) + 0x4c))(local_38);
+        (**(code **)(**(int **)(param_1 + 0x30) + 0x50))(local_38);
+      }
+      if (local_38 != (undefined4 *)0x0) {
+        if (local_38 != (undefined4 *)0x0) {
+          FUN_0044dd60(local_38);
+        }
+        local_38 = (undefined4 *)0x0;
+      }
+      ReleaseSemaphore(*(HANDLE *)(param_1 + 0x1c),1,(LPLONG)0x0);
+      InterlockedIncrement((LONG *)(param_1 + 0x18));
+      local_8 = local_8 & 0xffffff00;
+      if (local_38 != (undefined4 *)0x0) {
+        FUN_0044dd60(local_38);
+      }
+    }
+    local_30[0] = &PTR_FUN_010c1670;
+  }
+  *unaff_FS_OFFSET = local_10;
+  return;
+}
+
+
+
+IOTask::Release:
+  [IOTask_Release] FUN_0044dd60 @ 0x0044DD60 (81 bytes)
+
+void __fastcall FUN_0044dd60(undefined4 *param_1)
+
+{
+  int iVar1;
+  
+  iVar1 = FUN_004019a0(param_1 + 2);
+  if ((iVar1 == 0) && (param_1 != (undefined4 *)0x0)) {
+    (**(code **)*param_1)(1);
+  }
+  return;
+}
+
+
+
+# PART 4: NiNode destructor (PDD queue 0x08 - main thread)
+
+  [NiNode_dtor] FUN_00418d20 @ 0x00418D20 (44 bytes)
+
+undefined4 * __thiscall FUN_00418d20(void *this,uint param_1)
+
+{
+  FUN_0048fb50(this);
+  if ((param_1 & 1) != 0) {
+    FUN_00401030(this);
+  }
+  return this;
+}
+
+
+
+# PART 5: Thread ID functions
+
+  [GetThreadId] FUN_0040fc90 @ 0x0040FC90 (11 bytes)
+
+void FUN_0040fc90(void)
+
+{
+  GetCurrentThreadId();
+  return;
+}
+
+
+
+  [GetMainThreadId] FUN_0044edb0 @ 0x0044EDB0 (17 bytes)
+
+undefined4 __fastcall FUN_0044edb0(int param_1)
+
+{
+  return *(undefined4 *)(param_1 + 0x10);
+}
+

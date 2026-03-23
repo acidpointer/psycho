@@ -11,6 +11,7 @@
 
 use libc::c_void;
 
+use super::destruction_guard;
 use super::statics;
 
 /// Game module .rdata range for vtable validation.
@@ -19,6 +20,13 @@ const RDATA_END: usize = 0x01300000;
 
 pub unsafe extern "fastcall" fn hook_task_release(this: *mut c_void) {
     if this.is_null() {
+        return;
+    }
+
+    // Defense-in-depth: skip if destruction is actively freeing objects.
+    // During destruction, stale task pointers in the IO completion queue
+    // have recycled memory — releasing them would corrupt the heap.
+    if destruction_guard::is_destruction_active() {
         return;
     }
 

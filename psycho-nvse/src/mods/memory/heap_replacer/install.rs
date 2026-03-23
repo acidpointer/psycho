@@ -150,6 +150,19 @@ pub fn install_game_heap_hooks() -> anyhow::Result<()> {
         log::info!("[PRESSURE] AI thread join hook installed at 0x{:08X}", AI_THREAD_JOIN_ADDR);
     }
 
+    // ---- PDD: destruction guard around ProcessDeferredDestruction ----
+    {
+        use game_heap::statics::*;
+
+        PDD_HOOK.init(
+            "pdd",
+            PDD_ADDR as *mut c_void,
+            game_heap::pdd_hook::hook_pdd,
+        )?;
+        guard.enable_hook("pdd", &PDD_HOOK)?;
+        log::info!("[SYNC] PDD destruction guard installed at 0x{:08X}", PDD_ADDR);
+    }
+
     // ---- Texture cache: dead set hooks ----
     {
         use game_heap::statics::*;

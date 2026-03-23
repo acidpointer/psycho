@@ -17,6 +17,7 @@
 
 use libc::c_void;
 
+use super::destruction_guard;
 use super::statics;
 
 /// Offset of the bone array pointer within the ragdoll controller.
@@ -34,10 +35,15 @@ pub unsafe extern "fastcall" fn hook_skeleton_update(ragdoll: *mut c_void) {
         return;
     }
 
+    // Defense-in-depth: skip if destruction is actively freeing objects.
+    if destruction_guard::is_destruction_active() {
+        return;
+    }
+
     // Validate bone array pointer at ragdoll+0xa4.
     // If the ragdoll was freed and recycled, this field contains
     // garbage (0, small values, or mimalloc metadata).
-    let bone_array_ptr_addr = (ragdoll as *const u8).add(BONE_ARRAY_OFFSET) as *const usize;
+    let bone_array_ptr_addr = unsafe { (ragdoll as *const u8).add(BONE_ARRAY_OFFSET) } as *const usize;
     let bone_array = unsafe { std::ptr::read_volatile(bone_array_ptr_addr) };
 
     if bone_array < MIN_VALID_PTR {
