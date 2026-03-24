@@ -14,34 +14,22 @@ use libmimalloc::{
     mi_collect, mi_is_in_heap_region, mi_malloc_aligned, mi_realloc_aligned,
     mi_usable_size,
 };
-use libpsycho::ffi::fnptr::FnPtr;
 
 use super::delayed_free;
+use super::engine::{addr, globals};
 use super::pressure::PressureRelief;
 use super::statics;
-use super::types::{GetMainThreadIdFn, GetThreadIdFn, OomStageExecFn};
 use crate::mods::memory::heap_replacer::heap_validate;
 
-// ---- Configuration ----
-
 const ALIGN: usize = 16;
-const SINGLETON: usize = 0x011F6238;
 
-/// Pressure check interval. Every N allocs, check if commit exceeds
-/// the dynamic threshold (baseline + 500MB) and trigger pressure relief.
+// Pressure check interval. Every N allocs, check if commit exceeds
+// the dynamic threshold (baseline + 500MB) and trigger pressure relief.
 const PRESSURE_CHECK_INTERVAL: u32 = 50_000;
 
 thread_local! {
     static ALLOC_COUNTER: std::cell::Cell<u32> = const { std::cell::Cell::new(0) };
 }
-
-// ---- OOM recovery game addresses ----
-
-const OOM_STAGE_EXEC: usize = 0x00866A90;
-const PRIMARY_HEAP_OFFSET: usize = 0x110;
-const GET_THREAD_ID: usize = 0x0040FC90;
-const GET_MAIN_THREAD_ID: usize = 0x0044EDB0;
-const TES_OBJECT: usize = 0x011DEA0C;
 
 // ---- Gheap ----
 
@@ -115,7 +103,7 @@ impl Gheap {
         // the process manager lock and run FindCellToUnload, which race
         // with AI threads that read actor/cell data.
         if is_main && !super::hooks::is_ai_active() {
-            let ptr = unsafe { Self::run_game_oom_stages(size) };
+            let ptr = unsafe { globals::run_oom_stages(size) };
             if !ptr.is_null() {
                 return ptr;
             }
@@ -159,69 +147,7 @@ impl Gheap {
     }
 
     unsafe fn is_main_thread() -> bool {
-        unsafe {
-            let get_tid = FnPtr::<GetThreadIdFn>::from_raw(GET_THREAD_ID as *mut c_void);
-            let get_main =
-                FnPtr::<GetMainThreadIdFn>::from_raw(GET_MAIN_THREAD_ID as *mut c_void);
-            let tes = *(TES_OBJECT as *const *mut c_void);
-
-            match (get_tid, get_main) {
-                (Ok(tid_fn), Ok(main_fn)) if !tes.is_null() => {
-                    match (tid_fn.as_fn(), main_fn.as_fn()) {
-                        (Ok(tid), Ok(main)) => tid() == main(tes),
-                        _ => false,
-                    }
-                }
-                _ => false,
-            }
-        }
-    }
-
-    /// Run game's OOM stages 0-8, then collect and retry.
-    #[cold]
-    unsafe fn run_game_oom_stages(size: usize) -> *mut c_void {
-        let heap_singleton = SINGLETON as *mut c_void;
-        let primary_heap = unsafe {
-            let p =
-                (heap_singleton as *const u8).add(PRIMARY_HEAP_OFFSET) as *const *mut c_void;
-            *p
-        };
-
-        let oom_exec = match unsafe {
-            FnPtr::<OomStageExecFn>::from_raw(OOM_STAGE_EXEC as *mut c_void)
-        } {
-            Ok(f) => f,
-            Err(_) => return null_mut(),
-        };
-
-        let mut stage: i32 = 0;
-        let mut done: u8;
-        while stage <= 8 {
-            done = 0;
-            stage = match unsafe { oom_exec.as_fn() } {
-                Ok(f) => unsafe { f(heap_singleton, primary_heap, stage, &mut done) },
-                Err(_) => break,
-            };
-        }
-
-        // After all game stages, flush quarantine + force collect.
-        unsafe { delayed_free::flush_current_thread() };
-        unsafe { mi_collect(true) };
-
-        let ptr = unsafe { mi_malloc_aligned(size, ALIGN) };
-        if !ptr.is_null() {
-            return ptr;
-        }
-
-        let info = libmimalloc::process_info::MiMallocProcessInfo::get();
-        log::error!(
-            "[GHEAP] OOM: mi_malloc_aligned({}, {}) failed after all stages. \
-             RSS={}MB, Commit={}MB",
-            size, ALIGN,
-            info.get_current_rss() / 1024 / 1024,
-            info.get_current_commit() / 1024 / 1024,
-        );
-        null_mut()
+        globals::is_main_thread_by_tid()
     }
 
     /// Free a GameHeap pointer through quarantine.
@@ -238,7 +164,7 @@ impl Gheap {
 
         // Pre-hook pointer: original trampoline handles SBM arenas.
         if let Ok(orig_free) = statics::GHEAP_FREE_HOOK.original() {
-            unsafe { orig_free(SINGLETON as *mut c_void, ptr) };
+            unsafe { orig_free(addr::HEAP_SINGLETON as *mut c_void, ptr) };
             return;
         }
 
@@ -256,7 +182,7 @@ impl Gheap {
         }
 
         if let Ok(orig_msize) = statics::GHEAP_MSIZE_HOOK.original() {
-            let size = unsafe { orig_msize(SINGLETON as *mut c_void, ptr) };
+            let size = unsafe { orig_msize(addr::HEAP_SINGLETON as *mut c_void, ptr) };
             if size != 0 {
                 return size;
             }

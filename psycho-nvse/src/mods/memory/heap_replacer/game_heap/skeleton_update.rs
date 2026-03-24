@@ -11,10 +11,8 @@
 use libc::c_void;
 
 use super::destruction_guard;
+use super::engine::addr;
 use super::statics;
-
-const BONE_ARRAY_OFFSET: usize = 0xA4;
-const MIN_VALID_PTR: usize = 0x10000;
 
 pub unsafe extern "fastcall" fn hook_skeleton_update(ragdoll: *mut c_void) {
     if ragdoll.is_null() {
@@ -27,11 +25,11 @@ pub unsafe extern "fastcall" fn hook_skeleton_update(ragdoll: *mut c_void) {
     destruction_guard::try_read(|| {
         let bone_array = unsafe {
             std::ptr::read_volatile(
-                (ragdoll as *const u8).add(BONE_ARRAY_OFFSET) as *const usize,
+                (ragdoll as *const u8).add(addr::RAGDOLL_BONE_ARRAY_OFFSET) as *const usize,
             )
         };
 
-        if bone_array < MIN_VALID_PTR {
+        if bone_array < addr::MIN_VALID_PTR {
             return;
         }
 

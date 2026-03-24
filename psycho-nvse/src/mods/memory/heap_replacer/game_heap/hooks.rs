@@ -92,24 +92,13 @@ pub unsafe extern "fastcall" fn hook_ai_thread_join(mgr: *mut c_void) {
 // Hook position: FUN_00868850, called at 0x0086eadf in main loop.
 // This is Phase 7 — BEFORE AI_START. AI threads are idle here.
 
-/// Extra rounds of FUN_00868850 when under memory pressure.
-/// Each round drains 10-20 NiNodes; 19 extra = 200-400 NiNodes/frame total.
+use super::engine::globals::{self, PddQueue};
+
+// Extra rounds of FUN_00868850 when under memory pressure.
+// Each round drains 10-20 NiNodes; 19 extra = 200-400 NiNodes/frame total.
 const EXTRA_DRAIN_ROUNDS: u32 = 19;
 
-/// NiNode PDD queue (DAT_011de808), count at offset +0x0A (u16).
-const NINODE_QUEUE_ADDR: usize = 0x011DE808;
-const QUEUE_COUNT_OFFSET: usize = 0x0A;
-
-/// HeapCompact trigger field (heap_singleton + 0x134).
-const HEAP_COMPACT_TRIGGER_PTR: usize = 0x011F636C;
-
-/// All PDD queue addresses, count at offset +0x0A (u16) each.
-const TEXTURE_QUEUE_ADDR: usize = 0x011DE910;
-const ANIM_QUEUE_ADDR: usize = 0x011DE888;
-const GENERIC_QUEUE_ADDR: usize = 0x011DE874;
-const FORM_QUEUE_ADDR: usize = 0x011DE828;
-
-/// Log queue states every N frames when under pressure (~5s at 60fps).
+// Log queue states every N frames when under pressure (about 5s at 60fps).
 const DIAG_LOG_INTERVAL: u32 = 300;
 
 thread_local! {
@@ -118,7 +107,7 @@ thread_local! {
 
 pub unsafe extern "C" fn hook_per_frame_queue_drain() {
     // Flush quarantine BEFORE PDD runs. At this point:
-    // - AI threads idle (joined at Phase 10 of PREVIOUS frame)
+    // - AI threads idle (joined at Phase 10 of previous frame)
     // - IOManager Phase 3 completed (earlier this frame)
     // - Safe to reclaim memory: no concurrent readers.
     unsafe { Gheap::on_pre_pdd() };
@@ -134,36 +123,21 @@ pub unsafe extern "C" fn hook_per_frame_queue_drain() {
                 let count = c.get().wrapping_add(1);
                 c.set(count);
                 if count % DIAG_LOG_INTERVAL == 0 {
-                    let trigger_val =
-                        unsafe { *(HEAP_COMPACT_TRIGGER_PTR as *const u32) };
-                    let ninode_q = unsafe {
-                        *((NINODE_QUEUE_ADDR + QUEUE_COUNT_OFFSET) as *const u16)
-                    };
-                    let texture_q = unsafe {
-                        *((TEXTURE_QUEUE_ADDR + QUEUE_COUNT_OFFSET) as *const u16)
-                    };
-                    let anim_q = unsafe {
-                        *((ANIM_QUEUE_ADDR + QUEUE_COUNT_OFFSET) as *const u16)
-                    };
-                    let generic_q = unsafe {
-                        *((GENERIC_QUEUE_ADDR + QUEUE_COUNT_OFFSET) as *const u16)
-                    };
-                    let form_q = unsafe {
-                        *((FORM_QUEUE_ADDR + QUEUE_COUNT_OFFSET) as *const u16)
-                    };
                     log::debug!(
                         "[GHEAP-DEBUG] trigger={} queues: NiNode={} Tex={} Anim={} Gen={} Form={}",
-                        trigger_val, ninode_q, texture_q, anim_q, generic_q, form_q
+                        globals::heap_compact_trigger_value(),
+                        globals::pdd_queue_count(PddQueue::NiNode),
+                        globals::pdd_queue_count(PddQueue::Texture),
+                        globals::pdd_queue_count(PddQueue::Anim),
+                        globals::pdd_queue_count(PddQueue::Generic),
+                        globals::pdd_queue_count(PddQueue::Form),
                     );
                 }
             });
 
             // Boosted drain: call original additional times for NiNode queue
             for _ in 0..EXTRA_DRAIN_ROUNDS {
-                let count = unsafe {
-                    *((NINODE_QUEUE_ADDR + QUEUE_COUNT_OFFSET) as *const u16)
-                };
-                if count == 0 {
+                if globals::pdd_queue_count(PddQueue::NiNode) == 0 {
                     break;
                 }
                 unsafe { original() };

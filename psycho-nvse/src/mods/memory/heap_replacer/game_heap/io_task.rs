@@ -15,10 +15,8 @@
 use libc::c_void;
 
 use super::destruction_guard;
+use super::engine::addr;
 use super::statics;
-
-const RDATA_START: usize = 0x01000000;
-const RDATA_END: usize = 0x01300000;
 
 pub unsafe extern "fastcall" fn hook_task_release(this: *mut c_void) {
     if this.is_null() {
@@ -41,7 +39,7 @@ pub unsafe extern "fastcall" fn hook_task_release(this: *mut c_void) {
 
 unsafe fn validate_and_release(this: *mut c_void) {
     let vtable = unsafe { *(this as *const usize) };
-    if !(RDATA_START..RDATA_END).contains(&vtable) {
+    if !(addr::RDATA_START..addr::RDATA_END).contains(&vtable) {
         return;
     }
 

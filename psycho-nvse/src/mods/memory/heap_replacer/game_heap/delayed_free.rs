@@ -63,11 +63,6 @@ use super::texture_cache;
 // Configuration
 // ---------------------------------------------------------------------------
 
-/// Quarantine ceiling during loading. Force flush if exceeded.
-const CEILING_BYTES: usize = 200 * 1024 * 1024;
-
-/// Loading flag address.
-const LOADING_FLAG_PTR: usize = 0x011DEA2B;
 
 // ---------------------------------------------------------------------------
 // Thread identification
@@ -196,15 +191,13 @@ pub fn tick_flush() {
     // (tick_rotate also sets it, but runs AFTER us in the frame.)
     IS_MAIN_THREAD.with(|f| f.set(true));
 
-    let loading = unsafe { *(LOADING_FLAG_PTR as *const u8) != 0 };
-
-    // Acquire write lock — blocks concurrent readers during drain.
+    // Acquire write lock -- blocks concurrent readers during drain.
     let _guard = super::destruction_guard::write_lock();
 
     QUARANTINE.with(|q| {
         let q = unsafe { &mut *q.get() };
 
-        // Always drain previous — these are frees from BEFORE the current
+        // Always drain previous -- these are frees from BEFORE the current
         // loading screen started. Safe to reclaim: they were already dead
         // when loading began, no NVSE handler references them.
         q.flush_previous();
@@ -247,7 +240,7 @@ pub fn tick_rotate() {
     // Do NOT clear here — tick_rotate runs between render and AI_JOIN,
     // but quarantine drain happens next frame. Dead entries must persist.
 
-    let loading = unsafe { *(LOADING_FLAG_PTR as *const u8) != 0 };
+    let loading = super::engine::globals::is_loading();
 
     if loading {
         // During loading: don't rotate. Frees accumulate in current.

@@ -6,6 +6,7 @@
 
 mod alloc;
 pub mod cell_transition;
+pub mod engine;
 pub mod delayed_free;
 pub mod destruction_guard;
 pub mod hooks;
