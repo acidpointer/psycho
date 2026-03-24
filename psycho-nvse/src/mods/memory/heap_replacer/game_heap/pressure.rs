@@ -1,16 +1,19 @@
 //! Memory pressure relief for the game heap.
 //!
-//! # Hook position: FUN_008705d0 (post-render)
+//! # Hook position: FUN_008705d0 (post-render, PRE-AI_JOIN)
 //!
-//! The hook runs after render but BEFORE the main loop's AI thread join.
-//! AI Linear Task Threads are still active at our hook position.
+//! **WARNING:** The hook runs AFTER render but BEFORE AI_JOIN.
+//! AI Linear Task Threads are STILL ACTIVE at our hook position.
+//! Never call mi_collect(true) or acquire write locks here.
 //!
 //! ```text
-//! 0x0086ec87  AI_START                <- AI threads dispatched
-//! 0x0086ede8  RENDER
-//! 0x0086edf0  OUR_HOOK (0x008705d0)  <- We are here
-//! 0x0086ee4e  AI_JOIN (0x008c7990)   <- AI threads joined
-//! 0x0086ee62  POST_AI (0x0086f6a0)
+//! 0x0086eac9  HeapCompact             <- Phase 6
+//! 0x0086eadf  PerFrameDrain           <- Phase 7 (our queue drain hook)
+//! 0x0086ec87  AI_START                <- Phase 8, AI threads dispatched
+//! 0x0086ecba  RENDER                  <- Phase 9 (AI running parallel)
+//! 0x0086edf0  OUR_HOOK (0x008705d0)  <- *** HERE *** AI still running
+//! 0x0086ee4e  AI_JOIN (0x008c7990)   <- Phase 10, AI threads joined
+//! 0x0086ee62  POST_AI (0x0086f6a0)   <- Phase 11
 //! ```
 //!
 //! # Multi-layer pressure relief
@@ -25,8 +28,10 @@
 //! draining 200-400 NiNodes per frame.
 //!
 //! ## Layer 3: HeapCompact trigger (heap_singleton + 0x134)
-//! Under pressure, writes `6` to the HeapCompact trigger field. On the
-//! next frame, HeapCompact runs stages 0-6 including cell unloading.
+//! Under pressure, writes `2` to the HeapCompact trigger field. On the
+//! next frame, HeapCompact runs stages 0-2 (texture flush, geometry,
+//! menu). Stages 3+ are NEVER safe from pressure relief — stage 5
+//! (cell unloading) deadlocks during fast travel / loading screens.
 
 use libc::c_void;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
@@ -259,37 +264,33 @@ impl PressureRelief {
         let quarantine_mb = super::delayed_free::get_quarantine_usage() / 1024 / 1024;
 
         // Signal HeapCompact stages 0-2 for the NEXT frame.
-        // This is just a u32 volatile write — no objects freed here.
-        // The actual HeapCompact runs at Phase 6 of the next frame,
-        // before AI_Start, through our PDD hook (write lock).
-        // Stage 0: texture cache flush. Stage 1: no-op. Stage 2: menu cleanup.
+        // Stages 0-2 are always safe: texture cache flush, geometry, menu.
+        // Stages 3+: NEVER from pressure relief. Stage 5 (cell unloading)
+        // deadlocks if the next frame is a loading screen (fast travel,
+        // cell transition). We can't predict when loading will start.
+        // Cell unloading only happens safely from the game's own OOM
+        // handler (allocator retry loop) where timing is controlled.
+        //
+        // HeapCompact loop is INCLUSIVE: trigger=N runs stages 0..=N.
+        // So trigger=2 runs stages 0, 1, 2 only.
         unsafe {
             let trigger = HEAP_COMPACT_TRIGGER_PTR as *mut u32;
             trigger.write_volatile(2);
         }
 
+        // NOTE: This hook runs BEFORE AI_JOIN — AI threads are still active.
+        // mi_collect(true) races with AI thread alloc/free. Only use
+        // mi_collect(false) here (lightweight, thread-local pages only).
+        // Aggressive collection (flush + mi_collect(true)) is deferred to
+        // run_deferred_unload() which runs AFTER AI_JOIN.
         if commit >= aggressive_threshold {
-            // Aggressive: also flush quarantine + force collect.
-            static LAST_AGGRESSIVE_MS: std::sync::atomic::AtomicU64 =
-                std::sync::atomic::AtomicU64::new(0);
-            let last_agg = LAST_AGGRESSIVE_MS.load(Ordering::Relaxed);
-
-            if now_ms.saturating_sub(last_agg) >= AGGRESSIVE_COOLDOWN_MS {
-                LAST_AGGRESSIVE_MS.store(now_ms, Ordering::Relaxed);
-                unsafe { super::delayed_free::flush_current_thread() };
-                unsafe { mi_collect(true) };
-                log::warn!(
-                    "[PRESSURE] Aggressive: HeapCompact+flush+collect, commit={}MB (thresh={}MB), quarantine={}MB, RSS={}MB",
-                    commit_mb, aggressive_threshold / 1024 / 1024,
-                    quarantine_mb, info.get_current_rss() / 1024 / 1024,
-                );
-            } else {
-                unsafe { mi_collect(false) };
-                log::info!(
-                    "[PRESSURE] Relief: HeapCompact signaled, commit={}MB, quarantine={}MB",
-                    commit_mb, quarantine_mb,
-                );
-            }
+            // Defer aggressive flush+collect to after AI_JOIN.
+            self.deferred_unload.store(true, Ordering::Release);
+            unsafe { mi_collect(false) };
+            log::warn!(
+                "[PRESSURE] HeapCompact signaled, aggressive deferred to AI_JOIN, commit={}MB (thresh={}MB), quarantine={}MB",
+                commit_mb, aggressive_threshold / 1024 / 1024, quarantine_mb,
+            );
         } else {
             unsafe { mi_collect(false) };
             log::info!(
@@ -303,19 +304,43 @@ impl PressureRelief {
         self.active.store(false, Ordering::Release);
     }
 
-    /// Run deferred cell unloading. Called from the AI thread join hook
-    /// after AI threads have completed their work.
+    /// Run deferred work after AI_JOIN. Called from the AI thread join
+    /// hook after AI threads have completed their work.
+    ///
+    /// This is the ONLY safe place for mi_collect(true) — AI threads are
+    /// idle so no allocation races. Also handles deferred cell unloading
+    /// when not in a loading screen.
     pub unsafe fn run_deferred_unload(&self) {
         if !self.deferred_unload.load(Ordering::Acquire) {
             return;
         }
 
-        let loading = unsafe { *(GAME_LOADING_FLAG_PTR as *const u8) != 0 };
-        if loading {
-            return; // keep flag set, retry next frame
+        self.deferred_unload.store(false, Ordering::Release);
+
+        // Aggressive collect: safe here because AI threads are joined.
+        static LAST_AGGRESSIVE_MS: std::sync::atomic::AtomicU64 =
+            std::sync::atomic::AtomicU64::new(0);
+        let info = libmimalloc::process_info::MiMallocProcessInfo::get();
+        let now_ms = info.get_elapsed_ms() as u64;
+        let last_agg = LAST_AGGRESSIVE_MS.load(Ordering::Relaxed);
+
+        if now_ms.saturating_sub(last_agg) >= AGGRESSIVE_COOLDOWN_MS {
+            LAST_AGGRESSIVE_MS.store(now_ms, Ordering::Relaxed);
+            unsafe { super::delayed_free::flush_current_thread() };
+            unsafe { mi_collect(true) };
+            let commit_mb = info.get_current_commit() / 1024 / 1024;
+            let quarantine_mb = super::delayed_free::get_quarantine_usage() / 1024 / 1024;
+            log::warn!(
+                "[PRESSURE] Aggressive collect (post AI_JOIN): commit={}MB, quarantine={}MB, RSS={}MB",
+                commit_mb, quarantine_mb, info.get_current_rss() / 1024 / 1024,
+            );
         }
 
-        self.deferred_unload.store(false, Ordering::Release);
+        // Cell unloading: skip during loading (fast travel, cell transition).
+        let loading = unsafe { *(GAME_LOADING_FLAG_PTR as *const u8) != 0 };
+        if loading {
+            return;
+        }
 
         let manager = unsafe { *(GAME_MANAGER_PTR as *const *mut c_void) };
         if manager.is_null() {
@@ -361,9 +386,7 @@ impl PressureRelief {
             )
         };
 
-        let info = libmimalloc::process_info::MiMallocProcessInfo::get();
         let commit_mb = info.get_current_commit() / 1024 / 1024;
-
         mem_stats::global().record_pressure_relief(cells);
 
         if cells > 0 {

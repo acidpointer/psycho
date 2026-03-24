@@ -1,11 +1,15 @@
 //! Queued reference processing hook (FUN_0056f700).
 //!
-//! Full read lock during original call. Internal frees go to quarantine
-//! via try_write (non-blocking). Flushed after read lock released.
+//! Skips processing for characters with HAVOK_DEATH flag (0x10000).
+//! After ragdoll death, the Havok allocator frees bone/physics data
+//! but the game still queues a reference update. The original function
+//! would read freed Havok memory → crash.
+//!
+//! Called from main thread during per-frame processing.
+//! NO read lock: main thread is the writer, can't race with itself.
 
 use libc::c_void;
 
-use super::destruction_guard;
 use super::statics;
 
 const TESFORM_FLAGS_OFFSET: usize = 0x08;
@@ -16,14 +20,12 @@ pub unsafe extern "fastcall" fn hook_queued_ref_process(refr: *mut c_void) {
         return;
     }
 
-    destruction_guard::read(|| {
-        let flags = unsafe { *((refr as *const u8).add(TESFORM_FLAGS_OFFSET) as *const u32) };
-        if flags & FLAG_HAVOK_DEATH != 0 {
-            return;
-        }
+    let flags = unsafe { *((refr as *const u8).add(TESFORM_FLAGS_OFFSET) as *const u32) };
+    if flags & FLAG_HAVOK_DEATH != 0 {
+        return;
+    }
 
-        if let Ok(original) = statics::QUEUED_REF_PROCESS_HOOK.original() {
-            unsafe { original(refr) };
-        }
-    });
+    if let Ok(original) = statics::QUEUED_REF_PROCESS_HOOK.original() {
+        unsafe { original(refr) };
+    }
 }

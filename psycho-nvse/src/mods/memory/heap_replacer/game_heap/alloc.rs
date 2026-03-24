@@ -111,9 +111,10 @@ impl Gheap {
         }
 
         // Stage 3 (main thread only): game's OOM stages 0-8.
-        // SKIP if AI read guard is held — game stages trigger PDD which
-        // acquires write lock. Same-thread read + write = deadlock.
-        if is_main && !super::hooks::is_ai_guard_held() {
+        // SKIP if AI threads are active — game OOM stages 4-5 acquire
+        // the process manager lock and run FindCellToUnload, which race
+        // with AI threads that read actor/cell data.
+        if is_main && !super::hooks::is_ai_active() {
             let ptr = unsafe { Self::run_game_oom_stages(size) };
             if !ptr.is_null() {
                 return ptr;
@@ -308,7 +309,7 @@ impl Gheap {
         new_ptr
     }
 
-    /// Called once per frame from the main loop hook (Phase 8).
+    /// Called once per frame from hook_main_loop_maintenance (between render and AI_JOIN).
     pub unsafe fn on_frame_tick() {
         delayed_free::tick_rotate();
 
@@ -317,7 +318,7 @@ impl Gheap {
         }
     }
 
-    /// Called at Phase 4 entry (per-frame queue drain), BEFORE PDD.
+    /// Called from hook_per_frame_queue_drain (Phase 7, before AI_START).
     pub unsafe fn on_pre_pdd() {
         delayed_free::tick_flush();
     }

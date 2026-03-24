@@ -136,21 +136,13 @@ pub fn install_game_heap_hooks() -> anyhow::Result<()> {
     // the lock. The loading state counter is also redundant -- cell transitions
     // run during loading screens where DAT_01202d6c is already > 0.
 
-    // ---- IOManager Phase 3: read lock during IO task dispatch ----
-    {
-        use game_heap::statics::*;
-        use game_heap::hooks::*;
+    // NOTE: IOManager Phase 3 (FUN_00c3dbf0) is NOT hooked.
+    // IOManager and PDD are both on the main thread — read lock on IOManager
+    // deadlocks when task processing internally triggers PDD (write lock).
+    // Same-thread read + write = deadlock. BSTaskManagerThread frees go
+    // directly to mi_free (no write lock), so no cross-thread protection needed.
 
-        IO_MANAGER_PROCESS_HOOK.init(
-            "io_manager_process",
-            IO_MANAGER_PROCESS_ADDR as *mut c_void,
-            hook_io_manager_process,
-        )?;
-        guard.enable_hook("io_manager_process", &IO_MANAGER_PROCESS_HOOK)?;
-        log::info!("[SYNC] IOManager Phase 3 read-lock at 0x{:08X}", IO_MANAGER_PROCESS_ADDR);
-    }
-
-    // ---- AI thread synchronization: try_read at Start, release at Join ----
+    // ---- AI thread synchronization: set/clear AI_ACTIVE flag ----
     {
         use game_heap::statics::*;
         use game_heap::hooks::*;
@@ -161,7 +153,7 @@ pub fn install_game_heap_hooks() -> anyhow::Result<()> {
             hook_ai_thread_start,
         )?;
         guard.enable_hook("ai_thread_start", &AI_THREAD_START_HOOK)?;
-        log::info!("[SYNC] AI start try_read at 0x{:08X}", AI_THREAD_START_ADDR);
+        log::info!("[SYNC] AI start flag at 0x{:08X}", AI_THREAD_START_ADDR);
 
         AI_THREAD_JOIN_HOOK.init(
             "ai_thread_join",
@@ -169,7 +161,7 @@ pub fn install_game_heap_hooks() -> anyhow::Result<()> {
             hook_ai_thread_join,
         )?;
         guard.enable_hook("ai_thread_join", &AI_THREAD_JOIN_HOOK)?;
-        log::info!("[SYNC] AI join release at 0x{:08X}", AI_THREAD_JOIN_ADDR);
+        log::info!("[SYNC] AI join flag at 0x{:08X}", AI_THREAD_JOIN_ADDR);
     }
 
     // ---- PDD: destruction guard around ProcessDeferredDestruction ----
@@ -182,7 +174,7 @@ pub fn install_game_heap_hooks() -> anyhow::Result<()> {
             game_heap::pdd_hook::hook_pdd,
         )?;
         guard.enable_hook("pdd", &PDD_HOOK)?;
-        log::info!("[SYNC] PDD destruction guard installed at 0x{:08X}", PDD_ADDR);
+        log::info!("[SYNC] PDD hook installed at 0x{:08X}", PDD_ADDR);
     }
 
     // ---- Texture cache: dead set hooks ----

@@ -38,6 +38,10 @@ pub unsafe extern "thiscall" fn hook_gheap_realloc(
 }
 
 // ---- Main loop: frame tick + pressure relief ----
+//
+// Hook position: FUN_008705d0, called at 0x0086edf0 in main loop.
+// This is AFTER AI_START (0x0086ec87) and BEFORE AI_JOIN (0x0086ee4e).
+// AI threads are STILL ACTIVE when this runs.
 
 pub unsafe extern "thiscall" fn hook_main_loop_maintenance(this: *mut c_void) {
     if let Ok(original) = statics::MAIN_LOOP_MAINTENANCE_HOOK.original() {
@@ -47,59 +51,36 @@ pub unsafe extern "thiscall" fn hook_main_loop_maintenance(this: *mut c_void) {
     unsafe { Gheap::on_frame_tick() };
 }
 
-// ---- IOManager Phase 3: read lock during IO task dispatch ----
-
-/// IOManager main-thread processing (FUN_00c3dbf0, Phase 3).
-/// Holds read lock during the entire call — prevents PDD and quarantine
-/// flush from recycling memory while we're dispatching IO task results.
-/// This covers the gap where BSTaskManagerThread-completed tasks are
-/// read by the main thread via vtable dispatch.
-pub unsafe extern "thiscall" fn hook_io_manager_process(this: *mut c_void) {
-    super::destruction_guard::read(|| {
-        if let Ok(original) = statics::IO_MANAGER_PROCESS_HOOK.original() {
-            unsafe { original(this) };
-        }
-    });
-}
-
 // ---- AI thread synchronization ----
+//
+// AI_START (FUN_008c78c0) and AI_JOIN (FUN_008c7990) are called on the
+// MAIN THREAD to dispatch/join 2 AI worker threads. We track the active
+// window with an AtomicBool so OOM recovery can skip unsafe game stages.
 
-use std::cell::Cell;
-use super::destruction_guard::ReadGuard;
+use super::destruction_guard;
 
-thread_local! {
-    static AI_GUARD: Cell<Option<ReadGuard>> = const { Cell::new(None) };
+/// Check if AI threads are currently active (between AI_START and AI_JOIN).
+/// Used by OOM recovery to skip game stages that would be unsafe.
+pub fn is_ai_active() -> bool {
+    destruction_guard::is_ai_active()
 }
 
-/// Check if AI read guard is currently held (main thread only).
-/// Used by OOM recovery to skip game stages that would deadlock.
-pub fn is_ai_guard_held() -> bool {
-    AI_GUARD.with(|g| {
-        // Cell<Option<T>> doesn't have a peek method, but we can
-        // take + put back. This is safe since we're single-threaded (main thread).
-        let val = g.take();
-        let held = val.is_some();
-        g.set(val);
-        held
-    })
-}
-
-/// AI_Start: try to acquire read guard. Stored in thread-local.
+/// AI_Start: mark AI active, then dispatch.
 pub unsafe extern "fastcall" fn hook_ai_thread_start(mgr: *mut c_void) {
-    AI_GUARD.set(super::destruction_guard::try_read_guard());
+    destruction_guard::set_ai_active();
 
     if let Ok(original) = statics::AI_THREAD_START_HOOK.original() {
         unsafe { original(mgr) };
     }
 }
 
-/// AI_Join: drop guard (lock released), then deferred unloading.
+/// AI_Join: wait for threads, then mark inactive + deferred work.
 pub unsafe extern "fastcall" fn hook_ai_thread_join(mgr: *mut c_void) {
     if let Ok(original) = statics::AI_THREAD_JOIN_HOOK.original() {
         unsafe { original(mgr) };
     }
 
-    AI_GUARD.set(None); // guard dropped, lock released
+    destruction_guard::clear_ai_active();
 
     if let Some(pr) = PressureRelief::instance() {
         unsafe { pr.run_deferred_unload() };
@@ -107,6 +88,9 @@ pub unsafe extern "fastcall" fn hook_ai_thread_join(mgr: *mut c_void) {
 }
 
 // ---- Per-frame queue drain: boost NiNode drain under pressure ----
+//
+// Hook position: FUN_00868850, called at 0x0086eadf in main loop.
+// This is Phase 7 — BEFORE AI_START. AI threads are idle here.
 
 /// Extra rounds of FUN_00868850 when under memory pressure.
 /// Each round drains 10-20 NiNodes; 19 extra = 200-400 NiNodes/frame total.
@@ -134,9 +118,9 @@ thread_local! {
 
 pub unsafe extern "C" fn hook_per_frame_queue_drain() {
     // Flush quarantine BEFORE PDD runs. At this point:
-    // - AI threads idle (joined in Phase 9 of previous frame)
-    // - NVSE dispatch completed (after previous inner loop)
+    // - AI threads idle (joined at Phase 10 of PREVIOUS frame)
     // - IOManager Phase 3 completed (earlier this frame)
+    // - Safe to reclaim memory: no concurrent readers.
     unsafe { Gheap::on_pre_pdd() };
 
     if let Ok(original) = statics::PER_FRAME_QUEUE_DRAIN_HOOK.original() {
