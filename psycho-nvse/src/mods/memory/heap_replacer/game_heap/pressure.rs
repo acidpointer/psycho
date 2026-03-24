@@ -258,83 +258,44 @@ impl PressureRelief {
         let commit_mb = commit / 1024 / 1024;
         let quarantine_mb = super::delayed_free::get_quarantine_usage() / 1024 / 1024;
 
+        // Signal HeapCompact stages 0-2 for the NEXT frame.
+        // This is just a u32 volatile write — no objects freed here.
+        // The actual HeapCompact runs at Phase 6 of the next frame,
+        // before AI_Start, through our PDD hook (write lock).
+        // Stage 0: texture cache flush. Stage 1: no-op. Stage 2: menu cleanup.
+        unsafe {
+            let trigger = HEAP_COMPACT_TRIGGER_PTR as *mut u32;
+            trigger.write_volatile(2);
+        }
+
         if commit >= aggressive_threshold {
-            // Aggressive: HeapCompact stages 0-2 + force collect + quarantine flush.
-            // Stages 0-2 are safe (texture cache flush, geometry cache, menu cleanup).
-            // Stages 3+ are UNSAFE (async flush reads freed BSA handles → CRT crash).
-            // Rate-limited to avoid stutters (every 10s).
+            // Aggressive: also flush quarantine + force collect.
             static LAST_AGGRESSIVE_MS: std::sync::atomic::AtomicU64 =
                 std::sync::atomic::AtomicU64::new(0);
             let last_agg = LAST_AGGRESSIVE_MS.load(Ordering::Relaxed);
 
             if now_ms.saturating_sub(last_agg) >= AGGRESSIVE_COOLDOWN_MS {
                 LAST_AGGRESSIVE_MS.store(now_ms, Ordering::Relaxed);
-
-                // Trigger HeapCompact stages 0-2 under write lock.
-                // Stage 0: texture cache flush (ProcessPendingCleanup) — frees cached textures.
-                // Stage 1: geometry cache (RET-patched, no-op).
-                // Stage 2: menu system cleanup.
-                // Write lock ensures no readers see partially-freed data.
-                if super::destruction_guard::try_write(|| {
-                    unsafe {
-                        let trigger = HEAP_COMPACT_TRIGGER_PTR as *mut u32;
-                        trigger.write_volatile(2);
-                    }
-                    unsafe { super::delayed_free::flush_current_thread() };
-                    unsafe { mi_collect(true) };
-                }).is_some() {
-                    log::warn!(
-                        "[PRESSURE] Aggressive: HeapCompact=0-2, commit={}MB (thresh={}MB), quarantine={}MB, RSS={}MB",
-                        commit_mb, aggressive_threshold / 1024 / 1024,
-                        quarantine_mb, info.get_current_rss() / 1024 / 1024,
-                    );
-                } else {
-                    // Readers active — skip this cycle, try next time.
-                    log::info!(
-                        "[PRESSURE] Aggressive skipped (readers active): commit={}MB",
-                        commit_mb,
-                    );
-                }
-            } else {
-                // Between aggressive cycles: trigger HeapCompact 0-2 if possible.
-                // This actually frees texture data, unlike mi_collect(false).
-                if super::destruction_guard::try_write(|| {
-                    unsafe {
-                        let trigger = HEAP_COMPACT_TRIGGER_PTR as *mut u32;
-                        trigger.write_volatile(2);
-                    }
-                }).is_some() {
-                    log::info!(
-                        "[PRESSURE] Relief: HeapCompact=0-2, commit={}MB, quarantine={}MB",
-                        commit_mb, quarantine_mb,
-                    );
-                } else {
-                    unsafe { mi_collect(false) };
-                    log::info!(
-                        "[PRESSURE] Relief (readers active, collect only): commit={}MB, quarantine={}MB",
-                        commit_mb, quarantine_mb,
-                    );
-                }
-            }
-        } else {
-            // Normal: HeapCompact 0-2 if write lock available, else lightweight collect.
-            if super::destruction_guard::try_write(|| {
-                unsafe {
-                    let trigger = HEAP_COMPACT_TRIGGER_PTR as *mut u32;
-                    trigger.write_volatile(2);
-                }
-            }).is_some() {
-                log::info!(
-                    "[PRESSURE] Relief: HeapCompact=0-2, commit={}MB, quarantine={}MB",
-                    commit_mb, quarantine_mb,
+                unsafe { super::delayed_free::flush_current_thread() };
+                unsafe { mi_collect(true) };
+                log::warn!(
+                    "[PRESSURE] Aggressive: HeapCompact+flush+collect, commit={}MB (thresh={}MB), quarantine={}MB, RSS={}MB",
+                    commit_mb, aggressive_threshold / 1024 / 1024,
+                    quarantine_mb, info.get_current_rss() / 1024 / 1024,
                 );
             } else {
                 unsafe { mi_collect(false) };
                 log::info!(
-                    "[PRESSURE] Relief: commit={}MB, quarantine={}MB",
+                    "[PRESSURE] Relief: HeapCompact signaled, commit={}MB, quarantine={}MB",
                     commit_mb, quarantine_mb,
                 );
             }
+        } else {
+            unsafe { mi_collect(false) };
+            log::info!(
+                "[PRESSURE] Relief: HeapCompact signaled, commit={}MB, quarantine={}MB",
+                commit_mb, quarantine_mb,
+            );
         }
 
         self.last_time_ms.store(now_ms, Ordering::Relaxed);
