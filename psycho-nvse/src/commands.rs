@@ -62,7 +62,7 @@ nvse_command!(PsychoQuarantine, cmd, {
     let bytes = delayed_free::get_quarantine_usage();
     let mb = bytes as f64 / 1024.0 / 1024.0;
 
-    cmd.print(&format!("=== Quarantine Status ==="));
+    cmd.print("=== Quarantine Status ===");
     cmd.print(&format!("Quarantine buffer:   {:.1} MB", mb));
     cmd.print(&format!("Is main thread:      {}", delayed_free::is_main_thread()));
     true
