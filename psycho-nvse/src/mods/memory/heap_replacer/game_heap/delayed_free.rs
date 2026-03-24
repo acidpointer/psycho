@@ -78,7 +78,7 @@ impl ThreadQuarantine {
 
     fn rotate_only(&mut self) {
         if !self.previous.is_empty() {
-            destruction_guard::write(|| Self::drain(&mut self.previous));
+            Self::drain(&mut self.previous);
         }
         std::mem::swap(&mut self.current, &mut self.previous);
     }
@@ -88,20 +88,19 @@ impl ThreadQuarantine {
             return;
         }
         let count = self.previous.len();
-        destruction_guard::write(|| Self::drain(&mut self.previous));
+        Self::drain(&mut self.previous);
         log::trace!("[QUARANTINE] Flushed previous: {} ptrs", count);
     }
 
     fn flush_all(&mut self) {
         let count = self.previous.len() + self.current.len();
-        destruction_guard::write(|| {
-            Self::drain(&mut self.previous);
-            Self::drain(&mut self.current);
-        });
-        if count > 0 {
-            log::debug!("[QUARANTINE] Flushed all: {} ptrs, {}MB remaining",
-                count, QUARANTINE_BYTES.load(Ordering::Relaxed) / 1024 / 1024);
+        if count == 0 {
+            return;
         }
+        Self::drain(&mut self.previous);
+        Self::drain(&mut self.current);
+        log::debug!("[QUARANTINE] Flushed all: {} ptrs, {}MB remaining",
+            count, QUARANTINE_BYTES.load(Ordering::Relaxed) / 1024 / 1024);
     }
 
     /// Drain buffer under write lock. Size tracked at push time, not here.
@@ -112,18 +111,6 @@ impl ThreadQuarantine {
         }
     }
 
-    /// Try to flush deferred worker frees. Non-blocking.
-    fn try_flush_deferred(&mut self) {
-        if self.current.is_empty() {
-            return;
-        }
-        if let Some(()) = destruction_guard::try_write(|| {
-            Self::drain(&mut self.current);
-        }) {
-            // Flushed successfully.
-        }
-        // If try_write fails, readers are active — keep deferring.
-    }
 }
 
 // ---------------------------------------------------------------------------
@@ -174,44 +161,30 @@ pub fn tick_flush() {
     });
 }
 
-/// Free a GameHeap pointer with proper synchronization.
+/// Free a GameHeap pointer.
 ///
-/// Main thread: quarantine (same-thread temporal separation).
-/// Worker threads: try_write → mi_free. If readers active → quarantine.
-/// Worker deferred buffers are flushed on next successful try_write.
+/// Main thread: quarantine (double-buffer for same-thread temporal separation
+/// between destruction phases and reader phases).
+/// Worker threads: direct mi_free. mimalloc is thread-safe — worker frees
+/// go to thread-local free lists. Cross-thread page reclamation is handled
+/// by mimalloc internally. No RwLock needed for individual frees.
+///
+/// The RwLock protects BATCH operations only:
+/// - PDD (write lock) — destroys many objects atomically
+/// - Quarantine drain (write lock) — recycles many pointers atomically
+/// - IOManager Phase 3 (read lock) — reads many task results
+/// - AI execution (read lock) — reads many physics objects
 #[inline]
 pub unsafe fn quarantine_free(ptr: *mut c_void) {
     if IS_MAIN_THREAD.with(|f| f.get()) {
+        // Main thread: quarantine for temporal separation between phases.
         QUARANTINE.with(|q| {
             let q = unsafe { &mut *q.get() };
             q.push(ptr);
         });
-        return;
-    }
-
-    // Worker thread: try non-blocking write lock.
-    let size = unsafe { libmimalloc::mi_usable_size(ptr) };
-    if destruction_guard::try_write(|| unsafe { libmimalloc::mi_free(ptr) }).is_some() {
-        // Freed directly — also try flushing any previously deferred frees.
-        QUARANTINE.with(|q| {
-            let q = unsafe { &mut *q.get() };
-            q.try_flush_deferred();
-        });
     } else {
-        // Readers active — defer this free.
-        QUARANTINE.with(|q| {
-            let q = unsafe { &mut *q.get() };
-            QUARANTINE_BYTES.fetch_add(size, Ordering::Relaxed);
-            q.current.push((ptr, size));
-
-            // Periodic log for worker thread deferrals (every 1000 to avoid spam).
-            if q.current.len() % 1000 == 0 {
-                log::debug!(
-                    "[QUARANTINE] Worker deferred: {} ptrs buffered",
-                    q.current.len(),
-                );
-            }
-        });
+        // Worker thread: free directly. Thread-local mimalloc heap is safe.
+        unsafe { libmimalloc::mi_free(ptr) };
     }
 }
 

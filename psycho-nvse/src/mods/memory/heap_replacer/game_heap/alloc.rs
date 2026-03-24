@@ -111,7 +111,9 @@ impl Gheap {
         }
 
         // Stage 3 (main thread only): game's OOM stages 0-8.
-        if unsafe { Self::is_main_thread() } {
+        // SKIP if AI read guard is held — game stages trigger PDD which
+        // acquires write lock. Same-thread read + write = deadlock.
+        if is_main && !super::hooks::is_ai_guard_held() {
             let ptr = unsafe { Self::run_game_oom_stages(size) };
             if !ptr.is_null() {
                 return ptr;

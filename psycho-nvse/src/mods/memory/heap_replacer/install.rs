@@ -136,7 +136,21 @@ pub fn install_game_heap_hooks() -> anyhow::Result<()> {
     // the lock. The loading state counter is also redundant -- cell transitions
     // run during loading screens where DAT_01202d6c is already > 0.
 
-    // ---- AI thread synchronization: read lock from AI_Start to AI_Join ----
+    // ---- IOManager Phase 3: read lock during IO task dispatch ----
+    {
+        use game_heap::statics::*;
+        use game_heap::hooks::*;
+
+        IO_MANAGER_PROCESS_HOOK.init(
+            "io_manager_process",
+            IO_MANAGER_PROCESS_ADDR as *mut c_void,
+            hook_io_manager_process,
+        )?;
+        guard.enable_hook("io_manager_process", &IO_MANAGER_PROCESS_HOOK)?;
+        log::info!("[SYNC] IOManager Phase 3 read-lock at 0x{:08X}", IO_MANAGER_PROCESS_ADDR);
+    }
+
+    // ---- AI thread synchronization: try_read at Start, release at Join ----
     {
         use game_heap::statics::*;
         use game_heap::hooks::*;
@@ -147,7 +161,7 @@ pub fn install_game_heap_hooks() -> anyhow::Result<()> {
             hook_ai_thread_start,
         )?;
         guard.enable_hook("ai_thread_start", &AI_THREAD_START_HOOK)?;
-        log::info!("[SYNC] AI start read-lock at 0x{:08X}", AI_THREAD_START_ADDR);
+        log::info!("[SYNC] AI start try_read at 0x{:08X}", AI_THREAD_START_ADDR);
 
         AI_THREAD_JOIN_HOOK.init(
             "ai_thread_join",
@@ -155,7 +169,7 @@ pub fn install_game_heap_hooks() -> anyhow::Result<()> {
             hook_ai_thread_join,
         )?;
         guard.enable_hook("ai_thread_join", &AI_THREAD_JOIN_HOOK)?;
-        log::info!("[SYNC] AI join read-unlock at 0x{:08X}", AI_THREAD_JOIN_ADDR);
+        log::info!("[SYNC] AI join release at 0x{:08X}", AI_THREAD_JOIN_ADDR);
     }
 
     // ---- PDD: destruction guard around ProcessDeferredDestruction ----

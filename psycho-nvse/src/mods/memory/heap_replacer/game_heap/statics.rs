@@ -39,6 +39,12 @@ pub const MAIN_LOOP_MAINTENANCE_ADDR: usize = 0x008705D0;
 /// Drains 10-20 NiNodes per call; under pressure we call it extra times.
 pub const PER_FRAME_QUEUE_DRAIN_ADDR: usize = 0x00868850;
 
+/// IOManager main-thread processing. Phase 3 — reads completed IO task data.
+pub const IO_MANAGER_PROCESS_ADDR: usize = 0x00C3DBF0;
+
+pub static IO_MANAGER_PROCESS_HOOK: LazyLock<InlineHookContainer<IOManagerProcessFn>> =
+    LazyLock::new(InlineHookContainer::new);
+
 /// AI thread start. Called at Phase 6 to dispatch AI worker threads.
 /// Only on multi-threaded systems (processor count > 1).
 pub const AI_THREAD_START_ADDR: usize = 0x008C78C0;

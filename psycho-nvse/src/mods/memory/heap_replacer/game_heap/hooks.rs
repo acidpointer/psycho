@@ -47,32 +47,59 @@ pub unsafe extern "thiscall" fn hook_main_loop_maintenance(this: *mut c_void) {
     unsafe { Gheap::on_frame_tick() };
 }
 
+// ---- IOManager Phase 3: read lock during IO task dispatch ----
+
+/// IOManager main-thread processing (FUN_00c3dbf0, Phase 3).
+/// Holds read lock during the entire call — prevents PDD and quarantine
+/// flush from recycling memory while we're dispatching IO task results.
+/// This covers the gap where BSTaskManagerThread-completed tasks are
+/// read by the main thread via vtable dispatch.
+pub unsafe extern "thiscall" fn hook_io_manager_process(this: *mut c_void) {
+    super::destruction_guard::read(|| {
+        if let Ok(original) = statics::IO_MANAGER_PROCESS_HOOK.original() {
+            unsafe { original(this) };
+        }
+    });
+}
+
 // ---- AI thread synchronization ----
 
-/// AI_Start: dispatch AI worker threads + acquire phase read lock.
-/// AI threads will read Havok data, NiNodes, collision shapes.
-/// The read lock prevents writers (PDD, quarantine flush) from
-/// recycling this data until AI_Join releases the lock.
+use std::cell::Cell;
+use super::destruction_guard::ReadGuard;
+
+thread_local! {
+    static AI_GUARD: Cell<Option<ReadGuard>> = const { Cell::new(None) };
+}
+
+/// Check if AI read guard is currently held (main thread only).
+/// Used by OOM recovery to skip game stages that would deadlock.
+pub fn is_ai_guard_held() -> bool {
+    AI_GUARD.with(|g| {
+        // Cell<Option<T>> doesn't have a peek method, but we can
+        // take + put back. This is safe since we're single-threaded (main thread).
+        let val = g.take();
+        let held = val.is_some();
+        g.set(val);
+        held
+    })
+}
+
+/// AI_Start: try to acquire read guard. Stored in thread-local.
 pub unsafe extern "fastcall" fn hook_ai_thread_start(mgr: *mut c_void) {
-    // Acquire read lock BEFORE dispatching AI threads.
-    // Writers must wait until AI_Join releases this.
-    unsafe { super::destruction_guard::begin_read_phase() };
+    AI_GUARD.set(super::destruction_guard::try_read_guard());
 
     if let Ok(original) = statics::AI_THREAD_START_HOOK.original() {
         unsafe { original(mgr) };
     }
 }
 
-/// AI_Join: wait for AI worker threads + release phase read lock.
-/// After this, AI threads are idle and writers can proceed safely.
+/// AI_Join: drop guard (lock released), then deferred unloading.
 pub unsafe extern "fastcall" fn hook_ai_thread_join(mgr: *mut c_void) {
     if let Ok(original) = statics::AI_THREAD_JOIN_HOOK.original() {
         unsafe { original(mgr) };
     }
 
-    // Release read lock AFTER AI threads are joined.
-    // Writers (PDD, quarantine flush) can now proceed.
-    unsafe { super::destruction_guard::end_read_phase() };
+    AI_GUARD.set(None); // guard dropped, lock released
 
     if let Some(pr) = PressureRelief::instance() {
         unsafe { pr.run_deferred_unload() };
