@@ -28,10 +28,10 @@
 //! draining 200-400 NiNodes per frame.
 //!
 //! ## Layer 3: HeapCompact trigger (heap_singleton + 0x134)
-//! Under pressure, writes `2` to the HeapCompact trigger field. On the
-//! next frame, HeapCompact runs stages 0-2 (texture flush, geometry,
-//! menu). Stages 3+ are NEVER safe from pressure relief — stage 5
-//! (cell unloading) deadlocks during fast travel / loading screens.
+//! Under pressure, writes `4` to the HeapCompact trigger field. On the
+//! next frame, HeapCompact runs stages 0-4 (texture flush, geometry,
+//! menu, Havok GC, PDD purge). Stage 5 (cell unloading) is NEVER
+//! triggered — it deadlocks during fast travel / loading screens.
 
 use libc::c_void;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
@@ -263,19 +263,21 @@ impl PressureRelief {
         let commit_mb = commit / 1024 / 1024;
         let quarantine_mb = super::delayed_free::get_quarantine_usage() / 1024 / 1024;
 
-        // Signal HeapCompact stages 0-2 for the NEXT frame.
-        // Stages 0-2 are always safe: texture cache flush, geometry, menu.
-        // Stages 3+: NEVER from pressure relief. Stage 5 (cell unloading)
-        // deadlocks if the next frame is a loading screen (fast travel,
-        // cell transition). We can't predict when loading will start.
-        // Cell unloading only happens safely from the game's own OOM
-        // handler (allocator retry loop) where timing is controlled.
-        //
+        // Signal HeapCompact stages 0-4 for the NEXT frame.
         // HeapCompact loop is INCLUSIVE: trigger=N runs stages 0..=N.
-        // So trigger=2 runs stages 0, 1, 2 only.
+        //
+        // Stage 0: texture cache flush (safe)
+        // Stage 1: geometry cache free (safe)
+        // Stage 2: menu cleanup (safe)
+        // Stage 3: Havok GC force=true (thread-safe, always safe)
+        // Stage 4: TryAcquire process mgr lock + PDD purge (non-blocking)
+        //
+        // Stage 5: FindCellToUnload — NEVER. Deadlocks during loading
+        // (fast travel, cell transition, coc). Cell unloading only safe
+        // from the game's own OOM handler (allocator retry loop).
         unsafe {
             let trigger = HEAP_COMPACT_TRIGGER_PTR as *mut u32;
-            trigger.write_volatile(2);
+            trigger.write_volatile(4);
         }
 
         // NOTE: This hook runs BEFORE AI_JOIN — AI threads are still active.

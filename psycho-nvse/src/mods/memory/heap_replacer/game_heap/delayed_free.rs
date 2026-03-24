@@ -37,11 +37,20 @@
 //! # Buffer lifecycle
 //!
 //! ```text
-//! Frame N, Phase 7 (tick_flush):   drain(previous)  ← mi_free here ONLY
-//! Frame N, Phase 7 (tick_flush):   ceiling check during loading
-//! Frame N, between render/AI_JOIN (tick_rotate):  swap current↔previous
-//!                                                 (NO mi_free!)
-//! Frame N+1, Phase 7 (tick_flush): drain(previous) = frame N's frees
+//! Normal gameplay:
+//!   Frame N, Phase 7 (tick_flush):  drain(previous)  ← mi_free here ONLY
+//!   Frame N, mid-frame (tick_rotate): swap current↔previous (NO mi_free!)
+//!   Frame N+1, Phase 7 (tick_flush): drain(previous) = frame N's frees
+//!
+//! During loading:
+//!   tick_flush: NO drain (NVSE needs zombie forms post-load)
+//!   tick_rotate: skip rotation (loading early return)
+//!   Quarantine accumulates unbounded. OOM handler is safety valve.
+//!
+//! Loading → gameplay transition:
+//!   Frame L+1 (first non-loading): NVSE events fire (forms still in quarantine ✓)
+//!   Frame L+1 tick_rotate: swap current↔previous
+//!   Frame L+2 tick_flush: drain previous (safe, NVSE events done)
 //! ```
 
 use libc::c_void;
@@ -172,10 +181,16 @@ impl ThreadQuarantine {
 
 /// Called from hook_per_frame_queue_drain (Phase 7, before AI_START).
 ///
-/// Acquires WRITE lock, then drains quarantine (mi_free). The write lock
-/// blocks until any in-flight reader (AI hook, BST hook) finishes their
-/// current microsecond-scoped call. At Phase 7, AI is idle so typically
-/// only BSTaskManagerThread readers might be briefly active.
+/// Acquires WRITE lock, then drains previous buffer (mi_free). The write
+/// lock blocks until any in-flight reader (AI hook, BST hook) finishes
+/// their current microsecond-scoped call.
+///
+/// Only drains `previous` — never `current`. During loading, `current`
+/// accumulates frees from PDD (old worldspace objects). NVSE fires
+/// cell-change events on the first post-load frame and may reference
+/// those forms. They must stay readable until NVSE dispatch completes.
+/// After loading, tick_rotate swaps current→previous, and the next
+/// tick_flush drains them safely.
 pub fn tick_flush() {
     // Set IS_MAIN_THREAD here so first-frame flush works correctly.
     // (tick_rotate also sets it, but runs AFTER us in the frame.)
@@ -189,20 +204,30 @@ pub fn tick_flush() {
     QUARANTINE.with(|q| {
         let q = unsafe { &mut *q.get() };
 
-        // Normal drain: previous buffer (frame N-1 frees).
+        // Always drain previous — these are frees from BEFORE the current
+        // loading screen started. Safe to reclaim: they were already dead
+        // when loading began, no NVSE handler references them.
         q.flush_previous();
 
-        // Loading ceiling: if quarantine exceeds ceiling during loading,
-        // flush everything HERE at Phase 7 (safe) instead of in tick_rotate.
-        if loading && QUARANTINE_BYTES.load(Ordering::Relaxed) > CEILING_BYTES {
-            log::warn!(
-                "[QUARANTINE] Ceiling exceeded ({}MB > {}MB) during loading, flushing at Phase 7",
-                QUARANTINE_BYTES.load(Ordering::Relaxed) / 1024 / 1024,
-                CEILING_BYTES / 1024 / 1024,
-            );
-            q.flush_all();
-        }
+        // During loading: do NOT flush current. Current accumulates frees
+        // from THIS loading screen (PDD destroying old worldspace objects).
+        // NVSE fires cell-change events on the first post-load frame and
+        // may reference these forms. They must stay as readable zombie
+        // memory until after NVSE dispatch completes.
+        //
+        // After loading: tick_rotate swaps current→previous, then next
+        // tick_flush drains previous (by which time NVSE events are done).
     });
+
+    // Clear dead set AFTER drain, while write lock is still held.
+    // Dead set entries must persist until AFTER their corresponding
+    // quarantine buffer is drained. Clearing here ensures:
+    // - During drain: BST's texture_cache_find is blocked (write lock)
+    // - After drain: dead set entries for drained textures are removed
+    // - New entries from this frame's PDD (Phase 4, before Phase 7)
+    //   will be re-added by hook_nisourcetexture_dtor
+    texture_cache::clear_dead_set();
+
     // Write lock dropped here — readers can proceed.
 }
 
@@ -218,7 +243,9 @@ pub fn tick_rotate() {
         pr.flush_pending_counter_decrement();
     }
 
-    texture_cache::clear_dead_set();
+    // Dead set cleared in tick_flush (after drain, under write lock).
+    // Do NOT clear here — tick_rotate runs between render and AI_JOIN,
+    // but quarantine drain happens next frame. Dead entries must persist.
 
     let loading = unsafe { *(LOADING_FLAG_PTR as *const u8) != 0 };
 

@@ -66,6 +66,29 @@ pub unsafe extern "thiscall" fn hook_texture_cache_find(
         return 0;
     }
 
+    // BSTaskManagerThread calls this continuously. Read lock prevents
+    // concurrent quarantine drain from recycling NiSourceTexture memory
+    // while we're traversing the chain.
+    //
+    // Main thread: no lock (writer thread, would deadlock).
+    // try_read: if drain in progress, return 0 (not found) — the texture
+    // is being freed anyway, loading it would be wasteful.
+    if !super::delayed_free::is_main_thread() {
+        return super::destruction_guard::try_read(|| {
+            unsafe { find_in_chain(this, bucket_head, param_1, param_2, param_3) }
+        }).unwrap_or(0);
+    }
+
+    unsafe { find_in_chain(this, bucket_head, param_1, param_2, param_3) }
+}
+
+unsafe fn find_in_chain(
+    this: *mut c_void,
+    bucket_head: *const u32,
+    param_1: i32,
+    param_2: i32,
+    param_3: *mut *mut i32,
+) -> u32 {
     // Check if any entry in this bucket has a dead inner_ptr.
     // If not, call original directly (zero overhead for clean buckets).
     let has_dead = unsafe { chain_has_dead_entry(bucket_head) };
