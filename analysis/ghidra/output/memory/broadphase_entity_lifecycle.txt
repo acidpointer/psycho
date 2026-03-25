@@ -1,0 +1,561 @@
+======================================================================
+BROADPHASE ENTITY LIFECYCLE ANALYSIS
+Who adds/removes entities? On which thread? When?
+======================================================================
+
+######################################################################
+# PART 1: hkpWorld::addEntity (FUN_00c94bd0) -- who calls it?
+######################################################################
+
+----------------------------------------------------------------------
+References TO 0x00c94bd0 (hkpWorld_addEntity)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x00c67551 (in FUN_00c674d0)
+  UNCONDITIONAL_CALL @ 0x00cf7db0 (in FUN_00cf7c10)
+  UNCONDITIONAL_CALL @ 0x00ce16aa (in FUN_00ce1680)
+  UNCONDITIONAL_CALL @ 0x00c97fc6 (in FUN_00c97f80)
+  Total: 4 refs
+
+######################################################################
+# PART 2: Entity removal -- FUN_00c420d0 (RemoveFromWorld)
+# Called during PDD destruction chain
+######################################################################
+
+======================================================================
+Havok_RemoveFromWorld @ 0x00c420d0
+======================================================================
+  Function: FUN_00c420d0 @ 0x00c420d0, Size: 172 bytes
+
+void __fastcall FUN_00c420d0(uint *param_1)
+
+{
+  int *piVar1;
+  uint local_8;
+  
+  for (local_8 = 0; local_8 < *param_1; local_8 = local_8 + 1) {
+    piVar1 = *(int **)(param_1[2] + 4 + local_8 * 8);
+    if (piVar1 != (int *)0x0) {
+      FUN_00c42b40(piVar1);
+      FUN_00aa4060(&DAT_011f6238,piVar1);
+    }
+  }
+  FUN_00aa4060(&DAT_011f6238,(undefined4 *)param_1[2]);
+  TlsFree(param_1[1]);
+  return;
+}
+
+
+
+----------------------------------------------------------------------
+References TO 0x00c420d0 (Havok_RemoveFromWorld)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x00c40c52 (in FUN_00c40b70)
+  Total: 1 refs
+
+--- Calls FROM Havok_RemoveFromWorld (0x00c420d0) ---
+  0x00c42120 -> 0x00c42b40 FUN_00c42b40
+  0x00c42138 -> 0x00aa4060 FUN_00aa4060
+  0x00c42160 -> 0x00aa4060 FUN_00aa4060
+  0x00c42172 -> 0x0000000a ???
+  Total: 4 calls
+
+######################################################################
+# PART 3: hkWorld_RemoveEntry (FUN_00c41fe0)
+# Called during entity removal
+######################################################################
+
+======================================================================
+hkWorld_RemoveEntry @ 0x00c41fe0
+======================================================================
+  Function: FUN_00c41fe0 @ 0x00c41fe0, Size: 122 bytes
+
+void __thiscall FUN_00c41fe0(void *this,undefined4 *param_1)
+
+{
+  (**(code **)(*(int *)this + 0x28))(*param_1,param_1[1]);
+  if (param_1 != (undefined4 *)0x0) {
+    if (param_1[2] != 0) {
+      FUN_0044dd60((undefined4 *)param_1[2]);
+    }
+    FUN_00aa4060(&DAT_011f6238,param_1);
+  }
+  return;
+}
+
+
+
+----------------------------------------------------------------------
+References TO 0x00c41fe0 (hkWorld_RemoveEntry)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x00c42ad3 (in FUN_00c42960)
+  UNCONDITIONAL_CALL @ 0x00c40d7d (in FUN_00c40b70)
+  Total: 2 refs
+
+######################################################################
+# PART 4: FUN_00d07420 -- simulation island management
+# Called during addEntity for island assignment
+######################################################################
+
+======================================================================
+SimIsland_AddEntity @ 0x00d07420
+======================================================================
+  Function: FUN_00d07420 @ 0x00d07420, Size: 78 bytes
+
+void __thiscall FUN_00d07420(void *this,int param_1)
+
+{
+  int iVar1;
+  
+  *(void **)(param_1 + 0xcc) = this;
+  *(undefined2 *)(param_1 + 0xa8) = *(undefined2 *)((int)this + 0x4c);
+  iVar1 = FUN_00c85750();
+  if (*(uint *)((int)this + 0x4c) == (*(uint *)((int)this + 0x50) & 0x3fffffff)) {
+    FUN_00c90940(*(int **)(iVar1 + 0x10),(int *)((int)this + 0x48),4);
+  }
+  *(int *)(*(int *)((int)this + 0x48) + *(int *)((int)this + 0x4c) * 4) = param_1;
+  *(int *)((int)this + 0x4c) = *(int *)((int)this + 0x4c) + 1;
+  return;
+}
+
+
+
+----------------------------------------------------------------------
+References TO 0x00d07420 (SimIsland_AddEntity)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x00c94e6e (in FUN_00c94bd0)
+  UNCONDITIONAL_CALL @ 0x00c94e84 (in FUN_00c94bd0)
+  UNCONDITIONAL_CALL @ 0x00cb465a (in FUN_00cb4640)
+  UNCONDITIONAL_CALL @ 0x00cb4697 (in FUN_00cb4640)
+  UNCONDITIONAL_CALL @ 0x00cb4728 (in FUN_00cb4640)
+  Total: 5 refs
+
+######################################################################
+# PART 5: FUN_00d07830 -- simulation island creation
+# Creates new hkpSimulationIsland (RTTI 0x010CCF28)
+######################################################################
+
+======================================================================
+SimIsland_Create @ 0x00d07830
+======================================================================
+  Function: FUN_00d07830 @ 0x00d07830, Size: 153 bytes
+
+/* WARNING: Globals starting with '_' overlap smaller symbols at the same address */
+
+void __thiscall FUN_00d07830(void *this,undefined4 param_1)
+
+{
+  undefined4 uVar1;
+  
+  *(byte *)((int)this + 0x25) = *(byte *)((int)this + 0x25) & 0xcc;
+  *(undefined4 *)((int)this + 0x18) = param_1;
+  *(undefined ***)this = &PTR_FUN_010ccf28;
+  *(undefined1 *)((int)this + 0x26) = 5;
+  *(undefined2 *)((int)this + 6) = 1;
+  *(undefined2 *)((int)this + 0x22) = 0xffff;
+  *(undefined4 *)((int)this + 0x28) = 0xfffffff1;
+  *(undefined2 *)((int)this + 0x2c) = 0x8000;
+  *(undefined4 *)((int)this + 0x30) = 0;
+  *(undefined4 *)((int)this + 0x34) = 0;
+  *(undefined4 *)((int)this + 0x38) = 0;
+  uVar1 = _DAT_0104eb20;
+  *(undefined4 *)((int)this + 0x3c) = 0;
+  *(undefined4 *)((int)this + 0x40) = 0x80000000;
+  *(undefined4 *)((int)this + 0x44) = uVar1;
+  *(undefined4 *)((int)this + 0x4c) = 0;
+  *(int *)((int)this + 0x48) = (int)this + 0x54;
+  *(undefined4 *)((int)this + 0x50) = 0x80000001;
+  *(undefined4 *)((int)this + 0x60) = 0;
+  *(undefined4 *)((int)this + 100) = 0x80000001;
+  *(int *)((int)this + 0x5c) = (int)this + 0x68;
+  *(undefined4 *)((int)this + 0x58) = 0x200;
+  *(byte *)((int)this + 0x25) = *(byte *)((int)this + 0x25) & 0x3f;
+  *(undefined4 *)((int)this + 8) = 0;
+  *(undefined4 *)((int)this + 0xc) = 0;
+  *(undefined4 *)((int)this + 0x10) = 0;
+  *(undefined4 *)((int)this + 0x14) = 0;
+  *(byte *)((int)this + 0x25) = *(byte *)((int)this + 0x25) & 0xf3;
+  *(undefined4 *)((int)this + 0x1c) = 0;
+  return;
+}
+
+
+
+######################################################################
+# PART 6: bhkCollisionObject destructor (FUN_00c40b70)
+# This is called during PDD queue 0x20 processing
+# Does it properly remove from broadphase before freeing?
+######################################################################
+
+======================================================================
+bhkCollisionObject_dtor @ 0x00c40b70
+======================================================================
+  Function: FUN_00c40b70 @ 0x00c40b70, Size: 754 bytes
+
+void __thiscall FUN_00c40b70(void *this,char param_1)
+
+{
+  undefined4 uVar1;
+  uint uVar2;
+  uint *puVar3;
+  uint uVar4;
+  int *piVar5;
+  void *this_00;
+  int *unaff_FS_OFFSET;
+  uint *local_98;
+  undefined4 *local_20;
+  uint local_1c;
+  int local_10;
+  undefined1 *puStack_c;
+  undefined4 local_8;
+  
+  puStack_c = &LAB_00f2e063;
+  local_10 = *unaff_FS_OFFSET;
+  *unaff_FS_OFFSET = (int)&local_10;
+  uVar1 = *(undefined4 *)(*(int *)(unaff_FS_OFFSET[0xb] + _tls_index * 4) + 0x2b4);
+  *(undefined4 *)(*(int *)(unaff_FS_OFFSET[0xb] + _tls_index * 4) + 0x2b4) = 6;
+  local_8 = 0;
+  if (*(int *)((int)this + 0x14) == 0) {
+    *(undefined4 *)(*(int *)(unaff_FS_OFFSET[0xb] + _tls_index * 4) + 0x2b4) = uVar1;
+  }
+  else {
+    FUN_0040fbf0((LONG *)((int)this + 0x20));
+    uVar2 = **(uint **)((int)this + 0x14);
+    puVar3 = *(uint **)((int)this + 0x14);
+    if (puVar3 != (uint *)0x0) {
+      FUN_00c420d0(puVar3);
+      FUN_00aa4060(&DAT_011f6238,puVar3);
+    }
+    *(undefined4 *)((int)this + 0x14) = 0;
+    *(undefined4 *)((int)this + 0x18) = 0;
+    for (local_1c = 0; local_1c < *(uint *)((int)this + 8); local_1c = local_1c + 1) {
+      uVar4 = *(uint *)(*(int *)((int)this + 0xc) + local_1c * 4);
+      *(undefined4 *)(*(int *)((int)this + 0xc) + local_1c * 4) = 0;
+      while (local_20 = (undefined4 *)(uVar4 & 0xfffffffe), local_20 != (undefined4 *)0x0) {
+        uVar4 = local_20[3];
+        local_20[3] = 0;
+        piVar5 = local_20 + 2;
+        if (*piVar5 != 0) {
+          if (*piVar5 != 0) {
+            FUN_0044dd60((undefined4 *)*piVar5);
+          }
+          *piVar5 = 0;
+          if (*piVar5 != 0) {
+            InterlockedIncrement((LONG *)(*piVar5 + 8));
+          }
+        }
+        FUN_00c41fe0(this,local_20);
+      }
+    }
+    if (param_1 == '\0') {
+      this_00 = FUN_00aa3e40(&DAT_011f6238,0x10);
+      local_8 = CONCAT31(local_8._1_3_,1);
+      if (this_00 == (void *)0x0) {
+        local_98 = (uint *)0x0;
+      }
+      else {
+        local_98 = FUN_00c42180(this_00,uVar2);
+      }
+      *(uint **)((int)this + 0x14) = local_98;
+    }
+    *(int *)((int)this + 0x24) = *(int *)((int)this + 0x24) + -1;
+    if (*(int *)((int)this + 0x24) == 0) {
+      *(undefined4 *)((int)this + 0x20) = 0;
+    }
+    *(undefined4 *)(*(int *)(unaff_FS_OFFSET[0xb] + _tls_index * 4) + 0x2b4) = uVar1;
+  }
+  *unaff_FS_OFFSET = local_10;
+  return;
+}
+
+
+
+--- Calls FROM bhkCollisionObject_dtor (0x00c40b70) ---
+  0x00c40c1e -> 0x0040fbf0 FUN_0040fbf0
+  0x00c40c52 -> 0x00c420d0 FUN_00c420d0
+  0x00c40c6a -> 0x00aa4060 FUN_00aa4060
+  0x00c40d48 -> 0x0044dd60 FUN_0044dd60
+  0x00c40d6d -> 0x00000066 ???
+  0x00c40d7d -> 0x00c41fe0 FUN_00c41fe0
+  0x00c40da1 -> 0x00aa3e40 FUN_00aa3e40
+  0x00c40dba -> 0x00c42180 FUN_00c42180
+  Total: 8 calls
+
+######################################################################
+# PART 7: FUN_00c90510 -- called during addEntity per-entity
+# What does it initialize?
+######################################################################
+
+======================================================================
+AddEntity_PerEntityInit @ 0x00c90510
+======================================================================
+  Function: FUN_00c90510 @ 0x00c90510, Size: 155 bytes
+
+void __fastcall FUN_00c90510(int param_1)
+
+{
+  int iVar1;
+  LPVOID pvVar2;
+  
+  iVar1 = DAT_012681d4;
+  if (*(short *)(param_1 + 4) != 0) {
+    if ((*(int *)(DAT_012681d4 + 8) == 1) &&
+       (pvVar2 = TlsGetValue(DAT_012681d8), pvVar2 != (LPVOID)0x23df4554)) {
+      pvVar2 = TlsGetValue(DAT_012681d8);
+      if (pvVar2 == (LPVOID)0x23df4554) {
+        *(int *)(iVar1 + 0xc) = *(int *)(iVar1 + 0xc) + 1;
+      }
+      else {
+        EnterCriticalSection((LPCRITICAL_SECTION)(iVar1 + 0x18));
+        *(undefined4 *)(iVar1 + 0xc) = 1;
+        TlsSetValue(DAT_012681d8,(LPVOID)0x23df4554);
+      }
+      *(short *)(param_1 + 6) = *(short *)(param_1 + 6) + 1;
+      *(int *)(iVar1 + 0xc) = *(int *)(iVar1 + 0xc) + -1;
+      if (*(int *)(iVar1 + 0xc) < 1) {
+        TlsSetValue(DAT_012681d8,(LPVOID)0x0);
+        LeaveCriticalSection((LPCRITICAL_SECTION)(iVar1 + 0x18));
+        return;
+      }
+    }
+    else {
+      *(short *)(param_1 + 6) = *(short *)(param_1 + 6) + 1;
+    }
+  }
+  return;
+}
+
+
+
+######################################################################
+# PART 8: FUN_00c9c040 -- called during addEntity after
+# broadphase update. What does it do?
+######################################################################
+
+======================================================================
+AddEntity_PostBroadphase @ 0x00c9c040
+======================================================================
+  Function: FUN_00c9c040 @ 0x00c9c040, Size: 161 bytes
+
+void __thiscall FUN_00c9c040(void *this,int param_1,int *param_2)
+
+{
+  bool bVar1;
+  int *piVar2;
+  uint uVar3;
+  
+  if (*(int *)((int)this + 0x54) != 0) {
+    FUN_00d01a80((int)this + 0x30);
+  }
+  if ((param_1 != 0) && (param_2 != (int *)0x0)) {
+    uVar3 = *(uint *)(*(int *)(param_1 + 0x80) + 0x110 + param_2[3] * 4);
+    bVar1 = false;
+    if ((char)uVar3 < '\0') {
+      piVar2 = (int *)(**(code **)(*param_2 + 0x10))();
+    }
+    else {
+      if ((uVar3 & 0x100) == 0) {
+        return;
+      }
+      piVar2 = (int *)(**(code **)(*param_2 + 0x10))();
+      bVar1 = true;
+    }
+    if (((*(char *)((int)this + 0xe8) != '\x05') && (*(char *)((int)this + 0xe8) != '\x04')) ||
+       (!bVar1)) {
+      uVar3 = (**(code **)(*piVar2 + 4))();
+      FUN_00d01ae0((undefined4 *)((int)this + 0x30),uVar3);
+      *(undefined4 *)((int)this + 0x30) = 1;
+      *(undefined4 *)((int)this + 0x40) = 0;
+      if (*(char *)((int)this + 0xe8) == '\x05') {
+        FUN_00c9bfa0((int)this);
+      }
+    }
+  }
+  return;
+}
+
+
+
+######################################################################
+# PART 9: FUN_00c91160 -- called when this+0x94 != 0
+# This is the DEFERRED path in addEntity.
+# When pending operations exist, addEntity defers instead of
+# adding directly. What does it do?
+######################################################################
+
+======================================================================
+AddEntity_Deferred @ 0x00c91160
+======================================================================
+  Function: FUN_00c91160 @ 0x00c91160, Size: 11 bytes
+
+void __thiscall FUN_00c91160(void *this,undefined4 *param_1)
+
+{
+  FUN_00cf7690(*(void **)((int)this + 0x88),param_1);
+  return;
+}
+
+
+
+######################################################################
+# PART 10: FUN_00c91120 and FUN_00c91140
+# Called when pending count reaches 0 after addEntity batch.
+# These process deferred operations.
+######################################################################
+
+======================================================================
+ProcessDeferredOps1 @ 0x00c91120
+======================================================================
+  Function: FUN_00c91120 @ 0x00c91120, Size: 21 bytes
+
+void __fastcall FUN_00c91120(int param_1)
+
+{
+  *(undefined4 *)(param_1 + 0x8c) = 0;
+  FUN_00cf7c10(*(undefined4 **)(param_1 + 0x88));
+  return;
+}
+
+
+
+======================================================================
+ProcessDeferredOps2 @ 0x00c91140
+======================================================================
+  Function: FUN_00c91140 @ 0x00c91140, Size: 21 bytes
+
+void __fastcall FUN_00c91140(int param_1)
+
+{
+  *(undefined4 *)(param_1 + 0x90) = 0;
+  FUN_00cf7ae0(*(int *)(param_1 + 0x88));
+  return;
+}
+
+
+
+######################################################################
+# PART 11: FUN_00d00500 and FUN_00cffa00
+# Called AFTER broadphase batch add for each entity.
+# These finalize the entity in the simulation.
+######################################################################
+
+======================================================================
+PostAdd_FUN_00d00500 @ 0x00d00500
+======================================================================
+  Function: FUN_00d00500 @ 0x00d00500, Size: 160 bytes
+
+void __cdecl FUN_00d00500(int param_1,undefined4 param_2)
+
+{
+  int iVar1;
+  undefined4 *puVar2;
+  undefined8 uVar3;
+  LPVOID pvVar4;
+  
+  iVar1 = *(int *)(param_1 + 300);
+  while (iVar1 = iVar1 + -1, -1 < iVar1) {
+    if (*(int *)(*(int *)(param_1 + 0x128) + iVar1 * 4) != 0) {
+      pvVar4 = TlsGetValue(DAT_0126835c);
+      puVar2 = *(undefined4 **)((int)pvVar4 + 4);
+      if (puVar2 < *(undefined4 **)((int)pvVar4 + 0xc)) {
+        *puVar2 = "TtentAddCb";
+        uVar3 = rdtsc();
+        puVar2[1] = (int)uVar3;
+        *(undefined4 **)((int)pvVar4 + 4) = puVar2 + 3;
+      }
+      (**(code **)(**(int **)(*(int *)(param_1 + 0x128) + iVar1 * 4) + 4))(param_2);
+      pvVar4 = TlsGetValue(DAT_0126835c);
+      puVar2 = *(undefined4 **)((int)pvVar4 + 4);
+      if (puVar2 < *(undefined4 **)((int)pvVar4 + 0xc)) {
+        *puVar2 = &DAT_010c41f8;
+        uVar3 = rdtsc();
+        puVar2[1] = (int)uVar3;
+        *(undefined4 **)((int)pvVar4 + 4) = puVar2 + 3;
+      }
+    }
+  }
+  FUN_00d00370();
+  return;
+}
+
+
+
+======================================================================
+PostAdd_FUN_00cffa00 @ 0x00cffa00
+======================================================================
+  Function: FUN_00cffa00 @ 0x00cffa00, Size: 175 bytes
+
+void __cdecl FUN_00cffa00(int param_1)
+
+{
+  int iVar1;
+  undefined4 *puVar2;
+  undefined8 uVar3;
+  LPVOID pvVar4;
+  uint uVar5;
+  
+  iVar1 = *(int *)(param_1 + 0x214);
+  if (iVar1 != 0) {
+    uVar5 = (uint)*(ushort *)(iVar1 + 0xc);
+    while (uVar5 = uVar5 - 1, -1 < (int)uVar5) {
+      if (*(int *)(*(int *)(iVar1 + 8) + uVar5 * 4) != 0) {
+        pvVar4 = TlsGetValue(DAT_0126835c);
+        puVar2 = *(undefined4 **)((int)pvVar4 + 4);
+        if (puVar2 < *(undefined4 **)((int)pvVar4 + 0xc)) {
+          *puVar2 = "TtentAddCb";
+          uVar3 = rdtsc();
+          puVar2[1] = (int)uVar3;
+          *(undefined4 **)((int)pvVar4 + 4) = puVar2 + 3;
+        }
+        (**(code **)(**(int **)(*(int *)(iVar1 + 8) + uVar5 * 4) + 4))(param_1);
+        pvVar4 = TlsGetValue(DAT_0126835c);
+        puVar2 = *(undefined4 **)((int)pvVar4 + 4);
+        if (puVar2 < *(undefined4 **)((int)pvVar4 + 0xc)) {
+          *puVar2 = &DAT_010c41f8;
+          uVar3 = rdtsc();
+          puVar2[1] = (int)uVar3;
+          *(undefined4 **)((int)pvVar4 + 4) = puVar2 + 3;
+        }
+      }
+    }
+  }
+  return;
+}
+
+
+
+######################################################################
+# PART 12: Havok world this+0x58 (broadphase pointer)
+# What is the broadphase vtable? What is vtable+0x18?
+# The crash is in broadphase->addObjectBatch (vtable+0x18)
+######################################################################
+
+----------------------------------------------------------------------
+References TO 0x010cd5cc (hkp3AxisSweep RTTI)
+----------------------------------------------------------------------
+  DATA @ 0x00d182ee (in FUN_00d182e0)
+  DATA @ 0x00d13be6 (in FUN_00d13bd0)
+  Total: 2 refs
+
+######################################################################
+# PART 13: FUN_00cf1480 -- called per entity in addEntity
+# Zeroes broadphase handle data
+######################################################################
+
+======================================================================
+ZeroBroadphaseHandle @ 0x00cf1480
+======================================================================
+  Function: FUN_00cf1480 @ 0x00cf1480, Size: 19 bytes
+
+void __cdecl FUN_00cf1480(undefined4 param_1,undefined4 param_2,int param_3)
+
+{
+  *(undefined4 *)(param_3 + 0x4c) = param_1;
+  *(undefined4 *)(param_3 + 0x5c) = param_2;
+  return;
+}
+
+
+
+======================================================================
+RESEARCH COMPLETE
+======================================================================

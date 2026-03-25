@@ -1,0 +1,158 @@
+======================================================================
+COMBAT LOCK CALLERS -- WHO LOCKS/UNLOCKS PLAYER COMBAT?
+======================================================================
+
+######################################################################
+# PART 1: All callers of FUN_005d4a30 (the SETTER)
+# FUN_005d4a30(param_1) sets DAT_011dea2a = param_1
+# param_1 != 0 => combat LOCKED (player can't attack)
+# param_1 == 0 => combat UNLOCKED
+######################################################################
+
+----------------------------------------------------------------------
+References TO 0x005d4a30 (CombatLockSetter)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x005d49ff (in FUN_005d49c0)
+  UNCONDITIONAL_CALL @ 0x005d4a12 (in FUN_005d49c0)
+  Total: 2 refs
+
+----------------------------------------------------------------------
+Decompiling ALL callers of 0x005d4a30 (Setter)
+----------------------------------------------------------------------
+
+======================================================================
+Caller_Setter_005d49c0 @ 0x005d49c0
+======================================================================
+  Function: FUN_005d49c0 @ 0x005d49c0, Size: 103 bytes
+  Convention: __thiscall
+  Signature: undefined4 __thiscall FUN_005d49c0(void * this, int param_1, int param_2, int param_3, undefined4 param_4, int * param_5, int param_6, undefined4 param_7, float * param_8)
+
+uint __thiscall
+FUN_005d49c0(void *this,int param_1,int param_2,int param_3,undefined4 param_4,int *param_5,
+            int param_6,undefined4 param_7,float *param_8)
+
+{
+  uint uVar1;
+  undefined4 uVar2;
+  
+  uVar1 = FUN_005accb0(param_1,param_2,param_8,param_3,param_4,param_5,param_6);
+  if ((uVar1 & 0xff) == 0) {
+    uVar1 = uVar1 & 0xffffff00;
+  }
+  else {
+    if (this == (void *)0x0) {
+      uVar2 = FUN_005d4a30(0);
+    }
+    else {
+      uVar2 = FUN_005d4a30(1);
+    }
+    DAT_012682f8 = this != (void *)0x0;
+    uVar1 = CONCAT31((int3)((uint)uVar2 >> 8),1);
+  }
+  return uVar1;
+}
+
+
+
+######################################################################
+# PART 2: All callers of FUN_0086f670 (the CLEARER)
+# FUN_0086f670 sets DAT_011dea2a = 0 (always clears)
+# Also clears DAT_012682f8 and DAT_011df678
+######################################################################
+
+----------------------------------------------------------------------
+References TO 0x0086f670 (CombatLockClearer)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x008705fe (in FUN_008705d0)
+  UNCONDITIONAL_CALL @ 0x00850d7f (in FUN_00850d60)
+  Total: 2 refs
+
+----------------------------------------------------------------------
+Decompiling ALL callers of 0x0086f670 (Clearer)
+----------------------------------------------------------------------
+
+======================================================================
+Caller_Clearer_008705d0 @ 0x008705d0
+======================================================================
+  Function: FUN_008705d0 @ 0x008705d0, Size: 55 bytes
+  Convention: __fastcall
+  Signature: undefined __fastcall FUN_008705d0(int param_1)
+
+void __fastcall FUN_008705d0(int param_1)
+
+{
+  int *piVar1;
+  
+  FUN_0086f640();
+  FUN_0086f890(param_1);
+  piVar1 = (int *)FUN_0043d4d0(0x11c3ea4);
+  if (1 < *piVar1) {
+    FUN_00552570();
+  }
+  FUN_0086f670();
+  return;
+}
+
+
+
+======================================================================
+Caller_Clearer_00850d60 @ 0x00850d60
+======================================================================
+  Function: FUN_00850d60 @ 0x00850d60, Size: 314 bytes
+  Convention: __stdcall
+  Signature: undefined __stdcall FUN_00850d60(void)
+
+void FUN_00850d60(void)
+
+{
+  void *pvVar1;
+  undefined4 *puVar2;
+  int iVar3;
+  float *pfVar4;
+  LPCRITICAL_SECTION p_Var5;
+  int *piVar6;
+  undefined1 uVar7;
+  char cVar8;
+  uint uVar9;
+  
+  FUN_005f5880();
+  FUN_0086f6a0(DAT_011dea0c);
+  FUN_0086f670();
+  FUN_00448620(DAT_011c3b3c,'\0');
+  FUN_00459a00((int)DAT_011dea10);
+  FUN_00483710();
+  pvVar1 = (void *)FUN_0044ddc0((int)DAT_011dea10);
+  FUN_004ba8d0(pvVar1);
+  FUN_009ca410((int *)&DAT_011f2250);
+  pvVar1 = (void *)FUN_00575d70((int)DAT_011dea3c);
+  if (pvVar1 != (void *)0x0) {
+    uVar9 = 0xf;
+    puVar2 = (undefined4 *)(**(code **)(*DAT_011dea3c + 500))();
+    pvVar1 = (void *)FUN_00586170(pvVar1);
+    FUN_006fca90(pvVar1,puVar2,uVar9);
+  }
+  iVar3 = FUN_00a25920();
+  if (iVar3 != 0) {
+    uVar7 = 1;
+    pvVar1 = (void *)FUN_00a25920();
+    FUN_007d0bd0(pvVar1,uVar7);
+    iVar3 = FUN_00a25920();
+    FUN_007d0bb0(iVar3);
+  }
+  cVar8 = '\x01';
+  pfVar4 = (float *)FUN_00403e20(0x11c3e7c);
+  FUN_00700960(DAT_011d8804,1,*pfVar4,cVar8);
+  FUN_0078cfc0();
+  FUN_00457d70(DAT_011dea10,'\0',0,'\0');
+  iVar3 = FUN_00453a70();
+  FUN_00ad8740(iVar3);
+  FUN_00830660();
+  FUN_00977660(0x11e0e80);
+  FUN_0084cc40(DAT_011ddf38,'\0');
+  p_Var5 = (LPCRITICAL_SECTION)FUN_006c0720();
+  FUN_006c39c0(p_Var5);
+  piVar6 = (int *)FID_conflict__Immortalize<class_std::_Generic_error_category>();
+  FUN_006ebcd0(piVar6);
+  return;
+}
+

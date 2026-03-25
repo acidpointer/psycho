@@ -1,0 +1,556 @@
+======================================================================
+COMBAT STATE FLAGS ANALYSIS (HighProcess+0x410)
+======================================================================
+
+######################################################################
+# PART 1: FUN_00621270 -- reads flags at this+4
+# Called as FUN_00621270(process+0x410, mask)
+# Returns *(process+0x414) & mask
+# What is the structure at +0x410?
+######################################################################
+
+======================================================================
+ReadFlags_00621270 @ 0x00621270
+======================================================================
+  Function: FUN_00621270 @ 0x00621270, Size: 22 bytes
+  Convention: __thiscall
+  Signature: uint __thiscall FUN_00621270(void * this, uint param_1)
+
+uint __thiscall FUN_00621270(void *this,uint param_1)
+
+{
+  return *(uint *)((int)this + 4) & param_1;
+}
+
+
+
+----------------------------------------------------------------------
+References TO 0x00621270 (ReadFlags)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x0088b0d5 (in FUN_0088b0c0)
+  UNCONDITIONAL_CALL @ 0x00926a05 (in FUN_009269f0)
+  UNCONDITIONAL_CALL @ 0x00621255 (in FUN_00621240)
+  UNCONDITIONAL_CALL @ 0x008a517c (in FUN_008a5170)
+  UNCONDITIONAL_CALL @ 0x009304bc (in FUN_009304b0)
+  UNCONDITIONAL_CALL @ 0x00930585 (in FUN_00930570)
+  UNCONDITIONAL_CALL @ 0x009305b5 (in FUN_009305a0)
+  UNCONDITIONAL_CALL @ 0x009305e5 (in FUN_009305d0)
+  UNCONDITIONAL_CALL @ 0x00944415 (in FUN_00944400)
+  UNCONDITIONAL_CALL @ 0x0087cef5 (in FUN_0087cee0)
+  UNCONDITIONAL_CALL @ 0x00838765 (in FUN_00838750)
+  UNCONDITIONAL_CALL @ 0x00810ce3 (in FUN_00810aa0)
+  UNCONDITIONAL_CALL @ 0x008134b0 (in FUN_008133f0)
+  UNCONDITIONAL_CALL @ 0x008b00e8 (in FUN_008b00c0)
+  UNCONDITIONAL_CALL @ 0x009e7481 (in FUN_009e71b0)
+  UNCONDITIONAL_CALL @ 0x009263ba (in FUN_00926350)
+  UNCONDITIONAL_CALL @ 0x00926516 (in FUN_00926490)
+  UNCONDITIONAL_CALL @ 0x00928921 (in FUN_00928880)
+  UNCONDITIONAL_CALL @ 0x00944445 (in FUN_00944430)
+  UNCONDITIONAL_CALL @ 0x009e669e (in FUN_009e5ae0)
+  Total: 20 refs
+
+######################################################################
+# PART 2: FUN_00838750 -- combat flag check
+# Checks if flag 0x1000000 is set at process+0x410
+# Called from hit detection. What does this flag mean?
+######################################################################
+
+======================================================================
+CombatFlagCheck_00838750 @ 0x00838750
+======================================================================
+  Function: FUN_00838750 @ 0x00838750, Size: 36 bytes
+  Convention: __fastcall
+  Signature: bool __fastcall FUN_00838750(int param_1)
+
+bool __fastcall FUN_00838750(int param_1)
+
+{
+  uint uVar1;
+  
+  uVar1 = FUN_00621270((void *)(param_1 + 0x410),0x1000000);
+  return uVar1 != 0;
+}
+
+
+
+----------------------------------------------------------------------
+References TO 0x00838750 (CombatFlagCheck)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x008380a5 (in FUN_00837cc0)
+  UNCONDITIONAL_CALL @ 0x00838b63 (in FUN_00838780)
+  Total: 2 refs
+
+######################################################################
+# PART 3: FUN_0059bb30 -- combat state reader
+# Called from FUN_00837cc0 with process+0x410 as arg
+# Returns a combat state value (compared to 0x24)
+######################################################################
+
+======================================================================
+CombatStateRead_0059bb30 @ 0x0059bb30
+======================================================================
+  Function: FUN_0059bb30 @ 0x0059bb30, Size: 17 bytes
+  Convention: __fastcall
+  Signature: undefined4 __fastcall FUN_0059bb30(int param_1)
+
+undefined4 __fastcall FUN_0059bb30(int param_1)
+
+{
+  return *(undefined4 *)(param_1 + 0x24);
+}
+
+
+
+----------------------------------------------------------------------
+References TO 0x0059bb30 (CombatStateRead)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x00548956 (in FUN_00548880)
+  UNCONDITIONAL_CALL @ 0x0054896e (in FUN_00548880)
+  UNCONDITIONAL_CALL @ 0x00771720 (in FUN_00771700)
+  UNCONDITIONAL_CALL @ 0x00702782 (in FUN_00702680)
+  UNCONDITIONAL_CALL @ 0x007cb8fb (in FUN_007cb7d0)
+  UNCONDITIONAL_CALL @ 0x007cc37b (in FUN_007cbaf0)
+  UNCONDITIONAL_CALL @ 0x00617518 (in FUN_006174d0)
+  UNCONDITIONAL_CALL @ 0x0083d375 (in FUN_0083d280)
+  UNCONDITIONAL_CALL @ 0x0059a138 (in FUN_0059a030)
+  UNCONDITIONAL_CALL @ 0x008045c6 (in FUN_00804560)
+  UNCONDITIONAL_CALL @ 0x0080441d (in FUN_008043f0)
+  UNCONDITIONAL_CALL @ 0x008042fe (in FUN_00804250)
+  UNCONDITIONAL_CALL @ 0x0080430e (in FUN_00804250)
+  UNCONDITIONAL_CALL @ 0x00804d43 (in FUN_00804cd0)
+  UNCONDITIONAL_CALL @ 0x00804d83 (in FUN_00804cd0)
+  UNCONDITIONAL_CALL @ 0x00804d8f (in FUN_00804cd0)
+  UNCONDITIONAL_CALL @ 0x00804e7c (in FUN_00804cd0)
+  UNCONDITIONAL_CALL @ 0x0081b908 (in FUN_0081b8e0)
+  UNCONDITIONAL_CALL @ 0x0081b92b (in FUN_0081b8e0)
+  UNCONDITIONAL_CALL @ 0x0081b95b (in FUN_0081b8e0)
+  UNCONDITIONAL_CALL @ 0x0081ba42 (in FUN_0081b8e0)
+  UNCONDITIONAL_CALL @ 0x0081bb4d (in FUN_0081b8e0)
+  UNCONDITIONAL_CALL @ 0x0047ce6b (in FUN_0047ce10)
+  UNCONDITIONAL_CALL @ 0x0047ce7f (in FUN_0047ce10)
+  UNCONDITIONAL_CALL @ 0x0047ceaa (in FUN_0047ce10)
+  UNCONDITIONAL_CALL @ 0x0047cebe (in FUN_0047ce10)
+  UNCONDITIONAL_CALL @ 0x004909bc (in FUN_00490500)
+  UNCONDITIONAL_CALL @ 0x00494bdc (in FUN_004949a0)
+  UNCONDITIONAL_CALL @ 0x005f4710 (in FUN_005f3a20)
+  UNCONDITIONAL_CALL @ 0x005f4757 (in FUN_005f3a20)
+  UNCONDITIONAL_CALL @ 0x0057009c (in FUN_0056fcb0)
+  UNCONDITIONAL_CALL @ 0x0057b5ef (in FUN_0057b520)
+  UNCONDITIONAL_CALL @ 0x0062fef8 (in FUN_0062fec0)
+  UNCONDITIONAL_CALL @ 0x00456183 (in FUN_004556d0)
+  UNCONDITIONAL_CALL @ 0x0047d1fc (in FUN_0047d1a0)
+  UNCONDITIONAL_CALL @ 0x0049e0c8 (in FUN_0049db60)
+  UNCONDITIONAL_CALL @ 0x0049eeeb (in FUN_0049eed0)
+  UNCONDITIONAL_CALL @ 0x004a8047 (in FUN_004a8030)
+  UNCONDITIONAL_CALL @ 0x0053a1ce (in FUN_0053a090)
+  UNCONDITIONAL_CALL @ 0x0043c43c (in FUN_0043c430)
+  UNCONDITIONAL_CALL @ 0x0043c448 (in FUN_0043c430)
+  UNCONDITIONAL_CALL @ 0x006c86b6 (in FUN_006c85e0)
+  UNCONDITIONAL_CALL @ 0x0045ccb2 (in FUN_0045cbc0)
+  UNCONDITIONAL_CALL @ 0x006ad7f7 (in FUN_006ad770)
+  UNCONDITIONAL_CALL @ 0x006ad81f (in FUN_006ad770)
+  UNCONDITIONAL_CALL @ 0x006ad8ed (in FUN_006ad770)
+  UNCONDITIONAL_CALL @ 0x006ad915 (in FUN_006ad770)
+  UNCONDITIONAL_CALL @ 0x006afe60 (in FUN_006afcc0)
+  UNCONDITIONAL_CALL @ 0x006b0121 (in FUN_006afcc0)
+  UNCONDITIONAL_CALL @ 0x006b1c4f (in FUN_006b1970)
+  UNCONDITIONAL_CALL @ 0x006ce4b4 (in FUN_006ce2d0)
+  UNCONDITIONAL_CALL @ 0x006ce6dd (in FUN_006ce2d0)
+  UNCONDITIONAL_CALL @ 0x006d8fc7 (in FUN_006d8a40)
+  UNCONDITIONAL_CALL @ 0x006fe015 (in FUN_006fdfc0)
+  UNCONDITIONAL_CALL @ 0x006fe20f (in FUN_006fdfc0)
+  UNCONDITIONAL_CALL @ 0x006fedf0 (in FUN_006fede0)
+  UNCONDITIONAL_CALL @ 0x0063d388 (in FUN_0063d1d0)
+  UNCONDITIONAL_CALL @ 0x0063d3a0 (in FUN_0063d1d0)
+  UNCONDITIONAL_CALL @ 0x00551ece (in FUN_00551890)
+  UNCONDITIONAL_CALL @ 0x0055215c (in FUN_00551890)
+  UNCONDITIONAL_CALL @ 0x007279a5 (in FUN_00727920)
+  ... (truncated)
+  Total: 61 refs
+
+######################################################################
+# PART 4: Who WRITES to the combat state structure?
+# Look for functions that SET flags at +0x410/+0x414
+# FUN_00621270 is a reader. Find the corresponding writer.
+######################################################################
+
+======================================================================
+WriteFlags_00621290_guess1 @ 0x00621290
+======================================================================
+  Function: FUN_00621290 @ 0x00621290, Size: 46 bytes
+  Convention: __fastcall
+  Signature: int __fastcall FUN_00621290(int param_1)
+
+/* WARNING: Globals starting with '_' overlap smaller symbols at the same address */
+
+int __fastcall FUN_00621290(int param_1)
+
+{
+  FUN_006815c0(param_1);
+  *(undefined4 *)(param_1 + 0x10) = _DAT_0104da4c;
+  *(undefined4 *)(param_1 + 0x14) = _DAT_0104da4c;
+  return param_1;
+}
+
+
+
+======================================================================
+WriteFlags_006212a0_guess2 @ 0x006212a0
+======================================================================
+  Function: FUN_00621290 @ 0x00621290, Size: 46 bytes
+  NOTE: Requested 0x006212a0 is inside FUN_00621290 (entry at 0x00621290)
+  Convention: __fastcall
+  Signature: int __fastcall FUN_00621290(int param_1)
+
+/* WARNING: Globals starting with '_' overlap smaller symbols at the same address */
+
+int __fastcall FUN_00621290(int param_1)
+
+{
+  FUN_006815c0(param_1);
+  *(undefined4 *)(param_1 + 0x10) = _DAT_0104da4c;
+  *(undefined4 *)(param_1 + 0x14) = _DAT_0104da4c;
+  return param_1;
+}
+
+
+
+======================================================================
+WriteFlags_006212b0_guess3 @ 0x006212b0
+======================================================================
+  Function: FUN_00621290 @ 0x00621290, Size: 46 bytes
+  NOTE: Requested 0x006212b0 is inside FUN_00621290 (entry at 0x00621290)
+  Convention: __fastcall
+  Signature: int __fastcall FUN_00621290(int param_1)
+
+/* WARNING: Globals starting with '_' overlap smaller symbols at the same address */
+
+int __fastcall FUN_00621290(int param_1)
+
+{
+  FUN_006815c0(param_1);
+  *(undefined4 *)(param_1 + 0x10) = _DAT_0104da4c;
+  *(undefined4 *)(param_1 + 0x14) = _DAT_0104da4c;
+  return param_1;
+}
+
+
+
+======================================================================
+WriteFlags_006212c0_guess4 @ 0x006212c0
+======================================================================
+  Function: FUN_006212c0 @ 0x006212c0, Size: 172 bytes
+  Convention: __thiscall
+  Signature: void * __thiscall FUN_006212c0(void * this, undefined4 * param_1)
+
+void * __thiscall FUN_006212c0(void *this,undefined4 *param_1)
+
+{
+  uint local_c;
+  uint local_8;
+  
+  FUN_006281a0(this,param_1);
+  *(undefined4 *)((int)this + 0x20) = param_1[8];
+  *(undefined4 *)((int)this + 0x24) = param_1[9];
+  for (local_8 = 0; local_8 < 8; local_8 = local_8 + 1) {
+    *(undefined4 *)((int)this + local_8 * 4 + 0x28) = param_1[local_8 + 10];
+  }
+  *(undefined4 *)((int)this + 0x48) = param_1[0x12];
+  *(undefined4 *)((int)this + 0x4c) = param_1[0x13];
+  for (local_c = 0; local_c < 8; local_c = local_c + 1) {
+    *(undefined4 *)((int)this + local_c * 4 + 0x50) = param_1[local_c + 0x14];
+  }
+  return this;
+}
+
+
+
+######################################################################
+# PART 5: FUN_009611e0 -- called from FUN_00888070 (AI combat)
+# Called right after getting process via vtable+0x1d0
+# Could be 'is in combat' or 'get combat controller'
+######################################################################
+
+======================================================================
+CombatCheck_009611e0 @ 0x009611e0
+======================================================================
+  Function: FUN_009611e0 @ 0x009611e0, Size: 17 bytes
+  Convention: __fastcall
+  Signature: undefined4 __fastcall FUN_009611e0(int param_1)
+
+undefined4 __fastcall FUN_009611e0(int param_1)
+
+{
+  return *(undefined4 *)(param_1 + 0x18);
+}
+
+
+
+----------------------------------------------------------------------
+References TO 0x009611e0 (CombatCheck)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x00538082 (in FUN_00537eb0)
+  UNCONDITIONAL_CALL @ 0x00545154 (in FUN_00545030)
+  UNCONDITIONAL_CALL @ 0x00545ae8 (in FUN_00545a30)
+  UNCONDITIONAL_CALL @ 0x00549704 (in FUN_005496b0)
+  UNCONDITIONAL_CALL @ 0x00549710 (in FUN_005496b0)
+  UNCONDITIONAL_CALL @ 0x0054a0f0 (in FUN_0054a070)
+  UNCONDITIONAL_CALL @ 0x0054a7a3 (in FUN_0054a070)
+  UNCONDITIONAL_CALL @ 0x0054a812 (in FUN_0054a070)
+  UNCONDITIONAL_CALL @ 0x0054a82a (in FUN_0054a070)
+  UNCONDITIONAL_CALL @ 0x00549938 (in FUN_005497c0)
+  UNCONDITIONAL_CALL @ 0x00549950 (in FUN_005497c0)
+  UNCONDITIONAL_CALL @ 0x00549adb (in FUN_005497c0)
+  UNCONDITIONAL_CALL @ 0x00549af3 (in FUN_005497c0)
+  UNCONDITIONAL_CALL @ 0x00549d26 (in FUN_005497c0)
+  UNCONDITIONAL_CALL @ 0x00549d95 (in FUN_005497c0)
+  UNCONDITIONAL_CALL @ 0x00549dad (in FUN_005497c0)
+  UNCONDITIONAL_CALL @ 0x00549e68 (in FUN_005497c0)
+  UNCONDITIONAL_CALL @ 0x00549f1b (in FUN_005497c0)
+  UNCONDITIONAL_CALL @ 0x0054ac64 (in FUN_0054abd0)
+  UNCONDITIONAL_CALL @ 0x006510f5 (in FUN_00650ea0)
+  UNCONDITIONAL_CALL @ 0x00718213 (in FUN_007181d0)
+  UNCONDITIONAL_CALL @ 0x00718226 (in FUN_007181d0)
+  UNCONDITIONAL_CALL @ 0x00546a7f (in FUN_00546a40)
+  UNCONDITIONAL_CALL @ 0x00567863 (in FUN_00567790)
+  UNCONDITIONAL_CALL @ 0x007fc577 (in FUN_007fc400)
+  UNCONDITIONAL_CALL @ 0x00835320 (in FUN_00834260)
+  UNCONDITIONAL_CALL @ 0x0061b91b (in FUN_0061b440)
+  UNCONDITIONAL_CALL @ 0x0061b973 (in FUN_0061b440)
+  UNCONDITIONAL_CALL @ 0x00571d25 (in FUN_00571b50)
+  UNCONDITIONAL_CALL @ 0x004ab707 (in FUN_004ab5b0)
+  UNCONDITIONAL_CALL @ 0x004ab0f0 (in FUN_004ab0c0)
+  UNCONDITIONAL_CALL @ 0x004ab10c (in FUN_004ab0c0)
+  UNCONDITIONAL_CALL @ 0x0081f4b2 (in FUN_0081f350)
+  UNCONDITIONAL_CALL @ 0x004b5e60 (in FUN_004b5d10)
+  UNCONDITIONAL_CALL @ 0x004b5e6c (in FUN_004b5d10)
+  UNCONDITIONAL_CALL @ 0x00496bac (in FUN_00496a50)
+  UNCONDITIONAL_CALL @ 0x004af176 (in FUN_004aeed0)
+  UNCONDITIONAL_CALL @ 0x0056f9c6 (in FUN_0056f930)
+  UNCONDITIONAL_CALL @ 0x0056f9e8 (in FUN_0056f930)
+  UNCONDITIONAL_CALL @ 0x0045ac44 (in FUN_0045aba0)
+  UNCONDITIONAL_CALL @ 0x0068aaec (in FUN_0068aa50)
+  UNCONDITIONAL_CALL @ 0x0068a9a1 (in FUN_0068a8f0)
+  UNCONDITIONAL_CALL @ 0x0068a9bb (in FUN_0068a8f0)
+  UNCONDITIONAL_CALL @ 0x0060169b (in FUN_00601570)
+  UNCONDITIONAL_CALL @ 0x00652a00 (in FUN_006529a0)
+  UNCONDITIONAL_CALL @ 0x00652a53 (in FUN_006529a0)
+  UNCONDITIONAL_CALL @ 0x00450f31 (in FUN_00450dd0)
+  UNCONDITIONAL_CALL @ 0x00454692 (in FUN_00454450)
+  UNCONDITIONAL_CALL @ 0x00458eb6 (in FUN_00458e20)
+  UNCONDITIONAL_CALL @ 0x004a342e (in FUN_004a2d50)
+  UNCONDITIONAL_CALL @ 0x004a343d (in FUN_004a2d50)
+  UNCONDITIONAL_CALL @ 0x004a1c0e (in FUN_004a1a70)
+  UNCONDITIONAL_CALL @ 0x004a231c (in FUN_004a2070)
+  UNCONDITIONAL_CALL @ 0x004a2ae9 (in FUN_004a2070)
+  UNCONDITIONAL_CALL @ 0x00539bb1 (in FUN_00539960)
+  UNCONDITIONAL_CALL @ 0x00539bbd (in FUN_00539960)
+  UNCONDITIONAL_CALL @ 0x00539bdd (in FUN_00539960)
+  UNCONDITIONAL_CALL @ 0x00539c2c (in FUN_00539960)
+  UNCONDITIONAL_CALL @ 0x00539c38 (in FUN_00539960)
+  UNCONDITIONAL_CALL @ 0x0053a235 (in FUN_0053a090)
+  UNCONDITIONAL_CALL @ 0x0053a241 (in FUN_0053a090)
+  ... (truncated)
+  Total: 61 refs
+
+######################################################################
+# PART 6: FUN_00567050 -- called early in AI combat processing
+# First call after the combat check in FUN_00888070
+######################################################################
+
+======================================================================
+EarlyCombat_00567050 @ 0x00567050
+======================================================================
+  Function: FUN_00567050 @ 0x00567050, Size: 616 bytes
+  Convention: __fastcall
+  Signature: undefined __fastcall FUN_00567050(allocator<char> * param_1)
+
+void __fastcall FUN_00567050(allocator<char> *param_1)
+
+{
+  bool bVar1;
+  bool bVar2;
+  undefined1 uVar3;
+  char cVar4;
+  undefined3 extraout_var;
+  int iVar5;
+  int *piVar6;
+  void *pvVar7;
+  uint uVar8;
+  undefined4 *puVar9;
+  char *pcVar10;
+  float10 fVar11;
+  float10 fVar12;
+  float fVar13;
+  uint local_1c;
+  int local_14;
+  
+  bVar1 = FUN_00440da0((int)param_1);
+  bVar2 = FUN_00440d80((int)param_1);
+  if (bVar2) {
+    return;
+  }
+  if (bVar1) {
+    return;
+  }
+  uVar3 = FUN_00401170(*(int *)(param_1 + 0x20));
+  iVar5 = CONCAT31(extraout_var,uVar3);
+  if (iVar5 == 0x1e) {
+    (**(code **)(*(int *)param_1 + 0x178))();
+  }
+  else if ((0x29 < iVar5) && (iVar5 < 0x2c)) {
+    bVar1 = true;
+    goto LAB_005671e1;
+  }
+  bVar1 = false;
+  iVar5 = FUN_0043fcd0((int)param_1);
+  if ((iVar5 != 0) && (piVar6 = (int *)FUN_0043b230(iVar5), piVar6 != (int *)0x0)) {
+    pvVar7 = (void *)(**(code **)(*piVar6 + 0x88))();
+    local_14 = 0;
+    if ((pvVar7 != (void *)0x0) && (cVar4 = FUN_004f05a0(pvVar7), cVar4 != '\0')) {
+      for (local_1c = 0; uVar8 = FUN_00495d00((int)pvVar7), local_1c < uVar8;
+          local_1c = local_1c + 1) {
+        piVar6 = (int *)FUN_00495d20(pvVar7,local_1c);
+        if ((piVar6 != (int *)0x0) && (iVar5 = FUN_008041a0((int)piVar6), iVar5 != 0)) {
+          cVar4 = FUN_004eef00((int)piVar6,(int *)param_1);
+          if (cVar4 == '\0') {
+            local_14 = local_14 + 1;
+          }
+          else {
+            FUN_005672c0(param_1,(int)piVar6);
+            FUN_0047b220(pvVar7,piVar6,0);
+            puVar9 = (undefined4 *)FUN_00413f40((int)piVar6);
+            pcVar10 = (char *)FUN_0043b1b0(puVar9);
+            FUN_00578a30(param_1,pcVar10);
+            FUN_0047ac70((int *)param_1,(int)piVar6);
+          }
+        }
+      }
+      if (local_14 == 0) {
+        FUN_0047aa40(pvVar7,'\0');
+      }
+    }
+  }
+LAB_005671e1:
+  if (bVar1) {
+    pvVar7 = (void *)(**(code **)(*(int *)param_1 + 0x1e4))();
+    iVar5 = FUN_0043fcd0((int)param_1);
+    if (pvVar7 == (void *)0x0) {
+      if (iVar5 != 0) {
+        FUN_005659f0(param_1);
+      }
+    }
+    else if ((iVar5 != 0) && (iVar5 = FUN_009611e0(iVar5), iVar5 != 0)) {
+      iVar5 = FUN_0044ddc0(0x11f2250);
+      if ((iVar5 == 4) && (param_1 == DAT_011f21cc)) {
+        fVar13 = DAT_01012054;
+        fVar11 = FUN_0084d030(0x11f6394);
+        fVar12 = FUN_009c8d60(0x11f2250);
+        FUN_00491180(pvVar7,(int *)param_1,(float)(fVar12 * (float10)(double)fVar11),fVar13);
+      }
+      else {
+        fVar13 = DAT_01012054;
+        fVar11 = FUN_0084d030(0x11f6394);
+        FUN_00491180(pvVar7,(int *)param_1,(float)fVar11,fVar13);
+      }
+    }
+  }
+  return;
+}
+
+
+
+----------------------------------------------------------------------
+References TO 0x00567050 (EarlyCombat)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x008880be (in FUN_00888070)
+  DATA @ 0x0102f73c (in ???)
+  DATA @ 0x0107a734 (in ???)
+  DATA @ 0x0107aad4 (in ???)
+  DATA @ 0x0107af64 (in ???)
+  DATA @ 0x0107b574 (in ???)
+  DATA @ 0x0107baa4 (in ???)
+  DATA @ 0x01084434 (in ???)
+  DATA @ 0x01085b34 (in ???)
+  DATA @ 0x01086c4c (in ???)
+  DATA @ 0x0108728c (in ???)
+  DATA @ 0x0108a67c (in ???)
+  DATA @ 0x0108c5a4 (in ???)
+  DATA @ 0x0108ec44 (in ???)
+  DATA @ 0x0108efe4 (in ???)
+  DATA @ 0x0108f4d4 (in ???)
+  DATA @ 0x0108f854 (in ???)
+  DATA @ 0x0108fc24 (in ???)
+  DATA @ 0x010902bc (in ???)
+  Total: 19 refs
+
+######################################################################
+# PART 7: What sets 0x1000000 flag? Scan for OR with 0x1000000
+# on HighProcess combat state. This tells us what ENABLES combat.
+######################################################################
+
+======================================================================
+NearbyFunc_00621240 @ 0x00621240
+======================================================================
+  Function: FUN_00621240 @ 0x00621240, Size: 36 bytes
+  Convention: __fastcall
+  Signature: bool __fastcall FUN_00621240(int param_1)
+
+bool __fastcall FUN_00621240(int param_1)
+
+{
+  uint uVar1;
+  
+  uVar1 = FUN_00621270((void *)(param_1 + 0x410),0x800);
+  return uVar1 != 0;
+}
+
+
+
+======================================================================
+NearbyFunc_00621250 @ 0x00621250
+======================================================================
+  Function: FUN_00621240 @ 0x00621240, Size: 36 bytes
+  NOTE: Requested 0x00621250 is inside FUN_00621240 (entry at 0x00621240)
+  Convention: __fastcall
+  Signature: bool __fastcall FUN_00621240(int param_1)
+
+bool __fastcall FUN_00621240(int param_1)
+
+{
+  uint uVar1;
+  
+  uVar1 = FUN_00621270((void *)(param_1 + 0x410),0x800);
+  return uVar1 != 0;
+}
+
+
+
+======================================================================
+NearbyFunc_00621260 @ 0x00621260
+======================================================================
+  Function: FUN_00621240 @ 0x00621240, Size: 36 bytes
+  NOTE: Requested 0x00621260 is inside FUN_00621240 (entry at 0x00621240)
+  Convention: __fastcall
+  Signature: bool __fastcall FUN_00621240(int param_1)
+
+bool __fastcall FUN_00621240(int param_1)
+
+{
+  uint uVar1;
+  
+  uVar1 = FUN_00621270((void *)(param_1 + 0x410),0x800);
+  return uVar1 != 0;
+}
+
+
+
+######################################################################
+# PART 8: HighProcess vtable +0x41c
+# Called from FUN_00888070: (**(process_vtable + 0x41c))(actor)
+# This is called during AI combat processing. What does it do?
+# If the vtable is at a known address, find this slot.
+######################################################################
+  HighProcess vtable: 0x01087864 (from crash dump)
+  Slot +0x41c = vtable entry at 0x01087864 + 0x41c = 0x01087C80
+  Data at vtable slot: addr 00920150

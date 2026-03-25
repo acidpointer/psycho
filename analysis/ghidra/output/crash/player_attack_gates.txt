@@ -1,0 +1,981 @@
+======================================================================
+PLAYER ATTACK GATE FUNCTIONS
+Why do player attacks not register?
+======================================================================
+
+######################################################################
+# PART 1: FUN_00525420 -- combat lock check
+# In FUN_00524db0: if FUN_00525420() != 0, skip attack
+# What is this checking? Slow-mo? VATS? Combat freeze?
+######################################################################
+
+======================================================================
+CombatLock_00525420 @ 0x00525420
+======================================================================
+  Function: FUN_00525420 @ 0x00525420, Size: 10 bytes
+  Convention: __stdcall
+  Signature: undefined1 __stdcall FUN_00525420(void)
+
+undefined1 FUN_00525420(void)
+
+{
+  return DAT_011dea2a;
+}
+
+
+
+----------------------------------------------------------------------
+References TO 0x00525420 (CombatLock)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x0081ba15 (in FUN_0081b8e0)
+  UNCONDITIONAL_CALL @ 0x0086efe7 (in FUN_0086efe0)
+  UNCONDITIONAL_CALL @ 0x0086f2c1 (in FUN_0086f260)
+  UNCONDITIONAL_CALL @ 0x008712ab (in FUN_00871290)
+  UNCONDITIONAL_CALL @ 0x00871301 (in FUN_00871290)
+  UNCONDITIONAL_CALL @ 0x0089e850 (in FUN_0089d900)
+  UNCONDITIONAL_CALL @ 0x008c3a79 (in FUN_008c39b0)
+  UNCONDITIONAL_CALL @ 0x0093112f (in FUN_00930c70)
+  UNCONDITIONAL_CALL @ 0x0088ea60 (in FUN_0088e8d0)
+  UNCONDITIONAL_CALL @ 0x00524e1f (in FUN_00524db0)
+  UNCONDITIONAL_CALL @ 0x006631c4 (in FUN_00663050)
+  UNCONDITIONAL_CALL @ 0x00891bf0 (in FUN_00891be0)
+  UNCONDITIONAL_CALL @ 0x0096da20 (in FUN_0096d810)
+  UNCONDITIONAL_CALL @ 0x0096da65 (in FUN_0096d810)
+  UNCONDITIONAL_CALL @ 0x00977317 (in FUN_00977130)
+  UNCONDITIONAL_CALL @ 0x009af039 (in FUN_009ae6e0)
+  UNCONDITIONAL_CALL @ 0x008102b2 (in FUN_0080feb0)
+  UNCONDITIONAL_CALL @ 0x0081433c (in FUN_00813f30)
+  UNCONDITIONAL_CALL @ 0x0081a0b0 (in FUN_00819ca0)
+  UNCONDITIONAL_CALL @ 0x00837d7f (in FUN_00837cc0)
+  UNCONDITIONAL_CALL @ 0x0083883f (in FUN_00838780)
+  UNCONDITIONAL_CALL @ 0x008aab7b (in FUN_008aa9a0)
+  UNCONDITIONAL_CALL @ 0x008cb119 (in FUN_008caea0)
+  UNCONDITIONAL_CALL @ 0x009c212b (in FUN_009c20e0)
+  UNCONDITIONAL_CALL @ 0x009cfc9a (in FUN_009cfc90)
+  UNCONDITIONAL_CALL @ 0x0088719f (in ???)
+  UNCONDITIONAL_CALL @ 0x009be822 (in ???)
+  Total: 27 refs
+
+######################################################################
+# PART 2: FUN_00950be0 -- player-specific process getter
+# Called with DAT_011dea3c (player ref). Gets combat data.
+# What does it return? Is it the same as GetActorProcess?
+######################################################################
+
+======================================================================
+PlayerProcessGet_00950be0 @ 0x00950be0
+======================================================================
+  Function: FUN_00950be0 @ 0x00950be0, Size: 50 bytes
+  Convention: __fastcall
+  Signature: undefined __fastcall FUN_00950be0(int param_1)
+
+void __fastcall FUN_00950be0(int param_1)
+
+{
+  char cVar1;
+  
+  cVar1 = FUN_00524d10(param_1);
+  if (cVar1 == '\0') {
+    FUN_00559450((undefined4 *)(param_1 + 0x694));
+  }
+  else {
+    FUN_0043fcd0(param_1);
+  }
+  return;
+}
+
+
+
+----------------------------------------------------------------------
+References TO 0x00950be0 (PlayerProcessGet)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x0054a1c9 (in FUN_0054a070)
+  UNCONDITIONAL_CALL @ 0x005235c8 (in FUN_00523150)
+  UNCONDITIONAL_CALL @ 0x00524e46 (in FUN_00524db0)
+  UNCONDITIONAL_CALL @ 0x00525910 (in FUN_005257a0)
+  UNCONDITIONAL_CALL @ 0x008be0ee (in FUN_008be0a0)
+  Total: 5 refs
+
+######################################################################
+# PART 3: FUN_004aae30 -- weapon/attack data getter
+# Called as FUN_004aae30(process, 0x102cb00)
+# Returns attack data ptr. If 0, no attack created.
+# What does it need from the process?
+######################################################################
+
+======================================================================
+WeaponDataGet_004aae30 @ 0x004aae30
+======================================================================
+  Function: FUN_004aae30 @ 0x004aae30, Size: 23 bytes
+  Convention: __cdecl
+  Signature: undefined __cdecl FUN_004aae30(int * param_1, byte * param_2)
+
+void __cdecl FUN_004aae30(int *param_1,byte *param_2)
+
+{
+  FUN_00c4b310(param_1,param_2,'\x01');
+  return;
+}
+
+
+
+----------------------------------------------------------------------
+References TO 0x004aae30 (WeaponDataGet)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x00571d11 (in FUN_00571b50)
+  UNCONDITIONAL_CALL @ 0x00571eb3 (in FUN_00571b50)
+  UNCONDITIONAL_CALL @ 0x00571fb0 (in FUN_00571b50)
+  UNCONDITIONAL_CALL @ 0x004ab6f3 (in FUN_004ab5b0)
+  UNCONDITIONAL_CALL @ 0x004af1b4 (in FUN_004aeed0)
+  UNCONDITIONAL_CALL @ 0x004ae441 (in FUN_004ae250)
+  UNCONDITIONAL_CALL @ 0x004ae48f (in FUN_004ae250)
+  UNCONDITIONAL_CALL @ 0x008b0c1a (in FUN_008b0bd0)
+  UNCONDITIONAL_CALL @ 0x004ad379 (in FUN_004ad290)
+  UNCONDITIONAL_CALL @ 0x00606318 (in FUN_006062e0)
+  UNCONDITIONAL_CALL @ 0x0060632c (in FUN_006062e0)
+  UNCONDITIONAL_CALL @ 0x006063d7 (in FUN_006062e0)
+  UNCONDITIONAL_CALL @ 0x0060640f (in FUN_006062e0)
+  UNCONDITIONAL_CALL @ 0x008912b2 (in FUN_00891190)
+  UNCONDITIONAL_CALL @ 0x00891322 (in FUN_00891190)
+  UNCONDITIONAL_CALL @ 0x005e5640 (in FUN_005e55e0)
+  UNCONDITIONAL_CALL @ 0x005e57b0 (in FUN_005e5750)
+  UNCONDITIONAL_CALL @ 0x008bb6db (in FUN_008bb650)
+  UNCONDITIONAL_CALL @ 0x008d6aa2 (in FUN_008d6a80)
+  UNCONDITIONAL_CALL @ 0x008a5439 (in FUN_008a5340)
+  UNCONDITIONAL_CALL @ 0x00524e7b (in FUN_00524db0)
+  UNCONDITIONAL_CALL @ 0x0052571c (in FUN_00525700)
+  UNCONDITIONAL_CALL @ 0x00525736 (in FUN_00525700)
+  UNCONDITIONAL_CALL @ 0x009a6be1 (in FUN_009a6ae0)
+  UNCONDITIONAL_CALL @ 0x009659f4 (in FUN_00965620)
+  UNCONDITIONAL_CALL @ 0x009446da (in FUN_009445b0)
+  UNCONDITIONAL_CALL @ 0x009c794d (in FUN_009c7240)
+  UNCONDITIONAL_CALL @ 0x009c7967 (in FUN_009c7240)
+  UNCONDITIONAL_CALL @ 0x009c7998 (in FUN_009c7240)
+  UNCONDITIONAL_CALL @ 0x005726fa (in FUN_005726e0)
+  UNCONDITIONAL_CALL @ 0x00572721 (in FUN_005726e0)
+  UNCONDITIONAL_CALL @ 0x005fbe56 (in FUN_005fbdd0)
+  UNCONDITIONAL_CALL @ 0x00944a0f (in FUN_009445b0)
+  UNCONDITIONAL_CALL @ 0x00944b2b (in FUN_009445b0)
+  UNCONDITIONAL_CALL @ 0x00944d81 (in FUN_009445b0)
+  UNCONDITIONAL_CALL @ 0x009450bd (in FUN_009445b0)
+  UNCONDITIONAL_CALL @ 0x004aad31 (in FUN_004aad00)
+  UNCONDITIONAL_CALL @ 0x004aad69 (in FUN_004aad00)
+  UNCONDITIONAL_CALL @ 0x0060578c (in FUN_006056f0)
+  UNCONDITIONAL_CALL @ 0x006057fa (in FUN_006056f0)
+  UNCONDITIONAL_CALL @ 0x00576378 (in FUN_00576330)
+  ... (truncated)
+  Total: 41 refs
+
+######################################################################
+# PART 4: FUN_0048cee0 -- combat controller getter
+# Called from player attack path: FUN_0048cee0(FUN_004600d0(this))
+# If returns 0, entire attack is skipped
+######################################################################
+
+======================================================================
+CombatCtrl_0048cee0 @ 0x0048cee0
+======================================================================
+  Function: FUN_0048cee0 @ 0x0048cee0, Size: 22 bytes
+  Convention: __fastcall
+  Signature: undefined __fastcall FUN_0048cee0(int param_1)
+
+void __fastcall FUN_0048cee0(int param_1)
+
+{
+  FUN_004048e0((undefined4 *)(param_1 + 4));
+  return;
+}
+
+
+
+======================================================================
+WeaponGet_004600d0 @ 0x004600d0
+======================================================================
+  Function: FUN_004600d0 @ 0x004600d0, Size: 19 bytes
+  Convention: __fastcall
+  Signature: int __fastcall FUN_004600d0(int param_1)
+
+int __fastcall FUN_004600d0(int param_1)
+
+{
+  return param_1 + 0x1d0;
+}
+
+
+
+######################################################################
+# PART 5: FUN_00682c40 -- projectile/hit object creation
+# Creates the hit event. If this isn't called, no damage.
+# What are the params and what gates it?
+######################################################################
+
+======================================================================
+ProjectileCreate_00682c40 @ 0x00682c40
+======================================================================
+  Function: FUN_00682c40 @ 0x00682c40, Size: 195 bytes
+  Convention: __thiscall
+  Signature: undefined4 * __thiscall FUN_00682c40(void * this, undefined4 param_1, undefined4 param_2, undefined4 param_3, int * param_4, undefined4 * param_5, undefined4 * param_6, float * param_7, float * param_8, float param_9, char param_10, undefined1 param_11)
+
+undefined4 * __thiscall
+FUN_00682c40(void *this,undefined4 param_1,undefined4 param_2,undefined4 param_3,int *param_4,
+            undefined4 *param_5,undefined4 *param_6,float *param_7,float *param_8,float param_9,
+            char param_10,undefined1 param_11)
+
+{
+  int *unaff_FS_OFFSET;
+  int local_10;
+  undefined1 *puStack_c;
+  undefined4 local_8;
+  
+  local_8 = 0xffffffff;
+  puStack_c = &LAB_00f00e33;
+  local_10 = *unaff_FS_OFFSET;
+  *unaff_FS_OFFSET = (int)&local_10;
+  FUN_006827b0(this,param_1,param_2);
+  local_8 = 0;
+  *(undefined ***)this = &PTR__scalar_deleting_destructor__0106986c;
+  FUN_00633c90((void *)((int)this + 0x18),0);
+  local_8 = CONCAT31(local_8._1_3_,1);
+  FUN_0066b0d0((void *)((int)this + 0x18),0);
+  *(undefined4 *)((int)this + 0x1c) = param_3;
+  *(undefined1 *)((int)this + 0x20) = param_11;
+  *(undefined1 *)((int)this + 0x21) = 0;
+  FUN_00682d10(this,param_4,param_5,param_6,param_7,param_8,param_9,param_10);
+  *unaff_FS_OFFSET = local_10;
+  return this;
+}
+
+
+
+----------------------------------------------------------------------
+References TO 0x00682c40 (ProjectileCreate)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x00525244 (in FUN_00524db0)
+  UNCONDITIONAL_CALL @ 0x005252ed (in FUN_00524db0)
+  Total: 2 refs
+
+######################################################################
+# PART 6: FUN_007e6580 -- hit event dispatch
+# Called after projectile creation in player attack path
+# Dispatches hit to damage system
+######################################################################
+
+======================================================================
+HitDispatch_007e6580 @ 0x007e6580
+======================================================================
+  Function: FUN_007e6580 @ 0x007e6580, Size: 22 bytes
+  Convention: __thiscall
+  Signature: undefined __thiscall FUN_007e6580(void * this, undefined1 param_1)
+
+void __thiscall FUN_007e6580(void *this,undefined1 param_1)
+
+{
+  *(undefined1 *)((int)this + 0x22) = param_1;
+  return;
+}
+
+
+
+----------------------------------------------------------------------
+References TO 0x007e6580 (HitDispatch)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x00682d3d (in FUN_00682d10)
+  UNCONDITIONAL_CALL @ 0x00525282 (in FUN_00524db0)
+  UNCONDITIONAL_CALL @ 0x007e64e4 (in FUN_007e6320)
+  Total: 3 refs
+
+######################################################################
+# PART 7: FUN_00523150 -- main caller of player attack
+# One of 2 callers of FUN_00524db0. Larger context.
+# This is the weapon use handler (fire/swing)
+######################################################################
+
+======================================================================
+WeaponUseHandler_00523150 @ 0x00523150
+======================================================================
+  Function: FUN_00523150 @ 0x00523150, Size: 6505 bytes
+  Convention: __thiscall
+  Signature: undefined __thiscall FUN_00523150(void * this, int * param_1)
+
+/* WARNING: Globals starting with '_' overlap smaller symbols at the same address */
+
+void __thiscall FUN_00523150(void *this,int *param_1)
+
+{
+  char cVar1;
+  bool bVar2;
+  byte bVar3;
+  uint uVar4;
+  float *pfVar5;
+  void *pvVar6;
+  int iVar7;
+  undefined4 uVar8;
+  int *piVar9;
+  char *pcVar10;
+  void *pvVar11;
+  float *pfVar12;
+  undefined4 extraout_ECX;
+  void *this_00;
+  void *this_01;
+  undefined4 extraout_EDX;
+  int *unaff_FS_OFFSET;
+  float10 fVar13;
+  float10 fVar14;
+  ulonglong uVar15;
+  void *pvVar16;
+  float fVar17;
+  undefined4 uVar18;
+  undefined1 uVar19;
+  undefined1 *puVar20;
+  undefined4 uVar21;
+  float *pfVar22;
+  undefined4 *puVar23;
+  char local_290;
+  int local_28c;
+  char local_288;
+  float local_27c;
+  int local_270;
+  float local_264;
+  int *local_25c;
+  float local_258;
+  float local_254;
+  float *local_250;
+  void *local_24c;
+  int *local_248;
+  undefined1 local_238 [12];
+  undefined4 local_22c [3];
+  undefined4 local_220 [3];
+  undefined1 local_214 [12];
+  undefined1 local_208 [12];
+  undefined1 local_1fc [12];
+  float *local_1f0;
+  float local_1ec;
+  void *local_1e8;
+  undefined4 local_1e4;
+  float local_1e0;
+  int *local_1dc;
+  int local_1d8;
+  uint local_1d4;
+  float local_1d0;
+  float local_1cc;
+  float local_1c8;
+  float local_1c4;
+  float local_1c0;
+  int *local_1bc;
+  float local_1b8;
+  float local_1b4;
+  char local_1ad;
+  int *local_1ac;
+  char local_1a6;
+  byte local_1a5;
+  int *local_1a4;
+  int *local_1a0;
+  int local_19c;
+  void *local_198;
+  float local_194;
+  void *local_190;
+  int local_18c;
+  int *local_188;
+  float local_184;
+  float local_180;
+  float local_17c;
+  char local_175;
+  int local_174;
+  cancellation_token_source local_170 [4];
+  undefined1 local_16c [12];
+  undefined4 local_160 [4];
+  int *local_150;
+  float local_14c [2];
+  float local_144;
+  float local_140;
+  float local_13c;
+  float local_138;
+  float local_134;
+  undefined1 local_130 [12];
+  undefined4 local_124 [9];
+  undefined4 local_100 [4];
+  cancellation_token_source local_f0 [4];
+  int *local_ec;
+  float local_e8;
+  int *local_e4;
+  char local_dd;
+  int local_dc;
+  int local_90;
+  float local_8c;
+  IScheduler *local_88;
+  IScheduler *local_84;
+  float local_80;
+  SchedulerBase *local_7c;
+  int *local_78;
+  void *local_74;
+  char local_6e;
+  char local_6d;
+  undefined4 local_6c;
+  char local_65;
+  float local_64;
+  float local_60;
+  int local_5c;
+  int *local_58;
+  undefined1 local_51;
+  int local_50;
+  void *local_4c;
+  float local_48;
+  float local_44;
+  float local_40;
+  float local_3c;
+  cancellation_token_source local_38 [7];
+  char local_31;
+  int *local_30;
+  undefined4 local_2c;
+  char local_25;
+  float local_24;
+  float local_20;
+  char local_1a;
+  char local_19;
+  undefined4 *local_18;
+  int local_14;
+  int local_10;
+  undefined1 *puStack_c;
+  undefined4 local_8;
+  
+  local_8 = 0xffffffff;
+  puStack_c = &LAB_00ef4e3c;
+  local_10 = *unaff_FS_OFFSET;
+  uVar4 = DAT_011c16bc ^ (uint)&stack0xfffffffc;
+  *unaff_FS_OFFSET = (int)&local_10;
+  if (param_1 == (int *)0x0) goto LAB_00524aa7;
+  cVar1 = (**(code **)(*param_1 + 0x100))(uVar4);
+  local_30 = (int *)(-(uint)(cVar1 != '\0') & (uint)param_1);
+  if ((local_30 == DAT_011dea3c) &&
+     (local_7c = (SchedulerBase *)FUN_00525980(this,(int)DAT_011dea3c),
+     local_7c != (SchedulerBase *)0x0)) {
+    local_88 = (IScheduler *)0x0;
+    local_84 = Concurrency::details::SchedulerBase::GetIScheduler(local_7c);
+    fVar13 = FUN_006d6d90((int)local_7c);
+    local_8c = (float)fVar13;
+    FUN_005e58f0(0x39,DAT_011dea3c);
+    uVar4 = FUN_00487f50();
+    local_80 = (float)(uVar4 % 100);
+    if ((local_84 != (IScheduler *)0x0) && (local_80 <= local_8c)) {
+      cVar1 = (**(code **)(*(int *)local_84 + 0xe4))();
+      if (cVar1 != '\0') {
+        local_88 = local_84;
+      }
+      if (local_88 != (IScheduler *)0x0) {
+        local_90 = FUN_00ec43fb((int *)local_84,0,(_s_RTTICompleteObjectLocator *)&PTR_PTR_01183028,
+                                (TypeDescriptor *)&PTR_PTR_01183158,0);
+        (**(code **)(*DAT_011dea3c + 400))(local_88,0,1);
+      }
+    }
+  }
+  if ((local_30 != (int *)0x0) && (local_30[0x68] != 0)) goto LAB_00524aa7;
+  local_31 = local_30 == DAT_011dea3c;
+  local_18 = (undefined4 *)0x0;
+  if (local_30 == (int *)0x0) {
+    local_248 = (int *)0x0;
+  }
+  else {
+    local_248 = (int *)FUN_008d8520((int)local_30);
+  }
+  local_78 = local_248;
+  local_6c = 0;
+  if (local_248 == (int *)0x0) {
+    local_24c = (void *)0x0;
+  }
+  else {
+    local_24c = (void *)(**(code **)(*local_248 + 0x148))();
+  }
+  local_4c = local_24c;
+  if (local_30 == (int *)0x0) {
+    local_250 = (float *)FUN_00436aa0((int)param_1);
+  }
+  else {
+    pfVar5 = FUN_0045bb20(&DAT_011a9484,local_1fc,_DAT_0102cafc);
+    puVar20 = local_208;
+    pvVar6 = (void *)FUN_00436aa0((int)param_1);
+    local_250 = FUN_00439e90(pvVar6,puVar20,pfVar5);
+  }
+  local_1f0 = local_250;
+  local_48 = *local_250;
+  local_44 = local_250[1];
+  local_40 = local_250[2];
+  if (local_30 == (int *)0x0) {
+    pfVar5 = (float *)FUN_00430830((int)param_1);
+    local_254 = *pfVar5;
+  }
+  else {
+    fVar13 = FUN_00931d70((int)local_30);
+    local_254 = (float)fVar13;
+  }
+  local_64 = local_254;
+  if (local_30 == (int *)0x0) {
+    iVar7 = FUN_00430830((int)param_1);
+    local_258 = *(float *)(iVar7 + 8);
+  }
+  else {
+    fVar13 = (float10)(**(code **)(*local_30 + 700))(0);
+    local_258 = (float)fVar13;
+  }
+  local_24 = local_258;
+  local_58 = (int *)0x0;
+  if ((local_78 == (int *)0x0) ||
+     ((((iVar7 = FUN_00446390((int)this), iVar7 != 10 &&
+        (iVar7 = FUN_00446390((int)this), iVar7 != 0xb)) &&
+       (iVar7 = FUN_00446390((int)this), iVar7 != 0xc)) &&
+      (iVar7 = FUN_00446390((int)this), iVar7 != 0xd)))) {
+    if (local_78 == (int *)0x0) {
+      if (local_31 == '\0') {
+        local_25c = (int *)(**(code **)(*param_1 + 0x1d0))();
+      }
+      else {
+        local_25c = (int *)FUN_00950be0((int)DAT_011dea3c);
+      }
+      local_58 = (int *)FUN_00525700(this,local_25c);
+    }
+    else {
+      local_58 = (int *)(**(code **)(*param_1 + 0x20c))();
+    }
+    if (local_58 != (int *)0x0) {
+      pfVar5 = (float *)FUN_0045bb80((int)local_58);
+      local_48 = *pfVar5;
+      local_44 = pfVar5[1];
+      local_40 = pfVar5[2];
+      iVar7 = FUN_0044ddc0(0x11f2250);
+      if (((iVar7 != 4) && (local_30 == DAT_011dea3c)) &&
+         (uVar4 = FUN_008bbc10((uint)DAT_011dea3c), (uVar4 & 0xff) != 0)) {
+        iVar7 = FUN_00504e60((int)this);
+        iVar7 = FUN_0048cee0(iVar7);
+        if (iVar7 != 0) {
+          local_dd = '\0';
+          bVar2 = FUN_004ad030((int)this);
+          if (bVar2) {
+            local_e4 = (int *)FUN_008d8520((int)DAT_011dea3c);
+            if ((local_e4 != (int *)0x0) && (iVar7 = (**(code **)(*local_e4 + 0x148))(), iVar7 != 0)
+               ) {
+              bVar3 = 0xe;
+              pvVar6 = (void *)(**(code **)(*local_e4 + 0x148))();
+              uVar4 = FUN_004bda70(pvVar6,bVar3);
+              if ((uVar4 & 0xff) != 0) {
+                local_dd = '\x01';
+              }
+            }
+          }
+          else {
+            local_dd = '\x01';
+          }
+          local_dc = FUN_00524c90();
+          if ((local_dd != '\0') && (local_dc != 0)) {
+            if ((DAT_011c9518 & 1) == 0) {
+              DAT_011c9518 = DAT_011c9518 | 1;
+              local_8 = 0;
+              FUN_00416870(&DAT_011c950c,0,_DAT_0102caf8,0);
+              local_8 = 0xffffffff;
+            }
+            pfVar5 = (float *)&DAT_011c950c;
+            puVar20 = local_214;
+            pvVar6 = (void *)FUN_00461130(local_dc);
+            pfVar5 = FUN_00524c40(pvVar6,puVar20,pfVar5);
+            local_48 = *pfVar5;
+            local_44 = pfVar5[1];
+            local_40 = pfVar5[2];
+          }
+        }
+      }
+      if (((param_1 == (int *)0x0) || (param_1 != DAT_011dea3c)) ||
+         (cVar1 = FUN_00524d10((int)DAT_011dea3c), cVar1 != '\0')) {
+        pfVar22 = &local_e8;
+        pfVar5 = &local_64;
+        pfVar12 = &local_24;
+        pvVar6 = (void *)FUN_00461130((int)local_58);
+        FUN_00a59400(pvVar6,pfVar12,pfVar5,pfVar22);
+      }
+      else {
+        fVar13 = (float10)(**(code **)(*DAT_011dea3c + 700))(0);
+        local_24 = (float)fVar13;
+        fVar13 = FUN_00931d70((int)DAT_011dea3c);
+        local_64 = (float)fVar13;
+      }
+      pcVar10 = FUN_00408d60(0x11c94a0);
+      if (*pcVar10 != '\0') {
+        local_ec = (int *)(**(code **)(*local_58 + 0xc))();
+        if (local_ec == (int *)0x0) {
+          piVar9 = (int *)FUN_009611e0((int)local_58);
+          local_ec = (int *)(**(code **)(*piVar9 + 0xc))();
+        }
+        if (local_ec != (int *)0x0) {
+          uVar8 = FUN_00524cb0();
+          iVar7 = (**(code **)(*local_ec + 0x9c))(uVar8);
+          FUN_00633c90(local_f0,iVar7);
+          local_8 = 1;
+          iVar7 = FUN_00559450((undefined4 *)local_f0);
+          if (iVar7 == 0) {
+            FUN_00414430(local_100,0x3f800000,0,0,0x3f800000);
+            piVar9 = FUN_00c584a0(1.0,1.0,_DAT_01017a3c,10,10,local_100);
+            FUN_0066b0d0(local_f0,(int)piVar9);
+            piVar9 = (int *)FUN_00524cb0();
+            pvVar6 = (void *)FUN_00559450((undefined4 *)local_f0);
+            FUN_00a5b950(pvVar6,piVar9);
+            FUN_006815c0(local_124);
+            FUN_00524ac0(local_124,_DAT_0101ff38);
+            puVar23 = local_124;
+            pvVar6 = (void *)FUN_00559450((undefined4 *)local_f0);
+            FUN_0043fa80(pvVar6,puVar23);
+            piVar9 = (int *)FUN_00559450((undefined4 *)local_f0);
+            FUN_004b6e90(piVar9);
+            uVar21 = 0;
+            uVar8 = 0;
+            piVar9 = (int *)FUN_00559450((undefined4 *)local_f0);
+            FUN_00b57e30(piVar9,uVar8,uVar21);
+            uVar21 = 1;
+            uVar8 = FUN_00559450((undefined4 *)local_f0);
+            (**(code **)(*local_ec + 0xdc))(uVar8,uVar21);
+            piVar9 = (int *)FUN_00559450((undefined4 *)local_f0);
+            FUN_00a5a040(piVar9);
+            FUN_0043d410(local_130,0,0,0);
+            puVar20 = local_130;
+            pvVar6 = (void *)FUN_00559450((undefined4 *)local_f0);
+            FUN_00a59c60(pvVar6,puVar20);
+          }
+          local_8 = 0xffffffff;
+          Concurrency::cancellation_token_source::~cancellation_token_source(local_f0);
+        }
+      }
+      FUN_0083ac30(this,param_1,local_58,local_31);
+    }
+  }
+  else {
+    if (((local_31 != '\0') && (local_78 != (int *)0x0)) &&
+       (iVar7 = (**(code **)(*local_78 + 0x14c))(), iVar7 != 0)) {
+      iVar7 = (**(code **)(*local_78 + 0x14c))();
+      iVar7 = FUN_00726070(iVar7);
+      if (1 < iVar7) {
+        cVar1 = FUN_004eaf60((int)DAT_011dea3c);
+        uVar8 = FUN_00950b00(DAT_011dea3c,cVar1);
+        local_58 = (int *)(**(code **)(*local_78 + 400))(uVar8);
+        if ((local_58 != (int *)0x0) && (iVar7 = (**(code **)(*local_58 + 0xc))(), iVar7 != 0)) {
+          uVar4 = 0;
+          pvVar6 = (void *)(**(code **)(*local_58 + 0xc))();
+          iVar7 = FUN_0045bc00(pvVar6,uVar4);
+          if (iVar7 != 0) {
+            cVar1 = '\x01';
+            iVar7 = 0;
+            pvVar6 = (void *)(**(code **)(*local_58 + 0xc))();
+            pvVar6 = (void *)FUN_0043b4a0(pvVar6,iVar7);
+            FUN_00450f90(pvVar6,cVar1);
+          }
+        }
+      }
+    }
+    uVar8 = (**(code **)(*local_30 + 0x1ec))();
+    local_58 = (int *)(**(code **)(*local_78 + 400))(uVar8);
+    if (local_58 != (int *)0x0) {
+      pfVar5 = (float *)FUN_0045bb80((int)local_58);
+      local_48 = *pfVar5;
+      local_44 = pfVar5[1];
+      local_40 = pfVar5[2];
+    }
+    if (local_31 != '\0') {
+      FUN_00524d70((int)DAT_011dea3c);
+    }
+  }
+  if (local_30 == (int *)0x0) {
+    pfVar5 = (float *)FUN_00403e20(0x11ce23c);
+    local_264 = *pfVar5;
+  }
+  else {
+    fVar13 = FUN_008b0dd0(local_30,1);
+    local_264 = (float)fVar13;
+  }
+  local_3c = local_264;
+  local_6d = '\0';
+  if ((((local_30 != (int *)0x0) && (iVar7 = FUN_008d8520((int)local_30), iVar7 != 0)) &&
+      (local_4c != (void *)0x0)) && (uVar4 = FUN_004bda70(local_4c,3), (
+
+--- Calls FROM WeaponUseHandler (0x00523150) ---
+  0x005231c1 -> 0x00525980 FUN_00525980
+  0x005231e0 -> 0x0097ae90 GetIScheduler
+  0x005231eb -> 0x006d6d90 FUN_006d6d90
+  0x0052320c -> 0x005e58f0 FUN_005e58f0
+  0x00523214 -> 0x00487f50 FUN_00487f50
+  0x0052328e -> 0x00ec43fb FUN_00ec43fb
+  0x005232f5 -> 0x008d8520 FUN_008d8520
+  0x00523369 -> 0x0045bb20 FUN_0045bb20
+  0x00523379 -> 0x00436aa0 FUN_00436aa0
+  0x00523380 -> 0x00439e90 FUN_00439e90
+  0x00523390 -> 0x00436aa0 FUN_00436aa0
+  0x005233c7 -> 0x00931d70 FUN_00931d70
+  0x005233d7 -> 0x00430830 FUN_00430830
+  0x00523410 -> 0x00430830 FUN_00430830
+  0x0052343e -> 0x00446390 FUN_00446390
+  0x0052344e -> 0x00446390 FUN_00446390
+  0x0052345e -> 0x00446390 FUN_00446390
+  0x0052346e -> 0x00446390 FUN_00446390
+  0x005234bc -> 0x00726070 FUN_00726070
+  0x005234cc -> 0x004eaf60 FUN_004eaf60
+  0x005234db -> 0x00950b00 FUN_00950b00
+  0x0052351c -> 0x0045bc00 FUN_0045bc00
+  0x00523538 -> 0x0043b4a0 FUN_0043b4a0
+  0x0052353f -> 0x00450f90 FUN_00450f90
+  0x00523571 -> 0x0045bb80 FUN_0045bb80
+  0x00523595 -> 0x00524d70 FUN_00524d70
+  0x005235c8 -> 0x00950be0 FUN_00950be0
+  0x005235f8 -> 0x00525700 FUN_00525700
+  0x0052360d -> 0x0045bb80 FUN_0045bb80
+  0x00523628 -> 0x0044ddc0 FUN_0044ddc0
+  0x0052364b -> 0x008bbc10 FUN_008bbc10
+  0x00523661 -> 0x00504e60 FUN_00504e60
+  0x00523668 -> 0x0048cee0 FUN_0048cee0
+  0x00523682 -> 0x004ad030 FUN_004ad030
+  0x00523694 -> 0x008d8520 FUN_008d8520
+  0x005236dc -> 0x004bda70 FUN_004bda70
+  0x005236f8 -> 0x00524c90 FUN_00524c90
+  0x00523752 -> 0x00416870 FUN_00416870
+  0x00523770 -> 0x00461130 FUN_00461130
+  0x00523777 -> 0x00524c40 FUN_00524c40
+  0x005237a4 -> 0x00524d10 FUN_00524d10
+  0x005237d0 -> 0x00931d70 FUN_00931d70
+  0x005237ec -> 0x00461130 FUN_00461130
+  0x005237f3 -> 0x00a59400 FUN_00a59400
+  0x005237fd -> 0x00408d60 FUN_00408d60
+  0x0052382c -> 0x009611e0 FUN_009611e0
+  0x0052385d -> 0x00524cb0 FUN_00524cb0
+  0x00523880 -> 0x00633c90 FUN_00633c90
+  0x00523892 -> 0x00559450 FUN_00559450
+  0x005238bd -> 0x00414430 FUN_00414430
+  0x005238e3 -> 0x00c584a0 FUN_00c584a0
+  0x005238f2 -> 0x0066b0d0 FUN_0066b0d0
+  0x005238f7 -> 0x00524cb0 FUN_00524cb0
+  0x00523903 -> 0x00559450 FUN_00559450
+  0x0052390a -> 0x00a5b950 FUN_00a5b950
+  0x00523915 -> 0x006815c0 FUN_006815c0
+  0x0052392a -> 0x00524ac0 FUN_00524ac0
+  0x0052393c -> 0x00559450 FUN_00559450
+  0x00523943 -> 0x0043fa80 FUN_0043fa80
+  0x0052394e -> 0x00559450 FUN_00559450
+  0x00523954 -> 0x004b6e90 FUN_004b6e90
+  0x00523966 -> 0x00559450 FUN_00559450
+  0x0052396c -> 0x00b57e30 FUN_00b57e30
+  0x0052397c -> 0x00559450 FUN_00559450
+  0x0052399e -> 0x00559450 FUN_00559450
+  0x005239a5 -> 0x00a5a040 FUN_00a5a040
+  0x005239ba -> 0x0043d410 FUN_0043d410
+  0x005239cc -> 0x00559450 FUN_00559450
+  0x005239d3 -> 0x00a59c60 FUN_00a59c60
+  0x005239e5 -> 0x0045cec0 ~cancellation_token_source
+  0x005239fe -> 0x0083ac30 FUN_0083ac30
+  0x00523a11 -> 0x008b0dd0 FUN_008b0dd0
+  0x00523a23 -> 0x00403e20 FUN_00403e20
+  0x00523a46 -> 0x008d8520 FUN_008d8520
+  0x00523a5a -> 0x004bda70 FUN_004bda70
+  0x00523a75 -> 0x00524b80 FUN_00524b80
+  0x00523a8b -> 0x00524be0 FUN_00524be0
+  0x00523aab -> 0x008d8520 FUN_008d8520
+  0x00523abe -> 0x00525980 FUN_00525980
+  0x00523ad1 -> 0x00525980 FUN_00525980
+  0x00523ad8 -> 0x00923000 FUN_00923000
+  0x00523aff -> 0x0059a030 FUN_0059a030
+  0x00523b32 -> 0x006815c0 FUN_006815c0
+  0x00523b62 -> 0x009807f0 FUN_009807f0
+  0x00523b74 -> 0x004c0bf0 FUN_004c0bf0
+  0x00523b96 -> 0x004994f0 FUN_004994f0
+  0x00523bb1 -> 0x00439ef0 FUN_00439ef0
+  0x00523bbd -> 0x004b1550 FUN_004b1550
+  0x00523bce -> 0x00457990 FUN_00457990
+  0x00523be9 -> 0x004b54c0 FUN_004b54c0
+  0x00523bfb -> 0x00408d60 FUN_00408d60
+  0x00523c0e -> 0x008d6f30 FUN_008d6f30
+  0x00523c15 -> 0x00524cf0 FUN_00524cf0
+  0x00523c2d -> 0x00524cc0 FUN_00524cc0
+  0x00523c50 -> 0x00633c90 FUN_00633c90
+  0x00523c62 -> 0x00559450 FUN_00559450
+  0x00523c71 -> 0x00559450 FUN_00559450
+  0x00523c78 -> 0x009611e0 FUN_009611e0
+  0x00523c89 -> 0x00559450 FUN_00559450
+  0x00523cc3 -> 0x00414430 FUN_00414430
+  0x00523d04 -> 0x00c55d50 FUN_00c55d50
+  0x00523d13 -> 0x0066b0d0 FUN_0066b0d0
+  0x00523d18 -> 0x00524cc0 FUN_00524cc0
+  0x00523d24 -> 0x00559450 FUN_00559450
+  0x00523d2b -> 0x00a5b950 FUN_00a5b950
+  0x00523d38 -> 0x00559450 FUN_00559450
+  0x00523d5a -> 0x00559450 FUN_00559450
+  0x00523d61 -> 0x00a5a040 FUN_00a5a040
+  0x00523d76 -> 0x0043d410 FUN_0043d410
+  0x00523d88 -> 0x00559450 FUN_00559450
+  0x00523d8f -> 0x00a59c60 FUN_00a59c60
+  0x00523da1 -> 0x0045cec0 ~cancellation_token_source
+  0x00523ddf -> 0x0041ca90 FUN_0041ca90
+  0x00523e22 -> 0x00726070 FUN_00726070
+  0x00523e4a -> 0x00525a90 FUN_00525a90
+  0x00523e72 -> 0x00403e20 FUN_00403e20
+  0x00523e8f -> 0x0069ef80 FUN_0069ef80
+  0x00523ecd -> 0x009a8bf0 FUN_009a8bf0
+  0x00523f01 -> 0x009a8600 FUN_009a8600
+  0x00523f34 -> 0x00439ef0 FUN_00439ef0
+  0x00523f4f -> 0x00676140 FUN_00676140
+  0x00523f88 -> 0x004169a0 FUN_004169a0
+  0x00523f9f -> 0x00439180 FUN_00439180
+  0x00523fb5 -> 0x00439e90 FUN_00439e90
+  0x00523fdb -> 0x004b1550 FUN_004b1550
+  0x00523fec -> 0x00457990 FUN_00457990
+  0x00524007 -> 0x004b54c0 FUN_004b54c0
+  0x00524019 -> 0x008b0dd0 FUN_008b0dd0
+  0x00524029 -> 0x00403e20 FUN_00403e20
+  0x00524045 -> 0x008d8520 FUN_008d8520
+  0x005240a3 -> 0x00474a80 FUN_00474a80
+  0x005240b3 -> 0x00702360 FUN_00702360
+  0x005240c9 -> 0x00877720 FUN_00877720
+  0x005240da -> 0x008133b0 FUN_008133b0
+  0x005240fa -> 0x008133b0 FUN_008133b0
+  0x00524105 -> 0x00ec62c0 FUN_00ec62c0
+  0x00524111 -> 0x00821680 FUN_00821680
+  0x00524120 -> 0x00567470 FUN_00567470
+  0x0052412f -> 0x00a255b0 FUN_00a255b0
+  0x0052413a -> 0x008133b0 FUN_008133b0
+  0x0052416f -> 0x00a255b0 FUN_00a255b0
+  0x005241b7 -> 0x004bda70 FUN_004bda70
+  0x005241d1 -> 0x004bcf60 FUN_004bcf60
+  0x005241ea -> 0x00525b20 FUN_00525b20
+  0x00524208 -> 0x00633c90 FUN_00633c90
+  0x00524219 -> 0x0044ddc0 FUN_0044ddc0
+  0x00524233 -> 0x009c71c0 FUN_009c71c0
+  0x0052424c -> 0x009344a0 FUN_009344a0
+  0x00524275 -> 0x006758f0 FUN_006758f0
+  0x0052428f -> 0x00424940 FUN_00424940
+  0x0052429d -> 0x00524cd0 FUN_00524cd0
+  0x005242c0 -> 0x0066dde0 FUN_0066dde0
+  0x0052438a -> 0x00726070 FUN_00726070
+  0x00524413 -> 0x00525b20 FUN_00525b20
+  0x00524468 -> 0x00476b70 FUN_00476b70
+  0x00524486 -> 0x00476b70 FUN_00476b70
+  0x0052449e -> 0x004e44b0 FUN_004e44b0
+  0x005244bc -> 0x004e4470 FUN_004e4470
+  0x0052456b -> 0x00559450 FUN_00559450
+  0x005245b7 -> 0x00525a90 FUN_00525a90
+  0x005245bd -> 0x009bca60 FUN_009bca60
+  0x005245ed -> 0x0066dde0 FUN_0066dde0
+  0x0052460d -> 0x00524b40 FUN_00524b40
+  0x0052461e -> 0x00441110 FUN_00441110
+  0x0052462d -> 0x00524b40 FUN_00524b40
+  0x00524645 -> 0x009c8b90 FUN_009c8b90
+  0x0052465d -> 0x008126e0 FUN_008126e0
+  0x005246bd -> 0x0066dde0 FUN_0066dde0
+  0x005246fd -> 0x00524b60 FUN_00524b60
+  0x00524736 -> 0x00403e20 FUN_00403e20
+  0x00524742 -> 0x00403e20 FUN_00403e20
+  0x00524752 -> 0x00403e20 FUN_00403e20
+  0x0052475d -> 0x00404010 FUN_00404010
+  0x005247c8 -> 0x009c8c40 FUN_009c8c40
+  0x00524804 -> 0x008d8520 FUN_008d8520
+  0x00524863 -> 0x004bd8d0 FUN_004bd8d0
+  0x00524875 -> 0x00524d50 FUN_00524d50
+  0x00524887 -> 0x00524d30 FUN_00524d30
+  0x0052489c -> 0x00524d50 FUN_00524d50
+  0x005248af -> 0x00524d50 FUN_00524d50
+  0x005248c1 -> 0x00524d30 FUN_00524d30
+  0x005248f6 -> 0x00446390 FUN_00446390
+  0x00524906 -> 0x00446390 FUN_00446390
+  0x00524916 -> 0x00446390 FUN_00446390
+  0x00524926 -> 0x00446390 FUN_00446390
+  0x00524956 -> 0x00726070 FUN_00726070
+  0x00524962 -> 0x00571b50 FUN_00571b50
+  0x00524980 -> 0x0045bc00 FUN_0045bc00
+  0x0052499c -> 0x00450f90 FUN_00450f90
+  0x005249a6 -> 0x0066b0d0 FUN_0066b0d0
+  0x005249b1 -> 0x00446390 FUN_00446390
+  0x00524a18 -> 0x0046e8c0 FUN_0046e8c0
+  0x00524a28 -> 0x00646260 FUN_00646260
+  0x00524a39 -> 0x008d8520 FUN_008d8520
+  0x00524a7d -> 0x00524b40 FUN_00524b40
+  0x00524a93 -> 0x00524db0 FUN_00524db0
+  0x00524aa2 -> 0x0045cec0 ~cancellation_token_source
+  Total: 197 calls
+
+######################################################################
+# PART 8: FUN_00525430 -- third-person check?
+# Called from player attack: FUN_00525430(0x11f2250)
+# Affects which damage multiplier is used
+######################################################################
+
+======================================================================
+ThirdPersonCheck_00525430 @ 0x00525430
+======================================================================
+  Function: FUN_00525430 @ 0x00525430, Size: 25 bytes
+  Convention: __fastcall
+  Signature: bool __fastcall FUN_00525430(int param_1)
+
+bool __fastcall FUN_00525430(int param_1)
+
+{
+  return *(int *)(param_1 + 8) != 0;
+}
+
+
+
+######################################################################
+# PART 9: FUN_004eaf60 -- another player gate
+# if param_1 == player && FUN_004eaf60(player) == 0
+# && !FUN_00525430 => different projectile creation
+######################################################################
+
+======================================================================
+PlayerGate_004eaf60 @ 0x004eaf60
+======================================================================
+  Function: FUN_004eaf60 @ 0x004eaf60, Size: 20 bytes
+  Convention: __fastcall
+  Signature: undefined1 __fastcall FUN_004eaf60(int param_1)
+
+undefined1 __fastcall FUN_004eaf60(int param_1)
+
+{
+  return *(undefined1 *)(param_1 + 0x64a);
+}
+
+
+
+######################################################################
+# PART 10: Who calls FUN_0096cca0 and FUN_0096cda0?
+# Are they ONLY called from Worker 1, or also main thread?
+# If main thread calls them too, our hooks affect main thread.
+######################################################################
+
+----------------------------------------------------------------------
+References TO 0x0096cca0 (ActorIterate1)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x008c7c2f (in FUN_008c7bd0)
+  UNCONDITIONAL_CALL @ 0x008c7df3 (in FUN_008c7da0)
+  Total: 2 refs
+
+----------------------------------------------------------------------
+References TO 0x0096cda0 (ActorIterate2)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x008c7c39 (in FUN_008c7bd0)
+  UNCONDITIONAL_CALL @ 0x008c7dfd (in FUN_008c7da0)
+  Total: 2 refs
+
+----------------------------------------------------------------------
+References TO 0x009784c0 (ProcessMgrUpdate)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x008c7c64 (in FUN_008c7bd0)
+  UNCONDITIONAL_CALL @ 0x008c7e4d (in FUN_008c7da0)
+  Total: 2 refs
+
+----------------------------------------------------------------------
+References TO 0x0096e870 (ActorDowngrade)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x005515aa (in FUN_00551480)
+  UNCONDITIONAL_CALL @ 0x00573c96 (in FUN_00573800)
+  UNCONDITIONAL_CALL @ 0x005485dd (in FUN_00548230)
+  UNCONDITIONAL_CALL @ 0x0057415d (in FUN_00573f40)
+  UNCONDITIONAL_CALL @ 0x0087d926 (in FUN_0087d890)
+  UNCONDITIONAL_CALL @ 0x0096c1f3 (in FUN_0096bcd0)
+  UNCONDITIONAL_CALL @ 0x0096e277 (in FUN_0096e150)
+  UNCONDITIONAL_CALL @ 0x00886a16 (in FUN_00886360)
+  UNCONDITIONAL_CALL @ 0x00932eec (in FUN_00932d60)
+  UNCONDITIONAL_CALL @ 0x008b11c5 (in FUN_008b1070)
+  UNCONDITIONAL_CALL @ 0x008cb907 (in FUN_008cb3c0)
+  UNCONDITIONAL_CALL @ 0x00929549 (in FUN_009294b0)
+  UNCONDITIONAL_CALL @ 0x0092f252 (in FUN_0092f1c0)
+  UNCONDITIONAL_CALL @ 0x009333ff (in FUN_009333e0)
+  UNCONDITIONAL_CALL @ 0x00934183 (in FUN_00933d20)
+  Total: 15 refs

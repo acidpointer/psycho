@@ -1,0 +1,1043 @@
+======================================================================
+PLAYER DAMAGE PATH ANALYSIS
+Why can't player damage enemies? Companion can.
+======================================================================
+
+######################################################################
+# PART 1: FUN_005f2b60 -- combat hit processing (from crash stack)
+# Called from FUN_00493686 -> FUN_005672B4 -> FUN_008880C3
+# This is the AI worker combat path. Player may use different path.
+######################################################################
+
+======================================================================
+CombatHitProcess_005f2b60 @ 0x005f2b60
+======================================================================
+  Function: FUN_005f2b60 @ 0x005f2b60, Size: 2882 bytes
+  Convention: __thiscall
+  Signature: undefined __thiscall FUN_005f2b60(void * this, int * param_1, float param_2, float param_3, int param_4)
+
+/* WARNING: Globals starting with '_' overlap smaller symbols at the same address */
+
+void __thiscall FUN_005f2b60(void *this,int *param_1,float param_2,float param_3,int param_4)
+
+{
+  char cVar1;
+  uint uVar2;
+  undefined4 *puVar3;
+  float *pfVar4;
+  int iVar5;
+  char *pcVar6;
+  int *piVar7;
+  void *pvVar8;
+  undefined4 uVar9;
+  int *unaff_FS_OFFSET;
+  float10 fVar10;
+  double dVar11;
+  float fVar12;
+  uint local_18c;
+  uint local_178;
+  int local_168 [3];
+  int local_15c [3];
+  undefined4 local_150 [9];
+  undefined4 local_12c [9];
+  undefined4 local_108 [9];
+  uint local_e4;
+  int local_e0;
+  float local_dc;
+  int local_d8;
+  int local_d4;
+  int local_d0 [3];
+  undefined4 local_c4;
+  undefined4 local_c0;
+  undefined4 local_bc;
+  int local_b8;
+  int local_b4;
+  int *local_b0;
+  int local_ac [3];
+  float local_a0;
+  float local_9c;
+  float local_98;
+  void *local_94;
+  int local_90;
+  int *local_8c;
+  int *local_88;
+  int local_84 [3];
+  void *local_78;
+  float local_74;
+  float local_70;
+  float local_6c;
+  int local_68;
+  int *local_64;
+  uint local_60;
+  int local_5c;
+  int local_58;
+  int local_54;
+  float local_50;
+  int local_4c [3];
+  char local_3d;
+  float local_3c;
+  float local_38;
+  float local_34;
+  uint local_30;
+  float *local_2c;
+  float local_28;
+  char local_21;
+  uint local_20;
+  char local_19;
+  float local_18;
+  int local_14;
+  int local_10;
+  undefined1 *puStack_c;
+  undefined4 local_8;
+  
+  local_8 = 0xffffffff;
+  puStack_c = &LAB_00efa53c;
+  local_10 = *unaff_FS_OFFSET;
+  uVar2 = DAT_011c16bc ^ (uint)&stack0xfffffffc;
+  *unaff_FS_OFFSET = (int)&local_10;
+  local_19 = '\0';
+  local_18 = 1.0;
+  local_14 = (**(code **)(*param_1 + 0x1e4))(uVar2);
+  if (param_3 < param_2) {
+    local_19 = '\x01';
+  }
+  local_20 = 0;
+  while (uVar2 = FUN_005f36f0((int)this), local_20 < uVar2) {
+    local_2c = (float *)FUN_005f3710(this,local_20);
+    local_28 = *local_2c;
+    local_21 = '\0';
+    if ((local_19 == '\0') || ((local_28 <= param_2 && (param_3 < local_28)))) {
+      if ((param_2 < local_28) && (local_28 <= param_3)) {
+        local_21 = '\x01';
+      }
+    }
+    else {
+      local_21 = '\x01';
+    }
+    if (local_21 != '\0') {
+      if (local_2c[3] == 0.0) {
+        switch(*(undefined1 *)(local_2c + 1)) {
+        case 0:
+        case 1:
+        case 2:
+        case 3:
+          FUN_00837cc0(param_1,(uint)*(byte *)(local_2c + 1));
+          break;
+        case 4:
+        case 5:
+        case 6:
+        case 0x17:
+        case 0x18:
+        case 0x19:
+        case 0x1a:
+        case 0x1b:
+        case 0x1c:
+        case 0x1d:
+        case 0x1e:
+          cVar1 = (**(code **)(*param_1 + 0x100))();
+          if (((cVar1 != '\0') && (local_64 = param_1, param_1 != (int *)0x0)) &&
+             (cVar1 = (**(code **)(*param_1 + 0x21c))(), cVar1 != '\0')) {
+            local_78 = (void *)FUN_007af430((int)param_1);
+            if (*(byte *)(local_2c + 1) < 0x16) {
+              local_18c = (uint)*(byte *)(local_2c + 1);
+            }
+            else {
+              local_18c = *(byte *)(local_2c + 1) - 0xb;
+            }
+            local_68 = FUN_005f92d0(local_78,local_18c);
+            pfVar4 = (float *)(**(code **)(*param_1 + 500))();
+            local_74 = *pfVar4;
+            local_70 = pfVar4[1];
+            local_6c = pfVar4[2];
+            if ((local_68 != 0) &&
+               (uVar2 = FUN_0082eca0(local_68,local_74,local_70,local_6c,1.0), (uVar2 & 0xff) != 0))
+            {
+              uVar2 = (-(uint)(param_1 != DAT_011dea3c) & 0xffe00000) + 0x200000 | 0x40000102;
+              uVar9 = FUN_0084e3a0(local_68);
+              piVar7 = local_84;
+              FUN_00453a70();
+              FUN_00ad73b0(piVar7,uVar9,uVar2);
+              local_8 = 1;
+              if ((local_14 != 0) &&
+                 ((iVar5 = FUN_005f2420((int)this), 0xb0 < iVar5 &&
+                  (iVar5 = FUN_005f2420((int)this), iVar5 < 200)))) {
+                iVar5 = (**(code **)(*param_1 + 0x1e4))();
+                fVar10 = FUN_00507b20(iVar5);
+                local_18 = (float)(fVar10 * (float10)local_18);
+              }
+              FUN_00ad8b60(local_84,local_74,local_70,local_6c);
+              piVar7 = (int *)(**(code **)(*param_1 + 0x1d0))();
+              FUN_00ad8f20(local_84,piVar7);
+              FUN_00ad89e0(local_84);
+              FUN_00ad8a90(local_84);
+              FUN_00ad8830(local_84,'\0');
+              local_8 = 0xffffffff;
+              FUN_00483710();
+            }
+          }
+          break;
+        case 9:
+          FUN_0083a930(param_1,9);
+          break;
+        case 10:
+          FUN_0083a930(param_1,10);
+          break;
+        case 0xb:
+          if (param_4 != 0) {
+            piVar7 = &local_d8;
+            pvVar8 = (void *)FUN_00700300(param_4);
+            local_d4 = FUN_00495f30(pvVar8,piVar7);
+            if (local_d8 != 0) {
+              puVar3 = (undefined4 *)FUN_00717e50(local_d4 + ((uint)local_2c[2] & 0xff) * 8);
+              local_e0 = FUN_0043b1b0(puVar3);
+              local_e4 = (uint)local_2c[2] >> 8;
+              dVar11 = _atof((char *)(local_e0 + 0x12 + local_e4));
+              local_dc = (float)dVar11;
+              if ((float)_DAT_01012060 < local_dc) {
+                pfVar4 = (float *)(**(code **)(*param_1 + 500))();
+                FUN_008d1960(local_dc,pfVar4);
+              }
+            }
+          }
+          break;
+        case 0xc:
+          piVar7 = &local_58;
+          pvVar8 = (void *)FUN_00700300(param_4);
+          local_54 = FUN_00495f30(pvVar8,piVar7);
+          local_50 = 1.0;
+          if (local_58 != 0) {
+            puVar3 = (undefined4 *)FUN_00717e50(local_54 + ((uint)local_2c[2] & 0xff) * 8);
+            local_5c = FUN_0043b1b0(puVar3);
+            local_60 = (uint)local_2c[2] >> 8;
+            dVar11 = _atof((char *)(local_5c + 0x11 + local_60));
+            local_50 = (float)dVar11;
+          }
+          uVar9 = 0x40000000;
+          fVar12 = local_50;
+          piVar7 = (int *)(**(code **)(*param_1 + 0x1d0))();
+          FUN_00453a70();
+          FUN_00ad8570(piVar7,fVar12,uVar9);
+          break;
+        case 0xd:
+          FUN_00962290(DAT_011dea3c,param_1);
+          break;
+        case 0x10:
+          cVar1 = (**(code **)(*param_1 + 0x100))();
+          if (cVar1 != '\0') {
+            local_b0 = param_1;
+            local_b4 = FUN_008a1710((int)param_1);
+            if ((local_b4 != 0) && (local_b8 = FUN_008bffa0(local_b4), local_b8 != 0)) {
+              uVar2 = (-(uint)(param_1 != DAT_011dea3c) & 0xffe00000) + 0x200000 | 0x40000102;
+              uVar9 = FUN_0084e3a0(local_b8);
+              piVar7 = local_d0;
+              FUN_00453a70();
+              FUN_00ad73b0(piVar7,uVar9,uVar2);
+              local_8 = 5;
+              puVar3 = (undefined4 *)(**(code **)(*param_1 + 500))();
+              local_c4 = *puVar3;
+              local_c0 = puVar3[1];
+              local_bc = puVar3[2];
+              FUN_00ad8b60(local_d0,local_c4,local_c0,local_bc);
+              piVar7 = (int *)(**(code **)(*param_1 + 0x1d0))();
+              FUN_00ad8f20(local_d0,piVar7);
+              FUN_00ad89e0(local_d0);
+              FUN_00ad8a90(local_d0);
+              FUN_00ad8830(local_d0,'\0');
+              local_8 = 0xffffffff;
+              FUN_00483710();
+            }
+          }
+          break;
+        case 0x11:
+        case 0x12:
+        case 0x13:
+        case 0x14:
+        case 0x15:
+        case 0x16:
+          cVar1 = (**(code **)(*param_1 + 0x100))();
+          if (cVar1 != '\0') {
+            local_8c = param_1;
+            local_88 = FUN_00891b90(param_1,2);
+            if (local_88 != (int *)0x0) {
+              local_94 = (void *)FUN_0044ddc0((int)local_88);
+              local_90 = FUN_00512d40(local_94,(uint)*(byte *)(local_2c + 1));
+              pfVar4 = (float *)(**(code **)(*param_1 + 500))();
+              local_a0 = *pfVar4;
+              local_9c = pfVar4[1];
+              local_98 = pfVar4[2];
+              if ((local_90 != 0) &&
+                 (uVar2 = FUN_0
+
+----------------------------------------------------------------------
+References TO 0x005f2b60 (CombatHitProcess)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x00493681 (in FUN_00491180)
+  UNCONDITIONAL_CALL @ 0x00892b19 (in FUN_008929a0)
+  Total: 2 refs
+
+######################################################################
+# PART 2: FUN_00837cc0 -- hit detection function
+# Contains the crash site: calls FUN_009306d0 (GetActorProcess)
+# then FUN_00838750 (check process+0x410 flags)
+# Who calls this? AI only or also main thread?
+######################################################################
+
+----------------------------------------------------------------------
+References TO 0x00837cc0 (HitDetection_00837cc0)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x005f2f93 (in FUN_005f2b60)
+  Total: 1 refs
+
+######################################################################
+# PART 3: FUN_00493686 -- in crash stack between hit processing
+# Decompile the containing function to understand context
+######################################################################
+
+======================================================================
+CrashStack_00493686 @ 0x00493686
+======================================================================
+  Function: FUN_00491180 @ 0x00491180, Size: 9583 bytes
+  NOTE: Requested 0x00493686 is inside FUN_00491180 (entry at 0x00491180)
+  Convention: __thiscall
+  Signature: undefined __thiscall FUN_00491180(void * this, int * param_1, float param_2, float param_3)
+
+/* WARNING: Globals starting with '_' overlap smaller symbols at the same address */
+
+void __thiscall FUN_00491180(void *this,int *param_1,float param_2,float param_3)
+
+{
+  bool bVar1;
+  char cVar2;
+  undefined1 uVar3;
+  byte bVar4;
+  uint *puVar5;
+  int *piVar6;
+  int iVar7;
+  undefined4 *puVar8;
+  undefined4 uVar9;
+  void *pvVar10;
+  undefined3 extraout_var;
+  undefined3 extraout_var_00;
+  undefined3 extraout_var_01;
+  undefined3 extraout_var_02;
+  undefined3 extraout_var_03;
+  uint uVar11;
+  char *pcVar12;
+  float *pfVar13;
+  undefined3 extraout_var_04;
+  void *pvVar14;
+  float10 fVar15;
+  float10 fVar16;
+  undefined1 *puVar17;
+  float fVar18;
+  undefined1 *puVar19;
+  float fVar20;
+  undefined1 *puVar21;
+  float fVar22;
+  float local_1a8;
+  int local_1a0;
+  undefined1 local_18c [12];
+  undefined1 local_180 [12];
+  undefined1 local_174 [12];
+  undefined4 local_168 [3];
+  undefined1 local_15c [12];
+  undefined1 local_150 [12];
+  undefined1 local_144 [12];
+  undefined4 local_138 [3];
+  undefined4 *local_12c;
+  float local_128;
+  byte local_121;
+  int local_120;
+  void *local_11c;
+  byte local_116;
+  char local_115;
+  void *local_114;
+  undefined4 local_110;
+  undefined4 local_10c;
+  int local_104;
+  int *local_100;
+  ushort local_fc;
+  int local_f8;
+  void *local_f4;
+  uint local_f0;
+  int local_ec;
+  int *local_e8;
+  int *local_e4;
+  uint local_e0;
+  ushort local_dc;
+  char local_d5;
+  undefined4 local_d4;
+  undefined4 local_d0;
+  undefined4 local_cc;
+  float local_c8;
+  undefined4 local_c4;
+  undefined4 local_c0;
+  float local_bc;
+  float local_b8;
+  float local_b4;
+  float local_b0;
+  int *local_ac;
+  char local_a5;
+  void *local_a4;
+  undefined1 local_a0 [12];
+  void *local_94;
+  undefined1 local_90 [12];
+  float local_84;
+  int local_80;
+  undefined4 *local_7c;
+  int local_78;
+  int local_74;
+  int *local_70;
+  char local_69;
+  int local_68;
+  undefined4 *local_64;
+  float local_60;
+  int aiStack_5c [8];
+  float local_3c;
+  int local_38;
+  int local_34;
+  int *local_30;
+  int local_2c;
+  char local_25;
+  float afStack_24 [8];
+  
+  fVar15 = FUN_0084d030(0x11f6394);
+  local_3c = (float)(fVar15 * (float10)*(float *)((int)this + 0x114));
+  bVar1 = FUN_00493830((int)this);
+  if (bVar1) {
+    while (puVar5 = (uint *)FUN_0043d4d0(0x11c5778), DAT_011c56e8 < *puVar5) {
+      local_64 = (undefined4 *)FUN_006815c0((int)this + 0x104);
+      local_64 = (undefined4 *)*local_64;
+      FUN_00490500(this,local_64,'\0');
+      FUN_0043bac0((int)local_64);
+      FUN_0063f7b0((undefined4 *)((int)this + 0x104));
+      bVar1 = FUN_00493830((int)this);
+      if (!bVar1) break;
+      DAT_011c56e8 = DAT_011c56e8 + 1;
+    }
+    goto LAB_0049141e;
+  }
+  if (*(short *)((int)this + 0x122) == 0xff) goto LAB_0049141e;
+  local_68 = *(int *)((int)this + 0xf0);
+  iVar7 = *(int *)((int)this + 0x6c);
+  if (0 < iVar7) {
+    if (iVar7 < 3) {
+      if (local_68 != 0) {
+        iVar7 = FUN_0048f7f0(local_68);
+        cVar2 = FUN_004937c0(iVar7);
+        if (cVar2 == '\0') {
+          iVar7 = FUN_0048f7f0(local_68);
+          cVar2 = FUN_004937e0(iVar7);
+          if (cVar2 != '\0') goto LAB_0049141e;
+        }
+      }
+    }
+    else if (iVar7 != 3) goto LAB_0049140c;
+    cVar2 = FUN_008a16d0(*(int *)((int)this + 4));
+    if (cVar2 != '\0') {
+      FUN_00494740(this,*(short *)((int)this + 0x122),1,0xffffffff,-1);
+      if (param_1 == DAT_011dea3c) {
+        (**(code **)(*DAT_011dea3c + 0x4b0))(*(undefined2 *)((int)this + 0x122),1);
+      }
+      local_70 = param_1;
+      local_69 = '\0';
+      iVar7 = FUN_008d8520((int)param_1);
+      if (iVar7 != 0) {
+        piVar6 = (int *)FUN_008d8520((int)local_70);
+        iVar7 = (**(code **)(*piVar6 + 0x148))();
+        if (iVar7 == 0) {
+          local_1a0 = 0;
+        }
+        else {
+          piVar6 = (int *)FUN_008d8520((int)local_70);
+          iVar7 = (**(code **)(*piVar6 + 0x148))();
+          local_1a0 = FUN_0044ddc0(iVar7);
+        }
+        local_74 = local_1a0;
+        cVar2 = FUN_004938c0(local_1a0);
+        if (cVar2 != '\0') {
+          local_69 = '\x01';
+        }
+      }
+      if (local_69 == '\0') {
+        FUN_008a73e0(local_70,9,*(int *)((int)this + 0xf0));
+      }
+      else {
+        FUN_008a73e0(local_70,0x11,*(int *)((int)this + 0xf0));
+      }
+    }
+  }
+LAB_0049140c:
+  *(undefined2 *)((int)this + 0x122) = 0xff;
+LAB_0049141e:
+  cVar2 = FUN_008256d0((int *)((int)this + 0x134));
+  if (cVar2 == '\0') {
+    local_78 = (int)this + 0x134;
+    while (local_78 != 0) {
+      piVar6 = (int *)FUN_006815c0(local_78);
+      local_7c = (undefined4 *)*piVar6;
+      local_7c[1] = (float)local_7c[1] - param_2;
+      if ((float)local_7c[1] < (float)_DAT_01012060 == ((float)local_7c[1] == (float)_DAT_01012060))
+      {
+        local_78 = FUN_00726070(local_78);
+      }
+      else {
+        if (local_78 == (int)this + 0x134) {
+          local_78 = 0;
+        }
+        else {
+          local_78 = FUN_00726070(local_78);
+        }
+        FUN_00905330((void *)((int)this + 0x134),(int *)&local_7c);
+        local_12c = local_7c;
+        FUN_00401030(local_7c);
+        if ((local_78 == 0) && (cVar2 = FUN_008256d0((int *)((int)this + 0x134)), cVar2 == '\0')) {
+          local_78 = (int)this + 0x134;
+        }
+      }
+    }
+  }
+  local_30 = (int *)0x0;
+  if ((param_1 != (int *)0x0) && (cVar2 = (**(code **)(*param_1 + 0x100))(), cVar2 != '\0')) {
+    local_30 = param_1;
+  }
+  for (local_80 = 0; local_80 < 2; local_80 = local_80 + 1) {
+    iVar7 = FUN_00559450((undefined4 *)((int)this + local_80 * 4 + 300));
+    if (iVar7 != 0) {
+      iVar7 = FUN_00559450((undefined4 *)((int)this + local_80 * 4 + 300));
+      iVar7 = FUN_00490e40(iVar7);
+      if (iVar7 == 0) {
+        iVar7 = FUN_00559450((undefined4 *)((int)this + local_80 * 4 + 300));
+        iVar7 = FUN_0044ddc0(iVar7);
+        if (iVar7 != 0) {
+          FUN_00498670(this,(undefined4 *)((int)this + local_80 * 4 + 300));
+        }
+      }
+      else {
+        iVar7 = FUN_00559450((undefined4 *)((int)this + local_80 * 4 + 300));
+        iVar7 = FUN_00490e40(iVar7);
+        iVar7 = FUN_008041a0(iVar7);
+        if (iVar7 == 1) {
+          iVar7 = FUN_00559450((undefined4 *)((int)this + local_80 * 4 + 300));
+          piVar6 = (int *)FUN_0055b980(iVar7);
+          iVar7 = FUN_00559450((undefined4 *)((int)this + local_80 * 4 + 300));
+          iVar7 = FUN_00490e40(iVar7);
+          puVar8 = (undefined4 *)FUN_00413f40(iVar7);
+          uVar9 = FUN_0043b1b0(puVar8);
+          uVar9 = (**(code **)(*piVar6 + 0x130))(uVar9);
+          (**(code **)(**(int **)((int)this + 4) + 0x130))(uVar9);
+          FUN_005b5e40();
+          FUN_0066b0d0((void *)((int)this + local_80 * 4 + 300),0);
+        }
+        else {
+          iVar7 = FUN_00559450((undefined4 *)((int)this + local_80 * 4 + 300));
+          iVar7 = FUN_00490e40(iVar7);
+          iVar7 = FUN_008041a0(iVar7);
+          if (iVar7 == 0) {
+            FUN_00498670(this,(undefined4 *)((int)this + local_80 * 4 + 300));
+          }
+        }
+      }
+    }
+  }
+  iVar7 = FUN_00559450((undefined4 *)((int)this + 8));
+  if (iVar7 != 0) {
+    FUN_00493860(this,'\0');
+    *(undefined4 *)((int)this + 0x10) = 0;
+    *(undefined4 *)((int)this + 0x14) = 0;
+    if (*(char *)((int)this + 0xcc) == '\x14') {
+      if (param_3 == (float)_DAT_0101a6b0) {
+        local_1a8 = *(float *)((int)this + 0xd0);
+      }
+      else {
+        local_1a8 = param_3;
+      }
+      local_84 = local_1a8;
+      FUN_0043d410(local_90,local_1a8,0,0);
+      puVar21 = local_90;
+      pvVar10 = (void *)FUN_00559450((undefined4 *)((int)this + 8));
+      FUN_00a59c60(pvVar10,puVar21);
+    }
+    else {
+      local_60 = param_2;
+      local_38 = 0xff;
+      for (local_2c = 0; local_2c < 8; local_2c = local_2c + 1) {
+        uVar3 = FUN_005f2440((char)*(undefined2 *)((int)this + local_2c * 2 + 0x4c));
+        local_38 = CONCAT31(extraout_var,uVar3);
+        uVar3 = FUN_005f2440((char)*(undefined2 *)((int)this + local_2c * 2 + 0x9c));
+        local_34 = CONCAT31(extraout_var_00,uVar3);
+        if ((
+
+######################################################################
+# PART 4: FUN_005672B4 -- animation/combat dispatch
+# Another crash stack frame. How does it route to hit processing?
+######################################################################
+
+======================================================================
+AnimCombatDispatch_005672B4 @ 0x005672b4
+======================================================================
+  Function: FUN_00567050 @ 0x00567050, Size: 616 bytes
+  NOTE: Requested 0x005672b4 is inside FUN_00567050 (entry at 0x00567050)
+  Convention: __fastcall
+  Signature: undefined __fastcall FUN_00567050(allocator<char> * param_1)
+
+void __fastcall FUN_00567050(allocator<char> *param_1)
+
+{
+  bool bVar1;
+  bool bVar2;
+  undefined1 uVar3;
+  char cVar4;
+  undefined3 extraout_var;
+  int iVar5;
+  int *piVar6;
+  void *pvVar7;
+  uint uVar8;
+  undefined4 *puVar9;
+  char *pcVar10;
+  float10 fVar11;
+  float10 fVar12;
+  float fVar13;
+  uint local_1c;
+  int local_14;
+  
+  bVar1 = FUN_00440da0((int)param_1);
+  bVar2 = FUN_00440d80((int)param_1);
+  if (bVar2) {
+    return;
+  }
+  if (bVar1) {
+    return;
+  }
+  uVar3 = FUN_00401170(*(int *)(param_1 + 0x20));
+  iVar5 = CONCAT31(extraout_var,uVar3);
+  if (iVar5 == 0x1e) {
+    (**(code **)(*(int *)param_1 + 0x178))();
+  }
+  else if ((0x29 < iVar5) && (iVar5 < 0x2c)) {
+    bVar1 = true;
+    goto LAB_005671e1;
+  }
+  bVar1 = false;
+  iVar5 = FUN_0043fcd0((int)param_1);
+  if ((iVar5 != 0) && (piVar6 = (int *)FUN_0043b230(iVar5), piVar6 != (int *)0x0)) {
+    pvVar7 = (void *)(**(code **)(*piVar6 + 0x88))();
+    local_14 = 0;
+    if ((pvVar7 != (void *)0x0) && (cVar4 = FUN_004f05a0(pvVar7), cVar4 != '\0')) {
+      for (local_1c = 0; uVar8 = FUN_00495d00((int)pvVar7), local_1c < uVar8;
+          local_1c = local_1c + 1) {
+        piVar6 = (int *)FUN_00495d20(pvVar7,local_1c);
+        if ((piVar6 != (int *)0x0) && (iVar5 = FUN_008041a0((int)piVar6), iVar5 != 0)) {
+          cVar4 = FUN_004eef00((int)piVar6,(int *)param_1);
+          if (cVar4 == '\0') {
+            local_14 = local_14 + 1;
+          }
+          else {
+            FUN_005672c0(param_1,(int)piVar6);
+            FUN_0047b220(pvVar7,piVar6,0);
+            puVar9 = (undefined4 *)FUN_00413f40((int)piVar6);
+            pcVar10 = (char *)FUN_0043b1b0(puVar9);
+            FUN_00578a30(param_1,pcVar10);
+            FUN_0047ac70((int *)param_1,(int)piVar6);
+          }
+        }
+      }
+      if (local_14 == 0) {
+        FUN_0047aa40(pvVar7,'\0');
+      }
+    }
+  }
+LAB_005671e1:
+  if (bVar1) {
+    pvVar7 = (void *)(**(code **)(*(int *)param_1 + 0x1e4))();
+    iVar5 = FUN_0043fcd0((int)param_1);
+    if (pvVar7 == (void *)0x0) {
+      if (iVar5 != 0) {
+        FUN_005659f0(param_1);
+      }
+    }
+    else if ((iVar5 != 0) && (iVar5 = FUN_009611e0(iVar5), iVar5 != 0)) {
+      iVar5 = FUN_0044ddc0(0x11f2250);
+      if ((iVar5 == 4) && (param_1 == DAT_011f21cc)) {
+        fVar13 = DAT_01012054;
+        fVar11 = FUN_0084d030(0x11f6394);
+        fVar12 = FUN_009c8d60(0x11f2250);
+        FUN_00491180(pvVar7,(int *)param_1,(float)(fVar12 * (float10)(double)fVar11),fVar13);
+      }
+      else {
+        fVar13 = DAT_01012054;
+        fVar11 = FUN_0084d030(0x11f6394);
+        FUN_00491180(pvVar7,(int *)param_1,(float)fVar11,fVar13);
+      }
+    }
+  }
+  return;
+}
+
+
+
+----------------------------------------------------------------------
+References TO 0x00567290 (AnimCombatDispatch_container)
+----------------------------------------------------------------------
+  CONDITIONAL_JUMP @ 0x00567247 (in FUN_00567050)
+  CONDITIONAL_JUMP @ 0x00567252 (in FUN_00567050)
+  Total: 2 refs
+
+######################################################################
+# PART 5: Player attack entry points
+# FUN_008a1800 -- seen in combat code (called from FUN_00888070)
+# Might be 'start attack' or 'apply hit'. Check what it does.
+######################################################################
+
+======================================================================
+AttackStart_008a1800 @ 0x008a1800
+======================================================================
+  Function: FUN_008a1800 @ 0x008a1800, Size: 573 bytes
+  Convention: __thiscall
+  Signature: undefined __thiscall FUN_008a1800(void * this, int param_1)
+
+void __thiscall FUN_008a1800(void *this,int param_1)
+
+{
+  char cVar1;
+  char *pcVar2;
+  uint uVar3;
+  int *piVar4;
+  void *pvVar5;
+  int iVar6;
+  int *unaff_FS_OFFSET;
+  undefined4 uVar7;
+  undefined4 uVar8;
+  int local_24 [3];
+  int local_18;
+  int local_14;
+  int local_10;
+  undefined1 *puStack_c;
+  undefined4 local_8;
+  
+  local_8 = 0xffffffff;
+  puStack_c = &LAB_00f14e58;
+  local_10 = *unaff_FS_OFFSET;
+  *unaff_FS_OFFSET = (int)&local_10;
+  pcVar2 = FUN_00408d60(0x11e0888);
+  if (*pcVar2 != '\0') {
+    cVar1 = FUN_0087f3d0((int)this);
+    if ((cVar1 != '\0') && ((param_1 == 2 || (param_1 == 1)))) {
+      param_1 = 6;
+    }
+  }
+  if (param_1 == 6) {
+    uVar3 = FUN_008845a0(this);
+    if ((uVar3 & 0xff) == 0) {
+      param_1 = 0;
+    }
+  }
+  if ((*(int *)((int)this + 0x108) == 0) && (((param_1 == 1 || (param_1 == 2)) || (param_1 == 6))))
+  {
+    FUN_008b3ab0((int)this);
+  }
+  if (param_1 == 2) {
+    piVar4 = (int *)FUN_008adcb0((int)this);
+    if (piVar4 != (int *)0x0) {
+      (**(code **)(*piVar4 + 0xd8))(1,1);
+    }
+    pvVar5 = (void *)FUN_005d43c0((int)this);
+    local_18 = FUN_00418520(pvVar5);
+    if (local_18 != 0) {
+      FUN_004534f0();
+    }
+    FUN_0041a250(local_24);
+    local_8 = 0;
+    piVar4 = local_24;
+    pvVar5 = (void *)FUN_005d43c0((int)this);
+    FUN_00418940(pvVar5,piVar4);
+    FUN_00ad88f0(local_24);
+    FUN_00ad8d10(local_24);
+    piVar4 = local_24;
+    pvVar5 = (void *)FUN_005d43c0((int)this);
+    FUN_0041a090(pvVar5,piVar4);
+    uVar8 = 0;
+    uVar7 = 0;
+    piVar4 = (int *)FUN_0043fcd0((int)this);
+    FUN_00453a70();
+    FUN_00ad8570(piVar4,uVar7,uVar8);
+    local_8 = 0xffffffff;
+    FUN_00483710();
+  }
+  if ((param_1 != 0) && (*(int *)((int)this + 0x68) != 0)) {
+    iVar6 = FUN_0045cd60(*(int *)((int)this + 0x68));
+    if (iVar6 == 0) {
+      piVar4 = *(int **)((int)this + 0x68);
+      iVar6 = (**(code **)(*piVar4 + 0x610))();
+      if (iVar6 != 3) {
+        iVar6 = (**(code **)(*piVar4 + 0x610))();
+        if (iVar6 != 4) goto LAB_008a19c0;
+      }
+      FUN_008fe8f0(piVar4,this,'\0');
+    }
+  }
+LAB_008a19c0:
+  if (*(int *)((int)this + 0x108) != param_1) {
+    (**(code **)(*(int *)this + 0x48))(0x400);
+  }
+  local_14 = *(int *)((int)this + 0x108);
+  *(int *)((int)this + 0x108) = param_1;
+  if ((local_14 != *(int *)((int)this + 0x108)) &&
+     (((local_14 == 2 && (*(int *)((int)this + 0x108) != 1)) || (*(int *)((int)this + 0x108) == 2)))
+     ) {
+    FUN_00887d00(this);
+  }
+  *unaff_FS_OFFSET = local_10;
+  return;
+}
+
+
+
+----------------------------------------------------------------------
+References TO 0x008a1800 (AttackStart)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x0089e05c (in FUN_0089d900)
+  UNCONDITIONAL_CALL @ 0x0089ea4a (in FUN_0089d900)
+  UNCONDITIONAL_CALL @ 0x008b023e (in FUN_008b01c0)
+  UNCONDITIONAL_CALL @ 0x008b04a2 (in FUN_008b01c0)
+  UNCONDITIONAL_CALL @ 0x00889141 (in FUN_00888b50)
+  UNCONDITIONAL_CALL @ 0x008891b1 (in FUN_00888b50)
+  UNCONDITIONAL_CALL @ 0x00970e9e (in FUN_00970d50)
+  UNCONDITIONAL_CALL @ 0x0055dbf3 (in FUN_0055d760)
+  UNCONDITIONAL_CALL @ 0x005be40c (in FUN_005be2a0)
+  UNCONDITIONAL_CALL @ 0x008ace24 (in FUN_008ace10)
+  UNCONDITIONAL_CALL @ 0x008ace3d (in FUN_008ace10)
+  UNCONDITIONAL_CALL @ 0x008ace64 (in FUN_008ace50)
+  UNCONDITIONAL_CALL @ 0x008ace85 (in FUN_008ace50)
+  UNCONDITIONAL_CALL @ 0x0082685e (in FUN_008267b0)
+  UNCONDITIONAL_CALL @ 0x008827b6 (in FUN_00881d30)
+  UNCONDITIONAL_CALL @ 0x008827dd (in FUN_00881d30)
+  UNCONDITIONAL_CALL @ 0x00882d0e (in FUN_00882b90)
+  UNCONDITIONAL_CALL @ 0x008834dc (in FUN_00883240)
+  UNCONDITIONAL_CALL @ 0x00883aa1 (in FUN_00883800)
+  UNCONDITIONAL_CALL @ 0x00883c7d (in FUN_00883800)
+  UNCONDITIONAL_CALL @ 0x00888365 (in FUN_00888070)
+  UNCONDITIONAL_CALL @ 0x0089f85c (in FUN_0089f780)
+  UNCONDITIONAL_CALL @ 0x0089fa4c (in FUN_0089f780)
+  UNCONDITIONAL_CALL @ 0x008a9a5e (in FUN_008a9940)
+  UNCONDITIONAL_CALL @ 0x0082717f (in ???)
+  UNCONDITIONAL_CALL @ 0x008872b6 (in ???)
+  Total: 26 refs
+
+######################################################################
+# PART 6: FUN_0089f580 -- also called from combat code
+# Called after attack sequence in FUN_00888070
+######################################################################
+
+======================================================================
+PostAttack_0089f580 @ 0x0089f580
+======================================================================
+  Function: FUN_0089f580 @ 0x0089f580, Size: 497 bytes
+  Convention: __fastcall
+  Signature: undefined __fastcall FUN_0089f580(int * param_1)
+
+void __fastcall FUN_0089f580(int *param_1)
+
+{
+  bool bVar1;
+  char cVar2;
+  int *piVar3;
+  int iVar4;
+  undefined4 uVar5;
+  undefined4 *puVar6;
+  void *pvVar7;
+  undefined4 *puVar8;
+  undefined4 uVar9;
+  float *pfVar10;
+  undefined4 uVar11;
+  float *pfVar12;
+  float *pfVar13;
+  float local_30;
+  float local_2c;
+  float local_28;
+  undefined4 local_24;
+  undefined4 local_20;
+  undefined4 local_1c;
+  int local_18;
+  int local_14;
+  char local_d;
+  undefined4 *local_c;
+  int local_8;
+  
+  piVar3 = (int *)FUN_008d8520((int)param_1);
+  local_c = (undefined4 *)(**(code **)(*piVar3 + 0x148))();
+  piVar3 = (int *)FUN_008d8520((int)param_1);
+  local_8 = (**(code **)(*piVar3 + 0x534))();
+  if (local_c != (undefined4 *)0x0) {
+    iVar4 = FUN_0044ddc0((int)local_c);
+    bVar1 = FUN_00891b70(iVar4);
+    if (!bVar1) {
+      iVar4 = FUN_0044ddc0((int)local_c);
+      bVar1 = FUN_0046e8c0(iVar4);
+      if (!bVar1) {
+        cVar2 = FUN_008a16d0((int)param_1);
+        if (cVar2 != '\0') {
+          uVar5 = FUN_00559450(local_c);
+          puVar6 = (undefined4 *)FUN_006815c0(uVar5);
+          bVar1 = FUN_00418b10((void *)*puVar6);
+          if (!bVar1) {
+            iVar4 = FUN_0044ddc0((int)local_c);
+            if (iVar4 != local_8) {
+              local_d = '\0';
+              piVar3 = (int *)FUN_0044ddc0((int)local_c);
+              local_18 = FUN_004be330(piVar3);
+              if (local_18 != 0) {
+                local_d = '\x01';
+              }
+              uVar5 = (**(code **)(*param_1 + 0x1e8))();
+              local_14 = (**(code **)(*(int *)param_1[0x1a] + 400))(uVar5);
+              if (local_14 != 0) {
+                puVar6 = (undefined4 *)FUN_0045bb80(local_14);
+                local_24 = *puVar6;
+                local_20 = puVar6[1];
+                local_1c = puVar6[2];
+                FUN_006815c0(&local_30);
+                pfVar13 = &local_28;
+                pfVar12 = &local_2c;
+                pfVar10 = &local_30;
+                pvVar7 = (void *)FUN_00461130(local_14);
+                FUN_00a592c0(pvVar7,pfVar10,pfVar12,pfVar13);
+                pfVar13 = &local_30;
+                puVar6 = &local_24;
+                uVar11 = 1;
+                uVar5 = FUN_00559450(local_c);
+                puVar8 = (undefined4 *)FUN_006815c0(uVar5);
+                uVar5 = *puVar8;
+                uVar9 = FUN_0044ddc0((int)local_c);
+                piVar3 = (int *)(**(code **)(*param_1 + 0x3cc))(uVar9,uVar5,uVar11,puVar6,pfVar13);
+                FUN_0056acb0((int)param_1,piVar3);
+                if (local_d != '\0') {
+                  (**(code **)(*(int *)param_1[0x1a] + 0x580))(1,0,0);
+                }
+              }
+              iVar4 = (**(code **)(*param_1 + 0x428))();
+              if (iVar4 != 0) {
+                uVar5 = 0;
+                pvVar7 = (void *)FUN_008a0330((int)param_1);
+                FUN_0097f6d0(pvVar7,uVar5);
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+  return;
+}
+
+
+
+----------------------------------------------------------------------
+References TO 0x0089f580 (PostAttack)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x0089f1fc (in FUN_0089d900)
+  UNCONDITIONAL_CALL @ 0x0089bc72 (in FUN_0089a760)
+  UNCONDITIONAL_CALL @ 0x0089bfaa (in FUN_0089a760)
+  UNCONDITIONAL_CALL @ 0x008827a9 (in FUN_00881d30)
+  UNCONDITIONAL_CALL @ 0x008883e7 (in FUN_00888070)
+  UNCONDITIONAL_CALL @ 0x008daee0 (in FUN_008dae00)
+  UNCONDITIONAL_CALL @ 0x00887465 (in ???)
+  Total: 7 refs
+
+######################################################################
+# PART 7: Health modification -- who modifies actor health?
+# Look for functions that modify actor's health/damage values.
+# FUN_0049bdc0 -- called from combat code with damage float
+######################################################################
+
+======================================================================
+ApplyDamage_0049bdc0 @ 0x0049bdc0
+======================================================================
+  Function: FUN_0049bdc0 @ 0x0049bdc0, Size: 325 bytes
+  Convention: __thiscall
+  Signature: undefined __thiscall FUN_0049bdc0(void * this, float param_1)
+
+/* WARNING: Globals starting with '_' overlap smaller symbols at the same address */
+
+void __thiscall FUN_0049bdc0(void *this,float param_1)
+
+{
+  int iVar1;
+  float10 fVar2;
+  float10 fVar3;
+  float10 fVar4;
+  char cVar5;
+  
+  if (param_1 == (float)_DAT_01012060) {
+    if (*(int *)((int)this + 0xec) != 0) {
+      FUN_00a34ba0(*(void **)((int)this + 0xec),0.0,'\x01');
+      FUN_00496080(this,3,0);
+    }
+  }
+  else {
+    if ((*(int *)((int)this + 0xec) == 0) &&
+       (FUN_00494740(this,0xe1,1,0xffffffff,-1), *(int *)((int)this + 0xec) != 0)) {
+      cVar5 = '\x01';
+      fVar2 = FUN_00759450(*(int *)((int)this + 0xec));
+      FUN_00a34ba0(*(void **)((int)this + 0xec),
+                   (float)(fVar2 + (float10)*(float *)((int)this + 0xd0)),cVar5);
+    }
+    if ((*(int *)((int)this + 0xec) != 0) &&
+       (iVar1 = FUN_008041a0(*(int *)((int)this + 0xec)), iVar1 == 1)) {
+      fVar2 = FUN_00508100(*(int *)((int)this + 0xec));
+      fVar3 = FUN_00759450(*(int *)((int)this + 0xec));
+      fVar4 = FUN_00759450(*(int *)((int)this + 0xec));
+      *(float *)((int)this + 0xd4) =
+           (float)((float10)(float)((float10)(double)fVar2 - fVar3) * (float10)param_1 + fVar4);
+      FUN_00a328b0(*(void **)((int)this + 0xec),
+                   *(float *)((int)this + 0xd4) - *(float *)((int)this + 0xd0),'\x01');
+    }
+  }
+  return;
+}
+
+
+
+----------------------------------------------------------------------
+References TO 0x0049bdc0 (ApplyDamage)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x00888230 (in FUN_00888070)
+  UNCONDITIONAL_CALL @ 0x008bc638 (in FUN_008bc590)
+  Total: 2 refs
+
+######################################################################
+# PART 8: Main thread hit processing
+# FUN_00493900 -- called from FUN_00888070 after player attack
+# param_1 = weapon, param_2 = actor
+######################################################################
+
+======================================================================
+WeaponHit_00493900 @ 0x00493900
+======================================================================
+  Function: FUN_00493900 @ 0x00493900, Size: 33 bytes
+  Convention: __thiscall
+  Signature: undefined __thiscall FUN_00493900(void * this, int * param_1)
+
+void __thiscall FUN_00493900(void *this,int *param_1)
+
+{
+  FUN_004939d0(this,param_1);
+  FUN_00493bd0(this);
+  return;
+}
+
+
+
+----------------------------------------------------------------------
+References TO 0x00493900 (WeaponHit)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x00951d46 (in FUN_00951a10)
+  UNCONDITIONAL_CALL @ 0x0056be1b (in FUN_0056b2d0)
+  UNCONDITIONAL_CALL @ 0x0056be7a (in FUN_0056b2d0)
+  UNCONDITIONAL_CALL @ 0x007fa2f8 (in FUN_007fa220)
+  UNCONDITIONAL_CALL @ 0x008826c9 (in FUN_00881d30)
+  UNCONDITIONAL_CALL @ 0x00882707 (in FUN_00881d30)
+  UNCONDITIONAL_CALL @ 0x008883df (in FUN_00888070)
+  UNCONDITIONAL_CALL @ 0x00923af1 (in FUN_00923960)
+  UNCONDITIONAL_CALL @ 0x0088745d (in ???)
+  Total: 9 refs

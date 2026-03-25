@@ -1,0 +1,182 @@
+======================================================================
+ALTERNATE HOOK TARGET VERIFICATION
+Looking for functions WITHOUT SEH prologues
+======================================================================
+
+======================================================================
+FUN_0096e870 (actorDowngrade inner) @ 0x0096e870
+======================================================================
+  Entry: 0x0096e870, Size: 315 bytes
+  Convention: __thiscall
+  Signature: undefined __thiscall FUN_0096e870(void * this, int * param_1)
+  Parameters: 2
+    this: void * (storage: ECX:4 (auto))
+    param_1: int * (storage: Stack[0x4]:4)
+
+  First 16 bytes (disassembly):
+    0x0096e870: PUSH   PUSH EBP
+    0x0096e871: MOV    MOV EBP,ESP
+    0x0096e873: SUB    SUB ESP,0x1c
+    0x0096e876: MOV    MOV dword ptr [EBP + -0x18],ECX
+    0x0096e879: MOV    MOV EAX,dword ptr [EBP + 0x8]
+    0x0096e87c: MOV    MOV dword ptr [EBP + -0xc],EAX
+    0x0096e87f: LEA    LEA ECX,[EBP + -0xc]
+    0x0096e882: PUSH   PUSH ECX
+    0x0096e883: MOV    MOV ECX,dword ptr [EBP + -0x18]
+    0x0096e886: ADD    ADD ECX,0x78
+
+======================================================================
+FUN_008feb60 (processSwap) @ 0x008feb60
+======================================================================
+  Entry: 0x008feb60, Size: 173 bytes
+  Convention: __thiscall
+  Signature: undefined __thiscall FUN_008feb60(void * this, void * param_1)
+  Parameters: 2
+    this: void * (storage: ECX:4 (auto))
+    param_1: void * (storage: Stack[0x4]:4)
+
+  First 16 bytes (disassembly):
+    0x008feb60: PUSH   PUSH EBP
+    0x008feb61: MOV    MOV EBP,ESP
+    0x008feb63: SUB    SUB ESP,0x8
+    0x008feb66: MOV    MOV dword ptr [EBP + -0x8],ECX
+    0x008feb69: MOV    MOV EAX,dword ptr [EBP + -0x8]
+    0x008feb6c: MOV    MOV dword ptr [EAX + 0x3e8],0x5
+    0x008feb76: MOV    MOV ECX,dword ptr [EBP + -0x8]
+    0x008feb79: MOV    MOV dword ptr [ECX + 0x3f0],0x0
+    0x008feb83: MOV    MOV EDX,dword ptr [EBP + -0x8]
+    0x008feb86: FLD    FLD float ptr [EDX + 0x3ec]
+
+======================================================================
+FUN_0096db30 (physics update) @ 0x0096db30
+======================================================================
+  Entry: 0x0096db30, Size: 377 bytes
+  Convention: __stdcall
+  Signature: undefined __stdcall FUN_0096db30(float param_1, undefined1 param_2, int param_3)
+  Parameters: 3
+    param_1: float (storage: Stack[0x4]:4)
+    param_2: undefined1 (storage: Stack[0x8]:1)
+    param_3: int (storage: Stack[0xc]:4)
+
+  First 16 bytes (disassembly):
+    0x0096db30: PUSH   PUSH EBP
+    0x0096db31: MOV    MOV EBP,ESP
+    0x0096db33: SUB    SUB ESP,0x34
+    0x0096db36: MOV    MOV dword ptr [EBP + -0x24],ECX
+    0x0096db39: MOV    MOV dword ptr [EBP + -0x8],0x0
+    0x0096db40: MOV    MOV dword ptr [EBP + -0xc],0x0
+    0x0096db47: MOV    MOV ECX,0x11e0e80
+    0x0096db4c: CALL   CALL 0x00717e50
+    0x0096db51: MOV    MOV dword ptr [EBP + -0x4],EAX
+    0x0096db54: MOV    MOV EAX,dword ptr [EBP + 0x10]
+
+======================================================================
+FUN_004772f0 (animations) @ 0x004772f0
+======================================================================
+  Entry: 0x004772f0, Size: 286 bytes
+  Convention: __stdcall
+  Signature: undefined __stdcall FUN_004772f0(void)
+  Parameters: 0
+
+  First 16 bytes (disassembly):
+    0x004772f0: PUSH   PUSH EBP
+    0x004772f1: MOV    MOV EBP,ESP
+    0x004772f3: SUB    SUB ESP,0x20
+    0x004772f6: MOV    MOV ECX,0x11f6394
+    0x004772fb: CALL   CALL 0x0084d030
+    0x00477300: FSTP   FSTP float ptr [EBP + -0x8]
+    0x00477303: MOV    MOV ECX,0x11c4104
+    0x00477308: CALL   CALL 0x004b9ba0
+    0x0047730d: MOV    MOV dword ptr [EBP + -0x4],EAX
+    0x00477310: CMP    CMP dword ptr [EBP + -0x4],0x0
+
+======================================================================
+FUN_0096cca0 (Worker1 actor iter 1) @ 0x0096cca0
+======================================================================
+  Entry: 0x0096cca0, Size: 251 bytes
+  Convention: __fastcall
+  Signature: undefined __fastcall FUN_0096cca0(int param_1)
+  Parameters: 1
+    param_1: int (storage: ECX:4)
+
+  First 16 bytes (disassembly):
+    0x0096cca0: PUSH   PUSH EBP
+    0x0096cca1: MOV    MOV EBP,ESP
+    0x0096cca3: SUB    SUB ESP,0x14
+    0x0096cca6: MOV    MOV dword ptr [EBP + -0x14],ECX
+    0x0096cca9: PUSH   PUSH 0x0
+    0x0096ccab: MOV    MOV ECX,dword ptr [EBP + -0x14]
+    0x0096ccae: ADD    ADD ECX,0x4
+    0x0096ccb1: CALL   CALL 0x005de0f0
+    0x0096ccb6: MOV    MOV dword ptr [EBP + -0x4],EAX
+    0x0096ccb9: JMP    JMP 0x0096ccc4
+
+======================================================================
+FUN_0096cda0 (Worker1 actor iter 2) @ 0x0096cda0
+======================================================================
+  Entry: 0x0096cda0, Size: 440 bytes
+  Convention: __fastcall
+  Signature: undefined __fastcall FUN_0096cda0(int param_1)
+  Parameters: 1
+    param_1: int (storage: ECX:4)
+
+  First 16 bytes (disassembly):
+    0x0096cda0: PUSH   PUSH EBP
+    0x0096cda1: MOV    MOV EBP,ESP
+    0x0096cda3: PUSH   PUSH -0x1
+    0x0096cda5: PUSH   PUSH 0xf189b8
+    0x0096cdaa: MOV    MOV EAX,FS:[0x0]
+    0x0096cdb0: PUSH   PUSH EAX
+    0x0096cdb1: SUB    SUB ESP,0x44
+    0x0096cdb4: MOV    MOV EAX,[0x011c16bc]
+    0x0096cdb9: XOR    XOR EAX,EBP
+    0x0096cdbb: PUSH   PUSH EAX
+
+======================================================================
+FUN_008c3c40 (process update inner) @ 0x008c3c40
+======================================================================
+  Entry: 0x008c3c40, Size: 804 bytes
+  Convention: __thiscall
+  Signature: undefined __thiscall FUN_008c3c40(void * this, char param_1, char param_2)
+  Parameters: 3
+    this: void * (storage: ECX:4 (auto))
+    param_1: char (storage: Stack[0x4]:1)
+    param_2: char (storage: Stack[0x8]:1)
+
+  First 16 bytes (disassembly):
+    0x008c3c40: PUSH   PUSH EBP
+    0x008c3c41: MOV    MOV EBP,ESP
+    0x008c3c43: PUSH   PUSH -0x1
+    0x008c3c45: PUSH   PUSH 0xf15798
+    0x008c3c4a: MOV    MOV EAX,FS:[0x0]
+    0x008c3c50: PUSH   PUSH EAX
+    0x008c3c51: SUB    SUB ESP,0x20
+    0x008c3c54: MOV    MOV EAX,[0x011c16bc]
+    0x008c3c59: XOR    XOR EAX,EBP
+    0x008c3c5b: PUSH   PUSH EAX
+
+======================================================================
+FUN_00977130 (postProcess) @ 0x00977130
+======================================================================
+  Entry: 0x00977130, Size: 1037 bytes
+  Convention: __thiscall
+  Signature: undefined __thiscall FUN_00977130(void * this, float param_1)
+  Parameters: 2
+    this: void * (storage: ECX:4 (auto))
+    param_1: float (storage: Stack[0x4]:4)
+
+  First 16 bytes (disassembly):
+    0x00977130: PUSH   PUSH EBP
+    0x00977131: MOV    MOV EBP,ESP
+    0x00977133: PUSH   PUSH -0x1
+    0x00977135: PUSH   PUSH 0xf18e28
+    0x0097713a: MOV    MOV EAX,FS:[0x0]
+    0x00977140: PUSH   PUSH EAX
+    0x00977141: SUB    SUB ESP,0x6c
+    0x00977144: MOV    MOV EAX,[0x011c16bc]
+    0x00977149: XOR    XOR EAX,EBP
+    0x0097714b: PUSH   PUSH EAX
+
+======================================================================
+RESEARCH COMPLETE
+======================================================================

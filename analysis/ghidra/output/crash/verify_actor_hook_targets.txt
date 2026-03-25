@@ -1,0 +1,149 @@
+======================================================================
+ACTOR HOOK TARGET VERIFICATION
+======================================================================
+
+======================================================================
+FUN_0096bcd0 (actor downgrade) @ 0x0096bcd0
+======================================================================
+  Entry: 0x0096bcd0, Size: 1379 bytes
+  Convention: __thiscall
+  Signature: undefined __thiscall FUN_0096bcd0(void * this, undefined4 param_1)
+  Return type: undefined
+  Parameters: 2
+    this: void * (storage: ECX:4 (auto))
+    param_1: undefined4 (storage: Stack[0x4]:4)
+
+  First 16 bytes (disassembly):
+    0x0096bcd0: PUSH  EBP
+    0x0096bcd1: MOV  EBP,ESP
+    0x0096bcd3: PUSH  -0x1
+    0x0096bcd5: PUSH  0xf1895e
+    0x0096bcda: MOV  EAX,FS:[0x0]
+    0x0096bce0: PUSH  EAX
+    0x0096bce1: SUB  ESP,0x88
+    0x0096bce7: MOV  EAX,[0x011c16bc]
+    0x0096bcec: XOR  EAX,EBP
+
+  Decompiled signature (first 5 lines):
+    
+    /* WARNING: Globals starting with '_' overlap smaller symbols at the same address */
+    
+    void __thiscall FUN_0096bcd0(void *this,undefined4 param_1)
+    
+
+======================================================================
+FUN_009784c0 (process mgr update) @ 0x009784c0
+======================================================================
+  Entry: 0x009784c0, Size: 132 bytes
+  Convention: __fastcall
+  Signature: undefined __fastcall FUN_009784c0(int param_1)
+  Return type: undefined
+  Parameters: 1
+    param_1: int (storage: ECX:4)
+
+  First 16 bytes (disassembly):
+    0x009784c0: PUSH  EBP
+    0x009784c1: MOV  EBP,ESP
+    0x009784c3: SUB  ESP,0x10
+    0x009784c6: MOV  dword ptr [EBP + -0x10],ECX
+    0x009784c9: MOV  dword ptr [EBP + -0x4],0x0
+    0x009784d0: PUSH  0x0
+    0x009784d2: MOV  ECX,dword ptr [EBP + -0x10]
+    0x009784d5: ADD  ECX,0x4
+    0x009784d8: CALL  0x005de0f0
+
+  Decompiled signature (first 5 lines):
+    
+    void __fastcall FUN_009784c0(int param_1)
+    
+    {
+      char cVar1;
+
+======================================================================
+FUN_0096c330 (AI process 1) @ 0x0096c330
+======================================================================
+  Entry: 0x0096c330, Size: 991 bytes
+  Convention: __fastcall
+  Signature: undefined __fastcall FUN_0096c330(int param_1)
+  Return type: undefined
+  Parameters: 1
+    param_1: int (storage: ECX:4)
+
+  First 16 bytes (disassembly):
+    0x0096c330: PUSH  EBP
+    0x0096c331: MOV  EBP,ESP
+    0x0096c333: SUB  ESP,0x58
+    0x0096c336: MOV  dword ptr [EBP + -0x38],ECX
+    0x0096c339: MOV  dword ptr [EBP + -0x8],0x0
+    0x0096c340: MOV  dword ptr [EBP + -0x4],0x0
+    0x0096c347: PUSH  0x0
+    0x0096c349: MOV  ECX,dword ptr [EBP + -0x38]
+    0x0096c34c: ADD  ECX,0x4
+
+  Decompiled signature (first 5 lines):
+    
+    /* WARNING: Globals starting with '_' overlap smaller symbols at the same address */
+    
+    void __fastcall FUN_0096c330(int param_1)
+    
+
+======================================================================
+FUN_0096cb50 (AI process 2) @ 0x0096cb50
+======================================================================
+  Entry: 0x0096cb50, Size: 292 bytes
+  Convention: __fastcall
+  Signature: undefined __fastcall FUN_0096cb50(int param_1)
+  Return type: undefined
+  Parameters: 1
+    param_1: int (storage: ECX:4)
+
+  First 16 bytes (disassembly):
+    0x0096cb50: PUSH  EBP
+    0x0096cb51: MOV  EBP,ESP
+    0x0096cb53: SUB  ESP,0x18
+    0x0096cb56: MOV  dword ptr [EBP + -0x14],ECX
+    0x0096cb59: PUSH  0x0
+    0x0096cb5b: MOV  ECX,dword ptr [EBP + -0x14]
+    0x0096cb5e: ADD  ECX,0x4
+    0x0096cb61: CALL  0x005de0f0
+    0x0096cb66: MOV  dword ptr [EBP + -0x4],EAX
+
+  Decompiled signature (first 5 lines):
+    
+    void __fastcall FUN_0096cb50(int param_1)
+    
+    {
+      bool bVar1;
+
+======================================================================
+FUN_00453550 (cell mgmt update) @ 0x00453550
+======================================================================
+  Entry: 0x00453550, Size: 394 bytes
+  Convention: __thiscall
+  Signature: undefined __thiscall FUN_00453550(void * this, float param_1)
+  Return type: undefined
+  Parameters: 2
+    this: void * (storage: ECX:4 (auto))
+    param_1: float (storage: Stack[0x4]:4)
+
+  First 16 bytes (disassembly):
+    0x00453550: PUSH  EBP
+    0x00453551: MOV  EBP,ESP
+    0x00453553: SUB  ESP,0x28
+    0x00453556: MOV  dword ptr [EBP + -0x14],ECX
+    0x00453559: MOV  ECX,dword ptr [EBP + -0x14]
+    0x0045355c: CALL  0x005f36f0
+    0x00453561: MOV  dword ptr [EBP + -0x4],EAX
+    0x00453564: CMP  dword ptr [EBP + -0x4],0x0
+    0x00453568: JZ  0x00453593
+
+  Decompiled signature (first 5 lines):
+    
+    /* WARNING: Globals starting with '_' overlap smaller symbols at the same address */
+    
+    void __thiscall FUN_00453550(void *this,float param_1)
+    
+
+======================================================================
+RESEARCH COMPLETE
+======================================================================

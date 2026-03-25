@@ -1,0 +1,178 @@
+======================================================================
+COMBAT LOCK GLOBAL INVESTIGATION
+DAT_011dea2a -- if non-zero, player attacks are blocked
+======================================================================
+
+######################################################################
+# PART 1: ALL references to DAT_011dea2a
+# Every read and write. This tells us who checks it and who sets it.
+######################################################################
+
+----------------------------------------------------------------------
+References TO 0x011dea2a (DAT_011dea2a (combat lock))
+----------------------------------------------------------------------
+  READ @ 0x00525423 (in FUN_00525420)
+  WRITE @ 0x0086f685 (in FUN_0086f670)
+  WRITE @ 0x005d4a36 (in FUN_005d4a30)
+  Total: 3 refs
+
+######################################################################
+# PART 2: FUN_00525420 -- the reader (returns DAT_011dea2a)
+# Already known. 27 callers check this flag.
+# Now find who WRITES it.
+######################################################################
+
+----------------------------------------------------------------------
+Classifying references to DAT_011dea2a as READ/WRITE
+----------------------------------------------------------------------
+  READ @ 0x00525423 (in FUN_00525420) -- MOV -- MOV AL,[0x011dea2a]
+  WRITE @ 0x0086f685 (in FUN_0086f670) -- MOV -- MOV byte ptr [0x011dea2a],0x0
+  WRITE @ 0x005d4a36 (in FUN_005d4a30) -- MOV -- MOV [0x011dea2a],AL
+
+Total refs: 3
+
+######################################################################
+# PART 3: Decompile ALL functions that WRITE to DAT_011dea2a
+# These are the functions that can lock/unlock player combat.
+######################################################################
+
+======================================================================
+WriterOf_011dea2a_FUN_0086f670 @ 0x0086f670
+======================================================================
+  Function: FUN_0086f670 @ 0x0086f670, Size: 48 bytes
+  Convention: __stdcall
+  Signature: undefined __stdcall FUN_0086f670(void)
+
+void FUN_0086f670(void)
+
+{
+  DAT_012682f8 = 0;
+  DAT_011df678 = 0;
+  DAT_011dea2a = 0;
+  FUN_005a38e0();
+  FUN_00455490(DAT_011dea10);
+  return;
+}
+
+
+
+======================================================================
+WriterOf_011dea2a_FUN_005d4a30 @ 0x005d4a30
+======================================================================
+  Function: FUN_005d4a30 @ 0x005d4a30, Size: 13 bytes
+  Convention: __cdecl
+  Signature: undefined __cdecl FUN_005d4a30(undefined1 param_1)
+
+void __cdecl FUN_005d4a30(undefined1 param_1)
+
+{
+  DAT_011dea2a = param_1;
+  return;
+}
+
+
+
+######################################################################
+# PART 4: Context around DAT_011dea2a
+# What other globals are nearby? This might be part of a struct.
+# DAT_011dea10 = player reference (DAT_011dea3c nearby)
+######################################################################
+
+Nearby globals in 011dea00-011deb00 range:
+  DAT_011dea10: 814 refs (known: player world ref)
+  DAT_011dea3c: 4474 refs (known: player reference)
+  DAT_011dea2a offset from DAT_011dea10: +0x1a (26 bytes)
+  This is likely a field in the TES/DataHandler singleton
+
+######################################################################
+# PART 5: FUN_008c7bd0 -- single-threaded AI fallback
+# Calls our hooked functions. When is this used instead of
+# the multi-threaded path (FUN_008c7da0)?
+######################################################################
+
+======================================================================
+SingleThreadAI_008c7bd0 @ 0x008c7bd0
+======================================================================
+  Function: FUN_008c7bd0 @ 0x008c7bd0, Size: 418 bytes
+  Convention: __stdcall
+  Signature: undefined __stdcall FUN_008c7bd0(void)
+
+void FUN_008c7bd0(void)
+
+{
+  char cVar1;
+  undefined *puVar2;
+  int *piVar3;
+  char *pcVar4;
+  LPCRITICAL_SECTION p_Var5;
+  float10 fVar6;
+  int iVar7;
+  int iVar8;
+  undefined4 uVar9;
+  
+  iVar8 = 0;
+  iVar7 = 0;
+  puVar2 = FUN_00713d80();
+  FUN_008c79e0(puVar2,iVar7,iVar8);
+  FUN_0086fd70();
+  iVar8 = 1;
+  iVar7 = 0;
+  puVar2 = FUN_00713d80();
+  FUN_008c79e0(puVar2,iVar7,iVar8);
+  piVar3 = (int *)FUN_004537b0();
+  FUN_0087a6b0(piVar3);
+  cVar1 = FUN_005c42d0();
+  FUN_00991500(DAT_011f1958,cVar1);
+  FUN_0040fbf0((LONG *)&DAT_011f11a0);
+  FUN_0096cca0(0x11e0e80);
+  FUN_0096cda0(0x11e0e80);
+  FUN_0040fba0((undefined4 *)&DAT_011f11a0);
+  FUN_00455640((int)DAT_011dea10);
+  FUN_0040fbf0((LONG *)&DAT_011f11a0);
+  FUN_009784c0(0x11e0e80);
+  FUN_0040fba0((undefined4 *)&DAT_011f11a0);
+  FUN_00991dc0(DAT_011f1958);
+  FUN_0040fbf0((LONG *)&DAT_011f11a0);
+  FUN_0096bcd0(&DAT_011e0e80,0);
+  FUN_0096d520();
+  FUN_0096c330(0x11e0e80);
+  FUN_0096db30(0.0,0,0);
+  FUN_008d0600();
+  FUN_0096c7c0(0x11e0e80);
+  FUN_0096cb50(0x11e0e80);
+  FUN_004772f0();
+  FUN_0040fba0((undefined4 *)&DAT_011f11a0);
+  fVar6 = FUN_00453850();
+  FUN_00453550(DAT_011dea10,(float)fVar6);
+  uVar9 = 6;
+  iVar7 = 1;
+  puVar2 = FUN_00713d80();
+  FUN_008c7d80(puVar2,iVar7,uVar9);
+  FUN_008c80d0();
+  pcVar4 = FUN_00408d60(0x11d73e4);
+  if (*pcVar4 != '\0') {
+    p_Var5 = (LPCRITICAL_SECTION)FUN_006c0720();
+    FUN_006c3640(p_Var5);
+  }
+  piVar3 = (int *)FUN_004537b0();
+  FUN_0087a6d0(piVar3);
+  FUN_005ae270();
+  FUN_005a9d60();
+  uVar9 = 0xb;
+  iVar7 = 0;
+  puVar2 = FUN_00713d80();
+  FUN_008c7d80(puVar2,iVar7,uVar9);
+  uVar9 = 7;
+  iVar7 = 1;
+  puVar2 = FUN_00713d80();
+  FUN_008c7d80(puVar2,iVar7,uVar9);
+  return;
+}
+
+
+
+----------------------------------------------------------------------
+References TO 0x008c7bd0 (SingleThreadAI)
+----------------------------------------------------------------------
+  DATA @ 0x008c7364 (in FUN_008c7290)
+  Total: 1 refs

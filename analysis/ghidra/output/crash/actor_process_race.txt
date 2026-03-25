@@ -1,0 +1,754 @@
+======================================================================
+ACTOR PROCESS RACE CONDITION ANALYSIS
+======================================================================
+
+######################################################################
+# PART 1: FUN_009306d0 -- returns actor's process (HighProcess?)
+# Called before accessing +0x410 which crashed
+######################################################################
+
+======================================================================
+GetActorProcess_009306d0 @ 0x009306d0
+======================================================================
+  Function: FUN_009306d0 @ 0x009306d0, Size: 46 bytes
+
+undefined4 __fastcall FUN_009306d0(int param_1)
+
+{
+  undefined4 uVar1;
+  
+  if (*(int *)(param_1 + 0x68) == 0) {
+    uVar1 = 0;
+  }
+  else {
+    uVar1 = (**(code **)(**(int **)(param_1 + 0x68) + 0x28c))();
+  }
+  return uVar1;
+}
+
+
+
+----------------------------------------------------------------------
+References TO 0x009306d0 (GetActorProcess)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x0056205e (in FUN_00562020)
+  UNCONDITIONAL_CALL @ 0x00573859 (in FUN_00573800)
+  UNCONDITIONAL_CALL @ 0x00567645 (in FUN_00567490)
+  UNCONDITIONAL_CALL @ 0x005676cd (in FUN_00567490)
+  UNCONDITIONAL_CALL @ 0x00864ca9 (in FUN_00864c50)
+  UNCONDITIONAL_CALL @ 0x0057b6b1 (in FUN_0057b520)
+  UNCONDITIONAL_CALL @ 0x0057b1a6 (in FUN_0057b0d0)
+  UNCONDITIONAL_CALL @ 0x00629629 (in FUN_006295e0)
+  UNCONDITIONAL_CALL @ 0x00629637 (in FUN_006295e0)
+  UNCONDITIONAL_CALL @ 0x00857f9d (in FUN_00857d10)
+  UNCONDITIONAL_CALL @ 0x0070bfb6 (in FUN_0070bc20)
+  UNCONDITIONAL_CALL @ 0x0089ed0d (in FUN_0089d900)
+  UNCONDITIONAL_CALL @ 0x0089ed2b (in FUN_0089d900)
+  UNCONDITIONAL_CALL @ 0x0089ef2e (in FUN_0089d900)
+  UNCONDITIONAL_CALL @ 0x0089ef8e (in FUN_0089d900)
+  UNCONDITIONAL_CALL @ 0x0089efa4 (in FUN_0089d900)
+  UNCONDITIONAL_CALL @ 0x00931edc (in FUN_00931ed0)
+  UNCONDITIONAL_CALL @ 0x00931fbc (in FUN_00931fb0)
+  UNCONDITIONAL_CALL @ 0x0093891f (in FUN_00938180)
+  UNCONDITIONAL_CALL @ 0x00930f42 (in FUN_00930c70)
+  UNCONDITIONAL_CALL @ 0x0087e8d8 (in FUN_0087e130)
+  UNCONDITIONAL_CALL @ 0x0093c034 (in FUN_0093bea0)
+  UNCONDITIONAL_CALL @ 0x0088d336 (in FUN_0088d2f0)
+  UNCONDITIONAL_CALL @ 0x0088d44e (in FUN_0088d2f0)
+  UNCONDITIONAL_CALL @ 0x00888dd7 (in FUN_00888b50)
+  UNCONDITIONAL_CALL @ 0x00888f4b (in FUN_00888b50)
+  UNCONDITIONAL_CALL @ 0x0088b18b (in FUN_0088b150)
+  UNCONDITIONAL_CALL @ 0x0092f2c3 (in FUN_0092f260)
+  UNCONDITIONAL_CALL @ 0x008b8fbb (in FUN_008b8f90)
+  UNCONDITIONAL_CALL @ 0x008b8fcb (in FUN_008b8f90)
+  UNCONDITIONAL_CALL @ 0x008b910d (in FUN_008b8f90)
+  UNCONDITIONAL_CALL @ 0x0089c98c (in FUN_0089a760)
+  UNCONDITIONAL_CALL @ 0x008191ac (in FUN_008190d0)
+  UNCONDITIONAL_CALL @ 0x008191b8 (in FUN_008190d0)
+  UNCONDITIONAL_CALL @ 0x0093cf56 (in FUN_0093cdf0)
+  UNCONDITIONAL_CALL @ 0x00947408 (in FUN_009466d0)
+  UNCONDITIONAL_CALL @ 0x00947456 (in FUN_009466d0)
+  UNCONDITIONAL_CALL @ 0x00947492 (in FUN_009466d0)
+  UNCONDITIONAL_CALL @ 0x009474ed (in FUN_009466d0)
+  UNCONDITIONAL_CALL @ 0x00884a58 (in FUN_008849c0)
+  UNCONDITIONAL_CALL @ 0x008951b2 (in FUN_00895110)
+  UNCONDITIONAL_CALL @ 0x00525036 (in FUN_00524db0)
+  UNCONDITIONAL_CALL @ 0x0052504d (in FUN_00524db0)
+  UNCONDITIONAL_CALL @ 0x0094a2e1 (in FUN_0094a0c0)
+  UNCONDITIONAL_CALL @ 0x0094a2ed (in FUN_0094a0c0)
+  UNCONDITIONAL_CALL @ 0x0094a672 (in FUN_0094a0c0)
+  UNCONDITIONAL_CALL @ 0x00621608 (in FUN_006214d0)
+  UNCONDITIONAL_CALL @ 0x0095ffcd (in FUN_0095f930)
+  UNCONDITIONAL_CALL @ 0x009605aa (in FUN_00960520)
+  UNCONDITIONAL_CALL @ 0x0096245c (in FUN_00962450)
+  UNCONDITIONAL_CALL @ 0x0096e3e0 (in FUN_0096e3c0)
+  ... (truncated)
+  Total: 51 refs
+
+######################################################################
+# PART 2: FUN_008d8520 -- also gets process, called by AI worker
+# and main thread parallel work. Same or different?
+######################################################################
+
+======================================================================
+GetProcess2_008d8520 @ 0x008d8520
+======================================================================
+  Function: FUN_008d8520 @ 0x008d8520, Size: 17 bytes
+
+undefined4 __fastcall FUN_008d8520(int param_1)
+
+{
+  return *(undefined4 *)(param_1 + 0x68);
+}
+
+
+
+######################################################################
+# PART 3: Actor process set/change -- who sets the process?
+# Look for writes to actor+0x1D0 or wherever process ptr is
+######################################################################
+
+======================================================================
+HasProcess_00931850 @ 0x00931850
+======================================================================
+  Function: FUN_00931850 @ 0x00931850, Size: 36 bytes
+
+undefined4 __fastcall FUN_00931850(int param_1)
+
+{
+  undefined4 uVar1;
+  
+  if (*(int *)(param_1 + 0x68) == 0) {
+    uVar1 = 0xffffffff;
+  }
+  else {
+    uVar1 = FUN_0045cd60(*(int *)(param_1 + 0x68));
+  }
+  return uVar1;
+}
+
+
+
+======================================================================
+GetProcess3_008d6f30 @ 0x008d6f30
+======================================================================
+  Function: FUN_008d6f30 @ 0x008d6f30, Size: 17 bytes
+
+undefined4 __fastcall FUN_008d6f30(int param_1)
+
+{
+  return *(undefined4 *)(param_1 + 0x40);
+}
+
+
+
+######################################################################
+# PART 4: Process downgrade -- High to Medium to Low
+# When does the game change actor process level?
+######################################################################
+
+======================================================================
+ProcessChange_008c8fd0 @ 0x008c8fd0
+======================================================================
+  Function: FUN_008c8fd0 @ 0x008c8fd0, Size: 25 bytes
+
+void __thiscall FUN_008c8fd0(void *this,undefined1 param_1)
+
+{
+  *(undefined1 *)((int)this + 0x2c7) = param_1;
+  return;
+}
+
+
+
+----------------------------------------------------------------------
+References TO 0x008c8fd0 (ProcessChange)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x0096be83 (in FUN_0096bcd0)
+  UNCONDITIONAL_CALL @ 0x008c8d0a (in FUN_008c8be0)
+  UNCONDITIONAL_CALL @ 0x008ef085 (in FUN_008eeec0)
+  Total: 3 refs
+
+======================================================================
+ProcessUpdate_008c3c40 @ 0x008c3c40
+======================================================================
+  Function: FUN_008c3c40 @ 0x008c3c40, Size: 804 bytes
+
+/* WARNING: Globals starting with '_' overlap smaller symbols at the same address */
+
+void __thiscall FUN_008c3c40(void *this,char param_1,char param_2)
+
+{
+  bool bVar1;
+  char cVar2;
+  uint uVar3;
+  int iVar4;
+  int *piVar5;
+  undefined4 uVar6;
+  int *unaff_FS_OFFSET;
+  float10 fVar7;
+  float local_1c;
+  undefined4 local_18;
+  float local_14;
+  int local_10;
+  undefined1 *puStack_c;
+  undefined4 local_8;
+  
+  local_8 = 0xffffffff;
+  puStack_c = &LAB_00f15798;
+  local_10 = *unaff_FS_OFFSET;
+  uVar3 = DAT_011c16bc ^ (uint)&stack0xfffffffc;
+  *unaff_FS_OFFSET = (int)&local_10;
+  bVar1 = FUN_00576d30((int)this);
+  if (!bVar1) {
+    FUN_00404eb0(&local_18,0x32);
+    local_8 = 0;
+    fVar7 = FUN_0096d490();
+    local_14 = (float)fVar7;
+    if (param_1 == '\0') {
+      if (param_2 == '\0') {
+        if ((local_14 < *(float *)((int)this + 0x114)) ||
+           (local_1c = local_14 - *(float *)((int)this + 0x114),
+           *(float *)((int)this + 0x114) < (float)_DAT_01012060)) {
+          *(float *)((int)this + 0x114) = local_14;
+          local_1c = 0.0;
+          if (((float)_DAT_01012060 < local_14) && (local_14 < (float)_DAT_010290d0)) {
+            *(undefined4 *)((int)this + 0x114) = 0;
+            local_1c = local_14;
+          }
+        }
+      }
+      else {
+        local_1c = DAT_01017d00;
+      }
+    }
+    else {
+      fVar7 = (float10)FUN_00867950(0x11de7b8);
+      local_1c = (float)((float10)_DAT_01012640 / fVar7);
+    }
+    if (*(int *)((int)this + 0x68) != 0) {
+      (**(code **)(**(int **)((int)this + 0x68) + 0x700))(this,local_1c,uVar3);
+    }
+    iVar4 = (**(code **)(*(int *)((int)this + 0x88) + 0x34))();
+    if (iVar4 != 0) {
+      bVar1 = true;
+      piVar5 = (int *)FUN_008d8520((int)this);
+      iVar4 = (**(code **)(*piVar5 + 1000))();
+      if (iVar4 != 0) {
+        iVar4 = FUN_0048f7f0(iVar4);
+        uVar6 = FUN_005f2420(iVar4);
+        switch(uVar6) {
+        case 0x1a:
+        case 0x1d:
+        case 0x20:
+        case 0x23:
+        case 0x26:
+        case 0x29:
+        case 0x2c:
+        case 0x2f:
+        case 0x32:
+        case 0x35:
+        case 0x38:
+        case 0x3b:
+        case 0x3e:
+        case 0x41:
+        case 0x44:
+        case 0x47:
+        case 0x4a:
+        case 0x4d:
+        case 0x5c:
+          bVar1 = false;
+        }
+      }
+      if (bVar1) {
+        (**(code **)(*(int *)((int)this + 0x88) + 0x40))(0);
+      }
+    }
+    cVar2 = FUN_008c4560((int)this);
+    if (cVar2 != '\0') {
+      FUN_008c3790(this);
+    }
+    if (*(int *)((int)this + 0x8c) != 0) {
+      FUN_00818b10((void *)((int)this + 0x88),local_1c);
+    }
+    FUN_00823c40((void *)((int)this + 0x94),local_1c);
+    cVar2 = (**(code **)(*(int *)this + 0x22c))(0);
+    if (cVar2 == '\0') {
+      cVar2 = (**(code **)(*(int *)this + 0x360))();
+      if (cVar2 != '\0') {
+        FUN_0088b660(this,local_1c);
+      }
+      if ((*(int *)((int)this + 0x68) != 0) &&
+         (bVar1 = FUN_008aced0(*(void **)((int)this + 0x68),0x20000000), bVar1)) {
+        FUN_0088b510(this,local_1c);
+      }
+      if (((*(int *)((int)this + 0x68) != 0) &&
+          (bVar1 = FUN_008aced0(*(void **)((int)this + 0x68),0x40000000), bVar1)) ||
+         (fVar7 = (float10)FUN_00893500((int)this), fVar7 < (float10)_DAT_01012060)) {
+        FUN_0088b5a0(this,local_1c);
+      }
+      (**(code **)(*(int *)this + 0x3dc))(local_1c);
+    }
+    *(float *)((int)this + 0x114) = local_14;
+    local_8 = 0xffffffff;
+    FUN_00404ee0(&local_18);
+  }
+  *unaff_FS_OFFSET = local_10;
+  return;
+}
+
+
+
+--- Calls FROM ProcessUpdate (0x008c3c40) ---
+  0x008c3c6b -> 0x00576d30 FUN_00576d30
+  0x008c3c8d -> 0x00404eb0 FUN_00404eb0
+  0x008c3ca3 -> 0x0096d490 FUN_0096d490
+  0x008c3cb8 -> 0x00867950 FUN_00867950
+  0x008c3da6 -> 0x008d8520 FUN_008d8520
+  0x008c3dca -> 0x0048f7f0 FUN_0048f7f0
+  0x008c3dd1 -> 0x005f2420 FUN_005f2420
+  0x008c3e21 -> 0x008c4560 FUN_008c4560
+  0x008c3e30 -> 0x008c3790 FUN_008c3790
+  0x008c3e51 -> 0x00818b10 FUN_00818b10
+  0x008c3e66 -> 0x00823c40 FUN_00823c40
+  0x008c3ea9 -> 0x0088b660 FUN_0088b660
+  0x008c3ec2 -> 0x008aced0 FUN_008aced0
+  0x008c3ed8 -> 0x0088b510 FUN_0088b510
+  0x008c3ef1 -> 0x008aced0 FUN_008aced0
+  0x008c3f00 -> 0x00893500 FUN_00893500
+  0x008c3f1c -> 0x0088b5a0 FUN_0088b5a0
+  0x008c3f4e -> 0x00404ee0 FUN_00404ee0
+  Total: 18 calls
+
+######################################################################
+# PART 5: Process manager lock (DAT_011f11a0)
+# Phase 5 acquires, Phase 6 releases. What happens between?
+# FUN_00978550 runs with lock held.
+######################################################################
+
+======================================================================
+ProcessMgr_WithLock_00978550 @ 0x00978550
+======================================================================
+  Function: FUN_00978550 @ 0x00978550, Size: 122 bytes
+
+void __fastcall FUN_00978550(int param_1)
+
+{
+  char cVar1;
+  uint uVar2;
+  int *piVar3;
+  uint local_c;
+  
+  local_c = FUN_005de0f0((void *)(param_1 + 4),0);
+  while( true ) {
+    uVar2 = FUN_005be5c0((void *)(param_1 + 4),0);
+    if (uVar2 <= local_c) break;
+    piVar3 = (int *)FUN_00968670((void *)(param_1 + 4),local_c);
+    if (piVar3 != (int *)0x0) {
+      cVar1 = (**(code **)(*piVar3 + 0x100))();
+      if (cVar1 != '\0') {
+        FUN_00565870(piVar3);
+      }
+    }
+    local_c = local_c + 1;
+  }
+  return;
+}
+
+
+
+--- Calls FROM ProcessMgr_WithLock (0x00978550) ---
+  0x00978568 -> 0x005de0f0 FUN_005de0f0
+  0x00978583 -> 0x005be5c0 FUN_005be5c0
+  0x00978597 -> 0x00968670 FUN_00968670
+  0x009785bf -> 0x00565870 FUN_00565870
+  Total: 4 calls
+
+######################################################################
+# PART 6: Actor process creation/destruction
+# HighProcess RTTI at 0x01087864 (from crash data)
+######################################################################
+
+----------------------------------------------------------------------
+References TO 0x01087864 (HighProcess_RTTI)
+----------------------------------------------------------------------
+  DATA @ 0x008d990e (in FUN_008d98e0)
+  DATA @ 0x008d754a (in FUN_008d7510)
+  Total: 2 refs
+
+######################################################################
+# PART 7: FUN_0096e870 -- called by main thread FUN_0096bcd0
+# during AI when actor is flagged for downgrade
+######################################################################
+
+======================================================================
+ActorDowngrade_0096e870 @ 0x0096e870
+======================================================================
+  Function: FUN_0096e870 @ 0x0096e870, Size: 315 bytes
+
+void __thiscall FUN_0096e870(void *this,int *param_1)
+
+{
+  bool bVar1;
+  char cVar2;
+  int iVar3;
+  int *piVar4;
+  int *local_18;
+  int *local_14;
+  int *local_10;
+  int local_c;
+  int local_8;
+  
+  local_10 = param_1;
+  bVar1 = FUN_005f65d0((void *)((int)this + 0x78),(int *)&local_10);
+  if (!bVar1) {
+    cVar2 = (**(code **)(*param_1 + 0x100))();
+    if (cVar2 == '\0') {
+      (**(code **)(*param_1 + 0xd8))(1);
+      local_14 = param_1;
+      FUN_005ae3d0((void *)((int)this + 0x78),(int *)&local_14);
+    }
+    else {
+      iVar3 = FUN_008d8520((int)param_1);
+      if (iVar3 != 0) {
+        iVar3 = FUN_008d8520((int)param_1);
+        local_8 = FUN_0045cd60(iVar3);
+        local_c = FUN_009334b0((int)param_1);
+        cVar2 = (**(code **)(*param_1 + 0x22c))(0);
+        if ((cVar2 == '\0') && (local_8 == local_c)) {
+          piVar4 = (int *)FUN_008d8520((int)param_1);
+          cVar2 = (**(code **)(*piVar4 + 0x360))();
+          if ((cVar2 == '\0') &&
+             ((bVar1 = FUN_00440d80((int)param_1), !bVar1 &&
+              (bVar1 = FUN_0094df60(DAT_011dea3c), !bVar1)))) {
+            return;
+          }
+        }
+        (**(code **)(*param_1 + 0xd8))(1);
+        local_18 = param_1;
+        FUN_005ae3d0((void *)((int)this + 0x78),(int *)&local_18);
+        if (param_1 != (int *)0x0) {
+          *(undefined1 *)((int)param_1 + 0x82) = 1;
+        }
+      }
+    }
+  }
+  return;
+}
+
+
+
+--- Calls FROM ActorDowngrade (0x0096e870) ---
+  0x0096e889 -> 0x005f65d0 FUN_005f65d0
+  0x0096e8d2 -> 0x005ae3d0 FUN_005ae3d0
+  0x0096e8df -> 0x008d8520 FUN_008d8520
+  0x0096e8f0 -> 0x008d8520 FUN_008d8520
+  0x0096e8f7 -> 0x0045cd60 FUN_0045cd60
+  0x0096e902 -> 0x009334b0 FUN_009334b0
+  0x0096e92e -> 0x008d8520 FUN_008d8520
+  0x0096e950 -> 0x00440d80 FUN_00440d80
+  0x0096e962 -> 0x0094df60 FUN_0094df60
+  0x0096e990 -> 0x005ae3d0 FUN_005ae3d0
+  Total: 10 calls
+
+######################################################################
+# PART 8: FUN_00977130 -- called at end of FUN_0096bcd0
+# After all actor processing. Commit changes?
+######################################################################
+
+======================================================================
+PostProcess_00977130 @ 0x00977130
+======================================================================
+  Function: FUN_00977130 @ 0x00977130, Size: 1037 bytes
+
+/* WARNING: Globals starting with '_' overlap smaller symbols at the same address */
+
+void __thiscall FUN_00977130(void *this,float param_1)
+
+{
+  char cVar1;
+  bool bVar2;
+  uint uVar3;
+  uint uVar4;
+  int iVar5;
+  int *piVar6;
+  undefined4 *puVar7;
+  uint *puVar8;
+  void *this_00;
+  void *pvVar9;
+  int *unaff_FS_OFFSET;
+  float10 fVar10;
+  uint local_74;
+  uint local_70;
+  undefined4 local_6c;
+  QuickBitSet *local_5c;
+  float local_58;
+  void *local_54;
+  QuickBitSet *local_48;
+  int *local_3c;
+  undefined4 local_38;
+  uint local_34;
+  int *local_30;
+  char local_29;
+  uint local_28;
+  uint local_24;
+  uint local_20;
+  QuickBitSet local_1c [8];
+  uint local_14;
+  int local_10;
+  undefined1 *puStack_c;
+  undefined4 local_8;
+  
+  local_8 = 0xffffffff;
+  puStack_c = &LAB_00f18e28;
+  local_10 = *unaff_FS_OFFSET;
+  uVar3 = DAT_011c16bc ^ (uint)&stack0xfffffffc;
+  *unaff_FS_OFFSET = (int)&local_10;
+  *(float *)((int)this + 0x103bc) = *(float *)((int)this + 0x103bc) - param_1;
+  if (*(float *)((int)this + 0x103bc) < (float)_DAT_01012060 !=
+      (*(float *)((int)this + 0x103bc) == (float)_DAT_01012060)) {
+    local_28 = 0;
+    local_24 = 0;
+    Concurrency::details::QuickBitSet::QuickBitSet(local_1c);
+    local_8 = 0;
+    local_30 = (int *)0x0;
+    local_34 = 0;
+    while (uVar4 = FUN_005be5c0((void *)((int)this + 4),0), local_34 < uVar4) {
+      local_30 = (int *)FUN_00968670((void *)((int)this + 4),local_34);
+      local_38 = 0;
+      if (((local_30 != (int *)0x0) &&
+          (cVar1 = (**(code **)(*local_30 + 0x100))(uVar3), cVar1 != '\0')) &&
+         (bVar2 = FUN_00576d30((int)local_30), !bVar2)) {
+        local_24 = local_24 + 1;
+        local_3c = local_30;
+        iVar5 = FUN_004f8960((int)local_30);
+        if (((iVar5 == 2) && (piVar6 = (int *)FUN_008d8520((int)local_3c), piVar6 != (int *)0x0)) &&
+           ((iVar5 = FUN_0045cd60((int)piVar6), iVar5 == 0 &&
+            ((((iVar5 = (**(code **)(*piVar6 + 0x610))(), iVar5 == 0 &&
+               (cVar1 = (**(code **)(*local_3c + 0x160))(), cVar1 == '\0')) &&
+              (cVar1 = FUN_00577de0(local_3c), cVar1 == '\0')) &&
+             ((uVar4 = FUN_005722c0(local_3c), (uVar4 & 0xff) == 0 &&
+              (fVar10 = (float10)(**(code **)(*piVar6 + 0x4b0))(), fVar10 < (float10)_DAT_01012060))
+             )))))) {
+          iVar5 = FUN_0056ac90((int)local_3c);
+          if (iVar5 != 0) {
+            piVar6 = (int *)FUN_0056ac90((int)local_3c);
+            cVar1 = FUN_008256d0(piVar6);
+            if (cVar1 == '\0') goto LAB_009771b4;
+          }
+          local_28 = local_28 + 1;
+          FUN_00905820(local_1c,(int *)&local_3c);
+        }
+      }
+LAB_009771b4:
+      local_34 = local_34 + 1;
+    }
+    local_29 = FUN_00525420();
+    if (local_24 < 0x19) {
+      local_29 = '\0';
+    }
+    if (local_29 == '\0') {
+      puVar7 = (undefined4 *)FUN_00403e20(0x11d0a84);
+      local_6c = *puVar7;
+    }
+    else {
+      puVar7 = (undefined4 *)FUN_00403e20(0x11d1530);
+      local_6c = *puVar7;
+    }
+    *(undefined4 *)((int)this + 0x103bc) = local_6c;
+    if (local_29 == '\0') {
+      puVar8 = (uint *)FUN_0043d4d0(0x11d0cd8);
+      local_70 = *puVar8;
+    }
+    else {
+      puVar8 = (uint *)FUN_0043d4d0(0x11d0964);
+      local_70 = *puVar8;
+    }
+    local_20 = local_70;
+    if (local_29 == '\0') {
+      puVar8 = (uint *)FUN_0043d4d0(0x11d09a0);
+      local_74 = *puVar8;
+    }
+    else {
+      puVar8 = (uint *)FUN_0043d4d0(0x11d08f8);
+      local_74 = *puVar8;
+    }
+    local_14 = local_74;
+    if ((local_28 < local_20) || (local_24 < local_74)) {
+      FUN_00470470((undefined4 *)local_1c);
+      local_8 = 0xffffffff;
+      FUN_0046ffb0((undefined4 *)local_1c);
+    }
+    else {
+      if (local_29 == '\0') {
+        local_54 = (void *)0x0;
+        local_58 = _DAT_01016970;
+        local_5c = local_1c;
+        while ((local_5c != (QuickBitSet *)0x0 &&
+               (cVar1 = FUN_008256d0((int *)local_5c), cVar1 == '\0'))) {
+          piVar6 = (int *)FUN_006815c0(local_5c);
+          pvVar9 = (void *)*piVar6;
+          if (pvVar9 != (void *)0x0) {
+            if (local_54 != (void *)0x0) {
+              piVar6 = (int *)FUN_008d8520((int)pvVar9);
+              fVar10 = (float10)(**(code **)(*piVar6 + 0x4b0))();
+              if ((float10)local_58 <= fVar10) goto LAB_009774e8;
+            }
+            piVar6 = (int *)FUN_008d8520((int)pvVar9);
+            fVar10 = (float10)(**(code **)(*piVar6 + 0x4b0))();
+            local_58 = (float)fVar10;
+            local_54 = pvVar9;
+          }
+LAB_009774e8:
+          local_5c = (QuickBitSet *)FUN_00726070((int)local_5c);
+        }
+        if (local_54 != (void *)0x0) {
+          pvVar9 = (void *)FUN_008d8520((int)local_54);
+          FUN_008feb60(pvVar9,local_54);
+        }
+      }
+      else {
+        local_48 = local_1c;
+        while (((local_48 != (QuickBitSet *)0x0 &&
+                (cVar1 = FUN_008256d0((int *)local_48), cVar1 == '\0')) && (local_20 <= local_28)))
+        {
+          puVar7 = (undefined4 *)FUN_006815c0(local_48);
+          pvVar9 = (void *)*puVar7;
+          if (pvVar9 != (void *)0x0) {
+            this_00 = (void *)FUN_008d8520((int)pvVar9);
+            FUN_008feb60(this_00,pvVar9);
+            local_28 = local_28 - 1;
+          }
+          local_48 = (QuickBitSet *)FUN_00726070((int)local_48);
+        }
+      }
+      FUN_00470470((undefined4 *)local_1c);
+      local_8 = 0xffffffff;
+      FUN_0046ffb0((undefined4 *)local_1c);
+    }
+  }
+  *unaff_FS_OFFSET = local_10;
+  return;
+}
+
+
+
+######################################################################
+# PART 9: FUN_00975080 -- called at end of AI worker cell mgmt
+# FUN_00453550 calls this. Process manager related?
+######################################################################
+
+======================================================================
+AIEndCellMgmt_00975080 @ 0x00975080
+======================================================================
+  Function: FUN_00975080 @ 0x00975080, Size: 214 bytes
+
+void __fastcall FUN_00975080(int param_1)
+
+{
+  char cVar1;
+  undefined4 *puVar2;
+  void *this;
+  uint uVar3;
+  int *local_14;
+  char local_d;
+  int *local_c;
+  int *local_8;
+  
+  cVar1 = FUN_008256d0((int *)(param_1 + 0x70));
+  if (cVar1 == '\0') {
+    local_c = (int *)(param_1 + 0x70);
+    local_8 = local_c;
+    while ((local_8 != (int *)0x0 && (cVar1 = FUN_008256d0(local_8), cVar1 == '\0'))) {
+      puVar2 = (undefined4 *)FUN_006815c0(local_8);
+      local_14 = (int *)*puVar2;
+      local_d = '\0';
+      this = (void *)FUN_00ec43fb(local_14,0,(_s_RTTICompleteObjectLocator *)&PTR_PTR_01184920,
+                                  (TypeDescriptor *)&PTR_PTR_01189dbc,0);
+      if (this != (void *)0x0) {
+        uVar3 = FUN_009bec50(this,0);
+        local_d = (char)uVar3;
+      }
+      if (local_d == '\0') {
+        local_c = local_8;
+        local_8 = (int *)FUN_00726070((int)local_8);
+      }
+      else {
+        FUN_00905330((void *)(param_1 + 0x70),(int *)&local_14);
+        if (local_8 != local_c) {
+          local_8 = (int *)FUN_00726070((int)local_c);
+        }
+      }
+    }
+  }
+  return;
+}
+
+
+
+--- Calls FROM AIEndCellMgmt (0x00975080) ---
+  0x0097508f -> 0x008256d0 FUN_008256d0
+  0x009750bb -> 0x008256d0 FUN_008256d0
+  0x009750ce -> 0x006815c0 FUN_006815c0
+  0x009750ee -> 0x00ec43fb FUN_00ec43fb
+  0x00975108 -> 0x009bec50 FUN_009bec50
+  0x00975122 -> 0x00905330 FUN_00905330
+  0x00975132 -> 0x00726070 FUN_00726070
+  0x00975145 -> 0x00726070 FUN_00726070
+  Total: 8 calls
+
+######################################################################
+# PART 10: FUN_0096c7c0 -- called by main thread AFTER waiting
+# for AI worker steps 1 and 3. Calls vtable+0x2F8 on actors.
+# Does this modify actor state that AI worker reads?
+######################################################################
+
+======================================================================
+MainPostWait_0096c7c0 @ 0x0096c7c0
+======================================================================
+  Function: FUN_0096c7c0 @ 0x0096c7c0, Size: 149 bytes
+
+void __fastcall FUN_0096c7c0(int param_1)
+
+{
+  char cVar1;
+  uint uVar2;
+  int *piVar3;
+  uint local_8;
+  
+  local_8 = FUN_005de0f0((void *)(param_1 + 4),0);
+  while( true ) {
+    uVar2 = FUN_005be5c0((void *)(param_1 + 4),0);
+    if (uVar2 <= local_8) break;
+    piVar3 = (int *)FUN_00968670((void *)(param_1 + 4),local_8);
+    if (piVar3 != (int *)0x0) {
+      cVar1 = (**(code **)(*piVar3 + 0x100))();
+      if (cVar1 != '\0') {
+        if ((char)piVar3[0x2f] != '\0') {
+          (**(code **)(*piVar3 + 0x2f8))(0);
+        }
+      }
+    }
+    local_8 = local_8 + 1;
+  }
+  return;
+}
+
+
+
+######################################################################
+# PART 11: What is at actor offset for process pointer?
+# Need to find which offset in Actor stores the process ptr
+######################################################################
+
+----------------------------------------------------------------------
+References TO 0x01086a6c (Character_RTTI)
+----------------------------------------------------------------------
+  DATA @ 0x008d2089 (in FUN_008d2060)
+  DATA @ 0x008d1d6a (in FUN_008d1d30)
+  DATA @ 0x008d1f7d (in FUN_008d1f40)
+  Total: 3 refs
+
+======================================================================
+RESEARCH COMPLETE
+======================================================================

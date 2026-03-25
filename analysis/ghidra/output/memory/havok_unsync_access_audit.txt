@@ -1,0 +1,1302 @@
+======================================================================
+HAVOK UNSYNCHRONIZED ACCESS AUDIT
+Find ALL paths that touch Havok world without hkWorld_Lock
+======================================================================
+
+######################################################################
+# PART 1: addEntity callers -- do they hold hkWorld_Lock?
+# FUN_00c94bd0 has 4 callers. Check each.
+######################################################################
+
+Checking if addEntity callers acquire hkWorld_Lock:
+  0x00c674d0 (FUN_00c674d0): calls hkWorld_Lock = False
+  0x00cf7c10 (FUN_00cf7c10): calls hkWorld_Lock = False
+  0x00ce1680 (FUN_00ce1680): calls hkWorld_Lock = False
+  0x00c97f80 (FUN_00c97f80): calls hkWorld_Lock = False
+
+Callers of each addEntity caller (to find thread context):
+
+----------------------------------------------------------------------
+References TO 0x00c674d0 (addEntity_caller_0x00c674d0)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x00c6b599 (in FUN_00c6b540)
+  UNCONDITIONAL_CALL @ 0x00c68ab0 (in FUN_00c68a40)
+  UNCONDITIONAL_CALL @ 0x00c6b135 (in FUN_00c6b0a0)
+  UNCONDITIONAL_CALL @ 0x00c6b2aa (in FUN_00c6b0a0)
+  UNCONDITIONAL_CALL @ 0x00c6b475 (in FUN_00c6b3c0)
+  UNCONDITIONAL_CALL @ 0x00c6aeca (in ???)
+  Total: 6 refs
+
+----------------------------------------------------------------------
+References TO 0x00cf7c10 (addEntity_caller_0x00cf7c10)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x00cf82c8 (in FUN_00cf7c10)
+  UNCONDITIONAL_CALL @ 0x00c91130 (in FUN_00c91120)
+  Total: 2 refs
+
+----------------------------------------------------------------------
+References TO 0x00ce1680 (addEntity_caller_0x00ce1680)
+----------------------------------------------------------------------
+  Total: 0 refs
+
+----------------------------------------------------------------------
+References TO 0x00c97f80 (addEntity_caller_0x00c97f80)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x00d4c159 (in FUN_00d4c0c0)
+  Total: 1 refs
+
+######################################################################
+# PART 2: removeEntity/removeEntry callers -- locked?
+# FUN_00c41fe0 (removeEntry) and FUN_00c42960 (removeEntity)
+######################################################################
+
+Checking if remove callers acquire hkWorld_Lock:
+  0x00c41fe0 (FUN_00c41fe0): calls hkWorld_Lock = False
+  0x00c42960 (FUN_00c42960): calls hkWorld_Lock = False
+  0x00c41f40 (FUN_00c41f40): calls hkWorld_Lock = False
+
+======================================================================
+RemoveEntity_Wrapper_FUN_00c41f40 @ 0x00c41f40
+======================================================================
+  Function: FUN_00c41f40 @ 0x00c41f40, Size: 160 bytes
+
+void __thiscall FUN_00c41f40(void *this,int param_1)
+
+{
+  int *piVar1;
+  
+  piVar1 = (int *)(param_1 + 8);
+  if (*piVar1 != 0) {
+    if (*piVar1 != 0) {
+      FUN_0044dd60((undefined4 *)*piVar1);
+    }
+    *piVar1 = 0;
+    if (*piVar1 != 0) {
+      InterlockedIncrement((LONG *)(*piVar1 + 8));
+    }
+  }
+  *(undefined4 *)(param_1 + 8) = *(undefined4 *)((int)this + 0x1c);
+  *(int *)((int)this + 0x1c) = param_1;
+  *(int *)((int)this + 0x20) = *(int *)((int)this + 0x20) + 1;
+  if (*(int *)((int)this + 0x20) == *(int *)(*(int *)this + 0x10)) {
+    FUN_00c42960(this);
+  }
+  return;
+}
+
+
+
+----------------------------------------------------------------------
+References TO 0x00c41f40 (RemoveEntity_Wrapper)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x00c41a53 (in FUN_00c416a0)
+  UNCONDITIONAL_CALL @ 0x00c405fd (in FUN_00c403d0)
+  UNCONDITIONAL_CALL @ 0x00c408a9 (in FUN_00c40680)
+  UNCONDITIONAL_CALL @ 0x00c41e9b (in FUN_00c41ac0)
+  Total: 4 refs
+
+######################################################################
+# PART 3: bhkCollisionObject dtor callers -- who triggers?
+# FUN_00c40b70 is the dtor. Who calls it and from which thread?
+######################################################################
+
+----------------------------------------------------------------------
+References TO 0x00c40b70 (bhkCollisionObject_dtor)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x00c3f8fd (in FUN_00c3f8c0)
+  Total: 1 refs
+
+######################################################################
+# PART 4: Havok constraint management -- add/remove constraints
+# Constraints also modify world state. Are they locked?
+######################################################################
+
+======================================================================
+ConstraintAdd_FUN_00cb5570 @ 0x00cb5570
+======================================================================
+  Function: FUN_00cb5570 @ 0x00cb5570, Size: 84 bytes
+
+void __cdecl FUN_00cb5570(void *param_1,int param_2,int param_3)
+
+{
+  undefined1 local_c [4];
+  int local_8;
+  int local_4;
+  
+  if (*(int *)((int)param_1 + 0x94) != 0) {
+    local_8 = param_2;
+    local_c[0] = 0xc;
+    local_4 = param_3;
+    FUN_00c91160(param_1,(undefined4 *)local_c);
+    return;
+  }
+  FUN_00cb4c60((int)param_1,*(undefined4 **)(param_2 + 0xcc),*(undefined4 **)(param_3 + 0xcc));
+  return;
+}
+
+
+
+----------------------------------------------------------------------
+References TO 0x00cb5570 (ConstraintAdd)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x0062c56a (in FUN_0062c430)
+  UNCONDITIONAL_CALL @ 0x00cf7cd6 (in FUN_00cf7c10)
+  UNCONDITIONAL_CALL @ 0x00c97461 (in FUN_00c97370)
+  UNCONDITIONAL_CALL @ 0x00cb5722 (in FUN_00cb55d0)
+  UNCONDITIONAL_CALL @ 0x00cb7225 (in FUN_00cb6f70)
+  UNCONDITIONAL_CALL @ 0x00cb5ff6 (in FUN_00cb5f50)
+  UNCONDITIONAL_CALL @ 0x00d27b47 (in FUN_00d27ac0)
+  UNCONDITIONAL_CALL @ 0x00c92c5a (in FUN_00c92bd0)
+  UNCONDITIONAL_CALL @ 0x00cc0f8f (in FUN_00cc0f40)
+  Total: 9 refs
+
+======================================================================
+ConstraintRemove_FUN_00cb5750 @ 0x00cb5750
+======================================================================
+  Function: FUN_00cb5750 @ 0x00cb5750, Size: 657 bytes
+
+void __cdecl FUN_00cb5750(void *param_1,int param_2)
+
+{
+  byte bVar1;
+  int iVar2;
+  uint uVar3;
+  int *piVar4;
+  undefined4 *puVar5;
+  int iVar6;
+  int local_58;
+  int local_54;
+  int *local_50;
+  int local_4c;
+  uint local_48;
+  int *local_44;
+  int *local_40;
+  int local_3c;
+  uint local_38;
+  int *local_34;
+  int local_30;
+  int local_2c;
+  int local_28;
+  int local_20;
+  int local_1c;
+  int local_18;
+  
+  iVar6 = param_2;
+  if (*(int *)((int)param_1 + 0x94) == 0) {
+    iVar2 = *(int *)(param_2 + 0x10);
+    *(undefined4 *)((int)param_1 + 0x94) = 1;
+    if (iVar2 != 0) {
+      uVar3 = *(uint *)((int)param_1 + 0x338);
+      local_40 = (int *)0x0;
+      local_3c = 0;
+      local_38 = 0x80000000;
+      piVar4 = (int *)FUN_00c85750();
+      local_40 = (int *)*piVar4;
+      *piVar4 = (uVar3 * 8 + 0x7f & 0xffffff80) + (int)local_40;
+      local_38 = uVar3 | 0x80000000;
+      uVar3 = *(uint *)((int)param_1 + 0x338);
+      local_50 = (int *)0x0;
+      local_4c = 0;
+      local_48 = 0x80000000;
+      local_34 = local_40;
+      piVar4 = (int *)FUN_00c85750();
+      local_50 = (int *)*piVar4;
+      *piVar4 = (uVar3 * 8 + 0x7f & 0xffffff80) + (int)local_50;
+      local_48 = uVar3 | 0x80000000;
+      local_44 = local_50;
+      if (*(uint *)(iVar6 + 0x40) < *(uint *)(iVar6 + 0x30)) {
+        FUN_00d1a330(*(int *)((int)param_1 + 0x78),(int)&param_2,1);
+      }
+      bVar1 = *(byte *)(iVar6 + 0x3f);
+      local_58 = iVar6 + 0x24;
+      local_30 = *(int *)(iVar6 + 0x30) - ((uint)*(byte *)(iVar6 + 0x3c) << (bVar1 & 0x1f));
+      local_2c = *(int *)(iVar6 + 0x34) - ((uint)*(byte *)(iVar6 + 0x3d) << (bVar1 & 0x1f));
+      local_28 = *(int *)(iVar6 + 0x38) - ((uint)*(byte *)(iVar6 + 0x3e) << (bVar1 & 0x1f));
+      local_20 = ((uint)*(byte *)(iVar6 + 0x4c) << (bVar1 & 0x1f)) + *(int *)(iVar6 + 0x40);
+      local_1c = ((uint)*(byte *)(iVar6 + 0x4d) << (bVar1 & 0x1f)) + *(int *)(iVar6 + 0x44);
+      local_18 = ((uint)*(byte *)(iVar6 + 0x4e) << (bVar1 & 0x1f)) + *(int *)(iVar6 + 0x48);
+      (**(code **)(**(int **)((int)param_1 + 0x58) + 0x2c))
+                (&local_58,&local_30,1,&local_40,&local_50);
+      if (0 < local_4c + local_3c) {
+        FUN_00cf7130((int *)&local_40,(int *)&local_50);
+        FUN_00cf70f0(*(void **)((int)param_1 + 100),local_50,local_4c);
+        if (*(int *)((int)param_1 + 0x7c) == 0) {
+          piVar4 = (int *)0x0;
+        }
+        else {
+          piVar4 = (int *)(*(int *)((int)param_1 + 0x7c) + 8);
+        }
+        FUN_00cf7080(*(void **)((int)param_1 + 100),local_40,local_3c,piVar4);
+      }
+      piVar4 = local_44;
+      if (local_44 == local_50) {
+        local_4c = 0;
+      }
+      puVar5 = (undefined4 *)FUN_00c85750();
+      *puVar5 = piVar4;
+      iVar6 = FUN_00c85750();
+      local_4c = 0;
+      if (-1 < (int)local_48) {
+        (**(code **)(**(int **)(iVar6 + 0x10) + 0x10))(local_50,local_48 * 8);
+      }
+      piVar4 = local_34;
+      local_50 = (int *)0x0;
+      local_48 = 0x80000000;
+      if (local_34 == local_40) {
+        local_3c = 0;
+      }
+      puVar5 = (undefined4 *)FUN_00c85750();
+      *puVar5 = piVar4;
+      iVar6 = FUN_00c85750();
+      local_3c = 0;
+      if (-1 < (int)local_38) {
+        (**(code **)(**(int **)(iVar6 + 0x10) + 0x10))(local_40,local_38 * 8);
+      }
+    }
+    piVar4 = (int *)((int)param_1 + 0x94);
+    *piVar4 = *piVar4 + -1;
+    if ((*piVar4 == 0) && (*(char *)((int)param_1 + 0x9c) == '\0')) {
+      if (*(int *)((int)param_1 + 0x8c) != 0) {
+        FUN_00c91120((int)param_1);
+      }
+      if ((*(int *)((int)param_1 + 0xa4) == 1) && (*(int *)((int)param_1 + 0x90) != 0)) {
+        FUN_00c91140((int)param_1);
+      }
+    }
+    return;
+  }
+  local_58 = CONCAT31(local_58._1_3_,3);
+  local_54 = param_2;
+  FUN_00c91160(param_1,&local_58);
+  return;
+}
+
+
+
+----------------------------------------------------------------------
+References TO 0x00cb5750 (ConstraintRemove)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x00cf7f84 (in FUN_00cf7c10)
+  Total: 1 refs
+
+######################################################################
+# PART 5: FUN_00c914d0 -- called during deferred ops (case 1)
+# Entity removal through deferred path
+######################################################################
+
+======================================================================
+DeferredRemoveEntity_FUN_00c914d0 @ 0x00c914d0
+======================================================================
+  Function: FUN_00c914d0 @ 0x00c914d0, Size: 328 bytes
+
+int * __thiscall FUN_00c914d0(void *this,int *param_1,int param_2)
+
+{
+  int *piVar1;
+  int iVar2;
+  undefined1 local_c [4];
+  int *local_8;
+  int local_4;
+  
+  if (*(int *)((int)this + 0x94) != 0) {
+    local_4 = param_2;
+    local_c[0] = 1;
+    local_8 = param_1;
+    FUN_00c91160(this,(undefined4 *)local_c);
+    return (int *)0x0;
+  }
+  FUN_00c9c040(param_1,(int)this,(int *)param_1[4]);
+  if (param_1[6] == 0) {
+    iVar2 = (**(code **)(*param_1 + 0x10))();
+    param_1[6] = iVar2;
+  }
+  FUN_00cf1480(0,0,(int)(param_1 + 0x3c));
+  *(undefined2 *)((int)param_1 + 0xea) = 0;
+  *(undefined2 *)(param_1 + 0x3b) = 0;
+  *(undefined1 *)((int)this + 0x9d) = 0;
+  *(int *)((int)this + 0x104) = *(int *)((int)this + 0x104) + 1;
+  param_1[0x35] = *(int *)((int)this + 0x104);
+  FUN_00c90510((int)param_1);
+  FUN_00cb4640((int)this,(int)param_1,param_2);
+  FUN_00c90ed0(param_1 + 0x38,(ushort)*(byte *)((int)this + 0x305),
+               (ushort)*(byte *)((int)this + 0x306),(uint)*(byte *)((int)this + 0x307));
+  *(int *)((int)this + 0x94) = *(int *)((int)this + 0x94) + 1;
+  *(undefined1 *)((int)this + 0x9d) = 1;
+  FUN_00cb59f0((int)this,(int)param_1);
+  FUN_00d00500((int)this,param_1);
+  FUN_00cffa00((int)param_1);
+  piVar1 = (int *)((int)this + 0x94);
+  *piVar1 = *piVar1 + -1;
+  if ((*piVar1 == 0) && (*(char *)((int)this + 0x9c) == '\0')) {
+    if (*(int *)((int)this + 0x8c) != 0) {
+      FUN_00c91120((int)this);
+    }
+    if ((*(int *)((int)this + 0xa4) == 1) && (*(int *)((int)this + 0x90) != 0)) {
+      FUN_00c91140((int)this);
+    }
+  }
+  return param_1;
+}
+
+
+
+----------------------------------------------------------------------
+References TO 0x00c914d0 (DeferredRemoveEntity)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x00c6b220 (in FUN_00c6b0a0)
+  UNCONDITIONAL_CALL @ 0x00c96860 (in FUN_00c95a80)
+  UNCONDITIONAL_CALL @ 0x00cf7d41 (in FUN_00cf7c10)
+  UNCONDITIONAL_CALL @ 0x00c93643 (in FUN_00c93580)
+  UNCONDITIONAL_CALL @ 0x00c97fef (in FUN_00c97f80)
+  UNCONDITIONAL_CALL @ 0x00e44caf (in FUN_00e44c90)
+  UNCONDITIONAL_CALL @ 0x00e453ac (in FUN_00e451b0)
+  UNCONDITIONAL_CALL @ 0x00e472db (in FUN_00e470d0)
+  UNCONDITIONAL_CALL @ 0x00e378f0 (in ???)
+  Total: 9 refs
+
+######################################################################
+# PART 6: FUN_00c91620 -- called during deferred ops (case 2)
+# Entity state change through deferred path
+######################################################################
+
+======================================================================
+DeferredEntityStateChange_FUN_00c91620 @ 0x00c91620
+======================================================================
+  Function: FUN_00c91620 @ 0x00c91620, Size: 224 bytes
+
+void __thiscall FUN_00c91620(void *this,undefined1 *param_1,int *param_2)
+
+{
+  int *piVar1;
+  undefined1 local_8 [4];
+  int *local_4;
+  
+  if (*(int *)((int)this + 0x94) != 0) {
+    local_8[0] = 2;
+    local_4 = param_2;
+    FUN_00c91160(this,(undefined4 *)local_8);
+    *param_1 = 0;
+    return;
+  }
+  *(undefined4 *)((int)this + 0x94) = 1;
+  FUN_00cb5c10(this,(int)param_2);
+  FUN_00d005a0((int)this,param_2);
+  FUN_00cffab0((uint)param_2);
+  *(undefined1 *)((int)this + 0x9d) = 0;
+  FUN_00cb4740((int)this,(int)param_2);
+  if (param_2[0x15] != 0) {
+    FUN_00d01a80((int)(param_2 + 0xc));
+  }
+  if ((short)param_2[1] == 0) {
+    (**(code **)(*param_2 + 0x14))();
+  }
+  FUN_00c905b0(param_2);
+  piVar1 = (int *)((int)this + 0x94);
+  *piVar1 = *piVar1 + -1;
+  *(undefined1 *)((int)this + 0x9d) = 1;
+  if ((*piVar1 == 0) && (*(char *)((int)this + 0x9c) == '\0')) {
+    if (*(int *)((int)this + 0x8c) != 0) {
+      FUN_00c91120((int)this);
+    }
+    if ((*(int *)((int)this + 0xa4) == 1) && (*(int *)((int)this + 0x90) != 0)) {
+      FUN_00c91140((int)this);
+    }
+  }
+  *param_1 = 1;
+  return;
+}
+
+
+
+----------------------------------------------------------------------
+References TO 0x00c91620 (DeferredEntityStateChange)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x00c675a4 (in FUN_00c674d0)
+  UNCONDITIONAL_CALL @ 0x00cf7d5f (in FUN_00cf7c10)
+  UNCONDITIONAL_CALL @ 0x00c93f40 (in FUN_00c93e50)
+  UNCONDITIONAL_CALL @ 0x00c935c8 (in FUN_00c93580)
+  UNCONDITIONAL_CALL @ 0x00c935f2 (in FUN_00c93580)
+  UNCONDITIONAL_CALL @ 0x00c93610 (in FUN_00c93580)
+  UNCONDITIONAL_CALL @ 0x00c9362d (in FUN_00c93580)
+  UNCONDITIONAL_CALL @ 0x00c68c8e (in FUN_00c68bf0)
+  UNCONDITIONAL_CALL @ 0x00e44cd6 (in FUN_00e44cc0)
+  UNCONDITIONAL_CALL @ 0x00e45440 (in FUN_00e451b0)
+  UNCONDITIONAL_CALL @ 0x00e46ef6 (in FUN_00e46ea0)
+  UNCONDITIONAL_CALL @ 0x00e47372 (in FUN_00e470d0)
+  UNCONDITIONAL_CALL @ 0x00e47080 (in FUN_00e47020)
+  UNCONDITIONAL_CALL @ 0x00d0b614 (in ???)
+  UNCONDITIONAL_CALL @ 0x00e3792a (in ???)
+  UNCONDITIONAL_CALL @ 0x00e48282 (in ???)
+  UNCONDITIONAL_CALL @ 0x00e482cc (in FUN_00e48290)
+  Total: 17 refs
+
+######################################################################
+# PART 7: FUN_00ca8420 -- called during deferred ops (case 4)
+# Physics property change?
+######################################################################
+
+======================================================================
+DeferredPropertyChange_FUN_00ca8420 @ 0x00ca8420
+======================================================================
+  Function: FUN_00ca8420 @ 0x00ca8420, Size: 129 bytes
+
+void __thiscall FUN_00ca8420(void *this,uint param_1,int param_2,int param_3)
+
+{
+  void *this_00;
+  undefined1 local_c [4];
+  void *local_8;
+  undefined1 local_4;
+  undefined1 local_3;
+  undefined1 local_2;
+  
+  this_00 = *(void **)((int)this + 8);
+  if ((this_00 != (void *)0x0) && (*(int *)((int)this_00 + 0x94) != 0)) {
+    local_3 = (undefined1)param_2;
+    local_4 = (undefined1)param_1;
+    local_c[0] = 4;
+    local_2 = (undefined1)param_3;
+    local_8 = this;
+    FUN_00c91160(this_00,(undefined4 *)local_c);
+    return;
+  }
+  FUN_00cb6f70(this,param_1,param_2,param_3);
+  if (*(int *)((int)this + 8) != 0) {
+    FUN_00d006e0(*(int *)((int)this + 8),this);
+  }
+  FUN_00cffda0((int)this);
+  return;
+}
+
+
+
+######################################################################
+# PART 8: Havok raycast functions -- used by AI for pathfinding
+# Do raycasts acquire hkWorld_Lock? They should at least read-lock.
+######################################################################
+
+======================================================================
+HavokRayCast_Cached @ 0x00cbf860
+======================================================================
+  Function: FUN_00cbf860 @ 0x00cbf860, Size: 240 bytes
+
+void __thiscall
+FUN_00cbf860(void *this,int *param_1,undefined4 *param_2,int param_3,undefined4 param_4,
+            undefined4 param_5)
+
+{
+  undefined4 *puVar1;
+  undefined8 uVar2;
+  LPVOID pvVar3;
+  int iVar4;
+  undefined4 local_30;
+  undefined4 uStack_2c;
+  undefined4 uStack_28;
+  undefined4 uStack_24;
+  undefined4 local_20;
+  undefined4 *local_1c;
+  undefined4 local_18;
+  undefined4 local_14;
+  
+  pvVar3 = TlsGetValue(DAT_0126835c);
+  puVar1 = *(undefined4 **)((int)pvVar3 + 4);
+  if (puVar1 < *(undefined4 **)((int)pvVar3 + 0xc)) {
+    *puVar1 = "TtRayCstCached";
+    uVar2 = rdtsc();
+    puVar1[1] = (int)uVar2;
+    *(undefined4 **)((int)pvVar3 + 4) = puVar1 + 3;
+  }
+  *(undefined4 **)((int)this + 4) = param_2;
+  *(undefined4 *)((int)this + 0xc) = param_5;
+  *(undefined4 *)((int)this + 0x10) = 0;
+  if (param_3 == 0) {
+    iVar4 = 0;
+  }
+  else {
+    iVar4 = param_3 + 0x14;
+  }
+  *(int *)((int)this + 8) = iVar4;
+  if (*(char *)(param_2 + 8) == '\0') {
+    *(undefined4 *)((int)this + 0x44) = 0;
+  }
+  else if (param_3 == 0) {
+    *(undefined4 *)((int)this + 0x44) = 0;
+  }
+  else {
+    *(int *)((int)this + 0x44) = param_3 + 0x10;
+  }
+  local_30 = *param_2;
+  uStack_2c = param_2[1];
+  uStack_28 = param_2[2];
+  uStack_24 = param_2[3];
+  local_1c = param_2 + 4;
+  local_14 = param_4;
+  local_20 = 1;
+  local_18 = 0x10;
+  (**(code **)(*param_1 + 0x5c))(&local_30,this,0);
+  pvVar3 = TlsGetValue(DAT_0126835c);
+  puVar1 = *(undefined4 **)((int)pvVar3 + 4);
+  if (puVar1 < *(undefined4 **)((int)pvVar3 + 0xc)) {
+    *puVar1 = &DAT_010c41f8;
+    uVar2 = rdtsc();
+    puVar1[1] = (int)uVar2;
+    *(undefined4 **)((int)pvVar3 + 4) = puVar1 + 3;
+  }
+  return;
+}
+
+
+
+======================================================================
+BroadphaseQuery_FUN_00c698c0 @ 0x00c698c0
+======================================================================
+  Function: FUN_00c696d0 @ 0x00c696d0, Size: 656 bytes
+  NOTE: Requested 0x00c698c0 is inside FUN_00c696d0 (entry at 0x00c696d0)
+
+/* WARNING: Globals starting with '_' overlap smaller symbols at the same address */
+
+void __thiscall FUN_00c696d0(void *this,float *param_1)
+
+{
+  undefined4 *puVar1;
+  float fVar2;
+  undefined8 uVar3;
+  float *pfVar4;
+  uint uVar5;
+  LPVOID pvVar6;
+  void *this_00;
+  int *unaff_FS_OFFSET;
+  undefined1 auStack_94 [11];
+  undefined1 local_89;
+  float *local_88;
+  float fStack_84;
+  undefined **appuStack_80 [16];
+  undefined4 uStack_40;
+  undefined4 uStack_3c;
+  uint local_24;
+  int local_1c;
+  undefined1 *puStack_18;
+  undefined4 uStack_14;
+  
+  uStack_14 = 0xffffffff;
+  puStack_18 = &LAB_00f30950;
+  local_1c = *unaff_FS_OFFSET;
+  local_24 = DAT_011c16bc ^ (uint)auStack_94;
+  uVar5 = DAT_011c16bc ^ (uint)&stack0xffffff60;
+  *unaff_FS_OFFSET = (int)&local_1c;
+  if (DAT_012677a3 == '\0') {
+    local_88 = _DAT_011afe74;
+    if (DAT_012677cc != '\0') {
+      local_88 = _DAT_011afe78;
+    }
+    if ((float)local_88 < _DAT_012677c4) {
+      *(undefined1 *)(param_1 + 0x2b) = 1;
+      param_1[0x10] = 1.0;
+      param_1[0x11] = -NAN;
+      param_1[0x14] = -NAN;
+      param_1[0x20] = 0.0;
+      param_1[0x1c] = 0.0;
+      goto LAB_00c6993d;
+    }
+  }
+  pvVar6 = TlsGetValue(DAT_0126835c);
+  puVar1 = *(undefined4 **)((int)pvVar6 + 4);
+  if (puVar1 < *(undefined4 **)((int)pvVar6 + 0xc)) {
+    *puVar1 = "TtPickObject";
+    uVar3 = rdtsc();
+    local_88 = (float *)uVar3;
+    puVar1[1] = local_88;
+    *(undefined4 **)((int)pvVar6 + 4) = puVar1 + 3;
+  }
+  local_89 = 0;
+  this_00 = (void *)(**(code **)(*(int *)this + 0x94))(uVar5);
+  if (this_00 != (void *)0x0) {
+    FUN_00458840(param_1);
+    local_88 = param_1 + 0xc;
+    param_1[0x10] = 1.0;
+    param_1[0x20] = 0.0;
+    param_1[0x11] = -NAN;
+    param_1[0x1c] = 0.0;
+    param_1[0x14] = -NAN;
+    fVar2 = param_1[0x2a];
+    if (fVar2 == 0.0) {
+      fStack_84 = param_1[0x29];
+      if (fStack_84 == 0.0) {
+        FUN_00c92040(this_00,param_1,local_88);
+        local_89 = param_1[0x20] != 0.0;
+      }
+      else {
+        puVar1 = (undefined4 *)((int)fStack_84 + 0x10);
+        *(undefined4 *)((int)fStack_84 + 0x20) = 0x3f800000;
+        *(undefined4 *)((int)fStack_84 + 0x60) = 0;
+        *(undefined4 *)((int)fStack_84 + 0x24) = 0xffffffff;
+        *(undefined4 *)((int)fStack_84 + 0x50) = 0;
+        *(undefined4 *)((int)fStack_84 + 0x30) = 0xffffffff;
+        *(undefined4 *)((int)fStack_84 + 4) = 0x3f800000;
+        if (param_1[0x28] == 0.0) {
+          FUN_00c91f70(this_00,param_1,fStack_84);
+        }
+        else {
+          appuStack_80[0] = &PTR_LAB_010c3bd4;
+          uStack_40 = 0;
+          uStack_3c = 0;
+          uStack_14 = 1;
+          FUN_00cbf860(appuStack_80,*(int **)((int)this_00 + 0x58),param_1,
+                       *(int *)((int)this_00 + 0x7c),param_1[0x28],fStack_84);
+        }
+        if (*(int *)((int)fStack_84 + 0x60) != 0) {
+          FUN_009c1a70(local_88,puVar1);
+          local_89 = 1;
+        }
+      }
+    }
+    else {
+      if (param_1[0x28] == 0.0) {
+        FUN_00c91f70(this_00,param_1,fVar2);
+      }
+      else {
+        appuStack_80[0] = &PTR_LAB_010c3bd4;
+        uStack_40 = 0;
+        uStack_3c = 0;
+        uStack_14 = 0;
+        FUN_00cbf860(appuStack_80,*(int **)((int)this_00 + 0x58),param_1,
+                     *(int *)((int)this_00 + 0x7c),param_1[0x28],fVar2);
+        uStack_14 = 0xffffffff;
+      }
+      if (*(int *)((int)fVar2 + 0x14) != 0) {
+        FUN_00c855f0((uint)fVar2);
+        pfVar4 = local_88;
+        puVar1 = *(undefined4 **)((int)fVar2 + 0x10);
+        FUN_009c1aa0(local_88,puVar1);
+        pfVar4[0x14] = (float)puVar1[0x14];
+        local_89 = 1;
+      }
+    }
+  }
+  pvVar6 = TlsGetValue(DAT_0126835c);
+  puVar1 = *(undefined4 **)((int)pvVar6 + 4);
+  if (puVar1 < *(undefined4 **)((int)pvVar6 + 0xc)) {
+    *puVar1 = &DAT_010c41f8;
+    uVar3 = rdtsc();
+    local_88 = (float *)uVar3;
+    puVar1[1] = local_88;
+    *(undefined4 **)((int)pvVar6 + 4) = puVar1 + 3;
+  }
+LAB_00c6993d:
+  *unaff_FS_OFFSET = local_1c;
+  __security_check_cookie(local_24 ^ (uint)auStack_94);
+  return;
+}
+
+
+
+----------------------------------------------------------------------
+References TO 0x00c698c0 (BroadphaseQuery)
+----------------------------------------------------------------------
+  Total: 0 refs
+
+######################################################################
+# PART 9: FUN_00c6b540, FUN_00c68a40, FUN_00c6b0a0
+# These call FUN_00c674d0 (addEntity caller1).
+# What are they? Character physics setup? Ragdoll creation?
+######################################################################
+
+======================================================================
+AddEntityPath_FUN_00c6b540 @ 0x00c6b540
+======================================================================
+  Function: FUN_00c6b540 @ 0x00c6b540, Size: 159 bytes
+
+void __thiscall FUN_00c6b540(void *this,char param_1)
+
+{
+  uint uVar1;
+  int iVar2;
+  uint uVar3;
+  
+  if (*(int *)((int)this + 0x18) == 0) {
+    if ((*(int *)((int)this + 0x30) != 0) && (param_1 == '\0')) {
+      FUN_00c68a40(this);
+    }
+  }
+  else {
+    iVar2 = *(int *)((int)this + 0x18) + -1;
+    *(int *)((int)this + 0x18) = iVar2;
+    if (iVar2 == 0) {
+      if (param_1 == '\0') {
+        FUN_00c68a40(this);
+      }
+      else if ((*(uint *)((int)this + 0x30) != 0) && (DAT_012677a2 == '\0')) {
+        if (2999 < *(uint *)((int)this + 0x30)) {
+          *(undefined4 *)((int)this + 0x30) = 3000;
+        }
+        uVar1 = *(uint *)((int)this + 0x30);
+        uVar3 = DAT_011afe80;
+        if (uVar1 < DAT_011afe80) {
+          uVar3 = uVar1;
+        }
+        FUN_00c674d0(this,(void *)(*(int *)((int)this + 0x2c) + (uVar1 - uVar3) * 4),uVar3);
+        *(uint *)((int)this + 0x30) = uVar1 - uVar3;
+        DAT_012677a2 = '\x01';
+      }
+      FUN_00c676e0(this);
+      FUN_00c6aac0(this);
+      FUN_00c67850(this);
+      return;
+    }
+  }
+  return;
+}
+
+
+
+----------------------------------------------------------------------
+References TO 0x00c6b540 (AddEntityPath1_callers)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x00452c06 (in FUN_00452580)
+  UNCONDITIONAL_CALL @ 0x00452d44 (in FUN_00452580)
+  UNCONDITIONAL_CALL @ 0x00452d57 (in FUN_00452580)
+  UNCONDITIONAL_CALL @ 0x0045322d (in FUN_00452ff0)
+  UNCONDITIONAL_CALL @ 0x0045342b (in FUN_00452ff0)
+  UNCONDITIONAL_CALL @ 0x00454163 (in FUN_00453dc0)
+  UNCONDITIONAL_CALL @ 0x00450f14 (in FUN_00450dd0)
+  UNCONDITIONAL_CALL @ 0x004547a5 (in FUN_00454450)
+  UNCONDITIONAL_CALL @ 0x00858e95 (in FUN_00858af0)
+  UNCONDITIONAL_CALL @ 0x00858eac (in FUN_00858af0)
+  UNCONDITIONAL_CALL @ 0x008590d5 (in FUN_00858af0)
+  UNCONDITIONAL_CALL @ 0x008590ec (in FUN_00858af0)
+  UNCONDITIONAL_CALL @ 0x00930af7 (in FUN_009308f0)
+  Total: 13 refs
+
+======================================================================
+AddEntityPath_FUN_00c68a40 @ 0x00c68a40
+======================================================================
+  Function: FUN_00c68a40 @ 0x00c68a40, Size: 149 bytes
+
+void __fastcall FUN_00c68a40(void *param_1)
+
+{
+  int iVar1;
+  undefined4 uVar2;
+  int *unaff_FS_OFFSET;
+  int local_c;
+  undefined1 *puStack_8;
+  undefined4 local_4;
+  
+  puStack_8 = &LAB_00f32368;
+  local_c = *unaff_FS_OFFSET;
+  *unaff_FS_OFFSET = (int)&local_c;
+  iVar1 = *(int *)(unaff_FS_OFFSET[0xb] + _tls_index * 4);
+  uVar2 = *(undefined4 *)(iVar1 + 0x2b4);
+  *(undefined4 *)(iVar1 + 0x2b4) = 0x10;
+  local_4 = 0;
+  if (*(uint *)((int)param_1 + 0x30) != 0) {
+    if (2999 < *(uint *)((int)param_1 + 0x30)) {
+      *(undefined4 *)((int)param_1 + 0x30) = 3000;
+    }
+    FUN_00c674d0(param_1,*(void **)((int)param_1 + 0x2c),*(uint *)((int)param_1 + 0x30));
+    *(undefined4 *)((int)param_1 + 0x30) = 0;
+  }
+  *(undefined4 *)(iVar1 + 0x2b4) = uVar2;
+  *unaff_FS_OFFSET = local_c;
+  return;
+}
+
+
+
+----------------------------------------------------------------------
+References TO 0x00c68a40 (AddEntityPath2_callers)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x00c6b5ab (in FUN_00c6b540)
+  UNCONDITIONAL_CALL @ 0x00c6b5d6 (in FUN_00c6b540)
+  UNCONDITIONAL_CALL @ 0x00c6b346 (in FUN_00c6b320)
+  Total: 3 refs
+
+======================================================================
+AddEntityPath_FUN_00c6b0a0 @ 0x00c6b0a0
+======================================================================
+  Function: FUN_00c6b0a0 @ 0x00c6b0a0, Size: 638 bytes
+
+/* WARNING: Globals starting with '_' overlap smaller symbols at the same address */
+
+void __thiscall FUN_00c6b0a0(void *this,int *param_1)
+
+{
+  void *this_00;
+  undefined1 auVar1 [16];
+  undefined1 auVar2 [16];
+  uint uVar3;
+  id *piVar4;
+  float *pfVar5;
+  undefined4 uVar6;
+  undefined4 extraout_ECX;
+  uint uVar7;
+  int iVar8;
+  int *local_28;
+  void *pvStack_24;
+  float fStack_20;
+  float fStack_1c;
+  float fStack_18;
+  float fStack_14;
+  
+  local_28 = param_1;
+  if ((this != (void *)0x0) &&
+     (pvStack_24 = (void *)(**(code **)(*(int *)this + 0x94))(), pvStack_24 != (void *)0x0)) {
+    if ((char)param_1[10] == '\x01') {
+      if (*(int *)((int)this + 0x18) == 0) {
+        this_00 = (void *)param_1[3];
+        if ((this_00 != (void *)0x0) && ((*(byte *)((int)this_00 + 0x10) & 0x30) == 0)) {
+          iVar8 = 1;
+          if ((DAT_011b0c44 != '\0') &&
+             (piVar4 = FUN_0043b4f0(this_00,(id *)&local_28),
+             ((byte)*(undefined4 *)piVar4 & 0x7f) != 8)) {
+            pfVar5 = (float *)FUN_00560d80((int)this_00);
+            auVar2._4_4_ = -(uint)((float)((uint)(pfVar5[1] - DAT_01267e34) & _UNK_01017d14) <=
+                                  DAT_01017d00);
+            auVar2._0_4_ = -(uint)((float)((uint)(*pfVar5 - DAT_01267e30) & _DAT_01017d10) <=
+                                  DAT_01017d00);
+            auVar2._8_4_ = -(uint)((float)((uint)(pfVar5[2] - DAT_01267e38) & _UNK_01017d18) <=
+                                  DAT_01017d00);
+            auVar2._12_4_ =
+                 -(uint)((float)((uint)(pfVar5[3] - DAT_01267e3c) & _UNK_01017d1c) <= DAT_01017d00);
+            uVar6 = movmskps(pfVar5,auVar2);
+            fStack_20 = DAT_01017d00;
+            fStack_1c = DAT_01017d00;
+            fStack_18 = DAT_01017d00;
+            fStack_14 = DAT_01017d00;
+            if (((byte)uVar6 & 7) == 7) {
+              pfVar5 = (float *)FUN_00560e10((int)this_00);
+              auVar1._4_4_ = -(uint)((float)((uint)(pfVar5[1] - DAT_01267e34) & _UNK_01017d14) <=
+                                    fStack_1c);
+              auVar1._0_4_ = -(uint)((float)((uint)(*pfVar5 - DAT_01267e30) & _DAT_01017d10) <=
+                                    fStack_20);
+              auVar1._8_4_ = -(uint)((float)((uint)(pfVar5[2] - DAT_01267e38) & _UNK_01017d18) <=
+                                    fStack_18);
+              auVar1._12_4_ =
+                   -(uint)((float)((uint)(pfVar5[3] - DAT_01267e3c) & _UNK_01017d1c) <= fStack_14);
+              uVar6 = movmskps(extraout_ECX,auVar1);
+              if (((byte)uVar6 & 7) == 7) {
+                iVar8 = 0;
+              }
+            }
+          }
+          FUN_00c914d0(pvStack_24,param_1,iVar8);
+          return;
+        }
+      }
+      else {
+        iVar8 = param_1[3];
+        if ((iVar8 != 0) && ((*(byte *)(iVar8 + 0x10) & 0x30) == 0)) {
+          if (2999 < *(uint *)((int)this + 0x30)) {
+            if (*(uint *)((int)this + 0x30) != 0) {
+              *(undefined4 *)((int)this + 0x30) = 3000;
+              uVar3 = DAT_011afe80;
+              if (3000 < DAT_011afe80) {
+                uVar3 = 3000;
+              }
+              FUN_00c674d0(this,(void *)(*(int *)((int)this + 0x2c) + (3000 - uVar3) * 4),uVar3);
+              *(uint *)((int)this + 0x30) = 3000 - uVar3;
+              DAT_012677a2 = '\x01';
+              param_1 = local_28;
+            }
+            FUN_00c676e0(this);
+            FUN_00c6aac0(this);
+            FUN_00c67850(this);
+          }
+          *(uint *)(iVar8 + 0x10) = *(uint *)(iVar8 + 0x10) | 0x10;
+          FUN_00c90510((int)param_1);
+          *(int **)(*(int *)((int)this + 0x2c) + *(int *)((int)this + 0x30) * 4) = param_1;
+          *(int *)((int)this + 0x30) = *(int *)((int)this + 0x30) + 1;
+          return;
+        }
+      }
+    }
+    else if (*(int *)((int)this + 0x18) == 0) {
+      if (((((char)param_1[10] == '\x02') &&
+           (iVar8 = (int)param_1 + (char)param_1[8] + 0x10, iVar8 != 0)) &&
+          (iVar8 = *(int *)(iVar8 + 0xc), iVar8 != 0)) && ((*(byte *)(iVar8 + 0x14) & 0x30) == 0)) {
+        FUN_00c936a0(pvStack_24,param_1);
+      }
+    }
+    else if ((((char)param_1[10] == '\x02') &&
+             (iVar8 = (int)param_1 + (char)param_1[8] + 0x10, iVar8 != 0)) &&
+            ((iVar8 = *(int *)(iVar8 + 0xc), iVar8 != 0 && ((*(byte *)(iVar8 + 0x14) & 0x30) == 0)))
+            ) {
+      if (199 < *(uint *)((int)this + 0x38)) {
+        if ((*(uint *)((int)this + 0x30) != 0) && (DAT_012677a2 == '\0')) {
+          if (2999 < *(uint *)((int)this + 0x30)) {
+            *(undefined4 *)((int)this + 0x30) = 3000;
+          }
+          uVar3 = *(uint *)((int)this + 0x30);
+          uVar7 = DAT_011afe80;
+          if (uVar3 < DAT_011afe80) {
+            uVar7 = uVar3;
+          }
+          FUN_00c674d0(this,(void *)(*(int *)((int)this + 0x2c) + (uVar3 - uVar7) * 4),uVar7);
+          *(uint *)((int)this + 0x30) = uVar3 - uVar7;
+          DAT_012677a2 = '\x01';
+          param_1 = local_28;
+        }
+        FUN_00c676e0(this);
+        FUN_00c6aac0(this);
+        FUN_00c67850(this);
+      }
+      *(byte *)(iVar8 + 0x14) = *(byte *)(iVar8 + 0x14) | 0x10;
+      FUN_00c90510((int)param_1);
+      *(int **)(*(int *)((int)this + 0x34) + *(int *)((int)this + 0x38) * 4) = param_1;
+      *(int *)((int)this + 0x38) = *(int *)((int)this + 0x38) + 1;
+      return;
+    }
+  }
+  return;
+}
+
+
+
+----------------------------------------------------------------------
+References TO 0x00c6b0a0 (AddEntityPath3_callers)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x00c8584d (in FUN_00c85810)
+  Total: 1 refs
+
+######################################################################
+# PART 10: FUN_00c97f80 callers -- this calls addEntity directly
+# In what context? During AI? During loading?
+######################################################################
+
+----------------------------------------------------------------------
+References TO 0x00c97f80 (AddEntity_Caller4_FUN_00c97f80)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x00d4c159 (in FUN_00d4c0c0)
+  Total: 1 refs
+
+======================================================================
+AddEntity_Caller4_Full @ 0x00c97f80
+======================================================================
+  Function: FUN_00c97f80 @ 0x00c97f80, Size: 315 bytes
+
+void __thiscall FUN_00c97f80(void *this,int param_1)
+
+{
+  int iVar1;
+  int iVar2;
+  int *piVar3;
+  int *piVar4;
+  
+  iVar2 = *(int *)(param_1 + 0xc);
+  if (0 < iVar2) {
+    iVar1 = 0;
+    if (0 < iVar2) {
+      piVar3 = *(int **)(param_1 + 8);
+      do {
+        if (*piVar3 == 0) {
+          if (iVar1 != -1) {
+            iVar1 = 0;
+            if (0 < iVar2) {
+              do {
+                if (*(int *)(*(int *)(param_1 + 8) + iVar1 * 4) != 0) {
+                  FUN_00c914d0(this,*(int **)(*(int *)(param_1 + 8) + iVar1 * 4),
+                               (uint)(*(char *)(param_1 + 0x40) != '\0'));
+                }
+                iVar1 = iVar1 + 1;
+              } while (iVar1 < *(int *)(param_1 + 0xc));
+            }
+            goto LAB_00c97ffa;
+          }
+          break;
+        }
+        iVar1 = iVar1 + 1;
+        piVar3 = piVar3 + 1;
+      } while (iVar1 < iVar2);
+    }
+    FUN_00c94bd0(this,*(int *)(param_1 + 8),iVar2,(uint)(*(char *)(param_1 + 0x40) != '\0'));
+  }
+LAB_00c97ffa:
+  piVar3 = *(int **)(param_1 + 0x30);
+  if (0 < (int)piVar3) {
+    iVar2 = 0;
+    if ((int)piVar3 < 1) {
+LAB_00c98030:
+      FUN_00c954e0(this,*(int *)(param_1 + 0x2c),piVar3);
+    }
+    else {
+      piVar4 = *(int **)(param_1 + 0x2c);
+      do {
+        if (*piVar4 == 0) {
+          if (iVar2 == -1) goto LAB_00c98030;
+          iVar2 = 0;
+          if (0 < (int)piVar3) {
+            do {
+              if (*(int *)(*(int *)(param_1 + 0x2c) + iVar2 * 4) != 0) {
+                FUN_00c936a0(this,*(int **)(*(int *)(param_1 + 0x2c) + iVar2 * 4));
+              }
+              iVar2 = iVar2 + 1;
+            } while (iVar2 < *(int *)(param_1 + 0x30));
+          }
+          goto LAB_00c98060;
+        }
+        iVar2 = iVar2 + 1;
+        piVar4 = piVar4 + 1;
+      } while (iVar2 < (int)piVar3);
+      FUN_00c954e0(this,*(int *)(param_1 + 0x2c),piVar3);
+    }
+  }
+LAB_00c98060:
+  iVar2 = 0;
+  if (0 < *(int *)(param_1 + 0x24)) {
+    do {
+      if (*(int *)(*(int *)(param_1 + 0x20) + iVar2 * 4) != 0) {
+        FUN_00c97370(this,*(int **)(*(int *)(param_1 + 0x20) + iVar2 * 4));
+      }
+      iVar2 = iVar2 + 1;
+    } while (iVar2 < *(int *)(param_1 + 0x24));
+  }
+  iVar2 = 0;
+  if (0 < *(int *)(param_1 + 0x18)) {
+    do {
+      if ((*(int *)(*(int *)(param_1 + 0x14) + iVar2 * 4) != 0) &&
+         ((piVar3 = *(int **)(*(int *)(param_1 + 0x14) + iVar2 * 4), piVar3[5] != 0 ||
+          (piVar3[6] != 0)))) {
+        FUN_00c97d30(this,piVar3);
+      }
+      iVar2 = iVar2 + 1;
+    } while (iVar2 < *(int *)(param_1 + 0x18));
+  }
+  return;
+}
+
+
+
+######################################################################
+# PART 11: FUN_00446f70 and FUN_00446ff0
+# Called by hkWorld_Lock acquire/release to signal physics threads.
+# What are these? SetEvent? Semaphore?
+######################################################################
+
+======================================================================
+LockSignal_FUN_00446f70 @ 0x00446f70
+======================================================================
+  Function: FUN_00446f70 @ 0x00446f70, Size: 27 bytes
+
+void __fastcall FUN_00446f70(int param_1)
+
+{
+  FUN_00442600(param_1);
+  FUN_00442510(param_1);
+  return;
+}
+
+
+
+======================================================================
+UnlockSignal_FUN_00446ff0 @ 0x00446ff0
+======================================================================
+  Function: FUN_00446ff0 @ 0x00446ff0, Size: 27 bytes
+
+void __fastcall FUN_00446ff0(int param_1)
+
+{
+  FUN_00442600(param_1);
+  FUN_00442530(param_1);
+  return;
+}
+
+
+
+######################################################################
+# PART 12: FUN_008c8fd0 -- called by main thread during AI
+# in FUN_0096bcd0. Process manager related?
+######################################################################
+
+======================================================================
+MainDuringAI_FUN_008c8fd0 @ 0x008c8fd0
+======================================================================
+  Function: FUN_008c8fd0 @ 0x008c8fd0, Size: 25 bytes
+
+void __thiscall FUN_008c8fd0(void *this,undefined1 param_1)
+
+{
+  *(undefined1 *)((int)this + 0x2c7) = param_1;
+  return;
+}
+
+
+
+######################################################################
+# PART 13: FUN_00c7fa90 -- called by FUN_008e51b0 (AI worker)
+# Physics update during AI execution. Touches Havok?
+######################################################################
+
+======================================================================
+AIWorker_HavokUpdate_FUN_00c7fa90 @ 0x00c7fa90
+======================================================================
+  Function: FUN_00c7fa90 @ 0x00c7fa90, Size: 142 bytes
+
+int __cdecl FUN_00c7fa90(int param_1)
+
+{
+  void *pvVar1;
+  int *piVar2;
+  int iVar3;
+  int local_8 [2];
+  
+  if ((*(char *)(param_1 + 0x18) == '\x01') &&
+     (pvVar1 = (void *)(*(char *)(param_1 + 0x10) + param_1), pvVar1 != (void *)0x0)) {
+    piVar2 = FUN_00c85ef0(local_8,pvVar1,0x1267b70);
+    if (*piVar2 != 0) {
+      return *(int *)(*piVar2 + 8);
+    }
+  }
+  else if (*(char *)(param_1 + 0x18) == '\x02') {
+    pvVar1 = (void *)(*(char *)(param_1 + 0x10) + param_1);
+    if (pvVar1 != (void *)0x0) {
+      piVar2 = FUN_00c85ef0(local_8,pvVar1,0x1267b70);
+      if (*piVar2 != 0) {
+        return *(int *)(*piVar2 + 8);
+      }
+      if (*(void **)((int)pvVar1 + 0xc) != (void *)0x0) {
+        iVar3 = FUN_00c85c80(*(void **)((int)pvVar1 + 0xc),(undefined4 *)0x0);
+        return iVar3;
+      }
+    }
+    return 0;
+  }
+  return 0;
+}
+
+
+
+----------------------------------------------------------------------
+References TO 0x00c7fa90 (HavokUpdate_callers)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x004a3451 (in FUN_004a2d50)
+  UNCONDITIONAL_CALL @ 0x0062b4f7 (in FUN_0062b4e0)
+  UNCONDITIONAL_CALL @ 0x0088f006 (in FUN_0088e8d0)
+  UNCONDITIONAL_CALL @ 0x0088f6e1 (in FUN_0088e8d0)
+  UNCONDITIONAL_CALL @ 0x008af4b8 (in FUN_008ae660)
+  UNCONDITIONAL_CALL @ 0x00620dba (in FUN_00620bc0)
+  UNCONDITIONAL_CALL @ 0x008e5583 (in FUN_008e51b0)
+  UNCONDITIONAL_CALL @ 0x009af426 (in FUN_009ae6e0)
+  UNCONDITIONAL_CALL @ 0x00c66fbb (in FUN_00c66fb0)
+  UNCONDITIONAL_CALL @ 0x00807744 (in FUN_00807730)
+  UNCONDITIONAL_CALL @ 0x009c69f1 (in FUN_009c69e0)
+  UNCONDITIONAL_CALL @ 0x009c2602 (in FUN_009c20e0)
+  Total: 12 refs
+
+######################################################################
+# PART 14: FUN_00975080 -- called at end of AI worker cell mgmt
+# FUN_00453550 calls this. What does it do?
+######################################################################
+
+======================================================================
+AIWorker_EndCellMgmt_FUN_00975080 @ 0x00975080
+======================================================================
+  Function: FUN_00975080 @ 0x00975080, Size: 214 bytes
+
+void __fastcall FUN_00975080(int param_1)
+
+{
+  char cVar1;
+  undefined4 *puVar2;
+  void *this;
+  uint uVar3;
+  int *local_14;
+  char local_d;
+  int *local_c;
+  int *local_8;
+  
+  cVar1 = FUN_008256d0((int *)(param_1 + 0x70));
+  if (cVar1 == '\0') {
+    local_c = (int *)(param_1 + 0x70);
+    local_8 = local_c;
+    while ((local_8 != (int *)0x0 && (cVar1 = FUN_008256d0(local_8), cVar1 == '\0'))) {
+      puVar2 = (undefined4 *)FUN_006815c0(local_8);
+      local_14 = (int *)*puVar2;
+      local_d = '\0';
+      this = (void *)FUN_00ec43fb(local_14,0,(_s_RTTICompleteObjectLocator *)&PTR_PTR_01184920,
+                                  (TypeDescriptor *)&PTR_PTR_01189dbc,0);
+      if (this != (void *)0x0) {
+        uVar3 = FUN_009bec50(this,0);
+        local_d = (char)uVar3;
+      }
+      if (local_d == '\0') {
+        local_c = local_8;
+        local_8 = (int *)FUN_00726070((int)local_8);
+      }
+      else {
+        FUN_00905330((void *)(param_1 + 0x70),(int *)&local_14);
+        if (local_8 != local_c) {
+          local_8 = (int *)FUN_00726070((int)local_c);
+        }
+      }
+    }
+  }
+  return;
+}
+
+
+
+--- Calls FROM AIWorker_EndCellMgmt (0x00975080) ---
+  0x0097508f -> 0x008256d0 FUN_008256d0
+  0x009750bb -> 0x008256d0 FUN_008256d0
+  0x009750ce -> 0x006815c0 FUN_006815c0
+  0x009750ee -> 0x00ec43fb FUN_00ec43fb
+  0x00975108 -> 0x009bec50 FUN_009bec50
+  0x00975122 -> 0x00905330 FUN_00905330
+  0x00975132 -> 0x00726070 FUN_00726070
+  0x00975145 -> 0x00726070 FUN_00726070
+  Total: 8 calls
+
+######################################################################
+# PART 15: FUN_009bec10 and FUN_009ae580
+# Called from FUN_0096db30 (AI worker physics)
+# For actors that are not loaded or are in special state
+######################################################################
+
+======================================================================
+AIWorker_SpecialActor_FUN_009bec10 @ 0x009bec10
+======================================================================
+  Function: FUN_009bec10 @ 0x009bec10, Size: 56 bytes
+
+void __thiscall FUN_009bec10(void *this,undefined4 param_1)
+
+{
+  bool bVar1;
+  
+  bVar1 = FUN_00444d00(this,0x80);
+  if (!bVar1) {
+    (**(code **)(*(int *)this + 0x2f8))(param_1);
+  }
+  return;
+}
+
+
+
+--- Calls FROM AIWorker_SpecialActor1 (0x009bec10) ---
+  0x009bec1f -> 0x00444d00 FUN_00444d00
+  Total: 1 calls
+
+======================================================================
+AIWorker_SpecialActor_FUN_009ae580 @ 0x009ae580
+======================================================================
+  Function: FUN_009ae580 @ 0x009ae580, Size: 72 bytes
+
+void __fastcall FUN_009ae580(int *param_1)
+
+{
+  float10 fVar1;
+  
+  fVar1 = FUN_0084d030(0x11f6394);
+  (**(code **)(*param_1 + 0x2f8))((float)fVar1);
+  param_1[0x22] = (int)((float)param_1[0x22] + (float)fVar1);
+  return;
+}
+
+
+
+--- Calls FROM AIWorker_SpecialActor2 (0x009ae580) ---
+  0x009ae58e -> 0x0084d030 FUN_0084d030
+  Total: 1 calls
+
+======================================================================
+RESEARCH COMPLETE
+======================================================================

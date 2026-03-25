@@ -1,0 +1,758 @@
+======================================================================
+ALL HAVOK WORLD MODIFIERS AUDIT
+======================================================================
+
+######################################################################
+# PART 1: Havok world singleton access
+# DAT_01202d98 is the IOManager/world pointer
+# Who reads it? (potential world accessors)
+######################################################################
+
+======================================================================
+AISetup_FUN_008c8bd0 @ 0x008c8bd0
+======================================================================
+  Function: FUN_008c8bd0 @ 0x008c8bd0, Size: 12 bytes
+
+void FUN_008c8bd0(void)
+
+{
+  DAT_011e01dd = 0;
+  return;
+}
+
+
+
+######################################################################
+# PART 2: Havok entity state changes (activation/deactivation)
+# These modify simulation island membership
+######################################################################
+
+======================================================================
+EntityActivation_FUN_00c9c1d0 @ 0x00c9c1d0
+======================================================================
+  Function: FUN_00c9c1d0 @ 0x00c9c1d0, Size: 111 bytes
+
+void __fastcall FUN_00c9c1d0(int param_1)
+
+{
+  int iVar1;
+  
+  iVar1 = *(int *)(param_1 + 0xcc);
+  if ((((iVar1 == 0) || ((*(byte *)(iVar1 + 0x26) >> 2 & 3) == 0)) &&
+      (*(char *)(param_1 + 0xe8) != '\x05')) && (*(int *)(param_1 + 8) != 0)) {
+    *(undefined2 *)(param_1 + 0xea) = 0;
+    *(undefined2 *)(param_1 + 0xec) = 0;
+    FUN_00cb5500(*(int *)(param_1 + 8),iVar1);
+    iVar1 = *(int *)(param_1 + 8);
+    FUN_00c90ed0((void *)(param_1 + 0xe0),(ushort)*(byte *)(iVar1 + 0x305),
+                 (ushort)*(byte *)(iVar1 + 0x306),(uint)*(byte *)(iVar1 + 0x307));
+  }
+  return;
+}
+
+
+
+----------------------------------------------------------------------
+References TO 0x00c9c1d0 (EntityActivation)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x005616fb (in FUN_005616d0)
+  UNCONDITIONAL_CALL @ 0x0056182b (in FUN_00561800)
+  UNCONDITIONAL_CALL @ 0x008182a8 (in FUN_00818150)
+  UNCONDITIONAL_CALL @ 0x008182dc (in FUN_008182d0)
+  UNCONDITIONAL_CALL @ 0x0081f1ec (in FUN_0081f1e0)
+  UNCONDITIONAL_CALL @ 0x0096131a (in FUN_00961280)
+  UNCONDITIONAL_CALL @ 0x009b0d3c (in FUN_009b0d30)
+  UNCONDITIONAL_CALL @ 0x00c67674 (in FUN_00c674d0)
+  UNCONDITIONAL_CALL @ 0x00c7b953 (in FUN_00c7b6a0)
+  UNCONDITIONAL_CALL @ 0x00c7b998 (in FUN_00c7b6a0)
+  UNCONDITIONAL_CALL @ 0x0063110c (in FUN_00631100)
+  UNCONDITIONAL_CALL @ 0x00ca1a6c (in FUN_00ca1410)
+  UNCONDITIONAL_CALL @ 0x00cbb19b (in FUN_00cbb150)
+  UNCONDITIONAL_CALL @ 0x00ce1c17 (in FUN_00ce1ad0)
+  UNCONDITIONAL_CALL @ 0x00ce1c5f (in FUN_00ce1ad0)
+  UNCONDITIONAL_CALL @ 0x00ca8795 (in FUN_00ca8700)
+  UNCONDITIONAL_CALL @ 0x0062aa8c (in FUN_0062a7e0)
+  UNCONDITIONAL_CALL @ 0x00cf8103 (in FUN_00cf7c10)
+  UNCONDITIONAL_CALL @ 0x00cf8130 (in FUN_00cf7c10)
+  UNCONDITIONAL_CALL @ 0x00cf818b (in FUN_00cf7c10)
+  UNCONDITIONAL_CALL @ 0x00c93ccc (in FUN_00c93c30)
+  UNCONDITIONAL_CALL @ 0x00cf81ce (in FUN_00cf7c10)
+  UNCONDITIONAL_CALL @ 0x005615ad (in FUN_00561580)
+  UNCONDITIONAL_CALL @ 0x0063114c (in FUN_00631140)
+  UNCONDITIONAL_CALL @ 0x00cad3c4 (in FUN_00cacf80)
+  UNCONDITIONAL_CALL @ 0x00c74717 (in FUN_00c74570)
+  UNCONDITIONAL_CALL @ 0x00c66048 (in FUN_00c65f40)
+  UNCONDITIONAL_CALL @ 0x00ca8aca (in FUN_00ca8a80)
+  UNCONDITIONAL_CALL @ 0x00ca8b55 (in FUN_00ca8af0)
+  UNCONDITIONAL_CALL @ 0x00ca8bca (in FUN_00ca8b80)
+  UNCONDITIONAL_CALL @ 0x00cbb480 (in FUN_00cbb1e0)
+  UNCONDITIONAL_CALL @ 0x00cbd4b0 (in FUN_00cbccb0)
+  UNCONDITIONAL_CALL @ 0x00ce15ee (in FUN_00ce1560)
+  UNCONDITIONAL_CALL @ 0x00ce1637 (in FUN_00ce1560)
+  UNCONDITIONAL_CALL @ 0x00ce1edb (in FUN_00ce1ca0)
+  UNCONDITIONAL_CALL @ 0x00ce1fb6 (in FUN_00ce1ca0)
+  UNCONDITIONAL_CALL @ 0x00d2b0d5 (in FUN_00d2ad50)
+  UNCONDITIONAL_CALL @ 0x00d2c993 (in FUN_00d2c960)
+  UNCONDITIONAL_CALL @ 0x00d4d69a (in FUN_00d4d530)
+  UNCONDITIONAL_CALL @ 0x00d4d6df (in FUN_00d4d530)
+  UNCONDITIONAL_CALL @ 0x00d4d926 (in FUN_00d4d860)
+  UNCONDITIONAL_CALL @ 0x00d4db60 (in FUN_00d4da60)
+  UNCONDITIONAL_CALL @ 0x00d4db86 (in FUN_00d4da60)
+  UNCONDITIONAL_CALL @ 0x00d4dd9e (in FUN_00d4dcb0)
+  UNCONDITIONAL_CALL @ 0x00d4ddcf (in FUN_00d4dcb0)
+  UNCONDITIONAL_CALL @ 0x00d66c2f (in FUN_00d66c10)
+  UNCONDITIONAL_CALL @ 0x00e37222 (in FUN_00e371d0)
+  UNCONDITIONAL_CALL @ 0x00e3862f (in FUN_00e385e0)
+  UNCONDITIONAL_CALL @ 0x00e38656 (in FUN_00e385e0)
+  UNCONDITIONAL_CALL @ 0x00e44968 (in FUN_00e445b0)
+  UNCONDITIONAL_CALL @ 0x00e45d9c (in FUN_00e45c90)
+  UNCONDITIONAL_CALL @ 0x00e45e24 (in FUN_00e45c90)
+  UNCONDITIONAL_CALL @ 0x00e45f8c (in FUN_00e45ee0)
+  UNCONDITIONAL_CALL @ 0x00e46111 (in FUN_00e46080)
+  UNCONDITIONAL_CALL @ 0x00c8249c (in ???)
+  Total: 55 refs
+
+======================================================================
+EntityDeactivation_FUN_00c9bfa0 @ 0x00c9bfa0
+======================================================================
+  Function: FUN_00c9bfa0 @ 0x00c9bfa0, Size: 38 bytes
+
+void __fastcall FUN_00c9bfa0(int param_1)
+
+{
+  int local_4;
+  
+  if ((*(int *)(param_1 + 8) != 0) && (*(int *)(param_1 + 0x10) != 0)) {
+    local_4 = param_1;
+    FUN_00d1a330(*(int *)(*(int *)(param_1 + 8) + 0x78),(int)&local_4,1);
+  }
+  return;
+}
+
+
+
+----------------------------------------------------------------------
+References TO 0x00c9bfa0 (EntityDeactivation)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x00c9c0d7 (in FUN_00c9c040)
+  Total: 1 refs
+
+######################################################################
+# PART 3: Simulation island merge/split
+# When entities interact, islands merge. When they separate, split.
+# These operations modify the world's island list.
+######################################################################
+
+======================================================================
+IslandMerge_FUN_00cb4640 @ 0x00cb4640
+======================================================================
+  Function: FUN_00cb4640 @ 0x00cb4640, Size: 251 bytes
+
+void __cdecl FUN_00cb4640(int param_1,int param_2,int param_3)
+
+{
+  void *pvVar1;
+  int iVar2;
+  int *this;
+  bool bVar3;
+  
+  *(int *)(param_2 + 8) = param_1;
+  if (*(char *)(param_2 + 0xe8) == '\x05') {
+    FUN_00d07420(*(void **)(param_1 + 0x20),param_2);
+    return;
+  }
+  if (*(char *)(param_1 + 200) == '\0') {
+    pvVar1 = (void *)**(undefined4 **)(param_1 + 0x28);
+  }
+  else {
+    bVar3 = param_3 == 1;
+    if (bVar3) {
+      this = (int *)(param_1 + 0x28);
+      pvVar1 = (void *)FUN_00cb3d10(this,4,0);
+      if (pvVar1 != (void *)0x0) {
+        FUN_00d07420(pvVar1,param_2);
+        return;
+      }
+    }
+    else {
+      this = (int *)(param_1 + 0x34);
+    }
+    iVar2 = FUN_00c85750();
+    pvVar1 = (void *)(**(code **)(**(int **)(iVar2 + 0x10) + 4))(0x6c);
+    *(undefined2 *)((int)pvVar1 + 4) = 0x6c;
+    pvVar1 = (void *)FUN_00d07830(pvVar1,param_1);
+    *(byte *)((int)pvVar1 + 0x26) = bVar3 * '\x04' | *(byte *)((int)pvVar1 + 0x26) & 0xf0 | bVar3;
+    iVar2 = this[1];
+    *(short *)((int)pvVar1 + 0x20) = (short)iVar2;
+    *(char *)((int)pvVar1 + 0x24) = (char)(short)iVar2;
+    iVar2 = FUN_00c85750();
+    if (this[1] == (this[2] & 0x3fffffffU)) {
+      FUN_00c90940(*(int **)(iVar2 + 0x10),this,4);
+    }
+    *(void **)(*this + this[1] * 4) = pvVar1;
+    this[1] = this[1] + 1;
+  }
+  FUN_00d07420(pvVar1,param_2);
+  *(undefined1 *)((int)pvVar1 + 0x24) = *(undefined1 *)(param_2 + 0xd4);
+  return;
+}
+
+
+
+----------------------------------------------------------------------
+References TO 0x00cb4640 (IslandMerge)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x00c91585 (in FUN_00c914d0)
+  UNCONDITIONAL_CALL @ 0x00cb715d (in FUN_00cb6f70)
+  Total: 2 refs
+
+######################################################################
+# PART 4: Havok phantom (trigger volume) operations
+# Phantoms also use the broadphase. Add/remove phantom?
+######################################################################
+
+======================================================================
+PhantomAdd_FUN_00ce1680 @ 0x00ce1680
+======================================================================
+  Function: FUN_00ce1680 @ 0x00ce1680, Size: 125 bytes
+
+undefined4 __thiscall FUN_00ce1680(void *this,void *param_1,char param_2)
+
+{
+  int iVar1;
+  int iVar2;
+  
+  iVar1 = **(int **)((int)this + 8);
+  if ((iVar1 != 0) && (*(int *)(iVar1 + 8) != 0)) {
+    return 1;
+  }
+  FUN_00c94bd0(param_1,(int)*(int **)((int)this + 8),*(int *)((int)this + 0xc),1);
+  iVar1 = 0;
+  if (0 < *(int *)((int)this + 0x18)) {
+    do {
+      FUN_00c97d30(param_1,*(int **)(*(int *)((int)this + 0x14) + iVar1 * 4));
+      iVar1 = iVar1 + 1;
+    } while (iVar1 < *(int *)((int)this + 0x18));
+  }
+  if (param_2 != '\0') {
+    iVar1 = *(int *)((int)this + 0xc);
+    iVar2 = 0;
+    if (0 < iVar1) {
+      do {
+        FUN_00c946e0(param_1,*(int *)(*(int *)((int)this + 8) + iVar2 * 4),1,0);
+        iVar2 = iVar2 + 1;
+      } while (iVar2 < iVar1);
+    }
+  }
+  return 0;
+}
+
+
+
+----------------------------------------------------------------------
+References TO 0x00ce1680 (PhantomAdd)
+----------------------------------------------------------------------
+  Total: 0 refs
+
+######################################################################
+# PART 5: Bethesda's physics attach/detach
+# These are the game-level functions that add/remove
+# collision objects from the Havok world
+######################################################################
+
+======================================================================
+PhysicsAttach_FUN_00c6b540 @ 0x00c6b540
+======================================================================
+  Function: FUN_00c6b540 @ 0x00c6b540, Size: 159 bytes
+
+void __thiscall FUN_00c6b540(void *this,char param_1)
+
+{
+  uint uVar1;
+  int iVar2;
+  uint uVar3;
+  
+  if (*(int *)((int)this + 0x18) == 0) {
+    if ((*(int *)((int)this + 0x30) != 0) && (param_1 == '\0')) {
+      FUN_00c68a40(this);
+    }
+  }
+  else {
+    iVar2 = *(int *)((int)this + 0x18) + -1;
+    *(int *)((int)this + 0x18) = iVar2;
+    if (iVar2 == 0) {
+      if (param_1 == '\0') {
+        FUN_00c68a40(this);
+      }
+      else if ((*(uint *)((int)this + 0x30) != 0) && (DAT_012677a2 == '\0')) {
+        if (2999 < *(uint *)((int)this + 0x30)) {
+          *(undefined4 *)((int)this + 0x30) = 3000;
+        }
+        uVar1 = *(uint *)((int)this + 0x30);
+        uVar3 = DAT_011afe80;
+        if (uVar1 < DAT_011afe80) {
+          uVar3 = uVar1;
+        }
+        FUN_00c674d0(this,(void *)(*(int *)((int)this + 0x2c) + (uVar1 - uVar3) * 4),uVar3);
+        *(uint *)((int)this + 0x30) = uVar1 - uVar3;
+        DAT_012677a2 = '\x01';
+      }
+      FUN_00c676e0(this);
+      FUN_00c6aac0(this);
+      FUN_00c67850(this);
+      return;
+    }
+  }
+  return;
+}
+
+
+
+----------------------------------------------------------------------
+References TO 0x00c6b540 (PhysicsAttach)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x00452c06 (in FUN_00452580)
+  UNCONDITIONAL_CALL @ 0x00452d44 (in FUN_00452580)
+  UNCONDITIONAL_CALL @ 0x00452d57 (in FUN_00452580)
+  UNCONDITIONAL_CALL @ 0x0045322d (in FUN_00452ff0)
+  UNCONDITIONAL_CALL @ 0x0045342b (in FUN_00452ff0)
+  UNCONDITIONAL_CALL @ 0x00454163 (in FUN_00453dc0)
+  UNCONDITIONAL_CALL @ 0x00450f14 (in FUN_00450dd0)
+  UNCONDITIONAL_CALL @ 0x004547a5 (in FUN_00454450)
+  UNCONDITIONAL_CALL @ 0x00858e95 (in FUN_00858af0)
+  UNCONDITIONAL_CALL @ 0x00858eac (in FUN_00858af0)
+  UNCONDITIONAL_CALL @ 0x008590d5 (in FUN_00858af0)
+  UNCONDITIONAL_CALL @ 0x008590ec (in FUN_00858af0)
+  UNCONDITIONAL_CALL @ 0x00930af7 (in FUN_009308f0)
+  Total: 13 refs
+
+======================================================================
+PhysicsAttach2_FUN_00c6b3c0 @ 0x00c6b3c0
+======================================================================
+  Function: FUN_00c6b3c0 @ 0x00c6b3c0, Size: 377 bytes
+
+void __thiscall FUN_00c6b3c0(void *this,int *param_1)
+
+{
+  int iVar1;
+  undefined4 uVar2;
+  uint uVar3;
+  void *this_00;
+  LONG LVar4;
+  uint uVar5;
+  int *piVar6;
+  int *unaff_FS_OFFSET;
+  int local_c;
+  undefined1 *puStack_8;
+  int local_4;
+  
+  puStack_8 = &LAB_00f30b00;
+  local_c = *unaff_FS_OFFSET;
+  uVar3 = DAT_011c16bc ^ (uint)&stack0xffffffe0;
+  *unaff_FS_OFFSET = (int)&local_c;
+  iVar1 = *(int *)(unaff_FS_OFFSET[0xb] + _tls_index * 4);
+  uVar2 = *(undefined4 *)(iVar1 + 0x2b4);
+  *(undefined4 *)(iVar1 + 0x2b4) = 0x10;
+  local_4 = 0;
+  if (this != (void *)0x0) {
+    this_00 = (void *)(**(code **)(*(int *)this + 0x94))(uVar3);
+    piVar6 = param_1;
+    if (this_00 != (void *)0x0) {
+      if (*(int *)((int)this + 0x18) == 0) {
+        FUN_00c97370(this_00,param_1);
+      }
+      else {
+        if (99 < *(uint *)((int)this + 0x40)) {
+          if ((*(uint *)((int)this + 0x30) != 0) && (DAT_012677a2 == '\0')) {
+            if (2999 < *(uint *)((int)this + 0x30)) {
+              *(undefined4 *)((int)this + 0x30) = 3000;
+            }
+            uVar3 = *(uint *)((int)this + 0x30);
+            uVar5 = DAT_011afe80;
+            if (uVar3 < DAT_011afe80) {
+              uVar5 = uVar3;
+            }
+            FUN_00c674d0(this,(void *)(*(int *)((int)this + 0x2c) + (uVar3 - uVar5) * 4),uVar5);
+            *(uint *)((int)this + 0x30) = uVar3 - uVar5;
+            DAT_012677a2 = '\x01';
+          }
+          FUN_00c676e0(this);
+          FUN_00c6aac0(this);
+          FUN_00c67850(this);
+        }
+        piVar6 = param_1;
+        FUN_00c90510((int)param_1);
+        *(int **)(*(int *)((int)this + 0x3c) + *(int *)((int)this + 0x40) * 4) = piVar6;
+        *(int *)((int)this + 0x40) = *(int *)((int)this + 0x40) + 1;
+      }
+      if ((piVar6 != (int *)0x0) && (piVar6 = (int *)piVar6[4], piVar6 != (int *)0x0)) {
+        param_1 = piVar6;
+        InterlockedIncrement(piVar6 + 1);
+        local_4._0_1_ = 1;
+        FUN_00c68b50((void *)((int)this + 0x90),(int *)&param_1);
+        local_4 = (uint)local_4._1_3_ << 8;
+        LVar4 = InterlockedDecrement(piVar6 + 1);
+        if (LVar4 == 0) {
+          (**(code **)(*piVar6 + 4))();
+          *(undefined4 *)(iVar1 + 0x2b4) = uVar2;
+        }
+        else {
+          *(undefined4 *)(iVar1 + 0x2b4) = uVar2;
+        }
+        goto LAB_00c6b523;
+      }
+    }
+  }
+  *(undefined4 *)(iVar1 + 0x2b4) = uVar2;
+LAB_00c6b523:
+  *unaff_FS_OFFSET = local_c;
+  return;
+}
+
+
+
+----------------------------------------------------------------------
+References TO 0x00c6b3c0 (PhysicsAttach2)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x00c86b4d (in FUN_00c86ab0)
+  UNCONDITIONAL_CALL @ 0x00c87b05 (in FUN_00c87a70)
+  Total: 2 refs
+
+======================================================================
+PhysicsSetup_FUN_00c68a40 @ 0x00c68a40
+======================================================================
+  Function: FUN_00c68a40 @ 0x00c68a40, Size: 149 bytes
+
+void __fastcall FUN_00c68a40(void *param_1)
+
+{
+  int iVar1;
+  undefined4 uVar2;
+  int *unaff_FS_OFFSET;
+  int local_c;
+  undefined1 *puStack_8;
+  undefined4 local_4;
+  
+  puStack_8 = &LAB_00f32368;
+  local_c = *unaff_FS_OFFSET;
+  *unaff_FS_OFFSET = (int)&local_c;
+  iVar1 = *(int *)(unaff_FS_OFFSET[0xb] + _tls_index * 4);
+  uVar2 = *(undefined4 *)(iVar1 + 0x2b4);
+  *(undefined4 *)(iVar1 + 0x2b4) = 0x10;
+  local_4 = 0;
+  if (*(uint *)((int)param_1 + 0x30) != 0) {
+    if (2999 < *(uint *)((int)param_1 + 0x30)) {
+      *(undefined4 *)((int)param_1 + 0x30) = 3000;
+    }
+    FUN_00c674d0(param_1,*(void **)((int)param_1 + 0x2c),*(uint *)((int)param_1 + 0x30));
+    *(undefined4 *)((int)param_1 + 0x30) = 0;
+  }
+  *(undefined4 *)(iVar1 + 0x2b4) = uVar2;
+  *unaff_FS_OFFSET = local_c;
+  return;
+}
+
+
+
+----------------------------------------------------------------------
+References TO 0x00c68a40 (PhysicsSetup)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x00c6b5ab (in FUN_00c6b540)
+  UNCONDITIONAL_CALL @ 0x00c6b5d6 (in FUN_00c6b540)
+  UNCONDITIONAL_CALL @ 0x00c6b346 (in FUN_00c6b320)
+  Total: 3 refs
+
+######################################################################
+# PART 6: Havok motion state updates
+# Does updating an entity's position modify broadphase?
+# The broadphase stores AABBs. Position changes = AABB update.
+######################################################################
+
+======================================================================
+BroadphaseUpdateAABB_FUN_00d01a80 @ 0x00d01a80
+======================================================================
+  Function: FUN_00d01a80 @ 0x00d01a80, Size: 93 bytes
+
+void __fastcall FUN_00d01a80(int param_1)
+
+{
+  ushort uVar1;
+  undefined4 uVar2;
+  int iVar3;
+  
+  uVar2 = *(undefined4 *)(param_1 + 0x24);
+  uVar1 = *(ushort *)(param_1 + 0x22);
+  iVar3 = FUN_00c85750();
+  (**(code **)(**(int **)(iVar3 + 0x10) + 8))(uVar2,(uint)uVar1 << 5);
+  uVar1 = *(ushort *)(param_1 + 0x22);
+  uVar2 = *(undefined4 *)(param_1 + 0x28);
+  iVar3 = FUN_00c85750();
+  (**(code **)(**(int **)(iVar3 + 0x10) + 8))(uVar2,(uVar1 + 3 & 0xfffffffc) * 4);
+  *(undefined4 *)(param_1 + 0x24) = 0;
+  *(undefined4 *)(param_1 + 0x28) = 0;
+  *(undefined2 *)(param_1 + 0x20) = 0;
+  *(undefined2 *)(param_1 + 0x22) = 0;
+  return;
+}
+
+
+
+----------------------------------------------------------------------
+References TO 0x00d01a80 (BroadphaseUpdateAABB)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x00c91693 (in FUN_00c91620)
+  UNCONDITIONAL_CALL @ 0x00c9544b (in FUN_00c951b0)
+  UNCONDITIONAL_CALL @ 0x00c9c04c (in FUN_00c9c040)
+  Total: 3 refs
+
+======================================================================
+BroadphaseModify_FUN_00d01ae0 @ 0x00d01ae0
+======================================================================
+  Function: FUN_00d01ae0 @ 0x00d01ae0, Size: 86 bytes
+
+void __thiscall FUN_00d01ae0(void *this,uint param_1)
+
+{
+  ushort uVar1;
+  int iVar2;
+  undefined4 uVar3;
+  
+  *(short *)((int)this + 0x20) = (short)param_1;
+  *(short *)((int)this + 0x22) = (short)param_1;
+  if (param_1 != 0) {
+    iVar2 = FUN_00c85750();
+    uVar3 = (**(code **)(**(int **)(iVar2 + 0x10) + 4))((param_1 & 0xffff) << 5);
+    uVar1 = *(ushort *)((int)this + 0x22);
+    *(undefined4 *)((int)this + 0x24) = uVar3;
+    iVar2 = FUN_00c85750();
+    uVar3 = (**(code **)(**(int **)(iVar2 + 0x10) + 4))((uVar1 + 3 & 0xfffffffc) * 4);
+    *(undefined4 *)((int)this + 0x28) = uVar3;
+  }
+  return;
+}
+
+
+
+----------------------------------------------------------------------
+References TO 0x00d01ae0 (BroadphaseModify)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x00c9c0b9 (in FUN_00c9c040)
+  Total: 1 refs
+
+######################################################################
+# PART 7: Havok collision detection -- narrowphase
+# The narrowphase reads broadphase data. Concurrent modification = crash
+######################################################################
+
+======================================================================
+NarrowphaseSetup_FUN_00cf7080 @ 0x00cf7080
+======================================================================
+  Function: FUN_00cf7080 @ 0x00cf7080, Size: 103 bytes
+
+void __thiscall FUN_00cf7080(void *this,int *param_1,int param_2,int *param_3)
+
+{
+  int iVar1;
+  int *piVar2;
+  char *pcVar3;
+  
+  piVar2 = param_3;
+  iVar1 = param_2;
+  while (iVar1 = iVar1 + -1, -1 < iVar1) {
+    pcVar3 = (char *)(**(code **)(*piVar2 + 4))
+                               (&param_2,(int)*(char *)(*param_1 + 5) + *param_1,
+                                (int)*(char *)(param_1[1] + 5) + param_1[1]);
+    if (*pcVar3 != '\0') {
+      (**(code **)(**(int **)((int)this +
+                             ((int)*(char *)(param_1[1] + 4) + *(char *)(*param_1 + 4) * 8) * 4) + 4
+                  ))(param_1);
+    }
+    param_1 = param_1 + 2;
+  }
+  return;
+}
+
+
+
+======================================================================
+PostEntityAdd_FUN_00d00370 @ 0x00d00370
+======================================================================
+  Function: FUN_00d00370 @ 0x00d00370, Size: 74 bytes
+
+void FUN_00d00370(void)
+
+{
+  int iVar1;
+  int iVar2;
+  undefined4 *puVar3;
+  int *unaff_ESI;
+  
+  iVar1 = unaff_ESI[1];
+  while (iVar1 = iVar1 + -1, -1 < iVar1) {
+    puVar3 = (undefined4 *)(*unaff_ESI + iVar1 * 4);
+    if (*(int *)(*unaff_ESI + iVar1 * 4) == 0) {
+      unaff_ESI[1] = unaff_ESI[1] + -1;
+      iVar2 = (unaff_ESI[1] - iVar1) * 4;
+      if (0 < iVar2) {
+        iVar2 = (iVar2 - 1U >> 2) + 1;
+        do {
+          *puVar3 = puVar3[1];
+          puVar3 = puVar3 + 1;
+          iVar2 = iVar2 + -1;
+        } while (iVar2 != 0);
+      }
+    }
+  }
+  return;
+}
+
+
+
+######################################################################
+# PART 8: FUN_00c3e860 -- called during hkWorld step
+# Processes pending operations count
+######################################################################
+
+======================================================================
+StepPendingOps_FUN_00c3e860 @ 0x00c3e860
+======================================================================
+  Function: FUN_00c3e860 @ 0x00c3e860, Size: 71 bytes
+
+int __thiscall FUN_00c3e860(void *this,uint param_1)
+
+{
+  undefined4 local_c;
+  undefined4 local_8;
+  
+  local_8 = 0;
+  for (local_c = 0; local_c <= param_1; local_c = local_c + 1) {
+    local_8 = *(int *)(*(int *)((int)this + 0x54) + local_c * 4) + local_8;
+  }
+  return local_8;
+}
+
+
+
+######################################################################
+# PART 9: Havok world update AABB -- FUN_00d16300
+# This is the 3-axis sweep broadphase query/update
+# Previously seen in crash analysis. Who calls it?
+######################################################################
+
+----------------------------------------------------------------------
+References TO 0x00d16300 (BroadphaseSweep_FUN_00d16300)
+----------------------------------------------------------------------
+  DATA @ 0x010cd628 (in ???)
+  Total: 1 refs
+
+######################################################################
+# PART 10: FUN_00c42b40 -- called by bhkCollisionObject dtor
+# Removes something from a hash table. What hash table?
+######################################################################
+
+======================================================================
+CollObjCleanup_FUN_00c42b40 @ 0x00c42b40
+======================================================================
+  Function: FUN_00c42b40 @ 0x00c42b40, Size: 32 bytes
+
+void __fastcall FUN_00c42b40(int *param_1)
+
+{
+  while (param_1[8] != 0) {
+    FUN_00c42960(param_1);
+  }
+  return;
+}
+
+
+
+----------------------------------------------------------------------
+References TO 0x00c42b40 (CollObjCleanup)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x00c42120 (in FUN_00c420d0)
+  Total: 1 refs
+
+######################################################################
+# PART 11: FUN_00c90490 -- called at start of deferred ops
+# processing in FUN_00cf7c10. Lock acquisition?
+######################################################################
+
+======================================================================
+DeferredOpsStart_FUN_00c90490 @ 0x00c90490
+======================================================================
+  Function: FUN_00c90490 @ 0x00c90490, Size: 68 bytes
+
+void FUN_00c90490(void)
+
+{
+  int iVar1;
+  LPVOID pvVar2;
+  
+  iVar1 = DAT_012681d4;
+  pvVar2 = TlsGetValue(DAT_012681d8);
+  if (pvVar2 == (LPVOID)0x23df4554) {
+    *(int *)(iVar1 + 0xc) = *(int *)(iVar1 + 0xc) + 1;
+    return;
+  }
+  EnterCriticalSection((LPCRITICAL_SECTION)(iVar1 + 0x18));
+  *(undefined4 *)(iVar1 + 0xc) = 1;
+  TlsSetValue(DAT_012681d8,(LPVOID)0x23df4554);
+  return;
+}
+
+
+
+######################################################################
+# PART 12: FUN_00c905b0 -- called after entity processing
+# Decrements entity refcount?
+######################################################################
+
+======================================================================
+EntityDecRef_FUN_00c905b0 @ 0x00c905b0
+======================================================================
+  Function: FUN_00c905b0 @ 0x00c905b0, Size: 182 bytes
+
+void __fastcall FUN_00c905b0(undefined4 *param_1)
+
+{
+  int iVar1;
+  LPVOID pvVar2;
+  
+  iVar1 = DAT_012681d4;
+  if (*(short *)(param_1 + 1) != 0) {
+    if (*(short *)((int)param_1 + 6) == 1) {
+      *(undefined2 *)((int)param_1 + 6) = 0;
+      (**(code **)*param_1)(1);
+      return;
+    }
+    if ((*(int *)(DAT_012681d4 + 8) == 1) &&
+       (pvVar2 = TlsGetValue(DAT_012681d8), pvVar2 != (LPVOID)0x23df4554)) {
+      pvVar2 = TlsGetValue(DAT_012681d8);
+      if (pvVar2 == (LPVOID)0x23df4554) {
+        *(int *)(iVar1 + 0xc) = *(int *)(iVar1 + 0xc) + 1;
+      }
+      else {
+        EnterCriticalSection((LPCRITICAL_SECTION)(iVar1 + 0x18));
+        *(undefined4 *)(iVar1 + 0xc) = 1;
+        TlsSetValue(DAT_012681d8,(LPVOID)0x23df4554);
+      }
+      *(short *)((int)param_1 + 6) = *(short *)((int)param_1 + 6) + -1;
+      *(int *)(iVar1 + 0xc) = *(int *)(iVar1 + 0xc) + -1;
+      if (*(int *)(iVar1 + 0xc) < 1) {
+        TlsSetValue(DAT_012681d8,(LPVOID)0x0);
+        LeaveCriticalSection((LPCRITICAL_SECTION)(iVar1 + 0x18));
+        return;
+      }
+    }
+    else {
+      *(short *)((int)param_1 + 6) = *(short *)((int)param_1 + 6) + -1;
+    }
+  }
+  return;
+}
+
+
+
+======================================================================
+RESEARCH COMPLETE
+======================================================================
