@@ -193,7 +193,7 @@ impl PressureRelief {
         let baseline = self.baseline_commit.load(Ordering::Relaxed);
         let aggressive_threshold = baseline + MAX_GROWTH_ABOVE_BASELINE * 2;
         let commit_mb = commit / 1024 / 1024;
-        let quarantine_mb = super::delayed_free::get_quarantine_usage() / 1024 / 1024;
+        let quarantine_mb = super::orchestrator::HeapOrchestrator::quarantine_usage() / 1024 / 1024;
 
         // Signal HeapCompact stages 0-4 for the NEXT frame.
         // HeapCompact loop is INCLUSIVE: trigger=N runs stages 0..=N.
@@ -201,13 +201,15 @@ impl PressureRelief {
         // Stage 0: texture cache flush (safe)
         // Stage 1: geometry cache free (safe)
         // Stage 2: menu cleanup (safe)
-        // Stage 3: Havok GC force=true (thread-safe, always safe)
-        // Stage 4: TryAcquire process mgr lock + PDD purge (non-blocking)
+        // Stage 3: Havok GC force=true (thread-safe)
+        // Stage 4: PDD purge (process manager lock + full queue drain).
+        //   Critical for worldspace transitions (coc) — without it,
+        //   memory grows until OOM on the 85MB terrain allocation.
+        //   Runs at Phase 6 on the NEXT frame when AI is idle.
         //
-        // Stage 5: FindCellToUnload -- NEVER. Deadlocks during loading
-        // (fast travel, cell transition, coc). Cell unloading only safe
-        // from the game's own OOM handler (allocator retry loop).
-        globals::set_heap_compact_trigger(4);
+        // Stage 5: FindCellToUnload — NEVER from pressure relief.
+        //   Deadlocks during fast travel and loading screens.
+        globals::signal_heap_compact(globals::HeapCompactStage::PddPurge);
 
         // NOTE: This hook runs BEFORE AI_JOIN -- AI threads are still active.
         // mi_collect(true) races with AI thread alloc/free. Only use
@@ -256,10 +258,9 @@ impl PressureRelief {
 
         if now_ms.saturating_sub(last_agg) >= AGGRESSIVE_COOLDOWN_MS {
             LAST_AGGRESSIVE_MS.store(now_ms, Ordering::Relaxed);
-            unsafe { super::delayed_free::flush_current_thread() };
-            unsafe { mi_collect(true) };
+            unsafe { super::orchestrator::HeapOrchestrator::flush_and_collect() };
             let commit_mb = info.get_current_commit() / 1024 / 1024;
-            let quarantine_mb = super::delayed_free::get_quarantine_usage() / 1024 / 1024;
+            let quarantine_mb = super::orchestrator::HeapOrchestrator::quarantine_usage() / 1024 / 1024;
             log::warn!(
                 "[PRESSURE] Aggressive collect (post AI_JOIN): commit={}MB, quarantine={}MB, RSS={}MB",
                 commit_mb, quarantine_mb, info.get_current_rss() / 1024 / 1024,

@@ -101,10 +101,34 @@ pub static SKELETON_UPDATE_HOOK: LazyLock<InlineHookContainer<SkeletonUpdateFn>>
 
 /// FUN_0056f700: processes a queued reference after model loading completes.
 /// Called from FUN_00451ef0 (queue dispatch) for every QueuedCharacter/
-/// QueuedReference. Leads to ragdoll skeleton update which reads Havok
-/// bone data. We hook this to skip processing for dead characters whose
-/// ragdoll data has been freed by the Havok allocator.
-pub const QUEUED_REF_PROCESS_ADDR: usize = 0x0056F700;
+// ---- Havok broadphase synchronization ----
 
-pub static QUEUED_REF_PROCESS_HOOK: LazyLock<InlineHookContainer<QueuedRefProcessFn>> =
+pub const HAVOK_ADD_ENTITY_ADDR: usize = 0x00C94BD0;
+pub const HAVOK_COLL_OBJ_DTOR_ADDR: usize = 0x00C40B70;
+pub const HAVOK_RAYCAST_ADDR: usize = 0x00CBF860;
+
+pub static HAVOK_ADD_ENTITY_HOOK: LazyLock<InlineHookContainer<HavokAddEntityFn>> =
+    LazyLock::new(InlineHookContainer::new);
+pub static HAVOK_COLL_OBJ_DTOR_HOOK: LazyLock<InlineHookContainer<HavokCollObjDtorFn>> =
+    LazyLock::new(InlineHookContainer::new);
+pub static HAVOK_RAYCAST_HOOK: LazyLock<InlineHookContainer<HavokRaycastFn>> =
+    LazyLock::new(InlineHookContainer::new);
+
+// ---- Actor process synchronization ----
+
+pub const ACTOR_DOWNGRADE_ADDR: usize = 0x0096E870;
+pub const AI_PROCESS1_ADDR: usize = 0x0096C330;
+pub const AI_PROCESS2_ADDR: usize = 0x0096CB50;
+pub const CELL_MGMT_UPDATE_ADDR: usize = 0x00453550;
+pub const PROCESS_MGR_UPDATE_ADDR: usize = 0x009784C0;
+
+pub static ACTOR_DOWNGRADE_HOOK: LazyLock<InlineHookContainer<ActorDowngradeInnerFn>> =
+    LazyLock::new(InlineHookContainer::new);
+pub static AI_PROCESS1_HOOK: LazyLock<InlineHookContainer<AIProcess1Fn>> =
+    LazyLock::new(InlineHookContainer::new);
+pub static AI_PROCESS2_HOOK: LazyLock<InlineHookContainer<AIProcess2Fn>> =
+    LazyLock::new(InlineHookContainer::new);
+pub static CELL_MGMT_UPDATE_HOOK: LazyLock<InlineHookContainer<CellMgmtUpdateFn>> =
+    LazyLock::new(InlineHookContainer::new);
+pub static PROCESS_MGR_UPDATE_HOOK: LazyLock<InlineHookContainer<ProcessMgrUpdateFn>> =
     LazyLock::new(InlineHookContainer::new);

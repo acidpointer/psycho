@@ -72,6 +72,10 @@ impl Drop for HookGuard {
 /// Applies patches and installs all heap replacement hooks.
 /// mimalloc is already configured by the time this runs.
 pub fn install_game_heap_hooks() -> anyhow::Result<()> {
+    // Main thread detection uses OS thread ID comparison (is_main_thread_by_tid).
+    // Always correct — no initialization needed. Before TES object is available,
+    // returns false → frees go to mi_free directly (safe, zero quarantine).
+
     // Initialize heap validation cache for routing pre-hook pointers.
     super::heap_validate::init_heap_cache();
 
@@ -230,13 +234,98 @@ pub fn install_game_heap_hooks() -> anyhow::Result<()> {
     {
         use game_heap::statics::*;
 
-        QUEUED_REF_PROCESS_HOOK.init(
-            "queued_ref_process",
-            QUEUED_REF_PROCESS_ADDR as *mut c_void,
-            game_heap::queued_ref::hook_queued_ref_process,
+        // REMOVED: queued_ref HAVOK_DEATH filter.
+        //
+        // The filter skipped ALL queued reference processing for refs with
+        // flag 0x10000 (HAVOK_DEATH). This prevented actor initialization
+        // for references loaded from saves → frozen mannequin enemies,
+        // no physics, no AI, no collision.
+        //
+        // The filter was redundant: FUN_0056f700 runs on the main thread,
+        // quarantine drain (tick_flush) also runs on the main thread.
+        // They're sequential — freed Havok data stays as readable zombie
+        // data in quarantine. No UAF possible.
+        log::info!("[ENGINE FIX] Queued ref processing: no filter (quarantine protects)");
+    }
+
+    // ---- Havok broadphase synchronization ----
+    //
+    // Worker threads hold game_guard read lock during Havok operations.
+    // This prevents quarantine drain from recycling collision/physics data.
+    {
+        use game_heap::statics::*;
+
+        HAVOK_ADD_ENTITY_HOOK.init(
+            "havok_add_entity",
+            HAVOK_ADD_ENTITY_ADDR as *mut c_void,
+            game_heap::havok_hooks::hook_havok_add_entity,
         )?;
-        guard.enable_hook("queued_ref_process", &QUEUED_REF_PROCESS_HOOK)?;
-        log::info!("[ENGINE FIX] Queued ref HAVOK_DEATH filter at 0x{:08X}", QUEUED_REF_PROCESS_ADDR);
+        guard.enable_hook("havok_add_entity", &HAVOK_ADD_ENTITY_HOOK)?;
+        log::info!("[HAVOK SYNC] addEntity hook at 0x{:08X}", HAVOK_ADD_ENTITY_ADDR);
+
+        HAVOK_COLL_OBJ_DTOR_HOOK.init(
+            "havok_coll_obj_dtor",
+            HAVOK_COLL_OBJ_DTOR_ADDR as *mut c_void,
+            game_heap::havok_hooks::hook_havok_coll_obj_dtor,
+        )?;
+        guard.enable_hook("havok_coll_obj_dtor", &HAVOK_COLL_OBJ_DTOR_HOOK)?;
+        log::info!("[HAVOK SYNC] collisionObject dtor hook at 0x{:08X}", HAVOK_COLL_OBJ_DTOR_ADDR);
+
+        HAVOK_RAYCAST_HOOK.init(
+            "havok_raycast",
+            HAVOK_RAYCAST_ADDR as *mut c_void,
+            game_heap::havok_hooks::hook_havok_raycast,
+        )?;
+        guard.enable_hook("havok_raycast", &HAVOK_RAYCAST_HOOK)?;
+        log::info!("[HAVOK SYNC] raycast hook at 0x{:08X}", HAVOK_RAYCAST_ADDR);
+    }
+
+    // ---- Actor process synchronization ----
+    //
+    // Worker threads hold game_guard read lock during AI processing.
+    // actor_downgrade is pass-through (main thread, already under PDD lock).
+    {
+        use game_heap::statics::*;
+
+        ACTOR_DOWNGRADE_HOOK.init(
+            "actor_downgrade",
+            ACTOR_DOWNGRADE_ADDR as *mut c_void,
+            game_heap::actor_process_hooks::hook_actor_downgrade,
+        )?;
+        guard.enable_hook("actor_downgrade", &ACTOR_DOWNGRADE_HOOK)?;
+        log::info!("[ACTOR SYNC] downgrade hook at 0x{:08X}", ACTOR_DOWNGRADE_ADDR);
+
+        PROCESS_MGR_UPDATE_HOOK.init(
+            "process_mgr_update",
+            PROCESS_MGR_UPDATE_ADDR as *mut c_void,
+            game_heap::actor_process_hooks::hook_process_mgr_update,
+        )?;
+        guard.enable_hook("process_mgr_update", &PROCESS_MGR_UPDATE_HOOK)?;
+        log::info!("[ACTOR SYNC] process update hook at 0x{:08X}", PROCESS_MGR_UPDATE_ADDR);
+
+        AI_PROCESS1_HOOK.init(
+            "ai_process1",
+            AI_PROCESS1_ADDR as *mut c_void,
+            game_heap::actor_process_hooks::hook_ai_process1,
+        )?;
+        guard.enable_hook("ai_process1", &AI_PROCESS1_HOOK)?;
+        log::info!("[ACTOR SYNC] AI process 1 hook at 0x{:08X}", AI_PROCESS1_ADDR);
+
+        AI_PROCESS2_HOOK.init(
+            "ai_process2",
+            AI_PROCESS2_ADDR as *mut c_void,
+            game_heap::actor_process_hooks::hook_ai_process2,
+        )?;
+        guard.enable_hook("ai_process2", &AI_PROCESS2_HOOK)?;
+        log::info!("[ACTOR SYNC] AI process 2 hook at 0x{:08X}", AI_PROCESS2_ADDR);
+
+        CELL_MGMT_UPDATE_HOOK.init(
+            "cell_mgmt_update",
+            CELL_MGMT_UPDATE_ADDR as *mut c_void,
+            game_heap::actor_process_hooks::hook_cell_mgmt_update,
+        )?;
+        guard.enable_hook("cell_mgmt_update", &CELL_MGMT_UPDATE_HOOK)?;
+        log::info!("[ACTOR SYNC] cell mgmt hook at 0x{:08X}", CELL_MGMT_UPDATE_ADDR);
     }
 
     // ---- CRT: malloc/calloc/realloc/recalloc/msize/free ----

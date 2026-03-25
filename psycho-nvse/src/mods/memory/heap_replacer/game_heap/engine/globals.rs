@@ -8,7 +8,6 @@
 // compiler cannot verify.
 
 use libc::c_void;
-use std::ptr::null_mut;
 
 use libpsycho::ffi::fnptr::FnPtr;
 
@@ -24,19 +23,39 @@ pub fn is_loading() -> bool {
     unsafe { *(addr::LOADING_FLAG as *const u8) != 0 }
 }
 
-// Read the HeapCompact trigger field. The game's HeapCompact dispatcher
-// at Phase 6 reads this value and runs OOM stages 0..=N, then resets to 0.
+// HeapCompact stages. The game's HeapCompact dispatcher at Phase 6
+// reads the trigger field and runs stages 0..=N, then resets to 0.
+//
+// Stage 0: Texture cache flush (NiDX9SourceTextureData purge)
+// Stage 1: Geometry cache flush (NiDX9RenderedTexture purge)
+// Stage 2: Menu cleanup (InterfaceManager release)
+// Stage 3: Havok GC (hkMemorySystem garbage collect)
+// Stage 4: PDD purge (ProcessManager lock + full deferred destruction)
+// Stage 5: Cell unloading (FindCellToUnload) — DANGEROUS: deadlocks
+//          during fast travel and loading screens. Never use from
+//          pressure relief.
+#[repr(u32)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub enum HeapCompactStage {
+    TextureCache = 0,
+    GeometryCache = 1,
+    MenuCleanup = 2,
+    HavokGC = 3,
+    PddPurge = 4,
+    CellUnload = 5,
+}
+
+// Read the current HeapCompact trigger value.
 pub fn heap_compact_trigger_value() -> u32 {
     unsafe { *(addr::HEAP_COMPACT_TRIGGER as *const u32) }
 }
 
-// Write to the HeapCompact trigger field. Setting N causes stages 0..=N
-// to run on the next frame. Stage 5+ includes cell unloading -- never
-// set higher than 4 from pressure relief.
-pub fn set_heap_compact_trigger(value: u32) {
+// Signal HeapCompact to run stages 0..=stage on the next frame.
+// The game's dispatcher is inclusive: trigger=N runs stages 0, 1, ..., N.
+pub fn signal_heap_compact(stage: HeapCompactStage) {
     unsafe {
         let trigger = addr::HEAP_COMPACT_TRIGGER as *mut u32;
-        trigger.write_volatile(value);
+        trigger.write_volatile(stage as u32);
     }
 }
 
@@ -127,14 +146,16 @@ pub fn is_main_thread_by_tid() -> bool {
 // OOM recovery -- game stage executor
 // ---------------------------------------------------------------------------
 
-// Run the game's OOM stages 0-8, then flush quarantine and force-collect.
-// Returns a pointer to newly-allocated memory if any stage freed enough,
-// or null if all stages exhausted.
+// Run the game's OOM stages 0-8, then flush quarantine + collect + try alloc.
+//
+// Returns allocated pointer if any stage freed enough, or null.
+// Flush+alloc are kept together (no window for other threads to consume
+// freed VAS between flush and alloc).
 //
 // Safety: must be called on the main thread when AI threads are NOT active.
-// Game stages 4-5 acquire the process manager lock and run FindCellToUnload,
-// which race with AI threads on actor and cell data.
 pub unsafe fn run_oom_stages(size: usize) -> *mut c_void {
+    use std::ptr::null_mut;
+
     let heap_singleton = addr::HEAP_SINGLETON as *mut c_void;
     let primary_heap = unsafe {
         let p = (heap_singleton as *const u8).add(addr::HEAP_PRIMARY_OFFSET)
@@ -159,24 +180,16 @@ pub unsafe fn run_oom_stages(size: usize) -> *mut c_void {
         };
     }
 
-    // After all game stages, flush quarantine and force-collect.
-    use crate::mods::memory::heap_replacer::game_heap::delayed_free;
-    unsafe { delayed_free::flush_current_thread() };
-    unsafe { libmimalloc::mi_collect(true) };
+    // Flush quarantine + collect + alloc — kept together to avoid
+    // other threads consuming freed VAS between flush and alloc.
+    use crate::mods::memory::heap_replacer::game_heap::orchestrator::HeapOrchestrator;
+    unsafe { HeapOrchestrator::flush_and_collect() };
 
     let ptr = unsafe { libmimalloc::mi_malloc_aligned(size, 16) };
     if !ptr.is_null() {
         return ptr;
     }
 
-    let info = libmimalloc::process_info::MiMallocProcessInfo::get();
-    log::error!(
-        "[GHEAP] OOM: mi_malloc_aligned({}, 16) failed after all game stages. \
-         RSS={}MB, Commit={}MB",
-        size,
-        info.get_current_rss() / 1024 / 1024,
-        info.get_current_commit() / 1024 / 1024,
-    );
     null_mut()
 }
 

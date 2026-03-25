@@ -1,17 +1,12 @@
-//! Skeleton update validation hook (FUN_00c79680).
-//!
-//! Validates ragdoll bone array pointer before access. With mimalloc,
-//! freed ragdoll memory can be recycled, so bone_array may point to
-//! garbage. Read lock prevents concurrent quarantine drain (mi_free)
-//! during the original call.
-//!
-//! Called from AI worker threads during physics update.
-//! Read lock: short-scoped (single function call, microseconds).
+// Skeleton update validation hook (FUN_00c79680).
+//
+// Called from AI worker threads during physics update.
+// Always worker thread — with_try_read, skip if drain active.
 
 use libc::c_void;
 
-use super::destruction_guard;
 use super::engine::addr;
+use super::game_guard;
 use super::statics;
 
 pub unsafe extern "fastcall" fn hook_skeleton_update(ragdoll: *mut c_void) {
@@ -19,16 +14,17 @@ pub unsafe extern "fastcall" fn hook_skeleton_update(ragdoll: *mut c_void) {
         return;
     }
 
-    // Read lock: blocks quarantine drain while we validate + call original.
-    // try_read: if write lock held (drain in progress), skip this update
-    // rather than block an AI thread (would delay AI_JOIN → frame stall).
-    destruction_guard::try_read(|| {
+    game_guard::with_try_read(|| {
+        let vtable = unsafe { *(ragdoll as *const usize) };
+        if !(addr::RDATA_START..addr::RDATA_END).contains(&vtable) {
+            return;
+        }
+
         let bone_array = unsafe {
             std::ptr::read_volatile(
                 (ragdoll as *const u8).add(addr::RAGDOLL_BONE_ARRAY_OFFSET) as *const usize,
             )
         };
-
         if bone_array < addr::MIN_VALID_PTR {
             return;
         }

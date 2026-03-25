@@ -1,21 +1,12 @@
 //! IO task release hook (FUN_0044dd60).
 //!
-//! Validates vtable pointer and refcount before calling the original
-//! DecRef. With mimalloc, freed task memory can be recycled immediately,
-//! so stale task pointers may have garbage vtable/refcount. Read lock
-//! prevents concurrent quarantine drain during validation + original call.
-//!
-//! Called from BSTaskManagerThread (continuous) and main thread Phase 3.
-//! Read lock: short-scoped (single function call, microseconds).
-//!
-//! NOTE: When called from main thread (Phase 3), we must NOT acquire
-//! read lock — main thread is the writer, same-thread read+write deadlocks.
-//! Main thread path skips the lock (it can't race with itself).
+//! Validates vtable pointer and refcount before calling the original DecRef.
+//! with_try_read handles main/worker distinction internally.
 
 use libc::c_void;
 
-use super::destruction_guard;
 use super::engine::addr;
+use super::game_guard;
 use super::statics;
 
 pub unsafe extern "fastcall" fn hook_task_release(this: *mut c_void) {
@@ -23,18 +14,9 @@ pub unsafe extern "fastcall" fn hook_task_release(this: *mut c_void) {
         return;
     }
 
-    if super::delayed_free::is_main_thread() {
-        // Main thread: no read lock (writer thread, would deadlock).
-        // Safe: main thread can't race with its own drain.
+    game_guard::with_try_read(|| {
         unsafe { validate_and_release(this) };
-    } else {
-        // Worker thread (BSTaskManagerThread): read lock protects against
-        // concurrent quarantine drain. try_read: if drain in progress,
-        // skip release (task will be leaked but avoids crash).
-        destruction_guard::try_read(|| {
-            unsafe { validate_and_release(this) };
-        });
-    }
+    });
 }
 
 unsafe fn validate_and_release(this: *mut c_void) {

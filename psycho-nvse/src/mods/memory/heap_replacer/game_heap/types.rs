@@ -54,12 +54,6 @@ pub type AIThreadStartFn = unsafe extern "fastcall" fn(mgr: *mut c_void);
 /// FUN_008c7990: waits for all AI Linear Task Threads to finish.
 pub type AIThreadJoinFn = unsafe extern "fastcall" fn(mgr: *mut c_void);
 
-// ---- Queued reference processing ----
-
-/// FUN_0056f700: processes a queued reference after IO task completes.
-/// fastcall, TESObjectREFR* in ECX.
-pub type QueuedRefProcessFn = unsafe extern "fastcall" fn(*mut c_void);
-
 // ---- Cell transition (engine bug fix) ----
 
 /// FUN_008774a0: orchestrates safe object destruction during cell transitions.
@@ -171,3 +165,21 @@ pub type GetThreadIdFn = unsafe extern "C" fn() -> u32;
 
 /// FUN_0044edb0: get main thread ID from TES object (fastcall, TES ptr in ECX).
 pub type GetMainThreadIdFn = unsafe extern "fastcall" fn(*mut c_void) -> u32;
+
+// ---- Havok broadphase synchronization ----
+
+pub type HavokAddEntityFn =
+    unsafe extern "thiscall" fn(*mut c_void, i32, i32, i32);
+pub type HavokCollObjDtorFn =
+    unsafe extern "thiscall" fn(*mut c_void, u8);
+pub type HavokRaycastFn =
+    unsafe extern "thiscall" fn(*mut c_void, *mut c_void, *mut c_void, i32, u32, u32);
+
+// ---- Actor process synchronization ----
+
+pub type ActorDowngradeInnerFn =
+    unsafe extern "thiscall" fn(*mut c_void, *mut c_void);
+pub type AIProcess1Fn = unsafe extern "fastcall" fn(i32);
+pub type AIProcess2Fn = unsafe extern "fastcall" fn(i32);
+pub type CellMgmtUpdateFn = unsafe extern "thiscall" fn(*mut c_void, f32);
+pub type ProcessMgrUpdateFn = unsafe extern "fastcall" fn(i32);
