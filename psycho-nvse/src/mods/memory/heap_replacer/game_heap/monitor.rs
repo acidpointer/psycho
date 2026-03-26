@@ -46,11 +46,12 @@ impl Monitor {
                     info.cpu_efficiency_percent(),
                 );
 
-                if relief > 0 {
+                let cu_cells = super::engine::cell_unload::total_cells_unloaded();
+                let cu_freed = super::engine::cell_unload::total_bytes_freed() / 1024 / 1024;
+                if relief > 0 || cu_cells > 0 {
                     log::info!(
-                        "[PRESSURE] cumulative: {} reliefs, {} cells unloaded",
-                        relief,
-                        cells,
+                        "[RECLAIM] pressure: {} reliefs, {} cells | cell_unload: {} cells, freed {}MB",
+                        relief, cells, cu_cells, cu_freed,
                     );
                 }
             }

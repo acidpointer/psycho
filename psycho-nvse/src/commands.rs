@@ -35,19 +35,32 @@ nvse_command!(PsychoMemBytes, cmd, {
 });
 
 nvse_command!(PsychoSBM, cmd, {
+    use crate::mods::memory::game_heap::engine::cell_unload;
+
     let stats = mem_stats::global();
     let sbm2_mb = stats.sbm2_allocated() as f64 / 1024.0 / 1024.0;
     cmd.print(&format!("SBM2 allocated: {:.1} MB", sbm2_mb));
 
-    let cycles = stats.pressure_cycles();
-    if cycles > 0 {
+    let pressure_cycles = stats.pressure_cycles();
+    if pressure_cycles > 0 {
         cmd.print(&format!(
-            "Pressure: {} cycles, {} cells freed",
-            cycles, stats.pressure_cells_unloaded()
+            "Pressure: {} cycles, {} cells freed (pressure)",
+            pressure_cycles, stats.pressure_cells_unloaded()
         ));
     } else {
         cmd.print("Pressure: no events");
     }
+
+    let unload_cycles = cell_unload::total_cycles();
+    if unload_cycles > 0 {
+        cmd.print(&format!(
+            "Cell unload: {} cells in {} cycles, freed {}MB",
+            cell_unload::total_cells_unloaded(),
+            unload_cycles,
+            cell_unload::total_bytes_freed() / 1024 / 1024,
+        ));
+    }
+
     cmd.set_result(sbm2_mb);
     true
 });
@@ -68,6 +81,27 @@ nvse_command!(PsychoQuarantine, cmd, {
     true
 });
 
+nvse_command!(PsychoCellUnload, cmd, {
+    use crate::mods::memory::game_heap::engine::cell_unload;
+
+    let info = libmimalloc::process_info::MiMallocProcessInfo::get();
+    let commit_mb = info.get_current_commit() / 1024 / 1024;
+    let quarantine_mb = HeapOrchestrator::quarantine_usage() / 1024 / 1024;
+
+    cmd.print("=== Cell Unload ===");
+    cmd.print(&format!("Current: commit={}MB, quarantine={}MB", commit_mb, quarantine_mb));
+    cmd.print(&format!(
+        "Lifetime: {} cells unloaded in {} cycles, freed {}MB total",
+        cell_unload::total_cells_unloaded(),
+        cell_unload::total_cycles(),
+        cell_unload::total_bytes_freed() / 1024 / 1024,
+    ));
+    cmd.print("Requesting 20 cells at next AI_JOIN...");
+
+    cell_unload::request_deferred(20);
+    true
+});
+
 // ---------------------------------------------------------------------------
 // Registration
 // ---------------------------------------------------------------------------
@@ -80,6 +114,7 @@ pub fn register(ctx: &mut PluginContext) {
         ("PsychoSBM",      "psbm",   "SBM2 scrap heap stats",         PSYCHOSBM_EXECUTE),
         ("PsychoMemHud",   "pmemh",  "Show memory HUD notification",  PSYCHOMEMHUD_EXECUTE),
         ("PsychoQuarantine", "pquar", "Show quarantine status",       PSYCHOQUARANTINE_EXECUTE),
+        ("PsychoCellUnload", "pcell", "Force cell unload + memory reclaim", PSYCHOCELLUNLOAD_EXECUTE),
     ];
 
     for (name, short, help, execute) in cmds {

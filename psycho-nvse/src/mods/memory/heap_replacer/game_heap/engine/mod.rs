@@ -9,5 +9,6 @@
 // or call a game function through FnPtr directly.
 
 pub mod addr;
+pub mod cell_unload;
 pub mod globals;
 pub mod io_sync;

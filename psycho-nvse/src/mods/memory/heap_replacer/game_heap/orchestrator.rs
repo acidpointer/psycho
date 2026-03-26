@@ -46,7 +46,7 @@
 use libc::c_void;
 use std::cell::Cell;
 use std::ptr::null_mut;
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicU8, AtomicUsize, Ordering};
 
 use libmimalloc::{
     mi_collect, mi_is_in_heap_region, mi_malloc_aligned, mi_realloc_aligned, mi_usable_size,
@@ -66,6 +66,90 @@ const PRESSURE_CHECK_INTERVAL: u32 = 50_000;
 
 thread_local! {
     static ALLOC_COUNTER: Cell<u32> = const { Cell::new(0) };
+}
+
+// ===========================================================================
+// Watchdog — background thread for memory monitoring
+// ===========================================================================
+
+/// Signal from watchdog to main thread: how many cells to unload.
+/// 0 = no action needed. Read + cleared by on_ai_join.
+static WATCHDOG_CELL_UNLOAD: AtomicU8 = AtomicU8::new(0);
+
+/// Watchdog check interval.
+const WATCHDOG_INTERVAL_MS: u64 = 500;
+
+/// Start the watchdog thread. Called once from install.
+/// The thread monitors commit growth and signals cell unload when needed.
+/// Does NOT touch game state — only reads mimalloc stats and sets atomics.
+pub fn start_watchdog() {
+    std::thread::Builder::new()
+        .name("psycho-watchdog".into())
+        .spawn(watchdog_loop)
+        .ok();
+}
+
+fn watchdog_loop() {
+    use libpsycho::os::windows::winapi;
+
+    log::info!("[WATCHDOG] Started (interval={}ms)", WATCHDOG_INTERVAL_MS);
+
+    // Wait for pressure baseline to be calibrated (first frame tick).
+    loop {
+        winapi::sleep(WATCHDOG_INTERVAL_MS as u32);
+        if PressureRelief::instance()
+            .is_some_and(|pr| pr.baseline_commit() > 0)
+        {
+            break;
+        }
+    }
+
+    loop {
+        winapi::sleep(WATCHDOG_INTERVAL_MS as u32);
+
+        let pr = match PressureRelief::instance() {
+            Some(pr) => pr,
+            None => continue,
+        };
+
+        let baseline = pr.baseline_commit();
+        if baseline == 0 {
+            continue;
+        }
+
+        let info = libmimalloc::process_info::MiMallocProcessInfo::get();
+        let commit = info.get_current_commit();
+        let growth = commit.saturating_sub(baseline);
+
+        // Thresholds for cell unload signal.
+        const MODERATE: usize = 500 * 1024 * 1024;
+        const HIGH: usize = 750 * 1024 * 1024;
+        const CRITICAL: usize = 1000 * 1024 * 1024;
+
+        let cells = if growth >= CRITICAL {
+            20u8
+        } else if growth >= HIGH {
+            10
+        } else if growth >= MODERATE {
+            5
+        } else {
+            0
+        };
+
+        if cells > 0 {
+            // Only signal if no pending request (don't overwrite a higher value).
+            let current = WATCHDOG_CELL_UNLOAD.load(Ordering::Relaxed);
+            if cells > current {
+                WATCHDOG_CELL_UNLOAD.store(cells, Ordering::Release);
+                log::info!(
+                    "[WATCHDOG] Cell unload signaled: {} cells (commit={}MB, growth={}MB)",
+                    cells,
+                    commit / 1024 / 1024,
+                    growth / 1024 / 1024,
+                );
+            }
+        }
+    }
 }
 
 // ===========================================================================
@@ -148,9 +232,24 @@ impl Quarantine {
         if self.previous.is_empty() {
             return;
         }
-        let count = self.previous.len();
         Self::drain_buf(&mut self.previous);
-        log::trace!("[QUARANTINE] Drained previous: {} ptrs", count);
+    }
+
+    /// Drain current buffer only. Caller must hold write lock.
+    fn drain_current(&mut self) {
+        if self.current.is_empty() {
+            return;
+        }
+        let before = QUARANTINE_BYTES.load(Ordering::Relaxed);
+        let count = self.current.len();
+        Self::drain_buf(&mut self.current);
+        let freed = before.saturating_sub(QUARANTINE_BYTES.load(Ordering::Relaxed));
+        if freed > 1024 * 1024 {
+            log::info!(
+                "[QUARANTINE] Drained current: {} ptrs, freed {}MB",
+                count, freed / 1024 / 1024,
+            );
+        }
     }
 
     /// Drain all buffers. Caller must hold write lock.
@@ -159,13 +258,19 @@ impl Quarantine {
         if count == 0 {
             return;
         }
+        let before = QUARANTINE_BYTES.load(Ordering::Relaxed);
         Self::drain_buf(&mut self.previous);
         Self::drain_buf(&mut self.current);
-        log::debug!(
-            "[QUARANTINE] Drained all: {} ptrs, {}MB remaining",
-            count,
-            QUARANTINE_BYTES.load(Ordering::Relaxed) / 1024 / 1024,
-        );
+        let freed = before.saturating_sub(QUARANTINE_BYTES.load(Ordering::Relaxed));
+        // Only log significant drains (>1MB or >10K ptrs).
+        if freed > 1024 * 1024 || count > 10_000 {
+            log::info!(
+                "[QUARANTINE] Drained: {} ptrs, freed {}MB, remaining {}MB",
+                count,
+                freed / 1024 / 1024,
+                QUARANTINE_BYTES.load(Ordering::Relaxed) / 1024 / 1024,
+            );
+        }
     }
 
     fn drain_buf(buf: &mut Vec<(*mut c_void, usize)>) {
@@ -354,6 +459,29 @@ impl HeapOrchestrator {
             QUARANTINE.with(|q| {
                 let q = unsafe { &mut *q.get() };
                 q.drain_previous();
+
+                // During loading: also drain current IF quarantine is large.
+                // Normal gameplay: only previous (one-frame temporal separation).
+                //
+                // During coc/fast travel, PDD frees old worldspace objects →
+                // current buffer grows (rotation skipped during loading).
+                // Workers need that VAS for new worldspace textures.
+                //
+                // NOT drain_all every frame — that frees Script forms that
+                // NVSE plugins (JIP LN_ProcessEvents) reference via cached
+                // pointers. Only drain when quarantine is large enough to
+                // threaten OOM (512MB+). Small quarantine = zombie forms
+                // stay readable for NVSE.
+                if globals::is_loading() {
+                    let qbytes = QUARANTINE_BYTES.load(Ordering::Relaxed);
+                    if qbytes > 512 * 1024 * 1024 {
+                        log::info!(
+                            "[QUARANTINE] Loading drain: {}MB over threshold",
+                            qbytes / 1024 / 1024,
+                        );
+                        q.drain_current();
+                    }
+                }
             });
 
             texture_cache::clear_dead_set();
@@ -388,12 +516,34 @@ impl HeapOrchestrator {
         game_guard::set_ai_active();
     }
 
-    /// AI_JOIN: mark AI threads inactive, run deferred unload.
+    /// AI_JOIN: mark AI threads inactive, run deferred unload,
+    /// proactive cell unload if VAS pressure detected.
     pub unsafe fn on_ai_join() {
         game_guard::clear_ai_active();
 
+        // Pressure-driven deferred unload (aggressive collect + cell unload).
         if let Some(pr) = PressureRelief::instance() {
             unsafe { pr.run_deferred_unload() };
+        }
+
+        // Check signals: console command (pcell) + watchdog thread.
+        // Both set atomics, we read and clear here where AI is guaranteed idle.
+        let deferred = super::engine::cell_unload::take_deferred_request();
+        let watchdog = WATCHDOG_CELL_UNLOAD.swap(0, Ordering::AcqRel) as usize;
+
+        let max_cells = deferred.max(watchdog);
+        if max_cells > 0 {
+            if let Some(result) = super::engine::cell_unload::execute(max_cells) {
+                if result.cells > 0 {
+                    // Flush quarantine from unloaded cell objects.
+                    unsafe { Self::flush_and_collect() };
+
+                    // Flag loading counter decrement for next frame.
+                    if let Some(pr) = PressureRelief::instance() {
+                        pr.set_pending_counter_decrement();
+                    }
+                }
+            }
         }
     }
 

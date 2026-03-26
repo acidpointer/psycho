@@ -111,6 +111,11 @@ impl PressureRelief {
         baseline + MAX_GROWTH_ABOVE_BASELINE
     }
 
+    /// Get the calibrated baseline commit (0 if not yet calibrated).
+    pub fn baseline_commit(&self) -> usize {
+        self.baseline_commit.load(Ordering::Relaxed)
+    }
+
     // Measure baseline commit on first tick (main loop started, mods loaded).
     pub fn calibrate_baseline(&self) {
         if self.baseline_commit.load(Ordering::Relaxed) != 0 {
@@ -149,6 +154,13 @@ impl PressureRelief {
 
     pub fn is_requested(&self) -> bool {
         self.requested.load(Ordering::Relaxed)
+    }
+
+    // Flag that loading counter needs decrementing next frame.
+    // Called by external code (cell_unload command, OOM recovery) that
+    // ran cell unload outside the normal pressure relief path.
+    pub fn set_pending_counter_decrement(&self) {
+        self.pending_counter_decrement.store(true, Ordering::Release);
     }
 
     // Decrement the loading state counter if a previous destruction_protocol
@@ -267,10 +279,9 @@ impl PressureRelief {
             );
         }
 
-        // Cell unloading: skip during loading (fast travel, cell transition).
-        if globals::is_loading() {
-            return;
-        }
+        // No is_loading() check: cell unload during loading is needed —
+        // the game's own OOM stage 5 does FindCellToUnload without checking
+        // loading state. Unloading old cells frees VAS for new ones.
 
         let manager = match globals::game_manager() {
             Some(m) => m,

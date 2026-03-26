@@ -419,5 +419,6 @@ pub fn install_game_heap_hooks() -> anyhow::Result<()> {
 /// Must be called OUTSIDE DllMain, e.g. from NVSEPlugin_Load.
 pub fn start_deferred_threads() {
     std::mem::forget(game_heap::monitor::Monitor::start());
+    game_heap::orchestrator::start_watchdog();
     log::info!("[HEAP REPLACER] Deferred threads started");
 }
