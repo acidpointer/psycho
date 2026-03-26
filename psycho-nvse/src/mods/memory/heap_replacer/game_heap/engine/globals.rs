@@ -19,8 +19,35 @@ use crate::mods::memory::heap_replacer::game_heap::types;
 // ---------------------------------------------------------------------------
 
 // True when the game is in a loading screen (save load, fast travel, coc).
+/// Loading state with edge detection for logging.
+static WAS_LOADING: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
 pub fn is_loading() -> bool {
-    unsafe { *(addr::LOADING_FLAG as *const u8) != 0 }
+    let loading = unsafe { *(addr::LOADING_FLAG as *const u8) != 0 };
+    let was = WAS_LOADING.load(std::sync::atomic::Ordering::Relaxed);
+
+    if loading != was {
+        WAS_LOADING.store(loading, std::sync::atomic::Ordering::Relaxed);
+        let tid = libpsycho::os::windows::winapi::get_current_thread_id();
+        let info = libmimalloc::process_info::MiMallocProcessInfo::get();
+        if loading {
+            log::warn!(
+                "[LOADING] Started: tid={}, commit={}MB, quarantine={}MB",
+                tid,
+                info.get_current_commit() / 1024 / 1024,
+                super::super::orchestrator::HeapOrchestrator::quarantine_usage() / 1024 / 1024,
+            );
+        } else {
+            log::warn!(
+                "[LOADING] Ended: tid={}, commit={}MB, quarantine={}MB",
+                tid,
+                info.get_current_commit() / 1024 / 1024,
+                super::super::orchestrator::HeapOrchestrator::quarantine_usage() / 1024 / 1024,
+            );
+        }
+    }
+
+    loading
 }
 
 // HeapCompact stages. The game's HeapCompact dispatcher at Phase 6
@@ -117,29 +144,34 @@ pub fn pdd_queue_count(queue: PddQueue) -> u16 {
 // Check if the current thread is the game's main thread by comparing
 // thread IDs through the engine's own GetCurrentThreadId wrapper and
 // the main thread ID stored in the TES object.
-pub fn is_main_thread_by_tid() -> bool {
-    unsafe {
-        let get_tid = match FnPtr::<types::GetThreadIdFn>::from_raw(
-            addr::GET_THREAD_ID as *mut c_void,
-        ) {
-            Ok(f) => f,
-            Err(_) => return false,
-        };
-        let get_main = match FnPtr::<types::GetMainThreadIdFn>::from_raw(
-            addr::GET_MAIN_THREAD_ID as *mut c_void,
-        ) {
-            Ok(f) => f,
-            Err(_) => return false,
-        };
-        let tes = *(addr::TES_OBJECT as *const *mut c_void);
-        if tes.is_null() {
-            return false;
-        }
-        match (get_tid.as_fn(), get_main.as_fn()) {
-            (Ok(tid), Ok(main)) => tid() == main(tes),
-            _ => false,
-        }
+/// Stored main thread ID. Set ONLY from on_pre_ai (game main loop Phase 7).
+/// This is the ONE place we are 100% certain is the main thread.
+static MAIN_THREAD_ID: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
+
+/// Set main thread ID. Called ONCE from on_pre_ai (first frame tick).
+/// on_pre_ai is a hook inside the game's main loop — guaranteed main thread.
+pub fn set_main_thread_id() {
+    let tid = libpsycho::os::windows::winapi::get_current_thread_id();
+    let prev = MAIN_THREAD_ID.swap(tid, std::sync::atomic::Ordering::Release);
+    if prev == 0 {
+        log::info!("[THREAD] Main thread ID confirmed from on_pre_ai: {}", tid);
+    } else if prev != tid {
+        log::error!(
+            "[THREAD] Main thread ID changed: {} -> {} (should never happen)",
+            prev, tid,
+        );
     }
+}
+
+/// Check if current thread is main. Simple OS thread ID comparison.
+/// Returns false until on_pre_ai sets the ID (first frame tick).
+/// Before that: all frees go to mi_free (QUARANTINE_ACTIVE is also false).
+pub fn is_main_thread_by_tid() -> bool {
+    let main_tid = MAIN_THREAD_ID.load(std::sync::atomic::Ordering::Acquire);
+    if main_tid == 0 {
+        return false;
+    }
+    libpsycho::os::windows::winapi::get_current_thread_id() == main_tid
 }
 
 // ---------------------------------------------------------------------------

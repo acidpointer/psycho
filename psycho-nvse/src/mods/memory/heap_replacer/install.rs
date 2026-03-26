@@ -79,6 +79,10 @@ pub fn install_game_heap_hooks() -> anyhow::Result<()> {
     // Initialize heap validation cache for routing pre-hook pointers.
     super::heap_validate::init_heap_cache();
 
+    // Main thread ID is set from on_pre_ai (first frame tick) — the ONE
+    // place we're 100% certain is the game's main thread. NOT here,
+    // because install may run on a loader thread.
+
     // Initialize memory pressure relief (triggers LazyLock construction).
     game_heap::pressure::PressureRelief::instance();
 

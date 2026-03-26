@@ -89,7 +89,6 @@ struct CellUnloadGuard {
 #[derive(Debug)]
 pub enum AcquireError {
 	AiActive,
-	BstBusy,
 	NoManager,
 	SetupFailed,
 }
@@ -97,17 +96,17 @@ pub enum AcquireError {
 impl CellUnloadGuard {
 	/// Try to acquire all locks for cell unloading.
 	fn acquire() -> Result<Self, AcquireError> {
-		// NOTE: no is_loading() check. The game's own OOM stage 5 calls
-		// FindCellToUnload without checking loading state. During coc/fast
-		// travel, unloading OLD cells is exactly what's needed. The AI_ACTIVE
-		// and BST_BUSY checks below are sufficient for safety.
+		// Only check: AI threads must be idle. FindCellToUnload modifies
+		// cell arrays that AI threads read.
+		//
+		// NO is_loading() check: game's OOM stage 5 unloads during loading.
+		// NO is_bst_cell_load_pending() check: BST loads NEW cells while
+		// we unload OLD cells (different cells). FindCellToUnload itself
+		// checks cell eligibility (FUN_004511e0, FUN_00557090) and skips
+		// cells with pending loads.
 
 		if super::super::game_guard::is_ai_active() {
 			return Err(AcquireError::AiActive);
-		}
-
-		if globals::is_bst_cell_load_pending() {
-			return Err(AcquireError::BstBusy);
 		}
 
 		let manager = globals::game_manager()

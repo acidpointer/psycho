@@ -288,11 +288,9 @@ impl PressureRelief {
             None => return,
         };
 
-        // Check BSTaskManagerThread guard: skip if cell load is pending.
-        if globals::is_bst_cell_load_pending() {
-            log::debug!("[PRESSURE] Deferred unload skipped -- BSTaskManagerThread busy");
-            return;
-        }
+        // No BST pending check: FindCellToUnload handles cell eligibility
+        // internally (FUN_004511e0, FUN_00557090). BST loads NEW cells
+        // while we unload OLD cells — different cells, no conflict.
 
         let cells = unsafe { Self::destruction_protocol(manager) };
 
