@@ -324,10 +324,18 @@ impl PressureRelief {
         let loading_counter = globals::loading_state_counter();
         loading_counter.fetch_add(1, std::sync::atomic::Ordering::AcqRel);
 
-        // Lock Havok world + invalidate scene graph.
+        // Lock order: IO → Havok (matches CellTransitionHandler to prevent deadlock).
+
+        // 1. IO lock FIRST.
+        let io_locked = unsafe { io_sync::io_lock_acquire() };
+
+        // 2. Havok lock SECOND.
         let mut state = match unsafe { globals::pre_destruction_setup() } {
             Some(s) => s,
             None => {
+                if io_locked {
+                    unsafe { io_sync::io_lock_release() };
+                }
                 loading_counter.fetch_sub(1, std::sync::atomic::Ordering::AcqRel);
                 return 0;
             }
@@ -341,27 +349,16 @@ impl PressureRelief {
             }
         }
 
-        // IO synchronization: acquire dequeue lock so BSTaskManagerThread
-        // cannot dequeue new tasks during PDD.
-        let io_locked = if cells > 0 {
-            unsafe { io_sync::io_lock_acquire() }
-        } else {
-            false
-        };
-
-        // Run PDD + async flush + cleanup.
+        // Run PDD + async flush + cleanup (IO lock already held).
         unsafe { globals::deferred_cleanup_small(state[5]) };
+
+        // Release in reverse order: Havok first, then IO.
+        unsafe { globals::post_destruction_restore(&mut state) };
 
         if io_locked {
             unsafe { io_sync::io_lock_release() };
         }
 
-        // Unlock Havok world.
-        unsafe { globals::post_destruction_restore(&mut state) };
-
-        // If cells were unloaded, keep loading counter elevated so NVSE
-        // event dispatch is suppressed. flush_pending_counter_decrement()
-        // decrements it on the next frame.
         if cells == 0 {
             loading_counter.fetch_sub(1, std::sync::atomic::Ordering::AcqRel);
         }

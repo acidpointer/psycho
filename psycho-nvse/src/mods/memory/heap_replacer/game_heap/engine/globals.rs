@@ -19,35 +19,11 @@ use crate::mods::memory::heap_replacer::game_heap::types;
 // ---------------------------------------------------------------------------
 
 // True when the game is in a loading screen (save load, fast travel, coc).
-/// Loading state with edge detection for logging.
-static WAS_LOADING: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
-
+// Simple volatile read. No edge detection overhead on the hot path.
+// Loading transitions are logged by the watchdog thread instead.
+#[inline]
 pub fn is_loading() -> bool {
-    let loading = unsafe { *(addr::LOADING_FLAG as *const u8) != 0 };
-    let was = WAS_LOADING.load(std::sync::atomic::Ordering::Relaxed);
-
-    if loading != was {
-        WAS_LOADING.store(loading, std::sync::atomic::Ordering::Relaxed);
-        let tid = libpsycho::os::windows::winapi::get_current_thread_id();
-        let info = libmimalloc::process_info::MiMallocProcessInfo::get();
-        if loading {
-            log::warn!(
-                "[LOADING] Started: tid={}, commit={}MB, quarantine={}MB",
-                tid,
-                info.get_current_commit() / 1024 / 1024,
-                super::super::orchestrator::HeapOrchestrator::quarantine_usage() / 1024 / 1024,
-            );
-        } else {
-            log::warn!(
-                "[LOADING] Ended: tid={}, commit={}MB, quarantine={}MB",
-                tid,
-                info.get_current_commit() / 1024 / 1024,
-                super::super::orchestrator::HeapOrchestrator::quarantine_usage() / 1024 / 1024,
-            );
-        }
-    }
-
-    loading
+    unsafe { *(addr::LOADING_FLAG as *const u8) != 0 }
 }
 
 // HeapCompact stages. The game's HeapCompact dispatcher at Phase 6

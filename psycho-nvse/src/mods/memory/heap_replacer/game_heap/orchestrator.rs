@@ -17,30 +17,30 @@
 //! # Frame lifecycle
 //!
 //! ```text
-//! Phase 7  on_pre_ai:    write_lock → drain previous → clear dead set
-//! Phase 8  on_ai_start:  set AI_ACTIVE
+//! Phase 6  (HeapCompact)  PDD processes queues
+//! Phase 7  on_pre_ai:     write_lock → drain_old → clear dead set
+//! Phase 8  on_ai_start:   set AI_ACTIVE
 //! Phase 9  (render)
-//! Phase 10 on_mid_frame: rotate quarantine, calibrate pressure, relieve
-//! Phase 11 on_ai_join:   clear AI_ACTIVE, deferred unload
+//! Phase 10 on_mid_frame:  mark_frame_boundary, calibrate pressure, relieve
+//! Phase 11 on_ai_join:    clear AI_ACTIVE, deferred unload, cell unload
 //! ```
 //!
-//! # Quarantine buffer lifecycle
+//! # Quarantine — capped FIFO ring buffer (512MB)
 //!
 //! ```text
-//! Normal gameplay:
-//!   on_pre_ai:   drain(previous)           ← mi_free here ONLY
-//!   on_mid_frame: swap current↔previous    (NO mi_free!)
-//!   next on_pre_ai: drain(previous) = this frame's frees
+//! Push (gheap_free): append to VecDeque (NO mi_free)
 //!
-//! During loading:
-//!   on_pre_ai:   drain(previous) only — current accumulates
-//!   on_mid_frame: skip rotation (loading)
-//!   OOM handler:  blocking write + drain ALL (safety valve)
+//! Per-frame drain (on_pre_ai, write lock):
+//!   1. drain entries before frame boundary (1+ frames old)
+//!   2. if still > 512MB: evict oldest to cap
 //!
-//! Loading → gameplay:
-//!   First post-load frame: NVSE events fire (forms in quarantine ✓)
-//!   on_mid_frame: swap current→previous
-//!   Next on_pre_ai: drain previous (NVSE events done)
+//! Frame boundary (on_mid_frame, no lock, SKIP during loading):
+//!   mark current entries as "old" for next drain
+//!   Skipped during loading: JIP LN caches form ptrs across loading,
+//!   dispatches CellChange after. Forms must stay zombie until then.
+//!
+//! Emergency drain (OOM, write lock):
+//!   drain ALL entries including recent
 //! ```
 
 use libc::c_void;
@@ -83,8 +83,31 @@ static WATCHDOG_CELL_UNLOAD: AtomicU8 = AtomicU8::new(0);
 /// (loading objects, textures, models go through gheap_alloc).
 pub static EMERGENCY_CLEANUP: AtomicBool = AtomicBool::new(false);
 
-/// Watchdog check interval.
-const WATCHDOG_INTERVAL_MS: u64 = 500;
+/// Watchdog check interval. 200ms for responsive loading detection.
+/// Cell unload has its own memory-based cooldown so frequent checks
+/// don't cause continuous unloading.
+const WATCHDOG_INTERVAL_MS: u64 = 200;
+
+/// Post-load cooldown: timestamp (elapsed_ms) until which game cleanup
+/// functions must NOT be called. Set by on_ai_join when loading is
+/// detected, checked by on_ai_join AND recover_oom.
+///
+/// After loading ends, the game does post-load init (Havok restart,
+/// scene graph rebuild, NPC setup, NVSE events). Calling game cleanup
+/// (OOM stages, HeapCompact, cell unload) during this window corrupts
+/// game state — frozen enemies, broken physics, black screen freeze.
+static POST_LOAD_UNTIL: AtomicUsize = AtomicUsize::new(0);
+const POST_LOAD_COOLDOWN_MS: u64 = 5000;
+
+/// Check if we're in the post-load cooldown window.
+fn is_post_load_cooldown() -> bool {
+    let until = POST_LOAD_UNTIL.load(Ordering::Relaxed);
+    if until == 0 {
+        return false;
+    }
+    let now = libmimalloc::process_info::MiMallocProcessInfo::get().get_elapsed_ms();
+    now < until
+}
 
 /// Start the watchdog thread. Called once from install.
 /// The thread monitors commit growth and signals cell unload when needed.
@@ -104,15 +127,35 @@ fn watchdog_loop() {
     // Wait for pressure baseline to be calibrated (first frame tick).
     loop {
         winapi::sleep(WATCHDOG_INTERVAL_MS as u32);
-        if PressureRelief::instance()
-            .is_some_and(|pr| pr.baseline_commit() > 0)
-        {
+        if PressureRelief::instance().is_some_and(|pr| pr.baseline_commit() > 0) {
             break;
         }
     }
 
+    let mut was_loading = false;
+
     loop {
         winapi::sleep(WATCHDOG_INTERVAL_MS as u32);
+
+        // Log loading transitions (off main thread, no FPS impact).
+        let loading = globals::is_loading();
+        if loading != was_loading {
+            was_loading = loading;
+            let info = libmimalloc::process_info::MiMallocProcessInfo::get();
+            if loading {
+                log::warn!(
+                    "[LOADING] Started: commit={}MB, quarantine={}MB",
+                    info.get_current_commit() / 1024 / 1024,
+                    QUARANTINE_BYTES.load(Ordering::Relaxed) / 1024 / 1024,
+                );
+            } else {
+                log::warn!(
+                    "[LOADING] Ended: commit={}MB, quarantine={}MB",
+                    info.get_current_commit() / 1024 / 1024,
+                    QUARANTINE_BYTES.load(Ordering::Relaxed) / 1024 / 1024,
+                );
+            }
+        }
 
         let pr = match PressureRelief::instance() {
             Some(pr) => pr,
@@ -129,24 +172,24 @@ fn watchdog_loop() {
         let growth = commit.saturating_sub(baseline);
 
         // Thresholds for cell unload signal.
-        const MODERATE: usize = 500 * 1024 * 1024;
-        const HIGH: usize = 750 * 1024 * 1024;
-        const CRITICAL: usize = 1000 * 1024 * 1024;
+        // High thresholds — only trigger when genuinely near OOM.
+        // Low thresholds cause useless cell churn (unload → reload cycle).
+        const HIGH: usize = 1000 * 1024 * 1024;
+        const CRITICAL: usize = 1200 * 1024 * 1024;
 
         let cells = if growth >= CRITICAL {
-            20u8
+            10u8
         } else if growth >= HIGH {
-            10
-        } else if growth >= MODERATE {
             5
         } else {
             0
         };
 
         if cells > 0 {
-            // Only signal if no pending request (don't overwrite a higher value).
+            // Only signal if no pending request AND cooldown expired.
+            // Prevents continuous cell unload that kills FPS.
             let current = WATCHDOG_CELL_UNLOAD.load(Ordering::Relaxed);
-            if cells > current {
+            if current == 0 {
                 WATCHDOG_CELL_UNLOAD.store(cells, Ordering::Release);
                 log::info!(
                     "[WATCHDOG] Cell unload signaled: {} cells (commit={}MB, growth={}MB)",
@@ -180,17 +223,41 @@ thread_local! {
 }
 
 // ===========================================================================
-// Quarantine internals
+// Quarantine internals — capped FIFO ring buffer
 // ===========================================================================
+// Quarantine — capped FIFO ring buffer with per-frame drain
+// ===========================================================================
+//
+// Zombie form protection for NVSE plugins and engine PDD/HeapCompact.
+// Replaces the old double-buffer (rotate + drain_previous) with a single
+// VecDeque. Same lifecycle, better behavior during loading.
+//
+// ALL mi_free happens under write lock (game_guard safety for IO workers):
+//
+// 1. Per-frame drain (on_pre_ai, write lock):
+//    Drains entries from BEFORE the frame boundary (1+ frames old).
+//    PDD Phase 6 already processed them. Same as old drain_previous.
+//
+// 2. Cap eviction (on_pre_ai, write lock, after drain):
+//    If total still > 512MB after per-frame drain, evict oldest.
+//    Safety valve for loading where frees outpace per-frame drain.
+//
+// 3. Emergency drain (OOM, write lock):
+//    Drain ALL entries including recent ones.
+//
+// Push NEVER calls mi_free — just appends to the VecDeque.
 
 // Quarantine activates on the first frame tick (on_pre_ai). Before that,
 // main thread frees go to mi_free directly. This prevents quarantine from
-// growing to 1.5GB during the first save load from the main menu (game loop
-// hasn't started yet, no drain mechanism running).
-static QUARANTINE_ACTIVE: std::sync::atomic::AtomicBool =
-    std::sync::atomic::AtomicBool::new(false);
+// growing during the first save load from the main menu (game loop hasn't
+// started yet, no drain mechanism running).
+static QUARANTINE_ACTIVE: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
 static QUARANTINE_BYTES: AtomicUsize = AtomicUsize::new(0);
+
+// Hard cap. Inline eviction triggers when quarantine exceeds this.
+// Same value as the old loading drain threshold (512MB).
+const QUARANTINE_LIMIT: usize = 512 * 1024 * 1024;
 
 thread_local! {
     static QUARANTINE: std::cell::UnsafeCell<Quarantine> =
@@ -198,8 +265,12 @@ thread_local! {
 }
 
 struct Quarantine {
-    current: Vec<(*mut c_void, usize)>,
-    previous: Vec<(*mut c_void, usize)>,
+    buf: std::collections::VecDeque<(*mut c_void, usize)>,
+    total_bytes: usize,
+    /// Frame boundary cursor. Entries before this index are "old" (from
+    /// previous frame or earlier) and eligible for drain in on_pre_ai.
+    /// Set by mark_frame_boundary() in on_mid_frame (replaces rotation).
+    drain_cursor: usize,
 }
 
 unsafe impl Send for Quarantine {}
@@ -207,69 +278,88 @@ unsafe impl Send for Quarantine {}
 impl Quarantine {
     const fn new() -> Self {
         Self {
-            current: Vec::new(),
-            previous: Vec::new(),
+            buf: std::collections::VecDeque::new(),
+            total_bytes: 0,
+            drain_cursor: 0,
         }
     }
 
+    /// Push a pointer into quarantine. Never calls mi_free — eviction
+    /// is deferred to drain_old() under write lock for game_guard safety.
     #[inline]
     fn push(&mut self, ptr: *mut c_void) {
         let size = unsafe { mi_usable_size(ptr) };
+        self.buf.push_back((ptr, size));
+        self.total_bytes += size;
         QUARANTINE_BYTES.fetch_add(size, Ordering::Relaxed);
-        self.current.push((ptr, size));
     }
 
-    /// Swap current↔previous. NEVER calls mi_free.
-    fn rotate(&mut self) {
-        if !self.previous.is_empty() {
-            log::error!(
-                "[QUARANTINE] BUG: previous not empty at rotate ({} ptrs, {}MB). \
-				 Deferring to next drain.",
-                self.previous.len(),
-                QUARANTINE_BYTES.load(Ordering::Relaxed) / 1024 / 1024,
-            );
-            self.previous.append(&mut self.current);
-            return;
-        }
-        std::mem::swap(&mut self.current, &mut self.previous);
+    /// Mark frame boundary: all current entries become "old" and eligible
+    /// for drain_old() on the next on_pre_ai. Replaces double-buffer rotate.
+    fn mark_frame_boundary(&mut self) {
+        self.drain_cursor = self.buf.len();
     }
 
-    /// Drain previous buffer only. Caller must hold write lock.
-    fn drain_previous(&mut self) {
-        if self.previous.is_empty() {
-            return;
+    /// Drain entries from before the frame boundary (1+ frames old),
+    /// then evict to cap if quarantine exceeds the limit.
+    /// Caller must hold write lock.
+    ///
+    /// Two operations under one lock:
+    /// 1. drain_old: free 1-frame-old entries (PDD Phase 6 already ran)
+    /// 2. evict_to_limit: if still over 512MB cap, free oldest entries
+    ///    (safety valve for loading where frees outpace per-frame drain)
+    fn drain_old(&mut self) {
+        // 1. Drain entries from before the frame boundary.
+        let to_drain = self.drain_cursor.min(self.buf.len());
+        if to_drain > 0 {
+            for _ in 0..to_drain {
+                if let Some((ptr, size)) = self.buf.pop_front() {
+                    self.total_bytes -= size;
+                    QUARANTINE_BYTES.fetch_sub(size, Ordering::Relaxed);
+                    unsafe { libmimalloc::mi_free(ptr) };
+                }
+            }
+            self.drain_cursor = 0;
         }
-        Self::drain_buf(&mut self.previous);
+
+        // 2. If still over cap, evict oldest entries.
+        if self.total_bytes > QUARANTINE_LIMIT {
+            let before = self.total_bytes;
+            while self.total_bytes > QUARANTINE_LIMIT {
+                match self.buf.pop_front() {
+                    Some((ptr, size)) => {
+                        self.total_bytes -= size;
+                        QUARANTINE_BYTES.fetch_sub(size, Ordering::Relaxed);
+                        unsafe { libmimalloc::mi_free(ptr) };
+                    }
+                    None => break,
+                }
+            }
+            let evicted = before - self.total_bytes;
+            if evicted > 1024 * 1024 {
+                log::info!(
+                    "[QUARANTINE] Evicted {}MB to cap (now={}MB)",
+                    evicted / 1024 / 1024,
+                    self.total_bytes / 1024 / 1024,
+                );
+            }
+        }
     }
 
-    /// Drain current buffer only. Caller must hold write lock.
-    fn drain_current(&mut self) {
-        if self.current.is_empty() {
-            return;
-        }
-        let before = QUARANTINE_BYTES.load(Ordering::Relaxed);
-        let count = self.current.len();
-        Self::drain_buf(&mut self.current);
-        let freed = before.saturating_sub(QUARANTINE_BYTES.load(Ordering::Relaxed));
-        if freed > 1024 * 1024 {
-            log::info!(
-                "[QUARANTINE] Drained current: {} ptrs, freed {}MB",
-                count, freed / 1024 / 1024,
-            );
-        }
-    }
-
-    /// Drain all buffers. Caller must hold write lock.
+    /// Drain all entries. Caller must hold write lock.
     fn drain_all(&mut self) {
-        let count = self.previous.len() + self.current.len();
+        let count = self.buf.len();
         if count == 0 {
             return;
         }
         let before = QUARANTINE_BYTES.load(Ordering::Relaxed);
-        Self::drain_buf(&mut self.previous);
-        Self::drain_buf(&mut self.current);
+        for (ptr, size) in self.buf.drain(..) {
+            QUARANTINE_BYTES.fetch_sub(size, Ordering::Relaxed);
+            unsafe { libmimalloc::mi_free(ptr) };
+        }
+        self.total_bytes = 0;
+        self.drain_cursor = 0;
         let freed = before.saturating_sub(QUARANTINE_BYTES.load(Ordering::Relaxed));
-        // Only log significant drains (>1MB or >10K ptrs).
         if freed > 1024 * 1024 || count > 10_000 {
             log::info!(
                 "[QUARANTINE] Drained: {} ptrs, freed {}MB, remaining {}MB",
@@ -277,13 +367,6 @@ impl Quarantine {
                 freed / 1024 / 1024,
                 QUARANTINE_BYTES.load(Ordering::Relaxed) / 1024 / 1024,
             );
-        }
-    }
-
-    fn drain_buf(buf: &mut Vec<(*mut c_void, usize)>) {
-        for (ptr, size) in buf.drain(..) {
-            QUARANTINE_BYTES.fetch_sub(size, Ordering::Relaxed);
-            unsafe { libmimalloc::mi_free(ptr) };
         }
     }
 }
@@ -370,18 +453,14 @@ impl HeapOrchestrator {
             if Self::is_main_thread() {
                 Self::with_emergency_cleanup(|| unsafe { Self::handle_emergency_cleanup() });
 
-                if !QUARANTINE_ACTIVE.load(Ordering::Acquire) || globals::is_loading() {
-                    // No quarantine in two cases:
-                    // 1. Before first frame tick (QUARANTINE_ACTIVE false) —
-                    //    prevents 1.5GB quarantine during first save load.
-                    // 2. During loading (coc, fast travel, save load) —
-                    //    CellTransitionHandler already quiesced all workers:
-                    //    BST waited (FUN_00877700), AI drained (FUN_008324e0),
-                    //    Havok stopped. No concurrent readers exist.
-                    //    PDD frees must go directly to mi_free so BST
-                    //    can allocate terrain LOD textures (89MB).
+                if !QUARANTINE_ACTIVE.load(Ordering::Acquire) {
+                    // Before first frame tick: mi_free directly.
+                    // Prevents 1.5GB quarantine during first save load.
                     unsafe { libmimalloc::mi_free(ptr) };
                 } else {
+                    // Quarantine (NVSE zombie form protection).
+                    // Ring buffer auto-evicts oldest entries when over 512MB
+                    // cap, recycling VAS continuously during loading.
                     QUARANTINE.with(|q| {
                         let q = unsafe { &mut *q.get() };
                         q.push(ptr);
@@ -472,76 +551,52 @@ impl HeapOrchestrator {
     // Frame lifecycle
     // =======================================================================
 
-    /// Phase 7 (before AI_START): drain quarantine, clear dead set.
+    /// Phase 7 (before AI_START): drain old quarantine entries, clear dead set.
     ///
     /// Acquires WRITE lock — blocks until in-flight readers finish.
-    /// Drains previous quarantine buffer (one frame old = safe to free).
-    /// Clears texture dead set under same lock.
+    /// Drains quarantine entries from before the frame boundary (1+ frames
+    /// old, PDD Phase 6 has already processed them). Clears texture dead set.
     pub unsafe fn on_pre_ai() {
         // First call: set main thread ID from here — the ONE place we're
         // 100% certain is the game's main thread (main loop Phase 7 hook).
         // Also activates quarantine. Before this, all frees go to mi_free.
         if !QUARANTINE_ACTIVE.load(Ordering::Relaxed) {
+            // Always set main thread ID (needed for is_main_thread checks).
             globals::set_main_thread_id();
-            QUARANTINE_ACTIVE.store(true, Ordering::Release);
+
+            // Only activate quarantine when NOT loading.
+            // First save load from menu: game loop runs frames during loading.
+            // If we activate quarantine here, 1GB+ of frees go to quarantine
+            // instead of mi_free → same OOM we're trying to prevent.
+            // After loading ends: next on_pre_ai activates quarantine for gameplay.
+            if !globals::is_loading() {
+                QUARANTINE_ACTIVE.store(true, Ordering::Release);
+            }
         }
 
         game_guard::with_write("on_pre_ai", || {
             QUARANTINE.with(|q| {
                 let q = unsafe { &mut *q.get() };
-                q.drain_previous();
-
-                // During loading: also drain current IF quarantine is large.
-                // Normal gameplay: only previous (one-frame temporal separation).
-                //
-                // During coc/fast travel, PDD frees old worldspace objects →
-                // current buffer grows (rotation skipped during loading).
-                // Workers need that VAS for new worldspace textures.
-                //
-                // NOT drain_all every frame — that frees Script forms that
-                // NVSE plugins (JIP LN_ProcessEvents) reference via cached
-                // pointers. Only drain when quarantine is large enough to
-                // threaten OOM (512MB+). Small quarantine = zombie forms
-                // stay readable for NVSE.
-                if globals::is_loading() {
-                    let qbytes = QUARANTINE_BYTES.load(Ordering::Relaxed);
-                    if qbytes > 512 * 1024 * 1024 {
-                        log::info!(
-                            "[QUARANTINE] Loading drain: {}MB over threshold",
-                            qbytes / 1024 / 1024,
-                        );
-                        q.drain_current();
-                    }
-                }
+                q.drain_old();
             });
-
             texture_cache::clear_dead_set();
         });
 
-        // Check watchdog + deferred signals for cell unload.
-        // SKIP during loading: quarantine bypass (mi_free directly) already
-        // handles OOM. Cell unload during loading causes deadlock:
-        // Havok lock (pre_destruction_setup) + IO lock (wait for BST) →
-        // BST blocked on Havok lock → deadlock.
-        if !globals::is_loading() {
-            let deferred = super::engine::cell_unload::take_deferred_request();
-            let watchdog = WATCHDOG_CELL_UNLOAD.swap(0, Ordering::AcqRel) as usize;
-            let max_cells = deferred.max(watchdog);
-            if max_cells > 0
-                && let Some(result) = super::engine::cell_unload::execute(max_cells)
-                    && result.cells > 0 {
-                        unsafe { Self::flush_and_collect() };
-                        if let Some(pr) = PressureRelief::instance() {
-                            pr.set_pending_counter_decrement();
-                        }
-                    }
+        // NO cell unload here. Cell unload is expensive (IO lock + Havok lock
+        // = 50-100ms stutter). Runs from on_ai_join where AI is idle and it's
+        // safe to hold locks between frames.
+        // During loading: discard stale watchdog signals.
+        if globals::is_loading() {
+            WATCHDOG_CELL_UNLOAD.store(0, Ordering::Relaxed);
+            super::engine::cell_unload::take_deferred_request();
         }
     }
 
-    /// Mid-frame (post-render, before AI_JOIN): rotate quarantine, pressure.
+    /// Mid-frame (post-render, before AI_JOIN): mark frame boundary, pressure.
     ///
     /// AI threads are STILL ACTIVE — must NOT free any memory here.
-    /// Rotates quarantine buffers (swap only, no mi_free).
+    /// Marks quarantine frame boundary (all current entries become "old"
+    /// and eligible for drain_old on next on_pre_ai). No mi_free here.
     /// Calibrates pressure baseline, runs pressure relief.
     pub unsafe fn on_mid_frame() {
         if let Some(pr) = PressureRelief::instance() {
@@ -549,10 +604,23 @@ impl HeapOrchestrator {
             pr.flush_pending_counter_decrement();
         }
 
+        // Mark frame boundary: entries pushed before this point are now
+        // "old" and will be drained in the next on_pre_ai under write lock.
+        //
+        // SKIP during loading: JIP LN's LN_ProcessEvents caches form pointers
+        // across the loading transition and dispatches CellChange events on the
+        // first post-load frame. Those forms must stay as zombies in quarantine
+        // until AFTER NVSE events fire. If we mark boundary during loading,
+        // drain_old frees them before CellChange → UAF crash.
+        //
+        // After loading ends:
+        //   First post-load frame: NVSE CellChange fires (forms in quarantine ✓)
+        //   on_mid_frame: mark_frame_boundary (all loading entries become "old")
+        //   Next on_pre_ai: drain_old frees them (NVSE events done)
         if !globals::is_loading() {
             QUARANTINE.with(|q| {
                 let q = unsafe { &mut *q.get() };
-                q.rotate();
+                q.mark_frame_boundary();
             });
         }
 
@@ -566,18 +634,69 @@ impl HeapOrchestrator {
         game_guard::set_ai_active();
     }
 
-    /// AI_JOIN: mark AI threads inactive, run deferred unload.
+    /// AI_JOIN: mark AI threads inactive, run deferred unload, cell unload.
+    ///
+    /// This is the ONLY safe place for cell unload — AI idle, between frames.
+    /// Cell unload is expensive (IO lock + Havok lock) but runs here where
+    /// it doesn't stutter visible frames.
     pub unsafe fn on_ai_join() {
         game_guard::clear_ai_active();
 
-        // Pressure-driven deferred unload (aggressive collect + cell unload).
+        // Pressure-drivinfo.get_elapsed_ms() collect + cell unload).
         if let Some(pr) = PressureRelief::instance() {
             unsafe { pr.run_deferred_unload() };
         }
 
-        // Watchdog + deferred signals are consumed in on_pre_ai (Phase 7),
-        // which fires every frame including during loading screens.
-        // on_ai_join may NOT fire during loading (game skips AI dispatch).
+        // Skip cell unload during loading AND for 5 seconds after loading ends.
+        // During loading: deadlock risk (IO lock + Havok lock vs loading thread).
+        // After loading: game does post-load init (Havok restart, scene graph,
+        // NPC setup, NVSE events). Cell unload during init breaks game state.
+        if globals::is_loading() {
+            // Mark cooldown end: now + 5 seconds.
+            let info = libmimalloc::process_info::MiMallocProcessInfo::get();
+            let until = info.get_elapsed_ms() + POST_LOAD_COOLDOWN_MS as usize;
+            POST_LOAD_UNTIL.store(until, Ordering::Relaxed);
+            return;
+        }
+
+        if is_post_load_cooldown() {
+            // Post-load cooldown: discard signals, game still initializing.
+            WATCHDOG_CELL_UNLOAD.store(0, Ordering::Relaxed);
+            super::engine::cell_unload::take_deferred_request();
+            return;
+        }
+
+        // Watchdog + deferred signals: cell unload with memory-based cooldown.
+        static COOLDOWN_COMMIT: AtomicUsize = AtomicUsize::new(0);
+
+        let deferred = super::engine::cell_unload::take_deferred_request();
+        let watchdog = WATCHDOG_CELL_UNLOAD.swap(0, Ordering::AcqRel) as usize;
+        let max_cells = deferred.max(watchdog);
+
+        if max_cells > 0 {
+            // Memory-based cooldown: skip if commit is below what it was
+            // after the last unload. Only fire again when memory grows back.
+            let cooldown = COOLDOWN_COMMIT.load(Ordering::Relaxed);
+            let commit = libmimalloc::process_info::MiMallocProcessInfo::get().get_current_commit();
+            if cooldown > 0 && commit < cooldown {
+                return; // still in cooldown, commit hasn't grown back
+            }
+
+            if let Some(result) = super::engine::cell_unload::execute(max_cells)
+                && result.cells > 0
+            {
+                unsafe { Self::flush_and_collect() };
+                if let Some(pr) = PressureRelief::instance() {
+                    pr.set_pending_counter_decrement();
+                }
+                // Enter cooldown: don't fire again until commit exceeds
+                // what it is NOW. This prevents churn when cells get
+                // immediately reloaded.
+                let post_commit =
+                    libmimalloc::process_info::MiMallocProcessInfo::get().get_current_commit();
+                COOLDOWN_COMMIT.store(post_commit, Ordering::Relaxed);
+            }
+        }
     }
 
     /// Whether pressure relief is active (for PDD boost decisions in hooks).
@@ -603,17 +722,13 @@ impl HeapOrchestrator {
 
     #[cold]
     fn with_emergency_cleanup_cold(f: impl FnOnce()) {
-        let is_main = Self::is_main_thread();
-        let tid = libpsycho::os::windows::winapi::get_current_thread_id();
-        log::warn!(
-            "[EMERGENCY] Signal seen: is_main={}, tid={}, quarantine={}MB",
-            is_main, tid,
-            QUARANTINE_BYTES.load(Ordering::Relaxed) / 1024 / 1024,
-        );
-        if is_main {
+        if Self::is_main_thread() {
             EMERGENCY_CLEANUP.store(false, Ordering::Release);
+            log::warn!("[EMERGENCY] Main thread handling cleanup");
             f();
         }
+        // Workers: no log spam. They can't help — quarantine is main thread TLS.
+        // mi_collect(true) in the OOM retry loop already reclaims cross-thread segments.
     }
 
     // =======================================================================
@@ -627,17 +742,16 @@ impl HeapOrchestrator {
     /// waiting for VAS, and our hooks/watchdog can't help.
     #[cold]
     unsafe fn handle_emergency_cleanup() {
-        // Flag already cleared by caller's swap(false). No re-entry possible
-        // (main thread is single-threaded, alloc/free don't interleave).
+        let info = libmimalloc::process_info::MiMallocProcessInfo::get();
+        let before = info.get_current_commit();
 
         log::warn!(
-            "[EMERGENCY] Cleanup triggered from main thread alloc (commit={}MB, quarantine={}MB)",
-            libmimalloc::process_info::MiMallocProcessInfo::get().get_current_commit() / 1024 / 1024,
+            "[EMERGENCY] Cleanup: commit={}MB, quarantine={}MB",
+            before / 1024 / 1024,
             QUARANTINE_BYTES.load(Ordering::Relaxed) / 1024 / 1024,
         );
 
-        // 1. Flush quarantine — this is the biggest win. Frees all quarantined
-        //    objects immediately, returning VAS to mimalloc.
+        // 1. Quarantine drain + collect.
         game_guard::with_write("emergency_flush", || {
             QUARANTINE.with(|q| {
                 let q = unsafe { &mut *q.get() };
@@ -646,58 +760,12 @@ impl HeapOrchestrator {
         });
         unsafe { mi_collect(true) };
 
-        // 2. Cell unload — if AI is idle (it should be during loading),
-        //    unload old cells to free more objects for workers.
-        if let Some(result) = super::engine::cell_unload::execute(20)
-            && result.cells > 0 {
-                // Flush objects freed by cell unload.
-                game_guard::with_write("emergency_cell_flush", || {
-                    QUARANTINE.with(|q| {
-                        let q = unsafe { &mut *q.get() };
-                        q.drain_all();
-                    });
-                });
-                unsafe { mi_collect(true) };
-
-                if let Some(pr) = PressureRelief::instance() {
-                    pr.set_pending_counter_decrement();
-                }
-            }
-
+        let after = libmimalloc::process_info::MiMallocProcessInfo::get().get_current_commit();
         log::warn!(
-            "[EMERGENCY] Cleanup done (commit={}MB, quarantine={}MB)",
-            libmimalloc::process_info::MiMallocProcessInfo::get().get_current_commit() / 1024 / 1024,
-            QUARANTINE_BYTES.load(Ordering::Relaxed) / 1024 / 1024,
-        );
-    }
-
-    /// Emergency cleanup called from PDD hook during synchronous loading.
-    /// During loading, gheap_alloc/free may not fire (loading uses CRT/VirtualAlloc).
-    /// PDD hook is the one reliable callsite during CellTransitionHandler.
-    ///
-    /// Lighter than full handle_emergency_cleanup: just flush quarantine + collect.
-    /// Cell unload skipped (we're already INSIDE PDD, can't recurse).
-    #[cold]
-    pub unsafe fn handle_emergency_cleanup_from_pdd() {
-        log::warn!(
-            "[EMERGENCY] PDD cleanup: commit={}MB, quarantine={}MB",
-            libmimalloc::process_info::MiMallocProcessInfo::get().get_current_commit() / 1024 / 1024,
-            QUARANTINE_BYTES.load(Ordering::Relaxed) / 1024 / 1024,
-        );
-
-        // Flush quarantine — the biggest win.
-        game_guard::with_write("emergency_pdd_flush", || {
-            QUARANTINE.with(|q| {
-                let q = unsafe { &mut *q.get() };
-                q.drain_all();
-            });
-        });
-        unsafe { mi_collect(true) };
-
-        log::warn!(
-            "[EMERGENCY] PDD cleanup done: commit={}MB, quarantine={}MB",
-            libmimalloc::process_info::MiMallocProcessInfo::get().get_current_commit() / 1024 / 1024,
-            QUARANTINE_BYTES.load(Ordering::Relaxed) / 1024 / 1024,
+            "[EMERGENCY] Done: commit {}MB→{}MB (freed {}MB)",
+            before / 1024 / 1024,
+            after / 1024 / 1024,
+            before.saturating_sub(after) / 1024 / 1024,
         );
     }
 
@@ -759,9 +827,12 @@ impl HeapOrchestrator {
             return ptr;
         }
 
-        // Stage 3 (main thread, AI idle): game's OOM stages 0-8.
-        // run_oom_stages flushes + collects + tries alloc internally.
-        if is_main && !game_guard::is_ai_active() {
+        // Stage 3 (main thread, AI idle, NOT post-load): game's OOM stages 0-8.
+        // run_oom_stages calls game cleanup (texture flush, Havok GC, PDD purge).
+        // SKIP during post-load cooldown: game is doing Havok restart, scene graph
+        // rebuild, NPC setup. Running cleanup stages here corrupts init state →
+        // frozen enemies, broken physics, black screen freeze.
+        if is_main && !game_guard::is_ai_active() && !is_post_load_cooldown() {
             let ptr = unsafe { globals::run_oom_stages(size) };
             if !ptr.is_null() {
                 return ptr;
@@ -779,11 +850,11 @@ impl HeapOrchestrator {
             log::warn!("[OOM] Emergency signaled from worker tid={}", tid);
         }
 
-        // Stage 4: retry loop (all threads, 500 iterations).
-        // Sleep(1) gives other threads time to free memory.
-        // mi_collect(false) reclaims this thread's retired pages.
-        // Halfway: flush quarantine + force collect.
-        for attempt in 0..500u32 {
+        // Stage 4: retry loop.
+        // Main thread: short (10 × 50ms = 500ms) — longer blocks = frozen game.
+        // Workers: longer (200 × 50ms = 10s) — workers can wait for main to free.
+        let max_retries: u32 = if is_main { 10 } else { 200 };
+        for attempt in 0..max_retries {
             libpsycho::os::windows::winapi::sleep(50);
             unsafe { mi_collect(false) };
             let ptr = unsafe { mi_malloc_aligned(size, ALIGN) };
@@ -793,21 +864,25 @@ impl HeapOrchestrator {
                 }
                 return ptr;
             }
-            if attempt == 5 {
+            if attempt == max_retries / 2 {
                 unsafe { Self::flush_and_collect() };
             }
         }
 
-        // Stage 5 (main thread, AI idle, NOT loading): HeapCompact with cell unload.
-        // Nuclear option — signals stage 5 (FindCellToUnload) which frees entire
-        // loaded cells. DANGEROUS: deadlocks during loading/fast travel.
-        // Acquire write lock FIRST to prevent races with worker hooks during
-        // the cell unload + PDD destruction sequence.
-        if is_main && !game_guard::is_ai_active() && !globals::is_loading() {
+        // Stage 5 (main thread, AI idle, NOT loading, NOT post-load): HeapCompact
+        // with cell unload. Nuclear option — signals stage 5 (FindCellToUnload)
+        // which frees entire loaded cells. DANGEROUS: deadlocks during loading/
+        // fast travel, corrupts state during post-load init.
+        if is_main
+            && !game_guard::is_ai_active()
+            && !globals::is_loading()
+            && !is_post_load_cooldown()
+        {
             log::warn!(
                 "[OOM] Stage 5: HeapCompact with cell unload (commit={}MB, quarantine={}MB)",
                 libmimalloc::process_info::MiMallocProcessInfo::get().get_current_commit()
-                    / 1024 / 1024,
+                    / 1024
+                    / 1024,
                 QUARANTINE_BYTES.load(Ordering::Relaxed) / 1024 / 1024,
             );
 
