@@ -270,7 +270,7 @@ impl PressureRelief {
 
         if now_ms.saturating_sub(last_agg) >= AGGRESSIVE_COOLDOWN_MS {
             LAST_AGGRESSIVE_MS.store(now_ms, Ordering::Relaxed);
-            unsafe { super::orchestrator::HeapOrchestrator::flush_and_collect() };
+            unsafe { super::orchestrator::HeapOrchestrator::flush_retired_and_collect() };
             let commit_mb = info.get_current_commit() / 1024 / 1024;
             let quarantine_mb = super::orchestrator::HeapOrchestrator::quarantine_usage() / 1024 / 1024;
             log::warn!(

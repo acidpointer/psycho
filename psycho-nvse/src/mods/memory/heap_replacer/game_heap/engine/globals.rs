@@ -191,7 +191,7 @@ pub unsafe fn run_oom_stages(size: usize) -> *mut c_void {
     // Flush quarantine + collect + alloc — kept together to avoid
     // other threads consuming freed VAS between flush and alloc.
     use crate::mods::memory::heap_replacer::game_heap::orchestrator::HeapOrchestrator;
-    unsafe { HeapOrchestrator::flush_and_collect() };
+    unsafe { HeapOrchestrator::flush_all_and_collect() };
 
     let ptr = unsafe { libmimalloc::mi_malloc_aligned(size, 16) };
     if !ptr.is_null() {

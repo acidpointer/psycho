@@ -25,19 +25,21 @@
 //! Phase 11 on_ai_join:    clear AI_ACTIVE, deferred unload, cell unload
 //! ```
 //!
-//! # Quarantine — capped FIFO ring buffer (512MB)
+//! # Quarantine — epoch-based reclamation (2-epoch grace period)
 //!
 //! ```text
+//! Each frame = one epoch. Objects freed in epoch N are safe to
+//! reclaim only after all consumers have passed epoch N+2.
+//!
 //! Push (gheap_free): append to VecDeque (NO mi_free)
 //!
-//! Per-frame drain (on_pre_ai, write lock):
-//!   1. drain entries before frame boundary (1+ frames old)
-//!   2. if still > 512MB: evict oldest to cap
+//! Epoch advance (on_mid_frame, no lock, SKIP during loading):
+//!   retire_cursor = drain_cursor   (epoch N-1 → reclaimable)
+//!   drain_cursor  = buf.len()      (epoch N   → retiring)
 //!
-//! Frame boundary (on_mid_frame, no lock, SKIP during loading):
-//!   mark current entries as "old" for next drain
-//!   Skipped during loading: JIP LN caches form ptrs across loading,
-//!   dispatches CellChange after. Forms must stay zombie until then.
+//! Per-frame drain (on_pre_ai, write lock):
+//!   1. free entries 0..retire_cursor (2+ epochs old)
+//!   2. if still > 512MB cap: evict oldest
 //!
 //! Emergency drain (OOM, write lock):
 //!   drain ALL entries including recent
@@ -223,27 +225,31 @@ thread_local! {
 }
 
 // ===========================================================================
-// Quarantine internals — capped FIFO ring buffer
 // ===========================================================================
-// Quarantine — capped FIFO ring buffer with per-frame drain
+// Quarantine — epoch-based reclamation with 2-epoch grace period
 // ===========================================================================
 //
-// Zombie form protection for NVSE plugins and engine PDD/HeapCompact.
-// Replaces the old double-buffer (rotate + drain_previous) with a single
-// VecDeque. Same lifecycle, better behavior during loading.
+// Each game frame is an epoch. Objects freed in epoch N stay as readable
+// zombies for 2 full epochs and are reclaimed at epoch N+2. This matches
+// the original SBM behavior where freed memory stayed readable until reuse.
+//
+// Why 2 epochs:
+//   Epoch N:   object freed → quarantine push
+//   Epoch N+1: NVSE events, actor processing, IO tasks may still read it
+//   Epoch N+2: all consumers guaranteed done → safe to mi_free
+//
+// Two cursors track epoch boundaries in the VecDeque:
+//   drain_cursor:  entries before this are 1+ epochs old (retiring)
+//   retire_cursor: entries before this are 2+ epochs old (reclaimable)
 //
 // ALL mi_free happens under write lock (game_guard safety for IO workers):
 //
-// 1. Per-frame drain (on_pre_ai, write lock):
-//    Drains entries from BEFORE the frame boundary (1+ frames old).
-//    PDD Phase 6 already processed them. Same as old drain_previous.
+// 1. Per-frame reclaim (on_pre_ai, write lock):
+//    Free entries before retire_cursor (2+ epochs old).
+//    Then cap eviction if >512MB.
 //
-// 2. Cap eviction (on_pre_ai, write lock, after drain):
-//    If total still > 512MB after per-frame drain, evict oldest.
-//    Safety valve for loading where frees outpace per-frame drain.
-//
-// 3. Emergency drain (OOM, write lock):
-//    Drain ALL entries including recent ones.
+// 2. Emergency drain (OOM, write lock):
+//    Free ALL entries including recent ones (safety valve).
 //
 // Push NEVER calls mi_free — just appends to the VecDeque.
 
@@ -267,10 +273,12 @@ thread_local! {
 struct Quarantine {
     buf: std::collections::VecDeque<(*mut c_void, usize)>,
     total_bytes: usize,
-    /// Frame boundary cursor. Entries before this index are "old" (from
-    /// previous frame or earlier) and eligible for drain in on_pre_ai.
-    /// Set by mark_frame_boundary() in on_mid_frame (replaces rotation).
+    /// Entries before drain_cursor are 1+ epochs old (retiring).
+    /// Set each epoch by advance_epoch: drain_cursor = buf.len().
     drain_cursor: usize,
+    /// Entries before retire_cursor are 2+ epochs old (reclaimable).
+    /// Set each epoch by advance_epoch: retire_cursor = prev drain_cursor.
+    retire_cursor: usize,
 }
 
 unsafe impl Send for Quarantine {}
@@ -281,11 +289,11 @@ impl Quarantine {
             buf: std::collections::VecDeque::new(),
             total_bytes: 0,
             drain_cursor: 0,
+            retire_cursor: 0,
         }
     }
 
-    /// Push a pointer into quarantine. Never calls mi_free — eviction
-    /// is deferred to drain_old() under write lock for game_guard safety.
+    /// Push a freed pointer. Never calls mi_free.
     #[inline]
     fn push(&mut self, ptr: *mut c_void) {
         let size = unsafe { mi_usable_size(ptr) };
@@ -294,47 +302,54 @@ impl Quarantine {
         QUARANTINE_BYTES.fetch_add(size, Ordering::Relaxed);
     }
 
-    /// Mark frame boundary: all current entries become "old" and eligible
-    /// for drain_old() on the next on_pre_ai. Replaces double-buffer rotate.
-    fn mark_frame_boundary(&mut self) {
+    /// Advance epoch: entries from 1-epoch-old become 2-epoch-old
+    /// (reclaimable), current entries become 1-epoch-old (retiring).
+    ///
+    /// Called from on_mid_frame. SKIP during loading (zombie protection
+    /// for NVSE/actor processing across loading transitions).
+    fn advance_epoch(&mut self) {
+        self.retire_cursor = self.drain_cursor;
         self.drain_cursor = self.buf.len();
     }
 
-    /// Drain entries from before the frame boundary (1+ frames old),
-    /// then evict to cap if quarantine exceeds the limit.
+    /// Reclaim entries that have aged through 2 full epochs.
+    /// Then evict to cap if quarantine exceeds the limit.
     /// Caller must hold write lock.
-    ///
-    /// Two operations under one lock:
-    /// 1. drain_old: free 1-frame-old entries (PDD Phase 6 already ran)
-    /// 2. evict_to_limit: if still over 512MB cap, free oldest entries
-    ///    (safety valve for loading where frees outpace per-frame drain)
-    fn drain_old(&mut self) {
-        // 1. Drain entries from before the frame boundary.
-        let to_drain = self.drain_cursor.min(self.buf.len());
-        if to_drain > 0 {
-            for _ in 0..to_drain {
+    fn reclaim(&mut self) {
+        // 1. Free entries that are 2+ epochs old.
+        let to_free = self.retire_cursor.min(self.buf.len());
+        if to_free > 0 {
+            for _ in 0..to_free {
                 if let Some((ptr, size)) = self.buf.pop_front() {
                     self.total_bytes -= size;
                     QUARANTINE_BYTES.fetch_sub(size, Ordering::Relaxed);
                     unsafe { libmimalloc::mi_free(ptr) };
                 }
             }
-            self.drain_cursor = 0;
+            // Adjust cursors: we removed from the front.
+            self.drain_cursor -= to_free;
+            self.retire_cursor = 0;
         }
 
-        // 2. If still over cap, evict oldest entries.
+        // 2. Cap eviction: if still over limit, free oldest entries.
+        //    Safety valve for loading where frees outpace epoch drain.
         if self.total_bytes > QUARANTINE_LIMIT {
             let before = self.total_bytes;
+            let mut evicted_count: usize = 0;
             while self.total_bytes > QUARANTINE_LIMIT {
                 match self.buf.pop_front() {
                     Some((ptr, size)) => {
                         self.total_bytes -= size;
                         QUARANTINE_BYTES.fetch_sub(size, Ordering::Relaxed);
                         unsafe { libmimalloc::mi_free(ptr) };
+                        evicted_count += 1;
                     }
                     None => break,
                 }
             }
+            // Adjust cursors for evicted entries.
+            self.drain_cursor = self.drain_cursor.saturating_sub(evicted_count);
+            self.retire_cursor = self.retire_cursor.saturating_sub(evicted_count);
             let evicted = before - self.total_bytes;
             if evicted > 1024 * 1024 {
                 log::info!(
@@ -346,7 +361,37 @@ impl Quarantine {
         }
     }
 
-    /// Drain all entries. Caller must hold write lock.
+    /// Drain entries that are 1+ epochs old (retiring + reclaimable).
+    /// Preserves current epoch — consumers in this frame still safe.
+    /// Caller must hold write lock.
+    fn drain_retired(&mut self) {
+        let to_free = self.drain_cursor.min(self.buf.len());
+        if to_free == 0 {
+            return;
+        }
+        let before = QUARANTINE_BYTES.load(Ordering::Relaxed);
+        for _ in 0..to_free {
+            if let Some((ptr, size)) = self.buf.pop_front() {
+                self.total_bytes -= size;
+                QUARANTINE_BYTES.fetch_sub(size, Ordering::Relaxed);
+                unsafe { libmimalloc::mi_free(ptr) };
+            }
+        }
+        self.drain_cursor = 0;
+        self.retire_cursor = 0;
+        let freed = before.saturating_sub(QUARANTINE_BYTES.load(Ordering::Relaxed));
+        if freed > 1024 * 1024 {
+            log::info!(
+                "[QUARANTINE] Drained retired: freed {}MB, remaining {}MB",
+                freed / 1024 / 1024,
+                self.total_bytes / 1024 / 1024,
+            );
+        }
+    }
+
+    /// Nuclear: drain ALL entries including current epoch.
+    /// Breaks epoch guarantee — use only when alternative is OOM crash.
+    /// Caller must hold write lock.
     fn drain_all(&mut self) {
         let count = self.buf.len();
         if count == 0 {
@@ -359,6 +404,7 @@ impl Quarantine {
         }
         self.total_bytes = 0;
         self.drain_cursor = 0;
+        self.retire_cursor = 0;
         let freed = before.saturating_sub(QUARANTINE_BYTES.load(Ordering::Relaxed));
         if freed > 1024 * 1024 || count > 10_000 {
             log::info!(
@@ -551,11 +597,11 @@ impl HeapOrchestrator {
     // Frame lifecycle
     // =======================================================================
 
-    /// Phase 7 (before AI_START): drain old quarantine entries, clear dead set.
+    /// Phase 7 (before AI_START): reclaim quarantine entries, clear dead set.
     ///
     /// Acquires WRITE lock — blocks until in-flight readers finish.
-    /// Drains quarantine entries from before the frame boundary (1+ frames
-    /// old, PDD Phase 6 has already processed them). Clears texture dead set.
+    /// Reclaims quarantine entries that have aged through 2 full epochs.
+    /// Clears texture dead set.
     pub unsafe fn on_pre_ai() {
         // First call: set main thread ID from here — the ONE place we're
         // 100% certain is the game's main thread (main loop Phase 7 hook).
@@ -577,14 +623,11 @@ impl HeapOrchestrator {
         game_guard::with_write("on_pre_ai", || {
             QUARANTINE.with(|q| {
                 let q = unsafe { &mut *q.get() };
-                q.drain_old();
+                q.reclaim();
             });
             texture_cache::clear_dead_set();
         });
 
-        // NO cell unload here. Cell unload is expensive (IO lock + Havok lock
-        // = 50-100ms stutter). Runs from on_ai_join where AI is idle and it's
-        // safe to hold locks between frames.
         // During loading: discard stale watchdog signals.
         if globals::is_loading() {
             WATCHDOG_CELL_UNLOAD.store(0, Ordering::Relaxed);
@@ -592,11 +635,10 @@ impl HeapOrchestrator {
         }
     }
 
-    /// Mid-frame (post-render, before AI_JOIN): mark frame boundary, pressure.
+    /// Mid-frame (post-render, before AI_JOIN): advance epoch, pressure.
     ///
     /// AI threads are STILL ACTIVE — must NOT free any memory here.
-    /// Marks quarantine frame boundary (all current entries become "old"
-    /// and eligible for drain_old on next on_pre_ai). No mi_free here.
+    /// Advances the quarantine epoch (no mi_free, just cursor update).
     /// Calibrates pressure baseline, runs pressure relief.
     pub unsafe fn on_mid_frame() {
         if let Some(pr) = PressureRelief::instance() {
@@ -604,23 +646,26 @@ impl HeapOrchestrator {
             pr.flush_pending_counter_decrement();
         }
 
-        // Mark frame boundary: entries pushed before this point are now
-        // "old" and will be drained in the next on_pre_ai under write lock.
+        // Advance quarantine epoch: entries from epoch N-1 become
+        // reclaimable (2 epochs old), epoch N entries start retiring.
         //
-        // SKIP during loading: JIP LN's LN_ProcessEvents caches form pointers
-        // across the loading transition and dispatches CellChange events on the
-        // first post-load frame. Those forms must stay as zombies in quarantine
-        // until AFTER NVSE events fire. If we mark boundary during loading,
-        // drain_old frees them before CellChange → UAF crash.
+        // SKIP during loading: forms freed during loading must stay
+        // zombie across the ENTIRE loading transition. NVSE plugins
+        // (JIP LN CellChange), actor processing, and IO tasks all
+        // access freed forms after loading ends. Epoch advances
+        // resume on the first post-load frame.
         //
-        // After loading ends:
-        //   First post-load frame: NVSE CellChange fires (forms in quarantine ✓)
-        //   on_mid_frame: mark_frame_boundary (all loading entries become "old")
-        //   Next on_pre_ai: drain_old frees them (NVSE events done)
+        // Post-load timeline with 2-epoch grace:
+        //   Loading ends:
+        //   Post-load frame 1: NVSE events + actor init (forms zombie ✓)
+        //                      advance_epoch → loading entries = retiring
+        //   Post-load frame 2: all consumers done (forms zombie ✓)
+        //                      advance_epoch → loading entries = reclaimable
+        //   Post-load frame 3: reclaim frees them
         if !globals::is_loading() {
             QUARANTINE.with(|q| {
                 let q = unsafe { &mut *q.get() };
-                q.mark_frame_boundary();
+                q.advance_epoch();
             });
         }
 
@@ -685,7 +730,7 @@ impl HeapOrchestrator {
             if let Some(result) = super::engine::cell_unload::execute(max_cells)
                 && result.cells > 0
             {
-                unsafe { Self::flush_and_collect() };
+                unsafe { Self::flush_all_and_collect() };
                 if let Some(pr) = PressureRelief::instance() {
                     pr.set_pending_counter_decrement();
                 }
@@ -751,7 +796,7 @@ impl HeapOrchestrator {
             QUARANTINE_BYTES.load(Ordering::Relaxed) / 1024 / 1024,
         );
 
-        // 1. Quarantine drain + collect.
+        // 1. Quarantine drain (retired first, then all) + collect.
         game_guard::with_write("emergency_flush", || {
             QUARANTINE.with(|q| {
                 let q = unsafe { &mut *q.get() };
@@ -773,11 +818,23 @@ impl HeapOrchestrator {
     // Quarantine flush (used by pressure.rs for aggressive collect)
     // =======================================================================
 
-    /// Flush all quarantine with BLOCKING write lock + mi_collect(true).
-    ///
-    /// Try to flush quarantine (non-blocking) + mi_collect(true).
-    /// Uses try_write — skips drain if readers active.
-    pub unsafe fn flush_and_collect() {
+    /// Safe flush: drain retired entries (1+ epochs old) + mi_collect.
+    /// Preserves current epoch's zombie protection.
+    /// Uses try_write — skips if readers active.
+    pub unsafe fn flush_retired_and_collect() {
+        game_guard::with_try_write(|| {
+            QUARANTINE.with(|q| {
+                let q = unsafe { &mut *q.get() };
+                q.drain_retired();
+            });
+        });
+        unsafe { mi_collect(true) };
+    }
+
+    /// Nuclear flush: drain ALL quarantine + mi_collect.
+    /// Breaks epoch guarantee — only when alternative is OOM crash.
+    /// Uses try_write — skips if readers active.
+    pub unsafe fn flush_all_and_collect() {
         game_guard::with_try_write(|| {
             QUARANTINE.with(|q| {
                 let q = unsafe { &mut *q.get() };
@@ -820,14 +877,24 @@ impl HeapOrchestrator {
             return ptr;
         }
 
-        // Stage 2: flush quarantine (try_write, non-blocking) + force collect.
-        unsafe { Self::flush_and_collect() };
+        // Stage 2: safe flush — drain retired entries (1+ epochs old).
+        // Preserves current epoch's zombie protection.
+        unsafe { Self::flush_retired_and_collect() };
         let ptr = unsafe { mi_malloc_aligned(size, ALIGN) };
         if !ptr.is_null() {
             return ptr;
         }
 
-        // Stage 3 (main thread, AI idle, NOT post-load): game's OOM stages 0-8.
+        // Stage 3: nuclear flush — drain ALL quarantine including current epoch.
+        // Breaks epoch guarantee but avoids OOM crash.
+        unsafe { Self::flush_all_and_collect() };
+        let ptr = unsafe { mi_malloc_aligned(size, ALIGN) };
+        if !ptr.is_null() {
+            log::warn!("[OOM] Recovered via nuclear flush (epoch guarantee broken)");
+            return ptr;
+        }
+
+        // Stage 4 (main thread, AI idle, NOT post-load): game's OOM stages 0-8.
         // run_oom_stages calls game cleanup (texture flush, Havok GC, PDD purge).
         // SKIP during post-load cooldown: game is doing Havok restart, scene graph
         // rebuild, NPC setup. Running cleanup stages here corrupts init state →
@@ -850,7 +917,7 @@ impl HeapOrchestrator {
             log::warn!("[OOM] Emergency signaled from worker tid={}", tid);
         }
 
-        // Stage 4: retry loop.
+        // Stage 5: retry loop.
         // Main thread: short (10 × 50ms = 500ms) — longer blocks = frozen game.
         // Workers: longer (200 × 50ms = 10s) — workers can wait for main to free.
         let max_retries: u32 = if is_main { 10 } else { 200 };
@@ -865,11 +932,11 @@ impl HeapOrchestrator {
                 return ptr;
             }
             if attempt == max_retries / 2 {
-                unsafe { Self::flush_and_collect() };
+                unsafe { Self::flush_all_and_collect() };
             }
         }
 
-        // Stage 5 (main thread, AI idle, NOT loading, NOT post-load): HeapCompact
+        // Stage 6 (main thread, AI idle, NOT loading, NOT post-load): HeapCompact
         // with cell unload. Nuclear option — signals stage 5 (FindCellToUnload)
         // which frees entire loaded cells. DANGEROUS: deadlocks during loading/
         // fast travel, corrupts state during post-load init.
@@ -879,7 +946,7 @@ impl HeapOrchestrator {
             && !is_post_load_cooldown()
         {
             log::warn!(
-                "[OOM] Stage 5: HeapCompact with cell unload (commit={}MB, quarantine={}MB)",
+                "[OOM] Stage 6: HeapCompact with cell unload (commit={}MB, quarantine={}MB)",
                 libmimalloc::process_info::MiMallocProcessInfo::get().get_current_commit()
                     / 1024
                     / 1024,
