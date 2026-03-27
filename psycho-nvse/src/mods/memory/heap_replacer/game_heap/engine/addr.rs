@@ -82,6 +82,12 @@ pub const BST_ITER_SEM_HANDLE_OFFSET: usize = 0x1C;
 
 pub const PDD_QUEUE_COUNT_OFFSET: usize = 0x0A;
 
+// PDD skip mask (u32). Bits correspond to queues in full PDD drain.
+// If (DAT_011de804 & queue_bit) != 0, that queue is SKIPPED.
+// Bit 0x10 = NiNode, 0x08 = Form(?), 0x04 = Texture(?),
+// 0x02 = Anim, 0x01 = Generic, 0x20 = last queue.
+pub const PDD_SKIP_MASK: usize = 0x011DE804;
+
 pub const NINODE_QUEUE: usize = 0x011DE808;
 pub const FORM_QUEUE: usize = 0x011DE828;
 pub const GENERIC_QUEUE: usize = 0x011DE874;

@@ -135,7 +135,8 @@ impl CellUnloadGuard {
 			log::warn!("[CELL_UNLOAD] Skipping PDD: loading started");
 			return;
 		}
-		// PDD + async flush. IO lock already held (acquired in acquire()).
+		// PDD + async flush. IO lock held to prevent BST from dequeuing
+		// tasks that reference objects being destroyed by PDD.
 		unsafe { globals::deferred_cleanup_small(self.state[5]) };
 		log::debug!("[CELL_UNLOAD] PDD + async flush complete");
 	}

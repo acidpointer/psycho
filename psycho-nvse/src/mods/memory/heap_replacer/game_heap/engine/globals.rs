@@ -62,6 +62,32 @@ pub fn signal_heap_compact(stage: HeapCompactStage) {
     }
 }
 
+// PDD skip mask bits. When set, the corresponding queue is SKIPPED
+// during full PDD drain (FUN_00868d70). Checked by FUN_00869180.
+#[allow(dead_code)]
+pub mod pdd_skip {
+    pub const NINODE: u32 = 0x10;
+    pub const FORM: u32 = 0x08;
+    pub const TEXTURE: u32 = 0x04;
+    pub const ANIM: u32 = 0x02;
+    pub const GENERIC: u32 = 0x01;
+    pub const LAST: u32 = 0x20;
+}
+
+// Set the PDD skip mask. Queues with matching bits are SKIPPED
+// by the next full PDD drain (stage 4). Reset after PDD completes.
+pub fn set_pdd_skip_mask(mask: u32) {
+    unsafe {
+        let p = addr::PDD_SKIP_MASK as *mut u32;
+        p.write_volatile(mask);
+    }
+}
+
+// Read the current PDD skip mask.
+pub fn pdd_skip_mask() -> u32 {
+    unsafe { *(addr::PDD_SKIP_MASK as *const u32) }
+}
+
 // Get the loading state counter as an atomic reference. Incremented to
 // suppress NVSE PLChangeEvent dispatch during our destruction protocol.
 pub fn loading_state_counter() -> &'static std::sync::atomic::AtomicI32 {

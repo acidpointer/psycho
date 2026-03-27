@@ -361,8 +361,39 @@ impl Quarantine {
         }
     }
 
+    /// Drain entries that are 2+ epochs old (reclaimable only).
+    /// Preserves current AND retiring epoch — full 2-epoch guarantee.
+    /// Safe to call at any phase. Caller must hold write lock.
+    fn drain_reclaimable(&mut self) {
+        let to_free = self.retire_cursor.min(self.buf.len());
+        if to_free == 0 {
+            return;
+        }
+        let before = QUARANTINE_BYTES.load(Ordering::Relaxed);
+        for _ in 0..to_free {
+            if let Some((ptr, size)) = self.buf.pop_front() {
+                self.total_bytes -= size;
+                QUARANTINE_BYTES.fetch_sub(size, Ordering::Relaxed);
+                unsafe { libmimalloc::mi_free(ptr) };
+            }
+        }
+        self.drain_cursor -= to_free;
+        self.retire_cursor = 0;
+        let freed = before.saturating_sub(QUARANTINE_BYTES.load(Ordering::Relaxed));
+        if freed > 1024 * 1024 {
+            log::info!(
+                "[QUARANTINE] Drained reclaimable: freed {}MB, remaining {}MB",
+                freed / 1024 / 1024,
+                self.total_bytes / 1024 / 1024,
+            );
+        }
+    }
+
     /// Drain entries that are 1+ epochs old (retiring + reclaimable).
-    /// Preserves current epoch — consumers in this frame still safe.
+    /// Breaks 2-epoch guarantee for retiring entries — OOM escalation only.
+    /// WARNING: after advance_epoch, drain_cursor = buf.len(), so this
+    /// becomes drain_all. Only safe mid-frame (between Phase 7 and Phase 10)
+    /// where drain_cursor reflects the PREVIOUS epoch boundary.
     /// Caller must hold write lock.
     fn drain_retired(&mut self) {
         let to_free = self.drain_cursor.min(self.buf.len());
@@ -818,9 +849,23 @@ impl HeapOrchestrator {
     // Quarantine flush (used by pressure.rs for aggressive collect)
     // =======================================================================
 
-    /// Safe flush: drain retired entries (1+ epochs old) + mi_collect.
-    /// Preserves current epoch's zombie protection.
+    /// Safe flush: drain reclaimable entries (2+ epochs old) + mi_collect.
+    /// Full 2-epoch guarantee preserved. Safe at ANY phase.
     /// Uses try_write — skips if readers active.
+    pub unsafe fn flush_reclaimable_and_collect() {
+        game_guard::with_try_write(|| {
+            QUARANTINE.with(|q| {
+                let q = unsafe { &mut *q.get() };
+                q.drain_reclaimable();
+            });
+        });
+        unsafe { mi_collect(true) };
+    }
+
+    /// Moderate flush: drain 1+ epoch entries + mi_collect.
+    /// Breaks 2-epoch guarantee for retiring entries.
+    /// WARNING: only safe mid-frame (Phase 7-10). After advance_epoch
+    /// (Phase 10), drain_cursor = buf.len() → this becomes drain_all.
     pub unsafe fn flush_retired_and_collect() {
         game_guard::with_try_write(|| {
             QUARANTINE.with(|q| {
@@ -877,16 +922,27 @@ impl HeapOrchestrator {
             return ptr;
         }
 
-        // Stage 2: safe flush — drain retired entries (1+ epochs old).
-        // Preserves current epoch's zombie protection.
-        unsafe { Self::flush_retired_and_collect() };
+        // Stage 2: safe flush — drain reclaimable (2+ epochs old).
+        // Full epoch guarantee preserved.
+        unsafe { Self::flush_reclaimable_and_collect() };
         let ptr = unsafe { mi_malloc_aligned(size, ALIGN) };
         if !ptr.is_null() {
             return ptr;
         }
 
-        // Stage 3: nuclear flush — drain ALL quarantine including current epoch.
-        // Breaks epoch guarantee but avoids OOM crash.
+        // Stage 3: moderate flush — drain 1+ epoch entries.
+        // Breaks 2-epoch guarantee but preserves current epoch.
+        // Safe mid-frame (OOM happens during game logic, Phase 7-10,
+        // drain_cursor reflects previous epoch boundary).
+        unsafe { Self::flush_retired_and_collect() };
+        let ptr = unsafe { mi_malloc_aligned(size, ALIGN) };
+        if !ptr.is_null() {
+            log::warn!("[OOM] Recovered via retired flush (2-epoch guarantee broken)");
+            return ptr;
+        }
+
+        // Stage 4: nuclear flush — drain ALL including current epoch.
+        // Breaks all guarantees but avoids OOM crash.
         unsafe { Self::flush_all_and_collect() };
         let ptr = unsafe { mi_malloc_aligned(size, ALIGN) };
         if !ptr.is_null() {
@@ -894,7 +950,7 @@ impl HeapOrchestrator {
             return ptr;
         }
 
-        // Stage 4 (main thread, AI idle, NOT post-load): game's OOM stages 0-8.
+        // Stage 5 (main thread, AI idle, NOT post-load): game's OOM stages 0-8.
         // run_oom_stages calls game cleanup (texture flush, Havok GC, PDD purge).
         // SKIP during post-load cooldown: game is doing Havok restart, scene graph
         // rebuild, NPC setup. Running cleanup stages here corrupts init state →
@@ -917,7 +973,7 @@ impl HeapOrchestrator {
             log::warn!("[OOM] Emergency signaled from worker tid={}", tid);
         }
 
-        // Stage 5: retry loop.
+        // Stage 6: retry loop.
         // Main thread: short (10 × 50ms = 500ms) — longer blocks = frozen game.
         // Workers: longer (200 × 50ms = 10s) — workers can wait for main to free.
         let max_retries: u32 = if is_main { 10 } else { 200 };
@@ -936,7 +992,7 @@ impl HeapOrchestrator {
             }
         }
 
-        // Stage 6 (main thread, AI idle, NOT loading, NOT post-load): HeapCompact
+        // Stage 7 (main thread, AI idle, NOT loading, NOT post-load): HeapCompact
         // with cell unload. Nuclear option — signals stage 5 (FindCellToUnload)
         // which frees entire loaded cells. DANGEROUS: deadlocks during loading/
         // fast travel, corrupts state during post-load init.
@@ -946,7 +1002,7 @@ impl HeapOrchestrator {
             && !is_post_load_cooldown()
         {
             log::warn!(
-                "[OOM] Stage 6: HeapCompact with cell unload (commit={}MB, quarantine={}MB)",
+                "[OOM] Stage 7: HeapCompact with cell unload (commit={}MB, quarantine={}MB)",
                 libmimalloc::process_info::MiMallocProcessInfo::get().get_current_commit()
                     / 1024
                     / 1024,

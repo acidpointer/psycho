@@ -207,39 +207,74 @@ impl PressureRelief {
         let commit_mb = commit / 1024 / 1024;
         let quarantine_mb = super::orchestrator::HeapOrchestrator::quarantine_usage() / 1024 / 1024;
 
-        // Signal HeapCompact stages 0-4 for the NEXT frame.
+        // Signal HeapCompact stage 4 for the NEXT frame.
         // HeapCompact loop is INCLUSIVE: trigger=N runs stages 0..=N.
         //
-        // Stage 0: texture cache flush (safe)
-        // Stage 1: geometry cache free (safe)
-        // Stage 2: menu cleanup (safe)
-        // Stage 3: Havok GC force=true (thread-safe)
-        // Stage 4: PDD purge (process manager lock + full queue drain).
-        //   Critical for worldspace transitions (coc) — without it,
-        //   memory grows until OOM on the 85MB terrain allocation.
-        //   Runs at Phase 6 on the NEXT frame when AI is idle.
+        // Stage 0: ProcessPendingCleanup → BSTreeManager::cleanup (partial)
+        //   CRITICAL: removes BSTreeNode map entries with state < 2.
+        //   Without this, quarantine-freed BSTreeNodes leave dangling
+        //   pointers in BSTreeManager → C0000417 crash.
+        // Stage 1: geometry cache free
+        // Stage 2: menu cleanup
+        // Stage 3: Havok GC + async flush (try mode)
+        // Stage 4: full PDD drain (try mode) + async flush
+        //   Drains NiNode queue completely → BSTreeNode destructors fire →
+        //   state set to < 2 → stage 0 cleanup removes map entries.
+        //   Full PDD processes ALL queues including Generic — this can
+        //   stall (700+ Gen entries). This is by design: we must NOT
+        //   write the PDD skip mask (DAT_011de804) — it's game-managed
+        //   state used by loading/CellTransition. Overwriting it corrupts
+        //   the loading process → QueuedReference crash.
         //
         // Stage 5: FindCellToUnload — NEVER from pressure relief.
-        //   Deadlocks during fast travel and loading screens.
-        globals::signal_heap_compact(globals::HeapCompactStage::PddPurge);
-
+        //
         // NOTE: This hook runs BEFORE AI_JOIN -- AI threads are still active.
         // mi_collect(true) races with AI thread alloc/free. Only use
         // mi_collect(false) here (lightweight, thread-local pages only).
         // Aggressive collection (flush + mi_collect(true)) is deferred to
         // run_deferred_unload() which runs AFTER AI_JOIN.
+        // Stage 4 (full PDD drain) is REQUIRED for BSTreeManager cleanup:
+        //   NiNode PDD → BSTreeNode destructors → state < 2 →
+        //   stage 0 ProcessPendingCleanup removes map entries.
+        //   Without stage 4, dangling BSTreeManager entries → C0000417.
+        //
+        // BUT stage 4 processes ALL queues including Generic. With 1000+
+        // Gen entries (each a virtual call), Phase 6 stalls for seconds.
+        //
+        // Solution: check Gen queue size before signaling. If Gen queue
+        // is large (>200 entries), fall back to stage 3 (still runs
+        // stage 0 ProcessPendingCleanup, per-frame drain handles NiNode).
+        // Stage 4 only when Gen queue is manageable or aggressive pressure.
+        //
+        // Stage 4 for aggressive pressure regardless — near OOM, stall
+        // is acceptable, we need maximum cleanup.
+        let gen_count = globals::pdd_queue_count(globals::PddQueue::Generic);
+        const GEN_QUEUE_STALL_THRESHOLD: u16 = 200;
+
         if commit >= aggressive_threshold {
+            globals::signal_heap_compact(globals::HeapCompactStage::PddPurge);
             self.deferred_unload.store(true, Ordering::Release);
             unsafe { mi_collect(false) };
             log::warn!(
-                "[PRESSURE] HeapCompact signaled, aggressive deferred to AI_JOIN, commit={}MB (thresh={}MB), quarantine={}MB",
-                commit_mb, aggressive_threshold / 1024 / 1024, quarantine_mb,
+                "[PRESSURE] HeapCompact 0-4 (aggressive), commit={}MB (thresh={}MB), quarantine={}MB, gen={}",
+                commit_mb, aggressive_threshold / 1024 / 1024, quarantine_mb, gen_count,
             );
-        } else {
+        } else if gen_count <= GEN_QUEUE_STALL_THRESHOLD {
+            globals::signal_heap_compact(globals::HeapCompactStage::PddPurge);
             unsafe { mi_collect(false) };
             log::info!(
-                "[PRESSURE] Relief: HeapCompact signaled, commit={}MB, quarantine={}MB",
-                commit_mb, quarantine_mb,
+                "[PRESSURE] Relief: HeapCompact 0-4, commit={}MB, quarantine={}MB, gen={}",
+                commit_mb, quarantine_mb, gen_count,
+            );
+        } else {
+            // Gen queue too large — stage 3 only to avoid stall.
+            // Stage 0 still runs ProcessPendingCleanup (BSTreeManager).
+            // Per-frame drain handles NiNode (highest priority, 10-20/frame).
+            globals::signal_heap_compact(globals::HeapCompactStage::HavokGC);
+            unsafe { mi_collect(false) };
+            log::info!(
+                "[PRESSURE] Relief: HeapCompact 0-3 (gen={} > {}), commit={}MB, quarantine={}MB",
+                gen_count, GEN_QUEUE_STALL_THRESHOLD, commit_mb, quarantine_mb,
             );
         }
 
@@ -270,7 +305,7 @@ impl PressureRelief {
 
         if now_ms.saturating_sub(last_agg) >= AGGRESSIVE_COOLDOWN_MS {
             LAST_AGGRESSIVE_MS.store(now_ms, Ordering::Relaxed);
-            unsafe { super::orchestrator::HeapOrchestrator::flush_retired_and_collect() };
+            unsafe { super::orchestrator::HeapOrchestrator::flush_reclaimable_and_collect() };
             let commit_mb = info.get_current_commit() / 1024 / 1024;
             let quarantine_mb = super::orchestrator::HeapOrchestrator::quarantine_usage() / 1024 / 1024;
             log::warn!(
@@ -349,7 +384,8 @@ impl PressureRelief {
             }
         }
 
-        // Run PDD + async flush + cleanup (IO lock already held).
+        // Run PDD + async flush + cleanup. IO lock held to prevent BST
+        // from dequeuing tasks that reference objects being destroyed.
         unsafe { globals::deferred_cleanup_small(state[5]) };
 
         // Release in reverse order: Havok first, then IO.
