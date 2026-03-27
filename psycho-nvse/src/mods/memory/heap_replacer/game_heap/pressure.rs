@@ -53,14 +53,6 @@ const MAX_CELLS_PER_CYCLE: usize = 20;
 // Minimum milliseconds between relief cycles (stages 0-3).
 const COOLDOWN_MS: u64 = 2000;
 
-// Minimum milliseconds between stage 4 full PDD drain.
-// Stage 4 processes ALL PDD queues including Generic. With 200+ Gen entries,
-// this takes noticeable time. But we MUST run it periodically to keep Gen
-// queue small — CellTransition (coc/fast travel) calls full PDD in BLOCKING
-// mode. If Gen has 4000+ entries at coc time, the game stalls for seconds.
-// 10s cooldown keeps Gen queue bounded (~200 entries per 10s at normal rate).
-const STAGE4_COOLDOWN_MS: u64 = 10_000;
-
 // Minimum milliseconds between aggressive relief (mi_collect(true)).
 // Force collect walks all pages -- expensive but actually frees memory.
 // Only triggers when commit exceeds baseline + 2x MAX_GROWTH.
@@ -88,20 +80,15 @@ pub struct PressureRelief {
     // Commit at first tick. Dynamic threshold = baseline + MAX_GROWTH.
     baseline_commit: std::sync::atomic::AtomicUsize,
 
-    // Last time stage 4 (full PDD drain) was signaled. Separate from
-    // main cooldown because stage 4 is expensive but must run periodically
-    // to keep Gen queue bounded for CellTransition.
-    last_stage4_ms: AtomicU64,
 }
 
 impl PressureRelief {
     fn new() -> Self {
         log::info!(
-            "[PRESSURE] Initialized (baseline=deferred, growth={}MB, max_cells={}, cooldown={}ms, stage4={}ms)",
+            "[PRESSURE] Initialized (baseline=deferred, growth={}MB, max_cells={}, cooldown={}ms)",
             MAX_GROWTH_ABOVE_BASELINE / 1024 / 1024,
             MAX_CELLS_PER_CYCLE,
             COOLDOWN_MS,
-            STAGE4_COOLDOWN_MS,
         );
 
         Self {
@@ -110,7 +97,6 @@ impl PressureRelief {
             deferred_unload: AtomicBool::new(false),
             pending_counter_decrement: AtomicBool::new(false),
             last_time_ms: AtomicU64::new(0),
-            last_stage4_ms: AtomicU64::new(0),
             baseline_commit: std::sync::atomic::AtomicUsize::new(0),
         }
     }
@@ -229,52 +215,35 @@ impl PressureRelief {
         let commit_mb = commit / 1024 / 1024;
         let quarantine_mb = super::orchestrator::HeapOrchestrator::quarantine_usage() / 1024 / 1024;
 
-        // HeapCompact stages 0-3 run every 2s (cheap).
-        // Stage 4 (full PDD drain) runs on its own 10s cooldown.
+        // HeapCompact stage 3 ONLY from pressure relief. NEVER stage 4.
         //
-        // Stage 0: ProcessPendingCleanup → BSTreeManager::cleanup
-        // Stage 1: geometry cache free
-        // Stage 2: menu cleanup
-        // Stage 3: Havok GC + async flush (try mode)
-        // Stage 4: full PDD drain (try mode) — processes ALL queues
-        //   REQUIRED to keep Gen queue bounded. CellTransition calls
-        //   full PDD in BLOCKING mode — if Gen has 4000+ entries at
-        //   coc time, the game stalls for seconds.
-        //   10s cooldown keeps Gen manageable (~200 entries between runs).
+        // The vanilla game NEVER signals HeapCompact during normal gameplay
+        // (HEAP_COMPACT_TRIGGER has zero game references). HeapCompact is
+        // OOM-only. Stage 4 (full PDD drain) processing 1000+ Gen entries
+        // causes multi-second freezes — verified repeatedly.
         //
-        // Stage 5: FindCellToUnload — NEVER from pressure relief.
+        // Stage 3 is sufficient:
+        //   Stage 0: ProcessPendingCleanup → BSTreeManager::cleanup (partial)
+        //   Stage 1: geometry cache free
+        //   Stage 2: menu cleanup
+        //   Stage 3: Havok GC + async flush (try mode)
         //
-        // During loading: NEVER signal stage 4 (full PDD drain).
-        // CellTransition handles its own BLOCKING full PDD. Our stage 4
-        // piles work on top → multi-second stall freezing loading.
-        // Stage 3 is safe and REQUIRED during loading (ProcessPendingCleanup,
-        // Havok GC, texture cache — game expects these to run).
+        // NiNode PDD queue stays at 0 via per-frame PDD drain (verified).
+        // Stage 4 (full PDD) only runs from OOM executor inline — matching
+        // vanilla behavior exactly.
         //
-        // Aggressive pressure: stage 4 regardless of cooldown (not during loading).
-        let loading = globals::is_loading();
-        let last_s4 = self.last_stage4_ms.load(Ordering::Relaxed);
-        let stage4_due = !loading && now_ms.saturating_sub(last_s4) >= STAGE4_COOLDOWN_MS;
+        // Aggressive pressure: deferred unload (flush + collect) at AI_JOIN,
+        // but NO stage 4 signal.
+        globals::signal_heap_compact(globals::HeapCompactStage::HavokGC);
+        unsafe { mi_collect(false) };
 
-        if !loading && commit >= aggressive_threshold {
-            globals::signal_heap_compact(globals::HeapCompactStage::PddPurge);
-            self.last_stage4_ms.store(now_ms, Ordering::Relaxed);
+        if commit >= aggressive_threshold {
             self.deferred_unload.store(true, Ordering::Release);
-            unsafe { mi_collect(false) };
             log::warn!(
-                "[PRESSURE] HeapCompact 0-4 (aggressive), commit={}MB (thresh={}MB), quarantine={}MB",
+                "[PRESSURE] HeapCompact 0-3 + deferred, commit={}MB (thresh={}MB), quarantine={}MB",
                 commit_mb, aggressive_threshold / 1024 / 1024, quarantine_mb,
             );
-        } else if stage4_due {
-            globals::signal_heap_compact(globals::HeapCompactStage::PddPurge);
-            self.last_stage4_ms.store(now_ms, Ordering::Relaxed);
-            unsafe { mi_collect(false) };
-            log::info!(
-                "[PRESSURE] Relief: HeapCompact 0-4, commit={}MB, quarantine={}MB",
-                commit_mb, quarantine_mb,
-            );
         } else {
-            globals::signal_heap_compact(globals::HeapCompactStage::HavokGC);
-            unsafe { mi_collect(false) };
             log::info!(
                 "[PRESSURE] Relief: HeapCompact 0-3, commit={}MB, quarantine={}MB",
                 commit_mb, quarantine_mb,

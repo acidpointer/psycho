@@ -61,13 +61,20 @@ pub unsafe extern "fastcall" fn hook_ai_thread_join(mgr: *mut c_void) {
 
 // ---- Per-frame queue drain (Phase 7, before AI_START) ----
 
-// Extra rounds of FUN_00868850 when under memory pressure.
-const EXTRA_DRAIN_ROUNDS: u32 = 19;
 const DIAG_LOG_INTERVAL: u32 = 300;
 
 thread_local! {
 	static DIAG_COUNTER: std::cell::Cell<u32> = const { std::cell::Cell::new(0) };
 }
+
+// NiNode-only boost: extra rounds ONLY while NiNode queue is non-empty.
+// Breaks immediately when NiNode=0 — never processes Gen or other queues.
+// Per-frame PDD processes the first non-empty queue in priority order:
+// NiNode > Texture > Form > Anim > Generic. With NiNode as highest priority,
+// extra rounds drain NiNode exclusively. When NiNode hits 0, the game's
+// native call handles other queues at the normal rate.
+// Cost when NiNode=0 (normal): one volatile read (pdd_queue_count) = ~1ns.
+const EXTRA_NINODE_ROUNDS: u32 = 19;
 
 pub unsafe extern "C" fn hook_per_frame_queue_drain() {
 	unsafe { HeapOrchestrator::on_pre_ai() };
@@ -76,6 +83,15 @@ pub unsafe extern "C" fn hook_per_frame_queue_drain() {
 		unsafe { original() };
 
 		if HeapOrchestrator::is_pressure_active() {
+			// NiNode-only boost: drain NiNode queue fast for BSTreeManager safety.
+			for _ in 0..EXTRA_NINODE_ROUNDS {
+				if globals::pdd_queue_count(PddQueue::NiNode) == 0 {
+					break;
+				}
+				unsafe { original() };
+			}
+
+			// Periodic diagnostics.
 			DIAG_COUNTER.with(|c| {
 				let count = c.get().wrapping_add(1);
 				c.set(count);
@@ -91,13 +107,6 @@ pub unsafe extern "C" fn hook_per_frame_queue_drain() {
 					);
 				}
 			});
-
-			for _ in 0..EXTRA_DRAIN_ROUNDS {
-				if globals::pdd_queue_count(PddQueue::NiNode) == 0 {
-					break;
-				}
-				unsafe { original() };
-			}
 		}
 	}
 }

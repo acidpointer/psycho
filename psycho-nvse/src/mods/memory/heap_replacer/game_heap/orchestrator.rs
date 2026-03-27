@@ -261,9 +261,17 @@ static QUARANTINE_ACTIVE: std::sync::atomic::AtomicBool = std::sync::atomic::Ato
 
 static QUARANTINE_BYTES: AtomicUsize = AtomicUsize::new(0);
 
-// Hard cap. Inline eviction triggers when quarantine exceeds this.
-// Same value as the old loading drain threshold (512MB).
-const QUARANTINE_LIMIT: usize = 512 * 1024 * 1024;
+// Hard cap. Cap eviction triggers when quarantine exceeds this.
+// 256MB balances zombie protection with commit pressure.
+// Higher = more zombies but inflated commit → bigger Gen queue → CellTransition stall.
+// Lower = less commit but shorter zombie window → NVSE cache crashes.
+const QUARANTINE_LIMIT: usize = 256 * 1024 * 1024;
+
+// Epoch advance interval in frames. Objects survive at least this many
+// frames before becoming reclaimable. 5 frames = ~83ms at 60fps.
+// SBM gives "until reuse" protection (hundreds of frames for rare sizes).
+// 5 frames covers most NVSE caching patterns (script tokens, form lookups).
+const EPOCH_INTERVAL_FRAMES: u32 = 5;
 
 thread_local! {
     static QUARANTINE: std::cell::UnsafeCell<Quarantine> =
@@ -312,11 +320,13 @@ impl Quarantine {
         self.drain_cursor = self.buf.len();
     }
 
-    /// Reclaim entries that have aged through 2 full epochs.
-    /// Then evict to cap if quarantine exceeds the limit.
+    /// Reclaim entries aged through the epoch window, then cap eviction.
+    /// Epoch advances every 5 frames → objects survive 5-10 frames minimum.
+    /// Cap at 256MB prevents commit inflation during stress.
     /// Caller must hold write lock.
     fn reclaim(&mut self) {
-        // 1. Free entries that are 2+ epochs old.
+        // 1. Epoch drain: free entries from 2+ epoch advances ago.
+        //    With 5-frame interval, this is 10-15 frames of protection.
         let to_free = self.retire_cursor.min(self.buf.len());
         if to_free > 0 {
             for _ in 0..to_free {
@@ -326,13 +336,11 @@ impl Quarantine {
                     unsafe { libmimalloc::mi_free(ptr) };
                 }
             }
-            // Adjust cursors: we removed from the front.
             self.drain_cursor -= to_free;
             self.retire_cursor = 0;
         }
 
         // 2. Cap eviction: if still over limit, free oldest entries.
-        //    Safety valve for loading where frees outpace epoch drain.
         if self.total_bytes > QUARANTINE_LIMIT {
             let before = self.total_bytes;
             let mut evicted_count: usize = 0;
@@ -347,7 +355,6 @@ impl Quarantine {
                     None => break,
                 }
             }
-            // Adjust cursors for evicted entries.
             self.drain_cursor = self.drain_cursor.saturating_sub(evicted_count);
             self.retire_cursor = self.retire_cursor.saturating_sub(evicted_count);
             let evicted = before - self.total_bytes;
@@ -678,27 +685,25 @@ impl HeapOrchestrator {
             pr.flush_pending_counter_decrement();
         }
 
-        // Advance quarantine epoch: entries from epoch N-1 become
-        // reclaimable (2 epochs old), epoch N entries start retiring.
+        // Advance epoch every EPOCH_INTERVAL_FRAMES frames (not every frame).
+        // Objects survive at least 5 frames (~83ms) before becoming
+        // reclaimable. This matches SBM's "until reuse" better than
+        // 2-frame epoch (too short for NVSE caches) or cap-only
+        // (512MB commit inflation → Gen queue stall).
         //
-        // SKIP during loading: forms freed during loading must stay
-        // zombie across the ENTIRE loading transition. NVSE plugins
-        // (JIP LN CellChange), actor processing, and IO tasks all
-        // access freed forms after loading ends. Epoch advances
-        // resume on the first post-load frame.
-        //
-        // Post-load timeline with 2-epoch grace:
-        //   Loading ends:
-        //   Post-load frame 1: NVSE events + actor init (forms zombie ✓)
-        //                      advance_epoch → loading entries = retiring
-        //   Post-load frame 2: all consumers done (forms zombie ✓)
-        //                      advance_epoch → loading entries = reclaimable
-        //   Post-load frame 3: reclaim frees them
+        // SKIP during loading: NVSE plugins cache form pointers across
+        // the entire loading transition.
+        static FRAME_COUNTER: std::sync::atomic::AtomicU32 =
+            std::sync::atomic::AtomicU32::new(0);
+
         if !globals::is_loading() {
-            QUARANTINE.with(|q| {
-                let q = unsafe { &mut *q.get() };
-                q.advance_epoch();
-            });
+            let frame = FRAME_COUNTER.fetch_add(1, Ordering::Relaxed);
+            if frame % EPOCH_INTERVAL_FRAMES == 0 {
+                QUARANTINE.with(|q| {
+                    let q = unsafe { &mut *q.get() };
+                    q.advance_epoch();
+                });
+            }
         }
 
         if let Some(pr) = PressureRelief::instance() {
