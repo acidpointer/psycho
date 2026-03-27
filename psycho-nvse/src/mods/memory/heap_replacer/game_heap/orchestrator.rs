@@ -610,7 +610,8 @@ impl HeapOrchestrator {
             return null_mut();
         }
 
-        let new_ptr = unsafe { mi_malloc_aligned(new_size, ALIGN) };
+        // Use alloc() which has full OOM recovery + CRT fallback.
+        let new_ptr = unsafe { Self::alloc(new_size) };
         if !new_ptr.is_null() {
             unsafe {
                 std::ptr::copy_nonoverlapping(
@@ -718,17 +719,14 @@ impl HeapOrchestrator {
     pub unsafe fn on_ai_join() {
         game_guard::clear_ai_active();
 
-        // Pressure-drivinfo.get_elapsed_ms() collect + cell unload).
-        if let Some(pr) = PressureRelief::instance() {
-            unsafe { pr.run_deferred_unload() };
-        }
-
-        // Skip cell unload during loading AND for 5 seconds after loading ends.
+        // Skip ALL game cleanup during loading and post-load cooldown.
         // During loading: deadlock risk (IO lock + Havok lock vs loading thread).
-        // After loading: game does post-load init (Havok restart, scene graph,
-        // NPC setup, NVSE events). Cell unload during init breaks game state.
+        //   CellTransition handles its own blocking PDD + async flush.
+        // Post-load cooldown (5s): game doing Havok restart, scene graph rebuild,
+        //   NPC setup, IO task completion. Running destruction_protocol or
+        //   deferred_cleanup_small here causes multi-second blocking async flush
+        //   processing thousands of completed IO tasks → permanent freeze.
         if globals::is_loading() {
-            // Mark cooldown end: now + 5 seconds.
             let info = libmimalloc::process_info::MiMallocProcessInfo::get();
             let until = info.get_elapsed_ms() + POST_LOAD_COOLDOWN_MS as usize;
             POST_LOAD_UNTIL.store(until, Ordering::Relaxed);
@@ -736,10 +734,19 @@ impl HeapOrchestrator {
         }
 
         if is_post_load_cooldown() {
-            // Post-load cooldown: discard signals, game still initializing.
+            // Discard all cleanup signals during cooldown.
+            if let Some(pr) = PressureRelief::instance() {
+                pr.clear_deferred_unload();
+            }
             WATCHDOG_CELL_UNLOAD.store(0, Ordering::Relaxed);
             super::engine::cell_unload::take_deferred_request();
             return;
+        }
+
+        // Pressure-driven deferred unload (aggressive collect + cell unload).
+        // ONLY runs outside loading + post-load cooldown.
+        if let Some(pr) = PressureRelief::instance() {
+            unsafe { pr.run_deferred_unload() };
         }
 
         // Watchdog + deferred signals: cell unload with memory-based cooldown.
@@ -992,33 +999,27 @@ impl HeapOrchestrator {
             }
         }
 
-        // Stage 7 (main thread, AI idle, NOT loading, NOT post-load): HeapCompact
-        // with cell unload. Nuclear option — signals stage 5 (FindCellToUnload)
-        // which frees entire loaded cells. DANGEROUS: deadlocks during loading/
-        // fast travel, corrupts state during post-load init.
+        // Stage 7 (main thread, AI idle, NOT loading, NOT post-load):
+        // Run game OOM stages 0-8 inline. Includes cell unload (stage 5),
+        // full PDD (stage 4), texture flush (stage 1), etc.
+        // run_oom_stages executes ALL stages directly — no Phase 6 deferral.
         if is_main
             && !game_guard::is_ai_active()
             && !globals::is_loading()
             && !is_post_load_cooldown()
         {
             log::warn!(
-                "[OOM] Stage 7: HeapCompact with cell unload (commit={}MB, quarantine={}MB)",
+                "[OOM] Stage 7: game cleanup (commit={}MB, quarantine={}MB)",
                 libmimalloc::process_info::MiMallocProcessInfo::get().get_current_commit()
                     / 1024
                     / 1024,
                 QUARANTINE_BYTES.load(Ordering::Relaxed) / 1024 / 1024,
             );
 
-            // Signal HeapCompact with cell unload (stages 0-5).
-            globals::signal_heap_compact(globals::HeapCompactStage::CellUnload);
-
-            // Run game OOM stages — this triggers the HeapCompact dispatcher
-            // which processes stages 0-5 including FindCellToUnload.
             unsafe { globals::run_oom_stages(size) };
 
-            // Flush under write lock: cell unload freed objects → quarantine.
-            // Write lock ensures no worker reads freed memory during drain.
-            game_guard::with_write("oom_cell_unload", || {
+            // Flush objects freed by game stages.
+            game_guard::with_write("oom_game_cleanup", || {
                 QUARANTINE.with(|q| {
                     let q = unsafe { &mut *q.get() };
                     q.drain_all();
@@ -1028,24 +1029,118 @@ impl HeapOrchestrator {
 
             let ptr = unsafe { mi_malloc_aligned(size, ALIGN) };
             if !ptr.is_null() {
-                log::info!("[OOM] Recovered via cell unload (size={})", size);
+                log::info!("[OOM] Recovered via game cleanup (size={})", size);
                 return ptr;
             }
         }
 
-        Self::oom_failed(size)
+        // Stage 8: infinite retry — never return NULL.
+        unsafe { Self::oom_failed(size) }
     }
 
+    /// Last resort: infinite retry with real memory reclamation.
+    ///
+    /// The vanilla game's alloc NEVER returns NULL — it loops infinitely
+    /// with OOM stages. Returning NULL crashes the game because NO code
+    /// path checks for allocation failure.
+    ///
+    /// mi_collect alone frees ~2MB at best (returns unused pages to OS).
+    /// Real memory comes from: quarantine flush, game OOM stages, and
+    /// HeapCompact (cell unload + PDD purge). Each retry iteration
+    /// escalates through these, matching the vanilla infinite loop.
     #[cold]
-    fn oom_failed(size: usize) -> *mut c_void {
+    unsafe fn oom_failed(size: usize) -> *mut c_void {
+        let is_main = Self::is_main_thread();
         let info = libmimalloc::process_info::MiMallocProcessInfo::get();
         log::error!(
-            "[OOM] FAILED: size={}, commit={}MB, quarantine={}MB, RSS={}MB",
+            "[OOM] All stages exhausted: size={}, thread={}, commit={}MB, quarantine={}MB, RSS={}MB",
             size,
+            if is_main { "main" } else { "worker" },
             info.get_current_commit() / 1024 / 1024,
             QUARANTINE_BYTES.load(Ordering::Relaxed) / 1024 / 1024,
             info.get_current_rss() / 1024 / 1024,
         );
-        null_mut()
+
+        // Workers: signal main thread and wait. Workers can't run game
+        // cleanup functions. Main thread will flush quarantine + run
+        // HeapCompact on its next alloc/frame.
+        if !is_main {
+            EMERGENCY_CLEANUP.store(true, Ordering::Release);
+        }
+
+        let mut attempt: u32 = 0;
+        loop {
+            // 1. Flush quarantine (nuclear, may have accumulated since last flush).
+            unsafe { Self::flush_all_and_collect() };
+
+            let ptr = unsafe { mi_malloc_aligned(size, ALIGN) };
+            if !ptr.is_null() {
+                log::warn!("[OOM] Recovered at attempt {} (size={})", attempt, size);
+                return ptr;
+            }
+
+            // 2. Main thread: run game cleanup (OOM stages + HeapCompact).
+            //    This is the REAL memory reclamation — texture flush, PDD purge,
+            //    cell unload. Each game stage frees tens to hundreds of MB.
+            //    Skip during loading (deadlock risk) and post-load cooldown
+            //    (state corruption). In those cases, sleep and retry —
+            //    loading will finish and free memory naturally.
+            if is_main && !game_guard::is_ai_active() {
+                if !globals::is_loading() && !is_post_load_cooldown() {
+                    // Run game OOM stages 0-8 INLINE. This executes:
+                    //   Stage 0: ProcessPendingCleanup (BSTreeManager)
+                    //   Stage 1-2: texture/menu cleanup
+                    //   Stage 3: async flush (try)
+                    //   Stage 4: full PDD drain (try) — Gen queue stall risk
+                    //   Stage 5: cell unload + full PDD (main thread only)
+                    //   Stage 6-8: OOM-specific (sleep, retry)
+                    // All inline, no Phase 6 deferral. TRY locks = no deadlock.
+                    // Gen queue stall is temporary (one-time drain, then empty).
+                    // Do NOT signal_heap_compact — we're stuck in alloc,
+                    // Phase 6 never runs, the signal would be wasted.
+                    let ptr = unsafe { globals::run_oom_stages(size) };
+                    if !ptr.is_null() {
+                        log::warn!(
+                            "[OOM] Recovered via game cleanup at attempt {} (size={})",
+                            attempt, size,
+                        );
+                        return ptr;
+                    }
+
+                    // Flush objects freed by game stages.
+                    game_guard::with_write("oom_retry", || {
+                        QUARANTINE.with(|q| {
+                            let q = unsafe { &mut *q.get() };
+                            q.drain_all();
+                        });
+                    });
+                    unsafe { mi_collect(true) };
+
+                    let ptr = unsafe { mi_malloc_aligned(size, ALIGN) };
+                    if !ptr.is_null() {
+                        log::warn!(
+                            "[OOM] Recovered post-game-cleanup at attempt {} (size={})",
+                            attempt, size,
+                        );
+                        return ptr;
+                    }
+                }
+            }
+
+            // 3. Sleep to let other threads work (BST completing IO,
+            //    workers freeing buffers, main thread frame advancing).
+            libpsycho::os::windows::winapi::sleep(100);
+
+            attempt += 1;
+            if attempt % 10 == 0 {
+                let info = libmimalloc::process_info::MiMallocProcessInfo::get();
+                log::error!(
+                    "[OOM] Attempt {}: size={}, commit={}MB, quarantine={}MB",
+                    attempt, size,
+                    info.get_current_commit() / 1024 / 1024,
+                    QUARANTINE_BYTES.load(Ordering::Relaxed) / 1024 / 1024,
+                );
+            }
+        }
     }
 }

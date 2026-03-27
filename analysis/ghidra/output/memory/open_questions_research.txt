@@ -1,0 +1,582 @@
+Open Questions Research
+======================================================================
+
+######################################################################
+# Q1: FindCellToUnload Eligibility (FUN_00453a80)
+######################################################################
+# Always returns false with 76-88 loaded cells. What are the criteria?
+
+======================================================================
+FindCellToUnload @ 0x00453a80
+======================================================================
+  Function: FUN_00453a80 @ 0x00453a80, Size: 824 bytes
+
+uint __fastcall FUN_00453a80(int param_1)
+
+{
+  int iVar1;
+  char cVar2;
+  int iVar3;
+  int *piVar4;
+  int iVar5;
+  uint uVar6;
+  undefined4 uVar7;
+  void *pvVar8;
+  int *local_24;
+  int *local_20;
+  int *local_1c;
+  int *local_14;
+  int *local_c;
+  int *local_8;
+  
+  local_8 = (int *)0x0;
+  iVar3 = FUN_005f36f0(param_1);
+  if (iVar3 == 0) {
+    piVar4 = (int *)FUN_0043d4d0(0x11c3e38);
+    piVar4 = (int *)(*piVar4 + -1);
+    for (local_c = piVar4; -1 < (int)local_c; local_c = (int *)((int)local_c + -1)) {
+      piVar4 = *(int **)(param_1 + 0x38);
+      if (piVar4[(int)local_c] != 0) {
+        local_8 = *(int **)(*(int *)(param_1 + 0x38) + (int)local_c * 4);
+        *(undefined4 *)(*(int *)(param_1 + 0x38) + (int)local_c * 4) = 0;
+        piVar4 = (int *)param_1;
+        break;
+      }
+    }
+    if (local_8 == (int *)0x0) {
+      FUN_00454fc0(param_1);
+      iVar3 = FUN_0084e3a0(*(int *)(param_1 + 8));
+      iVar5 = FUN_0084e3a0(*(int *)(param_1 + 8));
+      piVar4 = (int *)FUN_0043d4d0(0x11c3c90);
+      local_14 = (int *)(*piVar4 + -1);
+      while ((int *)(iVar3 * iVar5) <= local_14) {
+        if (*(int *)(*(int *)(param_1 + 0x3c) + (int)local_14 * 4) != 0) {
+          uVar6 = FUN_004511e0(*(int *)(*(int *)(param_1 + 0x3c) + (int)local_14 * 4),'\x01');
+          piVar4 = (int *)(uVar6 & 0xff);
+          if (((int *)(uVar6 & 0xff) == (int *)0x0) &&
+             (piVar4 = (int *)FUN_00557090(*(int *)(*(int *)(param_1 + 0x3c) + (int)local_14 * 4)),
+             ((uint)piVar4 & 0xff) == 0)) {
+            local_8 = *(int **)(*(int *)(param_1 + 0x3c) + (int)local_14 * 4);
+            *(undefined4 *)(*(int *)(param_1 + 0x3c) + (int)local_14 * 4) = 0;
+            piVar4 = (int *)param_1;
+          }
+          break;
+        }
+        piVar4 = (int *)((int)local_14 + -1);
+        local_14 = piVar4;
+      }
+    }
+  }
+  else {
+    iVar3 = FUN_0084e3a0(*(int *)(param_1 + 8));
+    iVar5 = FUN_0084e3a0(*(int *)(param_1 + 8));
+    piVar4 = (int *)FUN_0043d4d0(0x11c3c90);
+    local_1c = (int *)(*piVar4 + -1);
+    while ((int *)(iVar3 * iVar5) <= local_1c) {
+      if (((*(int *)(*(int *)(param_1 + 0x3c) + (int)local_1c * 4) != 0) &&
+          (uVar6 = FUN_004511e0(*(int *)(*(int *)(param_1 + 0x3c) + (int)local_1c * 4),'\x01'),
+          (uVar6 & 0xff) == 0)) &&
+         (cVar2 = FUN_00557090(*(int *)(*(int *)(param_1 + 0x3c) + (int)local_1c * 4)),
+         cVar2 == '\0')) {
+        local_8 = *(int **)(*(int *)(param_1 + 0x3c) + (int)local_1c * 4);
+        *(undefined4 *)(*(int *)(param_1 + 0x3c) + (int)local_1c * 4) = 0;
+        piVar4 = (int *)param_1;
+        break;
+      }
+      piVar4 = (int *)((int)local_1c + -1);
+      local_1c = piVar4;
+    }
+    if (local_8 == (int *)0x0) {
+      piVar4 = (int *)FUN_0043d4d0(0x11c3e38);
+      piVar4 = (int *)(*piVar4 + -1);
+      for (local_20 = piVar4; -1 < (int)local_20; local_20 = (int *)((int)local_20 + -1)) {
+        piVar4 = *(int **)(param_1 + 0x38);
+        if ((piVar4[(int)local_20] != 0) &&
+           (iVar1 = *(int *)(param_1 + 0x38), piVar4 = (int *)FUN_005f36f0(param_1),
+           *(int **)(iVar1 + (int)local_20 * 4) != piVar4)) {
+          local_8 = *(int **)(*(int *)(param_1 + 0x38) + (int)local_20 * 4);
+          *(undefined4 *)(*(int *)(param_1 + 0x38) + (int)local_20 * 4) = 0;
+          piVar4 = (int *)param_1;
+          break;
+        }
+      }
+    }
+    if (local_8 == (int *)0x0) {
+      local_24 = (int *)0x0;
+      while (local_24 < (int *)(iVar3 * iVar5)) {
+        if (((*(int *)(*(int *)(param_1 + 0x3c) + (int)local_24 * 4) != 0) &&
+            (uVar6 = FUN_004511e0(*(int *)(*(int *)(param_1 + 0x3c) + (int)local_24 * 4),'\x01'),
+            (uVar6 & 0xff) == 0)) &&
+           (cVar2 = FUN_00557090(*(int *)(*(int *)(param_1 + 0x3c) + (int)local_24 * 4)),
+           cVar2 == '\0')) {
+          local_8 = *(int **)(*(int *)(param_1 + 0x3c) + (int)local_24 * 4);
+          *(undefined4 *)(*(int *)(param_1 + 0x3c) + (int)local_24 * 4) = 0;
+          piVar4 = (int *)FUN_00453940(param_1);
+          break;
+        }
+        piVar4 = (int *)((int)local_24 + 1);
+        local_24 = piVar4;
+      }
+    }
+  }
+  if (local_8 == (int *)0x0) {
+    uVar6 = (uint)piVar4 & 0xffffff00;
+  }
+  else {
+    uVar7 = FUN_00462290(local_8);
+    if (**(int **)(param_1 + 0x3c) == 0) {
+      iVar3 = FUN_004fd3e0(param_1);
+      uVar7 = 0;
+      if (iVar3 != 0) {
+        pvVar8 = (void *)FUN_004fd3e0(param_1);
+        iVar3 = FUN_00586170(pvVar8);
+        uVar7 = FUN_006fce00(iVar3);
+      }
+    }
+    uVar6 = CONCAT31((int3)((uint)uVar7 >> 8),1);
+  }
+  return uVar6;
+}
+
+
+
+--- Calls FROM FindCellToUnload (0x00453a80) ---
+  0x00453a94 -> 0x005f36f0 FUN_005f36f0
+  0x00453aa6 -> 0x0043d4d0 FUN_0043d4d0
+  0x00453b03 -> 0x00454fc0 FUN_00454fc0
+  0x00453b0e -> 0x0084e3a0 FUN_0084e3a0
+  0x00453b1b -> 0x0084e3a0 FUN_0084e3a0
+  0x00453b2b -> 0x0043d4d0 FUN_0043d4d0
+  0x00453b6c -> 0x004511e0 FUN_004511e0
+  0x00453b84 -> 0x00557090 FUN_00557090
+  0x00453bbe -> 0x0084e3a0 FUN_0084e3a0
+  0x00453bcb -> 0x0084e3a0 FUN_0084e3a0
+  0x00453bdb -> 0x0043d4d0 FUN_0043d4d0
+  0x00453c1c -> 0x004511e0 FUN_004511e0
+  0x00453c34 -> 0x00557090 FUN_00557090
+  0x00453c6e -> 0x0043d4d0 FUN_0043d4d0
+  0x00453ca4 -> 0x005f36f0 FUN_005f36f0
+  0x00453d19 -> 0x004511e0 FUN_004511e0
+  0x00453d31 -> 0x00557090 FUN_00557090
+  0x00453d5f -> 0x00453940 FUN_00453940
+  0x00453d7b -> 0x00462290 FUN_00462290
+  0x00453d8e -> 0x004fd3e0 FUN_004fd3e0
+  0x00453d9a -> 0x004fd3e0 FUN_004fd3e0
+  0x00453da1 -> 0x00586170 FUN_00586170
+  0x00453da8 -> 0x006fce00 FUN_006fce00
+  Total: 23 calls
+
+======================================================================
+Cell eligibility check (FUN_004511e0, if called) @ 0x004511e0
+======================================================================
+  Function: FUN_004511e0 @ 0x004511e0, Size: 81 bytes
+
+uint FUN_004511e0(int param_1,char param_2)
+
+{
+  undefined1 uVar1;
+  uint in_EAX;
+  uint uVar2;
+  undefined3 extraout_var;
+  int iVar3;
+  uint3 uVar4;
+  
+  if (param_1 == 0) {
+    uVar2 = in_EAX & 0xffffff00;
+  }
+  else {
+    uVar1 = FUN_00450fd0(param_1);
+    iVar3 = CONCAT31(extraout_var,uVar1) + -2;
+    uVar4 = (uint3)((uint)iVar3 >> 8);
+    switch(iVar3) {
+    case 0:
+    case 1:
+    case 2:
+      if (param_2 == '\0') {
+        return CONCAT31(uVar4,1);
+      }
+    default:
+      uVar2 = (uint)uVar4 << 8;
+      break;
+    case 3:
+    case 4:
+      uVar2 = CONCAT31(uVar4,1);
+    }
+  }
+  return uVar2;
+}
+
+
+
+======================================================================
+Cell distance/state check (FUN_00557090, if called) @ 0x00557090
+======================================================================
+  Function: FUN_00557090 @ 0x00557090, Size: 25 bytes
+
+void __fastcall FUN_00557090(int param_1)
+
+{
+  FUN_005570b0((int *)(param_1 + 0x80));
+  return;
+}
+
+
+
+======================================================================
+Pre-cell-unload setup (FUN_004539a0) @ 0x004539a0
+======================================================================
+  Function: FUN_004539a0 @ 0x004539a0, Size: 196 bytes
+
+void __thiscall FUN_004539a0(void *this,char param_1,char param_2)
+
+{
+  undefined4 *puVar1;
+  int iVar2;
+  uint uVar3;
+  int *piVar4;
+  
+  puVar1 = (undefined4 *)FUN_0045bb80((int)this);
+  FUN_00470470(puVar1);
+  if (param_1 != '\0') {
+    iVar2 = FUN_005f36f0((int)this);
+    if (iVar2 == 0) goto LAB_004539d2;
+  }
+  FUN_00453940((int)this);
+LAB_004539d2:
+  FUN_00453a70();
+  FUN_00483710();
+  FUN_00455200(this,param_1,0);
+  iVar2 = FUN_005f36f0((int)this);
+  if ((iVar2 != 0) && (param_1 == '\0')) {
+    iVar2 = FUN_005f36f0((int)this);
+    uVar3 = FUN_00454bd0(this,iVar2);
+    if ((uVar3 & 0xff) == 0) {
+      piVar4 = (int *)FUN_005f36f0((int)this);
+      FUN_00462290(piVar4);
+    }
+  }
+  FUN_00454d50(this,param_1);
+  if ((param_1 == '\0') && (param_2 == '\0')) {
+    FUN_008d7dc0(this,0);
+  }
+  *(undefined1 *)((int)this + 0xb4) = 1;
+  return;
+}
+
+
+
+######################################################################
+# Q2: Async Flush IO Lock Re-entrancy
+######################################################################
+# DeferredCleanupSmall calls FUN_00c459d0 (async flush).
+# We hold the IO spin-lock (0x40FBF0). Does async flush
+# call FUN_0040FBF0 again? ? deadlock if yes.
+
+======================================================================
+Async flush (FUN_00c459d0) @ 0x00c459d0
+======================================================================
+  Function: FUN_00c459d0 @ 0x00c459d0, Size: 172 bytes
+
+/* WARNING: Globals starting with '_' overlap smaller symbols at the same address */
+
+void __cdecl FUN_00c459d0(char param_1)
+
+{
+  BOOL BVar1;
+  bool local_5;
+  
+  local_5 = true;
+  if (param_1 == '\0') {
+    FUN_0040fbf0((LONG *)&DAT_01202e40);
+  }
+  else {
+    local_5 = FUN_0078d200((LONG *)&DAT_01202e40);
+  }
+  if ((local_5 == false) ||
+     (BVar1 = TryEnterCriticalSection((LPCRITICAL_SECTION)&lpCriticalSection_011f4380), BVar1 != 0))
+  {
+    if (local_5 != false) {
+      FUN_00c46080(0x1202e20);
+      FUN_00c45a80();
+      LeaveCriticalSection((LPCRITICAL_SECTION)&lpCriticalSection_011f4380);
+      DAT_01202e44 = DAT_01202e44 + -1;
+      if (DAT_01202e44 == 0) {
+        _DAT_01202e40 = 0;
+      }
+    }
+  }
+  else {
+    DAT_01202e44 = DAT_01202e44 + -1;
+    if (DAT_01202e44 == 0) {
+      _DAT_01202e40 = 0;
+    }
+  }
+  return;
+}
+
+
+
+--- Calls FROM Async flush (0x00c459d0) ---
+  0x00c459e7 -> 0x0078d200 FUN_0078d200
+  0x00c459f8 -> 0x0040fbf0 FUN_0040fbf0
+  0x00c45a0a -> 0x00000062 ???
+  0x00c45a4a -> 0x00c46080 FUN_00c46080
+  0x00c45a4f -> 0x00c45a80 FUN_00c45a80
+  0x00c45a59 -> 0x00000036 ???
+  Total: 6 calls
+
+======================================================================
+Try-lock (FUN_0078d200) @ 0x0078d200
+======================================================================
+  Function: FUN_0078d200 @ 0x0078d200, Size: 123 bytes
+
+bool __fastcall FUN_0078d200(LONG *param_1)
+
+{
+  int iVar1;
+  char local_25;
+  
+  iVar1 = FUN_0040fc90();
+  if (*param_1 == iVar1) {
+    param_1[1] = param_1[1] + 1;
+    local_25 = '\x01';
+  }
+  else {
+    iVar1 = FUN_0043b460(param_1,0,iVar1);
+    local_25 = '\x01' - (iVar1 != 0);
+    if (local_25 != '\0') {
+      FUN_0040fbe0();
+      param_1[1] = 1;
+    }
+  }
+  return (bool)local_25;
+}
+
+
+
+======================================================================
+Spin-lock acquire (FUN_0040FBF0) @ 0x0040fbf0
+======================================================================
+  Function: FUN_0040fbf0 @ 0x0040fbf0, Size: 149 bytes
+
+void __fastcall FUN_0040fbf0(LONG *param_1)
+
+{
+  int iVar1;
+  int iVar2;
+  uint local_64;
+  
+  iVar1 = FUN_0040fc90();
+  if (*param_1 == iVar1) {
+    param_1[1] = param_1[1] + 1;
+  }
+  else {
+    local_64 = 0;
+    while (iVar2 = FUN_0043b460(param_1,0,iVar1), iVar2 != 0) {
+      local_64 = local_64 + 1;
+      if (local_64 < 0x2711) {
+        FUN_0040fca0(0);
+      }
+      else {
+        FUN_0040fca0(1);
+      }
+    }
+    FUN_0040fbe0();
+    param_1[1] = 1;
+  }
+  return;
+}
+
+
+
+--- Lock address comparison ---
+IO dequeue lock: IOManager+0x20
+Async flush lock: DAT_01202e40
+Are these the same lock? Check IOManager singleton at 0x01202d98
+IOManager+0x20 = *(0x01202d98) + 0x20 (runtime address)
+DAT_01202e40 is a static address
+These are DIFFERENT locks (one is indirect, one is static)
+
+######################################################################
+# Q3: BSTreeNode State (FUN_00726070)
+######################################################################
+
+======================================================================
+Node state / next-sibling (FUN_00726070) @ 0x00726070
+======================================================================
+  Function: FUN_00726070 @ 0x00726070, Size: 17 bytes
+
+undefined4 __fastcall FUN_00726070(int param_1)
+
+{
+  return *(undefined4 *)(param_1 + 4);
+}
+
+
+
+----------------------------------------------------------------------
+References TO 0x00726070 (FUN_00726070 callers)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x00408bd4 (in FUN_00408bc0)
+  UNCONDITIONAL_CALL @ 0x004614ec (in FUN_004614e0)
+  UNCONDITIONAL_CALL @ 0x004614f3 (in FUN_004614e0)
+  UNCONDITIONAL_CALL @ 0x004650f9 (in FUN_004650a0)
+  UNCONDITIONAL_CALL @ 0x004da502 (in FUN_004da4d0)
+  UNCONDITIONAL_CALL @ 0x004da51d (in FUN_004da4d0)
+  UNCONDITIONAL_CALL @ 0x004da542 (in FUN_004da4d0)
+  UNCONDITIONAL_CALL @ 0x0044f130 (in FUN_0044f070)
+  UNCONDITIONAL_CALL @ 0x00545104 (in FUN_00545030)
+  UNCONDITIONAL_CALL @ 0x00484fb9 (in FUN_00484f50)
+  UNCONDITIONAL_CALL @ 0x00485046 (in FUN_00484f50)
+  UNCONDITIONAL_CALL @ 0x00485065 (in FUN_00484f50)
+  UNCONDITIONAL_CALL @ 0x004850cc (in FUN_00484f50)
+  UNCONDITIONAL_CALL @ 0x00533541 (in FUN_00533420)
+  UNCONDITIONAL_CALL @ 0x0054b78a (in FUN_0054b750)
+  UNCONDITIONAL_CALL @ 0x0055099e (in FUN_005508b0)
+  UNCONDITIONAL_CALL @ 0x00550ad0 (in FUN_005508b0)
+  UNCONDITIONAL_CALL @ 0x00484e9f (in FUN_00484e60)
+  UNCONDITIONAL_CALL @ 0x0055156b (in FUN_00551480)
+  UNCONDITIONAL_CALL @ 0x00544daa (in FUN_00544ce0)
+  UNCONDITIONAL_CALL @ 0x00544f30 (in FUN_00544ce0)
+  UNCONDITIONAL_CALL @ 0x00410162 (in FUN_00410140)
+  UNCONDITIONAL_CALL @ 0x0054b9aa (in FUN_0054b950)
+  UNCONDITIONAL_CALL @ 0x0054bab2 (in FUN_0054ba80)
+  UNCONDITIONAL_CALL @ 0x0054c60a (in FUN_0054c030)
+  UNCONDITIONAL_CALL @ 0x0054d30c (in FUN_0054d090)
+  UNCONDITIONAL_CALL @ 0x0047198f (in FUN_00471870)
+  UNCONDITIONAL_CALL @ 0x004719ec (in FUN_00471870)
+  UNCONDITIONAL_CALL @ 0x005101ed (in FUN_005101e0)
+  UNCONDITIONAL_CALL @ 0x005537af (in FUN_00553700)
+  UNCONDITIONAL_CALL @ 0x005575b2 (in FUN_005574d0)
+  UNCONDITIONAL_CALL @ 0x00557743 (in FUN_005576c0)
+  UNCONDITIONAL_CALL @ 0x005577ee (in FUN_005577b0)
+  UNCONDITIONAL_CALL @ 0x0055786f (in FUN_005577b0)
+  UNCONDITIONAL_CALL @ 0x00557cad (in FUN_00557c40)
+  UNCONDITIONAL_CALL @ 0x00558bf5 (in FUN_00558ba0)
+  UNCONDITIONAL_CALL @ 0x004826fc (in FUN_004826d0)
+  UNCONDITIONAL_CALL @ 0x004d058b (in FUN_004d0490)
+  UNCONDITIONAL_CALL @ 0x004d0613 (in FUN_004d0490)
+  UNCONDITIONAL_CALL @ 0x004bfbea (in FUN_004bfba0)
+  UNCONDITIONAL_CALL @ 0x004bfc5c (in FUN_004bfba0)
+  UNCONDITIONAL_CALL @ 0x00569aaa (in FUN_005699b0)
+  UNCONDITIONAL_CALL @ 0x0054561e (in FUN_005455c0)
+  UNCONDITIONAL_CALL @ 0x004209c7 (in FUN_00420950)
+  UNCONDITIONAL_CALL @ 0x00420a49 (in FUN_00420950)
+  UNCONDITIONAL_CALL @ 0x0054a33b (in FUN_0054a070)
+  UNCONDITIONAL_CALL @ 0x00583294 (in FUN_00583270)
+  UNCONDITIONAL_CALL @ 0x005ae3b5 (in FUN_005ae380)
+  UNCONDITIONAL_CALL @ 0x00603bf8 (in FUN_00603be0)
+  UNCONDITIONAL_CALL @ 0x00650ae0 (in FUN_00650a30)
+  UNCONDITIONAL_CALL @ 0x0065042d (in FUN_006503b0)
+  ... (truncated)
+  Total: 51 refs
+
+======================================================================
+NiNode child cleanup (FUN_0043bac0) @ 0x0043bac0
+======================================================================
+  Function: FUN_0043bac0 @ 0x0043bac0, Size: 35 bytes
+
+void __fastcall FUN_0043bac0(int param_1)
+
+{
+  if (0 < *(int *)(param_1 + 0x10)) {
+    FUN_004019a0((LONG *)(param_1 + 0x10));
+  }
+  return;
+}
+
+
+
+--- Calls FROM NiNode child cleanup (0x0043bac0) ---
+  0x0043bad7 -> 0x004019a0 FUN_004019a0
+  Total: 1 calls
+
+######################################################################
+# Q4: CellTransition IO Wait (FUN_00877700)
+######################################################################
+# CellTransition calls FUN_00877700 first. This waits for IO.
+# Does it also use the IO spin-lock?
+
+======================================================================
+CellTransition IO wait @ 0x00877700
+======================================================================
+  Function: FUN_00877700 @ 0x00877700, Size: 30 bytes
+
+void __fastcall FUN_00877700(int param_1)
+
+{
+  FUN_00ad8da0((void *)(param_1 + 0x77c),1000);
+  return;
+}
+
+
+
+--- Calls FROM CellTransition IO wait (0x00877700) ---
+  0x00877715 -> 0x00ad8da0 FUN_00ad8da0
+  Total: 1 calls
+
+######################################################################
+# Q5: Post-CellTransition (FUN_008776e0)
+######################################################################
+
+======================================================================
+Post-CellTransition @ 0x008776e0
+======================================================================
+  Function: FUN_008776e0 @ 0x008776e0, Size: 25 bytes
+
+void __fastcall FUN_008776e0(int param_1)
+
+{
+  *(undefined1 *)(param_1 + 2) = 0;
+  *(undefined1 *)(param_1 + 5) = 0;
+  return;
+}
+
+
+
+--- Calls FROM Post-CellTransition (0x008776e0) ---
+  Total: 0 calls
+
+######################################################################
+# Q6: Pre-CellTransition cleanup (FUN_00453a70)
+######################################################################
+
+======================================================================
+Pre-CellTransition cleanup @ 0x00453a70
+======================================================================
+  Function: FUN_00453a70 @ 0x00453a70, Size: 10 bytes
+
+undefined4 FUN_00453a70(void)
+
+{
+  return DAT_011f6d98;
+}
+
+
+
+--- Calls FROM Pre-CellTransition cleanup (0x00453a70) ---
+  Total: 0 calls
+
+######################################################################
+# Q7: Skip Mask Setter (FUN_00869190)
+######################################################################
+
+======================================================================
+PDD skip mask setter @ 0x00869190
+======================================================================
+  Function: FUN_00869190 @ 0x00869190, Size: 29 bytes
+
+void __cdecl FUN_00869190(undefined1 param_1)
+
+{
+  int unaff_FS_OFFSET;
+  
+  *(undefined1 *)(*(int *)(*(int *)(unaff_FS_OFFSET + 0x2c) + _tls_index * 4) + 0x298) = param_1;
+  return;
+}
+
+
+
+======================================================================
+ANALYSIS COMPLETE
+======================================================================
