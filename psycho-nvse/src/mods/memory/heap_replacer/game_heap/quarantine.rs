@@ -1,7 +1,9 @@
 //! Per-thread double-buffer quarantine for UAF protection.
 //!
-//! Freed objects stay readable (zombie) for at least one full frame.
-//! Two-buffer swap ensures temporal separation between free and reclaim.
+//! Freed objects stay readable (zombie) until drained. Drain happens ONLY
+//! at Phase 7 (AI idle) and ONLY when quarantine exceeds a size threshold.
+//! Under the threshold, objects accumulate as zombies indefinitely -- this
+//! matches SBM's pool behavior where freed blocks stay readable.
 //!
 //! # Safety proof
 //!
@@ -35,20 +37,20 @@
 //! # Buffer lifecycle
 //!
 //! ```text
-//! Normal gameplay:
-//!   Frame N, Phase 7 (tick_flush):  drain(previous)  <- mi_free here ONLY
-//!   Frame N, mid-frame (tick_rotate): swap current<->previous (NO mi_free!)
-//!   Frame N+1, Phase 7 (tick_flush): drain(previous) = frame N's frees
+//! Low pressure (quarantine < threshold):
+//!   tick_flush:  skip drain (objects stay as zombies)
+//!   tick_rotate: append current onto previous (accumulate)
+//!   Result: quarantine grows as a single FIFO. Zero drain overhead.
+//!
+//! High pressure (quarantine >= threshold):
+//!   tick_flush:  drain previous (mi_free here ONLY)
+//!   tick_rotate: swap current <-> empty previous
+//!   Result: one frame of frees drained per Phase 7.
 //!
 //! During loading:
-//!   tick_flush: drain previous (safe -- these are pre-loading frees)
+//!   tick_flush:  drain previous if over threshold (pre-loading frees, safe)
 //!   tick_rotate: skip rotation (loading early return)
 //!   Quarantine accumulates in current. OOM handler is safety valve.
-//!
-//! Loading -> gameplay transition:
-//!   Frame L+1 (first non-loading): NVSE events fire (forms still in quarantine)
-//!   Frame L+1 tick_rotate: swap current<->previous
-//!   Frame L+2 tick_flush: drain previous (safe, NVSE events done)
 //! ```
 
 use libc::c_void;
@@ -56,6 +58,20 @@ use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 
 use super::game_guard;
 use super::texture_cache;
+
+// ---------------------------------------------------------------------------
+// Configuration
+// ---------------------------------------------------------------------------
+
+// Minimum quarantine bytes before drain kicks in at Phase 7.
+// Under this threshold, previous stays undrained (objects stay as zombies).
+// rotate_swap appends current to undrained previous, growing the buffer.
+// This avoids per-frame mi_free burst cost during low-pressure gameplay.
+const DRAIN_THRESHOLD: usize = 64 * 1024 * 1024;
+
+// Absolute cap. Always drain ALL if quarantine exceeds this.
+// Prevents runaway VAS growth during sustained stress.
+const DRAIN_CAP: usize = 512 * 1024 * 1024;
 
 // ---------------------------------------------------------------------------
 // State
@@ -103,18 +119,14 @@ impl ThreadQuarantine {
 
     /// Swap current <-> previous. NEVER calls mi_free.
     /// Safe to call during AI execution.
+    ///
+    /// If previous is non-empty (drain was skipped due to threshold),
+    /// appends current onto previous. Objects accumulate as a FIFO
+    /// and drain together when threshold is exceeded at next tick_flush.
     fn rotate_swap(&mut self) {
-        // Previous MUST be empty (drained by tick_flush earlier this frame).
-        // If not, we have a bug -- but we must NOT drain here (AI is active).
         if !self.previous.is_empty() {
-            log::error!(
-                "[QUARANTINE] BUG: previous not empty at rotate ({} ptrs, {}MB). \
-                 Deferring to next tick_flush.",
-                self.previous.len(),
-                QUARANTINE_BYTES.load(Ordering::Relaxed) / 1024 / 1024,
-            );
-            // Append current onto previous instead of swapping.
-            // Everything drains at next tick_flush.
+            // Drain was skipped (under threshold). Append current to
+            // previous so everything drains together when threshold hits.
             self.previous.append(&mut self.current);
             return;
         }
@@ -128,7 +140,9 @@ impl ThreadQuarantine {
         }
         let count = self.previous.len();
         Self::drain_vec(&mut self.previous);
-        log::trace!("[QUARANTINE] Flushed previous: {} ptrs", count);
+        if count > 10_000 {
+            log::debug!("[QUARANTINE] Flushed previous: {} ptrs", count);
+        }
     }
 
     /// Drain all buffers. ONLY call when AI threads are idle (OOM recovery).
@@ -193,18 +207,34 @@ pub fn push(ptr: *mut c_void) {
 // Public API -- frame lifecycle
 // ---------------------------------------------------------------------------
 
-/// Phase 7 (on_pre_ai): drain previous buffer under write lock.
+/// Phase 7 (on_pre_ai): conditionally drain previous buffer under write lock.
 ///
 /// AI threads are idle. This is the ONLY place mi_free runs for
 /// quarantined pointers. Also clears the texture dead set while
-/// the write lock is held (dead set entries must persist until
-/// AFTER their corresponding quarantine buffer is drained).
+/// the write lock is held.
+///
+/// Drain is demand-driven: only when quarantine exceeds DRAIN_THRESHOLD.
+/// Under the threshold, objects stay as zombies (readable but logically
+/// freed). Zero mi_free overhead during normal low-pressure gameplay.
 pub fn tick_flush() {
+    let qbytes = QUARANTINE_BYTES.load(Ordering::Relaxed);
+
     game_guard::with_write("tick_flush", || {
-        QUARANTINE.with(|q| {
-            let q = unsafe { &mut *q.get() };
-            q.flush_previous();
-        });
+        if qbytes >= DRAIN_CAP {
+            // Over absolute cap: drain everything to prevent VAS exhaustion.
+            QUARANTINE.with(|q| {
+                let q = unsafe { &mut *q.get() };
+                q.flush_all();
+            });
+        } else if qbytes >= DRAIN_THRESHOLD {
+            // Over threshold: drain previous to reclaim memory.
+            QUARANTINE.with(|q| {
+                let q = unsafe { &mut *q.get() };
+                q.flush_previous();
+            });
+        }
+        // Under threshold: skip drain. Objects stay as zombies.
+        // rotate_swap will append current to undrained previous.
 
         // Clear dead set AFTER drain, while write lock is still held.
         // During drain: BST's texture_cache_find is blocked (write lock).
@@ -218,6 +248,9 @@ pub fn tick_flush() {
 ///
 /// AI threads are STILL ACTIVE -- must NOT free any memory here.
 /// During loading: skip rotation so frees accumulate in current.
+///
+/// If previous wasn't drained (under threshold), appends current onto
+/// previous. Objects accumulate until threshold triggers drain.
 pub fn tick_rotate() {
     if super::engine::globals::is_loading() {
         return;

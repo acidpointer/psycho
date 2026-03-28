@@ -110,6 +110,8 @@ impl CellUnloadGuard {
 		})
 	}
 
+	/// Unload cells, aborting if loading starts unexpectedly.
+	/// Used by console command and normal gameplay paths.
 	fn unload_cells(&mut self, max_cells: usize) -> usize {
 		for i in 0..max_cells {
 			if globals::is_loading() {
@@ -123,6 +125,26 @@ impl CellUnloadGuard {
 				}
 				_ => {
 					log::debug!("[CELL_UNLOAD] No more eligible after {}", self.cells_unloaded);
+					break;
+				}
+			}
+		}
+		self.cells_unloaded
+	}
+
+	/// Unload cells without loading-state abort.
+	/// Used when we intentionally unload during loading screens.
+	/// FindCellToUnload's own eligibility checks (FUN_004511e0,
+	/// FUN_00557090) prevent unloading cells being loaded.
+	fn unload_cells_during_loading(&mut self, max_cells: usize) -> usize {
+		for i in 0..max_cells {
+			match unsafe { globals::find_cell_to_unload(self.manager) } {
+				Some(true) => {
+					self.cells_unloaded += 1;
+					log::debug!("[CELL_UNLOAD] Cell {} unloaded (loading)", i + 1);
+				}
+				_ => {
+					log::debug!("[CELL_UNLOAD] No more eligible after {} (loading)", self.cells_unloaded);
 					break;
 				}
 			}
@@ -221,6 +243,69 @@ pub fn execute(max_cells: usize) -> Option<CellUnloadResult> {
 		quarantine_before / 1024 / 1024,
 		quarantine_after / 1024 / 1024,
 		TOTAL_CELLS_UNLOADED.load(Ordering::Relaxed),
+	);
+
+	Some(CellUnloadResult {
+		cells,
+		commit_before,
+		commit_after,
+		freed,
+		freed_mb: freed / 1024 / 1024,
+	})
+}
+
+/// Cell unload during loading screens.
+///
+/// Same guard protocol as execute() (IO lock → Havok lock, NVSE suppression)
+/// but does NOT abort when is_loading() is true -- we know we're loading
+/// and that's the point. The game's own OOM handler (run_oom_stages stage 5)
+/// does the same: calls FindCellToUnload during loading with no loading check.
+///
+/// FindCellToUnload's own eligibility checks (FUN_004511e0 cell state,
+/// FUN_00557090 secondary check) prevent unloading cells being loaded.
+/// Grid compact and cell array flush happen at the next HeapCompact Phase 6.
+///
+/// Safety: main thread only, AI must be idle (call from on_ai_join).
+pub fn execute_during_loading(max_cells: usize) -> Option<CellUnloadResult> {
+	let mut guard = match CellUnloadGuard::acquire() {
+		Ok(g) => g,
+		Err(reason) => {
+			log::debug!("[CELL_UNLOAD] Loading unload skipped: {:?}", reason);
+			return None;
+		}
+	};
+
+	let info = libmimalloc::process_info::MiMallocProcessInfo::get();
+	let commit_before = info.get_current_commit();
+
+	let cells = guard.unload_cells_during_loading(max_cells);
+
+	if cells == 0 {
+		return Some(CellUnloadResult {
+			cells: 0,
+			commit_before,
+			commit_after: commit_before,
+			freed: 0,
+			freed_mb: 0,
+		});
+	}
+
+	guard.run_cleanup();
+	drop(guard);
+
+	let commit_after = info.get_current_commit();
+	let freed = commit_before.saturating_sub(commit_after);
+
+	TOTAL_CELLS_UNLOADED.fetch_add(cells, Ordering::Relaxed);
+	TOTAL_BYTES_FREED.fetch_add(freed, Ordering::Relaxed);
+	TOTAL_CYCLES.fetch_add(1, Ordering::Relaxed);
+
+	log::warn!(
+		"[CELL_UNLOAD] Loading unload: {} cells, commit {}MB-->{}MB (freed {}MB)",
+		cells,
+		commit_before / 1024 / 1024,
+		commit_after / 1024 / 1024,
+		freed / 1024 / 1024,
 	);
 
 	Some(CellUnloadResult {

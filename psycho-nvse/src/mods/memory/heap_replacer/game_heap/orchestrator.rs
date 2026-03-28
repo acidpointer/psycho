@@ -56,6 +56,17 @@ const ALIGN: usize = 16;
 // Pressure check interval. Every N allocs, check commit threshold.
 const PRESSURE_CHECK_INTERVAL: u32 = 50_000;
 
+// During loading: only unload cells when commit growth is very high.
+// Higher threshold than normal pressure relief (800MB vs 500MB) because
+// loading is more sensitive to disruption. The game's own OOM stage 5
+// does the same thing -- FindCellToUnload during loading with no loading check.
+const LOADING_CELL_UNLOAD_GROWTH: usize = 800 * 1024 * 1024;
+
+// Max cells to unload per frame during loading. Conservative to minimize
+// loading frame time impact. FindCellToUnload + IO/Havok lock ceremony
+// takes ~1-5ms per cell.
+const LOADING_MAX_CELLS: usize = 3;
+
 thread_local! {
     static ALLOC_COUNTER: Cell<u32> = const { Cell::new(0) };
 }
@@ -438,11 +449,15 @@ impl HeapOrchestrator {
     pub unsafe fn on_ai_join() {
         game_guard::clear_ai_active();
 
-        // Skip ALL game cleanup during loading and post-load cooldown.
+        // During loading: skip normal cleanup but allow cell unload when
+        // commit growth is critical. AI is idle (just joined), same lock
+        // sequence as the game's own OOM handler (run_oom_stages stage 5).
         if globals::is_loading() {
             let info = libmimalloc::process_info::MiMallocProcessInfo::get();
             let until = info.get_elapsed_ms() + POST_LOAD_COOLDOWN_MS as usize;
             POST_LOAD_UNTIL.store(until, Ordering::Relaxed);
+
+            unsafe { Self::maybe_loading_cell_unload() };
             return;
         }
 
@@ -484,6 +499,62 @@ impl HeapOrchestrator {
     /// Whether pressure relief is active (for PDD boost decisions in hooks).
     pub fn is_pressure_active() -> bool {
         PressureRelief::instance().is_some_and(|pr| pr.is_requested())
+    }
+
+    // =======================================================================
+    // Loading cell unload (proactive memory reclamation during loading)
+    // =======================================================================
+
+    /// Unload old cells during loading when commit growth is critical.
+    ///
+    /// Same principle as the game's own OOM handler (run_oom_stages stage 5):
+    /// FindCellToUnload during loading with IO → Havok lock order. The game's
+    /// eligibility checks (FUN_004511e0, FUN_00557090) prevent unloading cells
+    /// being loaded. Grid compact and cell array flush happen at next Phase 6.
+    ///
+    /// Gated by:
+    /// - Commit growth > 800MB above baseline (higher than normal 500MB)
+    /// - Memory-based cooldown (don't fire again until commit grows back)
+    /// - Max 3 cells per frame (minimize loading frame disruption)
+    #[cold]
+    unsafe fn maybe_loading_cell_unload() {
+        let pr = match PressureRelief::instance() {
+            Some(pr) => pr,
+            None => return,
+        };
+        let baseline = pr.baseline_commit();
+        if baseline == 0 {
+            return;
+        }
+
+        let info = libmimalloc::process_info::MiMallocProcessInfo::get();
+        let commit = info.get_current_commit();
+        let growth = commit.saturating_sub(baseline);
+
+        if growth < LOADING_CELL_UNLOAD_GROWTH {
+            return;
+        }
+
+        // Memory-based cooldown: don't unload again until commit grows back
+        // above the post-unload level. Prevents per-frame unload churn.
+        static LOADING_COOLDOWN_COMMIT: AtomicUsize = AtomicUsize::new(0);
+        let cooldown = LOADING_COOLDOWN_COMMIT.load(Ordering::Relaxed);
+        if cooldown > 0 && commit < cooldown {
+            return;
+        }
+
+        if let Some(result) = super::engine::cell_unload::execute_during_loading(LOADING_MAX_CELLS)
+            && result.cells > 0
+        {
+            // Set cooldown: don't fire again until commit exceeds current level.
+            let post_commit =
+                libmimalloc::process_info::MiMallocProcessInfo::get().get_current_commit();
+            LOADING_COOLDOWN_COMMIT.store(post_commit, Ordering::Relaxed);
+
+            if let Some(pr) = PressureRelief::instance() {
+                pr.set_pending_counter_decrement();
+            }
+        }
     }
 
     // =======================================================================
