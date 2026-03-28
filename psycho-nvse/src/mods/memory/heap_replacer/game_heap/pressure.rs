@@ -213,14 +213,13 @@ impl PressureRelief {
         let baseline = self.baseline_commit.load(Ordering::Relaxed);
         let aggressive_threshold = baseline + MAX_GROWTH_ABOVE_BASELINE * 2;
         let commit_mb = commit / 1024 / 1024;
-        let quarantine_mb = super::orchestrator::HeapOrchestrator::quarantine_usage() / 1024 / 1024;
+        let quarantine_mb = super::quarantine::usage() / 1024 / 1024;
 
         // HeapCompact stage 3. No stage 4 (full PDD drain).
         //
         // Gen queue grows during stress but CellTransition drains it.
-        // Quarantine's demand-driven drain (real_commit threshold) ensures
-        // Gen destructors access readable zombie memory, not garbage.
-        // Without quarantine drain, no infinite loops in destructors.
+        // Double-buffer quarantine ensures Gen destructors access readable
+        // zombie memory (objects survive at least one full frame).
         //
         // Stage 0: ProcessPendingCleanup (BSTreeManager cleanup)
         // Stage 1-3: texture, menu, Havok GC
@@ -267,9 +266,9 @@ impl PressureRelief {
 
         if now_ms.saturating_sub(last_agg) >= AGGRESSIVE_COOLDOWN_MS {
             LAST_AGGRESSIVE_MS.store(now_ms, Ordering::Relaxed);
-            unsafe { super::orchestrator::HeapOrchestrator::flush_all_and_collect() };
+            unsafe { super::quarantine::flush_all_and_collect() };
             let commit_mb = info.get_current_commit() / 1024 / 1024;
-            let quarantine_mb = super::orchestrator::HeapOrchestrator::quarantine_usage() / 1024 / 1024;
+            let quarantine_mb = super::quarantine::usage() / 1024 / 1024;
             log::warn!(
                 "[PRESSURE] Aggressive collect (post AI_JOIN): commit={}MB, quarantine={}MB, RSS={}MB",
                 commit_mb, quarantine_mb, info.get_current_rss() / 1024 / 1024,

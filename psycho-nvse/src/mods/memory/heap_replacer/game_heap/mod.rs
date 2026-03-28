@@ -14,6 +14,7 @@ pub mod io_task;
 pub mod monitor;
 pub mod orchestrator;
 pub mod pdd_hook;
+pub mod quarantine;
 pub mod pressure;
 pub mod skeleton_update;
 pub mod statics;
