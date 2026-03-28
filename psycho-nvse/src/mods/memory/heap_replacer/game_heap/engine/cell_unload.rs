@@ -1,8 +1,8 @@
 // Safe cell unloading wrapper.
 //
 // Lock ordering matches CellTransitionHandler to prevent deadlocks:
-//   Game loading:  IO wait (FUN_00877700) → Havok stop (FUN_008324e0)
-//   Our unload:    IO lock → Havok lock (same order)
+//   Game loading:  IO wait (FUN_00877700) --> Havok stop (FUN_008324e0)
+//   Our unload:    IO lock --> Havok lock (same order)
 //
 // Sequence:
 //   1. AI idle check
@@ -54,7 +54,7 @@ pub struct CellUnloadResult {
 }
 
 // ---------------------------------------------------------------------------
-// Guard — lock order: IO → Havok (matches game's CellTransitionHandler)
+// Guard -- lock order: IO --> Havok (matches game's CellTransitionHandler)
 // ---------------------------------------------------------------------------
 
 struct CellUnloadGuard {
@@ -131,14 +131,17 @@ impl CellUnloadGuard {
 	}
 
 	fn run_cleanup(&mut self) {
-		if globals::is_loading() {
-			log::warn!("[CELL_UNLOAD] Skipping PDD: loading started");
-			return;
-		}
-		// PDD + async flush. IO lock held to prevent BST from dequeuing
-		// tasks that reference objects being destroyed by PDD.
-		unsafe { globals::deferred_cleanup_small(self.state[5]) };
-		log::debug!("[CELL_UNLOAD] PDD + async flush complete");
+		// DO NOT call deferred_cleanup_small here.
+		// DeferredCleanupSmall includes async flush which processes completed
+		// IO tasks. Those tasks may reference objects still in quarantine.
+		// Calling game cleanup from our hooks risks accessing freed memory.
+		//
+		// Instead, PDD entries from cell unload drain naturally through:
+		// - Per-frame PDD drain (10-20 entries/frame, Phase 7)
+		// - HeapCompact stage 0 ProcessPendingCleanup (our stage 3 signal)
+		// The game's vanilla per-frame cleanup (FUN_008782b0) also calls
+		// DeferredCleanupSmall when state == 3 -- let IT handle timing.
+		log::debug!("[CELL_UNLOAD] Cells unloaded, cleanup deferred to per-frame PDD");
 	}
 }
 
@@ -210,7 +213,7 @@ pub fn execute(max_cells: usize) -> Option<CellUnloadResult> {
 	TOTAL_CYCLES.fetch_add(1, Ordering::Relaxed);
 
 	log::warn!(
-		"[CELL_UNLOAD] Done: {} cells, commit {}MB→{}MB (freed {}MB), quarantine {}MB→{}MB, total={}",
+		"[CELL_UNLOAD] Done: {} cells, commit {}MB-->{}MB (freed {}MB), quarantine {}MB-->{}MB, total={}",
 		cells,
 		commit_before / 1024 / 1024,
 		commit_after / 1024 / 1024,
@@ -230,7 +233,7 @@ pub fn execute(max_cells: usize) -> Option<CellUnloadResult> {
 }
 
 // ---------------------------------------------------------------------------
-// Deferred request (console command → next on_pre_ai)
+// Deferred request (console command --> next on_pre_ai)
 // ---------------------------------------------------------------------------
 
 static DEFERRED_REQUEST: std::sync::atomic::AtomicU8 = std::sync::atomic::AtomicU8::new(0);
@@ -270,13 +273,13 @@ pub fn should_unload_proactively() -> usize {
 
 	if growth >= CRITICAL {
 		log::warn!(
-			"[CELL_UNLOAD] Critical: commit={}MB, growth={}MB — 10 cells",
+			"[CELL_UNLOAD] Critical: commit={}MB, growth={}MB -- 10 cells",
 			commit / 1024 / 1024, growth / 1024 / 1024,
 		);
 		10
 	} else if growth >= HIGH {
 		log::info!(
-			"[CELL_UNLOAD] Proactive: commit={}MB, growth={}MB — 5 cells",
+			"[CELL_UNLOAD] Proactive: commit={}MB, growth={}MB -- 5 cells",
 			commit / 1024 / 1024, growth / 1024 / 1024,
 		);
 		5

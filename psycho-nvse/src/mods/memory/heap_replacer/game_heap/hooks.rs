@@ -1,4 +1,4 @@
-//! Hook functions — thin wrappers that delegate to HeapOrchestrator.
+//! Hook functions -- thin wrappers that delegate to HeapOrchestrator.
 
 use libc::c_void;
 
@@ -68,7 +68,7 @@ thread_local! {
 }
 
 // NiNode-only boost: extra rounds ONLY while NiNode queue is non-empty.
-// Breaks immediately when NiNode=0 — never processes Gen or other queues.
+// Breaks immediately when NiNode=0 -- never processes Gen or other queues.
 // Per-frame PDD processes the first non-empty queue in priority order:
 // NiNode > Texture > Form > Anim > Generic. With NiNode as highest priority,
 // extra rounds drain NiNode exclusively. When NiNode hits 0, the game's

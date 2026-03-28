@@ -158,7 +158,7 @@ impl PressureRelief {
     }
 
     /// Clear the deferred unload flag. Called from on_ai_join when
-    /// post-load cooldown is active — prevents destruction_protocol
+    /// post-load cooldown is active -- prevents destruction_protocol
     /// from running during post-load init.
     pub fn clear_deferred_unload(&self) {
         self.deferred_unload.store(false, Ordering::Release);
@@ -215,25 +215,15 @@ impl PressureRelief {
         let commit_mb = commit / 1024 / 1024;
         let quarantine_mb = super::orchestrator::HeapOrchestrator::quarantine_usage() / 1024 / 1024;
 
-        // HeapCompact stage 3 ONLY from pressure relief. NEVER stage 4.
+        // HeapCompact stage 3. No stage 4 (full PDD drain).
         //
-        // The vanilla game NEVER signals HeapCompact during normal gameplay
-        // (HEAP_COMPACT_TRIGGER has zero game references). HeapCompact is
-        // OOM-only. Stage 4 (full PDD drain) processing 1000+ Gen entries
-        // causes multi-second freezes — verified repeatedly.
+        // Gen queue grows during stress but CellTransition drains it.
+        // Quarantine's demand-driven drain (real_commit threshold) ensures
+        // Gen destructors access readable zombie memory, not garbage.
+        // Without quarantine drain, no infinite loops in destructors.
         //
-        // Stage 3 is sufficient:
-        //   Stage 0: ProcessPendingCleanup → BSTreeManager::cleanup (partial)
-        //   Stage 1: geometry cache free
-        //   Stage 2: menu cleanup
-        //   Stage 3: Havok GC + async flush (try mode)
-        //
-        // NiNode PDD queue stays at 0 via per-frame PDD drain (verified).
-        // Stage 4 (full PDD) only runs from OOM executor inline — matching
-        // vanilla behavior exactly.
-        //
-        // Aggressive pressure: deferred unload (flush + collect) at AI_JOIN,
-        // but NO stage 4 signal.
+        // Stage 0: ProcessPendingCleanup (BSTreeManager cleanup)
+        // Stage 1-3: texture, menu, Havok GC
         globals::signal_heap_compact(globals::HeapCompactStage::HavokGC);
         unsafe { mi_collect(false) };
 
@@ -277,7 +267,7 @@ impl PressureRelief {
 
         if now_ms.saturating_sub(last_agg) >= AGGRESSIVE_COOLDOWN_MS {
             LAST_AGGRESSIVE_MS.store(now_ms, Ordering::Relaxed);
-            unsafe { super::orchestrator::HeapOrchestrator::flush_reclaimable_and_collect() };
+            unsafe { super::orchestrator::HeapOrchestrator::flush_all_and_collect() };
             let commit_mb = info.get_current_commit() / 1024 / 1024;
             let quarantine_mb = super::orchestrator::HeapOrchestrator::quarantine_usage() / 1024 / 1024;
             log::warn!(
@@ -286,7 +276,7 @@ impl PressureRelief {
             );
         }
 
-        // No is_loading() check: cell unload during loading is needed —
+        // No is_loading() check: cell unload during loading is needed --
         // the game's own OOM stage 5 does FindCellToUnload without checking
         // loading state. Unloading old cells frees VAS for new ones.
 
@@ -297,7 +287,7 @@ impl PressureRelief {
 
         // No BST pending check: FindCellToUnload handles cell eligibility
         // internally (FUN_004511e0, FUN_00557090). BST loads NEW cells
-        // while we unload OLD cells — different cells, no conflict.
+        // while we unload OLD cells -- different cells, no conflict.
 
         let cells = unsafe { Self::destruction_protocol(manager) };
 
@@ -331,7 +321,7 @@ impl PressureRelief {
         let loading_counter = globals::loading_state_counter();
         loading_counter.fetch_add(1, std::sync::atomic::Ordering::AcqRel);
 
-        // Lock order: IO → Havok (matches CellTransitionHandler to prevent deadlock).
+        // Lock order: IO --> Havok (matches CellTransitionHandler to prevent deadlock).
 
         // 1. IO lock FIRST.
         let io_locked = unsafe { io_sync::io_lock_acquire() };
@@ -356,9 +346,11 @@ impl PressureRelief {
             }
         }
 
-        // Run PDD + async flush + cleanup. IO lock held to prevent BST
-        // from dequeuing tasks that reference objects being destroyed.
-        unsafe { globals::deferred_cleanup_small(state[5]) };
+        // DO NOT call deferred_cleanup_small -- its async flush processes
+        // completed IO tasks that may reference quarantine-reclaimed memory.
+        // PDD entries from cell unload drain naturally through per-frame PDD
+        // and HeapCompact stage 0. Vanilla per-frame cleanup (FUN_008782b0)
+        // handles DeferredCleanupSmall timing safely.
 
         // Release in reverse order: Havok first, then IO.
         unsafe { globals::post_destruction_restore(&mut state) };

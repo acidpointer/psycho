@@ -1,7 +1,9 @@
 //! PDD (ProcessDeferredDestruction) hook.
 //!
-//! Pass-through. The game's own PDD lock (DAT_011de8e0) serializes
-//! destruction. Quarantine provides UAF protection.
+//! Pass-through. Gen queue deadlock is prevented by the quarantine's
+//! demand-driven drain (real_commit threshold). Quarantine stays full
+//! during normal gameplay -- Gen destructors access readable zombie
+//! memory instead of garbage. No infinite loops.
 
 use super::statics;
 
