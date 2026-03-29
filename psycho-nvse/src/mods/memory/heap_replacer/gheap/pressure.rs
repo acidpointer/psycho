@@ -104,7 +104,7 @@ impl PressureRelief {
     // Dynamic threshold: baseline commit + MAX_GROWTH_ABOVE_BASELINE.
     // Returns usize::MAX if baseline not yet measured (suppress all checks).
     #[inline]
-    fn threshold(&self) -> usize {
+    pub fn threshold(&self) -> usize {
         let baseline = self.baseline_commit.load(Ordering::Relaxed);
         if baseline == 0 {
             return usize::MAX;

@@ -69,21 +69,47 @@ pub unsafe extern "C" fn hook_per_frame_queue_drain() {
     }
 
     // Handle emergency cleanup signal from worker OOM.
+    // Worker threads can't run game OOM stages or drain the main thread's
+    // pool. They signal here, and we do it on the main thread at Phase 7.
     if allocator::EMERGENCY_CLEANUP.swap(false, std::sync::atomic::Ordering::AcqRel) {
-        log::warn!("[POOL] Emergency drain triggered by worker OOM");
+        log::warn!("[POOL] Emergency: worker OOM, draining pool + game cleanup");
         let freed = unsafe { pool::pool_drain_all() };
         if freed > 0 {
             log::warn!("[POOL] Emergency drained {} blocks", freed);
         }
         unsafe { libmimalloc::mi_collect(true) };
+
+        // Run game's OOM stages on behalf of the stuck worker.
+        // This includes cell unload (stage 5), texture flush, PDD purge.
+        // The 22MB+ allocation that triggered OOM needs contiguous VAS
+        // that only game cleanup can free.
+        if !globals::is_loading() {
+            let ptr = unsafe { globals::run_oom_stages(0) };
+            if !ptr.is_null() {
+                // run_oom_stages allocated internally, free it (we don't need it).
+                unsafe { libmimalloc::mi_free(ptr) };
+            }
+            log::warn!("[POOL] Emergency: game OOM stages completed");
+        }
     }
 
     // Pool maintenance: drain excess blocks if BST is idle.
+    // Two triggers:
+    //   1. Pool exceeds 64MB cap (size-based)
+    //   2. Commit exceeds pressure threshold (VAS-based)
     // BST idle check is a non-intrusive semaphore read (~50ns).
-    // At Phase 7, if BST is between tasks, it stays idle because no
-    // other thread enqueues IO tasks (all enqueue paths are main-thread).
     if unsafe { super::engine::io_sync::are_bst_threads_idle() } {
-        unsafe { pool::pool_maintain() };
+        let should_drain = pool::pool_held_bytes() > 0 && {
+            let commit = libmimalloc::process_info::MiMallocProcessInfo::get()
+                .get_current_commit();
+            let threshold = PressureRelief::instance()
+                .map(|pr| pr.threshold())
+                .unwrap_or(usize::MAX);
+            pool::pool_held_bytes() >= 64 * 1024 * 1024 || commit >= threshold
+        };
+        if should_drain {
+            unsafe { pool::pool_maintain() };
+        }
     }
 
     // Clear texture dead set under write lock.

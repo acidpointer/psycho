@@ -33,10 +33,11 @@ const MAX_POOL_SIZE: usize = 4096;
 // during cell transitions where old-size blocks accumulate on freelists
 // while new-size blocks come from mi_malloc.
 //
-// 128MB gives plenty of zombie safety (several frames of freed blocks)
-// while leaving headroom for the game's other memory needs (textures,
-// models, audio, D3D9 surfaces) in a 2GB VAS process.
-const MAX_POOL_HELD: usize = 128 * 1024 * 1024;
+// 64MB cap. Lower is safer for VAS -- the game needs headroom for
+// textures, models, audio, D3D9 surfaces in a 2GB VAS process.
+// Pool blocks are reused by same-size allocs, so effective zombie
+// coverage is much higher than 64MB (blocks cycle continuously).
+const MAX_POOL_HELD: usize = 64 * 1024 * 1024;
 
 // Freelist slot count. Index = usable_size / 16.
 // Covers sizes 16..4096 in 16-byte increments (256 slots).
