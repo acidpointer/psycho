@@ -174,6 +174,13 @@ pub unsafe extern "C" fn hook_per_frame_queue_drain() {
                 }
                 unsafe { original() };
             }
+
+            // PDD just processed queued destruction entries (from cell unload
+            // or normal gameplay). Freed blocks went to mi_free via pool cap.
+            // mi_collect(false) reclaims empty thread-local pages.
+            // NOT mi_collect(true) — that decommits pages, destroying zombie
+            // data that NVSE plugins read on the next frame's MainLoopHook.
+            unsafe { libmimalloc::mi_collect(false) };
         }
     }
 }

@@ -66,13 +66,35 @@ const SIZE_MAP_LEN: usize = MAX_POOL_SIZE + 1;
 // Pool (thread-local, main thread only)
 // -----------------------------------------------------------------------
 
-/// Per-size-class freelist pool (thread-local, main thread only).
+/// FIFO queue for one size class. Oldest blocks at head, newest at tail.
+///
+/// - Free pushes to tail (newest enters back)
+/// - Alloc pops from head (oldest reused first — max zombie time)
+/// - Evict pops from head + mi_free (oldest evicted — safest)
+#[derive(Clone, Copy)]
+struct SlotQueue {
+    head: *mut FreeNode,
+    tail: *mut FreeNode,
+}
+
+impl SlotQueue {
+    const fn empty() -> Self {
+        Self { head: std::ptr::null_mut(), tail: std::ptr::null_mut() }
+    }
+
+    fn is_empty(&self) -> bool {
+        self.head.is_null()
+    }
+}
+
+/// Per-size-class FIFO pool (thread-local, main thread only).
 ///
 /// 256 slots covering sizes 16..4096 in 16-byte increments.
-/// Freed blocks are pushed onto the matching slot's freelist and
-/// reused by same-size allocations, preserving zombie data.
+/// Freed blocks enter at the tail and are reused/evicted from the head.
+/// This ensures oldest blocks (with maximum zombie time) are evicted
+/// first when the pool exceeds capacity.
 pub struct Pool {
-    slots: [*mut FreeNode; SLOT_COUNT],
+    slots: [SlotQueue; SLOT_COUNT],
     size_map: [u16; SIZE_MAP_LEN],
     total_held: usize,
 }
@@ -97,31 +119,31 @@ struct FreeNode {
 unsafe impl Send for Pool {}
 
 impl Pool {
-    /// Create a new empty pool with zeroed freelists.
+    /// Create a new empty pool with zeroed queues.
     pub const fn new() -> Self {
         Self {
-            slots: [std::ptr::null_mut(); SLOT_COUNT],
+            slots: [SlotQueue::empty(); SLOT_COUNT],
             size_map: [0u16; SIZE_MAP_LEN],
             total_held: 0,
         }
     }
 
-    /// Allocate from pool (freelist hit) or mimalloc (freelist miss).
-    /// Returns (pointer, usable_size). Caller can use usable_size for msize.
+    /// Allocate from pool (FIFO: oldest block first) or mimalloc (miss).
+    /// Returns (pointer, usable_size).
     #[inline]
     pub unsafe fn alloc(&mut self, size: usize) -> (*mut c_void, usize) {
         if size <= MAX_POOL_SIZE && size > 0 {
             let cached = self.size_map[size] as usize;
             if cached != 0 {
                 let idx = cached / ALIGN;
-                if idx < SLOT_COUNT
-                    && let Some((block, usable)) = self.pop(idx) {
+                if idx < SLOT_COUNT {
+                    if let Some((block, usable)) = self.pop(idx) {
                         return (block, usable);
                     }
+                }
             }
         }
 
-        // Freelist miss or uncached size: allocate from mimalloc.
         let ptr = unsafe { mi_malloc_aligned(size, ALIGN) };
         if ptr.is_null() {
             return (ptr, 0);
@@ -133,11 +155,13 @@ impl Pool {
         (ptr, usable)
     }
 
-    /// Return block to pool freelist. Blocks >MAX_POOL_SIZE always bypass.
+    /// Return block to pool. Blocks >MAX_POOL_SIZE always bypass.
     ///
-    /// Cap enforcement: when pool exceeds MAX_POOL_HELD, large blocks
-    /// (>= SMALL_BLOCK_THRESHOLD) go to mi_free directly to prevent VAS
-    /// exhaustion. Small blocks still pool to preserve zombie data.
+    /// Two-tier cap:
+    /// - Soft cap (32MB): blocks >= 512 go to mi_free.
+    /// - Hard cap (128MB): new small blocks still pool BUT the oldest
+    ///   small block in the same slot is evicted (FIFO). Pool stays
+    ///   at ~HARD_CAP, newest blocks get zombie time, oldest evicted.
     #[inline]
     pub unsafe fn free(&mut self, ptr: *mut c_void) {
         let usable = unsafe { mi_usable_size(ptr as *const c_void) };
@@ -152,71 +176,23 @@ impl Pool {
             return;
         }
 
-        // Hard cap: pool critically oversized, ALL blocks go to mi_free.
-        // UAF risk accepted — alternative is guaranteed OOM.
-        if self.total_held > HARD_CAP {
-            unsafe { mi_free(ptr) };
-            return;
-        }
-
-        // Soft cap: large blocks go to mi_free, small blocks still pool.
+        // Soft cap: large blocks bypass pool.
         if self.total_held > SOFT_CAP && usable >= SMALL_BLOCK_THRESHOLD {
             unsafe { mi_free(ptr) };
             return;
         }
 
+        // Push new block to tail (newest enters back).
         self.push(idx, usable, ptr);
-    }
 
-    /// Phase 7 maintenance: drain excess if pool exceeds cap.
-    ///
-    /// Only drains large blocks (>= SMALL_BLOCK_THRESHOLD) to preserve
-    /// small blocks that prevent UAF from stale NiRefObject readers.
-    /// Caller must verify BST is idle before calling.
-    pub unsafe fn drain_if_over_cap(&mut self) {
-        if self.total_held <= SOFT_CAP {
-            return;
-        }
-
-        let target = SOFT_CAP / 2;
-        let before = self.total_held;
-        let mut freed_count = 0usize;
-        let min_idx = SMALL_BLOCK_THRESHOLD / ALIGN;
-
-        // Drain from largest slots first, skip small slots.
-        for idx in (min_idx..SLOT_COUNT).rev() {
-            while self.total_held > target {
-                let node = self.slots[idx];
-                if node.is_null() {
-                    break;
-                }
-                let size = unsafe { (*node).usable_size } as usize;
-                self.slots[idx] = unsafe { (*node).next };
-                self.total_held = self.total_held.saturating_sub(size);
-                unsafe { mi_free(node as *mut c_void) };
-                freed_count += 1;
-            }
-            if self.total_held <= target {
-                break;
-            }
-        }
-
-        if freed_count > 0 {
-            // Force mimalloc to coalesce freed pages and decommit.
-            unsafe { libmimalloc::mi_collect(true) };
-            log::debug!(
-                "[POOL] Drained {} blocks ({}MB -> {}MB)",
-                freed_count,
-                before / 1024 / 1024,
-                self.total_held / 1024 / 1024,
-            );
+        // Hard cap: evict oldest block from this slot's head.
+        // The evicted block has had maximum zombie time on the queue.
+        if self.total_held > HARD_CAP {
+            self.evict_oldest(idx);
         }
     }
 
     /// Drain only large blocks (>= min_size) back to mimalloc.
-    ///
-    /// Preserves small blocks on freelists to prevent UAF from stale
-    /// NiRefObject readers doing InterlockedDecrement on offset 4.
     pub unsafe fn drain_large(&mut self, min_size: usize) -> usize {
         let min_idx = min_size / ALIGN;
         if min_idx >= SLOT_COUNT {
@@ -224,43 +200,58 @@ impl Pool {
         }
         let mut freed = 0usize;
         for idx in min_idx..SLOT_COUNT {
-            let mut node = self.slots[idx];
-            while !node.is_null() {
-                let next = unsafe { (*node).next };
-                let size = unsafe { (*node).usable_size } as usize;
-                self.total_held = self.total_held.saturating_sub(size);
-                unsafe { mi_free(node as *mut c_void) };
-                freed += 1;
-                node = next;
+            while !self.slots[idx].is_empty() {
+                if let Some((ptr, _)) = self.pop(idx) {
+                    unsafe { mi_free(ptr) };
+                    freed += 1;
+                }
             }
-            self.slots[idx] = std::ptr::null_mut();
         }
         freed
     }
 
-    // Pop a block from the freelist. Returns (pointer, usable_size).
+    /// Pop from head (oldest block). Used for alloc reuse and eviction.
     #[inline]
     fn pop(&mut self, idx: usize) -> Option<(*mut c_void, usize)> {
-        let head = self.slots[idx];
+        let q = &mut self.slots[idx];
+        let head = q.head;
         if head.is_null() {
             return None;
         }
         let usable = unsafe { (*head).usable_size } as usize;
-        self.slots[idx] = unsafe { (*head).next };
+        q.head = unsafe { (*head).next };
+        if q.head.is_null() {
+            q.tail = std::ptr::null_mut();
+        }
         self.total_held = self.total_held.saturating_sub(usable);
         Some((head as *mut c_void, usable))
     }
 
-    // Push a block onto the freelist.
+    /// Push to tail (newest block enters back of queue).
     #[inline]
     fn push(&mut self, idx: usize, usable: usize, ptr: *mut c_void) {
         let node = ptr as *mut FreeNode;
         unsafe {
-            (*node).next = self.slots[idx];
+            (*node).next = std::ptr::null_mut();
             (*node).usable_size = usable as u32;
         }
-        self.slots[idx] = node;
+        let q = &mut self.slots[idx];
+        if q.tail.is_null() {
+            q.head = node;
+            q.tail = node;
+        } else {
+            unsafe { (*q.tail).next = node };
+            q.tail = node;
+        }
         self.total_held += usable;
+    }
+
+    /// Evict the oldest block from a slot (pop head + mi_free).
+    #[inline]
+    fn evict_oldest(&mut self, idx: usize) {
+        if let Some((ptr, _)) = self.pop(idx) {
+            unsafe { mi_free(ptr) };
+        }
     }
 
     /// Approximate bytes held in freelists (for diagnostics).
@@ -275,34 +266,27 @@ impl Pool {
     pub unsafe fn drain_all(&mut self) -> usize {
         let mut freed = 0usize;
         for idx in 0..SLOT_COUNT {
-            let mut node = self.slots[idx];
-            while !node.is_null() {
-                let next = unsafe { (*node).next };
-                unsafe { mi_free(node as *mut c_void) };
-                freed += 1;
-                node = next;
+            while !self.slots[idx].is_empty() {
+                if let Some((ptr, _)) = self.pop(idx) {
+                    unsafe { mi_free(ptr) };
+                    freed += 1;
+                }
             }
-            self.slots[idx] = std::ptr::null_mut();
         }
         self.total_held = 0;
         freed
     }
 
-    /// Drain a fraction of freelists (for gradual OOM pressure relief).
+    /// Drain a fraction of freelists (oldest first, gradual pressure relief).
     /// Returns number of blocks freed.
     pub unsafe fn drain_partial(&mut self, max_blocks: usize) -> usize {
         let mut freed = 0usize;
         for idx in 0..SLOT_COUNT {
-            while freed < max_blocks {
-                let node = self.slots[idx];
-                if node.is_null() {
-                    break;
+            while freed < max_blocks && !self.slots[idx].is_empty() {
+                if let Some((ptr, _)) = self.pop(idx) {
+                    unsafe { mi_free(ptr) };
+                    freed += 1;
                 }
-                self.slots[idx] = unsafe { (*node).next };
-                let size = idx * ALIGN;
-                self.total_held = self.total_held.saturating_sub(size);
-                unsafe { mi_free(node as *mut c_void) };
-                freed += 1;
             }
             if freed >= max_blocks {
                 break;
@@ -360,13 +344,8 @@ pub fn snapshot_held_bytes() {
     HELD_SNAPSHOT.store(held, Ordering::Relaxed);
 }
 
-/// Phase 7 maintenance: drain excess if BST is idle and pool over cap.
-pub unsafe fn pool_maintain() {
-    POOL.with(|p| {
-        let p = unsafe { &mut *p.get() };
-        unsafe { p.drain_if_over_cap() };
-    });
-}
+/// Phase 7 maintenance (legacy, unused).
+pub unsafe fn pool_maintain() {}
 
 /// Drain large blocks (>= min_size) to mimalloc. Preserves small blocks.
 pub unsafe fn pool_drain_large(min_size: usize) -> usize {
