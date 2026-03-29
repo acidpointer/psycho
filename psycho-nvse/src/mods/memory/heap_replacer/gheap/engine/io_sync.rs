@@ -101,6 +101,29 @@ pub unsafe fn io_lock_release() {
     }
 }
 
+// Check if both BSTaskManagerThread instances are idle (between tasks).
+// Non-intrusive: reads semaphore counts via volatile read, no side effects.
+// Returns true if BOTH threads have count > 0 (idle / between tasks).
+//
+// At Phase 7, if this returns true, BST STAYS idle for the duration of
+// Phase 7 because no other thread can enqueue IO tasks (all IO task
+// creation paths are main-thread-only, and WE are the main thread).
+pub unsafe fn are_bst_threads_idle() -> bool {
+    let io_mgr = unsafe { *(addr::IO_MANAGER_SINGLETON as *const *mut u8) };
+    if io_mgr.is_null() {
+        return true;
+    }
+
+    for bst_index in 0..2u32 {
+        match unsafe { read_bst_sem_count(io_mgr, bst_index) } {
+            Some(count) if count > 0 => continue,
+            Some(_) => return false,
+            None => continue,
+        }
+    }
+    true
+}
+
 // Try to acquire the IO dequeue spin-lock (non-blocking) and wait for
 // any in-flight BST tasks to complete. Returns true if lock was acquired
 // and BST is fully idle. Returns false if lock is held (skip this frame).

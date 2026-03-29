@@ -78,6 +78,14 @@ pub unsafe extern "C" fn hook_per_frame_queue_drain() {
         unsafe { libmimalloc::mi_collect(true) };
     }
 
+    // Pool maintenance: drain excess blocks if BST is idle.
+    // BST idle check is a non-intrusive semaphore read (~50ns).
+    // At Phase 7, if BST is between tasks, it stays idle because no
+    // other thread enqueues IO tasks (all enqueue paths are main-thread).
+    if unsafe { super::engine::io_sync::are_bst_threads_idle() } {
+        unsafe { pool::pool_maintain() };
+    }
+
     // Clear texture dead set under write lock.
     // BST's texture_cache_find uses try_read -- blocked during clear.
     game_guard::with_write("dead_set_clear", || {

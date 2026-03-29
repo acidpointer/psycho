@@ -28,6 +28,16 @@ const ALIGN: usize = 16;
 // Covers 99%+ of game heap allocations. Larger blocks are rare.
 const MAX_POOL_SIZE: usize = 4096;
 
+// Maximum bytes held in pool freelists. When exceeded, new frees go to
+// mi_free directly instead of the pool. This prevents VAS exhaustion
+// during cell transitions where old-size blocks accumulate on freelists
+// while new-size blocks come from mi_malloc.
+//
+// 128MB gives plenty of zombie safety (several frames of freed blocks)
+// while leaving headroom for the game's other memory needs (textures,
+// models, audio, D3D9 surfaces) in a 2GB VAS process.
+const MAX_POOL_HELD: usize = 128 * 1024 * 1024;
+
 // Freelist slot count. Index = usable_size / 16.
 // Covers sizes 16..4096 in 16-byte increments (256 slots).
 const SLOT_COUNT: usize = MAX_POOL_SIZE / ALIGN + 1;
@@ -102,12 +112,13 @@ impl Pool {
         (ptr, usable)
     }
 
-    // Return block to pool freelist (never calls mi_free).
+    // Return block to pool freelist. Always pushes -- never mi_free on
+    // the hot path. Pool maintenance (drain_if_needed) runs at Phase 7
+    // when BST is verified idle.
     #[inline]
     pub unsafe fn free(&mut self, ptr: *mut c_void) {
         let usable = unsafe { mi_usable_size(ptr as *const c_void) };
         if usable > MAX_POOL_SIZE || usable < ALIGN {
-            // Too large or too small for pool.
             unsafe { mi_free(ptr) };
             return;
         }
@@ -119,6 +130,46 @@ impl Pool {
         }
 
         self.push(idx, usable, ptr);
+    }
+
+    // Phase 7 maintenance: drain excess if pool exceeds cap.
+    // Caller must verify BST is idle before calling.
+    // Drains from largest size classes first (most memory per block).
+    pub unsafe fn drain_if_over_cap(&mut self) {
+        if self.total_held <= MAX_POOL_HELD {
+            return;
+        }
+
+        let target = MAX_POOL_HELD / 2;
+        let before = self.total_held;
+        let mut freed_count = 0usize;
+
+        // Drain from largest slots first (most memory reclaimed per pop).
+        for idx in (1..SLOT_COUNT).rev() {
+            while self.total_held > target {
+                let node = self.slots[idx];
+                if node.is_null() {
+                    break;
+                }
+                let size = unsafe { (*node).usable_size } as usize;
+                self.slots[idx] = unsafe { (*node).next };
+                self.total_held = self.total_held.saturating_sub(size);
+                unsafe { mi_free(node as *mut c_void) };
+                freed_count += 1;
+            }
+            if self.total_held <= target {
+                break;
+            }
+        }
+
+        if freed_count > 0 {
+            log::debug!(
+                "[POOL] Drained {} blocks ({}MB -> {}MB)",
+                freed_count,
+                before / 1024 / 1024,
+                self.total_held / 1024 / 1024,
+            );
+        }
     }
 
     // Pop a block from the freelist. Returns (pointer, usable_size).
@@ -226,6 +277,14 @@ pub fn pool_held_bytes() -> usize {
         let p = unsafe { &*p.get() };
         p.held_bytes()
     })
+}
+
+// Phase 7 maintenance: drain excess if BST is idle and pool over cap.
+pub unsafe fn pool_maintain() {
+    POOL.with(|p| {
+        let p = unsafe { &mut *p.get() };
+        unsafe { p.drain_if_over_cap() };
+    });
 }
 
 // Drain all to mimalloc (OOM recovery).
