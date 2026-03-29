@@ -23,7 +23,7 @@ pub mod pool;
 pub mod game_guard;
 pub mod hooks;
 pub mod io_task;
-pub mod monitor;
+pub mod watchdog;
 pub mod pdd_hook;
 pub mod pressure;
 pub mod skeleton_update;

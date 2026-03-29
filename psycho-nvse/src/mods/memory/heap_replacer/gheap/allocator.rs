@@ -1,16 +1,16 @@
-// Game heap allocator: routes alloc/free/realloc/msize through pool + mimalloc.
-//
-// Main thread alloc: pool (freelist hit) or mi_malloc (freelist miss).
-// Main thread free:  pool freelist push (never mi_free, block stays readable).
-// Worker alloc/free: mi_malloc/mi_free directly (thread-local heaps, safe).
-// Realloc:           mi_realloc_aligned directly (no pool involvement).
-// Msize:             mi_usable_size for mimalloc pointers.
-//
-// The pool preserves SBM's "freed memory stays readable" contract. Freed
-// blocks sit on per-size-class freelists and are reused by same-size
-// allocations. No quarantine, no GC, no timing tricks.
-//
-// OOM recovery: drain pool freelists + game's OOM stages. Never return NULL.
+//! Game heap allocator: routes alloc/free/realloc/msize through pool + mimalloc.
+//!
+//! - Main thread alloc: pool (freelist hit) or mi_malloc (freelist miss).
+//! - Main thread free:  pool freelist push (never mi_free, block stays readable).
+//! - Worker alloc/free: mi_malloc/mi_free directly (thread-local heaps, safe).
+//! - Realloc:           mi_realloc_aligned directly (no pool involvement).
+//! - Msize:             mi_usable_size for mimalloc pointers.
+//!
+//! The pool preserves SBM's "freed memory stays readable" contract. Freed
+//! blocks sit on per-size-class freelists and are reused by same-size
+//! allocations. No quarantine, no GC, no timing tricks.
+//!
+//! OOM recovery: drain pool freelists + game's OOM stages. Never return NULL.
 
 use libc::c_void;
 use std::cell::Cell;
@@ -23,18 +23,23 @@ use libmimalloc::{
 
 use super::engine::{addr, globals};
 use super::pool;
-use super::pressure::PressureRelief;
 use super::statics;
 use crate::mods::memory::heap_replacer::heap_validate;
 
 const ALIGN: usize = 16;
-const PRESSURE_CHECK_INTERVAL: u32 = 50_000;
 
+/// Worker threads set this when OOM. Main thread picks it up at Phase 7
+/// and runs emergency pool drain + game OOM stages.
 pub static EMERGENCY_CLEANUP: AtomicBool = AtomicBool::new(false);
 
-thread_local! {
-    static ALLOC_COUNTER: Cell<u32> = const { Cell::new(0) };
-}
+/// When true, main-thread frees of LARGE blocks (>= SMALL_BLOCK_THRESHOLD)
+/// bypass the pool and go directly to mi_free. Small blocks still go to pool
+/// to preserve the zombie data contract for NiRefObject stale readers.
+///
+/// Set by emergency cleanup, cleared when emergency resolves.
+/// Prevents large blocks from accumulating on freelists during OOM recovery,
+/// keeping VAS available for large contiguous allocations.
+pub static EMERGENCY_LARGE_BYPASS: AtomicBool = AtomicBool::new(false);
 
 // -----------------------------------------------------------------------
 // Thread identity
@@ -54,15 +59,19 @@ thread_local! {
 
 static POOL_ACTIVE: AtomicBool = AtomicBool::new(false);
 
+/// Whether the pool is active (set after first non-loading frame).
 pub fn is_pool_active() -> bool {
     POOL_ACTIVE.load(Ordering::Acquire)
 }
 
+/// Activate the pool. Called once from Phase 7 on first non-loading frame.
 pub fn activate_pool() {
     POOL_ACTIVE.store(true, Ordering::Release);
     log::info!("[POOL] Activated");
 }
 
+/// Check if the current thread is the game's main thread.
+/// Result is cached in a thread-local after first determination.
 #[inline]
 pub fn is_main_thread() -> bool {
     THREAD_ROLE.with(|r| match r.get() {
@@ -84,6 +93,8 @@ pub fn is_main_thread() -> bool {
 // Alloc / Free / Msize / Realloc
 // -----------------------------------------------------------------------
 
+/// Allocate `size` bytes. Main thread uses pool, workers use mi_malloc.
+/// On OOM, enters multi-stage recovery. Engine contract: never returns NULL.
 #[inline]
 pub unsafe fn alloc(size: usize) -> *mut c_void {
     let ptr = if is_main_thread() && is_pool_active() {
@@ -94,20 +105,13 @@ pub unsafe fn alloc(size: usize) -> *mut c_void {
     };
 
     if !ptr.is_null() {
-        ALLOC_COUNTER.with(|c| {
-            let count = c.get().wrapping_add(1);
-            c.set(count);
-            if count % PRESSURE_CHECK_INTERVAL == 0 {
-                if let Some(pr) = PressureRelief::instance() {
-                    unsafe { pr.check() };
-                }
-            }
-        });
         return ptr;
     }
     unsafe { recover_oom(size) }
 }
 
+/// Free a block. Main thread pushes to pool, workers call mi_free.
+/// Pre-hook pointers are routed to the original SBM trampoline.
 #[inline]
 pub unsafe fn free(ptr: *mut c_void) {
     if ptr.is_null() {
@@ -116,8 +120,17 @@ pub unsafe fn free(ptr: *mut c_void) {
 
     if unsafe { mi_is_in_heap_region(ptr as *const c_void) } {
         if is_main_thread() && is_pool_active() {
+            // Emergency large bypass: during OOM recovery, large blocks
+            // go directly to mi_free to keep VAS available. Small blocks
+            // still go to pool to preserve zombie data for stale readers.
+            if EMERGENCY_LARGE_BYPASS.load(Ordering::Relaxed) {
+                let usable = unsafe { mi_usable_size(ptr as *const c_void) };
+                if usable >= pool::SMALL_BLOCK_THRESHOLD {
+                    unsafe { libmimalloc::mi_free(ptr) };
+                    return;
+                }
+            }
             // Pool: block stays on freelist, never mi_free'd.
-            // Memory stays readable (SBM contract).
             unsafe { pool::pool_free(ptr) };
         } else {
             // Worker or pre-activation: mi_free directly.
@@ -135,10 +148,10 @@ pub unsafe fn free(ptr: *mut c_void) {
     unsafe { heap_validate::heap_validated_free(ptr) };
 }
 
-// Return usable size of an allocated block.
-// Pool blocks were individually allocated by mi_malloc (never mi_free'd),
-// so mi_usable_size reads the correct size from mimalloc's page header.
-// The pool's freelist header (offset 0-7) does not affect page metadata.
+/// Return usable size of an allocated block.
+///
+/// Pool blocks were individually allocated by mi_malloc (never mi_free'd),
+/// so mi_usable_size reads the correct size from mimalloc's page header.
 #[inline]
 pub unsafe fn msize(ptr: *mut c_void) -> usize {
     if ptr.is_null() {
@@ -160,6 +173,8 @@ pub unsafe fn msize(ptr: *mut c_void) -> usize {
     0
 }
 
+/// Reallocate a block. Uses mi_realloc_aligned directly (no pool).
+/// Pre-hook pointers: alloc new, copy, free old.
 #[inline]
 pub unsafe fn realloc(ptr: *mut c_void, new_size: usize) -> *mut c_void {
     if ptr.is_null() {
@@ -220,11 +235,12 @@ unsafe fn recover_oom(size: usize) -> *mut c_void {
     let ptr = unsafe { mi_malloc_aligned(size, ALIGN) };
     if !ptr.is_null() { return ptr; }
 
-    // Stage 2: drain pool freelists + collect.
+    // Stage 2: drain large pool blocks + collect.
+    // Small blocks (<1KB) stay on freelists to prevent UAF from stale readers.
     if is_main {
-        let freed = unsafe { pool::pool_drain_all() };
+        let freed = unsafe { pool::pool_drain_large(pool::SMALL_BLOCK_THRESHOLD) };
         if freed > 0 {
-            log::warn!("[OOM] Pool drained {} blocks", freed);
+            log::warn!("[OOM] Pool drained {} large blocks", freed);
         }
     }
     unsafe { mi_collect(true) };
@@ -259,7 +275,7 @@ unsafe fn recover_oom(size: usize) -> *mut c_void {
         }
         if attempt == max_retries / 2 {
             if is_main {
-                unsafe { pool::pool_drain_all() };
+                unsafe { pool::pool_drain_large(pool::SMALL_BLOCK_THRESHOLD) };
             }
             unsafe { mi_collect(true) };
         }
@@ -269,7 +285,7 @@ unsafe fn recover_oom(size: usize) -> *mut c_void {
     if is_main && !globals::is_loading() {
         let ptr = unsafe { globals::run_oom_stages(size) };
         if !ptr.is_null() { return ptr; }
-        unsafe { pool::pool_drain_all() };
+        unsafe { pool::pool_drain_large(pool::SMALL_BLOCK_THRESHOLD) };
         unsafe { mi_collect(true) };
         let ptr = unsafe { mi_malloc_aligned(size, ALIGN) };
         if !ptr.is_null() { return ptr; }
@@ -278,6 +294,12 @@ unsafe fn recover_oom(size: usize) -> *mut c_void {
     // Stage 6: infinite last-resort.
     unsafe { oom_last_resort(size, is_main) }
 }
+
+/// Maximum attempts in oom_last_resort before giving up.
+/// 100 attempts * 200ms sleep = 20 seconds max.
+/// Returning NULL risks a crash, but an infinite hang is worse:
+/// no crash dump, no recovery, user must force-kill the process.
+const OOM_LAST_RESORT_MAX: u32 = 100;
 
 #[cold]
 unsafe fn oom_last_resort(size: usize, is_main: bool) -> *mut c_void {
@@ -292,8 +314,7 @@ unsafe fn oom_last_resort(size: usize, is_main: bool) -> *mut c_void {
         EMERGENCY_CLEANUP.store(true, Ordering::Release);
     }
 
-    let mut attempt: u32 = 0;
-    loop {
+    for attempt in 0..OOM_LAST_RESORT_MAX {
         if is_main {
             unsafe { pool::pool_drain_all() };
         }
@@ -311,9 +332,19 @@ unsafe fn oom_last_resort(size: usize, is_main: bool) -> *mut c_void {
         }
 
         libpsycho::os::windows::winapi::sleep(200);
-        attempt += 1;
         if attempt % 5 == 0 {
-            log::error!("[OOM] Attempt {}: size={}", attempt, size);
+            log::error!("[OOM] Attempt {}/{}: size={}", attempt, OOM_LAST_RESORT_MAX, size);
         }
     }
+
+    // Exhausted all retries. Return NULL — game will likely crash with
+    // a NULL deref, which produces a crash dump and is recoverable via
+    // auto-save. This is strictly better than an infinite hang.
+    log::error!(
+        "[OOM] FATAL: giving up after {} attempts, size={}, commit={}MB. Returning NULL.",
+        OOM_LAST_RESORT_MAX,
+        size,
+        libmimalloc::process_info::MiMallocProcessInfo::get().get_current_commit() / 1024 / 1024,
+    );
+    null_mut()
 }

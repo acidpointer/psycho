@@ -1,115 +1,67 @@
-// Memory pressure relief for the game heap.
-//
-// # Hook position: FUN_008705d0 (post-render, PRE-AI_JOIN)
-//
-// WARNING: The hook runs AFTER render but BEFORE AI_JOIN.
-// AI Linear Task Threads are STILL ACTIVE at our hook position.
-// Never call mi_collect(true) or acquire write locks here.
-//
-//   0x0086eac9  HeapCompact       -- Phase 6
-//   0x0086eadf  PerFrameDrain     -- Phase 7 (our queue drain hook)
-//   0x0086ec87  AI_START          -- Phase 8, AI threads dispatched
-//   0x0086ecba  RENDER            -- Phase 9 (AI running parallel)
-//   0x0086edf0  OUR_HOOK          -- HERE: AI still running
-//   0x0086ee4e  AI_JOIN           -- Phase 10, AI threads joined
-//   0x0086ee62  POST_AI           -- Phase 11
-//
-// # Multi-layer pressure relief
-//
-// Layer 1 -- Post-render cell unloading + PDD (this module).
-// Unloads cells using the game's destruction protocol: loading state
-// counter, hkWorld_Lock, SceneGraphInvalidate, FindCellToUnload,
-// DeferredCleanupSmall (PDD + blocking async flush).
-//
-// Layer 2 -- Boosted per-frame NiNode drain (FUN_00868850 hook).
-// Under pressure, calls the game's per-frame drain 20x instead of 1x,
-// draining 200-400 NiNodes per frame.
-//
-// Layer 3 -- HeapCompact trigger (heap_singleton + 0x134).
-// Under pressure, writes 4 to the HeapCompact trigger field. On the
-// next frame, HeapCompact runs stages 0-4 (texture flush, geometry,
-// menu, Havok GC, PDD purge). Stage 5 (cell unloading) is NEVER
-// triggered -- it deadlocks during fast travel and loading screens.
+//! Memory pressure relief for the game heap.
+//!
+//! Pressure detection is handled by the watchdog thread (watchdog.rs).
+//! This module provides:
+//!   - Baseline commit calibration
+//!   - Deferred cell unload (signaled by watchdog, executed at AI_JOIN)
+//!   - Destruction protocol (Havok lock + FindCellToUnload + pool drain)
+//!   - Loading state counter management
+//!
+//! # Hook positions
+//!
+//!   Phase 7  (hook_per_frame_queue_drain): watchdog flag consumption
+//!   Phase 10 (hook_main_loop_maintenance): baseline calibration
+//!   AI_JOIN  (hook_ai_thread_join): deferred cell unload execution
 
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::LazyLock;
 
-use libmimalloc::mi_collect;
-
 use super::engine::globals;
+use super::pool;
 use crate::mods::memory::heap_replacer::mem_stats;
 
 // ---------------------------------------------------------------------------
 // Configuration
 // ---------------------------------------------------------------------------
 
-// Maximum commit growth above baseline before triggering pressure relief.
-// 500MB balances normal gameplay headroom with stress test stability.
-const MAX_GROWTH_ABOVE_BASELINE: usize = 500 * 1024 * 1024;
-
-// Max cells to unload per relief cycle.
+/// Max cells to unload per relief cycle.
 const MAX_CELLS_PER_CYCLE: usize = 20;
-
-// Minimum milliseconds between relief cycles (stages 0-3).
-const COOLDOWN_MS: u64 = 2000;
-
-// Minimum milliseconds between aggressive relief (mi_collect(true)).
-// Force collect walks all pages -- expensive but actually frees memory.
-// Only triggers when commit exceeds baseline + 2x MAX_GROWTH.
-const AGGRESSIVE_COOLDOWN_MS: u64 = 10_000;
 
 // ---------------------------------------------------------------------------
 // PressureRelief
 // ---------------------------------------------------------------------------
 
+/// Manages deferred cell unloading and baseline commit tracking.
+///
+/// Pressure detection is handled by the watchdog thread. This struct
+/// holds the deferred-unload flag (set by watchdog, consumed at AI_JOIN)
+/// and the baseline commit used for threshold computation.
 pub struct PressureRelief {
-    requested: AtomicBool,
-    active: AtomicBool,
-    last_time_ms: AtomicU64,
-
-    // Set by relieve() when aggressive collection is needed but AI threads
-    // are still active. Cleared by run_deferred_unload() from the AI thread
-    // join hook (after AI threads are idle).
+    /// Set by watchdog (via hooks.rs) when cell unload is needed.
+    /// Cleared by `run_deferred_unload()` at AI_JOIN.
     deferred_unload: AtomicBool,
 
-    // Set by destruction_protocol when cells were unloaded. The loading
-    // state counter is kept elevated to suppress PLChangeEvent dispatch.
-    // flush_pending_counter_decrement() decrements it on the next frame.
+    /// Set by destruction_protocol when cells were unloaded. The loading
+    /// state counter is kept elevated to suppress PLChangeEvent dispatch.
+    /// `flush_pending_counter_decrement()` decrements it on the next frame.
     pending_counter_decrement: AtomicBool,
 
-    // Commit at first tick. Dynamic threshold = baseline + MAX_GROWTH.
+    /// Commit at first tick. Used by watchdog for threshold computation.
     baseline_commit: std::sync::atomic::AtomicUsize,
-
 }
 
 impl PressureRelief {
     fn new() -> Self {
         log::info!(
-            "[PRESSURE] Initialized (baseline=deferred, growth={}MB, max_cells={}, cooldown={}ms)",
-            MAX_GROWTH_ABOVE_BASELINE / 1024 / 1024,
+            "[PRESSURE] Initialized (max_cells={})",
             MAX_CELLS_PER_CYCLE,
-            COOLDOWN_MS,
         );
 
         Self {
-            requested: AtomicBool::new(false),
-            active: AtomicBool::new(false),
             deferred_unload: AtomicBool::new(false),
             pending_counter_decrement: AtomicBool::new(false),
-            last_time_ms: AtomicU64::new(0),
             baseline_commit: std::sync::atomic::AtomicUsize::new(0),
         }
-    }
-
-    // Dynamic threshold: baseline commit + MAX_GROWTH_ABOVE_BASELINE.
-    // Returns usize::MAX if baseline not yet measured (suppress all checks).
-    #[inline]
-    pub fn threshold(&self) -> usize {
-        let baseline = self.baseline_commit.load(Ordering::Relaxed);
-        if baseline == 0 {
-            return usize::MAX;
-        }
-        baseline + MAX_GROWTH_ABOVE_BASELINE
     }
 
     /// Get the calibrated baseline commit (0 if not yet calibrated).
@@ -117,7 +69,7 @@ impl PressureRelief {
         self.baseline_commit.load(Ordering::Relaxed)
     }
 
-    // Measure baseline commit on first tick (main loop started, mods loaded).
+    /// Measure baseline commit on first tick (main loop started, mods loaded).
     pub fn calibrate_baseline(&self) {
         if self.baseline_commit.load(Ordering::Relaxed) != 0 {
             return;
@@ -125,14 +77,13 @@ impl PressureRelief {
         let commit = libmimalloc::process_info::MiMallocProcessInfo::get()
             .get_current_commit();
         self.baseline_commit.store(commit, Ordering::Release);
-        let threshold_mb = (commit + MAX_GROWTH_ABOVE_BASELINE) / 1024 / 1024;
         log::info!(
-            "[PRESSURE] Baseline calibrated: {}MB, threshold={}MB",
+            "[PRESSURE] Baseline calibrated: {}MB",
             commit / 1024 / 1024,
-            threshold_mb,
         );
     }
 
+    /// Get the global singleton (lazily initialized).
     pub fn instance() -> Option<&'static Self> {
         static INSTANCE: LazyLock<Option<PressureRelief>> = LazyLock::new(|| {
             Some(PressureRelief::new())
@@ -140,21 +91,10 @@ impl PressureRelief {
         INSTANCE.as_ref()
     }
 
-    // Periodic check called from the allocator hot path (every 50K allocs).
-    // Sets the requested flag if commit exceeds the dynamic threshold.
-    #[cold]
-    pub unsafe fn check(&self) {
-        if self.requested.load(Ordering::Relaxed) {
-            return;
-        }
-        let info = libmimalloc::process_info::MiMallocProcessInfo::get();
-        if info.get_current_commit() >= self.threshold() {
-            self.requested.store(true, Ordering::Release);
-        }
-    }
-
-    pub fn is_requested(&self) -> bool {
-        self.requested.load(Ordering::Relaxed)
+    /// Signal that cell unload should run at the next AI_JOIN.
+    /// Called from hooks.rs when watchdog requests aggressive cleanup.
+    pub fn set_deferred_unload(&self) {
+        self.deferred_unload.store(true, Ordering::Release);
     }
 
     /// Clear the deferred unload flag. Called from on_ai_join when
@@ -164,15 +104,13 @@ impl PressureRelief {
         self.deferred_unload.store(false, Ordering::Release);
     }
 
-    // Flag that loading counter needs decrementing next frame.
-    // Called by external code (cell_unload command, OOM recovery) that
-    // ran cell unload outside the normal pressure relief path.
+    /// Flag that loading counter needs decrementing next frame.
     pub fn set_pending_counter_decrement(&self) {
         self.pending_counter_decrement.store(true, Ordering::Release);
     }
 
-    // Decrement the loading state counter if a previous destruction_protocol
-    // left it elevated. Called once per frame from tick_rotate.
+    /// Decrement the loading state counter if a previous destruction_protocol
+    /// left it elevated. Called once per frame from Phase 10.
     pub fn flush_pending_counter_decrement(&self) {
         if self.pending_counter_decrement.swap(false, Ordering::AcqRel) {
             globals::loading_state_counter()
@@ -180,75 +118,11 @@ impl PressureRelief {
         }
     }
 
-    // Must be called on the main thread, between frames.
-    //
-    // Two-tier escalation:
-    // - Normal (every 2s): mi_collect(false) -- reclaim retired pages.
-    // - Aggressive (every 10s, commit > 2x growth): deferred to after AI_JOIN
-    //   where mi_collect(true) + quarantine flush are safe.
-    pub unsafe fn relieve(&self) {
-        if !self.requested.load(Ordering::Acquire) {
-            return;
-        }
-
-        if self.active.swap(true, Ordering::AcqRel) {
-            return;
-        }
-
-        let info = libmimalloc::process_info::MiMallocProcessInfo::get();
-        let now_ms = info.get_elapsed_ms() as u64;
-        let last_ms = self.last_time_ms.load(Ordering::Relaxed);
-        if now_ms.saturating_sub(last_ms) < COOLDOWN_MS {
-            self.active.store(false, Ordering::Release);
-            return;
-        }
-
-        let commit = info.get_current_commit();
-        if commit < self.threshold() {
-            self.requested.store(false, Ordering::Release);
-            self.active.store(false, Ordering::Release);
-            return;
-        }
-
-        let baseline = self.baseline_commit.load(Ordering::Relaxed);
-        let aggressive_threshold = baseline + MAX_GROWTH_ABOVE_BASELINE * 2;
-        let commit_mb = commit / 1024 / 1024;
-        let pending = super::pool::pool_held_bytes() / 1024 / 1024;
-
-        // HeapCompact stages 0-3 (texture, geometry, menu, Havok GC).
-        // GC deferred-free keeps objects alive for N frames -- Gen
-        // destructors access valid zombie memory, no infinite loops.
-        globals::signal_heap_compact(globals::HeapCompactStage::HavokGC);
-        unsafe { mi_collect(false) };
-
-        // Cell unload ONLY at aggressive threshold.
-        // Running it at normal threshold (every 2s during stress) destroys
-        // forms that NVSE plugins (JIP Lutana events) still reference,
-        // causing crashes in event dispatch scripts.
-        if commit >= aggressive_threshold {
-            self.deferred_unload.store(true, Ordering::Release);
-            log::warn!(
-                "[PRESSURE] HeapCompact 0-3 + cell unload, commit={}MB (thresh={}MB), pending={}",
-                commit_mb, aggressive_threshold / 1024 / 1024, pending,
-            );
-        } else {
-            log::info!(
-                "[PRESSURE] HeapCompact 0-3 + cell unload, commit={}MB, pending={}",
-                commit_mb, pending,
-            );
-        }
-
-        self.last_time_ms.store(now_ms, Ordering::Relaxed);
-        self.requested.store(false, Ordering::Release);
-        self.active.store(false, Ordering::Release);
-    }
-
-    // Run deferred work after AI_JOIN. Called from the AI thread join
-    // hook after AI threads have completed their work.
-    //
-    // This is the ONLY safe place for mi_collect(true) -- AI threads are
-    // idle so no allocation races. Also handles deferred cell unloading
-    // when not in a loading screen.
+    /// Run deferred cell unload after AI_JOIN. Called from the AI thread
+    /// join hook after AI threads have completed their work.
+    ///
+    /// AI threads are idle here, so mi_collect(true) and cell unload are safe.
+    /// Watchdog handles cooldown — we just execute when signaled.
     pub unsafe fn run_deferred_unload(&self) {
         if !self.deferred_unload.load(Ordering::Acquire) {
             return;
@@ -256,50 +130,31 @@ impl PressureRelief {
 
         self.deferred_unload.store(false, Ordering::Release);
 
-        // Aggressive collect: safe here because AI threads are joined.
-        static LAST_AGGRESSIVE_MS: std::sync::atomic::AtomicU64 =
-            std::sync::atomic::AtomicU64::new(0);
         let info = libmimalloc::process_info::MiMallocProcessInfo::get();
-        let now_ms = info.get_elapsed_ms() as u64;
-        let last_agg = LAST_AGGRESSIVE_MS.load(Ordering::Relaxed);
 
-        if now_ms.saturating_sub(last_agg) >= AGGRESSIVE_COOLDOWN_MS {
-            LAST_AGGRESSIVE_MS.store(now_ms, Ordering::Relaxed);
-            // mi_collect(true) only -- do NOT call emergency_flush.
-            // The GC thread owns the pending buffer. Draining it here
-            // bypasses the N-frame survival guarantee and reintroduces
-            // the UAF that GC was designed to prevent.
-            unsafe { mi_collect(true) };
-            let commit_mb = info.get_current_commit() / 1024 / 1024;
-            log::warn!(
-                "[PRESSURE] Aggressive collect (post AI_JOIN): commit={}MB, RSS={}MB",
-                commit_mb, info.get_current_rss() / 1024 / 1024,
-            );
-        }
-
-        // No is_loading() check: cell unload during loading is needed --
-        // the game's own OOM stage 5 does FindCellToUnload without checking
-        // loading state. Unloading old cells frees VAS for new ones.
+        // Aggressive collect: safe here because AI threads are joined.
+        unsafe { libmimalloc::mi_collect(true) };
+        log::info!(
+            "[PRESSURE] Post AI_JOIN collect: commit={}MB, RSS={}MB",
+            info.get_current_commit() / 1024 / 1024,
+            info.get_current_rss() / 1024 / 1024,
+        );
 
         let manager = match globals::game_manager() {
             Some(m) => m,
             None => return,
         };
 
-        // No BST pending check: FindCellToUnload handles cell eligibility
-        // internally (FUN_004511e0, FUN_00557090). BST loads NEW cells
-        // while we unload OLD cells -- different cells, no conflict.
-
         let cells = unsafe { Self::destruction_protocol(manager) };
 
-        let commit_mb = info.get_current_commit() / 1024 / 1024;
         mem_stats::global().record_pressure_relief(cells);
 
         if cells > 0 {
             self.pending_counter_decrement.store(true, Ordering::Release);
             log::info!(
                 "[PRESSURE] Deferred unload: {} cells (commit={}MB)",
-                cells, commit_mb,
+                cells,
+                libmimalloc::process_info::MiMallocProcessInfo::get().get_current_commit() / 1024 / 1024,
             );
         }
     }
@@ -365,17 +220,17 @@ impl PressureRelief {
 
         unsafe { globals::post_destruction_restore(&mut state) };
 
-        // After cell unload: freed objects went to pool. Drain pool + collect
-        // so mimalloc can decommit pages and make VAS available for large allocs
-        // (terrain meshes, LOD textures, etc.)
+        // After cell unload: freed objects went to pool. Drain large blocks
+        // so mimalloc can decommit pages and make VAS available for large allocs.
+        // Small blocks stay on freelists to prevent UAF from stale readers.
         if cells > 0 {
-            let drained = unsafe { super::pool::pool_drain_all() };
+            let drained = unsafe { pool::pool_drain_large(pool::SMALL_BLOCK_THRESHOLD) };
             unsafe { libmimalloc::mi_collect(true) };
             if drained > 0 {
                 let after = libmimalloc::process_info::MiMallocProcessInfo::get()
                     .get_current_commit();
                 log::debug!(
-                    "[DESTRUCTION] Post-unload: drained {} pool blocks, commit={}MB",
+                    "[DESTRUCTION] Post-unload: drained {} large blocks, commit={}MB",
                     drained, after / 1024 / 1024,
                 );
             }

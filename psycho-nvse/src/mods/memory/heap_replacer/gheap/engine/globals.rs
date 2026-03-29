@@ -180,13 +180,13 @@ pub fn is_main_thread_by_tid() -> bool {
 // OOM recovery -- game stage executor
 // ---------------------------------------------------------------------------
 
-// Run the game's OOM stages 0-8, then flush quarantine + collect + try alloc.
-//
-// Returns allocated pointer if any stage freed enough, or null.
-// Flush+alloc are kept together (no window for other threads to consume
-// freed VAS between flush and alloc).
-//
-// Safety: must be called on the main thread when AI threads are NOT active.
+/// Run the game's OOM stages 0-8, then drain pool + collect + try alloc.
+///
+/// Returns allocated pointer if any stage freed enough, or null.
+/// Two-step drain: large blocks first (safe), then all if still OOM.
+///
+/// # Safety
+/// Must be called on the main thread when AI threads are NOT active.
 pub unsafe fn run_oom_stages(size: usize) -> *mut c_void {
     use std::ptr::null_mut;
 
@@ -220,10 +220,12 @@ pub unsafe fn run_oom_stages(size: usize) -> *mut c_void {
         };
     }
 
-    // Pool drain + collect + alloc -- kept together to avoid
-    // other threads consuming freed VAS between drain and alloc.
+    // Pool drain (large blocks only) + collect + alloc -- kept together
+    // to avoid other threads consuming freed VAS between drain and alloc.
+    // Small blocks stay on freelists to prevent UAF from stale readers.
+    // If this isn't enough, oom_last_resort handles full drain.
     use crate::mods::memory::heap_replacer::gheap::pool;
-    unsafe { pool::pool_drain_all() };
+    unsafe { pool::pool_drain_large(pool::SMALL_BLOCK_THRESHOLD) };
     unsafe { libmimalloc::mi_collect(true) };
 
     let ptr = unsafe { libmimalloc::mi_malloc_aligned(size, 16) };
