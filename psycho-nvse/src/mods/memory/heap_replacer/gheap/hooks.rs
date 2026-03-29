@@ -131,7 +131,9 @@ pub unsafe extern "C" fn hook_per_frame_queue_drain() {
     let request = watchdog::take_cleanup_request();
 
     // Clear emergency large bypass when memory is healthy (no cleanup needed).
-    if request == 0 && allocator::is_large_bypass_active() {
+    // Do NOT clear during loading — bypass must stay active so PDD processing
+    // and game's own cell transition frees reclaim VAS.
+    if request == 0 && allocator::is_large_bypass_active() && !loading_now {
         allocator::disable_large_bypass();
         log::info!("[POOL] Emergency bypass cleared (memory healthy)");
     }
@@ -230,13 +232,16 @@ unsafe fn on_loading_start() {
     let drained = unsafe { pool::pool_drain_large(pool::SMALL_BLOCK_THRESHOLD) };
     unsafe { libmimalloc::mi_collect(true) };
 
-    // Cleanup done.
-    allocator::disable_large_bypass();
+    // Keep large bypass active for the entire loading phase.
+    // Cell unload queues PDD entries that are processed on subsequent frames.
+    // Game's own CellTransitionHandler also frees objects during loading.
+    // Both need bypass active so frees reclaim VAS.
+    // on_loading_end disables bypass.
 
     let commit_after = libmimalloc::process_info::MiMallocProcessInfo::get()
         .get_current_commit();
     log::info!(
-        "[LOADING] Cleanup done: {} cells, {} large drained, commit {}MB-->{}MB, pool={}MB",
+        "[LOADING] Cleanup done: {} cells, {} large drained, bypass ON, commit {}MB-->{}MB, pool={}MB",
         cells, drained,
         commit_before / 1024 / 1024,
         commit_after / 1024 / 1024,
@@ -244,12 +249,14 @@ unsafe fn on_loading_start() {
     );
 }
 
-// First frame after loading ends.
+// First frame after loading ends. Disable large bypass, resume normal pooling.
 #[cold]
 fn on_loading_end() {
+    allocator::disable_large_bypass();
+
     let info = libmimalloc::process_info::MiMallocProcessInfo::get();
     log::info!(
-        "[LOADING] Loading ended, commit={}MB, pool={}MB",
+        "[LOADING] Loading ended, bypass OFF, commit={}MB, pool={}MB",
         info.get_current_commit() / 1024 / 1024,
         pool::pool_held_bytes() / 1024 / 1024,
     );

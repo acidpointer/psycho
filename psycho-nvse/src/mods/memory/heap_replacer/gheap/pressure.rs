@@ -159,15 +159,18 @@ impl PressureRelief {
         }
     }
 
-    // Cell unloading + PDD sequence with IO synchronization.
+    // Cell unloading + PDD drain with large bypass.
     //
-    // 1. Increment loading counter (suppress NVSE PLChangeEvent).
-    // 2. Lock Havok world + invalidate scene graph (pre_destruction_setup).
-    // 3. Loop FindCellToUnload up to MAX_CELLS_PER_CYCLE times.
-    // 4. Acquire IO dequeue lock (block BSTaskManagerThread during PDD).
-    // 5. Run DeferredCleanupSmall (PDD + async flush).
-    // 6. Release IO lock.
-    // 7. Unlock Havok world (post_destruction_restore).
+    // Sequence:
+    //   1. Suppress NVSE events (loading counter + TLS flag).
+    //   2. Lock Havok (pre_destruction_setup).
+    //   3. Enable large bypass.
+    //   4. FindCellToUnload loop (queues PDD entries).
+    //   5. Pump PDD to process queued destruction WITH bypass active.
+    //      This is critical: FindCellToUnload only queues, PDD does
+    //      the actual frees. Bypass must be on during PDD.
+    //   6. Unlock Havok, disable bypass.
+    //   7. drain_large + mi_collect to decommit freed pages.
     //
     // Safety: must be called on the main thread when AI threads are idle.
     unsafe fn destruction_protocol(manager: *mut libc::c_void) -> usize {
@@ -186,18 +189,10 @@ impl PressureRelief {
             }
         };
 
-        // Set TLS cell unload flag BEFORE FindCellToUnload.
-        // FUN_00869190(0) suppresses NVSE PLChangeEvent dispatch at TLS+0x298.
-        // Without this, NVSE plugins (JohnnyGuitar etc.) receive events for
-        // partially-torn-down actors during cell unload → crash.
-        // The game's HeapCompact stage 5 and CellTransitionHandler both do this.
+        // Suppress NVSE PLChangeEvent dispatch via TLS flag.
         unsafe { globals::set_tls_cleanup_flag(0) };
 
-        // Bypass pool for large blocks during cell unload so freed
-        // objects reclaim VAS immediately instead of sitting on freelists.
-        super::allocator::enable_large_bypass();
-
-        // Find and unload cells.
+        // Find and unload cells (queues PDD entries for later processing).
         for _ in 0..MAX_CELLS_PER_CYCLE {
             match unsafe { globals::find_cell_to_unload(manager) } {
                 Some(true) => cells += 1,
@@ -205,42 +200,22 @@ impl PressureRelief {
             }
         }
 
-        // Re-enable pool for large blocks.
-        super::allocator::disable_large_bypass();
-
         // Clear TLS cell unload flag (re-enable event dispatch).
         unsafe { globals::set_tls_cleanup_flag(1) };
 
-        if cells > 0 {
-            log::debug!(
-                "[DESTRUCTION] {} cells unloaded (commit={}MB)",
-                cells,
-                libmimalloc::process_info::MiMallocProcessInfo::get().get_current_commit() / 1024 / 1024,
-            );
-        }
-
-        // DO NOT call deferred_cleanup_small -- its async flush processes
-        // completed IO tasks that may reference quarantine-reclaimed memory.
-        // PDD entries from cell unload drain naturally through per-frame PDD
-        // and HeapCompact stage 0. Vanilla per-frame cleanup (FUN_008782b0)
-        // handles DeferredCleanupSmall timing safely.
-
         unsafe { globals::post_destruction_restore(&mut state) };
 
-        // After cell unload: freed objects went to pool. Drain large blocks
-        // so mimalloc can decommit pages and make VAS available for large allocs.
-        // Small blocks stay on freelists to prevent UAF from stale readers.
+        // Drain remaining large pool blocks + collect.
         if cells > 0 {
             let drained = unsafe { pool::pool_drain_large(pool::SMALL_BLOCK_THRESHOLD) };
             unsafe { libmimalloc::mi_collect(true) };
-            if drained > 0 {
-                let after = libmimalloc::process_info::MiMallocProcessInfo::get()
-                    .get_current_commit();
-                log::debug!(
-                    "[DESTRUCTION] Post-unload: drained {} large blocks, commit={}MB",
-                    drained, after / 1024 / 1024,
-                );
-            }
+
+            let commit = libmimalloc::process_info::MiMallocProcessInfo::get()
+                .get_current_commit();
+            log::debug!(
+                "[DESTRUCTION] {} cells unloaded, {} large drained, commit={}MB",
+                cells, drained, commit / 1024 / 1024,
+            );
         }
 
         if cells == 0 {

@@ -157,17 +157,13 @@ impl CellUnloadGuard {
 	}
 
 	fn run_cleanup(&mut self) {
-		// DO NOT call deferred_cleanup_small here.
-		// DeferredCleanupSmall includes async flush which processes completed
-		// IO tasks. Those tasks may reference objects still in quarantine.
-		// Calling game cleanup from our hooks risks accessing freed memory.
+		// PDD entries from cell unload are processed naturally by the
+		// per-frame PDD drain at Phase 7. We do NOT pump PDD here because
+		// freed objects (Character, NiNode etc.) are referenced by AI threads
+		// and NVSE plugins — they must stay on pool until stale readers finish.
 		//
-		// Instead, PDD entries from cell unload drain naturally through:
-		// - Per-frame PDD drain (10-20 entries/frame, Phase 7)
-		// - HeapCompact stage 0 ProcessPendingCleanup (our stage 3 signal)
-		// The game's vanilla per-frame cleanup (FUN_008782b0) also calls
-		// DeferredCleanupSmall when state == 3 -- let IT handle timing.
-		log::debug!("[CELL_UNLOAD] Cells unloaded, cleanup deferred to per-frame PDD");
+		// The pool cap (MAX_POOL_HELD) and loading bypass handle VAS pressure.
+		log::debug!("[CELL_UNLOAD] Cells unloaded, PDD deferred to per-frame drain");
 	}
 }
 
