@@ -193,6 +193,10 @@ impl PressureRelief {
         // The game's HeapCompact stage 5 and CellTransitionHandler both do this.
         unsafe { globals::set_tls_cleanup_flag(0) };
 
+        // Bypass pool for large blocks during cell unload so freed
+        // objects reclaim VAS immediately instead of sitting on freelists.
+        super::allocator::enable_large_bypass();
+
         // Find and unload cells.
         for _ in 0..MAX_CELLS_PER_CYCLE {
             match unsafe { globals::find_cell_to_unload(manager) } {
@@ -200,6 +204,9 @@ impl PressureRelief {
                 _ => break,
             }
         }
+
+        // Re-enable pool for large blocks.
+        super::allocator::disable_large_bypass();
 
         // Clear TLS cell unload flag (re-enable event dispatch).
         unsafe { globals::set_tls_cleanup_flag(1) };

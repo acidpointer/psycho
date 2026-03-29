@@ -36,10 +36,27 @@ pub static EMERGENCY_CLEANUP: AtomicBool = AtomicBool::new(false);
 /// bypass the pool and go directly to mi_free. Small blocks still go to pool
 /// to preserve the zombie data contract for NiRefObject stale readers.
 ///
-/// Set by emergency cleanup, cleared when emergency resolves.
-/// Prevents large blocks from accumulating on freelists during OOM recovery,
-/// keeping VAS available for large contiguous allocations.
-pub static EMERGENCY_LARGE_BYPASS: AtomicBool = AtomicBool::new(false);
+/// Active during: cell unload (CellUnloadGuard), emergency OOM cleanup.
+/// Prevents large blocks from accumulating on freelists, keeping VAS
+/// available for large contiguous allocations.
+static LARGE_BYPASS: AtomicBool = AtomicBool::new(false);
+
+/// Enable large-block pool bypass. Large frees (>=1KB) go to mi_free
+/// directly, small blocks still pool. Used during cell unload and
+/// emergency cleanup so freed objects reclaim VAS immediately.
+pub fn enable_large_bypass() {
+    LARGE_BYPASS.store(true, Ordering::Release);
+}
+
+/// Disable large-block pool bypass. All blocks resume pooling.
+pub fn disable_large_bypass() {
+    LARGE_BYPASS.store(false, Ordering::Release);
+}
+
+/// Whether large-block bypass is currently active.
+pub fn is_large_bypass_active() -> bool {
+    LARGE_BYPASS.load(Ordering::Relaxed)
+}
 
 // -----------------------------------------------------------------------
 // Thread identity
@@ -120,10 +137,10 @@ pub unsafe fn free(ptr: *mut c_void) {
 
     if unsafe { mi_is_in_heap_region(ptr as *const c_void) } {
         if is_main_thread() && is_pool_active() {
-            // Emergency large bypass: during OOM recovery, large blocks
+            // Large bypass: during cell unload / OOM recovery, large blocks
             // go directly to mi_free to keep VAS available. Small blocks
             // still go to pool to preserve zombie data for stale readers.
-            if EMERGENCY_LARGE_BYPASS.load(Ordering::Relaxed) {
+            if LARGE_BYPASS.load(Ordering::Relaxed) {
                 let usable = unsafe { mi_usable_size(ptr as *const c_void) };
                 if usable >= pool::SMALL_BLOCK_THRESHOLD {
                     unsafe { libmimalloc::mi_free(ptr) };

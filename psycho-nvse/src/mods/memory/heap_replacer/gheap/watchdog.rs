@@ -36,9 +36,9 @@ const POLL_MS: u32 = 500;
 const LOG_INTERVAL: u32 = 10;
 
 /// Growth thresholds above baseline commit.
-const NORMAL_GROWTH: usize = 500 * 1024 * 1024;     // 500MB
-const AGGRESSIVE_GROWTH: usize = 800 * 1024 * 1024;  // 800MB
-const CRITICAL_GROWTH: usize = 1000 * 1024 * 1024;   // 1000MB
+const NORMAL_GROWTH: usize = 400 * 1024 * 1024;     // 400MB
+const AGGRESSIVE_GROWTH: usize = 600 * 1024 * 1024;  // 600MB
+const CRITICAL_GROWTH: usize = 800 * 1024 * 1024;    // 800MB
 
 /// During loading, lower all thresholds by this amount.
 const LOADING_THRESHOLD_REDUCTION: usize = 200 * 1024 * 1024; // 200MB
@@ -48,8 +48,9 @@ const LOADING_THRESHOLD_REDUCTION: usize = 200 * 1024 * 1024; // 200MB
 const AGGRESSIVE_RATE_THRESHOLD: i32 = 2 * 1024 * 1024;
 
 /// Minimum milliseconds between aggressive (level 2) requests.
-/// Cell unload is expensive and can interfere with NVSE plugins.
-const AGGRESSIVE_COOLDOWN_MS: u64 = 10_000;
+/// Lower = more frequent cell unload during gameplay = more headroom
+/// before loading starts. 5s balances cleanup with NVSE plugin safety.
+const AGGRESSIVE_COOLDOWN_MS: u64 = 5_000;
 
 // ---------------------------------------------------------------------------
 // Shared atomic state (read by main thread, written by watchdog)

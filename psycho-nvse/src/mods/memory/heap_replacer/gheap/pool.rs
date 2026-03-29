@@ -19,6 +19,7 @@
 //!   During OOM: drain freelists via mi_free to reclaim memory.
 
 use std::cell::UnsafeCell;
+use std::sync::atomic::{AtomicUsize, Ordering};
 
 use libc::c_void;
 
@@ -30,25 +31,26 @@ const ALIGN: usize = 16;
 // Covers 99%+ of game heap allocations. Larger blocks are rare.
 const MAX_POOL_SIZE: usize = 4096;
 
-/// Blocks below this threshold are preserved during smart drain.
+/// Blocks below this threshold are preserved during smart drain and
+/// exempt from the pool cap.
 ///
-/// Small blocks (NiRefObject 16-48 bytes, vtable slots) are the primary
-/// source of UAF when recycled -- stale readers do InterlockedDecrement
-/// on offset 4. Large blocks (>=1KB: terrain, BSTreeNode arrays, texture
-/// metadata) are not accessed via stale refcount patterns and are safe
-/// to return to mimalloc.
-pub const SMALL_BLOCK_THRESHOLD: usize = 1024;
+/// Ghidra-verified UAF-sensitive objects (stale InterlockedDecrement
+/// on offset +4 / +8):
+///   - NiRefObject derivatives: 16-128 bytes (refcount at +0x04)
+///   - IOTask derivatives: 48-88 bytes (refcount at +0x08)
+///
+/// 512 bytes gives safe margin above the largest known target (88 bytes).
+/// Blocks >= 512 are subject to pool cap and large bypass during cleanup.
+pub const SMALL_BLOCK_THRESHOLD: usize = 512;
 
-// Maximum bytes held in pool freelists. When exceeded, new frees go to
-// mi_free directly instead of the pool. This prevents VAS exhaustion
-// during cell transitions where old-size blocks accumulate on freelists
-// while new-size blocks come from mi_malloc.
+// Maximum bytes held in pool freelists. When exceeded, blocks >=
+// SMALL_BLOCK_THRESHOLD go to mi_free directly. Blocks below that
+// threshold always pool (zombie data for NiRefObject stale readers).
 //
-// 64MB cap. Lower is safer for VAS -- the game needs headroom for
-// textures, models, audio, D3D9 surfaces in a 2GB VAS process.
+// 32MB cap. In a 2GB VAS process, every MB matters during stress.
 // Pool blocks are reused by same-size allocs, so effective zombie
-// coverage is much higher than 64MB (blocks cycle continuously).
-const MAX_POOL_HELD: usize = 64 * 1024 * 1024;
+// coverage is much higher than 32MB (blocks cycle continuously).
+const MAX_POOL_HELD: usize = 32 * 1024 * 1024;
 
 // Freelist slot count. Index = usable_size / 16.
 // Covers sizes 16..4096 in 16-byte increments (256 slots).
@@ -130,8 +132,11 @@ impl Pool {
         (ptr, usable)
     }
 
-    /// Return block to pool freelist. Always pushes -- never mi_free on
-    /// the hot path. Blocks >MAX_POOL_SIZE bypass the pool.
+    /// Return block to pool freelist. Blocks >MAX_POOL_SIZE always bypass.
+    ///
+    /// Cap enforcement: when pool exceeds MAX_POOL_HELD, large blocks
+    /// (>= SMALL_BLOCK_THRESHOLD) go to mi_free directly to prevent VAS
+    /// exhaustion. Small blocks still pool to preserve zombie data.
     #[inline]
     pub unsafe fn free(&mut self, ptr: *mut c_void) {
         let usable = unsafe { mi_usable_size(ptr as *const c_void) };
@@ -142,6 +147,13 @@ impl Pool {
 
         let idx = usable / ALIGN;
         if idx >= SLOT_COUNT {
+            unsafe { mi_free(ptr) };
+            return;
+        }
+
+        // Cap: when pool is full, large blocks go to mi_free directly.
+        // Small blocks (<1KB) still pool — they're the UAF-sensitive ones.
+        if self.total_held > MAX_POOL_HELD && usable >= SMALL_BLOCK_THRESHOLD {
             unsafe { mi_free(ptr) };
             return;
         }
@@ -321,12 +333,24 @@ pub unsafe fn pool_free(ptr: *mut c_void) {
     });
 }
 
-/// Held bytes for diagnostics.
+/// Snapshot of main thread's pool held bytes, updated at Phase 7.
+/// Readable from any thread (watchdog, console commands).
+static HELD_SNAPSHOT: AtomicUsize = AtomicUsize::new(0);
+
+/// Held bytes for diagnostics. Reads the cross-thread snapshot
+/// when called from non-main threads, or the live value on main thread.
 pub fn pool_held_bytes() -> usize {
-    POOL.with(|p| {
+    HELD_SNAPSHOT.load(Ordering::Relaxed)
+}
+
+/// Update the cross-thread snapshot from the main thread's pool.
+/// Must be called from the main thread (Phase 7).
+pub fn snapshot_held_bytes() {
+    let held = POOL.with(|p| {
         let p = unsafe { &*p.get() };
         p.held_bytes()
-    })
+    });
+    HELD_SNAPSHOT.store(held, Ordering::Relaxed);
 }
 
 /// Phase 7 maintenance: drain excess if BST is idle and pool over cap.

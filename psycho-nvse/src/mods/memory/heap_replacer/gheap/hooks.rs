@@ -77,6 +77,9 @@ pub unsafe extern "C" fn hook_per_frame_queue_drain() {
         }
     }
 
+    // Snapshot pool held bytes for cross-thread diagnostics (watchdog).
+    pool::snapshot_held_bytes();
+
     // --- Loading transition detection ---
     let loading_now = globals::is_loading();
     let was_loading = WAS_LOADING.with(|c| {
@@ -96,7 +99,7 @@ pub unsafe extern "C" fn hook_per_frame_queue_drain() {
     // Worker threads can't drain pool (thread-local). This is their
     // ONLY chance to get pool memory freed.
     //   1. Drain large blocks from pool (safe, no UAF)
-    //   2. Enable EMERGENCY_LARGE_BYPASS so NEW large frees skip pool
+    //   2. Enable large bypass so NEW large frees skip pool
     //      (small blocks still go to pool — preserves zombie data)
     //   3. Run game OOM stages if not loading
     if allocator::EMERGENCY_CLEANUP.swap(false, std::sync::atomic::Ordering::AcqRel) {
@@ -108,7 +111,7 @@ pub unsafe extern "C" fn hook_per_frame_queue_drain() {
         // Enable large-block bypass: future frees of >=1KB blocks go
         // directly to mi_free, keeping VAS available for large allocs.
         // Small blocks still go to pool (zombie data safe).
-        allocator::EMERGENCY_LARGE_BYPASS.store(true, std::sync::atomic::Ordering::Release);
+        allocator::enable_large_bypass();
 
         log::warn!(
             "[POOL] Emergency: drained {} large blocks, bypass ON, pool={}MB",
@@ -128,8 +131,8 @@ pub unsafe extern "C" fn hook_per_frame_queue_drain() {
     let request = watchdog::take_cleanup_request();
 
     // Clear emergency large bypass when memory is healthy (no cleanup needed).
-    if request == 0 && allocator::EMERGENCY_LARGE_BYPASS.load(std::sync::atomic::Ordering::Relaxed) {
-        allocator::EMERGENCY_LARGE_BYPASS.store(false, std::sync::atomic::Ordering::Release);
+    if request == 0 && allocator::is_large_bypass_active() {
+        allocator::disable_large_bypass();
         log::info!("[POOL] Emergency bypass cleared (memory healthy)");
     }
 
@@ -143,16 +146,12 @@ pub unsafe extern "C" fn hook_per_frame_queue_drain() {
             drained, request,
         );
     }
-    if request >= 2 {
-        if globals::is_loading() {
-            // During loading, AI_JOIN does NOT fire — deferred unload is useless.
-            // Run cell unload directly from Phase 7 (AI not started yet, safe).
-            unsafe { loading_cell_unload_phase7() };
-        } else {
-            // Normal gameplay: signal cell unload for AI_JOIN.
-            if let Some(pr) = PressureRelief::instance() {
-                pr.set_deferred_unload();
-            }
+    if request >= 2 && !globals::is_loading() {
+        // Normal gameplay: signal cell unload for AI_JOIN.
+        // During loading: large bypass is already active (on_loading_start),
+        // game's own CellTransitionHandler handles cleanup.
+        if let Some(pr) = PressureRelief::instance() {
+            pr.set_deferred_unload();
         }
     }
 
@@ -177,28 +176,75 @@ pub unsafe extern "C" fn hook_per_frame_queue_drain() {
     }
 }
 
-// First frame where loading starts. Proactive cleanup to free VAS.
-//
-// drain_all is safe here: Phase 7 runs BEFORE AI_START, so no worker
-// threads are reading stale pointers at this instant. NVSE MainLoopHook
-// already ran for this frame. Next frame's NVSE hook will see the pool
-// empty but the game is now in loading state (events suppressed).
+// Cell unload from Phase 7 during loading.
+// Phase 7 runs before AI_START — AI is not active, CellUnloadGuard succeeds.
+// CellUnloadGuard enables large bypass so freed objects reclaim VAS.
+// 5-second cooldown to avoid over-triggering.
+// Loading transition cleanup threshold.
+const LOADING_CLEANUP_GROWTH: usize = 300 * 1024 * 1024; // 300MB
+const LOADING_CLEANUP_MAX_CELLS: usize = 20;
+
+// First frame where loading starts. Run proper cleanup:
+//   1. Enable large bypass (frees during cleanup reclaim VAS)
+//   2. HeapCompact 0-3 (texture, geometry, menu, Havok GC)
+//   3. Cell unload via execute_during_loading (if growth warrants)
+//   4. Drain large pool blocks + mi_collect
+//   5. Disable large bypass
 #[cold]
 unsafe fn on_loading_start() {
-    // Drain ALL pool blocks at the transition boundary.
-    let drained = unsafe { pool::pool_drain_all() };
+    let info = libmimalloc::process_info::MiMallocProcessInfo::get();
+    let commit_before = info.get_current_commit();
+
+    log::info!(
+        "[LOADING] Transition detected: commit={}MB, pool={}MB",
+        commit_before / 1024 / 1024,
+        pool::pool_held_bytes() / 1024 / 1024,
+    );
+
+    // Enable large bypass for the cleanup sequence.
+    allocator::enable_large_bypass();
+
+    // HeapCompact 0-3 (texture flush, geometry cache, menu, Havok GC).
     globals::signal_heap_compact(globals::HeapCompactStage::HavokGC);
+
+    // Cell unload if growth is significant.
+    let mut cells = 0usize;
+    if let Some(pr) = PressureRelief::instance() {
+        let baseline = pr.baseline_commit();
+        if baseline > 0 {
+            let growth = commit_before.saturating_sub(baseline);
+            if growth >= LOADING_CLEANUP_GROWTH {
+                if let Some(result) =
+                    super::engine::cell_unload::execute_during_loading(LOADING_CLEANUP_MAX_CELLS)
+                {
+                    cells = result.cells;
+                    if cells > 0 {
+                        pr.set_pending_counter_decrement();
+                    }
+                }
+            }
+        }
+    }
+
+    // Drain large pool blocks + aggressive collect.
+    let drained = unsafe { pool::pool_drain_large(pool::SMALL_BLOCK_THRESHOLD) };
     unsafe { libmimalloc::mi_collect(true) };
 
-    let info = libmimalloc::process_info::MiMallocProcessInfo::get();
+    // Cleanup done.
+    allocator::disable_large_bypass();
+
+    let commit_after = libmimalloc::process_info::MiMallocProcessInfo::get()
+        .get_current_commit();
     log::info!(
-        "[LOADING] Pre-load cleanup: drained {} blocks (all), commit={}MB",
-        drained,
-        info.get_current_commit() / 1024 / 1024,
+        "[LOADING] Cleanup done: {} cells, {} large drained, commit {}MB-->{}MB, pool={}MB",
+        cells, drained,
+        commit_before / 1024 / 1024,
+        commit_after / 1024 / 1024,
+        pool::pool_held_bytes() / 1024 / 1024,
     );
 }
 
-// First frame after loading ends. Log transition.
+// First frame after loading ends.
 #[cold]
 fn on_loading_end() {
     let info = libmimalloc::process_info::MiMallocProcessInfo::get();
@@ -207,60 +253,6 @@ fn on_loading_end() {
         info.get_current_commit() / 1024 / 1024,
         pool::pool_held_bytes() / 1024 / 1024,
     );
-}
-
-// Cell unload from Phase 7 during loading.
-//
-// AI_JOIN does NOT fire during loading screens, so deferred cell unload
-// never executes. This runs cell unload directly from Phase 7 where
-// AI threads are not yet dispatched (is_ai_active = false).
-//
-// Uses execute_during_loading() which doesn't abort on is_loading().
-// Cooldown: minimum 10 seconds between calls (matches watchdog aggressive cooldown).
-#[cold]
-unsafe fn loading_cell_unload_phase7() {
-    static LAST_MS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
-    const COOLDOWN_MS: u64 = 10_000;
-
-    let info = libmimalloc::process_info::MiMallocProcessInfo::get();
-    let now_ms = info.get_elapsed_ms() as u64;
-    let last = LAST_MS.load(std::sync::atomic::Ordering::Relaxed);
-    if now_ms.saturating_sub(last) < COOLDOWN_MS {
-        return;
-    }
-    LAST_MS.store(now_ms, std::sync::atomic::Ordering::Relaxed);
-
-    let commit_before = info.get_current_commit();
-    log::warn!(
-        "[LOADING] Phase 7 cell unload: commit={}MB, pool={}MB",
-        commit_before / 1024 / 1024,
-        pool::pool_held_bytes() / 1024 / 1024,
-    );
-
-    // Drain large blocks first to free VAS.
-    let drained = unsafe { pool::pool_drain_large(pool::SMALL_BLOCK_THRESHOLD) };
-    unsafe { libmimalloc::mi_collect(true) };
-
-    // Cell unload (up to 10 cells).
-    if let Some(result) = super::engine::cell_unload::execute_during_loading(10) {
-        if result.cells > 0 {
-            // Drain large blocks freed by cell unload.
-            let drained2 = unsafe { pool::pool_drain_large(pool::SMALL_BLOCK_THRESHOLD) };
-            unsafe { libmimalloc::mi_collect(true) };
-
-            if let Some(pr) = PressureRelief::instance() {
-                pr.set_pending_counter_decrement();
-            }
-
-            let commit_after = libmimalloc::process_info::MiMallocProcessInfo::get()
-                .get_current_commit();
-            log::warn!(
-                "[LOADING] Phase 7 cell unload: {} cells, drained {}+{} large blocks, commit {}MB-->{}MB",
-                result.cells, drained, drained2,
-                commit_before / 1024 / 1024, commit_after / 1024 / 1024,
-            );
-        }
-    }
 }
 
 /// Phase 10: post-render maintenance (before AI_JOIN).
