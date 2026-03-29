@@ -279,12 +279,18 @@ fn log_diagnostics(poll_count: u32, info: &MiMallocProcessInfo) {
 
     let rate = GROWTH_RATE.load(Ordering::Relaxed);
     let pool_mb = super::pool::pool_held_bytes() / 1024 / 1024;
+    let evictions = super::pool::pool_evictions();
+    let soft_bypasses = super::pool::pool_soft_bypasses();
+    let bypass_active = super::allocator::is_bypass_active();
     log::info!(
-        "[MEM] Pool: {}MB | Rate: {}/s | Reliefs: {} | Cells: {}",
+        "[MEM] Pool: {}MB | Rate: {}/s | Reliefs: {} | Cells: {} | Evict: {} | SoftByp: {} | Bypass: {}",
         pool_mb,
         format_rate(rate),
         relief,
         cells,
+        evictions,
+        soft_bypasses,
+        if bypass_active { "ON" } else { "off" },
     );
 
     let cu_cells = super::engine::cell_unload::total_cells_unloaded();

@@ -36,26 +36,35 @@ pub static EMERGENCY_CLEANUP: AtomicBool = AtomicBool::new(false);
 /// bypass the pool and go directly to mi_free. Small blocks still go to pool
 /// to preserve the zombie data contract for NiRefObject stale readers.
 ///
-/// Active during: cell unload (CellUnloadGuard), emergency OOM cleanup.
-/// Prevents large blocks from accumulating on freelists, keeping VAS
-/// available for large contiguous allocations.
+/// Two sources can activate bypass:
+/// - `with_large_bypass(f)` — scoped, for cleanup operations
+/// - `set_loading_bypass(true)` — persistent during loading phase
 static LARGE_BYPASS: AtomicBool = AtomicBool::new(false);
+static LOADING_BYPASS: AtomicBool = AtomicBool::new(false);
 
-/// Enable large-block pool bypass. Large frees (>=1KB) go to mi_free
-/// directly, small blocks still pool. Used during cell unload and
-/// emergency cleanup so freed objects reclaim VAS immediately.
-pub fn enable_large_bypass() {
+/// Run `f` with large-block bypass active. Large frees (>=512 bytes)
+/// go to mi_free directly during `f`. Small blocks still pool.
+/// Bypass is guaranteed to be disabled when `f` returns.
+pub fn with_large_bypass<R>(f: impl FnOnce() -> R) -> R {
+    log::debug!("[BYPASS] Scoped ON");
     LARGE_BYPASS.store(true, Ordering::Release);
-}
-
-/// Disable large-block pool bypass. All blocks resume pooling.
-pub fn disable_large_bypass() {
+    let result = f();
     LARGE_BYPASS.store(false, Ordering::Release);
+    log::debug!("[BYPASS] Scoped OFF");
+    result
 }
 
-/// Whether large-block bypass is currently active.
-pub fn is_large_bypass_active() -> bool {
-    LARGE_BYPASS.load(Ordering::Relaxed)
+/// Enable/disable persistent loading bypass. Active for the entire
+/// loading phase so game's CellTransitionHandler frees reclaim VAS.
+pub fn set_loading_bypass(active: bool) {
+    log::debug!("[BYPASS] Loading {}", if active { "ON" } else { "OFF" });
+    LOADING_BYPASS.store(active, Ordering::Release);
+}
+
+/// Whether any bypass is active (scoped or loading).
+#[inline]
+pub fn is_bypass_active() -> bool {
+    LARGE_BYPASS.load(Ordering::Relaxed) || LOADING_BYPASS.load(Ordering::Relaxed)
 }
 
 // -----------------------------------------------------------------------
@@ -110,10 +119,35 @@ pub fn is_main_thread() -> bool {
 // Alloc / Free / Msize / Realloc
 // -----------------------------------------------------------------------
 
+/// Re-entrancy guard for emergency cleanup piggybacking on alloc().
+/// Prevents infinite recursion since cleanup itself calls alloc/free.
+thread_local! {
+    static IN_EMERGENCY: Cell<bool> = const { Cell::new(false) };
+}
+
 /// Allocate `size` bytes. Main thread uses pool, workers use mi_malloc.
 /// On OOM, enters multi-stage recovery. Engine contract: never returns NULL.
+///
+/// When a worker is stuck in OOM during loading and Phase 7 is dead,
+/// the main thread piggybacks emergency cleanup on its own alloc calls.
 #[inline]
 pub unsafe fn alloc(size: usize) -> *mut c_void {
+    // Main thread piggyback: if a worker signaled EMERGENCY_CLEANUP and
+    // Phase 7 isn't running (loading deadlock), we are the only chance
+    // to run cleanup. Check cheaply — Relaxed load, only when main+loading.
+    if is_main_thread()
+        && globals::is_loading()
+        && EMERGENCY_CLEANUP.load(Ordering::Relaxed)
+        && !IN_EMERGENCY.with(|e| e.get())
+    {
+        if EMERGENCY_CLEANUP.swap(false, Ordering::AcqRel) {
+            IN_EMERGENCY.with(|e| e.set(true));
+            log::warn!("[OOM] Main thread piggyback: running emergency loading cleanup from alloc()");
+            unsafe { super::hooks::emergency_loading_cleanup() };
+            IN_EMERGENCY.with(|e| e.set(false));
+        }
+    }
+
     let ptr = if is_main_thread() && is_pool_active() {
         let (p, _usable) = unsafe { pool::pool_alloc(size) };
         p
@@ -140,7 +174,7 @@ pub unsafe fn free(ptr: *mut c_void) {
             // Large bypass: during cell unload / OOM recovery, large blocks
             // go directly to mi_free to keep VAS available. Small blocks
             // still go to pool to preserve zombie data for stale readers.
-            if LARGE_BYPASS.load(Ordering::Relaxed) {
+            if is_bypass_active() {
                 let usable = unsafe { mi_usable_size(ptr as *const c_void) };
                 if usable >= pool::SMALL_BLOCK_THRESHOLD {
                     unsafe { libmimalloc::mi_free(ptr) };
@@ -327,15 +361,21 @@ unsafe fn oom_last_resort(size: usize, is_main: bool) -> *mut c_void {
         libmimalloc::process_info::MiMallocProcessInfo::get().get_current_commit() / 1024 / 1024,
     );
 
-    if !is_main {
-        EMERGENCY_CLEANUP.store(true, Ordering::Release);
-    }
-
     for attempt in 0..OOM_LAST_RESORT_MAX {
+        // Re-signal emergency every iteration — main thread may have
+        // consumed the flag but not freed enough on the first try.
+        if !is_main {
+            EMERGENCY_CLEANUP.store(true, Ordering::Release);
+        }
+
+        // Sleep to give main thread time to run Phase 7 and process
+        // emergency cleanup (cell unload + PDD pump during loading).
+        libpsycho::os::windows::winapi::sleep(50);
+
         if is_main {
             unsafe { pool::pool_drain_all() };
         }
-        unsafe { mi_collect(true) };
+        unsafe { mi_collect(false) };
 
         let ptr = unsafe { mi_malloc_aligned(size, ALIGN) };
         if !ptr.is_null() {
@@ -348,9 +388,16 @@ unsafe fn oom_last_resort(size: usize, is_main: bool) -> *mut c_void {
             if !ptr.is_null() { return ptr; }
         }
 
-        libpsycho::os::windows::winapi::sleep(200);
-        if attempt % 5 == 0 {
-            log::error!("[OOM] Attempt {}/{}: size={}", attempt, OOM_LAST_RESORT_MAX, size);
+        if attempt % 10 == 0 {
+            let info = libmimalloc::process_info::MiMallocProcessInfo::get();
+            log::error!(
+                "[OOM] Attempt {}/{}: size={}, commit={}MB, pool={}MB, loading={}, bypass={}",
+                attempt, OOM_LAST_RESORT_MAX, size,
+                info.get_current_commit() / 1024 / 1024,
+                pool::pool_held_bytes() / 1024 / 1024,
+                globals::is_loading(),
+                is_bypass_active(),
+            );
         }
     }
 

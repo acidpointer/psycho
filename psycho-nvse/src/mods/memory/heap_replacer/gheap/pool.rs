@@ -97,6 +97,10 @@ pub struct Pool {
     slots: [SlotQueue; SLOT_COUNT],
     size_map: [u16; SIZE_MAP_LEN],
     total_held: usize,
+    /// Blocks evicted via FIFO hard cap since last snapshot.
+    evictions: usize,
+    /// Blocks bypassed via soft cap since last snapshot.
+    soft_bypasses: usize,
 }
 
 /// Freelist node header stored at the start of each freed block.
@@ -125,6 +129,8 @@ impl Pool {
             slots: [SlotQueue::empty(); SLOT_COUNT],
             size_map: [0u16; SIZE_MAP_LEN],
             total_held: 0,
+            evictions: 0,
+            soft_bypasses: 0,
         }
     }
 
@@ -178,6 +184,7 @@ impl Pool {
 
         // Soft cap: large blocks bypass pool.
         if self.total_held > SOFT_CAP && usable >= SMALL_BLOCK_THRESHOLD {
+            self.soft_bypasses += 1;
             unsafe { mi_free(ptr) };
             return;
         }
@@ -188,6 +195,7 @@ impl Pool {
         // Hard cap: evict oldest block from this slot's head.
         // The evicted block has had maximum zombie time on the queue.
         if self.total_held > HARD_CAP {
+            self.evictions += 1;
             self.evict_oldest(idx);
         }
     }
@@ -324,24 +332,36 @@ pub unsafe fn pool_free(ptr: *mut c_void) {
     });
 }
 
-/// Snapshot of main thread's pool held bytes, updated at Phase 7.
-/// Readable from any thread (watchdog, console commands).
-static HELD_SNAPSHOT: AtomicUsize = AtomicUsize::new(0);
+/// Cross-thread pool diagnostics snapshot.
+static SNAP_HELD: AtomicUsize = AtomicUsize::new(0);
+static SNAP_EVICTIONS: AtomicUsize = AtomicUsize::new(0);
+static SNAP_SOFT_BYPASSES: AtomicUsize = AtomicUsize::new(0);
 
-/// Held bytes for diagnostics. Reads the cross-thread snapshot
-/// when called from non-main threads, or the live value on main thread.
+/// Pool held bytes (from last snapshot).
 pub fn pool_held_bytes() -> usize {
-    HELD_SNAPSHOT.load(Ordering::Relaxed)
+    SNAP_HELD.load(Ordering::Relaxed)
 }
 
-/// Update the cross-thread snapshot from the main thread's pool.
-/// Must be called from the main thread (Phase 7).
-pub fn snapshot_held_bytes() {
-    let held = POOL.with(|p| {
-        let p = unsafe { &*p.get() };
-        p.held_bytes()
+/// Evictions since last snapshot (FIFO hard cap).
+pub fn pool_evictions() -> usize {
+    SNAP_EVICTIONS.load(Ordering::Relaxed)
+}
+
+/// Soft cap bypasses since last snapshot.
+pub fn pool_soft_bypasses() -> usize {
+    SNAP_SOFT_BYPASSES.load(Ordering::Relaxed)
+}
+
+/// Update cross-thread snapshot and reset counters. Called from Phase 7.
+pub fn snapshot_pool_stats() {
+    POOL.with(|p| {
+        let p = unsafe { &mut *p.get() };
+        SNAP_HELD.store(p.total_held, Ordering::Relaxed);
+        SNAP_EVICTIONS.store(p.evictions, Ordering::Relaxed);
+        SNAP_SOFT_BYPASSES.store(p.soft_bypasses, Ordering::Relaxed);
+        p.evictions = 0;
+        p.soft_bypasses = 0;
     });
-    HELD_SNAPSHOT.store(held, Ordering::Relaxed);
 }
 
 /// Phase 7 maintenance (legacy, unused).

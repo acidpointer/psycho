@@ -203,18 +203,29 @@ impl PressureRelief {
         // Clear TLS cell unload flag (re-enable event dispatch).
         unsafe { globals::set_tls_cleanup_flag(1) };
 
+        if cells > 0 {
+            log::debug!(
+                "[DESTRUCTION] {} cells unloaded, pdd queued: NiNode={} Gen={} Form={}",
+                cells,
+                globals::pdd_queue_count(globals::PddQueue::NiNode),
+                globals::pdd_queue_count(globals::PddQueue::Generic),
+                globals::pdd_queue_count(globals::PddQueue::Form),
+            );
+        }
+
         unsafe { globals::post_destruction_restore(&mut state) };
 
         // Drain remaining large pool blocks + collect.
         if cells > 0 {
             let drained = unsafe { pool::pool_drain_large(pool::SMALL_BLOCK_THRESHOLD) };
-            unsafe { libmimalloc::mi_collect(true) };
+            unsafe { libmimalloc::mi_collect(false) };
 
             let commit = libmimalloc::process_info::MiMallocProcessInfo::get()
                 .get_current_commit();
             log::debug!(
-                "[DESTRUCTION] {} cells unloaded, {} large drained, commit={}MB",
-                cells, drained, commit / 1024 / 1024,
+                "[DESTRUCTION] Post: {} large drained, commit={}MB, pool={}MB",
+                drained, commit / 1024 / 1024,
+                pool::pool_held_bytes() / 1024 / 1024,
             );
         }
 
