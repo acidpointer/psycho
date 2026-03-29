@@ -17,7 +17,6 @@
 //   OOM    -> game's own OOM stages + emergency GC drain
 
 pub mod allocator;
-pub mod deferred_free;
 pub mod engine;
 pub mod pool;
 pub mod game_guard;
