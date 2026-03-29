@@ -221,12 +221,12 @@ impl PressureRelief {
         globals::signal_heap_compact(globals::HeapCompactStage::HavokGC);
         unsafe { mi_collect(false) };
 
-        // Always defer cell unload to AI_JOIN. Cell unload is the most
-        // effective reclamation mechanism and must run at every pressure
-        // event, not just aggressive threshold.
-        self.deferred_unload.store(true, Ordering::Release);
-
+        // Cell unload ONLY at aggressive threshold.
+        // Running it at normal threshold (every 2s during stress) destroys
+        // forms that NVSE plugins (JIP Lutana events) still reference,
+        // causing crashes in event dispatch scripts.
         if commit >= aggressive_threshold {
+            self.deferred_unload.store(true, Ordering::Release);
             log::warn!(
                 "[PRESSURE] HeapCompact 0-3 + cell unload, commit={}MB (thresh={}MB), pending={}",
                 commit_mb, aggressive_threshold / 1024 / 1024, pending,
@@ -364,6 +364,22 @@ impl PressureRelief {
         // handles DeferredCleanupSmall timing safely.
 
         unsafe { globals::post_destruction_restore(&mut state) };
+
+        // After cell unload: freed objects went to pool. Drain pool + collect
+        // so mimalloc can decommit pages and make VAS available for large allocs
+        // (terrain meshes, LOD textures, etc.)
+        if cells > 0 {
+            let drained = unsafe { super::pool::pool_drain_all() };
+            unsafe { libmimalloc::mi_collect(true) };
+            if drained > 0 {
+                let after = libmimalloc::process_info::MiMallocProcessInfo::get()
+                    .get_current_commit();
+                log::debug!(
+                    "[DESTRUCTION] Post-unload: drained {} pool blocks, commit={}MB",
+                    drained, after / 1024 / 1024,
+                );
+            }
+        }
 
         if cells == 0 {
             loading_counter.fetch_sub(1, std::sync::atomic::Ordering::AcqRel);

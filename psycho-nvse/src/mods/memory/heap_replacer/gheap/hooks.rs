@@ -93,24 +93,12 @@ pub unsafe extern "C" fn hook_per_frame_queue_drain() {
         }
     }
 
-    // Pool maintenance: drain excess blocks if BST is idle.
-    // Two triggers:
-    //   1. Pool exceeds 64MB cap (size-based)
-    //   2. Commit exceeds pressure threshold (VAS-based)
-    // BST idle check is a non-intrusive semaphore read (~50ns).
-    if unsafe { super::engine::io_sync::are_bst_threads_idle() } {
-        let should_drain = pool::pool_held_bytes() > 0 && {
-            let commit = libmimalloc::process_info::MiMallocProcessInfo::get()
-                .get_current_commit();
-            let threshold = PressureRelief::instance()
-                .map(|pr| pr.threshold())
-                .unwrap_or(usize::MAX);
-            pool::pool_held_bytes() >= 64 * 1024 * 1024 || commit >= threshold
-        };
-        if should_drain {
-            unsafe { pool::pool_maintain() };
-        }
-    }
+    // NO proactive pool drain at Phase 7.
+    // Pool drain calls mi_free which makes blocks available for recycling.
+    // NVSE's MainLoopHook runs BEFORE Phase 7 -- next frame, NVSE plugins
+    // (JIP Lutana events) reference forms that were drained and recycled.
+    // Pool only drains during: OOM recovery, after cell unload (destruction_protocol).
+    // The pool grows freely during gameplay. VAS pressure handled by OOM path.
 
     // Clear texture dead set under write lock.
     // BST's texture_cache_find uses try_read -- blocked during clear.

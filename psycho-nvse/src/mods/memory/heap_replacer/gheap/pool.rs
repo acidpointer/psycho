@@ -164,6 +164,8 @@ impl Pool {
         }
 
         if freed_count > 0 {
+            // Force mimalloc to coalesce freed pages and decommit.
+            unsafe { libmimalloc::mi_collect(true) };
             log::debug!(
                 "[POOL] Drained {} blocks ({}MB -> {}MB)",
                 freed_count,
