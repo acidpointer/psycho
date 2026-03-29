@@ -1,0 +1,659 @@
+ENGINE FREE CONTRACT ANALYSIS
+======================================================================
+
+QUESTION: When SBM frees a block, which bytes are modified?
+QUESTION: When a stale reader reads a freed block, what does it see?
+QUESTION: Can we replicate SBM's post-free memory state with mimalloc?
+
+
+======================================================================
+SBM pool freelist INSERT (on free) @ 0x00aa6c70
+======================================================================
+  Function: FUN_00aa6c70 @ 0x00aa6c70, Size: 138 bytes
+
+void __thiscall FUN_00aa6c70(void *this,undefined4 *param_1)
+
+{
+  uint uVar1;
+  
+  if (param_1 != (undefined4 *)0x0) {
+    FUN_0040fbf0((LONG *)((int)this + 0x20));
+    FUN_00aa6e00(this,param_1);
+    uVar1 = (uint)((int)param_1 - *(int *)((int)this + 4)) >> 0xc;
+    *(short *)(*(int *)((int)this + 0x48) + uVar1 * 2) =
+         *(short *)(*(int *)((int)this + 0x48) + uVar1 * 2) + -1;
+    *(int *)((int)this + 0x24) = *(int *)((int)this + 0x24) + -1;
+    if (*(int *)((int)this + 0x24) == 0) {
+      *(undefined4 *)((int)this + 0x20) = 0;
+    }
+  }
+  return;
+}
+
+
+
+======================================================================
+SBM pool freelist REMOVE (on alloc) @ 0x00aa6b60
+======================================================================
+  Function: FUN_00aa6aa0 @ 0x00aa6aa0, Size: 462 bytes
+  NOTE: Requested 0x00aa6b60 is inside FUN_00aa6aa0 (entry at 0x00aa6aa0)
+
+int __fastcall FUN_00aa6aa0(void *param_1)
+
+{
+  uint uVar1;
+  int *piVar2;
+  bool bVar3;
+  uint uVar4;
+  uint local_18;
+  int local_c;
+  int in_stack_fffffff8;
+  int iVar5;
+  
+  FUN_0040fbf0((LONG *)((int)param_1 + 0x20));
+  if (*(int *)((int)param_1 + 8) == 0) {
+    uVar4 = FUN_00aa6db0((int)param_1);
+    if (uVar4 == 0xffffffff) {
+      *(int *)((int)param_1 + 0x24) = *(int *)((int)param_1 + 0x24) + -1;
+      if (*(int *)((int)param_1 + 0x24) != 0) {
+        return in_stack_fffffff8;
+      }
+      *(undefined4 *)((int)param_1 + 0x20) = 0;
+      return in_stack_fffffff8;
+    }
+    local_c = 0;
+    uVar1 = *(uint *)((int)param_1 + 0x40);
+    bVar3 = FUN_00aa6610(param_1,uVar4,&local_c);
+    if (!bVar3) {
+      *(int *)((int)param_1 + 0x24) = *(int *)((int)param_1 + 0x24) + -1;
+      if (*(int *)((int)param_1 + 0x24) != 0) {
+        return in_stack_fffffff8;
+      }
+      *(undefined4 *)((int)param_1 + 0x20) = 0;
+      return in_stack_fffffff8;
+    }
+    *(undefined2 *)(*(int *)((int)param_1 + 0x48) + uVar4 * 2) = 0;
+    for (local_18 = 0; local_18 < (uint)(0x1000 / (ulonglong)uVar1); local_18 = local_18 + 1) {
+      FUN_00aa6e00(param_1,(undefined4 *)(local_18 * *(int *)((int)param_1 + 0x40) + local_c));
+    }
+    *(int *)((int)param_1 + 0x58) = *(int *)((int)param_1 + 0x58) + 1;
+    if (*(uint *)((int)param_1 + 0x44) < *(uint *)((int)param_1 + 0x58)) {
+      *(undefined4 *)((int)param_1 + 0x44) = *(undefined4 *)((int)param_1 + 0x58);
+    }
+  }
+  iVar5 = 0;
+  if (*(int *)((int)param_1 + 8) != 0) {
+    iVar5 = *(int *)((int)param_1 + 8);
+    piVar2 = *(int **)((int)param_1 + 8);
+    *(undefined4 *)((int)param_1 + 8) = *(undefined4 *)(*(int *)((int)param_1 + 8) + 4);
+    FUN_00aa6e60(param_1,piVar2);
+    uVar4 = (uint)(iVar5 - *(int *)((int)param_1 + 4)) >> 0xc;
+    *(short *)(*(int *)((int)param_1 + 0x48) + uVar4 * 2) =
+         *(short *)(*(int *)((int)param_1 + 0x48) + uVar4 * 2) + 1;
+  }
+  *(int *)((int)param_1 + 0x24) = *(int *)((int)param_1 + 0x24) + -1;
+  if (*(int *)((int)param_1 + 0x24) == 0) {
+    *(undefined4 *)((int)param_1 + 0x20) = 0;
+  }
+  return iVar5;
+}
+
+
+
+======================================================================
+GameHeap::Allocate (SBM entry) @ 0x00aa3e40
+======================================================================
+  Function: FUN_00aa3e40 @ 0x00aa3e40, Size: 486 bytes
+
+void * __thiscall FUN_00aa3e40(void *this,uint param_1)
+
+{
+  int *piVar1;
+  int iVar2;
+  int *piVar3;
+  void *extraout_EAX;
+  int unaff_FS_OFFSET;
+  int *local_40;
+  int *local_3c;
+  void *local_38;
+  void *local_2c;
+  int local_28;
+  char local_d;
+  uint local_c;
+  void *local_8;
+  
+  if (*(char *)this == '\0') {
+    local_8 = FUN_00aa4290(param_1);
+  }
+  else {
+    piVar1 = *(int **)((int)this + 0x110);
+    if (piVar1 == (int *)0x0) {
+      local_8 = FUN_00aa4290(param_1);
+    }
+    else {
+      local_c = param_1;
+      local_8 = (void *)0x0;
+      if (param_1 < 9) {
+        param_1 = 8;
+      }
+      else {
+        param_1 = param_1 + 3 & 0xfffffffc;
+      }
+      iVar2 = *(int *)(*(int *)(*(int *)(unaff_FS_OFFSET + 0x2c) + _tls_index * 4) + 0x2b4);
+      if (*(char *)((int)this + 0x129) != '\0') {
+        if (param_1 < 0x3fd) {
+          local_38 = *(void **)(&DAT_011f67b8 + param_1);
+        }
+        else {
+          local_38 = (void *)0x0;
+        }
+        local_2c = local_38;
+        if (local_38 == (void *)0x0) {
+          local_2c = (void *)FUN_00aa4960(param_1);
+        }
+        if ((local_2c != (void *)0x0) &&
+           (FUN_00aa6aa0(local_2c), local_8 = extraout_EAX, extraout_EAX != (void *)0x0)) {
+          return extraout_EAX;
+        }
+      }
+      local_d = '\0';
+      local_28 = 0;
+      piVar3 = *(int **)((int)this + iVar2 * 4 + 0xc);
+      do {
+        local_3c = piVar1;
+        if (piVar3 != (int *)0x0) {
+          local_3c = piVar3;
+        }
+        local_8 = (void *)(**(code **)(*local_3c + 8))(param_1,0);
+        if ((local_8 == (void *)0x0) && (local_3c != piVar1)) {
+          local_8 = (void *)(**(code **)(*piVar1 + 8))(param_1,0);
+        }
+        if (local_8 == (void *)0x0) {
+          local_40 = piVar1;
+          if (piVar3 != (int *)0x0) {
+            local_40 = piVar3;
+          }
+          local_28 = FUN_00866a90(this,local_40,local_28,&local_d);
+          if (local_d != '\0') {
+            local_8 = FUN_00aa4290(param_1);
+          }
+        }
+      } while (local_8 == (void *)0x0);
+    }
+  }
+  return local_8;
+}
+
+
+
+======================================================================
+GameHeap::Free (SBM entry) @ 0x00aa4060
+======================================================================
+  Function: FUN_00aa4060 @ 0x00aa4060, Size: 236 bytes
+
+void __thiscall FUN_00aa4060(void *this,undefined4 *param_1)
+
+{
+  void *this_00;
+  bool bVar1;
+  int *piVar2;
+  
+  if (param_1 != (undefined4 *)0x0) {
+    if (*(char *)this == '\0') {
+      FUN_00aa42c0(param_1);
+    }
+    else if (*(int *)((int)this + 0x110) == 0) {
+      FUN_00aa42c0(param_1);
+    }
+    else {
+      this_00 = *(void **)(&DAT_011f63b8 + ((uint)param_1 >> 0x18) * 4);
+      if (this_00 != (void *)0x0) {
+        if ((param_1 < *(undefined4 **)((int)this_00 + 4)) ||
+           ((undefined4 *)(*(int *)((int)this_00 + 4) + *(int *)((int)this_00 + 0x50)) <= param_1))
+        {
+          bVar1 = false;
+        }
+        else {
+          bVar1 = true;
+        }
+        if (bVar1) {
+          FUN_00aa6c70(this_00,param_1);
+          return;
+        }
+      }
+      piVar2 = FUN_00aa45a0(this,param_1);
+      if (piVar2 == (int *)0x0) {
+        FUN_00aa42c0(param_1);
+      }
+      else {
+        (**(code **)(*piVar2 + 0xc))(param_1,0);
+      }
+    }
+  }
+  return;
+}
+
+
+
+======================================================================
+SBM deallocate all arenas @ 0x00aa5c80
+======================================================================
+  Function: FUN_00aa5c80 @ 0x00aa5c80, Size: 182 bytes
+
+void __fastcall FUN_00aa5c80(int param_1)
+
+{
+  undefined4 local_8;
+  
+  if (*(int *)(param_1 + 0x200) != 0) {
+    FUN_0040fbf0((LONG *)(param_1 + 0x220));
+    for (local_8 = 0; local_8 < *(uint *)(param_1 + 0x200); local_8 = local_8 + 1) {
+      FUN_00aa5f30(*(LPVOID *)(param_1 + local_8 * 8));
+    }
+    *(undefined4 *)(param_1 + 0x200) = 0;
+    *(undefined4 *)(param_1 + 0x204) = 0;
+    *(int *)(param_1 + 0x224) = *(int *)(param_1 + 0x224) + -1;
+    if (*(int *)(param_1 + 0x224) == 0) {
+      *(undefined4 *)(param_1 + 0x220) = 0;
+    }
+  }
+  return;
+}
+
+
+
+======================================================================
+GlobalCleanup (iterates 256 pool slots) @ 0x00aa7030
+======================================================================
+  Function: FUN_00aa7030 @ 0x00aa7030, Size: 136 bytes
+
+void FUN_00aa7030(void)
+
+{
+  uint local_8;
+  
+  if ((DAT_011f6bd0 & 1) == 0) {
+    DAT_011f6bd0 = DAT_011f6bd0 | 1;
+    InitializeCriticalSection((LPCRITICAL_SECTION)&lpCriticalSection_011f6bb8);
+    _atexit(FUN_00fdb2a0);
+  }
+  EnterCriticalSection((LPCRITICAL_SECTION)&lpCriticalSection_011f6bb8);
+  for (local_8 = 0; local_8 < 0x100; local_8 = local_8 + 1) {
+    if (*(int *)(&DAT_011f67b8 + local_8 * 4) != 0) {
+      FUN_00aa6f90(*(void **)(&DAT_011f67b8 + local_8 * 4));
+    }
+  }
+  LeaveCriticalSection((LPCRITICAL_SECTION)&lpCriticalSection_011f6bb8);
+  return;
+}
+
+
+
+======================================================================
+SBM fallback malloc (when pools exhausted) @ 0x00aa4290
+======================================================================
+  Function: FUN_00aa4290 @ 0x00aa4290, Size: 39 bytes
+
+void * FUN_00aa4290(size_t param_1)
+
+{
+  void *pvVar1;
+  
+  pvVar1 = _malloc(param_1);
+  return pvVar1;
+}
+
+
+
+PART 2: STALE READER PATTERNS
+======================================================================
+
+Pattern A: Virtual call through freed object
+  obj->vtable[N]()  where obj is freed
+  Reads: offset 0 (vtable ptr) + vtable[N] (function ptr)
+
+Pattern B: Linked list next pointer
+  next = *(freed_node + 4)
+  Reads: offset 4
+
+Pattern C: Refcount decrement
+  InterlockedDecrement(obj + 4)  // NiRefObject refcount
+  Reads/writes: offset 4
+
+
+======================================================================
+NPC linked list clear (reads freed nodes) @ 0x00470470
+======================================================================
+  Function: FUN_00470470 @ 0x00470470, Size: 110 bytes
+
+void __fastcall FUN_00470470(undefined4 *param_1)
+
+{
+  undefined4 uVar1;
+  
+  while (param_1[1] != 0) {
+    uVar1 = *(undefined4 *)(param_1[1] + 4);
+    *(undefined4 *)(param_1[1] + 4) = 0;
+    if ((void *)param_1[1] != (void *)0x0) {
+      FUN_004702f0((void *)param_1[1],1);
+    }
+    param_1[1] = uVar1;
+  }
+  *param_1 = 0;
+  return;
+}
+
+
+
+======================================================================
+NPC list node free @ 0x004702f0
+======================================================================
+  Function: FUN_004702f0 @ 0x004702f0, Size: 44 bytes
+
+undefined4 * __thiscall FUN_004702f0(void *this,uint param_1)
+
+{
+  FUN_0046ffb0(this);
+  if ((param_1 & 1) != 0) {
+    FUN_00401030(this);
+  }
+  return this;
+}
+
+
+
+======================================================================
+IOTask DecRef (reads refcount at +8) @ 0x0044dd60
+======================================================================
+  Function: FUN_0044dd60 @ 0x0044dd60, Size: 81 bytes
+
+void __fastcall FUN_0044dd60(undefined4 *param_1)
+
+{
+  int iVar1;
+  
+  iVar1 = FUN_004019a0(param_1 + 2);
+  if ((iVar1 == 0) && (param_1 != (undefined4 *)0x0)) {
+    (**(code **)*param_1)(1);
+  }
+  return;
+}
+
+
+
+--- Calls FROM IOTask DecRef (0x0044dd60) ---
+  0x0044dd70 -> 0x004019a0 FUN_004019a0
+  Total: 1 calls
+
+PART 3: MIMALLOC vs SBM BLOCK STATE AFTER FREE
+======================================================================
+
+mimalloc mi_free writes:
+  offset 0: next-free pointer (4 bytes on 32-bit)
+  All other bytes: UNTOUCHED
+
+SBM FUN_00aa6c70 writes:
+  (need to decompile to determine)
+
+IF SBM also writes at offset 0 only, then mi_free is COMPATIBLE
+with SBM's behavior for stale reads at offset 4+.
+
+The CRASH comes from virtual calls: vtable ptr is at offset 0.
+After mi_free, offset 0 = freelist next pointer (a heap address).
+Reading this as vtable -> accessing freelist address as vtable ->
+function pointer at vtable[N] is garbage -> EIP=0 crash.
+
+With SBM: offset 0 = freelist next pointer (a POOL address).
+Reading this as vtable -> accessing pool address as vtable ->
+function pointer at vtable[N] is ALSO garbage.
+BUT: SBM pool addresses are in game VA space (not zero/invalid).
+The 'vtable' entries happen to be other pool blocks, which
+contain non-zero data -> call goes to random game code, not 0x0.
+This is STILL undefined behavior but doesn't crash with NULL.
+
+
+PART 4: POTENTIAL ENGINE-LEVEL FIXES
+======================================================================
+
+Fix A: Hook the virtual dispatch in BST task processing.
+  Before calling vtable[N], validate the vtable pointer.
+  If vtable is in freelist range (not RDATA), skip the call.
+  Requires: hook at the CALL instruction in BST loop.
+
+Fix B: Hook NiSourceTexture destructor to cancel queued tasks.
+  When NiSourceTexture is destroyed, find and cancel all
+  QueuedTexture tasks that reference it.
+  Requires: ability to walk the BST task queue.
+
+Fix C: Replace mi_free's freelist write with a safe sentinel.
+  Instead of writing freelist next ptr at offset 0, write a
+  known 'dead vtable' pointer that has safe no-op methods.
+  Requires: custom mimalloc modification OR post-free write.
+
+Fix D: After mi_free, write a 'dead vtable' at offset 0.
+  mi_free(ptr); *(uint32_t*)ptr = DEAD_VTABLE_ADDRESS;
+  The dead vtable has all entries pointing to a no-op function.
+  Stale reads get the dead vtable -> call no-op -> no crash.
+  Requires: allocate a static vtable with NOP entries.
+
+
+PART 5: BST VIRTUAL CALL SITES
+======================================================================
+
+======================================================================
+BST main loop (find all vtable calls) @ 0x00c410b0
+======================================================================
+  Function: FUN_00c410b0 @ 0x00c410b0, Size: 633 bytes
+
+/* WARNING: Removing unreachable block (ram,0x00c411bc) */
+/* WARNING: Removing unreachable block (ram,0x00c412b6) */
+
+void __fastcall FUN_00c410b0(int param_1)
+
+{
+  DWORD DVar1;
+  uint uVar2;
+  LONG LVar3;
+  int *unaff_FS_OFFSET;
+  undefined4 local_40 [2];
+  undefined4 *local_38;
+  char local_31;
+  undefined **local_30 [2];
+  undefined4 local_28;
+  undefined4 local_20;
+  undefined4 local_1c;
+  byte local_18;
+  int local_10;
+  undefined1 *puStack_c;
+  uint local_8;
+  
+  puStack_c = &LAB_00f2e0a0;
+  local_10 = *unaff_FS_OFFSET;
+  *unaff_FS_OFFSET = (int)&local_10;
+  while (local_8 = 0xffffffff, *(char *)(*(int *)(param_1 + 0x30) + 0x40) != '\x01') {
+    WaitForSingleObject(*(HANDLE *)(param_1 + 0x10),0xffffffff);
+    InterlockedDecrement((LONG *)(param_1 + 0xc));
+    local_28 = 0;
+    local_20 = 0;
+    local_1c = 0;
+    local_18 = 0;
+    local_30[0] = &PTR_FUN_010c1664;
+    local_8 = 0;
+    local_31 = '\0';
+    while ((local_18 & 2) == 0) {
+      DVar1 = WaitForSingleObject(*(HANDLE *)(param_1 + 0x1c),0);
+      if (DVar1 == 0x102) {
+        WaitForSingleObject(*(HANDLE *)(param_1 + 0x1c),0xffffffff);
+        InterlockedDecrement((LONG *)(param_1 + 0x18));
+        FUN_00c42060(local_30,0);
+      }
+      local_38 = (undefined4 *)0x0;
+      local_8 = CONCAT31(local_8._1_3_,1);
+      uVar2 = FUN_00c40e70(*(void **)(param_1 + 0x30),(int)local_30,local_40,(int *)&local_38,
+                           local_31 == '\0');
+      if ((uVar2 & 0xff) == 0) {
+        if ((local_18 & 2) == 0) {
+          FUN_00c42060(local_30,0);
+          local_31 = '\0';
+        }
+      }
+      else if ((local_38[3] == 1) &&
+              (LVar3 = InterlockedCompareExchange(local_38 + 3,3,1), LVar3 == 1)) {
+        local_31 = '\x01';
+        (**(code **)(**(int **)(param_1 + 0x30) + 0x4c))(local_38);
+        (**(code **)(**(int **)(param_1 + 0x30) + 0x50))(local_38);
+      }
+      if (local_38 != (undefined4 *)0x0) {
+        if (local_38 != (undefined4 *)0x0) {
+          FUN_0044dd60(local_38);
+        }
+        local_38 = (undefined4 *)0x0;
+      }
+      ReleaseSemaphore(*(HANDLE *)(param_1 + 0x1c),1,(LPLONG)0x0);
+      InterlockedIncrement((LONG *)(param_1 + 0x18));
+      local_8 = local_8 & 0xffffff00;
+      if (local_38 != (undefined4 *)0x0) {
+        FUN_0044dd60(local_38);
+      }
+    }
+    local_30[0] = &PTR_FUN_010c1670;
+  }
+  *unaff_FS_OFFSET = local_10;
+  return;
+}
+
+
+
+======================================================================
+IOTask_Create / dispatch @ 0x0044cd00
+======================================================================
+  Function: FUN_0044cd00 @ 0x0044cd00, Size: 62 bytes
+
+undefined4 * __thiscall
+FUN_0044cd00(void *this,undefined4 param_1,undefined4 param_2,undefined4 param_3)
+
+{
+  *(undefined4 *)this = param_1;
+  *(undefined4 *)((int)this + 4) = param_2;
+  *(undefined4 *)((int)this + 8) = param_3;
+  *(undefined4 *)((int)this + 0xc) = 0;
+  *(undefined4 *)((int)this + 0x10) = 0;
+  return this;
+}
+
+
+
+======================================================================
+IOTask submit path 1 @ 0x0044b660
+======================================================================
+  Function: FUN_0044b660 @ 0x0044b660, Size: 198 bytes
+
+undefined4 * __thiscall FUN_0044b660(void *this,int param_1)
+
+{
+  void *this_00;
+  int *unaff_FS_OFFSET;
+  undefined4 *local_28;
+  undefined4 local_14;
+  int local_10;
+  undefined1 *puStack_c;
+  undefined4 local_8;
+  
+  local_8 = 0xffffffff;
+  puStack_c = &LAB_00f16bc3;
+  local_10 = *unaff_FS_OFFSET;
+  *unaff_FS_OFFSET = (int)&local_10;
+  FUN_00404eb0(&local_14,6);
+  local_8 = 0;
+  this_00 = (void *)FUN_00401000(0x14);
+  local_8 = CONCAT31(local_8._1_3_,1);
+  if (this_00 == (void *)0x0) {
+    local_28 = (undefined4 *)0x0;
+  }
+  else {
+    local_28 = FUN_0044cd00(this_00,this,*(int *)((int)this + 0x10) + param_1 * 8,
+                            *(int *)((int)this + 0x10) + 4 + param_1 * 8);
+  }
+  local_8 = 0xffffffff;
+  FUN_00404ee0(&local_14);
+  *unaff_FS_OFFSET = local_10;
+  return local_28;
+}
+
+
+
+======================================================================
+IOTask submit path 2 @ 0x006c65b0
+======================================================================
+  Function: FUN_006c65b0 @ 0x006c65b0, Size: 198 bytes
+
+undefined4 * __thiscall FUN_006c65b0(void *this,int param_1)
+
+{
+  void *this_00;
+  int *unaff_FS_OFFSET;
+  undefined4 *local_28;
+  undefined4 local_14;
+  int local_10;
+  undefined1 *puStack_c;
+  undefined4 local_8;
+  
+  local_8 = 0xffffffff;
+  puStack_c = &LAB_00f16bc3;
+  local_10 = *unaff_FS_OFFSET;
+  *unaff_FS_OFFSET = (int)&local_10;
+  FUN_00404eb0(&local_14,6);
+  local_8 = 0;
+  this_00 = (void *)FUN_00401000(0x14);
+  local_8 = CONCAT31(local_8._1_3_,1);
+  if (this_00 == (void *)0x0) {
+    local_28 = (undefined4 *)0x0;
+  }
+  else {
+    local_28 = FUN_0044cd00(this_00,this,*(int *)((int)this + 0x10) + param_1 * 8,
+                            *(int *)((int)this + 0x10) + 4 + param_1 * 8);
+  }
+  local_8 = 0xffffffff;
+  FUN_00404ee0(&local_14);
+  *unaff_FS_OFFSET = local_10;
+  return local_28;
+}
+
+
+
+======================================================================
+IOTask submit path 3 @ 0x00c3f7a0
+======================================================================
+  Function: FUN_00c3f7a0 @ 0x00c3f7a0, Size: 255 bytes
+
+undefined4 * __thiscall FUN_00c3f7a0(void *this,int param_1)
+
+{
+  undefined4 uVar1;
+  void *this_00;
+  int *unaff_FS_OFFSET;
+  undefined4 *local_30;
+  int local_10;
+  undefined1 *puStack_c;
+  undefined4 local_8;
+  
+  puStack_c = &LAB_00f2df03;
+  local_10 = *unaff_FS_OFFSET;
+  *unaff_FS_OFFSET = (int)&local_10;
+  uVar1 = *(undefined4 *)(*(int *)(unaff_FS_OFFSET[0xb] + _tls_index * 4) + 0x2b4);
+  *(undefined4 *)(*(int *)(unaff_FS_OFFSET[0xb] + _tls_index * 4) + 0x2b4) = 6;
+  local_8 = 0;
+  this_00 = FUN_00aa3e40(&DAT_011f6238,0x14);
+  local_8 = CONCAT31(local_8._1_3_,1);
+  if (this_00 == (void *)0x0) {
+    local_30 = (undefined4 *)0x0;
+  }
+  else {
+    local_30 = FUN_0044cd00(this_00,this,*(int *)((int)this + 0x10) + param_1 * 8,
+                            *(int *)((int)this + 0x10) + 4 + param_1 * 8);
+  }
+  *(undefined4 *)(*(int *)(unaff_FS_OFFSET[0xb] + _tls_index * 4) + 0x2b4) = uVar1;
+  *unaff_FS_OFFSET = local_10;
+  return local_30;
+}
+

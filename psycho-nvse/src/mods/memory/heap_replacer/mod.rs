@@ -3,7 +3,7 @@
 //! Replaces the game's heap and scrap heap allocators with mimalloc.
 
 pub mod crt;
-pub mod game_heap;
+pub mod gheap;
 pub mod heap_validate;
 mod install;
 #[allow(dead_code)]

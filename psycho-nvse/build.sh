@@ -34,10 +34,10 @@ function build_rust () {
 
 
     if [[ -f "$BIN" ]]; then
-        mv "$BIN" "$TARGET_PATH"
+        mv "$BIN" "$TARGET_PATH" 2> /dev/null
         
         if [[ -f "$TARGET_PATH" ]]; then
-            echo -e "'$DLLNAME' copied to '$TARGET_PATH'\nBuild type: $BUILD_TYPE\nTarget: $TARGET"
+            echo -e "'$DLLNAME' copied to '$TARGET_PATH'\nBuild type: $BUILD_TYPE\nTarget:     $TARGET"
         fi
     fi
 }

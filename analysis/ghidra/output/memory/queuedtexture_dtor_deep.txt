@@ -1,0 +1,460 @@
+QUEUEDTEXTURE DESTRUCTOR DEEP DIVE
+======================================================================
+
+Goal: Find EXACTLY where the NiSourceTexture at +0x30 is accessed
+in the QueuedTexture destructor chain. This is the real crash cause.
+
+
+======================================================================
+QueuedTexture destructor (vtable[0]) @ 0x0043bf80
+======================================================================
+  Function: FUN_0043bf80 @ 0x0043bf80, Size: 95 bytes
+
+void __fastcall FUN_0043bf80(undefined4 *param_1)
+
+{
+  int *unaff_FS_OFFSET;
+  int local_10;
+  undefined1 *puStack_c;
+  undefined4 local_8;
+  
+  puStack_c = &LAB_00f16ad8;
+  local_10 = *unaff_FS_OFFSET;
+  *unaff_FS_OFFSET = (int)&local_10;
+  *param_1 = &PTR_FUN_01016788;
+  local_8 = 0;
+  Concurrency::cancellation_token_source::~cancellation_token_source
+            ((cancellation_token_source *)(param_1 + 0xc));
+  local_8 = 0xffffffff;
+  FUN_00c3cea0(param_1);
+  *unaff_FS_OFFSET = local_10;
+  return;
+}
+
+
+
+--- Calls FROM QueuedTexture destructor (0x0043bf80) ---
+  0x0043bfbc -> 0x0045cec0 ~cancellation_token_source
+  0x0043bfcb -> 0x00c3cea0 FUN_00c3cea0
+  Total: 2 calls
+
+======================================================================
+FUN_00c3cea0 (called from QueuedTexture dtor) @ 0x00c3cea0
+======================================================================
+  Function: FUN_00c3cea0 @ 0x00c3cea0, Size: 53 bytes
+
+void __fastcall FUN_00c3cea0(undefined4 *param_1)
+
+{
+  *param_1 = &PTR_FUN_010c1554;
+  FUN_00aa4060(&DAT_011f6238,(undefined4 *)param_1[10]);
+  FUN_00c3c620(param_1);
+  return;
+}
+
+
+
+--- Calls FROM FUN_00c3cea0 (0x00c3cea0) ---
+  0x00c3cec4 -> 0x00aa4060 FUN_00aa4060
+  0x00c3cecc -> 0x00c3c620 FUN_00c3c620
+  Total: 2 calls
+
+======================================================================
+FUN_00c3ce60 (base class init) @ 0x00c3ce60
+======================================================================
+  Function: FUN_00c3ce60 @ 0x00c3ce60, Size: 57 bytes
+
+undefined4 * __fastcall FUN_00c3ce60(undefined4 *param_1)
+
+{
+  FUN_00c3c590(param_1);
+  *param_1 = &PTR_FUN_010c1554;
+  param_1[10] = 0;
+  param_1[0xb] = 0;
+  return param_1;
+}
+
+
+
+======================================================================
+FUN_00633c90 (init NiSourceTexture ptr at +0x30) @ 0x00633c90
+======================================================================
+  Function: FUN_00633c90 @ 0x00633c90, Size: 42 bytes
+
+int * __thiscall FUN_00633c90(void *this,int param_1)
+
+{
+  *(int *)this = param_1;
+  if (*(int *)this != 0) {
+    FUN_0040f6e0(*(int *)this);
+  }
+  return this;
+}
+
+
+
+--- Calls FROM FUN_00633c90 (0x00633c90) ---
+  0x00633cac -> 0x0040f6e0 FUN_0040f6e0
+  Total: 1 calls
+
+======================================================================
+FUN_0066b0d0 (NiPointer ref swap at +0x30) @ 0x0066b0d0
+======================================================================
+  Function: FUN_0066b0d0 @ 0x0066b0d0, Size: 70 bytes
+
+int * __thiscall FUN_0066b0d0(void *this,int param_1)
+
+{
+  if (*(int *)this != param_1) {
+    if (*(int *)this != 0) {
+      FUN_00401970(*(int **)this);
+    }
+    *(int *)this = param_1;
+    if (*(int *)this != 0) {
+      FUN_0040f6e0(*(int *)this);
+    }
+  }
+  return this;
+}
+
+
+
+--- Calls FROM FUN_0066b0d0 (0x0066b0d0) ---
+  0x0066b0ee -> 0x00401970 FUN_00401970
+  0x0066b108 -> 0x0040f6e0 FUN_0040f6e0
+  Total: 2 calls
+
+======================================================================
+FUN_00c3cee0 (texture path processing) @ 0x00c3cee0
+======================================================================
+  Function: FUN_00c3cee0 @ 0x00c3cee0, Size: 94 bytes
+
+void __thiscall FUN_00c3cee0(void *this,char *param_1)
+
+{
+  size_t sVar1;
+  void *pvVar2;
+  
+  if (param_1 != (char *)0x0) {
+    sVar1 = _strlen(param_1);
+    pvVar2 = FUN_00aa3e40(&DAT_011f6238,sVar1 + 1);
+    *(void **)((int)this + 0x28) = pvVar2;
+    _strcpy_s(*(char **)((int)this + 0x28),sVar1 + 1,param_1);
+  }
+  return;
+}
+
+
+
+--- Calls FROM FUN_00c3cee0 (0x00c3cee0) ---
+  0x00c3cef3 -> 0x00ec6130 _strlen
+  0x00c3cf0a -> 0x00aa3e40 FUN_00aa3e40
+  0x00c3cf30 -> 0x00ec65a6 _strcpy_s
+  Total: 3 calls
+
+======================================================================
+FUN_00c3cf60 (constructor finalize) @ 0x00c3cf60
+======================================================================
+  Function: FUN_00c3cf60 @ 0x00c3cf60, Size: 143 bytes
+
+void __thiscall FUN_00c3cf60(void *this,int param_1)
+
+{
+  char local_124 [264];
+  uint local_1c;
+  uint local_18 [2];
+  int local_10;
+  char local_c [8];
+  
+  local_1c = DAT_011c16bc ^ (uint)&stack0xfffffffc;
+  if (*(int *)((int)this + 0x28) != 0) {
+    FUN_00c3d090(this,param_1,local_124);
+    FUN_00afd270(local_124,(char *)local_18,local_c);
+    local_10 = FUN_00af6540((byte)param_1,local_18,local_c,local_124);
+    FUN_00c3cf40(this,local_10);
+  }
+  __security_check_cookie(local_1c ^ (uint)&stack0xfffffffc);
+  return;
+}
+
+
+
+--- Calls FROM FUN_00c3cf60 (0x00c3cf60) ---
+  0x00c3cf96 -> 0x00c3d090 FUN_00c3d090
+  0x00c3cfaa -> 0x00afd270 FUN_00afd270
+  0x00c3cfc5 -> 0x00af6540 FUN_00af6540
+  0x00c3cfda -> 0x00c3cf40 FUN_00c3cf40
+  0x00c3cfe4 -> 0x00ec408c __security_check_cookie
+  Total: 5 calls
+
+======================================================================
+FUN_00c3cf40 (constructor 2 path) @ 0x00c3cf40
+======================================================================
+  Function: FUN_00c3cf40 @ 0x00c3cf40, Size: 22 bytes
+
+void __thiscall FUN_00c3cf40(void *this,undefined4 param_1)
+
+{
+  *(undefined4 *)((int)this + 0x2c) = param_1;
+  return;
+}
+
+
+
+======================================================================
+FUN_00449150 (constructor 3 task submit) @ 0x00449150
+======================================================================
+  Function: FUN_00449150 @ 0x00449150, Size: 21 bytes
+
+void __fastcall FUN_00449150(int param_1)
+
+{
+  *(undefined4 *)(param_1 + 0xc) = 5;
+  return;
+}
+
+
+
+--- Calls FROM FUN_00449150 (0x00449150) ---
+  Total: 0 calls
+
+PART 2: BST DISPATCH TABLE VIRTUAL METHODS
+======================================================================
+
+BST calls vtable[0x4c](task) and vtable[0x50](task)
+These process the QueuedTexture. They may read +0x30.
+
+
+======================================================================
+FUN_0044ac40 (task state machine processor) @ 0x0044ac40
+======================================================================
+  Function: FUN_0044ac40 @ 0x0044ac40, Size: 321 bytes
+
+void __thiscall FUN_0044ac40(void *this,int *param_1,undefined4 param_2)
+
+{
+  int iVar1;
+  char cVar2;
+  
+  FUN_0044ada0(0);
+  do {
+    iVar1 = param_1[3];
+    switch(iVar1) {
+    case 0:
+      cVar2 = FUN_00449190(param_1,iVar1,6);
+      if (cVar2 != '\0') {
+        (**(code **)(*param_1 + 0xc))(iVar1,param_2);
+        return;
+      }
+      break;
+    case 1:
+      cVar2 = FUN_00449190(param_1,iVar1,6);
+      if (cVar2 != '\0') {
+        FUN_0092c870((int)param_1);
+        FUN_0044e050(this,(int)param_1);
+        (**(code **)(*param_1 + 0xc))(iVar1,param_2);
+        FUN_0044dd60(param_1);
+        return;
+      }
+      break;
+    case 2:
+      while (param_1[3] == 3) {
+        FUN_0040fca0(0);
+      }
+      break;
+    case 3:
+      while (param_1[3] == 3) {
+        FUN_0040fca0(0);
+      }
+      break;
+    case 4:
+      while (param_1[3] == 4) {
+        FUN_0040fca0(0);
+      }
+      break;
+    case 5:
+      cVar2 = FUN_00449190(param_1,iVar1,6);
+      if (cVar2 != '\0') {
+        (**(code **)(*param_1 + 0xc))(iVar1,param_2);
+switchD_0044ac7c_default:
+        return;
+      }
+      break;
+    default:
+      goto switchD_0044ac7c_default;
+    }
+  } while( true );
+}
+
+
+
+--- Calls FROM FUN_0044ac40 (0x0044ac40) ---
+  0x0044ac4b -> 0x0044ada0 FUN_0044ada0
+  0x0044ac8c -> 0x00449190 FUN_00449190
+  0x0044acc0 -> 0x00449190 FUN_00449190
+  0x0044accf -> 0x0092c870 FUN_0092c870
+  0x0044acdb -> 0x0044e050 FUN_0044e050
+  0x0044acf8 -> 0x0044dd60 FUN_0044dd60
+  0x0044ad0c -> 0x0040fca0 FUN_0040fca0
+  0x0044ad23 -> 0x0040fca0 FUN_0040fca0
+  0x0044ad3a -> 0x0040fca0 FUN_0040fca0
+  0x0044ad4f -> 0x00449190 FUN_00449190
+  Total: 10 calls
+
+======================================================================
+FUN_0044e050 (task completion handler) @ 0x0044e050
+======================================================================
+  Function: FUN_0044e050 @ 0x0044e050, Size: 113 bytes
+
+bool __thiscall FUN_0044e050(void *this,int param_1)
+
+{
+  char cVar1;
+  int iVar2;
+  undefined8 uVar3;
+  
+  uVar3 = FUN_0044e0d0(param_1);
+  iVar2 = (**(code **)(*(int *)this + 0x24))(uVar3);
+  uVar3 = FUN_0044e0d0(param_1);
+  cVar1 = (**(code **)(*(int *)this + 0x14))(uVar3);
+  if (cVar1 != '\0') {
+    FUN_004019a0((LONG *)(*(int *)((int)this + 0x54) + iVar2 * 4));
+    FUN_004019a0((LONG *)((int)this + 0x58));
+  }
+  return cVar1 != '\0';
+}
+
+
+
+--- Calls FROM FUN_0044e050 (0x0044e050) ---
+  0x0044e05c -> 0x0044e0d0 FUN_0044e0d0
+  0x0044e076 -> 0x0044e0d0 FUN_0044e0d0
+  0x0044e09e -> 0x004019a0 FUN_004019a0
+  0x0044e0ad -> 0x004019a0 FUN_004019a0
+  Total: 4 calls
+
+======================================================================
+FUN_0092c870 (pre-completion) @ 0x0092c870
+======================================================================
+  Function: FUN_0092c870 @ 0x0092c870, Size: 26 bytes
+
+void __fastcall FUN_0092c870(int param_1)
+
+{
+  FUN_0040b460((LONG *)(param_1 + 8));
+  return;
+}
+
+
+
+PART 3: NISOURCETEXTURE DESTRUCTION vs QUEUEDTEXTURE LIFECYCLE
+======================================================================
+
+======================================================================
+NiSourceTexture destructor @ 0x00a5fca0
+======================================================================
+  Function: FUN_00a5fca0 @ 0x00a5fca0, Size: 207 bytes
+
+void __fastcall FUN_00a5fca0(undefined4 *param_1)
+
+{
+  int *piVar1;
+  LONG LVar2;
+  
+  *param_1 = &PTR_FUN_0109b9ec;
+  piVar1 = (int *)param_1[0xf];
+  if (piVar1 != (int *)0x0) {
+    LVar2 = InterlockedDecrement(piVar1 + 1);
+    if (LVar2 == 0) {
+      (**(code **)(*piVar1 + 4))();
+    }
+    param_1[0xf] = 0;
+  }
+  piVar1 = (int *)param_1[0xe];
+  if (piVar1 != (int *)0x0) {
+    LVar2 = InterlockedDecrement(piVar1 + 1);
+    if (LVar2 == 0) {
+      (**(code **)(*piVar1 + 4))();
+    }
+    param_1[0xe] = 0;
+  }
+  piVar1 = (int *)param_1[0xf];
+  if (piVar1 != (int *)0x0) {
+    LVar2 = InterlockedDecrement(piVar1 + 1);
+    if (LVar2 == 0) {
+      (**(code **)(*piVar1 + 4))();
+    }
+  }
+  piVar1 = (int *)param_1[0xe];
+  if (piVar1 != (int *)0x0) {
+    LVar2 = InterlockedDecrement(piVar1 + 1);
+    if (LVar2 == 0) {
+      (**(code **)(*piVar1 + 4))();
+    }
+  }
+  if (param_1[0xd] != DAT_0109b220) {
+    InterlockedDecrement((LONG *)(param_1[0xd] + -8));
+  }
+  if (param_1[0xc] != DAT_0109b220) {
+    InterlockedDecrement((LONG *)(param_1[0xc] + -8));
+  }
+  *param_1 = &PTR_FUN_0109b944;
+  if ((undefined4 *)param_1[9] != (undefined4 *)0x0) {
+    (*(code *)**(undefined4 **)param_1[9])(1);
+  }
+  FUN_00a5f800((int)param_1);
+  FUN_00a5c240(param_1);
+  return;
+}
+
+
+
+--- Calls FROM NiSourceTexture destructor (0x00a5fca0) ---
+  0x00a5fcbc -> 0x00000067 ???
+  0x00a5fcdd -> 0x00000067 ???
+  0x00a5fcfe -> 0x00000067 ???
+  0x00a5fd18 -> 0x00000067 ???
+  0x00a5fd36 -> 0x00000067 ???
+  0x00a5fd47 -> 0x00000067 ???
+  0x00a5fd60 -> 0x00a5f800 FUN_00a5f800
+  0x00a5fd6a -> 0x00a5c240 FUN_00a5c240
+  Total: 8 calls
+
+======================================================================
+FUN_004019a0 (InterlockedDecrement wrapper) @ 0x004019a0
+======================================================================
+  Function: FUN_004019a0 @ 0x004019a0, Size: 15 bytes
+
+void __cdecl FUN_004019a0(LONG *param_1)
+
+{
+  InterlockedDecrement(param_1);
+  return;
+}
+
+
+
+PART 4: NiPointer SMART POINTER LIFECYCLE
+======================================================================
+
+QueuedTexture+0x30 appears to be an NiPointer<NiSourceTexture>.
+NiPointer is a smart pointer that increments refcount on assign
+and decrements on release. If this works correctly, PDD should
+NOT be able to free NiSourceTexture while QueuedTexture holds it.
+
+UNLESS: the NiPointer at +0x30 is NOT properly initialized,
+or the refcount is managed outside NiPointer (raw pointer copy).
+
+
+======================================================================
+FUN_00c3cf40 (sets texture from param) @ 0x00c3cf40
+======================================================================
+  Function: FUN_00c3cf40 @ 0x00c3cf40, Size: 22 bytes
+
+void __thiscall FUN_00c3cf40(void *this,undefined4 param_1)
+
+{
+  *(undefined4 *)((int)this + 0x2c) = param_1;
+  return;
+}
+

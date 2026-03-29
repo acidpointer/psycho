@@ -1,0 +1,367 @@
+Quarantine vs SBM ? Zombie Memory Research
+======================================================================
+
+######################################################################
+# PART 1: SBM Pool Allocator
+######################################################################
+# Pool init: FUN_00aa3cc0 creates pools with sizes 8-508 bytes
+# Larger allocs go to a general heap
+
+======================================================================
+SBM pool create (FUN_00aa3cc0) @ 0x00aa3cc0
+======================================================================
+  Function: FUN_00aa3cc0 @ 0x00aa3cc0, Size: 384 bytes
+
+void __thiscall FUN_00aa3cc0(void *this,uint param_1,uint param_2,undefined4 param_3)
+
+{
+  undefined4 uVar1;
+  void *this_00;
+  int *unaff_FS_OFFSET;
+  undefined4 *local_3c;
+  int local_10;
+  undefined1 *puStack_c;
+  int local_8;
+  
+  puStack_c = &LAB_00f1ec75;
+  local_10 = *unaff_FS_OFFSET;
+  *unaff_FS_OFFSET = (int)&local_10;
+  uVar1 = *(undefined4 *)(*(int *)(unaff_FS_OFFSET[0xb] + _tls_index * 4) + 0x2b4);
+  *(undefined4 *)(*(int *)(unaff_FS_OFFSET[0xb] + _tls_index * 4) + 0x2b4) = 3;
+  local_8 = 0;
+  if (param_1 < 8) {
+    *(undefined4 *)(*(int *)(unaff_FS_OFFSET[0xb] + _tls_index * 4) + 0x2b4) = uVar1;
+  }
+  else {
+    *(undefined1 *)((int)this + 0x129) = 0;
+    this_00 = FUN_00aa3e40(&DAT_011f6238,0x80);
+    local_8._0_1_ = 1;
+    if (this_00 == (void *)0x0) {
+      local_3c = (undefined4 *)0x0;
+    }
+    else {
+      local_3c = FUN_00aa66a0(this_00,param_1,param_2,param_3);
+    }
+    local_8 = (uint)local_8._1_3_ << 8;
+    if ((local_3c[1] == 0) && (local_3c != (undefined4 *)0x0)) {
+      FUN_00aa6800((int)local_3c);
+      FUN_00aa4060(&DAT_011f6238,local_3c);
+    }
+    *(undefined1 *)((int)this + 0x129) = 1;
+    *(undefined4 *)(*(int *)(unaff_FS_OFFSET[0xb] + _tls_index * 4) + 0x2b4) = uVar1;
+  }
+  *unaff_FS_OFFSET = local_10;
+  return;
+}
+
+
+
+======================================================================
+SBM alloc (pool path) @ 0x00aa3e40
+======================================================================
+  Function: FUN_00aa3e40 @ 0x00aa3e40, Size: 486 bytes
+
+void * __thiscall FUN_00aa3e40(void *this,uint param_1)
+
+{
+  int *piVar1;
+  int iVar2;
+  int *piVar3;
+  void *extraout_EAX;
+  int unaff_FS_OFFSET;
+  int *local_40;
+  int *local_3c;
+  void *local_38;
+  void *local_2c;
+  int local_28;
+  char local_d;
+  uint local_c;
+  void *local_8;
+  
+  if (*(char *)this == '\0') {
+    local_8 = FUN_00aa4290(param_1);
+  }
+  else {
+    piVar1 = *(int **)((int)this + 0x110);
+    if (piVar1 == (int *)0x0) {
+      local_8 = FUN_00aa4290(param_1);
+    }
+    else {
+      local_c = param_1;
+      local_8 = (void *)0x0;
+      if (param_1 < 9) {
+        param_1 = 8;
+      }
+      else {
+        param_1 = param_1 + 3 & 0xfffffffc;
+      }
+      iVar2 = *(int *)(*(int *)(*(int *)(unaff_FS_OFFSET + 0x2c) + _tls_index * 4) + 0x2b4);
+      if (*(char *)((int)this + 0x129) != '\0') {
+        if (param_1 < 0x3fd) {
+          local_38 = *(void **)(&DAT_011f67b8 + param_1);
+        }
+        else {
+          local_38 = (void *)0x0;
+        }
+        local_2c = local_38;
+        if (local_38 == (void *)0x0) {
+          local_2c = (void *)FUN_00aa4960(param_1);
+        }
+        if ((local_2c != (void *)0x0) &&
+           (FUN_00aa6aa0(local_2c), local_8 = extraout_EAX, extraout_EAX != (void *)0x0)) {
+          return extraout_EAX;
+        }
+      }
+      local_d = '\0';
+      local_28 = 0;
+      piVar3 = *(int **)((int)this + iVar2 * 4 + 0xc);
+      do {
+        local_3c = piVar1;
+        if (piVar3 != (int *)0x0) {
+          local_3c = piVar3;
+        }
+        local_8 = (void *)(**(code **)(*local_3c + 8))(param_1,0);
+        if ((local_8 == (void *)0x0) && (local_3c != piVar1)) {
+          local_8 = (void *)(**(code **)(*piVar1 + 8))(param_1,0);
+        }
+        if (local_8 == (void *)0x0) {
+          local_40 = piVar1;
+          if (piVar3 != (int *)0x0) {
+            local_40 = piVar3;
+          }
+          local_28 = FUN_00866a90(this,local_40,local_28,&local_d);
+          if (local_d != '\0') {
+            local_8 = FUN_00aa4290(param_1);
+          }
+        }
+      } while (local_8 == (void *)0x0);
+    }
+  }
+  return local_8;
+}
+
+
+
+======================================================================
+SBM init/setup @ 0x00aa2020
+======================================================================
+  Function: FUN_00aa2020 @ 0x00aa2020, Size: 51 bytes
+
+void FUN_00aa2020(void)
+
+{
+  undefined4 uVar1;
+  
+  DAT_011f6080 = FUN_00aa3e40(&DAT_011f6238,4);
+  uVar1 = FUN_009fd0f0(DAT_011f6118);
+  *DAT_011f6080 = uVar1;
+                    /* WARNING: Could not recover jumptable at 0x00aa2051. Too many branches */
+                    /* WARNING: Treating indirect jump as call */
+  (**(code **)(*(int *)*DAT_011f6080 + 0x1c))();
+  return;
+}
+
+
+
+----------------------------------------------------------------------
+References TO 0x00aa2020 (SBM init callers)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x00aa3060 (in FUN_00aa3050)
+  UNCONDITIONAL_CALL @ 0x00866734 (in FUN_00866690)
+  Total: 2 refs
+
+######################################################################
+# PART 2: Game Delete Operator (FUN_00401030)
+######################################################################
+# Called everywhere for deallocation. Does it call our hooked free?
+
+======================================================================
+Game delete operator @ 0x00401030
+======================================================================
+  Function: FUN_00401030 @ 0x00401030, Size: 21 bytes
+
+void __cdecl FUN_00401030(undefined4 *param_1)
+
+{
+  undefined *this;
+  
+  this = FUN_00401020();
+  FUN_00aa4060(this,param_1);
+  return;
+}
+
+
+
+--- Calls FROM Game delete operator (0x00401030) ---
+  0x00401037 -> 0x00401020 FUN_00401020
+  0x0040103e -> 0x00aa4060 FUN_00aa4060
+  Total: 2 calls
+
+======================================================================
+Game new operator @ 0x00401000
+======================================================================
+  Function: FUN_00401000 @ 0x00401000, Size: 21 bytes
+
+void __cdecl FUN_00401000(uint param_1)
+
+{
+  undefined *this;
+  
+  this = FUN_00401020();
+  FUN_00aa3e40(this,param_1);
+  return;
+}
+
+
+
+--- Calls FROM Game new operator (0x00401000) ---
+  0x00401007 -> 0x00401020 FUN_00401020
+  0x0040100e -> 0x00aa3e40 FUN_00aa3e40
+  Total: 2 calls
+
+######################################################################
+# PART 3: Hook Target Verification
+######################################################################
+# Our hooks are inline hooks on the MemoryHeap vtable functions.
+# Verify: do FUN_00401000 and FUN_00401030 go through our hooks?
+
+======================================================================
+Alternative alloc? (FUN_00aa13e0) @ 0x00aa13e0
+======================================================================
+  Function: FUN_00aa13e0 @ 0x00aa13e0, Size: 62 bytes
+
+void __cdecl FUN_00aa13e0(int param_1)
+
+{
+  int local_4;
+  
+  local_4 = param_1;
+  if (param_1 == 0) {
+    local_4 = 1;
+  }
+  param_1 = 4;
+  (**(code **)(*(int *)*DAT_011f6080 + 4))(&local_4,&param_1,1,1,0,0xffffffff,0);
+  return;
+}
+
+
+
+----------------------------------------------------------------------
+References TO 0x00aa13e0 (Alternative alloc callers)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x0049fd4e (in FUN_0049fcd0)
+  UNCONDITIONAL_CALL @ 0x0049fd9e (in FUN_0049fcd0)
+  UNCONDITIONAL_CALL @ 0x004debd2 (in FUN_004deb30)
+  UNCONDITIONAL_CALL @ 0x004ded40 (in FUN_004deb30)
+  UNCONDITIONAL_CALL @ 0x004e05e2 (in FUN_004e0540)
+  UNCONDITIONAL_CALL @ 0x004e0737 (in FUN_004e0540)
+  UNCONDITIONAL_CALL @ 0x00533471 (in FUN_00533420)
+  UNCONDITIONAL_CALL @ 0x0053364b (in FUN_00533420)
+  UNCONDITIONAL_CALL @ 0x00545d72 (in FUN_00545cf0)
+  UNCONDITIONAL_CALL @ 0x00545de9 (in FUN_00545cf0)
+  UNCONDITIONAL_CALL @ 0x00545e72 (in FUN_00545cf0)
+  UNCONDITIONAL_CALL @ 0x00545f0b (in FUN_00545cf0)
+  UNCONDITIONAL_CALL @ 0x00545fa9 (in FUN_00545cf0)
+  UNCONDITIONAL_CALL @ 0x00546047 (in FUN_00545cf0)
+  UNCONDITIONAL_CALL @ 0x005460ec (in FUN_00545cf0)
+  UNCONDITIONAL_CALL @ 0x0054613a (in FUN_00545cf0)
+  UNCONDITIONAL_CALL @ 0x00546187 (in FUN_00545cf0)
+  UNCONDITIONAL_CALL @ 0x00546210 (in FUN_00545cf0)
+  UNCONDITIONAL_CALL @ 0x005462a8 (in FUN_00545cf0)
+  UNCONDITIONAL_CALL @ 0x00546334 (in FUN_00545cf0)
+  UNCONDITIONAL_CALL @ 0x005463cc (in FUN_00545cf0)
+  UNCONDITIONAL_CALL @ 0x00546464 (in FUN_00545cf0)
+  UNCONDITIONAL_CALL @ 0x00546512 (in FUN_00545cf0)
+  UNCONDITIONAL_CALL @ 0x005466a2 (in FUN_00545cf0)
+  UNCONDITIONAL_CALL @ 0x005457ed (in FUN_00545740)
+  UNCONDITIONAL_CALL @ 0x00545b7b (in FUN_00545b30)
+  UNCONDITIONAL_CALL @ 0x00553203 (in FUN_00552dc0)
+  UNCONDITIONAL_CALL @ 0x0043953e (in FUN_00439490)
+  UNCONDITIONAL_CALL @ 0x00439592 (in FUN_00439490)
+  UNCONDITIONAL_CALL @ 0x0043961a (in FUN_00439490)
+  UNCONDITIONAL_CALL @ 0x0043978e (in FUN_004396e0)
+  UNCONDITIONAL_CALL @ 0x004397e2 (in FUN_004396e0)
+  UNCONDITIONAL_CALL @ 0x0043986d (in FUN_004396e0)
+  UNCONDITIONAL_CALL @ 0x004398ae (in FUN_004396e0)
+  UNCONDITIONAL_CALL @ 0x00548aec (in FUN_00548880)
+  UNCONDITIONAL_CALL @ 0x00548b45 (in FUN_00548880)
+  UNCONDITIONAL_CALL @ 0x00548d18 (in FUN_00548880)
+  UNCONDITIONAL_CALL @ 0x00548f31 (in FUN_00548880)
+  UNCONDITIONAL_CALL @ 0x0057a52a (in FUN_0057a410)
+  UNCONDITIONAL_CALL @ 0x00583209 (in FUN_005831d0)
+  UNCONDITIONAL_CALL @ 0x00651160 (in FUN_00650ea0)
+  UNCONDITIONAL_CALL @ 0x00651201 (in FUN_00650ea0)
+  UNCONDITIONAL_CALL @ 0x006512ed (in FUN_00650ea0)
+  UNCONDITIONAL_CALL @ 0x006644e9 (in FUN_00664440)
+  UNCONDITIONAL_CALL @ 0x006645b4 (in FUN_00664440)
+  UNCONDITIONAL_CALL @ 0x00664648 (in FUN_00664440)
+  UNCONDITIONAL_CALL @ 0x006a316d (in FUN_006a2a20)
+  UNCONDITIONAL_CALL @ 0x006a3211 (in FUN_006a2a20)
+  UNCONDITIONAL_CALL @ 0x006a32c2 (in FUN_006a2a20)
+  UNCONDITIONAL_CALL @ 0x006a33f5 (in FUN_006a2a20)
+  UNCONDITIONAL_CALL @ 0x006a34c5 (in FUN_006a2a20)
+  UNCONDITIONAL_CALL @ 0x004b2db7 (in FUN_004b29b0)
+  UNCONDITIONAL_CALL @ 0x004b2e24 (in FUN_004b29b0)
+  UNCONDITIONAL_CALL @ 0x006bbdec (in FUN_006bbd30)
+  UNCONDITIONAL_CALL @ 0x006c54c5 (in FUN_006c5460)
+  UNCONDITIONAL_CALL @ 0x006c5514 (in FUN_006c5460)
+  UNCONDITIONAL_CALL @ 0x006c5573 (in FUN_006c5460)
+  UNCONDITIONAL_CALL @ 0x004b349c (in FUN_004b2eb0)
+  UNCONDITIONAL_CALL @ 0x004b3500 (in FUN_004b2eb0)
+  UNCONDITIONAL_CALL @ 0x0070a57e (in FUN_0070a130)
+  UNCONDITIONAL_CALL @ 0x0070a772 (in FUN_0070a130)
+  ... (truncated)
+  Total: 61 refs
+
+######################################################################
+# PART 4: Reference Counting
+######################################################################
+# NiRefObject uses InterlockedDecrement for refcount.
+# When refcount hits 0, the destructor is called.
+# FUN_004019a0 might be the Release/DecRef function.
+
+======================================================================
+Refcount decrement (FUN_004019a0) @ 0x004019a0
+======================================================================
+  Function: FUN_004019a0 @ 0x004019a0, Size: 15 bytes
+
+void __cdecl FUN_004019a0(LONG *param_1)
+
+{
+  InterlockedDecrement(param_1);
+  return;
+}
+
+
+
+======================================================================
+Refcount related (FUN_00401970) @ 0x00401970
+======================================================================
+  Function: FUN_00401970 @ 0x00401970, Size: 43 bytes
+
+void __fastcall FUN_00401970(int *param_1)
+
+{
+  int iVar1;
+  
+  iVar1 = FUN_004019a0(param_1 + 1);
+  if (iVar1 == 0) {
+    (**(code **)(*param_1 + 4))();
+  }
+  return;
+}
+
+
+
+######################################################################
+# PART 5: Delete in Crash Chain
+######################################################################
+# FUN_008f63e0 calls FUN_00401030 on list entries DURING iteration
+# Then calls FUN_00470470 to clear the list AFTER iteration
+# FUN_00470470 reads next pointers from entries freed by FUN_00401030
+# With SBM: freed memory readable. With mimalloc: in quarantine.
+# This should be safe (current epoch). Why does it crash?
+
+======================================================================
+ANALYSIS COMPLETE
+======================================================================

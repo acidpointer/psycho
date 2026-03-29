@@ -1,0 +1,618 @@
+###############################################################
+# FOLLOW-UP: Unknown functions from Stage 5 cell unload path
+###############################################################
+
+
+### SECTION 1: FUN_00869190 (cell unload lock/flag?)
+# Stage 5 calls FUN_00869190(0) BEFORE FindCellToUnload
+# and FUN_00869190(1) AFTER. What does it do?
+
+======================================================================
+FUN_00869190 (stage5 pre/post) @ 0x00869190
+======================================================================
+  Function: FUN_00869190 @ 0x00869190, Size: 29 bytes
+
+void __cdecl FUN_00869190(undefined1 param_1)
+
+{
+  int unaff_FS_OFFSET;
+  
+  *(undefined1 *)(*(int *)(*(int *)(unaff_FS_OFFSET + 0x2c) + _tls_index * 4) + 0x298) = param_1;
+  return;
+}
+
+
+
+----------------------------------------------------------------------
+References TO 0x00869190 (FUN_00869190)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x00866b5f (in FUN_00866a90)
+  UNCONDITIONAL_CALL @ 0x00866ba2 (in FUN_00866a90)
+  Total: 2 refs
+
+--- Calls FROM FUN_00869190 (0x00869190) ---
+  Total: 0 calls
+
+
+### SECTION 2: FUN_004539a0 (grid compact)
+# Called when FindCellToUnload returns 0 (no cells remain)
+
+======================================================================
+FUN_004539a0 (grid compact) @ 0x004539a0
+======================================================================
+  Function: FUN_004539a0 @ 0x004539a0, Size: 196 bytes
+
+void __thiscall FUN_004539a0(void *this,char param_1,char param_2)
+
+{
+  undefined4 *puVar1;
+  int iVar2;
+  uint uVar3;
+  int *piVar4;
+  
+  puVar1 = (undefined4 *)FUN_0045bb80((int)this);
+  FUN_00470470(puVar1);
+  if (param_1 != '\0') {
+    iVar2 = FUN_005f36f0((int)this);
+    if (iVar2 == 0) goto LAB_004539d2;
+  }
+  FUN_00453940((int)this);
+LAB_004539d2:
+  FUN_00453a70();
+  FUN_00483710();
+  FUN_00455200(this,param_1,0);
+  iVar2 = FUN_005f36f0((int)this);
+  if ((iVar2 != 0) && (param_1 == '\0')) {
+    iVar2 = FUN_005f36f0((int)this);
+    uVar3 = FUN_00454bd0(this,iVar2);
+    if ((uVar3 & 0xff) == 0) {
+      piVar4 = (int *)FUN_005f36f0((int)this);
+      FUN_00462290(piVar4);
+    }
+  }
+  FUN_00454d50(this,param_1);
+  if ((param_1 == '\0') && (param_2 == '\0')) {
+    FUN_008d7dc0(this,0);
+  }
+  *(undefined1 *)((int)this + 0xb4) = 1;
+  return;
+}
+
+
+
+----------------------------------------------------------------------
+References TO 0x004539a0 (FUN_004539a0)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x00450824 (in FUN_00450770)
+  UNCONDITIONAL_CALL @ 0x0045e01c (in FUN_0045dfe0)
+  UNCONDITIONAL_CALL @ 0x004630f3 (in FUN_00463070)
+  UNCONDITIONAL_CALL @ 0x0045609d (in FUN_004556d0)
+  UNCONDITIONAL_CALL @ 0x008775ee (in FUN_008774a0)
+  UNCONDITIONAL_CALL @ 0x0093cf1a (in FUN_0093cdf0)
+  UNCONDITIONAL_CALL @ 0x0093d5fe (in FUN_0093d500)
+  UNCONDITIONAL_CALL @ 0x00866b8e (in FUN_00866a90)
+  UNCONDITIONAL_CALL @ 0x0084cba7 (in FUN_0084c5a0)
+  UNCONDITIONAL_CALL @ 0x005b6cf2 (in FUN_005b6cd0)
+  Total: 10 refs
+
+--- Calls FROM FUN_004539a0 (0x004539a0) ---
+  0x004539aa -> 0x0045bb80 FUN_0045bb80
+  0x004539b1 -> 0x00470470 FUN_00470470
+  0x004539c1 -> 0x005f36f0 FUN_005f36f0
+  0x004539cd -> 0x00453940 FUN_00453940
+  0x004539d2 -> 0x00453a70 FUN_00453a70
+  0x004539d9 -> 0x00483710 FUN_00483710
+  0x004539e8 -> 0x00455200 FUN_00455200
+  0x004539f0 -> 0x005f36f0 FUN_005f36f0
+  0x00453a04 -> 0x005f36f0 FUN_005f36f0
+  0x00453a0d -> 0x00454bd0 FUN_00454bd0
+  0x00453a1c -> 0x005f36f0 FUN_005f36f0
+  0x00453a28 -> 0x00462290 FUN_00462290
+  0x00453a35 -> 0x00454d50 FUN_00454d50
+  0x00453a4f -> 0x008d7dc0 FUN_008d7dc0
+  Total: 14 calls
+
+
+### SECTION 3: FUN_00452490 (flush cell arrays)
+# Called after FindCellToUnload with (GAME_MANAGER, 0)
+
+======================================================================
+FUN_00452490 (flush cell arrays) @ 0x00452490
+======================================================================
+  Function: FUN_00452490 @ 0x00452490, Size: 85 bytes
+
+void __thiscall FUN_00452490(void *this,char param_1)
+
+{
+  char cVar1;
+  uint uVar2;
+  
+  uVar2 = FUN_00452540();
+  if ((uVar2 & 0xff) != 0) {
+    FUN_00452510();
+    FUN_00664cd0('\x01');
+    cVar1 = FUN_004524f0((int)this);
+    if ((cVar1 != '\0') || (param_1 != '\0')) {
+      FUN_00a61cd0();
+    }
+    FUN_00664cd0('\x01');
+    FUN_00452530();
+  }
+  return;
+}
+
+
+
+----------------------------------------------------------------------
+References TO 0x00452490 (FUN_00452490)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x004582b1 (in FUN_00458200)
+  UNCONDITIONAL_CALL @ 0x00452845 (in FUN_00452580)
+  UNCONDITIONAL_CALL @ 0x00452b8c (in FUN_00452580)
+  UNCONDITIONAL_CALL @ 0x00452d61 (in FUN_00452580)
+  UNCONDITIONAL_CALL @ 0x004513a2 (in FUN_004512c0)
+  UNCONDITIONAL_CALL @ 0x004514f5 (in FUN_004512c0)
+  UNCONDITIONAL_CALL @ 0x00453e85 (in FUN_00453dc0)
+  UNCONDITIONAL_CALL @ 0x00453ea9 (in FUN_00453dc0)
+  UNCONDITIONAL_CALL @ 0x004541ec (in FUN_00453dc0)
+  UNCONDITIONAL_CALL @ 0x0045429f (in FUN_00453dc0)
+  UNCONDITIONAL_CALL @ 0x00454924 (in FUN_00454450)
+  UNCONDITIONAL_CALL @ 0x0046e722 (in FUN_0046ddb0)
+  UNCONDITIONAL_CALL @ 0x007160e3 (in FUN_007160b0)
+  UNCONDITIONAL_CALL @ 0x0087829f (in FUN_00878250)
+  UNCONDITIONAL_CALL @ 0x00866af0 (in FUN_00866a90)
+  UNCONDITIONAL_CALL @ 0x00866b9b (in FUN_00866a90)
+  Total: 16 refs
+
+--- Calls FROM FUN_00452490 (0x00452490) ---
+  0x00452497 -> 0x00452540 FUN_00452540
+  0x004524a5 -> 0x00452510 FUN_00452510
+  0x004524ac -> 0x00664cd0 FUN_00664cd0
+  0x004524b7 -> 0x004524f0 FUN_004524f0
+  0x004524cb -> 0x00a61cd0 FUN_00a61cd0
+  0x004524d2 -> 0x00664cd0 FUN_00664cd0
+  0x004524da -> 0x00452530 FUN_00452530
+  Total: 7 calls
+
+
+### SECTION 4: FUN_00453940 (called from FindCellToUnload)
+
+======================================================================
+FUN_00453940 (from FindCellToUnload) @ 0x00453940
+======================================================================
+  Function: FUN_00453940 @ 0x00453940, Size: 63 bytes
+
+void __fastcall FUN_00453940(int param_1)
+
+{
+  if (DAT_011c3f2c != 0) {
+    (**(code **)(**(int **)(param_1 + 8) + 8))();
+    FUN_00451570(0);
+    FUN_00451520(1);
+  }
+  return;
+}
+
+
+
+----------------------------------------------------------------------
+References TO 0x00453940 (FUN_00453940)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x00458264 (in FUN_00458200)
+  UNCONDITIONAL_CALL @ 0x004582fb (in FUN_00458200)
+  UNCONDITIONAL_CALL @ 0x004539cd (in FUN_004539a0)
+  UNCONDITIONAL_CALL @ 0x00453e8f (in FUN_00453dc0)
+  UNCONDITIONAL_CALL @ 0x00453d5f (in FUN_00453a80)
+  Total: 5 refs
+
+--- Calls FROM FUN_00453940 (0x00453940) ---
+  0x00453969 -> 0x00451570 FUN_00451570
+  0x00453973 -> 0x00451520 FUN_00451520
+  Total: 2 calls
+
+
+### SECTION 5: FUN_00462290 (cell unload action)
+# Called when local_8 != NULL (cell found to unload)
+
+======================================================================
+FUN_00462290 (cell unload action) @ 0x00462290
+======================================================================
+  Function: FUN_00462290 @ 0x00462290, Size: 341 bytes
+
+void FUN_00462290(int *param_1)
+
+{
+  bool bVar1;
+  char cVar2;
+  undefined4 uVar3;
+  void *pvVar4;
+  char local_5;
+  
+  if ((param_1 != (int *)0x0) && (bVar1 = FUN_00440d80((int)param_1), !bVar1)) {
+    FUN_0044ada0(1);
+    local_5 = '\0';
+    bVar1 = FUN_0042ce10(DAT_011ddf38);
+    if (bVar1) {
+      uVar3 = FUN_004623f0('\0');
+      local_5 = (char)uVar3;
+    }
+    FUN_00552bd0(param_1,'\x01');
+    FUN_009740a0(&DAT_011e0e80,(int)param_1);
+    FUN_004512a0(param_1,1);
+    FUN_005508b0(param_1);
+    FUN_0054b750((int)param_1);
+    while (bVar1 = FUN_00551620((int)param_1), bVar1) {
+      FUN_00551480(param_1,'\0');
+    }
+    cVar2 = FUN_004226e0(DAT_011c3f2c);
+    if (cVar2 == '\0') {
+      bVar1 = FUN_0094df60(DAT_011dea3c);
+      FUN_0054af40(param_1,!bVar1);
+    }
+    bVar1 = FUN_00425fd0((int)param_1);
+    if (!bVar1) {
+      pvVar4 = (void *)FUN_00546fb0((int)param_1);
+      FUN_00536d80(pvVar4);
+    }
+    FUN_00546970(param_1);
+    FUN_00961f30(param_1,0);
+    bVar1 = FUN_00425fd0((int)param_1);
+    if (!bVar1) {
+      pvVar4 = (void *)FUN_0054ddd0((int)param_1);
+      FUN_00585e00(pvVar4,param_1);
+    }
+    bVar1 = FUN_0042ce10(DAT_011ddf38);
+    if (bVar1) {
+      FUN_004623f0(local_5);
+    }
+    FUN_0044ada0(0);
+  }
+  return;
+}
+
+
+
+----------------------------------------------------------------------
+References TO 0x00462290 (FUN_00462290)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x00454dea (in FUN_00454d50)
+  UNCONDITIONAL_CALL @ 0x004552ba (in FUN_00455200)
+  UNCONDITIONAL_CALL @ 0x00454cfe (in FUN_00454c20)
+  UNCONDITIONAL_CALL @ 0x00453a28 (in FUN_004539a0)
+  UNCONDITIONAL_CALL @ 0x00454565 (in FUN_00454450)
+  UNCONDITIONAL_CALL @ 0x00454fa3 (in FUN_00454e70)
+  UNCONDITIONAL_CALL @ 0x00455378 (in FUN_00455330)
+  UNCONDITIONAL_CALL @ 0x00453d7b (in FUN_00453a80)
+  UNCONDITIONAL_CALL @ 0x00527dc1 (in FUN_00527d80)
+  Total: 9 refs
+
+--- Calls FROM FUN_00462290 (0x00462290) ---
+  0x004622a2 -> 0x00440d80 FUN_00440d80
+  0x004622b5 -> 0x0044ada0 FUN_0044ada0
+  0x004622c7 -> 0x0042ce10 FUN_0042ce10
+  0x004622db -> 0x004623f0 FUN_004623f0
+  0x004622e8 -> 0x00552bd0 FUN_00552bd0
+  0x004622f6 -> 0x009740a0 FUN_009740a0
+  0x00462300 -> 0x004512a0 FUN_004512a0
+  0x00462308 -> 0x005508b0 FUN_005508b0
+  0x00462310 -> 0x0054b750 FUN_0054b750
+  0x00462318 -> 0x00551620 FUN_00551620
+  0x00462329 -> 0x00551480 FUN_00551480
+  0x00462336 -> 0x004226e0 FUN_004226e0
+  0x00462348 -> 0x0094df60 FUN_0094df60
+  0x0046235c -> 0x0054af40 FUN_0054af40
+  0x00462364 -> 0x00425fd0 FUN_00425fd0
+  0x00462373 -> 0x00546fb0 FUN_00546fb0
+  0x0046237a -> 0x00536d80 FUN_00536d80
+  0x00462382 -> 0x00546970 FUN_00546970
+  0x0046238c -> 0x00961f30 FUN_00961f30
+  0x00462394 -> 0x00425fd0 FUN_00425fd0
+  0x004623a7 -> 0x0054ddd0 FUN_0054ddd0
+  0x004623ae -> 0x00585e00 FUN_00585e00
+  0x004623b9 -> 0x0042ce10 FUN_0042ce10
+  0x004623d0 -> 0x004623f0 FUN_004623f0
+  0x004623d7 -> 0x0044ada0 FUN_0044ada0
+  Total: 25 calls
+
+
+### SECTION 6: FUN_004511e0 (cell eligibility check)
+# Called to check if a cell can be unloaded
+
+======================================================================
+FUN_004511e0 (cell eligible?) @ 0x004511e0
+======================================================================
+  Function: FUN_004511e0 @ 0x004511e0, Size: 81 bytes
+
+uint FUN_004511e0(int param_1,char param_2)
+
+{
+  undefined1 uVar1;
+  uint in_EAX;
+  uint uVar2;
+  undefined3 extraout_var;
+  int iVar3;
+  uint3 uVar4;
+  
+  if (param_1 == 0) {
+    uVar2 = in_EAX & 0xffffff00;
+  }
+  else {
+    uVar1 = FUN_00450fd0(param_1);
+    iVar3 = CONCAT31(extraout_var,uVar1) + -2;
+    uVar4 = (uint3)((uint)iVar3 >> 8);
+    switch(iVar3) {
+    case 0:
+    case 1:
+    case 2:
+      if (param_2 == '\0') {
+        return CONCAT31(uVar4,1);
+      }
+    default:
+      uVar2 = (uint)uVar4 << 8;
+      break;
+    case 3:
+    case 4:
+      uVar2 = CONCAT31(uVar4,1);
+    }
+  }
+  return uVar2;
+}
+
+
+
+----------------------------------------------------------------------
+References TO 0x004511e0 (FUN_004511e0)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x00455262 (in FUN_00455200)
+  UNCONDITIONAL_CALL @ 0x00561f97 (in FUN_00561ef0)
+  UNCONDITIONAL_CALL @ 0x00573a2d (in FUN_00573800)
+  UNCONDITIONAL_CALL @ 0x00573b5b (in FUN_00573800)
+  UNCONDITIONAL_CALL @ 0x00573bd8 (in FUN_00573800)
+  UNCONDITIONAL_CALL @ 0x00548499 (in FUN_00548230)
+  UNCONDITIONAL_CALL @ 0x0084f64f (in FUN_0084f330)
+  UNCONDITIONAL_CALL @ 0x0084f72f (in FUN_0084f330)
+  UNCONDITIONAL_CALL @ 0x00469d53 (in FUN_004698a0)
+  UNCONDITIONAL_CALL @ 0x004573b7 (in FUN_004572e0)
+  UNCONDITIONAL_CALL @ 0x004576ec (in FUN_00457620)
+  UNCONDITIONAL_CALL @ 0x00451a30 (in FUN_004519d0)
+  UNCONDITIONAL_CALL @ 0x004574e0 (in FUN_004573f0)
+  UNCONDITIONAL_CALL @ 0x004575ec (in FUN_00457520)
+  UNCONDITIONAL_CALL @ 0x006fefc2 (in FUN_006fee90)
+  UNCONDITIONAL_CALL @ 0x006f5a2a (in FUN_006f5970)
+  UNCONDITIONAL_CALL @ 0x006ff1c6 (in FUN_006ff0d0)
+  UNCONDITIONAL_CALL @ 0x005740f1 (in FUN_00573f40)
+  UNCONDITIONAL_CALL @ 0x00849164 (in FUN_00848e70)
+  UNCONDITIONAL_CALL @ 0x00931955 (in FUN_00931920)
+  UNCONDITIONAL_CALL @ 0x00933535 (in FUN_009334b0)
+  UNCONDITIONAL_CALL @ 0x00933553 (in FUN_009334b0)
+  UNCONDITIONAL_CALL @ 0x00933587 (in FUN_009334b0)
+  UNCONDITIONAL_CALL @ 0x0093d51b (in FUN_0093d500)
+  UNCONDITIONAL_CALL @ 0x00849e67 (in FUN_00849d00)
+  UNCONDITIONAL_CALL @ 0x0084a187 (in FUN_00849d00)
+  UNCONDITIONAL_CALL @ 0x0084a305 (in FUN_00849d00)
+  UNCONDITIONAL_CALL @ 0x0088bb60 (in FUN_0088b880)
+  UNCONDITIONAL_CALL @ 0x0096ee86 (in FUN_0096eb40)
+  UNCONDITIONAL_CALL @ 0x008ad64f (in FUN_008ad1c0)
+  UNCONDITIONAL_CALL @ 0x008ad81c (in FUN_008ad1c0)
+  UNCONDITIONAL_CALL @ 0x00975dcd (in FUN_00975d10)
+  UNCONDITIONAL_CALL @ 0x00975e57 (in FUN_00975d10)
+  UNCONDITIONAL_CALL @ 0x00527a2a (in FUN_00527a00)
+  UNCONDITIONAL_CALL @ 0x004597a0 (in FUN_00459750)
+  UNCONDITIONAL_CALL @ 0x00459806 (in FUN_00459750)
+  UNCONDITIONAL_CALL @ 0x00453b6c (in FUN_00453a80)
+  UNCONDITIONAL_CALL @ 0x00453c1c (in FUN_00453a80)
+  UNCONDITIONAL_CALL @ 0x00453d19 (in FUN_00453a80)
+  UNCONDITIONAL_CALL @ 0x005ccd62 (in FUN_005ccb20)
+  UNCONDITIONAL_CALL @ 0x005cce5d (in FUN_005ccb20)
+  UNCONDITIONAL_CALL @ 0x0057b7b3 (in FUN_0057b790)
+  UNCONDITIONAL_CALL @ 0x00440833 (in FUN_00440780)
+  UNCONDITIONAL_CALL @ 0x00440af2 (in FUN_00440a90)
+  UNCONDITIONAL_CALL @ 0x00440c88 (in FUN_00440ba0)
+  UNCONDITIONAL_CALL @ 0x00518a4c (in FUN_005180b0)
+  UNCONDITIONAL_CALL @ 0x00527da5 (in FUN_00527d80)
+  UNCONDITIONAL_CALL @ 0x0055ce34 (in FUN_0055c3e0)
+  UNCONDITIONAL_CALL @ 0x00563a2b (in FUN_00563890)
+  UNCONDITIONAL_CALL @ 0x005c2097 (in FUN_005c1fe0)
+  UNCONDITIONAL_CALL @ 0x005c20af (in FUN_005c1fe0)
+  UNCONDITIONAL_CALL @ 0x005d1c15 (in FUN_005d1b80)
+  UNCONDITIONAL_CALL @ 0x005d1e55 (in FUN_005d1dc0)
+  UNCONDITIONAL_CALL @ 0x00932404 (in FUN_009320e0)
+  UNCONDITIONAL_CALL @ 0x0081e3ee (in FUN_0081e3d0)
+  UNCONDITIONAL_CALL @ 0x0088696e (in FUN_00886360)
+  UNCONDITIONAL_CALL @ 0x0089fa7d (in FUN_0089f780)
+  UNCONDITIONAL_CALL @ 0x008cdcc5 (in FUN_008cdbf0)
+  UNCONDITIONAL_CALL @ 0x008cdce6 (in FUN_008cdbf0)
+  UNCONDITIONAL_CALL @ 0x0088c3d6 (in FUN_0088c240)
+  UNCONDITIONAL_CALL @ 0x00912411 (in FUN_00912340)
+  ... (truncated)
+  Total: 61 refs
+
+--- Calls FROM FUN_004511e0 (0x004511e0) ---
+  0x004511f6 -> 0x00450fd0 FUN_00450fd0
+  Total: 1 calls
+
+
+### SECTION 7: FUN_00557090 (second eligibility check)
+
+======================================================================
+FUN_00557090 (cell eligible 2?) @ 0x00557090
+======================================================================
+  Function: FUN_00557090 @ 0x00557090, Size: 25 bytes
+
+void __fastcall FUN_00557090(int param_1)
+
+{
+  FUN_005570b0((int *)(param_1 + 0x80));
+  return;
+}
+
+
+
+----------------------------------------------------------------------
+References TO 0x00557090 (FUN_00557090)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x00454dcb (in FUN_00454d50)
+  UNCONDITIONAL_CALL @ 0x0045527a (in FUN_00455200)
+  UNCONDITIONAL_CALL @ 0x00453b84 (in FUN_00453a80)
+  UNCONDITIONAL_CALL @ 0x00453c34 (in FUN_00453a80)
+  UNCONDITIONAL_CALL @ 0x00453d31 (in FUN_00453a80)
+  Total: 5 refs
+
+--- Calls FROM FUN_00557090 (0x00557090) ---
+  0x005570a0 -> 0x005570b0 FUN_005570b0
+  Total: 1 calls
+
+
+### SECTION 8: FUN_0078d200 (stage 4 lock)
+# Stage 4 (PddPurge) uses this as a lock before PDD
+
+======================================================================
+FUN_0078d200 (stage4 lock) @ 0x0078d200
+======================================================================
+  Function: FUN_0078d200 @ 0x0078d200, Size: 123 bytes
+
+bool __fastcall FUN_0078d200(LONG *param_1)
+
+{
+  int iVar1;
+  char local_25;
+  
+  iVar1 = FUN_0040fc90();
+  if (*param_1 == iVar1) {
+    param_1[1] = param_1[1] + 1;
+    local_25 = '\x01';
+  }
+  else {
+    iVar1 = FUN_0043b460(param_1,0,iVar1);
+    local_25 = '\x01' - (iVar1 != 0);
+    if (local_25 != '\0') {
+      FUN_0040fbe0();
+      param_1[1] = 1;
+    }
+  }
+  return (bool)local_25;
+}
+
+
+
+--- Calls FROM FUN_0078d200 (0x0078d200) ---
+  0x0078d217 -> 0x0040fc90 FUN_0040fc90
+  0x0078d248 -> 0x0043b460 FUN_0043b460
+  0x0078d262 -> 0x0040fbe0 FUN_0040fbe0
+  Total: 3 calls
+
+
+### SECTION 9: FUN_0040fba0 (stage 4 unlock)
+
+======================================================================
+FUN_0040fba0 (stage4 unlock) @ 0x0040fba0
+======================================================================
+  Function: FUN_0040fba0 @ 0x0040fba0, Size: 49 bytes
+
+void __fastcall FUN_0040fba0(undefined4 *param_1)
+
+{
+  FUN_0040fbe0();
+  param_1[1] = param_1[1] + -1;
+  if (param_1[1] == 0) {
+    *param_1 = 0;
+  }
+  return;
+}
+
+
+
+--- Calls FROM FUN_0040fba0 (0x0040fba0) ---
+  0x0040fba7 -> 0x0040fbe0 FUN_0040fbe0
+  Total: 1 calls
+
+
+### SECTION 10: FUN_005f36f0 (FindCellToUnload branch)
+# If this returns non-zero, FindCellToUnload takes different path
+
+======================================================================
+FUN_005f36f0 (FindCellToUnload branch) @ 0x005f36f0
+======================================================================
+  Function: FUN_005f36f0 @ 0x005f36f0, Size: 17 bytes
+
+undefined4 __fastcall FUN_005f36f0(int param_1)
+
+{
+  return *(undefined4 *)(param_1 + 0x34);
+}
+
+
+
+--- Calls FROM FUN_005f36f0 (0x005f36f0) ---
+  Total: 0 calls
+
+
+### SECTION 11: FUN_00454fc0 (between searches)
+
+======================================================================
+FUN_00454fc0 (between cell searches) @ 0x00454fc0
+======================================================================
+  Function: FUN_00454fc0 @ 0x00454fc0, Size: 362 bytes
+
+void __fastcall FUN_00454fc0(int param_1)
+
+{
+  int iVar1;
+  bool bVar2;
+  int *piVar3;
+  int *piVar4;
+  uint *puVar5;
+  int iVar6;
+  int iVar7;
+  uint uVar8;
+  uint local_14;
+  uint local_c;
+  
+  if ((*(int *)(param_1 + 0x24) != *(int *)(param_1 + 0x2c)) ||
+     (*(int *)(param_1 + 0x30) != *(int *)(param_1 + 0x30))) {
+    piVar3 = (int *)FUN_0043d4d0(0x11c63cc);
+    piVar4 = (int *)FUN_0043d4d0(0x11c63cc);
+    iVar1 = *piVar3;
+    iVar6 = *piVar4;
+    puVar5 = (uint *)FUN_0043d4d0(0x11c63cc);
+    uVar8 = *puVar5 >> 1;
+    local_c = 0;
+    for (local_14 = iVar1 * iVar6;
+        (piVar3 = (int *)FUN_0043d4d0(0x11c3c90), local_14 < *piVar3 - 1U &&
+        (iVar1 = *(int *)(*(int *)(param_1 + 0x3c) + local_14 * 4), iVar1 != 0));
+        local_14 = local_14 + 1) {
+      iVar6 = FUN_00544c30(iVar1);
+      iVar7 = FUN_00544c60(iVar1);
+      iVar6 = *(int *)(param_1 + 0x2c) - iVar6;
+      iVar7 = *(int *)(param_1 + 0x30) - iVar7;
+      bVar2 = false;
+      if (((int)-uVar8 <= iVar6) &&
+         (((iVar6 <= (int)uVar8 && ((int)-uVar8 <= iVar7)) && (iVar7 <= (int)uVar8)))) {
+        bVar2 = true;
+      }
+      if ((bVar2) && (local_c != 0)) {
+        _memmove((void *)(*(int *)(param_1 + 0x3c) + 4 + local_c * 4),
+                 (void *)(*(int *)(param_1 + 0x3c) + local_c * 4),(local_14 - local_c) * 4);
+        *(int *)(*(int *)(param_1 + 0x3c) + local_c * 4) = iVar1;
+        local_14 = local_c + 1;
+        local_c = 0;
+      }
+      else {
+        local_c = local_14;
+      }
+    }
+  }
+  return;
+}
+
+
+
+--- Calls FROM FUN_00454fc0 (0x00454fc0) ---
+  0x00454ff0 -> 0x0043d4d0 FUN_0043d4d0
+  0x00454ffc -> 0x0043d4d0 FUN_0043d4d0
+  0x0045500e -> 0x0043d4d0 FUN_0043d4d0
+  0x00455037 -> 0x0043d4d0 FUN_0043d4d0
+  0x00455067 -> 0x00544c30 FUN_00544c30
+  0x00455072 -> 0x00544c60 FUN_00544c60
+  0x004550f1 -> 0x00ec7230 _memmove
+  Total: 7 calls

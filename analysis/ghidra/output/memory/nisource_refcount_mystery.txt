@@ -1,0 +1,502 @@
+NISOURCETEXTURE REFCOUNT MYSTERY
+======================================================================
+
+Hypothesis 1: QueuedTexture+0x30 NiPointer is never set (stays NULL)
+  -> crash is NOT from stale NiSourceTexture at +0x30
+  -> crash is from QueuedTexture ITSELF being freed/recycled
+
+Hypothesis 2: NiSourceTexture freed via path ignoring refcount
+  -> need to find all free paths for NiSourceTexture
+
+Hypothesis 3: The QUEUEDTEXTURE is what gets freed, not NiSourceTexture
+  -> QueuedTexture is freed by one DecRef, main thread does second DecRef
+  -> double-free on QueuedTexture itself
+
+PART 1: DOUBLE DECREF ANALYSIS
+======================================================================
+
+From crash calltrace:
+  0x0044DDA1 (DecRef) -- called from 0x0043BE3F
+  0x0044DDA1 (DecRef) -- called from 0x00C3D38F area
+
+The QueuedTexture is DecRef'd TWICE in the same call chain.
+If refcount starts at 1, first DecRef -> 0 -> destructor runs.
+Destructor (FUN_0043bf80) calls FUN_00c3cea0 which calls
+FUN_00c3c620 which processes more tasks... which call DecRef
+on the SAME QueuedTexture AGAIN -> refcount goes to -1 -> 
+(*vtable[0])(1) called on already-freed QueuedTexture -> CRASH
+
+
+======================================================================
+FUN_00c3c620 (base class destructor chain) @ 0x00c3c620
+======================================================================
+  Function: FUN_00c3c620 @ 0x00c3c620, Size: 223 bytes
+
+void __fastcall FUN_00c3c620(undefined4 *param_1)
+
+{
+  uint uVar1;
+  int *unaff_FS_OFFSET;
+  int local_10;
+  undefined1 *puStack_c;
+  uint local_8;
+  
+  puStack_c = &LAB_00f2dcb3;
+  local_10 = *unaff_FS_OFFSET;
+  uVar1 = DAT_011c16bc ^ (uint)&stack0xfffffffc;
+  *unaff_FS_OFFSET = (int)&local_10;
+  *param_1 = &PTR_FUN_010c1524;
+  local_8 = 1;
+  if ((undefined4 *)param_1[8] != (undefined4 *)0x0) {
+    (*(code *)**(undefined4 **)param_1[8])(1,uVar1);
+  }
+  if ((undefined4 *)param_1[9] != (undefined4 *)0x0) {
+    (*(code *)**(undefined4 **)param_1[9])(1);
+  }
+  local_8 = local_8 & 0xffffff00;
+  if (param_1[7] != 0) {
+    FUN_0044dd60((undefined4 *)param_1[7]);
+  }
+  local_8 = 0xffffffff;
+  *param_1 = &PTR_FUN_01017138;
+  InterlockedDecrement((LONG *)&lpAddend_01202d94);
+  *unaff_FS_OFFSET = local_10;
+  return;
+}
+
+
+
+--- Calls FROM FUN_00c3c620 (0x00c3c620) ---
+  0x00c3c6d0 -> 0x0044dd60 FUN_0044dd60
+  0x00c3c6ea -> 0x00000067 ???
+  Total: 2 calls
+
+======================================================================
+FUN_00c3c590 (base class init) @ 0x00c3c590
+======================================================================
+  Function: FUN_00c3c590 @ 0x00c3c590, Size: 140 bytes
+
+undefined4 * __fastcall FUN_00c3c590(undefined4 *param_1)
+
+{
+  int *piVar1;
+  int unaff_FS_OFFSET;
+  
+  FUN_00440540(param_1);
+  *param_1 = &PTR_FUN_010c1524;
+  piVar1 = param_1 + 7;
+  *piVar1 = 0;
+  if (*piVar1 != 0) {
+    InterlockedIncrement((LONG *)(*piVar1 + 8));
+  }
+  param_1[8] = 0;
+  param_1[9] = 0;
+  param_1[6] = *(undefined4 *)(*(int *)(*(int *)(unaff_FS_OFFSET + 0x2c) + _tls_index * 4) + 0x2b4);
+  return param_1;
+}
+
+
+
+--- Calls FROM FUN_00c3c590 (0x00c3c590) ---
+  0x00c3c5a0 -> 0x00440540 FUN_00440540
+  0x00c3c5d7 -> 0x00000066 ???
+  Total: 2 calls
+
+PART 2: ALL DECREF CALLERS
+======================================================================
+
+----------------------------------------------------------------------
+References TO 0x0044dd60 (FUN_0044dd60 (DecRef))
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x0044cc04 (in FUN_0044cbf0)
+  UNCONDITIONAL_CALL @ 0x006f750e (in FUN_006f74f0)
+  UNCONDITIONAL_CALL @ 0x0092c840 (in FUN_0092c820)
+  UNCONDITIONAL_CALL @ 0x00c3c7bc (in FUN_00c3c700)
+  UNCONDITIONAL_CALL @ 0x00c3c907 (in FUN_00c3c7e0)
+  UNCONDITIONAL_CALL @ 0x00c3c6d0 (in FUN_00c3c620)
+  UNCONDITIONAL_CALL @ 0x00c3d5a2 (in FUN_00c3d4f0)
+  UNCONDITIONAL_CALL @ 0x00c3de18 (in FUN_00c3dbf0)
+  UNCONDITIONAL_CALL @ 0x00c3de5f (in FUN_00c3dbf0)
+  UNCONDITIONAL_CALL @ 0x00c3e2b4 (in FUN_00c3e1b0)
+  UNCONDITIONAL_CALL @ 0x00c3e2df (in FUN_00c3e1b0)
+  UNCONDITIONAL_CALL @ 0x00c3eaf6 (in FUN_00c3ea60)
+  UNCONDITIONAL_CALL @ 0x00c3eb85 (in FUN_00c3ea60)
+  UNCONDITIONAL_CALL @ 0x00c3ec1c (in FUN_00c3ea60)
+  UNCONDITIONAL_CALL @ 0x00c3f0b7 (in FUN_00c3f090)
+  UNCONDITIONAL_CALL @ 0x00c424bc (in FUN_00c42380)
+  UNCONDITIONAL_CALL @ 0x00c4268c (in FUN_00c42560)
+  UNCONDITIONAL_CALL @ 0x00c4271e (in FUN_00c42560)
+  UNCONDITIONAL_CALL @ 0x00c4284d (in FUN_00c42560)
+  UNCONDITIONAL_CALL @ 0x00c428df (in FUN_00c42560)
+  UNCONDITIONAL_CALL @ 0x00c41f67 (in FUN_00c41f40)
+  UNCONDITIONAL_CALL @ 0x00c42028 (in FUN_00c41fe0)
+  UNCONDITIONAL_CALL @ 0x00c42d11 (in FUN_00c42b80)
+  UNCONDITIONAL_CALL @ 0x00528920 (in FUN_00528870)
+  UNCONDITIONAL_CALL @ 0x0044acf8 (in FUN_0044ac40)
+  UNCONDITIONAL_CALL @ 0x00c3cbce (in FUN_00c3cb70)
+  UNCONDITIONAL_CALL @ 0x00c3ccf4 (in FUN_00c3cb70)
+  UNCONDITIONAL_CALL @ 0x00c3ce4a (in FUN_00c3cb70)
+  UNCONDITIONAL_CALL @ 0x00c3d656 (in FUN_00c3d5e0)
+  UNCONDITIONAL_CALL @ 0x00c3ca04 (in FUN_00c3c930)
+  UNCONDITIONAL_CALL @ 0x00c3cacb (in FUN_00c3c930)
+  UNCONDITIONAL_CALL @ 0x00c3d9db (in FUN_00c3d980)
+  UNCONDITIONAL_CALL @ 0x00c40d48 (in FUN_00c40b70)
+  UNCONDITIONAL_CALL @ 0x00c3fc20 (in FUN_00c3fb50)
+  UNCONDITIONAL_CALL @ 0x00c3fdd2 (in FUN_00c3fce0)
+  UNCONDITIONAL_CALL @ 0x00c41445 (in FUN_00c41330)
+  UNCONDITIONAL_CALL @ 0x00c4149b (in FUN_00c41330)
+  UNCONDITIONAL_CALL @ 0x00c3fef4 (in FUN_00c3fe80)
+  UNCONDITIONAL_CALL @ 0x00c40087 (in FUN_00c3ffb0)
+  UNCONDITIONAL_CALL @ 0x00c4010a (in FUN_00c3ffb0)
+  UNCONDITIONAL_CALL @ 0x00c41072 (in FUN_00c41050)
+  ... (truncated)
+  Total: 41 refs
+
+PART 3: ADDREF / RELEASE INTERNALS
+======================================================================
+
+======================================================================
+FUN_0040f6e0 (AddRef / InterlockedIncrement) @ 0x0040f6e0
+======================================================================
+  Function: FUN_0040f6e0 @ 0x0040f6e0, Size: 26 bytes
+
+void __fastcall FUN_0040f6e0(int param_1)
+
+{
+  FUN_0040b460((LONG *)(param_1 + 4));
+  return;
+}
+
+
+
+======================================================================
+FUN_00401970 (Release / InterlockedDecrement + destroy) @ 0x00401970
+======================================================================
+  Function: FUN_00401970 @ 0x00401970, Size: 43 bytes
+
+void __fastcall FUN_00401970(int *param_1)
+
+{
+  int iVar1;
+  
+  iVar1 = FUN_004019a0(param_1 + 1);
+  if (iVar1 == 0) {
+    (**(code **)(*param_1 + 4))();
+  }
+  return;
+}
+
+
+
+======================================================================
+FUN_0040b460 (called from FUN_0092c870, pre-completion) @ 0x0040b460
+======================================================================
+  Function: FUN_0040b460 @ 0x0040b460, Size: 15 bytes
+
+void __cdecl FUN_0040b460(LONG *param_1)
+
+{
+  InterlockedIncrement(param_1);
+  return;
+}
+
+
+
+PART 4: FULL DESTRUCTION CHAIN
+======================================================================
+
+======================================================================
+FUN_0043be30 (destructor wrapper + delete) @ 0x0043be30
+======================================================================
+  Function: FUN_0043be30 @ 0x0043be30, Size: 44 bytes
+
+undefined4 * __thiscall FUN_0043be30(void *this,uint param_1)
+
+{
+  FUN_0043bf80(this);
+  if ((param_1 & 1) != 0) {
+    FUN_00401030(this);
+  }
+  return this;
+}
+
+
+
+======================================================================
+FUN_00c3d9e0 (from crash calltrace) @ 0x00c3d9e0
+======================================================================
+  Function: FUN_00c3d980 @ 0x00c3d980, Size: 193 bytes
+  NOTE: Requested 0x00c3d9e0 is inside FUN_00c3d980 (entry at 0x00c3d980)
+
+/* WARNING: Removing unreachable block (ram,0x00c3d9e7) */
+
+void __thiscall FUN_00c3d980(void *this,char param_1)
+
+{
+  int *piVar1;
+  uint uVar2;
+  int iVar3;
+  undefined4 local_8;
+  
+  if (*(int *)((int)this + 4) != 0) {
+    uVar2 = *(uint *)((int)this + 8);
+    iVar3 = *(int *)((int)this + 4);
+    for (local_8 = 0; local_8 < uVar2; local_8 = local_8 + 1) {
+      piVar1 = (int *)(iVar3 + local_8 * 4);
+      if (*piVar1 != 0) {
+        FUN_0044dd60((undefined4 *)*piVar1);
+      }
+    }
+    if (param_1 != '\0') {
+      (**(code **)(*(int *)this + 8))(*(undefined4 *)((int)this + 4));
+      *(undefined4 *)((int)this + 4) = 0;
+      *(undefined4 *)((int)this + 4) = 0;
+      *(undefined4 *)((int)this + 0xc) = 0;
+    }
+    *(undefined4 *)((int)this + 8) = 0;
+  }
+  return;
+}
+
+
+
+--- Calls FROM FUN_00c3d9e0 (0x00c3d9e0) ---
+  0x00c3d9db -> 0x0044dd60 FUN_0044dd60
+  0x00c3d9f0 -> 0x00aa4060 FUN_00aa4060
+  Total: 2 calls
+
+======================================================================
+FUN_00c3d94c (from crash calltrace) @ 0x00c3d94c
+======================================================================
+  Function: FUN_00c3d930 @ 0x00c3d930, Size: 32 bytes
+  NOTE: Requested 0x00c3d94c is inside FUN_00c3d930 (entry at 0x00c3d930)
+
+void __fastcall FUN_00c3d930(undefined4 *param_1)
+
+{
+  *param_1 = &PTR_FUN_010c14fc;
+  FUN_00c3d980(param_1,'\x01');
+  return;
+}
+
+
+
+======================================================================
+FUN_00c3c538 (from crash calltrace) @ 0x00c3c538
+======================================================================
+  Function: FUN_00c3c520 @ 0x00c3c520, Size: 28 bytes
+  NOTE: Requested 0x00c3c538 is inside FUN_00c3c520 (entry at 0x00c3c520)
+
+void __fastcall FUN_00c3c520(undefined4 *param_1)
+
+{
+  *param_1 = &PTR_FUN_010c14e8;
+  FUN_00c3d930(param_1);
+  return;
+}
+
+
+
+--- Calls FROM FUN_00c3c538 (0x00c3c538) ---
+  0x00c3c533 -> 0x00c3d930 FUN_00c3d930
+  Total: 1 calls
+
+======================================================================
+FUN_00c3d38f (from crash calltrace) @ 0x00c3d38f
+======================================================================
+  Function: FUN_00c3d380 @ 0x00c3d380, Size: 46 bytes
+  NOTE: Requested 0x00c3d38f is inside FUN_00c3d380 (entry at 0x00c3d380)
+
+undefined4 * __thiscall FUN_00c3d380(void *this,uint param_1)
+
+{
+  FUN_00c3c520(this);
+  if ((param_1 & 1) != 0) {
+    FUN_00aa4060(&DAT_011f6238,this);
+  }
+  return this;
+}
+
+
+
+======================================================================
+FUN_00c3c67b (from crash calltrace) @ 0x00c3c67b
+======================================================================
+  Function: FUN_00c3c620 @ 0x00c3c620, Size: 223 bytes
+  NOTE: Requested 0x00c3c67b is inside FUN_00c3c620 (entry at 0x00c3c620)
+
+void __fastcall FUN_00c3c620(undefined4 *param_1)
+
+{
+  uint uVar1;
+  int *unaff_FS_OFFSET;
+  int local_10;
+  undefined1 *puStack_c;
+  uint local_8;
+  
+  puStack_c = &LAB_00f2dcb3;
+  local_10 = *unaff_FS_OFFSET;
+  uVar1 = DAT_011c16bc ^ (uint)&stack0xfffffffc;
+  *unaff_FS_OFFSET = (int)&local_10;
+  *param_1 = &PTR_FUN_010c1524;
+  local_8 = 1;
+  if ((undefined4 *)param_1[8] != (undefined4 *)0x0) {
+    (*(code *)**(undefined4 **)param_1[8])(1,uVar1);
+  }
+  if ((undefined4 *)param_1[9] != (undefined4 *)0x0) {
+    (*(code *)**(undefined4 **)param_1[9])(1);
+  }
+  local_8 = local_8 & 0xffffff00;
+  if (param_1[7] != 0) {
+    FUN_0044dd60((undefined4 *)param_1[7]);
+  }
+  local_8 = 0xffffffff;
+  *param_1 = &PTR_FUN_01017138;
+  InterlockedDecrement((LONG *)&lpAddend_01202d94);
+  *unaff_FS_OFFSET = local_10;
+  return;
+}
+
+
+
+PART 5: TASK COMPLETION -> DECREF CHAIN
+======================================================================
+
+======================================================================
+FUN_0043feb4 (from crash calltrace) @ 0x0043feb4
+======================================================================
+  Function: ~CBitmapButton @ 0x0043fe40, Size: 131 bytes
+  NOTE: Requested 0x0043feb4 is inside ~CBitmapButton (entry at 0x0043fe40)
+
+/* Library Function - Single Match
+    public: virtual __thiscall CBitmapButton::~CBitmapButton(void)
+   
+   Library: Visual Studio 2008 Debug */
+
+void __thiscall CBitmapButton::~CBitmapButton(CBitmapButton *this)
+
+{
+  int *unaff_FS_OFFSET;
+  int local_10;
+  undefined1 *puStack_c;
+  int local_8;
+  
+  puStack_c = &LAB_00eec1b9;
+  local_10 = *unaff_FS_OFFSET;
+  *unaff_FS_OFFSET = (int)&local_10;
+  local_8 = 3;
+  FUN_0044cbf0((int *)(this + 0x38));
+  local_8._0_1_ = 2;
+  Concurrency::cancellation_token_source::~cancellation_token_source
+            ((cancellation_token_source *)(this + 0x34));
+  local_8._0_1_ = 1;
+  FUN_0040c110((int *)(this + 0x30));
+  local_8 = (uint)local_8._1_3_ << 8;
+  FUN_0044cbf0((int *)(this + 0x2c));
+  local_8 = 0xffffffff;
+  FUN_00c3c620((undefined4 *)this);
+  *unaff_FS_OFFSET = local_10;
+  return;
+}
+
+
+
+--- Calls FROM FUN_0043feb4 (0x0043feb4) ---
+  0x0043fe73 -> 0x0044cbf0 FUN_0044cbf0
+  0x0043fe82 -> 0x0045cec0 ~cancellation_token_source
+  0x0043fe91 -> 0x0040c110 FUN_0040c110
+  0x0043fea0 -> 0x0044cbf0 FUN_0044cbf0
+  0x0043feaf -> 0x00c3c620 FUN_00c3c620
+  Total: 5 calls
+
+======================================================================
+FUN_00440ebf (from crash calltrace) @ 0x00440ebf
+======================================================================
+  Function: FUN_00440eb0 @ 0x00440eb0, Size: 19 bytes
+  NOTE: Requested 0x00440ebf is inside FUN_00440eb0 (entry at 0x00440eb0)
+
+void __fastcall FUN_00440eb0(CBitmapButton *param_1)
+
+{
+  CBitmapButton::~CBitmapButton(param_1);
+  return;
+}
+
+
+
+======================================================================
+FUN_00441546 (from crash calltrace) @ 0x00441546
+======================================================================
+  Function: ~XImage @ 0x004414f0, Size: 101 bytes
+  NOTE: Requested 0x00441546 is inside ~XImage (entry at 0x004414f0)
+
+/* Library Function - Single Match
+    public: __thiscall CMFCRibbonInfo::XImage::~XImage(void)
+   
+   Library: Visual Studio 2010 Debug */
+
+void __thiscall CMFCRibbonInfo::XImage::~XImage(XImage *this)
+
+{
+  int *unaff_FS_OFFSET;
+  int local_10;
+  undefined1 *puStack_c;
+  uint local_8;
+  
+  puStack_c = &LAB_00eec2e3;
+  local_10 = *unaff_FS_OFFSET;
+  *unaff_FS_OFFSET = (int)&local_10;
+  local_8 = 1;
+  FUN_0044cbf0((int *)(this + 0x44));
+  local_8 = local_8 & 0xffffff00;
+  FUN_0044cbf0((int *)(this + 0x40));
+  local_8 = 0xffffffff;
+  FUN_00440eb0((CBitmapButton *)this);
+  *unaff_FS_OFFSET = local_10;
+  return;
+}
+
+
+
+======================================================================
+FUN_004414cf (from crash calltrace) @ 0x004414cf
+======================================================================
+  Function: FUN_004414c0 @ 0x004414c0, Size: 44 bytes
+  NOTE: Requested 0x004414cf is inside FUN_004414c0 (entry at 0x004414c0)
+
+XImage * __thiscall FUN_004414c0(void *this,uint param_1)
+
+{
+  CMFCRibbonInfo::XImage::~XImage(this);
+  if ((param_1 & 1) != 0) {
+    FUN_00401030(this);
+  }
+  return this;
+}
+
+
+
+PART 6: INTERLOCKEDDECREMENT DETAILS
+======================================================================
+
+======================================================================
+FUN_004019a0 (InterlockedDecrement in DecRef) @ 0x004019a0
+======================================================================
+  Function: FUN_004019a0 @ 0x004019a0, Size: 15 bytes
+
+void __cdecl FUN_004019a0(LONG *param_1)
+
+{
+  InterlockedDecrement(param_1);
+  return;
+}
+
+
+
+NOTE: FUN_0044dd60 calls FUN_004019a0(param_1 + 2)
+param_1 + 2 means offset +8 (2 * sizeof(int) = 8 bytes)
+So the refcount is at QueuedTexture+0x08, NOT +0x04!
+
+This is DIFFERENT from NiRefObject refcount at +0x04.
+QueuedTexture has its OWN refcount at +0x08, separate from
+any NiRefObject inheritance chain.

@@ -1,0 +1,234 @@
+PDD Mask Writers -- FUN_008681c0 and FUN_00868210
+======================================================================
+
+CRITICAL QUESTION: Does FUN_00868210 restore saved value (safe)
+or AND-clear specific bits (unsafe for our Gen skip approach)?
+
+######################################################################
+# PART 1: FUN_008681c0 -- mask writer (queue add enter)
+######################################################################
+
+======================================================================
+FUN_008681c0 (mask set / queue add enter) @ 0x008681c0
+======================================================================
+  Function: FUN_008681c0 @ 0x008681c0, Size: 68 bytes
+
+uint * __thiscall FUN_008681c0(void *this,uint param_1)
+
+{
+  *(uint *)this = param_1;
+  FUN_00867f50();
+  *(bool *)((int)this + 4) = (DAT_011de804 & param_1) != 0;
+  DAT_011de804 = DAT_011de804 | param_1;
+  return this;
+}
+
+
+
+--- Calls FROM FUN_008681c0 (0x008681c0) ---
+  0x008681d5 -> 0x00867f50 FUN_00867f50
+  Total: 1 calls
+
+######################################################################
+# PART 2: FUN_00868210 -- mask writer (queue add exit)
+######################################################################
+
+======================================================================
+FUN_00868210 (mask clear / queue add exit) @ 0x00868210
+======================================================================
+  Function: FUN_00868210 @ 0x00868210, Size: 50 bytes
+
+void __fastcall FUN_00868210(uint *param_1)
+
+{
+  if ((char)param_1[1] == '\0') {
+    DAT_011de804 = ~*param_1 & DAT_011de804;
+  }
+  FUN_00867f80();
+  return;
+}
+
+
+
+--- Calls FROM FUN_00868210 (0x00868210) ---
+  0x00868236 -> 0x00867f80 FUN_00867f80
+  Total: 1 calls
+
+######################################################################
+# PART 3: All callers of mask writers
+######################################################################
+
+----------------------------------------------------------------------
+References TO 0x008681c0 (FUN_008681c0 (mask set))
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x00867fbf (in FUN_00867f90)
+  UNCONDITIONAL_CALL @ 0x008687bf (in FUN_00868790)
+  UNCONDITIONAL_CALL @ 0x008684bf (in FUN_00868490)
+  UNCONDITIONAL_CALL @ 0x0086868f (in FUN_00868660)
+  UNCONDITIONAL_CALL @ 0x0086835f (in FUN_00868330)
+  UNCONDITIONAL_CALL @ 0x0086858f (in FUN_00868560)
+  Total: 6 refs
+
+----------------------------------------------------------------------
+References TO 0x00868210 (FUN_00868210 (mask clear))
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x008681ab (in FUN_00867f90)
+  UNCONDITIONAL_CALL @ 0x00868835 (in FUN_00868790)
+  UNCONDITIONAL_CALL @ 0x00868545 (in FUN_00868490)
+  UNCONDITIONAL_CALL @ 0x00868723 (in FUN_00868660)
+  UNCONDITIONAL_CALL @ 0x0086846f (in FUN_00868330)
+  UNCONDITIONAL_CALL @ 0x0086863f (in FUN_00868560)
+  Total: 6 refs
+
+######################################################################
+# PART 4: HeapCompact stage executor (calls PDD stage 4)
+######################################################################
+# Does it write the mask before calling PDD?
+
+======================================================================
+FUN_00866a90 (HeapCompact stage executor) @ 0x00866a90
+======================================================================
+  Function: FUN_00866a90 @ 0x00866a90, Size: 602 bytes
+
+int __thiscall FUN_00866a90(void *this,undefined4 param_1,int param_2,char *param_3)
+
+{
+  char cVar1;
+  int iVar2;
+  int iVar3;
+  void *this_00;
+  uint uVar4;
+  bool bVar5;
+  
+  *param_3 = '\x01';
+  iVar2 = FUN_0040fc90();
+  iVar3 = FUN_0044edb0(DAT_011dea0c);
+  bVar5 = iVar2 == iVar3;
+  switch(param_2) {
+  case 0:
+    DAT_011de70c = 0;
+    if (bVar5) {
+      FUN_00452490(DAT_011dea10,'\0');
+    }
+    break;
+  case 1:
+    iVar2 = FUN_00866d10();
+    FUN_00aa5c80(iVar2);
+    break;
+  case 2:
+    iVar2 = FUN_00652110();
+    if (iVar2 != 0) {
+      iVar2 = FUN_00652110();
+      cVar1 = FUN_00529ea0(iVar2);
+      if ((cVar1 != '\0') && (bVar5 = FUN_00652160(), bVar5)) {
+        iVar2 = FUN_00652130();
+        if (iVar2 == 1) {
+          cVar1 = '\0';
+          this_00 = (void *)FUN_00652110();
+          FUN_00650a30(this_00,cVar1);
+        }
+        FUN_00652190();
+      }
+    }
+    break;
+  case 5:
+    if (!bVar5) break;
+    FUN_00869190(0);
+    uVar4 = FUN_00453a80((int)DAT_011dea10);
+    if ((uVar4 & 0xff) == 0) {
+      FUN_004539a0(DAT_011dea10,'\x01','\0');
+    }
+    else {
+      param_2 = param_2 + -1;
+    }
+    FUN_00452490(DAT_011dea10,'\0');
+    FUN_00869190(1);
+    FUN_00868d70('\x01');
+  case 4:
+    bVar5 = FUN_0078d200((LONG *)&DAT_011f11a0);
+    if (bVar5) {
+      FUN_00868d70('\x01');
+      FUN_0040fba0((undefined4 *)&DAT_011f11a0);
+    }
+  case 3:
+    FUN_00c459d0('\x01');
+    break;
+  case 6:
+    if (bVar5) {
+      FUN_00aa7030();
+    }
+    break;
+  case 7:
+    if ((*param_3 == '\0') && (bVar5)) {
+      *param_3 = '\x01';
+      break;
+    }
+  case 8:
+    if (!bVar5) {
+      *(undefined4 *)((int)this + 0x134) = 6;
+      if (DAT_011de70c < 15000) {
+        iVar2 = FUN_00866da0(DAT_01202d98,0);
+        iVar3 = FUN_0040fc90();
+        if (iVar2 == iVar3) {
+          FUN_00866dc0(DAT_01202d98,0);
+          FUN_00866de0(DAT_01202d98,0);
+        }
+        iVar2 = FUN_00866da0(DAT_01202d98,1);
+        iVar3 = FUN_0040fc90();
+        if (iVar2 == iVar3) {
+          FUN_00866dc0(DAT_01202d98,1);
+          FUN_00866de0(DAT_01202d98,1);
+        }
+        FUN_0040fca0(1);
+        DAT_011de70c = DAT_011de70c + 1;
+        param_2 = param_2 + -1;
+      }
+      else if (*param_3 == '\0') {
+        *param_3 = '\x01';
+      }
+    }
+  }
+  return param_2 + 1;
+}
+
+
+
+--- Calls FROM HeapCompact stage executor (0x00866a90) ---
+  0x00866aa0 -> 0x0040fc90 FUN_0040fc90
+  0x00866aad -> 0x0044edb0 FUN_0044edb0
+  0x00866af0 -> 0x00452490 FUN_00452490
+  0x00866afa -> 0x00866d10 FUN_00866d10
+  0x00866b01 -> 0x00aa5c80 FUN_00aa5c80
+  0x00866b0b -> 0x00652110 FUN_00652110
+  0x00866b14 -> 0x00652110 FUN_00652110
+  0x00866b1b -> 0x00529ea0 FUN_00529ea0
+  0x00866b27 -> 0x00652160 FUN_00652160
+  0x00866b33 -> 0x00652130 FUN_00652130
+  0x00866b3f -> 0x00652110 FUN_00652110
+  0x00866b46 -> 0x00650a30 FUN_00650a30
+  0x00866b4b -> 0x00652190 FUN_00652190
+  0x00866b5f -> 0x00869190 FUN_00869190
+  0x00866b6d -> 0x00453a80 FUN_00453a80
+  0x00866b8e -> 0x004539a0 FUN_004539a0
+  0x00866b9b -> 0x00452490 FUN_00452490
+  0x00866ba2 -> 0x00869190 FUN_00869190
+  0x00866bac -> 0x00868d70 FUN_00868d70
+  0x00866bc0 -> 0x0078d200 FUN_0078d200
+  0x00866bce -> 0x00868d70 FUN_00868d70
+  0x00866bdb -> 0x0040fba0 FUN_0040fba0
+  0x00866be2 -> 0x00c459d0 FUN_00c459d0
+  0x00866bf7 -> 0x00aa7030 FUN_00aa7030
+  0x00866c4f -> 0x00866da0 FUN_00866da0
+  0x00866c56 -> 0x0040fc90 FUN_0040fc90
+  0x00866c67 -> 0x00866dc0 FUN_00866dc0
+  0x00866c74 -> 0x00866de0 FUN_00866de0
+  0x00866c81 -> 0x00866da0 FUN_00866da0
+  0x00866c88 -> 0x0040fc90 FUN_0040fc90
+  0x00866c99 -> 0x00866dc0 FUN_00866dc0
+  0x00866ca6 -> 0x00866de0 FUN_00866de0
+  0x00866cad -> 0x0040fca0 FUN_0040fca0
+  Total: 33 calls
+
+======================================================================
+ANALYSIS COMPLETE
+======================================================================

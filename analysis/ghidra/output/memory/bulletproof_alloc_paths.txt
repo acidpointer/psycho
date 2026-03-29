@@ -1,0 +1,381 @@
+Allocation Path Verification
+======================================================================
+
+######################################################################
+# PART 1: FUN_00aa13e0 ? Alternative Alloc
+######################################################################
+# Uses DAT_011f6080, calls vtable[1] with 7 params
+# DAT_011f6080 is set by FUN_00aa2020 (SBM init)
+# Is this the SAME heap or a different one?
+
+----------------------------------------------------------------------
+References TO 0x011f6080 (DAT_011f6080 (alternative heap object))
+----------------------------------------------------------------------
+  READ @ 0x00aa1086 (in FUN_00aa1070)
+  READ @ 0x00aa10f8 (in FUN_00aa10f0)
+  READ @ 0x00aa13f6 (in FUN_00aa13e0)
+  READ @ 0x00aa1436 (in FUN_00aa1420)
+  WRITE @ 0x00aa2032 (in FUN_00aa2020)
+  READ @ 0x00aa203c (in FUN_00aa2020)
+  READ @ 0x00aa2044 (in FUN_00aa2020)
+  READ @ 0x00aa1468 (in FUN_00aa1460)
+  READ @ 0x00aa1261 (in FUN_00aa1250)
+  READ @ 0x00aa1289 (in FUN_00aa1250)
+  READ @ 0x00aa12cb (in FUN_00aa1250)
+  READ @ 0x00aa1178 (in FUN_00aa1170)
+  READ @ 0x00aa1198 (in FUN_00aa1190)
+  READ @ 0x00aa1141 (in FUN_00aa1130)
+  READ @ 0x00aa11c1 (in FUN_00aa11b0)
+  READ @ 0x00aa11ed (in FUN_00aa11b0)
+  READ @ 0x00aa1226 (in FUN_00aa11b0)
+  READ @ 0x00aa1498 (in FUN_00aa1490)
+  READ @ 0x00aa10c1 (in FUN_00aa10b0)
+  READ @ 0x00aa1118 (in FUN_00aa1110)
+  Total: 20 refs
+
+======================================================================
+Object factory for DAT_011f6080 @ 0x009fd0f0
+======================================================================
+  Function: FUN_009fd0f0 @ 0x009fd0f0, Size: 3 bytes
+
+undefined4 __fastcall FUN_009fd0f0(undefined4 *param_1)
+
+{
+  return *param_1;
+}
+
+
+
+--- Calls FROM Object factory (0x009fd0f0) ---
+  Total: 0 calls
+
+######################################################################
+# PART 2: FUN_00aa4060 ? SBM Free
+######################################################################
+# Called by FUN_00401030 (game delete operator)
+# Is this our hooked free? Or separate?
+
+======================================================================
+SBM free (FUN_00aa4060) @ 0x00aa4060
+======================================================================
+  Function: FUN_00aa4060 @ 0x00aa4060, Size: 236 bytes
+
+void __thiscall FUN_00aa4060(void *this,undefined4 *param_1)
+
+{
+  void *this_00;
+  bool bVar1;
+  int *piVar2;
+  
+  if (param_1 != (undefined4 *)0x0) {
+    if (*(char *)this == '\0') {
+      FUN_00aa42c0(param_1);
+    }
+    else if (*(int *)((int)this + 0x110) == 0) {
+      FUN_00aa42c0(param_1);
+    }
+    else {
+      this_00 = *(void **)(&DAT_011f63b8 + ((uint)param_1 >> 0x18) * 4);
+      if (this_00 != (void *)0x0) {
+        if ((param_1 < *(undefined4 **)((int)this_00 + 4)) ||
+           ((undefined4 *)(*(int *)((int)this_00 + 4) + *(int *)((int)this_00 + 0x50)) <= param_1))
+        {
+          bVar1 = false;
+        }
+        else {
+          bVar1 = true;
+        }
+        if (bVar1) {
+          FUN_00aa6c70(this_00,param_1);
+          return;
+        }
+      }
+      piVar2 = FUN_00aa45a0(this,param_1);
+      if (piVar2 == (int *)0x0) {
+        FUN_00aa42c0(param_1);
+      }
+      else {
+        (**(code **)(*piVar2 + 0xc))(param_1,0);
+      }
+    }
+  }
+  return;
+}
+
+
+
+--- Calls FROM SBM free (0x00aa4060) ---
+  0x00aa4087 -> 0x00aa42c0 FUN_00aa42c0
+  0x00aa40ac -> 0x00aa42c0 FUN_00aa42c0
+  0x00aa4107 -> 0x00aa6c70 FUN_00aa6c70
+  0x00aa4115 -> 0x00aa45a0 FUN_00aa45a0
+  0x00aa4141 -> 0x00aa42c0 FUN_00aa42c0
+  Total: 5 calls
+
+######################################################################
+# PART 3: FUN_00401020 ? Heap Singleton Getter
+######################################################################
+
+======================================================================
+Heap singleton getter @ 0x00401020
+======================================================================
+  Function: FUN_00401020 @ 0x00401020, Size: 10 bytes
+
+undefined * FUN_00401020(void)
+
+{
+  return &DAT_011f6238;
+}
+
+
+
+######################################################################
+# PART 4: Hook Target Functions
+######################################################################
+# Our hooks are on MemoryHeap vtable methods
+# DAT_011f6238 = MemoryHeap singleton
+# vtable[0] = dtor, vtable[1] = alloc, vtable[2] = free, etc.
+# What functions are at those vtable slots?
+
+----------------------------------------------------------------------
+References TO 0x011f6238 (MemoryHeap singleton (DAT_011f6238))
+----------------------------------------------------------------------
+  DATA @ 0x00401023 (in FUN_00401020)
+  DATA @ 0x009ff78d (in FUN_009ff690)
+  DATA @ 0x00a00abf (in FUN_00a00a30)
+  DATA @ 0x00a00b10 (in FUN_00a00a30)
+  DATA @ 0x00a00c6d (in FUN_00a00c20)
+  DATA @ 0x00a00cbe (in FUN_00a00c20)
+  DATA @ 0x00a00d03 (in FUN_00a00c20)
+  DATA @ 0x00a00d48 (in FUN_00a00c20)
+  DATA @ 0x00a00db8 (in FUN_00a00c20)
+  DATA @ 0x00a00e19 (in FUN_00a00c20)
+  DATA @ 0x00a010bb (in FUN_00a01000)
+  DATA @ 0x00a01d74 (in FUN_00a01b00)
+  DATA @ 0x00a01e5b (in FUN_00a01e20)
+  DATA @ 0x00a02e03 (in FUN_00a02d40)
+  DATA @ 0x00a02f86 (in FUN_00a02d40)
+  DATA @ 0x00a03058 (in FUN_00a02d40)
+  DATA @ 0x00a030a2 (in FUN_00a02d40)
+  DATA @ 0x00a0316c (in FUN_00a02d40)
+  DATA @ 0x00a070f1 (in FUN_00a06dd0)
+  DATA @ 0x00a07c9e (in FUN_00a07c60)
+  DATA @ 0x00a07e8d (in FUN_00a07dc0)
+  DATA @ 0x00a086d2 (in FUN_00a080d0)
+  DATA @ 0x00a09094 (in FUN_00a09080)
+  DATA @ 0x00a09144 (in FUN_00a09130)
+  DATA @ 0x00a092ad (in FUN_00a09200)
+  DATA @ 0x00a09312 (in FUN_00a09200)
+  DATA @ 0x00a093b8 (in FUN_00a09330)
+  DATA @ 0x00a093e8 (in FUN_00a09330)
+  DATA @ 0x00a09747 (in FUN_00a09410)
+  DATA @ 0x00a09765 (in FUN_00a09410)
+  DATA @ 0x00a09ef4 (in FUN_00a09410)
+  DATA @ 0x00a09f05 (in FUN_00a09410)
+  DATA @ 0x00a0a138 (in FUN_00a0a130)
+  DATA @ 0x00a0a1f2 (in FUN_00a0a130)
+  DATA @ 0x00a0a2c9 (in FUN_00a0a270)
+  DATA @ 0x00a0a37f (in FUN_00a0a300)
+  DATA @ 0x00a0a3af (in FUN_00a0a300)
+  DATA @ 0x00a0abbf (in FUN_00a0ab70)
+  DATA @ 0x00a0accd (in FUN_00a0ac80)
+  DATA @ 0x00a0ada1 (in FUN_00a0ad40)
+  DATA @ 0x00a0ae14 (in FUN_00a0ad40)
+  DATA @ 0x00a0ae9a (in FUN_00a0ae70)
+  DATA @ 0x00a0b92e (in FUN_00a0b8d0)
+  DATA @ 0x00a0b9d9 (in FUN_00a0b950)
+  DATA @ 0x00a0baad (in FUN_00a0ba50)
+  DATA @ 0x00a0bc62 (in FUN_00a0bbf0)
+  DATA @ 0x00a0bdfb (in FUN_00a0bde0)
+  DATA @ 0x00a0be2f (in FUN_00a0be10)
+  DATA @ 0x00a0be4f (in FUN_00a0be10)
+  DATA @ 0x00a0be8f (in FUN_00a0be70)
+  DATA @ 0x00a0c7dd (in FUN_00a0c7c0)
+  ... (truncated)
+  Total: 51 refs
+
+######################################################################
+# PART 5: FUN_00aa4290 ? Fallback Alloc
+######################################################################
+# Called by FUN_00aa3e40 when pool alloc fails AND when
+# OOM stages exhausted (local_d != 0)
+
+======================================================================
+Fallback alloc (FUN_00aa4290) @ 0x00aa4290
+======================================================================
+  Function: FUN_00aa4290 @ 0x00aa4290, Size: 39 bytes
+
+void * FUN_00aa4290(size_t param_1)
+
+{
+  void *pvVar1;
+  
+  pvVar1 = _malloc(param_1);
+  return pvVar1;
+}
+
+
+
+--- Calls FROM Fallback alloc (0x00aa4290) ---
+  0x00aa429d -> 0x00ecd1c7 _malloc
+  Total: 1 calls
+
+######################################################################
+# PART 6: DAT_011f6118 ? Secondary Heap?
+######################################################################
+
+----------------------------------------------------------------------
+References TO 0x011f6118 (DAT_011f6118 (secondary heap?))
+----------------------------------------------------------------------
+  READ @ 0x00aa20cc (in FUN_00aa20b0)
+  WRITE @ 0x00aa211c (in FUN_00aa20b0)
+  READ @ 0x00aa21ab (in FUN_00aa2170)
+  READ @ 0x00aa202c (in FUN_00aa2020)
+  WRITE @ 0x0086672f (in FUN_00866690)
+  Total: 5 refs
+
+======================================================================
+Factory that creates DAT_011f6080 payload @ 0x009fd0f0
+======================================================================
+  Function: FUN_009fd0f0 @ 0x009fd0f0, Size: 3 bytes
+
+undefined4 __fastcall FUN_009fd0f0(undefined4 *param_1)
+
+{
+  return *param_1;
+}
+
+
+
+######################################################################
+# PART 7: FUN_00aa6aa0 ? Pool-specific alloc
+######################################################################
+
+======================================================================
+Pool alloc (FUN_00aa6aa0) @ 0x00aa6aa0
+======================================================================
+  Function: FUN_00aa6aa0 @ 0x00aa6aa0, Size: 462 bytes
+
+int __fastcall FUN_00aa6aa0(void *param_1)
+
+{
+  uint uVar1;
+  int *piVar2;
+  bool bVar3;
+  uint uVar4;
+  uint local_18;
+  int local_c;
+  int in_stack_fffffff8;
+  int iVar5;
+  
+  FUN_0040fbf0((LONG *)((int)param_1 + 0x20));
+  if (*(int *)((int)param_1 + 8) == 0) {
+    uVar4 = FUN_00aa6db0((int)param_1);
+    if (uVar4 == 0xffffffff) {
+      *(int *)((int)param_1 + 0x24) = *(int *)((int)param_1 + 0x24) + -1;
+      if (*(int *)((int)param_1 + 0x24) != 0) {
+        return in_stack_fffffff8;
+      }
+      *(undefined4 *)((int)param_1 + 0x20) = 0;
+      return in_stack_fffffff8;
+    }
+    local_c = 0;
+    uVar1 = *(uint *)((int)param_1 + 0x40);
+    bVar3 = FUN_00aa6610(param_1,uVar4,&local_c);
+    if (!bVar3) {
+      *(int *)((int)param_1 + 0x24) = *(int *)((int)param_1 + 0x24) + -1;
+      if (*(int *)((int)param_1 + 0x24) != 0) {
+        return in_stack_fffffff8;
+      }
+      *(undefined4 *)((int)param_1 + 0x20) = 0;
+      return in_stack_fffffff8;
+    }
+    *(undefined2 *)(*(int *)((int)param_1 + 0x48) + uVar4 * 2) = 0;
+    for (local_18 = 0; local_18 < (uint)(0x1000 / (ulonglong)uVar1); local_18 = local_18 + 1) {
+      FUN_00aa6e00(param_1,(undefined4 *)(local_18 * *(int *)((int)param_1 + 0x40) + local_c));
+    }
+    *(int *)((int)param_1 + 0x58) = *(int *)((int)param_1 + 0x58) + 1;
+    if (*(uint *)((int)param_1 + 0x44) < *(uint *)((int)param_1 + 0x58)) {
+      *(undefined4 *)((int)param_1 + 0x44) = *(undefined4 *)((int)param_1 + 0x58);
+    }
+  }
+  iVar5 = 0;
+  if (*(int *)((int)param_1 + 8) != 0) {
+    iVar5 = *(int *)((int)param_1 + 8);
+    piVar2 = *(int **)((int)param_1 + 8);
+    *(undefined4 *)((int)param_1 + 8) = *(undefined4 *)(*(int *)((int)param_1 + 8) + 4);
+    FUN_00aa6e60(param_1,piVar2);
+    uVar4 = (uint)(iVar5 - *(int *)((int)param_1 + 4)) >> 0xc;
+    *(short *)(*(int *)((int)param_1 + 0x48) + uVar4 * 2) =
+         *(short *)(*(int *)((int)param_1 + 0x48) + uVar4 * 2) + 1;
+  }
+  *(int *)((int)param_1 + 0x24) = *(int *)((int)param_1 + 0x24) + -1;
+  if (*(int *)((int)param_1 + 0x24) == 0) {
+    *(undefined4 *)((int)param_1 + 0x20) = 0;
+  }
+  return iVar5;
+}
+
+
+
+######################################################################
+# PART 8: FUN_00aa4960 ? Pool Lookup
+######################################################################
+
+======================================================================
+Pool lookup by size @ 0x00aa4960
+======================================================================
+  Function: FUN_00aa4960 @ 0x00aa4960, Size: 238 bytes
+
+/* WARNING: Globals starting with '_' overlap smaller symbols at the same address */
+
+uint __cdecl FUN_00aa4960(uint param_1)
+
+{
+  uint local_14;
+  uint local_10;
+  uint local_c;
+  uint local_8;
+  
+  local_8 = 0;
+  if (param_1 < 300) {
+    if (param_1 < 0x3fd) {
+      local_c = *(uint *)(&DAT_011f67b8 + (param_1 + 0xf & 0xfffffff0));
+    }
+    else {
+      local_c = 0;
+    }
+    local_8 = local_c;
+  }
+  else if (param_1 < 0x200) {
+    if (param_1 < 0x3fd) {
+      local_10 = *(uint *)(&DAT_011f67b8 + (param_1 + 0xf & 0xfffffff0));
+    }
+    else {
+      local_10 = 0;
+    }
+    local_8 = local_10;
+    if (local_10 == 0) {
+      if (param_1 < 0x3fd) {
+        local_14 = *(uint *)(&DAT_011f67b8 + (param_1 + 0x1f & 0xffffffe0));
+      }
+      else {
+        local_14 = 0;
+      }
+      local_8 = local_14;
+    }
+  }
+  else if (param_1 < 0x240) {
+    local_8 = ~-(uint)(0x3fc < param_1) & _DAT_011f69f8;
+  }
+  if (local_8 == 0) {
+    local_8 = 0;
+  }
+  return local_8;
+}
+
+
+
+======================================================================
+ANALYSIS COMPLETE
+======================================================================

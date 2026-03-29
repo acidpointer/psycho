@@ -1,0 +1,574 @@
+PDD Skip Mask Safety Research
+======================================================================
+
+######################################################################
+# PART 1: FUN_00869180 -- skip mask reader
+######################################################################
+# Called with a bit mask (0x10=NiNode, 0x08=Form, 0x04=Texture,
+# 0x02=Anim, 0x01=Generic, 0x20=Last). Returns whether that bit
+# is set in DAT_011de804. Does it MODIFY the mask?
+
+======================================================================
+FUN_00869180 (skip mask check) @ 0x00869180
+======================================================================
+  Function: FUN_00869180 @ 0x00869180, Size: 16 bytes
+
+undefined4 __cdecl FUN_00869180(uint param_1)
+
+{
+  return CONCAT31((int3)((DAT_011de804 & param_1) >> 8),(DAT_011de804 & param_1) != 0);
+}
+
+
+
+----------------------------------------------------------------------
+References TO 0x00869180 (FUN_00869180 callers (skip mask reader))
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x00868def (in FUN_00868d70)
+  UNCONDITIONAL_CALL @ 0x00868e1b (in FUN_00868d70)
+  UNCONDITIONAL_CALL @ 0x00868ebb (in FUN_00868d70)
+  UNCONDITIONAL_CALL @ 0x00868f5b (in FUN_00868d70)
+  UNCONDITIONAL_CALL @ 0x00868fc7 (in FUN_00868d70)
+  UNCONDITIONAL_CALL @ 0x0086904d (in FUN_00868d70)
+  Total: 6 refs
+
+######################################################################
+# PART 2: DAT_011de804 (skip mask) -- all references
+######################################################################
+# Who reads and writes this address directly?
+
+----------------------------------------------------------------------
+References TO 0x011de804 (DAT_011de804 (PDD skip mask))
+----------------------------------------------------------------------
+  READ @ 0x008681dd (in FUN_008681c0)
+  READ @ 0x008681ee (in FUN_008681c0)
+  WRITE @ 0x008681f6 (in FUN_008681c0)
+  READ @ 0x00868229 (in FUN_00868210)
+  WRITE @ 0x0086822f (in FUN_00868210)
+  READ @ 0x00869183 (in FUN_00869180)
+  Total: 6 refs
+
+######################################################################
+# PART 3: Per-frame PDD (FUN_00868850) -- does it use skip mask?
+######################################################################
+# Per-frame PDD uses cascading if-else on queue counts.
+# Does it call FUN_00869180 or read DAT_011de804?
+
+--- Calls FROM Per-frame PDD (FUN_00868850) (0x00868850) ---
+  0x0086887c -> 0x00867f50 FUN_00867f50
+  0x00868899 -> 0x00446ef0 FUN_00446ef0
+  0x008688a0 -> 0x00878360 FUN_00878360
+  0x008688b8 -> 0x00658930 FUN_00658930
+  0x008688cb -> 0x00868250 FUN_00868250
+  0x008688e0 -> 0x00658930 FUN_00658930
+  0x00868918 -> 0x00877a30 FUN_00877a30
+  0x0086892b -> 0x009e98d0 FUN_009e98d0
+  0x00868947 -> 0x00418d20 FUN_00418d20
+  0x00868960 -> 0x004aaf10 FUN_004aaf10
+  0x0086896f -> 0x00658930 FUN_00658930
+  0x00868982 -> 0x00868250 FUN_00868250
+  0x00868997 -> 0x00658930 FUN_00658930
+  0x008689cf -> 0x00877a30 FUN_00877a30
+  0x008689e2 -> 0x009e98d0 FUN_009e98d0
+  0x008689fe -> 0x00418e00 FUN_00418e00
+  0x00868a17 -> 0x004aaf10 FUN_004aaf10
+  0x00868a26 -> 0x00658930 FUN_00658930
+  0x00868a39 -> 0x008694c0 FUN_008694c0
+  0x00868a46 -> 0x005e03d0 FUN_005e03d0
+  0x00868a55 -> 0x00658930 FUN_00658930
+  0x00868a63 -> 0x00658930 FUN_00658930
+  0x00868a9f -> 0x00869260 FUN_00869260
+  0x00868ab0 -> 0x0052aa80 FUN_0052aa80
+  0x00868abf -> 0x00868ce0 FUN_00868ce0
+  0x00868ace -> 0x0045cec0 ~cancellation_token_source
+  0x00868adf -> 0x00658930 FUN_00658930
+  0x00868af2 -> 0x00869420 FUN_00869420
+  0x00868aff -> 0x004dffa0 FUN_004dffa0
+  0x00868b0e -> 0x00658930 FUN_00658930
+  0x00868b21 -> 0x00868250 FUN_00868250
+  0x00868b36 -> 0x00658930 FUN_00658930
+  0x00868b85 -> 0x00877a30 FUN_00877a30
+  0x00868ba9 -> 0x00564d80 FUN_00564d80
+  0x00868bf6 -> 0x004aaf10 FUN_004aaf10
+  0x00868c05 -> 0x00658930 FUN_00658930
+  0x00868c18 -> 0x008694c0 FUN_008694c0
+  0x00868c25 -> 0x005e03d0 FUN_005e03d0
+  0x00868c34 -> 0x0044ddc0 FUN_0044ddc0
+  0x00868c42 -> 0x0044ddc0 FUN_0044ddc0
+  0x00868c78 -> 0x00877a30 FUN_00877a30
+  0x00868c82 -> 0x00401970 FUN_00401970
+  0x00868c90 -> 0x006bf8f0 FUN_006bf8f0
+  0x00868c9e -> 0x0044ddc0 FUN_0044ddc0
+  0x00868cb1 -> 0x00869510 FUN_00869510
+  0x00868cc0 -> 0x008454f0 FUN_008454f0
+  0x00868cc7 -> 0x00867f80 FUN_00867f80
+  Total: 47 calls
+
+######################################################################
+# PART 4: Full PDD (FUN_00868d70) -- mask usage
+######################################################################
+# Does it write/reset DAT_011de804 at any point?
+# Already decompiled in gen_queue_deadlock.py, re-check calls.
+
+--- Calls FROM Full PDD (FUN_00868d70) (0x00868d70) ---
+  0x00868d92 -> 0x00867f70 FUN_00867f70
+  0x00868da3 -> 0x00867f50 FUN_00867f50
+  0x00868def -> 0x00869180 FUN_00869180
+  0x00868dfe -> 0x0078d1f0 FUN_0078d1f0
+  0x00868e0f -> 0x004dffa0 FUN_004dffa0
+  0x00868e14 -> 0x00452530 FUN_00452530
+  0x00868e1b -> 0x00869180 FUN_00869180
+  0x00868e34 -> 0x00868250 FUN_00868250
+  0x00868e45 -> 0x00658930 FUN_00658930
+  0x00868e70 -> 0x00877a30 FUN_00877a30
+  0x00868e91 -> 0x00418d20 FUN_00418d20
+  0x00868ea9 -> 0x005e03d0 FUN_005e03d0
+  0x00868eb4 -> 0x004aaf10 FUN_004aaf10
+  0x00868ebb -> 0x00869180 FUN_00869180
+  0x00868ed4 -> 0x00868250 FUN_00868250
+  0x00868ee5 -> 0x00658930 FUN_00658930
+  0x00868f10 -> 0x00877a30 FUN_00877a30
+  0x00868f31 -> 0x00418e00 FUN_00418e00
+  0x00868f49 -> 0x005e03d0 FUN_005e03d0
+  0x00868f54 -> 0x004aaf10 FUN_004aaf10
+  0x00868f5b -> 0x00869180 FUN_00869180
+  0x00868f81 -> 0x00658930 FUN_00658930
+  0x00868f94 -> 0x00877a30 FUN_00877a30
+  0x00868f9b -> 0x00559450 FUN_00559450
+  0x00868fad -> 0x00877a30 FUN_00877a30
+  0x00868fb4 -> 0x00868ce0 FUN_00868ce0
+  0x00868fc0 -> 0x004dffa0 FUN_004dffa0
+  0x00868fc7 -> 0x00869180 FUN_00869180
+  0x00868fdc -> 0x00868250 FUN_00868250
+  0x00868fed -> 0x00658930 FUN_00658930
+  0x00868ffd -> 0x00877a30 FUN_00877a30
+  0x0086903b -> 0x005e03d0 FUN_005e03d0
+  0x00869046 -> 0x004aaf10 FUN_004aaf10
+  0x0086904d -> 0x00869180 FUN_00869180
+  0x00869073 -> 0x0044ddc0 FUN_0044ddc0
+  0x00869086 -> 0x00877a30 FUN_00877a30
+  0x00869090 -> 0x00401970 FUN_00401970
+  0x0086909e -> 0x008454f0 FUN_008454f0
+  0x008690e4 -> 0x008694c0 FUN_008694c0
+  0x008690f1 -> 0x005e03d0 FUN_005e03d0
+  0x00869100 -> 0x00869420 FUN_00869420
+  0x0086910d -> 0x004dffa0 FUN_004dffa0
+  0x0086911c -> 0x008694c0 FUN_008694c0
+  0x00869129 -> 0x005e03d0 FUN_005e03d0
+  0x00869138 -> 0x00869560 FUN_00869560
+  0x00869145 -> 0x004dffa0 FUN_004dffa0
+  0x00869154 -> 0x00869510 FUN_00869510
+  0x00869163 -> 0x008454f0 FUN_008454f0
+  0x00869171 -> 0x00867f80 FUN_00867f80
+  Total: 49 calls
+
+######################################################################
+# PART 5: HeapCompact dispatcher -- mask interaction
+######################################################################
+# HeapCompact runs stages 0..=trigger. Stage 4 = PDD purge.
+# Does it write the skip mask before calling PDD?
+
+======================================================================
+HeapCompact frame check (Phase 6) @ 0x00878080
+======================================================================
+  Function: FUN_00878080 @ 0x00878080, Size: 137 bytes
+
+void __fastcall FUN_00878080(int param_1)
+
+{
+  bool bVar1;
+  undefined *puVar2;
+  int iVar3;
+  uint uVar4;
+  undefined4 uVar5;
+  char *pcVar6;
+  uint local_c;
+  char local_5;
+  
+  bVar1 = FUN_0044b130((LPCRITICAL_SECTION)(param_1 + 0x14));
+  if (bVar1) {
+    puVar2 = FUN_00401020();
+    iVar3 = FUN_00878110((int)puVar2);
+    if (iVar3 != 0) {
+      local_5 = '\x01';
+      local_c = 0;
+      while( true ) {
+        puVar2 = FUN_00401020();
+        uVar4 = FUN_00878110((int)puVar2);
+        if (uVar4 < local_c) break;
+        pcVar6 = &local_5;
+        uVar5 = 0;
+        uVar4 = local_c;
+        puVar2 = FUN_00401020();
+        FUN_00866a90(puVar2,uVar5,uVar4,pcVar6);
+        local_c = local_c + 1;
+      }
+      puVar2 = FUN_00401020();
+      FUN_00878130((int)puVar2);
+    }
+    FUN_0082f1f0((LPCRITICAL_SECTION)(param_1 + 0x14));
+  }
+  return;
+}
+
+
+
+--- Calls FROM HeapCompact frame check (0x00878080) ---
+  0x0087808f -> 0x0044b130 FUN_0044b130
+  0x0087809d -> 0x00401020 FUN_00401020
+  0x008780a4 -> 0x00878110 FUN_00878110
+  0x008780c3 -> 0x00401020 FUN_00401020
+  0x008780ca -> 0x00878110 FUN_00878110
+  0x008780de -> 0x00401020 FUN_00401020
+  0x008780e5 -> 0x00866a90 FUN_00866a90
+  0x008780ec -> 0x00401020 FUN_00401020
+  0x008780f3 -> 0x00878130 FUN_00878130
+  0x008780fe -> 0x0082f1f0 FUN_0082f1f0
+  Total: 10 calls
+
+######################################################################
+# PART 6: Cell transition mask interaction
+######################################################################
+# FUN_0093bea0 calls FUN_00868d70. Does it write DAT_011de804?
+# Already checked calls in gen_queue_deadlock.py, verify no
+# reference to 0x011de804.
+
+======================================================================
+CellTransitionHandler (FUN_008774a0) @ 0x008774a0
+======================================================================
+  Function: FUN_008774a0 @ 0x008774a0, Size: 561 bytes
+
+void __thiscall FUN_008774a0(void *this,char param_1)
+
+{
+  undefined1 uVar1;
+  bool bVar2;
+  int iVar3;
+  void *this_00;
+  int *piVar4;
+  int *piVar5;
+  undefined *puVar6;
+  undefined4 local_20;
+  undefined4 local_18;
+  
+  uVar1 = FUN_004f1540((int)this);
+  FUN_004f15a0(this,0);
+  FUN_00877700((int)DAT_011dea3c);
+  bVar2 = FUN_007d6bd0(DAT_011ddf38,'\0');
+  FUN_00453a70();
+  FUN_00ad8780();
+  FUN_008324e0('\0');
+  iVar3 = FUN_008d6f30((int)DAT_011dea3c);
+  if (iVar3 != 0) {
+    piVar4 = DAT_011dea3c;
+    this_00 = (void *)FUN_008d6f30((int)DAT_011dea3c);
+    FUN_0054ca90(this_00,piVar4);
+  }
+  piVar4 = (int *)FUN_00950bb0(DAT_011dea3c,'\x01');
+  if (piVar4 == (int *)0x0) {
+    local_18 = 0;
+  }
+  else {
+    local_18 = (**(code **)(*piVar4 + 0xc))();
+  }
+  if (local_18 != 0) {
+    iVar3 = FUN_009611e0(local_18);
+    if (iVar3 != 0) {
+      piVar5 = (int *)FUN_009611e0(local_18);
+      (**(code **)(*piVar5 + 0xe8))(piVar4);
+    }
+  }
+  piVar4 = (int *)FUN_00950bb0(DAT_011dea3c,'\0');
+  if (piVar4 == (int *)0x0) {
+    local_20 = 0;
+  }
+  else {
+    local_20 = (**(code **)(*piVar4 + 0xc))();
+  }
+  if (local_20 != 0) {
+    iVar3 = FUN_009611e0(local_20);
+    if (iVar3 != 0) {
+      piVar5 = (int *)FUN_009611e0(local_20);
+      (**(code **)(*piVar5 + 0xe8))(piVar4);
+    }
+  }
+  FUN_004539a0(DAT_011dea10,'\0','\0');
+  FUN_007037c0(DAT_011dea10,0x7fffffff);
+  FUN_0061cc40(DAT_011dea10,0x7fffffff);
+  puVar6 = FUN_006c0720();
+  FUN_006c09f0(puVar6);
+  FUN_00868d70('\0');
+  FUN_00c459d0('\0');
+  (**(code **)(*DAT_011dea3c + 0x1cc))(0,0);
+  FUN_0084a840(DAT_011ddf38);
+  FUN_00970d50(0x11e0e80);
+  FUN_004614e0(DAT_011c3f2c);
+  iVar3 = FUN_00b4f5c0();
+  FUN_00b631d0(iVar3);
+  FUN_0040fbe0();
+  FUN_00706320();
+  FUN_0045ac80((int)DAT_011dea10);
+  if (param_1 != '\0') {
+    FUN_007053f0();
+  }
+  FUN_007d6bd0(DAT_011ddf38,bVar2);
+  FUN_008776e0((int)DAT_011dea0c);
+  FUN_004f15a0(DAT_011dea0c,uVar1);
+  return;
+}
+
+
+
+--- Calls FROM CellTransitionHandler (0x008774a0) ---
+  0x008774ac -> 0x004f1540 FUN_004f1540
+  0x008774b9 -> 0x004f15a0 FUN_004f15a0
+  0x008774c4 -> 0x00877700 FUN_00877700
+  0x008774d1 -> 0x007d6bd0 FUN_007d6bd0
+  0x008774db -> 0x00453a70 FUN_00453a70
+  0x008774e2 -> 0x00ad8780 FUN_00ad8780
+  0x008774e9 -> 0x008324e0 FUN_008324e0
+  0x008774f7 -> 0x008d6f30 FUN_008d6f30
+  0x0087750c -> 0x008d6f30 FUN_008d6f30
+  0x00877513 -> 0x0054ca90 FUN_0054ca90
+  0x00877520 -> 0x00950bb0 FUN_00950bb0
+  0x00877556 -> 0x009611e0 FUN_009611e0
+  0x00877562 -> 0x009611e0 FUN_009611e0
+  0x00877586 -> 0x00950bb0 FUN_00950bb0
+  0x008775bc -> 0x009611e0 FUN_009611e0
+  0x008775c8 -> 0x009611e0 FUN_009611e0
+  0x008775ee -> 0x004539a0 FUN_004539a0
+  0x008775fe -> 0x007037c0 FUN_007037c0
+  0x0087760e -> 0x0061cc40 FUN_0061cc40
+  0x00877613 -> 0x006c0720 FUN_006c0720
+  0x0087761a -> 0x006c09f0 FUN_006c09f0
+  0x00877621 -> 0x00868d70 FUN_00868d70
+  0x0087762b -> 0x00c459d0 FUN_00c459d0
+  0x00877653 -> 0x0084a840 FUN_0084a840
+  0x0087765d -> 0x00970d50 FUN_00970d50
+  0x00877668 -> 0x004614e0 FUN_004614e0
+  0x0087766d -> 0x00b4f5c0 FUN_00b4f5c0
+  0x00877674 -> 0x00b631d0 FUN_00b631d0
+  0x00877679 -> 0x0040fbe0 FUN_0040fbe0
+  0x00877680 -> 0x00706320 FUN_00706320
+  0x0087768e -> 0x0045ac80 FUN_0045ac80
+  0x0087769b -> 0x007053f0 FUN_007053f0
+  0x008776ab -> 0x007d6bd0 FUN_007d6bd0
+  0x008776b6 -> 0x008776e0 FUN_008776e0
+  0x008776c6 -> 0x004f15a0 FUN_004f15a0
+  Total: 35 calls
+
+######################################################################
+# PART 7: Loading-related mask writes
+######################################################################
+# Check FUN_00877700 (loading wait function) and FUN_008782b0
+# (vanilla per-frame cleanup) for mask references.
+
+======================================================================
+Loading wait (FUN_00877700) @ 0x00877700
+======================================================================
+  Function: FUN_00877700 @ 0x00877700, Size: 30 bytes
+
+void __fastcall FUN_00877700(int param_1)
+
+{
+  FUN_00ad8da0((void *)(param_1 + 0x77c),1000);
+  return;
+}
+
+
+
+--- Calls FROM Loading wait (0x00877700) ---
+  0x00877715 -> 0x00ad8da0 FUN_00ad8da0
+  Total: 1 calls
+
+######################################################################
+# PART 8: Mask-adjacent functions
+######################################################################
+# FUN_00869180 reads the mask. Nearby functions may write it.
+# Check FUN_008691a0 and neighbors.
+
+======================================================================
+FUN_008691a0 (near skip mask reader) @ 0x008691a0
+======================================================================
+  Function: FUN_00869190 @ 0x00869190, Size: 29 bytes
+  NOTE: Requested 0x008691a0 is inside FUN_00869190 (entry at 0x00869190)
+
+void __cdecl FUN_00869190(undefined1 param_1)
+
+{
+  int unaff_FS_OFFSET;
+  
+  *(undefined1 *)(*(int *)(*(int *)(unaff_FS_OFFSET + 0x2c) + _tls_index * 4) + 0x298) = param_1;
+  return;
+}
+
+
+
+======================================================================
+FUN_00869160 (near skip mask reader) @ 0x00869160
+======================================================================
+  Function: FUN_00868d70 @ 0x00868d70, Size: 1037 bytes
+  NOTE: Requested 0x00869160 is inside FUN_00868d70 (entry at 0x00868d70)
+
+void __cdecl FUN_00868d70(char param_1)
+
+{
+  undefined1 uVar1;
+  char cVar2;
+  undefined2 uVar3;
+  uint uVar4;
+  undefined2 extraout_var;
+  undefined4 *puVar5;
+  undefined2 extraout_var_00;
+  undefined2 extraout_var_01;
+  int iVar6;
+  int *piVar7;
+  undefined2 extraout_var_02;
+  int unaff_FS_OFFSET;
+  uint local_2c;
+  uint local_24;
+  uint local_1c;
+  uint local_10;
+  char local_5;
+  
+  if (DAT_011de958 == '\0') {
+    local_5 = '\x01';
+    if (param_1 == '\0') {
+      FUN_00867f50();
+    }
+    else {
+      local_5 = FUN_00867f70();
+    }
+    if (local_5 != '\0') {
+      DAT_011de958 = 1;
+      uVar1 = *(undefined1 *)(*(int *)(*(int *)(unaff_FS_OFFSET + 0x2c) + _tls_index * 4) + 0x298);
+      *(undefined1 *)(*(int *)(*(int *)(unaff_FS_OFFSET + 0x2c) + _tls_index * 4) + 0x298) = 0;
+      uVar4 = FUN_00869180(0x10);
+      if (((uVar4 & 0xff) == 0) && (cVar2 = FUN_0078d1f0(), cVar2 != '\0')) {
+        FUN_004dffa0(0x11de828);
+        FUN_00452530();
+      }
+      uVar4 = FUN_00869180(8);
+      if (((uVar4 & 0xff) == 0) && (cVar2 = FUN_00868250(DAT_011c3b3c), cVar2 != '\0')) {
+        uVar3 = FUN_00658930(0x11de808);
+        for (local_10 = 0; local_10 < CONCAT22(extraout_var,uVar3); local_10 = local_10 + 1) {
+          puVar5 = (undefined4 *)FUN_00877a30(&DAT_011de808,local_10);
+          if ((void *)*puVar5 != (void *)0x0) {
+            FUN_00418d20((void *)*puVar5,1);
+          }
+        }
+        FUN_005e03d0(0x11de808);
+        FUN_004aaf10(DAT_011c3b3c);
+      }
+      uVar4 = FUN_00869180(4);
+      if (((uVar4 & 0xff) == 0) && (cVar2 = FUN_00868250(DAT_011c3b3c), cVar2 != '\0')) {
+        uVar3 = FUN_00658930(0x11de910);
+        for (local_1c = 0; local_1c < CONCAT22(extraout_var_00,uVar3); local_1c = local_1c + 1) {
+          puVar5 = (undefined4 *)FUN_00877a30(&DAT_011de910,local_1c);
+          if ((void *)*puVar5 != (void *)0x0) {
+            FUN_00418e00((void *)*puVar5,1);
+          }
+        }
+        FUN_005e03d0(0x11de910);
+        FUN_004aaf10(DAT_011c3b3c);
+      }
+      uVar4 = FUN_00869180(2);
+      if ((uVar4 & 0xff) == 0) {
+        for (local_24 = 0; uVar3 = FUN_00658930(0x11de888),
+            local_24 < CONCAT22(extraout_var_01,uVar3); local_24 = local_24 + 1) {
+          puVar5 = (undefined4 *)FUN_00877a30(&DAT_011de888,local_24);
+          iVar6 = FUN_00559450(puVar5);
+          if (iVar6 != 0) {
+            piVar7 = (int *)FUN_00877a30(&DAT_011de888,local_24);
+            FUN_00868ce0(*piVar7);
+          }
+        }
+        FUN_004dffa0(0x11de888);
+      }
+      uVar4 = FUN_00869180(1);
+      if (((uVar4 & 0xff) == 0) && (cVar2 = FUN_00868250(DAT_011c3b3c), cVar2 != '\0')) {
+        while (uVar3 = FUN_00658930(0x11de874), CONCAT22(extraout_var_02,uVar3) != 0) {
+          piVar7 = (int *)FUN_00877a30(&DAT_011de874,0);
+          if ((int *)*piVar7 != (int *)0x0) {
+            (**(code **)(*(int *)*piVar7 + 0x10))(1);
+          }
+        }
+        FUN_005e03d0(0x11de874);
+        FUN_004aaf10(DAT_011c3b3c);
+      }
+      uVar4 = FUN_00869180(0x20);
+      if ((uVar4 & 0xff) == 0) {
+        for (local_2c = 0; uVar4 = FUN_0044ddc0(0x11de924), local_2c < uVar4;
+            local_2c = local_2c + 1) {
+          piVar7 = (int *)FUN_00877a30(&DAT_011de924,local_2c);
+          FUN_00401970((int *)(*piVar7 + 0x1c));
+        }
+        FUN_008454f0(&DAT_011de924,'\x01');
+      }
+      *(undefined1 *)(*(int *)(*(int *)(unaff_FS_OFFSET + 0x2c) + _tls_index * 4) + 0x298) = uVar1;
+      if (*(char *)(*(int *)(*(int *)(unaff_FS_OFFSET + 0x2c) + _tls_index * 4) + 0x298) != '\0') {
+        FUN_008694c0(&DAT_011de8bc,&DAT_011de874);
+        FUN_005e03d0(0x11de8bc);
+        FUN_00869420(&DAT_011de848,&DAT_011de888);
+        FUN_004dffa0(0x11de848);
+        FUN_008694c0(&DAT_011de838,&DAT_011de910);
+        FUN_005e03d0(0x11de838);
+        FUN_00869560(&DAT_011de858,&DAT_011de828);
+        FUN_004dffa0(0x11de858);
+        FUN_00869510(&DAT_011de898,&DAT_011de924);
+        FUN_008454f0(&DAT_011de898,'\x01');
+      }
+      DAT_011de958 = '\0';
+      FUN_00867f80();
+    }
+  }
+  return;
+}
+
+
+
+######################################################################
+# PART 9: FUN_00868d10 (called at 0x0086eae4, right after per-frame PDD)
+######################################################################
+# This is called immediately after FUN_00868850 in the main loop.
+# Does it interact with the skip mask?
+
+======================================================================
+FUN_00868d10 (post per-frame PDD) @ 0x00868d10
+======================================================================
+  Function: FUN_00868d10 @ 0x00868d10, Size: 83 bytes
+
+void FUN_00868d10(void)
+
+{
+  char cVar1;
+  undefined2 uVar2;
+  undefined2 extraout_var;
+  
+  uVar2 = FUN_00658930(0x11de828);
+  if (CONCAT22(extraout_var,uVar2) != 0) {
+    cVar1 = FUN_00868250(DAT_011c3b3c);
+    if (cVar1 != '\0') {
+      FUN_00867f50();
+      FUN_004dffa0(0x11de828);
+      FUN_004aaf10(DAT_011c3b3c);
+      FUN_00867f80();
+    }
+  }
+  return;
+}
+
+
+
+--- Calls FROM FUN_00868d10 (0x00868d10) ---
+  0x00868d18 -> 0x00658930 FUN_00658930
+  0x00868d27 -> 0x00868250 FUN_00868250
+  0x00868d3a -> 0x00867f50 FUN_00867f50
+  0x00868d47 -> 0x004dffa0 FUN_004dffa0
+  0x00868d52 -> 0x004aaf10 FUN_004aaf10
+  0x00868d59 -> 0x00867f80 FUN_00867f80
+  Total: 6 calls
+
+======================================================================
+ANALYSIS COMPLETE
+======================================================================

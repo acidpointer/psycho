@@ -1,0 +1,367 @@
+Loading Memory Flow Research
+======================================================================
+
+######################################################################
+# PART 1: Vanilla MemoryHeap::Allocate
+######################################################################
+# Our hooks replace alloc/free. What did the VANILLA alloc do?
+# The hooked functions are at the vtable entries.
+# MemoryHeap vtable at heap_singleton (0x011F6238)
+
+----------------------------------------------------------------------
+References TO 0x00866a90 (OOM stage executor callers)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x008780e5 (in FUN_00878080)
+  UNCONDITIONAL_CALL @ 0x00aa3fe6 (in FUN_00aa3e40)
+  UNCONDITIONAL_CALL @ 0x00aa5e78 (in FUN_00aa5e30)
+  UNCONDITIONAL_CALL @ 0x00aa5f1c (in FUN_00aa5ec0)
+  Total: 4 refs
+
+######################################################################
+# PART 2: Large Allocation Paths (terrain LOD)
+######################################################################
+# 22369768 bytes = 21.3MB. This is TESObjectLAND terrain data.
+# Who allocates this size? What function?
+
+======================================================================
+TESObjectLAND related (from FindCellToUnload chain) @ 0x00586170
+======================================================================
+  Function: FUN_00586170 @ 0x00586170, Size: 50 bytes
+
+undefined4 __fastcall FUN_00586170(void *param_1)
+
+{
+  int iVar1;
+  void *pvVar2;
+  undefined4 uVar3;
+  
+  iVar1 = FUN_00586390(param_1,1);
+  if (iVar1 == 0) {
+    uVar3 = *(undefined4 *)((int)param_1 + 0x3c);
+  }
+  else {
+    pvVar2 = (void *)FUN_00586390(param_1,1);
+    uVar3 = FUN_00586170(pvVar2);
+  }
+  return uVar3;
+}
+
+
+
+######################################################################
+# PART 3: HeapCompact Trigger Writers
+######################################################################
+
+----------------------------------------------------------------------
+References TO 0x011f636c (HEAP_COMPACT_TRIGGER (who writes besides us?))
+----------------------------------------------------------------------
+  Total: 0 refs
+
+######################################################################
+# PART 4: MemoryHeap Internals
+######################################################################
+
+======================================================================
+Near OOM executor (possible alloc function) @ 0x00866800
+======================================================================
+  Function: FUN_00866770 @ 0x00866770, Size: 796 bytes
+  NOTE: Requested 0x00866800 is inside FUN_00866770 (entry at 0x00866770)
+
+void __fastcall FUN_00866770(void *param_1)
+
+{
+  FUN_00aa3cc0(param_1,8,0x600000,"Pool 8");
+  FUN_00aa3cc0(param_1,0xc,0x500000,"Pool 12");
+  FUN_00aa3cc0(param_1,0x10,0x400000,"Pool 16");
+  FUN_00aa3cc0(param_1,0x14,0x400000,"Pool 20");
+  FUN_00aa3cc0(param_1,0x18,0x800000,"Pool 24");
+  FUN_00aa3cc0(param_1,0x1c,0x400000,"Pool 28");
+  FUN_00aa3cc0(param_1,0x20,0x800000,"Pool 32");
+  FUN_00aa3cc0(param_1,0x24,0x300000,"Pool 36");
+  FUN_00aa3cc0(param_1,0x28,0x200000,"Pool 40");
+  FUN_00aa3cc0(param_1,0x2c,0x400000,"Pool 44");
+  FUN_00aa3cc0(param_1,0x30,0x200000,"Pool 48");
+  FUN_00aa3cc0(param_1,0x34,0x300000,"Pool 52");
+  FUN_00aa3cc0(param_1,0x38,0x100000,"Pool 56");
+  FUN_00aa3cc0(param_1,0x40,0x200000,"Pool 64");
+  FUN_00aa3cc0(param_1,0x48,0xd00000,"Pool 72");
+  FUN_00aa3cc0(param_1,0x4c,0x100000,"Pool 76");
+  FUN_00aa3cc0(param_1,0x50,0x300000,"Pool 80");
+  FUN_00aa3cc0(param_1,0x5c,0x200000,"Pool 92");
+  FUN_00aa3cc0(param_1,0x60,0xf00000,"Pool 96");
+  FUN_00aa3cc0(param_1,100,0x100000,"Pool 100");
+  FUN_00aa3cc0(param_1,0x68,0x400000,"Pool 104");
+  FUN_00aa3cc0(param_1,0x78,0x400000,"Pool 120");
+  FUN_00aa3cc0(param_1,0x80,0x100000,"Pool 128");
+  FUN_00aa3cc0(param_1,0xa0,0x200000,"Pool 160");
+  FUN_00aa3cc0(param_1,0xc0,0x200000,"Pool 192");
+  FUN_00aa3cc0(param_1,200,0x300000,"Pool 200");
+  FUN_00aa3cc0(param_1,0xd0,0x300000,"Pool 208");
+  FUN_00aa3cc0(param_1,0xf0,0x300000,"Pool 240");
+  FUN_00aa3cc0(param_1,0x100,0x100000,"Pool 256");
+  FUN_00aa3cc0(param_1,0x110,0x200000,"Pool 272");
+  FUN_00aa3cc0(param_1,0x120,0x300000,"Pool 288");
+  FUN_00aa3cc0(param_1,400,0x100000,"Pool 400");
+  FUN_00aa3cc0(param_1,0x1c0,0x100000,"Pool 448");
+  FUN_00aa3cc0(param_1,0x1e0,0x400000,"Pool 480");
+  FUN_00aa3cc0(param_1,0x1fc,0x400000,"Pool 508");
+  FUN_00aa3cc0(param_1,0x240,0x200000,"Pool 576");
+  FUN_00aa3cc0(param_1,0x254,0x100000,"Pool 596");
+  return;
+}
+
+
+
+======================================================================
+Before OOM (possible alloc entry) @ 0x00866700
+======================================================================
+  Function: FUN_00866690 @ 0x00866690, Size: 211 bytes
+  NOTE: Requested 0x00866700 is inside FUN_00866690 (entry at 0x00866690)
+
+void FUN_00866690(void)
+
+{
+  uint uVar1;
+  void *this;
+  undefined4 *puVar2;
+  int *piVar3;
+  int *unaff_FS_OFFSET;
+  undefined4 local_2c;
+  undefined4 local_28;
+  int local_10;
+  undefined1 *puStack_c;
+  int local_8;
+  
+  local_8 = 0xffffffff;
+  puStack_c = &LAB_00f13b26;
+  local_10 = *unaff_FS_OFFSET;
+  uVar1 = DAT_011c16bc ^ (uint)&stack0xfffffffc;
+  *unaff_FS_OFFSET = (int)&local_10;
+  this = (void *)FUN_00401000(8);
+  local_8 = 0;
+  if (this == (void *)0x0) {
+    local_2c = 0;
+  }
+  else {
+    puVar2 = (undefined4 *)FUN_00401000(4);
+    local_8._0_1_ = 1;
+    if (puVar2 == (undefined4 *)0x0) {
+      local_28 = 0;
+    }
+    else {
+      local_28 = FUN_00aa2230(puVar2);
+    }
+    local_8 = (uint)local_8._1_3_ << 8;
+    local_2c = FUN_00aa21d0(this,local_28);
+  }
+  local_8 = 0xffffffff;
+  DAT_011f6118 = local_2c;
+  FUN_00aa2020();
+  piVar3 = (int *)FID_conflict__Immortalize<class_std::_Generic_error_category>();
+  (**(code **)(*piVar3 + 4))(0,0,0,uVar1);
+  *unaff_FS_OFFSET = local_10;
+  return;
+}
+
+
+
+######################################################################
+# PART 5: Loading Flag (0x011DEA2B) Writers
+######################################################################
+
+----------------------------------------------------------------------
+References TO 0x011dea2b (LOADING_FLAG writers)
+----------------------------------------------------------------------
+  WRITE @ 0x0086e6e1 (in FUN_0086e650)
+  READ @ 0x0086e771 (in FUN_0086e650)
+  WRITE @ 0x0086e7c9 (in FUN_0086e650)
+  READ @ 0x0086e871 (in FUN_0086e650)
+  READ @ 0x0086e8e0 (in FUN_0086e650)
+  READ @ 0x0086e90f (in FUN_0086e650)
+  READ @ 0x0086e93d (in FUN_0086e650)
+  READ @ 0x0086ea0e (in FUN_0086e650)
+  READ @ 0x0086ea5a (in FUN_0086e650)
+  READ @ 0x0086eae9 (in FUN_0086e650)
+  READ @ 0x0086ec1d (in FUN_0086e650)
+  READ @ 0x0086ed1f (in FUN_0086e650)
+  READ @ 0x0086ee0c (in FUN_0086e650)
+  READ @ 0x0086f199 (in FUN_0086f190)
+  READ @ 0x0086f281 (in FUN_0086f260)
+  READ @ 0x0086f2e5 (in FUN_0086f260)
+  READ @ 0x0086f457 (in FUN_0086f450)
+  READ @ 0x0086f4fc (in FUN_0086f450)
+  READ @ 0x0086f7ed (in FUN_0086f6a0)
+  READ @ 0x0086f95f (in FUN_0086f940)
+  READ @ 0x0086fbe8 (in FUN_0086fbe0)
+  READ @ 0x0086fc69 (in FUN_0086fc60)
+  READ @ 0x0086fced (in FUN_0086fc60)
+  READ @ 0x0086f8b0 (in FUN_0086f890)
+  READ @ 0x0086f90c (in FUN_0086f890)
+  READ @ 0x009443c7 (in FUN_009443c0)
+  Total: 26 refs
+
+######################################################################
+# PART 6: DeferredCleanupSmall (FUN_00878250) ? ALL callers
+######################################################################
+
+----------------------------------------------------------------------
+References TO 0x00878250 (DeferredCleanupSmall callers)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x004560a7 (in FUN_004556d0)
+  UNCONDITIONAL_CALL @ 0x008782cd (in FUN_008782b0)
+  UNCONDITIONAL_CALL @ 0x0093cf24 (in FUN_0093cdf0)
+  UNCONDITIONAL_CALL @ 0x0093d62a (in FUN_0093d500)
+  UNCONDITIONAL_CALL @ 0x005b6cfc (in FUN_005b6cd0)
+  Total: 5 refs
+
+######################################################################
+# PART 7: Vanilla Per-Frame Cleanup (FUN_008782b0)
+######################################################################
+# Called from main loop. Does it call DeferredCleanupSmall?
+
+======================================================================
+Vanilla per-frame cleanup @ 0x008782b0
+======================================================================
+  Function: FUN_008782b0 @ 0x008782b0, Size: 130 bytes
+
+void FUN_008782b0(void)
+
+{
+  char cVar1;
+  int iVar2;
+  void *this;
+  undefined1 local_10 [5];
+  char local_b;
+  
+  FUN_00878160((int)local_10,'\x01',1,'\x01');
+  FUN_00878250(local_b);
+  cVar1 = FUN_00878340(DAT_011dea3c);
+  if (cVar1 != '\0') {
+    iVar2 = FUN_00652110();
+    if (iVar2 != 0) {
+      iVar2 = FUN_00652110();
+      cVar1 = FUN_00529ea0(iVar2);
+      if (cVar1 != '\0') {
+        iVar2 = FUN_00a09030(0x40c);
+        if (iVar2 == 0) {
+          cVar1 = '\0';
+          this = (void *)FUN_00652110();
+          FUN_00650a30(this,cVar1);
+        }
+      }
+    }
+  }
+  FUN_00878200((int)local_10);
+  return;
+}
+
+
+
+--- Calls FROM Vanilla per-frame cleanup (0x008782b0) ---
+  0x008782c0 -> 0x00878160 FUN_00878160
+  0x008782cd -> 0x00878250 FUN_00878250
+  0x008782db -> 0x00878340 FUN_00878340
+  0x008782e7 -> 0x00652110 FUN_00652110
+  0x008782f0 -> 0x00652110 FUN_00652110
+  0x008782f7 -> 0x00529ea0 FUN_00529ea0
+  0x00878308 -> 0x00a09030 FUN_00a09030
+  0x00878316 -> 0x00652110 FUN_00652110
+  0x0087831d -> 0x00650a30 FUN_00650a30
+  0x00878326 -> 0x00878200 FUN_00878200
+  Total: 10 calls
+
+######################################################################
+# PART 8: BSTask/IOManager during loading
+######################################################################
+# During coc, BSTaskManagerThread loads textures, models, terrain.
+# These allocations go through our gheap_alloc.
+# What BSTask types allocate the most?
+
+======================================================================
+QueuedReference process (near crash addr) @ 0x00545030
+======================================================================
+  Function: FUN_00545030 @ 0x00545030, Size: 411 bytes
+
+void __fastcall FUN_00545030(int param_1)
+
+{
+  int iVar1;
+  int *piVar2;
+  undefined4 uVar3;
+  int *unaff_FS_OFFSET;
+  cancellation_token_source local_1c [4];
+  _Ref_count_obj<struct_Concurrency::details::_ExceptionHolder> *local_18;
+  int local_14;
+  int local_10;
+  undefined1 *puStack_c;
+  undefined4 local_8;
+  
+  local_8 = 0xffffffff;
+  puStack_c = &LAB_00ef5f78;
+  local_10 = *unaff_FS_OFFSET;
+  *unaff_FS_OFFSET = (int)&local_10;
+  if (*(int *)(param_1 + 0xc4) != 0) {
+    FUN_00470470((undefined4 *)(*(int *)(param_1 + 0xc4) + 0x4c));
+    FUN_00470470((undefined4 *)(*(int *)(param_1 + 0xc4) + 0x54));
+    local_14 = FUN_004b9ba0(*(int *)(param_1 + 0xc4) + 0x3c);
+    while (local_14 != 0) {
+      FUN_00633c90(local_1c,0);
+      local_8 = 0;
+      local_18 = (_Ref_count_obj<struct_Concurrency::details::_ExceptionHolder> *)0x0;
+      FUN_00559120((void *)(*(int *)(param_1 + 0xc4) + 0x3c),&local_14,&local_18,local_1c);
+      if ((local_18 != (_Ref_count_obj<struct_Concurrency::details::_ExceptionHolder> *)0x0) &&
+         (iVar1 = FUN_00559450((undefined4 *)local_1c), iVar1 != 0)) {
+        iVar1 = FUN_00559450((undefined4 *)local_1c);
+        iVar1 = FUN_006629f0(iVar1);
+        iVar1 = FUN_00726070(iVar1);
+        if (iVar1 == 2) {
+          std::_Ref_count_obj<struct_Concurrency::details::_ExceptionHolder>::_Destroy(local_18);
+        }
+      }
+      local_8 = 0xffffffff;
+      Concurrency::cancellation_token_source::~cancellation_token_source(local_1c);
+    }
+    iVar1 = FUN_00559450(*(undefined4 **)(param_1 + 0xc4));
+    if (iVar1 != 0) {
+      FUN_00545c10(param_1);
+      iVar1 = FUN_00559450(*(undefined4 **)(param_1 + 0xc4));
+      piVar2 = (int *)FUN_009611e0(iVar1);
+      if (piVar2 != (int *)0x0) {
+        uVar3 = FUN_00559450(*(undefined4 **)(param_1 + 0xc4));
+        (**(code **)(*piVar2 + 0xe8))(uVar3);
+      }
+    }
+    if (*(void **)(param_1 + 0xc4) != (void *)0x0) {
+      FUN_005451d0(*(void **)(param_1 + 0xc4),1);
+    }
+    *(undefined4 *)(param_1 + 0xc4) = 0;
+  }
+  *unaff_FS_OFFSET = local_10;
+  return;
+}
+
+
+
+--- Calls FROM QueuedReference process (0x00545030) ---
+  0x00545074 -> 0x00470470 FUN_00470470
+  0x00545085 -> 0x00470470 FUN_00470470
+  0x00545096 -> 0x004b9ba0 FUN_004b9ba0
+  0x005450ad -> 0x00633c90 FUN_00633c90
+  0x005450d8 -> 0x00559120 FUN_00559120
+  0x005450e6 -> 0x00559450 FUN_00559450
+  0x005450f2 -> 0x00559450 FUN_00559450
+  0x005450f9 -> 0x006629f0 FUN_006629f0
+  0x00545104 -> 0x00726070 FUN_00726070
+  0x00545111 -> 0x00569990 _Destroy
+  0x00545120 -> 0x0045cec0 ~cancellation_token_source
+  0x00545133 -> 0x00559450 FUN_00559450
+  0x0054513f -> 0x00545c10 FUN_00545c10
+  0x0054514d -> 0x00559450 FUN_00559450
+  0x00545154 -> 0x009611e0 FUN_009611e0
+  0x0054516b -> 0x00559450 FUN_00559450
+  0x0054519e -> 0x005451d0 FUN_005451d0
+  Total: 17 calls
+
+======================================================================
+ANALYSIS COMPLETE
+======================================================================

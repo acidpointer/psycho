@@ -10,7 +10,7 @@ use std::sync::LazyLock;
 use libpsycho::os::windows::winapi::{patch_nop_call, patch_ret};
 use libpsycho::os::windows::hook::inline::inlinehook::InlineHookContainer;
 
-use super::{crt, game_heap, scrap_heap};
+use super::{crt, gheap, scrap_heap};
 
 // ---- HookGuard: transactional hook installation ----
 
@@ -72,18 +72,30 @@ impl Drop for HookGuard {
 /// Applies patches and installs all heap replacement hooks.
 /// mimalloc is already configured by the time this runs.
 pub fn install_game_heap_hooks() -> anyhow::Result<()> {
+    // Main thread detection uses OS thread ID comparison (is_main_thread_by_tid).
+    // Always correct — no initialization needed. Before TES object is available,
+    // returns false → frees go to mi_free directly (safe, zero quarantine).
+
     // Initialize heap validation cache for routing pre-hook pointers.
     super::heap_validate::init_heap_cache();
 
+    // Main thread ID is set from on_pre_ai (first frame tick) — the ONE
+    // place we're 100% certain is the game's main thread. NOT here,
+    // because install may run on a loader thread.
+
     // Initialize memory pressure relief (triggers LazyLock construction).
-    game_heap::pressure::PressureRelief::instance();
+    gheap::pressure::PressureRelief::instance();
 
     let mut guard = HookGuard::new();
 
     // ---- Game heap: replace GameHeap::Allocate/Free/Msize/Realloc ----
+    //
+    // Routes through gheap::allocator which uses deferred-free GC.
+    // Main-thread frees go to a pending buffer; background GC thread
+    // calls mi_free after N frames. Workers call mi_free directly.
     {
-        use game_heap::statics::*;
-        use game_heap::hooks::*;
+        use gheap::statics::*;
+        use gheap::hooks::*;
 
         GHEAP_ALLOC_HOOK.init("gheap_alloc", GHEAP_ALLOC_ADDR as *mut c_void, hook_gheap_alloc)?;
         GHEAP_FREE_HOOK.init("gheap_free", GHEAP_FREE_ADDR as *mut c_void, hook_gheap_free)?;
@@ -97,35 +109,33 @@ pub fn install_game_heap_hooks() -> anyhow::Result<()> {
         guard.enable_hook("gheap_realloc1", &GHEAP_REALLOC_HOOK_1)?;
         guard.enable_hook("gheap_realloc2", &GHEAP_REALLOC_HOOK_2)?;
 
-        log::info!("[GHEAP] GameHeap fully replaced with mimalloc (alloc/free/realloc/msize)");
+        log::info!("[GHEAP] GameHeap replaced with mimalloc + deferred-free GC");
     }
 
     // ---- Main loop: post-render pressure relief ----
     {
-        use game_heap::statics::*;
-        use game_heap::hooks::*;
+        use gheap::statics::*;
 
         MAIN_LOOP_MAINTENANCE_HOOK.init(
             "main_loop_maintenance",
             MAIN_LOOP_MAINTENANCE_ADDR as *mut c_void,
-            hook_main_loop_maintenance,
+            gheap::hooks::hook_main_loop_maintenance,
         )?;
         guard.enable_hook("main_loop_maintenance", &MAIN_LOOP_MAINTENANCE_HOOK)?;
-        log::info!("[PRESSURE] Post-render hook installed at 0x{:08X}", MAIN_LOOP_MAINTENANCE_ADDR);
+        log::info!("[PRESSURE] Post-render hook at 0x{:08X}", MAIN_LOOP_MAINTENANCE_ADDR);
     }
 
-    // ---- Per-frame queue drain: boost NiNode drain under pressure ----
+    // ---- Per-frame queue drain: deferred-free frame tick + PDD boost ----
     {
-        use game_heap::statics::*;
-        use game_heap::hooks::*;
+        use gheap::statics::*;
 
         PER_FRAME_QUEUE_DRAIN_HOOK.init(
             "per_frame_queue_drain",
             PER_FRAME_QUEUE_DRAIN_ADDR as *mut c_void,
-            hook_per_frame_queue_drain,
+            gheap::hooks::hook_per_frame_queue_drain,
         )?;
         guard.enable_hook("per_frame_queue_drain", &PER_FRAME_QUEUE_DRAIN_HOOK)?;
-        log::info!("[PRESSURE] Per-frame queue drain hook installed at 0x{:08X}", PER_FRAME_QUEUE_DRAIN_ADDR);
+        log::info!("[GC] Per-frame tick hook at 0x{:08X}", PER_FRAME_QUEUE_DRAIN_ADDR);
     }
 
     // NOTE: CellTransitionHandler (FUN_008774a0) is NOT hooked.
@@ -144,34 +154,32 @@ pub fn install_game_heap_hooks() -> anyhow::Result<()> {
 
     // ---- AI thread synchronization: set/clear AI_ACTIVE flag ----
     {
-        use game_heap::statics::*;
-        use game_heap::hooks::*;
+        use gheap::statics::*;
 
         AI_THREAD_START_HOOK.init(
             "ai_thread_start",
             AI_THREAD_START_ADDR as *mut c_void,
-            hook_ai_thread_start,
+            gheap::hooks::hook_ai_thread_start,
         )?;
         guard.enable_hook("ai_thread_start", &AI_THREAD_START_HOOK)?;
-        log::info!("[SYNC] AI start flag at 0x{:08X}", AI_THREAD_START_ADDR);
 
         AI_THREAD_JOIN_HOOK.init(
             "ai_thread_join",
             AI_THREAD_JOIN_ADDR as *mut c_void,
-            hook_ai_thread_join,
+            gheap::hooks::hook_ai_thread_join,
         )?;
         guard.enable_hook("ai_thread_join", &AI_THREAD_JOIN_HOOK)?;
-        log::info!("[SYNC] AI join flag at 0x{:08X}", AI_THREAD_JOIN_ADDR);
+        log::info!("[SYNC] AI start/join hooks installed");
     }
 
     // ---- PDD: destruction guard around ProcessDeferredDestruction ----
     {
-        use game_heap::statics::*;
+        use gheap::statics::*;
 
         PDD_HOOK.init(
             "pdd",
             PDD_ADDR as *mut c_void,
-            game_heap::pdd_hook::hook_pdd,
+            gheap::pdd_hook::hook_pdd,
         )?;
         guard.enable_hook("pdd", &PDD_HOOK)?;
         log::info!("[SYNC] PDD hook installed at 0x{:08X}", PDD_ADDR);
@@ -179,19 +187,19 @@ pub fn install_game_heap_hooks() -> anyhow::Result<()> {
 
     // ---- Texture cache: dead set hooks ----
     {
-        use game_heap::statics::*;
+        use gheap::statics::*;
 
         TEXTURE_CACHE_FIND_HOOK.init(
             "texture_cache_find",
             TEXTURE_CACHE_FIND_ADDR as *mut c_void,
-            game_heap::texture_cache::hook_texture_cache_find,
+            gheap::texture_cache::hook_texture_cache_find,
         )?;
         guard.enable_hook("texture_cache_find", &TEXTURE_CACHE_FIND_HOOK)?;
 
         NISOURCETEXTURE_DTOR_HOOK.init(
             "nisourcetexture_dtor",
             NISOURCETEXTURE_DTOR_ADDR as *mut c_void,
-            game_heap::texture_cache::hook_nisourcetexture_dtor,
+            gheap::texture_cache::hook_nisourcetexture_dtor,
         )?;
         guard.enable_hook("nisourcetexture_dtor", &NISOURCETEXTURE_DTOR_HOOK)?;
         log::info!(
@@ -200,44 +208,30 @@ pub fn install_game_heap_hooks() -> anyhow::Result<()> {
         );
     }
 
-    // ---- IO task release: prevent double-release on recycled memory ----
-    {
-        use game_heap::statics::*;
+    // ---- IO task release + Skeleton update: DISABLED ----
+    //
+    // With GC deferred-free (N=5 frame survival), freed memory stays
+    // allocated in mimalloc for ~83ms. These hooks validated vtable/refcount
+    // before accessing freed objects. Now unnecessary -- objects are valid
+    // for 5 full frames, longer than any BST task or AI physics update.
+    // Removing these eliminates per-call try_read atomic overhead on worker
+    // threads (thousands of calls per frame).
 
-        TASK_RELEASE_HOOK.init(
-            "task_release",
-            TASK_RELEASE_ADDR as *mut c_void,
-            game_heap::io_task::hook_task_release,
-        )?;
-        guard.enable_hook("task_release", &TASK_RELEASE_HOOK)?;
-        log::info!("[IO_TASK] Release hook installed at 0x{:08X}", TASK_RELEASE_ADDR);
-    }
+    // ---- Queued reference processing ----
+    //
+    // HAVOK_DEATH filter was removed previously. With deferred-free GC,
+    // freed Havok data stays readable for N frames. No filter needed.
+    log::info!("[ENGINE FIX] Queued ref: deferred-free GC protects stale reads");
 
-    // ---- Skeleton update: validate ragdoll bone data before access ----
-    {
-        use game_heap::statics::*;
-
-        SKELETON_UPDATE_HOOK.init(
-            "skeleton_update",
-            SKELETON_UPDATE_ADDR as *mut c_void,
-            game_heap::skeleton_update::hook_skeleton_update,
-        )?;
-        guard.enable_hook("skeleton_update", &SKELETON_UPDATE_HOOK)?;
-        log::info!("[ENGINE FIX] Skeleton update validation hook at 0x{:08X}", SKELETON_UPDATE_ADDR);
-    }
-
-    // ---- Queued reference processing: skip HAVOK_DEATH ragdoll UAF ----
-    {
-        use game_heap::statics::*;
-
-        QUEUED_REF_PROCESS_HOOK.init(
-            "queued_ref_process",
-            QUEUED_REF_PROCESS_ADDR as *mut c_void,
-            game_heap::queued_ref::hook_queued_ref_process,
-        )?;
-        guard.enable_hook("queued_ref_process", &QUEUED_REF_PROCESS_HOOK)?;
-        log::info!("[ENGINE FIX] Queued ref HAVOK_DEATH filter at 0x{:08X}", QUEUED_REF_PROCESS_ADDR);
-    }
+    // ---- Havok broadphase + actor process hooks: REMOVED ----
+    //
+    // These 8 hooks wrapped game functions with game_guard::try_read to
+    // block during quarantine drain. With GC-based deferred free, freed
+    // memory survives N frames as zombies. No main-thread mi_free burst
+    // means no concurrent recycling while workers read. Hooks unnecessary.
+    //
+    // Removing them recovers ~1-2ms/frame of worker thread overhead
+    // (thousands of try_read atomic operations per frame).
 
     // ---- CRT: malloc/calloc/realloc/recalloc/msize/free ----
     {
@@ -329,6 +323,6 @@ pub fn install_game_heap_hooks() -> anyhow::Result<()> {
 ///
 /// Must be called OUTSIDE DllMain, e.g. from NVSEPlugin_Load.
 pub fn start_deferred_threads() {
-    std::mem::forget(game_heap::monitor::Monitor::start());
-    log::info!("[HEAP REPLACER] Deferred threads started");
+    std::mem::forget(gheap::watchdog::Watchdog::start());
+    log::info!("[HEAP REPLACER] Watchdog thread started");
 }

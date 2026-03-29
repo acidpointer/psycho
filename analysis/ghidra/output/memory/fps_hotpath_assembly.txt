@@ -1,0 +1,96 @@
+FPS HOTPATH ASSEMBLY ANALYSIS
+======================================================================
+
+Goal: find hidden overhead in our hook trampolines and hot paths.
+Compare original SBM alloc/free instruction count with what our
+hooks need to execute.
+
+PART 1: ORIGINAL SBM ENTRY POINTS
+======================================================================
+
+--- Disassembly: GameHeap::Allocate entry (0x00aa3e40 - 0x00aa3e60) ---
+  0x00aa3e40: PUSH EBP
+  0x00aa3e41: MOV EBP,ESP
+  0x00aa3e43: SUB ESP,0x3c
+  0x00aa3e46: MOV dword ptr [EBP + -0x30],ECX
+  0x00aa3e49: MOV EAX,dword ptr [EBP + -0x30]
+  0x00aa3e4c: MOVZX ECX,byte ptr [EAX]
+  0x00aa3e4f: TEST ECX,ECX
+  0x00aa3e51: JNZ 0x00aa3e66
+  0x00aa3e53: PUSH 0x0
+  0x00aa3e55: MOV EDX,dword ptr [EBP + 0x8]
+  0x00aa3e58: PUSH EDX
+  0x00aa3e59: MOV ECX,dword ptr [EBP + -0x30]
+  0x00aa3e5c: CALL 0x00aa4290
+
+--- Disassembly: GameHeap::Free entry (0x00aa4060 - 0x00aa4080) ---
+  0x00aa4060: PUSH EBP
+  0x00aa4061: MOV EBP,ESP
+  0x00aa4063: SUB ESP,0x14
+  0x00aa4066: MOV dword ptr [EBP + -0x10],ECX
+  0x00aa4069: CMP dword ptr [EBP + 0x8],0x0
+  0x00aa406d: JNZ 0x00aa4074
+  0x00aa406f: JMP 0x00aa4146
+  0x00aa4074: MOV EAX,dword ptr [EBP + -0x10]
+  0x00aa4077: MOVZX ECX,byte ptr [EAX]
+  0x00aa407a: TEST ECX,ECX
+  0x00aa407c: JNZ 0x00aa4091
+  0x00aa407e: PUSH 0x0
+
+PART 2: CALL SITE COUNT
+======================================================================
+  GameHeap::Allocate (0x00aa3e40): 1005 total refs, 1005 CALL refs
+  GameHeap::Free (0x00aa4060): 1036 total refs, 1036 CALL refs
+  GameHeap::Msize (0x00aa44c0): 2 total refs, 2 CALL refs
+  GameHeap::Realloc1 (0x00aa4150): 16 total refs, 16 CALL refs
+  GameHeap::Realloc2 (0x00aa4200): 2 total refs, 2 CALL refs
+
+PART 3: HOOK TRAMPOLINE OVERHEAD
+======================================================================
+
+Inline hook overhead per call:
+  1. Caller does CALL 0x00aa3e40
+  2. First bytes of 0x00aa3e40 are JMP [hook_fn]
+  3. CPU executes our Rust hook_gheap_alloc
+  4. If calling original: JMP [trampoline]
+  5. Trampoline: saved original bytes + JMP back
+
+Overhead: 2 indirect JMPs (~10-20 cycles each on modern x86)
+Per alloc/free: ~20-40 cycles = ~10-20ns at 2GHz
+At 100K alloc+free/frame: 100K * 20ns = 2ms/frame
+THIS COULD BE THE FPS ISSUE
+
+But master has the SAME hooks with the SAME trampoline overhead.
+So the trampoline itself is NOT the difference.
+
+
+PART 4: HOT PATH COMPARISON
+======================================================================
+
+Master free path:              Our free path:
+  null check                     null check
+  mi_is_in_heap_region           mi_is_in_heap_region
+  IS_MAIN_THREAD (Cell read)     is_main_thread (match enum)
+  mi_usable_size (~5ns)          is_deferred_active (atomic ~1ns)
+  Vec::push + atomic             Vec::push + atomic
+
+Net difference: we SKIP mi_usable_size but ADD is_deferred_active.
+Should be ~4ns FASTER per free. Not the FPS issue.
+
+
+PART 5: PDD HOOK FREQUENCY
+======================================================================
+  PDD (FUN_00868d70): 8 total refs, 8 CALL refs
+
+PDD is called from HeapCompact, per-frame drain, and cleanup paths.
+Each call: 1 trampoline overhead (~20ns). If called 1-2x per frame,
+that is 20-40ns total. Negligible.
+
+
+PART 6: TEXTURE CACHE FIND FREQUENCY
+======================================================================
+  TextureCacheFind (FUN_00a61a60): 1 total refs, 1 CALL refs
+
+If this is called 1000s of times per frame from BST,
+the hook trampoline + try_read + dead set check adds up.
+But master has the SAME hook. So NOT a regression.

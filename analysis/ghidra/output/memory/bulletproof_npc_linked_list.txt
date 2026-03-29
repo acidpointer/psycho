@@ -1,0 +1,430 @@
+NPC Linked List Crash Research
+======================================================================
+
+######################################################################
+# PART 1: FUN_00470470 (linked list clear)
+######################################################################
+
+======================================================================
+Linked list clear (crash site) @ 0x00470470
+======================================================================
+  Function: FUN_00470470 @ 0x00470470, Size: 110 bytes
+
+void __fastcall FUN_00470470(undefined4 *param_1)
+
+{
+  undefined4 uVar1;
+  
+  while (param_1[1] != 0) {
+    uVar1 = *(undefined4 *)(param_1[1] + 4);
+    *(undefined4 *)(param_1[1] + 4) = 0;
+    if ((void *)param_1[1] != (void *)0x0) {
+      FUN_004702f0((void *)param_1[1],1);
+    }
+    param_1[1] = uVar1;
+  }
+  *param_1 = 0;
+  return;
+}
+
+
+
+======================================================================
+List node destructor (FUN_004702f0) @ 0x004702f0
+======================================================================
+  Function: FUN_004702f0 @ 0x004702f0, Size: 44 bytes
+
+undefined4 * __thiscall FUN_004702f0(void *this,uint param_1)
+
+{
+  FUN_0046ffb0(this);
+  if ((param_1 & 1) != 0) {
+    FUN_00401030(this);
+  }
+  return this;
+}
+
+
+
+--- Calls FROM List node destructor (0x004702f0) ---
+  0x004702fa -> 0x0046ffb0 FUN_0046ffb0
+  0x0047030b -> 0x00401030 FUN_00401030
+  Total: 2 calls
+
+----------------------------------------------------------------------
+References TO 0x00470470 (Linked list clear callers)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x00408c27 (in FUN_00408bc0)
+  UNCONDITIONAL_CALL @ 0x0046ffba (in FUN_0046ffb0)
+  UNCONDITIONAL_CALL @ 0x00545074 (in FUN_00545030)
+  UNCONDITIONAL_CALL @ 0x00545085 (in FUN_00545030)
+  UNCONDITIONAL_CALL @ 0x0062348c (in FUN_00623430)
+  UNCONDITIONAL_CALL @ 0x006c0ba7 (in FUN_006c09f0)
+  UNCONDITIONAL_CALL @ 0x006c0bb5 (in FUN_006c09f0)
+  UNCONDITIONAL_CALL @ 0x006c0bc0 (in FUN_006c09f0)
+  UNCONDITIONAL_CALL @ 0x006c0bcb (in FUN_006c09f0)
+  UNCONDITIONAL_CALL @ 0x0070ab14 (in FUN_0070a920)
+  UNCONDITIONAL_CALL @ 0x0075ba66 (in FUN_0075b750)
+  UNCONDITIONAL_CALL @ 0x004bc606 (in FUN_004bc5f0)
+  UNCONDITIONAL_CALL @ 0x00775978 (in FUN_00775920)
+  UNCONDITIONAL_CALL @ 0x0078a9c9 (in FUN_0078a940)
+  UNCONDITIONAL_CALL @ 0x00702ccb (in FUN_00702c80)
+  UNCONDITIONAL_CALL @ 0x008320e2 (in FUN_00832010)
+  UNCONDITIONAL_CALL @ 0x00832144 (in FUN_00832010)
+  UNCONDITIONAL_CALL @ 0x0083214e (in FUN_00832010)
+  UNCONDITIONAL_CALL @ 0x008341d7 (in FUN_00833d00)
+  UNCONDITIONAL_CALL @ 0x00483674 (in FUN_00483630)
+  UNCONDITIONAL_CALL @ 0x0061ae80 (in FUN_0061a7d0)
+  UNCONDITIONAL_CALL @ 0x004c14c4 (in FUN_004c0cf0)
+  UNCONDITIONAL_CALL @ 0x008047f9 (in FUN_00804560)
+  UNCONDITIONAL_CALL @ 0x00804961 (in FUN_00804560)
+  UNCONDITIONAL_CALL @ 0x00450a2d (in FUN_00450770)
+  UNCONDITIONAL_CALL @ 0x00450b70 (in FUN_00450b60)
+  UNCONDITIONAL_CALL @ 0x004539b1 (in FUN_004539a0)
+  UNCONDITIONAL_CALL @ 0x00458fec (in FUN_00458f90)
+  UNCONDITIONAL_CALL @ 0x0046012d (in FUN_00460110)
+  UNCONDITIONAL_CALL @ 0x00470a7e (in FUN_004709f0)
+  UNCONDITIONAL_CALL @ 0x00470ad0 (in FUN_004709f0)
+  UNCONDITIONAL_CALL @ 0x004bf1c3 (in FUN_004bf150)
+  UNCONDITIONAL_CALL @ 0x004ff198 (in FUN_004ff190)
+  UNCONDITIONAL_CALL @ 0x008515a0 (in FUN_00851540)
+  UNCONDITIONAL_CALL @ 0x00856bfb (in FUN_00856870)
+  UNCONDITIONAL_CALL @ 0x00856c06 (in FUN_00856870)
+  UNCONDITIONAL_CALL @ 0x0048fd97 (in FUN_0048fb50)
+  UNCONDITIONAL_CALL @ 0x0048fe4f (in FUN_0048fb50)
+  UNCONDITIONAL_CALL @ 0x0052b195 (in FUN_0052b0f0)
+  UNCONDITIONAL_CALL @ 0x005827be (in FUN_00582780)
+  UNCONDITIONAL_CALL @ 0x005f5866 (in FUN_005f5840)
+  UNCONDITIONAL_CALL @ 0x005f5875 (in FUN_005f5840)
+  UNCONDITIONAL_CALL @ 0x00452593 (in FUN_00452580)
+  UNCONDITIONAL_CALL @ 0x004aa6b3 (in ~XImage)
+  UNCONDITIONAL_CALL @ 0x0057dd40 (in FUN_0057d4f0)
+  UNCONDITIONAL_CALL @ 0x006c48e4 (in FUN_006c47e0)
+  UNCONDITIONAL_CALL @ 0x006c495a (in FUN_006c4900)
+  UNCONDITIONAL_CALL @ 0x006c49ca (in FUN_006c4970)
+  UNCONDITIONAL_CALL @ 0x006c5172 (in FUN_006c4fb0)
+  UNCONDITIONAL_CALL @ 0x0063d802 (in FUN_0063d5e0)
+  UNCONDITIONAL_CALL @ 0x0063d810 (in FUN_0063d5e0)
+  ... (truncated)
+  Total: 51 refs
+
+######################################################################
+# PART 2: NPC Process Update (FUN_008f63e0)
+######################################################################
+# Iterates this+0x268 and this+0x26c linked lists
+# Creates FUN_0066e590 objects, calls vtable[0x504]
+
+======================================================================
+Object created during NPC update @ 0x0066e590
+======================================================================
+  Function: FUN_0066e590 @ 0x0066e590, Size: 164 bytes
+
+/* WARNING: Globals starting with '_' overlap smaller symbols at the same address */
+
+undefined4 * __fastcall FUN_0066e590(undefined4 *param_1)
+
+{
+  undefined4 local_8;
+  
+  FUN_006815c0(param_1 + 3);
+  FUN_004300a0(param_1 + 6);
+  *param_1 = 0;
+  param_1[1] = 0;
+  *(undefined1 *)((int)param_1 + 0x1e) = 0;
+  *(undefined1 *)((int)param_1 + 0x1f) = 1;
+  param_1[2] = 0xffffff9c;
+  param_1[3] = DAT_011f426c;
+  param_1[4] = DAT_011f4270;
+  param_1[5] = DAT_011f4274;
+  FUN_00435de0(&local_8,-_DAT_010673a0);
+  param_1[6] = local_8;
+  *(undefined1 *)(param_1 + 7) = 0;
+  *(undefined1 *)((int)param_1 + 0x1d) = 0;
+  param_1[8] = 0xffffff9c;
+  return param_1;
+}
+
+
+
+----------------------------------------------------------------------
+References TO 0x0066e590 (FUN_0066e590 callers)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x008f6488 (in FUN_008f63e0)
+  UNCONDITIONAL_CALL @ 0x008f659b (in FUN_008f63e0)
+  UNCONDITIONAL_CALL @ 0x0066e53c (in FUN_0066e440)
+  UNCONDITIONAL_CALL @ 0x00988906 (in FUN_009887b0)
+  UNCONDITIONAL_CALL @ 0x008f624a (in FUN_008f6180)
+  UNCONDITIONAL_CALL @ 0x008f62f5 (in FUN_008f62b0)
+  UNCONDITIONAL_CALL @ 0x008fba3d (in FUN_008fb330)
+  UNCONDITIONAL_CALL @ 0x008fd953 (in FUN_008fce90)
+  UNCONDITIONAL_CALL @ 0x008fd9f7 (in FUN_008fce90)
+  Total: 9 refs
+
+======================================================================
+NPC update helper (FUN_008d6fc0) @ 0x008d6fc0
+======================================================================
+  Function: FUN_008d6fc0 @ 0x008d6fc0, Size: 175 bytes
+
+/* WARNING: Globals starting with '_' overlap smaller symbols at the same address */
+
+void __thiscall FUN_008d6fc0(void *this,undefined4 *param_1)
+
+{
+  float10 fVar1;
+  
+  *(undefined4 *)this = *param_1;
+  *(undefined4 *)((int)this + 4) = param_1[1];
+  *(undefined1 *)((int)this + 0x1e) = *(undefined1 *)((int)param_1 + 0x1e);
+  *(undefined4 *)((int)this + 8) = param_1[2];
+  *(undefined1 *)((int)this + 0x1c) = *(undefined1 *)(param_1 + 7);
+  *(undefined1 *)((int)this + 0x1d) = *(undefined1 *)((int)param_1 + 0x1d);
+  *(undefined4 *)((int)this + 0x20) = param_1[8];
+  *(undefined1 *)((int)this + 0x1f) = *(undefined1 *)((int)param_1 + 0x1f);
+  fVar1 = FUN_006a7f50((float *)(param_1 + 6));
+  if (-(float10)_DAT_01087820 < fVar1) {
+    *(undefined4 *)((int)this + 0xc) = param_1[3];
+    *(undefined4 *)((int)this + 0x10) = param_1[4];
+    *(undefined4 *)((int)this + 0x14) = param_1[5];
+    *(undefined4 *)((int)this + 0x18) = param_1[6];
+  }
+  return;
+}
+
+
+
+======================================================================
+Collection add (FUN_005ae3d0) @ 0x005ae3d0
+======================================================================
+  Function: FUN_005ae3d0 @ 0x005ae3d0, Size: 187 bytes
+
+void __thiscall FUN_005ae3d0(void *this,int *param_1)
+
+{
+  void *this_00;
+  int *unaff_FS_OFFSET;
+  undefined4 *local_24;
+  int local_10;
+  undefined1 *puStack_c;
+  undefined4 local_8;
+  
+  local_8 = 0xffffffff;
+  puStack_c = &LAB_00eeb0fb;
+  local_10 = *unaff_FS_OFFSET;
+  *unaff_FS_OFFSET = (int)&local_10;
+  if (*param_1 != 0) {
+    if (*(int *)this == 0) {
+      *(int *)this = *param_1;
+    }
+    else {
+      this_00 = (void *)FUN_00401000(8);
+      local_8 = 0;
+      if (this_00 == (void *)0x0) {
+        local_24 = (undefined4 *)0x0;
+      }
+      else {
+        local_24 = FUN_00470440(this_00,this);
+      }
+      local_24[1] = *(undefined4 *)((int)this + 4);
+      *(undefined4 **)((int)this + 4) = local_24;
+      *(int *)this = *param_1;
+    }
+  }
+  *unaff_FS_OFFSET = local_10;
+  return;
+}
+
+
+
+######################################################################
+# PART 3: Process Manager +0x268/+0x26c Writers
+######################################################################
+# These offsets are in the ProcessManager or GridCellArray.
+# The 'this' in FUN_008f63e0 is passed from FUN_0096c710
+# which reads it from param_1 + 0x268
+
+======================================================================
+Post-list-iteration (FUN_008f6630) @ 0x008f6630
+======================================================================
+  Function: FUN_008f6630 @ 0x008f6630, Size: 25 bytes
+
+void __thiscall FUN_008f6630(void *this,undefined1 param_1)
+
+{
+  *(undefined1 *)((int)this + 0xc5) = param_1;
+  return;
+}
+
+
+
+--- Calls FROM Post-list-iteration (0x008f6630) ---
+  Total: 0 calls
+
+######################################################################
+# PART 4: FUN_006815c0 (list node data reader)
+######################################################################
+
+======================================================================
+List node data (FUN_006815c0) @ 0x006815c0
+======================================================================
+  Function: FUN_006815c0 @ 0x006815c0, Size: 14 bytes
+
+undefined4 __fastcall FUN_006815c0(undefined4 param_1)
+
+{
+  return param_1;
+}
+
+
+
+######################################################################
+# PART 5: FUN_00726070 as List Iterator
+######################################################################
+# In FUN_008f63e0: for (; local_18 != 0; local_18 = FUN_00726070(local_18))
+# FUN_00726070 reads param_1+4 = next pointer
+# If the node was freed by quarantine, param_1+4 is garbage
+
+======================================================================
+Delete operator (FUN_00401030) @ 0x00401030
+======================================================================
+  Function: FUN_00401030 @ 0x00401030, Size: 21 bytes
+
+void __cdecl FUN_00401030(undefined4 *param_1)
+
+{
+  undefined *this;
+  
+  this = FUN_00401020();
+  FUN_00aa4060(this,param_1);
+  return;
+}
+
+
+
+######################################################################
+# PART 6: Who FREES list nodes via gheap_free?
+######################################################################
+# If a list node at +0x268 goes through gheap_free ? quarantine
+# ? epoch reclaim ? mi_free, but the list still has the pointer...
+# The game expects the freed memory to stay readable (SBM zombie)
+# Key question: can the list at +0x268 persist across frames
+# with stale entries? Or is it always processed+cleared in
+# the same frame?
+
+======================================================================
+Process manager update 1 (FUN_0096c240) @ 0x0096c240
+======================================================================
+  Function: FUN_0096c240 @ 0x0096c240, Size: 233 bytes
+
+void __fastcall FUN_0096c240(int param_1)
+
+{
+  bool bVar1;
+  char cVar2;
+  uint uVar3;
+  int *piVar4;
+  uint local_c;
+  
+  local_c = FUN_005de0f0((void *)(param_1 + 4),0);
+  while( true ) {
+    uVar3 = FUN_005be5c0((void *)(param_1 + 4),0);
+    if (uVar3 <= local_c) break;
+    piVar4 = (int *)FUN_00968670((void *)(param_1 + 4),local_c);
+    if (piVar4 != (int *)0x0) {
+      bVar1 = FUN_00576d30((int)piVar4);
+      if (!bVar1) {
+        bVar1 = FUN_00440d80((int)piVar4);
+        if (!bVar1) {
+          bVar1 = FUN_00440da0((int)piVar4);
+          if (!bVar1) {
+            cVar2 = (**(code **)(*piVar4 + 0x224))();
+            if (cVar2 == '\0') {
+              cVar2 = (**(code **)(*piVar4 + 0x220))();
+              if (cVar2 != '\0') {
+                FUN_009ae6e0(piVar4);
+              }
+            }
+            else {
+              (**(code **)(*piVar4 + 0x314))();
+            }
+          }
+        }
+      }
+    }
+    local_c = local_c + 1;
+  }
+  return;
+}
+
+
+
+--- Calls FROM Process manager update 1 (0x0096c240) ---
+  0x0096c258 -> 0x005de0f0 FUN_005de0f0
+  0x0096c273 -> 0x005be5c0 FUN_005be5c0
+  0x0096c28b -> 0x00968670 FUN_00968670
+  0x0096c2a0 -> 0x00576d30 FUN_00576d30
+  0x0096c2af -> 0x00440d80 FUN_00440d80
+  0x0096c2be -> 0x00440da0 FUN_00440da0
+  0x0096c319 -> 0x009ae6e0 FUN_009ae6e0
+  Total: 7 calls
+
+======================================================================
+Process manager update 2 (FUN_0096c860) @ 0x0096c860
+======================================================================
+  Function: FUN_0096c860 @ 0x0096c860, Size: 227 bytes
+
+void __fastcall FUN_0096c860(int param_1)
+
+{
+  char cVar1;
+  uint uVar2;
+  int *this;
+  void *pvVar3;
+  int *piVar4;
+  int *piVar5;
+  bool local_11;
+  uint local_8;
+  
+  local_8 = FUN_005de0f0((void *)(param_1 + 4),0);
+  while( true ) {
+    uVar2 = FUN_005be5c0((void *)(param_1 + 4),1);
+    if (uVar2 <= local_8) break;
+    this = (int *)FUN_00968670((void *)(param_1 + 4),local_8);
+    if (this != (int *)0x0) {
+      cVar1 = (**(code **)(*this + 0x100))();
+      if (cVar1 != '\0') {
+        pvVar3 = (void *)(**(code **)(*this + 0x1e4))();
+        local_11 = false;
+        if (pvVar3 != (void *)0x0) {
+          local_11 = FUN_00493930(pvVar3);
+        }
+        cVar1 = FUN_0096c950((int)this);
+        if ((cVar1 != '\0') && (local_11 != false)) {
+          piVar5 = (int *)0x0;
+          piVar4 = (int *)(**(code **)(*this + 0x1d0))();
+          pvVar3 = (void *)FUN_00450b80(0);
+          FUN_00b5d9f0(pvVar3,piVar4,piVar5);
+          FUN_00496960(this,0);
+        }
+      }
+    }
+    local_8 = local_8 + 1;
+  }
+  return;
+}
+
+
+
+--- Calls FROM Process manager update 2 (0x0096c860) ---
+  0x0096c871 -> 0x005de0f0 FUN_005de0f0
+  0x0096c88c -> 0x005be5c0 FUN_005be5c0
+  0x0096c8a4 -> 0x00968670 FUN_00968670
+  0x0096c8ed -> 0x00493930 FUN_00493930
+  0x0096c8f8 -> 0x0096c950 FUN_0096c950
+  0x0096c921 -> 0x00450b80 FUN_00450b80
+  0x0096c92b -> 0x00b5d9f0 FUN_00b5d9f0
+  0x0096c935 -> 0x00496960 FUN_00496960
+  Total: 8 calls
+
+======================================================================
+ANALYSIS COMPLETE
+======================================================================
