@@ -1,8 +1,11 @@
+//! DEPRECATED
+//! 
 //! IO task release hook (FUN_0044dd60).
 //!
 //! Validates vtable pointer and refcount before calling the original DecRef.
 //! with_try_read handles main/worker distinction internally.
 
+#![allow(dead_code)]
 use libc::c_void;
 
 use super::engine::addr;

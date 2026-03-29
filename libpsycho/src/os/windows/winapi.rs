@@ -107,12 +107,6 @@ pub unsafe fn is_readable_ptr(ptr: *const c_void, ucb: usize) -> bool {
     unsafe { sys::IsBadReadPtr(ptr, ucb) == 0 }
 }
 
-/// Backwards compatibility alias (deprecated — name was misleading).
-#[deprecated(note = "Use is_readable_ptr instead — is_bad_read_ptr returned inverted results")]
-pub unsafe fn is_bad_read_ptr(ptr: *const c_void, ucb: usize) -> bool {
-    unsafe { is_readable_ptr(ptr, ucb) }
-}
-
 /// Query memory with VirtualQuery(...)
 pub fn virtual_query(ptr: *mut c_void) -> WinapiResult<MemoryBasicInformation> {
     if ptr.is_null() {

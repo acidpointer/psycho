@@ -355,14 +355,13 @@ impl<F: Copy + 'static> ScopedInlineHook<F> {
 
         impl<'a, F: Copy + 'static> Drop for EnableGuard<'a, F> {
             fn drop(&mut self) {
-                if self.should_enable {
-                    if let Err(err) = self.hook.enable() {
+                if self.should_enable
+                    && let Err(err) = self.hook.enable() {
                         log::error!(
                             "[{}] Failed to re-enable hook after with_disabled: {}",
                             self.hook.name, err
                         );
                     }
-                }
             }
         }
 

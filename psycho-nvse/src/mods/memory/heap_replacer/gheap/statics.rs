@@ -4,6 +4,8 @@
 //! trampoline to the original function. The install module initializes
 //! these during startup.
 
+
+
 use std::sync::LazyLock;
 
 use libpsycho::os::windows::hook::inline::inlinehook::InlineHookContainer;
@@ -39,11 +41,11 @@ pub const MAIN_LOOP_MAINTENANCE_ADDR: usize = 0x008705D0;
 /// Drains 10-20 NiNodes per call; under pressure we call it extra times.
 pub const PER_FRAME_QUEUE_DRAIN_ADDR: usize = 0x00868850;
 
-/// IOManager main-thread processing. Phase 3 — reads completed IO task data.
-pub const IO_MANAGER_PROCESS_ADDR: usize = 0x00C3DBF0;
+// IOManager main-thread processing. Phase 3 — reads completed IO task data.
+// pub const IO_MANAGER_PROCESS_ADDR: usize = 0x00C3DBF0;
 
-pub static IO_MANAGER_PROCESS_HOOK: LazyLock<InlineHookContainer<IOManagerProcessFn>> =
-    LazyLock::new(InlineHookContainer::new);
+// pub static IO_MANAGER_PROCESS_HOOK: LazyLock<InlineHookContainer<IOManagerProcessFn>> =
+//     LazyLock::new(InlineHookContainer::new);
 
 /// AI thread start. Called at Phase 6 to dispatch AI worker threads.
 /// Only on multi-threaded systems (processor count > 1).
@@ -85,50 +87,50 @@ pub static NISOURCETEXTURE_DTOR_HOOK: LazyLock<InlineHookContainer<NiSourceTextu
 
 // ---- IO task ----
 
-pub const TASK_RELEASE_ADDR: usize = 0x0044DD60;
+// pub const TASK_RELEASE_ADDR: usize = 0x0044DD60;
 
 pub static TASK_RELEASE_HOOK: LazyLock<InlineHookContainer<TaskReleaseFn>> =
     LazyLock::new(InlineHookContainer::new);
 
 // ---- Skeleton update (ragdoll bone validation) ----
 
-pub const SKELETON_UPDATE_ADDR: usize = 0x00C79680;
+// pub const SKELETON_UPDATE_ADDR: usize = 0x00C79680;
 
 pub static SKELETON_UPDATE_HOOK: LazyLock<InlineHookContainer<SkeletonUpdateFn>> =
     LazyLock::new(InlineHookContainer::new);
 
 // ---- Queued reference processing ----
 
-/// FUN_0056f700: processes a queued reference after model loading completes.
-/// Called from FUN_00451ef0 (queue dispatch) for every QueuedCharacter/
+// FUN_0056f700: processes a queued reference after model loading completes.
+// Called from FUN_00451ef0 (queue dispatch) for every QueuedCharacter/
 // ---- Havok broadphase synchronization ----
 
-pub const HAVOK_ADD_ENTITY_ADDR: usize = 0x00C94BD0;
-pub const HAVOK_COLL_OBJ_DTOR_ADDR: usize = 0x00C40B70;
-pub const HAVOK_RAYCAST_ADDR: usize = 0x00CBF860;
+// pub const HAVOK_ADD_ENTITY_ADDR: usize = 0x00C94BD0;
+// pub const HAVOK_COLL_OBJ_DTOR_ADDR: usize = 0x00C40B70;
+// pub const HAVOK_RAYCAST_ADDR: usize = 0x00CBF860;
 
-pub static HAVOK_ADD_ENTITY_HOOK: LazyLock<InlineHookContainer<HavokAddEntityFn>> =
-    LazyLock::new(InlineHookContainer::new);
-pub static HAVOK_COLL_OBJ_DTOR_HOOK: LazyLock<InlineHookContainer<HavokCollObjDtorFn>> =
-    LazyLock::new(InlineHookContainer::new);
-pub static HAVOK_RAYCAST_HOOK: LazyLock<InlineHookContainer<HavokRaycastFn>> =
-    LazyLock::new(InlineHookContainer::new);
+// pub static HAVOK_ADD_ENTITY_HOOK: LazyLock<InlineHookContainer<HavokAddEntityFn>> =
+//     LazyLock::new(InlineHookContainer::new);
+// pub static HAVOK_COLL_OBJ_DTOR_HOOK: LazyLock<InlineHookContainer<HavokCollObjDtorFn>> =
+//     LazyLock::new(InlineHookContainer::new);
+// pub static HAVOK_RAYCAST_HOOK: LazyLock<InlineHookContainer<HavokRaycastFn>> =
+//     LazyLock::new(InlineHookContainer::new);
 
-// ---- Actor process synchronization ----
+// // ---- Actor process synchronization ----
 
-pub const ACTOR_DOWNGRADE_ADDR: usize = 0x0096E870;
-pub const AI_PROCESS1_ADDR: usize = 0x0096C330;
-pub const AI_PROCESS2_ADDR: usize = 0x0096CB50;
-pub const CELL_MGMT_UPDATE_ADDR: usize = 0x00453550;
-pub const PROCESS_MGR_UPDATE_ADDR: usize = 0x009784C0;
+// pub const ACTOR_DOWNGRADE_ADDR: usize = 0x0096E870;
+// pub const AI_PROCESS1_ADDR: usize = 0x0096C330;
+// pub const AI_PROCESS2_ADDR: usize = 0x0096CB50;
+// pub const CELL_MGMT_UPDATE_ADDR: usize = 0x00453550;
+// pub const PROCESS_MGR_UPDATE_ADDR: usize = 0x009784C0;
 
-pub static ACTOR_DOWNGRADE_HOOK: LazyLock<InlineHookContainer<ActorDowngradeInnerFn>> =
-    LazyLock::new(InlineHookContainer::new);
-pub static AI_PROCESS1_HOOK: LazyLock<InlineHookContainer<AIProcess1Fn>> =
-    LazyLock::new(InlineHookContainer::new);
-pub static AI_PROCESS2_HOOK: LazyLock<InlineHookContainer<AIProcess2Fn>> =
-    LazyLock::new(InlineHookContainer::new);
-pub static CELL_MGMT_UPDATE_HOOK: LazyLock<InlineHookContainer<CellMgmtUpdateFn>> =
-    LazyLock::new(InlineHookContainer::new);
-pub static PROCESS_MGR_UPDATE_HOOK: LazyLock<InlineHookContainer<ProcessMgrUpdateFn>> =
-    LazyLock::new(InlineHookContainer::new);
+// pub static ACTOR_DOWNGRADE_HOOK: LazyLock<InlineHookContainer<ActorDowngradeInnerFn>> =
+//     LazyLock::new(InlineHookContainer::new);
+// pub static AI_PROCESS1_HOOK: LazyLock<InlineHookContainer<AIProcess1Fn>> =
+//     LazyLock::new(InlineHookContainer::new);
+// pub static AI_PROCESS2_HOOK: LazyLock<InlineHookContainer<AIProcess2Fn>> =
+//     LazyLock::new(InlineHookContainer::new);
+// pub static CELL_MGMT_UPDATE_HOOK: LazyLock<InlineHookContainer<CellMgmtUpdateFn>> =
+//     LazyLock::new(InlineHookContainer::new);
+// pub static PROCESS_MGR_UPDATE_HOOK: LazyLock<InlineHookContainer<ProcessMgrUpdateFn>> =
+//     LazyLock::new(InlineHookContainer::new);

@@ -140,8 +140,8 @@ impl Config {
         let path = path.as_ref();
         let content = std::fs::read_to_string(path).unwrap_or_default();
 
-        if let Ok(updated) = toml::to_string_pretty(cfg) {
-            if updated != content {
+        if let Ok(updated) = toml::to_string_pretty(cfg)
+            && updated != content {
                 if let Some(parent) = path.parent() {
                     let _ = std::fs::create_dir_all(parent);
                 }
@@ -153,7 +153,6 @@ impl Config {
                     log::info!("Config schema updated in '{}'", path.display());
                 }
             }
-        }
     }
 
     /// Load config with automatic schema migration.
@@ -188,8 +187,8 @@ impl Config {
         };
 
         // Re-serialize and write back if schema changed
-        if let Ok(updated) = toml::to_string_pretty(&cfg) {
-            if updated != content {
+        if let Ok(updated) = toml::to_string_pretty(&cfg)
+            && updated != content {
                 if let Some(parent) = path.parent() {
                     let _ = std::fs::create_dir_all(parent);
                 }
@@ -201,7 +200,6 @@ impl Config {
                     log::info!("Config schema updated in '{}'", path.display());
                 }
             }
-        }
 
         cfg
     }

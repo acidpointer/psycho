@@ -14,8 +14,8 @@
 //! During loading: thresholds are lowered by 200MB because the game
 //! needs more VAS headroom for incoming cell data.
 
-use std::sync::atomic::{AtomicI32, AtomicU8, AtomicU64, AtomicUsize, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicI32, AtomicU8, AtomicU64, AtomicUsize, Ordering};
 use std::thread::{self, JoinHandle};
 
 use libmimalloc::process_info::MiMallocProcessInfo;
@@ -36,9 +36,9 @@ const POLL_MS: u32 = 500;
 const LOG_INTERVAL: u32 = 10;
 
 /// Growth thresholds above baseline commit.
-const NORMAL_GROWTH: usize = 400 * 1024 * 1024;     // 400MB
-const AGGRESSIVE_GROWTH: usize = 600 * 1024 * 1024;  // 600MB
-const CRITICAL_GROWTH: usize = 800 * 1024 * 1024;    // 800MB
+const NORMAL_GROWTH: usize = 400 * 1024 * 1024; // 400MB
+const AGGRESSIVE_GROWTH: usize = 600 * 1024 * 1024; // 600MB
+const CRITICAL_GROWTH: usize = 800 * 1024 * 1024; // 800MB
 
 /// During loading, lower all thresholds by this amount.
 const LOADING_THRESHOLD_REDUCTION: usize = 200 * 1024 * 1024; // 200MB
@@ -76,26 +76,6 @@ static LAST_AGGRESSIVE_MS: AtomicU64 = AtomicU64::new(0);
 /// Returns 0 (none), 1 (normal), or 2 (aggressive).
 pub fn take_cleanup_request() -> u8 {
     CLEANUP_REQUESTED.swap(0, Ordering::AcqRel)
-}
-
-/// Current smoothed growth rate in bytes/second.
-pub fn current_growth_rate() -> i32 {
-    GROWTH_RATE.load(Ordering::Relaxed)
-}
-
-/// True if commit exceeds baseline + CRITICAL_GROWTH.
-/// Callable from any thread (OOM recovery path).
-pub fn is_memory_critical() -> bool {
-    let pr = match PressureRelief::instance() {
-        Some(pr) => pr,
-        None => return false,
-    };
-    let baseline = pr.baseline_commit();
-    if baseline == 0 {
-        return false;
-    }
-    let commit = MiMallocProcessInfo::get().get_current_commit();
-    commit.saturating_sub(baseline) >= CRITICAL_GROWTH
 }
 
 // ---------------------------------------------------------------------------
@@ -199,7 +179,11 @@ fn watchdog_loop(run: Arc<std::sync::atomic::AtomicBool>) {
         let loading = globals::is_loading();
 
         // Lower thresholds during loading.
-        let reduction = if loading { LOADING_THRESHOLD_REDUCTION } else { 0 };
+        let reduction = if loading {
+            LOADING_THRESHOLD_REDUCTION
+        } else {
+            0
+        };
         let normal_thresh = NORMAL_GROWTH.saturating_sub(reduction);
         let aggressive_thresh = AGGRESSIVE_GROWTH.saturating_sub(reduction);
         let critical_thresh = CRITICAL_GROWTH.saturating_sub(reduction);
@@ -207,6 +191,7 @@ fn watchdog_loop(run: Arc<std::sync::atomic::AtomicBool>) {
         let mut level: u8 = 0;
 
         // Critical: always aggressive regardless of rate.
+        #[allow(clippy::if_same_then_else)]
         if growth >= critical_thresh {
             level = 2;
         }
@@ -259,7 +244,7 @@ fn watchdog_loop(run: Arc<std::sync::atomic::AtomicBool>) {
 }
 
 fn log_diagnostics(poll_count: u32, info: &MiMallocProcessInfo) {
-    if poll_count % LOG_INTERVAL != 0 {
+    if !poll_count.is_multiple_of(LOG_INTERVAL) {
         return;
     }
 
@@ -298,7 +283,8 @@ fn log_diagnostics(poll_count: u32, info: &MiMallocProcessInfo) {
     if cu_cells > 0 {
         log::info!(
             "[RECLAIM] cell_unload: {} cells, freed {}MB",
-            cu_cells, cu_freed,
+            cu_cells,
+            cu_freed,
         );
     }
 }

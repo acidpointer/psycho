@@ -235,11 +235,10 @@ pub unsafe fn emergency_loading_cleanup() {
             super::engine::cell_unload::execute_during_loading(EMERGENCY_MAX_CELLS)
         {
             cells = result.cells;
-            if cells > 0 {
-                if let Some(pr) = PressureRelief::instance() {
+            if cells > 0
+                && let Some(pr) = PressureRelief::instance() {
                     pr.set_pending_counter_decrement();
                 }
-            }
         }
 
         // PDD pump — process queued destruction WITH bypass ON.
@@ -304,8 +303,8 @@ unsafe fn on_loading_start() {
             let baseline = pr.baseline_commit();
             if baseline > 0 {
                 let growth = commit_before.saturating_sub(baseline);
-                if growth >= LOADING_CLEANUP_GROWTH {
-                    if let Some(result) =
+                if growth >= LOADING_CLEANUP_GROWTH
+                    && let Some(result) =
                         super::engine::cell_unload::execute_during_loading(LOADING_CLEANUP_MAX_CELLS)
                     {
                         cells = result.cells;
@@ -313,7 +312,6 @@ unsafe fn on_loading_start() {
                             pr.set_pending_counter_decrement();
                         }
                     }
-                }
             }
         }
 
@@ -427,16 +425,13 @@ pub unsafe extern "fastcall" fn hook_ai_thread_join(mgr: *mut c_void) {
 
         // Console command (pcell) during loading.
         let deferred = super::engine::cell_unload::take_deferred_request();
-        if deferred > 0 {
-            if let Some(result) =
+        if deferred > 0
+            && let Some(result) =
                 super::engine::cell_unload::execute_during_loading(deferred)
                 && result.cells > 0
-            {
-                if let Some(pr) = PressureRelief::instance() {
+                && let Some(pr) = PressureRelief::instance() {
                     pr.set_pending_counter_decrement();
                 }
-            }
-        }
         return;
     }
 
@@ -458,15 +453,12 @@ pub unsafe extern "fastcall" fn hook_ai_thread_join(mgr: *mut c_void) {
 
     // Console command deferred request (pcell).
     let deferred = super::engine::cell_unload::take_deferred_request();
-    if deferred > 0 {
-        if let Some(result) = super::engine::cell_unload::execute(deferred)
+    if deferred > 0
+        && let Some(result) = super::engine::cell_unload::execute(deferred)
             && result.cells > 0
-        {
-            if let Some(pr) = PressureRelief::instance() {
+            && let Some(pr) = PressureRelief::instance() {
                 pr.set_pending_counter_decrement();
             }
-        }
-    }
 }
 
 #[cold]

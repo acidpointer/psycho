@@ -1,11 +1,13 @@
-// Safe wrappers for reading game globals and calling game functions.
-//
-// Every function here encapsulates the unsafe pointer-from-integer cast
-// and volatile/atomic reads. Callers never touch raw addresses directly.
-//
-// Functions that call game code (OOM stages, FindCellToUnload, etc.) are
-// marked unsafe because they have thread/phase preconditions that the
-// compiler cannot verify.
+//! Safe wrappers for reading game globals and calling game functions.
+//!
+//! Every function here encapsulates the unsafe pointer-from-integer cast
+//! and volatile/atomic reads. Callers never touch raw addresses directly.
+//!
+//! Functions that call game code (OOM stages, FindCellToUnload, etc.) are
+//! marked unsafe because they have thread/phase preconditions that the
+//! compiler cannot verify.
+
+#![allow(dead_code)]
 
 use libc::c_void;
 
@@ -18,25 +20,26 @@ use crate::mods::memory::heap_replacer::gheap::types;
 // Game state reads (all safe -- reading from known static addresses)
 // ---------------------------------------------------------------------------
 
-// True when the game is in a loading screen (save load, fast travel, coc).
-// Simple volatile read. No edge detection overhead on the hot path.
-// Loading transitions are logged by the watchdog thread instead.
+/// True when the game is in a loading screen (save load, fast travel, coc).
+/// Simple volatile read. No edge detection overhead on the hot path.
+/// Loading transitions are logged by the watchdog thread instead.
 #[inline]
 pub fn is_loading() -> bool {
     unsafe { *(addr::LOADING_FLAG as *const u8) != 0 }
 }
 
-// HeapCompact stages. The game's HeapCompact dispatcher at Phase 6
-// reads the trigger field and runs stages 0..=N, then resets to 0.
-//
-// Stage 0: Texture cache flush (NiDX9SourceTextureData purge)
-// Stage 1: Geometry cache flush (NiDX9RenderedTexture purge)
-// Stage 2: Menu cleanup (InterfaceManager release)
-// Stage 3: Havok GC (hkMemorySystem garbage collect)
-// Stage 4: PDD purge (ProcessManager lock + full deferred destruction)
-// Stage 5: Cell unloading (FindCellToUnload) — DANGEROUS: deadlocks
-//          during fast travel and loading screens. Never use from
-//          pressure relief.
+/// HeapCompact stages. The game's HeapCompact dispatcher at Phase 6
+/// reads the trigger field and runs stages 0..=N, then resets to 0.
+///
+/// Stage 0: Texture cache flush (NiDX9SourceTextureData purge)
+/// Stage 1: Geometry cache flush (NiDX9RenderedTexture purge)
+/// Stage 2: Menu cleanup (InterfaceManager release)
+/// Stage 3: Havok GC (hkMemorySystem garbage collect)
+/// Stage 4: PDD purge (ProcessManager lock + full deferred destruction)
+/// Stage 5: Cell unloading (FindCellToUnload) — DANGEROUS: deadlocks
+///          during fast travel and loading screens. Never use from
+///          pressure relief.
+#[allow(dead_code)]
 #[repr(u32)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum HeapCompactStage {
@@ -48,13 +51,13 @@ pub enum HeapCompactStage {
     CellUnload = 5,
 }
 
-// Read the current HeapCompact trigger value.
+/// Read the current HeapCompact trigger value.
 pub fn heap_compact_trigger_value() -> u32 {
     unsafe { *(addr::HEAP_COMPACT_TRIGGER as *const u32) }
 }
 
-// Signal HeapCompact to run stages 0..=stage on the next frame.
-// The game's dispatcher is inclusive: trigger=N runs stages 0, 1, ..., N.
+/// Signal HeapCompact to run stages 0..=stage on the next frame.
+/// The game's dispatcher is inclusive: trigger=N runs stages 0, 1, ..., N.
 pub fn signal_heap_compact(stage: HeapCompactStage) {
     unsafe {
         let trigger = addr::HEAP_COMPACT_TRIGGER as *mut u32;
@@ -62,8 +65,8 @@ pub fn signal_heap_compact(stage: HeapCompactStage) {
     }
 }
 
-// PDD skip mask bits. When set, the corresponding queue is SKIPPED
-// during full PDD drain (FUN_00868d70). Checked by FUN_00869180.
+/// PDD skip mask bits. When set, the corresponding queue is SKIPPED
+/// during full PDD drain (FUN_00868d70). Checked by FUN_00869180.
 #[allow(dead_code)]
 pub mod pdd_skip {
     pub const NINODE: u32 = 0x10;
@@ -74,8 +77,8 @@ pub mod pdd_skip {
     pub const LAST: u32 = 0x20;
 }
 
-// Set the PDD skip mask. Queues with matching bits are SKIPPED
-// by the next full PDD drain (stage 4). Reset after PDD completes.
+/// Set the PDD skip mask. Queues with matching bits are SKIPPED
+/// by the next full PDD drain (stage 4). Reset after PDD completes.
 pub fn set_pdd_skip_mask(mask: u32) {
     unsafe {
         let p = addr::PDD_SKIP_MASK as *mut u32;
@@ -83,26 +86,26 @@ pub fn set_pdd_skip_mask(mask: u32) {
     }
 }
 
-// Read the current PDD skip mask.
+/// Read the current PDD skip mask.
 pub fn pdd_skip_mask() -> u32 {
     unsafe { *(addr::PDD_SKIP_MASK as *const u32) }
 }
 
-// Get the loading state counter as an atomic reference. Incremented to
-// suppress NVSE PLChangeEvent dispatch during our destruction protocol.
+/// Get the loading state counter as an atomic reference. Incremented to
+/// suppress NVSE PLChangeEvent dispatch during our destruction protocol.
 pub fn loading_state_counter() -> &'static std::sync::atomic::AtomicI32 {
     unsafe { &*(addr::LOADING_STATE_COUNTER as *const std::sync::atomic::AtomicI32) }
 }
 
-// Get the game manager pointer (DataHandler). Returns None if null.
-// Passed to FindCellToUnload.
+/// Get the game manager pointer (DataHandler). Returns None if null.
+/// Passed to FindCellToUnload.
 pub fn game_manager() -> Option<*mut c_void> {
     let ptr = unsafe { *(addr::GAME_MANAGER as *const *mut c_void) };
     if ptr.is_null() { None } else { Some(ptr) }
 }
 
-// Check if BSTaskManagerThread has a pending cell load in progress.
-// Returns true if busy (handle != -1), false if idle.
+/// Check if BSTaskManagerThread has a pending cell load in progress.
+/// Returns true if busy (handle != -1), false if idle.
 pub fn is_bst_cell_load_pending() -> bool {
     unsafe {
         let tes = *(addr::TES_SINGLETON as *const *const u8);
@@ -118,7 +121,8 @@ pub fn is_bst_cell_load_pending() -> bool {
 // PDD queue diagnostics
 // ---------------------------------------------------------------------------
 
-// Which PDD queue to query.
+/// Which PDD queue to query.
+#[allow(dead_code)]
 pub enum PddQueue {
     NiNode,
     Form,
@@ -127,7 +131,7 @@ pub enum PddQueue {
     Texture,
 }
 
-// Read the entry count of a PDD queue (u16 at base + 0x0A).
+/// Read the entry count of a PDD queue (u16 at base + 0x0A).
 pub fn pdd_queue_count(queue: PddQueue) -> u16 {
     let base = match queue {
         PddQueue::NiNode => addr::NINODE_QUEUE,
@@ -143,9 +147,9 @@ pub fn pdd_queue_count(queue: PddQueue) -> u16 {
 // Thread identification
 // ---------------------------------------------------------------------------
 
-// Check if the current thread is the game's main thread by comparing
-// thread IDs through the engine's own GetCurrentThreadId wrapper and
-// the main thread ID stored in the TES object.
+/// Check if the current thread is the game's main thread by comparing
+/// thread IDs through the engine's own GetCurrentThreadId wrapper and
+/// the main thread ID stored in the TES object.
 /// Stored main thread ID. Set ONLY from on_pre_ai (game main loop Phase 7).
 /// This is the ONE place we are 100% certain is the main thread.
 static MAIN_THREAD_ID: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
@@ -160,7 +164,8 @@ pub fn set_main_thread_id() {
     } else if prev != tid {
         log::error!(
             "[THREAD] Main thread ID changed: {} -> {} (should never happen)",
-            prev, tid,
+            prev,
+            tid,
         );
     }
 }
@@ -192,8 +197,7 @@ pub unsafe fn run_oom_stages(size: usize) -> *mut c_void {
 
     let heap_singleton = addr::HEAP_SINGLETON as *mut c_void;
     let primary_heap = unsafe {
-        let p = (heap_singleton as *const u8).add(addr::HEAP_PRIMARY_OFFSET)
-            as *const *mut c_void;
+        let p = (heap_singleton as *const u8).add(addr::HEAP_PRIMARY_OFFSET) as *const *mut c_void;
         *p
     };
 
@@ -202,7 +206,10 @@ pub unsafe fn run_oom_stages(size: usize) -> *mut c_void {
     } {
         Ok(f) => f,
         Err(e) => {
-            log::error!("[OOM_STAGES] FnPtr::from_raw(OOM_STAGE_EXEC) failed: {:?}", e);
+            log::error!(
+                "[OOM_STAGES] FnPtr::from_raw(OOM_STAGE_EXEC) failed: {:?}",
+                e
+            );
             return null_mut();
         }
     };
@@ -214,7 +221,11 @@ pub unsafe fn run_oom_stages(size: usize) -> *mut c_void {
         stage = match unsafe { oom_exec.as_fn() } {
             Ok(f) => unsafe { f(heap_singleton, primary_heap, stage, &mut done) },
             Err(e) => {
-                log::error!("[OOM_STAGES] oom_exec.as_fn() failed at stage {}: {:?}", stage, e);
+                log::error!(
+                    "[OOM_STAGES] oom_exec.as_fn() failed at stage {}: {:?}",
+                    stage,
+                    e
+                );
                 break;
             }
         };
@@ -240,24 +251,25 @@ pub unsafe fn run_oom_stages(size: usize) -> *mut c_void {
 // Cell management -- destruction protocol helpers
 // ---------------------------------------------------------------------------
 
-// Set/clear the TLS cell unload flag. Must bracket FindCellToUnload calls.
-//
-// value=0: cell unload in progress (suppresses NVSE PLChangeEvent dispatch
-//          via TLS+0x298 flag). Without this, NVSE plugins receive events
-//          for partially-torn-down actors during cell unload → crash.
-// value=1: cell unload done (re-enables event dispatch).
-//
-// The game's HeapCompact stage 5 and CellTransitionHandler both call this.
-// Safety: must be called on the main thread.
+/// Set/clear the TLS cell unload flag. Must bracket FindCellToUnload calls.
+///
+/// value=0: cell unload in progress (suppresses NVSE PLChangeEvent dispatch
+///          via TLS+0x298 flag). Without this, NVSE plugins receive events
+///          for partially-torn-down actors during cell unload → crash.
+/// value=1: cell unload done (re-enables event dispatch).
+///
+/// The game's HeapCompact stage 5 and CellTransitionHandler both call this.
+/// Safety: must be called on the main thread.
 pub unsafe fn set_tls_cleanup_flag(value: u8) {
     let f = match unsafe {
-        FnPtr::<types::SetTlsCleanupFlagFn>::from_raw(
-            addr::SET_TLS_CLEANUP_FLAG as *mut c_void,
-        )
+        FnPtr::<types::SetTlsCleanupFlagFn>::from_raw(addr::SET_TLS_CLEANUP_FLAG as *mut c_void)
     } {
         Ok(f) => f,
         Err(e) => {
-            log::error!("[TLS_FLAG] FnPtr::from_raw(SET_TLS_CLEANUP_FLAG) failed: {:?}", e);
+            log::error!(
+                "[TLS_FLAG] FnPtr::from_raw(SET_TLS_CLEANUP_FLAG) failed: {:?}",
+                e
+            );
             return;
         }
     };
@@ -267,20 +279,21 @@ pub unsafe fn set_tls_cleanup_flag(value: u8) {
     }
 }
 
-// Try to find and unload one loaded cell. Returns true if a cell was
-// unloaded, false if none remain eligible.
-//
-// Safety: must be called on the main thread. Modifies unsynchronized
-// cell arrays in the game manager.
+/// Try to find and unload one loaded cell. Returns true if a cell was
+/// unloaded, false if none remain eligible.
+///
+/// Safety: must be called on the main thread. Modifies unsynchronized
+/// cell arrays in the game manager.
 pub unsafe fn find_cell_to_unload(manager: *mut c_void) -> Option<bool> {
     let f = match unsafe {
-        FnPtr::<types::FindCellToUnloadFn>::from_raw(
-            addr::FIND_CELL_TO_UNLOAD as *mut c_void,
-        )
+        FnPtr::<types::FindCellToUnloadFn>::from_raw(addr::FIND_CELL_TO_UNLOAD as *mut c_void)
     } {
         Ok(f) => f,
         Err(e) => {
-            log::error!("[CELL_UNLOAD] FnPtr::from_raw(FIND_CELL_TO_UNLOAD) failed: {:?}", e);
+            log::error!(
+                "[CELL_UNLOAD] FnPtr::from_raw(FIND_CELL_TO_UNLOAD) failed: {:?}",
+                e
+            );
             return None;
         }
     };
@@ -293,16 +306,14 @@ pub unsafe fn find_cell_to_unload(manager: *mut c_void) -> Option<bool> {
     }
 }
 
-// Lock the Havok world and invalidate the scene graph for safe destruction.
-// Returns an opaque 12-byte state buffer that must be passed to
-// post_destruction_restore.
-//
-// Safety: must be called on the main thread.
+/// Lock the Havok world and invalidate the scene graph for safe destruction.
+/// Returns an opaque 12-byte state buffer that must be passed to
+/// post_destruction_restore.
+///
+/// Safety: must be called on the main thread.
 pub unsafe fn pre_destruction_setup() -> Option<[u8; 12]> {
     let f = match unsafe {
-        FnPtr::<types::PreDestructionSetupFn>::from_raw(
-            addr::PRE_DESTRUCTION_SETUP as *mut c_void,
-        )
+        FnPtr::<types::PreDestructionSetupFn>::from_raw(addr::PRE_DESTRUCTION_SETUP as *mut c_void)
     } {
         Ok(f) => f,
         Err(e) => {
@@ -322,9 +333,9 @@ pub unsafe fn pre_destruction_setup() -> Option<[u8; 12]> {
     Some(state)
 }
 
-// Unlock the Havok world and restore state after destruction.
-//
-// Safety: must be called after pre_destruction_setup on the main thread.
+/// Unlock the Havok world and restore state after destruction.
+///
+/// Safety: must be called after pre_destruction_setup on the main thread.
 pub unsafe fn post_destruction_restore(state: &mut [u8; 12]) {
     let f = match unsafe {
         FnPtr::<types::PostDestructionRestoreFn>::from_raw(
@@ -343,10 +354,10 @@ pub unsafe fn post_destruction_restore(state: &mut [u8; 12]) {
     }
 }
 
-// Run the standard deferred cleanup sequence (PDD + async flush + cleanup).
-// The param byte comes from state[5] of the pre_destruction_setup output.
-//
-// Safety: must be called between pre/post_destruction on the main thread.
+/// Run the standard deferred cleanup sequence (PDD + async flush + cleanup).
+/// The param byte comes from state[5] of the pre_destruction_setup output.
+///
+/// Safety: must be called between pre/post_destruction on the main thread.
 pub unsafe fn deferred_cleanup_small(param: u8) {
     let f = match unsafe {
         FnPtr::<types::DeferredCleanupSmallFn>::from_raw(

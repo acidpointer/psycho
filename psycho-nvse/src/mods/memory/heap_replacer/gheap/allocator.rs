@@ -119,8 +119,8 @@ pub fn is_main_thread() -> bool {
 // Alloc / Free / Msize / Realloc
 // -----------------------------------------------------------------------
 
-/// Re-entrancy guard for emergency cleanup piggybacking on alloc().
-/// Prevents infinite recursion since cleanup itself calls alloc/free.
+// Re-entrancy guard for emergency cleanup piggybacking on alloc().
+// Prevents infinite recursion since cleanup itself calls alloc/free.
 thread_local! {
     static IN_EMERGENCY: Cell<bool> = const { Cell::new(false) };
 }
@@ -147,8 +147,7 @@ pub unsafe fn alloc(size: usize) -> *mut c_void {
         && globals::is_loading()
         && EMERGENCY_CLEANUP.load(Ordering::Relaxed)
         && !IN_EMERGENCY.with(|e| e.get())
-    {
-        if EMERGENCY_CLEANUP.swap(false, Ordering::AcqRel) {
+        && EMERGENCY_CLEANUP.swap(false, Ordering::AcqRel) {
             IN_EMERGENCY.with(|e| e.set(true));
 
             // HeapCompact 0-4: texture flush, geometry, menu, Havok GC, PDD purge.
@@ -168,7 +167,6 @@ pub unsafe fn alloc(size: usize) -> *mut c_void {
 
             IN_EMERGENCY.with(|e| e.set(false));
         }
-    }
 
     let ptr = if is_main_thread() && is_pool_active() {
         let (p, _usable) = unsafe { pool::pool_alloc(size) };

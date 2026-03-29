@@ -142,11 +142,10 @@ impl Pool {
             let cached = self.size_map[size] as usize;
             if cached != 0 {
                 let idx = cached / ALIGN;
-                if idx < SLOT_COUNT {
-                    if let Some((block, usable)) = self.pop(idx) {
+                if idx < SLOT_COUNT
+                    && let Some((block, usable)) = self.pop(idx) {
                         return (block, usable);
                     }
-                }
             }
         }
 
@@ -262,11 +261,6 @@ impl Pool {
         }
     }
 
-    /// Approximate bytes held in freelists (for diagnostics).
-    pub fn held_bytes(&self) -> usize {
-        self.total_held
-    }
-
     /// Drain all freelists back to mimalloc. OOM last-resort recovery.
     ///
     /// **UAF risk**: small blocks may be recycled before stale readers
@@ -282,24 +276,6 @@ impl Pool {
             }
         }
         self.total_held = 0;
-        freed
-    }
-
-    /// Drain a fraction of freelists (oldest first, gradual pressure relief).
-    /// Returns number of blocks freed.
-    pub unsafe fn drain_partial(&mut self, max_blocks: usize) -> usize {
-        let mut freed = 0usize;
-        for idx in 0..SLOT_COUNT {
-            while freed < max_blocks && !self.slots[idx].is_empty() {
-                if let Some((ptr, _)) = self.pop(idx) {
-                    unsafe { mi_free(ptr) };
-                    freed += 1;
-                }
-            }
-            if freed >= max_blocks {
-                break;
-            }
-        }
         freed
     }
 }
@@ -364,9 +340,6 @@ pub fn snapshot_pool_stats() {
     });
 }
 
-/// Phase 7 maintenance (legacy, unused).
-pub unsafe fn pool_maintain() {}
-
 /// Drain large blocks (>= min_size) to mimalloc. Preserves small blocks.
 pub unsafe fn pool_drain_large(min_size: usize) -> usize {
     POOL.with(|p| {
@@ -382,13 +355,5 @@ pub unsafe fn pool_drain_all() -> usize {
     POOL.with(|p| {
         let p = unsafe { &mut *p.get() };
         unsafe { p.drain_all() }
-    })
-}
-
-/// Drain partial (pressure relief). Returns number of blocks freed.
-pub unsafe fn pool_drain_partial(max_blocks: usize) -> usize {
-    POOL.with(|p| {
-        let p = unsafe { &mut *p.get() };
-        unsafe { p.drain_partial(max_blocks) }
     })
 }

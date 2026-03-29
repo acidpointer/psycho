@@ -134,11 +134,10 @@ fn patch_xnvse_headers(nvse_dir: &Path) {
     // Remove [[nodiscard]] attributes that cause clang parsing errors.
     // [[nodiscard]] is a compiler hint only, removing it is ABI-safe.
     let plugin_api = nvse_dir.join("nvse/nvse/PluginAPI.h");
-    if let Ok(content) = fs::read_to_string(&plugin_api) {
-        if content.contains("[[nodiscard]]") {
+    if let Ok(content) = fs::read_to_string(&plugin_api)
+        && content.contains("[[nodiscard]]") {
             let patched = content.replace("[[nodiscard]]", "");
             fs::write(&plugin_api, patched).ok();
             eprintln!("[OK] Patched PluginAPI.h (removed [[nodiscard]] attributes)");
         }
-    }
 }

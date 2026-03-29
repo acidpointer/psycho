@@ -41,6 +41,7 @@ pub fn is_game_ready() -> bool {
 /// Show a HUD corner notification with Pain Vault Boy.
 ///
 /// Only works on the main thread after DeferredInit.
+#[allow(dead_code)]
 pub fn show_notification(message: &str) {
     if !is_game_ready() {
         return;

@@ -93,11 +93,10 @@ fn late_load(nvse_ptr: *const NVSEInterfaceFFI) -> anyhow::Result<()> {
 
     // Allocate console window if configured (deferred from DllMain because
     // AllocConsole can load conhost.exe, which deadlocks under loader lock).
-    if let Ok(cfg) = crate::config::get_config() {
-        if cfg.general.console {
+    if let Ok(cfg) = crate::config::get_config()
+        && cfg.general.console {
             let _ = alloc_console();
         }
-    }
 
     // Start the logger background thread + open the log file.
     // All messages queued during Phase 1 are drained immediately.
