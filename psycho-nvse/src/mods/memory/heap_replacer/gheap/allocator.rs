@@ -133,8 +133,16 @@ thread_local! {
 #[inline]
 pub unsafe fn alloc(size: usize) -> *mut c_void {
     // Main thread piggyback: if a worker signaled EMERGENCY_CLEANUP and
-    // Phase 7 isn't running (loading deadlock), we are the only chance
-    // to run cleanup. Check cheaply — Relaxed load, only when main+loading.
+    // Phase 7 isn't running (loading deadlock), run OOM recovery from
+    // the main thread's alloc() call.
+    //
+    // The vanilla game's own GameHeap::Allocate (FUN_00AA3E40) does
+    // exactly this — runs OOM stages 0-8 in a do-while retry loop
+    // when allocation fails. Running cleanup from the alloc path is
+    // the game's intended design, not a hack.
+    //
+    // We signal HeapCompact stage 4 (PDD purge, skips stage 5 cell
+    // unload to avoid loading deadlocks) + drain_large + mi_collect.
     if is_main_thread()
         && globals::is_loading()
         && EMERGENCY_CLEANUP.load(Ordering::Relaxed)
@@ -142,8 +150,22 @@ pub unsafe fn alloc(size: usize) -> *mut c_void {
     {
         if EMERGENCY_CLEANUP.swap(false, Ordering::AcqRel) {
             IN_EMERGENCY.with(|e| e.set(true));
-            log::warn!("[OOM] Main thread piggyback: running emergency loading cleanup from alloc()");
-            unsafe { super::hooks::emergency_loading_cleanup() };
+
+            // HeapCompact 0-4: texture flush, geometry, menu, Havok GC, PDD purge.
+            // Stage 5 (cell unload) skipped — deadlocks during loading.
+            globals::signal_heap_compact(globals::HeapCompactStage::PddPurge);
+
+            // Drain large pool blocks + force segment decommit.
+            let drained = unsafe { pool::pool_drain_large(pool::SMALL_BLOCK_THRESHOLD) };
+            unsafe { mi_collect(false) };
+
+            log::warn!(
+                "[OOM] Piggyback: HeapCompact 0-4, drained {} large, commit={}MB, pool={}MB",
+                drained,
+                libmimalloc::process_info::MiMallocProcessInfo::get().get_current_commit() / 1024 / 1024,
+                pool::pool_held_bytes() / 1024 / 1024,
+            );
+
             IN_EMERGENCY.with(|e| e.set(false));
         }
     }
