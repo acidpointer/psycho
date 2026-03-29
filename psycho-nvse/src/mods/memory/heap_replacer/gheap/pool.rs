@@ -43,14 +43,15 @@ const MAX_POOL_SIZE: usize = 4096;
 /// Blocks >= 512 are subject to pool cap and large bypass during cleanup.
 pub const SMALL_BLOCK_THRESHOLD: usize = 512;
 
-// Maximum bytes held in pool freelists. When exceeded, blocks >=
-// SMALL_BLOCK_THRESHOLD go to mi_free directly. Blocks below that
-// threshold always pool (zombie data for NiRefObject stale readers).
-//
-// 32MB cap. In a 2GB VAS process, every MB matters during stress.
-// Pool blocks are reused by same-size allocs, so effective zombie
-// coverage is much higher than 32MB (blocks cycle continuously).
-const MAX_POOL_HELD: usize = 32 * 1024 * 1024;
+// Soft cap: when exceeded, blocks >= SMALL_BLOCK_THRESHOLD go to mi_free.
+// Small blocks still pool for zombie safety.
+const SOFT_CAP: usize = 32 * 1024 * 1024; // 32MB
+
+// Hard cap: when exceeded, ALL blocks go to mi_free regardless of size.
+// This is the last-resort pressure valve. UAF risk accepted because
+// the alternative is guaranteed OOM from unbounded small block growth.
+// Existing pool blocks still get consumed via pool_alloc (same-size reuse).
+const HARD_CAP: usize = 128 * 1024 * 1024; // 128MB
 
 // Freelist slot count. Index = usable_size / 16.
 // Covers sizes 16..4096 in 16-byte increments (256 slots).
@@ -151,9 +152,15 @@ impl Pool {
             return;
         }
 
-        // Cap: when pool is full, large blocks go to mi_free directly.
-        // Small blocks (<1KB) still pool — they're the UAF-sensitive ones.
-        if self.total_held > MAX_POOL_HELD && usable >= SMALL_BLOCK_THRESHOLD {
+        // Hard cap: pool critically oversized, ALL blocks go to mi_free.
+        // UAF risk accepted — alternative is guaranteed OOM.
+        if self.total_held > HARD_CAP {
+            unsafe { mi_free(ptr) };
+            return;
+        }
+
+        // Soft cap: large blocks go to mi_free, small blocks still pool.
+        if self.total_held > SOFT_CAP && usable >= SMALL_BLOCK_THRESHOLD {
             unsafe { mi_free(ptr) };
             return;
         }
@@ -167,11 +174,11 @@ impl Pool {
     /// small blocks that prevent UAF from stale NiRefObject readers.
     /// Caller must verify BST is idle before calling.
     pub unsafe fn drain_if_over_cap(&mut self) {
-        if self.total_held <= MAX_POOL_HELD {
+        if self.total_held <= SOFT_CAP {
             return;
         }
 
-        let target = MAX_POOL_HELD / 2;
+        let target = SOFT_CAP / 2;
         let before = self.total_held;
         let mut freed_count = 0usize;
         let min_idx = SMALL_BLOCK_THRESHOLD / ALIGN;
