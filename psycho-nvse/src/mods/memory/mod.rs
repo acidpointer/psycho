@@ -1,8 +1,7 @@
 mod crt_iat;
 
-mod heap_replacer;
+pub mod heap_replacer;
 pub use crt_iat::*;
-pub use heap_replacer::*;
 pub use heap_replacer::mem_stats;
 use libmimalloc::{
     mi_arena_id_t, mi_option_set, mi_option_set_enabled, mi_reserve_os_memory_ex,

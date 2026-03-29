@@ -1,0 +1,268 @@
+SBM FREELIST BYTE LAYOUT
+======================================================================
+
+Goal: determine EXACTLY which bytes SBM writes to a freed block.
+This tells us what a pool allocator must preserve vs overwrite.
+
+
+======================================================================
+FUN_00aa6e00 (freelist LINK -- writes to freed block) @ 0x00aa6e00
+======================================================================
+  Function: FUN_00aa6e00 @ 0x00aa6e00, Size: 86 bytes
+
+void __thiscall FUN_00aa6e00(void *this,undefined4 *param_1)
+
+{
+  *param_1 = 0;
+  param_1[1] = *(undefined4 *)((int)this + 8);
+  if (*(int *)((int)this + 8) != 0) {
+    **(undefined4 **)((int)this + 8) = param_1;
+  }
+  *(undefined4 **)((int)this + 8) = param_1;
+  *(int *)((int)this + 0x54) = *(int *)((int)this + 0x54) + 1;
+  return;
+}
+
+
+
+--- Calls FROM FUN_00aa6e00 (0x00aa6e00) ---
+  Total: 0 calls
+
+======================================================================
+FUN_00aa6e60 (freelist UNLINK -- on alloc) @ 0x00aa6e60
+======================================================================
+  Function: FUN_00aa6e60 @ 0x00aa6e60, Size: 72 bytes
+
+void __thiscall FUN_00aa6e60(void *this,int *param_1)
+
+{
+  if (*param_1 != 0) {
+    *(int *)(*param_1 + 4) = param_1[1];
+  }
+  if (param_1[1] != 0) {
+    *(int *)param_1[1] = *param_1;
+  }
+  *(int *)((int)this + 0x54) = *(int *)((int)this + 0x54) + -1;
+  return;
+}
+
+
+
+--- Calls FROM FUN_00aa6e60 (0x00aa6e60) ---
+  Total: 0 calls
+
+======================================================================
+FUN_00aa6c70 (pool free entry -- calls aa6e00) @ 0x00aa6c70
+======================================================================
+  Function: FUN_00aa6c70 @ 0x00aa6c70, Size: 138 bytes
+
+void __thiscall FUN_00aa6c70(void *this,undefined4 *param_1)
+
+{
+  uint uVar1;
+  
+  if (param_1 != (undefined4 *)0x0) {
+    FUN_0040fbf0((LONG *)((int)this + 0x20));
+    FUN_00aa6e00(this,param_1);
+    uVar1 = (uint)((int)param_1 - *(int *)((int)this + 4)) >> 0xc;
+    *(short *)(*(int *)((int)this + 0x48) + uVar1 * 2) =
+         *(short *)(*(int *)((int)this + 0x48) + uVar1 * 2) + -1;
+    *(int *)((int)this + 0x24) = *(int *)((int)this + 0x24) + -1;
+    if (*(int *)((int)this + 0x24) == 0) {
+      *(undefined4 *)((int)this + 0x20) = 0;
+    }
+  }
+  return;
+}
+
+
+
+======================================================================
+FUN_00aa6aa0 (pool alloc -- uses freelist) @ 0x00aa6aa0
+======================================================================
+  Function: FUN_00aa6aa0 @ 0x00aa6aa0, Size: 462 bytes
+
+int __fastcall FUN_00aa6aa0(void *param_1)
+
+{
+  uint uVar1;
+  int *piVar2;
+  bool bVar3;
+  uint uVar4;
+  uint local_18;
+  int local_c;
+  int in_stack_fffffff8;
+  int iVar5;
+  
+  FUN_0040fbf0((LONG *)((int)param_1 + 0x20));
+  if (*(int *)((int)param_1 + 8) == 0) {
+    uVar4 = FUN_00aa6db0((int)param_1);
+    if (uVar4 == 0xffffffff) {
+      *(int *)((int)param_1 + 0x24) = *(int *)((int)param_1 + 0x24) + -1;
+      if (*(int *)((int)param_1 + 0x24) != 0) {
+        return in_stack_fffffff8;
+      }
+      *(undefined4 *)((int)param_1 + 0x20) = 0;
+      return in_stack_fffffff8;
+    }
+    local_c = 0;
+    uVar1 = *(uint *)((int)param_1 + 0x40);
+    bVar3 = FUN_00aa6610(param_1,uVar4,&local_c);
+    if (!bVar3) {
+      *(int *)((int)param_1 + 0x24) = *(int *)((int)param_1 + 0x24) + -1;
+      if (*(int *)((int)param_1 + 0x24) != 0) {
+        return in_stack_fffffff8;
+      }
+      *(undefined4 *)((int)param_1 + 0x20) = 0;
+      return in_stack_fffffff8;
+    }
+    *(undefined2 *)(*(int *)((int)param_1 + 0x48) + uVar4 * 2) = 0;
+    for (local_18 = 0; local_18 < (uint)(0x1000 / (ulonglong)uVar1); local_18 = local_18 + 1) {
+      FUN_00aa6e00(param_1,(undefined4 *)(local_18 * *(int *)((int)param_1 + 0x40) + local_c));
+    }
+    *(int *)((int)param_1 + 0x58) = *(int *)((int)param_1 + 0x58) + 1;
+    if (*(uint *)((int)param_1 + 0x44) < *(uint *)((int)param_1 + 0x58)) {
+      *(undefined4 *)((int)param_1 + 0x44) = *(undefined4 *)((int)param_1 + 0x58);
+    }
+  }
+  iVar5 = 0;
+  if (*(int *)((int)param_1 + 8) != 0) {
+    iVar5 = *(int *)((int)param_1 + 8);
+    piVar2 = *(int **)((int)param_1 + 8);
+    *(undefined4 *)((int)param_1 + 8) = *(undefined4 *)(*(int *)((int)param_1 + 8) + 4);
+    FUN_00aa6e60(param_1,piVar2);
+    uVar4 = (uint)(iVar5 - *(int *)((int)param_1 + 4)) >> 0xc;
+    *(short *)(*(int *)((int)param_1 + 0x48) + uVar4 * 2) =
+         *(short *)(*(int *)((int)param_1 + 0x48) + uVar4 * 2) + 1;
+  }
+  *(int *)((int)param_1 + 0x24) = *(int *)((int)param_1 + 0x24) + -1;
+  if (*(int *)((int)param_1 + 0x24) == 0) {
+    *(undefined4 *)((int)param_1 + 0x20) = 0;
+  }
+  return iVar5;
+}
+
+
+
+======================================================================
+FUN_00aa6610 (page init -- divides page into blocks) @ 0x00aa6610
+======================================================================
+  Function: FUN_00aa6610 @ 0x00aa6610, Size: 60 bytes
+
+bool __thiscall FUN_00aa6610(void *this,int param_1,int *param_2)
+
+{
+  LPVOID pvVar1;
+  
+  *param_2 = param_1 * 0x1000 + *(int *)((int)this + 4);
+  pvVar1 = VirtualAlloc((LPVOID)*param_2,0x1000,0x1000,4);
+  return pvVar1 != (LPVOID)0x0;
+}
+
+
+
+PART 2: SBM POOL OBJECT LAYOUT
+======================================================================
+
+From FUN_00aa6aa0 (alloc) and FUN_00aa6c70 (free):
+  pool + 0x04: base address of arena
+  pool + 0x08: freelist head pointer
+  pool + 0x20: spinlock
+  pool + 0x24: lock counter / reentrant depth
+  pool + 0x40: block size
+  pool + 0x48: per-page allocation count array
+  pool + 0x50: total arena size
+  pool + 0x58: total allocated page count
+
+The freelist is a singly-linked list. Each freed block stores
+the next pointer somewhere in its body. FUN_00aa6e00 reveals WHERE.
+
+
+PART 3: POOL LOOKUP FROM POINTER
+======================================================================
+
+From FUN_00aa4060 (GameHeap::Free):
+  pool = DAT_011f63b8[(uint)ptr >> 0x18]
+  This is a 256-entry table indexed by the high byte of the pointer.
+  Each entry points to the pool that owns that 16MB address range.
+
+
+======================================================================
+FUN_00aa4960 (pool lookup by size) @ 0x00aa4960
+======================================================================
+  Function: FUN_00aa4960 @ 0x00aa4960, Size: 238 bytes
+
+/* WARNING: Globals starting with '_' overlap smaller symbols at the same address */
+
+uint __cdecl FUN_00aa4960(uint param_1)
+
+{
+  uint local_14;
+  uint local_10;
+  uint local_c;
+  uint local_8;
+  
+  local_8 = 0;
+  if (param_1 < 300) {
+    if (param_1 < 0x3fd) {
+      local_c = *(uint *)(&DAT_011f67b8 + (param_1 + 0xf & 0xfffffff0));
+    }
+    else {
+      local_c = 0;
+    }
+    local_8 = local_c;
+  }
+  else if (param_1 < 0x200) {
+    if (param_1 < 0x3fd) {
+      local_10 = *(uint *)(&DAT_011f67b8 + (param_1 + 0xf & 0xfffffff0));
+    }
+    else {
+      local_10 = 0;
+    }
+    local_8 = local_10;
+    if (local_10 == 0) {
+      if (param_1 < 0x3fd) {
+        local_14 = *(uint *)(&DAT_011f67b8 + (param_1 + 0x1f & 0xffffffe0));
+      }
+      else {
+        local_14 = 0;
+      }
+      local_8 = local_14;
+    }
+  }
+  else if (param_1 < 0x240) {
+    local_8 = ~-(uint)(0x3fc < param_1) & _DAT_011f69f8;
+  }
+  if (local_8 == 0) {
+    local_8 = 0;
+  }
+  return local_8;
+}
+
+
+
+======================================================================
+FUN_00aa45a0 (heap lookup for non-pool ptr) @ 0x00aa45a0
+======================================================================
+  Function: FUN_00aa45a0 @ 0x00aa45a0, Size: 99 bytes
+
+int * __thiscall FUN_00aa45a0(void *this,undefined4 param_1)
+
+{
+  int *piVar1;
+  char cVar2;
+  ushort local_8;
+  
+  local_8 = 0;
+  while( true ) {
+    if (*(ushort *)((int)this + 2) <= local_8) {
+      return (int *)0x0;
+    }
+    piVar1 = *(int **)(*(int *)((int)this + 8) + (uint)local_8 * 4);
+    cVar2 = (**(code **)(*piVar1 + 0x10))(param_1);
+    if (cVar2 != '\0') break;
+    local_8 = local_8 + 1;
+  }
+  return piVar1;
+}
+

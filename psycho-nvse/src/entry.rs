@@ -36,7 +36,7 @@ use crate::{
     mods::{
         memory::{
             configure_mimalloc, install_crt_hooks,
-            install_game_heap_hooks, start_deferred_threads,
+            heap_replacer::{install_game_heap_hooks, start_deferred_threads},
         },
         perf::install_rng_hook,
         zlib::install_zlib_hooks,

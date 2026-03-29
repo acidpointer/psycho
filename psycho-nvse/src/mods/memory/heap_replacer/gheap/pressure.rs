@@ -213,29 +213,28 @@ impl PressureRelief {
         let baseline = self.baseline_commit.load(Ordering::Relaxed);
         let aggressive_threshold = baseline + MAX_GROWTH_ABOVE_BASELINE * 2;
         let commit_mb = commit / 1024 / 1024;
-        let quarantine_mb = super::quarantine::usage() / 1024 / 1024;
+        let pending = super::pool::pool_held_bytes() / 1024 / 1024;
 
-        // HeapCompact stage 3. No stage 4 (full PDD drain).
-        //
-        // Gen queue grows during stress but CellTransition drains it.
-        // Double-buffer quarantine ensures Gen destructors access readable
-        // zombie memory (objects survive at least one full frame).
-        //
-        // Stage 0: ProcessPendingCleanup (BSTreeManager cleanup)
-        // Stage 1-3: texture, menu, Havok GC
+        // HeapCompact stages 0-3 (texture, geometry, menu, Havok GC).
+        // GC deferred-free keeps objects alive for N frames -- Gen
+        // destructors access valid zombie memory, no infinite loops.
         globals::signal_heap_compact(globals::HeapCompactStage::HavokGC);
         unsafe { mi_collect(false) };
 
+        // Always defer cell unload to AI_JOIN. Cell unload is the most
+        // effective reclamation mechanism and must run at every pressure
+        // event, not just aggressive threshold.
+        self.deferred_unload.store(true, Ordering::Release);
+
         if commit >= aggressive_threshold {
-            self.deferred_unload.store(true, Ordering::Release);
             log::warn!(
-                "[PRESSURE] HeapCompact 0-3 + deferred, commit={}MB (thresh={}MB), quarantine={}MB",
-                commit_mb, aggressive_threshold / 1024 / 1024, quarantine_mb,
+                "[PRESSURE] HeapCompact 0-3 + cell unload, commit={}MB (thresh={}MB), pending={}",
+                commit_mb, aggressive_threshold / 1024 / 1024, pending,
             );
         } else {
             log::info!(
-                "[PRESSURE] Relief: HeapCompact 0-3, commit={}MB, quarantine={}MB",
-                commit_mb, quarantine_mb,
+                "[PRESSURE] HeapCompact 0-3 + cell unload, commit={}MB, pending={}",
+                commit_mb, pending,
             );
         }
 
@@ -266,12 +265,15 @@ impl PressureRelief {
 
         if now_ms.saturating_sub(last_agg) >= AGGRESSIVE_COOLDOWN_MS {
             LAST_AGGRESSIVE_MS.store(now_ms, Ordering::Relaxed);
-            unsafe { super::quarantine::flush_all_and_collect() };
+            // mi_collect(true) only -- do NOT call emergency_flush.
+            // The GC thread owns the pending buffer. Draining it here
+            // bypasses the N-frame survival guarantee and reintroduces
+            // the UAF that GC was designed to prevent.
+            unsafe { mi_collect(true) };
             let commit_mb = info.get_current_commit() / 1024 / 1024;
-            let quarantine_mb = super::quarantine::usage() / 1024 / 1024;
             log::warn!(
-                "[PRESSURE] Aggressive collect (post AI_JOIN): commit={}MB, quarantine={}MB, RSS={}MB",
-                commit_mb, quarantine_mb, info.get_current_rss() / 1024 / 1024,
+                "[PRESSURE] Aggressive collect (post AI_JOIN): commit={}MB, RSS={}MB",
+                commit_mb, info.get_current_rss() / 1024 / 1024,
             );
         }
 

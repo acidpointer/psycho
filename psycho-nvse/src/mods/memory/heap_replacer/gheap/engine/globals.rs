@@ -12,7 +12,7 @@ use libc::c_void;
 use libpsycho::ffi::fnptr::FnPtr;
 
 use super::addr;
-use crate::mods::memory::heap_replacer::game_heap::types;
+use crate::mods::memory::heap_replacer::gheap::types;
 
 // ---------------------------------------------------------------------------
 // Game state reads (all safe -- reading from known static addresses)
@@ -220,10 +220,11 @@ pub unsafe fn run_oom_stages(size: usize) -> *mut c_void {
         };
     }
 
-    // Flush quarantine + collect + alloc — kept together to avoid
-    // other threads consuming freed VAS between flush and alloc.
-    use crate::mods::memory::heap_replacer::game_heap::orchestrator::HeapOrchestrator;
-    unsafe { HeapOrchestrator::flush_all_and_collect() };
+    // Pool drain + collect + alloc -- kept together to avoid
+    // other threads consuming freed VAS between drain and alloc.
+    use crate::mods::memory::heap_replacer::gheap::pool;
+    unsafe { pool::pool_drain_all() };
+    unsafe { libmimalloc::mi_collect(true) };
 
     let ptr = unsafe { libmimalloc::mi_malloc_aligned(size, 16) };
     if !ptr.is_null() {

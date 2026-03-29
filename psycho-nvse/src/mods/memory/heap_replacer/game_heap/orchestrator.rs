@@ -265,8 +265,6 @@ impl HeapOrchestrator {
     pub unsafe fn alloc(size: usize) -> *mut c_void {
         let ptr = unsafe { mi_malloc_aligned(size, ALIGN) };
         if !ptr.is_null() {
-            Self::with_emergency_cleanup(|| unsafe { Self::handle_emergency_cleanup() });
-
             ALLOC_COUNTER.with(|c| {
                 let count = c.get().wrapping_add(1);
                 c.set(count);
@@ -288,13 +286,11 @@ impl HeapOrchestrator {
 
         if unsafe { mi_is_in_heap_region(ptr as *const c_void) } {
             if Self::is_main_thread() {
-                Self::with_emergency_cleanup(|| unsafe { Self::handle_emergency_cleanup() });
-
                 if !quarantine::is_active() {
                     // Before first frame tick: mi_free directly.
                     unsafe { libmimalloc::mi_free(ptr) };
                 } else {
-                    // Quarantine: zombie-safe until next frame's Phase 7 drain.
+                    // Pending-free: stays allocated until Phase 7 BST-idle drain.
                     quarantine::push(ptr);
                 }
                 return;
@@ -383,47 +379,55 @@ impl HeapOrchestrator {
     // Frame lifecycle
     // =======================================================================
 
-    /// Phase 7 (before AI_START): drain previous quarantine buffer + clear dead set.
+    /// Phase 7 (before AI_START): drain pending-free list if threads are idle.
     ///
-    /// Acquires WRITE lock -- blocks until in-flight readers finish.
-    /// This is the ONLY place quarantined pointers are freed (mi_free).
+    /// Checks BST idle state (non-intrusive semaphore read). If idle,
+    /// mi_frees all pending entries under write lock and clears dead set.
+    /// If BST busy, skips — objects stay as zombies until next frame.
+    ///
+    /// Also handles EMERGENCY_CLEANUP signal from worker OOM (forces drain
+    /// even if BST is busy — OOM is worse than potential BST stale read).
     pub unsafe fn on_pre_ai() {
         // First call: set main thread ID from here -- the ONE place we're
         // 100% certain is the game's main thread (main loop Phase 7 hook).
-        // Also activates quarantine. Before this, all frees go to mi_free.
+        // Also activates pending-free. Before this, all frees go to mi_free.
         if !quarantine::is_active() {
             globals::set_main_thread_id();
 
-            // Only activate quarantine when NOT loading.
+            // Only activate when NOT loading.
             // First save load from menu: game loop runs frames during loading.
-            // If we activate quarantine here, loading frees go to quarantine
+            // If we activate here, loading frees accumulate in the pending list
             // instead of mi_free --> unbounded growth.
-            // After loading ends: next on_pre_ai activates quarantine for gameplay.
+            // After loading ends: next on_pre_ai activates for gameplay.
             if !globals::is_loading() {
                 quarantine::activate();
             }
         }
 
-        // Drain previous buffer at Phase 7 -- the ONE safe point.
-        // No game code is actively processing freed objects here.
+        // Handle emergency cleanup signal from worker OOM.
+        // Forces drain even if BST is busy — OOM is worse.
+        let force = EMERGENCY_CLEANUP.swap(false, Ordering::AcqRel);
+        if force {
+            log::warn!("[EMERGENCY] Forcing pending-free drain at Phase 7");
+        }
+
+        // Drain pending-free list at Phase 7 — the ONE safe point.
+        // AI is idle (not yet dispatched). BST idle checked internally.
         // HeapCompact (Phase 6) already ran. AI hasn't started (Phase 8).
-        // tick_flush acquires write lock internally.
-        quarantine::tick_flush();
+        quarantine::tick_flush(force);
 
         // During loading: discard stale watchdog signals.
+        // Console command (deferred request) is NOT discarded here --
+        // it's handled by on_ai_join's loading path via execute_during_loading.
         if globals::is_loading() {
             WATCHDOG_CELL_UNLOAD.store(0, Ordering::Relaxed);
-            super::engine::cell_unload::take_deferred_request();
         }
     }
 
-    /// Mid-frame (post-render, before AI_JOIN): rotate buffers + pressure relief.
+    /// Mid-frame (post-render, before AI_JOIN): pressure relief only.
     ///
-    /// AI threads are STILL ACTIVE -- tick_rotate swaps buffers only (NO mi_free).
+    /// AI threads are STILL ACTIVE — no memory operations here.
     pub unsafe fn on_mid_frame() {
-        // Rotate quarantine buffers: swap current <-> previous.
-        // NO mi_free here. AI threads still active.
-        quarantine::tick_rotate();
 
         if let Some(pr) = PressureRelief::instance() {
             pr.calibrate_baseline();
@@ -457,7 +461,22 @@ impl HeapOrchestrator {
             let until = info.get_elapsed_ms() + POST_LOAD_COOLDOWN_MS as usize;
             POST_LOAD_UNTIL.store(until, Ordering::Relaxed);
 
+            // Proactive cell unload during loading (commit-gated).
             unsafe { Self::maybe_loading_cell_unload() };
+
+            // Console command (pcell) during loading: use loading-aware path.
+            let deferred = super::engine::cell_unload::take_deferred_request();
+            if deferred > 0 {
+                if let Some(result) =
+                    super::engine::cell_unload::execute_during_loading(deferred)
+                    && result.cells > 0
+                {
+                    if let Some(pr) = PressureRelief::instance() {
+                        pr.set_pending_counter_decrement();
+                    }
+                }
+            }
+
             return;
         }
 
@@ -537,10 +556,16 @@ impl HeapOrchestrator {
 
         // Memory-based cooldown: don't unload again until commit grows back
         // above the post-unload level. Prevents per-frame unload churn.
+        // Stale detection: if commit dropped far below cooldown (new loading
+        // session at lower commit), reset cooldown to avoid blocking.
         static LOADING_COOLDOWN_COMMIT: AtomicUsize = AtomicUsize::new(0);
         let cooldown = LOADING_COOLDOWN_COMMIT.load(Ordering::Relaxed);
         if cooldown > 0 && commit < cooldown {
-            return;
+            if cooldown.saturating_sub(commit) < LOADING_CELL_UNLOAD_GROWTH {
+                return; // still in cooldown, commit hasn't grown back
+            }
+            // Commit dropped significantly -- new loading session. Reset.
+            LOADING_COOLDOWN_COMMIT.store(0, Ordering::Relaxed);
         }
 
         if let Some(result) = super::engine::cell_unload::execute_during_loading(LOADING_MAX_CELLS)
@@ -568,68 +593,21 @@ impl HeapOrchestrator {
     }
 
     // =======================================================================
-    // Emergency cleanup check (used by alloc/free hot paths)
-    // =======================================================================
-
-    /// Check emergency signal. If set AND main thread, clear flag and run `f`.
-    /// Hot path: single atomic load (1ns, false 99.99%). Cold path: log + closure.
-    #[inline]
-    fn with_emergency_cleanup(f: impl FnOnce()) {
-        if !EMERGENCY_CLEANUP.load(Ordering::Acquire) {
-            return;
-        }
-        Self::with_emergency_cleanup_cold(f);
-    }
-
-    #[cold]
-    fn with_emergency_cleanup_cold(f: impl FnOnce()) {
-        if Self::is_main_thread() {
-            EMERGENCY_CLEANUP.store(false, Ordering::Release);
-            log::warn!("[EMERGENCY] Main thread handling cleanup");
-            f();
-        }
-    }
-
-    // =======================================================================
-    // Emergency cleanup (worker OOM --> main thread alloc)
-    // =======================================================================
-
-    /// Called from main thread alloc when EMERGENCY_CLEANUP is set.
-    /// Runs quarantine flush + collect inline.
-    #[cold]
-    unsafe fn handle_emergency_cleanup() {
-        let info = libmimalloc::process_info::MiMallocProcessInfo::get();
-        let before = info.get_current_commit();
-
-        log::warn!(
-            "[EMERGENCY] Cleanup: commit={}MB, quarantine={}MB",
-            before / 1024 / 1024,
-            quarantine::usage() / 1024 / 1024,
-        );
-
-        unsafe { quarantine::emergency_flush() };
-
-        let after = libmimalloc::process_info::MiMallocProcessInfo::get().get_current_commit();
-        log::warn!(
-            "[EMERGENCY] Done: commit {}MB-->{}MB (freed {}MB)",
-            before / 1024 / 1024,
-            after / 1024 / 1024,
-            before.saturating_sub(after) / 1024 / 1024,
-        );
-    }
-
-    // =======================================================================
     // OOM recovery
     // =======================================================================
 
-    /// OOM recovery with escalating stages + bounded retry.
+    /// OOM recovery with escalating stages.
+    ///
+    /// ENGINE CONTRACT: the original game allocator NEVER returns NULL.
+    /// All game code assumes alloc succeeds. We match this contract with
+    /// an infinite last-resort retry after bounded fast stages.
     ///
     /// Key principles:
-    /// - try_write EVERYWHERE (never blocking write -- stalls cause VAS loss)
+    /// - try_write for quarantine flush (never blocking write in fast path)
     /// - mi_collect(false) every retry iteration (reclaims thread-local pools)
     /// - run_oom_stages does flush+collect+alloc internally (no VAS gap)
-    /// - Bounded retry for ALL threads (main: 10x50ms, worker: 200x50ms)
-    /// - Returns NULL after exhausting retries (game crashes, never freezes)
+    /// - Bounded fast retry (main: 10x50ms, worker: 200x50ms)
+    /// - Infinite last-resort retry with game cleanup (matches engine contract)
     #[cold]
     unsafe fn recover_oom(size: usize) -> *mut c_void {
         let is_main = Self::is_main_thread();
@@ -659,8 +637,13 @@ impl HeapOrchestrator {
             return ptr;
         }
 
-        // Stage 3 (main thread, AI idle, NOT post-load): game's OOM stages 0-8.
-        if is_main && !game_guard::is_ai_active() && !is_post_load_cooldown() {
+        // Stage 3 (main thread, AI idle): game's OOM stages 0-8.
+        // Allowed during loading (game's own OOM handler does this).
+        // Blocked only during post-load cooldown (Havok restart, scene rebuild).
+        if is_main
+            && !game_guard::is_ai_active()
+            && (!is_post_load_cooldown() || globals::is_loading())
+        {
             let ptr = unsafe { globals::run_oom_stages(size) };
             if !ptr.is_null() {
                 return ptr;
@@ -693,12 +676,11 @@ impl HeapOrchestrator {
             }
         }
 
-        // Stage 5 (main thread, AI idle, NOT loading, NOT post-load):
-        // Run game OOM stages 0-8 inline as last resort before giving up.
+        // Stage 5 (main thread, AI idle, NOT post-load unless loading):
+        // Run game OOM stages 0-8 + quarantine flush as escalation.
         if is_main
             && !game_guard::is_ai_active()
-            && !globals::is_loading()
-            && !is_post_load_cooldown()
+            && (!is_post_load_cooldown() || globals::is_loading())
         {
             log::warn!(
                 "[OOM] Stage 5: game cleanup (commit={}MB, quarantine={}MB)",
@@ -724,19 +706,93 @@ impl HeapOrchestrator {
             }
         }
 
-        // All stages exhausted. Return NULL -- game crashes but never freezes.
-        // The vanilla allocator retries infinitely, but infinite loops on the
-        // main thread cause permanent freezes. A crash is recoverable by the
-        // user; a freeze is not.
+        // Stage 6: infinite last-resort retry.
+        // ENGINE CONTRACT: the game's allocator never returns NULL.
+        // All game code assumes alloc succeeds -- returning NULL crashes
+        // the caller immediately. We must retry until memory is available.
+        //
+        // Recovery comes from: other threads freeing memory, quarantine
+        // drain at Phase 7 tick_flush, game HeapCompact at Phase 6,
+        // loading completing and freeing transitional allocations.
+        unsafe { Self::oom_last_resort(size, is_main) }
+    }
+
+    /// Infinite last-resort OOM retry. Matches the vanilla allocator's
+    /// contract of never returning NULL.
+    ///
+    /// Uses longer sleep (200ms) to avoid burning CPU while waiting for
+    /// memory to become available from other threads, frame-driven cleanup,
+    /// or loading completion.
+    #[cold]
+    unsafe fn oom_last_resort(size: usize, is_main: bool) -> *mut c_void {
         let info = libmimalloc::process_info::MiMallocProcessInfo::get();
         log::error!(
-            "[OOM] FATAL: all stages exhausted: size={}, thread={}, commit={}MB, quarantine={}MB, RSS={}MB",
+            "[OOM] Last resort: size={}, thread={}, commit={}MB, quarantine={}MB, RSS={}MB",
             size,
             if is_main { "main" } else { "worker" },
             info.get_current_commit() / 1024 / 1024,
             quarantine::usage() / 1024 / 1024,
             info.get_current_rss() / 1024 / 1024,
         );
-        null_mut()
+
+        if !is_main {
+            EMERGENCY_CLEANUP.store(true, Ordering::Release);
+        }
+
+        let mut attempt: u32 = 0;
+        loop {
+            // Quarantine flush (try_write -- non-blocking).
+            unsafe { quarantine::flush_all_and_collect() };
+
+            let ptr = unsafe { mi_malloc_aligned(size, ALIGN) };
+            if !ptr.is_null() {
+                log::warn!("[OOM] Last resort recovered at attempt {} (size={})", attempt, size);
+                return ptr;
+            }
+
+            // Main thread, AI idle, not in post-load cooldown (or loading):
+            // run game OOM stages. This is the REAL memory reclamation --
+            // texture flush, PDD purge, cell unload (stages 0-8).
+            if is_main
+                && !game_guard::is_ai_active()
+                && (!is_post_load_cooldown() || globals::is_loading())
+            {
+                let ptr = unsafe { globals::run_oom_stages(size) };
+                if !ptr.is_null() {
+                    log::warn!(
+                        "[OOM] Last resort: game cleanup recovered at attempt {} (size={})",
+                        attempt, size,
+                    );
+                    return ptr;
+                }
+
+                // Flush objects freed by game stages.
+                unsafe { quarantine::flush_all_and_collect() };
+
+                let ptr = unsafe { mi_malloc_aligned(size, ALIGN) };
+                if !ptr.is_null() {
+                    log::warn!(
+                        "[OOM] Last resort: post-cleanup recovered at attempt {} (size={})",
+                        attempt, size,
+                    );
+                    return ptr;
+                }
+            }
+
+            // Wait for other threads to free memory, frame-driven cleanup,
+            // or loading to complete.
+            libpsycho::os::windows::winapi::sleep(200);
+
+            attempt += 1;
+            if attempt % 5 == 0 {
+                let info = libmimalloc::process_info::MiMallocProcessInfo::get();
+                log::error!(
+                    "[OOM] Last resort attempt {}: size={}, commit={}MB, quarantine={}MB",
+                    attempt, size,
+                    info.get_current_commit() / 1024 / 1024,
+                    quarantine::usage() / 1024 / 1024,
+                );
+            }
+        }
     }
 }
