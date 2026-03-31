@@ -16,8 +16,10 @@
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::LazyLock;
 
+use super::allocator;
 use super::engine::globals;
 use super::pool;
+use super::statics;
 use crate::mods::memory::heap_replacer::mem_stats;
 
 // ---------------------------------------------------------------------------
@@ -26,6 +28,10 @@ use crate::mods::memory::heap_replacer::mem_stats;
 
 /// Max cells to unload per relief cycle.
 const MAX_CELLS_PER_CYCLE: usize = 20;
+
+/// PDD rounds during destruction protocol. Processes queued entries
+/// from FindCellToUnload so frees happen same-frame, not next frame.
+const DESTRUCTION_PDD_ROUNDS: u32 = 100;
 
 // ---------------------------------------------------------------------------
 // PressureRelief
@@ -130,14 +136,13 @@ impl PressureRelief {
 
         self.deferred_unload.store(false, Ordering::Release);
 
-        let info = libmimalloc::process_info::MiMallocProcessInfo::get();
+        let heap = super::heap_manager::HeapManager::get();
 
-        // Aggressive collect: safe here because AI threads are joined.
-        unsafe { libmimalloc::mi_collect(true) };
+        // Drain large pool blocks + collect before destruction.
+        unsafe { heap.drain_pool(pool::SMALL_BLOCK_THRESHOLD) };
         log::info!(
-            "[PRESSURE] Post AI_JOIN collect: commit={}MB, RSS={}MB",
-            info.get_current_commit() / 1024 / 1024,
-            info.get_current_rss() / 1024 / 1024,
+            "[PRESSURE] Post AI_JOIN drain: commit={}MB, pool={}MB",
+            heap.commit_mb(), heap.pool_mb(),
         );
 
         let manager = match globals::game_manager() {
@@ -215,19 +220,31 @@ impl PressureRelief {
 
         unsafe { globals::post_destruction_restore(&mut state) };
 
-        // Drain remaining large pool blocks + collect.
+        // Pump PDD with large bypass — process queued destruction so
+        // freed objects reclaim VAS immediately (not next frame).
+        // FindCellToUnload only queues PDD entries; without this pump
+        // the memory isn't freed until next frame's Phase 7.
         if cells > 0 {
-            let drained = unsafe { pool::pool_drain_large(pool::SMALL_BLOCK_THRESHOLD) };
-            unsafe { libmimalloc::mi_collect(false) };
-
-            let commit = libmimalloc::process_info::MiMallocProcessInfo::get()
-                .get_current_commit();
-            log::debug!(
-                "[DESTRUCTION] Post: {} large drained, commit={}MB, pool={}MB",
-                drained, commit / 1024 / 1024,
-                pool::pool_held_bytes() / 1024 / 1024,
-            );
+            allocator::with_large_bypass(|| {
+                if let Ok(pdd) = statics::PER_FRAME_QUEUE_DRAIN_HOOK.original() {
+                    for _ in 0..DESTRUCTION_PDD_ROUNDS {
+                        unsafe { pdd() };
+                    }
+                }
+            });
         }
+
+        // Drain large pool blocks (>= 1KB). Small blocks stay for zombie
+        // safety — BSTreeNode (256-1200b) is accessed by scene graph after
+        // free. Draining small blocks causes C0000417.
+        // Drain regardless of cell count: pool VAS is the primary problem.
+        let heap = super::heap_manager::HeapManager::get();
+        let drained = unsafe { heap.drain_pool(pool::SMALL_BLOCK_THRESHOLD) };
+
+        log::debug!(
+            "[DESTRUCTION] Post: {} drained, commit={}MB, pool={}MB",
+            drained, heap.commit_mb(), heap.pool_mb(),
+        );
 
         if cells == 0 {
             loading_counter.fetch_sub(1, std::sync::atomic::Ordering::AcqRel);

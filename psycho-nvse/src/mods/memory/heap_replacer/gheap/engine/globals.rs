@@ -57,7 +57,8 @@ pub fn heap_compact_trigger_value() -> u32 {
 }
 
 /// Signal HeapCompact to run stages 0..=stage on the next frame.
-/// The game's dispatcher is inclusive: trigger=N runs stages 0, 1, ..., N.
+/// Raw write — prefer HeapManager::signal_heap_compact() which uses
+/// MAX semantics (never downgrades an existing trigger).
 pub fn signal_heap_compact(stage: HeapCompactStage) {
     unsafe {
         let trigger = addr::HEAP_COMPACT_TRIGGER as *mut u32;
@@ -185,16 +186,14 @@ pub fn is_main_thread_by_tid() -> bool {
 // OOM recovery -- game stage executor
 // ---------------------------------------------------------------------------
 
-/// Run the game's OOM stages 0-8, then drain pool + collect + try alloc.
+/// Raw FFI call to the game's OOM stage executor (FUN_00866a90).
 ///
-/// Returns allocated pointer if any stage freed enough, or null.
-/// Two-step drain: large blocks first (safe), then all if still OOM.
+/// Returns `(next_stage, give_up)`. Does NOT call mi_collect —
+/// use HeapManager::run_oom_stage() which encapsulates collect + logging.
 ///
 /// # Safety
-/// Must be called on the main thread when AI threads are NOT active.
-pub unsafe fn run_oom_stages(size: usize) -> *mut c_void {
-    use std::ptr::null_mut;
-
+/// Calls game code.
+pub unsafe fn run_single_oom_stage(stage: i32) -> (i32, bool) {
     let heap_singleton = addr::HEAP_SINGLETON as *mut c_void;
     let primary_heap = unsafe {
         let p = (heap_singleton as *const u8).add(addr::HEAP_PRIMARY_OFFSET) as *const *mut c_void;
@@ -206,45 +205,21 @@ pub unsafe fn run_oom_stages(size: usize) -> *mut c_void {
     } {
         Ok(f) => f,
         Err(e) => {
-            log::error!(
-                "[OOM_STAGES] FnPtr::from_raw(OOM_STAGE_EXEC) failed: {:?}",
-                e
-            );
-            return null_mut();
+            log::error!("[OOM] FnPtr::from_raw(OOM_STAGE_EXEC) failed: {:?}", e);
+            return (stage + 1, true);
         }
     };
 
-    let mut stage: i32 = 0;
-    let mut done: u8;
-    while stage <= 8 {
-        done = 0;
-        stage = match unsafe { oom_exec.as_fn() } {
-            Ok(f) => unsafe { f(heap_singleton, primary_heap, stage, &mut done) },
-            Err(e) => {
-                log::error!(
-                    "[OOM_STAGES] oom_exec.as_fn() failed at stage {}: {:?}",
-                    stage,
-                    e
-                );
-                break;
-            }
-        };
-    }
+    let mut done: u8 = 0;
+    let next = match unsafe { oom_exec.as_fn() } {
+        Ok(f) => unsafe { f(heap_singleton, primary_heap, stage, &mut done) },
+        Err(e) => {
+            log::error!("[OOM] oom_exec.as_fn() failed at stage {}: {:?}", stage, e);
+            return (stage + 1, true);
+        }
+    };
 
-    // Pool drain (large blocks only) + collect + alloc -- kept together
-    // to avoid other threads consuming freed VAS between drain and alloc.
-    // Small blocks stay on freelists to prevent UAF from stale readers.
-    // If this isn't enough, oom_last_resort handles full drain.
-    use crate::mods::memory::heap_replacer::gheap::pool;
-    unsafe { pool::pool_drain_large(pool::SMALL_BLOCK_THRESHOLD) };
-    unsafe { libmimalloc::mi_collect(true) };
-
-    let ptr = unsafe { libmimalloc::mi_malloc_aligned(size, 16) };
-    if !ptr.is_null() {
-        return ptr;
-    }
-
-    null_mut()
+    (next, done != 0)
 }
 
 // ---------------------------------------------------------------------------
