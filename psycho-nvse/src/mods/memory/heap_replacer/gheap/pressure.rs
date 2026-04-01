@@ -202,6 +202,22 @@ impl PressureRelief {
             stage = next;
         }
 
+        // DeferredCleanupSmall (FUN_00878250): processes freed objects
+        // from cell unload that are stuck in async queues and caches.
+        //   → PDD purge (FUN_00868d70)
+        //   → Async flush (FUN_00b5fd60) — releases async references
+        //   → Model cleanup (FUN_00651e30/40) — frees scene graph models
+        //   → Cancel stale IO tasks (FUN_00448620)
+        //   → Texture cache flush (FUN_00452490)
+        //
+        // Without this, cell unload queues objects for destruction but
+        // they aren't fully processed until next frame's Phase 4. By
+        // then new cells load and commit climbs back up.
+        // param = state[5] from pre_destruction_setup.
+        if cells > 0 {
+            unsafe { globals::deferred_cleanup_small(state[5]) };
+        }
+
         unsafe { globals::post_destruction_restore(&mut state) };
 
         // Drain pool to reclaim VAS. Small zombie blocks prevent
@@ -217,7 +233,7 @@ impl PressureRelief {
         } else {
             unsafe { pool::pool_drain_large(pool::SMALL_BLOCK_THRESHOLD) }
         };
-        unsafe { libmimalloc::mi_collect(true) };
+        unsafe { libmimalloc::mi_collect(false) };
 
         log::debug!(
             "[DESTRUCTION] {} cells, {} drained, io_busy={}, commit={}MB, pool={}MB",
