@@ -217,7 +217,7 @@ impl PressureRelief {
         } else {
             unsafe { pool::pool_drain_large(pool::SMALL_BLOCK_THRESHOLD) }
         };
-        unsafe { libmimalloc::mi_collect(false) };
+        unsafe { libmimalloc::mi_collect(true) };
 
         log::debug!(
             "[DESTRUCTION] {} cells, {} drained, io_busy={}, commit={}MB, pool={}MB",
