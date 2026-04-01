@@ -31,13 +31,6 @@ const ALIGN: usize = 16;
 static LARGE_BYPASS: AtomicBool = AtomicBool::new(false);
 static LOADING_BYPASS: AtomicBool = AtomicBool::new(false);
 
-// Thread-local: when true, ALL frees bypass the pool entirely → mi_free.
-// Used during OOM recovery so game cleanup frees actually reclaim VAS
-// instead of being captured by the pool.
-thread_local! {
-    static BYPASS_ALL: Cell<bool> = const { Cell::new(false) };
-}
-
 pub fn with_large_bypass<R>(f: impl FnOnce() -> R) -> R {
     LARGE_BYPASS.store(true, Ordering::Release);
     let result = f();
@@ -45,20 +38,8 @@ pub fn with_large_bypass<R>(f: impl FnOnce() -> R) -> R {
     result
 }
 
-pub fn with_bypass_all<R>(f: impl FnOnce() -> R) -> R {
-    BYPASS_ALL.with(|b| b.set(true));
-    let result = f();
-    BYPASS_ALL.with(|b| b.set(false));
-    result
-}
-
 pub fn set_loading_bypass(active: bool) {
     LOADING_BYPASS.store(active, Ordering::Release);
-}
-
-#[inline]
-fn is_bypass_all() -> bool {
-    BYPASS_ALL.with(|b| b.get())
 }
 
 #[inline]
@@ -136,12 +117,8 @@ pub unsafe fn free(ptr: *mut c_void) {
 
     if unsafe { mi_is_in_heap_region(ptr as *const c_void) } {
         if is_pool_active() {
-            // Full bypass (OOM recovery): ALL frees go to mi_free.
-            if is_bypass_all() {
-                unsafe { libmimalloc::mi_free(ptr) };
-                return;
-            }
-            // Large bypass (cleanup/loading): large blocks to mi_free.
+            // Large bypass (cleanup/loading/OOM): large blocks to mi_free.
+            // Small blocks stay in pool as zombies for concurrent IO safety.
             if is_bypass_active() {
                 let usable = unsafe { mi_usable_size(ptr as *const c_void) };
                 if usable >= pool::SMALL_BLOCK_THRESHOLD {
@@ -268,32 +245,33 @@ unsafe fn do_recover_oom(size: usize) -> *mut c_void {
         commit_entry, heap.pool_mb(),
     );
 
-    // Worker: signal main thread to drain its pool at next Phase 7.
+    // Worker: signal main thread to drain its pool at Phase 7.
     if !is_main {
         heap.signal_emergency_drain();
     }
 
-    // --- Game OOM stages ---
+    // --- Phase 1: Active cleanup (stages 0-6) ---
     //
-    // bypass_all is scoped INSIDE run_oom_stage (wraps only the game
-    // function call). Frees during cleanup → mi_free (VAS reclaimed).
-    // Between stages, bypass is OFF — normal pool behavior for any
-    // frees from Havok physics on AI workers.
+    // bypass_all scoped INSIDE run_oom_stage (wraps only the game call).
+    // Frees during cleanup → mi_free (VAS reclaimed).
+    // Between stages, bypass OFF — zombie safety preserved.
     //
-    // Run stages 0-6 in cycles. Stage 7 falls through to stage 8
-    // (Sleep(1) × 15000 = 15 second trap) — skip it. Each cycle
-    // frees ~1-3MB. We yield briefly between cycles to let the main
-    // thread run HeapCompact + background cleanup.
-    const MAX_CYCLES: u32 = 50;
+    // Stages are idempotent — PDD queues empty, caches flush once.
+    // Stop repeating when a cycle frees < 64KB.
+    //
+    // Main thread: runs stages locally (including stage 5 cell unload).
+    //   No yield — main IS the thread that runs Phase 6/7.
+    // Worker: yields between cycles so main thread processes HeapCompact.
+    const MAX_ACTIVE_CYCLES: u32 = 10;
 
-    for cycle in 0..MAX_CYCLES {
-        // Stages 0-6: real cleanup (texture, geometry, Havok GC, PDD, cell unload).
+    for cycle in 0..MAX_ACTIVE_CYCLES {
+        let commit_before_cycle = heap.commit_bytes();
         let mut stage: i32 = 0;
+
         loop {
             let (next, _) = unsafe { heap.run_oom_stage(stage) };
             stage = next;
 
-            // Decommit freed pages and retry.
             unsafe { mi_collect(false) };
             let ptr = unsafe { mi_malloc_aligned(size, ALIGN) };
             if !ptr.is_null() {
@@ -304,67 +282,135 @@ unsafe fn do_recover_oom(size: usize) -> *mut c_void {
                 return ptr;
             }
 
-            // Stop before stage 7 — it falls through to stage 8's
-            // Sleep(1) × 15000 trap which blocks the cycle loop.
             if stage >= 7 { break; }
         }
 
-        // Signal main thread to run HeapCompact (stages 0-6 including
-        // cell unload) + drain its pool at Phase 7.
-        heap.signal_heap_compact(
-            super::engine::globals::HeapCompactStage::CellUnload,
-        );
+        let freed_this_cycle = commit_before_cycle
+            .saturating_sub(heap.commit_bytes());
+
+        // Workers: signal main thread + yield to let Phase 6/7 run.
+        // Main: skip yield — it IS the Phase 6/7 thread. Yielding
+        // achieves nothing and wastes time.
         if !is_main {
-            heap.signal_emergency_drain();
-        }
-
-        // Yield to let main thread process HeapCompact + Phase 7.
-        libpsycho::os::windows::winapi::sleep(1);
-
-        // Retry after yield.
-        unsafe { mi_collect(false) };
-        let ptr = unsafe { mi_malloc_aligned(size, ALIGN) };
-        if !ptr.is_null() {
-            log::info!(
-                "[OOM] Recovered after yield: cycle={} size={} commit={}→{}MB",
-                cycle, size, commit_entry, heap.commit_mb(),
+            heap.signal_heap_compact(
+                super::engine::globals::HeapCompactStage::CellUnload,
             );
-            return ptr;
+            heap.signal_emergency_drain();
+            libpsycho::os::windows::winapi::sleep(1);
+
+            unsafe { mi_collect(false) };
+            let ptr = unsafe { mi_malloc_aligned(size, ALIGN) };
+            if !ptr.is_null() {
+                log::info!(
+                    "[OOM] Recovered after yield: cycle={} size={} commit={}→{}MB",
+                    cycle, size, commit_entry, heap.commit_mb(),
+                );
+                return ptr;
+            }
         }
 
-        // Log progress every 5 cycles.
+        // Stages exhausted — stop repeating no-ops.
+        if freed_this_cycle < 64 * 1024 && cycle > 0 {
+            log::info!(
+                "[OOM] Stages exhausted at cycle {}: commit={}→{}MB",
+                cycle, commit_entry, heap.commit_mb(),
+            );
+            break;
+        }
+
         if cycle > 0 && cycle.is_multiple_of(5) {
             log::warn!(
-                "[OOM] Cycle {}/{}: commit={}→{}MB pool={}MB",
-                cycle, MAX_CYCLES, commit_entry, heap.commit_mb(), heap.pool_mb(),
+                "[OOM] Cycle {}: commit={}→{}MB pool={}MB",
+                cycle, commit_entry, heap.commit_mb(), heap.pool_mb(),
             );
         }
     }
 
-    // --- All cycles exhausted ---
+    // --- Phase 2: Passive wait (workers only) ---
+    //
+    // Main thread can't wait — it IS the thread that runs Phase 6/7.
+    // Workers yield repeatedly, letting the main thread's background
+    // cleanup (HeapCompact + cell unload + PDD) free VAS.
+    if !is_main {
+        const MAX_WAIT_MS: u32 = 3000;
+
+        for iter in 0..MAX_WAIT_MS {
+            if iter.is_multiple_of(250) {
+                heap.signal_heap_compact(
+                    super::engine::globals::HeapCompactStage::CellUnload,
+                );
+                heap.signal_emergency_drain();
+
+                // Signal cell unload for next AI_JOIN. This triggers
+                // destruction_protocol on the main thread which runs
+                // run_oom_stage(5) — the ONLY way to unload cells.
+                // Workers can't run stage 5 (main-thread-only).
+                if let Some(pr) = super::pressure::PressureRelief::instance() {
+                    pr.set_deferred_unload();
+                }
+            }
+
+            libpsycho::os::windows::winapi::sleep(1);
+
+            unsafe { mi_collect(false) };
+            let ptr = unsafe { mi_malloc_aligned(size, ALIGN) };
+            if !ptr.is_null() {
+                log::info!(
+                    "[OOM] Recovered during wait: iter={}ms size={} commit={}→{}MB",
+                    iter, size, commit_entry, heap.commit_mb(),
+                );
+                return ptr;
+            }
+
+            if iter.is_multiple_of(1000) && iter > 0 {
+                log::warn!(
+                    "[OOM] Waiting: {}ms commit={}→{}MB pool={}MB",
+                    iter, commit_entry, heap.commit_mb(), heap.pool_mb(),
+                );
+            }
+        }
+    }
+
+    // --- Phase 3: Last resort ---
+    //
+    // Main thread arrives here fast (no Phase 2 wait). Workers arrive
+    // after 3 seconds of waiting. Now we escalate to unsafe operations.
     log::warn!(
-        "[OOM] {} cycles exhausted: commit={}→{}MB pool={}MB",
-        MAX_CYCLES, commit_entry, heap.commit_mb(), heap.pool_mb(),
+        "[OOM] Escalating: commit={}→{}MB pool={}MB",
+        commit_entry, heap.commit_mb(), heap.pool_mb(),
     );
 
-    // Drain pool + aggressive collect as last resort.
+    // Safe drain (>= 1KB only — no BSTreeNode UAF risk).
     unsafe { heap.drain_pool(pool::SMALL_BLOCK_THRESHOLD) };
-    let ptr = unsafe { mi_malloc_aligned(size, ALIGN) };
-    if !ptr.is_null() { return ptr; }
-
     unsafe { mi_collect(true) };
     let ptr = unsafe { mi_malloc_aligned(size, ALIGN) };
     if !ptr.is_null() { return ptr; }
 
-    // Nuclear: drain ALL pool blocks including small.
+    // Nuclear: drain ALL pool blocks. UAF risk accepted — crash is
+    // the alternative.
     let drained = unsafe { pool::pool_drain_all() };
-    unsafe { mi_collect(false) };
+    let commit_after_drain = heap.commit_mb();
+    let freed_mb = commit_entry.saturating_sub(commit_after_drain);
     log::error!(
-        "[OOM] Last resort: drain_all={} commit={}→{}MB",
-        drained, commit_entry, heap.commit_mb(),
+        "[OOM] Last resort: drain_all={} commit={}→{}MB freed={}MB",
+        drained, commit_entry, commit_after_drain, freed_mb,
     );
-    let ptr = unsafe { mi_malloc_aligned(size, ALIGN) };
-    if !ptr.is_null() { return ptr; }
+
+    // Only retry if drain freed meaningful amount relative to request.
+    // If we freed < requested size, VAS is too fragmented — retrying
+    // with mi_collect(true) just freezes the game for seconds.
+    let size_mb = size / 1024 / 1024;
+    if freed_mb > size_mb {
+        unsafe { mi_collect(true) };
+        let ptr = unsafe { mi_malloc_aligned(size, ALIGN) };
+        if !ptr.is_null() {
+            log::warn!(
+                "[OOM] Recovered post-drain: commit={}→{}MB",
+                commit_entry, heap.commit_mb(),
+            );
+            return ptr;
+        }
+    }
 
     log::error!(
         "[OOM] FATAL: size={} commit={}MB thread={}",

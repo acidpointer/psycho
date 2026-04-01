@@ -94,16 +94,16 @@ impl HeapManager {
 
         let commit_before = self.commit_bytes();
 
-        // bypass_all scoped TIGHTLY around the game call only.
-        // Frees during the stage go to mi_free (not pool) so cleanup
-        // actually reclaims VAS. But bypass must NOT stay active during
-        // Sleep(1) in stage 8 — the AI worker thread may resume Havok
-        // work and freed physics objects must stay readable as zombies.
+        // bypass_large scoped around the game call. Large frees (>= 1KB)
+        // go to mi_free so cleanup reclaims VAS. Small frees go to pool
+        // as zombies — safe for concurrent IO/AI that may still read them.
+        // bypass_all would free small blocks too, causing UAF when IO
+        // threads access freed textures/models.
         let mut done: u8 = 0;
         let next = match unsafe { oom_exec.as_fn() } {
             Ok(f) => {
-                use super::allocator::with_bypass_all;
-                with_bypass_all(|| unsafe {
+                use super::allocator::with_large_bypass;
+                with_large_bypass(|| unsafe {
                     f(heap_singleton, primary_heap, stage, &mut done)
                 })
             }
@@ -186,7 +186,7 @@ impl HeapManager {
         pool::pool_held_bytes() / 1024 / 1024
     }
 
-    fn commit_bytes(&self) -> usize {
+    pub fn commit_bytes(&self) -> usize {
         libmimalloc::process_info::MiMallocProcessInfo::get().get_current_commit()
     }
 }

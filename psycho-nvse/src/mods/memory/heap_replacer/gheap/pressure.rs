@@ -16,10 +16,8 @@
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::LazyLock;
 
-use super::allocator;
 use super::engine::globals;
 use super::pool;
-use super::statics;
 use crate::mods::memory::heap_replacer::mem_stats;
 
 // ---------------------------------------------------------------------------
@@ -28,10 +26,6 @@ use crate::mods::memory::heap_replacer::mem_stats;
 
 /// Max cells to unload per relief cycle.
 const MAX_CELLS_PER_CYCLE: usize = 20;
-
-/// PDD rounds during destruction protocol. Processes queued entries
-/// from FindCellToUnload so frees happen same-frame, not next frame.
-const DESTRUCTION_PDD_ROUNDS: u32 = 100;
 
 // ---------------------------------------------------------------------------
 // PressureRelief
@@ -164,86 +158,45 @@ impl PressureRelief {
         }
     }
 
-    // Cell unloading + PDD drain with large bypass.
+    // Cell unloading via the game's own OOM stage executor.
     //
-    // Sequence:
-    //   1. Suppress NVSE events (loading counter + TLS flag).
-    //   2. Lock Havok (pre_destruction_setup).
-    //   3. Enable large bypass.
-    //   4. FindCellToUnload loop (queues PDD entries).
-    //   5. Pump PDD to process queued destruction WITH bypass active.
-    //      This is critical: FindCellToUnload only queues, PDD does
-    //      the actual frees. Bypass must be on during PDD.
-    //   6. Unlock Havok, disable bypass.
-    //   7. drain_large + mi_collect to decommit freed pages.
+    // Calls run_oom_stage(5) which runs vanilla's EXACT stage 5 sequence:
+    //   TLS flag → FindCellToUnload → ProcessPendingCleanup → PDD
+    //   → fallthrough stage 4 (PDD again) → stage 3 (Havok GC)
+    //
+    // If a cell is found, stage 5 returns stage=5 (stays). We repeat
+    // until no more cells or max reached. This matches how vanilla's
+    // OOM handler unloads cells — same function, same context, same
+    // state management. No custom Havok locking needed.
     //
     // Safety: must be called on the main thread when AI threads are idle.
-    unsafe fn destruction_protocol(manager: *mut libc::c_void) -> usize {
+    unsafe fn destruction_protocol(_manager: *mut libc::c_void) -> usize {
+        let heap = super::heap_manager::HeapManager::get();
         let mut cells: usize = 0;
 
         // Suppress NVSE event dispatch during destruction.
         let loading_counter = globals::loading_state_counter();
         loading_counter.fetch_add(1, std::sync::atomic::Ordering::AcqRel);
 
-        // pre_destruction_setup: locks Havok world + invalidates scene graph.
-        let mut state = match unsafe { globals::pre_destruction_setup() } {
-            Some(s) => s,
-            None => {
-                loading_counter.fetch_sub(1, std::sync::atomic::Ordering::AcqRel);
-                return 0;
-            }
-        };
-
-        // Suppress NVSE PLChangeEvent dispatch via TLS flag.
-        unsafe { globals::set_tls_cleanup_flag(0) };
-
-        // Find and unload cells (queues PDD entries for later processing).
+        // Run stage 5 repeatedly. Each call does:
+        //   FindCellToUnload + ProcessPendingCleanup + PDD + Havok GC
+        // Returns stage=5 if cell found (stay), stage=6 if none (done).
+        let mut stage: i32 = 5;
         for _ in 0..MAX_CELLS_PER_CYCLE {
-            match unsafe { globals::find_cell_to_unload(manager) } {
-                Some(true) => cells += 1,
-                _ => break,
+            let (next, _) = unsafe { heap.run_oom_stage(stage) };
+            if next != 5 {
+                // No more cells to unload (returned stage 6).
+                break;
             }
+            cells += 1;
+            stage = next;
         }
 
-        // Clear TLS cell unload flag (re-enable event dispatch).
-        unsafe { globals::set_tls_cleanup_flag(1) };
-
-        if cells > 0 {
-            log::debug!(
-                "[DESTRUCTION] {} cells unloaded, pdd queued: NiNode={} Gen={} Form={}",
-                cells,
-                globals::pdd_queue_count(globals::PddQueue::NiNode),
-                globals::pdd_queue_count(globals::PddQueue::Generic),
-                globals::pdd_queue_count(globals::PddQueue::Form),
-            );
-        }
-
-        unsafe { globals::post_destruction_restore(&mut state) };
-
-        // Pump PDD with large bypass — process queued destruction so
-        // freed objects reclaim VAS immediately (not next frame).
-        // FindCellToUnload only queues PDD entries; without this pump
-        // the memory isn't freed until next frame's Phase 7.
-        if cells > 0 {
-            allocator::with_large_bypass(|| {
-                if let Ok(pdd) = statics::PER_FRAME_QUEUE_DRAIN_HOOK.original() {
-                    for _ in 0..DESTRUCTION_PDD_ROUNDS {
-                        unsafe { pdd() };
-                    }
-                }
-            });
-        }
-
-        // Drain large pool blocks (>= 1KB). Small blocks stay for zombie
-        // safety — BSTreeNode (256-1200b) is accessed by scene graph after
-        // free. Draining small blocks causes C0000417.
-        // Drain regardless of cell count: pool VAS is the primary problem.
-        let heap = super::heap_manager::HeapManager::get();
         let drained = unsafe { heap.drain_pool(pool::SMALL_BLOCK_THRESHOLD) };
 
         log::debug!(
-            "[DESTRUCTION] Post: {} drained, commit={}MB, pool={}MB",
-            drained, heap.commit_mb(), heap.pool_mb(),
+            "[DESTRUCTION] {} cells, {} drained, commit={}MB, pool={}MB",
+            cells, drained, heap.commit_mb(), heap.pool_mb(),
         );
 
         if cells == 0 {

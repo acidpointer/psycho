@@ -254,6 +254,36 @@ pub unsafe fn set_tls_cleanup_flag(value: u8) {
     }
 }
 
+/// Process pending cleanup queue after cell unloading.
+///
+/// This is the critical step vanilla stage 5 does AFTER FindCellToUnload.
+/// FindCellToUnload only marks cells and queues async work in the
+/// ProcessManager. This function EXECUTES that work — destroys NiNode
+/// hierarchies, releases textures, decrements refcounts, and queues
+/// resulting objects into PDD. Without this call, cell unload frees
+/// almost nothing.
+///
+/// flush=0 for normal cleanup after cell unload.
+///
+/// Safety: must be called on the main thread with GAME_MANAGER valid.
+pub unsafe fn process_pending_cleanup(manager: *mut c_void, flush: u8) {
+    let f = match unsafe {
+        FnPtr::<types::ProcessPendingCleanupFn>::from_raw(
+            addr::PROCESS_PENDING_CLEANUP as *mut c_void,
+        )
+    } {
+        Ok(f) => f,
+        Err(e) => {
+            log::error!("[PENDING_CLEANUP] FnPtr::from_raw failed: {:?}", e);
+            return;
+        }
+    };
+    match unsafe { f.as_fn() } {
+        Ok(f) => unsafe { f(manager, flush) },
+        Err(e) => log::error!("[PENDING_CLEANUP] as_fn() failed: {:?}", e),
+    }
+}
+
 /// Try to find and unload one loaded cell. Returns true if a cell was
 /// unloaded, false if none remain eligible.
 ///

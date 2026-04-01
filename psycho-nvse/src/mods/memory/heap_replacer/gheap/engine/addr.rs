@@ -120,6 +120,12 @@ pub const GET_MAIN_THREAD_ID: usize = 0x0044EDB0;
 // partially-torn-down actors → crash.
 pub const SET_TLS_CLEANUP_FLAG: usize = 0x00869190;
 
+// FUN_00452490: processes pending cleanup queue after cell unloading.
+// Called by vanilla stage 5 after each FindCellToUnload to execute
+// the queued async destruction work. Without this, FindCellToUnload
+// only marks cells — the actual object destruction doesn't happen.
+pub const PROCESS_PENDING_CLEANUP: usize = 0x00452490;
+
 // FUN_00453A80: finds a loaded cell eligible for eviction (fastcall).
 // Returns low byte 1 if a cell was unloaded, 0 if none remain.
 pub const FIND_CELL_TO_UNLOAD: usize = 0x00453A80;
