@@ -216,28 +216,54 @@ unsafe fn on_loading_start() {
     // HeapCompact 0-3 (texture flush, geometry cache, menu, Havok GC).
     heap.signal_heap_compact(globals::HeapCompactStage::HavokGC);
 
-    // Cell unload with scoped bypass (cleanup runs inside with_large_bypass).
-    let (cells, drained) = allocator::with_large_bypass(|| {
-        let mut cells = 0usize;
-        if let Some(pr) = PressureRelief::instance() {
-            let baseline = pr.baseline_commit();
-            if baseline > 0 {
-                let growth = commit_before.saturating_sub(baseline);
-                if growth >= LOADING_CLEANUP_GROWTH
-                    && let Some(result) =
-                        super::engine::cell_unload::execute_during_loading(LOADING_CLEANUP_MAX_CELLS)
-                    {
-                        cells = result.cells;
-                        if cells > 0 {
-                            pr.set_pending_counter_decrement();
-                        }
-                    }
+    // Cell unload using the same pattern as destruction_protocol:
+    // run_oom_stage(5) + DeferredCleanupSmall + drain_all.
+    // This is the loading transition — the best time to reclaim VAS
+    // because old cells are being replaced by new ones.
+    let mut cells = 0usize;
+    let pr = PressureRelief::instance();
+    let baseline = pr.map(|p| p.baseline_commit()).unwrap_or(0);
+    let growth = if baseline > 0 { commit_before.saturating_sub(baseline) } else { 0 };
+
+    if growth >= LOADING_CLEANUP_GROWTH {
+        // Lock Havok for safe cell unload.
+        if let Some(mut state) = unsafe { globals::pre_destruction_setup() } {
+            let loading_counter = globals::loading_state_counter();
+            loading_counter.fetch_add(1, std::sync::atomic::Ordering::AcqRel);
+
+            // Unload cells via game's stage 5 (bypass=false, zombie safe).
+            let mut stage: i32 = 5;
+            for _ in 0..LOADING_CLEANUP_MAX_CELLS {
+                let (next, _) = unsafe { heap.run_oom_stage(stage, false) };
+                if next != 5 { break; }
+                cells += 1;
+                stage = next;
+            }
+
+            // Process freed objects (async flush, model cleanup, IO cancel).
+            if cells > 0 {
+                unsafe { globals::deferred_cleanup_small(state[5]) };
+            }
+
+            unsafe { globals::post_destruction_restore(&mut state) };
+
+            if cells > 0 {
+                if let Some(p) = pr {
+                    p.set_pending_counter_decrement();
+                }
+            } else {
+                loading_counter.fetch_sub(1, std::sync::atomic::Ordering::AcqRel);
             }
         }
+    }
 
-        let drained = unsafe { heap.drain_pool(pool::SMALL_BLOCK_THRESHOLD) };
-        (cells, drained)
-    });
+    // Drain pool — full drain if IO idle, safe drain otherwise.
+    let drained = if !globals::is_bst_cell_load_pending() {
+        unsafe { pool::pool_drain_all() }
+    } else {
+        unsafe { pool::pool_drain_large(pool::SMALL_BLOCK_THRESHOLD) }
+    };
+    unsafe { libmimalloc::mi_collect(false) };
 
     let commit_after = libmimalloc::process_info::MiMallocProcessInfo::get()
         .get_current_commit();
@@ -425,16 +451,39 @@ unsafe fn maybe_loading_cell_unload() {
         );
     }
 
-    if let Some(result) =
-        super::engine::cell_unload::execute_during_loading(max_cells)
-        && result.cells > 0
-    {
-        let post_commit =
-            libmimalloc::process_info::MiMallocProcessInfo::get().get_current_commit();
-        LOADING_COOLDOWN_COMMIT.store(post_commit, std::sync::atomic::Ordering::Relaxed);
+    let heap = super::heap_manager::HeapManager::get();
 
-        if let Some(pr) = PressureRelief::instance() {
-            pr.set_pending_counter_decrement();
+    // Use same pattern as destruction_protocol: run_oom_stage(5) +
+    // DeferredCleanupSmall so freed objects are fully processed.
+    if let Some(mut state) = unsafe { globals::pre_destruction_setup() } {
+        let loading_counter = globals::loading_state_counter();
+        loading_counter.fetch_add(1, std::sync::atomic::Ordering::AcqRel);
+
+        let mut cells = 0usize;
+        let mut stage: i32 = 5;
+        for _ in 0..max_cells {
+            let (next, _) = unsafe { heap.run_oom_stage(stage, false) };
+            if next != 5 { break; }
+            cells += 1;
+            stage = next;
+        }
+
+        if cells > 0 {
+            unsafe { globals::deferred_cleanup_small(state[5]) };
+        }
+
+        unsafe { globals::post_destruction_restore(&mut state) };
+
+        if cells > 0 {
+            let post_commit =
+                libmimalloc::process_info::MiMallocProcessInfo::get().get_current_commit();
+            LOADING_COOLDOWN_COMMIT.store(post_commit, std::sync::atomic::Ordering::Relaxed);
+
+            if let Some(pr) = PressureRelief::instance() {
+                pr.set_pending_counter_decrement();
+            }
+        } else {
+            loading_counter.fetch_sub(1, std::sync::atomic::Ordering::AcqRel);
         }
     }
 }
