@@ -334,11 +334,14 @@ unsafe fn do_recover_oom(size: usize) -> *mut c_void {
     // Re-signal every frame so destruction_protocol runs repeatedly
     // until enough memory is freed.
     if !is_main {
-        const MAX_WAIT_MS: u32 = 2000;
+        // Normal gameplay: 2 seconds (main loop runs destruction_protocol).
+        // Loading/menu/console: 30 seconds (main loop paused, will resume
+        // when player closes menu — no point going to FATAL).
+        let max_wait = if globals::is_loading() { 30_000u32 } else { 2_000u32 };
 
-        for iter in 0..MAX_WAIT_MS {
+        for iter in 0..max_wait {
             // Re-signal every ~16ms (once per frame) so main thread
-            // runs destruction_protocol at every AI_JOIN.
+            // runs destruction_protocol at every AI_JOIN when it resumes.
             if iter.is_multiple_of(16) {
                 heap.signal_heap_compact(
                     super::engine::globals::HeapCompactStage::CellUnload,
@@ -351,6 +354,11 @@ unsafe fn do_recover_oom(size: usize) -> *mut c_void {
 
             libpsycho::os::windows::winapi::sleep(1);
 
+            // Re-check loading state — if menu closed, switch to short wait.
+            if iter == 2000 && !globals::is_loading() {
+                break;
+            }
+
             unsafe { mi_collect(false) };
             let ptr = unsafe { mi_malloc_aligned(size, ALIGN) };
             if !ptr.is_null() {
@@ -361,10 +369,11 @@ unsafe fn do_recover_oom(size: usize) -> *mut c_void {
                 return ptr;
             }
 
-            if iter.is_multiple_of(500) && iter > 0 {
+            if iter.is_multiple_of(1000) && iter > 0 {
                 log::warn!(
-                    "[OOM] Waiting: {}ms commit={}→{}MB pool={}MB",
+                    "[OOM] Waiting: {}ms commit={}→{}MB pool={}MB loading={}",
                     iter, commit_entry, heap.commit_mb(), heap.pool_mb(),
+                    globals::is_loading(),
                 );
             }
         }

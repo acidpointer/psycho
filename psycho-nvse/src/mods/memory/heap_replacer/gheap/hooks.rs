@@ -179,6 +179,7 @@ pub unsafe extern "C" fn hook_per_frame_queue_drain() {
             );
         }
     }
+
 }
 
 // Cell unload from Phase 7 during loading.
