@@ -101,6 +101,8 @@ pub unsafe extern "C" fn hook_per_frame_queue_drain() {
     let heap = super::heap_manager::HeapManager::get();
 
     // --- Emergency pool drain (worker OOM signal) ---
+    // Drain large blocks (>= 1KB) from main thread's pool. Safe —
+    // small zombie blocks preserved for concurrent readers.
     if heap.take_emergency_drain() {
         let commit_before = heap.commit_mb();
         let drained = unsafe { heap.drain_pool(pool::SMALL_BLOCK_THRESHOLD) };

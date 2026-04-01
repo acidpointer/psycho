@@ -178,25 +178,51 @@ impl PressureRelief {
         let loading_counter = globals::loading_state_counter();
         loading_counter.fetch_add(1, std::sync::atomic::Ordering::AcqRel);
 
-        // Run stage 5 repeatedly. Each call does:
-        //   FindCellToUnload + ProcessPendingCleanup + PDD + Havok GC
+        // Lock Havok world + invalidate scene graph. Without this,
+        // AI threads access Havok objects from unloaded cells → crash.
+        let mut state = match unsafe { globals::pre_destruction_setup() } {
+            Some(s) => s,
+            None => {
+                loading_counter.fetch_sub(1, std::sync::atomic::Ordering::AcqRel);
+                return 0;
+            }
+        };
+
+        // Run stage 5 repeatedly with Havok locked. Each call does:
+        //   TLS flag + FindCellToUnload + ProcessPendingCleanup + PDD + Havok GC
+        // bypass=false: frees go to pool (zombie-safe for IO thread).
         // Returns stage=5 if cell found (stay), stage=6 if none (done).
         let mut stage: i32 = 5;
         for _ in 0..MAX_CELLS_PER_CYCLE {
-            let (next, _) = unsafe { heap.run_oom_stage(stage) };
+            let (next, _) = unsafe { heap.run_oom_stage(stage, false) };
             if next != 5 {
-                // No more cells to unload (returned stage 6).
                 break;
             }
             cells += 1;
             stage = next;
         }
 
-        let drained = unsafe { heap.drain_pool(pool::SMALL_BLOCK_THRESHOLD) };
+        unsafe { globals::post_destruction_restore(&mut state) };
+
+        // Drain pool to reclaim VAS. Small zombie blocks prevent
+        // mimalloc segments from becoming fully free — only drain_all
+        // releases enough for large allocations (22MB+).
+        //
+        // Safe here: AI is idle (AI_JOIN), Havok unlocked, NVSE events
+        // suppressed (loading counter elevated).
+        // IO check: skip full drain if BSTaskManagerThread is busy
+        // loading — IO thread may access freed zombie blocks.
+        let drained = if !globals::is_bst_cell_load_pending() {
+            unsafe { pool::pool_drain_all() }
+        } else {
+            unsafe { pool::pool_drain_large(pool::SMALL_BLOCK_THRESHOLD) }
+        };
+        unsafe { libmimalloc::mi_collect(false) };
 
         log::debug!(
-            "[DESTRUCTION] {} cells, {} drained, commit={}MB, pool={}MB",
-            cells, drained, heap.commit_mb(), heap.pool_mb(),
+            "[DESTRUCTION] {} cells, {} drained, io_busy={}, commit={}MB, pool={}MB",
+            cells, drained, globals::is_bst_cell_load_pending(),
+            heap.commit_mb(), heap.pool_mb(),
         );
 
         if cells == 0 {

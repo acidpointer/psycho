@@ -269,7 +269,7 @@ unsafe fn do_recover_oom(size: usize) -> *mut c_void {
         let mut stage: i32 = 0;
 
         loop {
-            let (next, _) = unsafe { heap.run_oom_stage(stage) };
+            let (next, _) = unsafe { heap.run_oom_stage(stage, true) };
             stage = next;
 
             unsafe { mi_collect(false) };
@@ -326,25 +326,24 @@ unsafe fn do_recover_oom(size: usize) -> *mut c_void {
         }
     }
 
-    // --- Phase 2: Passive wait (workers only) ---
+    // --- Phase 2: Wait for main thread cleanup (workers only) ---
     //
-    // Main thread can't wait — it IS the thread that runs Phase 6/7.
-    // Workers yield repeatedly, letting the main thread's background
-    // cleanup (HeapCompact + cell unload + PDD) free VAS.
+    // Workers can't run stage 5 (cell unload, main-thread-only).
+    // Signal main thread to run destruction_protocol at each AI_JOIN.
+    // Each AI_JOIN (~16ms) unloads 11 cells, freeing ~10-30MB.
+    // Re-signal every frame so destruction_protocol runs repeatedly
+    // until enough memory is freed.
     if !is_main {
-        const MAX_WAIT_MS: u32 = 3000;
+        const MAX_WAIT_MS: u32 = 2000;
 
         for iter in 0..MAX_WAIT_MS {
-            if iter.is_multiple_of(250) {
+            // Re-signal every ~16ms (once per frame) so main thread
+            // runs destruction_protocol at every AI_JOIN.
+            if iter.is_multiple_of(16) {
                 heap.signal_heap_compact(
                     super::engine::globals::HeapCompactStage::CellUnload,
                 );
                 heap.signal_emergency_drain();
-
-                // Signal cell unload for next AI_JOIN. This triggers
-                // destruction_protocol on the main thread which runs
-                // run_oom_stage(5) — the ONLY way to unload cells.
-                // Workers can't run stage 5 (main-thread-only).
                 if let Some(pr) = super::pressure::PressureRelief::instance() {
                     pr.set_deferred_unload();
                 }
@@ -362,13 +361,18 @@ unsafe fn do_recover_oom(size: usize) -> *mut c_void {
                 return ptr;
             }
 
-            if iter.is_multiple_of(1000) && iter > 0 {
+            if iter.is_multiple_of(500) && iter > 0 {
                 log::warn!(
                     "[OOM] Waiting: {}ms commit={}→{}MB pool={}MB",
                     iter, commit_entry, heap.commit_mb(), heap.pool_mb(),
                 );
             }
         }
+
+        log::warn!(
+            "[OOM] Wait expired: commit={}→{}MB pool={}MB",
+            commit_entry, heap.commit_mb(), heap.pool_mb(),
+        );
     }
 
     // --- Phase 3: Last resort ---

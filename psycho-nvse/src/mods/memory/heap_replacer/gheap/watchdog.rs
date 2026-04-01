@@ -49,8 +49,8 @@ const LOADING_THRESHOLD_REDUCTION: usize = 200 * 1024 * 1024; // 200MB
 const AGGRESSIVE_RATE_THRESHOLD: i32 = 2 * 1024 * 1024;
 
 /// Minimum milliseconds between aggressive (level 2) requests.
-/// Lower = more frequent cell unload during gameplay = more headroom
-/// before loading starts. 4s balances cleanup with NVSE plugin safety.
+/// 4s balances cleanup with NVSE plugin safety. Faster triggers
+/// PLChangeEvent crashes from JohnnyGuitarNVSE/NVSE plugins.
 const AGGRESSIVE_COOLDOWN_MS: u64 = 4_000;
 
 // ---------------------------------------------------------------------------

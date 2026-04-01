@@ -63,16 +63,20 @@ impl HeapManager {
         drained
     }
 
-    /// Run one game OOM stage (FUN_00866a90) + `mi_collect(false)`.
+    /// Run one game OOM stage (FUN_00866a90).
     ///
-    /// Returns `(next_stage, give_up)`. The stage executor handles
-    /// thread gating internally:
-    ///   - Main:   all stages run, including stage 5 (cell unload)
-    ///   - Worker: stages 1,3,4 run cleanup; stage 8 = Sleep(1) loop
+    /// `bypass`: when true, large frees (>= 1KB) go to mi_free during
+    /// the game call. When false, all frees go to pool (zombie-safe).
+    ///
+    /// Use `bypass=true` for OOM retry loop (need VAS back, crash is
+    /// the alternative). Use `bypass=false` for background cleanup at
+    /// AI_JOIN (IO thread may access freed objects concurrently).
+    ///
+    /// Returns `(next_stage, give_up)`.
     ///
     /// # Safety
     /// Calls game code.
-    pub unsafe fn run_oom_stage(&self, stage: i32) -> (i32, bool) {
+    pub unsafe fn run_oom_stage(&self, stage: i32, bypass: bool) -> (i32, bool) {
         let heap_singleton = addr::HEAP_SINGLETON as *mut c_void;
         let primary_heap = unsafe {
             let p = (heap_singleton as *const u8).add(addr::HEAP_PRIMARY_OFFSET)
@@ -94,30 +98,39 @@ impl HeapManager {
 
         let commit_before = self.commit_bytes();
 
-        // bypass_large scoped around the game call. Large frees (>= 1KB)
-        // go to mi_free so cleanup reclaims VAS. Small frees go to pool
-        // as zombies — safe for concurrent IO/AI that may still read them.
-        // bypass_all would free small blocks too, causing UAF when IO
-        // threads access freed textures/models.
         let mut done: u8 = 0;
-        let next = match unsafe { oom_exec.as_fn() } {
-            Ok(f) => {
-                use super::allocator::with_large_bypass;
-                with_large_bypass(|| unsafe {
-                    f(heap_singleton, primary_heap, stage, &mut done)
-                })
+        let next = if bypass {
+            // Large frees → mi_free. Reclaims VAS immediately.
+            // Only safe when crash is the alternative (OOM retry).
+            match unsafe { oom_exec.as_fn() } {
+                Ok(f) => {
+                    use super::allocator::with_large_bypass;
+                    with_large_bypass(|| unsafe {
+                        f(heap_singleton, primary_heap, stage, &mut done)
+                    })
+                }
+                Err(e) => {
+                    log::error!(
+                        "[OOM] oom_exec.as_fn() failed at stage {}: {:?}",
+                        stage, e,
+                    );
+                    return (stage + 1, true);
+                }
             }
-            Err(e) => {
-                log::error!(
-                    "[OOM] oom_exec.as_fn() failed at stage {}: {:?}",
-                    stage, e,
-                );
-                return (stage + 1, true);
+        } else {
+            // All frees → pool (zombie-safe). IO thread and AI can
+            // safely read freed memory. VAS reclaimed later via drain.
+            match unsafe { oom_exec.as_fn() } {
+                Ok(f) => unsafe { f(heap_singleton, primary_heap, stage, &mut done) },
+                Err(e) => {
+                    log::error!(
+                        "[OOM] oom_exec.as_fn() failed at stage {}: {:?}",
+                        stage, e,
+                    );
+                    return (stage + 1, true);
+                }
             }
         };
-
-        // No mi_collect here. Freed pages stay committed (readable)
-        // during the stage. mi_collect runs at retry time in the caller.
 
         let commit_after = self.commit_bytes();
         let freed = commit_before.saturating_sub(commit_after);
