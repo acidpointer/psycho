@@ -178,6 +178,28 @@ pub const GET_AI_THREAD_MANAGER: usize = 0x00713D80;
 pub const AI_THREAD_JOIN: usize = 0x008C7990;
 
 // ---------------------------------------------------------------------------
+// NiRefObject reference counting (lifetime management)
+// ---------------------------------------------------------------------------
+
+// FUN_00418E00: NiRefObject::IncRef (fastcall, this in ECX).
+// Increments reference count. Called when object is referenced.
+pub const NIREF_INCREF: usize = 0x00418E00;
+
+// FUN_00418D20: NiRefObject::DecRef (fastcall, this in ECX).
+// Decrements reference count. If count reaches 0, calls destructor.
+// This is the function that triggers the C0000417 crash when called on
+// quarantined objects still in scene graphs.
+pub const NIREF_DECREF: usize = 0x00418D20;
+
+// NiRefObject vtable range for type detection.
+// All Ni-derived objects have vtables in this range.
+pub const NIREF_VTABLE_START: usize = 0x01010000;
+pub const NIREF_VTABLE_END: usize = 0x01100000;
+
+// NiRefObject refcount offset (first field after vtable).
+pub const NIREF_REFCOUNT_OFFSET: usize = 0x04;
+
+// ---------------------------------------------------------------------------
 // Memory layout constants (not addresses, but offset/range values)
 // ---------------------------------------------------------------------------
 

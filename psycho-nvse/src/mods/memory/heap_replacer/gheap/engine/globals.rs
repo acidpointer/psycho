@@ -285,6 +285,132 @@ pub unsafe fn release_bstask_sems_if_owned() -> bool {
 }
 
 // ---------------------------------------------------------------------------
+// NiRefObject reference counting (lifetime management)
+// ---------------------------------------------------------------------------
+
+/// NiRefObject flag: object is quarantined but pending destruction.
+/// When set, DecRef will NOT destroy the object even if RefCount hits 0.
+/// The object will be destroyed when quarantine expires.
+pub const NIREF_PENDING_DESTRUCTION: u32 = 0x80000000;
+
+/// Check if a pointer is a NiRefObject-derived type by vtable range.
+///
+/// All Ni-derived objects (NiNode, NiTriStrips, BSTreeNode, etc.) have
+/// vtables in the range 0x01010000-0x01100000.
+///
+/// # Safety
+/// Reads vtable pointer from object. Object must be valid to read.
+pub unsafe fn is_nirefobject(ptr: *mut c_void) -> bool {
+    if ptr.is_null() {
+        return false;
+    }
+    let vtable = unsafe { *(ptr as *const *const u8) };
+    let vtable_addr = vtable as usize;
+    vtable_addr >= addr::NIREF_VTABLE_START && vtable_addr < addr::NIREF_VTABLE_END
+}
+
+/// Get the reference count of a NiRefObject.
+///
+/// # Safety
+/// Object must be a valid NiRefObject-derived type.
+pub unsafe fn get_refcount(ptr: *mut c_void) -> i32 {
+    if ptr.is_null() {
+        return 0;
+    }
+    let refcount_ptr = unsafe { (ptr as *const u8).add(addr::NIREF_REFCOUNT_OFFSET) as *const i32 };
+    // Mask off the PENDING_DESTRUCTION flag
+    unsafe { *refcount_ptr & !NIREF_PENDING_DESTRUCTION as i32 }
+}
+
+/// Check if a NiRefObject has the PENDING_DESTRUCTION flag set.
+///
+/// # Safety
+/// Object must be a valid NiRefObject-derived type.
+pub unsafe fn is_pending_destruction(ptr: *mut c_void) -> bool {
+    if ptr.is_null() {
+        return false;
+    }
+    let refcount_ptr = unsafe { (ptr as *const u8).add(addr::NIREF_REFCOUNT_OFFSET) as *const i32 };
+    unsafe { (*refcount_ptr & NIREF_PENDING_DESTRUCTION as i32) != 0 }
+}
+
+/// Set the PENDING_DESTRUCTION flag on a NiRefObject.
+///
+/// This prevents DecRef from destroying the object when RefCount hits 0.
+/// The object will be destroyed when quarantine expires and this flag is
+/// cleared.
+///
+/// # Safety
+/// Object must be a valid NiRefObject-derived type.
+pub unsafe fn set_pending_destruction(ptr: *mut c_void) {
+    if ptr.is_null() {
+        return;
+    }
+    let refcount_ptr = unsafe { (ptr as *mut u8).add(addr::NIREF_REFCOUNT_OFFSET) as *mut i32 };
+    unsafe {
+        *refcount_ptr |= NIREF_PENDING_DESTRUCTION as i32;
+    }
+}
+
+/// Clear the PENDING_DESTRUCTION flag on a NiRefObject.
+///
+/// This allows DecRef to destroy the object when RefCount hits 0.
+/// Called when quarantine expires and object should be actually destroyed.
+///
+/// # Safety
+/// Object must be a valid NiRefObject-derived type.
+pub unsafe fn clear_pending_destruction(ptr: *mut c_void) {
+    if ptr.is_null() {
+        return;
+    }
+    let refcount_ptr = unsafe { (ptr as *mut u8).add(addr::NIREF_REFCOUNT_OFFSET) as *mut i32 };
+    unsafe {
+        *refcount_ptr &= !(NIREF_PENDING_DESTRUCTION as i32);
+    }
+}
+
+/// Call NiRefObject::IncRef on an object.
+///
+/// # Safety
+/// Object must be a valid NiRefObject-derived type.
+pub unsafe fn niref_inc_ref(ptr: *mut c_void) {
+    let f = match unsafe {
+        FnPtr::<types::NiRefObjectIncRefFn>::from_raw(addr::NIREF_INCREF as *mut c_void)
+    } {
+        Ok(f) => f,
+        Err(e) => {
+            log::error!("[NIREF] FnPtr::from_raw(NIREF_INCREF) failed: {:?}", e);
+            return;
+        }
+    };
+    match unsafe { f.as_fn() } {
+        Ok(f) => unsafe { f(ptr) },
+        Err(e) => log::error!("[NIREF] IncRef as_fn() failed: {:?}", e),
+    }
+}
+
+/// Call NiRefObject::DecRef on an object.
+///
+/// # Safety
+/// Object must be a valid NiRefObject-derived type. If RefCount reaches 0,
+/// the object will be destroyed.
+pub unsafe fn niref_dec_ref(ptr: *mut c_void) {
+    let f = match unsafe {
+        FnPtr::<types::NiRefObjectDecRefFn>::from_raw(addr::NIREF_DECREF as *mut c_void)
+    } {
+        Ok(f) => f,
+        Err(e) => {
+            log::error!("[NIREF] FnPtr::from_raw(NIREF_DECREF) failed: {:?}", e);
+            return;
+        }
+    };
+    match unsafe { f.as_fn() } {
+        Ok(f) => unsafe { f(ptr) },
+        Err(e) => log::error!("[NIREF] DecRef as_fn() failed: {:?}", e),
+    }
+}
+
+// ---------------------------------------------------------------------------
 // OOM recovery -- game stage executor
 // ---------------------------------------------------------------------------
 
