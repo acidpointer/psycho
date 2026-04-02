@@ -25,7 +25,7 @@ use libc::c_void;
 
 use libmimalloc::{mi_free, mi_malloc_aligned, mi_usable_size};
 
-const ALIGN: usize = 16;
+pub const ALIGN: usize = 16;
 
 // Blocks larger than this bypass the pool (mi_malloc/mi_free directly).
 // Covers 99%+ of game heap allocations. Larger blocks are rare.
@@ -38,19 +38,19 @@ const MAX_POOL_SIZE: usize = 4096;
 /// on offset +4 / +8):
 ///   - NiRefObject derivatives: 16-128 bytes (refcount at +0x04)
 ///   - IOTask derivatives: 48-88 bytes (refcount at +0x08)
+///   - NiNode subclasses (BSTreeNode, BSFadeNode): 256-1200+ bytes
 ///
-/// 512 bytes gives safe margin above the largest known target (88 bytes).
-/// Blocks >= 512 are subject to pool cap and large bypass during cleanup.
-pub const SMALL_BLOCK_THRESHOLD: usize = 512;
+/// 1024 bytes covers BSTreeNode and other large NiNode derivatives
+/// that stale readers can access via InterlockedDecrement.
+/// Blocks >= 1024 are subject to pool cap and large bypass during cleanup.
+pub const SMALL_BLOCK_THRESHOLD: usize = 1024;
 
 // Soft cap: when exceeded, blocks >= SMALL_BLOCK_THRESHOLD go to mi_free.
 // Small blocks still pool for zombie safety.
 const SOFT_CAP: usize = 32 * 1024 * 1024; // 32MB
 
-// Hard cap: when exceeded, ALL blocks go to mi_free regardless of size.
-// This is the last-resort pressure valve. UAF risk accepted because
-// the alternative is guaranteed OOM from unbounded small block growth.
-// Existing pool blocks still get consumed via pool_alloc (same-size reuse).
+// Hard cap: when exceeded, ALL new blocks go to mi_free regardless of size.
+// Oldest block in same slot is evicted (FIFO). Pool stays at ~HARD_CAP.
 const HARD_CAP: usize = 128 * 1024 * 1024; // 128MB
 
 // Freelist slot count. Index = usable_size / 16.
@@ -69,8 +69,8 @@ const SIZE_MAP_LEN: usize = MAX_POOL_SIZE + 1;
 /// FIFO queue for one size class. Oldest blocks at head, newest at tail.
 ///
 /// - Free pushes to tail (newest enters back)
-/// - Alloc pops from head (oldest reused first — max zombie time)
-/// - Evict pops from head + mi_free (oldest evicted — safest)
+/// - Alloc pops from head (oldest reused first -- max zombie time)
+/// - Evict pops from head + mi_free (oldest evicted -- safest)
 #[derive(Clone, Copy)]
 struct SlotQueue {
     head: *mut FreeNode,

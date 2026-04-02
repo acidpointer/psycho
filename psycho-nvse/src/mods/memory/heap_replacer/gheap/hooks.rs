@@ -54,9 +54,9 @@ pub unsafe extern "thiscall" fn hook_gheap_realloc(
 }
 
 /// PDD drain rounds by pressure level.
-/// Level 1 (normal): moderate drain — keep queues from growing.
-/// Level 2 (aggressive): heavy drain — clear backlog.
-const PDD_ROUNDS_NORMAL: u32 = 50;
+/// Level 1 (normal): moderate drain -- keep queues from growing.
+/// Level 2 (aggressive): heavy drain -- clear backlog.
+const PDD_ROUNDS_NORMAL: u32 = 75;
 const PDD_ROUNDS_AGGRESSIVE: u32 = 200;
 
 thread_local! {
@@ -98,46 +98,17 @@ pub unsafe extern "C" fn hook_per_frame_queue_drain() {
         on_loading_end();
     }
 
-    // --- Emergency cleanup from worker OOM ---
-    // Worker threads can't drain pool (thread-local). This is their
-    // ONLY chance to get pool memory freed.
-    if allocator::EMERGENCY_CLEANUP.swap(false, std::sync::atomic::Ordering::AcqRel) {
-        let commit_before = libmimalloc::process_info::MiMallocProcessInfo::get()
-            .get_current_commit();
+    let heap = super::heap_manager::HeapManager::get();
+
+    // --- Emergency pool drain (worker OOM signal) ---
+    // Drain large blocks (>= 1KB) from main thread's pool. Safe --
+    // small zombie blocks preserved for concurrent readers.
+    if heap.take_emergency_drain() {
+        let commit_before = heap.commit_mb();
+        let drained = unsafe { heap.drain_pool(pool::SMALL_BLOCK_THRESHOLD) };
         log::warn!(
-            "[POOL] Emergency: worker OOM, commit={}MB, pool={}MB",
-            commit_before / 1024 / 1024,
-            pool::pool_held_bytes() / 1024 / 1024,
-        );
-
-        if globals::is_loading() {
-            // During loading: run destruction protocol at Phase 7.
-            // Safe context: AI not started, NVSE events suppressed by loading flag.
-            // PDD pump with bypass reclaims VAS from queued destruction.
-            unsafe { emergency_loading_cleanup() };
-        } else {
-            // Normal gameplay: drain large + run game OOM stages.
-            allocator::with_large_bypass(|| {
-                let freed = unsafe { pool::pool_drain_large(pool::SMALL_BLOCK_THRESHOLD) };
-                unsafe { libmimalloc::mi_collect(false) };
-
-                let ptr = unsafe { globals::run_oom_stages(0) };
-                if !ptr.is_null() {
-                    unsafe { libmimalloc::mi_free(ptr) };
-                }
-                log::warn!(
-                    "[POOL] Emergency: {} large drained, game OOM stages done",
-                    freed,
-                );
-            });
-        }
-
-        let commit_after = libmimalloc::process_info::MiMallocProcessInfo::get()
-            .get_current_commit();
-        log::warn!(
-            "[POOL] Emergency done: commit {}MB-->{}MB",
-            commit_before / 1024 / 1024,
-            commit_after / 1024 / 1024,
+            "[OOM] Emergency drain: {} blocks, commit={}-->{}MB pool={}MB",
+            drained, commit_before, heap.commit_mb(), heap.pool_mb(),
         );
     }
 
@@ -145,24 +116,30 @@ pub unsafe extern "C" fn hook_per_frame_queue_drain() {
     let request = watchdog::take_cleanup_request();
 
     if request >= 1 {
-        // Normal: HeapCompact 0-3 + drain large pool blocks.
-        globals::signal_heap_compact(globals::HeapCompactStage::HavokGC);
-        let drained = unsafe { pool::pool_drain_large(pool::SMALL_BLOCK_THRESHOLD) };
-        unsafe { libmimalloc::mi_collect(false) };
+        heap.signal_heap_compact(globals::HeapCompactStage::HavokGC);
+        let drained = unsafe { heap.drain_pool(pool::SMALL_BLOCK_THRESHOLD) };
         log::info!(
-            "[WATCHDOG] Phase 7 cleanup: drained {} large, level={}, pdd(NiNode={} Gen={} Form={})",
+            "[WATCHDOG] Phase 7 cleanup: drained {}, level={}, pdd(NiNode={} Gen={} Form={})",
             drained, request,
             globals::pdd_queue_count(PddQueue::NiNode),
             globals::pdd_queue_count(PddQueue::Generic),
             globals::pdd_queue_count(PddQueue::Form),
         );
     }
-    if request >= 2 && !globals::is_loading() {
-        // Normal gameplay: signal cell unload for AI_JOIN.
-        // During loading: large bypass is already active (on_loading_start),
-        // game's own CellTransitionHandler handles cleanup.
-        if let Some(pr) = PressureRelief::instance() {
-            pr.set_deferred_unload();
+    if request >= 2 {
+        if !globals::is_loading() {
+            // Run destruction_protocol HERE at Phase 7, not deferred to AI_JOIN.
+            // Phase 7 is before AI_START -- AI is not active. Same safety as AI_JOIN.
+            // Deferring to AI_JOIN wastes a full render pass (~16ms) during which
+            // commit grows 20-40MB. Clean NOW.
+            if let Some(pr) = PressureRelief::instance() {
+                unsafe { pr.run_cleanup() };
+            }
+        } else {
+            // During loading: Phase 7 cell unload. Same safety -- AI not yet
+            // dispatched. Uses own loading_counter scope to avoid double-decrement
+            // with maybe_loading_cell_unload at AI_JOIN.
+            unsafe { loading_phase7_cell_unload() };
         }
     }
 
@@ -192,7 +169,8 @@ pub unsafe extern "C" fn hook_per_frame_queue_drain() {
                 rounds += 1;
             }
 
-            unsafe { libmimalloc::mi_collect(false) };
+            // Drain pool to catch blocks freed by PDD + decommit.
+            unsafe { heap.drain_pool(pool::SMALL_BLOCK_THRESHOLD) };
 
             log::debug!(
                 "[PDD] Drained {} rounds, pdd(NiNode={} Gen={} Form={}), commit={}MB, pool={}MB",
@@ -200,84 +178,79 @@ pub unsafe extern "C" fn hook_per_frame_queue_drain() {
                 globals::pdd_queue_count(PddQueue::NiNode),
                 globals::pdd_queue_count(PddQueue::Generic),
                 globals::pdd_queue_count(PddQueue::Form),
-                libmimalloc::process_info::MiMallocProcessInfo::get().get_current_commit() / 1024 / 1024,
-                pool::pool_held_bytes() / 1024 / 1024,
+                heap.commit_mb(),
+                heap.pool_mb(),
             );
         }
     }
-}
 
-// Emergency OOM recovery during loading.
-//
-// Context: Phase 7, is_loading()=true, AI not dispatched.
-// NVSE events suppressed by loading flag. PDD pump is safe here —
-// freed objects won't be accessed by AI (not started) or NVSE
-// (events suppressed during loading).
-//
-// Sequence:
-//   1. Enable large bypass
-//   2. Cell unload (FindCellToUnload — queues PDD entries)
-//   3. PDD pump with bypass ON (actual frees reclaim VAS)
-//   4. drain_large + mi_collect
-//   5. Disable bypass
-const EMERGENCY_PDD_ROUNDS: u32 = 100;
-const EMERGENCY_MAX_CELLS: usize = 20;
-
-#[cold]
-pub unsafe fn emergency_loading_cleanup() {
-    let commit_before = libmimalloc::process_info::MiMallocProcessInfo::get()
-        .get_current_commit();
-
-    let (cells, drained) = allocator::with_large_bypass(|| {
-        // Cell unload — queues PDD entries.
-        let mut cells = 0usize;
-        if let Some(result) =
-            super::engine::cell_unload::execute_during_loading(EMERGENCY_MAX_CELLS)
-        {
-            cells = result.cells;
-            if cells > 0
-                && let Some(pr) = PressureRelief::instance() {
-                    pr.set_pending_counter_decrement();
-                }
-        }
-
-        // PDD pump — process queued destruction WITH bypass ON.
-        if let Ok(pdd) = statics::PER_FRAME_QUEUE_DRAIN_HOOK.original() {
-            for _ in 0..EMERGENCY_PDD_ROUNDS {
-                unsafe { pdd() };
-            }
-        }
-
-        // Drain remaining large pool blocks + collect.
-        let drained = unsafe { pool::pool_drain_large(pool::SMALL_BLOCK_THRESHOLD) };
-        unsafe { libmimalloc::mi_collect(false) };
-        (cells, drained)
-    });
-
-    let commit_after = libmimalloc::process_info::MiMallocProcessInfo::get()
-        .get_current_commit();
-    log::warn!(
-        "[POOL] Emergency loading cleanup: {} cells, {} large drained, commit {}MB-->{}MB",
-        cells, drained,
-        commit_before / 1024 / 1024,
-        commit_after / 1024 / 1024,
-    );
 }
 
 // Cell unload from Phase 7 during loading.
-// Phase 7 runs before AI_START — AI is not active, CellUnloadGuard succeeds.
+// Phase 7 runs before AI_START -- AI is not active, CellUnloadGuard succeeds.
 // CellUnloadGuard enables large bypass so freed objects reclaim VAS.
 // 5-second cooldown to avoid over-triggering.
 // Loading transition cleanup threshold.
 const LOADING_CLEANUP_GROWTH: usize = 300 * 1024 * 1024; // 300MB
 const LOADING_CLEANUP_MAX_CELLS: usize = 20;
 
+/// Phase 7 cell unload during loading. Runs when watchdog fires level 2
+/// and loading is active. Same safety as normal Phase 7 cleanup (AI not
+/// yet dispatched) and same pattern as maybe_loading_cell_unload at AI_JOIN.
+///
+/// Uses its own loading_counter scope (increment + immediate decrement)
+/// so it doesn't conflict with AI_JOIN's separate counter tracking.
+#[cold]
+unsafe fn loading_phase7_cell_unload() {
+    let heap = super::heap_manager::HeapManager::get();
+
+    let Some(mut state) = (unsafe { globals::pre_destruction_setup() }) else {
+        return;
+    };
+
+    let loading_counter = globals::loading_state_counter();
+    loading_counter.fetch_add(1, std::sync::atomic::Ordering::AcqRel);
+
+    let mut cells = 0usize;
+    let mut stage: i32 = 5;
+    for _ in 0..LOADING_CLEANUP_MAX_CELLS {
+        let (next, _) = unsafe { heap.run_oom_stage(stage, false) };
+        if next != 5 { break; }
+        cells += 1;
+        stage = next;
+    }
+
+    if cells > 0 {
+        unsafe { globals::deferred_cleanup_small(state[5]) };
+    }
+
+    unsafe { globals::post_destruction_restore(&mut state) };
+
+    // Decrement immediately -- game's own loading counter already
+    // suppresses NVSE events. No deferred tracking needed.
+    loading_counter.fetch_sub(1, std::sync::atomic::Ordering::AcqRel);
+
+    if cells > 0 {
+        // Drain pool to reclaim VAS from freed cell objects.
+        if !globals::is_bst_cell_load_pending() {
+            unsafe { pool::pool_drain_all() };
+        } else {
+            unsafe { pool::pool_drain_large(pool::SMALL_BLOCK_THRESHOLD) };
+        }
+        unsafe { libmimalloc::mi_collect(false) };
+
+        log::warn!(
+            "[LOADING] Phase 7 cell unload: {} cells, commit={}MB, pool={}MB",
+            cells, heap.commit_mb(), heap.pool_mb(),
+        );
+    }
+}
+
 // First frame where loading starts. Run proper cleanup:
-//   1. Enable large bypass (frees during cleanup reclaim VAS)
-//   2. HeapCompact 0-3 (texture, geometry, menu, Havok GC)
-//   3. Cell unload via execute_during_loading (if growth warrants)
-//   4. Drain large pool blocks + mi_collect
-//   5. Disable large bypass
+//   1. HeapCompact 0-3 (texture, geometry, menu, Havok GC)
+//   2. Cell unload (bypass off so frees accumulate in pool)
+//   3. Drain pool blocks + mi_collect (batch decommit)
+//   4. Enable loading bypass (subsequent frees -> mi_free)
 #[cold]
 unsafe fn on_loading_start() {
     let info = libmimalloc::process_info::MiMallocProcessInfo::get();
@@ -289,36 +262,72 @@ unsafe fn on_loading_start() {
         pool::pool_held_bytes() / 1024 / 1024,
     );
 
-    // Enable loading bypass for the entire loading phase.
-    // Game's CellTransitionHandler + PDD frees will reclaim VAS.
-    allocator::set_loading_bypass(true);
+    // Bypass is deferred until AFTER cleanup so freed objects during
+    // cell unload accumulate in pool for effective batch drain.
+    // bypass=false in run_oom_stage is only effective when LOADING_BYPASS
+    // is also off -- otherwise is_bypass_active() returns true and large
+    // frees skip the pool regardless of the per-call flag.
+
+    let heap = super::heap_manager::HeapManager::get();
 
     // HeapCompact 0-3 (texture flush, geometry cache, menu, Havok GC).
-    globals::signal_heap_compact(globals::HeapCompactStage::HavokGC);
+    heap.signal_heap_compact(globals::HeapCompactStage::HavokGC);
 
-    // Cell unload with scoped bypass (cleanup runs inside with_large_bypass).
-    let (cells, drained) = allocator::with_large_bypass(|| {
-        let mut cells = 0usize;
-        if let Some(pr) = PressureRelief::instance() {
-            let baseline = pr.baseline_commit();
-            if baseline > 0 {
-                let growth = commit_before.saturating_sub(baseline);
-                if growth >= LOADING_CLEANUP_GROWTH
-                    && let Some(result) =
-                        super::engine::cell_unload::execute_during_loading(LOADING_CLEANUP_MAX_CELLS)
-                    {
-                        cells = result.cells;
-                        if cells > 0 {
-                            pr.set_pending_counter_decrement();
-                        }
-                    }
+    // Cell unload using the same pattern as destruction_protocol:
+    // run_oom_stage(5) + DeferredCleanupSmall + drain_all.
+    // This is the loading transition -- the best time to reclaim VAS
+    // because old cells are being replaced by new ones.
+    let mut cells = 0usize;
+    let pr = PressureRelief::instance();
+    let baseline = pr.map(|p| p.baseline_commit()).unwrap_or(0);
+    let growth = if baseline > 0 { commit_before.saturating_sub(baseline) } else { 0 };
+
+    if growth >= LOADING_CLEANUP_GROWTH {
+        // Lock Havok for safe cell unload.
+        if let Some(mut state) = unsafe { globals::pre_destruction_setup() } {
+            let loading_counter = globals::loading_state_counter();
+            loading_counter.fetch_add(1, std::sync::atomic::Ordering::AcqRel);
+
+            // Unload cells via game's stage 5 (bypass off, frees go to pool).
+            let mut stage: i32 = 5;
+            for _ in 0..LOADING_CLEANUP_MAX_CELLS {
+                let (next, _) = unsafe { heap.run_oom_stage(stage, false) };
+                if next != 5 { break; }
+                cells += 1;
+                stage = next;
+            }
+
+            // Process freed objects (async flush, model cleanup, IO cancel).
+            if cells > 0 {
+                unsafe { globals::deferred_cleanup_small(state[5]) };
+            }
+
+            unsafe { globals::post_destruction_restore(&mut state) };
+
+            if cells > 0 {
+                if let Some(p) = pr {
+                    p.set_pending_counter_decrement();
+                }
+            } else {
+                loading_counter.fetch_sub(1, std::sync::atomic::Ordering::AcqRel);
             }
         }
+    }
 
-        let drained = unsafe { pool::pool_drain_large(pool::SMALL_BLOCK_THRESHOLD) };
-        unsafe { libmimalloc::mi_collect(false) };
-        (cells, drained)
-    });
+    // Drain pool -- full drain if IO idle, safe drain otherwise.
+    // With bypass still off, cell unload frees accumulated in pool.
+    // Batch drain + mi_collect gives mimalloc contiguous free regions
+    // for effective segment decommit.
+    let drained = if !globals::is_bst_cell_load_pending() {
+        unsafe { pool::pool_drain_all() }
+    } else {
+        unsafe { pool::pool_drain_large(pool::SMALL_BLOCK_THRESHOLD) }
+    };
+    unsafe { libmimalloc::mi_collect(false) };
+
+    // NOW enable loading bypass. Subsequent frees during loading go
+    // directly to mi_free for immediate VAS recovery.
+    allocator::set_loading_bypass(true);
 
     let commit_after = libmimalloc::process_info::MiMallocProcessInfo::get()
         .get_current_commit();
@@ -401,6 +410,12 @@ const LOADING_MAX_CELLS: usize = 5;
 /// `maybe_loading_cell_unload` reads it to bypass memory-based cooldown.
 static FORCE_LOADING_UNLOAD: std::sync::atomic::AtomicBool =
     std::sync::atomic::AtomicBool::new(false);
+
+/// Set by watchdog when level 2 fires during loading.
+/// Ensures maybe_loading_cell_unload at AI_JOIN runs without cooldown.
+pub fn signal_force_loading_unload() {
+    FORCE_LOADING_UNLOAD.store(true, std::sync::atomic::Ordering::Release);
+}
 
 /// AI_JOIN: AI threads completed. Safe for mi_collect(true) and cell unload.
 ///
@@ -506,16 +521,39 @@ unsafe fn maybe_loading_cell_unload() {
         );
     }
 
-    if let Some(result) =
-        super::engine::cell_unload::execute_during_loading(max_cells)
-        && result.cells > 0
-    {
-        let post_commit =
-            libmimalloc::process_info::MiMallocProcessInfo::get().get_current_commit();
-        LOADING_COOLDOWN_COMMIT.store(post_commit, std::sync::atomic::Ordering::Relaxed);
+    let heap = super::heap_manager::HeapManager::get();
 
-        if let Some(pr) = PressureRelief::instance() {
-            pr.set_pending_counter_decrement();
+    // Use same pattern as destruction_protocol: run_oom_stage(5) +
+    // DeferredCleanupSmall so freed objects are fully processed.
+    if let Some(mut state) = unsafe { globals::pre_destruction_setup() } {
+        let loading_counter = globals::loading_state_counter();
+        loading_counter.fetch_add(1, std::sync::atomic::Ordering::AcqRel);
+
+        let mut cells = 0usize;
+        let mut stage: i32 = 5;
+        for _ in 0..max_cells {
+            let (next, _) = unsafe { heap.run_oom_stage(stage, false) };
+            if next != 5 { break; }
+            cells += 1;
+            stage = next;
+        }
+
+        if cells > 0 {
+            unsafe { globals::deferred_cleanup_small(state[5]) };
+        }
+
+        unsafe { globals::post_destruction_restore(&mut state) };
+
+        if cells > 0 {
+            let post_commit =
+                libmimalloc::process_info::MiMallocProcessInfo::get().get_current_commit();
+            LOADING_COOLDOWN_COMMIT.store(post_commit, std::sync::atomic::Ordering::Relaxed);
+
+            if let Some(pr) = PressureRelief::instance() {
+                pr.set_pending_counter_decrement();
+            }
+        } else {
+            loading_counter.fetch_sub(1, std::sync::atomic::Ordering::AcqRel);
         }
     }
 }

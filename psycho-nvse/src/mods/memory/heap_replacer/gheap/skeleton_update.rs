@@ -3,7 +3,7 @@
 //! Skeleton update validation hook (FUN_00c79680).
 //!
 //! Called from AI worker threads during physics update.
-//! Always worker thread — with_try_read, skip if drain active.
+//! Always worker thread -- with_try_read, skip if drain active.
 
 #![allow(dead_code)]
 

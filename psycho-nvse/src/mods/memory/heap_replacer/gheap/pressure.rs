@@ -122,23 +122,20 @@ impl PressureRelief {
     /// join hook after AI threads have completed their work.
     ///
     /// AI threads are idle here, so mi_collect(true) and cell unload are safe.
-    /// Watchdog handles cooldown — we just execute when signaled.
+    /// Watchdog handles cooldown -- we just execute when signaled.
+    /// Run deferred cell unload if flagged. Called from AI_JOIN.
     pub unsafe fn run_deferred_unload(&self) {
         if !self.deferred_unload.load(Ordering::Acquire) {
             return;
         }
-
         self.deferred_unload.store(false, Ordering::Release);
+        unsafe { self.run_cleanup() };
+    }
 
-        let info = libmimalloc::process_info::MiMallocProcessInfo::get();
-
-        // Aggressive collect: safe here because AI threads are joined.
-        unsafe { libmimalloc::mi_collect(true) };
-        log::info!(
-            "[PRESSURE] Post AI_JOIN collect: commit={}MB, RSS={}MB",
-            info.get_current_commit() / 1024 / 1024,
-            info.get_current_rss() / 1024 / 1024,
-        );
+    /// Run cell unload + full cleanup unconditionally.
+    /// Safe to call from Phase 7 (before AI_START) or AI_JOIN.
+    pub unsafe fn run_cleanup(&self) {
+        let heap = super::heap_manager::HeapManager::get();
 
         let manager = match globals::game_manager() {
             Some(m) => m,
@@ -152,35 +149,34 @@ impl PressureRelief {
         if cells > 0 {
             self.pending_counter_decrement.store(true, Ordering::Release);
             log::info!(
-                "[PRESSURE] Deferred unload: {} cells (commit={}MB)",
-                cells,
-                libmimalloc::process_info::MiMallocProcessInfo::get().get_current_commit() / 1024 / 1024,
+                "[PRESSURE] Cleanup: {} cells (commit={}MB, pool={}MB)",
+                cells, heap.commit_mb(), heap.pool_mb(),
             );
         }
     }
 
-    // Cell unloading + PDD drain with large bypass.
+    // Cell unloading via the game's own OOM stage executor.
     //
-    // Sequence:
-    //   1. Suppress NVSE events (loading counter + TLS flag).
-    //   2. Lock Havok (pre_destruction_setup).
-    //   3. Enable large bypass.
-    //   4. FindCellToUnload loop (queues PDD entries).
-    //   5. Pump PDD to process queued destruction WITH bypass active.
-    //      This is critical: FindCellToUnload only queues, PDD does
-    //      the actual frees. Bypass must be on during PDD.
-    //   6. Unlock Havok, disable bypass.
-    //   7. drain_large + mi_collect to decommit freed pages.
+    // Calls run_oom_stage(5) which runs vanilla's EXACT stage 5 sequence:
+    //   TLS flag --> FindCellToUnload --> ProcessPendingCleanup --> PDD
+    //   --> fallthrough stage 4 (PDD again) --> stage 3 (Havok GC)
+    //
+    // If a cell is found, stage 5 returns stage=5 (stays). We repeat
+    // until no more cells or max reached. This matches how vanilla's
+    // OOM handler unloads cells -- same function, same context, same
+    // state management. No custom Havok locking needed.
     //
     // Safety: must be called on the main thread when AI threads are idle.
-    unsafe fn destruction_protocol(manager: *mut libc::c_void) -> usize {
+    unsafe fn destruction_protocol(_manager: *mut libc::c_void) -> usize {
+        let heap = super::heap_manager::HeapManager::get();
         let mut cells: usize = 0;
 
         // Suppress NVSE event dispatch during destruction.
         let loading_counter = globals::loading_state_counter();
         loading_counter.fetch_add(1, std::sync::atomic::Ordering::AcqRel);
 
-        // pre_destruction_setup: locks Havok world + invalidates scene graph.
+        // Lock Havok world + invalidate scene graph. Without this,
+        // AI threads access Havok objects from unloaded cells --> crash.
         let mut state = match unsafe { globals::pre_destruction_setup() } {
             Some(s) => s,
             None => {
@@ -189,45 +185,57 @@ impl PressureRelief {
             }
         };
 
-        // Suppress NVSE PLChangeEvent dispatch via TLS flag.
-        unsafe { globals::set_tls_cleanup_flag(0) };
-
-        // Find and unload cells (queues PDD entries for later processing).
+        // Run stage 5 repeatedly with Havok locked. Each call does:
+        //   TLS flag + FindCellToUnload + ProcessPendingCleanup + PDD + Havok GC
+        // bypass=false: frees go to pool (zombie-safe for IO thread).
+        // Returns stage=5 if cell found (stay), stage=6 if none (done).
+        let mut stage: i32 = 5;
         for _ in 0..MAX_CELLS_PER_CYCLE {
-            match unsafe { globals::find_cell_to_unload(manager) } {
-                Some(true) => cells += 1,
-                _ => break,
+            let (next, _) = unsafe { heap.run_oom_stage(stage, false) };
+            if next != 5 {
+                break;
             }
+            cells += 1;
+            stage = next;
         }
 
-        // Clear TLS cell unload flag (re-enable event dispatch).
-        unsafe { globals::set_tls_cleanup_flag(1) };
-
+        // DeferredCleanupSmall (FUN_00878250): processes freed objects
+        // from cell unload that are stuck in async queues and caches.
+        //   --> PDD purge (FUN_00868d70)
+        //   --> Async flush (FUN_00b5fd60) -- releases async references
+        //   --> Model cleanup (FUN_00651e30/40) -- frees scene graph models
+        //   --> Cancel stale IO tasks (FUN_00448620)
+        //   --> Texture cache flush (FUN_00452490)
+        //
+        // Without this, cell unload queues objects for destruction but
+        // they aren't fully processed until next frame's Phase 4. By
+        // then new cells load and commit climbs back up.
+        // param = state[5] from pre_destruction_setup.
         if cells > 0 {
-            log::debug!(
-                "[DESTRUCTION] {} cells unloaded, pdd queued: NiNode={} Gen={} Form={}",
-                cells,
-                globals::pdd_queue_count(globals::PddQueue::NiNode),
-                globals::pdd_queue_count(globals::PddQueue::Generic),
-                globals::pdd_queue_count(globals::PddQueue::Form),
-            );
+            unsafe { globals::deferred_cleanup_small(state[5]) };
         }
+
+        // Drain pool INSIDE the Havok lock. AI Linear Task threads
+        // (persistent Havok simulation threads) resume at
+        // post_destruction_restore and may chase dangling pointers to
+        // freed ahkpWorld/bhkWorldM objects. Draining while Havok is
+        // still paused ensures all zombie blocks are mi_free'd before
+        // persistent threads can access them.
+        // IO check: skip full drain if BSTaskManagerThread is busy.
+        let drained = if !globals::is_bst_cell_load_pending() {
+            unsafe { pool::pool_drain_all() }
+        } else {
+            unsafe { pool::pool_drain_large(pool::SMALL_BLOCK_THRESHOLD) }
+        };
+        unsafe { libmimalloc::mi_collect(false) };
 
         unsafe { globals::post_destruction_restore(&mut state) };
 
-        // Drain remaining large pool blocks + collect.
-        if cells > 0 {
-            let drained = unsafe { pool::pool_drain_large(pool::SMALL_BLOCK_THRESHOLD) };
-            unsafe { libmimalloc::mi_collect(false) };
-
-            let commit = libmimalloc::process_info::MiMallocProcessInfo::get()
-                .get_current_commit();
-            log::debug!(
-                "[DESTRUCTION] Post: {} large drained, commit={}MB, pool={}MB",
-                drained, commit / 1024 / 1024,
-                pool::pool_held_bytes() / 1024 / 1024,
-            );
-        }
+        log::debug!(
+            "[DESTRUCTION] {} cells, {} drained, io_busy={}, commit={}MB, pool={}MB",
+            cells, drained, globals::is_bst_cell_load_pending(),
+            heap.commit_mb(), heap.pool_mb(),
+        );
 
         if cells == 0 {
             loading_counter.fetch_sub(1, std::sync::atomic::Ordering::AcqRel);

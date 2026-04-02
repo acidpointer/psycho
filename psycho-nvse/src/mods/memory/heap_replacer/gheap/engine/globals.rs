@@ -36,7 +36,7 @@ pub fn is_loading() -> bool {
 /// Stage 2: Menu cleanup (InterfaceManager release)
 /// Stage 3: Havok GC (hkMemorySystem garbage collect)
 /// Stage 4: PDD purge (ProcessManager lock + full deferred destruction)
-/// Stage 5: Cell unloading (FindCellToUnload) — DANGEROUS: deadlocks
+/// Stage 5: Cell unloading (FindCellToUnload) -- DANGEROUS: deadlocks
 ///          during fast travel and loading screens. Never use from
 ///          pressure relief.
 #[allow(dead_code)]
@@ -57,7 +57,8 @@ pub fn heap_compact_trigger_value() -> u32 {
 }
 
 /// Signal HeapCompact to run stages 0..=stage on the next frame.
-/// The game's dispatcher is inclusive: trigger=N runs stages 0, 1, ..., N.
+/// Raw write -- prefer HeapManager::signal_heap_compact() which uses
+/// MAX semantics (never downgrades an existing trigger).
 pub fn signal_heap_compact(stage: HeapCompactStage) {
     unsafe {
         let trigger = addr::HEAP_COMPACT_TRIGGER as *mut u32;
@@ -155,7 +156,7 @@ pub fn pdd_queue_count(queue: PddQueue) -> u16 {
 static MAIN_THREAD_ID: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
 
 /// Set main thread ID. Called ONCE from on_pre_ai (first frame tick).
-/// on_pre_ai is a hook inside the game's main loop — guaranteed main thread.
+/// on_pre_ai is a hook inside the game's main loop -- guaranteed main thread.
 pub fn set_main_thread_id() {
     let tid = libpsycho::os::windows::winapi::get_current_thread_id();
     let prev = MAIN_THREAD_ID.swap(tid, std::sync::atomic::Ordering::Release);
@@ -185,16 +186,14 @@ pub fn is_main_thread_by_tid() -> bool {
 // OOM recovery -- game stage executor
 // ---------------------------------------------------------------------------
 
-/// Run the game's OOM stages 0-8, then drain pool + collect + try alloc.
+/// Raw FFI call to the game's OOM stage executor (FUN_00866a90).
 ///
-/// Returns allocated pointer if any stage freed enough, or null.
-/// Two-step drain: large blocks first (safe), then all if still OOM.
+/// Returns `(next_stage, give_up)`. Does NOT call mi_collect --
+/// use HeapManager::run_oom_stage() which encapsulates collect + logging.
 ///
 /// # Safety
-/// Must be called on the main thread when AI threads are NOT active.
-pub unsafe fn run_oom_stages(size: usize) -> *mut c_void {
-    use std::ptr::null_mut;
-
+/// Calls game code.
+pub unsafe fn run_single_oom_stage(stage: i32) -> (i32, bool) {
     let heap_singleton = addr::HEAP_SINGLETON as *mut c_void;
     let primary_heap = unsafe {
         let p = (heap_singleton as *const u8).add(addr::HEAP_PRIMARY_OFFSET) as *const *mut c_void;
@@ -206,45 +205,21 @@ pub unsafe fn run_oom_stages(size: usize) -> *mut c_void {
     } {
         Ok(f) => f,
         Err(e) => {
-            log::error!(
-                "[OOM_STAGES] FnPtr::from_raw(OOM_STAGE_EXEC) failed: {:?}",
-                e
-            );
-            return null_mut();
+            log::error!("[OOM] FnPtr::from_raw(OOM_STAGE_EXEC) failed: {:?}", e);
+            return (stage + 1, true);
         }
     };
 
-    let mut stage: i32 = 0;
-    let mut done: u8;
-    while stage <= 8 {
-        done = 0;
-        stage = match unsafe { oom_exec.as_fn() } {
-            Ok(f) => unsafe { f(heap_singleton, primary_heap, stage, &mut done) },
-            Err(e) => {
-                log::error!(
-                    "[OOM_STAGES] oom_exec.as_fn() failed at stage {}: {:?}",
-                    stage,
-                    e
-                );
-                break;
-            }
-        };
-    }
+    let mut done: u8 = 0;
+    let next = match unsafe { oom_exec.as_fn() } {
+        Ok(f) => unsafe { f(heap_singleton, primary_heap, stage, &mut done) },
+        Err(e) => {
+            log::error!("[OOM] oom_exec.as_fn() failed at stage {}: {:?}", stage, e);
+            return (stage + 1, true);
+        }
+    };
 
-    // Pool drain (large blocks only) + collect + alloc -- kept together
-    // to avoid other threads consuming freed VAS between drain and alloc.
-    // Small blocks stay on freelists to prevent UAF from stale readers.
-    // If this isn't enough, oom_last_resort handles full drain.
-    use crate::mods::memory::heap_replacer::gheap::pool;
-    unsafe { pool::pool_drain_large(pool::SMALL_BLOCK_THRESHOLD) };
-    unsafe { libmimalloc::mi_collect(true) };
-
-    let ptr = unsafe { libmimalloc::mi_malloc_aligned(size, 16) };
-    if !ptr.is_null() {
-        return ptr;
-    }
-
-    null_mut()
+    (next, done != 0)
 }
 
 // ---------------------------------------------------------------------------
@@ -255,7 +230,7 @@ pub unsafe fn run_oom_stages(size: usize) -> *mut c_void {
 ///
 /// value=0: cell unload in progress (suppresses NVSE PLChangeEvent dispatch
 ///          via TLS+0x298 flag). Without this, NVSE plugins receive events
-///          for partially-torn-down actors during cell unload → crash.
+///          for partially-torn-down actors during cell unload --> crash.
 /// value=1: cell unload done (re-enables event dispatch).
 ///
 /// The game's HeapCompact stage 5 and CellTransitionHandler both call this.
@@ -276,6 +251,36 @@ pub unsafe fn set_tls_cleanup_flag(value: u8) {
     match unsafe { f.as_fn() } {
         Ok(f) => unsafe { f(value) },
         Err(e) => log::error!("[TLS_FLAG] as_fn() failed: {:?}", e),
+    }
+}
+
+/// Process pending cleanup queue after cell unloading.
+///
+/// This is the critical step vanilla stage 5 does AFTER FindCellToUnload.
+/// FindCellToUnload only marks cells and queues async work in the
+/// ProcessManager. This function EXECUTES that work -- destroys NiNode
+/// hierarchies, releases textures, decrements refcounts, and queues
+/// resulting objects into PDD. Without this call, cell unload frees
+/// almost nothing.
+///
+/// flush=0 for normal cleanup after cell unload.
+///
+/// Safety: must be called on the main thread with GAME_MANAGER valid.
+pub unsafe fn process_pending_cleanup(manager: *mut c_void, flush: u8) {
+    let f = match unsafe {
+        FnPtr::<types::ProcessPendingCleanupFn>::from_raw(
+            addr::PROCESS_PENDING_CLEANUP as *mut c_void,
+        )
+    } {
+        Ok(f) => f,
+        Err(e) => {
+            log::error!("[PENDING_CLEANUP] FnPtr::from_raw failed: {:?}", e);
+            return;
+        }
+    };
+    match unsafe { f.as_fn() } {
+        Ok(f) => unsafe { f(manager, flush) },
+        Err(e) => log::error!("[PENDING_CLEANUP] as_fn() failed: {:?}", e),
     }
 }
 

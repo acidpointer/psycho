@@ -28,17 +28,18 @@ use crate::mods::memory::heap_replacer::mem_stats;
 // Configuration
 // ---------------------------------------------------------------------------
 
-/// Poll interval in milliseconds.
-const POLL_MS: u32 = 500;
+/// Poll interval in milliseconds. 250ms gives 2x faster detection
+/// with no game impact (background thread, only sets atomic flags).
+const POLL_MS: u32 = 250;
 
 /// Diagnostic logging interval (every N polls = every N*POLL_MS ms).
-/// 10 polls * 500ms = 5 seconds, matching the old monitor interval.
-const LOG_INTERVAL: u32 = 10;
+/// 20 polls * 250ms = 5 seconds, matching the old monitor interval.
+const LOG_INTERVAL: u32 = 20;
 
 /// Growth thresholds above baseline commit.
-const NORMAL_GROWTH: usize = 400 * 1024 * 1024; // 400MB
-const AGGRESSIVE_GROWTH: usize = 600 * 1024 * 1024; // 600MB
-const CRITICAL_GROWTH: usize = 800 * 1024 * 1024; // 800MB
+const NORMAL_GROWTH: usize = 350 * 1024 * 1024; // 350MB
+const AGGRESSIVE_GROWTH: usize = 500 * 1024 * 1024; // 500MB
+const CRITICAL_GROWTH: usize = 700 * 1024 * 1024; // 700MB
 
 /// During loading, lower all thresholds by this amount.
 const LOADING_THRESHOLD_REDUCTION: usize = 200 * 1024 * 1024; // 200MB
@@ -48,9 +49,9 @@ const LOADING_THRESHOLD_REDUCTION: usize = 200 * 1024 * 1024; // 200MB
 const AGGRESSIVE_RATE_THRESHOLD: i32 = 2 * 1024 * 1024;
 
 /// Minimum milliseconds between aggressive (level 2) requests.
-/// Lower = more frequent cell unload during gameplay = more headroom
-/// before loading starts. 5s balances cleanup with NVSE plugin safety.
-const AGGRESSIVE_COOLDOWN_MS: u64 = 5_000;
+/// 2s gives ~2x cleanup throughput vs 4s. DeferredCleanupSmall
+/// properly processes freed objects so NVSE plugins are safe.
+const AGGRESSIVE_COOLDOWN_MS: u64 = 2_000;
 
 // ---------------------------------------------------------------------------
 // Shared atomic state (read by main thread, written by watchdog)
@@ -200,7 +201,7 @@ fn watchdog_loop(run: Arc<std::sync::atomic::AtomicBool>) {
             level = 2;
         }
         // Normal: above threshold AND still growing (or first sample
-        // where rate is unknown — don't miss a 500MB+ overshoot).
+        // where rate is unknown -- don't miss a 500MB+ overshoot).
         else if growth >= normal_thresh && (prev_rate > 0 || first_sample) {
             level = 1;
         }
@@ -218,6 +219,14 @@ fn watchdog_loop(run: Arc<std::sync::atomic::AtomicBool>) {
         // Only escalate, never downgrade an existing request.
         if level > 0 {
             let _ = CLEANUP_REQUESTED.fetch_max(level, Ordering::Release);
+
+            // During loading, level 2 also forces cell unload at AI_JOIN.
+            // maybe_loading_cell_unload has growth+cooldown checks that
+            // would otherwise suppress retries when commit is plateaued
+            // at the ceiling. This flag bypasses both.
+            if level == 2 && loading {
+                super::hooks::signal_force_loading_unload();
+            }
 
             if level == 2 {
                 log::warn!(
