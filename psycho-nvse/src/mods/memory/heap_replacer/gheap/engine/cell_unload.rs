@@ -1,19 +1,19 @@
-// Safe cell unloading wrapper.
-//
-// Lock ordering matches CellTransitionHandler to prevent deadlocks:
-//   Game loading:  IO wait (FUN_00877700) --> Havok stop (FUN_008324e0)
-//   Our unload:    IO lock --> Havok lock (same order)
-//
-// Sequence:
-//   1. AI idle check
-//   2. NVSE event suppression (loading counter)
-//   3. IO lock (block BST from dequeuing tasks)
-//   4. Havok lock (pre_destruction_setup)
-//   5. FindCellToUnload loop
-//   6. PDD + async flush
-//   7. Release Havok (post_destruction_restore)
-//   8. Release IO lock
-//   9. Restore loading counter
+//! Safe cell unloading wrapper.
+//!
+//! Lock ordering matches CellTransitionHandler to prevent deadlocks:
+//!   Game loading:  IO wait (FUN_00877700) --> Havok stop (FUN_008324e0)
+//!   Our unload:    IO lock --> Havok lock (same order)
+//!
+//! Sequence:
+//!   1. AI idle check
+//!   2. NVSE event suppression (loading counter)
+//!   3. IO lock (block BST from dequeuing tasks)
+//!   4. Havok lock (pre_destruction_setup)
+//!   5. FindCellToUnload loop
+//!   6. PDD + async flush
+//!   7. Release Havok (post_destruction_restore)
+//!   8. Release IO lock
+//!   9. Restore loading counter
 
 use libc::c_void;
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -89,7 +89,7 @@ impl CellUnloadGuard {
         // timeout. During rapid cell streaming, game code holds the IO spin-lock
         // and io_lock_acquire spins forever = hard freeze.  IO lock was for
         // PDD/async flush which we don't call.  FindCellToUnload doesn't need
-        // it — the game's own OOM stage 5 calls it without IO lock.
+        // it -- the game's own OOM stage 5 calls it without IO lock.
         let state = match unsafe { globals::pre_destruction_setup() } {
             Some(s) => s,
             None => {
@@ -100,7 +100,7 @@ impl CellUnloadGuard {
 
         // 3. Set TLS cell unload flag (suppress NVSE PLChangeEvent).
         // FUN_00869190(0) at TLS+0x298. Without this, NVSE plugins receive
-        // events for partially-torn-down actors during cell unload → crash.
+        // events for partially-torn-down actors during cell unload --> crash.
         // Game's HeapCompact stage 5 and CellTransitionHandler both do this.
         // Cleared in Drop.
         unsafe { globals::set_tls_cleanup_flag(0) };
@@ -169,7 +169,7 @@ impl CellUnloadGuard {
         // PDD entries from cell unload are processed naturally by the
         // per-frame PDD drain at Phase 7. We do NOT pump PDD here because
         // freed objects (Character, NiNode etc.) are referenced by AI threads
-        // and NVSE plugins — they must stay on pool until stale readers finish.
+        // and NVSE plugins -- they must stay on pool until stale readers finish.
         //
         // The pool cap (MAX_POOL_HELD) and loading bypass handle VAS pressure.
         log::debug!("[CELL_UNLOAD] Cells unloaded, PDD deferred to per-frame drain");
@@ -267,7 +267,7 @@ pub fn execute(max_cells: usize) -> Option<CellUnloadResult> {
 
 /// Cell unload during loading screens.
 ///
-/// Same guard protocol as execute() (IO lock → Havok lock, NVSE suppression)
+/// Same guard protocol as execute() (IO lock --> Havok lock, NVSE suppression)
 /// but does NOT abort when is_loading() is true -- we know we're loading
 /// and that's the point. The game's own OOM handler (run_oom_stages stage 5)
 /// does the same: calls FindCellToUnload during loading with no loading check.

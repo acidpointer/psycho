@@ -201,7 +201,7 @@ fn watchdog_loop(run: Arc<std::sync::atomic::AtomicBool>) {
             level = 2;
         }
         // Normal: above threshold AND still growing (or first sample
-        // where rate is unknown — don't miss a 500MB+ overshoot).
+        // where rate is unknown -- don't miss a 500MB+ overshoot).
         else if growth >= normal_thresh && (prev_rate > 0 || first_sample) {
             level = 1;
         }

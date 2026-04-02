@@ -69,8 +69,8 @@ const SIZE_MAP_LEN: usize = MAX_POOL_SIZE + 1;
 /// FIFO queue for one size class. Oldest blocks at head, newest at tail.
 ///
 /// - Free pushes to tail (newest enters back)
-/// - Alloc pops from head (oldest reused first — max zombie time)
-/// - Evict pops from head + mi_free (oldest evicted — safest)
+/// - Alloc pops from head (oldest reused first -- max zombie time)
+/// - Evict pops from head + mi_free (oldest evicted -- safest)
 #[derive(Clone, Copy)]
 struct SlotQueue {
     head: *mut FreeNode,

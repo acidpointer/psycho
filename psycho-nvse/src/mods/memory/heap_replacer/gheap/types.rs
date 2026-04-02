@@ -44,7 +44,7 @@ pub type InnerLoopFn = unsafe extern "thiscall" fn(*mut c_void);
 
 /// FUN_00c3dbf0: IOManager main-thread task processing (646 bytes, thiscall).
 /// Dequeues and executes completed IO tasks on the main thread.
-/// This is Phase 3 of the inner loop — reads game object data from tasks.
+/// This is Phase 3 of the inner loop -- reads game object data from tasks.
 pub type IOManagerProcessFn = unsafe extern "thiscall" fn(*mut c_void);
 
 /// FUN_008c78c0: dispatches AI Linear Task Threads (198 bytes, fastcall).

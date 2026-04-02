@@ -3,13 +3,13 @@
 //! Encapsulates all heap cleanup operations: OOM stage execution,
 //! HeapCompact signaling, pool drain, and commit tracking.
 //! Both background cleanup (Phase 7, AI_JOIN) and OOM recovery
-//! use this abstraction — one source of truth.
+//! use this abstraction -- one source of truth.
 //!
 //! # Rules
 //!
 //! - `drain_pool` and `run_oom_stage` always call `mi_collect(false)`
 //!   internally. Callers never call mi_collect directly.
-//! - `signal_heap_compact` uses MAX semantics — never downgrades.
+//! - `signal_heap_compact` uses MAX semantics -- never downgrades.
 //! - Debug logging for OOM stages is encapsulated inside `run_oom_stage`.
 
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -30,7 +30,7 @@ use crate::mods::memory::heap_replacer::gheap::types;
 
 pub struct HeapManager {
     /// Worker OOM sets this. Main thread Phase 7 consumes it and drains
-    /// its pool — the worker's pool is empty (workers mi_free directly),
+    /// its pool -- the worker's pool is empty (workers mi_free directly),
     /// so only the main thread can reclaim pooled zombie blocks.
     emergency_drain: AtomicBool,
 }
@@ -100,7 +100,7 @@ impl HeapManager {
 
         let mut done: u8 = 0;
         let next = if bypass {
-            // Large frees → mi_free. Reclaims VAS immediately.
+            // Large frees --> mi_free. Reclaims VAS immediately.
             // Only safe when crash is the alternative (OOM retry).
             match unsafe { oom_exec.as_fn() } {
                 Ok(f) => {
@@ -118,7 +118,7 @@ impl HeapManager {
                 }
             }
         } else {
-            // All frees → pool (zombie-safe). IO thread and AI can
+            // All frees --> pool (zombie-safe). IO thread and AI can
             // safely read freed memory. VAS reclaimed later via drain.
             match unsafe { oom_exec.as_fn() } {
                 Ok(f) => unsafe { f(heap_singleton, primary_heap, stage, &mut done) },
@@ -136,11 +136,11 @@ impl HeapManager {
         let freed = commit_before.saturating_sub(commit_after);
         let gained = commit_after.saturating_sub(commit_before);
 
-        // Log stages that did something. Stage 8 is Sleep(1) spam — skip
+        // Log stages that did something. Stage 8 is Sleep(1) spam -- skip
         // unless commit actually changed by > 1MB.
         if stage != 8 || freed > 0 || gained > 1024 * 1024 {
             log::debug!(
-                "[OOM] Stage {} → {}: done={} commit={}MB{}",
+                "[OOM] Stage {} --> {}: done={} commit={}MB{}",
                 stage, next, done,
                 commit_after / 1024 / 1024,
                 if freed > 0 {
@@ -159,7 +159,7 @@ impl HeapManager {
     /// Signal HeapCompact to run stages 0..=stage on the next frame.
     ///
     /// MAX semantics: never downgrades an existing trigger. Worker OOM
-    /// stage 8 writes trigger=6 from its thread — writing a lower value
+    /// stage 8 writes trigger=6 from its thread -- writing a lower value
     /// here would clobber that request.
     pub fn signal_heap_compact(&self, stage: HeapCompactStage) {
         unsafe {

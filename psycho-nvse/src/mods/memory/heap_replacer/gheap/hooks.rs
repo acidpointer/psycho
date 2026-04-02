@@ -54,8 +54,8 @@ pub unsafe extern "thiscall" fn hook_gheap_realloc(
 }
 
 /// PDD drain rounds by pressure level.
-/// Level 1 (normal): moderate drain — keep queues from growing.
-/// Level 2 (aggressive): heavy drain — clear backlog.
+/// Level 1 (normal): moderate drain -- keep queues from growing.
+/// Level 2 (aggressive): heavy drain -- clear backlog.
 const PDD_ROUNDS_NORMAL: u32 = 75;
 const PDD_ROUNDS_AGGRESSIVE: u32 = 200;
 
@@ -101,13 +101,13 @@ pub unsafe extern "C" fn hook_per_frame_queue_drain() {
     let heap = super::heap_manager::HeapManager::get();
 
     // --- Emergency pool drain (worker OOM signal) ---
-    // Drain large blocks (>= 1KB) from main thread's pool. Safe —
+    // Drain large blocks (>= 1KB) from main thread's pool. Safe --
     // small zombie blocks preserved for concurrent readers.
     if heap.take_emergency_drain() {
         let commit_before = heap.commit_mb();
         let drained = unsafe { heap.drain_pool(pool::SMALL_BLOCK_THRESHOLD) };
         log::warn!(
-            "[OOM] Emergency drain: {} blocks, commit={}→{}MB pool={}MB",
+            "[OOM] Emergency drain: {} blocks, commit={}-->{}MB pool={}MB",
             drained, commit_before, heap.commit_mb(), heap.pool_mb(),
         );
     }
@@ -128,7 +128,7 @@ pub unsafe extern "C" fn hook_per_frame_queue_drain() {
     }
     if request >= 2 && !globals::is_loading() {
         // Run destruction_protocol HERE at Phase 7, not deferred to AI_JOIN.
-        // Phase 7 is before AI_START — AI is not active. Same safety as AI_JOIN.
+        // Phase 7 is before AI_START -- AI is not active. Same safety as AI_JOIN.
         // Deferring to AI_JOIN wastes a full render pass (~16ms) during which
         // commit grows 20-40MB. Clean NOW.
         if let Some(pr) = PressureRelief::instance() {
@@ -180,7 +180,7 @@ pub unsafe extern "C" fn hook_per_frame_queue_drain() {
 }
 
 // Cell unload from Phase 7 during loading.
-// Phase 7 runs before AI_START — AI is not active, CellUnloadGuard succeeds.
+// Phase 7 runs before AI_START -- AI is not active, CellUnloadGuard succeeds.
 // CellUnloadGuard enables large bypass so freed objects reclaim VAS.
 // 5-second cooldown to avoid over-triggering.
 // Loading transition cleanup threshold.
@@ -215,7 +215,7 @@ unsafe fn on_loading_start() {
 
     // Cell unload using the same pattern as destruction_protocol:
     // run_oom_stage(5) + DeferredCleanupSmall + drain_all.
-    // This is the loading transition — the best time to reclaim VAS
+    // This is the loading transition -- the best time to reclaim VAS
     // because old cells are being replaced by new ones.
     let mut cells = 0usize;
     let pr = PressureRelief::instance();
@@ -254,7 +254,7 @@ unsafe fn on_loading_start() {
         }
     }
 
-    // Drain pool — full drain if IO idle, safe drain otherwise.
+    // Drain pool -- full drain if IO idle, safe drain otherwise.
     let drained = if !globals::is_bst_cell_load_pending() {
         unsafe { pool::pool_drain_all() }
     } else {

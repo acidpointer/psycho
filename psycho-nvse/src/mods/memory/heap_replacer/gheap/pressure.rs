@@ -122,7 +122,7 @@ impl PressureRelief {
     /// join hook after AI threads have completed their work.
     ///
     /// AI threads are idle here, so mi_collect(true) and cell unload are safe.
-    /// Watchdog handles cooldown — we just execute when signaled.
+    /// Watchdog handles cooldown -- we just execute when signaled.
     /// Run deferred cell unload if flagged. Called from AI_JOIN.
     pub unsafe fn run_deferred_unload(&self) {
         if !self.deferred_unload.load(Ordering::Acquire) {
@@ -158,12 +158,12 @@ impl PressureRelief {
     // Cell unloading via the game's own OOM stage executor.
     //
     // Calls run_oom_stage(5) which runs vanilla's EXACT stage 5 sequence:
-    //   TLS flag → FindCellToUnload → ProcessPendingCleanup → PDD
-    //   → fallthrough stage 4 (PDD again) → stage 3 (Havok GC)
+    //   TLS flag --> FindCellToUnload --> ProcessPendingCleanup --> PDD
+    //   --> fallthrough stage 4 (PDD again) --> stage 3 (Havok GC)
     //
     // If a cell is found, stage 5 returns stage=5 (stays). We repeat
     // until no more cells or max reached. This matches how vanilla's
-    // OOM handler unloads cells — same function, same context, same
+    // OOM handler unloads cells -- same function, same context, same
     // state management. No custom Havok locking needed.
     //
     // Safety: must be called on the main thread when AI threads are idle.
@@ -176,7 +176,7 @@ impl PressureRelief {
         loading_counter.fetch_add(1, std::sync::atomic::Ordering::AcqRel);
 
         // Lock Havok world + invalidate scene graph. Without this,
-        // AI threads access Havok objects from unloaded cells → crash.
+        // AI threads access Havok objects from unloaded cells --> crash.
         let mut state = match unsafe { globals::pre_destruction_setup() } {
             Some(s) => s,
             None => {
@@ -201,11 +201,11 @@ impl PressureRelief {
 
         // DeferredCleanupSmall (FUN_00878250): processes freed objects
         // from cell unload that are stuck in async queues and caches.
-        //   → PDD purge (FUN_00868d70)
-        //   → Async flush (FUN_00b5fd60) — releases async references
-        //   → Model cleanup (FUN_00651e30/40) — frees scene graph models
-        //   → Cancel stale IO tasks (FUN_00448620)
-        //   → Texture cache flush (FUN_00452490)
+        //   --> PDD purge (FUN_00868d70)
+        //   --> Async flush (FUN_00b5fd60) -- releases async references
+        //   --> Model cleanup (FUN_00651e30/40) -- frees scene graph models
+        //   --> Cancel stale IO tasks (FUN_00448620)
+        //   --> Texture cache flush (FUN_00452490)
         //
         // Without this, cell unload queues objects for destruction but
         // they aren't fully processed until next frame's Phase 4. By
@@ -218,13 +218,13 @@ impl PressureRelief {
         unsafe { globals::post_destruction_restore(&mut state) };
 
         // Drain pool to reclaim VAS. Small zombie blocks prevent
-        // mimalloc segments from becoming fully free — only drain_all
+        // mimalloc segments from becoming fully free -- only drain_all
         // releases enough for large allocations (22MB+).
         //
         // Safe here: AI is idle (AI_JOIN), Havok unlocked, NVSE events
         // suppressed (loading counter elevated).
         // IO check: skip full drain if BSTaskManagerThread is busy
-        // loading — IO thread may access freed zombie blocks.
+        // loading -- IO thread may access freed zombie blocks.
         let drained = if !globals::is_bst_cell_load_pending() {
             unsafe { pool::pool_drain_all() }
         } else {

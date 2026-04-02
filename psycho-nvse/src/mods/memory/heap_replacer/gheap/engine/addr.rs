@@ -1,11 +1,11 @@
-// All Fallout: New Vegas game addresses used by the heap replacer.
-//
-// These are static addresses in the FalloutNV.exe process image,
-// verified via Ghidra decompilation. Organized by engine subsystem.
-//
-// Hook TARGET addresses (where inline hooks are installed) stay in
-// statics.rs -- those are conceptually different from the data and
-// function addresses listed here.
+//! All Fallout: New Vegas game addresses used by the heap replacer.
+//!
+//! These are static addresses in the FalloutNV.exe process image,
+//! verified via Ghidra decompilation. Organized by engine subsystem.
+//!
+//! Hook TARGET addresses (where inline hooks are installed) stay in
+//! statics.rs -- those are conceptually different from the data and
+//! function addresses listed here.
 
 #![allow(dead_code)]
 
@@ -82,10 +82,10 @@ pub const BST_ITER_SEM_HANDLE_OFFSET: usize = 0x1C;
 
 pub const PDD_QUEUE_COUNT_OFFSET: usize = 0x0A;
 
-// PDD skip mask (u32). Bits correspond to queues in full PDD drain.
-// If (DAT_011de804 & queue_bit) != 0, that queue is SKIPPED.
-// Bit 0x10 = NiNode, 0x08 = Form(?), 0x04 = Texture(?),
-// 0x02 = Anim, 0x01 = Generic, 0x20 = last queue.
+/// PDD skip mask (u32). Bits correspond to queues in full PDD drain.
+/// If (DAT_011de804 & queue_bit) != 0, that queue is SKIPPED.
+/// Bit 0x10 = NiNode, 0x08 = Form(?), 0x04 = Texture(?),
+/// 0x02 = Anim, 0x01 = Generic, 0x20 = last queue.
 pub const PDD_SKIP_MASK: usize = 0x011DE804;
 
 pub const NINODE_QUEUE: usize = 0x011DE808;
@@ -117,13 +117,13 @@ pub const GET_MAIN_THREAD_ID: usize = 0x0044EDB0;
 // value=1: cell unload done (re-enables event dispatch).
 // Called by HeapCompact stage 5 and CellTransitionHandler before/after
 // FindCellToUnload. Without this, NVSE plugins receive events for
-// partially-torn-down actors → crash.
+// partially-torn-down actors --> crash.
 pub const SET_TLS_CLEANUP_FLAG: usize = 0x00869190;
 
 // FUN_00452490: processes pending cleanup queue after cell unloading.
 // Called by vanilla stage 5 after each FindCellToUnload to execute
 // the queued async destruction work. Without this, FindCellToUnload
-// only marks cells — the actual object destruction doesn't happen.
+// only marks cells -- the actual object destruction doesn't happen.
 pub const PROCESS_PENDING_CLEANUP: usize = 0x00452490;
 
 // FUN_00453A80: finds a loaded cell eligible for eviction (fastcall).

@@ -3,7 +3,7 @@
 // Replaces the game's SBM pool allocator (FUN_00aa3e40 / FUN_00aa4060)
 // with mimalloc. Every thread gets a thread-local pool that holds freed
 // blocks on per-size-class freelists. This preserves SBM's "freed memory
-// stays readable" contract — stale readers find valid zombie data instead
+// stays readable" contract -- stale readers find valid zombie data instead
 // of recycled garbage.
 //
 // Design:

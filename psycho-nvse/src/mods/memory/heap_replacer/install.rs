@@ -73,13 +73,13 @@ impl Drop for HookGuard {
 /// mimalloc is already configured by the time this runs.
 pub fn install_game_heap_hooks() -> anyhow::Result<()> {
     // Main thread detection uses OS thread ID comparison (is_main_thread_by_tid).
-    // Always correct — no initialization needed. Before TES object is available,
-    // returns false → frees go to mi_free directly (safe, zero quarantine).
+    // Always correct -- no initialization needed. Before TES object is available,
+    // returns false --> frees go to mi_free directly (safe, zero quarantine).
 
     // Initialize heap validation cache for routing pre-hook pointers.
     super::heap_validate::init_heap_cache();
 
-    // Main thread ID is set from on_pre_ai (first frame tick) — the ONE
+    // Main thread ID is set from on_pre_ai (first frame tick) -- the ONE
     // place we're 100% certain is the game's main thread. NOT here,
     // because install may run on a loader thread.
 
@@ -147,7 +147,7 @@ pub fn install_game_heap_hooks() -> anyhow::Result<()> {
     // run during loading screens where DAT_01202d6c is already > 0.
 
     // NOTE: IOManager Phase 3 (FUN_00c3dbf0) is NOT hooked.
-    // IOManager and PDD are both on the main thread — read lock on IOManager
+    // IOManager and PDD are both on the main thread -- read lock on IOManager
     // deadlocks when task processing internally triggers PDD (write lock).
     // Same-thread read + write = deadlock. BSTaskManagerThread frees go
     // directly to mi_free (no write lock), so no cross-thread protection needed.
@@ -266,7 +266,7 @@ pub fn install_game_heap_hooks() -> anyhow::Result<()> {
     {
         use scrap_heap::*;
 
-        // sheap_get_thread_local is optional — another mod may have already
+        // sheap_get_thread_local is optional -- another mod may have already
         // hooked 0xAA42E0 (e.g. Heap Replacer), leaving only a JMP that's
         // too short for our inline hook. Non-critical: scrap heap works
         // without this hook, it just uses the game's original TLS lookup.

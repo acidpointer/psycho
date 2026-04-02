@@ -36,7 +36,7 @@ pub fn is_loading() -> bool {
 /// Stage 2: Menu cleanup (InterfaceManager release)
 /// Stage 3: Havok GC (hkMemorySystem garbage collect)
 /// Stage 4: PDD purge (ProcessManager lock + full deferred destruction)
-/// Stage 5: Cell unloading (FindCellToUnload) — DANGEROUS: deadlocks
+/// Stage 5: Cell unloading (FindCellToUnload) -- DANGEROUS: deadlocks
 ///          during fast travel and loading screens. Never use from
 ///          pressure relief.
 #[allow(dead_code)]
@@ -57,7 +57,7 @@ pub fn heap_compact_trigger_value() -> u32 {
 }
 
 /// Signal HeapCompact to run stages 0..=stage on the next frame.
-/// Raw write — prefer HeapManager::signal_heap_compact() which uses
+/// Raw write -- prefer HeapManager::signal_heap_compact() which uses
 /// MAX semantics (never downgrades an existing trigger).
 pub fn signal_heap_compact(stage: HeapCompactStage) {
     unsafe {
@@ -156,7 +156,7 @@ pub fn pdd_queue_count(queue: PddQueue) -> u16 {
 static MAIN_THREAD_ID: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
 
 /// Set main thread ID. Called ONCE from on_pre_ai (first frame tick).
-/// on_pre_ai is a hook inside the game's main loop — guaranteed main thread.
+/// on_pre_ai is a hook inside the game's main loop -- guaranteed main thread.
 pub fn set_main_thread_id() {
     let tid = libpsycho::os::windows::winapi::get_current_thread_id();
     let prev = MAIN_THREAD_ID.swap(tid, std::sync::atomic::Ordering::Release);
@@ -188,7 +188,7 @@ pub fn is_main_thread_by_tid() -> bool {
 
 /// Raw FFI call to the game's OOM stage executor (FUN_00866a90).
 ///
-/// Returns `(next_stage, give_up)`. Does NOT call mi_collect —
+/// Returns `(next_stage, give_up)`. Does NOT call mi_collect --
 /// use HeapManager::run_oom_stage() which encapsulates collect + logging.
 ///
 /// # Safety
@@ -230,7 +230,7 @@ pub unsafe fn run_single_oom_stage(stage: i32) -> (i32, bool) {
 ///
 /// value=0: cell unload in progress (suppresses NVSE PLChangeEvent dispatch
 ///          via TLS+0x298 flag). Without this, NVSE plugins receive events
-///          for partially-torn-down actors during cell unload → crash.
+///          for partially-torn-down actors during cell unload --> crash.
 /// value=1: cell unload done (re-enables event dispatch).
 ///
 /// The game's HeapCompact stage 5 and CellTransitionHandler both call this.
@@ -258,7 +258,7 @@ pub unsafe fn set_tls_cleanup_flag(value: u8) {
 ///
 /// This is the critical step vanilla stage 5 does AFTER FindCellToUnload.
 /// FindCellToUnload only marks cells and queues async work in the
-/// ProcessManager. This function EXECUTES that work — destroys NiNode
+/// ProcessManager. This function EXECUTES that work -- destroys NiNode
 /// hierarchies, releases textures, decrements refcounts, and queues
 /// resulting objects into PDD. Without this call, cell unload frees
 /// almost nothing.

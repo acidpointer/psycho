@@ -2,8 +2,8 @@
 //!
 //! Single RwLock protects game heap memory during quarantine drain.
 //!
-//! Writers (main thread): BLOCKING write — cleanup MUST always run.
-//! Readers (worker threads): TRY read — if cleanup in progress, skip.
+//! Writers (main thread): BLOCKING write -- cleanup MUST always run.
+//! Readers (worker threads): TRY read -- if cleanup in progress, skip.
 //!
 //! API uses closure pattern (with_*) to guarantee guard lifetime
 //! matches the protected operation exactly.
