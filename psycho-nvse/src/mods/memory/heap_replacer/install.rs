@@ -266,14 +266,23 @@ pub fn install_game_heap_hooks() -> anyhow::Result<()> {
     {
         use scrap_heap::*;
 
-        GET_THREAD_LOCAL_HOOK.init("sheap_get_thread_local", SHEAP_GET_THREAD_LOCAL_ADDR as *mut c_void, hook_get_thread_local)?;
+        // sheap_get_thread_local is optional — another mod may have already
+        // hooked 0xAA42E0 (e.g. Heap Replacer), leaving only a JMP that's
+        // too short for our inline hook. Non-critical: scrap heap works
+        // without this hook, it just uses the game's original TLS lookup.
+        let sheap_tls_ok = GET_THREAD_LOCAL_HOOK.init("sheap_get_thread_local", SHEAP_GET_THREAD_LOCAL_ADDR as *mut c_void, hook_get_thread_local).is_ok();
+        if !sheap_tls_ok {
+            log::warn!("[SBM] sheap_get_thread_local hook skipped (already patched by another mod?)");
+        }
         INIT_FIX_HOOK.init("sheap_init_fix", SHEAP_INIT_FIX_ADDR as *mut c_void, hook_init_fix)?;
         INIT_VAR_HOOK.init("sheap_init_var", SHEAP_INIT_VAR_ADDR as *mut c_void, hook_init_var)?;
         ALLOC_HOOK.init("sheap_alloc", SHEAP_ALLOC_ADDR as *mut c_void, hook_alloc)?;
         FREE_HOOK.init("sheap_free", SHEAP_FREE_ADDR as *mut c_void, hook_free)?;
         PURGE_HOOK.init("sheap_purge", SHEAP_PURGE_ADDR as *mut c_void, hook_purge)?;
 
-        guard.enable_hook("sheap_get_thread_local", &GET_THREAD_LOCAL_HOOK)?;
+        if sheap_tls_ok {
+            guard.enable_hook("sheap_get_thread_local", &GET_THREAD_LOCAL_HOOK)?;
+        }
         guard.enable_hook("sheap_init_fix", &INIT_FIX_HOOK)?;
         guard.enable_hook("sheap_init_var", &INIT_VAR_HOOK)?;
         guard.enable_hook("sheap_alloc", &ALLOC_HOOK)?;
