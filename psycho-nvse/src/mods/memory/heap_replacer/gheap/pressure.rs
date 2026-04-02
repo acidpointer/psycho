@@ -123,21 +123,19 @@ impl PressureRelief {
     ///
     /// AI threads are idle here, so mi_collect(true) and cell unload are safe.
     /// Watchdog handles cooldown — we just execute when signaled.
+    /// Run deferred cell unload if flagged. Called from AI_JOIN.
     pub unsafe fn run_deferred_unload(&self) {
         if !self.deferred_unload.load(Ordering::Acquire) {
             return;
         }
-
         self.deferred_unload.store(false, Ordering::Release);
+        unsafe { self.run_cleanup() };
+    }
 
+    /// Run cell unload + full cleanup unconditionally.
+    /// Safe to call from Phase 7 (before AI_START) or AI_JOIN.
+    pub unsafe fn run_cleanup(&self) {
         let heap = super::heap_manager::HeapManager::get();
-
-        // Drain large pool blocks + collect before destruction.
-        unsafe { heap.drain_pool(pool::SMALL_BLOCK_THRESHOLD) };
-        log::info!(
-            "[PRESSURE] Post AI_JOIN drain: commit={}MB, pool={}MB",
-            heap.commit_mb(), heap.pool_mb(),
-        );
 
         let manager = match globals::game_manager() {
             Some(m) => m,
@@ -151,9 +149,8 @@ impl PressureRelief {
         if cells > 0 {
             self.pending_counter_decrement.store(true, Ordering::Release);
             log::info!(
-                "[PRESSURE] Deferred unload: {} cells (commit={}MB)",
-                cells,
-                libmimalloc::process_info::MiMallocProcessInfo::get().get_current_commit() / 1024 / 1024,
+                "[PRESSURE] Cleanup: {} cells (commit={}MB, pool={}MB)",
+                cells, heap.commit_mb(), heap.pool_mb(),
             );
         }
     }

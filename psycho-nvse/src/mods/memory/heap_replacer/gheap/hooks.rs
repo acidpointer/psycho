@@ -117,10 +117,6 @@ pub unsafe extern "C" fn hook_per_frame_queue_drain() {
 
     if request >= 1 {
         heap.signal_heap_compact(globals::HeapCompactStage::HavokGC);
-        // Drain large blocks (>= 1KB). Small blocks stay for zombie safety —
-        // BSTreeNode (256-1200 bytes) and NiRefObject (16-128 bytes) are
-        // accessed by scene graph traversal after free. Draining them causes
-        // C0000417 (dangling BSTreeManager pointers).
         let drained = unsafe { heap.drain_pool(pool::SMALL_BLOCK_THRESHOLD) };
         log::info!(
             "[WATCHDOG] Phase 7 cleanup: drained {}, level={}, pdd(NiNode={} Gen={} Form={})",
@@ -131,11 +127,12 @@ pub unsafe extern "C" fn hook_per_frame_queue_drain() {
         );
     }
     if request >= 2 && !globals::is_loading() {
-        // Normal gameplay: signal cell unload for AI_JOIN.
-        // During loading: large bypass is already active (on_loading_start),
-        // game's own CellTransitionHandler handles cleanup.
+        // Run destruction_protocol HERE at Phase 7, not deferred to AI_JOIN.
+        // Phase 7 is before AI_START — AI is not active. Same safety as AI_JOIN.
+        // Deferring to AI_JOIN wastes a full render pass (~16ms) during which
+        // commit grows 20-40MB. Clean NOW.
         if let Some(pr) = PressureRelief::instance() {
-            pr.set_deferred_unload();
+            unsafe { pr.run_cleanup() };
         }
     }
 
