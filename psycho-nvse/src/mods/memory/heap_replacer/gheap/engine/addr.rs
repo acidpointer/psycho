@@ -148,6 +148,23 @@ pub const DEFERRED_CLEANUP_SMALL: usize = 0x00878250;
 pub const SPIN_LOCK_ACQUIRE: usize = 0x0040FBF0;
 
 // ---------------------------------------------------------------------------
+// Game functions -- BSTaskManagerThread semaphore management (OOM Stage 8)
+// ---------------------------------------------------------------------------
+
+// FUN_00866DA0: get owner thread ID of BSTaskManagerThread semaphore.
+// fastcall: ECX = IOManager, EDX = thread index (0 or 1).
+// Returns thread ID that owns the semaphore, or 0 if unowned.
+pub const BSTASK_GET_OWNER: usize = 0x00866DA0;
+
+// FUN_00866DC0: release BSTaskManagerThread semaphore.
+// fastcall: ECX = IOManager, EDX = thread index (0 or 1).
+pub const BSTASK_RELEASE_SEM: usize = 0x00866DC0;
+
+// FUN_00866DE0: signal BSTaskManagerThread idle semaphore.
+// fastcall: ECX = IOManager, EDX = thread index (0 or 1).
+pub const BSTASK_SIGNAL_IDLE: usize = 0x00866DE0;
+
+// ---------------------------------------------------------------------------
 // Game functions -- unused but documented (from Ghidra analysis)
 // ---------------------------------------------------------------------------
 

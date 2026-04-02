@@ -183,6 +183,108 @@ pub fn is_main_thread_by_tid() -> bool {
 }
 
 // ---------------------------------------------------------------------------
+// BSTaskManagerThread semaphore management (OOM Stage 8)
+// ---------------------------------------------------------------------------
+
+/// Release BSTaskManagerThread semaphores if the current thread owns them.
+///
+/// This matches vanilla OOM Stage 8 behavior (FUN_00866a90 case 8):
+/// - Checks if current thread owns BSTaskManagerThread[0] or [1] semaphore
+/// - If yes: releases the semaphore and signals idle
+/// - This lets IO processing continue, freeing memory for retry
+///
+/// Returns `true` if any semaphore was released, `false` if none were owned.
+///
+/// # Safety
+/// Calls game code. Safe to call from any thread during OOM recovery.
+pub unsafe fn release_bstask_sems_if_owned() -> bool {
+    let io_manager = match unsafe { *(addr::IO_MANAGER_SINGLETON as *const *mut c_void) } {
+        ptr if !ptr.is_null() => ptr,
+        _ => {
+            log::error!("[BSTASK] IOManager singleton is null, cannot release semaphores");
+            return false;
+        }
+    };
+
+    let get_owner = match unsafe {
+        FnPtr::<types::BstaskGetOwnerFn>::from_raw(addr::BSTASK_GET_OWNER as *mut c_void)
+    } {
+        Ok(f) => f,
+        Err(e) => {
+            log::error!("[BSTASK] FnPtr::from_raw(BSTASK_GET_OWNER) failed: {:?}", e);
+            return false;
+        }
+    };
+
+    let release_sem = match unsafe {
+        FnPtr::<types::BstaskReleaseSemFn>::from_raw(addr::BSTASK_RELEASE_SEM as *mut c_void)
+    } {
+        Ok(f) => f,
+        Err(e) => {
+            log::error!("[BSTASK] FnPtr::from_raw(BSTASK_RELEASE_SEM) failed: {:?}", e);
+            return false;
+        }
+    };
+
+    let signal_idle = match unsafe {
+        FnPtr::<types::BstaskSignalIdleFn>::from_raw(addr::BSTASK_SIGNAL_IDLE as *mut c_void)
+    } {
+        Ok(f) => f,
+        Err(e) => {
+            log::error!("[BSTASK] FnPtr::from_raw(BSTASK_SIGNAL_IDLE) failed: {:?}", e);
+            return false;
+        }
+    };
+
+    let current_tid = libpsycho::os::windows::winapi::get_current_thread_id();
+    let mut released = false;
+
+    // Check and release thread 0
+    let owner0 = match unsafe { get_owner.as_fn() } {
+        Ok(f) => unsafe { f(io_manager, 0) },
+        Err(e) => {
+            log::error!("[BSTASK] get_owner.as_fn() failed for thread 0: {:?}", e);
+            return false;
+        }
+    };
+    if owner0 == current_tid {
+        log::debug!("[BSTASK] Thread 0 semaphore owned by current thread, releasing...");
+        match unsafe { release_sem.as_fn() } {
+            Ok(f) => unsafe { f(io_manager, 0) },
+            Err(e) => log::error!("[BSTASK] release_sem.as_fn() failed for thread 0: {:?}", e),
+        }
+        match unsafe { signal_idle.as_fn() } {
+            Ok(f) => unsafe { f(io_manager, 0) },
+            Err(e) => log::error!("[BSTASK] signal_idle.as_fn() failed for thread 0: {:?}", e),
+        }
+        released = true;
+    }
+
+    // Check and release thread 1
+    let owner1 = match unsafe { get_owner.as_fn() } {
+        Ok(f) => unsafe { f(io_manager, 1) },
+        Err(e) => {
+            log::error!("[BSTASK] get_owner.as_fn() failed for thread 1: {:?}", e);
+            return false;
+        }
+    };
+    if owner1 == current_tid {
+        log::debug!("[BSTASK] Thread 1 semaphore owned by current thread, releasing...");
+        match unsafe { release_sem.as_fn() } {
+            Ok(f) => unsafe { f(io_manager, 1) },
+            Err(e) => log::error!("[BSTASK] release_sem.as_fn() failed for thread 1: {:?}", e),
+        }
+        match unsafe { signal_idle.as_fn() } {
+            Ok(f) => unsafe { f(io_manager, 1) },
+            Err(e) => log::error!("[BSTASK] signal_idle.as_fn() failed for thread 1: {:?}", e),
+        }
+        released = true;
+    }
+
+    released
+}
+
+// ---------------------------------------------------------------------------
 // OOM recovery -- game stage executor
 // ---------------------------------------------------------------------------
 

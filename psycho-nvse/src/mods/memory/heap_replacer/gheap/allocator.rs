@@ -248,6 +248,15 @@ unsafe fn do_recover_oom(size: usize) -> *mut c_void {
     // Worker: signal main thread to drain its pool at Phase 7.
     if !is_main {
         heap.signal_emergency_drain();
+        
+        // Release BSTaskManagerThread semaphores if we own them.
+        // This matches vanilla OOM Stage 8 behavior (FUN_00866a90 case 8).
+        // Without this, worker threads holding IO semaphores deadlock:
+        //   - Worker holds semaphore, waits for memory
+        //   - Main thread can't drain IO (semaphore held by worker)
+        //   - Memory can't be freed, worker waits forever
+        // Releasing semaphores lets IO complete, freeing memory for retry.
+        unsafe { super::engine::globals::release_bstask_sems_if_owned() };
     }
 
     // --- Phase 1: Active cleanup (stages 0-6) ---
@@ -296,6 +305,11 @@ unsafe fn do_recover_oom(size: usize) -> *mut c_void {
                 super::engine::globals::HeapCompactStage::CellUnload,
             );
             heap.signal_emergency_drain();
+            
+            // Release BSTaskManagerThread semaphores on each iteration.
+            // Vanilla Stage 8 does this every Sleep(1) -- matches exactly.
+            unsafe { super::engine::globals::release_bstask_sems_if_owned() };
+            
             libpsycho::os::windows::winapi::sleep(1);
 
             unsafe { mi_collect(false) };
@@ -352,6 +366,11 @@ unsafe fn do_recover_oom(size: usize) -> *mut c_void {
                 }
             }
 
+            // Release BSTaskManagerThread semaphores every iteration.
+            // Vanilla Stage 8 releases semaphores before each Sleep(1).
+            // This is the KEY FIX: lets IO complete so memory can be freed.
+            unsafe { super::engine::globals::release_bstask_sems_if_owned() };
+            
             libpsycho::os::windows::winapi::sleep(1);
 
             // Re-check loading state -- if menu closed, switch to short wait.

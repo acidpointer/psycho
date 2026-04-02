@@ -166,6 +166,21 @@ pub type GetThreadIdFn = unsafe extern "C" fn() -> u32;
 /// FUN_0044edb0: get main thread ID from TES object (fastcall, TES ptr in ECX).
 pub type GetMainThreadIdFn = unsafe extern "fastcall" fn(*mut c_void) -> u32;
 
+// ---- BSTaskManagerThread semaphore management (OOM Stage 8) ----
+
+/// FUN_00866DA0: get owner thread ID of BSTaskManagerThread semaphore.
+/// fastcall: ECX = IOManager, EDX = thread index (0 or 1).
+/// Returns thread ID that owns the semaphore, or 0 if unowned.
+pub type BstaskGetOwnerFn = unsafe extern "fastcall" fn(*mut c_void, u32) -> u32;
+
+/// FUN_00866DC0: release BSTaskManagerThread semaphore.
+/// fastcall: ECX = IOManager, EDX = thread index (0 or 1).
+pub type BstaskReleaseSemFn = unsafe extern "fastcall" fn(*mut c_void, u32);
+
+/// FUN_00866DE0: signal BSTaskManagerThread idle semaphore.
+/// fastcall: ECX = IOManager, EDX = thread index (0 or 1).
+pub type BstaskSignalIdleFn = unsafe extern "fastcall" fn(*mut c_void, u32);
+
 // ---- Havok broadphase synchronization ----
 
 pub type HavokAddEntityFn =
