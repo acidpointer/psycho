@@ -215,22 +215,21 @@ impl PressureRelief {
             unsafe { globals::deferred_cleanup_small(state[5]) };
         }
 
-        unsafe { globals::post_destruction_restore(&mut state) };
-
-        // Drain pool to reclaim VAS. Small zombie blocks prevent
-        // mimalloc segments from becoming fully free -- only drain_all
-        // releases enough for large allocations (22MB+).
-        //
-        // Safe here: AI is idle (AI_JOIN), Havok unlocked, NVSE events
-        // suppressed (loading counter elevated).
-        // IO check: skip full drain if BSTaskManagerThread is busy
-        // loading -- IO thread may access freed zombie blocks.
+        // Drain pool INSIDE the Havok lock. AI Linear Task threads
+        // (persistent Havok simulation threads) resume at
+        // post_destruction_restore and may chase dangling pointers to
+        // freed ahkpWorld/bhkWorldM objects. Draining while Havok is
+        // still paused ensures all zombie blocks are mi_free'd before
+        // persistent threads can access them.
+        // IO check: skip full drain if BSTaskManagerThread is busy.
         let drained = if !globals::is_bst_cell_load_pending() {
             unsafe { pool::pool_drain_all() }
         } else {
             unsafe { pool::pool_drain_large(pool::SMALL_BLOCK_THRESHOLD) }
         };
         unsafe { libmimalloc::mi_collect(false) };
+
+        unsafe { globals::post_destruction_restore(&mut state) };
 
         log::debug!(
             "[DESTRUCTION] {} cells, {} drained, io_busy={}, commit={}MB, pool={}MB",
