@@ -198,13 +198,3 @@ pub type AIProcess1Fn = unsafe extern "fastcall" fn(i32);
 pub type AIProcess2Fn = unsafe extern "fastcall" fn(i32);
 pub type CellMgmtUpdateFn = unsafe extern "thiscall" fn(*mut c_void, f32);
 pub type ProcessMgrUpdateFn = unsafe extern "fastcall" fn(i32);
-
-// ---- NiRefObject reference counting (lifetime management) ----
-
-/// NiRefObject::IncRef (fastcall, this in ECX).
-/// Increments reference count. Called when object is referenced.
-pub type NiRefObjectIncRefFn = unsafe extern "fastcall" fn(*mut c_void);
-
-/// NiRefObject::DecRef (fastcall, this in ECX).
-/// Decrements reference count. If count reaches 0, calls destructor.
-pub type NiRefObjectDecRefFn = unsafe extern "fastcall" fn(*mut c_void);

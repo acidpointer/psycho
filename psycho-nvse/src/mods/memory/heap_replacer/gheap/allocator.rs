@@ -109,6 +109,25 @@ pub unsafe fn alloc(size: usize) -> *mut c_void {
 
 /// Free a block. Pushes to thread-local pool (zombie-safe).
 /// Pre-hook pointers are routed to the original SBM trampoline.
+///
+/// ## UAF Protection via FreeNode Header
+///
+/// UAF-sensitive objects (NiRefObjects, Havok physics entities) are ALWAYS
+/// pooled, regardless of RefCount. The FreeNode header written at pool
+/// entry provides protection:
+///
+///   offset 0: next pointer (freelist chain)
+///   offset 4: usable_size (block size, replaces RefCount)
+///
+/// When game accesses freed object:
+///   1. Reads offset 4 as RefCount → gets usable_size (e.g., 48)
+///   2. Calls InterlockedDecrement(48) → 47, NOT zero
+///   3. No destructor call → NO CRASH
+///
+/// This protects against cross-thread UAF from:
+///   - AI worker threads running Havok broadphase
+///   - IO threads completing texture loads
+///   - Scene graph traversals accessing freed nodes
 #[inline]
 pub unsafe fn free(ptr: *mut c_void) {
     if ptr.is_null() {
@@ -117,6 +136,25 @@ pub unsafe fn free(ptr: *mut c_void) {
 
     if unsafe { mi_is_in_heap_region(ptr as *const c_void) } {
         if is_pool_active() {
+            // Check if this is a UAF-sensitive object by vtable range
+            let is_uaf_sensitive = {
+                let vtable = unsafe { *(ptr as *const *const u8) };
+                let addr = vtable as usize;
+                // NiRefObjects: textures, nodes, BSTree, etc. (0x01010000-0x010F0000)
+                // Havok physics: broadphase, islands, collision (0x010C0000-0x010D0000)
+                (addr >= 0x01010000 && addr < 0x010F0000)
+                    || (addr >= 0x010C0000 && addr < 0x010D0000)
+            };
+
+            if is_uaf_sensitive {
+                // ALWAYS pool UAF-sensitive types.
+                // FreeNode header makes RefCount irrelevant - stale readers
+                // see usable_size instead of RefCount, preventing destructor calls.
+                unsafe { pool::pool_free(ptr) };
+                return;
+            }
+
+            // Non-sensitive: normal bypass logic
             // Large bypass (cleanup/loading/OOM): large blocks to mi_free.
             // Small blocks stay in pool as zombies for concurrent IO safety.
             if is_bypass_active() {

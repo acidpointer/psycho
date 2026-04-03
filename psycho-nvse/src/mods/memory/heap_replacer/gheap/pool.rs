@@ -4,18 +4,22 @@
 //! to mimalloc. This preserves the SBM "zombie data" contract: freed memory
 //! stays readable and is reused by same-size allocations.
 //!
-//! ## NiRefObject Lifetime Integration
+//! ## UAF Protection via FreeNode Header
 //!
-//! When a NiRefObject-derived type (BSTreeNode, NiNode, etc.) is freed:
-//!   1. PENDING_DESTRUCTION flag is set on the object
-//!   2. Object enters pool freelist (zombie state)
-//!   3. If object is evicted from pool, PENDING_DESTRUCTION is cleared
-//!      and DecRef is called to actually destroy the object
+//! Each freed block has a FreeNode header:
+//!   - offset 0: next pointer (freelist chain)
+//!   - offset 4: usable_size (block size in bytes)
 //!
-//! This prevents C0000417 crashes where:
-//!   - Object is freed (RefCount=0) but still in scene graph
-//!   - Engine traverses scene graph, accesses freed object
-//!   - Critical section inside object is corrupted → crash
+//! UAF-sensitive objects (NiRefObjects, Havok physics) are ALWAYS pooled.
+//! When game accesses freed object:
+//!   1. Reads offset 4 as RefCount → gets usable_size (e.g., 48)
+//!   2. Calls InterlockedDecrement(48) → 47, NOT zero
+//!   3. No destructor call → NO CRASH
+//!
+//! This protects against cross-thread UAF from:
+//!   - AI worker threads running Havok broadphase
+//!   - IO threads completing texture loads
+//!   - Scene graph traversals accessing freed nodes
 //!
 //! Thread model:
 //!   Main thread: uses pool (push/pop, zero sync, thread-local)
@@ -31,8 +35,6 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use libc::c_void;
 
 use libmimalloc::{mi_free, mi_malloc_aligned, mi_usable_size};
-
-use super::engine::globals;
 
 pub const ALIGN: usize = 16;
 
@@ -209,9 +211,6 @@ impl Pool {
     }
 
     /// Drain only large blocks (>= min_size) back to mimalloc.
-    ///
-    /// If a drained block is a NiRefObject with PENDING_DESTRUCTION,
-    /// clears the flag and calls DecRef to actually destroy it.
     pub unsafe fn drain_large(&mut self, min_size: usize) -> usize {
         let min_idx = min_size / ALIGN;
         if min_idx >= SLOT_COUNT {
@@ -221,15 +220,6 @@ impl Pool {
         for idx in min_idx..SLOT_COUNT {
             while !self.slots[idx].is_empty() {
                 if let Some((ptr, _)) = self.pop(idx) {
-                    // Check if this is a NiRefObject with PENDING_DESTRUCTION
-                    if unsafe { globals::is_nirefobject(ptr) } {
-                        if unsafe { globals::is_pending_destruction(ptr) } {
-                            unsafe { globals::clear_pending_destruction(ptr) };
-                            unsafe { globals::niref_dec_ref(ptr) };
-                            freed += 1;
-                            continue;  // DecRef handles the free
-                        }
-                    }
                     unsafe { mi_free(ptr) };
                     freed += 1;
                 }
@@ -256,16 +246,8 @@ impl Pool {
     }
 
     /// Push to tail (newest block enters back of queue).
-    ///
-    /// If the block is a NiRefObject-derived type, sets PENDING_DESTRUCTION
-    /// flag to prevent DecRef from destroying it while quarantined.
     #[inline]
     fn push(&mut self, idx: usize, usable: usize, ptr: *mut c_void) {
-        // Check if this is a NiRefObject and set PENDING_DESTRUCTION flag
-        if unsafe { globals::is_nirefobject(ptr) } {
-            unsafe { globals::set_pending_destruction(ptr) };
-        }
-        
         let node = ptr as *mut FreeNode;
         unsafe {
             (*node).next = std::ptr::null_mut();
@@ -283,21 +265,9 @@ impl Pool {
     }
 
     /// Evict the oldest block from a slot (pop head + mi_free).
-    ///
-    /// If the evicted block is a NiRefObject with PENDING_DESTRUCTION set,
-    /// clears the flag and calls DecRef to actually destroy the object.
     #[inline]
     fn evict_oldest(&mut self, idx: usize) {
-        if let Some((ptr, _usable)) = self.pop(idx) {
-            // Check if this is a NiRefObject with PENDING_DESTRUCTION
-            if unsafe { globals::is_nirefobject(ptr) } {
-                if unsafe { globals::is_pending_destruction(ptr) } {
-                    // Clear the flag and call DecRef to actually destroy
-                    unsafe { globals::clear_pending_destruction(ptr) };
-                    unsafe { globals::niref_dec_ref(ptr) };
-                    return;  // DecRef handles the free
-                }
-            }
+        if let Some((ptr, _)) = self.pop(idx) {
             unsafe { mi_free(ptr) };
         }
     }
@@ -306,23 +276,11 @@ impl Pool {
     ///
     /// **UAF risk**: small blocks may be recycled before stale readers
     /// finish. Only use when alternative is guaranteed crash.
-    ///
-    /// If a drained block is a NiRefObject with PENDING_DESTRUCTION,
-    /// clears the flag and calls DecRef to actually destroy it.
     pub unsafe fn drain_all(&mut self) -> usize {
         let mut freed = 0usize;
         for idx in 0..SLOT_COUNT {
             while !self.slots[idx].is_empty() {
                 if let Some((ptr, _)) = self.pop(idx) {
-                    // Check if this is a NiRefObject with PENDING_DESTRUCTION
-                    if unsafe { globals::is_nirefobject(ptr) } {
-                        if unsafe { globals::is_pending_destruction(ptr) } {
-                            unsafe { globals::clear_pending_destruction(ptr) };
-                            unsafe { globals::niref_dec_ref(ptr) };
-                            freed += 1;
-                            continue;  // DecRef handles the free
-                        }
-                    }
                     unsafe { mi_free(ptr) };
                     freed += 1;
                 }
