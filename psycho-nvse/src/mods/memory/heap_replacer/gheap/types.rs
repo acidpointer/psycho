@@ -190,6 +190,9 @@ pub type HavokCollObjDtorFn =
 pub type HavokRaycastFn =
     unsafe extern "thiscall" fn(*mut c_void, *mut c_void, *mut c_void, i32, u32, u32);
 
+/// hkWorld_Unlock (fastcall, world ptr in ECX).
+pub type HkWorldUnlockFn = unsafe extern "fastcall" fn(*mut c_void);
+
 // ---- Actor process synchronization ----
 
 pub type ActorDowngradeInnerFn =

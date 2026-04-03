@@ -17,7 +17,6 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::LazyLock;
 
 use super::engine::globals;
-use super::pool;
 use crate::mods::memory::heap_replacer::mem_stats;
 
 // ---------------------------------------------------------------------------
@@ -215,26 +214,20 @@ impl PressureRelief {
             unsafe { globals::deferred_cleanup_small(state[5]) };
         }
 
-        // Drain pool INSIDE the Havok lock. AI Linear Task threads
-        // (persistent Havok simulation threads) resume at
-        // post_destruction_restore and may chase dangling pointers to
-        // freed ahkpWorld/bhkWorldM objects. Draining while Havok is
-        // still paused ensures all zombie blocks are mi_free'd before
-        // persistent threads can access them.
-        // IO check: skip full drain if BSTaskManagerThread is busy.
-        let drained = if !globals::is_bst_cell_load_pending() {
-            unsafe { pool::pool_drain_all() }
-        } else {
-            unsafe { pool::pool_drain_large(pool::SMALL_BLOCK_THRESHOLD) }
-        };
+        // Gentle GC only -- decommits free pages to reclaim VAS.
+        // Do NOT drain pool aggressively. The quarantine protects
+        // objects still referenced by renderer. Let objects age out
+        // naturally through pool eviction when capacity is reached.
+        // Aggressive draining causes rendering corruption (geometry
+        // disappears, occlusion glitches) because freed blocks get
+        // reused for unrelated data while renderer still holds refs.
         unsafe { libmimalloc::mi_collect(false) };
 
         unsafe { globals::post_destruction_restore(&mut state) };
 
         log::debug!(
-            "[DESTRUCTION] {} cells, {} drained, io_busy={}, commit={}MB, pool={}MB",
-            cells, drained, globals::is_bst_cell_load_pending(),
-            heap.commit_mb(), heap.pool_mb(),
+            "[DESTRUCTION] {} cells, commit={}MB, pool={}MB",
+            cells, heap.commit_mb(), heap.pool_mb(),
         );
 
         if cells == 0 {

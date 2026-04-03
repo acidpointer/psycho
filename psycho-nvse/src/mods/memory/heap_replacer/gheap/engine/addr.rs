@@ -148,6 +148,18 @@ pub const DEFERRED_CLEANUP_SMALL: usize = 0x00878250;
 pub const SPIN_LOCK_ACQUIRE: usize = 0x0040FBF0;
 
 // ---------------------------------------------------------------------------
+// Havok physics synchronization
+// ---------------------------------------------------------------------------
+
+// FUN_00C3E310: hkWorld_Lock (fastcall, world ptr in ECX).
+// Called before stepping physics and during cell transitions.
+pub const HKWORLD_LOCK: usize = 0x00C3E310;
+
+// FUN_00C3E340: hkWorld_Unlock (fastcall, world ptr in ECX).
+// Called after physics step completes.
+pub const HKWORLD_UNLOCK: usize = 0x00C3E340;
+
+// ---------------------------------------------------------------------------
 // Game functions -- BSTaskManagerThread semaphore management (OOM Stage 8)
 // ---------------------------------------------------------------------------
 

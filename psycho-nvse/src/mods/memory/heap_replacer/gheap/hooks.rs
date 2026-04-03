@@ -557,3 +557,24 @@ unsafe fn maybe_loading_cell_unload() {
         }
     }
 }
+
+// ---- Havok world synchronization hooks ----
+
+/// Hook for hkWorld_Lock (0x00C3E310).
+/// Sets HAVOK_PHYSICS_ACTIVE flag to signal that physics stepping is in progress.
+/// This allows cell unload to wait for physics to complete before destroying objects.
+pub unsafe extern "fastcall" fn hook_hkworld_lock(this: *mut c_void) {
+    game_guard::set_havok_active();
+    if let Ok(original) = statics::HKWORLD_LOCK_HOOK.original() {
+        unsafe { original(this) };
+    }
+}
+
+/// Hook for hkWorld_Unlock (0x00C3E340).
+/// Clears HAVOK_PHYSICS_ACTIVE flag to signal that physics stepping is complete.
+pub unsafe extern "fastcall" fn hook_hkworld_unlock(this: *mut c_void) {
+    if let Ok(original) = statics::HKWORLD_UNLOCK_HOOK.original() {
+        unsafe { original(this) };
+    }
+    game_guard::clear_havok_active();
+}

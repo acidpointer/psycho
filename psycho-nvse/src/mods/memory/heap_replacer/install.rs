@@ -292,6 +292,27 @@ pub fn install_game_heap_hooks() -> anyhow::Result<()> {
         log::info!("[SBM] All scrap heap hooks initialized and enabled");
     }
 
+    // ---- Havok world synchronization ----
+    //
+    // Hooks hkWorld_Lock/Unlock to track when Havok physics is stepping.
+    // This allows cell unload to wait for physics to complete before
+    // destroying physics objects, preventing AI thread crashes on freed data.
+    {
+        use super::gheap::statics::*;
+        use super::gheap::hooks::{hook_hkworld_lock, hook_hkworld_unlock};
+
+        HKWORLD_LOCK_HOOK.init("hkworld_lock", HKWORLD_LOCK_ADDR as *mut c_void, hook_hkworld_lock)?;
+        HKWORLD_UNLOCK_HOOK.init("hkworld_unlock", HKWORLD_UNLOCK_ADDR as *mut c_void, hook_hkworld_unlock)?;
+
+        guard.enable_hook("hkworld_lock", &HKWORLD_LOCK_HOOK)?;
+        guard.enable_hook("hkworld_unlock", &HKWORLD_UNLOCK_HOOK)?;
+
+        log::info!(
+            "[HAVOK] World lock hooks installed (lock=0x{:08X}, unlock=0x{:08X})",
+            HKWORLD_LOCK_ADDR, HKWORLD_UNLOCK_ADDR
+        );
+    }
+
     // All hooks installed -- commit (no rollback on drop).
     guard.commit();
 

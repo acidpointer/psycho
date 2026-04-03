@@ -55,6 +55,10 @@ pub fn configure_mimalloc() {
             log::error!("[MIMALLOC] Could not reserve ANY arena! Falling back to dynamic arenas.");
         }
 
+        // Initialize UAF bitmap for allocation-time object tracking.
+        // The bitmap tracks which arena segments contain UAF-sensitive objects.
+        crate::mods::memory::heap_replacer::gheap::uaf_bitmap::init(reserved);
+
         // 32MB overflow arenas if pre-reserved block fills up.
         mi_option_set(mi_option_arena_reserve, 32 * 1024); // KiB
         log::info!("[MIMALLOC] arena_reserve = 32MB");

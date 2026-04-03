@@ -20,6 +20,7 @@ use libmimalloc::{
 use super::engine::{addr, globals};
 use super::pool;
 use super::statics;
+use super::uaf_bitmap;
 use crate::mods::memory::heap_replacer::heap_validate;
 
 const ALIGN: usize = 16;
@@ -92,13 +93,22 @@ pub fn is_main_thread() -> bool {
 // -----------------------------------------------------------------------
 
 /// Allocate `size` bytes. Uses thread-local pool, falls back to mi_malloc.
+///
+/// When mi_malloc succeeds, we check the object's vtable and mark its
+/// segment in the UAF bitmap if it's a UAF-sensitive type. This happens
+/// at allocation time when the vtable is guaranteed valid (just constructed).
 #[inline]
 pub unsafe fn alloc(size: usize) -> *mut c_void {
     let ptr = if is_pool_active() {
         let (p, _) = unsafe { pool::pool_alloc(size) };
         p
     } else {
-        unsafe { mi_malloc_aligned(size, ALIGN) }
+        let ptr = unsafe { mi_malloc_aligned(size, ALIGN) };
+        // Mark segment at alloc time when vtable is guaranteed valid
+        if !ptr.is_null() {
+            uaf_bitmap::mark_segment(ptr as *mut u8);
+        }
+        ptr
     };
 
     if !ptr.is_null() {
@@ -110,12 +120,21 @@ pub unsafe fn alloc(size: usize) -> *mut c_void {
 /// Free a block. Pushes to thread-local pool (zombie-safe).
 /// Pre-hook pointers are routed to the original SBM trampoline.
 ///
-/// ## UAF Protection via FreeNode Header
+/// ## UAF Protection via FreeNode Header + Dual Detection
 ///
-/// UAF-sensitive objects (NiRefObjects, Havok physics entities) are ALWAYS
-/// pooled, regardless of RefCount. The FreeNode header written at pool
-/// entry provides protection:
+/// UAF-sensitive objects (NiRefObjects, Havok physics entities) are detected
+/// via TWO mechanisms:
 ///
+/// 1. PRIMARY: Vtable range check at free time
+///    - Works for ALL objects regardless of when allocated
+///    - Catches pre-plugin objects that bitmap misses
+///    - Safe because destructor hasn't run yet (we're in free())
+///
+/// 2. SECONDARY: Allocation-time bitmap
+///    - Catches objects where vtable might be borderline
+///    - Provides defense-in-depth
+///
+/// FreeNode header at pool entry provides runtime protection:
 ///   offset 0: next pointer (freelist chain)
 ///   offset 4: usable_size (block size, replaces RefCount)
 ///
@@ -136,17 +155,19 @@ pub unsafe fn free(ptr: *mut c_void) {
 
     if unsafe { mi_is_in_heap_region(ptr as *const c_void) } {
         if is_pool_active() {
-            // Check if this is a UAF-sensitive object by vtable range
-            let is_uaf_sensitive = {
-                let vtable = unsafe { *(ptr as *const *const u8) };
-                let addr = vtable as usize;
-                // NiRefObjects: textures, nodes, BSTree, etc. (0x01010000-0x010F0000)
-                // Havok physics: broadphase, islands, collision (0x010C0000-0x010D0000)
+            // PRIMARY: Vtable check - works for ALL objects including pre-plugin
+            let vtable = unsafe { *(ptr as *const *const u8) };
+            let addr = vtable as usize;
+            let is_uaf_sensitive_vtable = 
+                // NiRefObjects: textures, nodes, BSTree, etc.
                 (addr >= 0x01010000 && addr < 0x010F0000)
-                    || (addr >= 0x010C0000 && addr < 0x010D0000)
-            };
+                // Havok physics: broadphase, islands, collision, rigid bodies
+                || (addr >= 0x010C0000 && addr < 0x010D0000);
 
-            if is_uaf_sensitive {
+            // SECONDARY: Bitmap check for defense-in-depth
+            let is_uaf_sensitive_bitmap = uaf_bitmap::is_uaf_sensitive_segment(ptr as *mut u8);
+
+            if is_uaf_sensitive_vtable || is_uaf_sensitive_bitmap {
                 // ALWAYS pool UAF-sensitive types.
                 // FreeNode header makes RefCount irrelevant - stale readers
                 // see usable_size instead of RefCount, preventing destructor calls.

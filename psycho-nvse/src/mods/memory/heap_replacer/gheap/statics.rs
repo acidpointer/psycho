@@ -116,6 +116,19 @@ pub static SKELETON_UPDATE_HOOK: LazyLock<InlineHookContainer<SkeletonUpdateFn>>
 // pub static HAVOK_RAYCAST_HOOK: LazyLock<InlineHookContainer<HavokRaycastFn>> =
 //     LazyLock::new(InlineHookContainer::new);
 
+// ---- Havok world synchronization ----
+
+/// hkWorld_Lock: called before physics step and cell transitions.
+pub const HKWORLD_LOCK_ADDR: usize = 0x00C3E310;
+
+/// hkWorld_Unlock: called after physics step completes.
+pub const HKWORLD_UNLOCK_ADDR: usize = 0x00C3E340;
+
+pub static HKWORLD_LOCK_HOOK: LazyLock<InlineHookContainer<HkWorldLockFn>> =
+    LazyLock::new(InlineHookContainer::new);
+pub static HKWORLD_UNLOCK_HOOK: LazyLock<InlineHookContainer<HkWorldUnlockFn>> =
+    LazyLock::new(InlineHookContainer::new);
+
 // // ---- Actor process synchronization ----
 
 // pub const ACTOR_DOWNGRADE_ADDR: usize = 0x0096E870;
