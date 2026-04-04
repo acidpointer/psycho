@@ -160,9 +160,9 @@ pub unsafe fn free(ptr: *mut c_void) {
             let addr = vtable as usize;
             let is_uaf_sensitive_vtable = 
                 // NiRefObjects: textures, nodes, BSTree, etc.
-                (addr >= 0x01010000 && addr < 0x010F0000)
+                (0x01010000..0x010F0000).contains(&addr)
                 // Havok physics: broadphase, islands, collision, rigid bodies
-                || (addr >= 0x010C0000 && addr < 0x010D0000);
+                || (0x010C0000..0x010D0000).contains(&addr);
 
             // SECONDARY: Bitmap check for defense-in-depth
             let is_uaf_sensitive_bitmap = uaf_bitmap::is_uaf_sensitive_segment(ptr as *mut u8);
@@ -318,7 +318,7 @@ unsafe fn do_recover_oom(size: usize) -> *mut c_void {
         unsafe { super::engine::globals::release_bstask_sems_if_owned() };
     }
 
-    // --- Phase 1: Active cleanup (stages 0-7, retry alloc after each) ---
+    // --- Phase 1: Active cleanup (stages 3-5, retry alloc after each) ---
     //
     // The game's allocator contract: NEVER return NULL.
     // Pattern from vanilla FUN_00aa3e40:
@@ -328,40 +328,25 @@ unsafe fn do_recover_oom(size: usize) -> *mut c_void {
     //       ptr = heap_vtable->alloc(size);
     //   } while (!ptr);
     //
-    // We match this contract exactly: run stages 0-7, retry alloc after
-    // each stage, only fall back to CRT malloc when stage 7 sets give_up.
+    // We run stages 3-5 (Havok GC, PDD purge, Cell Unload) which actually
+    // free memory during active gameplay. Stages 0-2 (texture, geometry,
+    // menu) are NO-OP during gameplay. Stage 6 (SBM GlobalCleanup)
+    // ALLOCATES memory. Stage 7 is give_up check.
     //
-    // SAFETY BREAKER: Stage 5 (Cell Unload) is limited to 2 runs per OOM event.
-    // The vanilla HeapCompact loop (0x00878080) breaks after Stage 5 succeeds
-    // (checking `if (current_stage < loop_counter) break;`). This prevents
-    // unloading multiple cells in one frame, which causes UAF crashes in
-    // AI threads (e.g., projectiles referencing unloaded cells).
+    // Stages 0-2 are skipped (NO-OP during gameplay), Stage 6 is skipped (allocates memory).
+    // Stage 5 (Cell Unload) runs until game says no more cells eligible (give_up flag).
+    // This matches vanilla behavior: unload ALL eligible cells, not just 1-2.
 
-    let mut stage: i32 = 0;
+    let mut stage: i32 = 3;  // Start at Stage 3 (Havok GC), skip wasteful 0-2
     let mut cycles: u32 = 0;
-    let mut stage_5_runs: u32 = 0;
 
     loop {
         cycles += 1;
         let commit_before = heap.commit_bytes();
 
-        // Safety breaker: Limit Stage 5 runs.
-        if stage == 5 {
-            stage_5_runs += 1;
-            if stage_5_runs > 2 {
-                log::warn!(
-                    "[OOM] Stage 5 safety limit reached ({}), stopping cleanup to prevent UAF",
-                    stage_5_runs
-                );
-                break;
-            }
-        }
-
         // Run current stage
         let (next, done) = unsafe { heap.run_oom_stage(stage, true) };
         stage = next;
-
-        unsafe { mi_collect(false) };
 
         // Try allocation after every stage
         let ptr = unsafe { mi_malloc_aligned(size, ALIGN) };
@@ -402,9 +387,15 @@ unsafe fn do_recover_oom(size: usize) -> *mut c_void {
             }
         }
 
+        // Stage 6 allocates memory (SBM GlobalCleanup) -- skip it.
         // Stage 7 means give_up was set. On main thread, this is the
         // final attempt before CRT fallback.
-        if stage >= 7 {
+        if stage >= 6 {
+            // Skip stage 6 (allocates), fall through to stage 7 (give_up check)
+            if stage == 6 {
+                stage = 7;
+                continue;
+            }
             // Log final stats before fallback
             let freed = commit_before.saturating_sub(heap.commit_bytes());
             if freed < 64 * 1024 {

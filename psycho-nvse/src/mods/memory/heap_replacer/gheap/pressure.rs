@@ -16,7 +16,7 @@
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::LazyLock;
 
-use super::engine::{addr, globals};
+use super::engine::globals;
 use crate::mods::memory::heap_replacer::mem_stats;
 
 /// Number of full OOM cleanup rounds to run per pressure relief cycle.
@@ -31,14 +31,6 @@ use crate::mods::memory::heap_replacer::mem_stats;
 /// Running multiple rounds unloads cells too aggressively, causing UAF
 /// crashes in AI threads (e.g., projectiles referencing unloaded cells).
 const DESTRUCTION_ROUNDS: usize = 1;
-
-/// Maximum number of destruction protocol runs per Phase 7 call.
-/// When allocation rate is high, we run cleanup multiple times in one frame
-/// to catch up with allocation spikes. Each run blocks new cell loads briefly,
-/// unloads eligible cells, then restores loading. This ensures we free
-/// enough memory during stress testing without running multiple rounds
-/// per protocol (which causes UAF).
-const MAX_DESTRUCTION_RUNS_PER_FRAME: usize = 3;
 
 /// Max cells to unload per relief cycle.
 const MAX_CELLS_PER_CYCLE: usize = 20;
@@ -151,17 +143,9 @@ impl PressureRelief {
     /// Run cell unload + full cleanup unconditionally.
     /// Safe to call from Phase 7 (before AI_START) or AI_JOIN.
     ///
-    /// When allocation rate is high, we run the destruction protocol
-    /// multiple times to catch up with allocation spikes.
-    ///
-    /// Strategy:
-    /// 1. Block loading ONCE for entire cleanup cycle
-    /// 2. Wait for pending load to finish (up to 100ms)
-    /// 3. Run cleanup stages repeatedly, unloading up to MAX cells total
-    /// 4. Restore loading only when done
-    ///
-    /// This ensures we don't unload cells while game loads, and we don't
-    /// alternate between unloading and loading within a single cleanup.
+    /// The vanilla game runs HeapCompact once per trigger without manipulating
+    /// the loading flag. We follow the same pattern: run one cleanup cycle,
+    /// let the game manage its own loading state.
     pub unsafe fn run_cleanup(&self) {
         let heap = super::heap_manager::HeapManager::get();
 
@@ -170,81 +154,43 @@ impl PressureRelief {
             None => return,
         };
 
-        // Block new cell loads for entire cleanup cycle.
-        let loading_flag = addr::LOADING_FLAG as *mut u8;
-        let was_loading = unsafe { *loading_flag };
-        unsafe { *loading_flag = 1 };
+        let cells = unsafe { Self::destruction_protocol(manager) };
 
-        // Wait for pending load to finish before cleanup.
-        if globals::is_bst_cell_load_pending() {
-            const MAX_WAIT_MS: u32 = 100;
-            const SLEEP_MS: u32 = 1;
-            for _ in 0..MAX_WAIT_MS / SLEEP_MS {
-                if !globals::is_bst_cell_load_pending() {
-                    break;
-                }
-                libpsycho::os::windows::winapi::sleep(SLEEP_MS);
-            }
-            // If still loading after 100ms, abort cleanup.
-            if globals::is_bst_cell_load_pending() {
-                unsafe { *loading_flag = was_loading };
-                return;
-            }
-        }
+        mem_stats::global().record_pressure_relief(cells);
 
-        let mut total_cells: usize = 0;
-
-        // Run destruction protocol multiple times while loading is blocked.
-        // This ensures we unload cells without competition from loading.
-        for _ in 0..MAX_DESTRUCTION_RUNS_PER_FRAME {
-            let cells = unsafe { Self::destruction_protocol_internal(manager) };
-            total_cells += cells;
-
-            // If no cells were unloaded, more runs won't help -- stop early.
-            if cells == 0 {
-                break;
-            }
-        }
-
-        // Restore loading: allow new cell loads to resume.
-        unsafe { *loading_flag = was_loading };
-
-        mem_stats::global().record_pressure_relief(total_cells);
-
-        if total_cells > 0 {
+        if cells > 0 {
             self.pending_counter_decrement.store(true, Ordering::Release);
             log::info!(
                 "[PRESSURE] Cleanup: {} cells (commit={}MB, pool={}MB)",
-                total_cells, heap.commit_mb(), heap.pool_mb(),
+                cells, heap.commit_mb(), heap.pool_mb(),
             );
         }
     }
 
     // Cell unloading via the game's own OOM stage executor.
     //
-    // Internal version: does NOT manage the loading flag.
-    // Caller must block/restore loading before/after calling this.
+    // Run only Stage 5 (Cell Unload).
     //
-    // We run the FULL OOM sequence (stages 0-6), not just cell unload:
-    //   Stage 0: Texture cache flush (frees cached textures)
-    //   Stage 1: Free cached geometry (frees mesh data)
-    //   Stage 2: Menu system cleanup (frees UI resources)
-    //   Stage 3: Havok GC (frees physics data)
-    //   Stage 4: PDD purge (processes deferred destruction)
-    //   Stage 5: Cell unloading (FindCellToUnload + ProcessPendingCleanup)
-    //   Stage 6: Heap defragmentation (compacts VA space)
+    // Stage 5 falls through to Stage 4 and Stage 3 automatically
+    // (no break statements in the game's switch case at 0x00866a90):
+    //   Stage 5: FindCellToUnload + PDD + Async flush + Texture cache
+    //   Stage 4: PDD purge + Havok GC
+    //   Stage 3: Havok GC
     //
-    // The game's OOM handler runs these sequentially for a reason:
-    // each stage frees different types of memory. Cell unload alone
-    // only frees cell data -- we miss textures, geometry, physics,
-    // and heap fragmentation. Running all stages frees significantly
-    // more memory per pressure relief cycle.
+    // Stages 0, 1, 2 are NOT run because:
+    //   Stage 0 (texture cache): Only frees during loading, NO-OP during gameplay
+    //   Stage 1 (geometry cache): Only frees during loading, NO-OP during gameplay
+    //   Stage 2 (menu cleanup): Only frees during loading, NO-OP during gameplay
+    //   Stage 6 (heap defrag / SBM GlobalCleanup): ALLOCATES temporary memory
+    //
+    // Running stages 0-6 was counterproductive: stages 0-2 do nothing
+    // during active gameplay, and stage 6 allocates memory (gained=212KB
+    // in stress tests), negating the freed memory from stages 3-5.
     //
     // bypass=false: frees go to pool (zombie-safe for IO thread).
     //
     // Safety: must be called on the main thread when AI threads are idle.
-    // Caller must have already blocked loading and waited for pending load.
-    unsafe fn destruction_protocol_internal(_manager: *mut libc::c_void) -> usize {
+    unsafe fn destruction_protocol(_manager: *mut libc::c_void) -> usize {
         let heap = super::heap_manager::HeapManager::get();
         let mut cells: usize = 0;
 
@@ -262,27 +208,20 @@ impl PressureRelief {
             }
         };
 
-        // Run full OOM sequence for 2 rounds.
-        // Each stage frees different types of memory:
-        //   0: Texture cache flush
-        //   1: Cached geometry free
-        //   2: Menu system cleanup
-        //   3: Havok GC
-        //   4: PDD purge (+ fallthrough to 3)
-        //   5: Cell unload (+ fallthrough to 4+3)
-        //   6: Heap defragmentation
+        // Run Stage 5 in a loop until game says no more cells eligible.
+        // Each call runs 5→4→3 automatically (fallthrough in switch case).
+        // The game's FindCellToUnload returns no cell when none are eligible,
+        // causing stage to advance to 6. We stop then.
         //
-        // Running 2 rounds unloads more cells because:
-        // - First round: unloads immediately eligible cells
-        // - After first round: references released, NPCs move, paths cleared
-        // - Second round: additional cells become eligible
-        // Total: 4-6 cells per cycle vs 2 with single round.
-        for _round in 0..DESTRUCTION_ROUNDS {
-            for stage in 0..=6 {
-                let (next, _done) = unsafe { heap.run_oom_stage(stage, false) };
-                if next == 5 {
-                    cells += 1;
-                }
+        // This matches vanilla behavior: unload ALL eligible cells, not just 1-2.
+        let mut stage: i32 = 5;
+        loop {
+            let (next, _done) = unsafe { heap.run_oom_stage(stage, false) };
+            if next == 5 {
+                cells += 1;
+                stage = next;
+            } else {
+                break;
             }
         }
 
@@ -314,7 +253,7 @@ impl PressureRelief {
         unsafe { globals::post_destruction_restore(&mut state) };
 
         log::debug!(
-            "[DESTRUCTION] {} cells, full OOM 0-6 done, commit={}MB, pool={}MB",
+            "[DESTRUCTION] {} cells, stage 5+4+3 done, commit={}MB, pool={}MB",
             cells, heap.commit_mb(), heap.pool_mb(),
         );
 

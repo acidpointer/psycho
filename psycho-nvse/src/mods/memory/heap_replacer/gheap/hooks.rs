@@ -66,11 +66,12 @@ thread_local! {
 
 /// Phase 7: per-frame queue drain (before AI_START).
 ///
-/// 1. Loading transition detection (on_loading_start / on_loading_end)
-/// 2. Emergency cleanup from worker OOM (two-step pool drain)
-/// 3. Watchdog-driven cleanup (HeapCompact + drain_large + cell unload)
-/// 4. Clear texture dead set (under write lock for BST coherency)
-/// 5. Call original PDD + boosted NiNode drain under pressure
+/// Vanilla behavior: Only drains PDD queues and emergency pool.
+/// Cleanup (cell unload, Havok GC, etc.) runs ONLY on allocation failure
+/// via the OOM retry loop in the allocator, NOT on a timer.
+///
+/// This matches vanilla timing: cleanup runs when needed (alloc fails),
+/// not when we think it's needed (watchdog timer).
 pub unsafe extern "C" fn hook_per_frame_queue_drain() {
     // Activate pool on first non-loading frame.
     if !allocator::is_pool_active() {
@@ -112,7 +113,13 @@ pub unsafe extern "C" fn hook_per_frame_queue_drain() {
         );
     }
 
-    // --- Watchdog-driven cleanup ---
+    // --- Watchdog-driven cleanup (timer-based, NOT eviction-based) ---
+    // Cleanup runs on a schedule when the watchdog detects sustained growth.
+    // This is the ONLY reliable mechanism during stress testing. Eviction-
+    // based triggers caused cleanup storms and froze the game.
+    //
+    // Level 1 (normal): Havok GC + PDD drain
+    // Level 2 (aggressive): Level 1 + cell unload via destruction protocol
     let request = watchdog::take_cleanup_request();
 
     if request >= 1 {
@@ -127,19 +134,8 @@ pub unsafe extern "C" fn hook_per_frame_queue_drain() {
         );
     }
     if request >= 2 {
-        if !globals::is_loading() {
-            // Run destruction_protocol HERE at Phase 7, not deferred to AI_JOIN.
-            // Phase 7 is before AI_START -- AI is not active. Same safety as AI_JOIN.
-            // Deferring to AI_JOIN wastes a full render pass (~16ms) during which
-            // commit grows 20-40MB. Clean NOW.
-            if let Some(pr) = PressureRelief::instance() {
-                unsafe { pr.run_cleanup() };
-            }
-        } else {
-            // During loading: Phase 7 cell unload. Same safety -- AI not yet
-            // dispatched. Uses own loading_counter scope to avoid double-decrement
-            // with maybe_loading_cell_unload at AI_JOIN.
-            unsafe { loading_phase7_cell_unload() };
+        if let Some(pr) = PressureRelief::instance() {
+            unsafe { pr.run_cleanup() };
         }
     }
 
@@ -186,66 +182,10 @@ pub unsafe extern "C" fn hook_per_frame_queue_drain() {
 
 }
 
-// Cell unload from Phase 7 during loading.
-// Phase 7 runs before AI_START -- AI is not active, CellUnloadGuard succeeds.
-// CellUnloadGuard enables large bypass so freed objects reclaim VAS.
-// 5-second cooldown to avoid over-triggering.
-// Loading transition cleanup threshold.
-const LOADING_CLEANUP_GROWTH: usize = 300 * 1024 * 1024; // 300MB
-const LOADING_CLEANUP_MAX_CELLS: usize = 20;
-
-/// Phase 7 cell unload during loading. Runs when watchdog fires level 2
-/// and loading is active. Same safety as normal Phase 7 cleanup (AI not
-/// yet dispatched) and same pattern as maybe_loading_cell_unload at AI_JOIN.
-///
-/// Uses its own loading_counter scope (increment + immediate decrement)
-/// so it doesn't conflict with AI_JOIN's separate counter tracking.
-#[cold]
-unsafe fn loading_phase7_cell_unload() {
-    let heap = super::heap_manager::HeapManager::get();
-
-    let Some(mut state) = (unsafe { globals::pre_destruction_setup() }) else {
-        return;
-    };
-
-    let loading_counter = globals::loading_state_counter();
-    loading_counter.fetch_add(1, std::sync::atomic::Ordering::AcqRel);
-
-    let mut cells = 0usize;
-    let mut stage: i32 = 5;
-    for _ in 0..LOADING_CLEANUP_MAX_CELLS {
-        let (next, _) = unsafe { heap.run_oom_stage(stage, false) };
-        if next != 5 { break; }
-        cells += 1;
-        stage = next;
-    }
-
-    if cells > 0 {
-        unsafe { globals::deferred_cleanup_small(state[5]) };
-    }
-
-    unsafe { globals::post_destruction_restore(&mut state) };
-
-    // Decrement immediately -- game's own loading counter already
-    // suppresses NVSE events. No deferred tracking needed.
-    loading_counter.fetch_sub(1, std::sync::atomic::Ordering::AcqRel);
-
-    if cells > 0 {
-        // Drain pool to reclaim VAS from freed cell objects.
-        if !globals::is_bst_cell_load_pending() {
-            unsafe { pool::pool_drain_all() };
-        } else {
-            unsafe { pool::pool_drain_large(pool::SMALL_BLOCK_THRESHOLD) };
-        }
-        unsafe { libmimalloc::mi_collect(false) };
-
-        log::warn!(
-            "[LOADING] Phase 7 cell unload: {} cells, commit={}MB, pool={}MB",
-            cells, heap.commit_mb(), heap.pool_mb(),
-        );
-    }
-}
-
+// Cell unload from Phase 7 during loading - REMOVED
+// Vanilla doesn't do proactive cell unload during loading on a timer.
+// The game's OOM handler handles cell unloading when allocation fails.
+//
 // First frame where loading starts. Run proper cleanup:
 //   1. HeapCompact 0-3 (texture, geometry, menu, Havok GC)
 //   2. Cell unload (bypass off so frees accumulate in pool)
@@ -262,82 +202,10 @@ unsafe fn on_loading_start() {
         pool::pool_held_bytes() / 1024 / 1024,
     );
 
-    // Bypass is deferred until AFTER cleanup so freed objects during
-    // cell unload accumulate in pool for effective batch drain.
-    // bypass=false in run_oom_stage is only effective when LOADING_BYPASS
-    // is also off -- otherwise is_bypass_active() returns true and large
-    // frees skip the pool regardless of the per-call flag.
-
-    let heap = super::heap_manager::HeapManager::get();
-
-    // HeapCompact 0-3 (texture flush, geometry cache, menu, Havok GC).
-    heap.signal_heap_compact(globals::HeapCompactStage::HavokGC);
-
-    // Cell unload using the same pattern as destruction_protocol:
-    // run_oom_stage(5) + DeferredCleanupSmall + drain_all.
-    // This is the loading transition -- the best time to reclaim VAS
-    // because old cells are being replaced by new ones.
-    let mut cells = 0usize;
-    let pr = PressureRelief::instance();
-    let baseline = pr.map(|p| p.baseline_commit()).unwrap_or(0);
-    let growth = if baseline > 0 { commit_before.saturating_sub(baseline) } else { 0 };
-
-    if growth >= LOADING_CLEANUP_GROWTH {
-        // Lock Havok for safe cell unload.
-        if let Some(mut state) = unsafe { globals::pre_destruction_setup() } {
-            let loading_counter = globals::loading_state_counter();
-            loading_counter.fetch_add(1, std::sync::atomic::Ordering::AcqRel);
-
-            // Unload cells via game's stage 5 (bypass off, frees go to pool).
-            let mut stage: i32 = 5;
-            for _ in 0..LOADING_CLEANUP_MAX_CELLS {
-                let (next, _) = unsafe { heap.run_oom_stage(stage, false) };
-                if next != 5 { break; }
-                cells += 1;
-                stage = next;
-            }
-
-            // Process freed objects (async flush, model cleanup, IO cancel).
-            if cells > 0 {
-                unsafe { globals::deferred_cleanup_small(state[5]) };
-            }
-
-            unsafe { globals::post_destruction_restore(&mut state) };
-
-            if cells > 0 {
-                if let Some(p) = pr {
-                    p.set_pending_counter_decrement();
-                }
-            } else {
-                loading_counter.fetch_sub(1, std::sync::atomic::Ordering::AcqRel);
-            }
-        }
-    }
-
-    // Drain pool -- full drain if IO idle, safe drain otherwise.
-    // With bypass still off, cell unload frees accumulated in pool.
-    // Batch drain + mi_collect gives mimalloc contiguous free regions
-    // for effective segment decommit.
-    let drained = if !globals::is_bst_cell_load_pending() {
-        unsafe { pool::pool_drain_all() }
-    } else {
-        unsafe { pool::pool_drain_large(pool::SMALL_BLOCK_THRESHOLD) }
-    };
-    unsafe { libmimalloc::mi_collect(false) };
-
-    // NOW enable loading bypass. Subsequent frees during loading go
-    // directly to mi_free for immediate VAS recovery.
+    // Enable loading bypass immediately. Subsequent frees during loading
+    // go directly to mi_free for immediate VAS recovery. We don't do
+    // proactive cleanup - vanilla doesn't either.
     allocator::set_loading_bypass(true);
-
-    let commit_after = libmimalloc::process_info::MiMallocProcessInfo::get()
-        .get_current_commit();
-    log::info!(
-        "[LOADING] Cleanup done: {} cells, {} large drained, commit {}MB-->{}MB, pool={}MB",
-        cells, drained,
-        commit_before / 1024 / 1024,
-        commit_after / 1024 / 1024,
-        pool::pool_held_bytes() / 1024 / 1024,
-    );
 }
 
 // First frame after loading ends. Disable loading bypass, resume normal pooling.
@@ -380,182 +248,34 @@ pub unsafe extern "fastcall" fn hook_ai_thread_start(mgr: *mut c_void) {
     }
 }
 
-/// Post-load cooldown: timestamp (elapsed_ms) until which game cleanup
-/// must NOT run. After loading ends, the game does Havok restart, scene
-/// graph rebuild, NPC setup, NVSE events. Running cleanup during this
-/// window corrupts game state (frozen enemies, broken physics).
-static POST_LOAD_UNTIL: std::sync::atomic::AtomicUsize =
-    std::sync::atomic::AtomicUsize::new(0);
-
-/// Cooldown duration after loading ends (milliseconds).
-const POST_LOAD_COOLDOWN_MS: u64 = 5000;
-
-fn is_post_load_cooldown() -> bool {
-    let until = POST_LOAD_UNTIL.load(std::sync::atomic::Ordering::Relaxed);
-    if until == 0 {
-        return false;
-    }
-    let now = libmimalloc::process_info::MiMallocProcessInfo::get().get_elapsed_ms();
-    now < until
-}
-
-/// Commit growth threshold for proactive cell unload during loading.
-/// Lowered from 800MB to 600MB -- loading needs more VAS headroom.
-const LOADING_CELL_UNLOAD_GROWTH: usize = 600 * 1024 * 1024;
-
-/// Max cells to unload per loading-time cycle.
-const LOADING_MAX_CELLS: usize = 5;
-
-/// Watchdog signals this when level 2 fires during loading.
-/// `maybe_loading_cell_unload` reads it to bypass memory-based cooldown.
-static FORCE_LOADING_UNLOAD: std::sync::atomic::AtomicBool =
-    std::sync::atomic::AtomicBool::new(false);
-
-/// Set by watchdog when level 2 fires during loading.
-/// Ensures maybe_loading_cell_unload at AI_JOIN runs without cooldown.
-pub fn signal_force_loading_unload() {
-    FORCE_LOADING_UNLOAD.store(true, std::sync::atomic::Ordering::Release);
-}
-
-/// AI_JOIN: AI threads completed. Safe for mi_collect(true) and cell unload.
-///
-/// Three paths:
-/// - Loading: set post-load cooldown, proactive cell unload, console commands
-/// - Post-load cooldown: discard all cleanup signals
-/// - Normal gameplay: run deferred unload, console commands
+/// AI_JOIN: AI threads completed.
 pub unsafe extern "fastcall" fn hook_ai_thread_join(mgr: *mut c_void) {
     if let Ok(original) = statics::AI_THREAD_JOIN_HOOK.original() {
         unsafe { original(mgr) };
     }
     game_guard::clear_ai_active();
 
-    // --- During loading: set cooldown + proactive cell unload ---
+    // Console command deferred request during loading (pcell).
     if globals::is_loading() {
-        let info = libmimalloc::process_info::MiMallocProcessInfo::get();
-        let until = info.get_elapsed_ms() + POST_LOAD_COOLDOWN_MS as usize;
-        POST_LOAD_UNTIL.store(until, std::sync::atomic::Ordering::Relaxed);
-
-        // Proactive cell unload when commit growth is critical.
-        unsafe { maybe_loading_cell_unload() };
-
-        // Console command (pcell) during loading.
         let deferred = super::engine::cell_unload::take_deferred_request();
         if deferred > 0
             && let Some(result) =
                 super::engine::cell_unload::execute_during_loading(deferred)
-                && result.cells > 0
-                && let Some(pr) = PressureRelief::instance() {
-                    pr.set_pending_counter_decrement();
+                && result.cells > 0 {
+                    static PENDING_CELLS: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+                    PENDING_CELLS.store(true, std::sync::atomic::Ordering::Release);
                 }
         return;
     }
 
-    // --- Post-load cooldown: discard all cleanup signals ---
-    if is_post_load_cooldown() {
-        if let Some(pr) = PressureRelief::instance() {
-            pr.clear_deferred_unload();
-        }
-        super::engine::cell_unload::take_deferred_request();
-        return;
-    }
-
-    // --- Normal gameplay ---
-
-    // Pressure-driven deferred unload (cell unload + aggressive collect).
-    if let Some(pr) = PressureRelief::instance() {
-        unsafe { pr.run_deferred_unload() };
-    }
-
-    // Console command deferred request (pcell).
+    // Normal gameplay: only console commands.
     let deferred = super::engine::cell_unload::take_deferred_request();
     if deferred > 0
         && let Some(result) = super::engine::cell_unload::execute(deferred)
-            && result.cells > 0
-            && let Some(pr) = PressureRelief::instance() {
-                pr.set_pending_counter_decrement();
+            && result.cells > 0 {
+                static PENDING_CELLS: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+                PENDING_CELLS.store(true, std::sync::atomic::Ordering::Release);
             }
-}
-
-#[cold]
-unsafe fn maybe_loading_cell_unload() {
-    let pr = match PressureRelief::instance() {
-        Some(pr) => pr,
-        None => return,
-    };
-    let baseline = pr.baseline_commit();
-    if baseline == 0 {
-        return;
-    }
-
-    let info = libmimalloc::process_info::MiMallocProcessInfo::get();
-    let commit = info.get_current_commit();
-    let growth = commit.saturating_sub(baseline);
-
-    // Watchdog can force cell unload during loading (bypasses growth check).
-    let forced = FORCE_LOADING_UNLOAD.swap(false, std::sync::atomic::Ordering::AcqRel);
-
-    if !forced && growth < LOADING_CELL_UNLOAD_GROWTH {
-        return;
-    }
-
-    // Memory-based cooldown: skip if commit hasn't grown back.
-    // Watchdog force bypasses this cooldown too.
-    static LOADING_COOLDOWN_COMMIT: std::sync::atomic::AtomicUsize =
-        std::sync::atomic::AtomicUsize::new(0);
-    if !forced {
-        let cooldown = LOADING_COOLDOWN_COMMIT.load(std::sync::atomic::Ordering::Relaxed);
-        if cooldown > 0 && commit < cooldown {
-            if cooldown.saturating_sub(commit) < LOADING_CELL_UNLOAD_GROWTH {
-                return;
-            }
-            LOADING_COOLDOWN_COMMIT.store(0, std::sync::atomic::Ordering::Relaxed);
-        }
-    }
-
-    let max_cells = if forced { LOADING_MAX_CELLS.max(10) } else { LOADING_MAX_CELLS };
-
-    if forced {
-        log::warn!(
-            "[LOADING] Watchdog-forced cell unload: commit={}MB, growth={}MB",
-            commit / 1024 / 1024, growth / 1024 / 1024,
-        );
-    }
-
-    let heap = super::heap_manager::HeapManager::get();
-
-    // Use same pattern as destruction_protocol: run_oom_stage(5) +
-    // DeferredCleanupSmall so freed objects are fully processed.
-    if let Some(mut state) = unsafe { globals::pre_destruction_setup() } {
-        let loading_counter = globals::loading_state_counter();
-        loading_counter.fetch_add(1, std::sync::atomic::Ordering::AcqRel);
-
-        let mut cells = 0usize;
-        let mut stage: i32 = 5;
-        for _ in 0..max_cells {
-            let (next, _) = unsafe { heap.run_oom_stage(stage, false) };
-            if next != 5 { break; }
-            cells += 1;
-            stage = next;
-        }
-
-        if cells > 0 {
-            unsafe { globals::deferred_cleanup_small(state[5]) };
-        }
-
-        unsafe { globals::post_destruction_restore(&mut state) };
-
-        if cells > 0 {
-            let post_commit =
-                libmimalloc::process_info::MiMallocProcessInfo::get().get_current_commit();
-            LOADING_COOLDOWN_COMMIT.store(post_commit, std::sync::atomic::Ordering::Relaxed);
-
-            if let Some(pr) = PressureRelief::instance() {
-                pr.set_pending_counter_decrement();
-            }
-        } else {
-            loading_counter.fetch_sub(1, std::sync::atomic::Ordering::AcqRel);
-        }
-    }
 }
 
 // ---- Havok world synchronization hooks ----

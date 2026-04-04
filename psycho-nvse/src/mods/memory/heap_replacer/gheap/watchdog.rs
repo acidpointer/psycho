@@ -220,14 +220,6 @@ fn watchdog_loop(run: Arc<std::sync::atomic::AtomicBool>) {
         if level > 0 {
             let _ = CLEANUP_REQUESTED.fetch_max(level, Ordering::Release);
 
-            // During loading, level 2 also forces cell unload at AI_JOIN.
-            // maybe_loading_cell_unload has growth+cooldown checks that
-            // would otherwise suppress retries when commit is plateaued
-            // at the ceiling. This flag bypasses both.
-            if level == 2 && loading {
-                super::hooks::signal_force_loading_unload();
-            }
-
             if level == 2 {
                 log::warn!(
                     "[WATCHDOG] Aggressive cleanup: commit={}MB, growth={}MB, rate={}/s{}",
