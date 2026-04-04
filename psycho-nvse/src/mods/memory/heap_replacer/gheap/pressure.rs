@@ -32,6 +32,14 @@ use crate::mods::memory::heap_replacer::mem_stats;
 /// crashes in AI threads (e.g., projectiles referencing unloaded cells).
 const DESTRUCTION_ROUNDS: usize = 1;
 
+/// Maximum number of destruction protocol runs per Phase 7 call.
+/// When allocation rate is high, we run cleanup multiple times in one frame
+/// to catch up with allocation spikes. Each run blocks new cell loads briefly,
+/// unloads eligible cells, then restores loading. This ensures we free
+/// enough memory during stress testing without running multiple rounds
+/// per protocol (which causes UAF).
+const MAX_DESTRUCTION_RUNS_PER_FRAME: usize = 3;
+
 /// Max cells to unload per relief cycle.
 const MAX_CELLS_PER_CYCLE: usize = 20;
 
@@ -142,6 +150,18 @@ impl PressureRelief {
 
     /// Run cell unload + full cleanup unconditionally.
     /// Safe to call from Phase 7 (before AI_START) or AI_JOIN.
+    ///
+    /// When allocation rate is high, we run the destruction protocol
+    /// multiple times to catch up with allocation spikes.
+    ///
+    /// Strategy:
+    /// 1. Block loading ONCE for entire cleanup cycle
+    /// 2. Wait for pending load to finish (up to 100ms)
+    /// 3. Run cleanup stages repeatedly, unloading up to MAX cells total
+    /// 4. Restore loading only when done
+    ///
+    /// This ensures we don't unload cells while game loads, and we don't
+    /// alternate between unloading and loading within a single cleanup.
     pub unsafe fn run_cleanup(&self) {
         let heap = super::heap_manager::HeapManager::get();
 
@@ -150,20 +170,60 @@ impl PressureRelief {
             None => return,
         };
 
-        let cells = unsafe { Self::destruction_protocol(manager) };
+        // Block new cell loads for entire cleanup cycle.
+        let loading_flag = addr::LOADING_FLAG as *mut u8;
+        let was_loading = unsafe { *loading_flag };
+        unsafe { *loading_flag = 1 };
 
-        mem_stats::global().record_pressure_relief(cells);
+        // Wait for pending load to finish before cleanup.
+        if globals::is_bst_cell_load_pending() {
+            const MAX_WAIT_MS: u32 = 100;
+            const SLEEP_MS: u32 = 1;
+            for _ in 0..MAX_WAIT_MS / SLEEP_MS {
+                if !globals::is_bst_cell_load_pending() {
+                    break;
+                }
+                libpsycho::os::windows::winapi::sleep(SLEEP_MS);
+            }
+            // If still loading after 100ms, abort cleanup.
+            if globals::is_bst_cell_load_pending() {
+                unsafe { *loading_flag = was_loading };
+                return;
+            }
+        }
 
-        if cells > 0 {
+        let mut total_cells: usize = 0;
+
+        // Run destruction protocol multiple times while loading is blocked.
+        // This ensures we unload cells without competition from loading.
+        for _ in 0..MAX_DESTRUCTION_RUNS_PER_FRAME {
+            let cells = unsafe { Self::destruction_protocol_internal(manager) };
+            total_cells += cells;
+
+            // If no cells were unloaded, more runs won't help -- stop early.
+            if cells == 0 {
+                break;
+            }
+        }
+
+        // Restore loading: allow new cell loads to resume.
+        unsafe { *loading_flag = was_loading };
+
+        mem_stats::global().record_pressure_relief(total_cells);
+
+        if total_cells > 0 {
             self.pending_counter_decrement.store(true, Ordering::Release);
             log::info!(
                 "[PRESSURE] Cleanup: {} cells (commit={}MB, pool={}MB)",
-                cells, heap.commit_mb(), heap.pool_mb(),
+                total_cells, heap.commit_mb(), heap.pool_mb(),
             );
         }
     }
 
     // Cell unloading via the game's own OOM stage executor.
+    //
+    // Internal version: does NOT manage the loading flag.
+    // Caller must block/restore loading before/after calling this.
     //
     // We run the FULL OOM sequence (stages 0-6), not just cell unload:
     //   Stage 0: Texture cache flush (frees cached textures)
@@ -183,42 +243,10 @@ impl PressureRelief {
     // bypass=false: frees go to pool (zombie-safe for IO thread).
     //
     // Safety: must be called on the main thread when AI threads are idle.
-    unsafe fn destruction_protocol(_manager: *mut libc::c_void) -> usize {
+    // Caller must have already blocked loading and waited for pending load.
+    unsafe fn destruction_protocol_internal(_manager: *mut libc::c_void) -> usize {
         let heap = super::heap_manager::HeapManager::get();
         let mut cells: usize = 0;
-
-        // CRITICAL: Block new cell loads during cleanup.
-        //
-        // During stress testing (fast cell transitions), cleanup competes
-        // with loading: cleanup unloads 2 cells, loading loads 4 new cells.
-        // Net result: memory keeps growing.
-        //
-        // Solution: Set the loading flag BEFORE cleanup. This tells the game
-        // "loading is in progress" which blocks queuing new cell loads.
-        // Cleanup then runs in a "quiet window" with no competition.
-        //
-        // The game refreshes this flag at Phase 1 of each frame from
-        // IsLoading() || IsMenuMode(). Setting it here is safe because
-        // we restore it immediately after cleanup.
-        let loading_flag = addr::LOADING_FLAG as *mut u8;
-        let was_loading = unsafe { *loading_flag };
-        unsafe { *loading_flag = 1 };
-
-        // Wait for pending cell load to finish (up to 50ms).
-        // BSTaskManagerThread might be loading a cell right now.
-        // If we run cleanup while loading is active, FindCellToUnload
-        // returns 0 (can't unload while loading). We need to wait for
-        // the current load to finish before we can unload cells.
-        if globals::is_bst_cell_load_pending() {
-            const MAX_WAIT_MS: u32 = 50;
-            const SLEEP_MS: u32 = 1;
-            for _ in 0..MAX_WAIT_MS / SLEEP_MS {
-                if !globals::is_bst_cell_load_pending() {
-                    break;
-                }
-                libpsycho::os::windows::winapi::sleep(SLEEP_MS);
-            }
-        }
 
         // Suppress NVSE event dispatch during destruction.
         let loading_counter = globals::loading_state_counter();
@@ -230,7 +258,6 @@ impl PressureRelief {
             Some(s) => s,
             None => {
                 loading_counter.fetch_sub(1, std::sync::atomic::Ordering::AcqRel);
-                unsafe { *loading_flag = was_loading };
                 return 0;
             }
         };
@@ -285,9 +312,6 @@ impl PressureRelief {
         unsafe { libmimalloc::mi_collect(false) };
 
         unsafe { globals::post_destruction_restore(&mut state) };
-
-        // Restore loading flag: allow new cell loads to resume.
-        unsafe { *loading_flag = was_loading };
 
         log::debug!(
             "[DESTRUCTION] {} cells, full OOM 0-6 done, commit={}MB, pool={}MB",
