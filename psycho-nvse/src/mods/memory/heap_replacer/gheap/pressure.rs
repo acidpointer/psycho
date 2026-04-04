@@ -17,6 +17,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::LazyLock;
 
 use super::engine::globals;
+use super::pool;
 use crate::mods::memory::heap_replacer::mem_stats;
 
 /// Number of full OOM cleanup rounds to run per pressure relief cycle.
@@ -241,20 +242,29 @@ impl PressureRelief {
             unsafe { globals::deferred_cleanup_small(state[5]) };
         }
 
-        // Gentle GC only -- decommits free pages to reclaim VAS.
-        // Do NOT drain pool aggressively. The quarantine protects
-        // objects still referenced by renderer. Let objects age out
-        // naturally through pool eviction when capacity is reached.
-        // Aggressive draining causes rendering corruption (geometry
-        // disappears, occlusion glitches) because freed blocks get
-        // reused for unrelated data while renderer still holds refs.
+        // Drain pool AFTER cell unload + async flush.
+        //
+        // The pool holds freed objects in quarantine for UAF protection.
+        // During stress testing, cell unload frees memory to pool → pool
+        // stays at 127MB HARD_CAP → memory never actually returns to VA.
+        //
+        // Objects freed by cell unload are safe to fully free: the cells
+        // are being destroyed, so no one should be accessing them.
+        // We drain large blocks (>= 1KB) to reclaim VA space while
+        // keeping small blocks (< 1KB) quarantined for UAF protection
+        // on objects that might still have stale readers.
+        let drained = if !globals::is_bst_cell_load_pending() {
+            unsafe { pool::pool_drain_all() }
+        } else {
+            unsafe { pool::pool_drain_large(pool::SMALL_BLOCK_THRESHOLD) }
+        };
         unsafe { libmimalloc::mi_collect(false) };
 
         unsafe { globals::post_destruction_restore(&mut state) };
 
         log::debug!(
-            "[DESTRUCTION] {} cells, stage 5+4+3 done, commit={}MB, pool={}MB",
-            cells, heap.commit_mb(), heap.pool_mb(),
+            "[DESTRUCTION] {} cells, {} drained, commit={}MB, pool={}MB",
+            cells, drained, heap.commit_mb(), heap.pool_mb(),
         );
 
         if cells == 0 {
