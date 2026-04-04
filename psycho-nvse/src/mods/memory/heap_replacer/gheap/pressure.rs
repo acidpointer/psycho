@@ -20,9 +20,17 @@ use super::engine::globals;
 use crate::mods::memory::heap_replacer::mem_stats;
 
 /// Number of full OOM cleanup rounds to run per pressure relief cycle.
-/// Each round runs stages 0-6. Higher values unload more cells but
-/// take more CPU time. 2 rounds unloads 4-6 cells vs 2 with single round.
-const DESTRUCTION_ROUNDS: usize = 4;
+///
+/// IMPORTANT: This MUST be 1.
+/// The vanilla game's HeapCompact loop (0x00878080) has a built-in safety
+/// check: `if (current_stage < loop_counter) break;`.
+/// When Stage 5 (Cell Unload) succeeds, it returns 5. The loop counter
+/// becomes 6. The check `5 < 6` is true, so it breaks immediately.
+/// The game relies on this to unload only ONE cell per HeapCompact call,
+/// allowing the engine time to update references before the next unload.
+/// Running multiple rounds unloads cells too aggressively, causing UAF
+/// crashes in AI threads (e.g., projectiles referencing unloaded cells).
+const DESTRUCTION_ROUNDS: usize = 1;
 
 /// Max cells to unload per relief cycle.
 const MAX_CELLS_PER_CYCLE: usize = 20;

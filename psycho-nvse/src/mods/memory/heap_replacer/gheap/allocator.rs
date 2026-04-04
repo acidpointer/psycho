@@ -307,7 +307,7 @@ unsafe fn do_recover_oom(size: usize) -> *mut c_void {
     // Worker: signal main thread to drain its pool at Phase 7.
     if !is_main {
         heap.signal_emergency_drain();
-        
+
         // Release BSTaskManagerThread semaphores if we own them.
         // This matches vanilla OOM Stage 8 behavior (FUN_00866a90 case 8).
         // Without this, worker threads holding IO semaphores deadlock:
@@ -318,84 +318,103 @@ unsafe fn do_recover_oom(size: usize) -> *mut c_void {
         unsafe { super::engine::globals::release_bstask_sems_if_owned() };
     }
 
-    // --- Phase 1: Active cleanup (stages 0-6) ---
+    // --- Phase 1: Active cleanup (stages 0-7, retry alloc after each) ---
     //
-    // bypass_all scoped INSIDE run_oom_stage (wraps only the game call).
-    // Frees during cleanup --> mi_free (VAS reclaimed).
-    // Between stages, bypass OFF -- zombie safety preserved.
+    // The game's allocator contract: NEVER return NULL.
+    // Pattern from vanilla FUN_00aa3e40:
+    //   do {
+    //       stage = FUN_00866a90(heap, stage, &give_up);
+    //       if (give_up) { ptr = _malloc(size); break; }
+    //       ptr = heap_vtable->alloc(size);
+    //   } while (!ptr);
     //
-    // Stages are idempotent -- PDD queues empty, caches flush once.
-    // Stop repeating when a cycle frees < 64KB.
+    // We match this contract exactly: run stages 0-7, retry alloc after
+    // each stage, only fall back to CRT malloc when stage 7 sets give_up.
     //
-    // Main thread: runs stages locally (including stage 5 cell unload).
-    //   No yield -- main IS the thread that runs Phase 6/7.
-    // Worker: yields between cycles so main thread processes HeapCompact.
-    const MAX_ACTIVE_CYCLES: u32 = 10;
+    // SAFETY BREAKER: Stage 5 (Cell Unload) is limited to 2 runs per OOM event.
+    // The vanilla HeapCompact loop (0x00878080) breaks after Stage 5 succeeds
+    // (checking `if (current_stage < loop_counter) break;`). This prevents
+    // unloading multiple cells in one frame, which causes UAF crashes in
+    // AI threads (e.g., projectiles referencing unloaded cells).
 
-    for cycle in 0..MAX_ACTIVE_CYCLES {
-        let commit_before_cycle = heap.commit_bytes();
-        let mut stage: i32 = 0;
+    let mut stage: i32 = 0;
+    let mut cycles: u32 = 0;
+    let mut stage_5_runs: u32 = 0;
 
-        loop {
-            let (next, _) = unsafe { heap.run_oom_stage(stage, true) };
-            stage = next;
+    loop {
+        cycles += 1;
+        let commit_before = heap.commit_bytes();
 
-            unsafe { mi_collect(false) };
-            let ptr = unsafe { mi_malloc_aligned(size, ALIGN) };
-            if !ptr.is_null() {
-                log::info!(
-                    "[OOM] Recovered: cycle={} size={} commit={}-->{}MB",
-                    cycle, size, commit_entry, heap.commit_mb(),
+        // Safety breaker: Limit Stage 5 runs.
+        if stage == 5 {
+            stage_5_runs += 1;
+            if stage_5_runs > 2 {
+                log::warn!(
+                    "[OOM] Stage 5 safety limit reached ({}), stopping cleanup to prevent UAF",
+                    stage_5_runs
                 );
-                return ptr;
+                break;
             }
-
-            if stage >= 7 { break; }
         }
 
-        let freed_this_cycle = commit_before_cycle
-            .saturating_sub(heap.commit_bytes());
+        // Run current stage
+        let (next, done) = unsafe { heap.run_oom_stage(stage, true) };
+        stage = next;
 
-        // Workers: signal main thread + yield to let Phase 6/7 run.
-        // Main: skip yield -- it IS the Phase 6/7 thread. Yielding
-        // achieves nothing and wastes time.
+        unsafe { mi_collect(false) };
+
+        // Try allocation after every stage
+        let ptr = unsafe { mi_malloc_aligned(size, ALIGN) };
+        if !ptr.is_null() {
+            log::info!(
+                "[OOM] Recovered: cycle={} stage={} size={} commit={}-->{}MB",
+                cycles, stage, size, commit_entry, heap.commit_mb(),
+            );
+            return ptr;
+        }
+
+        // If give_up was set (stage 7 on main thread), fall back to CRT
+        if done {
+            break;
+        }
+
+        // Workers: signal main thread + yield between stages.
+        // Main thread skips yield -- it IS the cleanup thread.
         if !is_main {
             heap.signal_heap_compact(
                 super::engine::globals::HeapCompactStage::CellUnload,
             );
             heap.signal_emergency_drain();
-            
+
             // Release BSTaskManagerThread semaphores on each iteration.
-            // Vanilla Stage 8 does this every Sleep(1) -- matches exactly.
             unsafe { super::engine::globals::release_bstask_sems_if_owned() };
-            
+
             libpsycho::os::windows::winapi::sleep(1);
 
             unsafe { mi_collect(false) };
             let ptr = unsafe { mi_malloc_aligned(size, ALIGN) };
             if !ptr.is_null() {
                 log::info!(
-                    "[OOM] Recovered after yield: cycle={} size={} commit={}-->{}MB",
-                    cycle, size, commit_entry, heap.commit_mb(),
+                    "[OOM] Recovered after yield: cycle={} stage={} size={} commit={}-->{}MB",
+                    cycles, stage, size, commit_entry, heap.commit_mb(),
                 );
                 return ptr;
             }
         }
 
-        // Stages exhausted -- stop repeating no-ops.
-        if freed_this_cycle < 64 * 1024 && cycle > 0 {
-            log::info!(
-                "[OOM] Stages exhausted at cycle {}: commit={}-->{}MB",
-                cycle, commit_entry, heap.commit_mb(),
-            );
+        // Stage 7 means give_up was set. On main thread, this is the
+        // final attempt before CRT fallback.
+        if stage >= 7 {
+            // Log final stats before fallback
+            let freed = commit_before.saturating_sub(heap.commit_bytes());
+            if freed < 64 * 1024 {
+                log::warn!(
+                    "[OOM] Minimal cleanup ({}) at stage 7, commit={}-->{}MB",
+                    if freed == 0 { "nothing freed" } else { "very little" },
+                    commit_entry, heap.commit_mb(),
+                );
+            }
             break;
-        }
-
-        if cycle > 0 && cycle.is_multiple_of(5) {
-            log::warn!(
-                "[OOM] Cycle {}: commit={}-->{}MB pool={}MB",
-                cycle, commit_entry, heap.commit_mb(), heap.pool_mb(),
-            );
         }
     }
 
