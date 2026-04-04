@@ -418,6 +418,25 @@ unsafe fn do_recover_oom(size: usize) -> *mut c_void {
         }
     }
 
+    // --- Emergency pool drain: Last resort before wait/CRT fallback ---
+    //
+    // When OOM recovery exhausted all game cleanup stages (stages 0-7)
+    // but still couldn't allocate, drain large quarantined blocks.
+    // We drain large blocks (>= 1024 bytes) which are less likely to have
+    // active stale readers than small RefCount-sized blocks.
+    {
+        let drained = unsafe { pool::pool_drain_large(pool::SMALL_BLOCK_THRESHOLD) };
+        unsafe { libmimalloc::mi_collect(false) };
+        let ptr = unsafe { mi_malloc_aligned(size, ALIGN) };
+        if !ptr.is_null() {
+            log::warn!(
+                "[OOM] Recovered after emergency pool drain: drained={} size={} commit={}-->{}MB",
+                drained, size, commit_entry, heap.commit_mb(),
+            );
+            return ptr;
+        }
+    }
+
     // --- Phase 2: Wait for main thread cleanup (workers only) ---
     //
     // Workers can't run stage 5 (cell unload, main-thread-only).

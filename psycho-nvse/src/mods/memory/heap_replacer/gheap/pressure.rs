@@ -16,7 +16,7 @@
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::LazyLock;
 
-use super::engine::globals;
+use super::engine::{addr, globals};
 use crate::mods::memory::heap_replacer::mem_stats;
 
 /// Number of full OOM cleanup rounds to run per pressure relief cycle.
@@ -187,6 +187,39 @@ impl PressureRelief {
         let heap = super::heap_manager::HeapManager::get();
         let mut cells: usize = 0;
 
+        // CRITICAL: Block new cell loads during cleanup.
+        //
+        // During stress testing (fast cell transitions), cleanup competes
+        // with loading: cleanup unloads 2 cells, loading loads 4 new cells.
+        // Net result: memory keeps growing.
+        //
+        // Solution: Set the loading flag BEFORE cleanup. This tells the game
+        // "loading is in progress" which blocks queuing new cell loads.
+        // Cleanup then runs in a "quiet window" with no competition.
+        //
+        // The game refreshes this flag at Phase 1 of each frame from
+        // IsLoading() || IsMenuMode(). Setting it here is safe because
+        // we restore it immediately after cleanup.
+        let loading_flag = addr::LOADING_FLAG as *mut u8;
+        let was_loading = unsafe { *loading_flag };
+        unsafe { *loading_flag = 1 };
+
+        // Wait for pending cell load to finish (up to 50ms).
+        // BSTaskManagerThread might be loading a cell right now.
+        // If we run cleanup while loading is active, FindCellToUnload
+        // returns 0 (can't unload while loading). We need to wait for
+        // the current load to finish before we can unload cells.
+        if globals::is_bst_cell_load_pending() {
+            const MAX_WAIT_MS: u32 = 50;
+            const SLEEP_MS: u32 = 1;
+            for _ in 0..MAX_WAIT_MS / SLEEP_MS {
+                if !globals::is_bst_cell_load_pending() {
+                    break;
+                }
+                libpsycho::os::windows::winapi::sleep(SLEEP_MS);
+            }
+        }
+
         // Suppress NVSE event dispatch during destruction.
         let loading_counter = globals::loading_state_counter();
         loading_counter.fetch_add(1, std::sync::atomic::Ordering::AcqRel);
@@ -197,6 +230,7 @@ impl PressureRelief {
             Some(s) => s,
             None => {
                 loading_counter.fetch_sub(1, std::sync::atomic::Ordering::AcqRel);
+                unsafe { *loading_flag = was_loading };
                 return 0;
             }
         };
@@ -251,6 +285,9 @@ impl PressureRelief {
         unsafe { libmimalloc::mi_collect(false) };
 
         unsafe { globals::post_destruction_restore(&mut state) };
+
+        // Restore loading flag: allow new cell loads to resume.
+        unsafe { *loading_flag = was_loading };
 
         log::debug!(
             "[DESTRUCTION] {} cells, full OOM 0-6 done, commit={}MB, pool={}MB",

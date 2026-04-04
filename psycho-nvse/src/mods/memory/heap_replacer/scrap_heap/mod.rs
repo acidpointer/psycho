@@ -131,19 +131,34 @@ unsafe fn alloc_oom_recovery(
     size: usize,
     align: usize,
 ) -> *mut c_void {
+    use crate::mods::memory::heap_replacer::gheap::{heap_manager::HeapManager, pool};
+
+    // First: signal main thread to run cleanup (same as main OOM path)
+    HeapManager::get().signal_emergency_drain();
+
+    // Drain the pool's large quarantined blocks to free memory
+    let drained = unsafe { pool::pool_drain_large(pool::SMALL_BLOCK_THRESHOLD) };
+    unsafe { libmimalloc::mi_collect(false) };
+
     for attempt in 1..=SHEAP_OOM_RETRIES {
         log::warn!(
-            "[SBM] OOM on sheap_alloc(size={}, align={}), attempt {}/{}",
-            size, align, attempt, SHEAP_OOM_RETRIES
+            "[SBM] OOM on sheap_alloc(size={}, align={}), pool drained={}, attempt {}/{}",
+            size, align, drained, attempt, SHEAP_OOM_RETRIES
         );
 
-        // mi_collect to reclaim empty pages from other threads.
+        // Signal main thread cleanup + mi_collect to reclaim empty pages
+        HeapManager::get().signal_emergency_drain();
         unsafe { libmimalloc::mi_collect(false) };
 
         let ptr = rt.alloc(sheap_ptr, size, align);
         if !ptr.is_null() {
             log::info!("[SBM] OOM recovered on attempt {}", attempt);
             return ptr;
+        }
+
+        // If pool was drained and still failing, wait briefly for main thread cleanup
+        if attempt > 1 {
+            libpsycho::os::windows::winapi::sleep(1);
         }
     }
 
