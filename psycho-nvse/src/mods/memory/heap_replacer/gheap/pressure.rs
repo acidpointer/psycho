@@ -215,31 +215,25 @@ impl PressureRelief {
         // causing stage to advance to 6. We stop then.
         //
         // This matches vanilla behavior: unload ALL eligible cells, not just 1-2.
+        //
+        // After EACH Stage 5 call, run DeferredCleanupSmall + mi_collect.
+        // During stress testing, PDD queues grow WHILE we unload cells. If we
+        // wait until the end, the queue has GROWN instead of shrunk.
+        // Vanilla runs Phase 4 cleanup EVERY FRAME -- we must match this cadence.
         let mut stage: i32 = 5;
         loop {
             let (next, _done) = unsafe { heap.run_oom_stage(stage, false) };
             if next == 5 {
                 cells += 1;
                 stage = next;
+
+                // Flush async refs and PDD after EACH cell unload.
+                // This prevents PDD queue buildup during stress testing.
+                unsafe { globals::deferred_cleanup_small(state[5]) };
+                unsafe { libmimalloc::mi_collect(false) };
             } else {
                 break;
             }
-        }
-
-        // DeferredCleanupSmall (FUN_00878250): processes freed objects
-        // from cell unload that are stuck in async queues and caches.
-        //   --> PDD purge (FUN_00868d70)
-        //   --> Async flush (FUN_00b5fd60) -- releases async references
-        //   --> Model cleanup (FUN_00651e30/40) -- frees scene graph models
-        //   --> Cancel stale IO tasks (FUN_00448620)
-        //   --> Texture cache flush (FUN_00452490)
-        //
-        // Without this, cell unload queues objects for destruction but
-        // they aren't fully processed until next frame's Phase 4. By
-        // then new cells load and commit climbs back up.
-        // param = state[5] from pre_destruction_setup.
-        if cells > 0 {
-            unsafe { globals::deferred_cleanup_small(state[5]) };
         }
 
         // Drain pool AFTER cell unload + async flush.
