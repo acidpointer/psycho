@@ -80,8 +80,8 @@ pub fn init(arena_base: usize) {
 #[inline]
 fn is_uaf_sensitive_vtable(vtable: *const u8) -> bool {
     let addr = vtable as usize;
-    (addr >= NIREF_VTABLE_START && addr < NIREF_VTABLE_END)
-        || (addr >= HAVOK_VTABLE_START && addr < HAVOK_VTABLE_END)
+    (NIREF_VTABLE_START..NIREF_VTABLE_END).contains(&addr)
+        || (HAVOK_VTABLE_START..HAVOK_VTABLE_END).contains(&addr)
 }
 
 /// Mark a segment as containing UAF-sensitive objects.

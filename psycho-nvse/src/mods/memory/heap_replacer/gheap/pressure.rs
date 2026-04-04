@@ -19,9 +19,10 @@ use std::sync::LazyLock;
 use super::engine::globals;
 use crate::mods::memory::heap_replacer::mem_stats;
 
-// ---------------------------------------------------------------------------
-// Configuration
-// ---------------------------------------------------------------------------
+/// Number of full OOM cleanup rounds to run per pressure relief cycle.
+/// Each round runs stages 0-6. Higher values unload more cells but
+/// take more CPU time. 2 rounds unloads 4-6 cells vs 2 with single round.
+const DESTRUCTION_ROUNDS: usize = 4;
 
 /// Max cells to unload per relief cycle.
 const MAX_CELLS_PER_CYCLE: usize = 20;
@@ -156,14 +157,22 @@ impl PressureRelief {
 
     // Cell unloading via the game's own OOM stage executor.
     //
-    // Calls run_oom_stage(5) which runs vanilla's EXACT stage 5 sequence:
-    //   TLS flag --> FindCellToUnload --> ProcessPendingCleanup --> PDD
-    //   --> fallthrough stage 4 (PDD again) --> stage 3 (Havok GC)
+    // We run the FULL OOM sequence (stages 0-6), not just cell unload:
+    //   Stage 0: Texture cache flush (frees cached textures)
+    //   Stage 1: Free cached geometry (frees mesh data)
+    //   Stage 2: Menu system cleanup (frees UI resources)
+    //   Stage 3: Havok GC (frees physics data)
+    //   Stage 4: PDD purge (processes deferred destruction)
+    //   Stage 5: Cell unloading (FindCellToUnload + ProcessPendingCleanup)
+    //   Stage 6: Heap defragmentation (compacts VA space)
     //
-    // If a cell is found, stage 5 returns stage=5 (stays). We repeat
-    // until no more cells or max reached. This matches how vanilla's
-    // OOM handler unloads cells -- same function, same context, same
-    // state management. No custom Havok locking needed.
+    // The game's OOM handler runs these sequentially for a reason:
+    // each stage frees different types of memory. Cell unload alone
+    // only frees cell data -- we miss textures, geometry, physics,
+    // and heap fragmentation. Running all stages frees significantly
+    // more memory per pressure relief cycle.
+    //
+    // bypass=false: frees go to pool (zombie-safe for IO thread).
     //
     // Safety: must be called on the main thread when AI threads are idle.
     unsafe fn destruction_protocol(_manager: *mut libc::c_void) -> usize {
@@ -184,18 +193,28 @@ impl PressureRelief {
             }
         };
 
-        // Run stage 5 repeatedly with Havok locked. Each call does:
-        //   TLS flag + FindCellToUnload + ProcessPendingCleanup + PDD + Havok GC
-        // bypass=false: frees go to pool (zombie-safe for IO thread).
-        // Returns stage=5 if cell found (stay), stage=6 if none (done).
-        let mut stage: i32 = 5;
-        for _ in 0..MAX_CELLS_PER_CYCLE {
-            let (next, _) = unsafe { heap.run_oom_stage(stage, false) };
-            if next != 5 {
-                break;
+        // Run full OOM sequence for 2 rounds.
+        // Each stage frees different types of memory:
+        //   0: Texture cache flush
+        //   1: Cached geometry free
+        //   2: Menu system cleanup
+        //   3: Havok GC
+        //   4: PDD purge (+ fallthrough to 3)
+        //   5: Cell unload (+ fallthrough to 4+3)
+        //   6: Heap defragmentation
+        //
+        // Running 2 rounds unloads more cells because:
+        // - First round: unloads immediately eligible cells
+        // - After first round: references released, NPCs move, paths cleared
+        // - Second round: additional cells become eligible
+        // Total: 4-6 cells per cycle vs 2 with single round.
+        for _round in 0..DESTRUCTION_ROUNDS {
+            for stage in 0..=6 {
+                let (next, _done) = unsafe { heap.run_oom_stage(stage, false) };
+                if next == 5 {
+                    cells += 1;
+                }
             }
-            cells += 1;
-            stage = next;
         }
 
         // DeferredCleanupSmall (FUN_00878250): processes freed objects
@@ -226,7 +245,7 @@ impl PressureRelief {
         unsafe { globals::post_destruction_restore(&mut state) };
 
         log::debug!(
-            "[DESTRUCTION] {} cells, commit={}MB, pool={}MB",
+            "[DESTRUCTION] {} cells, full OOM 0-6 done, commit={}MB, pool={}MB",
             cells, heap.commit_mb(), heap.pool_mb(),
         );
 
