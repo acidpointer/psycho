@@ -215,51 +215,39 @@ impl PressureRelief {
         // causing stage to advance to 6. We stop then.
         //
         // This matches vanilla behavior: unload ALL eligible cells, not just 1-2.
-        //
-        // After EACH Stage 5 call, run DeferredCleanupSmall ONLY (NOT mi_collect).
-        // During stress testing, PDD queues grow WHILE we unload cells. If we
-        // wait until the end, the queue has GROWN instead of shrunk.
-        // Vanilla runs Phase 4 cleanup EVERY FRAME -- we must match this cadence.
-        //
-        // DO NOT call mi_collect here! DeferredCleanupSmall processes the PDD
-        // queue (frees objects), but mi_collect decommits pages. If we decommit
-        // pages mid-sequence, Havok physics still references cells 1-N while
-        // we're unloading cell N+1 → UAF crash on terrain/collision shapes.
-        // mi_collect runs ONCE at the end, after ALL cells are unloaded.
+        // DeferredCleanupSmall runs ONCE at the end, after ALL cells are unloaded.
+        // This ensures JIP NVSE and other mods see a complete set of queued
+        // references rather than processing them piecemeal (which causes UAF).
         let mut stage: i32 = 5;
         loop {
             let (next, _done) = unsafe { heap.run_oom_stage(stage, false) };
             if next == 5 {
                 cells += 1;
                 stage = next;
-
-                // Flush PDD queue after each cell to prevent buildup.
-                unsafe { globals::deferred_cleanup_small(state[5]) };
             } else {
                 break;
             }
         }
 
-        // Single mi_collect after ALL cells are unloaded.
-        // Safe now because Havok references to all cells are cleared.
+        // DeferredCleanupSmall ONCE after ALL cells unloaded.
+        // This processes the complete set of queued references from all cells.
+        if cells > 0 {
+            unsafe { globals::deferred_cleanup_small(state[5]) };
+        }
+
+        // mi_collect after async flush completes all deferred destruction.
         unsafe { libmimalloc::mi_collect(false) };
 
         // Drain pool AFTER cell unload + async flush.
         //
-        // The pool holds freed objects in quarantine for UAF protection.
-        // During stress testing, cell unload frees memory to pool → pool
-        // stays at 127MB HARD_CAP → memory never actually returns to VA.
+        // Always use pool_drain_large (>= 1KB), NEVER pool_drain_all.
+        // Small objects like BSMultiBoundNode, NiNodes, and NiTransformInterpolators
+        // are still referenced by persistent scene graph structures (LandLOD)
+        // across cell transitions. Draining them causes UAF crashes.
         //
-        // Objects freed by cell unload are safe to fully free: the cells
-        // are being destroyed, so no one should be accessing them.
-        // We drain large blocks (>= 1KB) to reclaim VA space while
-        // keeping small blocks (< 1KB) quarantined for UAF protection
-        // on objects that might still have stale readers.
-        let drained = if !globals::is_bst_cell_load_pending() {
-            unsafe { pool::pool_drain_all() }
-        } else {
-            unsafe { pool::pool_drain_large(pool::SMALL_BLOCK_THRESHOLD) }
-        };
+        // Large blocks (>= 1KB) are typically cell data, geometry, textures -
+        // safe to free because their owning cells are being destroyed.
+        let drained = unsafe { pool::pool_drain_large(pool::SMALL_BLOCK_THRESHOLD) };
         unsafe { libmimalloc::mi_collect(false) };
 
         unsafe { globals::post_destruction_restore(&mut state) };
