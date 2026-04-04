@@ -216,10 +216,16 @@ impl PressureRelief {
         //
         // This matches vanilla behavior: unload ALL eligible cells, not just 1-2.
         //
-        // After EACH Stage 5 call, run DeferredCleanupSmall + mi_collect.
+        // After EACH Stage 5 call, run DeferredCleanupSmall ONLY (NOT mi_collect).
         // During stress testing, PDD queues grow WHILE we unload cells. If we
         // wait until the end, the queue has GROWN instead of shrunk.
         // Vanilla runs Phase 4 cleanup EVERY FRAME -- we must match this cadence.
+        //
+        // DO NOT call mi_collect here! DeferredCleanupSmall processes the PDD
+        // queue (frees objects), but mi_collect decommits pages. If we decommit
+        // pages mid-sequence, Havok physics still references cells 1-N while
+        // we're unloading cell N+1 → UAF crash on terrain/collision shapes.
+        // mi_collect runs ONCE at the end, after ALL cells are unloaded.
         let mut stage: i32 = 5;
         loop {
             let (next, _done) = unsafe { heap.run_oom_stage(stage, false) };
@@ -227,14 +233,16 @@ impl PressureRelief {
                 cells += 1;
                 stage = next;
 
-                // Flush async refs and PDD after EACH cell unload.
-                // This prevents PDD queue buildup during stress testing.
+                // Flush PDD queue after each cell to prevent buildup.
                 unsafe { globals::deferred_cleanup_small(state[5]) };
-                unsafe { libmimalloc::mi_collect(false) };
             } else {
                 break;
             }
         }
+
+        // Single mi_collect after ALL cells are unloaded.
+        // Safe now because Havok references to all cells are cleared.
+        unsafe { libmimalloc::mi_collect(false) };
 
         // Drain pool AFTER cell unload + async flush.
         //

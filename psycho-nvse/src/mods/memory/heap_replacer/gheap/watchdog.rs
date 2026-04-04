@@ -49,9 +49,9 @@ const LOADING_THRESHOLD_REDUCTION: usize = 200 * 1024 * 1024; // 200MB
 const AGGRESSIVE_RATE_THRESHOLD: i32 = 2 * 1024 * 1024;
 
 /// Minimum milliseconds between aggressive (level 2) requests.
-/// 2s gives ~2x cleanup throughput vs 4s. DeferredCleanupSmall
-/// properly processes freed objects so NVSE plugins are safe.
-const AGGRESSIVE_COOLDOWN_MS: u64 = 2_000;
+/// 500ms prevents "cleanup storms" (death spiral) while keeping up with
+/// stress testing (4x faster than the previous 2s default).
+const AGGRESSIVE_COOLDOWN_MS: u64 = 500;
 
 // ---------------------------------------------------------------------------
 // Shared atomic state (read by main thread, written by watchdog)
