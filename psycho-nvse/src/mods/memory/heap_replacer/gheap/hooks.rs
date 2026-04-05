@@ -68,6 +68,12 @@ thread_local! {
 /// Prevents per-frame destruction_protocol calls when Havok is busy.
 static TURBO_COOLDOWN: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
 
+/// Cooldown for destruction_protocol during VAS crisis.
+/// Running pre_destruction_setup 4x/sec allocates terrain/LOD memory
+/// (Ghidra: FUN_00878160 step 5), making VAS pressure WORSE.
+/// Limit to 1 cycle per second during crisis.
+static DESTRUCTION_COOLDOWN_MS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
 /// Phase 7: per-frame queue drain (before AI_START).
 ///
 /// Vanilla behavior: Only drains PDD queues and emergency pool.
@@ -125,21 +131,76 @@ pub unsafe extern "C" fn hook_per_frame_queue_drain() {
     // Level 1 (normal): Havok GC + PDD drain
     // Level 2 (aggressive): Level 1 + cell unload via destruction protocol
     let request = watchdog::take_cleanup_request();
+    let commit = heap.commit_bytes();
 
-    if request >= 1 {
-        heap.signal_heap_compact(globals::HeapCompactStage::HavokGC);
-        let drained = unsafe { heap.drain_pool(pool::SMALL_BLOCK_THRESHOLD) };
-        log::info!(
-            "[WATCHDOG] Phase 7 cleanup: drained {}, level={}, pdd(NiNode={} Gen={} Form={})",
-            drained, request,
-            globals::pdd_queue_count(PddQueue::NiNode),
-            globals::pdd_queue_count(PddQueue::Generic),
-            globals::pdd_queue_count(PddQueue::Form),
+    // --- VAS Crisis Management ---
+    //
+    // When commit exceeds critical thresholds, the pool becomes a liability:
+    // it fills with small blocks (< 1KB) that drain_large can't touch.
+    // At 1.5GB+, we drain ALL pool blocks. At 1.8GB+, we enter emergency
+    // mode where ALL frees bypass the pool entirely.
+    //
+    // Ghidra-verified safety: Phase 7 runs after AI_JOIN (frame timeline
+    // PHASE 12). AI threads are STOPPED. BSTaskManagerThread may still
+    // process IO, but texture cache dead set protects against those.
+    // The FreeNode header (usable_size at offset +4) subverts the
+    // NiRefObject RefCount mechanism even after drain+reuse.
+    let vas_emergency = commit >= allocator::VAS_EMERGENCY_COMMIT;
+    let vas_critical = commit >= allocator::VAS_CRITICAL_COMMIT;
+
+    allocator::set_vas_emergency(vas_emergency);
+
+    if vas_emergency {
+        // F3: Nuclear option — drain ALL pool blocks.
+        // AI threads are stopped at Phase 7. FreeNode protects RefCount.
+        let drained = unsafe { pool::pool_drain_all() };
+        unsafe { libmimalloc::mi_collect(false) };
+        log::error!(
+            "[VAS] EMERGENCY: commit={}MB, drained {} blocks, pool={}MB",
+            commit / 1024 / 1024, drained, heap.pool_mb(),
+        );
+    } else if vas_critical {
+        // F2: Drain ALL pool blocks (not just >= 1KB).
+        // The 127MB pool is entirely small blocks (< 1KB). drain_large returns 0.
+        let drained = unsafe { heap.drain_pool(pool::ALIGN) };
+        log::warn!(
+            "[VAS] CRITICAL: commit={}MB, drained {} blocks, pool={}MB",
+            commit / 1024 / 1024, drained, heap.pool_mb(),
         );
     }
+
+    if request >= 1 && !vas_emergency {
+        heap.signal_heap_compact(globals::HeapCompactStage::HavokGC);
+        // During VAS crisis, skip redundant drain_large (already done above).
+        if !vas_critical {
+            let drained = unsafe { heap.drain_pool(pool::SMALL_BLOCK_THRESHOLD) };
+            log::info!(
+                "[WATCHDOG] Phase 7 cleanup: drained {}, level={}, commit={}MB, pdd(NiNode={} Gen={} Form={})",
+                drained, request, commit / 1024 / 1024,
+                globals::pdd_queue_count(PddQueue::NiNode),
+                globals::pdd_queue_count(PddQueue::Generic),
+                globals::pdd_queue_count(PddQueue::Form),
+            );
+        }
+    }
+
+    // F4: Cap destruction_protocol to 1/sec during VAS crisis.
+    // pre_destruction_setup allocates terrain/LOD memory (Ghidra: FUN_00878160),
+    // running it 4x/sec during crisis makes VAS pressure WORSE.
     if request >= 2
         && let Some(pr) = PressureRelief::instance() {
-            unsafe { pr.run_cleanup() };
+            let now = libpsycho::os::windows::winapi::get_tick_count() as u64;
+            let last = DESTRUCTION_COOLDOWN_MS.load(std::sync::atomic::Ordering::Relaxed);
+            if vas_critical {
+                // During VAS crisis: 1 second cooldown
+                if now.saturating_sub(last) >= 1000 {
+                    DESTRUCTION_COOLDOWN_MS.store(now, std::sync::atomic::Ordering::Relaxed);
+                    unsafe { pr.run_cleanup() };
+                }
+            } else {
+                // Normal: no cooldown
+                unsafe { pr.run_cleanup() };
+            }
         }
 
     // --- "Turbo" Cleanup during loading spikes ---

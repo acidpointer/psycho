@@ -32,6 +32,32 @@ const ALIGN: usize = 16;
 static LARGE_BYPASS: AtomicBool = AtomicBool::new(false);
 static LOADING_BYPASS: AtomicBool = AtomicBool::new(false);
 
+/// VAS emergency mode: when commit exceeds critical threshold, all frees
+/// bypass the pool and go directly to mi_free. This prevents the pool
+/// from filling with undrainable small blocks during a memory crisis.
+/// Set by Phase 7 watchdog when commit > 1.8GB.
+static VAS_EMERGENCY: AtomicBool = AtomicBool::new(false);
+
+/// Commit threshold (bytes) for VAS emergency mode.
+/// Above this: all frees bypass pool, Phase 7 drains entire pool.
+/// Ghidra-verified: AI threads are stopped at Phase 7 (after AI_JOIN),
+/// so draining the pool is safe from AI thread UAF.
+pub const VAS_EMERGENCY_COMMIT: usize = 1_800 * 1024 * 1024; // 1.8GB
+
+/// Commit threshold (bytes) for aggressive pool drain.
+/// Above this: Phase 7 drains ALL pool blocks (not just >= 1KB).
+/// The 127MB pool at crisis is entirely small blocks (< 1KB).
+/// FreeNode header protects NiRefObject pattern even after drain.
+pub const VAS_CRITICAL_COMMIT: usize = 1_500 * 1024 * 1024; // 1.5GB
+
+pub fn set_vas_emergency(active: bool) {
+    VAS_EMERGENCY.store(active, Ordering::Release);
+}
+
+pub fn is_vas_emergency() -> bool {
+    VAS_EMERGENCY.load(Ordering::Acquire)
+}
+
 pub fn with_large_bypass<R>(f: impl FnOnce() -> R) -> R {
     LARGE_BYPASS.store(true, Ordering::Release);
     let result = f();
@@ -45,7 +71,9 @@ pub fn set_loading_bypass(active: bool) {
 
 #[inline]
 pub fn is_bypass_active() -> bool {
-    LARGE_BYPASS.load(Ordering::Relaxed) || LOADING_BYPASS.load(Ordering::Relaxed)
+    LARGE_BYPASS.load(Ordering::Relaxed)
+        || LOADING_BYPASS.load(Ordering::Relaxed)
+        || VAS_EMERGENCY.load(Ordering::Relaxed)
 }
 
 // -----------------------------------------------------------------------
