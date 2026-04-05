@@ -244,7 +244,8 @@ pub unsafe fn release_bstask_sems_if_owned() -> bool {
         Ok(f) => unsafe { f(io_manager, 0) },
         Err(e) => {
             log::error!("[BSTASK] get_owner.as_fn() failed for thread 0: {:?}", e);
-            return false;
+            // Don't return early -- thread 1 might still need releasing.
+            0  // 0 != current_tid, so thread 0 check will be skipped
         }
     };
     if owner0 == current_tid {
@@ -265,7 +266,7 @@ pub unsafe fn release_bstask_sems_if_owned() -> bool {
         Ok(f) => unsafe { f(io_manager, 1) },
         Err(e) => {
             log::error!("[BSTASK] get_owner.as_fn() failed for thread 1: {:?}", e);
-            return false;
+            0  // Don't return early -- thread 0 may have been released already
         }
     };
     if owner1 == current_tid {
@@ -480,5 +481,46 @@ pub unsafe fn deferred_cleanup_small(param: u8) {
     match unsafe { f.as_fn() } {
         Ok(f) => unsafe { f(param) },
         Err(e) => log::error!("[DEFERRED_CLEANUP] as_fn() failed: {:?}", e),
+    }
+}
+
+/// Havok garbage collect (FUN_00c459d0).
+///
+/// force=true forces full collection. This operates on the Havok memory
+/// system, NOT the physics world. Safe to call without holding the
+/// Havok world lock.
+pub unsafe fn havok_gc(force: u8) {
+    let f = match unsafe {
+        FnPtr::<types::HavokGcFn>::from_raw(addr::HAVOK_GC as *mut c_void)
+    } {
+        Ok(f) => f,
+        Err(e) => {
+            log::error!("[HAVOK_GC] FnPtr::from_raw failed: {:?}", e);
+            return;
+        }
+    };
+    match unsafe { f.as_fn() } {
+        Ok(f) => unsafe { f(force) },
+        Err(e) => log::error!("[HAVOK_GC] as_fn() failed: {:?}", e),
+    }
+}
+
+/// PDD purge (FUN_00868d70).
+///
+/// Purges all deferred destruction queues. try_lock=true means it will
+/// skip if the process manager lock is already held.
+pub unsafe fn pdd_purge() {
+    let f = match unsafe {
+        FnPtr::<types::PDDFn>::from_raw(super::super::statics::PDD_ADDR as *mut c_void)
+    } {
+        Ok(f) => f,
+        Err(e) => {
+            log::error!("[PDD_PURGE] FnPtr::from_raw failed: {:?}", e);
+            return;
+        }
+    };
+    match unsafe { f.as_fn() } {
+        Ok(f) => unsafe { f(0) }, // blocking purge
+        Err(e) => log::error!("[PDD_PURGE] as_fn() failed: {:?}", e),
     }
 }

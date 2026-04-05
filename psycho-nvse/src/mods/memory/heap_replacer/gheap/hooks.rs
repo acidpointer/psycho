@@ -64,6 +64,10 @@ thread_local! {
     static WAS_LOADING: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
 }
 
+/// Cooldown counter for "turbo cleanup" during loading spikes.
+/// Prevents per-frame destruction_protocol calls when Havok is busy.
+static TURBO_COOLDOWN: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
+
 /// Phase 7: per-frame queue drain (before AI_START).
 ///
 /// Vanilla behavior: Only drains PDD queues and emergency pool.
@@ -142,15 +146,21 @@ pub unsafe extern "C" fn hook_per_frame_queue_drain() {
     // During fast travel, the game allocates rapidly. The 500ms cooldown is
     // too slow to keep up with these spikes.
     // If we are loading AND commit exceeds the session baseline by a safety
-    // margin (512MB), run cleanup every frame to prevent OOM.
+    // margin (512MB), run cleanup to prevent OOM.
     // This is fully dynamic: it adapts to the user's specific baseline usage.
+    //
+    // Cooldown: 10 frames (~166ms) between turbo cleanup calls to avoid
+    // per-frame wasted calls when Havok is busy.
     const LOADING_SAFETY_MARGIN: usize = 512 * 1024 * 1024; // 512MB
     if globals::is_loading()
         && let Some(pr) = PressureRelief::instance() {
             let baseline = pr.baseline_commit();
-            // baseline is in bytes. If baseline is 0 (not yet calibrated), skip.
-            if baseline > 0 && heap.commit_bytes() > baseline + LOADING_SAFETY_MARGIN {
+            let cooldown = TURBO_COOLDOWN.load(std::sync::atomic::Ordering::Relaxed);
+            if cooldown > 0 {
+                TURBO_COOLDOWN.fetch_sub(1, std::sync::atomic::Ordering::Relaxed);
+            } else if baseline > 0 && heap.commit_bytes() > baseline + LOADING_SAFETY_MARGIN {
                 unsafe { pr.run_cleanup() };
+                TURBO_COOLDOWN.store(10, std::sync::atomic::Ordering::Release);
             }
         }
 
@@ -224,6 +234,21 @@ unsafe fn on_loading_start() {
 }
 
 // First frame after loading ends. Disable loading bypass, resume normal pooling.
+//
+// DO NOT call mi_collect or drain_pool here. During post-loading stabilization,
+// NVSE is rebuilding its FunctionInfo cache from freshly-reallocated Script
+// bytecode buffers. mi_collect(false) decommits freed pages within partially-
+// empty mimalloc segments. If the OLD bytecode pages are decommitted BEFORE
+// NVSE finishes building its cache, NVSE's ScriptIterator dereferences
+// decommitted memory → C0000005 in ScriptAnalyzer.cpp:162.
+//
+// The pool is always empty after loading (inactive during loading), so
+// drain_pool returns 0 blocks. The mi_collect provides zero VAS benefit
+// (commit is already stable after loading ends) but introduces a page
+// decommit race window that causes deterministic crashes with large mod
+// lists (525MB+ loading spikes).
+//
+// See: analysis/ghidra/output/memory/bulletproof_script_crash.txt
 #[cold]
 fn on_loading_end() {
     allocator::set_loading_bypass(false);

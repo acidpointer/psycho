@@ -124,6 +124,12 @@ pub type HavokStopStartFn = unsafe extern "C" fn(mode: u8) -> u8;
 /// non_blocking=0 waits for all ops, non_blocking=1 skips if busy.
 pub type AsyncQueueFlushFn = unsafe extern "C" fn(non_blocking: u8);
 
+/// FUN_00c459d0: Havok garbage collect (hkMemorySystem::garbageCollect).
+/// force=true forces collection, force=0 is incremental.
+/// This operates on the Havok memory system, NOT the physics world lock.
+/// Safe to call from any thread without holding the Havok world lock.
+pub type HavokGcFn = unsafe extern "C" fn(force: u8);
+
 /// FUN_00703980: invalidates scene graph, forces SpeedTree draw list rebuild.
 pub type SceneGraphInvalidateFn = unsafe extern "stdcall" fn();
 

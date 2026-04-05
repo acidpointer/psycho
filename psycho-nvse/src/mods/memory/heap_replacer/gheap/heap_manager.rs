@@ -158,16 +158,32 @@ impl HeapManager {
 
     /// Signal HeapCompact to run stages 0..=stage on the next frame.
     ///
-    /// MAX semantics: never downgrades an existing trigger. Worker OOM
-    /// stage 8 writes trigger=6 from its thread -- writing a lower value
-    /// here would clobber that request.
+    /// Uses a CAS loop for atomic MAX semantics -- never downgrades an
+    /// existing trigger. Worker OOM stage 8 writes trigger=6 from its
+    /// thread -- writing a lower value here would clobber that request.
     pub fn signal_heap_compact(&self, stage: HeapCompactStage) {
-        unsafe {
-            let trigger = addr::HEAP_COMPACT_TRIGGER as *mut u32;
-            let current = trigger.read_volatile();
-            let desired = stage as u32;
-            if desired > current {
-                trigger.write_volatile(desired);
+        let trigger = unsafe {
+            std::sync::atomic::AtomicI32::from_ptr(addr::HEAP_COMPACT_TRIGGER as *mut i32)
+        };
+        let desired = stage as i32;
+
+        loop {
+            let current = trigger.load(std::sync::atomic::Ordering::Relaxed);
+            if desired <= current {
+                break; // Already at this stage or higher
+            }
+            // Atomic MAX: only write if trigger still equals our read
+            match trigger.compare_exchange_weak(
+                current,
+                desired,
+                std::sync::atomic::Ordering::Release,
+                std::sync::atomic::Ordering::Relaxed,
+            ) {
+                Ok(_) => break, // CAS succeeded
+                Err(_) => {
+                    // Another thread modified trigger between our read and CAS.
+                    // Retry with the new current value.
+                }
             }
         }
     }

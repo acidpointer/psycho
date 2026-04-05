@@ -135,8 +135,9 @@ pub unsafe fn alloc(size: usize) -> *mut c_void {
 ///    - Provides defense-in-depth
 ///
 /// FreeNode header at pool entry provides runtime protection:
-///   offset 0: next pointer (freelist chain)
+///   offset 0: original vtable (preserved for safe async flush dispatch)
 ///   offset 4: usable_size (block size, replaces RefCount)
+///   offset 8: next pointer (freelist chain)
 ///
 /// When game accesses freed object:
 ///   1. Reads offset 4 as RefCount → gets usable_size (e.g., 48)
@@ -147,6 +148,16 @@ pub unsafe fn alloc(size: usize) -> *mut c_void {
 ///   - AI worker threads running Havok broadphase
 ///   - IO threads completing texture loads
 ///   - Scene graph traversals accessing freed nodes
+///
+/// ## Loading-Safe Free Path
+///
+/// During loading (LOADING_BYPASS active), the game frees entire cells worth
+/// of objects. If all these went to mi_free (the old behavior), cross-thread
+/// readers (AI threads finishing, BSTaskManagerThread loading textures) would
+/// read garbage. Instead, we use a tiered approach:
+///   - UAF-sensitive objects: ALWAYS pool (zombie quarantine)
+///   - Non-sensitive, large (>= 1KB): mi_free (VAS recovery)
+///   - Non-sensitive, small (< 1KB): pool (minimal VAS impact)
 #[inline]
 pub unsafe fn free(ptr: *mut c_void) {
     if ptr.is_null() {
@@ -158,7 +169,7 @@ pub unsafe fn free(ptr: *mut c_void) {
             // PRIMARY: Vtable check - works for ALL objects including pre-plugin
             let vtable = unsafe { *(ptr as *const *const u8) };
             let addr = vtable as usize;
-            let is_uaf_sensitive_vtable = 
+            let is_uaf_sensitive_vtable =
                 // NiRefObjects: textures, nodes, BSTree, etc.
                 (0x01010000..0x010F0000).contains(&addr)
                 // Havok physics: broadphase, islands, collision, rigid bodies
@@ -168,23 +179,30 @@ pub unsafe fn free(ptr: *mut c_void) {
             let is_uaf_sensitive_bitmap = uaf_bitmap::is_uaf_sensitive_segment(ptr as *mut u8);
 
             if is_uaf_sensitive_vtable || is_uaf_sensitive_bitmap {
-                // ALWAYS pool UAF-sensitive types.
+                // ALWAYS pool UAF-sensitive types, even during loading bypass.
                 // FreeNode header makes RefCount irrelevant - stale readers
                 // see usable_size instead of RefCount, preventing destructor calls.
+                // This is the KEY FIX for loading-time UAF crashes.
                 unsafe { pool::pool_free(ptr) };
                 return;
             }
 
-            // Non-sensitive: normal bypass logic
-            // Large bypass (cleanup/loading/OOM): large blocks to mi_free.
-            // Small blocks stay in pool as zombies for concurrent IO safety.
+            // Non-sensitive: tiered free path.
+            // During loading bypass, large blocks go to mi_free for VAS recovery.
+            // Small blocks still pool for zombie safety (minimal VAS impact).
             if is_bypass_active() {
                 let usable = unsafe { mi_usable_size(ptr as *const c_void) };
                 if usable >= pool::SMALL_BLOCK_THRESHOLD {
                     unsafe { libmimalloc::mi_free(ptr) };
                     return;
                 }
+                // Small non-sensitive blocks: pool for zombie safety.
+                // VAS impact is minimal (< 1KB per block, soft cap at 32MB).
+                unsafe { pool::pool_free(ptr) };
+                return;
             }
+
+            // Normal (no bypass): pool everything
             unsafe { pool::pool_free(ptr) };
         } else {
             unsafe { libmimalloc::mi_free(ptr) };
@@ -304,6 +322,22 @@ unsafe fn do_recover_oom(size: usize) -> *mut c_void {
         commit_entry, heap.pool_mb(),
     );
 
+    // --- Emergency pool drain (main thread only) ---
+    // Workers set this flag; main thread Phase 7 normally consumes it.
+    // But when the main thread is IN OOM recovery, it never reaches Phase 7.
+    // Consume the flag here to drain stale zombie blocks immediately.
+    if is_main && heap.take_emergency_drain() {
+        let drained = unsafe { heap.drain_pool(pool::SMALL_BLOCK_THRESHOLD) };
+        let ptr = unsafe { mi_malloc_aligned(size, ALIGN) };
+        if !ptr.is_null() {
+            log::info!(
+                "[OOM] Recovered after emergency drain: drained={} size={} commit={}-->{}MB",
+                drained, size, commit_entry, heap.commit_mb(),
+            );
+            return ptr;
+        }
+    }
+
     // Worker: signal main thread to drain its pool at Phase 7.
     if !is_main {
         heap.signal_emergency_drain();
@@ -354,8 +388,22 @@ unsafe fn do_recover_oom(size: usize) -> *mut c_void {
         cycles += 1;
         let commit_before = heap.commit_bytes();
 
-        // Run current stage -- bypass=false for zombie-safe cleanup
-        let (next, done) = unsafe { heap.run_oom_stage(stage, false) };
+        // Run current stage. Choose bypass mode based on stage and loading state:
+        //
+        // During loading OOM, stages 0-2 (texture/geometry/menu cache flush)
+        // have no cross-thread readers -- the IO thread is loading new content,
+        // not reading the old cache. Using bypass=true reclaims VAS immediately,
+        // which is critical during loading when VAS pressure is highest.
+        //
+        // Stage 5 (Cell Unload) MUST use bypass=false because Havok entities
+        // and scene graph nodes freed during cell teardown may have active
+        // stale readers (AI threads, BSTaskManagerThread).
+        //
+        // During active gameplay (not loading), all stages use bypass=false
+        // for maximum zombie safety.
+        let loading = globals::is_loading();
+        let bypass = loading && stage <= 2;
+        let (next, done) = unsafe { heap.run_oom_stage(stage, bypass) };
         stage = next;
 
         // Try allocation after every stage
@@ -512,7 +560,23 @@ unsafe fn do_recover_oom(size: usize) -> *mut c_void {
     if !ptr.is_null() { return ptr; }
 
     // Nuclear: drain ALL pool blocks. UAF risk accepted -- crash is
-    // the alternative.
+    // the alternative. But first, wait for AI threads to join and
+    // release BSTaskManager semaphores to minimize stale readers.
+    //
+    // Wait up to 2 seconds for AI threads to complete. They should
+    // join within one frame (~16ms), so 2s is generous.
+    let ai_wait_start = libpsycho::os::windows::winapi::get_tick_count();
+    while super::game_guard::is_ai_active() {
+        unsafe { super::engine::globals::release_bstask_sems_if_owned() };
+        libpsycho::os::windows::winapi::sleep(1);
+        if libpsycho::os::windows::winapi::get_tick_count() - ai_wait_start > 2000 {
+            log::warn!("[OOM] AI threads did not join within 2s, proceeding with drain_all");
+            break;
+        }
+    }
+    // Final semaphore release before drain.
+    unsafe { super::engine::globals::release_bstask_sems_if_owned() };
+
     let drained = unsafe { pool::pool_drain_all() };
     let commit_after_drain = heap.commit_mb();
     let freed_mb = commit_entry.saturating_sub(commit_after_drain);

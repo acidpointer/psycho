@@ -17,6 +17,7 @@
 
 use libc::c_void;
 use std::sync::atomic::{AtomicUsize, Ordering};
+use std::time::{Duration, Instant};
 
 use super::globals;
 
@@ -74,6 +75,20 @@ impl CellUnloadGuard {
     fn acquire() -> Result<Self, AcquireError> {
         if super::super::game_guard::is_ai_active() {
             return Err(AcquireError::AiActive);
+        }
+
+        // Wait for Havok physics to quiesce. pre_destruction_setup internally
+        // calls hkWorld_Lock which spin-locks with no timeout. If Havok is
+        // mid-step, we'd freeze forever. This matches the game's own
+        // CellTransitionHandler pattern: FUN_008324e0(0) stops Havok first.
+        const HAVOK_WAIT: Duration = Duration::from_secs(5);
+        let havok_start = Instant::now();
+        while super::super::game_guard::is_havok_active() {
+            if havok_start.elapsed() > HAVOK_WAIT {
+                log::warn!("[CELL_UNLOAD] Havok did not quiesce within 5s, aborting");
+                return Err(AcquireError::SetupFailed);
+            }
+            libpsycho::os::windows::winapi::sleep(1);
         }
 
         let manager = globals::game_manager().ok_or(AcquireError::NoManager)?;
@@ -237,7 +252,11 @@ pub fn execute(max_cells: usize) -> Option<CellUnloadResult> {
     guard.run_cleanup();
     drop(guard);
 
-    let commit_after = info.get_current_commit();
+    // Capture commit_after with a FRESH snapshot. The previous
+    // `info` was captured before unload_cells(), so its get_current_commit()
+    // returns the pre-unload value. Reading from it gives freed=0 always.
+    let info_after = libmimalloc::process_info::MiMallocProcessInfo::get();
+    let commit_after = info_after.get_current_commit();
     let quarantine_after = crate::mods::memory::heap_replacer::gheap::pool::pool_held_bytes();
     let freed = commit_before.saturating_sub(commit_after);
 
@@ -304,7 +323,9 @@ pub fn execute_during_loading(max_cells: usize) -> Option<CellUnloadResult> {
     guard.run_cleanup();
     drop(guard);
 
-    let commit_after = info.get_current_commit();
+    // Fresh snapshot after unload (same fix as execute()).
+    let info_after = libmimalloc::process_info::MiMallocProcessInfo::get();
+    let commit_after = info_after.get_current_commit();
     let freed = commit_before.saturating_sub(commit_after);
 
     TOTAL_CELLS_UNLOADED.fetch_add(cells, Ordering::Relaxed);

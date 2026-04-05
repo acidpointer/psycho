@@ -44,6 +44,13 @@ const CRITICAL_GROWTH: usize = 700 * 1024 * 1024; // 700MB
 /// During loading, lower all thresholds by this amount.
 const LOADING_THRESHOLD_REDUCTION: usize = 200 * 1024 * 1024; // 200MB
 
+/// Fallback absolute threshold (bytes) used when baseline is not yet
+/// calibrated. Prevents a blind spot during early gameplay before
+/// Phase 10 runs calibration. Normal gameplay commit is ~800MB-1.2GB;
+/// 2GB is high enough to avoid false positives during startup but low
+/// enough to catch pathological early spikes.
+const FALLBACK_ABSOLUTE_THRESHOLD: usize = 2 * 1024 * 1024 * 1024; // 2GB
+
 /// Minimum growth rate (bytes/sec) to trigger aggressive cleanup.
 /// 2MB/s sustained growth means VAS will exhaust within minutes.
 const AGGRESSIVE_RATE_THRESHOLD: i32 = 2 * 1024 * 1024;
@@ -171,23 +178,35 @@ fn watchdog_loop(run: Arc<std::sync::atomic::AtomicBool>) {
         };
 
         let baseline = pr.baseline_commit();
-        if baseline == 0 {
-            log_diagnostics(poll_count, &info);
-            continue;
-        }
-
-        let growth = commit.saturating_sub(baseline);
         let loading = globals::is_loading();
 
-        // Lower thresholds during loading.
-        let reduction = if loading {
-            LOADING_THRESHOLD_REDUCTION
+        // Use baseline-relative thresholds when calibrated, or absolute
+        // fallback when baseline is not yet available (early gameplay).
+        let (growth, normal_thresh, aggressive_thresh, critical_thresh) = if baseline > 0 {
+            let reduction = if loading {
+                LOADING_THRESHOLD_REDUCTION
+            } else {
+                0
+            };
+            let g = commit.saturating_sub(baseline);
+            (
+                g,
+                NORMAL_GROWTH.saturating_sub(reduction),
+                AGGRESSIVE_GROWTH.saturating_sub(reduction),
+                CRITICAL_GROWTH.saturating_sub(reduction),
+            )
         } else {
-            0
+            // Baseline not calibrated yet -- use absolute commit thresholds.
+            // This prevents a blind spot during early gameplay.
+            let reduction = if loading { LOADING_THRESHOLD_REDUCTION } else { 0 };
+            let normal_abs = FALLBACK_ABSOLUTE_THRESHOLD.saturating_sub(reduction);
+            (
+                commit, // growth = absolute commit when baseline=0
+                normal_abs,
+                normal_abs + 256 * 1024 * 1024, // +250MB for aggressive
+                normal_abs + 500 * 1024 * 1024, // +500MB for critical
+            )
         };
-        let normal_thresh = NORMAL_GROWTH.saturating_sub(reduction);
-        let aggressive_thresh = AGGRESSIVE_GROWTH.saturating_sub(reduction);
-        let critical_thresh = CRITICAL_GROWTH.saturating_sub(reduction);
 
         let mut level: u8 = 0;
 

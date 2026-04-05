@@ -159,6 +159,10 @@ pub const HKWORLD_LOCK: usize = 0x00C3E310;
 // Called after physics step completes.
 pub const HKWORLD_UNLOCK: usize = 0x00C3E340;
 
+// FUN_00C459D0: Havok GC (hkMemorySystem::garbageCollect).
+// force=true forces full collection. Does NOT require world lock.
+pub const HAVOK_GC: usize = 0x00C459D0;
+
 // ---------------------------------------------------------------------------
 // Game functions -- BSTaskManagerThread semaphore management (OOM Stage 8)
 // ---------------------------------------------------------------------------

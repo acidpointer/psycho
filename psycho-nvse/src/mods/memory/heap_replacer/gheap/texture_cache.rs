@@ -150,16 +150,31 @@ unsafe fn find_skipping_dead(
                                 .fetch_sub(1, std::sync::atomic::Ordering::AcqRel)
                                 - 1;
                             if rc == 0 {
-                                // vtable[1] = destructor (thiscall)
+                                // Validate vtable pointer BEFORE calling destructor.
+                                // old_val may be a freed wrapper object with a corrupted
+                                // vtable. Jumping to garbage vtable[1] = instant crash.
+                                // Ghidra-verified: FNV .rdata (vtables) is in
+                                // 0x01000000-0x01100000, .text (code) in 0x00400000-0x00E00000.
                                 let vtable = *(old_val as *const *const usize);
-                                let dtor_addr = *vtable.add(1) as *mut c_void;
-                                if let Ok(dtor) = FnPtr::<
-                                    unsafe extern "thiscall" fn(*mut c_void),
-                                >::from_raw(dtor_addr)
-                                    && let Ok(f) = dtor.as_fn()
-                                {
-                                    f(old_val as *mut c_void);
+                                let vtable_valid = (0x0100_0000..0x0110_0000)
+                                    .contains(&(vtable as usize));
+                                if vtable_valid {
+                                    let dtor_addr = *vtable.add(1);
+                                    let dtor_valid =
+                                        (0x0040_0000..0x00E0_0000).contains(&dtor_addr);
+                                    if dtor_valid {
+                                        if let Ok(dtor) = FnPtr::<
+                                            unsafe extern "thiscall" fn(*mut c_void),
+                                        >::from_raw(dtor_addr as *mut c_void)
+                                            && let Ok(f) = dtor.as_fn()
+                                        {
+                                            f(old_val as *mut c_void);
+                                        }
+                                    }
+                                    // If invalid, skip destructor -- memory leak is better
+                                    // than jumping to arbitrary code.
                                 }
+                                // If vtable is invalid, skip destructor entirely.
                             }
                         }
                         *out = new_inner;

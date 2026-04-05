@@ -215,9 +215,27 @@ impl PressureRelief {
         let mut state = match unsafe { globals::pre_destruction_setup() } {
             Some(s) => s,
             None => {
-                // If Havok lock fails, we still ran stages 0-2 above.
-                // Return now to avoid unsafe cell unload without lock.
+                // Havok lock failed (physics busy). Run Havok-independent
+                // cleanup as fallback: Havok GC + PDD purge + pool drain.
+                // This is significantly better than doing nothing.
+                //
+                // Ghidra-verified: Havok GC (FUN_00c459d0) operates on
+                // hkMemorySystem, NOT the physics world -- no lock needed.
+                // PDD purge (FUN_00868d70) only needs process manager lock.
+                log::debug!(
+                    "[DESTRUCTION] Havok lock failed, running fallback cleanup"
+                );
+                unsafe { globals::havok_gc(1) }; // force=true
+                unsafe { globals::pdd_purge() };
+                unsafe { libmimalloc::mi_collect(false) };
+                let drained = unsafe { pool::pool_drain_large(pool::SMALL_BLOCK_THRESHOLD) };
+                unsafe { libmimalloc::mi_collect(false) };
+
                 loading_counter.fetch_sub(1, std::sync::atomic::Ordering::AcqRel);
+                log::debug!(
+                    "[DESTRUCTION] Fallback cleanup: {} drained, commit={}MB",
+                    drained, heap.commit_mb(),
+                );
                 return 0;
             }
         };
