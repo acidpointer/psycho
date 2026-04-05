@@ -133,11 +133,26 @@ pub unsafe extern "C" fn hook_per_frame_queue_drain() {
             globals::pdd_queue_count(PddQueue::Form),
         );
     }
-    if request >= 2 {
-        if let Some(pr) = PressureRelief::instance() {
+    if request >= 2
+        && let Some(pr) = PressureRelief::instance() {
             unsafe { pr.run_cleanup() };
         }
-    }
+
+    // --- "Turbo" Cleanup during loading spikes ---
+    // During fast travel, the game allocates rapidly. The 500ms cooldown is
+    // too slow to keep up with these spikes.
+    // If we are loading AND commit exceeds the session baseline by a safety
+    // margin (512MB), run cleanup every frame to prevent OOM.
+    // This is fully dynamic: it adapts to the user's specific baseline usage.
+    const LOADING_SAFETY_MARGIN: usize = 512 * 1024 * 1024; // 512MB
+    if globals::is_loading()
+        && let Some(pr) = PressureRelief::instance() {
+            let baseline = pr.baseline_commit();
+            // baseline is in bytes. If baseline is 0 (not yet calibrated), skip.
+            if baseline > 0 && heap.commit_bytes() > baseline + LOADING_SAFETY_MARGIN {
+                unsafe { pr.run_cleanup() };
+            }
+        }
 
     // Clear texture dead set under write lock.
     game_guard::with_write("dead_set_clear", || {

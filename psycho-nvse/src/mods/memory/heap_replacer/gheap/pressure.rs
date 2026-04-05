@@ -199,11 +199,24 @@ impl PressureRelief {
         let loading_counter = globals::loading_state_counter();
         loading_counter.fetch_add(1, std::sync::atomic::Ordering::AcqRel);
 
+        // CRITICAL: Run loading stages 0-2 BEFORE attempting Havok lock.
+        // During fast travel, Havok is often busy or uninitialized, causing
+        // pre_destruction_setup to fail. Stages 0-2 (Texture/Geometry cache
+        // flush) do NOT require the Havok lock and can run safely at any time.
+        // This ensures we free cache memory even if the Havok lock fails.
+        if globals::is_loading() {
+            unsafe { heap.run_oom_stage(0, false) };
+            unsafe { heap.run_oom_stage(1, false) };
+            unsafe { heap.run_oom_stage(2, false) };
+        }
+
         // Lock Havok world + invalidate scene graph. Without this,
         // AI threads access Havok objects from unloaded cells --> crash.
         let mut state = match unsafe { globals::pre_destruction_setup() } {
             Some(s) => s,
             None => {
+                // If Havok lock fails, we still ran stages 0-2 above.
+                // Return now to avoid unsafe cell unload without lock.
                 loading_counter.fetch_sub(1, std::sync::atomic::Ordering::AcqRel);
                 return 0;
             }
@@ -212,12 +225,7 @@ impl PressureRelief {
         // Run Stage 5 in a loop until game says no more cells eligible.
         // Each call runs 5→4→3 automatically (fallthrough in switch case).
         // The game's FindCellToUnload returns no cell when none are eligible,
-        // causing stage to advance to 6. We stop then.
-        //
-        // This matches vanilla behavior: unload ALL eligible cells, not just 1-2.
-        // DeferredCleanupSmall runs ONCE at the end, after ALL cells are unloaded.
-        // This ensures JIP NVSE and other mods see a complete set of queued
-        // references rather than processing them piecemeal (which causes UAF).
+        // causing stage to advance to 6.
         let mut stage: i32 = 5;
         loop {
             let (next, _done) = unsafe { heap.run_oom_stage(stage, false) };

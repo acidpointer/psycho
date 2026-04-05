@@ -116,18 +116,25 @@ pub struct Pool {
 
 /// Freelist node header stored at the start of each freed block.
 ///
-/// Minimum game allocation is 16 bytes (ALIGN), so 8 bytes is always available.
-/// - offset 0: next pointer (freelist chain)
+/// Minimum game allocation is 16 bytes (ALIGN), so 12 bytes is always available.
+/// - offset 0: original vtable (preserved for safe async flush dispatch)
 /// - offset 4: usable_size (exact mi_usable_size at allocation time)
+/// - offset 8: next pointer (freelist chain)
 ///
 /// Stale readers that read offset 4 as refcount (NiRefObject pattern) will
 /// find a small integer (the block size, e.g. 48). InterlockedDecrement(48)
-/// gives 47, never 0, so no vtable call is triggered. Safer than SBM which
-/// stores a heap address at offset 4 (freelist prev/next).
+/// gives 47, never 0, so no vtable call is triggered.
+///
+/// Preserving the original vtable at offset 0 prevents C0000417 crashes when
+/// the async flush (0x00C459D0) walks the scene graph and tries to dispatch
+/// virtual methods on freed BSTreeNode objects. With a corrupted vtable, the
+/// flush jumps to garbage code. With the original vtable intact, it safely
+/// calls the real method which handles the RefCount=0 case gracefully.
 #[repr(C)]
 struct FreeNode {
-    next: *mut FreeNode,
+    vtable: *const c_void,
     usable_size: u32,
+    next: *mut FreeNode,
 }
 
 // Pool is thread-local and never shared.
@@ -250,8 +257,13 @@ impl Pool {
     fn push(&mut self, idx: usize, usable: usize, ptr: *mut c_void) {
         let node = ptr as *mut FreeNode;
         unsafe {
-            (*node).next = std::ptr::null_mut();
+            // Read original vtable BEFORE overwriting anything.
+            // This preserves the vtable so async flush can safely dispatch
+            // virtual methods on freed objects without C0000417 crashes.
+            let orig_vtable = *(ptr as *const *const c_void);
+            (*node).vtable = orig_vtable;
             (*node).usable_size = usable as u32;
+            (*node).next = std::ptr::null_mut();
         }
         let q = &mut self.slots[idx];
         if q.tail.is_null() {

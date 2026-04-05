@@ -333,19 +333,29 @@ unsafe fn do_recover_oom(size: usize) -> *mut c_void {
     // menu) are NO-OP during gameplay. Stage 6 (SBM GlobalCleanup)
     // ALLOCATES memory. Stage 7 is give_up check.
     //
+    // bypass=false -- ALL frees go to pool (zombie-safe).
+    // bypass=true causes SBM state corruption: objects freed via mi_free
+    // during HeapCompact stages 5-8 leave dangling references in SBM
+    // internal structures, causing crashes when Stage 8 accesses them.
+    // The vanilla SBM keeps objects in arenas until cleanup completes --
+    // our pool quarantine provides the same behavior.
+    //
     // Stages 0-2 are skipped (NO-OP during gameplay), Stage 6 is skipped (allocates memory).
     // Stage 5 (Cell Unload) runs until game says no more cells eligible (give_up flag).
     // This matches vanilla behavior: unload ALL eligible cells, not just 1-2.
-
-    let mut stage: i32 = 3;  // Start at Stage 3 (Havok GC), skip wasteful 0-2
+    //
+    // During loading, start at Stage 0 (Texture/Geometry cache flush).
+    // Stages 3-5 (Havok/Cell Unload) are blocked by the Loading state, so
+    // we must run 0-2 to free the old cache data before loading new cells.
+    let mut stage: i32 = if globals::is_loading() { 0 } else { 3 };
     let mut cycles: u32 = 0;
 
     loop {
         cycles += 1;
         let commit_before = heap.commit_bytes();
 
-        // Run current stage
-        let (next, done) = unsafe { heap.run_oom_stage(stage, true) };
+        // Run current stage -- bypass=false for zombie-safe cleanup
+        let (next, done) = unsafe { heap.run_oom_stage(stage, false) };
         stage = next;
 
         // Try allocation after every stage
@@ -388,21 +398,16 @@ unsafe fn do_recover_oom(size: usize) -> *mut c_void {
         }
 
         // Stage 6 allocates memory (SBM GlobalCleanup) -- skip it.
-        // Stage 7 means give_up was set. On main thread, this is the
-        // final attempt before CRT fallback.
+        // Stage 7 falls through to Stage 8 (thread suspend/resume) which crashes
+        // when BSTaskManager thread array has NULL entries. Skip both 7 and 8.
         if stage >= 6 {
-            // Skip stage 6 (allocates), fall through to stage 7 (give_up check)
-            if stage == 6 {
-                stage = 7;
-                continue;
-            }
             // Log final stats before fallback
             let freed = commit_before.saturating_sub(heap.commit_bytes());
             if freed < 64 * 1024 {
                 log::warn!(
-                    "[OOM] Minimal cleanup ({}) at stage 7, commit={}-->{}MB",
+                    "[OOM] Minimal cleanup ({}) at stage {}, commit={}-->{}MB",
                     if freed == 0 { "nothing freed" } else { "very little" },
-                    commit_entry, heap.commit_mb(),
+                    stage, commit_entry, heap.commit_mb(),
                 );
             }
             break;
