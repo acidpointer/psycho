@@ -162,15 +162,14 @@ unsafe fn find_skipping_dead(
                                     let dtor_addr = *vtable.add(1);
                                     let dtor_valid =
                                         (0x0040_0000..0x00E0_0000).contains(&dtor_addr);
-                                    if dtor_valid {
-                                        if let Ok(dtor) = FnPtr::<
+                                    if dtor_valid
+                                        && let Ok(dtor) = FnPtr::<
                                             unsafe extern "thiscall" fn(*mut c_void),
                                         >::from_raw(dtor_addr as *mut c_void)
                                             && let Ok(f) = dtor.as_fn()
                                         {
                                             f(old_val as *mut c_void);
                                         }
-                                    }
                                     // If invalid, skip destructor -- memory leak is better
                                     // than jumping to arbitrary code.
                                 }

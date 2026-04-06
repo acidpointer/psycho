@@ -157,11 +157,11 @@ impl Config {
 
     /// Load config with automatic schema migration.
     ///
-    /// - If the file doesn't exist → creates it with defaults.
-    /// - If the file has missing fields → fills them with defaults.
-    /// - If the file has removed fields → prunes them.
+    /// - If the file doesn't exist --> creates it with defaults.
+    /// - If the file has missing fields --> fills them with defaults.
+    /// - If the file has removed fields --> prunes them.
     /// - Re-writes the file only when the schema changed.
-    /// - On parse error → logs warning, returns defaults, overwrites file.
+    /// - On parse error --> logs warning, returns defaults, overwrites file.
     ///
     /// Requires `T` to derive `Default` and use `#[serde(default)]` on all
     /// structs so that missing fields deserialize to their defaults.

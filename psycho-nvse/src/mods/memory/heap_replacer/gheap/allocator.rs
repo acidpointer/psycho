@@ -583,23 +583,18 @@ unsafe fn do_recover_oom(size: usize) -> *mut c_void {
         // WORKER THREAD: Self-sufficient OOM recovery.
         // DO NOT signal main thread — during OOM, main thread often waits for
         // workers to complete. Signaling creates a deadlock:
-        //   Main thread --> waits for worker to finish
-        //   Worker thread --> waits for main thread to clean up
+        //   Main thread -> waits for worker to finish
+        //   Worker thread -> waits for main thread to clean up
         //
-        // Instead, run thread-safe cleanup stages ourselves. This matches the
-        // game's own Stage 8 design (Ghidra-verified): workers release their
-        // BSTaskManagerThread semaphores, sleep, and retry — without main
-        // thread involvement.
+        // Workers must NOT call game cleanup stages (Havok GC, cell
+        // unload, etc.) during OOM. These functions iterate through game data
+        // structures that may be corrupted under memory pressure, causing
+        // crashes inside the cleanup itself. Instead, workers use pure mimalloc
+        // operations: release semaphores -> mi_collect -> retry.
         //
-        // Thread-safe stages (Ghidra-verified):
-        //   Stage 3: Havok GC (FUN_00c459d0) — frees dead Havok entities
-        //   Stage 1: Free cached geometry — frees cached data
-        //
-        // CRITICAL: mi_collect(true) decommits ALL free pages immediately,
-        // bypassing the 100ms purge_delay. Only use as ABSOLUTE LAST RESORT.
-        const MAX_WORKER_CLEANUP_CYCLES: u32 = 10;
-
-        let mut prev_commit = heap.commit_bytes();
+        // This matches the game's Stage 8 design (Ghidra-verified): workers
+        // release BSTaskManagerThread semaphores to let IO complete, then retry.
+        const MAX_WORKER_CLEANUP_CYCLES: u32 = 3;
 
         for cycle in 0..MAX_WORKER_CLEANUP_CYCLES {
             // Step 1: Release BSTaskManagerThread semaphores if we own them.
@@ -607,35 +602,15 @@ unsafe fn do_recover_oom(size: usize) -> *mut c_void {
             // Matches vanilla Stage 8 behavior.
             unsafe { super::engine::globals::release_bstask_sems_if_owned() };
 
-            // Step 2: Havok GC (Stage 3) — frees dead Havok entities.
-            // Thread-safe per Ghidra analysis. Only run in first 5 cycles
-            // to avoid unnecessary overhead if Havok GC is ineffective.
-            if cycle < 5 {
-                let (_next, _done) = unsafe { heap.run_oom_stage(3, false) };
-            }
-
-            // Step 3: Brief sleep to let other threads finish operations.
+            // Step 2: Brief sleep to let other threads finish operations.
             // Vanilla Stage 8 sleeps 1ms per retry.
             libpsycho::os::windows::winapi::sleep(1);
 
-            // Step 4: Conservative collection — only fully-free segments.
+            // Step 3: Conservative collection — only fully-free segments.
             // SAFE: doesn't bypass purge_delay, won't decommit recent frees.
             unsafe { mi_collect(false) };
 
-            // Step 5: Check for death spiral — if we freed less than 1% of
-            // commit, further cycles won't help. Go nuclear immediately.
-            let freed = prev_commit.saturating_sub(heap.commit_bytes());
-            let death_spiral_threshold = commit_entry / 100; // 1% of commit at OOM entry
-            if cycle > 0 && freed < death_spiral_threshold {
-                log::warn!(
-                    "[OOM] Worker death spiral detected: cycle={}, freed={}KB (threshold={}MB)",
-                    cycle + 1, freed / 1024, death_spiral_threshold / 1024 / 1024,
-                );
-                break;
-            }
-            prev_commit = heap.commit_bytes();
-
-            // Step 6: Retry allocation.
+            // Step 4: Retry allocation.
             let ptr = unsafe { mi_malloc_aligned(size, ALIGN) };
             if !ptr.is_null() {
                 log::info!(
@@ -646,10 +621,9 @@ unsafe fn do_recover_oom(size: usize) -> *mut c_void {
             }
         }
 
-        // Worker couldn't recover with safe collection (up to 10 cycles).
-        // As ABSOLUTE LAST RESORT: try aggressive collection.
-        // WARNING: mi_collect(true) bypasses purge_delay — potential UAF risk.
-        // Only do this when the alternative is a guaranteed crash.
+        // Safe collection failed. As LAST RESORT: aggressive mi_collect(true)
+        // which decommits ALL free pages. This bypasses the 100ms purge_delay
+        // but is necessary when the alternative is a guaranteed crash.
         log::warn!(
             "[OOM] Worker escalating to aggressive collect: size={} commit={}MB",
             size, heap.commit_mb(),
@@ -665,7 +639,7 @@ unsafe fn do_recover_oom(size: usize) -> *mut c_void {
         }
 
         // Complete failure. Return NULL — game will crash, but we exhausted
-        // all recovery options without deadlocking the main thread.
+        // all recovery options without calling game code that could crash first.
         log::error!(
             "[OOM] Worker FATAL: size={} commit={}MB after {} safe cycles + aggressive collect",
             size, heap.commit_mb(), MAX_WORKER_CLEANUP_CYCLES,
