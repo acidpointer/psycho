@@ -12,9 +12,9 @@
 //!
 //! UAF-sensitive objects (NiRefObjects, Havok physics) are ALWAYS pooled.
 //! When game accesses freed object:
-//!   1. Reads offset 4 as RefCount → gets usable_size (e.g., 48)
-//!   2. Calls InterlockedDecrement(48) → 47, NOT zero
-//!   3. No destructor call → NO CRASH
+//!   1. Reads offset 4 as RefCount --> gets usable_size (e.g., 48)
+//!   2. Calls InterlockedDecrement(48) --> 47, NOT zero
+//!   3. No destructor call --> NO CRASH
 //!
 //! This protects against cross-thread UAF from:
 //!   - AI worker threads running Havok broadphase

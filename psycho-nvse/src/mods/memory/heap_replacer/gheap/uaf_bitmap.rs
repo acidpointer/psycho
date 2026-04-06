@@ -19,13 +19,13 @@
 //!
 //! At allocation time:
 //!   1. Object is freshly constructed by game code
-//!   2. Vtable is written by constructor → guaranteed valid
-//!   3. We check vtable range → set bitmap bit if UAF-sensitive
+//!   2. Vtable is written by constructor --> guaranteed valid
+//!   3. We check vtable range --> set bitmap bit if UAF-sensitive
 //!
 //! At free time:
 //!   1. Object may have corrupted vtable (race with destructor)
-//!   2. We check bitmap bit → NO object memory access needed
-//!   3. If bit set → ALWAYS pool → FreeNode protection applies
+//!   2. We check bitmap bit --> NO object memory access needed
+//!   3. If bit set --> ALWAYS pool --> FreeNode protection applies
 //!
 //! This eliminates the race condition where vtable is read at free time
 //! after another thread has already corrupted it with freelist pointers.

@@ -78,7 +78,7 @@ pub unsafe extern "C" fn hook_malloc(size: usize) -> *mut c_void {
 
 pub unsafe extern "C" fn hook_calloc(count: usize, size: usize) -> *mut c_void {
     let total = count.saturating_mul(size);
-    // Large zeroed allocations → VirtualAlloc (pages are zeroed by OS)
+    // Large zeroed allocations --> VirtualAlloc (pages are zeroed by OS)
     let result = if total >= LARGE_ALLOC_THRESHOLD {
         unsafe { virtual_alloc::malloc(total) }
     } else {
@@ -90,7 +90,7 @@ pub unsafe extern "C" fn hook_calloc(count: usize, size: usize) -> *mut c_void {
 
 pub unsafe extern "C" fn hook_realloc(raw_ptr: *mut c_void, size: usize) -> *mut c_void {
     if raw_ptr.is_null() {
-        // realloc(NULL, size) → malloc(size)
+        // realloc(NULL, size) --> malloc(size)
         return unsafe { hook_malloc(size) };
     }
 
@@ -129,7 +129,7 @@ pub unsafe extern "C" fn hook_recalloc(
     };
 
     if raw_ptr.is_null() {
-        // recalloc(NULL, ...) → zeroed allocation
+        // recalloc(NULL, ...) --> zeroed allocation
         return if new_total >= LARGE_ALLOC_THRESHOLD {
             unsafe { virtual_alloc::malloc(new_total) }
         } else {

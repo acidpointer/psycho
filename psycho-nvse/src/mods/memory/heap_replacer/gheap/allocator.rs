@@ -170,15 +170,16 @@ pub fn set_vas_emergency(active: bool) {
     VAS_EMERGENCY.store(active, std::sync::atomic::Ordering::Release);
 }
 
-pub fn is_vas_emergency() -> bool {
-    VAS_EMERGENCY.load(std::sync::atomic::Ordering::Acquire)
-}
-
 pub fn with_large_bypass<R>(f: impl FnOnce() -> R) -> R {
+    struct BypassGuard;
+    impl Drop for BypassGuard {
+        fn drop(&mut self) {
+            LARGE_BYPASS.store(false, Ordering::Release);
+        }
+    }
     LARGE_BYPASS.store(true, Ordering::Release);
-    let result = f();
-    LARGE_BYPASS.store(false, Ordering::Release);
-    result
+    let _guard = BypassGuard;
+    f()
 }
 
 pub fn set_loading_bypass(active: bool) {
@@ -238,20 +239,21 @@ pub fn is_main_thread() -> bool {
 
 /// Allocate `size` bytes. Uses thread-local pool, falls back to mi_malloc.
 ///
-/// Large allocations (>= 64KB) go through VirtualAlloc instead of mimalloc.
-/// These are raw data buffers (terrain, DDS files, render buffers), not
-/// game objects with vtables. NiRefObjects are 16-1200 bytes. Routing large
-/// allocations through VirtualAlloc ensures they're freed immediately via
-/// VirtualFree(MEM_RELEASE), solving the partially-empty segment problem
-/// that prevents mimalloc from reclaiming VAS during memory crises.
-///
 /// When mi_malloc succeeds, we check the object's vtable and mark its
 /// segment in the UAF bitmap if it's a UAF-sensitive type. This happens
 /// at allocation time when the vtable is guaranteed valid (just constructed).
+///
+/// Large allocations (>= 1MB) go through VirtualAlloc for immediate VAS
+/// reclamation. This threshold is chosen so that:
+/// - Havok shapes (100KB-500KB) --> mimalloc + pool (UAF protected)
+/// - NiRefObjects (16-1200B) --> mimalloc + pool (UAF protected)
+/// - Terrain meshes, DDS files (1MB+) --> VirtualAlloc (VAS reclaimed)
+///   Game objects are rarely > 1MB. Raw data buffers often are.
 #[inline]
 pub unsafe fn alloc(size: usize) -> *mut c_void {
-    // Large GameHeap allocations → VirtualAlloc. Raw data buffers (terrain,
-    // DDS files, render buffers), no UAF risk — no vtables at this size.
+    // Large raw buffers (>= 1MB) --> VirtualAlloc for immediate VAS reclamation.
+    // Game objects (Havok shapes, NiNodes, etc.) are < 1MB and go through
+    // mimalloc where they get UAF protection via pool + purge_delay.
     if size >= virtual_alloc::LARGE_ALLOC_THRESHOLD {
         let ptr = unsafe { virtual_alloc::malloc(size) };
         if !ptr.is_null() {
@@ -301,9 +303,9 @@ pub unsafe fn alloc(size: usize) -> *mut c_void {
 ///   offset 8: next pointer (freelist chain)
 ///
 /// When game accesses freed object:
-///   1. Reads offset 4 as RefCount → gets usable_size (e.g., 48)
-///   2. Calls InterlockedDecrement(48) → 47, NOT zero
-///   3. No destructor call → NO CRASH
+///   1. Reads offset 4 as RefCount --> gets usable_size (e.g., 48)
+///   2. Calls InterlockedDecrement(48) --> 47, NOT zero
+///   3. No destructor call --> NO CRASH
 ///
 /// This protects against cross-thread UAF from:
 ///   - AI worker threads running Havok broadphase
@@ -365,7 +367,23 @@ pub unsafe fn free(ptr: *mut c_void) {
                 return;
             }
 
-            // Normal (no bypass): pool everything
+            // Normal (no bypass): large blocks (>= 1MB) are raw data buffers
+            // (terrain, textures) that went through VirtualAlloc. They don't
+            // have UAF risk — no vtables at this size. Free via VirtualAlloc
+            // header check (simple memory read, NO sys call).
+            // Small blocks pool for zombie safety.
+            let usable = unsafe { mi_usable_size(ptr as *const c_void) };
+            if usable >= virtual_alloc::LARGE_ALLOC_THRESHOLD {
+                // This shouldn't happen for GameHeap (we route >= 1MB to
+                // VirtualAlloc at alloc time), but if somehow a large block
+                // came through mimalloc (pre-plugin or edge case), free it
+                // via mi_free + mi_collect(true) for VAS reclamation.
+                unsafe { libmimalloc::mi_free(ptr) };
+                unsafe { libmimalloc::mi_collect(true) };
+                return;
+            }
+
+            // Small blocks pool for zombie safety.
             unsafe { pool::pool_free(ptr) };
         } else {
             unsafe { libmimalloc::mi_free(ptr) };
@@ -373,10 +391,10 @@ pub unsafe fn free(ptr: *mut c_void) {
         return;
     }
 
-    // SLOW PATH: Pointer outside mimalloc arena — check VirtualAlloc header.
-    // Large GameHeap allocations (terrain, DDS files, render buffers) use
-    // VirtualAlloc with a magic header. This is a simple memory read — NO
-    // sys call. VirtualQuery was removed because it's expensive and unnecessary.
+    // SLOW PATH: Check VirtualAlloc header. Large allocations (>= 1MB) go
+    // through VirtualAlloc. Header magic check is a simple memory read — NO
+    // sys call. This handles both GameHeap large allocations and CRT large
+    // allocations that were routed through VirtualAlloc.
     if unsafe { virtual_alloc::is_virtual_alloc_ptr(ptr) } {
         unsafe { virtual_alloc::free(ptr) };
         return;
@@ -403,7 +421,8 @@ pub unsafe fn msize(ptr: *mut c_void) -> usize {
         return unsafe { mi_usable_size(ptr as *const c_void) };
     }
 
-    // SLOW PATH: Outside arena — check VirtualAlloc (sys call).
+    // SLOW PATH: Outside arena — check VirtualAlloc header (simple memory
+    // read, NO sys call). Large allocations (>= 1MB) use VirtualAlloc.
     if let Some(size) = unsafe { virtual_alloc::msize(ptr) } {
         return size;
     }
@@ -518,21 +537,7 @@ unsafe fn do_recover_oom(size: usize) -> *mut c_void {
         }
     }
 
-    // Worker: signal main thread to drain its pool at Phase 7.
-    if !is_main {
-        heap.signal_emergency_drain();
-
-        // Release BSTaskManagerThread semaphores if we own them.
-        // This matches vanilla OOM Stage 8 behavior (FUN_00866a90 case 8).
-        // Without this, worker threads holding IO semaphores deadlock:
-        //   - Worker holds semaphore, waits for memory
-        //   - Main thread can't drain IO (semaphore held by worker)
-        //   - Memory can't be freed, worker waits forever
-        // Releasing semaphores lets IO complete, freeing memory for retry.
-        unsafe { super::engine::globals::release_bstask_sems_if_owned() };
-    }
-
-    // --- Phase 1: Active cleanup (stages 3-5, retry alloc after each) ---
+    // --- Phase 1: Active cleanup ---
     //
     // The game's allocator contract: NEVER return NULL.
     // Pattern from vanilla FUN_00aa3e40:
@@ -542,11 +547,11 @@ unsafe fn do_recover_oom(size: usize) -> *mut c_void {
     //       ptr = heap_vtable->alloc(size);
     //   } while (!ptr);
     //
-    // We run stages 3-5 (Havok GC, PDD purge, Cell Unload) which actually
-    // free memory during active gameplay. Stages 0-2 (texture, geometry,
-    // menu) are NO-OP during gameplay. Stage 6 (SBM GlobalCleanup)
-    // ALLOCATES memory. Stage 7 is give_up check.
+    // For WORKER threads: run thread-safe cleanup stages (Havok GC + semaphore
+    // release) to actively free memory instead of passively waiting for main
+    // thread. This matches the game's Stage 8 behavior (Ghidra-verified).
     //
+    // For MAIN thread: run full stages 3-5 (Havok GC, PDD purge, Cell Unload).
     // bypass=false -- ALL frees go to pool (zombie-safe).
     // bypass=true causes SBM state corruption: objects freed via mi_free
     // during HeapCompact stages 5-8 leave dangling references in SBM
@@ -564,15 +569,111 @@ unsafe fn do_recover_oom(size: usize) -> *mut c_void {
     //
     // LOADING DEATH SPIRAL FIX:
     // During loading, stages 0-5 are almost entirely ineffective:
-    //   Stage 0: flushes OLD textures → game immediately reloads them → net zero
-    //   Stage 1: flushes OLD geometry → game immediately reloads it → net zero
-    //   Stage 2: menu cleanup → nothing during loading
-    //   Stages 3-5: blocked by loading state → nothing
-    //   Stage 6: give_up → break
+    //   Stage 0: flushes OLD textures --> game immediately reloads them --> net zero
+    //   Stage 1: flushes OLD geometry --> game immediately reloads it --> net zero
+    //   Stage 2: menu cleanup --> nothing during loading
+    //   Stages 3-5: blocked by loading state --> nothing
+    //   Stage 6: give_up --> break
     // The game then cycles 30+ times over 2.5 seconds, freeing ~4MB total,
     // before crashing in d3d9. Skip this death spiral during loading: go
     // straight to nuclear option (pool_drain_all + mi_collect(true)).
     let loading = globals::is_loading();
+
+    if !is_main {
+        // WORKER THREAD: Self-sufficient OOM recovery.
+        // DO NOT signal main thread — during OOM, main thread often waits for
+        // workers to complete. Signaling creates a deadlock:
+        //   Main thread --> waits for worker to finish
+        //   Worker thread --> waits for main thread to clean up
+        //
+        // Instead, run thread-safe cleanup stages ourselves. This matches the
+        // game's own Stage 8 design (Ghidra-verified): workers release their
+        // BSTaskManagerThread semaphores, sleep, and retry — without main
+        // thread involvement.
+        //
+        // Thread-safe stages (Ghidra-verified):
+        //   Stage 3: Havok GC (FUN_00c459d0) — frees dead Havok entities
+        //   Stage 1: Free cached geometry — frees cached data
+        //
+        // CRITICAL: mi_collect(true) decommits ALL free pages immediately,
+        // bypassing the 100ms purge_delay. Only use as ABSOLUTE LAST RESORT.
+        const MAX_WORKER_CLEANUP_CYCLES: u32 = 10;
+
+        let mut prev_commit = heap.commit_bytes();
+
+        for cycle in 0..MAX_WORKER_CLEANUP_CYCLES {
+            // Step 1: Release BSTaskManagerThread semaphores if we own them.
+            // This lets IO complete, which frees texture memory.
+            // Matches vanilla Stage 8 behavior.
+            unsafe { super::engine::globals::release_bstask_sems_if_owned() };
+
+            // Step 2: Havok GC (Stage 3) — frees dead Havok entities.
+            // Thread-safe per Ghidra analysis. Only run in first 5 cycles
+            // to avoid unnecessary overhead if Havok GC is ineffective.
+            if cycle < 5 {
+                let (_next, _done) = unsafe { heap.run_oom_stage(3, false) };
+            }
+
+            // Step 3: Brief sleep to let other threads finish operations.
+            // Vanilla Stage 8 sleeps 1ms per retry.
+            libpsycho::os::windows::winapi::sleep(1);
+
+            // Step 4: Conservative collection — only fully-free segments.
+            // SAFE: doesn't bypass purge_delay, won't decommit recent frees.
+            unsafe { mi_collect(false) };
+
+            // Step 5: Check for death spiral — if we freed less than 1% of
+            // commit, further cycles won't help. Go nuclear immediately.
+            let freed = prev_commit.saturating_sub(heap.commit_bytes());
+            let death_spiral_threshold = commit_entry / 100; // 1% of commit at OOM entry
+            if cycle > 0 && freed < death_spiral_threshold {
+                log::warn!(
+                    "[OOM] Worker death spiral detected: cycle={}, freed={}KB (threshold={}MB)",
+                    cycle + 1, freed / 1024, death_spiral_threshold / 1024 / 1024,
+                );
+                break;
+            }
+            prev_commit = heap.commit_bytes();
+
+            // Step 6: Retry allocation.
+            let ptr = unsafe { mi_malloc_aligned(size, ALIGN) };
+            if !ptr.is_null() {
+                log::info!(
+                    "[OOM] Worker recovered: cycle={} size={} commit={}-->{}MB",
+                    cycle + 1, size, commit_entry, heap.commit_mb(),
+                );
+                return ptr;
+            }
+        }
+
+        // Worker couldn't recover with safe collection (up to 10 cycles).
+        // As ABSOLUTE LAST RESORT: try aggressive collection.
+        // WARNING: mi_collect(true) bypasses purge_delay — potential UAF risk.
+        // Only do this when the alternative is a guaranteed crash.
+        log::warn!(
+            "[OOM] Worker escalating to aggressive collect: size={} commit={}MB",
+            size, heap.commit_mb(),
+        );
+        unsafe { mi_collect(true) };
+        let ptr = unsafe { mi_malloc_aligned(size, ALIGN) };
+        if !ptr.is_null() {
+            log::info!(
+                "[OOM] Worker recovered (aggressive): size={} commit={}-->{}MB",
+                size, commit_entry, heap.commit_mb(),
+            );
+            return ptr;
+        }
+
+        // Complete failure. Return NULL — game will crash, but we exhausted
+        // all recovery options without deadlocking the main thread.
+        log::error!(
+            "[OOM] Worker FATAL: size={} commit={}MB after {} safe cycles + aggressive collect",
+            size, heap.commit_mb(), MAX_WORKER_CLEANUP_CYCLES,
+        );
+        return null_mut();
+    }
+
+    // MAIN THREAD: Full cleanup with stages 3-5.
     let mut stage: i32 = if loading { 0 } else { 3 };
     let mut cycles: u32 = 0;
 
@@ -580,7 +681,7 @@ unsafe fn do_recover_oom(size: usize) -> *mut c_void {
     // commit, further stage cycles won't help. Go nuclear immediately.
     //
     // During loading: stages 0-5 are almost entirely ineffective
-    // (log: 1494→1490MB over 30 cycles = 4MB in 2.5 seconds).
+    // (log: 1494-->1490MB over 30 cycles = 4MB in 2.5 seconds).
     // During gameplay: stages 3-5 free ~4MB/cycle but allocation rate
     // exceeds free rate, causing slow death spiral over 1.5 minutes.
     //
@@ -603,17 +704,18 @@ unsafe fn do_recover_oom(size: usize) -> *mut c_void {
             );
             let drained = unsafe { pool::pool_drain_all() };
             unsafe { mi_collect(true) };
+            let freed_bytes = commit_entry.saturating_sub(heap.commit_bytes());
             let ptr = unsafe { mi_malloc_aligned(size, ALIGN) };
             if !ptr.is_null() {
                 log::info!(
-                    "[OOM] Recovered via nuclear: drained={} size={} commit={}-->{}MB",
-                    drained, size, commit_entry, heap.commit_mb(),
+                    "[OOM] Recovered via nuclear: drained={} freed={}MB size={} commit={}-->{}MB",
+                    drained, freed_bytes / 1024 / 1024, size, commit_entry, heap.commit_mb(),
                 );
                 return ptr;
             }
             log::error!(
-                "[OOM] FATAL (nuclear failed): size={} commit={}MB",
-                size, heap.commit_mb(),
+                "[OOM] FATAL (nuclear failed): size={} commit={}MB freed={}MB",
+                size, heap.commit_mb(), freed_bytes / 1024 / 1024,
             );
             return null_mut();
         }

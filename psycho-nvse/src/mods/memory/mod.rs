@@ -66,27 +66,22 @@ pub fn configure_mimalloc() {
         // Demand-page: reserve VA, commit on first touch.
         mi_option_set(mi_option_arena_eager_commit, 0);
 
-        // PURGE DELAY = 50ms
+        // PURGE DELAY = 100ms
         //
-        // Freed pages stay committed (readable) for 50ms before mimalloc
-        // decommits them. This provides a safety window during emergency
-        // drain: when the pool is drained, stale readers have 50ms to finish
-        // accessing the pages before they're decommitted.
+        // Freed pages stay committed (readable) for 100ms before mimalloc
+        // decommits them. This provides a safety window for:
+        // - AI thread raycasts against terrain: 10-30ms typical, up to 50ms
+        // - BSTaskManagerThread texture loading: up to 100ms for large textures
+        // - Havok broadphase queries: < 10ms typical
         //
-        // 50ms is chosen based on Ghidra analysis of stale reader lifetimes:
-        // - AI threads: finish in < 1 frame (~16ms)
-        // - BSTaskManagerThread: finish in < 100ms (texture loading)
-        // - Havok broadphase: finish in < 50ms (physics step)
+        // 100ms was chosen based on crash analysis: the hkBSHeightFieldShape
+        // UAF crash occurred at 50ms because the AI thread was mid-raycast
+        // when the shape was freed. 100ms provides 2x safety margin.
         //
-        // 50ms protects the most critical readers (AI + Havok) without
-        // consuming excessive VAS. Within the pre-reserved arena, decommit
-        // is just a page table flip -- cheap.
-        //
-        // The zombie quarantine pool protects block DATA (FreeNode headers,
-        // usable_size fields). purge_delay protects the underlying PAGES
-        // from being decommitted while stale readers are still active.
-        mi_option_set(mi_option_purge_delay, 50);
-        log::info!("[MIMALLOC] purge_delay = 50ms (stale reader protection window)");
+        // Within the pre-reserved arena, decommit is just a page table flip
+        // -- cheap. Physical RAM is freed after 100ms; only VA persists.
+        mi_option_set(mi_option_purge_delay, 100);
+        log::info!("[MIMALLOC] purge_delay = 100ms (stale reader protection window)");
 
         // Decommit on purge (not full release) -- keeps VA reservation.
         mi_option_set(mi_option_purge_decommits, 1);

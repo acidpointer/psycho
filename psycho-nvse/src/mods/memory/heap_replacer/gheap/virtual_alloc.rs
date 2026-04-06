@@ -29,7 +29,7 @@ use std::ptr;
 use std::sync::atomic::{AtomicPtr, AtomicUsize, Ordering};
 
 use windows::Win32::System::Memory::{
-    MEM_COMMIT, MEM_DECOMMIT, MEM_RELEASE, MEM_RESERVE, MEMORY_BASIC_INFORMATION, PAGE_READWRITE,
+    MEM_COMMIT, MEM_DECOMMIT, MEM_RELEASE, MEMORY_BASIC_INFORMATION, PAGE_READWRITE,
     VirtualAlloc, VirtualFree, VirtualQuery,
 };
 
@@ -51,34 +51,31 @@ pub unsafe fn is_virtual_alloc_ptr(ptr: *mut c_void) -> bool {
     if ptr.is_null() {
         return false;
     }
-    let header = (ptr as *const u8).wrapping_sub(HEADER_SIZE) as *const VaHeader;
-    let magic1 = ptr::read_volatile(&(*header).magic1);
-    let magic2 = ptr::read_volatile(&(*header).magic2);
+    // Check minimum pointer value to avoid reading NULL guard page.
+    // Windows reserves the first 64KB (0x00000000-0x0000FFFF) as a guard page.
+    // Reading from this region causes an access violation. Our VirtualAlloc
+    // allocations start at 0x10000 minimum, so any pointer below this is
+    // definitely not ours.
+    let addr = ptr as usize;
+    if addr < 0x10000 {
+        return false;
+    }
+
+    let header = (addr - HEADER_SIZE) as *const VaHeader;
+    let magic1 = unsafe { ptr::read_volatile(&(*header).magic1) };
+    let magic2 = unsafe { ptr::read_volatile(&(*header).magic2) };
 
     (magic1 == VAPL_MAGIC1 && magic2 == VAPL_MAGIC2)
         || (magic1 == VALL_MAGIC1 && magic2 == VALL_MAGIC2)
 }
 
 /// Minimum allocation size to use the large allocation pool.
-pub const LARGE_ALLOC_THRESHOLD: usize = 64 * 1024; // 64KB
-
-/// Size of the pre-reserved large allocation pool.
-/// Calculated dynamically at startup based on available VAS:
-///   < 500MB remaining  → 64MB  (tight VAS, 32-bit LAA)
-///   500-1500MB         → 128MB (moderate VAS)
-///   > 1500MB           → 256MB (ample VAS, 4GB-patched)
-fn calculate_pool_size(available_vas: usize) -> usize {
-    let mimalloc_reserved = 512 * 1024 * 1024; // mimalloc arena size
-    let remaining = available_vas.saturating_sub(mimalloc_reserved);
-
-    if remaining < 500 * 1024 * 1024 {
-        64 * 1024 * 1024  // 64MB - tight VAS
-    } else if remaining < 1500 * 1024 * 1024 {
-        128 * 1024 * 1024 // 128MB - moderate VAS
-    } else {
-        256 * 1024 * 1024 // 256MB - ample VAS (4GB-patched)
-    }
-}
+/// 1MB chosen so that:
+/// - Havok shapes (100KB-500KB) --> mimalloc (UAF protected)
+/// - NiRefObjects (16-1200B) --> mimalloc (UAF protected)
+/// - Terrain meshes, DDS files (1MB+) --> VirtualAlloc (VAS reclaimed)
+///   Game objects rarely exceed 1MB. Raw data buffers often do.
+pub const LARGE_ALLOC_THRESHOLD: usize = 1024 * 1024; // 1MB
 
 /// Header size added before user data. 16 bytes for alignment.
 const HEADER_SIZE: usize = 16;
@@ -107,50 +104,6 @@ static LARGE_POOL: LargePool = LargePool {
     end: AtomicUsize::new(0),
 };
 
-/// Initialize the large allocation pool by reserving VAS.
-/// Called once at startup (after all DLLs loaded, before game starts).
-/// `available_vas` is the total available VAS measured by VirtualQuery.
-/// Returns the amount of VAS reserved for the large pool.
-pub fn init_large_pool(available_vas: usize) -> usize {
-    let pool_size = calculate_pool_size(available_vas);
-
-    // Reserve contiguous region
-    let base = unsafe {
-        VirtualAlloc(
-            None,
-            pool_size,
-            MEM_RESERVE,
-            PAGE_READWRITE,
-        )
-    };
-
-    if base.is_null() {
-        // Failed to reserve — fall back to individual VirtualAlloc for everything
-        LARGE_POOL.base.store(ptr::null_mut(), Ordering::Release);
-        LARGE_POOL.current.store(0, Ordering::Release);
-        LARGE_POOL.end.store(0, Ordering::Release);
-        log::warn!(
-            "[VIRT] Failed to reserve {}MB large pool. Falling back to individual VirtualAlloc.",
-            pool_size / 1024 / 1024,
-        );
-        return 0;
-    }
-
-    let base_usize = base as usize;
-    LARGE_POOL.base.store(base, Ordering::Release);
-    LARGE_POOL.current.store(base_usize, Ordering::Release);
-    LARGE_POOL.end.store(base_usize + pool_size, Ordering::Release);
-
-    log::info!(
-        "[VIRT] Large pool reserved: 0x{:08X}-0x{:08X} ({}MB), available VAS={}MB",
-        base_usize,
-        base_usize + pool_size,
-        pool_size / 1024 / 1024,
-        available_vas / 1024 / 1024,
-    );
-
-    pool_size
-}
 
 /// Allocate `size` bytes. Uses the large pool if available, falls back to
 /// individual VirtualAlloc if pool is exhausted.
@@ -198,7 +151,7 @@ pub unsafe fn malloc(size: usize) -> *mut c_void {
 
                 // Write header
                 let header = committed as *mut VaHeader;
-                ptr::write(
+                unsafe { ptr::write(
                     header,
                     VaHeader {
                         magic1: VAPL_MAGIC1,
@@ -206,7 +159,7 @@ pub unsafe fn malloc(size: usize) -> *mut c_void {
                         alloc_size: size,
                         in_pool: 1,
                     },
-                );
+                ) };
 
                 // Return user pointer (base + 16, 16-byte aligned)
                 return (committed as usize + HEADER_SIZE) as *mut c_void;
@@ -231,7 +184,7 @@ pub unsafe fn malloc(size: usize) -> *mut c_void {
 
     // Write header
     let header = base as *mut VaHeader;
-    ptr::write(
+    unsafe { ptr::write(
         header,
         VaHeader {
             magic1: VALL_MAGIC1,
@@ -239,7 +192,7 @@ pub unsafe fn malloc(size: usize) -> *mut c_void {
             alloc_size: size,
             in_pool: 0,
         },
-    );
+    ) };
 
     // Return user pointer (base + 16, 16-byte aligned)
     (base as usize + HEADER_SIZE) as *mut c_void
@@ -281,7 +234,7 @@ pub unsafe fn msize(ptr: *mut c_void) -> Option<usize> {
     }
 
     let header_addr = (ptr as *const u8).wrapping_sub(HEADER_SIZE) as *const c_void;
-    let mut mbi: MEMORY_BASIC_INFORMATION = std::mem::zeroed();
+    let mut mbi: MEMORY_BASIC_INFORMATION = unsafe { std::mem::zeroed() };
     let query_result = unsafe {
         VirtualQuery(
             Some(header_addr),
@@ -315,10 +268,7 @@ pub unsafe fn realloc(old_ptr: *mut c_void, new_size: usize) -> Option<*mut c_vo
         return Some(unsafe { malloc(new_size) });
     }
 
-    let old_size = match unsafe { msize(old_ptr) } {
-        Some(s) => s,
-        None => return None, // Not our allocation
-    };
+    let old_size = unsafe { msize(old_ptr) }?;
 
     if new_size == 0 {
         unsafe { free(old_ptr) };

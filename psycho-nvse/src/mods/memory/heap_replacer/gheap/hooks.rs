@@ -394,22 +394,30 @@ unsafe fn on_loading_start() {
 
 // First frame after loading ends. Disable loading bypass, resume normal pooling.
 //
+// Activate pool BEFORE clearing loading bypass to avoid a race window
+// where neither pool nor bypass is active:
+//   1. activate_pool() --> sets POOL_ACTIVE = true
+//   2. set_loading_bypass(false) --> clears bypass
+// If we clear bypass first, there's a brief window where allocations go to
+// mimalloc without pool tracking (POOL_ACTIVE still false), and frees go to
+// mi_free without zombie safety.
+//
 // DO NOT call mi_collect or drain_pool here. During post-loading stabilization,
 // NVSE is rebuilding its FunctionInfo cache from freshly-reallocated Script
-// bytecode buffers. mi_collect(false) decommits freed pages within partially-
-// empty mimalloc segments. If the OLD bytecode pages are decommitted BEFORE
-// NVSE finishes building its cache, NVSE's ScriptIterator dereferences
-// decommitted memory → C0000005 in ScriptAnalyzer.cpp:162.
-//
-// The pool is always empty after loading (inactive during loading), so
-// drain_pool returns 0 blocks. The mi_collect provides zero VAS benefit
-// (commit is already stable after loading ends) but introduces a page
-// decommit race window that causes deterministic crashes with large mod
-// lists (525MB+ loading spikes).
+// bytecode buffers. mi_collect decommits freed pages within partially-empty
+// mimalloc segments. If the OLD bytecode pages are decommitted BEFORE NVSE
+// finishes building its cache, NVSE's ScriptIterator dereferences decommitted
+// memory --> C0000005 in ScriptAnalyzer.cpp:162.
 //
 // See: analysis/ghidra/output/memory/bulletproof_script_crash.txt
 #[cold]
 fn on_loading_end() {
+    // Step 1: Activate pool first (sets POOL_ACTIVE = true)
+    if !allocator::is_pool_active() {
+        allocator::activate_pool();
+    }
+
+    // Step 2: Clear loading bypass (frees now go to pool)
     allocator::set_loading_bypass(false);
 
     let info = libmimalloc::process_info::MiMallocProcessInfo::get();
@@ -457,24 +465,17 @@ pub unsafe extern "fastcall" fn hook_ai_thread_join(mgr: *mut c_void) {
     // Console command deferred request during loading (pcell).
     if globals::is_loading() {
         let deferred = super::engine::cell_unload::take_deferred_request();
-        if deferred > 0
-            && let Some(result) =
-                super::engine::cell_unload::execute_during_loading(deferred)
-                && result.cells > 0 {
-                    static PENDING_CELLS: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
-                    PENDING_CELLS.store(true, std::sync::atomic::Ordering::Release);
-                }
+        if deferred > 0 {
+            let _ = super::engine::cell_unload::execute_during_loading(deferred);
+        }
         return;
     }
 
     // Normal gameplay: only console commands.
     let deferred = super::engine::cell_unload::take_deferred_request();
-    if deferred > 0
-        && let Some(result) = super::engine::cell_unload::execute(deferred)
-            && result.cells > 0 {
-                static PENDING_CELLS: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
-                PENDING_CELLS.store(true, std::sync::atomic::Ordering::Release);
-            }
+    if deferred > 0 {
+        let _ = super::engine::cell_unload::execute(deferred);
+    }
 }
 
 // ---- Havok world synchronization hooks ----

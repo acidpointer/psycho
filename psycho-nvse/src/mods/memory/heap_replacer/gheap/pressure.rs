@@ -20,19 +20,6 @@ use super::engine::globals;
 use super::pool;
 use crate::mods::memory::heap_replacer::mem_stats;
 
-/// Number of full OOM cleanup rounds to run per pressure relief cycle.
-///
-/// IMPORTANT: This MUST be 1.
-/// The vanilla game's HeapCompact loop (0x00878080) has a built-in safety
-/// check: `if (current_stage < loop_counter) break;`.
-/// When Stage 5 (Cell Unload) succeeds, it returns 5. The loop counter
-/// becomes 6. The check `5 < 6` is true, so it breaks immediately.
-/// The game relies on this to unload only ONE cell per HeapCompact call,
-/// allowing the engine time to update references before the next unload.
-/// Running multiple rounds unloads cells too aggressively, causing UAF
-/// crashes in AI threads (e.g., projectiles referencing unloaded cells).
-const DESTRUCTION_ROUNDS: usize = 1;
-
 /// Max cells to unload per relief cycle.
 const MAX_CELLS_PER_CYCLE: usize = 20;
 
@@ -111,18 +98,6 @@ impl PressureRelief {
         self.deferred_unload.store(true, Ordering::Release);
     }
 
-    /// Clear the deferred unload flag. Called from on_ai_join when
-    /// post-load cooldown is active -- prevents destruction_protocol
-    /// from running during post-load init.
-    pub fn clear_deferred_unload(&self) {
-        self.deferred_unload.store(false, Ordering::Release);
-    }
-
-    /// Flag that loading counter needs decrementing next frame.
-    pub fn set_pending_counter_decrement(&self) {
-        self.pending_counter_decrement.store(true, Ordering::Release);
-    }
-
     /// Decrement the loading state counter if a previous destruction_protocol
     /// left it elevated. Called once per frame from Phase 10.
     pub fn flush_pending_counter_decrement(&self) {
@@ -130,20 +105,6 @@ impl PressureRelief {
             globals::loading_state_counter()
                 .fetch_sub(1, std::sync::atomic::Ordering::AcqRel);
         }
-    }
-
-    /// Run deferred cell unload after AI_JOIN. Called from the AI thread
-    /// join hook after AI threads have completed their work.
-    ///
-    /// AI threads are idle here, so mi_collect(true) and cell unload are safe.
-    /// Watchdog handles cooldown -- we just execute when signaled.
-    /// Run deferred cell unload if flagged. Called from AI_JOIN.
-    pub unsafe fn run_deferred_unload(&self) {
-        if !self.deferred_unload.load(Ordering::Acquire) {
-            return;
-        }
-        self.deferred_unload.store(false, Ordering::Release);
-        unsafe { self.run_cleanup() };
     }
 
     /// Run cell unload + full cleanup unconditionally.
@@ -204,7 +165,7 @@ impl PressureRelief {
         let loading_counter = globals::loading_state_counter();
         loading_counter.fetch_add(1, std::sync::atomic::Ordering::AcqRel);
 
-        // CRITICAL: Run loading stages 0-2 BEFORE attempting Havok lock.
+        // Run loading stages 0-2 BEFORE attempting Havok lock.
         // During fast travel, Havok is often busy or uninitialized, causing
         // pre_destruction_setup to fail. Stages 0-2 (Texture/Geometry cache
         // flush) do NOT require the Havok lock and can run safely at any time.
@@ -213,6 +174,18 @@ impl PressureRelief {
             unsafe { heap.run_oom_stage(0, false) };
             unsafe { heap.run_oom_stage(1, false) };
             unsafe { heap.run_oom_stage(2, false) };
+        }
+
+        // Check if Havok is already locked before attempting to lock.
+        // If Havok is already locked (e.g., console command during Phase 7 cleanup),
+        // pre_destruction_setup would deadlock because hkWorld_Lock is a spin-lock
+        // with no timeout. Skip cleanup to avoid hard freeze.
+        if crate::mods::memory::heap_replacer::gheap::game_guard::is_havok_active() {
+            log::warn!(
+                "[DESTRUCTION] Havok already locked (physics in progress), skipping cleanup"
+            );
+            loading_counter.fetch_sub(1, std::sync::atomic::Ordering::AcqRel);
+            return 0;
         }
 
         // Lock Havok world + invalidate scene graph. Without this,
@@ -245,8 +218,14 @@ impl PressureRelief {
             }
         };
 
+        // Wait 10ms for any in-flight AI thread operations to complete.
+        // pre_destruction_setup locks Havok (prevents NEW operations) but
+        // doesn't stop AI threads that are already mid-raycast. This brief
+        // pause ensures stale readers finish before we start freeing terrain.
+        libpsycho::os::windows::winapi::sleep(10);
+
         // Run Stage 5 in a loop until game says no more cells eligible.
-        // Each call runs 5→4→3 automatically (fallthrough in switch case).
+        // Each call runs 5 --> 4 --> 3 automatically (fallthrough in switch case).
         // The game's FindCellToUnload returns no cell when none are eligible,
         // causing stage to advance to 6.
         let mut stage: i32 = 5;
