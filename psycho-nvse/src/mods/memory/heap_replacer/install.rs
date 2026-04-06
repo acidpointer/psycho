@@ -7,7 +7,7 @@
 use libc::c_void;
 use std::sync::LazyLock;
 
-use libpsycho::os::windows::winapi::{patch_nop_call, patch_ret};
+use libpsycho::os::windows::winapi::{patch_bytes, patch_nop_call, patch_ret};
 use libpsycho::os::windows::hook::inline::inlinehook::InlineHookContainer;
 
 use super::{crt, gheap, scrap_heap};
@@ -346,25 +346,15 @@ pub fn install_game_heap_hooks() -> anyhow::Result<()> {
         patch_ret(0x00AA7290 as *mut c_void)?; // DecrementArenaRef
         patch_ret(0x00AA7300 as *mut c_void)?; // ReleaseArenaByPtr
 
-        // Disable SBM small alloc fast path (Ghidra: FUN_00aa3e40 offset 0x129).
+        // Disable SBM small alloc fast path flag (FUN_00aa3e40 offset 0x129).
         //
-        // The allocator has a fast path: when *(this+0x129) != 0 and size < 1021,
-        // it allocates directly from SBM pools (FUN_00aa6aa0) and returns BEFORE
-        // the vtable call. Our vtable hooks never see these allocations.
-        // This means ALL small objects (NiRefObjects 16-128B, Havok 48-88B, etc.)
-        // go through SBM pools, accumulating in SBM arenas that we can't decommit
-        // (cleanup functions are ret-patched). This is the root cause of constant
-        // commit growth: small allocs fill SBM arenas, large allocs fill mimalloc,
-        // neither releases the other's memory.
-        //
-        // NVHR avoids this by patching a JMP at FUN_00aa3e40 entry — the fast path
-        // never executes. We use vtable hooks, so we disable the flag instead.
-        // Setting *(HEAP_SINGLETON + 0x129) = 0 forces ALL allocations through
-        // the vtable → our mimalloc hook.
+        // NOTE: Our inline hook at FUN_00aa3e40 entry already bypasses the
+        // fast path (JMP at function entry → our hook). This flag clear is
+        // belt-and-suspenders for any code that reads the flag directly.
         let fast_path_flag = (gheap::engine::addr::HEAP_SINGLETON + 0x129) as *mut u8;
         unsafe { fast_path_flag.write_volatile(0) };
         log::info!(
-            "[SBM] Disabled small alloc fast path at 0x{:08X} (was: enabled)",
+            "[SBM] Disabled small alloc fast path flag at 0x{:08X}",
             gheap::engine::addr::HEAP_SINGLETON + 0x129,
         );
 
@@ -373,7 +363,25 @@ pub fn install_game_heap_hooks() -> anyhow::Result<()> {
         patch_nop_call(0x00C42EB1 as *mut c_void)?;
         patch_nop_call(0x00EC1701 as *mut c_void)?;
 
-        log::info!("[SBM] Patched SBM (10 RET + 3 NOP + fast path disabled)");
+        // Skip per-frame SBM arena management in main loop.
+        //
+        // At 0x0086EED4 (in the per-frame function FUN_0086e650), the game
+        // cycles through 256 SBM pool slots, calling FUN_00aa7290
+        // (DecrementArenaRef) once per frame with a rotating index:
+        //
+        //   if (condition || timer_elapsed) {
+        //       timer = 0;
+        //       FUN_00aa7290(index++);      // SBM arena refcount decrement
+        //       if (index == 256) index = 0;
+        //   }
+        //
+        // We ret-patched FUN_00aa7290, so the call is a no-op. But the
+        // condition check, timer accumulation, and index rotation still run
+        // on stale SBM state every frame. NVHR skips this entire block
+        // with a JMP +0x55 (EB 55). Match that.
+        unsafe { patch_bytes(0x0086EED4 as *mut c_void, &[0xEB, 0x55]) }?;
+
+        log::info!("[SBM] Patched SBM (10 RET + 3 NOP + 1 JMP + fast path disabled)");
     }
 
     log::info!("[HEAP REPLACER] All hooks and patches applied successfully");
