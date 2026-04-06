@@ -10,37 +10,27 @@
 use libc::c_void;
 
 use super::allocator;
-use super::pool;
 use super::engine::globals::{self, PddQueue};
+use super::game_guard;
 use super::pressure::PressureRelief;
 use super::statics;
 use super::texture_cache;
-use super::game_guard;
 use super::watchdog;
 
 // ---- Game heap alloc/free/msize/realloc ----
 
 /// GameHeap::Allocate hook (thiscall). Forwards to [`allocator::alloc`].
-pub unsafe extern "thiscall" fn hook_gheap_alloc(
-    _this: *mut c_void,
-    size: usize,
-) -> *mut c_void {
+pub unsafe extern "thiscall" fn hook_gheap_alloc(_this: *mut c_void, size: usize) -> *mut c_void {
     unsafe { allocator::alloc(size) }
 }
 
 /// GameHeap::Free hook (thiscall). Forwards to [`allocator::free`].
-pub unsafe extern "thiscall" fn hook_gheap_free(
-    _this: *mut c_void,
-    ptr: *mut c_void,
-) {
+pub unsafe extern "thiscall" fn hook_gheap_free(_this: *mut c_void, ptr: *mut c_void) {
     unsafe { allocator::free(ptr) }
 }
 
 /// GameHeap::Msize hook (thiscall). Forwards to [`allocator::msize`].
-pub unsafe extern "thiscall" fn hook_gheap_msize(
-    _this: *mut c_void,
-    ptr: *mut c_void,
-) -> usize {
+pub unsafe extern "thiscall" fn hook_gheap_msize(_this: *mut c_void, ptr: *mut c_void) -> usize {
     unsafe { allocator::msize(ptr) }
 }
 
@@ -81,7 +71,8 @@ static EMERGENCY_INEFFECTIVE: std::sync::atomic::AtomicU32 = std::sync::atomic::
 
 /// Set when death spiral detected. Overrides the commit-based emergency
 /// calculation until commit drops below the emergency threshold.
-static EMERGENCY_SUPPRESSED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+static EMERGENCY_SUPPRESSED: std::sync::atomic::AtomicBool =
+    std::sync::atomic::AtomicBool::new(false);
 
 /// Last tick count when periodic pool drain ran.
 /// Drains large blocks (> 1KB) when pool is near capacity.
@@ -110,16 +101,14 @@ pub unsafe extern "C" fn hook_per_frame_queue_drain() {
         }
     }
 
-    // Snapshot pool held bytes for cross-thread diagnostics (watchdog).
-    pool::snapshot_pool_stats();
-
     // Slab decommit sweep: decommit pages with zero live blocks.
     // This is the slab's equivalent of SBM_PurgeUnusedArenas.
     let (decommit_pages, decommit_bytes) = unsafe { super::slab::decommit_sweep() };
     if decommit_pages > 0 {
         log::debug!(
             "[SLAB] Decommit sweep: {} pages, {}KB freed",
-            decommit_pages, decommit_bytes / 1024,
+            decommit_pages,
+            decommit_bytes / 1024,
         );
     }
 
@@ -151,7 +140,11 @@ pub unsafe extern "C" fn hook_per_frame_queue_drain() {
     // The alternative (drain 0 blocks) is a guaranteed crash.
     if heap.take_emergency_drain() {
         let commit_before = heap.commit_mb();
-        let drained = unsafe { heap.drain_pool(pool::ALIGN) };
+        let drained = unsafe {
+            super::slab::decommit_sweep();
+            libmimalloc::mi_collect(false);
+            (0, 0).0
+        };
         unsafe { libmimalloc::mi_collect(true) };
 
         // Sleep 50ms to let the purge_delay window expire.
@@ -163,7 +156,10 @@ pub unsafe extern "C" fn hook_per_frame_queue_drain() {
 
         log::warn!(
             "[OOM] Emergency drain: {} blocks, commit={}-->{}MB pool={}MB",
-            drained, commit_before, heap.commit_mb(), heap.pool_mb(),
+            drained,
+            commit_before,
+            heap.commit_mb(),
+            super::slab::committed_bytes() / 1024 / 1024,
         );
     }
 
@@ -213,11 +209,13 @@ pub unsafe extern "C" fn hook_per_frame_queue_drain() {
     const MIN_EFFECTIVE_DRAIN_MB: usize = 1;
 
     if vas_emergency {
-        let drained = unsafe { pool::pool_drain_all() };
-        let freed_mb = drained.saturating_mul(64) / 1024; // rough: 64B avg per block
+        let (decom_pages, decom_bytes) = unsafe { super::slab::decommit_sweep() };
+        unsafe { libmimalloc::mi_collect(false) };
+        let freed_mb = decom_bytes as usize / 1024 / 1024;
 
         if freed_mb < MIN_EFFECTIVE_DRAIN_MB {
-            let count = EMERGENCY_INEFFECTIVE.fetch_add(1, std::sync::atomic::Ordering::Relaxed) + 1;
+            let count =
+                EMERGENCY_INEFFECTIVE.fetch_add(1, std::sync::atomic::Ordering::Relaxed) + 1;
             if count >= MAX_INEFFECTIVE_EMERGENCY_CYCLES {
                 // Death spiral detected — suppress emergency until commit
                 // drops below the emergency threshold. This prevents the
@@ -225,8 +223,11 @@ pub unsafe extern "C" fn hook_per_frame_queue_drain() {
                 EMERGENCY_SUPPRESSED.store(true, std::sync::atomic::Ordering::Relaxed);
                 allocator::set_vas_emergency(false);
                 log::error!(
-                    "[VAS] EMERGENCY SUPPRESSED: {} ineffective cycles, commit={}MB, threshold={}MB, drained {} blocks",
-                    count, commit / 1024 / 1024, vas_emergency_commit / 1024 / 1024, drained,
+                    "[VAS] EMERGENCY SUPPRESSED: {} ineffective cycles, commit={}MB, threshold={}MB, decommitted {} pages",
+                    count,
+                    commit / 1024 / 1024,
+                    vas_emergency_commit / 1024 / 1024,
+                    decom_pages,
                 );
             }
         } else {
@@ -240,8 +241,10 @@ pub unsafe extern "C" fn hook_per_frame_queue_drain() {
         // only decommits fully-empty segments — a no-op during crisis.
         unsafe { libmimalloc::mi_collect(true) };
         log::error!(
-            "[VAS] EMERGENCY: commit={}MB, drained {} blocks, pool={}MB",
-            commit / 1024 / 1024, drained, heap.pool_mb(),
+            "[VAS] EMERGENCY: commit={}MB, decommitted {} pages, slab={}MB",
+            commit / 1024 / 1024,
+            decom_pages,
+            super::slab::committed_bytes() / 1024 / 1024,
         );
     } else {
         // Not in emergency — reset ineffective counter so it starts fresh
@@ -251,10 +254,13 @@ pub unsafe extern "C" fn hook_per_frame_queue_drain() {
         if vas_critical {
             // F2: Drain ALL pool blocks (not just >= 1KB).
             // The 127MB pool is entirely small blocks (< 1KB). drain_large returns 0.
-            let drained = unsafe { heap.drain_pool(pool::ALIGN) };
+            let (cp, _cb) = unsafe { super::slab::decommit_sweep() };
+            unsafe { libmimalloc::mi_collect(false) };
             log::warn!(
-                "[VAS] CRITICAL: commit={}MB, drained {} blocks, pool={}MB",
-                commit / 1024 / 1024, drained, heap.pool_mb(),
+                "[VAS] CRITICAL: commit={}MB, decommitted {} pages, slab={}MB",
+                commit / 1024 / 1024,
+                cp,
+                super::slab::committed_bytes() / 1024 / 1024,
             );
         }
     }
@@ -264,14 +270,22 @@ pub unsafe extern "C" fn hook_per_frame_queue_drain() {
     // Runs every 500ms. With 16MB cap and ~2MB/frame stress-test rate,
     // blocks cycle in ~133ms. Large blocks (cell data, geometry) are safe
     // to free — UAF-sensitive objects are < 1KB (NiRefObjects 16-128B).
-    if heap.pool_mb() >= 12 {
+    if super::slab::committed_bytes() / 1024 / 1024 >= 12 {
         let now = libpsycho::os::windows::winapi::get_tick_count() as u64;
         let last = LAST_POOL_DRAIN_MS.load(std::sync::atomic::Ordering::Relaxed);
         if now.saturating_sub(last) >= POOL_DRAIN_COOLDOWN_MS {
-            let drained = unsafe { heap.drain_pool(pool::SMALL_BLOCK_THRESHOLD) };
+            let drained = unsafe {
+                super::slab::decommit_sweep();
+                libmimalloc::mi_collect(false);
+                (0, 0).0
+            };
             LAST_POOL_DRAIN_MS.store(now, std::sync::atomic::Ordering::Relaxed);
             if drained > 0 {
-                log::info!("[POOL] Periodic drain: {} blocks freed, pool={}MB", drained, heap.pool_mb());
+                log::info!(
+                    "[POOL] Periodic drain: {} blocks freed, pool={}MB",
+                    drained,
+                    super::slab::committed_bytes() / 1024 / 1024
+                );
             }
         }
     }
@@ -291,7 +305,8 @@ pub unsafe extern "C" fn hook_per_frame_queue_drain() {
         if !vas_critical {
             log::info!(
                 "[WATCHDOG] Phase 7 cleanup: level={}, commit={}MB, pdd(NiNode={} Gen={} Form={})",
-                request, commit / 1024 / 1024,
+                request,
+                commit / 1024 / 1024,
                 globals::pdd_queue_count(PddQueue::NiNode),
                 globals::pdd_queue_count(PddQueue::Generic),
                 globals::pdd_queue_count(PddQueue::Form),
@@ -303,20 +318,21 @@ pub unsafe extern "C" fn hook_per_frame_queue_drain() {
     // pre_destruction_setup allocates terrain/LOD memory (Ghidra: FUN_00878160),
     // running it 4x/sec during crisis makes VAS pressure WORSE.
     if request >= 2
-        && let Some(pr) = PressureRelief::instance() {
-            let now = libpsycho::os::windows::winapi::get_tick_count() as u64;
-            let last = DESTRUCTION_COOLDOWN_MS.load(std::sync::atomic::Ordering::Relaxed);
-            if vas_critical {
-                // During VAS crisis: 1 second cooldown
-                if now.saturating_sub(last) >= 1000 {
-                    DESTRUCTION_COOLDOWN_MS.store(now, std::sync::atomic::Ordering::Relaxed);
-                    unsafe { pr.run_cleanup() };
-                }
-            } else {
-                // Normal: no cooldown
+        && let Some(pr) = PressureRelief::instance()
+    {
+        let now = libpsycho::os::windows::winapi::get_tick_count() as u64;
+        let last = DESTRUCTION_COOLDOWN_MS.load(std::sync::atomic::Ordering::Relaxed);
+        if vas_critical {
+            // During VAS crisis: 1 second cooldown
+            if now.saturating_sub(last) >= 1000 {
+                DESTRUCTION_COOLDOWN_MS.store(now, std::sync::atomic::Ordering::Relaxed);
                 unsafe { pr.run_cleanup() };
             }
+        } else {
+            // Normal: no cooldown
+            unsafe { pr.run_cleanup() };
         }
+    }
 
     // --- "Turbo" Cleanup during loading spikes ---
     // During fast travel, the game allocates rapidly. The 500ms cooldown is
@@ -329,16 +345,17 @@ pub unsafe extern "C" fn hook_per_frame_queue_drain() {
     // per-frame wasted calls when Havok is busy.
     const LOADING_SAFETY_MARGIN: usize = 512 * 1024 * 1024; // 512MB
     if globals::is_loading()
-        && let Some(pr) = PressureRelief::instance() {
-            let baseline = pr.baseline_commit();
-            let cooldown = TURBO_COOLDOWN.load(std::sync::atomic::Ordering::Relaxed);
-            if cooldown > 0 {
-                TURBO_COOLDOWN.fetch_sub(1, std::sync::atomic::Ordering::Relaxed);
-            } else if baseline > 0 && heap.commit_bytes() > baseline + LOADING_SAFETY_MARGIN {
-                unsafe { pr.run_cleanup() };
-                TURBO_COOLDOWN.store(10, std::sync::atomic::Ordering::Release);
-            }
+        && let Some(pr) = PressureRelief::instance()
+    {
+        let baseline = pr.baseline_commit();
+        let cooldown = TURBO_COOLDOWN.load(std::sync::atomic::Ordering::Relaxed);
+        if cooldown > 0 {
+            TURBO_COOLDOWN.fetch_sub(1, std::sync::atomic::Ordering::Relaxed);
+        } else if baseline > 0 && heap.commit_bytes() > baseline + LOADING_SAFETY_MARGIN {
+            unsafe { pr.run_cleanup() };
+            TURBO_COOLDOWN.store(10, std::sync::atomic::Ordering::Release);
         }
+    }
 
     // Clear texture dead set under write lock.
     game_guard::with_write("dead_set_clear", || {
@@ -352,7 +369,11 @@ pub unsafe extern "C" fn hook_per_frame_queue_drain() {
         // Boosted PDD drain when watchdog flagged cleanup.
         // Drain ALL queues (NiNode + Generic + Form), not just NiNode.
         if request >= 1 {
-            let max_rounds = if request >= 2 { PDD_ROUNDS_AGGRESSIVE } else { PDD_ROUNDS_NORMAL };
+            let max_rounds = if request >= 2 {
+                PDD_ROUNDS_AGGRESSIVE
+            } else {
+                PDD_ROUNDS_NORMAL
+            };
             let mut rounds = 0u32;
 
             for _ in 0..max_rounds {
@@ -371,15 +392,20 @@ pub unsafe extern "C" fn hook_per_frame_queue_drain() {
             // Draining before PDD causes UAF. Now safe: all destructors
             // have run, no more stale readers from the PDD chain.
             if !vas_critical {
-                let drained = unsafe { heap.drain_pool(pool::SMALL_BLOCK_THRESHOLD) };
+                let drained = unsafe {
+                    super::slab::decommit_sweep();
+                    libmimalloc::mi_collect(false);
+                    (0, 0).0
+                };
                 log::debug!(
                     "[PDD] Drained {} rounds, {} pool blocks, pdd(NiNode={} Gen={} Form={}), commit={}MB, pool={}MB",
-                    rounds, drained,
+                    rounds,
+                    drained,
                     globals::pdd_queue_count(PddQueue::NiNode),
                     globals::pdd_queue_count(PddQueue::Generic),
                     globals::pdd_queue_count(PddQueue::Form),
                     heap.commit_mb(),
-                    heap.pool_mb(),
+                    super::slab::committed_bytes() / 1024 / 1024,
                 );
             } else {
                 log::debug!(
@@ -389,12 +415,11 @@ pub unsafe extern "C" fn hook_per_frame_queue_drain() {
                     globals::pdd_queue_count(PddQueue::Generic),
                     globals::pdd_queue_count(PddQueue::Form),
                     heap.commit_mb(),
-                    heap.pool_mb(),
+                    super::slab::committed_bytes() / 1024 / 1024,
                 );
             }
         }
     }
-
 }
 
 // Cell unload from Phase 7 during loading - REMOVED
@@ -414,7 +439,7 @@ unsafe fn on_loading_start() {
     log::info!(
         "[LOADING] Transition detected: commit={}MB, pool={}MB",
         commit_before / 1024 / 1024,
-        pool::pool_held_bytes() / 1024 / 1024,
+        super::slab::committed_bytes() / 1024 / 1024,
     );
 
     // Enable loading bypass immediately. Subsequent frees during loading
@@ -455,7 +480,7 @@ fn on_loading_end() {
     log::info!(
         "[LOADING] Loading ended, commit={}MB, pool={}MB",
         info.get_current_commit() / 1024 / 1024,
-        pool::pool_held_bytes() / 1024 / 1024,
+        super::slab::committed_bytes() / 1024 / 1024,
     );
 }
 

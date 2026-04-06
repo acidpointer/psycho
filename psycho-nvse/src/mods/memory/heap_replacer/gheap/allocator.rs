@@ -19,9 +19,7 @@ use libmimalloc::{
 };
 
 use super::engine::{addr, globals};
-use super::pool;
 use super::statics;
-use super::uaf_bitmap;
 use crate::mods::memory::heap_replacer::heap_validate;
 
 const ALIGN: usize = 16;
@@ -74,9 +72,7 @@ static VAS_EMERGENCY_COMMIT: std::sync::atomic::AtomicUsize =
 /// Returns total available virtual address space in bytes.
 /// Called once at startup (after all DLLs loaded).
 pub fn init_available_vas() -> usize {
-    use windows::Win32::System::Memory::{
-        MEM_FREE, MEMORY_BASIC_INFORMATION, VirtualQuery,
-    };
+    use windows::Win32::System::Memory::{MEM_FREE, MEMORY_BASIC_INFORMATION, VirtualQuery};
 
     let mut addr = 0x10000usize; // Skip NULL guard page
     let mut available: usize = 0;
@@ -186,20 +182,17 @@ pub fn set_loading_bypass(active: bool) {
     LOADING_BYPASS.store(active, Ordering::Release);
 }
 
-#[inline]
-pub fn is_bypass_active() -> bool {
-    LARGE_BYPASS.load(Ordering::Relaxed)
-        || LOADING_BYPASS.load(Ordering::Relaxed)
-        || VAS_EMERGENCY.load(Ordering::Relaxed)
-}
-
 // -----------------------------------------------------------------------
 // Thread identity
 // -----------------------------------------------------------------------
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 #[repr(u8)]
-enum ThreadRole { Unknown = 0, Main = 1, Worker = 2 }
+enum ThreadRole {
+    Unknown = 0,
+    Main = 1,
+    Worker = 2,
+}
 
 thread_local! {
     static THREAD_ROLE: Cell<ThreadRole> = const { Cell::new(ThreadRole::Unknown) };
@@ -247,7 +240,7 @@ pub fn is_main_thread() -> bool {
 /// reclamation. This threshold is chosen so that:
 /// - Havok shapes (100KB-500KB) --> mimalloc + pool (UAF protected)
 /// - NiRefObjects (16-1200B) --> mimalloc + pool (UAF protected)
-/// Dispatch:
+///   Dispatch:
 ///   size <= 4096  -> slab (per-page refcount, decommit when empty)
 ///   size 4097..1MB -> mimalloc (uncommon sizes, CRT compat)
 ///   size >= 1MB   -> va_allocator (VirtualAlloc, MEM_RELEASE on free)
@@ -474,8 +467,10 @@ unsafe fn do_recover_oom(size: usize) -> *mut c_void {
 
     log::warn!(
         "[OOM] size={} thread={} commit={}MB pool={}MB",
-        size, if is_main { "main" } else { "worker" },
-        commit_entry, heap.pool_mb(),
+        size,
+        if is_main { "main" } else { "worker" },
+        commit_entry,
+        super::slab::committed_bytes() / 1024 / 1024,
     );
 
     // --- Emergency pool drain (main thread only) ---
@@ -483,12 +478,19 @@ unsafe fn do_recover_oom(size: usize) -> *mut c_void {
     // But when the main thread is IN OOM recovery, it never reaches Phase 7.
     // Consume the flag here to drain stale zombie blocks immediately.
     if is_main && heap.take_emergency_drain() {
-        let drained = unsafe { heap.drain_pool(pool::SMALL_BLOCK_THRESHOLD) };
+        let drained = unsafe {
+            super::slab::decommit_sweep();
+            mi_collect(false);
+            0
+        };
         let ptr = unsafe { retry_alloc(size) };
         if !ptr.is_null() {
             log::info!(
                 "[OOM] Recovered after emergency drain: drained={} size={} commit={}-->{}MB",
-                drained, size, commit_entry, heap.commit_mb(),
+                drained,
+                size,
+                commit_entry,
+                heap.commit_mb(),
             );
             return ptr;
         }
@@ -568,7 +570,10 @@ unsafe fn do_recover_oom(size: usize) -> *mut c_void {
             if !ptr.is_null() {
                 log::info!(
                     "[OOM] Worker recovered: stage={} size={} commit={}-->{}MB",
-                    stage, size, commit_entry, heap.commit_mb(),
+                    stage,
+                    size,
+                    commit_entry,
+                    heap.commit_mb(),
                 );
                 return ptr;
             }
@@ -604,23 +609,24 @@ unsafe fn do_recover_oom(size: usize) -> *mut c_void {
 
         log::warn!(
             "[OOM] Worker entering Stage 8: size={} commit={}MB pool={}MB",
-            size, heap.commit_mb(), heap.pool_mb(),
+            size,
+            heap.commit_mb(),
+            super::slab::committed_bytes() / 1024 / 1024,
         );
 
         for iter in 0..MAX_STAGE8_ITERS {
             // Match vanilla: set HeapCompact trigger + release sems + sleep
-            heap.signal_heap_compact(
-                super::engine::globals::HeapCompactStage::MenuCleanup,
-            );
+            heap.signal_heap_compact(super::engine::globals::HeapCompactStage::MenuCleanup);
             heap.signal_emergency_drain();
             unsafe { super::engine::globals::release_bstask_sems_if_owned() };
 
             // Signal destruction_protocol periodically (safe cell unload
             // path with Havok lock, consumed at AI_JOIN).
             if iter.is_multiple_of(16)
-                && let Some(pr) = super::pressure::PressureRelief::instance() {
-                    pr.set_deferred_unload();
-                }
+                && let Some(pr) = super::pressure::PressureRelief::instance()
+            {
+                pr.set_deferred_unload();
+            }
 
             libpsycho::os::windows::winapi::sleep(1);
 
@@ -633,7 +639,10 @@ unsafe fn do_recover_oom(size: usize) -> *mut c_void {
             if !ptr.is_null() {
                 log::info!(
                     "[OOM] Worker recovered (Stage 8): iter={} size={} commit={}-->{}MB",
-                    iter, size, commit_entry, heap.commit_mb(),
+                    iter,
+                    size,
+                    commit_entry,
+                    heap.commit_mb(),
                 );
                 return ptr;
             }
@@ -641,7 +650,10 @@ unsafe fn do_recover_oom(size: usize) -> *mut c_void {
             if iter.is_multiple_of(1000) && iter > 0 {
                 log::warn!(
                     "[OOM] Worker Stage 8: {}ms size={} commit={}MB pool={}MB",
-                    iter, size, heap.commit_mb(), heap.pool_mb(),
+                    iter,
+                    size,
+                    heap.commit_mb(),
+                    super::slab::committed_bytes() / 1024 / 1024,
                 );
             }
         }
@@ -655,13 +667,16 @@ unsafe fn do_recover_oom(size: usize) -> *mut c_void {
         // when mimalloc arena is fragmented but OS still has free pages.
         log::error!(
             "[OOM] Worker Stage 8 exhausted ({}ms), CRT fallback: size={} commit={}MB",
-            MAX_STAGE8_ITERS, size, heap.commit_mb(),
+            MAX_STAGE8_ITERS,
+            size,
+            heap.commit_mb(),
         );
         let ptr = unsafe { libc::malloc(size) };
         if !ptr.is_null() {
             log::warn!(
                 "[OOM] Worker recovered (CRT): size={} commit={}MB",
-                size, heap.commit_mb(),
+                size,
+                heap.commit_mb(),
             );
             return ptr;
         }
@@ -672,7 +687,8 @@ unsafe fn do_recover_oom(size: usize) -> *mut c_void {
         // the allocator NEVER returns NULL.
         log::error!(
             "[OOM] Worker CRT failed, nuclear drain + infinite retry: size={} commit={}MB",
-            size, heap.commit_mb(),
+            size,
+            heap.commit_mb(),
         );
         unsafe { mi_collect(true) };
 
@@ -719,22 +735,33 @@ unsafe fn do_recover_oom(size: usize) -> *mut c_void {
         if death_spiral_detected {
             log::warn!(
                 "[OOM] Death spiral detected: cycle={}, commit={}MB, going nuclear",
-                cycles, commit_before / 1024 / 1024,
+                cycles,
+                commit_before / 1024 / 1024,
             );
-            let drained = unsafe { pool::pool_drain_all() };
+            let drained = unsafe {
+                super::slab::decommit_sweep();
+                mi_collect(false);
+                (0, 0).0
+            };
             unsafe { mi_collect(true) };
             let freed_bytes = commit_entry.saturating_sub(heap.commit_bytes());
             let ptr = unsafe { retry_alloc(size) };
             if !ptr.is_null() {
                 log::info!(
                     "[OOM] Recovered via nuclear: drained={} freed={}MB size={} commit={}-->{}MB",
-                    drained, freed_bytes / 1024 / 1024, size, commit_entry, heap.commit_mb(),
+                    drained,
+                    freed_bytes / 1024 / 1024,
+                    size,
+                    commit_entry,
+                    heap.commit_mb(),
                 );
                 return ptr;
             }
             log::error!(
                 "[OOM] FATAL (nuclear failed): size={} commit={}MB freed={}MB",
-                size, heap.commit_mb(), freed_bytes / 1024 / 1024,
+                size,
+                heap.commit_mb(),
+                freed_bytes / 1024 / 1024,
             );
             return null_mut();
         }
@@ -761,7 +788,11 @@ unsafe fn do_recover_oom(size: usize) -> *mut c_void {
         if !ptr.is_null() {
             log::info!(
                 "[OOM] Recovered: cycle={} stage={} size={} commit={}-->{}MB",
-                cycles, stage, size, commit_entry, heap.commit_mb(),
+                cycles,
+                stage,
+                size,
+                commit_entry,
+                heap.commit_mb(),
             );
             return ptr;
         }
@@ -775,7 +806,8 @@ unsafe fn do_recover_oom(size: usize) -> *mut c_void {
                 death_spiral_detected = true;
                 log::warn!(
                     "[OOM] Ineffective cycle #1: freed={}KB (threshold={}MB), will go nuclear",
-                    freed / 1024, death_spiral_threshold / 1024 / 1024,
+                    freed / 1024,
+                    death_spiral_threshold / 1024 / 1024,
                 );
             }
         }
@@ -794,8 +826,14 @@ unsafe fn do_recover_oom(size: usize) -> *mut c_void {
             if freed < 64 * 1024 {
                 log::warn!(
                     "[OOM] Minimal cleanup ({}) at stage {}, commit={}-->{}MB",
-                    if freed == 0 { "nothing freed" } else { "very little" },
-                    stage, commit_entry, heap.commit_mb(),
+                    if freed == 0 {
+                        "nothing freed"
+                    } else {
+                        "very little"
+                    },
+                    stage,
+                    commit_entry,
+                    heap.commit_mb(),
                 );
             }
             break;
@@ -809,13 +847,20 @@ unsafe fn do_recover_oom(size: usize) -> *mut c_void {
     // We drain large blocks (>= 1024 bytes) which are less likely to have
     // active stale readers than small RefCount-sized blocks.
     {
-        let drained = unsafe { pool::pool_drain_large(pool::SMALL_BLOCK_THRESHOLD) };
+        let drained = unsafe {
+            super::slab::decommit_sweep();
+            mi_collect(false);
+            (0, 0).0
+        };
         unsafe { libmimalloc::mi_collect(false) };
         let ptr = unsafe { retry_alloc(size) };
         if !ptr.is_null() {
             log::warn!(
                 "[OOM] Recovered after emergency pool drain: drained={} size={} commit={}-->{}MB",
-                drained, size, commit_entry, heap.commit_mb(),
+                drained,
+                size,
+                commit_entry,
+                heap.commit_mb(),
             );
             return ptr;
         }
@@ -827,14 +872,22 @@ unsafe fn do_recover_oom(size: usize) -> *mut c_void {
     // Only the main thread reaches here.
     log::warn!(
         "[OOM] Escalating: commit={}-->{}MB pool={}MB",
-        commit_entry, heap.commit_mb(), heap.pool_mb(),
+        commit_entry,
+        heap.commit_mb(),
+        super::slab::committed_bytes() / 1024 / 1024,
     );
 
     // Safe drain (>= 1KB only -- no BSTreeNode UAF risk).
-    unsafe { heap.drain_pool(pool::SMALL_BLOCK_THRESHOLD) };
+    unsafe {
+        super::slab::decommit_sweep();
+        mi_collect(false);
+        0
+    };
     unsafe { mi_collect(true) };
     let ptr = unsafe { retry_alloc(size) };
-    if !ptr.is_null() { return ptr; }
+    if !ptr.is_null() {
+        return ptr;
+    }
 
     // Nuclear: drain ALL pool blocks. UAF risk accepted -- crash is
     // the alternative. But first, wait for AI threads to join and
@@ -854,12 +907,19 @@ unsafe fn do_recover_oom(size: usize) -> *mut c_void {
     // Final semaphore release before drain.
     unsafe { super::engine::globals::release_bstask_sems_if_owned() };
 
-    let drained = unsafe { pool::pool_drain_all() };
+    let drained = unsafe {
+        super::slab::decommit_sweep();
+        mi_collect(false);
+        (0, 0).0
+    };
     let commit_after_drain = heap.commit_mb();
     let freed_mb = commit_entry.saturating_sub(commit_after_drain);
     log::error!(
         "[OOM] Last resort: drain_all={} commit={}-->{}MB freed={}MB",
-        drained, commit_entry, commit_after_drain, freed_mb,
+        drained,
+        commit_entry,
+        commit_after_drain,
+        freed_mb,
     );
 
     // Only retry if drain freed meaningful amount relative to request.
@@ -872,7 +932,8 @@ unsafe fn do_recover_oom(size: usize) -> *mut c_void {
         if !ptr.is_null() {
             log::warn!(
                 "[OOM] Recovered post-drain: commit={}-->{}MB",
-                commit_entry, heap.commit_mb(),
+                commit_entry,
+                heap.commit_mb(),
             );
             return ptr;
         }
@@ -880,7 +941,9 @@ unsafe fn do_recover_oom(size: usize) -> *mut c_void {
 
     log::error!(
         "[OOM] FATAL: size={} commit={}MB thread={}",
-        size, heap.commit_mb(), if is_main { "main" } else { "worker" },
+        size,
+        heap.commit_mb(),
+        if is_main { "main" } else { "worker" },
     );
     null_mut()
 }

@@ -17,7 +17,6 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::LazyLock;
 
 use super::engine::globals;
-use super::pool;
 use crate::mods::memory::heap_replacer::mem_stats;
 
 /// Max cells to unload per relief cycle.
@@ -129,7 +128,7 @@ impl PressureRelief {
             self.pending_counter_decrement.store(true, Ordering::Release);
             log::info!(
                 "[PRESSURE] Cleanup: {} cells (commit={}MB, pool={}MB)",
-                cells, heap.commit_mb(), heap.pool_mb(),
+                cells, heap.commit_mb(), super::slab::committed_bytes() / 1024 / 1024,
             );
         }
     }
@@ -206,7 +205,7 @@ impl PressureRelief {
                 unsafe { globals::havok_gc(1) }; // force=true
                 unsafe { globals::pdd_purge() };
                 unsafe { libmimalloc::mi_collect(false) };
-                let drained = unsafe { pool::pool_drain_large(pool::SMALL_BLOCK_THRESHOLD) };
+                let drained = unsafe { super::slab::decommit_sweep(); libmimalloc::mi_collect(false); (0, 0).0 };
                 unsafe { libmimalloc::mi_collect(false) };
 
                 loading_counter.fetch_sub(1, std::sync::atomic::Ordering::AcqRel);
@@ -262,14 +261,14 @@ impl PressureRelief {
         //
         // Large blocks (>= 1KB) are typically cell data, geometry, textures -
         // safe to free because their owning cells are being destroyed.
-        let drained = unsafe { pool::pool_drain_large(pool::SMALL_BLOCK_THRESHOLD) };
+        let drained = unsafe { super::slab::decommit_sweep(); libmimalloc::mi_collect(false); (0, 0).0 };
         unsafe { libmimalloc::mi_collect(false) };
 
         unsafe { globals::post_destruction_restore(&mut state) };
 
         log::debug!(
             "[DESTRUCTION] {} cells, {} drained, commit={}MB, pool={}MB",
-            cells, drained, heap.commit_mb(), heap.pool_mb(),
+            cells, drained, heap.commit_mb(), super::slab::committed_bytes() / 1024 / 1024,
         );
 
         if cells == 0 {

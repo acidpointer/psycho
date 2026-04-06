@@ -12,8 +12,8 @@
 //! - `signal_heap_compact` uses MAX semantics -- never downgrades.
 //! - Debug logging for OOM stages is encapsulated inside `run_oom_stage`.
 
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::LazyLock;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 use libc::c_void;
 
@@ -21,7 +21,6 @@ use libpsycho::ffi::fnptr::FnPtr;
 
 use super::engine::addr;
 use super::engine::globals::HeapCompactStage;
-use super::pool;
 use crate::mods::memory::heap_replacer::gheap::types;
 
 // ---------------------------------------------------------------------------
@@ -51,18 +50,6 @@ impl HeapManager {
     // Cleanup primitives
     // -------------------------------------------------------------------
 
-    /// Drain pool blocks >= `min_size` to mimalloc + `mi_collect(false)`.
-    ///
-    /// Use `pool::ALIGN` (16) to drain ALL blocks.
-    /// Use `pool::SMALL_BLOCK_THRESHOLD` (1024) to drain only large blocks.
-    ///
-    /// Returns number of blocks drained.
-    pub unsafe fn drain_pool(&self, min_size: usize) -> usize {
-        let drained = unsafe { pool::pool_drain_large(min_size) };
-        unsafe { libmimalloc::mi_collect(false) };
-        drained
-    }
-
     /// Run one game OOM stage (FUN_00866a90).
     ///
     /// `bypass`: when true, large frees (>= 1KB) go to mi_free during
@@ -79,15 +66,13 @@ impl HeapManager {
     pub unsafe fn run_oom_stage(&self, stage: i32, bypass: bool) -> (i32, bool) {
         let heap_singleton = addr::HEAP_SINGLETON as *mut c_void;
         let primary_heap = unsafe {
-            let p = (heap_singleton as *const u8).add(addr::HEAP_PRIMARY_OFFSET)
-                as *const *mut c_void;
+            let p =
+                (heap_singleton as *const u8).add(addr::HEAP_PRIMARY_OFFSET) as *const *mut c_void;
             *p
         };
 
         let oom_exec = match unsafe {
-            FnPtr::<types::OomStageExecFn>::from_raw(
-                addr::OOM_STAGE_EXEC as *mut c_void,
-            )
+            FnPtr::<types::OomStageExecFn>::from_raw(addr::OOM_STAGE_EXEC as *mut c_void)
         } {
             Ok(f) => f,
             Err(e) => {
@@ -110,10 +95,7 @@ impl HeapManager {
                     })
                 }
                 Err(e) => {
-                    log::error!(
-                        "[OOM] oom_exec.as_fn() failed at stage {}: {:?}",
-                        stage, e,
-                    );
+                    log::error!("[OOM] oom_exec.as_fn() failed at stage {}: {:?}", stage, e,);
                     return (stage + 1, true);
                 }
             }
@@ -123,10 +105,7 @@ impl HeapManager {
             match unsafe { oom_exec.as_fn() } {
                 Ok(f) => unsafe { f(heap_singleton, primary_heap, stage, &mut done) },
                 Err(e) => {
-                    log::error!(
-                        "[OOM] oom_exec.as_fn() failed at stage {}: {:?}",
-                        stage, e,
-                    );
+                    log::error!("[OOM] oom_exec.as_fn() failed at stage {}: {:?}", stage, e,);
                     return (stage + 1, true);
                 }
             }
@@ -141,7 +120,9 @@ impl HeapManager {
         if stage != 8 || freed > 0 || gained > 1024 * 1024 {
             log::debug!(
                 "[OOM] Stage {} --> {}: done={} commit={}MB{}",
-                stage, next, done,
+                stage,
+                next,
+                done,
                 commit_after / 1024 / 1024,
                 if freed > 0 {
                     format!(" freed={}KB", freed / 1024)
@@ -209,10 +190,6 @@ impl HeapManager {
 
     pub fn commit_mb(&self) -> usize {
         self.commit_bytes() / 1024 / 1024
-    }
-
-    pub fn pool_mb(&self) -> usize {
-        pool::pool_held_bytes() / 1024 / 1024
     }
 
     pub fn commit_bytes(&self) -> usize {
