@@ -140,12 +140,8 @@ pub type SetDistanceThresholdFn = unsafe extern "C" fn(distance: i32);
 ///
 /// After this call, Havok world is locked and SpeedTree draw lists are rebuilt.
 /// Safe to run PDD and cell unloading.
-pub type PreDestructionSetupFn = unsafe extern "C" fn(
-    state: *mut c_void,
-    flush_textures: u8,
-    param_3: u8,
-    save_cell_lock: u8,
-);
+pub type PreDestructionSetupFn =
+    unsafe extern "C" fn(state: *mut c_void, flush_textures: u8, param_3: u8, save_cell_lock: u8);
 
 /// FUN_00878200: post-destruction restore (hkWorld_Unlock + restore state).
 pub type PostDestructionRestoreFn = unsafe extern "C" fn(state: *mut c_void);
@@ -192,10 +188,8 @@ pub type BstaskSignalIdleFn = unsafe extern "thiscall" fn(*mut c_void, u32);
 
 // ---- Havok broadphase synchronization ----
 
-pub type HavokAddEntityFn =
-    unsafe extern "thiscall" fn(*mut c_void, i32, i32, i32);
-pub type HavokCollObjDtorFn =
-    unsafe extern "thiscall" fn(*mut c_void, u8);
+pub type HavokAddEntityFn = unsafe extern "thiscall" fn(*mut c_void, i32, i32, i32);
+pub type HavokCollObjDtorFn = unsafe extern "thiscall" fn(*mut c_void, u8);
 pub type HavokRaycastFn =
     unsafe extern "thiscall" fn(*mut c_void, *mut c_void, *mut c_void, i32, u32, u32);
 
@@ -204,8 +198,7 @@ pub type HkWorldUnlockFn = unsafe extern "fastcall" fn(*mut c_void);
 
 // ---- Actor process synchronization ----
 
-pub type ActorDowngradeInnerFn =
-    unsafe extern "thiscall" fn(*mut c_void, *mut c_void);
+pub type ActorDowngradeInnerFn = unsafe extern "thiscall" fn(*mut c_void, *mut c_void);
 pub type AIProcess1Fn = unsafe extern "fastcall" fn(i32);
 pub type AIProcess2Fn = unsafe extern "fastcall" fn(i32);
 pub type CellMgmtUpdateFn = unsafe extern "thiscall" fn(*mut c_void, f32);

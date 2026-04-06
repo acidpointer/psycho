@@ -131,19 +131,19 @@ unsafe fn alloc_oom_recovery(
     size: usize,
     align: usize,
 ) -> *mut c_void {
-    use crate::mods::memory::heap_replacer::gheap::{heap_manager::HeapManager, pool};
+    use crate::mods::memory::heap_replacer::gheap::{heap_manager::HeapManager, slab};
 
     // First: signal main thread to run cleanup (same as main OOM path)
     HeapManager::get().signal_emergency_drain();
 
-    // Drain the pool's large quarantined blocks to free memory
-    let drained = unsafe { pool::pool_drain_large(pool::SMALL_BLOCK_THRESHOLD) };
+    // Decommit slab dirty pages + collect mimalloc to free memory
+    unsafe { slab::decommit_sweep() };
     unsafe { libmimalloc::mi_collect(false) };
 
     for attempt in 1..=SHEAP_OOM_RETRIES {
         log::warn!(
-            "[SBM] OOM on sheap_alloc(size={}, align={}), pool drained={}, attempt {}/{}",
-            size, align, drained, attempt, SHEAP_OOM_RETRIES
+            "[SBM] OOM on sheap_alloc(size={}, align={}), attempt {}/{}",
+            size, align, attempt, SHEAP_OOM_RETRIES
         );
 
         // Signal main thread cleanup + mi_collect to reclaim empty pages

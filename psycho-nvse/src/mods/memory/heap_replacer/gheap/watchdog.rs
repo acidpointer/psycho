@@ -199,7 +199,11 @@ fn watchdog_loop(run: Arc<std::sync::atomic::AtomicBool>) {
         } else {
             // Baseline not calibrated yet -- use absolute commit thresholds.
             // This prevents a blind spot during early gameplay.
-            let reduction = if loading { LOADING_THRESHOLD_REDUCTION } else { 0 };
+            let reduction = if loading {
+                LOADING_THRESHOLD_REDUCTION
+            } else {
+                0
+            };
             let normal_abs = FALLBACK_ABSOLUTE_THRESHOLD.saturating_sub(reduction);
             (
                 commit, // growth = absolute commit when baseline=0
@@ -289,19 +293,15 @@ fn log_diagnostics(poll_count: u32, info: &MiMallocProcessInfo) {
     );
 
     let rate = GROWTH_RATE.load(Ordering::Relaxed);
-    let pool_mb = super::pool::pool_held_bytes() / 1024 / 1024;
-    let evictions = super::pool::pool_evictions();
-    let soft_bypasses = super::pool::pool_soft_bypasses();
-    let bypass_active = super::allocator::is_bypass_active();
+    let slab_mb = super::slab::committed_bytes() / 1024 / 1024;
+    let slab_dirty = super::slab::dirty_pages();
     log::info!(
-        "[MEM] Pool: {}MB | Rate: {}/s | Reliefs: {} | Cells: {} | Evict: {} | SoftByp: {} | Bypass: {}",
-        pool_mb,
+        "[MEM] Slab: {}MB | Dirty: {} | Rate: {}/s | Reliefs: {} | Cells: {}",
+        slab_mb,
+        slab_dirty,
         format_rate(rate),
         relief,
         cells,
-        evictions,
-        soft_bypasses,
-        if bypass_active { "ON" } else { "off" },
     );
 
     // Log large pool stats (reserved, committed, remaining)
@@ -309,7 +309,9 @@ fn log_diagnostics(poll_count: u32, info: &MiMallocProcessInfo) {
     if reserved > 0 {
         log::info!(
             "[MEM] LargePool: reserved={}MB, committed={}MB, remaining={}MB",
-            reserved, committed, remaining,
+            reserved,
+            committed,
+            remaining,
         );
     }
 

@@ -58,9 +58,8 @@ pub unsafe extern "thiscall" fn hook_texture_cache_find(
     param_2: i32,
     param_3: *mut *mut i32,
 ) -> u32 {
-    let bucket_head = unsafe {
-        *((this as *const u8).add((param_1 as usize) * 4) as *const *const u32)
-    };
+    let bucket_head =
+        unsafe { *((this as *const u8).add((param_1 as usize) * 4) as *const *const u32) };
 
     if bucket_head.is_null() {
         return 0;
@@ -68,8 +67,8 @@ pub unsafe extern "thiscall" fn hook_texture_cache_find(
 
     // with_try_read: main thread runs directly, worker acquires read lock.
     // If drain in progress (worker, lock fails), return 0 (not found).
-    super::game_guard::with_try_read(|| {
-        unsafe { find_in_chain(this, bucket_head, param_1, param_2, param_3) }
+    super::game_guard::with_try_read(|| unsafe {
+        find_in_chain(this, bucket_head, param_1, param_2, param_3)
     })
     .unwrap_or(0)
 }
@@ -116,11 +115,7 @@ unsafe fn chain_has_dead_entry(mut entry: *const u32) -> bool {
 
 /// Traverse the hash chain, skipping entries with dead NiSourceTextures.
 /// Matches the original FUN_00a61a60 logic but adds dead-set filtering.
-unsafe fn find_skipping_dead(
-    mut entry: *const u32,
-    key: i32,
-    out: *mut *mut i32,
-) -> u32 {
+unsafe fn find_skipping_dead(mut entry: *const u32, key: i32, out: *mut *mut i32) -> u32 {
     unsafe {
         loop {
             let value_ptr = *entry as *const i32;
@@ -156,8 +151,8 @@ unsafe fn find_skipping_dead(
                                 // Ghidra-verified: FNV .rdata (vtables) is in
                                 // 0x01000000-0x01100000, .text (code) in 0x00400000-0x00E00000.
                                 let vtable = *(old_val as *const *const usize);
-                                let vtable_valid = (0x0100_0000..0x0110_0000)
-                                    .contains(&(vtable as usize));
+                                let vtable_valid =
+                                    (0x0100_0000..0x0110_0000).contains(&(vtable as usize));
                                 if vtable_valid {
                                     let dtor_addr = *vtable.add(1);
                                     let dtor_valid =
@@ -165,11 +160,13 @@ unsafe fn find_skipping_dead(
                                     if dtor_valid
                                         && let Ok(dtor) = FnPtr::<
                                             unsafe extern "thiscall" fn(*mut c_void),
-                                        >::from_raw(dtor_addr as *mut c_void)
-                                            && let Ok(f) = dtor.as_fn()
-                                        {
-                                            f(old_val as *mut c_void);
-                                        }
+                                        >::from_raw(
+                                            dtor_addr as *mut c_void
+                                        )
+                                        && let Ok(f) = dtor.as_fn()
+                                    {
+                                        f(old_val as *mut c_void);
+                                    }
                                     // If invalid, skip destructor -- memory leak is better
                                     // than jumping to arbitrary code.
                                 }

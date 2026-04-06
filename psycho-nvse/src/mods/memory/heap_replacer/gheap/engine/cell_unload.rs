@@ -226,7 +226,7 @@ pub fn execute(max_cells: usize) -> Option<CellUnloadResult> {
 
     let info = libmimalloc::process_info::MiMallocProcessInfo::get();
     let commit_before = info.get_current_commit();
-    let quarantine_before = crate::mods::memory::heap_replacer::gheap::pool::pool_held_bytes();
+    let quarantine_before = crate::mods::memory::heap_replacer::gheap::slab::committed_bytes();
 
     log::info!(
         "[CELL_UNLOAD] Starting: max={}, loading={}, commit={}MB, quarantine={}MB",
@@ -257,7 +257,7 @@ pub fn execute(max_cells: usize) -> Option<CellUnloadResult> {
     // returns the pre-unload value. Reading from it gives freed=0 always.
     let info_after = libmimalloc::process_info::MiMallocProcessInfo::get();
     let commit_after = info_after.get_current_commit();
-    let quarantine_after = crate::mods::memory::heap_replacer::gheap::pool::pool_held_bytes();
+    let quarantine_after = crate::mods::memory::heap_replacer::gheap::slab::committed_bytes();
     let freed = commit_before.saturating_sub(commit_after);
 
     TOTAL_CELLS_UNLOADED.fetch_add(cells, Ordering::Relaxed);
