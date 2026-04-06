@@ -21,6 +21,7 @@ use super::engine::{addr, globals};
 use super::pool;
 use super::statics;
 use super::uaf_bitmap;
+use super::virtual_alloc;
 use crate::mods::memory::heap_replacer::heap_validate;
 
 const ALIGN: usize = 16;
@@ -237,11 +238,28 @@ pub fn is_main_thread() -> bool {
 
 /// Allocate `size` bytes. Uses thread-local pool, falls back to mi_malloc.
 ///
+/// Large allocations (>= 64KB) go through VirtualAlloc instead of mimalloc.
+/// These are raw data buffers (terrain, DDS files, render buffers), not
+/// game objects with vtables. NiRefObjects are 16-1200 bytes. Routing large
+/// allocations through VirtualAlloc ensures they're freed immediately via
+/// VirtualFree(MEM_RELEASE), solving the partially-empty segment problem
+/// that prevents mimalloc from reclaiming VAS during memory crises.
+///
 /// When mi_malloc succeeds, we check the object's vtable and mark its
 /// segment in the UAF bitmap if it's a UAF-sensitive type. This happens
 /// at allocation time when the vtable is guaranteed valid (just constructed).
 #[inline]
 pub unsafe fn alloc(size: usize) -> *mut c_void {
+    // Large GameHeap allocations → VirtualAlloc. Raw data buffers (terrain,
+    // DDS files, render buffers), no UAF risk — no vtables at this size.
+    if size >= virtual_alloc::LARGE_ALLOC_THRESHOLD {
+        let ptr = unsafe { virtual_alloc::malloc(size) };
+        if !ptr.is_null() {
+            return ptr;
+        }
+        return unsafe { recover_oom(size) };
+    }
+
     let ptr = if is_pool_active() {
         let (p, _) = unsafe { pool::pool_alloc(size) };
         p
@@ -307,6 +325,14 @@ pub unsafe fn free(ptr: *mut c_void) {
         return;
     }
 
+    // Check VirtualAlloc first — large GameHeap allocations (terrain, DDS
+    // files, render buffers) bypass mimalloc entirely. VirtualFree returns
+    // pages to the OS immediately, solving the partially-empty segment
+    // problem that prevents VAS reclamation during memory crises.
+    if unsafe { virtual_alloc::free(ptr) } {
+        return;
+    }
+
     if unsafe { mi_is_in_heap_region(ptr as *const c_void) } {
         if is_pool_active() {
             // PRIMARY: Vtable check - works for ALL objects including pre-plugin
@@ -368,6 +394,12 @@ pub unsafe fn msize(ptr: *mut c_void) -> usize {
     if ptr.is_null() {
         return 0;
     }
+
+    // Check VirtualAlloc first — large GameHeap allocations bypass mimalloc.
+    if let Some(size) = unsafe { virtual_alloc::msize(ptr) } {
+        return size;
+    }
+
     if unsafe { mi_is_in_heap_region(ptr as *const c_void) } {
         return unsafe { mi_usable_size(ptr as *const c_void) };
     }
