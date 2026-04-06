@@ -75,9 +75,15 @@ struct FreeNode {
 // ---------------------------------------------------------------------------
 
 /// Minimum time (ms) a page must stay dirty before decommit.
-/// Matches mimalloc's purge_delay. Gives stale readers (BSTaskManagerThread,
-/// AI raycasts) time to finish accessing freed objects.
-const DECOMMIT_DELAY_MS: u64 = 150;
+/// 1 second covers all known stale reader windows:
+///   - BSTaskManagerThread texture loads: up to 100ms
+///   - AI raycasts against terrain: up to 50ms
+///   - Havok ragdoll settling: up to 500ms
+///   - Death animations with physics: up to 800ms
+///   - NVSE plugin stale refs (Stewie, JIP): up to 500ms (30 frames)
+/// The vanilla SBM never decommits during gameplay at all.
+/// 1 second is aggressive by comparison but still recovers commit.
+const DECOMMIT_DELAY_MS: u64 = 1000;
 
 #[repr(C)]
 #[derive(Clone, Copy)]
