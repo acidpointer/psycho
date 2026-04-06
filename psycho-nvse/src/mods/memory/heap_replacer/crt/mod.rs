@@ -219,8 +219,9 @@ pub unsafe extern "C" fn hook_free(raw_ptr: *mut c_void) {
         return;
     }
 
-    // Check VirtualAlloc first (VirtualQuery guard prevents crash on garbage)
-    if unsafe { virtual_alloc::free(raw_ptr) } {
+    // Check VirtualAlloc header (simple memory read, NO sys call)
+    if unsafe { virtual_alloc::is_virtual_alloc_ptr(raw_ptr) } {
+        unsafe { virtual_alloc::free(raw_ptr) };
         return;
     }
 

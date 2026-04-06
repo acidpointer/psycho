@@ -84,13 +84,12 @@ static EMERGENCY_INEFFECTIVE: std::sync::atomic::AtomicU32 = std::sync::atomic::
 static EMERGENCY_SUPPRESSED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
 /// Last tick count when periodic pool drain ran.
-/// Drains old zombie blocks (> 1 second old) that no longer provide UAF protection.
+/// Drains large blocks (> 1KB) when pool is near capacity.
 static LAST_POOL_DRAIN_MS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
 
 /// Cooldown for periodic pool drain (1 second).
-/// Zombie blocks older than 1 second are extremely unlikely to have
-/// active stale readers (AI threads finish in < 1 frame, BSTaskManagerThread
-/// in < 100ms). Draining them reclaims VAS without increasing crash risk.
+/// Only drains large blocks (>= 1KB) which are safer to free than small
+/// UAF-sensitive blocks. Small blocks stay in the zombie pool for protection.
 const POOL_DRAIN_COOLDOWN_MS: u64 = 1000;
 
 /// Phase 7: per-frame queue drain (before AI_START).
@@ -134,14 +133,23 @@ pub unsafe extern "C" fn hook_per_frame_queue_drain() {
     // Worker threads can't free memory from the main thread's pool. They
     // signal this flag; we drain it here.
     //
-    // CRITICAL: Use pool::ALIGN (drain ALL blocks), not SMALL_BLOCK_THRESHOLD.
-    // During OOM, the pool is often entirely small blocks (< 1KB) that
-    // drain_large can't touch. Draining all blocks risks UAF for small
-    // objects, but the alternative is a guaranteed crash.
+    // CRITICAL: Use pool::ALIGN (drain ALL blocks) during emergency.
+    // The pool is often entirely small blocks (< 1KB) during crisis.
+    // Draining small blocks risks UAF, but purge_delay=50ms gives stale
+    // readers a 50ms window to finish before pages are decommitted.
+    // The alternative (drain 0 blocks) is a guaranteed crash.
     if heap.take_emergency_drain() {
         let commit_before = heap.commit_mb();
         let drained = unsafe { heap.drain_pool(pool::ALIGN) };
         unsafe { libmimalloc::mi_collect(true) };
+
+        // Sleep 50ms to let the purge_delay window expire.
+        // This gives stale readers time to finish accessing pages that
+        // were just decommitted by mi_collect(true). Without this sleep,
+        // the worker thread might retry allocation immediately and hit
+        // decommitted pages.
+        libpsycho::os::windows::winapi::sleep(50);
+
         log::warn!(
             "[OOM] Emergency drain: {} blocks, commit={}-->{}MB pool={}MB",
             drained, commit_before, heap.commit_mb(), heap.pool_mb(),
@@ -241,18 +249,17 @@ pub unsafe extern "C" fn hook_per_frame_queue_drain() {
     }
 
     // --- Periodic Pool Drain ---
-    // Drain zombie blocks older than 1 second. These blocks no longer provide
-    // UAF protection (AI threads finish in < 1 frame, BSTaskManagerThread in
-    // < 100ms) but consume VAS. Draining them reclaims memory without
-    // increasing crash risk.
+    // When the pool exceeds 50MB (80% of 64MB hard cap), drain large blocks
+    // (>= 1KB) to prevent the pool from filling up completely. Large blocks
+    // are safer to free than small UAF-sensitive blocks (NiRefObjects are
+    // typically 16-128 bytes). Small blocks stay in the zombie pool.
     //
-    // Only drain when pool exceeds 32MB to avoid unnecessary work during
-    // normal low-pressure operation.
-    if heap.pool_mb() >= 32 {
+    // This runs every 1 second to avoid draining too aggressively.
+    if heap.pool_mb() >= 50 {
         let now = libpsycho::os::windows::winapi::get_tick_count() as u64;
         let last = LAST_POOL_DRAIN_MS.load(std::sync::atomic::Ordering::Relaxed);
         if now.saturating_sub(last) >= POOL_DRAIN_COOLDOWN_MS {
-            let drained = unsafe { heap.drain_pool(pool::ALIGN) };
+            let drained = unsafe { heap.drain_pool(pool::SMALL_BLOCK_THRESHOLD) };
             LAST_POOL_DRAIN_MS.store(now, std::sync::atomic::Ordering::Relaxed);
             if drained > 0 {
                 log::info!("[POOL] Periodic drain: {} blocks freed, pool={}MB", drained, heap.pool_mb());

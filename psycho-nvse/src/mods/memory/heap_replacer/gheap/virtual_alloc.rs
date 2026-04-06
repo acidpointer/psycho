@@ -33,10 +33,31 @@ use windows::Win32::System::Memory::{
     VirtualAlloc, VirtualFree, VirtualQuery,
 };
 
-const VALL_MAGIC1: u32 = 0x56414C4C; // "VALL" (individual VirtualAlloc)
-const VALL_MAGIC2: u32 = 0xA9BEBBB4;
-const VAPL_MAGIC1: u32 = 0x5641504C; // "VAPL" (pool allocation)
-const VAPL_MAGIC2: u32 = 0xA9BEAFB3;
+/// Magic numbers for VirtualAlloc allocation headers.
+pub const VALL_MAGIC1: u32 = 0x56414C4C; // "VALL" (individual VirtualAlloc)
+pub const VALL_MAGIC2: u32 = 0xA9BEBBB4;
+pub const VAPL_MAGIC1: u32 = 0x5641504C; // "VAPL" (pool allocation)
+pub const VAPL_MAGIC2: u32 = 0xA9BEAFB3;
+
+/// Check if a pointer is a VirtualAlloc allocation by reading the header magic.
+/// NO sys call — just reads memory at `ptr - 16`.
+/// Returns true if the pointer has our VirtualAlloc header magic.
+///
+/// Safety: Caller must ensure `ptr - 16` is readable memory. This is guaranteed
+/// for any pointer returned by our VirtualAlloc allocator. For unknown pointers,
+/// this function may read garbage (but won't crash if the page is committed).
+#[inline]
+pub unsafe fn is_virtual_alloc_ptr(ptr: *mut c_void) -> bool {
+    if ptr.is_null() {
+        return false;
+    }
+    let header = (ptr as *const u8).wrapping_sub(HEADER_SIZE) as *const VaHeader;
+    let magic1 = ptr::read_volatile(&(*header).magic1);
+    let magic2 = ptr::read_volatile(&(*header).magic2);
+
+    (magic1 == VAPL_MAGIC1 && magic2 == VAPL_MAGIC2)
+        || (magic1 == VALL_MAGIC1 && magic2 == VALL_MAGIC2)
+}
 
 /// Minimum allocation size to use the large allocation pool.
 pub const LARGE_ALLOC_THRESHOLD: usize = 64 * 1024; // 64KB
@@ -224,55 +245,29 @@ pub unsafe fn malloc(size: usize) -> *mut c_void {
     (base as usize + HEADER_SIZE) as *mut c_void
 }
 
-/// Free a large allocation.
+/// Free a VirtualAlloc allocation.
 ///
-/// Returns `true` if the pointer was a valid large allocation and was freed.
-/// Returns `false` if the pointer is not a large allocation (caller should
-/// try other free paths).
+/// Caller MUST have already verified the header magic via `is_virtual_alloc_ptr()`.
+/// This function does NOT perform VirtualQuery — it directly frees the allocation.
 ///
 /// Pool allocations: MEM_DECOMMIT (pages returned to OS, reservation stays)
 /// Individual allocations: MEM_RELEASE (entire region released)
-pub unsafe fn free(ptr: *mut c_void) -> bool {
+pub unsafe fn free(ptr: *mut c_void) {
     if ptr.is_null() {
-        return false;
+        return;
     }
 
-    let header_addr = (ptr as *const u8).wrapping_sub(HEADER_SIZE) as *const c_void;
+    let header_addr = (ptr as *const u8).wrapping_sub(HEADER_SIZE) as *const VaHeader;
+    let in_pool = unsafe { (*header_addr).in_pool };
 
-    // VirtualQuery to verify the region is valid
-    let mut mbi: MEMORY_BASIC_INFORMATION = std::mem::zeroed();
-    let query_result = unsafe {
-        VirtualQuery(
-            Some(header_addr),
-            &mut mbi,
-            std::mem::size_of::<MEMORY_BASIC_INFORMATION>(),
-        )
-    };
-    if query_result == 0 {
-        return false; // Unmapped or invalid address
-    }
-    if mbi.State != MEM_COMMIT {
-        return false; // Not a committed region
-    }
-
-    // Safe to read header
-    let header = header_addr as *const VaHeader;
-    let magic1 = unsafe { ptr::read_volatile(&(*header).magic1) };
-    let magic2 = unsafe { ptr::read_volatile(&(*header).magic2) };
-    let in_pool = unsafe { (*header).in_pool };
-
-    if (magic1 == VAPL_MAGIC1 && magic2 == VAPL_MAGIC2) && in_pool == 1 {
+    if in_pool == 1 {
         // Pool allocation: decommit pages but keep reservation
-        let alloc_size = unsafe { (*header).alloc_size };
+        let alloc_size = unsafe { (*header_addr).alloc_size };
         let total = alloc_size + HEADER_SIZE;
         let _ = unsafe { VirtualFree(header_addr as *mut c_void, total, MEM_DECOMMIT) };
-        true
-    } else if magic1 == VALL_MAGIC1 && magic2 == VALL_MAGIC2 {
+    } else {
         // Individual VirtualAlloc allocation: release entire region
         let _ = unsafe { VirtualFree(header_addr as *mut c_void, 0, MEM_RELEASE) };
-        true
-    } else {
-        false // Not our header
     }
 }
 

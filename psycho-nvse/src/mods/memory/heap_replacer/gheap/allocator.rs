@@ -325,14 +325,8 @@ pub unsafe fn free(ptr: *mut c_void) {
         return;
     }
 
-    // Check VirtualAlloc first — large GameHeap allocations (terrain, DDS
-    // files, render buffers) bypass mimalloc entirely. VirtualFree returns
-    // pages to the OS immediately, solving the partially-empty segment
-    // problem that prevents VAS reclamation during memory crises.
-    if unsafe { virtual_alloc::free(ptr) } {
-        return;
-    }
-
+    // FAST PATH: Check mimalloc arena first. 95%+ of frees are mimalloc
+    // allocations — avoid the expensive VirtualQuery sys call for these.
     if unsafe { mi_is_in_heap_region(ptr as *const c_void) } {
         if is_pool_active() {
             // PRIMARY: Vtable check - works for ALL objects including pre-plugin
@@ -379,6 +373,15 @@ pub unsafe fn free(ptr: *mut c_void) {
         return;
     }
 
+    // SLOW PATH: Pointer outside mimalloc arena — check VirtualAlloc header.
+    // Large GameHeap allocations (terrain, DDS files, render buffers) use
+    // VirtualAlloc with a magic header. This is a simple memory read — NO
+    // sys call. VirtualQuery was removed because it's expensive and unnecessary.
+    if unsafe { virtual_alloc::is_virtual_alloc_ptr(ptr) } {
+        unsafe { virtual_alloc::free(ptr) };
+        return;
+    }
+
     // Pre-hook pointer: route to original SBM trampoline.
     if let Ok(orig_free) = statics::GHEAP_FREE_HOOK.original() {
         unsafe { orig_free(addr::HEAP_SINGLETON as *mut c_void, ptr) };
@@ -395,14 +398,16 @@ pub unsafe fn msize(ptr: *mut c_void) -> usize {
         return 0;
     }
 
-    // Check VirtualAlloc first — large GameHeap allocations bypass mimalloc.
+    // FAST PATH: Check mimalloc first. 95%+ of allocations are in the arena.
+    if unsafe { mi_is_in_heap_region(ptr as *const c_void) } {
+        return unsafe { mi_usable_size(ptr as *const c_void) };
+    }
+
+    // SLOW PATH: Outside arena — check VirtualAlloc (sys call).
     if let Some(size) = unsafe { virtual_alloc::msize(ptr) } {
         return size;
     }
 
-    if unsafe { mi_is_in_heap_region(ptr as *const c_void) } {
-        return unsafe { mi_usable_size(ptr as *const c_void) };
-    }
     if let Ok(orig_msize) = statics::GHEAP_MSIZE_HOOK.original() {
         let size = unsafe { orig_msize(addr::HEAP_SINGLETON as *mut c_void, ptr) };
         if size != 0 {
