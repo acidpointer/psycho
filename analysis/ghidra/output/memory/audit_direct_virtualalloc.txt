@@ -1,0 +1,525 @@
+AUDIT: Direct VirtualAlloc/VirtualFree callers in FalloutNV.exe
+======================================================================
+
+Purpose: Find memory allocations that bypass our mimalloc hooks.
+These are direct OS calls that we cannot track or reclaim.
+
+# SECTION 1: VirtualAlloc callers (memory that bypasses mimalloc)
+
+======================================================================
+EXTERNAL FUNCTION: VirtualAlloc
+======================================================================
+  Symbol: VirtualAlloc at EXTERNAL:0000003b
+    GAME CALL @ 0x00fdf114 in ??? (0x00000000)
+    GAME CALL @ 0x00ede5f0 in ___sbh_alloc_new_region (0x00ede579)
+    GAME CALL @ 0x00ede67d in ___sbh_alloc_new_group (0x00ede629)
+    GAME CALL @ 0x009fcd10 in FUN_009fcc60 (0x009fcc60)
+    GAME CALL @ 0x00aa9241 in FUN_00aa8f50 (0x00aa8f50)
+    GAME CALL @ 0x00aa9612 in FUN_00aa8f50 (0x00aa8f50)
+    GAME CALL @ 0x00aa93f7 in FUN_00aa8f50 (0x00aa8f50)
+    GAME CALL @ 0x00aa79d5 in FUN_00aa79a0 (0x00aa79a0)
+    GAME CALL @ 0x00aa79f3 in FUN_00aa79a0 (0x00aa79a0)
+    GAME CALL @ 0x00aa7a8a in FUN_00aa7a50 (0x00aa7a50)
+    GAME CALL @ 0x00aa65de in FUN_00aa65b0 (0x00aa65b0)
+    GAME CALL @ 0x00aa663a in FUN_00aa6610 (0x00aa6610)
+    GAME CALL @ 0x00aa5ed7 in FUN_00aa5ec0 (0x00aa5ec0)
+    GAME CALL @ 0x00aa5ef6 in FUN_00aa5ec0 (0x00aa5ec0)
+    GAME CALL @ 0x00aa5e52 in FUN_00aa5e30 (0x00aa5e30)
+  Game callers: 15
+
+# SECTION 2: VirtualFree callers (memory returned to OS)
+
+======================================================================
+EXTERNAL FUNCTION: VirtualFree
+======================================================================
+  Symbol: VirtualFree at EXTERNAL:00000039
+    GAME CALL @ 0x00fdf10c in ??? (0x00000000)
+    GAME CALL @ 0x009fb1a5 in FUN_009fb170 (0x009fb170)
+    GAME CALL @ 0x00ede4ac in ___sbh_free_block (0x00ede263)
+    GAME CALL @ 0x00ede507 in ___sbh_free_block (0x00ede263)
+    GAME CALL @ 0x00aa7a11 in FUN_00aa79a0 (0x00aa79a0)
+    GAME CALL @ 0x00aa7aee in FUN_00aa7ab0 (0x00aa7ab0)
+    GAME CALL @ 0x00aa7a42 in FUN_00aa7a30 (0x00aa7a30)
+    GAME CALL @ 0x00aa7de0 in FUN_00aa7d60 (0x00aa7d60)
+    GAME CALL @ 0x00aa6695 in FUN_00aa6680 (0x00aa6680)
+    GAME CALL @ 0x00aa6665 in FUN_00aa6650 (0x00aa6650)
+    GAME CALL @ 0x00aa5eaa in FUN_00aa5e90 (0x00aa5e90)
+    GAME CALL @ 0x00aa5f42 in FUN_00aa5f30 (0x00aa5f30)
+  Game callers: 12
+
+# SECTION 3: SBM VirtualAlloc wrappers
+# These are the SBM's own VirtualAlloc calls for arena management.
+# We ret-patched cleanup functions, so arenas from these calls
+# stay committed forever.
+
+======================================================================
+SBM_VirtualAlloc_CommitRetry @ 0x00aa5e30
+======================================================================
+  Function: FUN_00aa5e30 @ 0x00aa5e30, Size: 88 bytes
+
+void FUN_00aa5e30(int param_1,int param_2,SIZE_T param_3)
+
+{
+  LPVOID pvVar1;
+  char local_9;
+  int local_8;
+  
+  local_8 = 0;
+  while( true ) {
+    pvVar1 = VirtualAlloc((LPVOID)(param_1 + param_2),param_3,0x1000,4);
+    if (pvVar1 != (LPVOID)0x0) break;
+    local_9 = '\x01';
+    local_8 = FUN_00866a90(&DAT_011f6238,0,local_8,&local_9);
+  }
+  return;
+}
+
+
+
+======================================================================
+SBM_VirtualAlloc_ReserveAndCommit @ 0x00aa5ec0
+======================================================================
+  Function: FUN_00aa5ec0 @ 0x00aa5ec0, Size: 111 bytes
+
+LPVOID FUN_00aa5ec0(SIZE_T param_1)
+
+{
+  LPVOID pvVar1;
+  char local_d;
+  int local_c;
+  LPVOID local_8;
+  
+  local_8 = VirtualAlloc((LPVOID)0x0,0x800000,0x2000,4);
+  local_c = 0;
+  while( true ) {
+    pvVar1 = VirtualAlloc(local_8,param_1,0x1000,4);
+    if (pvVar1 != (LPVOID)0x0) break;
+    local_d = '\x01';
+    local_c = FUN_00866a90(&DAT_011f6238,0,local_c,&local_d);
+  }
+  return local_8;
+}
+
+
+
+======================================================================
+SBM_VirtualFree_Release @ 0x00aa5f30
+======================================================================
+  Function: FUN_00aa5f30 @ 0x00aa5f30, Size: 30 bytes
+
+void FUN_00aa5f30(LPVOID param_1)
+
+{
+  VirtualFree(param_1,0,0x8000);
+  return;
+}
+
+
+
+======================================================================
+SBM_VirtualFree_Decommit @ 0x00aa5e90
+======================================================================
+  Function: FUN_00aa5e90 @ 0x00aa5e90, Size: 38 bytes
+
+void FUN_00aa5e90(int param_1,int param_2,SIZE_T param_3)
+
+{
+  VirtualFree((LPVOID)((param_1 + param_2) - param_3),param_3,0x4000);
+  return;
+}
+
+
+
+# SECTION 4: HeapCompact per-frame trigger check
+# FUN_00878080 is called every frame and checks HEAP_COMPACT_TRIGGER.
+# When trigger > 0, it calls FUN_00866a90 (stage executor).
+
+======================================================================
+HeapCompact_PerFrame_Check @ 0x00878080
+======================================================================
+  Function: FUN_00878080 @ 0x00878080, Size: 137 bytes
+
+void __fastcall FUN_00878080(int param_1)
+
+{
+  bool bVar1;
+  undefined *puVar2;
+  int iVar3;
+  uint uVar4;
+  undefined4 uVar5;
+  char *pcVar6;
+  uint local_c;
+  char local_5;
+  
+  bVar1 = FUN_0044b130((LPCRITICAL_SECTION)(param_1 + 0x14));
+  if (bVar1) {
+    puVar2 = FUN_00401020();
+    iVar3 = FUN_00878110((int)puVar2);
+    if (iVar3 != 0) {
+      local_5 = '\x01';
+      local_c = 0;
+      while( true ) {
+        puVar2 = FUN_00401020();
+        uVar4 = FUN_00878110((int)puVar2);
+        if (uVar4 < local_c) break;
+        pcVar6 = &local_5;
+        uVar5 = 0;
+        uVar4 = local_c;
+        puVar2 = FUN_00401020();
+        FUN_00866a90(puVar2,uVar5,uVar4,pcVar6);
+        local_c = local_c + 1;
+      }
+      puVar2 = FUN_00401020();
+      FUN_00878130((int)puVar2);
+    }
+    FUN_0082f1f0((LPCRITICAL_SECTION)(param_1 + 0x14));
+  }
+  return;
+}
+
+
+
+# SECTION 5: Key functions called by OOM stages that FREE memory
+# These are the functions that stages 0-5 call. If they free
+# memory through paths we dont hook, thats our leak.
+
+======================================================================
+Stage0_TextureCacheFlush @ 0x00452490
+======================================================================
+  Function: FUN_00452490 @ 0x00452490, Size: 85 bytes
+
+void __thiscall FUN_00452490(void *this,char param_1)
+
+{
+  char cVar1;
+  uint uVar2;
+  
+  uVar2 = FUN_00452540();
+  if ((uVar2 & 0xff) != 0) {
+    FUN_00452510();
+    FUN_00664cd0('\x01');
+    cVar1 = FUN_004524f0((int)this);
+    if ((cVar1 != '\0') || (param_1 != '\0')) {
+      FUN_00a61cd0();
+    }
+    FUN_00664cd0('\x01');
+    FUN_00452530();
+  }
+  return;
+}
+
+
+
+======================================================================
+Stage1_GetGeometryCache_PATCHED @ 0x00866d10
+======================================================================
+  Function: FUN_00866d10 @ 0x00866d10, Size: 137 bytes
+
+int FUN_00866d10(void)
+
+{
+  int iVar1;
+  int *unaff_FS_OFFSET;
+  int local_1c;
+  int local_10;
+  undefined1 *puStack_c;
+  undefined4 local_8;
+  
+  local_8 = 0xffffffff;
+  puStack_c = &LAB_00f109cb;
+  local_10 = *unaff_FS_OFFSET;
+  *unaff_FS_OFFSET = (int)&local_10;
+  if (DAT_011f63b4 == 0) {
+    iVar1 = FUN_00401000(0x240);
+    local_8 = 0;
+    if (iVar1 == 0) {
+      local_1c = 0;
+    }
+    else {
+      local_1c = FUN_00aa5860(iVar1);
+    }
+    DAT_011f63b4 = local_1c;
+  }
+  iVar1 = DAT_011f63b4;
+  *unaff_FS_OFFSET = local_10;
+  return iVar1;
+}
+
+
+
+======================================================================
+Stage3_AsyncFlush @ 0x00c459d0
+======================================================================
+  Function: FUN_00c459d0 @ 0x00c459d0, Size: 172 bytes
+
+/* WARNING: Globals starting with '_' overlap smaller symbols at the same address */
+
+void __cdecl FUN_00c459d0(char param_1)
+
+{
+  BOOL BVar1;
+  bool local_5;
+  
+  local_5 = true;
+  if (param_1 == '\0') {
+    FUN_0040fbf0((LONG *)&DAT_01202e40);
+  }
+  else {
+    local_5 = FUN_0078d200((LONG *)&DAT_01202e40);
+  }
+  if ((local_5 == false) ||
+     (BVar1 = TryEnterCriticalSection((LPCRITICAL_SECTION)&lpCriticalSection_011f4380), BVar1 != 0))
+  {
+    if (local_5 != false) {
+      FUN_00c46080(0x1202e20);
+      FUN_00c45a80();
+      LeaveCriticalSection((LPCRITICAL_SECTION)&lpCriticalSection_011f4380);
+      DAT_01202e44 = DAT_01202e44 + -1;
+      if (DAT_01202e44 == 0) {
+        _DAT_01202e40 = 0;
+      }
+    }
+  }
+  else {
+    DAT_01202e44 = DAT_01202e44 + -1;
+    if (DAT_01202e44 == 0) {
+      _DAT_01202e40 = 0;
+    }
+  }
+  return;
+}
+
+
+
+======================================================================
+Stage5_PDD_SkipMask @ 0x00869190
+======================================================================
+  Function: FUN_00869190 @ 0x00869190, Size: 29 bytes
+
+void __cdecl FUN_00869190(undefined1 param_1)
+
+{
+  int unaff_FS_OFFSET;
+  
+  *(undefined1 *)(*(int *)(*(int *)(unaff_FS_OFFSET + 0x2c) + _tls_index * 4) + 0x298) = param_1;
+  return;
+}
+
+
+
+======================================================================
+Stage5_FindCellToUnload_Check @ 0x00453a80
+======================================================================
+  Function: FUN_00453a80 @ 0x00453a80, Size: 824 bytes
+
+uint __fastcall FUN_00453a80(int param_1)
+
+{
+  int iVar1;
+  char cVar2;
+  int iVar3;
+  int *piVar4;
+  int iVar5;
+  uint uVar6;
+  undefined4 uVar7;
+  void *pvVar8;
+  int *local_24;
+  int *local_20;
+  int *local_1c;
+  int *local_14;
+  int *local_c;
+  int *local_8;
+  
+  local_8 = (int *)0x0;
+  iVar3 = FUN_005f36f0(param_1);
+  if (iVar3 == 0) {
+    piVar4 = (int *)FUN_0043d4d0(0x11c3e38);
+    piVar4 = (int *)(*piVar4 + -1);
+    for (local_c = piVar4; -1 < (int)local_c; local_c = (int *)((int)local_c + -1)) {
+      piVar4 = *(int **)(param_1 + 0x38);
+      if (piVar4[(int)local_c] != 0) {
+        local_8 = *(int **)(*(int *)(param_1 + 0x38) + (int)local_c * 4);
+        *(undefined4 *)(*(int *)(param_1 + 0x38) + (int)local_c * 4) = 0;
+        piVar4 = (int *)param_1;
+        break;
+      }
+    }
+    if (local_8 == (int *)0x0) {
+      FUN_00454fc0(param_1);
+      iVar3 = FUN_0084e3a0(*(int *)(param_1 + 8));
+      iVar5 = FUN_0084e3a0(*(int *)(param_1 + 8));
+      piVar4 = (int *)FUN_0043d4d0(0x11c3c90);
+      local_14 = (int *)(*piVar4 + -1);
+      while ((int *)(iVar3 * iVar5) <= local_14) {
+        if (*(int *)(*(int *)(param_1 + 0x3c) + (int)local_14 * 4) != 0) {
+          uVar6 = FUN_004511e0(*(int *)(*(int *)(param_1 + 0x3c) + (int)local_14 * 4),'\x01');
+          piVar4 = (int *)(uVar6 & 0xff);
+          if (((int *)(uVar6 & 0xff) == (int *)0x0) &&
+             (piVar4 = (int *)FUN_00557090(*(int *)(*(int *)(param_1 + 0x3c) + (int)local_14 * 4)),
+             ((uint)piVar4 & 0xff) == 0)) {
+            local_8 = *(int **)(*(int *)(param_1 + 0x3c) + (int)local_14 * 4);
+            *(undefined4 *)(*(int *)(param_1 + 0x3c) + (int)local_14 * 4) = 0;
+            piVar4 = (int *)param_1;
+          }
+          break;
+        }
+        piVar4 = (int *)((int)local_14 + -1);
+        local_14 = piVar4;
+      }
+    }
+  }
+  else {
+    iVar3 = FUN_0084e3a0(*(int *)(param_1 + 8));
+    iVar5 = FUN_0084e3a0(*(int *)(param_1 + 8));
+    piVar4 = (int *)FUN_0043d4d0(0x11c3c90);
+    local_1c = (int *)(*piVar4 + -1);
+    while ((int *)(iVar3 * iVar5) <= local_1c) {
+      if (((*(int *)(*(int *)(param_1 + 0x3c) + (int)local_1c * 4) != 0) &&
+          (uVar6 = FUN_004511e0(*(int *)(*(int *)(param_1 + 0x3c) + (int)local_1c * 4),'\x01'),
+          (uVar6 & 0xff) == 0)) &&
+         (cVar2 = FUN_00557090(*(int *)(*(int *)(param_1 + 0x3c) + (int)local_1c * 4)),
+         cVar2 == '\0')) {
+        local_8 = *(int **)(*(int *)(param_1 + 0x3c) + (int)local_1c * 4);
+        *(undefined4 *)(*(int *)(param_1 + 0x3c) + (int)local_1c * 4) = 0;
+        piVar4 = (int *)param_1;
+        break;
+      }
+      piVar4 = (int *)((int)local_1c + -1);
+      local_1c = piVar4;
+    }
+    if (local_8 == (int *)0x0) {
+      piVar4 = (int *)FUN_0043d4d0(0x11c3e38);
+      piVar4 = (int *)(*piVar4 + -1);
+      for (local_20 = piVar4; -1 < (int)local_20; local_20 = (int *)((int)local_20 + -1)) {
+        piVar4 = *(int **)(param_1 + 0x38);
+        if ((piVar4[(int)local_20] != 0) &&
+           (iVar1 = *(int *)(param_1 + 0x38), piVar4 = (int *)FUN_005f36f0(param_1),
+           *(int **)(iVar1 + (int)local_20 * 4) != piVar4)) {
+          local_8 = *(int **)(*(int *)(param_1 + 0x38) + (int)local_20 * 4);
+          *(undefined4 *)(*(int *)(param_1 + 0x38) + (int)local_20 * 4) = 0;
+          piVar4 = (int *)param_1;
+          break;
+        }
+      }
+    }
+    if (local_8 == (int *)0x0) {
+      local_24 = (int *)0x0;
+      while (local_24 < (int *)(iVar3 * iVar5)) {
+        if (((*(int *)(*(int *)(param_1 + 0x3c) + (int)local_24 * 4) != 0) &&
+            (uVar6 = FUN_004511e0(*(int *)(*(int *)(param_1 + 0x3c) + (int)local_24 * 4),'\x01'),
+            (uVar6 & 0xff) == 0)) &&
+           (cVar2 = FUN_00557090(*(int *)(*(int *)(param_1 + 0x3c) + (int)local_24 * 4)),
+           cVar2 == '\0')) {
+          local_8 = *(int **)(*(int *)(param_1 + 0x3c) + (int)local_24 * 4);
+          *(undefined4 *)(*(int *)(param_1 + 0x3c) + (int)local_24 * 4) = 0;
+          piVar4 = (int *)FUN_00453940(param_1);
+          break;
+        }
+        piVar4 = (int *)((int)local_24 + 1);
+        local_24 = piVar4;
+      }
+    }
+  }
+  if (local_8 == (int *)0x0) {
+    uVar6 = (uint)piVar4 & 0xffffff00;
+  }
+  else {
+    uVar7 = FUN_00462290(local_8);
+    if (**(int **)(param_1 + 0x3c) == 0) {
+      iVar3 = FUN_004fd3e0(param_1);
+      uVar7 = 0;
+      if (iVar3 != 0) {
+        pvVar8 = (void *)FUN_004fd3e0(param_1);
+        iVar3 = FUN_00586170(pvVar8);
+        uVar7 = FUN_006fce00(iVar3);
+      }
+    }
+    uVar6 = CONCAT31((int3)((uint)uVar7 >> 8),1);
+  }
+  return uVar6;
+}
+
+
+
+======================================================================
+Stage5_FindCellToUnload @ 0x004539a0
+======================================================================
+  Function: FUN_004539a0 @ 0x004539a0, Size: 196 bytes
+
+void __thiscall FUN_004539a0(void *this,char param_1,char param_2)
+
+{
+  undefined4 *puVar1;
+  int iVar2;
+  uint uVar3;
+  int *piVar4;
+  
+  puVar1 = (undefined4 *)FUN_0045bb80((int)this);
+  FUN_00470470(puVar1);
+  if (param_1 != '\0') {
+    iVar2 = FUN_005f36f0((int)this);
+    if (iVar2 == 0) goto LAB_004539d2;
+  }
+  FUN_00453940((int)this);
+LAB_004539d2:
+  FUN_00453a70();
+  FUN_00483710();
+  FUN_00455200(this,param_1,0);
+  iVar2 = FUN_005f36f0((int)this);
+  if ((iVar2 != 0) && (param_1 == '\0')) {
+    iVar2 = FUN_005f36f0((int)this);
+    uVar3 = FUN_00454bd0(this,iVar2);
+    if ((uVar3 & 0xff) == 0) {
+      piVar4 = (int *)FUN_005f36f0((int)this);
+      FUN_00462290(piVar4);
+    }
+  }
+  FUN_00454d50(this,param_1);
+  if ((param_1 == '\0') && (param_2 == '\0')) {
+    FUN_008d7dc0(this,0);
+  }
+  *(undefined1 *)((int)this + 0xb4) = 1;
+  return;
+}
+
+
+
+# SECTION 6: D3D9 renderer VirtualAlloc usage
+# The renderer may allocate GPU-mapped system memory directly.
+
+======================================================================
+EXTERNAL FUNCTION: CreateTexture
+======================================================================
+
+======================================================================
+EXTERNAL FUNCTION: CreateVertexBuffer
+======================================================================
+
+======================================================================
+EXTERNAL FUNCTION: CreateIndexBuffer
+======================================================================
+
+# SECTION 7: HeapAlloc/HeapFree (Windows process heap)
+
+======================================================================
+EXTERNAL FUNCTION: HeapAlloc
+======================================================================
+  Symbol: HeapAlloc at EXTERNAL:0000005e
+    GAME CALL @ 0x00fdf1a0 in ??? (0x00000000)
+    GAME CALL @ 0x00ede5d6 in ___sbh_alloc_new_region (0x00ede579)
+    GAME CALL @ 0x00ecd23e in _malloc (0x00ecd1c7)
+    GAME CALL @ 0x00ecd03a in _realloc (0x00eccf5d)
+    GAME CALL @ 0x00ee16a0 in __calloc_impl (0x00ee15e2)
+    GAME CALL @ 0x00ee6034 in __chsize_nolock (0x00ee5fc4)
+  Game callers: 6
+
+======================================================================
+EXTERNAL FUNCTION: HeapFree
+======================================================================
+  Symbol: HeapFree at EXTERNAL:0000005f
+    GAME CALL @ 0x00fdf1a4 in ??? (0x00000000)
+    GAME CALL @ 0x00ede519 in ___sbh_free_block (0x00ede263)
+    GAME CALL @ 0x00ede607 in ___sbh_alloc_new_region (0x00ede579)
+    GAME CALL @ 0x00ecd2f9 in _free (0x00ecd291)
+    GAME CALL @ 0x00ee60b7 in __chsize_nolock (0x00ee5fc4)
+  Game callers: 5
