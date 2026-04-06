@@ -268,13 +268,21 @@ pub unsafe extern "C" fn hook_per_frame_queue_drain() {
     }
 
     if request >= 1 && !vas_emergency {
-        heap.signal_heap_compact(globals::HeapCompactStage::HavokGC);
-        // During VAS crisis, skip redundant drain_large (already done above).
+        // Stage 2 max: texture, geometry, menu cache cleanup.
+        // Stage 3+ (HavokGC / FUN_00c459d0) MUST go through destruction_protocol
+        // which has Havok locking + AI safety. Signaling stage 3+ here runs
+        // async queue flush without locks, disrupting NVTF Geometry Precache
+        // Queue -> NiGeometryBufferData UAF (heap_analysis.md:1345).
+        heap.signal_heap_compact(globals::HeapCompactStage::MenuCleanup);
+
+        // NOTE: pool drain moved to AFTER PDD (below). Draining before PDD
+        // causes UAF: PDD destructors access AnimSequenceBase, BSFadeNode
+        // etc. that were in pool blocks. If we mi_free those blocks before
+        // PDD runs, destructors read decommitted memory.
         if !vas_critical {
-            let drained = unsafe { heap.drain_pool(pool::SMALL_BLOCK_THRESHOLD) };
             log::info!(
-                "[WATCHDOG] Phase 7 cleanup: drained {}, level={}, commit={}MB, pdd(NiNode={} Gen={} Form={})",
-                drained, request, commit / 1024 / 1024,
+                "[WATCHDOG] Phase 7 cleanup: level={}, commit={}MB, pdd(NiNode={} Gen={} Form={})",
+                request, commit / 1024 / 1024,
                 globals::pdd_queue_count(PddQueue::NiNode),
                 globals::pdd_queue_count(PddQueue::Generic),
                 globals::pdd_queue_count(PddQueue::Form),
@@ -349,18 +357,32 @@ pub unsafe extern "C" fn hook_per_frame_queue_drain() {
                 rounds += 1;
             }
 
-            // Drain pool to catch blocks freed by PDD + decommit.
-            unsafe { heap.drain_pool(pool::SMALL_BLOCK_THRESHOLD) };
-
-            log::debug!(
-                "[PDD] Drained {} rounds, pdd(NiNode={} Gen={} Form={}), commit={}MB, pool={}MB",
-                rounds,
-                globals::pdd_queue_count(PddQueue::NiNode),
-                globals::pdd_queue_count(PddQueue::Generic),
-                globals::pdd_queue_count(PddQueue::Form),
-                heap.commit_mb(),
-                heap.pool_mb(),
-            );
+            // Drain pool AFTER PDD completes. PDD destructors access
+            // objects in pool blocks (AnimSequenceBase, BSFadeNode, etc.).
+            // Draining before PDD causes UAF. Now safe: all destructors
+            // have run, no more stale readers from the PDD chain.
+            if !vas_critical {
+                let drained = unsafe { heap.drain_pool(pool::SMALL_BLOCK_THRESHOLD) };
+                log::debug!(
+                    "[PDD] Drained {} rounds, {} pool blocks, pdd(NiNode={} Gen={} Form={}), commit={}MB, pool={}MB",
+                    rounds, drained,
+                    globals::pdd_queue_count(PddQueue::NiNode),
+                    globals::pdd_queue_count(PddQueue::Generic),
+                    globals::pdd_queue_count(PddQueue::Form),
+                    heap.commit_mb(),
+                    heap.pool_mb(),
+                );
+            } else {
+                log::debug!(
+                    "[PDD] Drained {} rounds, pdd(NiNode={} Gen={} Form={}), commit={}MB, pool={}MB",
+                    rounds,
+                    globals::pdd_queue_count(PddQueue::NiNode),
+                    globals::pdd_queue_count(PddQueue::Generic),
+                    globals::pdd_queue_count(PddQueue::Form),
+                    heap.commit_mb(),
+                    heap.pool_mb(),
+                );
+            }
         }
     }
 
