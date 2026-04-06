@@ -352,7 +352,7 @@ pub fn install_game_heap_hooks() -> anyhow::Result<()> {
         // fast path (JMP at function entry → our hook). This flag clear is
         // belt-and-suspenders for any code that reads the flag directly.
         let fast_path_flag = (gheap::engine::addr::HEAP_SINGLETON + 0x129) as *mut u8;
-        unsafe { fast_path_flag.write_volatile(0) };
+        fast_path_flag.write_volatile(0);
         log::info!(
             "[SBM] Disabled small alloc fast path flag at 0x{:08X}",
             gheap::engine::addr::HEAP_SINGLETON + 0x129,
@@ -379,7 +379,7 @@ pub fn install_game_heap_hooks() -> anyhow::Result<()> {
         // condition check, timer accumulation, and index rotation still run
         // on stale SBM state every frame. NVHR skips this entire block
         // with a JMP +0x55 (EB 55). Match that.
-        unsafe { patch_bytes(0x0086EED4 as *mut c_void, &[0xEB, 0x55]) }?;
+        patch_bytes(0x0086EED4 as *mut c_void, &[0xEB, 0x55])?;
 
         log::info!("[SBM] Patched SBM (10 RET + 3 NOP + 1 JMP + fast path disabled)");
     }
