@@ -175,17 +175,20 @@ pub type GetMainThreadIdFn = unsafe extern "fastcall" fn(*mut c_void) -> u32;
 // ---- BSTaskManagerThread semaphore management (OOM Stage 8) ----
 
 /// FUN_00866DA0: get owner thread ID of BSTaskManagerThread semaphore.
-/// fastcall: ECX = IOManager, EDX = thread index (0 or 1).
+/// thiscall: ECX = IOManager (this), stack = thread index (0 or 1).
 /// Returns thread ID that owns the semaphore, or 0 if unowned.
-pub type BstaskGetOwnerFn = unsafe extern "fastcall" fn(*mut c_void, u32) -> u32;
+/// Ghidra: void __thiscall FUN_00866da0(void *this, int param_1)
+pub type BstaskGetOwnerFn = unsafe extern "thiscall" fn(*mut c_void, u32) -> u32;
 
 /// FUN_00866DC0: release BSTaskManagerThread semaphore.
-/// fastcall: ECX = IOManager, EDX = thread index (0 or 1).
-pub type BstaskReleaseSemFn = unsafe extern "fastcall" fn(*mut c_void, u32);
+/// thiscall: ECX = IOManager (this), stack = thread index (0 or 1).
+/// Ghidra: void __thiscall FUN_00866dc0(void *this, int param_1)
+pub type BstaskReleaseSemFn = unsafe extern "thiscall" fn(*mut c_void, u32);
 
 /// FUN_00866DE0: signal BSTaskManagerThread idle semaphore.
-/// fastcall: ECX = IOManager, EDX = thread index (0 or 1).
-pub type BstaskSignalIdleFn = unsafe extern "fastcall" fn(*mut c_void, u32);
+/// thiscall: ECX = IOManager (this), stack = thread index (0 or 1).
+/// Ghidra: void __thiscall FUN_00866de0(void *this, int param_1)
+pub type BstaskSignalIdleFn = unsafe extern "thiscall" fn(*mut c_void, u32);
 
 // ---- Havok broadphase synchronization ----
 
