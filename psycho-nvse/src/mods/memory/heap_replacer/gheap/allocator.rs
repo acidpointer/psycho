@@ -35,27 +35,142 @@ static LOADING_BYPASS: AtomicBool = AtomicBool::new(false);
 /// VAS emergency mode: when commit exceeds critical threshold, all frees
 /// bypass the pool and go directly to mi_free. This prevents the pool
 /// from filling with undrainable small blocks during a memory crisis.
-/// Set by Phase 7 watchdog when commit > 1.8GB.
+/// Set by Phase 7 watchdog when commit exceeds emergency threshold.
 static VAS_EMERGENCY: AtomicBool = AtomicBool::new(false);
 
-/// Commit threshold (bytes) for VAS emergency mode.
-/// Above this: all frees bypass pool, Phase 7 drains entire pool.
-/// Ghidra-verified: AI threads are stopped at Phase 7 (after AI_JOIN),
-/// so draining the pool is safe from AI thread UAF.
-pub const VAS_EMERGENCY_COMMIT: usize = 1_800 * 1024 * 1024; // 1.8GB
+/// Percentage of headroom (available_vas - baseline) at which VAS CRITICAL
+/// mode activates. 60% of headroom used = danger zone.
+/// e.g., if available=3200MB, baseline=731MB, headroom=2469MB,
+/// critical = 731 + 2469*0.60 = 2212MB
+const VAS_CRITICAL_PCT: f64 = 0.60;
 
-/// Commit threshold (bytes) for aggressive pool drain.
-/// Above this: Phase 7 drains ALL pool blocks (not just >= 1KB).
-/// The 127MB pool at crisis is entirely small blocks (< 1KB).
-/// FreeNode header protects NiRefObject pattern even after drain.
-pub const VAS_CRITICAL_COMMIT: usize = 1_500 * 1024 * 1024; // 1.5GB
+/// Percentage of headroom at which VAS EMERGENCY mode activates.
+/// 70% of headroom used = crisis mode.
+const VAS_EMERGENCY_PCT: f64 = 0.70;
+
+/// Minimum viable headroom (bytes) for VAS crisis management to be effective.
+/// Below this, our cleanup mechanisms (pool drain, mi_collect, cell unload)
+/// free less memory than the game allocates per cycle, making the crisis
+/// management counterproductive — it causes a death spiral instead of
+/// recovering memory. 500MB guarantees enough buffer for loading spikes.
+const MINIMUM_VIABLE_HEADROOM: usize = 500 * 1024 * 1024; // 500MB
+
+/// Available VAS at startup, calculated once via VirtualQuery.
+/// Set during init, read at baseline calibration.
+static AVAILABLE_VAS: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+
+/// Dynamic VAS CRITICAL threshold (bytes). Calculated when baseline is calibrated.
+/// = baseline + (available_vas - baseline) * VAS_CRITICAL_PCT
+static VAS_CRITICAL_COMMIT: std::sync::atomic::AtomicUsize =
+    std::sync::atomic::AtomicUsize::new(usize::MAX);
+
+/// Dynamic VAS EMERGENCY threshold (bytes).
+/// = baseline + (available_vas - baseline) * VAS_EMERGENCY_PCT
+static VAS_EMERGENCY_COMMIT: std::sync::atomic::AtomicUsize =
+    std::sync::atomic::AtomicUsize::new(usize::MAX);
+
+/// Walk the process address space via VirtualQuery and sum all MEM_FREE regions.
+/// Returns total available virtual address space in bytes.
+/// Called once at startup (after all DLLs loaded).
+pub fn init_available_vas() -> usize {
+    use windows::Win32::System::Memory::{
+        MEM_FREE, MEMORY_BASIC_INFORMATION, VirtualQuery,
+    };
+
+    let mut addr = 0x10000usize; // Skip NULL guard page
+    let mut available: usize = 0;
+
+    loop {
+        let mut mbi: MEMORY_BASIC_INFORMATION = unsafe { std::mem::zeroed() };
+        let result = unsafe {
+            VirtualQuery(
+                Some(addr as *const c_void),
+                &mut mbi,
+                std::mem::size_of::<MEMORY_BASIC_INFORMATION>(),
+            )
+        };
+        if result == 0 {
+            break; // End of address space
+        }
+        if mbi.State == MEM_FREE {
+            available += mbi.RegionSize;
+        }
+        addr = mbi.BaseAddress as usize + mbi.RegionSize;
+        // Safety check: prevent infinite loop on wraparound
+        if addr <= mbi.BaseAddress as usize {
+            break;
+        }
+    }
+
+    AVAILABLE_VAS.store(available, std::sync::atomic::Ordering::Release);
+    log::info!(
+        "[VAS] Available: {}MB (address space scan complete)",
+        available / 1024 / 1024,
+    );
+    available
+}
+
+/// Recalculate VAS thresholds based on the calibrated baseline commit.
+/// Called when baseline_commit is first calibrated by PressureRelief.
+///
+/// If headroom is too small (< 500MB), VAS crisis management is disabled
+/// (thresholds set to MAX). Our cleanup mechanisms free less memory than
+/// the game allocates per cycle in tight headroom situations, making
+/// crisis management counterproductive — it causes a death spiral.
+pub fn calibrate_thresholds(baseline: usize) {
+    let available = AVAILABLE_VAS.load(std::sync::atomic::Ordering::Acquire);
+    if available == 0 || baseline == 0 {
+        return;
+    }
+    let headroom = available.saturating_sub(baseline);
+
+    if headroom < MINIMUM_VIABLE_HEADROOM {
+        // Headroom too small — VAS crisis management would cause a death
+        // spiral instead of recovering memory. Disable it entirely.
+        VAS_CRITICAL_COMMIT.store(usize::MAX, std::sync::atomic::Ordering::Release);
+        VAS_EMERGENCY_COMMIT.store(usize::MAX, std::sync::atomic::Ordering::Release);
+
+        log::warn!(
+            "[VAS] Headroom too small ({}MB < 500MB). VAS crisis DISABLED. \
+             Game's own OOM handler will manage memory pressure.",
+            headroom / 1024 / 1024,
+        );
+        return;
+    }
+
+    let critical = baseline + ((headroom as f64 * VAS_CRITICAL_PCT) as usize);
+    let emergency = baseline + ((headroom as f64 * VAS_EMERGENCY_PCT) as usize);
+
+    VAS_CRITICAL_COMMIT.store(critical, std::sync::atomic::Ordering::Release);
+    VAS_EMERGENCY_COMMIT.store(emergency, std::sync::atomic::Ordering::Release);
+
+    log::info!(
+        "[VAS] Thresholds calibrated: baseline={}MB, headroom={}MB, critical={}MB ({}%), emergency={}MB ({}%)",
+        baseline / 1024 / 1024,
+        headroom / 1024 / 1024,
+        critical / 1024 / 1024,
+        (VAS_CRITICAL_PCT * 100.0) as u32,
+        emergency / 1024 / 1024,
+        (VAS_EMERGENCY_PCT * 100.0) as u32,
+    );
+}
+
+/// Get the current VAS CRITICAL threshold.
+pub fn get_critical_commit() -> usize {
+    VAS_CRITICAL_COMMIT.load(std::sync::atomic::Ordering::Acquire)
+}
+
+/// Get the current VAS EMERGENCY threshold.
+pub fn get_emergency_commit() -> usize {
+    VAS_EMERGENCY_COMMIT.load(std::sync::atomic::Ordering::Acquire)
+}
 
 pub fn set_vas_emergency(active: bool) {
-    VAS_EMERGENCY.store(active, Ordering::Release);
+    VAS_EMERGENCY.store(active, std::sync::atomic::Ordering::Release);
 }
 
 pub fn is_vas_emergency() -> bool {
-    VAS_EMERGENCY.load(Ordering::Acquire)
+    VAS_EMERGENCY.load(std::sync::atomic::Ordering::Acquire)
 }
 
 pub fn with_large_bypass<R>(f: impl FnOnce() -> R) -> R {
@@ -409,12 +524,62 @@ unsafe fn do_recover_oom(size: usize) -> *mut c_void {
     // During loading, start at Stage 0 (Texture/Geometry cache flush).
     // Stages 3-5 (Havok/Cell Unload) are blocked by the Loading state, so
     // we must run 0-2 to free the old cache data before loading new cells.
-    let mut stage: i32 = if globals::is_loading() { 0 } else { 3 };
+    //
+    // LOADING DEATH SPIRAL FIX:
+    // During loading, stages 0-5 are almost entirely ineffective:
+    //   Stage 0: flushes OLD textures → game immediately reloads them → net zero
+    //   Stage 1: flushes OLD geometry → game immediately reloads it → net zero
+    //   Stage 2: menu cleanup → nothing during loading
+    //   Stages 3-5: blocked by loading state → nothing
+    //   Stage 6: give_up → break
+    // The game then cycles 30+ times over 2.5 seconds, freeing ~4MB total,
+    // before crashing in d3d9. Skip this death spiral during loading: go
+    // straight to nuclear option (pool_drain_all + mi_collect(true)).
+    let loading = globals::is_loading();
+    let mut stage: i32 = if loading { 0 } else { 3 };
     let mut cycles: u32 = 0;
+
+    // Death spiral detection: if an OOM cycle frees less than 1% of current
+    // commit, further stage cycles won't help. Go nuclear immediately.
+    //
+    // During loading: stages 0-5 are almost entirely ineffective
+    // (log: 1494→1490MB over 30 cycles = 4MB in 2.5 seconds).
+    // During gameplay: stages 3-5 free ~4MB/cycle but allocation rate
+    // exceeds free rate, causing slow death spiral over 1.5 minutes.
+    //
+    // The 1% threshold distinguishes real cleanup from death spiral.
+    // At 1.5GB commit, 1% = 15MB. Death spiral frees ~4MB (0.27%).
+    let mut death_spiral_detected = false;
+    let death_spiral_threshold = commit_entry / 100; // 1% of commit at OOM entry
 
     loop {
         cycles += 1;
         let commit_before = heap.commit_bytes();
+
+        // --- Death Spiral Detection ---
+        // If previous cycle freed < 1% of commit, further stages won't help.
+        // Go straight to nuclear: drain ALL pool blocks + mi_collect(true).
+        if death_spiral_detected {
+            log::warn!(
+                "[OOM] Death spiral detected: cycle={}, commit={}MB, going nuclear",
+                cycles, commit_before / 1024 / 1024,
+            );
+            let drained = unsafe { pool::pool_drain_all() };
+            unsafe { mi_collect(true) };
+            let ptr = unsafe { mi_malloc_aligned(size, ALIGN) };
+            if !ptr.is_null() {
+                log::info!(
+                    "[OOM] Recovered via nuclear: drained={} size={} commit={}-->{}MB",
+                    drained, size, commit_entry, heap.commit_mb(),
+                );
+                return ptr;
+            }
+            log::error!(
+                "[OOM] FATAL (nuclear failed): size={} commit={}MB",
+                size, heap.commit_mb(),
+            );
+            return null_mut();
+        }
 
         // Run current stage. Choose bypass mode based on stage and loading state:
         //
@@ -429,7 +594,6 @@ unsafe fn do_recover_oom(size: usize) -> *mut c_void {
         //
         // During active gameplay (not loading), all stages use bypass=false
         // for maximum zombie safety.
-        let loading = globals::is_loading();
         let bypass = loading && stage <= 2;
         let (next, done) = unsafe { heap.run_oom_stage(stage, bypass) };
         stage = next;
@@ -442,6 +606,20 @@ unsafe fn do_recover_oom(size: usize) -> *mut c_void {
                 cycles, stage, size, commit_entry, heap.commit_mb(),
             );
             return ptr;
+        }
+
+        // Detect ineffective cleanup cycle. If we freed less than 1% of
+        // the commit at OOM entry, further stage cycles won't help —
+        // escalate to nuclear on the next iteration.
+        if cycles == 1 {
+            let freed = commit_before.saturating_sub(heap.commit_bytes());
+            if freed < death_spiral_threshold {
+                death_spiral_detected = true;
+                log::warn!(
+                    "[OOM] Ineffective cycle #1: freed={}KB (threshold={}MB), will go nuclear",
+                    freed / 1024, death_spiral_threshold / 1024 / 1024,
+                );
+            }
         }
 
         // If give_up was set (stage 7 on main thread), fall back to CRT

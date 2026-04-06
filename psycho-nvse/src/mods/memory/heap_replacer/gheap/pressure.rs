@@ -86,6 +86,11 @@ impl PressureRelief {
         let commit = libmimalloc::process_info::MiMallocProcessInfo::get()
             .get_current_commit();
         self.baseline_commit.store(commit, Ordering::Release);
+
+        // Now that we know baseline, calculate VAS crisis thresholds
+        // based on available VAS (from VirtualQuery at startup).
+        super::allocator::calibrate_thresholds(commit);
+
         log::info!(
             "[PRESSURE] Baseline calibrated: {}MB",
             commit / 1024 / 1024,

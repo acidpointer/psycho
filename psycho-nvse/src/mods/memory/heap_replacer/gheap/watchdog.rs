@@ -210,12 +210,17 @@ fn watchdog_loop(run: Arc<std::sync::atomic::AtomicBool>) {
 
         let mut level: u8 = 0;
 
-        // Critical: always aggressive regardless of rate.
+        // Critical: always aggressive regardless of rate, UNLESS we're loading
+        // and the allocation rate is ≤ 0. During loading, a negative rate means
+        // the game has stopped allocating (loading completed or paused). Triggering
+        // cleanup in this state is counterproductive — it flushes old textures
+        // while the game isn't loading new ones, causing a death spiral.
         #[allow(clippy::if_same_then_else)]
-        if growth >= critical_thresh {
+        if growth >= critical_thresh && (prev_rate > 0 || !loading) {
             level = 2;
         }
         // Aggressive: high growth AND fast rate.
+        // Also skipped during loading when rate ≤ 0 (same death spiral risk).
         else if growth >= aggressive_thresh && prev_rate > AGGRESSIVE_RATE_THRESHOLD {
             level = 2;
         }

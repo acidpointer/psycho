@@ -74,6 +74,15 @@ static TURBO_COOLDOWN: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU
 /// Limit to 1 cycle per second during crisis.
 static DESTRUCTION_COOLDOWN_MS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
 
+/// Consecutive ineffective VAS EMERGENCY cycle counter.
+/// If 3+ cycles drain < 1MB each, we're in a death spiral — disable
+/// emergency until commit drops below threshold.
+static EMERGENCY_INEFFECTIVE: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
+
+/// Set when death spiral detected. Overrides the commit-based emergency
+/// calculation until commit drops below the emergency threshold.
+static EMERGENCY_SUPPRESSED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
 /// Phase 7: per-frame queue drain (before AI_START).
 ///
 /// Vanilla behavior: Only drains PDD queues and emergency pool.
@@ -145,28 +154,74 @@ pub unsafe extern "C" fn hook_per_frame_queue_drain() {
     // process IO, but texture cache dead set protects against those.
     // The FreeNode header (usable_size at offset +4) subverts the
     // NiRefObject RefCount mechanism even after drain+reuse.
-    let vas_emergency = commit >= allocator::VAS_EMERGENCY_COMMIT;
-    let vas_critical = commit >= allocator::VAS_CRITICAL_COMMIT;
+    let vas_emergency_commit = allocator::get_emergency_commit();
+    let vas_critical_commit = allocator::get_critical_commit();
+
+    // Death spiral suppression: if commit drops below emergency threshold,
+    // clear the suppression flag so emergency can fire again next time.
+    if commit < vas_emergency_commit {
+        EMERGENCY_SUPPRESSED.store(false, std::sync::atomic::Ordering::Relaxed);
+    }
+
+    // Emergency is active if commit exceeds threshold AND not suppressed.
+    let vas_emergency = commit >= vas_emergency_commit
+        && !EMERGENCY_SUPPRESSED.load(std::sync::atomic::Ordering::Relaxed);
+    let vas_critical = commit >= vas_critical_commit;
 
     allocator::set_vas_emergency(vas_emergency);
 
+    // Cap VAS EMERGENCY cycles: if 3+ consecutive cycles drain < 1MB,
+    // we're in a death spiral. Disable emergency until commit drops
+    // below the threshold. This prevents the 40+ cycle death spiral
+    // that corrupted the stack during the last crash.
+    const MAX_INEFFECTIVE_EMERGENCY_CYCLES: u32 = 3;
+    const MIN_EFFECTIVE_DRAIN_MB: usize = 1;
+
     if vas_emergency {
-        // F3: Nuclear option — drain ALL pool blocks.
-        // AI threads are stopped at Phase 7. FreeNode protects RefCount.
         let drained = unsafe { pool::pool_drain_all() };
-        unsafe { libmimalloc::mi_collect(false) };
+        let freed_mb = drained.saturating_mul(64) / 1024; // rough: 64B avg per block
+
+        if freed_mb < MIN_EFFECTIVE_DRAIN_MB {
+            let count = EMERGENCY_INEFFECTIVE.fetch_add(1, std::sync::atomic::Ordering::Relaxed) + 1;
+            if count >= MAX_INEFFECTIVE_EMERGENCY_CYCLES {
+                // Death spiral detected — suppress emergency until commit
+                // drops below the emergency threshold. This prevents the
+                // 40+ cycle death spiral that corrupted the stack.
+                EMERGENCY_SUPPRESSED.store(true, std::sync::atomic::Ordering::Relaxed);
+                allocator::set_vas_emergency(false);
+                log::error!(
+                    "[VAS] EMERGENCY SUPPRESSED: {} ineffective cycles, commit={}MB, threshold={}MB, drained {} blocks",
+                    count, commit / 1024 / 1024, vas_emergency_commit / 1024 / 1024, drained,
+                );
+            }
+        } else {
+            EMERGENCY_INEFFECTIVE.store(0, std::sync::atomic::Ordering::Relaxed);
+        }
+
+        // F3: Nuclear option — drain ALL pool blocks + force decommit
+        // partially-empty mimalloc segments. mi_collect(true) is needed
+        // because during loading/stress, segments are partially-empty
+        // (freed pages mixed with allocated pages). mi_collect(false)
+        // only decommits fully-empty segments — a no-op during crisis.
+        unsafe { libmimalloc::mi_collect(true) };
         log::error!(
             "[VAS] EMERGENCY: commit={}MB, drained {} blocks, pool={}MB",
             commit / 1024 / 1024, drained, heap.pool_mb(),
         );
-    } else if vas_critical {
-        // F2: Drain ALL pool blocks (not just >= 1KB).
-        // The 127MB pool is entirely small blocks (< 1KB). drain_large returns 0.
-        let drained = unsafe { heap.drain_pool(pool::ALIGN) };
-        log::warn!(
-            "[VAS] CRITICAL: commit={}MB, drained {} blocks, pool={}MB",
-            commit / 1024 / 1024, drained, heap.pool_mb(),
-        );
+    } else {
+        // Not in emergency — reset ineffective counter so it starts fresh
+        // next time we enter emergency.
+        EMERGENCY_INEFFECTIVE.store(0, std::sync::atomic::Ordering::Relaxed);
+
+        if vas_critical {
+            // F2: Drain ALL pool blocks (not just >= 1KB).
+            // The 127MB pool is entirely small blocks (< 1KB). drain_large returns 0.
+            let drained = unsafe { heap.drain_pool(pool::ALIGN) };
+            log::warn!(
+                "[VAS] CRITICAL: commit={}MB, drained {} blocks, pool={}MB",
+                commit / 1024 / 1024, drained, heap.pool_mb(),
+            );
+        }
     }
 
     if request >= 1 && !vas_emergency {

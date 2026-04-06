@@ -353,6 +353,10 @@ pub fn install_game_heap_hooks() -> anyhow::Result<()> {
 ///
 /// Must be called OUTSIDE DllMain, e.g. from NVSEPlugin_Load.
 pub fn start_deferred_threads() {
+    // Scan the process address space to measure available VAS.
+    // Must run after all DLLs are loaded (conhost, ENB, ReShade, etc.).
+    super::gheap::allocator::init_available_vas();
+
     std::mem::forget(gheap::watchdog::Watchdog::start());
     log::info!("[HEAP REPLACER] Watchdog thread started");
 }
