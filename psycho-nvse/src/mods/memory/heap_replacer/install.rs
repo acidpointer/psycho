@@ -331,16 +331,27 @@ pub fn install_game_heap_hooks() -> anyhow::Result<()> {
         patch_ret(0x00AA5C80 as *mut c_void)?; // DeallocateAllArenas (shutdown only)
         patch_ret(0x00AA58D0 as *mut c_void)?; // Sheap SBM cleanup
 
-        // KEEP ALIVE: PurgeUnusedArenas (0x00AA6F90), DecrementArenaRef (0x00AA7290),
-        // ReleaseArenaByPtr (0x00AA7300) -- pre-hook allocations need these to
-        // free empty arenas back to the OS.
+        // SBM arena management -- patch to ret.
+        //
+        // Explanation:
+        //   - PurgeUnusedArenas (0xAA6F90): only called from GlobalCleanup
+        //     (0xAA7030) which is already ret-patched. Dead code.
+        //   - DecrementArenaRef (0xAA7290) / ReleaseArenaByPtr (0xAA7300):
+        //     decrement arena refcounts, but the consumers of those
+        //     refcounts (GlobalCleanup, DeallocAllArenas) are ret-patched.
+        //     The bookkeeping is never consumed.
+        // Keeping them alive just iterates stale SBM data structures
+        // during pre-hook frees, for no benefit.
+        patch_ret(0x00AA6F90 as *mut c_void)?; // PurgeUnusedArenas
+        patch_ret(0x00AA7290 as *mut c_void)?; // DecrementArenaRef
+        patch_ret(0x00AA7300 as *mut c_void)?; // ReleaseArenaByPtr
 
         // NOP patches: skip redundant heap construction/init calls
         patch_nop_call(0x0086C56F as *mut c_void)?;
         patch_nop_call(0x00C42EB1 as *mut c_void)?;
         patch_nop_call(0x00EC1701 as *mut c_void)?;
 
-        log::info!("[SBM] Patched SBM (7 RET + 3 NOP, arena cleanup kept alive)");
+        log::info!("[SBM] Patched SBM (10 RET + 3 NOP)");
     }
 
     log::info!("[HEAP REPLACER] All hooks and patches applied successfully");
