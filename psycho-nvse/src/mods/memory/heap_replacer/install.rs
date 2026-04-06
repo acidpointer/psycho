@@ -346,12 +346,34 @@ pub fn install_game_heap_hooks() -> anyhow::Result<()> {
         patch_ret(0x00AA7290 as *mut c_void)?; // DecrementArenaRef
         patch_ret(0x00AA7300 as *mut c_void)?; // ReleaseArenaByPtr
 
+        // Disable SBM small alloc fast path (Ghidra: FUN_00aa3e40 offset 0x129).
+        //
+        // The allocator has a fast path: when *(this+0x129) != 0 and size < 1021,
+        // it allocates directly from SBM pools (FUN_00aa6aa0) and returns BEFORE
+        // the vtable call. Our vtable hooks never see these allocations.
+        // This means ALL small objects (NiRefObjects 16-128B, Havok 48-88B, etc.)
+        // go through SBM pools, accumulating in SBM arenas that we can't decommit
+        // (cleanup functions are ret-patched). This is the root cause of constant
+        // commit growth: small allocs fill SBM arenas, large allocs fill mimalloc,
+        // neither releases the other's memory.
+        //
+        // NVHR avoids this by patching a JMP at FUN_00aa3e40 entry — the fast path
+        // never executes. We use vtable hooks, so we disable the flag instead.
+        // Setting *(HEAP_SINGLETON + 0x129) = 0 forces ALL allocations through
+        // the vtable → our mimalloc hook.
+        let fast_path_flag = (gheap::engine::addr::HEAP_SINGLETON + 0x129) as *mut u8;
+        unsafe { fast_path_flag.write_volatile(0) };
+        log::info!(
+            "[SBM] Disabled small alloc fast path at 0x{:08X} (was: enabled)",
+            gheap::engine::addr::HEAP_SINGLETON + 0x129,
+        );
+
         // NOP patches: skip redundant heap construction/init calls
         patch_nop_call(0x0086C56F as *mut c_void)?;
         patch_nop_call(0x00C42EB1 as *mut c_void)?;
         patch_nop_call(0x00EC1701 as *mut c_void)?;
 
-        log::info!("[SBM] Patched SBM (10 RET + 3 NOP)");
+        log::info!("[SBM] Patched SBM (10 RET + 3 NOP + fast path disabled)");
     }
 
     log::info!("[HEAP REPLACER] All hooks and patches applied successfully");
