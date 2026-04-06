@@ -6,14 +6,14 @@ pub use heap_replacer::mem_stats;
 use libmimalloc::{
     mi_arena_id_t, mi_option_set, mi_option_set_enabled, mi_reserve_os_memory_ex,
     mi_option_arena_eager_commit,
-    mi_option_arena_reserve,
-    mi_option_purge_delay,
-    mi_option_page_reclaim_on_free,
-    mi_option_page_cross_thread_max_reclaim,
     mi_option_arena_purge_mult,
+    mi_option_arena_reserve,
     mi_option_destroy_on_exit,
+    mi_option_page_cross_thread_max_reclaim,
     mi_option_page_full_retain,
+    mi_option_page_reclaim_on_free,
     mi_option_purge_decommits,
+    mi_option_purge_delay,
     mi_option_retry_on_oom,
 };
 use parking_lot::Once;
@@ -66,37 +66,27 @@ pub fn configure_mimalloc() {
         // Demand-page: reserve VA, commit on first touch.
         mi_option_set(mi_option_arena_eager_commit, 0);
 
-        // PURGE DELAY = 0 (immediate decommit)
+        // PURGE DELAY = 50ms
         //
-        // Within the pre-reserved 512MB arena, decommit is just a page table
-        // flip -- very cheap. Immediate decommit prevents commit from growing
-        // during rapid cell transitions (old + new pages both committed).
+        // Freed pages stay committed (readable) for 50ms before mimalloc
+        // decommits them. This provides a safety window during emergency
+        // drain: when the pool is drained, stale readers have 50ms to finish
+        // accessing the pages before they're decommitted.
         //
-        // Previously 500ms to protect stale page reads. No longer needed:
-        // the quarantine keeps zombie BLOCK data intact, hkWorld_Lock prevents
-        // AI raycasting, SceneGraphInvalidate prevents SpeedTree crashes,
-        // and DeferredCleanupSmall's blocking async flush drains IO tasks.
-        // PURGE DELAY = 500ms
+        // 50ms is chosen based on Ghidra analysis of stale reader lifetimes:
+        // - AI threads: finish in < 1 frame (~16ms)
+        // - BSTaskManagerThread: finish in < 100ms (texture loading)
+        // - Havok broadphase: finish in < 50ms (physics step)
         //
-        // Freed pages stay committed (readable) for 500ms before mimalloc
-        // decommits them. This provides system-level zombie data protection
-        // for ALL stale pointer paths:
-        // - NVSE plugin event dispatch (JIP CellChange with stale form refs)
-        // - Ragdoll bone data (freed via Havok allocator)
-        // - BSA file handles (freed during DeferredCleanupSmall)
-        // - QueuedCharacter/QueuedTexture IO task references
+        // 50ms protects the most critical readers (AI + Havok) without
+        // consuming excessive VAS. Within the pre-reserved arena, decommit
+        // is just a page table flip -- cheap.
         //
-        // Within the pre-reserved 512MB arena, decommit is just a page table
-        // flip -- cheap. The 500ms window covers the gap between object
-        // destruction (PDD/cell transition) and stale access (NVSE dispatch,
-        // IO task processing, async flush). Physical RAM is freed after 500ms;
-        // only VA reservation persists.
-        //
-        // This replaces our removed quarantine system. Instead of per-pointer
-        // deferral with timing bugs, mimalloc handles it at the page level
-        // with battle-tested code.
-        mi_option_set(mi_option_purge_delay, 0);
-        log::info!("[MIMALLOC] purge_delay = 0ms (zombie window for stale pointer protection)");
+        // The zombie quarantine pool protects block DATA (FreeNode headers,
+        // usable_size fields). purge_delay protects the underlying PAGES
+        // from being decommitted while stale readers are still active.
+        mi_option_set(mi_option_purge_delay, 50);
+        log::info!("[MIMALLOC] purge_delay = 50ms (stale reader protection window)");
 
         // Decommit on purge (not full release) -- keeps VA reservation.
         mi_option_set(mi_option_purge_decommits, 1);
@@ -112,14 +102,25 @@ pub fn configure_mimalloc() {
         log::info!("[MIMALLOC] retry_on_oom = 0 (disabled, we handle OOM ourselves)");
 
         // Cross-thread reclaim: essential for FNV's multi-threaded alloc/free pattern.
+        // Reduced from 32 to 16 to limit page bouncing between threads during
+        // VAS crisis. The game has 2 AI threads + BSTaskManagerThread; 16 is
+        // sufficient for normal operation while preventing excessive reclaim
+        // that fragments VAS during cell transitions.
         mi_option_set(mi_option_page_reclaim_on_free, 1);
-        mi_option_set(mi_option_page_cross_thread_max_reclaim, 32);
+        mi_option_set(mi_option_page_cross_thread_max_reclaim, 16);
 
-        // Arena purge mult: with 100ms delay, arena purge = 200ms.
+        // Arena purge mult: with 50ms delay, arena purge = 100ms.
+        // Arena purge should be faster than thread-local purge since arenas
+        // are shared across threads. 2x multiplier = 50ms * 2 = 100ms.
         mi_option_set(mi_option_arena_purge_mult, 2);
 
-        // Don't retain full pages -- saves memory on 32-bit.
-        mi_option_set(mi_option_page_full_retain, 0);
+        // Retain 1 full page per size class in free page queues.
+        // Reduces VAS fragmentation during repeated cell transitions where
+        // the same sizes are allocated and freed repeatedly (e.g., cell data,
+        // actor refs, script objects). Changed from 0 to 1 to improve
+        // allocation performance during cell transitions without significant
+        // VAS cost (1 page per size class = ~4KB × 256 size classes = ~1MB).
+        mi_option_set(mi_option_page_full_retain, 1);
 
         // Bulk-release on exit -- avoid slow teardown.
         mi_option_set_enabled(mi_option_destroy_on_exit, true);

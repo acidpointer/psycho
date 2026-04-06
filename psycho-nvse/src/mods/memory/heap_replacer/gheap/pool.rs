@@ -62,7 +62,10 @@ const SOFT_CAP: usize = 32 * 1024 * 1024; // 32MB
 
 // Hard cap: when exceeded, ALL new blocks go to mi_free regardless of size.
 // Oldest block in same slot is evicted (FIFO). Pool stays at ~HARD_CAP.
-const HARD_CAP: usize = 128 * 1024 * 1024; // 128MB
+// Reduced from 128MB to 64MB: 64MB holds ~1M zombie blocks at 64B avg,
+// far more than needed for UAF protection (typical stale reader window
+// is < 1 second, ~10K-50K blocks). Smaller cap leaves more VAS headroom.
+const HARD_CAP: usize = 64 * 1024 * 1024; // 64MB
 
 // Freelist slot count. Index = usable_size / 16.
 // Covers sizes 16..4096 in 16-byte increments (256 slots).

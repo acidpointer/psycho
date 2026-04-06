@@ -83,6 +83,16 @@ static EMERGENCY_INEFFECTIVE: std::sync::atomic::AtomicU32 = std::sync::atomic::
 /// calculation until commit drops below the emergency threshold.
 static EMERGENCY_SUPPRESSED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
+/// Last tick count when periodic pool drain ran.
+/// Drains old zombie blocks (> 1 second old) that no longer provide UAF protection.
+static LAST_POOL_DRAIN_MS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
+/// Cooldown for periodic pool drain (1 second).
+/// Zombie blocks older than 1 second are extremely unlikely to have
+/// active stale readers (AI threads finish in < 1 frame, BSTaskManagerThread
+/// in < 100ms). Draining them reclaims VAS without increasing crash risk.
+const POOL_DRAIN_COOLDOWN_MS: u64 = 1000;
+
 /// Phase 7: per-frame queue drain (before AI_START).
 ///
 /// Vanilla behavior: Only drains PDD queues and emergency pool.
@@ -121,11 +131,17 @@ pub unsafe extern "C" fn hook_per_frame_queue_drain() {
     let heap = super::heap_manager::HeapManager::get();
 
     // --- Emergency pool drain (worker OOM signal) ---
-    // Drain large blocks (>= 1KB) from main thread's pool. Safe --
-    // small zombie blocks preserved for concurrent readers.
+    // Worker threads can't free memory from the main thread's pool. They
+    // signal this flag; we drain it here.
+    //
+    // CRITICAL: Use pool::ALIGN (drain ALL blocks), not SMALL_BLOCK_THRESHOLD.
+    // During OOM, the pool is often entirely small blocks (< 1KB) that
+    // drain_large can't touch. Draining all blocks risks UAF for small
+    // objects, but the alternative is a guaranteed crash.
     if heap.take_emergency_drain() {
         let commit_before = heap.commit_mb();
-        let drained = unsafe { heap.drain_pool(pool::SMALL_BLOCK_THRESHOLD) };
+        let drained = unsafe { heap.drain_pool(pool::ALIGN) };
+        unsafe { libmimalloc::mi_collect(true) };
         log::warn!(
             "[OOM] Emergency drain: {} blocks, commit={}-->{}MB pool={}MB",
             drained, commit_before, heap.commit_mb(), heap.pool_mb(),
@@ -221,6 +237,26 @@ pub unsafe extern "C" fn hook_per_frame_queue_drain() {
                 "[VAS] CRITICAL: commit={}MB, drained {} blocks, pool={}MB",
                 commit / 1024 / 1024, drained, heap.pool_mb(),
             );
+        }
+    }
+
+    // --- Periodic Pool Drain ---
+    // Drain zombie blocks older than 1 second. These blocks no longer provide
+    // UAF protection (AI threads finish in < 1 frame, BSTaskManagerThread in
+    // < 100ms) but consume VAS. Draining them reclaims memory without
+    // increasing crash risk.
+    //
+    // Only drain when pool exceeds 32MB to avoid unnecessary work during
+    // normal low-pressure operation.
+    if heap.pool_mb() >= 32 {
+        let now = libpsycho::os::windows::winapi::get_tick_count() as u64;
+        let last = LAST_POOL_DRAIN_MS.load(std::sync::atomic::Ordering::Relaxed);
+        if now.saturating_sub(last) >= POOL_DRAIN_COOLDOWN_MS {
+            let drained = unsafe { heap.drain_pool(pool::ALIGN) };
+            LAST_POOL_DRAIN_MS.store(now, std::sync::atomic::Ordering::Relaxed);
+            if drained > 0 {
+                log::info!("[POOL] Periodic drain: {} blocks freed, pool={}MB", drained, heap.pool_mb());
+            }
         }
     }
 

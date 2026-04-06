@@ -303,6 +303,15 @@ fn log_diagnostics(poll_count: u32, info: &MiMallocProcessInfo) {
         if bypass_active { "ON" } else { "off" },
     );
 
+    // Log large pool stats (reserved, committed, remaining)
+    let (reserved, committed, remaining) = super::virtual_alloc::pool_stats();
+    if reserved > 0 {
+        log::info!(
+            "[MEM] LargePool: reserved={}MB, committed={}MB, remaining={}MB",
+            reserved, committed, remaining,
+        );
+    }
+
     let cu_cells = super::engine::cell_unload::total_cells_unloaded();
     let cu_freed = super::engine::cell_unload::total_bytes_freed() / 1024 / 1024;
     if cu_cells > 0 {
