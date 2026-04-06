@@ -19,6 +19,7 @@ use std::sync::atomic::{AtomicI32, AtomicU8, AtomicU64, AtomicUsize, Ordering};
 use std::thread::{self, JoinHandle};
 
 use libmimalloc::process_info::MiMallocProcessInfo;
+use libpsycho::os::windows::va_allocator;
 
 use super::engine::globals;
 use super::pressure::PressureRelief;
@@ -304,7 +305,7 @@ fn log_diagnostics(poll_count: u32, info: &MiMallocProcessInfo) {
     );
 
     // Log large pool stats (reserved, committed, remaining)
-    let (reserved, committed, remaining) = super::virtual_alloc::pool_stats();
+    let (reserved, committed, remaining) = va_allocator::pool_stats();
     if reserved > 0 {
         log::info!(
             "[MEM] LargePool: reserved={}MB, committed={}MB, remaining={}MB",

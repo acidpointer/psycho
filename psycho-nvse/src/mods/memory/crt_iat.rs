@@ -1,14 +1,27 @@
+//! IAT hook replacements for CRT allocator functions (malloc, free, etc.).
+//!
+//! Mirrors the gheap allocator behavior:
+//!   - Large allocs (>= 1MB) --> VirtualAlloc (immediate VAS reclamation)
+//!   - Small allocs (< 1MB)  --> mimalloc arena
+//!
+//! No OOM recovery -- mi_collect is too dangerous at the system allocator
+//! level (can trigger reentrant allocations from game cleanup stages,
+//! causing deadlock or stack overflow through our own hooks). If allocation
+//! fails, return NULL directly -- the caller must handle it.
+
 use std::sync::LazyLock;
 
 use libc::c_void;
 use libmimalloc::{
-    mi_calloc, mi_free, mi_is_in_heap_region, mi_malloc, mi_realloc, mi_recalloc, mi_usable_size,
+    mi_free, mi_is_in_heap_region, mi_malloc, mi_realloc, mi_recalloc, mi_usable_size,
 };
 use libpsycho::os::windows::{
-    hook::iat::iathook::IatHookContainer,
-    types::{CallocFn, FreeFn, MallocFn, MsizeFn, ReallocFn, RecallocFn},
-    winapi::get_module_handle_a,
+    hook::iat::iathook::IatHookContainer, types::{CallocFn, FreeFn, MallocFn, MsizeFn, ReallocFn, RecallocFn}, va_allocator, winapi::get_module_handle_a
 };
+
+/// Threshold matching gheap::allocator: large allocations bypass mimalloc
+/// and go through VirtualAlloc for immediate VAS reclamation.
+const LARGE_ALLOC_THRESHOLD: usize = 1024 * 1024; // 1MB
 
 pub static MALLOC_IAT_HOOK: LazyLock<IatHookContainer<MallocFn>> =
     LazyLock::new(IatHookContainer::new);
@@ -20,30 +33,64 @@ pub static RECALLOC_IAT_HOOK: LazyLock<IatHookContainer<RecallocFn>> =
     LazyLock::new(IatHookContainer::new);
 pub static MSIZE_IAT_HOOK: LazyLock<IatHookContainer<MsizeFn>> =
     LazyLock::new(IatHookContainer::new);
-pub static FREE_IAT_HOOK: LazyLock<IatHookContainer<FreeFn>> = LazyLock::new(IatHookContainer::new);
+pub static FREE_IAT_HOOK: LazyLock<IatHookContainer<FreeFn>> =
+    LazyLock::new(IatHookContainer::new);
 
-// Hook implementations - redirect to mimalloc
+// -----------------------------------------------------------------------
+// CRT hook implementations: large allocs route to VirtualAlloc
+// -----------------------------------------------------------------------
+
 pub unsafe extern "C" fn hook_malloc(size: usize) -> *mut c_void {
-    unsafe { mi_malloc(size) }
+    unsafe { iat_alloc(size) }
 }
 
 pub unsafe extern "C" fn hook_calloc(count: usize, size: usize) -> *mut c_void {
-    unsafe { mi_calloc(count, size) }
+    let total = count.checked_mul(size).unwrap_or(0);
+    if total == 0 {
+        return std::ptr::null_mut();
+    }
+    let ptr = unsafe { iat_alloc(total) };
+    if !ptr.is_null() {
+        unsafe { std::ptr::write_bytes(ptr as *mut u8, 0, total) };
+    }
+    ptr
 }
 
 pub unsafe extern "C" fn hook_realloc(raw_ptr: *mut c_void, size: usize) -> *mut c_void {
     if raw_ptr.is_null() {
-        // Realloc with null pointer is same as malloc
-        return unsafe { mi_malloc(size) };
+        return unsafe { iat_alloc(size) };
+    }
+    if size == 0 {
+        unsafe { iat_free(raw_ptr) };
+        return std::ptr::null_mut();
     }
 
-    let is_mimalloc = unsafe { mi_is_in_heap_region(raw_ptr) };
-
-    if is_mimalloc {
+    // Determine which allocator owns this pointer.
+    if unsafe { mi_is_in_heap_region(raw_ptr) } {
         return unsafe { mi_realloc(raw_ptr, size) };
     }
 
-    // Fallback: try with original realloc
+    if unsafe { va_allocator::is_virtual_alloc_ptr(raw_ptr) } {
+        if let Some(new_ptr) = unsafe { va_allocator::realloc(raw_ptr, size) } {
+            return new_ptr;
+        }
+        // VirtualAlloc realloc failed -- allocate new, copy, free old.
+        let new_ptr = unsafe { iat_alloc(size) };
+        if !new_ptr.is_null() {
+            let old_size = unsafe { va_allocator::msize(raw_ptr) }.unwrap_or(0);
+            unsafe {
+                std::ptr::copy_nonoverlapping(
+                    raw_ptr as *const u8,
+                    new_ptr as *mut u8,
+                    old_size.min(size),
+                );
+            }
+            unsafe { iat_free(raw_ptr) };
+        }
+        return new_ptr;
+    }
+
+    // Unknown origin: fallback to original realloc.
     if let Ok(original_realloc) = REALLOC_IAT_HOOK.original() {
         unsafe { original_realloc(raw_ptr, size) }
     } else {
@@ -57,19 +104,43 @@ pub unsafe extern "C" fn hook_recalloc(
     size: usize,
 ) -> *mut c_void {
     if raw_ptr.is_null() {
-        // Recalloc with null pointer is same as calloc
-        return unsafe { mi_calloc(count, size) };
+        let total = count.checked_mul(size).unwrap_or(0);
+        if total == 0 {
+            return std::ptr::null_mut();
+        }
+        let ptr = unsafe { iat_alloc(total) };
+        if !ptr.is_null() {
+            unsafe { std::ptr::write_bytes(ptr as *mut u8, 0, total) };
+        }
+        return ptr;
+    }
+    if count == 0 || size == 0 {
+        unsafe { iat_free(raw_ptr) };
+        return std::ptr::null_mut();
     }
 
-    let is_mimalloc = unsafe { mi_is_in_heap_region(raw_ptr) };
+    let total = count.checked_mul(size).unwrap_or(0);
+    if total == 0 {
+        unsafe { iat_free(raw_ptr) };
+        return std::ptr::null_mut();
+    }
 
-    if is_mimalloc {
+    if unsafe { mi_is_in_heap_region(raw_ptr) } {
         return unsafe { mi_recalloc(raw_ptr, count, size) };
     }
 
-    // Fallback: try with original realloc
-    if let Ok(original_realloc) = RECALLOC_IAT_HOOK.original() {
-        unsafe { original_realloc(raw_ptr, count, size) }
+    if unsafe { va_allocator::is_virtual_alloc_ptr(raw_ptr) } {
+        // VirtualAlloc: alloc new, zero, free old.
+        let new_ptr = unsafe { iat_alloc(total) };
+        if !new_ptr.is_null() {
+            unsafe { std::ptr::write_bytes(new_ptr as *mut u8, 0, total) };
+            unsafe { iat_free(raw_ptr) };
+        }
+        return new_ptr;
+    }
+
+    if let Ok(original_recalloc) = RECALLOC_IAT_HOOK.original() {
+        unsafe { original_recalloc(raw_ptr, count, size) }
     } else {
         std::ptr::null_mut()
     }
@@ -80,11 +151,11 @@ pub unsafe extern "C" fn hook_msize(raw_ptr: *mut c_void) -> usize {
         return 0;
     }
 
-    let is_mimalloc = unsafe { mi_is_in_heap_region(raw_ptr) };
+    if unsafe { mi_is_in_heap_region(raw_ptr) } {
+        return unsafe { mi_usable_size(raw_ptr) };
+    }
 
-    if is_mimalloc {
-        let size = unsafe { mi_usable_size(raw_ptr) };
-
+    if let Some(size) = unsafe { va_allocator::msize(raw_ptr) } {
         return size;
     }
 
@@ -100,21 +171,45 @@ pub unsafe extern "C" fn hook_free(raw_ptr: *mut c_void) {
     if raw_ptr.is_null() {
         return;
     }
+    unsafe { iat_free(raw_ptr) };
+}
 
-    let is_mimalloc = unsafe { mi_is_in_heap_region(raw_ptr) };
+// -----------------------------------------------------------------------
+// Internal helpers: mirror gheap::allocator large/small routing
+// -----------------------------------------------------------------------
 
-    if is_mimalloc {
-        unsafe { mi_free(raw_ptr) }
+/// Allocate: large (>= 1MB) --> VirtualAlloc, small --> mimalloc.
+/// No OOM recovery -- callers must handle NULL returns.
+#[inline]
+unsafe fn iat_alloc(size: usize) -> *mut c_void {
+    if size >= LARGE_ALLOC_THRESHOLD {
+        return unsafe { va_allocator::malloc(size) };
+    }
+    unsafe { mi_malloc(size) }
+}
 
+/// Free: route to the correct deallocator based on pointer ownership.
+/// Mimalloc arena --> mi_free, VirtualAlloc header --> virtual_alloc::free,
+/// unknown --> original fallback.
+#[inline]
+unsafe fn iat_free(ptr: *mut c_void) {
+    if unsafe { mi_is_in_heap_region(ptr) } {
+        unsafe { mi_free(ptr) };
         return;
     }
 
+    if unsafe { va_allocator::is_virtual_alloc_ptr(ptr) } {
+        unsafe { va_allocator::free(ptr) };
+        return;
+    }
+
+    // Unknown origin: fallback to original free.
     if let Ok(original_free) = FREE_IAT_HOOK.original() {
-        unsafe { original_free(raw_ptr) }
+        unsafe { original_free(ptr) };
     } else {
         log::warn!(
             "free({:p}) [no fallback available, potential leak]",
-            raw_ptr
+            ptr
         );
     }
 }

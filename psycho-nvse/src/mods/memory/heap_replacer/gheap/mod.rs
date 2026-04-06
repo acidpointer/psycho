@@ -26,4 +26,3 @@ pub mod statics;
 pub mod texture_cache;
 pub mod types;
 pub mod uaf_bitmap;
-pub mod virtual_alloc;

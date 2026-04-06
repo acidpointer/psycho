@@ -9,6 +9,7 @@
 //! - OOM:   drain own pool + game OOM stages (mutex-protected) + retry.
 
 use libc::c_void;
+use libpsycho::os::windows::va_allocator;
 use std::cell::Cell;
 use std::ptr::null_mut;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -21,7 +22,6 @@ use super::engine::{addr, globals};
 use super::pool;
 use super::statics;
 use super::uaf_bitmap;
-use super::virtual_alloc;
 use crate::mods::memory::heap_replacer::heap_validate;
 
 const ALIGN: usize = 16;
@@ -254,8 +254,8 @@ pub unsafe fn alloc(size: usize) -> *mut c_void {
     // Large raw buffers (>= 1MB) --> VirtualAlloc for immediate VAS reclamation.
     // Game objects (Havok shapes, NiNodes, etc.) are < 1MB and go through
     // mimalloc where they get UAF protection via pool + purge_delay.
-    if size >= virtual_alloc::LARGE_ALLOC_THRESHOLD {
-        let ptr = unsafe { virtual_alloc::malloc(size) };
+    if size >= va_allocator::LARGE_ALLOC_THRESHOLD {
+        let ptr = unsafe { va_allocator::malloc(size) };
         if !ptr.is_null() {
             return ptr;
         }
@@ -373,7 +373,7 @@ pub unsafe fn free(ptr: *mut c_void) {
             // header check (simple memory read, NO sys call).
             // Small blocks pool for zombie safety.
             let usable = unsafe { mi_usable_size(ptr as *const c_void) };
-            if usable >= virtual_alloc::LARGE_ALLOC_THRESHOLD {
+            if usable >= va_allocator::LARGE_ALLOC_THRESHOLD {
                 // This shouldn't happen for GameHeap (we route >= 1MB to
                 // VirtualAlloc at alloc time), but if somehow a large block
                 // came through mimalloc (pre-plugin or edge case), free it
@@ -395,8 +395,8 @@ pub unsafe fn free(ptr: *mut c_void) {
     // through VirtualAlloc. Header magic check is a simple memory read — NO
     // sys call. This handles both GameHeap large allocations and CRT large
     // allocations that were routed through VirtualAlloc.
-    if unsafe { virtual_alloc::is_virtual_alloc_ptr(ptr) } {
-        unsafe { virtual_alloc::free(ptr) };
+    if unsafe { va_allocator::is_virtual_alloc_ptr(ptr) } {
+        unsafe { va_allocator::free(ptr) };
         return;
     }
 
@@ -423,7 +423,7 @@ pub unsafe fn msize(ptr: *mut c_void) -> usize {
 
     // SLOW PATH: Outside arena — check VirtualAlloc header (simple memory
     // read, NO sys call). Large allocations (>= 1MB) use VirtualAlloc.
-    if let Some(size) = unsafe { virtual_alloc::msize(ptr) } {
+    if let Some(size) = unsafe { va_allocator::msize(ptr) } {
         return size;
     }
 

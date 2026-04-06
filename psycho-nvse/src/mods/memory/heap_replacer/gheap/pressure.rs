@@ -218,10 +218,15 @@ impl PressureRelief {
             }
         };
 
-        // Wait 10ms for any in-flight AI thread operations to complete.
+        // Wait 50ms for any in-flight AI thread operations to complete.
         // pre_destruction_setup locks Havok (prevents NEW operations) but
-        // doesn't stop AI threads that are already mid-raycast. This brief
-        // pause ensures stale readers finish before we start freeing terrain.
+        // doesn't stop AI threads that are already mid-raycast. During fast
+        // travel, AI pathfinding does bulk terrain raycasting (chained queries
+        // against multiple terrain cells). The original 10ms was too short --
+        // broadphase raycasts were still in flight when terrain shapes were
+        // freed, causing UAF at 0x00CAFED5 (hkp3AxisSweep narrow phase).
+        // 50ms covers typical pathfinding chains (10-30ms per raycast, up to
+        // 3-5 chained queries during cell transitions).
         libpsycho::os::windows::winapi::sleep(10);
 
         // Run Stage 5 in a loop until game says no more cells eligible.

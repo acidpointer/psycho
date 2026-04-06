@@ -1,0 +1,1304 @@
+SECTION 1: Exact crash instruction at 0x00CAFED5
+======================================================================
+  Address: 0x00cafed5
+  Mnemonic: FLD
+  Operands: float ptr [EDX + EAX*0x4 + 0x8]
+  Full: FLD float ptr [EDX + EAX*0x4 + 0x8]
+
+  Surrounding instructions:
+     0x00cafe81: FLD float ptr [ESP + 0x8]
+     0x00cafe85: FMUL double ptr [0x01020758]
+     0x00cafe8b: FADDP
+     0x00cafe8d: FADD float ptr [ESP]
+     0x00cafe90: FSTP float ptr [ESP + 0x8]
+     0x00cafe94: FLD float ptr [ESP + 0x8]
+     0x00cafe98: MOV ESP,EBP
+     0x00cafe9a: POP EBP
+     0x00cafe9b: RET 0x8
+     0x00cafea0: SUB ECX,0x8
+     0x00cafea3: JMP 0x00cac120
+     0x00cafeb0: SUB ECX,0xc
+     0x00cafeb3: JMP 0x00cac120
+     0x00cafec0: MOV EAX,dword ptr [ECX + 0x64]
+     0x00cafec3: SUB EAX,dword ptr [ESP + 0x8]
+     0x00cafec7: MOV EDX,dword ptr [ECX + 0x60]
+     0x00cafeca: IMUL EAX,dword ptr [ECX + 0x10]
+     0x00cafece: ADD EAX,dword ptr [ESP + 0x4]
+     0x00cafed2: LEA EAX,[EAX + EAX*0x2]
+>>   0x00cafed5: FLD float ptr [EDX + EAX*0x4 + 0x8]
+>>   0x00cafed5: FLD float ptr [EDX + EAX*0x4 + 0x8]
+     0x00cafed9: FADD float ptr [ECX + 0x68]
+     0x00cafedc: FSTP float ptr [ESP + 0x8]
+     0x00cafee0: FLD float ptr [ESP + 0x8]
+     0x00cafee4: RET 0x8
+     0x00cafef0: MOV EDX,dword ptr [ECX + 0x30]
+     0x00cafef3: SUB ESP,0xc
+     0x00cafef6: TEST EDX,EDX
+     0x00cafef8: JZ 0x00caff76
+     0x00cafefa: CMP dword ptr [ECX + 0x10],0x0
+     0x00cafefe: FLD float ptr [EDX + 0x8]
+     0x00caff01: FSTP float ptr [ESP + 0x4]
+     0x00caff05: FLD float ptr [EDX + 0x8]
+     0x00caff08: FSTP float ptr [ESP]
+     0x00caff0b: JLE 0x00caff63
+     0x00caff0d: PUSH EBX
+     0x00caff0e: MOV EBX,dword ptr [ECX + 0x14]
+     0x00caff11: PUSH ESI
+     0x00caff12: PUSH EDI
+     0x00caff13: MOV EDI,dword ptr [ECX + 0x10]
+
+SECTION 2: Full crash function (0x00D16300)
+======================================================================
+
+======================================================================
+hkp3AxisSweep_broadphase_raycast @ 0x00d16300
+======================================================================
+  Function: FUN_00d16300 @ 0x00d16300, Size: 2361 bytes
+
+/* WARNING: Globals starting with '_' overlap smaller symbols at the same address */
+
+void __thiscall FUN_00d16300(void *this,float *param_1,int *param_2,int param_3)
+
+{
+  ushort *puVar1;
+  float fVar2;
+  ushort uVar3;
+  float fVar4;
+  float fVar5;
+  int iVar6;
+  float *pfVar7;
+  ushort *puVar8;
+  int *piVar9;
+  int iVar10;
+  float *pfVar11;
+  byte bVar12;
+  float *pfVar13;
+  uint uVar14;
+  int iVar15;
+  float10 fVar16;
+  undefined1 auVar17 [16];
+  float *pfStack_d8;
+  int *piStack_d4;
+  byte *pbStack_d0;
+  byte *pbStack_cc;
+  byte *pbStack_c8;
+  byte *pbStack_c4;
+  int *piStack_c0;
+  float local_b0 [7];
+  ushort *apuStack_94 [3];
+  uint local_88;
+  uint local_84;
+  float afStack_80 [5];
+  int iStack_6c;
+  int iStack_68;
+  int iStack_64;
+  float local_60 [5];
+  ushort *apuStack_4c [3];
+  float afStack_40 [5];
+  int aiStack_2c [3];
+  float afStack_20 [7];
+  
+  auVar17._0_4_ = (*(float *)((int)this + 0x40) + *param_1) * *(float *)((int)this + 0x60);
+  auVar17._4_4_ = (*(float *)((int)this + 0x44) + param_1[1]) * *(float *)((int)this + 100);
+  auVar17._8_4_ = (*(float *)((int)this + 0x48) + param_1[2]) * *(float *)((int)this + 0x68);
+  auVar17._12_4_ = (*(float *)((int)this + 0x4c) + param_1[3]) * *(float *)((int)this + 0x6c);
+  auVar17 = minps(auVar17,_DAT_011b3790);
+  auVar17 = maxps(auVar17,ZEXT816(0));
+  local_60[0] = 0.0;
+  local_60[1] = 0.0;
+  local_60[2] = 0.0;
+  local_60[3] = 0.0;
+  local_b0[0] = (float)((uint)(auVar17._0_4_ + _DAT_011b3770) >> 7 & 0xffff);
+  local_b0[3] = (float)((uint)(auVar17._12_4_ + fRam011b377c) >> 7 & 0xffff);
+  local_b0[1] = (float)((uint)(auVar17._4_4_ + fRam011b3774) >> 7 & 0xffff);
+  local_b0[2] = (float)((uint)(auVar17._8_4_ + fRam011b3778) >> 7 & 0xffff);
+  uVar14 = *(int *)((int)this + 0xa4) + 0x10;
+  iVar6 = FUN_00c85750();
+  if (uVar14 == 0) {
+    pfVar7 = (float *)0x0;
+  }
+  else {
+    local_88 = uVar14;
+    pfVar7 = (float *)(**(code **)(**(int **)(iVar6 + 0xc) + 0xc))(&local_88);
+    local_84 = local_88;
+    if (local_88 != 0) goto LAB_00d163c9;
+  }
+  local_84 = 0x80000000;
+LAB_00d163c9:
+  pfVar11 = pfVar7;
+  for (iVar6 = *(int *)((int)this + 0xa4) >> 4; -1 < iVar6; iVar6 = iVar6 + -1) {
+    *pfVar11 = local_60[0];
+    pfVar11[1] = local_60[1];
+    pfVar11[2] = local_60[2];
+    pfVar11[3] = local_60[3];
+    pfVar11 = pfVar11 + 4;
+  }
+  piStack_c0 = (int *)param_1[7];
+  if (piStack_c0 == (int *)0x0) {
+    piStack_c0 = (int *)((int)this + 0xac);
+  }
+  bVar12 = 0x11;
+  pfStack_d8 = (float *)0x0;
+  do {
+    iVar6 = piStack_c0[1];
+    iVar10 = *piStack_c0;
+    uVar14 = *(uint *)((int)local_b0 + (int)pfStack_d8);
+    if (uVar14 < *(ushort *)(iVar10 + (iVar6 >> 1) * 4)) {
+      for (puVar8 = (ushort *)(iVar10 + 4);
+          (puVar8 < (ushort *)(iVar10 + -0x10 + iVar6 * 4) && (puVar8[6] <= uVar14));
+          puVar8 = puVar8 + 8) {
+        *(byte *)((uint)puVar8[1] + (int)pfVar7) = *(byte *)((uint)puVar8[1] + (int)pfVar7) ^ bVar12
+        ;
+        *(byte *)((uint)puVar8[3] + (int)pfVar7) = *(byte *)((uint)puVar8[3] + (int)pfVar7) ^ bVar12
+        ;
+        *(byte *)((uint)puVar8[5] + (int)pfVar7) = *(byte *)((uint)puVar8[5] + (int)pfVar7) ^ bVar12
+        ;
+        *(byte *)((uint)puVar8[7] + (int)pfVar7) = *(byte *)((uint)puVar8[7] + (int)pfVar7) ^ bVar12
+        ;
+      }
+      uVar3 = *puVar8;
+      while (uVar3 <= uVar14) {
+        *(byte *)((uint)puVar8[1] + (int)pfVar7) = *(byte *)((uint)puVar8[1] + (int)pfVar7) ^ bVar12
+        ;
+        puVar1 = puVar8 + 2;
+        puVar8 = puVar8 + 2;
+        uVar3 = *puVar1;
+      }
+    }
+    else {
+      for (puVar8 = (ushort *)(iVar10 + -8 + iVar6 * 4);
+          ((ushort *)(iVar10 + 0x10U) <= puVar8 && (uVar14 < puVar8[-6])); puVar8 = puVar8 + -8) {
+        *(byte *)((uint)puVar8[1] + (int)pfVar7) = *(byte *)((uint)puVar8[1] + (int)pfVar7) ^ bVar12
+        ;
+        *(byte *)((uint)puVar8[-1] + (int)pfVar7) =
+             *(byte *)((uint)puVar8[-1] + (int)pfVar7) ^ bVar12;
+        *(byte *)((uint)puVar8[-3] + (int)pfVar7) =
+             *(byte *)((uint)puVar8[-3] + (int)pfVar7) ^ bVar12;
+        *(byte *)((uint)puVar8[-5] + (int)pfVar7) =
+             *(byte *)((uint)puVar8[-5] + (int)pfVar7) ^ bVar12;
+      }
+      uVar3 = *puVar8;
+      while (uVar14 < uVar3) {
+        *(byte *)((uint)puVar8[1] + (int)pfVar7) = *(byte *)((uint)puVar8[1] + (int)pfVar7) ^ bVar12
+        ;
+        puVar1 = puVar8 + -2;
+        puVar8 = puVar8 + -2;
+        uVar3 = *puVar1;
+      }
+      puVar8 = puVar8 + 2;
+    }
+    piStack_c0 = piStack_c0 + 3;
+    *(ushort **)((int)apuStack_4c + (int)pfStack_d8) = puVar8;
+    pfStack_d8 = (float *)((int)pfStack_d8 + 4);
+    bVar12 = bVar12 * '\x02';
+  } while ((int)pfStack_d8 < 0xc);
+  fVar4 = param_1[4];
+  piVar9 = (int *)FUN_00c85750();
+  iVar6 = *piVar9;
+  *piVar9 = ((int)fVar4 * 4 + 0x7fU & 0xffffff80) + iVar6;
+  iVar10 = 0;
+  if (0 < (int)param_1[4]) {
+    do {
+      *(undefined4 *)(iVar6 + iVar10 * 4) = 0x3f800000;
+      iVar10 = iVar10 + 1;
+    } while (iVar10 < (int)param_1[4]);
+  }
+  iVar10 = *(int *)((int)this + 0xa4);
+  iVar15 = *(int *)((int)this + 0xa0);
+  if (pfVar7 < pfVar7 + (iVar10 >> 2) + 1) {
+    pbStack_d0 = (byte *)(iVar15 + 0x3c);
+    pbStack_cc = (byte *)(iVar15 + 0x2c);
+    pbStack_c8 = (byte *)(iVar15 + 0x1c);
+    pbStack_c4 = (byte *)(iVar15 + 0xc);
+    pfStack_d8 = pfVar7;
+    do {
+      if (((uint)(&DAT_01010101 + (int)*pfStack_d8) & 0x8080808) == 0) {
+        if (((uint)(&DAT_01010101 + (int)pfStack_d8[1]) & 0x8080808) == 0) {
+          if (((uint)(&DAT_01010101 + (int)pfStack_d8[2]) & 0x8080808) == 0) {
+            pbStack_c4 = pbStack_c4 + 0xc0;
+            pbStack_c8 = pbStack_c8 + 0xc0;
+            pbStack_cc = pbStack_cc + 0xc0;
+            pbStack_d0 = pbStack_d0 + 0xc0;
+            pfStack_d8 = pfStack_d8 + 3;
+          }
+          else {
+            pbStack_c4 = pbStack_c4 + 0x80;
+            pbStack_c8 = pbStack_c8 + 0x80;
+            pbStack_cc = pbStack_cc + 0x80;
+            pbStack_d0 = pbStack_d0 + 0x80;
+            pfStack_d8 = pfStack_d8 + 2;
+          }
+        }
+        else {
+          pbStack_c4 = pbStack_c4 + 0x40;
+          pbStack_c8 = pbStack_c8 + 0x40;
+          pbStack_cc = pbStack_cc + 0x40;
+          pbStack_d0 = pbStack_d0 + 0x40;
+          pfStack_d8 = pfStack_d8 + 1;
+        }
+      }
+      else {
+        if ((*(char *)pfStack_d8 == 'w') && ((*pbStack_c4 & 1) == 0)) {
+          iVar15 = 0;
+          piStack_d4 = param_2;
+          if (0 < (int)param_1[4]) {
+            do {
+              fVar4 = *(float *)(iVar6 + iVar15 * 4);
+              fVar16 = (float10)(**(code **)(*piStack_d4 + 4))(*(undefined4 *)pbStack_c4,iVar15);
+              fVar2 = (float)fVar16;
+              if (fVar4 < fVar2) {
+                fVar2 = fVar4;
+              }
+              piStack_d4 = (int *)((int)piStack_d4 + param_3);
+              *(float *)(iVar6 + iVar15 * 4) = fVar2;
+              iVar15 = iVar15 + 1;
+            } while (iVar15 < (int)param_1[4]);
+          }
+        }
+        if ((*(char *)((int)pfStack_d8 + 1) == 'w') && ((*pbStack_c8 & 1) == 0)) {
+          iVar15 = 0;
+          piStack_d4 = param_2;
+          if (0 < (int)param_1[4]) {
+            do {
+              fVar4 = *(float *)(iVar6 + iVar15 * 4);
+              fVar16 = (float10)(**(code **)(*piStack_d4 + 4))(*(undefined4 *)pbStack_c8,iVar15);
+              fVar2 = (float)fVar16;
+              if (fVar4 < fVar2) {
+                fVar2 = fVar4;
+              }
+              piStack_d4 = (int *)((int)piStack_d4 + param_3);
+              *(float *)(iVar6 + iVar15 * 4) = fVar2;
+              iVar15 = iVar15 + 1;
+            } while (iVar15 < (int)param_1[4]);
+          }
+        }
+        if ((*(char *)((int)pfStack_d8 + 2) == 'w') && ((*pbStack_cc & 1) == 0)) {
+          iVar15 = 0;
+          piStack_d4 = param_2;
+          if (0 < (int)param_1[4]) {
+            do {
+              fVar4 = *(float *)(iVar6 + iVar15 * 4);
+              fVar16 = (float10)(**(code **)(*piStack_d4 + 4))(*(undefined4 *)pbStack_cc,iVar15);
+              fVar2 = (float)fVar16;
+              if (fVar4 < fVar2) {
+                fVar2 = fVar4;
+              }
+              piStack_d4 = (int *)((int)piStack_d4 + param_3);
+              *(float *)(iVar6 + iVar15 * 4) = fVar2;
+              iVar15 = iVar15 + 1;
+            } while (iVar15 < (int)param_1[4]);
+          }
+        }
+        if (((*(char *)((int)pfStack_d8 + 3) == 'w') && ((*pbStack_d0 & 1) == 0)) &&
+           (iVar15 = 0, piVar9 = param_2, 0 < (int)param_1[4])) {
+          do {
+            fVar4 = *(float *)(iVar6 + iVar15 * 4);
+            fVar16 = (float10)(**(code **)(*piVar9 + 4))(*(undefined4 *)pbStack_d0,iVar15);
+            fVar2 = (float)fVar16;
+            if (fVar4 < fVar2) {
+              fVar2 = fVar4;
+            }
+            piVar9 = (int *)((int)piVar9 + param_3);
+            *(float *)(iVar6 + iVar15 * 4) = fVar2;
+            iVar15 = iVar15 + 1;
+          } while (iVar15 < (int)param_1[4]);
+        }
+        pbStack_c4 = pbStack_c4 + 0x40;
+        pbStack_c8 = pbStack_c8 + 0x40;
+        pbStack_cc = pbStack_cc + 0x40;
+        pbStack_d0 = pbStack_d0 + 0x40;
+        pfStack_d8 = pfStack_d8 + 1;
+      }
+    } while (pfStack_d8 < pfVar7 + (iVar10 >> 2) + 1);
+  }
+  *(char *)pfVar7 = -0x78;
+  pbStack_d0 = (byte *)param_2;
+  iStack_68 = *(int *)((int)this + 0xa4);
+  pfStack_d8 = (float *)0x0;
+  if (0 < (int)param_1[4]) {
+    iStack_64 = (int)local_b0 - (int)param_1;
+    iStack_6c = (int)apuStack_94 - (int)param_1;
+    do {
+      fVar4 = (float)_DAT_010c9300;
+      pbStack_cc = *(byte **)(iVar6 + (int)pfStack_d8 * 4);
+      apuStack_94[0] = apuStack_4c[0];
+      apuStack_94[2] = apuStack_4c[2];
+      pfVar11 = (float *)((int)param_1[6] * (int)pfStack_d8 + (int)param_1[5]);
+      apuStack_94[1] = apuStack_4c[1];
+      local_b0[1] = pfVar11[1];
+      local_b0[0] = *pfVar11;
+      local_b0[3] = pfVar11[3];
+      local_b0[2] = pfVar11[2];
+      afStack_20[0] = *pfVar11 - *param_1;
+      afStack_20[1] = pfVar11[1] - param_1[1];
+      afStack_20[2] = pfVar11[2] - param_1[2];
+      afStack_20[3] = pfVar11[3] - param_1[3];
+      pfVar13 = (float *)((int)this + 0x60);
+      iVar10 = 3;
+      pfVar11 = param_1;
+      do {
+        fVar2 = *(float *)(((int)afStack_20 - (int)param_1) + (int)pfVar11) * *pfVar13;
+        fVar5 = (pfVar13[-8] + *pfVar11) * *pfVar13;
+        if ((ABS(fVar2) < fVar5 * fVar4) ||
+           (ABS(fVar2) < (*(float *)(iStack_64 + (int)pfVar11) + pfVar13[-8]) * *pfVar13 * fVar4)) {
+          *(undefined4 *)(((int)afStack_40 - (int)param_1) + (int)pfVar11) = 0;
+          fVar2 = DAT_0104a494;
+        }
+        else {
+          *(undefined4 *)(((int)aiStack_2c - (int)param_1) + (int)pfVar11) = 4;
+          if (fVar2 < 0.0) {
+            *(undefined4 *)(((int)aiStack_2c - (int)param_1) + (int)pfVar11) = 0xfffffffc;
+            *(int *)(iStack_6c + (int)pfVar11) = *(int *)(iStack_6c + (int)pfVar11) + -4;
+          }
+          *(float *)(((int)afStack_40 - (int)param_1) + (int)pfVar11) = 1.0 / fVar2;
+          fVar2 = (1.0 / fVar2) * (fVar5 - *(float *)((int)this + 0xdc));
+        }
+        *(float *)(((int)local_60 - (int)param_1) + (int)pfVar11) = fVar2;
+        pfVar11 = pfVar11 + 1;
+        pfVar13 = pfVar13 + 1;
+        iVar10 = iVar10 + -1;
+      } while (iVar10 != 0);
+      afStack_80[0] = (float)*apuStack_4c[0] * afStack_40[0] - local_60[0];
+      afStack_80[1] = (float)*apuStack_4c[1] * afStack_40[1] - local_60[1];
+      afStack_80[2] = (float)*apuStack_4c[2] * afStack_40[2] - local_60[2];
+LAB_00d16a93:
+      if (afStack_80[1] <= afStack_80[0]) {
+        if (afStack_80[2] <= afStack_80[1]) goto LAB_00d16ad1;
+        iVar10 = 1;
+        fVar4 = afStack_80[1];
+      }
+      else if (afStack_80[2] <= afStack_80[0]) {
+LAB_00d16ad1:
+        iVar10 = 2;
+        fVar4 = afStack_80[2];
+      }
+      else {
+        iVar10 = 0;
+        fVar4 = afStack_80[0];
+      }
+      if (fVar4 <= (float)pbStack_cc) {
+        do {
+          puVar8 = apuStack_94[iVar10];
+          uVar14 = (uint)puVar8[1];
+          *(byte *)((int)pfVar7 + uVar14) =
+               *(byte *)((int)pfVar7 + uVar14) ^ '\x01' << (char)iVar10 + 4;
+          if (0x6f < *(byte *)((int)pfVar7 + uVar14)) {
+            if (uVar14 == 0) {
+              afStack_80[iVar10] = _DAT_010162c0;
+              goto LAB_00d16a93;
+            }
+            uVar14 = *(uint *)(uVar14 * 0x10 + *(int *)((int)this + 0xa0) + 0xc);
+            if ((uVar14 & 1) == 0) {
+              fVar16 = (float10)(**(code **)(*(int *)pbStack_d0 + 4))(uVar14,pfStack_d8);
+              if ((float)fVar16 <= (float)pbStack_cc) {
+                pbStack_cc = (byte *)(float)fVar16;
+              }
+            }
+          }
+          uVar3 = *puVar8;
+          puVar8 = (ushort *)(aiStack_2c[iVar10] + (int)puVar8);
+          apuStack_94[iVar10] = puVar8;
+        } while (uVar3 == *puVar8);
+        afStack_80[iVar10] = (float)*puVar8 * afStack_40[iVar10] - local_60[iVar10];
+        goto LAB_00d16a93;
+      }
+      if ((int)pfStack_d8 < (int)param_1[4] + -1) {
+        for (pfVar11 = pfVar7; pfVar11 < pfVar7 + (iStack_68 >> 2) + 1; pfVar11 = pfVar11 + 2) {
+          *pfVar11 = (float)(((uint)*pfVar11 & 0xf0f0f0f) << 4 | (uint)*pfVar11 & 0xf0f0f0f);
+          pfVar11[1] = (float)(((uint)pfVar11[1] & 0xf0f0f0f) << 4 | (uint)pfVar11[1] & 0xf0f0f0f);
+        }
+      }
+      pbStack_d0 = (byte *)((int)pbStack_d0 + param_3);
+      pfStack_d8 = (float *)((int)pfStack_d8 + 1);
+    } while ((int)pfStack_d8 < (int)param_1[4]);
+  }
+  piVar9 = (int *)FUN_00c85750();
+  *piVar9 = iVar6;
+  iVar6 = FUN_00c85750();
+  if (-1 < (int)local_84) {
+    (**(code **)(**(int **)(iVar6 + 0xc) + 0x10))(pfVar7,local_84 & 0x3fffffff);
+  }
+  return;
+}
+
+
+
+SECTION 3: Havok Allocate Dispatcher - allocation path
+======================================================================
+
+======================================================================
+Havok_Allocate_Dispatcher @ 0x00c3e1b0
+======================================================================
+  Function: FUN_00c3e1b0 @ 0x00c3e1b0, Size: 352 bytes
+
+/* WARNING: Removing unreachable block (ram,0x00c3e25e) */
+
+void __thiscall FUN_00c3e1b0(void *this,int param_1,int param_2)
+
+{
+  uint uVar1;
+  int *unaff_FS_OFFSET;
+  undefined8 uVar2;
+  undefined4 local_40;
+  int local_3c;
+  int *local_34;
+  undefined **local_30 [2];
+  undefined4 local_28;
+  undefined4 local_20;
+  undefined4 local_1c;
+  byte local_18;
+  int local_10;
+  undefined1 *puStack_c;
+  int local_8;
+  
+  local_8 = 0xffffffff;
+  puStack_c = &LAB_00f2ddb7;
+  local_10 = *unaff_FS_OFFSET;
+  *unaff_FS_OFFSET = (int)&local_10;
+  if (param_2 < param_1) {
+    FUN_00c3e310((int)this);
+    local_28 = 0;
+    local_20 = 0;
+    local_1c = 0;
+    local_18 = 0;
+    local_30[0] = &PTR_FUN_010c1664;
+    local_8 = 0;
+    FUN_00c42060(local_30,param_2 * 4 + 4);
+    while ((local_18 & 2) == 0) {
+      local_34 = (int *)0x0;
+      local_3c = 0;
+      local_40 = 0;
+      local_8._0_1_ = 1;
+      uVar1 = FUN_00c40e70(this,(int)local_30,&local_40,(int *)&local_34,'\x01');
+      if ((uVar1 & 0xff) != 0) {
+        uVar2 = __allshr(0x10,local_3c);
+        if (param_1 < (int)((uint)uVar2 & 0xff)) {
+          local_8 = (uint)local_8._1_3_ << 8;
+          if (local_34 != (int *)0x0) {
+            FUN_0044dd60(local_34);
+          }
+          break;
+        }
+        (**(code **)(*local_34 + 0x1c))(param_2);
+      }
+      local_8 = (uint)local_8._1_3_ << 8;
+      if (local_34 != (int *)0x0) {
+        FUN_0044dd60(local_34);
+      }
+    }
+    FUN_00c3e340((int)this);
+  }
+  *unaff_FS_OFFSET = local_10;
+  return;
+}
+
+
+
+--- Calls FROM Havok_Allocate_Dispatcher (0x00c3e1b0) ---
+  0x00c3e1e8 -> 0x00c3e310 FUN_00c3e310
+  0x00c3e229 -> 0x00c42060 FUN_00c42060
+  0x00c3e26b -> 0x00000066 ???
+  0x00c3e286 -> 0x00c40e70 FUN_00c40e70
+  0x00c3e29a -> 0x00ec77e0 __allshr
+  0x00c3e2b4 -> 0x0044dd60 FUN_0044dd60
+  0x00c3e2df -> 0x0044dd60 FUN_0044dd60
+  0x00c3e2ec -> 0x00c3e340 FUN_00c3e340
+  Total: 8 calls
+
+----------------------------------------------------------------------
+References TO 0x00aa3e40 (GameHeap_Allocate)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x0040100e (in FUN_00401000)
+  UNCONDITIONAL_CALL @ 0x00553335 (in FUN_00553320)
+  UNCONDITIONAL_CALL @ 0x005aaef9 (in FUN_005aaee0)
+  UNCONDITIONAL_CALL @ 0x00a010c0 (in FUN_00a01000)
+  UNCONDITIONAL_CALL @ 0x00a01e60 (in FUN_00a01e20)
+  UNCONDITIONAL_CALL @ 0x00a02e08 (in FUN_00a02d40)
+  UNCONDITIONAL_CALL @ 0x00a030a7 (in FUN_00a02d40)
+  UNCONDITIONAL_CALL @ 0x00a070f6 (in FUN_00a06dd0)
+  UNCONDITIONAL_CALL @ 0x00a07ca3 (in FUN_00a07c60)
+  UNCONDITIONAL_CALL @ 0x00a09099 (in FUN_00a09080)
+  UNCONDITIONAL_CALL @ 0x00a09149 (in FUN_00a09130)
+  UNCONDITIONAL_CALL @ 0x00a09f0a (in FUN_00a09410)
+  UNCONDITIONAL_CALL @ 0x00a0a13d (in FUN_00a0a130)
+  UNCONDITIONAL_CALL @ 0x00a0a3b4 (in FUN_00a0a300)
+  UNCONDITIONAL_CALL @ 0x00a0acd2 (in FUN_00a0ac80)
+  UNCONDITIONAL_CALL @ 0x00a0ae9f (in FUN_00a0ae70)
+  UNCONDITIONAL_CALL @ 0x00a0b9de (in FUN_00a0b950)
+  UNCONDITIONAL_CALL @ 0x00a0c7e2 (in FUN_00a0c7c0)
+  UNCONDITIONAL_CALL @ 0x00a0da67 (in FUN_00a0d9e0)
+  UNCONDITIONAL_CALL @ 0x00a0fbb4 (in FUN_00a0f8b0)
+  UNCONDITIONAL_CALL @ 0x00a0fdbd (in FUN_00a0f8b0)
+  UNCONDITIONAL_CALL @ 0x00a11389 (in FUN_00a10c00)
+  UNCONDITIONAL_CALL @ 0x00a11c10 (in FUN_00a11c00)
+  UNCONDITIONAL_CALL @ 0x00a14a7c (in FUN_00a14a20)
+  UNCONDITIONAL_CALL @ 0x00a14af5 (in FUN_00a14a20)
+  UNCONDITIONAL_CALL @ 0x00a167f5 (in FUN_00a167c0)
+  UNCONDITIONAL_CALL @ 0x00a16923 (in FUN_00a168b0)
+  UNCONDITIONAL_CALL @ 0x00a16990 (in FUN_00a168b0)
+  UNCONDITIONAL_CALL @ 0x00a169fe (in FUN_00a168b0)
+  UNCONDITIONAL_CALL @ 0x00a16a6c (in FUN_00a168b0)
+  UNCONDITIONAL_CALL @ 0x00a16ada (in FUN_00a168b0)
+  UNCONDITIONAL_CALL @ 0x00a16b48 (in FUN_00a168b0)
+  UNCONDITIONAL_CALL @ 0x00a16bb6 (in FUN_00a168b0)
+  UNCONDITIONAL_CALL @ 0x00a16c24 (in FUN_00a168b0)
+  UNCONDITIONAL_CALL @ 0x00a12158 (in FUN_00a12020)
+  UNCONDITIONAL_CALL @ 0x00a154b6 (in FUN_00a15320)
+  UNCONDITIONAL_CALL @ 0x00a1c71c (in FUN_00a1c6f0)
+  UNCONDITIONAL_CALL @ 0x00a1cf17 (in FUN_00a1ce70)
+  UNCONDITIONAL_CALL @ 0x00a1cfb1 (in FUN_00a1ce70)
+  UNCONDITIONAL_CALL @ 0x00a1d238 (in FUN_00a1ce70)
+  UNCONDITIONAL_CALL @ 0x00a1dea8 (in FUN_00a1ddb0)
+  ... (truncated)
+  Total: 41 refs
+
+----------------------------------------------------------------------
+References TO 0x00b65d00 (msvcrt_malloc)
+----------------------------------------------------------------------
+  Total: 0 refs
+
+SECTION 4: hkpMoppCode allocation and free paths
+======================================================================
+
+======================================================================
+Havok_Reconstruct_moppCode @ 0x00c42180
+======================================================================
+  Function: FUN_00c42180 @ 0x00c42180, Size: 331 bytes
+
+uint * __thiscall FUN_00c42180(void *this,uint param_1)
+
+{
+  undefined4 uVar1;
+  DWORD DVar2;
+  int *unaff_FS_OFFSET;
+  undefined4 *local_40;
+  uint local_34;
+  undefined4 *local_30;
+  int local_10;
+  undefined1 *puStack_c;
+  undefined4 local_8;
+  
+  puStack_c = &LAB_00f2e128;
+  local_10 = *unaff_FS_OFFSET;
+  *unaff_FS_OFFSET = (int)&local_10;
+  uVar1 = *(undefined4 *)(*(int *)(unaff_FS_OFFSET[0xb] + _tls_index * 4) + 0x2b4);
+  *(undefined4 *)(*(int *)(unaff_FS_OFFSET[0xb] + _tls_index * 4) + 0x2b4) = 6;
+  local_8 = 0;
+  *(undefined4 *)((int)this + 0xc) = 0;
+  *(uint *)this = param_1;
+  local_34 = *(uint *)this;
+  local_40 = FUN_00aa3e40(&DAT_011f6238,
+                          -(uint)((int)((ulonglong)local_34 * 8 >> 0x20) != 0) |
+                          (uint)((ulonglong)local_34 * 8));
+  local_30 = local_40;
+  if (local_40 == (undefined4 *)0x0) {
+    local_40 = (undefined4 *)0x0;
+  }
+  else {
+    while (local_34 = local_34 - 1, -1 < (int)local_34) {
+      *local_30 = 0;
+      local_30[1] = 0;
+      local_30 = local_30 + 2;
+    }
+  }
+  *(undefined4 **)((int)this + 8) = local_40;
+  DVar2 = TlsAlloc();
+  *(DWORD *)((int)this + 4) = DVar2;
+  *(undefined4 *)(*(int *)(unaff_FS_OFFSET[0xb] + _tls_index * 4) + 0x2b4) = uVar1;
+  *unaff_FS_OFFSET = local_10;
+  return this;
+}
+
+
+
+--- Calls FROM Havok_Reconstruct_moppCode (0x00c42180) ---
+  0x00c4221f -> 0x00aa3e40 FUN_00aa3e40
+  0x00c42286 -> 0x00000008 ???
+  Total: 2 calls
+
+----------------------------------------------------------------------
+References TO 0x00c42180 (Havok_Reconstruct_moppCode)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x00c3ee0d (in FUN_00c3ec80)
+  UNCONDITIONAL_CALL @ 0x00c3f025 (in FUN_00c3eeb0)
+  UNCONDITIONAL_CALL @ 0x00c40dba (in FUN_00c40b70)
+  UNCONDITIONAL_CALL @ 0x00c41578 (in FUN_00c41330)
+  Total: 4 refs
+
+======================================================================
+Havok_FreeEntry @ 0x00c41fe0
+======================================================================
+  Function: FUN_00c41fe0 @ 0x00c41fe0, Size: 122 bytes
+
+void __thiscall FUN_00c41fe0(void *this,undefined4 *param_1)
+
+{
+  (**(code **)(*(int *)this + 0x28))(*param_1,param_1[1]);
+  if (param_1 != (undefined4 *)0x0) {
+    if (param_1[2] != 0) {
+      FUN_0044dd60((undefined4 *)param_1[2]);
+    }
+    FUN_00aa4060(&DAT_011f6238,param_1);
+  }
+  return;
+}
+
+
+
+--- Calls FROM Havok_FreeEntry (0x00c41fe0) ---
+  0x00c42028 -> 0x0044dd60 FUN_0044dd60
+  0x00c42040 -> 0x00aa4060 FUN_00aa4060
+  Total: 2 calls
+
+----------------------------------------------------------------------
+References TO 0x00c41fe0 (Havok_FreeEntry)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x00c42ad3 (in FUN_00c42960)
+  UNCONDITIONAL_CALL @ 0x00c40d7d (in FUN_00c40b70)
+  Total: 2 refs
+
+----------------------------------------------------------------------
+cell_unload callers from 0x00450000-0x00460000
+----------------------------------------------------------------------
+  Total: 0 callers
+
+----------------------------------------------------------------------
+heap_compact callers from 0x00860000-0x00880000
+----------------------------------------------------------------------
+  Total: 0 callers
+
+SECTION 5: Cell unload - terrain data free paths
+======================================================================
+
+======================================================================
+FindCellToUnload @ 0x00453a80
+======================================================================
+  Function: FUN_00453a80 @ 0x00453a80, Size: 824 bytes
+
+uint __fastcall FUN_00453a80(int param_1)
+
+{
+  int iVar1;
+  char cVar2;
+  int iVar3;
+  int *piVar4;
+  int iVar5;
+  uint uVar6;
+  undefined4 uVar7;
+  void *pvVar8;
+  int *local_24;
+  int *local_20;
+  int *local_1c;
+  int *local_14;
+  int *local_c;
+  int *local_8;
+  
+  local_8 = (int *)0x0;
+  iVar3 = FUN_005f36f0(param_1);
+  if (iVar3 == 0) {
+    piVar4 = (int *)FUN_0043d4d0(0x11c3e38);
+    piVar4 = (int *)(*piVar4 + -1);
+    for (local_c = piVar4; -1 < (int)local_c; local_c = (int *)((int)local_c + -1)) {
+      piVar4 = *(int **)(param_1 + 0x38);
+      if (piVar4[(int)local_c] != 0) {
+        local_8 = *(int **)(*(int *)(param_1 + 0x38) + (int)local_c * 4);
+        *(undefined4 *)(*(int *)(param_1 + 0x38) + (int)local_c * 4) = 0;
+        piVar4 = (int *)param_1;
+        break;
+      }
+    }
+    if (local_8 == (int *)0x0) {
+      FUN_00454fc0(param_1);
+      iVar3 = FUN_0084e3a0(*(int *)(param_1 + 8));
+      iVar5 = FUN_0084e3a0(*(int *)(param_1 + 8));
+      piVar4 = (int *)FUN_0043d4d0(0x11c3c90);
+      local_14 = (int *)(*piVar4 + -1);
+      while ((int *)(iVar3 * iVar5) <= local_14) {
+        if (*(int *)(*(int *)(param_1 + 0x3c) + (int)local_14 * 4) != 0) {
+          uVar6 = FUN_004511e0(*(int *)(*(int *)(param_1 + 0x3c) + (int)local_14 * 4),'\x01');
+          piVar4 = (int *)(uVar6 & 0xff);
+          if (((int *)(uVar6 & 0xff) == (int *)0x0) &&
+             (piVar4 = (int *)FUN_00557090(*(int *)(*(int *)(param_1 + 0x3c) + (int)local_14 * 4)),
+             ((uint)piVar4 & 0xff) == 0)) {
+            local_8 = *(int **)(*(int *)(param_1 + 0x3c) + (int)local_14 * 4);
+            *(undefined4 *)(*(int *)(param_1 + 0x3c) + (int)local_14 * 4) = 0;
+            piVar4 = (int *)param_1;
+          }
+          break;
+        }
+        piVar4 = (int *)((int)local_14 + -1);
+        local_14 = piVar4;
+      }
+    }
+  }
+  else {
+    iVar3 = FUN_0084e3a0(*(int *)(param_1 + 8));
+    iVar5 = FUN_0084e3a0(*(int *)(param_1 + 8));
+    piVar4 = (int *)FUN_0043d4d0(0x11c3c90);
+    local_1c = (int *)(*piVar4 + -1);
+    while ((int *)(iVar3 * iVar5) <= local_1c) {
+      if (((*(int *)(*(int *)(param_1 + 0x3c) + (int)local_1c * 4) != 0) &&
+          (uVar6 = FUN_004511e0(*(int *)(*(int *)(param_1 + 0x3c) + (int)local_1c * 4),'\x01'),
+          (uVar6 & 0xff) == 0)) &&
+         (cVar2 = FUN_00557090(*(int *)(*(int *)(param_1 + 0x3c) + (int)local_1c * 4)),
+         cVar2 == '\0')) {
+        local_8 = *(int **)(*(int *)(param_1 + 0x3c) + (int)local_1c * 4);
+        *(undefined4 *)(*(int *)(param_1 + 0x3c) + (int)local_1c * 4) = 0;
+        piVar4 = (int *)param_1;
+        break;
+      }
+      piVar4 = (int *)((int)local_1c + -1);
+      local_1c = piVar4;
+    }
+    if (local_8 == (int *)0x0) {
+      piVar4 = (int *)FUN_0043d4d0(0x11c3e38);
+      piVar4 = (int *)(*piVar4 + -1);
+      for (local_20 = piVar4; -1 < (int)local_20; local_20 = (int *)((int)local_20 + -1)) {
+        piVar4 = *(int **)(param_1 + 0x38);
+        if ((piVar4[(int)local_20] != 0) &&
+           (iVar1 = *(int *)(param_1 + 0x38), piVar4 = (int *)FUN_005f36f0(param_1),
+           *(int **)(iVar1 + (int)local_20 * 4) != piVar4)) {
+          local_8 = *(int **)(*(int *)(param_1 + 0x38) + (int)local_20 * 4);
+          *(undefined4 *)(*(int *)(param_1 + 0x38) + (int)local_20 * 4) = 0;
+          piVar4 = (int *)param_1;
+          break;
+        }
+      }
+    }
+    if (local_8 == (int *)0x0) {
+      local_24 = (int *)0x0;
+      while (local_24 < (int *)(iVar3 * iVar5)) {
+        if (((*(int *)(*(int *)(param_1 + 0x3c) + (int)local_24 * 4) != 0) &&
+            (uVar6 = FUN_004511e0(*(int *)(*(int *)(param_1 + 0x3c) + (int)local_24 * 4),'\x01'),
+            (uVar6 & 0xff) == 0)) &&
+           (cVar2 = FUN_00557090(*(int *)(*(int *)(param_1 + 0x3c) + (int)local_24 * 4)),
+           cVar2 == '\0')) {
+          local_8 = *(int **)(*(int *)(param_1 + 0x3c) + (int)local_24 * 4);
+          *(undefined4 *)(*(int *)(param_1 + 0x3c) + (int)local_24 * 4) = 0;
+          piVar4 = (int *)FUN_00453940(param_1);
+          break;
+        }
+        piVar4 = (int *)((int)local_24 + 1);
+        local_24 = piVar4;
+      }
+    }
+  }
+  if (local_8 == (int *)0x0) {
+    uVar6 = (uint)piVar4 & 0xffffff00;
+  }
+  else {
+    uVar7 = FUN_00462290(local_8);
+    if (**(int **)(param_1 + 0x3c) == 0) {
+      iVar3 = FUN_004fd3e0(param_1);
+      uVar7 = 0;
+      if (iVar3 != 0) {
+        pvVar8 = (void *)FUN_004fd3e0(param_1);
+        iVar3 = FUN_00586170(pvVar8);
+        uVar7 = FUN_006fce00(iVar3);
+      }
+    }
+    uVar6 = CONCAT31((int3)((uint)uVar7 >> 8),1);
+  }
+  return uVar6;
+}
+
+
+
+--- Calls FROM FindCellToUnload (0x00453a80) ---
+  0x00453a94 -> 0x005f36f0 FUN_005f36f0
+  0x00453aa6 -> 0x0043d4d0 FUN_0043d4d0
+  0x00453b03 -> 0x00454fc0 FUN_00454fc0
+  0x00453b0e -> 0x0084e3a0 FUN_0084e3a0
+  0x00453b1b -> 0x0084e3a0 FUN_0084e3a0
+  0x00453b2b -> 0x0043d4d0 FUN_0043d4d0
+  0x00453b6c -> 0x004511e0 FUN_004511e0
+  0x00453b84 -> 0x00557090 FUN_00557090
+  0x00453bbe -> 0x0084e3a0 FUN_0084e3a0
+  0x00453bcb -> 0x0084e3a0 FUN_0084e3a0
+  0x00453bdb -> 0x0043d4d0 FUN_0043d4d0
+  0x00453c1c -> 0x004511e0 FUN_004511e0
+  0x00453c34 -> 0x00557090 FUN_00557090
+  0x00453c6e -> 0x0043d4d0 FUN_0043d4d0
+  0x00453ca4 -> 0x005f36f0 FUN_005f36f0
+  0x00453d19 -> 0x004511e0 FUN_004511e0
+  0x00453d31 -> 0x00557090 FUN_00557090
+  0x00453d5f -> 0x00453940 FUN_00453940
+  0x00453d7b -> 0x00462290 FUN_00462290
+  0x00453d8e -> 0x004fd3e0 FUN_004fd3e0
+  0x00453d9a -> 0x004fd3e0 FUN_004fd3e0
+  0x00453da1 -> 0x00586170 FUN_00586170
+  0x00453da8 -> 0x006fce00 FUN_006fce00
+  Total: 23 calls
+
+======================================================================
+ProcessPendingCleanup @ 0x00452490
+======================================================================
+  Function: FUN_00452490 @ 0x00452490, Size: 85 bytes
+
+void __thiscall FUN_00452490(void *this,char param_1)
+
+{
+  char cVar1;
+  uint uVar2;
+  
+  uVar2 = FUN_00452540();
+  if ((uVar2 & 0xff) != 0) {
+    FUN_00452510();
+    FUN_00664cd0('\x01');
+    cVar1 = FUN_004524f0((int)this);
+    if ((cVar1 != '\0') || (param_1 != '\0')) {
+      FUN_00a61cd0();
+    }
+    FUN_00664cd0('\x01');
+    FUN_00452530();
+  }
+  return;
+}
+
+
+
+--- Calls FROM ProcessPendingCleanup (0x00452490) ---
+  0x00452497 -> 0x00452540 FUN_00452540
+  0x004524a5 -> 0x00452510 FUN_00452510
+  0x004524ac -> 0x00664cd0 FUN_00664cd0
+  0x004524b7 -> 0x004524f0 FUN_004524f0
+  0x004524cb -> 0x00a61cd0 FUN_00a61cd0
+  0x004524d2 -> 0x00664cd0 FUN_00664cd0
+  0x004524da -> 0x00452530 FUN_00452530
+  Total: 7 calls
+
+======================================================================
+DeferredCleanupSmall @ 0x00878250
+======================================================================
+  Function: FUN_00878250 @ 0x00878250, Size: 86 bytes
+
+void __cdecl FUN_00878250(char param_1)
+
+{
+  void *pvVar1;
+  
+  FUN_00868d70('\x01');
+  pvVar1 = (void *)FUN_00450b80(0);
+  FUN_00b5fd60(pvVar1);
+  FUN_00c459d0('\0');
+  if (param_1 != '\0') {
+    FUN_00651e30();
+    FUN_00651f40();
+  }
+  FUN_00448620(DAT_011c3b3c,'\x01');
+  FUN_00452490(DAT_011dea10,'\0');
+  return;
+}
+
+
+
+--- Calls FROM DeferredCleanupSmall (0x00878250) ---
+  0x00878255 -> 0x00868d70 FUN_00868d70
+  0x0087825f -> 0x00450b80 FUN_00450b80
+  0x00878269 -> 0x00b5fd60 FUN_00b5fd60
+  0x00878270 -> 0x00c459d0 FUN_00c459d0
+  0x00878280 -> 0x00651e30 FUN_00651e30
+  0x00878285 -> 0x00651f40 FUN_00651f40
+  0x00878292 -> 0x00448620 FUN_00448620
+  0x0087829f -> 0x00452490 FUN_00452490
+  Total: 8 calls
+
+----------------------------------------------------------------------
+cell_unload_GHEAP_free callers from 0x00450000-0x00460000
+----------------------------------------------------------------------
+  Total: 0 callers
+
+----------------------------------------------------------------------
+deferred_cleanup_GHEAP_free callers from 0x00878000-0x00879000
+----------------------------------------------------------------------
+  Total: 0 callers
+
+----------------------------------------------------------------------
+cell_unload_CRT_free callers from 0x00450000-0x00460000
+----------------------------------------------------------------------
+  Total: 0 callers
+
+----------------------------------------------------------------------
+deferred_cleanup_CRT_free callers from 0x00878000-0x00879000
+----------------------------------------------------------------------
+  Total: 0 callers
+
+SECTION 6: Heightfield shape - data allocation path
+======================================================================
+
+----------------------------------------------------------------------
+References TO 0x00c696d0 (TtPickObject_BroadphaseQuery)
+----------------------------------------------------------------------
+  DATA @ 0x010c417c (in ???)
+  DATA @ 0x010c6abc (in ???)
+  Total: 2 refs
+
+======================================================================
+hkWorld_addEntity @ 0x00c41250
+======================================================================
+  Function: FUN_00c410b0 @ 0x00c410b0, Size: 633 bytes
+  NOTE: Requested 0x00c41250 is inside FUN_00c410b0 (entry at 0x00c410b0)
+
+/* WARNING: Removing unreachable block (ram,0x00c411bc) */
+/* WARNING: Removing unreachable block (ram,0x00c412b6) */
+
+void __fastcall FUN_00c410b0(int param_1)
+
+{
+  DWORD DVar1;
+  uint uVar2;
+  LONG LVar3;
+  int *unaff_FS_OFFSET;
+  undefined4 local_40 [2];
+  undefined4 *local_38;
+  char local_31;
+  undefined **local_30 [2];
+  undefined4 local_28;
+  undefined4 local_20;
+  undefined4 local_1c;
+  byte local_18;
+  int local_10;
+  undefined1 *puStack_c;
+  uint local_8;
+  
+  puStack_c = &LAB_00f2e0a0;
+  local_10 = *unaff_FS_OFFSET;
+  *unaff_FS_OFFSET = (int)&local_10;
+  while (local_8 = 0xffffffff, *(char *)(*(int *)(param_1 + 0x30) + 0x40) != '\x01') {
+    WaitForSingleObject(*(HANDLE *)(param_1 + 0x10),0xffffffff);
+    InterlockedDecrement((LONG *)(param_1 + 0xc));
+    local_28 = 0;
+    local_20 = 0;
+    local_1c = 0;
+    local_18 = 0;
+    local_30[0] = &PTR_FUN_010c1664;
+    local_8 = 0;
+    local_31 = '\0';
+    while ((local_18 & 2) == 0) {
+      DVar1 = WaitForSingleObject(*(HANDLE *)(param_1 + 0x1c),0);
+      if (DVar1 == 0x102) {
+        WaitForSingleObject(*(HANDLE *)(param_1 + 0x1c),0xffffffff);
+        InterlockedDecrement((LONG *)(param_1 + 0x18));
+        FUN_00c42060(local_30,0);
+      }
+      local_38 = (undefined4 *)0x0;
+      local_8 = CONCAT31(local_8._1_3_,1);
+      uVar2 = FUN_00c40e70(*(void **)(param_1 + 0x30),(int)local_30,local_40,(int *)&local_38,
+                           local_31 == '\0');
+      if ((uVar2 & 0xff) == 0) {
+        if ((local_18 & 2) == 0) {
+          FUN_00c42060(local_30,0);
+          local_31 = '\0';
+        }
+      }
+      else if ((local_38[3] == 1) &&
+              (LVar3 = InterlockedCompareExchange(local_38 + 3,3,1), LVar3 == 1)) {
+        local_31 = '\x01';
+        (**(code **)(**(int **)(param_1 + 0x30) + 0x4c))(local_38);
+        (**(code **)(**(int **)(param_1 + 0x30) + 0x50))(local_38);
+      }
+      if (local_38 != (undefined4 *)0x0) {
+        if (local_38 != (undefined4 *)0x0) {
+          FUN_0044dd60(local_38);
+        }
+        local_38 = (undefined4 *)0x0;
+      }
+      ReleaseSemaphore(*(HANDLE *)(param_1 + 0x1c),1,(LPLONG)0x0);
+      InterlockedIncrement((LONG *)(param_1 + 0x18));
+      local_8 = local_8 & 0xffffff00;
+      if (local_38 != (undefined4 *)0x0) {
+        FUN_0044dd60(local_38);
+      }
+    }
+    local_30[0] = &PTR_FUN_010c1670;
+  }
+  *unaff_FS_OFFSET = local_10;
+  return;
+}
+
+
+
+--- Calls FROM hkWorld_addEntity (0x00c41250) ---
+  0x00c41106 -> 0x00000068 ???
+  0x00c41110 -> 0x00000067 ???
+  0x00c41169 -> 0x00000068 ???
+  0x00c41195 -> 0x00000068 ???
+  0x00c4119f -> 0x00000067 ???
+  0x00c411aa -> 0x00c42060 FUN_00c42060
+  0x00c411c9 -> 0x00000066 ???
+  0x00c411f5 -> 0x00c40e70 FUN_00c40e70
+  0x00c4121b -> 0x00000065 ???
+  0x00c4128c -> 0x00c42060 FUN_00c42060
+  0x00c412a4 -> 0x0044dd60 FUN_0044dd60
+  0x00c412c3 -> 0x00000066 ???
+  0x00c412e0 -> 0x00000063 ???
+  0x00c412ea -> 0x00000066 ???
+  0x00c412fd -> 0x0044dd60 FUN_0044dd60
+  Total: 15 calls
+
+======================================================================
+hkWorld_removeEntity @ 0x00c41340
+======================================================================
+  Function: FUN_00c41330 @ 0x00c41330, Size: 725 bytes
+  NOTE: Requested 0x00c41340 is inside FUN_00c41330 (entry at 0x00c41330)
+
+void __thiscall FUN_00c41330(void *this,char param_1)
+
+{
+  undefined4 uVar1;
+  uint uVar2;
+  uint *puVar3;
+  undefined4 uVar4;
+  undefined4 *puVar5;
+  void *this_00;
+  int *piVar6;
+  int *unaff_FS_OFFSET;
+  uint *local_88;
+  undefined4 *local_84;
+  int local_10;
+  undefined1 *puStack_c;
+  undefined4 local_8;
+  
+  local_8 = 0xffffffff;
+  puStack_c = &LAB_00f2e0d3;
+  local_10 = *unaff_FS_OFFSET;
+  *unaff_FS_OFFSET = (int)&local_10;
+  FUN_0040fbf0((LONG *)((int)this + 0x20));
+  uVar1 = *(undefined4 *)(*(int *)(unaff_FS_OFFSET[0xb] + _tls_index * 4) + 0x2b4);
+  *(undefined4 *)(*(int *)(unaff_FS_OFFSET[0xb] + _tls_index * 4) + 0x2b4) = 6;
+  local_8 = 0;
+  uVar2 = **(uint **)((int)this + 0x14);
+  puVar3 = *(uint **)((int)this + 0x14);
+  if (puVar3 != (uint *)0x0) {
+    FUN_00c422d0(puVar3);
+    FUN_00aa4060(&DAT_011f6238,puVar3);
+  }
+  *(undefined4 *)((int)this + 0x14) = 0;
+  *(undefined4 *)((int)this + 0x18) = 0;
+  while (*(int *)((int)this + 4) != 0) {
+    uVar4 = **(undefined4 **)((int)this + 4);
+    piVar6 = (int *)(*(int *)((int)this + 4) + 4);
+    if (*piVar6 != 0) {
+      if (*piVar6 != 0) {
+        FUN_0044dd60((undefined4 *)*piVar6);
+      }
+      *piVar6 = 0;
+      if (*piVar6 != 0) {
+        InterlockedIncrement((LONG *)(*piVar6 + 8));
+      }
+    }
+    puVar5 = *(undefined4 **)((int)this + 4);
+    if (puVar5 != (undefined4 *)0x0) {
+      if (puVar5[1] != 0) {
+        FUN_0044dd60((undefined4 *)puVar5[1]);
+      }
+      FUN_00aa4060(&DAT_011f6238,puVar5);
+    }
+    *(undefined4 *)((int)this + 4) = uVar4;
+  }
+  if (param_1 == '\0') {
+    local_84 = FUN_00aa3e40(&DAT_011f6238,8);
+    if (local_84 == (undefined4 *)0x0) {
+      local_84 = (undefined4 *)0x0;
+    }
+    else {
+      *local_84 = 0;
+      piVar6 = local_84 + 1;
+      *piVar6 = 0;
+      if (*piVar6 != 0) {
+        InterlockedIncrement((LONG *)(*piVar6 + 8));
+      }
+    }
+    *(undefined4 **)((int)this + 4) = local_84;
+    *(undefined4 *)((int)this + 8) = *(undefined4 *)((int)this + 4);
+    this_00 = FUN_00aa3e40(&DAT_011f6238,0x10);
+    local_8 = CONCAT31(local_8._1_3_,1);
+    if (this_00 == (void *)0x0) {
+      local_88 = (uint *)0x0;
+    }
+    else {
+      local_88 = FUN_00c42180(this_00,uVar2);
+    }
+    *(uint **)((int)this + 0x14) = local_88;
+  }
+  *(int *)((int)this + 0x24) = *(int *)((int)this + 0x24) + -1;
+  if (*(int *)((int)this + 0x24) == 0) {
+    *(undefined4 *)((int)this + 0x20) = 0;
+  }
+  *(undefined4 *)(*(int *)(unaff_FS_OFFSET[0xb] + _tls_index * 4) + 0x2b4) = uVar1;
+  *unaff_FS_OFFSET = local_10;
+  return;
+}
+
+
+
+--- Calls FROM hkWorld_removeEntity (0x00c41340) ---
+  0x00c41360 -> 0x0040fbf0 FUN_0040fbf0
+  0x00c413cc -> 0x00c422d0 FUN_00c422d0
+  0x00c413e4 -> 0x00aa4060 FUN_00aa4060
+  0x00c41445 -> 0x0044dd60 FUN_0044dd60
+  0x00c4146a -> 0x00000066 ???
+  0x00c4149b -> 0x0044dd60 FUN_0044dd60
+  0x00c414b3 -> 0x00aa4060 FUN_00aa4060
+  0x00c414e8 -> 0x00aa3e40 FUN_00aa3e40
+  0x00c41528 -> 0x00000066 ???
+  0x00c4155f -> 0x00aa3e40 FUN_00aa3e40
+  0x00c41578 -> 0x00c42180 FUN_00c42180
+  Total: 11 calls
+
+----------------------------------------------------------------------
+PDD_removeEntity callers from 0x00868000-0x0086a000
+----------------------------------------------------------------------
+  Total: 0 callers
+
+SECTION 7: Pre-destruction protocol and broadphase
+======================================================================
+
+======================================================================
+PreDestruction_Setup @ 0x00878160
+======================================================================
+  Function: FUN_00878160 @ 0x00878160, Size: 113 bytes
+
+void __cdecl FUN_00878160(int param_1,char param_2,undefined1 param_3,char param_4)
+
+{
+  bool bVar1;
+  int iVar2;
+  undefined4 uVar3;
+  
+  FUN_00c3e310(DAT_01202d98);
+  if (param_4 == '\0') {
+    *(undefined1 *)(param_1 + 5) = 0;
+  }
+  else {
+    bVar1 = FUN_00652160();
+    *(bool *)(param_1 + 5) = bVar1;
+  }
+  if (param_2 != '\0') {
+    iVar2 = FUN_0043c4b0();
+    FUN_004a0370(iVar2);
+  }
+  *(char *)(param_1 + 3) = param_2;
+  *(undefined1 *)(param_1 + 4) = param_3;
+  uVar3 = FUN_008781f0();
+  *(undefined4 *)(param_1 + 8) = uVar3;
+  FUN_008781e0(0x7fffffff);
+  FUN_00703980();
+  return;
+}
+
+
+
+--- Calls FROM PreDestruction_Setup (0x00878160) ---
+  0x00878169 -> 0x00c3e310 FUN_00c3e310
+  0x00878176 -> 0x00652160 FUN_00652160
+  0x00878194 -> 0x0043c4b0 FUN_0043c4b0
+  0x0087819b -> 0x004a0370 FUN_004a0370
+  0x008781b2 -> 0x008781f0 FUN_008781f0
+  0x008781c2 -> 0x008781e0 FUN_008781e0
+  0x008781ca -> 0x00703980 FUN_00703980
+  Total: 7 calls
+
+======================================================================
+PostDestruction_Restore @ 0x00878200
+======================================================================
+  Function: FUN_00878200 @ 0x00878200, Size: 80 bytes
+
+void __cdecl FUN_00878200(int param_1)
+
+{
+  int iVar1;
+  
+  FUN_00a5b460();
+  FUN_00aa7030();
+  if (*(char *)(param_1 + 5) != '\0') {
+    FUN_00652190();
+  }
+  FUN_008781e0(*(undefined4 *)(param_1 + 8));
+  if (*(char *)(param_1 + 3) != '\0') {
+    iVar1 = FUN_0043c4b0();
+    FUN_004a03c0(iVar1);
+  }
+  FUN_00c3e340(DAT_01202d98);
+  return;
+}
+
+
+
+--- Calls FROM PostDestruction_Restore (0x00878200) ---
+  0x00878203 -> 0x00a5b460 FUN_00a5b460
+  0x00878208 -> 0x00aa7030 FUN_00aa7030
+  0x00878218 -> 0x00652190 FUN_00652190
+  0x00878224 -> 0x008781e0 FUN_008781e0
+  0x00878237 -> 0x0043c4b0 FUN_0043c4b0
+  0x0087823e -> 0x004a03c0 FUN_004a03c0
+  0x00878249 -> 0x00c3e340 FUN_00c3e340
+  Total: 7 calls
+
+----------------------------------------------------------------------
+pre_destruction_removeEntity callers from 0x00878000-0x00879000
+----------------------------------------------------------------------
+  Total: 0 callers
+
+SECTION 8: IAT free path - when does VirtualAlloc free trigger?
+======================================================================
+IAT free path:
+  1. mi_is_in_heap_region(ptr) -> true -> mi_free (purge_delay protects)
+  2. mi_is_in_heap_region(ptr) -> false
+     a. is_virtual_alloc_ptr(ptr) -> true -> VirtualFree(MEM_DECOMMIT) [CRASH]
+     b. is_virtual_alloc_ptr(ptr) -> false -> original_free
+
+Crash pointer 0x5C8564E0:
+  - 0x5C8564E0 - 0x20000000 (arena base) = 0x3C8564E0 (968MB)
+  - OUTSIDE 512MB primary arena
+  - Could be: mimalloc overflow, VirtualAlloc large alloc, other
+
+KEY QUESTION: Was terrain data allocated through IAT VirtualAlloc
+and freed via VirtualFree(MEM_DECOMMIT) while Havok still references it?
+
+----------------------------------------------------------------------
+References TO 0x00401000 (VirtualAlloc_wrapper_00401000)
+----------------------------------------------------------------------
+  DATA @ 0x0040014c (in ???)
+  DATA @ 0x00400224 (in ???)
+  UNCONDITIONAL_CALL @ 0x0086ad2f (in FUN_0086a850)
+  UNCONDITIONAL_CALL @ 0x0086af50 (in FUN_0086a850)
+  UNCONDITIONAL_CALL @ 0x0086afbf (in FUN_0086a850)
+  UNCONDITIONAL_CALL @ 0x0044f5a3 (in FUN_0044f570)
+  UNCONDITIONAL_CALL @ 0x0045375a (in FUN_00453720)
+  UNCONDITIONAL_CALL @ 0x0045d1c3 (in FUN_0045d190)
+  UNCONDITIONAL_CALL @ 0x0049ff20 (in FUN_0049fef0)
+  UNCONDITIONAL_CALL @ 0x004b794a (in FUN_004b7920)
+  UNCONDITIONAL_CALL @ 0x004b799c (in FUN_004b7920)
+  UNCONDITIONAL_CALL @ 0x004b79ed (in FUN_004b7920)
+  UNCONDITIONAL_CALL @ 0x004b7a3f (in FUN_004b7920)
+  UNCONDITIONAL_CALL @ 0x004b7a91 (in FUN_004b7920)
+  UNCONDITIONAL_CALL @ 0x004b7ae2 (in FUN_004b7920)
+  UNCONDITIONAL_CALL @ 0x004b7b34 (in FUN_004b7920)
+  UNCONDITIONAL_CALL @ 0x004b7b86 (in FUN_004b7920)
+  UNCONDITIONAL_CALL @ 0x004b7bd7 (in FUN_004b7920)
+  UNCONDITIONAL_CALL @ 0x004b7c29 (in FUN_004b7920)
+  UNCONDITIONAL_CALL @ 0x004b7c7b (in FUN_004b7920)
+  UNCONDITIONAL_CALL @ 0x004b7ccc (in FUN_004b7920)
+  UNCONDITIONAL_CALL @ 0x004b7d1e (in FUN_004b7920)
+  UNCONDITIONAL_CALL @ 0x004b7d70 (in FUN_004b7920)
+  UNCONDITIONAL_CALL @ 0x004b7dc1 (in FUN_004b7920)
+  UNCONDITIONAL_CALL @ 0x004b7e1c (in FUN_004b7920)
+  UNCONDITIONAL_CALL @ 0x004b7e7d (in FUN_004b7920)
+  UNCONDITIONAL_CALL @ 0x004b7edd (in FUN_004b7920)
+  UNCONDITIONAL_CALL @ 0x004b7f3e (in FUN_004b7920)
+  UNCONDITIONAL_CALL @ 0x004b7f9f (in FUN_004b7920)
+  UNCONDITIONAL_CALL @ 0x004b7fff (in FUN_004b7920)
+  UNCONDITIONAL_CALL @ 0x004b8060 (in FUN_004b7920)
+  UNCONDITIONAL_CALL @ 0x004b80c1 (in FUN_004b7920)
+  UNCONDITIONAL_CALL @ 0x004b8121 (in FUN_004b7920)
+  UNCONDITIONAL_CALL @ 0x004b8182 (in FUN_004b7920)
+  UNCONDITIONAL_CALL @ 0x004b81e3 (in FUN_004b7920)
+  UNCONDITIONAL_CALL @ 0x004b8243 (in FUN_004b7920)
+  UNCONDITIONAL_CALL @ 0x004b82a4 (in FUN_004b7920)
+  UNCONDITIONAL_CALL @ 0x004b8305 (in FUN_004b7920)
+  UNCONDITIONAL_CALL @ 0x004b8365 (in FUN_004b7920)
+  UNCONDITIONAL_CALL @ 0x004b83c6 (in FUN_004b7920)
+  UNCONDITIONAL_CALL @ 0x004b8427 (in FUN_004b7920)
+  ... (truncated)
+  Total: 41 refs

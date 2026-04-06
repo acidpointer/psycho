@@ -19,11 +19,10 @@ use libmimalloc::{
 };
 use libpsycho::os::windows::{
     hook::inline::inlinehook::InlineHookContainer,
-    types::{CallocFn, FreeFn, MallocFn, MsizeFn, ReallocFn, RecallocFn},
+    types::{CallocFn, FreeFn, MallocFn, MsizeFn, ReallocFn, RecallocFn}, va_allocator,
 };
 
 use crate::mods::memory::heap_replacer::heap_validate;
-use super::gheap::virtual_alloc::{self, LARGE_ALLOC_THRESHOLD};
 
 // ---- Addresses ----
 
@@ -67,8 +66,8 @@ pub unsafe extern "C" fn hook_malloc(size: usize) -> *mut c_void {
     // Large allocations go through VirtualAlloc to avoid mimalloc arena
     // consumption. These are raw buffers (texture data, geometry) with
     // no UAF risk — they don't have vtables at offset 0.
-    let result = if size >= LARGE_ALLOC_THRESHOLD {
-        unsafe { virtual_alloc::malloc(size) }
+    let result = if size >= va_allocator::LARGE_ALLOC_THRESHOLD {
+        unsafe { va_allocator::malloc(size) }
     } else {
         unsafe { mi_malloc(size) }
     };
@@ -79,8 +78,8 @@ pub unsafe extern "C" fn hook_malloc(size: usize) -> *mut c_void {
 pub unsafe extern "C" fn hook_calloc(count: usize, size: usize) -> *mut c_void {
     let total = count.saturating_mul(size);
     // Large zeroed allocations --> VirtualAlloc (pages are zeroed by OS)
-    let result = if total >= LARGE_ALLOC_THRESHOLD {
-        unsafe { virtual_alloc::malloc(total) }
+    let result = if total >= va_allocator::LARGE_ALLOC_THRESHOLD {
+        unsafe { va_allocator::malloc(total) }
     } else {
         unsafe { mi_calloc(count, size) }
     };
@@ -95,7 +94,7 @@ pub unsafe extern "C" fn hook_realloc(raw_ptr: *mut c_void, size: usize) -> *mut
     }
 
     // Try VirtualAlloc realloc first
-    if let Some(new_ptr) = unsafe { virtual_alloc::realloc(raw_ptr, size) } {
+    if let Some(new_ptr) = unsafe { va_allocator::realloc(raw_ptr, size) } {
         return new_ptr;
     }
 
@@ -130,8 +129,8 @@ pub unsafe extern "C" fn hook_recalloc(
 
     if raw_ptr.is_null() {
         // recalloc(NULL, ...) --> zeroed allocation
-        return if new_total >= LARGE_ALLOC_THRESHOLD {
-            unsafe { virtual_alloc::malloc(new_total) }
+        return if new_total >= va_allocator::LARGE_ALLOC_THRESHOLD {
+            unsafe { va_allocator::malloc(new_total) }
         } else {
             unsafe { mi_calloc(count, size) }
         };
@@ -142,8 +141,8 @@ pub unsafe extern "C" fn hook_recalloc(
     }
 
     // VirtualAlloc path: copy old data, zero the rest
-    if let Some(old_size) = unsafe { virtual_alloc::msize(raw_ptr) } {
-        let new_ptr = unsafe { virtual_alloc::malloc(new_total) };
+    if let Some(old_size) = unsafe { va_allocator::msize(raw_ptr) } {
+        let new_ptr = unsafe { va_allocator::malloc(new_total) };
         if !new_ptr.is_null() {
             let copy_size = old_size.min(new_total);
             unsafe {
@@ -161,14 +160,14 @@ pub unsafe extern "C" fn hook_recalloc(
                     );
                 }
             }
-            unsafe { virtual_alloc::free(raw_ptr) };
+            unsafe { va_allocator::free(raw_ptr) };
         }
         return new_ptr;
     }
 
     let old_size = unsafe { hook_msize(raw_ptr) };
-    let new_ptr = if new_total >= LARGE_ALLOC_THRESHOLD {
-        unsafe { virtual_alloc::malloc(new_total) }
+    let new_ptr = if new_total >= va_allocator::LARGE_ALLOC_THRESHOLD {
+        unsafe { va_allocator::malloc(new_total) }
     } else {
         unsafe { mi_calloc(count, size) }
     };
@@ -191,7 +190,7 @@ pub unsafe extern "C" fn hook_msize(raw_ptr: *mut c_void) -> usize {
     }
 
     // Check VirtualAlloc first (header-based detection with VirtualQuery guard)
-    if let Some(size) = unsafe { virtual_alloc::msize(raw_ptr) } {
+    if let Some(size) = unsafe { va_allocator::msize(raw_ptr) } {
         return size;
     }
 
@@ -220,8 +219,8 @@ pub unsafe extern "C" fn hook_free(raw_ptr: *mut c_void) {
     }
 
     // Check VirtualAlloc header (simple memory read, NO sys call)
-    if unsafe { virtual_alloc::is_virtual_alloc_ptr(raw_ptr) } {
-        unsafe { virtual_alloc::free(raw_ptr) };
+    if unsafe { va_allocator::is_virtual_alloc_ptr(raw_ptr) } {
+        unsafe { va_allocator::free(raw_ptr) };
         return;
     }
 
