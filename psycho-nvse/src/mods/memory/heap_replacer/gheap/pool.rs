@@ -58,14 +58,21 @@ pub const SMALL_BLOCK_THRESHOLD: usize = 1024;
 
 // Soft cap: when exceeded, blocks >= SMALL_BLOCK_THRESHOLD go to mi_free.
 // Small blocks still pool for zombie safety.
-const SOFT_CAP: usize = 32 * 1024 * 1024; // 32MB
+//
+// Sized so blocks cycle through the pool in ~100ms at stress-test rates
+// (~2MB/frame). 8MB / 2MB = 4 frames = 66ms pool time. Combined with
+// purge_delay=100ms, total zombie time = ~166ms — covers all stale
+// readers (AI raycasts 50ms, BSTaskManager 100ms, scene graph 16ms).
+const SOFT_CAP: usize = 8 * 1024 * 1024; // 8MB
 
-// Hard cap: when exceeded, ALL new blocks go to mi_free regardless of size.
-// Oldest block in same slot is evicted (FIFO). Pool stays at ~HARD_CAP.
-// Reduced from 128MB to 64MB: 64MB holds ~1M zombie blocks at 64B avg,
-// far more than needed for UAF protection (typical stale reader window
-// is < 1 second, ~10K-50K blocks). Smaller cap leaves more VAS headroom.
-const HARD_CAP: usize = 64 * 1024 * 1024; // 64MB
+// Hard cap: when exceeded, oldest block in same slot is evicted (FIFO).
+//
+// 16MB at ~2MB/frame = 8 frames = 133ms pool time. FreeNode header
+// at offset 0 (preserved vtable) protects Pattern A stale readers
+// (virtual dispatch on freed objects) for this duration. After mi_free,
+// mimalloc overwrites offset 0 but purge_delay=100ms keeps pages
+// committed for Pattern B/C (refcount reads at offset 4).
+const HARD_CAP: usize = 16 * 1024 * 1024; // 16MB
 
 // Freelist slot count. Index = usable_size / 16.
 // Covers sizes 16..4096 in 16-byte increments (256 slots).

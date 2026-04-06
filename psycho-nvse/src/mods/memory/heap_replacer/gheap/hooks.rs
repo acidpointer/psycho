@@ -87,10 +87,11 @@ static EMERGENCY_SUPPRESSED: std::sync::atomic::AtomicBool = std::sync::atomic::
 /// Drains large blocks (> 1KB) when pool is near capacity.
 static LAST_POOL_DRAIN_MS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
 
-/// Cooldown for periodic pool drain (1 second).
-/// Only drains large blocks (>= 1KB) which are safer to free than small
-/// UAF-sensitive blocks. Small blocks stay in the zombie pool for protection.
-const POOL_DRAIN_COOLDOWN_MS: u64 = 1000;
+/// Cooldown for periodic pool drain (500ms).
+/// With 16MB hard cap, blocks cycle in ~133ms at stress-test rates.
+/// 500ms prevents drain storms while keeping large blocks flowing to
+/// mi_free for purge_delay-based decommit.
+const POOL_DRAIN_COOLDOWN_MS: u64 = 500;
 
 /// Phase 7: per-frame queue drain (before AI_START).
 ///
@@ -249,13 +250,11 @@ pub unsafe extern "C" fn hook_per_frame_queue_drain() {
     }
 
     // --- Periodic Pool Drain ---
-    // When the pool exceeds 50MB (80% of 64MB hard cap), drain large blocks
-    // (>= 1KB) to prevent the pool from filling up completely. Large blocks
-    // are safer to free than small UAF-sensitive blocks (NiRefObjects are
-    // typically 16-128 bytes). Small blocks stay in the zombie pool.
-    //
-    // This runs every 1 second to avoid draining too aggressively.
-    if heap.pool_mb() >= 50 {
+    // Drain large blocks (>= 1KB) when pool exceeds 12MB (75% of 16MB cap).
+    // Runs every 500ms. With 16MB cap and ~2MB/frame stress-test rate,
+    // blocks cycle in ~133ms. Large blocks (cell data, geometry) are safe
+    // to free — UAF-sensitive objects are < 1KB (NiRefObjects 16-128B).
+    if heap.pool_mb() >= 12 {
         let now = libpsycho::os::windows::winapi::get_tick_count() as u64;
         let last = LAST_POOL_DRAIN_MS.load(std::sync::atomic::Ordering::Relaxed);
         if now.saturating_sub(last) >= POOL_DRAIN_COOLDOWN_MS {

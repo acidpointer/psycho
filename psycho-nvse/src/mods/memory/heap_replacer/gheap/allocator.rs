@@ -676,11 +676,10 @@ unsafe fn do_recover_oom(size: usize) -> *mut c_void {
 
             // Signal destruction_protocol periodically (safe cell unload
             // path with Havok lock, consumed at AI_JOIN).
-            if iter.is_multiple_of(16) {
-                if let Some(pr) = super::pressure::PressureRelief::instance() {
+            if iter.is_multiple_of(16)
+                && let Some(pr) = super::pressure::PressureRelief::instance() {
                     pr.set_deferred_unload();
                 }
-            }
 
             libpsycho::os::windows::winapi::sleep(1);
 
@@ -723,7 +722,7 @@ unsafe fn do_recover_oom(size: usize) -> *mut c_void {
                 "[OOM] Worker recovered (CRT): size={} commit={}MB",
                 size, heap.commit_mb(),
             );
-            return ptr as *mut c_void;
+            return ptr;
         }
 
         // CRT also failed. Vanilla loops forever here (do-while never
@@ -743,7 +742,7 @@ unsafe fn do_recover_oom(size: usize) -> *mut c_void {
             }
             let ptr = unsafe { libc::malloc(size) };
             if !ptr.is_null() {
-                return ptr as *mut c_void;
+                return ptr;
             }
             // Yield to let other threads make progress.
             unsafe { super::engine::globals::release_bstask_sems_if_owned() };
