@@ -15,6 +15,7 @@ pub mod allocator;
 pub mod engine;
 pub mod heap_manager;
 pub mod pool;
+pub mod slab;
 pub mod game_guard;
 pub mod hooks;
 pub mod io_task;

@@ -1,12 +1,12 @@
-//! Game heap allocator: routes alloc/free/realloc/msize through pool + mimalloc.
+//! Game heap allocator: routes alloc/free/realloc/msize through slab + mimalloc.
 //!
-//! Every thread gets its own thread-local pool (zombie freelist). Freed blocks
-//! stay readable until reused by a same-size allocation. This preserves the
-//! SBM "freed memory stays readable" contract that the game engine relies on.
+//! Dispatch:
+//!   size <= 4096  -> slab (per-page refcount, VirtualFree MEM_DECOMMIT)
+//!   size 4097..1MB -> mimalloc (rare, CRT compat)
+//!   size >= 1MB   -> va_allocator (VirtualAlloc per-alloc)
 //!
-//! - Alloc: pool (freelist hit) or mi_malloc (freelist miss).
-//! - Free:  pool freelist push (block stays readable).
-//! - OOM:   drain own pool + game OOM stages (mutex-protected) + retry.
+//! UAF protection: slab writes FreeNode header on ALL freed cells.
+//! Pages stay committed until Phase 7 decommit sweep.
 
 use libc::c_void;
 use libpsycho::os::windows::va_allocator;
@@ -247,13 +247,13 @@ pub fn is_main_thread() -> bool {
 /// reclamation. This threshold is chosen so that:
 /// - Havok shapes (100KB-500KB) --> mimalloc + pool (UAF protected)
 /// - NiRefObjects (16-1200B) --> mimalloc + pool (UAF protected)
-/// - Terrain meshes, DDS files (1MB+) --> VirtualAlloc (VAS reclaimed)
-///   Game objects are rarely > 1MB. Raw data buffers often are.
+/// Dispatch:
+///   size <= 4096  -> slab (per-page refcount, decommit when empty)
+///   size 4097..1MB -> mimalloc (uncommon sizes, CRT compat)
+///   size >= 1MB   -> va_allocator (VirtualAlloc, MEM_RELEASE on free)
 #[inline]
 pub unsafe fn alloc(size: usize) -> *mut c_void {
     // Large raw buffers (>= 1MB) --> VirtualAlloc for immediate VAS reclamation.
-    // Game objects (Havok shapes, NiNodes, etc.) are < 1MB and go through
-    // mimalloc where they get UAF protection via pool + purge_delay.
     if size >= va_allocator::LARGE_ALLOC_THRESHOLD {
         let ptr = unsafe { va_allocator::malloc(size) };
         if !ptr.is_null() {
@@ -262,139 +262,56 @@ pub unsafe fn alloc(size: usize) -> *mut c_void {
         return unsafe { recover_oom(size) };
     }
 
-    let ptr = if is_pool_active() {
-        let (p, _) = unsafe { pool::pool_alloc(size) };
-        p
-    } else {
-        let ptr = unsafe { mi_malloc_aligned(size, ALIGN) };
-        // Mark segment at alloc time when vtable is guaranteed valid
+    // Small/medium objects (<= 4096) --> slab allocator.
+    // Per-page refcounting enables VirtualFree(MEM_DECOMMIT) when pages empty.
+    if size <= super::slab::MAX_SLAB_SIZE && size > 0 {
+        let ptr = unsafe { super::slab::alloc(size) };
         if !ptr.is_null() {
-            uaf_bitmap::mark_segment(ptr as *mut u8);
+            return ptr;
         }
-        ptr
-    };
+        // Slab exhausted for this size class -- fall through to mimalloc
+    }
 
+    // Medium objects (4097..1MB) or slab fallback --> mimalloc.
+    let ptr = unsafe { mi_malloc_aligned(size, ALIGN) };
     if !ptr.is_null() {
         return ptr;
     }
     unsafe { recover_oom(size) }
 }
 
-/// Free a block. Pushes to thread-local pool (zombie-safe).
-/// Pre-hook pointers are routed to the original SBM trampoline.
+/// Free a block. Dispatch by ownership:
+///   slab ptr     -> slab_free (refcount--, FreeNode header, deferred decommit)
+///   mimalloc ptr -> mi_free
+///   va_allocator -> va_free (VirtualFree MEM_RELEASE)
+///   pre-hook SBM -> original trampoline
 ///
-/// ## UAF Protection via FreeNode Header + Dual Detection
-///
-/// UAF-sensitive objects (NiRefObjects, Havok physics entities) are detected
-/// via TWO mechanisms:
-///
-/// 1. PRIMARY: Vtable range check at free time
-///    - Works for ALL objects regardless of when allocated
-///    - Catches pre-plugin objects that bitmap misses
-///    - Safe because destructor hasn't run yet (we're in free())
-///
-/// 2. SECONDARY: Allocation-time bitmap
-///    - Catches objects where vtable might be borderline
-///    - Provides defense-in-depth
-///
-/// FreeNode header at pool entry provides runtime protection:
-///   offset 0: original vtable (preserved for safe async flush dispatch)
-///   offset 4: usable_size (block size, replaces RefCount)
-///   offset 8: next pointer (freelist chain)
-///
-/// When game accesses freed object:
-///   1. Reads offset 4 as RefCount --> gets usable_size (e.g., 48)
-///   2. Calls InterlockedDecrement(48) --> 47, NOT zero
-///   3. No destructor call --> NO CRASH
-///
-/// This protects against cross-thread UAF from:
-///   - AI worker threads running Havok broadphase
-///   - IO threads completing texture loads
-///   - Scene graph traversals accessing freed nodes
-///
-/// ## Loading-Safe Free Path
-///
-/// During loading (LOADING_BYPASS active), the game frees entire cells worth
-/// of objects. If all these went to mi_free (the old behavior), cross-thread
-/// readers (AI threads finishing, BSTaskManagerThread loading textures) would
-/// read garbage. Instead, we use a tiered approach:
-///   - UAF-sensitive objects: ALWAYS pool (zombie quarantine)
-///   - Non-sensitive, large (>= 1KB): mi_free (VAS recovery)
-///   - Non-sensitive, small (< 1KB): pool (minimal VAS impact)
+/// UAF protection: slab writes FreeNode header on ALL freed cells:
+///   offset 0: original vtable (preserved for async flush dispatch)
+///   offset 4: usable_size (fake refcount — InterlockedDecrement never hits 0)
+///   offset 8: next (per-page freelist chain)
+/// Pages stay committed until decommit sweep (Phase 7). Stale readers see
+/// valid zombie data until then.
 #[inline]
 pub unsafe fn free(ptr: *mut c_void) {
     if ptr.is_null() {
         return;
     }
 
-    // FAST PATH: Check mimalloc arena first. 95%+ of frees are mimalloc
-    // allocations — avoid the expensive VirtualQuery sys call for these.
-    if unsafe { mi_is_in_heap_region(ptr as *const c_void) } {
-        if is_pool_active() {
-            // PRIMARY: Vtable check - works for ALL objects including pre-plugin
-            let vtable = unsafe { *(ptr as *const *const u8) };
-            let addr = vtable as usize;
-            let is_uaf_sensitive_vtable =
-                // NiRefObjects: textures, nodes, BSTree, etc.
-                (0x01010000..0x010F0000).contains(&addr)
-                // Havok physics: broadphase, islands, collision, rigid bodies
-                || (0x010C0000..0x010D0000).contains(&addr);
-
-            // SECONDARY: Bitmap check for defense-in-depth
-            let is_uaf_sensitive_bitmap = uaf_bitmap::is_uaf_sensitive_segment(ptr as *mut u8);
-
-            if is_uaf_sensitive_vtable || is_uaf_sensitive_bitmap {
-                // ALWAYS pool UAF-sensitive types, even during loading bypass.
-                // FreeNode header makes RefCount irrelevant - stale readers
-                // see usable_size instead of RefCount, preventing destructor calls.
-                // This is the KEY FIX for loading-time UAF crashes.
-                unsafe { pool::pool_free(ptr) };
-                return;
-            }
-
-            // Non-sensitive: tiered free path.
-            // During loading bypass, large blocks go to mi_free for VAS recovery.
-            // Small blocks still pool for zombie safety (minimal VAS impact).
-            if is_bypass_active() {
-                let usable = unsafe { mi_usable_size(ptr as *const c_void) };
-                if usable >= pool::SMALL_BLOCK_THRESHOLD {
-                    unsafe { libmimalloc::mi_free(ptr) };
-                    return;
-                }
-                // Small non-sensitive blocks: pool for zombie safety.
-                // VAS impact is minimal (< 1KB per block, soft cap at 32MB).
-                unsafe { pool::pool_free(ptr) };
-                return;
-            }
-
-            // Normal (no bypass): large blocks (>= 1MB) are raw data buffers
-            // (terrain, textures) that went through VirtualAlloc. They don't
-            // have UAF risk — no vtables at this size. Free via VirtualAlloc
-            // header check (simple memory read, NO sys call).
-            // Small blocks pool for zombie safety.
-            let usable = unsafe { mi_usable_size(ptr as *const c_void) };
-            if usable >= va_allocator::LARGE_ALLOC_THRESHOLD {
-                // This shouldn't happen for GameHeap (we route >= 1MB to
-                // VirtualAlloc at alloc time), but if somehow a large block
-                // came through mimalloc (pre-plugin or edge case), free it
-                // via mi_free + mi_collect(true) for VAS reclamation.
-                unsafe { libmimalloc::mi_free(ptr) };
-                unsafe { libmimalloc::mi_collect(true) };
-                return;
-            }
-
-            // Small blocks pool for zombie safety.
-            unsafe { pool::pool_free(ptr) };
-        } else {
-            unsafe { libmimalloc::mi_free(ptr) };
-        }
+    // FAST PATH: slab check (two comparisons, no function call).
+    // 95%+ of GameHeap frees are slab allocations (<= 4096 bytes).
+    if super::slab::is_slab_ptr(ptr as *const c_void) {
+        unsafe { super::slab::free(ptr) };
         return;
     }
 
-    // SLOW PATH: Check VirtualAlloc header. Large allocations (>= 1MB) go
-    // through VirtualAlloc. Header magic check is a simple memory read — NO
-    // sys call. This handles both GameHeap large allocations and CRT large
-    // allocations that were routed through VirtualAlloc.
+    // mimalloc arena check (CRT hooks, medium GameHeap allocs 4097..1MB).
+    if unsafe { mi_is_in_heap_region(ptr as *const c_void) } {
+        unsafe { libmimalloc::mi_free(ptr) };
+        return;
+    }
+
+    // VirtualAlloc header check (>= 1MB allocs). Simple memory read, no syscall.
     if unsafe { va_allocator::is_virtual_alloc_ptr(ptr) } {
         unsafe { va_allocator::free(ptr) };
         return;
@@ -416,13 +333,17 @@ pub unsafe fn msize(ptr: *mut c_void) -> usize {
         return 0;
     }
 
-    // FAST PATH: Check mimalloc first. 95%+ of allocations are in the arena.
+    // FAST PATH: slab check.
+    if super::slab::is_slab_ptr(ptr as *const c_void) {
+        return unsafe { super::slab::usable_size(ptr as *const c_void) };
+    }
+
+    // mimalloc arena (CRT hooks, medium allocs).
     if unsafe { mi_is_in_heap_region(ptr as *const c_void) } {
         return unsafe { mi_usable_size(ptr as *const c_void) };
     }
 
-    // SLOW PATH: Outside arena — check VirtualAlloc header (simple memory
-    // read, NO sys call). Large allocations (>= 1MB) use VirtualAlloc.
+    // VirtualAlloc header (>= 1MB allocs).
     if let Some(size) = unsafe { va_allocator::msize(ptr) } {
         return size;
     }
@@ -450,6 +371,26 @@ pub unsafe fn realloc(ptr: *mut c_void, new_size: usize) -> *mut c_void {
         unsafe { free(ptr) };
         return null_mut();
     }
+    // Slab pointers: alloc new, copy, free old (slab has no in-place realloc).
+    if super::slab::is_slab_ptr(ptr as *const c_void) {
+        let old_size = unsafe { super::slab::usable_size(ptr as *const c_void) };
+        if new_size <= old_size {
+            return ptr; // fits in current cell
+        }
+        let new_ptr = unsafe { alloc(new_size) };
+        if !new_ptr.is_null() {
+            unsafe {
+                std::ptr::copy_nonoverlapping(
+                    ptr as *const u8,
+                    new_ptr as *mut u8,
+                    old_size.min(new_size),
+                );
+            }
+            unsafe { free(ptr) };
+        }
+        return new_ptr;
+    }
+    // mimalloc: in-place realloc when possible.
     if unsafe { mi_is_in_heap_region(ptr as *const c_void) } {
         let new_ptr = unsafe { mi_realloc_aligned(ptr, new_size, ALIGN) };
         if !new_ptr.is_null() {

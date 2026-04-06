@@ -71,10 +71,74 @@ impl Drop for HookGuard {
 
 /// Applies patches and installs all heap replacement hooks.
 /// mimalloc is already configured by the time this runs.
+/// Walk the SBM pool table and decommit arena pages with zero live blocks.
+/// Must be called BEFORE hooks are installed (SBM state is fully consistent).
+///
+/// The SBM tracks per-page reference counts (i16 array at pool+0x48).
+/// Pages with refcount == 0 have no live allocations and can be safely
+/// decommitted. The VAS reservation stays (ptr>>24 free path still works).
+fn cleanup_sbm_arenas() {
+    use windows::Win32::System::Memory::{MEM_DECOMMIT, VirtualFree};
+
+    let pool_table = gheap::engine::addr::SBM_POOL_TABLE;
+    let mut total_pages: usize = 0;
+    let mut decommitted_pages: usize = 0;
+    let mut pools_found: usize = 0;
+
+    for slot in 0..256usize {
+        let pool_ptr = unsafe { *((pool_table + slot * 4) as *const usize) };
+        if pool_ptr == 0 {
+            continue;
+        }
+        pools_found += 1;
+
+        let arena_base = unsafe { *((pool_ptr + 0x04) as *const usize) };
+        let refcounts_ptr = unsafe { *((pool_ptr + 0x48) as *const usize) };
+        let page_count = unsafe { *((pool_ptr + 0x4C) as *const u32) } as usize;
+
+        if arena_base == 0 || refcounts_ptr == 0 || page_count == 0 {
+            continue;
+        }
+
+        for page_idx in 0..page_count {
+            total_pages += 1;
+            let refcount = unsafe { *((refcounts_ptr + page_idx * 2) as *const i16) };
+            if refcount == 0 {
+                let page_addr = arena_base + page_idx * 0x1000;
+                let ok = unsafe {
+                    VirtualFree(page_addr as *mut c_void, 0x1000, MEM_DECOMMIT)
+                };
+                if ok.is_ok() {
+                    decommitted_pages += 1;
+                }
+            }
+        }
+    }
+
+    let freed_mb = (decommitted_pages * 0x1000) / 1024 / 1024;
+    log::info!(
+        "[SBM] Arena cleanup: {} pools, {} total pages, {} decommitted ({}MB freed)",
+        pools_found, total_pages, decommitted_pages, freed_mb,
+    );
+}
+
 pub fn install_game_heap_hooks() -> anyhow::Result<()> {
+    // Initialize slab allocator (reserves VAS for all arenas).
+    // Must be done before hooks are enabled so the slab is ready to serve allocs.
+    if !gheap::slab::init() {
+        log::error!("[SLAB] Failed to initialize slab allocator!");
+        return Err(anyhow::anyhow!("Slab allocator initialization failed"));
+    }
+
     // Main thread detection uses OS thread ID comparison (is_main_thread_by_tid).
     // Always correct -- no initialization needed. Before TES object is available,
     // returns false --> frees go to mi_free directly (safe, zero quarantine).
+
+    // Clean up SBM arena pages with zero live blocks BEFORE installing hooks.
+    // At this point the SBM is fully operational and its page refcounts are
+    // accurate. Decommitting empty pages returns pre-plugin committed memory
+    // to the OS while keeping VAS reservations intact (ptr>>24 free path).
+    cleanup_sbm_arenas();
 
     // Initialize heap validation cache for routing pre-hook pointers.
     super::heap_validate::init_heap_cache();

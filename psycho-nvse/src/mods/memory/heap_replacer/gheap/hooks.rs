@@ -102,7 +102,7 @@ const POOL_DRAIN_COOLDOWN_MS: u64 = 500;
 /// This matches vanilla timing: cleanup runs when needed (alloc fails),
 /// not when we think it's needed (watchdog timer).
 pub unsafe extern "C" fn hook_per_frame_queue_drain() {
-    // Activate pool on first non-loading frame.
+    // Set main thread ID on first frame.
     if !allocator::is_pool_active() {
         globals::set_main_thread_id();
         if !globals::is_loading() {
@@ -112,6 +112,16 @@ pub unsafe extern "C" fn hook_per_frame_queue_drain() {
 
     // Snapshot pool held bytes for cross-thread diagnostics (watchdog).
     pool::snapshot_pool_stats();
+
+    // Slab decommit sweep: decommit pages with zero live blocks.
+    // This is the slab's equivalent of SBM_PurgeUnusedArenas.
+    let (decommit_pages, decommit_bytes) = unsafe { super::slab::decommit_sweep() };
+    if decommit_pages > 0 {
+        log::debug!(
+            "[SLAB] Decommit sweep: {} pages, {}KB freed",
+            decommit_pages, decommit_bytes / 1024,
+        );
+    }
 
     // --- Loading transition detection ---
     let loading_now = globals::is_loading();

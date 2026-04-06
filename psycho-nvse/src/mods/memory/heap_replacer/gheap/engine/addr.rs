@@ -24,6 +24,10 @@ pub const HEAP_PRIMARY_OFFSET: usize = 0x110;
 // HeapCompact to run OOM stages 0..=N on the next frame at Phase 6.
 pub const HEAP_COMPACT_TRIGGER: usize = 0x011F636C;
 
+// SBM pool table: 256 entries (pool pointers indexed by aligned size).
+// Used by alloc fast path and by SBM_GlobalCleanup for arena purging.
+pub const SBM_POOL_TABLE: usize = 0x011F67B8;
+
 // ---------------------------------------------------------------------------
 // Game singletons and globals
 // ---------------------------------------------------------------------------
