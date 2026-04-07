@@ -436,18 +436,16 @@ unsafe fn on_loading_start() {
     let info = libmimalloc::process_info::MiMallocProcessInfo::get();
     let commit_before = info.get_current_commit();
 
-    // Force decommit ALL dirty slab pages. During loading, Havok world is
-    // being rebuilt and AI threads are idle — safe to decommit immediately.
-    // This is the primary commit recovery mechanism (matches vanilla's
-    // SBM_GlobalCleanup which only runs during cell transitions).
-    let (pages, bytes) = unsafe { super::slab::decommit_sweep_force() };
-
+    // DO NOT force-decommit here. BSTaskManagerThread is still active
+    // during loading transitions (processing texture IO). Force decommit
+    // would decommit pages that BSTask might free to → writing FreeNode
+    // to a decommitted page → access violation in our slab::free().
+    // The 30-second delay in the per-frame sweep handles decommit safely.
     log::info!(
-        "[LOADING] Transition detected: commit={}MB, slab={}MB, decommitted={} pages ({}KB)",
+        "[LOADING] Transition detected: commit={}MB, slab={}MB, dirty={}",
         commit_before / 1024 / 1024,
         super::slab::committed_bytes() / 1024 / 1024,
-        pages,
-        bytes / 1024,
+        super::slab::dirty_pages(),
     );
 
     // Enable loading bypass immediately. Subsequent frees during loading
