@@ -241,13 +241,18 @@ fn watchdog_loop(run: Arc<std::sync::atomic::AtomicBool>) {
 
         let mut level: u8 = 0;
 
-        // Critical: always aggressive regardless of rate, UNLESS we're loading
-        // and the allocation rate is ≤ 0. During loading, a negative rate means
-        // the game has stopped allocating (loading completed or paused). Triggering
-        // cleanup in this state is counterproductive — it flushes old textures
-        // while the game isn't loading new ones, causing a death spiral.
+        // Critical: aggressive only when commit is actively growing.
+        // After cell transitions, the new steady state can legitimately exceed
+        // CRITICAL_GROWTH. Without a rate gate, the watchdog fires aggressive
+        // cleanup every 500ms forever, each costing ~12ms (destruction_protocol)
+        // on the main thread -- this is the primary stutter source.
+        //
+        // During loading, any positive rate at critical growth is dangerous
+        // because the game is still allocating rapidly.
         #[allow(clippy::if_same_then_else)]
-        if growth >= critical_thresh && (prev_rate > 0 || !loading) {
+        if growth >= critical_thresh && prev_rate > AGGRESSIVE_RATE_THRESHOLD && !loading {
+            level = 2;
+        } else if growth >= critical_thresh && loading && prev_rate > 0 {
             level = 2;
         }
         // Aggressive: high growth AND fast rate.

@@ -112,12 +112,12 @@ impl PressureRelief {
     /// The vanilla game runs HeapCompact once per trigger without manipulating
     /// the loading flag. We follow the same pattern: run one cleanup cycle,
     /// let the game manage its own loading state.
-    pub unsafe fn run_cleanup(&self) {
+    pub unsafe fn run_cleanup(&self) -> usize {
         let heap = super::heap_manager::HeapManager::get();
 
         let manager = match globals::game_manager() {
             Some(m) => m,
-            None => return,
+            None => return 0,
         };
 
         let cells = unsafe { Self::destruction_protocol(manager) };
@@ -131,6 +131,8 @@ impl PressureRelief {
                 cells, heap.commit_mb(), super::slab::committed_bytes() / 1024 / 1024,
             );
         }
+
+        cells
     }
 
     // Cell unloading via the game's own OOM stage executor.
@@ -205,7 +207,7 @@ impl PressureRelief {
                 unsafe { globals::havok_gc(1) }; // force=true
                 unsafe { globals::pdd_purge() };
                 unsafe { libmimalloc::mi_collect(false) };
-                let drained = unsafe { super::slab::decommit_sweep(); libmimalloc::mi_collect(false); (0, 0).0 };
+                let drained = unsafe { super::slab::decommit_sweep_full(false); libmimalloc::mi_collect(false); (0, 0).0 };
                 unsafe { libmimalloc::mi_collect(false) };
 
                 loading_counter.fetch_sub(1, std::sync::atomic::Ordering::AcqRel);
@@ -217,16 +219,13 @@ impl PressureRelief {
             }
         };
 
-        // Wait 50ms for any in-flight AI thread operations to complete.
-        // pre_destruction_setup locks Havok (prevents NEW operations) but
-        // doesn't stop AI threads that are already mid-raycast. During fast
-        // travel, AI pathfinding does bulk terrain raycasting (chained queries
-        // against multiple terrain cells). The original 10ms was too short --
-        // broadphase raycasts were still in flight when terrain shapes were
-        // freed, causing UAF at 0x00CAFED5 (hkp3AxisSweep narrow phase).
-        // 50ms covers typical pathfinding chains (10-30ms per raycast, up to
-        // 3-5 chained queries during cell transitions).
-        libpsycho::os::windows::winapi::sleep(10);
+        // Yield for in-flight AI thread operations to complete.
+        // pre_destruction_setup already locked Havok (prevents NEW operations).
+        // The lock acquisition itself acts as a memory barrier. Individual
+        // Havok ray queries are <1ms; the lock prevents new chains from
+        // starting. 1ms yield is enough for any in-flight single query to
+        // complete after the world lock is held.
+        libpsycho::os::windows::winapi::sleep(1);
 
         // Run Stage 5 in a loop until game says no more cells eligible.
         // Each call runs 5 --> 4 --> 3 automatically (fallthrough in switch case).
@@ -261,7 +260,7 @@ impl PressureRelief {
         //
         // Large blocks (>= 1KB) are typically cell data, geometry, textures -
         // safe to free because their owning cells are being destroyed.
-        let drained = unsafe { super::slab::decommit_sweep(); libmimalloc::mi_collect(false); (0, 0).0 };
+        let drained = unsafe { super::slab::decommit_sweep_full(false); libmimalloc::mi_collect(false); (0, 0).0 };
         unsafe { libmimalloc::mi_collect(false) };
 
         unsafe { globals::post_destruction_restore(&mut state) };

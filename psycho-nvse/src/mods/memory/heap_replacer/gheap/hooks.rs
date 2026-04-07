@@ -45,9 +45,11 @@ pub unsafe extern "thiscall" fn hook_gheap_realloc(
 
 /// PDD drain rounds by pressure level.
 /// Level 1 (normal): moderate drain -- keep queues from growing.
-/// Level 2 (aggressive): heavy drain -- clear backlog.
+/// Level 2 (aggressive): clear backlog. Capped at 50 -- at 60fps that's
+/// 3000 items/sec, plenty for cell transitions. 200 was excessive and
+/// consumed too much main thread time calling game code each round.
 const PDD_ROUNDS_NORMAL: u32 = 75;
-const PDD_ROUNDS_AGGRESSIVE: u32 = 200;
+const PDD_ROUNDS_AGGRESSIVE: u32 = 50;
 
 thread_local! {
     // Loading transition detection.
@@ -57,6 +59,16 @@ thread_local! {
 /// Cooldown counter for "turbo cleanup" during loading spikes.
 /// Prevents per-frame destruction_protocol calls when Havok is busy.
 static TURBO_COOLDOWN: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
+
+/// Last destruction_protocol result: cells unloaded.
+/// When 0 and commit hasn't grown, skip the next call to avoid
+/// the 12ms/cycle death spiral observed in heavy mod setups.
+static LAST_DESTRUCTION_CELLS: std::sync::atomic::AtomicU32 =
+    std::sync::atomic::AtomicU32::new(u32::MAX); // MAX = "never ran, always run first time"
+
+/// Commit (MB) at last destruction_protocol call.
+static LAST_DESTRUCTION_COMMIT_MB: std::sync::atomic::AtomicU32 =
+    std::sync::atomic::AtomicU32::new(0);
 
 /// Cooldown for destruction_protocol during VAS crisis.
 /// Running pre_destruction_setup 4x/sec allocates terrain/LOD memory
@@ -78,11 +90,36 @@ static EMERGENCY_SUPPRESSED: std::sync::atomic::AtomicBool =
 /// Drains large blocks (> 1KB) when pool is near capacity.
 static LAST_POOL_DRAIN_MS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
 
+/// Last tick when mi_collect(true) was called. Rate-limited to once per 2s
+/// to avoid O(total_memory) full collection freezing the main thread.
+static LAST_MI_COLLECT_TRUE_MS: std::sync::atomic::AtomicU64 =
+    std::sync::atomic::AtomicU64::new(0);
+
+/// Minimum interval between mi_collect(true) calls in the per-frame path.
+/// OOM recovery in allocator.rs calls mi_collect(true) directly, bypassing
+/// this limit -- crash prevention must not be throttled.
+const MI_COLLECT_TRUE_COOLDOWN_MS: u64 = 2000;
+
 /// Cooldown for periodic pool drain (500ms).
 /// With 16MB hard cap, blocks cycle in ~133ms at stress-test rates.
 /// 500ms prevents drain storms while keeping large blocks flowing to
 /// mi_free for purge_delay-based decommit.
 const POOL_DRAIN_COOLDOWN_MS: u64 = 500;
+
+/// Rate-limited mi_collect(true). Falls back to mi_collect(false) if cooldown
+/// hasn't elapsed. Returns true if the full collection ran.
+fn try_mi_collect_true() -> bool {
+    let now = libpsycho::os::windows::winapi::get_tick_count() as u64;
+    let last = LAST_MI_COLLECT_TRUE_MS.load(std::sync::atomic::Ordering::Relaxed);
+    if now.saturating_sub(last) >= MI_COLLECT_TRUE_COOLDOWN_MS {
+        LAST_MI_COLLECT_TRUE_MS.store(now, std::sync::atomic::Ordering::Relaxed);
+        unsafe { libmimalloc::mi_collect(true) };
+        true
+    } else {
+        unsafe { libmimalloc::mi_collect(false) };
+        false
+    }
+}
 
 /// Phase 7: per-frame queue drain (before AI_START).
 ///
@@ -93,6 +130,9 @@ const POOL_DRAIN_COOLDOWN_MS: u64 = 500;
 /// This matches vanilla timing: cleanup runs when needed (alloc fails),
 /// not when we think it's needed (watchdog timer).
 pub unsafe extern "C" fn hook_per_frame_queue_drain() {
+    // Update cached tick for slab free() hot path (avoids syscall per free).
+    super::slab::update_cached_tick();
+
     // Set main thread ID on first frame.
     if !allocator::is_pool_active() {
         globals::set_main_thread_id();
@@ -145,14 +185,11 @@ pub unsafe extern "C" fn hook_per_frame_queue_drain() {
             libmimalloc::mi_collect(false);
             (0, 0).0
         };
-        unsafe { libmimalloc::mi_collect(true) };
+        try_mi_collect_true();
 
-        // Sleep 50ms to let the purge_delay window expire.
-        // This gives stale readers time to finish accessing pages that
-        // were just decommitted by mi_collect(true). Without this sleep,
-        // the worker thread might retry allocation immediately and hit
-        // decommitted pages.
-        libpsycho::os::windows::winapi::sleep(50);
+        // purge_delay=100ms already provides the stale reader safety window.
+        // The previous Sleep(50) cost 3 dropped frames at 60fps. Removed:
+        // mimalloc's internal purge timer handles page decommit timing.
 
         log::warn!(
             "[OOM] Emergency drain: {} blocks, commit={}-->{}MB pool={}MB",
@@ -235,11 +272,9 @@ pub unsafe extern "C" fn hook_per_frame_queue_drain() {
         }
 
         // F3: Nuclear option — drain ALL pool blocks + force decommit
-        // partially-empty mimalloc segments. mi_collect(true) is needed
-        // because during loading/stress, segments are partially-empty
-        // (freed pages mixed with allocated pages). mi_collect(false)
-        // only decommits fully-empty segments — a no-op during crisis.
-        unsafe { libmimalloc::mi_collect(true) };
+        // partially-empty mimalloc segments. Rate-limited to avoid
+        // O(total_memory) traversal every frame during crisis.
+        try_mi_collect_true();
         log::error!(
             "[VAS] EMERGENCY: commit={}MB, decommitted {} pages, slab={}MB",
             commit / 1024 / 1024,
@@ -317,20 +352,36 @@ pub unsafe extern "C" fn hook_per_frame_queue_drain() {
     // F4: Cap destruction_protocol to 1/sec during VAS crisis.
     // pre_destruction_setup allocates terrain/LOD memory (Ghidra: FUN_00878160),
     // running it 4x/sec during crisis makes VAS pressure WORSE.
+    //
+    // Effectiveness gate: if the last destruction_protocol found 0 cells AND
+    // commit hasn't grown significantly, skip. Prevents the 82-cycle death
+    // spiral where each futile call costs ~12ms on the main thread.
     if request >= 2
         && let Some(pr) = PressureRelief::instance()
     {
         let now = libpsycho::os::windows::winapi::get_tick_count() as u64;
         let last = DESTRUCTION_COOLDOWN_MS.load(std::sync::atomic::Ordering::Relaxed);
-        if vas_critical {
-            // During VAS crisis: 1 second cooldown
-            if now.saturating_sub(last) >= 1000 {
-                DESTRUCTION_COOLDOWN_MS.store(now, std::sync::atomic::Ordering::Relaxed);
-                unsafe { pr.run_cleanup() };
+
+        // Check if destruction_protocol is likely to be effective
+        let last_cells = LAST_DESTRUCTION_CELLS.load(std::sync::atomic::Ordering::Relaxed);
+        let last_commit = LAST_DESTRUCTION_COMMIT_MB.load(std::sync::atomic::Ordering::Relaxed);
+        let current_commit_mb = commit / 1024 / 1024;
+        let commit_grew = (current_commit_mb as u32).saturating_sub(last_commit) > 50;
+        let should_run = last_cells > 0 || commit_grew || last_commit == 0;
+
+        if should_run {
+            if vas_critical {
+                if now.saturating_sub(last) >= 1000 {
+                    DESTRUCTION_COOLDOWN_MS.store(now, std::sync::atomic::Ordering::Relaxed);
+                    let cells = unsafe { pr.run_cleanup() };
+                    LAST_DESTRUCTION_CELLS.store(cells as u32, std::sync::atomic::Ordering::Relaxed);
+                    LAST_DESTRUCTION_COMMIT_MB.store(current_commit_mb as u32, std::sync::atomic::Ordering::Relaxed);
+                }
+            } else {
+                let cells = unsafe { pr.run_cleanup() };
+                LAST_DESTRUCTION_CELLS.store(cells as u32, std::sync::atomic::Ordering::Relaxed);
+                LAST_DESTRUCTION_COMMIT_MB.store(current_commit_mb as u32, std::sync::atomic::Ordering::Relaxed);
             }
-        } else {
-            // Normal: no cooldown
-            unsafe { pr.run_cleanup() };
         }
     }
 
