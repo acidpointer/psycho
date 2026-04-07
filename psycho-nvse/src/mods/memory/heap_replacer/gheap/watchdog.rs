@@ -15,7 +15,7 @@
 //! needs more VAS headroom for incoming cell data.
 
 use std::sync::Arc;
-use std::sync::atomic::{AtomicI32, AtomicU8, AtomicU64, AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicI32, AtomicU8, AtomicU64, AtomicUsize, Ordering};
 use std::thread::{self, JoinHandle};
 
 use libmimalloc::process_info::MiMallocProcessInfo;
@@ -107,7 +107,7 @@ pub fn take_cleanup_request() -> u8 {
 /// and sets atomic flags for the main thread to consume at Phase 7.
 /// Also performs periodic diagnostic logging (RSS, commit, faults).
 pub struct Watchdog {
-    run: Arc<std::sync::atomic::AtomicBool>,
+    run: Arc<AtomicBool>,
     handle: Option<JoinHandle<()>>,
 }
 
@@ -115,7 +115,7 @@ impl Watchdog {
     /// Spawn the watchdog thread. Returns a handle that stops the
     /// thread on drop.
     pub fn start() -> Self {
-        let run = Arc::new(std::sync::atomic::AtomicBool::new(true));
+        let run = Arc::new(AtomicBool::new(true));
         let run_clone = run.clone();
 
         let handle = thread::Builder::new()
@@ -148,7 +148,7 @@ impl Drop for Watchdog {
 }
 
 #[allow(clippy::if_same_then_else)]
-fn watchdog_loop(run: Arc<std::sync::atomic::AtomicBool>) {
+fn watchdog_loop(run: Arc<AtomicBool>) {
     let mut poll_count: u32 = 0;
     let mut prev_rate: i32 = 0;
 
@@ -241,13 +241,18 @@ fn watchdog_loop(run: Arc<std::sync::atomic::AtomicBool>) {
 
         let mut level: u8 = 0;
 
-        // Critical: always aggressive regardless of rate, UNLESS we're loading
-        // and the allocation rate is ≤ 0. During loading, a negative rate means
-        // the game has stopped allocating (loading completed or paused). Triggering
-        // cleanup in this state is counterproductive — it flushes old textures
-        // while the game isn't loading new ones, causing a death spiral.
+        // Critical: aggressive only when commit is actively growing.
+        // After cell transitions, the new steady state can legitimately exceed
+        // CRITICAL_GROWTH. Without a rate gate, the watchdog fires aggressive
+        // cleanup every 500ms forever, each costing ~12ms (destruction_protocol)
+        // on the main thread -- this is the primary stutter source.
+        //
+        // During loading, any positive rate at critical growth is dangerous
+        // because the game is still allocating rapidly.
         #[allow(clippy::if_same_then_else)]
-        if growth >= critical_thresh && (prev_rate > 0 || !loading) {
+        if growth >= critical_thresh && prev_rate > AGGRESSIVE_RATE_THRESHOLD && !loading {
+            level = 2;
+        } else if growth >= critical_thresh && loading && prev_rate > 0 {
             level = 2;
         }
         // Aggressive: high growth AND fast rate.

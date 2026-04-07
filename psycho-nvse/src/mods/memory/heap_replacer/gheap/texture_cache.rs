@@ -12,6 +12,8 @@
 //! - Hash table find hook: check entries against dead set, skip dead ones
 //! - tick(): clear dead set every frame
 
+use std::sync::atomic::{AtomicI32, Ordering};
+
 use libc::c_void;
 
 use clashmap::ClashMap;
@@ -141,8 +143,8 @@ unsafe fn find_skipping_dead(mut entry: *const u32, key: i32, out: *mut *mut i32
                     if old_val != new_inner {
                         if !old_val.is_null() {
                             // DecRef old: InterlockedDecrement(old+4)
-                            let rc = std::sync::atomic::AtomicI32::from_ptr(old_val.add(1))
-                                .fetch_sub(1, std::sync::atomic::Ordering::AcqRel)
+                            let rc = AtomicI32::from_ptr(old_val.add(1))
+                                .fetch_sub(1, Ordering::AcqRel)
                                 - 1;
                             if rc == 0 {
                                 // Validate vtable pointer BEFORE calling destructor.
@@ -176,8 +178,7 @@ unsafe fn find_skipping_dead(mut entry: *const u32, key: i32, out: *mut *mut i32
                         *out = new_inner;
                         if !new_inner.is_null() {
                             // AddRef new: InterlockedIncrement(new+4)
-                            std::sync::atomic::AtomicI32::from_ptr(new_inner.add(1))
-                                .fetch_add(1, std::sync::atomic::Ordering::AcqRel);
+                            AtomicI32::from_ptr(new_inner.add(1)).fetch_add(1, Ordering::AcqRel);
                         }
                     }
                     return 1;

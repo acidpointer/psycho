@@ -13,8 +13,8 @@
 //!   Phase 10 (hook_main_loop_maintenance): baseline calibration
 //!   AI_JOIN  (hook_ai_thread_join): deferred cell unload execution
 
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::LazyLock;
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 
 use super::engine::globals;
 use crate::mods::memory::heap_replacer::mem_stats;
@@ -42,20 +42,17 @@ pub struct PressureRelief {
     pending_counter_decrement: AtomicBool,
 
     /// Commit at first tick. Used by watchdog for threshold computation.
-    baseline_commit: std::sync::atomic::AtomicUsize,
+    baseline_commit: AtomicUsize,
 }
 
 impl PressureRelief {
     fn new() -> Self {
-        log::info!(
-            "[PRESSURE] Initialized (max_cells={})",
-            MAX_CELLS_PER_CYCLE,
-        );
+        log::info!("[PRESSURE] Initialized (max_cells={})", MAX_CELLS_PER_CYCLE,);
 
         Self {
             deferred_unload: AtomicBool::new(false),
             pending_counter_decrement: AtomicBool::new(false),
-            baseline_commit: std::sync::atomic::AtomicUsize::new(0),
+            baseline_commit: AtomicUsize::new(0),
         }
     }
 
@@ -69,25 +66,20 @@ impl PressureRelief {
         if self.baseline_commit.load(Ordering::Relaxed) != 0 {
             return;
         }
-        let commit = libmimalloc::process_info::MiMallocProcessInfo::get()
-            .get_current_commit();
+        let commit = libmimalloc::process_info::MiMallocProcessInfo::get().get_current_commit();
         self.baseline_commit.store(commit, Ordering::Release);
 
         // Now that we know baseline, calculate VAS crisis thresholds
         // based on available VAS (from VirtualQuery at startup).
         super::allocator::calibrate_thresholds(commit);
 
-        log::info!(
-            "[PRESSURE] Baseline calibrated: {}MB",
-            commit / 1024 / 1024,
-        );
+        log::info!("[PRESSURE] Baseline calibrated: {}MB", commit / 1024 / 1024,);
     }
 
     /// Get the global singleton (lazily initialized).
     pub fn instance() -> Option<&'static Self> {
-        static INSTANCE: LazyLock<Option<PressureRelief>> = LazyLock::new(|| {
-            Some(PressureRelief::new())
-        });
+        static INSTANCE: LazyLock<Option<PressureRelief>> =
+            LazyLock::new(|| Some(PressureRelief::new()));
         INSTANCE.as_ref()
     }
 
@@ -101,8 +93,7 @@ impl PressureRelief {
     /// left it elevated. Called once per frame from Phase 10.
     pub fn flush_pending_counter_decrement(&self) {
         if self.pending_counter_decrement.swap(false, Ordering::AcqRel) {
-            globals::loading_state_counter()
-                .fetch_sub(1, std::sync::atomic::Ordering::AcqRel);
+            globals::loading_state_counter().fetch_sub(1, std::sync::atomic::Ordering::AcqRel);
         }
     }
 
@@ -112,12 +103,12 @@ impl PressureRelief {
     /// The vanilla game runs HeapCompact once per trigger without manipulating
     /// the loading flag. We follow the same pattern: run one cleanup cycle,
     /// let the game manage its own loading state.
-    pub unsafe fn run_cleanup(&self) {
+    pub unsafe fn run_cleanup(&self) -> usize {
         let heap = super::heap_manager::HeapManager::get();
 
         let manager = match globals::game_manager() {
             Some(m) => m,
-            None => return,
+            None => return 0,
         };
 
         let cells = unsafe { Self::destruction_protocol(manager) };
@@ -125,12 +116,17 @@ impl PressureRelief {
         mem_stats::global().record_pressure_relief(cells);
 
         if cells > 0 {
-            self.pending_counter_decrement.store(true, Ordering::Release);
+            self.pending_counter_decrement
+                .store(true, Ordering::Release);
             log::info!(
                 "[PRESSURE] Cleanup: {} cells (commit={}MB, pool={}MB)",
-                cells, heap.commit_mb(), super::slab::committed_bytes() / 1024 / 1024,
+                cells,
+                heap.commit_mb(),
+                super::slab::committed_bytes() / 1024 / 1024,
             );
         }
+
+        cells
     }
 
     // Cell unloading via the game's own OOM stage executor.
@@ -162,7 +158,7 @@ impl PressureRelief {
 
         // Suppress NVSE event dispatch during destruction.
         let loading_counter = globals::loading_state_counter();
-        loading_counter.fetch_add(1, std::sync::atomic::Ordering::AcqRel);
+        loading_counter.fetch_add(1, Ordering::AcqRel);
 
         // Run loading stages 0-2 BEFORE attempting Havok lock.
         // During fast travel, Havok is often busy or uninitialized, causing
@@ -183,7 +179,7 @@ impl PressureRelief {
             log::warn!(
                 "[DESTRUCTION] Havok already locked (physics in progress), skipping cleanup"
             );
-            loading_counter.fetch_sub(1, std::sync::atomic::Ordering::AcqRel);
+            loading_counter.fetch_sub(1, Ordering::AcqRel);
             return 0;
         }
 
@@ -199,39 +195,46 @@ impl PressureRelief {
                 // Ghidra-verified: Havok GC (FUN_00c459d0) operates on
                 // hkMemorySystem, NOT the physics world -- no lock needed.
                 // PDD purge (FUN_00868d70) only needs process manager lock.
-                log::debug!(
-                    "[DESTRUCTION] Havok lock failed, running fallback cleanup"
-                );
+                log::debug!("[DESTRUCTION] Havok lock failed, running fallback cleanup");
                 unsafe { globals::havok_gc(1) }; // force=true
                 unsafe { globals::pdd_purge() };
                 unsafe { libmimalloc::mi_collect(false) };
-                let drained = unsafe { super::slab::decommit_sweep(); libmimalloc::mi_collect(false); (0, 0).0 };
+                let drained = unsafe {
+                    super::slab::decommit_sweep_full(false);
+                    libmimalloc::mi_collect(false);
+                    (0, 0).0
+                };
                 unsafe { libmimalloc::mi_collect(false) };
 
-                loading_counter.fetch_sub(1, std::sync::atomic::Ordering::AcqRel);
+                loading_counter.fetch_sub(1, Ordering::AcqRel);
                 log::debug!(
                     "[DESTRUCTION] Fallback cleanup: {} drained, commit={}MB",
-                    drained, heap.commit_mb(),
+                    drained,
+                    heap.commit_mb(),
                 );
                 return 0;
             }
         };
 
-        // Wait 50ms for any in-flight AI thread operations to complete.
+        // Wait for in-flight AI thread operations to complete.
         // pre_destruction_setup locks Havok (prevents NEW operations) but
         // doesn't stop AI threads that are already mid-raycast. During fast
         // travel, AI pathfinding does bulk terrain raycasting (chained queries
-        // against multiple terrain cells). The original 10ms was too short --
-        // broadphase raycasts were still in flight when terrain shapes were
-        // freed, causing UAF at 0x00CAFED5 (hkp3AxisSweep narrow phase).
-        // 50ms covers typical pathfinding chains (10-30ms per raycast, up to
-        // 3-5 chained queries during cell transitions).
-        libpsycho::os::windows::winapi::sleep(10);
+        // against multiple terrain cells). 10ms covers typical pathfinding
+        // chains (individual raycasts <1ms but chains of 3-5 queries take
+        // 10-30ms total). Confirmed crash at 0x00C94DA5 (hkpWorld::addEntity)
+        // when sleep was reduced to 1ms -- AI thread referenced freed terrain
+        // collision shape (hkScaledMoppBvTreeShape) mid-chain.
+        libpsycho::os::windows::winapi::sleep(30);
 
         // Run Stage 5 in a loop until game says no more cells eligible.
         // Each call runs 5 --> 4 --> 3 automatically (fallthrough in switch case).
         // The game's FindCellToUnload returns no cell when none are eligible,
         // causing stage to advance to 6.
+        //
+        // NOTE: run_oom_stage automatically freezes slab cold-list reuse
+        // for stage 5 calls. This prevents UAF from recycled cells during
+        // cell teardown (see heap_manager.rs stage 5 freeze comment).
         let mut stage: i32 = 5;
         loop {
             let (next, _done) = unsafe { heap.run_oom_stage(stage, false) };
@@ -261,18 +264,25 @@ impl PressureRelief {
         //
         // Large blocks (>= 1KB) are typically cell data, geometry, textures -
         // safe to free because their owning cells are being destroyed.
-        let drained = unsafe { super::slab::decommit_sweep(); libmimalloc::mi_collect(false); (0, 0).0 };
+        let drained = unsafe {
+            super::slab::decommit_sweep_full(false);
+            libmimalloc::mi_collect(false);
+            (0, 0).0
+        };
         unsafe { libmimalloc::mi_collect(false) };
 
         unsafe { globals::post_destruction_restore(&mut state) };
 
         log::debug!(
             "[DESTRUCTION] {} cells, {} drained, commit={}MB, pool={}MB",
-            cells, drained, heap.commit_mb(), super::slab::committed_bytes() / 1024 / 1024,
+            cells,
+            drained,
+            heap.commit_mb(),
+            super::slab::committed_bytes() / 1024 / 1024,
         );
 
         if cells == 0 {
-            loading_counter.fetch_sub(1, std::sync::atomic::Ordering::AcqRel);
+            loading_counter.fetch_sub(1, Ordering::AcqRel);
         }
 
         cells

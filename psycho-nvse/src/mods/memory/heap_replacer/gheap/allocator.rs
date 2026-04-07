@@ -12,7 +12,7 @@ use libc::c_void;
 use libpsycho::os::windows::va_allocator;
 use std::cell::Cell;
 use std::ptr::null_mut;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 
 use libmimalloc::{
     mi_collect, mi_is_in_heap_region, mi_malloc_aligned, mi_realloc_aligned, mi_usable_size,
@@ -56,17 +56,15 @@ const MINIMUM_VIABLE_HEADROOM: usize = 500 * 1024 * 1024; // 500MB
 
 /// Available VAS at startup, calculated once via VirtualQuery.
 /// Set during init, read at baseline calibration.
-static AVAILABLE_VAS: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+static AVAILABLE_VAS: AtomicUsize = AtomicUsize::new(0);
 
 /// Dynamic VAS CRITICAL threshold (bytes). Calculated when baseline is calibrated.
 /// = baseline + (available_vas - baseline) * VAS_CRITICAL_PCT
-static VAS_CRITICAL_COMMIT: std::sync::atomic::AtomicUsize =
-    std::sync::atomic::AtomicUsize::new(usize::MAX);
+static VAS_CRITICAL_COMMIT: AtomicUsize = AtomicUsize::new(usize::MAX);
 
 /// Dynamic VAS EMERGENCY threshold (bytes).
 /// = baseline + (available_vas - baseline) * VAS_EMERGENCY_PCT
-static VAS_EMERGENCY_COMMIT: std::sync::atomic::AtomicUsize =
-    std::sync::atomic::AtomicUsize::new(usize::MAX);
+static VAS_EMERGENCY_COMMIT: AtomicUsize = AtomicUsize::new(usize::MAX);
 
 /// Walk the process address space via VirtualQuery and sum all MEM_FREE regions.
 /// Returns total available virtual address space in bytes.
@@ -99,7 +97,7 @@ pub fn init_available_vas() -> usize {
         }
     }
 
-    AVAILABLE_VAS.store(available, std::sync::atomic::Ordering::Release);
+    AVAILABLE_VAS.store(available, Ordering::Release);
     log::info!(
         "[VAS] Available: {}MB (address space scan complete)",
         available / 1024 / 1024,
@@ -115,7 +113,7 @@ pub fn init_available_vas() -> usize {
 /// the game allocates per cycle in tight headroom situations, making
 /// crisis management counterproductive — it causes a death spiral.
 pub fn calibrate_thresholds(baseline: usize) {
-    let available = AVAILABLE_VAS.load(std::sync::atomic::Ordering::Acquire);
+    let available = AVAILABLE_VAS.load(Ordering::Acquire);
     if available == 0 || baseline == 0 {
         return;
     }
@@ -124,8 +122,8 @@ pub fn calibrate_thresholds(baseline: usize) {
     if headroom < MINIMUM_VIABLE_HEADROOM {
         // Headroom too small — VAS crisis management would cause a death
         // spiral instead of recovering memory. Disable it entirely.
-        VAS_CRITICAL_COMMIT.store(usize::MAX, std::sync::atomic::Ordering::Release);
-        VAS_EMERGENCY_COMMIT.store(usize::MAX, std::sync::atomic::Ordering::Release);
+        VAS_CRITICAL_COMMIT.store(usize::MAX, Ordering::Release);
+        VAS_EMERGENCY_COMMIT.store(usize::MAX, Ordering::Release);
 
         log::warn!(
             "[VAS] Headroom too small ({}MB < 500MB). VAS crisis DISABLED. \
@@ -138,8 +136,8 @@ pub fn calibrate_thresholds(baseline: usize) {
     let critical = baseline + ((headroom as f64 * VAS_CRITICAL_PCT) as usize);
     let emergency = baseline + ((headroom as f64 * VAS_EMERGENCY_PCT) as usize);
 
-    VAS_CRITICAL_COMMIT.store(critical, std::sync::atomic::Ordering::Release);
-    VAS_EMERGENCY_COMMIT.store(emergency, std::sync::atomic::Ordering::Release);
+    VAS_CRITICAL_COMMIT.store(critical, Ordering::Release);
+    VAS_EMERGENCY_COMMIT.store(emergency, Ordering::Release);
 
     log::info!(
         "[VAS] Thresholds calibrated: baseline={}MB, headroom={}MB, critical={}MB ({}%), emergency={}MB ({}%)",
@@ -154,16 +152,16 @@ pub fn calibrate_thresholds(baseline: usize) {
 
 /// Get the current VAS CRITICAL threshold.
 pub fn get_critical_commit() -> usize {
-    VAS_CRITICAL_COMMIT.load(std::sync::atomic::Ordering::Acquire)
+    VAS_CRITICAL_COMMIT.load(Ordering::Acquire)
 }
 
 /// Get the current VAS EMERGENCY threshold.
 pub fn get_emergency_commit() -> usize {
-    VAS_EMERGENCY_COMMIT.load(std::sync::atomic::Ordering::Acquire)
+    VAS_EMERGENCY_COMMIT.load(Ordering::Acquire)
 }
 
 pub fn set_vas_emergency(active: bool) {
-    VAS_EMERGENCY.store(active, std::sync::atomic::Ordering::Release);
+    VAS_EMERGENCY.store(active, Ordering::Release);
 }
 
 pub fn with_large_bypass<R>(f: impl FnOnce() -> R) -> R {
