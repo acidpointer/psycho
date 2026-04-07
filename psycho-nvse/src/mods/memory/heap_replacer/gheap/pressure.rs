@@ -219,18 +219,25 @@ impl PressureRelief {
             }
         };
 
-        // Yield for in-flight AI thread operations to complete.
-        // pre_destruction_setup already locked Havok (prevents NEW operations).
-        // The lock acquisition itself acts as a memory barrier. Individual
-        // Havok ray queries are <1ms; the lock prevents new chains from
-        // starting. 1ms yield is enough for any in-flight single query to
-        // complete after the world lock is held.
-        libpsycho::os::windows::winapi::sleep(1);
+        // Wait for in-flight AI thread operations to complete.
+        // pre_destruction_setup locks Havok (prevents NEW operations) but
+        // doesn't stop AI threads that are already mid-raycast. During fast
+        // travel, AI pathfinding does bulk terrain raycasting (chained queries
+        // against multiple terrain cells). 10ms covers typical pathfinding
+        // chains (individual raycasts <1ms but chains of 3-5 queries take
+        // 10-30ms total). Confirmed crash at 0x00C94DA5 (hkpWorld::addEntity)
+        // when sleep was reduced to 1ms -- AI thread referenced freed terrain
+        // collision shape (hkScaledMoppBvTreeShape) mid-chain.
+        libpsycho::os::windows::winapi::sleep(30);
 
         // Run Stage 5 in a loop until game says no more cells eligible.
         // Each call runs 5 --> 4 --> 3 automatically (fallthrough in switch case).
         // The game's FindCellToUnload returns no cell when none are eligible,
         // causing stage to advance to 6.
+        //
+        // NOTE: run_oom_stage automatically freezes slab cold-list reuse
+        // for stage 5 calls. This prevents UAF from recycled cells during
+        // cell teardown (see heap_manager.rs stage 5 freeze comment).
         let mut stage: i32 = 5;
         loop {
             let (next, _done) = unsafe { heap.run_oom_stage(stage, false) };

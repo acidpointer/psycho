@@ -83,6 +83,17 @@ impl HeapManager {
 
         let commit_before = self.commit_bytes();
 
+        // Freeze slab cold-list reuse during stage 5 (cell unload).
+        // Cell teardown walks actor reference chains with stale pointers
+        // to objects freed >REUSE_COOLDOWN ago. Without freeze, slab allocs
+        // during teardown recycle those cells, overwriting FreeNode headers.
+        // Confirmed crash: MiddleHighProcess sub-object vtable at 0x0BDBA7C0
+        // (slab data) after cold cell was recycled during destruction.
+        let freeze = stage == 5;
+        if freeze {
+            super::slab::set_destruction_freeze(true);
+        }
+
         let mut done: u8 = 0;
         let next = if bypass {
             // Large frees --> mi_free. Reclaims VAS immediately.
@@ -95,6 +106,7 @@ impl HeapManager {
                     })
                 }
                 Err(e) => {
+                    if freeze { super::slab::set_destruction_freeze(false); }
                     log::error!("[OOM] oom_exec.as_fn() failed at stage {}: {:?}", stage, e,);
                     return (stage + 1, true);
                 }
@@ -105,11 +117,16 @@ impl HeapManager {
             match unsafe { oom_exec.as_fn() } {
                 Ok(f) => unsafe { f(heap_singleton, primary_heap, stage, &mut done) },
                 Err(e) => {
+                    if freeze { super::slab::set_destruction_freeze(false); }
                     log::error!("[OOM] oom_exec.as_fn() failed at stage {}: {:?}", stage, e,);
                     return (stage + 1, true);
                 }
             }
         };
+
+        if freeze {
+            super::slab::set_destruction_freeze(false);
+        }
 
         let commit_after = self.commit_bytes();
         let freed = commit_before.saturating_sub(commit_after);

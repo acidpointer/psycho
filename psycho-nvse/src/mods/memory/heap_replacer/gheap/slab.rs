@@ -12,7 +12,7 @@
 //! Thread safety: spinlock per arena. Main + workers share arenas.
 
 use std::ptr;
-use std::sync::atomic::{AtomicU32, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering};
 
 use libc::c_void;
 use windows::Win32::System::Memory::{
@@ -31,9 +31,18 @@ const EMPTY: u32 = u32::MAX;
 // Updated once per frame from hook_per_frame_queue_drain.
 static CACHED_TICK_MS: AtomicU64 = AtomicU64::new(0);
 
+/// When true, slab::alloc skips the cold list (recycled cells) and only
+/// uses dirty (recommit) or virgin pages. Set during destruction_protocol
+/// to prevent UAF: cell unload accesses actor sub-objects through stale
+/// pointers. If those objects were freed >REUSE_COOLDOWN ago and recycled,
+/// the new allocation overwrites the FreeNode header at offset 0 --
+/// stale virtual dispatch crashes. Freezing cold reuse keeps FreeNode
+/// headers intact for all previously-freed cells during teardown.
+static DESTRUCTION_FREEZE: AtomicBool = AtomicBool::new(false);
+
 /// Update cached tick. Called once per frame from Phase 7 hook.
 pub fn update_cached_tick() {
-    let now = cached_tick();
+    let now = libpsycho::os::windows::winapi::get_tick_count() as u64;
     CACHED_TICK_MS.store(now, Ordering::Relaxed);
 }
 
@@ -44,7 +53,7 @@ fn cached_tick() -> u64 {
         return t;
     }
     // first call before any frame update
-    let now = cached_tick();
+    let now = libpsycho::os::windows::winapi::get_tick_count() as u64;
     CACHED_TICK_MS.store(now, Ordering::Relaxed);
     now
 }
@@ -109,13 +118,13 @@ struct FreeNode {
 /// Minimum time (ms) freed cells must cool before reuse.
 /// Prevents reuse UAF: stale readers see FreeNode header (preserved vtable
 /// at offset 0, usable_size at offset 4) instead of a new object's data.
-/// 500ms provides 5x margin over the longest non-callback stale reader
-/// (BSTaskManager IO ~100ms). Death animation callbacks (800ms) check
-/// refcount at offset 4 before acting -- they read usable_size (e.g. 64),
-/// InterlockedDecrement yields 63, so no deletion is triggered.
-/// Vanilla SBM reuses immediately (no cooldown). Our FreeNode header
-/// is the real UAF protection, not the time delay.
-const REUSE_COOLDOWN_MS: u64 = 500;
+/// Covers Havok ragdoll settling (~500ms), NVSE plugin refs (~500ms),
+/// death animations (~800ms), BSTaskManager IO (~100ms).
+/// Crash analysis confirmed 1000ms is the safe minimum -- cell unload
+/// accesses actor sub-objects that were freed >1000ms ago through stale
+/// pointers in the process manager. The destruction_freeze flag provides
+/// additional protection during active cell teardown.
+const REUSE_COOLDOWN_MS: u64 = 1000;
 
 /// Minimum time (ms) a page must stay dirty before decommit.
 ///
@@ -334,9 +343,13 @@ impl SlabArena {
     }
 
     /// Allocate a cell from this arena. Returns null if arena exhausted.
-    unsafe fn alloc(&mut self) -> *mut c_void {
+    /// When `skip_cold` is true (destruction freeze), skips Tier 1 (recycled
+    /// cells) to preserve FreeNode headers for stale pointers during teardown.
+    unsafe fn alloc(&mut self, skip_cold: bool) -> *mut c_void {
         // Tier 1: pop from a COLD partial page (cells have cooled down, safe to reuse)
-        while self.cold_head != EMPTY {
+        // SKIPPED during destruction_freeze to prevent overwriting FreeNode headers
+        // that stale pointers in the game's cell unload code still reference.
+        while !skip_cold && self.cold_head != EMPTY {
             let page_idx = self.cold_head;
             let page = unsafe { &mut *self.page_ptr(page_idx) };
             let cell = page.local_free;
@@ -663,7 +676,8 @@ impl SlabAllocator {
             if !(*arena).try_acquire() {
                 return ptr::null_mut();
             }
-            let result = (*arena).alloc();
+            let skip_cold = DESTRUCTION_FREEZE.load(Ordering::Relaxed);
+            let result = (*arena).alloc(skip_cold);
             (*arena).release();
             result
         }
@@ -820,6 +834,12 @@ pub unsafe fn decommit_sweep_full(force: bool) -> (u32, u32) {
         Some(s) => unsafe { s.decommit_sweep_full(force) },
         None => (0, 0),
     }
+}
+
+/// Freeze cold list reuse during destruction_protocol.
+/// Alloc will skip recycled cells and only use fresh pages.
+pub fn set_destruction_freeze(active: bool) {
+    DESTRUCTION_FREEZE.store(active, Ordering::Release);
 }
 
 /// Diagnostics: total committed bytes in slab arenas.
