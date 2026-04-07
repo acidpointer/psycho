@@ -300,6 +300,22 @@ pub unsafe fn free(ptr: *mut c_void) {
 
     // mimalloc arena check (CRT hooks, medium GameHeap allocs 4097..1MB).
     if unsafe { mi_is_in_heap_region(ptr as *const c_void) } {
+        // Write UAF guard before mi_free. mi_free overwrites offset 0 with
+        // a freelist pointer (which could be NULL at end of chain). Stale
+        // readers doing virtual dispatch through offset 0 would crash at
+        // eip=0. Writing usable_size at offsets 4 and 8 prevents
+        // InterlockedDecrement from reaching 0 (NiRefObject at +4, IOTask at +8).
+        // mi_free only overwrites offset 0 — offsets 4 and 8 survive.
+        let usable = unsafe { mi_usable_size(ptr as *const c_void) } as u32;
+        if usable >= 16 {
+            unsafe {
+                let p = ptr as *mut u32;
+                // offset 4: NiRefObject refcount guard
+                p.add(1).write(usable);
+                // offset 8: IOTask refcount guard
+                p.add(2).write(usable);
+            }
+        }
         unsafe { libmimalloc::mi_free(ptr) };
         return;
     }

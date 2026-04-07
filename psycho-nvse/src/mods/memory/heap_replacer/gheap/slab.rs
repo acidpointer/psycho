@@ -63,11 +63,21 @@ const fn arena_size_for_class(idx: usize) -> usize {
 // FreeNode: UAF protection header in freed cells
 // ---------------------------------------------------------------------------
 
+/// FreeNode header written at the start of every freed cell.
+///
+/// Layout matches TWO stale reader patterns:
+///   offset 0:  vtable (preserved) — Pattern A: virtual dispatch safe
+///   offset 4:  usable_size        — NiRefObject refcount at +4: InterlockedDecrement never hits 0
+///   offset 8:  usable_size (copy) — IOTask refcount at +8: InterlockedDecrement never hits 0
+///   offset 12: next               — freelist chain (safe from InterlockedDecrement)
+///
+/// Minimum cell size = 16 bytes (ALIGN), which fits all 4 fields.
 #[repr(C)]
 struct FreeNode {
     vtable: *const c_void, // offset 0: original vtable (preserved)
-    usable_size: u32,      // offset 4: cell_size (fake refcount)
-    next: *mut FreeNode,   // offset 8: per-page freelist chain
+    usable_size_4: u32,    // offset 4: cell_size (NiRefObject fake refcount)
+    usable_size_8: u32,    // offset 8: cell_size (IOTask fake refcount)
+    next: *mut FreeNode,   // offset 12: per-page freelist chain
 }
 
 // ---------------------------------------------------------------------------
@@ -264,7 +274,8 @@ impl SlabArena {
             let cell = unsafe { addr.add(i * cs) } as *mut FreeNode;
             unsafe {
                 (*cell).vtable = dummy_vtable;
-                (*cell).usable_size = cell_size_val;
+                (*cell).usable_size_4 = cell_size_val;
+                (*cell).usable_size_8 = cell_size_val;
                 (*cell).next = page.local_free;
             }
             page.local_free = cell;
@@ -334,9 +345,11 @@ impl SlabArena {
         // Write FreeNode header for UAF protection
         let node = ptr as *mut FreeNode;
         let orig_vtable = unsafe { *(ptr as *const *const c_void) };
+        let cs = self.cell_size as u32;
         unsafe {
             (*node).vtable = orig_vtable;
-            (*node).usable_size = self.cell_size as u32;
+            (*node).usable_size_4 = cs;  // NiRefObject refcount guard
+            (*node).usable_size_8 = cs;  // IOTask refcount guard
             (*node).next = page.local_free;
         }
         page.local_free = node;
