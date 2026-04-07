@@ -74,16 +74,26 @@ struct FreeNode {
 // PageInfo: per-4KB page metadata
 // ---------------------------------------------------------------------------
 
+/// Minimum time (ms) freed cells must cool before reuse.
+/// Prevents reuse UAF: stale readers see FreeNode header (preserved vtable
+/// at offset 0, usable_size at offset 4) instead of a new object's data.
+/// Covers Havok ragdoll settling (~500ms), NVSE plugin refs (~500ms),
+/// death animations (~800ms), BSTaskManager IO (~100ms).
+const REUSE_COOLDOWN_MS: u64 = 1000;
+
 /// Minimum time (ms) a page must stay dirty before decommit.
-/// 1 second covers all known stale reader windows:
-///   - BSTaskManagerThread texture loads: up to 100ms
-///   - AI raycasts against terrain: up to 50ms
-///   - Havok ragdoll settling: up to 500ms
-///   - Death animations with physics: up to 800ms
-///   - NVSE plugin stale refs (Stewie, JIP): up to 500ms (30 frames)
-/// The vanilla SBM never decommits during gameplay at all.
-/// 1 second is aggressive by comparison but still recovers commit.
-const DECOMMIT_DELAY_MS: u64 = 1000;
+///
+/// Set to 30 seconds for gameplay safety. Havok physics maintains an
+/// internal pointer graph (broadphase, islands, contact managers) that
+/// can reference freed pages indefinitely until the world is rebuilt.
+/// Short delays (150ms, 1s) cause page faults on AI worker threads
+/// during physics step.
+///
+/// The vanilla SBM never decommits during gameplay — only during
+/// explicit GlobalCleanup (OOM Stage 6) or loading transitions.
+/// 30 seconds is a conservative compromise: commit recovers eventually,
+/// and loading transitions trigger an immediate sweep with delay=0.
+const DECOMMIT_DELAY_MS: u64 = 30_000;
 
 #[repr(C)]
 #[derive(Clone, Copy)]
@@ -92,9 +102,10 @@ struct PageInfo {
     committed: bool,           // false if decommitted or virgin
     on_partial: bool,          // true if page is on partial list
     local_free: *mut FreeNode, // freelist of free cells on this page
-    next_partial: u32,         // intrusive list: pages with free cells
+    next_partial: u32,         // intrusive list: hot or cold partial pages
     next_dirty: u32,           // intrusive list: fully-free pages
-    dirty_at_ms: u64,          // tick when page became dirty (for delay)
+    dirty_at_ms: u64,          // tick when page became dirty (for decommit delay)
+    hot_since_ms: u64,         // tick when page entered hot list (for reuse cooldown)
 }
 
 impl PageInfo {
@@ -107,6 +118,7 @@ impl PageInfo {
             next_partial: EMPTY,
             next_dirty: EMPTY,
             dirty_at_ms: 0,
+            hot_since_ms: 0,
         }
     }
 }
@@ -126,7 +138,8 @@ struct SlabArena {
     cells_per_page: u16,
     page_count: u32,
     pages: *mut PageInfo, // metadata array, separately allocated
-    partial_head: u32,    // pages with free cells
+    cold_head: u32,       // pages with reusable free cells (cooled down)
+    hot_head: u32,        // pages with recently freed cells (cooling)
     dirty_head: u32,      // pages with refcount==0
     dirty_count: u32,
     committed_hwm: u32,   // virgin page watermark
@@ -146,7 +159,8 @@ impl SlabArena {
             cells_per_page: 0,
             page_count: 0,
             pages: ptr::null_mut(),
-            partial_head: EMPTY,
+            cold_head: EMPTY,
+            hot_head: EMPTY,
             dirty_head: EMPTY,
             dirty_count: 0,
             committed_hwm: 0,
@@ -227,24 +241,40 @@ impl SlabArena {
         page.committed = true;
         page.refcount = 1; // caller gets the first cell
         page.local_free = ptr::null_mut();
+        page.hot_since_ms = 0;
+        page.dirty_at_ms = 0;
 
         let cpp = self.cells_per_page as usize;
         let cs = self.cell_size as usize;
 
-        // Push cells 1..N onto local freelist (cell 0 goes to caller)
+        // Push cells 1..N onto local freelist (cell 0 goes to caller).
+        // Write FULL FreeNode headers — not just next pointer. After
+        // recommit (VirtualAlloc MEM_COMMIT) the page is zeroed. If a
+        // stale reader (IOTask::DecRef) accesses offset 0 before the
+        // cell is allocated, it would read vtable=0 → eip=0 → crash.
+        // Writing a non-zero vtable-like value at offset 0 and usable_size
+        // at offset 4 provides the same UAF protection as a normal free.
+        // We use RDATA_START (0x01000000) as a dummy vtable — any virtual
+        // dispatch through it reads valid game code addresses, preventing
+        // immediate NULL dereference. This is defense-in-depth; the cell
+        // should not be accessed before it's allocated and initialized.
+        let dummy_vtable = 0x01000000usize as *const c_void;
+        let cell_size_val = self.cell_size as u32;
         for i in (1..cpp).rev() {
             let cell = unsafe { addr.add(i * cs) } as *mut FreeNode;
             unsafe {
+                (*cell).vtable = dummy_vtable;
+                (*cell).usable_size = cell_size_val;
                 (*cell).next = page.local_free;
             }
             page.local_free = cell;
         }
 
-        // Add to partial list if there are free cells remaining
+        // Fresh pages go directly to cold list (no stale data risk).
         if cpp > 1 {
             page.on_partial = true;
-            page.next_partial = self.partial_head;
-            self.partial_head = page_idx;
+            page.next_partial = self.cold_head;
+            self.cold_head = page_idx;
         }
 
         self.committed_pages += 1;
@@ -253,26 +283,24 @@ impl SlabArena {
 
     /// Allocate a cell from this arena. Returns null if arena exhausted.
     unsafe fn alloc(&mut self) -> *mut c_void {
-        // Tier 1: pop from a partial page's local freelist (hot path)
-        if self.partial_head != EMPTY {
-            let page_idx = self.partial_head;
+        // Tier 1: pop from a COLD partial page (cells have cooled down, safe to reuse)
+        while self.cold_head != EMPTY {
+            let page_idx = self.cold_head;
             let page = unsafe { &mut *self.page_ptr(page_idx) };
             let cell = page.local_free;
             if !cell.is_null() {
                 page.local_free = unsafe { (*cell).next };
                 page.refcount += 1;
 
-                // If page is now fully allocated, remove from partial list
                 if page.local_free.is_null() {
-                    self.partial_head = page.next_partial;
+                    self.cold_head = page.next_partial;
                     page.on_partial = false;
                     page.next_partial = EMPTY;
                 }
                 return cell as *mut c_void;
             }
-            // Shouldn't reach here (partial pages should have free cells)
-            // but handle gracefully: remove empty partial
-            self.partial_head = page.next_partial;
+            // Empty cold page (shouldn't happen, but handle gracefully)
+            self.cold_head = page.next_partial;
             page.on_partial = false;
             page.next_partial = EMPTY;
         }
@@ -316,54 +344,110 @@ impl SlabArena {
         let was_full = page.refcount == self.cells_per_page as i16;
         page.refcount -= 1;
 
+        // Guard: refcount should never go negative (double-free detection)
+        debug_assert!(
+            page.refcount >= 0,
+            "slab: page refcount went negative (double-free?)"
+        );
+
         if page.refcount == 0 {
-            // Page fully free. Remove from partial list, add to dirty.
+            // Page fully free. Remove from hot/cold list, add to dirty.
             if page.on_partial {
-                unsafe { self.remove_from_partial(page_idx) };
+                unsafe { self.remove_from_list(page_idx) };
             }
             page.dirty_at_ms = libpsycho::os::windows::winapi::get_tick_count() as u64;
             page.next_dirty = self.dirty_head;
             self.dirty_head = page_idx;
             self.dirty_count += 1;
         } else if was_full {
-            // Page was fully allocated, now has a free cell. Add to partial.
+            // Page was fully allocated, now has a free cell.
+            // Goes to HOT list — cells not available for reuse until cooled.
+            let now = libpsycho::os::windows::winapi::get_tick_count() as u64;
             page.on_partial = true;
-            page.next_partial = self.partial_head;
-            self.partial_head = page_idx;
+            page.hot_since_ms = now;
+            page.next_partial = self.hot_head;
+            self.hot_head = page_idx;
         }
+        // If page was already partial (on hot or cold list), it stays where
+        // it is. The newly freed cell gets a FreeNode header (vtable preserved
+        // at +0, usable_size at +4). Stale readers accessing those offsets
+        // are protected. Offsets 12+ may be overwritten on reuse — same as
+        // vanilla SBM behavior. Moving pages between lists on every free
+        // would be O(N) per free, too expensive for the hot path.
     }
 
-    /// Remove a page from the partial list (O(N) scan, but list is short).
-    unsafe fn remove_from_partial(&mut self, target: u32) {
-        if self.partial_head == target {
-            let page = unsafe { &mut *self.page_ptr(target) };
-            self.partial_head = page.next_partial;
-            page.on_partial = false;
-            page.next_partial = EMPTY;
+    /// Remove a page from whichever list it's on (hot or cold).
+    unsafe fn remove_from_list(&mut self, target: u32) {
+        if unsafe { Self::unlink_from_raw(target, &mut self.cold_head, self.pages) } {
             return;
         }
-        let mut prev = self.partial_head;
+        unsafe { Self::unlink_from_raw(target, &mut self.hot_head, self.pages) };
+    }
+
+    /// Unlink target from a singly-linked list via next_partial.
+    unsafe fn unlink_from_raw(target: u32, head: &mut u32, pages: *mut PageInfo) -> bool {
+        if *head == target {
+            let page = unsafe { &mut *pages.add(target as usize) };
+            *head = page.next_partial;
+            page.on_partial = false;
+            page.next_partial = EMPTY;
+            return true;
+        }
+        let mut prev = *head;
         while prev != EMPTY {
-            let prev_page = unsafe { &mut *self.page_ptr(prev) };
+            let prev_page = unsafe { &mut *pages.add(prev as usize) };
             let next = prev_page.next_partial;
             if next == target {
-                let target_page = unsafe { &mut *self.page_ptr(target) };
+                let target_page = unsafe { &mut *pages.add(target as usize) };
                 prev_page.next_partial = target_page.next_partial;
                 target_page.on_partial = false;
                 target_page.next_partial = EMPTY;
-                return;
+                return true;
             }
             prev = next;
         }
+        false
     }
 
-    /// Decommit dirty pages that have been free for >= DECOMMIT_DELAY_MS.
-    /// Called from Phase 7. Respects delay so stale readers (BSTaskManager,
-    /// AI raycasts) have time to finish accessing freed objects.
-    unsafe fn decommit_sweep(&mut self) -> (u32, u32) {
+    /// Promote pages from hot list to cold list when they've cooled enough.
+    unsafe fn promote_hot_to_cold(&mut self) {
+        let now = libpsycho::os::windows::winapi::get_tick_count() as u64;
+        // Walk hot list, move cooled pages to cold
+        let mut new_hot_head = EMPTY;
+        let mut new_hot_tail = EMPTY;
+        let mut idx = self.hot_head;
+        while idx != EMPTY {
+            let page = unsafe { &mut *self.page_ptr(idx) };
+            let next = page.next_partial;
+
+            if now.saturating_sub(page.hot_since_ms) >= REUSE_COOLDOWN_MS {
+                // Cooled: move to cold head
+                page.next_partial = self.cold_head;
+                self.cold_head = idx;
+            } else {
+                // Still hot: keep on hot list
+                page.next_partial = EMPTY;
+                if new_hot_head == EMPTY {
+                    new_hot_head = idx;
+                } else {
+                    let tail = unsafe { &mut *self.page_ptr(new_hot_tail) };
+                    tail.next_partial = idx;
+                }
+                new_hot_tail = idx;
+            }
+            idx = next;
+        }
+        self.hot_head = new_hot_head;
+    }
+
+    /// Promote hot pages + decommit dirty pages.
+    /// `force`: if true, ignore DECOMMIT_DELAY_MS (loading transition).
+    unsafe fn decommit_sweep(&mut self, force: bool) -> (u32, u32) {
+        unsafe { self.promote_hot_to_cold() };
         let mut decommitted = 0u32;
         let mut bytes = 0u32;
         let now = libpsycho::os::windows::winapi::get_tick_count() as u64;
+        let delay = if force { 0 } else { DECOMMIT_DELAY_MS };
         let mut page_idx = self.dirty_head;
 
         while page_idx != EMPTY {
@@ -372,7 +456,7 @@ impl SlabArena {
 
             if page.committed && page.refcount == 0 {
                 let age = now.saturating_sub(page.dirty_at_ms);
-                if age >= DECOMMIT_DELAY_MS {
+                if age >= delay {
                     let addr = self.page_addr(page_idx);
                     let _ = unsafe { VirtualFree(addr as *mut c_void, PAGE_SIZE, MEM_DECOMMIT) };
                     page.committed = false;
@@ -384,7 +468,6 @@ impl SlabArena {
             }
             page_idx = next;
         }
-        // Dirty list stays intact for Tier 2 reuse
         (decommitted, bytes)
     }
 }
@@ -528,22 +611,31 @@ impl SlabAllocator {
         self.arenas[arena_idx].cell_size as usize
     }
 
-    /// Decommit sweep: decommit all dirty pages across all arenas.
-    /// Called from Phase 7 (once per frame).
+    /// Decommit sweep: promote hot→cold, decommit aged dirty pages.
+    /// Called from Phase 7 (once per frame). Respects DECOMMIT_DELAY_MS.
     pub unsafe fn decommit_sweep(&self) -> (u32, u32) {
+        unsafe { self.decommit_sweep_inner(false) }
+    }
+
+    /// Forced decommit sweep: ignores delay. Called during loading
+    /// transitions when Havok world is being rebuilt and AI is idle.
+    pub unsafe fn decommit_sweep_force(&self) -> (u32, u32) {
+        unsafe { self.decommit_sweep_inner(true) }
+    }
+
+    unsafe fn decommit_sweep_inner(&self, force: bool) -> (u32, u32) {
         let mut total_pages = 0u32;
         let mut total_bytes = 0u32;
         unsafe {
             for i in 0..NUM_CLASSES {
                 let arena = &self.arenas[i] as *const SlabArena as *mut SlabArena;
                 (*arena).acquire();
-                let (p, b) = (*arena).decommit_sweep();
+                let (p, b) = (*arena).decommit_sweep(force);
                 (*arena).release();
                 total_pages += p;
                 total_bytes += b;
             }
         }
-
         (total_pages, total_bytes)
     }
 
@@ -620,10 +712,19 @@ pub unsafe fn usable_size(ptr: *const c_void) -> usize {
     }
 }
 
-/// Phase 7 decommit sweep.
+/// Phase 7 decommit sweep (respects 30s delay).
 pub unsafe fn decommit_sweep() -> (u32, u32) {
     match SLAB.get() {
         Some(s) => unsafe { s.decommit_sweep() },
+        None => (0, 0),
+    }
+}
+
+/// Forced decommit sweep (ignores delay). Use during loading transitions
+/// when Havok world is being rebuilt and AI threads are idle.
+pub unsafe fn decommit_sweep_force() -> (u32, u32) {
+    match SLAB.get() {
+        Some(s) => unsafe { s.decommit_sweep_force() },
         None => (0, 0),
     }
 }
