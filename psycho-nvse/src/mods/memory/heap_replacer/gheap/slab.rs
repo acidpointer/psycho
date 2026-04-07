@@ -489,6 +489,7 @@ impl SlabArena {
 // SlabAllocator: global singleton
 // ---------------------------------------------------------------------------
 
+#[allow(dead_code)]
 pub struct SlabAllocator {
     arenas: [SlabArena; NUM_CLASSES],
     superblock_base: *mut u8,
@@ -536,16 +537,16 @@ impl SlabAllocator {
 
         // Initialize arenas within the superblock
         let mut offset: usize = 0;
-        for i in 0..NUM_CLASSES {
-            let arena_sz = arena_size_for_class(i);
+        for (idx, cl) in SIZE_CLASSES.iter().enumerate() {
+            let arena_sz = arena_size_for_class(idx);
             let arena_base = unsafe { base.add(offset) };
-            slab.arenas[i].init(arena_base, arena_sz, SIZE_CLASSES[i]);
+            slab.arenas[idx].init(arena_base, arena_sz, *cl);
 
             // Fill page_to_arena for this arena's pages
             let start_page = offset / PAGE_SIZE;
             let page_count = arena_sz / PAGE_SIZE;
             for p in start_page..start_page + page_count {
-                slab.page_to_arena[p] = i as u8;
+                slab.page_to_arena[p] = idx as u8;
             }
 
             offset += arena_sz;
@@ -628,12 +629,6 @@ impl SlabAllocator {
     /// Called from Phase 7 (once per frame). Respects DECOMMIT_DELAY_MS.
     pub unsafe fn decommit_sweep(&self) -> (u32, u32) {
         unsafe { self.decommit_sweep_inner(false) }
-    }
-
-    /// Forced decommit sweep: ignores delay. Called during loading
-    /// transitions when Havok world is being rebuilt and AI is idle.
-    pub unsafe fn decommit_sweep_force(&self) -> (u32, u32) {
-        unsafe { self.decommit_sweep_inner(true) }
     }
 
     unsafe fn decommit_sweep_inner(&self, force: bool) -> (u32, u32) {
@@ -729,15 +724,6 @@ pub unsafe fn usable_size(ptr: *const c_void) -> usize {
 pub unsafe fn decommit_sweep() -> (u32, u32) {
     match SLAB.get() {
         Some(s) => unsafe { s.decommit_sweep() },
-        None => (0, 0),
-    }
-}
-
-/// Forced decommit sweep (ignores delay). Use during loading transitions
-/// when Havok world is being rebuilt and AI threads are idle.
-pub unsafe fn decommit_sweep_force() -> (u32, u32) {
-    match SLAB.get() {
-        Some(s) => unsafe { s.decommit_sweep_force() },
         None => (0, 0),
     }
 }
