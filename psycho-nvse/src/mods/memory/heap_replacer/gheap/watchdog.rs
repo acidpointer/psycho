@@ -15,7 +15,7 @@
 //! needs more VAS headroom for incoming cell data.
 
 use std::sync::Arc;
-use std::sync::atomic::{AtomicI32, AtomicU8, AtomicU64, AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicI32, AtomicU8, AtomicU64, AtomicUsize, Ordering};
 use std::thread::{self, JoinHandle};
 
 use libmimalloc::process_info::MiMallocProcessInfo;
@@ -107,7 +107,7 @@ pub fn take_cleanup_request() -> u8 {
 /// and sets atomic flags for the main thread to consume at Phase 7.
 /// Also performs periodic diagnostic logging (RSS, commit, faults).
 pub struct Watchdog {
-    run: Arc<std::sync::atomic::AtomicBool>,
+    run: Arc<AtomicBool>,
     handle: Option<JoinHandle<()>>,
 }
 
@@ -115,7 +115,7 @@ impl Watchdog {
     /// Spawn the watchdog thread. Returns a handle that stops the
     /// thread on drop.
     pub fn start() -> Self {
-        let run = Arc::new(std::sync::atomic::AtomicBool::new(true));
+        let run = Arc::new(AtomicBool::new(true));
         let run_clone = run.clone();
 
         let handle = thread::Builder::new()
@@ -148,7 +148,7 @@ impl Drop for Watchdog {
 }
 
 #[allow(clippy::if_same_then_else)]
-fn watchdog_loop(run: Arc<std::sync::atomic::AtomicBool>) {
+fn watchdog_loop(run: Arc<AtomicBool>) {
     let mut poll_count: u32 = 0;
     let mut prev_rate: i32 = 0;
 

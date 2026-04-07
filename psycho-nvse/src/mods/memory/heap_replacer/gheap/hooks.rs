@@ -7,6 +7,8 @@
 //! Also contains frame-level orchestration: loading transition detection,
 //! watchdog flag consumption, emergency cleanup, and AI thread sync.
 
+use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering};
+
 use libc::c_void;
 
 use super::allocator;
@@ -58,42 +60,38 @@ thread_local! {
 
 /// Cooldown counter for "turbo cleanup" during loading spikes.
 /// Prevents per-frame destruction_protocol calls when Havok is busy.
-static TURBO_COOLDOWN: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
+static TURBO_COOLDOWN: AtomicU32 = AtomicU32::new(0);
 
 /// Last destruction_protocol result: cells unloaded.
 /// When 0 and commit hasn't grown, skip the next call to avoid
 /// the 12ms/cycle death spiral observed in heavy mod setups.
-static LAST_DESTRUCTION_CELLS: std::sync::atomic::AtomicU32 =
-    std::sync::atomic::AtomicU32::new(u32::MAX); // MAX = "never ran, always run first time"
+static LAST_DESTRUCTION_CELLS: AtomicU32 = AtomicU32::new(u32::MAX); // MAX = "never ran, always run first time"
 
 /// Commit (MB) at last destruction_protocol call.
-static LAST_DESTRUCTION_COMMIT_MB: std::sync::atomic::AtomicU32 =
-    std::sync::atomic::AtomicU32::new(0);
+static LAST_DESTRUCTION_COMMIT_MB: AtomicU32 = AtomicU32::new(0);
 
 /// Cooldown for destruction_protocol during VAS crisis.
 /// Running pre_destruction_setup 4x/sec allocates terrain/LOD memory
 /// (Ghidra: FUN_00878160 step 5), making VAS pressure WORSE.
 /// Limit to 1 cycle per second during crisis.
-static DESTRUCTION_COOLDOWN_MS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+static DESTRUCTION_COOLDOWN_MS: AtomicU64 = AtomicU64::new(0);
 
 /// Consecutive ineffective VAS EMERGENCY cycle counter.
 /// If 3+ cycles drain < 1MB each, we're in a death spiral — disable
 /// emergency until commit drops below threshold.
-static EMERGENCY_INEFFECTIVE: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
+static EMERGENCY_INEFFECTIVE: AtomicU32 = AtomicU32::new(0);
 
 /// Set when death spiral detected. Overrides the commit-based emergency
 /// calculation until commit drops below the emergency threshold.
-static EMERGENCY_SUPPRESSED: std::sync::atomic::AtomicBool =
-    std::sync::atomic::AtomicBool::new(false);
+static EMERGENCY_SUPPRESSED: AtomicBool = AtomicBool::new(false);
 
 /// Last tick count when periodic pool drain ran.
 /// Drains large blocks (> 1KB) when pool is near capacity.
-static LAST_POOL_DRAIN_MS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+static LAST_POOL_DRAIN_MS: AtomicU64 = AtomicU64::new(0);
 
 /// Last tick when mi_collect(true) was called. Rate-limited to once per 2s
 /// to avoid O(total_memory) full collection freezing the main thread.
-static LAST_MI_COLLECT_TRUE_MS: std::sync::atomic::AtomicU64 =
-    std::sync::atomic::AtomicU64::new(0);
+static LAST_MI_COLLECT_TRUE_MS: AtomicU64 = AtomicU64::new(0);
 
 /// Minimum interval between mi_collect(true) calls in the per-frame path.
 /// OOM recovery in allocator.rs calls mi_collect(true) directly, bypassing
@@ -110,9 +108,9 @@ const POOL_DRAIN_COOLDOWN_MS: u64 = 500;
 /// hasn't elapsed. Returns true if the full collection ran.
 fn try_mi_collect_true() -> bool {
     let now = libpsycho::os::windows::winapi::get_tick_count() as u64;
-    let last = LAST_MI_COLLECT_TRUE_MS.load(std::sync::atomic::Ordering::Relaxed);
+    let last = LAST_MI_COLLECT_TRUE_MS.load(Ordering::Relaxed);
     if now.saturating_sub(last) >= MI_COLLECT_TRUE_COOLDOWN_MS {
-        LAST_MI_COLLECT_TRUE_MS.store(now, std::sync::atomic::Ordering::Relaxed);
+        LAST_MI_COLLECT_TRUE_MS.store(now, Ordering::Relaxed);
         unsafe { libmimalloc::mi_collect(true) };
         true
     } else {
@@ -228,12 +226,12 @@ pub unsafe extern "C" fn hook_per_frame_queue_drain() {
     // Death spiral suppression: if commit drops below emergency threshold,
     // clear the suppression flag so emergency can fire again next time.
     if commit < vas_emergency_commit {
-        EMERGENCY_SUPPRESSED.store(false, std::sync::atomic::Ordering::Relaxed);
+        EMERGENCY_SUPPRESSED.store(false, Ordering::Relaxed);
     }
 
     // Emergency is active if commit exceeds threshold AND not suppressed.
-    let vas_emergency = commit >= vas_emergency_commit
-        && !EMERGENCY_SUPPRESSED.load(std::sync::atomic::Ordering::Relaxed);
+    let vas_emergency =
+        commit >= vas_emergency_commit && !EMERGENCY_SUPPRESSED.load(Ordering::Relaxed);
     let vas_critical = commit >= vas_critical_commit;
 
     allocator::set_vas_emergency(vas_emergency);
@@ -251,13 +249,12 @@ pub unsafe extern "C" fn hook_per_frame_queue_drain() {
         let freed_mb = decom_bytes as usize / 1024 / 1024;
 
         if freed_mb < MIN_EFFECTIVE_DRAIN_MB {
-            let count =
-                EMERGENCY_INEFFECTIVE.fetch_add(1, std::sync::atomic::Ordering::Relaxed) + 1;
+            let count = EMERGENCY_INEFFECTIVE.fetch_add(1, Ordering::Relaxed) + 1;
             if count >= MAX_INEFFECTIVE_EMERGENCY_CYCLES {
                 // Death spiral detected — suppress emergency until commit
                 // drops below the emergency threshold. This prevents the
                 // 40+ cycle death spiral that corrupted the stack.
-                EMERGENCY_SUPPRESSED.store(true, std::sync::atomic::Ordering::Relaxed);
+                EMERGENCY_SUPPRESSED.store(true, Ordering::Relaxed);
                 allocator::set_vas_emergency(false);
                 log::error!(
                     "[VAS] EMERGENCY SUPPRESSED: {} ineffective cycles, commit={}MB, threshold={}MB, decommitted {} pages",
@@ -268,7 +265,7 @@ pub unsafe extern "C" fn hook_per_frame_queue_drain() {
                 );
             }
         } else {
-            EMERGENCY_INEFFECTIVE.store(0, std::sync::atomic::Ordering::Relaxed);
+            EMERGENCY_INEFFECTIVE.store(0, Ordering::Relaxed);
         }
 
         // F3: Nuclear option — drain ALL pool blocks + force decommit
@@ -284,7 +281,7 @@ pub unsafe extern "C" fn hook_per_frame_queue_drain() {
     } else {
         // Not in emergency — reset ineffective counter so it starts fresh
         // next time we enter emergency.
-        EMERGENCY_INEFFECTIVE.store(0, std::sync::atomic::Ordering::Relaxed);
+        EMERGENCY_INEFFECTIVE.store(0, Ordering::Relaxed);
 
         if vas_critical {
             // F2: Drain ALL pool blocks (not just >= 1KB).
@@ -307,14 +304,14 @@ pub unsafe extern "C" fn hook_per_frame_queue_drain() {
     // to free — UAF-sensitive objects are < 1KB (NiRefObjects 16-128B).
     if super::slab::committed_bytes() / 1024 / 1024 >= 12 {
         let now = libpsycho::os::windows::winapi::get_tick_count() as u64;
-        let last = LAST_POOL_DRAIN_MS.load(std::sync::atomic::Ordering::Relaxed);
+        let last = LAST_POOL_DRAIN_MS.load(Ordering::Relaxed);
         if now.saturating_sub(last) >= POOL_DRAIN_COOLDOWN_MS {
             let drained = unsafe {
                 super::slab::decommit_sweep();
                 libmimalloc::mi_collect(false);
                 (0, 0).0
             };
-            LAST_POOL_DRAIN_MS.store(now, std::sync::atomic::Ordering::Relaxed);
+            LAST_POOL_DRAIN_MS.store(now, Ordering::Relaxed);
             if drained > 0 {
                 log::info!(
                     "[POOL] Periodic drain: {} blocks freed, pool={}MB",
@@ -360,11 +357,11 @@ pub unsafe extern "C" fn hook_per_frame_queue_drain() {
         && let Some(pr) = PressureRelief::instance()
     {
         let now = libpsycho::os::windows::winapi::get_tick_count() as u64;
-        let last = DESTRUCTION_COOLDOWN_MS.load(std::sync::atomic::Ordering::Relaxed);
+        let last = DESTRUCTION_COOLDOWN_MS.load(Ordering::Relaxed);
 
         // Check if destruction_protocol is likely to be effective
-        let last_cells = LAST_DESTRUCTION_CELLS.load(std::sync::atomic::Ordering::Relaxed);
-        let last_commit = LAST_DESTRUCTION_COMMIT_MB.load(std::sync::atomic::Ordering::Relaxed);
+        let last_cells = LAST_DESTRUCTION_CELLS.load(Ordering::Relaxed);
+        let last_commit = LAST_DESTRUCTION_COMMIT_MB.load(Ordering::Relaxed);
         let current_commit_mb = commit / 1024 / 1024;
         let commit_grew = (current_commit_mb as u32).saturating_sub(last_commit) > 50;
         let should_run = last_cells > 0 || commit_grew || last_commit == 0;
@@ -372,15 +369,15 @@ pub unsafe extern "C" fn hook_per_frame_queue_drain() {
         if should_run {
             if vas_critical {
                 if now.saturating_sub(last) >= 1000 {
-                    DESTRUCTION_COOLDOWN_MS.store(now, std::sync::atomic::Ordering::Relaxed);
+                    DESTRUCTION_COOLDOWN_MS.store(now, Ordering::Relaxed);
                     let cells = unsafe { pr.run_cleanup() };
-                    LAST_DESTRUCTION_CELLS.store(cells as u32, std::sync::atomic::Ordering::Relaxed);
-                    LAST_DESTRUCTION_COMMIT_MB.store(current_commit_mb as u32, std::sync::atomic::Ordering::Relaxed);
+                    LAST_DESTRUCTION_CELLS.store(cells as u32, Ordering::Relaxed);
+                    LAST_DESTRUCTION_COMMIT_MB.store(current_commit_mb as u32, Ordering::Relaxed);
                 }
             } else {
                 let cells = unsafe { pr.run_cleanup() };
-                LAST_DESTRUCTION_CELLS.store(cells as u32, std::sync::atomic::Ordering::Relaxed);
-                LAST_DESTRUCTION_COMMIT_MB.store(current_commit_mb as u32, std::sync::atomic::Ordering::Relaxed);
+                LAST_DESTRUCTION_CELLS.store(cells as u32, Ordering::Relaxed);
+                LAST_DESTRUCTION_COMMIT_MB.store(current_commit_mb as u32, Ordering::Relaxed);
             }
         }
     }
@@ -399,12 +396,12 @@ pub unsafe extern "C" fn hook_per_frame_queue_drain() {
         && let Some(pr) = PressureRelief::instance()
     {
         let baseline = pr.baseline_commit();
-        let cooldown = TURBO_COOLDOWN.load(std::sync::atomic::Ordering::Relaxed);
+        let cooldown = TURBO_COOLDOWN.load(Ordering::Relaxed);
         if cooldown > 0 {
-            TURBO_COOLDOWN.fetch_sub(1, std::sync::atomic::Ordering::Relaxed);
+            TURBO_COOLDOWN.fetch_sub(1, Ordering::Relaxed);
         } else if baseline > 0 && heap.commit_bytes() > baseline + LOADING_SAFETY_MARGIN {
             unsafe { pr.run_cleanup() };
-            TURBO_COOLDOWN.store(10, std::sync::atomic::Ordering::Release);
+            TURBO_COOLDOWN.store(10, Ordering::Release);
         }
     }
 
