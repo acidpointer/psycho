@@ -21,6 +21,7 @@ pub struct PsychoConfig {
     pub memory: MemoryConfig,
     pub perf: PerfConfig,
     pub zlib: ZlibConfig,
+    pub display: DisplayConfig,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -72,6 +73,20 @@ pub struct ZlibConfig {
 impl Default for ZlibConfig {
     fn default() -> Self {
         Self { enabled: true }
+    }
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+#[serde(default)]
+pub struct DisplayConfig {
+    /// Force borderless fullscreen mode (fixes alt-tab with DXVK).
+    /// Replaces OneTweak -- uninstall OneTweak when this is enabled.
+    pub borderless: bool,
+}
+
+impl Default for DisplayConfig {
+    fn default() -> Self {
+        Self { borderless: true }
     }
 }
 

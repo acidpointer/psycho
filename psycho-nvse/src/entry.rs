@@ -38,6 +38,7 @@ use crate::{
             configure_mimalloc, install_crt_hooks,
             heap_replacer::{install_game_heap_hooks, start_deferred_threads},
         },
+        display::install_display_hooks,
         perf::install_rng_hook,
         zlib::install_zlib_hooks,
     },
@@ -81,6 +82,11 @@ fn early_load(cfg: &PsychoConfig) {
         install_game_heap_hooks,
     );
     install_if(cfg.perf.rng, "RNG replacement", install_rng_hook);
+    install_if(
+        cfg.display.borderless,
+        "Borderless fullscreen",
+        install_display_hooks,
+    );
 }
 
 // -----------------------------------------------------------------------
