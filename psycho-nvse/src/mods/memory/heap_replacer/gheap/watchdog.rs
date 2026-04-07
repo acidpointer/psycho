@@ -61,6 +61,16 @@ const AGGRESSIVE_RATE_THRESHOLD: i32 = 2 * 1024 * 1024;
 /// stress testing (4x faster than the previous 2s default).
 const AGGRESSIVE_COOLDOWN_MS: u64 = 500;
 
+/// React time for normal cleanup rate floor calculation.
+/// At the rate floor, sustained growth would reach VAS Critical in this many
+/// seconds. 600s (10 min) gives ample time for cleanup before escalation.
+const NORMAL_REACT_TIME_SECS: i64 = 600;
+
+/// Minimum rate floor (bytes/sec) for normal cleanup. Prevents the floor
+/// from dropping to zero at very tight headroom. 256KB/s is above typical
+/// stable-gameplay noise but low enough for tight setups to remain responsive.
+const MIN_NORMAL_RATE: i32 = 256 * 1024;
+
 // ---------------------------------------------------------------------------
 // Shared atomic state (read by main thread, written by watchdog)
 // ---------------------------------------------------------------------------
@@ -213,6 +223,21 @@ fn watchdog_loop(run: Arc<std::sync::atomic::AtomicBool>) {
             )
         };
 
+        // Dynamic rate floor for Normal cleanup: proportional to headroom.
+        // Far from critical = high floor (relaxed). Close to critical = low
+        // floor (sensitive). Adapts to any mod load / VAS configuration.
+        let rate_floor = {
+            let critical = super::allocator::get_critical_commit();
+            if critical > 0 && commit < critical {
+                let headroom = (critical - commit) as i64;
+                (headroom / NORMAL_REACT_TIME_SECS).max(MIN_NORMAL_RATE as i64) as i32
+            } else if critical > 0 {
+                0 // at or above critical -- always clean
+            } else {
+                0 // not calibrated yet -- conservative default
+            }
+        };
+
         let mut level: u8 = 0;
 
         // Critical: always aggressive regardless of rate, UNLESS we're loading
@@ -229,9 +254,11 @@ fn watchdog_loop(run: Arc<std::sync::atomic::AtomicBool>) {
         else if growth >= aggressive_thresh && prev_rate > AGGRESSIVE_RATE_THRESHOLD {
             level = 2;
         }
-        // Normal: above threshold AND still growing (or first sample
-        // where rate is unknown -- don't miss a 500MB+ overshoot).
-        else if growth >= normal_thresh && (prev_rate > 0 || first_sample) {
+        // Normal: above threshold AND rate exceeds dynamic floor (or first
+        // sample where rate is unknown -- don't miss a 500MB+ overshoot).
+        // The floor scales with headroom: lots of room = high floor (few
+        // cleanups), tight room = low floor (more sensitive).
+        else if growth >= normal_thresh && (prev_rate > rate_floor || first_sample) {
             level = 1;
         }
 
@@ -259,10 +286,11 @@ fn watchdog_loop(run: Arc<std::sync::atomic::AtomicBool>) {
                 );
             } else {
                 log::info!(
-                    "[WATCHDOG] Normal cleanup: commit={}MB, growth={}MB, rate={}/s{}",
+                    "[WATCHDOG] Normal cleanup: commit={}MB, growth={}MB, rate={}/s, floor={}/s{}",
                     commit / 1024 / 1024,
                     growth / 1024 / 1024,
                     format_rate(prev_rate),
+                    format_rate(rate_floor),
                     if loading { " (loading)" } else { "" },
                 );
             }
