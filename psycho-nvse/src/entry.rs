@@ -12,6 +12,7 @@
 //! log file creation, config write-back (schema migration), monitor thread,
 //! zlib hooks, NVSE services.
 
+use shadow_rs::shadow;
 use std::sync::Once;
 
 use libnvse::plugin::PluginContext;
@@ -44,6 +45,9 @@ use crate::{
     },
     plugininfo,
 };
+
+// Collect build info
+shadow!(build_info);
 
 // -----------------------------------------------------------------------
 // Single initialization guard
@@ -265,7 +269,19 @@ pub unsafe extern "C" fn NVSEPlugin_Load(nvse: *const NVSEInterfaceFFI) -> BOOL 
     // Phase 2: loader lock released — threads and file I/O are safe.
     match late_load(nvse) {
         Ok(_) => {
-            log::info!("Plugin loaded successfully");
+            log::info!("========================================================");
+            log::info!("");
+            log::info!("   P S Y C H O");
+            log::info!("");
+            log::info!("========================================================");
+            log::info!("        Commit: {}", build_info::COMMIT_HASH);
+            log::info!("        Branch: {}", build_info::BRANCH);
+            log::info!("    Build date: {}", build_info::BUILD_TIME);
+            log::info!("  Rust version: {}", build_info::RUST_VERSION);
+            log::info!("  Rust channel: {}", build_info::RUST_CHANNEL);
+            log::info!("  Build target: {}", build_info::BUILD_TARGET);
+            log::info!("      Build OS: {}", build_info::BUILD_OS);
+            log::info!("========================================================");
             true.into()
         }
         Err(err) => {

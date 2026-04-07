@@ -16,7 +16,7 @@ serde = { workspace = true }
 anyhow = { workspace = true }
 parking_lot = { workspace = true }
 crossbeam-queue = { workspace = true }
-time = { version = "0.3.44", features = ["formatting", "local-offset", "macros"] }
+time = { version = "0.3.47", features = ["formatting", "local-offset", "macros"] }
 
 [target.'cfg(windows)'.dependencies]
 windows = { workspace = true }

@@ -30,3 +30,7 @@ clashmap = { workspace = true }
 orx-concurrent-vec = { workspace = true }
 serde = { workspace = true }
 toml = { workspace = true }
+shadow-rs = { version = "1.7", default-features = false }
+
+[build-dependencies]
+shadow-rs = "1.7"
