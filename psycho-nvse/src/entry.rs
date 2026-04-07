@@ -147,6 +147,7 @@ fn late_load(nvse_ptr: *const NVSEInterfaceFFI) -> anyhow::Result<()> {
         if msg.get_type() == NVSEMessageType::DeferredInit {
             crate::nvse_services::set_game_ready();
             log::info!("[NVSE] Game engine ready");
+            crate::mods::display::verify_display_resolution();
         }
     })?;
 
