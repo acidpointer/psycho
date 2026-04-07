@@ -46,6 +46,9 @@ pub const VAPL_MAGIC2: u32 = 0xA9BEAFB3;
 /// Safety: Caller must ensure `ptr - 16` is readable memory. This is guaranteed
 /// for any pointer returned by our VirtualAlloc allocator. For unknown pointers,
 /// this function may read garbage (but won't crash if the page is committed).
+/// 
+/// # Safety
+/// Unsafe. Caller must ensure safety
 #[inline]
 pub unsafe fn is_virtual_alloc_ptr(ptr: *mut c_void) -> bool {
     if ptr.is_null() {
@@ -110,6 +113,9 @@ static LARGE_POOL: LargePool = LargePool {
 ///
 /// Returns a 16-byte-aligned user pointer. The header is 16 bytes before
 /// the returned pointer.
+/// 
+/// # Safety
+/// Unsafe. Caller must ensure safety
 pub unsafe fn malloc(size: usize) -> *mut c_void {
     // Try to allocate from the large pool
     let pool_base = LARGE_POOL.base.load(Ordering::Acquire);
@@ -205,6 +211,9 @@ pub unsafe fn malloc(size: usize) -> *mut c_void {
 ///
 /// Pool allocations: MEM_DECOMMIT (pages returned to OS, reservation stays)
 /// Individual allocations: MEM_RELEASE (entire region released)
+/// 
+/// # Safety
+/// Unsafe. Caller must ensure safety
 pub unsafe fn free(ptr: *mut c_void) {
     if ptr.is_null() {
         return;
@@ -228,6 +237,9 @@ pub unsafe fn free(ptr: *mut c_void) {
 ///
 /// Returns `Some(size)` if the pointer is a valid large allocation,
 /// `None` otherwise.
+/// 
+/// # Safety
+/// Unsafe. Caller must ensure safety
 pub unsafe fn msize(ptr: *mut c_void) -> Option<usize> {
     if ptr.is_null() {
         return None;
@@ -263,6 +275,9 @@ pub unsafe fn msize(ptr: *mut c_void) -> Option<usize> {
 ///
 /// If `old_ptr` is a large allocation, creates a new one, copies data,
 /// frees the old one. If not, returns `None`.
+/// 
+/// # Safety
+/// Unsafe. Caller must ensure safety
 pub unsafe fn realloc(old_ptr: *mut c_void, new_size: usize) -> Option<*mut c_void> {
     if old_ptr.is_null() {
         return Some(unsafe { malloc(new_size) });

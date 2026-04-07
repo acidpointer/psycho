@@ -147,6 +147,7 @@ impl Drop for Watchdog {
     }
 }
 
+#[allow(clippy::if_same_then_else)]
 fn watchdog_loop(run: Arc<std::sync::atomic::AtomicBool>) {
     let mut poll_count: u32 = 0;
     let mut prev_rate: i32 = 0;
