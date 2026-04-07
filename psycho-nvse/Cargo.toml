@@ -20,7 +20,7 @@ log = { workspace = true }
 anyhow = { workspace = true }
 parking_lot = { workspace = true }
 libc = { workspace = true }
-libz-rs-sys = { version = "0.5.5", features = ["rust-allocator"] }
+flate2 = { version = "1.1", default-features = false, features = ["zlib-rs"] }
 ahash = { workspace = true }
 rustc-hash = { workspace = true }
 scc = { workspace = true }
