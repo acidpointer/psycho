@@ -37,127 +37,57 @@ static LOADING_BYPASS: AtomicBool = AtomicBool::new(false);
 /// Set by Phase 7 watchdog when commit exceeds emergency threshold.
 static VAS_EMERGENCY: AtomicBool = AtomicBool::new(false);
 
-/// Percentage of headroom (available_vas - baseline) at which VAS CRITICAL
-/// mode activates. 60% of headroom used = danger zone.
-/// e.g., if available=3200MB, baseline=731MB, headroom=2469MB,
-/// critical = 731 + 2469*0.60 = 2212MB
-const VAS_CRITICAL_PCT: f64 = 0.60;
+/// Remaining free VAS (bytes) at which VAS CRITICAL mode activates.
+/// Measured via live GlobalMemoryStatusEx -- always accurate.
+/// 400MB accounts for loading spikes + fragmentation overhead.
+pub const VAS_CRITICAL_REMAINING: usize = 400 * 1024 * 1024; // 400MB
 
-/// Percentage of headroom at which VAS EMERGENCY mode activates.
-/// 70% of headroom used = crisis mode.
-const VAS_EMERGENCY_PCT: f64 = 0.70;
+/// Remaining free VAS (bytes) at which VAS EMERGENCY mode activates.
+/// Below 200MB, allocations start failing from fragmentation alone.
+pub const VAS_EMERGENCY_REMAINING: usize = 200 * 1024 * 1024; // 200MB
 
-/// Minimum viable headroom (bytes) for VAS crisis management to be effective.
-/// Below this, our cleanup mechanisms (pool drain, mi_collect, cell unload)
-/// free less memory than the game allocates per cycle, making the crisis
-/// management counterproductive — it causes a death spiral instead of
-/// recovering memory. 500MB guarantees enough buffer for loading spikes.
-const MINIMUM_VIABLE_HEADROOM: usize = 500 * 1024 * 1024; // 500MB
+/// Headroom (free_vas_at_calibration) in bytes. Set during calibration,
+/// read by watchdog for proportional growth thresholds.
+static HEADROOM: AtomicUsize = AtomicUsize::new(0);
 
-/// Available VAS at startup, calculated once via VirtualQuery.
-/// Set during init, read at baseline calibration.
-static AVAILABLE_VAS: AtomicUsize = AtomicUsize::new(0);
-
-/// Dynamic VAS CRITICAL threshold (bytes). Calculated when baseline is calibrated.
-/// = baseline + (available_vas - baseline) * VAS_CRITICAL_PCT
-static VAS_CRITICAL_COMMIT: AtomicUsize = AtomicUsize::new(usize::MAX);
-
-/// Dynamic VAS EMERGENCY threshold (bytes).
-/// = baseline + (available_vas - baseline) * VAS_EMERGENCY_PCT
-static VAS_EMERGENCY_COMMIT: AtomicUsize = AtomicUsize::new(usize::MAX);
-
-/// Walk the process address space via VirtualQuery and sum all MEM_FREE regions.
-/// Returns total available virtual address space in bytes.
-/// Called once at startup (after all DLLs loaded).
-pub fn init_available_vas() -> usize {
-    use windows::Win32::System::Memory::{MEM_FREE, MEMORY_BASIC_INFORMATION, VirtualQuery};
-
-    let mut addr = 0x10000usize; // Skip NULL guard page
-    let mut available: usize = 0;
-
-    loop {
-        let mut mbi: MEMORY_BASIC_INFORMATION = unsafe { std::mem::zeroed() };
-        let result = unsafe {
-            VirtualQuery(
-                Some(addr as *const c_void),
-                &mut mbi,
-                std::mem::size_of::<MEMORY_BASIC_INFORMATION>(),
-            )
-        };
-        if result == 0 {
-            break; // End of address space
-        }
-        if mbi.State == MEM_FREE {
-            available += mbi.RegionSize;
-        }
-        addr = mbi.BaseAddress as usize + mbi.RegionSize;
-        // Safety check: prevent infinite loop on wraparound
-        if addr <= mbi.BaseAddress as usize {
-            break;
-        }
+/// Get current free VAS via GlobalMemoryStatusEx. One syscall, always
+/// accurate. Includes ALL reservations (DLLs, D3D9, mapped files).
+/// Returns ullAvailVirtual -- actual free user-mode address space.
+pub fn current_free_vas() -> usize {
+    use windows::Win32::System::SystemInformation::{GlobalMemoryStatusEx, MEMORYSTATUSEX};
+    let mut status: MEMORYSTATUSEX = unsafe { std::mem::zeroed() };
+    status.dwLength = std::mem::size_of::<MEMORYSTATUSEX>() as u32;
+    let ok = unsafe { GlobalMemoryStatusEx(&mut status) };
+    if ok.is_err() {
+        return usize::MAX; // cant read = assume plenty of VAS
     }
-
-    AVAILABLE_VAS.store(available, Ordering::Release);
-    log::info!(
-        "[VAS] Available: {}MB (address space scan complete)",
-        available / 1024 / 1024,
-    );
-    available
+    status.ullAvailVirtual as usize
 }
 
-/// Recalculate VAS thresholds based on the calibrated baseline commit.
+/// Calibrate watchdog headroom from live VAS measurement.
 /// Called when baseline_commit is first calibrated by PressureRelief.
-///
-/// If headroom is too small (< 500MB), VAS crisis management is disabled
-/// (thresholds set to MAX). Our cleanup mechanisms free less memory than
-/// the game allocates per cycle in tight headroom situations, making
-/// crisis management counterproductive — it causes a death spiral.
 pub fn calibrate_thresholds(baseline: usize) {
-    let available = AVAILABLE_VAS.load(Ordering::Acquire);
-    if available == 0 || baseline == 0 {
+    if baseline == 0 {
         return;
     }
-    let headroom = available.saturating_sub(baseline);
-
-    if headroom < MINIMUM_VIABLE_HEADROOM {
-        // Headroom too small — VAS crisis management would cause a death
-        // spiral instead of recovering memory. Disable it entirely.
-        VAS_CRITICAL_COMMIT.store(usize::MAX, Ordering::Release);
-        VAS_EMERGENCY_COMMIT.store(usize::MAX, Ordering::Release);
-
-        log::warn!(
-            "[VAS] Headroom too small ({}MB < 500MB). VAS crisis DISABLED. \
-             Game's own OOM handler will manage memory pressure.",
-            headroom / 1024 / 1024,
-        );
-        return;
-    }
-
-    let critical = baseline + ((headroom as f64 * VAS_CRITICAL_PCT) as usize);
-    let emergency = baseline + ((headroom as f64 * VAS_EMERGENCY_PCT) as usize);
-
-    VAS_CRITICAL_COMMIT.store(critical, Ordering::Release);
-    VAS_EMERGENCY_COMMIT.store(emergency, Ordering::Release);
+    let free_vas = current_free_vas();
+    // headroom = current free VAS (at calibration, commit ~ baseline)
+    HEADROOM.store(free_vas, Ordering::Release);
 
     log::info!(
-        "[VAS] Thresholds calibrated: baseline={}MB, headroom={}MB, critical={}MB ({}%), emergency={}MB ({}%)",
+        "[VAS] Calibrated: baseline={}MB, free_vas={}MB, \
+         critical_at=<{}MB free, emergency_at=<{}MB free",
         baseline / 1024 / 1024,
-        headroom / 1024 / 1024,
-        critical / 1024 / 1024,
-        (VAS_CRITICAL_PCT * 100.0) as u32,
-        emergency / 1024 / 1024,
-        (VAS_EMERGENCY_PCT * 100.0) as u32,
+        free_vas / 1024 / 1024,
+        VAS_CRITICAL_REMAINING / 1024 / 1024,
+        VAS_EMERGENCY_REMAINING / 1024 / 1024,
     );
 }
 
-/// Get the current VAS CRITICAL threshold.
-pub fn get_critical_commit() -> usize {
-    VAS_CRITICAL_COMMIT.load(Ordering::Acquire)
-}
-
-/// Get the current VAS EMERGENCY threshold.
-pub fn get_emergency_commit() -> usize {
-    VAS_EMERGENCY_COMMIT.load(Ordering::Acquire)
+/// Get calibrated headroom (available_vas - baseline). Used by watchdog
+/// for proportional growth thresholds. Returns 0 if not yet calibrated.
+pub fn get_headroom() -> usize {
+    HEADROOM.load(Ordering::Acquire)
 }
 
 pub fn set_vas_emergency(active: bool) {

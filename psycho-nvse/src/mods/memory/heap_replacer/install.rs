@@ -458,10 +458,6 @@ pub fn install_game_heap_hooks() -> anyhow::Result<()> {
 ///
 /// Must be called OUTSIDE DllMain, e.g. from NVSEPlugin_Load.
 pub fn start_deferred_threads() {
-    // Scan the process address space to measure available VAS.
-    // Must run after all DLLs are loaded (conhost, ENB, ReShade, etc.).
-    let _ = super::gheap::allocator::init_available_vas();
-
     // NOTE: Large allocation pool reservation DISABLED — causes VAS pressure
     // during startup. Large allocations use individual VirtualAlloc instead,
     // which returns pages to OS immediately via VirtualFree(MEM_RELEASE).

@@ -220,21 +220,21 @@ pub unsafe extern "C" fn hook_per_frame_queue_drain() {
     // process IO, but texture cache dead set protects against those.
     // The FreeNode header (usable_size at offset +4) subverts the
     // NiRefObject RefCount mechanism even after drain+reuse.
-    let vas_emergency_commit = allocator::get_emergency_commit();
-    let vas_critical_commit = allocator::get_critical_commit();
+    // Live VAS check via GlobalMemoryStatusEx -- always accurate.
+    // No stale snapshots, no commit-vs-reserved mismatch.
+    let free_vas = allocator::current_free_vas();
+    let vas_emergency_active =
+        free_vas < allocator::VAS_EMERGENCY_REMAINING
+            && !EMERGENCY_SUPPRESSED.load(Ordering::Relaxed);
+    let vas_critical = free_vas < allocator::VAS_CRITICAL_REMAINING;
 
-    // Death spiral suppression: if commit drops below emergency threshold,
+    // Death spiral suppression: if free VAS recovers above emergency,
     // clear the suppression flag so emergency can fire again next time.
-    if commit < vas_emergency_commit {
+    if free_vas >= allocator::VAS_EMERGENCY_REMAINING {
         EMERGENCY_SUPPRESSED.store(false, Ordering::Relaxed);
     }
 
-    // Emergency is active if commit exceeds threshold AND not suppressed.
-    let vas_emergency =
-        commit >= vas_emergency_commit && !EMERGENCY_SUPPRESSED.load(Ordering::Relaxed);
-    let vas_critical = commit >= vas_critical_commit;
-
-    allocator::set_vas_emergency(vas_emergency);
+    allocator::set_vas_emergency(vas_emergency_active);
 
     // Cap VAS EMERGENCY cycles: if 3+ consecutive cycles drain < 1MB,
     // we're in a death spiral. Disable emergency until commit drops
@@ -243,7 +243,7 @@ pub unsafe extern "C" fn hook_per_frame_queue_drain() {
     const MAX_INEFFECTIVE_EMERGENCY_CYCLES: u32 = 3;
     const MIN_EFFECTIVE_DRAIN_MB: usize = 1;
 
-    if vas_emergency {
+    if vas_emergency_active {
         let (decom_pages, decom_bytes) = unsafe { super::slab::decommit_sweep() };
         unsafe { libmimalloc::mi_collect(false) };
         let freed_mb = decom_bytes as usize / 1024 / 1024;
@@ -257,10 +257,10 @@ pub unsafe extern "C" fn hook_per_frame_queue_drain() {
                 EMERGENCY_SUPPRESSED.store(true, Ordering::Relaxed);
                 allocator::set_vas_emergency(false);
                 log::error!(
-                    "[VAS] EMERGENCY SUPPRESSED: {} ineffective cycles, commit={}MB, threshold={}MB, decommitted {} pages",
+                    "[VAS] EMERGENCY SUPPRESSED: {} ineffective cycles, free_vas={}MB, commit={}MB, decommitted {} pages",
                     count,
+                    free_vas / 1024 / 1024,
                     commit / 1024 / 1024,
-                    vas_emergency_commit / 1024 / 1024,
                     decom_pages,
                 );
             }
@@ -273,7 +273,8 @@ pub unsafe extern "C" fn hook_per_frame_queue_drain() {
         // O(total_memory) traversal every frame during crisis.
         try_mi_collect_true();
         log::error!(
-            "[VAS] EMERGENCY: commit={}MB, decommitted {} pages, slab={}MB",
+            "[VAS] EMERGENCY: free_vas={}MB, commit={}MB, decommitted {} pages, slab={}MB",
+            free_vas / 1024 / 1024,
             commit / 1024 / 1024,
             decom_pages,
             super::slab::committed_bytes() / 1024 / 1024,
@@ -284,12 +285,14 @@ pub unsafe extern "C" fn hook_per_frame_queue_drain() {
         EMERGENCY_INEFFECTIVE.store(0, Ordering::Relaxed);
 
         if vas_critical {
-            // F2: Drain ALL pool blocks (not just >= 1KB).
-            // The 127MB pool is entirely small blocks (< 1KB). drain_large returns 0.
+            // F2: Slab decommit sweep + lightweight mi_collect.
+            // With corrected remaining-VAS thresholds, CRITICAL only fires
+            // when < 400MB free VAS. Keep the per-frame cost low.
             let (cp, _cb) = unsafe { super::slab::decommit_sweep() };
             unsafe { libmimalloc::mi_collect(false) };
             log::warn!(
-                "[VAS] CRITICAL: commit={}MB, decommitted {} pages, slab={}MB",
+                "[VAS] CRITICAL: free_vas={}MB, commit={}MB, decommitted {} pages, slab={}MB",
+                free_vas / 1024 / 1024,
                 commit / 1024 / 1024,
                 cp,
                 super::slab::committed_bytes() / 1024 / 1024,
@@ -322,7 +325,7 @@ pub unsafe extern "C" fn hook_per_frame_queue_drain() {
         }
     }
 
-    if request >= 1 && !vas_emergency {
+    if request >= 1 && !vas_emergency_active {
         // Stage 2 max: texture, geometry, menu cache cleanup.
         // Stage 3+ (HavokGC / FUN_00c459d0) MUST go through destruction_protocol
         // which has Havok locking + AI safety. Signaling stage 3+ here runs

@@ -37,18 +37,20 @@ const POLL_MS: u32 = 250;
 /// 20 polls * 250ms = 5 seconds, matching the old monitor interval.
 const LOG_INTERVAL: u32 = 20;
 
-/// Early warning: catch growth trend before it becomes a crisis.
-/// Triggers level 1 (HeapCompact + PDD) when growth is moderate but
-/// rate is sustained. Prevents the 350MB threshold from being the
-/// first reaction -- by then commit may already be too high to
-/// recover with 30s decommit delay.
-const EARLY_WARNING_GROWTH: usize = 200 * 1024 * 1024; // 200MB
-const EARLY_WARNING_RATE: i32 = 5 * 1024 * 1024; // 5MB/s sustained
+/// Growth thresholds as fraction of headroom (available_vas - baseline).
+/// Proportional thresholds adapt to any modpack size:
+///   Light (headroom=2596MB): normal=779, aggressive=1298, critical=1817
+///   Heavy (headroom=1960MB): normal=588, aggressive=980, critical=1372
+///
+/// Fallback absolute values used when headroom is not yet calibrated.
+const NORMAL_GROWTH_PCT: f64 = 0.30;
+const AGGRESSIVE_GROWTH_PCT: f64 = 0.50;
+const CRITICAL_GROWTH_PCT: f64 = 0.70;
 
-/// Growth thresholds above baseline commit.
-const NORMAL_GROWTH: usize = 350 * 1024 * 1024; // 350MB
-const AGGRESSIVE_GROWTH: usize = 500 * 1024 * 1024; // 500MB
-const CRITICAL_GROWTH: usize = 700 * 1024 * 1024; // 700MB
+/// Absolute fallback thresholds before headroom is calibrated.
+const NORMAL_GROWTH_FALLBACK: usize = 500 * 1024 * 1024;
+const AGGRESSIVE_GROWTH_FALLBACK: usize = 800 * 1024 * 1024;
+const CRITICAL_GROWTH_FALLBACK: usize = 1200 * 1024 * 1024;
 
 /// During loading, lower all thresholds by this amount.
 const LOADING_THRESHOLD_REDUCTION: usize = 200 * 1024 * 1024; // 200MB
@@ -132,11 +134,11 @@ impl Watchdog {
             .expect("failed to spawn watchdog thread");
 
         log::info!(
-            "[WATCHDOG] Started (poll={}ms, normal={}MB, aggressive={}MB, critical={}MB)",
+            "[WATCHDOG] Started (poll={}ms, growth thresholds={}%/{}%/{}% of headroom)",
             POLL_MS,
-            NORMAL_GROWTH / 1024 / 1024,
-            AGGRESSIVE_GROWTH / 1024 / 1024,
-            CRITICAL_GROWTH / 1024 / 1024,
+            (NORMAL_GROWTH_PCT * 100.0) as u32,
+            (AGGRESSIVE_GROWTH_PCT * 100.0) as u32,
+            (CRITICAL_GROWTH_PCT * 100.0) as u32,
         );
 
         Self {
@@ -200,9 +202,26 @@ fn watchdog_loop(run: Arc<AtomicBool>) {
         let baseline = pr.baseline_commit();
         let loading = globals::is_loading();
 
-        // Use baseline-relative thresholds when calibrated, or absolute
-        // fallback when baseline is not yet available (early gameplay).
-        let (growth, normal_thresh, aggressive_thresh, critical_thresh) = if baseline > 0 {
+        // Proportional thresholds: fraction of headroom, adapts to any modpack.
+        // During loading, reduce thresholds by LOADING_THRESHOLD_REDUCTION.
+        let headroom = super::allocator::get_headroom();
+        let (growth, normal_thresh, aggressive_thresh, critical_thresh) = if baseline > 0
+            && headroom > 0
+        {
+            let reduction = if loading {
+                LOADING_THRESHOLD_REDUCTION
+            } else {
+                0
+            };
+            let g = commit.saturating_sub(baseline);
+            let normal = ((headroom as f64 * NORMAL_GROWTH_PCT) as usize).saturating_sub(reduction);
+            let aggressive =
+                ((headroom as f64 * AGGRESSIVE_GROWTH_PCT) as usize).saturating_sub(reduction);
+            let critical =
+                ((headroom as f64 * CRITICAL_GROWTH_PCT) as usize).saturating_sub(reduction);
+            (g, normal, aggressive, critical)
+        } else if baseline > 0 {
+            // Headroom not calibrated yet but baseline is. Use fallback.
             let reduction = if loading {
                 LOADING_THRESHOLD_REDUCTION
             } else {
@@ -211,13 +230,12 @@ fn watchdog_loop(run: Arc<AtomicBool>) {
             let g = commit.saturating_sub(baseline);
             (
                 g,
-                NORMAL_GROWTH.saturating_sub(reduction),
-                AGGRESSIVE_GROWTH.saturating_sub(reduction),
-                CRITICAL_GROWTH.saturating_sub(reduction),
+                NORMAL_GROWTH_FALLBACK.saturating_sub(reduction),
+                AGGRESSIVE_GROWTH_FALLBACK.saturating_sub(reduction),
+                CRITICAL_GROWTH_FALLBACK.saturating_sub(reduction),
             )
         } else {
             // Baseline not calibrated yet -- use absolute commit thresholds.
-            // This prevents a blind spot during early gameplay.
             let reduction = if loading {
                 LOADING_THRESHOLD_REDUCTION
             } else {
@@ -232,29 +250,22 @@ fn watchdog_loop(run: Arc<AtomicBool>) {
             )
         };
 
-        // Dynamic rate floor for Normal cleanup: proportional to headroom.
-        // Far from critical = high floor (relaxed). Close to critical = low
-        // floor (sensitive). Adapts to any mod load / VAS configuration.
+        // Dynamic rate floor for Normal cleanup: proportional to free VAS.
+        // Lots of free VAS = high floor (relaxed). Low free VAS = low floor
+        // (sensitive). Uses live measurement, adapts to any mod configuration.
         let rate_floor = {
-            let critical = super::allocator::get_critical_commit();
-            if critical > 0 && commit < critical {
-                let headroom = (critical - commit) as i64;
-                (headroom / NORMAL_REACT_TIME_SECS).max(MIN_NORMAL_RATE as i64) as i32
-            } else if critical > 0 {
-                0 // at or above critical -- always clean
+            let free_vas = super::allocator::current_free_vas();
+            if free_vas > super::allocator::VAS_CRITICAL_REMAINING {
+                let margin = (free_vas - super::allocator::VAS_CRITICAL_REMAINING) as i64;
+                (margin / NORMAL_REACT_TIME_SECS).max(MIN_NORMAL_RATE as i64) as i32
+            } else if free_vas <= super::allocator::VAS_CRITICAL_REMAINING {
+                0 // at or below critical free VAS -- always clean
             } else {
-                0 // not calibrated yet -- conservative default
+                0 // fallback
             }
         };
 
         let mut level: u8 = 0;
-
-        // Early warning: catch sustained growth before it reaches Normal threshold.
-        // Level 1 only (HeapCompact + PDD drain, NOT destruction_protocol).
-        // Gives per-frame cleanup time to stabilize commit before escalation.
-        if growth >= EARLY_WARNING_GROWTH && prev_rate > EARLY_WARNING_RATE && !loading {
-            level = 1;
-        }
 
         // Critical: aggressive only when commit is actively growing.
         // After cell transitions, the new steady state can legitimately exceed
