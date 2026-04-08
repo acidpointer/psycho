@@ -643,9 +643,14 @@ unsafe fn do_recover_oom(size: usize) -> *mut c_void {
 
             libpsycho::os::windows::winapi::sleep(1);
 
-            // Periodic mi_collect to decommit freed pages.
+            // Periodic cleanup: decommit aged slab dirty pages (respects 30s
+            // delay, force=false) + mi_collect. Worker can self-recover VAS
+            // from pages that have been dirty >30s without main thread help.
             if iter.is_multiple_of(50) {
-                unsafe { mi_collect(false) };
+                unsafe {
+                    super::slab::decommit_sweep_full(false);
+                    mi_collect(false);
+                }
             }
 
             let ptr = unsafe { retry_alloc(size) };

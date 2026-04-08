@@ -11,6 +11,7 @@
 //!
 //! Thread safety: spinlock per arena. Main + workers share arenas.
 
+use std::cell::Cell;
 use std::ptr;
 use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering};
 
@@ -302,22 +303,25 @@ impl SlabArena {
 
     /// Claim a page index for committing (Tier 2: dirty, Tier 3: virgin).
     /// Called under lock. Removes page from dirty list or advances hwm.
-    /// Returns None if arena exhausted. No syscall.
-    fn claim_page_for_commit(&mut self) -> Option<u32> {
-        // Tier 2: reclaim a dirty (decommitted) page
+    /// Returns (page_idx, needs_commit): needs_commit is false when the
+    /// dirty page hasn't been decommitted yet (dirty < 30s), so the caller
+    /// can skip the VirtualAlloc syscall entirely.
+    fn claim_page_for_commit(&mut self) -> Option<(u32, bool)> {
+        // Tier 2: reclaim a dirty page (may or may not be decommitted)
         if self.dirty_head != EMPTY {
             let page_idx = self.dirty_head;
             let page = unsafe { &mut *self.page_ptr(page_idx) };
+            let needs_commit = !page.committed; // still committed = skip VirtualAlloc
             self.dirty_head = page.next_dirty;
             self.dirty_count -= 1;
             page.next_dirty = EMPTY;
-            return Some(page_idx);
+            return Some((page_idx, needs_commit));
         }
-        // Tier 3: claim a virgin page
+        // Tier 3: claim a virgin page (always needs commit)
         if self.committed_hwm < self.page_count {
             let page_idx = self.committed_hwm;
             self.committed_hwm += 1;
-            return Some(page_idx);
+            return Some((page_idx, true));
         }
         None
     }
@@ -375,9 +379,10 @@ impl SlabArena {
     /// When `skip_cold` is true (destruction freeze), skips Tier 1 (recycled
     /// cells) to preserve FreeNode headers for stale pointers during teardown.
     ///
-    /// Returns (ptr, needs_second_phase). If needs_second_phase is true, the
-    /// lock was released and VirtualAlloc must run before re-acquiring.
-    unsafe fn alloc_phase1(&mut self, skip_cold: bool) -> (*mut c_void, Option<u32>) {
+    /// Returns (ptr, pending_page). pending_page is Some((page_idx, needs_commit))
+    /// when Tier 2/3 needs a page committed outside the lock.
+    /// needs_commit=false when dirty page is still physically committed (skip VirtualAlloc).
+    unsafe fn alloc_phase1(&mut self, skip_cold: bool) -> (*mut c_void, Option<(u32, bool)>) {
         // Tier 1: pop from a COLD partial page (cells have cooled down, safe to reuse)
         // SKIPPED during destruction_freeze to prevent overwriting FreeNode headers
         // that stale pointers in the game's cell unload code still reference.
@@ -411,9 +416,9 @@ impl SlabArena {
         }
 
         // Tier 2/3: need to commit a page. Claim the index under lock,
-        // then caller will VirtualAlloc outside lock and call carve.
+        // then caller will VirtualAlloc outside lock (if needed) and call carve.
         match self.claim_page_for_commit() {
-            Some(page_idx) => (ptr::null_mut(), Some(page_idx)),
+            Some(claim) => (ptr::null_mut(), Some(claim)),
             None => (ptr::null_mut(), None), // arena exhausted
         }
     }
@@ -642,21 +647,51 @@ impl SlabArena {
 // ---------------------------------------------------------------------------
 
 /// Arenas swept per frame in the amortized decommit path.
-/// Full cycle in 4 frames (~66ms at 60fps). The 30s decommit delay
-/// means the extra ~66ms worst-case latency is negligible (0.2%).
+/// Full cycle completes in ceil(TOTAL_ARENAS/7) frames. The 30s decommit
+/// delay means the extra latency is negligible.
 const ARENAS_PER_SWEEP: usize = 7;
+
+/// Classes 0-7 (16-128B) are sharded: 2 arenas each to halve contention.
+/// These handle 90%+ of game allocations. Thread ID hashes to select shard.
+const SHARDED_CLASSES: usize = 8;
+const SHARDS_PER_CLASS: usize = 2;
+
+/// Total physical arenas: 35 base + 8 extra shards for classes 0-7.
+const TOTAL_ARENAS: usize = NUM_CLASSES + SHARDED_CLASSES;
+
+/// Shard offset: shard 1 copies live at indices NUM_CLASSES..NUM_CLASSES+SHARDED_CLASSES.
+const SHARD1_BASE: usize = NUM_CLASSES;
+
+thread_local! {
+    /// Cached shard index for this thread (0 or 1). Lazily initialized from thread ID.
+    static SHARD_IDX: Cell<u8> = const { Cell::new(u8::MAX) };
+}
+
+#[inline]
+fn get_shard() -> usize {
+    SHARD_IDX.with(|c| {
+        let v = c.get();
+        if v != u8::MAX {
+            return v as usize;
+        }
+        let tid = libpsycho::os::windows::winapi::get_current_thread_id();
+        let shard = (tid as usize) % SHARDS_PER_CLASS;
+        c.set(shard as u8);
+        shard
+    })
+}
 
 #[allow(dead_code)]
 pub struct SlabAllocator {
-    arenas: [SlabArena; NUM_CLASSES],
+    arenas: [SlabArena; TOTAL_ARENAS],
     superblock_base: *mut u8,
     superblock_end: *mut u8,
     superblock_size: usize,
-    /// size_to_arena[i] = arena index for request size (i * ALIGN) bytes.
-    /// Covers sizes ALIGN..MAX_SLAB_SIZE. Index 0 is unused (size 0).
+    /// size_to_arena[i] = BASE arena index for request size (i * ALIGN) bytes.
+    /// For sharded classes (0-7), alloc adds shard offset to select copy.
     size_to_arena: Box<[u8; MAX_SLAB_SIZE / ALIGN + 1]>,
-    /// page_to_arena[page_index_in_superblock] = arena index.
-    /// For O(1) free path lookup.
+    /// page_to_arena[page_index_in_superblock] = PHYSICAL arena index.
+    /// For O(1) free/msize path lookup. Routes to correct shard automatically.
     page_to_arena: Vec<u8>,
     /// Round-robin cursor for amortized decommit sweep.
     sweep_cursor: AtomicU32,
@@ -667,10 +702,15 @@ unsafe impl Sync for SlabAllocator {}
 
 impl SlabAllocator {
     /// Initialize the slab allocator. Reserves VAS for all arenas.
+    /// Classes 0-7 (16-128B) are sharded: 2 arenas each for reduced contention.
     pub fn init() -> Option<Self> {
-        // Calculate total reservation
+        // Calculate total reservation: base classes + shard copies
         let mut total: usize = 0;
         for i in 0..NUM_CLASSES {
+            total += arena_size_for_class(i);
+        }
+        // Extra arenas for shard 1 copies of classes 0-7
+        for i in 0..SHARDED_CLASSES {
             total += arena_size_for_class(i);
         }
 
@@ -695,7 +735,7 @@ impl SlabAllocator {
             sweep_cursor: AtomicU32::new(0),
         };
 
-        // Initialize arenas within the superblock
+        // Initialize base arenas (all 35 classes) within the superblock
         let mut offset: usize = 0;
         for (idx, cl) in SIZE_CLASSES.iter().enumerate() {
             let arena_sz = arena_size_for_class(idx);
@@ -704,12 +744,29 @@ impl SlabAllocator {
             slab.arenas[idx].init(arena_base, arena_sz, *cl, page_sz);
 
             // Fill page_to_arena at OS_PAGE_SIZE granularity.
-            // For arenas with logical pages > 4KB, multiple OS-page
-            // entries point to the same arena index.
             let start_os_page = offset / OS_PAGE_SIZE;
             let os_page_count = arena_sz / OS_PAGE_SIZE;
             for p in start_os_page..start_os_page + os_page_count {
                 slab.page_to_arena[p] = idx as u8;
+            }
+
+            offset += arena_sz;
+        }
+
+        // Initialize shard 1 copies for classes 0-7 (16-128B).
+        // These are physically separate arenas at indices SHARD1_BASE..SHARD1_BASE+8.
+        for i in 0..SHARDED_CLASSES {
+            let cl = SIZE_CLASSES[i];
+            let arena_sz = arena_size_for_class(i);
+            let page_sz = page_size_for_class(cl);
+            let arena_base = unsafe { base.add(offset) };
+            let phys_idx = SHARD1_BASE + i;
+            slab.arenas[phys_idx].init(arena_base, arena_sz, cl, page_sz);
+
+            let start_os_page = offset / OS_PAGE_SIZE;
+            let os_page_count = arena_sz / OS_PAGE_SIZE;
+            for p in start_os_page..start_os_page + os_page_count {
+                slab.page_to_arena[p] = phys_idx as u8;
             }
 
             offset += arena_sz;
@@ -730,11 +787,12 @@ impl SlabAllocator {
         }
 
         log::info!(
-            "[SLAB] Init: {} classes, {}MB reserved at {:p}, {} os-pages",
+            "[SLAB] Init: {} classes ({} sharded), {} arenas, {}MB reserved at {:p}",
             NUM_CLASSES,
+            SHARDED_CLASSES,
+            TOTAL_ARENAS,
             total / 1024 / 1024,
             base,
-            total / OS_PAGE_SIZE,
         );
 
         Some(slab)
@@ -760,32 +818,41 @@ impl SlabAllocator {
         }
         unsafe {
             let slot = size.div_ceil(ALIGN);
-            let arena_idx = self.size_to_arena[slot] as usize;
+            let base_idx = self.size_to_arena[slot] as usize;
+            // Sharded classes (0-7): select shard based on thread ID
+            let arena_idx = if base_idx < SHARDED_CLASSES && get_shard() != 0 {
+                SHARD1_BASE + base_idx
+            } else {
+                base_idx
+            };
             let arena = &self.arenas[arena_idx] as *const SlabArena as *mut SlabArena;
 
             let skip_cold = DESTRUCTION_FREEZE.load(Ordering::Relaxed);
 
             // Phase 1: try cold pop under lock (fast path, O(1))
             (*arena).acquire();
-            let (ptr, pending_page) = (*arena).alloc_phase1(skip_cold);
+            let (ptr, pending) = (*arena).alloc_phase1(skip_cold);
             (*arena).release();
 
             if !ptr.is_null() {
                 return ptr; // Tier 1 hit
             }
 
-            // Phase 2: VirtualAlloc outside the lock, then carve under lock
-            if let Some(page_idx) = pending_page {
-                let addr = (*arena).page_addr(page_idx);
-                let page_size = (*arena).page_size;
+            // Phase 2: VirtualAlloc outside the lock (if needed), then carve
+            if let Some((page_idx, needs_commit)) = pending {
+                if needs_commit {
+                    let addr = (*arena).page_addr(page_idx);
+                    let page_size = (*arena).page_size;
 
-                // VirtualAlloc with NO lock held -- other threads can alloc/free
-                let _ = VirtualAlloc(
-                    Some(addr as *const c_void),
-                    page_size,
-                    MEM_COMMIT,
-                    PAGE_READWRITE,
-                );
+                    // VirtualAlloc with NO lock held -- other threads can alloc/free
+                    let _ = VirtualAlloc(
+                        Some(addr as *const c_void),
+                        page_size,
+                        MEM_COMMIT,
+                        PAGE_READWRITE,
+                    );
+                }
+                // else: dirty page still physically committed, skip syscall
 
                 // Re-acquire to carve cells and wire into freelist
                 (*arena).acquire();
@@ -856,31 +923,31 @@ impl SlabAllocator {
     }
 
     /// Amortized decommit sweep: process ARENAS_PER_SWEEP arenas per call.
-    /// Full cycle completes in 5 frames (~83ms at 60fps). Called from Phase 7.
+    /// Covers all TOTAL_ARENAS (base + shard copies). Called from Phase 7.
     /// VirtualFree runs outside the arena lock to avoid stalling alloc/free.
     pub unsafe fn decommit_sweep(&self) -> (u32, u32) {
         let start = self.sweep_cursor.load(Ordering::Relaxed) as usize;
         let mut total_pages = 0u32;
         let mut total_bytes = 0u32;
         for offset in 0..ARENAS_PER_SWEEP {
-            let i = (start + offset) % NUM_CLASSES;
+            let i = (start + offset) % TOTAL_ARENAS;
             let (p, b) = unsafe { self.decommit_arena(i, false) };
             total_pages += p;
             total_bytes += b;
         }
         self.sweep_cursor.store(
-            ((start + ARENAS_PER_SWEEP) % NUM_CLASSES) as u32,
+            ((start + ARENAS_PER_SWEEP) % TOTAL_ARENAS) as u32,
             Ordering::Relaxed,
         );
         (total_pages, total_bytes)
     }
 
-    /// Full decommit sweep across ALL arenas. Used during loading
-    /// transitions and OOM recovery where we need immediate reclaim.
+    /// Full decommit sweep across ALL arenas (base + shards).
+    /// Used during loading transitions and OOM recovery.
     pub unsafe fn decommit_sweep_full(&self, force: bool) -> (u32, u32) {
         let mut total_pages = 0u32;
         let mut total_bytes = 0u32;
-        for i in 0..NUM_CLASSES {
+        for i in 0..TOTAL_ARENAS {
             let (p, b) = unsafe { self.decommit_arena(i, force) };
             total_pages += p;
             total_bytes += b;
@@ -888,20 +955,20 @@ impl SlabAllocator {
         (total_pages, total_bytes)
     }
 
-    /// Get total committed bytes across all arenas.
+    /// Get total committed bytes across all arenas (base + shards).
     pub fn committed_bytes(&self) -> usize {
         let mut total = 0usize;
-        for arena in &self.arenas {
-            total += arena.committed_pages as usize * arena.page_size;
+        for i in 0..TOTAL_ARENAS {
+            total += self.arenas[i].committed_pages as usize * self.arenas[i].page_size;
         }
         total
     }
 
-    /// Get total dirty page count across all arenas.
+    /// Get total dirty page count across all arenas (base + shards).
     pub fn dirty_pages(&self) -> u32 {
         let mut total = 0u32;
-        for arena in &self.arenas {
-            total += arena.dirty_count;
+        for i in 0..TOTAL_ARENAS {
+            total += self.arenas[i].dirty_count;
         }
         total
     }

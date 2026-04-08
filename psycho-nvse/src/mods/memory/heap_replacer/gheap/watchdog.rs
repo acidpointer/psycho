@@ -37,6 +37,14 @@ const POLL_MS: u32 = 250;
 /// 20 polls * 250ms = 5 seconds, matching the old monitor interval.
 const LOG_INTERVAL: u32 = 20;
 
+/// Early warning: catch growth trend before it becomes a crisis.
+/// Triggers level 1 (HeapCompact + PDD) when growth is moderate but
+/// rate is sustained. Prevents the 350MB threshold from being the
+/// first reaction -- by then commit may already be too high to
+/// recover with 30s decommit delay.
+const EARLY_WARNING_GROWTH: usize = 200 * 1024 * 1024; // 200MB
+const EARLY_WARNING_RATE: i32 = 5 * 1024 * 1024; // 5MB/s sustained
+
 /// Growth thresholds above baseline commit.
 const NORMAL_GROWTH: usize = 350 * 1024 * 1024; // 350MB
 const AGGRESSIVE_GROWTH: usize = 500 * 1024 * 1024; // 500MB
@@ -240,6 +248,13 @@ fn watchdog_loop(run: Arc<AtomicBool>) {
         };
 
         let mut level: u8 = 0;
+
+        // Early warning: catch sustained growth before it reaches Normal threshold.
+        // Level 1 only (HeapCompact + PDD drain, NOT destruction_protocol).
+        // Gives per-frame cleanup time to stabilize commit before escalation.
+        if growth >= EARLY_WARNING_GROWTH && prev_rate > EARLY_WARNING_RATE && !loading {
+            level = 1;
+        }
 
         // Critical: aggressive only when commit is actively growing.
         // After cell transitions, the new steady state can legitimately exceed
