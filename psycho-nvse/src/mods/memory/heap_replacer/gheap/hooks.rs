@@ -502,6 +502,14 @@ unsafe fn on_loading_start() {
     // Enable loading bypass immediately. Subsequent frees during loading
     // go directly to mi_free for immediate VAS recovery.
     allocator::set_loading_bypass(true);
+
+    // Freeze cold cell reuse during loading. Havok broadphase and AI
+    // hold raw pointers to objects from the OLD cell. If slab recycles
+    // those cells for NEW cell data, stale readers do virtual dispatch
+    // through the new data → eip = garbage → crash.
+    // Confirmed crash: eip=0x6F697461 (ASCII "iato") after coc command
+    // reused a 256B cell whose FreeNode was overwritten by path string.
+    super::slab::set_destruction_freeze(true);
 }
 
 // First frame after loading ends. Disable loading bypass, resume normal pooling.
@@ -531,6 +539,10 @@ fn on_loading_end() {
 
     // Step 2: Clear loading bypass (frees now go to pool)
     allocator::set_loading_bypass(false);
+
+    // Unfreeze cold cell reuse. Loading is done, Havok world is rebuilt
+    // for the new cell. Old stale pointers are gone.
+    super::slab::set_destruction_freeze(false);
 
     let info = libmimalloc::process_info::MiMallocProcessInfo::get();
     log::info!(
