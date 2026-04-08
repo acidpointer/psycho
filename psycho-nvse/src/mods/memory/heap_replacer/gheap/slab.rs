@@ -78,7 +78,7 @@ pub const MAX_SLAB_SIZE: usize = 16384;
 
 /// Arena reservation sizes per tier (in bytes).
 /// Small classes are more popular, get larger arenas.
-#[allow(clippy::if_same_then_else)]
+#[allow(clippy::if_same_then_else, clippy::identity_op)]
 const fn arena_size_for_class(idx: usize) -> usize {
     if idx < 8 {
         8 * 1024 * 1024
@@ -111,7 +111,7 @@ const fn page_size_for_class(cell_size: u16) -> usize {
     // need at least 2 cells per logical page
     let needed = (cell_size as usize) * 2;
     // round up to OS page boundary
-    let pages = (needed + OS_PAGE_SIZE - 1) / OS_PAGE_SIZE;
+    let pages = needed.div_ceil(OS_PAGE_SIZE);
     pages * OS_PAGE_SIZE
 }
 
@@ -755,13 +755,12 @@ impl SlabAllocator {
 
         // Initialize shard 1 copies for classes 0-7 (16-128B).
         // These are physically separate arenas at indices SHARD1_BASE..SHARD1_BASE+8.
-        for i in 0..SHARDED_CLASSES {
-            let cl = SIZE_CLASSES[i];
-            let arena_sz = arena_size_for_class(i);
-            let page_sz = page_size_for_class(cl);
+        for (idx, cl) in SIZE_CLASSES.iter().take(SHARDED_CLASSES).enumerate() {
+            let arena_sz = arena_size_for_class(idx);
+            let page_sz = page_size_for_class(*cl);
             let arena_base = unsafe { base.add(offset) };
-            let phys_idx = SHARD1_BASE + i;
-            slab.arenas[phys_idx].init(arena_base, arena_sz, cl, page_sz);
+            let phys_idx = SHARD1_BASE + idx;
+            slab.arenas[phys_idx].init(arena_base, arena_sz, *cl, page_sz);
 
             let start_os_page = offset / OS_PAGE_SIZE;
             let os_page_count = arena_sz / OS_PAGE_SIZE;
@@ -906,9 +905,8 @@ impl SlabAllocator {
             }
 
             // Phase 2: VirtualFree outside the lock
-            for i in 0..count {
-                let (addr, size) = batch[i];
-                let _ = unsafe { VirtualFree(addr as *mut c_void, size, MEM_DECOMMIT) };
+            for (addr, size) in batch.iter().take(count) {
+                let _ = unsafe { VirtualFree(*addr as *mut c_void, *size, MEM_DECOMMIT) };
             }
 
             total_pages += count as u32;

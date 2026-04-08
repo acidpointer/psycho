@@ -246,9 +246,14 @@ impl PressureRelief {
             }
         }
 
-        // DeferredCleanupSmall ONCE after ALL cells unloaded.
-        // This processes the complete set of queued references from all cells.
+        // Full PDD drain BEFORE DeferredCleanupSmall. Cell unload queues
+        // BSTreeNode children to PDD NiNode queue. Without full drain,
+        // per-frame PDD (rate-limited 10-20/frame) can't keep up after
+        // bulk cell unload. BSTreeNode parent destructors then Release
+        // already-freed children --> RefCount:0 --> C0000417 crash.
+        // Ghidra-verified: FUN_00868d70 is the full PDD purge.
         if cells > 0 {
+            unsafe { globals::pdd_purge() };
             unsafe { globals::deferred_cleanup_small(state[5]) };
         }
 
