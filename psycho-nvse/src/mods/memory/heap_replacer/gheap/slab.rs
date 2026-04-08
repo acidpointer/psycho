@@ -207,15 +207,16 @@ struct SlabArena {
     reserved: usize,
     cell_size: u16,
     cells_per_page: u16,
-    page_size: usize,     // logical page size (may be > OS_PAGE_SIZE for large classes)
+    page_size: usize,        // logical page size (may be > OS_PAGE_SIZE for large classes)
     page_count: u32,
-    pages: *mut PageInfo, // metadata array, separately allocated
-    cold_head: u32,       // pages with reusable free cells (cooled down)
-    hot_head: u32,        // pages with recently freed cells (cooling)
-    dirty_head: u32,      // pages with refcount==0
+    pages: *mut PageInfo,    // metadata array, separately allocated
+    cold_head: u32,          // pages with reusable free cells (cooled down)
+    hot_head: u32,           // pages with recently freed cells (cooling)
+    dirty_head: u32,         // pages with refcount==0
     dirty_count: u32,
-    committed_hwm: u32,   // virgin page watermark
-    committed_pages: u32, // currently committed page count
+    committed_hwm: u32,      // virgin page watermark
+    committed_pages: u32,    // currently committed page count
+    hot_promote_cursor: u32, // amortized hot->cold promotion cursor
     lock: AtomicU32,
 }
 
@@ -238,6 +239,7 @@ impl SlabArena {
             dirty_count: 0,
             committed_hwm: 0,
             committed_pages: 0,
+            hot_promote_cursor: EMPTY,
             lock: AtomicU32::new(0),
         }
     }
@@ -298,19 +300,33 @@ impl SlabArena {
         unsafe { self.pages.add(idx as usize) }
     }
 
-    /// Commit a page and carve it into cells. Returns first cell, pushes
-    /// rest onto page's local freelist.
-    unsafe fn commit_and_carve(&mut self, page_idx: u32) -> *mut c_void {
-        let addr = self.page_addr(page_idx);
-        let _ = unsafe {
-            VirtualAlloc(
-                Some(addr as *const c_void),
-                self.page_size,
-                MEM_COMMIT,
-                PAGE_READWRITE,
-            )
-        };
+    /// Claim a page index for committing (Tier 2: dirty, Tier 3: virgin).
+    /// Called under lock. Removes page from dirty list or advances hwm.
+    /// Returns None if arena exhausted. No syscall.
+    fn claim_page_for_commit(&mut self) -> Option<u32> {
+        // Tier 2: reclaim a dirty (decommitted) page
+        if self.dirty_head != EMPTY {
+            let page_idx = self.dirty_head;
+            let page = unsafe { &mut *self.page_ptr(page_idx) };
+            self.dirty_head = page.next_dirty;
+            self.dirty_count -= 1;
+            page.next_dirty = EMPTY;
+            return Some(page_idx);
+        }
+        // Tier 3: claim a virgin page
+        if self.committed_hwm < self.page_count {
+            let page_idx = self.committed_hwm;
+            self.committed_hwm += 1;
+            return Some(page_idx);
+        }
+        None
+    }
 
+    /// Carve a freshly committed page into cells. Called under lock AFTER
+    /// VirtualAlloc completed outside the lock. Returns first cell, pushes
+    /// rest onto page's local freelist with FreeNode UAF headers.
+    unsafe fn carve_committed_page(&mut self, page_idx: u32) -> *mut c_void {
+        let addr = self.page_addr(page_idx);
         let page = unsafe { &mut *self.page_ptr(page_idx) };
         page.committed = true;
         page.refcount = 1; // caller gets the first cell
@@ -322,16 +338,9 @@ impl SlabArena {
         let cs = self.cell_size as usize;
 
         // Push cells 1..N onto local freelist (cell 0 goes to caller).
-        // Write FULL FreeNode headers — not just next pointer. After
-        // recommit (VirtualAlloc MEM_COMMIT) the page is zeroed. If a
-        // stale reader (IOTask::DecRef) accesses offset 0 before the
-        // cell is allocated, it would read vtable=0 → eip=0 → crash.
-        // Writing a non-zero vtable-like value at offset 0 and usable_size
-        // at offset 4 provides the same UAF protection as a normal free.
-        // We use RDATA_START (0x01000000) as a dummy vtable — any virtual
-        // dispatch through it reads valid game code addresses, preventing
-        // immediate NULL dereference. This is defense-in-depth; the cell
-        // should not be accessed before it's allocated and initialized.
+        // Write FULL FreeNode headers for UAF protection. After recommit
+        // the page is zeroed; stale readers would see vtable=0 -> crash.
+        // RDATA_START (0x01000000) as dummy vtable prevents NULL deref.
         let dummy_vtable = 0x01000000usize as *const c_void;
         let cell_size_val = self.cell_size as u32;
         for i in (1..cpp).rev() {
@@ -360,10 +369,15 @@ impl SlabArena {
         addr as *mut c_void
     }
 
-    /// Allocate a cell from this arena. Returns null if arena exhausted.
+    /// Two-phase alloc: fast path (Tier 1) under lock, slow path (Tier 2/3)
+    /// releases lock during VirtualAlloc syscall to avoid stalling other threads.
+    ///
     /// When `skip_cold` is true (destruction freeze), skips Tier 1 (recycled
     /// cells) to preserve FreeNode headers for stale pointers during teardown.
-    unsafe fn alloc(&mut self, skip_cold: bool) -> *mut c_void {
+    ///
+    /// Returns (ptr, needs_second_phase). If needs_second_phase is true, the
+    /// lock was released and VirtualAlloc must run before re-acquiring.
+    unsafe fn alloc_phase1(&mut self, skip_cold: bool) -> (*mut c_void, Option<u32>) {
         // Tier 1: pop from a COLD partial page (cells have cooled down, safe to reuse)
         // SKIPPED during destruction_freeze to prevent overwriting FreeNode headers
         // that stale pointers in the game's cell unload code still reference.
@@ -384,7 +398,7 @@ impl SlabArena {
                     page.next_partial = EMPTY;
                     page.prev_partial = EMPTY;
                 }
-                return cell as *mut c_void;
+                return (cell as *mut c_void, None);
             }
             // Empty cold page (shouldn't happen, but handle gracefully)
             self.cold_head = page.next_partial;
@@ -396,25 +410,12 @@ impl SlabArena {
             page.prev_partial = EMPTY;
         }
 
-        // Tier 2: recommit a dirty (decommitted) page
-        if self.dirty_head != EMPTY {
-            let page_idx = self.dirty_head;
-            let page = unsafe { &mut *self.page_ptr(page_idx) };
-            self.dirty_head = page.next_dirty;
-            self.dirty_count -= 1;
-            page.next_dirty = EMPTY;
-            return unsafe { self.commit_and_carve(page_idx) };
+        // Tier 2/3: need to commit a page. Claim the index under lock,
+        // then caller will VirtualAlloc outside lock and call carve.
+        match self.claim_page_for_commit() {
+            Some(page_idx) => (ptr::null_mut(), Some(page_idx)),
+            None => (ptr::null_mut(), None), // arena exhausted
         }
-
-        // Tier 3: commit a virgin page
-        if self.committed_hwm < self.page_count {
-            let page_idx = self.committed_hwm;
-            self.committed_hwm += 1;
-            return unsafe { self.commit_and_carve(page_idx) };
-        }
-
-        // Arena exhausted
-        ptr::null_mut()
     }
 
     /// Free a cell back to its page's freelist. Writes FreeNode header.
@@ -499,14 +500,32 @@ impl SlabArena {
         page.prev_partial = EMPTY;
     }
 
+    /// Max hot pages to process per promote call. Bounds lock hold time
+    /// to O(MAX_PROMOTE) instead of O(total_hot_pages). Full promotion
+    /// completes over multiple decommit_sweep calls via the cursor.
+    const MAX_PROMOTE_PER_SWEEP: usize = 32;
+
     /// Promote pages from hot list to cold list when they've cooled enough.
+    /// Amortized: processes up to MAX_PROMOTE_PER_SWEEP pages per call,
+    /// resuming from hot_promote_cursor on the next call.
     unsafe fn promote_hot_to_cold(&mut self) {
         let now = cached_tick();
-        // Walk hot list, move cooled pages to cold
-        let mut new_hot_head = EMPTY;
-        let mut new_hot_tail = EMPTY;
-        let mut idx = self.hot_head;
-        while idx != EMPTY {
+        let mut promoted = 0usize;
+
+        // Start from cursor if valid, otherwise from hot_head
+        let start = if self.hot_promote_cursor != EMPTY {
+            self.hot_promote_cursor
+        } else {
+            self.hot_head
+        };
+
+        // Build a new prefix for pages we visit but keep hot.
+        // Pages before the cursor are already settled (still hot from last call).
+        let mut new_segment_head = EMPTY;
+        let mut new_segment_tail = EMPTY;
+        let mut idx = start;
+
+        while idx != EMPTY && promoted < Self::MAX_PROMOTE_PER_SWEEP {
             let page = unsafe { &mut *self.page_ptr(idx) };
             let next = page.next_partial;
 
@@ -519,52 +538,102 @@ impl SlabArena {
                 }
                 self.cold_head = idx;
             } else {
-                // Still hot: rebuild hot list with prev_partial links
-                if new_hot_head == EMPTY {
-                    new_hot_head = idx;
+                // Still hot: add to new segment
+                if new_segment_head == EMPTY {
+                    new_segment_head = idx;
                     page.prev_partial = EMPTY;
                 } else {
-                    let tail = unsafe { &mut *self.page_ptr(new_hot_tail) };
+                    let tail = unsafe { &mut *self.page_ptr(new_segment_tail) };
                     tail.next_partial = idx;
-                    page.prev_partial = new_hot_tail;
+                    page.prev_partial = new_segment_tail;
                 }
                 page.next_partial = EMPTY;
-                new_hot_tail = idx;
+                new_segment_tail = idx;
             }
+
+            promoted += 1;
             idx = next;
         }
-        self.hot_head = new_hot_head;
+
+        if idx == EMPTY {
+            // Reached end of hot list -- full cycle done.
+            // The new segment IS the entire hot list now.
+            self.hot_head = new_segment_head;
+            self.hot_promote_cursor = EMPTY;
+        } else {
+            // Didn't finish -- stitch new segment before the remaining tail.
+            // Link: [new_segment] -> [remaining from idx onward]
+            if new_segment_tail != EMPTY {
+                let tail = unsafe { &mut *self.page_ptr(new_segment_tail) };
+                tail.next_partial = idx;
+                unsafe { (*self.page_ptr(idx)).prev_partial = new_segment_tail; }
+            }
+
+            if self.hot_promote_cursor == EMPTY || self.hot_promote_cursor == start {
+                // First batch -- new segment replaces the head
+                self.hot_head = if new_segment_head != EMPTY {
+                    new_segment_head
+                } else {
+                    idx
+                };
+            }
+
+            self.hot_promote_cursor = idx;
+        }
     }
 
-    /// Promote hot pages + decommit dirty pages.
+    /// Max pages to batch for decommit outside the lock.
+    const DECOMMIT_BATCH: usize = 32;
+
+    /// Promote hot pages + collect dirty pages for decommit.
+    /// Returns list of (address, page_size) pairs to VirtualFree OUTSIDE the lock.
     /// `force`: if true, ignore DECOMMIT_DELAY_MS (loading transition).
-    unsafe fn decommit_sweep(&mut self, force: bool) -> (u32, u32) {
+    unsafe fn collect_decommit_batch(
+        &mut self,
+        force: bool,
+        batch: &mut [(*mut u8, usize); Self::DECOMMIT_BATCH],
+    ) -> (usize, u32) {
         unsafe { self.promote_hot_to_cold() };
-        let mut decommitted = 0u32;
+
+        let mut count = 0usize;
         let mut bytes = 0u32;
         let now = cached_tick();
         let delay = if force { 0 } else { DECOMMIT_DELAY_MS };
+        let page_size = self.page_size;
+
+        // Rebuild dirty list, skipping pages we're about to decommit
+        let mut new_dirty_head = EMPTY;
         let mut page_idx = self.dirty_head;
 
         while page_idx != EMPTY {
             let page = unsafe { &mut *self.page_ptr(page_idx) };
             let next = page.next_dirty;
 
-            if page.committed && page.refcount == 0 {
-                let age = now.saturating_sub(page.dirty_at_ms);
-                if age >= delay {
-                    let addr = self.page_addr(page_idx);
-                    let _ = unsafe { VirtualFree(addr as *mut c_void, self.page_size, MEM_DECOMMIT) };
-                    page.committed = false;
-                    page.local_free = ptr::null_mut();
-                    self.committed_pages -= 1;
-                    decommitted += 1;
-                    bytes += self.page_size as u32;
-                }
+            let eligible = page.committed
+                && page.refcount == 0
+                && count < Self::DECOMMIT_BATCH
+                && now.saturating_sub(page.dirty_at_ms) >= delay;
+
+            if eligible {
+                // Mark decommitted under lock, VirtualFree will happen outside
+                let addr = self.page_addr(page_idx);
+                page.committed = false;
+                page.local_free = ptr::null_mut();
+                page.next_dirty = EMPTY;
+                self.committed_pages -= 1;
+                self.dirty_count -= 1;
+                batch[count] = (addr, page_size);
+                count += 1;
+                bytes += page_size as u32;
+            } else {
+                // Keep on dirty list
+                page.next_dirty = new_dirty_head;
+                new_dirty_head = page_idx;
             }
             page_idx = next;
         }
-        (decommitted, bytes)
+        self.dirty_head = new_dirty_head;
+        (count, bytes)
     }
 }
 
@@ -680,8 +749,10 @@ impl SlabAllocator {
     }
 
     /// Allocate a cell for the given size. Returns null if slab can't serve.
-    /// Blocking spinlock: all gheap allocs <= MAX_SLAB_SIZE go through slab.
-    /// Lock hold time is microseconds (O(1) freelist pop + O(1) unlink).
+    ///
+    /// Two-phase design: Tier 1 (cold pop) is O(1) under lock. Tier 2/3
+    /// (page commit) releases the lock during VirtualAlloc to avoid stalling
+    /// other threads on the same arena.
     #[inline]
     pub unsafe fn alloc(&self, size: usize) -> *mut c_void {
         if size == 0 || size > MAX_SLAB_SIZE {
@@ -692,11 +763,39 @@ impl SlabAllocator {
             let arena_idx = self.size_to_arena[slot] as usize;
             let arena = &self.arenas[arena_idx] as *const SlabArena as *mut SlabArena;
 
-            (*arena).acquire();
             let skip_cold = DESTRUCTION_FREEZE.load(Ordering::Relaxed);
-            let result = (*arena).alloc(skip_cold);
+
+            // Phase 1: try cold pop under lock (fast path, O(1))
+            (*arena).acquire();
+            let (ptr, pending_page) = (*arena).alloc_phase1(skip_cold);
             (*arena).release();
-            result
+
+            if !ptr.is_null() {
+                return ptr; // Tier 1 hit
+            }
+
+            // Phase 2: VirtualAlloc outside the lock, then carve under lock
+            if let Some(page_idx) = pending_page {
+                let addr = (*arena).page_addr(page_idx);
+                let page_size = (*arena).page_size;
+
+                // VirtualAlloc with NO lock held -- other threads can alloc/free
+                let _ = VirtualAlloc(
+                    Some(addr as *const c_void),
+                    page_size,
+                    MEM_COMMIT,
+                    PAGE_READWRITE,
+                );
+
+                // Re-acquire to carve cells and wire into freelist
+                (*arena).acquire();
+                let result = (*arena).carve_committed_page(page_idx);
+                (*arena).release();
+                return result;
+            }
+
+            // Arena exhausted
+            ptr::null_mut()
         }
     }
 
@@ -722,22 +821,52 @@ impl SlabAllocator {
         self.arenas[arena_idx].cell_size as usize
     }
 
+    /// Two-phase decommit for a single arena: collect under lock, VirtualFree outside.
+    unsafe fn decommit_arena(&self, arena_idx: usize, force: bool) -> (u32, u32) {
+        let arena = &self.arenas[arena_idx] as *const SlabArena as *mut SlabArena;
+        let mut total_pages = 0u32;
+        let mut total_bytes = 0u32;
+
+        loop {
+            // Phase 1: collect batch under lock (metadata updates only)
+            let mut batch = [(ptr::null_mut::<u8>(), 0usize); SlabArena::DECOMMIT_BATCH];
+            unsafe { (*arena).acquire() };
+            let (count, bytes) = unsafe { (*arena).collect_decommit_batch(force, &mut batch) };
+            unsafe { (*arena).release() };
+
+            if count == 0 {
+                break;
+            }
+
+            // Phase 2: VirtualFree outside the lock
+            for i in 0..count {
+                let (addr, size) = batch[i];
+                let _ = unsafe { VirtualFree(addr as *mut c_void, size, MEM_DECOMMIT) };
+            }
+
+            total_pages += count as u32;
+            total_bytes += bytes;
+
+            // If we got a full batch, there might be more eligible pages
+            if count < SlabArena::DECOMMIT_BATCH {
+                break;
+            }
+        }
+        (total_pages, total_bytes)
+    }
+
     /// Amortized decommit sweep: process ARENAS_PER_SWEEP arenas per call.
-    /// Full cycle completes in 4 frames (~66ms at 60fps). Called from Phase 7.
+    /// Full cycle completes in 5 frames (~83ms at 60fps). Called from Phase 7.
+    /// VirtualFree runs outside the arena lock to avoid stalling alloc/free.
     pub unsafe fn decommit_sweep(&self) -> (u32, u32) {
         let start = self.sweep_cursor.load(Ordering::Relaxed) as usize;
         let mut total_pages = 0u32;
         let mut total_bytes = 0u32;
-        unsafe {
-            for offset in 0..ARENAS_PER_SWEEP {
-                let i = (start + offset) % NUM_CLASSES;
-                let arena = &self.arenas[i] as *const SlabArena as *mut SlabArena;
-                (*arena).acquire();
-                let (p, b) = (*arena).decommit_sweep(false);
-                (*arena).release();
-                total_pages += p;
-                total_bytes += b;
-            }
+        for offset in 0..ARENAS_PER_SWEEP {
+            let i = (start + offset) % NUM_CLASSES;
+            let (p, b) = unsafe { self.decommit_arena(i, false) };
+            total_pages += p;
+            total_bytes += b;
         }
         self.sweep_cursor.store(
             ((start + ARENAS_PER_SWEEP) % NUM_CLASSES) as u32,
@@ -751,15 +880,10 @@ impl SlabAllocator {
     pub unsafe fn decommit_sweep_full(&self, force: bool) -> (u32, u32) {
         let mut total_pages = 0u32;
         let mut total_bytes = 0u32;
-        unsafe {
-            for i in 0..NUM_CLASSES {
-                let arena = &self.arenas[i] as *const SlabArena as *mut SlabArena;
-                (*arena).acquire();
-                let (p, b) = (*arena).decommit_sweep(force);
-                (*arena).release();
-                total_pages += p;
-                total_bytes += b;
-            }
+        for i in 0..NUM_CLASSES {
+            let (p, b) = unsafe { self.decommit_arena(i, force) };
+            total_pages += p;
+            total_bytes += b;
         }
         (total_pages, total_bytes)
     }
