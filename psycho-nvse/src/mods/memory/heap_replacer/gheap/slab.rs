@@ -24,7 +24,9 @@ use windows::Win32::System::Memory::{
 // ---------------------------------------------------------------------------
 
 const ALIGN: usize = 16;
-const PAGE_SIZE: usize = 4096;
+/// OS page granularity -- used for page_to_arena index mapping.
+/// Logical page size per arena may be larger (multi-page) for big classes.
+const OS_PAGE_SIZE: usize = 4096;
 const EMPTY: u32 = u32::MAX;
 
 // Cached tick count to avoid GetTickCount syscalls in hot free() path.
@@ -58,16 +60,20 @@ fn cached_tick() -> u64 {
     now
 }
 
-/// Size classes: 28 classes from 16B to 4096B.
-const SIZE_CLASSES: [u16; 28] = [
+/// Size classes: 35 classes from 16B to 16KB.
+/// Classes <= 4096 use 4KB pages (single OS page).
+/// Classes > 4096 use multi-page logical pages (2 cells per page min).
+const SIZE_CLASSES: [u16; 35] = [
     16, 32, 48, 64, 80, 96, 112, 128, 160, 192, 224, 256, 320, 384, 448, 512, 640, 768, 896, 1024,
     1280, 1536, 1792, 2048, 2560, 3072, 3584, 4096,
+    // extended range: mid-size game objects get FreeNode UAF protection
+    5120, 6144, 8192, 10240, 12288, 14336, 16384,
 ];
 
 const NUM_CLASSES: usize = SIZE_CLASSES.len();
 
 /// Max allocation size the slab handles. Larger goes to mimalloc/va_allocator.
-pub const MAX_SLAB_SIZE: usize = 4096;
+pub const MAX_SLAB_SIZE: usize = 16384;
 
 /// Arena reservation sizes per tier (in bytes).
 /// Small classes are more popular, get larger arenas.
@@ -85,9 +91,27 @@ const fn arena_size_for_class(idx: usize) -> usize {
         4 * 1024 * 1024
     }
     // 320..512B: 4MB each
-    else {
+    else if idx < 28 {
         2 * 1024 * 1024
-    } // 640..4096B: 2MB each
+    }
+    // 640..4096B: 2MB each
+    else {
+        1 * 1024 * 1024
+    } // 5120..16384B: 1MB each (less frequent)
+}
+
+/// Logical page size for a given size class.
+/// Classes <= 4096 use single OS page (4KB).
+/// Larger classes use smallest multiple of OS_PAGE_SIZE that fits >= 2 cells.
+const fn page_size_for_class(cell_size: u16) -> usize {
+    if (cell_size as usize) <= OS_PAGE_SIZE {
+        return OS_PAGE_SIZE;
+    }
+    // need at least 2 cells per logical page
+    let needed = (cell_size as usize) * 2;
+    // round up to OS page boundary
+    let pages = (needed + OS_PAGE_SIZE - 1) / OS_PAGE_SIZE;
+    pages * OS_PAGE_SIZE
 }
 
 // ---------------------------------------------------------------------------
@@ -183,6 +207,7 @@ struct SlabArena {
     reserved: usize,
     cell_size: u16,
     cells_per_page: u16,
+    page_size: usize,     // logical page size (may be > OS_PAGE_SIZE for large classes)
     page_count: u32,
     pages: *mut PageInfo, // metadata array, separately allocated
     cold_head: u32,       // pages with reusable free cells (cooled down)
@@ -204,6 +229,7 @@ impl SlabArena {
             reserved: 0,
             cell_size: 0,
             cells_per_page: 0,
+            page_size: OS_PAGE_SIZE,
             page_count: 0,
             pages: ptr::null_mut(),
             cold_head: EMPTY,
@@ -216,12 +242,13 @@ impl SlabArena {
         }
     }
 
-    fn init(&mut self, base: *mut u8, reserved: usize, cell_size: u16) {
+    fn init(&mut self, base: *mut u8, reserved: usize, cell_size: u16, page_size: usize) {
         self.base = base;
         self.reserved = reserved;
         self.cell_size = cell_size;
-        self.cells_per_page = (PAGE_SIZE / cell_size as usize) as u16;
-        self.page_count = (reserved / PAGE_SIZE) as u32;
+        self.page_size = page_size;
+        self.cells_per_page = (page_size / cell_size as usize) as u16;
+        self.page_count = (reserved / page_size) as u32;
 
         // Allocate metadata array via VirtualAlloc (separate from data arena)
         let meta_bytes = self.page_count as usize * std::mem::size_of::<PageInfo>();
@@ -251,15 +278,6 @@ impl SlabArena {
         }
     }
 
-    /// Non-blocking try-lock. Returns true if acquired.
-    /// Used by alloc() to avoid main thread spinning on contended arenas.
-    #[inline]
-    fn try_acquire(&self) -> bool {
-        self.lock
-            .compare_exchange_weak(0, 1, Ordering::Acquire, Ordering::Relaxed)
-            .is_ok()
-    }
-
     #[inline]
     fn release(&self) {
         self.lock.store(0, Ordering::Release);
@@ -267,12 +285,12 @@ impl SlabArena {
 
     #[inline]
     fn page_of(&self, ptr: *mut u8) -> u32 {
-        ((ptr as usize - self.base as usize) / PAGE_SIZE) as u32
+        ((ptr as usize - self.base as usize) / self.page_size) as u32
     }
 
     #[inline]
     fn page_addr(&self, idx: u32) -> *mut u8 {
-        unsafe { self.base.add(idx as usize * PAGE_SIZE) }
+        unsafe { self.base.add(idx as usize * self.page_size) }
     }
 
     #[inline]
@@ -287,7 +305,7 @@ impl SlabArena {
         let _ = unsafe {
             VirtualAlloc(
                 Some(addr as *const c_void),
-                PAGE_SIZE,
+                self.page_size,
                 MEM_COMMIT,
                 PAGE_READWRITE,
             )
@@ -536,12 +554,12 @@ impl SlabArena {
                 let age = now.saturating_sub(page.dirty_at_ms);
                 if age >= delay {
                     let addr = self.page_addr(page_idx);
-                    let _ = unsafe { VirtualFree(addr as *mut c_void, PAGE_SIZE, MEM_DECOMMIT) };
+                    let _ = unsafe { VirtualFree(addr as *mut c_void, self.page_size, MEM_DECOMMIT) };
                     page.committed = false;
                     page.local_free = ptr::null_mut();
                     self.committed_pages -= 1;
                     decommitted += 1;
-                    bytes += PAGE_SIZE as u32;
+                    bytes += self.page_size as u32;
                 }
             }
             page_idx = next;
@@ -567,7 +585,7 @@ pub struct SlabAllocator {
     superblock_size: usize,
     /// size_to_arena[i] = arena index for request size (i * ALIGN) bytes.
     /// Covers sizes ALIGN..MAX_SLAB_SIZE. Index 0 is unused (size 0).
-    size_to_arena: [u8; MAX_SLAB_SIZE / ALIGN + 1],
+    size_to_arena: Box<[u8; MAX_SLAB_SIZE / ALIGN + 1]>,
     /// page_to_arena[page_index_in_superblock] = arena index.
     /// For O(1) free path lookup.
     page_to_arena: Vec<u8>,
@@ -603,8 +621,8 @@ impl SlabAllocator {
             superblock_base: base,
             superblock_end: unsafe { base.add(total) },
             superblock_size: total,
-            size_to_arena: [0u8; MAX_SLAB_SIZE / ALIGN + 1],
-            page_to_arena: vec![0u8; total / PAGE_SIZE],
+            size_to_arena: Box::new([0u8; MAX_SLAB_SIZE / ALIGN + 1]),
+            page_to_arena: vec![0u8; total / OS_PAGE_SIZE],
             sweep_cursor: AtomicU32::new(0),
         };
 
@@ -612,13 +630,16 @@ impl SlabAllocator {
         let mut offset: usize = 0;
         for (idx, cl) in SIZE_CLASSES.iter().enumerate() {
             let arena_sz = arena_size_for_class(idx);
+            let page_sz = page_size_for_class(*cl);
             let arena_base = unsafe { base.add(offset) };
-            slab.arenas[idx].init(arena_base, arena_sz, *cl);
+            slab.arenas[idx].init(arena_base, arena_sz, *cl, page_sz);
 
-            // Fill page_to_arena for this arena's pages
-            let start_page = offset / PAGE_SIZE;
-            let page_count = arena_sz / PAGE_SIZE;
-            for p in start_page..start_page + page_count {
+            // Fill page_to_arena at OS_PAGE_SIZE granularity.
+            // For arenas with logical pages > 4KB, multiple OS-page
+            // entries point to the same arena index.
+            let start_os_page = offset / OS_PAGE_SIZE;
+            let os_page_count = arena_sz / OS_PAGE_SIZE;
+            for p in start_os_page..start_os_page + os_page_count {
                 slab.page_to_arena[p] = idx as u8;
             }
 
@@ -640,11 +661,11 @@ impl SlabAllocator {
         }
 
         log::info!(
-            "[SLAB] Init: {} classes, {}MB reserved at {:p}, {} pages",
+            "[SLAB] Init: {} classes, {}MB reserved at {:p}, {} os-pages",
             NUM_CLASSES,
             total / 1024 / 1024,
             base,
-            total / PAGE_SIZE,
+            total / OS_PAGE_SIZE,
         );
 
         Some(slab)
@@ -658,8 +679,9 @@ impl SlabAllocator {
         addr >= base && addr < base + self.superblock_size
     }
 
-    /// Allocate a cell for the given size. Returns null if slab can't serve
-    /// or if the arena is contended (caller falls through to mimalloc).
+    /// Allocate a cell for the given size. Returns null if slab can't serve.
+    /// Blocking spinlock: all gheap allocs <= MAX_SLAB_SIZE go through slab.
+    /// Lock hold time is microseconds (O(1) freelist pop + O(1) unlink).
     #[inline]
     pub unsafe fn alloc(&self, size: usize) -> *mut c_void {
         if size == 0 || size > MAX_SLAB_SIZE {
@@ -670,12 +692,7 @@ impl SlabAllocator {
             let arena_idx = self.size_to_arena[slot] as usize;
             let arena = &self.arenas[arena_idx] as *const SlabArena as *mut SlabArena;
 
-            // try-lock: if contended, return null -> falls through to mimalloc.
-            // Eliminates main thread spinning when AI workers hold the lock.
-            // free() keeps blocking acquire() -- frees must always succeed.
-            if !(*arena).try_acquire() {
-                return ptr::null_mut();
-            }
+            (*arena).acquire();
             let skip_cold = DESTRUCTION_FREEZE.load(Ordering::Relaxed);
             let result = (*arena).alloc(skip_cold);
             (*arena).release();
@@ -686,7 +703,7 @@ impl SlabAllocator {
     /// Free a cell. Caller must verify contains() first.
     #[inline]
     pub unsafe fn free(&self, ptr: *mut c_void) {
-        let page_in_super = (ptr as usize - self.superblock_base as usize) / PAGE_SIZE;
+        let page_in_super = (ptr as usize - self.superblock_base as usize) / OS_PAGE_SIZE;
         let arena_idx = self.page_to_arena[page_in_super] as usize;
         let arena = &self.arenas[arena_idx] as *const SlabArena as *mut SlabArena;
 
@@ -700,7 +717,7 @@ impl SlabAllocator {
     /// Get usable size for a slab pointer. O(1).
     #[inline]
     pub unsafe fn usable_size(&self, ptr: *const c_void) -> usize {
-        let page_in_super = (ptr as usize - self.superblock_base as usize) / PAGE_SIZE;
+        let page_in_super = (ptr as usize - self.superblock_base as usize) / OS_PAGE_SIZE;
         let arena_idx = self.page_to_arena[page_in_super] as usize;
         self.arenas[arena_idx].cell_size as usize
     }
@@ -751,7 +768,7 @@ impl SlabAllocator {
     pub fn committed_bytes(&self) -> usize {
         let mut total = 0usize;
         for arena in &self.arenas {
-            total += arena.committed_pages as usize * PAGE_SIZE;
+            total += arena.committed_pages as usize * arena.page_size;
         }
         total
     }

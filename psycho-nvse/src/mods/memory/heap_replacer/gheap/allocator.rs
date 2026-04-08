@@ -1,8 +1,8 @@
 //! Game heap allocator: routes alloc/free/realloc/msize through slab + mimalloc.
 //!
 //! Dispatch:
-//!   size <= 4096  -> slab (per-page refcount, VirtualFree MEM_DECOMMIT)
-//!   size 4097..1MB -> mimalloc (rare, CRT compat)
+//!   size <= 16KB  -> slab (per-page refcount, FreeNode UAF protection)
+//!   size 16KB+1..1MB -> mimalloc (mid-range, CRT compat)
 //!   size >= 1MB   -> va_allocator (VirtualAlloc per-alloc)
 //!
 //! UAF protection: slab writes FreeNode header on ALL freed cells.
@@ -235,12 +235,10 @@ pub fn is_main_thread() -> bool {
 /// at allocation time when the vtable is guaranteed valid (just constructed).
 ///
 /// Large allocations (>= 1MB) go through VirtualAlloc for immediate VAS
-/// reclamation. This threshold is chosen so that:
-/// - Havok shapes (100KB-500KB) --> mimalloc + pool (UAF protected)
-/// - NiRefObjects (16-1200B) --> mimalloc + pool (UAF protected)
+/// reclamation.
 ///   Dispatch:
-///   size <= 4096  -> slab (per-page refcount, decommit when empty)
-///   size 4097..1MB -> mimalloc (uncommon sizes, CRT compat)
+///   size <= 16KB  -> slab (per-page refcount, FreeNode UAF protection)
+///   size 16KB+1..1MB -> mimalloc (mid-range, CRT compat)
 ///   size >= 1MB   -> va_allocator (VirtualAlloc, MEM_RELEASE on free)
 #[inline]
 pub unsafe fn alloc(size: usize) -> *mut c_void {
@@ -253,8 +251,8 @@ pub unsafe fn alloc(size: usize) -> *mut c_void {
         return unsafe { recover_oom(size) };
     }
 
-    // Small/medium objects (<= 4096) --> slab allocator.
-    // Per-page refcounting enables VirtualFree(MEM_DECOMMIT) when pages empty.
+    // Small/medium objects (<= 16KB) --> slab allocator.
+    // Per-page refcounting + FreeNode headers for UAF protection.
     if size <= super::slab::MAX_SLAB_SIZE && size > 0 {
         let ptr = unsafe { super::slab::alloc(size) };
         if !ptr.is_null() {
@@ -263,7 +261,7 @@ pub unsafe fn alloc(size: usize) -> *mut c_void {
         // Slab exhausted for this size class -- fall through to mimalloc
     }
 
-    // Medium objects (4097..1MB) or slab fallback --> mimalloc.
+    // Mid-range objects (16KB+1..1MB) or slab fallback --> mimalloc.
     let ptr = unsafe { mi_malloc_aligned(size, ALIGN) };
     if !ptr.is_null() {
         return ptr;
@@ -273,14 +271,15 @@ pub unsafe fn alloc(size: usize) -> *mut c_void {
 
 /// Free a block. Dispatch by ownership:
 ///   slab ptr     -> slab_free (refcount--, FreeNode header, deferred decommit)
-///   mimalloc ptr -> mi_free
-///   va_allocator -> va_free (VirtualFree MEM_RELEASE)
+///   mimalloc ptr -> mi_free (mid-range 16KB+1..1MB)
+///   va_allocator -> va_free (VirtualFree MEM_RELEASE, >= 1MB)
 ///   pre-hook SBM -> original trampoline
 ///
-/// UAF protection: slab writes FreeNode header on ALL freed cells:
+/// UAF protection: slab writes FreeNode header on ALL freed cells (<= 16KB):
 ///   offset 0: original vtable (preserved for async flush dispatch)
-///   offset 4: usable_size (fake refcount — InterlockedDecrement never hits 0)
-///   offset 8: next (per-page freelist chain)
+///   offset 4: usable_size (fake refcount -- InterlockedDecrement never hits 0)
+///   offset 8: usable_size (IOTask refcount guard)
+///   offset 12: next (per-page freelist chain)
 /// Pages stay committed until decommit sweep (Phase 7). Stale readers see
 /// valid zombie data until then.
 #[inline]
@@ -290,13 +289,13 @@ pub unsafe fn free(ptr: *mut c_void) {
     }
 
     // FAST PATH: slab check (two comparisons, no function call).
-    // 95%+ of GameHeap frees are slab allocations (<= 4096 bytes).
+    // 95%+ of GameHeap frees are slab allocations (<= 16KB).
     if super::slab::is_slab_ptr(ptr as *const c_void) {
         unsafe { super::slab::free(ptr) };
         return;
     }
 
-    // mimalloc arena check (CRT hooks, medium GameHeap allocs 4097..1MB).
+    // mimalloc arena check (CRT hooks, mid-range GameHeap allocs 16KB+1..1MB).
     if unsafe { mi_is_in_heap_region(ptr as *const c_void) } {
         // Write UAF guard before mi_free. mi_free overwrites offset 0 with
         // a freelist pointer (which could be NULL at end of chain). Stale
@@ -345,7 +344,7 @@ pub unsafe fn msize(ptr: *mut c_void) -> usize {
         return unsafe { super::slab::usable_size(ptr as *const c_void) };
     }
 
-    // mimalloc arena (CRT hooks, medium allocs).
+    // mimalloc arena (CRT hooks, mid-range allocs).
     if unsafe { mi_is_in_heap_region(ptr as *const c_void) } {
         return unsafe { mi_usable_size(ptr as *const c_void) };
     }
