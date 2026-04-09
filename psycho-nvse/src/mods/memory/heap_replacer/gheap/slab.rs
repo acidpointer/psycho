@@ -160,35 +160,35 @@ struct FreeNode {
 /// The stale reader's code was written for Type A's layout but sees Type B's
 /// data, corrupting state and crashing far from the root cause.
 ///
-/// 13000ms covers all bounded stale-reader windows with 2.5x margin:
-///   Havok world rebuild:      2000-3000ms  (4x margin)
-///   AI raycasting (unloaded): 1000-2000ms  (6.5x margin)
-///   Ragdoll controller bone:  3000-5000ms  (2.6x margin)
-///   Havok ragdoll settling:   ~500ms       (26x margin)
-///   Death animations:         ~800ms       (16x margin)
-///   BSTaskManager IO:         ~100ms       (130x margin)
+/// 15000ms covers all bounded stale-reader windows with 3x margin:
+///   Havok world rebuild:      2000-3000ms  (5x margin)
+///   AI raycasting (unloaded): 1000-2000ms  (7.5x margin)
+///   Ragdoll controller bone:  3000-5000ms  (3x margin)
+///   Havok ragdoll settling:   ~500ms       (30x margin)
+///   Death animations:         ~800ms       (19x margin)
+///   BSTaskManager IO:         ~100ms       (150x margin)
 ///
 /// During the cooldown window, freed cells contain zombie data (old object
 /// contents preserved until constructor overwrites). This matches the SBM
 /// behavior where freed cells keep data intact until arena purge.
 /// After cooldown, cells are reused — constructor overwrites zombie data.
-const REUSE_COOLDOWN_MS: u64 = 13_000;
+const REUSE_COOLDOWN_MS: u64 = 15_000;
 
 /// Minimum time (ms) a page must stay dirty before decommit.
 ///
-/// 13 seconds for gameplay safety. Havok physics maintains an
+/// 15 seconds for gameplay safety. Havok physics maintains an
 /// internal pointer graph (broadphase, islands, contact managers) that
 /// can reference freed pages indefinitely until the world is rebuilt.
 /// Short delays (150ms, 1s) cause page faults on AI worker threads
-/// during physics step. 13s is ample time for AI raycasting to finish
-/// (1-2s typical) with 6.5x margin.
+/// during physics step. 15s is ample time for AI raycasting to finish
+/// (1-2s typical) with 7.5x margin.
 ///
 /// The vanilla SBM never decommits during gameplay — only during
 /// explicit GlobalCleanup (OOM Stage 6) or loading transitions.
 /// Loading transitions trigger an immediate sweep with delay=0.
-/// 13 seconds balances RAM efficiency (pages free faster) with
+/// 15 seconds balances RAM efficiency (pages free faster) with
 /// Havok safety (AI threads complete within 1-2s).
-const DECOMMIT_DELAY_MS: u64 = 13_000;
+const DECOMMIT_DELAY_MS: u64 = 15_000;
 
 #[repr(C)]
 #[derive(Clone, Copy)]
