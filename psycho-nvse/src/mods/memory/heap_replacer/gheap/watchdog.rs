@@ -250,23 +250,34 @@ fn watchdog_loop(run: Arc<AtomicBool>) {
             )
         };
 
+        // Measure free VAS once and reuse for rate floor + VAS-critical check.
+        let free_vas = super::allocator::current_free_vas();
+
         // Dynamic rate floor for Normal cleanup: proportional to free VAS.
         // Lots of free VAS = high floor (relaxed). Low free VAS = low floor
         // (sensitive). Uses live measurement, adapts to any mod configuration.
-        let rate_floor = {
-            let free_vas = super::allocator::current_free_vas();
-            if free_vas > super::allocator::VAS_CRITICAL_REMAINING {
-                let margin = (free_vas - super::allocator::VAS_CRITICAL_REMAINING) as i64;
-                (margin / NORMAL_REACT_TIME_SECS).max(MIN_NORMAL_RATE as i64) as i32
-            } else if free_vas <= super::allocator::VAS_CRITICAL_REMAINING {
-                0 // at or below critical free VAS -- always clean
-            } else {
-                0 // fallback
-            }
+        let rate_floor = if free_vas > super::allocator::VAS_CRITICAL_REMAINING {
+            let margin = (free_vas - super::allocator::VAS_CRITICAL_REMAINING) as i64;
+            (margin / NORMAL_REACT_TIME_SECS).max(MIN_NORMAL_RATE as i64) as i32
+        } else {
+            0 // at or below critical free VAS -- always clean
         };
 
         let mut level: u8 = 0;
 
+        // --- VAS-critical bypass: fragmentation-induced OOM prevention ---
+        // When free VAS drops below critical threshold, trigger aggressive
+        // cleanup regardless of growth rate. This catches fragmentation
+        // scenarios where commit is stable but available address space is
+        // exhausted (no growth → normal thresholds don't fire).
+        if free_vas <= super::allocator::VAS_CRITICAL_REMAINING {
+            log::warn!(
+                "[WATCHDOG] VAS CRITICAL: free={}MB (threshold={}MB), forcing aggressive cleanup",
+                free_vas / 1024 / 1024,
+                super::allocator::VAS_CRITICAL_REMAINING / 1024 / 1024,
+            );
+            level = 2;
+        }
         // Critical: aggressive only when commit is actively growing.
         // After cell transitions, the new steady state can legitimately exceed
         // CRITICAL_GROWTH. Without a rate gate, the watchdog fires aggressive

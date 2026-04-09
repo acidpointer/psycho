@@ -716,18 +716,19 @@ unsafe fn do_recover_oom(size: usize) -> *mut c_void {
 
         // Run current stage. Choose bypass mode based on stage and loading state:
         //
-        // During loading OOM, stages 0-2 (texture/geometry/menu cache flush)
-        // have no cross-thread readers -- the IO thread is loading new content,
-        // not reading the old cache. Using bypass=true reclaims VAS immediately,
-        // which is critical during loading when VAS pressure is highest.
+        // During loading OOM, bypass is ALWAYS false. Stages 0-2 (texture/geometry
+        // cache flush) have cross-thread readers: the IO thread holds raw pointers
+        // to QueuedTexture objects being loaded. Freeing them via mi_free (bypass)
+        // while the IO thread is mid-load causes RefCount:0 UAF crash (seen at
+        // 0x0044DDC0 during cell transitions with NiSourceTexture RefCount=0).
         //
-        // Stage 5 (Cell Unload) MUST use bypass=false because Havok entities
-        // and scene graph nodes freed during cell teardown may have active
-        // stale readers (AI threads, BSTaskManagerThread).
+        // Stage 5 (Cell Unload) also uses bypass=false — Havok entities and scene
+        // graph nodes freed during cell teardown have active stale readers (AI
+        // threads, BSTaskManagerThread).
         //
         // During active gameplay (not loading), all stages use bypass=false
         // for maximum zombie safety.
-        let bypass = loading && stage <= 2;
+        let bypass = false;
         let (next, done) = unsafe { heap.run_oom_stage(stage, bypass) };
         stage = next;
 

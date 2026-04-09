@@ -141,15 +141,22 @@ struct FreeNode {
 // ---------------------------------------------------------------------------
 
 /// Minimum time (ms) freed cells must cool before reuse.
-/// Prevents reuse UAF: stale readers see FreeNode header (preserved vtable
-/// at offset 0, usable_size at offset 4) instead of a new object's data.
-/// Covers Havok ragdoll settling (~500ms), NVSE plugin refs (~500ms),
-/// death animations (~800ms), BSTaskManager IO (~100ms).
-/// Crash analysis confirmed 1000ms is the safe minimum -- cell unload
-/// accesses actor sub-objects that were freed >1000ms ago through stale
-/// pointers in the process manager. The destruction_freeze flag provides
-/// additional protection during active cell teardown.
-const REUSE_COOLDOWN_MS: u64 = 1000;
+///
+/// Cell reuse is the primary UAF crash vector: a stale reader accesses a
+/// freed cell that has been reallocated for a different type (type confusion).
+/// The stale reader's code was written for Type A's layout but sees Type B's
+/// data, corrupting state and crashing far from the root cause.
+///
+/// 3000ms covers all bounded stale-reader windows (Ghidra-verified):
+///   Havok world rebuild:      2000-3000ms
+///   AI raycasting (unloaded): 1000-2000ms
+///   Havok ragdoll settling:   ~500ms
+///   Death animations:         ~800ms
+///   BSTaskManager IO:         ~100ms
+///
+/// Stale readers from NVSE plugins/scripts are UNBOUNDED (hold refs
+/// indefinitely) — sentinel fill (below) makes those crashes diagnosable.
+const REUSE_COOLDOWN_MS: u64 = 3000;
 
 /// Minimum time (ms) a page must stay dirty before decommit.
 ///
@@ -341,22 +348,34 @@ impl SlabArena {
         let cpp = self.cells_per_page as usize;
         let cs = self.cell_size as usize;
 
-        // Push cells 1..N onto local freelist (cell 0 goes to caller).
-        // Write FULL FreeNode headers for UAF protection. After recommit
-        // the page is zeroed; stale readers would see vtable=0 -> crash.
-        // RDATA_START (0x01000000) as dummy vtable prevents NULL deref.
+        // Push cells 1..N onto local freelist with FreeNode header + freed sentinel.
+        // Cell 0 goes to caller — constructor will initialize it.
         let dummy_vtable = 0x01000000usize as *const c_void;
         let cell_size_val = self.cell_size as u32;
         for i in (1..cpp).rev() {
             let cell = unsafe { addr.add(i * cs) } as *mut FreeNode;
+
+            // Write FreeNode header (offsets 0-16)
             unsafe {
                 (*cell).vtable = dummy_vtable;
                 (*cell).usable_size_4 = cell_size_val;
                 (*cell).usable_size_8 = cell_size_val;
                 (*cell).next = page.local_free;
             }
+
+            // Fill rest of cell with freed sentinel (0xFD) at offset 16+.
+            // Cells on the freelist are "freed" — stale readers see 0xFD.
+            // Must start at offset 16 to not overwrite the FreeNode header.
+            if cs > 16 {
+                unsafe { std::ptr::write_bytes((cell as *mut u8).add(16), 0xFD, cs - 16) };
+            }
+
             page.local_free = cell;
         }
+
+        // Cell 0 (returned to caller): constructor will initialize it.
+        // Page was just recommitted by VirtualAlloc — contents depend on
+        // whether Windows zeroed it. Either way, constructor overwrites.
 
         // Fresh pages go directly to cold list (no stale data risk).
         if cpp > 1 {
@@ -403,6 +422,10 @@ impl SlabArena {
                     page.next_partial = EMPTY;
                     page.prev_partial = EMPTY;
                 }
+
+                // Return cell as-is — caller's constructor will initialize it.
+                // The cell previously contained 0xFD sentinel data from free(),
+                // which the constructor fully overwrites with real object data.
                 return (cell as *mut c_void, None);
             }
             // Empty cold page (shouldn't happen, but handle gracefully)
@@ -419,16 +442,79 @@ impl SlabArena {
         // then caller will VirtualAlloc outside lock (if needed) and call carve.
         match self.claim_page_for_commit() {
             Some(claim) => (ptr::null_mut(), Some(claim)),
-            None => (ptr::null_mut(), None), // arena exhausted
+            None => {
+                // Arena fully exhausted: cold empty, no dirty/virgin pages.
+                // Try hot list as last resort before returning NULL (which
+                // triggers OOM death spiral).
+                let hot_cell = unsafe { self.alloc_from_hot() };
+                if !hot_cell.is_null() {
+                    return (hot_cell, None);
+                }
+                (ptr::null_mut(), None) // truly exhausted
+            }
         }
     }
 
-    /// Free a cell back to its page's freelist. Writes FreeNode header.
+    /// Desperation alloc: reuse from hot list when slab is fully exhausted.
+    /// Called when cold list is empty AND no dirty/virgin pages available.
+    /// Returns a cell from the oldest hot page, ignoring cooldown.
+    ///
+    /// This is a safety valve to prevent false OOM during loading bursts.
+    /// Without it, the slab returns NULL → mimalloc fills → OOM recovery
+    /// death spiral (stages 0-5 with bypass=true → texture UAF crash).
+    /// Better to reuse a cooling cell (minor UAF risk from unbounded
+    /// NVSE/plugin refs) than to trigger the guaranteed OOM crash.
+    ///
+    /// The 3000ms cooldown protects against bounded stale readers (AI threads,
+    /// render, IO). If the slab is fully exhausted, those bounded readers have
+    /// likely already finished — the only remaining stale readers are unbounded
+    /// (NVSE plugins, scripts), which the cooldown cannot protect against anyway.
+    unsafe fn alloc_from_hot(&mut self) -> *mut c_void {
+        if self.hot_head == EMPTY {
+            return ptr::null_mut();
+        }
+
+        let page_idx = self.hot_head;
+        let page = unsafe { &mut *self.page_ptr(page_idx) };
+        let cell = page.local_free;
+        if cell.is_null() {
+            return ptr::null_mut(); // hot page has no free cells
+        }
+
+        page.local_free = unsafe { (*cell).next };
+        page.refcount += 1;
+
+        if page.local_free.is_null() {
+            self.hot_head = page.next_partial;
+            if self.hot_head != EMPTY {
+                unsafe { (*self.page_ptr(self.hot_head)).prev_partial = EMPTY; }
+            }
+            page.on_partial = false;
+            page.next_partial = EMPTY;
+            page.prev_partial = EMPTY;
+        }
+
+        // Cell is being reused before cooldown expired.
+        // Constructor will overwrite — same behavior as normal alloc.
+        cell as *mut c_void
+    }
+
+    /// Free a cell back to its page's freelist. Writes FreeNode header + sentinel.
     unsafe fn free(&mut self, ptr: *mut c_void) {
         let page_idx = self.page_of(ptr as *mut u8);
         let page = unsafe { &mut *self.page_ptr(page_idx) };
 
-        // Write FreeNode header for UAF protection
+        // Double-free detection: if refcount is 0, all cells on this page are
+        // already freed. A free now would corrupt the arena state.
+        if page.refcount == 0 {
+            log::error!(
+                "slab: DOUBLE-FREE DETECTED (ignored) page_idx={} class={} cell={:p}",
+                page_idx, self.cell_size, ptr
+            );
+            return; // skip — arena state remains consistent
+        }
+
+        // Write FreeNode header for UAF protection (offsets 0-12)
         let node = ptr as *mut FreeNode;
         let orig_vtable = unsafe { *(ptr as *const *const c_void) };
         let cs = self.cell_size as u32;
@@ -440,14 +526,19 @@ impl SlabArena {
         }
         page.local_free = node;
 
+        // Fill rest of cell with freed sentinel (0xFD).
+        // FreeNode covers offsets 0-16 (on 64-bit: vtable 8 + usable_size_4 4 +
+        // usable_size_8 4 + next 8 = 24, padded to 16 with repr(C)).
+        // Stale readers accessing object fields beyond the FreeNode header
+        // will see 0xFDFDFDFD — instantly recognizable as "UAF read of freed
+        // memory" rather than type-confusion garbage from a reused cell.
+        let cs_usize = cs as usize;
+        if cs_usize > 16 {
+            unsafe { std::ptr::write_bytes((ptr as *mut u8).add(16), 0xFD, cs_usize - 16) };
+        }
+
         let was_full = page.refcount == self.cells_per_page as i16;
         page.refcount -= 1;
-
-        // Guard: refcount should never go negative (double-free detection)
-        debug_assert!(
-            page.refcount >= 0,
-            "slab: page refcount went negative (double-free?)"
-        );
 
         if page.refcount == 0 {
             // Page fully free. Remove from hot/cold list, add to dirty.
