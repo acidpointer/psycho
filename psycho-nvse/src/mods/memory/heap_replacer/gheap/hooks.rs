@@ -107,8 +107,8 @@ const MI_COLLECT_TRUE_COOLDOWN_MS: u64 = 2000;
 /// mi_free for purge_delay-based decommit.
 const POOL_DRAIN_COOLDOWN_MS: u64 = 500;
 
-/// Rate-limited mi_collect(true). Falls back to mi_collect(false) if cooldown
-/// hasn't elapsed. Returns true if the full collection ran.
+/// Rate-limited mi_collect(true). No-op if cooldown hasn't elapsed.
+/// Returns true if collection ran.
 fn try_mi_collect_true() -> bool {
     let now = libpsycho::os::windows::winapi::get_tick_count() as u64;
     let last = LAST_MI_COLLECT_TRUE_MS.load(Ordering::Relaxed);
@@ -117,7 +117,6 @@ fn try_mi_collect_true() -> bool {
         unsafe { libmimalloc::mi_collect(true) };
         true
     } else {
-        unsafe { libmimalloc::mi_collect(false) };
         false
     }
 }
@@ -304,27 +303,19 @@ pub unsafe extern "C" fn hook_per_frame_queue_drain() {
     }
 
     // --- Periodic Pool Drain ---
-    // Drain large blocks (>= 1KB) when pool exceeds 12MB (75% of 16MB cap).
-    // Runs every 500ms. With 16MB cap and ~2MB/frame stress-test rate,
-    // blocks cycle in ~133ms. Large blocks (cell data, geometry) are safe
-    // to free — UAF-sensitive objects are < 1KB (NiRefObjects 16-128B).
+    // Slab decommit sweep only (no mi_collect). mi_collect(false) with
+    // purge_delay=100ms decommits mimalloc pages during normal gameplay.
+    // jip_nvse CellChange handlers hold stale pointers that chain into
+    // mimalloc overflow pages. If those pages are decommitted, the stale
+    // read crashes in PopulateArgs. Vanilla never decommits freed pages
+    // during gameplay. Only call mi_collect during OOM / VAS crisis where
+    // the alternative is a guaranteed OOM crash.
     if super::slab::committed_bytes() / 1024 / 1024 >= 12 {
         let now = libpsycho::os::windows::winapi::get_tick_count() as u64;
         let last = LAST_POOL_DRAIN_MS.load(Ordering::Relaxed);
         if now.saturating_sub(last) >= POOL_DRAIN_COOLDOWN_MS {
-            let drained = unsafe {
-                super::slab::decommit_sweep();
-                libmimalloc::mi_collect(false);
-                (0, 0).0
-            };
+            unsafe { super::slab::decommit_sweep() };
             LAST_POOL_DRAIN_MS.store(now, Ordering::Relaxed);
-            if drained > 0 {
-                log::info!(
-                    "[POOL] Periodic drain: {} blocks freed, pool={}MB",
-                    drained,
-                    super::slab::committed_bytes() / 1024 / 1024
-                );
-            }
         }
     }
 
@@ -452,20 +443,12 @@ pub unsafe extern "C" fn hook_per_frame_queue_drain() {
                 rounds += 1;
             }
 
-            // Drain pool AFTER PDD completes. PDD destructors access
-            // objects in pool blocks (AnimSequenceBase, BSFadeNode, etc.).
-            // Draining before PDD causes UAF. Now safe: all destructors
-            // have run, no more stale readers from the PDD chain.
+            // Slab decommit after PDD. No mi_collect -- see pool drain comment.
             if !vas_critical {
-                let drained = unsafe {
-                    super::slab::decommit_sweep();
-                    libmimalloc::mi_collect(false);
-                    (0, 0).0
-                };
+                unsafe { super::slab::decommit_sweep() };
                 log::debug!(
-                    "[PDD] Drained {} rounds, {} pool blocks, pdd(NiNode={} Gen={} Form={}), commit={}MB, pool={}MB",
+                    "[PDD] Drained {} rounds, pdd(NiNode={} Gen={} Form={}), commit={}MB, pool={}MB",
                     rounds,
-                    drained,
                     globals::pdd_queue_count(PddQueue::NiNode),
                     globals::pdd_queue_count(PddQueue::Generic),
                     globals::pdd_queue_count(PddQueue::Form),
@@ -515,14 +498,6 @@ unsafe fn on_loading_start() {
 
     // Enable loading bypass immediately. Subsequent frees during loading
     // go directly to mi_free for immediate VAS recovery.
-
-    // Freeze cold cell reuse during loading. Havok broadphase and AI
-    // hold raw pointers to objects from the OLD cell. If slab recycles
-    // those cells for NEW cell data, stale readers do virtual dispatch
-    // through the new data --> eip = garbage --> crash.
-    // Confirmed crash: eip=0x6F697461 (ASCII "iato") after coc command
-    // reused a 256B cell whose FreeNode was overwritten by path string.
-    super::slab::set_destruction_freeze(true);
 }
 
 // First frame after loading ends. Disable loading bypass, resume normal pooling.
@@ -549,10 +524,6 @@ fn on_loading_end() {
     if !allocator::is_pool_active() {
         allocator::activate_pool();
     }
-
-    // Unfreeze cold cell reuse. Loading is done, Havok world is rebuilt
-    // for the new cell. Old stale pointers are gone.
-    super::slab::set_destruction_freeze(false);
 
     // Set post-loading cooldown: suppress watchdog cleanup for 5 seconds
     // to let jip_nvse's nvseRuntimeScript263CellChange finish processing
