@@ -269,7 +269,7 @@ fn watchdog_loop(run: Arc<AtomicBool>) {
         // When free VAS drops below critical threshold, trigger aggressive
         // cleanup regardless of growth rate. This catches fragmentation
         // scenarios where commit is stable but available address space is
-        // exhausted (no growth → normal thresholds don't fire).
+        // exhausted (no growth --> normal thresholds don't fire).
         if free_vas <= super::allocator::VAS_CRITICAL_REMAINING {
             log::warn!(
                 "[WATCHDOG] VAS CRITICAL: free={}MB (threshold={}MB), forcing aggressive cleanup",

@@ -73,6 +73,12 @@ static LAST_DESTRUCTION_COMMIT_MB: AtomicU32 = AtomicU32::new(0);
 /// Limit to 1 cycle per second during crisis.
 static DESTRUCTION_COOLDOWN_MS: AtomicU64 = AtomicU64::new(0);
 
+/// Post-loading cooldown: suppress watchdog cleanup after loading ends.
+/// jip_nvse's nvseRuntimeScript263CellChange fires events that reference
+/// objects from the old cell. If PDD drains those objects before the
+/// script finishes, the script reads freed memory --> crash in PopulateArgs.
+static POST_LOADING_COOLDOWN_MS: AtomicU64 = AtomicU64::new(0);
+
 /// Consecutive ineffective VAS EMERGENCY cycle counter.
 /// If 3+ cycles drain < 1MB each, we're in a death spiral — disable
 /// emergency until commit drops below threshold.
@@ -323,6 +329,15 @@ pub unsafe extern "C" fn hook_per_frame_queue_drain() {
     }
 
     if request >= 1 && !vas_emergency_active {
+        // Post-loading cooldown: suppress cleanup to let jip_nvse's
+        // nvseRuntimeScript263CellChange finish processing events that
+        // reference objects from the old cell.
+        let now = libpsycho::os::windows::winapi::get_tick_count() as u64;
+        let cooldown_end = POST_LOADING_COOLDOWN_MS.load(Ordering::Acquire);
+        if now < cooldown_end {
+            return;
+        }
+
         // During loading, DO NOT signal HeapCompact stages. Stages 0-2
         // (texture/geometry/menu cache flush) corrupt caches while the IO
         // thread is actively loading textures — causes UAF when textures
@@ -365,7 +380,13 @@ pub unsafe extern "C" fn hook_per_frame_queue_drain() {
     if request >= 2
         && let Some(pr) = PressureRelief::instance()
     {
+        // Post-loading cooldown: also suppress destruction_protocol
         let now = libpsycho::os::windows::winapi::get_tick_count() as u64;
+        let cooldown_end = POST_LOADING_COOLDOWN_MS.load(Ordering::Acquire);
+        if now < cooldown_end {
+            return;
+        }
+
         let last = DESTRUCTION_COOLDOWN_MS.load(Ordering::Relaxed);
 
         // Check if destruction_protocol is likely to be effective
@@ -405,7 +426,14 @@ pub unsafe extern "C" fn hook_per_frame_queue_drain() {
         // runs its own PDD. Our aggressive drain frees objects the transition
         // still needs, causing UAF when NVSE scripts access freed Characters
         // (crash in InternalFunctionCaller::PopulateArgs).
+        //
+        // Post-loading cooldown: also suppress to let jip_nvse events finish.
         if request >= 1 && !globals::is_loading() {
+            let now = libpsycho::os::windows::winapi::get_tick_count() as u64;
+            let cooldown_end = POST_LOADING_COOLDOWN_MS.load(Ordering::Acquire);
+            if now < cooldown_end {
+                return;
+            }
             let max_rounds = if request >= 2 {
                 PDD_ROUNDS_AGGRESSIVE
             } else {
@@ -475,8 +503,8 @@ unsafe fn on_loading_start() {
 
     // DO NOT force-decommit here. BSTaskManagerThread is still active
     // during loading transitions (processing texture IO). Force decommit
-    // would decommit pages that BSTask might free to → writing FreeNode
-    // to a decommitted page → access violation in our slab::free().
+    // would decommit pages that BSTask might free to --> writing FreeNode
+    // to a decommitted page --> access violation in our slab::free().
     // The 30-second delay in the per-frame sweep handles decommit safely.
     log::info!(
         "[LOADING] Transition detected: commit={}MB, slab={}MB, dirty={}",
@@ -487,12 +515,11 @@ unsafe fn on_loading_start() {
 
     // Enable loading bypass immediately. Subsequent frees during loading
     // go directly to mi_free for immediate VAS recovery.
-    allocator::set_loading_bypass(true);
 
     // Freeze cold cell reuse during loading. Havok broadphase and AI
     // hold raw pointers to objects from the OLD cell. If slab recycles
     // those cells for NEW cell data, stale readers do virtual dispatch
-    // through the new data → eip = garbage → crash.
+    // through the new data --> eip = garbage --> crash.
     // Confirmed crash: eip=0x6F697461 (ASCII "iato") after coc command
     // reused a 256B cell whose FreeNode was overwritten by path string.
     super::slab::set_destruction_freeze(true);
@@ -523,12 +550,15 @@ fn on_loading_end() {
         allocator::activate_pool();
     }
 
-    // Step 2: Clear loading bypass (frees now go to pool)
-    allocator::set_loading_bypass(false);
-
     // Unfreeze cold cell reuse. Loading is done, Havok world is rebuilt
     // for the new cell. Old stale pointers are gone.
     super::slab::set_destruction_freeze(false);
+
+    // Set post-loading cooldown: suppress watchdog cleanup for 5 seconds
+    // to let jip_nvse's nvseRuntimeScript263CellChange finish processing
+    // events that reference objects from the old cell.
+    let now = libpsycho::os::windows::winapi::get_tick_count() as u64;
+    POST_LOADING_COOLDOWN_MS.store(now + 5000, Ordering::Release);
 
     let info = libmimalloc::process_info::MiMallocProcessInfo::get();
     log::info!(

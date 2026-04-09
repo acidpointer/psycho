@@ -413,7 +413,7 @@ pub fn install_game_heap_hooks() -> anyhow::Result<()> {
         // Disable SBM small alloc fast path flag (FUN_00aa3e40 offset 0x129).
         //
         // NOTE: Our inline hook at FUN_00aa3e40 entry already bypasses the
-        // fast path (JMP at function entry → our hook). This flag clear is
+        // fast path (JMP at function entry --> our hook). This flag clear is
         // belt-and-suspenders for any code that reads the flag directly.
         let fast_path_flag = (gheap::engine::addr::HEAP_SINGLETON + 0x129) as *mut u8;
         fast_path_flag.write_volatile(0);

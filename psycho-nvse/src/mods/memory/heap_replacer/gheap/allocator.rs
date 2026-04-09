@@ -26,10 +26,8 @@ const ALIGN: usize = 16;
 
 /// When true, frees of large blocks (>= SMALL_BLOCK_THRESHOLD) bypass the
 /// pool and go directly to mi_free. Small blocks still pool for zombie safety.
-///
-/// Two sources: `with_large_bypass(f)` (scoped) and `set_loading_bypass` (persistent).
+/// Controlled by `with_large_bypass(f)` (scoped).
 static LARGE_BYPASS: AtomicBool = AtomicBool::new(false);
-static LOADING_BYPASS: AtomicBool = AtomicBool::new(false);
 
 /// VAS emergency mode: when commit exceeds critical threshold, all frees
 /// bypass the pool and go directly to mi_free. This prevents the pool
@@ -106,10 +104,6 @@ pub fn with_large_bypass<R>(f: impl FnOnce() -> R) -> R {
     f()
 }
 
-pub fn set_loading_bypass(active: bool) {
-    LOADING_BYPASS.store(active, Ordering::Release);
-}
-
 // -----------------------------------------------------------------------
 // Thread identity
 // -----------------------------------------------------------------------
@@ -181,7 +175,8 @@ pub unsafe fn alloc(size: usize) -> *mut c_void {
         return unsafe { recover_oom(size) };
     }
 
-    // Small/medium objects (<= 16KB) --> slab allocator.
+    // Small/medium objects (<= 256KB) --> slab allocator.
+    // Covers NPC sub-objects (Process, ExtraData, scripts) for UAF protection.
     // Per-page refcounting + FreeNode headers for UAF protection.
     if size <= super::slab::MAX_SLAB_SIZE && size > 0 {
         let ptr = unsafe { super::slab::alloc(size) };
@@ -191,7 +186,7 @@ pub unsafe fn alloc(size: usize) -> *mut c_void {
         // Slab exhausted for this size class -- fall through to mimalloc
     }
 
-    // Mid-range objects (16KB+1..1MB) or slab fallback --> mimalloc.
+    // Mid-range objects (256KB+1..1MB) or slab fallback --> mimalloc.
     let ptr = unsafe { mi_malloc_aligned(size, ALIGN) };
     if !ptr.is_null() {
         return ptr;

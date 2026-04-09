@@ -61,23 +61,28 @@ fn cached_tick() -> u64 {
     now
 }
 
-/// Size classes: 35 classes from 16B to 16KB.
+/// Size classes: 47 classes from 16B to 256KB.
 /// Classes <= 4096 use 4KB pages (single OS page).
 /// Classes > 4096 use multi-page logical pages (2 cells per page min).
-const SIZE_CLASSES: [u16; 35] = [
+const SIZE_CLASSES: [u32; 47] = [
     16, 32, 48, 64, 80, 96, 112, 128, 160, 192, 224, 256, 320, 384, 448, 512, 640, 768, 896, 1024,
     1280, 1536, 1792, 2048, 2560, 3072, 3584, 4096,
     // extended range: mid-size game objects get FreeNode UAF protection
     5120, 6144, 8192, 10240, 12288, 14336, 16384,
+    // extended range 2: NPC sub-objects (Process, ExtraData, scripts)
+    20480, 24576, 32768, 40960, 49152, 65536, 81920, 98304, 131072, 163840, 196608, 262144,
 ];
 
 const NUM_CLASSES: usize = SIZE_CLASSES.len();
 
 /// Max allocation size the slab handles. Larger goes to mimalloc/va_allocator.
-pub const MAX_SLAB_SIZE: usize = 16384;
+/// 256KB covers NPC sub-objects (Process, ExtraData, scripts) that previously
+/// went through mimalloc --> mi_free immediate reclaim --> UAF during loading.
+pub const MAX_SLAB_SIZE: usize = 262144;
 
 /// Arena reservation sizes per tier (in bytes).
 /// Small classes are more popular, get larger arenas.
+/// Large classes (20KB-256KB) get smaller arenas since they're less frequent.
 #[allow(clippy::if_same_then_else, clippy::identity_op)]
 const fn arena_size_for_class(idx: usize) -> usize {
     if idx < 8 {
@@ -91,20 +96,28 @@ const fn arena_size_for_class(idx: usize) -> usize {
     else if idx < 16 {
         4 * 1024 * 1024
     }
-    // 320..512B: 4MB each
+    // 320..4096B: 2MB each
     else if idx < 28 {
         2 * 1024 * 1024
     }
-    // 640..4096B: 2MB each
+    // 5KB..16KB: 1MB each (less frequent)
+    else if idx < 35 {
+        1 * 1024 * 1024
+    }
+    // 20KB..128KB: 2MB each (mid-size NPC sub-objects)
+    else if idx < 44 {
+        2 * 1024 * 1024
+    }
+    // 128KB..256KB: 1MB each (rare, large sub-objects)
     else {
         1 * 1024 * 1024
-    } // 5120..16384B: 1MB each (less frequent)
+    }
 }
 
 /// Logical page size for a given size class.
 /// Classes <= 4096 use single OS page (4KB).
 /// Larger classes use smallest multiple of OS_PAGE_SIZE that fits >= 2 cells.
-const fn page_size_for_class(cell_size: u16) -> usize {
+const fn page_size_for_class(cell_size: u32) -> usize {
     if (cell_size as usize) <= OS_PAGE_SIZE {
         return OS_PAGE_SIZE;
     }
@@ -218,7 +231,7 @@ unsafe impl Sync for PageInfo {}
 struct SlabArena {
     base: *mut u8,
     reserved: usize,
-    cell_size: u16,
+    cell_size: u32,
     cells_per_page: u16,
     page_size: usize,        // logical page size (may be > OS_PAGE_SIZE for large classes)
     page_count: u32,
@@ -257,7 +270,7 @@ impl SlabArena {
         }
     }
 
-    fn init(&mut self, base: *mut u8, reserved: usize, cell_size: u16, page_size: usize) {
+    fn init(&mut self, base: *mut u8, reserved: usize, cell_size: u32, page_size: usize) {
         self.base = base;
         self.reserved = reserved;
         self.cell_size = cell_size;
@@ -362,7 +375,7 @@ impl SlabArena {
         // not overwritten garbage. Sentinel fill was causing ragdoll crashes
         // when stale readers expected valid float data from bone arrays.
         let dummy_vtable = 0x01000000usize as *const c_void;
-        let cell_size_val = self.cell_size as u32;
+        let cell_size_val = self.cell_size;
         for i in (1..cpp).rev() {
             let cell = unsafe { addr.add(i * cs) } as *mut FreeNode;
             unsafe {
@@ -461,8 +474,8 @@ impl SlabArena {
     /// Returns a cell from the oldest hot page, ignoring cooldown.
     ///
     /// This is a safety valve to prevent false OOM during loading bursts.
-    /// Without it, the slab returns NULL → mimalloc fills → OOM recovery
-    /// death spiral (stages 0-5 with bypass=true → texture UAF crash).
+    /// Without it, the slab returns NULL --> mimalloc fills --> OOM recovery
+    /// death spiral (stages 0-5 with bypass=true --> texture UAF crash).
     /// Better to reuse a cooling cell (minor UAF risk from unbounded
     /// NVSE/plugin refs) than to trigger the guaranteed OOM crash.
     ///
@@ -515,14 +528,17 @@ impl SlabArena {
             return; // skip — arena state remains consistent
         }
 
-        // Write FreeNode header for UAF protection (offsets 0-12)
+        // Write ONLY the freelist chain pointer (offset 12).
+        // Do NOT write the vtable or refcount guards at offsets 0-8.
+        // This keeps the cell's original data intact ("zombie memory")
+        // for scripts/event handlers that read freed objects during
+        // loading transitions (nvseRuntimeScript263CellChange).
+        //
+        // The original SBM did exactly this: freed cells retain data until
+        // arena purge. Stale readers see valid old data, not corruption.
+        // The 13s cooldown prevents reuse while stale readers are active.
         let node = ptr as *mut FreeNode;
-        let orig_vtable = unsafe { *(ptr as *const *const c_void) };
-        let cs = self.cell_size as u32;
         unsafe {
-            (*node).vtable = orig_vtable;
-            (*node).usable_size_4 = cs;  // NiRefObject refcount guard
-            (*node).usable_size_8 = cs;  // IOTask refcount guard
             (*node).next = page.local_free;
         }
         page.local_free = node;
