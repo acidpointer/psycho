@@ -7,6 +7,7 @@
 //! Also contains frame-level orchestration: loading transition detection,
 //! watchdog flag consumption, emergency cleanup, and AI thread sync.
 
+use std::cell::Cell;
 use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering};
 
 use libc::c_void;
@@ -55,12 +56,8 @@ const PDD_ROUNDS_AGGRESSIVE: u32 = 50;
 
 thread_local! {
     // Loading transition detection.
-    static WAS_LOADING: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+    static WAS_LOADING: Cell<bool> = const { Cell::new(false) };
 }
-
-/// Cooldown counter for "turbo cleanup" during loading spikes.
-/// Prevents per-frame destruction_protocol calls when Havok is busy.
-static TURBO_COOLDOWN: AtomicU32 = AtomicU32::new(0);
 
 /// Last destruction_protocol result: cells unloaded.
 /// When 0 and commit hasn't grown, skip the next call to avoid
@@ -394,40 +391,6 @@ pub unsafe extern "C" fn hook_per_frame_queue_drain() {
         }
     }
 
-    // --- "Turbo" Cleanup during loading spikes ---
-    // During fast travel, the game allocates rapidly. The 500ms cooldown is
-    // too slow to keep up with these spikes.
-    // If we are loading AND commit exceeds the session baseline by a safety
-    // margin (512MB), run cleanup to prevent OOM.
-    // This is fully dynamic: it adapts to the user's specific baseline usage.
-    //
-    // CRITICAL: During loading, ONLY run cache flush (stages 0-2).
-    // DO NOT run destruction_protocol with cell unload — it frees BSTreeNodes
-    // and other objects that the IO queue still references, causing UAF crashes.
-    //
-    // Cooldown: 10 frames (~166ms) between turbo cleanup calls to avoid
-    // per-frame wasted calls when Havok is busy.
-    const LOADING_SAFETY_MARGIN: usize = 512 * 1024 * 1024; // 512MB
-    if globals::is_loading()
-        && let Some(pr) = PressureRelief::instance()
-    {
-        let baseline = pr.baseline_commit();
-        let cooldown = TURBO_COOLDOWN.load(Ordering::Relaxed);
-        if cooldown > 0 {
-            TURBO_COOLDOWN.fetch_sub(1, Ordering::Relaxed);
-        } else if baseline > 0 && heap.commit_bytes() > baseline + LOADING_SAFETY_MARGIN {
-            // Cache-only cleanup during loading — no cell unload, no UAF
-            unsafe {
-                let hm = super::heap_manager::HeapManager::get();
-                hm.run_oom_stage(0, false); // Texture cache flush
-                hm.run_oom_stage(1, false); // Geometry cache flush
-                hm.run_oom_stage(2, false); // Menu cache flush
-                libmimalloc::mi_collect(false);
-            }
-            TURBO_COOLDOWN.store(10, Ordering::Release);
-        }
-    }
-
     // Clear texture dead set under write lock.
     game_guard::with_write("dead_set_clear", || {
         texture_cache::clear_dead_set();
@@ -585,10 +548,6 @@ pub unsafe extern "thiscall" fn hook_main_loop_maintenance(this: *mut c_void) {
         pr.calibrate_baseline();
         pr.flush_pending_counter_decrement();
     }
-
-    // Pressure relief is now driven by the watchdog thread via
-    // CLEANUP_REQUESTED flags consumed at Phase 7. No per-frame
-    // relieve() call needed here.
 }
 
 /// Phase 8: AI thread dispatch. Sets AI_ACTIVE flag before dispatching.

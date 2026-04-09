@@ -95,7 +95,7 @@ impl Runtime {
                     if let Some(heap) = pool.get(&sheap_id) {
                         let purged = heap.checked_purge();
                         if purged > 0 {
-                            log::debug!(
+                            log::trace!(
                                 "[GC] sheap_id={:#x}: purged {} regions",
                                 sheap_id,
                                 purged
