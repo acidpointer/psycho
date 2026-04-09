@@ -504,6 +504,9 @@ unsafe fn do_recover_oom(size: usize) -> *mut c_void {
         // -- Phase 1: Run game OOM stages --
         // The game's stage executor skips main-thread-only stages for us.
         // bypass=false: frees go to pool (zombie-safe for concurrent readers).
+        // During loading, skip Stage 5 (Cell Unload) — same rationale as main
+        // thread: NVSE event handlers reference cell objects being destroyed.
+        let loading_oom_stage_max: i32 = if loading { 4 } else { 5 };
         let mut stage: i32 = if loading { 0 } else { 3 };
         loop {
             let (next, done) = unsafe { heap.run_oom_stage(stage, false) };
@@ -521,7 +524,7 @@ unsafe fn do_recover_oom(size: usize) -> *mut c_void {
                 return ptr;
             }
 
-            if done || stage >= 6 {
+            if done || stage > loading_oom_stage_max {
                 break;
             }
         }
@@ -657,6 +660,13 @@ unsafe fn do_recover_oom(size: usize) -> *mut c_void {
     }
 
     // MAIN THREAD: Full cleanup with stages 3-5.
+    //
+    // During loading, skip Stage 5 (Cell Unload). The game is already in a
+    // cell transition — unloading MORE cells destroys objects that NVSE event
+    // handlers and scripts still reference (crash in
+    // InternalFunctionCaller::PopulateArgs accessing freed Character during
+    // nvseRuntimeScript263CellChange).
+    let loading_oom_stage_max: i32 = if loading { 4 } else { 5 };
     let mut stage: i32 = if loading { 0 } else { 3 };
     let mut cycles: u32 = 0;
 
@@ -769,7 +779,8 @@ unsafe fn do_recover_oom(size: usize) -> *mut c_void {
         // Stage 6 allocates memory (SBM GlobalCleanup) -- skip it.
         // Stage 7 falls through to Stage 8 (thread suspend/resume) which crashes
         // when BSTaskManager thread array has NULL entries. Skip both 7 and 8.
-        if stage >= 6 {
+        // During loading, also skip Stage 5 (Cell Unload) via loading_oom_stage_max.
+        if stage > loading_oom_stage_max {
             // Log final stats before fallback
             let freed = commit_before.saturating_sub(heap.commit_bytes());
             if freed < 64 * 1024 {

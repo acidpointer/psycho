@@ -147,30 +147,35 @@ struct FreeNode {
 /// The stale reader's code was written for Type A's layout but sees Type B's
 /// data, corrupting state and crashing far from the root cause.
 ///
-/// 3000ms covers all bounded stale-reader windows (Ghidra-verified):
-///   Havok world rebuild:      2000-3000ms
-///   AI raycasting (unloaded): 1000-2000ms
-///   Havok ragdoll settling:   ~500ms
-///   Death animations:         ~800ms
-///   BSTaskManager IO:         ~100ms
+/// 10000ms covers all bounded stale-reader windows with 2x margin:
+///   Havok world rebuild:      2000-3000ms  (3x margin)
+///   AI raycasting (unloaded): 1000-2000ms  (5x margin)
+///   Ragdoll controller bone:  3000-5000ms  (2x margin)
+///   Havok ragdoll settling:   ~500ms       (20x margin)
+///   Death animations:         ~800ms       (12x margin)
+///   BSTaskManager IO:         ~100ms       (100x margin)
 ///
-/// Stale readers from NVSE plugins/scripts are UNBOUNDED (hold refs
-/// indefinitely) — sentinel fill (below) makes those crashes diagnosable.
-const REUSE_COOLDOWN_MS: u64 = 3000;
+/// During the cooldown window, freed cells contain zombie data (old object
+/// contents preserved until constructor overwrites). This matches the SBM
+/// behavior where freed cells keep data intact until arena purge.
+/// After cooldown, cells are reused — constructor overwrites zombie data.
+const REUSE_COOLDOWN_MS: u64 = 10_000;
 
 /// Minimum time (ms) a page must stay dirty before decommit.
 ///
-/// Set to 30 seconds for gameplay safety. Havok physics maintains an
+/// 10 seconds for gameplay safety. Havok physics maintains an
 /// internal pointer graph (broadphase, islands, contact managers) that
 /// can reference freed pages indefinitely until the world is rebuilt.
 /// Short delays (150ms, 1s) cause page faults on AI worker threads
-/// during physics step.
+/// during physics step. 10s is ample time for AI raycasting to finish
+/// (1-2s typical).
 ///
 /// The vanilla SBM never decommits during gameplay — only during
 /// explicit GlobalCleanup (OOM Stage 6) or loading transitions.
-/// 30 seconds is a conservative compromise: commit recovers eventually,
-/// and loading transitions trigger an immediate sweep with delay=0.
-const DECOMMIT_DELAY_MS: u64 = 30_000;
+/// Loading transitions trigger an immediate sweep with delay=0.
+/// 10 seconds balances RAM efficiency (pages free faster) with
+/// Havok safety (AI threads complete within 1-2s).
+const DECOMMIT_DELAY_MS: u64 = 10_000;
 
 #[repr(C)]
 #[derive(Clone, Copy)]
@@ -348,28 +353,24 @@ impl SlabArena {
         let cpp = self.cells_per_page as usize;
         let cs = self.cell_size as usize;
 
-        // Push cells 1..N onto local freelist with FreeNode header + freed sentinel.
+        // Push cells 1..N onto local freelist with FreeNode header.
         // Cell 0 goes to caller — constructor will initialize it.
+        //
+        // NO sentinel fill: keep old zombie data intact. This matches the
+        // original SBM behavior where freed cells retain data until arena
+        // purge. Stale readers see old data (still valid floats/pointers),
+        // not overwritten garbage. Sentinel fill was causing ragdoll crashes
+        // when stale readers expected valid float data from bone arrays.
         let dummy_vtable = 0x01000000usize as *const c_void;
         let cell_size_val = self.cell_size as u32;
         for i in (1..cpp).rev() {
             let cell = unsafe { addr.add(i * cs) } as *mut FreeNode;
-
-            // Write FreeNode header (offsets 0-16)
             unsafe {
                 (*cell).vtable = dummy_vtable;
                 (*cell).usable_size_4 = cell_size_val;
                 (*cell).usable_size_8 = cell_size_val;
                 (*cell).next = page.local_free;
             }
-
-            // Fill rest of cell with freed sentinel (0xFD) at offset 16+.
-            // Cells on the freelist are "freed" — stale readers see 0xFD.
-            // Must start at offset 16 to not overwrite the FreeNode header.
-            if cs > 16 {
-                unsafe { std::ptr::write_bytes((cell as *mut u8).add(16), 0xFD, cs - 16) };
-            }
-
             page.local_free = cell;
         }
 
@@ -526,17 +527,10 @@ impl SlabArena {
         }
         page.local_free = node;
 
-        // Fill rest of cell with freed sentinel (0xFD).
-        // FreeNode covers offsets 0-16 (on 64-bit: vtable 8 + usable_size_4 4 +
-        // usable_size_8 4 + next 8 = 24, padded to 16 with repr(C)).
-        // Stale readers accessing object fields beyond the FreeNode header
-        // will see 0xFDFDFDFD — instantly recognizable as "UAF read of freed
-        // memory" rather than type-confusion garbage from a reused cell.
-        let cs_usize = cs as usize;
-        if cs_usize > 16 {
-            unsafe { std::ptr::write_bytes((ptr as *mut u8).add(16), 0xFD, cs_usize - 16) };
-        }
-
+        // NO sentinel fill: keep old zombie data intact. This matches the
+        // original SBM behavior where freed cells retain data until arena
+        // purge. Stale readers see old data (still valid floats/pointers),
+        // not overwritten garbage.
         let was_full = page.refcount == self.cells_per_page as i16;
         page.refcount -= 1;
 

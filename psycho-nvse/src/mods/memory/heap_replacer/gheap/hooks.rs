@@ -326,12 +326,21 @@ pub unsafe extern "C" fn hook_per_frame_queue_drain() {
     }
 
     if request >= 1 && !vas_emergency_active {
-        // Stage 2 max: texture, geometry, menu cache cleanup.
+        // During loading, DO NOT signal HeapCompact stages. Stages 0-2
+        // (texture/geometry/menu cache flush) corrupt caches while the IO
+        // thread is actively loading textures — causes UAF when textures
+        // are cleared mid-load. This was the root cause of the crash at
+        // 0x08F744B4 (nvseRuntimeScript263CellChange).
+        //
+        // During normal gameplay (not loading), signal Stage 2 only — safe
+        // because no cell transition is in progress.
         // Stage 3+ (HavokGC / FUN_00c459d0) MUST go through destruction_protocol
         // which has Havok locking + AI safety. Signaling stage 3+ here runs
         // async queue flush without locks, disrupting NVTF Geometry Precache
         // Queue -> NiGeometryBufferData UAF (heap_analysis.md:1345).
-        heap.signal_heap_compact(globals::HeapCompactStage::MenuCleanup);
+        if !globals::is_loading() {
+            heap.signal_heap_compact(globals::HeapCompactStage::MenuCleanup);
+        }
 
         // NOTE: pool drain moved to AFTER PDD (below). Draining before PDD
         // causes UAF: PDD destructors access AnimSequenceBase, BSFadeNode
@@ -392,6 +401,10 @@ pub unsafe extern "C" fn hook_per_frame_queue_drain() {
     // margin (512MB), run cleanup to prevent OOM.
     // This is fully dynamic: it adapts to the user's specific baseline usage.
     //
+    // CRITICAL: During loading, ONLY run cache flush (stages 0-2).
+    // DO NOT run destruction_protocol with cell unload — it frees BSTreeNodes
+    // and other objects that the IO queue still references, causing UAF crashes.
+    //
     // Cooldown: 10 frames (~166ms) between turbo cleanup calls to avoid
     // per-frame wasted calls when Havok is busy.
     const LOADING_SAFETY_MARGIN: usize = 512 * 1024 * 1024; // 512MB
@@ -403,7 +416,14 @@ pub unsafe extern "C" fn hook_per_frame_queue_drain() {
         if cooldown > 0 {
             TURBO_COOLDOWN.fetch_sub(1, Ordering::Relaxed);
         } else if baseline > 0 && heap.commit_bytes() > baseline + LOADING_SAFETY_MARGIN {
-            unsafe { pr.run_cleanup() };
+            // Cache-only cleanup during loading — no cell unload, no UAF
+            unsafe {
+                let hm = super::heap_manager::HeapManager::get();
+                hm.run_oom_stage(0, false); // Texture cache flush
+                hm.run_oom_stage(1, false); // Geometry cache flush
+                hm.run_oom_stage(2, false); // Menu cache flush
+                libmimalloc::mi_collect(false);
+            }
             TURBO_COOLDOWN.store(10, Ordering::Release);
         }
     }
