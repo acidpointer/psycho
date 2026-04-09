@@ -129,25 +129,18 @@ const fn page_size_for_class(cell_size: u32) -> usize {
 }
 
 // ---------------------------------------------------------------------------
-// FreeNode: UAF protection header in freed cells
+// Out-of-band free tracking (bitmap)
 // ---------------------------------------------------------------------------
-
-/// FreeNode header written at the start of every freed cell.
-///
-/// Layout matches TWO stale reader patterns:
-///   offset 0:  vtable (preserved) — Pattern A: virtual dispatch safe
-///   offset 4:  usable_size        — NiRefObject refcount at +4: InterlockedDecrement never hits 0
-///   offset 8:  usable_size (copy) — IOTask refcount at +8: InterlockedDecrement never hits 0
-///   offset 12: next               — freelist chain (safe from InterlockedDecrement)
-///
-/// Minimum cell size = 16 bytes (ALIGN), which fits all 4 fields.
-#[repr(C)]
-struct FreeNode {
-    vtable: *const c_void, // offset 0: original vtable (preserved)
-    usable_size_4: u32,    // offset 4: cell_size (NiRefObject fake refcount)
-    usable_size_8: u32,    // offset 8: cell_size (IOTask fake refcount)
-    next: *mut FreeNode,   // offset 12: per-page freelist chain
-}
+// Free cells are tracked via a per-page bitmap in PageInfo, NOT by writing
+// into the cell data. This preserves ALL original object bytes on free
+// ("zombie memory"). Stale readers (AI threads, Havok physics, jip_nvse
+// CellChange handlers) see valid original data at every offset.
+//
+// Previous approach used an in-cell FreeNode linked list at offset 12.
+// This corrupted TESForm::refID and ScriptEventList::m_vars (both at
+// offset 0x0C), causing UAF crashes in PopulateArgs during cell transitions.
+// Moving the link to other offsets (0, 4, cell_size-4) broke concurrent
+// AI thread reads. The bitmap approach writes ZERO bytes to freed cells.
 
 // ---------------------------------------------------------------------------
 // PageInfo: per-4KB page metadata
@@ -196,7 +189,7 @@ struct PageInfo {
     refcount: i16,             // live cells on this page
     committed: bool,           // false if decommitted or virgin
     on_partial: bool,          // true if page is on partial list
-    local_free: *mut FreeNode, // freelist of free cells on this page
+    free_bitmap: [u32; 8],     // 256 bits: one per cell, set = free
     next_partial: u32,         // intrusive list: hot or cold partial pages
     prev_partial: u32,         // doubly-linked for O(1) unlink
     next_dirty: u32,           // intrusive list: fully-free pages
@@ -210,13 +203,46 @@ impl PageInfo {
             refcount: 0,
             committed: false,
             on_partial: false,
-            local_free: ptr::null_mut(),
+            free_bitmap: [0; 8],
             next_partial: EMPTY,
             prev_partial: EMPTY,
             next_dirty: EMPTY,
             dirty_at_ms: 0,
             hot_since_ms: 0,
         }
+    }
+
+    /// Pop first free cell index from bitmap. Returns None if no free cells.
+    #[inline]
+    fn bitmap_pop(&mut self) -> Option<u16> {
+        for (wi, word) in self.free_bitmap.iter_mut().enumerate() {
+            if *word != 0 {
+                let bit = word.trailing_zeros() as u16;
+                *word &= *word - 1; // clear lowest set bit
+                return Some(wi as u16 * 32 + bit);
+            }
+        }
+        None
+    }
+
+    /// Set bit (mark cell as free).
+    #[inline]
+    fn bitmap_set(&mut self, cell_idx: u16) {
+        let wi = cell_idx as usize / 32;
+        let bi = cell_idx as u32 % 32;
+        self.free_bitmap[wi] |= 1 << bi;
+    }
+
+    /// Any free cells?
+    #[inline]
+    fn bitmap_any(&self) -> bool {
+        self.free_bitmap.iter().any(|&w| w != 0)
+    }
+
+    /// Clear entire bitmap (used on decommit).
+    #[inline]
+    fn bitmap_clear_all(&mut self) {
+        self.free_bitmap = [0; 8];
     }
 }
 
@@ -359,32 +385,18 @@ impl SlabArena {
         let page = unsafe { &mut *self.page_ptr(page_idx) };
         page.committed = true;
         page.refcount = 1; // caller gets the first cell
-        page.local_free = ptr::null_mut();
         page.hot_since_ms = 0;
         page.dirty_at_ms = 0;
 
         let cpp = self.cells_per_page as usize;
-        let cs = self.cell_size as usize;
 
-        // Push cells 1..N onto local freelist with FreeNode header.
-        // Cell 0 goes to caller — constructor will initialize it.
-        //
-        // NO sentinel fill: keep old zombie data intact. This matches the
-        // original SBM behavior where freed cells retain data until arena
-        // purge. Stale readers see old data (still valid floats/pointers),
-        // not overwritten garbage. Sentinel fill was causing ragdoll crashes
-        // when stale readers expected valid float data from bone arrays.
-        let dummy_vtable = 0x01000000usize as *const c_void;
-        let cell_size_val = self.cell_size;
-        for i in (1..cpp).rev() {
-            let cell = unsafe { addr.add(i * cs) } as *mut FreeNode;
-            unsafe {
-                (*cell).vtable = dummy_vtable;
-                (*cell).usable_size_4 = cell_size_val;
-                (*cell).usable_size_8 = cell_size_val;
-                (*cell).next = page.local_free;
-            }
-            page.local_free = cell;
+        // Mark cells 1..N as free in the bitmap. Cell 0 goes to caller.
+        // NO writes to cell data: page is freshly committed (zeroed by
+        // VirtualAlloc or contains old zombie data from a reused dirty page).
+        // Stale readers see original data, not FreeNode corruption.
+        page.bitmap_clear_all();
+        for i in 1..cpp {
+            page.bitmap_set(i as u16);
         }
 
         // Cell 0 (returned to caller): constructor will initialize it.
@@ -417,17 +429,16 @@ impl SlabArena {
     /// needs_commit=false when dirty page is still physically committed (skip VirtualAlloc).
     unsafe fn alloc_phase1(&mut self, skip_cold: bool) -> (*mut c_void, Option<(u32, bool)>) {
         // Tier 1: pop from a COLD partial page (cells have cooled down, safe to reuse)
-        // SKIPPED during destruction_freeze to prevent overwriting FreeNode headers
-        // that stale pointers in the game's cell unload code still reference.
+        // SKIPPED during destruction_freeze to prevent recycling cells whose
+        // data stale pointers in the game's cell unload code still reference.
         while !skip_cold && self.cold_head != EMPTY {
             let page_idx = self.cold_head;
             let page = unsafe { &mut *self.page_ptr(page_idx) };
-            let cell = page.local_free;
-            if !cell.is_null() {
-                page.local_free = unsafe { (*cell).next };
+            if let Some(cell_idx) = page.bitmap_pop() {
+                let ptr = unsafe { self.page_addr(page_idx).add(cell_idx as usize * self.cell_size as usize) };
                 page.refcount += 1;
 
-                if page.local_free.is_null() {
+                if !page.bitmap_any() {
                     self.cold_head = page.next_partial;
                     if self.cold_head != EMPTY {
                         unsafe { (*self.page_ptr(self.cold_head)).prev_partial = EMPTY; }
@@ -437,12 +448,9 @@ impl SlabArena {
                     page.prev_partial = EMPTY;
                 }
 
-                // Return cell as-is — caller's constructor will initialize it.
-                // The cell previously contained 0xFD sentinel data from free(),
-                // which the constructor fully overwrites with real object data.
-                return (cell as *mut c_void, None);
+                return (ptr as *mut c_void, None);
             }
-            // Empty cold page (shouldn't happen, but handle gracefully)
+            // Empty cold page bitmap (shouldn't happen, but handle gracefully)
             self.cold_head = page.next_partial;
             if self.cold_head != EMPTY {
                 unsafe { (*self.page_ptr(self.cold_head)).prev_partial = EMPTY; }
@@ -490,15 +498,15 @@ impl SlabArena {
 
         let page_idx = self.hot_head;
         let page = unsafe { &mut *self.page_ptr(page_idx) };
-        let cell = page.local_free;
-        if cell.is_null() {
-            return ptr::null_mut(); // hot page has no free cells
-        }
+        let cell_idx = match page.bitmap_pop() {
+            Some(idx) => idx,
+            None => return ptr::null_mut(),
+        };
 
-        page.local_free = unsafe { (*cell).next };
+        let ptr = unsafe { self.page_addr(page_idx).add(cell_idx as usize * self.cell_size as usize) };
         page.refcount += 1;
 
-        if page.local_free.is_null() {
+        if !page.bitmap_any() {
             self.hot_head = page.next_partial;
             if self.hot_head != EMPTY {
                 unsafe { (*self.page_ptr(self.hot_head)).prev_partial = EMPTY; }
@@ -508,9 +516,7 @@ impl SlabArena {
             page.prev_partial = EMPTY;
         }
 
-        // Cell is being reused before cooldown expired.
-        // Constructor will overwrite — same behavior as normal alloc.
-        cell as *mut c_void
+        ptr as *mut c_void
     }
 
     /// Free a cell back to its page's freelist. Writes FreeNode header + sentinel.
@@ -528,25 +534,16 @@ impl SlabArena {
             return; // skip — arena state remains consistent
         }
 
-        // Write ONLY the freelist chain pointer (offset 12).
-        // Do NOT write the vtable or refcount guards at offsets 0-8.
-        // This keeps the cell's original data intact ("zombie memory")
-        // for scripts/event handlers that read freed objects during
-        // loading transitions (nvseRuntimeScript263CellChange).
-        //
-        // The original SBM did exactly this: freed cells retain data until
-        // arena purge. Stale readers see valid old data, not corruption.
-        // The 13s cooldown prevents reuse while stale readers are active.
-        let node = ptr as *mut FreeNode;
-        unsafe {
-            (*node).next = page.local_free;
-        }
-        page.local_free = node;
-
-        // NO sentinel fill: keep old zombie data intact. This matches the
-        // original SBM behavior where freed cells retain data until arena
-        // purge. Stale readers see old data (still valid floats/pointers),
-        // not overwritten garbage.
+        // Out-of-band free: set bit in bitmap, do NOT write to cell data.
+        // The cell keeps ALL original bytes intact ("zombie memory").
+        // Stale readers (AI threads, Havok, jip_nvse CellChange) see
+        // valid original data at every offset including:
+        //   offset 0:  vtable         (virtual dispatch safe)
+        //   offset 4:  refcount       (InterlockedDecrement safe)
+        //   offset 12: refID / m_vars (stale form/script lookups safe)
+        let cell_offset = ptr as usize - self.page_addr(page_idx) as usize;
+        let cell_idx = (cell_offset / self.cell_size as usize) as u16;
+        page.bitmap_set(cell_idx);
         let was_full = page.refcount == self.cells_per_page as i16;
         page.refcount -= 1;
 
@@ -724,7 +721,7 @@ impl SlabArena {
                 // Mark decommitted under lock, VirtualFree will happen outside
                 let addr = self.page_addr(page_idx);
                 page.committed = false;
-                page.local_free = ptr::null_mut();
+                page.bitmap_clear_all();
                 page.next_dirty = EMPTY;
                 self.committed_pages -= 1;
                 self.dirty_count -= 1;
