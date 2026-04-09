@@ -116,7 +116,7 @@ fn cleanup_sbm_arenas() {
     }
 
     let freed_mb = (decommitted_pages * 0x1000) / 1024 / 1024;
-    log::info!(
+    log::debug!(
         "[SBM] Arena cleanup: {} pools, {} total pages, {} decommitted ({}MB freed)",
         pools_found, total_pages, decommitted_pages, freed_mb,
     );

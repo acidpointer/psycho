@@ -401,8 +401,11 @@ pub unsafe extern "C" fn hook_per_frame_queue_drain() {
         unsafe { original() };
 
         // Boosted PDD drain when watchdog flagged cleanup.
-        // Drain ALL queues (NiNode + Generic + Form), not just NiNode.
-        if request >= 1 {
+        // During loading, skip entirely — the game's cell transition already
+        // runs its own PDD. Our aggressive drain frees objects the transition
+        // still needs, causing UAF when NVSE scripts access freed Characters
+        // (crash in InternalFunctionCaller::PopulateArgs).
+        if request >= 1 && !globals::is_loading() {
             let max_rounds = if request >= 2 {
                 PDD_ROUNDS_AGGRESSIVE
             } else {

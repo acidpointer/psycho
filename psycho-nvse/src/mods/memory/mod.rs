@@ -60,7 +60,6 @@ pub fn configure_mimalloc() {
 
         // 32MB overflow arenas if pre-reserved block fills up.
         mi_option_set(mi_option_arena_reserve, 32 * 1024); // KiB
-        log::info!("[MIMALLOC] arena_reserve = 32MB");
 
         // Demand-page: reserve VA, commit on first touch.
         mi_option_set(mi_option_arena_eager_commit, 0);
@@ -80,7 +79,6 @@ pub fn configure_mimalloc() {
         // Within the pre-reserved arena, decommit is just a page table flip
         // -- cheap. Physical RAM is freed after 100ms; only VA persists.
         mi_option_set(mi_option_purge_delay, 100);
-        log::info!("[MIMALLOC] purge_delay = 100ms (stale reader protection window)");
 
         // Decommit on purge (not full release) -- keeps VA reservation.
         mi_option_set(mi_option_purge_decommits, 1);
@@ -93,7 +91,6 @@ pub fn configure_mimalloc() {
         // Disable: if we can't allocate, fail immediately. The hook has its
         // own mi_collect + retry logic.
         mi_option_set(mi_option_retry_on_oom, 0);
-        log::info!("[MIMALLOC] retry_on_oom = 0 (disabled, we handle OOM ourselves)");
 
         // Cross-thread reclaim: essential for FNV's multi-threaded alloc/free pattern.
         // Reduced from 32 to 16 to limit page bouncing between threads during

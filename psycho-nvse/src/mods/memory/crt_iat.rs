@@ -223,12 +223,6 @@ unsafe fn iat_free(ptr: *mut c_void) {
 pub fn install_crt_hooks() -> anyhow::Result<()> {
     let module_base = get_module_handle_a(None)?.as_ptr();
 
-    // Hook ALL CRT imports (msvcrt.dll + api-ms-win-crt-heap + ucrtbase).
-    // We need broad coverage because game DLLs (DSOUND, d3dx9_38, etc.)
-    // may allocate/free memory that interacts with the game's heap.
-    // Cross-heap safety is handled by HeapValidate fallback in hook_free/realloc.
-    log::info!("Initializing IAT CRT hooks...");
-
     unsafe {
         MALLOC_IAT_HOOK.init("malloc", module_base, None, "malloc", hook_malloc)?;
         CALLOC_IAT_HOOK.init("calloc", module_base, None, "calloc", hook_calloc)?;
@@ -238,24 +232,12 @@ pub fn install_crt_hooks() -> anyhow::Result<()> {
         MSIZE_IAT_HOOK.init("_msize", module_base, None, "_msize", hook_msize)?;
     }
 
-    log::info!("[IAT] CRT hooks initialized!");
-
     MALLOC_IAT_HOOK.enable()?;
-    log::info!("[IAT] Hooked malloc");
-
     CALLOC_IAT_HOOK.enable()?;
-    log::info!("[IAT] Hooked calloc");
-
     REALLOC_IAT_HOOK.enable()?;
-    log::info!("[IAT] Hooked realloc");
-
     RECALLOC_IAT_HOOK.enable()?;
-    log::info!("[IAT] Hooked _recalloc");
-
     FREE_IAT_HOOK.enable()?;
-    log::info!("[IAT] Hooked free");
-
-    log::info!("[IAT] CRT hooks enabled!");
+    MSIZE_IAT_HOOK.enable()?;
 
     Ok(())
 }

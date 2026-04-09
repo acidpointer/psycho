@@ -227,7 +227,7 @@ impl<T: Copy + 'static> IatHookContainer<T> {
         let iat_entries =
             unsafe { find_iat_entry(module_base, library_name_opt, function_name.to_string())? };
 
-        log::info!(
+        log::debug!(
             "Found {} IAT entries for '{}'",
             iat_entries.len(),
             function_name

@@ -18,7 +18,7 @@ pub fn init_heap_cache() {
     HEAP_HANDLES.get_or_init(|| {
         let heaps = winapi::get_process_heaps();
 
-        log::info!(
+        log::debug!(
             "[HEAP] Cached {} process heap handles for pointer validation",
             heaps.len()
         );

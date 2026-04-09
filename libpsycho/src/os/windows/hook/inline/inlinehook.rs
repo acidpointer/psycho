@@ -447,7 +447,7 @@ impl<T: Copy + 'static> InlineHookContainer<T> {
 
                 hook.enable()?;
 
-                log::info!("Inline hook '{}' enabled without errors!", hook.name);
+                log::debug!("Inline hook '{}' enabled", hook.name);
 
                 Ok(())
             },

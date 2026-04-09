@@ -316,6 +316,13 @@ fn watchdog_loop(run: Arc<AtomicBool>) {
         }
 
         // Only escalate, never downgrade an existing request.
+        // During loading, skip cleanup entirely. The game's cell transition
+        // already manages memory. Our aggressive cleanup frees objects the
+        // transition still needs, causing UAF when NVSE scripts access them.
+        if loading {
+            continue;
+        }
+
         if level > 0 {
             let _ = CLEANUP_REQUESTED.fetch_max(level, Ordering::Release);
 
