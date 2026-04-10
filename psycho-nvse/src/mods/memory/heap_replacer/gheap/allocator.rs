@@ -814,3 +814,279 @@ unsafe fn do_recover_oom(size: usize) -> *mut c_void {
     );
     null_mut()
 }
+
+// ===========================================================================
+// Tests
+// ===========================================================================
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // ---- Alloc contract: NEVER returns NULL ----
+
+    #[test]
+    fn alloc_never_null_small() {
+        // Allocate many small blocks, all must be non-null.
+        let mut ptrs = Vec::new();
+        for _ in 0..500 {
+            let p = unsafe { alloc(64) };
+            assert!(!p.is_null(), "alloc(64) returned NULL");
+            ptrs.push(p);
+        }
+        for p in ptrs {
+            unsafe { free(p) };
+        }
+    }
+
+    #[test]
+    fn alloc_never_null_various() {
+        let sizes = [16, 32, 64, 128, 256, 512, 1024, 4096, 16384, 65536, 262144, 524288, 1048575];
+        for &size in &sizes {
+            let p = unsafe { alloc(size) };
+            assert!(!p.is_null(), "alloc({}) returned NULL", size);
+            unsafe { free(p) };
+        }
+    }
+
+    // ---- Alloc contract: 16-byte alignment ----
+
+    #[test]
+    fn alloc_16_byte_alignment() {
+        let sizes = [16, 17, 31, 32, 63, 64, 100, 255, 256, 1024, 8192, 65536, 262144, 524288];
+        for &size in &sizes {
+            let p = unsafe { alloc(size) };
+            assert!(!p.is_null(), "alloc({}) returned NULL", size);
+            let addr = p as usize;
+            assert_eq!(addr % 16, 0, "alloc({}) = {:p} not 16-byte aligned", size, p);
+            unsafe { free(p) };
+        }
+    }
+
+    // ---- Alloc: large allocations (>= 1MB) ----
+
+    #[test]
+    fn alloc_1mb_and_above() {
+        let sizes = [1048576, 1500000, 2097152, 4194304];
+        for &size in &sizes {
+            let p = unsafe { alloc(size) };
+            assert!(!p.is_null(), "alloc({}) returned NULL", size);
+            let usable = unsafe { msize(p) };
+            assert!(usable >= size, "msize({}) = {} < requested {}", size, usable, size);
+            unsafe { free(p) };
+        }
+    }
+
+    // ---- Alloc boundary: slab vs va_allocator ----
+
+    #[test]
+    fn alloc_boundary_1mb_minus_1() {
+        let p = unsafe { alloc(1048575) };
+        assert!(!p.is_null());
+        // Contract: msize must be >= requested
+        let s = unsafe { msize(p) };
+        assert!(s >= 1048575, "msize(1MB-1) = {} < 1048575", s);
+        assert_eq!(p as usize % 16, 0);
+        unsafe { free(p) };
+    }
+
+    #[test]
+    fn alloc_boundary_1mb() {
+        let p = unsafe { alloc(1048576) };
+        assert!(!p.is_null());
+        let s = unsafe { msize(p) };
+        assert!(s >= 1048576, "msize(1MB) = {} < 1048576", s);
+        assert_eq!(p as usize % 16, 0);
+        unsafe { free(p) };
+    }
+
+    // ---- Free contract: NULL-tolerant ----
+
+    #[test]
+    fn free_null_is_noop() {
+        // Must not crash
+        unsafe { free(std::ptr::null_mut()) };
+    }
+
+    #[test]
+    fn free_small_alloc() {
+        let p = unsafe { alloc(128) };
+        assert!(!p.is_null());
+        unsafe { free(p) };
+    }
+
+    #[test]
+    fn free_large_alloc() {
+        let p = unsafe { alloc(2097152) };
+        assert!(!p.is_null());
+        unsafe { free(p) };
+    }
+
+    #[test]
+    fn free_mid_range_alloc() {
+        let p = unsafe { alloc(524288) };
+        assert!(!p.is_null());
+        unsafe { free(p) };
+    }
+
+    #[test]
+    fn free_boundary_sizes() {
+        let p1 = unsafe { alloc(1048575) };
+        assert!(!p1.is_null());
+        unsafe { free(p1) };
+
+        let p2 = unsafe { alloc(1048576) };
+        assert!(!p2.is_null());
+        unsafe { free(p2) };
+    }
+
+    // ---- Msize contract ----
+
+    #[test]
+    fn msize_null_returns_zero() {
+        assert_eq!(unsafe { msize(std::ptr::null_mut()) }, 0);
+    }
+
+    #[test]
+    fn msize_small_alloc() {
+        let p = unsafe { alloc(64) };
+        assert!(!p.is_null());
+        let s = unsafe { msize(p) };
+        assert!(s >= 64, "msize(64) = {} < 64", s);
+        unsafe { free(p) };
+    }
+
+    #[test]
+    fn msize_large_alloc() {
+        let p = unsafe { alloc(2097152) };
+        assert!(!p.is_null());
+        let s = unsafe { msize(p) };
+        assert!(s >= 2097152, "msize(2MB) = {} < 2MB", s);
+        unsafe { free(p) };
+    }
+
+    #[test]
+    fn msize_boundary_1mb() {
+        let p1 = unsafe { alloc(1048575) };
+        assert!(!p1.is_null());
+        let s1 = unsafe { msize(p1) };
+        assert!(s1 >= 1048575);
+        unsafe { free(p1) };
+
+        let p2 = unsafe { alloc(1048576) };
+        assert!(!p2.is_null());
+        let s2 = unsafe { msize(p2) };
+        assert!(s2 >= 1048576);
+        unsafe { free(p2) };
+    }
+
+    // ---- Realloc contract ----
+
+    #[test]
+    fn realloc_null_is_alloc() {
+        let p = unsafe { realloc(std::ptr::null_mut(), 64) };
+        assert!(!p.is_null(), "realloc(NULL, 64) returned NULL");
+        unsafe { free(p) };
+    }
+
+    #[test]
+    fn realloc_zero_is_free() {
+        let p = unsafe { alloc(128) };
+        assert!(!p.is_null());
+        let q = unsafe { realloc(p, 0) };
+        assert!(q.is_null(), "realloc(ptr, 0) should return NULL");
+    }
+
+    #[test]
+    fn realloc_grow_preserves_data() {
+        let p = unsafe { alloc(64) };
+        assert!(!p.is_null());
+        unsafe { std::ptr::write_bytes(p as *mut u8, 0xDE, 64) };
+        let q = unsafe { realloc(p, 256) };
+        assert!(!q.is_null());
+        // First 64 bytes should still be 0xDE
+        let buf = unsafe { std::slice::from_raw_parts(q as *const u8, 64) };
+        assert!(buf.iter().all(|&b| b == 0xDE), "data corrupted after realloc grow");
+        unsafe { free(q) };
+    }
+
+    #[test]
+    fn realloc_shrink_preserves_data() {
+        let p = unsafe { alloc(256) };
+        assert!(!p.is_null());
+        unsafe { std::ptr::write_bytes(p as *mut u8, 0xAD, 256) };
+        let q = unsafe { realloc(p, 32) };
+        assert!(!q.is_null());
+        // First 32 bytes should still be 0xAD
+        let buf = unsafe { std::slice::from_raw_parts(q as *const u8, 32) };
+        assert!(buf.iter().all(|&b| b == 0xAD), "data corrupted after realloc shrink");
+        unsafe { free(q) };
+    }
+
+    #[test]
+    fn realloc_preserves_data_across_sizes() {
+        // Test that realloc preserves data for various size transitions.
+        for &(from, to) in &[(64, 256), (256, 64), (1024, 4096), (4096, 512)] {
+            let p = unsafe { alloc(from) };
+            assert!(!p.is_null(), "alloc({}) failed", from);
+            unsafe { std::ptr::write_bytes(p as *mut u8, (from & 0xFF) as u8, from) };
+            let q = unsafe { realloc(p, to) };
+            assert!(!q.is_null(), "realloc({}→{}) returned NULL", from, to);
+            // Data preserved for min(from, to) bytes
+            let keep = from.min(to);
+            let expected = (from & 0xFF) as u8;
+            let buf = unsafe { std::slice::from_raw_parts(q as *const u8, keep) };
+            assert!(buf.iter().all(|&b| b == expected),
+                "data corrupted after realloc {}→{}", from, to);
+            unsafe { free(q) };
+        }
+    }
+
+    #[test]
+    fn realloc_large_grow_preserves_data() {
+        // Alloc 1MB-1, realloc to 2MB — data must be preserved.
+        let p = unsafe { alloc(1048575) };
+        assert!(!p.is_null());
+        unsafe { std::ptr::write_bytes(p as *mut u8, 0xBB, 1048575) };
+        let q = unsafe { realloc(p, 2097152) };
+        assert!(!q.is_null());
+        // First 1MB-1 bytes preserved
+        let buf = unsafe { std::slice::from_raw_parts(q as *const u8, 1048575) };
+        assert!(buf.iter().all(|&b| b == 0xBB), "data corrupted after large realloc grow");
+        unsafe { free(q) };
+    }
+
+    // ---- Stress: many alloc/free cycles ----
+
+    #[test]
+    fn stress_alloc_free_cycle() {
+        for i in 0..100 {
+            let size = 16 + (i * 7) % 1048560; // varied sizes up to ~1MB
+            let p = unsafe { alloc(size) };
+            assert!(!p.is_null(), "stress alloc({}) returned NULL at iter {}", size, i);
+            assert_eq!(p as usize % 16, 0, "stress alloc({}) not aligned at iter {}", size, i);
+            unsafe { free(p) };
+        }
+    }
+
+    #[test]
+    fn stress_concurrent_sizes() {
+        // Allocate many different sizes, then free in reverse
+        let mut ptrs = Vec::new();
+        for size in [16, 48, 128, 384, 1024, 4096, 16384, 65536, 262144, 524288, 1048575, 1048576, 2097152] {
+            let p = unsafe { alloc(size) };
+            assert!(!p.is_null(), "stress alloc({}) returned NULL", size);
+            unsafe { std::ptr::write_bytes(p as *mut u8, (size & 0xFF) as u8, size.min(100)) };
+            ptrs.push((p, size));
+        }
+        // Verify all data, then free in reverse
+        for &(p, size) in &ptrs {
+            let expected_byte = (size & 0xFF) as u8;
+            let buf = unsafe { std::slice::from_raw_parts(p as *const u8, size.min(100)) };
+            assert!(buf.iter().all(|&b| b == expected_byte), "data mismatch for size {}", size);
+        }
+        for &(p, _) in ptrs.iter().rev() {
+            unsafe { free(p) };
+        }
+    }
+}
