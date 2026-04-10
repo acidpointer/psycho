@@ -39,13 +39,13 @@ const LOG_INTERVAL: u32 = 20;
 
 /// Growth thresholds as fraction of headroom (available_vas - baseline).
 /// Proportional thresholds adapt to any modpack size:
-///   Light (headroom=2596MB): normal=779, aggressive=1298, critical=1817
-///   Heavy (headroom=1960MB): normal=588, aggressive=980, critical=1372
+///   Light (headroom=2596MB): normal=1298, aggressive=1817, critical=2206
+///   Heavy (headroom=1960MB): normal=980, aggressive=1372, critical=1666
 ///
 /// Fallback absolute values used when headroom is not yet calibrated.
-const NORMAL_GROWTH_PCT: f64 = 0.30;
-const AGGRESSIVE_GROWTH_PCT: f64 = 0.50;
-const CRITICAL_GROWTH_PCT: f64 = 0.70;
+const NORMAL_GROWTH_PCT: f64 = 0.50;
+const AGGRESSIVE_GROWTH_PCT: f64 = 0.70;
+const CRITICAL_GROWTH_PCT: f64 = 0.85;
 
 /// Absolute fallback thresholds before headroom is calibrated.
 const NORMAL_GROWTH_FALLBACK: usize = 500 * 1024 * 1024;
@@ -63,23 +63,26 @@ const LOADING_THRESHOLD_REDUCTION: usize = 200 * 1024 * 1024; // 200MB
 const FALLBACK_ABSOLUTE_THRESHOLD: usize = 2 * 1024 * 1024 * 1024; // 2GB
 
 /// Minimum growth rate (bytes/sec) to trigger aggressive cleanup.
-/// 2MB/s sustained growth means VAS will exhaust within minutes.
-const AGGRESSIVE_RATE_THRESHOLD: i32 = 2 * 1024 * 1024;
+/// 10MB/s sustained growth means VAS will exhaust within minutes.
+/// Raised from 2MB/s to avoid false positives during normal modded gameplay
+/// (texture streaming, NPC spawning, script allocations easily burst 5-15MB/s).
+const AGGRESSIVE_RATE_THRESHOLD: i32 = 10 * 1024 * 1024;
 
 /// Minimum milliseconds between aggressive (level 2) requests.
-/// 500ms prevents "cleanup storms" (death spiral) while keeping up with
-/// stress testing (4x faster than the previous 2s default).
-const AGGRESSIVE_COOLDOWN_MS: u64 = 500;
+/// 2000ms prevents "cleanup storms" and gives the previous destruction_protocol
+/// time to actually reclaim memory before firing again.
+const AGGRESSIVE_COOLDOWN_MS: u64 = 2000;
 
 /// React time for normal cleanup rate floor calculation.
 /// At the rate floor, sustained growth would reach VAS Critical in this many
-/// seconds. 600s (10 min) gives ample time for cleanup before escalation.
-const NORMAL_REACT_TIME_SECS: i64 = 600;
+/// seconds. 120s (2 min) gives a higher floor, filtering out normal modded
+/// allocation bursts (5-15MB/s) while catching sustained growth.
+const NORMAL_REACT_TIME_SECS: i64 = 120;
 
 /// Minimum rate floor (bytes/sec) for normal cleanup. Prevents the floor
-/// from dropping to zero at very tight headroom. 256KB/s is above typical
-/// stable-gameplay noise but low enough for tight setups to remain responsive.
-const MIN_NORMAL_RATE: i32 = 256 * 1024;
+/// from dropping to zero at very tight headroom. 5MB/s is above normal
+/// modded idle bursts but low enough to catch genuine runaway allocation.
+const MIN_NORMAL_RATE: i32 = 5 * 1024 * 1024;
 
 // ---------------------------------------------------------------------------
 // Shared atomic state (read by main thread, written by watchdog)
@@ -96,6 +99,22 @@ static LAST_COMMIT: AtomicUsize = AtomicUsize::new(0);
 
 /// Timestamp of last aggressive request.
 static LAST_AGGRESSIVE_MS: AtomicU64 = AtomicU64::new(0);
+
+/// Recent commit samples for steady-state detection.
+/// Ring buffer of the last 120 commit measurements (30 seconds at 250ms poll).
+/// Used to detect when high-commit is stable (no growth trend) and suppress
+/// false-positive alarms during normal modded gameplay.
+static RECENT_COMMITS_MB: std::sync::RwLock<[u32; RECENT_COMMITS_COUNT]> =
+    std::sync::RwLock::new([0; RECENT_COMMITS_COUNT]);
+static RECENT_COMMIT_IDX: AtomicUsize = AtomicUsize::new(0);
+const RECENT_COMMITS_COUNT: usize = 120; // 30 seconds at 250ms poll
+
+/// Minimum commit (MB) to consider for steady-state suppression.
+/// Below this, the game is in vanilla territory where growth detection works fine.
+const STEADY_STATE_COMMIT_MIN: u32 = 1500; // 1.5GB
+
+/// Maximum allowed deviation (MB) from recent average to consider "stable".
+const STEADY_STATE_DEVIATION_MB: u32 = 50;
 
 // ---------------------------------------------------------------------------
 // Public API (called from main thread)
@@ -263,91 +282,138 @@ fn watchdog_loop(run: Arc<AtomicBool>) {
             0 // at or below critical free VAS -- always clean
         };
 
+        // --- Steady-state suppression ---
+        // Record current commit into ring buffer.
+        let commit_mb = (commit / 1024 / 1024) as u32;
+        {
+            let idx = RECENT_COMMIT_IDX.fetch_add(1, Ordering::Relaxed) % RECENT_COMMITS_COUNT;
+            if let Ok(mut buf) = RECENT_COMMITS_MB.write() {
+                buf[idx] = commit_mb;
+            }
+        }
+
+        // Check if we're in a high-commit steady state: commit has been stable
+        // (±50MB) for the last 30 seconds. If so, suppress alarms entirely.
+        // This prevents false positives when the user's modded game legitimately
+        // uses 2-2.5GB commit but isn't actively growing.
+        let is_steady_state = if commit_mb >= STEADY_STATE_COMMIT_MIN {
+            let mut stable_count: u32 = 0;
+            let mut total: u64 = 0;
+            let mut samples: u64 = 0;
+            if let Ok(buf) = RECENT_COMMITS_MB.read() {
+                for i in 0..RECENT_COMMITS_COUNT {
+                    if buf[i] == 0 {
+                        continue; // uninitialized slot
+                    }
+                    samples += 1;
+                    total += buf[i] as u64;
+                    if (buf[i] as i64 - commit_mb as i64).unsigned_abs() <= STEADY_STATE_DEVIATION_MB as u64 {
+                        stable_count += 1;
+                    }
+                }
+            }
+            // Require at least 60 samples (15 seconds) of data, and 90% must be stable.
+            if samples >= 60 {
+                let avg = total / samples;
+                let deviation = (commit_mb as i64 - avg as i64).unsigned_abs();
+                stable_count >= (samples * 9 / 10) as u32 && deviation <= STEADY_STATE_DEVIATION_MB as u64
+            } else {
+                false
+            }
+        } else {
+            false
+        };
+
         let mut level: u8 = 0;
 
-        // --- VAS-critical bypass: fragmentation-induced OOM prevention ---
-        // When free VAS drops below critical threshold, trigger aggressive
-        // cleanup regardless of growth rate. This catches fragmentation
-        // scenarios where commit is stable but available address space is
-        // exhausted (no growth --> normal thresholds don't fire).
-        if free_vas <= super::allocator::VAS_CRITICAL_REMAINING {
-            log::warn!(
-                "[WATCHDOG] VAS CRITICAL: free={}MB (threshold={}MB), forcing aggressive cleanup",
-                free_vas / 1024 / 1024,
-                super::allocator::VAS_CRITICAL_REMAINING / 1024 / 1024,
-            );
-            level = 2;
-        }
-        // Critical: aggressive only when commit is actively growing.
-        // After cell transitions, the new steady state can legitimately exceed
-        // CRITICAL_GROWTH. Without a rate gate, the watchdog fires aggressive
-        // cleanup every 500ms forever, each costing ~12ms (destruction_protocol)
-        // on the main thread -- this is the primary stutter source.
-        //
-        // During loading, any positive rate at critical growth is dangerous
-        // because the game is still allocating rapidly.
-        #[allow(clippy::if_same_then_else)]
-        if growth >= critical_thresh && prev_rate > AGGRESSIVE_RATE_THRESHOLD && !loading {
-            level = 2;
-        } else if growth >= critical_thresh && loading && prev_rate > 0 {
-            level = 2;
-        }
-        // Aggressive: high growth AND fast rate.
-        // Also skipped during loading when rate ≤ 0 (same death spiral risk).
-        else if growth >= aggressive_thresh && prev_rate > AGGRESSIVE_RATE_THRESHOLD {
-            level = 2;
-        }
-        // Normal: above threshold AND rate exceeds dynamic floor (or first
-        // sample where rate is unknown -- don't miss a 500MB+ overshoot).
-        // The floor scales with headroom: lots of room = high floor (few
-        // cleanups), tight room = low floor (more sensitive).
-        else if growth >= normal_thresh && (prev_rate > rate_floor || first_sample) {
-            level = 1;
-        }
-
-        // Aggressive cooldown.
-        if level == 2 {
-            let last_agg = LAST_AGGRESSIVE_MS.load(Ordering::Relaxed);
-            if now_ms.saturating_sub(last_agg) < AGGRESSIVE_COOLDOWN_MS {
-                level = 1; // downgrade to normal
-            } else {
-                LAST_AGGRESSIVE_MS.store(now_ms, Ordering::Relaxed);
-            }
-        }
-
-        // Only escalate, never downgrade an existing request.
-        // During loading, skip cleanup entirely. The game's cell transition
-        // already manages memory. Our aggressive cleanup frees objects the
-        // transition still needs, causing UAF when NVSE scripts access them.
-        if loading {
-            continue;
-        }
-
-        if level > 0 {
-            let _ = CLEANUP_REQUESTED.fetch_max(level, Ordering::Release);
-
-            if level == 2 {
+        // Suppress alarms during steady state (high commit but not growing).
+        if is_steady_state {
+            // Skip all threshold checks — this is the user's normal baseline.
+        } else {
+            // --- VAS-critical bypass: fragmentation-induced OOM prevention ---
+            // When free VAS drops below critical threshold, trigger aggressive
+            // cleanup regardless of growth rate. This catches fragmentation
+            // scenarios where commit is stable but available address space is
+            // exhausted (no growth --> normal thresholds don't fire).
+            if free_vas <= super::allocator::VAS_CRITICAL_REMAINING {
                 log::warn!(
-                    "[WATCHDOG] Aggressive cleanup: commit={}MB, growth={}MB, rate={}/s{}",
-                    commit / 1024 / 1024,
-                    growth / 1024 / 1024,
-                    format_rate(prev_rate),
-                    if loading { " (loading)" } else { "" },
+                    "[WATCHDOG] VAS CRITICAL: free={}MB (threshold={}MB), forcing aggressive cleanup",
+                    free_vas / 1024 / 1024,
+                    super::allocator::VAS_CRITICAL_REMAINING / 1024 / 1024,
                 );
-            } else {
-                log::info!(
-                    "[WATCHDOG] Normal cleanup: commit={}MB, growth={}MB, rate={}/s, floor={}/s{}",
-                    commit / 1024 / 1024,
-                    growth / 1024 / 1024,
-                    format_rate(prev_rate),
-                    format_rate(rate_floor),
-                    if loading { " (loading)" } else { "" },
-                );
+                level = 2;
             }
-        }
+            // Critical: aggressive only when commit is actively growing.
+            // After cell transitions, the new steady state can legitimately exceed
+            // CRITICAL_GROWTH. Without a rate gate, the watchdog fires aggressive
+            // cleanup every 500ms forever, each costing ~12ms (destruction_protocol)
+            // on the main thread -- this is the primary stutter source.
+            //
+            // During loading, any positive rate at critical growth is dangerous
+            // because the game is still allocating rapidly.
+            #[allow(clippy::if_same_then_else)]
+            if growth >= critical_thresh && prev_rate > AGGRESSIVE_RATE_THRESHOLD && !loading {
+                level = 2;
+            } else if growth >= critical_thresh && loading && prev_rate > 0 {
+                level = 2;
+            }
+            // Aggressive: high growth AND fast rate.
+            // Also skipped during loading when rate ≤ 0 (same death spiral risk).
+            else if growth >= aggressive_thresh && prev_rate > AGGRESSIVE_RATE_THRESHOLD {
+                level = 2;
+            }
+            // Normal: above threshold AND rate exceeds dynamic floor (or first
+            // sample where rate is unknown -- don't miss a 500MB+ overshoot).
+            // The floor scales with headroom: lots of room = high floor (few
+            // cleanups), tight room = low floor (more sensitive).
+            else if growth >= normal_thresh && (prev_rate > rate_floor || first_sample) {
+                level = 1;
+            }
 
-        // --- Diagnostic logging ---
-        log_diagnostics(poll_count, &info);
+            // Aggressive cooldown.
+            if level == 2 {
+                let last_agg = LAST_AGGRESSIVE_MS.load(Ordering::Relaxed);
+                if now_ms.saturating_sub(last_agg) < AGGRESSIVE_COOLDOWN_MS {
+                    level = 1; // downgrade to normal
+                } else {
+                    LAST_AGGRESSIVE_MS.store(now_ms, Ordering::Relaxed);
+                }
+            }
+
+            // Only escalate, never downgrade an existing request.
+            // During loading, skip cleanup entirely. The game's cell transition
+            // already manages memory. Our aggressive cleanup frees objects the
+            // transition still needs, causing UAF when NVSE scripts access them.
+            if loading {
+                continue;
+            }
+
+            if level > 0 {
+                let _ = CLEANUP_REQUESTED.fetch_max(level, Ordering::Release);
+
+                if level == 2 {
+                    log::warn!(
+                        "[WATCHDOG] Aggressive cleanup: commit={}MB, growth={}MB, rate={}/s{}",
+                        commit / 1024 / 1024,
+                        growth / 1024 / 1024,
+                        format_rate(prev_rate),
+                        if loading { " (loading)" } else { "" },
+                    );
+                } else {
+                    log::info!(
+                        "[WATCHDOG] Normal cleanup: commit={}MB, growth={}MB, rate={}/s, floor={}/s{}",
+                        commit / 1024 / 1024,
+                        growth / 1024 / 1024,
+                        format_rate(prev_rate),
+                        format_rate(rate_floor),
+                        if loading { " (loading)" } else { "" },
+                    );
+                }
+            }
+
+            // --- Diagnostic logging ---
+            log_diagnostics(poll_count, &info);
+        }
     }
 }
 

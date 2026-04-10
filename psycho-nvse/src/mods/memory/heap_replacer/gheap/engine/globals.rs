@@ -11,10 +11,11 @@
 
 use libc::c_void;
 
-use libpsycho::ffi::fnptr::FnPtr;
-
 use super::addr;
 use crate::mods::memory::heap_replacer::gheap::types;
+use libpsycho::ffi::fnptr::FnPtr;
+use windows::Win32::Foundation::{HANDLE, WAIT_OBJECT_0, WAIT_TIMEOUT};
+use windows::Win32::System::Threading::{ReleaseSemaphore, WaitForSingleObject};
 
 // ---------------------------------------------------------------------------
 // Game state reads (all safe -- reading from known static addresses)
@@ -221,7 +222,10 @@ pub unsafe fn release_bstask_sems_if_owned() -> bool {
     } {
         Ok(f) => f,
         Err(e) => {
-            log::error!("[BSTASK] FnPtr::from_raw(BSTASK_RELEASE_SEM) failed: {:?}", e);
+            log::error!(
+                "[BSTASK] FnPtr::from_raw(BSTASK_RELEASE_SEM) failed: {:?}",
+                e
+            );
             return false;
         }
     };
@@ -231,7 +235,10 @@ pub unsafe fn release_bstask_sems_if_owned() -> bool {
     } {
         Ok(f) => f,
         Err(e) => {
-            log::error!("[BSTASK] FnPtr::from_raw(BSTASK_SIGNAL_IDLE) failed: {:?}", e);
+            log::error!(
+                "[BSTASK] FnPtr::from_raw(BSTASK_SIGNAL_IDLE) failed: {:?}",
+                e
+            );
             return false;
         }
     };
@@ -245,7 +252,7 @@ pub unsafe fn release_bstask_sems_if_owned() -> bool {
         Err(e) => {
             log::error!("[BSTASK] get_owner.as_fn() failed for thread 0: {:?}", e);
             // Don't return early -- thread 1 might still need releasing.
-            0  // 0 != current_tid, so thread 0 check will be skipped
+            0 // 0 != current_tid, so thread 0 check will be skipped
         }
     };
     if owner0 == current_tid {
@@ -266,7 +273,7 @@ pub unsafe fn release_bstask_sems_if_owned() -> bool {
         Ok(f) => unsafe { f(io_manager, 1) },
         Err(e) => {
             log::error!("[BSTASK] get_owner.as_fn() failed for thread 1: {:?}", e);
-            0  // Don't return early -- thread 0 may have been released already
+            0 // Don't return early -- thread 0 may have been released already
         }
     };
     if owner1 == current_tid {
@@ -490,9 +497,7 @@ pub unsafe fn deferred_cleanup_small(param: u8) {
 /// system, NOT the physics world. Safe to call without holding the
 /// Havok world lock.
 pub unsafe fn havok_gc(force: u8) {
-    let f = match unsafe {
-        FnPtr::<types::HavokGcFn>::from_raw(addr::HAVOK_GC as *mut c_void)
-    } {
+    let f = match unsafe { FnPtr::<types::HavokGcFn>::from_raw(addr::HAVOK_GC as *mut c_void) } {
         Ok(f) => f,
         Err(e) => {
             log::error!("[HAVOK_GC] FnPtr::from_raw failed: {:?}", e);
@@ -523,4 +528,166 @@ pub unsafe fn pdd_purge() {
         Ok(f) => unsafe { f(0) }, // blocking purge
         Err(e) => log::error!("[PDD_PURGE] as_fn() failed: {:?}", e),
     }
+}
+
+// ---------------------------------------------------------------------------
+// IO thread synchronization barrier
+// ---------------------------------------------------------------------------
+
+/// Probe whether a specific BSTaskManagerThread is idle.
+///
+/// The IO thread signals its `iter_sem` (at +0x1C) at the END of each
+/// inner loop iteration. If the semaphore is signaled, the thread is
+/// between tasks (idle). If not signaled, the thread is mid-task (busy).
+///
+/// # Parameters
+/// * `thread_idx` - 0 or 1, index of the BSTaskManagerThread instance.
+///
+/// # Returns
+/// * `true` if the thread is idle (between iterations).
+/// * `false` if the thread is busy (processing a task).
+///
+/// # Important
+/// If the probe consumes the semaphore signal (thread was idle), we MUST
+/// restore it via `ReleaseSemaphore` so the IO thread's next iteration
+/// works correctly. Otherwise the thread blocks forever on its next
+/// `WaitForSingleObject(iter_sem, INFINITE)` call.
+pub fn is_io_thread_idle(thread_idx: usize) -> bool {
+    let io_manager = unsafe { *(addr::IO_MANAGER_SINGLETON as *const *mut c_void) };
+    if io_manager.is_null() {
+        return false; // assume busy if singleton unavailable
+    }
+
+    // Get the BSTaskManagerThread object from the thread array.
+    let thread_array = unsafe {
+        (io_manager as *const u8).add(addr::IO_THREAD_ARRAY_OFFSET) as *const *mut c_void
+    };
+    let thread_obj = unsafe { *thread_array.add(thread_idx) };
+    if thread_obj.is_null() {
+        return true; // no thread object = nothing to wait for
+    }
+
+    // iter_sem handle is at offset +0x1C.
+    let sem_handle = unsafe {
+        let p = (thread_obj as *const u8).add(addr::BST_ITER_SEM_HANDLE_OFFSET) as *const u32;
+        *p
+    };
+    if sem_handle == 0 {
+        return true; // no semaphore = consider idle
+    }
+
+    // Probe with zero timeout: WAIT_OBJECT_0 = signaled (idle),
+    // WAIT_TIMEOUT = not signaled (busy).
+    let result = unsafe { WaitForSingleObject(HANDLE(sem_handle as _), 0) };
+
+    match result {
+        WAIT_OBJECT_0 => {
+            // Thread is idle (semaphore was signaled).
+            // Restore the signal so the thread's next iteration works.
+            unsafe {
+                let _ = ReleaseSemaphore(HANDLE(sem_handle as _), 1, None);
+            }
+            true
+        }
+        WAIT_TIMEOUT => {
+            // Thread is busy (semaphore not signaled, mid-task).
+            false
+        }
+        _ => {
+            // Error or abandoned -- assume busy to be safe.
+            false
+        }
+    }
+}
+
+/// Wait for both BSTaskManagerThread instances to become idle.
+///
+/// Probes iter_sem on both threads (indices 0 and 1) in a loop until
+/// both report idle, or the timeout expires.
+///
+/// # Parameters
+/// * `timeout_ms` - Maximum time to wait in milliseconds.
+///
+/// # Returns
+/// * `true` if both threads became idle within the timeout.
+/// * `false` if timeout expired (proceed anyway as safety fallback).
+pub fn wait_io_thread_idle(timeout_ms: u64) -> bool {
+    let start = libpsycho::os::windows::winapi::get_tick_count();
+
+    loop {
+        let idle0 = is_io_thread_idle(0);
+        let idle1 = is_io_thread_idle(1);
+
+        if idle0 && idle1 {
+            log::debug!("[IO_BARRIER] Both IO threads idle");
+            return true;
+        }
+
+        let elapsed = libpsycho::os::windows::winapi::get_tick_count().saturating_sub(start) as u64;
+        if elapsed >= timeout_ms {
+            log::warn!(
+                "[IO_BARRIER] Timeout after {}ms (thread0={} idle, thread1={} idle), proceeding anyway",
+                elapsed,
+                idle0,
+                idle1,
+            );
+            return false;
+        }
+
+        libpsycho::os::windows::winapi::sleep(1);
+    }
+}
+
+/// Drain completed IO tasks on the main thread.
+///
+/// Calls IOManager::Process (FUN_00c3dbf0) which dequeues completed tasks
+/// and releases their references. This ensures no completed tasks are
+/// holding references to cells we're about to unload during the destruction
+/// protocol.
+///
+/// This is the same function the game calls at Phase 3 of every frame.
+/// Calling it here ensures we process any tasks that completed between
+/// the last Phase 3 call and now.
+///
+/// # Safety
+/// Must be called on the main thread. The function reads game object data
+/// from task structures and calls vtable methods on them.
+pub unsafe fn drain_io_completed_queue() {
+    let io_manager = match unsafe { *(addr::IO_MANAGER_SINGLETON as *const *mut c_void) } {
+        ptr if !ptr.is_null() => ptr,
+        _ => {
+            log::debug!("[IO_BARRIER] IOManager singleton null, skipping drain");
+            return;
+        }
+    };
+
+    // Check reentrancy guard (DAT_01202DD8) to avoid recursive calls.
+    let reentrancy = unsafe { *(addr::IO_MANAGER_SINGLETON as *const u8).add(0x40) };
+    if reentrancy != 0 {
+        log::debug!("[IO_BARRIER] IO process reentrancy guard set, skipping drain");
+        return;
+    }
+
+    let f = match unsafe {
+        FnPtr::<types::IOManagerProcessFn>::from_raw(addr::IO_MANAGER_PROCESS as *mut c_void)
+    } {
+        Ok(f) => f,
+        Err(e) => {
+            log::error!(
+                "[IO_BARRIER] FnPtr::from_raw(IO_MANAGER_PROCESS) failed: {:?}",
+                e
+            );
+            return;
+        }
+    };
+
+    match unsafe { f.as_fn() } {
+        Ok(f) => unsafe { f(io_manager) },
+        Err(e) => log::error!(
+            "[IO_BARRIER] drain_io_completed_queue as_fn() failed: {:?}",
+            e
+        ),
+    }
+
+    log::debug!("[IO_BARRIER] IO completed queue drained");
 }

@@ -76,6 +76,26 @@ impl PressureRelief {
         log::info!("[PRESSURE] Baseline calibrated: {}MB", commit / 1024 / 1024,);
     }
 
+    /// Recalibrate baseline commit to the current value.
+    /// Called when loading ends to capture the true post-loading steady state.
+    /// The original baseline (captured at first Phase 10 tick) is often taken
+    /// before cell data is fully loaded, making it too low for modded games.
+    pub fn recalibrate_baseline(&self) {
+        let commit = libmimalloc::process_info::MiMallocProcessInfo::get().get_current_commit();
+        let old = self.baseline_commit.swap(commit, Ordering::Release);
+
+        // Recalibrate VAS thresholds with the new baseline.
+        super::allocator::calibrate_thresholds(commit);
+
+        if old != 0 && old != commit {
+            log::info!(
+                "[PRESSURE] Baseline recalibrated: {}MB → {}MB",
+                old / 1024 / 1024,
+                commit / 1024 / 1024,
+            );
+        }
+    }
+
     /// Get the global singleton (lazily initialized).
     pub fn instance() -> Option<&'static Self> {
         static INSTANCE: LazyLock<Option<PressureRelief>> =
@@ -226,6 +246,27 @@ impl PressureRelief {
         // when sleep was reduced to 1ms -- AI thread referenced freed terrain
         // collision shape (hkScaledMoppBvTreeShape) mid-chain.
         libpsycho::os::windows::winapi::sleep(30);
+
+        // Wait for IO threads to finish current tasks.
+        // BSTaskManagerThread processes ExteriorCellLoaderTask, QueuedReference,
+        // and other task types that read cell/form/ref data. Without this
+        // barrier, Stage 5 cell unloading frees data the IO thread is still
+        // reading --> UAF crash (seen at 0x0040FE96, form flag check).
+        //
+        // Probes iter_sem on both IO threads (indices 0 and 1) until both
+        // are idle (between task iterations) or 500ms timeout expires.
+        if globals::is_bst_cell_load_pending() {
+            log::debug!("[DESTRUCTION] Cell load pending, waiting for IO threads...");
+        }
+        globals::wait_io_thread_idle(500);
+
+        // Drain completed IO tasks to release references to old cells.
+        // Same function the game calls at Phase 3 of every frame.
+        unsafe { globals::drain_io_completed_queue() };
+
+        // Small buffer after IO idle detection. Covers cache coherency and
+        // any memory reads completing just as we detect the thread idle.
+        libpsycho::os::windows::winapi::sleep(10);
 
         // Run Stage 5 in a loop until game says no more cells eligible.
         // Each call runs 5 --> 4 --> 3 automatically (fallthrough in switch case).

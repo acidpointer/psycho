@@ -525,6 +525,15 @@ fn on_loading_end() {
         allocator::activate_pool();
     }
 
+    // Recalibrate baseline commit now that loading is complete.
+    // The original baseline was captured at first Phase 10 tick (during loading),
+    // which is too early — it captures the pre-loading state. This recalibration
+    // captures the true post-loading steady state, preventing the watchdog from
+    // treating the user's legitimate modded memory footprint as "growth".
+    if let Some(pr) = PressureRelief::instance() {
+        pr.recalibrate_baseline();
+    }
+
     // Set post-loading cooldown: suppress watchdog cleanup for 5 seconds
     // to let jip_nvse's nvseRuntimeScript263CellChange finish processing
     // events that reference objects from the old cell.

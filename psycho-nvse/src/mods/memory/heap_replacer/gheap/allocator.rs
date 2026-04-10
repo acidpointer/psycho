@@ -64,22 +64,32 @@ pub fn current_free_vas() -> usize {
 
 /// Calibrate watchdog headroom from live VAS measurement.
 /// Called when baseline_commit is first calibrated by PressureRelief.
+/// Safe to call multiple times (e.g., during recalibration post-loading).
 pub fn calibrate_thresholds(baseline: usize) {
     if baseline == 0 {
         return;
     }
     let free_vas = current_free_vas();
+    let prev = HEADROOM.swap(free_vas, Ordering::Release);
     // headroom = current free VAS (at calibration, commit ~ baseline)
-    HEADROOM.store(free_vas, Ordering::Release);
 
-    log::info!(
-        "[VAS] Calibrated: baseline={}MB, free_vas={}MB, \
-         critical_at=<{}MB free, emergency_at=<{}MB free",
-        baseline / 1024 / 1024,
-        free_vas / 1024 / 1024,
-        VAS_CRITICAL_REMAINING / 1024 / 1024,
-        VAS_EMERGENCY_REMAINING / 1024 / 1024,
-    );
+    if prev == 0 {
+        log::info!(
+            "[VAS] Calibrated: baseline={}MB, free_vas={}MB, \
+             critical_at=<{}MB free, emergency_at=<{}MB free",
+            baseline / 1024 / 1024,
+            free_vas / 1024 / 1024,
+            VAS_CRITICAL_REMAINING / 1024 / 1024,
+            VAS_EMERGENCY_REMAINING / 1024 / 1024,
+        );
+    } else {
+        log::info!(
+            "[VAS] Recalibrated: baseline={}MB, free_vas={}MB (prev={}MB)",
+            baseline / 1024 / 1024,
+            free_vas / 1024 / 1024,
+            prev / 1024 / 1024,
+        );
+    }
 }
 
 /// Get calibrated headroom (available_vas - baseline). Used by watchdog

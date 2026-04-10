@@ -151,6 +151,11 @@ pub const DEFERRED_CLEANUP_SMALL: usize = 0x00878250;
 // fastcall with ECX = lock ptr, one stack param (timeout=0), RET 0x4.
 pub const SPIN_LOCK_ACQUIRE: usize = 0x0040FBF0;
 
+// FUN_00C3DBF0: IOManager main-thread task processing (646 bytes, thiscall).
+// Dequeues and executes completed IO tasks on the main thread. Called by
+// the game at Phase 3 of every frame loop.
+pub const IO_MANAGER_PROCESS: usize = 0x00C3DBF0;
+
 // ---------------------------------------------------------------------------
 // Havok physics synchronization
 // ---------------------------------------------------------------------------
