@@ -1,15 +1,16 @@
 //! Slab allocator with per-page refcounting and VirtualFree(MEM_DECOMMIT).
 //!
-//! Replaces the mimalloc+pool architecture. Manages its own VirtualAlloc
+//! Replaces the SBM pool architecture. Manages its own VirtualAlloc
 //! arenas with 4KB page granularity. When all cells on a page are freed,
 //! the page is decommitted — matching the vanilla SBM's memory contract.
 //!
 //! Design:
 //!   alloc  -> per-page freelist pop (O(1), no syscall on hot path)
-//!   free   -> freelist push + refcount-- (O(1), FreeNode header for UAF)
+//!   free   -> freelist push + refcount-- (O(1), zombie memory preserved)
 //!   decommit -> Phase 7 sweep: dirty pages with refcount==0 get MEM_DECOMMIT
 //!
 //! Thread safety: spinlock per arena. Main + workers share arenas.
+//! Covers all sizes up to 1MB. Larger allocations go to va_allocator.
 
 use std::cell::Cell;
 use std::ptr;
@@ -61,28 +62,31 @@ fn cached_tick() -> u64 {
     now
 }
 
-/// Size classes: 47 classes from 16B to 256KB.
+/// Size classes: 54 classes from 16B to 1MB.
 /// Classes <= 4096 use 4KB pages (single OS page).
 /// Classes > 4096 use multi-page logical pages (2 cells per page min).
-const SIZE_CLASSES: [u32; 47] = [
+const SIZE_CLASSES: [u32; 54] = [
     16, 32, 48, 64, 80, 96, 112, 128, 160, 192, 224, 256, 320, 384, 448, 512, 640, 768, 896, 1024,
     1280, 1536, 1792, 2048, 2560, 3072, 3584, 4096,
     // extended range: mid-size game objects get FreeNode UAF protection
     5120, 6144, 8192, 10240, 12288, 14336, 16384,
     // extended range 2: NPC sub-objects (Process, ExtraData, scripts)
     20480, 24576, 32768, 40960, 49152, 65536, 81920, 98304, 131072, 163840, 196608, 262144,
+    // extended range 3: fills gap to 1MB (previously mimalloc territory)
+    327680, 393216, 524288, 655360, 786432, 917504, 1048576,
 ];
 
 const NUM_CLASSES: usize = SIZE_CLASSES.len();
 
-/// Max allocation size the slab handles. Larger goes to mimalloc/va_allocator.
-/// 256KB covers NPC sub-objects (Process, ExtraData, scripts) that previously
-/// went through mimalloc --> mi_free immediate reclaim --> UAF during loading.
-pub const MAX_SLAB_SIZE: usize = 262144;
+/// Max allocation size the slab handles. Larger goes to va_allocator.
+/// 1MB covers all game heap allocations except large raw buffers
+/// (textures, geometry dumps) which go through VirtualAlloc directly.
+pub const MAX_SLAB_SIZE: usize = 1048576;
 
 /// Arena reservation sizes per tier (in bytes).
 /// Small classes are more popular, get larger arenas.
-/// Large classes (20KB-256KB) get smaller arenas since they're less frequent.
+/// Large classes get smaller arenas since they're less frequent.
+/// Classes 512KB-1MB use 4MB arenas (logical page = 2MB for 2 cells/page).
 #[allow(clippy::if_same_then_else, clippy::identity_op)]
 const fn arena_size_for_class(idx: usize) -> usize {
     if idx < 8 {
@@ -109,8 +113,16 @@ const fn arena_size_for_class(idx: usize) -> usize {
         2 * 1024 * 1024
     }
     // 128KB..256KB: 1MB each (rare, large sub-objects)
-    else {
+    else if idx < 50 {
         1 * 1024 * 1024
+    }
+    // 320KB..384KB: 2MB each (large NPC data)
+    else if idx < 52 {
+        2 * 1024 * 1024
+    }
+    // 512KB..1MB: 4MB each (very rare, bulk allocations)
+    else {
+        4 * 1024 * 1024
     }
 }
 
@@ -482,8 +494,8 @@ impl SlabArena {
     /// Returns a cell from the oldest hot page, ignoring cooldown.
     ///
     /// This is a safety valve to prevent false OOM during loading bursts.
-    /// Without it, the slab returns NULL --> mimalloc fills --> OOM recovery
-    /// death spiral (stages 0-5 with bypass=true --> texture UAF crash).
+    /// Without it, the slab returns NULL → va_allocator fills → OOM recovery
+    /// death spiral (stages 0-5 with bypass=true → texture UAF crash).
     /// Better to reuse a cooling cell (minor UAF risk from unbounded
     /// NVSE/plugin refs) than to trigger the guaranteed OOM crash.
     ///
@@ -1159,5 +1171,303 @@ pub fn dirty_pages() -> u32 {
     match SLAB.get() {
         Some(s) => s.dirty_pages(),
         None => 0,
+    }
+}
+
+// ===========================================================================
+// Tests
+// ===========================================================================
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // ---- SIZE_CLASSES properties ----
+
+    #[test]
+    fn size_classes_monotonic() {
+        for i in 1..NUM_CLASSES {
+            assert!(
+                SIZE_CLASSES[i] > SIZE_CLASSES[i - 1],
+                "Class {} ({}) <= Class {} ({})",
+                i,
+                SIZE_CLASSES[i],
+                i - 1,
+                SIZE_CLASSES[i - 1]
+            );
+        }
+    }
+
+    #[test]
+    fn size_classes_first_is_align() {
+        assert_eq!(SIZE_CLASSES[0], ALIGN as u32, "First class must be ALIGN");
+    }
+
+    #[test]
+    fn size_classes_last_is_max() {
+        assert_eq!(
+            SIZE_CLASSES[NUM_CLASSES - 1] as usize, MAX_SLAB_SIZE,
+            "Last class must be MAX_SLAB_SIZE"
+        );
+    }
+
+    #[test]
+    fn size_classes_cover_all_aligned_sizes() {
+        // Every aligned size from ALIGN to MAX_SLAB_SIZE fits some class.
+        for slot in 1..=MAX_SLAB_SIZE / ALIGN {
+            let size = slot * ALIGN;
+            let fits = SIZE_CLASSES.iter().any(|&c| c as usize >= size);
+            assert!(
+                fits,
+                "No class covers aligned size {} (slot {})",
+                size,
+                slot
+            );
+        }
+    }
+
+    #[test]
+    fn size_classes_no_large_gaps() {
+        // Gap between consecutive classes must be <= the smaller class.
+        // This ensures no size falls through a crack.
+        for i in 1..NUM_CLASSES {
+            let gap = SIZE_CLASSES[i] - SIZE_CLASSES[i - 1];
+            assert!(
+                gap <= SIZE_CLASSES[i - 1],
+                "Gap between class {} ({}) and {} ({}) is {} > {}",
+                i - 1,
+                SIZE_CLASSES[i - 1],
+                i,
+                SIZE_CLASSES[i],
+                gap,
+                SIZE_CLASSES[i - 1]
+            );
+        }
+    }
+
+    #[test]
+    fn num_classes_matches() {
+        assert_eq!(NUM_CLASSES, SIZE_CLASSES.len());
+        assert_eq!(NUM_CLASSES, 54);
+    }
+
+    // ---- arena_size_for_class ----
+
+    #[test]
+    fn arena_sizes_are_reasonable() {
+        for i in 0..NUM_CLASSES {
+            let sz = arena_size_for_class(i);
+            assert!(
+                sz >= 1024 * 1024 && sz <= 8 * 1024 * 1024,
+                "Class {} arena size {} is outside 1-8MB range",
+                i,
+                sz
+            );
+        }
+    }
+
+    #[test]
+    fn arena_sizes_small_classes_large() {
+        // First 8 classes (16..128B) get 8MB arenas.
+        for i in 0..8 {
+            assert_eq!(arena_size_for_class(i), 8 * 1024 * 1024);
+        }
+    }
+
+    #[test]
+    fn arena_sizes_large_classes_adequate() {
+        // 512KB-1MB classes (indices 52-53) get 4MB arenas.
+        for i in 52..NUM_CLASSES {
+            assert_eq!(arena_size_for_class(i), 4 * 1024 * 1024);
+        }
+        // 320KB-384KB classes (indices 50-51) get 2MB arenas.
+        for i in 50..52 {
+            assert_eq!(arena_size_for_class(i), 2 * 1024 * 1024);
+        }
+    }
+
+    #[test]
+    fn total_arenas_correct() {
+        assert_eq!(TOTAL_ARENAS, NUM_CLASSES + SHARDED_CLASSES);
+        assert_eq!(TOTAL_ARENAS, 62); // 54 + 8
+    }
+
+    // ---- page_size_for_class ----
+
+    #[test]
+    fn page_size_small_classes_4k() {
+        for &cl in &SIZE_CLASSES {
+            if cl as usize <= OS_PAGE_SIZE {
+                assert_eq!(
+                    page_size_for_class(cl),
+                    OS_PAGE_SIZE,
+                    "Class {} should have 4KB page",
+                    cl
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn page_size_fits_two_cells_for_large_classes() {
+        // Classes > 4KB guarantee at least 2 cells per logical page.
+        for &cl in &SIZE_CLASSES {
+            if cl as usize > OS_PAGE_SIZE {
+                let ps = page_size_for_class(cl);
+                assert!(
+                    ps >= (cl as usize) * 2,
+                    "Page size {} for class {} doesn't fit 2 cells",
+                    ps,
+                    cl
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn page_size_small_classes_single_page() {
+        // Classes <= 4KB use exactly 1 OS page (may fit only 1 cell for
+        // classes just above 2KB). This is by design.
+        for &cl in &SIZE_CLASSES {
+            if cl as usize <= OS_PAGE_SIZE {
+                assert_eq!(page_size_for_class(cl), OS_PAGE_SIZE);
+            }
+        }
+    }
+
+    #[test]
+    fn page_size_large_classes() {
+        // 512KB class: 2 cells = 1MB, rounded up to 1MB (256 OS pages)
+        assert_eq!(page_size_for_class(524288), 1024 * 1024);
+        // 1MB class: 2 cells = 2MB (512 OS pages)
+        assert_eq!(page_size_for_class(1048576), 2 * 1024 * 1024);
+    }
+
+    // ---- Constants consistency ----
+
+    #[test]
+    fn align_constant() {
+        assert_eq!(ALIGN, 16);
+    }
+
+    #[test]
+    fn max_slab_size_is_1mb() {
+        assert_eq!(MAX_SLAB_SIZE, 1048576);
+    }
+
+    #[test]
+    fn extended_range3_covers_320kb_to_1mb() {
+        // Indices 47-53 should be the new 320KB..1MB range.
+        let expected = [
+            327680, 393216, 524288, 655360, 786432, 917504, 1048576,
+        ];
+        for (i, &exp) in expected.iter().enumerate() {
+            assert_eq!(
+                SIZE_CLASSES[47 + i], exp,
+                "Extended range 3 class {} mismatch",
+                i
+            );
+        }
+    }
+
+    // ---- PageInfo bitmap operations ----
+
+    #[test]
+    fn bitmap_new_is_empty() {
+        let pi = PageInfo::new();
+        assert!(!pi.bitmap_any());
+        // Can't test bitmap_pop on immutable, but we know free_bitmap is all zeros
+        let mut pi2 = pi;
+        assert_eq!(pi2.bitmap_pop(), None);
+    }
+
+    #[test]
+    fn bitmap_set_and_any() {
+        let mut pi = PageInfo::new();
+        pi.bitmap_set(0);
+        assert!(pi.bitmap_any());
+        pi.bitmap_set(255);
+        assert!(pi.bitmap_any());
+    }
+
+    #[test]
+    fn bitmap_pop_returns_lowest_bit() {
+        let mut pi = PageInfo::new();
+        pi.bitmap_set(5);
+        pi.bitmap_set(3);
+        pi.bitmap_set(10);
+        assert_eq!(pi.bitmap_pop(), Some(3));
+    }
+
+    #[test]
+    fn bitmap_pop_clears_bit() {
+        let mut pi = PageInfo::new();
+        pi.bitmap_set(7);
+        assert_eq!(pi.bitmap_pop(), Some(7));
+        // Bit should be cleared, bitmap should be empty
+        assert!(!pi.bitmap_any());
+    }
+
+    #[test]
+    fn bitmap_pop_exhausts_all() {
+        let mut pi = PageInfo::new();
+        // Set every 3rd bit
+        for i in (0..256).step_by(3) {
+            pi.bitmap_set(i as u16);
+        }
+        let mut count = 0;
+        while pi.bitmap_pop().is_some() {
+            count += 1;
+        }
+        assert_eq!(count, 86); // ceil(256/3) = 86
+    }
+
+    #[test]
+    fn bitmap_clear_all() {
+        let mut pi = PageInfo::new();
+        for i in 0..256u16 {
+            pi.bitmap_set(i);
+        }
+        assert!(pi.bitmap_any());
+        pi.bitmap_clear_all();
+        assert!(!pi.bitmap_any());
+        assert_eq!(pi.bitmap_pop(), None);
+    }
+
+    #[test]
+    fn bitmap_boundary_words() {
+        // Test cell indices at word boundaries
+        let mut pi = PageInfo::new();
+        pi.bitmap_set(31); // Last bit of word 0
+        pi.bitmap_set(32); // First bit of word 1
+        pi.bitmap_set(63); // Last bit of word 1
+        pi.bitmap_set(64); // First bit of word 2
+        assert_eq!(pi.bitmap_pop(), Some(31));
+        assert_eq!(pi.bitmap_pop(), Some(32));
+        assert_eq!(pi.bitmap_pop(), Some(63));
+        assert_eq!(pi.bitmap_pop(), Some(64));
+        assert_eq!(pi.bitmap_pop(), None);
+    }
+
+    #[test]
+    fn bitmap_all_256_bits() {
+        let mut pi = PageInfo::new();
+        for i in 0..256u16 {
+            pi.bitmap_set(i);
+        }
+        let mut count = 0;
+        while let Some(idx) = pi.bitmap_pop() {
+            assert_eq!(idx, count);
+            count += 1;
+        }
+        assert_eq!(count, 256);
+    }
+
+    #[test]
+    fn bitmap_last_bit() {
+        let mut pi = PageInfo::new();
+        pi.bitmap_set(255);
+        assert_eq!(pi.bitmap_pop(), Some(255));
+        assert_eq!(pi.bitmap_pop(), None);
     }
 }

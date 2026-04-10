@@ -1,6 +1,6 @@
 //! Background memory watchdog thread.
 //!
-//! Polls mimalloc commit every 500ms, tracks growth rate via integer EMA,
+//! Polls process commit every 500ms, tracks growth rate via integer EMA,
 //! and signals the main thread for cleanup when thresholds are exceeded.
 //! Absorbs the diagnostic logging from the old monitor thread.
 //!
@@ -18,7 +18,6 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicI32, AtomicU8, AtomicU64, AtomicUsize, Ordering};
 use std::thread::{self, JoinHandle};
 
-use libmimalloc::process_info::MiMallocProcessInfo;
 use libpsycho::os::windows::va_allocator;
 
 use super::engine::globals;
@@ -170,9 +169,8 @@ fn watchdog_loop(run: Arc<AtomicBool>) {
         libpsycho::os::windows::winapi::sleep(POLL_MS);
         poll_count = poll_count.wrapping_add(1);
 
-        let info = MiMallocProcessInfo::get();
-        let commit = info.get_current_commit();
-        let now_ms = info.get_elapsed_ms() as u64;
+        let commit = super::procmon::current_commit();
+        let now_ms = super::procmon::elapsed_ms();
 
         // --- Rate tracking ---
         let prev_commit = LAST_COMMIT.swap(commit, Ordering::Relaxed);
@@ -194,7 +192,7 @@ fn watchdog_loop(run: Arc<AtomicBool>) {
         let pr = match PressureRelief::instance() {
             Some(pr) => pr,
             None => {
-                log_diagnostics(poll_count, &info);
+                log_diagnostics(poll_count);
                 continue;
             }
         };
@@ -347,11 +345,11 @@ fn watchdog_loop(run: Arc<AtomicBool>) {
         }
 
         // --- Diagnostic logging ---
-        log_diagnostics(poll_count, &info);
+        log_diagnostics(poll_count);
     }
 }
 
-fn log_diagnostics(poll_count: u32, info: &MiMallocProcessInfo) {
+fn log_diagnostics(poll_count: u32) {
     if !poll_count.is_multiple_of(LOG_INTERVAL) {
         return;
     }
@@ -360,14 +358,21 @@ fn log_diagnostics(poll_count: u32, info: &MiMallocProcessInfo) {
     let relief = stats.pressure_cycles();
     let cells = stats.pressure_cells_unloaded();
 
+    let rss = super::procmon::current_rss();
+    let peak_rss = super::procmon::peak_rss();
+    let commit = super::procmon::current_commit();
+    let peak_commit = super::procmon::peak_commit();
+    let faults = super::procmon::page_fault_count();
+    let cpu_eff = super::procmon::cpu_efficiency_percent();
+
     log::info!(
-        "[MEM] RSS: {} | Peak: {} | Commit: {} | PeakCommit: {} | Faults: {:.1}/s | CPU eff: {:.0}%",
-        info.memory_usage_human(),
-        info.peak_memory_usage_human(),
-        info.virtual_memory_usage_human(),
-        libpsycho::common::helpers::format_bytes(info.get_peak_commit()),
-        info.page_fault_rate_per_second(),
-        info.cpu_efficiency_percent(),
+        "[MEM] RSS: {} | Peak: {} | Commit: {} | PeakCommit: {} | Faults: {} | CPU eff: {:.0}%",
+        libpsycho::common::helpers::format_bytes(rss),
+        libpsycho::common::helpers::format_bytes(peak_rss),
+        libpsycho::common::helpers::format_bytes(commit),
+        libpsycho::common::helpers::format_bytes(peak_commit),
+        faults,
+        cpu_eff,
     );
 
     let rate = GROWTH_RATE.load(Ordering::Relaxed);

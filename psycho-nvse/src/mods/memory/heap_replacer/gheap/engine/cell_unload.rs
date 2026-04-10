@@ -224,8 +224,7 @@ pub fn execute(max_cells: usize) -> Option<CellUnloadResult> {
         }
     };
 
-    let info = libmimalloc::process_info::MiMallocProcessInfo::get();
-    let commit_before = info.get_current_commit();
+    let commit_before = super::super::procmon::current_commit();
     let quarantine_before = crate::mods::memory::heap_replacer::gheap::slab::committed_bytes();
 
     log::info!(
@@ -252,11 +251,8 @@ pub fn execute(max_cells: usize) -> Option<CellUnloadResult> {
     guard.run_cleanup();
     drop(guard);
 
-    // Capture commit_after with a FRESH snapshot. The previous
-    // `info` was captured before unload_cells(), so its get_current_commit()
-    // returns the pre-unload value. Reading from it gives freed=0 always.
-    let info_after = libmimalloc::process_info::MiMallocProcessInfo::get();
-    let commit_after = info_after.get_current_commit();
+    // Fresh snapshot after unload (same fix as execute()).
+    let commit_after = super::super::procmon::current_commit();
     let quarantine_after = crate::mods::memory::heap_replacer::gheap::slab::committed_bytes();
     let freed = commit_before.saturating_sub(commit_after);
 
@@ -305,8 +301,7 @@ pub fn execute_during_loading(max_cells: usize) -> Option<CellUnloadResult> {
         }
     };
 
-    let info = libmimalloc::process_info::MiMallocProcessInfo::get();
-    let commit_before = info.get_current_commit();
+    let commit_before = super::super::procmon::current_commit();
 
     let cells = guard.unload_cells_during_loading(max_cells);
 
@@ -324,8 +319,7 @@ pub fn execute_during_loading(max_cells: usize) -> Option<CellUnloadResult> {
     drop(guard);
 
     // Fresh snapshot after unload (same fix as execute()).
-    let info_after = libmimalloc::process_info::MiMallocProcessInfo::get();
-    let commit_after = info_after.get_current_commit();
+    let commit_after = super::super::procmon::current_commit();
     let freed = commit_before.saturating_sub(commit_after);
 
     TOTAL_CELLS_UNLOADED.fetch_add(cells, Ordering::Relaxed);

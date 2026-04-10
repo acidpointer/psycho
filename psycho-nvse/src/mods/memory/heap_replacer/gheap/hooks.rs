@@ -92,34 +92,10 @@ static EMERGENCY_SUPPRESSED: AtomicBool = AtomicBool::new(false);
 /// Drains large blocks (> 1KB) when pool is near capacity.
 static LAST_POOL_DRAIN_MS: AtomicU64 = AtomicU64::new(0);
 
-/// Last tick when mi_collect(true) was called. Rate-limited to once per 2s
-/// to avoid O(total_memory) full collection freezing the main thread.
-static LAST_MI_COLLECT_TRUE_MS: AtomicU64 = AtomicU64::new(0);
-
-/// Minimum interval between mi_collect(true) calls in the per-frame path.
-/// OOM recovery in allocator.rs calls mi_collect(true) directly, bypassing
-/// this limit -- crash prevention must not be throttled.
-const MI_COLLECT_TRUE_COOLDOWN_MS: u64 = 2000;
-
 /// Cooldown for periodic pool drain (500ms).
-/// With 16MB hard cap, blocks cycle in ~133ms at stress-test rates.
-/// 500ms prevents drain storms while keeping large blocks flowing to
-/// mi_free for purge_delay-based decommit.
+/// With slab handling all < 1MB, 500ms prevents drain storms while keeping
+/// blocks flowing to decommit.
 const POOL_DRAIN_COOLDOWN_MS: u64 = 500;
-
-/// Rate-limited mi_collect(true). No-op if cooldown hasn't elapsed.
-/// Returns true if collection ran.
-fn try_mi_collect_true() -> bool {
-    let now = libpsycho::os::windows::winapi::get_tick_count() as u64;
-    let last = LAST_MI_COLLECT_TRUE_MS.load(Ordering::Relaxed);
-    if now.saturating_sub(last) >= MI_COLLECT_TRUE_COOLDOWN_MS {
-        LAST_MI_COLLECT_TRUE_MS.store(now, Ordering::Relaxed);
-        unsafe { libmimalloc::mi_collect(true) };
-        true
-    } else {
-        false
-    }
-}
 
 /// Phase 7: per-frame queue drain (before AI_START).
 ///
@@ -180,20 +156,13 @@ pub unsafe extern "C" fn hook_per_frame_queue_drain() {
     // The alternative (drain 0 blocks) is a guaranteed crash.
     if heap.take_emergency_drain() {
         let commit_before = heap.commit_mb();
-        let drained = unsafe {
+        unsafe {
             super::slab::decommit_sweep();
-            libmimalloc::mi_collect(false);
-            (0, 0).0
+            super::slab::decommit_sweep_full(false);
         };
-        try_mi_collect_true();
-
-        // purge_delay=100ms already provides the stale reader safety window.
-        // The previous Sleep(50) cost 3 dropped frames at 60fps. Removed:
-        // mimalloc's internal purge timer handles page decommit timing.
 
         log::warn!(
-            "[OOM] Emergency drain: {} blocks, commit={}-->{}MB pool={}MB",
-            drained,
+            "[OOM] Emergency drain: commit={}-->{}MB pool={}MB",
             commit_before,
             heap.commit_mb(),
             super::slab::committed_bytes() / 1024 / 1024,
@@ -236,28 +205,22 @@ pub unsafe extern "C" fn hook_per_frame_queue_drain() {
         EMERGENCY_SUPPRESSED.store(false, Ordering::Relaxed);
     }
 
-    allocator::set_vas_emergency(vas_emergency_active);
-
     // Cap VAS EMERGENCY cycles: if 3+ consecutive cycles drain < 1MB,
     // we're in a death spiral. Disable emergency until commit drops
     // below the threshold. This prevents the 40+ cycle death spiral
     // that corrupted the stack during the last crash.
     const MAX_INEFFECTIVE_EMERGENCY_CYCLES: u32 = 3;
-    const MIN_EFFECTIVE_DRAIN_MB: usize = 1;
 
     if vas_emergency_active {
-        let (decom_pages, decom_bytes) = unsafe { super::slab::decommit_sweep() };
-        unsafe { libmimalloc::mi_collect(false) };
-        let freed_mb = decom_bytes as usize / 1024 / 1024;
+        let (decom_pages, _decom_bytes) = unsafe { super::slab::decommit_sweep() };
 
-        if freed_mb < MIN_EFFECTIVE_DRAIN_MB {
+        if decom_pages == 0 {
             let count = EMERGENCY_INEFFECTIVE.fetch_add(1, Ordering::Relaxed) + 1;
             if count >= MAX_INEFFECTIVE_EMERGENCY_CYCLES {
                 // Death spiral detected — suppress emergency until commit
                 // drops below the emergency threshold. This prevents the
                 // 40+ cycle death spiral that corrupted the stack.
                 EMERGENCY_SUPPRESSED.store(true, Ordering::Relaxed);
-                allocator::set_vas_emergency(false);
                 log::error!(
                     "[VAS] EMERGENCY SUPPRESSED: {} ineffective cycles, free_vas={}MB, commit={}MB, decommitted {} pages",
                     count,
@@ -270,10 +233,8 @@ pub unsafe extern "C" fn hook_per_frame_queue_drain() {
             EMERGENCY_INEFFECTIVE.store(0, Ordering::Relaxed);
         }
 
-        // F3: Nuclear option — drain ALL pool blocks + force decommit
-        // partially-empty mimalloc segments. Rate-limited to avoid
-        // O(total_memory) traversal every frame during crisis.
-        try_mi_collect_true();
+        // F3: Nuclear option — force decommit all aged slab pages.
+        unsafe { super::slab::decommit_sweep_full(true) };
         log::error!(
             "[VAS] EMERGENCY: free_vas={}MB, commit={}MB, decommitted {} pages, slab={}MB",
             free_vas / 1024 / 1024,
@@ -287,11 +248,10 @@ pub unsafe extern "C" fn hook_per_frame_queue_drain() {
         EMERGENCY_INEFFECTIVE.store(0, Ordering::Relaxed);
 
         if vas_critical {
-            // F2: Slab decommit sweep + lightweight mi_collect.
+            // F2: Slab decommit sweep.
             // With corrected remaining-VAS thresholds, CRITICAL only fires
             // when < 400MB free VAS. Keep the per-frame cost low.
             let (cp, _cb) = unsafe { super::slab::decommit_sweep() };
-            unsafe { libmimalloc::mi_collect(false) };
             log::warn!(
                 "[VAS] CRITICAL: free_vas={}MB, commit={}MB, decommitted {} pages, slab={}MB",
                 free_vas / 1024 / 1024,
@@ -303,13 +263,9 @@ pub unsafe extern "C" fn hook_per_frame_queue_drain() {
     }
 
     // --- Periodic Pool Drain ---
-    // Slab decommit sweep only (no mi_collect). mi_collect(false) with
-    // purge_delay=100ms decommits mimalloc pages during normal gameplay.
-    // jip_nvse CellChange handlers hold stale pointers that chain into
-    // mimalloc overflow pages. If those pages are decommitted, the stale
-    // read crashes in PopulateArgs. Vanilla never decommits freed pages
-    // during gameplay. Only call mi_collect during OOM / VAS crisis where
-    // the alternative is a guaranteed OOM crash.
+    // Slab decommit sweep only. Decommit pages with zero live blocks that
+    // have passed the cooldown delay. This is the primary memory reclamation
+    // mechanism during normal gameplay.
     if super::slab::committed_bytes() / 1024 / 1024 >= 12 {
         let now = libpsycho::os::windows::winapi::get_tick_count() as u64;
         let last = LAST_POOL_DRAIN_MS.load(Ordering::Relaxed);
@@ -481,8 +437,7 @@ pub unsafe extern "C" fn hook_per_frame_queue_drain() {
 //   4. Enable loading bypass (subsequent frees -> mi_free)
 #[cold]
 unsafe fn on_loading_start() {
-    let info = libmimalloc::process_info::MiMallocProcessInfo::get();
-    let commit_before = info.get_current_commit();
+    let commit_before = super::procmon::current_commit();
 
     // DO NOT force-decommit here. BSTaskManagerThread is still active
     // during loading transitions (processing texture IO). Force decommit
@@ -531,10 +486,10 @@ fn on_loading_end() {
     let now = libpsycho::os::windows::winapi::get_tick_count() as u64;
     POST_LOADING_COOLDOWN_MS.store(now + 5000, Ordering::Release);
 
-    let info = libmimalloc::process_info::MiMallocProcessInfo::get();
+    let commit = super::procmon::current_commit();
     log::info!(
         "[LOADING] Loading ended, commit={}MB, pool={}MB",
-        info.get_current_commit() / 1024 / 1024,
+        commit / 1024 / 1024,
         super::slab::committed_bytes() / 1024 / 1024,
     );
 }

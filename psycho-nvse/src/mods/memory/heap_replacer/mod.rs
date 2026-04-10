@@ -1,6 +1,7 @@
 //! Heap replacer module for Fallout New Vegas.
 //!
-//! Replaces the game's heap and scrap heap allocators with mimalloc.
+//! Replaces the game's heap and scrap heap allocators with a slab allocator
+//! and VirtualAlloc backend.
 
 pub mod crt;
 pub mod gheap;

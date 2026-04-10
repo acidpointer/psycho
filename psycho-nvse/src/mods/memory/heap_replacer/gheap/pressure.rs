@@ -66,7 +66,7 @@ impl PressureRelief {
         if self.baseline_commit.load(Ordering::Relaxed) != 0 {
             return;
         }
-        let commit = libmimalloc::process_info::MiMallocProcessInfo::get().get_current_commit();
+        let commit = super::procmon::current_commit();
         self.baseline_commit.store(commit, Ordering::Release);
 
         // Now that we know baseline, calculate VAS crisis thresholds
@@ -198,18 +198,13 @@ impl PressureRelief {
                 log::debug!("[DESTRUCTION] Havok lock failed, running fallback cleanup");
                 unsafe { globals::havok_gc(1) }; // force=true
                 unsafe { globals::pdd_purge() };
-                unsafe { libmimalloc::mi_collect(false) };
-                let drained = unsafe {
+                unsafe {
                     super::slab::decommit_sweep_full(false);
-                    libmimalloc::mi_collect(false);
-                    (0, 0).0
                 };
-                unsafe { libmimalloc::mi_collect(false) };
 
                 loading_counter.fetch_sub(1, Ordering::AcqRel);
                 log::debug!(
-                    "[DESTRUCTION] Fallback cleanup: {} drained, commit={}MB",
-                    drained,
+                    "[DESTRUCTION] Fallback cleanup: commit={}MB",
                     heap.commit_mb(),
                 );
                 return 0;
@@ -257,31 +252,16 @@ impl PressureRelief {
             unsafe { globals::deferred_cleanup_small(state[5]) };
         }
 
-        // mi_collect after async flush completes all deferred destruction.
-        unsafe { libmimalloc::mi_collect(false) };
-
-        // Drain pool AFTER cell unload + async flush.
-        //
-        // Always use pool_drain_large (>= 1KB), NEVER pool_drain_all.
-        // Small objects like BSMultiBoundNode, NiNodes, and NiTransformInterpolators
-        // are still referenced by persistent scene graph structures (LandLOD)
-        // across cell transitions. Draining them causes UAF crashes.
-        //
-        // Large blocks (>= 1KB) are typically cell data, geometry, textures -
-        // safe to free because their owning cells are being destroyed.
-        let drained = unsafe {
+        // Drain slab AFTER cell unload + async flush.
+        unsafe {
             super::slab::decommit_sweep_full(false);
-            libmimalloc::mi_collect(false);
-            (0, 0).0
         };
-        unsafe { libmimalloc::mi_collect(false) };
 
         unsafe { globals::post_destruction_restore(&mut state) };
 
         log::debug!(
-            "[DESTRUCTION] {} cells, {} drained, commit={}MB, pool={}MB",
+            "[DESTRUCTION] {} cells, commit={}MB, pool={}MB",
             cells,
-            drained,
             heap.commit_mb(),
             super::slab::committed_bytes() / 1024 / 1024,
         );

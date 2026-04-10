@@ -1,15 +1,15 @@
-//! Game heap replacement using mimalloc with per-thread zombie pools.
+//! Game heap replacement with per-thread zombie pools.
 //!
 //! Replaces the game's SBM pool allocator (FUN_00aa3e40 / FUN_00aa4060)
-//! with mimalloc. Every thread gets a thread-local pool that holds freed
-//! blocks on per-size-class freelists. This preserves SBM's "freed memory
-//! stays readable" contract -- stale readers find valid zombie data instead
-//! of recycled garbage.
+//! with a slab allocator + VirtualAlloc backend. Every thread gets a
+//! thread-local pool that holds freed blocks on per-size-class freelists.
+//! This preserves SBM's "freed memory stays readable" contract -- stale
+//! readers find valid zombie data instead of recycled garbage.
 //!
 //! Design:
-//!   alloc  -> pool freelist (hit) or mi_malloc_aligned (miss)
-//!   free   -> pool freelist push (block stays readable)
-//!   OOM    -> drain own pool + game OOM stages (mutex) + retry
+//!   alloc  -> slab freelist (hit) or slab commit (miss)
+//!   free   -> slab freelist push (block stays readable, zombie)
+//!   OOM    -> slab decommit + game OOM stages (mutex) + retry
 
 pub mod allocator;
 pub mod engine;
@@ -18,6 +18,7 @@ pub mod heap_manager;
 pub mod hooks;
 pub mod pdd_hook;
 pub mod pressure;
+pub mod procmon;
 pub mod slab;
 pub mod statics;
 pub mod texture_cache;

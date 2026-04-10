@@ -1,11 +1,10 @@
-//! Game heap allocator: routes alloc/free/realloc/msize through slab + mimalloc.
+//! Game heap allocator: routes alloc/free/realloc/msize through slab + va_allocator.
 //!
 //! Dispatch:
-//!   size <= 16KB  -> slab (per-page refcount, FreeNode UAF protection)
-//!   size 16KB+1..1MB -> mimalloc (mid-range, CRT compat)
-//!   size >= 1MB   -> va_allocator (VirtualAlloc per-alloc)
+//!   size < 1MB  -> slab (per-page refcount, zombie memory protection)
+//!   size >= 1MB -> va_allocator (VirtualAlloc per-alloc)
 //!
-//! UAF protection: slab writes FreeNode header on ALL freed cells.
+//! UAF protection: slab preserves all original cell data on free (bitmap tracking).
 //! Pages stay committed until Phase 7 decommit sweep.
 
 use libc::c_void;
@@ -14,26 +13,9 @@ use std::cell::Cell;
 use std::ptr::null_mut;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 
-use libmimalloc::{
-    mi_collect, mi_is_in_heap_region, mi_malloc_aligned, mi_realloc_aligned, mi_usable_size,
-};
-
 use super::engine::{addr, globals};
 use super::statics;
 use crate::mods::memory::heap_replacer::heap_validate;
-
-const ALIGN: usize = 16;
-
-/// When true, frees of large blocks (>= SMALL_BLOCK_THRESHOLD) bypass the
-/// pool and go directly to mi_free. Small blocks still pool for zombie safety.
-/// Controlled by `with_large_bypass(f)` (scoped).
-static LARGE_BYPASS: AtomicBool = AtomicBool::new(false);
-
-/// VAS emergency mode: when commit exceeds critical threshold, all frees
-/// bypass the pool and go directly to mi_free. This prevents the pool
-/// from filling with undrainable small blocks during a memory crisis.
-/// Set by Phase 7 watchdog when commit exceeds emergency threshold.
-static VAS_EMERGENCY: AtomicBool = AtomicBool::new(false);
 
 /// Remaining free VAS (bytes) at which VAS CRITICAL mode activates.
 /// Measured via live GlobalMemoryStatusEx -- always accurate.
@@ -88,22 +70,6 @@ pub fn get_headroom() -> usize {
     HEADROOM.load(Ordering::Acquire)
 }
 
-pub fn set_vas_emergency(active: bool) {
-    VAS_EMERGENCY.store(active, Ordering::Release);
-}
-
-pub fn with_large_bypass<R>(f: impl FnOnce() -> R) -> R {
-    struct BypassGuard;
-    impl Drop for BypassGuard {
-        fn drop(&mut self) {
-            LARGE_BYPASS.store(false, Ordering::Release);
-        }
-    }
-    LARGE_BYPASS.store(true, Ordering::Release);
-    let _guard = BypassGuard;
-    f()
-}
-
 // -----------------------------------------------------------------------
 // Thread identity
 // -----------------------------------------------------------------------
@@ -152,18 +118,11 @@ pub fn is_main_thread() -> bool {
 // Alloc / Free / Msize / Realloc
 // -----------------------------------------------------------------------
 
-/// Allocate `size` bytes. Uses thread-local pool, falls back to mi_malloc.
+/// Allocate `size` bytes.
 ///
-/// When mi_malloc succeeds, we check the object's vtable and mark its
-/// segment in the UAF bitmap if it's a UAF-sensitive type. This happens
-/// at allocation time when the vtable is guaranteed valid (just constructed).
-///
-/// Large allocations (>= 1MB) go through VirtualAlloc for immediate VAS
-/// reclamation.
-///   Dispatch:
-///   size <= 16KB  -> slab (per-page refcount, FreeNode UAF protection)
-///   size 16KB+1..1MB -> mimalloc (mid-range, CRT compat)
-///   size >= 1MB   -> va_allocator (VirtualAlloc, MEM_RELEASE on free)
+/// Dispatch:
+///   size < 1MB  -> slab (per-page refcount, zombie memory)
+///   size >= 1MB -> va_allocator (VirtualAlloc, MEM_RELEASE on free)
 #[inline]
 pub unsafe fn alloc(size: usize) -> *mut c_void {
     // Large raw buffers (>= 1MB) --> VirtualAlloc for immediate VAS reclamation.
@@ -175,19 +134,19 @@ pub unsafe fn alloc(size: usize) -> *mut c_void {
         return unsafe { recover_oom(size) };
     }
 
-    // Small/medium objects (<= 256KB) --> slab allocator.
+    // Small/medium objects (< 1MB) --> slab allocator.
     // Covers NPC sub-objects (Process, ExtraData, scripts) for UAF protection.
-    // Per-page refcounting + FreeNode headers for UAF protection.
-    if size <= super::slab::MAX_SLAB_SIZE && size > 0 {
+    // Per-page refcounting + zombie memory for stale readers.
+    if size > 0 {
         let ptr = unsafe { super::slab::alloc(size) };
         if !ptr.is_null() {
             return ptr;
         }
-        // Slab exhausted for this size class -- fall through to mimalloc
+        // Slab exhausted -- fall through to va_allocator as last resort.
     }
 
-    // Mid-range objects (256KB+1..1MB) or slab fallback --> mimalloc.
-    let ptr = unsafe { mi_malloc_aligned(size, ALIGN) };
+    // Slab exhausted or zero size --> va_allocator.
+    let ptr = unsafe { va_allocator::malloc(size) };
     if !ptr.is_null() {
         return ptr;
     }
@@ -195,18 +154,9 @@ pub unsafe fn alloc(size: usize) -> *mut c_void {
 }
 
 /// Free a block. Dispatch by ownership:
-///   slab ptr     -> slab_free (refcount--, FreeNode header, deferred decommit)
-///   mimalloc ptr -> mi_free (mid-range 16KB+1..1MB)
-///   va_allocator -> va_free (VirtualFree MEM_RELEASE, >= 1MB)
+///   slab ptr     -> slab_free (zombie memory, deferred decommit)
+///   va_allocator -> va_free (VirtualFree MEM_RELEASE)
 ///   pre-hook SBM -> original trampoline
-///
-/// UAF protection: slab writes FreeNode header on ALL freed cells (<= 16KB):
-///   offset 0: original vtable (preserved for async flush dispatch)
-///   offset 4: usable_size (fake refcount -- InterlockedDecrement never hits 0)
-///   offset 8: usable_size (IOTask refcount guard)
-///   offset 12: next (per-page freelist chain)
-/// Pages stay committed until decommit sweep (Phase 7). Stale readers see
-/// valid zombie data until then.
 #[inline]
 pub unsafe fn free(ptr: *mut c_void) {
     if ptr.is_null() {
@@ -214,35 +164,13 @@ pub unsafe fn free(ptr: *mut c_void) {
     }
 
     // FAST PATH: slab check (two comparisons, no function call).
-    // 95%+ of GameHeap frees are slab allocations (<= 16KB).
+    // Majority of GameHeap frees are slab allocations.
     if super::slab::is_slab_ptr(ptr as *const c_void) {
         unsafe { super::slab::free(ptr) };
         return;
     }
 
-    // mimalloc arena check (CRT hooks, mid-range GameHeap allocs 16KB+1..1MB).
-    if unsafe { mi_is_in_heap_region(ptr as *const c_void) } {
-        // Write UAF guard before mi_free. mi_free overwrites offset 0 with
-        // a freelist pointer (which could be NULL at end of chain). Stale
-        // readers doing virtual dispatch through offset 0 would crash at
-        // eip=0. Writing usable_size at offsets 4 and 8 prevents
-        // InterlockedDecrement from reaching 0 (NiRefObject at +4, IOTask at +8).
-        // mi_free only overwrites offset 0 — offsets 4 and 8 survive.
-        let usable = unsafe { mi_usable_size(ptr as *const c_void) } as u32;
-        if usable >= 16 {
-            unsafe {
-                let p = ptr as *mut u32;
-                // offset 4: NiRefObject refcount guard
-                p.add(1).write(usable);
-                // offset 8: IOTask refcount guard
-                p.add(2).write(usable);
-            }
-        }
-        unsafe { libmimalloc::mi_free(ptr) };
-        return;
-    }
-
-    // VirtualAlloc header check (>= 1MB allocs). Simple memory read, no syscall.
+    // VirtualAlloc header check. Simple memory read, no syscall.
     if unsafe { va_allocator::is_virtual_alloc_ptr(ptr) } {
         unsafe { va_allocator::free(ptr) };
         return;
@@ -269,12 +197,7 @@ pub unsafe fn msize(ptr: *mut c_void) -> usize {
         return unsafe { super::slab::usable_size(ptr as *const c_void) };
     }
 
-    // mimalloc arena (CRT hooks, mid-range allocs).
-    if unsafe { mi_is_in_heap_region(ptr as *const c_void) } {
-        return unsafe { mi_usable_size(ptr as *const c_void) };
-    }
-
-    // VirtualAlloc header (>= 1MB allocs).
+    // VirtualAlloc header.
     if let Some(size) = unsafe { va_allocator::msize(ptr) } {
         return size;
     }
@@ -321,13 +244,28 @@ pub unsafe fn realloc(ptr: *mut c_void, new_size: usize) -> *mut c_void {
         }
         return new_ptr;
     }
-    // mimalloc: in-place realloc when possible.
-    if unsafe { mi_is_in_heap_region(ptr as *const c_void) } {
-        let new_ptr = unsafe { mi_realloc_aligned(ptr, new_size, ALIGN) };
-        if !new_ptr.is_null() {
+    // va_allocator: try in-place realloc.
+    if unsafe { va_allocator::is_virtual_alloc_ptr(ptr) } {
+        if let Some(new_ptr) = unsafe { va_allocator::realloc(ptr, new_size) } {
             return new_ptr;
         }
-        return unsafe { recover_oom(new_size) };
+        // va_allocator realloc failed -- alloc new, copy, free old.
+        let old_size = unsafe { msize(ptr) };
+        if old_size == 0 {
+            return null_mut();
+        }
+        let new_ptr = unsafe { alloc(new_size) };
+        if !new_ptr.is_null() {
+            unsafe {
+                std::ptr::copy_nonoverlapping(
+                    ptr as *const u8,
+                    new_ptr as *mut u8,
+                    old_size.min(new_size),
+                );
+            }
+            unsafe { free(ptr) };
+        }
+        return new_ptr;
     }
     let old_size = unsafe { msize(ptr) };
     if old_size == 0 {
@@ -353,8 +291,7 @@ pub unsafe fn realloc(ptr: *mut c_void, new_size: usize) -> *mut c_void {
 
 /// Retry allocation with the correct backend for the given size.
 /// Large (>= 1MB): try VirtualAlloc first (free VAS holes from
-/// MEM_RELEASE), then mimalloc (arena space). This matches the
-/// original alloc() dispatch: large goes to va_allocator, small to mimalloc.
+/// MEM_RELEASE), then slab. This matches the original alloc() dispatch.
 #[cold]
 #[inline]
 unsafe fn retry_alloc(size: usize) -> *mut c_void {
@@ -364,7 +301,7 @@ unsafe fn retry_alloc(size: usize) -> *mut c_void {
             return p;
         }
     }
-    unsafe { mi_malloc_aligned(size, ALIGN) }
+    unsafe { super::slab::alloc(size) }
 }
 
 // Reentrancy guard. Game cleanup stages allocate small temporaries.
@@ -377,15 +314,15 @@ thread_local! {
 /// OOM recovery matching vanilla FUN_00aa3e40 retry pattern.
 ///
 /// Pattern: **cleanup --> retry --> cleanup --> retry**.
-/// Each cleanup step uses HeapManager (mi_collect encapsulated).
-/// Large bypass during game stages so large frees --> mi_free,
-/// small frees --> pool (zombie safety preserved), then drain catches them.
+/// Cleanup runs through game OOM stages (3-5) which free objects via
+/// our hooks (slab or va_allocator). Slab decommit sweeps return pages
+/// to the OS after cooldown.
 #[cold]
 unsafe fn recover_oom(size: usize) -> *mut c_void {
     // Reentrancy: game cleanup stages may allocate. Don't recurse into
-    // the full recovery -- just collect and retry.
+    // the full recovery -- just decommit aged slab pages and retry.
     if IN_OOM_RECOVERY.with(|r| r.get()) {
-        unsafe { mi_collect(false) };
+        unsafe { super::slab::decommit_sweep() };
         return unsafe { retry_alloc(size) };
     }
 
@@ -416,16 +353,14 @@ unsafe fn do_recover_oom(size: usize) -> *mut c_void {
     // But when the main thread is IN OOM recovery, it never reaches Phase 7.
     // Consume the flag here to drain stale zombie blocks immediately.
     if is_main && heap.take_emergency_drain() {
-        let drained = unsafe {
+        unsafe {
             super::slab::decommit_sweep();
-            mi_collect(false);
-            0
+            super::slab::decommit_sweep_full(false);
         };
         let ptr = unsafe { retry_alloc(size) };
         if !ptr.is_null() {
             log::info!(
-                "[OOM] Recovered after emergency drain: drained={} size={} commit={}-->{}MB",
-                drained,
+                "[OOM] Recovered after emergency drain: size={} commit={}-->{}MB",
                 size,
                 commit_entry,
                 heap.commit_mb(),
@@ -449,12 +384,7 @@ unsafe fn do_recover_oom(size: usize) -> *mut c_void {
     // thread. This matches the game's Stage 8 behavior (Ghidra-verified).
     //
     // For MAIN thread: run full stages 3-5 (Havok GC, PDD purge, Cell Unload).
-    // bypass=false -- ALL frees go to pool (zombie-safe).
-    // bypass=true causes SBM state corruption: objects freed via mi_free
-    // during HeapCompact stages 5-8 leave dangling references in SBM
-    // internal structures, causing crashes when Stage 8 accesses them.
-    // The vanilla SBM keeps objects in arenas until cleanup completes --
-    // our pool quarantine provides the same behavior.
+    // All frees go through our hooks (slab or va_allocator) with zombie safety.
     //
     // Stages 0-2 are skipped (NO-OP during gameplay), Stage 6 is skipped (allocates memory).
     // Stage 5 (Cell Unload) runs until game says no more cells eligible (give_up flag).
@@ -473,7 +403,7 @@ unsafe fn do_recover_oom(size: usize) -> *mut c_void {
     //   Stage 6: give_up --> break
     // The game then cycles 30+ times over 2.5 seconds, freeing ~4MB total,
     // before crashing in d3d9. Skip this death spiral during loading: go
-    // straight to nuclear option (pool_drain_all + mi_collect(true)).
+    // straight to nuclear option (force decommit all aged slab pages).
     let loading = globals::is_loading();
 
     if !is_main {
@@ -571,13 +501,13 @@ unsafe fn do_recover_oom(size: usize) -> *mut c_void {
 
             libpsycho::os::windows::winapi::sleep(1);
 
-            // Periodic cleanup: decommit aged slab dirty pages (respects 30s
-            // delay, force=false) + mi_collect. Worker can self-recover VAS
-            // from pages that have been dirty >30s without main thread help.
+            // Periodic cleanup: decommit aged slab dirty pages (respects
+            // cooldown delay, force=false). Worker can self-recover VAS
+            // from pages that have been dirty long enough without main
+            // thread help.
             if iter.is_multiple_of(50) {
                 unsafe {
                     super::slab::decommit_sweep_full(false);
-                    mi_collect(false);
                 }
             }
 
@@ -628,15 +558,15 @@ unsafe fn do_recover_oom(size: usize) -> *mut c_void {
         }
 
         // CRT also failed. Vanilla loops forever here (do-while never
-        // exits). We do one final nuclear drain + collect, then loop
-        // CRT malloc indefinitely. This matches the engine contract:
-        // the allocator NEVER returns NULL.
+        // exits). We do one final nuclear drain (force decommit all aged
+        // pages), then loop CRT malloc indefinitely. This matches the
+        // engine contract: the allocator NEVER returns NULL.
         log::error!(
             "[OOM] Worker CRT failed, nuclear drain + infinite retry: size={} commit={}MB",
             size,
             heap.commit_mb(),
         );
-        unsafe { mi_collect(true) };
+        unsafe { super::slab::decommit_sweep_full(true) };
 
         loop {
             let ptr = unsafe { retry_alloc(size) };
@@ -650,7 +580,7 @@ unsafe fn do_recover_oom(size: usize) -> *mut c_void {
             // Yield to let other threads make progress.
             unsafe { super::engine::globals::release_bstask_sems_if_owned() };
             libpsycho::os::windows::winapi::sleep(10);
-            unsafe { mi_collect(false) };
+            unsafe { super::slab::decommit_sweep_full(false) };
         }
     }
 
@@ -684,25 +614,22 @@ unsafe fn do_recover_oom(size: usize) -> *mut c_void {
 
         // --- Death Spiral Detection ---
         // If previous cycle freed < 1% of commit, further stages won't help.
-        // Go straight to nuclear: drain ALL pool blocks + mi_collect(true).
+        // Go straight to nuclear: force decommit all aged slab pages.
         if death_spiral_detected {
             log::warn!(
                 "[OOM] Death spiral detected: cycle={}, commit={}MB, going nuclear",
                 cycles,
                 commit_before / 1024 / 1024,
             );
-            let drained = unsafe {
+            unsafe {
                 super::slab::decommit_sweep();
-                mi_collect(false);
-                (0, 0).0
+                super::slab::decommit_sweep_full(true);
             };
-            unsafe { mi_collect(true) };
             let freed_bytes = commit_entry.saturating_sub(heap.commit_bytes());
             let ptr = unsafe { retry_alloc(size) };
             if !ptr.is_null() {
                 log::info!(
-                    "[OOM] Recovered via nuclear: drained={} freed={}MB size={} commit={}-->{}MB",
-                    drained,
+                    "[OOM] Recovered via nuclear: freed={}MB size={} commit={}-->{}MB",
                     freed_bytes / 1024 / 1024,
                     size,
                     commit_entry,
@@ -723,16 +650,15 @@ unsafe fn do_recover_oom(size: usize) -> *mut c_void {
         //
         // During loading OOM, bypass is ALWAYS false. Stages 0-2 (texture/geometry
         // cache flush) have cross-thread readers: the IO thread holds raw pointers
-        // to QueuedTexture objects being loaded. Freeing them via mi_free (bypass)
+        // to QueuedTexture objects being loaded. Freeing them immediately
         // while the IO thread is mid-load causes RefCount:0 UAF crash (seen at
         // 0x0044DDC0 during cell transitions with NiSourceTexture RefCount=0).
         //
-        // Stage 5 (Cell Unload) also uses bypass=false — Havok entities and scene
+        // Stage 5 (Cell Unload) — Havok entities and scene
         // graph nodes freed during cell teardown have active stale readers (AI
         // threads, BSTaskManagerThread).
         //
-        // During active gameplay (not loading), all stages use bypass=false
-        // for maximum zombie safety.
+        // During active gameplay (not loading), all stages use zombie-safe routing.
         let bypass = false;
         let (next, done) = unsafe { heap.run_oom_stage(stage, bypass) };
         stage = next;
@@ -798,21 +724,16 @@ unsafe fn do_recover_oom(size: usize) -> *mut c_void {
     // --- Emergency pool drain: Last resort before wait/CRT fallback ---
     //
     // When OOM recovery exhausted all game cleanup stages (stages 0-7)
-    // but still couldn't allocate, drain large quarantined blocks.
-    // We drain large blocks (>= 1024 bytes) which are less likely to have
-    // active stale readers than small RefCount-sized blocks.
+    // but still couldn't allocate, force-decommit aged slab pages.
     {
-        let drained = unsafe {
+        unsafe {
             super::slab::decommit_sweep();
-            mi_collect(false);
-            (0, 0).0
+            super::slab::decommit_sweep_full(false);
         };
-        unsafe { libmimalloc::mi_collect(false) };
         let ptr = unsafe { retry_alloc(size) };
         if !ptr.is_null() {
             log::warn!(
-                "[OOM] Recovered after emergency pool drain: drained={} size={} commit={}-->{}MB",
-                drained,
+                "[OOM] Recovered after emergency drain: size={} commit={}-->{}MB",
                 size,
                 commit_entry,
                 heap.commit_mb(),
@@ -832,19 +753,17 @@ unsafe fn do_recover_oom(size: usize) -> *mut c_void {
         super::slab::committed_bytes() / 1024 / 1024,
     );
 
-    // Safe drain (>= 1KB only -- no BSTreeNode UAF risk).
+    // Safe drain.
     unsafe {
         super::slab::decommit_sweep();
-        mi_collect(false);
-        0
+        super::slab::decommit_sweep_full(false);
     };
-    unsafe { mi_collect(true) };
     let ptr = unsafe { retry_alloc(size) };
     if !ptr.is_null() {
         return ptr;
     }
 
-    // Nuclear: drain ALL pool blocks. UAF risk accepted -- crash is
+    // Nuclear: force decommit ALL aged pages. UAF risk accepted -- crash is
     // the alternative. But first, wait for AI threads to join and
     // release BSTaskManager semaphores to minimize stale readers.
     //
@@ -855,34 +774,27 @@ unsafe fn do_recover_oom(size: usize) -> *mut c_void {
         unsafe { super::engine::globals::release_bstask_sems_if_owned() };
         libpsycho::os::windows::winapi::sleep(1);
         if libpsycho::os::windows::winapi::get_tick_count() - ai_wait_start > 2000 {
-            log::warn!("[OOM] AI threads did not join within 2s, proceeding with drain_all");
+            log::warn!("[OOM] AI threads did not join within 2s, proceeding with nuclear");
             break;
         }
     }
     // Final semaphore release before drain.
     unsafe { super::engine::globals::release_bstask_sems_if_owned() };
 
-    let drained = unsafe {
-        super::slab::decommit_sweep();
-        mi_collect(false);
-        (0, 0).0
-    };
+    unsafe { super::slab::decommit_sweep_full(true) };
     let commit_after_drain = heap.commit_mb();
     let freed_mb = commit_entry.saturating_sub(commit_after_drain);
     log::error!(
-        "[OOM] Last resort: drain_all={} commit={}-->{}MB freed={}MB",
-        drained,
+        "[OOM] Last resort: commit={}-->{}MB freed={}MB",
         commit_entry,
         commit_after_drain,
         freed_mb,
     );
 
     // Only retry if drain freed meaningful amount relative to request.
-    // If we freed < requested size, VAS is too fragmented -- retrying
-    // with mi_collect(true) just freezes the game for seconds.
+    // If we freed < requested size, VAS is too fragmented.
     let size_mb = size / 1024 / 1024;
     if freed_mb > size_mb {
-        unsafe { mi_collect(true) };
         let ptr = unsafe { retry_alloc(size) };
         if !ptr.is_null() {
             log::warn!(

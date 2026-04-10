@@ -4,7 +4,7 @@
 //! The texture cache (DAT_011f4468) is write-only -- entries are added but
 //! never removed individually. Only full resets happen during worldspace
 //! transitions. In the vanilla game with SBM, freed NiSourceTextures stay
-//! readable as zombies. With mimalloc, freed memory is recycled, so stale
+//! readable as zombies. With the slab allocator, freed memory stays committed,
 //! cache entries cause BSTaskManagerThread to read garbage.
 //!
 //! Fix: maintain a dead set of destroyed NiSourceTexture addresses.

@@ -173,7 +173,7 @@ pub fn set_main_thread_id() {
 
 /// Check if current thread is main. Simple OS thread ID comparison.
 /// Returns false until on_pre_ai sets the ID (first frame tick).
-/// Before that: all frees go to mi_free (QUARANTINE_ACTIVE is also false).
+/// Before that: all frees go to va_allocator (QUARANTINE_ACTIVE is also false).
 pub fn is_main_thread_by_tid() -> bool {
     let main_tid = MAIN_THREAD_ID.load(std::sync::atomic::Ordering::Acquire);
     if main_tid == 0 {

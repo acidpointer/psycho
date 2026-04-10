@@ -1,14 +1,12 @@
 //! Safe abstraction for game heap management.
 //!
 //! Encapsulates all heap cleanup operations: OOM stage execution,
-//! HeapCompact signaling, pool drain, and commit tracking.
+//! HeapCompact signaling, emergency drain, and commit tracking.
 //! Both background cleanup (Phase 7, AI_JOIN) and OOM recovery
 //! use this abstraction -- one source of truth.
 //!
 //! # Rules
 //!
-//! - `drain_pool` and `run_oom_stage` always call `mi_collect(false)`
-//!   internally. Callers never call mi_collect directly.
 //! - `signal_heap_compact` uses MAX semantics -- never downgrades.
 //! - Debug logging for OOM stages is encapsulated inside `run_oom_stage`.
 
@@ -29,7 +27,7 @@ use crate::mods::memory::heap_replacer::gheap::types;
 
 pub struct HeapManager {
     /// Worker OOM sets this. Main thread Phase 7 consumes it and drains
-    /// its pool -- the worker's pool is empty (workers mi_free directly),
+    /// its pool -- the worker's pool is empty (workers free directly),
     /// so only the main thread can reclaim pooled zombie blocks.
     emergency_drain: AtomicBool,
 }
@@ -52,18 +50,14 @@ impl HeapManager {
 
     /// Run one game OOM stage (FUN_00866a90).
     ///
-    /// `bypass`: when true, large frees (>= 1KB) go to mi_free during
-    /// the game call. When false, all frees go to pool (zombie-safe).
-    ///
-    /// Use `bypass=true` for OOM retry loop (need VAS back, crash is
-    /// the alternative). Use `bypass=false` for background cleanup at
-    /// AI_JOIN (IO thread may access freed objects concurrently).
+    /// `bypass`: unused, kept for API compatibility. All frees route through
+    /// our hooks (slab or va_allocator) with zombie safety.
     ///
     /// Returns `(next_stage, give_up)`.
     ///
     /// # Safety
     /// Calls game code.
-    pub unsafe fn run_oom_stage(&self, stage: i32, bypass: bool) -> (i32, bool) {
+    pub unsafe fn run_oom_stage(&self, stage: i32, _bypass: bool) -> (i32, bool) {
         let heap_singleton = addr::HEAP_SINGLETON as *mut c_void;
         let primary_heap = unsafe {
             let p =
@@ -95,27 +89,7 @@ impl HeapManager {
         }
 
         let mut done: u8 = 0;
-        let next = if bypass {
-            // Large frees --> mi_free. Reclaims VAS immediately.
-            // Only safe when crash is the alternative (OOM retry).
-            match unsafe { oom_exec.as_fn() } {
-                Ok(f) => {
-                    use super::allocator::with_large_bypass;
-                    with_large_bypass(|| unsafe {
-                        f(heap_singleton, primary_heap, stage, &mut done)
-                    })
-                }
-                Err(e) => {
-                    if freeze {
-                        super::slab::set_destruction_freeze(false);
-                    }
-                    log::error!("[OOM] oom_exec.as_fn() failed at stage {}: {:?}", stage, e,);
-                    return (stage + 1, true);
-                }
-            }
-        } else {
-            // All frees --> pool (zombie-safe). IO thread and AI can
-            // safely read freed memory. VAS reclaimed later via drain.
+        let next = {
             match unsafe { oom_exec.as_fn() } {
                 Ok(f) => unsafe { f(heap_singleton, primary_heap, stage, &mut done) },
                 Err(e) => {
@@ -212,6 +186,6 @@ impl HeapManager {
     }
 
     pub fn commit_bytes(&self) -> usize {
-        libmimalloc::process_info::MiMallocProcessInfo::get().get_current_commit()
+        super::procmon::current_commit()
     }
 }
