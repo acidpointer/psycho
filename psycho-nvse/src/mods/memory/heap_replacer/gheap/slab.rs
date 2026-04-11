@@ -77,14 +77,14 @@ pub const MAX_SLAB_SIZE: usize = 1048576;
 /// Arena reservation sizes per tier (in bytes).
 /// Small classes are more popular, get larger arenas.
 /// Large classes get minimal arenas — they're rare during loading.
-/// Total reservation: ~704MB base + 240MB shards = ~944MB.
+/// Total reservation: ~720MB base + 256MB shards = ~976MB.
 /// Classes 512KB-1MB use 1MB arenas (logical page = 2MB for 2 cells/page).
 #[allow(clippy::if_same_then_else, clippy::identity_op)]
 const fn arena_size_for_class(idx: usize) -> usize {
     if idx == 0 {
-        16 * 1024 * 1024
+        32 * 1024 * 1024
     }
-    // 16B: 16MB (TTW startup allocates 500K+ of 16B objects)
+    // 16B: 32MB (TTW startup allocates 2M+ of <=16B objects per shard)
     else if idx < 12 {
         32 * 1024 * 1024
     }
@@ -169,7 +169,7 @@ const fn page_size_for_class(cell_size: u32) -> usize {
 /// During the cooldown window, freed cells contain zombie data (old object
 /// contents preserved until constructor overwrites). This matches the SBM
 /// behavior where freed cells keep data intact until arena purge.
-
+/// 
 /// Minimum time (ms) a page must stay dirty before decommit.
 ///
 /// 15 seconds for gameplay safety. Havok physics maintains an
@@ -382,6 +382,7 @@ impl SlabArena {
     unsafe fn carve_committed_page(&mut self, page_idx: u32) -> *mut c_void {
         let addr = self.page_addr(page_idx);
         let page = unsafe { &mut *self.page_ptr(page_idx) };
+        let was_committed = page.committed;
         page.committed = true;
         page.refcount = 1; // caller gets the first cell
         page.dirty_at_ms = 0;
@@ -415,7 +416,13 @@ impl SlabArena {
             self.partial_tail = page_idx;
         }
 
-        self.committed_pages += 1;
+        // Only count newly committed pages. Dirty pages reclaimed without
+        // decommit (page.committed was already true) are already counted.
+        // Without this guard, every dirty-reclaim cycle inflates the counter
+        // and committed_bytes() reports more than actual process commit.
+        if !was_committed {
+            self.committed_pages += 1;
+        }
         addr as *mut c_void
     }
 
@@ -1133,8 +1140,8 @@ mod tests {
 
     #[test]
     fn arena_sizes_small_classes_large() {
-        // 16B (idx 0): 16MB. Classes 32-128B (idx 1-11) get 32MB arenas.
-        assert_eq!(arena_size_for_class(0), 16 * 1024 * 1024);
+        // 16B (idx 0): 32MB. Classes 32-128B (idx 1-11) get 32MB arenas.
+        assert_eq!(arena_size_for_class(0), 32 * 1024 * 1024);
         for i in 1..12 {
             assert_eq!(arena_size_for_class(i), 32 * 1024 * 1024);
         }
@@ -1893,6 +1900,119 @@ mod tests {
                  fallback. The other shard has ~{} free cells sitting idle. \
                  This is the OOM crash: size=8 thread=worker pool=467MB.",
                 i, size, per_shard, per_shard
+            );
+            ptrs.push(p);
+        }
+
+        // cleanup
+        for p in ptrs {
+            unsafe { slab.free(p) };
+        }
+    }
+
+    // ---- Pattern 13: committed_pages accurate after dirty reclaim ----
+    //
+    // carve_committed_page always increments committed_pages, even when
+    // reclaiming a dirty page that is still physically committed. Each
+    // dirty-reclaim cycle inflates the counter by 1. After enough cycles,
+    // committed_bytes() reports more memory than the process has committed.
+    // (Observed: pool=646MB > commit=596MB in crash log.)
+
+    #[test]
+    fn committed_bytes_stable_across_dirty_reclaim() {
+        if !ensure_slab_init() {
+            return;
+        }
+        let slab = SLAB.get().expect("slab must be initialized");
+
+        // Use a mid-range class (512B, idx 15) to avoid interference
+        // with other tests using tiny classes.
+        let size = 512;
+        let cells = 1000;
+
+        // Phase 1: alloc cells (commits fresh pages)
+        let mut ptrs = Vec::with_capacity(cells);
+        for _ in 0..cells {
+            let p = unsafe { slab.alloc(size) };
+            assert!(!p.is_null());
+            ptrs.push(p);
+        }
+        let after_alloc = committed_bytes();
+
+        // Phase 2: free all (pages go dirty, still committed)
+        for &p in &ptrs {
+            unsafe { slab.free(p) };
+        }
+        let after_free = committed_bytes();
+
+        // committed_bytes should NOT decrease (no decommit happened)
+        assert!(
+            after_free >= after_alloc,
+            "committed_bytes decreased without decommit: {} -> {}",
+            after_alloc, after_free
+        );
+
+        // Phase 3: alloc same cells again (reclaims dirty pages)
+        let mut ptrs2 = Vec::with_capacity(cells);
+        for _ in 0..cells {
+            let p = unsafe { slab.alloc(size) };
+            assert!(!p.is_null());
+            ptrs2.push(p);
+        }
+        let after_realloc = committed_bytes();
+
+        // committed_bytes should be approximately the same as after Phase 1.
+        // With the inflation bug: after_realloc >> after_alloc (each dirty
+        // page reclaimed adds +1 to committed_pages even though already counted).
+        // Allow 1% tolerance for rounding and other test interference.
+        let tolerance = after_alloc / 100 + 4096; // 1% + one page
+        assert!(
+            after_realloc <= after_alloc + tolerance,
+            "committed_bytes inflated after dirty reclaim: \
+             after_alloc={} after_realloc={} (delta=+{}). \
+             carve_committed_page must not increment committed_pages \
+             for pages that are still physically committed.",
+            after_alloc, after_realloc, after_realloc - after_alloc
+        );
+
+        // cleanup
+        for p in ptrs2 {
+            unsafe { slab.free(p) };
+        }
+    }
+
+    // ---- Pattern 14: Class 0 total capacity for TTW loading ----
+    //
+    // TTW startup allocates 2M+ objects of <=16 bytes (hash nodes,
+    // linked list nodes, form fields, script vars). With 2 shards and
+    // cross-shard fallback, the total capacity must cover this.
+    // Currently 16MB * 2 = 2M cells -- not enough for TTW.
+
+    #[test]
+    fn class0_total_capacity_for_loading() {
+        if !ensure_slab_init() {
+            return;
+        }
+        let slab = SLAB.get().expect("slab must be initialized");
+
+        let size = 16;
+        // 2.5M is a realistic TTW loading minimum for <=16B objects.
+        // Both shards combined must hold this many concurrent cells.
+        let target = 2_500_000usize;
+
+        let mut ptrs = Vec::with_capacity(target);
+        for i in 0..target {
+            let p = unsafe { slab.alloc(size) };
+            assert!(
+                !p.is_null(),
+                "alloc #{} returned NULL (size={}). \
+                 Class 0 total capacity = {} cells (both shards) is too small \
+                 for TTW startup. Need at least {} cells. \
+                 Increase arena_size_for_class(0).",
+                i, size,
+                (arena_size_for_class(0) / page_size_for_class(SIZE_CLASSES[0]))
+                    * (page_size_for_class(SIZE_CLASSES[0]) / size) * 2,
+                target
             );
             ptrs.push(p);
         }
