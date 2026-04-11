@@ -816,12 +816,18 @@ impl SlabAllocator {
             }
 
             // Up-class overflow: target class exhausted (both shards for
-            // sharded classes). Try the NEXT larger size class. Wastes at
-            // most one class step of memory per cell but avoids falling back
-            // to va_allocator (which does individual VirtualAlloc per cell,
-            // fragmenting VAS until large allocs like 85MB save buffers fail).
-            if base_idx + 1 < NUM_CLASSES {
-                return self.try_alloc_arena(base_idx + 1);
+            // sharded classes). Try the next few larger size classes.
+            // Cascading exhaustion (class N overflows to N+1, which itself
+            // fills from its own allocs + overflow) means single-step is
+            // insufficient. Without chaining, every failed slab alloc falls
+            // to va_allocator (individual VirtualAlloc), fragmenting VAS
+            // until large game allocs (5MB+ BSA/texture buffers) fail.
+            let limit = (base_idx + 4).min(NUM_CLASSES);
+            for next in (base_idx + 1)..limit {
+                let ptr = self.try_alloc_arena(next);
+                if !ptr.is_null() {
+                    return ptr;
+                }
             }
 
             ptr::null_mut()
@@ -1982,10 +1988,11 @@ mod tests {
         let after_realloc = committed_bytes();
 
         // committed_bytes should be approximately the same as after Phase 1.
-        // With the inflation bug: after_realloc >> after_alloc (each dirty
-        // page reclaimed adds +1 to committed_pages even though already counted).
-        // Allow 1% tolerance for rounding and other test interference.
-        let tolerance = after_alloc / 100 + 4096; // 1% + one page
+        // With the inflation bug: after_realloc >> after_alloc (~50% growth
+        // from double-counting every reclaimed dirty page).
+        // Allow 25% tolerance for concurrent test interference (parallel
+        // tests share the global SLAB singleton and commit pages too).
+        let tolerance = after_alloc / 4 + 4096; // 25% + one page
         assert!(
             after_realloc <= after_alloc + tolerance,
             "committed_bytes inflated after dirty reclaim: \
@@ -2160,6 +2167,76 @@ mod tests {
             usable >= size,
             "overflow cell too small: usable={} < requested={}",
             usable, size
+        );
+
+        // cleanup
+        unsafe { slab.free(overflow) };
+        for p in ptrs {
+            unsafe { slab.free(p) };
+        }
+    }
+
+    // ---- Pattern 18: Up-class overflow chains through full classes ----
+    //
+    // Single-step overflow (try class N+1 only) breaks when N+1 is ALSO
+    // full from its own allocations + overflow from N. Every failed slab
+    // alloc falls through to va_allocator (individual VirtualAlloc per cell),
+    // fragmenting VAS until large game allocations (5MB+ BSA/texture buffers)
+    // can't find contiguous space -> OOM during gameplay.
+    //
+    // Uses classes 50-51 (640KB/768KB, only 2 cells each) for a fast test.
+    // Fills both, then verifies alloc from class 50 chains to class 52.
+
+    #[test]
+    fn upclass_overflow_chains_through_full_classes() {
+        if !ensure_slab_init() {
+            return;
+        }
+        let slab = SLAB.get().expect("slab must be initialized");
+
+        let size50 = 655360; // class 50 (640KB)
+        let size51 = 786432; // class 51 (768KB)
+
+        let cap50 = {
+            let a = arena_size_for_class(50);
+            let ps = page_size_for_class(SIZE_CLASSES[50]);
+            (a / ps) * (ps / size50)
+        };
+        let cap51 = {
+            let a = arena_size_for_class(51);
+            let ps = page_size_for_class(SIZE_CLASSES[51]);
+            (a / ps) * (ps / size51)
+        };
+
+        let mut ptrs = Vec::new();
+
+        // Fill class 50
+        for i in 0..cap50 {
+            let p = unsafe { slab.alloc(size50) };
+            assert!(!p.is_null(), "filling class 50: alloc #{} NULL", i);
+            ptrs.push(p);
+        }
+        // Fill class 51
+        for i in 0..cap51 {
+            let p = unsafe { slab.alloc(size51) };
+            assert!(!p.is_null(), "filling class 51: alloc #{} NULL", i);
+            ptrs.push(p);
+        }
+
+        // Both full. Alloc from class 50 must chain: 50 -> 51 (full) -> 52.
+        let overflow = unsafe { slab.alloc(size50) };
+        assert!(
+            !overflow.is_null(),
+            "up-class overflow stopped after 1 step (class 50 -> 51, both full). \
+             Must chain to class 52. Without chaining, every failed slab alloc \
+             falls to va_allocator -> VAS fragmentation -> gameplay OOM (size=5MB+)."
+        );
+
+        let usable = unsafe { slab.usable_size(overflow as *const _) };
+        assert!(
+            usable >= size50,
+            "overflow cell too small: usable={} < requested={}",
+            usable, size50
         );
 
         // cleanup
