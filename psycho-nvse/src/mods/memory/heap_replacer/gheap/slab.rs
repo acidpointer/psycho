@@ -809,7 +809,19 @@ impl SlabAllocator {
                 } else {
                     SHARD1_BASE + base_idx
                 };
-                return self.try_alloc_arena(other_idx);
+                let ptr = self.try_alloc_arena(other_idx);
+                if !ptr.is_null() {
+                    return ptr;
+                }
+            }
+
+            // Up-class overflow: target class exhausted (both shards for
+            // sharded classes). Try the NEXT larger size class. Wastes at
+            // most one class step of memory per cell but avoids falling back
+            // to va_allocator (which does individual VirtualAlloc per cell,
+            // fragmenting VAS until large allocs like 85MB save buffers fail).
+            if base_idx + 1 < NUM_CLASSES {
+                return self.try_alloc_arena(base_idx + 1);
             }
 
             ptr::null_mut()
@@ -2093,6 +2105,68 @@ mod tests {
             limit_mb,
             total / 1024 / 1024
         );
+    }
+
+    // ---- Pattern 17: Up-class overflow on non-sharded exhaustion ----
+    //
+    // When a non-sharded class arena is exhausted, alloc must try the
+    // NEXT larger class before returning null. Without this, the allocator
+    // falls back to va_allocator (individual VirtualAlloc per cell), which
+    // fragments VAS and eventually prevents large allocations (85MB save
+    // buffers). Seen in crash: size=584 -> class 640B exhausted -> NULL.
+    //
+    // Uses class 50 (640KB, 2MB arena, only 2 cells) for a fast test.
+
+    #[test]
+    fn upclass_overflow_on_exhaustion() {
+        if !ensure_slab_init() {
+            return;
+        }
+        let slab = SLAB.get().expect("slab must be initialized");
+
+        // Class 50 (655360B = 640KB): only 2 cells per arena.
+        let size = 655360;
+        let class_idx = 50;
+        let capacity = {
+            let arena = arena_size_for_class(class_idx);
+            let ps = page_size_for_class(SIZE_CLASSES[class_idx]);
+            (arena / ps) * (ps / size)
+        };
+        assert_eq!(capacity, 2, "test assumes class 50 has exactly 2 cells");
+
+        // Fill the arena
+        let mut ptrs = Vec::with_capacity(capacity + 1);
+        for i in 0..capacity {
+            let p = unsafe { slab.alloc(size) };
+            assert!(!p.is_null(), "filling class {}: alloc #{} NULL", class_idx, i);
+            ptrs.push(p);
+        }
+
+        // Class 50 full. Next alloc MUST succeed via up-class overflow
+        // to class 51 (786432B = 768KB).
+        let overflow = unsafe { slab.alloc(size) };
+        assert!(
+            !overflow.is_null(),
+            "alloc after class {} exhaustion returned NULL (size={}). \
+             No up-class overflow to class {}. During save loading, \
+             class 640B fills with 18K cells and alloc(584) returns NULL \
+             instead of overflowing to class 768B.",
+            class_idx, size, class_idx + 1
+        );
+
+        // overflow cell should be at least as large as requested
+        let usable = unsafe { slab.usable_size(overflow as *const _) };
+        assert!(
+            usable >= size,
+            "overflow cell too small: usable={} < requested={}",
+            usable, size
+        );
+
+        // cleanup
+        unsafe { slab.free(overflow) };
+        for p in ptrs {
+            unsafe { slab.free(p) };
+        }
     }
 
     // ===========================================================================
