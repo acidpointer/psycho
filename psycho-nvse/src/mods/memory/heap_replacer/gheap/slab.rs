@@ -766,6 +766,9 @@ impl SlabAllocator {
     /// Two-phase design: Tier 1 (cold pop) is O(1) under lock. Tier 2/3
     /// (page commit) releases the lock during VirtualAlloc to avoid stalling
     /// other threads on the same arena.
+    ///
+    /// Sharded classes (0-7): tries the thread's primary shard first, then
+    /// falls back to the other shard if primary is exhausted.
     #[inline]
     pub unsafe fn alloc(&self, size: usize) -> *mut c_void {
         if size == 0 || size > MAX_SLAB_SIZE {
@@ -780,15 +783,41 @@ impl SlabAllocator {
             } else {
                 base_idx
             };
-            let arena = &self.arenas[arena_idx] as *const SlabArena as *mut SlabArena;
 
-            // Phase 1: try oldest partial page under lock (FIFO, O(1))
+            let ptr = self.try_alloc_arena(arena_idx);
+            if !ptr.is_null() {
+                return ptr;
+            }
+
+            // Primary shard exhausted -- try the other shard before giving up.
+            // Without this fallback, one shard can sit idle with ~1M free cells
+            // while the other shard's thread OOMs and crashes.
+            if base_idx < SHARDED_CLASSES {
+                let other_idx = if arena_idx >= SHARD1_BASE {
+                    base_idx
+                } else {
+                    SHARD1_BASE + base_idx
+                };
+                return self.try_alloc_arena(other_idx);
+            }
+
+            ptr::null_mut()
+        }
+    }
+
+    /// Two-phase alloc from a specific arena. Returns null if arena exhausted.
+    #[inline]
+    unsafe fn try_alloc_arena(&self, arena_idx: usize) -> *mut c_void {
+        let arena = &self.arenas[arena_idx] as *const SlabArena as *mut SlabArena;
+
+        // Phase 1: try oldest partial page under lock (FIFO, O(1))
+        unsafe {
             (*arena).acquire();
             let (ptr, pending) = (*arena).alloc_phase1();
             (*arena).release();
 
             if !ptr.is_null() {
-                return ptr; // Tier 1 hit
+                return ptr;
             }
 
             // Phase 2: VirtualAlloc outside the lock (if needed), then carve
@@ -805,7 +834,6 @@ impl SlabAllocator {
                         PAGE_READWRITE,
                     );
                 }
-                // else: dirty page still physically committed, skip syscall
 
                 // Re-acquire to carve cells and wire into freelist
                 (*arena).acquire();
@@ -814,7 +842,6 @@ impl SlabAllocator {
                 return result;
             }
 
-            // Arena exhausted
             ptr::null_mut()
         }
     }
@@ -1821,6 +1848,53 @@ mod tests {
                     i, byte_idx, expected, b, i
                 );
             }
+        }
+
+        // cleanup
+        for p in ptrs {
+            unsafe { slab.free(p) };
+        }
+    }
+
+    // ---- Pattern 12: Cross-Shard Fallback on Exhaustion ----
+    //
+    // THE critical test for the size=8 OOM crash.
+    //
+    // Root cause: SlabAllocator::alloc() picks one shard based on thread ID
+    // (TID % 2). When that shard's arena fills up, alloc returns NULL without
+    // trying the OTHER shard. The other shard may have ~1M free cells sitting
+    // idle while the caller cascades to va_allocator -> recover_oom -> crash.
+    //
+    // Class 0 (16B): 16MB per shard = 4096 pages * 256 cells = 1,048,576 cells.
+    // All test allocs go to one shard (same thread). Allocating 1.1M cells
+    // overflows one shard by ~50K. Cross-shard fallback sends the overflow
+    // to the other shard. Without fallback: NULL at cell ~1M.
+
+    #[test]
+    fn shard_exhaustion_cross_fallback() {
+        if !ensure_slab_init() {
+            return;
+        }
+        let slab = SLAB.get().expect("slab must be initialized");
+
+        let size = 16;
+        let per_shard = (arena_size_for_class(0) / page_size_for_class(SIZE_CLASSES[0]))
+            * (page_size_for_class(SIZE_CLASSES[0]) / size);
+        // slightly more than one shard can hold
+        let target = per_shard + per_shard / 20; // +5% overflow
+
+        let mut ptrs = Vec::with_capacity(target);
+        for i in 0..target {
+            let p = unsafe { slab.alloc(size) };
+            assert!(
+                !p.is_null(),
+                "alloc #{} returned NULL (size={}). \
+                 One shard holds {} cells but there is no cross-shard \
+                 fallback. The other shard has ~{} free cells sitting idle. \
+                 This is the OOM crash: size=8 thread=worker pool=467MB.",
+                i, size, per_shard, per_shard
+            );
+            ptrs.push(p);
         }
 
         // cleanup
