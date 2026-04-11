@@ -29,7 +29,8 @@ use std::ptr;
 use std::sync::atomic::{AtomicPtr, AtomicUsize, Ordering};
 
 use windows::Win32::System::Memory::{
-    MEM_COMMIT, MEM_DECOMMIT, MEM_RELEASE, MEMORY_BASIC_INFORMATION, PAGE_READWRITE,
+    MEM_COMMIT, MEM_DECOMMIT, MEM_RELEASE, MEM_RESERVE, MEMORY_BASIC_INFORMATION,
+    PAGE_READWRITE,
     VirtualAlloc, VirtualFree, VirtualQuery,
 };
 
@@ -174,13 +175,15 @@ pub unsafe fn malloc(size: usize) -> *mut c_void {
         }
     }
 
-    // Fallback: individual VirtualAlloc
+    // Fallback: individual VirtualAlloc (reserve + commit in one step).
+    // MEM_RESERVE is required for NULL-base allocations on Wine.
+    // Without it, Wine may return NULL even with free VAS available.
     let total = size + HEADER_SIZE;
     let base = unsafe {
         VirtualAlloc(
             None,
             total,
-            MEM_COMMIT,
+            MEM_COMMIT | MEM_RESERVE,
             PAGE_READWRITE,
         )
     };

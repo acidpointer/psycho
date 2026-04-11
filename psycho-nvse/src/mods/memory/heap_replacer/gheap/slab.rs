@@ -77,7 +77,7 @@ pub const MAX_SLAB_SIZE: usize = 1048576;
 /// Arena reservation sizes per tier (in bytes).
 /// Small classes are more popular, get larger arenas.
 /// Large classes get minimal arenas — they're rare during loading.
-/// Total reservation: ~720MB base + 256MB shards = ~976MB.
+/// Total reservation: ~586MB base + 256MB shards = ~842MB.
 /// Classes 512KB-1MB use 1MB arenas (logical page = 2MB for 2 cells/page).
 #[allow(clippy::if_same_then_else, clippy::identity_op)]
 const fn arena_size_for_class(idx: usize) -> usize {
@@ -85,18 +85,22 @@ const fn arena_size_for_class(idx: usize) -> usize {
         32 * 1024 * 1024
     }
     // 16B: 32MB (TTW startup allocates 2M+ of <=16B objects per shard)
-    else if idx < 12 {
+    else if idx < 8 {
         32 * 1024 * 1024
     }
-    // 32-128B: 32MB each (TTW startup needs 200K+ cells per class per shard)
-    else if idx < 16 {
-        24 * 1024 * 1024
+    // 32-128B: 32MB each (sharded, TTW needs 200K+ cells per class per shard)
+    else if idx < 12 {
+        14 * 1024 * 1024
     }
-    // 160-256B: 24MB each
+    // 160-256B: 14MB each (50K+ cells needed, not sharded)
+    else if idx < 16 {
+        8 * 1024 * 1024
+    }
+    // 320-512B: 8MB each (10K+ cells needed)
     else if idx < 28 {
         12 * 1024 * 1024
     }
-    // 320-4096B: 12MB each
+    // 640-4096B: 12MB each
     else if idx < 35 {
         6 * 1024 * 1024
     }
@@ -114,9 +118,9 @@ const fn arena_size_for_class(idx: usize) -> usize {
     }
     // 320KB-384KB: 2MB each
     else {
-        1 * 1024 * 1024
+        2 * 1024 * 1024
     }
-    // 512KB-1MB: 1MB each
+    // 896KB-1MB: 2MB each (must be >= page_size to have at least 1 page)
 }
 
 /// Logical page size for a given size class.
@@ -1140,14 +1144,18 @@ mod tests {
 
     #[test]
     fn arena_sizes_small_classes_large() {
-        // 16B (idx 0): 32MB. Classes 32-128B (idx 1-11) get 32MB arenas.
+        // 16B (idx 0): 32MB. Classes 32-128B (idx 1-7) get 32MB arenas (sharded).
         assert_eq!(arena_size_for_class(0), 32 * 1024 * 1024);
-        for i in 1..12 {
+        for i in 1..8 {
             assert_eq!(arena_size_for_class(i), 32 * 1024 * 1024);
         }
-        // Classes 160-256B (idx 12-15) get 24MB arenas.
+        // Classes 160-256B (idx 8-11) get 14MB arenas (not sharded).
+        for i in 8..12 {
+            assert_eq!(arena_size_for_class(i), 14 * 1024 * 1024);
+        }
+        // Classes 320-512B (idx 12-15) get 8MB arenas.
         for i in 12..16 {
-            assert_eq!(arena_size_for_class(i), 24 * 1024 * 1024);
+            assert_eq!(arena_size_for_class(i), 8 * 1024 * 1024);
         }
     }
 
@@ -1161,9 +1169,9 @@ mod tests {
         for i in 50..52 {
             assert_eq!(arena_size_for_class(i), 2 * 1024 * 1024);
         }
-        // 512KB-1MB classes (indices 52-53) get 1MB arenas.
+        // 896KB-1MB classes (indices 52-53) get 2MB arenas.
         for i in 52..NUM_CLASSES {
-            assert_eq!(arena_size_for_class(i), 1 * 1024 * 1024);
+            assert_eq!(arena_size_for_class(i), 2 * 1024 * 1024);
         }
     }
 
@@ -2021,6 +2029,70 @@ mod tests {
         for p in ptrs {
             unsafe { slab.free(p) };
         }
+    }
+
+    // ---- Pattern 15: Every class has non-zero page capacity ----
+    //
+    // If arena_size < page_size for a class, page_count = 0.
+    // The class has ZERO capacity: every allocation immediately overflows
+    // to va_allocator as individual VirtualAlloc calls. Each call reserves
+    // 64KB+ of VAS. During save loading, hundreds of these overflow to
+    // va_allocator, fragmenting VAS until a large allocation (85MB)
+    // can't find a contiguous block -> OOM -> crash.
+
+    #[test]
+    fn every_class_has_nonzero_page_capacity() {
+        for (idx, &cs) in SIZE_CLASSES.iter().enumerate() {
+            let arena = arena_size_for_class(idx);
+            let ps = page_size_for_class(cs);
+            let pages = arena / ps;
+            assert!(
+                pages >= 1,
+                "Class {} ({}B): arena={}KB but page_size={}KB -> {} pages! \
+                 Zero capacity means every alloc overflows to va_allocator, \
+                 fragmenting VAS. Increase arena to at least {}KB.",
+                idx, cs,
+                arena / 1024,
+                ps / 1024,
+                pages,
+                ps / 1024
+            );
+        }
+    }
+
+    // ---- Pattern 16: Total reservation within VAS budget ----
+    //
+    // The slab reserves VAS at init (MEM_RESERVE). This VAS is unavailable
+    // for other VirtualAlloc calls. If the reservation is too large, the
+    // game can't allocate large buffers (85MB+ during save loading) even
+    // though free VAS exists -- it's fragmented by the huge slab block.
+    //
+    // 32-bit process with LAA has ~4GB VAS. Game needs ~600MB for exe/DLLs,
+    // ~200MB for mimalloc/va_allocator, and 200MB+ headroom for large allocs.
+    // Slab reservation budget: ~850MB.
+
+    #[test]
+    fn total_reservation_under_vas_limit() {
+        let mut total: usize = 0;
+        for i in 0..NUM_CLASSES {
+            total += arena_size_for_class(i);
+        }
+        for i in 0..SHARDED_CLASSES {
+            total += arena_size_for_class(i);
+        }
+        let limit_mb = 850;
+        let limit = limit_mb * 1024 * 1024;
+        assert!(
+            total <= limit,
+            "Slab total reservation {}MB exceeds {}MB VAS budget. \
+             During save loading the game allocates 85MB+ buffers via \
+             VirtualAlloc. With {}MB reserved for slab, not enough \
+             contiguous VAS remains -> OOM crash. \
+             Reduce arena sizes for over-provisioned mid-range classes.",
+            total / 1024 / 1024,
+            limit_mb,
+            total / 1024 / 1024
+        );
     }
 
     // ===========================================================================
