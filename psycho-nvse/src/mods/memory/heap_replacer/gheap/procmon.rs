@@ -14,7 +14,7 @@ pub fn current_commit() -> usize {
     let process = unsafe { GetCurrentProcess() };
     let ok = unsafe { GetProcessMemoryInfo(process, &mut counters, counters.cb) };
     if ok.is_ok() {
-        counters.PagefileUsage as usize
+        counters.PagefileUsage
     } else {
         0
     }
@@ -28,7 +28,7 @@ pub fn peak_commit() -> usize {
     let process = unsafe { GetCurrentProcess() };
     let ok = unsafe { GetProcessMemoryInfo(process, &mut counters, counters.cb) };
     if ok.is_ok() {
-        counters.PeakPagefileUsage as usize
+        counters.PeakPagefileUsage
     } else {
         0
     }
@@ -42,7 +42,7 @@ pub fn current_rss() -> usize {
     let process = unsafe { GetCurrentProcess() };
     let ok = unsafe { GetProcessMemoryInfo(process, &mut counters, counters.cb) };
     if ok.is_ok() {
-        counters.WorkingSetSize as usize
+        counters.WorkingSetSize
     } else {
         0
     }
@@ -56,7 +56,7 @@ pub fn peak_rss() -> usize {
     let process = unsafe { GetCurrentProcess() };
     let ok = unsafe { GetProcessMemoryInfo(process, &mut counters, counters.cb) };
     if ok.is_ok() {
-        counters.PeakWorkingSetSize as usize
+        counters.PeakWorkingSetSize
     } else {
         0
     }
@@ -105,7 +105,7 @@ pub fn cpu_efficiency_percent() -> f64 {
         return 0.0;
     }
     // FILETIME is 100-nanosecond intervals since Jan 1, 1601
-    let elapsed = (elapsed_ms() as u64) * 10_000; // ms -> 100ns units
+    let elapsed = elapsed_ms() * 10_000; // ms -> 100ns units
     if elapsed == 0 {
         return 0.0;
     }

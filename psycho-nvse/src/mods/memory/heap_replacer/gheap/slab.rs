@@ -14,7 +14,7 @@
 
 use std::cell::Cell;
 use std::ptr;
-use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicU32, AtomicU64, Ordering};
 
 use libc::c_void;
 use windows::Win32::System::Memory::{
@@ -77,46 +77,47 @@ pub const MAX_SLAB_SIZE: usize = 1048576;
 /// Arena reservation sizes per tier (in bytes).
 /// Small classes are more popular, get larger arenas.
 /// Large classes get minimal arenas — they're rare during loading.
-/// Total reservation: ~586MB base + 256MB shards = ~842MB.
-/// Classes 512KB-1MB use 1MB arenas (logical page = 2MB for 2 cells/page).
+/// Total reservation: ~584MB base + 256MB shards = ~840MB.
+/// Balanced for TTW: hot classes get large arenas, cold classes get minimal.
+/// VAS budget: <850MB to leave room for 85MB+ game buffers in 32-bit VAS.
 #[allow(clippy::if_same_then_else, clippy::identity_op)]
 const fn arena_size_for_class(idx: usize) -> usize {
     if idx == 0 {
         32 * 1024 * 1024
     }
-    // 16B: 32MB (TTW startup allocates 2M+ of <=16B objects per shard)
+    // 16B: 32MB (TTW startup needs 2M+ cells per shard)
     else if idx < 8 {
-        32 * 1024 * 1024
+        28 * 1024 * 1024
     }
-    // 32-128B: 32MB each (sharded, TTW needs 200K+ cells per class per shard)
+    // 32-128B: 28MB each (sharded, 200K+ cells per shard, cross-shard fallback)
     else if idx < 12 {
-        14 * 1024 * 1024
+        20 * 1024 * 1024
     }
-    // 160-256B: 14MB each (50K+ cells needed, not sharded)
+    // 160-256B: 20MB each (50K+ cells, common game objects)
     else if idx < 16 {
-        8 * 1024 * 1024
+        12 * 1024 * 1024
     }
-    // 320-512B: 8MB each (10K+ cells needed)
+    // 320-512B: 12MB each (10K+ cells, NiObjects)
     else if idx < 28 {
         12 * 1024 * 1024
     }
-    // 640-4096B: 12MB each
+    // 640-4096B: 12MB each (10K+ cells for 640-1024, 1K for 2048-4096)
     else if idx < 35 {
-        6 * 1024 * 1024
+        8 * 1024 * 1024
     }
-    // 5KB-16KB: 6MB each
+    // 5KB-16KB: 8MB each (NPC Process, ExtraData, gameplay objects)
     else if idx < 44 {
         4 * 1024 * 1024
     }
-    // 20KB-128KB: 4MB each (NPC sub-objects)
+    // 20KB-128KB: 4MB each
     else if idx < 50 {
         2 * 1024 * 1024
     }
-    // 128KB-256KB: 2MB each
+    // 160KB-512KB: 2MB each
     else if idx < 52 {
         2 * 1024 * 1024
     }
-    // 320KB-384KB: 2MB each
+    // 640KB-768KB: 2MB each
     else {
         2 * 1024 * 1024
     }
@@ -456,7 +457,7 @@ impl SlabArena {
                     // Remove from partial -- no list needed while fully allocated.
                     // When cells are freed later, it will re-enter partial tail.
                     let next = page.next_partial;
-                    self.unlink_partial(page_idx);
+                    unsafe { self.unlink_partial(page_idx) };
                     return (ptr as *mut c_void, None);
                 }
 
@@ -466,7 +467,7 @@ impl SlabArena {
             // were allocated without being removed (state correction needed).
             // Just unlink and continue to next page.
             let next = page.next_partial;
-            self.unlink_partial(page_idx);
+            unsafe { self.unlink_partial(page_idx) };
             page_idx = next;
         }
 
@@ -817,12 +818,11 @@ impl SlabAllocator {
 
             // Up-class overflow: target class exhausted (both shards for
             // sharded classes). Try the next few larger size classes.
-            // Cascading exhaustion (class N overflows to N+1, which itself
-            // fills from its own allocs + overflow) means single-step is
-            // insufficient. Without chaining, every failed slab alloc falls
-            // to va_allocator (individual VirtualAlloc), fragmenting VAS
-            // until large game allocs (5MB+ BSA/texture buffers) fail.
-            let limit = (base_idx + 4).min(NUM_CLASSES);
+            // During stress testing, 4+ consecutive mid-range classes can
+            // exhaust simultaneously (NPC Process/ExtraData objects at 5-16KB).
+            // Chain must be deep enough to reach a class with capacity.
+            // Each step acquires/releases one spinlock -- bounded overhead.
+            let limit = (base_idx + 7).min(NUM_CLASSES);
             for next in (base_idx + 1)..limit {
                 let ptr = self.try_alloc_arena(next);
                 if !ptr.is_null() {
@@ -1152,7 +1152,7 @@ mod tests {
         for i in 0..NUM_CLASSES {
             let sz = arena_size_for_class(i);
             assert!(
-                sz >= 1024 * 1024 && sz <= 32 * 1024 * 1024,
+                (1024 * 1024..=32 * 1024 * 1024).contains(&sz),
                 "Class {} arena size {} is outside 1-32MB range",
                 i,
                 sz
@@ -1162,18 +1162,18 @@ mod tests {
 
     #[test]
     fn arena_sizes_small_classes_large() {
-        // 16B (idx 0): 32MB. Classes 32-128B (idx 1-7) get 32MB arenas (sharded).
+        // 16B (idx 0): 32MB. Classes 32-128B (idx 1-7): 28MB (sharded).
         assert_eq!(arena_size_for_class(0), 32 * 1024 * 1024);
         for i in 1..8 {
-            assert_eq!(arena_size_for_class(i), 32 * 1024 * 1024);
+            assert_eq!(arena_size_for_class(i), 28 * 1024 * 1024);
         }
-        // Classes 160-256B (idx 8-11) get 14MB arenas (not sharded).
+        // Classes 160-256B (idx 8-11): 20MB (not sharded).
         for i in 8..12 {
-            assert_eq!(arena_size_for_class(i), 14 * 1024 * 1024);
+            assert_eq!(arena_size_for_class(i), 20 * 1024 * 1024);
         }
-        // Classes 320-512B (idx 12-15) get 8MB arenas.
+        // Classes 320-512B (idx 12-15): 12MB.
         for i in 12..16 {
-            assert_eq!(arena_size_for_class(i), 8 * 1024 * 1024);
+            assert_eq!(arena_size_for_class(i), 12 * 1024 * 1024);
         }
     }
 
@@ -2240,6 +2240,55 @@ mod tests {
         );
 
         // cleanup
+        unsafe { slab.free(overflow) };
+        for p in ptrs {
+            unsafe { slab.free(p) };
+        }
+    }
+
+    // ---- Pattern 19: Deep overflow chain (4+ consecutive full classes) ----
+    //
+    // During stress testing (extreme speed flying + fast travel), multiple
+    // consecutive mid-range classes (5-16KB) exhaust simultaneously.
+    // 3-step chain covers N+1..N+3. With 4 consecutive full classes,
+    // that's not deep enough.
+
+    #[test]
+    fn deep_overflow_chain_four_consecutive_full() {
+        if !ensure_slab_init() {
+            return;
+        }
+        let slab = SLAB.get().expect("slab must be initialized");
+
+        // Fill classes 49-52 (tiny capacity: 2-4 cells each).
+        // Alloc from class 49 must chain past 50,51,52 to reach 53.
+        let class_indices: [usize; 4] = [49, 50, 51, 52];
+
+        let mut ptrs = Vec::new();
+        for &ci in &class_indices {
+            let cs = SIZE_CLASSES[ci] as usize;
+            let cap = {
+                let a = arena_size_for_class(ci);
+                let ps = page_size_for_class(SIZE_CLASSES[ci]);
+                (a / ps) * (ps / cs)
+            };
+            for j in 0..cap {
+                let p = unsafe { slab.alloc(cs) };
+                assert!(!p.is_null(), "filling class {}: alloc #{} NULL", ci, j);
+                ptrs.push(p);
+            }
+        }
+
+        // 4 classes full. 3-step chain (50,51,52) can't reach 53.
+        let test_size = SIZE_CLASSES[49] as usize;
+        let overflow = unsafe { slab.alloc(test_size) };
+        assert!(
+            !overflow.is_null(),
+            "overflow chain too short: classes 49-52 all full, class 53 has \
+             capacity but 3-step chain stops at 52. During stress testing, \
+             classes 28-31 exhaust simultaneously -> OOM at size=6156."
+        );
+
         unsafe { slab.free(overflow) };
         for p in ptrs {
             unsafe { slab.free(p) };
