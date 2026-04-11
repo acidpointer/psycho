@@ -3,14 +3,12 @@
 //! ## Two-phase initialization
 //!
 //! **Phase 1 — DllMain (loader lock held):**
-//! Only work that MUST happen before the engine starts: config read (no
-//! write-back), logger registration (no thread/file I/O), mimalloc config,
-//! inline hook installation. NO thread creation, NO disk writes.
+//! Minimal setup only: config read, logger registration (deferred), mimalloc
+//! config, CRT hooks. NO thread creation, NO disk writes, NO game heap hooks.
 //!
 //! **Phase 2 — NVSEPlugin_Load (loader lock released):**
-//! Everything that needs threads or file I/O: logger background thread +
-//! log file creation, config write-back (schema migration), monitor thread,
-//! zlib hooks, NVSE services.
+//! Logger thread starts, log file opens, game heap hooks installed.
+//! Now we have full logging before any allocator rewrites run.
 
 use shadow_rs::shadow;
 use std::sync::Once;
@@ -75,16 +73,13 @@ fn init_logger_deferred() {
 // Phase 1 — Early load (DllMain, loader lock held)
 // -----------------------------------------------------------------------
 // NO thread creation. NO file writes. NO blocking I/O.
+// Game heap hooks are deferred to Phase 2 so logs work before any
+// allocator rewrites run.
 
 fn early_load(cfg: &PsychoConfig) {
     configure_mimalloc();
 
     install_if(cfg.memory.crt_hooks, "CRT hooks", install_crt_hooks);
-    install_if(
-        cfg.memory.game_heap_hooks,
-        "Game heap hooks",
-        install_game_heap_hooks,
-    );
     install_if(cfg.perf.rng, "RNG replacement", install_rng_hook);
     install_if(
         cfg.display.borderless,
@@ -97,6 +92,7 @@ fn early_load(cfg: &PsychoConfig) {
 // Phase 2 — Late load (NVSEPlugin_Load, loader lock released)
 // -----------------------------------------------------------------------
 // Safe for threads, file I/O, NVSE APIs.
+// Game heap hooks are installed here so we have full logging.
 
 fn late_load(nvse_ptr: *const NVSEInterfaceFFI) -> anyhow::Result<()> {
     // --- Deferred startup (threads + file I/O) ---
@@ -115,7 +111,17 @@ fn late_load(nvse_ptr: *const NVSEInterfaceFFI) -> anyhow::Result<()> {
     // Write config to disk if schema changed (adds missing fields, prunes stale).
     sync_config();
 
-    // Start heap monitor thread (mimalloc stats + pressure logging).
+    // --- Game heap hooks (NOW we have logging to see what happens) ---
+
+    let cfg = crate::config::get_config()?;
+
+    install_if(
+        cfg.memory.game_heap_hooks,
+        "Game heap hooks",
+        install_game_heap_hooks,
+    );
+
+    // Start heap monitor thread (watchdog + pressure logging).
     start_deferred_threads();
 
     // --- NVSE setup ---
@@ -163,8 +169,6 @@ fn late_load(nvse_ptr: *const NVSEInterfaceFFI) -> anyhow::Result<()> {
     }
 
     // -- Hooks --------------------------------------------------------------
-
-    let cfg = crate::config::get_config()?;
 
     if cfg.zlib.enabled {
         install_zlib_hooks(ctx.low_level())?;

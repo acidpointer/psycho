@@ -77,49 +77,46 @@ pub const MAX_SLAB_SIZE: usize = 1048576;
 /// Arena reservation sizes per tier (in bytes).
 /// Small classes are more popular, get larger arenas.
 /// Large classes get minimal arenas — they're rare during loading.
-/// Total reservation: ~141MB base + 32MB shards = ~173MB.
+/// Total reservation: ~704MB base + 240MB shards = ~944MB.
 /// Classes 512KB-1MB use 1MB arenas (logical page = 2MB for 2 cells/page).
 #[allow(clippy::if_same_then_else, clippy::identity_op)]
 const fn arena_size_for_class(idx: usize) -> usize {
     if idx == 0 {
+        16 * 1024 * 1024
+    }
+    // 16B: 16MB (TTW startup allocates 500K+ of 16B objects)
+    else if idx < 12 {
+        32 * 1024 * 1024
+    }
+    // 32-128B: 32MB each (TTW startup needs 200K+ cells per class per shard)
+    else if idx < 16 {
+        24 * 1024 * 1024
+    }
+    // 160-256B: 24MB each
+    else if idx < 28 {
         12 * 1024 * 1024
     }
-    // 8B: 12MB (most heavily used — TTW needs extra room)
-    else if idx < 8 {
+    // 320-4096B: 12MB each
+    else if idx < 35 {
         6 * 1024 * 1024
     }
-    // 16..128B: 6MB each
-    else if idx < 12 {
-        3 * 1024 * 1024
+    // 5KB-16KB: 6MB each
+    else if idx < 44 {
+        4 * 1024 * 1024
     }
-    // 160..256B: 3MB each
-    else if idx < 16 {
-        3 * 1024 * 1024
-    }
-    // 320..4096B: 2MB each
-    else if idx < 28 {
+    // 20KB-128KB: 4MB each (NPC sub-objects)
+    else if idx < 50 {
         2 * 1024 * 1024
     }
-    // 5KB..16KB: 1MB each
-    else if idx < 35 {
-        1 * 1024 * 1024
-    }
-    // 20KB..128KB: 1MB each (reduced — NPC sub-objects are rare during loading)
-    else if idx < 44 {
-        1 * 1024 * 1024
-    }
-    // 128KB..256KB: 1MB each
-    else if idx < 50 {
-        1 * 1024 * 1024
-    }
-    // 320KB..384KB: 1MB each (reduced — very rare)
+    // 128KB-256KB: 2MB each
     else if idx < 52 {
-        1 * 1024 * 1024
+        2 * 1024 * 1024
     }
-    // 512KB..1MB: 1MB each (reduced — extremely rare during loading)
+    // 320KB-384KB: 2MB each
     else {
         1 * 1024 * 1024
     }
+    // 512KB-1MB: 1MB each
 }
 
 /// Logical page size for a given size class.
@@ -444,19 +441,19 @@ impl SlabArena {
                 page.refcount += 1;
 
                 if !page.bitmap_any() {
-                    // Page now fully free → move from partial to dirty
+                    // Page is now FULLY ALLOCATED (refcount == cells_per_page).
+                    // Remove from partial -- no list needed while fully allocated.
+                    // When cells are freed later, it will re-enter partial tail.
                     let next = page.next_partial;
                     self.unlink_partial(page_idx);
-                    page.dirty_at_ms = cached_tick();
-                    page.next_dirty = self.dirty_head;
-                    self.dirty_head = page_idx;
-                    self.dirty_count += 1;
                     return (ptr as *mut c_void, None);
                 }
 
                 return (ptr as *mut c_void, None);
             }
-            // Bitmap empty but refcount > 0 — corrupted page, unlink and continue
+            // Bitmap empty but page is on partial list — this means all cells
+            // were allocated without being removed (state correction needed).
+            // Just unlink and continue to next page.
             let next = page.next_partial;
             self.unlink_partial(page_idx);
             page_idx = next;
@@ -1099,8 +1096,8 @@ mod tests {
         for i in 0..NUM_CLASSES {
             let sz = arena_size_for_class(i);
             assert!(
-                sz >= 1024 * 1024 && sz <= 12 * 1024 * 1024,
-                "Class {} arena size {} is outside 1-12MB range",
+                sz >= 1024 * 1024 && sz <= 32 * 1024 * 1024,
+                "Class {} arena size {} is outside 1-32MB range",
                 i,
                 sz
             );
@@ -1109,22 +1106,29 @@ mod tests {
 
     #[test]
     fn arena_sizes_small_classes_large() {
-        // 16B (idx 0): 12MB (most heavily used — TTW needs extra room).
-        assert_eq!(arena_size_for_class(0), 12 * 1024 * 1024);
-        // Classes 16-128B (idx 1-7) get 6MB arenas.
-        for i in 1..8 {
-            assert_eq!(arena_size_for_class(i), 6 * 1024 * 1024);
+        // 16B (idx 0): 16MB. Classes 32-128B (idx 1-11) get 32MB arenas.
+        assert_eq!(arena_size_for_class(0), 16 * 1024 * 1024);
+        for i in 1..12 {
+            assert_eq!(arena_size_for_class(i), 32 * 1024 * 1024);
         }
-        // Classes 160-256B (idx 12-15) get 3MB arenas.
+        // Classes 160-256B (idx 12-15) get 24MB arenas.
         for i in 12..16 {
-            assert_eq!(arena_size_for_class(i), 3 * 1024 * 1024);
+            assert_eq!(arena_size_for_class(i), 24 * 1024 * 1024);
         }
     }
 
     #[test]
     fn arena_sizes_large_classes_adequate() {
-        // 512KB-1MB classes (indices 50-53) get 1MB arenas (reduced for TTW).
-        for i in 50..NUM_CLASSES {
+        // 160KB-512KB classes (indices 44-49) get 2MB arenas.
+        for i in 44..50 {
+            assert_eq!(arena_size_for_class(i), 2 * 1024 * 1024);
+        }
+        // 320KB-384KB classes (indices 50-51) get 2MB arenas.
+        for i in 50..52 {
+            assert_eq!(arena_size_for_class(i), 2 * 1024 * 1024);
+        }
+        // 512KB-1MB classes (indices 52-53) get 1MB arenas.
+        for i in 52..NUM_CLASSES {
             assert_eq!(arena_size_for_class(i), 1 * 1024 * 1024);
         }
     }
@@ -1675,6 +1679,579 @@ mod tests {
             let test = unsafe { alloc(size) };
             assert!(!test.is_null(), "alloc failed after free #{}", i + 1);
             unsafe { free(test) };
+        }
+    }
+
+    // ---- Pattern 11: No Duplicate Addresses Across Page Fill ----
+    //
+    // THE critical test for the startup crash bug.
+    //
+    // Root cause: when alloc_phase1 pops the last free cell from a partial
+    // page (bitmap becomes empty), the page is FULLY ALLOCATED (all cells
+    // in use). It must be unlinked from partial and left alone. If it is
+    // incorrectly moved to the dirty list, claim_page_for_commit will
+    // reclaim it, carve_committed_page will reset refcount to 1 and hand
+    // out cell 0 again -- the SAME cell that was given to the first caller.
+    // Two objects share the same address -> type confusion -> crash.
+    //
+    // This test catches the bug by checking that N consecutive allocations
+    // from one size class never produce duplicate addresses. With the bug:
+    // every page fill produces a duplicate (cell 0 re-issued).
+
+    #[test]
+    fn no_duplicate_addresses_page_fill() {
+        if !ensure_slab_init() {
+            return;
+        }
+        let slab = SLAB.get().expect("slab must be initialized");
+
+        // 16B class: cells_per_page = 4096/16 = 256.
+        // 1024 allocs = 4 full pages. Each page fill is a potential
+        // duplicate if the bug is present.
+        let size = 16;
+        let count = 1024;
+
+        let mut seen = std::collections::HashSet::with_capacity(count);
+        let mut ptrs = Vec::with_capacity(count);
+
+        for i in 0..count {
+            let p = unsafe { slab.alloc(size) };
+            assert!(!p.is_null(), "alloc #{} returned NULL (arena exhausted)", i);
+            assert!(
+                seen.insert(p as usize),
+                "DUPLICATE ADDRESS at alloc #{}: {:p} was already returned! \
+                 Bug: alloc_phase1 moves filled page to dirty list, then \
+                 claim_page_for_commit re-carves it, returning cell 0 again. \
+                 Two game objects now share the same memory.",
+                i, p
+            );
+            ptrs.push(p);
+        }
+
+        // cleanup
+        for p in ptrs {
+            unsafe { slab.free(p) };
+        }
+    }
+
+    /// Same duplicate-address check but after a free-and-realloc cycle.
+    /// Pages go through: partial -> fully allocated -> cells freed -> dirty
+    /// -> reclaimed. At every stage, addresses must stay unique within
+    /// a single allocation batch.
+    #[test]
+    fn no_duplicate_addresses_after_free_cycle() {
+        if !ensure_slab_init() {
+            return;
+        }
+        let slab = SLAB.get().expect("slab must be initialized");
+
+        let size = 64; // 64B class: cells_per_page = 4096/64 = 64
+        let count = 256; // 4 pages worth
+
+        // Phase 1: alloc batch
+        let mut ptrs = Vec::with_capacity(count);
+        for i in 0..count {
+            let p = unsafe { slab.alloc(size) };
+            assert!(!p.is_null(), "phase1 alloc #{} NULL", i);
+            unsafe { std::ptr::write_bytes(p, 0xAB, size) };
+            ptrs.push(p);
+        }
+
+        // Phase 2: free all -- pages go dirty
+        for &p in &ptrs {
+            unsafe { slab.free(p) };
+        }
+
+        // Phase 3: alloc again -- dirty pages get reclaimed.
+        // Every address in this batch must be unique.
+        let mut seen = std::collections::HashSet::with_capacity(count);
+        let mut ptrs2 = Vec::with_capacity(count);
+        for i in 0..count {
+            let p = unsafe { slab.alloc(size) };
+            assert!(!p.is_null(), "phase3 alloc #{} NULL", i);
+            assert!(
+                seen.insert(p as usize),
+                "DUPLICATE ADDRESS in post-free batch at alloc #{}: {:p}. \
+                 Dirty page reclaimed but re-carve produced a duplicate.",
+                i, p
+            );
+            ptrs2.push(p);
+        }
+
+        // cleanup
+        for p in ptrs2 {
+            unsafe { slab.free(p) };
+        }
+    }
+
+    /// Verify data integrity across page boundaries. When one page fills
+    /// and a new page is carved, data written to the first page must not
+    /// be corrupted. With the re-carve bug, cell 0's data gets overwritten
+    /// by the new allocation's constructor.
+    #[test]
+    fn page_fill_data_integrity() {
+        if !ensure_slab_init() {
+            return;
+        }
+        let slab = SLAB.get().expect("slab must be initialized");
+
+        // 128B class: cells_per_page = 4096/128 = 32
+        let size = 128;
+        let count = 128; // 4 pages worth
+
+        let mut ptrs = Vec::with_capacity(count);
+        for i in 0..count {
+            let p = unsafe { slab.alloc(size) };
+            assert!(!p.is_null(), "alloc #{} NULL", i);
+            // each cell gets a unique byte pattern based on its index
+            unsafe { std::ptr::write_bytes(p, (i & 0xFF) as u8, size) };
+            ptrs.push(p);
+        }
+
+        // check ALL cells still have their original data
+        for (i, &p) in ptrs.iter().enumerate() {
+            let expected = (i & 0xFF) as u8;
+            let buf = unsafe { std::slice::from_raw_parts(p as *const u8, size) };
+            for (byte_idx, &b) in buf.iter().enumerate() {
+                assert_eq!(
+                    b, expected,
+                    "data corruption at cell #{} byte {}: expected 0x{:02X}, got 0x{:02X}. \
+                     A filled page was re-carved and cell {} was given to a new caller \
+                     who overwrote the first caller's data.",
+                    i, byte_idx, expected, b, i
+                );
+            }
+        }
+
+        // cleanup
+        for p in ptrs {
+            unsafe { slab.free(p) };
+        }
+    }
+
+    // ===========================================================================
+    // STRESS TESTS -- Game-loading-scale allocation patterns
+    //
+    // These test the FULL allocator pipeline (slab -> va_allocator fallback),
+    // not just slab in isolation. This matches what the game actually sees.
+    // ===========================================================================
+
+    use super::super::allocator::{alloc, free};
+
+    /// Simulate game's INITIAL loading: continuous allocations WITHOUT
+    /// any frees. This is what the game does when starting up — it allocates
+    /// hundreds of thousands of objects before the main menu appears.
+    /// If the arena fills, alloc returns NULL → OOM → crash.
+    /// This test catches the exact crash: alloc fails during loading because
+    /// arena is full and there are NO old cells to free.
+    #[test]
+    fn stress_initial_loading_alloc_only() {
+        if !ensure_slab_init() {
+            return;
+        }
+
+        // The game allocates continuously during startup. No frees.
+        // When arena fills, we MUST NOT return NULL — the game crashes.
+        let sizes = [16, 24, 32, 48, 64, 128];
+        const ALLOC_COUNT: usize = 500_000;
+
+        let mut ptrs: Vec<*mut libc::c_void> = Vec::with_capacity(ALLOC_COUNT);
+
+        for i in 0..ALLOC_COUNT {
+            let size = sizes[i % sizes.len()];
+            let p = unsafe { alloc(size) };
+            assert!(
+                !p.is_null(),
+                "Initial loading OOM at allocation #{} (size={}) — \
+                 arena fills too early! This is the startup crash bug.",
+                i, size
+            );
+            ptrs.push(p);
+        }
+
+        // Free everything
+        for p in ptrs {
+            unsafe { free(p) };
+        }
+    }
+
+    /// Catch the EXACT startup crash pattern: TTW allocates hundreds of
+    /// thousands of objects of EACH hot size class during initial loading.
+    /// If ANY size class arena fills, alloc returns NULL → OOM → crash.
+    /// This test allocates PER SIZE CLASS with realistic minimums based on
+    /// actual game loading patterns. Tiny classes need 200K+, mid classes
+    /// need 10K+, large classes need 1K+.
+    #[test]
+    fn stress_all_hot_size_classes() {
+        if !ensure_slab_init() {
+            return;
+        }
+
+        // Per-class minimum capacity during game loading. Based on actual
+        // TTW startup allocation patterns: tiny objects dominate.
+        // If any class exhausts below its minimum, the arena is too small.
+        let hot_sizes_and_mins: &[(usize, usize)] = &[
+            // Tiny: 200K+ cells needed (forms, scripts, references)
+            (8, 200_000), (16, 200_000), (24, 200_000), (32, 200_000),
+            (48, 200_000), (64, 200_000), (80, 200_000), (96, 200_000),
+            (112, 200_000), (128, 200_000),
+            // Small: 50K+ cells (NiObjects, game objects)
+            (160, 50_000), (192, 50_000), (224, 50_000), (256, 50_000),
+            // Mid: 10K+ cells (geometry, textures)
+            (320, 10_000), (384, 10_000), (448, 10_000), (512, 10_000),
+            (640, 10_000), (768, 10_000), (896, 10_000), (1024, 10_000),
+            // Large: 1K+ cells (meshes, buffers)
+            (2048, 1_000), (4096, 1_000),
+        ];
+
+        let slab = SLAB.get().unwrap();
+
+        for &(size, min_count) in hot_sizes_and_mins {
+            let mut count: usize = 0;
+            let mut ptrs = Vec::with_capacity(min_count);
+
+            for i in 0..min_count {
+                let p = unsafe { slab.alloc(size) };
+                if p.is_null() {
+                    panic!(
+                        "size={} allocation #{} returned NULL — \
+                         arena exhausted at {} cells (need {}+ per shard)! \
+                         Increase arena size for this class.",
+                        size, i, count, min_count
+                    );
+                }
+                ptrs.push(p);
+                count += 1;
+            }
+
+            for p in ptrs {
+                unsafe { slab.free(p) };
+            }
+        }
+    }
+
+    /// Simulate game cell loading: allocate massive number of small cells,
+    /// free them all (cell unload), then allocate again (next cell load).
+    /// This exercises the FIFO partial queue under the exact pattern that
+    /// caused the original OOM crash.
+    #[test]
+    fn stress_game_loading_cycle() {
+        if !ensure_slab_init() {
+            return;
+        }
+
+        // Game does ~100K-500K allocations during cell loading.
+        // Test with 50K per cycle — enough to fill multiple pages.
+        let sizes = [16, 32, 64, 128, 256, 512];
+        const CYCLE_COUNT: usize = 3;
+
+        for cycle in 0..CYCLE_COUNT {
+            // Phase 1: Allocate like game loading a cell
+            let mut ptrs: Vec<(*mut libc::c_void, usize)> = Vec::new();
+            for i in 0..50_000 {
+                let size = sizes[i % sizes.len()];
+                let p = unsafe { alloc(size) };
+                assert!(
+                    !p.is_null(),
+                    "cycle {} alloc #{} (size={}) returned NULL — FIFO bug!",
+                    cycle, i, size
+                );
+                // Write pattern so we can detect corruption later
+                unsafe { std::ptr::write_bytes(p, (size & 0xFF) as u8, size.min(32)) };
+                ptrs.push((p, size));
+            }
+
+            // Phase 2: Verify all data intact (no corruption)
+            for (i, &(p, size)) in ptrs.iter().enumerate() {
+                let expected = (size & 0xFF) as u8;
+                let buf = unsafe { std::slice::from_raw_parts(p as *const u8, size.min(32)) };
+                assert!(
+                    buf.iter().all(|&b| b == expected),
+                    "cycle {} data corruption at alloc #{} (size={})",
+                    cycle, i, size
+                );
+            }
+
+            // Phase 3: Free all (simulates cell unload)
+            for &(p, _) in ptrs.iter() {
+                unsafe { free(p) };
+            }
+            ptrs.clear();
+
+            // Phase 4: Allocate again (next cell load) — must succeed
+            let count = 50_000;
+            for i in 0..count {
+                let size = sizes[i % sizes.len()];
+                let p = unsafe { alloc(size) };
+                assert!(
+                    !p.is_null(),
+                    "cycle {} post-free alloc #{} (size={}) returned NULL — FIFO reuse bug!",
+                    cycle, i, size
+                );
+                unsafe { free(p) };
+            }
+        }
+    }
+
+    /// Simulate loading → unload → loading with MULTIPLE cycles WITHOUT
+    /// decommit_sweep in between. This catches the VAS exhaustion OOM bug:
+    /// freed pages stay committed (not decommitted) for 15s. If loading
+    /// unloads old cell and immediately loads new cell multiple times,
+    /// the dirty pages accumulate without being decommitted. Eventually
+    /// the arena runs out of reclaimable pages → NULL → OOM crash.
+    #[test]
+    fn stress_loading_no_decommit() {
+        if !ensure_slab_init() {
+            return;
+        }
+
+        // Simulate: alloc 50K → free → alloc 50K → free → alloc 50K → ...
+        // Without decommit between cycles, dirty pages must be reclaimed.
+        // If reclaim fails, we get NULL.
+        let sizes = [16, 32, 64, 128, 256];
+        const CYCLES: usize = 10;
+        const PER_CYCLE: usize = 50_000;
+
+        for cycle in 0..CYCLES {
+            let mut ptrs: Vec<(*mut libc::c_void, usize)> = Vec::with_capacity(PER_CYCLE);
+            for i in 0..PER_CYCLE {
+                let size = sizes[i % sizes.len()];
+                let p = unsafe { alloc(size) };
+                assert!(
+                    !p.is_null(),
+                    "cycle {} alloc #{} (size={}) returned NULL — \
+                     dirty page reclaim failed! This is the OOM bug.",
+                    cycle, i, size
+                );
+                unsafe { std::ptr::write_bytes(p, (cycle & 0xFF) as u8, 8) };
+                ptrs.push((p, size));
+            }
+
+            // Free all — pages go to dirty list, NOT decommitted
+            for &(p, _) in &ptrs {
+                unsafe { free(p) };
+            }
+            // NO decommit_sweep here — simulate rapid loading/unloading
+
+            // Verify data integrity before clearing
+            for (i, &(p, size)) in ptrs.iter().enumerate() {
+                let expected = (cycle & 0xFF) as u8;
+                let buf = unsafe { std::slice::from_raw_parts(p as *const u8, 8) };
+                assert!(
+                    buf.iter().all(|&b| b == expected),
+                    "cycle {} zombie data corrupted at cell #{} (size={})",
+                    cycle, i, size
+                );
+            }
+        }
+    }
+
+    /// Simulate full game loading: allocations across ALL size classes
+    /// (including large 64KB-256KB objects), followed by unload and reload.
+    /// Large size classes have TINY arenas (1MB = 2-16 cells). If arena
+    /// fills, va_allocator fallback uses 64KB VirtualAlloc per allocation
+    /// which fragments VAS and can cause OOM.
+    #[test]
+    fn stress_full_loading_cycle() {
+        if !ensure_slab_init() {
+            return;
+        }
+
+        // Realistic game loading distribution:
+        // 60% tiny (16-128B), 25% small (256B-4KB), 10% medium (4KB-64KB),
+        // 5% large (64KB-256KB)
+        let tiny = [16, 32, 48, 64, 80, 96, 112, 128];
+        let small = [256, 512, 1024, 2048, 4096];
+        let medium = [8192, 16384, 32768, 65536];
+        let large = [131072, 262144];
+
+        const PER_CYCLE: usize = 20_000;
+        const CYCLES: usize = 3;
+
+        for cycle in 0..CYCLES {
+            let mut ptrs: Vec<(*mut libc::c_void, usize)> = Vec::with_capacity(PER_CYCLE);
+            for i in 0..PER_CYCLE {
+                let size = match i % 20 {
+                    0..=11 => tiny[i % tiny.len()],
+                    12..=16 => small[i % small.len()],
+                    17..=18 => medium[i % medium.len()],
+                    _ => large[i % large.len()],
+                };
+                let p = unsafe { alloc(size) };
+                assert!(
+                    !p.is_null(),
+                    "full-loading cycle {} alloc #{} (size={}) returned NULL — \
+                     arena exhausted + VAS fragmentation! This is the real OOM bug.",
+                    cycle, i, size
+                );
+                unsafe { std::ptr::write_bytes(p, (size & 0xFF) as u8, size.min(16)) };
+                ptrs.push((p, size));
+            }
+
+            // Verify integrity
+            for (i, &(p, size)) in ptrs.iter().enumerate() {
+                let expected = (size & 0xFF) as u8;
+                let buf = unsafe { std::slice::from_raw_parts(p as *const u8, size.min(16)) };
+                assert!(
+                    buf.iter().all(|&b| b == expected),
+                    "full-loading data corruption at cell #{} (size={})",
+                    i, size
+                );
+            }
+
+            // Free all (cell unload)
+            for &(p, _) in &ptrs {
+                unsafe { free(p) };
+            }
+            // NO decommit — simulate rapid loading transitions
+        }
+    }
+
+    /// Interleaved alloc/free at high volume. Simulates active gameplay
+    /// where allocations and frees happen concurrently.
+    #[test]
+    fn stress_interleaved_alloc_free() {
+        if !ensure_slab_init() {
+            return;
+        }
+
+        let size = 64;
+        const ITERATIONS: usize = 200_000;
+        let mut pool = Vec::new();
+
+        for i in 0..ITERATIONS {
+            if i % 3 == 0 && !pool.is_empty() {
+                // Free oldest
+                let p = pool.remove(0);
+                unsafe { free(p) };
+            }
+            // Alloc new
+            let p = unsafe { alloc(size) };
+            assert!(
+                !p.is_null(),
+                "interleaved alloc #{} (pool_size={}) returned NULL",
+                i,
+                pool.len()
+            );
+            unsafe { std::ptr::write_bytes(p, (i & 0xFF) as u8, size) };
+            pool.push(p);
+        }
+
+        // Drain pool
+        for p in pool {
+            unsafe { free(p) };
+        }
+    }
+
+    /// Mixed-size stress test: alloc/free across ALL size classes
+    /// simultaneously. Tests cross-class interference in the FIFO queue.
+    /// Large allocations are rare in the game, so we weight toward small sizes.
+    #[test]
+    fn stress_mixed_sizes() {
+        if !ensure_slab_init() {
+            return;
+        }
+
+        // Weighted: 80% small (slab), 20% mid/large
+        // Realistic mix — the game allocates ~80% objects < 4KB
+        let small_sizes = [16, 48, 128, 384, 1024, 4096];
+        let large_sizes = [16384, 65536, 262144];
+        const ITERATIONS: usize = 50_000;
+        let mut pool: Vec<(*mut libc::c_void, usize)> = Vec::new();
+
+        for i in 0..ITERATIONS {
+            // Free 1 in 3 (oldest)
+            if i % 3 == 0 && !pool.is_empty() {
+                let (p, size) = pool.remove(0);
+                // Verify data before free
+                let expected = (size & 0xFF) as u8;
+                let buf = unsafe { std::slice::from_raw_parts(p as *const u8, size.min(16)) };
+                assert!(
+                    buf.iter().all(|&b| b == expected),
+                    "mixed-size data corruption at iter #{} (size={})",
+                    i, size
+                );
+                unsafe { free(p) };
+            }
+
+            // 80% small, 20% large
+            let size = if i % 5 == 0 {
+                large_sizes[i % large_sizes.len()]
+            } else {
+                small_sizes[i % small_sizes.len()]
+            };
+            let p = unsafe { alloc(size) };
+            assert!(
+                !p.is_null(),
+                "mixed-size alloc #{} (size={}) returned NULL",
+                i, size
+            );
+            unsafe { std::ptr::write_bytes(p, (size & 0xFF) as u8, size.min(16)) };
+            pool.push((p, size));
+        }
+
+        // Drain
+        for (p, size) in pool {
+            let expected = (size & 0xFF) as u8;
+            let buf = unsafe { std::slice::from_raw_parts(p as *const u8, size.min(16)) };
+            assert!(buf.iter().all(|&b| b == expected), "drain corruption at size={}", size);
+            unsafe { free(p) };
+        }
+    }
+
+    /// Fill most of slab arena for the 64B size class, then free all
+    /// and reallocate. Tests arena exhaustion and recovery.
+    /// Limited to 90% fill to avoid va_allocator fallback (which in Wine
+    /// uses 64KB per allocation and exhausts VAS quickly).
+    #[test]
+    fn stress_arena_exhaustion() {
+        if !ensure_slab_init() {
+            return;
+        }
+
+        // 64B class (idx 3) has 32MB arena = 8192 pages.
+        // Each page has 64 cells. Total cells = 8192 * 64 = ~524K per shard.
+        // Fill to 90K then free all, then fill again.
+        let size = 64;
+        let mut ptrs = Vec::new();
+        const MAX_ALLOC: usize = 90_000;
+
+        // Phase 1: Fill 90% of the arena
+        for _ in 0..MAX_ALLOC {
+            let p = unsafe { alloc(size) };
+            if p.is_null() {
+                break; // Arena full
+            }
+            unsafe { std::ptr::write_bytes(p, 0xAA, size) };
+            ptrs.push(p);
+        }
+
+        assert!(ptrs.len() > 10000, "arena should hold 10K+ 64B cells, got {}", ptrs.len());
+
+        // Phase 2: Free all
+        for &p in &ptrs {
+            unsafe { free(p) };
+        }
+        ptrs.clear();
+
+        // Phase 3: Fill again — must succeed with similar count
+        for _ in 0..MAX_ALLOC {
+            let p = unsafe { alloc(size) };
+            if p.is_null() {
+                break;
+            }
+            ptrs.push(p);
+        }
+
+        assert!(
+            ptrs.len() > 10000,
+            "arena recovery failed: got {} cells after free, expected 10K+",
+            ptrs.len()
+        );
+
+        // Cleanup
+        for p in ptrs {
+            unsafe { free(p) };
         }
     }
 }
