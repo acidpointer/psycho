@@ -35,15 +35,6 @@ const EMPTY: u32 = u32::MAX;
 // Updated once per frame from hook_per_frame_queue_drain.
 static CACHED_TICK_MS: AtomicU64 = AtomicU64::new(0);
 
-/// When true, slab::alloc skips the cold list (recycled cells) and only
-/// uses dirty (recommit) or virgin pages. Set during destruction_protocol
-/// to prevent UAF: cell unload accesses actor sub-objects through stale
-/// pointers. If those objects were freed >REUSE_COOLDOWN ago and recycled,
-/// the new allocation overwrites the FreeNode header at offset 0 --
-/// stale virtual dispatch crashes. Freezing cold reuse keeps FreeNode
-/// headers intact for all previously-freed cells during teardown.
-static DESTRUCTION_FREEZE: AtomicBool = AtomicBool::new(false);
-
 /// Update cached tick. Called once per frame from Phase 7 hook.
 pub fn update_cached_tick() {
     let now = libpsycho::os::windows::winapi::get_tick_count() as u64;
@@ -85,44 +76,49 @@ pub const MAX_SLAB_SIZE: usize = 1048576;
 
 /// Arena reservation sizes per tier (in bytes).
 /// Small classes are more popular, get larger arenas.
-/// Large classes get smaller arenas since they're less frequent.
-/// Classes 512KB-1MB use 4MB arenas (logical page = 2MB for 2 cells/page).
+/// Large classes get minimal arenas — they're rare during loading.
+/// Total reservation: ~141MB base + 32MB shards = ~173MB.
+/// Classes 512KB-1MB use 1MB arenas (logical page = 2MB for 2 cells/page).
 #[allow(clippy::if_same_then_else, clippy::identity_op)]
 const fn arena_size_for_class(idx: usize) -> usize {
-    if idx < 8 {
-        8 * 1024 * 1024
+    if idx == 0 {
+        12 * 1024 * 1024
     }
-    // 16..128B: 8MB each
+    // 8B: 12MB (most heavily used — TTW needs extra room)
+    else if idx < 8 {
+        6 * 1024 * 1024
+    }
+    // 16..128B: 6MB each
     else if idx < 12 {
-        4 * 1024 * 1024
+        3 * 1024 * 1024
     }
-    // 160..256B: 4MB each
+    // 160..256B: 3MB each
     else if idx < 16 {
-        4 * 1024 * 1024
+        3 * 1024 * 1024
     }
     // 320..4096B: 2MB each
     else if idx < 28 {
         2 * 1024 * 1024
     }
-    // 5KB..16KB: 1MB each (less frequent)
+    // 5KB..16KB: 1MB each
     else if idx < 35 {
         1 * 1024 * 1024
     }
-    // 20KB..128KB: 2MB each (mid-size NPC sub-objects)
+    // 20KB..128KB: 1MB each (reduced — NPC sub-objects are rare during loading)
     else if idx < 44 {
-        2 * 1024 * 1024
+        1 * 1024 * 1024
     }
-    // 128KB..256KB: 1MB each (rare, large sub-objects)
+    // 128KB..256KB: 1MB each
     else if idx < 50 {
         1 * 1024 * 1024
     }
-    // 320KB..384KB: 2MB each (large NPC data)
+    // 320KB..384KB: 1MB each (reduced — very rare)
     else if idx < 52 {
-        2 * 1024 * 1024
+        1 * 1024 * 1024
     }
-    // 512KB..1MB: 4MB each (very rare, bulk allocations)
+    // 512KB..1MB: 1MB each (reduced — extremely rare during loading)
     else {
-        4 * 1024 * 1024
+        1 * 1024 * 1024
     }
 }
 
@@ -176,8 +172,6 @@ const fn page_size_for_class(cell_size: u32) -> usize {
 /// During the cooldown window, freed cells contain zombie data (old object
 /// contents preserved until constructor overwrites). This matches the SBM
 /// behavior where freed cells keep data intact until arena purge.
-/// After cooldown, cells are reused — constructor overwrites zombie data.
-const REUSE_COOLDOWN_MS: u64 = 15_000;
 
 /// Minimum time (ms) a page must stay dirty before decommit.
 ///
@@ -200,13 +194,12 @@ const DECOMMIT_DELAY_MS: u64 = 15_000;
 struct PageInfo {
     refcount: i16,             // live cells on this page
     committed: bool,           // false if decommitted or virgin
-    on_partial: bool,          // true if page is on partial list
+    on_partial: bool,          // true if page is on partial FIFO queue
     free_bitmap: [u32; 8],     // 256 bits: one per cell, set = free
-    next_partial: u32,         // intrusive list: hot or cold partial pages
+    next_partial: u32,         // intrusive list: partial pages (FIFO)
     prev_partial: u32,         // doubly-linked for O(1) unlink
     next_dirty: u32,           // intrusive list: fully-free pages
     dirty_at_ms: u64,          // tick when page became dirty (for decommit delay)
-    hot_since_ms: u64,         // tick when page entered hot list (for reuse cooldown)
 }
 
 impl PageInfo {
@@ -220,7 +213,6 @@ impl PageInfo {
             prev_partial: EMPTY,
             next_dirty: EMPTY,
             dirty_at_ms: 0,
-            hot_since_ms: 0,
         }
     }
 
@@ -274,13 +266,12 @@ struct SlabArena {
     page_size: usize,        // logical page size (may be > OS_PAGE_SIZE for large classes)
     page_count: u32,
     pages: *mut PageInfo,    // metadata array, separately allocated
-    cold_head: u32,          // pages with reusable free cells (cooled down)
-    hot_head: u32,           // pages with recently freed cells (cooling)
+    partial_head: u32,       // oldest page with ≥1 free cell (FIFO)
+    partial_tail: u32,       // newest page with ≥1 free cell (append)
     dirty_head: u32,         // pages with refcount==0
     dirty_count: u32,
     committed_hwm: u32,      // virgin page watermark
     committed_pages: u32,    // currently committed page count
-    hot_promote_cursor: u32, // amortized hot->cold promotion cursor
     lock: AtomicU32,
 }
 
@@ -297,13 +288,12 @@ impl SlabArena {
             page_size: OS_PAGE_SIZE,
             page_count: 0,
             pages: ptr::null_mut(),
-            cold_head: EMPTY,
-            hot_head: EMPTY,
+            partial_head: EMPTY,
+            partial_tail: EMPTY,
             dirty_head: EMPTY,
             dirty_count: 0,
             committed_hwm: 0,
             committed_pages: 0,
-            hot_promote_cursor: EMPTY,
             lock: AtomicU32::new(0),
         }
     }
@@ -397,7 +387,6 @@ impl SlabArena {
         let page = unsafe { &mut *self.page_ptr(page_idx) };
         page.committed = true;
         page.refcount = 1; // caller gets the first cell
-        page.hot_since_ms = 0;
         page.dirty_at_ms = 0;
 
         let cpp = self.cells_per_page as usize;
@@ -415,15 +404,18 @@ impl SlabArena {
         // Page was just recommitted by VirtualAlloc — contents depend on
         // whether Windows zeroed it. Either way, constructor overwrites.
 
-        // Fresh pages go directly to cold list (no stale data risk).
+        // Fresh pages go to partial TAIL (newest). FIFO means oldest pages
+        // get reused first, providing natural temporal separation.
         if cpp > 1 {
             page.on_partial = true;
-            page.prev_partial = EMPTY;
-            page.next_partial = self.cold_head;
-            if self.cold_head != EMPTY {
-                unsafe { (*self.page_ptr(self.cold_head)).prev_partial = page_idx; }
+            page.next_partial = EMPTY;
+            page.prev_partial = self.partial_tail;
+            if self.partial_tail != EMPTY {
+                unsafe { (*self.page_ptr(self.partial_tail)).next_partial = page_idx; }
+            } else {
+                self.partial_head = page_idx;
             }
-            self.cold_head = page_idx;
+            self.partial_tail = page_idx;
         }
 
         self.committed_pages += 1;
@@ -439,99 +431,46 @@ impl SlabArena {
     /// Returns (ptr, pending_page). pending_page is Some((page_idx, needs_commit))
     /// when Tier 2/3 needs a page committed outside the lock.
     /// needs_commit=false when dirty page is still physically committed (skip VirtualAlloc).
-    unsafe fn alloc_phase1(&mut self, skip_cold: bool) -> (*mut c_void, Option<(u32, bool)>) {
-        // Tier 1: pop from a COLD partial page (cells have cooled down, safe to reuse)
-        // SKIPPED during destruction_freeze to prevent recycling cells whose
-        // data stale pointers in the game's cell unload code still reference.
-        while !skip_cold && self.cold_head != EMPTY {
-            let page_idx = self.cold_head;
+    ///
+    /// FIFO: tries the oldest partial page first. Oldest freed cells are reused
+    /// first, providing natural temporal separation without timers.
+    unsafe fn alloc_phase1(&mut self) -> (*mut c_void, Option<(u32, bool)>) {
+        // Tier 1: pop from oldest partial page (FIFO — oldest freed cells first)
+        let mut page_idx = self.partial_head;
+        while page_idx != EMPTY {
             let page = unsafe { &mut *self.page_ptr(page_idx) };
             if let Some(cell_idx) = page.bitmap_pop() {
                 let ptr = unsafe { self.page_addr(page_idx).add(cell_idx as usize * self.cell_size as usize) };
                 page.refcount += 1;
 
                 if !page.bitmap_any() {
-                    self.cold_head = page.next_partial;
-                    if self.cold_head != EMPTY {
-                        unsafe { (*self.page_ptr(self.cold_head)).prev_partial = EMPTY; }
-                    }
-                    page.on_partial = false;
-                    page.next_partial = EMPTY;
-                    page.prev_partial = EMPTY;
+                    // Page now fully free → move from partial to dirty
+                    let next = page.next_partial;
+                    self.unlink_partial(page_idx);
+                    page.dirty_at_ms = cached_tick();
+                    page.next_dirty = self.dirty_head;
+                    self.dirty_head = page_idx;
+                    self.dirty_count += 1;
+                    return (ptr as *mut c_void, None);
                 }
 
                 return (ptr as *mut c_void, None);
             }
-            // Empty cold page bitmap (shouldn't happen, but handle gracefully)
-            self.cold_head = page.next_partial;
-            if self.cold_head != EMPTY {
-                unsafe { (*self.page_ptr(self.cold_head)).prev_partial = EMPTY; }
-            }
-            page.on_partial = false;
-            page.next_partial = EMPTY;
-            page.prev_partial = EMPTY;
+            // Bitmap empty but refcount > 0 — corrupted page, unlink and continue
+            let next = page.next_partial;
+            self.unlink_partial(page_idx);
+            page_idx = next;
         }
 
         // Tier 2/3: need to commit a page. Claim the index under lock,
         // then caller will VirtualAlloc outside lock (if needed) and call carve.
         match self.claim_page_for_commit() {
             Some(claim) => (ptr::null_mut(), Some(claim)),
-            None => {
-                // Arena fully exhausted: cold empty, no dirty/virgin pages.
-                // Try hot list as last resort before returning NULL (which
-                // triggers OOM death spiral).
-                let hot_cell = unsafe { self.alloc_from_hot() };
-                if !hot_cell.is_null() {
-                    return (hot_cell, None);
-                }
-                (ptr::null_mut(), None) // truly exhausted
-            }
+            None => (ptr::null_mut(), None), // truly exhausted
         }
     }
 
-    /// Desperation alloc: reuse from hot list when slab is fully exhausted.
-    /// Called when cold list is empty AND no dirty/virgin pages available.
-    /// Returns a cell from the oldest hot page, ignoring cooldown.
-    ///
-    /// This is a safety valve to prevent false OOM during loading bursts.
-    /// Without it, the slab returns NULL → va_allocator fills → OOM recovery
-    /// death spiral (stages 0-5 with bypass=true → texture UAF crash).
-    /// Better to reuse a cooling cell (minor UAF risk from unbounded
-    /// NVSE/plugin refs) than to trigger the guaranteed OOM crash.
-    ///
-    /// The 3000ms cooldown protects against bounded stale readers (AI threads,
-    /// render, IO). If the slab is fully exhausted, those bounded readers have
-    /// likely already finished — the only remaining stale readers are unbounded
-    /// (NVSE plugins, scripts), which the cooldown cannot protect against anyway.
-    unsafe fn alloc_from_hot(&mut self) -> *mut c_void {
-        if self.hot_head == EMPTY {
-            return ptr::null_mut();
-        }
-
-        let page_idx = self.hot_head;
-        let page = unsafe { &mut *self.page_ptr(page_idx) };
-        let cell_idx = match page.bitmap_pop() {
-            Some(idx) => idx,
-            None => return ptr::null_mut(),
-        };
-
-        let ptr = unsafe { self.page_addr(page_idx).add(cell_idx as usize * self.cell_size as usize) };
-        page.refcount += 1;
-
-        if !page.bitmap_any() {
-            self.hot_head = page.next_partial;
-            if self.hot_head != EMPTY {
-                unsafe { (*self.page_ptr(self.hot_head)).prev_partial = EMPTY; }
-            }
-            page.on_partial = false;
-            page.next_partial = EMPTY;
-            page.prev_partial = EMPTY;
-        }
-
-        ptr as *mut c_void
-    }
-
-    /// Free a cell back to its page's freelist. Writes FreeNode header + sentinel.
+    /// Free a cell back to its page. Zero writes to cell data (out-of-band bitmap).
     unsafe fn free(&mut self, ptr: *mut c_void) {
         let page_idx = self.page_of(ptr as *mut u8);
         let page = unsafe { &mut *self.page_ptr(page_idx) };
@@ -560,7 +499,7 @@ impl SlabArena {
         page.refcount -= 1;
 
         if page.refcount == 0 {
-            // Page fully free. Remove from hot/cold list, add to dirty.
+            // Page fully free. Remove from partial queue, add to dirty.
             if page.on_partial {
                 unsafe { self.unlink_partial(page_idx) };
             }
@@ -569,27 +508,24 @@ impl SlabArena {
             self.dirty_head = page_idx;
             self.dirty_count += 1;
         } else if was_full {
-            // Page was fully allocated, now has a free cell.
-            // Goes to HOT list -- cells not available for reuse until cooled.
-            let now = cached_tick();
+            // Page was fully allocated, now has first free cell.
+            // Append to partial TAIL (newest) — FIFO ordering means alloc
+            // will try the oldest pages first (partial_head).
             page.on_partial = true;
-            page.hot_since_ms = now;
-            page.prev_partial = EMPTY;
-            page.next_partial = self.hot_head;
-            if self.hot_head != EMPTY {
-                unsafe { (*self.page_ptr(self.hot_head)).prev_partial = page_idx; }
+            page.next_partial = EMPTY;
+            page.prev_partial = self.partial_tail;
+            if self.partial_tail != EMPTY {
+                unsafe { (*self.page_ptr(self.partial_tail)).next_partial = page_idx; }
+            } else {
+                self.partial_head = page_idx; // queue was empty
             }
-            self.hot_head = page_idx;
+            self.partial_tail = page_idx;
         }
-        // If page was already partial (on hot or cold list), it stays where
-        // it is. The newly freed cell gets a FreeNode header (vtable preserved
-        // at +0, usable_size at +4). Stale readers accessing those offsets
-        // are protected. Offsets 12+ may be overwritten on reuse — same as
-        // vanilla SBM behavior. Moving pages between lists on every free
-        // would be O(N) per free, too expensive for the hot path.
+        // If page was already on partial queue, it stays in place.
+        // FIFO ordering: oldest freed cells (at queue head) get reused first.
     }
 
-    /// O(1) unlink from hot or cold list via doubly-linked prev/next.
+    /// O(1) unlink from partial FIFO queue via doubly-linked prev/next.
     unsafe fn unlink_partial(&mut self, target: u32) {
         let page = unsafe { &mut *self.page_ptr(target) };
         debug_assert!(page.on_partial, "unlink_partial on page not on_partial");
@@ -599,15 +535,12 @@ impl SlabArena {
         if prev != EMPTY {
             unsafe { (*self.page_ptr(prev)).next_partial = next; }
         } else {
-            // target is head -- update the correct list head
-            if self.cold_head == target {
-                self.cold_head = next;
-            } else if self.hot_head == target {
-                self.hot_head = next;
-            }
+            self.partial_head = next; // target was head
         }
         if next != EMPTY {
             unsafe { (*self.page_ptr(next)).prev_partial = prev; }
+        } else {
+            self.partial_tail = prev; // target was tail
         }
 
         page.on_partial = false;
@@ -615,92 +548,10 @@ impl SlabArena {
         page.prev_partial = EMPTY;
     }
 
-    /// Max hot pages to process per promote call. Bounds lock hold time
-    /// to O(MAX_PROMOTE) instead of O(total_hot_pages). Full promotion
-    /// completes over multiple decommit_sweep calls via the cursor.
-    const MAX_PROMOTE_PER_SWEEP: usize = 32;
-
-    /// Promote pages from hot list to cold list when they've cooled enough.
-    /// Amortized: processes up to MAX_PROMOTE_PER_SWEEP pages per call,
-    /// resuming from hot_promote_cursor on the next call.
-    unsafe fn promote_hot_to_cold(&mut self) {
-        let now = cached_tick();
-        let mut promoted = 0usize;
-
-        // Start from cursor if valid, otherwise from hot_head
-        let start = if self.hot_promote_cursor != EMPTY {
-            self.hot_promote_cursor
-        } else {
-            self.hot_head
-        };
-
-        // Build a new prefix for pages we visit but keep hot.
-        // Pages before the cursor are already settled (still hot from last call).
-        let mut new_segment_head = EMPTY;
-        let mut new_segment_tail = EMPTY;
-        let mut idx = start;
-
-        while idx != EMPTY && promoted < Self::MAX_PROMOTE_PER_SWEEP {
-            let page = unsafe { &mut *self.page_ptr(idx) };
-            let next = page.next_partial;
-
-            if now.saturating_sub(page.hot_since_ms) >= REUSE_COOLDOWN_MS {
-                // Cooled: prepend to cold head
-                page.prev_partial = EMPTY;
-                page.next_partial = self.cold_head;
-                if self.cold_head != EMPTY {
-                    unsafe { (*self.page_ptr(self.cold_head)).prev_partial = idx; }
-                }
-                self.cold_head = idx;
-            } else {
-                // Still hot: add to new segment
-                if new_segment_head == EMPTY {
-                    new_segment_head = idx;
-                    page.prev_partial = EMPTY;
-                } else {
-                    let tail = unsafe { &mut *self.page_ptr(new_segment_tail) };
-                    tail.next_partial = idx;
-                    page.prev_partial = new_segment_tail;
-                }
-                page.next_partial = EMPTY;
-                new_segment_tail = idx;
-            }
-
-            promoted += 1;
-            idx = next;
-        }
-
-        if idx == EMPTY {
-            // Reached end of hot list -- full cycle done.
-            // The new segment IS the entire hot list now.
-            self.hot_head = new_segment_head;
-            self.hot_promote_cursor = EMPTY;
-        } else {
-            // Didn't finish -- stitch new segment before the remaining tail.
-            // Link: [new_segment] -> [remaining from idx onward]
-            if new_segment_tail != EMPTY {
-                let tail = unsafe { &mut *self.page_ptr(new_segment_tail) };
-                tail.next_partial = idx;
-                unsafe { (*self.page_ptr(idx)).prev_partial = new_segment_tail; }
-            }
-
-            if self.hot_promote_cursor == EMPTY || self.hot_promote_cursor == start {
-                // First batch -- new segment replaces the head
-                self.hot_head = if new_segment_head != EMPTY {
-                    new_segment_head
-                } else {
-                    idx
-                };
-            }
-
-            self.hot_promote_cursor = idx;
-        }
-    }
-
     /// Max pages to batch for decommit outside the lock.
     const DECOMMIT_BATCH: usize = 32;
 
-    /// Promote hot pages + collect dirty pages for decommit.
+    /// Collect dirty pages for decommit.
     /// Returns list of (address, page_size) pairs to VirtualFree OUTSIDE the lock.
     /// `force`: if true, ignore DECOMMIT_DELAY_MS (loading transition).
     unsafe fn collect_decommit_batch(
@@ -708,8 +559,6 @@ impl SlabArena {
         force: bool,
         batch: &mut [(*mut u8, usize); Self::DECOMMIT_BATCH],
     ) -> (usize, u32) {
-        unsafe { self.promote_hot_to_cold() };
-
         let mut count = 0usize;
         let mut bytes = 0u32;
         let now = cached_tick();
@@ -936,11 +785,9 @@ impl SlabAllocator {
             };
             let arena = &self.arenas[arena_idx] as *const SlabArena as *mut SlabArena;
 
-            let skip_cold = DESTRUCTION_FREEZE.load(Ordering::Relaxed);
-
-            // Phase 1: try cold pop under lock (fast path, O(1))
+            // Phase 1: try oldest partial page under lock (FIFO, O(1))
             (*arena).acquire();
-            let (ptr, pending) = (*arena).alloc_phase1(skip_cold);
+            let (ptr, pending) = (*arena).alloc_phase1();
             (*arena).release();
 
             if !ptr.is_null() {
@@ -1152,12 +999,6 @@ pub unsafe fn decommit_sweep_full(force: bool) -> (u32, u32) {
     }
 }
 
-/// Freeze cold list reuse during destruction_protocol.
-/// Alloc will skip recycled cells and only use fresh pages.
-pub fn set_destruction_freeze(active: bool) {
-    DESTRUCTION_FREEZE.store(active, Ordering::Release);
-}
-
 /// Diagnostics: total committed bytes in slab arenas.
 pub fn committed_bytes() -> usize {
     match SLAB.get() {
@@ -1258,8 +1099,8 @@ mod tests {
         for i in 0..NUM_CLASSES {
             let sz = arena_size_for_class(i);
             assert!(
-                sz >= 1024 * 1024 && sz <= 8 * 1024 * 1024,
-                "Class {} arena size {} is outside 1-8MB range",
+                sz >= 1024 * 1024 && sz <= 12 * 1024 * 1024,
+                "Class {} arena size {} is outside 1-12MB range",
                 i,
                 sz
             );
@@ -1268,21 +1109,23 @@ mod tests {
 
     #[test]
     fn arena_sizes_small_classes_large() {
-        // First 8 classes (16..128B) get 8MB arenas.
-        for i in 0..8 {
-            assert_eq!(arena_size_for_class(i), 8 * 1024 * 1024);
+        // 16B (idx 0): 12MB (most heavily used — TTW needs extra room).
+        assert_eq!(arena_size_for_class(0), 12 * 1024 * 1024);
+        // Classes 16-128B (idx 1-7) get 6MB arenas.
+        for i in 1..8 {
+            assert_eq!(arena_size_for_class(i), 6 * 1024 * 1024);
+        }
+        // Classes 160-256B (idx 12-15) get 3MB arenas.
+        for i in 12..16 {
+            assert_eq!(arena_size_for_class(i), 3 * 1024 * 1024);
         }
     }
 
     #[test]
     fn arena_sizes_large_classes_adequate() {
-        // 512KB-1MB classes (indices 52-53) get 4MB arenas.
-        for i in 52..NUM_CLASSES {
-            assert_eq!(arena_size_for_class(i), 4 * 1024 * 1024);
-        }
-        // 320KB-384KB classes (indices 50-51) get 2MB arenas.
-        for i in 50..52 {
-            assert_eq!(arena_size_for_class(i), 2 * 1024 * 1024);
+        // 512KB-1MB classes (indices 50-53) get 1MB arenas (reduced for TTW).
+        for i in 50..NUM_CLASSES {
+            assert_eq!(arena_size_for_class(i), 1 * 1024 * 1024);
         }
     }
 

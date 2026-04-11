@@ -25,15 +25,19 @@ const MB: usize = 1024 * 1024;
 pub fn configure_mimalloc() {
     CONFIG_MIMALLOC.call_once(|| unsafe {
         // ---------------------------------------------------------------
-        // Mimalloc is the GLOBAL allocator for the entire game process
-        // (via IAT hooks on all loaded DLLs, inline CRT hooks, and
-        // GameHeap hooks). Tuned for 32-bit FNV with ~4GB VA (LAA).
+        // Mimalloc handles CRT allocations only (third-party DLLs via
+        // IAT hooks). Gheap is fully handled by the slab allocator.
+        //
+        // CRT allocations are typically small (strings, STL containers,
+        // plugin temp buffers) — 64MB is more than enough.
+        // Total allocator reservation must stay under 512MB to avoid
+        // VAS exhaustion in 32-bit LAA with TTW.
         // ---------------------------------------------------------------
 
-        // PRE-RESERVE ARENA -- try sizes from largest to smallest.
+        // PRE-RESERVE ARENA — 64MB is enough for CRT-only usage.
         // Uses mi_reserve_os_memory_ex for explicit error reporting.
         // commit=false -> demand-page (zero physical RAM upfront).
-        let arena_sizes = [512 * MB, 384 * MB, 256 * MB, 128 * MB];
+        let arena_sizes = [64 * MB, 32 * MB, 16 * MB];
         let mut reserved = 0usize;
         for &size in &arena_sizes {
             let mut arena_id: mi_arena_id_t = 0;
@@ -46,7 +50,7 @@ pub fn configure_mimalloc() {
             );
             if result == 0 {
                 reserved = size;
-                log::info!("[MIMALLOC] Reserved {}MB arena (id={:?})", size / MB, arena_id);
+                log::info!("[MIMALLOC] Reserved {}MB CRT arena (id={:?})", size / MB, arena_id);
                 break;
             }
             log::warn!("[MIMALLOC] Failed to reserve {}MB (err={}), trying smaller...", size / MB, result);
@@ -55,11 +59,9 @@ pub fn configure_mimalloc() {
             log::error!("[MIMALLOC] Could not reserve ANY arena! Falling back to dynamic arenas.");
         }
 
-        // UAF bitmap removed: slab allocator writes FreeNode header on ALL
-        // freed cells, providing universal UAF protection without per-segment tracking.
-
-        // 32MB overflow arenas if pre-reserved block fills up.
-        mi_option_set(mi_option_arena_reserve, 32 * 1024); // KiB
+        // 16MB overflow arenas if pre-reserved block fills up.
+        // Reduced from 32MB — CRT allocations are small and infrequent.
+        mi_option_set(mi_option_arena_reserve, 16 * 1024); // KiB
 
         // Demand-page: reserve VA, commit on first touch.
         mi_option_set(mi_option_arena_eager_commit, 0);
