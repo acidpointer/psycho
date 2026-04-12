@@ -175,8 +175,8 @@ pub unsafe extern "C" fn hook_per_frame_queue_drain() {
     //
     // CRITICAL: Use pool::ALIGN (drain ALL blocks) during emergency.
     // The pool is often entirely small blocks (< 1KB) during crisis.
-    // Draining small blocks risks UAF, but purge_delay=50ms gives stale
-    // readers a 50ms window to finish before pages are decommitted.
+    // Draining small blocks risks UAF, but purge_delay=15s gives stale
+    // readers a 15s window to finish before pages are decommitted.
     // The alternative (drain 0 blocks) is a guaranteed crash.
     if heap.take_emergency_drain() {
         let commit_before = heap.commit_mb();
@@ -187,7 +187,7 @@ pub unsafe extern "C" fn hook_per_frame_queue_drain() {
         };
         try_mi_collect_true();
 
-        // purge_delay=100ms already provides the stale reader safety window.
+        // purge_delay=15s already provides the stale reader safety window.
         // The previous Sleep(50) cost 3 dropped frames at 60fps. Removed:
         // mimalloc's internal purge timer handles page decommit timing.
 
@@ -303,13 +303,11 @@ pub unsafe extern "C" fn hook_per_frame_queue_drain() {
     }
 
     // --- Periodic Pool Drain ---
-    // Slab decommit sweep only (no mi_collect). mi_collect(false) with
-    // purge_delay=100ms decommits mimalloc pages during normal gameplay.
-    // jip_nvse CellChange handlers hold stale pointers that chain into
-    // mimalloc overflow pages. If those pages are decommitted, the stale
-    // read crashes in PopulateArgs. Vanilla never decommits freed pages
-    // during gameplay. Only call mi_collect during OOM / VAS crisis where
-    // the alternative is a guaranteed OOM crash.
+    // Slab decommit sweep only (no mi_collect). With purge_delay=15s,
+    // mi_collect is safe during normal gameplay (pages stay committed for
+    // 15s after free), but we still avoid it to minimize syscall overhead.
+    // jip_nvse CellChange handlers and AI stale pointers are covered by
+    // the 15s window. Only call mi_collect during OOM / VAS crisis.
     if super::slab::committed_bytes() / 1024 / 1024 >= 12 {
         let now = libpsycho::os::windows::winapi::get_tick_count() as u64;
         let last = LAST_POOL_DRAIN_MS.load(Ordering::Relaxed);

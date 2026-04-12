@@ -1,12 +1,12 @@
 //! Game heap allocator: routes alloc/free/realloc/msize through slab + mimalloc.
 //!
 //! Dispatch:
-//!   size <= 16KB  -> slab (per-page refcount, FreeNode UAF protection)
-//!   size 16KB+1..1MB -> mimalloc (mid-range, CRT compat)
+//!   size <= 2KB   -> slab (bitmap free tracking, zombie memory, 15s reuse cooldown)
+//!   size 2KB+1..1MB -> mimalloc (15s purge_delay, UAF guard at offsets 4/8)
 //!   size >= 1MB   -> va_allocator (VirtualAlloc per-alloc)
 //!
-//! UAF protection: slab writes FreeNode header on ALL freed cells.
-//! Pages stay committed until Phase 7 decommit sweep.
+//! UAF protection: slab preserves all cell bytes on free (bitmap tracking).
+//! Mimalloc freed pages stay committed for 15s (purge_delay).
 
 use libc::c_void;
 use libpsycho::os::windows::va_allocator;
@@ -161,8 +161,8 @@ pub fn is_main_thread() -> bool {
 /// Large allocations (>= 1MB) go through VirtualAlloc for immediate VAS
 /// reclamation.
 ///   Dispatch:
-///   size <= 16KB  -> slab (per-page refcount, FreeNode UAF protection)
-///   size 16KB+1..1MB -> mimalloc (mid-range, CRT compat)
+///   size <= 2KB   -> slab (bitmap free tracking, zombie memory, 15s cooldown)
+///   size 2KB+1..1MB -> mimalloc (15s purge_delay, UAF guard at offsets 4/8)
 ///   size >= 1MB   -> va_allocator (VirtualAlloc, MEM_RELEASE on free)
 #[inline]
 pub unsafe fn alloc(size: usize) -> *mut c_void {
@@ -175,9 +175,9 @@ pub unsafe fn alloc(size: usize) -> *mut c_void {
         return unsafe { recover_oom(size) };
     }
 
-    // Small/medium objects (<= 256KB) --> slab allocator.
-    // Covers NPC sub-objects (Process, ExtraData, scripts) for UAF protection.
-    // Per-page refcounting + FreeNode headers for UAF protection.
+    // Small objects (<= 2KB) --> slab allocator.
+    // Hottest allocation sizes get full zombie protection (zero bytes written
+    // to freed cells). Larger objects go to mimalloc with 15s purge_delay.
     if size <= super::slab::MAX_SLAB_SIZE && size > 0 {
         let ptr = unsafe { super::slab::alloc(size) };
         if !ptr.is_null() {
@@ -186,7 +186,7 @@ pub unsafe fn alloc(size: usize) -> *mut c_void {
         // Slab exhausted for this size class -- fall through to mimalloc
     }
 
-    // Mid-range objects (256KB+1..1MB) or slab fallback --> mimalloc.
+    // Mid-range objects (2KB+1..1MB) or slab fallback --> mimalloc.
     let ptr = unsafe { mi_malloc_aligned(size, ALIGN) };
     if !ptr.is_null() {
         return ptr;
@@ -195,18 +195,16 @@ pub unsafe fn alloc(size: usize) -> *mut c_void {
 }
 
 /// Free a block. Dispatch by ownership:
-///   slab ptr     -> slab_free (refcount--, FreeNode header, deferred decommit)
-///   mimalloc ptr -> mi_free (mid-range 16KB+1..1MB)
+///   slab ptr     -> slab_free (bitmap mark, zero writes, deferred decommit)
+///   mimalloc ptr -> mi_free (UAF guard at offsets 4/8, 15s purge_delay)
 ///   va_allocator -> va_free (VirtualFree MEM_RELEASE, >= 1MB)
 ///   pre-hook SBM -> original trampoline
 ///
-/// UAF protection: slab writes FreeNode header on ALL freed cells (<= 16KB):
-///   offset 0: original vtable (preserved for async flush dispatch)
-///   offset 4: usable_size (fake refcount -- InterlockedDecrement never hits 0)
-///   offset 8: usable_size (IOTask refcount guard)
-///   offset 12: next (per-page freelist chain)
-/// Pages stay committed until decommit sweep (Phase 7). Stale readers see
-/// valid zombie data until then.
+/// UAF protection:
+///   slab (<= 2KB): bitmap free tracking, zero bytes written to freed cells.
+///     All original data preserved ("zombie memory") until page decommit.
+///   mimalloc (2KB+1..1MB): UAF guard at offsets 4 (NiRefObject refcount)
+///     and 8 (IOTask refcount). Pages stay committed for 15s (purge_delay).
 #[inline]
 pub unsafe fn free(ptr: *mut c_void) {
     if ptr.is_null() {
@@ -220,7 +218,7 @@ pub unsafe fn free(ptr: *mut c_void) {
         return;
     }
 
-    // mimalloc arena check (CRT hooks, mid-range GameHeap allocs 16KB+1..1MB).
+    // mimalloc arena check (CRT hooks, mid-range GameHeap allocs 2KB+1..1MB).
     if unsafe { mi_is_in_heap_region(ptr as *const c_void) } {
         // Write UAF guard before mi_free. mi_free overwrites offset 0 with
         // a freelist pointer (which could be NULL at end of chain). Stale

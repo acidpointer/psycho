@@ -61,57 +61,38 @@ fn cached_tick() -> u64 {
     now
 }
 
-/// Size classes: 47 classes from 16B to 256KB.
-/// Classes <= 4096 use 4KB pages (single OS page).
-/// Classes > 4096 use multi-page logical pages (2 cells per page min).
-const SIZE_CLASSES: [u32; 47] = [
+/// Size classes: 24 classes from 16B to 2KB.
+/// All classes fit in a single 4KB OS page.
+/// Objects > 2KB go through mimalloc with 15s purge_delay for UAF protection.
+const SIZE_CLASSES: [u32; 24] = [
     16, 32, 48, 64, 80, 96, 112, 128, 160, 192, 224, 256, 320, 384, 448, 512, 640, 768, 896, 1024,
-    1280, 1536, 1792, 2048, 2560, 3072, 3584, 4096,
-    // extended range: mid-size game objects get FreeNode UAF protection
-    5120, 6144, 8192, 10240, 12288, 14336, 16384,
-    // extended range 2: NPC sub-objects (Process, ExtraData, scripts)
-    20480, 24576, 32768, 40960, 49152, 65536, 81920, 98304, 131072, 163840, 196608, 262144,
+    1280, 1536, 1792, 2048,
 ];
 
 const NUM_CLASSES: usize = SIZE_CLASSES.len();
 
 /// Max allocation size the slab handles. Larger goes to mimalloc/va_allocator.
-/// 256KB covers NPC sub-objects (Process, ExtraData, scripts) that previously
-/// went through mimalloc --> mi_free immediate reclaim --> UAF during loading.
-pub const MAX_SLAB_SIZE: usize = 262144;
+/// 2KB covers the hottest allocation sizes (vtable objects, small structs).
+/// Mimalloc handles 2KB+ with 15s purge_delay for UAF protection.
+pub const MAX_SLAB_SIZE: usize = 2048;
 
 /// Arena reservation sizes per tier (in bytes).
-/// Small classes are more popular, get larger arenas.
-/// Large classes (20KB-256KB) get smaller arenas since they're less frequent.
-#[allow(clippy::if_same_then_else, clippy::identity_op)]
+/// With only 24 classes (<=2KB), each arena gets a larger reservation.
+/// Fewer classes = more VAS budget per class = longer before exhaustion.
+#[allow(clippy::identity_op)]
 const fn arena_size_for_class(idx: usize) -> usize {
     if idx < 8 {
+        16 * 1024 * 1024
+    }
+    // 16..128B: 16MB each (sharded x2 = 32MB per class)
+    else if idx < 16 {
         8 * 1024 * 1024
     }
-    // 16..128B: 8MB each
-    else if idx < 12 {
-        4 * 1024 * 1024
-    }
-    // 160..256B: 4MB each
-    else if idx < 16 {
-        4 * 1024 * 1024
-    }
-    // 320..4096B: 2MB each
-    else if idx < 28 {
-        2 * 1024 * 1024
-    }
-    // 5KB..16KB: 1MB each (less frequent)
-    else if idx < 35 {
-        1 * 1024 * 1024
-    }
-    // 20KB..128KB: 2MB each (mid-size NPC sub-objects)
-    else if idx < 44 {
-        2 * 1024 * 1024
-    }
-    // 128KB..256KB: 1MB each (rare, large sub-objects)
+    // 160..512B: 8MB each
     else {
-        1 * 1024 * 1024
+        4 * 1024 * 1024
     }
+    // 640..2048B: 4MB each
 }
 
 /// Logical page size for a given size class.
@@ -1132,7 +1113,7 @@ pub unsafe fn decommit_sweep() -> (u32, u32) {
     }
 }
 
-/// Full decommit sweep for OOM/loading paths. Sweeps all 28 arenas.
+/// Full decommit sweep for OOM/loading paths. Sweeps all arenas.
 pub unsafe fn decommit_sweep_full(force: bool) -> (u32, u32) {
     match SLAB.get() {
         Some(s) => unsafe { s.decommit_sweep_full(force) },

@@ -64,21 +64,25 @@ pub fn configure_mimalloc() {
         // Demand-page: reserve VA, commit on first touch.
         mi_option_set(mi_option_arena_eager_commit, 0);
 
-        // PURGE DELAY = 100ms
+        // PURGE DELAY = 15000ms (15 seconds)
         //
-        // Freed pages stay committed (readable) for 100ms before mimalloc
-        // decommits them. This provides a safety window for:
-        // - AI thread raycasts against terrain: 10-30ms typical, up to 50ms
-        // - BSTaskManagerThread texture loading: up to 100ms for large textures
-        // - Havok broadphase queries: < 10ms typical
+        // Freed pages stay committed (readable) for 15s before mimalloc
+        // decommits them. This matches the slab's REUSE_COOLDOWN_MS and
+        // DECOMMIT_DELAY_MS, providing uniform zombie memory protection
+        // across all allocation tiers.
         //
-        // 100ms was chosen based on crash analysis: the hkBSHeightFieldShape
-        // UAF crash occurred at 50ms because the AI thread was mid-raycast
-        // when the shape was freed. 100ms provides 2x safety margin.
+        // With slab only handling <= 2KB, mimalloc now serves 2KB-1MB
+        // objects (NPC sub-objects, ExtraData, scripts, Havok shapes).
+        // These are the UAF-sensitive types stale readers access:
+        //   Havok world rebuild:      2000-3000ms  (5x margin)
+        //   AI raycasting (unloaded): 1000-2000ms  (7.5x margin)
+        //   Ragdoll controller bone:  3000-5000ms  (3x margin)
+        //   jip_nvse CellChange:      ~200ms       (75x margin)
+        //   BSTaskManagerThread IO:    ~100ms       (150x margin)
         //
         // Within the pre-reserved arena, decommit is just a page table flip
-        // -- cheap. Physical RAM is freed after 100ms; only VA persists.
-        mi_option_set(mi_option_purge_delay, 100);
+        // -- cheap. Physical RAM is freed after 15s; only VA persists.
+        mi_option_set(mi_option_purge_delay, 15000);
 
         // Decommit on purge (not full release) -- keeps VA reservation.
         mi_option_set(mi_option_purge_decommits, 1);
@@ -100,9 +104,9 @@ pub fn configure_mimalloc() {
         mi_option_set(mi_option_page_reclaim_on_free, 1);
         mi_option_set(mi_option_page_cross_thread_max_reclaim, 16);
 
-        // Arena purge mult: with 50ms delay, arena purge = 100ms.
-        // Arena purge should be faster than thread-local purge since arenas
-        // are shared across threads. 2x multiplier = 50ms * 2 = 100ms.
+        // Arena purge mult: with 15s delay, arena purge = 30s.
+        // Arena pages are shared across threads and should be purged slower
+        // than thread-local pages. 2x multiplier = 15s * 2 = 30s.
         mi_option_set(mi_option_arena_purge_mult, 2);
 
         // Retain 1 full page per size class in free page queues.
