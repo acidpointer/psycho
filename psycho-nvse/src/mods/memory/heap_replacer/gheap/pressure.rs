@@ -233,6 +233,14 @@ impl PressureRelief {
         // collision shape (hkScaledMoppBvTreeShape) mid-chain.
         libpsycho::os::windows::winapi::sleep(30);
 
+        // IO thread synchronization barrier.
+        // BSTaskManagerThread and BackgroundCloneThread hold raw pointers to
+        // cell data during task processing. Without this, Stage 5 frees cell
+        // data while background threads are mid-read -> UAF on NiNode clones,
+        // QueuedReference destructors, ExteriorCellLoaderTask form reads.
+        // See: analysis/research/crash_root_cause_io_thread_uaf.md
+        unsafe { globals::wait_for_io_idle() };
+
         // Run Stage 5 in a loop until game says no more cells eligible.
         // Each call runs 5 --> 4 --> 3 automatically (fallthrough in switch case).
         // The game's FindCellToUnload returns no cell when none are eligible,

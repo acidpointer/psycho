@@ -12,6 +12,7 @@
 use libc::c_void;
 
 use libpsycho::ffi::fnptr::FnPtr;
+use libpsycho::os::windows::winapi::{self, WaitResult};
 
 use super::addr;
 use crate::mods::memory::heap_replacer::gheap::types;
@@ -522,5 +523,63 @@ pub unsafe fn pdd_purge() {
     match unsafe { f.as_fn() } {
         Ok(f) => unsafe { f(0) }, // blocking purge
         Err(e) => log::error!("[PDD_PURGE] as_fn() failed: {:?}", e),
+    }
+}
+
+/// Wait for all BSTaskManagerThreads to finish their current iteration.
+///
+/// Probes each thread's iter_sem (BSTaskManagerThread+0x1C) with a zero-
+/// timeout WaitForSingleObject. WAIT_TIMEOUT = thread busy processing a
+/// task. Retries up to 500ms per thread (1ms sleep between probes).
+///
+/// Must be called from the main thread before Stage 5 cell unload.
+/// Without this barrier, IO threads and BackgroundCloneThread read
+/// freed cell data -> UAF crash (see crash_root_cause_io_thread_uaf.md).
+pub unsafe fn wait_for_io_idle() {
+    let io_mgr = unsafe { *(addr::IO_MANAGER_SINGLETON as *const *mut c_void) };
+    if io_mgr.is_null() {
+        return;
+    }
+
+    // IOManager+0x50 = pointer to BSTaskManagerThread array
+    let threads_ptr = unsafe { *((io_mgr as usize + 0x50) as *const *mut c_void) };
+    if threads_ptr.is_null() {
+        return;
+    }
+
+    // game has 2 BSTaskManagerThreads (indices 0 and 1)
+    for idx in 0..2u32 {
+        // each BSTaskManagerThread is 0x30 bytes, iter_sem HANDLE at +0x1C
+        let thread_base = threads_ptr as usize + idx as usize * 0x30;
+        let sem_raw = unsafe { *((thread_base + 0x1C) as *const *mut c_void) };
+        if sem_raw.is_null() {
+            continue;
+        }
+        let sem = windows::Win32::Foundation::HANDLE(sem_raw as *mut _);
+
+        let mut waited = 0u32;
+        loop {
+            match winapi::wait_for_single_object(sem, 0) {
+                WaitResult::Signaled => {
+                    // thread is idle. restore the signal we consumed.
+                    let _ = winapi::release_semaphore(sem, 1);
+                    break;
+                }
+                WaitResult::Timeout => {
+                    // thread is busy processing a task
+                    waited += 1;
+                    if waited >= 500 {
+                        log::warn!("[IO_BARRIER] Thread {} still busy after 500ms, proceeding", idx);
+                        break;
+                    }
+                    winapi::sleep(1);
+                }
+                _ => break, // abandoned or error, don't block
+            }
+        }
+
+        if waited > 0 {
+            log::debug!("[IO_BARRIER] Thread {} idle after {}ms", idx, waited);
+        }
     }
 }
