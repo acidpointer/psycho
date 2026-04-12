@@ -130,6 +130,8 @@ pub fn install_game_heap_hooks() -> anyhow::Result<()> {
         return Err(anyhow::anyhow!("Slab allocator initialization failed"));
     }
 
+    gheap::crash_diag::install();
+
     // Main thread detection uses OS thread ID comparison (is_main_thread_by_tid).
     // Always correct -- no initialization needed. Before TES object is available,
     // returns false --> frees go to mi_free directly (safe, zero quarantine).

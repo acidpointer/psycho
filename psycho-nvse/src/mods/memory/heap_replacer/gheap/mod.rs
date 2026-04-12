@@ -12,6 +12,7 @@
 //!   OOM    -> drain own pool + game OOM stages (mutex) + retry
 
 pub mod allocator;
+pub mod crash_diag;
 pub mod engine;
 pub mod game_guard;
 pub mod heap_manager;

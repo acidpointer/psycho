@@ -89,6 +89,12 @@ impl PressureRelief {
         self.deferred_unload.store(true, Ordering::Release);
     }
 
+    /// Schedule a loading_state_counter decrement for the next Phase 10.
+    /// Used by on_loading_end to suppress NVSE events for one frame.
+    pub fn set_pending_counter_decrement(&self) {
+        self.pending_counter_decrement.store(true, Ordering::Release);
+    }
+
     /// Decrement the loading state counter if a previous destruction_protocol
     /// left it elevated. Called once per frame from Phase 10.
     pub fn flush_pending_counter_decrement(&self) {

@@ -1,8 +1,8 @@
 //! Game heap allocator: routes alloc/free/realloc/msize through slab + mimalloc.
 //!
 //! Dispatch:
-//!   size <= 2KB   -> slab (bitmap free tracking, zombie memory, 15s reuse cooldown)
-//!   size 2KB+1..1MB -> mimalloc (15s purge_delay, UAF guard at offsets 4/8)
+//!   size <= 256KB -> slab (bitmap free tracking, zombie memory, 15s cooldown)
+//!   size 256KB+1..1MB -> mimalloc (15s purge_delay, UAF guard at offsets 4/8)
 //!   size >= 1MB   -> va_allocator (VirtualAlloc per-alloc)
 //!
 //! UAF protection: slab preserves all cell bytes on free (bitmap tracking).
@@ -161,8 +161,8 @@ pub fn is_main_thread() -> bool {
 /// Large allocations (>= 1MB) go through VirtualAlloc for immediate VAS
 /// reclamation.
 ///   Dispatch:
-///   size <= 2KB   -> slab (bitmap free tracking, zombie memory, 15s cooldown)
-///   size 2KB+1..1MB -> mimalloc (15s purge_delay, UAF guard at offsets 4/8)
+///   size <= 256KB -> slab (bitmap free tracking, zombie memory, 15s cooldown)
+///   size 256KB+1..1MB -> mimalloc (15s purge_delay, UAF guard at offsets 4/8)
 ///   size >= 1MB   -> va_allocator (VirtualAlloc, MEM_RELEASE on free)
 #[inline]
 pub unsafe fn alloc(size: usize) -> *mut c_void {
@@ -175,9 +175,10 @@ pub unsafe fn alloc(size: usize) -> *mut c_void {
         return unsafe { recover_oom(size) };
     }
 
-    // Small objects (<= 2KB) --> slab allocator.
-    // Hottest allocation sizes get full zombie protection (zero bytes written
-    // to freed cells). Larger objects go to mimalloc with 15s purge_delay.
+    // Small/medium objects (<= 256KB) --> slab allocator.
+    // Bitmap free writes ZERO bytes: vtable at offset 0 preserved on free.
+    // This is critical: mi_free writes NULL at offset 0 (freelist end-of-chain),
+    // causing EIP=0 when BSTaskManagerThread does virtual dispatch on freed IOTasks.
     if size <= super::slab::MAX_SLAB_SIZE && size > 0 {
         let ptr = unsafe { super::slab::alloc(size) };
         if !ptr.is_null() {
@@ -186,7 +187,7 @@ pub unsafe fn alloc(size: usize) -> *mut c_void {
         // Slab exhausted for this size class -- fall through to mimalloc
     }
 
-    // Mid-range objects (2KB+1..1MB) or slab fallback --> mimalloc.
+    // Mid-range objects (256KB+1..1MB) or slab fallback --> mimalloc.
     let ptr = unsafe { mi_malloc_aligned(size, ALIGN) };
     if !ptr.is_null() {
         return ptr;
@@ -201,9 +202,9 @@ pub unsafe fn alloc(size: usize) -> *mut c_void {
 ///   pre-hook SBM -> original trampoline
 ///
 /// UAF protection:
-///   slab (<= 2KB): bitmap free tracking, zero bytes written to freed cells.
+///   slab (<= 256KB): bitmap free tracking, zero bytes written to freed cells.
 ///     All original data preserved ("zombie memory") until page decommit.
-///   mimalloc (2KB+1..1MB): UAF guard at offsets 4 (NiRefObject refcount)
+///   mimalloc (256KB+1..1MB): UAF guard at offsets 4 (NiRefObject refcount)
 ///     and 8 (IOTask refcount). Pages stay committed for 15s (purge_delay).
 #[inline]
 pub unsafe fn free(ptr: *mut c_void) {
@@ -218,7 +219,7 @@ pub unsafe fn free(ptr: *mut c_void) {
         return;
     }
 
-    // mimalloc arena check (CRT hooks, mid-range GameHeap allocs 2KB+1..1MB).
+    // mimalloc arena check (CRT hooks, mid-range GameHeap allocs 256KB+1..1MB).
     if unsafe { mi_is_in_heap_region(ptr as *const c_void) } {
         // Write UAF guard before mi_free. mi_free overwrites offset 0 with
         // a freelist pointer (which could be NULL at end of chain). Stale
@@ -569,9 +570,9 @@ unsafe fn do_recover_oom(size: usize) -> *mut c_void {
 
             libpsycho::os::windows::winapi::sleep(1);
 
-            // Periodic cleanup: decommit aged slab dirty pages (respects 30s
-            // delay, force=false) + mi_collect. Worker can self-recover VAS
-            // from pages that have been dirty >30s without main thread help.
+            // Periodic cleanup: decommit aged slab dirty pages (respects 15s
+            // delay) + mi_collect. Worker can self-recover VAS from pages
+            // that have been dirty >15s without main thread help.
             if iter.is_multiple_of(50) {
                 unsafe {
                     super::slab::decommit_sweep_full(false);

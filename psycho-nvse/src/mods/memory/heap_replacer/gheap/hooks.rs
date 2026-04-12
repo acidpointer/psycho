@@ -175,8 +175,8 @@ pub unsafe extern "C" fn hook_per_frame_queue_drain() {
     //
     // CRITICAL: Use pool::ALIGN (drain ALL blocks) during emergency.
     // The pool is often entirely small blocks (< 1KB) during crisis.
-    // Draining small blocks risks UAF, but purge_delay=15s gives stale
-    // readers a 15s window to finish before pages are decommitted.
+    // Draining small blocks risks UAF, but purge_delay=15s on mimalloc
+    // gives stale readers a 15s window before page decommit.
     // The alternative (drain 0 blocks) is a guaranteed crash.
     if heap.take_emergency_drain() {
         let commit_before = heap.commit_mb();
@@ -303,11 +303,11 @@ pub unsafe extern "C" fn hook_per_frame_queue_drain() {
     }
 
     // --- Periodic Pool Drain ---
-    // Slab decommit sweep only (no mi_collect). With purge_delay=15s,
-    // mi_collect is safe during normal gameplay (pages stay committed for
-    // 15s after free), but we still avoid it to minimize syscall overhead.
-    // jip_nvse CellChange handlers and AI stale pointers are covered by
-    // the 15s window. Only call mi_collect during OOM / VAS crisis.
+    // Slab decommit sweep only (no mi_collect). mi_collect with
+    // purge_delay=15s is safer than before but we still avoid it during
+    // normal gameplay. jip_nvse CellChange handlers hold stale pointers
+    // that chain into mimalloc overflow pages. Only call mi_collect
+    // during OOM / VAS crisis where the alternative is guaranteed crash.
     if super::slab::committed_bytes() / 1024 / 1024 >= 12 {
         let now = libpsycho::os::windows::winapi::get_tick_count() as u64;
         let last = LAST_POOL_DRAIN_MS.load(Ordering::Relaxed);
@@ -528,6 +528,18 @@ fn on_loading_end() {
     // events that reference objects from the old cell.
     let now = libpsycho::os::windows::winapi::get_tick_count() as u64;
     POST_LOADING_COOLDOWN_MS.store(now + 5000, Ordering::Release);
+
+    // Suppress NVSE event dispatch (PLChangeEvent) for one frame after loading.
+    // Actors allocated from virgin slab pages have VirtualAlloc-zeroed memory.
+    // Game constructors don't always initialize all sub-fields -- PLChangeEvent
+    // handlers (JohnnyGuitar HandlePLChangeEvent) access NULL pointers in
+    // partially-initialized actor processes, crashing at NULL+offset.
+    // LOADING_STATE_COUNTER > 0 makes FUN_0096e150 skip event dispatch.
+    // Decrement happens in Phase 10 via flush_pending_counter_decrement.
+    globals::loading_state_counter().fetch_add(1, std::sync::atomic::Ordering::AcqRel);
+    if let Some(pr) = PressureRelief::instance() {
+        pr.set_pending_counter_decrement();
+    }
 
     let info = libmimalloc::process_info::MiMallocProcessInfo::get();
     log::info!(

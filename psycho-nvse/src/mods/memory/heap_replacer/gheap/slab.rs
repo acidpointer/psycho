@@ -61,38 +61,60 @@ fn cached_tick() -> u64 {
     now
 }
 
-/// Size classes: 24 classes from 16B to 2KB.
-/// All classes fit in a single 4KB OS page.
-/// Objects > 2KB go through mimalloc with 15s purge_delay for UAF protection.
-const SIZE_CLASSES: [u32; 24] = [
+/// Size classes: 47 classes from 16B to 256KB.
+/// Classes <= 4096 use 4KB pages (single OS page).
+/// Classes > 4096 use multi-page logical pages (2 cells per page min).
+const SIZE_CLASSES: [u32; 47] = [
     16, 32, 48, 64, 80, 96, 112, 128, 160, 192, 224, 256, 320, 384, 448, 512, 640, 768, 896, 1024,
-    1280, 1536, 1792, 2048,
+    1280, 1536, 1792, 2048, 2560, 3072, 3584, 4096,
+    // extended range: mid-size game objects get bitmap UAF protection
+    5120, 6144, 8192, 10240, 12288, 14336, 16384,
+    // extended range 2: NPC sub-objects (Process, ExtraData, scripts)
+    20480, 24576, 32768, 40960, 49152, 65536, 81920, 98304, 131072, 163840, 196608, 262144,
 ];
 
 const NUM_CLASSES: usize = SIZE_CLASSES.len();
 
 /// Max allocation size the slab handles. Larger goes to mimalloc/va_allocator.
-/// 2KB covers the hottest allocation sizes (vtable objects, small structs).
-/// Mimalloc handles 2KB+ with 15s purge_delay for UAF protection.
-pub const MAX_SLAB_SIZE: usize = 2048;
+/// 256KB covers ALL game objects that stale readers access. Critical: slab's
+/// bitmap free (zero-write) preserves vtable at offset 0. mi_free corrupts
+/// offset 0 with a freelist pointer (NULL at chain end) causing EIP=0 crashes
+/// when BSTaskManagerThread does virtual dispatch on freed IOTasks.
+pub const MAX_SLAB_SIZE: usize = 262144;
 
 /// Arena reservation sizes per tier (in bytes).
-/// With only 24 classes (<=2KB), each arena gets a larger reservation.
-/// Fewer classes = more VAS budget per class = longer before exhaustion.
-#[allow(clippy::identity_op)]
+/// Small classes are more popular, get larger arenas.
+/// Large classes (20KB-256KB) get smaller arenas since they're less frequent.
+#[allow(clippy::if_same_then_else, clippy::identity_op)]
 const fn arena_size_for_class(idx: usize) -> usize {
     if idx < 8 {
-        16 * 1024 * 1024
-    }
-    // 16..128B: 16MB each (sharded x2 = 32MB per class)
-    else if idx < 16 {
         8 * 1024 * 1024
     }
-    // 160..512B: 8MB each
-    else {
+    // 16..128B: 8MB each
+    else if idx < 12 {
         4 * 1024 * 1024
     }
-    // 640..2048B: 4MB each
+    // 160..256B: 4MB each
+    else if idx < 16 {
+        4 * 1024 * 1024
+    }
+    // 320..512B: 4MB each
+    else if idx < 28 {
+        2 * 1024 * 1024
+    }
+    // 640..4096B: 2MB each
+    else if idx < 35 {
+        1 * 1024 * 1024
+    }
+    // 5KB..16KB: 1MB each
+    else if idx < 44 {
+        2 * 1024 * 1024
+    }
+    // 20KB..128KB: 2MB each (mid-size NPC sub-objects)
+    else {
+        1 * 1024 * 1024
+    }
+    // 128KB..256KB: 1MB each
 }
 
 /// Logical page size for a given size class.
@@ -157,11 +179,12 @@ const REUSE_COOLDOWN_MS: u64 = 15_000;
 /// during physics step. 15s is ample time for AI raycasting to finish
 /// (1-2s typical) with 7.5x margin.
 ///
-/// The vanilla SBM never decommits during gameplay — only during
+/// The vanilla SBM never decommits during gameplay -- only during
 /// explicit GlobalCleanup (OOM Stage 6) or loading transitions.
 /// Loading transitions trigger an immediate sweep with delay=0.
 /// 15 seconds balances RAM efficiency (pages free faster) with
 /// Havok safety (AI threads complete within 1-2s).
+#[allow(dead_code)]
 const DECOMMIT_DELAY_MS: u64 = 15_000;
 
 #[repr(C)]
@@ -245,7 +268,8 @@ struct SlabArena {
     pages: *mut PageInfo,    // metadata array, separately allocated
     cold_head: u32,          // pages with reusable free cells (cooled down)
     hot_head: u32,           // pages with recently freed cells (cooling)
-    dirty_head: u32,         // pages with refcount==0
+    dirty_head: u32,         // FIFO queue head: oldest fully-free pages (dequeue here)
+    dirty_tail: u32,         // FIFO queue tail: newest fully-free pages (enqueue here)
     dirty_count: u32,
     committed_hwm: u32,      // virgin page watermark
     committed_pages: u32,    // currently committed page count
@@ -269,6 +293,7 @@ impl SlabArena {
             cold_head: EMPTY,
             hot_head: EMPTY,
             dirty_head: EMPTY,
+            dirty_tail: EMPTY,
             dirty_count: 0,
             committed_hwm: 0,
             committed_pages: 0,
@@ -339,15 +364,27 @@ impl SlabArena {
     /// dirty page hasn't been decommitted yet (dirty < 30s), so the caller
     /// can skip the VirtualAlloc syscall entirely.
     fn claim_page_for_commit(&mut self) -> Option<(u32, bool)> {
-        // Tier 2: reclaim a dirty page (may or may not be decommitted)
+        // Tier 2: reclaim a dirty page only if aged past REUSE_COOLDOWN_MS.
+        // FIFO: head is the oldest page. If head is too young, all are.
+        // During loading bursts this forces Tier 3 (virgin) for ~15s, then
+        // dirty pages from the old cell become reclaimable. Prevents cell
+        // reuse UAF: Ghidra FUN_0045cec0 crash (jmp [eax+4], eax=recycled data).
         if self.dirty_head != EMPTY {
-            let page_idx = self.dirty_head;
-            let page = unsafe { &mut *self.page_ptr(page_idx) };
-            let needs_commit = !page.committed; // still committed = skip VirtualAlloc
-            self.dirty_head = page.next_dirty;
-            self.dirty_count -= 1;
-            page.next_dirty = EMPTY;
-            return Some((page_idx, needs_commit));
+            let age = cached_tick().saturating_sub(
+                unsafe { (*self.page_ptr(self.dirty_head)).dirty_at_ms },
+            );
+            if age >= REUSE_COOLDOWN_MS {
+                let page_idx = self.dirty_head;
+                let page = unsafe { &mut *self.page_ptr(page_idx) };
+                let needs_commit = !page.committed;
+                self.dirty_head = page.next_dirty;
+                if self.dirty_head == EMPTY {
+                    self.dirty_tail = EMPTY;
+                }
+                self.dirty_count -= 1;
+                page.next_dirty = EMPTY;
+                return Some((page_idx, needs_commit));
+            }
         }
         // Tier 3: claim a virgin page (always needs commit)
         if self.committed_hwm < self.page_count {
@@ -364,6 +401,7 @@ impl SlabArena {
     unsafe fn carve_committed_page(&mut self, page_idx: u32) -> *mut c_void {
         let addr = self.page_addr(page_idx);
         let page = unsafe { &mut *self.page_ptr(page_idx) };
+        let was_committed = page.committed;
         page.committed = true;
         page.refcount = 1; // caller gets the first cell
         page.hot_since_ms = 0;
@@ -381,10 +419,15 @@ impl SlabArena {
         }
 
         // Cell 0 (returned to caller): constructor will initialize it.
-        // Page was just recommitted by VirtualAlloc — contents depend on
+        // Page was just recommitted by VirtualAlloc -- contents depend on
         // whether Windows zeroed it. Either way, constructor overwrites.
 
-        // Fresh pages go directly to cold list (no stale data risk).
+        // Cold list: immediate reuse. This is safe because slab's bitmap
+        // free writes ZERO bytes to cells. Zombie data at all offsets
+        // (including vtable at offset 0) is intact. Stale readers doing
+        // virtual dispatch see the original vtable -- not NULL. This is
+        // the critical difference from mi_free which writes a freelist
+        // pointer (possibly NULL) at offset 0.
         if cpp > 1 {
             page.on_partial = true;
             page.prev_partial = EMPTY;
@@ -395,7 +438,11 @@ impl SlabArena {
             self.cold_head = page_idx;
         }
 
-        self.committed_pages += 1;
+        // Only count newly committed pages. Dirty pages reclaimed while still
+        // committed (needs_commit=false) were already counted on first commit.
+        if !was_committed {
+            self.committed_pages += 1;
+        }
         addr as *mut c_void
     }
 
@@ -529,13 +576,19 @@ impl SlabArena {
         page.refcount -= 1;
 
         if page.refcount == 0 {
-            // Page fully free. Remove from hot/cold list, add to dirty.
+            // Page fully free. Remove from hot/cold list, enqueue to dirty (FIFO).
+            // FIFO: oldest pages dequeued first = max zombie lifetime before reuse.
             if page.on_partial {
                 unsafe { self.unlink_partial(page_idx) };
             }
             page.dirty_at_ms = cached_tick();
-            page.next_dirty = self.dirty_head;
-            self.dirty_head = page_idx;
+            page.next_dirty = EMPTY;
+            if self.dirty_tail != EMPTY {
+                unsafe { (*self.page_ptr(self.dirty_tail)).next_dirty = page_idx; }
+            } else {
+                self.dirty_head = page_idx;
+            }
+            self.dirty_tail = page_idx;
             self.dirty_count += 1;
         } else if was_full {
             // Page was fully allocated, now has a free cell.
@@ -551,11 +604,9 @@ impl SlabArena {
             self.hot_head = page_idx;
         }
         // If page was already partial (on hot or cold list), it stays where
-        // it is. The newly freed cell gets a FreeNode header (vtable preserved
-        // at +0, usable_size at +4). Stale readers accessing those offsets
-        // are protected. Offsets 12+ may be overwritten on reuse — same as
-        // vanilla SBM behavior. Moving pages between lists on every free
-        // would be O(N) per free, too expensive for the hot path.
+        // it is. Bitmap tracking means zero bytes written to the cell --
+        // all original data preserved for stale readers. Moving pages
+        // between lists on every free would be O(N), too expensive.
     }
 
     /// O(1) unlink from hot or cold list via doubly-linked prev/next.
@@ -669,9 +720,19 @@ impl SlabArena {
     /// Max pages to batch for decommit outside the lock.
     const DECOMMIT_BATCH: usize = 32;
 
-    /// Promote hot pages + collect dirty pages for decommit.
-    /// Returns list of (address, page_size) pairs to VirtualFree OUTSIDE the lock.
-    /// `force`: if true, ignore DECOMMIT_DELAY_MS (loading transition).
+    /// Promote hot pages + optionally collect dirty pages for decommit.
+    ///
+    /// When `force=false` (per-frame sweep): only promotes hot->cold.
+    /// Pages stay committed — stale readers always see zombie data.
+    /// Ghidra-verified: decommitted pages zero all data including vtable
+    /// at offset 0. Stale readers (BSTaskManagerThread IOTask release at
+    /// FUN_0044dd60, persistent NPC skeleton traversal) then dereference
+    /// NULL pointers from the zeroed page, crashing at small offsets
+    /// (0x24, etc.) or EIP=0 from vtable[0] dispatch.
+    ///
+    /// When `force=true` (OOM recovery): decommits all dirty pages
+    /// immediately. Only used when allocation has failed and memory
+    /// must be reclaimed to prevent total OOM.
     unsafe fn collect_decommit_batch(
         &mut self,
         force: bool,
@@ -679,14 +740,19 @@ impl SlabArena {
     ) -> (usize, u32) {
         unsafe { self.promote_hot_to_cold() };
 
+        // Normal gameplay: promote hot->cold only. No decommit.
+        // Dirty pages stay committed as zombie memory indefinitely.
+        if !force {
+            return (0, 0);
+        }
+
+        // OOM force path: decommit all eligible dirty pages.
         let mut count = 0usize;
         let mut bytes = 0u32;
-        let now = cached_tick();
-        let delay = if force { 0 } else { DECOMMIT_DELAY_MS };
         let page_size = self.page_size;
 
-        // Rebuild dirty list, skipping pages we're about to decommit
         let mut new_dirty_head = EMPTY;
+        let mut new_dirty_tail = EMPTY;
         let mut page_idx = self.dirty_head;
 
         while page_idx != EMPTY {
@@ -695,8 +761,7 @@ impl SlabArena {
 
             let eligible = page.committed
                 && page.refcount == 0
-                && count < Self::DECOMMIT_BATCH
-                && now.saturating_sub(page.dirty_at_ms) >= delay;
+                && count < Self::DECOMMIT_BATCH;
 
             if eligible {
                 // Mark decommitted under lock, VirtualFree will happen outside
@@ -710,13 +775,19 @@ impl SlabArena {
                 count += 1;
                 bytes += page_size as u32;
             } else {
-                // Keep on dirty list
-                page.next_dirty = new_dirty_head;
-                new_dirty_head = page_idx;
+                // Keep on dirty list (append to maintain FIFO order)
+                page.next_dirty = EMPTY;
+                if new_dirty_tail != EMPTY {
+                    unsafe { (*self.page_ptr(new_dirty_tail)).next_dirty = page_idx; }
+                } else {
+                    new_dirty_head = page_idx;
+                }
+                new_dirty_tail = page_idx;
             }
             page_idx = next;
         }
         self.dirty_head = new_dirty_head;
+        self.dirty_tail = new_dirty_tail;
         (count, bytes)
     }
 }
@@ -929,6 +1000,12 @@ impl SlabAllocator {
                         MEM_COMMIT,
                         PAGE_READWRITE,
                     );
+
+                    // fill with sentinel to match SBM's non-zero recycled memory.
+                    // VirtualAlloc zeroes pages but game constructors don't init
+                    // all fields -- they rely on stale non-zero data from SBM.
+                    // 0xCD prevents NULL pointer crashes from uninitialized fields.
+                    core::ptr::write_bytes(addr, 0xCD, page_size);
                 }
                 // else: dirty page still physically committed, skip syscall
 
@@ -1125,6 +1202,75 @@ pub unsafe fn decommit_sweep_full(force: bool) -> (u32, u32) {
 /// Alloc will skip recycled cells and only use fresh pages.
 pub fn set_destruction_freeze(active: bool) {
     DESTRUCTION_FREEZE.store(active, Ordering::Release);
+}
+
+/// Crash-time diagnostic: inspect slab metadata for a faulting address.
+/// Called from the VEH crash handler. NO locks, NO allocations.
+/// Reads raw pointers -- may see torn state, acceptable for diagnostics.
+pub fn diagnose_ptr(fault_addr: usize) {
+    let slab = match SLAB.get() {
+        Some(s) => s,
+        None => return,
+    };
+
+    let base = slab.superblock_base as usize;
+    if fault_addr < base || fault_addr >= base + slab.superblock_size {
+        return;
+    }
+
+    let os_page_idx = (fault_addr - base) / OS_PAGE_SIZE;
+    let arena_idx = slab.page_to_arena[os_page_idx] as usize;
+    let arena = &slab.arenas[arena_idx];
+
+    let page_idx = ((fault_addr - arena.base as usize) / arena.page_size) as u32;
+    let page_addr = arena.base as usize + page_idx as usize * arena.page_size;
+    let cell_offset = fault_addr - page_addr;
+    let cell_idx = cell_offset / arena.cell_size as usize;
+
+    // read PageInfo without lock -- may be torn, fine for crash diagnostics
+    let page = unsafe { arena.pages.add(page_idx as usize).read() };
+
+    let free_bit = {
+        let wi = cell_idx / 32;
+        let bi = cell_idx % 32;
+        if wi < 8 { (page.free_bitmap[wi] >> bi) & 1 != 0 } else { false }
+    };
+
+    let free_count = page.free_bitmap.iter().map(|w| w.count_ones()).sum::<u32>();
+    let cpp = arena.cells_per_page;
+
+    let now = cached_tick();
+    let dirty_age = if page.dirty_at_ms > 0 { now.saturating_sub(page.dirty_at_ms) } else { 0 };
+    let hot_age = if page.hot_since_ms > 0 { now.saturating_sub(page.hot_since_ms) } else { 0 };
+
+    // classify the page state for quick reading
+    let verdict = if !page.committed {
+        "DECOMMITTED -- page zeroed by OS, all reads return 0"
+    } else if page.refcount == 0 {
+        "DIRTY -- all cells freed, page awaiting reclaim"
+    } else if free_bit {
+        "UAF -- cell is FREE but page has live cells (stale pointer)"
+    } else {
+        "LIVE -- cell is allocated, not a slab UAF"
+    };
+
+    log::error!("");
+    log::error!("  Slab Page Detail");
+    log::error!("  ----------------");
+    log::error!("  Arena:      {} (cell_size={}, cells_per_page={})", arena_idx, arena.cell_size, cpp);
+    log::error!("  Page:       {} at 0x{:08X}", page_idx, page_addr);
+    log::error!("  Cell:       {} (offset 0x{:X} into page)", cell_idx, cell_offset);
+    log::error!("  Committed:  {}", page.committed);
+    log::error!("  Refcount:   {} live / {} total ({} free)", page.refcount, cpp, free_count);
+    log::error!("  Cell free:  {}", if free_bit { "YES (freed)" } else { "NO (allocated)" });
+    log::error!("  On partial: {}", page.on_partial);
+    if page.dirty_at_ms > 0 {
+        log::error!("  Dirty at:   {}ms ({}ms ago)", page.dirty_at_ms, dirty_age);
+    }
+    if page.hot_since_ms > 0 {
+        log::error!("  Hot since:  {}ms ({}ms ago)", page.hot_since_ms, hot_age);
+    }
+    log::error!("  >> {}", verdict);
 }
 
 /// Diagnostics: total committed bytes in slab arenas.
