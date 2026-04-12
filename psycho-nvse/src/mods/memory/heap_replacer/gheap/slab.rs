@@ -1204,9 +1204,8 @@ pub fn set_destruction_freeze(active: bool) {
     DESTRUCTION_FREEZE.store(active, Ordering::Release);
 }
 
-/// Crash-time diagnostic: inspect slab metadata for a faulting address.
-/// Called from the VEH crash handler. NO locks, NO allocations.
-/// Reads raw pointers -- may see torn state, acceptable for diagnostics.
+/// Crash-time diagnostic (legacy log-based version, kept for direct use).
+#[allow(dead_code)]
 pub fn diagnose_ptr(fault_addr: usize) {
     let slab = match SLAB.get() {
         Some(s) => s,
