@@ -1,15 +1,19 @@
 //! Vectored Exception Handler for heap crash diagnostics.
 //!
 //! Runs BEFORE CrashLogger's SetUnhandledExceptionFilter. On ACCESS_VIOLATION,
-//! dumps disassembly, registers, memory region info, VAS pressure, slab state.
+//! builds a complete diagnostic report into one String, emits it as a single
+//! log::error! call (atomic -- either the full report is logged or nothing).
 //! Returns EXCEPTION_CONTINUE_SEARCH so CrashLogger produces its normal dump.
 
+use core::fmt::Write;
 use std::sync::atomic::{AtomicBool, Ordering};
 
 use windows::Win32::Foundation::EXCEPTION_ACCESS_VIOLATION;
 use windows::Win32::System::Diagnostics::Debug::{
     AddVectoredExceptionHandler, CONTEXT, EXCEPTION_CONTINUE_SEARCH, EXCEPTION_POINTERS,
-    EXCEPTION_RECORD,
+};
+use windows::Win32::System::Memory::{
+    MEMORY_BASIC_INFORMATION, MEM_COMMIT, PAGE_NOACCESS, VirtualQuery,
 };
 
 use super::allocator;
@@ -44,189 +48,157 @@ unsafe extern "system" fn handler(info: *mut EXCEPTION_POINTERS) -> i32 {
         0 => "READ", 1 => "WRITE", 8 => "DEP", _ => "???",
     };
 
-    log::error!("================================================================");
-    log::error!("  PSYCHO CRASH DIAGNOSTIC -- ACCESS_VIOLATION ({access})");
-    log::error!("================================================================");
+    // build the entire report into one buffer so it's emitted atomically
+    let mut r = String::with_capacity(2048);
 
-    log_exception(record, ctx, fault_addr);
-    log_disassembly(ctx);
-    log_registers(ctx);
-    log_fault_analysis(fault_addr, ctx);
-    log_game_state();
-    log_memory_pressure();
-    log_slab_summary();
+    let _ = writeln!(r, "\n================================================================");
+    let _ = writeln!(r, "  PSYCHO CRASH DIAGNOSTIC -- ACCESS_VIOLATION ({access})");
+    let _ = writeln!(r, "================================================================");
 
-    log::error!("================================================================");
-    EXCEPTION_CONTINUE_SEARCH
-}
-
-// -- exception ---------------------------------------------------------------
-
-fn log_exception(_record: &EXCEPTION_RECORD, ctx: &CONTEXT, fault_addr: usize) {
-    log::error!("");
-    log::error!("  Exception");
-    log::error!("  ---------");
-    log::error!("  EIP:           0x{:08X}  ({})", ctx.Eip, region_tag(ctx.Eip as usize));
-    log::error!("  Fault address: 0x{:08X}  ({})", fault_addr, region_tag(fault_addr));
+    // -- exception ---
+    let _ = writeln!(r, "\n  Exception");
+    let _ = writeln!(r, "  ---------");
+    let _ = writeln!(r, "  EIP:           0x{:08X}  ({})", ctx.Eip, region_tag(ctx.Eip as usize));
+    let _ = writeln!(r, "  Fault address: 0x{:08X}  ({})", fault_addr, region_tag(fault_addr));
     if fault_addr < 0x10000 {
-        log::error!("  --> NULL pointer dereference at offset 0x{:X}", fault_addr);
+        let _ = writeln!(r, "  --> NULL pointer dereference at offset 0x{:X}", fault_addr);
     }
-}
 
-// -- disassembly -------------------------------------------------------------
-
-fn log_disassembly(ctx: &CONTEXT) {
-    log::error!("");
-    log::error!("  Faulting Instruction");
-    log::error!("  --------------------");
-
+    // -- disassembly (safe: probe memory before reading) ---
+    let _ = writeln!(r, "\n  Faulting Instruction");
+    let _ = writeln!(r, "  --------------------");
     let eip = ctx.Eip as usize;
-    // try to read 15 bytes at EIP (max x86 instruction length)
-    let bytes: &[u8] = unsafe {
-        // this might fault if EIP itself is in unmapped memory -- we're already
-        // crashing so a nested AV is fine (CAUGHT flag prevents re-entry)
-        core::slice::from_raw_parts(eip as *const u8, 15)
-    };
+    if is_readable(eip, 15) {
+        let bytes = unsafe { core::slice::from_raw_parts(eip as *const u8, 15) };
+        let mut decoder = iced_x86::Decoder::with_ip(32, bytes, eip as u64, iced_x86::DecoderOptions::NONE);
+        if let Some(instr) = decoder.iter().next() {
+            let mut asm = String::new();
+            iced_x86::FastFormatter::new().format(&instr, &mut asm);
+            let _ = writeln!(r, "  0x{:08X}: {}", eip, asm);
 
-    let mut decoder = iced_x86::Decoder::with_ip(
-        32,
-        bytes,
-        eip as u64,
-        iced_x86::DecoderOptions::NONE,
-    );
-
-    if let Some(instr) = decoder.iter().next() {
-        let mut output = String::new();
-        let mut formatter = iced_x86::FastFormatter::new();
-        formatter.format(&instr, &mut output);
-        log::error!("  0x{:08X}: {}", eip, output);
-
-        // show which operand likely caused the fault
-        for i in 0..instr.op_count() {
-            if instr.op_kind(i) == iced_x86::OpKind::Memory {
-                let base = instr.memory_base();
-                let index = instr.memory_index();
-                let disp = instr.memory_displacement32();
-                let base_val = reg_value(ctx, base);
-                let index_val = reg_value(ctx, index);
-                let scale = instr.memory_index_scale();
-                let effective = base_val
-                    .wrapping_add(index_val.wrapping_mul(scale))
-                    .wrapping_add(disp);
-                log::error!(
-                    "  --> memory operand: [{} + {} * {} + 0x{:X}] = 0x{:08X}",
-                    reg_name(base), reg_name(index), scale, disp, effective,
-                );
-                if let Some(name) = reg_name_opt(base) {
-                    log::error!("      {} = 0x{:08X}  ({})", name, base_val, region_tag(base_val as usize));
+            for i in 0..instr.op_count() {
+                if instr.op_kind(i) == iced_x86::OpKind::Memory {
+                    let base = instr.memory_base();
+                    let index = instr.memory_index();
+                    let disp = instr.memory_displacement32();
+                    let bv = reg_value(ctx, base);
+                    let iv = reg_value(ctx, index);
+                    let sc = instr.memory_index_scale();
+                    let eff = bv.wrapping_add(iv.wrapping_mul(sc)).wrapping_add(disp);
+                    let _ = writeln!(r, "  --> mem: [{} + {} * {} + 0x{:X}] = 0x{:08X}",
+                        reg_name(base), reg_name(index), sc, disp, eff);
+                    if let Some(n) = reg_name_opt(base) {
+                        let _ = writeln!(r, "      {} = 0x{:08X}  ({})", n, bv, region_tag(bv as usize));
+                    }
                 }
             }
+        } else {
+            let _ = writeln!(r, "  (decode failed at 0x{:08X})", eip);
         }
     } else {
-        log::error!("  (failed to decode instruction at 0x{:08X})", eip);
+        let _ = writeln!(r, "  (EIP 0x{:08X} is not readable -- wild jump)", eip);
     }
-}
 
-// -- registers ---------------------------------------------------------------
-
-fn log_registers(ctx: &CONTEXT) {
-    log::error!("");
-    log::error!("  Registers");
-    log::error!("  ---------");
-    log::error!(
-        "  EAX={:08X}  EBX={:08X}  ECX={:08X}  EDX={:08X}",
-        ctx.Eax, ctx.Ebx, ctx.Ecx, ctx.Edx,
-    );
-    log::error!(
-        "  ESI={:08X}  EDI={:08X}  EBP={:08X}  ESP={:08X}",
-        ctx.Esi, ctx.Edi, ctx.Ebp, ctx.Esp,
-    );
+    // -- registers ---
+    let _ = writeln!(r, "\n  Registers");
+    let _ = writeln!(r, "  ---------");
+    let _ = writeln!(r, "  EAX={:08X}  EBX={:08X}  ECX={:08X}  EDX={:08X}",
+        ctx.Eax, ctx.Ebx, ctx.Ecx, ctx.Edx);
+    let _ = writeln!(r, "  ESI={:08X}  EDI={:08X}  EBP={:08X}  ESP={:08X}",
+        ctx.Esi, ctx.Edi, ctx.Ebp, ctx.Esp);
     for &(name, val) in &[
         ("EAX", ctx.Eax), ("EBX", ctx.Ebx), ("ECX", ctx.Ecx), ("EDX", ctx.Edx),
         ("ESI", ctx.Esi), ("EDI", ctx.Edi),
     ] {
         let tag = region_tag(val as usize);
         if tag != "---" {
-            log::error!("  {} = 0x{:08X}  ({})", name, val, tag);
+            let _ = writeln!(r, "  {} = 0x{:08X}  ({})", name, val, tag);
         }
     }
-}
 
-// -- fault address -----------------------------------------------------------
-
-fn log_fault_analysis(fault_addr: usize, ctx: &CONTEXT) {
-    log::error!("");
-    log::error!("  Fault Address Analysis");
-    log::error!("  ----------------------");
-    log::error!("  Region: {}", region_tag(fault_addr));
-
+    // -- fault analysis ---
+    let _ = writeln!(r, "\n  Fault Address Analysis");
+    let _ = writeln!(r, "  ----------------------");
+    let _ = writeln!(r, "  Region: {}", region_tag(fault_addr));
     if slab::is_slab_ptr(fault_addr as *const core::ffi::c_void) {
-        slab::diagnose_ptr(fault_addr);
+        write_slab_detail(&mut r, fault_addr);
     }
-
-    let eip = ctx.Eip as usize;
     if slab::is_slab_ptr(eip as *const core::ffi::c_void) {
-        log::error!("  !!! EIP is inside slab heap data -- wild vtable jump");
-        slab::diagnose_ptr(eip);
+        let _ = writeln!(r, "  !!! EIP is inside slab -- wild vtable jump");
+        write_slab_detail(&mut r, eip);
     }
-}
 
-// -- game state --------------------------------------------------------------
+    // -- game state ---
+    let _ = writeln!(r, "\n  Game State");
+    let _ = writeln!(r, "  ----------");
+    let _ = writeln!(r, "  Loading:         {}", globals::is_loading());
+    let _ = writeln!(r, "  LoadingCounter:  {}", globals::loading_state_counter().load(Ordering::Relaxed));
+    let _ = writeln!(r, "  MainThread:      {}", globals::is_main_thread_by_tid());
+    let _ = writeln!(r, "  ThreadID:        {}", libpsycho::os::windows::winapi::get_current_thread_id());
 
-fn log_game_state() {
-    log::error!("");
-    log::error!("  Game State");
-    log::error!("  ----------");
-    log::error!("  Loading:         {}", globals::is_loading());
-    log::error!("  LoadingCounter:  {}", globals::loading_state_counter().load(Ordering::Relaxed));
-    log::error!("  MainThread:      {}", globals::is_main_thread_by_tid());
-    log::error!(
-        "  ThreadID:        {}",
-        libpsycho::os::windows::winapi::get_current_thread_id(),
-    );
-}
-
-// -- memory pressure (the indirect crash cause) ------------------------------
-
-fn log_memory_pressure() {
+    // -- memory pressure ---
     let mi = libmimalloc::process_info::MiMallocProcessInfo::get();
     let free_vas = allocator::current_free_vas();
-
-    log::error!("");
-    log::error!("  Memory Pressure");
-    log::error!("  ---------------");
-    log::error!("  Process commit:  {}MB (peak {}MB)", mi.get_current_commit() / 1024 / 1024, mi.get_peak_commit() / 1024 / 1024);
-    log::error!("  Process RSS:     {}MB (peak {}MB)", mi.get_current_rss() / 1024 / 1024, mi.get_peak_rss() / 1024 / 1024);
-    log::error!("  Free VAS:        {}MB", free_vas / 1024 / 1024);
-    log::error!("  Page faults:     {}", mi.get_page_faults());
-
-    // VAS health verdict
+    let _ = writeln!(r, "\n  Memory Pressure");
+    let _ = writeln!(r, "  ---------------");
+    let _ = writeln!(r, "  Process commit:  {}MB (peak {}MB)", mi.get_current_commit() / 1024 / 1024, mi.get_peak_commit() / 1024 / 1024);
+    let _ = writeln!(r, "  Process RSS:     {}MB (peak {}MB)", mi.get_current_rss() / 1024 / 1024, mi.get_peak_rss() / 1024 / 1024);
+    let _ = writeln!(r, "  Free VAS:        {}MB", free_vas / 1024 / 1024);
+    let _ = writeln!(r, "  Page faults:     {}", mi.get_page_faults());
     if free_vas < 200 * 1024 * 1024 {
-        log::error!("  --> VAS EMERGENCY: <200MB free, allocations likely failing");
+        let _ = writeln!(r, "  --> VAS EMERGENCY: <200MB free, allocations likely failing");
     } else if free_vas < 400 * 1024 * 1024 {
-        log::error!("  --> VAS CRITICAL: <400MB free, D3D/texture allocs may fail");
+        let _ = writeln!(r, "  --> VAS CRITICAL: <400MB free, D3D/texture allocs may fail");
     } else if free_vas < 800 * 1024 * 1024 {
-        log::error!("  --> VAS WARNING: <800MB free, under pressure");
+        let _ = writeln!(r, "  --> VAS WARNING: <800MB free, under pressure");
     }
+
+    // -- slab ---
+    let dirty = slab::dirty_pages();
+    let _ = writeln!(r, "\n  Slab Allocator");
+    let _ = writeln!(r, "  --------------");
+    let _ = writeln!(r, "  Committed:  {}MB", slab::committed_bytes() / 1024 / 1024);
+    let _ = writeln!(r, "  Dirty:      {} pages", dirty);
+    if dirty > 500 {
+        let _ = writeln!(r, "  --> {} dirty pages sitting committed (potential VAS waste)", dirty);
+    }
+
+    let _ = writeln!(r, "\n================================================================");
+
+    // single atomic emit -- either the whole report is in the log or nothing
+    log::error!("{}", r);
+
+    EXCEPTION_CONTINUE_SEARCH
 }
 
-// -- slab summary ------------------------------------------------------------
+// -- slab page detail (writes to buffer, not log) ----------------------------
 
-fn log_slab_summary() {
-    log::error!("");
-    log::error!("  Slab Allocator");
-    log::error!("  --------------");
-    log::error!("  Committed:  {}MB", slab::committed_bytes() / 1024 / 1024);
-    log::error!("  Dirty:      {} pages", slab::dirty_pages());
-
-    // if dirty pages are high during a crash, they're wasting commit
-    let dirty = slab::dirty_pages();
-    if dirty > 500 {
-        log::error!("  --> {} dirty pages sitting committed (potential VAS waste)", dirty);
-    }
+fn write_slab_detail(r: &mut String, addr: usize) {
+    slab::diagnose_ptr_buf(addr, r);
 }
 
 // -- helpers -----------------------------------------------------------------
+
+fn is_readable(addr: usize, len: usize) -> bool {
+    if addr < 0x10000 {
+        return false;
+    }
+    let mut mbi: MEMORY_BASIC_INFORMATION = unsafe { core::mem::zeroed() };
+    let ret = unsafe { VirtualQuery(
+        Some(addr as *const core::ffi::c_void),
+        &mut mbi,
+        core::mem::size_of::<MEMORY_BASIC_INFORMATION>(),
+    )};
+    if ret == 0 {
+        return false;
+    }
+    // page must be committed and not PAGE_NOACCESS
+    let committed = mbi.State == MEM_COMMIT;
+    let accessible = mbi.Protect.0 != 0 && mbi.Protect != PAGE_NOACCESS;
+    // check the range fits within this region
+    let region_end = mbi.BaseAddress as usize + mbi.RegionSize;
+    committed && accessible && addr + len <= region_end
+}
 
 fn region_tag(addr: usize) -> &'static str {
     if addr < 0x10000 { return "NULL page"; }

@@ -1273,6 +1273,71 @@ pub fn diagnose_ptr(fault_addr: usize) {
     log::error!("  >> {}", verdict);
 }
 
+/// Crash-time diagnostic: write slab page detail into a buffer.
+/// Same as diagnose_ptr but writes to a String (for atomic crash report).
+pub fn diagnose_ptr_buf(fault_addr: usize, r: &mut String) {
+    use core::fmt::Write;
+
+    let slab = match SLAB.get() {
+        Some(s) => s,
+        None => return,
+    };
+
+    let base = slab.superblock_base as usize;
+    if fault_addr < base || fault_addr >= base + slab.superblock_size {
+        return;
+    }
+
+    let os_page_idx = (fault_addr - base) / OS_PAGE_SIZE;
+    let arena_idx = slab.page_to_arena[os_page_idx] as usize;
+    let arena = &slab.arenas[arena_idx];
+
+    let page_idx = ((fault_addr - arena.base as usize) / arena.page_size) as u32;
+    let page_addr = arena.base as usize + page_idx as usize * arena.page_size;
+    let cell_offset = fault_addr - page_addr;
+    let cell_idx = cell_offset / arena.cell_size as usize;
+
+    let page = unsafe { arena.pages.add(page_idx as usize).read() };
+
+    let free_bit = {
+        let wi = cell_idx / 32;
+        let bi = cell_idx % 32;
+        if wi < 8 { (page.free_bitmap[wi] >> bi) & 1 != 0 } else { false }
+    };
+
+    let free_count = page.free_bitmap.iter().map(|w| w.count_ones()).sum::<u32>();
+    let cpp = arena.cells_per_page;
+    let now = cached_tick();
+    let dirty_age = if page.dirty_at_ms > 0 { now.saturating_sub(page.dirty_at_ms) } else { 0 };
+    let hot_age = if page.hot_since_ms > 0 { now.saturating_sub(page.hot_since_ms) } else { 0 };
+
+    let verdict = if !page.committed {
+        "DECOMMITTED -- page zeroed by OS"
+    } else if page.refcount == 0 {
+        "DIRTY -- all cells freed, awaiting reclaim"
+    } else if free_bit {
+        "UAF -- cell FREE but page has live cells"
+    } else {
+        "LIVE -- cell allocated, not a slab UAF"
+    };
+
+    let _ = writeln!(r, "\n  Slab Page Detail");
+    let _ = writeln!(r, "  ----------------");
+    let _ = writeln!(r, "  Arena:      {} (cell_size={}, cells_per_page={})", arena_idx, arena.cell_size, cpp);
+    let _ = writeln!(r, "  Page:       {} at 0x{:08X}", page_idx, page_addr);
+    let _ = writeln!(r, "  Cell:       {} (offset 0x{:X})", cell_idx, cell_offset);
+    let _ = writeln!(r, "  Committed:  {}", page.committed);
+    let _ = writeln!(r, "  Refcount:   {} live / {} total ({} free)", page.refcount, cpp, free_count);
+    let _ = writeln!(r, "  Cell free:  {}", if free_bit { "YES (freed)" } else { "NO (allocated)" });
+    if page.dirty_at_ms > 0 {
+        let _ = writeln!(r, "  Dirty at:   {}ms ({}ms ago)", page.dirty_at_ms, dirty_age);
+    }
+    if page.hot_since_ms > 0 {
+        let _ = writeln!(r, "  Hot since:  {}ms ({}ms ago)", page.hot_since_ms, hot_age);
+    }
+    let _ = writeln!(r, "  >> {}", verdict);
+}
+
 /// Diagnostics: total committed bytes in slab arenas.
 pub fn committed_bytes() -> usize {
     match SLAB.get() {
