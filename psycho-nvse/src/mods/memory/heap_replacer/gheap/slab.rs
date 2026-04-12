@@ -268,8 +268,7 @@ struct SlabArena {
     pages: *mut PageInfo,    // metadata array, separately allocated
     cold_head: u32,          // pages with reusable free cells (cooled down)
     hot_head: u32,           // pages with recently freed cells (cooling)
-    dirty_head: u32,         // FIFO queue head: oldest fully-free pages (dequeue here)
-    dirty_tail: u32,         // FIFO queue tail: newest fully-free pages (enqueue here)
+    dirty_head: u32,         // LIFO stack: most recently freed pages at head
     dirty_count: u32,
     committed_hwm: u32,      // virgin page watermark
     committed_pages: u32,    // currently committed page count
@@ -293,7 +292,6 @@ impl SlabArena {
             cold_head: EMPTY,
             hot_head: EMPTY,
             dirty_head: EMPTY,
-            dirty_tail: EMPTY,
             dirty_count: 0,
             committed_hwm: 0,
             committed_pages: 0,
@@ -364,27 +362,17 @@ impl SlabArena {
     /// dirty page hasn't been decommitted yet (dirty < 30s), so the caller
     /// can skip the VirtualAlloc syscall entirely.
     fn claim_page_for_commit(&mut self) -> Option<(u32, bool)> {
-        // Tier 2: reclaim a dirty page only if aged past REUSE_COOLDOWN_MS.
-        // FIFO: head is the oldest page. If head is too young, all are.
-        // During loading bursts this forces Tier 3 (virgin) for ~15s, then
-        // dirty pages from the old cell become reclaimable. Prevents cell
-        // reuse UAF: Ghidra FUN_0045cec0 crash (jmp [eax+4], eax=recycled data).
+        // Tier 2: LIFO dirty pop (matches SBM freelist head pop).
+        // Most recently freed page reclaimed first = temporal locality =
+        // same cell transition = same types = compatible vtable on reuse.
         if self.dirty_head != EMPTY {
-            let age = cached_tick().saturating_sub(
-                unsafe { (*self.page_ptr(self.dirty_head)).dirty_at_ms },
-            );
-            if age >= REUSE_COOLDOWN_MS {
-                let page_idx = self.dirty_head;
-                let page = unsafe { &mut *self.page_ptr(page_idx) };
-                let needs_commit = !page.committed;
-                self.dirty_head = page.next_dirty;
-                if self.dirty_head == EMPTY {
-                    self.dirty_tail = EMPTY;
-                }
-                self.dirty_count -= 1;
-                page.next_dirty = EMPTY;
-                return Some((page_idx, needs_commit));
-            }
+            let page_idx = self.dirty_head;
+            let page = unsafe { &mut *self.page_ptr(page_idx) };
+            let needs_commit = !page.committed;
+            self.dirty_head = page.next_dirty;
+            self.dirty_count -= 1;
+            page.next_dirty = EMPTY;
+            return Some((page_idx, needs_commit));
         }
         // Tier 3: claim a virgin page (always needs commit)
         if self.committed_hwm < self.page_count {
@@ -418,9 +406,12 @@ impl SlabArena {
             page.bitmap_set(i as u16);
         }
 
-        // Cell 0 (returned to caller): constructor will initialize it.
-        // Page was just recommitted by VirtualAlloc -- contents depend on
-        // whether Windows zeroed it. Either way, constructor overwrites.
+        // Cell 0 goes to caller. SBM contract: offset 0 = 0 at alloc time.
+        // Virgin/decommitted pages are zeroed by VirtualAlloc (already 0).
+        // Dirty reclaim (was_committed): zombie data at offset 0, must clear.
+        if was_committed {
+            unsafe { (addr as *mut u32).write(0) };
+        }
 
         // Cold list: immediate reuse. This is safe because slab's bitmap
         // free writes ZERO bytes to cells. Zombie data at all offsets
@@ -465,6 +456,10 @@ impl SlabArena {
             if let Some(cell_idx) = page.bitmap_pop() {
                 let ptr = unsafe { self.page_addr(page_idx).add(cell_idx as usize * self.cell_size as usize) };
                 page.refcount += 1;
+
+                // SBM contract: offset 0 = 0 at alloc time (Ghidra FUN_00aa6e00).
+                // Game constructors may assume offset 0 starts at zero.
+                unsafe { (ptr as *mut u32).write(0) };
 
                 if !page.bitmap_any() {
                     self.cold_head = page.next_partial;
@@ -534,6 +529,9 @@ impl SlabArena {
         let ptr = unsafe { self.page_addr(page_idx).add(cell_idx as usize * self.cell_size as usize) };
         page.refcount += 1;
 
+        // SBM contract: offset 0 = 0 at alloc time
+        unsafe { (ptr as *mut u32).write(0) };
+
         if !page.bitmap_any() {
             self.hot_head = page.next_partial;
             if self.hot_head != EMPTY {
@@ -562,13 +560,11 @@ impl SlabArena {
             return; // skip — arena state remains consistent
         }
 
-        // Out-of-band free: set bit in bitmap, do NOT write to cell data.
-        // The cell keeps ALL original bytes intact ("zombie memory").
-        // Stale readers (AI threads, Havok, jip_nvse CellChange) see
-        // valid original data at every offset including:
-        //   offset 0:  vtable         (virtual dispatch safe)
-        //   offset 4:  refcount       (InterlockedDecrement safe)
-        //   offset 12: refID / m_vars (stale form/script lookups safe)
+        // Out-of-band free: set bit in bitmap. Do NOT write to cell data.
+        // Preserves ALL original bytes including vtable at offset 0.
+        // Stale readers (AI, Havok, IO thread) see valid zombie data.
+        // The SBM zeroes offset 0 on free, but we zero it on ALLOC instead
+        // (see alloc_phase1, alloc_from_hot, carve_committed_page).
         let cell_offset = ptr as usize - self.page_addr(page_idx) as usize;
         let cell_idx = (cell_offset / self.cell_size as usize) as u16;
         page.bitmap_set(cell_idx);
@@ -576,19 +572,15 @@ impl SlabArena {
         page.refcount -= 1;
 
         if page.refcount == 0 {
-            // Page fully free. Remove from hot/cold list, enqueue to dirty (FIFO).
-            // FIFO: oldest pages dequeued first = max zombie lifetime before reuse.
+            // Page fully free. LIFO push to dirty head (like SBM freelist).
+            // Most recently freed page at head = reclaimed first on next alloc
+            // = temporal locality = same types during cell transitions.
             if page.on_partial {
                 unsafe { self.unlink_partial(page_idx) };
             }
             page.dirty_at_ms = cached_tick();
-            page.next_dirty = EMPTY;
-            if self.dirty_tail != EMPTY {
-                unsafe { (*self.page_ptr(self.dirty_tail)).next_dirty = page_idx; }
-            } else {
-                self.dirty_head = page_idx;
-            }
-            self.dirty_tail = page_idx;
+            page.next_dirty = self.dirty_head;
+            self.dirty_head = page_idx;
             self.dirty_count += 1;
         } else if was_full {
             // Page was fully allocated, now has a free cell.
@@ -730,9 +722,8 @@ impl SlabArena {
     /// NULL pointers from the zeroed page, crashing at small offsets
     /// (0x24, etc.) or EIP=0 from vtable[0] dispatch.
     ///
-    /// When `force=true` (OOM recovery): decommits all dirty pages
-    /// immediately. Only used when allocation has failed and memory
-    /// must be reclaimed to prevent total OOM.
+    /// Promote hot pages + collect dirty pages for decommit.
+    /// `force`: if true, ignore DECOMMIT_DELAY_MS (OOM recovery).
     unsafe fn collect_decommit_batch(
         &mut self,
         force: bool,
@@ -740,19 +731,14 @@ impl SlabArena {
     ) -> (usize, u32) {
         unsafe { self.promote_hot_to_cold() };
 
-        // Normal gameplay: promote hot->cold only. No decommit.
-        // Dirty pages stay committed as zombie memory indefinitely.
-        if !force {
-            return (0, 0);
-        }
-
-        // OOM force path: decommit all eligible dirty pages.
         let mut count = 0usize;
         let mut bytes = 0u32;
+        let now = cached_tick();
+        let delay = if force { 0 } else { DECOMMIT_DELAY_MS };
         let page_size = self.page_size;
 
+        // Rebuild dirty list as LIFO (prepend kept pages)
         let mut new_dirty_head = EMPTY;
-        let mut new_dirty_tail = EMPTY;
         let mut page_idx = self.dirty_head;
 
         while page_idx != EMPTY {
@@ -761,10 +747,10 @@ impl SlabArena {
 
             let eligible = page.committed
                 && page.refcount == 0
-                && count < Self::DECOMMIT_BATCH;
+                && count < Self::DECOMMIT_BATCH
+                && now.saturating_sub(page.dirty_at_ms) >= delay;
 
             if eligible {
-                // Mark decommitted under lock, VirtualFree will happen outside
                 let addr = self.page_addr(page_idx);
                 page.committed = false;
                 page.bitmap_clear_all();
@@ -775,19 +761,13 @@ impl SlabArena {
                 count += 1;
                 bytes += page_size as u32;
             } else {
-                // Keep on dirty list (append to maintain FIFO order)
-                page.next_dirty = EMPTY;
-                if new_dirty_tail != EMPTY {
-                    unsafe { (*self.page_ptr(new_dirty_tail)).next_dirty = page_idx; }
-                } else {
-                    new_dirty_head = page_idx;
-                }
-                new_dirty_tail = page_idx;
+                // LIFO rebuild: prepend to new head
+                page.next_dirty = new_dirty_head;
+                new_dirty_head = page_idx;
             }
             page_idx = next;
         }
         self.dirty_head = new_dirty_head;
-        self.dirty_tail = new_dirty_tail;
         (count, bytes)
     }
 }
@@ -1001,11 +981,11 @@ impl SlabAllocator {
                         PAGE_READWRITE,
                     );
 
-                    // fill with sentinel to match SBM's non-zero recycled memory.
-                    // VirtualAlloc zeroes pages but game constructors don't init
-                    // all fields -- they rely on stale non-zero data from SBM.
-                    // 0xCD prevents NULL pointer crashes from uninitialized fields.
-                    core::ptr::write_bytes(addr, 0xCD, page_size);
+                    // VirtualAlloc zeroes the page. Do NOT fill with a sentinel.
+                    // Game code checks `if (ptr != NULL)` to skip uninitialized
+                    // fields. A non-zero sentinel (0xCD) makes those checks pass
+                    // and dereference unmapped addresses -> crash on all threads.
+                    // Zero-init is correct: matches vanilla VirtualAlloc behavior.
                 }
                 // else: dirty page still physically committed, skip syscall
 
