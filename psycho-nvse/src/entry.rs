@@ -37,10 +37,7 @@ use crate::{
     config::load_config,
     mods::{
         display::install_display_hooks,
-        heap_replacer::{
-            configure_mimalloc,
-            heap_replacer_activate, heap_replacer_initialize,
-        },
+        heap_replacer::{configure_mimalloc, heap_replacer_activate, heap_replacer_initialize},
         perf::install_rng_hook,
         zlib::install_zlib_hooks,
     },
@@ -138,9 +135,16 @@ pub extern "system" fn DllMain(_hmodule: HINSTANCE, reason: u32, _reserved: LPVO
 pub extern "C" fn NVSEPlugin_Preload() -> BOOL {
     let cfg = load_config();
 
+    // We check for config value, debug mode is optional
+    let log_level: log::LevelFilter = if cfg.logger.debug {
+        log::LevelFilter::Debug
+    } else {
+        log::LevelFilter::Info
+    };
+
     if let Err(e) = Logger::new()
         .with_file_rotating("./psycho-nvse-latest.log")
-        .with_level(log::LevelFilter::Debug)
+        .with_level(log_level)
         .init()
     {
         eprintln!("psycho-nvse: Failed to initialize logger: {:?}", e);
