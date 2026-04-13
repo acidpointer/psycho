@@ -22,7 +22,7 @@ use libpsycho::os::windows::{
     types::{CallocFn, FreeFn, MallocFn, MsizeFn, ReallocFn, RecallocFn}, va_allocator,
 };
 
-use crate::mods::memory::heap_replacer::heap_validate;
+use super::heap_validate;
 
 // ---- Addresses ----
 

@@ -23,7 +23,7 @@ use libpsycho::os::windows::va_allocator;
 
 use super::engine::globals;
 use super::pressure::PressureRelief;
-use crate::mods::memory::heap_replacer::mem_stats;
+use super::super::mem_stats;
 
 // ---------------------------------------------------------------------------
 // Configuration

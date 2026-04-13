@@ -21,7 +21,7 @@ use libpsycho::ffi::fnptr::FnPtr;
 
 use super::engine::addr;
 use super::engine::globals::HeapCompactStage;
-use crate::mods::memory::heap_replacer::gheap::types;
+
 
 // ---------------------------------------------------------------------------
 // HeapManager
@@ -72,7 +72,7 @@ impl HeapManager {
         };
 
         let oom_exec = match unsafe {
-            FnPtr::<types::OomStageExecFn>::from_raw(addr::OOM_STAGE_EXEC as *mut c_void)
+            FnPtr::<super::types::OomStageExecFn>::from_raw(addr::OOM_STAGE_EXEC as *mut c_void)
         } {
             Ok(f) => f,
             Err(e) => {

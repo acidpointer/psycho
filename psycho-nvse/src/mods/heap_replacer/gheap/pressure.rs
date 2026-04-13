@@ -17,7 +17,6 @@ use std::sync::LazyLock;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 
 use super::engine::globals;
-use crate::mods::memory::heap_replacer::mem_stats;
 
 /// Max cells to unload per relief cycle.
 const MAX_CELLS_PER_CYCLE: usize = 20;
@@ -113,7 +112,7 @@ impl PressureRelief {
 
         let cells = unsafe { Self::destruction_protocol(manager) };
 
-        mem_stats::global().record_pressure_relief(cells);
+        super::super::mem_stats::global().record_pressure_relief(cells);
 
         if cells > 0 {
             self.pending_counter_decrement
@@ -175,7 +174,7 @@ impl PressureRelief {
         // If Havok is already locked (e.g., console command during Phase 7 cleanup),
         // pre_destruction_setup would deadlock because hkWorld_Lock is a spin-lock
         // with no timeout. Skip cleanup to avoid hard freeze.
-        if crate::mods::memory::heap_replacer::gheap::game_guard::is_havok_active() {
+        if super::game_guard::is_havok_active() {
             log::warn!(
                 "[DESTRUCTION] Havok already locked (physics in progress), skipping cleanup"
             );

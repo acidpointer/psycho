@@ -13,27 +13,18 @@
 use std::sync::atomic::{AtomicBool, Ordering};
 
 use libnvse::api::hud;
-use libnvse::NVSEInterfaceFFI;
 
 /// Whether the game engine is fully initialized (DeferredInit received).
 static GAME_READY: AtomicBool = AtomicBool::new(false);
 
-/// Initialize global services.
-///
-/// Call this once during NVSEPlugin_Load.
-pub fn init(_nvse_ptr: *const NVSEInterfaceFFI) {
-    // Currently we only need the game_ready flag.
-    // HUD notifications use a direct game function call (QueueUIMessage)
-    // that doesn't require any stored NVSE interface pointer.
-    log::debug!("[NVSE_SERVICES] Initialized");
-}
-
 /// Mark the game as fully initialized.
+#[inline]
 pub fn set_game_ready() {
     GAME_READY.store(true, Ordering::Release);
 }
 
 /// Check if the game is ready for console/UI interaction.
+#[inline]
 pub fn is_game_ready() -> bool {
     GAME_READY.load(Ordering::Acquire)
 }
@@ -46,5 +37,10 @@ pub fn show_notification(message: &str) {
     if !is_game_ready() {
         return;
     }
-    let _ = hud::hud_message_with(message, hud::Emotion::Pain, 2.0);
+    match hud::hud_message_with(message, hud::Emotion::Pain, 2.0) {
+        Ok(_) => {}
+        Err(err) => {
+            log::error!("[NVSE] Failed to show hud message '{}'; error: {:?}", message, err);
+        }
+    }
 }

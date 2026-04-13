@@ -131,7 +131,7 @@ unsafe fn alloc_oom_recovery(
     size: usize,
     align: usize,
 ) -> *mut c_void {
-    use crate::mods::memory::heap_replacer::gheap::{heap_manager::HeapManager, slab};
+    use super::gheap::{heap_manager::HeapManager, slab};
 
     // First: signal main thread to run cleanup (same as main OOM path)
     HeapManager::get().signal_emergency_drain();

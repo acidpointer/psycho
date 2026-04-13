@@ -6,7 +6,7 @@ use std::{
     sync::atomic::{AtomicUsize, Ordering},
 };
 
-use crate::mods::memory::heap_replacer::mem_stats;
+use super::super::mem_stats;
 
 #[inline(always)]
 fn checked_align_up(addr: usize, align: usize) -> Option<usize> {

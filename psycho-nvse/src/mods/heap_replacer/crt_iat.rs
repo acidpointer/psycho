@@ -16,7 +16,9 @@ use libmimalloc::{
     mi_free, mi_is_in_heap_region, mi_malloc, mi_realloc, mi_recalloc, mi_usable_size,
 };
 use libpsycho::os::windows::{
-    hook::iat::iathook::IatHookContainer, types::{CallocFn, FreeFn, MallocFn, MsizeFn, ReallocFn, RecallocFn}, va_allocator, winapi::get_module_handle_a
+    hook::iat::iathook::IatHookContainer,
+    types::{CallocFn, FreeFn, MallocFn, MsizeFn, ReallocFn, RecallocFn},
+    va_allocator,
 };
 
 /// Threshold matching gheap::allocator: large allocations bypass mimalloc
@@ -33,8 +35,7 @@ pub static RECALLOC_IAT_HOOK: LazyLock<IatHookContainer<RecallocFn>> =
     LazyLock::new(IatHookContainer::new);
 pub static MSIZE_IAT_HOOK: LazyLock<IatHookContainer<MsizeFn>> =
     LazyLock::new(IatHookContainer::new);
-pub static FREE_IAT_HOOK: LazyLock<IatHookContainer<FreeFn>> =
-    LazyLock::new(IatHookContainer::new);
+pub static FREE_IAT_HOOK: LazyLock<IatHookContainer<FreeFn>> = LazyLock::new(IatHookContainer::new);
 
 // -----------------------------------------------------------------------
 // CRT hook implementations: large allocs route to VirtualAlloc
@@ -207,37 +208,6 @@ unsafe fn iat_free(ptr: *mut c_void) {
     if let Ok(original_free) = FREE_IAT_HOOK.original() {
         unsafe { original_free(ptr) };
     } else {
-        log::warn!(
-            "free({:p}) [no fallback available, potential leak]",
-            ptr
-        );
+        log::warn!("free({:p}) [no fallback available, potential leak]", ptr);
     }
-}
-
-/// Install memory allocation hooks for the game's CRT (msvcrt.dll).
-///
-/// IMPORTANT: We restrict to `msvcrt.dll` imports only. Using `None` (all DLLs)
-/// would also hook VCRUNTIME140 / api-ms-win-crt-heap imports used by NVSE and
-/// other plugins, causing cross-heap corruption when those DLLs free pointers
-/// allocated before our hooks were installed.
-pub fn install_crt_hooks() -> anyhow::Result<()> {
-    let module_base = get_module_handle_a(None)?.as_ptr();
-
-    unsafe {
-        MALLOC_IAT_HOOK.init("malloc", module_base, None, "malloc", hook_malloc)?;
-        CALLOC_IAT_HOOK.init("calloc", module_base, None, "calloc", hook_calloc)?;
-        REALLOC_IAT_HOOK.init("realloc", module_base, None, "realloc", hook_realloc)?;
-        RECALLOC_IAT_HOOK.init("_recalloc", module_base, None, "_recalloc", hook_recalloc)?;
-        FREE_IAT_HOOK.init("free", module_base, None, "free", hook_free)?;
-        MSIZE_IAT_HOOK.init("_msize", module_base, None, "_msize", hook_msize)?;
-    }
-
-    MALLOC_IAT_HOOK.enable()?;
-    CALLOC_IAT_HOOK.enable()?;
-    REALLOC_IAT_HOOK.enable()?;
-    RECALLOC_IAT_HOOK.enable()?;
-    FREE_IAT_HOOK.enable()?;
-    MSIZE_IAT_HOOK.enable()?;
-
-    Ok(())
 }

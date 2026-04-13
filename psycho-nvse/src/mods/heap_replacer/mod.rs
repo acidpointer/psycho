@@ -2,12 +2,14 @@
 //!
 //! Replaces the game's heap and scrap heap allocators with mimalloc.
 
-pub mod crt;
+mod crt_iat;
+mod crt_inline;
+mod mimalloc;
 pub mod gheap;
 pub mod heap_validate;
 mod install;
-#[allow(dead_code)]
 pub mod mem_stats;
 pub mod scrap_heap;
 
-pub use install::{install_game_heap_hooks, start_deferred_threads};
+pub use install::{heap_replacer_activate, heap_replacer_initialize};
+pub use mimalloc::configure_mimalloc;

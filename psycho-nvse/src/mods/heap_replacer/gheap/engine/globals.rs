@@ -15,7 +15,7 @@ use libpsycho::ffi::fnptr::FnPtr;
 use libpsycho::os::windows::winapi::{self, WaitResult};
 
 use super::addr;
-use crate::mods::memory::heap_replacer::gheap::types;
+use super::super::types;
 
 // ---------------------------------------------------------------------------
 // Game state reads (all safe -- reading from known static addresses)

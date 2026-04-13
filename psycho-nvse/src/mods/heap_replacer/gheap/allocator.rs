@@ -20,7 +20,7 @@ use libmimalloc::{
 
 use super::engine::{addr, globals};
 use super::statics;
-use crate::mods::memory::heap_replacer::heap_validate;
+use super::super::heap_validate;
 
 const ALIGN: usize = 16;
 

@@ -1,19 +1,20 @@
-//! Plugin entry points: DllMain, NVSEPlugin_Query, NVSEPlugin_Load.
+//! Plugin entry points: DllMain, NVSEPlugin_Preload, NVSEPlugin_Query,
+//! NVSEPlugin_Load.
 //!
-//! ## Two-phase initialization
+//! ## Initialization order
 //!
-//! **Phase 1 — DllMain (loader lock held):**
-//! Only work that MUST happen before the engine starts: config read (no
-//! write-back), logger registration (no thread/file I/O), mimalloc config,
-//! inline hook installation. NO thread creation, NO disk writes.
+//! **DllMain:** Empty (loader lock held -- nothing safe to do).
 //!
-//! **Phase 2 — NVSEPlugin_Load (loader lock released):**
-//! Everything that needs threads or file I/O: logger background thread +
-//! log file creation, config write-back (schema migration), monitor thread,
-//! zlib hooks, NVSE services.
+//! **NVSEPlugin_Preload (loader lock released):**
+//! Config read, logger setup, mimalloc config, slab VAS reservation,
+//! heap cache, hook trampoline preparation. Game functions still run
+//! through original code -- only trampolines allocated, no JMPs written.
+//!
+//! **NVSEPlugin_Load (full NVSE available):**
+//! Activate all hooks (write JMPs), apply SBM patches, start background
+//! threads, NVSE services, console commands.
 
 use shadow_rs::shadow;
-use std::sync::Once;
 
 use libnvse::plugin::PluginContext;
 use libnvse::{NVSEInterfaceFFI, PluginInfoFFI};
@@ -33,90 +34,28 @@ use windows::{
 };
 
 use crate::{
-    config::{PsychoConfig, load_config, sync_config},
+    config::load_config,
     mods::{
-        memory::{
-            configure_mimalloc, install_crt_hooks,
-            heap_replacer::{install_game_heap_hooks, start_deferred_threads},
-        },
         display::install_display_hooks,
+        heap_replacer::{
+            configure_mimalloc,
+            heap_replacer_activate, heap_replacer_initialize,
+        },
         perf::install_rng_hook,
         zlib::install_zlib_hooks,
     },
     plugininfo,
 };
 
-// Collect build info
 shadow!(build_info);
 
 // -----------------------------------------------------------------------
-// Single initialization guard
+// Load -- activate hooks, start threads, NVSE services
 // -----------------------------------------------------------------------
 
-static INIT: Once = Once::new();
-
-/// Register the logger with the `log` crate but do NOT spawn the background
-/// thread or open the log file. Messages queue in memory until
-/// `Logger::start_deferred()` is called in Phase 2.
-///
-/// NOTE: `alloc_console()` is deferred to Phase 2 — it can load conhost.exe
-/// which triggers DLL loading and deadlocks under the Windows loader lock.
-fn init_logger_deferred() {
-    if let Err(e) = Logger::new()
-        .with_file_rotating("./psycho-nvse-latest.log")
-        .with_level(log::LevelFilter::Debug)
-        .init_deferred()
-    {
-        eprintln!("psycho-nvse: Failed to initialize logger: {:?}", e);
-    }
-}
-
-// -----------------------------------------------------------------------
-// Phase 1 — Early load (DllMain, loader lock held)
-// -----------------------------------------------------------------------
-// NO thread creation. NO file writes. NO blocking I/O.
-
-fn early_load(cfg: &PsychoConfig) {
-    configure_mimalloc();
-
-    install_if(cfg.memory.crt_hooks, "CRT hooks", install_crt_hooks);
-    install_if(
-        cfg.memory.game_heap_hooks,
-        "Game heap hooks",
-        install_game_heap_hooks,
-    );
-    install_if(cfg.perf.rng, "RNG replacement", install_rng_hook);
-    install_if(
-        cfg.display.borderless,
-        "Borderless fullscreen",
-        install_display_hooks,
-    );
-}
-
-// -----------------------------------------------------------------------
-// Phase 2 — Late load (NVSEPlugin_Load, loader lock released)
-// -----------------------------------------------------------------------
-// Safe for threads, file I/O, NVSE APIs.
-
-fn late_load(nvse_ptr: *const NVSEInterfaceFFI) -> anyhow::Result<()> {
-    // --- Deferred startup (threads + file I/O) ---
-
-    // Allocate console window if configured (deferred from DllMain because
-    // AllocConsole can load conhost.exe, which deadlocks under loader lock).
-    if let Ok(cfg) = crate::config::get_config()
-        && cfg.general.console {
-            let _ = alloc_console();
-        }
-
-    // Start the logger background thread + open the log file.
-    // All messages queued during Phase 1 are drained immediately.
+fn entrypoint(nvse_ptr: *const NVSEInterfaceFFI) -> anyhow::Result<()> {
+    // Start logger background thread + open log file.
     Logger::start_deferred();
-
-    // Write config to disk if schema changed (adds missing fields, prunes stale).
-    sync_config();
-
-    // Start heap monitor thread (mimalloc stats + pressure logging).
-    start_deferred_threads();
 
     // --- NVSE setup ---
 
@@ -127,9 +66,6 @@ fn late_load(nvse_ptr: *const NVSEInterfaceFFI) -> anyhow::Result<()> {
         return Ok(());
     }
 
-    crate::nvse_services::init(nvse_ptr);
-
-    // Store console interface globally so command handlers can print
     if let Ok(console) = ctx.low_level().query_console() {
         console.set_global();
     }
@@ -140,21 +76,15 @@ fn late_load(nvse_ptr: *const NVSEInterfaceFFI) -> anyhow::Result<()> {
         ctx.runtime_version()
     );
 
-    // -- Message listener ---------------------------------------------------
-
     ctx.on_message(|msg| {
         use libnvse::api::messaging::NVSEMessageType;
         if msg.get_type() == NVSEMessageType::DeferredInit {
             crate::nvse_services::set_game_ready();
-            log::info!("[NVSE] Game engine ready");
+            log::info!("[NVSE] Game engine ready - DeferredInit message received!");
             crate::mods::display::verify_display_resolution();
         }
     })?;
 
-    // -- Console commands ---------------------------------------------------
-
-    // 0x3F00 -- temporary dev range. Must request official allocation
-    // from xNVSE team before release: https://geckwiki.com/index.php?title=NVSE_Opcode_Base
     if let Err(e) = ctx.set_opcode_base(0x3F00) {
         log::error!("[FAIL] set_opcode_base: {}", e);
     } else {
@@ -162,46 +92,31 @@ fn late_load(nvse_ptr: *const NVSEInterfaceFFI) -> anyhow::Result<()> {
         crate::commands::register(&mut ctx);
     }
 
-    // -- Hooks --------------------------------------------------------------
+    if let Ok(cfg) = crate::config::get_config() {
+        if cfg.general.console {
+            alloc_console()?;
+        }
 
-    let cfg = crate::config::get_config()?;
+        if cfg.memory.heap_replacer {
+            heap_replacer_activate()?;
+        }
 
-    if cfg.zlib.enabled {
-        install_zlib_hooks(ctx.low_level())?;
-        log::info!("[OK] Zlib replacement");
-    } else {
-        log::warn!("[SKIP] Zlib replacement");
+        if cfg.perf.rng {
+            install_rng_hook()?;
+        }
+
+        if cfg.zlib.enabled {
+            install_zlib_hooks(ctx.low_level())?;
+        }
+
+        if cfg.display.tweaks {
+            install_display_hooks()?;
+        }
     }
 
-    // PluginContext owns:
-    //   - messaging BareFn closures (NVSE holds raw pointers)
-    //   - command BareFn trampolines (NVSE holds raw pointers)
-    //   - serialization BareFn closures (if any)
-    // All must stay alive for the game session. Leak the context.
-    // This is the standard pattern for NVSE plugins -- C++ plugins
-    // store their interfaces as globals that are never freed.
     std::mem::forget(ctx);
 
     Ok(())
-}
-
-// -----------------------------------------------------------------------
-// Helper
-// -----------------------------------------------------------------------
-
-fn install_if<F>(enabled: bool, name: &str, f: F)
-where
-    F: FnOnce() -> anyhow::Result<()>,
-{
-    if !enabled {
-        log::warn!("[SKIP] {}", name);
-        return;
-    }
-
-    match f() {
-        Ok(_) => log::info!("[OK] {}", name),
-        Err(err) => log::error!("[FAIL] {}: {:?}", name, err),
-    }
 }
 
 // -----------------------------------------------------------------------
@@ -210,33 +125,43 @@ where
 
 #[unsafe(no_mangle)]
 #[allow(non_snake_case)]
-pub extern "system" fn DllMain(hmodule: HINSTANCE, reason: u32, _reserved: LPVOID) -> BOOL {
+pub extern "system" fn DllMain(_hmodule: HINSTANCE, reason: u32, _reserved: LPVOID) -> BOOL {
     match reason {
-        DLL_PROCESS_ATTACH => {
-            // Phase 1: loader lock held — NO threads, NO file writes.
-            INIT.call_once(|| {
-                let cfg = load_config();
-                init_logger_deferred();
-                log::info!("Process attach (HMODULE: {:p})", hmodule.0);
-                early_load(cfg);
-            });
-        }
-        DLL_PROCESS_DETACH => {
-            log::info!("Process detach (HMODULE: {:p})", hmodule.0);
-        }
-        DLL_THREAD_ATTACH | DLL_THREAD_DETACH => {}
-        _ => {
-            log::warn!("Unknown DLL reason code {:#x}", reason);
-        }
+        DLL_PROCESS_ATTACH | DLL_PROCESS_DETACH | DLL_THREAD_ATTACH | DLL_THREAD_DETACH => {}
+        _ => {}
     }
-
     true.into()
 }
 
 #[unsafe(no_mangle)]
 #[allow(non_snake_case)]
 pub extern "C" fn NVSEPlugin_Preload() -> BOOL {
-    log::debug!("NVSEPlugin_Preload called");
+    let cfg = load_config();
+
+    if let Err(e) = Logger::new()
+        .with_file_rotating("./psycho-nvse-latest.log")
+        .with_level(log::LevelFilter::Debug)
+        .init()
+    {
+        eprintln!("psycho-nvse: Failed to initialize logger: {:?}", e);
+        return false.into();
+    }
+
+    log::info!("[PRELOAD] Config loaded, logger ready");
+
+    configure_mimalloc();
+
+    if cfg.memory.heap_replacer {
+        match heap_replacer_initialize() {
+            Ok(_) => {}
+            Err(err) => {
+                log::error!("[FAIL] Game heap init: {:?}", err);
+            }
+        }
+    }
+
+    log::info!("[PRELOAD] Infrastructure initialized, trampolines prepared");
+
     true.into()
 }
 
@@ -267,8 +192,7 @@ pub unsafe extern "C" fn NVSEPlugin_Query(
 #[unsafe(no_mangle)]
 #[allow(non_snake_case)]
 pub unsafe extern "C" fn NVSEPlugin_Load(nvse: *const NVSEInterfaceFFI) -> BOOL {
-    // Phase 2: loader lock released — threads and file I/O are safe.
-    match late_load(nvse) {
+    match entrypoint(nvse) {
         Ok(_) => {
             log::info!("========================================================");
             log::info!("");

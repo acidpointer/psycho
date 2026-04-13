@@ -1065,6 +1065,7 @@ pub fn diagnose_ptr(fault_addr: usize) {
 
 /// Crash-time diagnostic: write slab page detail into a buffer.
 /// Same as diagnose_ptr but writes to a String (for atomic crash report).
+#[allow(dead_code)]
 pub fn diagnose_ptr_buf(fault_addr: usize, r: &mut String) {
     use core::fmt::Write;
 

@@ -4,6 +4,8 @@
 //! stack trace, pointer chain analysis, slab cell dump, memory pressure) into
 //! one String and emits it as a single log::error! call (atomic output).
 
+#![allow(dead_code)]
+
 use core::fmt::Write;
 use std::sync::atomic::{AtomicBool, Ordering};
 
@@ -140,10 +142,12 @@ const KNOWN_VTABLES: &[(u32, &str)] = &[
 // ---- public API ------------------------------------------------------------
 
 pub fn install() {
-    // VEH disabled: the handler's String::with_capacity allocation crashes
-    // when intercepting benign exceptions from jip_nvse scripts, turning
-    // handled AVs into fatal crashes. Disabled to catch the REAL crash.
-    log::info!("[CRASH] Diagnostic VEH disabled (catching real crash)");
+    let handle = unsafe { AddVectoredExceptionHandler(1, Some(handler)) };
+    if handle.is_null() {
+        log::error!("[CRASH] Failed to install diagnostic VEH");
+    } else {
+        log::info!("[CRASH] Diagnostic VEH installed (minimal mode)");
+    }
 }
 
 // ---- VEH handler -----------------------------------------------------------
@@ -159,28 +163,22 @@ unsafe extern "system" fn handler(info: *mut EXCEPTION_POINTERS) -> i32 {
     }
 
     let ctx = unsafe { &*info.ContextRecord };
-    let fault = record.ExceptionInformation[1] as usize;
+    let fault = record.ExceptionInformation[1];
     let access = match record.ExceptionInformation[0] {
-        0 => "READ", 1 => "WRITE", 8 => "DEP", _ => "???",
+        0 => "R", 1 => "W", 8 => "D", _ => "?",
     };
 
-    let mut r = String::with_capacity(4096);
-    let _ = writeln!(r, "\n================================================================");
-    let _ = writeln!(r, "  PSYCHO CRASH DIAGNOSTIC -- ACCESS_VIOLATION ({access})");
-    let _ = writeln!(r, "================================================================");
+    // minimal diagnostic: ONE log line, ZERO heap allocation.
+    // log::error! formats on the stack via fmt::Arguments (no alloc).
+    // the log crate queues it via lock-free channel (no alloc).
+    log::error!(
+        "[AV] {} 0x{:08X} EIP=0x{:08X} EAX={:08X} ECX={:08X} ESI={:08X} slab={} mi={}",
+        access, fault, ctx.Eip,
+        ctx.Eax, ctx.Ecx, ctx.Esi,
+        slab::is_slab_ptr(fault as *const core::ffi::c_void),
+        unsafe { libmimalloc::mi_is_in_heap_region(fault as *const core::ffi::c_void) },
+    );
 
-    write_exception(&mut r, ctx, fault);
-    write_disassembly(&mut r, ctx);
-    write_stack_walk(&mut r, ctx);
-    write_registers(&mut r, ctx);
-    write_ptr_analysis(&mut r, ctx);
-    write_fault_analysis(&mut r, fault, ctx);
-    write_game_state(&mut r);
-    write_memory_pressure(&mut r);
-    write_slab_summary(&mut r);
-
-    let _ = writeln!(r, "================================================================");
-    log::error!("{}", r);
     EXCEPTION_CONTINUE_SEARCH
 }
 

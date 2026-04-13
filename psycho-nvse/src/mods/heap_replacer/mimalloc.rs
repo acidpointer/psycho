@@ -1,8 +1,3 @@
-mod crt_iat;
-
-pub mod heap_replacer;
-pub use crt_iat::*;
-pub use heap_replacer::mem_stats;
 use libmimalloc::{
     mi_arena_id_t, mi_option_set, mi_option_set_enabled, mi_reserve_os_memory_ex,
     mi_option_arena_eager_commit,
@@ -64,25 +59,24 @@ pub fn configure_mimalloc() {
         // Demand-page: reserve VA, commit on first touch.
         mi_option_set(mi_option_arena_eager_commit, 0);
 
-        // PURGE DELAY = 15000ms (15 seconds)
+        // PURGE DELAY = -1 (never purge during gameplay)
         //
-        // Freed pages stay committed (readable) for 15s before mimalloc
-        // decommits them. This matches the slab's REUSE_COOLDOWN_MS and
-        // DECOMMIT_DELAY_MS, providing uniform zombie memory protection
-        // across all allocation tiers.
+        // Matches SBM behavior: freed pages stay committed indefinitely.
+        // SBM only decommits during GlobalCleanup (OOM Stage 6).
+        // Our mi_collect(true) calls in OOM paths handle crisis decommit.
         //
-        // With slab only handling <= 2KB, mimalloc now serves 2KB-1MB
-        // objects (NPC sub-objects, ExtraData, scripts, Havok shapes).
-        // These are the UAF-sensitive types stale readers access:
-        //   Havok world rebuild:      2000-3000ms  (5x margin)
-        //   AI raycasting (unloaded): 1000-2000ms  (7.5x margin)
-        //   Ragdoll controller bone:  3000-5000ms  (3x margin)
-        //   jip_nvse CellChange:      ~200ms       (75x margin)
-        //   BSTaskManagerThread IO:    ~100ms       (150x margin)
+        // With purge_delay=-1, mi_collect(false) is a no-op (nothing to
+        // purge). mi_collect(true) forces full collection (OOM only).
+        // All mi_collect(true) calls are in genuine OOM/crisis paths
+        // (reviewed: allocator.rs OOM retry, death spiral, hooks.rs VAS
+        // emergency). During normal gameplay, pages never decommit.
         //
-        // Within the pre-reserved arena, decommit is just a page table flip
-        // -- cheap. Physical RAM is freed after 15s; only VA persists.
-        mi_option_set(mi_option_purge_delay, 15000);
+        // Why: jip_nvse holds static lastCell (TESObjectCELL*) across
+        // frames. The cell form lives in mimalloc. With 15s purge_delay,
+        // the page was decommitted between cell transitions. jip_nvse
+        // reads decommitted page -> PopulateArgs crash (ECX=4).
+        // With -1, the page stays committed -> zombie data readable.
+        mi_option_set(mi_option_purge_delay, -1);
 
         // Decommit on purge (not full release) -- keeps VA reservation.
         mi_option_set(mi_option_purge_decommits, 1);
@@ -104,9 +98,8 @@ pub fn configure_mimalloc() {
         mi_option_set(mi_option_page_reclaim_on_free, 1);
         mi_option_set(mi_option_page_cross_thread_max_reclaim, 16);
 
-        // Arena purge mult: with 15s delay, arena purge = 30s.
-        // Arena pages are shared across threads and should be purged slower
-        // than thread-local pages. 2x multiplier = 15s * 2 = 30s.
+        // Arena purge mult: irrelevant with purge_delay=-1 (no timed purge).
+        // Kept at 2 for OOM mi_collect(true) arena purge behavior.
         mi_option_set(mi_option_arena_purge_mult, 2);
 
         // Retain 1 full page per size class in free page queues.

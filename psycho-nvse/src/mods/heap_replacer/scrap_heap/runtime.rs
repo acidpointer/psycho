@@ -11,7 +11,7 @@ use libc::c_void;
 use super::heap::Heap;
 use super::region::Region;
 
-use crate::mods::memory::heap_replacer::mem_stats;
+use super::super::mem_stats;
 
 pub type SeqQueue<T> = crossfire::flavor::List<T>;
 
