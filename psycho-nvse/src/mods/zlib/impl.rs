@@ -35,7 +35,7 @@ const Z_FINISH: i32 = 4;
 /// Skip zlib header and adler32 checksum verification.
 /// true = raw deflate mode (faster, no checksum overhead on every output byte).
 /// false = full zlib mode (safer, verifies adler32 integrity).
-const SKIP_ADLER32: bool = true;
+const SKIP_ADLER32: bool = false;
 
 /// Zlib header size (CMF + FLG bytes).
 const ZLIB_HEADER_SIZE: u32 = 2;
