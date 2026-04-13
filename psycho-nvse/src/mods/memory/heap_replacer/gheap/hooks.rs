@@ -588,6 +588,21 @@ pub unsafe extern "fastcall" fn hook_ai_thread_start(mgr: *mut c_void) {
     }
 }
 
+/// Ragdoll bone transform update hook: skip if bone array not initialized.
+/// Ghidra: constructor (FUN_00c7f060) sets this+0xa4=0 explicitly.
+/// Skeleton update (FUN_00c79680) reads *(this+0xa4) as bone array pointer.
+/// If +0xa4 is still NULL (init hasn't run yet), crash at *(0+0x34).
+/// This null check prevents the crash. Ragdoll works normally once init runs.
+pub unsafe extern "fastcall" fn hook_ragdoll_bone_update(this: *mut c_void) {
+    let bone_array = unsafe { *((this as usize + 0xa4) as *const usize) };
+    if bone_array == 0 {
+        return;
+    }
+    if let Ok(original) = statics::RAGDOLL_BONE_UPDATE_HOOK.original() {
+        unsafe { original(this) };
+    }
+}
+
 /// CellTransitionOrchestrator hook: wait for BackgroundCloneThread before
 /// the game frees NiNode/animation data during cell transitions.
 /// Ghidra: FUN_008774a0 (thiscall, 561 bytes). Called from 0x0086b664.

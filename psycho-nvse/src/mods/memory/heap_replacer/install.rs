@@ -244,6 +244,14 @@ pub fn install_game_heap_hooks() -> anyhow::Result<()> {
         )?;
         guard.enable_hook("cell_transition", &CELL_TRANSITION_HOOK)?;
         log::info!("[SYNC] Cell transition hook installed (BackgroundCloneThread barrier)");
+
+        RAGDOLL_BONE_UPDATE_HOOK.init(
+            "ragdoll_bone_update",
+            gheap::engine::addr::RAGDOLL_BONE_UPDATE as *mut c_void,
+            gheap::hooks::hook_ragdoll_bone_update,
+        )?;
+        guard.enable_hook("ragdoll_bone_update", &RAGDOLL_BONE_UPDATE_HOOK)?;
+        log::info!("[SYNC] Ragdoll bone update hook installed (null-check guard)");
     }
 
     // ---- PDD: destruction guard around ProcessDeferredDestruction ----
