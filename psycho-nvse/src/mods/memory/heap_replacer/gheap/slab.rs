@@ -149,26 +149,24 @@ const fn page_size_for_class(cell_size: u32) -> usize {
 // PageInfo: per-4KB page metadata
 // ---------------------------------------------------------------------------
 
-/// Minimum time (ms) freed cells must cool before reuse.
+/// Reuse cooldown: 0ms (immediate). Matches vanilla SBM behavior.
 ///
-/// Cell reuse is the primary UAF crash vector: a stale reader accesses a
-/// freed cell that has been reallocated for a different type (type confusion).
-/// The stale reader's code was written for Type A's layout but sees Type B's
-/// data, corrupting state and crashing far from the root cause.
+/// SBM's LIFO freelist recycles cells instantly — no cooldown. This means
+/// freed cells are immediately available for the next alloc of the same
+/// size class. The cell always has zombie data from the last occupant.
 ///
-/// 15000ms covers all bounded stale-reader windows with 3x margin:
-///   Havok world rebuild:      2000-3000ms  (5x margin)
-///   AI raycasting (unloaded): 1000-2000ms  (7.5x margin)
-///   Ragdoll controller bone:  3000-5000ms  (3x margin)
-///   Havok ragdoll settling:   ~500ms       (30x margin)
-///   Death animations:         ~800ms       (19x margin)
-///   BSTaskManager IO:         ~100ms       (150x margin)
+/// The previous 15s cooldown forced Tier 3 (virgin pages, ALL ZEROS)
+/// during loading bursts when hot cells couldn't be reused. Zeroed data
+/// caused EVERY crash type we observed:
+///   - Ragdoll bone entries = 0 -> *(0+0x34) -> AV
+///   - TESObjectCELL form fields = 0 -> PopulateArgs crash
+///   - Actor process pointers = 0 -> PLChangeEvent NULL deref
+///   - NiNode animation data = 0 -> BackgroundCloneThread crash
 ///
-/// During the cooldown window, freed cells contain zombie data (old object
-/// contents preserved until constructor overwrites). This matches the SBM
-/// behavior where freed cells keep data intact until arena purge.
-/// After cooldown, cells are reused — constructor overwrites zombie data.
-const REUSE_COOLDOWN_MS: u64 = 15_000;
+/// With 0ms cooldown, freed cells go from HOT to COLD immediately on
+/// the next promote_hot_to_cold sweep. No Tier 3 virgin pages needed.
+/// All allocations get zombie data. Same as SBM.
+const REUSE_COOLDOWN_MS: u64 = 0;
 
 /// Minimum time (ms) a page must stay dirty before decommit.
 ///
@@ -574,16 +572,18 @@ impl SlabArena {
             self.dirty_count += 1;
         } else if was_full {
             // Page was fully allocated, now has a free cell.
-            // Goes to HOT list -- cells not available for reuse until cooled.
-            let now = cached_tick();
+            // Goes DIRECTLY to COLD -- immediately available for Tier 1 alloc.
+            // SBM puts freed blocks on the freelist head (instant reuse).
+            // The previous HOT→COLD two-step created a timing gap where
+            // freed cells were unavailable until the next promote sweep,
+            // forcing Tier 3 virgin pages (zeroed) during loading bursts.
             page.on_partial = true;
-            page.hot_since_ms = now;
             page.prev_partial = EMPTY;
-            page.next_partial = self.hot_head;
-            if self.hot_head != EMPTY {
-                unsafe { (*self.page_ptr(self.hot_head)).prev_partial = page_idx; }
+            page.next_partial = self.cold_head;
+            if self.cold_head != EMPTY {
+                unsafe { (*self.page_ptr(self.cold_head)).prev_partial = page_idx; }
             }
-            self.hot_head = page_idx;
+            self.cold_head = page_idx;
         }
         // If page was already partial (on hot or cold list), it stays where
         // it is. Bitmap tracking means zero bytes written to the cell --
