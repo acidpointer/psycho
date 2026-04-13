@@ -236,6 +236,14 @@ pub fn install_game_heap_hooks() -> anyhow::Result<()> {
         )?;
         guard.enable_hook("ai_thread_join", &AI_THREAD_JOIN_HOOK)?;
         log::info!("[SYNC] AI start/join hooks installed");
+
+        CELL_TRANSITION_HOOK.init(
+            "cell_transition",
+            gheap::engine::addr::CELL_TRANSITION_ORCHESTRATOR as *mut c_void,
+            gheap::hooks::hook_cell_transition,
+        )?;
+        guard.enable_hook("cell_transition", &CELL_TRANSITION_HOOK)?;
+        log::info!("[SYNC] Cell transition hook installed (BackgroundCloneThread barrier)");
     }
 
     // ---- PDD: destruction guard around ProcessDeferredDestruction ----

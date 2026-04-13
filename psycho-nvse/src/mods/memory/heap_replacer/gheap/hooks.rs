@@ -588,6 +588,18 @@ pub unsafe extern "fastcall" fn hook_ai_thread_start(mgr: *mut c_void) {
     }
 }
 
+/// CellTransitionOrchestrator hook: wait for BackgroundCloneThread before
+/// the game frees NiNode/animation data during cell transitions.
+/// Ghidra: FUN_008774a0 (thiscall, 561 bytes). Called from 0x0086b664.
+pub unsafe extern "thiscall" fn hook_cell_transition(this: *mut c_void, param_1: u8) {
+    // wait for IO threads + BackgroundCloneThread to finish current tasks
+    unsafe { globals::wait_for_io_idle() };
+
+    if let Ok(original) = statics::CELL_TRANSITION_HOOK.original() {
+        unsafe { original(this, param_1) };
+    }
+}
+
 /// AI_JOIN: AI threads completed.
 pub unsafe extern "fastcall" fn hook_ai_thread_join(mgr: *mut c_void) {
     if let Ok(original) = statics::AI_THREAD_JOIN_HOOK.original() {

@@ -601,4 +601,39 @@ pub unsafe fn wait_for_io_idle() {
             log::debug!("[IO_BARRIER] Thread {} idle after {}ms", idx, waited);
         }
     }
+
+    // BackgroundCloneThread: NOT in IOManager, lives in ModelLoader+0x28.
+    // Uses same BSTaskManagerThread loop with iter_sem at +0x1C.
+    // Clones NiNode/animation trees — crashes if cell data is freed mid-clone.
+    let model_loader = unsafe { *(addr::MODEL_LOADER as *const *mut c_void) };
+    if !model_loader.is_null() {
+        let bg_clone = unsafe { *((model_loader as usize + 0x28) as *const *mut c_void) };
+        if !bg_clone.is_null() {
+            let sem_raw = unsafe { *((bg_clone as usize + 0x1C) as *const *mut c_void) };
+            if !sem_raw.is_null() {
+                let sem = windows::Win32::Foundation::HANDLE(sem_raw as *mut _);
+                let mut waited = 0u32;
+                loop {
+                    match winapi::wait_for_single_object(sem, 0) {
+                        WaitResult::Signaled => {
+                            let _ = winapi::release_semaphore(sem, 1);
+                            break;
+                        }
+                        WaitResult::Timeout => {
+                            waited += 1;
+                            if waited >= 500 {
+                                log::warn!("[IO_BARRIER] bgCloneThread still busy after 500ms");
+                                break;
+                            }
+                            winapi::sleep(1);
+                        }
+                        _ => break,
+                    }
+                }
+                if waited > 0 {
+                    log::debug!("[IO_BARRIER] bgCloneThread idle after {}ms", waited);
+                }
+            }
+        }
+    }
 }

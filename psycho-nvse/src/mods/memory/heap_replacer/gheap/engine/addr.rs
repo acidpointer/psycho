@@ -56,6 +56,15 @@ pub const IS_REAL_LOADING: usize = 0x00702360;
 // This is the game's own flag, separate from our AtomicBool.
 pub const AI_ACTIVE_FLAG: usize = 0x011DFA19;
 
+// ModelLoader singleton pointer. bgCloneThread at +0x28.
+// Ghidra: JIP source GameTasks.h:659, GetSingleton at 0x11C3B3C.
+pub const MODEL_LOADER: usize = 0x011C3B3C;
+
+// FUN_008774a0: CellTransitionOrchestrator (thiscall, 561 bytes).
+// Runs HavokStopStart, PDD, async flush during cell transitions.
+// Called from ONE site: 0x0086b664 in the main loop.
+pub const CELL_TRANSITION_ORCHESTRATOR: usize = 0x008774A0;
+
 // Loading state counter (i32, treated as AtomicI32). Incremented to suppress
 // NVSE PLChangeEvent dispatch during our destruction protocol.
 pub const LOADING_STATE_COUNTER: usize = 0x01202D6C;
