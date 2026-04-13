@@ -34,12 +34,12 @@ const EMPTY: u32 = u32::MAX;
 // Updated once per frame from hook_per_frame_queue_drain.
 static CACHED_TICK_MS: AtomicU64 = AtomicU64::new(0);
 
-/// When true, slab::alloc skips the cold list (recycled cells) and only
+/// When true, slab::alloc skips the partial list (recycled cells) and only
 /// uses dirty (recommit) or virgin pages. Set during destruction_protocol
 /// to prevent UAF: cell unload accesses actor sub-objects through stale
-/// pointers. If those objects were freed >REUSE_COOLDOWN ago and recycled,
+/// pointers. If those objects were freed and recycled,
 /// the new allocation overwrites the FreeNode header at offset 0 --
-/// stale virtual dispatch crashes. Freezing cold reuse keeps FreeNode
+/// stale virtual dispatch crashes. Freezing partial reuse keeps FreeNode
 /// headers intact for all previously-freed cells during teardown.
 static DESTRUCTION_FREEZE: AtomicBool = AtomicBool::new(false);
 
@@ -149,24 +149,8 @@ const fn page_size_for_class(cell_size: u32) -> usize {
 // PageInfo: per-4KB page metadata
 // ---------------------------------------------------------------------------
 
-/// Reuse cooldown: 0ms (immediate). Matches vanilla SBM behavior.
-///
-/// SBM's LIFO freelist recycles cells instantly — no cooldown. This means
-/// freed cells are immediately available for the next alloc of the same
-/// size class. The cell always has zombie data from the last occupant.
-///
-/// The previous 15s cooldown forced Tier 3 (virgin pages, ALL ZEROS)
-/// during loading bursts when hot cells couldn't be reused. Zeroed data
-/// caused EVERY crash type we observed:
-///   - Ragdoll bone entries = 0 -> *(0+0x34) -> AV
-///   - TESObjectCELL form fields = 0 -> PopulateArgs crash
-///   - Actor process pointers = 0 -> PLChangeEvent NULL deref
-///   - NiNode animation data = 0 -> BackgroundCloneThread crash
-///
-/// With 0ms cooldown, freed cells go from HOT to COLD immediately on
-/// the next promote_hot_to_cold sweep. No Tier 3 virgin pages needed.
-/// All allocations get zombie data. Same as SBM.
-const REUSE_COOLDOWN_MS: u64 = 0;
+// No reuse cooldown. Matches vanilla SBM: freed cells are immediately
+// available for the next allocation via the partial page list.
 
 /// Minimum time (ms) a page must stay dirty before decommit.
 ///
@@ -192,11 +176,10 @@ struct PageInfo {
     committed: bool,           // false if decommitted or virgin
     on_partial: bool,          // true if page is on partial list
     free_bitmap: [u32; 8],     // 256 bits: one per cell, set = free
-    next_partial: u32,         // intrusive list: hot or cold partial pages
+    next_partial: u32,         // intrusive list: partial pages with free cells
     prev_partial: u32,         // doubly-linked for O(1) unlink
     next_dirty: u32,           // intrusive list: fully-free pages
     dirty_at_ms: u64,          // tick when page became dirty (for decommit delay)
-    hot_since_ms: u64,         // tick when page entered hot list (for reuse cooldown)
 }
 
 impl PageInfo {
@@ -210,7 +193,6 @@ impl PageInfo {
             prev_partial: EMPTY,
             next_dirty: EMPTY,
             dirty_at_ms: 0,
-            hot_since_ms: 0,
         }
     }
 
@@ -264,13 +246,11 @@ struct SlabArena {
     page_size: usize,        // logical page size (may be > OS_PAGE_SIZE for large classes)
     page_count: u32,
     pages: *mut PageInfo,    // metadata array, separately allocated
-    cold_head: u32,          // pages with reusable free cells (cooled down)
-    hot_head: u32,           // pages with recently freed cells (cooling)
+    partial_head: u32,         // partial pages with free cells (like SBM freelist)
     dirty_head: u32,         // LIFO stack: most recently freed pages at head
     dirty_count: u32,
     committed_hwm: u32,      // virgin page watermark
     committed_pages: u32,    // currently committed page count
-    hot_promote_cursor: u32, // amortized hot->cold promotion cursor
     lock: AtomicU32,
 }
 
@@ -287,13 +267,11 @@ impl SlabArena {
             page_size: OS_PAGE_SIZE,
             page_count: 0,
             pages: ptr::null_mut(),
-            cold_head: EMPTY,
-            hot_head: EMPTY,
+            partial_head: EMPTY,
             dirty_head: EMPTY,
             dirty_count: 0,
             committed_hwm: 0,
             committed_pages: 0,
-            hot_promote_cursor: EMPTY,
             lock: AtomicU32::new(0),
         }
     }
@@ -390,7 +368,6 @@ impl SlabArena {
         let was_committed = page.committed;
         page.committed = true;
         page.refcount = 1; // caller gets the first cell
-        page.hot_since_ms = 0;
         page.dirty_at_ms = 0;
 
         let cpp = self.cells_per_page as usize;
@@ -408,7 +385,7 @@ impl SlabArena {
         // intact at all offsets (bitmap zero-write). For virgin/decommitted
         // pages, VirtualAlloc zeroed the data (same as SBM fresh pages).
 
-        // Cold list: immediate reuse. This is safe because slab's bitmap
+        // Partial list: immediate reuse. This is safe because slab's bitmap
         // free writes ZERO bytes to cells. Zombie data at all offsets
         // (including vtable at offset 0) is intact. Stale readers doing
         // virtual dispatch see the original vtable -- not NULL. This is
@@ -417,11 +394,11 @@ impl SlabArena {
         if cpp > 1 {
             page.on_partial = true;
             page.prev_partial = EMPTY;
-            page.next_partial = self.cold_head;
-            if self.cold_head != EMPTY {
-                unsafe { (*self.page_ptr(self.cold_head)).prev_partial = page_idx; }
+            page.next_partial = self.partial_head;
+            if self.partial_head != EMPTY {
+                unsafe { (*self.page_ptr(self.partial_head)).prev_partial = page_idx; }
             }
-            self.cold_head = page_idx;
+            self.partial_head = page_idx;
         }
 
         // Only count newly committed pages. Dirty pages reclaimed while still
@@ -435,27 +412,26 @@ impl SlabArena {
     /// Two-phase alloc: fast path (Tier 1) under lock, slow path (Tier 2/3)
     /// releases lock during VirtualAlloc syscall to avoid stalling other threads.
     ///
-    /// When `skip_cold` is true (destruction freeze), skips Tier 1 (recycled
+    /// When `skip_partial` is true (destruction freeze), skips Tier 1 (recycled
     /// cells) to preserve FreeNode headers for stale pointers during teardown.
     ///
     /// Returns (ptr, pending_page). pending_page is Some((page_idx, needs_commit))
     /// when Tier 2/3 needs a page committed outside the lock.
     /// needs_commit=false when dirty page is still physically committed (skip VirtualAlloc).
-    unsafe fn alloc_phase1(&mut self, skip_cold: bool) -> (*mut c_void, Option<(u32, bool)>) {
-        // Tier 1: pop from a COLD partial page (cells have cooled down, safe to reuse)
-        // SKIPPED during destruction_freeze to prevent recycling cells whose
-        // data stale pointers in the game's cell unload code still reference.
-        while !skip_cold && self.cold_head != EMPTY {
-            let page_idx = self.cold_head;
+    unsafe fn alloc_phase1(&mut self, skip_partial: bool) -> (*mut c_void, Option<(u32, bool)>) {
+        // Tier 1: pop from a partial page (immediate reuse, like SBM freelist).
+        // SKIPPED during destruction_freeze (OOM Stage 5 cell unload).
+        while !skip_partial && self.partial_head != EMPTY {
+            let page_idx = self.partial_head;
             let page = unsafe { &mut *self.page_ptr(page_idx) };
             if let Some(cell_idx) = page.bitmap_pop() {
                 let ptr = unsafe { self.page_addr(page_idx).add(cell_idx as usize * self.cell_size as usize) };
                 page.refcount += 1;
 
                 if !page.bitmap_any() {
-                    self.cold_head = page.next_partial;
-                    if self.cold_head != EMPTY {
-                        unsafe { (*self.page_ptr(self.cold_head)).prev_partial = EMPTY; }
+                    self.partial_head = page.next_partial;
+                    if self.partial_head != EMPTY {
+                        unsafe { (*self.page_ptr(self.partial_head)).prev_partial = EMPTY; }
                     }
                     page.on_partial = false;
                     page.next_partial = EMPTY;
@@ -464,10 +440,10 @@ impl SlabArena {
 
                 return (ptr as *mut c_void, None);
             }
-            // Empty cold page bitmap (shouldn't happen, but handle gracefully)
-            self.cold_head = page.next_partial;
-            if self.cold_head != EMPTY {
-                unsafe { (*self.page_ptr(self.cold_head)).prev_partial = EMPTY; }
+            // Empty partial page bitmap (shouldn't happen, but handle gracefully)
+            self.partial_head = page.next_partial;
+            if self.partial_head != EMPTY {
+                unsafe { (*self.page_ptr(self.partial_head)).prev_partial = EMPTY; }
             }
             page.on_partial = false;
             page.next_partial = EMPTY;
@@ -478,62 +454,11 @@ impl SlabArena {
         // then caller will VirtualAlloc outside lock (if needed) and call carve.
         match self.claim_page_for_commit() {
             Some(claim) => (ptr::null_mut(), Some(claim)),
-            None => {
-                // Arena fully exhausted: cold empty, no dirty/virgin pages.
-                // Try hot list as last resort before returning NULL (which
-                // triggers OOM death spiral).
-                let hot_cell = unsafe { self.alloc_from_hot() };
-                if !hot_cell.is_null() {
-                    return (hot_cell, None);
-                }
-                (ptr::null_mut(), None) // truly exhausted
-            }
+            None => (ptr::null_mut(), None), // arena exhausted, fall through to mimalloc
         }
     }
 
-    /// Desperation alloc: reuse from hot list when slab is fully exhausted.
-    /// Called when cold list is empty AND no dirty/virgin pages available.
-    /// Returns a cell from the oldest hot page, ignoring cooldown.
-    ///
-    /// This is a safety valve to prevent false OOM during loading bursts.
-    /// Without it, the slab returns NULL --> mimalloc fills --> OOM recovery
-    /// death spiral (stages 0-5 with bypass=true --> texture UAF crash).
-    /// Better to reuse a cooling cell (minor UAF risk from unbounded
-    /// NVSE/plugin refs) than to trigger the guaranteed OOM crash.
-    ///
-    /// The 3000ms cooldown protects against bounded stale readers (AI threads,
-    /// render, IO). If the slab is fully exhausted, those bounded readers have
-    /// likely already finished — the only remaining stale readers are unbounded
-    /// (NVSE plugins, scripts), which the cooldown cannot protect against anyway.
-    unsafe fn alloc_from_hot(&mut self) -> *mut c_void {
-        if self.hot_head == EMPTY {
-            return ptr::null_mut();
-        }
-
-        let page_idx = self.hot_head;
-        let page = unsafe { &mut *self.page_ptr(page_idx) };
-        let cell_idx = match page.bitmap_pop() {
-            Some(idx) => idx,
-            None => return ptr::null_mut(),
-        };
-
-        let ptr = unsafe { self.page_addr(page_idx).add(cell_idx as usize * self.cell_size as usize) };
-        page.refcount += 1;
-
-        if !page.bitmap_any() {
-            self.hot_head = page.next_partial;
-            if self.hot_head != EMPTY {
-                unsafe { (*self.page_ptr(self.hot_head)).prev_partial = EMPTY; }
-            }
-            page.on_partial = false;
-            page.next_partial = EMPTY;
-            page.prev_partial = EMPTY;
-        }
-
-        ptr as *mut c_void
-    }
-
-    /// Free a cell back to its page's freelist. Writes FreeNode header + sentinel.
+    /// Free a cell back to its page's freelist.
     unsafe fn free(&mut self, ptr: *mut c_void) {
         let page_idx = self.page_of(ptr as *mut u8);
         let page = unsafe { &mut *self.page_ptr(page_idx) };
@@ -552,7 +477,7 @@ impl SlabArena {
         // Preserves ALL original bytes including vtable at offset 0.
         // Stale readers (AI, Havok, IO thread) see valid zombie data.
         // The SBM zeroes offset 0 on free, but we zero it on ALLOC instead
-        // (see alloc_phase1, alloc_from_hot, carve_committed_page).
+        // (see alloc_phase1, carve_committed_page).
         let cell_offset = ptr as usize - self.page_addr(page_idx) as usize;
         let cell_idx = (cell_offset / self.cell_size as usize) as u16;
         page.bitmap_set(cell_idx);
@@ -572,26 +497,22 @@ impl SlabArena {
             self.dirty_count += 1;
         } else if was_full {
             // Page was fully allocated, now has a free cell.
-            // Goes DIRECTLY to COLD -- immediately available for Tier 1 alloc.
-            // SBM puts freed blocks on the freelist head (instant reuse).
-            // The previous HOT→COLD two-step created a timing gap where
-            // freed cells were unavailable until the next promote sweep,
-            // forcing Tier 3 virgin pages (zeroed) during loading bursts.
+            // Immediately available for Tier 1 alloc (like SBM freelist).
             page.on_partial = true;
             page.prev_partial = EMPTY;
-            page.next_partial = self.cold_head;
-            if self.cold_head != EMPTY {
-                unsafe { (*self.page_ptr(self.cold_head)).prev_partial = page_idx; }
+            page.next_partial = self.partial_head;
+            if self.partial_head != EMPTY {
+                unsafe { (*self.page_ptr(self.partial_head)).prev_partial = page_idx; }
             }
-            self.cold_head = page_idx;
+            self.partial_head = page_idx;
         }
-        // If page was already partial (on hot or cold list), it stays where
+        // If page was already partial, it stays where
         // it is. Bitmap tracking means zero bytes written to the cell --
         // all original data preserved for stale readers. Moving pages
         // between lists on every free would be O(N), too expensive.
     }
 
-    /// O(1) unlink from hot or cold list via doubly-linked prev/next.
+    /// O(1) unlink from partial list via doubly-linked prev/next.
     unsafe fn unlink_partial(&mut self, target: u32) {
         let page = unsafe { &mut *self.page_ptr(target) };
         debug_assert!(page.on_partial, "unlink_partial on page not on_partial");
@@ -600,13 +521,8 @@ impl SlabArena {
 
         if prev != EMPTY {
             unsafe { (*self.page_ptr(prev)).next_partial = next; }
-        } else {
-            // target is head -- update the correct list head
-            if self.cold_head == target {
-                self.cold_head = next;
-            } else if self.hot_head == target {
-                self.hot_head = next;
-            }
+        } else if self.partial_head == target {
+            self.partial_head = next;
         }
         if next != EMPTY {
             unsafe { (*self.page_ptr(next)).prev_partial = prev; }
@@ -617,116 +533,18 @@ impl SlabArena {
         page.prev_partial = EMPTY;
     }
 
-    /// Max hot pages to process per promote call. Bounds lock hold time
-    /// to O(MAX_PROMOTE) instead of O(total_hot_pages). Full promotion
-    /// completes over multiple decommit_sweep calls via the cursor.
-    const MAX_PROMOTE_PER_SWEEP: usize = 32;
-
-    /// Promote pages from hot list to cold list when they've cooled enough.
-    /// Amortized: processes up to MAX_PROMOTE_PER_SWEEP pages per call,
-    /// resuming from hot_promote_cursor on the next call.
-    unsafe fn promote_hot_to_cold(&mut self) {
-        let now = cached_tick();
-        let mut promoted = 0usize;
-
-        // Start from cursor if valid, otherwise from hot_head
-        let start = if self.hot_promote_cursor != EMPTY {
-            self.hot_promote_cursor
-        } else {
-            self.hot_head
-        };
-
-        // Build a new prefix for pages we visit but keep hot.
-        // Pages before the cursor are already settled (still hot from last call).
-        let mut new_segment_head = EMPTY;
-        let mut new_segment_tail = EMPTY;
-        let mut idx = start;
-
-        while idx != EMPTY && promoted < Self::MAX_PROMOTE_PER_SWEEP {
-            let page = unsafe { &mut *self.page_ptr(idx) };
-            let next = page.next_partial;
-
-            if now.saturating_sub(page.hot_since_ms) >= REUSE_COOLDOWN_MS {
-                // Cooled: prepend to cold head
-                page.prev_partial = EMPTY;
-                page.next_partial = self.cold_head;
-                if self.cold_head != EMPTY {
-                    unsafe { (*self.page_ptr(self.cold_head)).prev_partial = idx; }
-                }
-                self.cold_head = idx;
-            } else {
-                // Still hot: add to new segment
-                if new_segment_head == EMPTY {
-                    new_segment_head = idx;
-                    page.prev_partial = EMPTY;
-                } else {
-                    let tail = unsafe { &mut *self.page_ptr(new_segment_tail) };
-                    tail.next_partial = idx;
-                    page.prev_partial = new_segment_tail;
-                }
-                page.next_partial = EMPTY;
-                new_segment_tail = idx;
-            }
-
-            promoted += 1;
-            idx = next;
-        }
-
-        if idx == EMPTY {
-            // Reached end of hot list -- full cycle done.
-            // The new segment IS the entire hot list now.
-            self.hot_head = new_segment_head;
-            self.hot_promote_cursor = EMPTY;
-        } else {
-            // Didn't finish -- stitch new segment before the remaining tail.
-            // Link: [new_segment] -> [remaining from idx onward]
-            if new_segment_tail != EMPTY {
-                let tail = unsafe { &mut *self.page_ptr(new_segment_tail) };
-                tail.next_partial = idx;
-                unsafe { (*self.page_ptr(idx)).prev_partial = new_segment_tail; }
-            }
-
-            if self.hot_promote_cursor == EMPTY || self.hot_promote_cursor == start {
-                // First batch -- new segment replaces the head
-                self.hot_head = if new_segment_head != EMPTY {
-                    new_segment_head
-                } else {
-                    idx
-                };
-            }
-
-            self.hot_promote_cursor = idx;
-        }
-    }
-
     /// Max pages to batch for decommit outside the lock.
     const DECOMMIT_BATCH: usize = 32;
 
     /// Promote hot pages + optionally collect dirty pages for decommit.
-    ///
-    /// When `force=false` (per-frame sweep): only promotes hot->cold.
-    /// Pages stay committed — stale readers always see zombie data.
-    /// Ghidra-verified: decommitted pages zero all data including vtable
-    /// at offset 0. Stale readers (BSTaskManagerThread IOTask release at
-    /// FUN_0044dd60, persistent NPC skeleton traversal) then dereference
-    /// NULL pointers from the zeroed page, crashing at small offsets
-    /// (0x24, etc.) or EIP=0 from vtable[0] dispatch.
-    ///
-    /// Promote hot pages + optionally decommit dirty pages.
-    ///
-    /// force=false (per-frame): promote hot->cold only. No decommit.
-    /// Matches SBM: GlobalCleanup (FUN_00aa7030) only decommits during OOM
-    /// Stage 6, never per-frame. Per-frame decommit zeros pages that stale
-    /// readers still reference (jip_nvse scripts, persistent NPCs).
-    ///
-    /// force=true (OOM recovery): decommit all eligible dirty pages.
+    /// Optionally decommit dirty pages.
+    /// force=false (per-frame): no-op. Pages stay committed during gameplay.
+    /// force=true (OOM): decommit all eligible dirty pages.
     unsafe fn collect_decommit_batch(
         &mut self,
         force: bool,
         batch: &mut [(*mut u8, usize); Self::DECOMMIT_BATCH],
     ) -> (usize, u32) {
-        unsafe { self.promote_hot_to_cold() };
-
         if !force {
             return (0, 0);
         }
@@ -934,7 +752,7 @@ impl SlabAllocator {
 
     /// Allocate a cell for the given size. Returns null if slab can't serve.
     ///
-    /// Two-phase design: Tier 1 (cold pop) is O(1) under lock. Tier 2/3
+    /// Two-phase design: Tier 1 (partial pop) is O(1) under lock. Tier 2/3
     /// (page commit) releases the lock during VirtualAlloc to avoid stalling
     /// other threads on the same arena.
     #[inline]
@@ -953,11 +771,11 @@ impl SlabAllocator {
             };
             let arena = &self.arenas[arena_idx] as *const SlabArena as *mut SlabArena;
 
-            let skip_cold = DESTRUCTION_FREEZE.load(Ordering::Relaxed);
+            let skip_partial = DESTRUCTION_FREEZE.load(Ordering::Relaxed);
 
-            // Phase 1: try cold pop under lock (fast path, O(1))
+            // Phase 1: try partial pop under lock (fast path, O(1))
             (*arena).acquire();
-            let (ptr, pending) = (*arena).alloc_phase1(skip_cold);
+            let (ptr, pending) = (*arena).alloc_phase1(skip_partial);
             (*arena).release();
 
             if !ptr.is_null() {
@@ -1217,7 +1035,6 @@ pub fn diagnose_ptr(fault_addr: usize) {
 
     let now = cached_tick();
     let dirty_age = if page.dirty_at_ms > 0 { now.saturating_sub(page.dirty_at_ms) } else { 0 };
-    let hot_age = if page.hot_since_ms > 0 { now.saturating_sub(page.hot_since_ms) } else { 0 };
 
     // classify the page state for quick reading
     let verdict = if !page.committed {
@@ -1242,9 +1059,6 @@ pub fn diagnose_ptr(fault_addr: usize) {
     log::error!("  On partial: {}", page.on_partial);
     if page.dirty_at_ms > 0 {
         log::error!("  Dirty at:   {}ms ({}ms ago)", page.dirty_at_ms, dirty_age);
-    }
-    if page.hot_since_ms > 0 {
-        log::error!("  Hot since:  {}ms ({}ms ago)", page.hot_since_ms, hot_age);
     }
     log::error!("  >> {}", verdict);
 }
@@ -1285,7 +1099,6 @@ pub fn diagnose_ptr_buf(fault_addr: usize, r: &mut String) {
     let cpp = arena.cells_per_page;
     let now = cached_tick();
     let dirty_age = if page.dirty_at_ms > 0 { now.saturating_sub(page.dirty_at_ms) } else { 0 };
-    let hot_age = if page.hot_since_ms > 0 { now.saturating_sub(page.hot_since_ms) } else { 0 };
 
     let verdict = if !page.committed {
         "DECOMMITTED -- page zeroed by OS"
@@ -1307,9 +1120,6 @@ pub fn diagnose_ptr_buf(fault_addr: usize, r: &mut String) {
     let _ = writeln!(r, "  Cell free:  {}", if free_bit { "YES (freed)" } else { "NO (allocated)" });
     if page.dirty_at_ms > 0 {
         let _ = writeln!(r, "  Dirty at:   {}ms ({}ms ago)", page.dirty_at_ms, dirty_age);
-    }
-    if page.hot_since_ms > 0 {
-        let _ = writeln!(r, "  Hot since:  {}ms ({}ms ago)", page.hot_since_ms, hot_age);
     }
     let _ = writeln!(r, "  >> {}", verdict);
 }

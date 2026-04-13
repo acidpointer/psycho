@@ -174,25 +174,16 @@ pub unsafe extern "C" fn hook_per_frame_queue_drain() {
         unsafe { on_loading_start() };
     }
 
-    // pre-elevate counter during loading so it carries into the next
-    // frame's NVSE dispatch (runs BEFORE our Phase 7 hook). jip_nvse
-    // LN_ProcessEvents checks counter > 0 and skips events. Without
-    // this, the first post-loading NVSE dispatch fires events before
-    // we can react, accessing freed/recycled game objects.
-    if loading_now && !LOADING_COUNTER_ELEVATED.load(Ordering::Relaxed) {
-        globals::loading_state_counter().fetch_add(1, Ordering::AcqRel);
-        LOADING_COUNTER_ELEVATED.store(true, Ordering::Relaxed);
-    }
+    // LOADING_STATE_COUNTER manipulation REMOVED.
+    // Incrementing the counter during loading made the game skip script
+    // infrastructure initialization that NVSE PopulateArgs depends on.
+    // The counter affects game-internal actor processing but jip_nvse
+    // checks g_interfaceManager->currentMode, not the counter.
+    // Artificially elevating the counter caused PopulateArgs to crash
+    // writing to an uninitialized ScriptEventList variable.
 
     if !loading_now && was_loading {
         on_loading_end();
-        // counter still elevated from loading. schedule decrement for
-        // Phase 10 of THIS frame (NVSE dispatch already ran with counter > 0).
-        if LOADING_COUNTER_ELEVATED.swap(false, Ordering::Relaxed) {
-            if let Some(pr) = PressureRelief::instance() {
-                pr.set_pending_counter_decrement();
-            }
-        }
     }
 
     let heap = super::heap_manager::HeapManager::get();
@@ -348,25 +339,18 @@ pub unsafe extern "C" fn hook_per_frame_queue_drain() {
     if request >= 1 && !vas_emergency_active {
         let now = libpsycho::os::windows::winapi::get_tick_count() as u64;
         let cooldown_end = POST_LOADING_COOLDOWN_MS.load(Ordering::Acquire);
-
         if now < cooldown_end {
-            // INSIDE cooldown window: jip_nvse events are suppressed
-            // (LOADING_COUNTER_ELEVATED). Safe to run Stage 4 (PddPurge)
-            // which does a full PDD drain. This prevents BSTreeNode queue
-            // buildup (30K+ items -> RefCount:0 -> C0000417).
-            // Ghidra: Stage 4 = TryLock process mgr + PDD full drain.
-            if !globals::is_loading() {
-                heap.signal_heap_compact(globals::HeapCompactStage::PddPurge);
-            }
             return;
         }
 
-        // OUTSIDE cooldown: jip_nvse CellChange scripts hold stale TESForm*
-        // refs. Stage 4 full PDD drain would free those forms -> PopulateArgs
-        // crash (ECX=4, recycled cell data). Only signal Stage 2 (MenuCleanup)
-        // which doesn't drain PDD queues aggressively.
+        // Signal Stage 4 (PddPurge) for full PDD drain.
+        // Ghidra FUN_00866a90 case 4: TryLock process mgr + PDD blocking
+        // drain + falls through to case 3 (async flush).
+        // Without Stage 4, PDD Generic queue grows unboundedly (30K+ items).
+        // BSTreeNode parents outlive children -> Release on freed children
+        // -> RefCount:0 -> C0000417. See: project_bstreenode_crash_chain.md
         if !globals::is_loading() {
-            heap.signal_heap_compact(globals::HeapCompactStage::MenuCleanup);
+            heap.signal_heap_compact(globals::HeapCompactStage::PddPurge);
         }
 
         // NOTE: pool drain moved to AFTER PDD (below). Draining before PDD
@@ -512,11 +496,24 @@ unsafe fn on_loading_start() {
     // would decommit pages that BSTask might free to --> writing FreeNode
     // to a decommitted page --> access violation in our slab::free().
     // The 30-second delay in the per-frame sweep handles decommit safely.
+    // diagnostic: parentCell at transition start (= jip_nvse lastCell)
+    let player_cell = unsafe {
+        let player = *(0x011DEA3C_usize as *const *const u8);
+        if !player.is_null() {
+            *(player.add(0x40) as *const usize)
+        } else { 0 }
+    };
+    let cell_region = if player_cell == 0 { "NULL" }
+        else if super::slab::is_slab_ptr(player_cell as *const core::ffi::c_void) { "SLAB" }
+        else if unsafe { libmimalloc::mi_is_in_heap_region(player_cell as *const core::ffi::c_void) } { "MIMALLOC" }
+        else { "OTHER" };
     log::info!(
-        "[LOADING] Transition detected: commit={}MB, slab={}MB, dirty={}",
+        "[LOADING] Transition detected: commit={}MB, slab={}MB, dirty={}, parentCell=0x{:08X} ({})",
         commit_before / 1024 / 1024,
         super::slab::committed_bytes() / 1024 / 1024,
         super::slab::dirty_pages(),
+        player_cell,
+        cell_region,
     );
 
     // Enable loading bypass immediately. Subsequent frees during loading
@@ -558,10 +555,26 @@ fn on_loading_end() {
     // (LOADING_COUNTER_ELEVATED flag), not here. See hook_per_frame_queue_drain.
 
     let info = libmimalloc::process_info::MiMallocProcessInfo::get();
+
+    // diagnostic: dump player parentCell for jip_nvse lastCell crash analysis
+    // g_thePlayer = *(PlayerCharacter**)0x011DEA3C, parentCell at +0x40
+    let player_cell = unsafe {
+        let player = *(0x011DEA3C_usize as *const *const u8);
+        if !player.is_null() {
+            *(player.add(0x40) as *const usize)
+        } else { 0 }
+    };
+    let cell_region = if player_cell == 0 { "NULL" }
+        else if super::slab::is_slab_ptr(player_cell as *const core::ffi::c_void) { "SLAB" }
+        else if unsafe { libmimalloc::mi_is_in_heap_region(player_cell as *const core::ffi::c_void) } { "MIMALLOC" }
+        else { "OTHER" };
+
     log::info!(
-        "[LOADING] Loading ended, commit={}MB, pool={}MB",
+        "[LOADING] Loading ended, commit={}MB, pool={}MB, parentCell=0x{:08X} ({})",
         info.get_current_commit() / 1024 / 1024,
         super::slab::committed_bytes() / 1024 / 1024,
+        player_cell,
+        cell_region,
     );
 }
 
@@ -588,15 +601,31 @@ pub unsafe extern "fastcall" fn hook_ai_thread_start(mgr: *mut c_void) {
     }
 }
 
-/// Ragdoll bone transform update hook: skip if bone array not initialized.
-/// Ghidra: constructor (FUN_00c7f060) sets this+0xa4=0 explicitly.
-/// Skeleton update (FUN_00c79680) reads *(this+0xa4) as bone array pointer.
-/// If +0xa4 is still NULL (init hasn't run yet), crash at *(0+0x34).
-/// This null check prevents the crash. Ragdoll works normally once init runs.
+/// Ragdoll bone transform update hook: skip if bone data not initialized.
+///
+/// Ghidra FUN_00c79680 (skeleton update) reads a deep pointer chain:
+///   bone_array = *(this + 0xa4)
+///   first_bone = *(bone_array + 0)
+///   transform  = *(first_bone + 0x34)
+///
+/// With virgin slab pages, bone entries are zero or garbage. The game
+/// expects zombie data from SBM recycled cells. We validate the chain:
+/// all three pointers must be non-zero and in a known heap region.
 pub unsafe extern "fastcall" fn hook_ragdoll_bone_update(this: *mut c_void) {
-    let bone_array = unsafe { *((this as usize + 0xa4) as *const usize) };
-    if bone_array == 0 {
+    // check bone array pointer
+    let bone_array_ptr = unsafe { *((this as usize + 0xa4) as *const usize) };
+    if bone_array_ptr == 0 {
         return;
+    }
+    // check first bone entry is in a known heap region
+    let first_bone = unsafe { *(bone_array_ptr as *const usize) };
+    if first_bone == 0 {
+        return;
+    }
+    let in_slab = super::slab::is_slab_ptr(first_bone as *const core::ffi::c_void);
+    let in_mi = unsafe { libmimalloc::mi_is_in_heap_region(first_bone as *const core::ffi::c_void) };
+    if !in_slab && !in_mi {
+        return; // garbage pointer from uninitialized memory
     }
     if let Ok(original) = statics::RAGDOLL_BONE_UPDATE_HOOK.original() {
         unsafe { original(this) };

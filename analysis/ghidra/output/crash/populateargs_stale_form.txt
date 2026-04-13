@@ -1,0 +1,511 @@
+######################################################################
+# POPULATEARGS STALE FORM ANALYSIS
+# What does PopulateArgs read from the stale lastCell?
+# Is the TESObjectCELL form itself freed, or just its sub-data?
+######################################################################
+
+######################################################################
+# PART 1: TESObjectCELL lifecycle during cell unload
+# When a cell is unloaded, is the TESObjectCELL form freed?
+# Or does it stay in the form table (just marked detached)?
+# FUN_00462290 = DestroyCell. Does it free the cell form?
+######################################################################
+
+======================================================================
+DestroyCell @ 0x00462290
+======================================================================
+  Function: FUN_00462290 @ 0x00462290, Size: 341 bytes
+
+void FUN_00462290(int *param_1)
+
+{
+  bool bVar1;
+  char cVar2;
+  undefined4 uVar3;
+  void *pvVar4;
+  char local_5;
+  
+  if ((param_1 != (int *)0x0) && (bVar1 = FUN_00440d80((int)param_1), !bVar1)) {
+    FUN_0044ada0(1);
+    local_5 = '\0';
+    bVar1 = FUN_0042ce10(DAT_011ddf38);
+    if (bVar1) {
+      uVar3 = FUN_004623f0('\0');
+      local_5 = (char)uVar3;
+    }
+    FUN_00552bd0(param_1,'\x01');
+    FUN_009740a0(&DAT_011e0e80,(int)param_1);
+    FUN_004512a0(param_1,1);
+    FUN_005508b0(param_1);
+    FUN_0054b750((int)param_1);
+    while (bVar1 = FUN_00551620((int)param_1), bVar1) {
+      FUN_00551480(param_1,'\0');
+    }
+    cVar2 = FUN_004226e0(DAT_011c3f2c);
+    if (cVar2 == '\0') {
+      bVar1 = FUN_0094df60(DAT_011dea3c);
+      FUN_0054af40(param_1,!bVar1);
+    }
+    bVar1 = FUN_00425fd0((int)param_1);
+    if (!bVar1) {
+      pvVar4 = (void *)FUN_00546fb0((int)param_1);
+      FUN_00536d80(pvVar4);
+    }
+    FUN_00546970(param_1);
+    FUN_00961f30(param_1,0);
+    bVar1 = FUN_00425fd0((int)param_1);
+    if (!bVar1) {
+      pvVar4 = (void *)FUN_0054ddd0((int)param_1);
+      FUN_00585e00(pvVar4,param_1);
+    }
+    bVar1 = FUN_0042ce10(DAT_011ddf38);
+    if (bVar1) {
+      FUN_004623f0(local_5);
+    }
+    FUN_0044ada0(0);
+  }
+  return;
+}
+
+
+
+--- Calls FROM DestroyCell (0x00462290) ---
+  CALL @ 0x004622a2 -> 0x00440d80 FUN_00440d80
+  CALL @ 0x004622b5 -> 0x0044ada0 FUN_0044ada0
+  CALL @ 0x004622c7 -> 0x0042ce10 FUN_0042ce10
+  CALL @ 0x004622db -> 0x004623f0 FUN_004623f0
+  CALL @ 0x004622e8 -> 0x00552bd0 FUN_00552bd0
+  CALL @ 0x004622f6 -> 0x009740a0 FUN_009740a0
+  CALL @ 0x00462300 -> 0x004512a0 FUN_004512a0
+  CALL @ 0x00462308 -> 0x005508b0 FUN_005508b0
+  CALL @ 0x00462310 -> 0x0054b750 FUN_0054b750
+  CALL @ 0x00462318 -> 0x00551620 FUN_00551620
+  CALL @ 0x00462329 -> 0x00551480 FUN_00551480
+  CALL @ 0x00462336 -> 0x004226e0 FUN_004226e0
+  CALL @ 0x00462348 -> 0x0094df60 FUN_0094df60
+  CALL @ 0x0046235c -> 0x0054af40 FUN_0054af40
+  CALL @ 0x00462364 -> 0x00425fd0 FUN_00425fd0
+  CALL @ 0x00462373 -> 0x00546fb0 FUN_00546fb0
+  CALL @ 0x0046237a -> 0x00536d80 FUN_00536d80
+  CALL @ 0x00462382 -> 0x00546970 FUN_00546970
+  CALL @ 0x0046238c -> 0x00961f30 FUN_00961f30
+  CALL @ 0x00462394 -> 0x00425fd0 FUN_00425fd0
+  CALL @ 0x004623a7 -> 0x0054ddd0 FUN_0054ddd0
+  CALL @ 0x004623ae -> 0x00585e00 FUN_00585e00
+  CALL @ 0x004623b9 -> 0x0042ce10 FUN_0042ce10
+  CALL @ 0x004623d0 -> 0x004623f0 FUN_004623f0
+  CALL @ 0x004623d7 -> 0x0044ada0 FUN_0044ada0
+  Total: 25 calls
+
+######################################################################
+# PART 2: TESObjectCELL vtable/RTTI
+# vtable at 0x0102E9B4. Find destructor.
+# Does the destructor go through game heap (our slab)?
+######################################################################
+
+----------------------------------------------------------------------
+References TO 0x0102e9b4 (TESObjectCELL_vtable)
+----------------------------------------------------------------------
+  DATA @ 0x0054183b (in FUN_00541810)
+  DATA @ 0x005415f7 (in FUN_005415b0)
+  Total: 2 refs
+
+######################################################################
+# PART 3: What is at TESForm+0x0C (refID)?
+# PopulateArgs reads form->refID. If the cell form is NOT freed
+# but some sub-object at a deeper offset is freed, the crash
+# could be from a DIFFERENT read, not refID itself.
+# ECX=4 in the crash. What instruction loads 4 into ECX?
+######################################################################
+
+# ECX=4 could mean:
+# 1. form->refID = 4 (refID is a small number - impossible for a cell)
+# 2. The crash is at a DIFFERENT point in PopulateArgs, not refID read
+# 3. The form pointer itself is 4 (m_args[i] = 4, not a valid pointer)
+
+# If m_args[i] = lastCell = 4, then lastCell was overwritten with 4.
+# jip_nvse stores lastCell in a static variable. If another piece of
+# code writes to the same memory location (data race or corruption)
+# lastCell could be overwritten with a small integer.
+
+# OR: lastCell IS a valid pointer but PopulateArgs dereferences it
+# at some offset and gets 4. ECX=4 might be the RESULT of reading
+# from the stale cell, not the pointer itself.
+
+######################################################################
+# PART 4: The CallFunction path from jip_nvse
+# LN_ProcessEvents calls CallFunction(callback, nullptr, 1, lastCell)
+# How does CallFunction pass lastCell to PopulateArgs?
+# Is it m_args[0] = lastCell?
+######################################################################
+
+# From jip_nvse source (lutana.h:355):
+# CallFunction(data().callback, nullptr, 1, lastCell)
+# This is PluginAPI::CallFunctionScriptAlt()
+# which creates InternalFunctionCaller with m_args[0] = lastCell
+# PopulateArgs reads m_args[0] as TESForm* form
+# Then reads form->refID (at form+0x0C)
+
+######################################################################
+# PART 5: g_thePlayer->parentCell - where lastCell comes from
+# jip_nvse (lutana.h:339): currCell = g_thePlayer->parentCell
+# If parentCell pointer itself is stale...
+# What is the offset of parentCell in TESObjectREFR/PlayerCharacter?
+######################################################################
+
+# From xNVSE GameObjects.h:
+# TESObjectREFR+0x060 = parentCell (TESObjectCELL*)
+# PlayerCharacter inherits from Actor which inherits from TESObjectREFR
+
+# g_thePlayer is at 0x011DEA3C+offset or a separate global.
+# The player's parentCell should always be valid during gameplay.
+# But during cell transition, parentCell is updated to the new cell.
+# lastCell = the PREVIOUS parentCell. If that cell was freed...
+
+######################################################################
+# PART 6: Is the TESObjectCELL actually freed through our slab?
+# Search for calls to GameHeap::Free (0x00AA4060) from cell-related
+# code. If cells are freed through the game heap, they go through
+# our slab. If they are reference-counted, they are freed when
+# refcount hits 0 -> PDD -> our free.
+######################################################################
+
+======================================================================
+Cell_ShouldLoadCheck @ 0x00451530
+======================================================================
+  Function: FUN_00451530 @ 0x00451530, Size: 54 bytes
+
+undefined1 __fastcall FUN_00451530(int param_1)
+
+{
+  undefined1 local_c;
+  
+  if ((*(char *)(param_1 + 0x51) == '\0') && (*(char *)(param_1 + 0x52) == '\0')) {
+    local_c = 0;
+  }
+  else {
+    local_c = 1;
+  }
+  return local_c;
+}
+
+
+
+======================================================================
+Cell_LoadQueue_AddCell @ 0x00452580
+======================================================================
+  Function: FUN_00452580 @ 0x00452580, Size: 2105 bytes
+
+/* WARNING: Globals starting with '_' overlap smaller symbols at the same address */
+
+undefined4 __thiscall FUN_00452580(void *this,float *param_1,char param_2)
+
+{
+  bool bVar1;
+  undefined4 *puVar2;
+  int iVar3;
+  int *piVar4;
+  void *this_00;
+  char *pcVar5;
+  uint *puVar6;
+  void *pvVar7;
+  uint uVar8;
+  int iVar9;
+  float10 fVar10;
+  char cVar11;
+  undefined1 local_5c [11];
+  char local_51;
+  int local_50;
+  int local_4c;
+  int local_48;
+  int local_44;
+  int local_40;
+  uint local_3c;
+  int local_38;
+  int local_34;
+  int local_30;
+  float local_2c;
+  char local_25;
+  int local_24;
+  int local_20;
+  int local_1c;
+  int local_18;
+  int local_14;
+  char local_d;
+  int local_c;
+  int local_8;
+  
+  puVar2 = (undefined4 *)FUN_0045bb80((int)this);
+  FUN_00470470(puVar2);
+  FUN_0045c840(this);
+  if (((DAT_011c3c0c != '\0') && (DAT_011f94aa == '\0')) &&
+     (iVar3 = FUN_005f36f0((int)this), iVar3 == 0)) {
+    DAT_011c3c0c = '\0';
+    FUN_0045c780(this);
+  }
+  bVar1 = FUN_0042ce10(DAT_011ddf38);
+  if (bVar1) {
+    iVar3 = FUN_00559450((undefined4 *)((int)this + 0xc0));
+    FUN_00628da0(iVar3);
+  }
+  pvVar7 = *(void **)((int)this + 8);
+  piVar4 = FUN_00457070(this);
+  this_00 = (void *)FUN_00559450((undefined4 *)((int)this + 0xc0));
+  FUN_006271b0(this_00,(int)piVar4,pvVar7);
+  if (DAT_011c3f2c == 0) {
+    return 0;
+  }
+  if ((*(int *)((int)this + 0x24) == 0x7fffffff) || (*(int *)((int)this + 0x28) == 0x7fffffff)) {
+    if (param_1 != (float *)0x0) {
+      iVar3 = FUN_00406d90(*param_1);
+      *(int *)((int)this + 0x24) = iVar3 >> 0xc;
+      iVar3 = FUN_00406d90(param_1[1]);
+      *(int *)((int)this + 0x28) = iVar3 >> 0xc;
+      *(undefined4 *)((int)this + 0x2c) = *(undefined4 *)((int)this + 0x24);
+      *(undefined4 *)((int)this + 0x30) = *(undefined4 *)((int)this + 0x28);
+    }
+    FUN_00457d70(this,'\x01',*(int *)((int)this + 0x88),'\0');
+    FUN_004515a0(this,param_1,'\0');
+    return 1;
+  }
+  local_c = FUN_00406d90(*param_1);
+  local_8 = FUN_00406d90(param_1[1]);
+  local_18 = local_c - (*(int *)((int)this + 0x24) * 0x1000 + 0x800);
+  local_20 = local_8 - (*(int *)((int)this + 0x28) * 0x1000 + 0x800);
+  local_2c = _DAT_01017a3c;
+  piVar4 = (int *)FUN_0043d4d0(0x11c63cc);
+  if (*piVar4 == 3) {
+    local_2c = _DAT_01017a38;
+  }
+  iVar3 = FUN_00ec7d40(local_18);
+  *(float *)((int)this + 0x80) = local_2c - (float)iVar3;
+  iVar3 = FUN_00ec7d40(local_20);
+  *(float *)((int)this + 0x84) = local_2c - (float)iVar3;
+  local_d = 0;
+  local_d = FUN_0042ce10(DAT_011ddf38);
+  if ((((float)_DAT_01012060 < *(float *)((int)this + 0x80)) &&
+      ((float)_DAT_01012060 < *(float *)((int)this + 0x84))) && (!(bool)local_d)) {
+    pcVar5 = FUN_00408d60(0x11c9670);
+    if ((*pcVar5 != '\0') && (iVar3 = FUN_005f36f0((int)this), iVar3 == 0)) {
+      local_34 = local_c >> 0xc;
+      local_30 = local_8 >> 0xc;
+      if ((*(int *)((int)this + 0x2c) != local_34) || (*(int *)((int)this + 0x30) != local_30)) {
+        pcVar5 = FUN_00408d60(0x11c3d40);
+        if ((*pcVar5 != '\0') && (iVar3 = FUN_00454d50(this,'\x01'), iVar3 != 0)) {
+          FUN_00452490(this,'\0');
+        }
+        puVar6 = (uint *)FUN_0043d4d0(0x11c63cc);
+        local_3c = *puVar6 >> 1;
+        local_48 = *(int *)((int)this + 0x2c);
+        local_40 = local_34 - *(int *)((int)this + 0x2c);
+        if (local_40 != 0) {
+          local_48 = (local_3c + 1) * local_40 + local_48;
+          for (local_4c = -local_3c; local_4c <= (int)local_3c; local_4c = local_4c + 1) {
+            iVar9 = local_4c + *(int *)((int)this + 0x30);
+            iVar3 = local_48;
+            pvVar7 = (void *)FUN_004fd3e0((int)this);
+            FUN_005283c0(DAT_011c9618,pvVar7,iVar3,iVar9);
+          }
+        }
+        local_38 = *(int *)((int)this + 0x30);
+        local_44 = local_30 - *(int *)((int)this + 0x30);
+        if (local_44 != 0) {
+          local_38 = (local_3c + 1) * local_44 + local_38;
+          for (local_50 = -local_3c; local_50 <= (int)local_3c; local_50 = local_50 + 1) {
+            iVar9 = local_50 + *(int *)((int)this + 0x2c);
+            iVar3 = local_38;
+            pvVar7 = (void *)FUN_004fd3e0((int)this);
+            FUN_005283c0(DAT_011c9618,pvVar7,iVar9,iVar3);
+          }
+        }
+        if ((local_40 != 0) && (local_44 != 0)) {
+          iVar3 = local_48;
+          iVar9 = local_38;
+          pvVar7 = (void *)FUN_004fd3e0((int)this);
+          FUN_005283c0(DAT_011c9618,pvVar7,iVar3,iVar9);
+        }
+      }
+      *(int *)((int)this + 0x2c) = local_34;
+      *(int *)((int)this + 0x30) = local_30;
+    }
+    return 0;
+  }
+  FUN_00452e40(0);
+  local_25 = FUN_00705e80();
+  if (((local_25 == '\0') && (iVar3 = FUN_005285a0(DAT_011c9618), iVar3 != 0)) &&
+     (bVar1 = FUN_0042ce10(DAT_011ddf38), !bVar1)) {
+    FUN_004581e0();
+    local_25 = '\x01';
+  }
+  local_14 = local_c >> 0xc;
+  local_24 = local_8 >> 0xc;
+  bVar1 = FUN_0042ce10(DAT_011ddf38);
+  if ((bVar1) && (bVar1 = FUN_00452e90(DAT_011ddf38), bVar1)) {
+    local_14 = *(int *)((int)this + 0x24);
+    local_24 = *(int *)((int)this + 0x28);
+  }
+  local_18 = local_14 - *(int *)((int)this + 0x24);
+  local_20 = local_24 - *(int *)((int)this + 0x28);
+  *(int *)((int)this + 0x24) = local_14;
+  *(int *)((int)this + 0x28) = local_24;
+  *(undefined4 *)((int)this + 0x2c) = *(undefined4 *)((int)this + 0x24);
+  *(undefined4 *)((int)this + 0x30) = *(undefined4 *)((int)this + 0x28);
+  DAT_011f9634 = DAT_011f962c;
+  DAT_011f9638 = DAT_011f9630;
+  puVar2 = FUN_00452dc0(local_5c,((float)*(int *)((int)this + 0x24) + (float)_DAT_01011588) *
+                                 (float)_DAT_01017a10,
+                        ((float)*(int *)((int)this + 0x28) + (float)_DAT_01011588) *
+                        (float)_DAT_01017a10);
+  DAT_011f962c = *puVar2;
+  DAT_011f9630 = puVar2[1];
+  uVar8 = FUN_00452df0(&DAT_011f9634,(float *)&DAT_011f4980);
+  if ((((uVar8 & 0xff) != 0) || (iVar3 = FUN_00ec7d40(local_18), 1 < iVar3)) ||
+     (iVar3 = FUN_00ec7d40(local_20), 1 < iVar3)) {
+    DAT_011f9634 = DAT_011f962c;
+    DAT_011f9638 = DAT_011f9630;
+  }
+  fVar10 = FUN_00452e70('\0');
+  _DAT_011f94ac = (float)fVar10;
+  DAT_011c3c0c = 1;
+  DAT_011f94aa = 1;
+  FUN_0045c840(this);
+  FUN_0045c780(this);
+  FUN_00528110(DAT_011c9618);
+  local_1c = FUN_005281f0(DAT_011c9618);
+  if (local_1c != 0) {
+    FUN_005282d0(DAT_011c9618);
+  }
+  iVar3 = FUN_005f36f0((int)this);
+  if ((iVar3 == 0) || (local_d != '\0')) {
+    pcVar5 = FUN_00408d60(0x11c3d40);
+    if ((*pcVar5 != '\0') && (iVar3 = FUN_00454d50(this,'\x01'), iVar3 != 0)) {
+      FUN_00452490(this,'\0');
+    }
+    iVar3 = FUN_004fd3e0((int)this);
+    if (iVar3 == 0) {
+      iVar3 = FUN_00460140(DAT_011c3f2c);
+      piVar4 = (int *)FUN_006815c0(iVar3);
+      FUN_00458200(this,*piVar4);
+    }
+    local_51 = '\0';
+    iVar3 = FUN_00ec7d40(local_18);
+    if ((1 < iVar3) || (iVar3 = FUN_00ec7d40(local_20), 1 < iVar3)) {
+      local_51 = '\x01';
+    }
+    iVar3 = FUN_00451010();
+    if (iVar3 != 0) {
+      if ((local_51 != '\0') || (param_2 == '\0')) {
+        cVar11 = '\0';
+        pvVar7 = (void *)FUN_00451010();
+        FUN_00c6b540(pvVar7,cVar11);
+        cVar11 = '\0';
+        pvVar7 = (void *)FUN_00451010();
+        FUN_00c68f00(pvVar7,cVar11);
+      }
+      iVar3 = FUN_00451010();
+      FUN_00c66310(iVar3);
+    }
+    (**(code **)(**(int **)((int)this + 8) + 0x10))(local_14,local_24);
+    iVar3 = FUN_00451010();
+    if (iVar3 != 0) {
+      if ((local_25 == '\0') &&
+         ((local_51 == '\0' || (iVar3 = FUN_005285a0(DAT_011c9618), iVar3 == 0)))) {
+        iVar3 = FUN_00451010();
+        FUN_0068a830(iVar3);
+      }
+      if (local_51 == '\0') {
+        cVar11 = param_2;
+        pvVar7 = (void *)FUN_00451010();
+        FUN_00c68f00(pvVar7,cVar11);
+      }
+      else {
+        cVar11 = '\0';
+        pvVar7 = (void *)FUN_00451010();
+        FUN_00c68f00(pvVar7,cVar11);
+      }
+    }
+    if (((local_25 == '\0') && (uVar8 = FUN_00452ed0(this), (uVar8 & 0xff) == 0)) &&
+       (bVar1 = FUN_0042ce10(DAT_011ddf38), !bVar1)) {
+      FUN_004581e0();
+      local_25 = '\x01';
+    }
+    iVar3 = FUN_00ec7d40(local_18);
+    if ((1 < iVar3) || (iVar3 = FUN_00ec7d40(local_20), 1 < iVar3)) {
+      FUN_00457be0(this,0);
+    }
+    iVar3 = FUN_00451010();
+    if (iVar3 != 0) {
+      iVar3 = FUN_00451010();
+      FUN_00c66300(iVar3);
+    }
+    FUN_00452ff0(this);
+    FUN_00452e50((int)this);
+    iVar3 = FUN_00451010();
+    if (iVar3 != 0) {
+      if (local_51 == '\0') {
+        pvVar7 = (void *)FUN_00451010();
+        FUN_00c6b540(pvVar7,param_2);
+      }
+      else {
+        cVar11 = '\0';
+        pvVar7 = (void *)FUN_00451010();
+        FUN_00c6b540(pvVar7,cVar11);
+      }
+    }
+  }
+  FUN_00452490(this,'\0');
+  FUN_0062f460();
+  iVar3 = FUN_005f36f0((int)this);
+  if (iVar3 == 0) {
+    uVar8 = 0xf;
+    puVar2 = (undefined4 *)(**(code **)(*DAT_011dea3c + 500))();
+    pvVar7 = (void *)FUN_00586170(*(void **)((int)this + 0x88));
+    FUN_006fca90(pvVar7,puVar2,uVar8);
+  }
+  FUN_00452e40(1);
+  return 1;
+}
+
+
+
+######################################################################
+# PART 7: PDD Form queue - does it process TESObjectCELL?
+# DAT_011de828 = Form queue. Does cell unload add cells to it?
+# If so, PDD frees the cell form -> slab recycles -> crash
+######################################################################
+
+======================================================================
+PDD_FormQueue_Drain @ 0x00868d10
+======================================================================
+  Function: FUN_00868d10 @ 0x00868d10, Size: 83 bytes
+
+void FUN_00868d10(void)
+
+{
+  char cVar1;
+  undefined2 uVar2;
+  undefined2 extraout_var;
+  
+  uVar2 = FUN_00658930(0x11de828);
+  if (CONCAT22(extraout_var,uVar2) != 0) {
+    cVar1 = FUN_00868250(DAT_011c3b3c);
+    if (cVar1 != '\0') {
+      FUN_00867f50();
+      FUN_004dffa0(0x11de828);
+      FUN_004aaf10(DAT_011c3b3c);
+      FUN_00867f80();
+    }
+  }
+  return;
+}
+
+
+
+--- Calls FROM PDD_FormQueue_Drain (0x00868d10) ---
+  CALL @ 0x00868d18 -> 0x00658930 FUN_00658930
+  CALL @ 0x00868d27 -> 0x00868250 FUN_00868250
+  CALL @ 0x00868d3a -> 0x00867f50 FUN_00867f50
+  CALL @ 0x00868d47 -> 0x004dffa0 FUN_004dffa0
+  CALL @ 0x00868d52 -> 0x004aaf10 FUN_004aaf10
+  CALL @ 0x00868d59 -> 0x00867f80 FUN_00867f80
+  Total: 6 calls
