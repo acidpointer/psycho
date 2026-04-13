@@ -1061,6 +1061,7 @@ dependencies = [
  "clashmap",
  "crossfire",
  "flate2",
+ "iced-x86",
  "libc",
  "libmimalloc",
  "libnvse",

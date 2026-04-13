@@ -1,0 +1,17 @@
+[general]
+console = false         # Show console window on game startup
+
+[logger]
+debug = false           # Show debug logs (enable when prepare problem report)
+
+[memory]
+heap_replacer = true    # Enable heap replacer
+
+[perf]
+rng = true              # Enable RNG (random number generator) replacer
+
+[zlib]
+enabled = true          # Enable zlib replacer
+
+[display]
+tweaks = true           # Enable display tweaks (alt-tab fix)

@@ -10,6 +10,12 @@
 //! Based on ideas from:  https://github.com/WallSoGB/Fallout-zlibUpdate
 //! and FastDecompressNV: https://github.com/1001Bits/FastDecompress/tree/main/FalloutNewVegas
 
+
+// TODO: Research and fix:
+// BSA decompress failed: deflate decompression error: invalid code -- missing end-of-block
+// BSA decompress failed: deflate decompression error: invalid code -- missing end-of-block
+
+
 use std::cell::{Cell, UnsafeCell};
 
 use flate2::{Decompress, FlushDecompress, Status};
@@ -29,12 +35,16 @@ const Z_FINISH: i32 = 4;
 /// Skip zlib header and adler32 checksum verification.
 /// true = raw deflate mode (faster, no checksum overhead on every output byte).
 /// false = full zlib mode (safer, verifies adler32 integrity).
-const SKIP_ADLER32: bool = true;
+/// 
+/// WARNING! Dangerous! Will cause issues with visuals.
+const SKIP_ADLER32: bool = false;
 
 /// Zlib header size (CMF + FLG bytes).
 const ZLIB_HEADER_SIZE: u32 = 2;
+
 /// Zlib trailer size (adler32 checksum).
 const ZLIB_TRAILER_SIZE: u32 = 4;
+
 /// Total overhead bytes in zlib format that we bypass in raw mode.
 const ZLIB_OVERHEAD: u32 = ZLIB_HEADER_SIZE + ZLIB_TRAILER_SIZE;
 

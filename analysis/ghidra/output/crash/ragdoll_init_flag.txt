@@ -1,0 +1,495 @@
+######################################################################
+# RAGDOLL INITIALIZATION FLAG / READINESS CHECK
+######################################################################
+
+######################################################################
+# PART 1: Who calls FUN_00c79680 (skeleton update)?
+# Is FUN_00c7d810 the ONLY caller? Or are there others?
+######################################################################
+
+----------------------------------------------------------------------
+References TO 0x00c79680 (Ragdoll_SkeletonUpdate callers)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x00c7d6ef (in FUN_00c7d630)
+  UNCONDITIONAL_CALL @ 0x00c7d861 (in FUN_00c7d810)
+  Total: 2 refs
+
+######################################################################
+# PART 2: Who calls FUN_00c7d810 (bone transform update)?
+# Our hook is here. What other code calls it?
+######################################################################
+
+----------------------------------------------------------------------
+References TO 0x00c7d810 (Ragdoll_BoneTransformUpdate callers)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x009202e7 (in FUN_00920150)
+  UNCONDITIONAL_CALL @ 0x00930b57 (in FUN_009308f0)
+  Total: 2 refs
+
+######################################################################
+# PART 3: FUN_00930b5c area - NEW frame in crash stack
+# Frame #3 (0x00930B5C). Between actor process and our hook.
+# What is this function? Does it check ragdoll state?
+######################################################################
+
+======================================================================
+NewFrame_930B5C @ 0x00930b5c
+======================================================================
+  Function: FUN_009308f0 @ 0x009308f0, Size: 851 bytes
+  NOTE: Requested 0x00930b5c is inside FUN_009308f0 (entry at 0x009308f0)
+
+/* WARNING: Globals starting with '_' overlap smaller symbols at the same address */
+
+void __fastcall FUN_009308f0(int *param_1)
+
+{
+  char cVar1;
+  undefined1 uVar2;
+  int iVar3;
+  float *pfVar4;
+  int *piVar5;
+  int *piVar6;
+  int *piVar7;
+  undefined4 uVar8;
+  float10 fVar9;
+  float local_48;
+  int *local_44;
+  char local_40;
+  uint local_38;
+  char local_31;
+  uint local_30;
+  float local_2c;
+  char local_25;
+  int local_24;
+  int *local_20;
+  int *local_1c;
+  int *local_18;
+  char local_11;
+  int *local_10;
+  int *local_c;
+  void *local_8;
+  
+  local_8 = (void *)FUN_009306d0((int)param_1);
+  if (local_8 != (void *)0x0) {
+    cVar1 = (**(code **)(*param_1 + 0x100))();
+    local_c = (int *)(-(uint)(cVar1 != '\0') & (uint)param_1);
+    if ((local_c == (int *)0x0) || (iVar3 = FUN_004f8960((int)local_c), iVar3 != 2)) {
+      local_40 = '\0';
+    }
+    else {
+      local_40 = '\x01';
+    }
+    local_25 = local_40;
+    local_24 = FUN_008d6f30((int)param_1);
+    if (local_24 == 0) {
+      local_44 = (int *)0x0;
+    }
+    else {
+      local_44 = (int *)FUN_004543c0(local_24);
+    }
+    local_20 = local_44;
+    local_1c = (int *)FUN_00621ad0((int)local_8);
+    if (local_20 != local_1c) {
+      FUN_0088b0a0(local_8,0);
+      if (local_24 == 0) {
+        local_48 = 0.0;
+      }
+      else {
+        fVar9 = FUN_005471e0(local_24);
+        local_48 = (float)fVar9;
+      }
+      local_2c = local_48;
+      FUN_0057b1d0(local_8,local_48);
+      if (local_25 == '\0') {
+        FUN_00c70c90(local_8,local_20);
+      }
+      pfVar4 = (float *)FUN_00436aa0((int)param_1);
+      FUN_005620e0(pfVar4);
+      iVar3 = FUN_0045cd60(param_1[0x1a]);
+      if ((((iVar3 == 0) && (param_1 != DAT_011dea3c)) && (local_c != (int *)0x0)) &&
+         ((iVar3 = FUN_004181e0((int)local_c), iVar3 != 0 &&
+          (cVar1 = FUN_0087eeb0((int)local_c), cVar1 == '\0')))) {
+        FUN_008e4e50(local_c);
+      }
+    }
+    local_11 = '\0';
+    local_18 = (int *)FUN_00810660((int)local_8);
+    local_10 = (int *)FUN_0043fcd0((int)param_1);
+    if (local_18 != local_10) {
+      FUN_00c6d7a0(local_8,(int)local_10);
+    }
+    if (local_1c != local_20) {
+      if (local_1c != (int *)0x0) {
+        FUN_00c69ee0(local_10,1,'\0');
+      }
+      local_11 = '\x01';
+    }
+    if (local_20 != (int *)0x0) {
+      if (local_11 == '\0') {
+        FUN_00c69f50(local_10,1,'\0');
+      }
+      else {
+        FUN_0070c440(local_8,&local_38);
+        local_30 = FUN_004a3a20(&local_38);
+        local_31 = FUN_00930c50((int)local_20);
+        if (!(bool)local_31) {
+          FUN_00c66300((int)local_20);
+        }
+        (**(code **)(*local_20 + 0xd0))(local_10,1,0,local_30,0);
+        if (local_31 == '\0') {
+          FUN_00c6b540(local_20,'\0');
+        }
+      }
+      if (((local_c != (int *)0x0) && (local_c[0x2b] != 0)) &&
+         (cVar1 = FUN_0087ea20(local_c[0x2b]), cVar1 != '\0')) {
+        cVar1 = (**(code **)(*param_1 + 0x22c))(0);
+        if (cVar1 == '\0') {
+          FUN_00c7d810((void *)local_c[0x2b]);
+        }
+        cVar1 = FUN_0087eeb0((int)local_c);
+        if (cVar1 != '\0') {
+          FUN_00c7c150((void *)local_c[0x2b],'\x01');
+        }
+      }
+      iVar3 = (**(code **)(*param_1 + 0x214))();
+      if ((iVar3 != 0) && (iVar3 = FUN_008d8520((int)param_1), iVar3 != 0)) {
+        piVar5 = (int *)FUN_008d8520((int)param_1);
+        piVar6 = (int *)FUN_008d8520((int)param_1);
+        piVar7 = (int *)FUN_008d8520((int)param_1);
+        iVar3 = (**(code **)(*piVar5 + 0x4d4))();
+        uVar2 = FUN_005094b0(iVar3);
+        uVar8 = (**(code **)(*piVar6 + 0x4c8))(uVar2);
+        cVar1 = (**(code **)(*piVar7 + 0x2b4))(uVar8);
+        if (cVar1 != '\0') {
+          (**(code **)(*param_1 + 0x2e0))(_DAT_0101e2bc);
+          FUN_00931fb0(param_1,'\x01');
+          FUN_00629670((void *)((int)local_8 + 0x410),0x8000000,'\x01');
+        }
+      }
+    }
+  }
+  return;
+}
+
+
+
+######################################################################
+# PART 4: The bhkRagdollController constructor again
+# We know it sets +0xa4=0, +0x2a4=0, etc.
+# What is the LAST field set? That might be the ready flag.
+# Also: offset +0x0C (from bone transform update line 346:
+#   *(undefined4 *)((int)param_1 + 0xc) = 1
+# This sets +0xc to 1. Is this the ready flag?
+######################################################################
+
+======================================================================
+bhkRagdollController_Constructor (re-check) @ 0x00c7f060
+======================================================================
+  Function: FUN_00c7f060 @ 0x00c7f060, Size: 1081 bytes
+
+/* WARNING: Globals starting with '_' overlap smaller symbols at the same address */
+
+undefined4 * __thiscall FUN_00c7f060(void *this,int *param_1,int *param_2,byte *param_3)
+
+{
+  undefined4 uVar1;
+  undefined4 uVar2;
+  undefined4 uVar3;
+  undefined4 uVar4;
+  undefined4 uVar5;
+  uint uVar6;
+  undefined2 *puVar7;
+  LONG LVar8;
+  int *piVar9;
+  int *piVar10;
+  int iVar11;
+  int *unaff_FS_OFFSET;
+  int *local_54;
+  uint uStack_50;
+  int *local_4c;
+  undefined **ppuStack_48;
+  int iStack_44;
+  undefined4 uStack_40;
+  undefined4 uStack_3c;
+  byte *local_38;
+  void *local_34;
+  undefined4 local_30;
+  undefined4 uStack_2c;
+  undefined4 uStack_28;
+  undefined4 uStack_24;
+  int local_1c;
+  undefined1 *puStack_18;
+  undefined4 local_14;
+  
+  puStack_18 = &LAB_00f31ab0;
+  local_1c = *unaff_FS_OFFSET;
+  uVar6 = DAT_011c16bc ^ (uint)&stack0xffffffa0;
+  *unaff_FS_OFFSET = (int)&local_1c;
+  local_4c = param_1;
+  local_54 = param_2;
+  local_38 = param_3;
+  *(undefined ***)this = &PTR_FUN_010c4ddc;
+  *(undefined4 *)((int)this + 0x84) = 0;
+  *(undefined4 *)((int)this + 0x94) = 0;
+  *(undefined4 *)((int)this + 0x98) = 0;
+  *(undefined4 *)((int)this + 0x9c) = 0x80000000;
+  *(undefined ***)((int)this + 0xa0) = &PTR_FUN_01071aec;
+  *(undefined4 *)((int)this + 0xa4) = 0;
+  *(undefined4 *)((int)this + 0xa8) = 0;
+  *(undefined4 *)((int)this + 0xac) = 0;
+  *(undefined4 *)((int)this + 0x22c) = 0;
+  *(undefined4 *)((int)this + 0x230) = 0;
+  *(undefined4 *)((int)this + 0x234) = 0x80000000;
+  *(undefined4 *)((int)this + 0x24c) = DAT_0109b220;
+  *(undefined4 *)((int)this + 0x250) = 0;
+  *(undefined4 *)((int)this + 0x260) = 0;
+  *(undefined4 *)((int)this + 0x264) = 0;
+  *(undefined4 *)((int)this + 0x268) = 0;
+  *(undefined4 *)((int)this + 0x26c) = 0;
+  *(undefined4 *)((int)this + 0x2a0) = DAT_0109b220;
+  *(undefined4 *)((int)this + 0x2a4) = 0;
+  *(undefined4 *)((int)this + 0x2a8) = 0;
+  *(undefined4 *)((int)this + 0x2ac) = 0;
+  *(undefined4 *)((int)this + 0x2b0) = 0;
+  *(undefined4 *)((int)this + 0x2b4) = 0;
+  *(undefined4 *)((int)this + 0x23c) = 0;
+  uVar1 = _DAT_010c4df8;
+  local_14 = 8;
+  *(undefined4 *)((int)this + 0x48) = 0;
+  *(undefined4 *)((int)this + 0x4c) = 0;
+  *(undefined1 *)((int)this + 0x50) = 0;
+  *(undefined4 *)((int)this + 0x54) = 0;
+  *(undefined4 *)((int)this + 0x58) = 0;
+  *(undefined4 *)((int)this + 0x5c) = 0;
+  *(undefined1 *)((int)this + 0x240) = 0;
+  *(undefined1 *)((int)this + 0x241) = 1;
+  *(undefined1 *)((int)this + 0x242) = 1;
+  local_30 = 0;
+  uStack_2c = 0;
+  uStack_28 = 0;
+  uStack_24 = 0;
+  puVar7 = (undefined2 *)((int)this + 0xf6);
+  iVar11 = 2;
+  do {
+    *(undefined4 *)(puVar7 + 1) = uVar1;
+    puVar7[-1] = 0xffff;
+    *puVar7 = 0xffff;
+    *(undefined4 *)(puVar7 + 5) = 0;
+    *(undefined4 *)(puVar7 + 7) = 0;
+    *(undefined4 *)(puVar7 + 9) = 0;
+    *(undefined4 *)(puVar7 + 0xb) = 0;
+    *(undefined4 *)(puVar7 + 0xd) = 0;
+    *(undefined4 *)(puVar7 + 0xf) = 0;
+    *(undefined4 *)(puVar7 + 0x11) = 0;
+    *(undefined4 *)(puVar7 + 0x13) = 0;
+    *(undefined1 *)((int)puVar7 + 0x3b) = 0;
+    *(undefined1 *)(puVar7 + 0x1d) = 1;
+    uVar5 = _UNK_010c71bc;
+    uVar4 = _UNK_010c71b8;
+    uVar3 = _UNK_010c71b4;
+    uVar2 = _DAT_010c71b0;
+    *(undefined4 *)(puVar7 + 0x1f) = 0;
+    *(undefined4 *)(puVar7 + 0x21) = 0;
+    *(undefined4 *)(puVar7 + 0x15) = uVar2;
+    *(undefined4 *)(puVar7 + 0x17) = uVar3;
+    *(undefined4 *)(puVar7 + 0x19) = uVar4;
+    *(undefined4 *)(puVar7 + 0x1b) = uVar5;
+    puVar7 = puVar7 + 0x28;
+    iVar11 = iVar11 + -1;
+  } while (iVar11 != 0);
+  *(undefined4 *)((int)this + 0xd0) = 0;
+  *(undefined4 *)((int)this + 0xd4) = 0;
+  *(undefined4 *)((int)this + 0xd8) = 0;
+  *(undefined4 *)((int)this + 0xdc) = 0;
+  *(undefined4 *)((int)this + 0xe0) = 0;
+  *(undefined4 *)((int)this + 0xe4) = 0;
+  *(undefined4 *)((int)this + 0xe8) = 0;
+  *(undefined4 *)((int)this + 0xec) = 0;
+  *(undefined1 *)((int)this + 0xb4) = 0;
+  uVar4 = _UNK_010c71bc;
+  uVar3 = _UNK_010c71b8;
+  uVar2 = _UNK_010c71b4;
+  uVar1 = _DAT_010c71b0;
+  *(undefined4 *)((int)this + 0x1a0) = 0;
+  *(undefined4 *)((int)this + 0x19c) = 0;
+  *(undefined4 *)((int)this + 0xc0) = uVar1;
+  *(undefined4 *)((int)this + 0xc4) = uVar2;
+  *(undefined4 *)((int)this + 200) = uVar3;
+  *(undefined4 *)((int)this + 0xcc) = uVar4;
+  *(undefined4 *)((int)this + 0x1a8) = 0;
+  *(undefined1 *)((int)this + 0x1a4) = 0;
+  *(undefined1 *)((int)this + 0x1a5) = 0;
+  *(undefined1 *)((int)this + 0x42) = 0;
+  *(undefined1 *)((int)this + 0xb0) = 0;
+  *(undefined1 *)((int)this + 0x21f) = 0;
+  *(undefined1 *)((int)this + 0x21c) = 0;
+  *(undefined1 *)((int)this + 0x41) = 0;
+  *(undefined1 *)((int)this + 0xb1) = 0;
+  *(undefined1 *)((int)this + 0x220) = 0;
+  *(undefined1 *)((int)this + 0x21d) = 0;
+  *(undefined1 *)((int)this + 0x255) = 0;
+  *(undefined1 *)((int)this + 0x43) = 0;
+  *(undefined1 *)((int)this + 0xb2) = 0;
+  *(undefined1 *)((int)this + 0x221) = 0;
+  *(undefined1 *)((int)this + 0xb3) = 0;
+  *(undefined1 *)((int)this + 0x222) = 0;
+  *(undefined1 *)((int)this + 0x21e) = 0;
+  *(undefined1 *)((int)this + 0x256) = 0;
+  *(undefined1 *)((int)this + 0x1bd) = 0;
+  *(undefined1 *)((int)this + 0x1ed) = 0;
+  *(undefined4 *)((int)this + 0x228) = 0;
+  *(undefined1 *)((int)this + 0x254) = 0;
+  *(undefined1 *)((int)this + 400) = 0;
+  *(undefined4 *)((int)this + 0x194) = 0;
+  piVar9 = *(int **)((int)this + 0x84);
+  local_34 = this;
+  if (piVar9 != (int *)0x0) {
+    LVar8 = InterlockedDecrement(piVar9 + 1);
+    if (LVar8 == 0) {
+      (**(code **)(*piVar9 + 4))();
+    }
+    *(undefined4 *)((int)this + 0x84) = 0;
+  }
+  *(undefined4 *)((int)this + 0x248) = 0;
+  *(undefined4 *)((int)this + 600) = 0xffffffff;
+  piVar9 = *(int **)((int)this + 0x2a4);
+  if (piVar9 != (int *)0x0) {
+    LVar8 = InterlockedDecrement(piVar9 + 1);
+    if (LVar8 == 0) {
+      (**(code **)(*piVar9 + 4))();
+    }
+    *(undefined4 *)((int)this + 0x2a4) = 0;
+  }
+  *(undefined4 *)((int)this + 0x88) = 0;
+  *(undefined4 *)((int)this + 0x290) = 0x3f800000;
+  *(undefined1 *)((int)this + 0x8c) = 0;
+  *(undefined1 *)((int)this + 0x28c) = 0;
+  *(undefined1 *)((int)this + 0x28d) = 0;
+  *(undefined4 *)((int)this + 0x244) = 0;
+  *(undefined1 *)((int)this + 0x28e) = 0;
+  uVar2 = _DAT_01022958;
+  *(undefined1 *)((int)this + 0x28f) = 0;
+  *(undefined4 *)((int)this + 0x294) = 0;
+  *(undefined1 *)((int)this + 0x243) = 0;
+  *(undefined1 *)((int)this + 0x223) = 0;
+  *(undefined4 *)((int)this + 0x90) = 0;
+  *(undefined4 *)((int)this + 0xc) = 2;
+  *(undefined4 *)((int)this + 0x10) = local_30;
+  *(undefined4 *)((int)this + 0x14) = uStack_2c;
+  *(undefined4 *)((int)this + 0x18) = uStack_28;
+  *(undefined4 *)((int)this + 0x1c) = uStack_24;
+  uVar4 = _UNK_010c71bc;
+  uVar3 = _UNK_010c71b8;
+  uVar1 = _UNK_010c71b4;
+  *(undefined4 *)((int)this + 0x20) = _DAT_010c71b0;
+  *(undefined4 *)((int)this + 0x24) = uVar1;
+  *(undefined4 *)((int)this + 0x28) = uVar3;
+  *(undefined4 *)((int)this + 0x2c) = uVar4;
+  uVar1 = DAT_01012068;
+  *(undefined4 *)((int)this + 0x30) = DAT_01012068;
+  *(undefined4 *)((int)this + 0x34) = uVar1;
+  *(undefined4 *)((int)this + 0x38) = uVar1;
+  *(undefined4 *)((int)this + 0x3c) = uVar1;
+  *(undefined4 *)((int)this + 0x280) = uVar2;
+  uVar1 = _DAT_01017868;
+  *(undefined2 *)((int)this + 0x23a) = 0;
+  *(undefined4 *)((int)this + 0x27c) = uVar1;
+  *(undefined4 *)((int)this + 8) = 0;
+  *(undefined1 *)((int)this + 0x40) = 0;
+  *(undefined1 *)((int)this + 0x284) = 1;
+  *(undefined4 *)((int)this + 0x288) = 0xffffffff;
+  *(undefined1 *)((int)this + 0x44) = 0;
+  *(undefined1 *)((int)this + 4) = 0;
+  *(undefined1 *)((int)this + 0x198) = 0;
+  *(undefined1 *)((int)this + 0x224) = 1;
+  *(undefined2 *)((int)this + 0x238) = 0;
+  if (local_4c == (int *)0x0) {
+    piVar9 = (int *)0x0;
+  }
+  else {
+    piVar9 = (int *)(**(code **)(*local_4c + 0xc))(uVar6);
+  }
+  if (local_54 == (int *)0x0) {
+    piVar10 = (int *)0x0;
+  }
+  else {
+    piVar10 = (int *)(**(code **)(*local_54 + 0xc))();
+  }
+  local_54 = (int *)((uint)local_54 & 0xffffff00);
+  uStack_50 = 0;
+  ppuStack_48 = &PTR_FUN_010c4db8;
+  iStack_44 = 0;
+  uStack_40 = 0;
+  uStack_3c = 0;
+  local_14._0_1_ = 9;
+  if ((piVar9 != (int *)0x0) && (piVar10 != (int *)0x0)) {
+    FUN_00c7d3b0(piVar9,piVar10,(int *)&ppuStack_48,(char *)&local_54,&uStack_50);
+  }
+  FUN_00c7e9a0(this,local_4c,local_38);
+  FUN_00c75c00(piVar9,(int)&ppuStack_48,local_54,uStack_50);
+  *(undefined4 *)((int)this + 0x2b8) = 0;
+  local_14 = CONCAT31(local_14._1_3_,8);
+  ppuStack_48 = &PTR_FUN_010c4db8;
+  if (iStack_44 != 0) {
+    (*(code *)PTR_FUN_010c4dc0)(iStack_44);
+  }
+  *unaff_FS_OFFSET = local_1c;
+  return this;
+}
+
+
+
+######################################################################
+# PART 5: What callers of FUN_00c7d810 check before calling?
+# If there is a guard like 'if (ragdoll->ready) update()'
+# then the game already has a readiness check somewhere.
+######################################################################
+
+# From FUN_00c7d810 decompile (line 345-346):
+#   uVar1 = *(undefined4 *)((int)param_1 + 0xc);
+#   *(undefined4 *)((int)param_1 + 0xc) = 1;
+#   FUN_00c7d030(param_1,(undefined4 *)0x0);
+#   *(undefined4 *)((int)param_1 + 0xc) = uVar1;
+#
+# +0xc is saved, set to 1, then restored. This is a temporary flag.
+# Not a readiness indicator.
+
+######################################################################
+# PART 6: The bone array at +0xa4 - who ALLOCATES it?
+# Constructor sets +0xa4=0. Someone later allocates the array
+# and writes the pointer to +0xa4. Who?
+# Search for writes to offset 0xa4 in ragdoll-related code.
+######################################################################
+
+# The constructor (FUN_00c7f060) sets +0xa4=0 at construction.
+# After construction, some init function allocates the bone array
+# and sets +0xa4 to point to it. But the bone array entries
+# themselves are zero (virgin page). The skeleton update reads
+# *(bone_array + local_94) which is 0 -> *(0 + 0x34) -> crash.
+
+# With SBM, the bone array allocation gets recycled memory with
+# old bone pointers. These point to still-committed memory.
+# With our slab Tier 3, the array is zeroed by VirtualAlloc.
+
+######################################################################
+# PART 7: The bone count chain
+# local_88 = *(*(*(param_1+0x2a4)+0xc)+0x1c)
+# +0x2a4 is set to 0 by constructor. If skeleton update runs
+# with +0x2a4=0, it would crash at *(0+0xc). But the crash is
+# at +0xa4 data, meaning +0x2a4 is valid. So +0x2a4 was
+# initialized before +0xa4's bone array entries were filled.
+######################################################################
+
+# Conclusion: The initialization order is:
+#   1. Constructor: +0xa4=0, +0x2a4=0
+#   2. Init step A: +0x2a4 = valid pointer (bone hierarchy)
+#   3. Init step B: +0xa4 = allocated bone array (but entries=0)
+#   4. Init step C: bone array entries filled with bone pointers
+#   5. Skeleton update runs (FUN_00c79680)
+#
+# The crash: skeleton update runs between step 3 and step 4.
+# The bone array exists but its entries are zero.
+#
+# With SBM: the bone array allocation in step 3 returns memory
+# with old bone pointers (zombie data). Step 5 reads valid-ish
+# pointers even before step 4 runs. No crash.

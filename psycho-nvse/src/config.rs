@@ -18,6 +18,7 @@ static CONFIG: OnceLock<PsychoConfig> = OnceLock::new();
 #[serde(default)]
 pub struct PsychoConfig {
     pub general: GeneralConfig,
+    pub logger: LoggerConfig,
     pub memory: MemoryConfig,
     pub perf: PerfConfig,
     pub zlib: ZlibConfig,
@@ -34,18 +35,23 @@ pub struct GeneralConfig {
 
 #[derive(Debug, Deserialize, Serialize)]
 #[serde(default)]
+#[derive(Default)]
+pub struct LoggerConfig {
+    /// Use debug logs
+    pub debug: bool,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+#[serde(default)]
 pub struct MemoryConfig {
-    /// Replace CRT allocator (malloc/free/etc.) with mimalloc via IAT hooks.
-    pub crt_hooks: bool,
-    /// Replace game heap (GameHeap::Allocate/Free) with mimalloc via inline hooks.
-    pub game_heap_hooks: bool,
+    /// Replace game heap and all memory management
+    pub heap_replacer: bool,
 }
 
 impl Default for MemoryConfig {
     fn default() -> Self {
         Self {
-            crt_hooks: true,
-            game_heap_hooks: true,
+            heap_replacer: true,
         }
     }
 }
@@ -66,7 +72,7 @@ impl Default for PerfConfig {
 #[derive(Debug, Deserialize, Serialize)]
 #[serde(default)]
 pub struct ZlibConfig {
-    /// Replace zlib 1.2.3 with libz-rs 1.3.1.
+    /// Zlib replacer
     pub enabled: bool,
 }
 
@@ -79,14 +85,14 @@ impl Default for ZlibConfig {
 #[derive(Debug, Deserialize, Serialize)]
 #[serde(default)]
 pub struct DisplayConfig {
-    /// Force borderless fullscreen mode (fixes alt-tab with DXVK).
-    /// Replaces OneTweak -- uninstall OneTweak when this is enabled.
-    pub borderless: bool,
+    /// Enable display tweaks.
+    /// Mostly covers alt-tab issues.
+    pub tweaks: bool,
 }
 
 impl Default for DisplayConfig {
     fn default() -> Self {
-        Self { borderless: true }
+        Self { tweaks: true }
     }
 }
 
@@ -101,16 +107,6 @@ pub fn load_config() -> &'static PsychoConfig {
         log::info!("[CONFIG] Loaded (read-only)");
         cfg
     })
-}
-
-/// Write config to disk if schema changed (adds missing fields, prunes stale).
-///
-/// Must be called OUTSIDE DllMain (no loader lock). Typically from
-/// NVSEPlugin_Load.
-pub fn sync_config() {
-    if let Some(cfg) = CONFIG.get() {
-        Config::sync_to_disk(CONFIG_PATH, cfg);
-    }
 }
 
 /// Get the global config reference.
