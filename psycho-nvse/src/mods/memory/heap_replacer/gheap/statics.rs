@@ -112,16 +112,6 @@ pub static HKWORLD_LOCK_HOOK: LazyLock<InlineHookContainer<HkWorldLockFn>> =
 pub static HKWORLD_UNLOCK_HOOK: LazyLock<InlineHookContainer<HkWorldUnlockFn>> =
     LazyLock::new(InlineHookContainer::new);
 
-// ---- Cell transition synchronization ----
-
-pub static CELL_TRANSITION_HOOK: LazyLock<InlineHookContainer<CellTransitionHandlerFn>> =
-    LazyLock::new(InlineHookContainer::new);
-
-// ---- Ragdoll null-check guard ----
-
-pub static RAGDOLL_BONE_UPDATE_HOOK: LazyLock<InlineHookContainer<RagdollBoneUpdateFn>> =
-    LazyLock::new(InlineHookContainer::new);
-
 // // ---- Actor process synchronization ----
 
 // pub const ACTOR_DOWNGRADE_ADDR: usize = 0x0096E870;

@@ -60,11 +60,6 @@ pub const AI_ACTIVE_FLAG: usize = 0x011DFA19;
 /// Ghidra: JIP source GameTasks.h:659, GetSingleton at 0x11C3B3C.
 pub const MODEL_LOADER: usize = 0x011C3B3C;
 
-/// FUN_00c7d810: ragdoll bone transform update (fastcall, 127 bytes).
-/// Calls FUN_00c79680 (skeleton update) which reads bone array at +0xa4.
-/// Constructor sets +0xa4=0. Skeleton update crashes if +0xa4 still NULL.
-pub const RAGDOLL_BONE_UPDATE: usize = 0x00C7D810;
-
 /// FUN_008774a0: CellTransitionOrchestrator (thiscall, 561 bytes).
 /// Runs HavokStopStart, PDD, async flush during cell transitions.
 /// Called from ONE site: 0x0086b664 in the main loop.
@@ -230,6 +225,3 @@ pub const RDATA_END: usize = 0x01300000;
 pub const TESFORM_FLAGS_OFFSET: usize = 0x08;
 pub const FLAG_HAVOK_DEATH: u32 = 0x10000;
 
-// Ragdoll bone array offset and minimum valid pointer threshold.
-pub const RAGDOLL_BONE_ARRAY_OFFSET: usize = 0xA4;
-pub const MIN_VALID_PTR: usize = 0x10000;

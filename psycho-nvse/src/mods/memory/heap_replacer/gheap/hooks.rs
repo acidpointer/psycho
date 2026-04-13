@@ -59,12 +59,6 @@ thread_local! {
     static WAS_LOADING: Cell<bool> = const { Cell::new(false) };
 }
 
-/// True while we have an extra increment on LOADING_STATE_COUNTER.
-/// Set during loading, cleared on the first post-loading frame.
-/// Carries the counter into the NVSE dispatch frame that runs
-/// BEFORE our Phase 7 hook (protects jip_nvse LN_ProcessEvents).
-static LOADING_COUNTER_ELEVATED: AtomicBool = AtomicBool::new(false);
-
 /// Last destruction_protocol result: cells unloaded.
 /// When 0 and commit hasn't grown, skip the next call to avoid
 /// the 12ms/cycle death spiral observed in heavy mod setups.
@@ -496,24 +490,11 @@ unsafe fn on_loading_start() {
     // would decommit pages that BSTask might free to --> writing FreeNode
     // to a decommitted page --> access violation in our slab::free().
     // The 30-second delay in the per-frame sweep handles decommit safely.
-    // diagnostic: parentCell at transition start (= jip_nvse lastCell)
-    let player_cell = unsafe {
-        let player = *(0x011DEA3C_usize as *const *const u8);
-        if !player.is_null() {
-            *(player.add(0x40) as *const usize)
-        } else { 0 }
-    };
-    let cell_region = if player_cell == 0 { "NULL" }
-        else if super::slab::is_slab_ptr(player_cell as *const core::ffi::c_void) { "SLAB" }
-        else if unsafe { libmimalloc::mi_is_in_heap_region(player_cell as *const core::ffi::c_void) } { "MIMALLOC" }
-        else { "OTHER" };
     log::info!(
-        "[LOADING] Transition detected: commit={}MB, slab={}MB, dirty={}, parentCell=0x{:08X} ({})",
+        "[LOADING] Transition detected: commit={}MB, slab={}MB, dirty={}",
         commit_before / 1024 / 1024,
         super::slab::committed_bytes() / 1024 / 1024,
         super::slab::dirty_pages(),
-        player_cell,
-        cell_region,
     );
 
     // Enable loading bypass immediately. Subsequent frees during loading
@@ -555,26 +536,10 @@ fn on_loading_end() {
     // (LOADING_COUNTER_ELEVATED flag), not here. See hook_per_frame_queue_drain.
 
     let info = libmimalloc::process_info::MiMallocProcessInfo::get();
-
-    // diagnostic: dump player parentCell for jip_nvse lastCell crash analysis
-    // g_thePlayer = *(PlayerCharacter**)0x011DEA3C, parentCell at +0x40
-    let player_cell = unsafe {
-        let player = *(0x011DEA3C_usize as *const *const u8);
-        if !player.is_null() {
-            *(player.add(0x40) as *const usize)
-        } else { 0 }
-    };
-    let cell_region = if player_cell == 0 { "NULL" }
-        else if super::slab::is_slab_ptr(player_cell as *const core::ffi::c_void) { "SLAB" }
-        else if unsafe { libmimalloc::mi_is_in_heap_region(player_cell as *const core::ffi::c_void) } { "MIMALLOC" }
-        else { "OTHER" };
-
     log::info!(
-        "[LOADING] Loading ended, commit={}MB, pool={}MB, parentCell=0x{:08X} ({})",
+        "[LOADING] Loading ended, commit={}MB, pool={}MB",
         info.get_current_commit() / 1024 / 1024,
         super::slab::committed_bytes() / 1024 / 1024,
-        player_cell,
-        cell_region,
     );
 }
 
@@ -598,49 +563,6 @@ pub unsafe extern "fastcall" fn hook_ai_thread_start(mgr: *mut c_void) {
     game_guard::set_ai_active();
     if let Ok(original) = statics::AI_THREAD_START_HOOK.original() {
         unsafe { original(mgr) };
-    }
-}
-
-/// Ragdoll bone transform update hook: skip if bone data not initialized.
-///
-/// Ghidra FUN_00c79680 (skeleton update) reads a deep pointer chain:
-///   bone_array = *(this + 0xa4)
-///   first_bone = *(bone_array + 0)
-///   transform  = *(first_bone + 0x34)
-///
-/// With virgin slab pages, bone entries are zero or garbage. The game
-/// expects zombie data from SBM recycled cells. We validate the chain:
-/// all three pointers must be non-zero and in a known heap region.
-pub unsafe extern "fastcall" fn hook_ragdoll_bone_update(this: *mut c_void) {
-    // check bone array pointer
-    let bone_array_ptr = unsafe { *((this as usize + 0xa4) as *const usize) };
-    if bone_array_ptr == 0 {
-        return;
-    }
-    // check first bone entry is in a known heap region
-    let first_bone = unsafe { *(bone_array_ptr as *const usize) };
-    if first_bone == 0 {
-        return;
-    }
-    let in_slab = super::slab::is_slab_ptr(first_bone as *const core::ffi::c_void);
-    let in_mi = unsafe { libmimalloc::mi_is_in_heap_region(first_bone as *const core::ffi::c_void) };
-    if !in_slab && !in_mi {
-        return; // garbage pointer from uninitialized memory
-    }
-    if let Ok(original) = statics::RAGDOLL_BONE_UPDATE_HOOK.original() {
-        unsafe { original(this) };
-    }
-}
-
-/// CellTransitionOrchestrator hook: wait for BackgroundCloneThread before
-/// the game frees NiNode/animation data during cell transitions.
-/// Ghidra: FUN_008774a0 (thiscall, 561 bytes). Called from 0x0086b664.
-pub unsafe extern "thiscall" fn hook_cell_transition(this: *mut c_void, param_1: u8) {
-    // wait for IO threads + BackgroundCloneThread to finish current tasks
-    unsafe { globals::wait_for_io_idle() };
-
-    if let Ok(original) = statics::CELL_TRANSITION_HOOK.original() {
-        unsafe { original(this, param_1) };
     }
 }
 

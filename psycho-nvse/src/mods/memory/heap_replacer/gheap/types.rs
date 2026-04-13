@@ -30,10 +30,6 @@ pub type MainLoopMaintenanceFn = unsafe extern "thiscall" fn(*mut c_void);
 /// FUN_00868850: per-frame queue drain, runs before AI dispatch.
 pub type PerFrameQueueDrainFn = unsafe extern "C" fn();
 
-/// FUN_00c79680: skeleton update (fastcall, ragdoll controller in ECX).
-/// Reads bone transforms from the ragdoll's bone array at +0xa4.
-pub type SkeletonUpdateFn = unsafe extern "fastcall" fn(*mut c_void);
-
 /// FUN_00868d70: ProcessDeferredDestruction (cdecl, 1037 bytes).
 /// param=0 blocking, param=1 non-blocking (try-lock).
 pub type PDDFn = unsafe extern "C" fn(try_lock: u8);
@@ -168,10 +164,6 @@ pub type GetThreadIdFn = unsafe extern "C" fn() -> u32;
 /// FUN_00702360: returns true only during actual cell loading.
 /// Does NOT include console/menu/pause state (unlike LOADING_FLAG).
 pub type IsRealLoadingFn = unsafe extern "C" fn() -> bool;
-
-/// FUN_00c7d810: ragdoll bone transform update (fastcall, 127 bytes).
-/// Calls skeleton update which reads bone array at this+0xa4.
-pub type RagdollBoneUpdateFn = unsafe extern "fastcall" fn(*mut c_void);
 
 /// FUN_0044edb0: get main thread ID from TES object (fastcall, TES ptr in ECX).
 pub type GetMainThreadIdFn = unsafe extern "fastcall" fn(*mut c_void) -> u32;
