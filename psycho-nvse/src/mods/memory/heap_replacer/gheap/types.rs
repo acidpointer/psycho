@@ -169,6 +169,10 @@ pub type GetThreadIdFn = unsafe extern "C" fn() -> u32;
 /// Does NOT include console/menu/pause state (unlike LOADING_FLAG).
 pub type IsRealLoadingFn = unsafe extern "C" fn() -> bool;
 
+/// FUN_00c7d810: ragdoll bone transform update (fastcall, 127 bytes).
+/// Calls skeleton update which reads bone array at this+0xa4.
+pub type RagdollBoneUpdateFn = unsafe extern "fastcall" fn(*mut c_void);
+
 /// FUN_0044edb0: get main thread ID from TES object (fastcall, TES ptr in ECX).
 pub type GetMainThreadIdFn = unsafe extern "fastcall" fn(*mut c_void) -> u32;
 
