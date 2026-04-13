@@ -140,12 +140,10 @@ const KNOWN_VTABLES: &[(u32, &str)] = &[
 // ---- public API ------------------------------------------------------------
 
 pub fn install() {
-    let handle = unsafe { AddVectoredExceptionHandler(1, Some(handler)) };
-    if handle.is_null() {
-        log::error!("[CRASH] Failed to install diagnostic VEH");
-    } else {
-        log::info!("[CRASH] Diagnostic VEH installed");
-    }
+    // VEH disabled: the handler's String::with_capacity allocation crashes
+    // when intercepting benign exceptions from jip_nvse scripts, turning
+    // handled AVs into fatal crashes. Disabled to catch the REAL crash.
+    log::info!("[CRASH] Diagnostic VEH disabled (catching real crash)");
 }
 
 // ---- VEH handler -----------------------------------------------------------

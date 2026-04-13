@@ -59,6 +59,12 @@ thread_local! {
     static WAS_LOADING: Cell<bool> = const { Cell::new(false) };
 }
 
+/// True while we have an extra increment on LOADING_STATE_COUNTER.
+/// Set during loading, cleared on the first post-loading frame.
+/// Carries the counter into the NVSE dispatch frame that runs
+/// BEFORE our Phase 7 hook (protects jip_nvse LN_ProcessEvents).
+static LOADING_COUNTER_ELEVATED: AtomicBool = AtomicBool::new(false);
+
 /// Last destruction_protocol result: cells unloaded.
 /// When 0 and commit hasn't grown, skip the next call to avoid
 /// the 12ms/cycle death spiral observed in heavy mod setups.
@@ -163,8 +169,26 @@ pub unsafe extern "C" fn hook_per_frame_queue_drain() {
     if loading_now && !was_loading {
         unsafe { on_loading_start() };
     }
+
+    // pre-elevate counter during loading so it carries into the next
+    // frame's NVSE dispatch (runs BEFORE our Phase 7 hook). jip_nvse
+    // LN_ProcessEvents checks counter > 0 and skips events. Without
+    // this, the first post-loading NVSE dispatch fires events before
+    // we can react, accessing freed/recycled game objects.
+    if loading_now && !LOADING_COUNTER_ELEVATED.load(Ordering::Relaxed) {
+        globals::loading_state_counter().fetch_add(1, Ordering::AcqRel);
+        LOADING_COUNTER_ELEVATED.store(true, Ordering::Relaxed);
+    }
+
     if !loading_now && was_loading {
         on_loading_end();
+        // counter still elevated from loading. schedule decrement for
+        // Phase 10 of THIS frame (NVSE dispatch already ran with counter > 0).
+        if LOADING_COUNTER_ELEVATED.swap(false, Ordering::Relaxed) {
+            if let Some(pr) = PressureRelief::instance() {
+                pr.set_pending_counter_decrement();
+            }
+        }
     }
 
     let heap = super::heap_manager::HeapManager::get();
@@ -329,18 +353,19 @@ pub unsafe extern "C" fn hook_per_frame_queue_drain() {
 
         // During loading, DO NOT signal HeapCompact stages. Stages 0-2
         // (texture/geometry/menu cache flush) corrupt caches while the IO
-        // thread is actively loading textures — causes UAF when textures
-        // are cleared mid-load. This was the root cause of the crash at
-        // 0x08F744B4 (nvseRuntimeScript263CellChange).
+        // thread is actively loading textures.
         //
-        // During normal gameplay (not loading), signal Stage 2 only — safe
-        // because no cell transition is in progress.
-        // Stage 3+ (HavokGC / FUN_00c459d0) MUST go through destruction_protocol
-        // which has Havok locking + AI safety. Signaling stage 3+ here runs
-        // async queue flush without locks, disrupting NVTF Geometry Precache
-        // Queue -> NiGeometryBufferData UAF (heap_analysis.md:1345).
+        // During gameplay: signal Stage 4 (PddPurge). Ghidra FUN_00866a90:
+        //   case 4: TryLock process manager -> PDD full drain -> unlock
+        //   case 3: async flush (blocking) [falls through from 4]
+        // Both safe at Phase 7 (no Havok lock needed, main thread only).
+        //
+        // Stage 4 is CRITICAL: without it, the PDD Generic queue grows
+        // unboundedly (30K+ items). BSTreeNode parents outlive their
+        // children -> Release on freed children -> RefCount:0 -> C0000417.
+        // See: project_bstreenode_crash_chain.md
         if !globals::is_loading() {
-            heap.signal_heap_compact(globals::HeapCompactStage::MenuCleanup);
+            heap.signal_heap_compact(globals::HeapCompactStage::PddPurge);
         }
 
         // NOTE: pool drain moved to AFTER PDD (below). Draining before PDD
@@ -529,17 +554,8 @@ fn on_loading_end() {
     let now = libpsycho::os::windows::winapi::get_tick_count() as u64;
     POST_LOADING_COOLDOWN_MS.store(now + 5000, Ordering::Release);
 
-    // Suppress NVSE event dispatch (PLChangeEvent) for one frame after loading.
-    // Actors allocated from virgin slab pages have VirtualAlloc-zeroed memory.
-    // Game constructors don't always initialize all sub-fields -- PLChangeEvent
-    // handlers (JohnnyGuitar HandlePLChangeEvent) access NULL pointers in
-    // partially-initialized actor processes, crashing at NULL+offset.
-    // LOADING_STATE_COUNTER > 0 makes FUN_0096e150 skip event dispatch.
-    // Decrement happens in Phase 10 via flush_pending_counter_decrement.
-    globals::loading_state_counter().fetch_add(1, std::sync::atomic::Ordering::AcqRel);
-    if let Some(pr) = PressureRelief::instance() {
-        pr.set_pending_counter_decrement();
-    }
+    // Counter elevation now handled in Phase 7 loading detection
+    // (LOADING_COUNTER_ELEVATED flag), not here. See hook_per_frame_queue_drain.
 
     let info = libmimalloc::process_info::MiMallocProcessInfo::get();
     log::info!(

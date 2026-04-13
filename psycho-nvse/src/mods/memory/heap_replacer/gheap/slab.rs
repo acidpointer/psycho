@@ -406,12 +406,9 @@ impl SlabArena {
             page.bitmap_set(i as u16);
         }
 
-        // Cell 0 goes to caller. SBM contract: offset 0 = 0 at alloc time.
-        // Virgin/decommitted pages are zeroed by VirtualAlloc (already 0).
-        // Dirty reclaim (was_committed): zombie data at offset 0, must clear.
-        if was_committed {
-            unsafe { (addr as *mut u32).write(0) };
-        }
+        // Cell 0 goes to caller. For committed dirty pages, zombie data is
+        // intact at all offsets (bitmap zero-write). For virgin/decommitted
+        // pages, VirtualAlloc zeroed the data (same as SBM fresh pages).
 
         // Cold list: immediate reuse. This is safe because slab's bitmap
         // free writes ZERO bytes to cells. Zombie data at all offsets
@@ -456,10 +453,6 @@ impl SlabArena {
             if let Some(cell_idx) = page.bitmap_pop() {
                 let ptr = unsafe { self.page_addr(page_idx).add(cell_idx as usize * self.cell_size as usize) };
                 page.refcount += 1;
-
-                // SBM contract: offset 0 = 0 at alloc time (Ghidra FUN_00aa6e00).
-                // Game constructors may assume offset 0 starts at zero.
-                unsafe { (ptr as *mut u32).write(0) };
 
                 if !page.bitmap_any() {
                     self.cold_head = page.next_partial;
@@ -528,9 +521,6 @@ impl SlabArena {
 
         let ptr = unsafe { self.page_addr(page_idx).add(cell_idx as usize * self.cell_size as usize) };
         page.refcount += 1;
-
-        // SBM contract: offset 0 = 0 at alloc time
-        unsafe { (ptr as *mut u32).write(0) };
 
         if !page.bitmap_any() {
             self.hot_head = page.next_partial;
@@ -722,8 +712,14 @@ impl SlabArena {
     /// NULL pointers from the zeroed page, crashing at small offsets
     /// (0x24, etc.) or EIP=0 from vtable[0] dispatch.
     ///
-    /// Promote hot pages + collect dirty pages for decommit.
-    /// `force`: if true, ignore DECOMMIT_DELAY_MS (OOM recovery).
+    /// Promote hot pages + optionally decommit dirty pages.
+    ///
+    /// force=false (per-frame): promote hot->cold only. No decommit.
+    /// Matches SBM: GlobalCleanup (FUN_00aa7030) only decommits during OOM
+    /// Stage 6, never per-frame. Per-frame decommit zeros pages that stale
+    /// readers still reference (jip_nvse scripts, persistent NPCs).
+    ///
+    /// force=true (OOM recovery): decommit all eligible dirty pages.
     unsafe fn collect_decommit_batch(
         &mut self,
         force: bool,
@@ -731,13 +727,15 @@ impl SlabArena {
     ) -> (usize, u32) {
         unsafe { self.promote_hot_to_cold() };
 
+        if !force {
+            return (0, 0);
+        }
+
         let mut count = 0usize;
         let mut bytes = 0u32;
-        let now = cached_tick();
-        let delay = if force { 0 } else { DECOMMIT_DELAY_MS };
         let page_size = self.page_size;
 
-        // Rebuild dirty list as LIFO (prepend kept pages)
+        // OOM force: decommit all eligible dirty pages, no delay
         let mut new_dirty_head = EMPTY;
         let mut page_idx = self.dirty_head;
 
@@ -747,8 +745,7 @@ impl SlabArena {
 
             let eligible = page.committed
                 && page.refcount == 0
-                && count < Self::DECOMMIT_BATCH
-                && now.saturating_sub(page.dirty_at_ms) >= delay;
+                && count < Self::DECOMMIT_BATCH;
 
             if eligible {
                 let addr = self.page_addr(page_idx);
