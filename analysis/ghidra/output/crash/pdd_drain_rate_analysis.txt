@@ -1,0 +1,301 @@
+######################################################################
+# PDD DRAIN RATE ANALYSIS
+# Vanilla vs our aggressive drain vs Stage 4 full drain
+######################################################################
+
+######################################################################
+# PART 1: PDD queue addresses and object types
+# From the vanilla PerFrameQueueDrain, each queue has a specific
+# drain rate multiplier and processes specific object types.
+######################################################################
+
+PDD Queue Addresses (from vanilla PerFrameQueueDrain FUN_00868850):
+  DAT_011de808 = NiNode queue (drained first)
+  DAT_011de910 = ??? queue
+  DAT_011de838 = ??? queue
+  DAT_011de888 = Form queue (drains local_1c * 10 items)
+  DAT_011de848 = ??? queue
+  DAT_011de874 = Generic queue (drains local_1c * 20 items) -- 30K+ items in crash
+  DAT_011de8bc = ??? queue
+  DAT_011de924 = Havok/NiRef queue (drains local_1c * 5 items)
+  DAT_011de898 = ??? queue (merged into 924)
+
+local_1c = 1 normally, 2 during loading (doubles drain rate)
+
+Vanilla drain rates per frame:
+  Havok queue: 5-10 items
+  Generic queue: 20-40 items
+  Form queue: 10-20 items
+  NiNode queue: 1 item (single virtual dispatch)
+
+Our drain: 75 rounds of full FUN_00868d70(try_lock=1)
+  Each round processes ALL queue types
+  75 rounds * all queues = potentially thousands of items freed
+
+######################################################################
+# PART 2: FUN_00868d70 (PDD) - what does try_lock param do?
+# param=0: blocking (takes lock, processes all)
+# param=1: non-blocking (try-lock, skip if busy)
+# Stage 4 calls with param=1 (blocking)
+######################################################################
+
+======================================================================
+ProcessDeferredDestruction @ 0x00868d70
+======================================================================
+  Function: FUN_00868d70 @ 0x00868d70, Size: 1037 bytes
+
+void __cdecl FUN_00868d70(char param_1)
+
+{
+  undefined1 uVar1;
+  char cVar2;
+  undefined2 uVar3;
+  uint uVar4;
+  undefined2 extraout_var;
+  undefined4 *puVar5;
+  undefined2 extraout_var_00;
+  undefined2 extraout_var_01;
+  int iVar6;
+  int *piVar7;
+  undefined2 extraout_var_02;
+  int unaff_FS_OFFSET;
+  uint local_2c;
+  uint local_24;
+  uint local_1c;
+  uint local_10;
+  char local_5;
+  
+  if (DAT_011de958 == '\0') {
+    local_5 = '\x01';
+    if (param_1 == '\0') {
+      FUN_00867f50();
+    }
+    else {
+      local_5 = FUN_00867f70();
+    }
+    if (local_5 != '\0') {
+      DAT_011de958 = 1;
+      uVar1 = *(undefined1 *)(*(int *)(*(int *)(unaff_FS_OFFSET + 0x2c) + _tls_index * 4) + 0x298);
+      *(undefined1 *)(*(int *)(*(int *)(unaff_FS_OFFSET + 0x2c) + _tls_index * 4) + 0x298) = 0;
+      uVar4 = FUN_00869180(0x10);
+      if (((uVar4 & 0xff) == 0) && (cVar2 = FUN_0078d1f0(), cVar2 != '\0')) {
+        FUN_004dffa0(0x11de828);
+        FUN_00452530();
+      }
+      uVar4 = FUN_00869180(8);
+      if (((uVar4 & 0xff) == 0) && (cVar2 = FUN_00868250(DAT_011c3b3c), cVar2 != '\0')) {
+        uVar3 = FUN_00658930(0x11de808);
+        for (local_10 = 0; local_10 < CONCAT22(extraout_var,uVar3); local_10 = local_10 + 1) {
+          puVar5 = (undefined4 *)FUN_00877a30(&DAT_011de808,local_10);
+          if ((void *)*puVar5 != (void *)0x0) {
+            FUN_00418d20((void *)*puVar5,1);
+          }
+        }
+        FUN_005e03d0(0x11de808);
+        FUN_004aaf10(DAT_011c3b3c);
+      }
+      uVar4 = FUN_00869180(4);
+      if (((uVar4 & 0xff) == 0) && (cVar2 = FUN_00868250(DAT_011c3b3c), cVar2 != '\0')) {
+        uVar3 = FUN_00658930(0x11de910);
+        for (local_1c = 0; local_1c < CONCAT22(extraout_var_00,uVar3); local_1c = local_1c + 1) {
+          puVar5 = (undefined4 *)FUN_00877a30(&DAT_011de910,local_1c);
+          if ((void *)*puVar5 != (void *)0x0) {
+            FUN_00418e00((void *)*puVar5,1);
+          }
+        }
+        FUN_005e03d0(0x11de910);
+        FUN_004aaf10(DAT_011c3b3c);
+      }
+      uVar4 = FUN_00869180(2);
+      if ((uVar4 & 0xff) == 0) {
+        for (local_24 = 0; uVar3 = FUN_00658930(0x11de888),
+            local_24 < CONCAT22(extraout_var_01,uVar3); local_24 = local_24 + 1) {
+          puVar5 = (undefined4 *)FUN_00877a30(&DAT_011de888,local_24);
+          iVar6 = FUN_00559450(puVar5);
+          if (iVar6 != 0) {
+            piVar7 = (int *)FUN_00877a30(&DAT_011de888,local_24);
+            FUN_00868ce0(*piVar7);
+          }
+        }
+        FUN_004dffa0(0x11de888);
+      }
+      uVar4 = FUN_00869180(1);
+      if (((uVar4 & 0xff) == 0) && (cVar2 = FUN_00868250(DAT_011c3b3c), cVar2 != '\0')) {
+        while (uVar3 = FUN_00658930(0x11de874), CONCAT22(extraout_var_02,uVar3) != 0) {
+          piVar7 = (int *)FUN_00877a30(&DAT_011de874,0);
+          if ((int *)*piVar7 != (int *)0x0) {
+            (**(code **)(*(int *)*piVar7 + 0x10))(1);
+          }
+        }
+        FUN_005e03d0(0x11de874);
+        FUN_004aaf10(DAT_011c3b3c);
+      }
+      uVar4 = FUN_00869180(0x20);
+      if ((uVar4 & 0xff) == 0) {
+        for (local_2c = 0; uVar4 = FUN_0044ddc0(0x11de924), local_2c < uVar4;
+            local_2c = local_2c + 1) {
+          piVar7 = (int *)FUN_00877a30(&DAT_011de924,local_2c);
+          FUN_00401970((int *)(*piVar7 + 0x1c));
+        }
+        FUN_008454f0(&DAT_011de924,'\x01');
+      }
+      *(undefined1 *)(*(int *)(*(int *)(unaff_FS_OFFSET + 0x2c) + _tls_index * 4) + 0x298) = uVar1;
+      if (*(char *)(*(int *)(*(int *)(unaff_FS_OFFSET + 0x2c) + _tls_index * 4) + 0x298) != '\0') {
+        FUN_008694c0(&DAT_011de8bc,&DAT_011de874);
+        FUN_005e03d0(0x11de8bc);
+        FUN_00869420(&DAT_011de848,&DAT_011de888);
+        FUN_004dffa0(0x11de848);
+        FUN_008694c0(&DAT_011de838,&DAT_011de910);
+        FUN_005e03d0(0x11de838);
+        FUN_00869560(&DAT_011de858,&DAT_011de828);
+        FUN_004dffa0(0x11de858);
+        FUN_00869510(&DAT_011de898,&DAT_011de924);
+        FUN_008454f0(&DAT_011de898,'\x01');
+      }
+      DAT_011de958 = '\0';
+      FUN_00867f80();
+    }
+  }
+  return;
+}
+
+
+
+######################################################################
+# PART 3: FUN_00867f50 - called at start of PerFrameQueueDrain
+# What does this do? Initialize queues? Check state?
+######################################################################
+
+======================================================================
+PDD_PreDrain_Init @ 0x00867f50
+======================================================================
+  Function: FUN_00867f50 @ 0x00867f50, Size: 19 bytes
+
+void FUN_00867f50(void)
+
+{
+  FUN_0040fbf0((LONG *)&DAT_011de8e0);
+  return;
+}
+
+
+
+######################################################################
+# PART 4: FUN_00878360 - determines local_1c (drain rate multiplier)
+# Returns non-zero -> local_1c = 2 (double drain rate)
+# What condition causes doubled rate?
+######################################################################
+
+======================================================================
+PDD_DrainRate_Check @ 0x00878360
+======================================================================
+  Function: FUN_00878360 @ 0x00878360, Size: 58 bytes
+
+undefined1 __fastcall FUN_00878360(int param_1)
+
+{
+  undefined1 local_5;
+  
+  local_5 = 1;
+  if ((*(uint *)(param_1 + 8) < *(uint *)(param_1 + 0x10)) &&
+     (FUN_00500000 < (code *)(*(int *)(param_1 + 0x10) - *(int *)(param_1 + 8)))) {
+    local_5 = 0;
+  }
+  return local_5;
+}
+
+
+
+######################################################################
+# PART 5: Who adds items to the Generic queue (DAT_011de874)?
+# The queue had 30K+ items. What puts them there?
+# Is it cell unload, PDD, or something else?
+######################################################################
+
+----------------------------------------------------------------------
+References TO 0x011de874 (PDD_Generic_Queue_refs)
+----------------------------------------------------------------------
+  DATA @ 0x00868c0e (in FUN_00868850)
+  DATA @ 0x008690da (in FUN_00868d70)
+  DATA @ 0x00868197 (in FUN_00867f90)
+  DATA @ 0x00868285 (in FUN_00868270)
+  DATA @ 0x008682b0 (in FUN_00868270)
+  DATA @ 0x008682c5 (in FUN_00868270)
+  DATA @ 0x00868b09 (in FUN_00868850)
+  DATA @ 0x00868b31 (in FUN_00868850)
+  DATA @ 0x00868b80 (in FUN_00868850)
+  DATA @ 0x00868fe8 (in FUN_00868d70)
+  DATA @ 0x00868ff8 (in FUN_00868d70)
+  DATA @ 0x00869036 (in FUN_00868d70)
+  DATA @ 0x00fa1e1a (in FUN_00fa1e10)
+  DATA @ 0x00fd8d43 (in FUN_00fd8d40)
+  Total: 14 refs
+
+######################################################################
+# PART 6: Who adds to NiNode queue (DAT_011de808)?
+######################################################################
+
+----------------------------------------------------------------------
+References TO 0x011de808 (PDD_NiNode_Queue_refs)
+----------------------------------------------------------------------
+  DATA @ 0x0086845b (in FUN_00868330)
+  DATA @ 0x008688b3 (in FUN_00868850)
+  DATA @ 0x008688db (in FUN_00868850)
+  DATA @ 0x00868913 (in FUN_00868850)
+  DATA @ 0x00868926 (in FUN_00868850)
+  DATA @ 0x00868e40 (in FUN_00868d70)
+  DATA @ 0x00868e6b (in FUN_00868d70)
+  DATA @ 0x00868ea4 (in FUN_00868d70)
+  DATA @ 0x00fa1f3a (in FUN_00fa1f30)
+  DATA @ 0x00fd8da3 (in FUN_00fd8da0)
+  Total: 10 refs
+
+######################################################################
+# PART 7: Who adds to Form queue (DAT_011de828)?
+######################################################################
+
+----------------------------------------------------------------------
+References TO 0x011de828 (PDD_Form_Queue_refs)
+----------------------------------------------------------------------
+  DATA @ 0x0086912e (in FUN_00868d70)
+  DATA @ 0x008684f9 (in FUN_00868490)
+  DATA @ 0x00868d13 (in FUN_00868d10)
+  DATA @ 0x00868d42 (in FUN_00868d10)
+  DATA @ 0x00868e0a (in FUN_00868d70)
+  DATA @ 0x00fa1f6a (in FUN_00fa1f60)
+  DATA @ 0x00fd8db3 (in FUN_00fd8db0)
+  Total: 7 refs
+
+######################################################################
+# PART 8: FUN_00658930 - queue count check
+# Used to check if queue has items before draining
+######################################################################
+
+======================================================================
+Queue_HasItems_Check @ 0x00658930
+======================================================================
+  Function: FUN_00658930 @ 0x00658930, Size: 18 bytes
+
+undefined2 __fastcall FUN_00658930(int param_1)
+
+{
+  return *(undefined2 *)(param_1 + 10);
+}
+
+
+
+######################################################################
+# PART 9: FUN_0044ddc0 - another queue count check
+######################################################################
+
+======================================================================
+Queue_Count_Check @ 0x0044ddc0
+======================================================================
+  Function: FUN_0044ddc0 @ 0x0044ddc0, Size: 17 bytes
+
+undefined4 __fastcall FUN_0044ddc0(int param_1)
+
+{
+  return *(undefined4 *)(param_1 + 8);
+}
+

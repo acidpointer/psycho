@@ -1,0 +1,823 @@
+######################################################################
+# POPULATEARGS CELLCHANGE CRASH ANALYSIS
+# Crash: InternalFunctionCaller::PopulateArgs+0xD4 with ECX=4
+# Script: nvseRuntimeScript263CellChange (jip_nvse CellChange)
+# Path: HandleMainLoopHook -> Dispatch -> jip_nvse LN_ProcessEvents
+#        -> CallFunctionScriptAlt -> UserFunctionManager::Call
+#        -> PopulateArgs -> CRASH
+######################################################################
+
+######################################################################
+# PART 1: Script event argument passing
+# How does jip_nvse pass event arguments to script functions?
+# LN_ProcessEvents fires CellChange events.
+# The script receives a reference to the old/new cell or actor.
+# If that reference points to freed memory -> PopulateArgs crash.
+######################################################################
+
+# jip_nvse source shows (lutana.h:355 area):
+# LN_ProcessEvents processes registered event handlers
+# CellChange event passes the actor whose cell changed
+# If the actor reference was freed during cell transition,
+# PopulateArgs reads the freed reference data -> crash
+
+# Key: PopulateArgs reads TESForm* arguments from the script's
+# argument list. The TESForm pointer is stale -> freed -> recycled
+# slab cell has integer data where the TESForm fields should be.
+
+######################################################################
+# PART 2: ProcessPendingCleanup + BSTreeManager during CellChange
+# DeferredCleanupSmall at 0x878250 runs PDD + ProcessPendingCleanup
+# ProcessPendingCleanup calls BSTreeManager cleanup twice
+# Who frees the actor/cell data that the script still references?
+######################################################################
+
+======================================================================
+DeferredCleanupSmall @ 0x00878250
+======================================================================
+  Function: FUN_00878250 @ 0x00878250, Size: 86 bytes
+
+void __cdecl FUN_00878250(char param_1)
+
+{
+  void *pvVar1;
+  
+  FUN_00868d70('\x01');
+  pvVar1 = (void *)FUN_00450b80(0);
+  FUN_00b5fd60(pvVar1);
+  FUN_00c459d0('\0');
+  if (param_1 != '\0') {
+    FUN_00651e30();
+    FUN_00651f40();
+  }
+  FUN_00448620(DAT_011c3b3c,'\x01');
+  FUN_00452490(DAT_011dea10,'\0');
+  return;
+}
+
+
+
+######################################################################
+# PART 3: The CellTransition path in InnerLoop
+# FUN_0086F940 = cell transition check
+# FUN_008774A0 = CellTransitionOrchestrator
+# These run INSIDE InnerLoop, AFTER NVSE dispatch.
+# But cell DATA is freed during PREVIOUS frame's InnerLoop.
+# On the NEXT frame, NVSE dispatch fires CellChange events
+# referencing the freed data.
+######################################################################
+
+======================================================================
+CellTransition_InnerLoopCheck @ 0x0086f940
+======================================================================
+  Function: FUN_0086f940 @ 0x0086f940, Size: 595 bytes
+
+void __fastcall FUN_0086f940(int param_1)
+
+{
+  bool bVar1;
+  char cVar2;
+  uint uVar3;
+  int iVar4;
+  void *pvVar5;
+  float *pfVar6;
+  undefined4 uVar7;
+  float10 fVar8;
+  float10 fVar9;
+  float local_14;
+  float local_10;
+  float local_c;
+  undefined1 local_5;
+  
+  uVar3 = FUN_0093bea0(DAT_011dea3c);
+  if ((uVar3 & 0xff) == 0) {
+    if ((DAT_011dea2b == '\0') || (bVar1 = FUN_00709bc0(), bVar1)) {
+      if (*(char *)(param_1 + 6) == '\0') {
+        iVar4 = (**(code **)(*DAT_011dea3c + 0x1d0))();
+        if (iVar4 != 0) {
+          DAT_011e07a8 = DAT_011e07a8 + '\x01';
+          fVar8 = FUN_0084d030(0x11f6394);
+          fVar9 = FUN_009c8cc0(0x11f2250);
+          (**(code **)(*DAT_011dea3c + 0x2f8))((float)(fVar9 * (float10)(double)fVar8));
+          DAT_011e07a8 = DAT_011e07a8 + -1;
+        }
+        local_5 = 0;
+        pvVar5 = (void *)FUN_008d6f30((int)DAT_011dea3c);
+        pfVar6 = (float *)FUN_00436aa0((int)DAT_011dea3c);
+        local_14 = *pfVar6;
+        local_10 = pfVar6[1];
+        local_c = pfVar6[2];
+        if (((pvVar5 != (void *)0x0) && (bVar1 = FUN_00425fd0((int)pvVar5), !bVar1)) &&
+           (uVar3 = FUN_00550200(pvVar5,&local_14), (uVar3 & 0xff) == 0)) {
+          cVar2 = '\x01';
+          pvVar5 = (void *)FUN_0054ddd0((int)pvVar5);
+          pvVar5 = (void *)FUN_00461bc0(DAT_011c3f2c,local_14,local_10,pvVar5,cVar2);
+          if (pvVar5 != (void *)0x0) {
+            uVar3 = FUN_00450fb0((int)pvVar5);
+            if (((uVar3 & 0xff) == 0) && (uVar3 = FUN_00450ff0((int)pvVar5), (uVar3 & 0xff) == 0)) {
+              FUN_00452580(DAT_011dea10,&local_14,'\x01');
+              cVar2 = FUN_00451530((int)DAT_011dea10);
+              if (cVar2 != '\0') {
+                FUN_00457d70(DAT_011dea10,'\0',0,'\0');
+              }
+            }
+            FUN_0086fba0(1);
+            FUN_0086fbc0(DAT_011dea3c,1);
+            FUN_00548230(pvVar5,DAT_011dea3c,0);
+            uVar7 = FUN_00547590((int)pvVar5);
+            FUN_0086fbb0(uVar7);
+            FUN_0086fbc0(DAT_011dea3c,0);
+            FUN_0086fba0(0);
+            iVar4 = FUN_00b4f5c0();
+            if (iVar4 != 0) {
+              FUN_00b655b0(iVar4);
+            }
+          }
+        }
+      }
+      else {
+        iVar4 = (**(code **)(*DAT_011dea3c + 0x1d0))();
+        if (iVar4 != 0) {
+          cVar2 = *(char *)(param_1 + 7);
+          fVar8 = FUN_0084d030(0x11f6394);
+          FUN_009466d0(DAT_011dea3c,(float)fVar8,cVar2);
+        }
+      }
+    }
+    else {
+      FUN_009481d0(DAT_011dea3c);
+    }
+  }
+  return;
+}
+
+
+
+######################################################################
+# PART 4: FUN_00868850 (Phase 7 PerFrameQueueDrain)
+# Our hook wraps this. The VANILLA version drains PDD queues.
+# Does vanilla PDD free actor data that CellChange scripts use?
+######################################################################
+
+======================================================================
+PerFrameQueueDrain_Vanilla @ 0x00868850
+======================================================================
+  Function: FUN_00868850 @ 0x00868850, Size: 1166 bytes
+
+void FUN_00868850(void)
+
+{
+  char cVar1;
+  bool bVar2;
+  undefined2 uVar3;
+  undefined *puVar4;
+  undefined2 extraout_var;
+  undefined2 extraout_var_00;
+  undefined4 *puVar5;
+  undefined2 extraout_var_01;
+  undefined2 extraout_var_02;
+  undefined2 extraout_var_03;
+  undefined2 extraout_var_04;
+  undefined2 extraout_var_05;
+  undefined2 extraout_var_06;
+  undefined2 extraout_var_07;
+  undefined2 extraout_var_08;
+  int *piVar6;
+  uint uVar7;
+  undefined2 extraout_var_09;
+  int iVar8;
+  int *unaff_FS_OFFSET;
+  int local_2c;
+  int local_28;
+  void *local_24;
+  void *local_20;
+  int local_1c;
+  uint local_18;
+  int local_14;
+  int local_10;
+  undefined1 *puStack_c;
+  undefined4 local_8;
+  
+  local_8 = 0xffffffff;
+  puStack_c = &LAB_00f13d08;
+  local_10 = *unaff_FS_OFFSET;
+  *unaff_FS_OFFSET = (int)&local_10;
+  FUN_00867f50();
+  local_18 = 0;
+  local_14 = 0;
+  local_1c = 1;
+  puVar4 = FUN_00446ef0();
+  cVar1 = FUN_00878360((int)puVar4);
+  if (cVar1 != '\0') {
+    local_1c = 2;
+  }
+  uVar3 = FUN_00658930(0x11de808);
+  if (CONCAT22(extraout_var,uVar3) == 0) {
+    uVar3 = FUN_00658930(0x11de910);
+    if (CONCAT22(extraout_var_01,uVar3) == 0) {
+      uVar3 = FUN_00658930(0x11de838);
+      if (CONCAT22(extraout_var_03,uVar3) == 0) {
+        uVar3 = FUN_00658930(0x11de888);
+        if (CONCAT22(extraout_var_04,uVar3) == 0) {
+          uVar3 = FUN_00658930(0x11de848);
+          if (CONCAT22(extraout_var_06,uVar3) == 0) {
+            uVar3 = FUN_00658930(0x11de874);
+            if (CONCAT22(extraout_var_07,uVar3) == 0) {
+              uVar3 = FUN_00658930(0x11de8bc);
+              if (CONCAT22(extraout_var_09,uVar3) == 0) {
+                iVar8 = FUN_0044ddc0(0x11de924);
+                if (iVar8 == 0) {
+                  iVar8 = FUN_0044ddc0(0x11de898);
+                  if (iVar8 != 0) {
+                    FUN_00869510(&DAT_011de898,&DAT_011de924);
+                    FUN_008454f0(&DAT_011de898,'\x01');
+                  }
+                }
+                else {
+                  local_18 = FUN_0044ddc0(0x11de924);
+                  local_14 = local_1c * 5;
+                  while ((local_18 != 0 && (local_14 != 0))) {
+                    local_18 = local_18 - 1;
+                    local_14 = local_14 + -1;
+                    piVar6 = (int *)FUN_00877a30(&DAT_011de924,0);
+                    FUN_00401970((int *)(*piVar6 + 0x1c));
+                    FUN_006bf8f0(&DAT_011de924,0,'\x01');
+                  }
+                }
+              }
+              else {
+                FUN_008694c0(&DAT_011de8bc,&DAT_011de874);
+                FUN_005e03d0(0x11de8bc);
+              }
+            }
+            else {
+              cVar1 = FUN_00868250(DAT_011c3b3c);
+              if (cVar1 != '\0') {
+                uVar3 = FUN_00658930(0x11de874);
+                local_18 = CONCAT22(extraout_var_08,uVar3);
+                local_14 = local_1c * 0x14;
+                local_2c = 1;
+                while (((local_18 != 0 && (local_14 != 0)) && (local_2c != 0))) {
+                  local_18 = local_18 - 1;
+                  local_14 = local_14 + -1;
+                  piVar6 = (int *)FUN_00877a30(&DAT_011de874,0);
+                  piVar6 = (int *)*piVar6;
+                  cVar1 = (**(code **)(*piVar6 + 0x100))();
+                  if ((cVar1 != '\0') || (uVar7 = FUN_00564d80((int)piVar6), (uVar7 & 0xff) != 0)) {
+                    local_2c = local_2c + -1;
+                  }
+                  if (piVar6 != (int *)0x0) {
+                    (**(code **)(*piVar6 + 0x10))(1);
+                  }
+                }
+                FUN_004aaf10(DAT_011c3b3c);
+              }
+            }
+          }
+          else {
+            FUN_00869420(&DAT_011de848,&DAT_011de888);
+            FUN_004dffa0(0x11de848);
+          }
+        }
+        else {
+          uVar3 = FUN_00658930(0x11de888);
+          local_18 = CONCAT22(extraout_var_05,uVar3);
+          local_14 = local_1c * 10;
+          while ((local_18 != 0 && (local_14 != 0))) {
+            local_18 = local_18 - 1;
+            local_14 = local_14 + -1;
+            FUN_00869260(&DAT_011de888,&local_28,local_18);
+            local_8 = 0;
+            bVar2 = FUN_0052aa80(&local_28,0);
+            if (bVar2) {
+              FUN_00868ce0(local_28);
+            }
+            local_8 = 0xffffffff;
+            Concurrency::cancellation_token_source::~cancellation_token_source
+                      ((cancellation_token_source *)&local_28);
+          }
+        }
+      }
+      else {
+        FUN_008694c0(&DAT_011de838,&DAT_011de910);
+        FUN_005e03d0(0x11de838);
+      }
+    }
+    else {
+      cVar1 = FUN_00868250(DAT_011c3b3c);
+      if (cVar1 != '\0') {
+        uVar3 = FUN_00658930(0x11de910);
+        local_18 = CONCAT22(extraout_var_02,uVar3);
+        local_14 = local_1c * 10;
+        while ((local_18 != 0 && (local_14 != 0))) {
+          local_18 = local_18 - 1;
+          local_14 = local_14 + -1;
+          puVar5 = (undefined4 *)FUN_00877a30(&DAT_011de910,local_18);
+          local_24 = (void *)*puVar5;
+          FUN_009e98d0(&DAT_011de910,local_18);
+          if (local_24 != (void *)0x0) {
+            FUN_00418e00(local_24,1);
+          }
+        }
+        FUN_004aaf10(DAT_011c3b3c);
+      }
+    }
+  }
+  else {
+    cVar1 = FUN_00868250(DAT_011c3b3c);
+    if (cVar1 != '\0') {
+      uVar3 = FUN_00658930(0x11de808);
+      local_18 = CONCAT22(extraout_var_00,uVar3);
+      local_14 = local_1c * 10;
+      while ((local_18 != 0 && (local_14 != 0))) {
+        local_18 = local_18 - 1;
+        local_14 = local_14 + -1;
+        puVar5 = (undefined4 *)FUN_00877a30(&DAT_011de808,local_18);
+        local_20 = (void *)*puVar5;
+        FUN_009e98d0(&DAT_011de808,local_18);
+        if (local_20 != (void *)0x0) {
+          FUN_00418d20(local_20,1);
+        }
+      }
+      FUN_004aaf10(DAT_011c3b3c);
+    }
+  }
+  FUN_00867f80();
+  *unaff_FS_OFFSET = local_10;
+  return;
+}
+
+
+
+######################################################################
+# PART 5: Form lookup by FormID
+# When scripts access actors by FormID, the lookup goes through
+# a form table. If the form was freed but FormID not cleared,
+# the lookup returns stale pointer -> crash in PopulateArgs.
+######################################################################
+
+======================================================================
+FormTable_Lookup_or_CellChange_Counter @ 0x00483370
+======================================================================
+  Function: FUN_00483370 @ 0x00483370, Size: 620 bytes
+
+undefined4 * __fastcall FUN_00483370(undefined4 *param_1)
+
+{
+  bool bVar1;
+  char cVar2;
+  undefined4 uVar3;
+  int iVar4;
+  int *unaff_FS_OFFSET;
+  uint local_1c;
+  uint local_18;
+  int local_10;
+  undefined1 *puStack_c;
+  undefined4 local_8;
+  
+  local_8 = 0xffffffff;
+  puStack_c = &LAB_00eeefab;
+  local_10 = *unaff_FS_OFFSET;
+  *unaff_FS_OFFSET = (int)&local_10;
+  FUN_00402d30(param_1);
+  *param_1 = &PTR_FUN_0101c794;
+  Concurrency::details::QuickBitSet::QuickBitSet((QuickBitSet *)(param_1 + 4));
+  local_8 = 0;
+  if (DAT_011c54bc == 0) {
+    FUN_00483a50();
+  }
+  DAT_011c54bc = DAT_011c54bc + 1;
+  if (DAT_011c54b8 == '\0') {
+    bVar1 = false;
+    FUN_0043b2b0('\x01');
+    for (local_18 = 0; local_18 < 0x79; local_18 = local_18 + 1) {
+      *(int *)(&DAT_01187008 + local_18 * 0xc) =
+           (int)(char)*(&PTR_s_NONE_01187004)[local_18 * 3] |
+           (int)(char)(&PTR_s_NONE_01187004)[local_18 * 3][1] << 8 |
+           (int)(char)(&PTR_s_NONE_01187004)[local_18 * 3][2] << 0x10 |
+           (int)(char)(&PTR_s_NONE_01187004)[local_18 * 3][3] << 0x18;
+      if ((byte)(&DAT_01187000)[local_18 * 0xc] != local_18) {
+        FUN_005b5e40();
+        bVar1 = true;
+      }
+      for (local_1c = 0; local_1c < 0x79; local_1c = local_1c + 1) {
+        if ((local_18 != local_1c) &&
+           (*(int *)(&DAT_01187008 + local_18 * 0xc) == *(int *)(&DAT_01187008 + local_1c * 0xc))) {
+          FUN_005b5e40();
+          bVar1 = true;
+        }
+      }
+    }
+    FUN_0043b2b0('\0');
+    if (bVar1) {
+      FUN_0040fbe0();
+    }
+    DAT_011c54b8 = '\x01';
+  }
+  *(undefined1 *)(param_1 + 1) = 0;
+  param_1[2] = 8;
+  param_1[3] = 0;
+  if (DAT_011c3f2c != 0) {
+    cVar2 = FUN_00482f20(DAT_011c3f2c);
+    if (cVar2 == '\0') {
+      uVar3 = FUN_00469800(DAT_011c3f2c);
+      param_1[3] = uVar3;
+      iVar4 = FUN_004835e0(DAT_011c3f2c);
+      if (iVar4 != 0) {
+        iVar4 = FUN_004835e0(DAT_011c3f2c);
+        FUN_00484f50(param_1,iVar4);
+      }
+      if ((uint)param_1[3] < 0x800) {
+        FUN_00485c10(param_1,0x800,'\x01');
+      }
+    }
+  }
+  if (param_1[3] != 0) {
+    FUN_00844700(DAT_011c54c0,param_1[3],param_1);
+  }
+  *unaff_FS_OFFSET = local_10;
+  return param_1;
+}
+
+
+
+--- Calls FROM FormTable_Lookup (0x00483370) ---
+  CALL @ 0x0048339b -> 0x00402d30 FUN_00402d30
+  CALL @ 0x004833af -> 0x0096a2d0 QuickBitSet
+  CALL @ 0x004833c4 -> 0x00483a50 FUN_00483a50
+  CALL @ 0x004833ed -> 0x0043b2b0 FUN_0043b2b0
+  CALL @ 0x00483486 -> 0x005b5e40 FUN_005b5e40
+  CALL @ 0x004834e6 -> 0x005b5e40 FUN_005b5e40
+  CALL @ 0x004834fb -> 0x0043b2b0 FUN_0043b2b0
+  CALL @ 0x00483510 -> 0x0040fbe0 FUN_0040fbe0
+  CALL @ 0x00483549 -> 0x00482f20 FUN_00482f20
+  CALL @ 0x0048355b -> 0x00469800 FUN_00469800
+  CALL @ 0x0048356c -> 0x004835e0 FUN_004835e0
+  CALL @ 0x0048357b -> 0x004835e0 FUN_004835e0
+  CALL @ 0x00483584 -> 0x00484f50 FUN_00484f50
+  CALL @ 0x0048359f -> 0x00485c10 FUN_00485c10
+  CALL @ 0x004835be -> 0x00844700 FUN_00844700
+  Total: 15 calls
+
+######################################################################
+# PART 6: Loading state counter callers near cell transition
+# FUN_004556d0 = PDD caller (vanilla) - huge function
+# Does it increment/decrement the counter around PDD?
+# If PDD frees forms while counter is 0, CellChange fires.
+######################################################################
+
+======================================================================
+VanillaPDD_Caller (first 4000 chars) @ 0x004556d0
+======================================================================
+  Function: FUN_004556d0 @ 0x004556d0, Size: 3611 bytes
+
+/* WARNING: Globals starting with '_' overlap smaller symbols at the same address */
+
+void __thiscall FUN_004556d0(void *this,int param_1)
+
+{
+  bool bVar1;
+  int *piVar2;
+  undefined4 *puVar3;
+  char *pcVar4;
+  int iVar5;
+  float *pfVar6;
+  void *pvVar7;
+  int iVar8;
+  undefined4 uVar9;
+  undefined4 uVar10;
+  undefined4 extraout_ECX;
+  undefined4 extraout_ECX_00;
+  undefined4 extraout_ECX_01;
+  undefined4 extraout_ECX_02;
+  undefined4 extraout_ECX_03;
+  undefined4 extraout_ECX_04;
+  undefined4 extraout_ECX_05;
+  undefined4 extraout_EDX;
+  undefined4 extraout_EDX_00;
+  undefined4 extraout_EDX_01;
+  undefined4 extraout_EDX_02;
+  undefined4 extraout_EDX_03;
+  undefined4 extraout_EDX_04;
+  undefined4 extraout_EDX_05;
+  int *unaff_FS_OFFSET;
+  ulonglong uVar11;
+  double dVar12;
+  double dVar13;
+  char *pcVar14;
+  float fVar15;
+  uint uVar16;
+  size_t sVar17;
+  undefined4 uVar18;
+  float *pfVar19;
+  undefined *local_104;
+  undefined *local_100;
+  undefined *local_fc;
+  undefined *local_f8;
+  undefined4 *local_f0;
+  undefined1 local_c8 [15];
+  char local_b9;
+  uint local_b8;
+  int local_b4;
+  float local_b0;
+  int local_ac;
+  CArray<class_CMFCRibbonInfo::XQAT::XQATItem,class_CMFCRibbonInfo::XQAT::XQATItem> local_a8 [8];
+  undefined4 local_a0;
+  float local_9c;
+  int local_98;
+  undefined4 local_94;
+  undefined4 local_90;
+  float local_8c;
+  float local_88;
+  undefined4 local_84 [3];
+  float local_78;
+  float local_74;
+  float local_70;
+  undefined1 local_6c [5];
+  char local_67;
+  clock_t local_60;
+  float local_5c;
+  undefined4 *local_58;
+  undefined4 *local_54;
+  int local_50;
+  int local_4c;
+  int *local_48;
+  int *local_44;
+  char local_3d;
+  clock_t local_3c;
+  tagINPUT local_38;
+  char local_1a;
+  undefined1 local_19;
+  int local_18;
+  char local_11;
+  int local_10;
+  undefined1 *puStack_c;
+  undefined4 local_8;
+  
+  local_8 = 0xffffffff;
+  puStack_c = &LAB_00eed409;
+  local_10 = *unaff_FS_OFFSET;
+  *unaff_FS_OFFSET = (int)&local_10;
+  if (((param_1 == 4) || (param_1 == 5)) || (param_1 == 9)) {
+    DAT_011c3ef4 = '\x01';
+  }
+  if ((5 < param_1) && (param_1 < 8)) {
+    param_1 = param_1 + -5;
+    DAT_011c3ef4 = '\x01';
+    FUN_005a8040(this,FUN_00557dd0);
+  }
+  if (param_1 == -1) {
+    *(undefined1 *)((int)this + 0x51) = 0;
+    FUN_0043b2b0('\0');
+    *(undefined4 *)((int)this + 0x5c) = 0;
+  }
+  else if (param_1 != 0) {
+    DAT_011c3ef0 = param_1;
+    *(undefined1 *)((int)this + 0x51) = 1;
+    FUN_0043b2b0('\x01');
+    FUN_00aff0b0(PTR_s_TestAllCells_xls_01186084);
+    if (DAT_011c3ef4 == '\0') {
+      FUN_005b5e40();
+      FUN_0046ddb0(DAT_011c3f2c,'\0');
+      FUN_005b5e40();
+      FUN_0046ec10();
+      DAT_011c3ef4 = '\x01';
+    }
+    if ((((param_1 == 1) || (param_1 == 4)) || ((param_1 == 5 || (param_1 == 9)))) &&
+       ((DAT_011c3eec == 0 && (DAT_011c3ee8 == 0)))) {
+      DAT_011c3eec = FUN_00460140((int)DAT_011c3f2c);
+      DAT_011c3ee4 = '\x01';
+      FUN_004619b0((int)DAT_011c3f2c);
+      DAT_011c3ee8 = FUN_00461960((int)DAT_011c3f2c);
+      DAT_011c3ee0 = 0;
+    }
+    else if (param_1 == 3) {
+      if ((DAT_011c3eec == 0) ||
+         (piVar2 = (int *)FUN_006815c0(DAT_011c3eec), *piVar2 != *(int *)((int)this + 0x88))) {
+        for (DAT_011c3eec = FUN_00460140((int)DAT_011c3f2c); DAT_011c3eec != 0;
+            DAT_011c3eec = FUN_00726070(DAT_011c3eec)) {
+          piVar2 = (int *)FUN_006815c0(DAT_011c3eec);
+          local_18 = *piVar2;
+          if ((local_18 != 0) && (local_18 == *(int *)((int)this + 0x88))) break;
+        }
+      }
+      if (DAT_011c3eec != 0) {
+        DAT_011c3ee4 = '\x01';
+        FUN_004619b0((int)DAT_011c3f2c);
+        DAT_011c3ee8 = FUN_00461960((int)DAT_011c3f2c);
+        DAT_011c3ee0 = 0;
+      }
+    }
+    else if (param_1 == 2) {
+      local_19 = DAT_011c3eec != 0;
+      if ((bool)local_19) {
+        DAT_011c3eec = 0;
+        DAT_011c3ee4 = '\0';
+      }
+      if (DAT_011c3ee8 == 0) {
+        FUN_004619b0((int)DAT_011c3f2c);
+        DAT_011c3ee8 = FUN_00461960((int)DAT_011c3f2c);
+        DAT_011c3ee0 = 0;
+        local_19 = 1;
+      }
+    }
+  }
+  local_11 = '\x01';
+  do {
+    do {
+      if (local_11 == '\0') {
+        *unaff_FS_OFFSET = local_10;
+        return;
+      }
+      local_11 = '\0';
+    } while (*(char *)((int)this + 0x51) == '\0');
+    local_11 = param_1 == 9;
+    local_44 = (int *)0x0;
+    local_3c = _clock();
+    local_38.type = 0;
+    local_38.field1_0x4.mi.dwFlags = 1;
+    local_38.field1_0x4.mi.time = 0;
+    local_38.field1_0x4.mi.dy = 0;
+    local_38.field1_0x4.mi.mouseData = 0;
+    local_38.field1_0x4.mi.dwExtraInfo = 0;
+    if (DAT_01186080 < 1) {
+      local_38.field1_0x4.mi.dx = -1;
+    }
+    else {
+      local_38.field1_0x4.mi.dx = 2;
+    }
+    SendInput(1,&local_38,0x1c);
+    DAT_01186080 = -DAT_01186080;
+    if (DAT_011c3ee4 != '\0') {
+      if (DAT_011c3eec != 0) {
+        puVar3 = (undefined4 *)FUN_006815c0(DAT_011c3eec);
+        local_48 = (int *)*puVar3;
+        while (local_48 != (int *)0x0) {
+          sVar17 = 4;
+          pcVar14 = "test";
+          pcVar4 = (char *)(**(code **)(*local_48 + 0x130))();
+          iVar5 = FUN_004564f0(pcVar4,pcVar14,sVar17);
+          if (iVar5 != 0) break;
+          DAT_011c3eec = FUN_00726070(DAT_011c3eec);
+          if (DAT_011c3eec == 0) {
+            local_48 = (int *)0x0;
+          }
+          else {
+            puVar3 = (undefined4 *)FUN_006815c0(DAT_011c3eec);
+            local_48 = (int *)*puVar3;
+          }
+        }
+        if (local_48 != (int *)0x0) {
+          FUN_00458200(this,(int)local_48);
+          FUN_004565f0(*(int *)((int)this + 0x88));
+          uVar11 = FUN_00ec62c0(extraout_ECX,extraout_EDX);
+          DAT_011c3edc = (int)uVar11 >> 0xc;
+          FUN_00812870(*(int *)((int)this + 0x88));
+          uVar11 = FUN_00ec62c0(extraout_ECX_00,extraout_EDX_00);
+          DAT_011c3ed8 = (int)uVar11 >> 0xc;
+          FUN_009b88a0(*(int *)((int)this + 0x88));
+          uVar11 = FUN_00ec62c0(extraout_ECX_01,extraout_EDX_01);
+          local_4c = (int)uVar11 >> 0xc;
+          FUN_009b88c0(*(int *)((int)this + 0x88));
+          uVar11 = FUN_00ec62c0(extraout_ECX_02,extraout_EDX_02);
+          local_50 = (int)uVar11 >> 0xc;
+          (**(code **)(**(int **)((int)this + 0x88) + 0x130))
+                    (DAT_011c3edc,DAT_011c3ed8,local_4c,local_50);
+          FUN_005b5e40();
+        }
+      }
+      DAT_011c3ee4 = '\0';
+    }
+    local_1a = '\0';
+    local_3d = '\0';
+    while (((local_1a == '\0' && (DAT_011c3ee4 == '\0')) && (local_3d == '\0'))) {
+      if (DAT_011c3eec == 0) {
+        if (DAT_011c3ee0 == 0) {
+          FUN_005b5e40();
+        }
+        local_44 = (int *)FUN_00461980(DAT_011c3f2c,DAT_011c3ee0);
+        while (DAT_011c3ee0 = DAT_011c3ee0 + 1, local_44 != (int *)0x0) {
+          sVar17 = 4;
+          pcVar14 = "test";
+          pcVar4 = (char *)(**(code **)(*local_44 + 0x130))();
+          iVar5 = FUN_004564f0(pcVar4,pcVar14,sVar17);
+          if (iVar5 != 0) break;
+          local_44 = (int *)FUN_00461980(DAT_011c3f2c,DAT_011c3ee0);
+        }
+        if (local_44 == (int *)0x0) {
+          local_3d = '\x01';
+        }
+      }
+      else {
+        local_44 = FUN_00585b30(*(void **)((int)this + 0x88),DAT_011c3edc,DAT_011c3ed8);
+        if (local_44 != (int *)0x0) {
+          FUN_00454e70(this,(int)local_44);
+        }
+        DAT_011c3ed8 = DAT_011c3ed8 + 1;
+        FUN_009b88c0(*(int *)((int)this + 0x88));
+        uVar11 = FUN_00ec62c0(extraout_ECX_03,extraout_EDX_03);
+        if ((int)uVar11 >> 0xc < DAT_011c3ed8) {
+          FUN_00812870(*(int *)((int)this + 0x88));
+          uVar11 = FUN_00ec62c0(extraout_ECX_04,extraout_EDX_04);
+          DAT_011c3ed8 = (int)uVar11 >> 0xc;
+          DAT_011c3edc = DAT_011c3edc + 1;
+          FUN_009b88a0(*(int *)((int)this + 0x88));
+          uVar11 = FUN_00ec62c0(extraout_ECX_05,extraout_EDX_05);
+          if (((int)uVar11 >> 0xc < (int)DAT_011c3edc) &&
+             (DAT_011c3eec = FUN_00726070(DAT_011c3eec), DAT_011c3eec != 0)) {
+            DAT_011c3ee4 = '\x01';
+          }
+        }
+      }
+      if (((local_44 != (int *)0x0) && (bVar1 = FUN_00440d80((int)local_44), !bVar1)) &&
+         (iVar5 = FUN_0054cee0((int)local_44), iVar5 != 0)) {
+        local_1a = '\x01';
+      }
+    }
+    if ((local_44 == (int *)0x0) || (local_1a == '\0')) {
+      if ((DAT_011c3ee4 != '\0') &&
+         (iVar5 = FUN_00575d70((int)DAT_011dea3c), iVar5 != *(int *)((int)this + 0x88))) {
+        local_11 = '\x01';
+      }
+    }
+    else {
+      local_54 = FUN_00547110(local_44,'\x01');
+      if ((*(int *)((int)this + 0x5c) != 0) &&
+         ((local_54 == (undefined4 *)0x0 ||
+          (bVar1 = FUN_005f65d0(local_54 + 1,(int *)((int)this + 0x5c)), !bVar1)))) {
+        local_1a = '\0';
+      }
+    }
+    if (local_1a != '\0') {
+      FUN_00867a40(&DAT_011de7b8,_DAT_01017b78);
+      local_78 = DAT_011f426c;
+      local_74 = DAT_011f4270;
+      local_70 = DAT_011f4274;
+      bVar1 = FUN_00425fd0((int)local_44);
+      if (!bVar1) {
+        uVar18 = 0;
+        iVar5 = FUN_00544c60((int)local_44);
+        fVar15 = (float)(iVar5 << 0xc) + (float)_DAT_01016968;
+        iVar5 = FUN_00544c30((int)local_44);
+        pfVar6 = (float *)FUN_00416870(local_c8,(float)(iVar5 << 0xc) + (float)_DAT_01016968,fVar15,
+                                       uVar18);
+        local_78 = *pfVar6;
+        local_74 = pfVar6[1];
+        local_70 = pfVar6[2];
+      }
+      bVar1 = FUN_00425fd0((int)local_44);
+      if (bVar1) {
+        FUN_00550340(local_44);
+        FUN_006815c0(local_84);
+        FUN_0054cfd0(local_44,&local_78,local_84);
+        FUN_00453dc0(this,local_44,&local_78);
+      }
+      else {
+        iVar5 = FUN_005f36f0((int)this);
+        if (iVar5 == 0) {
+          FUN_00452580(this,&local_78,'\0');
+          pfVar19 = &local_8c;
+          pfVar6 = &local_78;
+          pvVar7 = (void *)FUN_00546fb0((int)local_44);
+          FUN_0053f180(pvVar7,pfVar6,pfVar19);
+          if ((float)_DAT_01012060 <= local_8c) {
+            local_70 = local_8c;
+          }
+        }
+        else {
+      
+
+######################################################################
+# PART 7: Who calls DeferredCleanupSmall (0x878250)?
+# It showed up at stack frame #10 in the BSTreeNode crash.
+# It's called from CellTransitionOrchestrator and from
+# the InnerLoop's post-render path.
+######################################################################
+
+----------------------------------------------------------------------
+References TO 0x00878250 (DeferredCleanupSmall callers)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x004560a7 (in FUN_004556d0)
+  UNCONDITIONAL_CALL @ 0x008782cd (in FUN_008782b0)
+  UNCONDITIONAL_CALL @ 0x0093cf24 (in FUN_0093cdf0)
+  UNCONDITIONAL_CALL @ 0x0093d62a (in FUN_0093d500)
+  UNCONDITIONAL_CALL @ 0x005b6cfc (in FUN_005b6cd0)
+  Total: 5 refs
+
+######################################################################
+# PART 8: The loading_state_counter and CellChange interaction
+# When counter > 0, actor processing skips event dispatch.
+# jip_nvse CellChange: does IT check the counter?
+# Or does it always fire regardless?
+######################################################################
+
+# jip_nvse source (lutana.h:355):
+# LN_ProcessEvents is called from NVSEMessageHandler on
+# kMessage_MainGameLoop. It processes all registered events.
+# The CellChange event handler is registered by jip_nvse.
+# It does NOT check LOADING_STATE_COUNTER.
+# It fires whenever the game dispatches MainGameLoop messages.
+
+# The game dispatches MainGameLoop on EVERY frame, including
+# frames during loading (loading screen renders = main loop runs).
+# So CellChange fires even during loading transitions.
