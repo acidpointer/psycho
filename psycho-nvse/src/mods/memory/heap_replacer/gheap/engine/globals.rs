@@ -24,9 +24,28 @@ use crate::mods::memory::heap_replacer::gheap::types;
 /// True when the game is in a loading screen (save load, fast travel, coc).
 /// Simple volatile read. No edge detection overhead on the hot path.
 /// Loading transitions are logged by the watchdog thread instead.
+/// WARNING: includes console/menu state. Use is_real_loading() for
+/// loading detection that doesn't fire on console open/close.
 #[inline]
 pub fn is_loading() -> bool {
     unsafe { *(addr::LOADING_FLAG as *const u8) != 0 }
+}
+
+/// True only during actual cell data loading (not console/menu/pause).
+/// Calls FUN_00702360 directly, bypassing the IsMenuMode check in LOADING_FLAG.
+/// Ghidra-validated: LOADING_FLAG = FUN_00702360() || FUN_00709bc0().
+/// FUN_00709bc0 checks console/menu state -> causes false loading transitions.
+pub fn is_real_loading() -> bool {
+    let f = match unsafe {
+        FnPtr::<types::IsRealLoadingFn>::from_raw(addr::IS_REAL_LOADING as *mut c_void)
+    } {
+        Ok(f) => f,
+        Err(_) => return false,
+    };
+    match unsafe { f.as_fn() } {
+        Ok(f) => unsafe { f() },
+        Err(_) => false,
+    }
 }
 
 /// HeapCompact stages. The game's HeapCompact dispatcher at Phase 6

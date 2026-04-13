@@ -43,7 +43,14 @@ pub const TES_SINGLETON: usize = 0x011DEA3C;
 
 // Loading flag (u8). Set during save load, fast travel, cell transition.
 // Phase 1 of the frame loop refreshes this from IsLoading || IsMenuMode.
+// WARNING: includes console/menu state (FUN_00709bc0). Use IS_REAL_LOADING
+// for actual cell loading detection to avoid false transitions.
 pub const LOADING_FLAG: usize = 0x011DEA2B;
+
+// FUN_00702360: true only during actual cell data loading (not console/menu).
+// Ghidra: called at InnerLoop lines 64,102 as one of two conditions for
+// LOADING_FLAG. The other condition (FUN_00709bc0) checks console/menu state.
+pub const IS_REAL_LOADING: usize = 0x00702360;
 
 // AI running flag (u8). Set to 1 by AI_START, cleared by AI_JOIN.
 // This is the game's own flag, separate from our AtomicBool.

@@ -159,7 +159,11 @@ pub unsafe extern "C" fn hook_per_frame_queue_drain() {
     }
 
     // --- Loading transition detection ---
-    let loading_now = globals::is_loading();
+    // Use is_real_loading() to detect actual cell loading only.
+    // is_loading() includes console/menu state (FUN_00709bc0), causing
+    // false transitions when user opens console to type coc commands.
+    // Ghidra: LOADING_FLAG = FUN_00702360() || FUN_00709bc0().
+    let loading_now = globals::is_real_loading();
     let was_loading = WAS_LOADING.with(|c| {
         let prev = c.get();
         c.set(loading_now);
@@ -342,30 +346,27 @@ pub unsafe extern "C" fn hook_per_frame_queue_drain() {
     }
 
     if request >= 1 && !vas_emergency_active {
-        // Post-loading cooldown: suppress cleanup to let jip_nvse's
-        // nvseRuntimeScript263CellChange finish processing events that
-        // reference objects from the old cell.
         let now = libpsycho::os::windows::winapi::get_tick_count() as u64;
         let cooldown_end = POST_LOADING_COOLDOWN_MS.load(Ordering::Acquire);
+
         if now < cooldown_end {
+            // INSIDE cooldown window: jip_nvse events are suppressed
+            // (LOADING_COUNTER_ELEVATED). Safe to run Stage 4 (PddPurge)
+            // which does a full PDD drain. This prevents BSTreeNode queue
+            // buildup (30K+ items -> RefCount:0 -> C0000417).
+            // Ghidra: Stage 4 = TryLock process mgr + PDD full drain.
+            if !globals::is_loading() {
+                heap.signal_heap_compact(globals::HeapCompactStage::PddPurge);
+            }
             return;
         }
 
-        // During loading, DO NOT signal HeapCompact stages. Stages 0-2
-        // (texture/geometry/menu cache flush) corrupt caches while the IO
-        // thread is actively loading textures.
-        //
-        // During gameplay: signal Stage 4 (PddPurge). Ghidra FUN_00866a90:
-        //   case 4: TryLock process manager -> PDD full drain -> unlock
-        //   case 3: async flush (blocking) [falls through from 4]
-        // Both safe at Phase 7 (no Havok lock needed, main thread only).
-        //
-        // Stage 4 is CRITICAL: without it, the PDD Generic queue grows
-        // unboundedly (30K+ items). BSTreeNode parents outlive their
-        // children -> Release on freed children -> RefCount:0 -> C0000417.
-        // See: project_bstreenode_crash_chain.md
+        // OUTSIDE cooldown: jip_nvse CellChange scripts hold stale TESForm*
+        // refs. Stage 4 full PDD drain would free those forms -> PopulateArgs
+        // crash (ECX=4, recycled cell data). Only signal Stage 2 (MenuCleanup)
+        // which doesn't drain PDD queues aggressively.
         if !globals::is_loading() {
-            heap.signal_heap_compact(globals::HeapCompactStage::PddPurge);
+            heap.signal_heap_compact(globals::HeapCompactStage::MenuCleanup);
         }
 
         // NOTE: pool drain moved to AFTER PDD (below). Draining before PDD
@@ -436,18 +437,17 @@ pub unsafe extern "C" fn hook_per_frame_queue_drain() {
         unsafe { original() };
 
         // Boosted PDD drain when watchdog flagged cleanup.
-        // During loading, skip entirely — the game's cell transition already
-        // runs its own PDD. Our aggressive drain frees objects the transition
-        // still needs, causing UAF when NVSE scripts access freed Characters
-        // (crash in InternalFunctionCaller::PopulateArgs).
+        // Extra PDD rounds REMOVED. Aggressive PDD drain frees TESObjectCELL
+        // objects that jip_nvse's LN_ProcessEvents holds via static lastCell
+        // pointer (lutana.h:338). CallFunction passes lastCell to script ->
+        // PopulateArgs reads freed/recycled cell data -> crash.
         //
-        // Post-loading cooldown: also suppress to let jip_nvse events finish.
-        if request >= 1 && !globals::is_loading() {
-            let now = libpsycho::os::windows::winapi::get_tick_count() as u64;
-            let cooldown_end = POST_LOADING_COOLDOWN_MS.load(Ordering::Acquire);
-            if now < cooldown_end {
-                return;
-            }
+        // Vanilla PDD drains 5-40 items per queue per frame. Our 75 rounds
+        // drained entire queues -> destroyed cells before jip_nvse reads them.
+        // Stage 4 HeapCompact (during post-loading cooldown) handles BSTreeNode
+        // queue buildup. No extra PDD rounds needed during normal gameplay.
+        if false {
+            // dead code - kept for reference
             let max_rounds = if request >= 2 {
                 PDD_ROUNDS_AGGRESSIVE
             } else {
