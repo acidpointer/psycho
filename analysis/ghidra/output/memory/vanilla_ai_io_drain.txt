@@ -1,0 +1,354 @@
+VANILLA AI+IO DRAIN MECHANISM ANALYSIS
+Goal: What does FUN_00877700 do? Can destruction_protocol call it?
+      What do FUN_00ad88f0 and FUN_00ad8d10 drain?
+======================================================================
+
+######################################################################
+# SECTION 1: FUN_00877700 ? AI drain before StopHavok_DrainAI
+# CellTransitionHandler calls this at 0x008774e0 before StopHavok
+######################################################################
+
+======================================================================
+FUN_00877700_PreStopHavok @ 0x00877700
+======================================================================
+  Function: FUN_00877700 @ 0x00877700, Size: 30 bytes
+
+void __fastcall FUN_00877700(int param_1)
+
+{
+  FUN_00ad8da0((void *)(param_1 + 0x77c),1000);
+  return;
+}
+
+
+
+--- Calls FROM FUN_00877700_PreStopHavok (0x00877700) ---
+  0x00877715 -> 0x00ad8da0 FUN_00ad8da0
+  Total: 1 calls
+
+----------------------------------------------------------------------
+References TO 0x00877700 (FUN_00877700_PreStopHavok)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x008774c4 (in FUN_008774a0)
+  Total: 1 refs
+
+######################################################################
+# SECTION 2: FUN_00ad88f0 ? IO queue drain
+# Called twice by StopHavok_DrainAI with DAT_011dd5bc and DAT_011dd638
+######################################################################
+
+======================================================================
+IO_QueueDrain @ 0x00ad88f0
+======================================================================
+  Function: FUN_00ad88f0 @ 0x00ad88f0, Size: 51 bytes
+
+uint __fastcall FUN_00ad88f0(int *param_1)
+
+{
+  undefined *this;
+  uint uVar1;
+  int iVar2;
+  
+  if (*param_1 == -1) {
+    uVar1 = (uint)param_1 & 0xffffff00;
+  }
+  else {
+    param_1[2] = 2;
+    iVar2 = *param_1;
+    this = FID_conflict__Immortalize<class_std::_Generic_error_category>();
+    uVar1 = FUN_00adb610(this,iVar2);
+  }
+  return uVar1;
+}
+
+
+
+--- Calls FROM IO_QueueDrain (0x00ad88f0) ---
+  0x00ad8913 -> 0x00ad9060 FID_conflict:_Immortalize<class_std::_Generic_error_category>
+  0x00ad891a -> 0x00adb610 FUN_00adb610
+  Total: 2 calls
+
+######################################################################
+# SECTION 3: FUN_00ad8d10 ? second IO drain
+# Called after FUN_00ad88f0 by StopHavok_DrainAI
+######################################################################
+
+======================================================================
+IO_QueueDrain2 @ 0x00ad8d10
+======================================================================
+  Function: FUN_00ad8d10 @ 0x00ad8d10, Size: 66 bytes
+
+uint __fastcall FUN_00ad8d10(int *param_1)
+
+{
+  undefined *this;
+  uint uVar1;
+  int iVar2;
+  
+  if (*param_1 == -1) {
+    uVar1 = (uint)param_1 & 0xffffff00;
+  }
+  else {
+    iVar2 = *param_1;
+    this = FID_conflict__Immortalize<class_std::_Generic_error_category>();
+    uVar1 = FUN_00adbf50(this,iVar2);
+    if ((char)uVar1 != '\0') {
+      *param_1 = -1;
+    }
+    uVar1 = uVar1 & 0xff;
+  }
+  return uVar1;
+}
+
+
+
+--- Calls FROM IO_QueueDrain2 (0x00ad8d10) ---
+  0x00ad8d2b -> 0x00ad9060 FID_conflict:_Immortalize<class_std::_Generic_error_category>
+  0x00ad8d32 -> 0x00adbf50 FUN_00adbf50
+  Total: 2 calls
+
+######################################################################
+# SECTION 4: FUN_00830ad0 ? condition check in StopHavok path 0
+# If this returns non-zero, FUN_008304a0+FUN_008325a0(0) are called
+######################################################################
+
+======================================================================
+StopHavok_ConditionCheck @ 0x00830ad0
+======================================================================
+  Function: FUN_00830ad0 @ 0x00830ad0, Size: 92 bytes
+
+undefined1 FUN_00830ad0(void)
+
+{
+  undefined1 local_c;
+  
+  FUN_00830470();
+  if ((((DAT_011dd334 == 0) || (DAT_011dd314 != 7)) && ((DAT_011dd368 == 0 || (DAT_011dd348 != 7))))
+     && (DAT_011dd313 == '\0')) {
+    local_c = 0;
+  }
+  else {
+    local_c = 1;
+  }
+  FUN_00830490();
+  return local_c;
+}
+
+
+
+######################################################################
+# SECTION 5: FUN_00830490 ? called after wait in FUN_008300c0
+# What does this do? Release a lock?
+######################################################################
+
+======================================================================
+FUN_00830490 @ 0x00830490
+======================================================================
+  Function: FUN_00830490 @ 0x00830490, Size: 15 bytes
+
+void FUN_00830490(void)
+
+{
+  FUN_004538c0((LPCRITICAL_SECTION)&DAT_011dd3d8);
+  return;
+}
+
+
+
+######################################################################
+# SECTION 6: FUN_00830470 ? called by StopHavok_Step1
+######################################################################
+
+======================================================================
+FUN_00830470 @ 0x00830470
+======================================================================
+  Function: FUN_00830470 @ 0x00830470, Size: 17 bytes
+
+void FUN_00830470(void)
+
+{
+  FUN_004538a0((LPCRITICAL_SECTION)&DAT_011dd3d8);
+  return;
+}
+
+
+
+######################################################################
+# SECTION 7: FUN_0082fa30 ? called by StopHavok_Step1
+######################################################################
+
+======================================================================
+FUN_0082fa30 @ 0x0082fa30
+======================================================================
+  Function: FUN_0082fa30 @ 0x0082fa30, Size: 319 bytes
+
+/* WARNING: Globals starting with '_' overlap smaller symbols at the same address */
+
+void FUN_0082fa30(void)
+
+{
+  _DAT_011dd300 = 0;
+  _DAT_011dd304 = 0;
+  _DAT_011dd308 = 0;
+  _DAT_011dd30c = 0;
+  DAT_011dd310 = 0;
+  FUN_00406d30(&DAT_011dd0f0,0x104,"NONE");
+  DAT_011dd314 = 0;
+  DAT_011dd318 = 0;
+  DAT_011dd31c = 0;
+  DAT_011dd320 = 0;
+  DAT_011dd324 = 0;
+  DAT_011dd328 = 0;
+  DAT_011dd32c = 0;
+  _DAT_011dd330 = 0;
+  DAT_011dd334 = 0;
+  _DAT_011dd338 = 0;
+  _DAT_011dd33c = 0;
+  _DAT_011dd340 = 0;
+  _DAT_011dd344 = 0;
+  DAT_011dd311 = 0;
+  FUN_00406d30(&DAT_011dd1f8,0x104,"NONE");
+  DAT_011dd348 = 0;
+  DAT_011dd34c = 0;
+  DAT_011dd350 = 0;
+  DAT_011dd354 = 0;
+  DAT_011dd358 = 0;
+  DAT_011dd35c = 0;
+  DAT_011dd360 = 0;
+  _DAT_011dd364 = 0;
+  DAT_011dd368 = 0;
+  DAT_011dd36c = 0;
+  return;
+}
+
+
+
+######################################################################
+# SECTION 8: DAT_011dd5bc and DAT_011dd638 ? IO manager queue pointers?
+# Passed to FUN_00ad88f0/FUN_00ad8d10 by StopHavok_DrainAI
+######################################################################
+
+----------------------------------------------------------------------
+References TO 0x011dd5bc (DAT_011dd5bc)
+----------------------------------------------------------------------
+  DATA @ 0x008338b9 (in FUN_008331c0)
+  DATA @ 0x00832556 (in FUN_008324e0)
+  DATA @ 0x00832560 (in FUN_008324e0)
+  DATA @ 0x00833491 (in FUN_008331c0)
+  DATA @ 0x008334a2 (in FUN_008331c0)
+  DATA @ 0x008334b0 (in FUN_008331c0)
+  DATA @ 0x008334f2 (in FUN_008331c0)
+  DATA @ 0x008336cc (in FUN_008331c0)
+  DATA @ 0x008336d6 (in FUN_008331c0)
+  DATA @ 0x00833747 (in FUN_008331c0)
+  DATA @ 0x008337b6 (in FUN_008331c0)
+  DATA @ 0x008337de (in FUN_008331c0)
+  DATA @ 0x008337f2 (in FUN_008331c0)
+  DATA @ 0x00833821 (in FUN_008331c0)
+  DATA @ 0x0083384c (in FUN_008331c0)
+  DATA @ 0x0083385c (in FUN_008331c0)
+  DATA @ 0x00833866 (in FUN_008331c0)
+  DATA @ 0x00833a7c (in FUN_008331c0)
+  DATA @ 0x00833a91 (in FUN_008331c0)
+  DATA @ 0x00833a9b (in FUN_008331c0)
+  DATA @ 0x00833ae2 (in FUN_008331c0)
+  DATA @ 0x00833b00 (in FUN_008331c0)
+  DATA @ 0x00833b0c (in FUN_008331c0)
+  DATA @ 0x00833b63 (in FUN_008331c0)
+  DATA @ 0x00833b8e (in FUN_008331c0)
+  DATA @ 0x008345a7 (in FUN_00834260)
+  DATA @ 0x008345c9 (in FUN_00834260)
+  DATA @ 0x008345f6 (in FUN_00834260)
+  DATA @ 0x00834607 (in FUN_00834260)
+  DATA @ 0x00834873 (in FUN_00834260)
+  DATA @ 0x0083487d (in FUN_00834260)
+  DATA @ 0x00834a2a (in FUN_00834260)
+  DATA @ 0x00834a34 (in FUN_00834260)
+  DATA @ 0x00835ad7 (in FUN_008359e0)
+  DATA @ 0x00835ae1 (in FUN_008359e0)
+  DATA @ 0x00835d25 (in FUN_00835be0)
+  DATA @ 0x00835d2f (in FUN_00835be0)
+  DATA @ 0x00835e58 (in FUN_00835be0)
+  DATA @ 0x00835e62 (in FUN_00835be0)
+  DATA @ 0x00837007 (in FUN_00836ef0)
+  DATA @ 0x00837018 (in FUN_00836ef0)
+  ... (truncated)
+  Total: 41 refs
+
+----------------------------------------------------------------------
+References TO 0x011dd638 (DAT_011dd638)
+----------------------------------------------------------------------
+  DATA @ 0x00832574 (in FUN_008324e0)
+  DATA @ 0x0083257e (in FUN_008324e0)
+  DATA @ 0x008332cb (in FUN_008331c0)
+  DATA @ 0x008332d5 (in FUN_008331c0)
+  DATA @ 0x00833354 (in FUN_008331c0)
+  DATA @ 0x00833365 (in FUN_008331c0)
+  DATA @ 0x0083336f (in FUN_008331c0)
+  DATA @ 0x008333b6 (in FUN_008331c0)
+  DATA @ 0x008333d4 (in FUN_008331c0)
+  DATA @ 0x0083342d (in FUN_008331c0)
+  DATA @ 0x00833458 (in FUN_008331c0)
+  DATA @ 0x00833469 (in FUN_008331c0)
+  DATA @ 0x00833473 (in FUN_008331c0)
+  DATA @ 0x00834569 (in FUN_00834260)
+  DATA @ 0x00834584 (in FUN_00834260)
+  DATA @ 0x0083459d (in FUN_00834260)
+  DATA @ 0x008345bd (in FUN_00834260)
+  DATA @ 0x0083702c (in FUN_00836ef0)
+  DATA @ 0x0083703d (in FUN_00836ef0)
+  DATA @ 0x00837047 (in FUN_00836ef0)
+  DATA @ 0x00f9e4a3 (in FUN_00f9e4a0)
+  DATA @ 0x00fd8a53 (in FUN_00fd8a50)
+  Total: 22 refs
+
+######################################################################
+# SECTION 9: FUN_004f1540/FUN_004f15a0 ? save/restore state
+# Called at start of CellTransitionHandler before all cleanup
+######################################################################
+
+======================================================================
+SaveState @ 0x004f1540
+======================================================================
+  Function: FUN_004f1540 @ 0x004f1540, Size: 17 bytes
+
+undefined1 __fastcall FUN_004f1540(int param_1)
+
+{
+  return *(undefined1 *)(param_1 + 4);
+}
+
+
+
+======================================================================
+SetState @ 0x004f15a0
+======================================================================
+  Function: FUN_004f15a0 @ 0x004f15a0, Size: 22 bytes
+
+void __thiscall FUN_004f15a0(void *this,undefined1 param_1)
+
+{
+  *(undefined1 *)((int)this + 4) = param_1;
+  return;
+}
+
+
+
+######################################################################
+# SECTION 10: Compatibility check
+# Does FUN_00877700 require any state that destruction_protocol
+# doesn't have? Does it conflict with pre_destruction_setup?
+######################################################################
+
+======================================================================
+FUN_00877700_DEEP @ 0x00877700
+======================================================================
+  Function: FUN_00877700 @ 0x00877700, Size: 30 bytes
+
+void __fastcall FUN_00877700(int param_1)
+
+{
+  FUN_00ad8da0((void *)(param_1 + 0x77c),1000);
+  return;
+}
+
