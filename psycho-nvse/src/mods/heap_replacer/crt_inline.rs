@@ -14,12 +14,11 @@ use std::sync::LazyLock;
 
 use libc::c_void;
 use libmimalloc::{
-    mi_calloc, mi_free, mi_is_in_heap_region, mi_malloc, mi_realloc, mi_recalloc,
-    mi_usable_size,
+    mi_calloc, mi_free, mi_is_in_heap_region, mi_malloc, mi_realloc, mi_recalloc, mi_usable_size,
 };
 use libpsycho::os::windows::{
     hook::inline::inlinehook::InlineHookContainer,
-    types::{CallocFn, FreeFn, MallocFn, MsizeFn, ReallocFn, RecallocFn}, va_allocator,
+    types::{CallocFn, FreeFn, MallocFn, MsizeFn, ReallocFn, RecallocFn},
 };
 
 use super::heap_validate;
@@ -63,42 +62,26 @@ pub static FREE_HOOK: LazyLock<InlineHookContainer<FreeFn>> =
 // ---- Hook implementations ----
 
 pub unsafe extern "C" fn hook_malloc(size: usize) -> *mut c_void {
-    // Large allocations go through VirtualAlloc to avoid mimalloc arena
-    // consumption. These are raw buffers (texture data, geometry) with
-    // no UAF risk — they don't have vtables at offset 0.
-    let result = if size >= va_allocator::LARGE_ALLOC_THRESHOLD {
-        unsafe { va_allocator::malloc(size) }
-    } else {
-        unsafe { mi_malloc(size) }
-    };
+    let result = unsafe { mi_malloc(size) };
     log::trace!("malloc({}) -> {:p}", size, result);
     result
 }
 
 pub unsafe extern "C" fn hook_calloc(count: usize, size: usize) -> *mut c_void {
-    let total = count.saturating_mul(size);
-    // Large zeroed allocations --> VirtualAlloc (pages are zeroed by OS)
-    let result = if total >= va_allocator::LARGE_ALLOC_THRESHOLD {
-        unsafe { va_allocator::malloc(total) }
-    } else {
-        unsafe { mi_calloc(count, size) }
-    };
+    let result = unsafe { mi_calloc(count, size) };
     log::trace!("calloc({}, {}) -> {:p}", count, size, result);
     result
 }
 
 pub unsafe extern "C" fn hook_realloc(raw_ptr: *mut c_void, size: usize) -> *mut c_void {
     if raw_ptr.is_null() {
-        // realloc(NULL, size) --> malloc(size)
-        return unsafe { hook_malloc(size) };
+        return unsafe { mi_malloc(size) };
+    }
+    if size == 0 {
+        unsafe { hook_free(raw_ptr) };
+        return null_mut();
     }
 
-    // Try VirtualAlloc realloc first
-    if let Some(new_ptr) = unsafe { va_allocator::realloc(raw_ptr, size) } {
-        return new_ptr;
-    }
-
-    // Try mimalloc realloc
     if unsafe { mi_is_in_heap_region(raw_ptr) } {
         return unsafe { mi_realloc(raw_ptr, size) };
     }
@@ -113,7 +96,11 @@ pub unsafe extern "C" fn hook_realloc(raw_ptr: *mut c_void, size: usize) -> *mut
         return result;
     }
 
-    log::error!("realloc({:p}, {}): no heap owns this pointer!", raw_ptr, size);
+    log::error!(
+        "realloc({:p}, {}): no heap owns this pointer!",
+        raw_ptr,
+        size
+    );
     null_mut()
 }
 
@@ -128,49 +115,15 @@ pub unsafe extern "C" fn hook_recalloc(
     };
 
     if raw_ptr.is_null() {
-        // recalloc(NULL, ...) --> zeroed allocation
-        return if new_total >= va_allocator::LARGE_ALLOC_THRESHOLD {
-            unsafe { va_allocator::malloc(new_total) }
-        } else {
-            unsafe { mi_calloc(count, size) }
-        };
+        return unsafe { mi_calloc(count, size) };
     }
 
     if unsafe { mi_is_in_heap_region(raw_ptr) } {
         return unsafe { mi_recalloc(raw_ptr, count, size) };
     }
 
-    // VirtualAlloc path: copy old data, zero the rest
-    if let Some(old_size) = unsafe { va_allocator::msize(raw_ptr) } {
-        let new_ptr = unsafe { va_allocator::malloc(new_total) };
-        if !new_ptr.is_null() {
-            let copy_size = old_size.min(new_total);
-            unsafe {
-                std::ptr::copy_nonoverlapping(
-                    raw_ptr as *const u8,
-                    new_ptr as *mut u8,
-                    copy_size,
-                );
-                // Zero the expansion region (VirtualAlloc pages are zeroed)
-                if new_total > old_size {
-                    std::ptr::write_bytes(
-                        (new_ptr as *mut u8).add(old_size),
-                        0,
-                        new_total - old_size,
-                    );
-                }
-            }
-            unsafe { va_allocator::free(raw_ptr) };
-        }
-        return new_ptr;
-    }
-
     let old_size = unsafe { hook_msize(raw_ptr) };
-    let new_ptr = if new_total >= va_allocator::LARGE_ALLOC_THRESHOLD {
-        unsafe { va_allocator::malloc(new_total) }
-    } else {
-        unsafe { mi_calloc(count, size) }
-    };
+    let new_ptr = unsafe { mi_calloc(count, size) };
     if !new_ptr.is_null() && old_size > 0 && old_size != usize::MAX {
         unsafe {
             std::ptr::copy_nonoverlapping(
@@ -187,11 +140,6 @@ pub unsafe extern "C" fn hook_recalloc(
 pub unsafe extern "C" fn hook_msize(raw_ptr: *mut c_void) -> usize {
     if raw_ptr.is_null() {
         return 0;
-    }
-
-    // Check VirtualAlloc first (header-based detection with VirtualQuery guard)
-    if let Some(size) = unsafe { va_allocator::msize(raw_ptr) } {
-        return size;
     }
 
     if unsafe { mi_is_in_heap_region(raw_ptr) } {
@@ -215,12 +163,6 @@ pub unsafe extern "C" fn hook_msize(raw_ptr: *mut c_void) -> usize {
 
 pub unsafe extern "C" fn hook_free(raw_ptr: *mut c_void) {
     if raw_ptr.is_null() {
-        return;
-    }
-
-    // Check VirtualAlloc header (simple memory read, NO sys call)
-    if unsafe { va_allocator::is_virtual_alloc_ptr(raw_ptr) } {
-        unsafe { va_allocator::free(raw_ptr) };
         return;
     }
 

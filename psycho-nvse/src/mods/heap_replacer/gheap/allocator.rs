@@ -2,14 +2,12 @@
 //!
 //! Dispatch:
 //!   size <= 256KB -> slab (bitmap free tracking, zombie memory, 15s cooldown)
-//!   size 256KB+1..1MB -> mimalloc (15s purge_delay, UAF guard at offsets 4/8)
-//!   size >= 1MB   -> va_allocator (VirtualAlloc per-alloc)
+//!   size > 256KB  -> mimalloc (15s purge_delay, UAF guard at offsets 4/8)
 //!
 //! UAF protection: slab preserves all cell bytes on free (bitmap tracking).
 //! Mimalloc freed pages stay committed for 15s (purge_delay).
 
 use libc::c_void;
-use libpsycho::os::windows::va_allocator;
 use std::cell::Cell;
 use std::ptr::null_mut;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
@@ -158,23 +156,13 @@ pub fn is_main_thread() -> bool {
 /// segment in the UAF bitmap if it's a UAF-sensitive type. This happens
 /// at allocation time when the vtable is guaranteed valid (just constructed).
 ///
-/// Large allocations (>= 1MB) go through VirtualAlloc for immediate VAS
-/// reclamation.
+/// Large allocations (> 256KB) go through mimalloc for immediate VAS
+/// reclamation via purge_delay.
 ///   Dispatch:
 ///   size <= 256KB -> slab (bitmap free tracking, zombie memory, 15s cooldown)
-///   size 256KB+1..1MB -> mimalloc (15s purge_delay, UAF guard at offsets 4/8)
-///   size >= 1MB   -> va_allocator (VirtualAlloc, MEM_RELEASE on free)
+///   size > 256KB  -> mimalloc (15s purge_delay, UAF guard at offsets 4/8)
 #[inline]
 pub unsafe fn alloc(size: usize) -> *mut c_void {
-    // Large raw buffers (>= 1MB) --> VirtualAlloc for immediate VAS reclamation.
-    if size >= va_allocator::LARGE_ALLOC_THRESHOLD {
-        let ptr = unsafe { va_allocator::malloc(size) };
-        if !ptr.is_null() {
-            return ptr;
-        }
-        return unsafe { recover_oom(size) };
-    }
-
     // Small/medium objects (<= 256KB) --> slab allocator.
     // Bitmap free writes ZERO bytes: vtable at offset 0 preserved on free.
     // This is critical: mi_free writes NULL at offset 0 (freelist end-of-chain),
@@ -187,7 +175,7 @@ pub unsafe fn alloc(size: usize) -> *mut c_void {
         // Slab exhausted for this size class -- fall through to mimalloc
     }
 
-    // Mid-range objects (256KB+1..1MB) or slab fallback --> mimalloc.
+    // Large objects (> 256KB) or slab fallback --> mimalloc.
     let ptr = unsafe { mi_malloc_aligned(size, ALIGN) };
     if !ptr.is_null() {
         return ptr;
@@ -198,13 +186,12 @@ pub unsafe fn alloc(size: usize) -> *mut c_void {
 /// Free a block. Dispatch by ownership:
 ///   slab ptr     -> slab_free (bitmap mark, zero writes, deferred decommit)
 ///   mimalloc ptr -> mi_free (UAF guard at offsets 4/8, 15s purge_delay)
-///   va_allocator -> va_free (VirtualFree MEM_RELEASE, >= 1MB)
 ///   pre-hook SBM -> original trampoline
 ///
 /// UAF protection:
 ///   slab (<= 256KB): bitmap free tracking, zero bytes written to freed cells.
 ///     All original data preserved ("zombie memory") until page decommit.
-///   mimalloc (256KB+1..1MB): UAF guard at offsets 4 (NiRefObject refcount)
+///   mimalloc (> 256KB): UAF guard at offsets 4 (NiRefObject refcount)
 ///     and 8 (IOTask refcount). Pages stay committed for 15s (purge_delay).
 #[inline]
 pub unsafe fn free(ptr: *mut c_void) {
@@ -241,12 +228,6 @@ pub unsafe fn free(ptr: *mut c_void) {
         return;
     }
 
-    // VirtualAlloc header check (>= 1MB allocs). Simple memory read, no syscall.
-    if unsafe { va_allocator::is_virtual_alloc_ptr(ptr) } {
-        unsafe { va_allocator::free(ptr) };
-        return;
-    }
-
     // Pre-hook pointer: route to original SBM trampoline.
     if let Ok(orig_free) = statics::GHEAP_FREE_HOOK.original() {
         unsafe { orig_free(addr::HEAP_SINGLETON as *mut c_void, ptr) };
@@ -271,11 +252,6 @@ pub unsafe fn msize(ptr: *mut c_void) -> usize {
     // mimalloc arena (CRT hooks, mid-range allocs).
     if unsafe { mi_is_in_heap_region(ptr as *const c_void) } {
         return unsafe { mi_usable_size(ptr as *const c_void) };
-    }
-
-    // VirtualAlloc header (>= 1MB allocs).
-    if let Some(size) = unsafe { va_allocator::msize(ptr) } {
-        return size;
     }
 
     if let Ok(orig_msize) = statics::GHEAP_MSIZE_HOOK.original() {
@@ -350,19 +326,10 @@ pub unsafe fn realloc(ptr: *mut c_void, new_size: usize) -> *mut c_void {
 // OOM recovery
 // -----------------------------------------------------------------------
 
-/// Retry allocation with the correct backend for the given size.
-/// Large (>= 1MB): try VirtualAlloc first (free VAS holes from
-/// MEM_RELEASE), then mimalloc (arena space). This matches the
-/// original alloc() dispatch: large goes to va_allocator, small to mimalloc.
+/// Retry allocation with mimalloc.
 #[cold]
 #[inline]
 unsafe fn retry_alloc(size: usize) -> *mut c_void {
-    if size >= va_allocator::LARGE_ALLOC_THRESHOLD {
-        let p = unsafe { va_allocator::malloc(size) };
-        if !p.is_null() {
-            return p;
-        }
-    }
     unsafe { mi_malloc_aligned(size, ALIGN) }
 }
 
@@ -558,6 +525,12 @@ unsafe fn do_recover_oom(size: usize) -> *mut c_void {
             // Match vanilla: set HeapCompact trigger + release sems + sleep
             heap.signal_heap_compact(super::engine::globals::HeapCompactStage::MenuCleanup);
             heap.signal_emergency_drain();
+
+            // Drain PPL task groups BEFORE releasing BSTaskManager semaphores.
+            // IOManager dispatches to AI Linear Task Threads via PPL tasks.
+            // Without this drain, unblocking IO while tasks reference freed
+            // objects → crash at 0x0044DDC0 (IOManager NULL dereference).
+            unsafe { super::engine::globals::stop_havok_drain() };
             unsafe { super::engine::globals::release_bstask_sems_if_owned() };
 
             // Signal destruction_protocol periodically (safe cell unload
@@ -570,10 +543,27 @@ unsafe fn do_recover_oom(size: usize) -> *mut c_void {
 
             libpsycho::os::windows::winapi::sleep(1);
 
-            // Periodic cleanup: decommit aged slab dirty pages (respects 15s
-            // delay) + mi_collect. Worker can self-recover VAS from pages
-            // that have been dirty >15s without main thread help.
-            if iter.is_multiple_of(50) {
+            // Emergency memory reclamation during OOM.
+            //
+            // During normal gameplay, freed pages stay committed for 15s
+            // (mimalloc purge_delay + slab reuse cooldown) to protect stale
+            // readers. During OOM, the game will crash from memory exhaustion
+            // if we don't reclaim immediately -- the 15s safety window is
+            // irrelevant when allocations are failing.
+            //
+            // mi_collect(true): forces full mimalloc page decommit, bypassing
+            // purge_delay. Frees ALL uncommitted pages immediately.
+            // decommit_sweep_full(true): bypasses 15s age check on slab pages.
+            // Accepts UAF risk from stale readers -- crash is the alternative.
+            //
+            // Rate-limit mi_collect(true) to every 100 iters (~100ms) to avoid
+            // O(total_memory) full collection stalling recovery.
+            if iter.is_multiple_of(100) {
+                unsafe {
+                    super::slab::decommit_sweep_full(true);
+                    mi_collect(true);
+                }
+            } else if iter.is_multiple_of(50) {
                 unsafe {
                     super::slab::decommit_sweep_full(false);
                     mi_collect(false);
@@ -607,7 +597,7 @@ unsafe fn do_recover_oom(size: usize) -> *mut c_void {
         //
         // Vanilla: after 15000 iterations, sets give_up flag, caller
         // calls _malloc(size) as CRT fallback. We do the same.
-        // libc::malloc bypasses both mimalloc and va_allocator, going
+        // libc::malloc bypasses both mimalloc, going
         // straight to the OS heap (Windows HeapAlloc). This may succeed
         // when mimalloc arena is fragmented but OS still has free pages.
         log::error!(

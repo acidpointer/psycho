@@ -17,7 +17,7 @@ use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering};
 
 use libc::c_void;
 use windows::Win32::System::Memory::{
-    MEM_COMMIT, MEM_DECOMMIT, MEM_RESERVE, PAGE_READWRITE, VirtualAlloc, VirtualFree,
+    VirtualAlloc, VirtualFree, MEM_COMMIT, MEM_DECOMMIT, MEM_RESERVE, PAGE_READWRITE,
 };
 
 // ---------------------------------------------------------------------------
@@ -75,7 +75,7 @@ const SIZE_CLASSES: [u32; 47] = [
 
 const NUM_CLASSES: usize = SIZE_CLASSES.len();
 
-/// Max allocation size the slab handles. Larger goes to mimalloc/va_allocator.
+/// Max allocation size the slab handles. Larger goes to mimalloc.
 /// 256KB covers ALL game objects that stale readers access. Critical: slab's
 /// bitmap free (zero-write) preserves vtable at offset 0. mi_free corrupts
 /// offset 0 with a freelist pointer (NULL at chain end) causing EIP=0 crashes
@@ -172,14 +172,14 @@ const DECOMMIT_DELAY_MS: u64 = 15_000;
 #[repr(C)]
 #[derive(Clone, Copy)]
 struct PageInfo {
-    refcount: i16,             // live cells on this page
-    committed: bool,           // false if decommitted or virgin
-    on_partial: bool,          // true if page is on partial list
-    free_bitmap: [u32; 8],     // 256 bits: one per cell, set = free
-    next_partial: u32,         // intrusive list: partial pages with free cells
-    prev_partial: u32,         // doubly-linked for O(1) unlink
-    next_dirty: u32,           // intrusive list: fully-free pages
-    dirty_at_ms: u64,          // tick when page became dirty (for decommit delay)
+    refcount: i16,         // live cells on this page
+    committed: bool,       // false if decommitted or virgin
+    on_partial: bool,      // true if page is on partial list
+    free_bitmap: [u32; 8], // 256 bits: one per cell, set = free
+    next_partial: u32,     // intrusive list: partial pages with free cells
+    prev_partial: u32,     // doubly-linked for O(1) unlink
+    next_dirty: u32,       // intrusive list: fully-free pages
+    dirty_at_ms: u64,      // tick when page became dirty (for decommit delay)
 }
 
 impl PageInfo {
@@ -243,14 +243,14 @@ struct SlabArena {
     reserved: usize,
     cell_size: u32,
     cells_per_page: u16,
-    page_size: usize,        // logical page size (may be > OS_PAGE_SIZE for large classes)
+    page_size: usize, // logical page size (may be > OS_PAGE_SIZE for large classes)
     page_count: u32,
-    pages: *mut PageInfo,    // metadata array, separately allocated
-    partial_head: u32,         // partial pages with free cells (like SBM freelist)
-    dirty_head: u32,         // LIFO stack: most recently freed pages at head
+    pages: *mut PageInfo, // metadata array, separately allocated
+    partial_head: u32,    // partial pages with free cells (like SBM freelist)
+    dirty_head: u32,      // LIFO stack: most recently freed pages at head
     dirty_count: u32,
-    committed_hwm: u32,      // virgin page watermark
-    committed_pages: u32,    // currently committed page count
+    committed_hwm: u32,   // virgin page watermark
+    committed_pages: u32, // currently committed page count
     lock: AtomicU32,
 }
 
@@ -396,7 +396,9 @@ impl SlabArena {
             page.prev_partial = EMPTY;
             page.next_partial = self.partial_head;
             if self.partial_head != EMPTY {
-                unsafe { (*self.page_ptr(self.partial_head)).prev_partial = page_idx; }
+                unsafe {
+                    (*self.page_ptr(self.partial_head)).prev_partial = page_idx;
+                }
             }
             self.partial_head = page_idx;
         }
@@ -425,13 +427,18 @@ impl SlabArena {
             let page_idx = self.partial_head;
             let page = unsafe { &mut *self.page_ptr(page_idx) };
             if let Some(cell_idx) = page.bitmap_pop() {
-                let ptr = unsafe { self.page_addr(page_idx).add(cell_idx as usize * self.cell_size as usize) };
+                let ptr = unsafe {
+                    self.page_addr(page_idx)
+                        .add(cell_idx as usize * self.cell_size as usize)
+                };
                 page.refcount += 1;
 
                 if !page.bitmap_any() {
                     self.partial_head = page.next_partial;
                     if self.partial_head != EMPTY {
-                        unsafe { (*self.page_ptr(self.partial_head)).prev_partial = EMPTY; }
+                        unsafe {
+                            (*self.page_ptr(self.partial_head)).prev_partial = EMPTY;
+                        }
                     }
                     page.on_partial = false;
                     page.next_partial = EMPTY;
@@ -443,7 +450,9 @@ impl SlabArena {
             // Empty partial page bitmap (shouldn't happen, but handle gracefully)
             self.partial_head = page.next_partial;
             if self.partial_head != EMPTY {
-                unsafe { (*self.page_ptr(self.partial_head)).prev_partial = EMPTY; }
+                unsafe {
+                    (*self.page_ptr(self.partial_head)).prev_partial = EMPTY;
+                }
             }
             page.on_partial = false;
             page.next_partial = EMPTY;
@@ -468,7 +477,9 @@ impl SlabArena {
         if page.refcount == 0 {
             log::error!(
                 "slab: DOUBLE-FREE DETECTED (ignored) page_idx={} class={} cell={:p}",
-                page_idx, self.cell_size, ptr
+                page_idx,
+                self.cell_size,
+                ptr
             );
             return; // skip — arena state remains consistent
         }
@@ -502,7 +513,9 @@ impl SlabArena {
             page.prev_partial = EMPTY;
             page.next_partial = self.partial_head;
             if self.partial_head != EMPTY {
-                unsafe { (*self.page_ptr(self.partial_head)).prev_partial = page_idx; }
+                unsafe {
+                    (*self.page_ptr(self.partial_head)).prev_partial = page_idx;
+                }
             }
             self.partial_head = page_idx;
         }
@@ -520,12 +533,16 @@ impl SlabArena {
         let next = page.next_partial;
 
         if prev != EMPTY {
-            unsafe { (*self.page_ptr(prev)).next_partial = next; }
+            unsafe {
+                (*self.page_ptr(prev)).next_partial = next;
+            }
         } else if self.partial_head == target {
             self.partial_head = next;
         }
         if next != EMPTY {
-            unsafe { (*self.page_ptr(next)).prev_partial = prev; }
+            unsafe {
+                (*self.page_ptr(next)).prev_partial = prev;
+            }
         }
 
         page.on_partial = false;
@@ -561,9 +578,7 @@ impl SlabArena {
             let page = unsafe { &mut *self.page_ptr(page_idx) };
             let next = page.next_dirty;
 
-            let eligible = page.committed
-                && page.refcount == 0
-                && count < Self::DECOMMIT_BATCH;
+            let eligible = page.committed && page.refcount == 0 && count < Self::DECOMMIT_BATCH;
 
             if eligible {
                 let addr = self.page_addr(page_idx);
@@ -1027,14 +1042,22 @@ pub fn diagnose_ptr(fault_addr: usize) {
     let free_bit = {
         let wi = cell_idx / 32;
         let bi = cell_idx % 32;
-        if wi < 8 { (page.free_bitmap[wi] >> bi) & 1 != 0 } else { false }
+        if wi < 8 {
+            (page.free_bitmap[wi] >> bi) & 1 != 0
+        } else {
+            false
+        }
     };
 
     let free_count = page.free_bitmap.iter().map(|w| w.count_ones()).sum::<u32>();
     let cpp = arena.cells_per_page;
 
     let now = cached_tick();
-    let dirty_age = if page.dirty_at_ms > 0 { now.saturating_sub(page.dirty_at_ms) } else { 0 };
+    let dirty_age = if page.dirty_at_ms > 0 {
+        now.saturating_sub(page.dirty_at_ms)
+    } else {
+        0
+    };
 
     // classify the page state for quick reading
     let verdict = if !page.committed {
@@ -1050,12 +1073,33 @@ pub fn diagnose_ptr(fault_addr: usize) {
     log::error!("");
     log::error!("  Slab Page Detail");
     log::error!("  ----------------");
-    log::error!("  Arena:      {} (cell_size={}, cells_per_page={})", arena_idx, arena.cell_size, cpp);
+    log::error!(
+        "  Arena:      {} (cell_size={}, cells_per_page={})",
+        arena_idx,
+        arena.cell_size,
+        cpp
+    );
     log::error!("  Page:       {} at 0x{:08X}", page_idx, page_addr);
-    log::error!("  Cell:       {} (offset 0x{:X} into page)", cell_idx, cell_offset);
+    log::error!(
+        "  Cell:       {} (offset 0x{:X} into page)",
+        cell_idx,
+        cell_offset
+    );
     log::error!("  Committed:  {}", page.committed);
-    log::error!("  Refcount:   {} live / {} total ({} free)", page.refcount, cpp, free_count);
-    log::error!("  Cell free:  {}", if free_bit { "YES (freed)" } else { "NO (allocated)" });
+    log::error!(
+        "  Refcount:   {} live / {} total ({} free)",
+        page.refcount,
+        cpp,
+        free_count
+    );
+    log::error!(
+        "  Cell free:  {}",
+        if free_bit {
+            "YES (freed)"
+        } else {
+            "NO (allocated)"
+        }
+    );
     log::error!("  On partial: {}", page.on_partial);
     if page.dirty_at_ms > 0 {
         log::error!("  Dirty at:   {}ms ({}ms ago)", page.dirty_at_ms, dirty_age);
@@ -1093,13 +1137,21 @@ pub fn diagnose_ptr_buf(fault_addr: usize, r: &mut String) {
     let free_bit = {
         let wi = cell_idx / 32;
         let bi = cell_idx % 32;
-        if wi < 8 { (page.free_bitmap[wi] >> bi) & 1 != 0 } else { false }
+        if wi < 8 {
+            (page.free_bitmap[wi] >> bi) & 1 != 0
+        } else {
+            false
+        }
     };
 
     let free_count = page.free_bitmap.iter().map(|w| w.count_ones()).sum::<u32>();
     let cpp = arena.cells_per_page;
     let now = cached_tick();
-    let dirty_age = if page.dirty_at_ms > 0 { now.saturating_sub(page.dirty_at_ms) } else { 0 };
+    let dirty_age = if page.dirty_at_ms > 0 {
+        now.saturating_sub(page.dirty_at_ms)
+    } else {
+        0
+    };
 
     let verdict = if !page.committed {
         "DECOMMITTED -- page zeroed by OS"
@@ -1113,14 +1165,34 @@ pub fn diagnose_ptr_buf(fault_addr: usize, r: &mut String) {
 
     let _ = writeln!(r, "\n  Slab Page Detail");
     let _ = writeln!(r, "  ----------------");
-    let _ = writeln!(r, "  Arena:      {} (cell_size={}, cells_per_page={})", arena_idx, arena.cell_size, cpp);
+    let _ = writeln!(
+        r,
+        "  Arena:      {} (cell_size={}, cells_per_page={})",
+        arena_idx, arena.cell_size, cpp
+    );
     let _ = writeln!(r, "  Page:       {} at 0x{:08X}", page_idx, page_addr);
     let _ = writeln!(r, "  Cell:       {} (offset 0x{:X})", cell_idx, cell_offset);
     let _ = writeln!(r, "  Committed:  {}", page.committed);
-    let _ = writeln!(r, "  Refcount:   {} live / {} total ({} free)", page.refcount, cpp, free_count);
-    let _ = writeln!(r, "  Cell free:  {}", if free_bit { "YES (freed)" } else { "NO (allocated)" });
+    let _ = writeln!(
+        r,
+        "  Refcount:   {} live / {} total ({} free)",
+        page.refcount, cpp, free_count
+    );
+    let _ = writeln!(
+        r,
+        "  Cell free:  {}",
+        if free_bit {
+            "YES (freed)"
+        } else {
+            "NO (allocated)"
+        }
+    );
     if page.dirty_at_ms > 0 {
-        let _ = writeln!(r, "  Dirty at:   {}ms ({}ms ago)", page.dirty_at_ms, dirty_age);
+        let _ = writeln!(
+            r,
+            "  Dirty at:   {}ms ({}ms ago)",
+            page.dirty_at_ms, dirty_age
+        );
     }
     let _ = writeln!(r, "  >> {}", verdict);
 }

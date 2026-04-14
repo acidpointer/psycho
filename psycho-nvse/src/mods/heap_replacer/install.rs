@@ -265,7 +265,7 @@ pub fn heap_replacer_activate() -> anyhow::Result<()> {
     // CRT IAT
     {
         use super::crt_iat::*;
-        
+
         MALLOC_IAT_HOOK.enable()?;
         CALLOC_IAT_HOOK.enable()?;
         REALLOC_IAT_HOOK.enable()?;
@@ -345,7 +345,7 @@ fn start_deferred_threads() {
 /// Decommit SBM arena pages with zero live blocks.
 /// Must run BEFORE hooks are enabled (SBM state is fully consistent).
 fn cleanup_sbm_arenas() {
-    use windows::Win32::System::Memory::{MEM_DECOMMIT, VirtualFree};
+    use windows::Win32::System::Memory::{VirtualFree, MEM_DECOMMIT};
 
     let pool_table = gheap::engine::addr::SBM_POOL_TABLE;
     let mut total_pages: usize = 0;

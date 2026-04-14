@@ -14,16 +14,15 @@
 //! During loading: thresholds are lowered by 200MB because the game
 //! needs more VAS headroom for incoming cell data.
 
+use std::sync::atomic::{AtomicBool, AtomicI32, AtomicU64, AtomicU8, AtomicUsize, Ordering};
 use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, AtomicI32, AtomicU8, AtomicU64, AtomicUsize, Ordering};
 use std::thread::{self, JoinHandle};
 
 use libmimalloc::process_info::MiMallocProcessInfo;
-use libpsycho::os::windows::va_allocator;
 
+use super::super::mem_stats;
 use super::engine::globals;
 use super::pressure::PressureRelief;
-use super::super::mem_stats;
 
 // ---------------------------------------------------------------------------
 // Configuration
@@ -381,17 +380,6 @@ fn log_diagnostics(poll_count: u32, info: &MiMallocProcessInfo) {
         relief,
         cells,
     );
-
-    // Log large pool stats (reserved, committed, remaining)
-    let (reserved, committed, remaining) = va_allocator::pool_stats();
-    if reserved > 0 {
-        log::info!(
-            "[MEM] LargePool: reserved={}MB, committed={}MB, remaining={}MB",
-            reserved,
-            committed,
-            remaining,
-        );
-    }
 
     let cu_cells = super::engine::cell_unload::total_cells_unloaded();
     let cu_freed = super::engine::cell_unload::total_bytes_freed() / 1024 / 1024;
