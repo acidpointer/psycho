@@ -13,8 +13,8 @@
 //!   Phase 10 (hook_main_loop_maintenance): baseline calibration
 //!   AI_JOIN  (hook_ai_thread_join): deferred cell unload execution
 
-use std::sync::LazyLock;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+use std::sync::LazyLock;
 
 use super::engine::globals;
 
@@ -215,54 +215,70 @@ impl PressureRelief {
             }
         };
 
-        // Wait for in-flight AI thread operations to complete.
-        // pre_destruction_setup locks Havok (prevents NEW operations) but
-        // doesn't stop AI threads that are already mid-raycast. During fast
-        // travel, AI pathfinding does bulk terrain raycasting (chained queries
-        // against multiple terrain cells). 10ms covers typical pathfinding
-        // chains (individual raycasts <1ms but chains of 3-5 queries take
-        // 10-30ms total). Confirmed crash at 0x00C94DA5 (hkpWorld::addEntity)
-        // when sleep was reduced to 1ms -- AI thread referenced freed terrain
-        // collision shape (hkScaledMoppBvTreeShape) mid-chain.
+        // IO thread synchronization barrier + AI Linear Task Thread drain.
+        // MUST run before ANY destruction (including stage 4 PDD purge in the
+        // probe fallthrough). PDD purge destroys queued NiSourceTexture objects;
+        // if the IO thread is mid-processing their texture data (LOD loading),
+        // destroying them without IO idle -> UAF. Confirmed crash:
+        //   EXCEPTION_ACCESS_VIOLATION at 0x0044DDC0, ecx=NULL
+        //   NiSourceTexture RefCount=0, BSFile loading "wastelandnv.buildings.dds"
+        //   Root cause: stage 4 PDD purge ran without IO barrier.
+        //
+        // Drain PPL task groups used by IOManager to dispatch AI Linear Task
+        // Thread work. This is the vanilla CellTransitionHandler mechanism
+        // (FUN_008324e0 mode=0). Without this, unprocessed IOManager tasks
+        // dispatch to AI threads mid-destruction -> crash at 0x00C94DA5
+        // (AI Linear Task Thread 2 accessing freed hkScaledMoppBvTreeShape).
+        //
+        // NOTE: is_ai_active() does NOT cover AI Linear Task Threads -- it
+        // only tracks the 2 main AI coordinator threads. The Linear Task
+        // Threads are dispatched by IOManager via separate PPL task groups.
+        unsafe { globals::stop_havok_drain() };
+
+        // Havok quiescence sleep. pre_destruction_setup locks Havok world
+        // (prevents NEW physics ops) but doesn't interrupt in-flight AI
+        // raycasts. 30ms covers typical pathfinding chains (individual
+        // raycasts <1ms, chains of 3-5 queries take 10-30ms total).
+        // Confirmed crash at 0x00C94DA5 (hkpWorld::addEntity) when
+        // sleep was reduced to 1ms.
         libpsycho::os::windows::winapi::sleep(30);
 
-        // IO thread synchronization barrier.
-        // BSTaskManagerThread and BackgroundCloneThread hold raw pointers to
-        // cell data during task processing. Without this, Stage 5 frees cell
-        // data while background threads are mid-read -> UAF on NiNode clones,
-        // QueuedReference destructors, ExteriorCellLoaderTask form reads.
-        // See: analysis/research/crash_root_cause_io_thread_uaf.md
+        // IO thread barrier. BSTaskManagerThread and BackgroundCloneThread
+        // hold raw pointers to cell data during task processing.
         unsafe { globals::wait_for_io_idle() };
 
-        // Run Stage 5 in a loop until game says no more cells eligible.
-        // Each call runs 5 --> 4 --> 3 automatically (fallthrough in switch case).
-        // The game's FindCellToUnload returns no cell when none are eligible,
-        // causing stage to advance to 6.
-        //
-        // NOTE: run_oom_stage automatically freezes slab cold-list reuse
-        // for stage 5 calls. This prevents UAF from recycled cells during
-        // cell teardown (see heap_manager.rs stage 5 freeze comment).
-        let mut stage: i32 = 5;
-        loop {
-            let (next, _done) = unsafe { heap.run_oom_stage(stage, false) };
-            if next == 5 {
-                cells += 1;
-                stage = next;
-            } else {
-                break;
-            }
-        }
+        // Probe cell eligibility. Run stage 5 once: if FindCellToUnload finds
+        // a cell, continue unloading. If not, the fallthrough already ran
+        // stages 4 (PDD purge + Havok GC) and 3 (Havok GC) -- skip the
+        // extra pdd_purge/deferred_cleanup_small since no cells were freed.
+        let (next, _) = unsafe { heap.run_oom_stage(5, false) };
 
-        // Full PDD drain BEFORE DeferredCleanupSmall. Cell unload queues
-        // BSTreeNode children to PDD NiNode queue. Without full drain,
-        // per-frame PDD (rate-limited 10-20/frame) can't keep up after
-        // bulk cell unload. BSTreeNode parent destructors then Release
-        // already-freed children --> RefCount:0 --> C0000417 crash.
-        // Ghidra-verified: FUN_00868d70 is the full PDD purge.
-        if cells > 0 {
-            unsafe { globals::pdd_purge() };
+        if next == 5 {
+            // Cell found. Continue unloading remaining cells.
+            // First cell already consumed by the probe above.
+            cells += 1;
+            loop {
+                let (next, _done) = unsafe { heap.run_oom_stage(5, false) };
+                if next == 5 {
+                    cells += 1;
+                } else {
+                    break;
+                }
+            }
+
+            // DeferredCleanupSmall runs PDD(1) (non-blocking try-lock) + async
+            // flush. Must run BEFORE pdd_purge to avoid double-processing the
+            // same destruction queues. pdd_purge calls PDD(0) blocking which
+            // drains ALL queues -- if called first, DeferredCleanupSmall's
+            // internal PDD(1) iterates freed queue entries --> double-destroy
+            // of BSTreeNode --> stack cookie smash --> C0000417.
+            // Matches vanilla CellTransitionHandler ordering:
+            //   DeferredCleanupSmall (FUN_00878250) -> PDD (FUN_00868d70)
             unsafe { globals::deferred_cleanup_small(state[5]) };
+            unsafe { globals::pdd_purge() };
         }
+        // If next != 5: stage 5 already fell through to stages 4+3
+        // (Havok GC + PDD purge). IO barrier already ran above.
 
         // mi_collect after async flush completes all deferred destruction.
         unsafe { libmimalloc::mi_collect(false) };

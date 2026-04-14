@@ -53,6 +53,12 @@ pub const AI_THREAD_START_ADDR: usize = 0x008C78C0;
 /// Only on multi-threaded systems (processor count > 1).
 pub const AI_THREAD_JOIN_ADDR: usize = 0x008C7990;
 
+/// StopHavok_DRAINAI (FUN_008324e0). Drains PPL task groups that
+/// IOManager uses to dispatch AI Linear Task Thread work.
+/// mode=0: stops + drains (safe before cell destruction).
+/// mode=1: restarts simulation.
+pub const HAVOK_STOP_START_ADDR: usize = 0x008324E0;
+
 pub static MAIN_LOOP_MAINTENANCE_HOOK: LazyLock<InlineHookContainer<MainLoopMaintenanceFn>> =
     LazyLock::new(InlineHookContainer::new);
 pub static PER_FRAME_QUEUE_DRAIN_HOOK: LazyLock<InlineHookContainer<PerFrameQueueDrainFn>> =
@@ -70,8 +76,7 @@ pub static AI_THREAD_JOIN_HOOK: LazyLock<InlineHookContainer<AIThreadJoinFn>> =
 /// We hook this to set the destruction guard.
 pub const PDD_ADDR: usize = 0x00868D70;
 
-pub static PDD_HOOK: LazyLock<InlineHookContainer<PDDFn>> =
-    LazyLock::new(InlineHookContainer::new);
+pub static PDD_HOOK: LazyLock<InlineHookContainer<PDDFn>> = LazyLock::new(InlineHookContainer::new);
 
 // ---- Texture cache ----
 
@@ -87,7 +92,6 @@ pub static NISOURCETEXTURE_DTOR_HOOK: LazyLock<InlineHookContainer<NiSourceTextu
 
 // pub const TASK_RELEASE_ADDR: usize = 0x0044DD60;
 
-
 // ---- Queued reference processing ----
 
 // FUN_0056f700: processes a queued reference after model loading completes.
@@ -97,7 +101,6 @@ pub static NISOURCETEXTURE_DTOR_HOOK: LazyLock<InlineHookContainer<NiSourceTextu
 // pub const HAVOK_ADD_ENTITY_ADDR: usize = 0x00C94BD0;
 // pub const HAVOK_COLL_OBJ_DTOR_ADDR: usize = 0x00C40B70;
 // pub const HAVOK_RAYCAST_ADDR: usize = 0x00CBF860;
-
 
 // ---- Havok world synchronization ----
 

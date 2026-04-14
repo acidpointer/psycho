@@ -14,8 +14,8 @@ use libc::c_void;
 use libpsycho::ffi::fnptr::FnPtr;
 use libpsycho::os::windows::winapi::{self, WaitResult};
 
-use super::addr;
 use super::super::types;
+use super::addr;
 
 // ---------------------------------------------------------------------------
 // Game state reads (all safe -- reading from known static addresses)
@@ -122,7 +122,11 @@ pub fn loading_state_counter() -> &'static std::sync::atomic::AtomicI32 {
 /// Passed to FindCellToUnload.
 pub fn game_manager() -> Option<*mut c_void> {
     let ptr = unsafe { *(addr::GAME_MANAGER as *const *mut c_void) };
-    if ptr.is_null() { None } else { Some(ptr) }
+    if ptr.is_null() {
+        None
+    } else {
+        Some(ptr)
+    }
 }
 
 /// Check if BSTaskManagerThread has a pending cell load in progress.
@@ -241,7 +245,10 @@ pub unsafe fn release_bstask_sems_if_owned() -> bool {
     } {
         Ok(f) => f,
         Err(e) => {
-            log::error!("[BSTASK] FnPtr::from_raw(BSTASK_RELEASE_SEM) failed: {:?}", e);
+            log::error!(
+                "[BSTASK] FnPtr::from_raw(BSTASK_RELEASE_SEM) failed: {:?}",
+                e
+            );
             return false;
         }
     };
@@ -251,7 +258,10 @@ pub unsafe fn release_bstask_sems_if_owned() -> bool {
     } {
         Ok(f) => f,
         Err(e) => {
-            log::error!("[BSTASK] FnPtr::from_raw(BSTASK_SIGNAL_IDLE) failed: {:?}", e);
+            log::error!(
+                "[BSTASK] FnPtr::from_raw(BSTASK_SIGNAL_IDLE) failed: {:?}",
+                e
+            );
             return false;
         }
     };
@@ -265,7 +275,7 @@ pub unsafe fn release_bstask_sems_if_owned() -> bool {
         Err(e) => {
             log::error!("[BSTASK] get_owner.as_fn() failed for thread 0: {:?}", e);
             // Don't return early -- thread 1 might still need releasing.
-            0  // 0 != current_tid, so thread 0 check will be skipped
+            0 // 0 != current_tid, so thread 0 check will be skipped
         }
     };
     if owner0 == current_tid {
@@ -286,7 +296,7 @@ pub unsafe fn release_bstask_sems_if_owned() -> bool {
         Ok(f) => unsafe { f(io_manager, 1) },
         Err(e) => {
             log::error!("[BSTASK] get_owner.as_fn() failed for thread 1: {:?}", e);
-            0  // Don't return early -- thread 0 may have been released already
+            0 // Don't return early -- thread 0 may have been released already
         }
     };
     if owner1 == current_tid {
@@ -510,9 +520,7 @@ pub unsafe fn deferred_cleanup_small(param: u8) {
 /// system, NOT the physics world. Safe to call without holding the
 /// Havok world lock.
 pub unsafe fn havok_gc(force: u8) {
-    let f = match unsafe {
-        FnPtr::<types::HavokGcFn>::from_raw(addr::HAVOK_GC as *mut c_void)
-    } {
+    let f = match unsafe { FnPtr::<types::HavokGcFn>::from_raw(addr::HAVOK_GC as *mut c_void) } {
         Ok(f) => f,
         Err(e) => {
             log::error!("[HAVOK_GC] FnPtr::from_raw failed: {:?}", e);
@@ -542,6 +550,37 @@ pub unsafe fn pdd_purge() {
     match unsafe { f.as_fn() } {
         Ok(f) => unsafe { f(0) }, // blocking purge
         Err(e) => log::error!("[PDD_PURGE] as_fn() failed: {:?}", e),
+    }
+}
+
+/// StopHavok_DRAINAI (FUN_008324e0, mode=0).
+///
+/// Drains PPL Concurrency Runtime task groups used by IOManager to dispatch
+/// AI Linear Task Thread work. This is the vanilla game's mechanism for
+/// ensuring no AI physics tasks are in-flight before cell destruction.
+///
+/// Must be called from the main thread before Stage 5 cell unload.
+/// Without this drain, IOManager tasks dispatch to AI Linear Task Threads
+/// which access freed Havok collision shapes -> crash at 0x00C94DA5.
+///
+/// See: analysis/ghidra/output/memory/vanilla_ai_io_drain.txt
+pub unsafe fn stop_havok_drain() {
+    let f = match unsafe {
+        FnPtr::<types::HavokStopStartFn>::from_raw(
+            super::super::statics::HAVOK_STOP_START_ADDR as *mut c_void,
+        )
+    } {
+        Ok(f) => f,
+        Err(e) => {
+            log::error!("[HAVOK_DRAIN] FnPtr::from_raw failed: {:?}", e);
+            return;
+        }
+    };
+    match unsafe { f.as_fn() } {
+        Ok(f) => {
+            unsafe { f(0) };
+        }
+        Err(e) => log::error!("[HAVOK_DRAIN] as_fn() failed: {:?}", e),
     }
 }
 
@@ -588,7 +627,10 @@ pub unsafe fn wait_for_io_idle() {
                     // thread is busy processing a task
                     waited += 1;
                     if waited >= 500 {
-                        log::warn!("[IO_BARRIER] Thread {} still busy after 500ms, proceeding", idx);
+                        log::warn!(
+                            "[IO_BARRIER] Thread {} still busy after 500ms, proceeding",
+                            idx
+                        );
                         break;
                     }
                     winapi::sleep(1);

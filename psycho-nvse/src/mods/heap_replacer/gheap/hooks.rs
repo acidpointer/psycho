@@ -397,7 +397,12 @@ pub unsafe extern "C" fn hook_per_frame_queue_drain() {
                     LAST_DESTRUCTION_CELLS.store(cells as u32, Ordering::Relaxed);
                     LAST_DESTRUCTION_COMMIT_MB.store(current_commit_mb as u32, Ordering::Relaxed);
                 }
-            } else {
+            } else if now.saturating_sub(last) >= 3000 {
+                // Non-critical: 3s cooldown. Without this, the watchdog
+                // fires destruction_protocol every 500ms during sustained
+                // allocation bursts (LOD terrain updates), each call costing
+                // 1-2s on the main thread due to IO barrier.
+                DESTRUCTION_COOLDOWN_MS.store(now, Ordering::Relaxed);
                 let cells = unsafe { pr.run_cleanup() };
                 LAST_DESTRUCTION_CELLS.store(cells as u32, Ordering::Relaxed);
                 LAST_DESTRUCTION_COMMIT_MB.store(current_commit_mb as u32, Ordering::Relaxed);
