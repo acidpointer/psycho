@@ -212,12 +212,16 @@ pub fn is_main_thread_by_tid() -> bool {
 
 /// Release BSTaskManagerThread semaphores if the current thread owns them.
 ///
-/// This matches vanilla OOM Stage 8 behavior (FUN_00866a90 case 8):
-/// - Checks if current thread owns BSTaskManagerThread[0] or [1] semaphore
-/// - If yes: releases the semaphore and signals idle
-/// - This lets IO processing continue, freeing memory for retry
+/// Mirrors vanilla OOM Stage 8 (FUN_00866a90 case 8) but validates the
+/// IOManager thread-array layout before each call:
+///   [io+0x4c] = thread count (whatever BSTaskManager_ctor was given)
+///   [io+0x50] = ptr to count*4 bytes of BSTaskManagerThread*
+/// Vanilla hardcodes indices 0 and 1, which is unsafe when count==1
+/// (single IO worker on lower core counts). FUN_00866da0 dereferences
+/// [array + idx*4] with no bounds check -- we hit AV at 0x0044ddc0
+/// because the OOB read picked up a NULL slot.
 ///
-/// Returns `true` if any semaphore was released, `false` if none were owned.
+/// Returns `true` if any semaphore was released.
 ///
 /// # Safety
 /// Calls game code. Safe to call from any thread during OOM recovery.
@@ -229,6 +233,24 @@ pub unsafe fn release_bstask_sems_if_owned() -> bool {
             return false;
         }
     };
+
+    // Validate thread-array layout. Bail out cleanly on anything weird --
+    // we are in OOM recovery, the worst we can do is take down the game.
+    let thread_count = unsafe {
+        *((io_manager as *const u8).add(addr::IO_THREAD_COUNT_OFFSET) as *const u32)
+    };
+    if !(1..=8).contains(&thread_count) {
+        log::error!("[BSTASK] implausible thread count {}, skipping release", thread_count);
+        return false;
+    }
+    let thread_array = unsafe {
+        *((io_manager as *const u8).add(addr::IO_THREAD_ARRAY_OFFSET)
+            as *const *const *mut c_void)
+    };
+    if thread_array.is_null() {
+        log::error!("[BSTASK] IOManager thread array is null, skipping release");
+        return false;
+    }
 
     let get_owner = match unsafe {
         FnPtr::<types::BstaskGetOwnerFn>::from_raw(addr::BSTASK_GET_OWNER as *mut c_void)
@@ -269,45 +291,33 @@ pub unsafe fn release_bstask_sems_if_owned() -> bool {
     let current_tid = libpsycho::os::windows::winapi::get_current_thread_id();
     let mut released = false;
 
-    // Check and release thread 0
-    let owner0 = match unsafe { get_owner.as_fn() } {
-        Ok(f) => unsafe { f(io_manager, 0) },
-        Err(e) => {
-            log::error!("[BSTASK] get_owner.as_fn() failed for thread 0: {:?}", e);
-            // Don't return early -- thread 1 might still need releasing.
-            0 // 0 != current_tid, so thread 0 check will be skipped
+    for idx in 0..thread_count {
+        // Read slot directly. If a teardown nulled it (or the slot never
+        // existed), skip -- FUN_00866da0 has no NULL guard internally.
+        let slot = unsafe { *thread_array.add(idx as usize) };
+        if slot.is_null() {
+            continue;
         }
-    };
-    if owner0 == current_tid {
-        log::debug!("[BSTASK] Thread 0 semaphore owned by current thread, releasing...");
-        match unsafe { release_sem.as_fn() } {
-            Ok(f) => unsafe { f(io_manager, 0) },
-            Err(e) => log::error!("[BSTASK] release_sem.as_fn() failed for thread 0: {:?}", e),
-        }
-        match unsafe { signal_idle.as_fn() } {
-            Ok(f) => unsafe { f(io_manager, 0) },
-            Err(e) => log::error!("[BSTASK] signal_idle.as_fn() failed for thread 0: {:?}", e),
-        }
-        released = true;
-    }
 
-    // Check and release thread 1
-    let owner1 = match unsafe { get_owner.as_fn() } {
-        Ok(f) => unsafe { f(io_manager, 1) },
-        Err(e) => {
-            log::error!("[BSTASK] get_owner.as_fn() failed for thread 1: {:?}", e);
-            0 // Don't return early -- thread 0 may have been released already
+        let owner = match unsafe { get_owner.as_fn() } {
+            Ok(f) => unsafe { f(io_manager, idx) },
+            Err(e) => {
+                log::error!("[BSTASK] get_owner.as_fn() failed for thread {}: {:?}", idx, e);
+                continue;
+            }
+        };
+        if owner != current_tid {
+            continue;
         }
-    };
-    if owner1 == current_tid {
-        log::debug!("[BSTASK] Thread 1 semaphore owned by current thread, releasing...");
+
+        log::debug!("[BSTASK] Thread {} semaphore owned by current thread, releasing...", idx);
         match unsafe { release_sem.as_fn() } {
-            Ok(f) => unsafe { f(io_manager, 1) },
-            Err(e) => log::error!("[BSTASK] release_sem.as_fn() failed for thread 1: {:?}", e),
+            Ok(f) => unsafe { f(io_manager, idx) },
+            Err(e) => log::error!("[BSTASK] release_sem.as_fn() failed for thread {}: {:?}", idx, e),
         }
         match unsafe { signal_idle.as_fn() } {
-            Ok(f) => unsafe { f(io_manager, 1) },
-            Err(e) => log::error!("[BSTASK] signal_idle.as_fn() failed for thread 1: {:?}", e),
+            Ok(f) => unsafe { f(io_manager, idx) },
+            Err(e) => log::error!("[BSTASK] signal_idle.as_fn() failed for thread {}: {:?}", idx, e),
         }
         released = true;
     }

@@ -87,6 +87,14 @@ pub const IO_MANAGER_SINGLETON: usize = 0x01202D98;
 // Offsets within IOManager:
 pub const IO_DEQUEUE_LOCK_OFFSET: usize = 0x20;
 pub const IO_DEQUEUE_LOCK_COUNTER_OFFSET: usize = 0x24;
+
+/// BSTaskManager_ctor (FUN_00c3e4f0) stores num_threads at +0x4c and the
+/// dynamically allocated thread-pointer array (count*4 bytes) at +0x50.
+/// Slots beyond [+0x4c] do not exist -- vanilla case 8 of FUN_00866a90
+/// hardcodes indices 0/1, but it almost never runs in vanilla; we hit it
+/// routinely on workers and must not read past the allocation.
+pub const IO_THREAD_COUNT_OFFSET: usize = 0x4c;
+
 pub const IO_THREAD_ARRAY_OFFSET: usize = 0x50;
 
 // Offsets within each BSTaskManagerThread object:
