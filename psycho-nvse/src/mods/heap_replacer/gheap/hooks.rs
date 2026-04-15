@@ -97,8 +97,8 @@ static LAST_POOL_DRAIN_MS: AtomicU64 = AtomicU64::new(0);
 static LAST_MI_COLLECT_TRUE_MS: AtomicU64 = AtomicU64::new(0);
 
 /// Minimum interval between mi_collect(true) calls in the per-frame path.
-/// OOM recovery in allocator.rs calls mi_collect(true) directly, bypassing
-/// this limit -- crash prevention must not be throttled.
+/// OOM recovery in allocator.rs uses mi_collect(false) to stay within
+/// safe purge_delay. Only the infinite retry loop uses mi_collect(true).
 const MI_COLLECT_TRUE_COOLDOWN_MS: u64 = 2000;
 
 /// Cooldown for periodic pool drain (500ms).

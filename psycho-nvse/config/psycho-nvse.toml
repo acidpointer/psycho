@@ -2,7 +2,7 @@
 console = false         # Show console window on game startup
 
 [logger]
-debug = false           # Show debug logs (enable when prepare problem report)
+debug = true            # Show debug logs (enable when prepare problem report)
 
 [memory]
 heap_replacer = true    # Enable heap replacer

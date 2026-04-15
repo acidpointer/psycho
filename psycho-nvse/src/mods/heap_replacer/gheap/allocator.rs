@@ -368,6 +368,7 @@ unsafe fn do_recover_oom(size: usize) -> *mut c_void {
     let heap = HeapManager::get();
     let is_main = is_main_thread();
     let commit_entry = heap.commit_mb();
+    let loading = globals::is_loading();
 
     log::warn!(
         "[OOM] size={} thread={} commit={}MB pool={}MB",
@@ -377,106 +378,44 @@ unsafe fn do_recover_oom(size: usize) -> *mut c_void {
         super::slab::committed_bytes() / 1024 / 1024,
     );
 
-    // --- Emergency pool drain (main thread only) ---
-    // Workers set this flag; main thread Phase 7 normally consumes it.
-    // But when the main thread is IN OOM recovery, it never reaches Phase 7.
-    // Consume the flag here to drain stale zombie blocks immediately.
-    if is_main && heap.take_emergency_drain() {
-        let drained = unsafe {
-            super::slab::decommit_sweep();
-            mi_collect(false);
-            0
-        };
-        let ptr = unsafe { retry_alloc(size) };
-        if !ptr.is_null() {
-            log::info!(
-                "[OOM] Recovered after emergency drain: drained={} size={} commit={}-->{}MB",
-                drained,
-                size,
-                commit_entry,
-                heap.commit_mb(),
-            );
-            return ptr;
-        }
+    // Immediate aggressive collection. During OOM, the 15s purge_delay
+    // safety window is irrelevant -- the game will crash from memory
+    // exhaustion if we don't reclaim now.
+    unsafe { mi_collect(false) };
+    let ptr = unsafe { retry_alloc(size) };
+    if !ptr.is_null() {
+        return ptr;
     }
 
-    // --- Phase 1: Active cleanup ---
+    // --- Phase 1: Game cleanup stages ---
     //
-    // The game's allocator contract: NEVER return NULL.
-    // Pattern from vanilla FUN_00aa3e40:
+    // Vanilla pattern (FUN_00aa3e40):
     //   do {
-    //       stage = FUN_00866a90(heap, stage, &give_up);
-    //       if (give_up) { ptr = _malloc(size); break; }
-    //       ptr = heap_vtable->alloc(size);
+    //       ptr = heap->alloc(size);
+    //       if (!ptr) stage = HeapCompact(heap, heap_ptr, stage, &give_up);
+    //       if (give_up) ptr = _malloc(size);
     //   } while (!ptr);
     //
-    // For WORKER threads: run thread-safe cleanup stages (Havok GC + semaphore
-    // release) to actively free memory instead of passively waiting for main
-    // thread. This matches the game's Stage 8 behavior (Ghidra-verified).
+    // Each call to run_oom_stage runs ONE case of the switch. The caller
+    // increments the stage between calls. Stage 5 DOES NOT auto-fallthrough
+    // to 4→3 -- that only happens inside the game function for a single call.
     //
-    // For MAIN thread: run full stages 3-5 (Havok GC, PDD purge, Cell Unload).
-    // bypass=false -- ALL frees go to pool (zombie-safe).
-    // bypass=true causes SBM state corruption: objects freed via mi_free
-    // during HeapCompact stages 5-8 leave dangling references in SBM
-    // internal structures, causing crashes when Stage 8 accesses them.
-    // The vanilla SBM keeps objects in arenas until cleanup completes --
-    // our pool quarantine provides the same behavior.
-    //
-    // Stages 0-2 are skipped (NO-OP during gameplay), Stage 6 is skipped (allocates memory).
-    // Stage 5 (Cell Unload) runs until game says no more cells eligible (give_up flag).
-    // This matches vanilla behavior: unload ALL eligible cells, not just 1-2.
-    //
-    // During loading, start at Stage 0 (Texture/Geometry cache flush).
-    // Stages 3-5 (Havok/Cell Unload) are blocked by the Loading state, so
-    // we must run 0-2 to free the old cache data before loading new cells.
-    //
-    // LOADING DEATH SPIRAL FIX:
-    // During loading, stages 0-5 are almost entirely ineffective:
-    //   Stage 0: flushes OLD textures --> game immediately reloads them --> net zero
-    //   Stage 1: flushes OLD geometry --> game immediately reloads it --> net zero
-    //   Stage 2: menu cleanup --> nothing during loading
-    //   Stages 3-5: blocked by loading state --> nothing
-    //   Stage 6: give_up --> break
-    // The game then cycles 30+ times over 2.5 seconds, freeing ~4MB total,
-    // before crashing in d3d9. Skip this death spiral during loading: go
-    // straight to nuclear option (pool_drain_all + mi_collect(true)).
-    let loading = globals::is_loading();
+    // We call stages 3, 4, 5 explicitly with alloc retry between each.
+    // Stage 3: Havok GC (FUN_00c459d0 force=true)
+    // Stage 4: PDD purge (non-blocking try-lock)
+    // Stage 5: Cell unload + PDD + Havok GC fallthrough
+    // Stages 0-2: NO-OP during gameplay (texture/geometry/menu cache)
+    // Stage 6: Allocates memory (SBM defrag) -- skip
+    // Stage 7/8: Thread suspend/resume -- crashes on gheap
 
-    if !is_main {
-        // WORKER THREAD OOM -- matching vanilla FUN_00aa3e40 contract.
-        //
-        // Vanilla contract (Ghidra-verified): the allocator NEVER returns
-        // NULL. Game code has zero null checks after allocation. Returning
-        // NULL causes memcpy to address 0 in BSFile::Read, IOManager, etc.
-        //
-        // Vanilla worker OOM path (FUN_00866a90):
-        //   Stages 0-3: quick cleanup (some skipped on worker)
-        //   Stages 4-5: skipped on worker (main-thread-only)
-        //   Stage 6: skipped on worker (SBM defrag, main-thread-only)
-        //   Stage 7: falls through to Stage 8 on worker
-        //   Stage 8: THE worker recovery -- Sleep(1) x 15000 (15 seconds),
-        //     release BSTaskManager sems, set HeapCompact trigger, retry.
-        //     After 15000 iterations: give_up -> CRT malloc fallback.
-        //
-        // We replicate this: run game stages 0-6 via run_oom_stage (the
-        // game function handles main/worker distinction internally), then
-        // enter Stage 8 pattern ourselves with correct retry_alloc.
-
-        // -- Phase 1: Run game OOM stages --
-        // The game's stage executor skips main-thread-only stages for us.
-        // bypass=false: frees go to pool (zombie-safe for concurrent readers).
-        // During loading, skip Stage 5 (Cell Unload) — same rationale as main
-        // thread: NVSE event handlers reference cell objects being destroyed.
-        let loading_oom_stage_max: i32 = if loading { 4 } else { 5 };
-        let mut stage: i32 = if loading { 0 } else { 3 };
-        loop {
-            let (next, done) = unsafe { heap.run_oom_stage(stage, false) };
-            stage = next;
-
+    if loading {
+        // During loading, stages 0-2 can free old cache data.
+        for stage in 0..=4i32 {
+            let _ = unsafe { heap.run_oom_stage(stage, false) };
             let ptr = unsafe { retry_alloc(size) };
             if !ptr.is_null() {
                 log::info!(
-                    "[OOM] Worker recovered: stage={} size={} commit={}-->{}MB",
+                    "[OOM] Recovered at stage {} (loading): size={} commit={}-->{}MB",
                     stage,
                     size,
                     commit_entry,
@@ -484,88 +423,118 @@ unsafe fn do_recover_oom(size: usize) -> *mut c_void {
                 );
                 return ptr;
             }
-
-            if done || stage > loading_oom_stage_max {
-                break;
+        }
+    } else {
+        // Gameplay: run stages 3, 4, 5 with alloc retry.
+        // Stage 5 also runs 4+3 internally via fallthrough, so calling
+        // stage 5 alone is equivalent to running 5→4→3.
+        // But we try each independently for better granularity.
+        for stage in [3i32, 4, 5] {
+            let _ = unsafe { heap.run_oom_stage(stage, false) };
+            let ptr = unsafe { retry_alloc(size) };
+            if !ptr.is_null() {
+                log::info!(
+                    "[OOM] Recovered at stage {}: size={} commit={}-->{}MB",
+                    stage,
+                    size,
+                    commit_entry,
+                    heap.commit_mb(),
+                );
+                return ptr;
             }
         }
 
-        // -- Phase 2: Stage 8 pattern (vanilla-matched) --
+        // Run stage 5 in a loop until no more cells eligible (vanilla behavior).
+        // Each call processes one cell (5→4→3 fallthrough).
+        for _ in 0..20 {
+            let (_, done) = unsafe { heap.run_oom_stage(5, false) };
+            if done {
+                break;
+            }
+            let ptr = unsafe { retry_alloc(size) };
+            if !ptr.is_null() {
+                log::info!(
+                    "[OOM] Recovered during cell unload: size={} commit={}-->{}MB",
+                    size,
+                    commit_entry,
+                    heap.commit_mb(),
+                );
+                return ptr;
+            }
+        }
+    }
+
+    // Emergency drain: force decommit of aged pages.
+    unsafe {
+        super::slab::decommit_sweep_full(true);
+        mi_collect(false);
+    }
+    let ptr = unsafe { retry_alloc(size) };
+    if !ptr.is_null() {
+        log::warn!(
+            "[OOM] Recovered after drain: size={} commit={}-->{}MB",
+            size,
+            commit_entry,
+            heap.commit_mb(),
+        );
+        return ptr;
+    }
+
+    if !is_main {
+        // --- Worker: Stage 8 pattern (vanilla-matched) ---
         //
-        // Vanilla Stage 8 (Ghidra: 0x00866a90 case 8):
-        //   *(this+0x134) = 6   <-- HeapCompact trigger for main thread
+        // Vanilla Stage 8 (case 8, worker path):
+        //   Set HeapCompact trigger = 6 (main thread runs cleanup next frame)
         //   release BSTaskManager sems
-        //   Sleep(1)
-        //   retry up to 15000 iterations (15 seconds)
+        //   Sleep(1ms)
+        //   Return same stage (param_2 - 1) so caller loops back to case 8
+        //   Repeat up to 15000 iterations (15 seconds)
         //
-        // The HeapCompact trigger tells the main thread to run cleanup on
-        // its next frame. If main thread is blocked at AI_JOIN waiting for
-        // us, the trigger waits -- but Sleep(1) gives other threads time
-        // to free memory naturally. This IS the vanilla design: workers
-        // wait patiently for the main thread to eventually run cleanup.
+        // Key: Stage 8 is a WAIT pattern. The worker signals the main thread
+        // and sleeps, giving the main thread time to run cleanup on its next
+        // frame. The worker only retries allocation after waking.
         //
-        // We write stage 2 max (MenuCleanup) to avoid triggering
-        // FUN_00c459d0 (async flush) which crashes NVTF's geometry
-        // precache thread. Stage 2 is safe: texture + geometry cache
-        // flush with explicit break statements (Ghidra-verified).
-        //
-        // We also signal emergency_drain so Phase 7 drains the main
-        // thread's pool, and set_deferred_unload so AI_JOIN runs
-        // destruction_protocol (the safe path for stage 3+ cleanup).
-        const MAX_STAGE8_ITERS: u32 = 15_000;
+        // We do NOT release BSTaskManager semaphores initially -- this
+        // unblocks IOManager processing while freed objects may still be
+        // referenced, causing crash at 0x0044DDC0. We only release after
+        // giving the main thread time to drain the IO queue.
+        const MAX_STAGE8: u32 = 15_000;
 
         log::warn!(
-            "[OOM] Worker entering Stage 8: size={} commit={}MB pool={}MB",
+            "[OOM] Worker Stage 8: size={} commit={}MB pool={}MB",
             size,
             heap.commit_mb(),
             super::slab::committed_bytes() / 1024 / 1024,
         );
 
-        for iter in 0..MAX_STAGE8_ITERS {
-            // Match vanilla: set HeapCompact trigger + release sems + sleep
+        for iter in 0..MAX_STAGE8 {
+            // Signal main thread to run cleanup.
             heap.signal_heap_compact(super::engine::globals::HeapCompactStage::MenuCleanup);
             heap.signal_emergency_drain();
 
-            // Drain PPL task groups BEFORE releasing BSTaskManager semaphores.
-            // IOManager dispatches to AI Linear Task Threads via PPL tasks.
-            // Without this drain, unblocking IO while tasks reference freed
-            // objects → crash at 0x0044DDC0 (IOManager NULL dereference).
-            unsafe { super::engine::globals::stop_havok_drain() };
-            unsafe { super::engine::globals::release_bstask_sems_if_owned() };
-
-            // Signal destruction_protocol periodically (safe cell unload
-            // path with Havok lock, consumed at AI_JOIN).
+            // Periodically signal destruction_protocol (safe cell unload).
             if iter.is_multiple_of(16)
                 && let Some(pr) = super::pressure::PressureRelief::instance()
             {
                 pr.set_deferred_unload();
             }
 
+            // Sleep 1ms (vanilla pattern).
             libpsycho::os::windows::winapi::sleep(1);
 
-            // Emergency memory reclamation during OOM.
-            //
-            // During normal gameplay, freed pages stay committed for 15s
-            // (mimalloc purge_delay + slab reuse cooldown) to protect stale
-            // readers. During OOM, the game will crash from memory exhaustion
-            // if we don't reclaim immediately -- the 15s safety window is
-            // irrelevant when allocations are failing.
-            //
-            // mi_collect(true): forces full mimalloc page decommit, bypassing
-            // purge_delay. Frees ALL uncommitted pages immediately.
-            // decommit_sweep_full(true): bypasses 15s age check on slab pages.
-            // Accepts UAF risk from stale readers -- crash is the alternative.
-            //
-            // Rate-limit mi_collect(true) to every 100 iters (~100ms) to avoid
-            // O(total_memory) full collection stalling recovery.
+            // Only release BSTask semaphores after sufficient wait time.
+            // This gives the main thread time to process signals and drain
+            // IO before we unblock BSTaskManagerThread.
+            if iter > 100 {
+                unsafe { super::engine::globals::release_bstask_sems_if_owned() };
+            }
+
+            // Periodic memory reclamation. Uses mi_collect(false) to respect
+            // purge_delay -- forced decommit (mi_collect(true)) causes UAF
+            // when IO threads read freed texture/collision data.
             if iter.is_multiple_of(100) {
                 unsafe {
                     super::slab::decommit_sweep_full(true);
-                    mi_collect(true);
-                }
-            } else if iter.is_multiple_of(50) {
-                unsafe {
-                    super::slab::decommit_sweep_full(false);
                     mi_collect(false);
                 }
             }
@@ -593,301 +562,42 @@ unsafe fn do_recover_oom(size: usize) -> *mut c_void {
             }
         }
 
-        // -- Phase 3: CRT malloc fallback (vanilla give_up path) --
-        //
-        // Vanilla: after 15000 iterations, sets give_up flag, caller
-        // calls _malloc(size) as CRT fallback. We do the same.
-        // libc::malloc bypasses both mimalloc, going
-        // straight to the OS heap (Windows HeapAlloc). This may succeed
-        // when mimalloc arena is fragmented but OS still has free pages.
+        // Infinite retry (vanilla contract: allocator NEVER returns NULL).
+        // The IN_OOM_RECOVERY guard prevents recursion if retry_alloc
+        // re-enters recover_oom. All pointers stay in mimalloc ownership --
+        // never use libc::malloc which creates untracked pointers that crash
+        // when our free hook routes them to the game's original allocator.
         log::error!(
-            "[OOM] Worker Stage 8 exhausted ({}ms), CRT fallback: size={} commit={}MB",
-            MAX_STAGE8_ITERS,
+            "[OOM] Worker infinite retry: size={} commit={}MB",
             size,
             heap.commit_mb(),
         );
-        let ptr = unsafe { libc::malloc(size) };
-        if !ptr.is_null() {
-            log::warn!(
-                "[OOM] Worker recovered (CRT): size={} commit={}MB",
-                size,
-                heap.commit_mb(),
-            );
-            return ptr;
-        }
-
-        // CRT also failed. Vanilla loops forever here (do-while never
-        // exits). We do one final nuclear drain + collect, then loop
-        // CRT malloc indefinitely. This matches the engine contract:
-        // the allocator NEVER returns NULL.
-        log::error!(
-            "[OOM] Worker CRT failed, nuclear drain + infinite retry: size={} commit={}MB",
-            size,
-            heap.commit_mb(),
-        );
-        unsafe { mi_collect(true) };
-
         loop {
-            let ptr = unsafe { retry_alloc(size) };
-            if !ptr.is_null() {
-                return ptr;
-            }
-            let ptr = unsafe { libc::malloc(size) };
-            if !ptr.is_null() {
-                return ptr;
-            }
-            // Yield to let other threads make progress.
-            unsafe { super::engine::globals::release_bstask_sems_if_owned() };
-            libpsycho::os::windows::winapi::sleep(10);
-            unsafe { mi_collect(false) };
-        }
-    }
-
-    // MAIN THREAD: Full cleanup with stages 3-5.
-    //
-    // During loading, skip Stage 5 (Cell Unload). The game is already in a
-    // cell transition — unloading MORE cells destroys objects that NVSE event
-    // handlers and scripts still reference (crash in
-    // InternalFunctionCaller::PopulateArgs accessing freed Character during
-    // nvseRuntimeScript263CellChange).
-    let loading_oom_stage_max: i32 = if loading { 4 } else { 5 };
-    let mut stage: i32 = if loading { 0 } else { 3 };
-    let mut cycles: u32 = 0;
-
-    // Death spiral detection: if an OOM cycle frees less than 1% of current
-    // commit, further stage cycles won't help. Go nuclear immediately.
-    //
-    // During loading: stages 0-5 are almost entirely ineffective
-    // (log: 1494-->1490MB over 30 cycles = 4MB in 2.5 seconds).
-    // During gameplay: stages 3-5 free ~4MB/cycle but allocation rate
-    // exceeds free rate, causing slow death spiral over 1.5 minutes.
-    //
-    // The 1% threshold distinguishes real cleanup from death spiral.
-    // At 1.5GB commit, 1% = 15MB. Death spiral frees ~4MB (0.27%).
-    let mut death_spiral_detected = false;
-    let death_spiral_threshold = commit_entry / 100; // 1% of commit at OOM entry
-
-    loop {
-        cycles += 1;
-        let commit_before = heap.commit_bytes();
-
-        // --- Death Spiral Detection ---
-        // If previous cycle freed < 1% of commit, further stages won't help.
-        // Go straight to nuclear: drain ALL pool blocks + mi_collect(true).
-        if death_spiral_detected {
-            log::warn!(
-                "[OOM] Death spiral detected: cycle={}, commit={}MB, going nuclear",
-                cycles,
-                commit_before / 1024 / 1024,
-            );
-            let drained = unsafe {
-                super::slab::decommit_sweep();
-                mi_collect(false);
-                (0, 0).0
-            };
             unsafe { mi_collect(true) };
-            let freed_bytes = commit_entry.saturating_sub(heap.commit_bytes());
             let ptr = unsafe { retry_alloc(size) };
             if !ptr.is_null() {
-                log::info!(
-                    "[OOM] Recovered via nuclear: drained={} freed={}MB size={} commit={}-->{}MB",
-                    drained,
-                    freed_bytes / 1024 / 1024,
-                    size,
-                    commit_entry,
-                    heap.commit_mb(),
-                );
                 return ptr;
             }
-            log::error!(
-                "[OOM] FATAL (nuclear failed): size={} commit={}MB freed={}MB",
-                size,
-                heap.commit_mb(),
-                freed_bytes / 1024 / 1024,
-            );
-            return null_mut();
-        }
-
-        // Run current stage. Choose bypass mode based on stage and loading state:
-        //
-        // During loading OOM, bypass is ALWAYS false. Stages 0-2 (texture/geometry
-        // cache flush) have cross-thread readers: the IO thread holds raw pointers
-        // to QueuedTexture objects being loaded. Freeing them via mi_free (bypass)
-        // while the IO thread is mid-load causes RefCount:0 UAF crash (seen at
-        // 0x0044DDC0 during cell transitions with NiSourceTexture RefCount=0).
-        //
-        // Stage 5 (Cell Unload) also uses bypass=false — Havok entities and scene
-        // graph nodes freed during cell teardown have active stale readers (AI
-        // threads, BSTaskManagerThread).
-        //
-        // During active gameplay (not loading), all stages use bypass=false
-        // for maximum zombie safety.
-        let bypass = false;
-        let (next, done) = unsafe { heap.run_oom_stage(stage, bypass) };
-        stage = next;
-
-        // Try allocation after every stage
-        let ptr = unsafe { retry_alloc(size) };
-        if !ptr.is_null() {
-            log::info!(
-                "[OOM] Recovered: cycle={} stage={} size={} commit={}-->{}MB",
-                cycles,
-                stage,
-                size,
-                commit_entry,
-                heap.commit_mb(),
-            );
-            return ptr;
-        }
-
-        // Detect ineffective cleanup cycle. If we freed less than 1% of
-        // the commit at OOM entry, further stage cycles won't help —
-        // escalate to nuclear on the next iteration.
-        if cycles == 1 {
-            let freed = commit_before.saturating_sub(heap.commit_bytes());
-            if freed < death_spiral_threshold {
-                death_spiral_detected = true;
-                log::warn!(
-                    "[OOM] Ineffective cycle #1: freed={}KB (threshold={}MB), will go nuclear",
-                    freed / 1024,
-                    death_spiral_threshold / 1024 / 1024,
-                );
-            }
-        }
-
-        // If give_up was set (stage 7 on main thread), fall back to CRT
-        if done {
-            break;
-        }
-
-        // Stage 6 allocates memory (SBM GlobalCleanup) -- skip it.
-        // Stage 7 falls through to Stage 8 (thread suspend/resume) which crashes
-        // when BSTaskManager thread array has NULL entries. Skip both 7 and 8.
-        // During loading, also skip Stage 5 (Cell Unload) via loading_oom_stage_max.
-        if stage > loading_oom_stage_max {
-            // Log final stats before fallback
-            let freed = commit_before.saturating_sub(heap.commit_bytes());
-            if freed < 64 * 1024 {
-                log::warn!(
-                    "[OOM] Minimal cleanup ({}) at stage {}, commit={}-->{}MB",
-                    if freed == 0 {
-                        "nothing freed"
-                    } else {
-                        "very little"
-                    },
-                    stage,
-                    commit_entry,
-                    heap.commit_mb(),
-                );
-            }
-            break;
+            libpsycho::os::windows::winapi::sleep(10);
         }
     }
 
-    // --- Emergency pool drain: Last resort before wait/CRT fallback ---
-    //
-    // When OOM recovery exhausted all game cleanup stages (stages 0-7)
-    // but still couldn't allocate, drain large quarantined blocks.
-    // We drain large blocks (>= 1024 bytes) which are less likely to have
-    // active stale readers than small RefCount-sized blocks.
-    {
-        let drained = unsafe {
-            super::slab::decommit_sweep();
-            mi_collect(false);
-            (0, 0).0
-        };
-        unsafe { libmimalloc::mi_collect(false) };
-        let ptr = unsafe { retry_alloc(size) };
-        if !ptr.is_null() {
-            log::warn!(
-                "[OOM] Recovered after emergency pool drain: drained={} size={} commit={}-->{}MB",
-                drained,
-                size,
-                commit_entry,
-                heap.commit_mb(),
-            );
-            return ptr;
-        }
-    }
-
-    // --- Phase 2: Last resort ---
-    //
-    // Workers returned early above with their own VAS wait loop.
-    // Only the main thread reaches here.
-    log::warn!(
-        "[OOM] Escalating: commit={}-->{}MB pool={}MB",
-        commit_entry,
-        heap.commit_mb(),
-        super::slab::committed_bytes() / 1024 / 1024,
-    );
-
-    // Safe drain (>= 1KB only -- no BSTreeNode UAF risk).
+    // --- Main thread: final drain ---
+    // Main thread has no Stage 8 (it processes the trigger via frame loop).
+    // Drain, then return null_mut if nothing works.
     unsafe {
         super::slab::decommit_sweep();
         mi_collect(false);
-        0
-    };
-    unsafe { mi_collect(true) };
+    }
     let ptr = unsafe { retry_alloc(size) };
     if !ptr.is_null() {
         return ptr;
     }
 
-    // Nuclear: drain ALL pool blocks. UAF risk accepted -- crash is
-    // the alternative. But first, wait for AI threads to join and
-    // release BSTaskManager semaphores to minimize stale readers.
-    //
-    // Wait up to 2 seconds for AI threads to complete. They should
-    // join within one frame (~16ms), so 2s is generous.
-    let ai_wait_start = libpsycho::os::windows::winapi::get_tick_count();
-    while super::game_guard::is_ai_active() {
-        unsafe { super::engine::globals::release_bstask_sems_if_owned() };
-        libpsycho::os::windows::winapi::sleep(1);
-        if libpsycho::os::windows::winapi::get_tick_count() - ai_wait_start > 2000 {
-            log::warn!("[OOM] AI threads did not join within 2s, proceeding with drain_all");
-            break;
-        }
-    }
-    // Final semaphore release before drain.
-    unsafe { super::engine::globals::release_bstask_sems_if_owned() };
-
-    let drained = unsafe {
-        super::slab::decommit_sweep();
-        mi_collect(false);
-        (0, 0).0
-    };
-    let commit_after_drain = heap.commit_mb();
-    let freed_mb = commit_entry.saturating_sub(commit_after_drain);
     log::error!(
-        "[OOM] Last resort: drain_all={} commit={}-->{}MB freed={}MB",
-        drained,
-        commit_entry,
-        commit_after_drain,
-        freed_mb,
-    );
-
-    // Only retry if drain freed meaningful amount relative to request.
-    // If we freed < requested size, VAS is too fragmented -- retrying
-    // with mi_collect(true) just freezes the game for seconds.
-    let size_mb = size / 1024 / 1024;
-    if freed_mb > size_mb {
-        unsafe { mi_collect(true) };
-        let ptr = unsafe { retry_alloc(size) };
-        if !ptr.is_null() {
-            log::warn!(
-                "[OOM] Recovered post-drain: commit={}-->{}MB",
-                commit_entry,
-                heap.commit_mb(),
-            );
-            return ptr;
-        }
-    }
-
-    log::error!(
-        "[OOM] FATAL: size={} commit={}MB thread={}",
+        "[OOM] FATAL: size={} commit={}MB thread=main",
         size,
         heap.commit_mb(),
-        if is_main { "main" } else { "worker" },
     );
     null_mut()
 }
