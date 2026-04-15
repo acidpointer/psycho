@@ -150,17 +150,25 @@ pub fn is_main_thread() -> bool {
 // Alloc / Free / Msize / Realloc
 // -----------------------------------------------------------------------
 
-/// Allocate `size` bytes. Uses thread-local pool, falls back to mi_malloc.
+/// Allocate `size` bytes. Dispatch table:
 ///
-/// When mi_malloc succeeds, we check the object's vtable and mark its
-/// segment in the UAF bitmap if it's a UAF-sensitive type. This happens
-/// at allocation time when the vtable is guaranteed valid (just constructed).
+///   size <= 256 KB               -> slab (zombie bitmap, 15 s cooldown)
+///   256 KB < size < 2 MB         -> mimalloc (purge_delay=-1, UAF guards)
+///   size >= 2 MB (VA_ALLOC_THRESHOLD) -> va_alloc (direct VirtualAlloc)
 ///
-/// Large allocations (> 256KB) go through mimalloc for immediate VAS
-/// reclamation via purge_delay.
-///   Dispatch:
-///   size <= 256KB -> slab (bitmap free tracking, zombie memory, 15s cooldown)
-///   size > 256KB  -> mimalloc (15s purge_delay, UAF guard at offsets 4/8)
+/// The size >= 2 MB path bypasses mimalloc entirely. Rationale: on
+/// 32-bit x86 mimalloc's segment size is 4 MB and anything larger
+/// takes an internal huge-object direct-VA path anyway, but routing
+/// through mimalloc for huge objects has two drawbacks --
+/// (a) mimalloc's arena metadata tracks them, fragmenting the
+///     internal segment map; and
+/// (b) on failure mimalloc returns NULL with no fallback, which was
+///     the root cause of the 21 MB NiDDSReader crash and the 5.6 MB
+///     crash.
+/// Routing huge allocations through `va_alloc` gives them a clean
+/// direct-VirtualAlloc path with retry / side-table tracking, keeps
+/// mimalloc's arena unfragmented by large objects, and lets
+/// `free` / `msize` / `realloc` route correctly via the side table.
 #[inline]
 pub unsafe fn alloc(size: usize) -> *mut c_void {
     // Small/medium objects (<= 256KB) --> slab allocator.
@@ -175,7 +183,18 @@ pub unsafe fn alloc(size: usize) -> *mut c_void {
         // Slab exhausted for this size class -- fall through to mimalloc
     }
 
-    // Large objects (> 256KB) or slab fallback --> mimalloc.
+    // Huge allocations bypass mimalloc entirely.
+    if size >= super::va_alloc::VA_ALLOC_THRESHOLD {
+        let ptr = super::va_alloc::alloc(size);
+        if !ptr.is_null() {
+            return ptr;
+        }
+        // va_alloc failed -- OS refused. Fall into recover_oom for
+        // stage-based cleanup + one retry before giving up.
+        return unsafe { recover_oom(size) };
+    }
+
+    // Medium objects (256 KB < size < 2 MB) --> mimalloc.
     let ptr = unsafe { mi_malloc_aligned(size, ALIGN) };
     if !ptr.is_null() {
         return ptr;
@@ -228,6 +247,15 @@ pub unsafe fn free(ptr: *mut c_void) {
         return;
     }
 
+    // va_alloc side-table check (huge allocations, direct VirtualAlloc).
+    // Side table is tiny (< 20 entries typical) so the mutex + scan is
+    // cheap, and this is only reached for pointers that are NOT in
+    // slab and NOT in mimalloc -- which historically meant they went
+    // straight to the CRT/HeapValidate fallback below.
+    if unsafe { super::va_alloc::free(ptr) } {
+        return;
+    }
+
     // Pre-hook pointer: route to original SBM trampoline.
     if let Ok(orig_free) = statics::GHEAP_FREE_HOOK.original() {
         unsafe { orig_free(addr::HEAP_SINGLETON as *mut c_void, ptr) };
@@ -252,6 +280,11 @@ pub unsafe fn msize(ptr: *mut c_void) -> usize {
     // mimalloc arena (CRT hooks, mid-range allocs).
     if unsafe { mi_is_in_heap_region(ptr as *const c_void) } {
         return unsafe { mi_usable_size(ptr as *const c_void) };
+    }
+
+    // va_alloc side-table check.
+    if let Some(sz) = super::va_alloc::size_of(ptr as *const c_void) {
+        return sz;
     }
 
     if let Ok(orig_msize) = statics::GHEAP_MSIZE_HOOK.original() {
@@ -303,6 +336,24 @@ pub unsafe fn realloc(ptr: *mut c_void, new_size: usize) -> *mut c_void {
             return new_ptr;
         }
         return unsafe { recover_oom(new_size) };
+    }
+    // va_alloc: no in-place; alloc new, copy, free old. `alloc(new_size)`
+    // automatically routes the new buffer through va_alloc again if the
+    // new size is still above the threshold, or to mimalloc/slab if it
+    // shrank below.
+    if let Some(old_va_size) = super::va_alloc::size_of(ptr as *const c_void) {
+        let new_ptr = unsafe { alloc(new_size) };
+        if !new_ptr.is_null() {
+            unsafe {
+                std::ptr::copy_nonoverlapping(
+                    ptr as *const u8,
+                    new_ptr as *mut u8,
+                    old_va_size.min(new_size),
+                );
+                super::va_alloc::free(ptr);
+            }
+        }
+        return new_ptr;
     }
     let old_size = unsafe { msize(ptr) };
     if old_size == 0 {
@@ -411,7 +462,12 @@ unsafe fn do_recover_oom(size: usize) -> *mut c_void {
     }
 
     // ------------------------------------------------------------------
-    // Worker thread: one aggressive pass, then NULL.
+    // Worker thread: one aggressive pass, then last-resort va_alloc,
+    // then NULL. va_alloc is the final fallback for ANY size, not just
+    // huge objects. The 2 MB threshold is for normal-path routing
+    // (where va_alloc avoids wasting VA on small requests); on the
+    // failure fallback, we don't care about efficiency -- we care
+    // about not returning NULL and crashing the caller.
     // ------------------------------------------------------------------
     if !is_main {
         for stage in [3i32, 4] {
@@ -421,22 +477,27 @@ unsafe fn do_recover_oom(size: usize) -> *mut c_void {
             super::slab::decommit_sweep_full(true);
             mi_collect(true);
         }
+
+        // Retry mimalloc once after cleanup.
         let ptr = unsafe { retry_alloc(size) };
         if !ptr.is_null() {
-            log::info!(
-                "[OOM] Worker recovered: size={} commit={}-->{}MB",
-                size,
-                commit_entry,
-                heap.commit_mb(),
-            );
             return ptr;
         }
+
+        // Final fallback: direct VirtualAlloc via va_alloc, any size.
+        let ptr = super::va_alloc::alloc(size);
+        if !ptr.is_null() {
+            return ptr;
+        }
+
         log::error!(
-            "[OOM] Worker returning NULL: size={} commit={}MB slab={}MB. \
-             Caller must handle allocation failure.",
+            "[OOM] Worker returning NULL: size={} commit={}MB slab={}MB \
+             va_live={} va_bytes={}MB. OS refused direct VirtualAlloc.",
             size,
             heap.commit_mb(),
             super::slab::committed_bytes() / 1024 / 1024,
+            super::va_alloc::live_count(),
+            super::va_alloc::live_bytes() / 1024 / 1024,
         );
         return null_mut();
     }
@@ -501,23 +562,27 @@ unsafe fn do_recover_oom(size: usize) -> *mut c_void {
         super::slab::decommit_sweep_full(true);
         mi_collect(true);
     }
+
+    // Retry mimalloc once after cleanup.
     let ptr = unsafe { retry_alloc(size) };
     if !ptr.is_null() {
-        log::warn!(
-            "[OOM] Main recovered after full drain: size={} commit={}-->{}MB",
-            size,
-            commit_entry,
-            heap.commit_mb(),
-        );
+        return ptr;
+    }
+
+    // Final fallback: direct VirtualAlloc via va_alloc, any size.
+    let ptr = super::va_alloc::alloc(size);
+    if !ptr.is_null() {
         return ptr;
     }
 
     log::error!(
-        "[OOM] FATAL: main thread could not satisfy size={} commit={}MB slab={}MB. \
-         Returning NULL -- caller almost certainly does not handle this.",
+        "[OOM] FATAL main: size={} commit={}MB slab={}MB va_live={} va_bytes={}MB. \
+         OS refused direct VirtualAlloc. Returning NULL.",
         size,
         heap.commit_mb(),
         super::slab::committed_bytes() / 1024 / 1024,
+        super::va_alloc::live_count(),
+        super::va_alloc::live_bytes() / 1024 / 1024,
     );
     null_mut()
 }
