@@ -125,6 +125,18 @@ pub const HAVOK_ENTITY_POST_ADD_ADDR: usize = 0x00CFFA00;
 pub static HAVOK_ENTITY_POST_ADD_HOOK: LazyLock<InlineHookContainer<HavokEntityPostAddFn>> =
     LazyLock::new(InlineHookContainer::new);
 
+// ---- Game-inlined _memset (NULL-dst defensive bugfix) ----
+
+/// FUN_00EC61C0: the game's inlined MSVC 2008 `_memset`. Called by the
+/// aligned-calloc wrapper at `FUN_00aa2240` without a NULL check on the
+/// alloc result. When our OOM recovery returns NULL, the game passes
+/// NULL straight here and crashes in `__VEC_memzero` at `0x00ED2C9E`.
+/// Our hook short-circuits on `dst == NULL`.
+pub const MEMSET_ADDR: usize = 0x00EC61C0;
+
+pub static MEMSET_HOOK: LazyLock<InlineHookContainer<libpsycho::os::windows::types::MemsetFn>> =
+    LazyLock::new(InlineHookContainer::new);
+
 // // ---- Actor process synchronization ----
 
 // pub const ACTOR_DOWNGRADE_ADDR: usize = 0x0096E870;

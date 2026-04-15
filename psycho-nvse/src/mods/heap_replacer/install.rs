@@ -215,6 +215,17 @@ pub fn heap_replacer_initialize() -> anyhow::Result<()> {
         )?;
     }
 
+    // game-inlined _memset NULL-dst defensive shim
+    {
+        use gheap::statics::*;
+
+        MEMSET_HOOK.init(
+            "memset_null_guard",
+            MEMSET_ADDR as *mut c_void,
+            gheap::memset_fix::hook_memset,
+        )?;
+    }
+
     log::info!("[HEAP REPLACER] Infrastructure initialized, all trampolines prepared");
     Ok(())
 }
@@ -335,6 +346,14 @@ pub fn heap_replacer_activate() -> anyhow::Result<()> {
 
         HAVOK_ENTITY_POST_ADD_HOOK.enable()?;
         log::info!("[HAVOK] FUN_00CFFA00 NULL-entity guard active");
+    }
+
+    // _memset NULL-dst defensive shim
+    {
+        use gheap::statics::*;
+
+        MEMSET_HOOK.enable()?;
+        log::info!("[CRT] _memset NULL-dst guard active");
     }
 
     // SBM disable patches (must be after hooks are active)

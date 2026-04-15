@@ -18,6 +18,7 @@ pub mod game_guard;
 pub mod havok_fix;
 pub mod heap_manager;
 pub mod hooks;
+pub mod memset_fix;
 pub mod pdd_hook;
 pub mod pressure;
 pub mod slab;
