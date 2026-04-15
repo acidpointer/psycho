@@ -217,35 +217,32 @@ impl PressureRelief {
 
         // IO thread synchronization barrier + AI Linear Task Thread drain.
         // MUST run before ANY destruction (including stage 4 PDD purge in the
-        // probe fallthrough). PDD purge destroys queued NiSourceTexture objects;
-        // if the IO thread is mid-processing their texture data (LOD loading),
-        // destroying them without IO idle -> UAF. Confirmed crash:
-        //   EXCEPTION_ACCESS_VIOLATION at 0x0044DDC0, ecx=NULL
-        //   NiSourceTexture RefCount=0, BSFile loading "wastelandnv.buildings.dds"
-        //   Root cause: stage 4 PDD purge ran without IO barrier.
+        // probe fallthrough). PDD purge destroys queued NiSourceTexture objects
+        // and BSTreeNodes; if IO/AI threads are still processing tasks that
+        // reference these objects -> UAF crash on AI Linear Task Thread 2.
         //
+        // IO thread synchronization barrier.
+        // BSTaskManagerThread and BackgroundCloneThread hold raw pointers to
+        // cell data during task processing. Must run FIRST -- before PPL drain
+        // and cell unload -- to ensure no BSTaskManager tasks are in-flight
+        // when PDD purge destroys referenced objects.
+        // See: analysis/research/crash_root_cause_io_thread_uaf.md
+        unsafe { globals::wait_for_io_idle() };
+
         // Drain PPL task groups used by IOManager to dispatch AI Linear Task
         // Thread work. This is the vanilla CellTransitionHandler mechanism
         // (FUN_008324e0 mode=0). Without this, unprocessed IOManager tasks
-        // dispatch to AI threads mid-destruction -> crash at 0x00C94DA5
-        // (AI Linear Task Thread 2 accessing freed hkScaledMoppBvTreeShape).
+        // dispatch to AI threads mid-destruction -> crash on AI Linear Task
+        // Thread 2 accessing freed game objects.
         //
         // NOTE: is_ai_active() does NOT cover AI Linear Task Threads -- it
         // only tracks the 2 main AI coordinator threads. The Linear Task
         // Threads are dispatched by IOManager via separate PPL task groups.
+        //
+        // Must run AFTER wait_for_io_idle() to avoid a race window where
+        // new tasks dispatch during the drain, then get processed after
+        // PDD purge destroys their referenced objects.
         unsafe { globals::stop_havok_drain() };
-
-        // Havok quiescence sleep. pre_destruction_setup locks Havok world
-        // (prevents NEW physics ops) but doesn't interrupt in-flight AI
-        // raycasts. 30ms covers typical pathfinding chains (individual
-        // raycasts <1ms, chains of 3-5 queries take 10-30ms total).
-        // Confirmed crash at 0x00C94DA5 (hkpWorld::addEntity) when
-        // sleep was reduced to 1ms.
-        libpsycho::os::windows::winapi::sleep(30);
-
-        // IO thread barrier. BSTaskManagerThread and BackgroundCloneThread
-        // hold raw pointers to cell data during task processing.
-        unsafe { globals::wait_for_io_idle() };
 
         // Probe cell eligibility. Run stage 5 once: if FindCellToUnload finds
         // a cell, continue unloading. If not, the fallthrough already ran
