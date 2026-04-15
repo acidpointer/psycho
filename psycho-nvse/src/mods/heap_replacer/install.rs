@@ -204,6 +204,17 @@ pub fn heap_replacer_initialize() -> anyhow::Result<()> {
         )?;
     }
 
+    // havok vanilla-bug shim (NULL hkpEntity in addEntityBatch result array)
+    {
+        use gheap::statics::*;
+
+        HAVOK_ENTITY_POST_ADD_HOOK.init(
+            "havok_entity_post_add",
+            HAVOK_ENTITY_POST_ADD_ADDR as *mut c_void,
+            gheap::havok_fix::hook_havok_entity_post_add,
+        )?;
+    }
+
     log::info!("[HEAP REPLACER] Infrastructure initialized, all trampolines prepared");
     Ok(())
 }
@@ -316,6 +327,14 @@ pub fn heap_replacer_activate() -> anyhow::Result<()> {
         HKWORLD_LOCK_HOOK.enable()?;
         HKWORLD_UNLOCK_HOOK.enable()?;
         log::info!("[HAVOK] World lock hooks active");
+    }
+
+    // havok vanilla-bug shim
+    {
+        use gheap::statics::*;
+
+        HAVOK_ENTITY_POST_ADD_HOOK.enable()?;
+        log::info!("[HAVOK] FUN_00CFFA00 NULL-entity guard active");
     }
 
     // SBM disable patches (must be after hooks are active)

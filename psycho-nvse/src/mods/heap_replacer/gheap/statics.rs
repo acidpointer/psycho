@@ -115,6 +115,16 @@ pub static HKWORLD_LOCK_HOOK: LazyLock<InlineHookContainer<HkWorldLockFn>> =
 pub static HKWORLD_UNLOCK_HOOK: LazyLock<InlineHookContainer<HkWorldUnlockFn>> =
     LazyLock::new(InlineHookContainer::new);
 
+// ---- Havok entity post-add callback (vanilla NULL-deref bugfix) ----
+
+/// FUN_00CFFA00: dispatches AddedToWorld listeners for a single hkpEntity.
+/// hkpWorld::addEntityBatch iterates the broadphase result array and calls
+/// this per slot without filtering NULL slots. We wrap it to skip NULLs.
+pub const HAVOK_ENTITY_POST_ADD_ADDR: usize = 0x00CFFA00;
+
+pub static HAVOK_ENTITY_POST_ADD_HOOK: LazyLock<InlineHookContainer<HavokEntityPostAddFn>> =
+    LazyLock::new(InlineHookContainer::new);
+
 // // ---- Actor process synchronization ----
 
 // pub const ACTOR_DOWNGRADE_ADDR: usize = 0x0096E870;

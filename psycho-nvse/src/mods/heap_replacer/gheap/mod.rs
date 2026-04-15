@@ -15,6 +15,7 @@ pub mod allocator;
 pub mod crash_diag;
 pub mod engine;
 pub mod game_guard;
+pub mod havok_fix;
 pub mod heap_manager;
 pub mod hooks;
 pub mod pdd_hook;

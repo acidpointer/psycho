@@ -193,6 +193,11 @@ pub type HavokCollObjDtorFn = unsafe extern "thiscall" fn(*mut c_void, u8);
 pub type HavokRaycastFn =
     unsafe extern "thiscall" fn(*mut c_void, *mut c_void, *mut c_void, i32, u32, u32);
 
+/// FUN_00CFFA00: per-entity AddedToWorld callback dispatcher (cdecl, 1 arg).
+/// First instruction reads [entity + 0x214]; crashes on NULL. See
+/// havok_fix.rs for the defensive wrapper rationale.
+pub type HavokEntityPostAddFn = unsafe extern "C" fn(entity: *mut c_void);
+
 /// hkWorld_Unlock (fastcall, world ptr in ECX).
 pub type HkWorldUnlockFn = unsafe extern "fastcall" fn(*mut c_void);
 
