@@ -15,3 +15,7 @@ enabled = true          # Enable zlib replacer
 
 [display]
 tweaks = true           # Enable display tweaks (alt-tab fix)
+
+[debug]
+vas_scan = true        # One-line VA summary at preload + DeferredInit (tuning only)
+vas_probe = true       # One-line VirtualAlloc-ladder probe at preload (tuning only)

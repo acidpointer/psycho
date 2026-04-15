@@ -79,6 +79,7 @@ fn entrypoint(nvse_ptr: *const NVSEInterfaceFFI) -> anyhow::Result<()> {
             crate::nvse_services::set_game_ready();
             log::info!("[NVSE] Game engine ready - DeferredInit message received!");
             crate::mods::display::verify_display_resolution();
+            crate::mods::vas_probe::scan_vas("deferred-init");
         }
     })?;
 
@@ -153,6 +154,13 @@ pub extern "C" fn NVSEPlugin_Preload() -> BOOL {
 
     log::info!("[PRELOAD] Config loaded, logger ready");
 
+    // Research probes for OOM-rework planning. Pure observation: the
+    // reserve probe releases every successful reservation before returning,
+    // so this block has no lasting effect on VAS layout.
+    crate::mods::vas_probe::scan_vas("preload-start");
+    crate::mods::vas_probe::probe_reserve_sizes();
+    crate::mods::vas_probe::scan_vas("post-probe");
+
     configure_mimalloc();
 
     if cfg.memory.heap_replacer {
@@ -163,6 +171,8 @@ pub extern "C" fn NVSEPlugin_Preload() -> BOOL {
             }
         }
     }
+
+    crate::mods::vas_probe::scan_vas("preload-end");
 
     log::info!("[PRELOAD] Infrastructure initialized, trampolines prepared");
 

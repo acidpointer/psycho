@@ -25,10 +25,33 @@ pub fn configure_mimalloc() {
         // GameHeap hooks). Tuned for 32-bit FNV with ~4GB VA (LAA).
         // ---------------------------------------------------------------
 
-        // PRE-RESERVE ARENA -- try sizes from largest to smallest.
-        // Uses mi_reserve_os_memory_ex for explicit error reporting.
-        // commit=false -> demand-page (zero physical RAM upfront).
-        let arena_sizes = [512 * MB, 384 * MB, 256 * MB, 128 * MB];
+        // PRE-RESERVE ARENA -- step 1 of binary search: 768 MB.
+        //
+        // History:
+        //   - 512 MB (pre-Landing-B): mimalloc's 32 MB overflow arenas
+        //     couldn't land after DeferredInit fragmented VAS to a 21 MB
+        //     max hole. Worker-thread OOM on a 5.6 MB huge-obj request
+        //     wedged the Stage-8 sleep loop -> hard freeze.
+        //   - 1280 MB (Landing B): mimalloc was happy, but the 1280 MB
+        //     reservation carved too large a slice out of Wine's upper-
+        //     2GB pool (0x80000000..0xffff0000). Wine's internal d3d9/
+        //     wined3d / process-heap growth starved later in the session
+        //     and a d3d9 helper at offset 0x2987A crashed on a NULL
+        //     dereference that Wine silently failed to initialize.
+        //
+        // 768 MB is the midpoint. Aim: enough mimalloc room to hold the
+        // 1.3 GB game working set without needing overflow arenas during
+        // gameplay (purge_delay=-1 means freed pages stay committed and
+        // get reused), while leaving Wine ~1.28 GB of upper-2GB space
+        // (0xB0000000..0xffff0000) for its own internal buffers, heap
+        // growth, thread stacks, and late DLL mappings.
+        //
+        // If 768 MB still reproduces the d3d9 crash -> step 2 is 640 MB.
+        // If 768 MB produces the original freeze instead -> step 2 is
+        // 896 or 1024 MB.
+        //
+        // Fallback ladder trims upward: 768 -> 640 -> 512 -> 384 -> 256.
+        let arena_sizes = [768 * MB, 640 * MB, 512 * MB, 384 * MB, 256 * MB];
         let mut reserved = 0usize;
         for &size in &arena_sizes {
             let mut arena_id: mi_arena_id_t = 0;
@@ -53,8 +76,18 @@ pub fn configure_mimalloc() {
         // UAF bitmap removed: slab allocator writes FreeNode header on ALL
         // freed cells, providing universal UAF protection without per-segment tracking.
 
-        // 32MB overflow arenas if pre-reserved block fills up.
-        mi_option_set(mi_option_arena_reserve, 32 * 1024); // KiB
+        // 128 MB overflow arenas if the pre-reserved block fills up.
+        //
+        // Was 32 MB, which is larger than the largest free VA hole
+        // (21 MB) at DeferredInit once engine init finishes fragmenting
+        // the address space. A 32 MB overflow request after that moment
+        // always fails; we saw that in the stress-test freeze log.
+        //
+        // 128 MB is still placeable during preload (the probe found
+        // ~1.8 GB contiguous at 0x80000000) but we expect to rarely or
+        // never need an overflow arena at all with the 1 GB primary --
+        // the overflow path is insurance, not the main mechanism.
+        mi_option_set(mi_option_arena_reserve, 128 * 1024); // KiB
 
         // Demand-page: reserve VA, commit on first touch.
         mi_option_set(mi_option_arena_eager_commit, 0);

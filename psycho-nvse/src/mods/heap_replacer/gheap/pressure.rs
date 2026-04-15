@@ -31,10 +31,6 @@ const MAX_CELLS_PER_CYCLE: usize = 20;
 /// holds the deferred-unload flag (set by watchdog, consumed at AI_JOIN)
 /// and the baseline commit used for threshold computation.
 pub struct PressureRelief {
-    /// Set by watchdog (via hooks.rs) when cell unload is needed.
-    /// Cleared by `run_deferred_unload()` at AI_JOIN.
-    deferred_unload: AtomicBool,
-
     /// Set by destruction_protocol when cells were unloaded. The loading
     /// state counter is kept elevated to suppress PLChangeEvent dispatch.
     /// `flush_pending_counter_decrement()` decrements it on the next frame.
@@ -49,7 +45,6 @@ impl PressureRelief {
         log::info!("[PRESSURE] Initialized (max_cells={})", MAX_CELLS_PER_CYCLE,);
 
         Self {
-            deferred_unload: AtomicBool::new(false),
             pending_counter_decrement: AtomicBool::new(false),
             baseline_commit: AtomicUsize::new(0),
         }
@@ -80,12 +75,6 @@ impl PressureRelief {
         static INSTANCE: LazyLock<Option<PressureRelief>> =
             LazyLock::new(|| Some(PressureRelief::new()));
         INSTANCE.as_ref()
-    }
-
-    /// Signal that cell unload should run at the next AI_JOIN.
-    /// Called from hooks.rs when watchdog requests aggressive cleanup.
-    pub fn set_deferred_unload(&self) {
-        self.deferred_unload.store(true, Ordering::Release);
     }
 
     /// Decrement the loading state counter if a previous destruction_protocol
