@@ -9,12 +9,12 @@
 //!
 //! - `scan_vas(label)` -- walks `VirtualQuery` across the full 32-bit
 //!   user address space and emits ONE compact INFO line:
-//!     [VAS label] free=<total>MB largest=<base>+<size>MB second=<base>+<size>MB reserve=<total>MB commit=<total>MB regions=<count> holes=<count>
+//!   [VAS label] free=<total>MB largest=<base>+<size>MB second=<base>+<size>MB reserve=<total>MB commit=<total>MB regions=<count> holes=<count>
 //!
 //! - `probe_reserve_sizes()` -- tries `VirtualAlloc(NULL, size, MEM_RESERVE)`
 //!   for a ladder of sizes and immediately releases each. Emits ONE
 //!   compact INFO line with the largest successful size and its base:
-//!     [VAS-PROBE] max=<size>MB base=<base> (tried <first>..<last>, first-fail=<size>MB err=<code>)
+//!   [VAS-PROBE] max=<size>MB base=<base> (tried <first>..<last>, first-fail=<size>MB err=<code>)
 //!
 //! No per-region output at any log level. No DEBUG fan-out. The goal is
 //! a log you can actually read.

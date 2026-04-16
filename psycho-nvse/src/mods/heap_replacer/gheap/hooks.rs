@@ -416,7 +416,14 @@ pub unsafe extern "C" fn hook_per_frame_queue_drain() {
     });
 
     // Call the original per-frame queue drain (PDD).
+    // Guard: skip if any PDD queue has a NULL internal buffer pointer.
+    // During heavy mod loading, aggressive cleanup can free a queue buffer
+    // while the count is still non-zero, causing memcpy(NULL) crashes.
     if let Ok(original) = statics::PER_FRAME_QUEUE_DRAIN_HOOK.original() {
+        if !pdd_queues_have_valid_buffers() {
+            log::warn!("[PDD] Queue buffer is NULL, skipping drain this frame");
+            return;
+        }
         unsafe { original() };
 
         // Boosted PDD drain when watchdog flagged cleanup.
@@ -613,4 +620,32 @@ pub unsafe extern "fastcall" fn hook_hkworld_unlock(this: *mut c_void) {
         unsafe { original(this) };
     }
     game_guard::clear_havok_active();
+}
+
+/// Check if PDD queues with pending items have valid buffer pointers.
+/// Empty queues legitimately have a NULL buffer -- only dangerous when
+/// count > 0 and buffer == NULL (memcpy would crash with ESI=0).
+/// Returns false if any non-empty queue has a NULL buffer.
+fn pdd_queues_have_valid_buffers() -> bool {
+    const BUFFER_OFFSET: usize = 0x04;
+    let queues = [
+        super::engine::addr::NINODE_QUEUE,
+        super::engine::addr::FORM_QUEUE,
+        super::engine::addr::GENERIC_QUEUE,
+        super::engine::addr::ANIM_QUEUE,
+        super::engine::addr::TEXTURE_QUEUE,
+    ];
+    for &base in &queues {
+        let count = unsafe {
+            *((base + super::engine::addr::PDD_QUEUE_COUNT_OFFSET) as *const u16)
+        };
+        if count == 0 {
+            continue;
+        }
+        let buf = unsafe { *((base + BUFFER_OFFSET) as *const usize) };
+        if buf == 0 {
+            return false;
+        }
+    }
+    true
 }

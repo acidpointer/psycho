@@ -137,11 +137,7 @@ pub unsafe fn free(ptr: *mut c_void) -> bool {
 			Ok(g) => g,
 			Err(p) => p.into_inner(),
 		};
-		if let Some(idx) = blocks.iter().position(|b| b.base == target) {
-			Some(blocks.swap_remove(idx))
-		} else {
-			None
-		}
+		blocks.iter().position(|b| b.base == target).map(|idx| blocks.swap_remove(idx))
 	};
 
 	let Some(b) = removed else {

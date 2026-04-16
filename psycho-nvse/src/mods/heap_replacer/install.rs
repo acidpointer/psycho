@@ -29,9 +29,18 @@ pub fn heap_replacer_initialize() -> anyhow::Result<()> {
 
     gheap::crash_diag::install();
 
-    // Decommit SBM arena pages with zero live blocks before we take over.
-    // SBM state is fully consistent at this point.
-    cleanup_sbm_arenas();
+    // NOTE: cleanup_sbm_arenas() is intentionally NOT called from here.
+    // The premise "SBM state is fully consistent at this point" was true
+    // when install ran inside DllMain (loader lock held -- no other thread
+    // could touch the SBM). With install moved to NVSEPlugin_Preload the
+    // loader lock is released, BSTaskManager / IO worker threads are
+    // already alive, and walking the SBM_POOL_TABLE racing the SBM's own
+    // refcount tracker decommits pages the SBM still has on its freelist.
+    // Next SBM allocation that pops one of those pages returns memory we
+    // already MEM_DECOMMIT'd -- first store into the cell faults, often
+    // visible as a memcpy with a freshly-NULLed source against a static
+    // BSTCommonMessageQueue<BSPackedTask> slot. The function is left in
+    // place for a future correctly-sequenced reclamation pass.
 
     // Cache process heap handles so free/msize/realloc can route pre-hook
     // pointers back to the correct Windows heap after hooks go live.
@@ -381,7 +390,13 @@ fn start_deferred_threads() {
 // ---------------------------------------------------------------------------
 
 /// Decommit SBM arena pages with zero live blocks.
-/// Must run BEFORE hooks are enabled (SBM state is fully consistent).
+///
+/// HISTORICAL NOTE: this used to be called from `heap_replacer_initialize`
+/// when install ran inside DllMain. With install moved to Preload it races
+/// against live worker threads still allocating from the SBM, so the call
+/// was removed (see comment in `heap_replacer_initialize`). The function
+/// is kept for a future correctly-sequenced reclamation pass.
+#[allow(dead_code)]
 fn cleanup_sbm_arenas() {
     use windows::Win32::System::Memory::{VirtualFree, MEM_DECOMMIT};
 

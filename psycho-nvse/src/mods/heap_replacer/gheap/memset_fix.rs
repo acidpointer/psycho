@@ -18,9 +18,9 @@
 //!    size and alignment. That matches what the game's inlined
 //!    `__VEC_memzero` fast path was already doing, minus the trampoline
 //!    + JMP + retpoline-style indirection our hook would otherwise
-//!    incur. This path is called from 121+ game call sites across the
-//!    render/scene graph subsystems; cutting a few cycles per call is
-//!    worth the replacement.
+//!      incur. This path is called from 121+ game call sites across the
+//!      render/scene graph subsystems; cutting a few cycles per call is
+//!      worth the replacement.
 //!
 //! Safety notes on the `core::ptr::write_bytes` choice:
 //!
