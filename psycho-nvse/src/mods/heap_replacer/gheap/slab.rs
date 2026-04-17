@@ -804,12 +804,26 @@ impl SlabAllocator {
                     let page_size = (*arena).page_size;
 
                     // VirtualAlloc with NO lock held -- other threads can alloc/free
-                    let _ = VirtualAlloc(
+                    let result = VirtualAlloc(
                         Some(addr as *const c_void),
                         page_size,
                         MEM_COMMIT,
                         PAGE_READWRITE,
                     );
+
+                    if result.is_null() {
+                        let err = std::io::Error::last_os_error();
+                        log::error!(
+                            "[SLAB] VirtualAlloc COMMIT FAILED: addr=0x{:08X} size={} err={}",
+                            addr as usize,
+                            page_size,
+                            err,
+                        );
+                        panic!(
+                            "[SLAB] Cannot commit page at 0x{:08X}: {}. VAS exhausted or kernel resource limit.",
+                            addr as usize, err,
+                        );
+                    }
 
                     // VirtualAlloc zeroes the page. Do NOT fill with a sentinel.
                     // Game code checks `if (ptr != NULL)` to skip uninitialized
