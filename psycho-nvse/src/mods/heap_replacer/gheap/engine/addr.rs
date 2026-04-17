@@ -144,7 +144,7 @@ pub const GET_MAIN_THREAD_ID: usize = 0x0044EDB0;
 /// - value=0: cell unload in progress (suppresses NVSE PLChangeEvent dispatch).
 /// - value=1: cell unload done (re-enables event dispatch).
 ///
-/// Called by HeapCompact stage 5 and CellTransitionHandler before/after FindCellToUnload. 
+/// Called by HeapCompact stage 5 and CellTransitionHandler before/after FindCellToUnload.
 /// Without this, NVSE plugins receive events for partially-torn-down actors --> crash.
 pub const SET_TLS_CLEANUP_FLAG: usize = 0x00869190;
 
@@ -232,4 +232,3 @@ pub const RDATA_END: usize = 0x01300000;
 // TESForm flags offset and HAVOK_DEATH flag value.
 pub const TESFORM_FLAGS_OFFSET: usize = 0x08;
 pub const FLAG_HAVOK_DEATH: u32 = 0x10000;
-

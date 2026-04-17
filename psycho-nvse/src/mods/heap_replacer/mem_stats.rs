@@ -41,15 +41,6 @@ impl MemStats {
 
     // -- Pressure relief (written by pressure.rs) --
 
-    /// Record a completed pressure relief cycle.
-    pub fn record_pressure_relief(&self, cells: usize) {
-        self.pressure_cycles.fetch_add(1, Ordering::Relaxed);
-        if cells > 0 {
-            self.pressure_cells_unloaded
-                .fetch_add(cells as i64, Ordering::Relaxed);
-        }
-    }
-
     pub fn pressure_cycles(&self) -> i64 {
         self.pressure_cycles.load(Ordering::Relaxed)
     }

@@ -13,14 +13,13 @@
 //! - Debug logging for OOM stages is encapsulated inside `run_oom_stage`.
 
 use std::sync::LazyLock;
-use std::sync::atomic::{AtomicBool, AtomicI32, Ordering};
+use std::sync::atomic::{AtomicBool, Ordering};
 
 use libc::c_void;
 
 use libpsycho::ffi::fnptr::FnPtr;
 
 use super::engine::addr;
-use super::engine::globals::HeapCompactStage;
 
 
 // ---------------------------------------------------------------------------
@@ -156,36 +155,6 @@ impl HeapManager {
         }
 
         (next, done != 0)
-    }
-
-    /// Signal HeapCompact to run stages 0..=stage on the next frame.
-    ///
-    /// Uses a CAS loop for atomic MAX semantics -- never downgrades an
-    /// existing trigger. Worker OOM stage 8 writes trigger=6 from its
-    /// thread -- writing a lower value here would clobber that request.
-    pub fn signal_heap_compact(&self, stage: HeapCompactStage) {
-        let trigger = unsafe { AtomicI32::from_ptr(addr::HEAP_COMPACT_TRIGGER as *mut i32) };
-        let desired = stage as i32;
-
-        loop {
-            let current = trigger.load(Ordering::Relaxed);
-            if desired <= current {
-                break; // Already at this stage or higher
-            }
-            // Atomic MAX: only write if trigger still equals our read
-            match trigger.compare_exchange_weak(
-                current,
-                desired,
-                Ordering::Release,
-                Ordering::Relaxed,
-            ) {
-                Ok(_) => break, // CAS succeeded
-                Err(_) => {
-                    // Another thread modified trigger between our read and CAS.
-                    // Retry with the new current value.
-                }
-            }
-        }
     }
 
     // -------------------------------------------------------------------

@@ -122,6 +122,17 @@ pub fn heap_replacer_initialize() -> anyhow::Result<()> {
         PDD_HOOK.init("pdd", PDD_ADDR as *mut c_void, gheap::pdd_hook::hook_pdd)?;
     }
 
+    // OOM Stage 8 (HeapCompact) -- safe BSTaskManagerThread semaphore release
+    {
+        use gheap::statics::*;
+
+        OOM_STAGE_EXEC_HOOK.init(
+            "oom_stage_exec",
+            OOM_STAGE_EXEC_HOOK_ADDR as *mut c_void,
+            gheap::hooks::hook_oom_stage_exec,
+        )?;
+    }
+
     // texture cache dead set
     {
         use gheap::statics::*;
@@ -282,6 +293,14 @@ pub fn heap_replacer_activate() -> anyhow::Result<()> {
 
         PDD_HOOK.enable()?;
         log::info!("[SYNC] PDD hook active");
+    }
+
+    // OOM Stage 8
+    {
+        use gheap::statics::*;
+
+        OOM_STAGE_EXEC_HOOK.enable()?;
+        log::info!("[OOM] Stage 8 safe handler active");
     }
 
     // texture cache

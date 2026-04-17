@@ -19,7 +19,7 @@
 //!
 //! During loading: cleanup is skipped entirely.
 
-use std::sync::atomic::{AtomicBool, AtomicI32, AtomicU64, AtomicU8, AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicI32, AtomicU64, AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::thread::{self, JoinHandle};
 
@@ -94,9 +94,6 @@ const MIN_NORMAL_RATE: i32 = 256 * 1024;
 // Shared atomic state (read by main thread, written by watchdog)
 // ---------------------------------------------------------------------------
 
-/// Cleanup request level: 0=none, 1=normal, 2=aggressive.
-static CLEANUP_REQUESTED: AtomicU8 = AtomicU8::new(0);
-
 /// Smoothed commit growth rate in bytes/second (can be negative).
 static GROWTH_RATE: AtomicI32 = AtomicI32::new(0);
 
@@ -110,11 +107,6 @@ static LAST_AGGRESSIVE_MS: AtomicU64 = AtomicU64::new(0);
 // Public API (called from main thread)
 // ---------------------------------------------------------------------------
 
-/// Take the current cleanup request (atomic swap to 0).
-/// Returns 0 (none), 1 (normal), or 2 (aggressive).
-pub fn take_cleanup_request() -> u8 {
-    CLEANUP_REQUESTED.swap(0, Ordering::AcqRel)
-}
 
 // ---------------------------------------------------------------------------
 // Watchdog thread

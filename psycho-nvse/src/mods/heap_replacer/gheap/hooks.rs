@@ -45,14 +45,6 @@ pub unsafe extern "thiscall" fn hook_gheap_realloc(
     unsafe { allocator::realloc(ptr, new_size) }
 }
 
-/// PDD drain rounds by pressure level.
-/// Level 1 (normal): moderate drain -- keep queues from growing.
-/// Level 2 (aggressive): clear backlog. Capped at 50 -- at 60fps that's
-/// 3000 items/sec, plenty for cell transitions. 200 was excessive and
-/// consumed too much main thread time calling game code each round.
-const PDD_ROUNDS_NORMAL: u32 = 75;
-const PDD_ROUNDS_AGGRESSIVE: u32 = 50;
-
 thread_local! {
     // Loading transition detection.
     static WAS_LOADING: Cell<bool> = const { Cell::new(false) };
@@ -491,4 +483,74 @@ fn pdd_queues_have_valid_buffers() -> bool {
         }
     }
     true
+}
+
+// ---------------------------------------------------------------------------
+// OOM Stage 8 hook (HeapCompact)
+// ---------------------------------------------------------------------------
+
+/// OOM stage executor hook. Handles case 8 with null-safe BSTaskManagerThread
+/// semaphore release. Cases 0-7 pass through to the original via trampoline.
+///
+/// Vanilla case 8 hardcodes indices 0 and 1 for BStask_ReleaseSem. When
+/// IOManager has only 1 BSTaskManagerThread (common on lower core counts),
+/// index 1 reads a NULL slot -> IOTask_Release dereferences it -> crash.
+///
+/// Our handler calls release_bstask_sems_if_owned() which validates the
+/// thread array layout before accessing any slot, then does the Sleep(1)
+/// and counter increment inline.
+pub unsafe extern "thiscall" fn hook_oom_stage_exec(
+    heap_singleton: *mut c_void,
+    primary_heap: *mut c_void,
+    stage: i32,
+    done: *mut u8,
+) -> i32 {
+    if stage != 8 {
+        // Cases 0-7: call original through trampoline.
+        if let Ok(original) = statics::OOM_STAGE_EXEC_HOOK.original() {
+            return unsafe { original(heap_singleton, primary_heap, stage, done) };
+        }
+        // Fallback if trampoline unavailable (should not happen).
+        return stage + 1;
+    }
+
+    // Case 8: safe BSTaskManagerThread semaphore release.
+    // Check if this is the main thread. Main thread skips case 8
+    // (matches vanilla: `if (!bVar5)` where bVar5 = is_main_thread).
+    let is_main = super::engine::globals::is_main_thread_by_tid();
+    if is_main {
+        // Main thread: set HeapCompact trigger and bail.
+        let trigger = unsafe { (heap_singleton as *const u8).add(0x134) } as *mut i32;
+        unsafe { trigger.write_volatile(6) };
+        unsafe { *done = 1 };
+        return stage + 1;
+    }
+
+    // Worker thread: set trigger, release semaphores, sleep, loop.
+    let trigger = unsafe { (heap_singleton as *const u8).add(0x134) } as *mut i32;
+    unsafe { trigger.write_volatile(6) };
+
+    // Sleep counter (DAT_011de70c). Vanilla loops up to 15000 iterations.
+    const SLEEP_COUNTER_ADDR: usize = 0x011DE70C;
+    let counter = SLEEP_COUNTER_ADDR as *mut i32;
+    let count = unsafe { counter.read_volatile() };
+
+    if count < 15000 {
+        // Safe release: validates thread array before accessing slots.
+        unsafe { super::engine::globals::release_bstask_sems_if_owned() };
+
+        // Sleep(1) -- matches vanilla `FUN_0040fca0(1)`.
+        libpsycho::os::windows::winapi::sleep(1);
+
+        // Increment counter.
+        unsafe { counter.write_volatile(count + 1) };
+
+        // Loop back to case 8 (return stage 8, not stage+1).
+        // Vanilla does `param_2 = param_2 - 1` then returns `param_2 + 1`.
+        return stage;
+    }
+
+    // Counter exhausted: give up.
+    unsafe { *done = 1 };
+    stage + 1
 }

@@ -179,7 +179,7 @@
 //! Logger::shutdown();
 //! ```
 
-use crossbeam_queue::SegQueue;
+use crossfire::flavor::{List, Queue};
 use log::{Level, LevelFilter, Log, Metadata, Record, SetLoggerError};
 use std::{
     collections::HashMap,
@@ -199,10 +199,12 @@ struct LogMessage {
     text: String,
 }
 
+
+
 /// Queue of log messages
 /// Logger will fill queue with messages, while separate thread
 /// pop messages from queue one-by-one and print, thus saving IO time.
-static MSG_QUEUE: LazyLock<SegQueue<LogMessage>> = LazyLock::new(Default::default);
+static MSG_QUEUE: LazyLock<List<LogMessage>> = LazyLock::new(List::new);
 
 static SHUTDOWN: AtomicBool = AtomicBool::new(false);
 
@@ -916,7 +918,7 @@ impl Log for Logger {
                 record.args()
             );
 
-            MSG_QUEUE.push(LogMessage { text: message });
+            let _ = MSG_QUEUE.push(LogMessage { text: message });
         }
     }
 

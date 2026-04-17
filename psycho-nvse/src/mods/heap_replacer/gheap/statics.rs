@@ -92,6 +92,18 @@ pub static NISOURCETEXTURE_DTOR_HOOK: LazyLock<InlineHookContainer<NiSourceTextu
 
 // pub const TASK_RELEASE_ADDR: usize = 0x0044DD60;
 
+// ---- OOM Stage 8 (HeapCompact) ----
+
+/// FUN_00866a90: OOM stage executor. Called by GameHeap retry loop,
+/// periodic cleanup, and SBM heap resize. Case 8 hardcodes BSTaskManagerThread
+/// indices 0/1 without bounds check -- crashes when thread_count==1.
+/// We hook at entry to intercept case 8 and use release_bstask_sems_if_owned()
+/// which validates the thread array before accessing slots.
+pub const OOM_STAGE_EXEC_HOOK_ADDR: usize = 0x00866A90;
+
+pub static OOM_STAGE_EXEC_HOOK: LazyLock<InlineHookContainer<OomStageExecFn>> =
+    LazyLock::new(InlineHookContainer::new);
+
 // ---- Queued reference processing ----
 
 // FUN_0056f700: processes a queued reference after model loading completes.
