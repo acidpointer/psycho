@@ -594,6 +594,32 @@ pub unsafe fn stop_havok_drain() {
     }
 }
 
+/// StartHavok (FUN_008324e0, mode=1).
+///
+/// Restarts Havok simulation after destruction. Must be paired with a
+/// prior `stop_havok_drain()` call. Called on the main thread after
+/// `post_destruction_restore()` so the world is unlocked before the
+/// simulation resumes stepping.
+pub unsafe fn start_havok() {
+    let f = match unsafe {
+        FnPtr::<types::HavokStopStartFn>::from_raw(
+            super::super::statics::HAVOK_STOP_START_ADDR as *mut c_void,
+        )
+    } {
+        Ok(f) => f,
+        Err(e) => {
+            log::error!("[HAVOK_START] FnPtr::from_raw failed: {:?}", e);
+            return;
+        }
+    };
+    match unsafe { f.as_fn() } {
+        Ok(f) => {
+            unsafe { f(1) };
+        }
+        Err(e) => log::error!("[HAVOK_START] as_fn() failed: {:?}", e),
+    }
+}
+
 /// Wait for all BSTaskManagerThreads to finish their current iteration.
 ///
 /// Probes each thread's iter_sem (BSTaskManagerThread+0x1C) with a zero-

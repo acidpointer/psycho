@@ -12,4 +12,4 @@ pub mod mem_stats;
 pub mod scrap_heap;
 
 pub use install::{heap_replacer_activate, heap_replacer_initialize};
-pub use mimalloc::configure_mimalloc;
+pub use mimalloc::{configure_mimalloc, configure_mimalloc_with_arena};

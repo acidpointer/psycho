@@ -22,9 +22,24 @@ use super::{gheap, scrap_heap};
 /// Reserves slab VAS, caches process heap handles, and prepares all hook
 /// trampolines. No game code is redirected yet.
 pub fn heap_replacer_initialize() -> anyhow::Result<()> {
-    // Slab allocator -- reserves VAS for all size-class arenas.
-    if !gheap::slab::init() {
-        return Err(anyhow::anyhow!("Slab allocator initialization failed"));
+    // Slab allocator -- try unified arena first, fall back to scattered.
+    {
+        let (sb_base, sb_size) = gheap::arena::slab_superblock_range();
+        let (meta_base, _meta_size) = gheap::arena::slab_meta_range();
+        if !sb_base.is_null() && !meta_base.is_null() {
+            // Unified arena available: slab uses pre-reserved ranges.
+            if !gheap::slab::init(sb_base, sb_size, meta_base) {
+                return Err(anyhow::anyhow!("Slab allocator initialization failed"));
+            }
+        } else {
+            // Scattered fallback: slab reserves its own VirtualAlloc.
+            log::warn!("[SLAB] Unified arena unavailable, using scattered reservation");
+            if !gheap::slab::init_scattered() {
+                return Err(anyhow::anyhow!(
+                    "Slab allocator initialization failed (scattered)"
+                ));
+            }
+        }
     }
 
     gheap::crash_diag::install();

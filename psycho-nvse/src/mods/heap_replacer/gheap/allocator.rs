@@ -16,9 +16,9 @@ use libmimalloc::{
     mi_collect, mi_is_in_heap_region, mi_malloc_aligned, mi_realloc_aligned, mi_usable_size,
 };
 
+use super::super::heap_validate;
 use super::engine::{addr, globals};
 use super::statics;
-use super::super::heap_validate;
 
 const ALIGN: usize = 16;
 
@@ -463,16 +463,15 @@ unsafe fn do_recover_oom(size: usize) -> *mut c_void {
 
     // ------------------------------------------------------------------
     // Worker thread: one aggressive pass, then last-resort va_alloc,
-    // then NULL. va_alloc is the final fallback for ANY size, not just
-    // huge objects. The 2 MB threshold is for normal-path routing
-    // (where va_alloc avoids wasting VA on small requests); on the
-    // failure fallback, we don't care about efficiency -- we care
-    // about not returning NULL and crashing the caller.
+    // then NULL. Stage 3 (Havok GC) is safe. Stage 4 (PDD) is
+    // intentionally skipped -- PDD destroys textures while the IO
+    // thread (BSTaskManagerThread) may still reference them via
+    // in-flight BGSTerrainChunkLoadTask / QueuedTexture. The UAF
+    // manifests as BSFile::Read(dest=NULL) -> __VEC_memcpy(NULL)
+    // crash at 0x00ED17A0.
     // ------------------------------------------------------------------
     if !is_main {
-        for stage in [3i32, 4] {
-            let _ = unsafe { heap.run_oom_stage(stage, false) };
-        }
+        let _ = unsafe { heap.run_oom_stage(3, false) };
         unsafe {
             super::slab::decommit_sweep_full(true);
             mi_collect(true);

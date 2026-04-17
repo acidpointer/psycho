@@ -25,5 +25,6 @@ pub mod slab;
 pub mod statics;
 pub mod texture_cache;
 pub mod types;
+pub mod arena;
 pub mod va_alloc;
 pub mod watchdog;

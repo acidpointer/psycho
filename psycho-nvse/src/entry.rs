@@ -24,20 +24,23 @@ use libpsycho::{
     os::windows::{types::LPVOID, winapi::alloc_console},
 };
 use windows::{
+    core::BOOL,
     Win32::{
         Foundation::HINSTANCE,
         System::SystemServices::{
             DLL_PROCESS_ATTACH, DLL_PROCESS_DETACH, DLL_THREAD_ATTACH, DLL_THREAD_DETACH,
         },
     },
-    core::BOOL,
 };
 
 use crate::{
     config::load_config,
     mods::{
         display::install_display_hooks,
-        heap_replacer::{configure_mimalloc, heap_replacer_activate, heap_replacer_initialize},
+        heap_replacer::{
+            configure_mimalloc, configure_mimalloc_with_arena, heap_replacer_activate,
+            heap_replacer_initialize,
+        },
         perf::install_rng_hook,
         zlib::install_zlib_hooks,
     },
@@ -161,7 +164,19 @@ pub extern "C" fn NVSEPlugin_Preload() -> BOOL {
     crate::mods::vas_probe::probe_reserve_sizes();
     crate::mods::vas_probe::scan_vas("post-probe");
 
+    // Unified arena: single VirtualAlloc for slab + metadata + large allocs.
+    // Mimalloc reserves its own arena first (it needs specific alignment that
+    // mi_manage_os_memory_ex doesn't reliably provide), then we fit the rest
+    // into a second unified reservation.
+    let slab_sb_size = crate::mods::heap_replacer::gheap::slab::total_superblock_size();
+    let slab_meta_size = crate::mods::heap_replacer::gheap::slab::total_meta_size();
+
+    // Step 1: Configure mimalloc FIRST (it reserves its own arena).
     configure_mimalloc();
+
+    // Step 2: Reserve a unified block for slab + large allocs in the
+    // remaining VA. This prevents slab from scattering its reservations.
+    crate::mods::heap_replacer::gheap::arena::init(slab_sb_size, slab_meta_size);
 
     if cfg.memory.heap_replacer {
         match heap_replacer_initialize() {

@@ -97,7 +97,20 @@ impl CellUnloadGuard {
         let loading_counter = globals::loading_state_counter();
         loading_counter.fetch_add(1, Ordering::AcqRel);
 
-        // 2. pre_destruction_setup: locks Havok world + invalidates scene graph.
+        // 2. IO thread barrier. BSTaskManagerThread and BackgroundCloneThread
+        // hold raw pointers to cell data during task processing. Must run
+        // BEFORE the PPL drain so no new IO-dispatched tasks land in the
+        // AI Linear Task queue while we drain it.
+        unsafe { globals::wait_for_io_idle() };
+
+        // 3. Drain PPL task groups used by IOManager to dispatch AI Linear
+        // Task Thread work. is_ai_active() only tracks the 2 main AI
+        // coordinator threads -- it does NOT cover PPL-dispatched Linear
+        // Task Threads. Without this drain, in-flight Havok tasks walk
+        // freed hkpSimulationIsland data -> crash at 0x00C94DA5.
+        unsafe { globals::stop_havok_drain() };
+
+        // 4. pre_destruction_setup: locks Havok world + invalidates scene graph.
         // Internally calls FUN_00c3e310 for IO serialization.
         //
         // NO separate IO lock: FUN_0040FBF0 is an infinite spin-lock with no
@@ -108,6 +121,9 @@ impl CellUnloadGuard {
         let state = match unsafe { globals::pre_destruction_setup() } {
             Some(s) => s,
             None => {
+                // Restart simulation before bailing so we don't leave
+                // physics frozen if setup failed after the drain.
+                unsafe { globals::start_havok() };
                 loading_counter.fetch_sub(1, Ordering::AcqRel);
                 return Err(AcquireError::SetupFailed);
             }
@@ -197,6 +213,11 @@ impl Drop for CellUnloadGuard {
         unsafe { globals::set_tls_cleanup_flag(1) };
 
         unsafe { globals::post_destruction_restore(&mut self.state) };
+
+        // Resume Havok simulation (pair with stop_havok_drain in acquire).
+        // Must run AFTER post_destruction_restore unlocks the world, so
+        // the first simulation step doesn't race the unlock.
+        unsafe { globals::start_havok() };
 
         if self.cells_unloaded == 0 {
             globals::loading_state_counter().fetch_sub(1, Ordering::AcqRel);

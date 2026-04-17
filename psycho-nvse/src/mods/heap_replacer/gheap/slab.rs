@@ -82,6 +82,47 @@ const NUM_CLASSES: usize = SIZE_CLASSES.len();
 /// when BSTaskManagerThread does virtual dispatch on freed IOTasks.
 pub const MAX_SLAB_SIZE: usize = 262144;
 
+/// Total metadata bytes needed for a single arena's PageInfo array.
+const fn arena_meta_size(idx: usize) -> usize {
+    let arena_sz = arena_size_for_class(idx);
+    let page_sz = page_size_for_class(SIZE_CLASSES[idx]);
+    let page_count = arena_sz / page_sz;
+    page_count * std::mem::size_of::<PageInfo>()
+}
+
+/// Total metadata bytes for ALL arenas (base + shard copies).
+/// Used by the unified reservation to carve a metadata block.
+pub const fn total_meta_size() -> usize {
+    let mut total: usize = 0;
+    let mut i: usize = 0;
+    while i < NUM_CLASSES {
+        total += arena_meta_size(i);
+        i += 1;
+    }
+    i = 0;
+    while i < SHARDED_CLASSES {
+        total += arena_meta_size(i);
+        i += 1;
+    }
+    total
+}
+
+/// Total superblock bytes for ALL arenas (base + shard copies).
+pub const fn total_superblock_size() -> usize {
+    let mut total: usize = 0;
+    let mut i: usize = 0;
+    while i < NUM_CLASSES {
+        total += arena_size_for_class(i);
+        i += 1;
+    }
+    i = 0;
+    while i < SHARDED_CLASSES {
+        total += arena_size_for_class(i);
+        i += 1;
+    }
+    total
+}
+
 /// Arena reservation sizes per tier (in bytes).
 /// Small classes are more popular, get larger arenas.
 /// Large classes (20KB-256KB) get smaller arenas since they're less frequent.
@@ -276,7 +317,14 @@ impl SlabArena {
         }
     }
 
-    fn init(&mut self, base: *mut u8, reserved: usize, cell_size: u32, page_size: usize) {
+    fn init(
+        &mut self,
+        base: *mut u8,
+        reserved: usize,
+        cell_size: u32,
+        page_size: usize,
+        meta_base: *mut u8,
+    ) {
         self.base = base;
         self.reserved = reserved;
         self.cell_size = cell_size;
@@ -284,11 +332,16 @@ impl SlabArena {
         self.cells_per_page = (page_size / cell_size as usize) as u16;
         self.page_count = (reserved / page_size) as u32;
 
-        // Allocate metadata array via VirtualAlloc (separate from data arena)
         let meta_bytes = self.page_count as usize * std::mem::size_of::<PageInfo>();
-        let meta_ptr =
-            unsafe { VirtualAlloc(None, meta_bytes, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE) };
-        self.pages = meta_ptr as *mut PageInfo;
+        if !meta_base.is_null() {
+            // Unified arena: use pre-allocated metadata block.
+            self.pages = meta_base as *mut PageInfo;
+        } else {
+            // Scattered fallback: allocate metadata via VirtualAlloc.
+            let meta_ptr =
+                unsafe { VirtualAlloc(None, meta_bytes, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE) };
+            self.pages = meta_ptr as *mut PageInfo;
+        }
 
         // Initialize all pages
         for i in 0..self.page_count as usize {
@@ -661,47 +714,44 @@ unsafe impl Send for SlabAllocator {}
 unsafe impl Sync for SlabAllocator {}
 
 impl SlabAllocator {
-    /// Initialize the slab allocator. Reserves VAS for all arenas.
-    /// Classes 0-7 (16-128B) are sharded: 2 arenas each for reduced contention.
-    pub fn init() -> Option<Self> {
-        // Calculate total reservation: base classes + shard copies
-        let mut total: usize = 0;
-        for i in 0..NUM_CLASSES {
-            total += arena_size_for_class(i);
-        }
-        // Extra arenas for shard 1 copies of classes 0-7
-        for i in 0..SHARDED_CLASSES {
-            total += arena_size_for_class(i);
-        }
-
-        // Reserve one contiguous superblock
-        let base = unsafe { VirtualAlloc(None, total, MEM_RESERVE, PAGE_READWRITE) };
-        if base.is_null() {
-            log::error!(
-                "[SLAB] Failed to reserve {}MB superblock",
-                total / 1024 / 1024
-            );
-            return None;
-        }
-        let base = base as *mut u8;
+    /// Initialize the slab allocator from a pre-reserved superblock and
+    /// metadata block. Eliminates per-arena VirtualAlloc calls that
+    /// fragment VAS.
+    ///
+    /// - `superblock`: MEM_RESERVE'd range for all arena data pages.
+    /// - `meta_block`: MEM_RESERVE|MEM_COMMIT'd range for all PageInfo arrays.
+    pub fn init(superblock: *mut u8, superblock_size: usize, meta_block: *mut u8) -> Option<Self> {
+        let base = superblock;
 
         let mut slab = SlabAllocator {
             arenas: std::array::from_fn(|_| SlabArena::empty()),
             superblock_base: base,
-            superblock_end: unsafe { base.add(total) },
-            superblock_size: total,
+            superblock_end: unsafe { base.add(superblock_size) },
+            superblock_size,
             size_to_arena: Box::new([0u8; MAX_SLAB_SIZE / ALIGN + 1]),
-            page_to_arena: vec![0u8; total / OS_PAGE_SIZE],
+            page_to_arena: vec![0u8; superblock_size / OS_PAGE_SIZE],
             sweep_cursor: AtomicU32::new(0),
         };
 
-        // Initialize base arenas (all 35 classes) within the superblock
+        // Walk arenas and carve metadata from the meta_block.
         let mut offset: usize = 0;
+        let mut meta_offset: usize = 0;
+
+        // Initialize base arenas (all classes) within the superblock
         for (idx, cl) in SIZE_CLASSES.iter().enumerate() {
             let arena_sz = arena_size_for_class(idx);
             let page_sz = page_size_for_class(*cl);
             let arena_base = unsafe { base.add(offset) };
-            slab.arenas[idx].init(arena_base, arena_sz, *cl, page_sz);
+            // Scattered mode: meta_block is null; keep it null for every arena
+            // so each falls back to its own VirtualAlloc. Never do null.add(n)
+            // with n > 0 -- UB, produces a bogus low-memory pointer that
+            // silently corrupts process memory on the subsequent init writes.
+            let meta_ptr = if meta_block.is_null() {
+                std::ptr::null_mut()
+            } else {
+                unsafe { meta_block.add(meta_offset) }
+            };
+            slab.arenas[idx].init(arena_base, arena_sz, *cl, page_sz, meta_ptr);
 
             // Fill page_to_arena at OS_PAGE_SIZE granularity.
             let start_os_page = offset / OS_PAGE_SIZE;
@@ -711,16 +761,21 @@ impl SlabAllocator {
             }
 
             offset += arena_sz;
+            meta_offset += arena_meta_size(idx);
         }
 
-        // Initialize shard 1 copies for classes 0-7 (16-128B).
-        // These are physically separate arenas at indices SHARD1_BASE..SHARD1_BASE+8.
+        // Initialize shard 1 copies for classes 0-7.
         for (idx, cl) in SIZE_CLASSES.iter().take(SHARDED_CLASSES).enumerate() {
             let arena_sz = arena_size_for_class(idx);
             let page_sz = page_size_for_class(*cl);
             let arena_base = unsafe { base.add(offset) };
+            let meta_ptr = if meta_block.is_null() {
+                std::ptr::null_mut()
+            } else {
+                unsafe { meta_block.add(meta_offset) }
+            };
             let phys_idx = SHARD1_BASE + idx;
-            slab.arenas[phys_idx].init(arena_base, arena_sz, *cl, page_sz);
+            slab.arenas[phys_idx].init(arena_base, arena_sz, *cl, page_sz, meta_ptr);
 
             let start_os_page = offset / OS_PAGE_SIZE;
             let os_page_count = arena_sz / OS_PAGE_SIZE;
@@ -729,6 +784,7 @@ impl SlabAllocator {
             }
 
             offset += arena_sz;
+            meta_offset += arena_meta_size(idx);
         }
 
         // Build size_to_arena lookup
@@ -750,11 +806,29 @@ impl SlabAllocator {
             NUM_CLASSES,
             SHARDED_CLASSES,
             TOTAL_ARENAS,
-            total / 1024 / 1024,
+            superblock_size / 1024 / 1024,
             base,
         );
 
         Some(slab)
+    }
+
+    /// Initialize with scattered VirtualAlloc calls (fallback when
+    /// unified arena is unavailable). Reserves its own superblock and
+    /// each arena allocates its own metadata. Creates VAS splinters
+    /// but works when the unified reservation can't fit.
+    pub fn init_scattered() -> Option<Self> {
+        let total = total_superblock_size();
+        let base = unsafe { VirtualAlloc(None, total, MEM_RESERVE, PAGE_READWRITE) };
+        if base.is_null() {
+            log::error!(
+                "[SLAB] Failed to reserve {}MB superblock",
+                total / 1024 / 1024
+            );
+            return None;
+        }
+        // Pass null_meta for each arena -- they'll allocate their own metadata.
+        Self::init(base as *mut u8, total, std::ptr::null_mut())
     }
 
     /// Check if a pointer belongs to the slab superblock.
@@ -960,9 +1034,24 @@ use std::sync::OnceLock;
 
 static SLAB: OnceLock<SlabAllocator> = OnceLock::new();
 
-/// Initialize the global slab allocator. Call once at startup.
-pub fn init() -> bool {
-    match SlabAllocator::init() {
+/// Initialize the global slab allocator from pre-reserved ranges.
+/// Call once at startup. The superblock must be MEM_RESERVE'd (pages
+/// committed on demand). The meta_block must be MEM_RESERVE|MEM_COMMIT'd.
+pub fn init(superblock: *mut u8, superblock_size: usize, meta_block: *mut u8) -> bool {
+    match SlabAllocator::init(superblock, superblock_size, meta_block) {
+        Some(s) => {
+            let _ = SLAB.set(s);
+            true
+        }
+        None => false,
+    }
+}
+
+/// Initialize the global slab allocator with scattered VirtualAlloc
+/// calls (fallback when unified arena is unavailable).
+#[allow(dead_code)]
+pub fn init_scattered() -> bool {
+    match SlabAllocator::init_scattered() {
         Some(s) => {
             let _ = SLAB.set(s);
             true
