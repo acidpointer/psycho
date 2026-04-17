@@ -1,0 +1,237 @@
+STAGE 8 PATCH SITE VERIFICATION
+================================
+
+Goal: Verify 6 call instructions in OOM_StageExec case 8
+are 5-byte CALL rel32 instructions, suitable for NOP patching.
+
+Index-0 calls (KEEP - these are safe, index 0 always exists):
+  0x00866c4f: get_owner(io_manager, 0)
+  0x00866c67: release_sem(io_manager, 0)
+  0x00866c74: signal_idle(io_manager, 0)
+
+Index-1 calls (PATCH - these crash when thread_count==1):
+  0x00866c81: get_owner(io_manager, 1)
+  0x00866c99: release_sem(io_manager, 1)
+  0x00866ca6: signal_idle(io_manager, 1)
+
+======================================================================
+INDEX-0 CALLS (verify, do NOT patch)
+======================================================================
+
+  get_owner(idx=0): 0x00866c4f -> 0x00866da0  [e8 4c 01 00 00]  CALL
+  OK: 5-byte call, NOP-patchable
+
+  release_sem(idx=0): 0x00866c67 -> 0x00866dc0  [e8 54 01 00 00]  CALL
+  OK: 5-byte call, NOP-patchable
+
+  signal_idle(idx=0): 0x00866c74 -> 0x00866de0  [e8 67 01 00 00]  CALL
+  OK: 5-byte call, NOP-patchable
+
+======================================================================
+INDEX-1 CALLS (patch targets - NOP these)
+======================================================================
+
+  get_owner(idx=1): 0x00866c81 -> 0x00866da0  [e8 1a 01 00 00]  CALL
+  OK: 5-byte call, NOP-patchable
+
+  release_sem(idx=1): 0x00866c99 -> 0x00866dc0  [e8 22 01 00 00]  CALL
+  OK: 5-byte call, NOP-patchable
+
+  signal_idle(idx=1): 0x00866ca6 -> 0x00866de0  [e8 35 01 00 00]  CALL
+  OK: 5-byte call, NOP-patchable
+
+======================================================================
+VERIFICATION RESULT
+======================================================================
+ALL 3 index-1 call sites verified as 5-byte CALL instructions.
+Safe to NOP all 3 sites with patch_nop_call().
+
+======================================================================
+SURROUNDING INSTRUCTION CONTEXT
+======================================================================
+
+----------------------------------------------------------------------
+Instruction dump: Case 8 block (from case 8 start) @ 0x00866c00
+----------------------------------------------------------------------
+  0x00866c01: 8b 45 10                        MOV EAX,dword ptr [EBP + 0x10]
+  0x00866c04: 0f b6 08                        MOVZX ECX,byte ptr [EAX]
+  0x00866c07: 85 c9                           TEST ECX,ECX
+  0x00866c09: 75 13                           JNZ 0x00866c1e
+  0x00866c0b: 0f b6 55 ff                     MOVZX EDX,byte ptr [EBP + -0x1]
+  0x00866c0f: 85 d2                           TEST EDX,EDX
+  0x00866c11: 74 0b                           JZ 0x00866c1e
+  0x00866c13: 8b 45 10                        MOV EAX,dword ptr [EBP + 0x10]
+  0x00866c16: c6 00 01                        MOV byte ptr [EAX],0x1
+  0x00866c19: e9 c1 00 00 00                  JMP 0x00866cdf
+  0x00866c1e: 0f b6 4d ff                     MOVZX ECX,byte ptr [EBP + -0x1]
+  0x00866c22: 85 c9                           TEST ECX,ECX
+  0x00866c24: 0f 85 b5 00 00 00               JNZ 0x00866cdf
+  0x00866c2a: 8b 55 f8                        MOV EDX,dword ptr [EBP + -0x8]
+  0x00866c2d: c7 82 34 01 00 00 06 00 00 00   MOV dword ptr [EDX + 0x134],0x6
+  0x00866c37: 81 3d 0c e7 1d 01 98 3a 00 00   CMP dword ptr [0x011de70c],0x3a98
+  0x00866c41: 0f 83 88 00 00 00               JNC 0x00866ccf
+  0x00866c47: 6a 00                           PUSH 0x0
+  0x00866c49: 8b 0d 98 2d 20 01               MOV ECX,dword ptr [0x01202d98]
+  0x00866c4f: e8 4c 01 00 00                  CALL 0x00866da0
+  0x00866c54: 8b f0                           MOV ESI,EAX
+  0x00866c56: e8 35 90 ba ff                  CALL 0x0040fc90
+  0x00866c5b: 3b f0                           CMP ESI,EAX
+  0x00866c5d: 75 1a                           JNZ 0x00866c79
+  0x00866c5f: 6a 00                           PUSH 0x0
+  0x00866c61: 8b 0d 98 2d 20 01               MOV ECX,dword ptr [0x01202d98]
+  0x00866c67: e8 54 01 00 00                  CALL 0x00866dc0
+  0x00866c6c: 6a 00                           PUSH 0x0
+  0x00866c6e: 8b 0d 98 2d 20 01               MOV ECX,dword ptr [0x01202d98]
+  0x00866c74: e8 67 01 00 00                  CALL 0x00866de0
+  0x00866c79: 6a 01                           PUSH 0x1
+  0x00866c7b: 8b 0d 98 2d 20 01               MOV ECX,dword ptr [0x01202d98]
+  0x00866c81: e8 1a 01 00 00                  CALL 0x00866da0
+  0x00866c86: 8b f0                           MOV ESI,EAX
+  0x00866c88: e8 03 90 ba ff                  CALL 0x0040fc90
+  0x00866c8d: 3b f0                           CMP ESI,EAX
+  0x00866c8f: 75 1a                           JNZ 0x00866cab
+  0x00866c91: 6a 01                           PUSH 0x1
+  0x00866c93: 8b 0d 98 2d 20 01               MOV ECX,dword ptr [0x01202d98]
+  0x00866c99: e8 22 01 00 00                  CALL 0x00866dc0
+  0x00866c9e: 6a 01                           PUSH 0x1
+  0x00866ca0: 8b 0d 98 2d 20 01               MOV ECX,dword ptr [0x01202d98]
+  0x00866ca6: e8 35 01 00 00                  CALL 0x00866de0
+  0x00866cab: 6a 01                           PUSH 0x1
+  0x00866cad: e8 ee 8f ba ff                  CALL 0x0040fca0
+  0x00866cb2: 83 c4 04                        ADD ESP,0x4
+  0x00866cb5: a1 0c e7 1d 01                  MOV EAX,[0x011de70c]
+  0x00866cba: 83 c0 01                        ADD EAX,0x1
+  0x00866cbd: a3 0c e7 1d 01                  MOV [0x011de70c],EAX
+  0x00866cc2: 8b 4d 0c                        MOV ECX,dword ptr [EBP + 0xc]
+
+======================================================================
+CASE 8 ENTRY STRUCTURE
+======================================================================
+
+Expected structure:
+  case 8:
+    if (!bVar5) {           <-- worker thread enters here
+      [set trigger=6]
+      if (counter < 15000) {
+        get_owner(idx=0)    <-- KEEP
+        if (owned) {
+          release_sem(idx=0)  <-- KEEP
+          signal_idle(idx=0)  <-- KEEP
+        }
+        get_owner(idx=1)    <-- NOP THIS
+        if (owned) {
+          release_sem(idx=1)  <-- NOP THIS
+          signal_idle(idx=1)  <-- NOP THIS
+        }
+        Sleep(1)
+        counter++
+        goto case 8 (loop)
+      }
+    }
+
+======================================================================
+OOM_StageExec (FUN_00866a90) @ 0x00866a90
+======================================================================
+  Function: FUN_00866a90 @ 0x00866a90, Size: 602 bytes
+
+int __thiscall FUN_00866a90(void *this,undefined4 param_1,int param_2,char *param_3)
+
+{
+  char cVar1;
+  int iVar2;
+  int iVar3;
+  void *this_00;
+  uint uVar4;
+  bool bVar5;
+  
+  *param_3 = '\x01';
+  iVar2 = FUN_0040fc90();
+  iVar3 = FUN_0044edb0(DAT_011dea0c);
+  bVar5 = iVar2 == iVar3;
+  switch(param_2) {
+  case 0:
+    DAT_011de70c = 0;
+    if (bVar5) {
+      FUN_00452490(DAT_011dea10,'\0');
+    }
+    break;
+  case 1:
+    iVar2 = FUN_00866d10();
+    FUN_00aa5c80(iVar2);
+    break;
+  case 2:
+    iVar2 = FUN_00652110();
+    if (iVar2 != 0) {
+      iVar2 = FUN_00652110();
+      cVar1 = FUN_00529ea0(iVar2);
+      if ((cVar1 != '\0') && (bVar5 = FUN_00652160(), bVar5)) {
+        iVar2 = FUN_00652130();
+        if (iVar2 == 1) {
+          cVar1 = '\0';
+          this_00 = (void *)FUN_00652110();
+          FUN_00650a30(this_00,cVar1);
+        }
+        FUN_00652190();
+      }
+    }
+    break;
+  case 5:
+    if (!bVar5) break;
+    FUN_00869190(0);
+    uVar4 = FUN_00453a80((int)DAT_011dea10);
+    if ((uVar4 & 0xff) == 0) {
+      FUN_004539a0(DAT_011dea10,'\x01','\0');
+    }
+    else {
+      param_2 = param_2 + -1;
+    }
+    FUN_00452490(DAT_011dea10,'\0');
+    FUN_00869190(1);
+    FUN_00868d70('\x01');
+  case 4:
+    bVar5 = FUN_0078d200((LONG *)&DAT_011f11a0);
+    if (bVar5) {
+      FUN_00868d70('\x01');
+      FUN_0040fba0((undefined4 *)&DAT_011f11a0);
+    }
+  case 3:
+    FUN_00c459d0('\x01');
+    break;
+  case 6:
+    if (bVar5) {
+      FUN_00aa7030();
+    }
+    break;
+  case 7:
+    if ((*param_3 == '\0') && (bVar5)) {
+      *param_3 = '\x01';
+      break;
+    }
+  case 8:
+    if (!bVar5) {
+      *(undefined4 *)((int)this + 0x134) = 6;
+      if (DAT_011de70c < 15000) {
+        iVar2 = FUN_00866da0(DAT_01202d98,0);
+        iVar3 = FUN_0040fc90();
+        if (iVar2 == iVar3) {
+          FUN_00866dc0(DAT_01202d98,0);
+          FUN_00866de0(DAT_01202d98,0);
+        }
+        iVar2 = FUN_00866da0(DAT_01202d98,1);
+        iVar3 = FUN_0040fc90();
+        if (iVar2 == iVar3) {
+          FUN_00866dc0(DAT_01202d98,1);
+          FUN_00866de0(DAT_01202d98,1);
+        }
+        FUN_0040fca0(1);
+        DAT_011de70c = DAT_011de70c + 1;
+        param_2 = param_2 + -1;
+      }
+      else if (*param_3 == '\0') {
+        *param_3 = '\x01';
+      }
+    }
+  }
+  return param_2 + 1;
+}
+
