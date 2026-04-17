@@ -13,12 +13,11 @@ use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering};
 use libc::c_void;
 
 use super::allocator;
-use super::engine::globals::{self, PddQueue};
+use super::engine::globals;
 use super::game_guard;
 use super::pressure::PressureRelief;
 use super::statics;
 use super::texture_cache;
-use super::watchdog;
 
 // ---- Game heap alloc/free/msize/realloc ----
 
@@ -59,24 +58,9 @@ thread_local! {
     static WAS_LOADING: Cell<bool> = const { Cell::new(false) };
 }
 
-/// Last destruction_protocol result: cells unloaded.
-/// When 0 and commit hasn't grown, skip the next call to avoid
-/// the 12ms/cycle death spiral observed in heavy mod setups.
-static LAST_DESTRUCTION_CELLS: AtomicU32 = AtomicU32::new(u32::MAX); // MAX = "never ran, always run first time"
-
-/// Commit (MB) at last destruction_protocol call.
-static LAST_DESTRUCTION_COMMIT_MB: AtomicU32 = AtomicU32::new(0);
-
-/// Cooldown for destruction_protocol during VAS crisis.
-/// Running pre_destruction_setup 4x/sec allocates terrain/LOD memory
-/// (Ghidra: FUN_00878160 step 5), making VAS pressure WORSE.
-/// Limit to 1 cycle per second during crisis.
-static DESTRUCTION_COOLDOWN_MS: AtomicU64 = AtomicU64::new(0);
-
-/// Post-loading cooldown: suppress watchdog cleanup after loading ends.
-/// jip_nvse's nvseRuntimeScript263CellChange fires events that reference
-/// objects from the old cell. If PDD drains those objects before the
-/// script finishes, the script reads freed memory --> crash in PopulateArgs.
+/// Post-loading cooldown: no longer needed. Watchdog cleanup runs on
+/// its own background thread and checks is_loading() directly.
+#[allow(dead_code)]
 static POST_LOADING_COOLDOWN_MS: AtomicU64 = AtomicU64::new(0);
 
 /// Consecutive ineffective VAS EMERGENCY cycle counter.
@@ -213,14 +197,10 @@ pub unsafe extern "C" fn hook_per_frame_queue_drain() {
         );
     }
 
-    // --- Watchdog-driven cleanup (timer-based, NOT eviction-based) ---
-    // Cleanup runs on a schedule when the watchdog detects sustained growth.
-    // This is the ONLY reliable mechanism during stress testing. Eviction-
-    // based triggers caused cleanup storms and froze the game.
-    //
-    // Level 1 (normal): Havok GC + PDD drain
-    // Level 2 (aggressive): Level 1 + cell unload via destruction protocol
-    let request = watchdog::take_cleanup_request();
+    // Watchdog cleanup runs on its own background thread (watchdog.rs).
+    // It calls havok_gc + mi_collect + decommit_sweep directly -- all
+    // thread-safe, no main thread involvement. No signal_heap_compact,
+    // no destruction_protocol on the main thread.
     let commit = heap.commit_bytes();
 
     // --- VAS Crisis Management ---
@@ -238,9 +218,8 @@ pub unsafe extern "C" fn hook_per_frame_queue_drain() {
     // Live VAS check via GlobalMemoryStatusEx -- always accurate.
     // No stale snapshots, no commit-vs-reserved mismatch.
     let free_vas = allocator::current_free_vas();
-    let vas_emergency_active =
-        free_vas < allocator::VAS_EMERGENCY_REMAINING
-            && !EMERGENCY_SUPPRESSED.load(Ordering::Relaxed);
+    let vas_emergency_active = free_vas < allocator::VAS_EMERGENCY_REMAINING
+        && !EMERGENCY_SUPPRESSED.load(Ordering::Relaxed);
     let vas_critical = free_vas < allocator::VAS_CRITICAL_REMAINING;
 
     // Death spiral suppression: if free VAS recovers above emergency,
@@ -330,86 +309,6 @@ pub unsafe extern "C" fn hook_per_frame_queue_drain() {
         }
     }
 
-    if request >= 1 && !vas_emergency_active {
-        let now = libpsycho::os::windows::winapi::get_tick_count() as u64;
-        let cooldown_end = POST_LOADING_COOLDOWN_MS.load(Ordering::Acquire);
-        if now < cooldown_end {
-            return;
-        }
-
-        // Signal Stage 4 (PddPurge) for full PDD drain.
-        // Ghidra FUN_00866a90 case 4: TryLock process mgr + PDD blocking
-        // drain + falls through to case 3 (async flush).
-        // Without Stage 4, PDD Generic queue grows unboundedly (30K+ items).
-        // BSTreeNode parents outlive children -> Release on freed children
-        // -> RefCount:0 -> C0000417. See: project_bstreenode_crash_chain.md
-        if !globals::is_loading() {
-            heap.signal_heap_compact(globals::HeapCompactStage::PddPurge);
-        }
-
-        // NOTE: pool drain moved to AFTER PDD (below). Draining before PDD
-        // causes UAF: PDD destructors access AnimSequenceBase, BSFadeNode
-        // etc. that were in pool blocks. If we mi_free those blocks before
-        // PDD runs, destructors read decommitted memory.
-        if !vas_critical {
-            log::info!(
-                "[WATCHDOG] Phase 7 cleanup: level={}, commit={}MB, pdd(NiNode={} Gen={} Form={})",
-                request,
-                commit / 1024 / 1024,
-                globals::pdd_queue_count(PddQueue::NiNode),
-                globals::pdd_queue_count(PddQueue::Generic),
-                globals::pdd_queue_count(PddQueue::Form),
-            );
-        }
-    }
-
-    // F4: Cap destruction_protocol to 1/sec during VAS crisis.
-    // pre_destruction_setup allocates terrain/LOD memory (Ghidra: FUN_00878160),
-    // running it 4x/sec during crisis makes VAS pressure WORSE.
-    //
-    // Effectiveness gate: if the last destruction_protocol found 0 cells AND
-    // commit hasn't grown significantly, skip. Prevents the 82-cycle death
-    // spiral where each futile call costs ~12ms on the main thread.
-    if request >= 2
-        && let Some(pr) = PressureRelief::instance()
-    {
-        // Post-loading cooldown: also suppress destruction_protocol
-        let now = libpsycho::os::windows::winapi::get_tick_count() as u64;
-        let cooldown_end = POST_LOADING_COOLDOWN_MS.load(Ordering::Acquire);
-        if now < cooldown_end {
-            return;
-        }
-
-        let last = DESTRUCTION_COOLDOWN_MS.load(Ordering::Relaxed);
-
-        // Check if destruction_protocol is likely to be effective
-        let last_cells = LAST_DESTRUCTION_CELLS.load(Ordering::Relaxed);
-        let last_commit = LAST_DESTRUCTION_COMMIT_MB.load(Ordering::Relaxed);
-        let current_commit_mb = commit / 1024 / 1024;
-        let commit_grew = (current_commit_mb as u32).saturating_sub(last_commit) > 50;
-        let should_run = last_cells > 0 || commit_grew || last_commit == 0;
-
-        if should_run {
-            if vas_critical {
-                if now.saturating_sub(last) >= 1000 {
-                    DESTRUCTION_COOLDOWN_MS.store(now, Ordering::Relaxed);
-                    let cells = unsafe { pr.run_cleanup() };
-                    LAST_DESTRUCTION_CELLS.store(cells as u32, Ordering::Relaxed);
-                    LAST_DESTRUCTION_COMMIT_MB.store(current_commit_mb as u32, Ordering::Relaxed);
-                }
-            } else if now.saturating_sub(last) >= 3000 {
-                // Non-critical: 3s cooldown. Without this, the watchdog
-                // fires destruction_protocol every 500ms during sustained
-                // allocation bursts (LOD terrain updates), each call costing
-                // 1-2s on the main thread due to IO barrier.
-                DESTRUCTION_COOLDOWN_MS.store(now, Ordering::Relaxed);
-                let cells = unsafe { pr.run_cleanup() };
-                LAST_DESTRUCTION_CELLS.store(cells as u32, Ordering::Relaxed);
-                LAST_DESTRUCTION_COMMIT_MB.store(current_commit_mb as u32, Ordering::Relaxed);
-            }
-        }
-    }
-
     // Clear texture dead set under write lock.
     game_guard::with_write("dead_set_clear", || {
         texture_cache::clear_dead_set();
@@ -426,60 +325,14 @@ pub unsafe extern "C" fn hook_per_frame_queue_drain() {
         }
         unsafe { original() };
 
-        // Boosted PDD drain when watchdog flagged cleanup.
         // Extra PDD rounds REMOVED. Aggressive PDD drain frees TESObjectCELL
         // objects that jip_nvse's LN_ProcessEvents holds via static lastCell
         // pointer (lutana.h:338). CallFunction passes lastCell to script ->
         // PopulateArgs reads freed/recycled cell data -> crash.
         //
-        // Vanilla PDD drains 5-40 items per queue per frame. Our 75 rounds
-        // drained entire queues -> destroyed cells before jip_nvse reads them.
-        // Stage 4 HeapCompact (during post-loading cooldown) handles BSTreeNode
-        // queue buildup. No extra PDD rounds needed during normal gameplay.
-        if false {
-            // dead code - kept for reference
-            let max_rounds = if request >= 2 {
-                PDD_ROUNDS_AGGRESSIVE
-            } else {
-                PDD_ROUNDS_NORMAL
-            };
-            let mut rounds = 0u32;
-
-            for _ in 0..max_rounds {
-                let ni = globals::pdd_queue_count(PddQueue::NiNode);
-                let generic = globals::pdd_queue_count(PddQueue::Generic);
-                let form = globals::pdd_queue_count(PddQueue::Form);
-                if ni == 0 && generic == 0 && form == 0 {
-                    break;
-                }
-                unsafe { original() };
-                rounds += 1;
-            }
-
-            // Slab decommit after PDD. No mi_collect -- see pool drain comment.
-            if !vas_critical {
-                unsafe { super::slab::decommit_sweep() };
-                log::debug!(
-                    "[PDD] Drained {} rounds, pdd(NiNode={} Gen={} Form={}), commit={}MB, pool={}MB",
-                    rounds,
-                    globals::pdd_queue_count(PddQueue::NiNode),
-                    globals::pdd_queue_count(PddQueue::Generic),
-                    globals::pdd_queue_count(PddQueue::Form),
-                    heap.commit_mb(),
-                    super::slab::committed_bytes() / 1024 / 1024,
-                );
-            } else {
-                log::debug!(
-                    "[PDD] Drained {} rounds, pdd(NiNode={} Gen={} Form={}), commit={}MB, pool={}MB",
-                    rounds,
-                    globals::pdd_queue_count(PddQueue::NiNode),
-                    globals::pdd_queue_count(PddQueue::Generic),
-                    globals::pdd_queue_count(PddQueue::Form),
-                    heap.commit_mb(),
-                    super::slab::committed_bytes() / 1024 / 1024,
-                );
-            }
-        }
+        // Vanilla PDD drains 5-40 items per queue per frame via the original
+        // per_frame_queue_drain. No extra rounds needed. The watchdog thread
+        // handles memory reclamation (havok_gc + mi_collect + decommit_sweep).
     }
 }
 
@@ -537,15 +390,6 @@ fn on_loading_end() {
     if !allocator::is_pool_active() {
         allocator::activate_pool();
     }
-
-    // Set post-loading cooldown: suppress watchdog cleanup for 5 seconds
-    // to let jip_nvse's nvseRuntimeScript263CellChange finish processing
-    // events that reference objects from the old cell.
-    let now = libpsycho::os::windows::winapi::get_tick_count() as u64;
-    POST_LOADING_COOLDOWN_MS.store(now + 5000, Ordering::Release);
-
-    // Counter elevation now handled in Phase 7 loading detection
-    // (LOADING_COUNTER_ELEVATED flag), not here. See hook_per_frame_queue_drain.
 
     let info = libmimalloc::process_info::MiMallocProcessInfo::get();
     log::info!(
@@ -636,9 +480,8 @@ fn pdd_queues_have_valid_buffers() -> bool {
         super::engine::addr::TEXTURE_QUEUE,
     ];
     for &base in &queues {
-        let count = unsafe {
-            *((base + super::engine::addr::PDD_QUEUE_COUNT_OFFSET) as *const u16)
-        };
+        let count =
+            unsafe { *((base + super::engine::addr::PDD_QUEUE_COUNT_OFFSET) as *const u16) };
         if count == 0 {
             continue;
         }

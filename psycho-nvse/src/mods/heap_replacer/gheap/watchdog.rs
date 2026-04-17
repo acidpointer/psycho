@@ -1,18 +1,23 @@
 //! Background memory watchdog thread.
 //!
-//! Polls mimalloc commit every 500ms, tracks growth rate via integer EMA,
-//! and signals the main thread for cleanup when thresholds are exceeded.
-//! Absorbs the diagnostic logging from the old monitor thread.
+//! Polls mimalloc commit every 250ms, tracks growth rate via integer EMA,
+//! and runs lightweight cleanup directly on the background thread when
+//! thresholds are exceeded. Absorbs the diagnostic logging from the old
+//! monitor thread.
 //!
-//! The watchdog NEVER calls game functions (wrong thread). It only sets
-//! atomic flags that the main thread reads at Phase 7 / AI_JOIN.
+//! Cleanup runs on the background thread (not main thread):
+//!   havok_gc + mi_collect + slab::decommit_sweep
 //!
-//! Cleanup levels:
-//!   Level 1 (normal):     HeapCompact 0-3 + drain large pool blocks
-//!   Level 2 (aggressive): Level 1 + cell unload (deferred to AI_JOIN)
+//! All three operations are thread-safe:
+//!   - havok_gc operates on hkMemorySystem, not the physics world
+//!   - mi_collect(false) is a lazy sweep of per-thread heaps
+//!   - decommit_sweep calls VirtualFree on fully-free pages
 //!
-//! During loading: thresholds are lowered by 200MB because the game
-//! needs more VAS headroom for incoming cell data.
+//! Cell unloading is NOT performed by the watchdog. Cells only unload
+//! during game-initiated transitions (the game handles its own bookkeeping)
+//! and OOM emergencies (bypass=true path).
+//!
+//! During loading: cleanup is skipped entirely.
 
 use std::sync::atomic::{AtomicBool, AtomicI32, AtomicU64, AtomicU8, AtomicUsize, Ordering};
 use std::sync::Arc;
@@ -31,6 +36,11 @@ use super::pressure::PressureRelief;
 /// Poll interval in milliseconds. 250ms gives 2x faster detection
 /// with no game impact (background thread, only sets atomic flags).
 const POLL_MS: u32 = 250;
+
+/// Cleanup interval in milliseconds. Lightweight cleanup (havok_gc +
+/// mi_collect + decommit_sweep) runs on the watchdog thread at this rate.
+/// 5 seconds balances memory reclamation against overhead.
+const CLEANUP_INTERVAL_MS: u64 = 5000;
 
 /// Diagnostic logging interval (every N polls = every N*POLL_MS ms).
 /// 20 polls * 250ms = 5 seconds, matching the old monitor interval.
@@ -160,6 +170,7 @@ impl Drop for Watchdog {
 fn watchdog_loop(run: Arc<AtomicBool>) {
     let mut poll_count: u32 = 0;
     let mut prev_rate: i32 = 0;
+    let mut last_cleanup_ms: u64 = 0;
 
     loop {
         if !run.load(Ordering::Acquire) {
@@ -278,13 +289,6 @@ fn watchdog_loop(run: Arc<AtomicBool>) {
             level = 2;
         }
         // Critical: aggressive only when commit is actively growing.
-        // After cell transitions, the new steady state can legitimately exceed
-        // CRITICAL_GROWTH. Without a rate gate, the watchdog fires aggressive
-        // cleanup every 500ms forever, each costing ~12ms (destruction_protocol)
-        // on the main thread -- this is the primary stutter source.
-        //
-        // During loading, any positive rate at critical growth is dangerous
-        // because the game is still allocating rapidly.
         #[allow(clippy::if_same_then_else)]
         if growth >= critical_thresh && prev_rate > AGGRESSIVE_RATE_THRESHOLD && !loading {
             level = 2;
@@ -292,14 +296,11 @@ fn watchdog_loop(run: Arc<AtomicBool>) {
             level = 2;
         }
         // Aggressive: high growth AND fast rate.
-        // Also skipped during loading when rate ≤ 0 (same death spiral risk).
         else if growth >= aggressive_thresh && prev_rate > AGGRESSIVE_RATE_THRESHOLD {
             level = 2;
         }
         // Normal: above threshold AND rate exceeds dynamic floor (or first
         // sample where rate is unknown -- don't miss a 500MB+ overshoot).
-        // The floor scales with headroom: lots of room = high floor (few
-        // cleanups), tight room = low floor (more sensitive).
         else if growth >= normal_thresh && (prev_rate > rate_floor || first_sample) {
             level = 1;
         }
@@ -314,35 +315,54 @@ fn watchdog_loop(run: Arc<AtomicBool>) {
             }
         }
 
-        // Only escalate, never downgrade an existing request.
-        // During loading, skip cleanup entirely. The game's cell transition
-        // already manages memory. Our aggressive cleanup frees objects the
-        // transition still needs, causing UAF when NVSE scripts access them.
+        // Skip cleanup during loading. The game's cell transition
+        // already manages memory. Our cleanup could free objects the
+        // transition still needs.
         if loading {
+            log_diagnostics(poll_count, &info);
             continue;
         }
 
-        if level > 0 {
-            let _ = CLEANUP_REQUESTED.fetch_max(level, Ordering::Release);
+        // Run cleanup directly on the watchdog thread when:
+        // - Pressure threshold is met (level > 0)
+        // - AND cleanup interval has elapsed
+        if level > 0 && now_ms.saturating_sub(last_cleanup_ms) >= CLEANUP_INTERVAL_MS {
+            last_cleanup_ms = now_ms;
 
             if level == 2 {
                 log::warn!(
-                    "[WATCHDOG] Aggressive cleanup: commit={}MB, growth={}MB, rate={}/s{}",
+                    "[WATCHDOG] Cleanup (level {}): commit={}MB, growth={}MB, rate={}/s",
+                    level,
                     commit / 1024 / 1024,
                     growth / 1024 / 1024,
                     format_rate(prev_rate),
-                    if loading { " (loading)" } else { "" },
                 );
             } else {
                 log::info!(
-                    "[WATCHDOG] Normal cleanup: commit={}MB, growth={}MB, rate={}/s, floor={}/s{}",
+                    "[WATCHDOG] Cleanup (level {}): commit={}MB, growth={}MB, rate={}/s, floor={}/s",
+                    level,
                     commit / 1024 / 1024,
                     growth / 1024 / 1024,
                     format_rate(prev_rate),
                     format_rate(rate_floor),
-                    if loading { " (loading)" } else { "" },
                 );
             }
+
+            // Thread-safe cleanup: all three operate on global state
+            // without requiring game locks or main thread context.
+            unsafe {
+                globals::havok_gc(1);
+                libmimalloc::mi_collect(false);
+                super::slab::decommit_sweep_full(false);
+                libmimalloc::mi_collect(false);
+            }
+
+            log::info!(
+                "[WATCHDOG] Cleanup done: commit={}MB, slab={}MB, dirty={}",
+                MiMallocProcessInfo::get().get_current_commit() / 1024 / 1024,
+                super::slab::committed_bytes() / 1024 / 1024,
+                super::slab::dirty_pages(),
+            );
         }
 
         // --- Diagnostic logging ---
