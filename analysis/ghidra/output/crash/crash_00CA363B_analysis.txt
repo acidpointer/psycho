@@ -1,0 +1,223 @@
+######################################################################
+# IO-thread Havok mesh-loading crash at 0x00CA363B
+######################################################################
+
+Goal: identify the NULL pointer dereference in the Havok
+mesh/shape construction path hit while IO thread loaded
+NVDLC03TransmBldgSquatWreck.NIF.
+
+######################################################################
+# PART 1: crash site 0x00CA363B
+######################################################################
+
+----------------------------------------------------------------------
+Disassembly window around CRASH SITE @ 0x00ca363b (-48 / +24 bytes)
+----------------------------------------------------------------------
+  0x00ca360c: MOV ECX,dword ptr [EBP + 0x24]
+  0x00ca360f: LEA ESI,[EDX + 0x1]
+  0x00ca3612: ADD ECX,0x10
+  0x00ca3615: SHR ESI,0x1
+  0x00ca3617: LEA EAX,[ESI + ESI*0x1]
+  0x00ca361a: LEA EBX,[EBX]
+  0x00ca3620: ADD EDI,dword ptr [ECX + -0xc]
+  0x00ca3623: ADD EBX,dword ptr [ECX]
+  0x00ca3625: ADD ECX,0x18
+  0x00ca3628: SUB ESI,0x1
+  0x00ca362b: JNZ 0x00ca3620
+  0x00ca362d: MOV ECX,dword ptr [ESP + 0x18]
+  0x00ca3631: CMP EAX,EDX
+  0x00ca3633: JG 0x00ca363f
+  0x00ca3635: MOV ECX,dword ptr [EBP + 0x24]
+  0x00ca3638: LEA EAX,[EAX + EAX*0x2]
+  0x00ca363b: MOV ECX,dword ptr [ECX + EAX*0x4 + 0x4]  <-- CRASH
+  0x00ca363f: MOV ESI,dword ptr [EBP + 0x14]
+  0x00ca3642: MOV EAX,dword ptr [ESP + 0x10]
+  0x00ca3646: MOVZX ESI,word ptr [ESI + EAX*0x8]
+  0x00ca364a: ADD EBX,EDI
+  0x00ca364c: ADD EBX,ECX
+  0x00ca364e: POP EDI
+  0x00ca364f: CMP ESI,EBX
+  0x00ca3651: POP ESI
+  0x00ca3652: POP EBX
+  0x00ca3653: JC 0x00ca3656
+
+======================================================================
+Crash site containing function @ 0x00ca363b
+======================================================================
+  Function: FUN_00ca35f5 @ 0x00ca35f5, Size: 112 bytes
+  NOTE: Requested 0x00ca363b is inside FUN_00ca35f5 (entry at 0x00ca35f5, +0x46)
+
+uint __fastcall FUN_00ca35f5(undefined4 param_1,int param_2,uint param_3)
+
+{
+  int iVar1;
+  int *piVar2;
+  int iVar3;
+  int iVar4;
+  int unaff_EBP;
+  uint uVar5;
+  int iVar6;
+  
+  iVar6 = 0;
+  iVar4 = 0;
+  iVar1 = 0;
+  if (1 < param_2 + 1) {
+    piVar2 = (int *)(*(int *)(unaff_EBP + 0x24) + 0x10);
+    uVar5 = param_2 + 1U >> 1;
+    iVar1 = uVar5 * 2;
+    iVar4 = 0;
+    do {
+      iVar6 = iVar6 + piVar2[-3];
+      iVar4 = iVar4 + *piVar2;
+      piVar2 = piVar2 + 6;
+      uVar5 = uVar5 - 1;
+    } while (uVar5 != 0);
+  }
+  iVar3 = 0;
+  if (iVar1 <= param_2) {
+    iVar3 = *(int *)(*(int *)(unaff_EBP + 0x24) + 4 + iVar1 * 0xc);
+  }
+  if ((uint)(iVar4 + iVar6 + iVar3) <= (uint)*(ushort *)(*(int *)(unaff_EBP + 0x14) + param_3 * 8))
+  {
+    param_2 = param_2 + 1;
+  }
+  return param_3 & 0xffffff | param_2 << 0x18;
+}
+
+
+
+----------------------------------------------------------------------
+References TO 0x00ca363b (crash site (mid-function refs))
+----------------------------------------------------------------------
+  Total: 0 refs
+
+--- Calls FROM containing function (entry 0x00ca35f5) ---
+  Total: 0 calls
+
+######################################################################
+# PART 2: caller 0x00D219B9 (the Havok step one above the crash)
+######################################################################
+
+----------------------------------------------------------------------
+Disassembly window around CALLER @ 0x00d219b9 (-32 / +16 bytes)
+----------------------------------------------------------------------
+  0x00d2199a: PUSH ECX
+  0x00d2199b: PUSH EDI
+  0x00d2199c: MOV ECX,ESI
+  0x00d2199e: CALL EDX
+  0x00d219a0: PUSH EAX
+  0x00d219a1: CALL 0x00d21960
+  0x00d219a6: ADD ESP,0x4
+  0x00d219a9: CMP AL,BL
+  0x00d219ab: JBE 0x00d219af
+  0x00d219ad: MOV BL,AL
+  0x00d219af: MOV EAX,dword ptr [ESI]
+  0x00d219b1: MOV EDX,dword ptr [EAX + 0xc]
+  0x00d219b4: PUSH EDI
+  0x00d219b5: MOV ECX,ESI
+  0x00d219b7: CALL EDX
+  0x00d219b9: MOV EDI,EAX  <-- CRASH
+  0x00d219bb: CMP EDI,-0x1
+  0x00d219be: JNZ 0x00d21991
+  0x00d219c0: MOVZX EAX,BL
+  0x00d219c3: INC EAX
+  0x00d219c4: POP EDI
+  0x00d219c5: POP ESI
+  0x00d219c6: POP EBX
+  0x00d219c7: MOV ESP,EBP
+  0x00d219c9: POP EBP
+
+======================================================================
+Caller containing function @ 0x00d219b9
+======================================================================
+  Function: FUN_00d21960 @ 0x00d21960, Size: 116 bytes
+  NOTE: Requested 0x00d219b9 is inside FUN_00d21960 (entry at 0x00d21960, +0x59)
+
+int __cdecl FUN_00d21960(int *param_1)
+
+{
+  int *piVar1;
+  int iVar2;
+  int *piVar3;
+  int iVar4;
+  byte bVar5;
+  undefined1 auStack_210 [524];
+  
+  piVar1 = (int *)(**(code **)(*param_1 + 0x10))();
+  if (piVar1 == (int *)0x0) {
+    return 0;
+  }
+  bVar5 = 0;
+  for (iVar2 = (**(code **)(*piVar1 + 8))(); iVar2 != -1;
+      iVar2 = (**(code **)(*piVar1 + 0xc))(iVar2)) {
+    piVar3 = (int *)(**(code **)(*piVar1 + 0x14))(iVar2,auStack_210);
+    iVar4 = FUN_00d21960(piVar3);
+    if (bVar5 < (byte)iVar4) {
+      bVar5 = (byte)iVar4;
+    }
+  }
+  return bVar5 + 1;
+}
+
+
+
+--- Calls FROM caller containing function (entry 0x00d21960) ---
+  0x00d219a1 -> 0x00d21960 FUN_00d21960
+  Total: 1 calls
+
+######################################################################
+# PART 3: IO dispatch frame 0x00AA1588
+######################################################################
+
+----------------------------------------------------------------------
+Disassembly window around IO DISPATCH @ 0x00aa1588 (-32 / +16 bytes)
+----------------------------------------------------------------------
+  0x00aa1570: MOV EDX,dword ptr [ESP + 0x4]
+  0x00aa1574: PUSH ESI
+  0x00aa1575: MOV ESI,ECX
+  0x00aa1577: MOV EAX,dword ptr [ESI + 0x24]
+  0x00aa157a: MOV ECX,dword ptr [ESP + 0xc]
+  0x00aa157e: PUSH EAX
+  0x00aa157f: PUSH ECX
+  0x00aa1580: PUSH 0x1
+  0x00aa1582: PUSH EDX
+  0x00aa1583: CALL 0x00aa8610
+  0x00aa1588: ADD dword ptr [ESI + 0x1c],EAX  <-- CRASH
+  0x00aa158b: ADD ESP,0x10
+  0x00aa158e: POP ESI
+  0x00aa158f: RET 0x8
+
+======================================================================
+IO-dispatch containing function @ 0x00aa1588
+======================================================================
+  Function: FUN_00aa1570 @ 0x00aa1570, Size: 34 bytes
+  NOTE: Requested 0x00aa1588 is inside FUN_00aa1570 (entry at 0x00aa1570, +0x18)
+
+void __thiscall FUN_00aa1570(void *this,undefined4 param_1,undefined4 param_2)
+
+{
+  int iVar1;
+  
+  iVar1 = FUN_00aa8610(param_1,1,param_2,*(undefined4 *)((int)this + 0x24));
+  *(int *)((int)this + 0x1c) = *(int *)((int)this + 0x1c) + iVar1;
+  return;
+}
+
+
+
+######################################################################
+# PART 4: all callers of the crashing function
+######################################################################
+
+Callers of FUN_00ca35f5 (entry 0x00ca35f5):
+  Total callers: 0
+
+######################################################################
+# PART 5: Havok shape-construction neighbourhood cross-reference
+######################################################################
+
+The stack showed hkPackedNiTriStripsData at EBP and
+hkPackedNiTriStripsShape, hkScaledMoppBvTreeShape, bhkMoppBvTreeShape,
+hkpFixedRigidMotion, hkpRigidBody as other live Havok objects.
+If Part 1's containing function is an hkPackedNiTriStripsShape
+constructor or initialiser, that confirms the mesh-load path.
