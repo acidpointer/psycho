@@ -90,45 +90,51 @@ fn get_shard() -> usize {
     })
 }
 
-/// Per-class reservation sizes. Strict 512 MB total (matches vanilla
-/// SBM's pool budget). Rebalanced again after a TTW Capital Wasteland
-/// AI-thread NULL-deref crash (READ at 0x40, EIP=0x008D6F30) driven
-/// by cascade exhaustion:
-///   - 1024 B (#26): 131072 fails at 8 MB -> 24 MB (+16, 3x cells)
-///   - 1280 B (#27):  65536 fails at 16 MB -> 24 MB (+8)
-///   -  640 B (#23):  16384 fails at 16 MB -> 24 MB (+8)
-///   - 3584 B (#33):  32768 fails at 8 MB -> 16 MB (+8)
-///   -  512 B (#22):   1024 fails at 8 MB -> 16 MB (+8)
-///   - 2048 B (#30): early exhaust at 8 MB -> 16 MB (+8)
-///   - 3072 B (#32): early exhaust at 8 MB -> 16 MB (+8)
+/// Per-class reservation sizes. Strict 512 MB total. Refined across
+/// several stress-test iterations that exposed which classes matter:
 ///
-/// Budget recovered from 80/96 B: 96 -> 64 MB each (saves 64 MB).
-/// 64 MB of 80 B = 838K cells, 64 MB of 96 B = 699K cells -- still
-/// comfortably above observed hot-class peak usage (~500K each for
-/// this modlist).
+///   Run A (Capital Wasteland lap):
+///     1024 B: 131K fails, 1280 B: 65K fails, 3584 B: 32K fails,
+///     640 B: 16K fails. Bumped those; stabilised worldspace transitions.
 ///
-/// Layout summary:
-///   - 80, 96 B: 64 MB each (hot TESForm churn, headroom for modlist)
-///   - 16, 32, 64, 128 B: 16 MB each (high-freq small)
-///   - 256, 320: 16 MB each (observed cascade hotspots)
-///   - 512, 2048, 3072, 3584: 16 MB each (new: previously exhausted)
-///   - 640, 1024, 1280: 24 MB each (heavy-exhaust classes)
-///   - Everything else: 8 MB (POOL_ALIGN minimum).
+///   Run B (8-minute stress + coc goodsprings):
+///     16 B: 32K fails, 8 B: 16K fails, 80 B: 8K fails, 20 B: 4K fails,
+///     56 B: 2K fails, 96 B: 256 fails. Small classes saturate under
+///     sustained small-object churn during long play + coc transition.
+///     Downstream: d3d9 texture load crashed on stale state after pool
+///     thrashing.
+///
+/// Current distribution protects both groups within 512 MB:
+///   - 80 B: 80 MB (hot TESForm churn, bumped from 64)
+///   - 96 B: 64 MB (hot, but Run B showed it tolerates 64)
+///   - 16, 20, 56 B: 16-24 MB each (Run B hotspots)
+///   -  8 B: 16 MB (Run B hotspot)
+///   - 32, 64, 128, 256, 320, 512, 640, 1024, 1280 B: 16 MB each
+///   - Everything else: 8 MB (POOL_ALIGN minimum)
+///
+/// Notes on the trade:
+///   - 1024/1280 dropped back from 24 -> 16 MB. Still 2x the original
+///     8 MB that ran them to 131K fails; under Run A patterns 16 MB
+///     should hold. If Run A cascade reappears, re-raise these before
+///     touching hot small classes.
+///   - 2048/3072/3584 dropped back from 16 -> 8 MB. They exhausted
+///     only in early fail counts in Run A -- acceptable noise.
+///   - 640 dropped from 24 -> 16 MB for the same reason.
 ///
 /// Total: 512 MB reserved.
 const POOL_DESC: &[PoolDesc] = &[
-    PoolDesc { item_size: 8,    max_size: 8   * 1024 * 1024, sharded: false },
+    PoolDesc { item_size: 8,    max_size: 16  * 1024 * 1024, sharded: false },
     PoolDesc { item_size: 12,   max_size: 8   * 1024 * 1024, sharded: false },
-    PoolDesc { item_size: 16,   max_size: 16  * 1024 * 1024, sharded: false },
-    PoolDesc { item_size: 20,   max_size: 8   * 1024 * 1024, sharded: false },
+    PoolDesc { item_size: 16,   max_size: 24  * 1024 * 1024, sharded: false },
+    PoolDesc { item_size: 20,   max_size: 16  * 1024 * 1024, sharded: false },
     PoolDesc { item_size: 24,   max_size: 8   * 1024 * 1024, sharded: false },
     PoolDesc { item_size: 28,   max_size: 8   * 1024 * 1024, sharded: false },
     PoolDesc { item_size: 32,   max_size: 16  * 1024 * 1024, sharded: false },
     PoolDesc { item_size: 40,   max_size: 8   * 1024 * 1024, sharded: false },
     PoolDesc { item_size: 48,   max_size: 8   * 1024 * 1024, sharded: false },
-    PoolDesc { item_size: 56,   max_size: 8   * 1024 * 1024, sharded: false },
+    PoolDesc { item_size: 56,   max_size: 16  * 1024 * 1024, sharded: false },
     PoolDesc { item_size: 64,   max_size: 16  * 1024 * 1024, sharded: false },
-    PoolDesc { item_size: 80,   max_size: 64  * 1024 * 1024, sharded: false },
+    PoolDesc { item_size: 80,   max_size: 80  * 1024 * 1024, sharded: false },
     PoolDesc { item_size: 96,   max_size: 64  * 1024 * 1024, sharded: false },
     PoolDesc { item_size: 112,  max_size: 8   * 1024 * 1024, sharded: false },
     PoolDesc { item_size: 128,  max_size: 16  * 1024 * 1024, sharded: false },
@@ -140,17 +146,17 @@ const POOL_DESC: &[PoolDesc] = &[
     PoolDesc { item_size: 384,  max_size: 8   * 1024 * 1024, sharded: false },
     PoolDesc { item_size: 448,  max_size: 8   * 1024 * 1024, sharded: false },
     PoolDesc { item_size: 512,  max_size: 16  * 1024 * 1024, sharded: false },
-    PoolDesc { item_size: 640,  max_size: 24  * 1024 * 1024, sharded: false },
+    PoolDesc { item_size: 640,  max_size: 16  * 1024 * 1024, sharded: false },
     PoolDesc { item_size: 768,  max_size: 8   * 1024 * 1024, sharded: false },
     PoolDesc { item_size: 896,  max_size: 8   * 1024 * 1024, sharded: false },
-    PoolDesc { item_size: 1024, max_size: 24  * 1024 * 1024, sharded: false },
-    PoolDesc { item_size: 1280, max_size: 24  * 1024 * 1024, sharded: false },
+    PoolDesc { item_size: 1024, max_size: 16  * 1024 * 1024, sharded: false },
+    PoolDesc { item_size: 1280, max_size: 16  * 1024 * 1024, sharded: false },
     PoolDesc { item_size: 1536, max_size: 8   * 1024 * 1024, sharded: false },
     PoolDesc { item_size: 1792, max_size: 8   * 1024 * 1024, sharded: false },
-    PoolDesc { item_size: 2048, max_size: 16  * 1024 * 1024, sharded: false },
+    PoolDesc { item_size: 2048, max_size: 8   * 1024 * 1024, sharded: false },
     PoolDesc { item_size: 2560, max_size: 8   * 1024 * 1024, sharded: false },
-    PoolDesc { item_size: 3072, max_size: 16  * 1024 * 1024, sharded: false },
-    PoolDesc { item_size: 3584, max_size: 16  * 1024 * 1024, sharded: false },
+    PoolDesc { item_size: 3072, max_size: 8   * 1024 * 1024, sharded: false },
+    PoolDesc { item_size: 3584, max_size: 8   * 1024 * 1024, sharded: false },
 ];
 
 /// Count the sharded entries in `POOL_DESC` at compile time.
@@ -365,6 +371,64 @@ impl Pool {
     }
 
     /// Fast path free: push a cell onto the freelist. No writes to cell data.
+    ///
+    /// # Known latent crash: BSTreeNode C0000417
+    ///
+    /// Immediate LIFO reuse is NVHR-style and matches vanilla SBM, but the
+    /// game's PDD processing order does not match that assumption for
+    /// BSTreeNode/NiRefObject chains. Observed crash chain (exactly the
+    /// pattern in analysis/ghidra/output/memory/havok_gc_thread_analysis.txt
+    /// and memory note project_bstreenode_crash_chain.md):
+    ///
+    ///   1. Cell transition queues BSTreeNode to PDD NiNode queue.
+    ///   2. Per-frame PDD (10-20 entries/frame) plus our periodic Stage 4
+    ///      (10 s cooldown) drain the queue. Stage 4 can free a child
+    ///      NiRefObject before the parent BSTreeNode is processed within
+    ///      the same Stage 4 call.
+    ///   3. Because this freelist is LIFO with zero reuse cooldown, the
+    ///      very next alloc for the same size class pops the just-freed
+    ///      cell and the caller writes new content into it.
+    ///   4. Parent BSTreeNode destructor (via FUN_00CFCC2C) walks its
+    ///      child list, dereferences the overwritten cell -> RefCount:0
+    ///      or garbage vtable -> CRT invalid-parameter fastfail (C0000417)
+    ///      around 0x00EC7C62.
+    ///
+    /// Confirmed repro: 2026-04-18 18:22, Playtime 4:56 (~47 min real
+    /// time), CrashLogger 2026-04-18-18-32-08.log. Stack classes:
+    /// BSTreeNode (refcount=0), BSTreeModel, BSFadeNode "RockCanyon12".
+    /// Model: "\WastelandUndergrowth01.spt". Trigger: [OOM] Stage 4 ->
+    /// 5: done=1 freed=704KB at 15:32:07.240, crash 982 ms later at
+    /// 15:32:08.222.
+    ///
+    /// # Why this was not caught sooner
+    ///
+    /// The latent bug dates from commit 35a326b ("grand allocator re-write")
+    /// which replaced slab.rs with pool.rs and dropped the zombie-safety
+    /// mechanism. The prior slab had a narrower DESTRUCTION_FREEZE flag
+    /// that skipped cold-list reuse during Stage 5 (cell unload). Before
+    /// the slab, an even older design used a 2-epoch quarantine that
+    /// protected this exact chain (see memory note
+    /// project_bstreenode_crash_chain.md and project_epoch_quarantine.md).
+    ///
+    /// The crash is probabilistic: it needs Stage 4 to free a child and
+    /// the very next alloc (same size class, same thread) to land on
+    /// that cell before the parent is processed. Earlier runs on this
+    /// new pool either ran shorter in real time or crashed first on
+    /// other paths (d3d9 coc texture-load, Havok watchdog UAF, Havok
+    /// AI Linear Task Thread 2 UAF). Each of those masked this crash
+    /// by killing the process first. Once the masking crashes were
+    /// removed, this one surfaced on a 47-minute stress run.
+    ///
+    /// # Why no fix here yet
+    ///
+    /// A general reuse cooldown or epoch quarantine conflicts with the
+    /// rest of this allocator's design (NVHR-style immediate reuse,
+    /// bounded 512 MB budget, no epoch infrastructure). Open question
+    /// for the next iteration: either port the narrow slab-era
+    /// DESTRUCTION_FREEZE (active only while Stage 4/5 holds the game's
+    /// cleanup CS) or change the trigger so Stage 4 cannot race with
+    /// its own PDD drain (e.g. drop the periodic Stage 4 and trust
+    /// per-frame PDD + game-initiated cleanup).
     unsafe fn free(&mut self, cell: *mut u8) {
         let link = self.cell_to_link(cell);
         unsafe {
