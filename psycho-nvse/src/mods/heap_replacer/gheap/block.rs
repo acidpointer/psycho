@@ -332,19 +332,71 @@ impl BlockHeap {
         self.blocks.iter().filter(|b| b.is_some()).count()
     }
 
-    /// Reserve+commit a fresh 16 MB region from the OS. The OS picks
-    /// the address; this is NVHR's pattern and keeps the game's free
-    /// VAS usable for its own large allocations.
+    /// Highest `base + BLOCK_SIZE` across currently-live slots, used
+    /// as the placement hint for the next block. Returns `None` when
+    /// no slot is live.
+    ///
+    /// This drives adjacency in `new_block`: the OS honors the hint
+    /// when that address is free, so a burst of allocations (e.g. a
+    /// cell-load storm) lands as a contiguous cluster. Under sporadic
+    /// load the hint may be taken by game VAS; we fall back to
+    /// OS-picked placement.
+    fn preferred_next_address(&self) -> Option<usize> {
+        let mut highest_end: usize = 0;
+        for b in self.blocks.iter().flatten() {
+            let end = b.base as usize + BLOCK_SIZE;
+            if end > highest_end {
+                highest_end = end;
+            }
+        }
+        if highest_end > 0 {
+            Some(highest_end)
+        } else {
+            None
+        }
+    }
+
+    /// Reserve+commit a fresh 16 MB region. First tries a placement
+    /// hint immediately after the highest-end live slot, so burst
+    /// allocations cluster contiguously -- this matters because
+    /// `emergency_retire_empty` can only produce a contiguous hole
+    /// when the retired slots were adjacent. If the hint address is
+    /// occupied (long session, game VAS has grown into it), falls
+    /// back to OS-picked placement with `VirtualAlloc(None, ...)`.
+    ///
+    /// Each slot is still its own independent `MEM_RESERVE` so the
+    /// retirement path (`VirtualFree(MEM_RELEASE)`) works unchanged.
     fn new_block(&mut self) -> Option<usize> {
         let idx = self.blocks.iter().position(|b| b.is_none())?;
-        let ptr = unsafe {
-            VirtualAlloc(
-                None,
-                BLOCK_SIZE,
-                MEM_RESERVE | MEM_COMMIT,
-                PAGE_READWRITE,
-            )
-        };
+
+        let mut ptr: *mut c_void = null_mut();
+
+        // First chance: try to land adjacent to the highest live slot.
+        // Silent on failure -- hint collisions are expected and the
+        // fallback path below handles them cleanly.
+        if let Some(hint) = self.preferred_next_address() {
+            ptr = unsafe {
+                VirtualAlloc(
+                    Some(hint as *const c_void),
+                    BLOCK_SIZE,
+                    MEM_RESERVE | MEM_COMMIT,
+                    PAGE_READWRITE,
+                )
+            };
+        }
+
+        // Fallback: OS picks placement anywhere.
+        if ptr.is_null() {
+            ptr = unsafe {
+                VirtualAlloc(
+                    None,
+                    BLOCK_SIZE,
+                    MEM_RESERVE | MEM_COMMIT,
+                    PAGE_READWRITE,
+                )
+            };
+        }
+
         if ptr.is_null() {
             let fails = FAIL_COUNT.fetch_add(1, Ordering::Relaxed) + 1;
             if fails.is_power_of_two() {
