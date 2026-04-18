@@ -90,49 +90,70 @@ fn get_shard() -> usize {
     })
 }
 
-/// Per-class reservation sizes. Strict 512 MB total. Refined across
-/// several stress-test iterations that exposed which classes matter:
+/// Per-class reservation sizes. Total: 512 MB.
 ///
-///   Run A (Capital Wasteland lap):
-///     1024 B: 131K fails, 1280 B: 65K fails, 3584 B: 32K fails,
-///     640 B: 16K fails. Bumped those; stabilised worldspace transitions.
+/// Hard ceiling imposed by 32-bit LAA constraints under heavy TTW
+/// modlists. The 640 MB experiment proved that sizing every observed
+/// hotspot at its "ideal" value simultaneously pushes total VAS
+/// reservation past the threshold where the game's own 89 MB LOD
+/// textures cannot find a contiguous hole at deferred-init:
 ///
-///   Run B (8-minute stress + coc goodsprings):
-///     16 B: 32K fails, 8 B: 16K fails, 80 B: 8K fails, 20 B: 4K fails,
-///     56 B: 2K fails, 96 B: 256 fails. Small classes saturate under
-///     sustained small-object churn during long play + coc transition.
-///     Downstream: d3d9 texture load crashed on stale state after pool
-///     thrashing.
+///   512 MB pool: deferred-init free=93MB, largest=15MB  (tight but OK)
+///   640 MB pool: deferred-init free=44MB, largest=13MB  (guaranteed coc crash)
 ///
-/// Current distribution protects both groups within 512 MB:
-///   - 80 B: 80 MB (hot TESForm churn, bumped from 64)
-///   - 96 B: 64 MB (hot, but Run B showed it tolerates 64)
-///   - 16, 20, 56 B: 16-24 MB each (Run B hotspots)
-///   -  8 B: 16 MB (Run B hotspot)
-///   - 32, 64, 128, 256, 320, 512, 640, 1024, 1280 B: 16 MB each
-///   - Everything else: 8 MB (POOL_ALIGN minimum)
+/// So we live with selected class exhausts in exchange for leaving
+/// the game enough contiguous address space. Observed exhausts
+/// cascade to the block tier rather than crash; they are a slowdown
+/// rather than a kill. Logged at `[POOL] Exhausted for size=X`.
 ///
-/// Notes on the trade:
-///   - 1024/1280 dropped back from 24 -> 16 MB. Still 2x the original
-///     8 MB that ran them to 131K fails; under Run A patterns 16 MB
-///     should hold. If Run A cascade reappears, re-raise these before
-///     touching hot small classes.
-///   - 2048/3072/3584 dropped back from 16 -> 8 MB. They exhausted
-///     only in early fail counts in Run A -- acceptable noise.
-///   - 640 dropped from 24 -> 16 MB for the same reason.
+/// Layout (34 classes, 512 MB total):
 ///
-/// Total: 512 MB reserved.
+///   Hot (TESForm/NiNode churn -- biggest reservations):
+///     80 B:   80 MB   (Run B saw 8K fails at 64 MB; NVHR uses 128 MB,
+///                      80 MB is the "just over observed peak" compromise)
+///     96 B:   64 MB   (Run B saw 256 fails at 64 MB; borderline, not bumped)
+///
+///   Mid-size cascade hotspots (Run A: 131K fails at 1024 B before bump):
+///     1024, 1280 B:   16 MB each (re-exhaust risk vs 32 MB = accepted)
+///      640 B:         16 MB
+///     2048, 3072, 3584 B: 16 MB each (Run D / Run A)
+///      512 B:         16 MB
+///
+///   Small high-frequency classes (Run B saw heavy fails):
+///      8, 16 B:       16 MB each (bumped from 8; keep)
+///      20, 56 B:      8 MB       (reverted from 16 to save VAS; Run B fails
+///                                   were 2K-4K, cascades to 24/32/64 B
+///                                   class acceptable)
+///
+///   Common subclasses:
+///     32, 64, 128, 256, 320 B: 16 MB each
+///
+///   Baseline (never observed saturating): 8 MB POOL_ALIGN floor.
+///
+/// Accepted exhaust risks on 512 MB budget:
+///   - 80 B heavy load (Run B pattern): 80 MB vs 96 MB ideal -> expect
+///     some exhausts under sustained stress + coc, not crashes
+///   - 1024/1280 B Run A pattern: 16 MB vs 32 MB ideal -> re-exhaust
+///     possible on Capital Wasteland lap; cascades to 1536/1792 (8 MB)
+///     then 2048 (16 MB); propagates up but doesn't NULL
+///
+/// VAS accounting (the real constraint):
+///   pool (512) + block tier (up to ~400 on-demand) + game (~1-2 GB) +
+///   DirectX textures = fits under 3 GB LAA with ~80-100 MB headroom for
+///   contiguous texture allocs at deferred-init. Going above 512 MB
+///   pool was proven to collapse that headroom to <15 MB and guarantee
+///   coc-transition NULL on 89 MB texture VirtualAlloc.
 const POOL_DESC: &[PoolDesc] = &[
     PoolDesc { item_size: 8,    max_size: 16  * 1024 * 1024, sharded: false },
     PoolDesc { item_size: 12,   max_size: 8   * 1024 * 1024, sharded: false },
-    PoolDesc { item_size: 16,   max_size: 24  * 1024 * 1024, sharded: false },
-    PoolDesc { item_size: 20,   max_size: 16  * 1024 * 1024, sharded: false },
+    PoolDesc { item_size: 16,   max_size: 16  * 1024 * 1024, sharded: false },
+    PoolDesc { item_size: 20,   max_size: 8   * 1024 * 1024, sharded: false },
     PoolDesc { item_size: 24,   max_size: 8   * 1024 * 1024, sharded: false },
     PoolDesc { item_size: 28,   max_size: 8   * 1024 * 1024, sharded: false },
     PoolDesc { item_size: 32,   max_size: 16  * 1024 * 1024, sharded: false },
     PoolDesc { item_size: 40,   max_size: 8   * 1024 * 1024, sharded: false },
     PoolDesc { item_size: 48,   max_size: 8   * 1024 * 1024, sharded: false },
-    PoolDesc { item_size: 56,   max_size: 16  * 1024 * 1024, sharded: false },
+    PoolDesc { item_size: 56,   max_size: 8   * 1024 * 1024, sharded: false },
     PoolDesc { item_size: 64,   max_size: 16  * 1024 * 1024, sharded: false },
     PoolDesc { item_size: 80,   max_size: 80  * 1024 * 1024, sharded: false },
     PoolDesc { item_size: 96,   max_size: 64  * 1024 * 1024, sharded: false },
@@ -153,10 +174,10 @@ const POOL_DESC: &[PoolDesc] = &[
     PoolDesc { item_size: 1280, max_size: 16  * 1024 * 1024, sharded: false },
     PoolDesc { item_size: 1536, max_size: 8   * 1024 * 1024, sharded: false },
     PoolDesc { item_size: 1792, max_size: 8   * 1024 * 1024, sharded: false },
-    PoolDesc { item_size: 2048, max_size: 8   * 1024 * 1024, sharded: false },
+    PoolDesc { item_size: 2048, max_size: 16  * 1024 * 1024, sharded: false },
     PoolDesc { item_size: 2560, max_size: 8   * 1024 * 1024, sharded: false },
-    PoolDesc { item_size: 3072, max_size: 8   * 1024 * 1024, sharded: false },
-    PoolDesc { item_size: 3584, max_size: 8   * 1024 * 1024, sharded: false },
+    PoolDesc { item_size: 3072, max_size: 16  * 1024 * 1024, sharded: false },
+    PoolDesc { item_size: 3584, max_size: 16  * 1024 * 1024, sharded: false },
 ];
 
 /// Count the sharded entries in `POOL_DESC` at compile time.
@@ -419,16 +440,68 @@ impl Pool {
     /// by killing the process first. Once the masking crashes were
     /// removed, this one surfaced on a 47-minute stress run.
     ///
-    /// # Why no fix here yet
+    /// # Known latent crash 2: JIP DoQueuedReferenceHook ragdoll NULL-bone
+    ///
+    /// Second instance of the same zombie-reuse family, different game
+    /// code path. Observed 2026-04-18 19:36, Playtime 1:29 (ragdoll-
+    /// heavy cell burst), CrashLogger.2026-04-18-19-36-18.log. Thread:
+    /// main. EIP=0x00A6DF48, ESI=0x00000034, read fault at 0x34.
+    ///
+    /// Call chain:
+    ///   main loop -> 0x0086E89C -> 0x00C3DD8E
+    ///     -> jip_nvse DoQueuedReferenceHook
+    ///       -> 0x0045211D -> 0x0056F8D4 -> 0x00931443 -> 0x00C7D866
+    ///         -> 0x00C796F7 (Havok quaternion setup)
+    ///           -> 0x00A6DF48 (FLD float ptr [ESI] with ESI=0x34)
+    ///
+    /// Stack classes: bhkRagdollController, bhkWorldM, Character "Enclave
+    /// Soldier" (FormID 06023376) with NEED_TO_CHANGE_PROCESS flag,
+    /// QueuedCharacter for same FormID. Pre-existing Ghidra analysis at
+    /// analysis/ghidra/output/crash/crash_00A6DF48_analysis.txt.
+    ///
+    /// Mechanism from the decompiled caller FUN_00c79680 at +0x77:
+    ///
+    ///   FUN_00c74dd0(&local_80,
+    ///                (float *)(*(int *)(local_94 +
+    ///                          *(int *)(local_90 + 0xa4)) + 0x34));
+    ///
+    /// The ragdoll's bone-array entry (`*(int *)(local_94 + base)`) was
+    /// NULL -- freed by our pool and reused (cell overwritten with new
+    /// content) while the parent queued-reference was still holding a
+    /// pointer to the array slot. Adding 0x34 to NULL gave ESI=0x34;
+    /// the downstream FLD [ESI] took the AV.
+    ///
+    /// Correlates with a 10-second cascade of mid-size pool exhausts
+    /// (2048 B, 3072 B, 3584 B) that started ~10 s before the crash,
+    /// increasing the reuse-rate for those classes. Ragdoll bone data
+    /// lives in this size range.
+    ///
+    /// # Known latent crash 3: Stewie Tweaks Process::LowProcess dead-actor
+    ///
+    /// Third instance. 2026-04-18 17:47, 2:22 play, Giant Soldier Ant
+    /// with HAVOK_DEATH + NEED_TO_CHANGE_PROCESS. Crash inside Stewie
+    /// Tweaks' LowProcess hook walking a process-migration pointer
+    /// chain; same pattern (parent still referencing freed-and-reused
+    /// child). CrashLogger.2026-04-18-17-47-55.log.
+    ///
+    /// # Why no fix for any of these yet
     ///
     /// A general reuse cooldown or epoch quarantine conflicts with the
     /// rest of this allocator's design (NVHR-style immediate reuse,
-    /// bounded 512 MB budget, no epoch infrastructure). Open question
-    /// for the next iteration: either port the narrow slab-era
-    /// DESTRUCTION_FREEZE (active only while Stage 4/5 holds the game's
-    /// cleanup CS) or change the trigger so Stage 4 cannot race with
-    /// its own PDD drain (e.g. drop the periodic Stage 4 and trust
-    /// per-frame PDD + game-initiated cleanup).
+    /// bounded 512 MB budget, no epoch infrastructure). The old slab
+    /// had a narrow DESTRUCTION_FREEZE flag active during stage 5 cell
+    /// unload; it is gone since commit 35a326b. Options on the table
+    /// for the next iteration, none implemented yet:
+    ///
+    /// 1. Port the narrow DESTRUCTION_FREEZE -- freeze pool reuse only
+    ///    while a specific game cleanup scope (stage 4/5, or JIP's
+    ///    DoQueuedReferenceHook) is executing. TLS flag + scoped guard.
+    /// 2. Drop the periodic Stage 4 trigger so our code stops freeing
+    ///    parent+child within the same call. Trades this race for the
+    ///    BSTreeManager-queue-backup race -- not strictly better.
+    /// 3. Pool rebalance to keep mid-size classes well-headroomed so
+    ///    churn rate stays low. Partial mitigation (done above for
+    ///    1024/1280/2048/3072/3584) but does not eliminate the race.
     unsafe fn free(&mut self, cell: *mut u8) {
         let link = self.cell_to_link(cell);
         unsafe {

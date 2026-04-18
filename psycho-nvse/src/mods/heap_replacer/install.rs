@@ -499,10 +499,48 @@ fn apply_sbm_patches() -> anyhow::Result<()> {
         patch_nop_call(0x00C42EB1 as *mut c_void)?;
         patch_nop_call(0x00EC1701 as *mut c_void)?;
 
+        // Skip the late-init singleton allocation in FUN_00aa3050.
+        //
+        // FUN_00aa3050 is a one-time-init gate that calls FUN_00aa2020,
+        // which does `DAT_011f6080 = game_heap_allocate(&DAT_011f6238, 4)`
+        // and then fills the 4-byte slot with a singleton pointer + invokes
+        // a virtual method through it. `FUN_00aa2020` has a second
+        // caller at 0x00866734 that runs during HeapSingleton startup
+        // (before our hooks are fully active) -- that call we leave alone
+        // so the singleton gets initialised once with vanilla-SBM memory.
+        // The 0x00AA3060 call would re-run the allocation through our
+        // pool and expose the long-lived `*DAT_011f6080` pointer to
+        // pool-reuse races if the 4-byte cell ever gets freed.
+        //
+        // Matches NVHR `patch_nop_call((void *)0x00AA3060)` in
+        // Heap-Replacer/main/heap_replacer.h. Verified via Ghidra in
+        // analysis/ghidra/output/memory/verify_nvhr_patch_0x00AA3060.txt.
+        patch_nop_call(0x00AA3060 as *mut c_void)?;
+
+        // Skip the embedded scrap-heap constructor at HeapSingleton+0x114.
+        //
+        // The HeapSingleton constructor (FUN_00aa3880, called once from
+        // a CRT global initialiser at 0x00fb66a8) contains a 30-byte
+        // sequence that constructs a secondary scrap-heap instance at
+        // offset +0x114 of the HeapSingleton and installs its vtable.
+        // Our sheap_alloc/sheap_free hooks (0x00AA54A0 / 0x00AA5610)
+        // replace the primary sheap but not this embedded secondary one.
+        // If it's constructed, game paths that dereference
+        // `*(HeapSingleton+0x114)` touch state outside our allocator's
+        // awareness. The surrounding `_memset(param_1+0xc, 0, 0x108)`
+        // already zeros the HeapSingleton up to +0x114, so replacing
+        // the constructor with NOPs leaves the embedded sheap field
+        // at its clean zero-init state.
+        //
+        // Matches NVHR `patch_nops((void *)0x00AA38CA, 0x00AA38E8 -
+        // 0x00AA38CA)`. Verified via Ghidra in
+        // analysis/ghidra/output/memory/verify_nvhr_patch_0x00AA38CA.txt.
+        patch_bytes(0x00AA38CA as *mut c_void, &[0x90u8; 30])?;
+
         // Skip per-frame SBM arena management (JMP +0x55 over the stale loop).
         patch_bytes(0x0086EED4 as *mut c_void, &[0xEB, 0x55])?;
     }
 
-    log::info!("[SBM] Patched (10 RET + 3 NOP + 1 JMP + fast path disabled)");
+    log::info!("[SBM] Patched (10 RET + 4 NOP-call + 1 30-byte NOP + 1 JMP + fast path disabled)");
     Ok(())
 }

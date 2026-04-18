@@ -29,7 +29,6 @@ use libc::c_void;
 use super::allocator;
 use super::engine::globals;
 use super::game_guard;
-use super::heap_manager::HeapManager;
 use super::pressure::PressureRelief;
 use super::statics;
 use super::texture_cache;
@@ -85,32 +84,66 @@ pub unsafe extern "C" fn hook_per_frame_queue_drain() {
         unsafe { original() };
     }
 
-    // Periodic full PDD drain (stage 4) on 10 s cooldown. PDD
-    // maintenance -- independent of loading/menu state; prevents
-    // BSTreeNode C0000417 under sustained cell churn.
+    // Periodic full PDD drain on 10 s cooldown. PDD maintenance --
+    // independent of loading/menu state; prevents BSTreeNode C0000417
+    // under sustained cell churn. Calls pdd_purge directly rather than
+    // run_oom_stage(4, ...) so we skip the havok_gc fall-through; see
+    // `maybe_drain_pdd` docstring below for the full Ghidra-verified
+    // rationale.
     //
-    // KNOWN LATENT CRASH: this Stage 4 invocation is the proximate
-    // trigger for a probabilistic BSTreeNode C0000417 fastfail with
-    // our current NVHR-style pool. The game's stage 4 routine can
-    // free a child NiRefObject mid-call, immediate LIFO reuse in
-    // pool::free hands the same cell to the next alloc, and the
-    // parent BSTreeNode destructor then dereferences the overwritten
-    // cell. See the detailed "Known latent crash" block on
-    // `Pool::free` in gheap/pool.rs and memory note
-    // project_bstreenode_crash_chain.md. Confirmed repro
-    // CrashLogger.2026-04-18-18-32-08.log (47-minute stress run,
-    // WastelandUndergrowth01.spt, Stack: BSTreeNode refcount=0 ->
-    // BSTreeModel -> BSFadeNode "RockCanyon12"). The historical fix
-    // was Stage 4 + 2-epoch quarantine (gone since 35a326b) or the
-    // narrower slab-era DESTRUCTION_FREEZE (also gone since 35a326b).
-    // Leaving Stage 4 enabled here is the lesser evil: skipping it
+    // KNOWN LATENT CRASH: pdd_purge still frees NiRefObject children
+    // on the main thread. Our NVHR-style pool does immediate LIFO
+    // reuse; if the parent BSTreeNode destructor that follows in the
+    // same drain dereferences an already-reused child, we hit the
+    // documented BSTreeNode C0000417 fastfail (see the detailed
+    // "Known latent crash" block on `Pool::free` in gheap/pool.rs and
+    // memory note project_bstreenode_crash_chain.md). Confirmed repro
+    // CrashLogger.2026-04-18-18-32-08.log. The historical fix was
+    // Stage 4 + 2-epoch quarantine (gone since 35a326b) or the
+    // narrower slab-era DESTRUCTION_FREEZE (also gone). Leaving the
+    // periodic drain enabled here is the lesser evil: skipping it
     // trades this race for a different BSTreeNode crash from the
     // per-frame PDD rate-limit backlog.
     maybe_drain_pdd();
 }
 
-/// Cooldown gate + one-shot stage 4 trigger. No-op if less than
-/// `STAGE4_COOLDOWN_MS` has elapsed since the last run.
+/// Cooldown gate + direct PDD purge on a 10 s cadence. No-op if less
+/// than `STAGE4_COOLDOWN_MS` has elapsed since the last run.
+///
+/// # Why direct pdd_purge, not run_oom_stage(4, ...)
+///
+/// Stage 4 in `FUN_00866a90` has a C switch fall-through: `case 4`'s
+/// body is just a PDD purge (`FUN_00868d70('\x01')`) wrapped in an
+/// interlock on `DAT_011f11a0`, but there's NO `break` between `case 4`
+/// and `case 3`. `case 3` calls `FUN_00c459d0('\x01')` -- havok_gc
+/// force=1. Verified in
+/// `analysis/ghidra/output/memory/oom_stage4_havok_trace.txt`.
+///
+/// That havok_gc fall-through races with AI Linear Task Threads (PPL
+/// Concurrency Runtime pool). Three separate crashes at `0x00C94DA5`
+/// on `AI Linear Task Thread 1` across runs trace to this race. An
+/// earlier fix wrapped the Stage 4 call with
+/// `stop_havok_drain` + `start_havok` but that deadlocked the game:
+/// when a Stage 4 triggered cell unload, the game enters destruction
+/// mode (`DAT_011dd437 != 0`), which makes mode=1 `start_havok` a
+/// silent no-op per the decomp in
+/// `analysis/ghidra/output/memory/stop_havok_drain_mode_analysis.txt`.
+/// PPL stayed drained, next AI_START dispatched a task that nothing
+/// would consume, main thread hung.
+///
+/// `pdd_purge` (our existing wrapper, passes arg=0 for the full
+/// blocking variant) is exactly what `case 4`'s body does before the
+/// fall-through. Calling it directly keeps BSTreeNode queue
+/// prevention intact and skips the Havok machinery entirely.
+///
+/// # Why we skip the DAT_011f11a0 interlock
+///
+/// The interlock in `case 4` protects against concurrent game-internal
+/// PDD purges (Stage 4 vs Stage 5 path). We call from the main thread
+/// inside `hook_per_frame_queue_drain` after the vanilla per-frame
+/// drain has already completed -- no concurrent caller possible from
+/// our side. If we ever see PDD-internal races we can add back the
+/// interlock emulation with atomic CAS on the flag address.
 fn maybe_drain_pdd() {
     const STAGE4_COOLDOWN_MS: u64 = 10_000;
     static LAST_STAGE4_MS: AtomicU64 = AtomicU64::new(0);
@@ -126,7 +159,9 @@ fn maybe_drain_pdd() {
     {
         return;
     }
-    let (_next, _done) = unsafe { HeapManager::get().run_oom_stage(4, false) };
+
+    // Full blocking PDD purge, no Havok involvement, no PPL drain.
+    unsafe { globals::pdd_purge() };
 }
 
 
