@@ -1,28 +1,24 @@
 //! Variable-size block allocator for medium allocations (3585 B..16 MB).
 //!
-//! Combines NVHR's dheap cell structure (variable-size, 16 MB max,
-//! split/coalesce) with a pool-style contiguous upfront reservation.
+//! Direct port of NVHR's dheap (heap_replacer/dheap/dheap.h):
+//! variable-size cells, 16 MB blocks, split/coalesce, never retires.
 //!
 //! Layout:
-//!   One `VirtualAlloc(None, TIER_RESERVE_SIZE, MEM_RESERVE)` at init.
-//!   Reservation is carved into BLOCK_COUNT slots of BLOCK_SIZE each.
-//!   Slot `i` maps to `reserve_base + i * BLOCK_SIZE`.
-//!   new_block(i) -> VirtualAlloc(slot_addr, BLOCK_SIZE, MEM_COMMIT)
-//!   Slots NEVER retire. Once committed they stay committed for the
-//!   life of the process -- matches NVHR's dheap behaviour. Retirement
-//!   caused pathological retire/commit churn (93 cycles in 9 ms
-//!   observed in one crash log) when a workload bounced a single
-//!   cell inside a mostly-empty block.
+//!   No upfront tier reservation. Each `new_block` does a separate
+//!   `VirtualAlloc(NULL, BLOCK_SIZE, MEM_RESERVE|MEM_COMMIT)` and
+//!   the OS picks the address. The tier grows organically; we hold
+//!   only what we actually commit. This matches NVHR exactly and
+//!   leaves contiguous VAS available for the game's own large
+//!   allocations (LOD textures, save buffers -- the 89 MB texture
+//!   load that crashed on a previous build with the unified-reserve
+//!   design).
 //!
-//! Why contiguous reservation beats NVHR's on-demand scatter:
-//!   `VirtualAlloc(None, ..., MEM_RESERVE|MEM_COMMIT)` per block lets
-//!   the OS pick addresses, so the save-load burst that reserves
-//!   30+ blocks ends up with 30+ scattered 16 MB islands. Each new
-//!   block plus each game texture `VirtualAlloc` between them carves
-//!   free VAS into small gaps. Eventually the game needs a 20-22 MB
-//!   contiguous allocation (save buffer, large texture) and no such
-//!   hole exists. Unified reservation keeps our block tier as a
-//!   single island -- game's free VAS stays compact.
+//!   Earlier we kept a contiguous upfront reservation to avoid VAS
+//!   fragmentation, but the cost was hard: 640 MB pre-reserved with
+//!   only ~384 MB ever committed left 256 MB of unusable VAS, and
+//!   on heavy modlists the game's own VirtualAlloc could not find
+//!   even an 89 MB hole. NVHR's scattered model -- max 40 blocks,
+//!   each independent -- proves robust in practice.
 //!
 //! Why cells up to 16 MB:
 //!   A 10 MB game allocation must fit somewhere. If BLOCK_MAX_ALLOC
@@ -61,19 +57,11 @@ pub const CELL_ALIGN: u32 = 2 * 1024;
 /// Upper size the block tier handles. Above goes to va_alloc.
 pub const BLOCK_MAX_ALLOC: usize = BLOCK_SIZE;
 
-/// Number of slots inside the unified tier reservation.
-/// 32 * 16 MB = 512 MB. Observed peak medium-allocation working set
-/// for this modlist is 26 slots; 32 gives 6-slot headroom. Larger
-/// tier reservations starve the game's own init-time VirtualAllocs
-/// of contiguous VAS (observed: 48-slot tier left only a 14 MB
-/// largest-hole at game-ready state, guaranteeing the 22 MB save
-/// buffer would fail). Overflow above 32 slots still goes to
-/// va_alloc; if heavier modlists start hitting that regularly,
-/// bump this up (40, 48) in exchange for less game VAS.
-const BLOCK_COUNT: usize = 32;
-
-/// Total bytes reserved upfront for the block tier.
-const TIER_RESERVE_SIZE: usize = BLOCK_COUNT * BLOCK_SIZE;
+/// Hard cap on live blocks. NVHR uses 128 (2 GB ceiling); we cap
+/// lower because the game's own VAS need is heavier on modded TTW
+/// builds. Above this we fall through to va_alloc. No memory is
+/// reserved upfront -- this is just the size of the slot table.
+const BLOCK_COUNT: usize = 64;
 
 /// Sentinel "no cell" index inside a block's cell array.
 const NO_CELL: u32 = u32::MAX;
@@ -309,15 +297,12 @@ impl Block {
 // ---------------------------------------------------------------------------
 
 struct BlockHeap {
-    /// Base of the contiguous tier reservation. Set by `init()`.
-    /// Slot `i` lives at `reserve_base + i * BLOCK_SIZE`.
-    reserve_base: *mut u8,
-    /// Fixed-size array of slots. `Some` means the slot is committed
-    /// and active; `None` means not yet committed. Once a slot is
-    /// committed it stays committed for the life of the process --
-    /// matches NVHR's `dheap_free` semantics and avoids the churn that
-    /// the previous retire-on-empty design produced (slot 4 cycling
-    /// retire/commit 93 times in 9 ms under a worst-case pattern).
+    /// Slot table. `Some` means a block is live (committed and
+    /// owning a 16 MB VirtualAlloc region); `None` means the slot
+    /// is empty. Live blocks NEVER retire -- matches NVHR's
+    /// `dheap_free` semantics. Blocks live at OS-chosen addresses,
+    /// so the slot index is just an internal handle, not an address
+    /// (in contrast to the previous unified-tier design).
     blocks: [Option<Block>; BLOCK_COUNT],
 }
 
@@ -328,81 +313,55 @@ unsafe impl Sync for BlockHeap {}
 impl BlockHeap {
     const fn empty() -> Self {
         Self {
-            reserve_base: null_mut(),
             blocks: [const { None }; BLOCK_COUNT],
         }
     }
 
-    /// Reserve the tier's contiguous VA range. Called once at startup.
-    /// Returns false if VirtualAlloc refused; the heap degrades to
-    /// "always overflow to va_alloc" but still functions.
+    /// No-op kept so `gheap::block::init()` callers do not need to
+    /// change. Blocks now allocate lazily on first overflow.
     fn init(&mut self) -> bool {
-        if !self.reserve_base.is_null() {
-            return true;
-        }
-        let ptr = unsafe {
-            VirtualAlloc(None, TIER_RESERVE_SIZE, MEM_RESERVE, PAGE_READWRITE)
-        };
-        if ptr.is_null() {
-            log::error!(
-                "[BLOCK] Tier reservation failed: size={}MB err={}",
-                TIER_RESERVE_SIZE / 1024 / 1024,
-                std::io::Error::last_os_error(),
-            );
-            return false;
-        }
-        self.reserve_base = ptr as *mut u8;
         log::info!(
-            "[BLOCK] Tier reserved {}MB at 0x{:08x}..0x{:08x} ({} slots of {}MB)",
-            TIER_RESERVE_SIZE / 1024 / 1024,
-            self.reserve_base as usize,
-            self.reserve_base as usize + TIER_RESERVE_SIZE,
+            "[BLOCK] Block tier ready: lazy on-demand mode, cap={} slots ({} MB max)",
             BLOCK_COUNT,
-            BLOCK_SIZE / 1024 / 1024,
+            (BLOCK_COUNT * BLOCK_SIZE) / 1024 / 1024,
         );
         true
-    }
-
-    #[inline]
-    fn slot_addr(&self, idx: usize) -> *mut u8 {
-        unsafe { self.reserve_base.add(idx * BLOCK_SIZE) }
     }
 
     fn live_count(&self) -> usize {
         self.blocks.iter().filter(|b| b.is_some()).count()
     }
 
-    /// Commit the first unused slot. Returns the slot index or None
-    /// when the tier is full or the reservation never happened.
+    /// Reserve+commit a fresh 16 MB region from the OS. The OS picks
+    /// the address; this is NVHR's pattern and keeps the game's free
+    /// VAS usable for its own large allocations.
     fn new_block(&mut self) -> Option<usize> {
-        if self.reserve_base.is_null() {
-            return None;
-        }
         let idx = self.blocks.iter().position(|b| b.is_none())?;
-        let addr = self.slot_addr(idx);
-        let commit = unsafe {
+        let ptr = unsafe {
             VirtualAlloc(
-                Some(addr as *const c_void),
+                None,
                 BLOCK_SIZE,
-                MEM_COMMIT,
+                MEM_RESERVE | MEM_COMMIT,
                 PAGE_READWRITE,
             )
         };
-        if commit.is_null() {
+        if ptr.is_null() {
             let fails = FAIL_COUNT.fetch_add(1, Ordering::Relaxed) + 1;
             if fails.is_power_of_two() {
                 log::warn!(
-                    "[BLOCK] MEM_COMMIT failed for slot {}: err={} (total_fails={})",
-                    idx,
+                    "[BLOCK] VirtualAlloc(MEM_RESERVE|MEM_COMMIT, {}MB) failed: err={} (total_fails={}, live={})",
+                    BLOCK_SIZE / 1024 / 1024,
                     std::io::Error::last_os_error(),
                     fails,
+                    self.live_count(),
                 );
             }
             return None;
         }
+        let addr = ptr as *mut u8;
         self.blocks[idx] = Some(Block::new(addr, BLOCK_SIZE as u32));
         log::debug!(
-            "[BLOCK] slot {} committed at 0x{:08x} (live={})",
+            "[BLOCK] slot {} allocated at 0x{:08x} (live={})",
             idx,
             addr as usize,
             self.live_count(),
@@ -410,24 +369,22 @@ impl BlockHeap {
         Some(idx)
     }
 
-    /// O(1) address-to-slot lookup via pointer arithmetic inside the
-    /// unified reservation.
+    /// Linear scan over live blocks. Max BLOCK_COUNT (64) cmps -- NVHR
+    /// uses the same pattern with up to 128 blocks. Pointer-arithmetic
+    /// O(1) lookup is impossible here because blocks live at OS-picked
+    /// scattered addresses.
     #[inline]
     fn find_block(&self, ptr: *const c_void) -> Option<usize> {
-        if self.reserve_base.is_null() {
-            return None;
-        }
-        let base = self.reserve_base as usize;
         let a = ptr as usize;
-        if a < base || a >= base + TIER_RESERVE_SIZE {
-            return None;
+        for i in 0..BLOCK_COUNT {
+            if let Some(b) = self.blocks[i].as_ref() {
+                let base = b.base as usize;
+                if a >= base && a < base + BLOCK_SIZE {
+                    return Some(i);
+                }
+            }
         }
-        let idx = (a - base) / BLOCK_SIZE;
-        if idx < BLOCK_COUNT && self.blocks[idx].is_some() {
-            Some(idx)
-        } else {
-            None
-        }
+        None
     }
 
     fn alloc(&mut self, size: usize) -> *mut c_void {

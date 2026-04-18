@@ -90,48 +90,52 @@ fn get_shard() -> usize {
     })
 }
 
-/// Per-class reservation sizes. Rebalanced from NVHR's original profile
-/// to give back VAS to the game without starving hot classes:
-///   - 80, 96 B stay at 128 MB each -- observed hottest classes for
-///     TESForm churn; NVHR's proven sizing.
-///   - 16, 32, 64 B get 32 MB each -- high-freq small, need headroom
-///     for heavy modlists (strings, pointers, ScriptEventList nodes).
-///   - 128, 448, 640 B get 32 MB each -- common subclasses.
-///   - 1280, 1536 B: 32 MB (down from NVHR's inflated 64 MB each).
+/// Per-class reservation sizes. Strict 512 MB total (matches vanilla
+/// SBM's pool budget). Rebalanced after a worldspace-transition crash
+/// exhausted mid-size classes and cascaded nulls into block-tier
+/// overflow:
+///   - 80, 96 B: 96 MB each -- hottest classes (TESForm churn), NVHR
+///     kept them at 128 MB; 96 MB is the tightest we can run without
+///     re-hitting hot-class exhaustion.
+///   - 16, 32, 64, 128 B: 16 MB each -- high-freq small (strings,
+///     pointers, ScriptEventList nodes on heavy modlists).
+///   - 256, 320, 640, 1280 B: 16 MB each -- observed cascade hotspots
+///     (class #18 had 524K exhausts, class #27 had 1M exhausts before
+///     the bump).
+///   - 448, 1536 B: 8 MB each (POOL_ALIGN minimum).
 ///   - Everything else: 8 MB (POOL_ALIGN minimum).
 ///
-/// Total: ~704 MB reserved (down from 1184 MB). Saves ~480 MB of free
-/// VAS for D3D9 texture growth and save-load buffers on 32-bit.
+/// Total: 512 MB reserved (vanilla SBM parity).
 const POOL_DESC: &[PoolDesc] = &[
     PoolDesc { item_size: 8,    max_size: 8   * 1024 * 1024, sharded: false },
     PoolDesc { item_size: 12,   max_size: 8   * 1024 * 1024, sharded: false },
-    PoolDesc { item_size: 16,   max_size: 32  * 1024 * 1024, sharded: false },
+    PoolDesc { item_size: 16,   max_size: 16  * 1024 * 1024, sharded: false },
     PoolDesc { item_size: 20,   max_size: 8   * 1024 * 1024, sharded: false },
     PoolDesc { item_size: 24,   max_size: 8   * 1024 * 1024, sharded: false },
     PoolDesc { item_size: 28,   max_size: 8   * 1024 * 1024, sharded: false },
-    PoolDesc { item_size: 32,   max_size: 32  * 1024 * 1024, sharded: false },
+    PoolDesc { item_size: 32,   max_size: 16  * 1024 * 1024, sharded: false },
     PoolDesc { item_size: 40,   max_size: 8   * 1024 * 1024, sharded: false },
     PoolDesc { item_size: 48,   max_size: 8   * 1024 * 1024, sharded: false },
     PoolDesc { item_size: 56,   max_size: 8   * 1024 * 1024, sharded: false },
-    PoolDesc { item_size: 64,   max_size: 32  * 1024 * 1024, sharded: false },
-    PoolDesc { item_size: 80,   max_size: 64  * 1024 * 1024, sharded: false },
-    PoolDesc { item_size: 96,   max_size: 64  * 1024 * 1024, sharded: false },
+    PoolDesc { item_size: 64,   max_size: 16  * 1024 * 1024, sharded: false },
+    PoolDesc { item_size: 80,   max_size: 96  * 1024 * 1024, sharded: false },
+    PoolDesc { item_size: 96,   max_size: 96  * 1024 * 1024, sharded: false },
     PoolDesc { item_size: 112,  max_size: 8   * 1024 * 1024, sharded: false },
-    PoolDesc { item_size: 128,  max_size: 32  * 1024 * 1024, sharded: false },
+    PoolDesc { item_size: 128,  max_size: 16  * 1024 * 1024, sharded: false },
     PoolDesc { item_size: 160,  max_size: 8   * 1024 * 1024, sharded: false },
     PoolDesc { item_size: 192,  max_size: 8   * 1024 * 1024, sharded: false },
     PoolDesc { item_size: 224,  max_size: 8   * 1024 * 1024, sharded: false },
-    PoolDesc { item_size: 256,  max_size: 8   * 1024 * 1024, sharded: false },
-    PoolDesc { item_size: 320,  max_size: 8   * 1024 * 1024, sharded: false },
+    PoolDesc { item_size: 256,  max_size: 16  * 1024 * 1024, sharded: false },
+    PoolDesc { item_size: 320,  max_size: 16  * 1024 * 1024, sharded: false },
     PoolDesc { item_size: 384,  max_size: 8   * 1024 * 1024, sharded: false },
-    PoolDesc { item_size: 448,  max_size: 16  * 1024 * 1024, sharded: false },
+    PoolDesc { item_size: 448,  max_size: 8   * 1024 * 1024, sharded: false },
     PoolDesc { item_size: 512,  max_size: 8   * 1024 * 1024, sharded: false },
     PoolDesc { item_size: 640,  max_size: 16  * 1024 * 1024, sharded: false },
     PoolDesc { item_size: 768,  max_size: 8   * 1024 * 1024, sharded: false },
     PoolDesc { item_size: 896,  max_size: 8   * 1024 * 1024, sharded: false },
     PoolDesc { item_size: 1024, max_size: 8   * 1024 * 1024, sharded: false },
     PoolDesc { item_size: 1280, max_size: 16  * 1024 * 1024, sharded: false },
-    PoolDesc { item_size: 1536, max_size: 16  * 1024 * 1024, sharded: false },
+    PoolDesc { item_size: 1536, max_size: 8   * 1024 * 1024, sharded: false },
     PoolDesc { item_size: 1792, max_size: 8   * 1024 * 1024, sharded: false },
     PoolDesc { item_size: 2048, max_size: 8   * 1024 * 1024, sharded: false },
     PoolDesc { item_size: 2560, max_size: 8   * 1024 * 1024, sharded: false },
@@ -669,6 +673,20 @@ impl PoolHeap {
             }
         }
 
+        // All pools from `base_idx` up to the largest size class refused.
+        // Caller's fallthrough is block / va_alloc / NULL. Rate-limited
+        // warn so a sudden burst of exhaustion is visible without
+        // flooding the log.
+        let n = POOL_EXHAUST_COUNT.fetch_add(1, Ordering::Relaxed) + 1;
+        if n.is_power_of_two() {
+            log::warn!(
+                "[POOL] Exhausted for size={} (started at class #{} = {}B): total_fails={}",
+                size,
+                base_idx_u,
+                POOL_DESC[base_idx_u].item_size,
+                n,
+            );
+        }
         null_mut()
     }
 
@@ -715,9 +733,14 @@ impl PoolHeap {
 // Global singleton
 // ---------------------------------------------------------------------------
 
+use std::sync::atomic::AtomicU64;
 use std::sync::OnceLock;
 
 static HEAP: OnceLock<Box<PoolHeap>> = OnceLock::new();
+
+/// Total number of times `alloc` walked the full fallthrough chain
+/// and every pool refused. Power-of-two gated for log visibility.
+static POOL_EXHAUST_COUNT: AtomicU64 = AtomicU64::new(0);
 
 pub fn init() -> bool {
     match PoolHeap::create() {
