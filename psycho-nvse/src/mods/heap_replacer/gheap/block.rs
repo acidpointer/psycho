@@ -62,11 +62,15 @@ pub const CELL_ALIGN: u32 = 2 * 1024;
 pub const BLOCK_MAX_ALLOC: usize = BLOCK_SIZE;
 
 /// Number of slots inside the unified tier reservation.
-/// 16 * 16 MB = 256 MB. Observed save-load peak on this user's
-/// modlist is ~7 slots; 16 gives 2x headroom. Overflow above the cap
-/// falls through to va_alloc. Smaller cap leaves more VAS for the
-/// game's own large allocations (D3D9 textures, save buffers).
-const BLOCK_COUNT: usize = 16;
+/// 32 * 16 MB = 512 MB. Observed peak medium-allocation working set
+/// for this modlist is 26 slots; 32 gives 6-slot headroom. Larger
+/// tier reservations starve the game's own init-time VirtualAllocs
+/// of contiguous VAS (observed: 48-slot tier left only a 14 MB
+/// largest-hole at game-ready state, guaranteeing the 22 MB save
+/// buffer would fail). Overflow above 32 slots still goes to
+/// va_alloc; if heavier modlists start hitting that regularly,
+/// bump this up (40, 48) in exchange for less game VAS.
+const BLOCK_COUNT: usize = 32;
 
 /// Total bytes reserved upfront for the block tier.
 const TIER_RESERVE_SIZE: usize = BLOCK_COUNT * BLOCK_SIZE;
