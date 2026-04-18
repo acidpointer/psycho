@@ -76,8 +76,6 @@ pub static AI_THREAD_JOIN_HOOK: LazyLock<InlineHookContainer<AIThreadJoinFn>> =
 /// We hook this to set the destruction guard.
 pub const PDD_ADDR: usize = 0x00868D70;
 
-pub static PDD_HOOK: LazyLock<InlineHookContainer<PDDFn>> = LazyLock::new(InlineHookContainer::new);
-
 // ---- Texture cache ----
 
 pub const TEXTURE_CACHE_FIND_ADDR: usize = 0x00A61A60;

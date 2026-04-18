@@ -1,9 +1,8 @@
 use libmimalloc::{
     mi_arena_id_t, mi_option_arena_eager_commit,
-    mi_option_arena_purge_mult, mi_option_arena_reserve, mi_option_destroy_on_exit,
+    mi_option_arena_purge_mult, mi_option_destroy_on_exit,
     mi_option_page_cross_thread_max_reclaim, mi_option_page_full_retain,
-    mi_option_page_reclaim_on_free, mi_option_purge_decommits, mi_option_purge_delay,
-    mi_option_retry_on_oom, mi_option_set, mi_option_set_enabled,
+    mi_option_page_reclaim_on_free, mi_option_purge_decommits, mi_option_retry_on_oom, mi_option_set, mi_option_set_enabled,
 };
 use parking_lot::Once;
 

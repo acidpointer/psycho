@@ -51,7 +51,6 @@ const CRITICAL_GROWTH_PCT: f64 = 0.70;
 
 /// Absolute fallback thresholds before headroom is calibrated.
 const NORMAL_GROWTH_FALLBACK: usize = 500 * 1024 * 1024;
-const AGGRESSIVE_GROWTH_FALLBACK: usize = 800 * 1024 * 1024;
 const CRITICAL_GROWTH_FALLBACK: usize = 1200 * 1024 * 1024;
 
 /// During loading, lower all thresholds by this amount.
