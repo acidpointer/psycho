@@ -1,0 +1,322 @@
+FUN_005a8ea0 DISASSEMBLY (crash at +0x20)
+======================================================================
+
+----------------------------------------------------------------------
+Disassembly FUN_005a8ea0: 0x005a8ea0 - 0x005a8ef0
+----------------------------------------------------------------------
+  0x005a8ea0: PUSH EBP
+  0x005a8ea1: MOV EBP,ESP
+  0x005a8ea3: SUB ESP,0xc
+  0x005a8ea6: MOV dword ptr [EBP + -0xc],ECX
+  0x005a8ea9: MOV EAX,dword ptr [EBP + -0xc]
+  0x005a8eac: MOV ECX,dword ptr [EAX + 0x8]
+  0x005a8eaf: MOV dword ptr [EBP + -0x4],ECX
+  0x005a8eb2: CMP dword ptr [EBP + -0x4],0x0
+  0x005a8eb6: JZ 0x005a8ee9
+  0x005a8eb8: MOV ECX,dword ptr [EBP + -0x4]
+  0x005a8ebb: CALL 0x006815c0
+            -> calls 0x006815c0 FUN_006815c0
+  0x005a8ec0: CMP dword ptr [EAX],0x0 <<<< CRASH
+  0x005a8ec3: JZ 0x005a8ee9
+  0x005a8ec5: MOV ECX,dword ptr [EBP + -0x4]
+  0x005a8ec8: CALL 0x006815c0
+            -> calls 0x006815c0 FUN_006815c0
+  0x005a8ecd: MOV EDX,dword ptr [EAX]
+  0x005a8ecf: MOV dword ptr [EBP + -0x8],EDX
+  0x005a8ed2: MOV ECX,dword ptr [EBP + -0x4]
+  0x005a8ed5: CALL 0x00726070
+            -> calls 0x00726070 FUN_00726070
+  0x005a8eda: MOV dword ptr [EBP + -0x4],EAX
+  0x005a8edd: MOV EAX,dword ptr [EBP + -0x8]
+  0x005a8ee0: MOV dword ptr [EAX + 0x4],0x0
+  0x005a8ee7: JMP 0x005a8eb2
+  0x005a8ee9: MOV ESP,EBP
+  0x005a8eeb: POP EBP
+  0x005a8eec: RET
+  0x005a8ef0: PUSH EBP
+
+======================================================================
+FUN_006815c0 (chain accessor) @ 0x006815c0
+======================================================================
+  Function: FUN_006815c0 @ 0x006815c0, Size: 14 bytes
+
+undefined4 __fastcall FUN_006815c0(undefined4 param_1)
+
+{
+  return param_1;
+}
+
+
+
+======================================================================
+FUN_00726070 (chain advance) @ 0x00726070
+======================================================================
+  Function: FUN_00726070 @ 0x00726070, Size: 17 bytes
+
+undefined4 __fastcall FUN_00726070(int param_1)
+
+{
+  return *(undefined4 *)(param_1 + 4);
+}
+
+
+
+======================================================================
+FUN_005a9d00 @ 0x005a9d00
+======================================================================
+  Function: FUN_005a9d00 @ 0x005a9d00, Size: 93 bytes
+
+void __fastcall FUN_005a9d00(int *param_1)
+
+{
+  void *pvVar1;
+  
+  FUN_005a8c90((int)param_1);
+  FUN_005a8ea0((int)param_1);
+  if (*param_1 != 0) {
+    pvVar1 = FUN_005ac020(*param_1);
+    param_1[3] = (int)pvVar1;
+  }
+  if (param_1[4] != 0) {
+    FUN_00401030((undefined4 *)param_1[4]);
+  }
+  param_1[4] = 0;
+  return;
+}
+
+
+
+======================================================================
+FUN_005aa090 @ 0x005aa090
+======================================================================
+  Function: FUN_005aa090 @ 0x005aa090, Size: 95 bytes
+
+void __fastcall FUN_005aa090(int *param_1)
+
+{
+  void *pvVar1;
+  
+  FUN_005a8c90((int)param_1);
+  FUN_005a8ea0((int)param_1);
+  if (*param_1 != 0) {
+    pvVar1 = FUN_005ac020(*param_1);
+    param_1[3] = (int)pvVar1;
+  }
+  if (param_1[4] != 0) {
+    FUN_00401030((undefined4 *)param_1[4]);
+  }
+  param_1[4] = 0;
+  return;
+}
+
+
+
+======================================================================
+FUN_005a9f20 @ 0x005a9f20
+======================================================================
+  Function: FUN_005a9f20 @ 0x005a9f20, Size: 358 bytes
+
+void __thiscall FUN_005a9f20(void *this,int *param_1)
+
+{
+  byte bVar1;
+  undefined4 uVar2;
+  int *piVar3;
+  undefined *this_00;
+  int *piVar4;
+  void *pvVar5;
+  uint local_24;
+  uint local_20;
+  undefined8 local_1c;
+  uint local_10;
+  uint local_c;
+  char local_6;
+  char local_5;
+  
+  local_c = FUN_00864a60(param_1);
+  for (local_10 = 0; local_10 < local_c; local_10 = local_10 + 1) {
+    local_1c = 0;
+    local_20 = 0;
+    FUN_00864980(param_1,&local_20,4);
+    if ((local_20 & 0x80000000) == 0) {
+      FUN_00864980(param_1,&local_1c,8);
+    }
+    else {
+      local_20 = local_20 & 0x7fffffff;
+      local_24 = 0;
+      FUN_008648e0(param_1,&local_24);
+      FUN_005acc70(&local_24,&local_1c);
+    }
+    FUN_005a9290(this,local_20,local_1c);
+  }
+  local_6 = '\0';
+  FUN_00864980(param_1,&local_6,1);
+  if (local_6 != '\0') {
+    uVar2 = FUN_00401000(8);
+    *(undefined4 *)((int)this + 0x10) = uVar2;
+    FUN_00864980(param_1,*(void **)((int)this + 0x10),8);
+  }
+  local_5 = '\0';
+  bVar1 = (**(code **)*param_1)();
+  if (0x14 < bVar1) {
+    FUN_00864980(param_1,&local_5,1);
+  }
+  if (*(int *)((int)this + 8) == 0) {
+    pvVar5 = this;
+    piVar3 = (int *)(**(code **)(*param_1 + 8))();
+    piVar4 = *(int **)this;
+    this_00 = FID_conflict__Immortalize<class_std::_Generic_error_category>();
+    FUN_005e2730(this_00,piVar4,piVar3,pvVar5);
+  }
+  else {
+    FUN_005a8ea0((int)this);
+  }
+  if (local_5 != '\0') {
+    FUN_005a8e20(this,0,0x1000);
+  }
+  return;
+}
+
+
+
+======================================================================
+FUN_005e0c60 (script context ctor) @ 0x005e0c60
+======================================================================
+  Function: FUN_005e0c60 @ 0x005e0c60, Size: 190 bytes
+
+undefined4 * __fastcall FUN_005e0c60(undefined4 *param_1)
+
+{
+  param_1[8] = 0;
+  param_1[0x13] = 0;
+  param_1[6] = 0;
+  param_1[7] = 0;
+  std::_Fiopen((wchar_t *)(param_1 + 9),0,0x28);
+  std::_Fiopen((wchar_t *)(param_1 + 0x14),0,0x28);
+  std::_Fiopen((wchar_t *)(param_1 + 0x1e),0,0x28);
+  *param_1 = 0;
+  param_1[1] = 0;
+  param_1[2] = 0;
+  param_1[3] = 0;
+  param_1[4] = 0;
+  param_1[5] = 0;
+  *(undefined1 *)(param_1 + 0x28) = 0;
+  *(undefined1 *)((int)param_1 + 0xa1) = 0;
+  return param_1;
+}
+
+
+
+----------------------------------------------------------------------
+Who allocates ScriptEventList?
+----------------------------------------------------------------------
+FUN_005abf60 is called in FUN_005e0d20 to create a ScriptEventList
+when param_3 == 0. Let's check it.
+
+======================================================================
+FUN_005abf60 (ScriptEventList allocator?) @ 0x005abf60
+======================================================================
+  Function: FUN_005abf60 @ 0x005abf60, Size: 189 bytes
+
+wchar_t * __fastcall FUN_005abf60(int param_1)
+
+{
+  wchar_t *pwVar1;
+  void *pvVar2;
+  int *unaff_FS_OFFSET;
+  wchar_t *local_2c;
+  undefined4 local_14;
+  int local_10;
+  undefined1 *puStack_c;
+  int local_8;
+  
+  local_8 = 0xffffffff;
+  puStack_c = &LAB_00ef8cb3;
+  local_10 = *unaff_FS_OFFSET;
+  *unaff_FS_OFFSET = (int)&local_10;
+  FUN_00404eb0(&local_14,0x15);
+  local_8 = 0;
+  pwVar1 = (wchar_t *)FUN_00401000(0x14);
+  local_8._0_1_ = 1;
+  if (pwVar1 == (wchar_t *)0x0) {
+    local_2c = (wchar_t *)0x0;
+  }
+  else {
+    local_2c = FUN_005a8b80(pwVar1);
+  }
+  local_8 = (uint)local_8._1_3_ << 8;
+  pvVar2 = FUN_005ac020(param_1);
+  *(void **)(local_2c + 6) = pvVar2;
+  *(int *)local_2c = param_1;
+  local_8 = 0xffffffff;
+  FUN_00404ee0(&local_14);
+  *unaff_FS_OFFSET = local_10;
+  return local_2c;
+}
+
+
+
+======================================================================
+FUN_00401000 (allocator) @ 0x00401000
+======================================================================
+  Function: FUN_00401000 @ 0x00401000, Size: 21 bytes
+
+void __cdecl FUN_00401000(uint param_1)
+
+{
+  undefined *this;
+  
+  this = FUN_00401020();
+  FUN_00aa3e40(this,param_1);
+  return;
+}
+
+
+
+======================================================================
+FUN_00aa4060 (free/deallocate) @ 0x00aa4060
+======================================================================
+  Function: FUN_00aa4060 @ 0x00aa4060, Size: 236 bytes
+
+void __thiscall FUN_00aa4060(void *this,undefined4 *param_1)
+
+{
+  void *this_00;
+  bool bVar1;
+  int *piVar2;
+  
+  if (param_1 != (undefined4 *)0x0) {
+    if (*(char *)this == '\0') {
+      FUN_00aa42c0(param_1);
+    }
+    else if (*(int *)((int)this + 0x110) == 0) {
+      FUN_00aa42c0(param_1);
+    }
+    else {
+      this_00 = *(void **)(&DAT_011f63b8 + ((uint)param_1 >> 0x18) * 4);
+      if (this_00 != (void *)0x0) {
+        if ((param_1 < *(undefined4 **)((int)this_00 + 4)) ||
+           ((undefined4 *)(*(int *)((int)this_00 + 4) + *(int *)((int)this_00 + 0x50)) <= param_1))
+        {
+          bVar1 = false;
+        }
+        else {
+          bVar1 = true;
+        }
+        if (bVar1) {
+          FUN_00aa6c70(this_00,param_1);
+          return;
+        }
+      }
+      piVar2 = FUN_00aa45a0(this,param_1);
+      if (piVar2 == (int *)0x0) {
+        FUN_00aa42c0(param_1);
+      }
+      else {
+        (**(code **)(*piVar2 + 0xc))(param_1,0);
+      }
+    }
+  }
+  return;
+}
+

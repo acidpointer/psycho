@@ -1,0 +1,410 @@
+CRASH SITE ANALYSIS: 0x005A8EC0 (FUN_005a8ea0 +0x20)
+======================================================================
+
+Crash context:
+  EIP = 0x005A8EC0 (in FUN_005a8ea0 at offset +0x20)
+  EAX = 0x00000020 (32)
+  ECX = 0x00000020 (32)
+  ESI = 0x1C475300 -> deref 0x01000000 (vtable into .rdata)
+  EDX = 0x00000000
+  Access violation reading 0x00000020
+
+
+======================================================================
+FUN_005a8ea0 (crash site) @ 0x005a8ea0
+======================================================================
+  Function: FUN_005a8ea0 @ 0x005a8ea0, Size: 77 bytes
+
+void __fastcall FUN_005a8ea0(int param_1)
+
+{
+  int iVar1;
+  int *piVar2;
+  int local_8;
+  
+  local_8 = *(int *)(param_1 + 8);
+  while( true ) {
+    if (local_8 == 0) {
+      return;
+    }
+    piVar2 = (int *)FUN_006815c0(local_8);
+    if (*piVar2 == 0) break;
+    piVar2 = (int *)FUN_006815c0(local_8);
+    iVar1 = *piVar2;
+    local_8 = FUN_00726070(local_8);
+    *(undefined4 *)(iVar1 + 4) = 0;
+  }
+  return;
+}
+
+
+
+----------------------------------------------------------------------
+References TO 0x005a8ea0 (FUN_005a8ea0 callers)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x005e1053 (in FUN_005e0d20)
+  UNCONDITIONAL_CALL @ 0x005a9d14 (in FUN_005a9d00)
+  UNCONDITIONAL_CALL @ 0x005aa0a4 (in FUN_005aa090)
+  UNCONDITIONAL_CALL @ 0x005aa064 (in FUN_005a9f20)
+  Total: 4 refs
+
+======================================================================
+FUN_005e0d20 (script processor) @ 0x005e0d20
+======================================================================
+  Function: FUN_005e0d20 @ 0x005e0d20, Size: 1053 bytes
+
+/* WARNING: Globals starting with '_' overlap smaller symbols at the same address */
+
+void __thiscall
+FUN_005e0d20(void *this,int *param_1,int *param_2,int param_3,undefined4 param_4,char param_5,
+            undefined1 param_6,undefined1 param_7,undefined4 param_8)
+
+{
+  bool bVar1;
+  char cVar2;
+  uint uVar3;
+  undefined4 uVar4;
+  int iVar5;
+  int *unaff_FS_OFFSET;
+  undefined4 local_760 [453];
+  uint local_4c;
+  wchar_t *local_48;
+  int local_44;
+  float local_40;
+  char local_39;
+  LARGE_INTEGER local_38;
+  char local_29;
+  int local_28;
+  int *local_24;
+  LARGE_INTEGER local_20;
+  int local_18;
+  int local_14;
+  int local_10;
+  undefined1 *puStack_c;
+  undefined4 local_8;
+  
+  local_8 = 0xffffffff;
+  puStack_c = &LAB_00ef9bcb;
+  local_10 = *unaff_FS_OFFSET;
+  uVar3 = DAT_011c16bc ^ (uint)&stack0xfffffffc;
+  *unaff_FS_OFFSET = (int)&local_10;
+  local_4c = uVar3;
+  local_29 = FUN_00702fc0();
+  local_20.s.LowPart = 0;
+  local_20.s.HighPart = 0;
+  if (local_29 != '\0') {
+    if (lpFrequency_011caec8 == (LARGE_INTEGER *)0x0 && _DAT_011caecc == 0) {
+      QueryPerformanceFrequency((LARGE_INTEGER *)&lpFrequency_011caec8);
+    }
+    QueryPerformanceCounter(&local_20);
+  }
+  *(undefined1 *)((int)this + 0xa1) = 0;
+  if ((param_1 != (int *)0x0) && (bVar1 = FUN_004013e0((int)param_1), bVar1)) {
+    if (*(int *)((int)this + 0x14) == 0) {
+      *(int **)((int)this + 0x14) = param_1;
+      FUN_00593490(local_760);
+      local_8 = 0;
+      local_48 = (wchar_t *)0x0;
+      *(undefined4 *)((int)this + 0x24) = 0;
+      *(undefined4 *)((int)this + 0x20) = 0;
+      local_28 = 0xffff;
+      local_40 = 0.0;
+      *(undefined4 *)this = param_4;
+      if (param_2 == (int *)0x0) {
+        *(undefined4 *)((int)this + 4) = 0;
+      }
+      else {
+        uVar4 = FUN_007af430((int)param_2);
+        *(undefined4 *)((int)this + 4) = uVar4;
+      }
+      if (param_3 == 0) {
+        local_48 = FUN_005abf60((int)param_1);
+        *(wchar_t **)((int)this + 8) = local_48;
+      }
+      else {
+        *(int *)((int)this + 8) = param_3;
+      }
+      iVar5 = FUN_00500940((int)param_1);
+      if (*(char *)(iVar5 + 0x11) != '\0') {
+        if (*(int *)(*(int *)((int)this + 8) + 0x10) == 0) {
+          uVar4 = FUN_00401000(8);
+          *(undefined4 *)(*(int *)((int)this + 8) + 0x10) = uVar4;
+        }
+        **(undefined1 **)(*(int *)((int)this + 8) + 0x10) = param_6;
+        *(undefined1 *)(*(int *)(*(int *)((int)this + 8) + 0x10) + 1) = param_7;
+        *(undefined4 *)(*(int *)(*(int *)((int)this + 8) + 0x10) + 4) = param_8;
+      }
+      local_18 = 0;
+      local_24 = (int *)0x0;
+      local_14 = 0;
+      local_39 = '\0';
+      local_44 = 0;
+      while (iVar5 = FUN_00500940((int)param_1), (uint)local_40 < (uint)*(float *)(iVar5 + 8)) {
+        local_44 = local_44 + 1;
+        *(undefined4 *)((int)this + 0x10) = 0;
+        local_18 = 0;
+        uVar3 = FUN_005e13a0(this,param_1,&local_28,(int *)&local_40,&local_18,(int *)&local_24,
+                             local_14 != 0);
+        if ((uVar3 & 0xff) == 0) {
+          iVar5 = FUN_00500940((int)param_1);
+          *(undefined4 *)(iVar5 + 8) = 0;
+          break;
+        }
+        if (local_14 == 0) {
+          if (local_28 == 0x1e) break;
+          if (local_24 == (int *)0x0) {
+            local_24 = param_2;
+          }
+          cVar2 = FUN_005e1550(this,param_1,local_28,local_24,&local_18,local_40,&local_14,local_44,
+                               0,'\0');
+          if (cVar2 == '\0') {
+            local_39 = '\x01';
+            break;
+          }
+        }
+        else {
+          local_14 = local_14 + -1;
+        }
+        local_40 = (float)((int)local_40 + local_18);
+      }
+      if ((param_5 == '\0') && (local_39 == '\0')) {
+        FUN_005a8ea0(*(int *)((int)this + 8));
+      }
+      if ((local_48 != (wchar_t *)0x0) && (local_48 != (wchar_t *)0x0)) {
+        FUN_0041af70(local_48,1);
+      }
+      *(undefined4 *)((int)this + 0x14) = 0;
+      if (local_29 != '\0') {
+        QueryPerformanceCounter(&local_38);
+        FUN_005e1140(param_1,(float)((float10)CONCAT44((local_38.s.HighPart - local_20._4_4_) -
+                                                       (uint)(local_38.s.LowPart <
+                                                             local_20.s.LowPart),
+                                                       local_38.s.LowPart - local_20._0_4_) /
+                                    (float10)CONCAT44(_DAT_011caecc,lpFrequency_011caec8)));
+      }
+      local_8 = 0xffffffff;
+      FUN_00483710();
+    }
+    else {
+      uVar4 = (**(code **)(*param_1 + 0x130))(uVar3);
+      (**(code **)(**(int **)((int)this + 0x14) + 0x130))(uVar4);
+      FUN_005b5e40();
+    }
+  }
+  *unaff_FS_OFFSET = local_10;
+  __security_check_cookie(local_4c ^ (uint)&stack0xfffffffc);
+  return;
+}
+
+
+
+----------------------------------------------------------------------
+Memory at 0x01000000 (rdata start - possible vtable)
+----------------------------------------------------------------------
+  0x01000000: 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00  ................
+  0x01000010: 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00  ................
+  0x01000020: 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00  ................
+  0x01000030: 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00  ................
+  First dword: 0x00000000
+
+----------------------------------------------------------------------
+Disassembly around 0x005a8ec0 (radius=0x30)
+----------------------------------------------------------------------
+
+======================================================================
+ScriptEventList_GameDtor @ 0x005a8bc0
+======================================================================
+  Function: FUN_005a8bc0 @ 0x005a8bc0, Size: 59 bytes
+
+void __fastcall FUN_005a8bc0(int param_1)
+
+{
+  FUN_005a8c00(param_1);
+  FUN_005a8c90(param_1);
+  if (*(int *)(param_1 + 0x10) != 0) {
+    FUN_00401030(*(undefined4 **)(param_1 + 0x10));
+  }
+  return;
+}
+
+
+
+======================================================================
+FUN_00401030 (possible free in dtor chain) @ 0x00401030
+======================================================================
+  Function: FUN_00401030 @ 0x00401030, Size: 21 bytes
+
+void __cdecl FUN_00401030(undefined4 *param_1)
+
+{
+  undefined *this;
+  
+  this = FUN_00401020();
+  FUN_00aa4060(this,param_1);
+  return;
+}
+
+
+
+======================================================================
+FUN_005e2590 (script executor wrapper) @ 0x005e2590
+======================================================================
+  Function: FUN_005e2590 @ 0x005e2590, Size: 416 bytes
+
+undefined1 __thiscall
+FUN_005e2590(void *this,int *param_1,int *param_2,int param_3,undefined4 param_4,char param_5,
+            undefined1 param_6,undefined1 param_7,undefined4 param_8)
+
+{
+  undefined4 uVar1;
+  int iVar2;
+  undefined4 *puVar3;
+  int *unaff_FS_OFFSET;
+  undefined4 *local_3c;
+  undefined4 *local_38;
+  undefined1 local_11;
+  int local_10;
+  undefined1 *puStack_c;
+  undefined4 local_8;
+  
+  local_8 = 0xffffffff;
+  puStack_c = &LAB_00ef9ce6;
+  local_10 = *unaff_FS_OFFSET;
+  *unaff_FS_OFFSET = (int)&local_10;
+  iVar2 = FUN_0040b460((LONG *)&DAT_011caedc);
+  if (iVar2 == 1) {
+    if (*(int *)this == 0) {
+      puVar3 = (undefined4 *)FUN_00401000(0xa4);
+      local_8 = 0;
+      if (puVar3 == (undefined4 *)0x0) {
+        local_38 = (undefined4 *)0x0;
+      }
+      else {
+        local_38 = FUN_005e0c60(puVar3);
+      }
+      local_8 = 0xffffffff;
+      *(undefined4 **)this = local_38;
+    }
+    *(undefined4 *)((int)this + 4) = *(undefined4 *)this;
+    local_11 = FUN_005e0d20(*(void **)this,param_1,param_2,param_3,param_4,param_5,param_6,param_7,
+                            param_8);
+    *(undefined4 *)((int)this + 4) = 0;
+  }
+  else {
+    puVar3 = (undefined4 *)FUN_00401000(0xa4);
+    local_8 = 1;
+    if (puVar3 == (undefined4 *)0x0) {
+      local_3c = (undefined4 *)0x0;
+    }
+    else {
+      local_3c = FUN_005e0c60(puVar3);
+    }
+    local_8 = 0xffffffff;
+    uVar1 = *(undefined4 *)((int)this + 4);
+    *(undefined4 **)((int)this + 4) = local_3c;
+    local_11 = FUN_005e0d20(local_3c,param_1,param_2,param_3,param_4,param_5,param_6,param_7,param_8
+                           );
+    *(undefined4 *)((int)this + 4) = uVar1;
+    FUN_00401030(local_3c);
+  }
+  FUN_004019a0((LONG *)&DAT_011caedc);
+  *unaff_FS_OFFSET = local_10;
+  return local_11;
+}
+
+
+
+----------------------------------------------------------------------
+References TO 0x005a8bc0 (ScriptEventList_GameDtor callers)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x0041af7a (in FUN_0041af70)
+  UNCONDITIONAL_CALL @ 0x0060ed97 (in FUN_0060eaf0)
+  UNCONDITIONAL_CALL @ 0x00827f07 (in FUN_00827e60)
+  UNCONDITIONAL_CALL @ 0x00428c10 (in FUN_00428150)
+  Total: 4 refs
+
+======================================================================
+FUN_0041af70 (post-script cleanup) @ 0x0041af70
+======================================================================
+  Function: FUN_0041af70 @ 0x0041af70, Size: 44 bytes
+
+undefined4 * __thiscall FUN_0041af70(void *this,uint param_1)
+
+{
+  FUN_005a8bc0((int)this);
+  if ((param_1 & 1) != 0) {
+    FUN_00401030(this);
+  }
+  return this;
+}
+
+
+
+======================================================================
+SCRIPT PROCESSING CALL CHAIN (from crash stack)
+======================================================================
+
+The crash stack shows:
+  FalloutNV+0x5A8EC0  <- FUN_005a8ea0 (crash)
+  FalloutNV+0x5E1058  <- FUN_005e0d20 (script execution)
+  FalloutNV+0x5E265B  <- FUN_005e2590 (script executor wrapper)
+  FalloutNV+0x5AC29A  <- FUN_005ac1e0 (script dispatcher)
+  FalloutNV+0x4D2604  <- script invocation from game loop
+  FalloutNV+0x565931  <- game object processing
+  FalloutNV+0x4555EA  <- AI/game tick
+  FalloutNV+0x86F69C  <- per_frame_queue_drain (ORIGINAL)
+  FalloutNV+0x870603  <- our hook returns to game
+  psycho_nvse+0x24133 <- hook_per_frame_queue_drain (our code)
+
+KEY FINDING: The script is running from WITHIN our hooked
+per_frame_queue_drain. The original function processes scripts,
+and our hook wraps it. The crash happens during normal script
+cleanup after script execution.
+
+
+----------------------------------------------------------------------
+Virtual calls in FUN_005a8ea0
+----------------------------------------------------------------------
+  0x005a8ebb: CALL FUN_006815c0 (0x006815c0)
+  0x005a8ec8: CALL FUN_006815c0 (0x006815c0)
+  0x005a8ed5: CALL FUN_00726070 (0x00726070)
+  Total: 3 call sites
+
+----------------------------------------------------------------------
+Analyzing the call to FUN_005a8ea0 in FUN_005e0d20
+----------------------------------------------------------------------
+
+----------------------------------------------------------------------
+What does FUN_005e0d20 pass to FUN_005a8ea0?
+----------------------------------------------------------------------
+From crash_0040FE96_analysis.txt, line 551:
+  FUN_005a8ea0(*(int *)((int)this + 8));
+
+This means:
+  'this' is a script processing context object (FUN_005e0c60)
+  +0x08 stores a pointer (ScriptEventList* or similar)
+  FUN_005a8ea0 receives that pointer as its parameter
+
+The ScriptEventList is the OBJECT being cleaned up.
+If this object was freed by PDD/cell cleanup while the script
+was running, the cleanup function crashes when accessing it.
+
+
+======================================================================
+PDD + SCRIPT INTERACTION ANALYSIS
+======================================================================
+
+Our Phase 7 hook calls signal_heap_compact(PddPurge) every 250ms.
+The game's HeapCompact dispatcher at Phase 6 (SAME FRAME) reads
+this signal and runs stage 4 (PDD purge).
+
+Then the vanilla per_frame_queue_drain runs at Phase 7 (NEXT FRAME)
+and processes PDD items AGAIN.
+
+This means PDD drain runs 2x per frame instead of 1x.
+Objects are destroyed faster than the game expects.
+
+If a script references a form whose underlying data is in the PDD
+queue, the accelerated drain can free it while the script still
+references it. When the script finishes and cleans up its
+ScriptEventList, it accesses freed/corrupted memory -> crash.

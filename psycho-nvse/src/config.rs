@@ -23,6 +23,7 @@ pub struct PsychoConfig {
     pub perf: PerfConfig,
     pub zlib: ZlibConfig,
     pub display: DisplayConfig,
+    pub debug: DebugConfig,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -94,6 +95,20 @@ impl Default for DisplayConfig {
     fn default() -> Self {
         Self { tweaks: true }
     }
+}
+
+#[derive(Debug, Default, Deserialize, Serialize)]
+#[serde(default)]
+pub struct DebugConfig {
+    /// Walk the full 32-bit VA at preload + DeferredInit and log a
+    /// one-line summary per scan (total free / largest-hole base+size /
+    /// second-hole base+size). Useful for Landing B tuning; leave off
+    /// during normal play.
+    pub vas_scan: bool,
+    /// Probe `VirtualAlloc(NULL, N, MEM_RESERVE)` for a ladder of sizes
+    /// at preload and release each immediately. One-line summary of the
+    /// biggest size that succeeded and its base address.
+    pub vas_probe: bool,
 }
 
 /// Load the global configuration (read-only, no file write-back).

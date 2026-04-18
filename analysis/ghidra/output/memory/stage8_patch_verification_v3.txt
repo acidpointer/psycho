@@ -1,0 +1,90 @@
+STAGE 8 PATCH SITE VERIFICATION v3
+===================================
+
+Corrected ranges (PUSH+MOV+CALL = 2+6+5 = 13 bytes per site):
+  Site A: 0x00866c79-0x00866c86 (13 bytes) PUSH+MOV+get_owner(idx=1)
+  Site B: 0x00866c8f-0x00866c91 (2 bytes)  JNZ skip
+  Site C: 0x00866c91-0x00866c9e (13 bytes) PUSH+MOV+release_sem(idx=1)
+  Site D: 0x00866c9e-0x00866cab (13 bytes) PUSH+MOV+signal_idle(idx=1)
+
+======================================================================
+SITE A: 0x00866c79-0x00866c86 (13 bytes) PUSH 1 + MOV ECX + get_owner(idx=1)
+======================================================================
+  0x00866c79: PUSH  [6a 01]
+  0x00866c7b: MOV  [8b 0d 98 2d 20 01]
+  0x00866c81: CALL  [e8 1a 01 00 00] -> 0x00866da0
+  OK: 13 bytes, instruction-aligned
+======================================================================
+SITE B: 0x00866c8f-0x00866c91 (2 bytes) JNZ 0x00866cab
+======================================================================
+  0x00866c8f: JNZ  [75 1a]
+  OK: 2 bytes, instruction-aligned
+======================================================================
+SITE C: 0x00866c91-0x00866c9e (13 bytes) PUSH 1 + MOV ECX + release_sem(idx=1)
+======================================================================
+  0x00866c91: PUSH  [6a 01]
+  0x00866c93: MOV  [8b 0d 98 2d 20 01]
+  0x00866c99: CALL  [e8 22 01 00 00] -> 0x00866dc0
+  OK: 13 bytes, instruction-aligned
+======================================================================
+SITE D: 0x00866c9e-0x00866cab (13 bytes) PUSH 1 + MOV ECX + signal_idle(idx=1)
+======================================================================
+  0x00866c9e: PUSH  [6a 01]
+  0x00866ca0: MOV  [8b 0d 98 2d 20 01]
+  0x00866ca6: CALL  [e8 35 01 00 00] -> 0x00866de0
+  OK: 13 bytes, instruction-aligned
+
+======================================================================
+FULL CASE 8 DUMP (0x00866c40..0x00866cd0)
+======================================================================
+     0x00866c41: 0f 83 88 00 00 00                        JNC
+     0x00866c47: 6a 00                                    PUSH
+     0x00866c49: 8b 0d 98 2d 20 01                        MOV
+     0x00866c4f: e8 4c 01 00 00                           CALL
+     0x00866c54: 8b f0                                    MOV
+     0x00866c56: e8 35 90 ba ff                           CALL
+     0x00866c5b: 3b f0                                    CMP
+     0x00866c5d: 75 1a                                    JNZ
+     0x00866c5f: 6a 00                                    PUSH
+     0x00866c61: 8b 0d 98 2d 20 01                        MOV
+     0x00866c67: e8 54 01 00 00                           CALL
+     0x00866c6c: 6a 00                                    PUSH
+     0x00866c6e: 8b 0d 98 2d 20 01                        MOV
+     0x00866c74: e8 67 01 00 00                           CALL
+  >> 0x00866c79: 6a 01                                    PUSH
+  >> 0x00866c7b: 8b 0d 98 2d 20 01                        MOV
+  >> 0x00866c81: e8 1a 01 00 00                           CALL
+     0x00866c86: 8b f0                                    MOV
+     0x00866c88: e8 03 90 ba ff                           CALL
+     0x00866c8d: 3b f0                                    CMP
+  >> 0x00866c8f: 75 1a                                    JNZ
+  >> 0x00866c91: 6a 01                                    PUSH
+  >> 0x00866c93: 8b 0d 98 2d 20 01                        MOV
+  >> 0x00866c99: e8 22 01 00 00                           CALL
+  >> 0x00866c9e: 6a 01                                    PUSH
+  >> 0x00866ca0: 8b 0d 98 2d 20 01                        MOV
+  >> 0x00866ca6: e8 35 01 00 00                           CALL
+     0x00866cab: 6a 01                                    PUSH
+     0x00866cad: e8 ee 8f ba ff                           CALL
+     0x00866cb2: 83 c4 04                                 ADD
+     0x00866cb5: a1 0c e7 1d 01                           MOV
+     0x00866cba: 83 c0 01                                 ADD
+     0x00866cbd: a3 0c e7 1d 01                           MOV
+     0x00866cc2: 8b 4d 0c                                 MOV
+     0x00866cc5: 83 e9 01                                 SUB
+     0x00866cc8: 89 4d 0c                                 MOV
+     0x00866ccb: eb 12                                    JMP
+     0x00866ccf: 8b 55 10                                 MOV
+
+  >> = instruction inside a NOP patch site
+
+======================================================================
+RESULT
+======================================================================
+ALL 4 SITES VERIFIED - safe to patch
+
+Implementation:
+  patch_bytes(0x00866C79, &[0x90; 13])  // Site A
+  patch_bytes(0x00866C8F, &[0x90; 2])   // Site B
+  patch_bytes(0x00866C91, &[0x90; 13])  // Site C
+  patch_bytes(0x00866C9E, &[0x90; 13])  // Site D

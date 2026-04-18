@@ -53,6 +53,12 @@ pub const AI_THREAD_START_ADDR: usize = 0x008C78C0;
 /// Only on multi-threaded systems (processor count > 1).
 pub const AI_THREAD_JOIN_ADDR: usize = 0x008C7990;
 
+/// StopHavok_DRAINAI (FUN_008324e0). Drains PPL task groups that
+/// IOManager uses to dispatch AI Linear Task Thread work.
+/// mode=0: stops + drains (safe before cell destruction).
+/// mode=1: restarts simulation.
+pub const HAVOK_STOP_START_ADDR: usize = 0x008324E0;
+
 pub static MAIN_LOOP_MAINTENANCE_HOOK: LazyLock<InlineHookContainer<MainLoopMaintenanceFn>> =
     LazyLock::new(InlineHookContainer::new);
 pub static PER_FRAME_QUEUE_DRAIN_HOOK: LazyLock<InlineHookContainer<PerFrameQueueDrainFn>> =
@@ -70,8 +76,7 @@ pub static AI_THREAD_JOIN_HOOK: LazyLock<InlineHookContainer<AIThreadJoinFn>> =
 /// We hook this to set the destruction guard.
 pub const PDD_ADDR: usize = 0x00868D70;
 
-pub static PDD_HOOK: LazyLock<InlineHookContainer<PDDFn>> =
-    LazyLock::new(InlineHookContainer::new);
+pub static PDD_HOOK: LazyLock<InlineHookContainer<PDDFn>> = LazyLock::new(InlineHookContainer::new);
 
 // ---- Texture cache ----
 
@@ -87,6 +92,17 @@ pub static NISOURCETEXTURE_DTOR_HOOK: LazyLock<InlineHookContainer<NiSourceTextu
 
 // pub const TASK_RELEASE_ADDR: usize = 0x0044DD60;
 
+// ---- OOM Stage 8 (HeapCompact) ----
+
+/// FUN_00866a90: OOM stage executor. Called by GameHeap retry loop,
+/// periodic cleanup, and SBM heap resize. Case 8 hardcodes BSTaskManagerThread
+/// indices 0/1 without bounds check -- crashes when thread_count==1.
+/// We hook at entry to intercept case 8 and use release_bstask_sems_if_owned()
+/// which validates the thread array before accessing slots.
+pub const OOM_STAGE_EXEC_HOOK_ADDR: usize = 0x00866A90;
+
+pub static OOM_STAGE_EXEC_HOOK: LazyLock<InlineHookContainer<OomStageExecFn>> =
+    LazyLock::new(InlineHookContainer::new);
 
 // ---- Queued reference processing ----
 
@@ -97,7 +113,6 @@ pub static NISOURCETEXTURE_DTOR_HOOK: LazyLock<InlineHookContainer<NiSourceTextu
 // pub const HAVOK_ADD_ENTITY_ADDR: usize = 0x00C94BD0;
 // pub const HAVOK_COLL_OBJ_DTOR_ADDR: usize = 0x00C40B70;
 // pub const HAVOK_RAYCAST_ADDR: usize = 0x00CBF860;
-
 
 // ---- Havok world synchronization ----
 
@@ -110,6 +125,28 @@ pub const HKWORLD_UNLOCK_ADDR: usize = 0x00C3E340;
 pub static HKWORLD_LOCK_HOOK: LazyLock<InlineHookContainer<HkWorldLockFn>> =
     LazyLock::new(InlineHookContainer::new);
 pub static HKWORLD_UNLOCK_HOOK: LazyLock<InlineHookContainer<HkWorldUnlockFn>> =
+    LazyLock::new(InlineHookContainer::new);
+
+// ---- Havok entity post-add callback (vanilla NULL-deref bugfix) ----
+
+/// FUN_00CFFA00: dispatches AddedToWorld listeners for a single hkpEntity.
+/// hkpWorld::addEntityBatch iterates the broadphase result array and calls
+/// this per slot without filtering NULL slots. We wrap it to skip NULLs.
+pub const HAVOK_ENTITY_POST_ADD_ADDR: usize = 0x00CFFA00;
+
+pub static HAVOK_ENTITY_POST_ADD_HOOK: LazyLock<InlineHookContainer<HavokEntityPostAddFn>> =
+    LazyLock::new(InlineHookContainer::new);
+
+// ---- Game-inlined _memset (NULL-dst defensive bugfix) ----
+
+/// FUN_00EC61C0: the game's inlined MSVC 2008 `_memset`. Called by the
+/// aligned-calloc wrapper at `FUN_00aa2240` without a NULL check on the
+/// alloc result. When our OOM recovery returns NULL, the game passes
+/// NULL straight here and crashes in `__VEC_memzero` at `0x00ED2C9E`.
+/// Our hook short-circuits on `dst == NULL`.
+pub const MEMSET_ADDR: usize = 0x00EC61C0;
+
+pub static MEMSET_HOOK: LazyLock<InlineHookContainer<libpsycho::os::windows::types::MemsetFn>> =
     LazyLock::new(InlineHookContainer::new);
 
 // // ---- Actor process synchronization ----

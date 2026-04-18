@@ -13,14 +13,13 @@
 //! - Debug logging for OOM stages is encapsulated inside `run_oom_stage`.
 
 use std::sync::LazyLock;
-use std::sync::atomic::{AtomicBool, AtomicI32, Ordering};
+use std::sync::atomic::{AtomicBool, Ordering};
 
 use libc::c_void;
 
 use libpsycho::ffi::fnptr::FnPtr;
 
 use super::engine::addr;
-use super::engine::globals::HeapCompactStage;
 
 
 // ---------------------------------------------------------------------------
@@ -83,54 +82,28 @@ impl HeapManager {
 
         let commit_before = self.commit_bytes();
 
-        // Freeze slab cold-list reuse during stage 5 (cell unload).
-        // Cell teardown walks actor reference chains with stale pointers
-        // to objects freed >REUSE_COOLDOWN ago. Without freeze, slab allocs
-        // during teardown recycle those cells, overwriting FreeNode headers.
-        // Confirmed crash: MiddleHighProcess sub-object vtable at 0x0BDBA7C0
-        // (slab data) after cold cell was recycled during destruction.
-        let freeze = stage == 5;
-        if freeze {
-            super::slab::set_destruction_freeze(true);
-        }
+        // pool/block do not recycle freed cells into user data, so the
+        // old slab "destruction freeze" is a no-op here. Stage 5 runs
+        // under the cell_unload guard which already serializes with IO
+        // and Havok.
 
         let mut done: u8 = 0;
-        let next = if bypass {
-            // Large frees --> mi_free. Reclaims VAS immediately.
-            // Only safe when crash is the alternative (OOM retry).
-            match unsafe { oom_exec.as_fn() } {
-                Ok(f) => {
+        let next = match unsafe { oom_exec.as_fn() } {
+            Ok(f) => {
+                if bypass {
                     use super::allocator::with_large_bypass;
                     with_large_bypass(|| unsafe {
                         f(heap_singleton, primary_heap, stage, &mut done)
                     })
-                }
-                Err(e) => {
-                    if freeze {
-                        super::slab::set_destruction_freeze(false);
-                    }
-                    log::error!("[OOM] oom_exec.as_fn() failed at stage {}: {:?}", stage, e,);
-                    return (stage + 1, true);
+                } else {
+                    unsafe { f(heap_singleton, primary_heap, stage, &mut done) }
                 }
             }
-        } else {
-            // All frees --> pool (zombie-safe). IO thread and AI can
-            // safely read freed memory. VAS reclaimed later via drain.
-            match unsafe { oom_exec.as_fn() } {
-                Ok(f) => unsafe { f(heap_singleton, primary_heap, stage, &mut done) },
-                Err(e) => {
-                    if freeze {
-                        super::slab::set_destruction_freeze(false);
-                    }
-                    log::error!("[OOM] oom_exec.as_fn() failed at stage {}: {:?}", stage, e,);
-                    return (stage + 1, true);
-                }
+            Err(e) => {
+                log::error!("[OOM] oom_exec.as_fn() failed at stage {}: {:?}", stage, e);
+                return (stage + 1, true);
             }
         };
-
-        if freeze {
-            super::slab::set_destruction_freeze(false);
-        }
 
         let commit_after = self.commit_bytes();
         let freed = commit_before.saturating_sub(commit_after);
@@ -156,36 +129,6 @@ impl HeapManager {
         }
 
         (next, done != 0)
-    }
-
-    /// Signal HeapCompact to run stages 0..=stage on the next frame.
-    ///
-    /// Uses a CAS loop for atomic MAX semantics -- never downgrades an
-    /// existing trigger. Worker OOM stage 8 writes trigger=6 from its
-    /// thread -- writing a lower value here would clobber that request.
-    pub fn signal_heap_compact(&self, stage: HeapCompactStage) {
-        let trigger = unsafe { AtomicI32::from_ptr(addr::HEAP_COMPACT_TRIGGER as *mut i32) };
-        let desired = stage as i32;
-
-        loop {
-            let current = trigger.load(Ordering::Relaxed);
-            if desired <= current {
-                break; // Already at this stage or higher
-            }
-            // Atomic MAX: only write if trigger still equals our read
-            match trigger.compare_exchange_weak(
-                current,
-                desired,
-                Ordering::Release,
-                Ordering::Relaxed,
-            ) {
-                Ok(_) => break, // CAS succeeded
-                Err(_) => {
-                    // Another thread modified trigger between our read and CAS.
-                    // Retry with the new current value.
-                }
-            }
-        }
     }
 
     // -------------------------------------------------------------------

@@ -87,6 +87,14 @@ pub const IO_MANAGER_SINGLETON: usize = 0x01202D98;
 // Offsets within IOManager:
 pub const IO_DEQUEUE_LOCK_OFFSET: usize = 0x20;
 pub const IO_DEQUEUE_LOCK_COUNTER_OFFSET: usize = 0x24;
+
+/// BSTaskManager_ctor (FUN_00c3e4f0) stores num_threads at +0x4c and the
+/// dynamically allocated thread-pointer array (count*4 bytes) at +0x50.
+/// Slots beyond [+0x4c] do not exist -- vanilla case 8 of FUN_00866a90
+/// hardcodes indices 0/1, but it almost never runs in vanilla; we hit it
+/// routinely on workers and must not read past the allocation.
+pub const IO_THREAD_COUNT_OFFSET: usize = 0x4c;
+
 pub const IO_THREAD_ARRAY_OFFSET: usize = 0x50;
 
 // Offsets within each BSTaskManagerThread object:
@@ -136,7 +144,7 @@ pub const GET_MAIN_THREAD_ID: usize = 0x0044EDB0;
 /// - value=0: cell unload in progress (suppresses NVSE PLChangeEvent dispatch).
 /// - value=1: cell unload done (re-enables event dispatch).
 ///
-/// Called by HeapCompact stage 5 and CellTransitionHandler before/after FindCellToUnload. 
+/// Called by HeapCompact stage 5 and CellTransitionHandler before/after FindCellToUnload.
 /// Without this, NVSE plugins receive events for partially-torn-down actors --> crash.
 pub const SET_TLS_CLEANUP_FLAG: usize = 0x00869190;
 
@@ -224,4 +232,3 @@ pub const RDATA_END: usize = 0x01300000;
 // TESForm flags offset and HAVOK_DEATH flag value.
 pub const TESFORM_FLAGS_OFFSET: usize = 0x08;
 pub const FLAG_HAVOK_DEATH: u32 = 0x10000;
-

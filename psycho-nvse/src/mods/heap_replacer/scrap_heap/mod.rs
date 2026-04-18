@@ -131,13 +131,13 @@ unsafe fn alloc_oom_recovery(
     size: usize,
     align: usize,
 ) -> *mut c_void {
-    use super::gheap::{heap_manager::HeapManager, slab};
+    use super::gheap::heap_manager::HeapManager;
 
-    // First: signal main thread to run cleanup (same as main OOM path)
+    // First: signal main thread to run cleanup (same as main OOM path).
     HeapManager::get().signal_emergency_drain();
 
-    // Decommit slab dirty pages + collect mimalloc to free memory
-    unsafe { slab::decommit_sweep() };
+    // Pool/block do not decommit. Only lever left here is mimalloc's
+    // CRT arena collect; harmless off the main thread.
     unsafe { libmimalloc::mi_collect(false) };
 
     for attempt in 1..=SHEAP_OOM_RETRIES {

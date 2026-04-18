@@ -1,0 +1,121 @@
+######################################################################
+# Verify NVHR patch: patch_nops(0x00AA38CA, 30 bytes)
+######################################################################
+
+Goal: see exactly what 30 bytes of instructions NVHR removes at
+0x00AA38CA..0x00AA38E8, what function contains them, what CALL or
+jump targets appear in that window, and whether the surrounding
+function is reachable from our current hook set.
+
+----------------------------------------------------------------------
+Disassembly: NVHR NOP window [0x00aa38ca .. 0x00aa38e8) -- 30 bytes
+----------------------------------------------------------------------
+  0x00aa38ca: MOV EAX,dword ptr [EBP + -0x5c]
+  0x00aa38cd: ADD EAX,0x114
+  0x00aa38d2: MOV dword ptr [EBP + -0x58],EAX
+  0x00aa38d5: PUSH 0x25
+  0x00aa38d7: MOV ECX,dword ptr [EBP + -0x58]
+  0x00aa38da: CALL 0x00aa47e0 ; UNCONDITIONAL_CALL -> 0x00aa47e0 FUN_00aa47e0
+  0x00aa38df: MOV ECX,dword ptr [EBP + -0x58]
+  0x00aa38e2: MOV dword ptr [ECX],0x10a25f8
+
+======================================================================
+Containing function @ 0x00aa38ca
+======================================================================
+  Function: FUN_00aa3880 @ 0x00aa3880, Size: 316 bytes
+  NOTE: Requested 0x00aa38ca is inside FUN_00aa3880 (entry at 0x00aa3880, +0x4a)
+
+undefined1 * __fastcall FUN_00aa3880(undefined1 *param_1)
+
+{
+  BOOL BVar1;
+  int *unaff_FS_OFFSET;
+  _MEMORYSTATUSEX local_50;
+  int local_10;
+  undefined1 *puStack_c;
+  undefined4 local_8;
+  
+  local_8 = 0xffffffff;
+  puStack_c = &LAB_00f1ec1e;
+  local_10 = *unaff_FS_OFFSET;
+  *unaff_FS_OFFSET = (int)&local_10;
+  *param_1 = 0;
+  *(undefined2 *)(param_1 + 2) = 0;
+  *(undefined2 *)(param_1 + 4) = 0;
+  *(undefined4 *)(param_1 + 8) = 0;
+  FUN_00aa47e0(param_1 + 0x114,0x25);
+  *(undefined ***)(param_1 + 0x114) = &PTR_FUN_010a25f8;
+  local_8 = 0;
+  *(undefined4 *)(param_1 + 0x124) = 0;
+  param_1[0x128] = 1;
+  param_1[0x129] = 1;
+  *(undefined4 *)(param_1 + 300) = 0;
+  *(undefined4 *)(param_1 + 0x130) = 0;
+  *(undefined4 *)(param_1 + 0x134) = 0;
+  _memset(param_1 + 0xc,0,0x108);
+  local_50.dwLength = 0x40;
+  BVar1 = GlobalMemoryStatusEx(&local_50);
+  if (((BVar1 != 0) && (local_50.ullAvailPageFile._4_4_ == 0)) &&
+     (local_50.ullAvailPageFile._0_4_ < 0x20000000)) {
+    MessageBoxA((HWND)0x0,"Not enough memory to run application.","Memory Error",0x10);
+                    /* WARNING: Subroutine does not return */
+    _exit(0);
+  }
+  FUN_00aa39c0(param_1);
+  FUN_00866690();
+  FUN_00aa58d0();
+  *unaff_FS_OFFSET = local_10;
+  return param_1;
+}
+
+
+
+--- Calls FROM containing function (entry 0x00aa3880) ---
+  0x00aa38da -> 0x00aa47e0 FUN_00aa47e0
+  0x00aa3945 -> 0x00ec61c0 _memset
+  0x00aa3958 -> 0x00000049 ???
+  0x00aa3981 -> 0x000000ae ???
+  0x00aa3989 -> 0x00eccec5 _exit
+  0x00aa3991 -> 0x00aa39c0 FUN_00aa39c0
+  0x00aa3999 -> 0x00866690 FUN_00866690
+  0x00aa399e -> 0x00aa58d0 FUN_00aa58d0
+  Total: 8 calls
+
+----------------------------------------------------------------------
+Callers of the function containing 0x00AA38CA (NOP window)
+----------------------------------------------------------------------
+  Function entry: FUN_00aa3880 @ 0x00aa3880
+  0x00fb66a8 in FUN_00fb66a0 (entry 0x00fb66a0)
+  Total callers: 1
+
+----------------------------------------------------------------------
+Disassembly: Context +/- 48 bytes [0x00aa389a .. 0x00aa3908) -- 110 bytes
+----------------------------------------------------------------------
+  0x00aa389b: PUSH EAX
+  0x00aa389c: LEA EAX,[EBP + -0xc]
+  0x00aa389f: MOV FS:[0x0],EAX
+  0x00aa38a5: MOV dword ptr [EBP + -0x5c],ECX
+  0x00aa38a8: MOV EAX,dword ptr [EBP + -0x5c]
+  0x00aa38ab: MOV byte ptr [EAX],0x0
+  0x00aa38ae: XOR ECX,ECX
+  0x00aa38b0: MOV EDX,dword ptr [EBP + -0x5c]
+  0x00aa38b3: MOV word ptr [EDX + 0x2],CX
+  0x00aa38b7: XOR EAX,EAX
+  0x00aa38b9: MOV ECX,dword ptr [EBP + -0x5c]
+  0x00aa38bc: MOV word ptr [ECX + 0x4],AX
+  0x00aa38c0: MOV EDX,dword ptr [EBP + -0x5c]
+  0x00aa38c3: MOV dword ptr [EDX + 0x8],0x0
+  0x00aa38ca: MOV EAX,dword ptr [EBP + -0x5c]
+  0x00aa38cd: ADD EAX,0x114
+  0x00aa38d2: MOV dword ptr [EBP + -0x58],EAX
+  0x00aa38d5: PUSH 0x25
+  0x00aa38d7: MOV ECX,dword ptr [EBP + -0x58]
+  0x00aa38da: CALL 0x00aa47e0 ; UNCONDITIONAL_CALL -> 0x00aa47e0 FUN_00aa47e0
+  0x00aa38df: MOV ECX,dword ptr [EBP + -0x58]
+  0x00aa38e2: MOV dword ptr [ECX],0x10a25f8
+  0x00aa38e8: MOV dword ptr [EBP + -0x4],0x0
+  0x00aa38ef: MOV EDX,dword ptr [EBP + -0x5c]
+  0x00aa38f2: MOV dword ptr [EDX + 0x124],0x0
+  0x00aa38fc: MOV EAX,dword ptr [EBP + -0x5c]
+  0x00aa38ff: MOV byte ptr [EAX + 0x128],0x1
+  0x00aa3906: MOV ECX,dword ptr [EBP + -0x5c]

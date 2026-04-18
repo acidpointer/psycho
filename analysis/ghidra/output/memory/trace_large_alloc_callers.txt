@@ -1,0 +1,304 @@
+LARGE-ALLOC CALLER TRACE
+Goal: identify the 5.6 MB worker-thread allocation that froze the game
+======================================================================
+
+----------------------------------------------------------------------
+Scanning call sites to FUN_00aa3e40
+----------------------------------------------------------------------
+  Total alloc call sites : 1005
+  With literal size      : 610
+  With symbolic size     : 395
+
+----------------------------------------------------------------------
+Literal size distribution
+----------------------------------------------------------------------
+  0..256B      : 565
+  256B..4K     : 35
+  4K..64K      : 6
+  64K..256K    : 3
+  256K..1M     : 0
+  1M..4M       : 0
+  4M..16M      : 0
+  >=16M        : 0
+  non-literal  : 395
+
+----------------------------------------------------------------------
+Literal allocations >= 1048576 bytes
+----------------------------------------------------------------------
+  call 0x00b6bad8  size=4294967295 (4096.00 MB)  caller 0x00b6ba70 FUN_00b6ba70
+  Total large callsites: 1
+
+----------------------------------------------------------------------
+Literal allocations >= 4194304 bytes
+----------------------------------------------------------------------
+  call 0x00b6bad8  size=4294967295 (4096.00 MB)  caller 0x00b6ba70 FUN_00b6ba70
+  Total large callsites: 1
+
+======================================================================
+TOP LARGE-ALLOC CALLERS
+======================================================================
+
+======================================================================
+large_alloc_caller_0x00b6ba70 @ 0x00b6ba70
+======================================================================
+  Function: FUN_00b6ba70 @ 0x00b6ba70, Size: 189 bytes
+
+void FUN_00b6ba70(void)
+
+{
+  undefined4 *puVar1;
+  byte *pbVar2;
+  int *unaff_FS_OFFSET;
+  int local_c;
+  undefined1 *puStack_8;
+  undefined4 local_4;
+  
+  local_4 = 0xffffffff;
+  puStack_8 = &LAB_00f28786;
+  local_c = *unaff_FS_OFFSET;
+  *unaff_FS_OFFSET = (int)&local_c;
+  puVar1 = FUN_00aa3e40(&DAT_011f6238,4);
+  local_4 = 0;
+  if (puVar1 == (undefined4 *)0x0) {
+    puVar1 = (undefined4 *)0x0;
+  }
+  else {
+    pbVar2 = FUN_00a5b690((byte *)"ConvertedTexture");
+    *puVar1 = pbVar2;
+  }
+  local_4 = 0xffffffff;
+  DAT_011fa050 = puVar1;
+  puVar1 = FUN_00aa3e40(&DAT_011f6238,4);
+  local_4 = 1;
+  if (puVar1 != (undefined4 *)0x0) {
+    pbVar2 = FUN_00a5b690((byte *)"BackgroundConvertedTexture");
+    *puVar1 = pbVar2;
+    DAT_011fa054 = puVar1;
+    *unaff_FS_OFFSET = local_c;
+    return;
+  }
+  DAT_011fa054 = (undefined4 *)0x0;
+  *unaff_FS_OFFSET = local_c;
+  return;
+}
+
+
+
+======================================================================
+SYMBOLIC-SIZE alloc call sites (no literal push)
+======================================================================
+  caller 0x00401000 FUN_00401000  call @ 0x0040100e
+  caller 0x00553320 FUN_00553320  call @ 0x00553335
+  caller 0x005aaee0 FUN_005aaee0  call @ 0x005aaef9
+  caller 0x00a02d40 FUN_00a02d40  call @ 0x00a02e08
+  caller 0x00a09410 FUN_00a09410  call @ 0x00a09f0a
+  caller 0x00a0a300 FUN_00a0a300  call @ 0x00a0a3b4
+  caller 0x00a14a20 FUN_00a14a20  call @ 0x00a14a7c
+  caller 0x00a12020 FUN_00a12020  call @ 0x00a12158
+  caller 0x00a1ce70 FUN_00a1ce70  call @ 0x00a1cf17
+  caller 0x00a22660 FUN_00a22660  call @ 0x00a22af3
+  caller 0x00a255b0 FUN_00a255b0  call @ 0x00a25603
+  caller 0x00a32a10 FUN_00a32a10  call @ 0x00a32b01
+  caller 0x00a32330 FUN_00a32330  call @ 0x00a32373
+  caller 0x00a33570 FUN_00a33570  call @ 0x00a335ed
+  caller 0x00a66a60 FUN_00a66a60  call @ 0x00a66abd
+  caller 0x00a730e0 FUN_00a730e0  call @ 0x00a73105
+  caller 0x00a87ae0 FUN_00a87ae0  call @ 0x00a87ccf
+  caller 0x00a881e0 FUN_00a881e0  call @ 0x00a88293
+  caller 0x00aa4150 FUN_00aa4150  call @ 0x00aa417c
+  caller 0x00aafc80 FUN_00aafc80  call @ 0x00aafe30
+  caller 0x00ac1720 FUN_00ac1720  call @ 0x00ac1776
+  caller 0x00af43a0 FUN_00af43a0  call @ 0x00af43cf
+  caller 0x00af4490 FUN_00af4490  call @ 0x00af44bf
+  caller 0x00af4550 FUN_00af4550  call @ 0x00af46d7
+  caller 0x00af7eb0 FUN_00af7eb0  call @ 0x00af82ca
+  caller 0x00af9c50 FUN_00af9c50  call @ 0x00af9f92
+  caller 0x00af94c0 FUN_00af94c0  call @ 0x00af9656
+  caller 0x00afa120 FUN_00afa120  call @ 0x00afa3a7
+  caller 0x00af96d0 FUN_00af96d0  call @ 0x00af98db
+  caller 0x00afdda0 FUN_00afdda0  call @ 0x00afddf7
+  caller 0x00afb5f0 FUN_00afb5f0  call @ 0x00afb648
+  caller 0x00afc430 FUN_00afc430  call @ 0x00afc5cc
+  caller 0x00af7060 FUN_00af7060  call @ 0x00af70e7
+  caller 0x00afe5b0 FUN_00afe5b0  call @ 0x00afe6d3
+  caller 0x00aff490 FUN_00aff490  call @ 0x00aff56a
+  caller 0x00affd80 FUN_00affd80  call @ 0x00affe84
+  caller 0x00b01930 FUN_00b01930  call @ 0x00b019e1
+  caller 0x00b07f20 FUN_00b07f20  call @ 0x00b07fa1
+  caller 0x00b54b60 FUN_00b54b60  call @ 0x00b54c85
+  caller 0x00b57420 FUN_00b57420  call @ 0x00b5778f
+  caller 0x00b61980 FUN_00b61980  call @ 0x00b61df5
+  caller 0x00b660d0 FUN_00b660d0  call @ 0x00b663c5
+  caller 0x00b66f50 FUN_00b66f50  call @ 0x00b67020
+  caller 0x00b69f30 FUN_00b69f30  call @ 0x00b69fa0
+  caller 0x00b7fe40 FUN_00b7fe40  call @ 0x00b7fec1
+  caller 0x00b7ff40 FUN_00b7ff40  call @ 0x00b80007
+  caller 0x00b8ab10 FUN_00b8ab10  call @ 0x00b8ac47
+  caller 0x00ba8ec0 FUN_00ba8ec0  call @ 0x00ba8f16
+  caller 0x00bb7170 FUN_00bb7170  call @ 0x00bb71d0
+  caller 0x00bd8ae0 FUN_00bd8ae0  call @ 0x00bd8b93
+  caller 0x00ba63e0 FUN_00ba63e0  call @ 0x00ba646e
+  caller 0x00bd9120 FUN_00bd9120  call @ 0x00bd913e
+  caller 0x00be0fe0 FUN_00be0fe0  call @ 0x00be1201
+  caller 0x00b7fa40 FUN_00b7fa40  call @ 0x00b7fa60
+  caller 0x00be1750 FUN_00be1750  call @ 0x00be19a4
+  caller 0x00c1d790 FUN_00c1d790  call @ 0x00c1d7b9
+  caller 0x00c33170 FUN_00c33170  call @ 0x00c331de
+  caller 0x00c3cee0 FUN_00c3cee0  call @ 0x00c3cf0a
+  caller 0x00c3e4f0 FUN_00c3e4f0  call @ 0x00c3e580
+  caller 0x00c3e8b0 FUN_00c3e8b0  call @ 0x00c3e955
+  caller 0x00c3ec80 FUN_00c3ec80  call @ 0x00c3ed54
+  caller 0x00c3eeb0 FUN_00c3eeb0  call @ 0x00c3eff4
+  caller 0x00c42180 FUN_00c42180  call @ 0x00c4221f
+  caller 0x00c42960 FUN_00c42960  call @ 0x00c42a01
+  caller 0x00c42b80 FUN_00c42b80  call @ 0x00c42c20
+  caller 0x00c46170 FUN_00c46170  call @ 0x00c461c6
+  caller 0x00c4e1e0 FUN_00c4e1e0  call @ 0x00c4e23a
+  caller 0x00c50610 FUN_00c50610  call @ 0x00c50694
+  caller 0x00c56680 FUN_00c56680  call @ 0x00c56826
+  caller 0x00c584a0 FUN_00c584a0  call @ 0x00c5850e
+  caller 0x00c58f00 FUN_00c58f00  call @ 0x00c58f4e
+  caller 0x00c74ea0 FUN_00c74ea0  call @ 0x00c74ead
+  caller 0x00ebf8e0 FUN_00ebf8e0  call @ 0x00ebf988
+  caller 0x00bc15a0 FUN_00bc15a0  call @ 0x00bc1647
+  caller 0x00bc0b70 FUN_00bc0b70  call @ 0x00bc0bca
+  caller 0x00bc1d40 FUN_00bc1d40  call @ 0x00bc1f0a
+  caller 0x00bacd00 FUN_00bacd00  call @ 0x00bace9b
+  caller 0x00bd5670 FUN_00bd5670  call @ 0x00bd58c3
+  caller 0x00ba53f0 FUN_00ba53f0  call @ 0x00ba56e9
+  caller 0x00bc0c90 FUN_00bc0c90  call @ 0x00bc0f24
+  caller 0x00bb6c30 FUN_00bb6c30  call @ 0x00bb6ddc
+  caller 0x00b587c0 FUN_00b587c0  call @ 0x00b58a0a
+  caller 0x00bd6190 FUN_00bd6190  call @ 0x00bd6232
+  caller 0x00b05420 FUN_00b05420  call @ 0x00b054e6
+  caller 0x00b0d040 FUN_00b0d040  call @ 0x00b0d111
+  caller 0x00b0d7c0 FUN_00b0d7c0  call @ 0x00b0d7e1
+  caller 0x00b10830 FUN_00b10830  call @ 0x00b10886
+  caller 0x00b108e0 FUN_00b108e0  call @ 0x00b10936
+  caller 0x00474460 FUN_00474460  call @ 0x00474472
+  caller 0x00a31140 FUN_00a31140  call @ 0x00a31162
+  caller 0x00ba64e0 FUN_00ba64e0  call @ 0x00ba6586
+  caller 0x00ba73a0 FUN_00ba73a0  call @ 0x00ba73cf
+  caller 0x00ba7f70 FUN_00ba7f70  call @ 0x00ba8226
+  caller 0x00b0cb10 FUN_00b0cb10  call @ 0x00b0cb97
+  caller 0x00a84980 FUN_00a84980  call @ 0x00a84a9a
+  caller 0x00a84810 FUN_00a84810  call @ 0x00a8483f
+  caller 0x00a84e70 FUN_00a84e70  call @ 0x00a84e9a
+  caller 0x00a12fb0 FUN_00a12fb0  call @ 0x00a130bf
+  caller 0x00af8f10 FUN_00af8f10  call @ 0x00af9017
+  caller 0x00aa66a0 FUN_00aa66a0  call @ 0x00aa677a
+  caller 0x00a14da0 FUN_00a14da0  call @ 0x00a14e23
+  caller 0x00a15ee0 FUN_00a15ee0  call @ 0x00a1601a
+  caller 0x00a16ea0 FUN_00a16ea0  call @ 0x00a1710c
+  caller 0x00a17390 FUN_00a17390  call @ 0x00a1742d
+  caller 0x00a1c020 FUN_00a1c020  call @ 0x00a1c035
+  caller 0x00a1cb80 FUN_00a1cb80  call @ 0x00a1cbf2
+  caller 0x00a1d280 FUN_00a1d280  call @ 0x00a1d2ed
+  caller 0x00a27080 FUN_00a27080  call @ 0x00a270e1
+  caller 0x00a33e40 FUN_00a33e40  call @ 0x00a33ed6
+  caller 0x00a352f0 FUN_00a352f0  call @ 0x00a35457
+  caller 0x00a370b0 FUN_00a370b0  call @ 0x00a3713e
+  caller 0x00a37690 FUN_00a37690  call @ 0x00a376e6
+  caller 0x00a37980 FUN_00a37980  call @ 0x00a37a77
+  caller 0x00a3b150 FUN_00a3b150  call @ 0x00a3b26d
+  caller 0x00a3b460 FUN_00a3b460  call @ 0x00a3b4f0
+  caller 0x00a438d0 FUN_00a438d0  call @ 0x00a4392e
+  caller 0x00a43690 FUN_00a43690  call @ 0x00a43729
+  caller 0x00a4f610 FUN_00a4f610  call @ 0x00a4f711
+  caller 0x00a63ae0 FUN_00a63ae0  call @ 0x00a63b09
+  caller 0x00a669f0 FUN_00a669f0  call @ 0x00a66a2c
+  caller 0x00a67ea0 FUN_00a67ea0  call @ 0x00a6802b
+  caller 0x00a6c900 FUN_00a6c900  call @ 0x00a6c952
+  caller 0x00a73160 FUN_00a73160  call @ 0x00a731dc
+  caller 0x00a8b080 FUN_00a8b080  call @ 0x00a8b0be
+  caller 0x00a8b110 FUN_00a8b110  call @ 0x00a8b149
+  caller 0x00a8b190 FUN_00a8b190  call @ 0x00a8b1f1
+  caller 0x00a7b940 FUN_00a7b940  call @ 0x00a7ba40
+  caller 0x00a873b0 FUN_00a873b0  call @ 0x00a8741b
+  caller 0x00a8b2c0 FUN_00a8b2c0  call @ 0x00a8b35e
+  caller 0x00a8da50 FUN_00a8da50  call @ 0x00a8da97
+  caller 0x00a90d70 FUN_00a90d70  call @ 0x00a90dc3
+  caller 0x00a96910 FUN_00a96910  call @ 0x00a96936
+  caller 0x00a96cf0 FUN_00a96cf0  call @ 0x00a96f74
+  caller 0x00a9c2a0 FUN_00a9c2a0  call @ 0x00a9c2de
+  caller 0x00aa47e0 FUN_00aa47e0  call @ 0x00aa4820
+  caller 0x00aa4030 FUN_00aa4030  call @ 0x00aa4040
+  caller 0x00aa4200 FUN_00aa4200  call @ 0x00aa422c
+  caller 0x00ad9640 FUN_00ad9640  call @ 0x00ad96dc
+  caller 0x00aeb270 FUN_00aeb270  call @ 0x00aebd6a
+  caller 0x00aebff0 FUN_00aebff0  call @ 0x00aec34c
+  caller 0x00aec530 FUN_00aec530  call @ 0x00aec746
+  caller 0x00af0630 FUN_00af0630  call @ 0x00af114c
+  caller 0x00af36e0 FUN_00af36e0  call @ 0x00af3740
+  caller 0x00afa8e0 FUN_00afa8e0  call @ 0x00afa9ee
+  caller 0x00afcd10 FUN_00afcd10  call @ 0x00afcd25
+  caller 0x00afff50 FUN_00afff50  call @ 0x00b00064
+  caller 0x00affa60 FUN_00affa60  call @ 0x00affa79
+  caller 0x00ba8c50 FUN_00ba8c50  call @ 0x00ba8c91
+  caller 0x00ba8b80 FUN_00ba8b80  call @ 0x00ba8bc2
+  caller 0x00ba8d30 FUN_00ba8d30  call @ 0x00ba8dad
+  caller 0x00b66e20 FUN_00b66e20  call @ 0x00b66e9a
+  caller 0x00b676a0 FUN_00b676a0  call @ 0x00b67747
+  caller 0x00b69be0 FUN_00b69be0  call @ 0x00b69c6c
+  caller 0x00b79a60 FUN_00b79a60  call @ 0x00b79aaa
+  caller 0x00ba1ac0 FUN_00ba1ac0  call @ 0x00ba1b36
+  caller 0x00ba2590 FUN_00ba2590  call @ 0x00ba25b0
+  caller 0x00ba8c00 FUN_00ba8c00  call @ 0x00ba8c1e
+  caller 0x00bb5dd0 FUN_00bb5dd0  call @ 0x00bb5e8d
+  caller 0x00c1d740 FUN_00c1d740  call @ 0x00c1d769
+  caller 0x00c2d720 FUN_00c2d720  call @ 0x00c2d766
+  caller 0x00c25340 FUN_00c25340  call @ 0x00c25391
+  caller 0x00c3a640 FUN_00c3a640  call @ 0x00c3a655
+  caller 0x00c64780 FUN_00c64780  call @ 0x00c647cb
+  caller 0x00c3b3f0 FUN_00c3b3f0  call @ 0x00c3b561
+  caller 0x00c5fb80 FUN_00c5fb80  call @ 0x00c5fbd2
+  caller 0x00c4a860 FUN_00c4a860  call @ 0x00c4a875
+  caller 0x00c4a900 FUN_00c4a900  call @ 0x00c4a915
+  caller 0x00c509f0 FUN_00c509f0  call @ 0x00c50ac2
+  caller 0x00c53030 FUN_00c53030  call @ 0x00c5311b
+  caller 0x00c54bc0 FUN_00c54bc0  call @ 0x00c54beb
+  caller 0x00c57d70 FUN_00c57d70  call @ 0x00c57e1b
+  caller 0x00c62090 FUN_00c62090  call @ 0x00c620b4
+  caller 0x00c84fa0 FUN_00c84fa0  call @ 0x00c8503c
+  caller 0x00c9bbb0 FUN_00c9bbb0  call @ 0x00c9bd12
+  caller 0x00ca3f10 FUN_00ca3f10  call @ 0x00ca3f5c
+  caller 0x00ca5da0 FUN_00ca5da0  call @ 0x00ca63c2
+  caller 0x00cc1730 FUN_00cc1730  call @ 0x00cc17e5
+  caller 0x00ccc2f0 FUN_00ccc2f0  call @ 0x00ccc352
+  caller 0x00ccc440 FUN_00ccc440  call @ 0x00ccc4d7
+  caller 0x00ccc7e0 FUN_00ccc7e0  call @ 0x00ccc885
+  caller 0x00ccc980 FUN_00ccc980  call @ 0x00ccca7a
+  caller 0x00e68a80 FUN_00e68a80  call @ 0x00e68d64
+  caller 0x00e723a0 FUN_00e723a0  call @ 0x00e72481
+  caller 0x00e76a80 FUN_00e76a80  call @ 0x00e76b3a
+  caller 0x00ead1e0 FUN_00ead1e0  call @ 0x00ead22a
+  caller 0x00eba1b0 FUN_00eba1b0  call @ 0x00eba202
+  caller 0x00ec2760 FUN_00ec2760  call @ 0x00ec27ee
+  caller 0x00ec1ff0 FUN_00ec1ff0  call @ 0x00ec205c
+  caller 0x00ec2d80 FUN_00ec2d80  call @ 0x00ec2da4
+  caller 0x00b09960 FUN_00b09960  call @ 0x00b09a82
+  caller 0x00c75f40 FUN_00c75f40  call @ 0x00c75f54
+  caller 0x00c7fc20 FUN_00c7fc20  call @ 0x00c7fc34
+  caller 0x00a27040 FUN_00a27040  call @ 0x00a27069
+  caller 0x00000000 (no func)  call @ 0x00a2727a
+  caller 0x00a27c40 FUN_00a27c40  call @ 0x00a27c69
+  caller 0x00a28f00 FUN_00a28f00  call @ 0x00a28f29
+  caller 0x00a29db0 FUN_00a29db0  call @ 0x00a29dd9
+  caller 0x00a2a1b0 FUN_00a2a1b0  call @ 0x00a2a1d9
+  caller 0x00a2ab40 FUN_00a2ab40  call @ 0x00a2ab69
+  caller 0x00a2af30 FUN_00a2af30  call @ 0x00a2af59
+  caller 0x00a2be60 FUN_00a2be60  call @ 0x00a2be89
+  caller 0x00a2c660 FUN_00a2c660  call @ 0x00a2c689
+  caller 0x00a2cc90 FUN_00a2cc90  call @ 0x00a2ccb9
+  caller 0x00a2ced0 FUN_00a2ced0  call @ 0x00a2cef9
+  caller 0x00a37510 FUN_00a37510  call @ 0x00a3755c
+  caller 0x00a363b0 FUN_00a363b0  call @ 0x00a36447
+  caller 0x00a3a450 FUN_00a3a450  call @ 0x00a3a481
+  caller 0x00a41940 FUN_00a41940  call @ 0x00a419c5
+  caller 0x00a44af0 FUN_00a44af0  call @ 0x00a44b48
+  caller 0x00a46c20 FUN_00a46c20  call @ 0x00a46c86
+  caller 0x00a6c720 FUN_00a6c720  call @ 0x00a6c758
+  caller 0x00a871a0 FUN_00a871a0  call @ 0x00a8720c
+  caller 0x00a90290 FUN_00a90290  call @ 0x00a902b9
+  caller 0x00c24f20 FUN_00c24f20  call @ 0x00c24f4f
+  Total unique symbolic-size callers: 214

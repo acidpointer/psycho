@@ -19,19 +19,38 @@ use super::{gheap, scrap_heap};
 // Phase 1: initialize (NVSEPlugin_Preload)
 // ---------------------------------------------------------------------------
 
-/// Reserves slab VAS, caches process heap handles, and prepares all hook
+/// Reserves pool VAS, caches process heap handles, and prepares all hook
 /// trampolines. No game code is redirected yet.
 pub fn heap_replacer_initialize() -> anyhow::Result<()> {
-    // Slab allocator -- reserves VAS for all size-class arenas.
-    if !gheap::slab::init() {
-        return Err(anyhow::anyhow!("Slab allocator initialization failed"));
+    // Pool allocator: each class reserves its own VA aligned to POOL_ALIGN.
+    if !gheap::pool::init() {
+        return Err(anyhow::anyhow!("Pool allocator initialization failed"));
+    }
+
+    // Block allocator: single contiguous tier reservation. Keeps all
+    // medium allocations in one VA island instead of scattering
+    // 16 MB reservations across free VAS per save-load burst.
+    if !gheap::block::init() {
+        log::warn!(
+            "[HEAP REPLACER] Block tier reservation failed; medium \
+             allocations will fall through to va_alloc"
+        );
     }
 
     gheap::crash_diag::install();
 
-    // Decommit SBM arena pages with zero live blocks before we take over.
-    // SBM state is fully consistent at this point.
-    cleanup_sbm_arenas();
+    // NOTE: cleanup_sbm_arenas() is intentionally NOT called from here.
+    // The premise "SBM state is fully consistent at this point" was true
+    // when install ran inside DllMain (loader lock held -- no other thread
+    // could touch the SBM). With install moved to NVSEPlugin_Preload the
+    // loader lock is released, BSTaskManager / IO worker threads are
+    // already alive, and walking the SBM_POOL_TABLE racing the SBM's own
+    // refcount tracker decommits pages the SBM still has on its freelist.
+    // Next SBM allocation that pops one of those pages returns memory we
+    // already MEM_DECOMMIT'd -- first store into the cell faults, often
+    // visible as a memcpy with a freshly-NULLed source against a static
+    // BSTCommonMessageQueue<BSPackedTask> slot. The function is left in
+    // place for a future correctly-sequenced reclamation pass.
 
     // Cache process heap handles so free/msize/realloc can route pre-hook
     // pointers back to the correct Windows heap after hooks go live.
@@ -107,10 +126,21 @@ pub fn heap_replacer_initialize() -> anyhow::Result<()> {
     }
 
     // PDD destruction guard
+    // {
+    //     use gheap::statics::*;
+
+    //     PDD_HOOK.init("pdd", PDD_ADDR as *mut c_void, gheap::pdd_hook::hook_pdd)?;
+    // }
+
+    // OOM Stage 8 (HeapCompact) -- safe BSTaskManagerThread semaphore release
     {
         use gheap::statics::*;
 
-        PDD_HOOK.init("pdd", PDD_ADDR as *mut c_void, gheap::pdd_hook::hook_pdd)?;
+        OOM_STAGE_EXEC_HOOK.init(
+            "oom_stage_exec",
+            OOM_STAGE_EXEC_HOOK_ADDR as *mut c_void,
+            gheap::hooks::hook_oom_stage_exec,
+        )?;
     }
 
     // texture cache dead set
@@ -204,6 +234,28 @@ pub fn heap_replacer_initialize() -> anyhow::Result<()> {
         )?;
     }
 
+    // havok vanilla-bug shim (NULL hkpEntity in addEntityBatch result array)
+    {
+        use gheap::statics::*;
+
+        HAVOK_ENTITY_POST_ADD_HOOK.init(
+            "havok_entity_post_add",
+            HAVOK_ENTITY_POST_ADD_ADDR as *mut c_void,
+            gheap::havok_fix::hook_havok_entity_post_add,
+        )?;
+    }
+
+    // game-inlined _memset NULL-dst defensive shim
+    {
+        use gheap::statics::*;
+
+        MEMSET_HOOK.init(
+            "memset_null_guard",
+            MEMSET_ADDR as *mut c_void,
+            gheap::memset_fix::hook_memset,
+        )?;
+    }
+
     log::info!("[HEAP REPLACER] Infrastructure initialized, all trampolines prepared");
     Ok(())
 }
@@ -245,12 +297,20 @@ pub fn heap_replacer_activate() -> anyhow::Result<()> {
         log::info!("[SYNC] AI start/join hooks active");
     }
 
-    // PDD
+    // // PDD
+    // {
+    //     use gheap::statics::*;
+
+    //     PDD_HOOK.enable()?;
+    //     log::info!("[SYNC] PDD hook active");
+    // }
+
+    // OOM Stage 8
     {
         use gheap::statics::*;
 
-        PDD_HOOK.enable()?;
-        log::info!("[SYNC] PDD hook active");
+        OOM_STAGE_EXEC_HOOK.enable()?;
+        log::info!("[OOM] Stage 8 safe handler active");
     }
 
     // texture cache
@@ -265,7 +325,7 @@ pub fn heap_replacer_activate() -> anyhow::Result<()> {
     // CRT IAT
     {
         use super::crt_iat::*;
-        
+
         MALLOC_IAT_HOOK.enable()?;
         CALLOC_IAT_HOOK.enable()?;
         REALLOC_IAT_HOOK.enable()?;
@@ -318,6 +378,22 @@ pub fn heap_replacer_activate() -> anyhow::Result<()> {
         log::info!("[HAVOK] World lock hooks active");
     }
 
+    // havok vanilla-bug shim
+    {
+        use gheap::statics::*;
+
+        HAVOK_ENTITY_POST_ADD_HOOK.enable()?;
+        log::info!("[HAVOK] FUN_00CFFA00 NULL-entity guard active");
+    }
+
+    // _memset NULL-dst defensive shim
+    {
+        use gheap::statics::*;
+
+        MEMSET_HOOK.enable()?;
+        log::info!("[CRT] _memset NULL-dst guard active");
+    }
+
     // SBM disable patches (must be after hooks are active)
     apply_sbm_patches()?;
 
@@ -343,9 +419,15 @@ fn start_deferred_threads() {
 // ---------------------------------------------------------------------------
 
 /// Decommit SBM arena pages with zero live blocks.
-/// Must run BEFORE hooks are enabled (SBM state is fully consistent).
+///
+/// HISTORICAL NOTE: this used to be called from `heap_replacer_initialize`
+/// when install ran inside DllMain. With install moved to Preload it races
+/// against live worker threads still allocating from the SBM, so the call
+/// was removed (see comment in `heap_replacer_initialize`). The function
+/// is kept for a future correctly-sequenced reclamation pass.
+#[allow(dead_code)]
 fn cleanup_sbm_arenas() {
-    use windows::Win32::System::Memory::{MEM_DECOMMIT, VirtualFree};
+    use windows::Win32::System::Memory::{VirtualFree, MEM_DECOMMIT};
 
     let pool_table = gheap::engine::addr::SBM_POOL_TABLE;
     let mut total_pages: usize = 0;
@@ -417,10 +499,48 @@ fn apply_sbm_patches() -> anyhow::Result<()> {
         patch_nop_call(0x00C42EB1 as *mut c_void)?;
         patch_nop_call(0x00EC1701 as *mut c_void)?;
 
+        // Skip the late-init singleton allocation in FUN_00aa3050.
+        //
+        // FUN_00aa3050 is a one-time-init gate that calls FUN_00aa2020,
+        // which does `DAT_011f6080 = game_heap_allocate(&DAT_011f6238, 4)`
+        // and then fills the 4-byte slot with a singleton pointer + invokes
+        // a virtual method through it. `FUN_00aa2020` has a second
+        // caller at 0x00866734 that runs during HeapSingleton startup
+        // (before our hooks are fully active) -- that call we leave alone
+        // so the singleton gets initialised once with vanilla-SBM memory.
+        // The 0x00AA3060 call would re-run the allocation through our
+        // pool and expose the long-lived `*DAT_011f6080` pointer to
+        // pool-reuse races if the 4-byte cell ever gets freed.
+        //
+        // Matches NVHR `patch_nop_call((void *)0x00AA3060)` in
+        // Heap-Replacer/main/heap_replacer.h. Verified via Ghidra in
+        // analysis/ghidra/output/memory/verify_nvhr_patch_0x00AA3060.txt.
+        patch_nop_call(0x00AA3060 as *mut c_void)?;
+
+        // Skip the embedded scrap-heap constructor at HeapSingleton+0x114.
+        //
+        // The HeapSingleton constructor (FUN_00aa3880, called once from
+        // a CRT global initialiser at 0x00fb66a8) contains a 30-byte
+        // sequence that constructs a secondary scrap-heap instance at
+        // offset +0x114 of the HeapSingleton and installs its vtable.
+        // Our sheap_alloc/sheap_free hooks (0x00AA54A0 / 0x00AA5610)
+        // replace the primary sheap but not this embedded secondary one.
+        // If it's constructed, game paths that dereference
+        // `*(HeapSingleton+0x114)` touch state outside our allocator's
+        // awareness. The surrounding `_memset(param_1+0xc, 0, 0x108)`
+        // already zeros the HeapSingleton up to +0x114, so replacing
+        // the constructor with NOPs leaves the embedded sheap field
+        // at its clean zero-init state.
+        //
+        // Matches NVHR `patch_nops((void *)0x00AA38CA, 0x00AA38E8 -
+        // 0x00AA38CA)`. Verified via Ghidra in
+        // analysis/ghidra/output/memory/verify_nvhr_patch_0x00AA38CA.txt.
+        patch_bytes(0x00AA38CA as *mut c_void, &[0x90u8; 30])?;
+
         // Skip per-frame SBM arena management (JMP +0x55 over the stale loop).
         patch_bytes(0x0086EED4 as *mut c_void, &[0xEB, 0x55])?;
     }
 
-    log::info!("[SBM] Patched (10 RET + 3 NOP + 1 JMP + fast path disabled)");
+    log::info!("[SBM] Patched (10 RET + 4 NOP-call + 1 30-byte NOP + 1 JMP + fast path disabled)");
     Ok(())
 }

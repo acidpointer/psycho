@@ -1,0 +1,534 @@
+AI LINEAR TASK THREAD LIFECYCLE ANALYSIS
+Goal: Does is_ai_active() (DAT_011DFA19) cover Linear Task Threads?
+Crash: 0x00C94DA5 on AI Linear Task Thread 2 after destruction_protocol
+======================================================================
+
+######################################################################
+# SECTION 1: DAT_011DFA19 (AI_ACTIVE_FLAG) ? all readers and writers
+# If Linear Task Threads never read this, is_ai_active() is useless
+######################################################################
+
+----------------------------------------------------------------------
+References TO 0x011dfa19 (AI_ACTIVE_FLAG)
+----------------------------------------------------------------------
+  READ @ 0x00713d93 (in FUN_00713d90)
+  WRITE @ 0x008c7947 (in FUN_008c78c0)
+  WRITE @ 0x008c79cd (in FUN_008c7990)
+  Total: 3 refs
+
+######################################################################
+# SECTION 2: AILinearTaskThread ? find constructor/vtable
+######################################################################
+
+----------------------------------------------------------------------
+References TO 0x01085688 (AILinearTaskThread_RTTI)
+----------------------------------------------------------------------
+  DATA @ 0x008c7668 (in FUN_008c7630)
+  Total: 1 refs
+
+######################################################################
+# SECTION 3: AI_ThreadStart (0x008C78C0) ? does it create Linear Tasks?
+######################################################################
+
+======================================================================
+AI_ThreadStart @ 0x008c78c0
+======================================================================
+  Function: FUN_008c78c0 @ 0x008c78c0, Size: 198 bytes
+
+void __fastcall FUN_008c78c0(int param_1)
+
+{
+  undefined4 local_14;
+  undefined4 local_10;
+  undefined4 local_c;
+  undefined4 local_8;
+  
+  for (local_8 = 0; local_8 < 0xc; local_8 = local_8 + 1) {
+    ResetEvent(*(HANDLE *)(param_1 + 0x3c + local_8 * 4));
+  }
+  for (local_c = 0; local_c < 8; local_c = local_c + 1) {
+    ResetEvent(*(HANDLE *)(param_1 + 0x6c + local_c * 4));
+  }
+  for (local_10 = 0; local_10 < 2; local_10 = local_10 + 1) {
+    *(undefined4 *)(param_1 + 0xc + local_10 * 4) = 0;
+  }
+  DAT_011dfa19 = 1;
+  for (local_14 = 0; local_14 < 2; local_14 = local_14 + 1) {
+    if (*(int *)(param_1 + local_14 * 4) != 0) {
+      FUN_008c9fb0(*(int *)(param_1 + local_14 * 4));
+    }
+  }
+  return;
+}
+
+
+
+--- Calls FROM AI_ThreadStart (0x008c78c0) ---
+  0x008c78ec -> 0x00000069 ???
+  0x008c7917 -> 0x00000069 ???
+  0x008c797b -> 0x008c9fb0 FUN_008c9fb0
+  Total: 3 calls
+
+######################################################################
+# SECTION 4: AI_ThreadJoin (0x008C7990) ? does it drain Linear Tasks?
+######################################################################
+
+======================================================================
+AI_ThreadJoin @ 0x008c7990
+======================================================================
+  Function: FUN_008c7990 @ 0x008c7990, Size: 72 bytes
+
+void __fastcall FUN_008c7990(int param_1)
+
+{
+  undefined4 local_8;
+  
+  for (local_8 = 0; local_8 < 2; local_8 = local_8 + 1) {
+    if (*(int *)(param_1 + local_8 * 4) != 0) {
+      FUN_008c7490(*(int *)(param_1 + local_8 * 4));
+    }
+  }
+  DAT_011dfa19 = 0;
+  return;
+}
+
+
+
+--- Calls FROM AI_ThreadJoin (0x008c7990) ---
+  0x008c79c6 -> 0x008c7490 FUN_008c7490
+  Total: 1 calls
+
+######################################################################
+# SECTION 5: StopHavok_DrainAI (FUN_008324e0) ? vanilla sync
+# Does it properly drain Linear Task Threads?
+######################################################################
+
+======================================================================
+StopHavok_DrainAI @ 0x008324e0
+======================================================================
+  Function: FUN_008324e0 @ 0x008324e0, Size: 184 bytes
+
+char __cdecl FUN_008324e0(char param_1)
+
+{
+  char cVar1;
+  
+  if (DAT_011dd436 == '\0') {
+    if (param_1 == '\0') {
+      cVar1 = FUN_00830ad0();
+      if (cVar1 != '\0') {
+        FUN_008304a0();
+        FUN_008325a0(0);
+      }
+      FUN_00ad88f0((int *)&DAT_011dd5bc);
+      FUN_00ad8d10((int *)&DAT_011dd5bc);
+      DAT_011dd42c = 0;
+      FUN_00ad88f0((int *)&DAT_011dd638);
+      FUN_00ad8d10((int *)&DAT_011dd638);
+    }
+    else if (DAT_011dd437 == '\0') {
+      FUN_008304a0();
+      FUN_008325a0(1);
+      FUN_008300c0(7,(char *)0x0,1000,'\0','\0',0.0,0);
+      FUN_008304c0();
+    }
+    DAT_011dd434 = param_1;
+  }
+  else {
+    param_1 = '\0';
+  }
+  return param_1;
+}
+
+
+
+--- Calls FROM StopHavok_DrainAI (0x008324e0) ---
+  0x00832508 -> 0x008304a0 FUN_008304a0
+  0x0083250f -> 0x008325a0 FUN_008325a0
+  0x0083252c -> 0x008300c0 FUN_008300c0
+  0x00832534 -> 0x008304c0 FUN_008304c0
+  0x0083253b -> 0x00830ad0 FUN_00830ad0
+  0x00832547 -> 0x008304a0 FUN_008304a0
+  0x0083254e -> 0x008325a0 FUN_008325a0
+  0x0083255b -> 0x00ad88f0 FUN_00ad88f0
+  0x00832565 -> 0x00ad8d10 FUN_00ad8d10
+  0x00832579 -> 0x00ad88f0 FUN_00ad88f0
+  0x00832583 -> 0x00ad8d10 FUN_00ad8d10
+  Total: 11 calls
+
+######################################################################
+# SECTION 6: FUN_008325a0 ? called by StopHavok_DrainAI
+######################################################################
+
+======================================================================
+StopHavok_SubFunc @ 0x008325a0
+======================================================================
+  Function: FUN_008325a0 @ 0x008325a0, Size: 13 bytes
+
+void __cdecl FUN_008325a0(undefined1 param_1)
+
+{
+  DAT_011dd313 = param_1;
+  return;
+}
+
+
+
+######################################################################
+# SECTION 7: FUN_008300c0 ? the actual wait function (timeout=1000ms)
+# Does this drain AI Linear Task Threads?
+######################################################################
+
+======================================================================
+StopHavok_WaitFunc @ 0x008300c0
+======================================================================
+  Function: FUN_008300c0 @ 0x008300c0, Size: 944 bytes
+
+/* WARNING: Globals starting with '_' overlap smaller symbols at the same address */
+
+void __cdecl
+FUN_008300c0(int param_1,char *param_2,int param_3,char param_4,char param_5,float param_6,
+            undefined4 param_7)
+
+{
+  bool bVar1;
+  int iVar2;
+  int *unaff_FS_OFFSET;
+  float10 fVar3;
+  undefined4 local_178 [87];
+  uint local_1c;
+  char *local_18;
+  int local_14;
+  int local_10;
+  undefined1 *puStack_c;
+  undefined4 local_8;
+  
+  local_8 = 0xffffffff;
+  puStack_c = &LAB_00f11d7b;
+  local_10 = *unaff_FS_OFFSET;
+  local_1c = DAT_011c16bc ^ (uint)&stack0xfffffffc;
+  *unaff_FS_OFFSET = (int)&local_10;
+  FUN_00830470();
+  if (param_1 == 9) {
+    FUN_0082fa30();
+    FUN_00830490();
+  }
+  else if ((param_1 == 8) || (DAT_011dcfa5 == '\0')) {
+    if ((param_2 == (char *)0x0) || (*param_2 == '\0')) {
+      FUN_00830490();
+    }
+    else if ((param_5 == '\0') &&
+            (((param_1 < DAT_011dd314 && (DAT_011dd36c == 1)) ||
+             ((param_1 < DAT_011dd348 && (DAT_011dd36c == 0)))))) {
+      FUN_005b5e40();
+      FUN_00830490();
+    }
+    else {
+      local_18 = param_2;
+      FUN_00b00260(local_178,param_2,0,0x4000,'\0');
+      local_8 = 0;
+      bVar1 = FUN_00affc60((int)local_178);
+      if (bVar1) {
+        local_8 = 0xffffffff;
+        FID_conflict__CListBox(local_178);
+        iVar2 = FUN_00453a70();
+        local_14 = FUN_0063d040(iVar2);
+        bVar1 = DAT_011dd36c != 0;
+        if (bVar1) {
+          _DAT_011dd338 = 0;
+          _DAT_011dd33c = 0;
+          fVar3 = FUN_0082fec0(param_1,param_6);
+          _DAT_011dd340 = (float)fVar3;
+          _DAT_011dd344 = param_6;
+          DAT_011dd311 = -(param_4 != '\0') & 0x20U | 0x10;
+          FUN_00406d30(&DAT_011dd1f8,0x104,param_2);
+          DAT_011dd348 = param_1;
+          DAT_011dd34c = param_7;
+          DAT_011dd35c = param_3;
+          DAT_011dd360 = local_14 + param_3;
+          _DAT_011dd364 = 0;
+          DAT_011dd368 = DAT_011a163c;
+          _DAT_011dd3c4 = DAT_011a163c;
+          DAT_011a163c = DAT_011a163c + 1;
+          _DAT_011dd3c8 = DAT_011dd36c;
+          FUN_0082f760((void *)(DAT_011dd36c * 0x4c + DAT_011dd1f4),&DAT_011dd3c4);
+          DAT_011dd310 = DAT_011dd310 | 0x18;
+          _DAT_011dd304 = _DAT_011dd300;
+          _DAT_011dd308 = 0.0;
+        }
+        else {
+          _DAT_011dd300 = 0;
+          _DAT_011dd304 = 0;
+          fVar3 = FUN_0082fec0(param_1,param_6);
+          _DAT_011dd308 = (float)fVar3;
+          _DAT_011dd30c = param_6;
+          DAT_011dd310 = -(param_4 != '\0') & 0x20U | 0x10;
+          FUN_00406d30(&DAT_011dd0f0,0x104,param_2);
+          DAT_011dd314 = param_1;
+          DAT_011dd318 = param_7;
+          DAT_011dd328 = param_3;
+          DAT_011dd32c = local_14 + param_3;
+          _DAT_011dd330 = 0;
+          DAT_011dd334 = DAT_011a163c;
+          _DAT_011dd3c4 = DAT_011a163c;
+          DAT_011a163c = DAT_011a163c + 1;
+          _DAT_011dd3c8 = DAT_011dd36c;
+          FUN_0082f760((void *)(DAT_011dd36c * 0x4c + DAT_011dd1f4),&DAT_011dd3c4);
+          DAT_011dd311 = DAT_011dd311 | 0x18;
+          _DAT_011dd33c = _DAT_011dd338;
+          _DAT_011dd340 = 0.0;
+          DAT_011dd35c = DAT_011dd328;
+          DAT_011dd360 = DAT_011dd32c;
+        }
+        DAT_011dd36c = (uint)!bVar1;
+        DAT_011dd328 = DAT_011dd35c;
+        DAT_011dd32c = DAT_011dd360;
+        FUN_00830490();
+      }
+      else {
+        FUN_005b5e40();
+        FUN_00830490();
+        local_8 = 0xffffffff;
+        FID_conflict__CListBox(local_178);
+      }
+    }
+  }
+  else {
+    FUN_00830490();
+  }
+  *unaff_FS_OFFSET = local_10;
+  __security_check_cookie(local_1c ^ (uint)&stack0xfffffffc);
+  return;
+}
+
+
+
+######################################################################
+# SECTION 8: CellTransitionHandler ? vanilla cell transition
+# How does it synchronize with AI threads before freeing cells?
+######################################################################
+
+======================================================================
+CellTransitionHandler @ 0x008774a0
+======================================================================
+  Function: FUN_008774a0 @ 0x008774a0, Size: 561 bytes
+
+void __thiscall FUN_008774a0(void *this,char param_1)
+
+{
+  undefined1 uVar1;
+  bool bVar2;
+  int iVar3;
+  void *this_00;
+  int *piVar4;
+  int *piVar5;
+  undefined *puVar6;
+  undefined4 local_20;
+  undefined4 local_18;
+  
+  uVar1 = FUN_004f1540((int)this);
+  FUN_004f15a0(this,0);
+  FUN_00877700((int)DAT_011dea3c);
+  bVar2 = FUN_007d6bd0(DAT_011ddf38,'\0');
+  FUN_00453a70();
+  FUN_00ad8780();
+  FUN_008324e0('\0');
+  iVar3 = FUN_008d6f30((int)DAT_011dea3c);
+  if (iVar3 != 0) {
+    piVar4 = DAT_011dea3c;
+    this_00 = (void *)FUN_008d6f30((int)DAT_011dea3c);
+    FUN_0054ca90(this_00,piVar4);
+  }
+  piVar4 = (int *)FUN_00950bb0(DAT_011dea3c,'\x01');
+  if (piVar4 == (int *)0x0) {
+    local_18 = 0;
+  }
+  else {
+    local_18 = (**(code **)(*piVar4 + 0xc))();
+  }
+  if (local_18 != 0) {
+    iVar3 = FUN_009611e0(local_18);
+    if (iVar3 != 0) {
+      piVar5 = (int *)FUN_009611e0(local_18);
+      (**(code **)(*piVar5 + 0xe8))(piVar4);
+    }
+  }
+  piVar4 = (int *)FUN_00950bb0(DAT_011dea3c,'\0');
+  if (piVar4 == (int *)0x0) {
+    local_20 = 0;
+  }
+  else {
+    local_20 = (**(code **)(*piVar4 + 0xc))();
+  }
+  if (local_20 != 0) {
+    iVar3 = FUN_009611e0(local_20);
+    if (iVar3 != 0) {
+      piVar5 = (int *)FUN_009611e0(local_20);
+      (**(code **)(*piVar5 + 0xe8))(piVar4);
+    }
+  }
+  FUN_004539a0(DAT_011dea10,'\0','\0');
+  FUN_007037c0(DAT_011dea10,0x7fffffff);
+  FUN_0061cc40(DAT_011dea10,0x7fffffff);
+  puVar6 = FUN_006c0720();
+  FUN_006c09f0(puVar6);
+  FUN_00868d70('\0');
+  FUN_00c459d0('\0');
+  (**(code **)(*DAT_011dea3c + 0x1cc))(0,0);
+  FUN_0084a840(DAT_011ddf38);
+  FUN_00970d50(0x11e0e80);
+  FUN_004614e0(DAT_011c3f2c);
+  iVar3 = FUN_00b4f5c0();
+  FUN_00b631d0(iVar3);
+  FUN_0040fbe0();
+  FUN_00706320();
+  FUN_0045ac80((int)DAT_011dea10);
+  if (param_1 != '\0') {
+    FUN_007053f0();
+  }
+  FUN_007d6bd0(DAT_011ddf38,bVar2);
+  FUN_008776e0((int)DAT_011dea0c);
+  FUN_004f15a0(DAT_011dea0c,uVar1);
+  return;
+}
+
+
+
+######################################################################
+# SECTION 9: IOManager_Process ? where Linear Tasks get work
+######################################################################
+
+======================================================================
+IOManager_Process @ 0x00c3dbf0
+======================================================================
+  Function: FUN_00c3dbf0 @ 0x00c3dbf0, Size: 646 bytes
+
+/* WARNING: Removing unreachable block (ram,0x00c3dc63) */
+/* WARNING: Removing unreachable block (ram,0x00c3dc9f) */
+/* WARNING: Removing unreachable block (ram,0x00c3dd3c) */
+/* WARNING: Removing unreachable block (ram,0x00c3de2a) */
+/* WARNING: Removing unreachable block (ram,0x00c3de5c) */
+
+undefined1 __fastcall FUN_00c3dbf0(int param_1)
+
+{
+  bool bVar1;
+  uint uVar2;
+  int iVar3;
+  int *unaff_FS_OFFSET;
+  longlong lVar4;
+  ulonglong uVar5;
+  longlong lVar6;
+  uint local_28;
+  int local_24;
+  undefined1 local_15;
+  int *local_14;
+  int local_10;
+  undefined1 *puStack_c;
+  undefined4 local_8;
+  
+  local_8 = 0xffffffff;
+  puStack_c = &LAB_00f2dd89;
+  local_10 = *unaff_FS_OFFSET;
+  uVar2 = DAT_011c16bc ^ (uint)&stack0xfffffffc;
+  *unaff_FS_OFFSET = (int)&local_10;
+  if (DAT_01202dd8 == '\0') {
+    local_15 = 1;
+    DAT_01202dd8 = 1;
+    lVar4 = FUN_00aa4d80();
+    uVar5 = FUN_00ec62f6();
+    if (*(int *)(param_1 + 0x74) != 0) {
+      local_15 = (**(code **)(param_1 + 0x74))(uVar2);
+    }
+    local_14 = (int *)0x0;
+    local_8 = 0;
+    FUN_00c3e420(*(void **)(param_1 + 100),(int *)&local_14);
+    while (local_14 != (int *)0x0) {
+      (**(code **)(*local_14 + 0x14))();
+      if (*(int *)(param_1 + 0x70) != 0) {
+        (**(code **)(param_1 + 0x70))();
+      }
+      lVar6 = FUN_00aa4d80();
+      iVar3 = (int)((ulonglong)(lVar6 - lVar4) >> 0x20);
+      local_24 = (int)(uVar5 >> 0x20);
+      if ((iVar3 < local_24) ||
+         ((iVar3 <= local_24 && (local_28 = (uint)uVar5, (uint)(lVar6 - lVar4) <= local_28)))) {
+        bVar1 = false;
+      }
+      else {
+        bVar1 = true;
+      }
+      if (bVar1) {
+        if (local_14 != (int *)0x0) {
+          if (local_14 != (int *)0x0) {
+            FUN_0044dd60(local_14);
+          }
+          local_14 = (int *)0x0;
+        }
+      }
+      else {
+        FUN_00c3e420(*(void **)(param_1 + 100),(int *)&local_14);
+      }
+    }
+    DAT_01202dd8 = '\0';
+  }
+  else {
+    local_15 = 1;
+  }
+  *unaff_FS_OFFSET = local_10;
+  return local_15;
+}
+
+
+
+--- Calls FROM IOManager_Process (0x00c3dbf0) ---
+  0x00c3dce0 -> 0x00aa4d80 FUN_00aa4d80
+  0x00c3dd0a -> 0x00ec62f6 FUN_00ec62f6
+  0x00c3dd49 -> 0x00000066 ???
+  0x00c3dd63 -> 0x00c3e420 FUN_00c3e420
+  0x00c3dda5 -> 0x00aa4d80 FUN_00aa4d80
+  0x00c3de02 -> 0x00c3e420 FUN_00c3e420
+  0x00c3de18 -> 0x0044dd60 FUN_0044dd60
+  0x00c3de37 -> 0x00000066 ???
+  0x00c3de5f -> 0x0044dd60 FUN_0044dd60
+  Total: 9 calls
+
+######################################################################
+# SECTION 10: AILinearTaskThread dispatch chain
+# What function creates/queues work for Linear Task Threads?
+######################################################################
+  0x008c7668 in FUN_008c7630 (0x008c7630)
+
+######################################################################
+# SECTION 11: AI_WaitForWork ? is this for coordinator or workers?
+######################################################################
+
+======================================================================
+AI_WaitForWork @ 0x004424e0
+======================================================================
+  Function: FUN_004424e0 @ 0x004424e0, Size: 38 bytes
+
+void __fastcall FUN_004424e0(LONG *param_1)
+
+{
+  WaitForSingleObject((HANDLE)param_1[1],0xffffffff);
+  FUN_004019a0(param_1);
+  return;
+}
+
+
+
+----------------------------------------------------------------------
+References TO 0x004424e0 (AI_WaitForWork)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x0054ac51 (in FUN_0054abd0)
+  UNCONDITIONAL_CALL @ 0x0078d014 (in FUN_0078cfc0)
+  UNCONDITIONAL_CALL @ 0x0086cddd (in FUN_0086cdd0)
+  UNCONDITIONAL_CALL @ 0x008c749d (in FUN_008c7490)
+  UNCONDITIONAL_CALL @ 0x0044251d (in FUN_00442510)
+  UNCONDITIONAL_CALL @ 0x004424cd (in FUN_004424c0)
+  UNCONDITIONAL_CALL @ 0x0078d529 (in FUN_0078d490)
+  UNCONDITIONAL_CALL @ 0x008c7745 (in FUN_008c7720)
+  UNCONDITIONAL_CALL @ 0x008c80b8 (in FUN_008c80b0)
+  UNCONDITIONAL_CALL @ 0x008c9c90 (in FUN_008c9c70)
+  Total: 10 refs

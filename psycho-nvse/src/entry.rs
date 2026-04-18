@@ -24,20 +24,23 @@ use libpsycho::{
     os::windows::{types::LPVOID, winapi::alloc_console},
 };
 use windows::{
+    core::BOOL,
     Win32::{
         Foundation::HINSTANCE,
         System::SystemServices::{
             DLL_PROCESS_ATTACH, DLL_PROCESS_DETACH, DLL_THREAD_ATTACH, DLL_THREAD_DETACH,
         },
     },
-    core::BOOL,
 };
 
 use crate::{
     config::load_config,
     mods::{
         display::install_display_hooks,
-        heap_replacer::{configure_mimalloc, heap_replacer_activate, heap_replacer_initialize},
+        heap_replacer::{
+            configure_mimalloc, heap_replacer_activate,
+            heap_replacer_initialize,
+        },
         perf::install_rng_hook,
         zlib::install_zlib_hooks,
     },
@@ -79,6 +82,7 @@ fn entrypoint(nvse_ptr: *const NVSEInterfaceFFI) -> anyhow::Result<()> {
             crate::nvse_services::set_game_ready();
             log::info!("[NVSE] Game engine ready - DeferredInit message received!");
             crate::mods::display::verify_display_resolution();
+            crate::mods::vas_probe::scan_vas("deferred-init");
         }
     })?;
 
@@ -153,7 +157,22 @@ pub extern "C" fn NVSEPlugin_Preload() -> BOOL {
 
     log::info!("[PRELOAD] Config loaded, logger ready");
 
+    // Research probes for OOM-rework planning. Pure observation: the
+    // reserve probe releases every successful reservation before returning,
+    // so this block has no lasting effect on VAS layout.
+    crate::mods::vas_probe::scan_vas("preload-start");
+    crate::mods::vas_probe::probe_reserve_sizes();
+    crate::mods::vas_probe::scan_vas("post-probe");
+
+    // Unified arena: single VirtualAlloc for slab + metadata + large allocs.
+    // Mimalloc reserves its own arena first (it needs specific alignment that
+    // mi_manage_os_memory_ex doesn't reliably provide), then we fit the rest
+    // Step 1: Configure mimalloc FIRST (it reserves its own arena for CRT).
     configure_mimalloc();
+
+    // Pool / block allocators reserve their VA inside
+    // `heap_replacer_initialize()` below; no separate arena reservation
+    // step is needed.
 
     if cfg.memory.heap_replacer {
         match heap_replacer_initialize() {
@@ -163,6 +182,8 @@ pub extern "C" fn NVSEPlugin_Preload() -> BOOL {
             }
         }
     }
+
+    crate::mods::vas_probe::scan_vas("preload-end");
 
     log::info!("[PRELOAD] Infrastructure initialized, trampolines prepared");
 

@@ -1,27 +1,32 @@
-//! CRT allocator hooks: malloc/calloc/realloc/recalloc/msize/free.
+//! Inline CRT allocator hooks for the game binary itself
+//! (FalloutNV.exe's linked msvcrt entry points).
 //!
-//! Replaces the game's embedded MSVCRT heap with mimalloc. Pre-hook
-//! pointers (allocated before our hooks were installed) are routed
-//! through the original CRT trampoline or HeapValidate fallback.
+//! Dispatch on each hook:
+//!   1. Our tiers (pool / block / va_alloc) -- new allocations created
+//!      after hooks activated land here, so most frees hit this path.
+//!   2. Mimalloc -- pointers from the IAT hooks (third-party DLLs) may
+//!      reach these inline hooks too; route them to mi_free.
+//!   3. Original CRT trampoline (FREE_HOOK.original, etc.) -- pre-hook
+//!      allocations that the game made before we installed hooks still
+//!      live in the game's original msvcrt heap. They must be freed
+//!      via the original CRT functions, NOT via our allocator or
+//!      the game-heap trampoline.
+//!   4. heap_validate fallback -- last-resort HeapValidate walk across
+//!      all process heaps for pointers we can't identify.
 //!
-//! Large allocations (>= 64KB) are routed through VirtualAlloc instead
-//! of mimalloc. This prevents large raw buffers (textures, geometry,
-//! audio) from consuming mimalloc arena pages that can't be efficiently
-//! reclaimed during VAS crises.
+//! New allocations from `malloc` / `calloc` always go to our allocator.
 
 use std::ptr::null_mut;
 use std::sync::LazyLock;
 
 use libc::c_void;
-use libmimalloc::{
-    mi_calloc, mi_free, mi_is_in_heap_region, mi_malloc, mi_realloc, mi_recalloc,
-    mi_usable_size,
-};
+use libmimalloc::{mi_free, mi_is_in_heap_region, mi_realloc, mi_recalloc, mi_usable_size};
 use libpsycho::os::windows::{
     hook::inline::inlinehook::InlineHookContainer,
-    types::{CallocFn, FreeFn, MallocFn, MsizeFn, ReallocFn, RecallocFn}, va_allocator,
+    types::{CallocFn, FreeFn, MallocFn, MsizeFn, ReallocFn, RecallocFn},
 };
 
+use super::gheap::{allocator, block, pool, va_alloc};
 use super::heap_validate;
 
 // ---- Addresses ----
@@ -60,182 +65,205 @@ pub static MSIZE_HOOK: LazyLock<InlineHookContainer<MsizeFn>> =
 pub static FREE_HOOK: LazyLock<InlineHookContainer<FreeFn>> =
     LazyLock::new(InlineHookContainer::new);
 
-// ---- Hook implementations ----
+// ---------------------------------------------------------------------------
+// Ownership checks
+// ---------------------------------------------------------------------------
+
+#[inline]
+fn is_our_ptr(ptr: *const c_void) -> bool {
+    pool::is_pool_ptr(ptr) || block::is_block_ptr(ptr) || va_alloc::size_of(ptr).is_some()
+}
+
+#[inline]
+fn is_mimalloc_ptr(ptr: *const c_void) -> bool {
+    unsafe { mi_is_in_heap_region(ptr) }
+}
+
+// ---------------------------------------------------------------------------
+// Hook implementations
+// ---------------------------------------------------------------------------
 
 pub unsafe extern "C" fn hook_malloc(size: usize) -> *mut c_void {
-    // Large allocations go through VirtualAlloc to avoid mimalloc arena
-    // consumption. These are raw buffers (texture data, geometry) with
-    // no UAF risk — they don't have vtables at offset 0.
-    let result = if size >= va_allocator::LARGE_ALLOC_THRESHOLD {
-        unsafe { va_allocator::malloc(size) }
-    } else {
-        unsafe { mi_malloc(size) }
-    };
-    log::trace!("malloc({}) -> {:p}", size, result);
-    result
+    unsafe { allocator::alloc(size) }
 }
 
 pub unsafe extern "C" fn hook_calloc(count: usize, size: usize) -> *mut c_void {
-    let total = count.saturating_mul(size);
-    // Large zeroed allocations --> VirtualAlloc (pages are zeroed by OS)
-    let result = if total >= va_allocator::LARGE_ALLOC_THRESHOLD {
-        unsafe { va_allocator::malloc(total) }
-    } else {
-        unsafe { mi_calloc(count, size) }
+    let total = match count.checked_mul(size) {
+        Some(t) if t != 0 => t,
+        _ => return null_mut(),
     };
-    log::trace!("calloc({}, {}) -> {:p}", count, size, result);
-    result
+    let ptr = unsafe { allocator::alloc(total) };
+    if !ptr.is_null() {
+        unsafe { std::ptr::write_bytes(ptr as *mut u8, 0, total) };
+    }
+    ptr
 }
 
-pub unsafe extern "C" fn hook_realloc(raw_ptr: *mut c_void, size: usize) -> *mut c_void {
-    if raw_ptr.is_null() {
-        // realloc(NULL, size) --> malloc(size)
-        return unsafe { hook_malloc(size) };
+pub unsafe extern "C" fn hook_realloc(ptr: *mut c_void, size: usize) -> *mut c_void {
+    if ptr.is_null() {
+        return unsafe { allocator::alloc(size) };
+    }
+    if size == 0 {
+        unsafe { hook_free(ptr) };
+        return null_mut();
     }
 
-    // Try VirtualAlloc realloc first
-    if let Some(new_ptr) = unsafe { va_allocator::realloc(raw_ptr, size) } {
-        return new_ptr;
+    // Our tier: use the unified realloc which does alloc+copy+free
+    // with correct tier-aware size detection.
+    if is_our_ptr(ptr as *const c_void) {
+        return unsafe { allocator::realloc(ptr, size) };
     }
 
-    // Try mimalloc realloc
-    if unsafe { mi_is_in_heap_region(raw_ptr) } {
-        return unsafe { mi_realloc(raw_ptr, size) };
+    // Mimalloc (pointer originated from crt_iat IAT hooks).
+    if is_mimalloc_ptr(ptr as *const c_void) {
+        return unsafe { mi_realloc(ptr, size) };
     }
 
-    // Pre-hook pointer: try original CRT realloc
-    if let Ok(orig_realloc) = REALLOC_HOOK_1.original() {
-        return unsafe { orig_realloc(raw_ptr, size) };
+    // Pre-hook CRT pointer: must go through the original CRT
+    // realloc, NOT our allocator and NOT the game-heap trampoline.
+    if let Ok(orig) = REALLOC_HOOK_1.original() {
+        return unsafe { orig(ptr, size) };
     }
 
-    let result = unsafe { heap_validate::heap_validated_realloc(raw_ptr, size) };
+    let result = unsafe { heap_validate::heap_validated_realloc(ptr, size) };
     if !result.is_null() {
         return result;
     }
-
-    log::error!("realloc({:p}, {}): no heap owns this pointer!", raw_ptr, size);
+    log::error!("realloc({:p}, {}): no heap owns this pointer", ptr, size);
     null_mut()
 }
 
 pub unsafe extern "C" fn hook_recalloc(
-    raw_ptr: *mut c_void,
+    ptr: *mut c_void,
     count: usize,
     size: usize,
 ) -> *mut c_void {
     let new_total = match count.checked_mul(size) {
-        Some(total) => total,
+        Some(t) => t,
         None => return null_mut(),
     };
 
-    if raw_ptr.is_null() {
-        // recalloc(NULL, ...) --> zeroed allocation
-        return if new_total >= va_allocator::LARGE_ALLOC_THRESHOLD {
-            unsafe { va_allocator::malloc(new_total) }
-        } else {
-            unsafe { mi_calloc(count, size) }
-        };
-    }
-
-    if unsafe { mi_is_in_heap_region(raw_ptr) } {
-        return unsafe { mi_recalloc(raw_ptr, count, size) };
-    }
-
-    // VirtualAlloc path: copy old data, zero the rest
-    if let Some(old_size) = unsafe { va_allocator::msize(raw_ptr) } {
-        let new_ptr = unsafe { va_allocator::malloc(new_total) };
-        if !new_ptr.is_null() {
-            let copy_size = old_size.min(new_total);
-            unsafe {
-                std::ptr::copy_nonoverlapping(
-                    raw_ptr as *const u8,
-                    new_ptr as *mut u8,
-                    copy_size,
-                );
-                // Zero the expansion region (VirtualAlloc pages are zeroed)
-                if new_total > old_size {
-                    std::ptr::write_bytes(
-                        (new_ptr as *mut u8).add(old_size),
-                        0,
-                        new_total - old_size,
-                    );
-                }
-            }
-            unsafe { va_allocator::free(raw_ptr) };
+    if ptr.is_null() {
+        if new_total == 0 {
+            return null_mut();
         }
-        return new_ptr;
+        let np = unsafe { allocator::alloc(new_total) };
+        if !np.is_null() {
+            unsafe { std::ptr::write_bytes(np as *mut u8, 0, new_total) };
+        }
+        return np;
     }
 
-    let old_size = unsafe { hook_msize(raw_ptr) };
-    let new_ptr = if new_total >= va_allocator::LARGE_ALLOC_THRESHOLD {
-        unsafe { va_allocator::malloc(new_total) }
-    } else {
-        unsafe { mi_calloc(count, size) }
-    };
-    if !new_ptr.is_null() && old_size > 0 && old_size != usize::MAX {
+    if new_total == 0 {
+        unsafe { hook_free(ptr) };
+        return null_mut();
+    }
+
+    // Our tier: alloc new, copy, zero tail, free old.
+    if is_our_ptr(ptr as *const c_void) {
+        let old_size = unsafe { allocator::msize(ptr) };
+        let np = unsafe { allocator::alloc(new_total) };
+        if np.is_null() {
+            return null_mut();
+        }
         unsafe {
-            std::ptr::copy_nonoverlapping(
-                raw_ptr as *const u8,
-                new_ptr as *mut u8,
-                old_size.min(new_total),
-            );
+            let copy_len = old_size.min(new_total);
+            if copy_len > 0 {
+                std::ptr::copy_nonoverlapping(ptr as *const u8, np as *mut u8, copy_len);
+            }
+            if new_total > copy_len {
+                std::ptr::write_bytes(
+                    (np as *mut u8).add(copy_len),
+                    0,
+                    new_total - copy_len,
+                );
+            }
+            allocator::free(ptr);
         }
-        unsafe { hook_free(raw_ptr) };
+        return np;
     }
-    new_ptr
+
+    // Mimalloc path.
+    if is_mimalloc_ptr(ptr as *const c_void) {
+        return unsafe { mi_recalloc(ptr, count, size) };
+    }
+
+    // Pre-hook CRT: original _recalloc.
+    if let Ok(orig) = RECALLOC_HOOK_1.original() {
+        return unsafe { orig(ptr, count, size) };
+    }
+
+    null_mut()
 }
 
-pub unsafe extern "C" fn hook_msize(raw_ptr: *mut c_void) -> usize {
-    if raw_ptr.is_null() {
+pub unsafe extern "C" fn hook_msize(ptr: *mut c_void) -> usize {
+    if ptr.is_null() {
         return 0;
     }
 
-    // Check VirtualAlloc first (header-based detection with VirtualQuery guard)
-    if let Some(size) = unsafe { va_allocator::msize(raw_ptr) } {
-        return size;
+    if pool::is_pool_ptr(ptr as *const c_void) {
+        return pool::usable_size(ptr as *const c_void);
+    }
+    if block::is_block_ptr(ptr as *const c_void) {
+        return block::usable_size(ptr as *const c_void);
+    }
+    if let Some(sz) = va_alloc::size_of(ptr as *const c_void) {
+        return sz;
     }
 
-    if unsafe { mi_is_in_heap_region(raw_ptr) } {
-        return unsafe { mi_usable_size(raw_ptr) };
+    if is_mimalloc_ptr(ptr as *const c_void) {
+        return unsafe { mi_usable_size(ptr as *const c_void) };
     }
 
-    if let Ok(orig_msize) = MSIZE_HOOK.original() {
-        let size = unsafe { orig_msize(raw_ptr) };
-        if size != usize::MAX {
-            return size;
+    // Pre-hook CRT pointer.
+    if let Ok(orig) = MSIZE_HOOK.original() {
+        let sz = unsafe { orig(ptr) };
+        if sz != usize::MAX {
+            return sz;
         }
     }
 
-    let size = unsafe { heap_validate::heap_validated_size(raw_ptr as *const c_void) };
-    if size != usize::MAX {
-        return size;
+    let sz = unsafe { heap_validate::heap_validated_size(ptr as *const c_void) };
+    if sz != usize::MAX {
+        return sz;
     }
 
-    usize::MAX
+    0
 }
 
-pub unsafe extern "C" fn hook_free(raw_ptr: *mut c_void) {
-    if raw_ptr.is_null() {
+pub unsafe extern "C" fn hook_free(ptr: *mut c_void) {
+    if ptr.is_null() {
         return;
     }
 
-    // Check VirtualAlloc header (simple memory read, NO sys call)
-    if unsafe { va_allocator::is_virtual_alloc_ptr(raw_ptr) } {
-        unsafe { va_allocator::free(raw_ptr) };
+    // Our tiers.
+    if pool::is_pool_ptr(ptr as *const c_void) {
+        pool::free(ptr);
+        return;
+    }
+    if block::is_block_ptr(ptr as *const c_void) {
+        block::free(ptr);
+        return;
+    }
+    if unsafe { va_alloc::free(ptr) } {
         return;
     }
 
-    if unsafe { mi_is_in_heap_region(raw_ptr) } {
-        return unsafe { mi_free(raw_ptr) };
-    }
-
-    if let Ok(orig_free) = FREE_HOOK.original() {
-        unsafe { orig_free(raw_ptr) };
+    // Mimalloc-owned (from crt_iat or similar).
+    if is_mimalloc_ptr(ptr as *const c_void) {
+        unsafe { mi_free(ptr) };
         return;
     }
 
-    if unsafe { heap_validate::heap_validated_free(raw_ptr) } {
+    // Pre-hook CRT pointer -- must go through CRT's original free.
+    if let Ok(orig) = FREE_HOOK.original() {
+        unsafe { orig(ptr) };
         return;
     }
 
-    log::error!("free({:p}): no heap owns this pointer!", raw_ptr);
+    if unsafe { heap_validate::heap_validated_free(ptr) } {
+        return;
+    }
+
+    log::error!("free({:p}): no heap owns this pointer", ptr);
 }

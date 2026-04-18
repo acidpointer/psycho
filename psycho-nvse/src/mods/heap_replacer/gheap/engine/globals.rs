@@ -14,8 +14,8 @@ use libc::c_void;
 use libpsycho::ffi::fnptr::FnPtr;
 use libpsycho::os::windows::winapi::{self, WaitResult};
 
-use super::addr;
 use super::super::types;
+use super::addr;
 
 // ---------------------------------------------------------------------------
 // Game state reads (all safe -- reading from known static addresses)
@@ -59,7 +59,6 @@ pub fn is_real_loading() -> bool {
 /// Stage 5: Cell unloading (FindCellToUnload) -- DANGEROUS: deadlocks
 ///          during fast travel and loading screens. Never use from
 ///          pressure relief.
-#[allow(dead_code)]
 #[repr(u32)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum HeapCompactStage {
@@ -88,7 +87,6 @@ pub fn signal_heap_compact(stage: HeapCompactStage) {
 
 /// PDD skip mask bits. When set, the corresponding queue is SKIPPED
 /// during full PDD drain (FUN_00868d70). Checked by FUN_00869180.
-#[allow(dead_code)]
 pub mod pdd_skip {
     pub const NINODE: u32 = 0x10;
     pub const FORM: u32 = 0x08;
@@ -122,7 +120,11 @@ pub fn loading_state_counter() -> &'static std::sync::atomic::AtomicI32 {
 /// Passed to FindCellToUnload.
 pub fn game_manager() -> Option<*mut c_void> {
     let ptr = unsafe { *(addr::GAME_MANAGER as *const *mut c_void) };
-    if ptr.is_null() { None } else { Some(ptr) }
+    if ptr.is_null() {
+        None
+    } else {
+        Some(ptr)
+    }
 }
 
 /// Check if BSTaskManagerThread has a pending cell load in progress.
@@ -143,7 +145,6 @@ pub fn is_bst_cell_load_pending() -> bool {
 // ---------------------------------------------------------------------------
 
 /// Which PDD queue to query.
-#[allow(dead_code)]
 pub enum PddQueue {
     NiNode,
     Form,
@@ -208,12 +209,16 @@ pub fn is_main_thread_by_tid() -> bool {
 
 /// Release BSTaskManagerThread semaphores if the current thread owns them.
 ///
-/// This matches vanilla OOM Stage 8 behavior (FUN_00866a90 case 8):
-/// - Checks if current thread owns BSTaskManagerThread[0] or [1] semaphore
-/// - If yes: releases the semaphore and signals idle
-/// - This lets IO processing continue, freeing memory for retry
+/// Mirrors vanilla OOM Stage 8 (FUN_00866a90 case 8) but validates the
+/// IOManager thread-array layout before each call:
+///   [io+0x4c] = thread count (whatever BSTaskManager_ctor was given)
+///   [io+0x50] = ptr to count*4 bytes of BSTaskManagerThread*
+/// Vanilla hardcodes indices 0 and 1, which is unsafe when count==1
+/// (single IO worker on lower core counts). FUN_00866da0 dereferences
+/// [array + idx*4] with no bounds check -- we hit AV at 0x0044ddc0
+/// because the OOB read picked up a NULL slot.
 ///
-/// Returns `true` if any semaphore was released, `false` if none were owned.
+/// Returns `true` if any semaphore was released.
 ///
 /// # Safety
 /// Calls game code. Safe to call from any thread during OOM recovery.
@@ -225,6 +230,24 @@ pub unsafe fn release_bstask_sems_if_owned() -> bool {
             return false;
         }
     };
+
+    // Validate thread-array layout. Bail out cleanly on anything weird --
+    // we are in OOM recovery, the worst we can do is take down the game.
+    let thread_count = unsafe {
+        *((io_manager as *const u8).add(addr::IO_THREAD_COUNT_OFFSET) as *const u32)
+    };
+    if !(1..=8).contains(&thread_count) {
+        log::error!("[BSTASK] implausible thread count {}, skipping release", thread_count);
+        return false;
+    }
+    let thread_array = unsafe {
+        *((io_manager as *const u8).add(addr::IO_THREAD_ARRAY_OFFSET)
+            as *const *const *mut c_void)
+    };
+    if thread_array.is_null() {
+        log::error!("[BSTASK] IOManager thread array is null, skipping release");
+        return false;
+    }
 
     let get_owner = match unsafe {
         FnPtr::<types::BstaskGetOwnerFn>::from_raw(addr::BSTASK_GET_OWNER as *mut c_void)
@@ -241,7 +264,10 @@ pub unsafe fn release_bstask_sems_if_owned() -> bool {
     } {
         Ok(f) => f,
         Err(e) => {
-            log::error!("[BSTASK] FnPtr::from_raw(BSTASK_RELEASE_SEM) failed: {:?}", e);
+            log::error!(
+                "[BSTASK] FnPtr::from_raw(BSTASK_RELEASE_SEM) failed: {:?}",
+                e
+            );
             return false;
         }
     };
@@ -251,7 +277,10 @@ pub unsafe fn release_bstask_sems_if_owned() -> bool {
     } {
         Ok(f) => f,
         Err(e) => {
-            log::error!("[BSTASK] FnPtr::from_raw(BSTASK_SIGNAL_IDLE) failed: {:?}", e);
+            log::error!(
+                "[BSTASK] FnPtr::from_raw(BSTASK_SIGNAL_IDLE) failed: {:?}",
+                e
+            );
             return false;
         }
     };
@@ -259,45 +288,33 @@ pub unsafe fn release_bstask_sems_if_owned() -> bool {
     let current_tid = libpsycho::os::windows::winapi::get_current_thread_id();
     let mut released = false;
 
-    // Check and release thread 0
-    let owner0 = match unsafe { get_owner.as_fn() } {
-        Ok(f) => unsafe { f(io_manager, 0) },
-        Err(e) => {
-            log::error!("[BSTASK] get_owner.as_fn() failed for thread 0: {:?}", e);
-            // Don't return early -- thread 1 might still need releasing.
-            0  // 0 != current_tid, so thread 0 check will be skipped
+    for idx in 0..thread_count {
+        // Read slot directly. If a teardown nulled it (or the slot never
+        // existed), skip -- FUN_00866da0 has no NULL guard internally.
+        let slot = unsafe { *thread_array.add(idx as usize) };
+        if slot.is_null() {
+            continue;
         }
-    };
-    if owner0 == current_tid {
-        log::debug!("[BSTASK] Thread 0 semaphore owned by current thread, releasing...");
-        match unsafe { release_sem.as_fn() } {
-            Ok(f) => unsafe { f(io_manager, 0) },
-            Err(e) => log::error!("[BSTASK] release_sem.as_fn() failed for thread 0: {:?}", e),
-        }
-        match unsafe { signal_idle.as_fn() } {
-            Ok(f) => unsafe { f(io_manager, 0) },
-            Err(e) => log::error!("[BSTASK] signal_idle.as_fn() failed for thread 0: {:?}", e),
-        }
-        released = true;
-    }
 
-    // Check and release thread 1
-    let owner1 = match unsafe { get_owner.as_fn() } {
-        Ok(f) => unsafe { f(io_manager, 1) },
-        Err(e) => {
-            log::error!("[BSTASK] get_owner.as_fn() failed for thread 1: {:?}", e);
-            0  // Don't return early -- thread 0 may have been released already
+        let owner = match unsafe { get_owner.as_fn() } {
+            Ok(f) => unsafe { f(io_manager, idx) },
+            Err(e) => {
+                log::error!("[BSTASK] get_owner.as_fn() failed for thread {}: {:?}", idx, e);
+                continue;
+            }
+        };
+        if owner != current_tid {
+            continue;
         }
-    };
-    if owner1 == current_tid {
-        log::debug!("[BSTASK] Thread 1 semaphore owned by current thread, releasing...");
+
+        log::debug!("[BSTASK] Thread {} semaphore owned by current thread, releasing...", idx);
         match unsafe { release_sem.as_fn() } {
-            Ok(f) => unsafe { f(io_manager, 1) },
-            Err(e) => log::error!("[BSTASK] release_sem.as_fn() failed for thread 1: {:?}", e),
+            Ok(f) => unsafe { f(io_manager, idx) },
+            Err(e) => log::error!("[BSTASK] release_sem.as_fn() failed for thread {}: {:?}", idx, e),
         }
         match unsafe { signal_idle.as_fn() } {
-            Ok(f) => unsafe { f(io_manager, 1) },
-            Err(e) => log::error!("[BSTASK] signal_idle.as_fn() failed for thread 1: {:?}", e),
+            Ok(f) => unsafe { f(io_manager, idx) },
+            Err(e) => log::error!("[BSTASK] signal_idle.as_fn() failed for thread {}: {:?}", idx, e),
         }
         released = true;
     }
@@ -510,9 +527,7 @@ pub unsafe fn deferred_cleanup_small(param: u8) {
 /// system, NOT the physics world. Safe to call without holding the
 /// Havok world lock.
 pub unsafe fn havok_gc(force: u8) {
-    let f = match unsafe {
-        FnPtr::<types::HavokGcFn>::from_raw(addr::HAVOK_GC as *mut c_void)
-    } {
+    let f = match unsafe { FnPtr::<types::HavokGcFn>::from_raw(addr::HAVOK_GC as *mut c_void) } {
         Ok(f) => f,
         Err(e) => {
             log::error!("[HAVOK_GC] FnPtr::from_raw failed: {:?}", e);
@@ -542,6 +557,63 @@ pub unsafe fn pdd_purge() {
     match unsafe { f.as_fn() } {
         Ok(f) => unsafe { f(0) }, // blocking purge
         Err(e) => log::error!("[PDD_PURGE] as_fn() failed: {:?}", e),
+    }
+}
+
+/// StopHavok_DRAINAI (FUN_008324e0, mode=0).
+///
+/// Drains PPL Concurrency Runtime task groups used by IOManager to dispatch
+/// AI Linear Task Thread work. This is the vanilla game's mechanism for
+/// ensuring no AI physics tasks are in-flight before cell destruction.
+///
+/// Must be called from the main thread before Stage 5 cell unload.
+/// Without this drain, IOManager tasks dispatch to AI Linear Task Threads
+/// which access freed Havok collision shapes -> crash at 0x00C94DA5.
+///
+/// See: analysis/ghidra/output/memory/vanilla_ai_io_drain.txt
+pub unsafe fn stop_havok_drain() {
+    let f = match unsafe {
+        FnPtr::<types::HavokStopStartFn>::from_raw(
+            super::super::statics::HAVOK_STOP_START_ADDR as *mut c_void,
+        )
+    } {
+        Ok(f) => f,
+        Err(e) => {
+            log::error!("[HAVOK_DRAIN] FnPtr::from_raw failed: {:?}", e);
+            return;
+        }
+    };
+    match unsafe { f.as_fn() } {
+        Ok(f) => {
+            unsafe { f(0) };
+        }
+        Err(e) => log::error!("[HAVOK_DRAIN] as_fn() failed: {:?}", e),
+    }
+}
+
+/// StartHavok (FUN_008324e0, mode=1).
+///
+/// Restarts Havok simulation after destruction. Must be paired with a
+/// prior `stop_havok_drain()` call. Called on the main thread after
+/// `post_destruction_restore()` so the world is unlocked before the
+/// simulation resumes stepping.
+pub unsafe fn start_havok() {
+    let f = match unsafe {
+        FnPtr::<types::HavokStopStartFn>::from_raw(
+            super::super::statics::HAVOK_STOP_START_ADDR as *mut c_void,
+        )
+    } {
+        Ok(f) => f,
+        Err(e) => {
+            log::error!("[HAVOK_START] FnPtr::from_raw failed: {:?}", e);
+            return;
+        }
+    };
+    match unsafe { f.as_fn() } {
+        Ok(f) => {
+            unsafe { f(1) };
+        }
+        Err(e) => log::error!("[HAVOK_START] as_fn() failed: {:?}", e),
     }
 }
 
@@ -588,7 +660,10 @@ pub unsafe fn wait_for_io_idle() {
                     // thread is busy processing a task
                     waited += 1;
                     if waited >= 500 {
-                        log::warn!("[IO_BARRIER] Thread {} still busy after 500ms, proceeding", idx);
+                        log::warn!(
+                            "[IO_BARRIER] Thread {} still busy after 500ms, proceeding",
+                            idx
+                        );
                         break;
                     }
                     winapi::sleep(1);

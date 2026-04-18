@@ -1,0 +1,525 @@
+DESTRUCTION_PROTOCOL AI SAFETY VALIDATION
+Goal: Can is_ai_active() reliably gate cell destruction?
+      Or do we need StopHavok_DrainAI?
+Crash: 0x00C94DA5 on AI Linear Task Thread 2
+======================================================================
+
+######################################################################
+# SECTION 1: pre_destruction_setup (FUN_00c3e310)
+# What does it lock? Does it prevent AI Linear Task dispatch?
+######################################################################
+
+======================================================================
+pre_destruction_setup (hkWorld_Lock) @ 0x00c3e310
+======================================================================
+  Function: FUN_00c3e310 @ 0x00c3e310, Size: 43 bytes
+
+void __fastcall FUN_00c3e310(int param_1)
+
+{
+  uint uVar1;
+  
+  uVar1 = FUN_00c3e750(param_1);
+  if (((uVar1 & 0xff) != 0) && (*(int *)(param_1 + 0x7c) != 0)) {
+    (**(code **)(param_1 + 0x7c))();
+  }
+  return;
+}
+
+
+
+--- Calls FROM pre_destruction_setup (0x00c3e310) ---
+  0x00c3e31a -> 0x00c3e750 FUN_00c3e750
+  Total: 1 calls
+
+######################################################################
+# SECTION 2: post_destruction_restore (FUN_00c3e340)
+######################################################################
+
+======================================================================
+post_destruction_restore (hkWorld_Unlock) @ 0x00c3e340
+======================================================================
+  Function: FUN_00c3e340 @ 0x00c3e340, Size: 49 bytes
+
+void __fastcall FUN_00c3e340(int param_1)
+
+{
+  uint uVar1;
+  
+  uVar1 = FUN_00c3e7d0(param_1);
+  if (((uVar1 & 0xff) != 0) && (*(int *)(param_1 + 0x80) != 0)) {
+    (**(code **)(param_1 + 0x80))();
+  }
+  return;
+}
+
+
+
+######################################################################
+# SECTION 3: hkWorld_Lock actual acquire ? FUN_00c3e750
+# What does it wait for? Does it drain AI workers?
+######################################################################
+
+======================================================================
+hkWorld_LockAcquire @ 0x00c3e750
+======================================================================
+  Function: FUN_00c3e750 @ 0x00c3e750, Size: 124 bytes
+
+uint __fastcall FUN_00c3e750(int param_1)
+
+{
+  uint uVar1;
+  undefined4 local_8;
+  
+  DAT_01202df0 = 0;
+  uVar1 = InterlockedIncrement((LONG *)(param_1 + 0x48));
+  if (uVar1 == 1) {
+    while (*(int *)(param_1 + 0x44) != 0) {
+      Sleep(1);
+    }
+    for (local_8 = 0; local_8 < *(uint *)(param_1 + 0x4c); local_8 = local_8 + 1) {
+      FUN_00446f70(*(int *)(*(int *)(param_1 + 0x50) + local_8 * 4));
+      InterlockedIncrement((LONG *)(param_1 + 0x44));
+    }
+    uVar1 = CONCAT31((int3)((uint)param_1 >> 8),1);
+  }
+  else {
+    uVar1 = uVar1 & 0xffffff00;
+  }
+  return uVar1;
+}
+
+
+
+######################################################################
+# SECTION 4: FUN_00446f70 ? called by hkWorld_Lock to signal workers
+# Does this stop AI Linear Task Threads too?
+######################################################################
+
+======================================================================
+hkWorld_SignalWorkers @ 0x00446f70
+======================================================================
+  Function: FUN_00446f70 @ 0x00446f70, Size: 27 bytes
+
+void __fastcall FUN_00446f70(int param_1)
+
+{
+  FUN_00442600(param_1);
+  FUN_00442510(param_1);
+  return;
+}
+
+
+
+######################################################################
+# SECTION 5: What do workers check? Does AI raycast check it?
+######################################################################
+
+--- Calls FROM hkWorld_SignalWorkers (0x00446f70) ---
+  0x00446f7a -> 0x00442600 FUN_00442600
+  0x00446f82 -> 0x00442510 FUN_00442510
+  Total: 2 calls
+
+######################################################################
+# SECTION 6: StopHavok_DrainAI (FUN_008324e0) ? vanilla cell transition
+# This is what CellTransitionHandler uses. Can destruction_protocol
+# call it instead of the custom sleep+IO barrier?
+######################################################################
+
+======================================================================
+StopHavok_DrainAI @ 0x008324e0
+======================================================================
+  Function: FUN_008324e0 @ 0x008324e0, Size: 184 bytes
+
+char __cdecl FUN_008324e0(char param_1)
+
+{
+  char cVar1;
+  
+  if (DAT_011dd436 == '\0') {
+    if (param_1 == '\0') {
+      cVar1 = FUN_00830ad0();
+      if (cVar1 != '\0') {
+        FUN_008304a0();
+        FUN_008325a0(0);
+      }
+      FUN_00ad88f0((int *)&DAT_011dd5bc);
+      FUN_00ad8d10((int *)&DAT_011dd5bc);
+      DAT_011dd42c = 0;
+      FUN_00ad88f0((int *)&DAT_011dd638);
+      FUN_00ad8d10((int *)&DAT_011dd638);
+    }
+    else if (DAT_011dd437 == '\0') {
+      FUN_008304a0();
+      FUN_008325a0(1);
+      FUN_008300c0(7,(char *)0x0,1000,'\0','\0',0.0,0);
+      FUN_008304c0();
+    }
+    DAT_011dd434 = param_1;
+  }
+  else {
+    param_1 = '\0';
+  }
+  return param_1;
+}
+
+
+
+--- Calls FROM StopHavok_DrainAI (0x008324e0) ---
+  0x00832508 -> 0x008304a0 FUN_008304a0
+  0x0083250f -> 0x008325a0 FUN_008325a0
+  0x0083252c -> 0x008300c0 FUN_008300c0
+  0x00832534 -> 0x008304c0 FUN_008304c0
+  0x0083253b -> 0x00830ad0 FUN_00830ad0
+  0x00832547 -> 0x008304a0 FUN_008304a0
+  0x0083254e -> 0x008325a0 FUN_008325a0
+  0x0083255b -> 0x00ad88f0 FUN_00ad88f0
+  0x00832565 -> 0x00ad8d10 FUN_00ad8d10
+  0x00832579 -> 0x00ad88f0 FUN_00ad88f0
+  0x00832583 -> 0x00ad8d10 FUN_00ad8d10
+  Total: 11 calls
+
+######################################################################
+# SECTION 7: FUN_008304a0 ? StopHavok step 1
+######################################################################
+
+======================================================================
+StopHavok_Step1 @ 0x008304a0
+======================================================================
+  Function: FUN_008304a0 @ 0x008304a0, Size: 20 bytes
+
+void FUN_008304a0(void)
+
+{
+  FUN_00830470();
+  FUN_0082fa30();
+  FUN_00830490();
+  return;
+}
+
+
+
+######################################################################
+# SECTION 8: FUN_008300c0 ? the actual AI drain wait
+# Called with 1000ms timeout. What does it wait on?
+######################################################################
+
+======================================================================
+AI_DrainWait @ 0x008300c0
+======================================================================
+  Function: FUN_008300c0 @ 0x008300c0, Size: 944 bytes
+
+/* WARNING: Globals starting with '_' overlap smaller symbols at the same address */
+
+void __cdecl
+FUN_008300c0(int param_1,char *param_2,int param_3,char param_4,char param_5,float param_6,
+            undefined4 param_7)
+
+{
+  bool bVar1;
+  int iVar2;
+  int *unaff_FS_OFFSET;
+  float10 fVar3;
+  undefined4 local_178 [87];
+  uint local_1c;
+  char *local_18;
+  int local_14;
+  int local_10;
+  undefined1 *puStack_c;
+  undefined4 local_8;
+  
+  local_8 = 0xffffffff;
+  puStack_c = &LAB_00f11d7b;
+  local_10 = *unaff_FS_OFFSET;
+  local_1c = DAT_011c16bc ^ (uint)&stack0xfffffffc;
+  *unaff_FS_OFFSET = (int)&local_10;
+  FUN_00830470();
+  if (param_1 == 9) {
+    FUN_0082fa30();
+    FUN_00830490();
+  }
+  else if ((param_1 == 8) || (DAT_011dcfa5 == '\0')) {
+    if ((param_2 == (char *)0x0) || (*param_2 == '\0')) {
+      FUN_00830490();
+    }
+    else if ((param_5 == '\0') &&
+            (((param_1 < DAT_011dd314 && (DAT_011dd36c == 1)) ||
+             ((param_1 < DAT_011dd348 && (DAT_011dd36c == 0)))))) {
+      FUN_005b5e40();
+      FUN_00830490();
+    }
+    else {
+      local_18 = param_2;
+      FUN_00b00260(local_178,param_2,0,0x4000,'\0');
+      local_8 = 0;
+      bVar1 = FUN_00affc60((int)local_178);
+      if (bVar1) {
+        local_8 = 0xffffffff;
+        FID_conflict__CListBox(local_178);
+        iVar2 = FUN_00453a70();
+        local_14 = FUN_0063d040(iVar2);
+        bVar1 = DAT_011dd36c != 0;
+        if (bVar1) {
+          _DAT_011dd338 = 0;
+          _DAT_011dd33c = 0;
+          fVar3 = FUN_0082fec0(param_1,param_6);
+          _DAT_011dd340 = (float)fVar3;
+          _DAT_011dd344 = param_6;
+          DAT_011dd311 = -(param_4 != '\0') & 0x20U | 0x10;
+          FUN_00406d30(&DAT_011dd1f8,0x104,param_2);
+          DAT_011dd348 = param_1;
+          DAT_011dd34c = param_7;
+          DAT_011dd35c = param_3;
+          DAT_011dd360 = local_14 + param_3;
+          _DAT_011dd364 = 0;
+          DAT_011dd368 = DAT_011a163c;
+          _DAT_011dd3c4 = DAT_011a163c;
+          DAT_011a163c = DAT_011a163c + 1;
+          _DAT_011dd3c8 = DAT_011dd36c;
+          FUN_0082f760((void *)(DAT_011dd36c * 0x4c + DAT_011dd1f4),&DAT_011dd3c4);
+          DAT_011dd310 = DAT_011dd310 | 0x18;
+          _DAT_011dd304 = _DAT_011dd300;
+          _DAT_011dd308 = 0.0;
+        }
+        else {
+          _DAT_011dd300 = 0;
+          _DAT_011dd304 = 0;
+          fVar3 = FUN_0082fec0(param_1,param_6);
+          _DAT_011dd308 = (float)fVar3;
+          _DAT_011dd30c = param_6;
+          DAT_011dd310 = -(param_4 != '\0') & 0x20U | 0x10;
+          FUN_00406d30(&DAT_011dd0f0,0x104,param_2);
+          DAT_011dd314 = param_1;
+          DAT_011dd318 = param_7;
+          DAT_011dd328 = param_3;
+          DAT_011dd32c = local_14 + param_3;
+          _DAT_011dd330 = 0;
+          DAT_011dd334 = DAT_011a163c;
+          _DAT_011dd3c4 = DAT_011a163c;
+          DAT_011a163c = DAT_011a163c + 1;
+          _DAT_011dd3c8 = DAT_011dd36c;
+          FUN_0082f760((void *)(DAT_011dd36c * 0x4c + DAT_011dd1f4),&DAT_011dd3c4);
+          DAT_011dd311 = DAT_011dd311 | 0x18;
+          _DAT_011dd33c = _DAT_011dd338;
+          _DAT_011dd340 = 0.0;
+          DAT_011dd35c = DAT_011dd328;
+          DAT_011dd360 = DAT_011dd32c;
+        }
+        DAT_011dd36c = (uint)!bVar1;
+        DAT_011dd328 = DAT_011dd35c;
+        DAT_011dd32c = DAT_011dd360;
+        FUN_00830490();
+      }
+      else {
+        FUN_005b5e40();
+        FUN_00830490();
+        local_8 = 0xffffffff;
+        FID_conflict__CListBox(local_178);
+      }
+    }
+  }
+  else {
+    FUN_00830490();
+  }
+  *unaff_FS_OFFSET = local_10;
+  __security_check_cookie(local_1c ^ (uint)&stack0xfffffffc);
+  return;
+}
+
+
+
+######################################################################
+# SECTION 9: All callers of StopHavok_DrainAI
+######################################################################
+
+----------------------------------------------------------------------
+References TO 0x008324e0 (StopHavok_DrainAI)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x00834176 (in FUN_00833d00)
+  UNCONDITIONAL_CALL @ 0x0083236a (in FUN_00832240)
+  UNCONDITIONAL_CALL @ 0x0083453b (in FUN_00834260)
+  UNCONDITIONAL_CALL @ 0x008332c3 (in FUN_008331c0)
+  UNCONDITIONAL_CALL @ 0x008774e9 (in FUN_008774a0)
+  UNCONDITIONAL_CALL @ 0x0089ea68 (in FUN_0089d900)
+  UNCONDITIONAL_CALL @ 0x00836eca (in FUN_00836e20)
+  UNCONDITIONAL_CALL @ 0x005d8068 (in FUN_005d7fb0)
+  UNCONDITIONAL_CALL @ 0x005d80bd (in FUN_005d7fb0)
+  UNCONDITIONAL_CALL @ 0x005dc585 (in FUN_005dc580)
+  UNCONDITIONAL_CALL @ 0x00797735 (in FUN_00796fd0)
+  UNCONDITIONAL_CALL @ 0x00797747 (in FUN_00796fd0)
+  Total: 12 refs
+
+######################################################################
+# SECTION 10: HeapCompact stage 5 ? does it free Havok shapes?
+# The crash: AI thread reads freed hkScaledMoppBvTreeShape
+# When does this shape get freed? Stage 5? PDD purge?
+######################################################################
+
+======================================================================
+hkWorld_removeEntity @ 0x00c41fe0
+======================================================================
+  Function: FUN_00c41fe0 @ 0x00c41fe0, Size: 122 bytes
+
+void __thiscall FUN_00c41fe0(void *this,undefined4 *param_1)
+
+{
+  (**(code **)(*(int *)this + 0x28))(*param_1,param_1[1]);
+  if (param_1 != (undefined4 *)0x0) {
+    if (param_1[2] != 0) {
+      FUN_0044dd60((undefined4 *)param_1[2]);
+    }
+    FUN_00aa4060(&DAT_011f6238,param_1);
+  }
+  return;
+}
+
+
+
+----------------------------------------------------------------------
+References TO 0x010c3b6c (bhkCollisionObject_RTTI)
+----------------------------------------------------------------------
+  Total: 0 refs
+
+######################################################################
+# SECTION 11: Havok broadphase ? is there an 'in-flight query' flag?
+# If broadphase has a reader count, we could wait for it to drain
+######################################################################
+
+======================================================================
+HavokStep_or_SyncPair @ 0x00c3e1b0
+======================================================================
+  Function: FUN_00c3e1b0 @ 0x00c3e1b0, Size: 352 bytes
+
+/* WARNING: Removing unreachable block (ram,0x00c3e25e) */
+
+void __thiscall FUN_00c3e1b0(void *this,int param_1,int param_2)
+
+{
+  uint uVar1;
+  int *unaff_FS_OFFSET;
+  undefined8 uVar2;
+  undefined4 local_40;
+  int local_3c;
+  int *local_34;
+  undefined **local_30 [2];
+  undefined4 local_28;
+  undefined4 local_20;
+  undefined4 local_1c;
+  byte local_18;
+  int local_10;
+  undefined1 *puStack_c;
+  int local_8;
+  
+  local_8 = 0xffffffff;
+  puStack_c = &LAB_00f2ddb7;
+  local_10 = *unaff_FS_OFFSET;
+  *unaff_FS_OFFSET = (int)&local_10;
+  if (param_2 < param_1) {
+    FUN_00c3e310((int)this);
+    local_28 = 0;
+    local_20 = 0;
+    local_1c = 0;
+    local_18 = 0;
+    local_30[0] = &PTR_FUN_010c1664;
+    local_8 = 0;
+    FUN_00c42060(local_30,param_2 * 4 + 4);
+    while ((local_18 & 2) == 0) {
+      local_34 = (int *)0x0;
+      local_3c = 0;
+      local_40 = 0;
+      local_8._0_1_ = 1;
+      uVar1 = FUN_00c40e70(this,(int)local_30,&local_40,(int *)&local_34,'\x01');
+      if ((uVar1 & 0xff) != 0) {
+        uVar2 = __allshr(0x10,local_3c);
+        if (param_1 < (int)((uint)uVar2 & 0xff)) {
+          local_8 = (uint)local_8._1_3_ << 8;
+          if (local_34 != (int *)0x0) {
+            FUN_0044dd60(local_34);
+          }
+          break;
+        }
+        (**(code **)(*local_34 + 0x1c))(param_2);
+      }
+      local_8 = (uint)local_8._1_3_ << 8;
+      if (local_34 != (int *)0x0) {
+        FUN_0044dd60(local_34);
+      }
+    }
+    FUN_00c3e340((int)this);
+  }
+  *unaff_FS_OFFSET = local_10;
+  return;
+}
+
+
+
+--- Calls FROM HavokStep_or_SyncPair (0x00c3e1b0) ---
+  0x00c3e1e8 -> 0x00c3e310 FUN_00c3e310
+  0x00c3e229 -> 0x00c42060 FUN_00c42060
+  0x00c3e26b -> 0x00000066 ???
+  0x00c3e286 -> 0x00c40e70 FUN_00c40e70
+  0x00c3e29a -> 0x00ec77e0 __allshr
+  0x00c3e2b4 -> 0x0044dd60 FUN_0044dd60
+  0x00c3e2df -> 0x0044dd60 FUN_0044dd60
+  0x00c3e2ec -> 0x00c3e340 FUN_00c3e340
+  Total: 8 calls
+
+######################################################################
+# SECTION 12: FUN_00ad8da0 ? PotentialAIWait with timeout
+# Called by CellTransitionHandler. Can destruction_protocol use this?
+######################################################################
+
+======================================================================
+PotentialAIWait @ 0x00ad8da0
+======================================================================
+  Function: FUN_00ad8da0 @ 0x00ad8da0, Size: 60 bytes
+
+bool __thiscall FUN_00ad8da0(void *this,undefined4 param_1)
+
+{
+  int iVar1;
+  undefined *this_00;
+  undefined4 uVar2;
+  uint uVar3;
+  
+  iVar1 = *(int *)this;
+  if (iVar1 != -1) {
+    uVar3 = 0x26;
+    uVar2 = *(undefined4 *)this;
+    this_00 = FID_conflict__Immortalize<class_std::_Generic_error_category>();
+    FUN_00adc560(this_00,uVar2,param_1,uVar3);
+    *(undefined4 *)this = 0xffffffff;
+  }
+  return iVar1 != -1;
+}
+
+
+
+----------------------------------------------------------------------
+References TO 0x00ad8da0 (PotentialAIWait)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x0075b790 (in FUN_0075b750)
+  UNCONDITIONAL_CALL @ 0x0082ebd0 (in FUN_0082eb70)
+  UNCONDITIONAL_CALL @ 0x0082db1c (in FUN_0082d7c0)
+  UNCONDITIONAL_CALL @ 0x0082dcdb (in FUN_0082d7c0)
+  UNCONDITIONAL_CALL @ 0x0082deee (in FUN_0082d7c0)
+  UNCONDITIONAL_CALL @ 0x0082e0a3 (in FUN_0082d7c0)
+  UNCONDITIONAL_CALL @ 0x0082e4b2 (in FUN_0082d7c0)
+  UNCONDITIONAL_CALL @ 0x0082e90b (in FUN_0082d7c0)
+  UNCONDITIONAL_CALL @ 0x0082ea12 (in FUN_0082d7c0)
+  UNCONDITIONAL_CALL @ 0x0082eb25 (in FUN_0082eae0)
+  UNCONDITIONAL_CALL @ 0x00877715 (in FUN_00877700)
+  UNCONDITIONAL_CALL @ 0x0088d9cb (in FUN_0088d7d0)
+  UNCONDITIONAL_CALL @ 0x0088da17 (in FUN_0088d7d0)
+  UNCONDITIONAL_CALL @ 0x0089d9c3 (in FUN_0089d900)
+  UNCONDITIONAL_CALL @ 0x0089da1b (in FUN_0089d900)
+  UNCONDITIONAL_CALL @ 0x007739d9 (in FUN_007738c0)
+  UNCONDITIONAL_CALL @ 0x0057a1a6 (in FUN_00579ac0)
+  UNCONDITIONAL_CALL @ 0x0075528f (in FUN_00755270)
+  UNCONDITIONAL_CALL @ 0x0093b58f (in FUN_0093b3a0)
+  UNCONDITIONAL_CALL @ 0x0093b992 (in FUN_0093b7a0)
+  UNCONDITIONAL_CALL @ 0x009bc5ae (in FUN_009bc470)
+  UNCONDITIONAL_CALL @ 0x0078fb1f (in FUN_0078eb50)
+  UNCONDITIONAL_CALL @ 0x0078fdcf (in FUN_0078eb50)
+  UNCONDITIONAL_CALL @ 0x0093e934 (in ???)
+  Total: 24 refs

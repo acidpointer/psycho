@@ -1,0 +1,86 @@
+######################################################################
+# Verify NVHR patch: patch_nop_call(0x00AA3060)
+######################################################################
+
+Goal: see which CALL NVHR disables at 0x00AA3060, what that CALL
+targets, and what the target function does.
+
+----------------------------------------------------------------------
+Disassembly window around NOP'd CALL @ 0x00aa3060 (-40 / +40 bytes)
+----------------------------------------------------------------------
+  0x00aa3040: JMP 0x00aa2710 ; -> 0x00aa2710 FUN_00aa2710
+  0x00aa3050: CMP byte ptr [0x011f6229],0x0
+  0x00aa3057: JNZ 0x00aa306f ; -> 0x00aa306f ???
+  0x00aa3059: MOV byte ptr [0x011f6229],0x1
+  0x00aa3060: CALL 0x00aa2020 ; -> 0x00aa2020 FUN_00aa2020  <-- NOP'd CALL
+  0x00aa3065: CALL 0x00aa1920 ; -> 0x00aa1920 FUN_00aa1920
+  0x00aa306a: JMP 0x00aa7eb0 ; -> 0x00aa7eb0 FUN_00aa7eb0
+  0x00aa306f: RET
+  0x00aa3070: CMP byte ptr [0x011f6229],0x0
+  0x00aa3077: JZ 0x00aa308f ; -> 0x00aa308f ???
+  0x00aa3079: MOV byte ptr [0x011f6229],0x0
+  0x00aa3080: CALL 0x00aa81d0 ; -> 0x00aa81d0 FUN_00aa81d0
+  0x00aa3085: CALL 0x00aa1980 ; -> 0x00aa1980 FUN_00aa1980
+
+======================================================================
+Containing function @ 0x00aa3060
+======================================================================
+  Function: FUN_00aa3050 @ 0x00aa3050, Size: 32 bytes
+  NOTE: Requested 0x00aa3060 is inside FUN_00aa3050 (entry at 0x00aa3050, +0x10)
+
+void FUN_00aa3050(void)
+
+{
+  if (DAT_011f6229 == '\0') {
+    DAT_011f6229 = 1;
+    FUN_00aa2020();
+    FUN_00aa1920();
+    FUN_00aa7eb0();
+    return;
+  }
+  return;
+}
+
+
+
+CALL at 0x00aa3060 targets 0x00aa2020
+
+======================================================================
+CALL target (NVHR NOPs this call) @ 0x00aa2020
+======================================================================
+  Function: FUN_00aa2020 @ 0x00aa2020, Size: 51 bytes
+
+void FUN_00aa2020(void)
+
+{
+  undefined4 uVar1;
+  
+  DAT_011f6080 = FUN_00aa3e40(&DAT_011f6238,4);
+  uVar1 = FUN_009fd0f0(DAT_011f6118);
+  *DAT_011f6080 = uVar1;
+                    /* WARNING: Could not recover jumptable at 0x00aa2051. Too many branches */
+                    /* WARNING: Treating indirect jump as call */
+  (**(code **)(*(int *)*DAT_011f6080 + 0x1c))();
+  return;
+}
+
+
+
+--- Calls FROM CALL target (entry 0x00aa2020) ---
+  0x00aa2027 -> 0x00aa3e40 FUN_00aa3e40
+  0x00aa2037 -> 0x009fd0f0 FUN_009fd0f0
+  Total: 2 calls
+
+----------------------------------------------------------------------
+References TO 0x00aa2020 (CALL target (is it called from other sites?))
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x00aa3060 (in FUN_00aa3050)
+  UNCONDITIONAL_CALL @ 0x00866734 (in FUN_00866690)
+  Total: 2 refs
+
+----------------------------------------------------------------------
+Callers of the function containing 0x00AA3060
+----------------------------------------------------------------------
+  Function entry: FUN_00aa3050 @ 0x00aa3050
+  0x00aa2121 in FUN_00aa20b0 (entry 0x00aa20b0)
+  Total callers: 1

@@ -18,12 +18,7 @@ use libmimalloc::{
 use libpsycho::os::windows::{
     hook::iat::iathook::IatHookContainer,
     types::{CallocFn, FreeFn, MallocFn, MsizeFn, ReallocFn, RecallocFn},
-    va_allocator,
 };
-
-/// Threshold matching gheap::allocator: large allocations bypass mimalloc
-/// and go through VirtualAlloc for immediate VAS reclamation.
-const LARGE_ALLOC_THRESHOLD: usize = 1024 * 1024; // 1MB
 
 pub static MALLOC_IAT_HOOK: LazyLock<IatHookContainer<MallocFn>> =
     LazyLock::new(IatHookContainer::new);
@@ -38,7 +33,7 @@ pub static MSIZE_IAT_HOOK: LazyLock<IatHookContainer<MsizeFn>> =
 pub static FREE_IAT_HOOK: LazyLock<IatHookContainer<FreeFn>> = LazyLock::new(IatHookContainer::new);
 
 // -----------------------------------------------------------------------
-// CRT hook implementations: large allocs route to VirtualAlloc
+// CRT hook implementations: all routes through mimalloc
 // -----------------------------------------------------------------------
 
 pub unsafe extern "C" fn hook_malloc(size: usize) -> *mut c_void {
@@ -66,32 +61,10 @@ pub unsafe extern "C" fn hook_realloc(raw_ptr: *mut c_void, size: usize) -> *mut
         return std::ptr::null_mut();
     }
 
-    // Determine which allocator owns this pointer.
     if unsafe { mi_is_in_heap_region(raw_ptr) } {
         return unsafe { mi_realloc(raw_ptr, size) };
     }
 
-    if unsafe { va_allocator::is_virtual_alloc_ptr(raw_ptr) } {
-        if let Some(new_ptr) = unsafe { va_allocator::realloc(raw_ptr, size) } {
-            return new_ptr;
-        }
-        // VirtualAlloc realloc failed -- allocate new, copy, free old.
-        let new_ptr = unsafe { iat_alloc(size) };
-        if !new_ptr.is_null() {
-            let old_size = unsafe { va_allocator::msize(raw_ptr) }.unwrap_or(0);
-            unsafe {
-                std::ptr::copy_nonoverlapping(
-                    raw_ptr as *const u8,
-                    new_ptr as *mut u8,
-                    old_size.min(size),
-                );
-            }
-            unsafe { iat_free(raw_ptr) };
-        }
-        return new_ptr;
-    }
-
-    // Unknown origin: fallback to original realloc.
     if let Ok(original_realloc) = REALLOC_IAT_HOOK.original() {
         unsafe { original_realloc(raw_ptr, size) }
     } else {
@@ -130,16 +103,6 @@ pub unsafe extern "C" fn hook_recalloc(
         return unsafe { mi_recalloc(raw_ptr, count, size) };
     }
 
-    if unsafe { va_allocator::is_virtual_alloc_ptr(raw_ptr) } {
-        // VirtualAlloc: alloc new, zero, free old.
-        let new_ptr = unsafe { iat_alloc(total) };
-        if !new_ptr.is_null() {
-            unsafe { std::ptr::write_bytes(new_ptr as *mut u8, 0, total) };
-            unsafe { iat_free(raw_ptr) };
-        }
-        return new_ptr;
-    }
-
     if let Ok(original_recalloc) = RECALLOC_IAT_HOOK.original() {
         unsafe { original_recalloc(raw_ptr, count, size) }
     } else {
@@ -154,10 +117,6 @@ pub unsafe extern "C" fn hook_msize(raw_ptr: *mut c_void) -> usize {
 
     if unsafe { mi_is_in_heap_region(raw_ptr) } {
         return unsafe { mi_usable_size(raw_ptr) };
-    }
-
-    if let Some(size) = unsafe { va_allocator::msize(raw_ptr) } {
-        return size;
     }
 
     if let Ok(original_msize) = MSIZE_IAT_HOOK.original() {
@@ -176,31 +135,20 @@ pub unsafe extern "C" fn hook_free(raw_ptr: *mut c_void) {
 }
 
 // -----------------------------------------------------------------------
-// Internal helpers: mirror gheap::allocator large/small routing
+// Internal helpers
 // -----------------------------------------------------------------------
 
-/// Allocate: large (>= 1MB) --> VirtualAlloc, small --> mimalloc.
-/// No OOM recovery -- callers must handle NULL returns.
+/// Allocate through mimalloc.
 #[inline]
 unsafe fn iat_alloc(size: usize) -> *mut c_void {
-    if size >= LARGE_ALLOC_THRESHOLD {
-        return unsafe { va_allocator::malloc(size) };
-    }
     unsafe { mi_malloc(size) }
 }
 
-/// Free: route to the correct deallocator based on pointer ownership.
-/// Mimalloc arena --> mi_free, VirtualAlloc header --> virtual_alloc::free,
-/// unknown --> original fallback.
+/// Free: route based on pointer ownership.
 #[inline]
 unsafe fn iat_free(ptr: *mut c_void) {
     if unsafe { mi_is_in_heap_region(ptr) } {
         unsafe { mi_free(ptr) };
-        return;
-    }
-
-    if unsafe { va_allocator::is_virtual_alloc_ptr(ptr) } {
-        unsafe { va_allocator::free(ptr) };
         return;
     }
 

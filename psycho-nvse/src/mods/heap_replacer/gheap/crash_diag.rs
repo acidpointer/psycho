@@ -14,12 +14,13 @@ use windows::Win32::System::Diagnostics::Debug::{
     AddVectoredExceptionHandler, CONTEXT, EXCEPTION_CONTINUE_SEARCH, EXCEPTION_POINTERS,
 };
 use windows::Win32::System::Memory::{
-    MEMORY_BASIC_INFORMATION, MEM_COMMIT, PAGE_NOACCESS, VirtualQuery,
+    VirtualQuery, MEMORY_BASIC_INFORMATION, MEM_COMMIT, PAGE_NOACCESS,
 };
 
 use super::allocator;
 use super::engine::globals;
-use super::slab;
+use super::block;
+use super::pool;
 
 static CAUGHT: AtomicBool = AtomicBool::new(false);
 
@@ -165,17 +166,25 @@ unsafe extern "system" fn handler(info: *mut EXCEPTION_POINTERS) -> i32 {
     let ctx = unsafe { &*info.ContextRecord };
     let fault = record.ExceptionInformation[1];
     let access = match record.ExceptionInformation[0] {
-        0 => "R", 1 => "W", 8 => "D", _ => "?",
+        0 => "R",
+        1 => "W",
+        8 => "D",
+        _ => "?",
     };
 
     // minimal diagnostic: ONE log line, ZERO heap allocation.
     // log::error! formats on the stack via fmt::Arguments (no alloc).
     // the log crate queues it via lock-free channel (no alloc).
     log::error!(
-        "[AV] {} 0x{:08X} EIP=0x{:08X} EAX={:08X} ECX={:08X} ESI={:08X} slab={} mi={}",
-        access, fault, ctx.Eip,
-        ctx.Eax, ctx.Ecx, ctx.Esi,
-        slab::is_slab_ptr(fault as *const core::ffi::c_void),
+        "[AV] {} 0x{:08X} EIP=0x{:08X} EAX={:08X} ECX={:08X} ESI={:08X} pool={} block={} mi={}",
+        access,
+        fault,
+        ctx.Eip,
+        ctx.Eax,
+        ctx.Ecx,
+        ctx.Esi,
+        pool::is_pool_ptr(fault as *const core::ffi::c_void),
+        block::is_block_ptr(fault as *const core::ffi::c_void),
         unsafe { libmimalloc::mi_is_in_heap_region(fault as *const core::ffi::c_void) },
     );
 
@@ -190,7 +199,12 @@ fn write_exception(r: &mut String, ctx: &CONTEXT, fault: usize) {
     let _ = write!(r, "  EIP:           0x{:08X}", ctx.Eip);
     write_func_tag(r, ctx.Eip);
     let _ = writeln!(r);
-    let _ = writeln!(r, "  Fault address: 0x{:08X}  ({})", fault, region_tag(fault));
+    let _ = writeln!(
+        r,
+        "  Fault address: 0x{:08X}  ({})",
+        fault,
+        region_tag(fault)
+    );
     if fault < 0x10000 {
         let _ = writeln!(r, "  --> NULL pointer dereference at offset 0x{:X}", fault);
     }
@@ -223,10 +237,23 @@ fn write_disassembly(r: &mut String, ctx: &CONTEXT) {
             let iv = reg_value(ctx, idx);
             let sc = instr.memory_index_scale();
             let eff = bv.wrapping_add(iv.wrapping_mul(sc)).wrapping_add(disp);
-            let _ = writeln!(r, "  --> mem: [{} + {} * {} + 0x{:X}] = 0x{:08X}",
-                reg_name(base), reg_name(idx), sc, disp, eff);
+            let _ = writeln!(
+                r,
+                "  --> mem: [{} + {} * {} + 0x{:X}] = 0x{:08X}",
+                reg_name(base),
+                reg_name(idx),
+                sc,
+                disp,
+                eff
+            );
             if let Some(n) = reg_name_opt(base) {
-                let _ = writeln!(r, "      {} = 0x{:08X}  ({})", n, bv, region_tag(bv as usize));
+                let _ = writeln!(
+                    r,
+                    "      {} = 0x{:08X}  ({})",
+                    n,
+                    bv,
+                    region_tag(bv as usize)
+                );
             }
         }
     }
@@ -243,14 +270,20 @@ fn write_stack_walk(r: &mut String, ctx: &CONTEXT) {
 
     let mut ebp = ctx.Ebp as usize;
     for i in 1..=16u32 {
-        if !is_readable(ebp, 8) { break; }
+        if !is_readable(ebp, 8) {
+            break;
+        }
         let ret = unsafe { *((ebp + 4) as *const u32) };
         let next_ebp = unsafe { *(ebp as *const u32) } as usize;
-        if ret < 0x10000 { break; }
+        if ret < 0x10000 {
+            break;
+        }
         let _ = write!(r, "  #{:<2} 0x{:08X}", i, ret);
         write_func_tag(r, ret);
         let _ = writeln!(r);
-        if next_ebp <= ebp { break; } // must ascend
+        if next_ebp <= ebp {
+            break;
+        } // must ascend
         ebp = next_ebp;
     }
 }
@@ -258,21 +291,33 @@ fn write_stack_walk(r: &mut String, ctx: &CONTEXT) {
 fn write_registers(r: &mut String, ctx: &CONTEXT) {
     let _ = writeln!(r, "\n  Registers");
     let _ = writeln!(r, "  ---------");
-    let _ = writeln!(r, "  EAX={:08X}  EBX={:08X}  ECX={:08X}  EDX={:08X}",
-        ctx.Eax, ctx.Ebx, ctx.Ecx, ctx.Edx);
-    let _ = writeln!(r, "  ESI={:08X}  EDI={:08X}  EBP={:08X}  ESP={:08X}",
-        ctx.Esi, ctx.Edi, ctx.Ebp, ctx.Esp);
+    let _ = writeln!(
+        r,
+        "  EAX={:08X}  EBX={:08X}  ECX={:08X}  EDX={:08X}",
+        ctx.Eax, ctx.Ebx, ctx.Ecx, ctx.Edx
+    );
+    let _ = writeln!(
+        r,
+        "  ESI={:08X}  EDI={:08X}  EBP={:08X}  ESP={:08X}",
+        ctx.Esi, ctx.Edi, ctx.Ebp, ctx.Esp
+    );
 }
 
 fn write_ptr_analysis(r: &mut String, ctx: &CONTEXT) {
     let _ = writeln!(r, "\n  Pointer Analysis");
     let _ = writeln!(r, "  ----------------");
     for &(name, val) in &[
-        ("EAX", ctx.Eax), ("EBX", ctx.Ebx), ("ECX", ctx.Ecx), ("EDX", ctx.Edx),
-        ("ESI", ctx.Esi), ("EDI", ctx.Edi),
+        ("EAX", ctx.Eax),
+        ("EBX", ctx.Ebx),
+        ("ECX", ctx.Ecx),
+        ("EDX", ctx.Edx),
+        ("ESI", ctx.Esi),
+        ("EDI", ctx.Edi),
     ] {
         let addr = val as usize;
-        if addr < 0x10000 || !is_readable(addr, 16) { continue; }
+        if addr < 0x10000 || !is_readable(addr, 16) {
+            continue;
+        }
         let _ = writeln!(r, "  {} = 0x{:08X}  ({})", name, val, region_tag(addr));
         for off in [0u32, 4, 8, 12] {
             let v = unsafe { *((addr + off as usize) as *const u32) };
@@ -299,22 +344,36 @@ fn write_fault_analysis(r: &mut String, fault: usize, ctx: &CONTEXT) {
     let _ = writeln!(r, "  ----------------------");
     let _ = writeln!(r, "  Region: {}", region_tag(fault));
 
-    if slab::is_slab_ptr(fault as *const core::ffi::c_void) {
-        slab::diagnose_ptr_buf(fault, r);
+    if pool::is_pool_ptr(fault as *const core::ffi::c_void) {
+        pool::diagnose_ptr_buf(fault, r);
+        write_cell_dump(r, fault);
+    } else if block::is_block_ptr(fault as *const core::ffi::c_void) {
+        block::diagnose_ptr_buf(fault, r);
         write_cell_dump(r, fault);
     }
 
     let eip = ctx.Eip as usize;
-    if slab::is_slab_ptr(eip as *const core::ffi::c_void) {
-        let _ = writeln!(r, "  !!! EIP inside slab -- wild vtable jump into heap data");
-        slab::diagnose_ptr_buf(eip, r);
+    if pool::is_pool_ptr(eip as *const core::ffi::c_void) {
+        let _ = writeln!(
+            r,
+            "  !!! EIP inside pool -- wild vtable jump into heap data"
+        );
+        pool::diagnose_ptr_buf(eip, r);
+    } else if block::is_block_ptr(eip as *const core::ffi::c_void) {
+        let _ = writeln!(
+            r,
+            "  !!! EIP inside block -- wild vtable jump into heap data"
+        );
+        block::diagnose_ptr_buf(eip, r);
     }
 }
 
 fn write_cell_dump(r: &mut String, addr: usize) {
     // align down to cell boundary (we don't know cell_size here, just dump from addr)
     // dump 32 bytes starting from addr if readable
-    if !is_readable(addr, 32) { return; }
+    if !is_readable(addr, 32) {
+        return;
+    }
     let _ = writeln!(r, "\n  Cell Data (32 bytes at fault address)");
     let _ = writeln!(r, "  -------------------------------------");
     let bytes = unsafe { core::slice::from_raw_parts(addr as *const u8, 32) };
@@ -323,7 +382,9 @@ fn write_cell_dump(r: &mut String, addr: usize) {
         let _ = write!(r, "  0x{:08X}: ", addr + off);
         for i in 0..16 {
             let _ = write!(r, "{:02X} ", bytes[off + i]);
-            if i == 7 { let _ = write!(r, " "); }
+            if i == 7 {
+                let _ = write!(r, " ");
+            }
         }
         let _ = writeln!(r);
     }
@@ -334,9 +395,16 @@ fn write_cell_dump(r: &mut String, addr: usize) {
     } else if dw0 == 0 {
         let _ = writeln!(r, "  --> offset 0: NULL (decommitted page or zeroed)");
     } else if dw0 == 0xCDCDCDCD {
-        let _ = writeln!(r, "  --> offset 0: 0xCDCDCDCD (sentinel -- virgin page, never constructed)");
+        let _ = writeln!(
+            r,
+            "  --> offset 0: 0xCDCDCDCD (sentinel -- virgin page, never constructed)"
+        );
     } else if dw0 < 0x10000 {
-        let _ = writeln!(r, "  --> offset 0: 0x{:08X} (small integer -- recycled cell, different type)", dw0);
+        let _ = writeln!(
+            r,
+            "  --> offset 0: 0x{:08X} (small integer -- recycled cell, different type)",
+            dw0
+        );
     }
 }
 
@@ -344,9 +412,17 @@ fn write_game_state(r: &mut String) {
     let _ = writeln!(r, "\n  Game State");
     let _ = writeln!(r, "  ----------");
     let _ = writeln!(r, "  Loading:         {}", globals::is_loading());
-    let _ = writeln!(r, "  LoadingCounter:  {}", globals::loading_state_counter().load(Ordering::Relaxed));
+    let _ = writeln!(
+        r,
+        "  LoadingCounter:  {}",
+        globals::loading_state_counter().load(Ordering::Relaxed)
+    );
     let _ = writeln!(r, "  MainThread:      {}", globals::is_main_thread_by_tid());
-    let _ = writeln!(r, "  ThreadID:        {}", libpsycho::os::windows::winapi::get_current_thread_id());
+    let _ = writeln!(
+        r,
+        "  ThreadID:        {}",
+        libpsycho::os::windows::winapi::get_current_thread_id()
+    );
 }
 
 fn write_memory_pressure(r: &mut String) {
@@ -354,8 +430,18 @@ fn write_memory_pressure(r: &mut String) {
     let free_vas = allocator::current_free_vas();
     let _ = writeln!(r, "\n  Memory Pressure");
     let _ = writeln!(r, "  ---------------");
-    let _ = writeln!(r, "  Process commit:  {}MB (peak {}MB)", mi.get_current_commit() >> 20, mi.get_peak_commit() >> 20);
-    let _ = writeln!(r, "  Process RSS:     {}MB (peak {}MB)", mi.get_current_rss() >> 20, mi.get_peak_rss() >> 20);
+    let _ = writeln!(
+        r,
+        "  Process commit:  {}MB (peak {}MB)",
+        mi.get_current_commit() >> 20,
+        mi.get_peak_commit() >> 20
+    );
+    let _ = writeln!(
+        r,
+        "  Process RSS:     {}MB (peak {}MB)",
+        mi.get_current_rss() >> 20,
+        mi.get_peak_rss() >> 20
+    );
     let _ = writeln!(r, "  Free VAS:        {}MB", free_vas >> 20);
     if free_vas < 200 << 20 {
         let _ = writeln!(r, "  --> VAS EMERGENCY: <200MB free");
@@ -367,28 +453,37 @@ fn write_memory_pressure(r: &mut String) {
 }
 
 fn write_slab_summary(r: &mut String) {
-    let dirty = slab::dirty_pages();
-    let _ = writeln!(r, "\n  Slab Allocator");
+    let _ = writeln!(r, "\n  Heap Allocator");
     let _ = writeln!(r, "  --------------");
-    let _ = writeln!(r, "  Committed:  {}MB", slab::committed_bytes() >> 20);
-    let _ = writeln!(r, "  Dirty:      {} pages", dirty);
-    if dirty > 500 {
-        let _ = writeln!(r, "  --> {} dirty pages committed but unused", dirty);
-    }
+    let _ = writeln!(r, "  Pool committed:  {}MB", pool::committed_bytes() >> 20);
+    let _ = writeln!(r, "  Pool live cells: {}", pool::live_cells());
+    let _ = writeln!(r, "  Block count:     {}", block::block_count());
+    let _ = writeln!(
+        r,
+        "  Block committed: {}MB",
+        block::committed_bytes() >> 20,
+    );
 }
 
 // ---- lookup helpers --------------------------------------------------------
 
 fn resolve_func(addr: u32) -> Option<(&'static str, u32)> {
     let i = KNOWN_FUNCS.partition_point(|&(start, _, _)| start <= addr);
-    if i == 0 { return None; }
+    if i == 0 {
+        return None;
+    }
     let (start, size, name) = KNOWN_FUNCS[i - 1];
     let offset = addr - start;
-    if offset < size { Some((name, offset)) } else { None }
+    if offset < size {
+        Some((name, offset))
+    } else {
+        None
+    }
 }
 
 fn resolve_vtable(addr: u32) -> Option<&'static str> {
-    KNOWN_VTABLES.binary_search_by_key(&addr, |&(a, _)| a)
+    KNOWN_VTABLES
+        .binary_search_by_key(&addr, |&(a, _)| a)
         .ok()
         .map(|i| KNOWN_VTABLES[i].1)
 }
@@ -406,27 +501,39 @@ fn write_func_tag(r: &mut String, addr: u32) {
 // ---- memory / region helpers -----------------------------------------------
 
 fn is_readable(addr: usize, len: usize) -> bool {
-    if addr < 0x10000 { return false; }
+    if addr < 0x10000 {
+        return false;
+    }
     let mut mbi: MEMORY_BASIC_INFORMATION = unsafe { core::mem::zeroed() };
-    let ret = unsafe { VirtualQuery(
-        Some(addr as *const core::ffi::c_void),
-        &mut mbi,
-        core::mem::size_of::<MEMORY_BASIC_INFORMATION>(),
-    )};
-    if ret == 0 { return false; }
+    let ret = unsafe {
+        VirtualQuery(
+            Some(addr as *const core::ffi::c_void),
+            &mut mbi,
+            core::mem::size_of::<MEMORY_BASIC_INFORMATION>(),
+        )
+    };
+    if ret == 0 {
+        return false;
+    }
     let ok = mbi.State == MEM_COMMIT && mbi.Protect.0 != 0 && mbi.Protect != PAGE_NOACCESS;
     ok && addr + len <= mbi.BaseAddress as usize + mbi.RegionSize
 }
 
 fn region_tag(addr: usize) -> &'static str {
-    if addr < 0x10000 { return "NULL page"; }
-    if (0x00400000..0x01500000).contains(&addr) { return "FalloutNV.exe"; }
-    if slab::is_slab_ptr(addr as *const core::ffi::c_void) { return "SLAB"; }
+    if addr < 0x10000 {
+        return "NULL page";
+    }
+    if (0x00400000..0x01500000).contains(&addr) {
+        return "FalloutNV.exe";
+    }
+    if pool::is_pool_ptr(addr as *const core::ffi::c_void) {
+        return "POOL";
+    }
+    if block::is_block_ptr(addr as *const core::ffi::c_void) {
+        return "BLOCK";
+    }
     if unsafe { libmimalloc::mi_is_in_heap_region(addr as *const core::ffi::c_void) } {
         return "MIMALLOC";
-    }
-    if unsafe { libpsycho::os::windows::va_allocator::is_virtual_alloc_ptr(addr as *mut core::ffi::c_void) } {
-        return "VA_ALLOC";
     }
     "---"
 }
