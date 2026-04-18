@@ -1,29 +1,82 @@
 //! Size-class pool allocator for small allocations.
 //!
-//! Adapted from NVHR's mheap. One pool per size class; each pool
-//! reserves a VA range aligned to `POOL_ALIGN` (16 MB) so free dispatch
-//! is `(ptr >> 24) & 0xFF` into a 256-entry table. Pools grow by
-//! committing `POOL_BLOCK_SIZE` (1 MB) blocks on demand and never
-//! decommit -- this matches vanilla SBM's memory contract and avoids
-//! VirtualFree stutter.
+//! Adapted from NVHR's mheap with one critical divergence: **pools
+//! reserve their VA lazily on first alloc**, not at heap init. Pools
+//! are aligned to `POOL_ALIGN` (8 MB) so free dispatch stays O(1) via
+//! `addr_to_pool[ptr >> POOL_ALIGN_BITS]`. Each pool grows its active
+//! reservation by committing `POOL_BLOCK_SIZE` (1 MB) blocks on demand
+//! and never decommits.
 //!
-//! The freelist is stored out-of-band in a separate array of link
-//! records. Freed cells are NOT written to: every byte of a freed
-//! allocation stays readable for stale readers (AI, IO, Havok). This
-//! is the zombie-safe property.
+//! # Why lazy reservation
 //!
-//! On pool exhaustion (reached max reserve) the allocator returns NULL,
-//! letting the caller fall through to the next tier (`block` or
-//! `va_alloc`).
+//! Heavy TTW modlists consume ~2.3 GB of VA before our code runs.
+//! Pre-reserving even 512 MB at heap-create time leaves the game with
+//! less contiguous VA than its own init + DirectX texture pools need
+//! (observed: deferred-init largest-hole of 8-13 MB vs 89 MB required
+//! for coc LOD textures). Every VA byte we reserve at startup is one
+//! byte the game cannot use during its init.
+//!
+//! Lazy reservation moves per-class VA into the allocator's own
+//! lifetime: if a size class is never used, no VA is reserved. If a
+//! class is used early, its VA is reserved early. The sum of reserved
+//! VA equals what the allocator actually needs, scaled to the
+//! workload, matching vanilla SBM's grow-on-demand contract.
+//!
+//! # Lifecycle
+//!
+//! - `PoolHeap::create()` populates per-pool descriptors (item_size,
+//!   max_size, index) and the `size_to_pool` lookup. It does not call
+//!   `VirtualAlloc`.
+//! - `PoolHeap::alloc(size)` dispatches to the target pool and calls
+//!   `ensure_pool_inited(idx)`. If the pool is still `POOL_STATE_NOT_INIT`,
+//!   a CAS transitions it to `POOL_STATE_INITING`, the winning thread
+//!   scans `addr_to_pool` for a free slot range, reserves the VA via
+//!   `VirtualAlloc(MEM_RESERVE)`, allocates the freelist metadata, and
+//!   publishes `POOL_STATE_INIT`. Losers busy-wait.
+//! - Subsequent allocs skip the ensure-init path (single Acquire load).
+//!
+//! # Zombie safety
+//!
+//! Unchanged from pre-lazy design: the freelist is stored out-of-band
+//! in a separate array of link records. Freed cells are NOT written
+//! to. Every byte of a freed allocation stays readable for stale
+//! readers (AI, IO, Havok) until the cell is reused by a new alloc.
+//!
+//! # Dispatch
+//!
+//! `pool_from_addr` checks `addr_to_pool` (lazily populated) and then
+//! verifies the pool is `POOL_STATE_INIT` before trusting `base/end`
+//! pointers. Lookups for pointers in not-yet-inited pool ranges are
+//! treated as "not ours" and fall through to block/va_alloc dispatch.
+//!
+//! # Concurrency
+//!
+//! - Hot path (already-inited pool): Acquire load + existing per-pool
+//!   spinlock. No extra lock.
+//! - Init path (first alloc for a class): global `init_lock`
+//!   serialises the `addr_to_pool` scan + `VirtualAlloc` + slot claim
+//!   sequence. Only paid once per size class for the lifetime of the
+//!   process.
 
 use std::cell::Cell;
 use std::ptr::{self, null_mut};
-use std::sync::atomic::{AtomicU32, Ordering};
+use std::sync::atomic::{AtomicU8, AtomicU32, Ordering};
+use std::sync::Mutex;
 
 use libc::c_void;
 use windows::Win32::System::Memory::{
     VirtualAlloc, MEM_COMMIT, MEM_RESERVE, PAGE_READWRITE,
 };
+
+// Per-pool lifecycle states. Enables lazy VA reservation: the pool
+// transitions NotInit -> Initing -> (Init | Failed) on its first alloc
+// request, so each pool only consumes VA when something actually
+// needs that size class. Matches vanilla SBM's behaviour of growing
+// on demand instead of reserving a bulk working set upfront.
+const POOL_STATE_NOT_INIT: u8 = 0;
+const POOL_STATE_INITING: u8 = 1;
+const POOL_STATE_INIT: u8 = 2;
+const POOL_STATE_FAILED: u8 = 3;
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -90,21 +143,21 @@ fn get_shard() -> usize {
     })
 }
 
-/// Per-class reservation sizes. Total: 512 MB.
+/// Per-class MAXIMUM reservation sizes. Sum is 512 MB, but with lazy
+/// reservation (see module docs) only classes that actually get used
+/// consume VA -- total live VA scales to the workload. A class whose
+/// `max_size` is 80 MB but which never receives an alloc reserves 0
+/// bytes for the life of the process.
 ///
-/// Hard ceiling imposed by 32-bit LAA constraints under heavy TTW
-/// modlists. The 640 MB experiment proved that sizing every observed
-/// hotspot at its "ideal" value simultaneously pushes total VAS
-/// reservation past the threshold where the game's own 89 MB LOD
-/// textures cannot find a contiguous hole at deferred-init:
-///
-///   512 MB pool: deferred-init free=93MB, largest=15MB  (tight but OK)
-///   640 MB pool: deferred-init free=44MB, largest=13MB  (guaranteed coc crash)
-///
-/// So we live with selected class exhausts in exchange for leaving
-/// the game enough contiguous address space. Observed exhausts
-/// cascade to the block tier rather than crash; they are a slowdown
-/// rather than a kill. Logged at `[POOL] Exhausted for size=X`.
+/// Historical context: the pre-lazy design reserved the entire 512 MB
+/// sum at heap init, which stole VA from the game's own working budget.
+/// Observed deferred-init largest-hole under heavy TTW modlists was
+/// 13 MB with 640 MB pool / 8 MB with 512 MB pool -- the game's own
+/// init + DirectX texture pools need a larger contiguous hole than
+/// that for coc LOD textures (89 MB request). Lazy reservation
+/// eliminates the eager VA cost so the game enters deferred-init with
+/// full VA available, and our pools appear as the game's actual
+/// working set crosses their size-class thresholds.
 ///
 /// Layout (34 classes, 512 MB total):
 ///
@@ -228,17 +281,21 @@ struct Pool {
     max_size: u32,
     max_cell_count: u32,
 
-    /// VA reservation base (POOL_ALIGN-aligned).
+    /// VA reservation base (POOL_ALIGN-aligned). NULL until `state`
+    /// reaches `POOL_STATE_INIT` (lazy reservation).
     base: *mut u8,
-    /// Next uncommitted byte within the reservation.
+    /// Next uncommitted byte within the reservation. NULL until lazy
+    /// init completes.
     cur: *mut u8,
-    /// End of reservation (base + max_size).
+    /// End of reservation (base + max_size). NULL until lazy init.
     end: *mut u8,
 
     /// Out-of-band freelist array (one FreeLink per max_cell_count).
+    /// NULL until lazy init.
     free_cells: *mut FreeLink,
     /// Head of freelist. NULL when the pool is fully allocated (no
-    /// free cells) AND there are no uncommitted blocks left.
+    /// free cells) AND there are no uncommitted blocks left. Also
+    /// NULL before lazy init.
     next_free: *mut FreeLink,
 
     /// Diagnostics: live cell count.
@@ -249,7 +306,15 @@ struct Pool {
     /// Pool index (for diagnostics).
     index: u8,
 
+    /// Per-pool lifecycle state. Start: `POOL_STATE_NOT_INIT`. First
+    /// alloc flips NotInit -> Initing -> Init (or Failed). Checked
+    /// on every alloc and on every `pool_from_addr` lookup so that
+    /// not-yet-inited pools don't match spurious pointers.
+    state: AtomicU8,
+
     /// Per-pool spinlock. Alloc/free are O(1) under this lock.
+    /// Lazy-init winner also holds the global `INIT_LOCK` to serialise
+    /// addr_to_pool claim + VirtualAlloc against other pools' init.
     lock: AtomicU32,
 }
 
@@ -272,8 +337,14 @@ impl Pool {
             live_cells: AtomicU32::new(0),
             committed_bytes: AtomicU32::new(0),
             index: 0,
+            state: AtomicU8::new(POOL_STATE_NOT_INIT),
             lock: AtomicU32::new(0),
         }
+    }
+
+    #[inline]
+    fn is_inited(&self) -> bool {
+        self.state.load(Ordering::Acquire) == POOL_STATE_INIT
     }
 
     #[inline]
@@ -544,168 +615,71 @@ pub struct PoolHeap {
     /// at init. Indexed by `base_idx as usize`.
     shard1_of: [u8; NUM_BASE_POOLS],
     /// size_to_pool[(size + 3) >> 2] = pool index, or NO_POOL if size
-    /// exceeds POOL_MAX_SIZE.
+    /// exceeds POOL_MAX_SIZE. Filled at heap create; independent of
+    /// per-pool reservation state.
     size_to_pool: [u8; SIZE_LOOKUP_LEN],
-    /// addr_to_pool[ptr >> 24] = pool index, or NO_POOL if the slot is
-    /// not owned by any pool.
-    addr_to_pool: [u8; ADDR_LOOKUP_LEN],
+    /// addr_to_pool[ptr >> POOL_ALIGN_BITS] = pool index, or NO_POOL
+    /// if no pool actually reserved that slot. Populated lazily by
+    /// `lazy_init_pool` as individual pools come online; entries are
+    /// guarded by `INIT_LOCK`.
+    ///
+    /// Uses `AtomicU8` so readers on the alloc/free hot path can load
+    /// without locking. Writers (lazy init) hold `INIT_LOCK` to
+    /// serialise slot claims.
+    addr_to_pool: [AtomicU8; ADDR_LOOKUP_LEN],
+    /// Serialises the "scan free slots + VirtualAlloc + claim slots"
+    /// sequence across concurrent lazy-init attempts on different
+    /// pools. Not taken on the alloc/free hot paths -- only on the
+    /// first alloc for a not-yet-inited size class.
+    init_lock: Mutex<()>,
 }
 
 unsafe impl Send for PoolHeap {}
 unsafe impl Sync for PoolHeap {}
 
-/// Reserve VA and initialise a single `Pool` slot at `pools[pool_idx]`.
-/// `next_slot` is advanced past the reservation so consecutive pools
-/// don't rescan claimed slots. Returns the bytes reserved on success.
-fn init_one_pool(
-    heap: &mut PoolHeap,
-    pool_idx: u8,
-    desc: &PoolDesc,
-    next_slot: &mut usize,
-) -> Option<usize> {
-    let slots_needed = desc.max_size as usize / POOL_ALIGN;
-    if slots_needed == 0 {
-        log::error!("[POOL] Bad descriptor: max_size {} < POOL_ALIGN", desc.max_size);
-        return None;
-    }
-
-    let mut reserved_base: *mut u8 = ptr::null_mut();
-    let mut claim_slot: usize = 0;
-
-    let mut slot = *next_slot;
-    while slot + slots_needed <= ADDR_LOOKUP_LEN {
-        let mut clear = true;
-        for s in slot..slot + slots_needed {
-            if heap.addr_to_pool[s] != NO_POOL {
-                clear = false;
-                break;
-            }
-        }
-        if clear {
-            let hint = (slot * POOL_ALIGN) as *mut c_void;
-            let ptr = unsafe {
-                VirtualAlloc(
-                    Some(hint),
-                    desc.max_size as usize,
-                    MEM_RESERVE,
-                    PAGE_READWRITE,
-                )
-            };
-            if !ptr.is_null() && (ptr as usize) == slot * POOL_ALIGN {
-                reserved_base = ptr as *mut u8;
-                claim_slot = slot;
-                break;
-            }
-            if !ptr.is_null() {
-                let _ = unsafe {
-                    windows::Win32::System::Memory::VirtualFree(
-                        ptr,
-                        0,
-                        windows::Win32::System::Memory::MEM_RELEASE,
-                    )
-                };
-            }
-        }
-        slot += 1;
-    }
-
-    if reserved_base.is_null() {
-        log::error!(
-            "[POOL] Could not reserve pool {}: item_size={} max_size={}MB",
-            pool_idx, desc.item_size, desc.max_size / 1024 / 1024,
-        );
-        return None;
-    }
-
+/// Populate a pool's static descriptor fields (item_size, max_size,
+/// max_cell_count, index). Called at heap-create time for every pool
+/// so size_to_pool dispatch works before any pool has lazy-inited.
+fn assign_pool_desc(pool: &mut Pool, pool_idx: u8, desc: &PoolDesc) {
     let max_cell_count = desc.max_size / desc.item_size;
-    let meta_bytes = max_cell_count as usize * std::mem::size_of::<FreeLink>();
-    let meta_ptr = unsafe {
-        VirtualAlloc(
-            None,
-            meta_bytes,
-            MEM_RESERVE | MEM_COMMIT,
-            PAGE_READWRITE,
-        )
-    };
-    if meta_ptr.is_null() {
-        log::error!(
-            "[POOL] Failed to allocate freelist metadata for pool {} ({} KB)",
-            pool_idx, meta_bytes / 1024,
-        );
-        return None;
-    }
-    unsafe {
-        std::ptr::write_bytes(meta_ptr as *mut u8, 0, meta_bytes);
-    }
-
-    {
-        let pool = &mut heap.pools[pool_idx as usize];
-        pool.item_size = desc.item_size;
-        pool.max_size = desc.max_size;
-        pool.max_cell_count = max_cell_count;
-        pool.base = reserved_base;
-        pool.cur = reserved_base;
-        pool.end = unsafe { reserved_base.add(desc.max_size as usize) };
-        pool.free_cells = meta_ptr as *mut FreeLink;
-        pool.next_free = ptr::null_mut();
-        pool.index = pool_idx;
-    }
-
-    for s in claim_slot..claim_slot + slots_needed {
-        heap.addr_to_pool[s] = pool_idx;
-    }
-    *next_slot = claim_slot + slots_needed;
-
-    log::info!(
-        "[POOL] #{} item_size={} reserved {}MB at 0x{:08x}..0x{:08x}",
-        pool_idx,
-        desc.item_size,
-        desc.max_size / 1024 / 1024,
-        reserved_base as usize,
-        reserved_base as usize + desc.max_size as usize,
-    );
-
-    Some(desc.max_size as usize)
+    pool.item_size = desc.item_size;
+    pool.max_size = desc.max_size;
+    pool.max_cell_count = max_cell_count;
+    pool.index = pool_idx;
+    // base/cur/end/free_cells stay NULL until lazy init.
 }
 
 impl PoolHeap {
-    /// Create a fresh heap with all pools initialised and reserved.
-    /// Returns None if even a single pool could not reserve its VA --
-    /// the allocator is unusable without its full set.
+    /// Create the heap shell. Assigns per-pool descriptors and the
+    /// size_to_pool lookup, but does NOT reserve any VA. Individual
+    /// pools reserve their VA lazily on first alloc via
+    /// `ensure_pool_inited` / `lazy_init_pool`. This keeps our startup
+    /// VA footprint near zero, matching vanilla SBM's grow-on-demand
+    /// behaviour instead of stealing the game's working budget.
     fn create() -> Option<Box<Self>> {
         let mut heap = Box::new(PoolHeap {
             pools: std::array::from_fn(|_| Pool::empty()),
             size_to_pool: [NO_POOL; SIZE_LOOKUP_LEN],
-            addr_to_pool: [NO_POOL; ADDR_LOOKUP_LEN],
+            addr_to_pool: std::array::from_fn(|_| AtomicU8::new(NO_POOL)),
             shard1_of: [NO_POOL; NUM_BASE_POOLS],
+            init_lock: Mutex::new(()),
         });
 
-        let mut next_slot: usize = 1;
-        let mut total_reserved: usize = 0;
+        // Pre-compute static descriptor fields for all pools so
+        // size_to_pool dispatch works before any pool has lazy-inited.
         let mut shard1_cursor: usize = NUM_BASE_POOLS;
-
         for (p, desc) in POOL_DESC.iter().enumerate() {
-            // Reserve the base pool (shard 0).
-            match init_one_pool(&mut heap, p as u8, desc, &mut next_slot) {
-                Some(reserved) => total_reserved += reserved,
-                None => return None,
-            }
-
-            // If sharded, reserve a second independent pool of the same
-            // item_size / max_size at the next available slot. Record
-            // the mapping so the hot alloc path can route shard 1 there.
+            assign_pool_desc(&mut heap.pools[p], p as u8, desc);
             if desc.sharded {
                 let shard1_idx = shard1_cursor;
                 shard1_cursor += 1;
-                match init_one_pool(&mut heap, shard1_idx as u8, desc, &mut next_slot) {
-                    Some(reserved) => total_reserved += reserved,
-                    None => return None,
-                }
+                assign_pool_desc(&mut heap.pools[shard1_idx], shard1_idx as u8, desc);
                 heap.shard1_of[p] = shard1_idx as u8;
             }
         }
 
         // Build size_to_pool lookup (points at the shard-0 / base index).
+        // Independent of reservation state; populated once at create().
         for (p, desc) in POOL_DESC.iter().enumerate() {
             let upper = (desc.item_size as usize >> 2).min(SIZE_LOOKUP_LEN - 1);
             let mut i = upper;
@@ -719,14 +693,203 @@ impl PoolHeap {
         }
 
         log::info!(
-            "[POOL] Init complete: {} base + {} shard pools = {} total, {}MB VA reserved",
+            "[POOL] Ready (lazy): {} base + {} shard pools = {} total, 0MB reserved upfront; each pool reserves its VA on first alloc",
             NUM_BASE_POOLS,
             NUM_SHARD1_POOLS,
             NUM_TOTAL_POOLS,
-            total_reserved / 1024 / 1024,
         );
 
         Some(heap)
+    }
+
+    /// First-alloc hook. Ensures pool at `idx` is in `INIT` state.
+    /// Returns true if the pool is usable; false if init failed or
+    /// is still in progress (caller can retry on the next request).
+    ///
+    /// Fast path: a single `Acquire` load; no lock taken if already
+    /// initialised. Slow path (first alloc for this class) takes the
+    /// global `init_lock` while it scans slots + `VirtualAlloc`s +
+    /// claims `addr_to_pool` entries. Concurrent initialisers on
+    /// DIFFERENT pools spin-wait; after one pool finishes, the next
+    /// proceeds.
+    fn ensure_pool_inited(&self, idx: usize) -> bool {
+        let state = self.pools[idx].state.load(Ordering::Acquire);
+        if state == POOL_STATE_INIT {
+            return true;
+        }
+        if state == POOL_STATE_FAILED {
+            return false;
+        }
+        self.lazy_init_pool(idx)
+    }
+
+    #[allow(clippy::never_loop)]
+    #[cold]
+    fn lazy_init_pool(&self, idx: usize) -> bool {
+        // Transition NotInit -> Initing. If another thread beat us to
+        // it, wait for its outcome.
+        loop {
+            match self.pools[idx].state.compare_exchange(
+                POOL_STATE_NOT_INIT,
+                POOL_STATE_INITING,
+                Ordering::AcqRel,
+                Ordering::Acquire,
+            ) {
+                Ok(_) => break,
+                Err(POOL_STATE_INIT) => return true,
+                Err(POOL_STATE_FAILED) => return false,
+                Err(_) => {
+                    // POOL_STATE_INITING on another thread; spin.
+                    while self.pools[idx].state.load(Ordering::Acquire) == POOL_STATE_INITING {
+                        std::hint::spin_loop();
+                    }
+                    let s = self.pools[idx].state.load(Ordering::Acquire);
+                    return s == POOL_STATE_INIT;
+                }
+            }
+        }
+
+        // We own the Initing transition. Do the actual reservation
+        // under init_lock (serialises slot scan against other pools).
+        let ok = self.do_reserve(idx);
+        self.pools[idx].state.store(
+            if ok { POOL_STATE_INIT } else { POOL_STATE_FAILED },
+            Ordering::Release,
+        );
+        ok
+    }
+
+    /// Reserve VA and freelist metadata for pool `idx`. Caller must
+    /// have just transitioned the pool to `POOL_STATE_INITING`.
+    /// Takes `init_lock` for addr_to_pool coordination.
+    fn do_reserve(&self, idx: usize) -> bool {
+        let _guard = match self.init_lock.lock() {
+            Ok(g) => g,
+            Err(p) => p.into_inner(),
+        };
+
+        // We hold init_lock (serialises addr_to_pool writes) and own
+        // the pool's INITING state (no other thread mutates this pool's
+        // base/cur/end fields). Access via raw pointer to avoid the
+        // invalid-reference-cast lint while still respecting the lock.
+        let pool_ptr: *mut Pool = &self.pools[idx] as *const Pool as *mut Pool;
+
+        let item_size = unsafe { (*pool_ptr).item_size };
+        let max_size = unsafe { (*pool_ptr).max_size };
+        let max_cell_count = unsafe { (*pool_ptr).max_cell_count };
+
+        let slots_needed = max_size as usize / POOL_ALIGN;
+        if slots_needed == 0 {
+            log::error!(
+                "[POOL] #{} item_size={} max_size={} < POOL_ALIGN",
+                idx, item_size, max_size,
+            );
+            return false;
+        }
+
+        let mut reserved_base: *mut u8 = ptr::null_mut();
+        let mut claim_slot: usize = 0;
+
+        // First-fit scan. Start at slot 1 so we never claim slot 0
+        // (avoids NULL-looking pointers).
+        let mut slot: usize = 1;
+        while slot + slots_needed <= ADDR_LOOKUP_LEN {
+            let mut clear = true;
+            for s in slot..slot + slots_needed {
+                if self.addr_to_pool[s].load(Ordering::Relaxed) != NO_POOL {
+                    clear = false;
+                    break;
+                }
+            }
+            if clear {
+                let hint = (slot * POOL_ALIGN) as *mut c_void;
+                let ptr = unsafe {
+                    VirtualAlloc(
+                        Some(hint),
+                        max_size as usize,
+                        MEM_RESERVE,
+                        PAGE_READWRITE,
+                    )
+                };
+                if !ptr.is_null() && (ptr as usize) == slot * POOL_ALIGN {
+                    reserved_base = ptr as *mut u8;
+                    claim_slot = slot;
+                    break;
+                }
+                if !ptr.is_null() {
+                    let _ = unsafe {
+                        windows::Win32::System::Memory::VirtualFree(
+                            ptr,
+                            0,
+                            windows::Win32::System::Memory::MEM_RELEASE,
+                        )
+                    };
+                }
+            }
+            slot += 1;
+        }
+
+        if reserved_base.is_null() {
+            log::error!(
+                "[POOL] #{} lazy reserve failed: item_size={} max_size={}MB (all scanned slots taken)",
+                idx, item_size, max_size / 1024 / 1024,
+            );
+            return false;
+        }
+
+        // Freelist metadata -- out-of-band from user cells, allocated
+        // from the OS directly (not from ourselves) to avoid recursion.
+        let meta_bytes = max_cell_count as usize * std::mem::size_of::<FreeLink>();
+        let meta_ptr = unsafe {
+            VirtualAlloc(
+                None,
+                meta_bytes,
+                MEM_RESERVE | MEM_COMMIT,
+                PAGE_READWRITE,
+            )
+        };
+        if meta_ptr.is_null() {
+            log::error!(
+                "[POOL] #{} freelist metadata alloc failed ({} KB)",
+                idx, meta_bytes / 1024,
+            );
+            let _ = unsafe {
+                windows::Win32::System::Memory::VirtualFree(
+                    reserved_base as *mut c_void,
+                    0,
+                    windows::Win32::System::Memory::MEM_RELEASE,
+                )
+            };
+            return false;
+        }
+        unsafe { std::ptr::write_bytes(meta_ptr as *mut u8, 0, meta_bytes) };
+
+        // Commit the pool's state via raw pointer writes.
+        unsafe {
+            (*pool_ptr).base = reserved_base;
+            (*pool_ptr).cur = reserved_base;
+            (*pool_ptr).end = reserved_base.add(max_size as usize);
+            (*pool_ptr).free_cells = meta_ptr as *mut FreeLink;
+            (*pool_ptr).next_free = ptr::null_mut();
+        }
+
+        // Claim addr_to_pool slots. Readers on the hot path will see
+        // our writes once state flips to INIT (Release pair in
+        // `lazy_init_pool` with an Acquire load in `is_inited`).
+        for s in claim_slot..claim_slot + slots_needed {
+            self.addr_to_pool[s].store(idx as u8, Ordering::Relaxed);
+        }
+
+        log::info!(
+            "[POOL] #{} lazy reserve OK: item_size={} reserved {}MB at 0x{:08x}..0x{:08x}",
+            idx,
+            item_size,
+            max_size / 1024 / 1024,
+            reserved_base as usize,
+            reserved_base as usize + max_size as usize,
+        );
+
+        true
     }
 
     #[inline]
@@ -735,11 +898,17 @@ impl PoolHeap {
         if slot >= ADDR_LOOKUP_LEN {
             return None;
         }
-        let p = self.addr_to_pool[slot];
+        let p = self.addr_to_pool[slot].load(Ordering::Acquire);
         if p == NO_POOL {
             return None;
         }
         let pool = &self.pools[p as usize];
+        // addr_to_pool may be populated before state reaches INIT, but
+        // we only want to match inited pools (otherwise base/end might
+        // still be NULL).
+        if !pool.is_inited() {
+            return None;
+        }
         // Slot ownership is a coarse filter; verify the address falls
         // inside the pool's actual reservation (the slot could also
         // straddle the last POOL_ALIGN boundary beyond pool->end).
@@ -770,17 +939,20 @@ impl PoolHeap {
             base_idx_u
         };
 
-        // First try: chosen shard.
-        let primary = &self.pools[primary_idx];
-        let ptr = unsafe {
-            let p = primary as *const Pool as *mut Pool;
-            (*p).acquire();
-            let result = (*p).alloc();
-            (*p).release();
-            result
-        };
-        if !ptr.is_null() {
-            return ptr as *mut c_void;
+        // First try: chosen shard. Lazy-inits the pool's VA
+        // reservation if this is the first alloc for this class.
+        if self.ensure_pool_inited(primary_idx) {
+            let primary = &self.pools[primary_idx];
+            let ptr = unsafe {
+                let p = primary as *const Pool as *mut Pool;
+                (*p).acquire();
+                let result = (*p).alloc();
+                (*p).release();
+                result
+            };
+            if !ptr.is_null() {
+                return ptr as *mut c_void;
+            }
         }
 
         // If this was a sharded class, try the other shard before
@@ -792,21 +964,27 @@ impl PoolHeap {
             } else {
                 base_idx_u
             };
-            let other = &self.pools[other_idx];
-            let ptr = unsafe {
-                let p = other as *const Pool as *mut Pool;
-                (*p).acquire();
-                let result = (*p).alloc();
-                (*p).release();
-                result
-            };
-            if !ptr.is_null() {
-                return ptr as *mut c_void;
+            if self.ensure_pool_inited(other_idx) {
+                let other = &self.pools[other_idx];
+                let ptr = unsafe {
+                    let p = other as *const Pool as *mut Pool;
+                    (*p).acquire();
+                    let result = (*p).alloc();
+                    (*p).release();
+                    result
+                };
+                if !ptr.is_null() {
+                    return ptr as *mut c_void;
+                }
             }
         }
 
-        // Exhausted: walk to larger base classes.
+        // Exhausted: walk to larger base classes. Each one may be
+        // still uninited; ensure before use.
         for i in (base_idx_u + 1)..NUM_BASE_POOLS {
+            if !self.ensure_pool_inited(i) {
+                continue;
+            }
             let next = &self.pools[i];
             let ptr = unsafe {
                 let p = next as *const Pool as *mut Pool;

@@ -16,7 +16,7 @@ const MB: usize = 1024 * 1024;
 pub fn configure_mimalloc() {
     CONFIG_MIMALLOC.call_once(|| unsafe {
         // let arena_sizes = [512 * MB, 384 * MB, 256 * MB];
-        let arena_sizes = [32 * MB, 16 * MB];
+        let arena_sizes = [16 * MB, 8 * MB];
 
         let mut reserved = 0usize;
         for &size in &arena_sizes {
