@@ -57,15 +57,6 @@ pub fn with_write<R>(caller: &str, f: impl FnOnce() -> R) -> R {
     f()
 }
 
-/// Try write lock (non-blocking), run `f` if acquired.
-/// Returns None if any reader active. Skips cleanup if contended.
-#[inline]
-#[allow(dead_code)]
-pub fn with_try_write<R>(f: impl FnOnce() -> R) -> Option<R> {
-    let _guard = GAME_LOCK.try_write()?;
-    Some(f())
-}
-
 // ---------------------------------------------------------------------------
 // AI active flag (for OOM game-stage decisions)
 // ---------------------------------------------------------------------------

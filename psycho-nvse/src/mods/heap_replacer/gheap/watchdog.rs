@@ -340,20 +340,20 @@ fn watchdog_loop(run: Arc<AtomicBool>) {
                 );
             }
 
-            // Thread-safe cleanup: all three operate on global state
-            // without requiring game locks or main thread context.
+            // Thread-safe cleanup. With pool/block the per-tier
+            // allocators do not decommit, so the only reclaim levers
+            // here are Havok GC and mi_collect (CRT arenas only).
+            // Both are safe off the main thread.
             unsafe {
                 globals::havok_gc(1);
-                libmimalloc::mi_collect(false);
-                super::slab::decommit_sweep_full(false);
                 libmimalloc::mi_collect(false);
             }
 
             log::info!(
-                "[WATCHDOG] Cleanup done: commit={}MB, slab={}MB, dirty={}",
+                "[WATCHDOG] Cleanup done: commit={}MB, pool={}MB, blocks={}",
                 MiMallocProcessInfo::get().get_current_commit() / 1024 / 1024,
-                super::slab::committed_bytes() / 1024 / 1024,
-                super::slab::dirty_pages(),
+                super::pool::committed_bytes() / 1024 / 1024,
+                super::block::block_count(),
             );
         }
 
@@ -382,12 +382,14 @@ fn log_diagnostics(poll_count: u32, info: &MiMallocProcessInfo) {
     );
 
     let rate = GROWTH_RATE.load(Ordering::Relaxed);
-    let slab_mb = super::slab::committed_bytes() / 1024 / 1024;
-    let slab_dirty = super::slab::dirty_pages();
+    let pool_mb = super::pool::committed_bytes() / 1024 / 1024;
+    let pool_live = super::pool::live_cells();
+    let block_ct = super::block::block_count();
     log::info!(
-        "[MEM] Slab: {}MB | Dirty: {} | Rate: {}/s | Reliefs: {} | Cells: {}",
-        slab_mb,
-        slab_dirty,
+        "[MEM] Pool: {}MB ({} live) | Blocks: {} | Rate: {}/s | Reliefs: {} | Cells: {}",
+        pool_mb,
+        pool_live,
+        block_ct,
         format_rate(rate),
         relief,
         cells,

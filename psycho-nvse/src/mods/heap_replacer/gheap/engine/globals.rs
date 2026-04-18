@@ -59,7 +59,6 @@ pub fn is_real_loading() -> bool {
 /// Stage 5: Cell unloading (FindCellToUnload) -- DANGEROUS: deadlocks
 ///          during fast travel and loading screens. Never use from
 ///          pressure relief.
-#[allow(dead_code)]
 #[repr(u32)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum HeapCompactStage {
@@ -88,7 +87,6 @@ pub fn signal_heap_compact(stage: HeapCompactStage) {
 
 /// PDD skip mask bits. When set, the corresponding queue is SKIPPED
 /// during full PDD drain (FUN_00868d70). Checked by FUN_00869180.
-#[allow(dead_code)]
 pub mod pdd_skip {
     pub const NINODE: u32 = 0x10;
     pub const FORM: u32 = 0x08;
@@ -147,7 +145,6 @@ pub fn is_bst_cell_load_pending() -> bool {
 // ---------------------------------------------------------------------------
 
 /// Which PDD queue to query.
-#[allow(dead_code)]
 pub enum PddQueue {
     NiNode,
     Form,

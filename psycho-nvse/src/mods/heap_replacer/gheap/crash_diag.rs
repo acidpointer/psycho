@@ -19,7 +19,8 @@ use windows::Win32::System::Memory::{
 
 use super::allocator;
 use super::engine::globals;
-use super::slab;
+use super::block;
+use super::pool;
 
 static CAUGHT: AtomicBool = AtomicBool::new(false);
 
@@ -175,14 +176,15 @@ unsafe extern "system" fn handler(info: *mut EXCEPTION_POINTERS) -> i32 {
     // log::error! formats on the stack via fmt::Arguments (no alloc).
     // the log crate queues it via lock-free channel (no alloc).
     log::error!(
-        "[AV] {} 0x{:08X} EIP=0x{:08X} EAX={:08X} ECX={:08X} ESI={:08X} slab={} mi={}",
+        "[AV] {} 0x{:08X} EIP=0x{:08X} EAX={:08X} ECX={:08X} ESI={:08X} pool={} block={} mi={}",
         access,
         fault,
         ctx.Eip,
         ctx.Eax,
         ctx.Ecx,
         ctx.Esi,
-        slab::is_slab_ptr(fault as *const core::ffi::c_void),
+        pool::is_pool_ptr(fault as *const core::ffi::c_void),
+        block::is_block_ptr(fault as *const core::ffi::c_void),
         unsafe { libmimalloc::mi_is_in_heap_region(fault as *const core::ffi::c_void) },
     );
 
@@ -342,18 +344,27 @@ fn write_fault_analysis(r: &mut String, fault: usize, ctx: &CONTEXT) {
     let _ = writeln!(r, "  ----------------------");
     let _ = writeln!(r, "  Region: {}", region_tag(fault));
 
-    if slab::is_slab_ptr(fault as *const core::ffi::c_void) {
-        slab::diagnose_ptr_buf(fault, r);
+    if pool::is_pool_ptr(fault as *const core::ffi::c_void) {
+        pool::diagnose_ptr_buf(fault, r);
+        write_cell_dump(r, fault);
+    } else if block::is_block_ptr(fault as *const core::ffi::c_void) {
+        block::diagnose_ptr_buf(fault, r);
         write_cell_dump(r, fault);
     }
 
     let eip = ctx.Eip as usize;
-    if slab::is_slab_ptr(eip as *const core::ffi::c_void) {
+    if pool::is_pool_ptr(eip as *const core::ffi::c_void) {
         let _ = writeln!(
             r,
-            "  !!! EIP inside slab -- wild vtable jump into heap data"
+            "  !!! EIP inside pool -- wild vtable jump into heap data"
         );
-        slab::diagnose_ptr_buf(eip, r);
+        pool::diagnose_ptr_buf(eip, r);
+    } else if block::is_block_ptr(eip as *const core::ffi::c_void) {
+        let _ = writeln!(
+            r,
+            "  !!! EIP inside block -- wild vtable jump into heap data"
+        );
+        block::diagnose_ptr_buf(eip, r);
     }
 }
 
@@ -442,14 +453,16 @@ fn write_memory_pressure(r: &mut String) {
 }
 
 fn write_slab_summary(r: &mut String) {
-    let dirty = slab::dirty_pages();
-    let _ = writeln!(r, "\n  Slab Allocator");
+    let _ = writeln!(r, "\n  Heap Allocator");
     let _ = writeln!(r, "  --------------");
-    let _ = writeln!(r, "  Committed:  {}MB", slab::committed_bytes() >> 20);
-    let _ = writeln!(r, "  Dirty:      {} pages", dirty);
-    if dirty > 500 {
-        let _ = writeln!(r, "  --> {} dirty pages committed but unused", dirty);
-    }
+    let _ = writeln!(r, "  Pool committed:  {}MB", pool::committed_bytes() >> 20);
+    let _ = writeln!(r, "  Pool live cells: {}", pool::live_cells());
+    let _ = writeln!(r, "  Block count:     {}", block::block_count());
+    let _ = writeln!(
+        r,
+        "  Block committed: {}MB",
+        block::committed_bytes() >> 20,
+    );
 }
 
 // ---- lookup helpers --------------------------------------------------------
@@ -513,8 +526,11 @@ fn region_tag(addr: usize) -> &'static str {
     if (0x00400000..0x01500000).contains(&addr) {
         return "FalloutNV.exe";
     }
-    if slab::is_slab_ptr(addr as *const core::ffi::c_void) {
-        return "SLAB";
+    if pool::is_pool_ptr(addr as *const core::ffi::c_void) {
+        return "POOL";
+    }
+    if block::is_block_ptr(addr as *const core::ffi::c_void) {
+        return "BLOCK";
     }
     if unsafe { libmimalloc::mi_is_in_heap_region(addr as *const core::ffi::c_void) } {
         return "MIMALLOC";

@@ -19,27 +19,22 @@ use super::{gheap, scrap_heap};
 // Phase 1: initialize (NVSEPlugin_Preload)
 // ---------------------------------------------------------------------------
 
-/// Reserves slab VAS, caches process heap handles, and prepares all hook
+/// Reserves pool VAS, caches process heap handles, and prepares all hook
 /// trampolines. No game code is redirected yet.
 pub fn heap_replacer_initialize() -> anyhow::Result<()> {
-    // Slab allocator -- try unified arena first, fall back to scattered.
-    {
-        let (sb_base, sb_size) = gheap::arena::slab_superblock_range();
-        let (meta_base, _meta_size) = gheap::arena::slab_meta_range();
-        if !sb_base.is_null() && !meta_base.is_null() {
-            // Unified arena available: slab uses pre-reserved ranges.
-            if !gheap::slab::init(sb_base, sb_size, meta_base) {
-                return Err(anyhow::anyhow!("Slab allocator initialization failed"));
-            }
-        } else {
-            // Scattered fallback: slab reserves its own VirtualAlloc.
-            log::warn!("[SLAB] Unified arena unavailable, using scattered reservation");
-            if !gheap::slab::init_scattered() {
-                return Err(anyhow::anyhow!(
-                    "Slab allocator initialization failed (scattered)"
-                ));
-            }
-        }
+    // Pool allocator: each class reserves its own VA aligned to POOL_ALIGN.
+    if !gheap::pool::init() {
+        return Err(anyhow::anyhow!("Pool allocator initialization failed"));
+    }
+
+    // Block allocator: single contiguous tier reservation. Keeps all
+    // medium allocations in one VA island instead of scattering
+    // 16 MB reservations across free VAS per save-load burst.
+    if !gheap::block::init() {
+        log::warn!(
+            "[HEAP REPLACER] Block tier reservation failed; medium \
+             allocations will fall through to va_alloc"
+        );
     }
 
     gheap::crash_diag::install();
@@ -131,11 +126,11 @@ pub fn heap_replacer_initialize() -> anyhow::Result<()> {
     }
 
     // PDD destruction guard
-    {
-        use gheap::statics::*;
+    // {
+    //     use gheap::statics::*;
 
-        PDD_HOOK.init("pdd", PDD_ADDR as *mut c_void, gheap::pdd_hook::hook_pdd)?;
-    }
+    //     PDD_HOOK.init("pdd", PDD_ADDR as *mut c_void, gheap::pdd_hook::hook_pdd)?;
+    // }
 
     // OOM Stage 8 (HeapCompact) -- safe BSTaskManagerThread semaphore release
     {
@@ -181,19 +176,19 @@ pub fn heap_replacer_initialize() -> anyhow::Result<()> {
     }
 
     // CRT IAT hooks
-    {
-        use super::crt_iat::*;
-        let module_base = get_module_handle_a(None)?.as_ptr();
+    // {
+    //     use super::crt_iat::*;
+    //     let module_base = get_module_handle_a(None)?.as_ptr();
 
-        unsafe {
-            MALLOC_IAT_HOOK.init("malloc", module_base, None, "malloc", hook_malloc)?;
-            CALLOC_IAT_HOOK.init("calloc", module_base, None, "calloc", hook_calloc)?;
-            REALLOC_IAT_HOOK.init("realloc", module_base, None, "realloc", hook_realloc)?;
-            RECALLOC_IAT_HOOK.init("_recalloc", module_base, None, "_recalloc", hook_recalloc)?;
-            FREE_IAT_HOOK.init("free", module_base, None, "free", hook_free)?;
-            MSIZE_IAT_HOOK.init("_msize", module_base, None, "_msize", hook_msize)?;
-        }
-    }
+    //     unsafe {
+    //         MALLOC_IAT_HOOK.init("malloc", module_base, None, "malloc", hook_malloc)?;
+    //         CALLOC_IAT_HOOK.init("calloc", module_base, None, "calloc", hook_calloc)?;
+    //         REALLOC_IAT_HOOK.init("realloc", module_base, None, "realloc", hook_realloc)?;
+    //         RECALLOC_IAT_HOOK.init("_recalloc", module_base, None, "_recalloc", hook_recalloc)?;
+    //         FREE_IAT_HOOK.init("free", module_base, None, "free", hook_free)?;
+    //         MSIZE_IAT_HOOK.init("_msize", module_base, None, "_msize", hook_msize)?;
+    //     }
+    // }
 
     // scrap heap
     {
@@ -302,13 +297,13 @@ pub fn heap_replacer_activate() -> anyhow::Result<()> {
         log::info!("[SYNC] AI start/join hooks active");
     }
 
-    // PDD
-    {
-        use gheap::statics::*;
+    // // PDD
+    // {
+    //     use gheap::statics::*;
 
-        PDD_HOOK.enable()?;
-        log::info!("[SYNC] PDD hook active");
-    }
+    //     PDD_HOOK.enable()?;
+    //     log::info!("[SYNC] PDD hook active");
+    // }
 
     // OOM Stage 8
     {
@@ -328,18 +323,18 @@ pub fn heap_replacer_activate() -> anyhow::Result<()> {
     }
 
     // CRT IAT
-    {
-        use super::crt_iat::*;
+    // {
+    //     use super::crt_iat::*;
 
-        MALLOC_IAT_HOOK.enable()?;
-        CALLOC_IAT_HOOK.enable()?;
-        REALLOC_IAT_HOOK.enable()?;
-        RECALLOC_IAT_HOOK.enable()?;
-        FREE_IAT_HOOK.enable()?;
-        MSIZE_IAT_HOOK.enable()?;
+    //     MALLOC_IAT_HOOK.enable()?;
+    //     CALLOC_IAT_HOOK.enable()?;
+    //     REALLOC_IAT_HOOK.enable()?;
+    //     RECALLOC_IAT_HOOK.enable()?;
+    //     FREE_IAT_HOOK.enable()?;
+    //     MSIZE_IAT_HOOK.enable()?;
 
-        log::info!("[CRT] IAT hooks active");
-    }
+    //     log::info!("[CRT] IAT hooks active");
+    // }
 
     // CRT inline
     {

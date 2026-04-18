@@ -38,7 +38,7 @@ use crate::{
     mods::{
         display::install_display_hooks,
         heap_replacer::{
-            configure_mimalloc, configure_mimalloc_with_arena, heap_replacer_activate,
+            configure_mimalloc, heap_replacer_activate,
             heap_replacer_initialize,
         },
         perf::install_rng_hook,
@@ -167,16 +167,12 @@ pub extern "C" fn NVSEPlugin_Preload() -> BOOL {
     // Unified arena: single VirtualAlloc for slab + metadata + large allocs.
     // Mimalloc reserves its own arena first (it needs specific alignment that
     // mi_manage_os_memory_ex doesn't reliably provide), then we fit the rest
-    // into a second unified reservation.
-    let slab_sb_size = crate::mods::heap_replacer::gheap::slab::total_superblock_size();
-    let slab_meta_size = crate::mods::heap_replacer::gheap::slab::total_meta_size();
-
-    // Step 1: Configure mimalloc FIRST (it reserves its own arena).
+    // Step 1: Configure mimalloc FIRST (it reserves its own arena for CRT).
     configure_mimalloc();
 
-    // Step 2: Reserve a unified block for slab + large allocs in the
-    // remaining VA. This prevents slab from scattering its reservations.
-    crate::mods::heap_replacer::gheap::arena::init(slab_sb_size, slab_meta_size);
+    // Pool / block allocators reserve their VA inside
+    // `heap_replacer_initialize()` below; no separate arena reservation
+    // step is needed.
 
     if cfg.memory.heap_replacer {
         match heap_replacer_initialize() {

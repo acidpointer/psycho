@@ -44,7 +44,6 @@ pub fn total_cycles() -> usize {
 // ---------------------------------------------------------------------------
 // Result
 // ---------------------------------------------------------------------------
-
 #[allow(dead_code)]
 pub struct CellUnloadResult {
     pub cells: usize,
@@ -173,29 +172,6 @@ impl CellUnloadGuard {
         self.cells_unloaded
     }
 
-    /// Unload cells without loading-state abort.
-    /// Used when we intentionally unload during loading screens.
-    /// FindCellToUnload's own eligibility checks (FUN_004511e0,
-    /// FUN_00557090) prevent unloading cells being loaded.
-    fn unload_cells_during_loading(&mut self, max_cells: usize) -> usize {
-        for i in 0..max_cells {
-            match unsafe { globals::find_cell_to_unload(self.manager) } {
-                Some(true) => {
-                    self.cells_unloaded += 1;
-                    log::debug!("[CELL_UNLOAD] Cell {} unloaded (loading)", i + 1);
-                }
-                _ => {
-                    log::debug!(
-                        "[CELL_UNLOAD] No more eligible after {} (loading)",
-                        self.cells_unloaded
-                    );
-                    break;
-                }
-            }
-        }
-        self.cells_unloaded
-    }
-
     fn run_cleanup(&mut self) {
         // PDD entries from cell unload are processed naturally by the
         // per-frame PDD drain at Phase 7. We do NOT pump PDD here because
@@ -247,14 +223,14 @@ pub fn execute(max_cells: usize) -> Option<CellUnloadResult> {
 
     let info = libmimalloc::process_info::MiMallocProcessInfo::get();
     let commit_before = info.get_current_commit();
-    let quarantine_before = super::super::slab::committed_bytes();
+    let pool_before = super::super::pool::committed_bytes();
 
     log::info!(
-        "[CELL_UNLOAD] Starting: max={}, loading={}, commit={}MB, quarantine={}MB",
+        "[CELL_UNLOAD] Starting: max={}, loading={}, commit={}MB, pool={}MB",
         max_cells,
         loading,
         commit_before / 1024 / 1024,
-        quarantine_before / 1024 / 1024,
+        pool_before / 1024 / 1024,
     );
 
     let cells = guard.unload_cells(max_cells);
@@ -278,7 +254,7 @@ pub fn execute(max_cells: usize) -> Option<CellUnloadResult> {
     // returns the pre-unload value. Reading from it gives freed=0 always.
     let info_after = libmimalloc::process_info::MiMallocProcessInfo::get();
     let commit_after = info_after.get_current_commit();
-    let quarantine_after = super::super::slab::committed_bytes();
+    let pool_after = super::super::pool::committed_bytes();
     let freed = commit_before.saturating_sub(commit_after);
 
     TOTAL_CELLS_UNLOADED.fetch_add(cells, Ordering::Relaxed);
@@ -286,79 +262,14 @@ pub fn execute(max_cells: usize) -> Option<CellUnloadResult> {
     TOTAL_CYCLES.fetch_add(1, Ordering::Relaxed);
 
     log::warn!(
-        "[CELL_UNLOAD] Done: {} cells, commit {}MB-->{}MB (freed {}MB), quarantine {}MB-->{}MB, total={}",
+        "[CELL_UNLOAD] Done: {} cells, commit {}MB-->{}MB (freed {}MB), pool {}MB-->{}MB, total={}",
         cells,
         commit_before / 1024 / 1024,
         commit_after / 1024 / 1024,
         freed / 1024 / 1024,
-        quarantine_before / 1024 / 1024,
-        quarantine_after / 1024 / 1024,
+        pool_before / 1024 / 1024,
+        pool_after / 1024 / 1024,
         TOTAL_CELLS_UNLOADED.load(Ordering::Relaxed),
-    );
-
-    Some(CellUnloadResult {
-        cells,
-        commit_before,
-        commit_after,
-        freed,
-        freed_mb: freed / 1024 / 1024,
-    })
-}
-
-/// Cell unload during loading screens.
-///
-/// Same guard protocol as execute() (IO lock --> Havok lock, NVSE suppression)
-/// but does NOT abort when is_loading() is true -- we know we're loading
-/// and that's the point. The game's own OOM handler (run_oom_stages stage 5)
-/// does the same: calls FindCellToUnload during loading with no loading check.
-///
-/// FindCellToUnload's own eligibility checks (FUN_004511e0 cell state,
-/// FUN_00557090 secondary check) prevent unloading cells being loaded.
-/// Grid compact and cell array flush happen at the next HeapCompact Phase 6.
-///
-/// Safety: main thread only, AI must be idle (call from on_ai_join).
-pub fn execute_during_loading(max_cells: usize) -> Option<CellUnloadResult> {
-    let mut guard = match CellUnloadGuard::acquire() {
-        Ok(g) => g,
-        Err(reason) => {
-            log::debug!("[CELL_UNLOAD] Loading unload skipped: {:?}", reason);
-            return None;
-        }
-    };
-
-    let info = libmimalloc::process_info::MiMallocProcessInfo::get();
-    let commit_before = info.get_current_commit();
-
-    let cells = guard.unload_cells_during_loading(max_cells);
-
-    if cells == 0 {
-        return Some(CellUnloadResult {
-            cells: 0,
-            commit_before,
-            commit_after: commit_before,
-            freed: 0,
-            freed_mb: 0,
-        });
-    }
-
-    guard.run_cleanup();
-    drop(guard);
-
-    // Fresh snapshot after unload (same fix as execute()).
-    let info_after = libmimalloc::process_info::MiMallocProcessInfo::get();
-    let commit_after = info_after.get_current_commit();
-    let freed = commit_before.saturating_sub(commit_after);
-
-    TOTAL_CELLS_UNLOADED.fetch_add(cells, Ordering::Relaxed);
-    TOTAL_BYTES_FREED.fetch_add(freed, Ordering::Relaxed);
-    TOTAL_CYCLES.fetch_add(1, Ordering::Relaxed);
-
-    log::warn!(
-        "[CELL_UNLOAD] Loading unload: {} cells, commit {}MB-->{}MB (freed {}MB)",
-        cells,
-        commit_before / 1024 / 1024,
-        commit_after / 1024 / 1024,
-        freed / 1024 / 1024,
     );
 
     Some(CellUnloadResult {
