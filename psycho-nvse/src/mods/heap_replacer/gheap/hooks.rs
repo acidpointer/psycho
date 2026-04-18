@@ -10,6 +10,17 @@
 //!   - AI start / AI join sync flags
 //!   - deferred console cell-unload execution on AI join
 //!   - OOM Stage 8 safe BSTaskManagerThread semaphore release
+//!
+//! No explicit `havok_gc` call here. It races with AI Linear Task
+//! Threads (PPL Concurrency Runtime pool dispatched by IOManager),
+//! which are NOT joined by AI_JOIN and can only be drained by
+//! `stop_havok_drain` (FUN_008324e0). Even from the main thread,
+//! calling `havok_gc` at Phase 7 reproduces the documented crash at
+//! 0x00C94DA5 inside hkScaledMoppBvTreeShape while AI Linear Task
+//! Thread 2 is walking collision data -- see
+//! analysis/ghidra/output/memory/havok_gc_thread_analysis.txt. The
+//! game's own stage 4 / stage 5 / AI_JOIN paths already invoke
+//! havok_gc internally at safe points, so we do not need to.
 
 use std::sync::atomic::{AtomicU64, Ordering};
 
@@ -77,6 +88,24 @@ pub unsafe extern "C" fn hook_per_frame_queue_drain() {
     // Periodic full PDD drain (stage 4) on 10 s cooldown. PDD
     // maintenance -- independent of loading/menu state; prevents
     // BSTreeNode C0000417 under sustained cell churn.
+    //
+    // KNOWN LATENT CRASH: this Stage 4 invocation is the proximate
+    // trigger for a probabilistic BSTreeNode C0000417 fastfail with
+    // our current NVHR-style pool. The game's stage 4 routine can
+    // free a child NiRefObject mid-call, immediate LIFO reuse in
+    // pool::free hands the same cell to the next alloc, and the
+    // parent BSTreeNode destructor then dereferences the overwritten
+    // cell. See the detailed "Known latent crash" block on
+    // `Pool::free` in gheap/pool.rs and memory note
+    // project_bstreenode_crash_chain.md. Confirmed repro
+    // CrashLogger.2026-04-18-18-32-08.log (47-minute stress run,
+    // WastelandUndergrowth01.spt, Stack: BSTreeNode refcount=0 ->
+    // BSTreeModel -> BSFadeNode "RockCanyon12"). The historical fix
+    // was Stage 4 + 2-epoch quarantine (gone since 35a326b) or the
+    // narrower slab-era DESTRUCTION_FREEZE (also gone since 35a326b).
+    // Leaving Stage 4 enabled here is the lesser evil: skipping it
+    // trades this race for a different BSTreeNode crash from the
+    // per-frame PDD rate-limit backlog.
     maybe_drain_pdd();
 }
 
@@ -99,6 +128,7 @@ fn maybe_drain_pdd() {
     }
     let (_next, _done) = unsafe { HeapManager::get().run_oom_stage(4, false) };
 }
+
 
 /// Phase 10: post-render maintenance (before AI_JOIN).
 pub unsafe extern "thiscall" fn hook_main_loop_maintenance(this: *mut c_void) {

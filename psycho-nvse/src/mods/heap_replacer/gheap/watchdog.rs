@@ -1,25 +1,23 @@
-//! Background memory watchdog thread.
+//! Background memory telemetry thread.
 //!
 //! Polls mimalloc commit every 250ms, tracks growth rate via integer EMA,
-//! and runs lightweight cleanup directly on the background thread when
-//! thresholds are exceeded. Absorbs the diagnostic logging from the old
-//! monitor thread.
+//! and emits diagnostic logs.
 //!
-//! Cleanup runs on the background thread (not main thread):
-//!   havok_gc + mi_collect + slab::decommit_sweep
+//! The watchdog does NOT call havok_gc or mi_collect. An earlier design
+//! ran them on this thread under the assumption that havok_gc only
+//! touched hkMemorySystem and not the physics world; a crash in AI
+//! Linear Task Thread state ruled that out. FUN_00c459d0 takes the
+//! Havok critical section and then calls into entity / broadphase
+//! helpers that the main thread is mutating concurrently -- so off
+//! the main thread it races with the physics step and frees objects
+//! the stepper is walking.
 //!
-//! All three operations are thread-safe:
-//!   - havok_gc operates on hkMemorySystem, not the physics world
-//!   - mi_collect(false) is a lazy sweep of per-thread heaps
-//!   - decommit_sweep calls VirtualFree on fully-free pages
-//!
-//! Cell unloading is NOT performed by the watchdog. Cells only unload
-//! during game-initiated transitions (the game handles its own bookkeeping)
-//! and OOM emergencies (bypass=true path).
-//!
-//! During loading: cleanup is skipped entirely.
+//! Cleanup (havok_gc / mi_collect) only runs on the main thread at
+//! Phase 7/8 hooks, where it is serialised against physics and AI.
+//! Per-tier allocators do not decommit, so no background reclaim
+//! path is needed here.
 
-use std::sync::atomic::{AtomicBool, AtomicI32, AtomicU64, AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicI32, AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::thread::{self, JoinHandle};
 
@@ -36,11 +34,6 @@ use super::pressure::PressureRelief;
 /// Poll interval in milliseconds. 250ms gives 2x faster detection
 /// with no game impact (background thread, only sets atomic flags).
 const POLL_MS: u32 = 250;
-
-/// Cleanup interval in milliseconds. Lightweight cleanup (havok_gc +
-/// mi_collect + decommit_sweep) runs on the watchdog thread at this rate.
-/// 5 seconds balances memory reclamation against overhead.
-const CLEANUP_INTERVAL_MS: u64 = 5000;
 
 /// Diagnostic logging interval (every N polls = every N*POLL_MS ms).
 /// 20 polls * 250ms = 5 seconds, matching the old monitor interval.
@@ -71,25 +64,6 @@ const LOADING_THRESHOLD_REDUCTION: usize = 200 * 1024 * 1024; // 200MB
 /// enough to catch pathological early spikes.
 const FALLBACK_ABSOLUTE_THRESHOLD: usize = 2 * 1024 * 1024 * 1024; // 2GB
 
-/// Minimum growth rate (bytes/sec) to trigger aggressive cleanup.
-/// 2MB/s sustained growth means VAS will exhaust within minutes.
-const AGGRESSIVE_RATE_THRESHOLD: i32 = 2 * 1024 * 1024;
-
-/// Minimum milliseconds between aggressive (level 2) requests.
-/// 500ms prevents "cleanup storms" (death spiral) while keeping up with
-/// stress testing (4x faster than the previous 2s default).
-const AGGRESSIVE_COOLDOWN_MS: u64 = 500;
-
-/// React time for normal cleanup rate floor calculation.
-/// At the rate floor, sustained growth would reach VAS Critical in this many
-/// seconds. 600s (10 min) gives ample time for cleanup before escalation.
-const NORMAL_REACT_TIME_SECS: i64 = 600;
-
-/// Minimum rate floor (bytes/sec) for normal cleanup. Prevents the floor
-/// from dropping to zero at very tight headroom. 256KB/s is above typical
-/// stable-gameplay noise but low enough for tight setups to remain responsive.
-const MIN_NORMAL_RATE: i32 = 256 * 1024;
-
 // ---------------------------------------------------------------------------
 // Shared atomic state (read by main thread, written by watchdog)
 // ---------------------------------------------------------------------------
@@ -99,9 +73,6 @@ static GROWTH_RATE: AtomicI32 = AtomicI32::new(0);
 
 /// Last commit sample for rate computation.
 static LAST_COMMIT: AtomicUsize = AtomicUsize::new(0);
-
-/// Timestamp of last aggressive request.
-static LAST_AGGRESSIVE_MS: AtomicU64 = AtomicU64::new(0);
 
 // ---------------------------------------------------------------------------
 // Public API (called from main thread)
@@ -158,11 +129,9 @@ impl Drop for Watchdog {
     }
 }
 
-#[allow(clippy::if_same_then_else)]
 fn watchdog_loop(run: Arc<AtomicBool>) {
     let mut poll_count: u32 = 0;
     let mut prev_rate: i32 = 0;
-    let mut last_cleanup_ms: u64 = 0;
 
     loop {
         if !run.load(Ordering::Acquire) {
@@ -174,13 +143,11 @@ fn watchdog_loop(run: Arc<AtomicBool>) {
 
         let info = MiMallocProcessInfo::get();
         let commit = info.get_current_commit();
-        let now_ms = info.get_elapsed_ms() as u64;
 
         // --- Rate tracking ---
         let prev_commit = LAST_COMMIT.swap(commit, Ordering::Relaxed);
         let first_sample = prev_commit == 0;
         let rate_sample = if !first_sample {
-            // bytes per second: delta / (POLL_MS / 1000)
             let delta = commit as i64 - prev_commit as i64;
             (delta * 1000 / POLL_MS as i64) as i32
         } else {
@@ -192,169 +159,58 @@ fn watchdog_loop(run: Arc<AtomicBool>) {
         prev_rate = smoothed as i32;
         GROWTH_RATE.store(prev_rate, Ordering::Relaxed);
 
-        // --- Threshold evaluation ---
-        let pr = match PressureRelief::instance() {
-            Some(pr) => pr,
-            None => {
-                log_diagnostics(poll_count, &info);
-                continue;
-            }
-        };
+        // --- Pressure telemetry (log-only, no cleanup) ---
+        // The watchdog must not call game code. It samples commit +
+        // free VAS and logs when growth crosses thresholds; any real
+        // reclamation happens on the main thread at Phase 7/8.
+        if let Some(pr) = PressureRelief::instance() {
+            let baseline = pr.baseline_commit();
+            let loading = globals::is_loading();
+            let headroom = super::allocator::get_headroom();
+            let free_vas = super::allocator::current_free_vas();
 
-        let baseline = pr.baseline_commit();
-        let loading = globals::is_loading();
-
-        // Proportional thresholds: fraction of headroom, adapts to any modpack.
-        // During loading, reduce thresholds by LOADING_THRESHOLD_REDUCTION.
-        let headroom = super::allocator::get_headroom();
-        let (growth, normal_thresh, aggressive_thresh, critical_thresh) = if baseline > 0
-            && headroom > 0
-        {
-            let reduction = if loading {
-                LOADING_THRESHOLD_REDUCTION
+            let (growth, normal_thresh, critical_thresh) = if baseline > 0 && headroom > 0 {
+                let reduction = if loading { LOADING_THRESHOLD_REDUCTION } else { 0 };
+                let g = commit.saturating_sub(baseline);
+                let normal = ((headroom as f64 * NORMAL_GROWTH_PCT) as usize)
+                    .saturating_sub(reduction);
+                let critical = ((headroom as f64 * CRITICAL_GROWTH_PCT) as usize)
+                    .saturating_sub(reduction);
+                (g, normal, critical)
+            } else if baseline > 0 {
+                let reduction = if loading { LOADING_THRESHOLD_REDUCTION } else { 0 };
+                (
+                    commit.saturating_sub(baseline),
+                    NORMAL_GROWTH_FALLBACK.saturating_sub(reduction),
+                    CRITICAL_GROWTH_FALLBACK.saturating_sub(reduction),
+                )
             } else {
-                0
+                let reduction = if loading { LOADING_THRESHOLD_REDUCTION } else { 0 };
+                let normal_abs = FALLBACK_ABSOLUTE_THRESHOLD.saturating_sub(reduction);
+                (commit, normal_abs, normal_abs + 500 * 1024 * 1024)
             };
-            let g = commit.saturating_sub(baseline);
-            let normal = ((headroom as f64 * NORMAL_GROWTH_PCT) as usize).saturating_sub(reduction);
-            let aggressive =
-                ((headroom as f64 * AGGRESSIVE_GROWTH_PCT) as usize).saturating_sub(reduction);
-            let critical =
-                ((headroom as f64 * CRITICAL_GROWTH_PCT) as usize).saturating_sub(reduction);
-            (g, normal, aggressive, critical)
-        } else if baseline > 0 {
-            // Headroom not calibrated yet but baseline is. Use fallback.
-            let reduction = if loading {
-                LOADING_THRESHOLD_REDUCTION
-            } else {
-                0
-            };
-            let g = commit.saturating_sub(baseline);
-            (
-                g,
-                NORMAL_GROWTH_FALLBACK.saturating_sub(reduction),
-                AGGRESSIVE_GROWTH_FALLBACK.saturating_sub(reduction),
-                CRITICAL_GROWTH_FALLBACK.saturating_sub(reduction),
-            )
-        } else {
-            // Baseline not calibrated yet -- use absolute commit thresholds.
-            let reduction = if loading {
-                LOADING_THRESHOLD_REDUCTION
-            } else {
-                0
-            };
-            let normal_abs = FALLBACK_ABSOLUTE_THRESHOLD.saturating_sub(reduction);
-            (
-                commit, // growth = absolute commit when baseline=0
-                normal_abs,
-                normal_abs + 256 * 1024 * 1024, // +250MB for aggressive
-                normal_abs + 500 * 1024 * 1024, // +500MB for critical
-            )
-        };
 
-        // Measure free VAS once and reuse for rate floor + VAS-critical check.
-        let free_vas = super::allocator::current_free_vas();
-
-        // Dynamic rate floor for Normal cleanup: proportional to free VAS.
-        // Lots of free VAS = high floor (relaxed). Low free VAS = low floor
-        // (sensitive). Uses live measurement, adapts to any mod configuration.
-        let rate_floor = if free_vas > super::allocator::VAS_CRITICAL_REMAINING {
-            let margin = (free_vas - super::allocator::VAS_CRITICAL_REMAINING) as i64;
-            (margin / NORMAL_REACT_TIME_SECS).max(MIN_NORMAL_RATE as i64) as i32
-        } else {
-            0 // at or below critical free VAS -- always clean
-        };
-
-        let mut level: u8 = 0;
-
-        // --- VAS-critical bypass: fragmentation-induced OOM prevention ---
-        // When free VAS drops below critical threshold, trigger aggressive
-        // cleanup regardless of growth rate. This catches fragmentation
-        // scenarios where commit is stable but available address space is
-        // exhausted (no growth --> normal thresholds don't fire).
-        if free_vas <= super::allocator::VAS_CRITICAL_REMAINING {
-            log::warn!(
-                "[WATCHDOG] VAS CRITICAL: free={}MB (threshold={}MB), forcing aggressive cleanup",
-                free_vas / 1024 / 1024,
-                super::allocator::VAS_CRITICAL_REMAINING / 1024 / 1024,
-            );
-            level = 2;
-        }
-        // Critical: aggressive only when commit is actively growing.
-        #[allow(clippy::if_same_then_else)]
-        if growth >= critical_thresh && prev_rate > AGGRESSIVE_RATE_THRESHOLD && !loading {
-            level = 2;
-        } else if growth >= critical_thresh && loading && prev_rate > 0 {
-            level = 2;
-        }
-        // Aggressive: high growth AND fast rate.
-        else if growth >= aggressive_thresh && prev_rate > AGGRESSIVE_RATE_THRESHOLD {
-            level = 2;
-        }
-        // Normal: above threshold AND rate exceeds dynamic floor (or first
-        // sample where rate is unknown -- don't miss a 500MB+ overshoot).
-        else if growth >= normal_thresh && (prev_rate > rate_floor || first_sample) {
-            level = 1;
-        }
-
-        // Aggressive cooldown.
-        if level == 2 {
-            let last_agg = LAST_AGGRESSIVE_MS.load(Ordering::Relaxed);
-            if now_ms.saturating_sub(last_agg) < AGGRESSIVE_COOLDOWN_MS {
-                level = 1; // downgrade to normal
-            } else {
-                LAST_AGGRESSIVE_MS.store(now_ms, Ordering::Relaxed);
-            }
-        }
-
-        // Skip cleanup during loading. The game's cell transition
-        // already manages memory. Our cleanup could free objects the
-        // transition still needs.
-        if loading {
-            log_diagnostics(poll_count, &info);
-            continue;
-        }
-
-        // Run cleanup directly on the watchdog thread when:
-        // - Pressure threshold is met (level > 0)
-        // - AND cleanup interval has elapsed
-        if level > 0 && now_ms.saturating_sub(last_cleanup_ms) >= CLEANUP_INTERVAL_MS {
-            last_cleanup_ms = now_ms;
-
-            if level == 2 {
+            if free_vas <= super::allocator::VAS_CRITICAL_REMAINING {
                 log::warn!(
-                    "[WATCHDOG] Cleanup (level {}): commit={}MB, growth={}MB, rate={}/s",
-                    level,
+                    "[WATCHDOG] VAS CRITICAL: free={}MB (threshold={}MB)",
+                    free_vas / 1024 / 1024,
+                    super::allocator::VAS_CRITICAL_REMAINING / 1024 / 1024,
+                );
+            } else if growth >= critical_thresh {
+                log::warn!(
+                    "[WATCHDOG] Commit pressure CRITICAL: commit={}MB growth={}MB rate={}/s",
                     commit / 1024 / 1024,
                     growth / 1024 / 1024,
                     format_rate(prev_rate),
                 );
-            } else {
+            } else if growth >= normal_thresh && prev_rate > 0 {
                 log::info!(
-                    "[WATCHDOG] Cleanup (level {}): commit={}MB, growth={}MB, rate={}/s, floor={}/s",
-                    level,
+                    "[WATCHDOG] Commit pressure: commit={}MB growth={}MB rate={}/s",
                     commit / 1024 / 1024,
                     growth / 1024 / 1024,
                     format_rate(prev_rate),
-                    format_rate(rate_floor),
                 );
             }
-
-            // Thread-safe cleanup. With pool/block the per-tier
-            // allocators do not decommit, so the only reclaim levers
-            // here are Havok GC and mi_collect (CRT arenas only).
-            // Both are safe off the main thread.
-            unsafe {
-                globals::havok_gc(1);
-                libmimalloc::mi_collect(false);
-            }
-
-            log::info!(
-                "[WATCHDOG] Cleanup done: commit={}MB, pool={}MB, blocks={}",
-                MiMallocProcessInfo::get().get_current_commit() / 1024 / 1024,
-                super::pool::committed_bytes() / 1024 / 1024,
-                super::block::block_count(),
-            );
         }
 
         // --- Diagnostic logging ---
