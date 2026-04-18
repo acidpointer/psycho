@@ -176,19 +176,19 @@ pub fn heap_replacer_initialize() -> anyhow::Result<()> {
     }
 
     // CRT IAT hooks
-    // {
-    //     use super::crt_iat::*;
-    //     let module_base = get_module_handle_a(None)?.as_ptr();
+    {
+        use super::crt_iat::*;
+        let module_base = get_module_handle_a(None)?.as_ptr();
 
-    //     unsafe {
-    //         MALLOC_IAT_HOOK.init("malloc", module_base, None, "malloc", hook_malloc)?;
-    //         CALLOC_IAT_HOOK.init("calloc", module_base, None, "calloc", hook_calloc)?;
-    //         REALLOC_IAT_HOOK.init("realloc", module_base, None, "realloc", hook_realloc)?;
-    //         RECALLOC_IAT_HOOK.init("_recalloc", module_base, None, "_recalloc", hook_recalloc)?;
-    //         FREE_IAT_HOOK.init("free", module_base, None, "free", hook_free)?;
-    //         MSIZE_IAT_HOOK.init("_msize", module_base, None, "_msize", hook_msize)?;
-    //     }
-    // }
+        unsafe {
+            MALLOC_IAT_HOOK.init("malloc", module_base, None, "malloc", hook_malloc)?;
+            CALLOC_IAT_HOOK.init("calloc", module_base, None, "calloc", hook_calloc)?;
+            REALLOC_IAT_HOOK.init("realloc", module_base, None, "realloc", hook_realloc)?;
+            RECALLOC_IAT_HOOK.init("_recalloc", module_base, None, "_recalloc", hook_recalloc)?;
+            FREE_IAT_HOOK.init("free", module_base, None, "free", hook_free)?;
+            MSIZE_IAT_HOOK.init("_msize", module_base, None, "_msize", hook_msize)?;
+        }
+    }
 
     // scrap heap
     {
@@ -323,18 +323,18 @@ pub fn heap_replacer_activate() -> anyhow::Result<()> {
     }
 
     // CRT IAT
-    // {
-    //     use super::crt_iat::*;
+    {
+        use super::crt_iat::*;
 
-    //     MALLOC_IAT_HOOK.enable()?;
-    //     CALLOC_IAT_HOOK.enable()?;
-    //     REALLOC_IAT_HOOK.enable()?;
-    //     RECALLOC_IAT_HOOK.enable()?;
-    //     FREE_IAT_HOOK.enable()?;
-    //     MSIZE_IAT_HOOK.enable()?;
+        MALLOC_IAT_HOOK.enable()?;
+        CALLOC_IAT_HOOK.enable()?;
+        REALLOC_IAT_HOOK.enable()?;
+        RECALLOC_IAT_HOOK.enable()?;
+        FREE_IAT_HOOK.enable()?;
+        MSIZE_IAT_HOOK.enable()?;
 
-    //     log::info!("[CRT] IAT hooks active");
-    // }
+        log::info!("[CRT] IAT hooks active");
+    }
 
     // CRT inline
     {

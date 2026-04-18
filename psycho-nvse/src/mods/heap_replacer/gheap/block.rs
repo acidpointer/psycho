@@ -38,7 +38,7 @@ use rustc_hash::FxBuildHasher;
 
 use libc::c_void;
 use windows::Win32::System::Memory::{
-    VirtualAlloc, MEM_COMMIT, MEM_RESERVE, PAGE_READWRITE,
+    VirtualAlloc, VirtualFree, MEM_COMMIT, MEM_RELEASE, MEM_RESERVE, PAGE_READWRITE,
 };
 
 // ---------------------------------------------------------------------------
@@ -435,6 +435,58 @@ impl BlockHeap {
         block.free(offset)
     }
 
+    /// Release slots with no live user allocations. Fires only from
+    /// va_alloc's OOM recovery path; NOT periodic. A slot qualifies when
+    /// its `used_by_offset` map is empty -- no game pointer is live in
+    /// that 16 MB region. VirtualFree(MEM_RELEASE) returns the VAS to
+    /// the OS; the next big-contiguous VirtualAlloc retry gets first
+    /// crack at it.
+    ///
+    /// Different from the periodic retire-on-empty design removed before:
+    /// that one cycled retire/commit 93 times in 9 ms under a worst-case
+    /// pattern. This only runs when va_alloc has already failed, so the
+    /// alternative is a NULL return + crash.
+    ///
+    /// Returns (slots_retired, bytes_freed).
+    fn emergency_retire_empty(&mut self) -> (usize, usize) {
+        let mut slots = 0usize;
+        let mut bytes = 0usize;
+        for i in 0..BLOCK_COUNT {
+            let is_empty = matches!(
+                self.blocks[i].as_ref(),
+                Some(b) if b.used_by_offset.is_empty()
+            );
+            if !is_empty {
+                continue;
+            }
+            let Some(b) = self.blocks[i].take() else {
+                continue;
+            };
+            let base = b.base as usize;
+            if let Err(e) = unsafe { VirtualFree(b.base as *mut c_void, 0, MEM_RELEASE) } {
+                log::error!(
+                    "[BLOCK] Emergency retire VirtualFree failed: slot {} base=0x{:08x} err={:?}",
+                    i, base, e,
+                );
+                // Slot is already cleared by `take()`; drop `b` implicitly.
+                continue;
+            }
+            slots += 1;
+            bytes += BLOCK_SIZE;
+            log::info!(
+                "[BLOCK] Emergency retired slot {} at 0x{:08x} ({} MB)",
+                i, base, BLOCK_SIZE / 1024 / 1024,
+            );
+        }
+        if slots > 0 {
+            log::info!(
+                "[BLOCK] Emergency retirement complete: {} slots, {} MB reclaimed (live={})",
+                slots, bytes / 1024 / 1024, self.live_count(),
+            );
+        }
+        (slots, bytes)
+    }
+
     fn usable_size(&self, ptr: *const c_void) -> usize {
         let block_idx = match self.find_block(ptr) {
             Some(i) => i,
@@ -513,6 +565,17 @@ pub fn is_block_ptr(ptr: *const c_void) -> bool {
 
 pub fn block_count() -> usize {
     with_heap(|h| h.block_count())
+}
+
+/// Release block slots with no live user allocations. Called by
+/// `va_alloc::alloc` after its first `VirtualAlloc` fails; gives the
+/// OS back any fully-empty 16 MB slots so the next VirtualAlloc retry
+/// sees additional free VAS for contiguous big-texture requests.
+///
+/// Safe under the same lock as other block operations. Returns
+/// `(slots_retired, bytes_freed)`.
+pub fn emergency_retire_empty() -> (usize, usize) {
+    with_heap(|h| h.emergency_retire_empty())
 }
 
 pub fn committed_bytes() -> usize {

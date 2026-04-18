@@ -15,43 +15,43 @@ const MB: usize = 1024 * 1024;
 /// Falls back to this if the unified reservation is not available.
 pub fn configure_mimalloc() {
     CONFIG_MIMALLOC.call_once(|| unsafe {
-        // // let arena_sizes = [512 * MB, 384 * MB, 256 * MB];
-        // let arena_sizes = [32 * MB, 16 * MB];
+        // let arena_sizes = [512 * MB, 384 * MB, 256 * MB];
+        let arena_sizes = [32 * MB, 16 * MB];
 
-        // let mut reserved = 0usize;
-        // for &size in &arena_sizes {
-        //     let mut arena_id: mi_arena_id_t = 0;
-        //     let result = libmimalloc::mi_reserve_os_memory_ex(
-        //         size,
-        //         false, // commit: false = demand-page
-        //         false, // allow_large: no huge pages on 32-bit
-        //         false, // exclusive: allow fallback arenas too
-        //         &mut arena_id,
-        //     );
-        //     if result == 0 {
-        //         reserved = size;
-        //         log::info!(
-        //             "[MIMALLOC] Reserved {}MB arena (id={:?})",
-        //             size / MB,
-        //             arena_id
-        //         );
-        //         break;
-        //     }
-        //     log::warn!(
-        //         "[MIMALLOC] Failed to reserve {}MB (err={}), trying smaller...",
-        //         size / MB,
-        //         result
-        //     );
-        // }
-        // if reserved == 0 {
-        //     log::error!("[MIMALLOC] Could not reserve ANY arena! Falling back to dynamic arenas.");
-        // }
+        let mut reserved = 0usize;
+        for &size in &arena_sizes {
+            let mut arena_id: mi_arena_id_t = 0;
+            let result = libmimalloc::mi_reserve_os_memory_ex(
+                size,
+                false, // commit: false = demand-page
+                false, // allow_large: no huge pages on 32-bit
+                false, // exclusive: allow fallback arenas too
+                &mut arena_id,
+            );
+            if result == 0 {
+                reserved = size;
+                log::info!(
+                    "[MIMALLOC] Reserved {}MB arena (id={:?})",
+                    size / MB,
+                    arena_id
+                );
+                break;
+            }
+            log::warn!(
+                "[MIMALLOC] Failed to reserve {}MB (err={}), trying smaller...",
+                size / MB,
+                result
+            );
+        }
+        if reserved == 0 {
+            log::error!("[MIMALLOC] Could not reserve ANY arena! Falling back to dynamic arenas.");
+        }
 
         configure_options();
-        // log::info!(
-        //     "[MIMALLOC] Configuration complete (reserved={}MB)",
-        //     reserved / MB
-        // );
+        log::info!(
+            "[MIMALLOC] Configuration complete (reserved={}MB)",
+            reserved / MB
+        );
     });
 }
 
@@ -62,7 +62,7 @@ unsafe fn configure_options() {
         //mi_option_set(mi_option_arena_reserve, 128 * 1024); // KiB
 
         // Demand-page: reserve VA, commit on first touch.
-        //mi_option_set(mi_option_arena_eager_commit, 0);
+        mi_option_set(mi_option_arena_eager_commit, 0);
 
         // Purge delay = -1: never purge automatically. Mimalloc is the
         // tier-2 safety net when slab arena exhausts, so it still holds

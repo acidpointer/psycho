@@ -98,7 +98,31 @@ pub fn alloc(size: usize) -> *mut c_void {
 
     // Second-chance: raw VirtualAlloc. OS picks placement with
     // first-fit-from-lowest. May fail if VA is fragmented.
-    let ptr = unsafe { VirtualAlloc(None, rounded, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE) };
+    let mut ptr = unsafe { VirtualAlloc(None, rounded, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE) };
+
+    // Emergency recovery: if the first attempt fails (VAS fragmented
+    // beyond the request size), ask the block tier to release any
+    // fully-empty 16 MB slots and try once more. Under 32-bit LAA this
+    // is the difference between "coc succeeds after a 47-minute stress
+    // test" and "NULL -> game memsets 0 at address 0 -> crash". See
+    // the crash signature in CrashLogger.2026-04-18-18-48-55.log:
+    // 89 MB texture-load request failing with 30 scattered block slots
+    // live and 85 MB already owned in this side table.
+    //
+    // Zero cost on the success path. Runs at most once per failure; if
+    // nothing is empty, block::emergency_retire_empty() returns (0,0)
+    // and we fall through to the original NULL path.
+    if ptr.is_null() {
+        let (slots, bytes) = super::block::emergency_retire_empty();
+        if slots > 0 {
+            log::warn!(
+                "[VA] retry after emergency retire: size={} retired={} slots ({}MB)",
+                size, slots, bytes / 1024 / 1024,
+            );
+            ptr = unsafe { VirtualAlloc(None, rounded, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE) };
+        }
+    }
+
     if ptr.is_null() {
         let fails = ALLOC_FAIL_COUNT.fetch_add(1, Ordering::Relaxed) + 1;
         // Failures cascade during OOM recovery (each retry logs once).
