@@ -1,0 +1,89 @@
+######################################################################
+# FUN_008324e0 HavokStopStart mode analysis
+######################################################################
+
+Purpose: understand mode=0 (drain/stop) and mode=1 (start) branches
+so we can safely call stop_havok_drain(0) before our Stage 4 without
+permanently disabling PPL AI Linear Task Thread dispatch.
+
+======================================================================
+HavokStopStart entry @ 0x008324e0
+======================================================================
+  Function: FUN_008324e0 @ 0x008324e0, Size: 184 bytes
+
+char __cdecl FUN_008324e0(char param_1)
+
+{
+  char cVar1;
+  
+  if (DAT_011dd436 == '\0') {
+    if (param_1 == '\0') {
+      cVar1 = FUN_00830ad0();
+      if (cVar1 != '\0') {
+        FUN_008304a0();
+        FUN_008325a0(0);
+      }
+      FUN_00ad88f0((int *)&DAT_011dd5bc);
+      FUN_00ad8d10((int *)&DAT_011dd5bc);
+      DAT_011dd42c = 0;
+      FUN_00ad88f0((int *)&DAT_011dd638);
+      FUN_00ad8d10((int *)&DAT_011dd638);
+    }
+    else if (DAT_011dd437 == '\0') {
+      FUN_008304a0();
+      FUN_008325a0(1);
+      FUN_008300c0(7,(char *)0x0,1000,'\0','\0',0.0,0);
+      FUN_008304c0();
+    }
+    DAT_011dd434 = param_1;
+  }
+  else {
+    param_1 = '\0';
+  }
+  return param_1;
+}
+
+
+
+--- Calls FROM HavokStopStart (0x008324e0) ---
+  0x00832508 -> 0x008304a0 FUN_008304a0
+  0x0083250f -> 0x008325a0 FUN_008325a0
+  0x0083252c -> 0x008300c0 FUN_008300c0
+  0x00832534 -> 0x008304c0 FUN_008304c0
+  0x0083253b -> 0x00830ad0 FUN_00830ad0
+  0x00832547 -> 0x008304a0 FUN_008304a0
+  0x0083254e -> 0x008325a0 FUN_008325a0
+  0x0083255b -> 0x00ad88f0 FUN_00ad88f0
+  0x00832565 -> 0x00ad8d10 FUN_00ad8d10
+  0x00832579 -> 0x00ad88f0 FUN_00ad88f0
+  0x00832583 -> 0x00ad8d10 FUN_00ad8d10
+  Total: 11 calls
+
+----------------------------------------------------------------------
+References TO 0x008324e0 (HavokStopStart)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x00834176 (in FUN_00833d00)
+  UNCONDITIONAL_CALL @ 0x0083236a (in FUN_00832240)
+  UNCONDITIONAL_CALL @ 0x0083453b (in FUN_00834260)
+  UNCONDITIONAL_CALL @ 0x008332c3 (in FUN_008331c0)
+  UNCONDITIONAL_CALL @ 0x008774e9 (in FUN_008774a0)
+  UNCONDITIONAL_CALL @ 0x0089ea68 (in FUN_0089d900)
+  UNCONDITIONAL_CALL @ 0x00836eca (in FUN_00836e20)
+  UNCONDITIONAL_CALL @ 0x005d8068 (in FUN_005d7fb0)
+  UNCONDITIONAL_CALL @ 0x005d80bd (in FUN_005d7fb0)
+  UNCONDITIONAL_CALL @ 0x005dc585 (in FUN_005dc580)
+  UNCONDITIONAL_CALL @ 0x00797735 (in FUN_00796fd0)
+  UNCONDITIONAL_CALL @ 0x00797747 (in FUN_00796fd0)
+  Total: 12 refs
+
+######################################################################
+# Internal worker functions -- fill these in after inspecting the
+# Calls FROM block above. Expected pattern: one function per mode
+# (stop_ppl_drain, start_ppl_resume, ...). Re-run script with
+# addresses filled in, or manually decompile in Ghidra UI.
+######################################################################
+
+Candidates to decompile on a second pass:
+  - the function called ONLY in the mode=0 branch (drain worker)
+  - the function called ONLY in the mode=1 branch (resume worker)
+  - any shared helper (PPL task-group accessor)
