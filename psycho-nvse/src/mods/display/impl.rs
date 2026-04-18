@@ -2,8 +2,10 @@
 //!
 //! - DisableProcessWindowsGhosting: prevents "(Not Responding)" ghost window
 //!   that corrupts window state during loading screens
-//! - Watchdog thread: monitors game window and restores it from minimized
-//!   state after alt-tab (ShowWindow + SetWindowPos)
+//! - Watchdog thread: monitors game window and restores it from a corrupted
+//!   rect/style, but only when the game already owns the foreground. If the
+//!   user has alt-tabbed to another window, the watchdog stays quiet so it
+//!   doesn't fight the user for focus.
 
 use std::sync::atomic::{AtomicI32, AtomicPtr, Ordering};
 
@@ -26,6 +28,7 @@ unsafe extern "system" {
     fn IsWindow(hwnd: *mut c_void) -> i32;
     fn FindWindowA(class_name: *const u8, window_name: *const u8) -> *mut c_void;
     fn ShowWindow(hwnd: *mut c_void, cmd: i32) -> i32;
+    fn GetForegroundWindow() -> *mut c_void;
 }
 
 const GWL_STYLE: i32 = -16;
@@ -166,6 +169,14 @@ fn watchdog_loop() {
         let ch = rect.bottom - rect.top;
 
         if cw != ew || ch != eh || rect.left != ex || rect.top != ey {
+            // Skip restore if another window owns the foreground - user has
+            // legitimately alt-tabbed away. Only recover when the game is
+            // already foreground but its rect/style is corrupted (original bug).
+            let fg = unsafe { GetForegroundWindow() };
+            if fg != hwnd {
+                continue;
+            }
+
             fix_count += 1;
             let current_style = unsafe { GetWindowLongA(hwnd, GWL_STYLE) };
             log::warn!(
