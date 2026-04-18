@@ -91,21 +91,31 @@ fn get_shard() -> usize {
 }
 
 /// Per-class reservation sizes. Strict 512 MB total (matches vanilla
-/// SBM's pool budget). Rebalanced after a worldspace-transition crash
-/// exhausted mid-size classes and cascaded nulls into block-tier
-/// overflow:
-///   - 80, 96 B: 96 MB each -- hottest classes (TESForm churn), NVHR
-///     kept them at 128 MB; 96 MB is the tightest we can run without
-///     re-hitting hot-class exhaustion.
-///   - 16, 32, 64, 128 B: 16 MB each -- high-freq small (strings,
-///     pointers, ScriptEventList nodes on heavy modlists).
-///   - 256, 320, 640, 1280 B: 16 MB each -- observed cascade hotspots
-///     (class #18 had 524K exhausts, class #27 had 1M exhausts before
-///     the bump).
-///   - 448, 1536 B: 8 MB each (POOL_ALIGN minimum).
+/// SBM's pool budget). Rebalanced again after a TTW Capital Wasteland
+/// AI-thread NULL-deref crash (READ at 0x40, EIP=0x008D6F30) driven
+/// by cascade exhaustion:
+///   - 1024 B (#26): 131072 fails at 8 MB -> 24 MB (+16, 3x cells)
+///   - 1280 B (#27):  65536 fails at 16 MB -> 24 MB (+8)
+///   -  640 B (#23):  16384 fails at 16 MB -> 24 MB (+8)
+///   - 3584 B (#33):  32768 fails at 8 MB -> 16 MB (+8)
+///   -  512 B (#22):   1024 fails at 8 MB -> 16 MB (+8)
+///   - 2048 B (#30): early exhaust at 8 MB -> 16 MB (+8)
+///   - 3072 B (#32): early exhaust at 8 MB -> 16 MB (+8)
+///
+/// Budget recovered from 80/96 B: 96 -> 64 MB each (saves 64 MB).
+/// 64 MB of 80 B = 838K cells, 64 MB of 96 B = 699K cells -- still
+/// comfortably above observed hot-class peak usage (~500K each for
+/// this modlist).
+///
+/// Layout summary:
+///   - 80, 96 B: 64 MB each (hot TESForm churn, headroom for modlist)
+///   - 16, 32, 64, 128 B: 16 MB each (high-freq small)
+///   - 256, 320: 16 MB each (observed cascade hotspots)
+///   - 512, 2048, 3072, 3584: 16 MB each (new: previously exhausted)
+///   - 640, 1024, 1280: 24 MB each (heavy-exhaust classes)
 ///   - Everything else: 8 MB (POOL_ALIGN minimum).
 ///
-/// Total: 512 MB reserved (vanilla SBM parity).
+/// Total: 512 MB reserved.
 const POOL_DESC: &[PoolDesc] = &[
     PoolDesc { item_size: 8,    max_size: 8   * 1024 * 1024, sharded: false },
     PoolDesc { item_size: 12,   max_size: 8   * 1024 * 1024, sharded: false },
@@ -118,8 +128,8 @@ const POOL_DESC: &[PoolDesc] = &[
     PoolDesc { item_size: 48,   max_size: 8   * 1024 * 1024, sharded: false },
     PoolDesc { item_size: 56,   max_size: 8   * 1024 * 1024, sharded: false },
     PoolDesc { item_size: 64,   max_size: 16  * 1024 * 1024, sharded: false },
-    PoolDesc { item_size: 80,   max_size: 96  * 1024 * 1024, sharded: false },
-    PoolDesc { item_size: 96,   max_size: 96  * 1024 * 1024, sharded: false },
+    PoolDesc { item_size: 80,   max_size: 64  * 1024 * 1024, sharded: false },
+    PoolDesc { item_size: 96,   max_size: 64  * 1024 * 1024, sharded: false },
     PoolDesc { item_size: 112,  max_size: 8   * 1024 * 1024, sharded: false },
     PoolDesc { item_size: 128,  max_size: 16  * 1024 * 1024, sharded: false },
     PoolDesc { item_size: 160,  max_size: 8   * 1024 * 1024, sharded: false },
@@ -129,18 +139,18 @@ const POOL_DESC: &[PoolDesc] = &[
     PoolDesc { item_size: 320,  max_size: 16  * 1024 * 1024, sharded: false },
     PoolDesc { item_size: 384,  max_size: 8   * 1024 * 1024, sharded: false },
     PoolDesc { item_size: 448,  max_size: 8   * 1024 * 1024, sharded: false },
-    PoolDesc { item_size: 512,  max_size: 8   * 1024 * 1024, sharded: false },
-    PoolDesc { item_size: 640,  max_size: 16  * 1024 * 1024, sharded: false },
+    PoolDesc { item_size: 512,  max_size: 16  * 1024 * 1024, sharded: false },
+    PoolDesc { item_size: 640,  max_size: 24  * 1024 * 1024, sharded: false },
     PoolDesc { item_size: 768,  max_size: 8   * 1024 * 1024, sharded: false },
     PoolDesc { item_size: 896,  max_size: 8   * 1024 * 1024, sharded: false },
-    PoolDesc { item_size: 1024, max_size: 8   * 1024 * 1024, sharded: false },
-    PoolDesc { item_size: 1280, max_size: 16  * 1024 * 1024, sharded: false },
+    PoolDesc { item_size: 1024, max_size: 24  * 1024 * 1024, sharded: false },
+    PoolDesc { item_size: 1280, max_size: 24  * 1024 * 1024, sharded: false },
     PoolDesc { item_size: 1536, max_size: 8   * 1024 * 1024, sharded: false },
     PoolDesc { item_size: 1792, max_size: 8   * 1024 * 1024, sharded: false },
-    PoolDesc { item_size: 2048, max_size: 8   * 1024 * 1024, sharded: false },
+    PoolDesc { item_size: 2048, max_size: 16  * 1024 * 1024, sharded: false },
     PoolDesc { item_size: 2560, max_size: 8   * 1024 * 1024, sharded: false },
-    PoolDesc { item_size: 3072, max_size: 8   * 1024 * 1024, sharded: false },
-    PoolDesc { item_size: 3584, max_size: 8   * 1024 * 1024, sharded: false },
+    PoolDesc { item_size: 3072, max_size: 16  * 1024 * 1024, sharded: false },
+    PoolDesc { item_size: 3584, max_size: 16  * 1024 * 1024, sharded: false },
 ];
 
 /// Count the sharded entries in `POOL_DESC` at compile time.
