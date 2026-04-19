@@ -47,12 +47,17 @@ pub struct LoggerConfig {
 pub struct MemoryConfig {
     /// Replace game heap and all memory management
     pub heap_replacer: bool,
+    /// Run the scrap-heap replacer only and skip gheap. For heavy
+    /// modlists whose baseline commit can't survive gheap's full
+    /// footprint.
+    pub light_mode: bool,
 }
 
 impl Default for MemoryConfig {
     fn default() -> Self {
         Self {
             heap_replacer: true,
+            light_mode: false,
         }
     }
 }

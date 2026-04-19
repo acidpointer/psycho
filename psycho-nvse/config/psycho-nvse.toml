@@ -6,6 +6,7 @@ debug = true            # Show debug logs (enable when prepare problem report)
 
 [memory]
 heap_replacer = true    # Enable heap replacer
+light_mode = false      # Scrap-heap only, skip gheap. Use on heavy modlists where gheap can't fit.
 
 [perf]
 rng = true              # Enable RNG (random number generator) replacer

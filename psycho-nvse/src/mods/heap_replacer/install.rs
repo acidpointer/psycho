@@ -1,4 +1,5 @@
-//! Two-phase hook installation for the heap replacer.
+//! Two-phase hook installation for the heap replacer, split into
+//! independent gheap and sheap install paths.
 //!
 //! Phase 1 (Preload): initialize infrastructure and prepare hook
 //! trampolines. No JMPs are written -- the game's original code paths
@@ -6,8 +7,13 @@
 //! the original game heap and are routed correctly on free via the
 //! heap_validate fallback.
 //!
-//! Phase 2 (Load): enable all hooks (write JMPs) and apply SBM patches.
-//! After this point every allocation routes through slab/mimalloc.
+//! Phase 2 (Load): enable the prepared hooks (write JMPs) and apply
+//! the matching patches. After this point every hooked game operation
+//! routes through our code.
+//!
+//! Gheap and sheap are installed independently so the caller can pick
+//! "full" (both) or "light" (sheap only, for heavy modlists whose
+//! baseline commit can't survive gheap's full footprint).
 
 use libc::c_void;
 
@@ -16,12 +22,25 @@ use libpsycho::os::windows::winapi::{get_module_handle_a, patch_bytes, patch_nop
 use super::{gheap, scrap_heap};
 
 // ---------------------------------------------------------------------------
-// Phase 1: initialize (NVSEPlugin_Preload)
+// GHEAP -- Phase 1: initialize (NVSEPlugin_Preload)
 // ---------------------------------------------------------------------------
 
-/// Reserves pool VAS, caches process heap handles, and prepares all hook
-/// trampolines. No game code is redirected yet.
-pub fn heap_replacer_initialize() -> anyhow::Result<()> {
+/// Reserves gheap tier VAS, caches process heap handles, and prepares
+/// all gheap-related hook trampolines. No game code is redirected yet.
+///
+/// NOTE: cleanup_sbm_arenas() is intentionally NOT called from here.
+/// The premise "SBM state is fully consistent at this point" was true
+/// when install ran inside DllMain (loader lock held -- no other thread
+/// could touch the SBM). With install moved to NVSEPlugin_Preload the
+/// loader lock is released, BSTaskManager / IO worker threads are
+/// already alive, and walking the SBM_POOL_TABLE racing the SBM's own
+/// refcount tracker decommits pages the SBM still has on its freelist.
+/// Next SBM allocation that pops one of those pages returns memory we
+/// already MEM_DECOMMIT'd -- first store into the cell faults, often
+/// visible as a memcpy with a freshly-NULLed source against a static
+/// BSTCommonMessageQueue<BSPackedTask> slot. The function is left in
+/// place for a future correctly-sequenced reclamation pass.
+pub fn install_gheap_initialize() -> anyhow::Result<()> {
     // Pool allocator: each class reserves its own VA aligned to POOL_ALIGN.
     if !gheap::pool::init() {
         return Err(anyhow::anyhow!("Pool allocator initialization failed"));
@@ -38,19 +57,6 @@ pub fn heap_replacer_initialize() -> anyhow::Result<()> {
     }
 
     gheap::crash_diag::install();
-
-    // NOTE: cleanup_sbm_arenas() is intentionally NOT called from here.
-    // The premise "SBM state is fully consistent at this point" was true
-    // when install ran inside DllMain (loader lock held -- no other thread
-    // could touch the SBM). With install moved to NVSEPlugin_Preload the
-    // loader lock is released, BSTaskManager / IO worker threads are
-    // already alive, and walking the SBM_POOL_TABLE racing the SBM's own
-    // refcount tracker decommits pages the SBM still has on its freelist.
-    // Next SBM allocation that pops one of those pages returns memory we
-    // already MEM_DECOMMIT'd -- first store into the cell faults, often
-    // visible as a memcpy with a freshly-NULLed source against a static
-    // BSTCommonMessageQueue<BSPackedTask> slot. The function is left in
-    // place for a future correctly-sequenced reclamation pass.
 
     // Cache process heap handles so free/msize/realloc can route pre-hook
     // pointers back to the correct Windows heap after hooks go live.
@@ -125,13 +131,6 @@ pub fn heap_replacer_initialize() -> anyhow::Result<()> {
         )?;
     }
 
-    // PDD destruction guard
-    // {
-    //     use gheap::statics::*;
-
-    //     PDD_HOOK.init("pdd", PDD_ADDR as *mut c_void, gheap::pdd_hook::hook_pdd)?;
-    // }
-
     // OOM Stage 8 (HeapCompact) -- safe BSTaskManagerThread semaphore release
     {
         use gheap::statics::*;
@@ -190,33 +189,6 @@ pub fn heap_replacer_initialize() -> anyhow::Result<()> {
         }
     }
 
-    // scrap heap
-    {
-        use scrap_heap::*;
-
-        // optional -- another mod may have already patched 0xAA42E0
-        if let Err(e) = GET_THREAD_LOCAL_HOOK.init(
-            "sheap_get_thread_local",
-            SHEAP_GET_THREAD_LOCAL_ADDR as *mut c_void,
-            hook_get_thread_local,
-        ) {
-            log::warn!("[SBM] sheap_get_thread_local init skipped: {:?}", e);
-        }
-        INIT_FIX_HOOK.init(
-            "sheap_init_fix",
-            SHEAP_INIT_FIX_ADDR as *mut c_void,
-            hook_init_fix,
-        )?;
-        INIT_VAR_HOOK.init(
-            "sheap_init_var",
-            SHEAP_INIT_VAR_ADDR as *mut c_void,
-            hook_init_var,
-        )?;
-        ALLOC_HOOK.init("sheap_alloc", SHEAP_ALLOC_ADDR as *mut c_void, hook_alloc)?;
-        FREE_HOOK.init("sheap_free", SHEAP_FREE_ADDR as *mut c_void, hook_free)?;
-        PURGE_HOOK.init("sheap_purge", SHEAP_PURGE_ADDR as *mut c_void, hook_purge)?;
-    }
-
     // havok world lock tracking
     {
         use gheap::hooks::{hook_hkworld_lock, hook_hkworld_unlock};
@@ -256,17 +228,18 @@ pub fn heap_replacer_initialize() -> anyhow::Result<()> {
         )?;
     }
 
-    log::info!("[HEAP REPLACER] Infrastructure initialized, all trampolines prepared");
+    log::info!("[GHEAP] Infrastructure initialized, trampolines prepared");
     Ok(())
 }
 
 // ---------------------------------------------------------------------------
-// Phase 2: activate (NVSEPlugin_Load)
+// GHEAP -- Phase 2: activate (NVSEPlugin_Load)
 // ---------------------------------------------------------------------------
 
-/// Writes JMPs at all hook targets and applies SBM binary patches.
-/// After this returns, every game heap operation routes through our code.
-pub fn heap_replacer_activate() -> anyhow::Result<()> {
+/// Writes JMPs at all gheap hook targets, applies SBM-disable patches,
+/// and starts background monitoring threads. After this returns, every
+/// game heap operation routes through gheap.
+pub fn install_gheap_activate() -> anyhow::Result<()> {
     // game heap
     {
         use super::gheap::statics::*;
@@ -296,14 +269,6 @@ pub fn heap_replacer_activate() -> anyhow::Result<()> {
         AI_THREAD_JOIN_HOOK.enable()?;
         log::info!("[SYNC] AI start/join hooks active");
     }
-
-    // // PDD
-    // {
-    //     use gheap::statics::*;
-
-    //     PDD_HOOK.enable()?;
-    //     log::info!("[SYNC] PDD hook active");
-    // }
 
     // OOM Stage 8
     {
@@ -353,22 +318,6 @@ pub fn heap_replacer_activate() -> anyhow::Result<()> {
         log::info!("[CRT] Inline CRT hooks active");
     }
 
-    // scrap heap
-    {
-        use scrap_heap::*;
-
-        // optional -- skip if init failed (another mod patched the address)
-        if GET_THREAD_LOCAL_HOOK.enable().is_err() {
-            log::warn!("[SBM] sheap_get_thread_local enable skipped");
-        }
-        INIT_FIX_HOOK.enable()?;
-        INIT_VAR_HOOK.enable()?;
-        ALLOC_HOOK.enable()?;
-        FREE_HOOK.enable()?;
-        PURGE_HOOK.enable()?;
-        log::info!("[SBM] Scrap heap hooks active");
-    }
-
     // havok world lock
     {
         use gheap::statics::*;
@@ -395,11 +344,73 @@ pub fn heap_replacer_activate() -> anyhow::Result<()> {
     }
 
     // SBM disable patches (must be after hooks are active)
-    apply_sbm_patches()?;
+    apply_gheap_patches()?;
 
     start_deferred_threads();
 
-    log::info!("[HEAP REPLACER] All hooks and patches applied");
+    log::info!("[GHEAP] All hooks and patches applied");
+    Ok(())
+}
+
+// ---------------------------------------------------------------------------
+// SHEAP -- Phase 1: initialize (NVSEPlugin_Preload)
+// ---------------------------------------------------------------------------
+
+/// Prepare scrap-heap hook trampolines. Cheap and independent from
+/// gheap: six hooks, no VA reservation, no auxiliary threads.
+pub fn install_sheap_initialize() -> anyhow::Result<()> {
+    use scrap_heap::*;
+
+    // optional -- another mod may have already patched 0xAA42E0
+    if let Err(e) = GET_THREAD_LOCAL_HOOK.init(
+        "sheap_get_thread_local",
+        SHEAP_GET_THREAD_LOCAL_ADDR as *mut c_void,
+        hook_get_thread_local,
+    ) {
+        log::warn!("[SHEAP] sheap_get_thread_local init skipped: {:?}", e);
+    }
+    INIT_FIX_HOOK.init(
+        "sheap_init_fix",
+        SHEAP_INIT_FIX_ADDR as *mut c_void,
+        hook_init_fix,
+    )?;
+    INIT_VAR_HOOK.init(
+        "sheap_init_var",
+        SHEAP_INIT_VAR_ADDR as *mut c_void,
+        hook_init_var,
+    )?;
+    ALLOC_HOOK.init("sheap_alloc", SHEAP_ALLOC_ADDR as *mut c_void, hook_alloc)?;
+    FREE_HOOK.init("sheap_free", SHEAP_FREE_ADDR as *mut c_void, hook_free)?;
+    PURGE_HOOK.init("sheap_purge", SHEAP_PURGE_ADDR as *mut c_void, hook_purge)?;
+
+    log::info!("[SHEAP] Infrastructure initialized, trampolines prepared");
+    Ok(())
+}
+
+// ---------------------------------------------------------------------------
+// SHEAP -- Phase 2: activate (NVSEPlugin_Load)
+// ---------------------------------------------------------------------------
+
+/// Enable scrap-heap JMPs and apply the embedded-sheap constructor
+/// NOP patch. Required whenever the sheap hooks are active -- see
+/// `apply_sheap_patches` for the rationale.
+pub fn install_sheap_activate() -> anyhow::Result<()> {
+    use scrap_heap::*;
+
+    // optional -- skip if init failed (another mod patched the address)
+    if GET_THREAD_LOCAL_HOOK.enable().is_err() {
+        log::warn!("[SHEAP] sheap_get_thread_local enable skipped");
+    }
+    INIT_FIX_HOOK.enable()?;
+    INIT_VAR_HOOK.enable()?;
+    ALLOC_HOOK.enable()?;
+    FREE_HOOK.enable()?;
+    PURGE_HOOK.enable()?;
+    log::info!("[SHEAP] Scrap heap hooks active");
+
+    apply_sheap_patches()?;
+
+    log::info!("[SHEAP] All hooks and patches applied");
     Ok(())
 }
 
@@ -423,7 +434,7 @@ fn start_deferred_threads() {
 /// HISTORICAL NOTE: this used to be called from `heap_replacer_initialize`
 /// when install ran inside DllMain. With install moved to Preload it races
 /// against live worker threads still allocating from the SBM, so the call
-/// was removed (see comment in `heap_replacer_initialize`). The function
+/// was removed (see comment in `install_gheap_initialize`). The function
 /// is kept for a future correctly-sequenced reclamation pass.
 #[allow(dead_code)]
 fn cleanup_sbm_arenas() {
@@ -472,8 +483,10 @@ fn cleanup_sbm_arenas() {
     );
 }
 
-/// Apply binary patches to disable the SBM after our hooks are active.
-fn apply_sbm_patches() -> anyhow::Result<()> {
+/// Disable the SBM small-block allocator. Only safe to apply when
+/// gheap is active, because gheap owns the replacement allocation path
+/// these patches remove.
+fn apply_gheap_patches() -> anyhow::Result<()> {
     unsafe {
         // RET patches: disable SBM functions that are pure overhead
         patch_ret(0x00AA6840 as *mut c_void)?; // SBM stats reset
@@ -517,6 +530,19 @@ fn apply_sbm_patches() -> anyhow::Result<()> {
         // analysis/ghidra/output/memory/verify_nvhr_patch_0x00AA3060.txt.
         patch_nop_call(0x00AA3060 as *mut c_void)?;
 
+        // Skip per-frame SBM arena management (JMP +0x55 over the stale loop).
+        patch_bytes(0x0086EED4 as *mut c_void, &[0xEB, 0x55])?;
+    }
+
+    log::info!("[GHEAP] SBM patches applied (10 RET + 4 NOP-call + 1 JMP + fast path disabled)");
+    Ok(())
+}
+
+/// Patches required whenever scrap-heap hooks are active, regardless
+/// of gheap. The embedded scrap-heap constructor lives inside the
+/// HeapSingleton constructor and is independent of the SBM tier.
+fn apply_sheap_patches() -> anyhow::Result<()> {
+    unsafe {
         // Skip the embedded scrap-heap constructor at HeapSingleton+0x114.
         //
         // The HeapSingleton constructor (FUN_00aa3880, called once from
@@ -536,11 +562,8 @@ fn apply_sbm_patches() -> anyhow::Result<()> {
         // 0x00AA38CA)`. Verified via Ghidra in
         // analysis/ghidra/output/memory/verify_nvhr_patch_0x00AA38CA.txt.
         patch_bytes(0x00AA38CA as *mut c_void, &[0x90u8; 30])?;
-
-        // Skip per-frame SBM arena management (JMP +0x55 over the stale loop).
-        patch_bytes(0x0086EED4 as *mut c_void, &[0xEB, 0x55])?;
     }
 
-    log::info!("[SBM] Patched (10 RET + 4 NOP-call + 1 30-byte NOP + 1 JMP + fast path disabled)");
+    log::info!("[SHEAP] Embedded scrap-heap constructor NOP applied");
     Ok(())
 }

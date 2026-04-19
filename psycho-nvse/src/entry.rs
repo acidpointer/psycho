@@ -38,8 +38,9 @@ use crate::{
     mods::{
         display::install_display_hooks,
         heap_replacer::{
-            configure_mimalloc, heap_replacer_activate,
-            heap_replacer_initialize,
+            HeapReplacerMode, configure_mimalloc, current_mode, decide_mode,
+            install_gheap_activate, install_gheap_initialize,
+            install_sheap_activate, install_sheap_initialize,
         },
         perf::install_rng_hook,
         zlib::install_zlib_hooks,
@@ -99,7 +100,21 @@ fn entrypoint(nvse_ptr: *const NVSEInterfaceFFI) -> anyhow::Result<()> {
         }
 
         if cfg.memory.heap_replacer {
-            heap_replacer_activate()?;
+            match current_mode() {
+                Some(HeapReplacerMode::Full) => {
+                    install_gheap_activate()?;
+                    install_sheap_activate()?;
+                }
+                Some(HeapReplacerMode::Light) => {
+                    install_sheap_activate()?;
+                }
+                None => {
+                    log::warn!(
+                        "[HEAP REPLACER] No mode cached from Preload -- \
+                         skipping Load-phase activation"
+                    );
+                }
+            }
         }
 
         if cfg.perf.rng {
@@ -170,15 +185,27 @@ pub extern "C" fn NVSEPlugin_Preload() -> BOOL {
     // Step 1: Configure mimalloc FIRST (it reserves its own arena for CRT).
     configure_mimalloc();
 
-    // Pool / block allocators reserve their VA inside
-    // `heap_replacer_initialize()` below; no separate arena reservation
+    // Pool / block allocators reserve their VA lazily inside
+    // `install_gheap_initialize()` below; no separate arena reservation
     // step is needed.
 
     if cfg.memory.heap_replacer {
-        match heap_replacer_initialize() {
-            Ok(_) => {}
-            Err(err) => {
-                log::error!("[FAIL] Game heap init: {:?}", err);
+        match decide_mode(&cfg.memory) {
+            HeapReplacerMode::Full => {
+                if let Err(err) = install_gheap_initialize() {
+                    log::error!("[FAIL] gheap init: {:?}", err);
+                }
+                if let Err(err) = install_sheap_initialize() {
+                    log::error!("[FAIL] sheap init: {:?}", err);
+                }
+            }
+            HeapReplacerMode::Light => {
+                log::warn!(
+                    "[HEAP REPLACER] LIGHT mode: scrap_heap only, gheap disabled"
+                );
+                if let Err(err) = install_sheap_initialize() {
+                    log::error!("[FAIL] sheap init: {:?}", err);
+                }
             }
         }
     }
