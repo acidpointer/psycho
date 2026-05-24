@@ -103,11 +103,7 @@ impl StringVars {
     /// The `owning_script` parameter ties the variable's lifetime to
     /// a script; pass `std::ptr::null_mut()` for persistent strings.
     #[allow(clippy::not_unsafe_ptr_arg_deref)]
-    pub fn create(
-        &self,
-        value: &str,
-        owning_script: *mut libc::c_void,
-    ) -> StringVarResult<u32> {
+    pub fn create(&self, value: &str, owning_script: *mut libc::c_void) -> StringVarResult<u32> {
         let iface = unsafe { self.ptr.as_ref() };
         let create_fn = iface
             .CreateString

@@ -9,7 +9,8 @@ use std::ptr::NonNull;
 use libc::c_void;
 use thiserror::Error;
 use windows::Win32::Foundation::{
-    CloseHandle, GetLastError, HANDLE, HMODULE, HWND, INVALID_HANDLE_VALUE, STILL_ACTIVE, SetLastError, WIN32_ERROR
+    CloseHandle, GetLastError, HANDLE, HMODULE, HWND, INVALID_HANDLE_VALUE, STILL_ACTIVE,
+    SetLastError, WIN32_ERROR,
 };
 use windows::Win32::System::Console::{
     AllocConsole, CONSOLE_MODE, ENABLE_VIRTUAL_TERMINAL_PROCESSING, GetConsoleMode, GetStdHandle,
@@ -26,15 +27,16 @@ use windows::Win32::System::Memory::{
 use windows::Win32::System::ProcessStatus::{
     EnumProcessModules, GetModuleBaseNameA, GetModuleInformation, MODULEINFO,
 };
+use windows::Win32::System::SystemInformation::GetTickCount as WinGetTickCount;
 use windows::Win32::System::Threading::{
     CRITICAL_SECTION, GetCurrentThreadId as WinGetCurrentThreadId, GetExitCodeThread,
     InitializeCriticalSection, OpenThread, ReleaseSemaphore as WinReleaseSemaphore,
-    SetThreadPriority, Sleep as WinSleep, WaitForSingleObject as WinWaitForSingleObject,
-    THREAD_PRIORITY, THREAD_PRIORITY_ABOVE_NORMAL, THREAD_PRIORITY_BELOW_NORMAL,
-    THREAD_PRIORITY_HIGHEST, THREAD_PRIORITY_IDLE, THREAD_PRIORITY_LOWEST, THREAD_PRIORITY_MIN,
-    THREAD_PRIORITY_NORMAL, THREAD_PRIORITY_TIME_CRITICAL, THREAD_QUERY_LIMITED_INFORMATION,
+    SetThreadPriority, Sleep as WinSleep, THREAD_PRIORITY, THREAD_PRIORITY_ABOVE_NORMAL,
+    THREAD_PRIORITY_BELOW_NORMAL, THREAD_PRIORITY_HIGHEST, THREAD_PRIORITY_IDLE,
+    THREAD_PRIORITY_LOWEST, THREAD_PRIORITY_MIN, THREAD_PRIORITY_NORMAL,
+    THREAD_PRIORITY_TIME_CRITICAL, THREAD_QUERY_LIMITED_INFORMATION,
+    WaitForSingleObject as WinWaitForSingleObject,
 };
-use windows::Win32::System::SystemInformation::GetTickCount as WinGetTickCount;
 use windows::Win32::System::{
     Diagnostics::Debug::FlushInstructionCache, Memory::VirtualQuery, Threading::GetCurrentProcess,
 };
@@ -370,7 +372,7 @@ pub fn is_thread_alive(thread_id: u32) -> bool {
     unsafe {
         // 1. Try to get a handle to the thread
         let handle = OpenThread(THREAD_QUERY_LIMITED_INFORMATION, false, thread_id);
-        
+
         if let Ok(h) = handle {
             let mut exit_code: u32 = 0;
             let success = GetExitCodeThread(h, &mut exit_code);
@@ -1275,8 +1277,7 @@ const MAX_PROCESS_HEAPS: usize = 64;
 /// Enumerate all heap handles in the current process.
 pub fn get_process_heaps() -> Vec<isize> {
     let mut handles = [0isize; MAX_PROCESS_HEAPS];
-    let count =
-        unsafe { GetProcessHeaps(MAX_PROCESS_HEAPS as u32, handles.as_mut_ptr()) } as usize;
+    let count = unsafe { GetProcessHeaps(MAX_PROCESS_HEAPS as u32, handles.as_mut_ptr()) } as usize;
 
     handles[..count.min(MAX_PROCESS_HEAPS)].to_vec()
 }
@@ -1295,7 +1296,10 @@ pub fn heap_validate(heap: isize, ptr: *const c_void) -> bool {
 /// Iterates all process heaps and calls `HeapValidate` on each.
 /// Returns the heap handle, or `None` if no heap claims the pointer.
 pub fn find_owning_heap(heaps: &[isize], ptr: *const c_void) -> Option<isize> {
-    heaps.iter().find(|&&heap| heap_validate(heap, ptr)).copied()
+    heaps
+        .iter()
+        .find(|&&heap| heap_validate(heap, ptr))
+        .copied()
 }
 
 /// Free a pointer through a specific Windows heap handle.
@@ -1335,14 +1339,7 @@ pub unsafe fn heap_realloc(heap: isize, ptr: *mut c_void, size: usize) -> *mut c
 /// Wrapper around `VirtualAlloc`. Returns a valid pointer or an error.
 /// If `address` is null, the system determines the allocation address.
 pub fn virtual_alloc_rwx(size: usize) -> WinapiResult<*mut c_void> {
-    let ptr = unsafe {
-        VirtualAlloc(
-            None,
-            size,
-            MEM_COMMIT | MEM_RESERVE,
-            PAGE_EXECUTE_READWRITE,
-        )
-    };
+    let ptr = unsafe { VirtualAlloc(None, size, MEM_COMMIT | MEM_RESERVE, PAGE_EXECUTE_READWRITE) };
 
     if ptr.is_null() {
         return Err(WinapiError::WindowsCore(windows::core::Error::from_win32()));
@@ -1372,9 +1369,9 @@ pub enum WaitResult {
 pub fn wait_for_single_object(handle: HANDLE, timeout_ms: u32) -> WaitResult {
     let result = unsafe { WinWaitForSingleObject(handle, timeout_ms) };
     match result.0 {
-        0 => WaitResult::Signaled,       // WAIT_OBJECT_0
-        0x80 => WaitResult::Abandoned,    // WAIT_ABANDONED
-        0x102 => WaitResult::Timeout,     // WAIT_TIMEOUT
+        0 => WaitResult::Signaled,     // WAIT_OBJECT_0
+        0x80 => WaitResult::Abandoned, // WAIT_ABANDONED
+        0x102 => WaitResult::Timeout,  // WAIT_TIMEOUT
         _ => WaitResult::Failed(unsafe { GetLastError().0 }),
     }
 }

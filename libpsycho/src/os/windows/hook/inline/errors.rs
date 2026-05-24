@@ -12,43 +12,43 @@ pub enum InlineHookError {
 
     #[error("WinAPI error: {0}")]
     Winapi(#[from] WinapiError),
-    
+
     #[error("FnPtr error: {0}")]
     FnPtr(#[from] FnPtrError),
 
     #[error("Iced error: {0}")]
     IcedError(#[from] IcedError),
-    
+
     #[error("Target function is too small for hook (need {needed} bytes, got {available})")]
     InsufficientSpace { needed: usize, available: usize },
-    
+
     #[error("Failed to disassemble instructions at target")]
     DisassemblyFailed,
-    
+
     #[error("Failed to allocate trampoline memory")]
     TrampolineAllocationFailed,
-    
+
     #[error("Hook is already enabled")]
     AlreadyEnabled,
-    
+
     #[error("Hook is not enabled")]
     NotEnabled,
-    
+
     #[error("Cannot relocate instruction: {0:?}")]
     NonRelocatableInstruction(Mnemonic),
-    
+
     #[error("Encoding error: {0}")]
     EncodingError(String),
-    
+
     #[error("Hook is in failed state and cannot be used")]
     HookFailed,
-    
+
     #[error("Unsafe memory region: can only read {safe} bytes, need {requested}")]
     UnsafeMemoryRegion { safe: usize, requested: usize },
-    
+
     #[error("RIP-relative instruction cannot be relocated: {0:?}")]
     RipRelativeInstruction(Mnemonic),
-    
+
     #[error("Target function too small: {size} bytes")]
     FunctionTooSmall { size: usize },
 

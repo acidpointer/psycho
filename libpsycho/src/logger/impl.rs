@@ -199,8 +199,6 @@ struct LogMessage {
     text: String,
 }
 
-
-
 /// Queue of log messages
 /// Logger will fill queue with messages, while separate thread
 /// pop messages from queue one-by-one and print, thus saving IO time.
@@ -698,9 +696,10 @@ impl Logger {
     /// Safe to call multiple times — only the first call spawns the thread.
     pub fn start_deferred() {
         // Atomic CAS ensures exactly one caller proceeds — no TOCTOU race.
-        if DEFERRED_STARTED.compare_exchange(
-            false, true, Ordering::AcqRel, Ordering::Relaxed
-        ).is_err() {
+        if DEFERRED_STARTED
+            .compare_exchange(false, true, Ordering::AcqRel, Ordering::Relaxed)
+            .is_err()
+        {
             return; // Another call already spawned (or init() was used).
         }
 
@@ -891,21 +890,21 @@ impl Log for Logger {
                             Ok(s) => format!("{} ", s),
                             Err(_) => "<timestamp-err> ".to_string(),
                         }
-                    },
+                    }
                     Timestamps::Utc => {
                         let fmt = self.timestamps_format.unwrap_or(TIMESTAMP_FORMAT_UTC);
                         match OffsetDateTime::now_utc().format(fmt) {
                             Ok(s) => format!("{} ", s),
                             Err(_) => "<timestamp-err> ".to_string(),
                         }
-                    },
+                    }
                     Timestamps::UtcOffset(offset) => {
                         let fmt = self.timestamps_format.unwrap_or(TIMESTAMP_FORMAT_OFFSET);
                         match OffsetDateTime::now_utc().to_offset(offset).format(fmt) {
                             Ok(s) => format!("{} ", s),
                             Err(_) => "<timestamp-err> ".to_string(),
                         }
-                    },
+                    }
                 }
             };
 

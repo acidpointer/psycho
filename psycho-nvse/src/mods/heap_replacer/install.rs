@@ -158,6 +158,17 @@ pub fn install_gheap_initialize() -> anyhow::Result<()> {
         )?;
     }
 
+    // IO task release guard
+    {
+        use gheap::statics::*;
+
+        TASK_RELEASE_HOOK.init(
+            "task_release_guard",
+            TASK_RELEASE_ADDR as *mut c_void,
+            gheap::task_release::hook_task_release,
+        )?;
+    }
+
     // CRT inline hooks
     {
         use super::crt_inline::*;
@@ -285,6 +296,14 @@ pub fn install_gheap_activate() -> anyhow::Result<()> {
         TEXTURE_CACHE_FIND_HOOK.enable()?;
         NISOURCETEXTURE_DTOR_HOOK.enable()?;
         log::info!("[TEXTURE] Dead set hooks active");
+    }
+
+    // IO task release
+    {
+        use super::gheap::statics::*;
+
+        TASK_RELEASE_HOOK.enable()?;
+        log::info!("[TASK_RELEASE] Guard hook active");
     }
 
     // CRT IAT
@@ -438,7 +457,7 @@ fn start_deferred_threads() {
 /// is kept for a future correctly-sequenced reclamation pass.
 #[allow(dead_code)]
 fn cleanup_sbm_arenas() {
-    use windows::Win32::System::Memory::{VirtualFree, MEM_DECOMMIT};
+    use windows::Win32::System::Memory::{MEM_DECOMMIT, VirtualFree};
 
     let pool_table = gheap::engine::addr::SBM_POOL_TABLE;
     let mut total_pages: usize = 0;

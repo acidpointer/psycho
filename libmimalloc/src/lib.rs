@@ -1,13 +1,13 @@
 //#![no_std]
 // Copyright 2019 Octavian Oncescu
 
-use core::ffi::c_void;
 use core::alloc::{GlobalAlloc, Layout};
+use core::ffi::c_void;
 
 extern crate libc;
 
-pub mod process_info;
 pub mod heap;
+pub mod process_info;
 
 #[cfg(feature = "extended")]
 mod extended;

@@ -2,8 +2,8 @@
 
 use crate::{
     mi_heap_calloc, mi_heap_collect, mi_heap_delete, mi_heap_destroy, mi_heap_malloc,
-    mi_heap_malloc_aligned, mi_heap_malloc_small, mi_heap_new,
-    mi_heap_realloc, mi_heap_recalloc, mi_heap_t, mi_heap_zalloc,
+    mi_heap_malloc_aligned, mi_heap_malloc_small, mi_heap_new, mi_heap_realloc, mi_heap_recalloc,
+    mi_heap_t, mi_heap_zalloc,
 };
 use libc::c_void;
 use std::ptr::NonNull;
@@ -33,7 +33,10 @@ impl MiHeap {
 
         let heap_ptr = NonNull::new(heap_ptr)?;
 
-        log::info!("[MIMALLOC] New heap created with address: {:p}", heap_ptr.as_ptr());
+        log::info!(
+            "[MIMALLOC] New heap created with address: {:p}",
+            heap_ptr.as_ptr()
+        );
 
         Some(Self {
             arena_size: 0,
@@ -57,38 +60,50 @@ impl MiHeap {
 
     pub fn malloc(&self, size: usize) -> *mut c_void {
         let ptr = self.raw_ptr();
-        if ptr.is_null() { return std::ptr::null_mut(); }
+        if ptr.is_null() {
+            return std::ptr::null_mut();
+        }
         unsafe { mi_heap_malloc(ptr, size) }
     }
 
     pub fn malloc_small(&self, size: usize) -> *mut c_void {
         let ptr = self.raw_ptr();
-        if ptr.is_null() { return std::ptr::null_mut(); }
+        if ptr.is_null() {
+            return std::ptr::null_mut();
+        }
         unsafe { mi_heap_malloc_small(ptr, size) }
     }
 
     pub fn malloc_aligned(&self, size: usize, align: usize) -> *mut c_void {
         let ptr = self.raw_ptr();
-        if ptr.is_null() { return std::ptr::null_mut(); }
+        if ptr.is_null() {
+            return std::ptr::null_mut();
+        }
         unsafe { mi_heap_malloc_aligned(ptr, size, align) }
     }
 
     pub fn calloc(&self, size: usize, count: usize) -> *mut c_void {
         let ptr = self.raw_ptr();
-        if ptr.is_null() { return std::ptr::null_mut(); }
+        if ptr.is_null() {
+            return std::ptr::null_mut();
+        }
         unsafe { mi_heap_calloc(ptr, size, count) }
     }
 
     pub fn zalloc(&self, size: usize) -> *mut c_void {
         let ptr = self.raw_ptr();
-        if ptr.is_null() { return std::ptr::null_mut(); }
+        if ptr.is_null() {
+            return std::ptr::null_mut();
+        }
         unsafe { mi_heap_zalloc(ptr, size) }
     }
 
     #[allow(clippy::not_unsafe_ptr_arg_deref)]
     pub fn realloc(&self, old_ptr: *mut c_void, new_size: usize) -> *mut c_void {
         let ptr = self.raw_ptr();
-        if ptr.is_null() { return std::ptr::null_mut(); }
+        if ptr.is_null() {
+            return std::ptr::null_mut();
+        }
         unsafe { mi_heap_realloc(ptr, old_ptr, new_size) }
     }
 
@@ -99,7 +114,9 @@ impl MiHeap {
         new_size: usize,
     ) -> *mut c_void {
         let ptr = self.raw_ptr();
-        if ptr.is_null() { return std::ptr::null_mut(); }
+        if ptr.is_null() {
+            return std::ptr::null_mut();
+        }
         unsafe { mi_heap_recalloc(ptr, old_ptr, new_count, new_size) }
     }
 
@@ -125,7 +142,9 @@ impl MiHeap {
     /// races with AI threads and is forbidden in this project.
     pub fn heap_collect(&self) {
         let ptr = self.raw_ptr();
-        if ptr.is_null() { return; }
+        if ptr.is_null() {
+            return;
+        }
         unsafe { mi_heap_collect(ptr, false) }
     }
 }

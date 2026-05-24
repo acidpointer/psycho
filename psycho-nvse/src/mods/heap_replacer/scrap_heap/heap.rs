@@ -7,8 +7,8 @@ use crossfire::flavor::Queue;
 use libc::c_void;
 use parking_lot::Mutex;
 use std::ptr;
-use std::sync::atomic::{AtomicBool, AtomicPtr, AtomicUsize, Ordering, fence};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, AtomicPtr, AtomicUsize, Ordering, fence};
 
 /// Default region size in bytes.
 /// 128KB fits easily into fragmented 32-bit address space.
@@ -39,10 +39,7 @@ pub struct Heap {
 }
 
 impl Heap {
-    pub fn new(
-        sheap_id: usize,
-        gc_queue: Arc<SeqQueue<usize>>,
-    ) -> Self {
+    pub fn new(sheap_id: usize, gc_queue: Arc<SeqQueue<usize>>) -> Self {
         Self {
             hot_region: AtomicPtr::new(ptr::null_mut()),
             generation: AtomicUsize::new(0),
@@ -184,8 +181,7 @@ impl Heap {
 
         let mut pool = self.pool.lock();
 
-        self.hot_region
-            .store(ptr::null_mut(), Ordering::Release);
+        self.hot_region.store(ptr::null_mut(), Ordering::Release);
         fence(Ordering::SeqCst);
 
         if self.alloc_count.load(Ordering::Acquire) != 0 {
@@ -199,8 +195,7 @@ impl Heap {
     }
 
     fn purge_inner(&self, pool: &mut Vec<Box<Region>>) -> usize {
-        self.hot_region
-            .store(ptr::null_mut(), Ordering::Release);
+        self.hot_region.store(ptr::null_mut(), Ordering::Release);
 
         let old_len = pool.len();
         pool.clear();

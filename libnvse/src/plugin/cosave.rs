@@ -43,12 +43,7 @@ impl<'a> SaveWriter<'a> {
     }
 
     /// Write a complete record from a byte slice (simple case).
-    pub fn write_bytes(
-        &self,
-        tag: &[u8; 4],
-        version: u32,
-        data: &[u8],
-    ) -> Result<(), SaveError> {
+    pub fn write_bytes(&self, tag: &[u8; 4], version: u32, data: &[u8]) -> Result<(), SaveError> {
         self.ser.write_record(tag, version, data)?;
         Ok(())
     }

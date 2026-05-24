@@ -25,9 +25,9 @@ pub type SetThreadAffinityMaskFn = unsafe extern "C" fn(*mut c_void, usize) -> u
 
 // Windows Heap API
 pub type HeapAllocFn = unsafe extern "system" fn(*mut c_void, u32, usize) -> *mut c_void;
-pub type HeapReAllocFn = unsafe extern "system" fn(*mut c_void, u32, *mut c_void, usize) -> *mut c_void;
+pub type HeapReAllocFn =
+    unsafe extern "system" fn(*mut c_void, u32, *mut c_void, usize) -> *mut c_void;
 pub type HeapFreeFn = unsafe extern "system" fn(*mut c_void, u32, *mut c_void) -> i32;
 
 // Windows Virtual Memory API
 pub type VirtualAllocFn = unsafe extern "system" fn(*mut c_void, usize, u32, u32) -> *mut c_void;
-

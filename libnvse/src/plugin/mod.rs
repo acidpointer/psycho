@@ -212,16 +212,14 @@ pub mod types;
 
 use std::ffi::CStr;
 
+use crate::NVSEInterfaceFFI;
 use crate::api::console::{Console, ConsoleError};
 use crate::api::interface::{NVSEInterface, NVSEInterfaceError};
 use crate::api::message_box::{MessageBox, MessageBoxError};
 use crate::api::messaging::{NVSEMessage, NVSEMessagingInterfaceError};
-use crate::api::player_controls::{
-    ControlFlags, PlayerControls, PlayerControlsError,
-};
+use crate::api::player_controls::{ControlFlags, PlayerControls, PlayerControlsError};
 use crate::api::serialization::SerializationError;
 use crate::api::string_var::{StringVarError, StringVars};
-use crate::NVSEInterfaceFFI;
 
 use self::cosave::SaveError;
 use self::types::FormId;
@@ -377,8 +375,7 @@ impl ConsoleApi {
     /// ```
     pub fn run_on(&self, target: FormId, command: &str) -> Result<(), PluginError> {
         // Use prid (pick ref by ID) then execute on it
-        self.inner
-            .run_silent(&format!("prid {:X}", target.raw()))?;
+        self.inner.run_silent(&format!("prid {:X}", target.raw()))?;
         self.inner.run(command)?;
         Ok(())
     }
@@ -555,9 +552,7 @@ impl PluginContext {
     // -- Commands -----------------------------------------------------------
 
     /// Lazily initialize the command builder.
-    fn commands_mut(
-        &mut self,
-    ) -> Result<&mut crate::api::command::CommandBuilder, PluginError> {
+    fn commands_mut(&mut self) -> Result<&mut crate::api::command::CommandBuilder, PluginError> {
         if self.commands.is_none() {
             let builder = self.inner.command_builder()?;
             self.commands = Some(builder);

@@ -95,14 +95,7 @@ pub fn hud_message_icon(message: &str, icon_path: &str, duration: f32) -> HudRes
 
     win_msg.with_ansi(|msg_ptr| {
         win_icon.with_ansi(|icon_ptr| unsafe {
-            queue_fn(
-                msg_ptr,
-                0,
-                icon_ptr,
-                std::ptr::null(),
-                duration,
-                false,
-            );
+            queue_fn(msg_ptr, 0, icon_ptr, std::ptr::null(), duration, false);
         });
     });
 

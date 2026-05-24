@@ -1,3 +1,3 @@
 mod r#impl;
 
-pub use r#impl::{Logger, FileOutput};
+pub use r#impl::{FileOutput, Logger};

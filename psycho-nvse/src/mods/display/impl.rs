@@ -118,7 +118,12 @@ fn watchdog_loop() {
             return;
         }
 
-        let mut rect = Rect { left: 0, top: 0, right: 0, bottom: 0 };
+        let mut rect = Rect {
+            left: 0,
+            top: 0,
+            right: 0,
+            bottom: 0,
+        };
         if unsafe { GetWindowRect(hwnd, &mut rect) } == 0 {
             continue;
         }
@@ -136,7 +141,11 @@ fn watchdog_loop() {
 
             log::info!(
                 "[DISPLAY] Watchdog captured: {}x{} at ({},{}) style={:#x}",
-                w, h, rect.left, rect.top, style
+                w,
+                h,
+                rect.left,
+                rect.top,
+                style
             );
             break;
         }
@@ -160,7 +169,12 @@ fn watchdog_loop() {
             continue;
         }
 
-        let mut rect = Rect { left: 0, top: 0, right: 0, bottom: 0 };
+        let mut rect = Rect {
+            left: 0,
+            top: 0,
+            right: 0,
+            bottom: 0,
+        };
         if unsafe { GetWindowRect(hwnd, &mut rect) } == 0 {
             continue;
         }
@@ -181,7 +195,16 @@ fn watchdog_loop() {
             let current_style = unsafe { GetWindowLongA(hwnd, GWL_STYLE) };
             log::warn!(
                 "[DISPLAY] Watchdog fix #{}: rect=({},{} {}x{}) expected=({},{} {}x{}) style={:#x}",
-                fix_count, rect.left, rect.top, cw, ch, ex, ey, ew, eh, current_style,
+                fix_count,
+                rect.left,
+                rect.top,
+                cw,
+                ch,
+                ex,
+                ey,
+                ew,
+                eh,
+                current_style,
             );
 
             if (current_style as u32) & WS_MINIMIZE != 0 {
@@ -192,7 +215,12 @@ fn watchdog_loop() {
             unsafe {
                 SetWindowLongA(hwnd, GWL_STYLE, expected_style);
                 SetWindowPos(
-                    hwnd, HWND_TOP, ex, ey, ew, eh,
+                    hwnd,
+                    HWND_TOP,
+                    ex,
+                    ey,
+                    ew,
+                    eh,
                     SWP_NOCOPYBITS | SWP_NOSENDCHANGING | SWP_FRAMECHANGED,
                 );
             }
@@ -217,7 +245,9 @@ pub fn verify_display_resolution() {
 
     log::info!(
         "[DISPLAY] D3D9 backbuffer: {}x{}, fullscreen: {}",
-        actual_w, actual_h, fullscreen
+        actual_w,
+        actual_h,
+        fullscreen
     );
 }
 

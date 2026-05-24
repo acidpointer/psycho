@@ -22,7 +22,7 @@
 use libc::c_void;
 
 use windows::Win32::System::Memory::{
-	MEM_COMMIT, MEM_FREE, MEM_RELEASE, MEM_RESERVE, PAGE_READWRITE, VirtualAlloc, VirtualFree,
+    MEM_COMMIT, MEM_FREE, MEM_RELEASE, MEM_RESERVE, PAGE_READWRITE, VirtualAlloc, VirtualFree,
 };
 
 use libpsycho::os::windows::winapi::virtual_query;
@@ -34,7 +34,7 @@ const VA_LIMIT: usize = 0xffff_0000;
 
 /// Probe sizes (MB). Ascending.
 const PROBE_SIZES_MB: &[usize] = &[
-	16, 32, 64, 128, 192, 256, 320, 384, 448, 512, 640, 768, 896, 1024, 1280, 1536, 1792, 2048,
+    16, 32, 64, 128, 192, 256, 320, 384, 448, 512, 640, 768, 896, 1024, 1280, 1536, 1792, 2048,
 ];
 
 // ---------------------------------------------------------------------------
@@ -53,67 +53,67 @@ pub fn scan_vas(label: &str) {
         return;
     }
 
-	let mut addr: usize = 0x10000; // skip the NULL page
-	let mut total_free: u64 = 0;
-	let mut total_reserve: u64 = 0;
-	let mut total_commit: u64 = 0;
-	let mut hole_count: u32 = 0;
-	let mut region_count: u32 = 0;
-	let mut largest_hole: usize = 0;
-	let mut largest_hole_base: usize = 0;
-	let mut second_hole: usize = 0;
-	let mut second_hole_base: usize = 0;
+    let mut addr: usize = 0x10000; // skip the NULL page
+    let mut total_free: u64 = 0;
+    let mut total_reserve: u64 = 0;
+    let mut total_commit: u64 = 0;
+    let mut hole_count: u32 = 0;
+    let mut region_count: u32 = 0;
+    let mut largest_hole: usize = 0;
+    let mut largest_hole_base: usize = 0;
+    let mut second_hole: usize = 0;
+    let mut second_hole_base: usize = 0;
 
-	while addr < VA_LIMIT {
-		let info = match virtual_query(addr as *mut c_void) {
-			Ok(i) => i,
-			Err(_) => break,
-		};
-		region_count += 1;
+    while addr < VA_LIMIT {
+        let info = match virtual_query(addr as *mut c_void) {
+            Ok(i) => i,
+            Err(_) => break,
+        };
+        region_count += 1;
 
-		let base = info.base_address as usize;
-		let size = info.region_size;
-		let state = info.state;
+        let base = info.base_address as usize;
+        let size = info.region_size;
+        let state = info.state;
 
-		if state == MEM_FREE.0 {
-			total_free += size as u64;
-			hole_count += 1;
-			if size > largest_hole {
-				second_hole = largest_hole;
-				second_hole_base = largest_hole_base;
-				largest_hole = size;
-				largest_hole_base = base;
-			} else if size > second_hole {
-				second_hole = size;
-				second_hole_base = base;
-			}
-		} else if state == MEM_RESERVE.0 {
-			total_reserve += size as u64;
-		} else if state == MEM_COMMIT.0 {
-			total_commit += size as u64;
-		}
+        if state == MEM_FREE.0 {
+            total_free += size as u64;
+            hole_count += 1;
+            if size > largest_hole {
+                second_hole = largest_hole;
+                second_hole_base = largest_hole_base;
+                largest_hole = size;
+                largest_hole_base = base;
+            } else if size > second_hole {
+                second_hole = size;
+                second_hole_base = base;
+            }
+        } else if state == MEM_RESERVE.0 {
+            total_reserve += size as u64;
+        } else if state == MEM_COMMIT.0 {
+            total_commit += size as u64;
+        }
 
-		let next = base.saturating_add(size.max(0x1000));
-		if next <= addr {
-			break;
-		}
-		addr = next;
-	}
+        let next = base.saturating_add(size.max(0x1000));
+        if next <= addr {
+            break;
+        }
+        addr = next;
+    }
 
-	log::info!(
-		"[VAS {}] free={}MB largest=0x{:08x}+{}MB second=0x{:08x}+{}MB \
+    log::info!(
+        "[VAS {}] free={}MB largest=0x{:08x}+{}MB second=0x{:08x}+{}MB \
 		 reserve={}MB commit={}MB regions={} holes={}",
-		label,
-		total_free / MB as u64,
-		largest_hole_base,
-		largest_hole / MB,
-		second_hole_base,
-		second_hole / MB,
-		total_reserve / MB as u64,
-		total_commit / MB as u64,
-		region_count,
-		hole_count,
-	);
+        label,
+        total_free / MB as u64,
+        largest_hole_base,
+        largest_hole / MB,
+        second_hole_base,
+        second_hole / MB,
+        total_reserve / MB as u64,
+        total_commit / MB as u64,
+        region_count,
+        hole_count,
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -132,52 +132,55 @@ pub fn probe_reserve_sizes() {
         return;
     }
 
-	let mut max_ok_mb: usize = 0;
-	let mut max_ok_base: usize = 0;
-	let mut first_fail_mb: usize = 0;
-	let mut first_fail_err: u32 = 0;
+    let mut max_ok_mb: usize = 0;
+    let mut max_ok_base: usize = 0;
+    let mut first_fail_mb: usize = 0;
+    let mut first_fail_err: u32 = 0;
 
-	for &mb in PROBE_SIZES_MB {
-		let bytes = mb * MB;
-		let ptr = unsafe { VirtualAlloc(None, bytes, MEM_RESERVE, PAGE_READWRITE) };
-		if ptr.is_null() {
-			let err = unsafe { windows::Win32::Foundation::GetLastError().0 };
-			if first_fail_mb == 0 {
-				first_fail_mb = mb;
-				first_fail_err = err;
-			}
-			continue;
-		}
+    for &mb in PROBE_SIZES_MB {
+        let bytes = mb * MB;
+        let ptr = unsafe { VirtualAlloc(None, bytes, MEM_RESERVE, PAGE_READWRITE) };
+        if ptr.is_null() {
+            let err = unsafe { windows::Win32::Foundation::GetLastError().0 };
+            if first_fail_mb == 0 {
+                first_fail_mb = mb;
+                first_fail_err = err;
+            }
+            continue;
+        }
 
-		max_ok_mb = mb;
-		max_ok_base = ptr as usize;
+        max_ok_mb = mb;
+        max_ok_base = ptr as usize;
 
-		let rel = unsafe { VirtualFree(ptr, 0, MEM_RELEASE) };
-		if rel.is_err() {
-			let err = unsafe { windows::Win32::Foundation::GetLastError().0 };
-			log::error!(
-				"[VAS-PROBE] RELEASE FAILED size={}MB base=0x{:08x} err=0x{:08x} \
+        let rel = unsafe { VirtualFree(ptr, 0, MEM_RELEASE) };
+        if rel.is_err() {
+            let err = unsafe { windows::Win32::Foundation::GetLastError().0 };
+            log::error!(
+                "[VAS-PROBE] RELEASE FAILED size={}MB base=0x{:08x} err=0x{:08x} \
 				 -- stopping probe to avoid leak",
-				mb,
-				max_ok_base,
-				err,
-			);
-			return;
-		}
-	}
+                mb,
+                max_ok_base,
+                err,
+            );
+            return;
+        }
+    }
 
-	if first_fail_mb == 0 {
-		log::info!(
-			"[VAS-PROBE] max={}MB base=0x{:08x} (all sizes {}..{} MB succeeded)",
-			max_ok_mb,
-			max_ok_base,
-			PROBE_SIZES_MB.first().copied().unwrap_or(0),
-			PROBE_SIZES_MB.last().copied().unwrap_or(0),
-		);
-	} else {
-		log::info!(
-			"[VAS-PROBE] max={}MB base=0x{:08x} first-fail={}MB err=0x{:08x}",
-			max_ok_mb, max_ok_base, first_fail_mb, first_fail_err,
-		);
-	}
+    if first_fail_mb == 0 {
+        log::info!(
+            "[VAS-PROBE] max={}MB base=0x{:08x} (all sizes {}..{} MB succeeded)",
+            max_ok_mb,
+            max_ok_base,
+            PROBE_SIZES_MB.first().copied().unwrap_or(0),
+            PROBE_SIZES_MB.last().copied().unwrap_or(0),
+        );
+    } else {
+        log::info!(
+            "[VAS-PROBE] max={}MB base=0x{:08x} first-fail={}MB err=0x{:08x}",
+            max_ok_mb,
+            max_ok_base,
+            first_fail_mb,
+            first_fail_err,
+        );
+    }
 }

@@ -42,24 +42,6 @@
 use std::ffi::CStr;
 use std::ptr::NonNull;
 
-use crate::api::messaging::{NVSEMessagingInterface, NVSEMessagingInterfaceError};
-use crate::{
-    NVSEArrayVarInterface as NVSEArrayVarInterfaceFFI,
-    NVSECommandTableInterface as NVSECommandTableInterfaceFFI,
-    NVSEConsoleInterface as NVSEConsoleInterfaceFFI,
-    NVSEDataInterface as NVSEDataInterfaceFFI,
-    NVSEEventManagerInterface as NVSEEventManagerInterfaceFFI,
-    NVSEInterface as NVSEInterfaceFFI,
-    NVSELoggingInterface as NVSELoggingInterfaceFFI,
-    NVSEMessagingInterface as NVSEMessagingInterfaceFFI,
-    NVSEScriptInterface as NVSEScriptInterfaceFFI,
-    NVSESerializationInterface as NVSESerializationInterfaceFFI,
-    NVSEStringVarInterface as NVSEStringVarInterfaceFFI,
-    NVSETogglePlayerControlsInterface as NVSETogglePlayerControlsInterfaceFFI,
-    kInterface_ArrayVar, kInterface_CommandTable, kInterface_Console, kInterface_Data,
-    kInterface_EventManager, kInterface_Logging, kInterface_Messaging, kInterface_PlayerControls,
-    kInterface_Script, kInterface_Serialization, kInterface_StringVar,
-};
 use crate::api::array_var::{ArrayVarError, ArrayVars};
 use crate::api::command::{CommandBuilder, CommandError};
 use crate::api::command_table::{CommandTable, CommandTableError};
@@ -67,10 +49,26 @@ use crate::api::console::{Console, ConsoleError};
 use crate::api::data::{Data, DataError};
 use crate::api::event_manager::{EventManager, EventManagerError};
 use crate::api::logging::{Logging, LoggingError};
+use crate::api::messaging::{NVSEMessagingInterface, NVSEMessagingInterfaceError};
 use crate::api::player_controls::{PlayerControls, PlayerControlsError};
 use crate::api::script::{ScriptError, Scripts};
 use crate::api::serialization::{Serialization, SerializationError};
 use crate::api::string_var::{StringVarError, StringVars};
+use crate::{
+    NVSEArrayVarInterface as NVSEArrayVarInterfaceFFI,
+    NVSECommandTableInterface as NVSECommandTableInterfaceFFI,
+    NVSEConsoleInterface as NVSEConsoleInterfaceFFI, NVSEDataInterface as NVSEDataInterfaceFFI,
+    NVSEEventManagerInterface as NVSEEventManagerInterfaceFFI, NVSEInterface as NVSEInterfaceFFI,
+    NVSELoggingInterface as NVSELoggingInterfaceFFI,
+    NVSEMessagingInterface as NVSEMessagingInterfaceFFI,
+    NVSEScriptInterface as NVSEScriptInterfaceFFI,
+    NVSESerializationInterface as NVSESerializationInterfaceFFI,
+    NVSEStringVarInterface as NVSEStringVarInterfaceFFI,
+    NVSETogglePlayerControlsInterface as NVSETogglePlayerControlsInterfaceFFI, kInterface_ArrayVar,
+    kInterface_CommandTable, kInterface_Console, kInterface_Data, kInterface_EventManager,
+    kInterface_Logging, kInterface_Messaging, kInterface_PlayerControls, kInterface_Script,
+    kInterface_Serialization, kInterface_StringVar,
+};
 
 use libpsycho::common::exe_version::ExeVersion;
 use thiserror::Error;
@@ -153,9 +151,7 @@ impl NVSEPluginHandle {
 
 // -- Internal helpers -------------------------------------------------------
 
-fn get_plugin_handle(
-    nvse_ptr: NonNull<NVSEInterfaceFFI>,
-) -> NVSEInterfaceResult<NVSEPluginHandle> {
+fn get_plugin_handle(nvse_ptr: NonNull<NVSEInterfaceFFI>) -> NVSEInterfaceResult<NVSEPluginHandle> {
     let nvse = unsafe { nvse_ptr.as_ref() };
     let get_plugin_handle = nvse
         .GetPluginHandle
@@ -378,10 +374,8 @@ impl<'a> NVSEInterface<'a> {
 
     /// Query the array variable interface for NVSE array operations.
     pub fn query_array_vars(&self) -> NVSEInterfaceResult<ArrayVars> {
-        let raw = query_interface::<NVSEArrayVarInterfaceFFI>(
-            self.nvse_ptr,
-            kInterface_ArrayVar as u32,
-        )?;
+        let raw =
+            query_interface::<NVSEArrayVarInterfaceFFI>(self.nvse_ptr, kInterface_ArrayVar as u32)?;
         Ok(ArrayVars::from_raw(raw)?)
     }
 
@@ -412,8 +406,7 @@ impl<'a> NVSEInterface<'a> {
 
     /// Query the data interface for NVSE internals access.
     pub fn query_data(&self) -> NVSEInterfaceResult<Data> {
-        let raw =
-            query_interface::<NVSEDataInterfaceFFI>(self.nvse_ptr, kInterface_Data as u32)?;
+        let raw = query_interface::<NVSEDataInterfaceFFI>(self.nvse_ptr, kInterface_Data as u32)?;
         Ok(Data::from_raw(raw)?)
     }
 

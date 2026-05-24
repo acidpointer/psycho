@@ -17,8 +17,8 @@
 //! Per-tier allocators do not decommit, so no background reclaim
 //! path is needed here.
 
-use std::sync::atomic::{AtomicBool, AtomicI32, AtomicUsize, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, AtomicI32, AtomicUsize, Ordering};
 use std::thread::{self, JoinHandle};
 
 use libmimalloc::process_info::MiMallocProcessInfo;
@@ -76,7 +76,6 @@ static LAST_COMMIT: AtomicUsize = AtomicUsize::new(0);
 // ---------------------------------------------------------------------------
 // Public API (called from main thread)
 // ---------------------------------------------------------------------------
-
 
 // ---------------------------------------------------------------------------
 // Watchdog thread
@@ -169,22 +168,34 @@ fn watchdog_loop(run: Arc<AtomicBool>) {
             let free_vas = super::allocator::current_free_vas();
 
             let (growth, normal_thresh, critical_thresh) = if baseline > 0 && headroom > 0 {
-                let reduction = if loading { LOADING_THRESHOLD_REDUCTION } else { 0 };
+                let reduction = if loading {
+                    LOADING_THRESHOLD_REDUCTION
+                } else {
+                    0
+                };
                 let g = commit.saturating_sub(baseline);
-                let normal = ((headroom as f64 * NORMAL_GROWTH_PCT) as usize)
-                    .saturating_sub(reduction);
-                let critical = ((headroom as f64 * CRITICAL_GROWTH_PCT) as usize)
-                    .saturating_sub(reduction);
+                let normal =
+                    ((headroom as f64 * NORMAL_GROWTH_PCT) as usize).saturating_sub(reduction);
+                let critical =
+                    ((headroom as f64 * CRITICAL_GROWTH_PCT) as usize).saturating_sub(reduction);
                 (g, normal, critical)
             } else if baseline > 0 {
-                let reduction = if loading { LOADING_THRESHOLD_REDUCTION } else { 0 };
+                let reduction = if loading {
+                    LOADING_THRESHOLD_REDUCTION
+                } else {
+                    0
+                };
                 (
                     commit.saturating_sub(baseline),
                     NORMAL_GROWTH_FALLBACK.saturating_sub(reduction),
                     CRITICAL_GROWTH_FALLBACK.saturating_sub(reduction),
                 )
             } else {
-                let reduction = if loading { LOADING_THRESHOLD_REDUCTION } else { 0 };
+                let reduction = if loading {
+                    LOADING_THRESHOLD_REDUCTION
+                } else {
+                    0
+                };
                 let normal_abs = FALLBACK_ABSOLUTE_THRESHOLD.saturating_sub(reduction);
                 (commit, normal_abs, normal_abs + 500 * 1024 * 1024)
             };
@@ -240,15 +251,29 @@ fn log_diagnostics(poll_count: u32, info: &MiMallocProcessInfo) {
     let pool_mb = super::pool::committed_bytes() / 1024 / 1024;
     let pool_live = super::pool::live_cells();
     let block_ct = super::block::block_count();
+    let va_live = super::va_alloc::live_bytes() / 1024 / 1024;
     log::info!(
-        "[MEM] Pool: {}MB ({} live) | Blocks: {} | Rate: {}/s | Reliefs: {} | Cells: {}",
+        "[MEM] Pool: {}MB ({} live) | Blocks: {} | VA: {}MB | Rate: {}/s | Reliefs: {} | Cells: {}",
         pool_mb,
         pool_live,
         block_ct,
+        va_live,
         format_rate(rate),
         relief,
         cells,
     );
+
+    if let Some(vas) = super::vas::sample() {
+        super::vas::log_summary("watchdog", vas);
+        if vas.largest_free <= super::vas::CRITICAL_LARGEST_HOLE {
+            log::warn!(
+                "[WATCHDOG] VAS largest-hole CRITICAL: largest=0x{:08x}+{}MB free={}MB",
+                vas.largest_base,
+                vas.largest_free / super::vas::MB,
+                vas.total_free / super::vas::MB,
+            );
+        }
+    }
 
     let cu_cells = super::engine::cell_unload::total_cells_unloaded();
     let cu_freed = super::engine::cell_unload::total_bytes_freed() / 1024 / 1024;

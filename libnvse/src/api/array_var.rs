@@ -43,12 +43,10 @@ use std::ptr::NonNull;
 use thiserror::Error;
 
 use crate::{
-    NVSEArrayVarInterface as NVSEArrayVarInterfaceFFI,
-    NVSEArrayVarInterface_Array as ArrayFFI,
+    NVSEArrayVarInterface as NVSEArrayVarInterfaceFFI, NVSEArrayVarInterface_Array as ArrayFFI,
     NVSEArrayVarInterface_Element as ElementFFI,
     NVSEArrayVarInterface_Element__bindgen_ty_1 as ElementUnion,
-    NVSEArrayVarInterface_Element__bindgen_ty_2 as ElementType,
-    Script, TESForm,
+    NVSEArrayVarInterface_Element__bindgen_ty_2 as ElementType, Script, TESForm,
 };
 
 // -- Element ----------------------------------------------------------------
@@ -78,9 +76,10 @@ impl<'a> Element<'a> {
     /// The raw element must be valid and its type tag must match the union field.
     pub(crate) unsafe fn from_raw(raw: &ElementFFI) -> Self {
         match raw.type_ {
-            1 => Element::Number(unsafe { raw.__bindgen_anon_1.num }),  // kType_Numeric
-            2 => Element::Form(unsafe { raw.__bindgen_anon_1.form }),   // kType_Form
-            3 => {                                                       // kType_String
+            1 => Element::Number(unsafe { raw.__bindgen_anon_1.num }), // kType_Numeric
+            2 => Element::Form(unsafe { raw.__bindgen_anon_1.form }),  // kType_Form
+            3 => {
+                // kType_String
                 let ptr = unsafe { raw.__bindgen_anon_1.str_ };
                 if ptr.is_null() {
                     Element::String("")
@@ -111,7 +110,9 @@ impl<'a> Element<'a> {
                 // Rust &str is NOT null-terminated. Callers must use ElementFFI
                 // directly with a properly null-terminated C string pointer.
                 // Returning Invalid to prevent buffer overread.
-                log::error!("Element::String::to_raw() is not safe -- use ElementFFI directly with a CStr pointer");
+                log::error!(
+                    "Element::String::to_raw() is not safe -- use ElementFFI directly with a CStr pointer"
+                );
                 ElementFFI::default()
             }
             Element::Array(h) => ElementFFI {
@@ -247,9 +248,7 @@ impl ArrayVars {
         calling_script: *mut Script,
     ) -> ArrayVarResult<ArrayHandle> {
         let iface = unsafe { self.ptr.as_ref() };
-        let create_fn = iface
-            .CreateArray
-            .ok_or(ArrayVarError::CreateArrayIsNull)?;
+        let create_fn = iface.CreateArray.ok_or(ArrayVarError::CreateArrayIsNull)?;
 
         let ptr = if data.is_empty() {
             unsafe { create_fn(std::ptr::null(), 0, calling_script) }
@@ -364,18 +363,12 @@ impl ArrayVars {
     /// Returns None if the key is not found.
     pub fn get(&self, arr: ArrayHandle, key: &ElementFFI) -> ArrayVarResult<Option<ElementFFI>> {
         let iface = unsafe { self.ptr.as_ref() };
-        let get_fn = iface
-            .GetElement
-            .ok_or(ArrayVarError::GetElementIsNull)?;
+        let get_fn = iface.GetElement.ok_or(ArrayVarError::GetElementIsNull)?;
 
         let mut out = ElementFFI::default();
         let found = unsafe { get_fn(arr.0, key, &mut out) };
 
-        if found {
-            Ok(Some(out))
-        } else {
-            Ok(None)
-        }
+        if found { Ok(Some(out)) } else { Ok(None) }
     }
 
     /// Set an element by key.
@@ -386,9 +379,7 @@ impl ArrayVars {
         value: &ElementFFI,
     ) -> ArrayVarResult<()> {
         let iface = unsafe { self.ptr.as_ref() };
-        let set_fn = iface
-            .SetElement
-            .ok_or(ArrayVarError::SetElementIsNull)?;
+        let set_fn = iface.SetElement.ok_or(ArrayVarError::SetElementIsNull)?;
 
         unsafe { set_fn(arr.0, key, value) };
         Ok(())
@@ -397,9 +388,7 @@ impl ArrayVars {
     /// Append an element to a zero-indexed array.
     pub fn append(&self, arr: ArrayHandle, value: &ElementFFI) -> ArrayVarResult<()> {
         let iface = unsafe { self.ptr.as_ref() };
-        let append_fn = iface
-            .AppendElement
-            .ok_or(ArrayVarError::SetElementIsNull)?;
+        let append_fn = iface.AppendElement.ok_or(ArrayVarError::SetElementIsNull)?;
 
         unsafe { append_fn(arr.0, value) };
         Ok(())
@@ -422,17 +411,12 @@ impl ArrayVars {
         }
 
         let iface = unsafe { self.ptr.as_ref() };
-        let get_fn = iface
-            .GetElements
-            .ok_or(ArrayVarError::GetElementIsNull)?;
+        let get_fn = iface.GetElements.ok_or(ArrayVarError::GetElementIsNull)?;
 
-        let mut values: Vec<ElementFFI> =
-            (0..size).map(|_| ElementFFI::default()).collect();
-        let mut keys: Vec<ElementFFI> =
-            (0..size).map(|_| ElementFFI::default()).collect();
+        let mut values: Vec<ElementFFI> = (0..size).map(|_| ElementFFI::default()).collect();
+        let mut keys: Vec<ElementFFI> = (0..size).map(|_| ElementFFI::default()).collect();
 
-        let success =
-            unsafe { get_fn(arr.0, values.as_mut_ptr(), keys.as_mut_ptr()) };
+        let success = unsafe { get_fn(arr.0, values.as_mut_ptr(), keys.as_mut_ptr()) };
 
         if success {
             Ok((values, keys))

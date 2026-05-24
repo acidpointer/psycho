@@ -116,9 +116,7 @@ pub struct Serialization<'a> {
 
 impl<'a> Serialization<'a> {
     /// Create a Serialization wrapper from a raw FFI pointer.
-    pub fn from_raw(
-        raw: *mut NVSESerializationInterfaceFFI,
-    ) -> SerializationResult<Self> {
+    pub fn from_raw(raw: *mut NVSESerializationInterfaceFFI) -> SerializationResult<Self> {
         let ptr = NonNull::new(raw).ok_or(SerializationError::InterfaceIsNull)?;
         Ok(Self {
             ptr,
@@ -279,11 +277,7 @@ impl<'a> Serialization<'a> {
     /// After calling this, use `write_data()` to append data.
     /// The record is automatically closed when `open_record()` is called
     /// again or the save callback returns.
-    pub fn open_record(
-        &self,
-        record_type: &[u8; 4],
-        version: u32,
-    ) -> SerializationResult<()> {
+    pub fn open_record(&self, record_type: &[u8; 4], version: u32) -> SerializationResult<()> {
         let iface = unsafe { self.ptr.as_ref() };
         let open_fn = iface
             .OpenRecord
@@ -306,8 +300,7 @@ impl<'a> Serialization<'a> {
             .WriteRecordData
             .ok_or(SerializationError::WriteRecordDataIsNull)?;
 
-        let success =
-            unsafe { write_fn(data.as_ptr() as *const libc::c_void, data.len() as u32) };
+        let success = unsafe { write_fn(data.as_ptr() as *const libc::c_void, data.len() as u32) };
 
         if success {
             Ok(())

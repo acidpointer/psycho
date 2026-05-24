@@ -95,11 +95,7 @@ impl Runtime {
                     if let Some(heap) = pool.get(&sheap_id) {
                         let purged = heap.checked_purge();
                         if purged > 0 {
-                            log::trace!(
-                                "[GC] sheap_id={:#x}: purged {} regions",
-                                sheap_id,
-                                purged
-                            );
+                            log::trace!("[GC] sheap_id={:#x}: purged {} regions", sheap_id, purged);
                         }
                     }
                 }
@@ -112,9 +108,10 @@ impl Runtime {
     #[cold]
     fn get_or_create_heap(&self, sheap_id: usize) -> Arc<Heap> {
         let gc_queue = &self.gc_queue;
-        let guard = self.pool.entry(sheap_id).or_insert_with(|| {
-            Arc::new(Heap::new(sheap_id, Arc::clone(gc_queue)))
-        });
+        let guard = self
+            .pool
+            .entry(sheap_id)
+            .or_insert_with(|| Arc::new(Heap::new(sheap_id, Arc::clone(gc_queue))));
         Arc::clone(&guard)
     }
 
@@ -160,9 +157,10 @@ impl Runtime {
 
             if heap.get_generation() == tlc.generation {
                 if !tlc.region.is_null()
-                    && let Some(ptr) = unsafe { heap.try_alloc_fast(tlc.region, size, align) } {
-                        return ptr;
-                    }
+                    && let Some(ptr) = unsafe { heap.try_alloc_fast(tlc.region, size, align) }
+                {
+                    return ptr;
+                }
                 return self.alloc_slow(heap, tlc, size, align);
             }
         }

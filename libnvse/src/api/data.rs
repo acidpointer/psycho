@@ -112,9 +112,7 @@ impl Data {
     /// Returns NULL if the singleton ID is invalid.
     pub fn get_singleton(&self, id: DataSingleton) -> DataResult<*mut libc::c_void> {
         let iface = unsafe { self.ptr.as_ref() };
-        let get_fn = iface
-            .GetSingleton
-            .ok_or(DataError::GetSingletonIsNull)?;
+        let get_fn = iface.GetSingleton.ok_or(DataError::GetSingletonIsNull)?;
 
         let ptr = unsafe { get_fn(id as u32) };
         if ptr.is_null() {

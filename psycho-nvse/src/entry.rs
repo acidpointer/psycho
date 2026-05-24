@@ -24,13 +24,13 @@ use libpsycho::{
     os::windows::{types::LPVOID, winapi::alloc_console},
 };
 use windows::{
-    core::BOOL,
     Win32::{
         Foundation::HINSTANCE,
         System::SystemServices::{
             DLL_PROCESS_ATTACH, DLL_PROCESS_DETACH, DLL_THREAD_ATTACH, DLL_THREAD_DETACH,
         },
     },
+    core::BOOL,
 };
 
 use crate::{
@@ -39,8 +39,8 @@ use crate::{
         display::install_display_hooks,
         heap_replacer::{
             HeapReplacerMode, configure_mimalloc, current_mode, decide_mode,
-            install_gheap_activate, install_gheap_initialize,
-            install_sheap_activate, install_sheap_initialize,
+            install_gheap_activate, install_gheap_initialize, install_sheap_activate,
+            install_sheap_initialize,
         },
         perf::install_rng_hook,
         zlib::install_zlib_hooks,
@@ -200,9 +200,7 @@ pub extern "C" fn NVSEPlugin_Preload() -> BOOL {
                 }
             }
             HeapReplacerMode::Light => {
-                log::warn!(
-                    "[HEAP REPLACER] LIGHT mode: scrap_heap only, gheap disabled"
-                );
+                log::warn!("[HEAP REPLACER] LIGHT mode: scrap_heap only, gheap disabled");
                 if let Err(err) = install_sheap_initialize() {
                     log::error!("[FAIL] sheap init: {:?}", err);
                 }

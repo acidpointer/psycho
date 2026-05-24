@@ -40,7 +40,11 @@ pub fn show_notification(message: &str) {
     match hud::hud_message_with(message, hud::Emotion::Pain, 2.0) {
         Ok(_) => {}
         Err(err) => {
-            log::error!("[NVSE] Failed to show hud message '{}'; error: {:?}", message, err);
+            log::error!(
+                "[NVSE] Failed to show hud message '{}'; error: {:?}",
+                message,
+                err
+            );
         }
     }
 }

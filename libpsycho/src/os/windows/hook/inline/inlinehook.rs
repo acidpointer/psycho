@@ -152,7 +152,7 @@ impl<F: Copy + 'static> InlineHook<F> {
         if written_bytes != jump_bytes.as_slice() {
             log::error!("Memory write verification failed! Bytes mismatch!");
             return Err(InlineHookError::EncodingError(
-                "Written bytes don't match expected jump bytes".to_string()
+                "Written bytes don't match expected jump bytes".to_string(),
             ));
         }
 
@@ -258,7 +258,10 @@ impl<F: Copy + 'static> Drop for InlineHook<F> {
         if self.is_enabled() && !self.is_failed() {
             match self.disable() {
                 Ok(_) => {
-                    log::debug!("[{}] Hook disabled and original bytes restored in Drop", self.name);
+                    log::debug!(
+                        "[{}] Hook disabled and original bytes restored in Drop",
+                        self.name
+                    );
                 }
                 Err(err) => {
                     // CRITICAL: disable() failed — original bytes NOT restored.
@@ -266,7 +269,8 @@ impl<F: Copy + 'static> Drop for InlineHook<F> {
                     // Leak the trampoline to prevent use-after-free.
                     log::error!(
                         "[{}] Failed to disable in Drop: {}. Leaking trampoline to prevent UAF.",
-                        self.name, err
+                        self.name,
+                        err
                     );
                     return; // skip ManuallyDrop::drop below — intentional leak
                 }
@@ -356,12 +360,14 @@ impl<F: Copy + 'static> ScopedInlineHook<F> {
         impl<'a, F: Copy + 'static> Drop for EnableGuard<'a, F> {
             fn drop(&mut self) {
                 if self.should_enable
-                    && let Err(err) = self.hook.enable() {
-                        log::error!(
-                            "[{}] Failed to re-enable hook after with_disabled: {}",
-                            self.hook.name, err
-                        );
-                    }
+                    && let Err(err) = self.hook.enable()
+                {
+                    log::error!(
+                        "[{}] Failed to re-enable hook after with_disabled: {}",
+                        self.hook.name,
+                        err
+                    );
+                }
             }
         }
 
@@ -395,7 +401,6 @@ impl<F: Copy + 'static> Drop for ScopedInlineHook<F> {
     }
 }
 
-
 /// Container for InlineHook<T>
 ///
 /// Common use-case: static variables with deffered initialization.
@@ -411,20 +416,22 @@ unsafe impl<T: Copy + 'static> Send for InlineHookContainer<T> {}
 unsafe impl<T: Copy + 'static> Sync for InlineHookContainer<T> {}
 
 impl<T: Copy + 'static> InlineHookContainer<T> {
-    
     pub fn new() -> Self {
         Self {
             hook: RwLock::new(None),
         }
     }
-    
-    pub fn init(&self, name: &str, target_ptr: *mut c_void, detour_fn_ptr: T) -> InlineHookResult<()> {
+
+    pub fn init(
+        &self,
+        name: &str,
+        target_ptr: *mut c_void,
+        detour_fn_ptr: T,
+    ) -> InlineHookResult<()> {
         let mut hook_lock = self.hook.write();
 
         match hook_lock.as_mut() {
-            Some(_hook) => {
-                Err(InlineHookError::HookContainerInitialized)
-            },
+            Some(_hook) => Err(InlineHookError::HookContainerInitialized),
 
             None => {
                 let inline_hook = InlineHook::new(name, target_ptr, detour_fn_ptr)?;
@@ -450,11 +457,9 @@ impl<T: Copy + 'static> InlineHookContainer<T> {
                 log::debug!("Inline hook '{}' enabled", hook.name);
 
                 Ok(())
-            },
-
-            None => {
-                Err(InlineHookError::HookContainerNotInitialized)
             }
+
+            None => Err(InlineHookError::HookContainerNotInitialized),
         }
     }
 
@@ -470,11 +475,9 @@ impl<T: Copy + 'static> InlineHookContainer<T> {
                 log::info!("Inline hook '{}' disabled without errors!", hook.name);
 
                 Ok(())
-            },
-
-            None => {
-                Err(InlineHookError::HookContainerNotInitialized)
             }
+
+            None => Err(InlineHookError::HookContainerNotInitialized),
         }
     }
 
@@ -482,13 +485,9 @@ impl<T: Copy + 'static> InlineHookContainer<T> {
         let hook_lock = self.hook.read();
 
         match hook_lock.as_ref() {
-            Some(hook) => {
-                Ok(hook.original()?)
-            },
+            Some(hook) => Ok(hook.original()?),
 
-            None => {
-                Err(InlineHookError::HookContainerNotInitialized)
-            }
+            None => Err(InlineHookError::HookContainerNotInitialized),
         }
     }
 }

@@ -14,12 +14,12 @@ use windows::Win32::System::Diagnostics::Debug::{
     AddVectoredExceptionHandler, CONTEXT, EXCEPTION_CONTINUE_SEARCH, EXCEPTION_POINTERS,
 };
 use windows::Win32::System::Memory::{
-    VirtualQuery, MEMORY_BASIC_INFORMATION, MEM_COMMIT, PAGE_NOACCESS,
+    MEM_COMMIT, MEMORY_BASIC_INFORMATION, PAGE_NOACCESS, VirtualQuery,
 };
 
 use super::allocator;
-use super::engine::globals;
 use super::block;
+use super::engine::globals;
 use super::pool;
 
 static CAUGHT: AtomicBool = AtomicBool::new(false);
@@ -188,7 +188,67 @@ unsafe extern "system" fn handler(info: *mut EXCEPTION_POINTERS) -> i32 {
         unsafe { libmimalloc::mi_is_in_heap_region(fault as *const core::ffi::c_void) },
     );
 
+    log_pool_register("EAX", ctx.Eax);
+    log_pool_register("EBX", ctx.Ebx);
+    log_pool_register("ECX", ctx.Ecx);
+    log_pool_register("EDX", ctx.Edx);
+    log_pool_register("ESI", ctx.Esi);
+    log_pool_register("EDI", ctx.Edi);
+    log_pool_register("EBP", ctx.Ebp);
+
+    if ctx.Eip == 0x00CA363B {
+        log_havok_packed_tristrips_data(ctx.Ebp as usize);
+    }
+
     EXCEPTION_CONTINUE_SEARCH
+}
+
+fn log_pool_register(name: &str, value: u32) {
+    let Some(info) = pool::ptr_info(value as *const core::ffi::c_void) else {
+        return;
+    };
+
+    log::error!(
+        "[AVREG] {}=0x{:08X} pool#{} item={} max={}MB cell={} start=0x{:08X} off=0x{:X} committed={} free={}",
+        name,
+        value,
+        info.pool_index,
+        info.item_size,
+        info.max_size / 1024 / 1024,
+        info.cell_index,
+        info.cell_start,
+        info.offset,
+        info.committed,
+        info.is_free,
+    );
+}
+
+fn read_u32_safe(addr: usize) -> Option<u32> {
+    if is_readable(addr, core::mem::size_of::<u32>()) {
+        Some(unsafe { *(addr as *const u32) })
+    } else {
+        None
+    }
+}
+
+fn log_havok_packed_tristrips_data(addr: usize) {
+    let readable = is_readable(addr, 0x28);
+    let vt = read_u32_safe(addr).unwrap_or(0);
+    let f14 = read_u32_safe(addr + 0x14).unwrap_or(0);
+    let f24 = read_u32_safe(addr + 0x24).unwrap_or(0);
+
+    log::error!(
+        "[AVHAVOK] hkPackedNiTriStripsData=0x{:08X} readable={} vt=0x{:08X} f14=0x{:08X} f24=0x{:08X} f14_pool={} f24_pool={} f14_block={} f24_block={}",
+        addr,
+        readable,
+        vt,
+        f14,
+        f24,
+        pool::is_pool_ptr(f14 as *const core::ffi::c_void),
+        pool::is_pool_ptr(f24 as *const core::ffi::c_void),
+        block::is_block_ptr(f14 as *const core::ffi::c_void),
+        block::is_block_ptr(f24 as *const core::ffi::c_void),
+    );
 }
 
 // ---- report sections -------------------------------------------------------
@@ -458,11 +518,7 @@ fn write_slab_summary(r: &mut String) {
     let _ = writeln!(r, "  Pool committed:  {}MB", pool::committed_bytes() >> 20);
     let _ = writeln!(r, "  Pool live cells: {}", pool::live_cells());
     let _ = writeln!(r, "  Block count:     {}", block::block_count());
-    let _ = writeln!(
-        r,
-        "  Block committed: {}MB",
-        block::committed_bytes() >> 20,
-    );
+    let _ = writeln!(r, "  Block committed: {}MB", block::committed_bytes() >> 20,);
 }
 
 // ---- lookup helpers --------------------------------------------------------

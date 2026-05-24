@@ -120,11 +120,7 @@ pub fn loading_state_counter() -> &'static std::sync::atomic::AtomicI32 {
 /// Passed to FindCellToUnload.
 pub fn game_manager() -> Option<*mut c_void> {
     let ptr = unsafe { *(addr::GAME_MANAGER as *const *mut c_void) };
-    if ptr.is_null() {
-        None
-    } else {
-        Some(ptr)
-    }
+    if ptr.is_null() { None } else { Some(ptr) }
 }
 
 /// Check if BSTaskManagerThread has a pending cell load in progress.
@@ -233,16 +229,17 @@ pub unsafe fn release_bstask_sems_if_owned() -> bool {
 
     // Validate thread-array layout. Bail out cleanly on anything weird --
     // we are in OOM recovery, the worst we can do is take down the game.
-    let thread_count = unsafe {
-        *((io_manager as *const u8).add(addr::IO_THREAD_COUNT_OFFSET) as *const u32)
-    };
+    let thread_count =
+        unsafe { *((io_manager as *const u8).add(addr::IO_THREAD_COUNT_OFFSET) as *const u32) };
     if !(1..=8).contains(&thread_count) {
-        log::error!("[BSTASK] implausible thread count {}, skipping release", thread_count);
+        log::error!(
+            "[BSTASK] implausible thread count {}, skipping release",
+            thread_count
+        );
         return false;
     }
     let thread_array = unsafe {
-        *((io_manager as *const u8).add(addr::IO_THREAD_ARRAY_OFFSET)
-            as *const *const *mut c_void)
+        *((io_manager as *const u8).add(addr::IO_THREAD_ARRAY_OFFSET) as *const *const *mut c_void)
     };
     if thread_array.is_null() {
         log::error!("[BSTASK] IOManager thread array is null, skipping release");
@@ -299,7 +296,11 @@ pub unsafe fn release_bstask_sems_if_owned() -> bool {
         let owner = match unsafe { get_owner.as_fn() } {
             Ok(f) => unsafe { f(io_manager, idx) },
             Err(e) => {
-                log::error!("[BSTASK] get_owner.as_fn() failed for thread {}: {:?}", idx, e);
+                log::error!(
+                    "[BSTASK] get_owner.as_fn() failed for thread {}: {:?}",
+                    idx,
+                    e
+                );
                 continue;
             }
         };
@@ -307,14 +308,25 @@ pub unsafe fn release_bstask_sems_if_owned() -> bool {
             continue;
         }
 
-        log::debug!("[BSTASK] Thread {} semaphore owned by current thread, releasing...", idx);
+        log::debug!(
+            "[BSTASK] Thread {} semaphore owned by current thread, releasing...",
+            idx
+        );
         match unsafe { release_sem.as_fn() } {
             Ok(f) => unsafe { f(io_manager, idx) },
-            Err(e) => log::error!("[BSTASK] release_sem.as_fn() failed for thread {}: {:?}", idx, e),
+            Err(e) => log::error!(
+                "[BSTASK] release_sem.as_fn() failed for thread {}: {:?}",
+                idx,
+                e
+            ),
         }
         match unsafe { signal_idle.as_fn() } {
             Ok(f) => unsafe { f(io_manager, idx) },
-            Err(e) => log::error!("[BSTASK] signal_idle.as_fn() failed for thread {}: {:?}", idx, e),
+            Err(e) => log::error!(
+                "[BSTASK] signal_idle.as_fn() failed for thread {}: {:?}",
+                idx,
+                e
+            ),
         }
         released = true;
     }

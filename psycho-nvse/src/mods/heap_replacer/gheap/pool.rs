@@ -30,9 +30,10 @@
 //! - `PoolHeap::alloc(size)` dispatches to the target pool and calls
 //!   `ensure_pool_inited(idx)`. If the pool is still `POOL_STATE_NOT_INIT`,
 //!   a CAS transitions it to `POOL_STATE_INITING`, the winning thread
-//!   scans `addr_to_pool` for a free slot range, reserves the VA via
-//!   `VirtualAlloc(MEM_RESERVE)`, allocates the freelist metadata, and
-//!   publishes `POOL_STATE_INIT`. Losers busy-wait.
+//!   scans `addr_to_pool` from high addresses downward for a free slot
+//!   range, reserves the VA via `VirtualAlloc(MEM_RESERVE)`, allocates
+//!   the freelist metadata, and publishes `POOL_STATE_INIT`. Losers
+//!   busy-wait.
 //! - Subsequent allocs skip the ensure-init path (single Acquire load).
 //!
 //! # Zombie safety
@@ -60,13 +61,11 @@
 
 use std::cell::Cell;
 use std::ptr::{self, null_mut};
-use std::sync::atomic::{AtomicU8, AtomicU32, Ordering};
 use std::sync::Mutex;
+use std::sync::atomic::{AtomicU8, AtomicU32, Ordering};
 
 use libc::c_void;
-use windows::Win32::System::Memory::{
-    VirtualAlloc, MEM_COMMIT, MEM_RESERVE, PAGE_READWRITE,
-};
+use windows::Win32::System::Memory::{MEM_COMMIT, MEM_RESERVE, PAGE_READWRITE, VirtualAlloc};
 
 // Per-pool lifecycle states. Enables lazy VA reservation: the pool
 // transitions NotInit -> Initing -> (Init | Failed) on its first alloc
@@ -197,40 +196,176 @@ fn get_shard() -> usize {
 ///   pool was proven to collapse that headroom to <15 MB and guarantee
 ///   coc-transition NULL on 89 MB texture VirtualAlloc.
 const POOL_DESC: &[PoolDesc] = &[
-    PoolDesc { item_size: 8,    max_size: 16  * 1024 * 1024, sharded: false },
-    PoolDesc { item_size: 12,   max_size: 8   * 1024 * 1024, sharded: false },
-    PoolDesc { item_size: 16,   max_size: 16  * 1024 * 1024, sharded: false },
-    PoolDesc { item_size: 20,   max_size: 8   * 1024 * 1024, sharded: false },
-    PoolDesc { item_size: 24,   max_size: 8   * 1024 * 1024, sharded: false },
-    PoolDesc { item_size: 28,   max_size: 8   * 1024 * 1024, sharded: false },
-    PoolDesc { item_size: 32,   max_size: 16  * 1024 * 1024, sharded: false },
-    PoolDesc { item_size: 40,   max_size: 8   * 1024 * 1024, sharded: false },
-    PoolDesc { item_size: 48,   max_size: 8   * 1024 * 1024, sharded: false },
-    PoolDesc { item_size: 56,   max_size: 8   * 1024 * 1024, sharded: false },
-    PoolDesc { item_size: 64,   max_size: 16  * 1024 * 1024, sharded: false },
-    PoolDesc { item_size: 80,   max_size: 80  * 1024 * 1024, sharded: false },
-    PoolDesc { item_size: 96,   max_size: 64  * 1024 * 1024, sharded: false },
-    PoolDesc { item_size: 112,  max_size: 8   * 1024 * 1024, sharded: false },
-    PoolDesc { item_size: 128,  max_size: 16  * 1024 * 1024, sharded: false },
-    PoolDesc { item_size: 160,  max_size: 8   * 1024 * 1024, sharded: false },
-    PoolDesc { item_size: 192,  max_size: 8   * 1024 * 1024, sharded: false },
-    PoolDesc { item_size: 224,  max_size: 8   * 1024 * 1024, sharded: false },
-    PoolDesc { item_size: 256,  max_size: 16  * 1024 * 1024, sharded: false },
-    PoolDesc { item_size: 320,  max_size: 16  * 1024 * 1024, sharded: false },
-    PoolDesc { item_size: 384,  max_size: 8   * 1024 * 1024, sharded: false },
-    PoolDesc { item_size: 448,  max_size: 8   * 1024 * 1024, sharded: false },
-    PoolDesc { item_size: 512,  max_size: 16  * 1024 * 1024, sharded: false },
-    PoolDesc { item_size: 640,  max_size: 16  * 1024 * 1024, sharded: false },
-    PoolDesc { item_size: 768,  max_size: 8   * 1024 * 1024, sharded: false },
-    PoolDesc { item_size: 896,  max_size: 8   * 1024 * 1024, sharded: false },
-    PoolDesc { item_size: 1024, max_size: 16  * 1024 * 1024, sharded: false },
-    PoolDesc { item_size: 1280, max_size: 16  * 1024 * 1024, sharded: false },
-    PoolDesc { item_size: 1536, max_size: 8   * 1024 * 1024, sharded: false },
-    PoolDesc { item_size: 1792, max_size: 8   * 1024 * 1024, sharded: false },
-    PoolDesc { item_size: 2048, max_size: 16  * 1024 * 1024, sharded: false },
-    PoolDesc { item_size: 2560, max_size: 8   * 1024 * 1024, sharded: false },
-    PoolDesc { item_size: 3072, max_size: 16  * 1024 * 1024, sharded: false },
-    PoolDesc { item_size: 3584, max_size: 16  * 1024 * 1024, sharded: false },
+    PoolDesc {
+        item_size: 8,
+        max_size: 16 * 1024 * 1024,
+        sharded: false,
+    },
+    PoolDesc {
+        item_size: 12,
+        max_size: 8 * 1024 * 1024,
+        sharded: false,
+    },
+    PoolDesc {
+        item_size: 16,
+        max_size: 16 * 1024 * 1024,
+        sharded: false,
+    },
+    PoolDesc {
+        item_size: 20,
+        max_size: 8 * 1024 * 1024,
+        sharded: false,
+    },
+    PoolDesc {
+        item_size: 24,
+        max_size: 8 * 1024 * 1024,
+        sharded: false,
+    },
+    PoolDesc {
+        item_size: 28,
+        max_size: 8 * 1024 * 1024,
+        sharded: false,
+    },
+    PoolDesc {
+        item_size: 32,
+        max_size: 16 * 1024 * 1024,
+        sharded: false,
+    },
+    PoolDesc {
+        item_size: 40,
+        max_size: 8 * 1024 * 1024,
+        sharded: false,
+    },
+    PoolDesc {
+        item_size: 48,
+        max_size: 8 * 1024 * 1024,
+        sharded: false,
+    },
+    PoolDesc {
+        item_size: 56,
+        max_size: 8 * 1024 * 1024,
+        sharded: false,
+    },
+    PoolDesc {
+        item_size: 64,
+        max_size: 16 * 1024 * 1024,
+        sharded: false,
+    },
+    PoolDesc {
+        item_size: 80,
+        max_size: 80 * 1024 * 1024,
+        sharded: false,
+    },
+    PoolDesc {
+        item_size: 96,
+        max_size: 64 * 1024 * 1024,
+        sharded: false,
+    },
+    PoolDesc {
+        item_size: 112,
+        max_size: 8 * 1024 * 1024,
+        sharded: false,
+    },
+    PoolDesc {
+        item_size: 128,
+        max_size: 16 * 1024 * 1024,
+        sharded: false,
+    },
+    PoolDesc {
+        item_size: 160,
+        max_size: 8 * 1024 * 1024,
+        sharded: false,
+    },
+    PoolDesc {
+        item_size: 192,
+        max_size: 8 * 1024 * 1024,
+        sharded: false,
+    },
+    PoolDesc {
+        item_size: 224,
+        max_size: 8 * 1024 * 1024,
+        sharded: false,
+    },
+    PoolDesc {
+        item_size: 256,
+        max_size: 16 * 1024 * 1024,
+        sharded: false,
+    },
+    PoolDesc {
+        item_size: 320,
+        max_size: 16 * 1024 * 1024,
+        sharded: false,
+    },
+    PoolDesc {
+        item_size: 384,
+        max_size: 8 * 1024 * 1024,
+        sharded: false,
+    },
+    PoolDesc {
+        item_size: 448,
+        max_size: 8 * 1024 * 1024,
+        sharded: false,
+    },
+    PoolDesc {
+        item_size: 512,
+        max_size: 16 * 1024 * 1024,
+        sharded: false,
+    },
+    PoolDesc {
+        item_size: 640,
+        max_size: 16 * 1024 * 1024,
+        sharded: false,
+    },
+    PoolDesc {
+        item_size: 768,
+        max_size: 8 * 1024 * 1024,
+        sharded: false,
+    },
+    PoolDesc {
+        item_size: 896,
+        max_size: 8 * 1024 * 1024,
+        sharded: false,
+    },
+    PoolDesc {
+        item_size: 1024,
+        max_size: 16 * 1024 * 1024,
+        sharded: false,
+    },
+    PoolDesc {
+        item_size: 1280,
+        max_size: 16 * 1024 * 1024,
+        sharded: false,
+    },
+    PoolDesc {
+        item_size: 1536,
+        max_size: 8 * 1024 * 1024,
+        sharded: false,
+    },
+    PoolDesc {
+        item_size: 1792,
+        max_size: 8 * 1024 * 1024,
+        sharded: false,
+    },
+    PoolDesc {
+        item_size: 2048,
+        max_size: 16 * 1024 * 1024,
+        sharded: false,
+    },
+    PoolDesc {
+        item_size: 2560,
+        max_size: 8 * 1024 * 1024,
+        sharded: false,
+    },
+    PoolDesc {
+        item_size: 3072,
+        max_size: 16 * 1024 * 1024,
+        sharded: false,
+    },
+    PoolDesc {
+        item_size: 3584,
+        max_size: 16 * 1024 * 1024,
+        sharded: false,
+    },
 ];
 
 /// Count the sharded entries in `POOL_DESC` at compile time.
@@ -261,15 +396,38 @@ const NUM_TOTAL_POOLS: usize = NUM_BASE_POOLS + NUM_SHARD1_POOLS;
 
 /// One entry in the pool's freelist array. Each allocated cell position
 /// has a corresponding FreeLink. The `next` field forms an intrusive
-/// singly-linked list of free cells. A non-null `next` means "this cell
-/// is free"; a null `next` distinguishes the tail of the chain from an
-/// allocated cell (allocated = not on any list).
+/// singly-linked list of free cells.
+///
+/// State encoding:
+/// - `next == NULL`: allocated, not on any freelist
+/// - `next == FREE_LINK_TAIL`: free and at the tail of the freelist
+/// - otherwise: free and linked to the next freelist node
 ///
 /// The link array is completely disjoint from user cell memory, so
 /// freeing a cell does not touch the cell's bytes.
 #[repr(C)]
 struct FreeLink {
     next: *mut FreeLink,
+}
+
+/// Invalid aligned pointer used as the freelist tail marker.
+///
+/// A NULL `next` marks an allocated cell. Without a distinct tail marker,
+/// a double-free of the tail cell is indistinguishable from freeing an
+/// allocated cell and can create a self-loop, eventually handing the same
+/// cell out twice.
+const FREE_LINK_TAIL: *mut FreeLink = 1usize as *mut FreeLink;
+
+#[derive(Copy, Clone, Debug)]
+pub struct PoolPtrInfo {
+    pub pool_index: u8,
+    pub item_size: u32,
+    pub max_size: u32,
+    pub cell_index: usize,
+    pub cell_start: usize,
+    pub offset: usize,
+    pub committed: bool,
+    pub is_free: bool,
 }
 
 // ---------------------------------------------------------------------------
@@ -372,8 +530,7 @@ impl Pool {
     /// matching user cell address inside the pool's VA range.
     #[inline]
     fn link_to_cell(&self, link: *mut FreeLink) -> *mut u8 {
-        let link_idx = (link as usize - self.free_cells as usize)
-            / std::mem::size_of::<FreeLink>();
+        let link_idx = (link as usize - self.free_cells as usize) / std::mem::size_of::<FreeLink>();
         unsafe { self.base.add(link_idx * self.item_size as usize) }
     }
 
@@ -383,6 +540,37 @@ impl Pool {
     fn cell_to_link(&self, cell: *mut u8) -> *mut FreeLink {
         let cell_idx = (cell as usize - self.base as usize) / self.item_size as usize;
         unsafe { self.free_cells.add(cell_idx) }
+    }
+
+    #[inline]
+    fn link_is_in_freelist(&self, target: *mut FreeLink) -> bool {
+        if target.is_null() || self.free_cells.is_null() {
+            return false;
+        }
+
+        let start = self.free_cells as usize;
+        let end = start + self.max_cell_count as usize * std::mem::size_of::<FreeLink>();
+        let mut cur = self.next_free;
+        let mut steps = 0usize;
+
+        while !cur.is_null() && cur != FREE_LINK_TAIL && steps < self.max_cell_count as usize {
+            if cur == target {
+                return true;
+            }
+
+            let cur_addr = cur as usize;
+            if cur_addr < start || cur_addr >= end {
+                return false;
+            }
+            if (cur_addr - start) % std::mem::size_of::<FreeLink>() != 0 {
+                return false;
+            }
+
+            cur = unsafe { (*cur).next };
+            steps += 1;
+        }
+
+        false
     }
 
     /// Commit one more POOL_BLOCK_SIZE chunk from the reservation and
@@ -407,7 +595,10 @@ impl Pool {
         if commit.is_null() {
             log::error!(
                 "[POOL] Commit failed: pool={} item_size={} addr=0x{:08x} size={}",
-                self.index, self.item_size, block_start as usize, POOL_BLOCK_SIZE,
+                self.index,
+                self.item_size,
+                block_start as usize,
+                POOL_BLOCK_SIZE,
             );
             return false;
         }
@@ -427,7 +618,11 @@ impl Pool {
 
         // Build a LIFO chain: new_head -> new_head-1 -> ... -> start_cell,
         // then splice on top of the existing freelist.
-        let old_head = self.next_free;
+        let old_head = if self.next_free.is_null() {
+            FREE_LINK_TAIL
+        } else {
+            self.next_free
+        };
         unsafe {
             let first_link = self.free_cells.add(start_cell_idx);
             first_link.write(FreeLink { next: old_head });
@@ -445,17 +640,21 @@ impl Pool {
     /// Fast path alloc: pop one cell from the freelist. If the list is
     /// empty, commit one more block.
     unsafe fn alloc(&mut self) -> *mut u8 {
-        if self.next_free.is_null()
-            && unsafe { !self.grow() } {
-                return null_mut();
-            }
+        if self.next_free.is_null() && unsafe { !self.grow() } {
+            return null_mut();
+        }
 
         let link = self.next_free;
         // Walk one step. A null next means end-of-chain; next alloc will
         // see next_free == null and trigger grow().
         unsafe {
-            self.next_free = (*link).next;
-            (*link).next = null_mut(); // mark as "off the freelist"
+            let next = (*link).next;
+            self.next_free = if next == FREE_LINK_TAIL {
+                null_mut()
+            } else {
+                next
+            };
+            (*link).next = null_mut(); // mark as allocated
         }
 
         self.live_cells.fetch_add(1, Ordering::Relaxed);
@@ -576,16 +775,22 @@ impl Pool {
     unsafe fn free(&mut self, cell: *mut u8) {
         let link = self.cell_to_link(cell);
         unsafe {
-            // Double-free guard: if next is non-null, the cell is already
-            // on the freelist. Ignore to keep the chain consistent.
+            // Double-free guard: free cells always have either a real
+            // next pointer or FREE_LINK_TAIL. Allocated cells are the
+            // only cells with NULL next.
             if !(*link).next.is_null() {
                 log::error!(
                     "[POOL] Double-free ignored: pool={} cell={:p}",
-                    self.index, cell,
+                    self.index,
+                    cell,
                 );
                 return;
             }
-            (*link).next = self.next_free;
+            (*link).next = if self.next_free.is_null() {
+                FREE_LINK_TAIL
+            } else {
+                self.next_free
+            };
             self.next_free = link;
         }
         self.live_cells.fetch_sub(1, Ordering::Relaxed);
@@ -601,6 +806,32 @@ impl Pool {
     #[inline]
     fn committed_mb(&self) -> usize {
         self.committed_bytes.load(Ordering::Relaxed) as usize / 1024 / 1024
+    }
+
+    fn ptr_info(&self, addr: *const c_void) -> Option<PoolPtrInfo> {
+        if !self.contains(addr) {
+            return None;
+        }
+
+        let addr = addr as usize;
+        let cell_offset = addr - self.base as usize;
+        let cell_index = cell_offset / self.item_size as usize;
+        if cell_index >= self.max_cell_count as usize {
+            return None;
+        }
+
+        let cell_start = self.base as usize + cell_index * self.item_size as usize;
+        let link = unsafe { self.free_cells.add(cell_index) };
+        Some(PoolPtrInfo {
+            pool_index: self.index,
+            item_size: self.item_size,
+            max_size: self.max_size,
+            cell_index,
+            cell_start,
+            offset: addr - cell_start,
+            committed: cell_start + self.item_size as usize <= self.cur as usize,
+            is_free: self.link_is_in_freelist(link),
+        })
     }
 }
 
@@ -753,7 +984,11 @@ impl PoolHeap {
         // under init_lock (serialises slot scan against other pools).
         let ok = self.do_reserve(idx);
         self.pools[idx].state.store(
-            if ok { POOL_STATE_INIT } else { POOL_STATE_FAILED },
+            if ok {
+                POOL_STATE_INIT
+            } else {
+                POOL_STATE_FAILED
+            },
             Ordering::Release,
         );
         ok
@@ -782,7 +1017,9 @@ impl PoolHeap {
         if slots_needed == 0 {
             log::error!(
                 "[POOL] #{} item_size={} max_size={} < POOL_ALIGN",
-                idx, item_size, max_size,
+                idx,
+                item_size,
+                max_size,
             );
             return false;
         }
@@ -790,10 +1027,25 @@ impl PoolHeap {
         let mut reserved_base: *mut u8 = ptr::null_mut();
         let mut claim_slot: usize = 0;
 
-        // First-fit scan. Start at slot 1 so we never claim slot 0
-        // (avoids NULL-looking pointers).
-        let mut slot: usize = 1;
-        while slot + slots_needed <= ADDR_LOOKUP_LEN {
+        // High-fit scan. The game, Havok, and D3D still make their own
+        // contiguous VA reservations during streaming. Keeping gheap's
+        // pool slabs high avoids consuming low/mid holes first.
+        //
+        // Leave slot 0 unused (NULL-looking pointers) and leave the
+        // top 8MB slot unused so `base + max_size` stays representable
+        // on 32-bit targets instead of wrapping to zero.
+        if slots_needed + 1 >= ADDR_LOOKUP_LEN {
+            log::error!(
+                "[POOL] #{} lazy reserve failed: item_size={} max_size={}MB (reservation too large)",
+                idx,
+                item_size,
+                max_size / 1024 / 1024,
+            );
+            return false;
+        }
+
+        let mut slot: usize = ADDR_LOOKUP_LEN - slots_needed - 1;
+        while slot > 0 {
             let mut clear = true;
             for s in slot..slot + slots_needed {
                 if self.addr_to_pool[s].load(Ordering::Relaxed) != NO_POOL {
@@ -804,12 +1056,7 @@ impl PoolHeap {
             if clear {
                 let hint = (slot * POOL_ALIGN) as *mut c_void;
                 let ptr = unsafe {
-                    VirtualAlloc(
-                        Some(hint),
-                        max_size as usize,
-                        MEM_RESERVE,
-                        PAGE_READWRITE,
-                    )
+                    VirtualAlloc(Some(hint), max_size as usize, MEM_RESERVE, PAGE_READWRITE)
                 };
                 if !ptr.is_null() && (ptr as usize) == slot * POOL_ALIGN {
                     reserved_base = ptr as *mut u8;
@@ -826,13 +1073,15 @@ impl PoolHeap {
                     };
                 }
             }
-            slot += 1;
+            slot -= 1;
         }
 
         if reserved_base.is_null() {
             log::error!(
                 "[POOL] #{} lazy reserve failed: item_size={} max_size={}MB (all scanned slots taken)",
-                idx, item_size, max_size / 1024 / 1024,
+                idx,
+                item_size,
+                max_size / 1024 / 1024,
             );
             return false;
         }
@@ -840,18 +1089,13 @@ impl PoolHeap {
         // Freelist metadata -- out-of-band from user cells, allocated
         // from the OS directly (not from ourselves) to avoid recursion.
         let meta_bytes = max_cell_count as usize * std::mem::size_of::<FreeLink>();
-        let meta_ptr = unsafe {
-            VirtualAlloc(
-                None,
-                meta_bytes,
-                MEM_RESERVE | MEM_COMMIT,
-                PAGE_READWRITE,
-            )
-        };
+        let meta_ptr =
+            unsafe { VirtualAlloc(None, meta_bytes, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE) };
         if meta_ptr.is_null() {
             log::error!(
                 "[POOL] #{} freelist metadata alloc failed ({} KB)",
-                idx, meta_bytes / 1024,
+                idx,
+                meta_bytes / 1024,
             );
             let _ = unsafe {
                 windows::Win32::System::Memory::VirtualFree(
@@ -1039,6 +1283,10 @@ impl PoolHeap {
             .unwrap_or(0)
     }
 
+    pub fn ptr_info(&self, ptr: *const c_void) -> Option<PoolPtrInfo> {
+        self.pool_from_addr(ptr).and_then(|p| p.ptr_info(ptr))
+    }
+
     pub fn committed_bytes(&self) -> usize {
         self.pools
             .iter()
@@ -1058,8 +1306,8 @@ impl PoolHeap {
 // Global singleton
 // ---------------------------------------------------------------------------
 
-use std::sync::atomic::AtomicU64;
 use std::sync::OnceLock;
+use std::sync::atomic::AtomicU64;
 
 static HEAP: OnceLock<Box<PoolHeap>> = OnceLock::new();
 
@@ -1109,6 +1357,11 @@ pub fn usable_size(ptr: *const c_void) -> usize {
     }
 }
 
+#[inline]
+pub fn ptr_info(ptr: *const c_void) -> Option<PoolPtrInfo> {
+    HEAP.get().and_then(|h| h.ptr_info(ptr))
+}
+
 pub fn committed_bytes() -> usize {
     HEAP.get().map(|h| h.committed_bytes()).unwrap_or(0)
 }
@@ -1133,20 +1386,24 @@ pub fn diagnose_ptr_buf(fault_addr: usize, r: &mut String) {
     let cell_start = pool.base as usize + cell_idx * pool.item_size as usize;
     let in_cell_offset = fault_addr - cell_start;
 
-    // Peek the link entry to determine free/live state.
-    let link = unsafe { pool.free_cells.add(cell_idx) };
-    let is_free = unsafe { !(*link).next.is_null() }
-        || std::ptr::eq(link, pool.next_free);
+    let info = pool.ptr_info(fault_addr as *const c_void);
+    let is_free = info.map(|i| i.is_free).unwrap_or(false);
 
     let _ = writeln!(r, "\n  Pool Cell Detail");
     let _ = writeln!(r, "  ----------------");
     let _ = writeln!(
         r,
         "  Pool:       #{} (item_size={} max={}MB)",
-        pool.index, pool.item_size, pool.max_size / 1024 / 1024,
+        pool.index,
+        pool.item_size,
+        pool.max_size / 1024 / 1024,
     );
     let _ = writeln!(r, "  Cell:       {} at 0x{:08x}", cell_idx, cell_start);
-    let _ = writeln!(r, "  Offset:     +0x{:X} of {}", in_cell_offset, pool.item_size);
+    let _ = writeln!(
+        r,
+        "  Offset:     +0x{:X} of {}",
+        in_cell_offset, pool.item_size
+    );
     let _ = writeln!(
         r,
         "  Committed:  {}MB / {}MB",

@@ -13,9 +13,7 @@ pub enum F4SEMessageError {
     Utf8Error(#[from] Utf8Error),
 }
 
-
 pub type F4SEMessageResult<T> = std::result::Result<T, F4SEMessageError>;
-
 
 #[derive(Debug, Clone, Copy, Hash, Eq, PartialEq)]
 pub enum F4SEMessageType {
@@ -72,7 +70,7 @@ impl From<F4SEMessageType> for UInt32 {
 }
 
 /// Rust native representation of `F4SEMessagingInterface_Message`
-/// 
+///
 /// # Explanation
 /// Usually, it's much more complex to work with FFI types in Rust.
 /// This struct designed to avoid as much as possible safety issues and
@@ -93,11 +91,13 @@ unsafe impl Sync for F4SEMessage {}
 
 impl F4SEMessage {
     /// Create owned message struct from message ptr
-    /// 
+    ///
     /// # Safety
     /// - `msg_ptr` is NULL-checked
     /// - inner C string(s) converted to Rust native `String`
-    pub unsafe fn from_ptr(msg_ptr: *mut F4SEMessagingInterface_Message) -> F4SEMessageResult<Self> {
+    pub unsafe fn from_ptr(
+        msg_ptr: *mut F4SEMessagingInterface_Message,
+    ) -> F4SEMessageResult<Self> {
         if msg_ptr.is_null() {
             return Err(F4SEMessageError::MsgPtrIsNull);
         }

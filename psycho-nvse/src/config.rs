@@ -51,6 +51,13 @@ pub struct MemoryConfig {
     /// modlists whose baseline commit can't survive gheap's full
     /// footprint.
     pub light_mode: bool,
+    /// Guard the game's IO task release path against impossible
+    /// refcount/vtable states observed in QueuedTexture crash analysis.
+    pub gheap_task_release_guard: bool,
+    /// Experimental old behavior: run a blocking full PDD purge every
+    /// 10 seconds. Vanilla normally drains these queues in small
+    /// per-frame budgets, so this stays off by default.
+    pub gheap_periodic_full_pdd: bool,
 }
 
 impl Default for MemoryConfig {
@@ -58,6 +65,8 @@ impl Default for MemoryConfig {
         Self {
             heap_replacer: true,
             light_mode: false,
+            gheap_task_release_guard: true,
+            gheap_periodic_full_pdd: false,
         }
     }
 }

@@ -23,8 +23,8 @@ struct CallRel32 {
 /// Represents a conditional jump instruction (Jcc rel32)
 #[repr(C, packed)]
 struct JccRel32 {
-    opcode0: u8,  // Always 0x0F
-    opcode1: u8,  // 0x80 | condition
+    opcode0: u8, // Always 0x0F
+    opcode1: u8, // 0x80 | condition
     displacement: i32,
 }
 
@@ -142,7 +142,11 @@ pub fn generate_jcc_rel32(source: usize, destination: usize, condition: u8) -> V
     const JCC_OPCODE1_BASE: u8 = 0x80;
     const INSTRUCTION_SIZE: usize = 6;
 
-    assert!(condition <= 0x0F, "Invalid condition code: {:#x}", condition);
+    assert!(
+        condition <= 0x0F,
+        "Invalid condition code: {:#x}",
+        condition
+    );
 
     let displacement = calculate_displacement(source, destination, INSTRUCTION_SIZE);
 
@@ -167,9 +171,7 @@ pub fn generate_jcc_rel32(source: usize, destination: usize, condition: u8) -> V
 /// The condition code (0-15)
 pub fn extract_jcc_condition(instruction_bytes: &[u8]) -> Option<u8> {
     // Find the primary opcode (skip 0x0F prefix for long jumps)
-    let primary_opcode = instruction_bytes
-        .iter()
-        .find(|&&byte| byte != 0x0F)?;
+    let primary_opcode = instruction_bytes.iter().find(|&&byte| byte != 0x0F)?;
 
     // Extract condition: opcode & 0x0F
     // For example: 0x74 (JZ) -> 0x74 & 0x0F = 0x04

@@ -102,7 +102,10 @@ impl MemStats {
             info.get_page_faults(),
             info.page_fault_rate_per_second(),
         ));
-        r.push_str(&format!("CPU eff:   {:.0}%\n", info.cpu_efficiency_percent()));
+        r.push_str(&format!(
+            "CPU eff:   {:.0}%\n",
+            info.cpu_efficiency_percent()
+        ));
         r.push_str(&format!(
             "Uptime:    {:.1}s\n",
             info.get_elapsed_ms() as f64 / 1000.0,

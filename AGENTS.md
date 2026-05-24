@@ -49,6 +49,14 @@ Plugin runtime config: `psycho-nvse/config/psycho-nvse.toml`. Controls heap repl
 
 `psycho-nvse/src/mods/heap_replacer/gheap/` replaces the game's SBM allocator with a zombie-safe slab allocator.
 
+Current project state:
+- The project works and all features have been tested.
+- `light_mode` is the best practical/default solution today. It gives less performance improvement than full gheap and can still have some random-user stability issues, but overall it works well and is now preferred even by the user.
+- Full gheap can run on lightweight modpacks, but huge modpacks usually hit instant crashes or delayed VAS exhaustion/OOM crashes.
+- Full gheap has location-specific crashes whose root cause is still unknown. Treat OOM/VAS exhaustion and UAF/reuse races as both plausible until proven otherwise.
+- Full gheap is not broadly stable for other users. It is only known to be stable-ish on the user's own modpack.
+- Potential rendering/texture memory issue: Fallout NV may duplicate textures or GPU-related data in both VRAM and RAM. This could explain some VAS/OOM behavior, but it is unproven and needs Ghidra/source/log-based research before relying on it.
+
 Critical constraints:
 - Mimalloc is CRT-only (third-party libs). Game objects go through slab.
 - Havok Lock MUST be acquired before cleanup stages 0-6. AI threads access freed Havok objects without it.
@@ -63,6 +71,10 @@ Critical constraints:
 When investigating any game behavior, crash, or engine mechanism, Ghidra output is the authoritative reference. Pre-existing research lives in `analysis/ghidra/output/` (subdirs: `crash/`, `disasm/`, `memory/`, `perf/`). Each `.txt` file there maps to a source Ghidra script in `analysis/ghidra/scripts/`. Ignore `.md` files in `analysis/` -- they are outdated prose. Only trust the `.txt` Ghidra output unless user explicitly requests otherwise.
 
 If a knowledge gap exists (unknown function behavior, unclear call paths, missing data flow), immediately prepare a Ghidra script to investigate and fill the gap with correct knowledge. Do not guess or reason from assumptions when a script can give a concrete answer.
+
+## Runtime debugging constraints
+
+The user runs the game on Linux through Proton/Wine and cannot use native Windows debuggers such as WinDbg, x32dbg, or Visual Studio debugger. Do not propose debugger-dependent workflows as primary solutions. Prefer static Ghidra research, instrumented plugin logging, crash logs, minidumps if available, Wine/Proton logs, and targeted in-game repro telemetry.
 
 ## Ghidra scripts: mandatory rules
 

@@ -7,6 +7,8 @@ debug = true            # Show debug logs (enable when prepare problem report)
 [memory]
 heap_replacer = true    # Enable heap replacer
 light_mode = false      # Scrap-heap only, skip gheap. Use on heavy modlists where gheap can't fit.
+gheap_task_release_guard = true # Guard IO task release against stale task/vtable crashes.
+gheap_periodic_full_pdd = false # Experimental: old 10s blocking full PDD purge.
 
 [perf]
 rng = true              # Enable RNG (random number generator) replacer

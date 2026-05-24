@@ -1,7 +1,6 @@
 //! This is full port of executable versioning from F4SE project to Rust.
-//! 
+//!
 //! Should be compatible with other `Bethesda` games, but tested only with `Fallout 4`.
-
 
 // Macro equivalents as Rust functions
 #[inline]
@@ -35,13 +34,12 @@ pub const fn get_exe_version_sub(version: u32) -> u32 {
     version & 0x0000000F
 }
 
-
 /// ExeVersion
-/// 
+///
 /// Fallout 4 use binary packing technique to store version numbers.
 /// To work with it, we have ExeVersion type, which offers all must
 /// have functionality.
-/// 
+///
 /// All core logic is re-written from F4SE source code with slight
 /// additional improvements specific for Rust.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -58,7 +56,11 @@ impl std::fmt::Display for ExeVersion {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         if self.sub > 0 {
             // sub almost always will be zero
-            write!(f, "{}.{}.{}.{}", self.major, self.minor, self.build, self.sub)
+            write!(
+                f,
+                "{}.{}.{}.{}",
+                self.major, self.minor, self.build, self.sub
+            )
         } else {
             write!(f, "{}.{}.{}", self.major, self.minor, self.build)
         }

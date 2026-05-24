@@ -143,7 +143,10 @@ unsafe fn alloc_oom_recovery(
     for attempt in 1..=SHEAP_OOM_RETRIES {
         log::warn!(
             "[SBM] OOM on sheap_alloc(size={}, align={}), attempt {}/{}",
-            size, align, attempt, SHEAP_OOM_RETRIES
+            size,
+            align,
+            attempt,
+            SHEAP_OOM_RETRIES
         );
 
         // Signal main thread cleanup + mi_collect to reclaim empty pages
@@ -164,7 +167,9 @@ unsafe fn alloc_oom_recovery(
 
     log::error!(
         "[SBM] CRITICAL: sheap_alloc failed after {} retries (size={}, align={})",
-        SHEAP_OOM_RETRIES, size, align
+        SHEAP_OOM_RETRIES,
+        size,
+        align
     );
     null_mut()
 }

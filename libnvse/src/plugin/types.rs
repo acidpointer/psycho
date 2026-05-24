@@ -8,8 +8,7 @@ use std::fmt;
 use crate::{
     NVSEArrayVarInterface_Element as ElementFFI,
     NVSEArrayVarInterface_Element__bindgen_ty_1 as ElementUnion,
-    NVSEArrayVarInterface_Element__bindgen_ty_2 as ElementType,
-    TESForm,
+    NVSEArrayVarInterface_Element__bindgen_ty_2 as ElementType, TESForm,
 };
 
 // ---------------------------------------------------------------------------

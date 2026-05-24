@@ -13,8 +13,8 @@
 //!   Phase 10 (hook_main_loop_maintenance): baseline calibration
 //!   AI_JOIN  (hook_ai_thread_join): deferred cell unload execution
 
-use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::LazyLock;
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 
 use super::engine::globals;
 

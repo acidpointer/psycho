@@ -18,8 +18,7 @@ const RNG_ADDRESS: usize = 0x00AA5230;
 /// RNG function signature: `uint __thiscall rng(void* this, uint range)`.
 type RngFn = unsafe extern "thiscall" fn(*mut c_void, u32) -> u32;
 
-static RNG_HOOK: LazyLock<InlineHookContainer<RngFn>> =
-    LazyLock::new(InlineHookContainer::new);
+static RNG_HOOK: LazyLock<InlineHookContainer<RngFn>> = LazyLock::new(InlineHookContainer::new);
 
 // Use UnsafeCell instead of RefCell to avoid panic on re-entrance.
 // SAFETY: thread_local ensures single-thread access. The RNG hook is

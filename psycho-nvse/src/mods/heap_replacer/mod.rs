@@ -6,11 +6,11 @@
 
 mod crt_iat;
 mod crt_inline;
-mod mimalloc;
 pub mod gheap;
 pub mod heap_validate;
 mod install;
 pub mod mem_stats;
+mod mimalloc;
 mod mode;
 pub mod scrap_heap;
 

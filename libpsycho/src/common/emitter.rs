@@ -1,5 +1,5 @@
 //! `EventEmitter` implementation for Rust
-//! 
+//!
 //! We have Node.js like EventEmitter inside game hacking library,
 //! so you can subscribe to events or emit them, while dealing
 //! with addresses relocation.
@@ -12,15 +12,15 @@ use std::sync::Arc;
 pub type ListenerId = u128;
 
 /// Event listener
-/// 
+///
 /// Represents event listener callback and it's id.
-/// 
+///
 /// # Safety
 /// Safe, because inner callback stored in Arc and have same lifetime as EventEmitter
 #[derive(Clone)]
 pub struct Listener<'a, P: Send + Sync> {
     id: ListenerId,
-    callback: Arc<dyn Fn(&P) + Send + Sync +'a>,
+    callback: Arc<dyn Fn(&P) + Send + Sync + 'a>,
 }
 
 impl<'a, P: Send + Sync> Listener<'a, P> {
@@ -28,7 +28,7 @@ impl<'a, P: Send + Sync> Listener<'a, P> {
         Self {
             id,
             callback: Arc::new(callback),
-        }   
+        }
     }
 
     /// Returns id of current listener
@@ -38,14 +38,14 @@ impl<'a, P: Send + Sync> Listener<'a, P> {
 }
 
 /// EventEmitter
-/// 
+///
 /// Inspired by EventEmitter in Node.JS  
 /// Each event emitter will work only with one type of callback payload
 /// and event.  
-/// 
+///
 /// Best practices: use emitter as event system under the hood of higher
 /// level abstraction.
-/// 
+///
 /// # Safety
 /// Listeners stored in concurrent hash map - `DashMap`.  
 /// Callback and payload needs to be `Send` + `Sync`.
@@ -59,7 +59,9 @@ pub struct EventEmitter<'a, E: Send + Sync + Copy + Clone + Eq + Hash, P: Send +
     listeners: ClashMap<E, ClashMap<ListenerId, Listener<'a, P>>>,
 }
 
-impl<'a, E: Send + Sync + Copy + Clone + Eq + Hash, P: Send + Sync> Default for EventEmitter<'a, E, P> {
+impl<'a, E: Send + Sync + Copy + Clone + Eq + Hash, P: Send + Sync> Default
+    for EventEmitter<'a, E, P>
+{
     fn default() -> Self {
         Self {
             last_id: Default::default(),
@@ -98,8 +100,8 @@ impl<'a, E: Send + Sync + Copy + Clone + Eq + Hash, P: Send + Sync> EventEmitter
     pub fn off(&self, listener_id: ListenerId) -> bool {
         for all_listeners in self.listeners.iter() {
             match all_listeners.remove(&listener_id) {
-                Some((_listener_id, _listener)) => { return true },
-                None => { continue }
+                Some((_listener_id, _listener)) => return true,
+                None => continue,
             }
         }
 
@@ -114,7 +116,6 @@ impl<'a, E: Send + Sync + Copy + Clone + Eq + Hash, P: Send + Sync> EventEmitter
             Some(listeners) => listeners,
             None => return,
         };
-
 
         for listener in listeners_for_event.iter() {
             (listener.callback)(&payload);

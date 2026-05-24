@@ -14,5 +14,3 @@ pub const MAX_JUMP_SIZE: usize = JUMP_REL_MIN_SIZE;
 pub const BITNESS: u32 = 64;
 #[cfg(target_arch = "x86")]
 pub const BITNESS: u32 = 32;
-
-

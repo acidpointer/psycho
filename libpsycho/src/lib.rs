@@ -13,5 +13,5 @@ pub mod common;
 pub mod config;
 pub mod ffi;
 pub mod hook;
-pub mod os;
 pub mod logger;
+pub mod os;

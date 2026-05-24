@@ -455,23 +455,22 @@ impl Disasm {
 
             // Check if this is a CALL instruction
             if instr.is_call_near()
-                && let Some(target_addr) = disasm_instr.relative_branch_target() {
-                    log::debug!(
-                        "Found CALL instruction at 0x{:X} targeting 0x{:X}, manually relocating",
-                        instr.ip(),
-                        target_addr
-                    );
+                && let Some(target_addr) = disasm_instr.relative_branch_target()
+            {
+                log::debug!(
+                    "Found CALL instruction at 0x{:X} targeting 0x{:X}, manually relocating",
+                    instr.ip(),
+                    target_addr
+                );
 
-                    // Generate new CALL instruction with correct displacement
-                    let call_bytes = thunk::generate_call_rel32(
-                        trampoline_instr_addr,
-                        target_addr as usize,
-                    );
+                // Generate new CALL instruction with correct displacement
+                let call_bytes =
+                    thunk::generate_call_rel32(trampoline_instr_addr, target_addr as usize);
 
-                    relocated_bytes.extend_from_slice(&call_bytes);
-                    original_offset += instr_len;
-                    continue;
-                }
+                relocated_bytes.extend_from_slice(&call_bytes);
+                original_offset += instr_len;
+                continue;
+            }
 
             // Check if this is a conditional jump (Jcc)
             if let Some(target_addr) = disasm_instr.relative_branch_target() {
@@ -503,10 +502,13 @@ impl Disasm {
                         );
 
                         // Extract condition code from original instruction
-                        let condition = thunk::extract_jcc_condition(instr_bytes)
-                            .ok_or_else(|| DisasmError::UnsupportedInstruction(
-                                format!("Failed to extract Jcc condition from instruction at 0x{:X}", instr.ip())
-                            ))?;
+                        let condition =
+                            thunk::extract_jcc_condition(instr_bytes).ok_or_else(|| {
+                                DisasmError::UnsupportedInstruction(format!(
+                                    "Failed to extract Jcc condition from instruction at 0x{:X}",
+                                    instr.ip()
+                                ))
+                            })?;
 
                         // Generate long-form conditional jump (6 bytes)
                         let jcc_bytes = thunk::generate_jcc_rel32(
@@ -519,18 +521,19 @@ impl Disasm {
                         if jcc_bytes.len() != instr_len {
                             // Check if we're inside an internal branch
                             if let Some(branch_target) = internal_branch_target
-                                && instr.ip() < branch_target {
-                                    log::error!(
-                                        "Size change detected: instruction at 0x{:X} changed from {} to {} bytes, but is inside internal branch targeting 0x{:X}",
-                                        instr.ip(),
-                                        instr_len,
-                                        jcc_bytes.len(),
-                                        branch_target
-                                    );
-                                    return Err(DisasmError::UnsupportedInstruction(
+                                && instr.ip() < branch_target
+                            {
+                                log::error!(
+                                    "Size change detected: instruction at 0x{:X} changed from {} to {} bytes, but is inside internal branch targeting 0x{:X}",
+                                    instr.ip(),
+                                    instr_len,
+                                    jcc_bytes.len(),
+                                    branch_target
+                                );
+                                return Err(DisasmError::UnsupportedInstruction(
                                         "Cannot hook: conditional jump size change would break internal branch".to_string()
                                     ));
-                                }
+                            }
                         }
 
                         relocated_bytes.extend_from_slice(&jcc_bytes);
@@ -548,17 +551,14 @@ impl Disasm {
             let instr_array = [new_instr];
             let encoded = {
                 let block = InstructionBlock::new(&instr_array, trampoline_instr_addr as u64);
-                BlockEncoder::encode(
-                    BITNESS,
-                    block,
-                    BlockEncoderOptions::NONE,
-                )?
+                BlockEncoder::encode(BITNESS, block, BlockEncoderOptions::NONE)?
             };
 
             if encoded.code_buffer.is_empty() {
-                return Err(DisasmError::EncodingError(
-                    format!("BlockEncoder produced empty result for instruction at 0x{:X}", instr.ip())
-                ));
+                return Err(DisasmError::EncodingError(format!(
+                    "BlockEncoder produced empty result for instruction at 0x{:X}",
+                    instr.ip()
+                )));
             }
 
             log::trace!(
@@ -579,14 +579,8 @@ impl Disasm {
         );
 
         // Log the relocated bytes for debugging
-        log::trace!(
-            "Original bytes: {:02X?}",
-            self.stolen_bytes
-        );
-        log::trace!(
-            "Relocated bytes: {:02X?}",
-            &relocated_bytes
-        );
+        log::trace!("Original bytes: {:02X?}", self.stolen_bytes);
+        log::trace!("Relocated bytes: {:02X?}", &relocated_bytes);
 
         Ok(relocated_bytes)
     }

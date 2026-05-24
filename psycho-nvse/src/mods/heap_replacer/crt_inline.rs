@@ -133,11 +133,7 @@ pub unsafe extern "C" fn hook_realloc(ptr: *mut c_void, size: usize) -> *mut c_v
     null_mut()
 }
 
-pub unsafe extern "C" fn hook_recalloc(
-    ptr: *mut c_void,
-    count: usize,
-    size: usize,
-) -> *mut c_void {
+pub unsafe extern "C" fn hook_recalloc(ptr: *mut c_void, count: usize, size: usize) -> *mut c_void {
     let new_total = match count.checked_mul(size) {
         Some(t) => t,
         None => return null_mut(),
@@ -172,11 +168,7 @@ pub unsafe extern "C" fn hook_recalloc(
                 std::ptr::copy_nonoverlapping(ptr as *const u8, np as *mut u8, copy_len);
             }
             if new_total > copy_len {
-                std::ptr::write_bytes(
-                    (np as *mut u8).add(copy_len),
-                    0,
-                    new_total - copy_len,
-                );
+                std::ptr::write_bytes((np as *mut u8).add(copy_len), 0, new_total - copy_len);
             }
             allocator::free(ptr);
         }

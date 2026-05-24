@@ -1,6 +1,9 @@
 use thiserror::Error;
 
-use crate::{ffi::fnptr::FnPtrError, os::windows::{memory::MemoryError, winapi::WinapiError}};
+use crate::{
+    ffi::fnptr::FnPtrError,
+    os::windows::{memory::MemoryError, winapi::WinapiError},
+};
 
 #[derive(Debug, Error)]
 pub enum VmtHookError {

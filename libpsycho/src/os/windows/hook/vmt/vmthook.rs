@@ -58,13 +58,13 @@ impl<F: Copy + 'static> VmtHook<F> {
         }
 
         let vmt_entry_ptr = unsafe { vmt_ptr.add(method_index) };
-        
+
         // This validation is highly important, because method_index can be potentially invalid
         validate_memory_access(vmt_entry_ptr as *mut c_void)?;
 
         let original_method_ptr = unsafe { *vmt_entry_ptr };
 
-        validate_memory_access(original_method_ptr)?;      
+        validate_memory_access(original_method_ptr)?;
 
         let original_fn = unsafe { FnPtr::from_raw(original_method_ptr) }?;
 

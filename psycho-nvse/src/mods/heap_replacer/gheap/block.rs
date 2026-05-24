@@ -31,14 +31,14 @@
 
 use std::collections::{BTreeMap, HashMap};
 use std::ptr::null_mut;
-use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Mutex;
+use std::sync::atomic::{AtomicU64, Ordering};
 
 use rustc_hash::FxBuildHasher;
 
 use libc::c_void;
 use windows::Win32::System::Memory::{
-    VirtualAlloc, VirtualFree, MEM_COMMIT, MEM_RELEASE, MEM_RESERVE, PAGE_READWRITE,
+    MEM_COMMIT, MEM_RELEASE, MEM_RESERVE, PAGE_READWRITE, VirtualAlloc, VirtualFree,
 };
 
 // ---------------------------------------------------------------------------
@@ -387,26 +387,33 @@ impl BlockHeap {
 
         // Fallback: OS picks placement anywhere.
         if ptr.is_null() {
-            ptr = unsafe {
-                VirtualAlloc(
-                    None,
-                    BLOCK_SIZE,
-                    MEM_RESERVE | MEM_COMMIT,
-                    PAGE_READWRITE,
-                )
-            };
+            ptr =
+                unsafe { VirtualAlloc(None, BLOCK_SIZE, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE) };
         }
 
         if ptr.is_null() {
             let fails = FAIL_COUNT.fetch_add(1, Ordering::Relaxed) + 1;
             if fails.is_power_of_two() {
-                log::warn!(
-                    "[BLOCK] VirtualAlloc(MEM_RESERVE|MEM_COMMIT, {}MB) failed: err={} (total_fails={}, live={})",
-                    BLOCK_SIZE / 1024 / 1024,
-                    std::io::Error::last_os_error(),
-                    fails,
-                    self.live_count(),
-                );
+                if let Some(vas) = super::vas::sample() {
+                    log::warn!(
+                        "[BLOCK] VirtualAlloc(MEM_RESERVE|MEM_COMMIT, {}MB) failed: err={} total_fails={} live={} largest=0x{:08x}+{}MB free={}MB",
+                        BLOCK_SIZE / 1024 / 1024,
+                        std::io::Error::last_os_error(),
+                        fails,
+                        self.live_count(),
+                        vas.largest_base,
+                        vas.largest_free / super::vas::MB,
+                        vas.total_free / super::vas::MB,
+                    );
+                } else {
+                    log::warn!(
+                        "[BLOCK] VirtualAlloc(MEM_RESERVE|MEM_COMMIT, {}MB) failed: err={} (total_fails={}, live={})",
+                        BLOCK_SIZE / 1024 / 1024,
+                        std::io::Error::last_os_error(),
+                        fails,
+                        self.live_count(),
+                    );
+                }
             }
             return None;
         }
@@ -518,7 +525,9 @@ impl BlockHeap {
             if let Err(e) = unsafe { VirtualFree(b.base as *mut c_void, 0, MEM_RELEASE) } {
                 log::error!(
                     "[BLOCK] Emergency retire VirtualFree failed: slot {} base=0x{:08x} err={:?}",
-                    i, base, e,
+                    i,
+                    base,
+                    e,
                 );
                 // Slot is already cleared by `take()`; drop `b` implicitly.
                 continue;
@@ -527,13 +536,17 @@ impl BlockHeap {
             bytes += BLOCK_SIZE;
             log::info!(
                 "[BLOCK] Emergency retired slot {} at 0x{:08x} ({} MB)",
-                i, base, BLOCK_SIZE / 1024 / 1024,
+                i,
+                base,
+                BLOCK_SIZE / 1024 / 1024,
             );
         }
         if slots > 0 {
             log::info!(
                 "[BLOCK] Emergency retirement complete: {} slots, {} MB reclaimed (live={})",
-                slots, bytes / 1024 / 1024, self.live_count(),
+                slots,
+                bytes / 1024 / 1024,
+                self.live_count(),
             );
         }
         (slots, bytes)
@@ -669,11 +682,7 @@ pub fn diagnose_ptr_buf(fault_addr: usize, r: &mut String) {
                     cell.offset + cell.size,
                     cell.size,
                 );
-                let _ = writeln!(
-                    r,
-                    "  Offset:     +{}",
-                    offset - cell.offset,
-                );
+                let _ = writeln!(r, "  Offset:     +{}", offset - cell.offset,);
                 let _ = writeln!(
                     r,
                     "  State:      {}",

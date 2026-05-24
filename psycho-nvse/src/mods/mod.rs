@@ -1,5 +1,5 @@
 pub mod display;
-pub mod perf;
-pub mod zlib;
 pub mod heap_replacer;
+pub mod perf;
 pub mod vas_probe;
+pub mod zlib;

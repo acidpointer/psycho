@@ -90,10 +90,7 @@ impl Config {
             let config = T::default();
             Self::save(path, &config)?;
 
-            log::info!(
-                "Config not found at '{}', created default",
-                path.display()
-            );
+            log::info!("Config not found at '{}', created default", path.display());
 
             Ok(config)
         }
@@ -141,18 +138,19 @@ impl Config {
         let content = std::fs::read_to_string(path).unwrap_or_default();
 
         if let Ok(updated) = toml::to_string_pretty(cfg)
-            && updated != content {
-                if let Some(parent) = path.parent() {
-                    let _ = std::fs::create_dir_all(parent);
-                }
-                if let Err(err) = std::fs::write(path, &updated) {
-                    log::warn!("Failed to sync config '{}': {}", path.display(), err);
-                } else if content.is_empty() {
-                    log::info!("Config created at '{}'", path.display());
-                } else {
-                    log::info!("Config schema updated in '{}'", path.display());
-                }
+            && updated != content
+        {
+            if let Some(parent) = path.parent() {
+                let _ = std::fs::create_dir_all(parent);
             }
+            if let Err(err) = std::fs::write(path, &updated) {
+                log::warn!("Failed to sync config '{}': {}", path.display(), err);
+            } else if content.is_empty() {
+                log::info!("Config created at '{}'", path.display());
+            } else {
+                log::info!("Config schema updated in '{}'", path.display());
+            }
+        }
     }
 
     /// Load config with automatic schema migration.
@@ -188,18 +186,19 @@ impl Config {
 
         // Re-serialize and write back if schema changed
         if let Ok(updated) = toml::to_string_pretty(&cfg)
-            && updated != content {
-                if let Some(parent) = path.parent() {
-                    let _ = std::fs::create_dir_all(parent);
-                }
-                if let Err(err) = std::fs::write(path, &updated) {
-                    log::warn!("Failed to sync config '{}': {}", path.display(), err);
-                } else if content.is_empty() {
-                    log::info!("Config created at '{}'", path.display());
-                } else {
-                    log::info!("Config schema updated in '{}'", path.display());
-                }
+            && updated != content
+        {
+            if let Some(parent) = path.parent() {
+                let _ = std::fs::create_dir_all(parent);
             }
+            if let Err(err) = std::fs::write(path, &updated) {
+                log::warn!("Failed to sync config '{}': {}", path.display(), err);
+            } else if content.is_empty() {
+                log::info!("Config created at '{}'", path.display());
+            } else {
+                log::info!("Config schema updated in '{}'", path.display());
+            }
+        }
 
         cfg
     }

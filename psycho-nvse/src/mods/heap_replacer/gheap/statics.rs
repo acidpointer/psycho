@@ -88,7 +88,10 @@ pub static NISOURCETEXTURE_DTOR_HOOK: LazyLock<InlineHookContainer<NiSourceTextu
 
 // ---- IO task ----
 
-// pub const TASK_RELEASE_ADDR: usize = 0x0044DD60;
+pub const TASK_RELEASE_ADDR: usize = 0x0044DD60;
+
+pub static TASK_RELEASE_HOOK: LazyLock<InlineHookContainer<TaskReleaseFn>> =
+    LazyLock::new(InlineHookContainer::new);
 
 // ---- OOM Stage 8 (HeapCompact) ----
 

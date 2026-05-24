@@ -1,6 +1,6 @@
 //! Game heap allocator: pure size-based dispatch.
 //!
-//!   size == 0                    -> NULL
+//!   size == 0                    -> 8-byte pool cell (vanilla GameHeap)
 //!   1 <= size <= 3584            -> pool (size-class, NVHR mheap style)
 //!   3585 <= size <= 16 MB        -> block (variable-size, NVHR dheap style)
 //!   size > 16 MB                 -> va_alloc (direct VirtualAlloc)
@@ -131,6 +131,7 @@ pub fn with_large_bypass<R>(f: impl FnOnce() -> R) -> R {
 /// because the block tier was full. Rate-limited to power-of-two
 /// reporting so save-load bursts don't spam the log.
 static BLOCK_OVERFLOW_COUNT: AtomicU64 = AtomicU64::new(0);
+static ZERO_SIZE_ALLOC_COUNT: AtomicU64 = AtomicU64::new(0);
 
 #[cold]
 fn log_block_overflow(size: usize) {
@@ -138,7 +139,19 @@ fn log_block_overflow(size: usize) {
     if n.is_power_of_two() {
         log::warn!(
             "[ALLOC] block tier overflow: size={} total={} (falling through to va_alloc)",
-            size, n,
+            size,
+            n,
+        );
+    }
+}
+
+#[cold]
+fn log_zero_size_alloc() {
+    let n = ZERO_SIZE_ALLOC_COUNT.fetch_add(1, Ordering::Relaxed) + 1;
+    if n.is_power_of_two() {
+        log::warn!(
+            "[ALLOC] zero-size GameHeap allocation rounded to 8 bytes total={}",
+            n
         );
     }
 }
@@ -151,9 +164,16 @@ fn log_block_overflow(size: usize) {
 /// is not consulted. See module docs for tier boundaries.
 #[inline]
 pub unsafe fn alloc(size: usize) -> *mut c_void {
-    if size == 0 {
-        return null_mut();
-    }
+    let size = if size == 0 {
+        // Ghidra: vanilla GameHeap::Allocate (0x00AA3E40) rounds any
+        // request below 9 bytes up to 8 after the SBM is initialized.
+        // NIF geometry load uses some non-NULL zero-length arrays as
+        // "present" markers; returning NULL changes later Havok logic.
+        log_zero_size_alloc();
+        8
+    } else {
+        size
+    };
 
     if size <= super::pool::POOL_MAX_SIZE {
         let ptr = super::pool::alloc(size);
@@ -273,7 +293,9 @@ pub unsafe fn realloc(ptr: *mut c_void, new_size: usize) -> *mut c_void {
         Some(super::pool::usable_size(ptr as *const c_void))
     } else if super::block::is_block_ptr(ptr as *const c_void) {
         Some(super::block::usable_size(ptr as *const c_void))
-    } else { super::va_alloc::size_of(ptr as *const c_void) };
+    } else {
+        super::va_alloc::size_of(ptr as *const c_void)
+    };
 
     if let Some(old_size) = old_size_opt {
         if new_size <= old_size {

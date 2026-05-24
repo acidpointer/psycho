@@ -59,14 +59,14 @@
 //! and `live_bytes()`.
 
 use std::ptr::null_mut;
-use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::LazyLock;
 use std::sync::Mutex;
+use std::sync::atomic::{AtomicU64, Ordering};
 
 use libc::c_void;
 
 use windows::Win32::System::Memory::{
-    VirtualAlloc, VirtualFree, MEM_COMMIT, MEM_RELEASE, MEM_RESERVE, PAGE_READWRITE,
+    MEM_COMMIT, MEM_RELEASE, MEM_RESERVE, PAGE_READWRITE, VirtualAlloc, VirtualFree,
 };
 
 /// OS page granularity. `VirtualAlloc` rounds up to this anyway; we
@@ -117,7 +117,9 @@ pub fn alloc(size: usize) -> *mut c_void {
         if slots > 0 {
             log::warn!(
                 "[VA] retry after emergency retire: size={} retired={} slots ({}MB)",
-                size, slots, bytes / 1024 / 1024,
+                size,
+                slots,
+                bytes / 1024 / 1024,
             );
             ptr = unsafe { VirtualAlloc(None, rounded, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE) };
         }
@@ -129,14 +131,28 @@ pub fn alloc(size: usize) -> *mut c_void {
         // Gate on powers of two so we see 1, 2, 4, 8, 16... instead of
         // dozens per second while the game retries.
         if fails.is_power_of_two() {
-            log::warn!(
-                "[VA] alloc failed: size={} rounded={} total_fails={} live={} live_bytes={}MB",
-                size,
-                rounded,
-                fails,
-                live_count(),
-                live_bytes() / 1024 / 1024,
-            );
+            if let Some(vas) = super::vas::sample() {
+                log::warn!(
+                    "[VA] alloc failed: size={} rounded={} total_fails={} live={} live_bytes={}MB free={}MB largest=0x{:08x}+{}MB",
+                    size,
+                    rounded,
+                    fails,
+                    live_count(),
+                    live_bytes() / 1024 / 1024,
+                    vas.total_free / super::vas::MB,
+                    vas.largest_base,
+                    vas.largest_free / super::vas::MB,
+                );
+            } else {
+                log::warn!(
+                    "[VA] alloc failed: size={} rounded={} total_fails={} live={} live_bytes={}MB",
+                    size,
+                    rounded,
+                    fails,
+                    live_count(),
+                    live_bytes() / 1024 / 1024,
+                );
+            }
         }
         return null_mut();
     }
