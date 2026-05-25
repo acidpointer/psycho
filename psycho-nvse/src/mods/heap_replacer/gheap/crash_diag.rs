@@ -23,7 +23,6 @@ use super::engine::globals;
 use super::pool;
 
 static CAUGHT: AtomicBool = AtomicBool::new(false);
-const EXCEPTION_CONTINUE_EXECUTION_CODE: i32 = -1;
 
 // ---- Ghidra-verified function address table (sorted by start address) ------
 // (start, size, name). Binary searched via partition_point.
@@ -164,12 +163,6 @@ unsafe extern "system" fn handler(info: *mut EXCEPTION_POINTERS) -> i32 {
     let ctx = unsafe { &*info.ContextRecord };
     let fault = record.ExceptionInformation[1];
     let access_kind = record.ExceptionInformation[0];
-
-    if unsafe {
-        super::vanilla_large_heap::handle_default_heap_probe_fault(fault, access_kind, ctx)
-    } {
-        return EXCEPTION_CONTINUE_EXECUTION_CODE;
-    }
 
     if CAUGHT.swap(true, Ordering::SeqCst) {
         return EXCEPTION_CONTINUE_SEARCH;
@@ -530,11 +523,11 @@ fn write_memory_pressure(r: &mut String) {
     );
     let _ = writeln!(r, "  Free VAS:        {}MB", free_vas >> 20);
     if free_vas < 200 << 20 {
-        let _ = writeln!(r, "  --> VAS EMERGENCY: <200MB free");
+        let _ = writeln!(r, "  --> Free VAS low: <200MB free");
     } else if free_vas < 400 << 20 {
-        let _ = writeln!(r, "  --> VAS CRITICAL: <400MB free");
+        let _ = writeln!(r, "  --> Free VAS watch: <400MB free");
     } else if free_vas < 800 << 20 {
-        let _ = writeln!(r, "  --> VAS WARNING: <800MB free");
+        let _ = writeln!(r, "  --> Free VAS early warning: <800MB free");
     }
 }
 

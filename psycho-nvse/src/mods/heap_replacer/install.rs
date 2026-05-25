@@ -256,6 +256,10 @@ pub fn install_gheap_initialize() -> anyhow::Result<()> {
 /// and starts background monitoring threads. After this returns, every
 /// game heap operation routes through gheap.
 pub fn install_gheap_activate() -> anyhow::Result<()> {
+    // Try to adopt the unused Default heap tail before the first hooked
+    // GameHeap allocation can force fresh pool/block reservations.
+    gheap::vanilla_large_heap::try_enable_default_tail_adoption("gheap-load");
+
     // game heap
     {
         use super::gheap::statics::*;

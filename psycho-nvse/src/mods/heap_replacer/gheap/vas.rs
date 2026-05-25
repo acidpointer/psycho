@@ -71,19 +71,3 @@ pub fn sample() -> Option<Summary> {
 
     Some(summary)
 }
-
-pub fn log_summary(label: &str, summary: Summary) {
-    log::info!(
-        "[VAS {}] free={}MB largest=0x{:08x}+{}MB second=0x{:08x}+{}MB reserve={}MB commit={}MB regions={} holes={}",
-        label,
-        summary.total_free / MB,
-        summary.largest_base,
-        summary.largest_free / MB,
-        summary.second_base,
-        summary.second_free / MB,
-        summary.total_reserve / MB,
-        summary.total_commit / MB,
-        summary.regions,
-        summary.holes,
-    );
-}

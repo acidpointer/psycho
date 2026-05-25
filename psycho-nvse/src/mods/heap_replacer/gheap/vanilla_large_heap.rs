@@ -1,7 +1,7 @@
-//! Telemetry and conservative VAS reclaim for pre-gheap vanilla heaps.
+//! Telemetry, conservative VAS reclaim, and tail adoption for pre-gheap vanilla heaps.
 //!
 //! FalloutNV.exe constructs the vanilla Default/File large heaps before
-//! NVSE can activate gheap. Those two heaps reserve 200 MB + 64 MB of
+//! NVSE can activate gheap. Those two heaps reserve 500 MB + 64 MB of
 //! 32-bit address space even if gheap takes over before they are used.
 //!
 //! Reclaim here is intentionally strict: only heaps with no current
@@ -12,10 +12,8 @@
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 
 use libc::c_void;
-use windows::Win32::System::Diagnostics::Debug::CONTEXT;
 use windows::Win32::System::Memory::{
-    MEM_RELEASE, PAGE_NOACCESS, PAGE_PROTECTION_FLAGS, PAGE_READWRITE, VirtualAlloc, VirtualFree,
-    VirtualProtect,
+    MEM_COMMIT, MEM_RELEASE, PAGE_READWRITE, VirtualAlloc, VirtualFree,
 };
 use windows::Win32::System::Threading::{
     CRITICAL_SECTION, EnterCriticalSection, LeaveCriticalSection,
@@ -57,14 +55,11 @@ const DEFAULT_TAIL_SKIP: usize = 16 * 1024 * 1024;
 const DEFAULT_TAIL_POLL_MS: u32 = 5_000;
 
 static RAN: AtomicBool = AtomicBool::new(false);
-static DEFAULT_PROBE_ARMED: AtomicBool = AtomicBool::new(false);
-static DEFAULT_PROBE_BASE: AtomicUsize = AtomicUsize::new(0);
-static DEFAULT_PROBE_LEN: AtomicUsize = AtomicUsize::new(0);
-static DEFAULT_PROBE_OLD_PROTECT: AtomicUsize = AtomicUsize::new(0);
-static DEFAULT_PROBE_HITS: AtomicUsize = AtomicUsize::new(0);
 static DEFAULT_TAIL_ENABLED: AtomicBool = AtomicBool::new(false);
+static DEFAULT_TAIL_DISABLED: AtomicBool = AtomicBool::new(false);
 static DEFAULT_TAIL_DISABLED_LOGGED: AtomicBool = AtomicBool::new(false);
 static DEFAULT_TAIL_EXHAUSTED_LOGGED: AtomicBool = AtomicBool::new(false);
+static DEFAULT_TAIL_SKIP_LOGGED: AtomicBool = AtomicBool::new(false);
 static DEFAULT_TAIL_HEAP: AtomicUsize = AtomicUsize::new(0);
 static DEFAULT_TAIL_BASE: AtomicUsize = AtomicUsize::new(0);
 static DEFAULT_TAIL_NEXT: AtomicUsize = AtomicUsize::new(0);
@@ -156,10 +151,14 @@ unsafe fn inspect_and_maybe_reclaim(label: &str, heap_offset: usize) -> usize {
     let snapshot = unsafe { Snapshot::read(heap) };
     log_snapshot(label, snapshot);
 
+    if label == "Default" && DEFAULT_TAIL_ENABLED.load(Ordering::Acquire) {
+        log::info!("[VANILLA_HEAP] Default: reclaim skipped: tail adoption is active");
+        return 0;
+    }
+
     if let Some(reason) = ineligible_reason(snapshot) {
         if label == "Default" {
-            unsafe { maybe_arm_default_heap_probe(snapshot) };
-            unsafe { maybe_enable_default_tail_adoption(snapshot) };
+            maybe_enable_default_tail_adoption(snapshot, true);
         }
         log::info!("[VANILLA_HEAP] {}: reclaim skipped: {}", label, reason);
         return 0;
@@ -208,7 +207,7 @@ impl Snapshot {
 }
 
 fn log_snapshot(label: &str, s: Snapshot) {
-    log::info!(
+    log::debug!(
         "[VANILLA_HEAP] {}: heap=0x{:08x} base=0x{:08x} capacity={}MB initial={}MB committed={}MB bump={}KB high={}KB live={}KB blocks={} free_blocks={} first=0x{:08x} last=0x{:08x}",
         label,
         s.heap,
@@ -254,174 +253,76 @@ fn ineligible_reason(s: Snapshot) -> Option<&'static str> {
     None
 }
 
-unsafe fn maybe_arm_default_heap_probe(s: Snapshot) {
-    let enabled = crate::config::get_config()
-        .map(|c| c.memory.gheap_default_heap_probe)
-        .unwrap_or(false);
-    if !enabled {
-        return;
-    }
-    if DEFAULT_PROBE_ARMED.load(Ordering::Acquire) {
-        return;
-    }
-    if s.base == 0 || s.committed_limit == 0 {
-        log::warn!("[VANILLA_HEAP_PROBE] skipped: Default heap has no committed backing");
-        return;
-    }
-    if s.live_bytes == 0 && s.block_count == 0 {
-        log::warn!("[VANILLA_HEAP_PROBE] skipped: Default heap has no live blocks");
-        return;
-    }
-
-    let guard_len = default_probe_len(s);
-    if guard_len == 0 {
-        log::warn!("[VANILLA_HEAP_PROBE] skipped: computed guard length is zero");
-        return;
-    }
-
-    DEFAULT_PROBE_BASE.store(s.base, Ordering::Release);
-    DEFAULT_PROBE_LEN.store(guard_len, Ordering::Release);
-    DEFAULT_PROBE_OLD_PROTECT.store(PAGE_READWRITE.0 as usize, Ordering::Release);
-    DEFAULT_PROBE_ARMED.store(true, Ordering::Release);
-
-    let mut old_protect = PAGE_PROTECTION_FLAGS(0);
-    if let Err(err) = unsafe {
-        VirtualProtect(
-            s.base as *mut c_void,
-            guard_len,
-            PAGE_NOACCESS,
-            &mut old_protect,
-        )
-    } {
-        DEFAULT_PROBE_ARMED.store(false, Ordering::Release);
-        log::error!(
-            "[VANILLA_HEAP_PROBE] VirtualProtect failed: base=0x{:08x} len={}KB err={:?}",
-            s.base,
-            guard_len / 1024,
-            err,
-        );
-        return;
-    }
-
-    DEFAULT_PROBE_OLD_PROTECT.store(old_protect.0 as usize, Ordering::Release);
-    log::warn!(
-        "[VANILLA_HEAP_PROBE] armed Default heap live-prefix trap base=0x{:08x} len={}KB live={}KB blocks={} old_protect=0x{:x}",
-        s.base,
-        guard_len / 1024,
-        s.live_bytes / 1024,
-        s.block_count,
-        old_protect.0,
-    );
-}
-
-fn default_probe_len(s: Snapshot) -> usize {
-    let mut span = PAGE_SIZE
-        .max(s.live_bytes)
-        .max(s.bump_end)
-        .max(s.high_water);
-    let committed_end = s.base.saturating_add(s.committed_limit);
-
-    if s.last_block >= s.base && s.last_block < committed_end {
-        span = span.max(s.last_block - s.base + 1);
-    }
-
-    align_up(span, PAGE_SIZE).min(s.committed_limit)
-}
-
 const fn align_up(value: usize, align: usize) -> usize {
     (value + align - 1) & !(align - 1)
 }
 
-/// Handle the intentional Default heap probe AV.
-///
-/// Returns true when the fault belongs to the probe and protections were
-/// restored, allowing the faulting instruction to be retried.
-pub unsafe fn handle_default_heap_probe_fault(
-    fault: usize,
-    access_kind: usize,
-    ctx: &CONTEXT,
-) -> bool {
-    if !DEFAULT_PROBE_ARMED.load(Ordering::Acquire) {
-        return false;
-    }
-
-    let base = DEFAULT_PROBE_BASE.load(Ordering::Acquire);
-    let len = DEFAULT_PROBE_LEN.load(Ordering::Acquire);
-    if len == 0 || fault < base || fault >= base.saturating_add(len) {
-        return false;
-    }
-
-    let old = PAGE_PROTECTION_FLAGS(DEFAULT_PROBE_OLD_PROTECT.load(Ordering::Acquire) as u32);
-    let mut ignored = PAGE_PROTECTION_FLAGS(0);
-    if let Err(err) = unsafe { VirtualProtect(base as *mut c_void, len, old, &mut ignored) } {
-        log::error!(
-            "[VANILLA_HEAP_PROBE] hit but restore failed: access={} addr=0x{:08x} EIP=0x{:08x} err={:?}",
-            probe_access_name(access_kind),
-            fault,
-            ctx.Eip,
-            err,
-        );
-        return false;
-    }
-
-    DEFAULT_PROBE_ARMED.store(false, Ordering::Release);
-    let hit = DEFAULT_PROBE_HITS.fetch_add(1, Ordering::AcqRel) + 1;
-    log::warn!(
-        "[VANILLA_HEAP_PROBE] HIT #{}: {} addr=0x{:08x} EIP=0x{:08x} EAX={:08x} EBX={:08x} ECX={:08x} EDX={:08x} ESI={:08x} EDI={:08x} EBP={:08x} ESP={:08x}; restored old_protect=0x{:x} and continued",
-        hit,
-        probe_access_name(access_kind),
-        fault,
-        ctx.Eip,
-        ctx.Eax,
-        ctx.Ebx,
-        ctx.Ecx,
-        ctx.Edx,
-        ctx.Esi,
-        ctx.Edi,
-        ctx.Ebp,
-        ctx.Esp,
-        old.0,
-    );
-    true
-}
-
-fn probe_access_name(access_kind: usize) -> &'static str {
-    match access_kind {
-        0 => "read",
-        1 => "write",
-        8 => "execute",
-        _ => "unknown",
-    }
-}
-
-unsafe fn maybe_enable_default_tail_adoption(s: Snapshot) {
+pub fn try_enable_default_tail_adoption(reason: &'static str) -> bool {
     if DEFAULT_TAIL_ENABLED.load(Ordering::Acquire) {
-        return;
+        return true;
+    }
+    if DEFAULT_TAIL_DISABLED.load(Ordering::Acquire) {
+        return false;
+    }
+
+    let heap = unsafe { read_usize(addr::HEAP_SINGLETON + DEFAULT_HEAP_OFFSET) };
+    if heap == 0 {
+        return false;
+    }
+
+    let unlocked = unsafe { Snapshot::read(heap) };
+    if unlocked.base == 0 || unlocked.capacity <= DEFAULT_TAIL_SKIP {
+        return false;
+    }
+
+    let _lock = unsafe { lock_heap(heap) };
+    let snapshot = unsafe { Snapshot::read(heap) };
+    let enabled = maybe_enable_default_tail_adoption(snapshot, false);
+    if enabled {
+        log::info!(
+            "[VANILLA_HEAP_ADOPT] early adoption enabled from {}",
+            reason
+        );
+    }
+    enabled
+}
+
+fn maybe_enable_default_tail_adoption(s: Snapshot, log_skip: bool) -> bool {
+    if DEFAULT_TAIL_ENABLED.load(Ordering::Acquire) {
+        return true;
+    }
+    if DEFAULT_TAIL_DISABLED.load(Ordering::Acquire) {
+        return false;
     }
     if s.base == 0 || s.capacity <= DEFAULT_TAIL_SKIP {
-        log::warn!("[VANILLA_HEAP_ADOPT] skipped: Default heap tail is too small");
-        return;
+        log_adoption_skip(log_skip, "Default heap tail is too small");
+        return false;
     }
     if s.bump_end > DEFAULT_TAIL_SKIP || s.high_water > DEFAULT_TAIL_SKIP {
-        log::warn!(
-            "[VANILLA_HEAP_ADOPT] skipped: Default heap high-water reaches tail (bump={}KB high={}KB skip={}MB)",
-            s.bump_end / 1024,
-            s.high_water / 1024,
-            DEFAULT_TAIL_SKIP / super::vas::MB,
+        log_adoption_skip(
+            log_skip,
+            &format!(
+                "Default heap high-water reaches tail (bump={}KB high={}KB skip={}MB)",
+                s.bump_end / 1024,
+                s.high_water / 1024,
+                DEFAULT_TAIL_SKIP / super::vas::MB,
+            ),
         );
-        return;
+        return false;
     }
     let tail_start = s.base.saturating_add(DEFAULT_TAIL_SKIP);
     let tail_end = s.base.saturating_add(s.capacity);
     if (s.first_block >= tail_start && s.first_block < tail_end)
         || (s.last_block >= tail_start && s.last_block < tail_end)
     {
-        log::warn!(
-            "[VANILLA_HEAP_ADOPT] skipped: Default heap block list reaches tail first=0x{:08x} last=0x{:08x}",
-            s.first_block,
-            s.last_block,
+        log_adoption_skip(
+            log_skip,
+            &format!(
+                "Default heap block list reaches tail first=0x{:08x} last=0x{:08x}",
+                s.first_block, s.last_block,
+            ),
         );
-        return;
+        return false;
     }
 
     DEFAULT_TAIL_HEAP.store(s.heap, Ordering::Release);
@@ -438,7 +339,7 @@ unsafe fn maybe_enable_default_tail_adoption(s: Snapshot) {
     DEFAULT_TAIL_FREE_COUNT.store(s.free_count, Ordering::Release);
     DEFAULT_TAIL_ENABLED.store(true, Ordering::Release);
 
-    log::warn!(
+    log::info!(
         "[VANILLA_HEAP_ADOPT] enabled Default tail adoption: base=0x{:08x} tail=0x{:08x}..0x{:08x} usable={}MB skip={}MB",
         s.base,
         tail_start,
@@ -446,11 +347,29 @@ unsafe fn maybe_enable_default_tail_adoption(s: Snapshot) {
         (tail_end - tail_start) / super::vas::MB,
         DEFAULT_TAIL_SKIP / super::vas::MB,
     );
+    true
 }
 
-pub fn try_adopt_default_tail_block(size: usize) -> *mut c_void {
-    if size == 0 || !DEFAULT_TAIL_ENABLED.load(Ordering::Acquire) {
+fn log_adoption_skip(log_skip: bool, reason: &str) {
+    if log_skip || !DEFAULT_TAIL_SKIP_LOGGED.swap(true, Ordering::AcqRel) {
+        log::info!("[VANILLA_HEAP_ADOPT] skipped: {}", reason);
+    }
+}
+
+pub fn try_alloc_default_tail(
+    size: usize,
+    align: usize,
+    owner: &'static str,
+    commit_now: bool,
+) -> *mut c_void {
+    if size == 0 {
         return std::ptr::null_mut();
+    }
+    if !DEFAULT_TAIL_ENABLED.load(Ordering::Acquire) {
+        try_enable_default_tail_adoption(owner);
+        if !DEFAULT_TAIL_ENABLED.load(Ordering::Acquire) {
+            return std::ptr::null_mut();
+        }
     }
     if !default_tail_contract_intact() {
         disable_default_tail_adoption("Default heap fields changed");
@@ -458,44 +377,63 @@ pub fn try_adopt_default_tail_block(size: usize) -> *mut c_void {
     }
 
     let size = align_up(size, PAGE_SIZE);
+    let align = align.max(PAGE_SIZE);
     loop {
-        let next = DEFAULT_TAIL_NEXT.load(Ordering::Acquire);
+        let raw_next = DEFAULT_TAIL_NEXT.load(Ordering::Acquire);
         let end = DEFAULT_TAIL_END.load(Ordering::Acquire);
+        let next = align_up(raw_next, align);
         let Some(new_next) = next.checked_add(size) else {
             disable_default_tail_adoption("Default tail address overflow");
             return std::ptr::null_mut();
         };
-        if next == 0 || new_next > end {
+        if raw_next == 0 || new_next > end {
             if !DEFAULT_TAIL_EXHAUSTED_LOGGED.swap(true, Ordering::AcqRel) {
                 log::info!(
-                    "[VANILLA_HEAP_ADOPT] Default tail exhausted: next=0x{:08x} end=0x{:08x} request={}MB",
+                    "[VANILLA_HEAP_ADOPT] Default tail exhausted: owner={} next=0x{:08x} aligned=0x{:08x} end=0x{:08x} request={}MB align={}MB",
+                    owner,
+                    raw_next,
                     next,
                     end,
                     size / super::vas::MB,
+                    align / super::vas::MB,
                 );
             }
             return std::ptr::null_mut();
         }
         if DEFAULT_TAIL_NEXT
-            .compare_exchange(next, new_next, Ordering::AcqRel, Ordering::Acquire)
+            .compare_exchange(raw_next, new_next, Ordering::AcqRel, Ordering::Acquire)
             .is_err()
         {
             continue;
+        }
+
+        if !commit_now {
+            log::debug!(
+                "[VANILLA_HEAP_ADOPT] owner={} claimed range at 0x{:08x} ({}MB, align={}MB), next=0x{:08x}",
+                owner,
+                next,
+                size / super::vas::MB,
+                align / super::vas::MB,
+                new_next,
+            );
+            return next as *mut c_void;
         }
 
         let ptr = unsafe {
             VirtualAlloc(
                 Some(next as *const c_void),
                 size,
-                windows::Win32::System::Memory::MEM_COMMIT,
+                MEM_COMMIT,
                 PAGE_READWRITE,
             )
         };
         if ptr as usize == next {
-            log::info!(
-                "[VANILLA_HEAP_ADOPT] committed adopted block at 0x{:08x} ({}MB), next=0x{:08x}",
+            log::debug!(
+                "[VANILLA_HEAP_ADOPT] owner={} committed range at 0x{:08x} ({}MB, align={}MB), next=0x{:08x}",
+                owner,
                 next,
                 size / super::vas::MB,
+                align / super::vas::MB,
                 new_next,
             );
             return ptr as *mut c_void;
@@ -503,7 +441,8 @@ pub fn try_adopt_default_tail_block(size: usize) -> *mut c_void {
 
         disable_default_tail_adoption("VirtualAlloc(MEM_COMMIT) failed for Default tail");
         log::error!(
-            "[VANILLA_HEAP_ADOPT] commit failed: addr=0x{:08x} size={}MB returned=0x{:08x} err={}",
+            "[VANILLA_HEAP_ADOPT] commit failed: owner={} addr=0x{:08x} size={}MB returned=0x{:08x} err={}",
+            owner,
             next,
             size / super::vas::MB,
             ptr as usize,
@@ -553,7 +492,7 @@ fn default_tail_contract_intact() -> bool {
         && s.last_block == DEFAULT_TAIL_LAST_BLOCK.load(Ordering::Acquire)
         && s.free_count == DEFAULT_TAIL_FREE_COUNT.load(Ordering::Acquire);
     if !ok {
-        log::error!(
+        log::warn!(
             "[VANILLA_HEAP_ADOPT] contract changed: base 0x{:08x}->0x{:08x}, cap {}MB->{}MB, bump {}KB->{}KB, high {}KB->{}KB, live {}KB->{}KB, blocks {}->{}, free {}->{}, first 0x{:08x}->0x{:08x}, last 0x{:08x}->0x{:08x}",
             DEFAULT_TAIL_BASE.load(Ordering::Acquire),
             s.base,
@@ -579,9 +518,10 @@ fn default_tail_contract_intact() -> bool {
 }
 
 fn disable_default_tail_adoption(reason: &'static str) {
+    DEFAULT_TAIL_DISABLED.store(true, Ordering::Release);
     DEFAULT_TAIL_ENABLED.store(false, Ordering::Release);
     if !DEFAULT_TAIL_DISABLED_LOGGED.swap(true, Ordering::AcqRel) {
-        log::error!("[VANILLA_HEAP_ADOPT] disabled: {}", reason);
+        log::warn!("[VANILLA_HEAP_ADOPT] disabled: {}", reason);
     }
 }
 

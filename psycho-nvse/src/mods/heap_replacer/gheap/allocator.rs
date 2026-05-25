@@ -67,8 +67,7 @@ pub fn calibrate_thresholds(baseline: usize) {
     let free_vas = current_free_vas();
     HEADROOM.store(free_vas, Ordering::Release);
     log::info!(
-        "[VAS] Calibrated: baseline={}MB, free_vas={}MB, \
-         critical_at=<{}MB free, emergency_at=<{}MB free",
+        "[VAS] Baseline calibrated: commit={}MB free={}MB (watch below {}MB, high below {}MB)",
         baseline / 1024 / 1024,
         free_vas / 1024 / 1024,
         VAS_CRITICAL_REMAINING / 1024 / 1024,
@@ -149,7 +148,7 @@ fn log_block_overflow(size: usize) {
 fn log_zero_size_alloc() {
     let n = ZERO_SIZE_ALLOC_COUNT.fetch_add(1, Ordering::Relaxed) + 1;
     if n.is_power_of_two() {
-        log::warn!(
+        log::debug!(
             "[ALLOC] zero-size GameHeap allocation rounded to 8 bytes total={}",
             n
         );

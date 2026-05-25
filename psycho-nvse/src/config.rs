@@ -58,10 +58,6 @@ pub struct MemoryConfig {
     /// 10 seconds. Vanilla normally drains these queues in small
     /// per-frame budgets, so this stays off by default.
     pub gheap_periodic_full_pdd: bool,
-    /// Diagnostic: protect the tiny live prefix of the old vanilla
-    /// Default heap and log the first later access. Used to prove
-    /// whether the pinned 500 MB reservation can be reclaimed.
-    pub gheap_default_heap_probe: bool,
 }
 
 impl Default for MemoryConfig {
@@ -71,7 +67,6 @@ impl Default for MemoryConfig {
             light_mode: false,
             gheap_task_release_guard: true,
             gheap_periodic_full_pdd: false,
-            gheap_default_heap_probe: false,
         }
     }
 }

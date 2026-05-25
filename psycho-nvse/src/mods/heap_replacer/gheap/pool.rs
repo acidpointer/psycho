@@ -1000,6 +1000,7 @@ impl PoolHeap {
 
         let mut reserved_base: *mut u8 = ptr::null_mut();
         let mut claim_slot: usize = 0;
+        let mut default_tail_backing = false;
 
         // High-fit scan. The game, Havok, and D3D still make their own
         // contiguous VA reservations during streaming. Keeping gheap's
@@ -1018,36 +1019,75 @@ impl PoolHeap {
             return false;
         }
 
-        let mut slot: usize = ADDR_LOOKUP_LEN - slots_needed - 1;
-        while slot > 0 {
-            let mut clear = true;
-            for s in slot..slot + slots_needed {
-                if self.addr_to_pool[s].load(Ordering::Relaxed) != NO_POOL {
-                    clear = false;
-                    break;
+        let adopted = super::vanilla_large_heap::try_alloc_default_tail(
+            max_size as usize,
+            POOL_ALIGN,
+            "pool",
+            false,
+        );
+        if !adopted.is_null() {
+            let adopted_addr = adopted as usize;
+            let slot = adopted_addr >> POOL_ALIGN_BITS;
+            let aligned = adopted_addr % POOL_ALIGN == 0;
+            let in_range = slot + slots_needed <= ADDR_LOOKUP_LEN;
+            let mut clear = aligned && in_range;
+            if clear {
+                for s in slot..slot + slots_needed {
+                    if self.addr_to_pool[s].load(Ordering::Relaxed) != NO_POOL {
+                        clear = false;
+                        break;
+                    }
                 }
             }
             if clear {
-                let hint = (slot * POOL_ALIGN) as *mut c_void;
-                let ptr = unsafe {
-                    VirtualAlloc(Some(hint), max_size as usize, MEM_RESERVE, PAGE_READWRITE)
-                };
-                if !ptr.is_null() && (ptr as usize) == slot * POOL_ALIGN {
-                    reserved_base = ptr as *mut u8;
-                    claim_slot = slot;
-                    break;
-                }
-                if !ptr.is_null() {
-                    let _ = unsafe {
-                        windows::Win32::System::Memory::VirtualFree(
-                            ptr,
-                            0,
-                            windows::Win32::System::Memory::MEM_RELEASE,
-                        )
-                    };
-                }
+                reserved_base = adopted as *mut u8;
+                claim_slot = slot;
+                default_tail_backing = true;
+            } else {
+                log::error!(
+                    "[POOL] #{} adopted Default-tail range rejected: base=0x{:08x} aligned={} slot={} slots_needed={} in_range={}",
+                    idx,
+                    adopted_addr,
+                    aligned,
+                    slot,
+                    slots_needed,
+                    in_range,
+                );
             }
-            slot -= 1;
+        }
+
+        if reserved_base.is_null() {
+            let mut slot: usize = ADDR_LOOKUP_LEN - slots_needed - 1;
+            while slot > 0 {
+                let mut clear = true;
+                for s in slot..slot + slots_needed {
+                    if self.addr_to_pool[s].load(Ordering::Relaxed) != NO_POOL {
+                        clear = false;
+                        break;
+                    }
+                }
+                if clear {
+                    let hint = (slot * POOL_ALIGN) as *mut c_void;
+                    let ptr = unsafe {
+                        VirtualAlloc(Some(hint), max_size as usize, MEM_RESERVE, PAGE_READWRITE)
+                    };
+                    if !ptr.is_null() && (ptr as usize) == slot * POOL_ALIGN {
+                        reserved_base = ptr as *mut u8;
+                        claim_slot = slot;
+                        break;
+                    }
+                    if !ptr.is_null() {
+                        let _ = unsafe {
+                            windows::Win32::System::Memory::VirtualFree(
+                                ptr,
+                                0,
+                                windows::Win32::System::Memory::MEM_RELEASE,
+                            )
+                        };
+                    }
+                }
+                slot -= 1;
+            }
         }
 
         if reserved_base.is_null() {
@@ -1071,13 +1111,15 @@ impl PoolHeap {
                 idx,
                 meta_bytes / 1024,
             );
-            let _ = unsafe {
-                windows::Win32::System::Memory::VirtualFree(
-                    reserved_base as *mut c_void,
-                    0,
-                    windows::Win32::System::Memory::MEM_RELEASE,
-                )
-            };
+            if !default_tail_backing {
+                let _ = unsafe {
+                    windows::Win32::System::Memory::VirtualFree(
+                        reserved_base as *mut c_void,
+                        0,
+                        windows::Win32::System::Memory::MEM_RELEASE,
+                    )
+                };
+            }
             return false;
         }
         unsafe { std::ptr::write_bytes(meta_ptr as *mut u8, 0, meta_bytes) };
@@ -1098,8 +1140,8 @@ impl PoolHeap {
             self.addr_to_pool[s].store(idx as u8, Ordering::Relaxed);
         }
 
-        log::info!(
-            "[POOL] class #{} {}B grew: subpool {}/{} (#{}) reserved {}MB at 0x{:08x}..0x{:08x}",
+        log::debug!(
+            "[POOL] class #{} {}B grew: subpool {}/{} (#{}) reserved {}MB at 0x{:08x}..0x{:08x} source={}",
             class_index,
             item_size,
             subpool_index + 1,
@@ -1108,6 +1150,11 @@ impl PoolHeap {
             max_size / 1024 / 1024,
             reserved_base as usize,
             reserved_base as usize + max_size as usize,
+            if default_tail_backing {
+                "default-tail"
+            } else {
+                "virtualalloc"
+            },
         );
 
         true

@@ -386,7 +386,8 @@ impl BlockHeap {
     fn new_block(&mut self) -> Option<usize> {
         let idx = self.blocks.iter().position(|b| b.is_none())?;
 
-        let mut ptr = super::vanilla_large_heap::try_adopt_default_tail_block(BLOCK_SIZE);
+        let mut ptr =
+            super::vanilla_large_heap::try_alloc_default_tail(BLOCK_SIZE, 0x1000, "block", true);
         let mut backing = BlockBacking::VirtualAlloc;
 
         // Best VAS outcome: consume the already-reserved vanilla

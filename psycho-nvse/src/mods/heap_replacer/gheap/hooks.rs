@@ -102,7 +102,7 @@ fn maybe_drain_pdd() {
         .unwrap_or(false);
     if !enabled {
         if !DISABLED_LOGGED.swap(true, Ordering::Relaxed) {
-            log::info!("[PDD] Periodic blocking full purge disabled");
+            log::debug!("[PDD] Periodic blocking full purge disabled");
         }
         return;
     }

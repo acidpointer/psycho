@@ -39,6 +39,9 @@ const POLL_MS: u32 = 250;
 /// 20 polls * 250ms = 5 seconds, matching the old monitor interval.
 const LOG_INTERVAL: u32 = 20;
 
+/// Human-facing summary interval. Detailed watchdog samples stay in DEBUG.
+const INFO_SUMMARY_INTERVAL: u32 = LOG_INTERVAL * 12;
+
 /// Growth thresholds as fraction of headroom (available_vas - baseline).
 /// Proportional thresholds adapt to any modpack size:
 ///   Light (headroom=2596MB): normal=779, aggressive=1298, critical=1817
@@ -63,6 +66,14 @@ const LOADING_THRESHOLD_REDUCTION: usize = 200 * 1024 * 1024; // 200MB
 /// enough to catch pathological early spikes.
 const FALLBACK_ABSOLUTE_THRESHOLD: usize = 2 * 1024 * 1024 * 1024; // 2GB
 
+#[derive(Clone, Copy, PartialEq, Eq)]
+#[repr(usize)]
+enum PressureState {
+    Normal = 0,
+    Watch = 1,
+    High = 2,
+}
+
 // ---------------------------------------------------------------------------
 // Shared atomic state (read by main thread, written by watchdog)
 // ---------------------------------------------------------------------------
@@ -72,6 +83,9 @@ static GROWTH_RATE: AtomicI32 = AtomicI32::new(0);
 
 /// Last commit sample for rate computation.
 static LAST_COMMIT: AtomicUsize = AtomicUsize::new(0);
+static COMMIT_STATE: AtomicUsize = AtomicUsize::new(PressureState::Normal as usize);
+static FREE_VAS_STATE: AtomicUsize = AtomicUsize::new(PressureState::Normal as usize);
+static HOLE_STATE: AtomicUsize = AtomicUsize::new(PressureState::Normal as usize);
 
 // ---------------------------------------------------------------------------
 // Public API (called from main thread)
@@ -103,8 +117,9 @@ impl Watchdog {
             .spawn(move || watchdog_loop(run_clone))
             .expect("failed to spawn watchdog thread");
 
-        log::info!(
-            "[WATCHDOG] Started (poll={}ms, growth thresholds={}%/{}%/{}% of headroom)",
+        log::info!("[MEM] Watchdog started");
+        log::debug!(
+            "[MEM] Watchdog config: poll={}ms, growth thresholds={}%/{}%/{}% of headroom",
             POLL_MS,
             (NORMAL_GROWTH_PCT * 100.0) as u32,
             (AGGRESSIVE_GROWTH_PCT * 100.0) as u32,
@@ -157,72 +172,6 @@ fn watchdog_loop(run: Arc<AtomicBool>) {
         prev_rate = smoothed as i32;
         GROWTH_RATE.store(prev_rate, Ordering::Relaxed);
 
-        // --- Pressure telemetry (log-only, no cleanup) ---
-        // The watchdog must not call game code. It samples commit +
-        // free VAS and logs when growth crosses thresholds; any real
-        // reclamation happens on the main thread at Phase 7/8.
-        if let Some(pr) = PressureRelief::instance() {
-            let baseline = pr.baseline_commit();
-            let loading = globals::is_loading();
-            let headroom = super::allocator::get_headroom();
-            let free_vas = super::allocator::current_free_vas();
-
-            let (growth, normal_thresh, critical_thresh) = if baseline > 0 && headroom > 0 {
-                let reduction = if loading {
-                    LOADING_THRESHOLD_REDUCTION
-                } else {
-                    0
-                };
-                let g = commit.saturating_sub(baseline);
-                let normal =
-                    ((headroom as f64 * NORMAL_GROWTH_PCT) as usize).saturating_sub(reduction);
-                let critical =
-                    ((headroom as f64 * CRITICAL_GROWTH_PCT) as usize).saturating_sub(reduction);
-                (g, normal, critical)
-            } else if baseline > 0 {
-                let reduction = if loading {
-                    LOADING_THRESHOLD_REDUCTION
-                } else {
-                    0
-                };
-                (
-                    commit.saturating_sub(baseline),
-                    NORMAL_GROWTH_FALLBACK.saturating_sub(reduction),
-                    CRITICAL_GROWTH_FALLBACK.saturating_sub(reduction),
-                )
-            } else {
-                let reduction = if loading {
-                    LOADING_THRESHOLD_REDUCTION
-                } else {
-                    0
-                };
-                let normal_abs = FALLBACK_ABSOLUTE_THRESHOLD.saturating_sub(reduction);
-                (commit, normal_abs, normal_abs + 500 * 1024 * 1024)
-            };
-
-            if free_vas <= super::allocator::VAS_CRITICAL_REMAINING {
-                log::warn!(
-                    "[WATCHDOG] VAS CRITICAL: free={}MB (threshold={}MB)",
-                    free_vas / 1024 / 1024,
-                    super::allocator::VAS_CRITICAL_REMAINING / 1024 / 1024,
-                );
-            } else if growth >= critical_thresh {
-                log::warn!(
-                    "[WATCHDOG] Commit pressure CRITICAL: commit={}MB growth={}MB rate={}/s",
-                    commit / 1024 / 1024,
-                    growth / 1024 / 1024,
-                    format_rate(prev_rate),
-                );
-            } else if growth >= normal_thresh && prev_rate > 0 {
-                log::info!(
-                    "[WATCHDOG] Commit pressure: commit={}MB growth={}MB rate={}/s",
-                    commit / 1024 / 1024,
-                    growth / 1024 / 1024,
-                    format_rate(prev_rate),
-                );
-            }
-        }
-
         // --- Diagnostic logging ---
         log_diagnostics(poll_count, &info);
     }
@@ -237,7 +186,9 @@ fn log_diagnostics(poll_count: u32, info: &MiMallocProcessInfo) {
     let relief = stats.pressure_cycles();
     let cells = stats.pressure_cells_unloaded();
 
-    log::info!(
+    log_pressure(info.get_current_commit());
+
+    log::debug!(
         "[MEM] RSS: {} | Peak: {} | Commit: {} | PeakCommit: {} | Faults: {:.1}/s | CPU eff: {:.0}%",
         info.memory_usage_human(),
         info.peak_memory_usage_human(),
@@ -253,7 +204,7 @@ fn log_diagnostics(poll_count: u32, info: &MiMallocProcessInfo) {
     let pool_live = super::pool::live_cells();
     let block_ct = super::block::block_count();
     let va_live = super::va_alloc::live_bytes() / 1024 / 1024;
-    log::info!(
+    log::debug!(
         "[MEM] Pool: {}MB committed / {}MB reserved ({} live) | Blocks: {} | VA: {}MB | Rate: {}/s | Reliefs: {} | Cells: {}",
         pool_mb,
         pool_reserved_mb,
@@ -266,13 +217,32 @@ fn log_diagnostics(poll_count: u32, info: &MiMallocProcessInfo) {
     );
 
     if let Some(vas) = super::vas::sample() {
-        super::vas::log_summary("watchdog", vas);
-        if vas.largest_free <= super::vas::CRITICAL_LARGEST_HOLE {
-            log::warn!(
-                "[WATCHDOG] VAS largest-hole CRITICAL: largest=0x{:08x}+{}MB free={}MB",
-                vas.largest_base,
+        log::debug!(
+            "[VAS watchdog] free={}MB largest=0x{:08x}+{}MB second=0x{:08x}+{}MB reserve={}MB commit={}MB regions={} holes={}",
+            vas.total_free / super::vas::MB,
+            vas.largest_base,
+            vas.largest_free / super::vas::MB,
+            vas.second_base,
+            vas.second_free / super::vas::MB,
+            vas.total_reserve / super::vas::MB,
+            vas.total_commit / super::vas::MB,
+            vas.regions,
+            vas.holes,
+        );
+        log_largest_hole_pressure(vas);
+
+        if poll_count.is_multiple_of(INFO_SUMMARY_INTERVAL) {
+            log::info!(
+                "[MEM] commit={} peak={} pool={}/{}MB blocks={} va={}MB largest_free={}MB total_free={}MB rate={}/s",
+                info.virtual_memory_usage_human(),
+                libpsycho::common::helpers::format_bytes(info.get_peak_commit()),
+                pool_mb,
+                pool_reserved_mb,
+                block_ct,
+                va_live,
                 vas.largest_free / super::vas::MB,
                 vas.total_free / super::vas::MB,
+                format_rate(rate),
             );
         }
     }
@@ -285,6 +255,186 @@ fn log_diagnostics(poll_count: u32, info: &MiMallocProcessInfo) {
             cu_cells,
             cu_freed,
         );
+    }
+}
+
+fn log_pressure(commit: usize) {
+    let Some(pr) = PressureRelief::instance() else {
+        return;
+    };
+
+    let baseline = pr.baseline_commit();
+    let loading = globals::is_loading();
+    let headroom = super::allocator::get_headroom();
+    let free_vas = super::allocator::current_free_vas();
+
+    let (growth, normal_thresh, high_thresh) = if baseline > 0 && headroom > 0 {
+        let reduction = if loading {
+            LOADING_THRESHOLD_REDUCTION
+        } else {
+            0
+        };
+        let g = commit.saturating_sub(baseline);
+        let normal = ((headroom as f64 * NORMAL_GROWTH_PCT) as usize).saturating_sub(reduction);
+        let high = ((headroom as f64 * CRITICAL_GROWTH_PCT) as usize).saturating_sub(reduction);
+        (g, normal, high)
+    } else if baseline > 0 {
+        let reduction = if loading {
+            LOADING_THRESHOLD_REDUCTION
+        } else {
+            0
+        };
+        (
+            commit.saturating_sub(baseline),
+            NORMAL_GROWTH_FALLBACK.saturating_sub(reduction),
+            CRITICAL_GROWTH_FALLBACK.saturating_sub(reduction),
+        )
+    } else {
+        let reduction = if loading {
+            LOADING_THRESHOLD_REDUCTION
+        } else {
+            0
+        };
+        let normal_abs = FALLBACK_ABSOLUTE_THRESHOLD.saturating_sub(reduction);
+        (commit, normal_abs, normal_abs + 500 * 1024 * 1024)
+    };
+
+    let free_state = classify_free_vas(free_vas);
+    log_state_change(
+        &FREE_VAS_STATE,
+        free_state,
+        || {
+            log::info!(
+                "[MEM] Free VAS recovered: free={}MB",
+                free_vas / 1024 / 1024,
+            )
+        },
+        || log::info!("[MEM] Free VAS watch: free={}MB", free_vas / 1024 / 1024,),
+        || {
+            log::warn!(
+                "[MEM] Free VAS low: free={}MB. Heavy texture or cell streaming allocations may fail.",
+                free_vas / 1024 / 1024,
+            )
+        },
+    );
+
+    let commit_state = classify_commit_growth(growth, normal_thresh, high_thresh);
+    let rate = GROWTH_RATE.load(Ordering::Relaxed);
+    log_state_change(
+        &COMMIT_STATE,
+        commit_state,
+        || {
+            log::info!(
+                "[MEM] Commit pressure recovered: commit={}MB growth={}MB",
+                commit / 1024 / 1024,
+                growth / 1024 / 1024,
+            )
+        },
+        || {
+            log::info!(
+                "[MEM] Commit pressure watch: commit={}MB growth={}MB rate={}/s",
+                commit / 1024 / 1024,
+                growth / 1024 / 1024,
+                format_rate(rate),
+            )
+        },
+        || {
+            log::warn!(
+                "[MEM] Commit pressure high: commit={}MB growth={}MB rate={}/s",
+                commit / 1024 / 1024,
+                growth / 1024 / 1024,
+                format_rate(rate),
+            )
+        },
+    );
+}
+
+fn log_largest_hole_pressure(vas: super::vas::Summary) {
+    let old = state_from_usize(HOLE_STATE.load(Ordering::Acquire));
+    let state = classify_largest_hole(vas.largest_free, old);
+    log_state_change(
+        &HOLE_STATE,
+        state,
+        || {
+            log::info!(
+                "[MEM] VAS fragmentation recovered: largest_free={}MB total_free={}MB",
+                vas.largest_free / super::vas::MB,
+                vas.total_free / super::vas::MB,
+            )
+        },
+        || {
+            log::info!(
+                "[MEM] VAS fragmentation watch: largest_free={}MB total_free={}MB",
+                vas.largest_free / super::vas::MB,
+                vas.total_free / super::vas::MB,
+            )
+        },
+        || {
+            log::warn!(
+                "[MEM] VAS fragmentation high: largest_free={}MB total_free={}MB. Large texture or D3D allocations may fail.",
+                vas.largest_free / super::vas::MB,
+                vas.total_free / super::vas::MB,
+            )
+        },
+    );
+}
+
+fn classify_free_vas(free_vas: usize) -> PressureState {
+    if free_vas <= super::allocator::VAS_EMERGENCY_REMAINING {
+        PressureState::High
+    } else if free_vas <= super::allocator::VAS_CRITICAL_REMAINING {
+        PressureState::Watch
+    } else {
+        PressureState::Normal
+    }
+}
+
+fn classify_commit_growth(growth: usize, normal: usize, high: usize) -> PressureState {
+    if growth >= high {
+        PressureState::High
+    } else if growth >= normal && GROWTH_RATE.load(Ordering::Relaxed) > 0 {
+        PressureState::Watch
+    } else {
+        PressureState::Normal
+    }
+}
+
+fn classify_largest_hole(largest: usize, old: PressureState) -> PressureState {
+    if largest <= 96 * super::vas::MB {
+        PressureState::High
+    } else if largest <= super::vas::CRITICAL_LARGEST_HOLE {
+        PressureState::Watch
+    } else if old != PressureState::Normal && largest <= 160 * super::vas::MB {
+        PressureState::Watch
+    } else {
+        PressureState::Normal
+    }
+}
+
+fn log_state_change(
+    state: &AtomicUsize,
+    new: PressureState,
+    normal: impl FnOnce(),
+    watch: impl FnOnce(),
+    high: impl FnOnce(),
+) {
+    let old = state.swap(new as usize, Ordering::AcqRel);
+    if old == new as usize {
+        return;
+    }
+
+    match new {
+        PressureState::Normal => normal(),
+        PressureState::Watch => watch(),
+        PressureState::High => high(),
+    }
+}
+
+fn state_from_usize(value: usize) -> PressureState {
+    match value {
+        1 => PressureState::Watch,
+        2 => PressureState::High,
+        _ => PressureState::Normal,
     }
 }
 
