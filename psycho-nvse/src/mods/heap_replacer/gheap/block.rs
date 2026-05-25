@@ -87,6 +87,7 @@ struct Block {
     base: *mut u8,
     #[allow(dead_code)]
     size: u32,
+    backing: BlockBacking,
 
     /// Dense cell array. Once allocated, a slot is never shrunk; it may
     /// be reused when coalescing retires a cell.
@@ -109,12 +110,27 @@ struct Block {
     used_by_offset: HashMap<u32, u32, FxBuildHasher>,
 }
 
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum BlockBacking {
+    VirtualAlloc,
+    DefaultHeapTail,
+}
+
+impl BlockBacking {
+    const fn label(self) -> &'static str {
+        match self {
+            Self::VirtualAlloc => "virtualalloc",
+            Self::DefaultHeapTail => "default-tail",
+        }
+    }
+}
+
 // Safety: Block is only accessed under the BlockHeap mutex.
 unsafe impl Send for Block {}
 unsafe impl Sync for Block {}
 
 impl Block {
-    fn new(base: *mut u8, size: u32) -> Self {
+    fn new(base: *mut u8, size: u32, backing: BlockBacking) -> Self {
         let mut cells = Vec::with_capacity(64);
         cells.push(Cell {
             offset: 0,
@@ -129,6 +145,7 @@ impl Block {
         Self {
             base,
             size,
+            backing,
             cells,
             free_slots: Vec::new(),
             first: 0,
@@ -369,12 +386,22 @@ impl BlockHeap {
     fn new_block(&mut self) -> Option<usize> {
         let idx = self.blocks.iter().position(|b| b.is_none())?;
 
-        let mut ptr: *mut c_void = null_mut();
+        let mut ptr = super::vanilla_large_heap::try_adopt_default_tail_block(BLOCK_SIZE);
+        let mut backing = BlockBacking::VirtualAlloc;
+
+        // Best VAS outcome: consume the already-reserved vanilla
+        // Default heap tail before taking fresh address-space holes.
+        // The adopted range is still a normal 16 MB block after this.
+        if !ptr.is_null() {
+            backing = BlockBacking::DefaultHeapTail;
+        }
 
         // First chance: try to land adjacent to the highest live slot.
         // Silent on failure -- hint collisions are expected and the
         // fallback path below handles them cleanly.
-        if let Some(hint) = self.preferred_next_address() {
+        if ptr.is_null()
+            && let Some(hint) = self.preferred_next_address()
+        {
             ptr = unsafe {
                 VirtualAlloc(
                     Some(hint as *const c_void),
@@ -418,11 +445,12 @@ impl BlockHeap {
             return None;
         }
         let addr = ptr as *mut u8;
-        self.blocks[idx] = Some(Block::new(addr, BLOCK_SIZE as u32));
+        self.blocks[idx] = Some(Block::new(addr, BLOCK_SIZE as u32, backing));
         log::debug!(
-            "[BLOCK] slot {} allocated at 0x{:08x} (live={})",
+            "[BLOCK] slot {} allocated at 0x{:08x} source={} (live={})",
             idx,
             addr as usize,
+            backing.label(),
             self.live_count(),
         );
         Some(idx)
@@ -522,6 +550,10 @@ impl BlockHeap {
                 continue;
             };
             let base = b.base as usize;
+            if b.backing == BlockBacking::DefaultHeapTail {
+                self.blocks[i] = Some(b);
+                continue;
+            }
             if let Err(e) = unsafe { VirtualFree(b.base as *mut c_void, 0, MEM_RELEASE) } {
                 log::error!(
                     "[BLOCK] Emergency retire VirtualFree failed: slot {} base=0x{:08x} err={:?}",

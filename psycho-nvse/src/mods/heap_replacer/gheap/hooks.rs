@@ -133,6 +133,9 @@ pub unsafe extern "thiscall" fn hook_main_loop_maintenance(this: *mut c_void) {
         pr.calibrate_baseline();
         pr.flush_pending_counter_decrement();
     }
+
+    super::vanilla_large_heap::run_once();
+    super::vanilla_large_heap::poll_default_tail_contract();
 }
 
 /// Phase 8: AI thread dispatch. Sets AI_ACTIVE flag before dispatching.

@@ -21,5 +21,6 @@ pub mod task_release;
 pub mod texture_cache;
 pub mod types;
 pub mod va_alloc;
+pub mod vanilla_large_heap;
 pub mod vas;
 pub mod watchdog;

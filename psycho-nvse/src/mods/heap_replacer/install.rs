@@ -221,6 +221,11 @@ pub fn install_gheap_initialize() -> anyhow::Result<()> {
     {
         use gheap::statics::*;
 
+        HAVOK_NARROWPHASE_ADD_AGENTS_HOOK.init(
+            "havok_narrowphase_add_agents",
+            HAVOK_NARROWPHASE_ADD_AGENTS_ADDR as *mut c_void,
+            gheap::havok_fix::hook_havok_narrowphase_add_agents,
+        )?;
         HAVOK_ENTITY_POST_ADD_HOOK.init(
             "havok_entity_post_add",
             HAVOK_ENTITY_POST_ADD_ADDR as *mut c_void,
@@ -350,8 +355,9 @@ pub fn install_gheap_activate() -> anyhow::Result<()> {
     {
         use gheap::statics::*;
 
+        HAVOK_NARROWPHASE_ADD_AGENTS_HOOK.enable()?;
         HAVOK_ENTITY_POST_ADD_HOOK.enable()?;
-        log::info!("[HAVOK] FUN_00CFFA00 NULL-entity guard active");
+        log::info!("[HAVOK] Narrowphase pair guards active");
     }
 
     // _memset NULL-dst defensive shim

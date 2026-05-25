@@ -248,13 +248,15 @@ fn log_diagnostics(poll_count: u32, info: &MiMallocProcessInfo) {
     );
 
     let rate = GROWTH_RATE.load(Ordering::Relaxed);
+    let pool_reserved_mb = super::pool::reserved_bytes() / 1024 / 1024;
     let pool_mb = super::pool::committed_bytes() / 1024 / 1024;
     let pool_live = super::pool::live_cells();
     let block_ct = super::block::block_count();
     let va_live = super::va_alloc::live_bytes() / 1024 / 1024;
     log::info!(
-        "[MEM] Pool: {}MB ({} live) | Blocks: {} | VA: {}MB | Rate: {}/s | Reliefs: {} | Cells: {}",
+        "[MEM] Pool: {}MB committed / {}MB reserved ({} live) | Blocks: {} | VA: {}MB | Rate: {}/s | Reliefs: {} | Cells: {}",
         pool_mb,
+        pool_reserved_mb,
         pool_live,
         block_ct,
         va_live,

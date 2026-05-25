@@ -1,0 +1,728 @@
+AUDIT: old SBM reclaim safety for gheap VAS pressure
+======================================================================
+
+Goal: determine whether full gheap can safely reclaim old vanilla SBM
+heap/arena reservations after hooks are active. Do not assume safety:
+pre-hook allocations may still be freed through original GameHeap, and
+unhooked internal SBM paths may still touch arena freelists.
+
+Known constructors from prior audit:
+  FUN_00866e00 creates Default Heap via FUN_00aa78a0(..., 0x0c800000, 0x05500000, "Default Heap", 0)
+  FUN_00866e00 creates Static Heap via FUN_00aa7400(..., 0x00183800, "Static Heap")
+  FUN_00866e00 creates File Heap via FUN_00aa78a0(..., 0x04000000, 0x00200000, "File Heap", 0)
+
+# SECTION 1: heap constructors
+
+======================================================================
+SBM_RelatedInit_heap_construction @ 0x00866e00
+======================================================================
+  Function: FUN_00866e00 @ 0x00866e00, Size: 481 bytes
+
+void __fastcall FUN_00866e00(int param_1)
+
+{
+  uint uVar1;
+  undefined4 uVar2;
+  int iVar3;
+  int *unaff_FS_OFFSET;
+  undefined4 local_3c;
+  undefined4 local_38;
+  undefined4 local_34;
+  int local_10;
+  undefined1 *puStack_c;
+  undefined4 local_8;
+  
+  local_8 = 0xffffffff;
+  puStack_c = &LAB_00f13b71;
+  local_10 = *unaff_FS_OFFSET;
+  uVar1 = DAT_011c16bc ^ (uint)&stack0xfffffffc;
+  *unaff_FS_OFFSET = (int)&local_10;
+  std::_Fiopen((wchar_t *)(param_1 + 0xc),0,0x108);
+  *(undefined2 *)(param_1 + 2) = 3;
+  uVar2 = FUN_00401000((uint)*(ushort *)(param_1 + 2) * 4,uVar1);
+  *(undefined4 *)(param_1 + 8) = uVar2;
+  iVar3 = FUN_00401000(0x20f4);
+  local_8 = 0;
+  if (iVar3 == 0) {
+    local_34 = 0;
+  }
+  else {
+    local_34 = FUN_00aa78a0(0xc800000,0x5500000,"Default Heap",0);
+  }
+  local_8 = 0xffffffff;
+  **(undefined4 **)(param_1 + 8) = local_34;
+  *(undefined4 *)(param_1 + 0x110) = **(undefined4 **)(param_1 + 8);
+  iVar3 = FUN_00401000(0x40,uVar1);
+  local_8 = 1;
+  if (iVar3 == 0) {
+    local_38 = 0;
+  }
+  else {
+    local_38 = FUN_00aa7400(0x183800,"Static Heap");
+  }
+  local_8 = 0xffffffff;
+  *(undefined4 *)(*(int *)(param_1 + 8) + 4) = local_38;
+  *(undefined4 *)(param_1 + 0xc) = *(undefined4 *)(*(int *)(param_1 + 8) + 4);
+  *(undefined4 *)(param_1 + 0x30) = *(undefined4 *)(*(int *)(param_1 + 8) + 4);
+  *(undefined4 *)(param_1 + 0x18) = *(undefined4 *)(*(int *)(param_1 + 8) + 4);
+  iVar3 = FUN_00401000(0x20f4);
+  local_8 = 2;
+  if (iVar3 == 0) {
+    local_3c = 0;
+  }
+  else {
+    local_3c = FUN_00aa78a0(0x4000000,0x200000,"File Heap",0);
+  }
+  *(undefined4 *)(*(int *)(param_1 + 8) + 8) = local_3c;
+  *(undefined4 *)(param_1 + 0x68) = *(undefined4 *)(*(int *)(param_1 + 8) + 8);
+  *(undefined2 *)(param_1 + 4) = 0;
+  *unaff_FS_OFFSET = local_10;
+  return;
+}
+
+
+
+----------------------------------------------------------------------
+References TO 0x00866e00 (SBM_RelatedInit_heap_construction)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x00aa39cf (in FUN_00aa39c0 @ 0x00aa39c0)
+  Total: 1 refs
+
+--- Calls FROM SBM_RelatedInit_heap_construction (0x00866e00) ---
+  0x00866e36 -> 0x00403d30 _Fiopen
+  0x00866e62 -> 0x00401000 FUN_00401000
+  0x00866e7b -> 0x00401000 FUN_00401000
+  0x00866ea7 -> 0x00aa78a0 FUN_00aa78a0
+  0x00866ee3 -> 0x00401000 FUN_00401000
+  0x00866f08 -> 0x00aa7400 FUN_00aa7400
+  0x00866f64 -> 0x00401000 FUN_00401000
+  0x00866f90 -> 0x00aa78a0 FUN_00aa78a0
+  Total: 8 calls
+
+======================================================================
+SBM_DefaultFileHeap_constructor_FUN_00aa78a0 @ 0x00aa78a0
+======================================================================
+  Function: FUN_00aa78a0 @ 0x00aa78a0, Size: 136 bytes
+
+undefined4 * __thiscall
+FUN_00aa78a0(undefined4 *param_1,undefined4 param_2,undefined4 param_3,undefined4 param_4,
+            undefined1 param_5)
+
+{
+  uint uVar1;
+  int *unaff_FS_OFFSET;
+  int local_10;
+  undefined1 *puStack_c;
+  undefined4 local_8;
+  
+  local_8 = 0xffffffff;
+  puStack_c = &LAB_00f1eda8;
+  local_10 = *unaff_FS_OFFSET;
+  uVar1 = DAT_011c16bc ^ (uint)&stack0xfffffffc;
+  *unaff_FS_OFFSET = (int)&local_10;
+  FUN_00aa8ca0(param_2,param_3,param_4,0x10000);
+  local_8 = 0;
+  *param_1 = &PTR_FUN_010a28fc;
+  *(undefined1 *)(param_1 + 0x83c) = param_5;
+  *(undefined1 *)((int)param_1 + 0x20f1) = 0;
+  FUN_00aa8dd0(uVar1);
+  *unaff_FS_OFFSET = local_10;
+  return param_1;
+}
+
+
+
+----------------------------------------------------------------------
+References TO 0x00aa78a0 (SBM_DefaultFileHeap_constructor_FUN_00aa78a0)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x00866ea7 (in FUN_00866e00 @ 0x00866e00)
+  UNCONDITIONAL_CALL @ 0x00866f90 (in FUN_00866e00 @ 0x00866e00)
+  Total: 2 refs
+
+--- Calls FROM SBM_DefaultFileHeap_constructor_FUN_00aa78a0 (0x00aa78a0) ---
+  0x00aa78da -> 0x00aa8ca0 FUN_00aa8ca0
+  0x00aa7908 -> 0x00aa8dd0 FUN_00aa8dd0
+  Total: 2 calls
+
+======================================================================
+SBM_StaticHeap_constructor_FUN_00aa7400 @ 0x00aa7400
+======================================================================
+  Function: FUN_00aa7400 @ 0x00aa7400, Size: 182 bytes
+
+undefined4 * __thiscall FUN_00aa7400(undefined4 *param_1,undefined4 param_2,undefined4 param_3)
+
+{
+  undefined4 uVar1;
+  int *unaff_FS_OFFSET;
+  int local_10;
+  undefined1 *puStack_c;
+  undefined4 local_8;
+  
+  puStack_c = &LAB_00f1ed58;
+  local_10 = *unaff_FS_OFFSET;
+  *unaff_FS_OFFSET = (int)&local_10;
+  *param_1 = &PTR_FUN_010a28c8;
+  local_8 = 0;
+  *param_1 = &PTR_FUN_010a2884;
+  param_1[1] = param_2;
+  param_1[2] = param_3;
+  param_1[5] = 0;
+  param_1[8] = 0;
+  param_1[9] = 0;
+  uVar1 = FUN_00aa4290(param_2,1);
+  param_1[3] = uVar1;
+  param_1[4] = param_1[3];
+  *unaff_FS_OFFSET = local_10;
+  return param_1;
+}
+
+
+
+----------------------------------------------------------------------
+References TO 0x00aa7400 (SBM_StaticHeap_constructor_FUN_00aa7400)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x00866f08 (in FUN_00866e00 @ 0x00866e00)
+  Total: 1 refs
+
+--- Calls FROM SBM_StaticHeap_constructor_FUN_00aa7400 (0x00aa7400) ---
+  0x00aa7484 -> 0x00aa4290 FUN_00aa4290
+  Total: 1 calls
+
+======================================================================
+GameHeap_init_gate_FUN_00aa39c0 @ 0x00aa39c0
+======================================================================
+  Function: FUN_00aa39c0 @ 0x00aa39c0, Size: 72 bytes
+
+void __fastcall FUN_00aa39c0(undefined1 *param_1)
+
+{
+  int unaff_FS_OFFSET;
+  
+  FUN_00aa6840();
+  FUN_00866e00();
+  *param_1 = 1;
+  FUN_00866770();
+  FUN_00483710();
+  *(undefined4 *)(*(int *)(*(int *)(unaff_FS_OFFSET + 0x2c) + _tls_index * 4) + 0x2b4) = 0;
+  return;
+}
+
+
+
+----------------------------------------------------------------------
+References TO 0x00aa39c0 (GameHeap_init_gate_FUN_00aa39c0)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x00aa3991 (in FUN_00aa3880 @ 0x00aa3880)
+  Total: 1 refs
+
+--- Calls FROM GameHeap_init_gate_FUN_00aa39c0 (0x00aa39c0) ---
+  0x00aa39c7 -> 0x00aa6840 FUN_00aa6840
+  0x00aa39cf -> 0x00866e00 FUN_00866e00
+  0x00aa39dd -> 0x00866770 FUN_00866770
+  0x00aa39e5 -> 0x00483710 FUN_00483710
+  Total: 4 calls
+
+# SECTION 2: release and purge paths
+
+======================================================================
+SBM_DeallocateAllArenas_FUN_00aa5c80 @ 0x00aa5c80
+======================================================================
+  Function: FUN_00aa5c80 @ 0x00aa5c80, Size: 182 bytes
+
+void __fastcall FUN_00aa5c80(int param_1)
+
+{
+  uint local_8;
+  
+  if (*(int *)(param_1 + 0x200) != 0) {
+    FUN_0040fbf0("ScrapHeapManager::FreeAllBuffers()");
+    for (local_8 = 0; local_8 < *(uint *)(param_1 + 0x200); local_8 = local_8 + 1) {
+      FUN_00aa5f30(*(undefined4 *)(param_1 + local_8 * 8),*(undefined4 *)(param_1 + 4 + local_8 * 8)
+                  );
+    }
+    *(undefined4 *)(param_1 + 0x200) = 0;
+    *(undefined4 *)(param_1 + 0x204) = 0;
+    *(int *)(param_1 + 0x224) = *(int *)(param_1 + 0x224) + -1;
+    if (*(int *)(param_1 + 0x224) == 0) {
+      *(undefined4 *)(param_1 + 0x220) = 0;
+    }
+  }
+  return;
+}
+
+
+
+----------------------------------------------------------------------
+References TO 0x00aa5c80 (SBM_DeallocateAllArenas_FUN_00aa5c80)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x00866b01 (in FUN_00866a90 @ 0x00866a90)
+  UNCONDITIONAL_CALL @ 0x00aa58ba (in FUN_00aa58b0 @ 0x00aa58b0)
+  Total: 2 refs
+
+--- Calls FROM SBM_DeallocateAllArenas_FUN_00aa5c80 (0x00aa5c80) ---
+  0x00aa5ca8 -> 0x0040fbf0 FUN_0040fbf0
+  0x00aa5ce5 -> 0x00aa5f30 FUN_00aa5f30
+  Total: 2 calls
+
+======================================================================
+SBM_GlobalCleanup_FUN_00aa7030 @ 0x00aa7030
+======================================================================
+  Function: FUN_00aa7030 @ 0x00aa7030, Size: 136 bytes
+
+void FUN_00aa7030(void)
+
+{
+  uint local_8;
+  
+  if ((DAT_011f6bd0 & 1) == 0) {
+    DAT_011f6bd0 = DAT_011f6bd0 | 1;
+    InitializeCriticalSection((LPCRITICAL_SECTION)&lpCriticalSection_011f6bb8);
+    _atexit(FUN_00fdb2a0);
+  }
+  EnterCriticalSection((LPCRITICAL_SECTION)&lpCriticalSection_011f6bb8);
+  for (local_8 = 0; local_8 < 0x100; local_8 = local_8 + 1) {
+    if (*(int *)(&DAT_011f67b8 + local_8 * 4) != 0) {
+      FUN_00aa6f90();
+    }
+  }
+  LeaveCriticalSection((LPCRITICAL_SECTION)&lpCriticalSection_011f6bb8);
+  return;
+}
+
+
+
+----------------------------------------------------------------------
+References TO 0x00aa7030 (SBM_GlobalCleanup_FUN_00aa7030)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x00878208 (in FUN_00878200 @ 0x00878200)
+  UNCONDITIONAL_CALL @ 0x0093d3ab (in FUN_0093cdf0 @ 0x0093cdf0)
+  UNCONDITIONAL_CALL @ 0x0093d655 (in FUN_0093d500 @ 0x0093d500)
+  UNCONDITIONAL_CALL @ 0x00866bf7 (in FUN_00866a90 @ 0x00866a90)
+  Total: 4 refs
+
+--- Calls FROM SBM_GlobalCleanup_FUN_00aa7030 (0x00aa7030) ---
+  0x00aa7052 -> 0x0000000b ???
+  0x00aa705d -> 0x00ec658f _atexit
+  0x00aa706a -> 0x0000000d ???
+  0x00aa70a2 -> 0x00aa6f90 FUN_00aa6f90
+  0x00aa70ae -> 0x00000036 ???
+  Total: 5 calls
+
+======================================================================
+SBM_PurgeUnusedArenas_FUN_00aa6f90 @ 0x00aa6f90
+======================================================================
+  Function: FUN_00aa6f90 @ 0x00aa6f90, Size: 157 bytes
+
+void __fastcall FUN_00aa6f90(int param_1)
+
+{
+  bool bVar1;
+  uint local_c;
+  
+  FUN_0040fbf0("MemoryPool::FreeUnusedPagesForAllPools()");
+  bVar1 = false;
+  for (local_c = 0; local_c < *(uint *)(param_1 + 0x4c); local_c = local_c + 1) {
+    if (*(short *)(*(int *)(param_1 + 0x48) + local_c * 2) == 0) {
+      if (!bVar1) {
+        FUN_00aa7260();
+        bVar1 = true;
+      }
+      FUN_00aa6eb0(local_c,0);
+    }
+  }
+  *(int *)(param_1 + 0x24) = *(int *)(param_1 + 0x24) + -1;
+  if (*(int *)(param_1 + 0x24) == 0) {
+    *(undefined4 *)(param_1 + 0x20) = 0;
+  }
+  return;
+}
+
+
+
+----------------------------------------------------------------------
+References TO 0x00aa6f90 (SBM_PurgeUnusedArenas_FUN_00aa6f90)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x00aa70a2 (in FUN_00aa7030 @ 0x00aa7030)
+  Total: 1 refs
+
+--- Calls FROM SBM_PurgeUnusedArenas_FUN_00aa6f90 (0x00aa6f90) ---
+  0x00aa6fa4 -> 0x0040fbf0 FUN_0040fbf0
+  0x00aa6fe6 -> 0x00aa7260 FUN_00aa7260
+  0x00aa6ff8 -> 0x00aa6eb0 FUN_00aa6eb0
+  Total: 3 calls
+
+======================================================================
+SBM_DecrementArenaRef_FUN_00aa7290 @ 0x00aa7290
+======================================================================
+  Function: FUN_00aa7290 @ 0x00aa7290, Size: 110 bytes
+
+void FUN_00aa7290(int param_1)
+
+{
+  int iVar1;
+  
+  if (*(int *)(&DAT_011f67b8 + param_1 * 4) != 0) {
+    FUN_0040fbf0("SortFreeBlocks");
+    FUN_00aa7260();
+    iVar1 = *(int *)(&DAT_011f67b8 + param_1 * 4);
+    *(int *)(iVar1 + 0x24) = *(int *)(iVar1 + 0x24) + -1;
+    if (*(int *)(iVar1 + 0x24) == 0) {
+      *(undefined4 *)(iVar1 + 0x20) = 0;
+    }
+  }
+  return;
+}
+
+
+
+----------------------------------------------------------------------
+References TO 0x00aa7290 (SBM_DecrementArenaRef_FUN_00aa7290)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x0086ef0e (in FUN_0086e650 @ 0x0086e650)
+  Total: 1 refs
+
+--- Calls FROM SBM_DecrementArenaRef_FUN_00aa7290 (0x00aa7290) ---
+  0x00aa72b5 -> 0x0040fbf0 FUN_0040fbf0
+  0x00aa72c4 -> 0x00aa7260 FUN_00aa7260
+  Total: 2 calls
+
+======================================================================
+SBM_ReleaseArenaByPtr_FUN_00aa7300 @ 0x00aa7300
+======================================================================
+  Function: FUN_00aa7300 @ 0x00aa7300, Size: 106 bytes
+
+void __fastcall FUN_00aa7300(int param_1)
+
+{
+  int local_8;
+  
+  FUN_0040fbf0("CheckFreeBlocks");
+  if (8 < *(uint *)(param_1 + 0x40)) {
+    for (local_8 = *(int *)(param_1 + 8); local_8 != 0; local_8 = *(int *)(local_8 + 4)) {
+    }
+  }
+  *(int *)(param_1 + 0x24) = *(int *)(param_1 + 0x24) + -1;
+  if (*(int *)(param_1 + 0x24) == 0) {
+    *(undefined4 *)(param_1 + 0x20) = 0;
+  }
+  return;
+}
+
+
+
+----------------------------------------------------------------------
+References TO 0x00aa7300 (SBM_ReleaseArenaByPtr_FUN_00aa7300)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x00aa73e3 (in FUN_00aa7370 @ 0x00aa7370)
+  Total: 1 refs
+
+--- Calls FROM SBM_ReleaseArenaByPtr_FUN_00aa7300 (0x00aa7300) ---
+  0x00aa7314 -> 0x0040fbf0 FUN_0040fbf0
+  Total: 1 calls
+
+# SECTION 3: low-level VirtualAlloc/VirtualFree wrappers
+
+======================================================================
+SBM_VirtualAlloc_ReserveAndCommit @ 0x00aa5ec0
+======================================================================
+  Function: FUN_00aa5ec0 @ 0x00aa5ec0, Size: 111 bytes
+
+LPVOID FUN_00aa5ec0(SIZE_T param_1)
+
+{
+  LPVOID pvVar1;
+  undefined1 local_d;
+  undefined4 local_c;
+  LPVOID local_8;
+  
+  local_8 = VirtualAlloc((LPVOID)0x0,0x800000,0x2000,4);
+  local_c = 0;
+  while( true ) {
+    pvVar1 = VirtualAlloc(local_8,param_1,0x1000,4);
+    if (pvVar1 != (LPVOID)0x0) break;
+    local_d = 1;
+    local_c = FUN_00866a90(0,local_c,&local_d);
+  }
+  return local_8;
+}
+
+
+
+----------------------------------------------------------------------
+References TO 0x00aa5ec0 (SBM_VirtualAlloc_ReserveAndCommit)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x00aa59ce (in FUN_00aa59b0 @ 0x00aa59b0)
+  UNCONDITIONAL_CALL @ 0x00aa5a00 (in FUN_00aa59b0 @ 0x00aa59b0)
+  Total: 2 refs
+
+--- Calls FROM SBM_VirtualAlloc_ReserveAndCommit (0x00aa5ec0) ---
+  0x00aa5ed7 -> 0x0000003b ???
+  0x00aa5ef6 -> 0x0000003b ???
+  0x00aa5f1c -> 0x00866a90 FUN_00866a90
+  Total: 3 calls
+
+======================================================================
+SBM_VirtualAlloc_CommitRetry @ 0x00aa5e30
+======================================================================
+  Function: FUN_00aa5e30 @ 0x00aa5e30, Size: 88 bytes
+
+void FUN_00aa5e30(int param_1,int param_2,SIZE_T param_3)
+
+{
+  LPVOID pvVar1;
+  undefined1 local_9;
+  undefined4 local_8;
+  
+  local_8 = 0;
+  while( true ) {
+    pvVar1 = VirtualAlloc((LPVOID)(param_1 + param_2),param_3,0x1000,4);
+    if (pvVar1 != (LPVOID)0x0) break;
+    local_9 = 1;
+    local_8 = FUN_00866a90(0,local_8,&local_9);
+  }
+  return;
+}
+
+
+
+----------------------------------------------------------------------
+References TO 0x00aa5e30 (SBM_VirtualAlloc_CommitRetry)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x00aa5581 (in FUN_00aa54a0 @ 0x00aa54a0)
+  UNCONDITIONAL_CALL @ 0x00aa5b2e (in FUN_00aa59b0 @ 0x00aa59b0)
+  Total: 2 refs
+
+--- Calls FROM SBM_VirtualAlloc_CommitRetry (0x00aa5e30) ---
+  0x00aa5e52 -> 0x0000003b ???
+  0x00aa5e78 -> 0x00866a90 FUN_00866a90
+  Total: 2 calls
+
+======================================================================
+SBM_VirtualFree_Release @ 0x00aa5f30
+======================================================================
+  Function: FUN_00aa5f30 @ 0x00aa5f30, Size: 30 bytes
+
+void FUN_00aa5f30(LPVOID param_1)
+
+{
+  VirtualFree(param_1,0,0x8000);
+  return;
+}
+
+
+
+----------------------------------------------------------------------
+References TO 0x00aa5f30 (SBM_VirtualFree_Release)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x00aa5b90 (in FUN_00aa5b70 @ 0x00aa5b70)
+  UNCONDITIONAL_CALL @ 0x00aa5bbf (in FUN_00aa5b70 @ 0x00aa5b70)
+  UNCONDITIONAL_CALL @ 0x00aa5ce5 (in FUN_00aa5c80 @ 0x00aa5c80)
+  UNCONDITIONAL_CALL @ 0x00aa5dc1 (in FUN_00aa5d40 @ 0x00aa5d40)
+  Total: 4 refs
+
+--- Calls FROM SBM_VirtualFree_Release (0x00aa5f30) ---
+  0x00aa5f42 -> 0x00000039 ???
+  Total: 1 calls
+
+======================================================================
+SBM_VirtualFree_Decommit @ 0x00aa5e90
+======================================================================
+  Function: FUN_00aa5e90 @ 0x00aa5e90, Size: 38 bytes
+
+void FUN_00aa5e90(int param_1,int param_2,SIZE_T param_3)
+
+{
+  VirtualFree((LPVOID)((param_1 + param_2) - param_3),param_3,0x4000);
+  return;
+}
+
+
+
+----------------------------------------------------------------------
+References TO 0x00aa5e90 (SBM_VirtualFree_Decommit)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x00aa56f5 (in FUN_00aa5610 @ 0x00aa5610)
+  Total: 1 refs
+
+--- Calls FROM SBM_VirtualFree_Decommit (0x00aa5e90) ---
+  0x00aa5eaa -> 0x00000039 ???
+  Total: 1 calls
+
+# SECTION 4: old pool fast path and freelist paths
+
+======================================================================
+SBM_GetPool_by_size @ 0x00aa4960
+======================================================================
+  Function: FUN_00aa4960 @ 0x00aa4960, Size: 238 bytes
+
+/* WARNING: Globals starting with '_' overlap smaller symbols at the same address */
+
+uint FUN_00aa4960(uint param_1)
+
+{
+  uint local_14;
+  uint local_10;
+  uint local_c;
+  uint local_8;
+  
+  local_8 = 0;
+  if (param_1 < 300) {
+    if (param_1 < 0x3fd) {
+      local_c = *(uint *)(&DAT_011f67b8 + (param_1 + 0xf & 0xfffffff0));
+    }
+    else {
+      local_c = 0;
+    }
+    local_8 = local_c;
+  }
+  else if (param_1 < 0x200) {
+    if (param_1 < 0x3fd) {
+      local_10 = *(uint *)(&DAT_011f67b8 + (param_1 + 0xf & 0xfffffff0));
+    }
+    else {
+      local_10 = 0;
+    }
+    local_8 = local_10;
+    if (local_10 == 0) {
+      if (param_1 < 0x3fd) {
+        local_14 = *(uint *)(&DAT_011f67b8 + (param_1 + 0x1f & 0xffffffe0));
+      }
+      else {
+        local_14 = 0;
+      }
+      local_8 = local_14;
+    }
+  }
+  else if (param_1 < 0x240) {
+    local_8 = ~-(uint)(0x3fc < param_1) & _DAT_011f69f8;
+  }
+  if (local_8 == 0) {
+    local_8 = 0;
+  }
+  return local_8;
+}
+
+
+
+----------------------------------------------------------------------
+References TO 0x00aa4960 (SBM_GetPool_by_size)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x00aa3f0b (in FUN_00aa3e40 @ 0x00aa3e40)
+  Total: 1 refs
+
+--- Calls FROM SBM_GetPool_by_size (0x00aa4960) ---
+  Total: 0 calls
+
+======================================================================
+SBM_ArenaAlloc @ 0x00aa6aa0
+======================================================================
+  Function: FUN_00aa6aa0 @ 0x00aa6aa0, Size: 462 bytes
+
+int __fastcall FUN_00aa6aa0(int param_1)
+
+{
+  undefined4 uVar1;
+  char cVar2;
+  int iVar3;
+  uint uVar4;
+  uint local_18;
+  int local_c;
+  
+  FUN_0040fbf0("MemoryPool::Allocate");
+  if (*(int *)(param_1 + 8) == 0) {
+    iVar3 = FUN_00aa6db0();
+    if (iVar3 == -1) {
+      *(int *)(param_1 + 0x24) = *(int *)(param_1 + 0x24) + -1;
+      if (*(int *)(param_1 + 0x24) == 0) {
+        *(undefined4 *)(param_1 + 0x20) = 0;
+      }
+      return 0;
+    }
+    local_c = 0;
+    uVar4 = *(uint *)(param_1 + 0x40);
+    cVar2 = FUN_00aa6610(iVar3,&local_c);
+    if (cVar2 == '\0') {
+      *(int *)(param_1 + 0x24) = *(int *)(param_1 + 0x24) + -1;
+      if (*(int *)(param_1 + 0x24) == 0) {
+        *(undefined4 *)(param_1 + 0x20) = 0;
+      }
+      return 0;
+    }
+    *(undefined2 *)(*(int *)(param_1 + 0x48) + iVar3 * 2) = 0;
+    for (local_18 = 0; local_18 < (uint)(0x1000 / (ulonglong)uVar4); local_18 = local_18 + 1) {
+      FUN_00aa6e00(local_18 * *(int *)(param_1 + 0x40) + local_c);
+    }
+    *(int *)(param_1 + 0x58) = *(int *)(param_1 + 0x58) + 1;
+    if (*(uint *)(param_1 + 0x44) < *(uint *)(param_1 + 0x58)) {
+      *(undefined4 *)(param_1 + 0x44) = *(undefined4 *)(param_1 + 0x58);
+    }
+  }
+  iVar3 = 0;
+  if (*(int *)(param_1 + 8) != 0) {
+    iVar3 = *(int *)(param_1 + 8);
+    uVar1 = *(undefined4 *)(param_1 + 8);
+    *(undefined4 *)(param_1 + 8) = *(undefined4 *)(*(int *)(param_1 + 8) + 4);
+    FUN_00aa6e60(uVar1);
+    uVar4 = (uint)(iVar3 - *(int *)(param_1 + 4)) >> 0xc;
+    *(short *)(*(int *)(param_1 + 0x48) + uVar4 * 2) =
+         *(short *)(*(int *)(param_1 + 0x48) + uVar4 * 2) + 1;
+  }
+  *(int *)(param_1 + 0x24) = *(int *)(param_1 + 0x24) + -1;
+  if (*(int *)(param_1 + 0x24) == 0) {
+    *(undefined4 *)(param_1 + 0x20) = 0;
+  }
+  return iVar3;
+}
+
+
+
+----------------------------------------------------------------------
+References TO 0x00aa6aa0 (SBM_ArenaAlloc)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x00aa3f23 (in FUN_00aa3e40 @ 0x00aa3e40)
+  Total: 1 refs
+
+--- Calls FROM SBM_ArenaAlloc (0x00aa6aa0) ---
+  0x00aa6ab4 -> 0x0040fbf0 FUN_0040fbf0
+  0x00aa6ac9 -> 0x00aa6db0 FUN_00aa6db0
+  0x00aa6b2a -> 0x00aa6610 FUN_00aa6610
+  0x00aa6ba1 -> 0x00aa6e00 FUN_00aa6e00
+  0x00aa6c09 -> 0x00aa6e60 FUN_00aa6e60
+  Total: 5 calls
+
+======================================================================
+SBM_ArenaFree @ 0x00aa6c70
+======================================================================
+  Function: FUN_00aa6c70 @ 0x00aa6c70, Size: 138 bytes
+
+void __thiscall FUN_00aa6c70(int param_1,int param_2)
+
+{
+  uint uVar1;
+  
+  if (param_2 != 0) {
+    FUN_0040fbf0("MemoryPool::Free");
+    FUN_00aa6e00(param_2);
+    uVar1 = (uint)(param_2 - *(int *)(param_1 + 4)) >> 0xc;
+    *(short *)(*(int *)(param_1 + 0x48) + uVar1 * 2) =
+         *(short *)(*(int *)(param_1 + 0x48) + uVar1 * 2) + -1;
+    *(int *)(param_1 + 0x24) = *(int *)(param_1 + 0x24) + -1;
+    if (*(int *)(param_1 + 0x24) == 0) {
+      *(undefined4 *)(param_1 + 0x20) = 0;
+    }
+  }
+  return;
+}
+
+
+
+----------------------------------------------------------------------
+References TO 0x00aa6c70 (SBM_ArenaFree)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x00aa4107 (in FUN_00aa4060 @ 0x00aa4060)
+  Total: 1 refs
+
+--- Calls FROM SBM_ArenaFree (0x00aa6c70) ---
+  0x00aa6c8c -> 0x0040fbf0 FUN_0040fbf0
+  0x00aa6c98 -> 0x00aa6e00 FUN_00aa6e00
+  Total: 2 calls

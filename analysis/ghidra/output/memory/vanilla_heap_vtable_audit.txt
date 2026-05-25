@@ -1,0 +1,467 @@
+AUDIT: vanilla heap vtables and backing-store methods
+======================================================================
+
+Focus: resolve virtual methods used by LargeHeap setup.
+FUN_00aa8dd0 calls [vtable+0x30](heap_capacity, initial_commit_or_reserve).
+FUN_00aa8f50 calls [vtable+0x38](base, old_limit, grow_bytes).
+
+
+======================================================================
+VTABLE Default/File final heap vtable @ 0x010a28fc
+======================================================================
+  +0x00 [0x010a28fc] -> 0x00aa7e20 FUN_00aa7e20 @ 0x00aa7e20
+  +0x04 [0x010a2900] -> 0x00aa7e50 FUN_00aa7e50 @ 0x00aa7e50
+  +0x08 [0x010a2904] -> 0x00aa7b20 FUN_00aa7b20 @ 0x00aa7b20
+  +0x0c [0x010a2908] -> 0x00aa7b40 FUN_00aa7b40 @ 0x00aa7b40
+  +0x10 [0x010a290c] -> 0x00aa7e70 FUN_00aa7e70 @ 0x00aa7e70
+  +0x14 [0x010a2910] -> 0x00aa9fb0 FUN_00aa9fb0 @ 0x00aa9fb0
+  +0x18 [0x010a2914] -> 0x00aa7c60 FUN_00aa7c60 @ 0x00aa7c60
+  +0x1c [0x010a2918] -> 0x00aa7ca0 FUN_00aa7ca0 @ 0x00aa7ca0
+  +0x20 [0x010a291c] -> 0x00aa7d00 FUN_00aa7d00 @ 0x00aa7d00
+  +0x24 [0x010a2920] -> 0x00aa7be0 FUN_00aa7be0 @ 0x00aa7be0
+  +0x28 [0x010a2924] -> 0x00aa7c00 FUN_00aa7c00 @ 0x00aa7c00
+  +0x2c [0x010a2928] -> 0x00aa9d10 FUN_00aa9d10 @ 0x00aa9d10
+  +0x30 [0x010a292c] -> 0x00aa79a0 FUN_00aa79a0 @ 0x00aa79a0
+  +0x34 [0x010a2930] -> 0x00aa7a30 FUN_00aa7a30 @ 0x00aa7a30
+  +0x38 [0x010a2934] -> 0x00aa7a50 FUN_00aa7a50 @ 0x00aa7a50
+  +0x3c [0x010a2938] -> 0x00aa7ab0 FUN_00aa7ab0 @ 0x00aa7ab0
+  +0x40 [0x010a293c] -> 0x00aa7d60 FUN_00aa7d60 @ 0x00aa7d60
+  +0x44 [0x010a2940] -> 0x00b02710 FUN_00b02710 @ 0x00b02710
+
+======================================================================
+VTABLE LargeHeap base vtable during construction @ 0x010a2bbc
+======================================================================
+  +0x00 [0x010a2bbc] -> 0x00aaa5b0 FUN_00aaa5b0 @ 0x00aaa5b0
+  +0x04 [0x010a2bc0] -> 0x00aa7e50 FUN_00aa7e50 @ 0x00aa7e50
+  +0x08 [0x010a2bc4] -> 0x00ec60fa ???
+  +0x0c [0x010a2bc8] -> 0x00ec60fa ???
+  +0x10 [0x010a2bcc] -> 0x00aa7e70 FUN_00aa7e70 @ 0x00aa7e70
+  +0x14 [0x010a2bd0] -> 0x00aa9fb0 FUN_00aa9fb0 @ 0x00aa9fb0
+  +0x18 [0x010a2bd4] -> 0x00aaa0e0 FUN_00aaa0e0 @ 0x00aaa0e0
+  +0x1c [0x010a2bd8] -> 0x00aaa310 FUN_00aaa310 @ 0x00aaa310
+  +0x20 [0x010a2bdc] -> 0x00aaa430 FUN_00aaa430 @ 0x00aaa430
+  +0x24 [0x010a2be0] -> 0x00ec60fa ???
+  +0x28 [0x010a2be4] -> 0x00ec60fa ???
+  +0x2c [0x010a2be8] -> 0x00aa9d10 FUN_00aa9d10 @ 0x00aa9d10
+  +0x30 [0x010a2bec] -> 0x00ec60fa ???
+  +0x34 [0x010a2bf0] -> 0x00ec60fa ???
+  +0x38 [0x010a2bf4] -> 0x00aaa650 FUN_00aaa650 @ 0x00aaa650
+  +0x3c [0x010a2bf8] -> 0x00aaa650 FUN_00aaa650 @ 0x00aaa650
+  +0x40 [0x010a2bfc] -> 0x00aa4a50 FUN_00aa4a50 @ 0x00aa4a50
+  +0x44 [0x010a2c00] -> 0x00b02710 FUN_00b02710 @ 0x00b02710
+
+======================================================================
+VTABLE StaticHeap final vtable @ 0x010a2884
+======================================================================
+  +0x00 [0x010a2884] -> 0x00aa77e0 FUN_00aa77e0 @ 0x00aa77e0
+  +0x04 [0x010a2888] -> 0x00aa7870 FUN_00aa7870 @ 0x00aa7870
+  +0x08 [0x010a288c] -> 0x00aa7530 FUN_00aa7530 @ 0x00aa7530
+  +0x0c [0x010a2890] -> 0x00aa75e0 FUN_00aa75e0 @ 0x00aa75e0
+  +0x10 [0x010a2894] -> 0x00aa75f0 FUN_00aa75f0 @ 0x00aa75f0
+  +0x14 [0x010a2898] -> 0x00aa7830 FUN_00aa7830 @ 0x00aa7830
+  +0x18 [0x010a289c] -> 0x00aa7630 FUN_00aa7630 @ 0x00aa7630
+  +0x1c [0x010a28a0] -> 0x00aa7700 FUN_00aa7700 @ 0x00aa7700
+  +0x20 [0x010a28a4] -> 0x00aa7740 FUN_00aa7740 @ 0x00aa7740
+  +0x24 [0x010a28a8] -> 0x00aa7780 FUN_00aa7780 @ 0x00aa7780
+  +0x28 [0x010a28ac] -> 0x00aa77b0 FUN_00aa77b0 @ 0x00aa77b0
+  +0x2c [0x010a28b0] -> 0x00aa7830 FUN_00aa7830 @ 0x00aa7830
+  +0x30 [0x010a28b4] -> 0x00aa7890 FUN_00aa7890 @ 0x00aa7890
+  +0x34 [0x010a28b8] -> 0x00b02710 FUN_00b02710 @ 0x00b02710
+  +0x38 [0x010a28bc] -> 0x00aa7890 FUN_00aa7890 @ 0x00aa7890
+  +0x3c [0x010a28c0] -> 0x00b02710 FUN_00b02710 @ 0x00b02710
+  +0x40 [0x010a28c4] -> 0x01127f0c ???
+  +0x44 [0x010a28c8] -> 0x00aa7840 FUN_00aa7840 @ 0x00aa7840
+
+======================================================================
+VTABLE Common heap base vtable @ 0x010a28c8
+======================================================================
+  +0x00 [0x010a28c8] -> 0x00aa7840 FUN_00aa7840 @ 0x00aa7840
+  +0x04 [0x010a28cc] -> 0x00ec60fa ???
+  +0x08 [0x010a28d0] -> 0x00ec60fa ???
+  +0x0c [0x010a28d4] -> 0x00ec60fa ???
+  +0x10 [0x010a28d8] -> 0x00ec60fa ???
+  +0x14 [0x010a28dc] -> 0x00ec60fa ???
+  +0x18 [0x010a28e0] -> 0x00ec60fa ???
+  +0x1c [0x010a28e4] -> 0x00ec60fa ???
+  +0x20 [0x010a28e8] -> 0x00ec60fa ???
+  +0x24 [0x010a28ec] -> 0x00ec60fa ???
+  +0x28 [0x010a28f0] -> 0x00ec60fa ???
+  +0x2c [0x010a28f4] -> 0x00aa7830 FUN_00aa7830 @ 0x00aa7830
+  +0x30 [0x010a28f8] -> 0x01127fa0 ???
+  +0x34 [0x010a28fc] -> 0x00aa7e20 FUN_00aa7e20 @ 0x00aa7e20
+  +0x38 [0x010a2900] -> 0x00aa7e50 FUN_00aa7e50 @ 0x00aa7e50
+  +0x3c [0x010a2904] -> 0x00aa7b20 FUN_00aa7b20 @ 0x00aa7b20
+  +0x40 [0x010a2908] -> 0x00aa7b40 FUN_00aa7b40 @ 0x00aa7b40
+  +0x44 [0x010a290c] -> 0x00aa7e70 FUN_00aa7e70 @ 0x00aa7e70
+
+# Backing-store methods with direct VirtualAlloc/VirtualFree
+
+======================================================================
+heap_backing_method_00aa79a0 @ 0x00aa79a0
+======================================================================
+  Function: FUN_00aa79a0 @ 0x00aa79a0, Size: 135 bytes
+
+LPVOID FUN_00aa79a0(SIZE_T param_1,SIZE_T param_2)
+
+{
+  LPVOID pvVar1;
+  undefined4 local_8;
+  
+  local_8 = VirtualAlloc((LPVOID)0x0,param_1,0x2000,4);
+  if (local_8 != (LPVOID)0x0) {
+    pvVar1 = VirtualAlloc(local_8,param_2,0x1000,4);
+    if (pvVar1 == (LPVOID)0x0) {
+      VirtualFree(local_8,0,0x8000);
+      local_8 = (LPVOID)0x0;
+    }
+  }
+  return local_8;
+}
+
+
+
+----------------------------------------------------------------------
+References TO 0x00aa79a0 (heap_backing_method_00aa79a0)
+----------------------------------------------------------------------
+  DATA @ 0x010a292c (in ???)
+  Total printed: 1
+
+----------------------------------------------------------------------
+Calls FROM heap_backing_method_00aa79a0 (0x00aa79a0)
+----------------------------------------------------------------------
+  0x00aa79d5 -> 0x0000003b ???
+  0x00aa79f3 -> 0x0000003b ???
+  0x00aa7a11 -> 0x00000039 ???
+  Total printed: 3
+
+======================================================================
+heap_backing_method_00aa7a30 @ 0x00aa7a30
+======================================================================
+  Function: FUN_00aa7a30 @ 0x00aa7a30, Size: 30 bytes
+
+void FUN_00aa7a30(LPVOID param_1)
+
+{
+  VirtualFree(param_1,0,0x8000);
+  return;
+}
+
+
+
+----------------------------------------------------------------------
+References TO 0x00aa7a30 (heap_backing_method_00aa7a30)
+----------------------------------------------------------------------
+  DATA @ 0x010a2930 (in ???)
+  Total printed: 1
+
+----------------------------------------------------------------------
+Calls FROM heap_backing_method_00aa7a30 (0x00aa7a30)
+----------------------------------------------------------------------
+  0x00aa7a42 -> 0x00000039 ???
+  Total printed: 1
+
+======================================================================
+heap_backing_method_00aa7a50 @ 0x00aa7a50
+======================================================================
+  Function: FUN_00aa7a50 @ 0x00aa7a50, Size: 93 bytes
+
+uint __thiscall FUN_00aa7a50(int param_1,int param_2,int param_3,uint param_4)
+
+{
+  LPVOID pvVar1;
+  
+  param_4 = param_4 + *(int *)(param_1 + 0x10) & ~(*(int *)(param_1 + 0x10) - 1U);
+  pvVar1 = VirtualAlloc((LPVOID)(param_2 + param_3),param_4,0x1000,4);
+  if (pvVar1 == (LPVOID)0x0) {
+    param_4 = 0;
+  }
+  return param_4;
+}
+
+
+
+----------------------------------------------------------------------
+References TO 0x00aa7a50 (heap_backing_method_00aa7a50)
+----------------------------------------------------------------------
+  DATA @ 0x010a2934 (in ???)
+  Total printed: 1
+
+----------------------------------------------------------------------
+Calls FROM heap_backing_method_00aa7a50 (0x00aa7a50)
+----------------------------------------------------------------------
+  0x00aa7a8a -> 0x0000003b ???
+  Total printed: 1
+
+======================================================================
+heap_backing_method_00aa7ab0 @ 0x00aa7ab0
+======================================================================
+  Function: FUN_00aa7ab0 @ 0x00aa7ab0, Size: 110 bytes
+
+uint __thiscall FUN_00aa7ab0(int param_1,int param_2,int param_3,uint param_4)
+
+{
+  BOOL BVar1;
+  
+  param_4 = ~(*(int *)(param_1 + 0x10) - 1U) & param_4;
+  if (param_4 < *(uint *)(param_1 + 0x10)) {
+    param_4 = 0;
+  }
+  else {
+    BVar1 = VirtualFree((LPVOID)((param_2 + param_3) - param_4),param_4,0x4000);
+    if (BVar1 != 1) {
+      param_4 = 0;
+    }
+  }
+  return param_4;
+}
+
+
+
+----------------------------------------------------------------------
+References TO 0x00aa7ab0 (heap_backing_method_00aa7ab0)
+----------------------------------------------------------------------
+  DATA @ 0x010a2938 (in ???)
+  Total printed: 1
+
+----------------------------------------------------------------------
+Calls FROM heap_backing_method_00aa7ab0 (0x00aa7ab0)
+----------------------------------------------------------------------
+  0x00aa7aee -> 0x00000039 ???
+  Total printed: 1
+
+======================================================================
+heap_large_alloc_entry_00aa7b20 @ 0x00aa7b20
+======================================================================
+  Function: FUN_00aa7b20 @ 0x00aa7b20, Size: 25 bytes
+
+void FUN_00aa7b20(undefined4 param_1)
+
+{
+  FUN_00aa8f50(param_1);
+  return;
+}
+
+
+
+----------------------------------------------------------------------
+References TO 0x00aa7b20 (heap_large_alloc_entry_00aa7b20)
+----------------------------------------------------------------------
+  DATA @ 0x010a2904 (in ???)
+  Total printed: 1
+
+----------------------------------------------------------------------
+Calls FROM heap_large_alloc_entry_00aa7b20 (0x00aa7b20)
+----------------------------------------------------------------------
+  0x00aa7b2e -> 0x00aa8f50 FUN_00aa8f50 @ 0x00aa8f50
+  Total printed: 1
+
+======================================================================
+heap_backing_method_00aa7d60 @ 0x00aa7d60
+======================================================================
+  Function: FUN_00aa7d60 @ 0x00aa7d60, Size: 185 bytes
+
+/* WARNING: Removing unreachable block (ram,0x00aa7e02) */
+
+void __thiscall FUN_00aa7d60(int param_1,int param_2)
+
+{
+  uint uVar1;
+  LPVOID lpAddress;
+  
+  uVar1 = *(uint *)(param_2 + 4) & 0xfffffff;
+  if (*(uint *)(param_1 + 0x10) <= uVar1) {
+    lpAddress = (LPVOID)(param_2 + 7 + *(int *)(param_1 + 0x10) & ~(*(int *)(param_1 + 0x10) - 1U));
+    uVar1 = uVar1 - ((int)lpAddress - (param_2 + 8)) & ~(*(int *)(param_1 + 0x10) - 1U);
+    if (*(uint *)(param_1 + 0x10) <= uVar1) {
+      VirtualFree(lpAddress,uVar1,0x4000);
+      *(uint *)(param_2 + 4) = *(uint *)(param_2 + 4) | 0x20000000;
+    }
+  }
+  return;
+}
+
+
+
+----------------------------------------------------------------------
+References TO 0x00aa7d60 (heap_backing_method_00aa7d60)
+----------------------------------------------------------------------
+  DATA @ 0x010a293c (in ???)
+  Total printed: 1
+
+----------------------------------------------------------------------
+Calls FROM heap_backing_method_00aa7d60 (0x00aa7d60)
+----------------------------------------------------------------------
+  0x00aa7de0 -> 0x00000039 ???
+  Total printed: 1
+
+# Scrap/SBM backing region cache methods
+
+======================================================================
+sbm_cached_region_alloc_00aa59b0 @ 0x00aa59b0
+======================================================================
+  Function: FUN_00aa59b0 @ 0x00aa59b0, Size: 441 bytes
+
+undefined4 __thiscall FUN_00aa59b0(int param_1,uint *param_2)
+
+{
+  undefined4 uVar1;
+  uint local_18;
+  uint local_c;
+  uint local_8;
+  
+  if (*(int *)(param_1 + 0x200) == 0) {
+    uVar1 = FUN_00aa5ec0(*param_2);
+  }
+  else {
+    FUN_0040fbf0("ScrapHeapManager::RequestBuffer()");
+    if (*(int *)(param_1 + 0x200) == 0) {
+      uVar1 = FUN_00aa5ec0(*param_2);
+      *(int *)(param_1 + 0x224) = *(int *)(param_1 + 0x224) + -1;
+      if (*(int *)(param_1 + 0x224) == 0) {
+        *(undefined4 *)(param_1 + 0x220) = 0;
+      }
+    }
+    else {
+      local_c = 0;
+      local_8 = 0;
+      for (local_18 = 0; local_18 < *(uint *)(param_1 + 0x200); local_18 = local_18 + 1) {
+        if (*param_2 <= *(uint *)(param_1 + 4 + local_18 * 8)) {
+          *param_2 = *(uint *)(param_1 + 4 + local_18 * 8);
+          uVar1 = *(undefined4 *)(param_1 + local_18 * 8);
+          FUN_00aa5f50(local_18);
+          *(int *)(param_1 + 0x224) = *(int *)(param_1 + 0x224) + -1;
+          if (*(int *)(param_1 + 0x224) != 0) {
+            return uVar1;
+          }
+          *(undefined4 *)(param_1 + 0x220) = 0;
+          return uVar1;
+        }
+        if (local_8 < *(uint *)(param_1 + 4 + local_18 * 8)) {
+          local_8 = *(uint *)(param_1 + 4 + local_18 * 8);
+          local_c = local_18;
+        }
+      }
+      uVar1 = *(undefined4 *)(param_1 + local_c * 8);
+      FUN_00aa5f50(local_c);
+      FUN_00aa5e30(uVar1,local_8,*param_2 - local_8);
+      *(int *)(param_1 + 0x224) = *(int *)(param_1 + 0x224) + -1;
+      if (*(int *)(param_1 + 0x224) == 0) {
+        *(undefined4 *)(param_1 + 0x220) = 0;
+      }
+    }
+  }
+  return uVar1;
+}
+
+
+
+----------------------------------------------------------------------
+References TO 0x00aa59b0 (sbm_cached_region_alloc_00aa59b0)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x00aa57c4 (in FUN_00aa57b0 @ 0x00aa57b0)
+  Total printed: 1
+
+----------------------------------------------------------------------
+Calls FROM sbm_cached_region_alloc_00aa59b0 (0x00aa59b0)
+----------------------------------------------------------------------
+  0x00aa59ce -> 0x00aa5ec0 FUN_00aa5ec0 @ 0x00aa5ec0
+  0x00aa59e6 -> 0x0040fbf0 FUN_0040fbf0 @ 0x0040fbf0
+  0x00aa5a00 -> 0x00aa5ec0 FUN_00aa5ec0 @ 0x00aa5ec0
+  0x00aa5aa1 -> 0x00aa5f50 FUN_00aa5f50 @ 0x00aa5f50
+  0x00aa5b15 -> 0x00aa5f50 FUN_00aa5f50 @ 0x00aa5f50
+  0x00aa5b2e -> 0x00aa5e30 FUN_00aa5e30 @ 0x00aa5e30
+  Total printed: 6
+
+======================================================================
+sbm_cached_region_release_00aa5b70 @ 0x00aa5b70
+======================================================================
+  Function: FUN_00aa5b70 @ 0x00aa5b70, Size: 260 bytes
+
+void __thiscall FUN_00aa5b70(int param_1,undefined4 param_2,int param_3)
+
+{
+  if (0x3f < *(uint *)(param_1 + 0x200)) {
+    FUN_00aa5f30(param_2,param_3);
+  }
+  FUN_0040fbf0("ScrapHeapManager::ReleaseBuffer()");
+  if (*(uint *)(param_1 + 0x200) < 0x40) {
+    *(undefined4 *)(param_1 + *(int *)(param_1 + 0x200) * 8) = param_2;
+    *(int *)(param_1 + 4 + *(int *)(param_1 + 0x200) * 8) = param_3;
+    *(int *)(param_1 + 0x200) = *(int *)(param_1 + 0x200) + 1;
+    *(int *)(param_1 + 0x204) = *(int *)(param_1 + 0x204) + param_3;
+    *(int *)(param_1 + 0x224) = *(int *)(param_1 + 0x224) + -1;
+    if (*(int *)(param_1 + 0x224) == 0) {
+      *(undefined4 *)(param_1 + 0x220) = 0;
+    }
+  }
+  else {
+    FUN_00aa5f30(param_2,param_3);
+    *(int *)(param_1 + 0x224) = *(int *)(param_1 + 0x224) + -1;
+    if (*(int *)(param_1 + 0x224) == 0) {
+      *(undefined4 *)(param_1 + 0x220) = 0;
+    }
+  }
+  return;
+}
+
+
+
+----------------------------------------------------------------------
+References TO 0x00aa5b70 (sbm_cached_region_release_00aa5b70)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x00aa5482 (in FUN_00aa5460 @ 0x00aa5460)
+  Total printed: 1
+
+----------------------------------------------------------------------
+Calls FROM sbm_cached_region_release_00aa5b70 (0x00aa5b70)
+----------------------------------------------------------------------
+  0x00aa5b90 -> 0x00aa5f30 FUN_00aa5f30 @ 0x00aa5f30
+  0x00aa5ba3 -> 0x0040fbf0 FUN_0040fbf0 @ 0x0040fbf0
+  0x00aa5bbf -> 0x00aa5f30 FUN_00aa5f30 @ 0x00aa5f30
+  Total printed: 3
+
+======================================================================
+sbm_cached_region_commit_or_reuse_00aa5d40 @ 0x00aa5d40
+======================================================================
+  Function: FUN_00aa5d40 @ 0x00aa5d40, Size: 232 bytes
+
+uint __thiscall FUN_00aa5d40(int param_1,uint param_2)
+
+{
+  int iVar1;
+  uint local_8;
+  
+  if (*(int *)(param_1 + 0x200) == 0) {
+    local_8 = 0;
+  }
+  else {
+    FUN_0040fbf0("ScrapHeapManager::FreeBuffers()");
+    local_8 = 0;
+    while ((*(int *)(param_1 + 0x200) != 0 && (local_8 < param_2))) {
+      iVar1 = *(int *)(param_1 + 0x200) + -1;
+      local_8 = local_8 + *(int *)(param_1 + 4 + iVar1 * 8);
+      FUN_00aa5f30(*(undefined4 *)(param_1 + iVar1 * 8),*(undefined4 *)(param_1 + 4 + iVar1 * 8));
+      *(int *)(param_1 + 0x200) = *(int *)(param_1 + 0x200) + -1;
+    }
+    *(uint *)(param_1 + 0x204) = *(int *)(param_1 + 0x204) - local_8;
+    *(int *)(param_1 + 0x224) = *(int *)(param_1 + 0x224) + -1;
+    if (*(int *)(param_1 + 0x224) == 0) {
+      *(undefined4 *)(param_1 + 0x220) = 0;
+    }
+  }
+  return local_8;
+}
+
+
+
+----------------------------------------------------------------------
+References TO 0x00aa5d40 (sbm_cached_region_commit_or_reuse_00aa5d40)
+----------------------------------------------------------------------
+  Total printed: 0
+
+----------------------------------------------------------------------
+Calls FROM sbm_cached_region_commit_or_reuse_00aa5d40 (0x00aa5d40)
+----------------------------------------------------------------------
+  0x00aa5d6a -> 0x0040fbf0 FUN_0040fbf0 @ 0x0040fbf0
+  0x00aa5dc1 -> 0x00aa5f30 FUN_00aa5f30 @ 0x00aa5f30
+  Total printed: 2

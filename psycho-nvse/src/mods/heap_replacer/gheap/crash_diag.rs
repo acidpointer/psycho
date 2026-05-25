@@ -23,6 +23,7 @@ use super::engine::globals;
 use super::pool;
 
 static CAUGHT: AtomicBool = AtomicBool::new(false);
+const EXCEPTION_CONTINUE_EXECUTION_CODE: i32 = -1;
 
 // ---- Ghidra-verified function address table (sorted by start address) ------
 // (start, size, name). Binary searched via partition_point.
@@ -159,13 +160,22 @@ unsafe extern "system" fn handler(info: *mut EXCEPTION_POINTERS) -> i32 {
     if record.ExceptionCode != EXCEPTION_ACCESS_VIOLATION {
         return EXCEPTION_CONTINUE_SEARCH;
     }
+
+    let ctx = unsafe { &*info.ContextRecord };
+    let fault = record.ExceptionInformation[1];
+    let access_kind = record.ExceptionInformation[0];
+
+    if unsafe {
+        super::vanilla_large_heap::handle_default_heap_probe_fault(fault, access_kind, ctx)
+    } {
+        return EXCEPTION_CONTINUE_EXECUTION_CODE;
+    }
+
     if CAUGHT.swap(true, Ordering::SeqCst) {
         return EXCEPTION_CONTINUE_SEARCH;
     }
 
-    let ctx = unsafe { &*info.ContextRecord };
-    let fault = record.ExceptionInformation[1];
-    let access = match record.ExceptionInformation[0] {
+    let access = match access_kind {
         0 => "R",
         1 => "W",
         8 => "D",
@@ -176,17 +186,33 @@ unsafe extern "system" fn handler(info: *mut EXCEPTION_POINTERS) -> i32 {
     // log::error! formats on the stack via fmt::Arguments (no alloc).
     // the log crate queues it via lock-free channel (no alloc).
     log::error!(
-        "[AV] {} 0x{:08X} EIP=0x{:08X} EAX={:08X} ECX={:08X} ESI={:08X} pool={} block={} mi={}",
+        "[AV] {} 0x{:08X} EIP=0x{:08X} EAX={:08X} EBX={:08X} ECX={:08X} EDX={:08X} ESI={:08X} EDI={:08X} EBP={:08X} ESP={:08X} pool={} block={} mi={}",
         access,
         fault,
         ctx.Eip,
         ctx.Eax,
+        ctx.Ebx,
         ctx.Ecx,
+        ctx.Edx,
         ctx.Esi,
+        ctx.Edi,
+        ctx.Ebp,
+        ctx.Esp,
         pool::is_pool_ptr(fault as *const core::ffi::c_void),
         block::is_block_ptr(fault as *const core::ffi::c_void),
         unsafe { libmimalloc::mi_is_in_heap_region(fault as *const core::ffi::c_void) },
     );
+
+    let esp = ctx.Esp as usize;
+    if is_readable(esp, 16) {
+        log::error!(
+            "[AVSTACK] ESP[0..3]={:08X} {:08X} {:08X} {:08X}",
+            unsafe { *(esp as *const u32) },
+            unsafe { *((esp + 4) as *const u32) },
+            unsafe { *((esp + 8) as *const u32) },
+            unsafe { *((esp + 12) as *const u32) },
+        );
+    }
 
     log_pool_register("EAX", ctx.Eax);
     log_pool_register("EBX", ctx.Ebx);
@@ -515,7 +541,12 @@ fn write_memory_pressure(r: &mut String) {
 fn write_slab_summary(r: &mut String) {
     let _ = writeln!(r, "\n  Heap Allocator");
     let _ = writeln!(r, "  --------------");
-    let _ = writeln!(r, "  Pool committed:  {}MB", pool::committed_bytes() >> 20);
+    let _ = writeln!(
+        r,
+        "  Pool committed:  {}MB / {}MB reserved",
+        pool::committed_bytes() >> 20,
+        pool::reserved_bytes() >> 20,
+    );
     let _ = writeln!(r, "  Pool live cells: {}", pool::live_cells());
     let _ = writeln!(r, "  Block count:     {}", block::block_count());
     let _ = writeln!(r, "  Block committed: {}MB", block::committed_bytes() >> 20,);

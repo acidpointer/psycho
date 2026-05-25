@@ -138,6 +138,14 @@ pub const HAVOK_ENTITY_POST_ADD_ADDR: usize = 0x00CFFA00;
 pub static HAVOK_ENTITY_POST_ADD_HOOK: LazyLock<InlineHookContainer<HavokEntityPostAddFn>> =
     LazyLock::new(InlineHookContainer::new);
 
+/// FUN_00CF7080: loops over broadphase pairs and dispatches add-agent
+/// callbacks through the world collision-agent table.
+pub const HAVOK_NARROWPHASE_ADD_AGENTS_ADDR: usize = 0x00CF7080;
+
+pub static HAVOK_NARROWPHASE_ADD_AGENTS_HOOK: LazyLock<
+    InlineHookContainer<HavokNarrowphaseAddAgentsFn>,
+> = LazyLock::new(InlineHookContainer::new);
+
 // ---- Game-inlined _memset (NULL-dst defensive bugfix) ----
 
 /// FUN_00EC61C0: the game's inlined MSVC 2008 `_memset`. Called by the

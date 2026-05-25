@@ -198,6 +198,11 @@ pub type HavokRaycastFn =
 /// havok_fix.rs for the defensive wrapper rationale.
 pub type HavokEntityPostAddFn = unsafe extern "C" fn(entity: *mut c_void);
 
+/// FUN_00CF7080: Havok narrowphase add-agent dispatcher.
+/// this = world+0x64 dispatch table; args = pair array, pair count, collision filter.
+pub type HavokNarrowphaseAddAgentsFn =
+    unsafe extern "thiscall" fn(*mut c_void, *mut c_void, i32, *mut c_void);
+
 /// hkWorld_Unlock (fastcall, world ptr in ECX).
 pub type HkWorldUnlockFn = unsafe extern "fastcall" fn(*mut c_void);
 

@@ -1,11 +1,10 @@
 //! Size-class pool allocator for small allocations.
 //!
-//! Adapted from NVHR's mheap with one critical divergence: **pools
-//! reserve their VA lazily on first alloc**, not at heap init. Pools
-//! are aligned to `POOL_ALIGN` (8 MB) so free dispatch stays O(1) via
-//! `addr_to_pool[ptr >> POOL_ALIGN_BITS]`. Each pool grows its active
-//! reservation by committing `POOL_BLOCK_SIZE` (1 MB) blocks on demand
-//! and never decommits.
+//! Adapted from NVHR's mheap with one critical divergence: each size
+//! class is split into 8 MB subpools that reserve lazily. Free dispatch
+//! stays O(1) via `addr_to_pool[ptr >> POOL_ALIGN_BITS]`. Each subpool
+//! grows by committing `POOL_BLOCK_SIZE` (1 MB) blocks on demand and
+//! never decommits.
 //!
 //! # Why lazy reservation
 //!
@@ -16,24 +15,24 @@
 //! for coc LOD textures). Every VA byte we reserve at startup is one
 //! byte the game cannot use during its init.
 //!
-//! Lazy reservation moves per-class VA into the allocator's own
-//! lifetime: if a size class is never used, no VA is reserved. If a
-//! class is used early, its VA is reserved early. The sum of reserved
-//! VA equals what the allocator actually needs, scaled to the
-//! workload, matching vanilla SBM's grow-on-demand contract.
+//! Lazy subpools move per-class VA into the allocator's own lifetime:
+//! if a size class is never used, no VA is reserved. If a class is used
+//! early, only its first 8 MB subpool is reserved. More subpools appear
+//! as actual demand grows, matching vanilla SBM's grow-on-demand
+//! contract without paying the old 512 MB first-touch cost.
 //!
 //! # Lifecycle
 //!
-//! - `PoolHeap::create()` populates per-pool descriptors (item_size,
-//!   max_size, index) and the `size_to_pool` lookup. It does not call
+//! - `PoolHeap::create()` expands size-class descriptors into 8 MB
+//!   subpools and builds the `size_to_class` lookup. It does not call
 //!   `VirtualAlloc`.
-//! - `PoolHeap::alloc(size)` dispatches to the target pool and calls
-//!   `ensure_pool_inited(idx)`. If the pool is still `POOL_STATE_NOT_INIT`,
-//!   a CAS transitions it to `POOL_STATE_INITING`, the winning thread
-//!   scans `addr_to_pool` from high addresses downward for a free slot
-//!   range, reserves the VA via `VirtualAlloc(MEM_RESERVE)`, allocates
-//!   the freelist metadata, and publishes `POOL_STATE_INIT`. Losers
-//!   busy-wait.
+//! - `PoolHeap::alloc(size)` dispatches to a size class, starts from a
+//!   per-class hint, and tries that class's subpools. If the selected
+//!   subpool is still `POOL_STATE_NOT_INIT`, a CAS transitions it to
+//!   `POOL_STATE_INITING`, the winning thread scans `addr_to_pool` from
+//!   high addresses downward for a free slot, reserves the VA via
+//!   `VirtualAlloc(MEM_RESERVE)`, allocates the freelist metadata, and
+//!   publishes `POOL_STATE_INIT`. Losers busy-wait.
 //! - Subsequent allocs skip the ensure-init path (single Acquire load).
 //!
 //! # Zombie safety
@@ -54,12 +53,11 @@
 //!
 //! - Hot path (already-inited pool): Acquire load + existing per-pool
 //!   spinlock. No extra lock.
-//! - Init path (first alloc for a class): global `init_lock`
+//! - Init path (first alloc for a subpool): global `init_lock`
 //!   serialises the `addr_to_pool` scan + `VirtualAlloc` + slot claim
-//!   sequence. Only paid once per size class for the lifetime of the
+//!   sequence. Only paid once per subpool for the lifetime of the
 //!   process.
 
-use std::cell::Cell;
 use std::ptr::{self, null_mut};
 use std::sync::Mutex;
 use std::sync::atomic::{AtomicU8, AtomicU32, Ordering};
@@ -70,8 +68,8 @@ use windows::Win32::System::Memory::{MEM_COMMIT, MEM_RESERVE, PAGE_READWRITE, Vi
 // Per-pool lifecycle states. Enables lazy VA reservation: the pool
 // transitions NotInit -> Initing -> (Init | Failed) on its first alloc
 // request, so each pool only consumes VA when something actually
-// needs that size class. Matches vanilla SBM's behaviour of growing
-// on demand instead of reserving a bulk working set upfront.
+// needs that subpool. Matches vanilla SBM's behaviour of growing on
+// demand instead of reserving a bulk working set upfront.
 const POOL_STATE_NOT_INIT: u8 = 0;
 const POOL_STATE_INITING: u8 = 1;
 const POOL_STATE_INIT: u8 = 2;
@@ -81,13 +79,13 @@ const POOL_STATE_FAILED: u8 = 3;
 // Constants
 // ---------------------------------------------------------------------------
 
-/// Reservation alignment. Every pool is placed at `i * POOL_ALIGN` for
+/// Reservation alignment. Every subpool is placed at `i * POOL_ALIGN` for
 /// some `i`, and the free path uses `ptr >> POOL_ALIGN_BITS` to reach
-/// the pool. 8 MB lets cold pools be as small as 8 MB instead of being
-/// locked to the previous 16 MB minimum, cutting total VAS reservation
-/// roughly in half without touching hot pools.
+/// the exact subpool. 8 MB trades some first-touch VAS for fewer
+/// reservations and less fragmentation under heavy modlists.
 pub const POOL_ALIGN: usize = 0x0080_0000; // 8 MB
 const POOL_ALIGN_BITS: u32 = 23; // log2(POOL_ALIGN)
+const POOL_SUBPOOL_SIZE: u32 = POOL_ALIGN as u32;
 
 /// Growth unit. Each time a pool runs out of committed cells, it
 /// commits one more block.
@@ -113,33 +111,6 @@ const NO_POOL: u8 = 0xff;
 struct PoolDesc {
     item_size: u32,
     max_size: u32,
-    /// When true, a second pool of the same size is created and the
-    /// allocator hashes the thread id to pick a shard. Halves spinlock
-    /// contention for the hottest classes.
-    sharded: bool,
-}
-
-/// Number of shards per sharded class.
-const SHARDS_PER_CLASS: usize = 2;
-
-thread_local! {
-    /// Cached shard index for this thread (0 or 1). Lazily initialised
-    /// from the OS thread id. u8::MAX means "not yet computed".
-    static SHARD_IDX: Cell<u8> = const { Cell::new(u8::MAX) };
-}
-
-#[inline]
-fn get_shard() -> usize {
-    SHARD_IDX.with(|c| {
-        let v = c.get();
-        if v != u8::MAX {
-            return v as usize;
-        }
-        let tid = libpsycho::os::windows::winapi::get_current_thread_id();
-        let shard = (tid as usize) % SHARDS_PER_CLASS;
-        c.set(shard as u8);
-        shard
-    })
 }
 
 /// Per-class MAXIMUM reservation sizes. Sum is 512 MB, but with lazy
@@ -180,7 +151,7 @@ fn get_shard() -> usize {
 ///   Common subclasses:
 ///     32, 64, 128, 256, 320 B: 16 MB each
 ///
-///   Baseline (never observed saturating): 8 MB POOL_ALIGN floor.
+///   Baseline (never observed saturating): one 8 MB subpool.
 ///
 /// Accepted exhaust risks on 512 MB budget:
 ///   - 80 B heavy load (Run B pattern): 80 MB vs 96 MB ideal -> expect
@@ -199,196 +170,164 @@ const POOL_DESC: &[PoolDesc] = &[
     PoolDesc {
         item_size: 8,
         max_size: 16 * 1024 * 1024,
-        sharded: false,
     },
     PoolDesc {
         item_size: 12,
         max_size: 8 * 1024 * 1024,
-        sharded: false,
     },
     PoolDesc {
         item_size: 16,
         max_size: 16 * 1024 * 1024,
-        sharded: false,
     },
     PoolDesc {
         item_size: 20,
         max_size: 8 * 1024 * 1024,
-        sharded: false,
     },
     PoolDesc {
         item_size: 24,
         max_size: 8 * 1024 * 1024,
-        sharded: false,
     },
     PoolDesc {
         item_size: 28,
         max_size: 8 * 1024 * 1024,
-        sharded: false,
     },
     PoolDesc {
         item_size: 32,
         max_size: 16 * 1024 * 1024,
-        sharded: false,
     },
     PoolDesc {
         item_size: 40,
         max_size: 8 * 1024 * 1024,
-        sharded: false,
     },
     PoolDesc {
         item_size: 48,
         max_size: 8 * 1024 * 1024,
-        sharded: false,
     },
     PoolDesc {
         item_size: 56,
         max_size: 8 * 1024 * 1024,
-        sharded: false,
     },
     PoolDesc {
         item_size: 64,
         max_size: 16 * 1024 * 1024,
-        sharded: false,
     },
     PoolDesc {
         item_size: 80,
         max_size: 80 * 1024 * 1024,
-        sharded: false,
     },
     PoolDesc {
         item_size: 96,
         max_size: 64 * 1024 * 1024,
-        sharded: false,
     },
     PoolDesc {
         item_size: 112,
         max_size: 8 * 1024 * 1024,
-        sharded: false,
     },
     PoolDesc {
         item_size: 128,
         max_size: 16 * 1024 * 1024,
-        sharded: false,
     },
     PoolDesc {
         item_size: 160,
         max_size: 8 * 1024 * 1024,
-        sharded: false,
     },
     PoolDesc {
         item_size: 192,
         max_size: 8 * 1024 * 1024,
-        sharded: false,
     },
     PoolDesc {
         item_size: 224,
         max_size: 8 * 1024 * 1024,
-        sharded: false,
     },
     PoolDesc {
         item_size: 256,
         max_size: 16 * 1024 * 1024,
-        sharded: false,
     },
     PoolDesc {
         item_size: 320,
         max_size: 16 * 1024 * 1024,
-        sharded: false,
     },
     PoolDesc {
         item_size: 384,
         max_size: 8 * 1024 * 1024,
-        sharded: false,
     },
     PoolDesc {
         item_size: 448,
         max_size: 8 * 1024 * 1024,
-        sharded: false,
     },
     PoolDesc {
         item_size: 512,
         max_size: 16 * 1024 * 1024,
-        sharded: false,
     },
     PoolDesc {
         item_size: 640,
         max_size: 16 * 1024 * 1024,
-        sharded: false,
     },
     PoolDesc {
         item_size: 768,
         max_size: 8 * 1024 * 1024,
-        sharded: false,
     },
     PoolDesc {
         item_size: 896,
         max_size: 8 * 1024 * 1024,
-        sharded: false,
     },
     PoolDesc {
         item_size: 1024,
         max_size: 16 * 1024 * 1024,
-        sharded: false,
     },
     PoolDesc {
         item_size: 1280,
         max_size: 16 * 1024 * 1024,
-        sharded: false,
     },
     PoolDesc {
         item_size: 1536,
         max_size: 8 * 1024 * 1024,
-        sharded: false,
     },
     PoolDesc {
         item_size: 1792,
         max_size: 8 * 1024 * 1024,
-        sharded: false,
     },
     PoolDesc {
         item_size: 2048,
         max_size: 16 * 1024 * 1024,
-        sharded: false,
     },
     PoolDesc {
         item_size: 2560,
         max_size: 8 * 1024 * 1024,
-        sharded: false,
     },
     PoolDesc {
         item_size: 3072,
         max_size: 16 * 1024 * 1024,
-        sharded: false,
     },
     PoolDesc {
         item_size: 3584,
         max_size: 16 * 1024 * 1024,
-        sharded: false,
     },
 ];
 
-/// Count the sharded entries in `POOL_DESC` at compile time.
-const fn count_sharded() -> usize {
-    let mut n = 0;
+const fn subpool_count_for(max_size: u32) -> usize {
+    let full = max_size / POOL_SUBPOOL_SIZE;
+    let extra = if max_size % POOL_SUBPOOL_SIZE == 0 {
+        0
+    } else {
+        1
+    };
+    (full + extra) as usize
+}
+
+/// Count the concrete subpools expanded from `POOL_DESC`.
+const fn count_total_pools() -> usize {
+    let mut n = 0usize;
     let mut i = 0;
     while i < POOL_DESC.len() {
-        if POOL_DESC[i].sharded {
-            n += 1;
-        }
+        n += subpool_count_for(POOL_DESC[i].max_size);
         i += 1;
     }
     n
 }
 
 const NUM_BASE_POOLS: usize = POOL_DESC.len();
-const NUM_SHARDED: usize = count_sharded();
-/// Extra pool slots used for shard-1 copies of sharded classes.
-const NUM_SHARD1_POOLS: usize = NUM_SHARDED * (SHARDS_PER_CLASS - 1);
-const NUM_TOTAL_POOLS: usize = NUM_BASE_POOLS + NUM_SHARD1_POOLS;
-
-// NUM_BASE_POOLS, NUM_SHARDED, NUM_SHARD1_POOLS, NUM_TOTAL_POOLS are
-// defined above after `count_sharded()`.
+const NUM_TOTAL_POOLS: usize = count_total_pools();
 
 // ---------------------------------------------------------------------------
 // FreeLink: out-of-band freelist node
@@ -438,6 +377,9 @@ struct Pool {
     item_size: u32,
     max_size: u32,
     max_cell_count: u32,
+    class_index: u8,
+    subpool_index: u8,
+    subpool_count: u8,
 
     /// VA reservation base (POOL_ALIGN-aligned). NULL until `state`
     /// reaches `POOL_STATE_INIT` (lazy reservation).
@@ -487,6 +429,9 @@ impl Pool {
             item_size: 0,
             max_size: 0,
             max_cell_count: 0,
+            class_index: 0,
+            subpool_index: 0,
+            subpool_count: 0,
             base: ptr::null_mut(),
             cur: ptr::null_mut(),
             end: ptr::null_mut(),
@@ -841,14 +786,17 @@ impl Pool {
 
 pub struct PoolHeap {
     pools: [Pool; NUM_TOTAL_POOLS],
-    /// For base pool index `b`, `shard1_of[b]` is the pool index of its
-    /// shard-1 copy, or `NO_POOL` if the class is not sharded. Filled
-    /// at init. Indexed by `base_idx as usize`.
-    shard1_of: [u8; NUM_BASE_POOLS],
-    /// size_to_pool[(size + 3) >> 2] = pool index, or NO_POOL if size
+    /// First concrete subpool index for each size class.
+    class_start: [u8; NUM_BASE_POOLS],
+    /// Number of concrete subpools for each size class.
+    class_count: [u8; NUM_BASE_POOLS],
+    /// Allocation starts here for each class. Updated on successful
+    /// alloc/free so hot paths avoid walking full subpools.
+    class_hint: [AtomicU8; NUM_BASE_POOLS],
+    /// size_to_class[(size + 3) >> 2] = class index, or NO_POOL if size
     /// exceeds POOL_MAX_SIZE. Filled at heap create; independent of
-    /// per-pool reservation state.
-    size_to_pool: [u8; SIZE_LOOKUP_LEN],
+    /// per-subpool reservation state.
+    size_to_class: [u8; SIZE_LOOKUP_LEN],
     /// addr_to_pool[ptr >> POOL_ALIGN_BITS] = pool index, or NO_POOL
     /// if no pool actually reserved that slot. Populated lazily by
     /// `lazy_init_pool` as individual pools come online; entries are
@@ -868,66 +816,89 @@ pub struct PoolHeap {
 unsafe impl Send for PoolHeap {}
 unsafe impl Sync for PoolHeap {}
 
-/// Populate a pool's static descriptor fields (item_size, max_size,
-/// max_cell_count, index). Called at heap-create time for every pool
-/// so size_to_pool dispatch works before any pool has lazy-inited.
-fn assign_pool_desc(pool: &mut Pool, pool_idx: u8, desc: &PoolDesc) {
-    let max_cell_count = desc.max_size / desc.item_size;
+/// Populate a concrete subpool descriptor. Called at heap-create time
+/// so size dispatch works before any subpool has lazy-inited.
+fn assign_pool_desc(
+    pool: &mut Pool,
+    pool_idx: u8,
+    class_idx: u8,
+    desc: &PoolDesc,
+    subpool_idx: u8,
+    subpool_count: u8,
+) {
+    let used_before = subpool_idx as u32 * POOL_SUBPOOL_SIZE;
+    let remaining = desc.max_size.saturating_sub(used_before);
+    let max_size = remaining.min(POOL_SUBPOOL_SIZE);
+    let max_cell_count = max_size / desc.item_size;
     pool.item_size = desc.item_size;
-    pool.max_size = desc.max_size;
+    pool.max_size = max_size;
     pool.max_cell_count = max_cell_count;
+    pool.class_index = class_idx;
+    pool.subpool_index = subpool_idx;
+    pool.subpool_count = subpool_count;
     pool.index = pool_idx;
     // base/cur/end/free_cells stay NULL until lazy init.
 }
 
 impl PoolHeap {
-    /// Create the heap shell. Assigns per-pool descriptors and the
-    /// size_to_pool lookup, but does NOT reserve any VA. Individual
-    /// pools reserve their VA lazily on first alloc via
+    /// Create the heap shell. Assigns subpool descriptors and the
+    /// size_to_class lookup, but does NOT reserve any VA. Individual
+    /// subpools reserve their VA lazily on first alloc via
     /// `ensure_pool_inited` / `lazy_init_pool`. This keeps our startup
     /// VA footprint near zero, matching vanilla SBM's grow-on-demand
     /// behaviour instead of stealing the game's working budget.
     fn create() -> Option<Box<Self>> {
         let mut heap = Box::new(PoolHeap {
             pools: std::array::from_fn(|_| Pool::empty()),
-            size_to_pool: [NO_POOL; SIZE_LOOKUP_LEN],
+            class_start: [NO_POOL; NUM_BASE_POOLS],
+            class_count: [0; NUM_BASE_POOLS],
+            class_hint: std::array::from_fn(|_| AtomicU8::new(0)),
+            size_to_class: [NO_POOL; SIZE_LOOKUP_LEN],
             addr_to_pool: std::array::from_fn(|_| AtomicU8::new(NO_POOL)),
-            shard1_of: [NO_POOL; NUM_BASE_POOLS],
             init_lock: Mutex::new(()),
         });
 
-        // Pre-compute static descriptor fields for all pools so
-        // size_to_pool dispatch works before any pool has lazy-inited.
-        let mut shard1_cursor: usize = NUM_BASE_POOLS;
-        for (p, desc) in POOL_DESC.iter().enumerate() {
-            assign_pool_desc(&mut heap.pools[p], p as u8, desc);
-            if desc.sharded {
-                let shard1_idx = shard1_cursor;
-                shard1_cursor += 1;
-                assign_pool_desc(&mut heap.pools[shard1_idx], shard1_idx as u8, desc);
-                heap.shard1_of[p] = shard1_idx as u8;
+        // Expand each class cap into aligned subpools. The class cap is
+        // unchanged; only first-touch reservation is split.
+        let mut pool_idx = 0usize;
+        for (class_idx, desc) in POOL_DESC.iter().enumerate() {
+            let count = subpool_count_for(desc.max_size);
+            heap.class_start[class_idx] = pool_idx as u8;
+            heap.class_count[class_idx] = count as u8;
+            for subpool_idx in 0..count {
+                assign_pool_desc(
+                    &mut heap.pools[pool_idx],
+                    pool_idx as u8,
+                    class_idx as u8,
+                    desc,
+                    subpool_idx as u8,
+                    count as u8,
+                );
+                pool_idx += 1;
             }
         }
 
-        // Build size_to_pool lookup (points at the shard-0 / base index).
+        debug_assert_eq!(pool_idx, NUM_TOTAL_POOLS);
+
+        // Build size_to_class lookup.
         // Independent of reservation state; populated once at create().
-        for (p, desc) in POOL_DESC.iter().enumerate() {
+        for (class_idx, desc) in POOL_DESC.iter().enumerate() {
             let upper = (desc.item_size as usize >> 2).min(SIZE_LOOKUP_LEN - 1);
             let mut i = upper;
-            while i > 0 && heap.size_to_pool[i] == NO_POOL {
-                heap.size_to_pool[i] = p as u8;
+            while i > 0 && heap.size_to_class[i] == NO_POOL {
+                heap.size_to_class[i] = class_idx as u8;
                 i -= 1;
             }
-            if i == 0 && heap.size_to_pool[0] == NO_POOL {
-                heap.size_to_pool[0] = p as u8;
+            if i == 0 && heap.size_to_class[0] == NO_POOL {
+                heap.size_to_class[0] = class_idx as u8;
             }
         }
 
         log::info!(
-            "[POOL] Ready (lazy): {} base + {} shard pools = {} total, 0MB reserved upfront; each pool reserves its VA on first alloc",
+            "[POOL] Ready (subpool lazy): {} classes -> {} subpools of up to {}MB, 0MB reserved upfront",
             NUM_BASE_POOLS,
-            NUM_SHARD1_POOLS,
             NUM_TOTAL_POOLS,
+            POOL_ALIGN / 1024 / 1024,
         );
 
         Some(heap)
@@ -938,7 +909,7 @@ impl PoolHeap {
     /// is still in progress (caller can retry on the next request).
     ///
     /// Fast path: a single `Acquire` load; no lock taken if already
-    /// initialised. Slow path (first alloc for this class) takes the
+    /// initialised. Slow path (first alloc for this subpool) takes the
     /// global `init_lock` while it scans slots + `VirtualAlloc`s +
     /// claims `addr_to_pool` entries. Concurrent initialisers on
     /// DIFFERENT pools spin-wait; after one pool finishes, the next
@@ -1012,8 +983,11 @@ impl PoolHeap {
         let item_size = unsafe { (*pool_ptr).item_size };
         let max_size = unsafe { (*pool_ptr).max_size };
         let max_cell_count = unsafe { (*pool_ptr).max_cell_count };
+        let class_index = unsafe { (*pool_ptr).class_index };
+        let subpool_index = unsafe { (*pool_ptr).subpool_index };
+        let subpool_count = unsafe { (*pool_ptr).subpool_count };
 
-        let slots_needed = max_size as usize / POOL_ALIGN;
+        let slots_needed = (max_size as usize).div_ceil(POOL_ALIGN);
         if slots_needed == 0 {
             log::error!(
                 "[POOL] #{} item_size={} max_size={} < POOL_ALIGN",
@@ -1032,7 +1006,7 @@ impl PoolHeap {
         // pool slabs high avoids consuming low/mid holes first.
         //
         // Leave slot 0 unused (NULL-looking pointers) and leave the
-        // top 8MB slot unused so `base + max_size` stays representable
+        // top slot unused so `base + max_size` stays representable
         // on 32-bit targets instead of wrapping to zero.
         if slots_needed + 1 >= ADDR_LOOKUP_LEN {
             log::error!(
@@ -1125,9 +1099,12 @@ impl PoolHeap {
         }
 
         log::info!(
-            "[POOL] #{} lazy reserve OK: item_size={} reserved {}MB at 0x{:08x}..0x{:08x}",
-            idx,
+            "[POOL] class #{} {}B grew: subpool {}/{} (#{}) reserved {}MB at 0x{:08x}..0x{:08x}",
+            class_index,
             item_size,
+            subpool_index + 1,
+            subpool_count,
+            idx,
             max_size / 1024 / 1024,
             reserved_base as usize,
             reserved_base as usize + max_size as usize,
@@ -1144,6 +1121,9 @@ impl PoolHeap {
         }
         let p = self.addr_to_pool[slot].load(Ordering::Acquire);
         if p == NO_POOL {
+            return None;
+        }
+        if p as usize >= NUM_TOTAL_POOLS {
             return None;
         }
         let pool = &self.pools[p as usize];
@@ -1163,86 +1143,70 @@ impl PoolHeap {
         }
     }
 
+    fn alloc_from_pool(&self, pool_idx: usize) -> *mut u8 {
+        if !self.ensure_pool_inited(pool_idx) {
+            return null_mut();
+        }
+        let pool = &self.pools[pool_idx];
+        unsafe {
+            let p = pool as *const Pool as *mut Pool;
+            (*p).acquire();
+            let result = (*p).alloc();
+            (*p).release();
+            result
+        }
+    }
+
+    fn alloc_from_class(&self, class_idx: usize) -> *mut c_void {
+        let start = self.class_start[class_idx] as usize;
+        let count = self.class_count[class_idx] as usize;
+        if count == 0 {
+            return null_mut();
+        }
+
+        let mut hint = self.class_hint[class_idx].load(Ordering::Relaxed) as usize;
+        if hint >= count {
+            hint = 0;
+        }
+
+        for step in 0..count {
+            let subpool_idx = (hint + step) % count;
+            let ptr = self.alloc_from_pool(start + subpool_idx);
+            if !ptr.is_null() {
+                self.class_hint[class_idx].store(subpool_idx as u8, Ordering::Relaxed);
+                return ptr as *mut c_void;
+            }
+        }
+
+        null_mut()
+    }
+
     pub fn alloc(&self, size: usize) -> *mut c_void {
         let idx = (size + 3) >> 2;
         if idx >= SIZE_LOOKUP_LEN {
             return null_mut();
         }
-        let base_idx = self.size_to_pool[idx];
-        if base_idx == NO_POOL {
+        let class_idx = self.size_to_class[idx];
+        if class_idx == NO_POOL {
             return null_mut();
         }
 
-        // Sharded classes route shard 1 to the shard-1 pool. Shard 0
-        // falls through to the base pool index unchanged.
-        let base_idx_u = base_idx as usize;
-        let shard1 = self.shard1_of[base_idx_u];
-        let primary_idx = if shard1 != NO_POOL && get_shard() != 0 {
-            shard1 as usize
-        } else {
-            base_idx_u
-        };
+        let class_idx_u = class_idx as usize;
+        let ptr = self.alloc_from_class(class_idx_u);
+        if !ptr.is_null() {
+            return ptr;
+        }
 
-        // First try: chosen shard. Lazy-inits the pool's VA
-        // reservation if this is the first alloc for this class.
-        if self.ensure_pool_inited(primary_idx) {
-            let primary = &self.pools[primary_idx];
-            let ptr = unsafe {
-                let p = primary as *const Pool as *mut Pool;
-                (*p).acquire();
-                let result = (*p).alloc();
-                (*p).release();
-                result
-            };
+        // Exhausted: walk to larger classes. Each class grows one aligned
+        // subpool at a time instead of claiming the whole class cap.
+        for i in (class_idx_u + 1)..NUM_BASE_POOLS {
+            let ptr = self.alloc_from_class(i);
             if !ptr.is_null() {
-                return ptr as *mut c_void;
+                return ptr;
             }
         }
 
-        // If this was a sharded class, try the other shard before
-        // walking to larger classes. Keeps the hot path in the correct
-        // size class.
-        if shard1 != NO_POOL {
-            let other_idx = if primary_idx == base_idx_u {
-                shard1 as usize
-            } else {
-                base_idx_u
-            };
-            if self.ensure_pool_inited(other_idx) {
-                let other = &self.pools[other_idx];
-                let ptr = unsafe {
-                    let p = other as *const Pool as *mut Pool;
-                    (*p).acquire();
-                    let result = (*p).alloc();
-                    (*p).release();
-                    result
-                };
-                if !ptr.is_null() {
-                    return ptr as *mut c_void;
-                }
-            }
-        }
-
-        // Exhausted: walk to larger base classes. Each one may be
-        // still uninited; ensure before use.
-        for i in (base_idx_u + 1)..NUM_BASE_POOLS {
-            if !self.ensure_pool_inited(i) {
-                continue;
-            }
-            let next = &self.pools[i];
-            let ptr = unsafe {
-                let p = next as *const Pool as *mut Pool;
-                (*p).acquire();
-                let result = (*p).alloc();
-                (*p).release();
-                result
-            };
-            if !ptr.is_null() {
-                return ptr as *mut c_void;
-            }
-        }
-
-        // All pools from `base_idx` up to the largest size class refused.
+        // All classes from `class_idx` up to the largest size class refused.
         // Caller's fallthrough is block / va_alloc / NULL. Rate-limited
         // warn so a sudden burst of exhaustion is visible without
         // flooding the log.
@@ -1251,8 +1215,8 @@ impl PoolHeap {
             log::warn!(
                 "[POOL] Exhausted for size={} (started at class #{} = {}B): total_fails={}",
                 size,
-                base_idx_u,
-                POOL_DESC[base_idx_u].item_size,
+                class_idx_u,
+                POOL_DESC[class_idx_u].item_size,
                 n,
             );
         }
@@ -1264,12 +1228,15 @@ impl PoolHeap {
             Some(p) => p,
             None => return false,
         };
+        let class_idx = pool.class_index as usize;
+        let subpool_idx = pool.subpool_index;
         unsafe {
             let p = pool as *const Pool as *mut Pool;
             (*p).acquire();
             (*p).free(ptr as *mut u8);
             (*p).release();
         }
+        self.class_hint[class_idx].store(subpool_idx, Ordering::Relaxed);
         true
     }
 
@@ -1291,6 +1258,14 @@ impl PoolHeap {
         self.pools
             .iter()
             .map(|p| p.committed_bytes.load(Ordering::Relaxed) as usize)
+            .sum()
+    }
+
+    pub fn reserved_bytes(&self) -> usize {
+        self.pools
+            .iter()
+            .filter(|p| p.is_inited())
+            .map(|p| p.max_size as usize)
             .sum()
     }
 
@@ -1366,6 +1341,10 @@ pub fn committed_bytes() -> usize {
     HEAP.get().map(|h| h.committed_bytes()).unwrap_or(0)
 }
 
+pub fn reserved_bytes() -> usize {
+    HEAP.get().map(|h| h.reserved_bytes()).unwrap_or(0)
+}
+
 pub fn live_cells() -> usize {
     HEAP.get().map(|h| h.live_cells()).unwrap_or(0)
 }
@@ -1393,8 +1372,11 @@ pub fn diagnose_ptr_buf(fault_addr: usize, r: &mut String) {
     let _ = writeln!(r, "  ----------------");
     let _ = writeln!(
         r,
-        "  Pool:       #{} (item_size={} max={}MB)",
+        "  Pool:       #{} class #{} subpool {}/{} (item_size={} max={}MB)",
         pool.index,
+        pool.class_index,
+        pool.subpool_index + 1,
+        pool.subpool_count,
         pool.item_size,
         pool.max_size / 1024 / 1024,
     );
