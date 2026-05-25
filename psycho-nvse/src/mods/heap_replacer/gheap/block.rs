@@ -4,14 +4,14 @@
 //! variable-size cells, 16 MB blocks, split/coalesce, never retires.
 //!
 //! Layout:
-//!   No upfront tier reservation. Each `new_block` does a separate
-//!   `VirtualAlloc(NULL, BLOCK_SIZE, MEM_RESERVE|MEM_COMMIT)` and
-//!   the OS picks the address. The tier grows organically; we hold
-//!   only what we actually commit. This matches NVHR exactly and
-//!   leaves contiguous VAS available for the game's own large
-//!   allocations (LOD textures, save buffers -- the 89 MB texture
-//!   load that crashed on a previous build with the unified-reserve
-//!   design).
+//!   No upfront tier reservation. Each `new_block` owns one separate
+//!   16 MB reservation. We first consume adopted vanilla Default-heap
+//!   tail space, then try exact high-address placement, and only then
+//!   let the OS choose the address. The tier grows organically; we hold
+//!   only what we actually commit. This leaves low/mid contiguous VAS
+//!   available for the game's own large allocations (LOD textures, save
+//!   buffers -- the 89 MB texture load that crashed on a previous build
+//!   with the unified-reserve design).
 //!
 //!   Earlier we kept a contiguous upfront reservation to avoid VAS
 //!   fragmentation, but the cost was hard: 640 MB pre-reserved with
@@ -62,6 +62,13 @@ pub const BLOCK_MAX_ALLOC: usize = BLOCK_SIZE;
 /// builds. Above this we fall through to va_alloc. No memory is
 /// reserved upfront -- this is just the size of the slot table.
 const BLOCK_COUNT: usize = 64;
+
+/// High-half fallback scan for post-Default-tail blocks. Pool slabs
+/// already use high-fit placement; putting block fallback there too
+/// avoids consuming the large low/mid holes that D3D and texture
+/// streaming need for contiguous VirtualAlloc requests.
+const BLOCK_HIGH_SCAN_START: usize = 0xfe00_0000;
+const BLOCK_HIGH_SCAN_MIN: usize = 0x8000_0000;
 
 /// Sentinel "no cell" index inside a block's cell array.
 const NO_CELL: u32 = u32::MAX;
@@ -373,13 +380,10 @@ impl BlockHeap {
         }
     }
 
-    /// Reserve+commit a fresh 16 MB region. First tries a placement
-    /// hint immediately after the highest-end live slot, so burst
-    /// allocations cluster contiguously -- this matters because
-    /// `emergency_retire_empty` can only produce a contiguous hole
-    /// when the retired slots were adjacent. If the hint address is
-    /// occupied (long session, game VAS has grown into it), falls
-    /// back to OS-picked placement with `VirtualAlloc(None, ...)`.
+    /// Reserve+commit a fresh 16 MB region. Default-tail adoption is
+    /// best because it reuses already-reserved vanilla VAS. After that
+    /// we scan high addresses exactly before falling back to OS-picked
+    /// placement; low/mid holes are more valuable to D3D than to us.
     ///
     /// Each slot is still its own independent `MEM_RESERVE` so the
     /// retirement path (`VirtualFree(MEM_RELEASE)`) works unchanged.
@@ -397,20 +401,25 @@ impl BlockHeap {
             backing = BlockBacking::DefaultHeapTail;
         }
 
-        // First chance: try to land adjacent to the highest live slot.
-        // Silent on failure -- hint collisions are expected and the
-        // fallback path below handles them cleanly.
-        if ptr.is_null()
-            && let Some(hint) = self.preferred_next_address()
-        {
-            ptr = unsafe {
-                VirtualAlloc(
-                    Some(hint as *const c_void),
-                    BLOCK_SIZE,
-                    MEM_RESERVE | MEM_COMMIT,
-                    PAGE_READWRITE,
-                )
-            };
+        if ptr.is_null() {
+            ptr = Self::reserve_high_block();
+        }
+
+        // If the high half is already fragmented or unavailable, try
+        // to land adjacent to the highest live slot before giving the
+        // OS full control. Silent on failure -- hint collisions are
+        // expected and the fallback path below handles them cleanly.
+        if ptr.is_null() {
+            if let Some(hint) = self.preferred_next_address() {
+                ptr = unsafe {
+                    VirtualAlloc(
+                        Some(hint as *const c_void),
+                        BLOCK_SIZE,
+                        MEM_RESERVE | MEM_COMMIT,
+                        PAGE_READWRITE,
+                    )
+                };
+            }
         }
 
         // Fallback: OS picks placement anywhere.
@@ -455,6 +464,34 @@ impl BlockHeap {
             self.live_count(),
         );
         Some(idx)
+    }
+
+    fn reserve_high_block() -> *mut c_void {
+        let mut hint = BLOCK_HIGH_SCAN_START;
+
+        loop {
+            let ptr = unsafe {
+                VirtualAlloc(
+                    Some(hint as *const c_void),
+                    BLOCK_SIZE,
+                    MEM_RESERVE | MEM_COMMIT,
+                    PAGE_READWRITE,
+                )
+            };
+            if !ptr.is_null() {
+                if ptr as usize == hint {
+                    return ptr;
+                }
+                let _ = unsafe { VirtualFree(ptr, 0, MEM_RELEASE) };
+            }
+
+            if hint <= BLOCK_HIGH_SCAN_MIN {
+                break;
+            }
+            hint -= BLOCK_SIZE;
+        }
+
+        null_mut()
     }
 
     /// Linear scan over live blocks. Max BLOCK_COUNT (64) cmps -- NVHR

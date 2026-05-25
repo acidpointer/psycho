@@ -382,7 +382,7 @@ pub fn install_gheap_activate() -> anyhow::Result<()> {
 }
 
 // ---------------------------------------------------------------------------
-// SHEAP -- Phase 1: initialize (NVSEPlugin_Preload)
+// scrap_heap -- Phase 1: initialize (NVSEPlugin_Preload)
 // ---------------------------------------------------------------------------
 
 /// Prepare scrap-heap hook trampolines. Cheap and independent from
@@ -396,7 +396,7 @@ pub fn install_sheap_initialize() -> anyhow::Result<()> {
         SHEAP_GET_THREAD_LOCAL_ADDR as *mut c_void,
         hook_get_thread_local,
     ) {
-        log::warn!("[SHEAP] sheap_get_thread_local init skipped: {:?}", e);
+        log::warn!("[scrap_heap] get_thread_local hook init skipped: {:?}", e);
     }
     INIT_FIX_HOOK.init(
         "sheap_init_fix",
@@ -412,12 +412,12 @@ pub fn install_sheap_initialize() -> anyhow::Result<()> {
     FREE_HOOK.init("sheap_free", SHEAP_FREE_ADDR as *mut c_void, hook_free)?;
     PURGE_HOOK.init("sheap_purge", SHEAP_PURGE_ADDR as *mut c_void, hook_purge)?;
 
-    log::info!("[SHEAP] Infrastructure initialized, trampolines prepared");
+    log::info!("[scrap_heap] Infrastructure initialized, trampolines prepared");
     Ok(())
 }
 
 // ---------------------------------------------------------------------------
-// SHEAP -- Phase 2: activate (NVSEPlugin_Load)
+// scrap_heap -- Phase 2: activate (NVSEPlugin_Load)
 // ---------------------------------------------------------------------------
 
 /// Enable scrap-heap JMPs and apply the embedded-sheap constructor
@@ -428,18 +428,18 @@ pub fn install_sheap_activate() -> anyhow::Result<()> {
 
     // optional -- skip if init failed (another mod patched the address)
     if GET_THREAD_LOCAL_HOOK.enable().is_err() {
-        log::warn!("[SHEAP] sheap_get_thread_local enable skipped");
+        log::warn!("[scrap_heap] get_thread_local hook enable skipped");
     }
     INIT_FIX_HOOK.enable()?;
     INIT_VAR_HOOK.enable()?;
     ALLOC_HOOK.enable()?;
     FREE_HOOK.enable()?;
     PURGE_HOOK.enable()?;
-    log::info!("[SHEAP] Scrap heap hooks active");
+    log::info!("[scrap_heap] Hooks active");
 
     apply_sheap_patches()?;
 
-    log::info!("[SHEAP] All hooks and patches applied");
+    log::info!("[scrap_heap] All hooks and patches applied");
     Ok(())
 }
 
@@ -504,7 +504,7 @@ fn cleanup_sbm_arenas() {
 
     let freed_mb = (decommitted_pages * 0x1000) / 1024 / 1024;
     log::debug!(
-        "[SBM] Arena cleanup: {} pools, {} total pages, {} decommitted ({}MB freed)",
+        "[GHEAP] SBM arena cleanup: {} pools, {} total pages, {} decommitted ({}MB freed)",
         pools_found,
         total_pages,
         decommitted_pages,
@@ -593,6 +593,6 @@ fn apply_sheap_patches() -> anyhow::Result<()> {
         patch_bytes(0x00AA38CA as *mut c_void, &[0x90u8; 30])?;
     }
 
-    log::info!("[SHEAP] Embedded scrap-heap constructor NOP applied");
+    log::info!("[scrap_heap] Embedded constructor NOP applied");
     Ok(())
 }

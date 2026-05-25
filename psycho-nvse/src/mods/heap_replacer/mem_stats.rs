@@ -94,7 +94,7 @@ impl MemStats {
             format_bytes(info.get_peak_commit()),
         ));
         r.push_str(&format!(
-            "SBM2:      {}\n",
+            "scrap_heap: {}\n",
             format_bytes(stats.sbm2_allocated() as usize),
         ));
         r.push_str(&format!(

@@ -3,10 +3,11 @@ use std::ptr::{self, null_mut};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, LazyLock};
 use std::thread::{self, JoinHandle};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use crossfire::flavor::Queue;
 use libc::c_void;
+use libpsycho::common::helpers::format_bytes;
 
 use super::heap::Heap;
 use super::region::Region;
@@ -16,8 +17,84 @@ use super::super::mem_stats;
 pub type SeqQueue<T> = crossfire::flavor::List<T>;
 
 const GC_DURATION: Duration = Duration::from_millis(1000 * 5);
+const SUMMARY_INTERVAL: Duration = Duration::from_secs(60);
+const PEAK_LOG_STEP: usize = 4 * 1024 * 1024;
+const IDENTITY_LOG_STEP: usize = 16;
 
 type HeapMap<K, V> = clashmap::ClashMap<K, V, rustc_hash::FxBuildHasher>;
+
+#[derive(Default)]
+struct ScrapSnapshot {
+    live_bytes: usize,
+    identities: usize,
+    active_identities: usize,
+    regions: usize,
+    live_allocs: usize,
+}
+
+#[derive(Default)]
+struct GcCycle {
+    queued: usize,
+    purged_identities: usize,
+    purged_regions: usize,
+}
+
+struct ScrapLogState {
+    last_summary: Instant,
+    logged_peak: usize,
+    last_identities: usize,
+    was_active: bool,
+}
+
+impl ScrapLogState {
+    fn new() -> Self {
+        Self {
+            last_summary: Instant::now(),
+            logged_peak: 0,
+            last_identities: 0,
+            was_active: false,
+        }
+    }
+
+    fn observe(&mut self, snapshot: &ScrapSnapshot, gc: &GcCycle) {
+        let active = snapshot.live_bytes > 0 || snapshot.regions > 0;
+        let now = Instant::now();
+        let new_peak = snapshot.live_bytes > self.logged_peak + PEAK_LOG_STEP;
+        let identity_growth =
+            active && snapshot.identities >= self.last_identities.saturating_add(IDENTITY_LOG_STEP);
+        let periodic = active && now.duration_since(self.last_summary) >= SUMMARY_INTERVAL;
+        let state_change = active != self.was_active;
+
+        if state_change || new_peak || identity_growth || periodic {
+            let peak = self.logged_peak.max(snapshot.live_bytes);
+            log::info!(
+                "[scrap_heap] live={} peak={} ids={} active_ids={} regions={} live_allocs={} gc_queued={} purged_ids={} purged_regions={}",
+                format_bytes(snapshot.live_bytes),
+                format_bytes(peak),
+                snapshot.identities,
+                snapshot.active_identities,
+                snapshot.regions,
+                snapshot.live_allocs,
+                gc.queued,
+                gc.purged_identities,
+                gc.purged_regions,
+            );
+            self.last_summary = now;
+            self.logged_peak = peak;
+            self.last_identities = snapshot.identities;
+            self.was_active = active;
+        } else if gc.queued > 0 || gc.purged_regions > 0 {
+            log::debug!(
+                "[scrap_heap] gc queued={} purged_ids={} purged_regions={} live={} ids={}",
+                gc.queued,
+                gc.purged_identities,
+                gc.purged_regions,
+                format_bytes(snapshot.live_bytes),
+                snapshot.identities,
+            );
+        }
+    }
+}
 
 // ---- Thread-Local Cache ----
 
@@ -75,6 +152,8 @@ impl Runtime {
         let gc_queue = self.gc_queue.clone();
 
         let gc_handle = thread::spawn(move || {
+            let mut log_state = ScrapLogState::new();
+
             loop {
                 if !gc_run.load(Ordering::Acquire) {
                     return;
@@ -82,27 +161,43 @@ impl Runtime {
 
                 thread::sleep(GC_DURATION);
 
-                let sbm2_mem = mem_stats::global().sbm2_allocated();
-                let heaps_len = pool.len();
-                log::info!(
-                    "[SBM] Memory: {}MB ({}KB); Heaps: {}",
-                    sbm2_mem / 1024 / 1024,
-                    sbm2_mem / 1024,
-                    heaps_len,
-                );
-
+                let mut gc = GcCycle::default();
                 while let Some(sheap_id) = gc_queue.pop() {
+                    gc.queued += 1;
                     if let Some(heap) = pool.get(&sheap_id) {
                         let purged = heap.checked_purge();
                         if purged > 0 {
-                            log::trace!("[GC] sheap_id={:#x}: purged {} regions", sheap_id, purged);
+                            gc.purged_identities += 1;
+                            gc.purged_regions += purged;
                         }
                     }
                 }
+
+                let snapshot = Self::snapshot(&pool);
+                log_state.observe(&snapshot, &gc);
             }
         });
 
         self.gc_handle = Some(gc_handle);
+    }
+
+    fn snapshot(pool: &HeapMap<usize, Arc<Heap>>) -> ScrapSnapshot {
+        let mut snapshot = ScrapSnapshot {
+            live_bytes: mem_stats::global().sbm2_allocated() as usize,
+            identities: pool.len(),
+            ..ScrapSnapshot::default()
+        };
+
+        for heap in pool.iter() {
+            let regions = heap.region_count();
+            if regions > 0 {
+                snapshot.active_identities += 1;
+                snapshot.regions += regions;
+                snapshot.live_allocs = snapshot.live_allocs.saturating_add(heap.alloc_count());
+            }
+        }
+
+        snapshot
     }
 
     #[cold]

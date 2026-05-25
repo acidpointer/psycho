@@ -128,7 +128,7 @@ impl Heap {
             let current = self.alloc_count.load(Ordering::Acquire);
             if current == 0 {
                 log::error!(
-                    "[SBM] alloc_count underflow on sheap_id={:#x}",
+                    "[scrap_heap] alloc_count underflow on heap_id={:#x}",
                     self.sheap_id
                 );
                 return;
@@ -163,7 +163,10 @@ impl Heap {
         }
 
         if let Err(failed_id) = self.gc_queue.push(self.sheap_id) {
-            log::error!("[SBM] GC queue push failed for sheap_id={:#x}", failed_id);
+            log::error!(
+                "[scrap_heap] GC queue push failed for heap_id={:#x}",
+                failed_id
+            );
             self.gc_queued.store(false, Ordering::Release);
         }
     }
@@ -205,5 +208,13 @@ impl Heap {
         self.generation.fetch_add(1, Ordering::Release);
 
         old_len
+    }
+
+    pub fn region_count(&self) -> usize {
+        self.pool.lock().len()
+    }
+
+    pub fn alloc_count(&self) -> usize {
+        self.alloc_count.load(Ordering::Relaxed)
     }
 }

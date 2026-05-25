@@ -82,7 +82,7 @@ pub unsafe extern "C" fn hook_get_thread_local() -> *mut c_void {
 
 pub unsafe extern "fastcall" fn hook_init_fix(sheap_ptr: *mut c_void, _edx: *mut c_void) {
     if sheap_ptr.is_null() {
-        log::error!("sheap_init_fix: NULL heap pointer");
+        log::error!("[scrap_heap] init_fix: null heap pointer");
         return;
     }
     Runtime::get_instance().purge(sheap_ptr);
@@ -94,7 +94,7 @@ pub unsafe extern "fastcall" fn hook_init_var(
     _size: usize,
 ) {
     if sheap_ptr.is_null() {
-        log::error!("sheap_init_var: NULL heap pointer");
+        log::error!("[scrap_heap] init_var: null heap pointer");
         return;
     }
     Runtime::get_instance().purge(sheap_ptr);
@@ -110,7 +110,7 @@ pub unsafe extern "fastcall" fn hook_alloc(
     align: usize,
 ) -> *mut c_void {
     if sheap_ptr.is_null() {
-        log::error!("sheap_alloc: sheap_ptr is NULL!");
+        log::error!("[scrap_heap] alloc: null heap pointer");
         return null_mut();
     }
     let actual_align = align.max(16);
@@ -142,7 +142,7 @@ unsafe fn alloc_oom_recovery(
 
     for attempt in 1..=SHEAP_OOM_RETRIES {
         log::warn!(
-            "[SBM] OOM on sheap_alloc(size={}, align={}), attempt {}/{}",
+            "[scrap_heap] OOM on alloc(size={}, align={}), attempt {}/{}",
             size,
             align,
             attempt,
@@ -155,7 +155,7 @@ unsafe fn alloc_oom_recovery(
 
         let ptr = rt.alloc(sheap_ptr, size, align);
         if !ptr.is_null() {
-            log::info!("[SBM] OOM recovered on attempt {}", attempt);
+            log::info!("[scrap_heap] OOM recovered on attempt {}", attempt);
             return ptr;
         }
 
@@ -166,7 +166,7 @@ unsafe fn alloc_oom_recovery(
     }
 
     log::error!(
-        "[SBM] CRITICAL: sheap_alloc failed after {} retries (size={}, align={})",
+        "[scrap_heap] CRITICAL: alloc failed after {} retries (size={}, align={})",
         SHEAP_OOM_RETRIES,
         size,
         align
