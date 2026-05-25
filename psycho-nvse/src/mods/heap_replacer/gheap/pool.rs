@@ -129,17 +129,20 @@ struct PoolDesc {
 /// full VA available, and our pools appear as the game's actual
 /// working set crosses their size-class thresholds.
 ///
-/// Layout (34 classes, 512 MB total):
+/// Layout (34 classes, 552 MB total):
 ///
 ///   Hot (TESForm/NiNode churn -- biggest reservations):
 ///     80 B:   80 MB   (Run B saw 8K fails at 64 MB; NVHR uses 128 MB,
 ///                      80 MB is the "just over observed peak" compromise)
 ///     96 B:   64 MB   (Run B saw 256 fails at 64 MB; borderline, not bumped)
 ///
-///   Mid-size cascade hotspots (Run A: 131K fails at 1024 B before bump):
-///     1024, 1280 B:   16 MB each (re-exhaust risk vs 32 MB = accepted)
+///   Mid-size cascade hotspots:
+///     1024 B:         16 MB
+///     1280 B:         32 MB   (2026-05-25 run exhausted 1028-1224 B)
 ///      640 B:         16 MB
-///     2048, 3072, 3584 B: 16 MB each (Run D / Run A)
+///     2048 B:         16 MB
+///     2560 B:         16 MB   (2026-05-25 run exhausted 2286/2416 B)
+///     3072, 3584 B:   24 MB each
 ///      512 B:         16 MB
 ///
 ///   Small high-frequency classes (Run B saw heavy fails):
@@ -153,17 +156,18 @@ struct PoolDesc {
 ///
 ///   Baseline (never observed saturating): one 8 MB subpool.
 ///
-/// Accepted exhaust risks on 512 MB budget:
+/// Accepted exhaust risks on 552 MB budget:
 ///   - 80 B heavy load (Run B pattern): 80 MB vs 96 MB ideal -> expect
 ///     some exhausts under sustained stress + coc, not crashes
-///   - 1024/1280 B Run A pattern: 16 MB vs 32 MB ideal -> re-exhaust
-///     possible on Capital Wasteland lap; cascades to 1536/1792 (8 MB)
-///     then 2048 (16 MB); propagates up but doesn't NULL
+///   - 1024 B remains 16 MB, but >1024 B now has more headroom before
+///     cascading through every larger class and into block fallback.
 ///
 /// VAS accounting (the real constraint):
-///   pool (512) + block tier (up to ~400 on-demand) + game (~1-2 GB) +
+///   pool (552) + block tier (up to ~400 on-demand) + game (~1-2 GB) +
 ///   DirectX textures = fits under 3 GB LAA with ~80-100 MB headroom for
-///   contiguous texture allocs at deferred-init. Going above 512 MB
+///   contiguous texture allocs at deferred-init. Eagerly reserving this
+///   much would be unsafe; lazy subpools keep startup cost at zero.
+///   Going much above this budget
 ///   pool was proven to collapse that headroom to <15 MB and guarantee
 ///   coc-transition NULL on 89 MB texture VirtualAlloc.
 const POOL_DESC: &[PoolDesc] = &[
@@ -277,7 +281,7 @@ const POOL_DESC: &[PoolDesc] = &[
     },
     PoolDesc {
         item_size: 1280,
-        max_size: 16 * 1024 * 1024,
+        max_size: 32 * 1024 * 1024,
     },
     PoolDesc {
         item_size: 1536,
@@ -293,15 +297,15 @@ const POOL_DESC: &[PoolDesc] = &[
     },
     PoolDesc {
         item_size: 2560,
-        max_size: 8 * 1024 * 1024,
+        max_size: 16 * 1024 * 1024,
     },
     PoolDesc {
         item_size: 3072,
-        max_size: 16 * 1024 * 1024,
+        max_size: 24 * 1024 * 1024,
     },
     PoolDesc {
         item_size: 3584,
-        max_size: 16 * 1024 * 1024,
+        max_size: 24 * 1024 * 1024,
     },
 ];
 
@@ -328,6 +332,7 @@ const fn count_total_pools() -> usize {
 
 const NUM_BASE_POOLS: usize = POOL_DESC.len();
 const NUM_TOTAL_POOLS: usize = count_total_pools();
+const POOL_MAX_RESERVATION_MB: usize = (NUM_TOTAL_POOLS * POOL_ALIGN) / 1024 / 1024;
 
 // ---------------------------------------------------------------------------
 // FreeLink: out-of-band freelist node
@@ -895,10 +900,11 @@ impl PoolHeap {
         }
 
         log::info!(
-            "[POOL] Ready (subpool lazy): {} classes -> {} subpools of up to {}MB, 0MB reserved upfront",
+            "[POOL] Ready (subpool lazy): {} classes -> {} subpools of up to {}MB ({}MB max), 0MB reserved upfront",
             NUM_BASE_POOLS,
             NUM_TOTAL_POOLS,
             POOL_ALIGN / 1024 / 1024,
+            POOL_MAX_RESERVATION_MB,
         );
 
         Some(heap)

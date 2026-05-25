@@ -1,0 +1,3001 @@
+STARTUP / MAIN MENU LOADING SPEED AUDIT
+======================================================================
+Goal: identify concrete cold-start loading paths and safe speed targets.
+
+Known source clues:
+  Stewie FasterTitleMenu removes title-logo alpha/fade waits.
+  Stewie Inlines changes ModelLoader IO sleep 50ms -> 10ms.
+  Stewie Inlines also patches ArchiveFile::Read and BSFile::ReadFile.
+  psycho-nvse already replaces TES/BSA zlib paths.
+
+======================================================================
+STRING ANCHORS
+======================================================================
+  Found 192 matching strings
+
+  0x01012077 pattern=loading string=?GAME EFFECTS: Unknown EffectSetting encountered when loading EffectItem in actor effect '%s'
+    [no direct refs]
+
+  0x01012970 pattern=loading string=FORMS: Invalid form ID (%d) for effect setting found while loading counter effects for %s.
+    DATA @ 0x00407dbc in FUN_00407ac0 @ 0x00407ac0
+
+  0x01015500 pattern=loading string=SAVELOAD: LoadGame Buffer underrun of %i bytes in file %s on line %i.  Currently loading form is %08X %s with version %i and flags %08X
+    DATA @ 0x0083c17d in FUN_0083bec0 @ 0x0083bec0
+    DATA @ 0x008fbf30 in FUN_008fb330 @ 0x008fb330
+    DATA @ 0x0049a87e in FUN_0049a1c0 @ 0x0049a1c0
+    DATA @ 0x00679624 in FUN_00679340 @ 0x00679340
+    DATA @ 0x0083fa4c in FUN_0083f680 @ 0x0083f680
+    DATA @ 0x004bec5c in FUN_004be930 @ 0x004be930
+    DATA @ 0x0055f1a7 in FUN_0055ec40 @ 0x0055ec40
+    DATA @ 0x0047e992 in FUN_0047e6f0 @ 0x0047e6f0
+    ... refs truncated
+
+  0x01015588 pattern=loading string=SAVELOAD: LoadGame Buffer overrun of %i bytes in file %s on line %i.  Currently loading form is %08X %s with version %i and flags %08X
+    DATA @ 0x0083c127 in FUN_0083bec0 @ 0x0083bec0
+    DATA @ 0x008fbed4 in FUN_008fb330 @ 0x008fb330
+    DATA @ 0x0049a828 in FUN_0049a1c0 @ 0x0049a1c0
+    DATA @ 0x006795ce in FUN_00679340 @ 0x00679340
+    DATA @ 0x0083f9d5 in FUN_0083f680 @ 0x0083f680
+    DATA @ 0x004bec06 in FUN_004be930 @ 0x004be930
+    DATA @ 0x0055f151 in FUN_0055ec40 @ 0x0055ec40
+    DATA @ 0x0047e93c in FUN_0047e6f0 @ 0x0047e6f0
+    ... refs truncated
+
+  0x01015610 pattern=loading string=SAVELOAD: No loading code found in ExtraDataList::LoadGame() for type %i.  The order of the extra data enum probably changed.  Errors may occur.
+    DATA @ 0x00425c88 in FUN_00424960 @ 0x00424960
+
+  0x01015718 pattern=loading string=SAVELOAD: (LoadGame Buffer error) Block Header is incorrect in file %s on line %i.  Currently loading form is %08X %s with version %i and flags %08X
+    DATA @ 0x0083bf7e in FUN_0083bec0 @ 0x0083bec0
+    DATA @ 0x008fb40b in FUN_008fb330 @ 0x008fb330
+    DATA @ 0x0049a25f in FUN_0049a1c0 @ 0x0049a1c0
+    DATA @ 0x006793fe in FUN_00679340 @ 0x00679340
+    DATA @ 0x0083f756 in FUN_0083f680 @ 0x0083f680
+    DATA @ 0x004be9ee in FUN_004be930 @ 0x004be930
+    DATA @ 0x0055ed1b in FUN_0055ec40 @ 0x0055ec40
+    DATA @ 0x0047e78f in FUN_0047e6f0 @ 0x0047e6f0
+    ... refs truncated
+
+  0x01016ff7 pattern=loading string=?Loading %d references( %d background cloning ) and %d tasks( %d post processing )
+    [no direct refs]
+
+  0x010179bc pattern=loading string=Loading cell...%s (%i, %i) (%08X)
+    DATA @ 0x00451b61 in FUN_00451a50 @ 0x00451a50
+
+  0x010179e6 pattern=loading string=i@Loading Area (unloaded cells)...
+    [no direct refs]
+
+  0x01017a17 pattern=loading string=@Loading Area (queued cells)...
+    [no direct refs]
+
+  0x01017e78 pattern=loading string=Exterior cell (%i,%i) finished loading in %.02f seconds.  Total test time: %02i:%02i:%02i
+    DATA @ 0x00459ea6 in FUN_00459d20 @ 0x00459d20
+
+  0x01017ed8 pattern=loading string=Interior cell finished loading in %.02f seconds.  Total test time: %02i:%02i:%02i
+    DATA @ 0x00459e5a in FUN_00459d20 @ 0x00459d20
+
+  0x01018034 pattern=loading string=bShowLoadingAreaMessage:General
+    DATA @ 0x00f38395 in FUN_00f38390 @ 0x00f38390
+
+  0x01018804 pattern=.bsa string=Update.bsa
+    DATA @ 0x00462b2e in FUN_004624b0 @ 0x004624b0
+    DATA @ 0x00462b43 in FUN_004624b0 @ 0x004624b0
+
+  0x0101881c pattern=.esp string=*.esp
+    DATA @ 0x0046260c in FUN_004624b0 @ 0x004624b0
+
+  0x01018824 pattern=.esm string=*.esm
+    DATA @ 0x004625f8 in FUN_004624b0 @ 0x004624b0
+
+  0x01018834 pattern=.bsa string=Data\%s*.bsa
+    DATA @ 0x004637c9 in FUN_00463070 @ 0x00463070
+
+  0x010189a0 pattern=loading string=Loading Files %d%% (%s)
+    DATA @ 0x00467af5 in FUN_00467780 @ 0x00467780
+
+  0x01019680 pattern=loading string=Warnings were encountered loading %smodel '%s' for %s %s.
+    DATA @ 0x0046e4d7 in FUN_0046ddb0 @ 0x0046ddb0
+
+  0x010196bc pattern=loading string=Loading %smodel "%s" for %s "%s".
+    DATA @ 0x0046e25b in FUN_0046ddb0 @ 0x0046ddb0
+
+  0x0101cf70 pattern=Archive string=MASTERFILE: Failed to find archive file entry for texture on UNKNOWN Model
+    DATA @ 0x00489846 in FUN_00489670 @ 0x00489670
+
+  0x0101cfc0 pattern=Archive string=MASTERFILE: Failed to find archive file entry for texture on model '%s' on UNKNOWN form.
+    DATA @ 0x00489837 in FUN_00489670 @ 0x00489670
+
+  0x0101d020 pattern=Archive string=MASTERFILE: Failed to find archive file entry for texture on model '%s' for form %s (%08X).
+    DATA @ 0x0048981e in FUN_00489670 @ 0x00489670
+
+  0x0101d09c pattern=loading string=bUseOptimizedTextureLoading:General
+    DATA @ 0x00f3c445 in FUN_00f3c440 @ 0x00f3c440
+
+  0x0101dcec pattern=loading string=FORMS: Could not find IdleForm %08X when loading actor %s
+    DATA @ 0x004979f8 in FUN_004977e0 @ 0x004977e0
+
+  0x01023e40 pattern=loading string=Warnings were encountered while loading weather list chunk from region %s
+    DATA @ 0x004f524d in FUN_004f51f0 @ 0x004f51f0
+
+  0x01024988 pattern=loading string=MODELS: No last debris data when loading texture list for debris '%s' (%08X)
+    DATA @ 0x004fa129 in FUN_004f9f10 @ 0x004f9f10
+
+  0x0102d700 pattern=loading string=MASTERFILE: Warnings were encountered while loading weather list chunk from climate %s
+    DATA @ 0x0052adeb in FUN_0052ac90 @ 0x0052ac90
+
+  0x01030df8 pattern=loading string=AI: Unloading art for a high or middle high process actor (%s).
+    DATA @ 0x00570424 in FUN_005702e0 @ 0x005702e0
+
+  0x01031857 pattern=loading string=?DEFAULT: Error while loading weather list...cannot identify TESWeather from form ID: (%08X)
+    [no direct refs]
+
+  0x01039280 pattern=loading string=Loading sleep idle
+    DATA @ 0x0118c6c0 in ??? @ 0x00000000
+
+  0x0103973c pattern=Archive string=Archive profiling is not enabled
+    DATA @ 0x005b6c24 in FUN_005b6b50 @ 0x005b6b50
+
+  0x01039760 pattern=Archive string=Outputting Archive profile to file %s
+    DATA @ 0x005b6c15 in FUN_005b6b50 @ 0x005b6b50
+
+  0x01039790 pattern=Archive string=ArchiveProfile.txt
+    DATA @ 0x005b6b63 in FUN_005b6b50 @ 0x005b6b50
+    DATA @ 0x005b6bae in FUN_005b6b50 @ 0x005b6b50
+
+  0x010398f0 pattern=FALLOUT.INI string=The in-game settings have been refreshed from the Fallout.ini file.
+    DATA @ 0x005b73f5 in FUN_005b72f0 @ 0x005b72f0
+
+  0x0103ac74 pattern=loading string=Anims Loading: %d
+    DATA @ 0x005c3f87 in FUN_005c3cf0 @ 0x005c3cf0
+
+  0x0103d2b0 pattern=loading string=IsLoadingMenuEnabled >> %0.f
+    DATA @ 0x005dfc52 in FUN_005dfc10 @ 0x005dfc10
+
+  0x0103dc0c pattern=loading string=Checks if the loading menu is open
+    [no direct refs]
+
+  0x0103dc40 pattern=loading string=IsLoadingMenuEnabled
+    [no direct refs]
+
+  0x0103dc58 pattern=loading string=Enable or disables the loading menu
+    [no direct refs]
+
+  0x0103dc7c pattern=loading string=EnableLoadingMenu
+    [no direct refs]
+
+  0x01042e18 pattern=Archive string=Output Archive profile info to a file
+    [no direct refs]
+
+  0x01042e44 pattern=Archive string=OutputArchiveProfile
+    [no direct refs]
+
+  0x01045690 pattern=loading string=MASTERFILE: Warnings encountered loading part '%s' for body part data '%s' (%08X).
+    DATA @ 0x005e503c in FUN_005e4d80 @ 0x005e4d80
+
+  0x01046e18 pattern=loading string=MASTERFILE: Function data chunk is loading without function data existing on perk entry
+    DATA @ 0x005ea9f3 in FUN_005ea790 @ 0x005ea790
+
+  0x0104a704 pattern=.esm string=FalloutNV.ESM
+    DATA @ 0x00614983 in FUN_006148f0 @ 0x006148f0
+    DATA @ 0x00614991 in FUN_006148f0 @ 0x006148f0
+    DATA @ 0x0060440a in FUN_00604310 @ 0x00604310
+    DATA @ 0x00604420 in FUN_00604310 @ 0x00604310
+    DATA @ 0x0060444d in FUN_00604310 @ 0x00604310
+    DATA @ 0x00604463 in FUN_00604310 @ 0x00604310
+    DATA @ 0x00604490 in FUN_00604310 @ 0x00604310
+    DATA @ 0x006044a2 in FUN_00604310 @ 0x00604310
+    ... refs truncated
+
+  0x0104a9ec pattern=loading string=MODELS: %s has a bad new race when loading facegen
+    DATA @ 0x0060a1ec in FUN_00609f60 @ 0x00609f60
+
+  0x0104aa48 pattern=loading string=MODELS: %s has a bad current race when loading facegen
+    DATA @ 0x0060a11f in FUN_00609f60 @ 0x00609f60
+
+  0x0105a388 pattern=loading string=fLoadingWheelScale
+    DATA @ 0x00f6d8fd in FUN_00f6d8f0 @ 0x00f6d8f0
+
+  0x0105a4a8 pattern=FALLOUT.INI string=* Font indices map to the corresponding texture filenames ("sFontFile_#") in Fallout.ini (PC/PS3) and FalloutXenon.ini (360)!
+    DATA @ 0x00f6da43 in FUN_00f6da40 @ 0x00f6da40
+
+  0x0105ec58 pattern=loading string=sLoadingLOD
+    DATA @ 0x00f74678 in FUN_00f74670 @ 0x00f74670
+
+  0x0105ec64 pattern=loading string=Loading distant LOD...
+    DATA @ 0x00f74673 in FUN_00f74670 @ 0x00f74670
+
+  0x01061188 pattern=loading string=This save game relies on downloadable content that is no longer available. Some objects may be no longer available. Continue loading?
+    DATA @ 0x00f778e3 in FUN_00f778e0 @ 0x00f778e0
+
+  0x01061230 pattern=loading string=Selected storage device has insufficient
+space to save progress. Autosave will
+be disabled. Continue Loading?
+    DATA @ 0x00f77913 in FUN_00f77910 @ 0x00f77910
+
+  0x010612c0 pattern=loading string=This save relies on content that is no longer present. Some objects may no longer be available. Continue Loading?
+    DATA @ 0x00f77943 in FUN_00f77940 @ 0x00f77940
+
+  0x010619ec pattern=loading string=sQuickLoading
+    DATA @ 0x00f77e88 in FUN_00f77e80 @ 0x00f77e80
+
+  0x010619fc pattern=loading string=Quickloading...
+    DATA @ 0x00f77e83 in FUN_00f77e80 @ 0x00f77e80
+
+  0x01061acc pattern=loading string=sAutoLoading
+    DATA @ 0x00f77f78 in FUN_00f77f70 @ 0x00f77f70
+
+  0x01061adc pattern=loading string=Autoloading...
+    DATA @ 0x00f77f73 in FUN_00f77f70 @ 0x00f77f70
+
+  0x01061aec pattern=loading string=sLoading
+    DATA @ 0x00f77fa8 in FUN_00f77fa0 @ 0x00f77fa0
+
+  0x01061af8 pattern=loading string=Loading...
+    DATA @ 0x00f77fa3 in FUN_00f77fa0 @ 0x00f77fa0
+
+  0x01062014 pattern=loading string=sLoadingContentMessage
+    DATA @ 0x00f78278 in FUN_00f78270 @ 0x00f78270
+
+  0x0106202c pattern=loading string=Loading extra content. Please wait.
+    DATA @ 0x00f78273 in FUN_00f78270 @ 0x00f78270
+
+  0x01062ddc pattern=loading string=sLoadingArea
+    DATA @ 0x00f78ff8 in FUN_00f78ff0 @ 0x00f78ff0
+
+  0x01062dec pattern=loading string=Loading area...
+    DATA @ 0x00f78ff3 in FUN_00f78ff0 @ 0x00f78ff0
+
+  0x01062e88 pattern=loading string=Reloading the most recent save game
+    DATA @ 0x00f790b3 in FUN_00f790b0 @ 0x00f790b0
+
+  0x0106eff8 pattern=Data\Menus string=Data\Menus\globals.xml
+    DATA @ 0x0071b86d in FUN_0071b210 @ 0x0071b210
+    DATA @ 0x0071b87a in FUN_0071b210 @ 0x0071b210
+    DATA @ 0x0070af64 in FUN_0070adb0 @ 0x0070adb0
+    DATA @ 0x0070af82 in FUN_0070adb0 @ 0x0070adb0
+
+  0x0106f334 pattern=Data\Menus string=Data\Menus\Main\safe_zone.xml
+    DATA @ 0x00715f66 in FUN_00715ec0 @ 0x00715ec0
+
+  0x0107054c pattern=Data\Menus string=Data\Menus\recipe_menu.xml
+    DATA @ 0x0072705e in FUN_00726ff0 @ 0x00726ff0
+
+  0x010707b4 pattern=Data\Menus string=Data\Menus\barter_menu.xml
+    DATA @ 0x0072d2be in FUN_0072d250 @ 0x0072d250
+
+  0x01070c38 pattern=Data\Menus string=Data\Menus\black_jack_menu.xml
+    DATA @ 0x00733b0f in FUN_00733630 @ 0x00733630
+
+  0x01070f68 pattern=Data\Menus string=Data\Menus\book_menu.xml
+    DATA @ 0x0073adc2 in FUN_0073ad50 @ 0x0073ad50
+
+  0x01070fa8 pattern=Data\Menus string=Data\Menus\workbook.html
+    DATA @ 0x0073b531 in FUN_0073b500 @ 0x0073b500
+
+  0x0107170c pattern=Data\Menus string=Data\Menus\caravan_menu.xml
+    DATA @ 0x007411c8 in FUN_00741060 @ 0x00741060
+
+  0x01071c5c pattern=Data\Menus string=Data\Menus\CharGen\char_gen_menu.xml
+    DATA @ 0x0075348a in FUN_00753420 @ 0x00753420
+
+  0x01071dfc pattern=Data\Menus string=Data\Menus\companion_wheel_menu.xml
+    DATA @ 0x00754e51 in FUN_00754de0 @ 0x00754de0
+
+  0x010720e8 pattern=Data\Menus string=Data\Menus\computers_menu.xml
+    DATA @ 0x00757c1e in FUN_00757b70 @ 0x00757b70
+
+  0x01072258 pattern=Data\Menus string=Data\Menus\container_menu.xml
+    DATA @ 0x0075b37f in FUN_0075b310 @ 0x0075b310
+
+  0x010723fc pattern=Data\Menus string=Data\Menus\Options\credits_menu.xml
+    DATA @ 0x0075f2fc in FUN_0075f2a0 @ 0x0075f2a0
+
+  0x0107266c pattern=Data\Menus string=Data\Menus\Dialog\dialog_menu.xml
+    DATA @ 0x00761a67 in FUN_00761a20 @ 0x00761a20
+  ... truncated string matches
+
+======================================================================
+STEWIE / PSYCHO STARTUP-SPEED PATCH SITES
+======================================================================
+
+======================================================================
+FasterTitleMenu skip logo alpha wait @ 0x007d592c
+======================================================================
+  Function: FUN_007d5830 @ 0x007d5830, Size: 690 bytes
+  NOTE: Requested 0x007d592c is inside FUN_007d5830 (entry at 0x007d5830)
+
+/* WARNING: Globals starting with '_' overlap smaller symbols at the same address */
+
+undefined4 FUN_007d5830(void)
+
+{
+  char cVar1;
+  int iVar2;
+  int *piVar3;
+  int iVar4;
+  undefined4 *puVar5;
+  undefined4 uVar6;
+  float10 fVar7;
+  undefined4 uVar8;
+  undefined4 uVar9;
+  undefined4 extraout_var;
+  
+  cVar1 = FUN_004a4080(1);
+  if (cVar1 == '\0') {
+    uVar6 = extraout_var;
+    cVar1 = FUN_004a4080(0x80000);
+    if ((cVar1 != '\0') && (DAT_011da0c0 != 0)) {
+      uVar9 = 2;
+      uVar8 = 0;
+      FUN_00877720(0,2,uVar6);
+      iVar2 = FUN_00a23a50(uVar8,uVar9);
+      if (iVar2 != 0) {
+        FUN_0078aa90();
+      }
+    }
+    cVar1 = FUN_004a4080(0x10);
+    if (((cVar1 != '\0') && (cVar1 = FUN_00a07ed0(0xfa9), cVar1 == '\0')) &&
+       ((DAT_011c3f3c == 0 || (fVar7 = (float10)FUN_00526ac0(), fVar7 <= (float10)_DAT_01012060))))
+    {
+      fVar7 = (float10)FUN_00a011b0(0xfa9);
+      if ((float)fVar7 == (float)_DAT_01012060) {
+        FUN_007d61e0(3,1,0xfa9,0x3f800000);
+        FUN_0078d2d0(1);
+      }
+      else if ((float)fVar7 == (float)_DAT_0101e568) {
+        FUN_007d6550();
+        piVar3 = (int *)FUN_0043d4d0();
+        iVar2 = *piVar3;
+        iVar4 = FUN_0046fe10();
+        uVar6 = FUN_00647b70(iVar4 * 5 + iVar2,0x1e,0x32);
+        uVar6 = FUN_004a8f20(uVar6);
+        puVar5 = (undefined4 *)FUN_0043d4d0();
+        *puVar5 = uVar6;
+        DAT_011a0294 = 0;
+        FUN_0075f6f0(0x10,0);
+      }
+    }
+    cVar1 = FUN_004a4080(0x400);
+    if (cVar1 != '\0') {
+      iVar2 = FUN_00a09030(0x3e9);
+      if (iVar2 == 0) {
+        uVar6 = FUN_004c69f0(0,0,0,0,0x12,0,0,&lpWindowName_01011584);
+        FUN_00703e80(uVar6);
+      }
+      else {
+        FUN_00a03c90();
+        iVar2 = FUN_0059bb30();
+        if (iVar2 == 1) {
+          FUN_0075f6f0(0x400,0);
+          FUN_00af59f0();
+          FUN_007d69f0();
+        }
+      }
+    }
+    cVar1 = FUN_004a4080(0x100);
+    if (cVar1 != '\0') {
+      FUN_0075f6f0(0x400,1);
+      FUN_0075f6f0(0x100,0);
+    }
+    cVar1 = FUN_004a4080(0x1000000);
+    if ((cVar1 != '\0') && (iVar2 = FUN_00a09030(0x3e9), iVar2 == 0)) {
+      FUN_0075f6f0(0x1000000,0);
+      uVar6 = FUN_00403df0(0);
+      uVar6 = FUN_00403df0(0,0,0,0,0x12,0,0,uVar6);
+      FUN_00703e80(uVar6);
+    }
+    return 1;
+  }
+  return 0;
+}
+
+
+
+----------------------------------------------------------------------
+Disassembly FasterTitleMenu skip logo alpha wait: 0x007d5914 - 0x007d595c
+----------------------------------------------------------------------
+  0x007d5916: PUSH 0x1
+  0x007d5918: PUSH 0x3
+  0x007d591a: MOV ECX,dword ptr [EBP + -0x14]
+  0x007d591d: CALL 0x007d61e0 -> FUN_007d61e0
+  0x007d5922: PUSH 0x1
+  0x007d5924: CALL 0x0078d2d0 -> FUN_0078d2d0
+  0x007d5929: ADD ESP,0x4
+  0x007d592c: JMP 0x007d59b3 << TARGET
+  0x007d5931: FLD float ptr [EBP + -0x4]
+  0x007d5934: FCOMP double ptr [0x0101e568]
+  0x007d593a: FNSTSW AX
+  0x007d593c: TEST AH,0x44
+  0x007d593f: JP 0x007d59b3
+  0x007d5941: MOV ECX,dword ptr [EBP + -0x14]
+  0x007d5944: CALL 0x007d6550 -> FUN_007d6550
+  0x007d5949: MOV ECX,0x11d0c60
+  0x007d594e: CALL 0x0043d4d0 -> FUN_0043d4d0
+  0x007d5953: MOV EAX,dword ptr [EAX]
+  0x007d5955: MOV dword ptr [EBP + -0x8],EAX
+  0x007d5958: MOV dword ptr [EBP + -0xc],0x1e
+
+----------------------------------------------------------------------
+References TO 0x007d592c (FasterTitleMenu skip logo alpha wait)
+----------------------------------------------------------------------
+  Total: 0 refs
+
+======================================================================
+FasterTitleMenu current-time hook @ 0x0078a093
+======================================================================
+  Function: FUN_00789820 @ 0x00789820, Size: 2457 bytes
+  NOTE: Requested 0x0078a093 is inside FUN_00789820 (entry at 0x00789820)
+
+/* WARNING: Globals starting with '_' overlap smaller symbols at the same address */
+
+void __fastcall FUN_00789820(int param_1)
+
+{
+  char cVar1;
+  undefined4 *puVar2;
+  int iVar3;
+  uint uVar4;
+  float10 fVar5;
+  undefined4 uVar6;
+  undefined4 uVar7;
+  undefined4 uVar8;
+  float fVar9;
+  undefined4 uVar10;
+  undefined4 uVar11;
+  undefined4 uVar12;
+  undefined1 *puVar13;
+  char *local_d0;
+  char *local_cc;
+  undefined1 local_ac [12];
+  undefined4 local_a0;
+  wchar_t local_9c [32];
+  wchar_t local_5c [32];
+  uint local_1c;
+  uint local_18;
+  float local_14;
+  float local_10;
+  float local_c;
+  int local_8;
+  
+  local_1c = DAT_011c16bc ^ (uint)&stack0xfffffffc;
+  DAT_011a0295 = 1;
+  if ((*(uint *)(param_1 + 0x5bc) & 1) != 0) {
+    *(uint *)(param_1 + 0x5bc) = *(uint *)(param_1 + 0x5bc) & 0xfffffffe;
+    uVar11 = 1;
+    fVar5 = (float10)FUN_00a011b0(0xfa2);
+    FUN_00a012d0(0xfa2,(float)(fVar5 - (float10)_DAT_01015a38),uVar11);
+    uVar11 = 1;
+    fVar5 = (float10)FUN_00a011b0(0xfb0);
+    FUN_00a012d0(0xfb0,(float)(fVar5 + (float10)_DAT_0101db88),uVar11);
+  }
+  if ((*(uint *)(param_1 + 0x5bc) & 2) != 0) {
+    *(uint *)(param_1 + 0x5bc) = *(uint *)(param_1 + 0x5bc) & 0xfffffffd;
+    uVar11 = 1;
+    fVar5 = (float10)FUN_00a011b0(0xfa2);
+    FUN_00a012d0(0xfa2,(float)(fVar5 - (float10)_DAT_01015a38),uVar11);
+    uVar11 = 1;
+    fVar5 = (float10)FUN_00a011b0(0xfb0);
+    FUN_00a012d0(0xfb0,(float)(fVar5 + (float10)_DAT_0101db88),uVar11);
+  }
+  local_8 = FUN_00457fe0();
+  cVar1 = FUN_00458110(4);
+  if (cVar1 == '\0') {
+    local_18 = local_8 - *(int *)(param_1 + 0x5b4);
+    local_14 = (float)((float10)local_18 * (float10)_DAT_01073fb8);
+    if (*(int *)(param_1 + 0x5b4) == 0) {
+      local_14 = 1.0;
+    }
+    FUN_005330e0(&local_14,0,0x3f800000);
+    if (*(uint *)(param_1 + 0x5b8) % 2 == 0) {
+      local_14 = 1.0 - local_14;
+    }
+    local_c = local_14;
+    FUN_005330e0(&local_c,0,0x3f800000);
+    if (*(int *)(param_1 + 0xa8) != 0) {
+      uVar11 = FUN_00ec62c0();
+      FUN_00700320(0xfa9,uVar11);
+    }
+    local_10 = 1.0 - local_14;
+    FUN_005330e0(&local_10,0,0x3f800000);
+    if (*(int *)(param_1 + 0xac) != 0) {
+      uVar11 = FUN_00ec62c0();
+      FUN_00700320(0xfa9,uVar11);
+    }
+    FUN_0078afc0(*(undefined4 *)(param_1 + 0x1dc),local_c,1);
+    uVar11 = 2;
+    fVar9 = local_10;
+    puVar2 = (undefined4 *)FUN_006815c0(local_10,2);
+    FUN_0078afc0(*puVar2,fVar9,uVar11);
+    DAT_011a0295 = 1;
+  }
+  if ((uint)(local_8 - *(int *)(param_1 + 0x5b4)) < 3000) {
+    if (((DAT_011a0294 != '\0') && (cVar1 = FUN_00458110(0), cVar1 == '\0')) &&
+       (cVar1 = FUN_00ec17c0(), cVar1 == '\0')) {
+      uVar11 = FUN_00403df0();
+      iVar3 = length(uVar11);
+      if ((iVar3 != 0) && (DAT_011da0c9 == '\0')) {
+        std::_Fiopen(local_5c,0,0x40);
+        uVar11 = FUN_00403df0();
+        FUN_00406d00(local_5c,0x40,"Data\\Music\\Special\\%s.mp3",uVar11);
+        FUN_00761460(1);
+        FUN_008300c0(8,local_5c,0,1,1,0,0);
+        FUN_00830660();
+        _DAT_011dd300 = _DAT_01018180;
+        _DAT_011dd338 = _DAT_01018180;
+        uVar11 = 1;
+        FUN_0056c7f0(1);
+        FUN_00450f90(uVar11);
+        FUN_00a012d0(0xfa9,0,1);
+        FUN_00a012d0(0xfa9,_DAT_01023cd8,1);
+        uVar12 = 0;
+        uVar10 = 0;
+        uVar8 = 0;
+        uVar7 = 0xffffffff;
+        uVar6 = 0;
+        uVar11 = FUN_00403df0(0,0xffffffff,0,0,0);
+        FUN_00ec16d0(uVar11,uVar6,uVar7,uVar8,uVar10,uVar12);
+        DAT_011da0c9 = '\x01';
+        FUN_00700320(0xfa3,1);
+        DAT_011a0295 = 1;
+        goto LAB_0078a178;
+      }
+    }
+    if (((DAT_011a0294 != '\0') &&
+        ((cVar1 = FUN_00458110(0), cVar1 == '\0' && (cVar1 = FUN_00ec17c0(), cVar1 == '\0')))) &&
+       (DAT_011da0c9 == '\0')) {
+      uVar11 = FUN_00403df0();
+      iVar3 = length(uVar11);
+      if (iVar3 == 0) {
+        std::_Fiopen(local_9c,0,0x40);
+        uVar11 = FUN_00403df0();
+        FUN_00406d00(local_9c,0x40,"Data\\Music\\Special\\%s.mp3",uVar11);
+        FUN_00761460(1);
+        FUN_008300c0(8,local_9c,0,1,1,0,0);
+        FUN_00830660();
+        _DAT_011dd300 = _DAT_01018180;
+        _DAT_011dd338 = _DAT_01018180;
+        DAT_011da0c9 = '\x01';
+      }
+    }
+  }
+  else if (*(int *)(param_1 + 0x1e0) == 0) {
+    if (DAT_011a0294 != '\0') {
+      while (DAT_011dea10 == 0) {
+        FUN_0040fca0(5);
+      }
+      FUN_0078a3e0(*(undefined4 *)(param_1 + 0x1ec));
+    }
+    if ((*(int *)(param_1 + 0x1e4) == 0) && (cVar1 = FUN_00458110(4), cVar1 != '\0')) {
+      FUN_0078cc50();
+    }
+    else {
+      uVar11 = FUN_00457fe0();
+      *(undefined4 *)(param_1 + 0x1e4) = uVar11;
+    }
+    *(undefined4 *)(param_1 + 0x1e0) = *(undefined4 *)(param_1 + 0x1e4);
+  }
+  else {
+    cVar1 = FUN_00458110(4);
+    if (cVar1 == '\0') {
+      cVar1 = FUN_00458110(9);
+      if ((cVar1 == '\0') && (uVar4 = FUN_00457fe0(), *(uint *)(param_1 + 0x1e0) <= uVar4)) {
+        local_a0 = *(undefined4 *)(param_1 + 0x28);
+        cVar1 = FUN_0078a1f0();
+        if (cVar1 == '\0') {
+          if ((((DAT_011a0294 == '\0') || (cVar1 = FUN_00458110(0), cVar1 == '\0')) &&
+              (cVar1 = FUN_00458110(3), cVar1 == '\0')) && (cVar1 = FUN_00458110(8), cVar1 == '\0'))
+          {
+            uVar11 = FUN_00457fe0();
+            *(undefined4 *)(param_1 + 0x1e0) = uVar11;
+            FUN_0078a1c0(1);
+            cVar1 = FUN_00458110(1);
+            if (cVar1 == '\0') {
+              local_cc = "Backward";
+            }
+            else {
+              local_cc = "Forward";
+            }
+            cVar1 = FUN_00a20cc0(local_cc);
+            if (cVar1 == '\0') {
+              cVar1 = FUN_00458110(1);
+              if (cVar1 == '\0') {
+                local_d0 = "Backward";
+              }
+              else {
+                local_d0 = "Forward";
+              }
+              FUN_005b5e40("MENUS: (Loading Menu) Unable to play sequence %s",local_d0);
+            }
+            else {
+              uVar11 = FUN_00457fe0();
+              *(undefined4 *)(param_1 + 0x5b4) = uVar11;
+              *(int *
+
+----------------------------------------------------------------------
+Disassembly FasterTitleMenu current-time hook: 0x0078a07b - 0x0078a0c3
+----------------------------------------------------------------------
+  0x0078a07c: PUSH EAX
+  0x0078a07d: MOV ECX,dword ptr [EBP + 0xffffff64]
+  0x0078a083: CALL 0x00a20cc0 -> FUN_00a20cc0
+  0x0078a088: MOVZX ECX,AL
+  0x0078a08b: TEST ECX,ECX
+  0x0078a08d: JZ 0x0078a13a
+  0x0078a093: CALL 0x00457fe0 -> FUN_00457fe0 << TARGET
+  0x0078a098: MOV EDX,dword ptr [EBP + 0xffffff54]
+  0x0078a09e: MOV dword ptr [EDX + 0x5b4],EAX
+  0x0078a0a4: MOV EAX,dword ptr [EBP + 0xffffff54]
+  0x0078a0aa: MOV ECX,dword ptr [EAX + 0x5b8]
+  0x0078a0b0: ADD ECX,0x1
+  0x0078a0b3: MOV EDX,dword ptr [EBP + 0xffffff54]
+  0x0078a0b9: MOV dword ptr [EDX + 0x5b8],ECX
+  0x0078a0bf: PUSH 0x7
+  0x0078a0c1: MOV ECX,dword ptr [EBP + 0xffffff54]
+
+----------------------------------------------------------------------
+References TO 0x0078a093 (FasterTitleMenu current-time hook)
+----------------------------------------------------------------------
+  Total: 0 refs
+
+======================================================================
+FasterTitleMenu music-playing jump @ 0x0078a133
+======================================================================
+  Function: FUN_00789820 @ 0x00789820, Size: 2457 bytes
+  NOTE: Requested 0x0078a133 is inside FUN_00789820 (entry at 0x00789820)
+
+/* WARNING: Globals starting with '_' overlap smaller symbols at the same address */
+
+void __fastcall FUN_00789820(int param_1)
+
+{
+  char cVar1;
+  undefined4 *puVar2;
+  int iVar3;
+  uint uVar4;
+  float10 fVar5;
+  undefined4 uVar6;
+  undefined4 uVar7;
+  undefined4 uVar8;
+  float fVar9;
+  undefined4 uVar10;
+  undefined4 uVar11;
+  undefined4 uVar12;
+  undefined1 *puVar13;
+  char *local_d0;
+  char *local_cc;
+  undefined1 local_ac [12];
+  undefined4 local_a0;
+  wchar_t local_9c [32];
+  wchar_t local_5c [32];
+  uint local_1c;
+  uint local_18;
+  float local_14;
+  float local_10;
+  float local_c;
+  int local_8;
+  
+  local_1c = DAT_011c16bc ^ (uint)&stack0xfffffffc;
+  DAT_011a0295 = 1;
+  if ((*(uint *)(param_1 + 0x5bc) & 1) != 0) {
+    *(uint *)(param_1 + 0x5bc) = *(uint *)(param_1 + 0x5bc) & 0xfffffffe;
+    uVar11 = 1;
+    fVar5 = (float10)FUN_00a011b0(0xfa2);
+    FUN_00a012d0(0xfa2,(float)(fVar5 - (float10)_DAT_01015a38),uVar11);
+    uVar11 = 1;
+    fVar5 = (float10)FUN_00a011b0(0xfb0);
+    FUN_00a012d0(0xfb0,(float)(fVar5 + (float10)_DAT_0101db88),uVar11);
+  }
+  if ((*(uint *)(param_1 + 0x5bc) & 2) != 0) {
+    *(uint *)(param_1 + 0x5bc) = *(uint *)(param_1 + 0x5bc) & 0xfffffffd;
+    uVar11 = 1;
+    fVar5 = (float10)FUN_00a011b0(0xfa2);
+    FUN_00a012d0(0xfa2,(float)(fVar5 - (float10)_DAT_01015a38),uVar11);
+    uVar11 = 1;
+    fVar5 = (float10)FUN_00a011b0(0xfb0);
+    FUN_00a012d0(0xfb0,(float)(fVar5 + (float10)_DAT_0101db88),uVar11);
+  }
+  local_8 = FUN_00457fe0();
+  cVar1 = FUN_00458110(4);
+  if (cVar1 == '\0') {
+    local_18 = local_8 - *(int *)(param_1 + 0x5b4);
+    local_14 = (float)((float10)local_18 * (float10)_DAT_01073fb8);
+    if (*(int *)(param_1 + 0x5b4) == 0) {
+      local_14 = 1.0;
+    }
+    FUN_005330e0(&local_14,0,0x3f800000);
+    if (*(uint *)(param_1 + 0x5b8) % 2 == 0) {
+      local_14 = 1.0 - local_14;
+    }
+    local_c = local_14;
+    FUN_005330e0(&local_c,0,0x3f800000);
+    if (*(int *)(param_1 + 0xa8) != 0) {
+      uVar11 = FUN_00ec62c0();
+      FUN_00700320(0xfa9,uVar11);
+    }
+    local_10 = 1.0 - local_14;
+    FUN_005330e0(&local_10,0,0x3f800000);
+    if (*(int *)(param_1 + 0xac) != 0) {
+      uVar11 = FUN_00ec62c0();
+      FUN_00700320(0xfa9,uVar11);
+    }
+    FUN_0078afc0(*(undefined4 *)(param_1 + 0x1dc),local_c,1);
+    uVar11 = 2;
+    fVar9 = local_10;
+    puVar2 = (undefined4 *)FUN_006815c0(local_10,2);
+    FUN_0078afc0(*puVar2,fVar9,uVar11);
+    DAT_011a0295 = 1;
+  }
+  if ((uint)(local_8 - *(int *)(param_1 + 0x5b4)) < 3000) {
+    if (((DAT_011a0294 != '\0') && (cVar1 = FUN_00458110(0), cVar1 == '\0')) &&
+       (cVar1 = FUN_00ec17c0(), cVar1 == '\0')) {
+      uVar11 = FUN_00403df0();
+      iVar3 = length(uVar11);
+      if ((iVar3 != 0) && (DAT_011da0c9 == '\0')) {
+        std::_Fiopen(local_5c,0,0x40);
+        uVar11 = FUN_00403df0();
+        FUN_00406d00(local_5c,0x40,"Data\\Music\\Special\\%s.mp3",uVar11);
+        FUN_00761460(1);
+        FUN_008300c0(8,local_5c,0,1,1,0,0);
+        FUN_00830660();
+        _DAT_011dd300 = _DAT_01018180;
+        _DAT_011dd338 = _DAT_01018180;
+        uVar11 = 1;
+        FUN_0056c7f0(1);
+        FUN_00450f90(uVar11);
+        FUN_00a012d0(0xfa9,0,1);
+        FUN_00a012d0(0xfa9,_DAT_01023cd8,1);
+        uVar12 = 0;
+        uVar10 = 0;
+        uVar8 = 0;
+        uVar7 = 0xffffffff;
+        uVar6 = 0;
+        uVar11 = FUN_00403df0(0,0xffffffff,0,0,0);
+        FUN_00ec16d0(uVar11,uVar6,uVar7,uVar8,uVar10,uVar12);
+        DAT_011da0c9 = '\x01';
+        FUN_00700320(0xfa3,1);
+        DAT_011a0295 = 1;
+        goto LAB_0078a178;
+      }
+    }
+    if (((DAT_011a0294 != '\0') &&
+        ((cVar1 = FUN_00458110(0), cVar1 == '\0' && (cVar1 = FUN_00ec17c0(), cVar1 == '\0')))) &&
+       (DAT_011da0c9 == '\0')) {
+      uVar11 = FUN_00403df0();
+      iVar3 = length(uVar11);
+      if (iVar3 == 0) {
+        std::_Fiopen(local_9c,0,0x40);
+        uVar11 = FUN_00403df0();
+        FUN_00406d00(local_9c,0x40,"Data\\Music\\Special\\%s.mp3",uVar11);
+        FUN_00761460(1);
+        FUN_008300c0(8,local_9c,0,1,1,0,0);
+        FUN_00830660();
+        _DAT_011dd300 = _DAT_01018180;
+        _DAT_011dd338 = _DAT_01018180;
+        DAT_011da0c9 = '\x01';
+      }
+    }
+  }
+  else if (*(int *)(param_1 + 0x1e0) == 0) {
+    if (DAT_011a0294 != '\0') {
+      while (DAT_011dea10 == 0) {
+        FUN_0040fca0(5);
+      }
+      FUN_0078a3e0(*(undefined4 *)(param_1 + 0x1ec));
+    }
+    if ((*(int *)(param_1 + 0x1e4) == 0) && (cVar1 = FUN_00458110(4), cVar1 != '\0')) {
+      FUN_0078cc50();
+    }
+    else {
+      uVar11 = FUN_00457fe0();
+      *(undefined4 *)(param_1 + 0x1e4) = uVar11;
+    }
+    *(undefined4 *)(param_1 + 0x1e0) = *(undefined4 *)(param_1 + 0x1e4);
+  }
+  else {
+    cVar1 = FUN_00458110(4);
+    if (cVar1 == '\0') {
+      cVar1 = FUN_00458110(9);
+      if ((cVar1 == '\0') && (uVar4 = FUN_00457fe0(), *(uint *)(param_1 + 0x1e0) <= uVar4)) {
+        local_a0 = *(undefined4 *)(param_1 + 0x28);
+        cVar1 = FUN_0078a1f0();
+        if (cVar1 == '\0') {
+          if ((((DAT_011a0294 == '\0') || (cVar1 = FUN_00458110(0), cVar1 == '\0')) &&
+              (cVar1 = FUN_00458110(3), cVar1 == '\0')) && (cVar1 = FUN_00458110(8), cVar1 == '\0'))
+          {
+            uVar11 = FUN_00457fe0();
+            *(undefined4 *)(param_1 + 0x1e0) = uVar11;
+            FUN_0078a1c0(1);
+            cVar1 = FUN_00458110(1);
+            if (cVar1 == '\0') {
+              local_cc = "Backward";
+            }
+            else {
+              local_cc = "Forward";
+            }
+            cVar1 = FUN_00a20cc0(local_cc);
+            if (cVar1 == '\0') {
+              cVar1 = FUN_00458110(1);
+              if (cVar1 == '\0') {
+                local_d0 = "Backward";
+              }
+              else {
+                local_d0 = "Forward";
+              }
+              FUN_005b5e40("MENUS: (Loading Menu) Unable to play sequence %s",local_d0);
+            }
+            else {
+              uVar11 = FUN_00457fe0();
+              *(undefined4 *)(param_1 + 0x5b4) = uVar11;
+              *(int *
+
+----------------------------------------------------------------------
+Disassembly FasterTitleMenu music-playing jump: 0x0078a11b - 0x0078a163
+----------------------------------------------------------------------
+  0x0078a11f: LEA EAX,[EBP + 0xffffff58]
+  0x0078a125: PUSH EAX
+  0x0078a126: MOV ECX,dword ptr [EBP + 0xffffff64]
+  0x0078a12c: CALL 0x0056c7f0 -> FUN_0056c7f0
+  0x0078a131: MOV ECX,EAX
+  0x0078a133: CALL 0x00a59c60 -> FUN_00a59c60 << TARGET
+  0x0078a138: JMP 0x0078a178
+  0x0078a13a: PUSH 0x1
+  0x0078a13c: MOV ECX,dword ptr [EBP + 0xffffff54]
+  0x0078a142: CALL 0x00458110 -> FUN_00458110
+  0x0078a147: MOVZX ECX,AL
+  0x0078a14a: TEST ECX,ECX
+  0x0078a14c: JZ 0x0078a15a
+  0x0078a14e: MOV dword ptr [EBP + 0xffffff34],0x1048458
+  0x0078a158: JMP 0x0078a164
+  0x0078a15a: MOV dword ptr [EBP + 0xffffff34],0x104844c
+
+----------------------------------------------------------------------
+References TO 0x0078a133 (FasterTitleMenu music-playing jump)
+----------------------------------------------------------------------
+  Total: 0 refs
+
+======================================================================
+FasterTitleMenu half logo fade duration @ 0x007d590b
+======================================================================
+  Function: FUN_007d5830 @ 0x007d5830, Size: 690 bytes
+  NOTE: Requested 0x007d590b is inside FUN_007d5830 (entry at 0x007d5830)
+
+/* WARNING: Globals starting with '_' overlap smaller symbols at the same address */
+
+undefined4 FUN_007d5830(void)
+
+{
+  char cVar1;
+  int iVar2;
+  int *piVar3;
+  int iVar4;
+  undefined4 *puVar5;
+  undefined4 uVar6;
+  float10 fVar7;
+  undefined4 uVar8;
+  undefined4 uVar9;
+  undefined4 extraout_var;
+  
+  cVar1 = FUN_004a4080(1);
+  if (cVar1 == '\0') {
+    uVar6 = extraout_var;
+    cVar1 = FUN_004a4080(0x80000);
+    if ((cVar1 != '\0') && (DAT_011da0c0 != 0)) {
+      uVar9 = 2;
+      uVar8 = 0;
+      FUN_00877720(0,2,uVar6);
+      iVar2 = FUN_00a23a50(uVar8,uVar9);
+      if (iVar2 != 0) {
+        FUN_0078aa90();
+      }
+    }
+    cVar1 = FUN_004a4080(0x10);
+    if (((cVar1 != '\0') && (cVar1 = FUN_00a07ed0(0xfa9), cVar1 == '\0')) &&
+       ((DAT_011c3f3c == 0 || (fVar7 = (float10)FUN_00526ac0(), fVar7 <= (float10)_DAT_01012060))))
+    {
+      fVar7 = (float10)FUN_00a011b0(0xfa9);
+      if ((float)fVar7 == (float)_DAT_01012060) {
+        FUN_007d61e0(3,1,0xfa9,0x3f800000);
+        FUN_0078d2d0(1);
+      }
+      else if ((float)fVar7 == (float)_DAT_0101e568) {
+        FUN_007d6550();
+        piVar3 = (int *)FUN_0043d4d0();
+        iVar2 = *piVar3;
+        iVar4 = FUN_0046fe10();
+        uVar6 = FUN_00647b70(iVar4 * 5 + iVar2,0x1e,0x32);
+        uVar6 = FUN_004a8f20(uVar6);
+        puVar5 = (undefined4 *)FUN_0043d4d0();
+        *puVar5 = uVar6;
+        DAT_011a0294 = 0;
+        FUN_0075f6f0(0x10,0);
+      }
+    }
+    cVar1 = FUN_004a4080(0x400);
+    if (cVar1 != '\0') {
+      iVar2 = FUN_00a09030(0x3e9);
+      if (iVar2 == 0) {
+        uVar6 = FUN_004c69f0(0,0,0,0,0x12,0,0,&lpWindowName_01011584);
+        FUN_00703e80(uVar6);
+      }
+      else {
+        FUN_00a03c90();
+        iVar2 = FUN_0059bb30();
+        if (iVar2 == 1) {
+          FUN_0075f6f0(0x400,0);
+          FUN_00af59f0();
+          FUN_007d69f0();
+        }
+      }
+    }
+    cVar1 = FUN_004a4080(0x100);
+    if (cVar1 != '\0') {
+      FUN_0075f6f0(0x400,1);
+      FUN_0075f6f0(0x100,0);
+    }
+    cVar1 = FUN_004a4080(0x1000000);
+    if ((cVar1 != '\0') && (iVar2 = FUN_00a09030(0x3e9), iVar2 == 0)) {
+      FUN_0075f6f0(0x1000000,0);
+      uVar6 = FUN_00403df0(0);
+      uVar6 = FUN_00403df0(0,0,0,0,0x12,0,0,uVar6);
+      FUN_00703e80(uVar6);
+    }
+    return 1;
+  }
+  return 0;
+}
+
+
+
+----------------------------------------------------------------------
+Disassembly FasterTitleMenu half logo fade duration: 0x007d58f3 - 0x007d593b
+----------------------------------------------------------------------
+  0x007d58f3: CALL 0x00a011b0 -> FUN_00a011b0
+  0x007d58f8: FSTP float ptr [EBP + -0x4]
+  0x007d58fb: FLD float ptr [EBP + -0x4]
+  0x007d58fe: FCOMP double ptr [0x01012060]
+  0x007d5904: FNSTSW AX
+  0x007d5906: TEST AH,0x44
+  0x007d5909: JP 0x007d5931
+  0x007d590b: PUSH ECX << TARGET
+  0x007d590c: FLD1
+  0x007d590e: FSTP float ptr [ESP]
+  0x007d5911: PUSH 0xfa9
+  0x007d5916: PUSH 0x1
+  0x007d5918: PUSH 0x3
+  0x007d591a: MOV ECX,dword ptr [EBP + -0x14]
+  0x007d591d: CALL 0x007d61e0 -> FUN_007d61e0
+  0x007d5922: PUSH 0x1
+  0x007d5924: CALL 0x0078d2d0 -> FUN_0078d2d0
+  0x007d5929: ADD ESP,0x4
+  0x007d592c: JMP 0x007d59b3
+  0x007d5931: FLD float ptr [EBP + -0x4]
+  0x007d5934: FCOMP double ptr [0x0101e568]
+  0x007d593a: FNSTSW AX
+
+----------------------------------------------------------------------
+References TO 0x007d590b (FasterTitleMenu half logo fade duration)
+----------------------------------------------------------------------
+  Total: 0 refs
+
+======================================================================
+Skip loading tiles mouse-button wait @ 0x007d586e
+======================================================================
+  Function: FUN_007d5830 @ 0x007d5830, Size: 690 bytes
+  NOTE: Requested 0x007d586e is inside FUN_007d5830 (entry at 0x007d5830)
+
+/* WARNING: Globals starting with '_' overlap smaller symbols at the same address */
+
+undefined4 FUN_007d5830(void)
+
+{
+  char cVar1;
+  int iVar2;
+  int *piVar3;
+  int iVar4;
+  undefined4 *puVar5;
+  undefined4 uVar6;
+  float10 fVar7;
+  undefined4 uVar8;
+  undefined4 uVar9;
+  undefined4 extraout_var;
+  
+  cVar1 = FUN_004a4080(1);
+  if (cVar1 == '\0') {
+    uVar6 = extraout_var;
+    cVar1 = FUN_004a4080(0x80000);
+    if ((cVar1 != '\0') && (DAT_011da0c0 != 0)) {
+      uVar9 = 2;
+      uVar8 = 0;
+      FUN_00877720(0,2,uVar6);
+      iVar2 = FUN_00a23a50(uVar8,uVar9);
+      if (iVar2 != 0) {
+        FUN_0078aa90();
+      }
+    }
+    cVar1 = FUN_004a4080(0x10);
+    if (((cVar1 != '\0') && (cVar1 = FUN_00a07ed0(0xfa9), cVar1 == '\0')) &&
+       ((DAT_011c3f3c == 0 || (fVar7 = (float10)FUN_00526ac0(), fVar7 <= (float10)_DAT_01012060))))
+    {
+      fVar7 = (float10)FUN_00a011b0(0xfa9);
+      if ((float)fVar7 == (float)_DAT_01012060) {
+        FUN_007d61e0(3,1,0xfa9,0x3f800000);
+        FUN_0078d2d0(1);
+      }
+      else if ((float)fVar7 == (float)_DAT_0101e568) {
+        FUN_007d6550();
+        piVar3 = (int *)FUN_0043d4d0();
+        iVar2 = *piVar3;
+        iVar4 = FUN_0046fe10();
+        uVar6 = FUN_00647b70(iVar4 * 5 + iVar2,0x1e,0x32);
+        uVar6 = FUN_004a8f20(uVar6);
+        puVar5 = (undefined4 *)FUN_0043d4d0();
+        *puVar5 = uVar6;
+        DAT_011a0294 = 0;
+        FUN_0075f6f0(0x10,0);
+      }
+    }
+    cVar1 = FUN_004a4080(0x400);
+    if (cVar1 != '\0') {
+      iVar2 = FUN_00a09030(0x3e9);
+      if (iVar2 == 0) {
+        uVar6 = FUN_004c69f0(0,0,0,0,0x12,0,0,&lpWindowName_01011584);
+        FUN_00703e80(uVar6);
+      }
+      else {
+        FUN_00a03c90();
+        iVar2 = FUN_0059bb30();
+        if (iVar2 == 1) {
+          FUN_0075f6f0(0x400,0);
+          FUN_00af59f0();
+          FUN_007d69f0();
+        }
+      }
+    }
+    cVar1 = FUN_004a4080(0x100);
+    if (cVar1 != '\0') {
+      FUN_0075f6f0(0x400,1);
+      FUN_0075f6f0(0x100,0);
+    }
+    cVar1 = FUN_004a4080(0x1000000);
+    if ((cVar1 != '\0') && (iVar2 = FUN_00a09030(0x3e9), iVar2 == 0)) {
+      FUN_0075f6f0(0x1000000,0);
+      uVar6 = FUN_00403df0(0);
+      uVar6 = FUN_00403df0(0,0,0,0,0x12,0,0,uVar6);
+      FUN_00703e80(uVar6);
+    }
+    return 1;
+  }
+  return 0;
+}
+
+
+
+----------------------------------------------------------------------
+Disassembly Skip loading tiles mouse-button wait: 0x007d5856 - 0x007d589e
+----------------------------------------------------------------------
+  0x007d5856: MOV ECX,dword ptr [EBP + -0x14]
+  0x007d5859: CALL 0x004a4080 -> FUN_004a4080
+  0x007d585e: MOVZX ECX,AL
+  0x007d5861: TEST ECX,ECX
+  0x007d5863: JZ 0x007d5893
+  0x007d5865: CMP dword ptr [0x011da0c0],0x0
+  0x007d586c: JZ 0x007d5893
+  0x007d586e: PUSH 0x2 << TARGET
+  0x007d5870: PUSH 0x0
+  0x007d5872: MOV ECX,dword ptr [0x011dea0c]
+  0x007d5878: CALL 0x00877720 -> FUN_00877720
+  0x007d587d: MOV ECX,EAX
+  0x007d587f: CALL 0x00a23a50 -> FUN_00a23a50
+  0x007d5884: TEST EAX,EAX
+  0x007d5886: JZ 0x007d5893
+  0x007d5888: MOV ECX,dword ptr [0x011da0c0]
+  0x007d588e: CALL 0x0078aa90 -> FUN_0078aa90
+  0x007d5893: PUSH 0x10
+  0x007d5895: MOV ECX,dword ptr [EBP + -0x14]
+  0x007d5898: CALL 0x004a4080 -> FUN_004a4080
+  0x007d589d: MOVZX EDX,AL
+
+----------------------------------------------------------------------
+References TO 0x007d586e (Skip loading tiles mouse-button wait)
+----------------------------------------------------------------------
+  Total: 0 refs
+
+======================================================================
+ModelLoader IO loop Sleep(50) site @ 0x00c3e105
+======================================================================
+  Function: FUN_00c3dfa0 @ 0x00c3dfa0, Size: 513 bytes
+  NOTE: Requested 0x00c3e105 is inside FUN_00c3dfa0 (entry at 0x00c3dfa0)
+
+/* WARNING: Globals starting with '_' overlap smaller symbols at the same address */
+
+void __thiscall FUN_00c3dfa0(int param_1,int param_2)
+
+{
+  uint uVar1;
+  int iVar2;
+  int iVar3;
+  uint uVar4;
+  uint uVar5;
+  int local_40;
+  int local_2c;
+  int local_28;
+  uint local_10;
+  char local_9;
+  
+  if (*(int *)(param_1 + 0x68) != 7) {
+    DAT_011af70c = 0;
+    if ((*(int *)(param_1 + 0x18) == 0) &&
+       (iVar2 = (**(code **)(**(int **)(param_1 + 100) + 0xc))(), iVar2 == 0)) {
+      if (*(int *)(param_1 + 0x6c) == 0) {
+        local_28 = 0;
+      }
+      else {
+        local_28 = (**(code **)(param_1 + 0x6c))();
+      }
+      if (local_28 == 0) {
+        *(undefined4 *)(param_1 + 0x68) = 6;
+        DAT_011af70c = 1;
+        return;
+      }
+    }
+    *(int *)(param_1 + 0x68) = param_2;
+    FUN_00c3e1b0(param_2,0);
+    iVar2 = (**(code **)(**(int **)(param_1 + 100) + 0xc))();
+    if (*(int *)(param_1 + 0x6c) == 0) {
+      local_2c = 0;
+    }
+    else {
+      local_2c = (**(code **)(param_1 + 0x6c))();
+    }
+    iVar3 = FUN_00c3e860(param_2 * 4 + 3);
+    uVar4 = iVar3 + iVar2 + local_2c;
+    local_9 = '\0';
+    local_10 = uVar4;
+    while ((local_10 != 0 || (local_9 == '\0'))) {
+      if (*(int *)(param_1 + 0x78) != 0) {
+        (**(code **)(param_1 + 0x78))
+                  ((float)(((float10)(uVar4 - local_10) / (float10)uVar4) * (float10)_DAT_01017a40))
+        ;
+      }
+      uVar1 = *(uint *)(param_1 + 0x18);
+      uVar5 = (**(code **)(**(int **)(param_1 + 100) + 0xc))();
+      if (uVar5 < uVar1) {
+        Sleep(0x32);
+      }
+      local_9 = FUN_00c3dbf0();
+      iVar2 = (**(code **)(**(int **)(param_1 + 100) + 0xc))();
+      if (*(int *)(param_1 + 0x6c) == 0) {
+        local_40 = 0;
+      }
+      else {
+        local_40 = (**(code **)(param_1 + 0x6c))();
+      }
+      iVar3 = FUN_00c3e860(param_2 * 4 + 3);
+      local_10 = iVar3 + iVar2 + local_40;
+    }
+    *(undefined4 *)(param_1 + 0x68) = 6;
+    if (*(int *)(param_1 + 0x78) != 0) {
+      (**(code **)(param_1 + 0x78))(DAT_01016410);
+    }
+    DAT_011af70c = 1;
+  }
+  return;
+}
+
+
+
+----------------------------------------------------------------------
+Disassembly ModelLoader IO loop Sleep(50) site: 0x00c3e0ed - 0x00c3e135
+----------------------------------------------------------------------
+  0x00c3e0ee: MOV ECX,dword ptr [EAX + 0x64]
+  0x00c3e0f1: MOV EDX,dword ptr [EBP + -0x20]
+  0x00c3e0f4: MOV EAX,dword ptr [EDX + 0x64]
+  0x00c3e0f7: MOV EDX,dword ptr [ECX]
+  0x00c3e0f9: MOV ECX,EAX
+  0x00c3e0fb: MOV EAX,dword ptr [EDX + 0xc]
+  0x00c3e0fe: CALL EAX
+  0x00c3e100: CMP dword ptr [EBP + -0x18],EAX
+  0x00c3e103: JBE 0x00c3e10d
+  0x00c3e105: PUSH 0x32 << TARGET
+  0x00c3e107: CALL dword ptr [0x00fdf104] -> ???
+  0x00c3e10d: MOV ECX,dword ptr [EBP + -0x20]
+  0x00c3e110: CALL 0x00c3dbf0 -> FUN_00c3dbf0
+  0x00c3e115: MOV byte ptr [EBP + -0x5],AL
+  0x00c3e118: MOV ECX,dword ptr [EBP + -0x20]
+  0x00c3e11b: MOV EDX,dword ptr [ECX + 0x64]
+  0x00c3e11e: MOV EAX,dword ptr [EBP + -0x20]
+  0x00c3e121: MOV ECX,dword ptr [EAX + 0x64]
+  0x00c3e124: MOV EDX,dword ptr [EDX]
+  0x00c3e126: MOV EAX,dword ptr [EDX + 0xc]
+  0x00c3e129: CALL EAX
+  0x00c3e12b: MOV dword ptr [EBP + -0x1c],EAX
+  0x00c3e12e: MOV ECX,dword ptr [EBP + -0x20]
+  0x00c3e131: CMP dword ptr [ECX + 0x6c],0x0
+  0x00c3e135: JZ 0x00c3e144
+
+----------------------------------------------------------------------
+References TO 0x00c3e105 (ModelLoader IO loop Sleep(50) site)
+----------------------------------------------------------------------
+  Total: 0 refs
+
+======================================================================
+ModelLoader::LoadFile @ 0x00447080
+======================================================================
+  Function: FUN_00447080 @ 0x00447080, Size: 258 bytes
+
+undefined4 __thiscall
+FUN_00447080(undefined4 *param_1,undefined4 param_2,undefined4 param_3,undefined1 param_4,
+            undefined4 param_5,undefined1 param_6,char param_7)
+
+{
+  char cVar1;
+  uint uVar2;
+  int iVar3;
+  undefined4 uVar4;
+  int *unaff_FS_OFFSET;
+  int local_14;
+  int local_10;
+  undefined1 *puStack_c;
+  undefined4 local_8;
+  
+  local_8 = 0xffffffff;
+  puStack_c = &LAB_00eeca88;
+  local_10 = *unaff_FS_OFFSET;
+  uVar2 = DAT_011c16bc ^ (uint)&stack0xfffffffc;
+  *unaff_FS_OFFSET = (int)&local_10;
+  local_14 = 0;
+  cVar1 = (**(code **)(*(int *)*param_1 + 8))(param_2,&local_14,uVar2);
+  if (cVar1 == '\0') {
+    FUN_0043c6e0(param_2,0,param_3,param_4,0);
+    local_8 = 0;
+    FUN_00443ff0(param_6);
+    FUN_00447190(1);
+    FUN_0043ccf0();
+    FUN_0043d180();
+    local_14 = FUN_00559450();
+    local_8 = 0xffffffff;
+    FID_conflict___CancellationTokenCallback<<lambda_61f7764e5b8087545c74b0c2f4f68b12>_>();
+  }
+  else {
+    iVar3 = FUN_00443190();
+    if (iVar3 == 0) {
+      FUN_005b5e40("MODELS: LoadFile retrieved model %s with a zero ref count",param_2);
+    }
+  }
+  if (local_14 == 0) {
+    uVar4 = 0;
+  }
+  else {
+    if (param_7 == '\0') {
+      FUN_0092c870();
+    }
+    uVar4 = FUN_0043b230();
+  }
+  *unaff_FS_OFFSET = local_10;
+  return uVar4;
+}
+
+
+
+----------------------------------------------------------------------
+Disassembly ModelLoader::LoadFile: 0x00447068 - 0x004470b0
+----------------------------------------------------------------------
+  0x00447069: MOV AL,byte ptr [EBP + -0x1]
+  0x0044706c: MOV ESP,EBP
+  0x0044706e: POP EBP
+  0x0044706f: RET 0x8
+  0x00447080: PUSH EBP << TARGET
+  0x00447081: MOV EBP,ESP
+  0x00447083: PUSH -0x1
+  0x00447085: PUSH 0xeeca88
+  0x0044708a: MOV EAX,FS:[0x0]
+  0x00447090: PUSH EAX
+  0x00447091: SUB ESP,0x54
+  0x00447094: MOV EAX,[0x011c16bc]
+  0x00447099: XOR EAX,EBP
+  0x0044709b: PUSH EAX
+  0x0044709c: LEA EAX,[EBP + -0xc]
+  0x0044709f: MOV FS:[0x0],EAX
+  0x004470a5: MOV dword ptr [EBP + -0x60],ECX
+  0x004470a8: MOV dword ptr [EBP + -0x10],0x0
+  0x004470af: LEA EAX,[EBP + -0x10]
+
+----------------------------------------------------------------------
+References TO 0x00447080 (ModelLoader::LoadFile)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x0081f54a (in FUN_0081f350)
+  UNCONDITIONAL_CALL @ 0x004aef6d (in FUN_004aeed0)
+  UNCONDITIONAL_CALL @ 0x0068935a (in FUN_00689310)
+  UNCONDITIONAL_CALL @ 0x0045a032 (in FUN_00459f10)
+  UNCONDITIONAL_CALL @ 0x004a81a8 (in FUN_004a80c0)
+  UNCONDITIONAL_CALL @ 0x00636d0a (in FUN_00636c40)
+  UNCONDITIONAL_CALL @ 0x0081f735 (in FUN_0081f580)
+  UNCONDITIONAL_CALL @ 0x004ac74d (in FUN_004ac1e0)
+  UNCONDITIONAL_CALL @ 0x00659dce (in FUN_00659ce0)
+  UNCONDITIONAL_CALL @ 0x0077f35d (in FUN_0077f2f0)
+  UNCONDITIONAL_CALL @ 0x00682d59 (in FUN_00682d10)
+  UNCONDITIONAL_CALL @ 0x008b41bf (in FUN_008b3fe0)
+  UNCONDITIONAL_CALL @ 0x0081e4b7 (in FUN_0081e460)
+  UNCONDITIONAL_CALL @ 0x008d18a3 (in FUN_008d1820)
+  UNCONDITIONAL_CALL @ 0x008d67b5 (in FUN_008d66b0)
+  UNCONDITIONAL_CALL @ 0x0087e2bb (in FUN_0087e130)
+  UNCONDITIONAL_CALL @ 0x0045a7d8 (in FUN_0045a750)
+  UNCONDITIONAL_CALL @ 0x0045a812 (in FUN_0045a750)
+  UNCONDITIONAL_CALL @ 0x0045a84c (in FUN_0045a750)
+  UNCONDITIONAL_CALL @ 0x0045a886 (in FUN_0045a750)
+  UNCONDITIONAL_CALL @ 0x0045a8c0 (in FUN_0045a750)
+  UNCONDITIONAL_CALL @ 0x0045a8fa (in FUN_0045a750)
+  UNCONDITIONAL_CALL @ 0x0045a934 (in FUN_0045a750)
+  UNCONDITIONAL_CALL @ 0x0045a96e (in FUN_0045a750)
+  UNCONDITIONAL_CALL @ 0x009baf94 (in FUN_009baf50)
+  UNCONDITIONAL_CALL @ 0x007076bf (in FUN_00707660)
+  UNCONDITIONAL_CALL @ 0x005712cb (in FUN_005710c0)
+  UNCONDITIONAL_CALL @ 0x0058c62b (in FUN_0058c5d0)
+  UNCONDITIONAL_CALL @ 0x0040a4f3 (in FUN_0040a420)
+  UNCONDITIONAL_CALL @ 0x0040a600 (in FUN_0040a420)
+  UNCONDITIONAL_CALL @ 0x0040a669 (in FUN_0040a420)
+  UNCONDITIONAL_CALL @ 0x0040a68c (in FUN_0040a420)
+  UNCONDITIONAL_CALL @ 0x0040a72a (in FUN_0040a420)
+  UNCONDITIONAL_CALL @ 0x0040a7d0 (in FUN_0040a420)
+  UNCONDITIONAL_CALL @ 0x0040a890 (in FUN_0040a420)
+  UNCONDITIONAL_CALL @ 0x00448b50 (in FUN_00448a90)
+  UNCONDITIONAL_CALL @ 0x004fb90c (in FUN_004fb880)
+  UNCONDITIONAL_CALL @ 0x00510051 (in FUN_0050fe50)
+  UNCONDITIONAL_CALL @ 0x0078e205 (in FUN_0078e1c0)
+  UNCONDITIONAL_CALL @ 0x0078e222 (in FUN_0078e1c0)
+  UNCONDITIONAL_CALL @ 0x007c6d23 (in FUN_007c6ce0)
+  ... (truncated)
+  Total: 41 refs
+
+======================================================================
+ModelLoader::UpdateReferencesToQueue call site @ 0x00448d7e
+======================================================================
+  Function: FUN_00448cc0 @ 0x00448cc0, Size: 284 bytes
+  NOTE: Requested 0x00448d7e is inside FUN_00448cc0 (entry at 0x00448cc0)
+
+/* WARNING: Globals starting with '_' overlap smaller symbols at the same address */
+
+undefined1 FUN_00448cc0(void)
+
+{
+  char cVar1;
+  undefined1 uVar2;
+  uint uVar3;
+  int *piVar4;
+  int *unaff_FS_OFFSET;
+  undefined4 local_38;
+  undefined1 local_34 [4];
+  TaskStack local_30 [32];
+  int local_10;
+  undefined1 *puStack_c;
+  uint local_8;
+  
+  local_8 = 0xffffffff;
+  puStack_c = &LAB_00eecd40;
+  local_10 = *unaff_FS_OFFSET;
+  uVar3 = DAT_011c16bc ^ (uint)&stack0xfffffffc;
+  *unaff_FS_OFFSET = (int)&local_10;
+  FUN_00448e00(uVar3);
+  cVar1 = FUN_00448de0();
+  if (cVar1 == '\0') {
+    FUN_00448e30(_DAT_0101712c);
+  }
+  else {
+    FUN_00448e30(_DAT_01017130);
+  }
+  Concurrency::details::TaskStack::TaskStack(local_30);
+  local_8 = 0;
+  while( true ) {
+    cVar1 = FUN_006ebde0();
+    if (cVar1 != '\0') break;
+    cVar1 = FUN_00448e70();
+    if (cVar1 != '\0') break;
+    local_38 = 0;
+    FUN_00528cb0(0);
+    local_8 = CONCAT31(local_8._1_3_,1);
+    cVar1 = FUN_0044b8d0(local_30,&local_38,local_34,1);
+    if (cVar1 != '\0') {
+      piVar4 = (int *)FUN_00559450();
+      (**(code **)(*piVar4 + 0x20))();
+    }
+    local_8 = local_8 & 0xffffff00;
+    FUN_0044cbf0();
+  }
+  uVar2 = FUN_006ebde0();
+  local_8 = 0xffffffff;
+  FUN_004499c0();
+  *unaff_FS_OFFSET = local_10;
+  return uVar2;
+}
+
+
+
+----------------------------------------------------------------------
+Disassembly ModelLoader::UpdateReferencesToQueue call site: 0x00448d66 - 0x00448dae
+----------------------------------------------------------------------
+  0x00448d66: MOV byte ptr [EBP + -0x4],0x1
+  0x00448d6a: PUSH 0x1
+  0x00448d6c: LEA EAX,[EBP + -0x30]
+  0x00448d6f: PUSH EAX
+  0x00448d70: LEA ECX,[EBP + -0x34]
+  0x00448d73: PUSH ECX
+  0x00448d74: LEA EDX,[EBP + -0x2c]
+  0x00448d77: PUSH EDX
+  0x00448d78: MOV EAX,dword ptr [EBP + -0x3c]
+  0x00448d7b: MOV ECX,dword ptr [EAX + 0xc]
+  0x00448d7e: CALL 0x0044b8d0 -> FUN_0044b8d0 << TARGET
+  0x00448d83: MOVZX ECX,AL
+  0x00448d86: TEST ECX,ECX
+  0x00448d88: JZ 0x00448da2
+  0x00448d8a: LEA ECX,[EBP + -0x30]
+  0x00448d8d: CALL 0x00559450 -> FUN_00559450
+  0x00448d92: MOV dword ptr [EBP + -0x40],EAX
+  0x00448d95: MOV EDX,dword ptr [EBP + -0x40]
+  0x00448d98: MOV EAX,dword ptr [EDX]
+  0x00448d9a: MOV ECX,dword ptr [EBP + -0x40]
+  0x00448d9d: MOV EDX,dword ptr [EAX + 0x20]
+  0x00448da0: CALL EDX
+  0x00448da2: MOV byte ptr [EBP + -0x4],0x0
+  0x00448da6: LEA ECX,[EBP + -0x30]
+  0x00448da9: CALL 0x0044cbf0 -> FUN_0044cbf0
+  0x00448dae: JMP 0x00448d37
+
+----------------------------------------------------------------------
+References TO 0x00448d7e (ModelLoader::UpdateReferencesToQueue call site)
+----------------------------------------------------------------------
+  Total: 0 refs
+
+======================================================================
+BSA 128KB decompression buffer cap @ 0x00afc58c
+======================================================================
+  Function: FUN_00afc430 @ 0x00afc430, Size: 485 bytes
+  NOTE: Requested 0x00afc58c is inside FUN_00afc430 (entry at 0x00afc430)
+
+undefined4 * __thiscall
+FUN_00afc430(undefined4 *param_1,undefined4 param_2,undefined4 param_3,undefined4 param_4,
+            undefined4 param_5,undefined4 param_6)
+
+{
+  uint uVar1;
+  int iVar2;
+  undefined4 uVar3;
+  int *unaff_FS_OFFSET;
+  uint local_30;
+  int local_10;
+  undefined1 *puStack_c;
+  undefined4 local_8;
+  
+  local_8 = 0xffffffff;
+  puStack_c = &LAB_00f23655;
+  local_10 = *unaff_FS_OFFSET;
+  uVar1 = DAT_011c16bc ^ (uint)&stack0xfffffffc;
+  *unaff_FS_OFFSET = (int)&local_10;
+  FUN_00afb300(param_2,param_3,param_4,param_5,param_6);
+  local_8 = 0;
+  *param_1 = &PTR_FUN_010a464c;
+  FUN_00afc620(0);
+  FUN_00afbbf0(param_1 + 0x5a,4);
+  iVar2 = FUN_00aa3e40(0x1be0);
+  param_1[0x58] = iVar2;
+  *(undefined4 *)(param_1[0x58] + 0x20) = 0;
+  *(undefined4 *)(param_1[0x58] + 0x24) = 0;
+  *(undefined4 *)(param_1[0x58] + 0x28) = 0;
+  *(undefined4 *)(param_1[0x58] + 4) = 0;
+  *(undefined4 *)param_1[0x58] = 0;
+  *(int *)(param_1[0x58] + 0x1c) = iVar2 + 0x38;
+  iVar2 = FUN_00b43fe0(param_1[0x58],"1.2.1",0x38,uVar1);
+  if (iVar2 == 0) {
+    if ((uint)param_1[0x5a] < DAT_011f8164) {
+      local_30 = param_1[0x5a];
+    }
+    else {
+      local_30 = DAT_011f8164;
+    }
+    param_1[0x5b] = local_30;
+    uVar3 = FUN_00aa3e40(param_1[0x5b]);
+    param_1[0x59] = uVar3;
+    param_1[0x5c] = 0;
+    param_1[0x5d] = 0;
+  }
+  else {
+    FUN_00b45db0(param_1[0x58]);
+    FUN_00aa4060(param_1[0x58]);
+    param_1[0x58] = 0;
+  }
+  *unaff_FS_OFFSET = local_10;
+  return param_1;
+}
+
+
+
+----------------------------------------------------------------------
+Disassembly BSA 128KB decompression buffer cap: 0x00afc574 - 0x00afc5bc
+----------------------------------------------------------------------
+  0x00afc574: MOV EAX,dword ptr [EBP + -0x28]
+  0x00afc577: MOV dword ptr [EAX + 0x160],0x0
+  0x00afc581: JMP 0x00afc5fa
+  0x00afc583: MOV ECX,dword ptr [EBP + -0x28]
+  0x00afc586: MOV EDX,dword ptr [ECX + 0x168]
+  0x00afc58c: CMP EDX,dword ptr [0x011f8164] << TARGET
+  0x00afc592: JNC 0x00afc5a2
+  0x00afc594: MOV EAX,dword ptr [EBP + -0x28]
+  0x00afc597: MOV ECX,dword ptr [EAX + 0x168]
+  0x00afc59d: MOV dword ptr [EBP + -0x2c],ECX
+  0x00afc5a0: JMP 0x00afc5ab
+  0x00afc5a2: MOV EDX,dword ptr [0x011f8164]
+  0x00afc5a8: MOV dword ptr [EBP + -0x2c],EDX
+  0x00afc5ab: MOV EAX,dword ptr [EBP + -0x28]
+  0x00afc5ae: MOV ECX,dword ptr [EBP + -0x2c]
+  0x00afc5b1: MOV dword ptr [EAX + 0x16c],ECX
+  0x00afc5b7: MOV EDX,dword ptr [EBP + -0x28]
+  0x00afc5ba: MOV EAX,dword ptr [EDX + 0x16c]
+
+----------------------------------------------------------------------
+References TO 0x00afc58c (BSA 128KB decompression buffer cap)
+----------------------------------------------------------------------
+  Total: 0 refs
+
+======================================================================
+BSA inflate init call @ 0x00afc537
+======================================================================
+  Function: FUN_00afc430 @ 0x00afc430, Size: 485 bytes
+  NOTE: Requested 0x00afc537 is inside FUN_00afc430 (entry at 0x00afc430)
+
+undefined4 * __thiscall
+FUN_00afc430(undefined4 *param_1,undefined4 param_2,undefined4 param_3,undefined4 param_4,
+            undefined4 param_5,undefined4 param_6)
+
+{
+  uint uVar1;
+  int iVar2;
+  undefined4 uVar3;
+  int *unaff_FS_OFFSET;
+  uint local_30;
+  int local_10;
+  undefined1 *puStack_c;
+  undefined4 local_8;
+  
+  local_8 = 0xffffffff;
+  puStack_c = &LAB_00f23655;
+  local_10 = *unaff_FS_OFFSET;
+  uVar1 = DAT_011c16bc ^ (uint)&stack0xfffffffc;
+  *unaff_FS_OFFSET = (int)&local_10;
+  FUN_00afb300(param_2,param_3,param_4,param_5,param_6);
+  local_8 = 0;
+  *param_1 = &PTR_FUN_010a464c;
+  FUN_00afc620(0);
+  FUN_00afbbf0(param_1 + 0x5a,4);
+  iVar2 = FUN_00aa3e40(0x1be0);
+  param_1[0x58] = iVar2;
+  *(undefined4 *)(param_1[0x58] + 0x20) = 0;
+  *(undefined4 *)(param_1[0x58] + 0x24) = 0;
+  *(undefined4 *)(param_1[0x58] + 0x28) = 0;
+  *(undefined4 *)(param_1[0x58] + 4) = 0;
+  *(undefined4 *)param_1[0x58] = 0;
+  *(int *)(param_1[0x58] + 0x1c) = iVar2 + 0x38;
+  iVar2 = FUN_00b43fe0(param_1[0x58],"1.2.1",0x38,uVar1);
+  if (iVar2 == 0) {
+    if ((uint)param_1[0x5a] < DAT_011f8164) {
+      local_30 = param_1[0x5a];
+    }
+    else {
+      local_30 = DAT_011f8164;
+    }
+    param_1[0x5b] = local_30;
+    uVar3 = FUN_00aa3e40(param_1[0x5b]);
+    param_1[0x59] = uVar3;
+    param_1[0x5c] = 0;
+    param_1[0x5d] = 0;
+  }
+  else {
+    FUN_00b45db0(param_1[0x58]);
+    FUN_00aa4060(param_1[0x58]);
+    param_1[0x58] = 0;
+  }
+  *unaff_FS_OFFSET = local_10;
+  return param_1;
+}
+
+
+
+----------------------------------------------------------------------
+Disassembly BSA inflate init call: 0x00afc51f - 0x00afc567
+----------------------------------------------------------------------
+  0x00afc523: MOV dword ptr [ECX + 0x1c],EDX
+  0x00afc526: PUSH 0x38
+  0x00afc528: PUSH 0x10a4590
+  0x00afc52d: MOV EDX,dword ptr [EBP + -0x28]
+  0x00afc530: MOV EAX,dword ptr [EDX + 0x160]
+  0x00afc536: PUSH EAX
+  0x00afc537: CALL 0x00b43fe0 -> FUN_00b43fe0 << TARGET
+  0x00afc53c: ADD ESP,0xc
+  0x00afc53f: MOV dword ptr [EBP + -0x14],EAX
+  0x00afc542: CMP dword ptr [EBP + -0x14],0x0
+  0x00afc546: JZ 0x00afc583
+  0x00afc548: MOV ECX,dword ptr [EBP + -0x28]
+  0x00afc54b: MOV EDX,dword ptr [ECX + 0x160]
+  0x00afc551: PUSH EDX
+  0x00afc552: CALL 0x00b45db0 -> FUN_00b45db0
+  0x00afc557: ADD ESP,0x4
+  0x00afc55a: MOV EAX,dword ptr [EBP + -0x28]
+  0x00afc55d: MOV ECX,dword ptr [EAX + 0x160]
+  0x00afc563: MOV dword ptr [EBP + -0x1c],ECX
+  0x00afc566: MOV EDX,dword ptr [EBP + -0x1c]
+
+----------------------------------------------------------------------
+References TO 0x00afc537 (BSA inflate init call)
+----------------------------------------------------------------------
+  Total: 0 refs
+
+======================================================================
+BSA inflate call @ 0x00afc1f4
+======================================================================
+  Function: FUN_00afc0e0 @ 0x00afc0e0, Size: 760 bytes
+  NOTE: Requested 0x00afc1f4 is inside FUN_00afc0e0 (entry at 0x00afc0e0)
+
+/* WARNING: Unable to track spacebase fully for stack */
+
+uint __thiscall FUN_00afc0e0(int param_1,void *param_2,uint param_3)
+
+{
+  undefined4 *puVar1;
+  undefined4 uVar2;
+  int *piVar3;
+  undefined4 *puVar4;
+  int local_30;
+  void *local_2c;
+  undefined4 local_28;
+  undefined4 local_24;
+  undefined4 local_20;
+  void *local_1c;
+  int local_18;
+  int *local_14;
+  uint local_10;
+  uint local_c;
+  uint local_8;
+  
+  local_30 = param_1;
+  local_8 = param_3;
+  local_c = 0;
+  local_14 = *(int **)(param_1 + 0x160);
+  local_10 = *(int *)(param_1 + 0x174) - *(int *)(param_1 + 0x170);
+  if (local_10 < param_3) {
+    if (local_10 != 0) {
+      if (param_2 != (void *)0x0) {
+        local_1c = (void *)(*(int *)(param_1 + 0x164) + *(int *)(param_1 + 0x170));
+        _memcpy(param_2,local_1c,local_10);
+        param_2 = (void *)((int)param_2 + local_10);
+      }
+      local_8 = local_8 - local_10;
+      local_c = local_10;
+    }
+    piVar3 = &local_30;
+    *(undefined4 *)(local_30 + 0x170) = 0;
+    *(undefined4 *)(local_30 + 0x174) = 0;
+    while (local_8 != 0) {
+      local_14[4] = *(int *)(local_30 + 0x16c);
+      local_14[3] = *(int *)(local_30 + 0x164);
+      while (local_14[4] != 0) {
+        local_10 = *(int *)(local_30 + 0x14) - *(int *)(local_30 + 0x18);
+        local_14[1] = local_10;
+        *local_14 = *(int *)(local_30 + 0x20) + *(int *)(local_30 + 0x18);
+        puVar1 = piVar3;
+        if (local_10 != 0) {
+          *(undefined4 *)((int)piVar3 + -4) = 2;
+          *(int **)((int)piVar3 + -8) = local_14;
+          puVar4 = (undefined4 *)((int)piVar3 + -0xc);
+          *(undefined4 *)((int)piVar3 + -0xc) = 0xafc1f9;
+          local_18 = FUN_00b44000();
+          piVar3 = puVar4 + 2;
+          if ((((local_18 == -2) || (local_18 == 2)) || (local_18 == -3)) || (local_18 == -4)) {
+            puVar4[1] = local_14;
+            *puVar4 = 0xafc220;
+            FUN_00b45db0();
+            piVar3 = puVar4 + 2;
+            local_8 = 0;
+            break;
+          }
+          puVar1 = puVar4 + 2;
+          if (local_18 == 1) break;
+        }
+        piVar3 = puVar1;
+        *(uint *)(local_30 + 0x18) = (local_10 - local_14[1]) + *(int *)(local_30 + 0x18);
+        *(uint *)(local_30 + 0x150) = (local_10 - local_14[1]) + *(int *)(local_30 + 0x150);
+        if (local_14[1] == 0) {
+          *(undefined4 *)((int)piVar3 + -4) = 0xafc275;
+          FUN_00aa15a0();
+          *(undefined4 *)((int)piVar3 + -4) = 0;
+          *(undefined4 *)((int)piVar3 + -8) = *(undefined4 *)(local_30 + 0x10);
+          *(undefined4 *)((int)piVar3 + -0xc) = *(undefined4 *)(local_30 + 0x20);
+          *(undefined4 *)((int)piVar3 + -0x10) = 0xafc28d;
+          uVar2 = FUN_00afb7a0();
+          *(undefined4 *)(local_30 + 0x14) = uVar2;
+        }
+      }
+      *(int *)(local_30 + 0x174) = *(int *)(local_30 + 0x16c) - local_14[4];
+      if (*(int *)(local_30 + 0x174) == 0) {
+        return local_c;
+      }
+      if (*(uint *)(local_30 + 0x174) < local_8) {
+        local_8 = local_8 - *(int *)(local_30 + 0x174);
+        local_c = local_c + *(int *)(local_30 + 0x174);
+        if (param_2 != (void *)0x0) {
+          local_24 = *(undefined4 *)(local_30 + 0x174);
+          local_20 = *(undefined4 *)(local_30 + 0x164);
+          *(undefined4 *)((int)piVar3 + -4) = *(undefined4 *)(local_30 + 0x174);
+          *(undefined4 *)((int)piVar3 + -8) = local_20;
+          *(void **)((int)piVar3 + -0xc) = param_2;
+          *(undefined4 *)((int)piVar3 + -0x10) = 0xafc321;
+          _memcpy(*(void **)((int)piVar3 + -0xc),*(void **)((int)piVar3 + -8),
+                  *(size_t *)((int)piVar3 + -4));
+          param_2 = (void *)((int)param_2 + *(int *)(local_30 + 0x174));
+        }
+      }
+      else {
+        if (param_2 != (void *)0x0) {
+          local_28 = *(undefined4 *)(local_30 + 0x164);
+          *(uint *)((int)piVar3 + -4) = local_8;
+          *(undefined4 *)((int)piVar3 + -8) = local_28;
+          *(void **)((int)piVar3 + -0xc) = param_2;
+          *(undefined4 *)((int)piVar3 + -0x10) = 0xafc358;
+          _memcpy(*(void **)((int)piVar3 + -0xc),*(void **)((int)piVar3 + -8),
+                  *(size_t *)((int)piVar3 + -4));
+        }
+        *(uint *)(local_30 + 0x170) = *(int *)(local_30 + 0x170) + local_8;
+        local_c = local_c + local_8;
+        local_8 = 0;
+      }
+    }
+  }
+  else {
+    if (param_2 != (void *)0x0) {
+      local_2c = (void *)(*(int *)(param_1 + 0x164) + *(int *)(param_1 + 0x170));
+      _memcpy(param_2,local_2c,param_3);
+    }
+    *(uint *)(local_30 + 0x170) = *(int *)(local_30 + 0x170) + local_8;
+    local_c = local_c + local_8;
+  }
+  return local_c;
+}
+
+
+
+----------------------------------------------------------------------
+Disassembly BSA inflate call: 0x00afc1dc - 0x00afc224
+----------------------------------------------------------------------
+  0x00afc1dd: MOV EDX,dword ptr [EBP + -0x2c]
+  0x00afc1e0: ADD ECX,dword ptr [EDX + 0x18]
+  0x00afc1e3: MOV EAX,dword ptr [EBP + -0x10]
+  0x00afc1e6: MOV dword ptr [EAX],ECX
+  0x00afc1e8: CMP dword ptr [EBP + -0xc],0x0
+  0x00afc1ec: JZ 0x00afc234
+  0x00afc1ee: PUSH 0x2
+  0x00afc1f0: MOV ECX,dword ptr [EBP + -0x10]
+  0x00afc1f3: PUSH ECX
+  0x00afc1f4: CALL 0x00b44000 -> FUN_00b44000 << TARGET
+  0x00afc1f9: ADD ESP,0x8
+  0x00afc1fc: MOV dword ptr [EBP + -0x14],EAX
+  0x00afc1ff: CMP dword ptr [EBP + -0x14],-0x2
+  0x00afc203: JZ 0x00afc217
+  0x00afc205: CMP dword ptr [EBP + -0x14],0x2
+  0x00afc209: JZ 0x00afc217
+  0x00afc20b: CMP dword ptr [EBP + -0x14],-0x3
+  0x00afc20f: JZ 0x00afc217
+  0x00afc211: CMP dword ptr [EBP + -0x14],-0x4
+  0x00afc215: JNZ 0x00afc22c
+  0x00afc217: MOV EDX,dword ptr [EBP + -0x10]
+  0x00afc21a: PUSH EDX
+  0x00afc21b: CALL 0x00b45db0 -> FUN_00b45db0
+  0x00afc220: ADD ESP,0x4
+  0x00afc223: MOV dword ptr [EBP + -0x4],0x0
+
+----------------------------------------------------------------------
+References TO 0x00afc1f4 (BSA inflate call)
+----------------------------------------------------------------------
+  Total: 0 refs
+
+======================================================================
+CompressedArchiveFile ArchiveFile::Read call A @ 0x00afc49c
+======================================================================
+  Function: FUN_00afc430 @ 0x00afc430, Size: 485 bytes
+  NOTE: Requested 0x00afc49c is inside FUN_00afc430 (entry at 0x00afc430)
+
+undefined4 * __thiscall
+FUN_00afc430(undefined4 *param_1,undefined4 param_2,undefined4 param_3,undefined4 param_4,
+            undefined4 param_5,undefined4 param_6)
+
+{
+  uint uVar1;
+  int iVar2;
+  undefined4 uVar3;
+  int *unaff_FS_OFFSET;
+  uint local_30;
+  int local_10;
+  undefined1 *puStack_c;
+  undefined4 local_8;
+  
+  local_8 = 0xffffffff;
+  puStack_c = &LAB_00f23655;
+  local_10 = *unaff_FS_OFFSET;
+  uVar1 = DAT_011c16bc ^ (uint)&stack0xfffffffc;
+  *unaff_FS_OFFSET = (int)&local_10;
+  FUN_00afb300(param_2,param_3,param_4,param_5,param_6);
+  local_8 = 0;
+  *param_1 = &PTR_FUN_010a464c;
+  FUN_00afc620(0);
+  FUN_00afbbf0(param_1 + 0x5a,4);
+  iVar2 = FUN_00aa3e40(0x1be0);
+  param_1[0x58] = iVar2;
+  *(undefined4 *)(param_1[0x58] + 0x20) = 0;
+  *(undefined4 *)(param_1[0x58] + 0x24) = 0;
+  *(undefined4 *)(param_1[0x58] + 0x28) = 0;
+  *(undefined4 *)(param_1[0x58] + 4) = 0;
+  *(undefined4 *)param_1[0x58] = 0;
+  *(int *)(param_1[0x58] + 0x1c) = iVar2 + 0x38;
+  iVar2 = FUN_00b43fe0(param_1[0x58],"1.2.1",0x38,uVar1);
+  if (iVar2 == 0) {
+    if ((uint)param_1[0x5a] < DAT_011f8164) {
+      local_30 = param_1[0x5a];
+    }
+    else {
+      local_30 = DAT_011f8164;
+    }
+    param_1[0x5b] = local_30;
+    uVar3 = FUN_00aa3e40(param_1[0x5b]);
+    param_1[0x59] = uVar3;
+    param_1[0x5c] = 0;
+    param_1[0x5d] = 0;
+  }
+  else {
+    FUN_00b45db0(param_1[0x58]);
+    FUN_00aa4060(param_1[0x58]);
+    param_1[0x58] = 0;
+  }
+  *unaff_FS_OFFSET = local_10;
+  return param_1;
+}
+
+
+
+----------------------------------------------------------------------
+Disassembly CompressedArchiveFile ArchiveFile::Read call A: 0x00afc484 - 0x00afc4cc
+----------------------------------------------------------------------
+  0x00afc484: PUSH 0x0
+  0x00afc486: MOV ECX,dword ptr [EBP + -0x28]
+  0x00afc489: CALL 0x00afc620 -> FUN_00afc620
+  0x00afc48e: PUSH 0x4
+  0x00afc490: MOV EAX,dword ptr [EBP + -0x28]
+  0x00afc493: ADD EAX,0x168
+  0x00afc498: PUSH EAX
+  0x00afc499: MOV ECX,dword ptr [EBP + -0x28]
+  0x00afc49c: CALL 0x00afbbf0 -> FUN_00afbbf0 << TARGET
+  0x00afc4a1: PUSH 0x1be0
+  0x00afc4a6: MOV ECX,0x11f6238
+  0x00afc4ab: CALL 0x00aa3e40 -> FUN_00aa3e40
+  0x00afc4b0: MOV dword ptr [EBP + -0x18],EAX
+  0x00afc4b3: MOV ECX,dword ptr [EBP + -0x18]
+  0x00afc4b6: MOV dword ptr [EBP + -0x10],ECX
+  0x00afc4b9: MOV EDX,dword ptr [EBP + -0x28]
+  0x00afc4bc: MOV EAX,dword ptr [EBP + -0x10]
+  0x00afc4bf: MOV dword ptr [EDX + 0x160],EAX
+  0x00afc4c5: MOV ECX,dword ptr [EBP + -0x28]
+  0x00afc4c8: MOV EDX,dword ptr [ECX + 0x160]
+
+----------------------------------------------------------------------
+References TO 0x00afc49c (CompressedArchiveFile ArchiveFile::Read call A)
+----------------------------------------------------------------------
+  Total: 0 refs
+
+======================================================================
+CompressedArchiveFile ArchiveFile::Read call B @ 0x00afbf8e
+======================================================================
+  Function: FUN_00afbf80 @ 0x00afbf80, Size: 21 bytes
+  NOTE: Requested 0x00afbf8e is inside FUN_00afbf80 (entry at 0x00afbf80)
+
+void FUN_00afbf80(undefined4 param_1,undefined4 param_2,undefined4 param_3)
+
+{
+  FUN_00afbbf0(param_2,param_3);
+  return;
+}
+
+
+
+----------------------------------------------------------------------
+Disassembly CompressedArchiveFile ArchiveFile::Read call B: 0x00afbf76 - 0x00afbfbe
+----------------------------------------------------------------------
+  0x00afbf76: MOV AL,CL
+  0x00afbf78: MOV ESP,EBP
+  0x00afbf7a: POP EBP
+  0x00afbf7b: RET
+  0x00afbf80: PUSH EBP
+  0x00afbf81: MOV EBP,ESP
+  0x00afbf83: MOV EAX,dword ptr [EBP + 0x10]
+  0x00afbf86: PUSH EAX
+  0x00afbf87: MOV ECX,dword ptr [EBP + 0xc]
+  0x00afbf8a: PUSH ECX
+  0x00afbf8b: MOV ECX,dword ptr [EBP + 0x8]
+  0x00afbf8e: CALL 0x00afbbf0 -> FUN_00afbbf0 << TARGET
+  0x00afbf93: POP EBP
+  0x00afbf94: RET
+  0x00afbfa0: PUSH EBP
+  0x00afbfa1: MOV EBP,ESP
+  0x00afbfa3: PUSH ECX
+  0x00afbfa4: MOV dword ptr [EBP + -0x4],ECX
+  0x00afbfa7: MOVZX EAX,byte ptr [EBP + 0x8]
+  0x00afbfab: TEST EAX,EAX
+  0x00afbfad: JZ 0x00afbfbe
+  0x00afbfaf: MOVZX ECX,byte ptr [EBP + 0x8]
+  0x00afbfb3: PUSH ECX
+  0x00afbfb4: MOV ECX,dword ptr [EBP + -0x4]
+  0x00afbfb7: CALL 0x00aff990 -> FUN_00aff990
+  0x00afbfbc: JMP 0x00afbfd2
+  0x00afbfbe: MOV EDX,dword ptr [EBP + -0x4]
+
+----------------------------------------------------------------------
+References TO 0x00afbf8e (CompressedArchiveFile ArchiveFile::Read call B)
+----------------------------------------------------------------------
+  Total: 0 refs
+
+======================================================================
+BSFile::ReadFile candidate @ 0x00b00650
+======================================================================
+  Function: FUN_00b00650 @ 0x00b00650, Size: 94 bytes
+
+int __thiscall FUN_00b00650(int *param_1,undefined4 param_2,undefined4 param_3)
+
+{
+  int iVar1;
+  
+  if (param_1[9] == 0) {
+    (**(code **)(*param_1 + 0x20))(0,0);
+  }
+  iVar1 = FUN_00aa1750(param_2,param_3);
+  param_1[0x54] = param_1[0x54] + iVar1;
+  return iVar1;
+}
+
+
+
+----------------------------------------------------------------------
+Disassembly BSFile::ReadFile candidate: 0x00b00638 - 0x00b00680
+----------------------------------------------------------------------
+  0x00b00638: MOV dword ptr [ECX + 0x150],EDX
+  0x00b0063e: MOV ESP,EBP
+  0x00b00640: POP EBP
+  0x00b00641: RET 0x8
+  0x00b00650: PUSH EBP << TARGET
+  0x00b00651: MOV EBP,ESP
+  0x00b00653: SUB ESP,0x8
+  0x00b00656: MOV dword ptr [EBP + -0x8],ECX
+  0x00b00659: MOV EAX,dword ptr [EBP + -0x8]
+  0x00b0065c: XOR ECX,ECX
+  0x00b0065e: CMP dword ptr [EAX + 0x24],0x0
+  0x00b00662: SETNZ CL
+  0x00b00665: MOVZX EDX,CL
+  0x00b00668: TEST EDX,EDX
+  0x00b0066a: JNZ 0x00b0067d
+  0x00b0066c: PUSH 0x0
+  0x00b0066e: PUSH 0x0
+  0x00b00670: MOV EAX,dword ptr [EBP + -0x8]
+  0x00b00673: MOV EDX,dword ptr [EAX]
+  0x00b00675: MOV ECX,dword ptr [EBP + -0x8]
+  0x00b00678: MOV EAX,dword ptr [EDX + 0x20]
+  0x00b0067b: CALL EAX
+  0x00b0067d: MOV ECX,dword ptr [EBP + 0xc]
+  0x00b00680: PUSH ECX
+
+----------------------------------------------------------------------
+References TO 0x00b00650 (BSFile::ReadFile candidate)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x00472bef (in FUN_00472bc0)
+  UNCONDITIONAL_CALL @ 0x00472d54 (in FUN_00472d30)
+  UNCONDITIONAL_CALL @ 0x00472961 (in FUN_00472890)
+  UNCONDITIONAL_CALL @ 0x00472b01 (in FUN_00472890)
+  UNCONDITIONAL_CALL @ 0x00471eba (in FUN_00471e60)
+  UNCONDITIONAL_CALL @ 0x004741b6 (in FUN_004740a0)
+  UNCONDITIONAL_CALL @ 0x00a1d2c2 (in FUN_00a1d280)
+  UNCONDITIONAL_CALL @ 0x00a1d306 (in FUN_00a1d280)
+  DATA @ 0x01081aa0 (in ???)
+  DATA @ 0x010a45f0 (in ???)
+  DATA @ 0x010a47a8 (in ???)
+  Total: 11 refs
+
+======================================================================
+TESFile inflate init @ 0x004742ac
+======================================================================
+  Function: FUN_004740a0 @ 0x004740a0, Size: 949 bytes
+  NOTE: Requested 0x004742ac is inside FUN_004740a0 (entry at 0x004740a0)
+
+/* WARNING: Function: __alloca_probe replaced with injection: alloca_probe */
+
+void __fastcall FUN_004740a0(int param_1)
+
+{
+  char cVar1;
+  uint uVar2;
+  int iVar3;
+  undefined4 uVar4;
+  int *unaff_FS_OFFSET;
+  undefined4 local_1c0c;
+  undefined4 *local_1c08;
+  int local_1c04;
+  undefined4 local_1bfc;
+  undefined4 local_1bf8;
+  undefined1 *local_1bec;
+  code *local_1be8;
+  code *local_1be4;
+  undefined4 local_1be0;
+  undefined1 local_1bd0 [7084];
+  uint local_24;
+  undefined4 *local_20;
+  undefined4 *local_1c;
+  char local_15;
+  undefined4 local_14;
+  int local_10;
+  undefined1 *puStack_c;
+  undefined4 local_8;
+  
+  local_8 = 0xffffffff;
+  puStack_c = &LAB_00eeeb58;
+  local_10 = *unaff_FS_OFFSET;
+  local_14 = 0x4740bb;
+  uVar2 = DAT_011c16bc ^ (uint)&stack0xfffffffc;
+  *unaff_FS_OFFSET = (int)&local_10;
+  local_24 = uVar2;
+  FUN_00404eb0(0x30,1,"D:\\_Fallout3\\Platforms\\Common\\Code\\Fallout Shared\\TESFile.cpp",0xf8e);
+  local_8 = 0;
+  if ((*(int *)(param_1 + 0x244) != 0) && (*(int *)(param_1 + 0x240) != DAT_01187020)) {
+    cVar1 = FUN_00472100(uVar2);
+    if (cVar1 != '\0') {
+      local_15 = FUN_00486890(*(undefined4 *)(param_1 + 0x240));
+      if (local_15 == '\0') {
+        local_8 = 0xffffffff;
+        FUN_00404ee0();
+        goto LAB_0047443c;
+      }
+      local_1c = (undefined4 *)FUN_00401000(*(int *)(param_1 + 0x244) + 1);
+      if (local_1c == (undefined4 *)0x0) {
+        local_8 = 0xffffffff;
+        FUN_00404ee0();
+        goto LAB_0047443c;
+      }
+      iVar3 = FUN_00b00650(local_1c,*(undefined4 *)(param_1 + 0x244));
+      if (iVar3 == *(int *)(param_1 + 0x244)) {
+        local_1c0c = *local_1c;
+        local_20 = local_1c + 1;
+        cVar1 = FUN_00401680();
+        if (cVar1 != '\0') {
+          FUN_00401080(&local_1c0c,0);
+        }
+        *(undefined1 *)((int)local_1c + *(int *)(param_1 + 0x244)) = 0;
+        uVar4 = FUN_00401000(local_1c0c);
+        *(undefined4 *)(param_1 + 0x420) = uVar4;
+        *(undefined4 *)(param_1 + 0x424) = local_1c0c;
+        local_1be8 = FUN_00474460;
+        local_1be4 = FUN_00474480;
+        local_1be0 = 0;
+        local_1c04 = 0;
+        local_1c08 = (undefined4 *)0x0;
+        local_1bec = local_1bd0;
+        iVar3 = FUN_00b43fe0(&local_1c08,"1.2.1",0x38);
+        if (iVar3 != 0) {
+          FUN_00b45db0(&local_1c08);
+          FUN_005b5e40("TESFile: Error initializing ZLib inflate stream.");
+          FUN_00473960();
+          FUN_00401030(local_1c);
+          local_8 = 0xffffffff;
+          FUN_00404ee0();
+          goto LAB_0047443c;
+        }
+        local_1c04 = *(int *)(param_1 + 0x244) + -4;
+        local_1c08 = local_20;
+        local_1bf8 = local_1c0c;
+        local_1bfc = *(undefined4 *)(param_1 + 0x420);
+        iVar3 = FUN_00b44000(&local_1c08,0);
+        if ((((iVar3 == -2) || (iVar3 == 2)) || (iVar3 == -3)) || (iVar3 == -4)) {
+          FUN_00b45db0(&local_1c08);
+          FUN_005b5e40("TESFile: Error inflating ZLib stream.");
+          FUN_00473960();
+          FUN_00401030(local_1c);
+          local_8 = 0xffffffff;
+          FUN_00404ee0();
+          goto LAB_0047443c;
+        }
+        if (iVar3 != 1) {
+          FUN_00b45db0(&local_1c08);
+          FUN_005b5e40("TESFile: Error: ZLib stream did not terminate.");
+          FUN_00473960();
+          FUN_00401030(local_1c);
+          local_8 = 0xffffffff;
+          FUN_00404ee0();
+          goto LAB_0047443c;
+        }
+        FUN_00b45db0(&local_1c08);
+      }
+      else {
+        FUN_005b5e40("TESFile: Failed to read in buffer data for compressed form.");
+      }
+      FUN_00401030(local_1c);
+    }
+  }
+  local_8 = 0xffffffff;
+  FUN_00404ee0();
+LAB_0047443c:
+  *unaff_FS_OFFSET = local_10;
+  __security_check_cookie(local_24 ^ (uint)&stack0xfffffffc);
+  return;
+}
+
+
+
+----------------------------------------------------------------------
+Disassembly TESFile inflate init: 0x00474294 - 0x004742dc
+----------------------------------------------------------------------
+  0x00474298: MOV dword ptr [EBP + 0xffffe418],ECX
+  0x0047429e: PUSH 0x38
+  0x004742a0: PUSH 0x101a29c
+  0x004742a5: LEA EDX,[EBP + 0xffffe3fc]
+  0x004742ab: PUSH EDX
+  0x004742ac: CALL 0x00b43fe0 -> FUN_00b43fe0 << TARGET
+  0x004742b1: ADD ESP,0xc
+  0x004742b4: MOV dword ptr [EBP + 0xffffe3f4],EAX
+  0x004742ba: CMP dword ptr [EBP + 0xffffe3f4],0x0
+  0x004742c1: JZ 0x0047430a
+  0x004742c3: LEA EAX,[EBP + 0xffffe3fc]
+  0x004742c9: PUSH EAX
+  0x004742ca: CALL 0x00b45db0 -> FUN_00b45db0
+  0x004742cf: ADD ESP,0x4
+  0x004742d2: PUSH 0x101a268
+  0x004742d7: CALL 0x005b5e40 -> FUN_005b5e40
+  0x004742dc: ADD ESP,0x4
+
+----------------------------------------------------------------------
+References TO 0x004742ac (TESFile inflate init)
+----------------------------------------------------------------------
+  Total: 0 refs
+
+======================================================================
+TESFile inflate @ 0x0047434f
+======================================================================
+  Function: FUN_004740a0 @ 0x004740a0, Size: 949 bytes
+  NOTE: Requested 0x0047434f is inside FUN_004740a0 (entry at 0x004740a0)
+
+/* WARNING: Function: __alloca_probe replaced with injection: alloca_probe */
+
+void __fastcall FUN_004740a0(int param_1)
+
+{
+  char cVar1;
+  uint uVar2;
+  int iVar3;
+  undefined4 uVar4;
+  int *unaff_FS_OFFSET;
+  undefined4 local_1c0c;
+  undefined4 *local_1c08;
+  int local_1c04;
+  undefined4 local_1bfc;
+  undefined4 local_1bf8;
+  undefined1 *local_1bec;
+  code *local_1be8;
+  code *local_1be4;
+  undefined4 local_1be0;
+  undefined1 local_1bd0 [7084];
+  uint local_24;
+  undefined4 *local_20;
+  undefined4 *local_1c;
+  char local_15;
+  undefined4 local_14;
+  int local_10;
+  undefined1 *puStack_c;
+  undefined4 local_8;
+  
+  local_8 = 0xffffffff;
+  puStack_c = &LAB_00eeeb58;
+  local_10 = *unaff_FS_OFFSET;
+  local_14 = 0x4740bb;
+  uVar2 = DAT_011c16bc ^ (uint)&stack0xfffffffc;
+  *unaff_FS_OFFSET = (int)&local_10;
+  local_24 = uVar2;
+  FUN_00404eb0(0x30,1,"D:\\_Fallout3\\Platforms\\Common\\Code\\Fallout Shared\\TESFile.cpp",0xf8e);
+  local_8 = 0;
+  if ((*(int *)(param_1 + 0x244) != 0) && (*(int *)(param_1 + 0x240) != DAT_01187020)) {
+    cVar1 = FUN_00472100(uVar2);
+    if (cVar1 != '\0') {
+      local_15 = FUN_00486890(*(undefined4 *)(param_1 + 0x240));
+      if (local_15 == '\0') {
+        local_8 = 0xffffffff;
+        FUN_00404ee0();
+        goto LAB_0047443c;
+      }
+      local_1c = (undefined4 *)FUN_00401000(*(int *)(param_1 + 0x244) + 1);
+      if (local_1c == (undefined4 *)0x0) {
+        local_8 = 0xffffffff;
+        FUN_00404ee0();
+        goto LAB_0047443c;
+      }
+      iVar3 = FUN_00b00650(local_1c,*(undefined4 *)(param_1 + 0x244));
+      if (iVar3 == *(int *)(param_1 + 0x244)) {
+        local_1c0c = *local_1c;
+        local_20 = local_1c + 1;
+        cVar1 = FUN_00401680();
+        if (cVar1 != '\0') {
+          FUN_00401080(&local_1c0c,0);
+        }
+        *(undefined1 *)((int)local_1c + *(int *)(param_1 + 0x244)) = 0;
+        uVar4 = FUN_00401000(local_1c0c);
+        *(undefined4 *)(param_1 + 0x420) = uVar4;
+        *(undefined4 *)(param_1 + 0x424) = local_1c0c;
+        local_1be8 = FUN_00474460;
+        local_1be4 = FUN_00474480;
+        local_1be0 = 0;
+        local_1c04 = 0;
+        local_1c08 = (undefined4 *)0x0;
+        local_1bec = local_1bd0;
+        iVar3 = FUN_00b43fe0(&local_1c08,"1.2.1",0x38);
+        if (iVar3 != 0) {
+          FUN_00b45db0(&local_1c08);
+          FUN_005b5e40("TESFile: Error initializing ZLib inflate stream.");
+          FUN_00473960();
+          FUN_00401030(local_1c);
+          local_8 = 0xffffffff;
+          FUN_00404ee0();
+          goto LAB_0047443c;
+        }
+        local_1c04 = *(int *)(param_1 + 0x244) + -4;
+        local_1c08 = local_20;
+        local_1bf8 = local_1c0c;
+        local_1bfc = *(undefined4 *)(param_1 + 0x420);
+        iVar3 = FUN_00b44000(&local_1c08,0);
+        if ((((iVar3 == -2) || (iVar3 == 2)) || (iVar3 == -3)) || (iVar3 == -4)) {
+          FUN_00b45db0(&local_1c08);
+          FUN_005b5e40("TESFile: Error inflating ZLib stream.");
+          FUN_00473960();
+          FUN_00401030(local_1c);
+          local_8 = 0xffffffff;
+          FUN_00404ee0();
+          goto LAB_0047443c;
+        }
+        if (iVar3 != 1) {
+          FUN_00b45db0(&local_1c08);
+          FUN_005b5e40("TESFile: Error: ZLib stream did not terminate.");
+          FUN_00473960();
+          FUN_00401030(local_1c);
+          local_8 = 0xffffffff;
+          FUN_00404ee0();
+          goto LAB_0047443c;
+        }
+        FUN_00b45db0(&local_1c08);
+      }
+      else {
+        FUN_005b5e40("TESFile: Failed to read in buffer data for compressed form.");
+      }
+      FUN_00401030(local_1c);
+    }
+  }
+  local_8 = 0xffffffff;
+  FUN_00404ee0();
+LAB_0047443c:
+  *unaff_FS_OFFSET = local_10;
+  __security_check_cookie(local_24 ^ (uint)&stack0xfffffffc);
+  return;
+}
+
+
+
+----------------------------------------------------------------------
+Disassembly TESFile inflate: 0x00474337 - 0x0047437f
+----------------------------------------------------------------------
+  0x0047433a: MOV ECX,dword ptr [EAX + 0x420]
+  0x00474340: MOV dword ptr [EBP + 0xffffe408],ECX
+  0x00474346: PUSH 0x0
+  0x00474348: LEA EDX,[EBP + 0xffffe3fc]
+  0x0047434e: PUSH EDX
+  0x0047434f: CALL 0x00b44000 -> FUN_00b44000 << TARGET
+  0x00474354: ADD ESP,0x8
+  0x00474357: MOV dword ptr [EBP + 0xffffe3f4],EAX
+  0x0047435d: CMP dword ptr [EBP + 0xffffe3f4],-0x2
+  0x00474364: JZ 0x00474381
+  0x00474366: CMP dword ptr [EBP + 0xffffe3f4],0x2
+  0x0047436d: JZ 0x00474381
+  0x0047436f: CMP dword ptr [EBP + 0xffffe3f4],-0x3
+  0x00474376: JZ 0x00474381
+  0x00474378: CMP dword ptr [EBP + 0xffffe3f4],-0x4
+  0x0047437f: JNZ 0x004743c5
+
+----------------------------------------------------------------------
+References TO 0x0047434f (TESFile inflate)
+----------------------------------------------------------------------
+  Total: 0 refs
+
+======================================================================
+TESFile compressed/GRUP check inline target @ 0x00472100
+======================================================================
+  Function: FUN_00472100 @ 0x00472100, Size: 65 bytes
+
+undefined1 __fastcall FUN_00472100(int param_1)
+
+{
+  undefined1 local_c;
+  
+  if ((*(int *)(param_1 + 0x240) == DAT_01187020) || ((*(uint *)(param_1 + 0x248) & 0x40000) == 0))
+  {
+    local_c = 0;
+  }
+  else {
+    local_c = 1;
+  }
+  return local_c;
+}
+
+
+
+----------------------------------------------------------------------
+Disassembly TESFile compressed/GRUP check inline target: 0x004720e8 - 0x00472130
+----------------------------------------------------------------------
+  0x004720f1: MOV ESP,EBP
+  0x004720f3: POP EBP
+  0x004720f4: RET
+  0x00472100: PUSH EBP << TARGET
+  0x00472101: MOV EBP,ESP
+  0x00472103: SUB ESP,0x8
+  0x00472106: MOV dword ptr [EBP + -0x4],ECX
+  0x00472109: MOV EAX,dword ptr [EBP + -0x4]
+  0x0047210c: MOV ECX,dword ptr [EAX + 0x240]
+  0x00472112: CMP ECX,dword ptr [0x01187020]
+  0x00472118: JZ 0x00472133
+  0x0047211a: MOV EDX,dword ptr [EBP + -0x4]
+  0x0047211d: MOV EAX,dword ptr [EDX + 0x248]
+  0x00472123: AND EAX,0x40000
+  0x00472128: JZ 0x00472133
+  0x0047212a: MOV dword ptr [EBP + -0x8],0x1
+
+----------------------------------------------------------------------
+References TO 0x00472100 (TESFile compressed/GRUP check inline target)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x00472d3c (in FUN_00472d30)
+  UNCONDITIONAL_CALL @ 0x00472708 (in FUN_004726f0)
+  UNCONDITIONAL_CALL @ 0x0047277a (in FUN_004726f0)
+  UNCONDITIONAL_CALL @ 0x004728b9 (in FUN_00472890)
+  UNCONDITIONAL_CALL @ 0x00474123 (in FUN_004740a0)
+  UNCONDITIONAL_CALL @ 0x00472045 (in FUN_00472000)
+  UNCONDITIONAL_CALL @ 0x004724fd (in FUN_004724f0)
+  Total: 7 refs
+
+======================================================================
+TESDataHandler::GetNextID inline target @ 0x00469800
+======================================================================
+  Function: FUN_00469800 @ 0x00469800, Size: 96 bytes
+
+undefined4 __fastcall FUN_00469800(int param_1)
+
+{
+  undefined4 uVar1;
+  char cVar2;
+  
+  FUN_0040fbf0("TESDataHandler::GetNextID");
+  while( true ) {
+    cVar2 = FUN_00469760(*(undefined4 *)(param_1 + 0x208));
+    if (cVar2 == '\0') break;
+    FUN_004697a0();
+  }
+  uVar1 = *(undefined4 *)(param_1 + 0x208);
+  FUN_004697a0();
+  FUN_0040fba0();
+  return uVar1;
+}
+
+
+
+----------------------------------------------------------------------
+Disassembly TESDataHandler::GetNextID inline target: 0x004697e8 - 0x00469830
+----------------------------------------------------------------------
+  0x004697e9: MOV dword ptr [ECX + 0x208],EAX
+  0x004697ef: MOV ESP,EBP
+  0x004697f1: POP EBP
+  0x004697f2: RET
+  0x00469800: PUSH EBP << TARGET
+  0x00469801: MOV EBP,ESP
+  0x00469803: SUB ESP,0x8
+  0x00469806: MOV dword ptr [EBP + -0x8],ECX
+  0x00469809: PUSH 0x1018be0
+  0x0046980e: MOV ECX,0x11c4000
+  0x00469813: CALL 0x0040fbf0 -> FUN_0040fbf0
+  0x00469818: MOV EAX,dword ptr [EBP + -0x8]
+  0x0046981b: MOV ECX,dword ptr [EAX + 0x208]
+  0x00469821: PUSH ECX
+  0x00469822: MOV ECX,dword ptr [EBP + -0x8]
+  0x00469825: CALL 0x00469760 -> FUN_00469760
+  0x0046982a: MOVZX EDX,AL
+  0x0046982d: TEST EDX,EDX
+  0x0046982f: JZ 0x0046983b
+
+----------------------------------------------------------------------
+References TO 0x00469800 (TESDataHandler::GetNextID inline target)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x0048355b (in FUN_00483370)
+  UNCONDITIONAL_CALL @ 0x0084a923 (in FUN_0084a880)
+  UNCONDITIONAL_CALL @ 0x0085a34f (in FUN_0085a2e0)
+  UNCONDITIONAL_CALL @ 0x0084a8db (in FUN_0084a880)
+  UNCONDITIONAL_CALL @ 0x0040779e (in FUN_00407600)
+  Total: 5 refs
+
+======================================================================
+GameSettingCollection init call site @ 0x00404a73
+======================================================================
+  Function: FUN_00404a70 @ 0x00404a70, Size: 15 bytes
+  NOTE: Requested 0x00404a73 is inside FUN_00404a70 (entry at 0x00404a70)
+
+undefined4 FUN_00404a70(void)
+
+{
+  FUN_00404a80();
+  return DAT_011c8048;
+}
+
+
+
+----------------------------------------------------------------------
+Disassembly GameSettingCollection init call site: 0x00404a5b - 0x00404aa3
+----------------------------------------------------------------------
+  0x00404a5b: CALL 0x00404950 -> FUN_00404950
+  0x00404a60: MOV ECX,dword ptr [EBP + -0xc]
+  0x00404a63: MOV dword ptr FS:[0x0],ECX
+  0x00404a6a: POP ECX
+  0x00404a6b: MOV ESP,EBP
+  0x00404a6d: POP EBP
+  0x00404a6e: RET
+  0x00404a70: PUSH EBP
+  0x00404a71: MOV EBP,ESP
+  0x00404a73: CALL 0x00404a80 -> FUN_00404a80 << TARGET
+  0x00404a78: MOV EAX,[0x011c8048]
+  0x00404a7d: POP EBP
+  0x00404a7e: RET
+  0x00404a80: PUSH EBP
+  0x00404a81: MOV EBP,ESP
+  0x00404a83: PUSH -0x1
+  0x00404a85: PUSH 0xf109cb
+  0x00404a8a: MOV EAX,FS:[0x0]
+  0x00404a90: PUSH EAX
+  0x00404a91: SUB ESP,0xc
+  0x00404a94: MOV EAX,[0x011c16bc]
+  0x00404a99: XOR EAX,EBP
+  0x00404a9b: PUSH EAX
+  0x00404a9c: LEA EAX,[EBP + -0xc]
+  0x00404a9f: MOV FS:[0x0],EAX
+
+----------------------------------------------------------------------
+References TO 0x00404a73 (GameSettingCollection init call site)
+----------------------------------------------------------------------
+  Total: 0 refs
+
+======================================================================
+ContinueGame entry @ 0x007d3190
+======================================================================
+  Function: FUN_007d3190 @ 0x007d3190, Size: 275 bytes
+
+void FUN_007d3190(void)
+
+{
+  char cVar1;
+  int iVar2;
+  int *piVar3;
+  undefined4 uVar4;
+  
+  iVar2 = FUN_00559450();
+  if (iVar2 == 0) {
+LAB_007d31b9:
+    FUN_00851330();
+  }
+  else {
+    FUN_00559450();
+    piVar3 = (int *)FUN_006815c0();
+    if (*piVar3 == 0) goto LAB_007d31b9;
+  }
+  iVar2 = FUN_00559450();
+  if (iVar2 != 0) {
+    FUN_00559450();
+    piVar3 = (int *)FUN_006815c0();
+    if (*piVar3 != 0) {
+      FUN_00559450();
+      FUN_006815c0();
+      cVar1 = FUN_00846b30();
+      if (cVar1 == '\0') {
+        FUN_00af59e0();
+        FUN_00559450();
+        FUN_006815c0();
+        FUN_008467b0();
+      }
+      else {
+        uVar4 = FUN_00403df0(0);
+        uVar4 = FUN_00403df0(0,0,0,0,5,0,0,uVar4);
+        FUN_00703e80(uVar4);
+      }
+      goto LAB_007d329c;
+    }
+  }
+  uVar4 = FUN_00403df0(0);
+  uVar4 = FUN_00403df0(0,0,0,0,5,0,0,uVar4);
+  FUN_00703e80(uVar4);
+LAB_007d329c:
+  FUN_007d0e40();
+  return;
+}
+
+
+
+----------------------------------------------------------------------
+Disassembly ContinueGame entry: 0x007d3178 - 0x007d31c0
+----------------------------------------------------------------------
+  0x007d317a: MOV AL,byte ptr [EAX + 0x85]
+  0x007d3180: MOV ESP,EBP
+  0x007d3182: POP EBP
+  0x007d3183: RET
+  0x007d3190: PUSH EBP << TARGET
+  0x007d3191: MOV EBP,ESP
+  0x007d3193: MOV ECX,dword ptr [0x011de134]
+  0x007d3199: CALL 0x00559450 -> FUN_00559450
+  0x007d319e: TEST EAX,EAX
+  0x007d31a0: JZ 0x007d31b9
+  0x007d31a2: MOV ECX,dword ptr [0x011de134]
+  0x007d31a8: CALL 0x00559450 -> FUN_00559450
+  0x007d31ad: MOV ECX,EAX
+  0x007d31af: CALL 0x006815c0 -> FUN_006815c0
+  0x007d31b4: CMP dword ptr [EAX],0x0
+  0x007d31b7: JNZ 0x007d31c4
+  0x007d31b9: MOV ECX,dword ptr [0x011de134]
+  0x007d31bf: CALL 0x00851330 -> FUN_00851330
+
+----------------------------------------------------------------------
+References TO 0x007d3190 (ContinueGame entry)
+----------------------------------------------------------------------
+  DATA @ 0x007ccdae (in FUN_007cc6e0)
+  Total: 1 refs
+
+======================================================================
+Start menu post-load first save hook site @ 0x007d59ae
+======================================================================
+  Function: FUN_007d5830 @ 0x007d5830, Size: 690 bytes
+  NOTE: Requested 0x007d59ae is inside FUN_007d5830 (entry at 0x007d5830)
+
+/* WARNING: Globals starting with '_' overlap smaller symbols at the same address */
+
+undefined4 FUN_007d5830(void)
+
+{
+  char cVar1;
+  int iVar2;
+  int *piVar3;
+  int iVar4;
+  undefined4 *puVar5;
+  undefined4 uVar6;
+  float10 fVar7;
+  undefined4 uVar8;
+  undefined4 uVar9;
+  undefined4 extraout_var;
+  
+  cVar1 = FUN_004a4080(1);
+  if (cVar1 == '\0') {
+    uVar6 = extraout_var;
+    cVar1 = FUN_004a4080(0x80000);
+    if ((cVar1 != '\0') && (DAT_011da0c0 != 0)) {
+      uVar9 = 2;
+      uVar8 = 0;
+      FUN_00877720(0,2,uVar6);
+      iVar2 = FUN_00a23a50(uVar8,uVar9);
+      if (iVar2 != 0) {
+        FUN_0078aa90();
+      }
+    }
+    cVar1 = FUN_004a4080(0x10);
+    if (((cVar1 != '\0') && (cVar1 = FUN_00a07ed0(0xfa9), cVar1 == '\0')) &&
+       ((DAT_011c3f3c == 0 || (fVar7 = (float10)FUN_00526ac0(), fVar7 <= (float10)_DAT_01012060))))
+    {
+      fVar7 = (float10)FUN_00a011b0(0xfa9);
+      if ((float)fVar7 == (float)_DAT_01012060) {
+        FUN_007d61e0(3,1,0xfa9,0x3f800000);
+        FUN_0078d2d0(1);
+      }
+      else if ((float)fVar7 == (float)_DAT_0101e568) {
+        FUN_007d6550();
+        piVar3 = (int *)FUN_0043d4d0();
+        iVar2 = *piVar3;
+        iVar4 = FUN_0046fe10();
+        uVar6 = FUN_00647b70(iVar4 * 5 + iVar2,0x1e,0x32);
+        uVar6 = FUN_004a8f20(uVar6);
+        puVar5 = (undefined4 *)FUN_0043d4d0();
+        *puVar5 = uVar6;
+        DAT_011a0294 = 0;
+        FUN_0075f6f0(0x10,0);
+      }
+    }
+    cVar1 = FUN_004a4080(0x400);
+    if (cVar1 != '\0') {
+      iVar2 = FUN_00a09030(0x3e9);
+      if (iVar2 == 0) {
+        uVar6 = FUN_004c69f0(0,0,0,0,0x12,0,0,&lpWindowName_01011584);
+        FUN_00703e80(uVar6);
+      }
+      else {
+        FUN_00a03c90();
+        iVar2 = FUN_0059bb30();
+        if (iVar2 == 1) {
+          FUN_0075f6f0(0x400,0);
+          FUN_00af59f0();
+          FUN_007d69f0();
+        }
+      }
+    }
+    cVar1 = FUN_004a4080(0x100);
+    if (cVar1 != '\0') {
+      FUN_0075f6f0(0x400,1);
+      FUN_0075f6f0(0x100,0);
+    }
+    cVar1 = FUN_004a4080(0x1000000);
+    if ((cVar1 != '\0') && (iVar2 = FUN_00a09030(0x3e9), iVar2 == 0)) {
+      FUN_0075f6f0(0x1000000,0);
+      uVar6 = FUN_00403df0(0);
+      uVar6 = FUN_00403df0(0,0,0,0,0x12,0,0,uVar6);
+      FUN_00703e80(uVar6);
+    }
+    return 1;
+  }
+  return 0;
+}
+
+
+
+----------------------------------------------------------------------
+Disassembly Start menu post-load first save hook site: 0x007d5996 - 0x007d59de
+----------------------------------------------------------------------
+  0x007d5996: CALL 0x0043d4d0 -> FUN_0043d4d0
+  0x007d599b: MOV ECX,dword ptr [EBP + -0x8]
+  0x007d599e: MOV dword ptr [EAX],ECX
+  0x007d59a0: MOV byte ptr [0x011a0294],0x0
+  0x007d59a7: PUSH 0x0
+  0x007d59a9: PUSH 0x10
+  0x007d59ab: MOV ECX,dword ptr [EBP + -0x14]
+  0x007d59ae: CALL 0x0075f6f0 -> FUN_0075f6f0 << TARGET
+  0x007d59b3: PUSH 0x400
+  0x007d59b8: MOV ECX,dword ptr [EBP + -0x14]
+  0x007d59bb: CALL 0x004a4080 -> FUN_004a4080
+  0x007d59c0: MOVZX EDX,AL
+  0x007d59c3: TEST EDX,EDX
+  0x007d59c5: JZ 0x007d5a3a
+  0x007d59c7: PUSH 0x3e9
+  0x007d59cc: CALL 0x00a09030 -> FUN_00a09030
+  0x007d59d1: ADD ESP,0x4
+  0x007d59d4: MOV dword ptr [EBP + -0x10],EAX
+  0x007d59d7: CMP dword ptr [EBP + -0x10],0x0
+  0x007d59db: JNZ 0x007d5a0d
+  0x007d59dd: PUSH 0x1011584
+
+----------------------------------------------------------------------
+References TO 0x007d59ae (Start menu post-load first save hook site)
+----------------------------------------------------------------------
+  Total: 0 refs
+
+======================================================================
+Automatic continue input hook site @ 0x0070c632
+======================================================================
+  Function: FUN_0070c4a0 @ 0x0070c4a0, Size: 9894 bytes
+  NOTE: Requested 0x0070c632 is inside FUN_0070c4a0 (entry at 0x0070c4a0)
+
+/* WARNING: Removing unreachable block (ram,0x0070e801) */
+/* WARNING: Removing unreachable block (ram,0x0070e80d) */
+/* WARNING: Globals starting with '_' overlap smaller symbols at the same address */
+
+void __fastcall FUN_0070c4a0(SchedulerBase *param_1)
+
+{
+  char cVar1;
+  uint uVar2;
+  int iVar3;
+  undefined4 uVar4;
+  IScheduler *pIVar5;
+  undefined4 uVar6;
+  int iVar7;
+  int *piVar8;
+  int *unaff_FS_OFFSET;
+  float10 fVar9;
+  float10 fVar10;
+  undefined1 *puVar11;
+  char *pcVar12;
+  float fVar13;
+  undefined4 uVar14;
+  char local_160;
+  char local_15c;
+  char local_154;
+  SchedulerBase local_114;
+  SchedulerBase local_110;
+  char local_d4;
+  undefined1 local_cc [12];
+  int *local_c0;
+  int local_bc;
+  int local_b8;
+  int local_b4;
+  int local_b0;
+  undefined1 local_ac [16];
+  uint local_9c;
+  char local_95;
+  int *local_94;
+  char local_8d;
+  int local_8c;
+  char local_85;
+  int local_84;
+  int local_80;
+  int local_7c;
+  float local_78;
+  float local_74;
+  float local_70;
+  float local_6c;
+  int local_5c;
+  int *local_58;
+  float local_54;
+  float local_50;
+  int local_4c;
+  int local_48;
+  int local_44;
+  int local_40;
+  int local_3c;
+  int local_38;
+  undefined4 local_34;
+  char local_2d;
+  int local_2c;
+  undefined1 local_26;
+  char local_25;
+  undefined4 local_24;
+  char local_1e;
+  char local_1d;
+  int local_18;
+  undefined4 local_14;
+  int local_10;
+  undefined1 *puStack_c;
+  uint local_8;
+  
+  local_8 = 0xffffffff;
+  puStack_c = &LAB_00f07f0b;
+  local_10 = *unaff_FS_OFFSET;
+  uVar2 = DAT_011c16bc ^ (uint)&stack0xfffffffc;
+  *unaff_FS_OFFSET = (int)&local_10;
+  local_9c = uVar2;
+  FUN_00404eb0(0xd,1,
+               "D:\\_Fallout3\\Platforms\\Common\\Code\\Fallout\\Interface\\InterfaceManager.cpp",
+               0x47a);
+  local_8 = 0;
+  _DAT_011d8a54 = DAT_011d8a6c;
+  _DAT_011d8a58 = DAT_011d8a70;
+  _DAT_011d8a5c = DAT_011d8a74;
+  _DAT_011d8a60 = DAT_011d8a78;
+  iVar3 = Ordinal_2(0,&DAT_011d8a6c,uVar2);
+  DAT_011d8a84 = '\x01' - (iVar3 != 0);
+  if ((DAT_011d8c74 & 1) == 0) {
+    DAT_011d8c74 = DAT_011d8c74 | 1;
+    DAT_011d8c70 = DAT_011d8a84;
+  }
+  if (DAT_011d8c70 != DAT_011d8a84) {
+    if (DAT_011d8c70 == '\x01') {
+      uVar4 = FUN_00403df0(0);
+      uVar4 = FUN_00403df0(0,0,0,0,0x17,0,0,uVar4);
+      FUN_00703e80(uVar4);
+    }
+    else {
+      uVar4 = FUN_00403df0(0);
+      uVar4 = FUN_00403df0(0,0,0,0,0x17,0,0,uVar4);
+      FUN_00703e80(uVar4);
+    }
+    FUN_00719630(DAT_011d8a84);
+    DAT_011d8c70 = DAT_011d8a84;
+  }
+  if (param_1[200] != (SchedulerBase)0x0) {
+    FUN_00717660();
+  }
+  local_18 = 0;
+  local_14 = FUN_00877720();
+  local_24 = 0;
+  local_34 = 0;
+  local_24 = FUN_00a239e0(1);
+  local_34 = FUN_00a239e0(2);
+  cVar1 = FUN_004b71d0();
+  if (cVar1 == '\0') {
+    if (*(int *)(param_1 + 0xc) != 1) {
+      param_1[0x7d] = (SchedulerBase)0x1;
+      uVar4 = 0;
+      FUN_0056c7f0(0);
+      FUN_00450f90(uVar4);
+      FUN_00700320(0xfa3,1);
+    }
+  }
+  else {
+    cVar1 = FUN_00703d50();
+    if (cVar1 == '\0') {
+      param_1[0x7d] = (SchedulerBase)0x0;
+      uVar4 = 1;
+      FUN_0056c7f0(1);
+      FUN_00450f90(uVar4);
+      FUN_00700320(0xfa3,0);
+    }
+    else {
+      param_1[0x7d] = (SchedulerBase)0x1;
+      uVar4 = 0;
+      FUN_0056c7f0(0);
+      FUN_00450f90(uVar4);
+      FUN_00700320(0xfa3,1);
+    }
+  }
+  cVar1 = FUN_00717920();
+  if ((((cVar1 == '\0') ||
+       ((cVar1 = FUN_004b71d0(), cVar1 != '\0' &&
+        ((cVar1 = FUN_00702450(0x40b), cVar1 != '\0' || (cVar1 = FUN_00702450(0x425), cVar1 != '\0')
+         ))))) ||
+      ((cVar1 = FUN_00702450(0x3ea), cVar1 != '\0' && (cVar1 = FUN_0070ed30(), cVar1 != '\0')))) ||
+     ((cVar1 = FUN_0070ed80(), cVar1 != '\0' && (DAT_011d8a84 != '\0')))) {
+LAB_0070c7c5:
+    local_d4 = '\x01';
+  }
+  else {
+    uVar4 = FUN_0070ede0();
+    iVar3 = FUN_00a09030(uVar4);
+    if (iVar3 != 0) goto LAB_0070c7c5;
+    local_d4 = '\0';
+  }
+  local_2d = local_d4;
+  if (*(int *)(param_1 + 0x16c) != 0) {
+    (**(code **)(**(int **)(param_1 + 0x16c) + 0x14))();
+  }
+  FUN_00704370();
+  cVar1 = FUN_0070ec50();
+  if (cVar1 != '\0') {
+    uVar2 = FUN_00825c00();
+    fVar13 = (float)uVar2;
+    FUN_00704370(fVar13);
+    FUN_007fa540(fVar13);
+  }
+  FUN_007f7830();
+  FUN_00800370();
+  if (DAT_0119f530 != *(int *)(param_1 + 0xc)) {
+    if (*(int *)(param_1 + 0xc) == 1) {
+      while (iVar3 = FUN_004b7210(), *(char *)(iVar3 + 0x21) != '\0') {
+        iVar3 = FUN_004b7210();
+        *(char *)(iVar3 + 0x21) = *(char *)(iVar3 + 0x21) + -1;
+        FUN_00453a70();
+        FUN_0070bc00();
+      }
+      while (iVar3 = FUN_004b7210(), *(char *)(iVar3 + 0x20) != '\0') {
+        iVar3 = FUN_004b7210();
+        *(char *)(iVar3 + 0x20) = *(char *)(iVar3 + 0x20) + -1;
+        FUN_00453a70();
+        FUN_0070bbc0();
+      }
+      cVar1 = (**(code **)(*DAT_011dea3c + 0x22c))(0);
+      if (cVar1 == '\0') {
+        iVar3 = (**(code **)(*DAT_011dea3c + 0x214))();
+        if (iVar3 == 0) {
+          iVar3 = FUN_00458030();
+          if (iVar3 != 0x18) {
+            cVar1 = FUN_005a03f0(1);
+            if (cVar1 == '\0') {
+              cVar1 = FUN_00950090();
+              if (cVar1 == '\0') {
+                cVar1 = FUN_008bbc10();
+                if ((cVar1 == '\0') || (iVar3 = FUN_0044ddc0(), iVar3 != 0)) {
+                  iVar3 = FUN_0044ddc0();
+                  if (iVar3 == 4) {
+                    FUN_00771700(8);
+                  }
+                  else {
+                    FUN_00771700(2);
+                  }
+                }
+                else {
+                  FUN_00771700(0x16);
+                }
+              }
+              else {
+                FUN_00771700(0x14);
+              }
+            }
+            else {
+              FUN_00771700(0xc);
+            }
+          }
+        }
+        else {
+          FUN_00771700(1);
+        }
+      }
+      else {
+        FUN_00771700(7);
+      }
+    }
+    else if (*(int *)(param_1 + 0xc) == 5) {
+      iVar3 = FUN_00714f00();
+      if (iVar3 < 0x3ea) {
+        if (iVar3 == 0x3e9) {
+          FUN_00771700(0x
+
+----------------------------------------------------------------------
+Disassembly Automatic continue input hook site: 0x0070c61a - 0x0070c662
+----------------------------------------------------------------------
+  0x0070c61a: MOV ECX,dword ptr [EBP + 0xffffff34]
+  0x0070c620: CALL 0x00717660 -> FUN_00717660
+  0x0070c625: MOV dword ptr [EBP + -0x14],0x0
+  0x0070c62c: MOV ECX,dword ptr [0x011dea0c]
+  0x0070c632: CALL 0x00877720 -> FUN_00877720 << TARGET
+  0x0070c637: MOV dword ptr [EBP + -0x10],EAX
+  0x0070c63a: MOV dword ptr [EBP + -0x20],0x0
+  0x0070c641: MOV dword ptr [EBP + -0x30],0x0
+  0x0070c648: PUSH 0x1
+  0x0070c64a: MOV ECX,dword ptr [EBP + -0x10]
+  0x0070c64d: CALL 0x00a239e0 -> FUN_00a239e0
+  0x0070c652: MOV dword ptr [EBP + -0x20],EAX
+  0x0070c655: PUSH 0x2
+  0x0070c657: MOV ECX,dword ptr [EBP + -0x10]
+  0x0070c65a: CALL 0x00a239e0 -> FUN_00a239e0
+  0x0070c65f: MOV dword ptr [EBP + -0x30],EAX
+  0x0070c662: CALL 0x004b71d0 -> FUN_004b71d0
+
+----------------------------------------------------------------------
+References TO 0x0070c632 (Automatic continue input hook site)
+----------------------------------------------------------------------
+  Total: 0 refs
+
+======================================================================
+HOT FUNCTIONS CALL MAP
+======================================================================
+
+--- Calls FROM ModelLoader IO/update loop (0x00c3dfa0) ---
+  0x00c3e029 -> 0x00c3e1b0 FUN_00c3e1b0
+  0x00c3e06f -> 0x00c3e860 FUN_00c3e860
+  0x00c3e107 -> 0x00000037 ???
+  0x00c3e110 -> 0x00c3dbf0 FUN_00c3dbf0
+  0x00c3e159 -> 0x00c3e860 FUN_00c3e860
+  Total: 5 calls
+
+--- Calls FROM ModelLoader::LoadFile (0x00447080) ---
+  0x004470e3 -> 0x0043c6e0 FUN_0043c6e0
+  0x004470f7 -> 0x00443ff0 FUN_00443ff0
+  0x00447101 -> 0x00447190 FUN_00447190
+  0x00447109 -> 0x0043ccf0 FUN_0043ccf0
+  0x00447111 -> 0x0043d180 FUN_0043d180
+  0x00447119 -> 0x00559450 FUN_00559450
+  0x0044712b -> 0x0043c830 FID_conflict:~_CancellationTokenCallback<<lambda_61f7764e5b8087545c74b0c2f4f68b12>_>
+  0x00447135 -> 0x00443190 FUN_00443190
+  0x00447147 -> 0x005b5e40 FUN_005b5e40
+  0x00447160 -> 0x0092c870 FUN_0092c870
+  0x00447168 -> 0x0043b230 FUN_0043b230
+  Total: 11 calls
+
+--- Calls FROM BSFile load buffer (0x00afe0b0) ---
+  0x00afdf6f -> 0x00aa3e40 FUN_00aa3e40
+  0x00afdf9e -> 0x00b00260 FUN_00b00260
+  0x00afdfed -> 0x00afe0d0 FUN_00afe0d0
+  0x00afe01e -> 0x00af5fa0 FUN_00af5fa0
+  0x00afe03e -> 0x00aa3e40 FUN_00aa3e40
+  0x00afe070 -> 0x00b00260 FUN_00b00260
+  0x00afe0c7 -> 0x00ec408c __security_check_cookie
+  Total: 7 calls
+
+--- Calls FROM BSFile read/open related (0x00aff470) ---
+  0x00aff3d9 -> 0x00ec9a5e _fopen_s
+  0x00aff42b -> 0x00ec9a5e _fopen_s
+  0x00aff443 -> 0x00ec9907 _fclose
+  0x00aff467 -> 0x00ec9a5e _fopen_s
+  0x00aff472 -> 0x00aff490 FUN_00aff490
+  Total: 5 calls
+
+--- Calls FROM CompressedArchiveFile read/decompress area (0x00afc000) ---
+  0x00afc00e -> 0x00b45db0 FUN_00b45db0
+  0x00afc025 -> 0x00aa4060 FUN_00aa4060
+  0x00afc04b -> 0x00aa4060 FUN_00aa4060
+  0x00afc053 -> 0x00afb520 FUN_00afb520
+  Total: 4 calls
+
+--- Calls FROM TESFile compressed/GRUP check (0x00472100) ---
+  Total: 0 calls
+
+--- Calls FROM TESDataHandler::GetNextID (0x00469800) ---
+  0x00469813 -> 0x0040fbf0 FUN_0040fbf0
+  0x00469825 -> 0x00469760 FUN_00469760
+  0x00469834 -> 0x004697a0 FUN_004697a0
+  0x0046984a -> 0x004697a0 FUN_004697a0
+  0x00469854 -> 0x0040fba0 FUN_0040fba0
+  Total: 5 calls

@@ -1,0 +1,1099 @@
+======================================================================
+STARTUP IO THREADING AUDIT
+======================================================================
+
+======================================================================
+PATCH FOCUS
+======================================================================
+Known decompile target: IOManager_Create calls BSTaskManager_ctor(this, 10, 1, 0x78).
+The third argument is the worker thread count used by BSTaskManager_ctor.
+Confirm exact push/immediate below before changing 1 -> 2.
+
+----------------------------------------------------------------------
+Bytes IOManager_Create @ 0x00c3da50 (160 bytes)
+----------------------------------------------------------------------
+  0x00c3da50: 55 8B EC 6A FF 68 43 DD F2 00 64 A1 00 00 00 00
+  0x00c3da60: 50 83 EC 14 A1 BC 16 1C 01 33 C5 50 8D 45 F4 64
+  0x00c3da70: A3 00 00 00 00 89 4D E4 6A 78 6A 01 6A 0A 8B 4D
+  0x00c3da80: E4 E8 6A 0A 00 00 C7 45 FC 00 00 00 00 8B 45 E4
+  0x00c3da90: C7 00 04 16 0C 01 8B 4D E4 C7 41 70 00 00 00 00
+  0x00c3daa0: 8B 55 E4 C7 42 78 00 00 00 00 8B 45 E4 C7 40 6C
+  0x00c3dab0: 00 00 00 00 8B 4D E4 C7 41 7C 00 00 00 00 8B 55
+  0x00c3dac0: E4 C7 82 80 00 00 00 00 00 00 00 8B 45 E4 C7 40
+  0x00c3dad0: 68 06 00 00 00 6A 10 B9 38 62 1F 01 E8 5F 63 E6
+  0x00c3dae0: FF 89 45 EC C6 45 FC 01 83 7D EC 00 74 13 6A 08
+
+----------------------------------------------------------------------
+Disassembly IOManager_Create: 0x00c3da50 - 0x00c3daf0
+----------------------------------------------------------------------
+  0x00c3da50: PUSH EBP << TARGET
+  0x00c3da51: MOV EBP,ESP
+  0x00c3da53: PUSH -0x1
+  0x00c3da55: PUSH 0xf2dd43
+  0x00c3da5a: MOV EAX,FS:[0x0]
+  0x00c3da60: PUSH EAX
+  0x00c3da61: SUB ESP,0x14
+  0x00c3da64: MOV EAX,[0x011c16bc]
+  0x00c3da69: XOR EAX,EBP
+  0x00c3da6b: PUSH EAX
+  0x00c3da6c: LEA EAX,[EBP + -0xc]
+  0x00c3da6f: MOV FS:[0x0],EAX
+  0x00c3da75: MOV dword ptr [EBP + -0x1c],ECX
+  0x00c3da78: PUSH 0x78
+  0x00c3da7a: PUSH 0x1
+  0x00c3da7c: PUSH 0xa
+  0x00c3da7e: MOV ECX,dword ptr [EBP + -0x1c]
+  0x00c3da81: CALL 0x00c3e4f0 -> FUN_00c3e4f0
+  0x00c3da86: MOV dword ptr [EBP + -0x4],0x0
+  0x00c3da8d: MOV EAX,dword ptr [EBP + -0x1c]
+  0x00c3da90: MOV dword ptr [EAX],0x10c1604
+  0x00c3da96: MOV ECX,dword ptr [EBP + -0x1c]
+  0x00c3da99: MOV dword ptr [ECX + 0x70],0x0
+  0x00c3daa0: MOV EDX,dword ptr [EBP + -0x1c]
+  0x00c3daa3: MOV dword ptr [EDX + 0x78],0x0
+  0x00c3daaa: MOV EAX,dword ptr [EBP + -0x1c]
+  0x00c3daad: MOV dword ptr [EAX + 0x6c],0x0
+  0x00c3dab4: MOV ECX,dword ptr [EBP + -0x1c]
+  0x00c3dab7: MOV dword ptr [ECX + 0x7c],0x0
+  0x00c3dabe: MOV EDX,dword ptr [EBP + -0x1c]
+  0x00c3dac1: MOV dword ptr [EDX + 0x80],0x0
+  0x00c3dacb: MOV EAX,dword ptr [EBP + -0x1c]
+  0x00c3dace: MOV dword ptr [EAX + 0x68],0x6
+  0x00c3dad5: PUSH 0x10
+  0x00c3dad7: MOV ECX,0x11f6238
+  0x00c3dadc: CALL 0x00aa3e40 -> FUN_00aa3e40
+  0x00c3dae1: MOV dword ptr [EBP + -0x14],EAX
+  0x00c3dae4: MOV byte ptr [EBP + -0x4],0x1
+  0x00c3dae8: CMP dword ptr [EBP + -0x14],0x0
+  0x00c3daec: JZ 0x00c3db01
+  0x00c3daee: PUSH 0x8
+  0x00c3daf0: PUSH 0x7
+
+======================================================================
+IOManager constructor wrapper @ 0x00c3da50
+======================================================================
+  Function: FUN_00c3da50 @ 0x00c3da50, Size: 257 bytes
+
+undefined4 * __fastcall FUN_00c3da50(undefined4 *param_1)
+
+{
+  int iVar1;
+  int *unaff_FS_OFFSET;
+  undefined4 local_24;
+  int local_10;
+  undefined1 *puStack_c;
+  undefined4 local_8;
+  
+  local_8 = 0xffffffff;
+  puStack_c = &LAB_00f2dd43;
+  local_10 = *unaff_FS_OFFSET;
+  *unaff_FS_OFFSET = (int)&local_10;
+  FUN_00c3e4f0(10,1,0x78);
+  local_8 = 0;
+  *param_1 = &PTR_FUN_010c1604;
+  param_1[0x1c] = 0;
+  param_1[0x1e] = 0;
+  param_1[0x1b] = 0;
+  param_1[0x1f] = 0;
+  param_1[0x20] = 0;
+  param_1[0x1a] = 6;
+  iVar1 = FUN_00aa3e40(0x10);
+  local_8 = CONCAT31(local_8._1_3_,1);
+  if (iVar1 == 0) {
+    local_24 = 0;
+  }
+  else {
+    local_24 = FUN_00c3e8b0(6,7,8);
+  }
+  param_1[0x19] = local_24;
+  param_1[0x18] = *(undefined4 *)(*(int *)param_1[0x14] + 8);
+  *unaff_FS_OFFSET = local_10;
+  return param_1;
+}
+
+
+
+----------------------------------------------------------------------
+Disassembly IOManager constructor wrapper: 0x00c3da30 - 0x00c3daa0
+----------------------------------------------------------------------
+  0x00c3da31: MOV EAX,dword ptr [EBP + -0x20]
+  0x00c3da34: MOV dword ptr [EAX + 0x8],0x0
+  0x00c3da3b: MOV ESP,EBP
+  0x00c3da3d: POP EBP
+  0x00c3da3e: RET 0x4
+  0x00c3da50: PUSH EBP << TARGET
+  0x00c3da51: MOV EBP,ESP
+  0x00c3da53: PUSH -0x1
+  0x00c3da55: PUSH 0xf2dd43
+  0x00c3da5a: MOV EAX,FS:[0x0]
+  0x00c3da60: PUSH EAX
+  0x00c3da61: SUB ESP,0x14
+  0x00c3da64: MOV EAX,[0x011c16bc]
+  0x00c3da69: XOR EAX,EBP
+  0x00c3da6b: PUSH EAX
+  0x00c3da6c: LEA EAX,[EBP + -0xc]
+  0x00c3da6f: MOV FS:[0x0],EAX
+  0x00c3da75: MOV dword ptr [EBP + -0x1c],ECX
+  0x00c3da78: PUSH 0x78
+  0x00c3da7a: PUSH 0x1
+  0x00c3da7c: PUSH 0xa
+  0x00c3da7e: MOV ECX,dword ptr [EBP + -0x1c]
+  0x00c3da81: CALL 0x00c3e4f0 -> FUN_00c3e4f0
+  0x00c3da86: MOV dword ptr [EBP + -0x4],0x0
+  0x00c3da8d: MOV EAX,dword ptr [EBP + -0x1c]
+  0x00c3da90: MOV dword ptr [EAX],0x10c1604
+  0x00c3da96: MOV ECX,dword ptr [EBP + -0x1c]
+  0x00c3da99: MOV dword ptr [ECX + 0x70],0x0
+  0x00c3daa0: MOV EDX,dword ptr [EBP + -0x1c]
+
+----------------------------------------------------------------------
+References TO 0x00c3da50 (IOManager constructor wrapper)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x0044febe (in FUN_0044fb20)
+  Total: 1 refs
+
+--- Calls FROM IOManager constructor wrapper (0x00c3da50) ---
+  0x00c3da81 -> 0x00c3e4f0 FUN_00c3e4f0
+  0x00c3dadc -> 0x00aa3e40 FUN_00aa3e40
+  0x00c3daf7 -> 0x00c3e8b0 FUN_00c3e8b0
+  Total: 3 calls
+
+======================================================================
+BSTaskManager constructor creates worker threads @ 0x00c3e4f0
+======================================================================
+  Function: FUN_00c3e4f0 @ 0x00c3e4f0, Size: 408 bytes
+
+undefined4 * __thiscall FUN_00c3e4f0(undefined4 *param_1,int param_2,int param_3,uint param_4)
+
+{
+  undefined4 uVar1;
+  int iVar2;
+  int *unaff_FS_OFFSET;
+  undefined4 local_38;
+  uint local_14;
+  int local_10;
+  undefined1 *puStack_c;
+  int local_8;
+  
+  local_8 = 0xffffffff;
+  puStack_c = &LAB_00f2ddf3;
+  local_10 = *unaff_FS_OFFSET;
+  *unaff_FS_OFFSET = (int)&local_10;
+  FUN_00c3ec80(param_2 + param_3,param_4,0xc);
+  local_8 = 0;
+  *param_1 = &PTR_FUN_010c167c;
+  *(undefined1 *)(param_1 + 0x10) = 0;
+  param_1[0x11] = 0;
+  param_1[0x12] = 0;
+  param_1[0x13] = param_3;
+  uVar1 = FUN_00aa3e40(-(uint)((int)((ulonglong)param_4 * 4 >> 0x20) != 0) |
+                       (uint)((ulonglong)param_4 * 4));
+  param_1[0x15] = uVar1;
+  _memset((void *)param_1[0x15],0,param_4 << 2);
+  param_1[0x16] = 0;
+  uVar1 = FUN_00aa3e40(-(uint)((int)((ulonglong)(uint)param_1[0x13] * 4 >> 0x20) != 0) |
+                       (uint)((ulonglong)(uint)param_1[0x13] * 4));
+  param_1[0x14] = uVar1;
+  for (local_14 = 0; local_14 < (uint)param_1[0x13]; local_14 = local_14 + 1) {
+    iVar2 = FUN_00aa3e40(0x34);
+    local_8._0_1_ = 1;
+    if (iVar2 == 0) {
+      local_38 = 0;
+    }
+    else {
+      local_38 = FUN_00c3ee70(param_1,local_14 + 2);
+    }
+    local_8 = (uint)local_8._1_3_ << 8;
+    *(undefined4 *)(param_1[0x14] + local_14 * 4) = local_38;
+    FUN_00c42f50();
+  }
+  *unaff_FS_OFFSET = local_10;
+  return param_1;
+}
+
+
+
+----------------------------------------------------------------------
+Disassembly BSTaskManager constructor creates worker threads: 0x00c3e4d0 - 0x00c3e540
+----------------------------------------------------------------------
+  0x00c3e4d1: MOV dword ptr [ECX + 0x4],EAX
+  0x00c3e4d4: MOV EDX,dword ptr [EBP + -0x30]
+  0x00c3e4d7: CMP dword ptr [EDX + 0x4],0x0
+  0x00c3e4db: JNZ 0x00c3e4e6
+  0x00c3e4dd: MOV EAX,dword ptr [EBP + -0x30]
+  0x00c3e4e0: MOV dword ptr [EAX],0x0
+  0x00c3e4e6: MOV AL,byte ptr [EBP + -0x1]
+  0x00c3e4e9: MOV ESP,EBP
+  0x00c3e4eb: POP EBP
+  0x00c3e4ec: RET 0x4
+  0x00c3e4f0: PUSH EBP << TARGET
+  0x00c3e4f1: MOV EBP,ESP
+  0x00c3e4f3: PUSH -0x1
+  0x00c3e4f5: PUSH 0xf2ddf3
+  0x00c3e4fa: MOV EAX,FS:[0x0]
+  0x00c3e500: PUSH EAX
+  0x00c3e501: SUB ESP,0x28
+  0x00c3e504: MOV EAX,[0x011c16bc]
+  0x00c3e509: XOR EAX,EBP
+  0x00c3e50b: PUSH EAX
+  0x00c3e50c: LEA EAX,[EBP + -0xc]
+  0x00c3e50f: MOV FS:[0x0],EAX
+  0x00c3e515: MOV dword ptr [EBP + -0x30],ECX
+  0x00c3e518: PUSH 0xc
+  0x00c3e51a: MOV EAX,dword ptr [EBP + 0x10]
+  0x00c3e51d: PUSH EAX
+  0x00c3e51e: MOV ECX,dword ptr [EBP + 0x8]
+  0x00c3e521: ADD ECX,dword ptr [EBP + 0xc]
+  0x00c3e524: PUSH ECX
+  0x00c3e525: MOV ECX,dword ptr [EBP + -0x30]
+  0x00c3e528: CALL 0x00c3ec80 -> FUN_00c3ec80
+  0x00c3e52d: MOV dword ptr [EBP + -0x4],0x0
+  0x00c3e534: MOV EDX,dword ptr [EBP + -0x30]
+  0x00c3e537: MOV dword ptr [EDX],0x10c167c
+  0x00c3e53d: MOV EAX,dword ptr [EBP + -0x30]
+  0x00c3e540: MOV byte ptr [EAX + 0x40],0x0
+
+----------------------------------------------------------------------
+References TO 0x00c3e4f0 (BSTaskManager constructor creates worker threads)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x00c3da81 (in FUN_00c3da50)
+  Total: 1 refs
+
+--- Calls FROM BSTaskManager constructor creates worker threads (0x00c3e4f0) ---
+  0x00c3e528 -> 0x00c3ec80 FUN_00c3ec80
+  0x00c3e580 -> 0x00aa3e40 FUN_00aa3e40
+  0x00c3e5a7 -> 0x00ec61c0 _memset
+  0x00c3e5db -> 0x00aa3e40 FUN_00aa3e40
+  0x00c3e610 -> 0x00aa3e40 FUN_00aa3e40
+  0x00c3e630 -> 0x00c3ee70 FUN_00c3ee70
+  0x00c3e666 -> 0x00c42f50 FUN_00c42f50
+  Total: 7 calls
+
+======================================================================
+BSTaskManagerThread constructor @ 0x00c3ee70
+======================================================================
+  Function: FUN_00c3ee70 @ 0x00c3ee70, Size: 51 bytes
+
+undefined4 * __thiscall FUN_00c3ee70(undefined4 *param_1,undefined4 param_2,undefined4 param_3)
+
+{
+  FUN_00c42dd0(param_3,"BSTaskManagerThread");
+  *param_1 = &PTR_FUN_010c1740;
+  param_1[0xc] = param_2;
+  return param_1;
+}
+
+
+
+----------------------------------------------------------------------
+Disassembly BSTaskManagerThread constructor: 0x00c3ee50 - 0x00c3eec0
+----------------------------------------------------------------------
+  0x00c3ee54: MOV dword ptr [EBP + -0x4],0xffffffff
+  0x00c3ee5b: MOV EAX,dword ptr [EBP + -0x4c]
+  0x00c3ee5e: MOV ECX,dword ptr [EBP + -0xc]
+  0x00c3ee61: MOV dword ptr FS:[0x0],ECX
+  0x00c3ee68: POP ECX
+  0x00c3ee69: MOV ESP,EBP
+  0x00c3ee6b: POP EBP
+  0x00c3ee6c: RET 0xc
+  0x00c3ee70: PUSH EBP << TARGET
+  0x00c3ee71: MOV EBP,ESP
+  0x00c3ee73: PUSH ECX
+  0x00c3ee74: MOV dword ptr [EBP + -0x4],ECX
+  0x00c3ee77: PUSH 0x10c1748
+  0x00c3ee7c: MOV EAX,dword ptr [EBP + 0xc]
+  0x00c3ee7f: PUSH EAX
+  0x00c3ee80: MOV ECX,dword ptr [EBP + -0x4]
+  0x00c3ee83: CALL 0x00c42dd0 -> FUN_00c42dd0
+  0x00c3ee88: MOV ECX,dword ptr [EBP + -0x4]
+  0x00c3ee8b: MOV dword ptr [ECX],0x10c1740
+  0x00c3ee91: MOV EDX,dword ptr [EBP + -0x4]
+  0x00c3ee94: MOV EAX,dword ptr [EBP + 0x8]
+  0x00c3ee97: MOV dword ptr [EDX + 0x30],EAX
+  0x00c3ee9a: MOV EAX,dword ptr [EBP + -0x4]
+  0x00c3ee9d: MOV ESP,EBP
+  0x00c3ee9f: POP EBP
+  0x00c3eea0: RET 0x8
+  0x00c3eeb0: PUSH EBP
+  0x00c3eeb1: MOV EBP,ESP
+  0x00c3eeb3: PUSH -0x1
+  0x00c3eeb5: PUSH 0xf2de9b
+  0x00c3eeba: MOV EAX,FS:[0x0]
+  0x00c3eec0: PUSH EAX
+
+----------------------------------------------------------------------
+References TO 0x00c3ee70 (BSTaskManagerThread constructor)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x00c3e630 (in FUN_00c3e4f0)
+  Total: 1 refs
+
+--- Calls FROM BSTaskManagerThread constructor (0x00c3ee70) ---
+  0x00c3ee83 -> 0x00c42dd0 FUN_00c42dd0
+  Total: 1 calls
+
+======================================================================
+BSTaskThread init creates suspended thread @ 0x00c42dd0
+======================================================================
+  Function: FUN_00c42dd0 @ 0x00c42dd0, Size: 292 bytes
+
+undefined4 * __thiscall FUN_00c42dd0(undefined4 *param_1,undefined4 param_2,int param_3)
+
+{
+  uint uVar1;
+  HANDLE pvVar2;
+  int *unaff_FS_OFFSET;
+  int local_10;
+  undefined1 *puStack_c;
+  undefined4 local_8;
+  
+  local_8 = 0xffffffff;
+  puStack_c = &LAB_00f2e346;
+  local_10 = *unaff_FS_OFFSET;
+  uVar1 = DAT_011c16bc ^ (uint)&stack0xfffffffc;
+  *unaff_FS_OFFSET = (int)&local_10;
+  *param_1 = &PTR_FUN_010c1844;
+  param_1[3] = 0;
+  param_1[5] = 0x7fffffff;
+  pvVar2 = CreateSemaphoreA((LPSECURITY_ATTRIBUTES)0x0,param_1[3],param_1[5],(LPCSTR)0x0);
+  param_1[4] = pvVar2;
+  local_8 = 0;
+  param_1[6] = 1;
+  param_1[8] = 1;
+  pvVar2 = CreateSemaphoreA((LPSECURITY_ATTRIBUTES)0x0,param_1[6],param_1[8],(LPCSTR)0x0);
+  param_1[7] = pvVar2;
+  local_8 = CONCAT31(local_8._1_3_,1);
+  pvVar2 = CreateThread((LPSECURITY_ATTRIBUTES)0x0,0,lpStartAddress_00c42da0,param_1,4,param_1 + 2);
+  param_1[1] = pvVar2;
+  if (param_3 != 0) {
+    FUN_00aa2740(param_1[2],param_3,uVar1);
+  }
+  param_1[9] = 0;
+  param_1[10] = 0;
+  param_1[0xb] = param_1[2];
+  *unaff_FS_OFFSET = local_10;
+  return param_1;
+}
+
+
+
+----------------------------------------------------------------------
+Disassembly BSTaskThread init creates suspended thread: 0x00c42db0 - 0x00c42e20
+----------------------------------------------------------------------
+  0x00c42db2: MOV ECX,dword ptr [EBP + 0x8]
+  0x00c42db5: MOV EDX,dword ptr [ECX]
+  0x00c42db7: MOV ECX,dword ptr [EBP + 0x8]
+  0x00c42dba: MOV EAX,dword ptr [EDX + 0x4]
+  0x00c42dbd: CALL EAX
+  0x00c42dbf: XOR EAX,EAX
+  0x00c42dc1: POP EBP
+  0x00c42dc2: RET 0x4
+  0x00c42dd0: PUSH EBP << TARGET
+  0x00c42dd1: MOV EBP,ESP
+  0x00c42dd3: PUSH -0x1
+  0x00c42dd5: PUSH 0xf2e346
+  0x00c42dda: MOV EAX,FS:[0x0]
+  0x00c42de0: PUSH EAX
+  0x00c42de1: SUB ESP,0xc
+  0x00c42de4: MOV EAX,[0x011c16bc]
+  0x00c42de9: XOR EAX,EBP
+  0x00c42deb: PUSH EAX
+  0x00c42dec: LEA EAX,[EBP + -0xc]
+  0x00c42def: MOV FS:[0x0],EAX
+  0x00c42df5: MOV dword ptr [EBP + -0x18],ECX
+  0x00c42df8: MOV EAX,dword ptr [EBP + -0x18]
+  0x00c42dfb: MOV dword ptr [EAX],0x10c1844
+  0x00c42e01: MOV ECX,dword ptr [EBP + -0x18]
+  0x00c42e04: ADD ECX,0xc
+  0x00c42e07: MOV dword ptr [EBP + -0x10],ECX
+  0x00c42e0a: MOV EDX,dword ptr [EBP + -0x10]
+  0x00c42e0d: MOV dword ptr [EDX],0x0
+  0x00c42e13: MOV EAX,dword ptr [EBP + -0x10]
+  0x00c42e16: MOV dword ptr [EAX + 0x8],0x7fffffff
+  0x00c42e1d: PUSH 0x0
+  0x00c42e1f: MOV ECX,dword ptr [EBP + -0x10]
+
+----------------------------------------------------------------------
+References TO 0x00c42dd0 (BSTaskThread init creates suspended thread)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x00442202 (in FUN_004421d0)
+  UNCONDITIONAL_CALL @ 0x00c3ee83 (in FUN_00c3ee70)
+  Total: 2 refs
+
+--- Calls FROM BSTaskThread init creates suspended thread (0x00c42dd0) ---
+  0x00c42e2e -> 0x00000023 ???
+  0x00c42e6e -> 0x00000023 ???
+  0x00c42e94 -> 0x0000003f ???
+  0x00c42eb1 -> 0x00aa2740 FUN_00aa2740
+  Total: 4 calls
+
+======================================================================
+BSTaskThread start/resume @ 0x00c42f50
+======================================================================
+  Function: FUN_00c42f50 @ 0x00c42f50, Size: 24 bytes
+
+void __fastcall FUN_00c42f50(int param_1)
+
+{
+  ResumeThread(*(HANDLE *)(param_1 + 4));
+  return;
+}
+
+
+
+----------------------------------------------------------------------
+Disassembly BSTaskThread start/resume: 0x00c42f30 - 0x00c42fa0
+----------------------------------------------------------------------
+  0x00c42f30: PUSH EAX
+  0x00c42f31: CALL dword ptr [0x00fdf07c] -> ???
+  0x00c42f37: MOV ECX,dword ptr [EBP + -0x4]
+  0x00c42f3a: MOV EDX,dword ptr [ECX + 0x10]
+  0x00c42f3d: PUSH EDX
+  0x00c42f3e: CALL dword ptr [0x00fdf07c] -> ???
+  0x00c42f44: MOV ESP,EBP
+  0x00c42f46: POP EBP
+  0x00c42f47: RET
+  0x00c42f50: PUSH EBP << TARGET
+  0x00c42f51: MOV EBP,ESP
+  0x00c42f53: PUSH ECX
+  0x00c42f54: MOV dword ptr [EBP + -0x4],ECX
+  0x00c42f57: MOV EAX,dword ptr [EBP + -0x4]
+  0x00c42f5a: MOV ECX,dword ptr [EAX + 0x4]
+  0x00c42f5d: PUSH ECX
+  0x00c42f5e: CALL dword ptr [0x00fdf158] -> ???
+  0x00c42f64: MOV ESP,EBP
+  0x00c42f66: POP EBP
+  0x00c42f67: RET
+  0x00c42f70: PUSH EBP
+  0x00c42f71: MOV EBP,ESP
+  0x00c42f73: PUSH -0x1
+  0x00c42f75: PUSH 0xf2e378
+  0x00c42f7a: MOV EAX,FS:[0x0]
+  0x00c42f80: PUSH EAX
+  0x00c42f81: PUSH ECX
+  0x00c42f82: MOV EAX,[0x011c16bc]
+  0x00c42f87: XOR EAX,EBP
+  0x00c42f89: PUSH EAX
+  0x00c42f8a: LEA EAX,[EBP + -0xc]
+  0x00c42f8d: MOV FS:[0x0],EAX
+  0x00c42f93: MOV dword ptr [EBP + -0x10],ECX
+  0x00c42f96: MOV ECX,dword ptr [EBP + -0x10]
+  0x00c42f99: CALL 0x00a7b2e0 -> FUN_00a7b2e0
+  0x00c42f9e: MOV EAX,dword ptr [EBP + -0x10]
+
+----------------------------------------------------------------------
+References TO 0x00c42f50 (BSTaskThread start/resume)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x004429f0 (in FUN_00442650)
+  UNCONDITIONAL_CALL @ 0x00c3e666 (in FUN_00c3e4f0)
+  Total: 2 refs
+
+--- Calls FROM BSTaskThread start/resume (0x00c42f50) ---
+  0x00c42f5e -> 0x0000004c ???
+  Total: 1 calls
+
+======================================================================
+BSTaskManagerThread loop @ 0x00c410b0
+======================================================================
+  Function: FUN_00c410b0 @ 0x00c410b0, Size: 633 bytes
+
+/* WARNING: Removing unreachable block (ram,0x00c411bc) */
+/* WARNING: Removing unreachable block (ram,0x00c412b6) */
+
+void __fastcall FUN_00c410b0(int param_1)
+
+{
+  char cVar1;
+  DWORD DVar2;
+  LONG LVar3;
+  int *unaff_FS_OFFSET;
+  undefined1 local_40 [8];
+  int local_38;
+  char local_31;
+  undefined **local_30 [2];
+  undefined4 local_28;
+  undefined4 local_20;
+  undefined4 local_1c;
+  byte local_18;
+  int local_10;
+  undefined1 *puStack_c;
+  uint local_8;
+  
+  puStack_c = &LAB_00f2e0a0;
+  local_10 = *unaff_FS_OFFSET;
+  *unaff_FS_OFFSET = (int)&local_10;
+  while (local_8 = 0xffffffff, *(char *)(*(int *)(param_1 + 0x30) + 0x40) != '\x01') {
+    WaitForSingleObject(*(HANDLE *)(param_1 + 0x10),0xffffffff);
+    InterlockedDecrement((LONG *)(param_1 + 0xc));
+    local_28 = 0;
+    local_20 = 0;
+    local_1c = 0;
+    local_18 = 0;
+    local_30[0] = &PTR_FUN_010c1664;
+    local_8 = 0;
+    local_31 = '\0';
+    while ((local_18 & 2) == 0) {
+      DVar2 = WaitForSingleObject(*(HANDLE *)(param_1 + 0x1c),0);
+      if (DVar2 == 0x102) {
+        WaitForSingleObject(*(HANDLE *)(param_1 + 0x1c),0xffffffff);
+        InterlockedDecrement((LONG *)(param_1 + 0x18));
+        FUN_00c42060(0);
+      }
+      local_38 = 0;
+      local_8 = CONCAT31(local_8._1_3_,1);
+      cVar1 = FUN_00c40e70(local_30,local_40,&local_38,local_31 == '\0');
+      if (cVar1 == '\0') {
+        if ((local_18 & 2) == 0) {
+          FUN_00c42060(0);
+          local_31 = '\0';
+        }
+      }
+      else if ((*(int *)(local_38 + 0xc) == 1) &&
+              (LVar3 = InterlockedCompareExchange((LONG *)(local_38 + 0xc),3,1), LVar3 == 1)) {
+        local_31 = '\x01';
+        (**(code **)(**(int **)(param_1 + 0x30) + 0x4c))(local_38);
+        (**(code **)(**(int **)(param_1 + 0x30) + 0x50))(local_38);
+      }
+      if (local_38 != 0) {
+        if (local_38 != 0) {
+          FUN_0044dd60();
+        }
+        local_38 = 0;
+      }
+      ReleaseSemaphore(*(HANDLE *)(param_1 + 0x1c),1,(LPLONG)0x0);
+      InterlockedIncrement((LONG *)(param_1 + 0x18));
+      local_8 = local_8 & 0xffffff00;
+      if (local_38 != 0) {
+        FUN_0044dd60();
+      }
+    }
+    local_30[0] = &PTR_FUN_010c1670;
+  }
+  *unaff_FS_OFFSET = local_10;
+  return;
+}
+
+
+
+----------------------------------------------------------------------
+Disassembly BSTaskManagerThread loop: 0x00c41090 - 0x00c41100
+----------------------------------------------------------------------
+  0x00c41091: MOV EDX,dword ptr [EBP + -0x10]
+  0x00c41094: ADD EDX,0x8
+  0x00c41097: PUSH EDX
+  0x00c41098: CALL dword ptr [0x00fdf1c0] -> ???
+  0x00c4109e: MOV EAX,dword ptr [EBP + -0x14]
+  0x00c410a1: MOV ESP,EBP
+  0x00c410a3: POP EBP
+  0x00c410a4: RET 0x4
+  0x00c410b0: PUSH EBP << TARGET
+  0x00c410b1: MOV EBP,ESP
+  0x00c410b3: PUSH -0x1
+  0x00c410b5: PUSH 0xf2e0a0
+  0x00c410ba: MOV EAX,FS:[0x0]
+  0x00c410c0: PUSH EAX
+  0x00c410c1: SUB ESP,0x7c
+  0x00c410c4: MOV EAX,[0x011c16bc]
+  0x00c410c9: XOR EAX,EBP
+  0x00c410cb: PUSH EAX
+  0x00c410cc: LEA EAX,[EBP + -0xc]
+  0x00c410cf: MOV FS:[0x0],EAX
+  0x00c410d5: MOV dword ptr [EBP + 0xffffff78],ECX
+  0x00c410db: MOV EAX,dword ptr [EBP + 0xffffff78]
+  0x00c410e1: MOV ECX,dword ptr [EAX + 0x30]
+  0x00c410e4: MOVZX EDX,byte ptr [ECX + 0x40]
+  0x00c410e8: CMP EDX,0x1
+  0x00c410eb: JZ 0x00c4131a
+  0x00c410f1: MOV EAX,dword ptr [EBP + 0xffffff78]
+  0x00c410f7: ADD EAX,0xc
+  0x00c410fa: MOV dword ptr [EBP + -0x40],EAX
+  0x00c410fd: PUSH -0x1
+  0x00c410ff: MOV ECX,dword ptr [EBP + -0x40]
+
+----------------------------------------------------------------------
+References TO 0x00c410b0 (BSTaskManagerThread loop)
+----------------------------------------------------------------------
+  Total: 0 refs
+
+--- Calls FROM BSTaskManagerThread loop (0x00c410b0) ---
+  0x00c41106 -> 0x00000068 ???
+  0x00c41110 -> 0x00000067 ???
+  0x00c41169 -> 0x00000068 ???
+  0x00c41195 -> 0x00000068 ???
+  0x00c4119f -> 0x00000067 ???
+  0x00c411aa -> 0x00c42060 FUN_00c42060
+  0x00c411c9 -> 0x00000066 ???
+  0x00c411f5 -> 0x00c40e70 FUN_00c40e70
+  0x00c4121b -> 0x00000065 ???
+  0x00c4128c -> 0x00c42060 FUN_00c42060
+  0x00c412a4 -> 0x0044dd60 FUN_0044dd60
+  0x00c412c3 -> 0x00000066 ???
+  0x00c412e0 -> 0x00000063 ???
+  0x00c412ea -> 0x00000066 ???
+  0x00c412fd -> 0x0044dd60 FUN_0044dd60
+  Total: 15 calls
+
+======================================================================
+IOTask submit/TLS queue helper @ 0x00c3f7a0
+======================================================================
+  Function: FUN_00c3f7a0 @ 0x00c3f7a0, Size: 255 bytes
+
+undefined4 __thiscall FUN_00c3f7a0(int param_1,int param_2)
+
+{
+  undefined4 uVar1;
+  int iVar2;
+  int *unaff_FS_OFFSET;
+  undefined4 local_30;
+  int local_10;
+  undefined1 *puStack_c;
+  undefined4 local_8;
+  
+  puStack_c = &LAB_00f2df03;
+  local_10 = *unaff_FS_OFFSET;
+  *unaff_FS_OFFSET = (int)&local_10;
+  uVar1 = *(undefined4 *)(*(int *)(unaff_FS_OFFSET[0xb] + _tls_index * 4) + 0x2b4);
+  *(undefined4 *)(*(int *)(unaff_FS_OFFSET[0xb] + _tls_index * 4) + 0x2b4) = 6;
+  local_8 = 0;
+  iVar2 = FUN_00aa3e40(0x14);
+  local_8 = CONCAT31(local_8._1_3_,1);
+  if (iVar2 == 0) {
+    local_30 = 0;
+  }
+  else {
+    local_30 = FUN_0044cd00(param_1,*(int *)(param_1 + 0x10) + param_2 * 8,
+                            *(int *)(param_1 + 0x10) + 4 + param_2 * 8);
+  }
+  *(undefined4 *)(*(int *)(unaff_FS_OFFSET[0xb] + _tls_index * 4) + 0x2b4) = uVar1;
+  *unaff_FS_OFFSET = local_10;
+  return local_30;
+}
+
+
+
+----------------------------------------------------------------------
+Disassembly IOTask submit/TLS queue helper: 0x00c3f780 - 0x00c3f7f0
+----------------------------------------------------------------------
+  0x00c3f781: MOV dword ptr [EBP + -0x20],EDX
+  0x00c3f784: JMP 0x00c3f795
+  0x00c3f786: MOV EAX,dword ptr [EBP + -0x24]
+  0x00c3f789: PUSH EAX
+  0x00c3f78a: MOV ECX,dword ptr [EBP + -0x1c]
+  0x00c3f78d: CALL 0x00c41610 -> FUN_00c41610
+  0x00c3f792: MOV dword ptr [EBP + -0x20],EAX
+  0x00c3f795: MOV EAX,dword ptr [EBP + -0x20]
+  0x00c3f798: MOV ESP,EBP
+  0x00c3f79a: POP EBP
+  0x00c3f79b: RET
+  0x00c3f7a0: PUSH EBP << TARGET
+  0x00c3f7a1: MOV EBP,ESP
+  0x00c3f7a3: PUSH -0x1
+  0x00c3f7a5: PUSH 0xf2df03
+  0x00c3f7aa: MOV EAX,FS:[0x0]
+  0x00c3f7b0: PUSH EAX
+  0x00c3f7b1: SUB ESP,0x20
+  0x00c3f7b4: MOV EAX,[0x011c16bc]
+  0x00c3f7b9: XOR EAX,EBP
+  0x00c3f7bb: PUSH EAX
+  0x00c3f7bc: LEA EAX,[EBP + -0xc]
+  0x00c3f7bf: MOV FS:[0x0],EAX
+  0x00c3f7c5: MOV dword ptr [EBP + -0x28],ECX
+  0x00c3f7c8: MOV EAX,[0x0126fd98]
+  0x00c3f7cd: MOV ECX,dword ptr FS:[0x2c]
+  0x00c3f7d4: MOV EDX,dword ptr [ECX + EAX*0x4]
+  0x00c3f7d7: MOV EAX,dword ptr [EDX + 0x2b4]
+  0x00c3f7dd: MOV dword ptr [EBP + -0x20],EAX
+  0x00c3f7e0: MOV ECX,dword ptr [EBP + -0x20]
+  0x00c3f7e3: MOV dword ptr [EBP + -0x10],ECX
+  0x00c3f7e6: MOV EDX,dword ptr [0x0126fd98]
+  0x00c3f7ec: MOV EAX,FS:[0x2c]
+
+----------------------------------------------------------------------
+References TO 0x00c3f7a0 (IOTask submit/TLS queue helper)
+----------------------------------------------------------------------
+  DATA @ 0x010c1764 (in ???)
+  Total: 1 refs
+
+--- Calls FROM IOTask submit/TLS queue helper (0x00c3f7a0) ---
+  0x00c3f80d -> 0x00aa3e40 FUN_00aa3e40
+  0x00c3f845 -> 0x0044cd00 FUN_0044cd00
+  Total: 2 calls
+
+======================================================================
+IO dequeue under queue lock @ 0x00c40e70
+======================================================================
+  Function: FUN_00c40e70 @ 0x00c40e70, Size: 462 bytes
+
+/* WARNING: Removing unreachable block (ram,0x00c40fbd) */
+/* WARNING: Removing unreachable block (ram,0x00c40f13) */
+/* WARNING: Removing unreachable block (ram,0x00c40f9f) */
+
+undefined4 __thiscall
+FUN_00c40e70(int param_1,int param_2,undefined4 *param_3,undefined4 param_4,char param_5)
+
+{
+  undefined4 *puVar1;
+  int iVar2;
+  undefined4 uVar3;
+  undefined4 uVar4;
+  char local_5;
+  
+  FUN_0040fbf0(0);
+  if ((*(byte *)(param_2 + 0x18) & 2) == 0) {
+    while( true ) {
+      if ((*(byte *)(param_2 + 0x18) & 1) == 0) {
+        iVar2 = param_2 + 0x10;
+        uVar3 = *(undefined4 *)(param_2 + 8);
+        uVar4 = param_4;
+        FUN_00c3f750(uVar3,iVar2,param_4);
+        local_5 = FUN_00c42380(uVar3,iVar2,uVar4);
+        *(byte *)(param_2 + 0x18) = *(byte *)(param_2 + 0x18) | 1;
+      }
+      else {
+        iVar2 = param_2 + 0x10;
+        uVar3 = *(undefined4 *)(param_2 + 8);
+        uVar4 = param_4;
+        FUN_00c3f750(uVar3,iVar2,param_4);
+        local_5 = FUN_00c42560(uVar3,iVar2,uVar4);
+      }
+      if (local_5 != '\0') break;
+      *(int *)(param_2 + 8) = *(int *)(param_2 + 8) + 1;
+      if (*(uint *)(param_1 + 8) <= *(uint *)(param_2 + 8)) {
+        *(byte *)(param_2 + 0x18) = *(byte *)(param_2 + 0x18) | 2;
+        goto LAB_00c40ffe;
+      }
+      if (param_5 == '\0') goto LAB_00c40ffe;
+      *(byte *)(param_2 + 0x18) = *(byte *)(param_2 + 0x18) & 0xfe;
+    }
+    *param_3 = *(undefined4 *)(param_2 + 0x10);
+    param_3[1] = *(undefined4 *)(param_2 + 0x14);
+  }
+  else {
+    local_5 = '\0';
+  }
+LAB_00c40ffe:
+  puVar1 = (undefined4 *)(*(int *)(param_1 + 0x24) + -1);
+  *(undefined4 **)(param_1 + 0x24) = puVar1;
+  if (*(int *)(param_1 + 0x24) == 0) {
+    *(undefined4 *)(param_1 + 0x20) = 0;
+    puVar1 = (undefined4 *)(param_1 + 0x20);
+  }
+  return CONCAT31((int3)((uint)puVar1 >> 8),local_5);
+}
+
+
+
+----------------------------------------------------------------------
+Disassembly IO dequeue under queue lock: 0x00c40e50 - 0x00c40ec0
+----------------------------------------------------------------------
+  0x00c40e51: MOV ECX,dword ptr [EBP + -0xc]
+  0x00c40e54: MOV dword ptr FS:[0x0],ECX
+  0x00c40e5b: POP ECX
+  0x00c40e5c: MOV ESP,EBP
+  0x00c40e5e: POP EBP
+  0x00c40e5f: RET 0x4
+  0x00c40e70: PUSH EBP << TARGET
+  0x00c40e71: MOV EBP,ESP
+  0x00c40e73: SUB ESP,0xc8
+  0x00c40e79: MOV dword ptr [EBP + 0xffffff38],ECX
+  0x00c40e7f: PUSH 0x0
+  0x00c40e81: MOV ECX,dword ptr [EBP + 0xffffff38]
+  0x00c40e87: ADD ECX,0x20
+  0x00c40e8a: CALL 0x0040fbf0 -> FUN_0040fbf0
+  0x00c40e8f: MOV byte ptr [EBP + -0x1],0x0
+  0x00c40e93: MOV EAX,dword ptr [EBP + 0x8]
+  0x00c40e96: MOVZX ECX,byte ptr [EAX + 0x18]
+  0x00c40e9a: AND ECX,0x2
+  0x00c40e9d: SETNZ DL
+  0x00c40ea0: MOVZX EAX,DL
+  0x00c40ea3: TEST EAX,EAX
+  0x00c40ea5: JZ 0x00c40eb0
+  0x00c40ea7: MOV byte ptr [EBP + -0x1],0x0
+  0x00c40eab: JMP 0x00c40ffe
+  0x00c40eb0: MOV ECX,0x1
+  0x00c40eb5: TEST ECX,ECX
+  0x00c40eb7: JZ 0x00c40ffe
+  0x00c40ebd: MOV EDX,dword ptr [EBP + 0x8]
+  0x00c40ec0: MOVZX EAX,byte ptr [EDX + 0x18]
+
+----------------------------------------------------------------------
+References TO 0x00c40e70 (IO dequeue under queue lock)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x00c3e286 (in FUN_00c3e1b0)
+  UNCONDITIONAL_CALL @ 0x00c3fda4 (in FUN_00c3fce0)
+  UNCONDITIONAL_CALL @ 0x00c411f5 (in FUN_00c410b0)
+  Total: 3 refs
+
+--- Calls FROM IO dequeue under queue lock (0x00c40e70) ---
+  0x00c40e8a -> 0x0040fbf0 FUN_0040fbf0
+  0x00c40ee9 -> 0x00c3f750 FUN_00c3f750
+  0x00c40ef0 -> 0x00c42380 FUN_00c42380
+  0x00c40f3d -> 0x00c3f750 FUN_00c3f750
+  0x00c40f44 -> 0x00c42560 FUN_00c42560
+  Total: 5 calls
+
+======================================================================
+Main-thread completed task processing @ 0x00c3dbf0
+======================================================================
+  Function: FUN_00c3dbf0 @ 0x00c3dbf0, Size: 646 bytes
+
+/* WARNING: Removing unreachable block (ram,0x00c3dc63) */
+/* WARNING: Removing unreachable block (ram,0x00c3dc9f) */
+/* WARNING: Removing unreachable block (ram,0x00c3dd3c) */
+/* WARNING: Removing unreachable block (ram,0x00c3de2a) */
+/* WARNING: Removing unreachable block (ram,0x00c3de5c) */
+/* WARNING: Removing unreachable block (ram,0x00c3ddc9) */
+
+undefined1 __fastcall FUN_00c3dbf0(int param_1)
+
+{
+  uint uVar1;
+  int *unaff_FS_OFFSET;
+  longlong lVar2;
+  longlong lVar3;
+  longlong lVar4;
+  undefined1 local_15;
+  int *local_14;
+  int local_10;
+  undefined1 *puStack_c;
+  undefined4 local_8;
+  
+  local_8 = 0xffffffff;
+  puStack_c = &LAB_00f2dd89;
+  local_10 = *unaff_FS_OFFSET;
+  uVar1 = DAT_011c16bc ^ (uint)&stack0xfffffffc;
+  *unaff_FS_OFFSET = (int)&local_10;
+  if (DAT_01202dd8 == '\0') {
+    local_15 = 1;
+    DAT_01202dd8 = 1;
+    lVar2 = FUN_00aa4d80(uVar1);
+    lVar3 = FUN_00ec62f6();
+    if (*(int *)(param_1 + 0x74) != 0) {
+      local_15 = (**(code **)(param_1 + 0x74))();
+    }
+    local_14 = (int *)0x0;
+    local_8 = 0;
+    FUN_00c3e420(&local_14);
+    while (local_14 != (int *)0x0) {
+      (**(code **)(*local_14 + 0x14))();
+      if (*(int *)(param_1 + 0x70) != 0) {
+        (**(code **)(param_1 + 0x70))();
+      }
+      lVar4 = FUN_00aa4d80();
+      if (lVar3 < lVar4 - lVar2) {
+        if (local_14 != (int *)0x0) {
+          if (local_14 != (int *)0x0) {
+            FUN_0044dd60();
+          }
+          local_14 = (int *)0x0;
+        }
+      }
+      else {
+        FUN_00c3e420(&local_14);
+      }
+    }
+    DAT_01202dd8 = '\0';
+  }
+  else {
+    local_15 = 1;
+  }
+  *unaff_FS_OFFSET = local_10;
+  return local_15;
+}
+
+
+
+----------------------------------------------------------------------
+Disassembly Main-thread completed task processing: 0x00c3dbd0 - 0x00c3dc40
+----------------------------------------------------------------------
+  0x00c3dbd1: CALL 0x00c3fa70 -> FUN_00c3fa70
+  0x00c3dbd6: MOV ECX,dword ptr [EBP + -0xc]
+  0x00c3dbd9: MOV dword ptr FS:[0x0],ECX
+  0x00c3dbe0: POP ECX
+  0x00c3dbe1: MOV ESP,EBP
+  0x00c3dbe3: POP EBP
+  0x00c3dbe4: RET
+  0x00c3dbf0: PUSH EBP << TARGET
+  0x00c3dbf1: MOV EBP,ESP
+  0x00c3dbf3: PUSH -0x1
+  0x00c3dbf5: PUSH 0xf2dd89
+  0x00c3dbfa: MOV EAX,FS:[0x0]
+  0x00c3dc00: PUSH EAX
+  0x00c3dc01: SUB ESP,0xa4
+  0x00c3dc07: MOV EAX,[0x011c16bc]
+  0x00c3dc0c: XOR EAX,EBP
+  0x00c3dc0e: PUSH EAX
+  0x00c3dc0f: LEA EAX,[EBP + -0xc]
+  0x00c3dc12: MOV FS:[0x0],EAX
+  0x00c3dc18: MOV dword ptr [EBP + 0xffffff70],ECX
+  0x00c3dc1e: MOVZX EAX,byte ptr [0x01202dd8]
+  0x00c3dc25: TEST EAX,EAX
+  0x00c3dc27: JZ 0x00c3dc30
+  0x00c3dc29: MOV AL,0x1
+  0x00c3dc2b: JMP 0x00c3de67
+  0x00c3dc30: MOV byte ptr [EBP + -0x11],0x1
+  0x00c3dc34: MOV byte ptr [0x01202dd8],0x1
+  0x00c3dc3b: MOV dword ptr [EBP + -0x18],0x0
+
+----------------------------------------------------------------------
+References TO 0x00c3dbf0 (Main-thread completed task processing)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x0086e897 (in FUN_0086e650)
+  UNCONDITIONAL_CALL @ 0x00c3e110 (in FUN_00c3dfa0)
+  Total: 2 refs
+
+--- Calls FROM Main-thread completed task processing (0x00c3dbf0) ---
+  0x00c3dce0 -> 0x00aa4d80 FUN_00aa4d80
+  0x00c3dd0a -> 0x00ec62f6 FUN_00ec62f6
+  0x00c3dd49 -> 0x00000066 ???
+  0x00c3dd63 -> 0x00c3e420 FUN_00c3e420
+  0x00c3dda5 -> 0x00aa4d80 FUN_00aa4d80
+  0x00c3de02 -> 0x00c3e420 FUN_00c3e420
+  0x00c3de18 -> 0x0044dd60 FUN_0044dd60
+  0x00c3de37 -> 0x00000066 ???
+  0x00c3de5f -> 0x0044dd60 FUN_0044dd60
+  Total: 9 calls
+
+======================================================================
+ModelLoader/IO drain wait loop @ 0x00c3dfa0
+======================================================================
+  Function: FUN_00c3dfa0 @ 0x00c3dfa0, Size: 513 bytes
+
+/* WARNING: Globals starting with '_' overlap smaller symbols at the same address */
+
+void __thiscall FUN_00c3dfa0(int param_1,int param_2)
+
+{
+  uint uVar1;
+  int iVar2;
+  int iVar3;
+  uint uVar4;
+  uint uVar5;
+  int local_40;
+  int local_2c;
+  int local_28;
+  uint local_10;
+  char local_9;
+  
+  if (*(int *)(param_1 + 0x68) != 7) {
+    DAT_011af70c = 0;
+    if ((*(int *)(param_1 + 0x18) == 0) &&
+       (iVar2 = (**(code **)(**(int **)(param_1 + 100) + 0xc))(), iVar2 == 0)) {
+      if (*(int *)(param_1 + 0x6c) == 0) {
+        local_28 = 0;
+      }
+      else {
+        local_28 = (**(code **)(param_1 + 0x6c))();
+      }
+      if (local_28 == 0) {
+        *(undefined4 *)(param_1 + 0x68) = 6;
+        DAT_011af70c = 1;
+        return;
+      }
+    }
+    *(int *)(param_1 + 0x68) = param_2;
+    FUN_00c3e1b0(param_2,0);
+    iVar2 = (**(code **)(**(int **)(param_1 + 100) + 0xc))();
+    if (*(int *)(param_1 + 0x6c) == 0) {
+      local_2c = 0;
+    }
+    else {
+      local_2c = (**(code **)(param_1 + 0x6c))();
+    }
+    iVar3 = FUN_00c3e860(param_2 * 4 + 3);
+    uVar4 = iVar3 + iVar2 + local_2c;
+    local_9 = '\0';
+    local_10 = uVar4;
+    while ((local_10 != 0 || (local_9 == '\0'))) {
+      if (*(int *)(param_1 + 0x78) != 0) {
+        (**(code **)(param_1 + 0x78))
+                  ((float)(((float10)(uVar4 - local_10) / (float10)uVar4) * (float10)_DAT_01017a40))
+        ;
+      }
+      uVar1 = *(uint *)(param_1 + 0x18);
+      uVar5 = (**(code **)(**(int **)(param_1 + 100) + 0xc))();
+      if (uVar5 < uVar1) {
+        Sleep(0x32);
+      }
+      local_9 = FUN_00c3dbf0();
+      iVar2 = (**(code **)(**(int **)(param_1 + 100) + 0xc))();
+      if (*(int *)(param_1 + 0x6c) == 0) {
+        local_40 = 0;
+      }
+      else {
+        local_40 = (**(code **)(param_1 + 0x6c))();
+      }
+      iVar3 = FUN_00c3e860(param_2 * 4 + 3);
+      local_10 = iVar3 + iVar2 + local_40;
+    }
+    *(undefined4 *)(param_1 + 0x68) = 6;
+    if (*(int *)(param_1 + 0x78) != 0) {
+      (**(code **)(param_1 + 0x78))(DAT_01016410);
+    }
+    DAT_011af70c = 1;
+  }
+  return;
+}
+
+
+
+----------------------------------------------------------------------
+Disassembly ModelLoader/IO drain wait loop: 0x00c3df80 - 0x00c3dff0
+----------------------------------------------------------------------
+  0x00c3df82: PUSH ECX
+  0x00c3df83: MOV EDX,dword ptr [EBP + 0x8]
+  0x00c3df86: PUSH EDX
+  0x00c3df87: MOV ECX,dword ptr [EBP + -0xc]
+  0x00c3df8a: CALL 0x00c3e690 -> FUN_00c3e690
+  0x00c3df8f: POP EDI
+  0x00c3df90: POP ESI
+  0x00c3df91: MOV ESP,EBP
+  0x00c3df93: POP EBP
+  0x00c3df94: RET 0x8
+  0x00c3dfa0: PUSH EBP << TARGET
+  0x00c3dfa1: MOV EBP,ESP
+  0x00c3dfa3: SUB ESP,0x3c
+  0x00c3dfa6: MOV dword ptr [EBP + -0x20],ECX
+  0x00c3dfa9: MOV EAX,dword ptr [EBP + -0x20]
+  0x00c3dfac: CMP dword ptr [EAX + 0x68],0x7
+  0x00c3dfb0: JNZ 0x00c3dfb7
+  0x00c3dfb2: JMP 0x00c3e19b
+  0x00c3dfb7: MOV byte ptr [0x011af70c],0x0
+  0x00c3dfbe: MOV ECX,dword ptr [EBP + -0x20]
+  0x00c3dfc1: CMP dword ptr [ECX + 0x18],0x0
+  0x00c3dfc5: JNZ 0x00c3e017
+  0x00c3dfc7: MOV EDX,dword ptr [EBP + -0x20]
+  0x00c3dfca: MOV ECX,dword ptr [EDX + 0x64]
+  0x00c3dfcd: MOV EAX,dword ptr [EBP + -0x20]
+  0x00c3dfd0: MOV EDX,dword ptr [EAX + 0x64]
+  0x00c3dfd3: MOV EAX,dword ptr [EDX]
+  0x00c3dfd5: MOV EDX,dword ptr [EAX + 0xc]
+  0x00c3dfd8: CALL EDX
+  0x00c3dfda: TEST EAX,EAX
+  0x00c3dfdc: JNZ 0x00c3e017
+  0x00c3dfde: MOV EAX,dword ptr [EBP + -0x20]
+  0x00c3dfe1: CMP dword ptr [EAX + 0x6c],0x0
+  0x00c3dfe5: JZ 0x00c3dff4
+  0x00c3dfe7: MOV ECX,dword ptr [EBP + -0x20]
+  0x00c3dfea: MOV EDX,dword ptr [ECX + 0x6c]
+  0x00c3dfed: CALL EDX
+  0x00c3dfef: MOV dword ptr [EBP + -0x24],EAX
+
+----------------------------------------------------------------------
+References TO 0x00c3dfa0 (ModelLoader/IO drain wait loop)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x0045652c (in FUN_00456520)
+  UNCONDITIONAL_CALL @ 0x004513c1 (in FUN_004512c0)
+  UNCONDITIONAL_CALL @ 0x00454153 (in FUN_00453dc0)
+  UNCONDITIONAL_CALL @ 0x0045476f (in FUN_00454450)
+  UNCONDITIONAL_CALL @ 0x007fa9a1 (in FUN_007fa990)
+  UNCONDITIONAL_CALL @ 0x00973446 (in FUN_00972d30)
+  UNCONDITIONAL_CALL @ 0x00943964 (in ???)
+  Total: 7 refs
+
+--- Calls FROM ModelLoader/IO drain wait loop (0x00c3dfa0) ---
+  0x00c3e029 -> 0x00c3e1b0 FUN_00c3e1b0
+  0x00c3e06f -> 0x00c3e860 FUN_00c3e860
+  0x00c3e107 -> 0x00000037 ???
+  0x00c3e110 -> 0x00c3dbf0 FUN_00c3dbf0
+  0x00c3e159 -> 0x00c3e860 FUN_00c3e860
+  Total: 5 calls

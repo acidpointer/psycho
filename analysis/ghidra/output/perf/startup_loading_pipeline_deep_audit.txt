@@ -1,0 +1,3640 @@
+======================================================================
+STARTUP LOADING PIPELINE DEEP AUDIT
+======================================================================
+Crash lesson:
+  More IO workers can make IOManager_GetCompletionQueue return NULL where callers assume non-null.
+  This audit maps which waits are idle and which waits are ordering/synchronization contracts.
+
+======================================================================
+KNOWN PATCH CANDIDATES AND RISK
+======================================================================
+
+----------------------------------------------------------------------
+Disassembly IOManager worker count immediate around 0x00c3da7a
+----------------------------------------------------------------------
+  0x00c3da6b: PUSH EAX                              
+  0x00c3da6c: LEA EAX,[EBP + -0xc]                  
+  0x00c3da6f: MOV FS:[0x0],EAX                      
+  0x00c3da75: MOV dword ptr [EBP + -0x1c],ECX       
+  0x00c3da78: PUSH 0x78                             
+  0x00c3da7a: PUSH 0x1                               << TARGET
+  0x00c3da7c: PUSH 0xa                              
+  0x00c3da7e: MOV ECX,dword ptr [EBP + -0x1c]       
+  0x00c3da81: CALL 0x00c3e4f0                       
+  0x00c3da86: MOV dword ptr [EBP + -0x4],0x0        
+  0x00c3da8d: MOV EAX,dword ptr [EBP + -0x1c]       
+  0x00c3da90: MOV dword ptr [EAX],0x10c1604         
+  0x00c3da96: MOV ECX,dword ptr [EBP + -0x1c]       
+  0x00c3da99: MOV dword ptr [ECX + 0x70],0x0        
+  Worker count patch 1->2 is unsafe from crash evidence: completion queue returned NULL.
+
+----------------------------------------------------------------------
+Disassembly ModelLoader Sleep(50) around 0x00c3e105
+----------------------------------------------------------------------
+  0x00c3e0f1: MOV EDX,dword ptr [EBP + -0x20]       
+  0x00c3e0f4: MOV EAX,dword ptr [EDX + 0x64]        
+  0x00c3e0f7: MOV EDX,dword ptr [ECX]               
+  0x00c3e0f9: MOV ECX,EAX                           
+  0x00c3e0fb: MOV EAX,dword ptr [EDX + 0xc]         
+  0x00c3e0fe: CALL EAX                              
+  0x00c3e100: CMP dword ptr [EBP + -0x18],EAX       
+  0x00c3e103: JBE 0x00c3e10d                        
+  0x00c3e105: PUSH 0x32                              << TARGET
+  0x00c3e107: CALL dword ptr [0x00fdf104]           
+  0x00c3e10d: MOV ECX,dword ptr [EBP + -0x20]       
+  0x00c3e110: CALL 0x00c3dbf0                       
+  0x00c3e115: MOV byte ptr [EBP + -0x5],AL          
+  0x00c3e118: MOV ECX,dword ptr [EBP + -0x20]       
+  0x00c3e11b: MOV EDX,dword ptr [ECX + 0x64]        
+  0x00c3e11e: MOV EAX,dword ptr [EBP + -0x20]       
+  0x00c3e121: MOV ECX,dword ptr [EAX + 0x64]        
+  0x00c3e124: MOV EDX,dword ptr [EDX]               
+  0x00c3e126: MOV EAX,dword ptr [EDX + 0xc]         
+  0x00c3e129: CALL EAX                              
+  0x00c3e12b: MOV dword ptr [EBP + -0x1c],EAX       
+  0x00c3e12e: MOV ECX,dword ptr [EBP + -0x20]       
+  0x00c3e131: CMP dword ptr [ECX + 0x6c],0x0        
+  0x00c3e135: JZ 0x00c3e144                         
+  0x00c3e137: MOV EDX,dword ptr [EBP + -0x20]       
+  Sleep patch only changes wait polling. Still needs isolated validation.
+
+----------------------------------------------------------------------
+Disassembly Main-thread drain time budget source around 0x00c3dd0a
+----------------------------------------------------------------------
+  0x00c3dce0: CALL 0x00aa4d80                       
+  0x00c3dce5: MOV dword ptr [EBP + -0x2c],EAX       
+  0x00c3dce8: MOV dword ptr [EBP + -0x28],EDX       
+  0x00c3dceb: MOV ECX,dword ptr [EBP + -0x18]       
+  0x00c3dcee: MOV dword ptr [EBP + 0xffffff60],ECX  
+  0x00c3dcf4: MOV dword ptr [EBP + 0xffffff64],0x0  
+  0x00c3dcfe: FILD qword ptr [EBP + 0xffffff60]     
+  0x00c3dd04: FMUL float ptr [0x011ac39c]           
+  0x00c3dd0a: CALL 0x00ec62f6                        << TARGET
+  0x00c3dd0f: MOV dword ptr [EBP + -0x24],EAX       
+  0x00c3dd12: MOV dword ptr [EBP + -0x20],EDX       
+  0x00c3dd15: MOV EDX,dword ptr [EBP + 0xffffff70]  
+  0x00c3dd1b: CMP dword ptr [EDX + 0x74],0x0        
+  0x00c3dd1f: JZ 0x00c3dd2f                         
+  0x00c3dd21: MOV EAX,dword ptr [EBP + 0xffffff70]  
+  0x00c3dd27: MOV ECX,dword ptr [EAX + 0x74]        
+  0x00c3dd2a: CALL ECX                              
+  0x00c3dd2c: MOV byte ptr [EBP + -0x11],AL         
+  0x00c3dd2f: MOV dword ptr [EBP + -0x10],0x0       
+  0x00c3dd36: CMP dword ptr [EBP + -0x10],0x0       
+  0x00c3dd3a: JZ 0x00c3dd4f                         
+  0x00c3dd3c: MOV EDX,dword ptr [EBP + -0x10]       
+  0x00c3dd3f: MOV dword ptr [EBP + -0x3c],EDX       
+  0x00c3dd42: MOV EAX,dword ptr [EBP + -0x3c]       
+  0x00c3dd45: ADD EAX,0x8                           
+  0x00c3dd48: PUSH EAX                              
+  0x00c3dd49: CALL dword ptr [0x00fdf1c0]           
+  0x00c3dd4f: MOV dword ptr [EBP + -0x4],0x0        
+  0x00c3dd56: LEA ECX,[EBP + -0x10]                 
+  0x00c3dd59: PUSH ECX                              
+  0x00c3dd5a: MOV EDX,dword ptr [EBP + 0xffffff70]  
+  0x00c3dd60: MOV ECX,dword ptr [EDX + 0x64]        
+  0x00c3dd63: CALL 0x00c3e420                       
+  Main drain budget may be a safer target than worker count if it preserves single-worker ordering.
+
+======================================================================
+IOManager constructor wrapper @ 0x00c3da50
+======================================================================
+  Function: FUN_00c3da50 @ 0x00c3da50, Size: 257 bytes
+
+undefined4 * __fastcall FUN_00c3da50(undefined4 *param_1)
+
+{
+  int iVar1;
+  int *unaff_FS_OFFSET;
+  undefined4 local_24;
+  int local_10;
+  undefined1 *puStack_c;
+  undefined4 local_8;
+  
+  local_8 = 0xffffffff;
+  puStack_c = &LAB_00f2dd43;
+  local_10 = *unaff_FS_OFFSET;
+  *unaff_FS_OFFSET = (int)&local_10;
+  FUN_00c3e4f0(10,1,0x78);
+  local_8 = 0;
+  *param_1 = &PTR_FUN_010c1604;
+  param_1[0x1c] = 0;
+  param_1[0x1e] = 0;
+  param_1[0x1b] = 0;
+  param_1[0x1f] = 0;
+  param_1[0x20] = 0;
+  param_1[0x1a] = 6;
+  iVar1 = FUN_00aa3e40(0x10);
+  local_8 = CONCAT31(local_8._1_3_,1);
+  if (iVar1 == 0) {
+    local_24 = 0;
+  }
+  else {
+    local_24 = FUN_00c3e8b0(6,7,8);
+  }
+  param_1[0x19] = local_24;
+  param_1[0x18] = *(undefined4 *)(*(int *)param_1[0x14] + 8);
+  *unaff_FS_OFFSET = local_10;
+  return param_1;
+}
+
+
+
+----------------------------------------------------------------------
+Calls FROM 0x00c3da50 (IOManager constructor wrapper)
+----------------------------------------------------------------------
+  CALL 0x00c3e4f0 -> FUN_00c3e4f0 (from 0x00c3da81)
+  CALL 0x00aa3e40 -> FUN_00aa3e40 (from 0x00c3dadc)
+  CALL 0x00c3e8b0 -> FUN_00c3e8b0 (from 0x00c3daf7)
+  Total: 3 calls
+
+======================================================================
+BSTaskManager constructor @ 0x00c3e4f0
+======================================================================
+  Function: FUN_00c3e4f0 @ 0x00c3e4f0, Size: 408 bytes
+
+undefined4 * __thiscall FUN_00c3e4f0(undefined4 *param_1,int param_2,int param_3,uint param_4)
+
+{
+  undefined4 uVar1;
+  int iVar2;
+  int *unaff_FS_OFFSET;
+  undefined4 local_38;
+  uint local_14;
+  int local_10;
+  undefined1 *puStack_c;
+  int local_8;
+  
+  local_8 = 0xffffffff;
+  puStack_c = &LAB_00f2ddf3;
+  local_10 = *unaff_FS_OFFSET;
+  *unaff_FS_OFFSET = (int)&local_10;
+  FUN_00c3ec80(param_2 + param_3,param_4,0xc);
+  local_8 = 0;
+  *param_1 = &PTR_FUN_010c167c;
+  *(undefined1 *)(param_1 + 0x10) = 0;
+  param_1[0x11] = 0;
+  param_1[0x12] = 0;
+  param_1[0x13] = param_3;
+  uVar1 = FUN_00aa3e40(-(uint)((int)((ulonglong)param_4 * 4 >> 0x20) != 0) |
+                       (uint)((ulonglong)param_4 * 4));
+  param_1[0x15] = uVar1;
+  _memset((void *)param_1[0x15],0,param_4 << 2);
+  param_1[0x16] = 0;
+  uVar1 = FUN_00aa3e40(-(uint)((int)((ulonglong)(uint)param_1[0x13] * 4 >> 0x20) != 0) |
+                       (uint)((ulonglong)(uint)param_1[0x13] * 4));
+  param_1[0x14] = uVar1;
+  for (local_14 = 0; local_14 < (uint)param_1[0x13]; local_14 = local_14 + 1) {
+    iVar2 = FUN_00aa3e40(0x34);
+    local_8._0_1_ = 1;
+    if (iVar2 == 0) {
+      local_38 = 0;
+    }
+    else {
+      local_38 = FUN_00c3ee70(param_1,local_14 + 2);
+    }
+    local_8 = (uint)local_8._1_3_ << 8;
+    *(undefined4 *)(param_1[0x14] + local_14 * 4) = local_38;
+    FUN_00c42f50();
+  }
+  *unaff_FS_OFFSET = local_10;
+  return param_1;
+}
+
+
+
+----------------------------------------------------------------------
+Calls FROM 0x00c3e4f0 (BSTaskManager constructor)
+----------------------------------------------------------------------
+  CALL 0x00c3ec80 -> FUN_00c3ec80 (from 0x00c3e528)
+  CALL 0x00aa3e40 -> FUN_00aa3e40 (from 0x00c3e580)
+  CALL 0x00ec61c0 -> _memset (from 0x00c3e5a7)
+  CALL 0x00aa3e40 -> FUN_00aa3e40 (from 0x00c3e5db)
+  CALL 0x00aa3e40 -> FUN_00aa3e40 (from 0x00c3e610)
+  CALL 0x00c3ee70 -> FUN_00c3ee70 (from 0x00c3e630)
+  CALL 0x00c42f50 -> FUN_00c42f50 (from 0x00c3e666)
+  Total: 7 calls
+
+======================================================================
+BSTaskManagerThread constructor @ 0x00c3ee70
+======================================================================
+  Function: FUN_00c3ee70 @ 0x00c3ee70, Size: 51 bytes
+
+undefined4 * __thiscall FUN_00c3ee70(undefined4 *param_1,undefined4 param_2,undefined4 param_3)
+
+{
+  FUN_00c42dd0(param_3,"BSTaskManagerThread");
+  *param_1 = &PTR_FUN_010c1740;
+  param_1[0xc] = param_2;
+  return param_1;
+}
+
+
+
+----------------------------------------------------------------------
+Calls FROM 0x00c3ee70 (BSTaskManagerThread constructor)
+----------------------------------------------------------------------
+  CALL 0x00c42dd0 -> FUN_00c42dd0 (from 0x00c3ee83)
+  Total: 1 calls
+
+======================================================================
+BSTaskThread base constructor / CreateThread suspended @ 0x00c42dd0
+======================================================================
+  Function: FUN_00c42dd0 @ 0x00c42dd0, Size: 292 bytes
+
+undefined4 * __thiscall FUN_00c42dd0(undefined4 *param_1,undefined4 param_2,int param_3)
+
+{
+  uint uVar1;
+  HANDLE pvVar2;
+  int *unaff_FS_OFFSET;
+  int local_10;
+  undefined1 *puStack_c;
+  undefined4 local_8;
+  
+  local_8 = 0xffffffff;
+  puStack_c = &LAB_00f2e346;
+  local_10 = *unaff_FS_OFFSET;
+  uVar1 = DAT_011c16bc ^ (uint)&stack0xfffffffc;
+  *unaff_FS_OFFSET = (int)&local_10;
+  *param_1 = &PTR_FUN_010c1844;
+  param_1[3] = 0;
+  param_1[5] = 0x7fffffff;
+  pvVar2 = CreateSemaphoreA((LPSECURITY_ATTRIBUTES)0x0,param_1[3],param_1[5],(LPCSTR)0x0);
+  param_1[4] = pvVar2;
+  local_8 = 0;
+  param_1[6] = 1;
+  param_1[8] = 1;
+  pvVar2 = CreateSemaphoreA((LPSECURITY_ATTRIBUTES)0x0,param_1[6],param_1[8],(LPCSTR)0x0);
+  param_1[7] = pvVar2;
+  local_8 = CONCAT31(local_8._1_3_,1);
+  pvVar2 = CreateThread((LPSECURITY_ATTRIBUTES)0x0,0,lpStartAddress_00c42da0,param_1,4,param_1 + 2);
+  param_1[1] = pvVar2;
+  if (param_3 != 0) {
+    FUN_00aa2740(param_1[2],param_3,uVar1);
+  }
+  param_1[9] = 0;
+  param_1[10] = 0;
+  param_1[0xb] = param_1[2];
+  *unaff_FS_OFFSET = local_10;
+  return param_1;
+}
+
+
+
+----------------------------------------------------------------------
+Calls FROM 0x00c42dd0 (BSTaskThread base constructor / CreateThread suspended)
+----------------------------------------------------------------------
+  CALL 0x00fdf0b4 -> unknown_0x00fdf0b4 (from 0x00c42e2e)
+  CALL 0x00000023 -> unknown_0x00000023 (from 0x00c42e2e)
+  CALL 0x00fdf0b4 -> unknown_0x00fdf0b4 (from 0x00c42e6e)
+  CALL 0x00000023 -> unknown_0x00000023 (from 0x00c42e6e)
+  CALL 0x00fdf124 -> unknown_0x00fdf124 (from 0x00c42e94)
+  CALL 0x0000003f -> unknown_0x0000003f (from 0x00c42e94)
+  CALL 0x00aa2740 -> FUN_00aa2740 (from 0x00c42eb1)
+  Total: 7 calls
+
+======================================================================
+BSTaskThread resume @ 0x00c42f50
+======================================================================
+  Function: FUN_00c42f50 @ 0x00c42f50, Size: 24 bytes
+
+void __fastcall FUN_00c42f50(int param_1)
+
+{
+  ResumeThread(*(HANDLE *)(param_1 + 4));
+  return;
+}
+
+
+
+----------------------------------------------------------------------
+Calls FROM 0x00c42f50 (BSTaskThread resume)
+----------------------------------------------------------------------
+  CALL 0x00fdf158 -> unknown_0x00fdf158 (from 0x00c42f5e)
+  CALL 0x0000004c -> unknown_0x0000004c (from 0x00c42f5e)
+  Total: 2 calls
+
+======================================================================
+BSTaskManagerThread worker loop @ 0x00c410b0
+======================================================================
+  Function: FUN_00c410b0 @ 0x00c410b0, Size: 633 bytes
+
+/* WARNING: Removing unreachable block (ram,0x00c411bc) */
+/* WARNING: Removing unreachable block (ram,0x00c412b6) */
+
+void __fastcall FUN_00c410b0(int param_1)
+
+{
+  char cVar1;
+  DWORD DVar2;
+  LONG LVar3;
+  int *unaff_FS_OFFSET;
+  undefined1 local_40 [8];
+  int local_38;
+  char local_31;
+  undefined **local_30 [2];
+  undefined4 local_28;
+  undefined4 local_20;
+  undefined4 local_1c;
+  byte local_18;
+  int local_10;
+  undefined1 *puStack_c;
+  uint local_8;
+  
+  puStack_c = &LAB_00f2e0a0;
+  local_10 = *unaff_FS_OFFSET;
+  *unaff_FS_OFFSET = (int)&local_10;
+  while (local_8 = 0xffffffff, *(char *)(*(int *)(param_1 + 0x30) + 0x40) != '\x01') {
+    WaitForSingleObject(*(HANDLE *)(param_1 + 0x10),0xffffffff);
+    InterlockedDecrement((LONG *)(param_1 + 0xc));
+    local_28 = 0;
+    local_20 = 0;
+    local_1c = 0;
+    local_18 = 0;
+    local_30[0] = &PTR_FUN_010c1664;
+    local_8 = 0;
+    local_31 = '\0';
+    while ((local_18 & 2) == 0) {
+      DVar2 = WaitForSingleObject(*(HANDLE *)(param_1 + 0x1c),0);
+      if (DVar2 == 0x102) {
+        WaitForSingleObject(*(HANDLE *)(param_1 + 0x1c),0xffffffff);
+        InterlockedDecrement((LONG *)(param_1 + 0x18));
+        FUN_00c42060(0);
+      }
+      local_38 = 0;
+      local_8 = CONCAT31(local_8._1_3_,1);
+      cVar1 = FUN_00c40e70(local_30,local_40,&local_38,local_31 == '\0');
+      if (cVar1 == '\0') {
+        if ((local_18 & 2) == 0) {
+          FUN_00c42060(0);
+          local_31 = '\0';
+        }
+      }
+      else if ((*(int *)(local_38 + 0xc) == 1) &&
+              (LVar3 = InterlockedCompareExchange((LONG *)(local_38 + 0xc),3,1), LVar3 == 1)) {
+        local_31 = '\x01';
+        (**(code **)(**(int **)(param_1 + 0x30) + 0x4c))(local_38);
+        (**(code **)(**(int **)(param_1 + 0x30) + 0x50))(local_38);
+      }
+      if (local_38 != 0) {
+        if (local_38 != 0) {
+          FUN_0044dd60();
+        }
+        local_38 = 0;
+      }
+      ReleaseSemaphore(*(HANDLE *)(param_1 + 0x1c),1,(LPLONG)0x0);
+      InterlockedIncrement((LONG *)(param_1 + 0x18));
+      local_8 = local_8 & 0xffffff00;
+      if (local_38 != 0) {
+        FUN_0044dd60();
+      }
+    }
+    local_30[0] = &PTR_FUN_010c1670;
+  }
+  *unaff_FS_OFFSET = local_10;
+  return;
+}
+
+
+
+----------------------------------------------------------------------
+Calls FROM 0x00c410b0 (BSTaskManagerThread worker loop)
+----------------------------------------------------------------------
+  CALL 0x00fdf1c8 -> unknown_0x00fdf1c8 (from 0x00c41106)
+  CALL 0x00000068 -> unknown_0x00000068 (from 0x00c41106)
+  CALL 0x00fdf1c4 -> unknown_0x00fdf1c4 (from 0x00c41110)
+  CALL 0x00000067 -> unknown_0x00000067 (from 0x00c41110)
+  CALL 0x00fdf1c8 -> unknown_0x00fdf1c8 (from 0x00c41169)
+  CALL 0x00000068 -> unknown_0x00000068 (from 0x00c41169)
+  CALL 0x00fdf1c8 -> unknown_0x00fdf1c8 (from 0x00c41195)
+  CALL 0x00000068 -> unknown_0x00000068 (from 0x00c41195)
+  CALL 0x00fdf1c4 -> unknown_0x00fdf1c4 (from 0x00c4119f)
+  CALL 0x00000067 -> unknown_0x00000067 (from 0x00c4119f)
+  CALL 0x00c42060 -> FUN_00c42060 (from 0x00c411aa)
+  CALL 0x00fdf1c0 -> unknown_0x00fdf1c0 (from 0x00c411c9)
+  CALL 0x00000066 -> unknown_0x00000066 (from 0x00c411c9)
+  CALL 0x00c40e70 -> FUN_00c40e70 (from 0x00c411f5)
+  CALL 0x00fdf1bc -> unknown_0x00fdf1bc (from 0x00c4121b)
+  CALL 0x00000065 -> unknown_0x00000065 (from 0x00c4121b)
+  CALL 0x00c42060 -> FUN_00c42060 (from 0x00c4128c)
+  CALL 0x0044dd60 -> FUN_0044dd60 (from 0x00c412a4)
+  CALL 0x00fdf1c0 -> unknown_0x00fdf1c0 (from 0x00c412c3)
+  CALL 0x00000066 -> unknown_0x00000066 (from 0x00c412c3)
+  CALL 0x00fdf1b4 -> unknown_0x00fdf1b4 (from 0x00c412e0)
+  CALL 0x00000063 -> unknown_0x00000063 (from 0x00c412e0)
+  CALL 0x00fdf1c0 -> unknown_0x00fdf1c0 (from 0x00c412ea)
+  CALL 0x00000066 -> unknown_0x00000066 (from 0x00c412ea)
+  CALL 0x0044dd60 -> FUN_0044dd60 (from 0x00c412fd)
+  Total: 25 calls
+
+======================================================================
+Worker dequeue/select task @ 0x00c40e70
+======================================================================
+  Function: FUN_00c40e70 @ 0x00c40e70, Size: 462 bytes
+
+/* WARNING: Removing unreachable block (ram,0x00c40fbd) */
+/* WARNING: Removing unreachable block (ram,0x00c40f13) */
+/* WARNING: Removing unreachable block (ram,0x00c40f9f) */
+
+undefined4 __thiscall
+FUN_00c40e70(int param_1,int param_2,undefined4 *param_3,undefined4 param_4,char param_5)
+
+{
+  undefined4 *puVar1;
+  int iVar2;
+  undefined4 uVar3;
+  undefined4 uVar4;
+  char local_5;
+  
+  FUN_0040fbf0(0);
+  if ((*(byte *)(param_2 + 0x18) & 2) == 0) {
+    while( true ) {
+      if ((*(byte *)(param_2 + 0x18) & 1) == 0) {
+        iVar2 = param_2 + 0x10;
+        uVar3 = *(undefined4 *)(param_2 + 8);
+        uVar4 = param_4;
+        FUN_00c3f750(uVar3,iVar2,param_4);
+        local_5 = FUN_00c42380(uVar3,iVar2,uVar4);
+        *(byte *)(param_2 + 0x18) = *(byte *)(param_2 + 0x18) | 1;
+      }
+      else {
+        iVar2 = param_2 + 0x10;
+        uVar3 = *(undefined4 *)(param_2 + 8);
+        uVar4 = param_4;
+        FUN_00c3f750(uVar3,iVar2,param_4);
+        local_5 = FUN_00c42560(uVar3,iVar2,uVar4);
+      }
+      if (local_5 != '\0') break;
+      *(int *)(param_2 + 8) = *(int *)(param_2 + 8) + 1;
+      if (*(uint *)(param_1 + 8) <= *(uint *)(param_2 + 8)) {
+        *(byte *)(param_2 + 0x18) = *(byte *)(param_2 + 0x18) | 2;
+        goto LAB_00c40ffe;
+      }
+      if (param_5 == '\0') goto LAB_00c40ffe;
+      *(byte *)(param_2 + 0x18) = *(byte *)(param_2 + 0x18) & 0xfe;
+    }
+    *param_3 = *(undefined4 *)(param_2 + 0x10);
+    param_3[1] = *(undefined4 *)(param_2 + 0x14);
+  }
+  else {
+    local_5 = '\0';
+  }
+LAB_00c40ffe:
+  puVar1 = (undefined4 *)(*(int *)(param_1 + 0x24) + -1);
+  *(undefined4 **)(param_1 + 0x24) = puVar1;
+  if (*(int *)(param_1 + 0x24) == 0) {
+    *(undefined4 *)(param_1 + 0x20) = 0;
+    puVar1 = (undefined4 *)(param_1 + 0x20);
+  }
+  return CONCAT31((int3)((uint)puVar1 >> 8),local_5);
+}
+
+
+
+----------------------------------------------------------------------
+Calls FROM 0x00c40e70 (Worker dequeue/select task)
+----------------------------------------------------------------------
+  CALL 0x0040fbf0 -> FUN_0040fbf0 (from 0x00c40e8a)
+  CALL 0x00c3f750 -> FUN_00c3f750 (from 0x00c40ee9)
+  CALL 0x00c42380 -> FUN_00c42380 (from 0x00c40ef0)
+  CALL 0x00c3f750 -> FUN_00c3f750 (from 0x00c40f3d)
+  CALL 0x00c42560 -> FUN_00c42560 (from 0x00c40f44)
+  Total: 5 calls
+
+======================================================================
+Main-thread completed task drain @ 0x00c3dbf0
+======================================================================
+  Function: FUN_00c3dbf0 @ 0x00c3dbf0, Size: 646 bytes
+
+/* WARNING: Removing unreachable block (ram,0x00c3dc63) */
+/* WARNING: Removing unreachable block (ram,0x00c3dc9f) */
+/* WARNING: Removing unreachable block (ram,0x00c3dd3c) */
+/* WARNING: Removing unreachable block (ram,0x00c3de2a) */
+/* WARNING: Removing unreachable block (ram,0x00c3de5c) */
+/* WARNING: Removing unreachable block (ram,0x00c3ddc9) */
+
+undefined1 __fastcall FUN_00c3dbf0(int param_1)
+
+{
+  uint uVar1;
+  int *unaff_FS_OFFSET;
+  longlong lVar2;
+  longlong lVar3;
+  longlong lVar4;
+  undefined1 local_15;
+  int *local_14;
+  int local_10;
+  undefined1 *puStack_c;
+  undefined4 local_8;
+  
+  local_8 = 0xffffffff;
+  puStack_c = &LAB_00f2dd89;
+  local_10 = *unaff_FS_OFFSET;
+  uVar1 = DAT_011c16bc ^ (uint)&stack0xfffffffc;
+  *unaff_FS_OFFSET = (int)&local_10;
+  if (DAT_01202dd8 == '\0') {
+    local_15 = 1;
+    DAT_01202dd8 = 1;
+    lVar2 = FUN_00aa4d80(uVar1);
+    lVar3 = FUN_00ec62f6();
+    if (*(int *)(param_1 + 0x74) != 0) {
+      local_15 = (**(code **)(param_1 + 0x74))();
+    }
+    local_14 = (int *)0x0;
+    local_8 = 0;
+    FUN_00c3e420(&local_14);
+    while (local_14 != (int *)0x0) {
+      (**(code **)(*local_14 + 0x14))();
+      if (*(int *)(param_1 + 0x70) != 0) {
+        (**(code **)(param_1 + 0x70))();
+      }
+      lVar4 = FUN_00aa4d80();
+      if (lVar3 < lVar4 - lVar2) {
+        if (local_14 != (int *)0x0) {
+          if (local_14 != (int *)0x0) {
+            FUN_0044dd60();
+          }
+          local_14 = (int *)0x0;
+        }
+      }
+      else {
+        FUN_00c3e420(&local_14);
+      }
+    }
+    DAT_01202dd8 = '\0';
+  }
+  else {
+    local_15 = 1;
+  }
+  *unaff_FS_OFFSET = local_10;
+  return local_15;
+}
+
+
+
+----------------------------------------------------------------------
+Calls FROM 0x00c3dbf0 (Main-thread completed task drain)
+----------------------------------------------------------------------
+  CALL 0x00aa4d80 -> FUN_00aa4d80 (from 0x00c3dce0)
+  CALL 0x00ec62f6 -> FUN_00ec62f6 (from 0x00c3dd0a)
+  CALL 0x00fdf1c0 -> unknown_0x00fdf1c0 (from 0x00c3dd49)
+  CALL 0x00000066 -> unknown_0x00000066 (from 0x00c3dd49)
+  CALL 0x00c3e420 -> FUN_00c3e420 (from 0x00c3dd63)
+  CALL 0x00aa4d80 -> FUN_00aa4d80 (from 0x00c3dda5)
+  CALL 0x00c3e420 -> FUN_00c3e420 (from 0x00c3de02)
+  CALL 0x0044dd60 -> FUN_0044dd60 (from 0x00c3de18)
+  CALL 0x00fdf1c0 -> unknown_0x00fdf1c0 (from 0x00c3de37)
+  CALL 0x00000066 -> unknown_0x00000066 (from 0x00c3de37)
+  CALL 0x0044dd60 -> FUN_0044dd60 (from 0x00c3de5f)
+  Total: 11 calls
+
+======================================================================
+ModelLoader wait/drain loop @ 0x00c3dfa0
+======================================================================
+  Function: FUN_00c3dfa0 @ 0x00c3dfa0, Size: 513 bytes
+
+/* WARNING: Globals starting with '_' overlap smaller symbols at the same address */
+
+void __thiscall FUN_00c3dfa0(int param_1,int param_2)
+
+{
+  uint uVar1;
+  int iVar2;
+  int iVar3;
+  uint uVar4;
+  uint uVar5;
+  int local_40;
+  int local_2c;
+  int local_28;
+  uint local_10;
+  char local_9;
+  
+  if (*(int *)(param_1 + 0x68) != 7) {
+    DAT_011af70c = 0;
+    if ((*(int *)(param_1 + 0x18) == 0) &&
+       (iVar2 = (**(code **)(**(int **)(param_1 + 100) + 0xc))(), iVar2 == 0)) {
+      if (*(int *)(param_1 + 0x6c) == 0) {
+        local_28 = 0;
+      }
+      else {
+        local_28 = (**(code **)(param_1 + 0x6c))();
+      }
+      if (local_28 == 0) {
+        *(undefined4 *)(param_1 + 0x68) = 6;
+        DAT_011af70c = 1;
+        return;
+      }
+    }
+    *(int *)(param_1 + 0x68) = param_2;
+    FUN_00c3e1b0(param_2,0);
+    iVar2 = (**(code **)(**(int **)(param_1 + 100) + 0xc))();
+    if (*(int *)(param_1 + 0x6c) == 0) {
+      local_2c = 0;
+    }
+    else {
+      local_2c = (**(code **)(param_1 + 0x6c))();
+    }
+    iVar3 = FUN_00c3e860(param_2 * 4 + 3);
+    uVar4 = iVar3 + iVar2 + local_2c;
+    local_9 = '\0';
+    local_10 = uVar4;
+    while ((local_10 != 0 || (local_9 == '\0'))) {
+      if (*(int *)(param_1 + 0x78) != 0) {
+        (**(code **)(param_1 + 0x78))
+                  ((float)(((float10)(uVar4 - local_10) / (float10)uVar4) * (float10)_DAT_01017a40))
+        ;
+      }
+      uVar1 = *(uint *)(param_1 + 0x18);
+      uVar5 = (**(code **)(**(int **)(param_1 + 100) + 0xc))();
+      if (uVar5 < uVar1) {
+        Sleep(0x32);
+      }
+      local_9 = FUN_00c3dbf0();
+      iVar2 = (**(code **)(**(int **)(param_1 + 100) + 0xc))();
+      if (*(int *)(param_1 + 0x6c) == 0) {
+        local_40 = 0;
+      }
+      else {
+        local_40 = (**(code **)(param_1 + 0x6c))();
+      }
+      iVar3 = FUN_00c3e860(param_2 * 4 + 3);
+      local_10 = iVar3 + iVar2 + local_40;
+    }
+    *(undefined4 *)(param_1 + 0x68) = 6;
+    if (*(int *)(param_1 + 0x78) != 0) {
+      (**(code **)(param_1 + 0x78))(DAT_01016410);
+    }
+    DAT_011af70c = 1;
+  }
+  return;
+}
+
+
+
+----------------------------------------------------------------------
+Calls FROM 0x00c3dfa0 (ModelLoader wait/drain loop)
+----------------------------------------------------------------------
+  CALL 0x00c3e1b0 -> FUN_00c3e1b0 (from 0x00c3e029)
+  CALL 0x00c3e860 -> FUN_00c3e860 (from 0x00c3e06f)
+  CALL 0x00fdf104 -> unknown_0x00fdf104 (from 0x00c3e107)
+  CALL 0x00000037 -> unknown_0x00000037 (from 0x00c3e107)
+  CALL 0x00c3dbf0 -> FUN_00c3dbf0 (from 0x00c3e110)
+  CALL 0x00c3e860 -> FUN_00c3e860 (from 0x00c3e159)
+  Total: 6 calls
+
+======================================================================
+ModelLoader batch enqueue/start @ 0x00c3e1b0
+======================================================================
+  Function: FUN_00c3e1b0 @ 0x00c3e1b0, Size: 352 bytes
+
+/* WARNING: Removing unreachable block (ram,0x00c3e25e) */
+
+void FUN_00c3e1b0(int param_1,int param_2)
+
+{
+  char cVar1;
+  uint uVar2;
+  int *unaff_FS_OFFSET;
+  undefined4 local_40;
+  undefined4 local_3c;
+  int *local_34;
+  undefined **local_30 [2];
+  undefined4 local_28;
+  undefined4 local_20;
+  undefined4 local_1c;
+  byte local_18;
+  int local_10;
+  undefined1 *puStack_c;
+  int local_8;
+  
+  local_8 = 0xffffffff;
+  puStack_c = &LAB_00f2ddb7;
+  local_10 = *unaff_FS_OFFSET;
+  uVar2 = DAT_011c16bc ^ (uint)&stack0xfffffffc;
+  *unaff_FS_OFFSET = (int)&local_10;
+  if (param_2 < param_1) {
+    FUN_00c3e310(uVar2);
+    local_28 = 0;
+    local_20 = 0;
+    local_1c = 0;
+    local_18 = 0;
+    local_30[0] = &PTR_FUN_010c1664;
+    local_8 = 0;
+    FUN_00c42060(param_2 * 4 + 4);
+    while ((local_18 & 2) == 0) {
+      local_34 = (int *)0x0;
+      local_3c = 0;
+      local_40 = 0;
+      local_8._0_1_ = 1;
+      cVar1 = FUN_00c40e70(local_30,&local_40,&local_34,1);
+      if (cVar1 != '\0') {
+        uVar2 = __allshr();
+        if (param_1 < (int)(uVar2 & 0xff)) {
+          local_8 = (uint)local_8._1_3_ << 8;
+          if (local_34 != (int *)0x0) {
+            FUN_0044dd60();
+          }
+          break;
+        }
+        (**(code **)(*local_34 + 0x1c))(param_2);
+      }
+      local_8 = (uint)local_8._1_3_ << 8;
+      if (local_34 != (int *)0x0) {
+        FUN_0044dd60();
+      }
+    }
+    FUN_00c3e340();
+  }
+  *unaff_FS_OFFSET = local_10;
+  return;
+}
+
+
+
+----------------------------------------------------------------------
+Calls FROM 0x00c3e1b0 (ModelLoader batch enqueue/start)
+----------------------------------------------------------------------
+  CALL 0x00c3e310 -> FUN_00c3e310 (from 0x00c3e1e8)
+  CALL 0x00c42060 -> FUN_00c42060 (from 0x00c3e229)
+  CALL 0x00fdf1c0 -> unknown_0x00fdf1c0 (from 0x00c3e26b)
+  CALL 0x00000066 -> unknown_0x00000066 (from 0x00c3e26b)
+  CALL 0x00c40e70 -> FUN_00c40e70 (from 0x00c3e286)
+  CALL 0x00ec77e0 -> __allshr (from 0x00c3e29a)
+  CALL 0x0044dd60 -> FUN_0044dd60 (from 0x00c3e2b4)
+  CALL 0x0044dd60 -> FUN_0044dd60 (from 0x00c3e2df)
+  CALL 0x00c3e340 -> FUN_00c3e340 (from 0x00c3e2ec)
+  Total: 9 calls
+
+======================================================================
+Completed-task pop/dequeue helper @ 0x00c3e420
+======================================================================
+  Function: FUN_00c3e420 @ 0x00c3e420, Size: 97 bytes
+
+undefined4 __thiscall FUN_00c3e420(int *param_1,undefined4 param_2)
+
+{
+  char cVar1;
+  uint local_8;
+  
+  local_8 = 0;
+  while( true ) {
+    if ((uint)param_1[2] <= local_8) {
+      return 0;
+    }
+    cVar1 = FUN_00c3e490(param_2);
+    if (cVar1 != '\0') break;
+    local_8 = local_8 + 1;
+  }
+  (**(code **)(*param_1 + 8))();
+  return 1;
+}
+
+
+
+----------------------------------------------------------------------
+Calls FROM 0x00c3e420 (Completed-task pop/dequeue helper)
+----------------------------------------------------------------------
+  CALL 0x00c3e490 -> FUN_00c3e490 (from 0x00c3e456)
+  Total: 1 calls
+
+======================================================================
+Pending/expected task count helper @ 0x00c3e860
+======================================================================
+  Function: FUN_00c3e860 @ 0x00c3e860, Size: 71 bytes
+
+int __thiscall FUN_00c3e860(int param_1,uint param_2)
+
+{
+  undefined4 local_c;
+  undefined4 local_8;
+  
+  local_8 = 0;
+  for (local_c = 0; local_c <= param_2; local_c = local_c + 1) {
+    local_8 = *(int *)(*(int *)(param_1 + 0x54) + local_c * 4) + local_8;
+  }
+  return local_8;
+}
+
+
+
+----------------------------------------------------------------------
+Calls FROM 0x00c3e860 (Pending/expected task count helper)
+----------------------------------------------------------------------
+  Total: 0 calls
+
+======================================================================
+Task queue container constructor @ 0x00c3ec80
+======================================================================
+  Function: FUN_00c3ec80 @ 0x00c3ec80, Size: 495 bytes
+
+undefined4 * __thiscall
+FUN_00c3ec80(undefined4 *param_1,int param_2,undefined4 param_3,undefined4 param_4)
+
+{
+  undefined4 uVar1;
+  longlong lVar2;
+  undefined4 uVar3;
+  int iVar4;
+  int *unaff_FS_OFFSET;
+  undefined4 local_58;
+  undefined4 *local_54;
+  uint local_44;
+  undefined4 *local_40;
+  int local_10;
+  undefined1 *puStack_c;
+  undefined1 local_8;
+  undefined3 uStack_7;
+  
+  puStack_c = &LAB_00f2de5b;
+  local_10 = *unaff_FS_OFFSET;
+  *unaff_FS_OFFSET = (int)&local_10;
+  *param_1 = &PTR_FUN_01017458;
+  *param_1 = &PTR_FUN_010c16f4;
+  param_1[8] = 0;
+  param_1[9] = 0;
+  uVar1 = *(undefined4 *)(*(int *)(unaff_FS_OFFSET[0xb] + _tls_index * 4) + 0x2b4);
+  *(undefined4 *)(*(int *)(unaff_FS_OFFSET[0xb] + _tls_index * 4) + 0x2b4) = 6;
+  local_8 = 1;
+  uStack_7 = 0;
+  param_1[6] = 0;
+  param_1[2] = param_3;
+  local_44 = param_1[2];
+  local_54 = (undefined4 *)
+             FUN_00aa3e40(-(uint)((int)((ulonglong)local_44 * 4 >> 0x20) != 0) |
+                          (uint)((ulonglong)local_44 * 4));
+  local_40 = local_54;
+  if (local_54 == (undefined4 *)0x0) {
+    local_54 = (undefined4 *)0x0;
+  }
+  else {
+    while (local_44 = local_44 - 1, -1 < (int)local_44) {
+      *local_40 = 0;
+      local_40 = local_40 + 1;
+    }
+  }
+  param_1[3] = local_54;
+  lVar2 = (ulonglong)(uint)(param_2 * 3) * 4;
+  uVar3 = FUN_00aa3e40(-(uint)((int)((ulonglong)lVar2 >> 0x20) != 0) | (uint)lVar2);
+  param_1[1] = uVar3;
+  param_1[4] = param_4;
+  iVar4 = FUN_00aa3e40(0x10);
+  _local_8 = CONCAT31(uStack_7,2);
+  if (iVar4 == 0) {
+    local_58 = 0;
+  }
+  else {
+    local_58 = FUN_00c42180(param_2);
+  }
+  param_1[5] = local_58;
+  *(undefined4 *)(*(int *)(unaff_FS_OFFSET[0xb] + _tls_index * 4) + 0x2b4) = uVar1;
+  *unaff_FS_OFFSET = local_10;
+  return param_1;
+}
+
+
+
+----------------------------------------------------------------------
+Calls FROM 0x00c3ec80 (Task queue container constructor)
+----------------------------------------------------------------------
+  CALL 0x00aa3e40 -> FUN_00aa3e40 (from 0x00c3ed54)
+  CALL 0x00aa3e40 -> FUN_00aa3e40 (from 0x00c3edd3)
+  CALL 0x00aa3e40 -> FUN_00aa3e40 (from 0x00c3edf4)
+  CALL 0x00c42180 -> FUN_00c42180 (from 0x00c3ee0d)
+  Total: 4 calls
+
+======================================================================
+IOTask submit/TLS queue helper @ 0x00c3f7a0
+======================================================================
+  Function: FUN_00c3f7a0 @ 0x00c3f7a0, Size: 255 bytes
+
+undefined4 __thiscall FUN_00c3f7a0(int param_1,int param_2)
+
+{
+  undefined4 uVar1;
+  int iVar2;
+  int *unaff_FS_OFFSET;
+  undefined4 local_30;
+  int local_10;
+  undefined1 *puStack_c;
+  undefined4 local_8;
+  
+  puStack_c = &LAB_00f2df03;
+  local_10 = *unaff_FS_OFFSET;
+  *unaff_FS_OFFSET = (int)&local_10;
+  uVar1 = *(undefined4 *)(*(int *)(unaff_FS_OFFSET[0xb] + _tls_index * 4) + 0x2b4);
+  *(undefined4 *)(*(int *)(unaff_FS_OFFSET[0xb] + _tls_index * 4) + 0x2b4) = 6;
+  local_8 = 0;
+  iVar2 = FUN_00aa3e40(0x14);
+  local_8 = CONCAT31(local_8._1_3_,1);
+  if (iVar2 == 0) {
+    local_30 = 0;
+  }
+  else {
+    local_30 = FUN_0044cd00(param_1,*(int *)(param_1 + 0x10) + param_2 * 8,
+                            *(int *)(param_1 + 0x10) + 4 + param_2 * 8);
+  }
+  *(undefined4 *)(*(int *)(unaff_FS_OFFSET[0xb] + _tls_index * 4) + 0x2b4) = uVar1;
+  *unaff_FS_OFFSET = local_10;
+  return local_30;
+}
+
+
+
+----------------------------------------------------------------------
+Calls FROM 0x00c3f7a0 (IOTask submit/TLS queue helper)
+----------------------------------------------------------------------
+  CALL 0x00aa3e40 -> FUN_00aa3e40 (from 0x00c3f80d)
+  CALL 0x0044cd00 -> FUN_0044cd00 (from 0x00c3f845)
+  Total: 2 calls
+
+======================================================================
+IOManager get completion queue @ 0x00449f80
+======================================================================
+  Function: FUN_00449f80 @ 0x00449f80, Size: 26 bytes
+
+void __fastcall FUN_00449f80(undefined4 param_1)
+
+{
+  FUN_0044d5c0(param_1);
+  return;
+}
+
+
+
+----------------------------------------------------------------------
+Calls FROM 0x00449f80 (IOManager get completion queue)
+----------------------------------------------------------------------
+  CALL 0x0044d5c0 -> FUN_0044d5c0 (from 0x00449f91)
+  Total: 1 calls
+
+======================================================================
+Completion queue dequeue/get @ 0x0044d5c0
+======================================================================
+  Function: FUN_0044d5c0 @ 0x0044d5c0, Size: 56 bytes
+
+int __thiscall FUN_0044d5c0(int param_1,undefined4 param_2)
+
+{
+  int iVar1;
+  
+  iVar1 = FUN_0044d5b0(*(undefined4 *)(param_1 + 4));
+  if (iVar1 == 0) {
+    iVar1 = FUN_0044e3a0(param_2);
+  }
+  return iVar1;
+}
+
+
+
+----------------------------------------------------------------------
+Calls FROM 0x0044d5c0 (Completion queue dequeue/get)
+----------------------------------------------------------------------
+  CALL 0x0044d5b0 -> FUN_0044d5b0 (from 0x0044d5d0)
+  CALL 0x0044e3a0 -> FUN_0044e3a0 (from 0x0044d5ed)
+  Total: 2 calls
+
+======================================================================
+Lock-free completion queue pop @ 0x00c3ea60
+======================================================================
+  Function: FUN_00c3ea60 @ 0x00c3ea60, Size: 538 bytes
+
+undefined4 __thiscall FUN_00c3ea60(int *param_1,int *param_2)
+
+{
+  int *Comperand;
+  int Exchange;
+  int *piVar1;
+  
+  do {
+    while( true ) {
+      do {
+        do {
+          Comperand = *(int **)(*param_1 + 4);
+          *(int **)param_1[1] = Comperand;
+        } while (Comperand != *(int **)(*param_1 + 4));
+        piVar1 = *(int **)(*param_1 + 8);
+        Exchange = *Comperand;
+        *(int *)param_1[2] = Exchange;
+      } while (Comperand != *(int **)(*param_1 + 4));
+      if (Exchange == 0) {
+        *(undefined4 *)param_1[1] = 0;
+        if (*param_2 != 0) {
+          if (*param_2 != 0) {
+            FUN_0044dd60();
+          }
+          *param_2 = 0;
+          if (*param_2 != 0) {
+            InterlockedIncrement((LONG *)(*param_2 + 8));
+          }
+        }
+        return 0;
+      }
+      if (Comperand != piVar1) break;
+      InterlockedCompareExchange((LONG *)(*param_1 + 8),Exchange,(LONG)piVar1);
+    }
+    if (*param_2 != *(int *)(Exchange + 4)) {
+      if (*param_2 != 0) {
+        FUN_0044dd60();
+      }
+      *param_2 = *(int *)(Exchange + 4);
+      if (*param_2 != 0) {
+        InterlockedIncrement((LONG *)(*param_2 + 8));
+      }
+    }
+    piVar1 = (int *)InterlockedCompareExchange((LONG *)(*param_1 + 4),Exchange,(LONG)Comperand);
+  } while (piVar1 != Comperand);
+  (**(code **)(*(int *)*param_1 + 0xc))();
+  piVar1 = (int *)(Exchange + 4);
+  if (*piVar1 != 0) {
+    if (*piVar1 != 0) {
+      FUN_0044dd60();
+    }
+    *piVar1 = 0;
+    if (*piVar1 != 0) {
+      InterlockedIncrement((LONG *)(*piVar1 + 8));
+    }
+  }
+  *(undefined4 *)param_1[1] = 0;
+  *(undefined4 *)param_1[2] = 0;
+  FUN_00c3f090(Comperand);
+  return 1;
+}
+
+
+
+----------------------------------------------------------------------
+Calls FROM 0x00c3ea60 (Lock-free completion queue pop)
+----------------------------------------------------------------------
+  CALL 0x0044dd60 -> FUN_0044dd60 (from 0x00c3eaf6)
+  CALL 0x00fdf1c0 -> unknown_0x00fdf1c0 (from 0x00c3eb1b)
+  CALL 0x00000066 -> unknown_0x00000066 (from 0x00c3eb1b)
+  CALL 0x00fdf1bc -> unknown_0x00fdf1bc (from 0x00c3eb4d)
+  CALL 0x00000065 -> unknown_0x00000065 (from 0x00c3eb4d)
+  CALL 0x0044dd60 -> FUN_0044dd60 (from 0x00c3eb85)
+  CALL 0x00fdf1c0 -> unknown_0x00fdf1c0 (from 0x00c3ebab)
+  CALL 0x00000066 -> unknown_0x00000066 (from 0x00c3ebab)
+  CALL 0x00fdf1bc -> unknown_0x00fdf1bc (from 0x00c3ebd4)
+  CALL 0x00000065 -> unknown_0x00000065 (from 0x00c3ebd4)
+  CALL 0x0044dd60 -> FUN_0044dd60 (from 0x00c3ec1c)
+  CALL 0x00fdf1c0 -> unknown_0x00fdf1c0 (from 0x00c3ec41)
+  CALL 0x00000066 -> unknown_0x00000066 (from 0x00c3ec41)
+  CALL 0x00c3f090 -> FUN_00c3f090 (from 0x00c3ec6d)
+  Total: 14 calls
+
+======================================================================
+Completion node recycle/free @ 0x00c3f090
+======================================================================
+  Function: FUN_00c3f090 @ 0x00c3f090, Size: 160 bytes
+
+void __thiscall FUN_00c3f090(int *param_1,int param_2)
+
+{
+  int *piVar1;
+  
+  piVar1 = (int *)(param_2 + 4);
+  if (*piVar1 != 0) {
+    if (*piVar1 != 0) {
+      FUN_0044dd60();
+    }
+    *piVar1 = 0;
+    if (*piVar1 != 0) {
+      InterlockedIncrement((LONG *)(*piVar1 + 8));
+    }
+  }
+  *(int *)(param_2 + 4) = param_1[4];
+  param_1[4] = param_2;
+  param_1[3] = param_1[3] + 1;
+  if (param_1[3] == *(int *)(*param_1 + 0xc)) {
+    FUN_00c42b80();
+  }
+  return;
+}
+
+
+
+----------------------------------------------------------------------
+Calls FROM 0x00c3f090 (Completion node recycle/free)
+----------------------------------------------------------------------
+  CALL 0x0044dd60 -> FUN_0044dd60 (from 0x00c3f0b7)
+  CALL 0x00fdf1c0 -> unknown_0x00fdf1c0 (from 0x00c3f0dc)
+  CALL 0x00000066 -> unknown_0x00000066 (from 0x00c3f0dc)
+  CALL 0x00c42b80 -> FUN_00c42b80 (from 0x00c3f125)
+  Total: 4 calls
+
+======================================================================
+Completion wrapper 1 @ 0x00449280
+======================================================================
+  Function: FUN_00449280 @ 0x00449280, Size: 64 bytes
+
+undefined1 FUN_00449280(undefined4 param_1)
+
+{
+  undefined1 uVar1;
+  undefined4 extraout_var;
+  
+  FUN_0040fbf0(0);
+  FUN_00449f80(param_1,extraout_var);
+  uVar1 = FUN_0044cec0(param_1);
+  FUN_0040fba0();
+  return uVar1;
+}
+
+
+
+----------------------------------------------------------------------
+Calls FROM 0x00449280 (Completion wrapper 1)
+----------------------------------------------------------------------
+  CALL 0x0040fbf0 -> FUN_0040fbf0 (from 0x00449291)
+  CALL 0x00449f80 -> FUN_00449f80 (from 0x0044929d)
+  CALL 0x0044cec0 -> FUN_0044cec0 (from 0x004492a4)
+  CALL 0x0040fba0 -> FUN_0040fba0 (from 0x004492b2)
+  Total: 4 calls
+
+======================================================================
+Completion wrapper 2 / crash caller @ 0x00449530
+======================================================================
+  Function: FUN_00449530 @ 0x00449530, Size: 68 bytes
+
+undefined1 FUN_00449530(undefined4 param_1,undefined4 param_2)
+
+{
+  undefined1 uVar1;
+  undefined4 extraout_var;
+  
+  FUN_0040fbf0(0);
+  FUN_00449f80(param_1,param_2,extraout_var);
+  uVar1 = FUN_006ec830(param_1,param_2);
+  FUN_0040fba0();
+  return uVar1;
+}
+
+
+
+----------------------------------------------------------------------
+Calls FROM 0x00449530 (Completion wrapper 2 / crash caller)
+----------------------------------------------------------------------
+  CALL 0x0040fbf0 -> FUN_0040fbf0 (from 0x00449541)
+  CALL 0x00449f80 -> FUN_00449f80 (from 0x00449551)
+  CALL 0x006ec830 -> FUN_006ec830 (from 0x00449558)
+  CALL 0x0040fba0 -> FUN_0040fba0 (from 0x00449566)
+  Total: 4 calls
+
+======================================================================
+Completion wrapper 3 @ 0x00449580
+======================================================================
+  Function: FUN_00449580 @ 0x00449580, Size: 73 bytes
+
+undefined1 FUN_00449580(undefined4 param_1,undefined4 param_2,byte param_3)
+
+{
+  undefined1 uVar1;
+  uint uVar2;
+  undefined4 extraout_var;
+  
+  FUN_0040fbf0(0);
+  uVar2 = (uint)param_3;
+  FUN_00449f80(param_1,param_2,uVar2,extraout_var);
+  uVar1 = FUN_0044a130(param_1,param_2,uVar2);
+  FUN_0040fba0();
+  return uVar1;
+}
+
+
+
+----------------------------------------------------------------------
+Calls FROM 0x00449580 (Completion wrapper 3)
+----------------------------------------------------------------------
+  CALL 0x0040fbf0 -> FUN_0040fbf0 (from 0x00449591)
+  CALL 0x00449f80 -> FUN_00449f80 (from 0x004495a6)
+  CALL 0x0044a130 -> FUN_0044a130 (from 0x004495ad)
+  CALL 0x0040fba0 -> FUN_0040fba0 (from 0x004495bb)
+  Total: 4 calls
+
+======================================================================
+Completion wrapper 4 @ 0x004495d0
+======================================================================
+  Function: FUN_004495d0 @ 0x004495d0, Size: 64 bytes
+
+undefined1 FUN_004495d0(undefined4 param_1)
+
+{
+  undefined1 uVar1;
+  undefined4 extraout_var;
+  
+  FUN_0040fbf0(0);
+  FUN_00449f80(param_1,extraout_var);
+  uVar1 = FUN_00665f20(param_1);
+  FUN_0040fba0();
+  return uVar1;
+}
+
+
+
+----------------------------------------------------------------------
+Calls FROM 0x004495d0 (Completion wrapper 4)
+----------------------------------------------------------------------
+  CALL 0x0040fbf0 -> FUN_0040fbf0 (from 0x004495e1)
+  CALL 0x00449f80 -> FUN_00449f80 (from 0x004495ed)
+  CALL 0x00665f20 -> FUN_00665f20 (from 0x004495f4)
+  CALL 0x0040fba0 -> FUN_0040fba0 (from 0x00449602)
+  Total: 4 calls
+
+======================================================================
+Crash callee requiring non-null queue object @ 0x006ec830
+======================================================================
+  Function: FUN_006ec830 @ 0x006ec830, Size: 53 bytes
+
+void __thiscall FUN_006ec830(undefined4 *param_1,undefined4 param_2,undefined4 param_3)
+
+{
+  undefined4 uVar1;
+  undefined4 uVar2;
+  
+  uVar2 = param_2;
+  uVar1 = (**(code **)(*(int *)*param_1 + 0x24))(param_2,param_2,param_3);
+  FUN_006ec9b0(uVar1,param_2,uVar2);
+  return;
+}
+
+
+
+----------------------------------------------------------------------
+Calls FROM 0x006ec830 (Crash callee requiring non-null queue object)
+----------------------------------------------------------------------
+  CALL 0x006ec9b0 -> FUN_006ec9b0 (from 0x006ec85a)
+  Total: 1 calls
+
+======================================================================
+BSTreeManager load/find tree @ 0x00664f50
+======================================================================
+  Function: FUN_00664f50 @ 0x00664f50, Size: 874 bytes
+
+int __thiscall FUN_00664f50(int param_1,int param_2,int param_3)
+
+{
+  char cVar1;
+  uint uVar2;
+  int iVar3;
+  undefined4 uVar4;
+  int *unaff_FS_OFFSET;
+  float10 fVar5;
+  cancellation_token_source *pcVar6;
+  int *local_60;
+  undefined4 local_2c;
+  int *local_28;
+  int local_24;
+  float local_20;
+  cancellation_token_source local_18 [4];
+  int local_14;
+  int local_10;
+  undefined1 *puStack_c;
+  uint local_8;
+  
+  local_8 = 0xffffffff;
+  puStack_c = &LAB_00effd67;
+  local_10 = *unaff_FS_OFFSET;
+  uVar2 = DAT_011c16bc ^ (uint)&stack0xfffffffc;
+  *unaff_FS_OFFSET = (int)&local_10;
+  FUN_00404eb0(0x1e,1,
+               "D:\\_Fallout3\\Platforms\\Common\\Code\\Fallout Shared\\SpeedTree\\BSTreeManager.cpp"
+               ,0x1ce);
+  local_8 = 0;
+  FUN_00633c90(0);
+  local_8 = CONCAT31(local_8._1_3_,1);
+  cVar1 = FUN_0051d740(uVar2);
+  if ((((cVar1 == '\0') || (param_3 == 0)) ||
+      (iVar3 = (**(code **)(*(int *)(param_3 + 0x30) + 0x14))(), iVar3 == 0)) ||
+     ((iVar3 = FUN_0048cee0(), iVar3 == 0 ||
+      ((param_2 != 0 && (iVar3 = FUN_007af430(), iVar3 != param_3)))))) {
+    local_8 = local_8 & 0xffffff00;
+    Concurrency::cancellation_token_source::~cancellation_token_source(local_18);
+    local_8 = 0xffffffff;
+    FUN_00404ee0();
+    iVar3 = 0;
+  }
+  else {
+    local_24 = 0;
+    cVar1 = (**(code **)(**(int **)(param_1 + 0x1c) + 8))(param_2,&local_24);
+    if (cVar1 == '\0') {
+      local_2c = 1;
+      if (param_2 != 0) {
+        local_2c = FUN_005692d0();
+      }
+      pcVar6 = local_18;
+      iVar3 = param_3;
+      uVar4 = local_2c;
+      FUN_00664840(1,param_3,local_2c,pcVar6);
+      FUN_00664b50(iVar3,uVar4,pcVar6);
+      iVar3 = FUN_00559450();
+      if (iVar3 == 0) {
+        local_8 = local_8 & 0xffffff00;
+        Concurrency::cancellation_token_source::~cancellation_token_source(local_18);
+        local_8 = 0xffffffff;
+        FUN_00404ee0();
+        iVar3 = 0;
+      }
+      else {
+        FUN_00559450();
+        uVar2 = FUN_00726070();
+        if (uVar2 < 3) {
+          iVar3 = param_3;
+          FUN_00559450(param_3,local_2c);
+          cVar1 = FUN_0066ac40(iVar3,local_2c);
+          if (cVar1 == '\0') {
+            local_8 = local_8 & 0xffffff00;
+            Concurrency::cancellation_token_source::~cancellation_token_source(local_18);
+            local_8 = 0xffffffff;
+            FUN_00404ee0();
+            iVar3 = 0;
+            goto LAB_006652a9;
+          }
+          local_28 = (int *)FUN_00559450();
+        }
+        else {
+          iVar3 = FUN_00aa13e0(0x50);
+          local_8._0_1_ = 2;
+          if (iVar3 == 0) {
+            local_60 = (int *)0x0;
+          }
+          else {
+            local_60 = (int *)FUN_00666650();
+          }
+          local_8 = CONCAT31(local_8._1_3_,1);
+          local_28 = local_60;
+          uVar4 = FUN_00559450();
+          cVar1 = FUN_0066a650(uVar4);
+          if (cVar1 == '\0') {
+            if (local_60 != (int *)0x0) {
+              (**(code **)*local_60)(1);
+            }
+            local_8 = local_8 & 0xffffff00;
+            Concurrency::cancellation_token_source::~cancellation_token_source(local_18);
+            local_8 = 0xffffffff;
+            FUN_00404ee0();
+            iVar3 = 0;
+            goto LAB_006652a9;
+          }
+        }
+        local_20 = 1.0;
+        if (param_2 != 0) {
+          fVar5 = (float10)FUN_00567400();
+          local_20 = (float)fVar5;
+        }
+        local_14 = (**(code **)(*local_28 + 0xc))(local_20);
+        if (local_14 != 0) {
+          uVar4 = (**(code **)(*(int *)(param_3 + 0x30) + 0x14))();
+          uVar4 = FUN_00438170(uVar4);
+          local_8._0_1_ = 3;
+          FUN_00a5b950(uVar4);
+          local_8 = CONCAT31(local_8._1_3_,1);
+          FUN_004381b0();
+        }
+        FUN_006652c0(1);
+        iVar3 = local_14;
+        local_8 = local_8 & 0xffffff00;
+        Concurrency::cancellation_token_source::~cancellation_token_source(local_18);
+        local_8 = 0xffffffff;
+        FUN_00404ee0();
+      }
+    }
+    else {
+      (**(code **)(**(int **)(param_1 + 0x1c) + 0x14))(param_2);
+      iVar3 = local_24;
+      local_8 = local_8 & 0xffffff00;
+      Concurrency::cancellation_token_source::~cancellation_token_source(local_18);
+      local_8 = 0xffffffff;
+      FUN_00404ee0();
+    }
+  }
+LAB_006652a9:
+  *unaff_FS_OFFSET = local_10;
+  return iVar3;
+}
+
+
+
+----------------------------------------------------------------------
+Calls FROM 0x00664f50 (BSTreeManager load/find tree)
+----------------------------------------------------------------------
+  CALL 0x00404eb0 -> FUN_00404eb0 (from 0x00664f89)
+  CALL 0x00633c90 -> FUN_00633c90 (from 0x00664f9a)
+  CALL 0x0051d740 -> FUN_0051d740 (from 0x00664faa)
+  CALL 0x0048cee0 -> FUN_0048cee0 (from 0x00664fd7)
+  CALL 0x007af430 -> FUN_007af430 (from 0x00664fe9)
+  CALL 0x0045cec0 -> ~cancellation_token_source (from 0x00665001)
+  CALL 0x00404ee0 -> FUN_00404ee0 (from 0x00665010)
+  CALL 0x0045cec0 -> ~cancellation_token_source (from 0x0066506c)
+  CALL 0x00404ee0 -> FUN_00404ee0 (from 0x0066507b)
+  CALL 0x005692d0 -> FUN_005692d0 (from 0x00665098)
+  CALL 0x00664840 -> FUN_00664840 (from 0x006650ae)
+  CALL 0x00664b50 -> FUN_00664b50 (from 0x006650b8)
+  CALL 0x00559450 -> FUN_00559450 (from 0x006650c0)
+  CALL 0x0045cec0 -> ~cancellation_token_source (from 0x006650d7)
+  CALL 0x00404ee0 -> FUN_00404ee0 (from 0x006650e6)
+  CALL 0x00559450 -> FUN_00559450 (from 0x006650f6)
+  CALL 0x00726070 -> FUN_00726070 (from 0x006650fd)
+  CALL 0x00aa13e0 -> FUN_00aa13e0 (from 0x0066510d)
+  CALL 0x00666650 -> FUN_00666650 (from 0x00665125)
+  CALL 0x00559450 -> FUN_00559450 (from 0x00665149)
+  CALL 0x0066a650 -> FUN_0066a650 (from 0x00665152)
+  CALL 0x0045cec0 -> ~cancellation_token_source (from 0x00665198)
+  CALL 0x00404ee0 -> FUN_00404ee0 (from 0x006651a7)
+  CALL 0x00559450 -> FUN_00559450 (from 0x006651c1)
+  CALL 0x0066ac40 -> FUN_0066ac40 (from 0x006651c8)
+  CALL 0x0045cec0 -> ~cancellation_token_source (from 0x006651e2)
+  CALL 0x00404ee0 -> FUN_00404ee0 (from 0x006651f1)
+  CALL 0x00559450 -> FUN_00559450 (from 0x00665201)
+  CALL 0x00567400 -> FUN_00567400 (from 0x00665217)
+  CALL 0x00438170 -> FUN_00438170 (from 0x00665251)
+  CALL 0x00a5b950 -> FUN_00a5b950 (from 0x0066526a)
+  CALL 0x004381b0 -> FUN_004381b0 (from 0x00665276)
+  CALL 0x006652c0 -> FUN_006652c0 (from 0x00665280)
+  CALL 0x0045cec0 -> ~cancellation_token_source (from 0x00665292)
+  CALL 0x00404ee0 -> FUN_00404ee0 (from 0x006652a1)
+  Total: 35 calls
+
+======================================================================
+Tree load caller @ 0x0050f810
+======================================================================
+  Function: FUN_0050f810 @ 0x0050f810, Size: 171 bytes
+
+int * __thiscall FUN_0050f810(int *param_1,int param_2)
+
+{
+  int iVar1;
+  undefined4 uVar2;
+  int *piVar3;
+  int *local_8;
+  
+  local_8 = (int *)0x0;
+  iVar1 = FUN_00401170();
+  if (iVar1 == 0x25) {
+    iVar1 = FUN_00664840(1);
+    if (iVar1 != 0) {
+      iVar1 = param_2;
+      piVar3 = param_1;
+      FUN_00664840(1,param_2,param_1);
+      local_8 = (int *)FUN_00664f50(iVar1,piVar3);
+    }
+    (**(code **)(*param_1 + 0x180))(local_8);
+    if (((local_8 != (int *)0x0) && (iVar1 = (**(code **)(*local_8 + 0x100))(), iVar1 != 0)) &&
+       (param_2 != 0)) {
+      (**(code **)(*local_8 + 0x100))();
+      uVar2 = FUN_008d6f30();
+      FUN_00569350(uVar2);
+    }
+  }
+  else {
+    local_8 = (int *)0x0;
+  }
+  return local_8;
+}
+
+
+
+----------------------------------------------------------------------
+Calls FROM 0x0050f810 (Tree load caller)
+----------------------------------------------------------------------
+  CALL 0x00401170 -> FUN_00401170 (from 0x0050f823)
+  CALL 0x00664840 -> FUN_00664840 (from 0x0050f836)
+  CALL 0x00664840 -> FUN_00664840 (from 0x0050f84c)
+  CALL 0x00664f50 -> FUN_00664f50 (from 0x0050f856)
+  CALL 0x008d6f30 -> FUN_008d6f30 (from 0x0050f8a4)
+  CALL 0x00569350 -> FUN_00569350 (from 0x0050f8ad)
+  Total: 6 calls
+
+----------------------------------------------------------------------
+VTable/dispatch table IOManager vtable @ 0x010c1604
+----------------------------------------------------------------------
+  [00] +0x00: 0x00c3e3f0 -> FUN_00c3e3f0
+  [01] +0x04: 0x00c3f530 -> FUN_00c3f530
+  [02] +0x08: 0x00c3f160 -> FUN_00c3f160
+  [03] +0x0c: 0x00c3f430 -> FUN_00c3f430
+  [04] +0x10: 0x00c3f1f0 -> FUN_00c3f1f0
+  [05] +0x14: 0x00c3f2b0 -> FUN_00c3f2b0
+  [06] +0x18: 0x00c3f360 -> FUN_00c3f360
+  [07] +0x1c: 0x00c3f960 -> FUN_00c3f960
+  [08] +0x20: 0x00c3f4c0 -> FUN_00c3f4c0
+  [09] +0x24: 0x00c3e3a0 -> FUN_00c3e3a0
+  [10] +0x28: 0x008d0600 -> FUN_008d0600
+  [11] +0x2c: 0x00c3f670 -> FUN_00c3f670
+  [12] +0x30: 0x00c3f690 -> FUN_00c3f690
+  [13] +0x34: 0x00c3f6b0 -> FUN_00c3f6b0
+  [14] +0x38: 0x0084b950 -> FUN_0084b950
+  [15] +0x3c: 0x00c3f6f0 -> FUN_00c3f6f0
+  [16] +0x40: 0x00c3f8a0 -> FUN_00c3f8a0
+  [17] +0x44: 0x009611e0 -> FUN_009611e0
+  [18] +0x48: 0x00c3de80 -> FUN_00c3de80
+  [19] +0x4c: 0x00c3fc80 -> FUN_00c3fc80
+  [20] +0x50: 0x00c3fca0 -> FUN_00c3fca0
+  [21] +0x54: 0x00c3e380 -> FUN_00c3e380
+  [22] +0x58: 0x008d0560 -> FUN_008d0560
+  [23] +0x5c: 0x0112b4f4 -> unknown
+  [24] +0x60: 0x00c40b40 -> FUN_00c40b40
+  [25] +0x64: 0x00c40b20 -> FUN_00c40b20
+  [26] +0x68: 0x0112b4ac -> unknown
+  [27] +0x6c: 0x00c40b40 -> FUN_00c40b40
+
+----------------------------------------------------------------------
+VTable/dispatch table BSTaskManager vtable @ 0x010c167c
+----------------------------------------------------------------------
+  [00] +0x00: 0x00c40960 -> FUN_00c40960
+  [01] +0x04: 0x00c3f530 -> FUN_00c3f530
+  [02] +0x08: 0x00c3f160 -> FUN_00c3f160
+  [03] +0x0c: 0x00c3f430 -> FUN_00c3f430
+  [04] +0x10: 0x00c3f1f0 -> FUN_00c3f1f0
+  [05] +0x14: 0x00c3f2b0 -> FUN_00c3f2b0
+  [06] +0x18: 0x00c3f360 -> FUN_00c3f360
+  [07] +0x1c: 0x00c3f960 -> FUN_00c3f960
+  [08] +0x20: 0x00c3f4c0 -> FUN_00c3f4c0
+  [09] +0x24: 0x00c3f650 -> FUN_00c3f650
+  [10] +0x28: 0x008d0600 -> FUN_008d0600
+  [11] +0x2c: 0x00c3f670 -> FUN_00c3f670
+  [12] +0x30: 0x00c3f690 -> FUN_00c3f690
+  [13] +0x34: 0x00c3f6b0 -> FUN_00c3f6b0
+  [14] +0x38: 0x0084b950 -> FUN_0084b950
+  [15] +0x3c: 0x00c3f6f0 -> FUN_00c3f6f0
+  [16] +0x40: 0x00c3f8a0 -> FUN_00c3f8a0
+  [17] +0x44: 0x009611e0 -> FUN_009611e0
+  [18] +0x48: 0x00c3fb50 -> FUN_00c3fb50
+  [19] +0x4c: 0x00c3fc80 -> FUN_00c3fc80
+  [20] +0x50: 0x00c3fca0 -> FUN_00c3fca0
+  [21] +0x54: 0x00c3fce0 -> FUN_00c3fce0
+  [22] +0x58: 0x008d0560 -> FUN_008d0560
+  [23] +0x5c: 0x0112b554 -> unknown
+  [24] +0x60: 0x00c409b0 -> FUN_00c409b0
+  [25] +0x64: 0x00c3f710 -> FUN_00c3f710
+  [26] +0x68: 0x00c3f730 -> FUN_00c3f730
+  [27] +0x6c: 0x0084e3a0 -> FUN_0084e3a0
+
+----------------------------------------------------------------------
+VTable/dispatch table BSTaskManagerThread vtable @ 0x010c1740
+----------------------------------------------------------------------
+  [00] +0x00: 0x00c3f130 -> FUN_00c3f130
+  [01] +0x04: 0x00c410b0 -> FUN_00c410b0
+  [02] +0x08: 0x61545342 -> unknown
+  [03] +0x0c: 0x614d6b73 -> unknown
+  [04] +0x10: 0x6567616e -> unknown
+  [05] +0x14: 0x72685472 -> unknown
+  [06] +0x18: 0x00646165 -> unknown
+  [07] +0x1c: 0x0112b5fc -> unknown
+  [08] +0x20: 0x00c40a70 -> FUN_00c40a70
+  [09] +0x24: 0x00c3f7a0 -> FUN_00c3f7a0
+  [10] +0x28: 0x00c3f6f0 -> FUN_00c3f6f0
+  [11] +0x2c: 0x00c3f8a0 -> FUN_00c3f8a0
+  [12] +0x30: 0x009611e0 -> FUN_009611e0
+  [13] +0x34: 0x736f5069 -> unknown
+  [14] +0x38: 0x6f725074 -> unknown
+  [15] +0x3c: 0x73736563 -> unknown
+  [16] +0x40: 0x6c6c694d -> unknown
+  [17] +0x44: 0x63657369 -> unknown
+  [18] +0x48: 0x73646e6f -> unknown
+  [19] +0x4c: 0x6361423a -> unknown
+  [20] +0x50: 0x6f72676b -> unknown
+  [21] +0x54: 0x4c646e75 -> unknown
+  [22] +0x58: 0x0064616f -> unknown
+  [23] +0x5c: 0x736f5069 -> unknown
+
+----------------------------------------------------------------------
+VTable/dispatch table BSTaskThread base vtable @ 0x010c1844
+----------------------------------------------------------------------
+  [00] +0x00: 0x00c3f130 -> FUN_00c3f130
+  [01] +0x04: 0x00ec60fa -> unknown
+  [02] +0x08: 0x00000000 -> unknown
+  [03] +0x0c: 0x0112b65c -> unknown
+  [04] +0x10: 0x00c43620 -> FUN_00c43620
+  [05] +0x14: 0x00cfcc20 -> FUN_00cfcc20
+  [06] +0x18: 0x00c43650 -> FUN_00c43650
+  [07] +0x1c: 0x00acbb70 -> FUN_00acbb70
+  [08] +0x20: 0x00acbb70 -> FUN_00acbb70
+  [09] +0x24: 0x00acbb70 -> FUN_00acbb70
+  [10] +0x28: 0x00acbb70 -> FUN_00acbb70
+  [11] +0x2c: 0x00acbb70 -> FUN_00acbb70
+  [12] +0x30: 0x00acbb70 -> FUN_00acbb70
+  [13] +0x34: 0x00acbb70 -> FUN_00acbb70
+  [14] +0x38: 0x00acbb70 -> FUN_00acbb70
+  [15] +0x3c: 0x00acbb70 -> FUN_00acbb70
+
+----------------------------------------------------------------------
+VTable/dispatch table Worker task iterator state A @ 0x010c1664
+----------------------------------------------------------------------
+  [00] +0x00: 0x00c40b40 -> FUN_00c40b40
+  [01] +0x04: 0x00c40b20 -> FUN_00c40b20
+  [02] +0x08: 0x0112b4ac -> unknown
+  [03] +0x0c: 0x00c40b40 -> FUN_00c40b40
+  [04] +0x10: 0x00c40b20 -> FUN_00c40b20
+  [05] +0x14: 0x0112b540 -> unknown
+  [06] +0x18: 0x00c40960 -> FUN_00c40960
+  [07] +0x1c: 0x00c3f530 -> FUN_00c3f530
+  [08] +0x20: 0x00c3f160 -> FUN_00c3f160
+  [09] +0x24: 0x00c3f430 -> FUN_00c3f430
+  [10] +0x28: 0x00c3f1f0 -> FUN_00c3f1f0
+  [11] +0x2c: 0x00c3f2b0 -> FUN_00c3f2b0
+
+----------------------------------------------------------------------
+VTable/dispatch table Worker task iterator state B @ 0x010c1670
+----------------------------------------------------------------------
+  [00] +0x00: 0x00c40b40 -> FUN_00c40b40
+  [01] +0x04: 0x00c40b20 -> FUN_00c40b20
+  [02] +0x08: 0x0112b540 -> unknown
+  [03] +0x0c: 0x00c40960 -> FUN_00c40960
+  [04] +0x10: 0x00c3f530 -> FUN_00c3f530
+  [05] +0x14: 0x00c3f160 -> FUN_00c3f160
+  [06] +0x18: 0x00c3f430 -> FUN_00c3f430
+  [07] +0x1c: 0x00c3f1f0 -> FUN_00c3f1f0
+  [08] +0x20: 0x00c3f2b0 -> FUN_00c3f2b0
+  [09] +0x24: 0x00c3f360 -> FUN_00c3f360
+  [10] +0x28: 0x00c3f960 -> FUN_00c3f960
+  [11] +0x2c: 0x00c3f4c0 -> FUN_00c3f4c0
+
+----------------------------------------------------------------------
+VTable/dispatch table QueuedTexture vtable @ 0x01016788
+----------------------------------------------------------------------
+  [00] +0x00: 0x0043be30 -> FUN_0043be30
+  [01] +0x04: 0x0043c150 -> FUN_0043c150
+  [02] +0x08: 0x0043c550 -> FUN_0043c550
+  [03] +0x0c: 0x0043c650 -> FUN_0043c650
+  [04] +0x10: 0x0043c6b0 -> FUN_0043c6b0
+  [05] +0x14: 0x00483710 -> FUN_00483710
+  [06] +0x18: 0x00c3d440 -> FUN_00c3d440
+  [07] +0x1c: 0x00c3cae0 -> FUN_00c3cae0
+  [08] +0x20: 0x0043c050 -> FUN_0043c050
+  [09] +0x24: 0x0043bde0 -> FUN_0043bde0
+  [10] +0x28: 0x00c3c930 -> FUN_00c3c930
+  [11] +0x2c: 0x0043bfe0 -> FUN_0043bfe0
+  [12] +0x30: 0x45444f4d -> unknown
+  [13] +0x34: 0x203a534c -> unknown
+  [14] +0x38: 0x6c756f43 -> unknown
+  [15] +0x3c: 0x6f6e2064 -> unknown
+  [16] +0x40: 0x65672074 -> unknown
+  [17] +0x44: 0x69662074 -> unknown
+  [18] +0x48: 0x6620656c -> unknown
+  [19] +0x4c: 0x7420726f -> unknown
+  [20] +0x50: 0x75747865 -> unknown
+  [21] +0x54: 0x25206572 -> unknown
+  [22] +0x58: 0x00002e73 -> unknown
+  [23] +0x5c: 0x00000000 -> unknown
+
+----------------------------------------------------------------------
+References TO 0x01202dd8 (main-thread drain reentrancy flag)
+----------------------------------------------------------------------
+  READ @ 0x00c3dc1e (in FUN_00c3dbf0)
+  WRITE @ 0x00c3dc34 (in FUN_00c3dbf0)
+  WRITE @ 0x00c3de42 (in FUN_00c3dbf0)
+  Total: 3 refs
+
+----------------------------------------------------------------------
+References TO 0x011af70c (ModelLoader loading-complete flag)
+----------------------------------------------------------------------
+  WRITE @ 0x00452e46 (in FUN_00452e40)
+  WRITE @ 0x00c3dfb7 (in FUN_00c3dfa0)
+  WRITE @ 0x00c3e00b (in FUN_00c3dfa0)
+  WRITE @ 0x00c3e194 (in FUN_00c3dfa0)
+  Total: 4 refs
+
+----------------------------------------------------------------------
+References TO 0x01202d98 (IOManager singleton)
+----------------------------------------------------------------------
+  READ @ 0x0086b2c1 (in FUN_0086a850)
+  READ @ 0x00448448 (in FUN_00448420)
+  READ @ 0x004484b1 (in FUN_00448420)
+  READ @ 0x00448532 (in FUN_00448420)
+  READ @ 0x004485a6 (in FUN_00448420)
+  READ @ 0x004485bf (in FUN_00448420)
+  READ @ 0x004485c7 (in FUN_00448420)
+  READ @ 0x004485d2 (in FUN_00448420)
+  READ @ 0x004455d6 (in FUN_00445570)
+  READ @ 0x00445637 (in FUN_00445570)
+  READ @ 0x0054a5bc (in FUN_0054a070)
+  READ @ 0x0054a5c3 (in FUN_0054a070)
+  READ @ 0x0063fc3a (in FUN_0063fb70)
+  READ @ 0x0063fc42 (in FUN_0063fb70)
+  READ @ 0x006fa516 (in FUN_006fa420)
+  READ @ 0x006f549d (in FUN_006f5370)
+  READ @ 0x006f54c5 (in FUN_006f5370)
+  READ @ 0x006f7711 (in FUN_006f76b0)
+  READ @ 0x00837181 (in FUN_00837060)
+  READ @ 0x00837189 (in FUN_00837060)
+  READ @ 0x008492cb (in FUN_008492b0)
+  READ @ 0x0084934e (in FUN_008492b0)
+  READ @ 0x00849359 (in FUN_008492b0)
+  READ @ 0x00445536 (in FUN_004454d0)
+  READ @ 0x004508db (in FUN_00450770)
+  WRITE @ 0x00450909 (in FUN_00450770)
+  READ @ 0x00528043 (in FUN_00527fc0)
+  READ @ 0x00445496 (in FUN_00445430)
+  WRITE @ 0x0044fedc (in FUN_0044fb20)
+  READ @ 0x004429fc (in FUN_00442650)
+  READ @ 0x00442a0a (in FUN_00442650)
+  READ @ 0x00442a1a (in FUN_00442650)
+  READ @ 0x00442a2a (in FUN_00442650)
+  READ @ 0x00442a3a (in FUN_00442650)
+  READ @ 0x00442a4a (in FUN_00442650)
+  READ @ 0x00442a5a (in FUN_00442650)
+  READ @ 0x0086e891 (in FUN_0086e650)
+  READ @ 0x00456053 (in FUN_004556d0)
+  READ @ 0x004513bb (in FUN_004512c0)
+  READ @ 0x0045414d (in FUN_00453dc0)
+  READ @ 0x00454769 (in FUN_00454450)
+  READ @ 0x0046e46e (in FUN_0046ddb0)
+  READ @ 0x0052827a (in FUN_005281f0)
+  READ @ 0x00528355 (in FUN_005282d0)
+  READ @ 0x00528501 (in FUN_005283c0)
+  READ @ 0x00528509 (in FUN_005283c0)
+  READ @ 0x0044366d (in FUN_00443540)
+  READ @ 0x006f63f6 (in FUN_006f6370)
+  READ @ 0x006f642b (in FUN_006f6370)
+  READ @ 0x006f65c6 (in FUN_006f6540)
+  READ @ 0x006f65fb (in FUN_006f6540)
+  READ @ 0x00850bb3 (in FUN_00850ba0)
+  READ @ 0x00850bf7 (in FUN_00850bf0)
+  READ @ 0x00858b41 (in FUN_00858af0)
+  READ @ 0x00858e74 (in FUN_00858af0)
+  READ @ 0x00858e7f (in FUN_00858af0)
+  READ @ 0x008590bf (in FUN_00858af0)
+  READ @ 0x00856d61 (in FUN_00856ca0)
+  READ @ 0x008571da (in FUN_00856ca0)
+  READ @ 0x0086131f (in FUN_00861130)
+  READ @ 0x0086133f (in FUN_00861130)
+  READ @ 0x007fa99b (in FUN_007fa990)
+  READ @ 0x00877345 (in FUN_00877260)
+  READ @ 0x00878163 (in FUN_00878160)
+  READ @ 0x00878243 (in FUN_00878200)
+  READ @ 0x0093c56f (in FUN_0093c200)
+  READ @ 0x00847fe9 (in FUN_00847df0)
+  READ @ 0x00973440 (in FUN_00972d30)
+  READ @ 0x00addb82 (in FUN_00add960)
+  READ @ 0x00addb8a (in FUN_00add960)
+  READ @ 0x00b61b11 (in FUN_00b61980)
+  READ @ 0x00b61bc0 (in FUN_00b61980)
+  READ @ 0x00866c49 (in FUN_00866a90)
+  READ @ 0x00866c61 (in FUN_00866a90)
+  READ @ 0x00866c6e (in FUN_00866a90)
+  READ @ 0x00866c7b (in FUN_00866a90)
+  READ @ 0x00866c93 (in FUN_00866a90)
+  READ @ 0x00866ca0 (in FUN_00866a90)
+  READ @ 0x007b274e (in FUN_007b25a0)
+  READ @ 0x00adf15b (in FUN_00adf080)
+  READ @ 0x00adf383 (in FUN_00adf080)
+  ... (truncated)
+  Total: 81 refs
+
+----------------------------------------------------------------------
+References TO 0x011d5c48 (BSTreeManager singleton)
+----------------------------------------------------------------------
+  READ @ 0x00664946 (in FUN_00664940)
+  READ @ 0x0066494f (in FUN_00664940)
+  WRITE @ 0x00664979 (in FUN_00664940)
+  READ @ 0x00664843 (in FUN_00664840)
+  READ @ 0x0066485e (in FUN_00664840)
+  READ @ 0x006648b2 (in FUN_00664870)
+  WRITE @ 0x00664913 (in FUN_00664870)
+  READ @ 0x0043da53 (in FUN_0043da00)
+  READ @ 0x0043da6c (in FUN_0043da00)
+  READ @ 0x0043dae4 (in FUN_0043dac0)
+  Total: 10 refs
+
+----------------------------------------------------------------------
+References TO 0x00449f80 (IOManager get completion queue)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x0044c6a3 (in FUN_0044c640)
+  UNCONDITIONAL_CALL @ 0x0044c6d3 (in FUN_0044c640)
+  UNCONDITIONAL_CALL @ 0x006c600b (in FUN_006c5ff0)
+  UNCONDITIONAL_CALL @ 0x006c604d (in FUN_006c6030)
+  UNCONDITIONAL_CALL @ 0x009065d3 (in FUN_00906570)
+  UNCONDITIONAL_CALL @ 0x00906603 (in FUN_00906570)
+  UNCONDITIONAL_CALL @ 0x00c3e4ad (in FUN_00c3e490)
+  UNCONDITIONAL_CALL @ 0x0044925b (in FUN_00449240)
+  UNCONDITIONAL_CALL @ 0x0044929d (in FUN_00449280)
+  UNCONDITIONAL_CALL @ 0x0044b933 (in FUN_0044b8d0)
+  UNCONDITIONAL_CALL @ 0x0044b963 (in FUN_0044b8d0)
+  UNCONDITIONAL_CALL @ 0x0044b9e1 (in FUN_0044b8d0)
+  UNCONDITIONAL_CALL @ 0x00449551 (in FUN_00449530)
+  UNCONDITIONAL_CALL @ 0x004495a6 (in FUN_00449580)
+  UNCONDITIONAL_CALL @ 0x004495ed (in FUN_004495d0)
+  UNCONDITIONAL_CALL @ 0x00449721 (in FUN_00449700)
+  UNCONDITIONAL_CALL @ 0x004498c4 (in FUN_004498b0)
+  UNCONDITIONAL_CALL @ 0x0044bba4 (in FUN_0044bb90)
+  UNCONDITIONAL_CALL @ 0x0044bd81 (in FUN_0044bd60)
+  UNCONDITIONAL_CALL @ 0x00528b86 (in FUN_00528b60)
+  UNCONDITIONAL_CALL @ 0x006ec80a (in FUN_006ec7e0)
+  UNCONDITIONAL_CALL @ 0x009062fd (in FUN_009062e0)
+  UNCONDITIONAL_CALL @ 0x00906367 (in FUN_00906320)
+  UNCONDITIONAL_CALL @ 0x009063da (in FUN_009063b0)
+  Total: 24 refs
+
+----------------------------------------------------------------------
+References TO 0x00c3dbf0 (main-thread completed task drain)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x0086e897 (in FUN_0086e650)
+  UNCONDITIONAL_CALL @ 0x00c3e110 (in FUN_00c3dfa0)
+  Total: 2 refs
+
+----------------------------------------------------------------------
+References TO 0x00c3dfa0 (ModelLoader wait/drain loop)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x0045652c (in FUN_00456520)
+  UNCONDITIONAL_CALL @ 0x004513c1 (in FUN_004512c0)
+  UNCONDITIONAL_CALL @ 0x00454153 (in FUN_00453dc0)
+  UNCONDITIONAL_CALL @ 0x0045476f (in FUN_00454450)
+  UNCONDITIONAL_CALL @ 0x007fa9a1 (in FUN_007fa990)
+  UNCONDITIONAL_CALL @ 0x00973446 (in FUN_00972d30)
+  UNCONDITIONAL_CALL @ 0x00943964 (in ???)
+  Total: 7 refs
+
+----------------------------------------------------------------------
+References TO 0x00c410b0 (BSTaskManagerThread loop)
+----------------------------------------------------------------------
+  Total: 0 refs
+
+======================================================================
+CALLER SCAN: IOManager get completion queue @ 0x00449f80
+======================================================================
+
+Caller 1: UNCONDITIONAL_CALL @ 0x0044c6a3 in FUN_0044c640
+
+----------------------------------------------------------------------
+Disassembly caller of IOManager get completion queue around 0x0044c6a3
+----------------------------------------------------------------------
+  0x0044c691: PUSH EAX                              
+  0x0044c692: MOV ECX,dword ptr [EBP + 0x8]         
+  0x0044c695: ADD ECX,0x8                           
+  0x0044c698: PUSH ECX                              
+  0x0044c699: MOV EDX,dword ptr [EBP + 0x8]         
+  0x0044c69c: MOV EAX,dword ptr [EDX + 0x4]         
+  0x0044c69f: PUSH EAX                              
+  0x0044c6a0: MOV ECX,dword ptr [EBP + -0x8]        
+  0x0044c6a3: CALL 0x00449f80                        << TARGET
+  0x0044c6a8: MOV ECX,EAX                           
+  0x0044c6aa: CALL 0x0044ea60                       
+  0x0044c6af: MOV byte ptr [EBP + -0x1],AL          
+  0x0044c6b2: PUSH 0x1                              
+  0x0044c6b4: MOV ECX,dword ptr [EBP + 0x8]         
+  0x0044c6b7: CALL 0x0044de40                       
+  0x0044c6bc: JMP 0x0044c6e2                        
+  0x0044c6be: MOV ECX,dword ptr [EBP + 0x10]        
+  0x0044c6c1: PUSH ECX                              
+  0x0044c6c2: MOV EDX,dword ptr [EBP + 0x8]         
+  0x0044c6c5: ADD EDX,0x8                           
+  0x0044c6c8: PUSH EDX                              
+  0x0044c6c9: MOV EAX,dword ptr [EBP + 0x8]         
+  0x0044c6cc: MOV ECX,dword ptr [EAX + 0x4]         
+  0x0044c6cf: PUSH ECX                              
+  0x0044c6d0: MOV ECX,dword ptr [EBP + -0x8]        
+
+======================================================================
+Caller function FUN_0044c640 @ 0x0044c640
+======================================================================
+  Function: FUN_0044c640 @ 0x0044c640, Size: 271 bytes
+
+char FUN_0044c640(int param_1,undefined4 *param_2,undefined4 param_3,char param_4)
+
+{
+  char cVar1;
+  uint uVar2;
+  int iVar3;
+  undefined4 uVar4;
+  undefined4 uVar5;
+  undefined4 extraout_var;
+  char local_5;
+  
+  FUN_0040fbf0(0);
+  cVar1 = FUN_006ebde0(extraout_var);
+  if (cVar1 == '\0') {
+    while( true ) {
+      cVar1 = FUN_0044de20();
+      if (cVar1 == '\0') {
+        iVar3 = param_1 + 8;
+        uVar4 = *(undefined4 *)(param_1 + 4);
+        uVar5 = param_3;
+        FUN_00449f80(uVar4,iVar3,param_3);
+        local_5 = FUN_0044ea60(uVar4,iVar3,uVar5);
+        FUN_0044de40(1);
+      }
+      else {
+        iVar3 = param_1 + 8;
+        uVar4 = *(undefined4 *)(param_1 + 4);
+        uVar5 = param_3;
+        FUN_00449f80(uVar4,iVar3,param_3);
+        local_5 = FUN_0044eb80(uVar4,iVar3,uVar5);
+      }
+      if (local_5 != '\0') break;
+      *(int *)(param_1 + 4) = *(int *)(param_1 + 4) + 1;
+      uVar2 = FUN_0044ddc0();
+      if (uVar2 <= *(uint *)(param_1 + 4)) {
+        FUN_0044de80(1);
+        goto LAB_0044c740;
+      }
+      if (param_4 == '\0') goto LAB_0044c740;
+      FUN_0044de40(0);
+    }
+    *param_2 = *(undefined4 *)(param_1 + 8);
+  }
+  else {
+    local_5 = '\0';
+  }
+LAB_0044c740:
+  FUN_0040fba0();
+  return local_5;
+}
+
+
+
+Caller 2: UNCONDITIONAL_CALL @ 0x0044c6d3 in FUN_0044c640
+
+----------------------------------------------------------------------
+Disassembly caller of IOManager get completion queue around 0x0044c6d3
+----------------------------------------------------------------------
+  0x0044c6c1: PUSH ECX                              
+  0x0044c6c2: MOV EDX,dword ptr [EBP + 0x8]         
+  0x0044c6c5: ADD EDX,0x8                           
+  0x0044c6c8: PUSH EDX                              
+  0x0044c6c9: MOV EAX,dword ptr [EBP + 0x8]         
+  0x0044c6cc: MOV ECX,dword ptr [EAX + 0x4]         
+  0x0044c6cf: PUSH ECX                              
+  0x0044c6d0: MOV ECX,dword ptr [EBP + -0x8]        
+  0x0044c6d3: CALL 0x00449f80                        << TARGET
+  0x0044c6d8: MOV ECX,EAX                           
+  0x0044c6da: CALL 0x0044eb80                       
+  0x0044c6df: MOV byte ptr [EBP + -0x1],AL          
+  0x0044c6e2: MOVZX EDX,byte ptr [EBP + -0x1]       
+  0x0044c6e6: TEST EDX,EDX                          
+  0x0044c6e8: JNZ 0x0044c72e                        
+  0x0044c6ea: MOV EAX,dword ptr [EBP + 0x8]         
+  0x0044c6ed: MOV ECX,dword ptr [EAX + 0x4]         
+  0x0044c6f0: ADD ECX,0x1                           
+  0x0044c6f3: MOV EDX,dword ptr [EBP + 0x8]         
+  0x0044c6f6: MOV dword ptr [EDX + 0x4],ECX         
+  0x0044c6f9: MOV ECX,dword ptr [EBP + -0x8]        
+  0x0044c6fc: CALL 0x0044ddc0                       
+  0x0044c701: MOV ECX,dword ptr [EBP + 0x8]         
+  0x0044c704: CMP dword ptr [ECX + 0x4],EAX         
+  0x0044c707: JC 0x0044c715                         
+
+======================================================================
+Caller function FUN_0044c640 @ 0x0044c640
+======================================================================
+  Function: FUN_0044c640 @ 0x0044c640, Size: 271 bytes
+
+char FUN_0044c640(int param_1,undefined4 *param_2,undefined4 param_3,char param_4)
+
+{
+  char cVar1;
+  uint uVar2;
+  int iVar3;
+  undefined4 uVar4;
+  undefined4 uVar5;
+  undefined4 extraout_var;
+  char local_5;
+  
+  FUN_0040fbf0(0);
+  cVar1 = FUN_006ebde0(extraout_var);
+  if (cVar1 == '\0') {
+    while( true ) {
+      cVar1 = FUN_0044de20();
+      if (cVar1 == '\0') {
+        iVar3 = param_1 + 8;
+        uVar4 = *(undefined4 *)(param_1 + 4);
+        uVar5 = param_3;
+        FUN_00449f80(uVar4,iVar3,param_3);
+        local_5 = FUN_0044ea60(uVar4,iVar3,uVar5);
+        FUN_0044de40(1);
+      }
+      else {
+        iVar3 = param_1 + 8;
+        uVar4 = *(undefined4 *)(param_1 + 4);
+        uVar5 = param_3;
+        FUN_00449f80(uVar4,iVar3,param_3);
+        local_5 = FUN_0044eb80(uVar4,iVar3,uVar5);
+      }
+      if (local_5 != '\0') break;
+      *(int *)(param_1 + 4) = *(int *)(param_1 + 4) + 1;
+      uVar2 = FUN_0044ddc0();
+      if (uVar2 <= *(uint *)(param_1 + 4)) {
+        FUN_0044de80(1);
+        goto LAB_0044c740;
+      }
+      if (param_4 == '\0') goto LAB_0044c740;
+      FUN_0044de40(0);
+    }
+    *param_2 = *(undefined4 *)(param_1 + 8);
+  }
+  else {
+    local_5 = '\0';
+  }
+LAB_0044c740:
+  FUN_0040fba0();
+  return local_5;
+}
+
+
+
+Caller 3: UNCONDITIONAL_CALL @ 0x006c600b in FUN_006c5ff0
+
+----------------------------------------------------------------------
+Disassembly caller of IOManager get completion queue around 0x006c600b
+----------------------------------------------------------------------
+  0x006c5ff4: MOV dword ptr [EBP + -0x4],ECX        
+  0x006c5ff7: PUSH 0x0                              
+  0x006c5ff9: MOV ECX,dword ptr [EBP + -0x4]        
+  0x006c5ffc: ADD ECX,0x20                          
+  0x006c5fff: CALL 0x0040fbf0                       
+  0x006c6004: MOV EAX,dword ptr [EBP + 0x8]         
+  0x006c6007: PUSH EAX                              
+  0x006c6008: MOV ECX,dword ptr [EBP + -0x4]        
+  0x006c600b: CALL 0x00449f80                        << TARGET
+  0x006c6010: MOV ECX,EAX                           
+  0x006c6012: CALL 0x006c6e60                       
+  0x006c6017: MOV ECX,dword ptr [EBP + -0x4]        
+  0x006c601a: ADD ECX,0x20                          
+  0x006c601d: CALL 0x0040fba0                       
+  0x006c6022: MOV ESP,EBP                           
+  0x006c6024: POP EBP                               
+  0x006c6025: RET 0x4                               
+  0x006c6030: PUSH EBP                              
+  0x006c6031: MOV EBP,ESP                           
+  0x006c6033: SUB ESP,0x8                           
+  0x006c6036: MOV dword ptr [EBP + -0x8],ECX        
+  0x006c6039: PUSH 0x0                              
+  0x006c603b: MOV ECX,dword ptr [EBP + -0x8]        
+  0x006c603e: ADD ECX,0x20                          
+  0x006c6041: CALL 0x0040fbf0                       
+
+======================================================================
+Caller function FUN_006c5ff0 @ 0x006c5ff0
+======================================================================
+  Function: FUN_006c5ff0 @ 0x006c5ff0, Size: 56 bytes
+
+void FUN_006c5ff0(undefined4 param_1)
+
+{
+  undefined4 extraout_var;
+  
+  FUN_0040fbf0(0);
+  FUN_00449f80(param_1,extraout_var);
+  FUN_006c6e60(param_1);
+  FUN_0040fba0();
+  return;
+}
+
+
+
+Caller 4: UNCONDITIONAL_CALL @ 0x006c604d in FUN_006c6030
+
+----------------------------------------------------------------------
+Disassembly caller of IOManager get completion queue around 0x006c604d
+----------------------------------------------------------------------
+  0x006c6036: MOV dword ptr [EBP + -0x8],ECX        
+  0x006c6039: PUSH 0x0                              
+  0x006c603b: MOV ECX,dword ptr [EBP + -0x8]        
+  0x006c603e: ADD ECX,0x20                          
+  0x006c6041: CALL 0x0040fbf0                       
+  0x006c6046: MOV EAX,dword ptr [EBP + 0x8]         
+  0x006c6049: PUSH EAX                              
+  0x006c604a: MOV ECX,dword ptr [EBP + -0x8]        
+  0x006c604d: CALL 0x00449f80                        << TARGET
+  0x006c6052: MOV ECX,EAX                           
+  0x006c6054: CALL 0x006c6fe0                       
+  0x006c6059: MOV byte ptr [EBP + -0x1],AL          
+  0x006c605c: MOV ECX,dword ptr [EBP + -0x8]        
+  0x006c605f: ADD ECX,0x20                          
+  0x006c6062: CALL 0x0040fba0                       
+  0x006c6067: MOV AL,byte ptr [EBP + -0x1]          
+  0x006c606a: MOV ESP,EBP                           
+  0x006c606c: POP EBP                               
+  0x006c606d: RET 0x4                               
+  0x006c6070: PUSH EBP                              
+  0x006c6071: MOV EBP,ESP                           
+  0x006c6073: PUSH ECX                              
+  0x006c6074: MOV dword ptr [EBP + -0x4],ECX        
+  0x006c6077: MOV EAX,dword ptr [EBP + 0x8]         
+  0x006c607a: PUSH EAX                              
+
+======================================================================
+Caller function FUN_006c6030 @ 0x006c6030
+======================================================================
+  Function: FUN_006c6030 @ 0x006c6030, Size: 64 bytes
+
+undefined1 FUN_006c6030(undefined4 param_1)
+
+{
+  undefined1 uVar1;
+  undefined4 extraout_var;
+  
+  FUN_0040fbf0(0);
+  FUN_00449f80(param_1,extraout_var);
+  uVar1 = FUN_006c6fe0(param_1);
+  FUN_0040fba0();
+  return uVar1;
+}
+
+
+
+Caller 5: UNCONDITIONAL_CALL @ 0x009065d3 in FUN_00906570
+
+----------------------------------------------------------------------
+Disassembly caller of IOManager get completion queue around 0x009065d3
+----------------------------------------------------------------------
+  0x009065c1: PUSH EAX                              
+  0x009065c2: MOV ECX,dword ptr [EBP + 0x8]         
+  0x009065c5: ADD ECX,0x8                           
+  0x009065c8: PUSH ECX                              
+  0x009065c9: MOV EDX,dword ptr [EBP + 0x8]         
+  0x009065cc: MOV EAX,dword ptr [EDX + 0x4]         
+  0x009065cf: PUSH EAX                              
+  0x009065d0: MOV ECX,dword ptr [EBP + -0x8]        
+  0x009065d3: CALL 0x00449f80                        << TARGET
+  0x009065d8: MOV ECX,EAX                           
+  0x009065da: CALL 0x00906af0                       
+  0x009065df: MOV byte ptr [EBP + -0x1],AL          
+  0x009065e2: PUSH 0x1                              
+  0x009065e4: MOV ECX,dword ptr [EBP + 0x8]         
+  0x009065e7: CALL 0x0044de40                       
+  0x009065ec: JMP 0x00906612                        
+  0x009065ee: MOV ECX,dword ptr [EBP + 0x10]        
+  0x009065f1: PUSH ECX                              
+  0x009065f2: MOV EDX,dword ptr [EBP + 0x8]         
+  0x009065f5: ADD EDX,0x8                           
+  0x009065f8: PUSH EDX                              
+  0x009065f9: MOV EAX,dword ptr [EBP + 0x8]         
+  0x009065fc: MOV ECX,dword ptr [EAX + 0x4]         
+  0x009065ff: PUSH ECX                              
+  0x00906600: MOV ECX,dword ptr [EBP + -0x8]        
+
+======================================================================
+Caller function FUN_00906570 @ 0x00906570
+======================================================================
+  Function: FUN_00906570 @ 0x00906570, Size: 271 bytes
+
+char FUN_00906570(int param_1,undefined4 *param_2,undefined4 param_3,char param_4)
+
+{
+  char cVar1;
+  uint uVar2;
+  int iVar3;
+  undefined4 uVar4;
+  undefined4 uVar5;
+  undefined4 extraout_var;
+  char local_5;
+  
+  FUN_0040fbf0(0);
+  cVar1 = FUN_006ebde0(extraout_var);
+  if (cVar1 == '\0') {
+    while( true ) {
+      cVar1 = FUN_0044de20();
+      if (cVar1 == '\0') {
+        iVar3 = param_1 + 8;
+        uVar4 = *(undefined4 *)(param_1 + 4);
+        uVar5 = param_3;
+        FUN_00449f80(uVar4,iVar3,param_3);
+        local_5 = FUN_00906af0(uVar4,iVar3,uVar5);
+        FUN_0044de40(1);
+      }
+      else {
+        iVar3 = param_1 + 8;
+        uVar4 = *(undefined4 *)(param_1 + 4);
+        uVar5 = param_3;
+        FUN_00449f80(uVar4,iVar3,param_3);
+        local_5 = FUN_00906c10(uVar4,iVar3,uVar5);
+      }
+      if (local_5 != '\0') break;
+      *(int *)(param_1 + 4) = *(int *)(param_1 + 4) + 1;
+      uVar2 = FUN_0044ddc0();
+      if (uVar2 <= *(uint *)(param_1 + 4)) {
+        FUN_0044de80(1);
+        goto LAB_00906670;
+      }
+      if (param_4 == '\0') goto LAB_00906670;
+      FUN_0044de40(0);
+    }
+    *param_2 = *(undefined4 *)(param_1 + 8);
+  }
+  else {
+    local_5 = '\0';
+  }
+LAB_00906670:
+  FUN_0040fba0();
+  return local_5;
+}
+
+
+
+Caller 6: UNCONDITIONAL_CALL @ 0x00906603 in FUN_00906570
+
+----------------------------------------------------------------------
+Disassembly caller of IOManager get completion queue around 0x00906603
+----------------------------------------------------------------------
+  0x009065f1: PUSH ECX                              
+  0x009065f2: MOV EDX,dword ptr [EBP + 0x8]         
+  0x009065f5: ADD EDX,0x8                           
+  0x009065f8: PUSH EDX                              
+  0x009065f9: MOV EAX,dword ptr [EBP + 0x8]         
+  0x009065fc: MOV ECX,dword ptr [EAX + 0x4]         
+  0x009065ff: PUSH ECX                              
+  0x00906600: MOV ECX,dword ptr [EBP + -0x8]        
+  0x00906603: CALL 0x00449f80                        << TARGET
+  0x00906608: MOV ECX,EAX                           
+  0x0090660a: CALL 0x00906c10                       
+  0x0090660f: MOV byte ptr [EBP + -0x1],AL          
+  0x00906612: MOVZX EDX,byte ptr [EBP + -0x1]       
+  0x00906616: TEST EDX,EDX                          
+  0x00906618: JNZ 0x0090665e                        
+  0x0090661a: MOV EAX,dword ptr [EBP + 0x8]         
+  0x0090661d: MOV ECX,dword ptr [EAX + 0x4]         
+  0x00906620: ADD ECX,0x1                           
+  0x00906623: MOV EDX,dword ptr [EBP + 0x8]         
+  0x00906626: MOV dword ptr [EDX + 0x4],ECX         
+  0x00906629: MOV ECX,dword ptr [EBP + -0x8]        
+  0x0090662c: CALL 0x0044ddc0                       
+  0x00906631: MOV ECX,dword ptr [EBP + 0x8]         
+  0x00906634: CMP dword ptr [ECX + 0x4],EAX         
+  0x00906637: JC 0x00906645                         
+
+======================================================================
+Caller function FUN_00906570 @ 0x00906570
+======================================================================
+  Function: FUN_00906570 @ 0x00906570, Size: 271 bytes
+
+char FUN_00906570(int param_1,undefined4 *param_2,undefined4 param_3,char param_4)
+
+{
+  char cVar1;
+  uint uVar2;
+  int iVar3;
+  undefined4 uVar4;
+  undefined4 uVar5;
+  undefined4 extraout_var;
+  char local_5;
+  
+  FUN_0040fbf0(0);
+  cVar1 = FUN_006ebde0(extraout_var);
+  if (cVar1 == '\0') {
+    while( true ) {
+      cVar1 = FUN_0044de20();
+      if (cVar1 == '\0') {
+        iVar3 = param_1 + 8;
+        uVar4 = *(undefined4 *)(param_1 + 4);
+        uVar5 = param_3;
+        FUN_00449f80(uVar4,iVar3,param_3);
+        local_5 = FUN_00906af0(uVar4,iVar3,uVar5);
+        FUN_0044de40(1);
+      }
+      else {
+        iVar3 = param_1 + 8;
+        uVar4 = *(undefined4 *)(param_1 + 4);
+        uVar5 = param_3;
+        FUN_00449f80(uVar4,iVar3,param_3);
+        local_5 = FUN_00906c10(uVar4,iVar3,uVar5);
+      }
+      if (local_5 != '\0') break;
+      *(int *)(param_1 + 4) = *(int *)(param_1 + 4) + 1;
+      uVar2 = FUN_0044ddc0();
+      if (uVar2 <= *(uint *)(param_1 + 4)) {
+        FUN_0044de80(1);
+        goto LAB_00906670;
+      }
+      if (param_4 == '\0') goto LAB_00906670;
+      FUN_0044de40(0);
+    }
+    *param_2 = *(undefined4 *)(param_1 + 8);
+  }
+  else {
+    local_5 = '\0';
+  }
+LAB_00906670:
+  FUN_0040fba0();
+  return local_5;
+}
+
+
+
+Caller 7: UNCONDITIONAL_CALL @ 0x00c3e4ad in FUN_00c3e490
+
+----------------------------------------------------------------------
+Disassembly caller of IOManager get completion queue around 0x00c3e4ad
+----------------------------------------------------------------------
+  0x00c3e496: MOV dword ptr [EBP + -0x34],ECX       
+  0x00c3e499: PUSH 0x0                              
+  0x00c3e49b: MOV ECX,dword ptr [EBP + -0x34]       
+  0x00c3e49e: ADD ECX,0x20                          
+  0x00c3e4a1: CALL 0x0040fbf0                       
+  0x00c3e4a6: MOV EAX,dword ptr [EBP + 0x8]         
+  0x00c3e4a9: PUSH EAX                              
+  0x00c3e4aa: MOV ECX,dword ptr [EBP + -0x34]       
+  0x00c3e4ad: CALL 0x00449f80                        << TARGET
+  0x00c3e4b2: MOV ECX,EAX                           
+  0x00c3e4b4: CALL 0x00c3ea60                       
+  0x00c3e4b9: MOV byte ptr [EBP + -0x1],AL          
+  0x00c3e4bc: MOV ECX,dword ptr [EBP + -0x34]       
+  0x00c3e4bf: ADD ECX,0x20                          
+  0x00c3e4c2: MOV dword ptr [EBP + -0x30],ECX       
+  0x00c3e4c5: MOV EDX,dword ptr [EBP + -0x30]       
+  0x00c3e4c8: MOV EAX,dword ptr [EDX + 0x4]         
+  0x00c3e4cb: SUB EAX,0x1                           
+  0x00c3e4ce: MOV ECX,dword ptr [EBP + -0x30]       
+  0x00c3e4d1: MOV dword ptr [ECX + 0x4],EAX         
+  0x00c3e4d4: MOV EDX,dword ptr [EBP + -0x30]       
+  0x00c3e4d7: CMP dword ptr [EDX + 0x4],0x0         
+  0x00c3e4db: JNZ 0x00c3e4e6                        
+  0x00c3e4dd: MOV EAX,dword ptr [EBP + -0x30]       
+  0x00c3e4e0: MOV dword ptr [EAX],0x0               
+
+======================================================================
+Caller function FUN_00c3e490 @ 0x00c3e490
+======================================================================
+  Function: FUN_00c3e490 @ 0x00c3e490, Size: 95 bytes
+
+undefined4 __thiscall FUN_00c3e490(int param_1,undefined4 param_2)
+
+{
+  undefined1 uVar1;
+  undefined4 *puVar2;
+  
+  FUN_0040fbf0(0);
+  FUN_00449f80(param_2);
+  uVar1 = FUN_00c3ea60(param_2);
+  puVar2 = (undefined4 *)(*(int *)(param_1 + 0x24) + -1);
+  *(undefined4 **)(param_1 + 0x24) = puVar2;
+  if (*(int *)(param_1 + 0x24) == 0) {
+    *(undefined4 *)(param_1 + 0x20) = 0;
+    puVar2 = (undefined4 *)(param_1 + 0x20);
+  }
+  return CONCAT31((int3)((uint)puVar2 >> 8),uVar1);
+}
+
+
+
+Caller 8: UNCONDITIONAL_CALL @ 0x0044925b in FUN_00449240
+
+----------------------------------------------------------------------
+Disassembly caller of IOManager get completion queue around 0x0044925b
+----------------------------------------------------------------------
+  0x00449244: MOV dword ptr [EBP + -0x4],ECX        
+  0x00449247: PUSH 0x0                              
+  0x00449249: MOV ECX,dword ptr [EBP + -0x4]        
+  0x0044924c: ADD ECX,0x20                          
+  0x0044924f: CALL 0x0040fbf0                       
+  0x00449254: MOV EAX,dword ptr [EBP + 0x8]         
+  0x00449257: PUSH EAX                              
+  0x00449258: MOV ECX,dword ptr [EBP + -0x4]        
+  0x0044925b: CALL 0x00449f80                        << TARGET
+  0x00449260: MOV ECX,EAX                           
+  0x00449262: CALL 0x0044cd40                       
+  0x00449267: MOV ECX,dword ptr [EBP + -0x4]        
+  0x0044926a: ADD ECX,0x20                          
+  0x0044926d: CALL 0x0040fba0                       
+  0x00449272: MOV ESP,EBP                           
+  0x00449274: POP EBP                               
+  0x00449275: RET 0x4                               
+  0x00449280: PUSH EBP                              
+  0x00449281: MOV EBP,ESP                           
+  0x00449283: SUB ESP,0x8                           
+  0x00449286: MOV dword ptr [EBP + -0x8],ECX        
+  0x00449289: PUSH 0x0                              
+  0x0044928b: MOV ECX,dword ptr [EBP + -0x8]        
+  0x0044928e: ADD ECX,0x20                          
+  0x00449291: CALL 0x0040fbf0                       
+
+======================================================================
+Caller function FUN_00449240 @ 0x00449240
+======================================================================
+  Function: FUN_00449240 @ 0x00449240, Size: 56 bytes
+
+void FUN_00449240(undefined4 param_1)
+
+{
+  undefined4 extraout_var;
+  
+  FUN_0040fbf0(0);
+  FUN_00449f80(param_1,extraout_var);
+  FUN_0044cd40(param_1);
+  FUN_0040fba0();
+  return;
+}
+
+
+
+Caller 9: UNCONDITIONAL_CALL @ 0x0044929d in FUN_00449280
+
+----------------------------------------------------------------------
+Disassembly caller of IOManager get completion queue around 0x0044929d
+----------------------------------------------------------------------
+  0x00449286: MOV dword ptr [EBP + -0x8],ECX        
+  0x00449289: PUSH 0x0                              
+  0x0044928b: MOV ECX,dword ptr [EBP + -0x8]        
+  0x0044928e: ADD ECX,0x20                          
+  0x00449291: CALL 0x0040fbf0                       
+  0x00449296: MOV EAX,dword ptr [EBP + 0x8]         
+  0x00449299: PUSH EAX                              
+  0x0044929a: MOV ECX,dword ptr [EBP + -0x8]        
+  0x0044929d: CALL 0x00449f80                        << TARGET
+  0x004492a2: MOV ECX,EAX                           
+  0x004492a4: CALL 0x0044cec0                       
+  0x004492a9: MOV byte ptr [EBP + -0x1],AL          
+  0x004492ac: MOV ECX,dword ptr [EBP + -0x8]        
+  0x004492af: ADD ECX,0x20                          
+  0x004492b2: CALL 0x0040fba0                       
+  0x004492b7: MOV AL,byte ptr [EBP + -0x1]          
+  0x004492ba: MOV ESP,EBP                           
+  0x004492bc: POP EBP                               
+  0x004492bd: RET 0x4                               
+  0x004492c0: PUSH EBP                              
+  0x004492c1: MOV EBP,ESP                           
+  0x004492c3: PUSH ECX                              
+  0x004492c4: MOV dword ptr [EBP + -0x4],ECX        
+  0x004492c7: MOV EAX,dword ptr [EBP + 0x10]        
+  0x004492ca: PUSH EAX                              
+
+======================================================================
+Caller function FUN_00449280 @ 0x00449280
+======================================================================
+  Function: FUN_00449280 @ 0x00449280, Size: 64 bytes
+
+undefined1 FUN_00449280(undefined4 param_1)
+
+{
+  undefined1 uVar1;
+  undefined4 extraout_var;
+  
+  FUN_0040fbf0(0);
+  FUN_00449f80(param_1,extraout_var);
+  uVar1 = FUN_0044cec0(param_1);
+  FUN_0040fba0();
+  return uVar1;
+}
+
+
+
+Caller 10: UNCONDITIONAL_CALL @ 0x0044b933 in FUN_0044b8d0
+
+----------------------------------------------------------------------
+Disassembly caller of IOManager get completion queue around 0x0044b933
+----------------------------------------------------------------------
+  0x0044b921: PUSH EAX                              
+  0x0044b922: MOV ECX,dword ptr [EBP + 0x8]         
+  0x0044b925: ADD ECX,0x8                           
+  0x0044b928: PUSH ECX                              
+  0x0044b929: MOV EDX,dword ptr [EBP + 0x8]         
+  0x0044b92c: MOV EAX,dword ptr [EDX + 0x4]         
+  0x0044b92f: PUSH EAX                              
+  0x0044b930: MOV ECX,dword ptr [EBP + -0x8]        
+  0x0044b933: CALL 0x00449f80                        << TARGET
+  0x0044b938: MOV ECX,EAX                           
+  0x0044b93a: CALL 0x0044e550                       
+  0x0044b93f: MOV byte ptr [EBP + -0x1],AL          
+  0x0044b942: PUSH 0x1                              
+  0x0044b944: MOV ECX,dword ptr [EBP + 0x8]         
+  0x0044b947: CALL 0x0044de40                       
+  0x0044b94c: JMP 0x0044b972                        
+  0x0044b94e: MOV ECX,dword ptr [EBP + 0x10]        
+  0x0044b951: PUSH ECX                              
+  0x0044b952: MOV EDX,dword ptr [EBP + 0x8]         
+  0x0044b955: ADD EDX,0x8                           
+  0x0044b958: PUSH EDX                              
+  0x0044b959: MOV EAX,dword ptr [EBP + 0x8]         
+  0x0044b95c: MOV ECX,dword ptr [EAX + 0x4]         
+  0x0044b95f: PUSH ECX                              
+  0x0044b960: MOV ECX,dword ptr [EBP + -0x8]        
+
+======================================================================
+Caller function FUN_0044b8d0 @ 0x0044b8d0
+======================================================================
+  Function: FUN_0044b8d0 @ 0x0044b8d0, Size: 303 bytes
+
+char FUN_0044b8d0(int param_1,undefined4 *param_2,undefined4 param_3,char param_4)
+
+{
+  char cVar1;
+  uint uVar2;
+  int iVar3;
+  undefined4 uVar4;
+  undefined4 uVar5;
+  undefined4 extraout_var;
+  char local_5;
+  
+  FUN_0040fbf0(0);
+  cVar1 = FUN_006ebde0(extraout_var);
+  if (cVar1 == '\0') {
+    while( true ) {
+      cVar1 = FUN_0044de20();
+      if (cVar1 == '\0') {
+        iVar3 = param_1 + 8;
+        uVar4 = *(undefined4 *)(param_1 + 4);
+        uVar5 = param_3;
+        FUN_00449f80(uVar4,iVar3,param_3);
+        local_5 = FUN_0044e550(uVar4,iVar3,uVar5);
+        FUN_0044de40(1);
+      }
+      else {
+        iVar3 = param_1 + 8;
+        uVar4 = *(undefined4 *)(param_1 + 4);
+        uVar5 = param_3;
+        FUN_00449f80(uVar4,iVar3,param_3);
+        local_5 = FUN_0044e680(uVar4,iVar3,uVar5);
+      }
+      if (local_5 != '\0') break;
+      *(int *)(param_1 + 4) = *(int *)(param_1 + 4) + 1;
+      uVar2 = FUN_0044ddc0();
+      if (uVar2 <= *(uint *)(param_1 + 4)) {
+        FUN_0044de80(1);
+        goto LAB_0044b9d0;
+      }
+      if (param_4 == '\0') goto LAB_0044b9d0;
+      FUN_0044de40(0);
+    }
+    *param_2 = *(undefined4 *)(param_1 + 8);
+  }
+  else {
+    local_5 = '\0';
+  }
+LAB_0044b9d0:
+  if (local_5 != '\0') {
+    uVar4 = *param_2;
+    FUN_00449f80(uVar4);
+    local_5 = FUN_00528bb0(uVar4);
+  }
+  FUN_0040fba0();
+  return local_5;
+}
+
+
+
+Caller 11: UNCONDITIONAL_CALL @ 0x0044b963 in FUN_0044b8d0
+
+----------------------------------------------------------------------
+Disassembly caller of IOManager get completion queue around 0x0044b963
+----------------------------------------------------------------------
+  0x0044b951: PUSH ECX                              
+  0x0044b952: MOV EDX,dword ptr [EBP + 0x8]         
+  0x0044b955: ADD EDX,0x8                           
+  0x0044b958: PUSH EDX                              
+  0x0044b959: MOV EAX,dword ptr [EBP + 0x8]         
+  0x0044b95c: MOV ECX,dword ptr [EAX + 0x4]         
+  0x0044b95f: PUSH ECX                              
+  0x0044b960: MOV ECX,dword ptr [EBP + -0x8]        
+  0x0044b963: CALL 0x00449f80                        << TARGET
+  0x0044b968: MOV ECX,EAX                           
+  0x0044b96a: CALL 0x0044e680                       
+  0x0044b96f: MOV byte ptr [EBP + -0x1],AL          
+  0x0044b972: MOVZX EDX,byte ptr [EBP + -0x1]       
+  0x0044b976: TEST EDX,EDX                          
+  0x0044b978: JNZ 0x0044b9be                        
+  0x0044b97a: MOV EAX,dword ptr [EBP + 0x8]         
+  0x0044b97d: MOV ECX,dword ptr [EAX + 0x4]         
+  0x0044b980: ADD ECX,0x1                           
+  0x0044b983: MOV EDX,dword ptr [EBP + 0x8]         
+  0x0044b986: MOV dword ptr [EDX + 0x4],ECX         
+  0x0044b989: MOV ECX,dword ptr [EBP + -0x8]        
+  0x0044b98c: CALL 0x0044ddc0                       
+  0x0044b991: MOV ECX,dword ptr [EBP + 0x8]         
+  0x0044b994: CMP dword ptr [ECX + 0x4],EAX         
+  0x0044b997: JC 0x0044b9a5                         
+
+======================================================================
+Caller function FUN_0044b8d0 @ 0x0044b8d0
+======================================================================
+  Function: FUN_0044b8d0 @ 0x0044b8d0, Size: 303 bytes
+
+char FUN_0044b8d0(int param_1,undefined4 *param_2,undefined4 param_3,char param_4)
+
+{
+  char cVar1;
+  uint uVar2;
+  int iVar3;
+  undefined4 uVar4;
+  undefined4 uVar5;
+  undefined4 extraout_var;
+  char local_5;
+  
+  FUN_0040fbf0(0);
+  cVar1 = FUN_006ebde0(extraout_var);
+  if (cVar1 == '\0') {
+    while( true ) {
+      cVar1 = FUN_0044de20();
+      if (cVar1 == '\0') {
+        iVar3 = param_1 + 8;
+        uVar4 = *(undefined4 *)(param_1 + 4);
+        uVar5 = param_3;
+        FUN_00449f80(uVar4,iVar3,param_3);
+        local_5 = FUN_0044e550(uVar4,iVar3,uVar5);
+        FUN_0044de40(1);
+      }
+      else {
+        iVar3 = param_1 + 8;
+        uVar4 = *(undefined4 *)(param_1 + 4);
+        uVar5 = param_3;
+        FUN_00449f80(uVar4,iVar3,param_3);
+        local_5 = FUN_0044e680(uVar4,iVar3,uVar5);
+      }
+      if (local_5 != '\0') break;
+      *(int *)(param_1 + 4) = *(int *)(param_1 + 4) + 1;
+      uVar2 = FUN_0044ddc0();
+      if (uVar2 <= *(uint *)(param_1 + 4)) {
+        FUN_0044de80(1);
+        goto LAB_0044b9d0;
+      }
+      if (param_4 == '\0') goto LAB_0044b9d0;
+      FUN_0044de40(0);
+    }
+    *param_2 = *(undefined4 *)(param_1 + 8);
+  }
+  else {
+    local_5 = '\0';
+  }
+LAB_0044b9d0:
+  if (local_5 != '\0') {
+    uVar4 = *param_2;
+    FUN_00449f80(uVar4);
+    local_5 = FUN_00528bb0(uVar4);
+  }
+  FUN_0040fba0();
+  return local_5;
+}
+
+
+
+Caller 12: UNCONDITIONAL_CALL @ 0x0044b9e1 in FUN_0044b8d0
+
+----------------------------------------------------------------------
+Disassembly caller of IOManager get completion queue around 0x0044b9e1
+----------------------------------------------------------------------
+  0x0044b9c9: JMP 0x0044b9d0                        
+  0x0044b9d0: MOVZX EAX,byte ptr [EBP + -0x1]       
+  0x0044b9d4: TEST EAX,EAX                          
+  0x0044b9d6: JZ 0x0044b9f0                         
+  0x0044b9d8: MOV ECX,dword ptr [EBP + 0xc]         
+  0x0044b9db: MOV EDX,dword ptr [ECX]               
+  0x0044b9dd: PUSH EDX                              
+  0x0044b9de: MOV ECX,dword ptr [EBP + -0x8]        
+  0x0044b9e1: CALL 0x00449f80                        << TARGET
+  0x0044b9e6: MOV ECX,EAX                           
+  0x0044b9e8: CALL 0x00528bb0                       
+  0x0044b9ed: MOV byte ptr [EBP + -0x1],AL          
+  0x0044b9f0: MOV ECX,dword ptr [EBP + -0x8]        
+  0x0044b9f3: ADD ECX,0x20                          
+  0x0044b9f6: CALL 0x0040fba0                       
+  0x0044b9fb: MOV AL,byte ptr [EBP + -0x1]          
+  0x0044b9fe: MOV ESP,EBP                           
+  0x0044ba00: POP EBP                               
+  0x0044ba01: RET 0x10                              
+  0x0044ba10: PUSH EBP                              
+  0x0044ba11: MOV EBP,ESP                           
+  0x0044ba13: PUSH -0x1                             
+  0x0044ba15: PUSH 0xeecf76                         
+  0x0044ba1a: MOV EAX,FS:[0x0]                      
+  0x0044ba20: PUSH EAX                              
+
+======================================================================
+Caller function FUN_0044b8d0 @ 0x0044b8d0
+======================================================================
+  Function: FUN_0044b8d0 @ 0x0044b8d0, Size: 303 bytes
+
+char FUN_0044b8d0(int param_1,undefined4 *param_2,undefined4 param_3,char param_4)
+
+{
+  char cVar1;
+  uint uVar2;
+  int iVar3;
+  undefined4 uVar4;
+  undefined4 uVar5;
+  undefined4 extraout_var;
+  char local_5;
+  
+  FUN_0040fbf0(0);
+  cVar1 = FUN_006ebde0(extraout_var);
+  if (cVar1 == '\0') {
+    while( true ) {
+      cVar1 = FUN_0044de20();
+      if (cVar1 == '\0') {
+        iVar3 = param_1 + 8;
+        uVar4 = *(undefined4 *)(param_1 + 4);
+        uVar5 = param_3;
+        FUN_00449f80(uVar4,iVar3,param_3);
+        local_5 = FUN_0044e550(uVar4,iVar3,uVar5);
+        FUN_0044de40(1);
+      }
+      else {
+        iVar3 = param_1 + 8;
+        uVar4 = *(undefined4 *)(param_1 + 4);
+        uVar5 = param_3;
+        FUN_00449f80(uVar4,iVar3,param_3);
+        local_5 = FUN_0044e680(uVar4,iVar3,uVar5);
+      }
+      if (local_5 != '\0') break;
+      *(int *)(param_1 + 4) = *(int *)(param_1 + 4) + 1;
+      uVar2 = FUN_0044ddc0();
+      if (uVar2 <= *(uint *)(param_1 + 4)) {
+        FUN_0044de80(1);
+        goto LAB_0044b9d0;
+      }
+      if (param_4 == '\0') goto LAB_0044b9d0;
+      FUN_0044de40(0);
+    }
+    *param_2 = *(undefined4 *)(param_1 + 8);
+  }
+  else {
+    local_5 = '\0';
+  }
+LAB_0044b9d0:
+  if (local_5 != '\0') {
+    uVar4 = *param_2;
+    FUN_00449f80(uVar4);
+    local_5 = FUN_00528bb0(uVar4);
+  }
+  FUN_0040fba0();
+  return local_5;
+}
+
+
+
+Caller 13: UNCONDITIONAL_CALL @ 0x00449551 in FUN_00449530
+
+----------------------------------------------------------------------
+Disassembly caller of IOManager get completion queue around 0x00449551
+----------------------------------------------------------------------
+  0x0044953b: MOV ECX,dword ptr [EBP + -0x8]        
+  0x0044953e: ADD ECX,0x20                          
+  0x00449541: CALL 0x0040fbf0                       
+  0x00449546: MOV EAX,dword ptr [EBP + 0xc]         
+  0x00449549: PUSH EAX                              
+  0x0044954a: MOV ECX,dword ptr [EBP + 0x8]         
+  0x0044954d: PUSH ECX                              
+  0x0044954e: MOV ECX,dword ptr [EBP + -0x8]        
+  0x00449551: CALL 0x00449f80                        << TARGET
+  0x00449556: MOV ECX,EAX                           
+  0x00449558: CALL 0x006ec830                       
+  0x0044955d: MOV byte ptr [EBP + -0x1],AL          
+  0x00449560: MOV ECX,dword ptr [EBP + -0x8]        
+  0x00449563: ADD ECX,0x20                          
+  0x00449566: CALL 0x0040fba0                       
+  0x0044956b: MOV AL,byte ptr [EBP + -0x1]          
+  0x0044956e: MOV ESP,EBP                           
+  0x00449570: POP EBP                               
+  0x00449571: RET 0x8                               
+  0x00449580: PUSH EBP                              
+  0x00449581: MOV EBP,ESP                           
+  0x00449583: SUB ESP,0x8                           
+  0x00449586: MOV dword ptr [EBP + -0x8],ECX        
+  0x00449589: PUSH 0x0                              
+  0x0044958b: MOV ECX,dword ptr [EBP + -0x8]        
+
+======================================================================
+Caller function FUN_00449530 @ 0x00449530
+======================================================================
+  Function: FUN_00449530 @ 0x00449530, Size: 68 bytes
+
+undefined1 FUN_00449530(undefined4 param_1,undefined4 param_2)
+
+{
+  undefined1 uVar1;
+  undefined4 extraout_var;
+  
+  FUN_0040fbf0(0);
+  FUN_00449f80(param_1,param_2,extraout_var);
+  uVar1 = FUN_006ec830(param_1,param_2);
+  FUN_0040fba0();
+  return uVar1;
+}
+
+
+
+Caller 14: UNCONDITIONAL_CALL @ 0x004495a6 in FUN_00449580
+
+----------------------------------------------------------------------
+Disassembly caller of IOManager get completion queue around 0x004495a6
+----------------------------------------------------------------------
+  0x00449591: CALL 0x0040fbf0                       
+  0x00449596: MOVZX EAX,byte ptr [EBP + 0x10]       
+  0x0044959a: PUSH EAX                              
+  0x0044959b: MOV ECX,dword ptr [EBP + 0xc]         
+  0x0044959e: PUSH ECX                              
+  0x0044959f: MOV EDX,dword ptr [EBP + 0x8]         
+  0x004495a2: PUSH EDX                              
+  0x004495a3: MOV ECX,dword ptr [EBP + -0x8]        
+  0x004495a6: CALL 0x00449f80                        << TARGET
+  0x004495ab: MOV ECX,EAX                           
+  0x004495ad: CALL 0x0044a130                       
+  0x004495b2: MOV byte ptr [EBP + -0x1],AL          
+  0x004495b5: MOV ECX,dword ptr [EBP + -0x8]        
+  0x004495b8: ADD ECX,0x20                          
+  0x004495bb: CALL 0x0040fba0                       
+  0x004495c0: MOV AL,byte ptr [EBP + -0x1]          
+  0x004495c3: MOV ESP,EBP                           
+  0x004495c5: POP EBP                               
+  0x004495c6: RET 0xc                               
+  0x004495d0: PUSH EBP                              
+  0x004495d1: MOV EBP,ESP                           
+  0x004495d3: SUB ESP,0x8                           
+  0x004495d6: MOV dword ptr [EBP + -0x8],ECX        
+  0x004495d9: PUSH 0x0                              
+  0x004495db: MOV ECX,dword ptr [EBP + -0x8]        
+
+======================================================================
+Caller function FUN_00449580 @ 0x00449580
+======================================================================
+  Function: FUN_00449580 @ 0x00449580, Size: 73 bytes
+
+undefined1 FUN_00449580(undefined4 param_1,undefined4 param_2,byte param_3)
+
+{
+  undefined1 uVar1;
+  uint uVar2;
+  undefined4 extraout_var;
+  
+  FUN_0040fbf0(0);
+  uVar2 = (uint)param_3;
+  FUN_00449f80(param_1,param_2,uVar2,extraout_var);
+  uVar1 = FUN_0044a130(param_1,param_2,uVar2);
+  FUN_0040fba0();
+  return uVar1;
+}
+
+
+
+Caller 15: UNCONDITIONAL_CALL @ 0x004495ed in FUN_004495d0
+
+----------------------------------------------------------------------
+Disassembly caller of IOManager get completion queue around 0x004495ed
+----------------------------------------------------------------------
+  0x004495d6: MOV dword ptr [EBP + -0x8],ECX        
+  0x004495d9: PUSH 0x0                              
+  0x004495db: MOV ECX,dword ptr [EBP + -0x8]        
+  0x004495de: ADD ECX,0x20                          
+  0x004495e1: CALL 0x0040fbf0                       
+  0x004495e6: MOV EAX,dword ptr [EBP + 0x8]         
+  0x004495e9: PUSH EAX                              
+  0x004495ea: MOV ECX,dword ptr [EBP + -0x8]        
+  0x004495ed: CALL 0x00449f80                        << TARGET
+  0x004495f2: MOV ECX,EAX                           
+  0x004495f4: CALL 0x00665f20                       
+  0x004495f9: MOV byte ptr [EBP + -0x1],AL          
+  0x004495fc: MOV ECX,dword ptr [EBP + -0x8]        
+  0x004495ff: ADD ECX,0x20                          
+  0x00449602: CALL 0x0040fba0                       
+  0x00449607: MOV AL,byte ptr [EBP + -0x1]          
+  0x0044960a: MOV ESP,EBP                           
+  0x0044960c: POP EBP                               
+  0x0044960d: RET 0x4                               
+  0x00449610: PUSH EBP                              
+  0x00449611: MOV EBP,ESP                           
+  0x00449613: PUSH -0x1                             
+  0x00449615: PUSH 0xeecdc8                         
+  0x0044961a: MOV EAX,FS:[0x0]                      
+  0x00449620: PUSH EAX                              
+
+======================================================================
+Caller function FUN_004495d0 @ 0x004495d0
+======================================================================
+  Function: FUN_004495d0 @ 0x004495d0, Size: 64 bytes
+
+undefined1 FUN_004495d0(undefined4 param_1)
+
+{
+  undefined1 uVar1;
+  undefined4 extraout_var;
+  
+  FUN_0040fbf0(0);
+  FUN_00449f80(param_1,extraout_var);
+  uVar1 = FUN_00665f20(param_1);
+  FUN_0040fba0();
+  return uVar1;
+}
+
+
+
+Caller 16: UNCONDITIONAL_CALL @ 0x00449721 in FUN_00449700
+
+----------------------------------------------------------------------
+Disassembly caller of IOManager get completion queue around 0x00449721
+----------------------------------------------------------------------
+  0x0044970b: MOV ECX,dword ptr [EBP + -0x8]        
+  0x0044970e: ADD ECX,0x20                          
+  0x00449711: CALL 0x0040fbf0                       
+  0x00449716: LEA EAX,[EBP + 0xc]                   
+  0x00449719: PUSH EAX                              
+  0x0044971a: MOV ECX,dword ptr [EBP + 0x8]         
+  0x0044971d: PUSH ECX                              
+  0x0044971e: MOV ECX,dword ptr [EBP + -0x8]        
+  0x00449721: CALL 0x00449f80                        << TARGET
+  0x00449726: MOV ECX,EAX                           
+  0x00449728: CALL 0x0044d3f0                       
+  0x0044972d: MOV byte ptr [EBP + -0x1],AL          
+  0x00449730: MOV ECX,dword ptr [EBP + -0x8]        
+  0x00449733: ADD ECX,0x20                          
+  0x00449736: CALL 0x0040fba0                       
+  0x0044973b: MOV AL,byte ptr [EBP + -0x1]          
+  0x0044973e: MOV ESP,EBP                           
+  0x00449740: POP EBP                               
+  0x00449741: RET 0x8                               
+  0x00449750: PUSH EBP                              
+  0x00449751: MOV EBP,ESP                           
+  0x00449753: SUB ESP,0xc                           
+  0x00449756: MOV dword ptr [EBP + -0x8],ECX        
+  0x00449759: MOV dword ptr [EBP + -0x4],0x0        
+  0x00449760: MOV EAX,dword ptr [EBP + 0x8]         
+
+======================================================================
+Caller function FUN_00449700 @ 0x00449700
+======================================================================
+  Function: FUN_00449700 @ 0x00449700, Size: 68 bytes
+
+undefined1 FUN_00449700(undefined4 param_1)
+
+{
+  undefined1 uVar1;
+  undefined1 *puVar2;
+  undefined4 extraout_var;
+  
+  FUN_0040fbf0(0);
+  puVar2 = &stack0x00000008;
+  FUN_00449f80(param_1,puVar2,extraout_var);
+  uVar1 = FUN_0044d3f0(param_1,puVar2);
+  FUN_0040fba0();
+  return uVar1;
+}
+
+
+
+Caller 17: UNCONDITIONAL_CALL @ 0x004498c4 in FUN_004498b0
+
+----------------------------------------------------------------------
+Disassembly caller of IOManager get completion queue around 0x004498c4
+----------------------------------------------------------------------
+  0x004498b1: MOV EBP,ESP                           
+  0x004498b3: SUB ESP,0x8                           
+  0x004498b6: MOV dword ptr [EBP + -0x8],ECX        
+  0x004498b9: MOV EAX,dword ptr [EBP + 0xc]         
+  0x004498bc: PUSH EAX                              
+  0x004498bd: MOV ECX,dword ptr [EBP + 0x8]         
+  0x004498c0: PUSH ECX                              
+  0x004498c1: MOV ECX,dword ptr [EBP + -0x8]        
+  0x004498c4: CALL 0x00449f80                        << TARGET
+  0x004498c9: MOV ECX,EAX                           
+  0x004498cb: CALL 0x006ec830                       
+  0x004498d0: MOV byte ptr [EBP + -0x1],AL          
+  0x004498d3: MOV AL,byte ptr [EBP + -0x1]          
+  0x004498d6: MOV ESP,EBP                           
+  0x004498d8: POP EBP                               
+  0x004498d9: RET 0x8                               
+  0x004498e0: PUSH EBP                              
+  0x004498e1: MOV EBP,ESP                           
+  0x004498e3: PUSH ECX                              
+  0x004498e4: MOV dword ptr [EBP + -0x4],ECX        
+  0x004498e7: MOV ECX,dword ptr [EBP + -0x4]        
+  0x004498ea: CALL 0x0044cb70                       
+  0x004498ef: MOV EAX,dword ptr [EBP + -0x4]        
+  0x004498f2: MOV dword ptr [EAX],0x1017288         
+  0x004498f8: MOV ECX,dword ptr [EBP + -0x4]        
+
+======================================================================
+Caller function FUN_004498b0 @ 0x004498b0
+======================================================================
+  Function: FUN_004498b0 @ 0x004498b0, Size: 44 bytes
+
+undefined4 __thiscall FUN_004498b0(undefined4 param_1,undefined4 param_2,undefined4 param_3)
+
+{
+  undefined4 uVar1;
+  
+  FUN_00449f80(param_2,param_3,param_1);
+  uVar1 = FUN_006ec830(param_2,param_3);
+  return uVar1;
+}
+
+
+
+Caller 18: UNCONDITIONAL_CALL @ 0x0044bba4 in FUN_0044bb90
+
+----------------------------------------------------------------------
+Disassembly caller of IOManager get completion queue around 0x0044bba4
+----------------------------------------------------------------------
+  0x0044bb91: MOV EBP,ESP                           
+  0x0044bb93: SUB ESP,0x8                           
+  0x0044bb96: MOV dword ptr [EBP + -0x8],ECX        
+  0x0044bb99: MOV EAX,dword ptr [EBP + 0xc]         
+  0x0044bb9c: PUSH EAX                              
+  0x0044bb9d: MOV ECX,dword ptr [EBP + 0x8]         
+  0x0044bba0: PUSH ECX                              
+  0x0044bba1: MOV ECX,dword ptr [EBP + -0x8]        
+  0x0044bba4: CALL 0x00449f80                        << TARGET
+  0x0044bba9: MOV ECX,EAX                           
+  0x0044bbab: CALL 0x0044c8e0                       
+  0x0044bbb0: MOV byte ptr [EBP + -0x1],AL          
+  0x0044bbb3: MOV AL,byte ptr [EBP + -0x1]          
+  0x0044bbb6: MOV ESP,EBP                           
+  0x0044bbb8: POP EBP                               
+  0x0044bbb9: RET 0x8                               
+  0x0044bbc0: PUSH EBP                              
+  0x0044bbc1: MOV EBP,ESP                           
+  0x0044bbc3: PUSH ECX                              
+  0x0044bbc4: MOV dword ptr [EBP + -0x4],ECX        
+  0x0044bbc7: MOV EAX,dword ptr [EBP + -0x4]        
+  0x0044bbca: ADD EAX,0x18                          
+  0x0044bbcd: PUSH EAX                              
+  0x0044bbce: CALL 0x0040b460                       
+  0x0044bbd3: ADD ESP,0x4                           
+
+======================================================================
+Caller function FUN_0044bb90 @ 0x0044bb90
+======================================================================
+  Function: FUN_0044bb90 @ 0x0044bb90, Size: 44 bytes
+
+undefined4 __thiscall FUN_0044bb90(undefined4 param_1,undefined4 param_2,undefined4 param_3)
+
+{
+  undefined4 uVar1;
+  
+  FUN_00449f80(param_2,param_3,param_1);
+  uVar1 = FUN_0044c8e0(param_2,param_3);
+  return uVar1;
+}
+
+
+
+Caller 19: UNCONDITIONAL_CALL @ 0x0044bd81 in FUN_0044bd60
+
+----------------------------------------------------------------------
+Disassembly caller of IOManager get completion queue around 0x0044bd81
+----------------------------------------------------------------------
+  0x0044bd6b: MOV ECX,dword ptr [EBP + -0x8]        
+  0x0044bd6e: ADD ECX,0x20                          
+  0x0044bd71: CALL 0x0040fbf0                       
+  0x0044bd76: MOV EAX,dword ptr [EBP + 0xc]         
+  0x0044bd79: PUSH EAX                              
+  0x0044bd7a: MOV ECX,dword ptr [EBP + 0x8]         
+  0x0044bd7d: PUSH ECX                              
+  0x0044bd7e: MOV ECX,dword ptr [EBP + -0x8]        
+  0x0044bd81: CALL 0x00449f80                        << TARGET
+  0x0044bd86: MOV ECX,EAX                           
+  0x0044bd88: CALL 0x0044c8e0                       
+  0x0044bd8d: MOV byte ptr [EBP + -0x1],AL          
+  0x0044bd90: MOV ECX,dword ptr [EBP + -0x8]        
+  0x0044bd93: ADD ECX,0x20                          
+  0x0044bd96: CALL 0x0040fba0                       
+  0x0044bd9b: MOV AL,byte ptr [EBP + -0x1]          
+  0x0044bd9e: MOV ESP,EBP                           
+  0x0044bda0: POP EBP                               
+  0x0044bda1: RET 0x8                               
+  0x0044bdb0: PUSH EBP                              
+  0x0044bdb1: MOV EBP,ESP                           
+  0x0044bdb3: PUSH -0x1                             
+  0x0044bdb5: PUSH 0xeecf28                         
+  0x0044bdba: MOV EAX,FS:[0x0]                      
+  0x0044bdc0: PUSH EAX                              
+
+======================================================================
+Caller function FUN_0044bd60 @ 0x0044bd60
+======================================================================
+  Function: FUN_0044bd60 @ 0x0044bd60, Size: 68 bytes
+
+undefined1 FUN_0044bd60(undefined4 param_1,undefined4 param_2)
+
+{
+  undefined1 uVar1;
+  undefined4 extraout_var;
+  
+  FUN_0040fbf0(0);
+  FUN_00449f80(param_1,param_2,extraout_var);
+  uVar1 = FUN_0044c8e0(param_1,param_2);
+  FUN_0040fba0();
+  return uVar1;
+}
+
+
+
+Caller 20: UNCONDITIONAL_CALL @ 0x00528b86 in FUN_00528b60
+
+----------------------------------------------------------------------
+Disassembly caller of IOManager get completion queue around 0x00528b86
+----------------------------------------------------------------------
+  0x00528b71: CALL 0x0040fbf0                       
+  0x00528b76: MOVZX EAX,byte ptr [EBP + 0x10]       
+  0x00528b7a: PUSH EAX                              
+  0x00528b7b: MOV ECX,dword ptr [EBP + 0xc]         
+  0x00528b7e: PUSH ECX                              
+  0x00528b7f: MOV EDX,dword ptr [EBP + 0x8]         
+  0x00528b82: PUSH EDX                              
+  0x00528b83: MOV ECX,dword ptr [EBP + -0x8]        
+  0x00528b86: CALL 0x00449f80                        << TARGET
+  0x00528b8b: MOV ECX,EAX                           
+  0x00528b8d: CALL 0x0044c000                       
+  0x00528b92: MOV byte ptr [EBP + -0x1],AL          
+  0x00528b95: MOV ECX,dword ptr [EBP + -0x8]        
+  0x00528b98: ADD ECX,0x20                          
+  0x00528b9b: CALL 0x0040fba0                       
+  0x00528ba0: MOV AL,byte ptr [EBP + -0x1]          
+  0x00528ba3: MOV ESP,EBP                           
+  0x00528ba5: POP EBP                               
+  0x00528ba6: RET 0xc                               
+  0x00528bb0: PUSH EBP                              
+  0x00528bb1: MOV EBP,ESP                           
+  0x00528bb3: PUSH ECX                              
+  0x00528bb4: MOV dword ptr [EBP + -0x4],ECX        
+  0x00528bb7: MOV EAX,dword ptr [EBP + 0x8]         
+  0x00528bba: PUSH EAX                              
+
+======================================================================
+Caller function FUN_00528b60 @ 0x00528b60
+======================================================================
+  Function: FUN_00528b60 @ 0x00528b60, Size: 73 bytes
+
+undefined1 FUN_00528b60(undefined4 param_1,undefined4 param_2,byte param_3)
+
+{
+  undefined1 uVar1;
+  uint uVar2;
+  undefined4 extraout_var;
+  
+  FUN_0040fbf0(0);
+  uVar2 = (uint)param_3;
+  FUN_00449f80(param_1,param_2,uVar2,extraout_var);
+  uVar1 = FUN_0044c000(param_1,param_2,uVar2);
+  FUN_0040fba0();
+  return uVar1;
+}
+
+
+
+Caller 21: UNCONDITIONAL_CALL @ 0x006ec80a in FUN_006ec7e0
+
+----------------------------------------------------------------------
+Disassembly caller of IOManager get completion queue around 0x006ec80a
+----------------------------------------------------------------------
+  0x006ec7fa: PUSH EAX                              
+  0x006ec7fb: MOV ECX,dword ptr [EBP + 0x10]        
+  0x006ec7fe: PUSH ECX                              
+  0x006ec7ff: MOV EDX,dword ptr [EBP + 0xc]         
+  0x006ec802: PUSH EDX                              
+  0x006ec803: MOV EAX,dword ptr [EBP + 0x8]         
+  0x006ec806: PUSH EAX                              
+  0x006ec807: MOV ECX,dword ptr [EBP + -0x8]        
+  0x006ec80a: CALL 0x00449f80                        << TARGET
+  0x006ec80f: MOV ECX,EAX                           
+  0x006ec811: CALL 0x0044d240                       
+  0x006ec816: MOV byte ptr [EBP + -0x1],AL          
+  0x006ec819: MOV ECX,dword ptr [EBP + -0x8]        
+  0x006ec81c: ADD ECX,0x20                          
+  0x006ec81f: CALL 0x0040fba0                       
+  0x006ec824: MOV AL,byte ptr [EBP + -0x1]          
+  0x006ec827: MOV ESP,EBP                           
+  0x006ec829: POP EBP                               
+  0x006ec82a: RET 0x10                              
+  0x006ec830: PUSH EBP                              
+  0x006ec831: MOV EBP,ESP                           
+  0x006ec833: PUSH ECX                              
+  0x006ec834: MOV dword ptr [EBP + -0x4],ECX        
+  0x006ec837: MOV EAX,dword ptr [EBP + 0xc]         
+  0x006ec83a: PUSH EAX                              
+
+======================================================================
+Caller function FUN_006ec7e0 @ 0x006ec7e0
+======================================================================
+  Function: FUN_006ec7e0 @ 0x006ec7e0, Size: 77 bytes
+
+undefined1 FUN_006ec7e0(undefined4 param_1,undefined4 param_2,undefined4 param_3,byte param_4)
+
+{
+  undefined1 uVar1;
+  uint uVar2;
+  undefined4 extraout_var;
+  
+  FUN_0040fbf0(0);
+  uVar2 = (uint)param_4;
+  FUN_00449f80(param_1,param_2,param_3,uVar2,extraout_var);
+  uVar1 = FUN_0044d240(param_1,param_2,param_3,uVar2);
+  FUN_0040fba0();
+  return uVar1;
+}
+
+
+
+Caller 22: UNCONDITIONAL_CALL @ 0x009062fd in FUN_009062e0
+
+----------------------------------------------------------------------
+Disassembly caller of IOManager get completion queue around 0x009062fd
+----------------------------------------------------------------------
+  0x009062e6: MOV dword ptr [EBP + -0x8],ECX        
+  0x009062e9: PUSH 0x0                              
+  0x009062eb: MOV ECX,dword ptr [EBP + -0x8]        
+  0x009062ee: ADD ECX,0x20                          
+  0x009062f1: CALL 0x0040fbf0                       
+  0x009062f6: MOV EAX,dword ptr [EBP + 0x8]         
+  0x009062f9: PUSH EAX                              
+  0x009062fa: MOV ECX,dword ptr [EBP + -0x8]        
+  0x009062fd: CALL 0x00449f80                        << TARGET
+  0x00906302: MOV ECX,EAX                           
+  0x00906304: CALL 0x00528bb0                       
+  0x00906309: MOV byte ptr [EBP + -0x1],AL          
+  0x0090630c: MOV ECX,dword ptr [EBP + -0x8]        
+  0x0090630f: ADD ECX,0x20                          
+  0x00906312: CALL 0x0040fba0                       
+  0x00906317: MOV AL,byte ptr [EBP + -0x1]          
+  0x0090631a: MOV ESP,EBP                           
+  0x0090631c: POP EBP                               
+  0x0090631d: RET 0x4                               
+  0x00906320: PUSH EBP                              
+  0x00906321: MOV EBP,ESP                           
+  0x00906323: PUSH -0x1                             
+  0x00906325: PUSH 0xf16b88                         
+  0x0090632a: MOV EAX,FS:[0x0]                      
+  0x00906330: PUSH EAX                              
+
+======================================================================
+Caller function FUN_009062e0 @ 0x009062e0
+======================================================================
+  Function: FUN_009062e0 @ 0x009062e0, Size: 64 bytes
+
+undefined1 FUN_009062e0(undefined4 param_1)
+
+{
+  undefined1 uVar1;
+  undefined4 extraout_var;
+  
+  FUN_0040fbf0(0);
+  FUN_00449f80(param_1,extraout_var);
+  uVar1 = FUN_00528bb0(param_1);
+  FUN_0040fba0();
+  return uVar1;
+}
+
+
+
+Caller 23: UNCONDITIONAL_CALL @ 0x00906367 in FUN_00906320
+
+----------------------------------------------------------------------
+Disassembly caller of IOManager get completion queue around 0x00906367
+----------------------------------------------------------------------
+  0x00906351: MOV ECX,dword ptr [EBP + -0x14]       
+  0x00906354: ADD ECX,0x20                          
+  0x00906357: CALL 0x0040fbf0                       
+  0x0090635c: LEA EAX,[EBP + 0xc]                   
+  0x0090635f: PUSH EAX                              
+  0x00906360: MOV ECX,dword ptr [EBP + 0x8]         
+  0x00906363: PUSH ECX                              
+  0x00906364: MOV ECX,dword ptr [EBP + -0x14]       
+  0x00906367: CALL 0x00449f80                        << TARGET
+  0x0090636c: MOV ECX,EAX                           
+  0x0090636e: CALL 0x009066d0                       
+  0x00906373: MOV byte ptr [EBP + -0xd],AL          
+  0x00906376: MOV ECX,dword ptr [EBP + -0x14]       
+  0x00906379: ADD ECX,0x20                          
+  0x0090637c: CALL 0x0040fba0                       
+  0x00906381: MOV DL,byte ptr [EBP + -0xd]          
+  0x00906384: MOV byte ptr [EBP + -0xe],DL          
+  0x00906387: MOV dword ptr [EBP + -0x4],0xffffffff 
+  0x0090638e: LEA ECX,[EBP + 0xc]                   
+  0x00906391: CALL 0x0044cbf0                       
+  0x00906396: MOV AL,byte ptr [EBP + -0xe]          
+  0x00906399: MOV ECX,dword ptr [EBP + -0xc]        
+  0x0090639c: MOV dword ptr FS:[0x0],ECX            
+  0x009063a3: POP ECX                               
+  0x009063a4: MOV ESP,EBP                           
+
+======================================================================
+Caller function FUN_00906320 @ 0x00906320
+======================================================================
+  Function: FUN_00906320 @ 0x00906320, Size: 138 bytes
+
+undefined1 FUN_00906320(undefined4 param_1)
+
+{
+  undefined1 uVar1;
+  uint uVar2;
+  int *unaff_FS_OFFSET;
+  undefined1 *puVar3;
+  undefined4 extraout_var;
+  int local_10;
+  undefined1 *puStack_c;
+  undefined4 local_8;
+  
+  puStack_c = &LAB_00f16b88;
+  local_10 = *unaff_FS_OFFSET;
+  uVar2 = DAT_011c16bc ^ (uint)&stack0xfffffffc;
+  *unaff_FS_OFFSET = (int)&local_10;
+  local_8 = 0;
+  FUN_0040fbf0(0);
+  puVar3 = &stack0x00000008;
+  FUN_00449f80(param_1,puVar3,uVar2,extraout_var);
+  uVar1 = FUN_009066d0(param_1,puVar3);
+  FUN_0040fba0();
+  local_8 = 0xffffffff;
+  FUN_0044cbf0();
+  *unaff_FS_OFFSET = local_10;
+  return uVar1;
+}
+
+
+
+Caller 24: UNCONDITIONAL_CALL @ 0x009063da in FUN_009063b0
+
+----------------------------------------------------------------------
+Disassembly caller of IOManager get completion queue around 0x009063da
+----------------------------------------------------------------------
+  0x009063ca: PUSH EAX                              
+  0x009063cb: MOV ECX,dword ptr [EBP + 0x10]        
+  0x009063ce: PUSH ECX                              
+  0x009063cf: MOV EDX,dword ptr [EBP + 0xc]         
+  0x009063d2: PUSH EDX                              
+  0x009063d3: MOV EAX,dword ptr [EBP + 0x8]         
+  0x009063d6: PUSH EAX                              
+  0x009063d7: MOV ECX,dword ptr [EBP + -0x8]        
+  0x009063da: CALL 0x00449f80                        << TARGET
+  0x009063df: MOV ECX,EAX                           
+  0x009063e1: CALL 0x0044d070                       
+  0x009063e6: MOV byte ptr [EBP + -0x1],AL          
+  0x009063e9: MOV ECX,dword ptr [EBP + -0x8]        
+  0x009063ec: ADD ECX,0x20                          
+  0x009063ef: CALL 0x0040fba0                       
+  0x009063f4: MOV AL,byte ptr [EBP + -0x1]          
+  0x009063f7: MOV ESP,EBP                           
+  0x009063f9: POP EBP                               
+  0x009063fa: RET 0x10                              
+  0x00906400: PUSH EBP                              
+  0x00906401: MOV EBP,ESP                           
+  0x00906403: PUSH -0x1                             
+  0x00906405: PUSH 0xf16bc3                         
+  0x0090640a: MOV EAX,FS:[0x0]                      
+  0x00906410: PUSH EAX                              
+
+======================================================================
+Caller function FUN_009063b0 @ 0x009063b0
+======================================================================
+  Function: FUN_009063b0 @ 0x009063b0, Size: 77 bytes
+
+undefined1 FUN_009063b0(undefined4 param_1,undefined4 param_2,undefined4 param_3,byte param_4)
+
+{
+  undefined1 uVar1;
+  uint uVar2;
+  undefined4 extraout_var;
+  
+  FUN_0040fbf0(0);
+  uVar2 = (uint)param_4;
+  FUN_00449f80(param_1,param_2,param_3,uVar2,extraout_var);
+  uVar1 = FUN_0044d070(param_1,param_2,param_3,uVar2);
+  FUN_0040fba0();
+  return uVar1;
+}
+
+
+Total callers printed: 24
+
+======================================================================
+CALLER SCAN: completed-task pop/dequeue helper @ 0x00c3e420
+======================================================================
+
+Caller 1: UNCONDITIONAL_CALL @ 0x00c3dd63 in FUN_00c3dbf0
+
+----------------------------------------------------------------------
+Disassembly caller of completed-task pop/dequeue helper around 0x00c3dd63
+----------------------------------------------------------------------
+  0x00c3dd45: ADD EAX,0x8                           
+  0x00c3dd48: PUSH EAX                              
+  0x00c3dd49: CALL dword ptr [0x00fdf1c0]           
+  0x00c3dd4f: MOV dword ptr [EBP + -0x4],0x0        
+  0x00c3dd56: LEA ECX,[EBP + -0x10]                 
+  0x00c3dd59: PUSH ECX                              
+  0x00c3dd5a: MOV EDX,dword ptr [EBP + 0xffffff70]  
+  0x00c3dd60: MOV ECX,dword ptr [EDX + 0x64]        
+  0x00c3dd63: CALL 0x00c3e420                        << TARGET
+  0x00c3dd68: CMP dword ptr [EBP + -0x10],0x0       
+  0x00c3dd6c: JZ 0x00c3de42                         
+  0x00c3dd72: MOV EAX,dword ptr [EBP + -0x10]       
+  0x00c3dd75: MOV dword ptr [EBP + 0xffffff5c],EAX  
+  0x00c3dd7b: MOV ECX,dword ptr [EBP + 0xffffff5c]  
+  0x00c3dd81: MOV EDX,dword ptr [ECX]               
+  0x00c3dd83: MOV ECX,dword ptr [EBP + 0xffffff5c]  
+  0x00c3dd89: MOV EAX,dword ptr [EDX + 0x14]        
+  0x00c3dd8c: CALL EAX                              
+  0x00c3dd8e: MOV ECX,dword ptr [EBP + 0xffffff70]  
+  0x00c3dd94: CMP dword ptr [ECX + 0x70],0x0        
+  0x00c3dd98: JZ 0x00c3dda5                         
+  0x00c3dd9a: MOV EDX,dword ptr [EBP + 0xffffff70]  
+  0x00c3dda0: MOV EAX,dword ptr [EDX + 0x70]        
+  0x00c3dda3: CALL EAX                              
+  0x00c3dda5: CALL 0x00aa4d80                       
+
+======================================================================
+Caller function FUN_00c3dbf0 @ 0x00c3dbf0
+======================================================================
+  Function: FUN_00c3dbf0 @ 0x00c3dbf0, Size: 646 bytes
+
+/* WARNING: Removing unreachable block (ram,0x00c3dc63) */
+/* WARNING: Removing unreachable block (ram,0x00c3dc9f) */
+/* WARNING: Removing unreachable block (ram,0x00c3dd3c) */
+/* WARNING: Removing unreachable block (ram,0x00c3de2a) */
+/* WARNING: Removing unreachable block (ram,0x00c3de5c) */
+/* WARNING: Removing unreachable block (ram,0x00c3ddc9) */
+
+undefined1 __fastcall FUN_00c3dbf0(int param_1)
+
+{
+  uint uVar1;
+  int *unaff_FS_OFFSET;
+  longlong lVar2;
+  longlong lVar3;
+  longlong lVar4;
+  undefined1 local_15;
+  int *local_14;
+  int local_10;
+  undefined1 *puStack_c;
+  undefined4 local_8;
+  
+  local_8 = 0xffffffff;
+  puStack_c = &LAB_00f2dd89;
+  local_10 = *unaff_FS_OFFSET;
+  uVar1 = DAT_011c16bc ^ (uint)&stack0xfffffffc;
+  *unaff_FS_OFFSET = (int)&local_10;
+  if (DAT_01202dd8 == '\0') {
+    local_15 = 1;
+    DAT_01202dd8 = 1;
+    lVar2 = FUN_00aa4d80(uVar1);
+    lVar3 = FUN_00ec62f6();
+    if (*(int *)(param_1 + 0x74) != 0) {
+      local_15 = (**(code **)(param_1 + 0x74))();
+    }
+    local_14 = (int *)0x0;
+    local_8 = 0;
+    FUN_00c3e420(&local_14);
+    while (local_14 != (int *)0x0) {
+      (**(code **)(*local_14 + 0x14))();
+      if (*(int *)(param_1 + 0x70) != 0) {
+        (**(code **)(param_1 + 0x70))();
+      }
+      lVar4 = FUN_00aa4d80();
+      if (lVar3 < lVar4 - lVar2) {
+        if (local_14 != (int *)0x0) {
+          if (local_14 != (int *)0x0) {
+            FUN_0044dd60();
+          }
+          local_14 = (int *)0x0;
+        }
+      }
+      else {
+        FUN_00c3e420(&local_14);
+      }
+    }
+    DAT_01202dd8 = '\0';
+  }
+  else {
+    local_15 = 1;
+  }
+  *unaff_FS_OFFSET = local_10;
+  return local_15;
+}
+
+
+
+Caller 2: UNCONDITIONAL_CALL @ 0x00c3de02 in FUN_00c3dbf0
+
+----------------------------------------------------------------------
+Disassembly caller of completed-task pop/dequeue helper around 0x00c3de02
+----------------------------------------------------------------------
+  0x00c3dde0: MOV dword ptr [EBP + 0xffffff50],0x0  
+  0x00c3ddea: MOVZX EAX,byte ptr [EBP + 0xffffff50] 
+  0x00c3ddf1: TEST EAX,EAX                          
+  0x00c3ddf3: JNZ 0x00c3de09                        
+  0x00c3ddf5: LEA ECX,[EBP + -0x10]                 
+  0x00c3ddf8: PUSH ECX                              
+  0x00c3ddf9: MOV EDX,dword ptr [EBP + 0xffffff70]  
+  0x00c3ddff: MOV ECX,dword ptr [EDX + 0x64]        
+  0x00c3de02: CALL 0x00c3e420                        << TARGET
+  0x00c3de07: JMP 0x00c3de3d                        
+  0x00c3de09: CMP dword ptr [EBP + -0x10],0x0       
+  0x00c3de0d: JZ 0x00c3de3d                         
+  0x00c3de0f: CMP dword ptr [EBP + -0x10],0x0       
+  0x00c3de13: JZ 0x00c3de1d                         
+  0x00c3de15: MOV ECX,dword ptr [EBP + -0x10]       
+  0x00c3de18: CALL 0x0044dd60                       
+  0x00c3de1d: MOV dword ptr [EBP + -0x10],0x0       
+  0x00c3de24: CMP dword ptr [EBP + -0x10],0x0       
+  0x00c3de28: JZ 0x00c3de3d                         
+  0x00c3de2a: MOV EAX,dword ptr [EBP + -0x10]       
+  0x00c3de2d: MOV dword ptr [EBP + -0x80],EAX       
+  0x00c3de30: MOV ECX,dword ptr [EBP + -0x80]       
+  0x00c3de33: ADD ECX,0x8                           
+  0x00c3de36: PUSH ECX                              
+  0x00c3de37: CALL dword ptr [0x00fdf1c0]           
+
+======================================================================
+Caller function FUN_00c3dbf0 @ 0x00c3dbf0
+======================================================================
+  Function: FUN_00c3dbf0 @ 0x00c3dbf0, Size: 646 bytes
+
+/* WARNING: Removing unreachable block (ram,0x00c3dc63) */
+/* WARNING: Removing unreachable block (ram,0x00c3dc9f) */
+/* WARNING: Removing unreachable block (ram,0x00c3dd3c) */
+/* WARNING: Removing unreachable block (ram,0x00c3de2a) */
+/* WARNING: Removing unreachable block (ram,0x00c3de5c) */
+/* WARNING: Removing unreachable block (ram,0x00c3ddc9) */
+
+undefined1 __fastcall FUN_00c3dbf0(int param_1)
+
+{
+  uint uVar1;
+  int *unaff_FS_OFFSET;
+  longlong lVar2;
+  longlong lVar3;
+  longlong lVar4;
+  undefined1 local_15;
+  int *local_14;
+  int local_10;
+  undefined1 *puStack_c;
+  undefined4 local_8;
+  
+  local_8 = 0xffffffff;
+  puStack_c = &LAB_00f2dd89;
+  local_10 = *unaff_FS_OFFSET;
+  uVar1 = DAT_011c16bc ^ (uint)&stack0xfffffffc;
+  *unaff_FS_OFFSET = (int)&local_10;
+  if (DAT_01202dd8 == '\0') {
+    local_15 = 1;
+    DAT_01202dd8 = 1;
+    lVar2 = FUN_00aa4d80(uVar1);
+    lVar3 = FUN_00ec62f6();
+    if (*(int *)(param_1 + 0x74) != 0) {
+      local_15 = (**(code **)(param_1 + 0x74))();
+    }
+    local_14 = (int *)0x0;
+    local_8 = 0;
+    FUN_00c3e420(&local_14);
+    while (local_14 != (int *)0x0) {
+      (**(code **)(*local_14 + 0x14))();
+      if (*(int *)(param_1 + 0x70) != 0) {
+        (**(code **)(param_1 + 0x70))();
+      }
+      lVar4 = FUN_00aa4d80();
+      if (lVar3 < lVar4 - lVar2) {
+        if (local_14 != (int *)0x0) {
+          if (local_14 != (int *)0x0) {
+            FUN_0044dd60();
+          }
+          local_14 = (int *)0x0;
+        }
+      }
+      else {
+        FUN_00c3e420(&local_14);
+      }
+    }
+    DAT_01202dd8 = '\0';
+  }
+  else {
+    local_15 = 1;
+  }
+  *unaff_FS_OFFSET = local_10;
+  return local_15;
+}
+
+
+Total callers printed: 2
+
+======================================================================
+CALLER SCAN: completion queue dequeue/get @ 0x0044d5c0
+======================================================================
+
+Caller 1: UNCONDITIONAL_CALL @ 0x00449f91 in FUN_00449f80
+
+----------------------------------------------------------------------
+Disassembly caller of completion queue dequeue/get around 0x00449f91
+----------------------------------------------------------------------
+  0x00449f80: PUSH EBP                              
+  0x00449f81: MOV EBP,ESP                           
+  0x00449f83: PUSH ECX                              
+  0x00449f84: MOV dword ptr [EBP + -0x4],ECX        
+  0x00449f87: MOV EAX,dword ptr [EBP + -0x4]        
+  0x00449f8a: PUSH EAX                              
+  0x00449f8b: MOV ECX,dword ptr [EBP + -0x4]        
+  0x00449f8e: MOV ECX,dword ptr [ECX + 0x14]        
+  0x00449f91: CALL 0x0044d5c0                        << TARGET
+  0x00449f96: MOV ESP,EBP                           
+  0x00449f98: POP EBP                               
+  0x00449f99: RET                                   
+  0x00449fa0: PUSH EBP                              
+  0x00449fa1: MOV EBP,ESP                           
+  0x00449fa3: PUSH ECX                              
+  0x00449fa4: MOV dword ptr [EBP + -0x4],ECX        
+  0x00449fa7: MOV EAX,dword ptr [EBP + 0x10]        
+  0x00449faa: PUSH EAX                              
+  0x00449fab: MOV ECX,dword ptr [EBP + 0xc]         
+  0x00449fae: PUSH ECX                              
+  0x00449faf: MOV EDX,dword ptr [EBP + 0x8]         
+  0x00449fb2: PUSH EDX                              
+  0x00449fb3: MOV ECX,dword ptr [EBP + -0x4]        
+  0x00449fb6: CALL 0x0044c270                       
+  0x00449fbb: MOV EAX,dword ptr [EBP + -0x4]        
+
+======================================================================
+Caller function FUN_00449f80 @ 0x00449f80
+======================================================================
+  Function: FUN_00449f80 @ 0x00449f80, Size: 26 bytes
+
+void __fastcall FUN_00449f80(undefined4 param_1)
+
+{
+  FUN_0044d5c0(param_1);
+  return;
+}
+
+
+Total callers printed: 1

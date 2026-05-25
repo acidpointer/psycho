@@ -1,0 +1,657 @@
+======================================================================
+SAVE-LOAD TREE REF CRASH 0x006EC846
+======================================================================
+Crash facts:
+  Fault: read 0x00000000 at EIP=0x006EC846
+  ECX/EDX: TESObjectREFR WastelandShrub01, cell STILL_LOADING
+  Recent experiment: IOManager worker count was patched 1 -> 2
+  Goal: identify exact fault instruction and whether stack is task/model-loader path
+
+# CrashLogger calltrace
+  0x006EC846 fault
+  0x0044955D
+  0x0066503F
+  0x0050F85B
+  0x0050EE3D
+  0x0056B515
+  0x00452001
+  0x00440CEC
+  0x0043FE04
+  0x00C3DD8E
+  0x00C3E115
+  0x00456531
+  0x00849364
+  0x00848BEA
+  0x0085084B
+  0x008467D3
+  0x007D3548
+  0x007CED81
+
+----------------------------------------------------------------------
+Function range for Fault site @ 0x006ec846
+----------------------------------------------------------------------
+  FUN_006ec830 entry=0x006ec830 size=53
+
+----------------------------------------------------------------------
+Function range for Caller 1 @ 0x0044955d
+----------------------------------------------------------------------
+  FUN_00449530 entry=0x00449530 size=68
+
+----------------------------------------------------------------------
+Function range for Caller 2 @ 0x0066503f
+----------------------------------------------------------------------
+  FUN_00664f50 entry=0x00664f50 size=874
+
+----------------------------------------------------------------------
+Function range for Caller 3 @ 0x0050f85b
+----------------------------------------------------------------------
+  FUN_0050f810 entry=0x0050f810 size=171
+
+----------------------------------------------------------------------
+Function range for Caller 4 @ 0x0050ee3d
+----------------------------------------------------------------------
+  FUN_0050ee20 entry=0x0050ee20 size=35
+
+----------------------------------------------------------------------
+Function range for Caller 5 @ 0x0056b515
+----------------------------------------------------------------------
+  FUN_0056b2d0 entry=0x0056b2d0 size=5250
+
+----------------------------------------------------------------------
+Function range for Caller 6 @ 0x00452001
+----------------------------------------------------------------------
+  FUN_00451ef0 entry=0x00451ef0 size=1147
+
+----------------------------------------------------------------------
+Function range for Caller 7 @ 0x00440cec
+----------------------------------------------------------------------
+  FUN_00440ba0 entry=0x00440ba0 size=467
+
+----------------------------------------------------------------------
+Function range for Caller 8 @ 0x0043fe04
+----------------------------------------------------------------------
+  FUN_0043fdf0 entry=0x0043fdf0 size=24
+
+----------------------------------------------------------------------
+Function range for Task manager caller @ 0x00c3dd8e
+----------------------------------------------------------------------
+  FUN_00c3dbf0 entry=0x00c3dbf0 size=646
+
+----------------------------------------------------------------------
+Function range for ModelLoader wait loop @ 0x00c3e115
+----------------------------------------------------------------------
+  FUN_00c3dfa0 entry=0x00c3dfa0 size=513
+
+----------------------------------------------------------------------
+Function range for Loader caller @ 0x00456531
+----------------------------------------------------------------------
+  FUN_00456520 entry=0x00456520 size=21
+
+----------------------------------------------------------------------
+Function range for Menu/load caller @ 0x00849364
+----------------------------------------------------------------------
+  FUN_008492b0 entry=0x008492b0 size=642
+
+----------------------------------------------------------------------
+Function range for Menu/load caller @ 0x00848bea
+----------------------------------------------------------------------
+  FUN_00847df0 entry=0x00847df0 size=3748
+
+----------------------------------------------------------------------
+Function range for Menu/load caller @ 0x0085084b
+----------------------------------------------------------------------
+  FUN_00850760 entry=0x00850760 size=563
+
+----------------------------------------------------------------------
+Function range for Menu/load caller @ 0x008467d3
+----------------------------------------------------------------------
+  FUN_008467b0 entry=0x008467b0 size=39
+
+----------------------------------------------------------------------
+Function range for Menu caller @ 0x007d3548
+----------------------------------------------------------------------
+  FUN_007d3470 entry=0x007d3470 size=324
+
+----------------------------------------------------------------------
+Function range for Menu caller @ 0x007ced81
+----------------------------------------------------------------------
+  FUN_007ce9b0 entry=0x007ce9b0 size=1540
+
+# Fault-site disassembly/decompile
+
+----------------------------------------------------------------------
+Disassembly fault site around 0x006ec846
+----------------------------------------------------------------------
+  0x006ec82a: RET 0x10                            
+  0x006ec830: PUSH EBP                            
+  0x006ec831: MOV EBP,ESP                         
+  0x006ec833: PUSH ECX                            
+  0x006ec834: MOV dword ptr [EBP + -0x4],ECX      
+  0x006ec837: MOV EAX,dword ptr [EBP + 0xc]       
+  0x006ec83a: PUSH EAX                            
+  0x006ec83b: MOV ECX,dword ptr [EBP + 0x8]       
+  0x006ec83e: PUSH ECX                            
+  0x006ec83f: MOV EDX,dword ptr [EBP + 0x8]       
+  0x006ec842: PUSH EDX                            
+  0x006ec843: MOV EAX,dword ptr [EBP + -0x4]      
+  0x006ec846: MOV ECX,dword ptr [EAX]              << FAULT
+  0x006ec848: MOV EDX,dword ptr [EBP + -0x4]      
+  0x006ec84b: MOV EAX,dword ptr [EDX]             
+  0x006ec84d: MOV EDX,dword ptr [ECX]             
+  0x006ec84f: MOV ECX,EAX                         
+  0x006ec851: MOV EAX,dword ptr [EDX + 0x24]      
+  0x006ec854: CALL EAX                            
+  0x006ec856: PUSH EAX                            
+  0x006ec857: MOV ECX,dword ptr [EBP + -0x4]      
+  0x006ec85a: CALL 0x006ec9b0                     
+  0x006ec85f: MOV ESP,EBP                         
+  0x006ec861: POP EBP                             
+  0x006ec862: RET 0x8                             
+  0x006ec870: PUSH EBP                            
+  0x006ec871: MOV EBP,ESP                         
+  0x006ec873: PUSH -0x1                           
+  0x006ec875: PUSH 0xeed038                       
+  0x006ec87a: MOV EAX,FS:[0x0]                    
+  0x006ec880: PUSH EAX                            
+  0x006ec881: SUB ESP,0xc                         
+  0x006ec884: MOV EAX,[0x011c16bc]                
+  0x006ec889: XOR EAX,EBP                         
+  0x006ec88b: PUSH EAX                            
+  0x006ec88c: LEA EAX,[EBP + -0xc]                
+  0x006ec88f: MOV FS:[0x0],EAX                    
+
+======================================================================
+Fault site containing function @ 0x006ec846
+======================================================================
+  Function: FUN_006ec830 @ 0x006ec830, Size: 53 bytes
+  NOTE: Requested 0x006ec846 is inside FUN_006ec830 (entry at 0x006ec830)
+
+void __thiscall FUN_006ec830(undefined4 *param_1,undefined4 param_2,undefined4 param_3)
+
+{
+  undefined4 uVar1;
+  undefined4 uVar2;
+  
+  uVar2 = param_2;
+  uVar1 = (**(code **)(*(int *)*param_1 + 0x24))(param_2,param_2,param_3);
+  FUN_006ec9b0(uVar1,param_2,uVar2);
+  return;
+}
+
+
+
+----------------------------------------------------------------------
+Calls FROM 0x006ec846 (Fault site containing function)
+----------------------------------------------------------------------
+  CALL 0x006ec9b0 -> FUN_006ec9b0 (from 0x006ec85a)
+  Total: 1 calls
+
+# Task manager / ModelLoader context
+
+----------------------------------------------------------------------
+Disassembly task manager caller around 0x00c3dd8e
+----------------------------------------------------------------------
+  0x00c3dd49: CALL dword ptr [0x00fdf1c0]         
+  0x00c3dd4f: MOV dword ptr [EBP + -0x4],0x0      
+  0x00c3dd56: LEA ECX,[EBP + -0x10]               
+  0x00c3dd59: PUSH ECX                            
+  0x00c3dd5a: MOV EDX,dword ptr [EBP + 0xffffff70]
+  0x00c3dd60: MOV ECX,dword ptr [EDX + 0x64]      
+  0x00c3dd63: CALL 0x00c3e420                     
+  0x00c3dd68: CMP dword ptr [EBP + -0x10],0x0     
+  0x00c3dd6c: JZ 0x00c3de42                       
+  0x00c3dd72: MOV EAX,dword ptr [EBP + -0x10]     
+  0x00c3dd75: MOV dword ptr [EBP + 0xffffff5c],EAX
+  0x00c3dd7b: MOV ECX,dword ptr [EBP + 0xffffff5c]
+  0x00c3dd81: MOV EDX,dword ptr [ECX]             
+  0x00c3dd83: MOV ECX,dword ptr [EBP + 0xffffff5c]
+  0x00c3dd89: MOV EAX,dword ptr [EDX + 0x14]      
+  0x00c3dd8c: CALL EAX                            
+  0x00c3dd8e: MOV ECX,dword ptr [EBP + 0xffffff70] << FAULT
+  0x00c3dd94: CMP dword ptr [ECX + 0x70],0x0      
+  0x00c3dd98: JZ 0x00c3dda5                       
+  0x00c3dd9a: MOV EDX,dword ptr [EBP + 0xffffff70]
+  0x00c3dda0: MOV EAX,dword ptr [EDX + 0x70]      
+  0x00c3dda3: CALL EAX                            
+  0x00c3dda5: CALL 0x00aa4d80                     
+  0x00c3ddaa: SUB EAX,dword ptr [EBP + -0x2c]     
+  0x00c3ddad: SBB EDX,dword ptr [EBP + -0x28]     
+  0x00c3ddb0: MOV dword ptr [EBP + 0xffffff54],EAX
+  0x00c3ddb6: MOV dword ptr [EBP + 0xffffff58],EDX
+  0x00c3ddbc: MOV ECX,dword ptr [EBP + 0xffffff58]
+  0x00c3ddc2: CMP ECX,dword ptr [EBP + -0x20]     
+  0x00c3ddc5: JL 0x00c3dde0                       
+  0x00c3ddc7: JG 0x00c3ddd4                       
+  0x00c3ddc9: MOV EDX,dword ptr [EBP + 0xffffff54]
+  0x00c3ddcf: CMP EDX,dword ptr [EBP + -0x24]     
+  0x00c3ddd2: JBE 0x00c3dde0                      
+  0x00c3ddd4: MOV dword ptr [EBP + 0xffffff50],0x1
+  0x00c3ddde: JMP 0x00c3ddea                      
+  0x00c3dde0: MOV dword ptr [EBP + 0xffffff50],0x0
+  0x00c3ddea: MOVZX EAX,byte ptr [EBP + 0xffffff50]
+  0x00c3ddf1: TEST EAX,EAX                        
+  0x00c3ddf3: JNZ 0x00c3de09                      
+  0x00c3ddf5: LEA ECX,[EBP + -0x10]               
+
+----------------------------------------------------------------------
+Disassembly ModelLoader wait loop around 0x00c3e115
+----------------------------------------------------------------------
+  0x00c3e0da: MOV EAX,dword ptr [EDX + 0x78]      
+  0x00c3e0dd: CALL EAX                            
+  0x00c3e0df: ADD ESP,0x4                         
+  0x00c3e0e2: MOV ECX,dword ptr [EBP + -0x20]     
+  0x00c3e0e5: MOV EDX,dword ptr [ECX + 0x18]      
+  0x00c3e0e8: MOV dword ptr [EBP + -0x18],EDX     
+  0x00c3e0eb: MOV EAX,dword ptr [EBP + -0x20]     
+  0x00c3e0ee: MOV ECX,dword ptr [EAX + 0x64]      
+  0x00c3e0f1: MOV EDX,dword ptr [EBP + -0x20]     
+  0x00c3e0f4: MOV EAX,dword ptr [EDX + 0x64]      
+  0x00c3e0f7: MOV EDX,dword ptr [ECX]             
+  0x00c3e0f9: MOV ECX,EAX                         
+  0x00c3e0fb: MOV EAX,dword ptr [EDX + 0xc]       
+  0x00c3e0fe: CALL EAX                            
+  0x00c3e100: CMP dword ptr [EBP + -0x18],EAX     
+  0x00c3e103: JBE 0x00c3e10d                      
+  0x00c3e105: PUSH 0x32                           
+  0x00c3e107: CALL dword ptr [0x00fdf104]         
+  0x00c3e10d: MOV ECX,dword ptr [EBP + -0x20]     
+  0x00c3e110: CALL 0x00c3dbf0                     
+  0x00c3e115: MOV byte ptr [EBP + -0x5],AL         << FAULT
+  0x00c3e118: MOV ECX,dword ptr [EBP + -0x20]     
+  0x00c3e11b: MOV EDX,dword ptr [ECX + 0x64]      
+  0x00c3e11e: MOV EAX,dword ptr [EBP + -0x20]     
+  0x00c3e121: MOV ECX,dword ptr [EAX + 0x64]      
+  0x00c3e124: MOV EDX,dword ptr [EDX]             
+  0x00c3e126: MOV EAX,dword ptr [EDX + 0xc]       
+  0x00c3e129: CALL EAX                            
+  0x00c3e12b: MOV dword ptr [EBP + -0x1c],EAX     
+  0x00c3e12e: MOV ECX,dword ptr [EBP + -0x20]     
+  0x00c3e131: CMP dword ptr [ECX + 0x6c],0x0      
+  0x00c3e135: JZ 0x00c3e144                       
+  0x00c3e137: MOV EDX,dword ptr [EBP + -0x20]     
+  0x00c3e13a: MOV EAX,dword ptr [EDX + 0x6c]      
+  0x00c3e13d: CALL EAX                            
+  0x00c3e13f: MOV dword ptr [EBP + -0x3c],EAX     
+  0x00c3e142: JMP 0x00c3e14b                      
+  0x00c3e144: MOV dword ptr [EBP + -0x3c],0x0     
+  0x00c3e14b: MOV ECX,dword ptr [EBP + 0x8]       
+  0x00c3e14e: LEA EDX,[ECX*0x4 + 0x3]             
+  0x00c3e155: PUSH EDX                            
+  0x00c3e156: MOV ECX,dword ptr [EBP + -0x20]     
+  0x00c3e159: CALL 0x00c3e860                     
+  0x00c3e15e: ADD EAX,dword ptr [EBP + -0x1c]     
+  0x00c3e161: ADD EAX,dword ptr [EBP + -0x3c]     
+
+======================================================================
+Task manager caller @ 0x00c3dd8e
+======================================================================
+  Function: FUN_00c3dbf0 @ 0x00c3dbf0, Size: 646 bytes
+  NOTE: Requested 0x00c3dd8e is inside FUN_00c3dbf0 (entry at 0x00c3dbf0)
+
+/* WARNING: Removing unreachable block (ram,0x00c3dc63) */
+/* WARNING: Removing unreachable block (ram,0x00c3dc9f) */
+/* WARNING: Removing unreachable block (ram,0x00c3dd3c) */
+/* WARNING: Removing unreachable block (ram,0x00c3de2a) */
+/* WARNING: Removing unreachable block (ram,0x00c3de5c) */
+/* WARNING: Removing unreachable block (ram,0x00c3ddc9) */
+
+undefined1 __fastcall FUN_00c3dbf0(int param_1)
+
+{
+  uint uVar1;
+  int *unaff_FS_OFFSET;
+  longlong lVar2;
+  longlong lVar3;
+  longlong lVar4;
+  undefined1 local_15;
+  int *local_14;
+  int local_10;
+  undefined1 *puStack_c;
+  undefined4 local_8;
+  
+  local_8 = 0xffffffff;
+  puStack_c = &LAB_00f2dd89;
+  local_10 = *unaff_FS_OFFSET;
+  uVar1 = DAT_011c16bc ^ (uint)&stack0xfffffffc;
+  *unaff_FS_OFFSET = (int)&local_10;
+  if (DAT_01202dd8 == '\0') {
+    local_15 = 1;
+    DAT_01202dd8 = 1;
+    lVar2 = FUN_00aa4d80(uVar1);
+    lVar3 = FUN_00ec62f6();
+    if (*(int *)(param_1 + 0x74) != 0) {
+      local_15 = (**(code **)(param_1 + 0x74))();
+    }
+    local_14 = (int *)0x0;
+    local_8 = 0;
+    FUN_00c3e420(&local_14);
+    while (local_14 != (int *)0x0) {
+      (**(code **)(*local_14 + 0x14))();
+      if (*(int *)(param_1 + 0x70) != 0) {
+        (**(code **)(param_1 + 0x70))();
+      }
+      lVar4 = FUN_00aa4d80();
+      if (lVar3 < lVar4 - lVar2) {
+        if (local_14 != (int *)0x0) {
+          if (local_14 != (int *)0x0) {
+            FUN_0044dd60();
+          }
+          local_14 = (int *)0x0;
+        }
+      }
+      else {
+        FUN_00c3e420(&local_14);
+      }
+    }
+    DAT_01202dd8 = '\0';
+  }
+  else {
+    local_15 = 1;
+  }
+  *unaff_FS_OFFSET = local_10;
+  return local_15;
+}
+
+
+
+======================================================================
+ModelLoader wait loop @ 0x00c3e115
+======================================================================
+  Function: FUN_00c3dfa0 @ 0x00c3dfa0, Size: 513 bytes
+  NOTE: Requested 0x00c3e115 is inside FUN_00c3dfa0 (entry at 0x00c3dfa0)
+
+/* WARNING: Globals starting with '_' overlap smaller symbols at the same address */
+
+void __thiscall FUN_00c3dfa0(int param_1,int param_2)
+
+{
+  uint uVar1;
+  int iVar2;
+  int iVar3;
+  uint uVar4;
+  uint uVar5;
+  int local_40;
+  int local_2c;
+  int local_28;
+  uint local_10;
+  char local_9;
+  
+  if (*(int *)(param_1 + 0x68) != 7) {
+    DAT_011af70c = 0;
+    if ((*(int *)(param_1 + 0x18) == 0) &&
+       (iVar2 = (**(code **)(**(int **)(param_1 + 100) + 0xc))(), iVar2 == 0)) {
+      if (*(int *)(param_1 + 0x6c) == 0) {
+        local_28 = 0;
+      }
+      else {
+        local_28 = (**(code **)(param_1 + 0x6c))();
+      }
+      if (local_28 == 0) {
+        *(undefined4 *)(param_1 + 0x68) = 6;
+        DAT_011af70c = 1;
+        return;
+      }
+    }
+    *(int *)(param_1 + 0x68) = param_2;
+    FUN_00c3e1b0(param_2,0);
+    iVar2 = (**(code **)(**(int **)(param_1 + 100) + 0xc))();
+    if (*(int *)(param_1 + 0x6c) == 0) {
+      local_2c = 0;
+    }
+    else {
+      local_2c = (**(code **)(param_1 + 0x6c))();
+    }
+    iVar3 = FUN_00c3e860(param_2 * 4 + 3);
+    uVar4 = iVar3 + iVar2 + local_2c;
+    local_9 = '\0';
+    local_10 = uVar4;
+    while ((local_10 != 0 || (local_9 == '\0'))) {
+      if (*(int *)(param_1 + 0x78) != 0) {
+        (**(code **)(param_1 + 0x78))
+                  ((float)(((float10)(uVar4 - local_10) / (float10)uVar4) * (float10)_DAT_01017a40))
+        ;
+      }
+      uVar1 = *(uint *)(param_1 + 0x18);
+      uVar5 = (**(code **)(**(int **)(param_1 + 100) + 0xc))();
+      if (uVar5 < uVar1) {
+        Sleep(0x32);
+      }
+      local_9 = FUN_00c3dbf0();
+      iVar2 = (**(code **)(**(int **)(param_1 + 100) + 0xc))();
+      if (*(int *)(param_1 + 0x6c) == 0) {
+        local_40 = 0;
+      }
+      else {
+        local_40 = (**(code **)(param_1 + 0x6c))();
+      }
+      iVar3 = FUN_00c3e860(param_2 * 4 + 3);
+      local_10 = iVar3 + iVar2 + local_40;
+    }
+    *(undefined4 *)(param_1 + 0x68) = 6;
+    if (*(int *)(param_1 + 0x78) != 0) {
+      (**(code **)(param_1 + 0x78))(DAT_01016410);
+    }
+    DAT_011af70c = 1;
+  }
+  return;
+}
+
+
+
+# Immediate caller context
+
+======================================================================
+Caller 1 @ 0x0044955d
+======================================================================
+  Function: FUN_00449530 @ 0x00449530, Size: 68 bytes
+  NOTE: Requested 0x0044955d is inside FUN_00449530 (entry at 0x00449530)
+
+undefined1 FUN_00449530(undefined4 param_1,undefined4 param_2)
+
+{
+  undefined1 uVar1;
+  undefined4 extraout_var;
+  
+  FUN_0040fbf0(0);
+  FUN_00449f80(param_1,param_2,extraout_var);
+  uVar1 = FUN_006ec830(param_1,param_2);
+  FUN_0040fba0();
+  return uVar1;
+}
+
+
+
+======================================================================
+Caller 2 @ 0x0066503f
+======================================================================
+  Function: FUN_00664f50 @ 0x00664f50, Size: 874 bytes
+  NOTE: Requested 0x0066503f is inside FUN_00664f50 (entry at 0x00664f50)
+
+int __thiscall FUN_00664f50(int param_1,int param_2,int param_3)
+
+{
+  char cVar1;
+  uint uVar2;
+  int iVar3;
+  undefined4 uVar4;
+  int *unaff_FS_OFFSET;
+  float10 fVar5;
+  cancellation_token_source *pcVar6;
+  int *local_60;
+  undefined4 local_2c;
+  int *local_28;
+  int local_24;
+  float local_20;
+  cancellation_token_source local_18 [4];
+  int local_14;
+  int local_10;
+  undefined1 *puStack_c;
+  uint local_8;
+  
+  local_8 = 0xffffffff;
+  puStack_c = &LAB_00effd67;
+  local_10 = *unaff_FS_OFFSET;
+  uVar2 = DAT_011c16bc ^ (uint)&stack0xfffffffc;
+  *unaff_FS_OFFSET = (int)&local_10;
+  FUN_00404eb0(0x1e,1,
+               "D:\\_Fallout3\\Platforms\\Common\\Code\\Fallout Shared\\SpeedTree\\BSTreeManager.cpp"
+               ,0x1ce);
+  local_8 = 0;
+  FUN_00633c90(0);
+  local_8 = CONCAT31(local_8._1_3_,1);
+  cVar1 = FUN_0051d740(uVar2);
+  if ((((cVar1 == '\0') || (param_3 == 0)) ||
+      (iVar3 = (**(code **)(*(int *)(param_3 + 0x30) + 0x14))(), iVar3 == 0)) ||
+     ((iVar3 = FUN_0048cee0(), iVar3 == 0 ||
+      ((param_2 != 0 && (iVar3 = FUN_007af430(), iVar3 != param_3)))))) {
+    local_8 = local_8 & 0xffffff00;
+    Concurrency::cancellation_token_source::~cancellation_token_source(local_18);
+    local_8 = 0xffffffff;
+    FUN_00404ee0();
+    iVar3 = 0;
+  }
+  else {
+    local_24 = 0;
+    cVar1 = (**(code **)(**(int **)(param_1 + 0x1c) + 8))(param_2,&local_24);
+    if (cVar1 == '\0') {
+      local_2c = 1;
+      if (param_2 != 0) {
+        local_2c = FUN_005692d0();
+      }
+      pcVar6 = local_18;
+      iVar3 = param_3;
+      uVar4 = local_2c;
+      FUN_00664840(1,param_3,local_2c,pcVar6);
+      FUN_00664b50(iVar3,uVar4,pcVar6);
+      iVar3 = FUN_00559450();
+      if (iVar3 == 0) {
+        local_8 = local_8 & 0xffffff00;
+        Concurrency::cancellation_token_source::~cancellation_token_source(local_18);
+        local_8 = 0xffffffff;
+        FUN_00404ee0();
+        iVar3 = 0;
+      }
+      else {
+        FUN_00559450();
+        uVar2 = FUN_00726070();
+        if (uVar2 < 3) {
+          iVar3 = param_3;
+          FUN_00559450(param_3,local_2c);
+          cVar1 = FUN_0066ac40(iVar3,local_2c);
+          if (cVar1 == '\0') {
+            local_8 = local_8 & 0xffffff00;
+            Concurrency::cancellation_token_source::~cancellation_token_source(local_18);
+            local_8 = 0xffffffff;
+            FUN_00404ee0();
+            iVar3 = 0;
+            goto LAB_006652a9;
+          }
+          local_28 = (int *)FUN_00559450();
+        }
+        else {
+          iVar3 = FUN_00aa13e0(0x50);
+          local_8._0_1_ = 2;
+          if (iVar3 == 0) {
+            local_60 = (int *)0x0;
+          }
+          else {
+            local_60 = (int *)FUN_00666650();
+          }
+          local_8 = CONCAT31(local_8._1_3_,1);
+          local_28 = local_60;
+          uVar4 = FUN_00559450();
+          cVar1 = FUN_0066a650(uVar4);
+          if (cVar1 == '\0') {
+            if (local_60 != (int *)0x0) {
+              (**(code **)*local_60)(1);
+            }
+            local_8 = local_8 & 0xffffff00;
+            Concurrency::cancellation_token_source::~cancellation_token_source(local_18);
+            local_8 = 0xffffffff;
+            FUN_00404ee0();
+            iVar3 = 0;
+            goto LAB_006652a9;
+          }
+        }
+        local_20 = 1.0;
+        if (param_2 != 0) {
+          fVar5 = (float10)FUN_00567400();
+          local_20 = (float)fVar5;
+        }
+        local_14 = (**(code **)(*local_28 + 0xc))(local_20);
+        if (local_14 != 0) {
+          uVar4 = (**(code **)(*(int *)(param_3 + 0x30) + 0x14))();
+          uVar4 = FUN_00438170(uVar4);
+          local_8._0_1_ = 3;
+          FUN_00a5b950(uVar4);
+          local_8 = CONCAT31(local_8._1_3_,1);
+          FUN_004381b0();
+        }
+        FUN_006652c0(1);
+        iVar3 = local_14;
+        local_8 = local_8 & 0xffffff00;
+        Concurrency::cancellation_token_source::~cancellation_token_source(local_18);
+        local_8 = 0xffffffff;
+        FUN_00404ee0();
+      }
+    }
+    else {
+      (**(code **)(**(int **)(param_1 + 0x1c) + 0x14))(param_2);
+      iVar3 = local_24;
+      local_8 = local_8 & 0xffffff00;
+      Concurrency::cancellation_token_source::~cancellation_token_source(local_18);
+      local_8 = 0xffffffff;
+      FUN_00404ee0();
+    }
+  }
+LAB_006652a9:
+  *unaff_FS_OFFSET = local_10;
+  return iVar3;
+}
+
+
+
+======================================================================
+Caller 3 @ 0x0050f85b
+======================================================================
+  Function: FUN_0050f810 @ 0x0050f810, Size: 171 bytes
+  NOTE: Requested 0x0050f85b is inside FUN_0050f810 (entry at 0x0050f810)
+
+int * __thiscall FUN_0050f810(int *param_1,int param_2)
+
+{
+  int iVar1;
+  undefined4 uVar2;
+  int *piVar3;
+  int *local_8;
+  
+  local_8 = (int *)0x0;
+  iVar1 = FUN_00401170();
+  if (iVar1 == 0x25) {
+    iVar1 = FUN_00664840(1);
+    if (iVar1 != 0) {
+      iVar1 = param_2;
+      piVar3 = param_1;
+      FUN_00664840(1,param_2,param_1);
+      local_8 = (int *)FUN_00664f50(iVar1,piVar3);
+    }
+    (**(code **)(*param_1 + 0x180))(local_8);
+    if (((local_8 != (int *)0x0) && (iVar1 = (**(code **)(*local_8 + 0x100))(), iVar1 != 0)) &&
+       (param_2 != 0)) {
+      (**(code **)(*local_8 + 0x100))();
+      uVar2 = FUN_008d6f30();
+      FUN_00569350(uVar2);
+    }
+  }
+  else {
+    local_8 = (int *)0x0;
+  }
+  return local_8;
+}
+
+
+
+----------------------------------------------------------------------
+References TO 0x006ec846 (fault site)
+----------------------------------------------------------------------
+  Total: 0 refs

@@ -42,7 +42,10 @@ use crate::{
             install_gheap_activate, install_gheap_initialize, install_sheap_activate,
             install_sheap_initialize,
         },
-        perf::install_rng_hook,
+        perf::{
+            install_loading_speed_patches, install_rng_hook, mark_nvse_load_start,
+            mark_preload_start, observe_nvse_message,
+        },
         zlib::install_zlib_hooks,
     },
     plugininfo,
@@ -57,6 +60,7 @@ shadow!(build_info);
 fn entrypoint(nvse_ptr: *const NVSEInterfaceFFI) -> anyhow::Result<()> {
     // Start logger background thread + open log file.
     Logger::start_deferred();
+    mark_nvse_load_start();
 
     // --- NVSE setup ---
 
@@ -79,6 +83,7 @@ fn entrypoint(nvse_ptr: *const NVSEInterfaceFFI) -> anyhow::Result<()> {
 
     ctx.on_message(|msg| {
         use libnvse::api::messaging::NVSEMessageType;
+        observe_nvse_message(msg);
         if msg.get_type() == NVSEMessageType::DeferredInit {
             crate::nvse_services::set_game_ready();
             log::info!("[NVSE] Game engine ready - DeferredInit message received!");
@@ -170,7 +175,12 @@ pub extern "C" fn NVSEPlugin_Preload() -> BOOL {
         return false.into();
     }
 
+    mark_preload_start();
     log::info!("[PRELOAD] Config loaded, logger ready");
+
+    if let Err(err) = install_loading_speed_patches() {
+        log::error!("[FAIL] loading speed patches: {:?}", err);
+    }
 
     // Research probes for OOM-rework planning. Pure observation: the
     // reserve probe releases every successful reservation before returning,
