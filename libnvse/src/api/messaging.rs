@@ -248,12 +248,18 @@ impl NVSEMessage {
 
     /// Interpret the message data as a bool (used by PostLoadGame).
     ///
-    /// Returns None if data is NULL.
+    /// xNVSE passes this as a pointer-sized boolean value, not a pointer to bool.
+    /// Returns None if the message has no boolean payload or uses an unexpected value.
     pub fn data_as_bool(&self) -> Option<bool> {
-        if self.data.is_null() || self.data_len < 1 {
+        if self.data_len < 1 {
             return None;
         }
-        Some(unsafe { *(self.data as *const bool) })
+
+        match self.data as usize {
+            0 => Some(false),
+            1 => Some(true),
+            _ => None,
+        }
     }
 }
 

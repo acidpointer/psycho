@@ -1,0 +1,1544 @@
+======================================================================
+TEXTURE LOAD GAP AUDIT
+======================================================================
+Runtime logs showed texture_load around 8.7s, while open/read/image_info were near zero.
+This script maps every internal callsite inside 0x00E68A80 so the missing stage is concrete.
+
+======================================================================
+NiDX9SourceTextureData texture load @ 0x00e68a80
+======================================================================
+  Function: FUN_00e68a80 @ 0x00e68a80, Size: 1041 bytes
+
+void __thiscall
+FUN_00e68a80(undefined4 param_1,char *param_2,int *param_3,undefined4 param_4,int *param_5)
+
+{
+  char cVar1;
+  int iVar2;
+  int *piVar3;
+  void *_Src;
+  uint uVar4;
+  uint uVar5;
+  void *_Dst;
+  int *piVar6;
+  int *piStack_550;
+  int *piStack_54c;
+  undefined4 uStack_548;
+  void *local_544;
+  int *piStack_540;
+  uint uStack_53c;
+  uint uStack_538;
+  uint uStack_534;
+  uint uStack_530;
+  int iStack_524;
+  int iStack_520;
+  int iStack_51c;
+  uint uStack_518;
+  int *piStack_514;
+  undefined4 local_510;
+  char local_409 [769];
+  char local_108 [256];
+  uint uStack_8;
+  uint local_4;
+  
+  local_4 = DAT_011c16bc ^ (uint)&piStack_550;
+  local_510 = param_1;
+  if ((param_3 == (int *)0x0) || (local_544 = (void *)param_3[0xa2], local_544 == (void *)0x0)) {
+LAB_00e68e7e:
+    __security_check_cookie(local_4 ^ (uint)&piStack_550);
+    return;
+  }
+  if (param_5 == (int *)0x0) {
+    _strcpy_s(local_108,0x104,param_2);
+    FUN_00aa2a00(local_108);
+    FUN_00aa27d0(local_108);
+    iVar2 = __stricmp(local_409,".bmp");
+    if ((((iVar2 != 0) && (iVar2 = __stricmp(local_409,".tga"), iVar2 != 0)) &&
+        (iVar2 = __stricmp(local_409,".dds"), iVar2 != 0)) ||
+       (param_5 = (int *)thunk_FUN_00aa1b60(local_108,0,0x8000), param_5 == (int *)0x0))
+    goto LAB_00e68e7e;
+  }
+  cVar1 = (**(code **)(*param_5 + 4))();
+  if (cVar1 == '\0') {
+    (**(code **)*param_5)(1);
+    goto LAB_00e68e7e;
+  }
+  piVar3 = (int *)(*(code *)((undefined4 *)*param_5)[7])();
+  piStack_54c = piVar3;
+  if (piVar3 == (int *)0x0) {
+    (**(code **)*param_5)(1);
+    goto LAB_00e68c1e;
+  }
+  _Src = (void *)FUN_00aa1070(piVar3);
+  FUN_00462d80(_Src,piVar3);
+  (**(code **)*param_5)(1);
+  iVar2 = D3DXGetImageInfoFromFileInMemory(_Src,piVar3,&uStack_534);
+  if ((iVar2 < 0) ||
+     (((((*param_3 == 4 && (iStack_524 != 0x3c)) &&
+        ((iStack_524 != 0x3f && ((iStack_524 != 0x40 && (iStack_524 != 0x6e)))))) &&
+       (iStack_524 != 0x75)) &&
+      (((iStack_524 != 0x3d && (iStack_524 != 0x3e)) && (iStack_524 != 0x43)))))) {
+    FUN_00aa10f0(_Src);
+    goto LAB_00e68c1e;
+  }
+  uStack_538 = uStack_530;
+  piVar6 = (int *)0x0;
+  uStack_518 = uStack_534;
+  if (iStack_520 == 3) {
+    piStack_540 = (int *)0x0;
+    _Dst = _Src;
+    piVar6 = piVar3;
+    if ((iStack_51c == 4) && ((*(byte *)((int)_Src + 0x50) & 4) != 0)) {
+      iVar2 = *(int *)((int)_Src + 0x54);
+      if (iVar2 == 0x31545844) {
+        uStack_53c = 2;
+      }
+      else {
+        if (((iVar2 != 0x32545844) && (iVar2 != 0x33545844)) &&
+           ((iVar2 != 0x34545844 && (iVar2 != 0x35545844)))) goto LAB_00e68dc1;
+        uStack_53c = 1;
+      }
+      piStack_54c = *(int **)((int)_Src + 0x1c);
+      local_544 = (void *)((int)_Src + 0x80);
+      piVar6 = (int *)((int)piStack_54c - (int)DAT_0126efc4);
+      if ((int *)((int)piStack_54c - (int)DAT_0126efc4) <= DAT_0126efc8) {
+        piVar6 = DAT_0126efc8;
+      }
+      if ((piStack_54c <= DAT_0126efc4) && (piVar6 = piStack_54c, DAT_0126efc8 <= piStack_54c)) {
+        piVar6 = DAT_0126efc8;
+      }
+      if (piVar6 < piStack_54c) {
+        iVar2 = (int)piStack_54c - (int)piVar6;
+        do {
+          uVar5 = 1;
+          if (uStack_534 >> 2 != 0) {
+            uVar5 = uStack_534 >> 2;
+          }
+          uVar4 = uStack_530 >> 2;
+          if (uVar4 == 0) {
+            uVar4 = 1;
+          }
+          uVar5 = (uVar4 * uVar5 * 0x10) / uStack_53c;
+          local_544 = (void *)((int)local_544 + uVar5);
+          piVar3 = (int *)((int)piVar3 - uVar5);
+          uVar5 = uStack_534 >> 1;
+          uStack_534 = 1;
+          if (uVar5 != 0) {
+            uStack_534 = uVar5;
+          }
+          uVar5 = uStack_530 >> 1;
+          uStack_530 = 1;
+          if (uVar5 != 0) {
+            uStack_530 = uVar5;
+          }
+          piStack_54c = (int *)((int)piStack_54c - 1);
+          iVar2 = iVar2 + -1;
+        } while (iVar2 != 0);
+      }
+      piVar6 = piStack_550;
+      if (piStack_54c != *(int **)((int)_Src + 0x1c)) {
+        _Dst = (void *)FUN_00aa3e40(piVar3);
+        _memcpy(_Dst,_Src,0x80);
+        *(uint *)((int)_Dst + 0x10) = uStack_534;
+        *(uint *)((int)_Dst + 0xc) = uStack_530;
+        *(int **)((int)_Dst + 0x1c) = piStack_54c;
+        *(uint *)((int)_Dst + 0x14) = uStack_530 * uStack_534;
+        _memcpy((void *)((int)_Dst + 0x80),local_544,(size_t)(piVar3 + -0x20));
+        FUN_00aa4060(_Src);
+        piVar6 = piStack_550;
+      }
+    }
+LAB_00e68dc1:
+    iVar2 = D3DXCreateTextureFromFileInMemory(uStack_548,_Dst,piVar6,&piStack_540);
+    _Src = _Dst;
+    piVar6 = piStack_540;
+  }
+  else if (iStack_520 == 5) {
+    piStack_550 = (int *)0x0;
+    iVar2 = D3DXCreateCubeTextureFromFileInMemory(uStack_548,_Src,piVar3,&piStack_550);
+    piVar6 = piStack_550;
+  }
+  else if (iStack_520 == 4) {
+    iVar2 = D3DXCreateVolumeTextureFromFileInMemory(uStack_548,_Src,piVar3,&stack0xfffffaac);
+    piVar6 = (int *)0x0;
+  }
+  else {
+    iVar2 = -0x7789f794;
+  }
+  FUN_00aa10f0(_Src);
+  if ((-1 < iVar2) && (piVar6 != (int *)0x0)) {
+    cVar1 = (**(code **)(*piStack_514 + 0xb0))(piVar6);
+    piStack_514[3] = uStack_518;
+    piStack_514[4] = uStack_538;
+    if (cVar1 == '\0') {
+      (**(code **)(*piVar6 + 8))(piVar6);
+    }
+  }
+LAB_00e68c1e:
+  __security_check_cookie(uStack_8 ^ (uint)&stack0xfffffaac);
+  return;
+}
+
+
+
+--- Calls FROM NiDX9SourceTextureData texture load (0x00e68a80) ---
+  0x00e68ade -> 0x00ec65a6 _strcpy_s
+  0x00e68aeb -> 0x00aa2a00 FUN_00aa2a00
+  0x00e68aff -> 0x00aa27d0 FUN_00aa27d0
+  0x00e68b11 -> 0x00aa1360 __stricmp
+  0x00e68b2a -> 0x00aa1360 __stricmp
+  0x00e68b43 -> 0x00aa1360 __stricmp
+  0x00e68b62 -> 0x00aa1a20 thunk_FUN_00aa1b60
+  0x00e68ba9 -> 0x00aa1070 FUN_00aa1070
+  0x00e68bb7 -> 0x00462d80 FUN_00462d80
+  0x00e68bcd -> 0x00ee6e22 D3DXGetImageInfoFromFileInMemory
+  0x00e68c13 -> 0x00aa10f0 FUN_00aa10f0
+  0x00e68c29 -> 0x00ec408c __security_check_cookie
+  0x00e68d64 -> 0x00aa3e40 FUN_00aa3e40
+  0x00e68d72 -> 0x00ec44d0 _memcpy
+  0x00e68da8 -> 0x00ec44d0 _memcpy
+  0x00e68db6 -> 0x00aa4060 FUN_00aa4060
+  0x00e68dcd -> 0x00ee6e1c D3DXCreateTextureFromFileInMemory
+  0x00e68df3 -> 0x00ee6e16 D3DXCreateCubeTextureFromFileInMemory
+  0x00e68e18 -> 0x00ee6e10 D3DXCreateVolumeTextureFromFileInMemory
+  0x00e68e2b -> 0x00aa10f0 FUN_00aa10f0
+  0x00e68e8a -> 0x00ec408c __security_check_cookie
+  Total: 21 calls
+
+======================================================================
+TEXTURE LOAD INTERNAL CALLSITES
+======================================================================
+
+----------------------------------------------------------------------
+Callsite: copy texture path to stack buffer @ 0x00e68ade
+----------------------------------------------------------------------
+  Instruction: CALL 0x00ec65a6
+  CALL target: 0x00ec65a6 _strcpy_s
+
+----------------------------------------------------------------------
+Disassembly copy texture path to stack buffer around 0x00e68ade
+----------------------------------------------------------------------
+  0x00e68ac0: TEST EAX,EAX                                
+  0x00e68ac2: JZ 0x00e68e7e                               
+  0x00e68ac8: TEST ESI,ESI                                
+  0x00e68aca: JNZ 0x00e68b74                              
+  0x00e68ad0: PUSH ECX                                    
+  0x00e68ad1: LEA EAX,[ESP + 0x450]                       
+  0x00e68ad8: PUSH 0x104                                  
+  0x00e68add: PUSH EAX                                    
+  0x00e68ade: CALL 0x00ec65a6                              << TARGET
+  0x00e68ae3: LEA ECX,[ESP + 0x458]                       
+  0x00e68aea: PUSH ECX                                    
+  0x00e68aeb: CALL 0x00aa2a00                             
+  0x00e68af0: ADD ESP,0x10                                
+  0x00e68af3: LEA EDX,[ESP + 0x44c]                       
+  0x00e68afa: PUSH EDX                                    
+  0x00e68afb: LEA ECX,[ESP + 0x4c]                        
+  0x00e68aff: CALL 0x00aa27d0                             
+  0x00e68b04: LEA EAX,[ESP + 0x14b]                       
+  0x00e68b0b: PUSH 0x107f794                              
+  0x00e68b10: PUSH EAX                                    
+  0x00e68b11: CALL 0x00aa1360                             
+  0x00e68b16: ADD ESP,0x8                                 
+  0x00e68b19: TEST EAX,EAX                                
+  0x00e68b1b: JZ 0x00e68b53                               
+  0x00e68b1d: LEA ECX,[ESP + 0x14b]                       
+
+----------------------------------------------------------------------
+Callsite: path normalize helper @ 0x00e68aeb
+----------------------------------------------------------------------
+  Instruction: CALL 0x00aa2a00
+  CALL target: 0x00aa2a00 FUN_00aa2a00
+
+----------------------------------------------------------------------
+Disassembly path normalize helper around 0x00e68aeb
+----------------------------------------------------------------------
+  0x00e68aca: JNZ 0x00e68b74                              
+  0x00e68ad0: PUSH ECX                                    
+  0x00e68ad1: LEA EAX,[ESP + 0x450]                       
+  0x00e68ad8: PUSH 0x104                                  
+  0x00e68add: PUSH EAX                                    
+  0x00e68ade: CALL 0x00ec65a6                             
+  0x00e68ae3: LEA ECX,[ESP + 0x458]                       
+  0x00e68aea: PUSH ECX                                    
+  0x00e68aeb: CALL 0x00aa2a00                              << TARGET
+  0x00e68af0: ADD ESP,0x10                                
+  0x00e68af3: LEA EDX,[ESP + 0x44c]                       
+  0x00e68afa: PUSH EDX                                    
+  0x00e68afb: LEA ECX,[ESP + 0x4c]                        
+  0x00e68aff: CALL 0x00aa27d0                             
+  0x00e68b04: LEA EAX,[ESP + 0x14b]                       
+  0x00e68b0b: PUSH 0x107f794                              
+  0x00e68b10: PUSH EAX                                    
+  0x00e68b11: CALL 0x00aa1360                             
+  0x00e68b16: ADD ESP,0x8                                 
+  0x00e68b19: TEST EAX,EAX                                
+  0x00e68b1b: JZ 0x00e68b53                               
+  0x00e68b1d: LEA ECX,[ESP + 0x14b]                       
+  0x00e68b24: PUSH 0x109f4a4                              
+  0x00e68b29: PUSH ECX                                    
+  0x00e68b2a: CALL 0x00aa1360                             
+
+----------------------------------------------------------------------
+Callsite: extension extraction helper @ 0x00e68aff
+----------------------------------------------------------------------
+  Instruction: CALL 0x00aa27d0
+  CALL target: 0x00aa27d0 FUN_00aa27d0
+
+----------------------------------------------------------------------
+Disassembly extension extraction helper around 0x00e68aff
+----------------------------------------------------------------------
+  0x00e68ade: CALL 0x00ec65a6                             
+  0x00e68ae3: LEA ECX,[ESP + 0x458]                       
+  0x00e68aea: PUSH ECX                                    
+  0x00e68aeb: CALL 0x00aa2a00                             
+  0x00e68af0: ADD ESP,0x10                                
+  0x00e68af3: LEA EDX,[ESP + 0x44c]                       
+  0x00e68afa: PUSH EDX                                    
+  0x00e68afb: LEA ECX,[ESP + 0x4c]                        
+  0x00e68aff: CALL 0x00aa27d0                              << TARGET
+  0x00e68b04: LEA EAX,[ESP + 0x14b]                       
+  0x00e68b0b: PUSH 0x107f794                              
+  0x00e68b10: PUSH EAX                                    
+  0x00e68b11: CALL 0x00aa1360                             
+  0x00e68b16: ADD ESP,0x8                                 
+  0x00e68b19: TEST EAX,EAX                                
+  0x00e68b1b: JZ 0x00e68b53                               
+  0x00e68b1d: LEA ECX,[ESP + 0x14b]                       
+  0x00e68b24: PUSH 0x109f4a4                              
+  0x00e68b29: PUSH ECX                                    
+  0x00e68b2a: CALL 0x00aa1360                             
+  0x00e68b2f: ADD ESP,0x8                                 
+  0x00e68b32: TEST EAX,EAX                                
+  0x00e68b34: JZ 0x00e68b53                               
+  0x00e68b36: LEA EDX,[ESP + 0x14b]                       
+  0x00e68b3d: PUSH 0x101aa24                              
+
+----------------------------------------------------------------------
+Callsite: extension check .bmp @ 0x00e68b11
+----------------------------------------------------------------------
+  Instruction: CALL 0x00aa1360
+  CALL target: 0x00aa1360 __stricmp
+
+----------------------------------------------------------------------
+Disassembly extension check .bmp around 0x00e68b11
+----------------------------------------------------------------------
+  0x00e68af0: ADD ESP,0x10                                
+  0x00e68af3: LEA EDX,[ESP + 0x44c]                       
+  0x00e68afa: PUSH EDX                                    
+  0x00e68afb: LEA ECX,[ESP + 0x4c]                        
+  0x00e68aff: CALL 0x00aa27d0                             
+  0x00e68b04: LEA EAX,[ESP + 0x14b]                       
+  0x00e68b0b: PUSH 0x107f794                              
+  0x00e68b10: PUSH EAX                                    
+  0x00e68b11: CALL 0x00aa1360                              << TARGET
+  0x00e68b16: ADD ESP,0x8                                 
+  0x00e68b19: TEST EAX,EAX                                
+  0x00e68b1b: JZ 0x00e68b53                               
+  0x00e68b1d: LEA ECX,[ESP + 0x14b]                       
+  0x00e68b24: PUSH 0x109f4a4                              
+  0x00e68b29: PUSH ECX                                    
+  0x00e68b2a: CALL 0x00aa1360                             
+  0x00e68b2f: ADD ESP,0x8                                 
+  0x00e68b32: TEST EAX,EAX                                
+  0x00e68b34: JZ 0x00e68b53                               
+  0x00e68b36: LEA EDX,[ESP + 0x14b]                       
+  0x00e68b3d: PUSH 0x101aa24                              
+  0x00e68b42: PUSH EDX                                    
+  0x00e68b43: CALL 0x00aa1360                             
+  0x00e68b48: ADD ESP,0x8                                 
+  0x00e68b4b: TEST EAX,EAX                                
+
+----------------------------------------------------------------------
+Callsite: extension check .tga @ 0x00e68b2a
+----------------------------------------------------------------------
+  Instruction: CALL 0x00aa1360
+  CALL target: 0x00aa1360 __stricmp
+
+----------------------------------------------------------------------
+Disassembly extension check .tga around 0x00e68b2a
+----------------------------------------------------------------------
+  0x00e68b10: PUSH EAX                                    
+  0x00e68b11: CALL 0x00aa1360                             
+  0x00e68b16: ADD ESP,0x8                                 
+  0x00e68b19: TEST EAX,EAX                                
+  0x00e68b1b: JZ 0x00e68b53                               
+  0x00e68b1d: LEA ECX,[ESP + 0x14b]                       
+  0x00e68b24: PUSH 0x109f4a4                              
+  0x00e68b29: PUSH ECX                                    
+  0x00e68b2a: CALL 0x00aa1360                              << TARGET
+  0x00e68b2f: ADD ESP,0x8                                 
+  0x00e68b32: TEST EAX,EAX                                
+  0x00e68b34: JZ 0x00e68b53                               
+  0x00e68b36: LEA EDX,[ESP + 0x14b]                       
+  0x00e68b3d: PUSH 0x101aa24                              
+  0x00e68b42: PUSH EDX                                    
+  0x00e68b43: CALL 0x00aa1360                             
+  0x00e68b48: ADD ESP,0x8                                 
+  0x00e68b4b: TEST EAX,EAX                                
+  0x00e68b4d: JNZ 0x00e68e7e                              
+  0x00e68b53: PUSH 0x8000                                 
+  0x00e68b58: LEA EAX,[ESP + 0x450]                       
+  0x00e68b5f: PUSH 0x0                                    
+  0x00e68b61: PUSH EAX                                    
+  0x00e68b62: CALL 0x00aa1a20                             
+  0x00e68b67: MOV ESI,EAX                                 
+
+----------------------------------------------------------------------
+Callsite: extension check .dds @ 0x00e68b43
+----------------------------------------------------------------------
+  Instruction: CALL 0x00aa1360
+  CALL target: 0x00aa1360 __stricmp
+
+----------------------------------------------------------------------
+Disassembly extension check .dds around 0x00e68b43
+----------------------------------------------------------------------
+  0x00e68b29: PUSH ECX                                    
+  0x00e68b2a: CALL 0x00aa1360                             
+  0x00e68b2f: ADD ESP,0x8                                 
+  0x00e68b32: TEST EAX,EAX                                
+  0x00e68b34: JZ 0x00e68b53                               
+  0x00e68b36: LEA EDX,[ESP + 0x14b]                       
+  0x00e68b3d: PUSH 0x101aa24                              
+  0x00e68b42: PUSH EDX                                    
+  0x00e68b43: CALL 0x00aa1360                              << TARGET
+  0x00e68b48: ADD ESP,0x8                                 
+  0x00e68b4b: TEST EAX,EAX                                
+  0x00e68b4d: JNZ 0x00e68e7e                              
+  0x00e68b53: PUSH 0x8000                                 
+  0x00e68b58: LEA EAX,[ESP + 0x450]                       
+  0x00e68b5f: PUSH 0x0                                    
+  0x00e68b61: PUSH EAX                                    
+  0x00e68b62: CALL 0x00aa1a20                             
+  0x00e68b67: MOV ESI,EAX                                 
+  0x00e68b69: ADD ESP,0xc                                 
+  0x00e68b6c: TEST ESI,ESI                                
+  0x00e68b6e: JZ 0x00e68e7e                               
+  0x00e68b74: MOV EDX,dword ptr [ESI]                     
+  0x00e68b76: MOV EAX,dword ptr [EDX + 0x4]               
+  0x00e68b79: MOV ECX,ESI                                 
+  0x00e68b7b: CALL EAX                                    
+
+----------------------------------------------------------------------
+Callsite: BSFile open/resolve @ 0x00e68b62
+----------------------------------------------------------------------
+  Instruction: CALL 0x00aa1a20
+  CALL target: 0x00aa1a20 thunk_FUN_00aa1b60
+
+----------------------------------------------------------------------
+Disassembly BSFile open/resolve around 0x00e68b62
+----------------------------------------------------------------------
+  0x00e68b43: CALL 0x00aa1360                             
+  0x00e68b48: ADD ESP,0x8                                 
+  0x00e68b4b: TEST EAX,EAX                                
+  0x00e68b4d: JNZ 0x00e68e7e                              
+  0x00e68b53: PUSH 0x8000                                 
+  0x00e68b58: LEA EAX,[ESP + 0x450]                       
+  0x00e68b5f: PUSH 0x0                                    
+  0x00e68b61: PUSH EAX                                    
+  0x00e68b62: CALL 0x00aa1a20                              << TARGET
+  0x00e68b67: MOV ESI,EAX                                 
+  0x00e68b69: ADD ESP,0xc                                 
+  0x00e68b6c: TEST ESI,ESI                                
+  0x00e68b6e: JZ 0x00e68e7e                               
+  0x00e68b74: MOV EDX,dword ptr [ESI]                     
+  0x00e68b76: MOV EAX,dword ptr [EDX + 0x4]               
+  0x00e68b79: MOV ECX,ESI                                 
+  0x00e68b7b: CALL EAX                                    
+  0x00e68b7d: MOV EDX,dword ptr [ESI]                     
+  0x00e68b7f: MOV ECX,ESI                                 
+  0x00e68b81: TEST AL,AL                                  
+  0x00e68b83: JZ 0x00e68e78                               
+  0x00e68b89: MOV EAX,dword ptr [EDX + 0x1c]              
+  0x00e68b8c: PUSH EDI                                    
+  0x00e68b8d: CALL EAX                                    
+  0x00e68b8f: MOV EDI,EAX                                 
+
+----------------------------------------------------------------------
+Callsite: temporary file buffer allocate and zero @ 0x00e68ba9
+----------------------------------------------------------------------
+  Instruction: CALL 0x00aa1070
+  CALL target: 0x00aa1070 FUN_00aa1070
+
+----------------------------------------------------------------------
+Disassembly temporary file buffer allocate and zero around 0x00e68ba9
+----------------------------------------------------------------------
+  0x00e68b9b: MOV EAX,dword ptr [EDX]                     
+  0x00e68b9d: PUSH 0x1                                    
+  0x00e68b9f: MOV ECX,ESI                                 
+  0x00e68ba1: CALL EAX                                    
+  0x00e68ba3: XOR AL,AL                                   
+  0x00e68ba5: JMP 0x00e68c1e                              
+  0x00e68ba7: PUSH EBX                                    
+  0x00e68ba8: PUSH EDI                                    
+  0x00e68ba9: CALL 0x00aa1070                              << TARGET
+  0x00e68bae: ADD ESP,0x4                                 
+  0x00e68bb1: MOV EBX,EAX                                 
+  0x00e68bb3: PUSH EDI                                    
+  0x00e68bb4: PUSH EBX                                    
+  0x00e68bb5: MOV ECX,ESI                                 
+  0x00e68bb7: CALL 0x00462d80                             
+  0x00e68bbc: MOV EDX,dword ptr [ESI]                     
+  0x00e68bbe: MOV EAX,dword ptr [EDX]                     
+  0x00e68bc0: PUSH 0x1                                    
+  0x00e68bc2: MOV ECX,ESI                                 
+  0x00e68bc4: CALL EAX                                    
+  0x00e68bc6: LEA ECX,[ESP + 0x2c]                        
+  0x00e68bca: PUSH ECX                                    
+  0x00e68bcb: PUSH EDI                                    
+  0x00e68bcc: PUSH EBX                                    
+  0x00e68bcd: CALL 0x00ee6e22                             
+
+----------------------------------------------------------------------
+Callsite: read file into temporary buffer @ 0x00e68bb7
+----------------------------------------------------------------------
+  Instruction: CALL 0x00462d80
+  CALL target: 0x00462d80 FUN_00462d80
+
+----------------------------------------------------------------------
+Disassembly read file into temporary buffer around 0x00e68bb7
+----------------------------------------------------------------------
+  0x00e68ba7: PUSH EBX                                    
+  0x00e68ba8: PUSH EDI                                    
+  0x00e68ba9: CALL 0x00aa1070                             
+  0x00e68bae: ADD ESP,0x4                                 
+  0x00e68bb1: MOV EBX,EAX                                 
+  0x00e68bb3: PUSH EDI                                    
+  0x00e68bb4: PUSH EBX                                    
+  0x00e68bb5: MOV ECX,ESI                                 
+  0x00e68bb7: CALL 0x00462d80                              << TARGET
+  0x00e68bbc: MOV EDX,dword ptr [ESI]                     
+  0x00e68bbe: MOV EAX,dword ptr [EDX]                     
+  0x00e68bc0: PUSH 0x1                                    
+  0x00e68bc2: MOV ECX,ESI                                 
+  0x00e68bc4: CALL EAX                                    
+  0x00e68bc6: LEA ECX,[ESP + 0x2c]                        
+  0x00e68bca: PUSH ECX                                    
+  0x00e68bcb: PUSH EDI                                    
+  0x00e68bcc: PUSH EBX                                    
+  0x00e68bcd: CALL 0x00ee6e22                             
+  0x00e68bd2: TEST EAX,EAX                                
+  0x00e68bd4: JL 0x00e68c12                               
+  0x00e68bd6: MOV EDX,dword ptr [ESP + 0x568]             
+  0x00e68bdd: MOV ECX,0x4                                 
+  0x00e68be2: CMP dword ptr [EDX],ECX                     
+  0x00e68be4: JNZ 0x00e68c37                              
+
+----------------------------------------------------------------------
+Callsite: D3DX image info from memory @ 0x00e68bcd
+----------------------------------------------------------------------
+  Instruction: CALL 0x00ee6e22
+  CALL target: 0x00ee6e22 D3DXGetImageInfoFromFileInMemory
+
+----------------------------------------------------------------------
+Disassembly D3DX image info from memory around 0x00e68bcd
+----------------------------------------------------------------------
+  0x00e68bbe: MOV EAX,dword ptr [EDX]                     
+  0x00e68bc0: PUSH 0x1                                    
+  0x00e68bc2: MOV ECX,ESI                                 
+  0x00e68bc4: CALL EAX                                    
+  0x00e68bc6: LEA ECX,[ESP + 0x2c]                        
+  0x00e68bca: PUSH ECX                                    
+  0x00e68bcb: PUSH EDI                                    
+  0x00e68bcc: PUSH EBX                                    
+  0x00e68bcd: CALL 0x00ee6e22                              << TARGET
+  0x00e68bd2: TEST EAX,EAX                                
+  0x00e68bd4: JL 0x00e68c12                               
+  0x00e68bd6: MOV EDX,dword ptr [ESP + 0x568]             
+  0x00e68bdd: MOV ECX,0x4                                 
+  0x00e68be2: CMP dword ptr [EDX],ECX                     
+  0x00e68be4: JNZ 0x00e68c37                              
+  0x00e68be6: MOV EAX,dword ptr [ESP + 0x3c]              
+  0x00e68bea: CMP EAX,0x3c                                
+  0x00e68bed: JZ 0x00e68c37                               
+  0x00e68bef: CMP EAX,0x3f                                
+  0x00e68bf2: JZ 0x00e68c37                               
+  0x00e68bf4: CMP EAX,0x40                                
+  0x00e68bf7: JZ 0x00e68c37                               
+  0x00e68bf9: CMP EAX,0x6e                                
+  0x00e68bfc: JZ 0x00e68c37                               
+  0x00e68bfe: CMP EAX,0x75                                
+
+----------------------------------------------------------------------
+Callsite: free buffer on image-info failure @ 0x00e68c13
+----------------------------------------------------------------------
+  Instruction: CALL 0x00aa10f0
+  CALL target: 0x00aa10f0 FUN_00aa10f0
+
+----------------------------------------------------------------------
+Disassembly free buffer on image-info failure around 0x00e68c13
+----------------------------------------------------------------------
+  0x00e68c01: JZ 0x00e68c37                               
+  0x00e68c03: CMP EAX,0x3d                                
+  0x00e68c06: JZ 0x00e68c37                               
+  0x00e68c08: CMP EAX,0x3e                                
+  0x00e68c0b: JZ 0x00e68c37                               
+  0x00e68c0d: CMP EAX,0x43                                
+  0x00e68c10: JZ 0x00e68c37                               
+  0x00e68c12: PUSH EBX                                    
+  0x00e68c13: CALL 0x00aa10f0                              << TARGET
+  0x00e68c18: ADD ESP,0x4                                 
+  0x00e68c1b: XOR AL,AL                                   
+  0x00e68c1d: POP EBX                                     
+  0x00e68c1e: POP EDI                                     
+  0x00e68c1f: POP ESI                                     
+  0x00e68c20: MOV ECX,dword ptr [ESP + 0x54c]             
+  0x00e68c27: XOR ECX,ESP                                 
+  0x00e68c29: CALL 0x00ec408c                             
+  0x00e68c2e: ADD ESP,0x550                               
+  0x00e68c34: RET 0x10                                    
+  0x00e68c37: MOV EAX,dword ptr [ESP + 0x30]              
+  0x00e68c3b: MOV dword ptr [ESP + 0x28],EAX              
+  0x00e68c3f: MOV EAX,dword ptr [ESP + 0x40]              
+  0x00e68c43: PUSH EBP                                    
+  0x00e68c44: MOV EBP,dword ptr [ESP + 0x30]              
+  0x00e68c48: XOR ESI,ESI                                 
+
+----------------------------------------------------------------------
+Callsite: allocate trimmed DDS copy @ 0x00e68d64
+----------------------------------------------------------------------
+  Instruction: CALL 0x00aa3e40
+  CALL target: 0x00aa3e40 FUN_00aa3e40
+
+----------------------------------------------------------------------
+Disassembly allocate trimmed DDS copy around 0x00e68d64
+----------------------------------------------------------------------
+  0x00e68d4b: SUB dword ptr [ESP + 0x10],ECX              
+  0x00e68d4f: JNZ 0x00e68cf0                              
+  0x00e68d51: MOV EAX,dword ptr [ESP + 0x18]              
+  0x00e68d55: MOV dword ptr [ESP + 0x30],EBP              
+  0x00e68d59: CMP EAX,dword ptr [EBX + 0x1c]              
+  0x00e68d5c: JZ 0x00e68dbd                               
+  0x00e68d5e: PUSH EDI                                    
+  0x00e68d5f: MOV ECX,0x11f6238                           
+  0x00e68d64: CALL 0x00aa3e40                              << TARGET
+  0x00e68d69: PUSH 0x80                                   
+  0x00e68d6e: MOV ESI,EAX                                 
+  0x00e68d70: PUSH EBX                                    
+  0x00e68d71: PUSH ESI                                    
+  0x00e68d72: CALL 0x00ec44d0                             
+  0x00e68d77: MOV EDX,dword ptr [ESP + 0x3c]              
+  0x00e68d7b: MOV ECX,dword ptr [ESP + 0x24]              
+  0x00e68d7f: MOV dword ptr [ESI + 0x10],EDX              
+  0x00e68d82: MOV EAX,dword ptr [ESP + 0x40]              
+  0x00e68d86: MOV dword ptr [ESI + 0xc],EAX               
+  0x00e68d89: MOV EAX,dword ptr [ESP + 0x2c]              
+  0x00e68d8d: MOV dword ptr [ESI + 0x1c],ECX              
+  0x00e68d90: MOV EDX,dword ptr [ESP + 0x40]              
+  0x00e68d94: IMUL EDX,dword ptr [ESP + 0x3c]             
+  0x00e68d99: ADD EDI,-0x80                               
+  0x00e68d9c: PUSH EDI                                    
+
+----------------------------------------------------------------------
+Callsite: copy DDS header @ 0x00e68d72
+----------------------------------------------------------------------
+  Instruction: CALL 0x00ec44d0
+  CALL target: 0x00ec44d0 _memcpy
+
+----------------------------------------------------------------------
+Disassembly copy DDS header around 0x00e68d72
+----------------------------------------------------------------------
+  0x00e68d5c: JZ 0x00e68dbd                               
+  0x00e68d5e: PUSH EDI                                    
+  0x00e68d5f: MOV ECX,0x11f6238                           
+  0x00e68d64: CALL 0x00aa3e40                             
+  0x00e68d69: PUSH 0x80                                   
+  0x00e68d6e: MOV ESI,EAX                                 
+  0x00e68d70: PUSH EBX                                    
+  0x00e68d71: PUSH ESI                                    
+  0x00e68d72: CALL 0x00ec44d0                              << TARGET
+  0x00e68d77: MOV EDX,dword ptr [ESP + 0x3c]              
+  0x00e68d7b: MOV ECX,dword ptr [ESP + 0x24]              
+  0x00e68d7f: MOV dword ptr [ESI + 0x10],EDX              
+  0x00e68d82: MOV EAX,dword ptr [ESP + 0x40]              
+  0x00e68d86: MOV dword ptr [ESI + 0xc],EAX               
+  0x00e68d89: MOV EAX,dword ptr [ESP + 0x2c]              
+  0x00e68d8d: MOV dword ptr [ESI + 0x1c],ECX              
+  0x00e68d90: MOV EDX,dword ptr [ESP + 0x40]              
+  0x00e68d94: IMUL EDX,dword ptr [ESP + 0x3c]             
+  0x00e68d99: ADD EDI,-0x80                               
+  0x00e68d9c: PUSH EDI                                    
+  0x00e68d9d: PUSH EAX                                    
+  0x00e68d9e: LEA ECX,[ESI + 0x80]                        
+  0x00e68da4: PUSH ECX                                    
+  0x00e68da5: MOV dword ptr [ESI + 0x14],EDX              
+  0x00e68da8: CALL 0x00ec44d0                             
+
+----------------------------------------------------------------------
+Callsite: copy trimmed DDS payload @ 0x00e68da8
+----------------------------------------------------------------------
+  Instruction: CALL 0x00ec44d0
+  CALL target: 0x00ec44d0 _memcpy
+
+----------------------------------------------------------------------
+Disassembly copy trimmed DDS payload around 0x00e68da8
+----------------------------------------------------------------------
+  0x00e68d90: MOV EDX,dword ptr [ESP + 0x40]              
+  0x00e68d94: IMUL EDX,dword ptr [ESP + 0x3c]             
+  0x00e68d99: ADD EDI,-0x80                               
+  0x00e68d9c: PUSH EDI                                    
+  0x00e68d9d: PUSH EAX                                    
+  0x00e68d9e: LEA ECX,[ESI + 0x80]                        
+  0x00e68da4: PUSH ECX                                    
+  0x00e68da5: MOV dword ptr [ESI + 0x14],EDX              
+  0x00e68da8: CALL 0x00ec44d0                              << TARGET
+  0x00e68dad: ADD ESP,0x18                                
+  0x00e68db0: PUSH EBX                                    
+  0x00e68db1: MOV ECX,0x11f6238                           
+  0x00e68db6: CALL 0x00aa4060                             
+  0x00e68dbb: MOV EBX,ESI                                 
+  0x00e68dbd: MOV EDI,dword ptr [ESP + 0x14]              
+  0x00e68dc1: MOV EAX,dword ptr [ESP + 0x1c]              
+  0x00e68dc5: LEA EDX,[ESP + 0x24]                        
+  0x00e68dc9: PUSH EDX                                    
+  0x00e68dca: PUSH EDI                                    
+  0x00e68dcb: PUSH EBX                                    
+  0x00e68dcc: PUSH EAX                                    
+  0x00e68dcd: CALL 0x00ee6e1c                             
+  0x00e68dd2: MOV ESI,dword ptr [ESP + 0x24]              
+  0x00e68dd6: MOV EDI,EAX                                 
+  0x00e68dd8: JMP 0x00e68e2a                              
+
+----------------------------------------------------------------------
+Callsite: free original DDS buffer after trim @ 0x00e68db6
+----------------------------------------------------------------------
+  Instruction: CALL 0x00aa4060
+  CALL target: 0x00aa4060 FUN_00aa4060
+
+----------------------------------------------------------------------
+Disassembly free original DDS buffer after trim around 0x00e68db6
+----------------------------------------------------------------------
+  0x00e68d9d: PUSH EAX                                    
+  0x00e68d9e: LEA ECX,[ESI + 0x80]                        
+  0x00e68da4: PUSH ECX                                    
+  0x00e68da5: MOV dword ptr [ESI + 0x14],EDX              
+  0x00e68da8: CALL 0x00ec44d0                             
+  0x00e68dad: ADD ESP,0x18                                
+  0x00e68db0: PUSH EBX                                    
+  0x00e68db1: MOV ECX,0x11f6238                           
+  0x00e68db6: CALL 0x00aa4060                              << TARGET
+  0x00e68dbb: MOV EBX,ESI                                 
+  0x00e68dbd: MOV EDI,dword ptr [ESP + 0x14]              
+  0x00e68dc1: MOV EAX,dword ptr [ESP + 0x1c]              
+  0x00e68dc5: LEA EDX,[ESP + 0x24]                        
+  0x00e68dc9: PUSH EDX                                    
+  0x00e68dca: PUSH EDI                                    
+  0x00e68dcb: PUSH EBX                                    
+  0x00e68dcc: PUSH EAX                                    
+  0x00e68dcd: CALL 0x00ee6e1c                             
+  0x00e68dd2: MOV ESI,dword ptr [ESP + 0x24]              
+  0x00e68dd6: MOV EDI,EAX                                 
+  0x00e68dd8: JMP 0x00e68e2a                              
+  0x00e68dda: CMP EAX,0x5                                 
+  0x00e68ddd: JNZ 0x00e68e00                              
+  0x00e68ddf: MOV EDX,dword ptr [ESP + 0x1c]              
+  0x00e68de3: LEA ECX,[ESP + 0x14]                        
+
+----------------------------------------------------------------------
+Callsite: D3DX create 2D texture from memory @ 0x00e68dcd
+----------------------------------------------------------------------
+  Instruction: CALL 0x00ee6e1c
+  CALL target: 0x00ee6e1c D3DXCreateTextureFromFileInMemory
+
+----------------------------------------------------------------------
+Disassembly D3DX create 2D texture from memory around 0x00e68dcd
+----------------------------------------------------------------------
+  0x00e68dbb: MOV EBX,ESI                                 
+  0x00e68dbd: MOV EDI,dword ptr [ESP + 0x14]              
+  0x00e68dc1: MOV EAX,dword ptr [ESP + 0x1c]              
+  0x00e68dc5: LEA EDX,[ESP + 0x24]                        
+  0x00e68dc9: PUSH EDX                                    
+  0x00e68dca: PUSH EDI                                    
+  0x00e68dcb: PUSH EBX                                    
+  0x00e68dcc: PUSH EAX                                    
+  0x00e68dcd: CALL 0x00ee6e1c                              << TARGET
+  0x00e68dd2: MOV ESI,dword ptr [ESP + 0x24]              
+  0x00e68dd6: MOV EDI,EAX                                 
+  0x00e68dd8: JMP 0x00e68e2a                              
+  0x00e68dda: CMP EAX,0x5                                 
+  0x00e68ddd: JNZ 0x00e68e00                              
+  0x00e68ddf: MOV EDX,dword ptr [ESP + 0x1c]              
+  0x00e68de3: LEA ECX,[ESP + 0x14]                        
+  0x00e68de7: PUSH ECX                                    
+  0x00e68de8: PUSH EDI                                    
+  0x00e68de9: PUSH EBX                                    
+  0x00e68dea: PUSH EDX                                    
+  0x00e68deb: MOV dword ptr [ESP + 0x24],0x0              
+  0x00e68df3: CALL 0x00ee6e16                             
+  0x00e68df8: MOV ESI,dword ptr [ESP + 0x14]              
+  0x00e68dfc: MOV EDI,EAX                                 
+  0x00e68dfe: JMP 0x00e68e2a                              
+
+----------------------------------------------------------------------
+Callsite: D3DX create cube texture from memory @ 0x00e68df3
+----------------------------------------------------------------------
+  Instruction: CALL 0x00ee6e16
+  CALL target: 0x00ee6e16 D3DXCreateCubeTextureFromFileInMemory
+
+----------------------------------------------------------------------
+Disassembly D3DX create cube texture from memory around 0x00e68df3
+----------------------------------------------------------------------
+  0x00e68ddd: JNZ 0x00e68e00                              
+  0x00e68ddf: MOV EDX,dword ptr [ESP + 0x1c]              
+  0x00e68de3: LEA ECX,[ESP + 0x14]                        
+  0x00e68de7: PUSH ECX                                    
+  0x00e68de8: PUSH EDI                                    
+  0x00e68de9: PUSH EBX                                    
+  0x00e68dea: PUSH EDX                                    
+  0x00e68deb: MOV dword ptr [ESP + 0x24],0x0              
+  0x00e68df3: CALL 0x00ee6e16                              << TARGET
+  0x00e68df8: MOV ESI,dword ptr [ESP + 0x14]              
+  0x00e68dfc: MOV EDI,EAX                                 
+  0x00e68dfe: JMP 0x00e68e2a                              
+  0x00e68e00: CMP EAX,ECX                                 
+  0x00e68e02: JNZ 0x00e68e25                              
+  0x00e68e04: MOV ECX,dword ptr [ESP + 0x1c]              
+  0x00e68e08: LEA EAX,[ESP + 0x10]                        
+  0x00e68e0c: PUSH EAX                                    
+  0x00e68e0d: PUSH EDI                                    
+  0x00e68e0e: PUSH EBX                                    
+  0x00e68e0f: PUSH ECX                                    
+  0x00e68e10: MOV dword ptr [ESP + 0x20],0x0              
+  0x00e68e18: CALL 0x00ee6e10                             
+  0x00e68e1d: MOV ESI,dword ptr [ESP + 0x10]              
+  0x00e68e21: MOV EDI,EAX                                 
+  0x00e68e23: JMP 0x00e68e2a                              
+
+----------------------------------------------------------------------
+Callsite: D3DX create volume texture from memory @ 0x00e68e18
+----------------------------------------------------------------------
+  Instruction: CALL 0x00ee6e10
+  CALL target: 0x00ee6e10 D3DXCreateVolumeTextureFromFileInMemory
+
+----------------------------------------------------------------------
+Disassembly D3DX create volume texture from memory around 0x00e68e18
+----------------------------------------------------------------------
+  0x00e68e02: JNZ 0x00e68e25                              
+  0x00e68e04: MOV ECX,dword ptr [ESP + 0x1c]              
+  0x00e68e08: LEA EAX,[ESP + 0x10]                        
+  0x00e68e0c: PUSH EAX                                    
+  0x00e68e0d: PUSH EDI                                    
+  0x00e68e0e: PUSH EBX                                    
+  0x00e68e0f: PUSH ECX                                    
+  0x00e68e10: MOV dword ptr [ESP + 0x20],0x0              
+  0x00e68e18: CALL 0x00ee6e10                              << TARGET
+  0x00e68e1d: MOV ESI,dword ptr [ESP + 0x10]              
+  0x00e68e21: MOV EDI,EAX                                 
+  0x00e68e23: JMP 0x00e68e2a                              
+  0x00e68e25: MOV EDI,0x8876086c                          
+  0x00e68e2a: PUSH EBX                                    
+  0x00e68e2b: CALL 0x00aa10f0                             
+  0x00e68e30: ADD ESP,0x4                                 
+  0x00e68e33: POP EBP                                     
+  0x00e68e34: TEST EDI,EDI                                
+  0x00e68e36: JL 0x00e68c1b                               
+  0x00e68e3c: TEST ESI,ESI                                
+  0x00e68e3e: JZ 0x00e68c1b                               
+  0x00e68e44: MOV EDI,dword ptr [ESP + 0x4c]              
+  0x00e68e48: MOV EDX,dword ptr [EDI]                     
+  0x00e68e4a: MOV EAX,dword ptr [EDX + 0xb0]              
+  0x00e68e50: PUSH ESI                                    
+
+----------------------------------------------------------------------
+Callsite: free final temporary buffer @ 0x00e68e2b
+----------------------------------------------------------------------
+  Instruction: CALL 0x00aa10f0
+  CALL target: 0x00aa10f0 FUN_00aa10f0
+
+----------------------------------------------------------------------
+Disassembly free final temporary buffer around 0x00e68e2b
+----------------------------------------------------------------------
+  0x00e68e0f: PUSH ECX                                    
+  0x00e68e10: MOV dword ptr [ESP + 0x20],0x0              
+  0x00e68e18: CALL 0x00ee6e10                             
+  0x00e68e1d: MOV ESI,dword ptr [ESP + 0x10]              
+  0x00e68e21: MOV EDI,EAX                                 
+  0x00e68e23: JMP 0x00e68e2a                              
+  0x00e68e25: MOV EDI,0x8876086c                          
+  0x00e68e2a: PUSH EBX                                    
+  0x00e68e2b: CALL 0x00aa10f0                              << TARGET
+  0x00e68e30: ADD ESP,0x4                                 
+  0x00e68e33: POP EBP                                     
+  0x00e68e34: TEST EDI,EDI                                
+  0x00e68e36: JL 0x00e68c1b                               
+  0x00e68e3c: TEST ESI,ESI                                
+  0x00e68e3e: JZ 0x00e68c1b                               
+  0x00e68e44: MOV EDI,dword ptr [ESP + 0x4c]              
+  0x00e68e48: MOV EDX,dword ptr [EDI]                     
+  0x00e68e4a: MOV EAX,dword ptr [EDX + 0xb0]              
+  0x00e68e50: PUSH ESI                                    
+  0x00e68e51: MOV ECX,EDI                                 
+  0x00e68e53: CALL EAX                                    
+  0x00e68e55: MOV ECX,dword ptr [ESP + 0x48]              
+  0x00e68e59: MOV EDX,dword ptr [ESP + 0x28]              
+  0x00e68e5d: MOV BL,AL                                   
+  0x00e68e5f: MOV dword ptr [EDI + 0xc],ECX               
+
+======================================================================
+CRITICAL BRANCH WINDOWS
+======================================================================
+
+----------------------------------------------------------------------
+Disassembly file object/file size/temporary buffer/read path around 0x00e68b80
+----------------------------------------------------------------------
+  0x00e68b62: CALL 0x00aa1a20                             
+  0x00e68b67: MOV ESI,EAX                                 
+  0x00e68b69: ADD ESP,0xc                                 
+  0x00e68b6c: TEST ESI,ESI                                
+  0x00e68b6e: JZ 0x00e68e7e                               
+  0x00e68b74: MOV EDX,dword ptr [ESI]                     
+  0x00e68b76: MOV EAX,dword ptr [EDX + 0x4]               
+  0x00e68b79: MOV ECX,ESI                                 
+  0x00e68b7b: CALL EAX                                    
+  0x00e68b7d: MOV EDX,dword ptr [ESI]                     
+  0x00e68b7f: MOV ECX,ESI                                 
+  0x00e68b81: TEST AL,AL                                  
+  0x00e68b83: JZ 0x00e68e78                               
+  0x00e68b89: MOV EAX,dword ptr [EDX + 0x1c]              
+  0x00e68b8c: PUSH EDI                                    
+  0x00e68b8d: CALL EAX                                    
+  0x00e68b8f: MOV EDI,EAX                                 
+  0x00e68b91: MOV dword ptr [ESP + 0xc],EDI               
+  0x00e68b95: TEST EDI,EDI                                
+  0x00e68b97: JNZ 0x00e68ba7                              
+  0x00e68b99: MOV EDX,dword ptr [ESI]                     
+  0x00e68b9b: MOV EAX,dword ptr [EDX]                     
+  0x00e68b9d: PUSH 0x1                                    
+  0x00e68b9f: MOV ECX,ESI                                 
+  0x00e68ba1: CALL EAX                                    
+  0x00e68ba3: XOR AL,AL                                   
+  0x00e68ba5: JMP 0x00e68c1e                              
+  0x00e68ba7: PUSH EBX                                    
+  0x00e68ba8: PUSH EDI                                    
+  0x00e68ba9: CALL 0x00aa1070                             
+  0x00e68bae: ADD ESP,0x4                                 
+  0x00e68bb1: MOV EBX,EAX                                 
+  0x00e68bb3: PUSH EDI                                    
+  0x00e68bb4: PUSH EBX                                    
+  0x00e68bb5: MOV ECX,ESI                                 
+  0x00e68bb7: CALL 0x00462d80                             
+  0x00e68bbc: MOV EDX,dword ptr [ESI]                     
+  0x00e68bbe: MOV EAX,dword ptr [EDX]                     
+  0x00e68bc0: PUSH 0x1                                    
+  0x00e68bc2: MOV ECX,ESI                                 
+  0x00e68bc4: CALL EAX                                    
+  0x00e68bc6: LEA ECX,[ESP + 0x2c]                        
+  0x00e68bca: PUSH ECX                                    
+  0x00e68bcb: PUSH EDI                                    
+  0x00e68bcc: PUSH EBX                                    
+  0x00e68bcd: CALL 0x00ee6e22                             
+  0x00e68bd2: TEST EAX,EAX                                
+
+----------------------------------------------------------------------
+Disassembly 2D DDS branch and mip-trim decision around 0x00e68c57
+----------------------------------------------------------------------
+  0x00e68c34: RET 0x10                                    
+  0x00e68c37: MOV EAX,dword ptr [ESP + 0x30]              
+  0x00e68c3b: MOV dword ptr [ESP + 0x28],EAX              
+  0x00e68c3f: MOV EAX,dword ptr [ESP + 0x40]              
+  0x00e68c43: PUSH EBP                                    
+  0x00e68c44: MOV EBP,dword ptr [ESP + 0x30]              
+  0x00e68c48: XOR ESI,ESI                                 
+  0x00e68c4a: MOV dword ptr [ESP + 0x4c],EBP              
+  0x00e68c4e: CMP EAX,0x3                                 
+  0x00e68c51: JNZ 0x00e68dda                              
+  0x00e68c57: MOV dword ptr [ESP + 0x24],ESI               << TARGET
+  0x00e68c5b: CMP dword ptr [ESP + 0x48],ECX              
+  0x00e68c5f: JNZ 0x00e68dc1                              
+  0x00e68c65: MOV ESI,dword ptr [0x0126efc4]              
+  0x00e68c6b: MOV EDX,dword ptr [0x0126efc8]              
+  0x00e68c71: TEST byte ptr [EBX + 0x50],CL               
+  0x00e68c74: JZ 0x00e68dc1                               
+  0x00e68c7a: MOV EAX,dword ptr [EBX + 0x54]              
+  0x00e68c7d: CMP EAX,0x31545844                          
+  0x00e68c82: JNZ 0x00e68c8e                              
+  0x00e68c84: MOV dword ptr [ESP + 0x28],0x2              
+  0x00e68c8c: JMP 0x00e68cb6                              
+  0x00e68c8e: CMP EAX,0x32545844                          
+  0x00e68c93: JZ 0x00e68cae                               
+  0x00e68c95: CMP EAX,0x33545844                          
+  0x00e68c9a: JZ 0x00e68cae                               
+  0x00e68c9c: CMP EAX,0x34545844                          
+  0x00e68ca1: JZ 0x00e68cae                               
+  0x00e68ca3: CMP EAX,0x35545844                          
+  0x00e68ca8: JNZ 0x00e68dc1                              
+  0x00e68cae: MOV dword ptr [ESP + 0x28],0x1              
+  0x00e68cb6: MOV EAX,dword ptr [EBX + 0x1c]              
+  0x00e68cb9: LEA ECX,[EBX + 0x80]                        
+  0x00e68cbf: MOV dword ptr [ESP + 0x20],ECX              
+  0x00e68cc3: MOV ECX,EAX                                 
+  0x00e68cc5: SUB ECX,ESI                                 
+  0x00e68cc7: CMP ECX,EDX                                 
+  0x00e68cc9: JA 0x00e68ccd                               
+  0x00e68ccb: MOV ECX,EDX                                 
+  0x00e68ccd: CMP EAX,ESI                                 
+  0x00e68ccf: JA 0x00e68cd9                               
+  0x00e68cd1: MOV ECX,EAX                                 
+  0x00e68cd3: CMP EAX,EDX                                 
+  0x00e68cd5: JC 0x00e68cd9                               
+  0x00e68cd7: MOV ECX,EDX                                 
+  0x00e68cd9: MOV dword ptr [ESP + 0x18],EAX              
+  0x00e68cdd: CMP ECX,EAX                                 
+
+----------------------------------------------------------------------
+Disassembly mip-trim size loop around 0x00e68cf0
+----------------------------------------------------------------------
+  0x00e68cd1: MOV ECX,EAX                                 
+  0x00e68cd3: CMP EAX,EDX                                 
+  0x00e68cd5: JC 0x00e68cd9                               
+  0x00e68cd7: MOV ECX,EDX                                 
+  0x00e68cd9: MOV dword ptr [ESP + 0x18],EAX              
+  0x00e68cdd: CMP ECX,EAX                                 
+  0x00e68cdf: JNC 0x00e68d59                              
+  0x00e68ce1: SUB EAX,ECX                                 
+  0x00e68ce3: MOV dword ptr [ESP + 0x10],EAX              
+  0x00e68ce7: JMP 0x00e68cf0                              
+  0x00e68cf0: MOV EAX,EBP                                  << TARGET
+  0x00e68cf2: SHR EAX,0x2                                 
+  0x00e68cf5: MOV ECX,0x1                                 
+  0x00e68cfa: CMP EAX,0x1                                 
+  0x00e68cfd: JC 0x00e68d01                               
+  0x00e68cff: MOV ECX,EAX                                 
+  0x00e68d01: MOV ESI,dword ptr [ESP + 0x34]              
+  0x00e68d05: MOV EAX,ESI                                 
+  0x00e68d07: SHR EAX,0x2                                 
+  0x00e68d0a: CMP EAX,0x1                                 
+  0x00e68d0d: JNC 0x00e68d14                              
+  0x00e68d0f: MOV EAX,0x1                                 
+  0x00e68d14: IMUL EAX,ECX                                
+  0x00e68d17: SHL EAX,0x4                                 
+  0x00e68d1a: XOR EDX,EDX                                 
+  0x00e68d1c: DIV dword ptr [ESP + 0x28]                  
+  0x00e68d20: MOV ECX,0x1                                 
+  0x00e68d25: ADD dword ptr [ESP + 0x20],EAX              
+  0x00e68d29: SUB EDI,EAX                                 
+  0x00e68d2b: MOV EAX,EBP                                 
+  0x00e68d2d: SHR EAX,0x1                                 
+  0x00e68d2f: MOV EBP,ECX                                 
+  0x00e68d31: CMP EAX,ECX                                 
+  0x00e68d33: JC 0x00e68d37                               
+  0x00e68d35: MOV EBP,EAX                                 
+  0x00e68d37: MOV EAX,ESI                                 
+  0x00e68d39: SHR EAX,0x1                                 
+  0x00e68d3b: MOV dword ptr [ESP + 0x34],ECX              
+  0x00e68d3f: CMP EAX,ECX                                 
+  0x00e68d41: JC 0x00e68d47                               
+  0x00e68d43: MOV dword ptr [ESP + 0x34],EAX              
+  0x00e68d47: SUB dword ptr [ESP + 0x18],ECX              
+  0x00e68d4b: SUB dword ptr [ESP + 0x10],ECX              
+  0x00e68d4f: JNZ 0x00e68cf0                              
+  0x00e68d51: MOV EAX,dword ptr [ESP + 0x18]              
+  0x00e68d55: MOV dword ptr [ESP + 0x30],EBP              
+  0x00e68d59: CMP EAX,dword ptr [EBX + 0x1c]              
+
+----------------------------------------------------------------------
+Disassembly trim-copy allocation/copy/free branch around 0x00e68d59
+----------------------------------------------------------------------
+  0x00e68d39: SHR EAX,0x1                                 
+  0x00e68d3b: MOV dword ptr [ESP + 0x34],ECX              
+  0x00e68d3f: CMP EAX,ECX                                 
+  0x00e68d41: JC 0x00e68d47                               
+  0x00e68d43: MOV dword ptr [ESP + 0x34],EAX              
+  0x00e68d47: SUB dword ptr [ESP + 0x18],ECX              
+  0x00e68d4b: SUB dword ptr [ESP + 0x10],ECX              
+  0x00e68d4f: JNZ 0x00e68cf0                              
+  0x00e68d51: MOV EAX,dword ptr [ESP + 0x18]              
+  0x00e68d55: MOV dword ptr [ESP + 0x30],EBP              
+  0x00e68d59: CMP EAX,dword ptr [EBX + 0x1c]               << TARGET
+  0x00e68d5c: JZ 0x00e68dbd                               
+  0x00e68d5e: PUSH EDI                                    
+  0x00e68d5f: MOV ECX,0x11f6238                           
+  0x00e68d64: CALL 0x00aa3e40                             
+  0x00e68d69: PUSH 0x80                                   
+  0x00e68d6e: MOV ESI,EAX                                 
+  0x00e68d70: PUSH EBX                                    
+  0x00e68d71: PUSH ESI                                    
+  0x00e68d72: CALL 0x00ec44d0                             
+  0x00e68d77: MOV EDX,dword ptr [ESP + 0x3c]              
+  0x00e68d7b: MOV ECX,dword ptr [ESP + 0x24]              
+  0x00e68d7f: MOV dword ptr [ESI + 0x10],EDX              
+  0x00e68d82: MOV EAX,dword ptr [ESP + 0x40]              
+  0x00e68d86: MOV dword ptr [ESI + 0xc],EAX               
+  0x00e68d89: MOV EAX,dword ptr [ESP + 0x2c]              
+  0x00e68d8d: MOV dword ptr [ESI + 0x1c],ECX              
+  0x00e68d90: MOV EDX,dword ptr [ESP + 0x40]              
+  0x00e68d94: IMUL EDX,dword ptr [ESP + 0x3c]             
+  0x00e68d99: ADD EDI,-0x80                               
+  0x00e68d9c: PUSH EDI                                    
+  0x00e68d9d: PUSH EAX                                    
+  0x00e68d9e: LEA ECX,[ESI + 0x80]                        
+  0x00e68da4: PUSH ECX                                    
+  0x00e68da5: MOV dword ptr [ESI + 0x14],EDX              
+  0x00e68da8: CALL 0x00ec44d0                             
+  0x00e68dad: ADD ESP,0x18                                
+  0x00e68db0: PUSH EBX                                    
+  0x00e68db1: MOV ECX,0x11f6238                           
+  0x00e68db6: CALL 0x00aa4060                             
+  0x00e68dbb: MOV EBX,ESI                                 
+  0x00e68dbd: MOV EDI,dword ptr [ESP + 0x14]              
+  0x00e68dc1: MOV EAX,dword ptr [ESP + 0x1c]              
+  0x00e68dc5: LEA EDX,[ESP + 0x24]                        
+  0x00e68dc9: PUSH EDX                                    
+  0x00e68dca: PUSH EDI                                    
+  0x00e68dcb: PUSH EBX                                    
+
+----------------------------------------------------------------------
+Disassembly D3DX texture creation branch around 0x00e68dc1
+----------------------------------------------------------------------
+  0x00e68d9e: LEA ECX,[ESI + 0x80]                        
+  0x00e68da4: PUSH ECX                                    
+  0x00e68da5: MOV dword ptr [ESI + 0x14],EDX              
+  0x00e68da8: CALL 0x00ec44d0                             
+  0x00e68dad: ADD ESP,0x18                                
+  0x00e68db0: PUSH EBX                                    
+  0x00e68db1: MOV ECX,0x11f6238                           
+  0x00e68db6: CALL 0x00aa4060                             
+  0x00e68dbb: MOV EBX,ESI                                 
+  0x00e68dbd: MOV EDI,dword ptr [ESP + 0x14]              
+  0x00e68dc1: MOV EAX,dword ptr [ESP + 0x1c]               << TARGET
+  0x00e68dc5: LEA EDX,[ESP + 0x24]                        
+  0x00e68dc9: PUSH EDX                                    
+  0x00e68dca: PUSH EDI                                    
+  0x00e68dcb: PUSH EBX                                    
+  0x00e68dcc: PUSH EAX                                    
+  0x00e68dcd: CALL 0x00ee6e1c                             
+  0x00e68dd2: MOV ESI,dword ptr [ESP + 0x24]              
+  0x00e68dd6: MOV EDI,EAX                                 
+  0x00e68dd8: JMP 0x00e68e2a                              
+  0x00e68dda: CMP EAX,0x5                                 
+  0x00e68ddd: JNZ 0x00e68e00                              
+  0x00e68ddf: MOV EDX,dword ptr [ESP + 0x1c]              
+  0x00e68de3: LEA ECX,[ESP + 0x14]                        
+  0x00e68de7: PUSH ECX                                    
+  0x00e68de8: PUSH EDI                                    
+  0x00e68de9: PUSH EBX                                    
+  0x00e68dea: PUSH EDX                                    
+  0x00e68deb: MOV dword ptr [ESP + 0x24],0x0              
+  0x00e68df3: CALL 0x00ee6e16                             
+  0x00e68df8: MOV ESI,dword ptr [ESP + 0x14]              
+  0x00e68dfc: MOV EDI,EAX                                 
+  0x00e68dfe: JMP 0x00e68e2a                              
+  0x00e68e00: CMP EAX,ECX                                 
+  0x00e68e02: JNZ 0x00e68e25                              
+  0x00e68e04: MOV ECX,dword ptr [ESP + 0x1c]              
+  0x00e68e08: LEA EAX,[ESP + 0x10]                        
+  0x00e68e0c: PUSH EAX                                    
+  0x00e68e0d: PUSH EDI                                    
+  0x00e68e0e: PUSH EBX                                    
+  0x00e68e0f: PUSH ECX                                    
+  0x00e68e10: MOV dword ptr [ESP + 0x20],0x0              
+  0x00e68e18: CALL 0x00ee6e10                             
+  0x00e68e1d: MOV ESI,dword ptr [ESP + 0x10]              
+  0x00e68e21: MOV EDI,EAX                                 
+  0x00e68e23: JMP 0x00e68e2a                              
+  0x00e68e25: MOV EDI,0x8876086c                          
+
+----------------------------------------------------------------------
+References TO 0x00e68a80 (NiDX9SourceTextureData texture load)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x00e68fb7 (in FUN_00e68ef0)
+  Total: 1 refs
+
+----------------------------------------------------------------------
+References TO 0x00aa1070 (zeroing temporary allocation helper)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x004869c5 (in FUN_00486990)
+  UNCONDITIONAL_CALL @ 0x00486fd5 (in FUN_00486fa0)
+  UNCONDITIONAL_CALL @ 0x00474595 (in FUN_00474560)
+  UNCONDITIONAL_CALL @ 0x00558ee5 (in FUN_00558eb0)
+  UNCONDITIONAL_CALL @ 0x00558fe5 (in FUN_00558fb0)
+  UNCONDITIONAL_CALL @ 0x005590e5 (in FUN_005590b0)
+  UNCONDITIONAL_CALL @ 0x004d4e75 (in FUN_004d4e40)
+  UNCONDITIONAL_CALL @ 0x0042fe45 (in FUN_0042fe10)
+  UNCONDITIONAL_CALL @ 0x0061faa5 (in FUN_0061fa70)
+  UNCONDITIONAL_CALL @ 0x004b2c94 (in FUN_004b29b0)
+  UNCONDITIONAL_CALL @ 0x006a63a5 (in FUN_006a6370)
+  UNCONDITIONAL_CALL @ 0x006a6515 (in FUN_006a64e0)
+  UNCONDITIONAL_CALL @ 0x006918f5 (in FUN_006918c0)
+  UNCONDITIONAL_CALL @ 0x004b3133 (in FUN_004b2eb0)
+  UNCONDITIONAL_CALL @ 0x006c6295 (in FUN_006c6260)
+  UNCONDITIONAL_CALL @ 0x006c68e5 (in FUN_006c68b0)
+  UNCONDITIONAL_CALL @ 0x006c6b45 (in FUN_006c6b10)
+  UNCONDITIONAL_CALL @ 0x00844de5 (in FUN_00844db0)
+  UNCONDITIONAL_CALL @ 0x008442d5 (in FUN_008442a0)
+  UNCONDITIONAL_CALL @ 0x008445c5 (in FUN_00844590)
+  UNCONDITIONAL_CALL @ 0x008446c5 (in FUN_00844690)
+  UNCONDITIONAL_CALL @ 0x008448a5 (in FUN_00844870)
+  UNCONDITIONAL_CALL @ 0x008449a5 (in FUN_00844970)
+  UNCONDITIONAL_CALL @ 0x008530f5 (in FUN_008530c0)
+  UNCONDITIONAL_CALL @ 0x004aff65 (in FUN_004aff30)
+  UNCONDITIONAL_CALL @ 0x004b0065 (in FUN_004b0030)
+  UNCONDITIONAL_CALL @ 0x004386e5 (in FUN_004386b0)
+  UNCONDITIONAL_CALL @ 0x004e7a54 (in FUN_004e7770)
+  UNCONDITIONAL_CALL @ 0x006b7ee5 (in FUN_006b7eb0)
+  UNCONDITIONAL_CALL @ 0x006b8095 (in FUN_006b8060)
+  UNCONDITIONAL_CALL @ 0x004ed995 (in FUN_004ed960)
+  UNCONDITIONAL_CALL @ 0x004eda95 (in FUN_004eda60)
+  UNCONDITIONAL_CALL @ 0x004edb95 (in FUN_004edb60)
+  UNCONDITIONAL_CALL @ 0x00527805 (in FUN_005277d0)
+  UNCONDITIONAL_CALL @ 0x00601135 (in FUN_00601100)
+  UNCONDITIONAL_CALL @ 0x00629bd5 (in FUN_00629ba0)
+  UNCONDITIONAL_CALL @ 0x006e2115 (in FUN_006e20e0)
+  UNCONDITIONAL_CALL @ 0x00845bc5 (in FUN_00845b90)
+  UNCONDITIONAL_CALL @ 0x0084b685 (in FUN_0084b650)
+  UNCONDITIONAL_CALL @ 0x008532a5 (in FUN_00853270)
+  UNCONDITIONAL_CALL @ 0x008533a5 (in FUN_00853370)
+  UNCONDITIONAL_CALL @ 0x00863605 (in FUN_008635d0)
+  UNCONDITIONAL_CALL @ 0x00863705 (in FUN_008636d0)
+  UNCONDITIONAL_CALL @ 0x00863805 (in FUN_008637d0)
+  UNCONDITIONAL_CALL @ 0x00863925 (in FUN_008638f0)
+  UNCONDITIONAL_CALL @ 0x004a9815 (in FUN_004a97e0)
+  UNCONDITIONAL_CALL @ 0x004a9915 (in FUN_004a98e0)
+  UNCONDITIONAL_CALL @ 0x0053728d (in FUN_005371b0)
+  UNCONDITIONAL_CALL @ 0x005372a0 (in FUN_005371b0)
+  UNCONDITIONAL_CALL @ 0x00637d26 (in FUN_00637890)
+  UNCONDITIONAL_CALL @ 0x0063816c (in FUN_00637890)
+  UNCONDITIONAL_CALL @ 0x006a3b4b (in FUN_006a37a0)
+  UNCONDITIONAL_CALL @ 0x0069b395 (in FUN_0069b360)
+  UNCONDITIONAL_CALL @ 0x00700a96 (in FUN_00700960)
+  UNCONDITIONAL_CALL @ 0x0084b785 (in FUN_0084b750)
+  UNCONDITIONAL_CALL @ 0x00854d15 (in FUN_00854ce0)
+  UNCONDITIONAL_CALL @ 0x00863a25 (in FUN_008639f0)
+  UNCONDITIONAL_CALL @ 0x00863e65 (in FUN_00863e30)
+  UNCONDITIONAL_CALL @ 0x004bb5cb (in FUN_004baf10)
+  UNCONDITIONAL_CALL @ 0x004bb613 (in FUN_004baf10)
+  UNCONDITIONAL_CALL @ 0x004d9035 (in FUN_004d9000)
+  UNCONDITIONAL_CALL @ 0x0049c135 (in FUN_0049c100)
+  UNCONDITIONAL_CALL @ 0x006594c5 (in FUN_00659490)
+  UNCONDITIONAL_CALL @ 0x0096a3c5 (in FUN_0096a390)
+  UNCONDITIONAL_CALL @ 0x0096afca (in FUN_0096afc0)
+  UNCONDITIONAL_CALL @ 0x009837e5 (in FUN_009837b0)
+  UNCONDITIONAL_CALL @ 0x004b36cf (in FUN_004b3570)
+  UNCONDITIONAL_CALL @ 0x006e0f55 (in FUN_006e0f20)
+  UNCONDITIONAL_CALL @ 0x009939c5 (in FUN_00993990)
+  UNCONDITIONAL_CALL @ 0x009a43e5 (in FUN_009a43b0)
+  UNCONDITIONAL_CALL @ 0x009a5db5 (in FUN_009a5d80)
+  UNCONDITIONAL_CALL @ 0x00405665 (in FUN_00405630)
+  UNCONDITIONAL_CALL @ 0x00a14b52 (in FUN_00a14a20)
+  UNCONDITIONAL_CALL @ 0x00a2eff4 (in FUN_00a2efa0)
+  UNCONDITIONAL_CALL @ 0x00a2eda8 (in FUN_00a2ed80)
+  UNCONDITIONAL_CALL @ 0x00a2ff4e (in FUN_00a2feb0)
+  UNCONDITIONAL_CALL @ 0x00a35b32 (in FUN_00a35a80)
+  UNCONDITIONAL_CALL @ 0x00a47402 (in FUN_00a473d0)
+  UNCONDITIONAL_CALL @ 0x00a47a40 (in FUN_00a47a20)
+  UNCONDITIONAL_CALL @ 0x00a47c4d (in FUN_00a47bd0)
+  UNCONDITIONAL_CALL @ 0x00a5b72f (in FUN_00a5b690)
+  ... (truncated)
+  Total: 81 refs
+
+----------------------------------------------------------------------
+References TO 0x00aa10f0 (temporary allocation free helper)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x005278bf (in FUN_005278a0)
+  UNCONDITIONAL_CALL @ 0x00558f9f (in FUN_00558f80)
+  UNCONDITIONAL_CALL @ 0x0055909f (in FUN_00559080)
+  UNCONDITIONAL_CALL @ 0x0055924f (in FUN_00559230)
+  UNCONDITIONAL_CALL @ 0x004d4f2f (in FUN_004d4f10)
+  UNCONDITIONAL_CALL @ 0x0042feff (in FUN_0042fee0)
+  UNCONDITIONAL_CALL @ 0x006a64cf (in FUN_006a64b0)
+  UNCONDITIONAL_CALL @ 0x006a65cf (in FUN_006a65b0)
+  UNCONDITIONAL_CALL @ 0x004ede77 (in FUN_004ede70)
+  UNCONDITIONAL_CALL @ 0x00844e9f (in FUN_00844e80)
+  UNCONDITIONAL_CALL @ 0x004eda4f (in FUN_004eda30)
+  UNCONDITIONAL_CALL @ 0x004edb4f (in FUN_004edb30)
+  UNCONDITIONAL_CALL @ 0x004edc4f (in FUN_004edc30)
+  UNCONDITIONAL_CALL @ 0x00600e1a (in FUN_00600d90)
+  UNCONDITIONAL_CALL @ 0x00600ecf (in FUN_00600eb0)
+  UNCONDITIONAL_CALL @ 0x006e21cf (in FUN_006e21b0)
+  UNCONDITIONAL_CALL @ 0x0084b73f (in FUN_0084b720)
+  UNCONDITIONAL_CALL @ 0x0085322f (in FUN_00853210)
+  UNCONDITIONAL_CALL @ 0x0085335f (in FUN_00853340)
+  UNCONDITIONAL_CALL @ 0x0085345f (in FUN_00853440)
+  UNCONDITIONAL_CALL @ 0x004a99ef (in FUN_004a99d0)
+  UNCONDITIONAL_CALL @ 0x004a98cf (in FUN_004a98b0)
+  UNCONDITIONAL_CALL @ 0x00629ecf (in FUN_00629eb0)
+  UNCONDITIONAL_CALL @ 0x0068b2f3 (in FUN_0068b220)
+  UNCONDITIONAL_CALL @ 0x0069b74f (in FUN_0069b730)
+  UNCONDITIONAL_CALL @ 0x0084ba3f (in FUN_0084ba20)
+  UNCONDITIONAL_CALL @ 0x00854dcf (in FUN_00854db0)
+  UNCONDITIONAL_CALL @ 0x00863f1f (in FUN_00863f00)
+  UNCONDITIONAL_CALL @ 0x00a473d8 (in FUN_00a473d0)
+  UNCONDITIONAL_CALL @ 0x00a5b402 (in FUN_00a5b3c0)
+  UNCONDITIONAL_CALL @ 0x00a5bad7 (in FUN_00a5ba40)
+  UNCONDITIONAL_CALL @ 0x00a5bd9e (in FUN_00a5bca0)
+  UNCONDITIONAL_CALL @ 0x00a5bfd2 (in FUN_00a5bfa0)
+  UNCONDITIONAL_CALL @ 0x00a5d595 (in FUN_00a5d510)
+  UNCONDITIONAL_CALL @ 0x00a6536b (in FUN_00a65300)
+  UNCONDITIONAL_CALL @ 0x00a65377 (in FUN_00a65300)
+  UNCONDITIONAL_CALL @ 0x00a65383 (in FUN_00a65300)
+  UNCONDITIONAL_CALL @ 0x00a653c6 (in FUN_00a65300)
+  UNCONDITIONAL_CALL @ 0x00a653ee (in FUN_00a65300)
+  UNCONDITIONAL_CALL @ 0x00a9023c (in FUN_00a90180)
+  UNCONDITIONAL_CALL @ 0x00a90251 (in FUN_00a90180)
+  UNCONDITIONAL_CALL @ 0x00a76693 (in FUN_00a76680)
+  UNCONDITIONAL_CALL @ 0x00a87b7d (in FUN_00a87ae0)
+  UNCONDITIONAL_CALL @ 0x00a87bbd (in FUN_00a87ae0)
+  UNCONDITIONAL_CALL @ 0x00a87f63 (in FUN_00a87ae0)
+  UNCONDITIONAL_CALL @ 0x00aa2d49 (in FUN_00aa2d30)
+  UNCONDITIONAL_CALL @ 0x00aa16ba (in FUN_00aa1690)
+  UNCONDITIONAL_CALL @ 0x00a60e54 (in FUN_00a60cc0)
+  UNCONDITIONAL_CALL @ 0x00a60e5a (in FUN_00a60cc0)
+  UNCONDITIONAL_CALL @ 0x00b603b4 (in FUN_00b60360)
+  UNCONDITIONAL_CALL @ 0x00b7fca8 (in FUN_00b7fc50)
+  UNCONDITIONAL_CALL @ 0x00b7fc34 (in FUN_00b7fbe0)
+  UNCONDITIONAL_CALL @ 0x00b8a93a (in FUN_00b8a8e0)
+  UNCONDITIONAL_CALL @ 0x00b977ab (in FUN_00b97690)
+  UNCONDITIONAL_CALL @ 0x00a5c361 (in FUN_00a5c290)
+  UNCONDITIONAL_CALL @ 0x00bd6b82 (in FUN_00bd6ae0)
+  UNCONDITIONAL_CALL @ 0x00bd6b97 (in FUN_00bd6ae0)
+  UNCONDITIONAL_CALL @ 0x00c7e930 (in FUN_00c7e3b0)
+  UNCONDITIONAL_CALL @ 0x00c9ad37 (in FUN_00c9ac00)
+  UNCONDITIONAL_CALL @ 0x00c9ad4d (in FUN_00c9ac00)
+  UNCONDITIONAL_CALL @ 0x00a7613c (in FUN_00a760c0)
+  UNCONDITIONAL_CALL @ 0x00a76150 (in FUN_00a760c0)
+  UNCONDITIONAL_CALL @ 0x00a7b6d4 (in FUN_00a7b6c0)
+  UNCONDITIONAL_CALL @ 0x00a8a674 (in FUN_00a8a670)
+  UNCONDITIONAL_CALL @ 0x00a31225 (in FUN_00a311e0)
+  UNCONDITIONAL_CALL @ 0x00e80234 (in FUN_00e80190)
+  UNCONDITIONAL_CALL @ 0x00e80240 (in FUN_00e80190)
+  UNCONDITIONAL_CALL @ 0x00e8024c (in FUN_00e80190)
+  UNCONDITIONAL_CALL @ 0x00e80258 (in FUN_00e80190)
+  UNCONDITIONAL_CALL @ 0x00e80264 (in FUN_00e80190)
+  UNCONDITIONAL_CALL @ 0x00e80270 (in FUN_00e80190)
+  UNCONDITIONAL_CALL @ 0x00e8c04b (in FUN_00e8bff0)
+  UNCONDITIONAL_CALL @ 0x00e8efed (in FUN_00e8ef10)
+  UNCONDITIONAL_CALL @ 0x00e98f0b (in FUN_00e98e90)
+  UNCONDITIONAL_CALL @ 0x0084d46f (in FUN_0084d450)
+  UNCONDITIONAL_CALL @ 0x004b9d4f (in FUN_004b9d30)
+  UNCONDITIONAL_CALL @ 0x004052da (in FUN_00405250)
+  UNCONDITIONAL_CALL @ 0x0040538f (in FUN_00405370)
+  UNCONDITIONAL_CALL @ 0x0043879f (in FUN_00438780)
+  UNCONDITIONAL_CALL @ 0x0047464f (in FUN_00474630)
+  UNCONDITIONAL_CALL @ 0x0047474f (in FUN_00474730)
+  ... (truncated)
+  Total: 81 refs
+
+----------------------------------------------------------------------
+References TO 0x00aa3e40 (GameHeap allocate)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x0040100e (in FUN_00401000)
+  UNCONDITIONAL_CALL @ 0x00553335 (in FUN_00553320)
+  UNCONDITIONAL_CALL @ 0x005aaef9 (in FUN_005aaee0)
+  UNCONDITIONAL_CALL @ 0x00a010c0 (in FUN_00a01000)
+  UNCONDITIONAL_CALL @ 0x00a01e60 (in FUN_00a01e20)
+  UNCONDITIONAL_CALL @ 0x00a02e08 (in FUN_00a02d40)
+  UNCONDITIONAL_CALL @ 0x00a030a7 (in FUN_00a02d40)
+  UNCONDITIONAL_CALL @ 0x00a070f6 (in FUN_00a06dd0)
+  UNCONDITIONAL_CALL @ 0x00a07ca3 (in FUN_00a07c60)
+  UNCONDITIONAL_CALL @ 0x00a09099 (in FUN_00a09080)
+  UNCONDITIONAL_CALL @ 0x00a09149 (in FUN_00a09130)
+  UNCONDITIONAL_CALL @ 0x00a09f0a (in FUN_00a09410)
+  UNCONDITIONAL_CALL @ 0x00a0a13d (in FUN_00a0a130)
+  UNCONDITIONAL_CALL @ 0x00a0a3b4 (in FUN_00a0a300)
+  UNCONDITIONAL_CALL @ 0x00a0acd2 (in FUN_00a0ac80)
+  UNCONDITIONAL_CALL @ 0x00a0ae9f (in FUN_00a0ae70)
+  UNCONDITIONAL_CALL @ 0x00a0b9de (in FUN_00a0b950)
+  UNCONDITIONAL_CALL @ 0x00a0c7e2 (in FUN_00a0c7c0)
+  UNCONDITIONAL_CALL @ 0x00a0da67 (in FUN_00a0d9e0)
+  UNCONDITIONAL_CALL @ 0x00a0fbb4 (in FUN_00a0f8b0)
+  UNCONDITIONAL_CALL @ 0x00a0fdbd (in FUN_00a0f8b0)
+  UNCONDITIONAL_CALL @ 0x00a11389 (in FUN_00a10c00)
+  UNCONDITIONAL_CALL @ 0x00a11c10 (in FUN_00a11c00)
+  UNCONDITIONAL_CALL @ 0x00a14a7c (in FUN_00a14a20)
+  UNCONDITIONAL_CALL @ 0x00a14af5 (in FUN_00a14a20)
+  UNCONDITIONAL_CALL @ 0x00a167f5 (in FUN_00a167c0)
+  UNCONDITIONAL_CALL @ 0x00a16923 (in FUN_00a168b0)
+  UNCONDITIONAL_CALL @ 0x00a16990 (in FUN_00a168b0)
+  UNCONDITIONAL_CALL @ 0x00a169fe (in FUN_00a168b0)
+  UNCONDITIONAL_CALL @ 0x00a16a6c (in FUN_00a168b0)
+  UNCONDITIONAL_CALL @ 0x00a16ada (in FUN_00a168b0)
+  UNCONDITIONAL_CALL @ 0x00a16b48 (in FUN_00a168b0)
+  UNCONDITIONAL_CALL @ 0x00a16bb6 (in FUN_00a168b0)
+  UNCONDITIONAL_CALL @ 0x00a16c24 (in FUN_00a168b0)
+  UNCONDITIONAL_CALL @ 0x00a12158 (in FUN_00a12020)
+  UNCONDITIONAL_CALL @ 0x00a154b6 (in FUN_00a15320)
+  UNCONDITIONAL_CALL @ 0x00a1c71c (in FUN_00a1c6f0)
+  UNCONDITIONAL_CALL @ 0x00a1cf17 (in FUN_00a1ce70)
+  UNCONDITIONAL_CALL @ 0x00a1cfb1 (in FUN_00a1ce70)
+  UNCONDITIONAL_CALL @ 0x00a1d238 (in FUN_00a1ce70)
+  UNCONDITIONAL_CALL @ 0x00a1dea8 (in FUN_00a1ddb0)
+  UNCONDITIONAL_CALL @ 0x00a22a9f (in FUN_00a22660)
+  UNCONDITIONAL_CALL @ 0x00a22af3 (in FUN_00a22660)
+  UNCONDITIONAL_CALL @ 0x00a25603 (in FUN_00a255b0)
+  UNCONDITIONAL_CALL @ 0x00a25958 (in FUN_00a25920)
+  UNCONDITIONAL_CALL @ 0x00a2f091 (in FUN_00a2efa0)
+  UNCONDITIONAL_CALL @ 0x00a301a8 (in FUN_00a30160)
+  UNCONDITIONAL_CALL @ 0x00a2fed6 (in FUN_00a2feb0)
+  UNCONDITIONAL_CALL @ 0x00a32b01 (in FUN_00a32a10)
+  UNCONDITIONAL_CALL @ 0x00a32b4f (in FUN_00a32a10)
+  UNCONDITIONAL_CALL @ 0x00a32373 (in FUN_00a32330)
+  UNCONDITIONAL_CALL @ 0x00a323bd (in FUN_00a32330)
+  UNCONDITIONAL_CALL @ 0x00a335ed (in FUN_00a33570)
+  UNCONDITIONAL_CALL @ 0x00a33639 (in FUN_00a33570)
+  UNCONDITIONAL_CALL @ 0x00a338b2 (in FUN_00a33570)
+  UNCONDITIONAL_CALL @ 0x00a35aae (in FUN_00a35a80)
+  UNCONDITIONAL_CALL @ 0x00a35b57 (in FUN_00a35a80)
+  UNCONDITIONAL_CALL @ 0x00a41540 (in FUN_00a41520)
+  UNCONDITIONAL_CALL @ 0x00a5a072 (in FUN_00a5a040)
+  UNCONDITIONAL_CALL @ 0x00a5e3df (in FUN_00a5e3a0)
+  UNCONDITIONAL_CALL @ 0x00a5a1a1 (in FUN_00a5a170)
+  UNCONDITIONAL_CALL @ 0x00a61afd (in FUN_00a61ad0)
+  UNCONDITIONAL_CALL @ 0x00a61b37 (in FUN_00a61ad0)
+  UNCONDITIONAL_CALL @ 0x00a61637 (in FUN_00a61610)
+  UNCONDITIONAL_CALL @ 0x00a6182e (in FUN_00a617c0)
+  UNCONDITIONAL_CALL @ 0x00a66abd (in FUN_00a66a60)
+  UNCONDITIONAL_CALL @ 0x00a6ac23 (in FUN_00a6abb0)
+  UNCONDITIONAL_CALL @ 0x00a70b50 (in FUN_00a70b40)
+  UNCONDITIONAL_CALL @ 0x00a73105 (in FUN_00a730e0)
+  UNCONDITIONAL_CALL @ 0x00a7b14a (in FUN_00a7b110)
+  UNCONDITIONAL_CALL @ 0x00a7b1a2 (in FUN_00a7b110)
+  UNCONDITIONAL_CALL @ 0x00a7b1fa (in FUN_00a7b110)
+  UNCONDITIONAL_CALL @ 0x00a87ccf (in FUN_00a87ae0)
+  UNCONDITIONAL_CALL @ 0x00a87d22 (in FUN_00a87ae0)
+  UNCONDITIONAL_CALL @ 0x00a87dc7 (in FUN_00a87ae0)
+  UNCONDITIONAL_CALL @ 0x00a87e52 (in FUN_00a87ae0)
+  UNCONDITIONAL_CALL @ 0x00a88293 (in FUN_00a881e0)
+  UNCONDITIONAL_CALL @ 0x00a882bb (in FUN_00a881e0)
+  UNCONDITIONAL_CALL @ 0x00a88343 (in FUN_00a881e0)
+  UNCONDITIONAL_CALL @ 0x00a8839f (in FUN_00a881e0)
+  UNCONDITIONAL_CALL @ 0x00aa20eb (in FUN_00aa20b0)
+  ... (truncated)
+  Total: 81 refs
+
+----------------------------------------------------------------------
+References TO 0x00aa4060 (GameHeap free)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x0040103e (in FUN_00401030)
+  UNCONDITIONAL_CALL @ 0x005533aa (in FUN_00553380)
+  UNCONDITIONAL_CALL @ 0x00a00ac4 (in FUN_00a00a30)
+  UNCONDITIONAL_CALL @ 0x00a00b15 (in FUN_00a00a30)
+  UNCONDITIONAL_CALL @ 0x00a01d79 (in FUN_00a01b00)
+  UNCONDITIONAL_CALL @ 0x00a02f8b (in FUN_00a02d40)
+  UNCONDITIONAL_CALL @ 0x00a0305d (in FUN_00a02d40)
+  UNCONDITIONAL_CALL @ 0x00a03171 (in FUN_00a02d40)
+  UNCONDITIONAL_CALL @ 0x00a07e92 (in FUN_00a07dc0)
+  UNCONDITIONAL_CALL @ 0x00a086d7 (in FUN_00a080d0)
+  UNCONDITIONAL_CALL @ 0x00a092b2 (in FUN_00a09200)
+  UNCONDITIONAL_CALL @ 0x00a09317 (in FUN_00a09200)
+  UNCONDITIONAL_CALL @ 0x00a09ef9 (in FUN_00a09410)
+  UNCONDITIONAL_CALL @ 0x00a0a1f7 (in FUN_00a0a130)
+  UNCONDITIONAL_CALL @ 0x00a0a2ce (in FUN_00a0a270)
+  UNCONDITIONAL_CALL @ 0x00a0a384 (in FUN_00a0a300)
+  UNCONDITIONAL_CALL @ 0x00a0ada6 (in FUN_00a0ad40)
+  UNCONDITIONAL_CALL @ 0x00a0ae19 (in FUN_00a0ad40)
+  UNCONDITIONAL_CALL @ 0x00a0b933 (in FUN_00a0b8d0)
+  UNCONDITIONAL_CALL @ 0x00a0be34 (in FUN_00a0be10)
+  UNCONDITIONAL_CALL @ 0x00a0be54 (in FUN_00a0be10)
+  UNCONDITIONAL_CALL @ 0x00a0be94 (in FUN_00a0be70)
+  UNCONDITIONAL_CALL @ 0x00a0abc4 (in FUN_00a0ab70)
+  UNCONDITIONAL_CALL @ 0x00a0ccc3 (in FUN_00a0cbe0)
+  UNCONDITIONAL_CALL @ 0x00a0cd27 (in FUN_00a0cbe0)
+  UNCONDITIONAL_CALL @ 0x00a0db1e (in FUN_00a0dae0)
+  UNCONDITIONAL_CALL @ 0x00a0ddee (in FUN_00a0dcc0)
+  UNCONDITIONAL_CALL @ 0x00a0e181 (in FUN_00a0df80)
+  UNCONDITIONAL_CALL @ 0x00a0e27a (in FUN_00a0df80)
+  UNCONDITIONAL_CALL @ 0x00a0f6c0 (in FUN_00a0e770)
+  UNCONDITIONAL_CALL @ 0x00a0f6f8 (in FUN_00a0e770)
+  UNCONDITIONAL_CALL @ 0x00a11eb8 (in FUN_00a11e10)
+  UNCONDITIONAL_CALL @ 0x00a12003 (in FUN_00a11fa0)
+  UNCONDITIONAL_CALL @ 0x00a1688e (in FUN_00a16850)
+  UNCONDITIONAL_CALL @ 0x00a16d74 (in FUN_00a16d20)
+  UNCONDITIONAL_CALL @ 0x00a12220 (in FUN_00a121e0)
+  UNCONDITIONAL_CALL @ 0x00a12253 (in FUN_00a121e0)
+  UNCONDITIONAL_CALL @ 0x00a12357 (in FUN_00a12300)
+  UNCONDITIONAL_CALL @ 0x00a1c0df (in FUN_00a1c080)
+  UNCONDITIONAL_CALL @ 0x00a1c30e (in FUN_00a1c2d0)
+  UNCONDITIONAL_CALL @ 0x00a1c7e1 (in FUN_00a1c790)
+  UNCONDITIONAL_CALL @ 0x00a1c942 (in FUN_00a1c800)
+  UNCONDITIONAL_CALL @ 0x00a1cafc (in FUN_00a1ca20)
+  UNCONDITIONAL_CALL @ 0x00a1d22c (in FUN_00a1ce70)
+  UNCONDITIONAL_CALL @ 0x00a1df46 (in FUN_00a1ddb0)
+  UNCONDITIONAL_CALL @ 0x00a1e210 (in FUN_00a1e1d0)
+  UNCONDITIONAL_CALL @ 0x00a22ca5 (in FUN_00a22bf0)
+  UNCONDITIONAL_CALL @ 0x00a30192 (in FUN_00a30160)
+  UNCONDITIONAL_CALL @ 0x00a31580 (in FUN_00a31500)
+  UNCONDITIONAL_CALL @ 0x00a3159f (in FUN_00a31500)
+  UNCONDITIONAL_CALL @ 0x00a3164a (in FUN_00a315b0)
+  UNCONDITIONAL_CALL @ 0x00a31669 (in FUN_00a315b0)
+  UNCONDITIONAL_CALL @ 0x00a31793 (in FUN_00a31740)
+  UNCONDITIONAL_CALL @ 0x00a317cb (in FUN_00a31740)
+  UNCONDITIONAL_CALL @ 0x00a4764d (in FUN_00a47600)
+  UNCONDITIONAL_CALL @ 0x00a5a0b6 (in FUN_00a5a040)
+  UNCONDITIONAL_CALL @ 0x00a5e42b (in FUN_00a5e3a0)
+  UNCONDITIONAL_CALL @ 0x00a616c5 (in FUN_00a61670)
+  UNCONDITIONAL_CALL @ 0x00a6190b (in FUN_00a61890)
+  UNCONDITIONAL_CALL @ 0x00a615e7 (in FUN_00a615c0)
+  UNCONDITIONAL_CALL @ 0x00a61eff (in FUN_00a61ec0)
+  UNCONDITIONAL_CALL @ 0x00a620ad (in FUN_00a62090)
+  UNCONDITIONAL_CALL @ 0x00a620f8 (in FUN_00a62090)
+  UNCONDITIONAL_CALL @ 0x00a644e0 (in FUN_00a644a0)
+  UNCONDITIONAL_CALL @ 0x00a66b1c (in FUN_00a66a60)
+  UNCONDITIONAL_CALL @ 0x00a5a3a7 (in FUN_00a5a390)
+  UNCONDITIONAL_CALL @ 0x00a7314a (in FUN_00a730e0)
+  UNCONDITIONAL_CALL @ 0x00a87cf8 (in FUN_00a87ae0)
+  UNCONDITIONAL_CALL @ 0x00a87d40 (in FUN_00a87ae0)
+  UNCONDITIONAL_CALL @ 0x00a87e16 (in FUN_00a87ae0)
+  UNCONDITIONAL_CALL @ 0x00a87ea4 (in FUN_00a87ae0)
+  UNCONDITIONAL_CALL @ 0x00aa21c2 (in FUN_00aa2170)
+  UNCONDITIONAL_CALL @ 0x00aa198b (in FUN_00aa1980)
+  UNCONDITIONAL_CALL @ 0x00aa41ad (in FUN_00aa4150)
+  UNCONDITIONAL_CALL @ 0x00aa8341 (in FUN_00aa81d0)
+  UNCONDITIONAL_CALL @ 0x00aa8393 (in FUN_00aa81d0)
+  UNCONDITIONAL_CALL @ 0x00aa83e6 (in FUN_00aa81d0)
+  UNCONDITIONAL_CALL @ 0x00aa888a (in FUN_00aa8850)
+  UNCONDITIONAL_CALL @ 0x00aa88b5 (in FUN_00aa8850)
+  UNCONDITIONAL_CALL @ 0x00aab803 (in FUN_00aaaf10)
+  UNCONDITIONAL_CALL @ 0x00aab84b (in FUN_00aaaf10)
+  ... (truncated)
+  Total: 81 refs
+
+----------------------------------------------------------------------
+References TO 0x00462d80 (BSFile ReadBuffer)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x004627a5 (in FUN_004624b0)
+  UNCONDITIONAL_CALL @ 0x006f8fde (in FUN_006f8f80)
+  UNCONDITIONAL_CALL @ 0x006f9012 (in FUN_006f8f80)
+  UNCONDITIONAL_CALL @ 0x00846318 (in ShowToolBar)
+  UNCONDITIONAL_CALL @ 0x00857bb4 (in FUN_00857ba0)
+  UNCONDITIONAL_CALL @ 0x00b7fed1 (in FUN_00b7fe40)
+  UNCONDITIONAL_CALL @ 0x00be120c (in FUN_00be0fe0)
+  UNCONDITIONAL_CALL @ 0x00be158c (in FUN_00be0fe0)
+  UNCONDITIONAL_CALL @ 0x00be162c (in FUN_00be0fe0)
+  UNCONDITIONAL_CALL @ 0x00be19af (in FUN_00be1750)
+  UNCONDITIONAL_CALL @ 0x00be1cf7 (in FUN_00be1750)
+  UNCONDITIONAL_CALL @ 0x00be1d97 (in FUN_00be1750)
+  UNCONDITIONAL_CALL @ 0x004d53c7 (in FUN_004d5350)
+  UNCONDITIONAL_CALL @ 0x004d541b (in FUN_004d5350)
+  UNCONDITIONAL_CALL @ 0x004d5512 (in FUN_004d5350)
+  UNCONDITIONAL_CALL @ 0x004d58a7 (in FUN_004d5880)
+  UNCONDITIONAL_CALL @ 0x004d58f0 (in FUN_004d5880)
+  UNCONDITIONAL_CALL @ 0x006fc930 (in FUN_006fc920)
+  UNCONDITIONAL_CALL @ 0x006fc960 (in FUN_006fc950)
+  UNCONDITIONAL_CALL @ 0x00626115 (in FUN_00626100)
+  UNCONDITIONAL_CALL @ 0x006f8b96 (in FUN_006f8b40)
+  UNCONDITIONAL_CALL @ 0x006f8bbe (in FUN_006f8b40)
+  UNCONDITIONAL_CALL @ 0x006f8bcc (in FUN_006f8b40)
+  UNCONDITIONAL_CALL @ 0x006f8bfc (in FUN_006f8b40)
+  UNCONDITIONAL_CALL @ 0x0075fff7 (in FUN_0075fb90)
+  UNCONDITIONAL_CALL @ 0x0082f4b9 (in FUN_0082f3c0)
+  UNCONDITIONAL_CALL @ 0x00e68bb7 (in FUN_00e68a80)
+  Total: 27 refs
+
+----------------------------------------------------------------------
+References TO 0x00ee6e22 (D3DXGetImageInfoFromFileInMemory import thunk)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x00e68bcd (in FUN_00e68a80)
+  Total: 1 refs
+
+----------------------------------------------------------------------
+References TO 0x00ee6e1c (D3DXCreateTextureFromFileInMemory import thunk)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x00e68dcd (in FUN_00e68a80)
+  Total: 1 refs
+
+----------------------------------------------------------------------
+References TO 0x00ee6e16 (D3DXCreateCubeTextureFromFileInMemory import thunk)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x00e68df3 (in FUN_00e68a80)
+  Total: 1 refs
+
+----------------------------------------------------------------------
+References TO 0x00ee6e10 (D3DXCreateVolumeTextureFromFileInMemory import thunk)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x00e68e18 (in FUN_00e68a80)
+  Total: 1 refs

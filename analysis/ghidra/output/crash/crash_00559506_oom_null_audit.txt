@@ -1,0 +1,261 @@
+======================================================================
+CRASH 0x00559506 OOM/NULL AUDIT
+======================================================================
+Runtime context: scrap_heap allocation returned NULL after VAS collapse; crash EIP reads 0x68.
+
+======================================================================
+Crash EIP containing function @ 0x00559506
+======================================================================
+  Function: FUN_005594e0 @ 0x005594e0, Size: 247 bytes
+  NOTE: Requested 0x00559506 is inside FUN_005594e0 (entry at 0x005594e0)
+
+void __thiscall FUN_005594e0(int *param_1,undefined4 param_2,undefined1 param_3)
+
+{
+  char cVar1;
+  int iVar2;
+  undefined4 *puVar3;
+  undefined4 *local_10;
+  
+  iVar2 = (**(code **)(*param_1 + 4))(param_2);
+  local_10 = *(undefined4 **)(param_1[2] + iVar2 * 4);
+  while( true ) {
+    if (local_10 == (undefined4 *)0x0) {
+      puVar3 = (undefined4 *)(**(code **)(*param_1 + 0x14))();
+      (**(code **)(*param_1 + 0xc))(puVar3,param_2,param_3);
+      *puVar3 = *(undefined4 *)(param_1[2] + iVar2 * 4);
+      *(undefined4 **)(param_1[2] + iVar2 * 4) = puVar3;
+      param_1[3] = param_1[3] + 1;
+      return;
+    }
+    cVar1 = (**(code **)(*param_1 + 8))(param_2,local_10[1]);
+    if (cVar1 != '\0') break;
+    local_10 = (undefined4 *)*local_10;
+  }
+  (**(code **)(*param_1 + 0x10))(local_10);
+  (**(code **)(*param_1 + 0xc))(local_10,param_2,param_3);
+  return;
+}
+
+
+
+----------------------------------------------------------------------
+Disassembly crash EIP around 0x00559506
+----------------------------------------------------------------------
+  0x005594be: PUSH ECX                                    
+  0x005594bf: MOV ECX,dword ptr [EBP + -0x4]              
+  0x005594c2: CALL 0x00559ad0                             
+  0x005594c7: MOV EDX,dword ptr [EBP + -0x4]              
+  0x005594ca: MOV dword ptr [EDX],0x102f3c0               
+  0x005594d0: MOV EAX,dword ptr [EBP + -0x4]              
+  0x005594d3: MOV ESP,EBP                                 
+  0x005594d5: POP EBP                                     
+  0x005594d6: RET 0x8                                     
+  0x005594e0: PUSH EBP                                    
+  0x005594e1: MOV EBP,ESP                                 
+  0x005594e3: SUB ESP,0x10                                
+  0x005594e6: MOV dword ptr [EBP + -0x10],ECX             
+  0x005594e9: MOV EAX,dword ptr [EBP + 0x8]               
+  0x005594ec: PUSH EAX                                    
+  0x005594ed: MOV ECX,dword ptr [EBP + -0x10]             
+  0x005594f0: MOV EDX,dword ptr [ECX]                     
+  0x005594f2: MOV ECX,dword ptr [EBP + -0x10]             
+  0x005594f5: MOV EAX,dword ptr [EDX + 0x4]               
+  0x005594f8: CALL EAX                                    
+  0x005594fa: MOV dword ptr [EBP + -0x8],EAX              
+  0x005594fd: MOV ECX,dword ptr [EBP + -0x10]             
+  0x00559500: MOV EDX,dword ptr [ECX + 0x8]               
+  0x00559503: MOV EAX,dword ptr [EBP + -0x8]              
+  0x00559506: MOV ECX,dword ptr [EDX + EAX*0x4]            << CRASH_EIP
+  0x00559509: MOV dword ptr [EBP + -0xc],ECX              
+  0x0055950c: MOV dword ptr [EBP + -0x4],0x0              
+  0x00559513: CMP dword ptr [EBP + -0xc],0x0              
+  0x00559517: JZ 0x00559578                               
+  0x00559519: MOV EDX,dword ptr [EBP + -0x4]              
+  0x0055951c: ADD EDX,0x1                                 
+  0x0055951f: MOV dword ptr [EBP + -0x4],EDX              
+  0x00559522: MOV EAX,dword ptr [EBP + -0xc]              
+  0x00559525: MOV ECX,dword ptr [EAX + 0x4]               
+  0x00559528: PUSH ECX                                    
+  0x00559529: MOV EDX,dword ptr [EBP + 0x8]               
+  0x0055952c: PUSH EDX                                    
+  0x0055952d: MOV EAX,dword ptr [EBP + -0x10]             
+  0x00559530: MOV EDX,dword ptr [EAX]                     
+  0x00559532: MOV ECX,dword ptr [EBP + -0x10]             
+  0x00559535: MOV EAX,dword ptr [EDX + 0x8]               
+  0x00559538: CALL EAX                                    
+  0x0055953a: MOVZX ECX,AL                                
+  0x0055953d: TEST ECX,ECX                                
+  0x0055953f: JZ 0x0055956e                               
+  0x00559541: MOV EDX,dword ptr [EBP + -0xc]              
+  0x00559544: PUSH EDX                                    
+  0x00559545: MOV EAX,dword ptr [EBP + -0x10]             
+  0x00559548: MOV EDX,dword ptr [EAX]                     
+  0x0055954a: MOV ECX,dword ptr [EBP + -0x10]             
+  0x0055954d: MOV EAX,dword ptr [EDX + 0x10]              
+  0x00559550: CALL EAX                                    
+  0x00559552: MOVZX ECX,byte ptr [EBP + 0xc]              
+  0x00559556: PUSH ECX                                    
+  0x00559557: MOV EDX,dword ptr [EBP + 0x8]               
+  0x0055955a: PUSH EDX                                    
+  0x0055955b: MOV EAX,dword ptr [EBP + -0xc]              
+  0x0055955e: PUSH EAX                                    
+  0x0055955f: MOV ECX,dword ptr [EBP + -0x10]             
+  0x00559562: MOV EDX,dword ptr [ECX]                     
+  0x00559564: MOV ECX,dword ptr [EBP + -0x10]             
+  0x00559567: MOV EAX,dword ptr [EDX + 0xc]               
+  0x0055956a: CALL EAX                                    
+  0x0055956c: JMP 0x005595d1                              
+  0x0055956e: MOV ECX,dword ptr [EBP + -0xc]              
+
+--- Calls FROM Crash EIP containing function (0x00559506) ---
+  Total: 0 calls
+
+----------------------------------------------------------------------
+References TO 0x00559506 (exact crash EIP)
+----------------------------------------------------------------------
+  Total: 0 refs
+
+======================================================================
+NEARBY FUNCTIONS
+======================================================================
+  Containing: 0x005594e0 FUN_005594e0                     size=247
+  0x005585e0 FUN_005585e0                     size=22
+  0x00558600 FUN_00558600                     size=130
+  0x00558690 FUN_00558690                     size=44
+  0x005586c0 FUN_005586c0                     size=17
+  0x005586e0 FUN_005586e0                     size=1119
+  0x00558b40 FUN_00558b40                     size=20
+  0x00558b60 FUN_00558b60                     size=25
+  0x00558b80 FUN_00558b80                     size=28
+  0x00558ba0 FUN_00558ba0                     size=130
+  0x00558c30 FUN_00558c30                     size=45
+  0x00558c60 FUN_00558c60                     size=33
+  0x00558c90 FUN_00558c90                     size=176
+  0x00558d40 FUN_00558d40                     size=37
+  0x00558d70 FUN_00558d70                     size=37
+  0x00558da0 FUN_00558da0                     size=37
+  0x00558dd0 FUN_00558dd0                     size=25
+  0x00558df0 FUN_00558df0                     size=44
+  0x00558e20 FUN_00558e20                     size=44
+  0x00558e50 FUN_00558e50                     size=44
+  0x00558e80 Clear                            size=38
+  0x00558eb0 FUN_00558eb0                     size=103
+  0x00558f20 FID_conflict:~ctype<char>        size=92
+  0x00558f80 FUN_00558f80                     size=43
+  0x00558fb0 FUN_00558fb0                     size=103
+  0x00559020 FID_conflict:~ctype<char>        size=92
+  0x00559080 FUN_00559080                     size=43
+  0x005590b0 FUN_005590b0                     size=103
+  0x00559120 FUN_00559120                     size=165
+  0x005591d0 FID_conflict:~ctype<char>        size=92
+  0x00559230 FUN_00559230                     size=43
+  0x00559260 FUN_00559260                     size=316
+  0x005593a0 FUN_005593a0                     size=165
+  0x00559450 FUN_00559450                     size=16
+  0x00559460 ~basic_streambuf<>               size=35
+  0x00559490 FUN_00559490                     size=24
+  0x005594b0 FUN_005594b0                     size=41
+  0x005594e0 FUN_005594e0                     size=247
+  0x005595e0 FUN_005595e0                     size=183
+  0x005596a0 ~exception                       size=52
+  0x005596e0 FUN_005596e0                     size=148
+  0x00559780 FUN_00559780                     size=30
+  ... (truncated)
+
+======================================================================
+nearby NiPointer load helper @ 0x00559450
+======================================================================
+  Function: FUN_00559450 @ 0x00559450, Size: 16 bytes
+
+undefined4 __fastcall FUN_00559450(undefined4 *param_1)
+
+{
+  return *param_1;
+}
+
+
+
+======================================================================
+nearby scrap-backed array/vector constructor @ 0x005595e0
+======================================================================
+  Function: FUN_005595e0 @ 0x005595e0, Size: 183 bytes
+
+undefined4 * __thiscall FUN_005595e0(undefined4 *param_1,int param_2,undefined1 param_3)
+
+{
+  uint uVar1;
+  undefined4 uVar2;
+  int *unaff_FS_OFFSET;
+  int local_10;
+  undefined1 *puStack_c;
+  undefined4 local_8;
+  
+  local_8 = 0xffffffff;
+  puStack_c = &LAB_00ef6b53;
+  local_10 = *unaff_FS_OFFSET;
+  uVar1 = DAT_011c16bc ^ (uint)&stack0xfffffffc;
+  *unaff_FS_OFFSET = (int)&local_10;
+  FUN_00559b40(0);
+  local_8 = 0;
+  *param_1 = &PTR_FUN_0102f3c8;
+  FUN_00aa53f0(uVar1);
+  local_8 = CONCAT31(local_8._1_3_,1);
+  param_1[1] = param_2;
+  *(undefined1 *)(param_1 + 4) = param_3;
+  uVar2 = FUN_00aa54a0(param_2 << 2,DAT_010a2720);
+  param_1[2] = uVar2;
+  std::_Fiopen((wchar_t *)param_1[2],0,param_2 << 2);
+  *unaff_FS_OFFSET = local_10;
+  return param_1;
+}
+
+
+
+----------------------------------------------------------------------
+References TO 0x00aa54a0 (scrap_heap alloc function)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x0055965c (in FUN_005595e0)
+  UNCONDITIONAL_CALL @ 0x006bf3f6 (in FUN_006bf3c0)
+  UNCONDITIONAL_CALL @ 0x006bf506 (in FUN_006bf4d0)
+  UNCONDITIONAL_CALL @ 0x005674ec (in FUN_00567490)
+  UNCONDITIONAL_CALL @ 0x006a1fa0 (in FUN_006a1f90)
+  UNCONDITIONAL_CALL @ 0x006edc76 (in FUN_006edc40)
+  UNCONDITIONAL_CALL @ 0x006edff6 (in FUN_006edfc0)
+  UNCONDITIONAL_CALL @ 0x006ee0a6 (in FUN_006ee070)
+  UNCONDITIONAL_CALL @ 0x00b5db79 (in FUN_00b5dac0)
+  UNCONDITIONAL_CALL @ 0x00b5dc0e (in FUN_00b5dac0)
+  UNCONDITIONAL_CALL @ 0x00b5dc9d (in FUN_00b5dac0)
+  UNCONDITIONAL_CALL @ 0x00c49934 (in FUN_00c49850)
+  UNCONDITIONAL_CALL @ 0x00c49963 (in FUN_00c49850)
+  UNCONDITIONAL_CALL @ 0x00c4997c (in FUN_00c49850)
+  UNCONDITIONAL_CALL @ 0x00559795 (in FUN_00559780)
+  UNCONDITIONAL_CALL @ 0x00994d5a (in FUN_00994bd0)
+  UNCONDITIONAL_CALL @ 0x0068cbe4 (in FUN_0068cb60)
+  UNCONDITIONAL_CALL @ 0x0068cc03 (in FUN_0068cb60)
+  UNCONDITIONAL_CALL @ 0x0068cc23 (in FUN_0068cb60)
+  UNCONDITIONAL_CALL @ 0x0068cc43 (in FUN_0068cb60)
+  UNCONDITIONAL_CALL @ 0x0068cc63 (in FUN_0068cb60)
+  UNCONDITIONAL_CALL @ 0x006abccc (in FUN_006abcb0)
+  UNCONDITIONAL_CALL @ 0x006abcfc (in FUN_006abce0)
+  UNCONDITIONAL_CALL @ 0x006abe5c (in FUN_006abe40)
+  UNCONDITIONAL_CALL @ 0x006cf689 (in FUN_006cf670)
+  UNCONDITIONAL_CALL @ 0x006cf6b9 (in FUN_006cf6a0)
+  UNCONDITIONAL_CALL @ 0x006cfc3c (in FUN_006cfc20)
+  UNCONDITIONAL_CALL @ 0x006db9cc (in FUN_006db9b0)
+  UNCONDITIONAL_CALL @ 0x006f288c (in FUN_006f2870)
+  UNCONDITIONAL_CALL @ 0x006f2c2c (in FUN_006f2c10)
+  UNCONDITIONAL_CALL @ 0x006f2c5c (in FUN_006f2c40)
+  UNCONDITIONAL_CALL @ 0x006f2ebc (in FUN_006f2ea0)
+  UNCONDITIONAL_CALL @ 0x006f2eec (in FUN_006f2ed0)
+  UNCONDITIONAL_CALL @ 0x0084506c (in FUN_00845050)
+  UNCONDITIONAL_CALL @ 0x00877c18 (in FUN_00877be0)
+  UNCONDITIONAL_CALL @ 0x00978d6c (in FUN_00978d50)
+  UNCONDITIONAL_CALL @ 0x0099529f (in FUN_009950c0)
+  UNCONDITIONAL_CALL @ 0x00995458 (in FUN_009950c0)
+  UNCONDITIONAL_CALL @ 0x00995568 (in FUN_009950c0)
+  UNCONDITIONAL_CALL @ 0x00995675 (in FUN_009950c0)
+  UNCONDITIONAL_CALL @ 0x00aa55f4 (in FUN_00aa55e0)
+  UNCONDITIONAL_CALL @ 0x00b5fa67 (in FUN_00b5f9b0)
+  UNCONDITIONAL_CALL @ 0x00c49080 (in FUN_00c49050)
+  Total: 43 refs

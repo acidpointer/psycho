@@ -1,14 +1,18 @@
+use libc::c_long;
 use libmimalloc::{
-    mi_arena_id_t, mi_option_arena_eager_commit, mi_option_arena_purge_mult,
-    mi_option_destroy_on_exit, mi_option_page_cross_thread_max_reclaim, mi_option_page_full_retain,
-    mi_option_page_reclaim_on_free, mi_option_purge_decommits, mi_option_retry_on_oom,
-    mi_option_set, mi_option_set_enabled,
+    mi_arena_id_t, mi_option_arena_eager_commit, mi_option_arena_max_object_size,
+    mi_option_arena_purge_mult, mi_option_arena_reserve, mi_option_destroy_on_exit, mi_option_get,
+    mi_option_page_cross_thread_max_reclaim, mi_option_page_full_retain,
+    mi_option_page_reclaim_on_free, mi_option_purge_decommits, mi_option_purge_delay,
+    mi_option_retry_on_oom, mi_option_set, mi_option_set_enabled,
 };
 use parking_lot::Once;
 
 static CONFIG_MIMALLOC: Once = Once::new();
 
 const MB: usize = 1024 * 1024;
+const MIMALLOC_ARENA_RESERVE_KIB: c_long = 8 * 1024;
+const MIMALLOC_ARENA_MAX_OBJECT_KIB: c_long = 64;
 
 /// Configure mimalloc with dynamic arena reservation (original behavior).
 /// Falls back to this if the unified reservation is not available.
@@ -57,21 +61,28 @@ pub fn configure_mimalloc() {
 /// Apply mimalloc runtime options. Called after arena setup.
 unsafe fn configure_options() {
     unsafe {
-        // 128 MB overflow arenas if the pre-reserved block fills up.
-        //mi_option_set(mi_option_arena_reserve, 128 * 1024); // KiB
+        // Keep future arenas small. Mimalloc defaults to 128 MB on
+        // 32-bit, which can steal the same contiguous VAS D3D needs.
+        mi_option_set(mi_option_arena_reserve, MIMALLOC_ARENA_RESERVE_KIB);
+
+        // Objects above 64 KB bypass arenas and use mimalloc's direct
+        // OS path. This keeps 128 KB scrap regions from growing hidden
+        // mimalloc arenas during VAS pressure.
+        mi_option_set(
+            mi_option_arena_max_object_size,
+            MIMALLOC_ARENA_MAX_OBJECT_KIB,
+        );
 
         // Demand-page: reserve VA, commit on first touch.
         mi_option_set(mi_option_arena_eager_commit, 0);
 
-        // Purge delay = -1: never purge automatically. Mimalloc is the
-        // tier-2 safety net when slab arena exhausts, so it still holds
-        // some short-lived game objects. Eager purge would turn every
-        // stale reader into a PAGE_NOACCESS segfault. Explicit
-        // `mi_collect(false)` in OOM paths reclaims pages when safe.
-        //mi_option_set(mi_option_purge_delay, -1);
+        // Keep delayed purging enabled, but make purge reset pages
+        // instead of decommitting them. Decommit splits VAS into many
+        // tiny regions on 32-bit and worsens largest-hole collapse.
+        mi_option_set(mi_option_purge_delay, 1000);
 
-        // Decommit on purge (not full release) -- keeps VA reservation.
-        mi_option_set(mi_option_purge_decommits, 1);
+        // Reset on purge, not decommit.
+        mi_option_set(mi_option_purge_decommits, 0);
 
         // RETRY ON OOM = 0 (disabled)
         mi_option_set(mi_option_retry_on_oom, 0);
@@ -88,5 +99,17 @@ unsafe fn configure_options() {
 
         // Bulk-release on exit
         mi_option_set_enabled(mi_option_destroy_on_exit, true);
+
+        log::info!(
+            "[MIMALLOC] Tuned: arena_reserve={}MB arena_max_object={}KB purge_delay={}ms purge_decommits={} retry_on_oom={} page_reclaim_on_free={} full_retain={} cross_thread_reclaim={}",
+            MIMALLOC_ARENA_RESERVE_KIB / 1024,
+            MIMALLOC_ARENA_MAX_OBJECT_KIB,
+            mi_option_get(mi_option_purge_delay),
+            mi_option_get(mi_option_purge_decommits),
+            mi_option_get(mi_option_retry_on_oom),
+            mi_option_get(mi_option_page_reclaim_on_free),
+            mi_option_get(mi_option_page_full_retain),
+            mi_option_get(mi_option_page_cross_thread_max_reclaim),
+        );
     }
 }

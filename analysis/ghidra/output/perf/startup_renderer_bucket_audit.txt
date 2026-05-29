@@ -1,0 +1,3903 @@
+======================================================================
+STARTUP RENDERER BUCKET AUDIT
+======================================================================
+Runtime log showed the first large startup bucket between:
+  Initializing Renderer -> Initializing Actor Locations
+Static range audited here:
+  work range 0x0086B028-0x0086B1E0 inside startup driver 0x0086A850
+
+NVR source anchors used:
+  InitializeRenderer=0x0086D500, NewQueuedModelLoader=0x00442650,
+  shader creation hooks=0x00BE0FE0/0x00BE1750, SetShaderPackage=0x00B4F710.
+
+----------------------------------------------------------------------
+Disassembly renderer marker start around 0x0086b01a
+----------------------------------------------------------------------
+  0x0086afd6: MOV ECX,dword ptr [EBP + 0xfffffcd0]        
+  0x0086afdc: CALL 0x007005d0                             
+  0x0086afe1: MOV dword ptr [EBP + 0xfffffca4],EAX        
+  0x0086afe7: JMP 0x0086aff3                              
+  0x0086afe9: MOV dword ptr [EBP + 0xfffffca4],0x0        
+  0x0086aff3: MOV EDX,dword ptr [EBP + 0xfffffca4]        
+  0x0086aff9: MOV dword ptr [EBP + 0xfffffcd4],EDX        
+  0x0086afff: MOV EAX,dword ptr [EBP + 0xfffffcd4]        
+  0x0086b005: MOV [0x011d8804],EAX                        
+  0x0086b00a: LEA ECX,[EBP + 0xfffffeb0]                  
+  0x0086b010: CALL 0x00404f70                             
+  0x0086b015: PUSH 0x108295c                              
+  0x0086b01a: CALL 0x0040fbe0                              << TARGET
+  0x0086b01f: ADD ESP,0x4                                 
+  0x0086b022: MOV ECX,dword ptr [0x011dea0c]              
+  0x0086b028: CALL 0x0086d500                             
+  0x0086b02d: MOV byte ptr [0x011f4509],0x1               
+  0x0086b034: CALL 0x0043c4b0                             
+  0x0086b039: MOV ECX,EAX                                 
+  0x0086b03b: CALL 0x004a0370                             
+  0x0086b040: PUSH 0x0                                    
+  0x0086b042: PUSH 0x5d4a40                               
+  0x0086b047: CALL 0x0043c4b0                             
+  0x0086b04c: MOV ECX,EAX                                 
+  0x0086b04e: CALL 0x0086bbd0                             
+  0x0086b053: PUSH 0x0                                    
+  0x0086b055: PUSH 0x872570                               
+  0x0086b05a: CALL 0x0043c4b0                             
+  0x0086b05f: MOV ECX,EAX                                 
+  0x0086b061: CALL 0x0086bae0                             
+  0x0086b066: CALL 0x0086bf70                             
+  0x0086b06b: MOV ECX,dword ptr [0x011dea0c]              
+  0x0086b071: CALL 0x0086d590                             
+  0x0086b076: PUSH 0x1                                    
+  0x0086b078: CALL 0x00702250                             
+  0x0086b07d: ADD ESP,0x4                                 
+  0x0086b080: CALL 0x006519f0                             
+  0x0086b085: PUSH 0x1                                    
+  0x0086b087: MOV ECX,dword ptr [0x011dea0c]              
+  0x0086b08d: CALL 0x00871c90                             
+  0x0086b092: CALL 0x006a2920                             
+
+----------------------------------------------------------------------
+Disassembly renderer marker end / actor locations marker around 0x0086b1e1
+----------------------------------------------------------------------
+  0x0086b190: FLD float ptr [0x01018bfc]                  
+  0x0086b196: FSTP float ptr [ESP]                        
+  0x0086b199: LEA ECX,[EBP + 0xfffffe38]                  
+  0x0086b19f: CALL 0x00416870                             
+  0x0086b1a4: MOV ECX,dword ptr [0x011c3f2c]              
+  0x0086b1aa: CALL 0x00460140                             
+  0x0086b1af: MOV ECX,EAX                                 
+  0x0086b1b1: CALL 0x006815c0                             
+  0x0086b1b6: MOV EDX,dword ptr [EAX]                     
+  0x0086b1b8: PUSH EDX                                    
+  0x0086b1b9: MOV ECX,dword ptr [0x011dea10]              
+  0x0086b1bf: CALL 0x00458200                             
+  0x0086b1c4: MOV ECX,dword ptr [0x011dea3c]              
+  0x0086b1ca: CALL 0x0095ee80                             
+  0x0086b1cf: PUSH 0x1                                    
+  0x0086b1d1: MOV ECX,dword ptr [0x011de45c]              
+  0x0086b1d7: CALL 0x008a8150                             
+  0x0086b1dc: PUSH 0x108293c                              
+  0x0086b1e1: CALL 0x0040fbe0                              << TARGET
+  0x0086b1e6: ADD ESP,0x4                                 
+  0x0086b1e9: MOV ECX,0x11e0e80                           
+  0x0086b1ee: CALL 0x00970d50                             
+  0x0086b1f3: MOV ECX,dword ptr [0x011c3f2c]              
+  0x0086b1f9: CALL 0x004614e0                             
+  0x0086b1fe: PUSH 0x1                                    
+  0x0086b200: MOV ECX,dword ptr [0x011ddf38]              
+  0x0086b206: CALL 0x007d6bd0                             
+  0x0086b20b: PUSH 0x1082924                              
+  0x0086b210: CALL 0x0040fbe0                             
+  0x0086b215: ADD ESP,0x4                                 
+  0x0086b218: LEA EAX,[EBP + 0xfffffe38]                  
+  0x0086b21e: PUSH EAX                                    
+  0x0086b21f: MOV ECX,dword ptr [EBP + -0x8]              
+  0x0086b222: PUSH ECX                                    
+  0x0086b223: CALL 0x00876dd0                             
+  0x0086b228: ADD ESP,0x8                                 
+  0x0086b22b: PUSH 0x1082910                              
+
+----------------------------------------------------------------------
+Disassembly loading initial area marker around 0x0086b210
+----------------------------------------------------------------------
+  0x0086b1e1: CALL 0x0040fbe0                             
+  0x0086b1e6: ADD ESP,0x4                                 
+  0x0086b1e9: MOV ECX,0x11e0e80                           
+  0x0086b1ee: CALL 0x00970d50                             
+  0x0086b1f3: MOV ECX,dword ptr [0x011c3f2c]              
+  0x0086b1f9: CALL 0x004614e0                             
+  0x0086b1fe: PUSH 0x1                                    
+  0x0086b200: MOV ECX,dword ptr [0x011ddf38]              
+  0x0086b206: CALL 0x007d6bd0                             
+  0x0086b20b: PUSH 0x1082924                              
+  0x0086b210: CALL 0x0040fbe0                              << TARGET
+  0x0086b215: ADD ESP,0x4                                 
+  0x0086b218: LEA EAX,[EBP + 0xfffffe38]                  
+  0x0086b21e: PUSH EAX                                    
+  0x0086b21f: MOV ECX,dword ptr [EBP + -0x8]              
+  0x0086b222: PUSH ECX                                    
+  0x0086b223: CALL 0x00876dd0                             
+  0x0086b228: ADD ESP,0x8                                 
+  0x0086b22b: PUSH 0x1082910                              
+  0x0086b230: CALL 0x0040fbe0                             
+  0x0086b235: ADD ESP,-0x8                                
+
+----------------------------------------------------------------------
+Disassembly begin idle loop marker around 0x0086b2d1
+----------------------------------------------------------------------
+  0x0086b27e: MOV ECX,dword ptr [0x011dea3c]              
+  0x0086b284: CALL 0x008d6f30                             
+  0x0086b289: TEST EAX,EAX                                
+  0x0086b28b: JNZ 0x0086b2b6                              
+  0x0086b28d: PUSH -0x1                                   
+  0x0086b28f: MOV ECX,dword ptr [0x011c3f2c]              
+  0x0086b295: CALL 0x004650a0                             
+  0x0086b29a: CALL 0x0040fbe0                             
+  0x0086b29f: CALL 0x007053f0                             
+  0x0086b2a4: MOV ECX,dword ptr [0x0126fac4]              
+  0x0086b2aa: CALL 0x00ec1800                             
+  0x0086b2af: CALL 0x0040fbe0                             
+  0x0086b2b4: JMP 0x0086b2c1                              
+  0x0086b2b6: MOV ECX,dword ptr [0x0126fac4]              
+  0x0086b2bc: CALL 0x00ec1800                             
+  0x0086b2c1: MOV ECX,dword ptr [0x01202d98]              
+  0x0086b2c7: CALL 0x00456520                             
+  0x0086b2cc: PUSH 0x10828fc                              
+  0x0086b2d1: CALL 0x0040fbe0                              << TARGET
+  0x0086b2d6: ADD ESP,0x4                                 
+  0x0086b2d9: PUSH 0x1c                                   
+  0x0086b2db: PUSH 0x0                                    
+  0x0086b2dd: LEA ECX,[EBP + 0xfffffe94]                  
+  0x0086b2e3: PUSH ECX                                    
+  0x0086b2e4: CALL 0x00403d30                             
+  0x0086b2e9: ADD ESP,0xc                                 
+  0x0086b2ec: MOV ECX,dword ptr [0x011dea0c]              
+  0x0086b2f2: CALL 0x0044ddc0                             
+  0x0086b2f7: MOV dword ptr [EBP + 0xfffffecc],EAX        
+  0x0086b2fd: MOV byte ptr [EBP + -0x9],0x0               
+  0x0086b301: MOV EDX,0x1                                 
+  0x0086b306: TEST EDX,EDX                                
+  0x0086b308: JZ 0x0086b66e                               
+  0x0086b30e: PUSH 0x1                                    
+  0x0086b310: PUSH 0x0                                    
+  0x0086b312: PUSH 0x0                                    
+  0x0086b314: PUSH 0x0                                    
+
+======================================================================
+WinMain / startup driver @ 0x0086a850
+======================================================================
+  Function: FUN_0086a850 @ 0x0086a850, Size: 4532 bytes
+
+/* WARNING: Globals starting with '_' overlap smaller symbols at the same address */
+
+void FUN_0086a850(HINSTANCE param_1)
+
+{
+  char cVar1;
+  DWORD DVar2;
+  int iVar3;
+  undefined1 *puVar4;
+  DWORD *pDVar5;
+  int *piVar6;
+  undefined4 *puVar7;
+  LPWSTR lpCmdLine;
+  undefined4 uVar8;
+  BOOL BVar9;
+  HWND pHVar10;
+  DWORD DVar11;
+  undefined4 uVar12;
+  undefined4 uVar13;
+  code *pcVar14;
+  undefined4 uVar15;
+  char *pcVar16;
+  undefined4 uVar17;
+  undefined4 uVar18;
+  int local_360;
+  char *local_35c;
+  tagRECT local_318;
+  DWORD local_308;
+  tagRECT local_304;
+  DWORD local_2f4;
+  int local_2f0;
+  CHAR local_2ec [264];
+  HINSTANCE local_1e4;
+  wchar_t *local_1e0;
+  int local_1dc;
+  int local_1d8;
+  LPWSTR *local_1d4;
+  undefined1 local_1cd;
+  undefined4 local_1cc;
+  undefined4 local_1c8;
+  undefined4 local_1c4;
+  _SYSTEM_INFO local_1c0;
+  undefined4 local_19c;
+  WNDCLASSA local_198;
+  tagMSG local_170;
+  undefined1 local_150 [24];
+  HWND local_138;
+  undefined1 local_134 [264];
+  uint local_2c;
+  HWND local_28;
+  HANDLE local_24;
+  tagRECT local_20;
+  char local_d;
+  undefined4 local_c;
+  HWND local_8;
+  
+  local_2c = DAT_011c16bc ^ (uint)&stack0xfffffffc;
+  local_24 = CreateMutexA((LPSECURITY_ATTRIBUTES)0x0,0,"FalloutNVGameMutex");
+  DVar2 = GetLastError();
+  if (DVar2 == 0xb7) {
+    MessageBoxA((HWND)0x0,"There is already an instance of Fallout: New Vegas running","Error",0);
+  }
+  else {
+    iVar3 = GetSystemMetrics(0x1000);
+    if (iVar3 == 0) {
+      local_1cd = 1;
+      puVar4 = (undefined1 *)FUN_00408d60(FUN_0086a580);
+      puVar4 = (undefined1 *)FUN_00408d60(*puVar4);
+      puVar4 = (undefined1 *)FUN_00408d60(*puVar4);
+      FUN_00c3bd30(local_1cd,*puVar4);
+      FUN_00c3bb90("Warnings.txt");
+      FUN_00c3bbe0("ProgramFlow.txt");
+      FUN_00c3bc30("ProgrammerOutput.txt");
+      FUN_00c3bc80("StackTrace.txt");
+      GetSystemInfo(&local_1c0);
+      pDVar5 = (DWORD *)FUN_0043d4d0();
+      *pDVar5 = local_1c0.dwNumberOfProcessors;
+      FUN_00876ad0(local_134);
+      piVar6 = (int *)FUN_0043d4d0();
+      if (*piVar6 == 1) {
+        puVar7 = (undefined4 *)FUN_0043d4d0();
+        *puVar7 = 2;
+      }
+      local_8 = FindWindowA(PTR_s_Fallout__New_Vegas_011a2fe8,(LPCSTR)0x0);
+      if (local_8 == (HWND)0x0) {
+        FUN_004b4a30(PTR_s_Fallout__New_Vegas_011a2fe8);
+        pcVar14 = FUN_00869f30;
+        FID_conflict__Immortalize<std::_Generic_error_category>(FUN_00869f30);
+        FUN_004fb090(pcVar14);
+        pcVar14 = FUN_0086a020;
+        FID_conflict__Immortalize<std::_Generic_error_category>(FUN_0086a020);
+        FUN_008526c0();
+        FUN_006ecd40(pcVar14);
+        FUN_00aa20b0(0);
+        FUN_00c5d4e0();
+        FUN_004b7920();
+        FUN_00a1c6f0();
+        FUN_00bc2940();
+        FUN_0045b020();
+        FUN_00404f30(0x3b);
+        FUN_0086bde0(FUN_0086a050);
+        FUN_0086bcd0(&LAB_00b4dfb0);
+        FUN_0086bcc0(1);
+        FUN_00c3a6d0();
+        FUN_0086bd70();
+        FUN_00404eb0(0x10,1,"D:\\_Fallout3\\Platforms\\Common\\Code\\Fallout\\Misc\\Main.cpp",0x8e0)
+        ;
+        FUN_00453720();
+        FUN_00404f70();
+        FUN_00404f00(0xf,1,"D:\\_Fallout3\\Platforms\\Common\\Code\\Fallout\\Misc\\Main.cpp",0x8e6);
+        FUN_00a61ad0();
+        FUN_00404f70();
+        FUN_006ff610();
+        local_1d8 = 0;
+        piVar6 = &local_1d8;
+        lpCmdLine = GetCommandLineW();
+        local_1d4 = CommandLineToArgvW(lpCmdLine,piVar6);
+        if (local_1d4 != (LPWSTR *)0x0) {
+          for (local_1dc = 0; local_1dc < local_1d8; local_1dc = local_1dc + 1) {
+            if ((local_1d4[local_1dc] != (LPWSTR)0x0) && (*local_1d4[local_1dc] == L'-')) {
+              local_1e0 = local_1d4[local_1dc] + 1;
+              iVar3 = __wcsicmp(local_1e0,L"nocloud");
+              if (iVar3 == 0) {
+                uVar15 = 0;
+                FUN_006ff580(0);
+                FUN_006ff880(uVar15);
+              }
+            }
+          }
+          LocalFree(local_1d4);
+        }
+        pcVar16 = "Software\\Bethesda Softworks\\Fallout";
+        FUN_00877950("Software\\Bethesda Softworks\\Fallout");
+        FUN_005e0200(pcVar16);
+        puVar4 = local_134;
+        FUN_0044f560(puVar4);
+        FUN_005e0200(puVar4);
+        uVar15 = FUN_004dc110();
+        FUN_00406d30(local_134,0x104,uVar15);
+        FUN_00406d50(local_134,0x104,PTR_s_FALLOUT_INI_011a2ff0);
+        puVar4 = local_134;
+        FUN_004de490(puVar4);
+        FUN_005e0200(puVar4);
+        uVar15 = FUN_004dc110();
+        FUN_00406d30(local_134,0x104,uVar15);
+        FUN_00406d50(local_134,0x104,PTR_s_FalloutPrefs_ini_011a2ff8);
+        puVar4 = local_134;
+        FUN_0045d180(puVar4);
+        FUN_005e0200(puVar4);
+        puVar4 = local_134;
+        FUN_004de490(puVar4);
+        FUN_005e0200(puVar4);
+        piVar6 = (int *)FUN_0043d4d0();
+        if (*piVar6 == 1) {
+          puVar7 = (undefined4 *)FUN_0043d4d0();
+          *puVar7 = 2;
+        }
+        cVar1 = FUN_004da570();
+        if (cVar1 != '\0') {
+          FUN_004da4d0(1);
+          piVar6 = (int *)FUN_00b00a00();
+          (**(code **)(*piVar6 + 8))();
+          FUN_00876a70(local_2ec,0x104);
+          FUN_00406d50(local_2ec,0x104,"FalloutNVLauncher.exe");
+          local_1e4 = ShellExecuteA((HWND)0x0,(LPCSTR)0x0,local_2ec,(LPCSTR)0x0,(LPCSTR)0x0,1);
+          if (local_1e4 != (HINSTANCE)0x0) {
+            FUN_00404ee0();
+            goto LAB_0086b9f3;
+          }
+        }
+        uVar15 = FUN_00403df0();
+        uVar8 = FUN_00403df0(uVar15);
+        FID_conflict__Immortalize<std::_Generic_error_category>(uVar8);
+        FUN_00b012f0(uVar8,uVar15);
+        iVar3 = FUN_00401000(0x10);
+        if (iVar3 != 0) {
+          uVar17 = 0;
+          puVar7 = (undefined4 *)FUN_0043d4d0(0);
+          uVar15 = *puVar7;
+          uVar8 = FUN_00403df0(uVar15);
+          FUN_00afdc60(uVar8,uVar15,uVar17);
+        }
+        FUN_0086bce0(&DAT_0105bb14);
+        puVar4 = (undefined1 *)FUN_00408d60(FUN_0086a580);
+        puVar4 = (undefined1 *)FUN_00408d60(*puVar4);
+        puVar4 = (undefined1 *)FUN_00408d60(*puVar4);
+        FUN_00c3bd30(local_1cd,*puVar4);
+        FUN_00c3bb90("Warnings.txt");
+        FUN_00c3bbe0("ProgramFlow.txt");
+        FUN_00c3bc30("ProgrammerOutput.txt");
+        FUN_00c3bc80("StackTrace.txt");
+        FUN_00404f00(0x18,1,"D:\\_Fallout3\\Platforms\\Common\\Code\\Fallout\\Misc\\Main.cpp",0x992)
+        ;
+        FUN_0040fbe0();
+        FID_conflict__Immortalize<std::_Generic_error_category>();
+        FUN_0086bda0();
+        FUN_00404f70();
+        FUN_00404f00(0x13,1,"D:\\_Fallout3\\Platforms\\Common\\Code\\Fallout\\Misc\\Main.cpp",0x99c)
+        ;
+        FUN_00876d20();
+        FUN_00404f70();
+        local_198.style = 3;
+        local_198.lpfnWndProc = FUN_0086a0a0;
+        local_198.cbClsExtra = 0;
+        local_198.cbWndExtra = 0;
+        local_198.hInstance = param_1;
+        local_198.hIcon = LoadIconA(param_1,(LPCSTR)0x65);
+        local_198.hCursor = (HCURSOR)0x0;
+        local_198.hbrBackground = GetStockObject(4);
+        local_198.lpszClassName = PTR_s_Fallout__New_Vegas_011a2fe8;
+        local_198.lpszMenuName = (LPCSTR)0x0;
+        RegisterClassA(&local_198);
+        local_20.left = 0;
+        local_20.top = 0;
+        local_20.right = 0x140;
+        local_20.bottom = 0xf0;
+        AdjustWindowRect(&local_20,0x10000000,0);
+        local_28 = CreateWindowExA(0,PTR_s_Fallout__New_Vegas_011a2fe8,
+                                   PTR_s_Fallout__New_Vegas_011a2fe8,0x10000000,0,0,
+                                   local_20.right - local_20.left,local_20.bottom - local_20.top,
+                                   (HWND)0x0,(HMENU)0x0,param_1,(LPVOID)0x0);
+        iVar3 = FUN_00401000(0xa4);
+        if (iVar3 == 0) {
+          local_35c = (char *)0x0;
+        }
+        else {
+          local_35c = (char *)FUN_0086c160(local_28,param_1);
+        }
+        DAT_011dea0c = local_35c;
+        FUN_00404f00(0xd,1,"D:\\_Fallout3\\Platforms\\Common\\Code\\Fallout\\Misc\\Main.cpp",0x9f8);
+        iVar3 = FUN_00401000(8);
+        if (iVar3 == 0) {
+          local_360 = 0;
+        }
+        else {
+          local_360 = FUN_007005d0();
+        }
+        DAT_011d8804 = local_360;
+        FUN_00404f70();
+        FUN_0040fbe0("Initializing Renderer...");
+        FUN_0086d500();
+        DAT_011f4509 = 1;
+        FUN_0043c4b0();
+        FUN_004a0370();
+        uVar15 = 0;
+        pcVar14 = FUN_005d4a40;
+        FUN_0043c4b0(FUN_005d4a40,0);
+        FUN_0086bbd0(pcVar14,uVar15);
+        uVar15 = 0;
+        pcVar14 = FUN_00872570;
+        FUN_0043c4b0(FUN_00872570,0);
+        FUN_0086bae0(pcVar14,uVar15);
+        FUN_0086bf70();
+        FUN_0086d590();
+        FUN_00702250(1);
+        FUN_006519f0();
+        FUN_00871c90(1);
+        FUN_006a2920();
+        FUN_0086c010();
+        FUN_0043c4b0();
+        FUN_004a03c0();
+        FUN_00866ff0();
+        uVar18 = 0;
+        uVar13 = 1;
+        uVar12 = 1;
+        uVar17 = 0xffffffff;
+        uVar8 = 0;
+        uVar15 = FUN_00403df0(0,0xffffffff,1,1,0);
+        FUN_00ec16d0(uVar15,uVar8,uVar17,uVar12,uVar13,uVar18);
+        FUN_00404f70();
+        uVar15 = FUN_0045c670();
+        FUN_0086cf20(uVar15);
+        FUN_0045c670();
+        uVar15 = FUN_006629f0();
+        FUN_0086be90(uVar15);
+        FUN_0045c670();
+        uVar15 = FUN_006629f0();
+        FUN_0086be80(uVar15);
+        piVar6 = (int *)FUN_0043d4d0();
+        if (1 < *piVar6) {
+          FUN_00713d80();
+          FUN_008c7290();
+        }
+        FUN_006d0870();
+        FID_conflict__Immortalize<std::_Generic_error_category>();
+        FUN_006eb8c0();
+        pcVar16 = (char *)FUN_00408d60();
+        if (*pcVar16 != '\0') {
+          FUN_006c0720();
+          FUN_006c07d0();
+        }
+        FUN_004e0540();
+        FUN_004deb30();
+        local_19c = 0;
+        local_c = 0;
+        FUN_00416870(_DAT_01018bfc,_DAT_01018bfc,_DAT_0101e704);
+        FUN_00460140();
+        puVar7 = (undefined4 *)FUN_006815c0();
+        FUN_00458200(*puVar7);
+        FUN_0095ee80();
+        FUN_008a8150(1);
+        FUN_0040fbe0("Initializing Actor Locations...");
+        FUN_00970d50();
+        FUN_004614e0();
+        FUN_007d6bd0(1);
+        FUN_0040fbe0("Loading initial area...");
+        FUN_00876dd0(local_c,&local_1cc);
+        FUN_0040fbe0("Placing player...");
+        FUN_00877260(local_1cc,local_1c8,local_1c4);
+        FUN_007022c0();
+        FUN_00483710();
+        FUN_004f15a0(1);
+        FUN_00af4540();
+        iVar3 = FUN_008d6f30();
+        if (iVar3 == 0) {
+          FUN_004650a0(0xffffffff);
+          FUN_0040fbe0();
+          FUN_007053f0();
+          FUN_00ec1800();
+          FUN_0040fbe0();
+        }
+        else {
+          FUN_00ec1800();
+        }
+        FUN_00456520();
+        FUN_0040fbe0("Begin Idle loop...");
+        std::_Fiopen((wchar_t *)&local_170,0,0x1c);
+        local_138 = (HWND)FUN_0044ddc0();
+        local_d = '\0';
+        while( true ) {
+          while (BVar9 = PeekMessageA(&local_170,(HWND)0x0,0,0,1), BVar9 != 0) {
+            TranslateMessage(&local_170);
+            DispatchMessageA(&local_170);
+          }
+          pHVar10 = GetActiveWindow();
+          if ((((pHVar10 == local_138) || (cVar1 = FUN_00451530(), cVar1 != '\0')) ||
+              (iVar3 = FUN_00559450(), iVar3 != 0)) ||
+             (pcVar16 = (char *)FUN_00408d60(), *pcVar16 != '\0')) {
+            FUN_0043c4b0();
+            piVar6 = (int *)FUN_004dc020();
+            local_2f0 = (**(code **)(*piVar6 + 0xc))(piVar6);
+            if (local_2f0 < 0) {
+              FUN_0043c4b0();
+              FUN_0086ba10();
+              FUN_0043c4b0();
+              FUN_0086ba90();
+              Sleep(0x32);
+            }
+            else {
+              FUN_0086e650();
+            }
+            if (local_d != '\0') {
+              local_d = '\0';
+              FUN_00453a70();
+              FUN_00ad8740();
+              FUN_00830660();
+              FUN_00832ad0(0);
+              uVar15 = 1;
+              FUN_00453a70(1);
+              FUN_00ad7740(uVar15);
+              cVar1 = FUN_00446e10();
+              if (cVar1 != '\0') {
+                local_304.left = 0;
+                local_304.top = 0;
+                local_304.right = FUN_004dc1f0();
+                local_304.bottom = FUN_004dc200();
+                local_2f4 = 0;
+                local_2f4 = GetWindowLongA(local_28,-0x10);
+                AdjustWindowRectEx(&local_304,local_2f4,0,0);
+                SetWindowPos(local_28,(HWND)0x0,local_304.left,local_304.bottom,
+                             local_304.right - local_304.left,local_304.top - local_304.bottom,0);
+              }
+            }
+            if (((local_d == '\0') && (*DAT_011dea0c != '\0')) && (-1 < local_2f0)) {
+              FUN_0078d020();
+              *DAT_011dea0c = '\0';
+            }
+          }
+          else {
+            if (local_d == '\0') {
+              local_d = '\x01';
+              cVar1 = FUN_0086bdf0();
+              if (cVar1 == '\0') {
+                DVar2 = GetCurrentThreadId();
+                DVar11 = FUN_0044edb0();
+                if (DVar2 == DVar11) {
+                  FUN_0078cfc0();
+                  *DAT_011dea0c = '\x01';
+                }
+              }
+              FUN_00453a70();
+              FUN_00ad8700();
+              FUN_00830640();
+              FUN_00832ad0(0);
+              uVar15 = 1;
+              FUN_00453a70(1);
+              FUN_00ad7740(uVar15);
+              FUN_004e2190();
+              FUN_00b63620();
+              FUN_0049fef0();
+              FUN_004a4340();
+              FUN_00705910();
+              FUN_008026b0();
+              cVar1 = FUN_00446e10();
+              if (cVar1 != '\0') {
+                local_318.left = 0;
+                local_318.top = 0;
+                local_318.right = FUN_004dc1f0();
+                local_318.bottom = FUN_004dc200();
+                local_308 = 0;
+                local_308 = GetWindowLongA(local_28,-0x10);
+                AdjustWindowRectEx(&local_318,local_308,0,0);
+                SetWindowPos(local_28,(HWND)0x0,local_318.left,local_318.bottom,
+                             local_318.right - local_318.left,local_318.top - local_318.bottom,0);
+              }
+            }
+            Sleep(0x32);
+          }
+          cVar1 = FUN_005dc960();
+          if (cVar1 != '\0') break;
+          cVar1 = FUN_00678ce0();
+          if (cVar1 != '\0') {
+            FUN_008774a0(1);
+          }
+        }
+        FUN_004f15a0(0);
+        FUN_006ff620();
+        FUN_00703610();
+        FUN_00706320(0);
+        iVar3 = FUN_00559450();
+        if (iVar3 != 0) {
+          uVar15 = FUN_00559450();
+          FUN_004a0ea0(uVar15);
+          FUN_00b6da10(uVar15);
+          FUN_0066b0d0(0);
+        }
+        iVar3 = FUN_00559450();
+        if (iVar3 != 0) {
+          uVar15 = FUN_00559450();
+          FUN_004a0ea0(uVar15);
+          FUN_00b6da10(uVar15);
+          FUN_0066b0d0(0);
+        }
+        iVar3 = FUN_00559450();
+        if (iVar3 != 0) {
+          uVar15 = FUN_00559450();
+          FUN_004a0ea0(uVar15);
+          FUN_00b6da10(uVar15);
+          FUN_0066b0d0(0);
+        }
+        FUN_0086bea0(0);
+        iVar3 = FUN_00683a60();
+        if (iVar3 != 0) {
+          FUN_00a819e0();
+        }
+        FUN_00448420();
+        piVar6 = (int *)FUN_0043d4d0();
+        if (1 < *piVar6) {
+          FUN_00713d80();
+          FUN_008c73a0();
+        }
+        FUN_00867090();
+        FUN_004dc560();
+        FUN_004dc590();
+        FUN_00702330();
+        iVar3 = FUN_008d8520();
+        if (iVar3 != 0) {
+          FUN_008d8520();
+          FUN_0086be30();
+        }
+        FUN_004e0800();
+        FUN_004def20();
+        FUN_007ffe00();
+        FUN_00832010();
+        FUN_008304a0();
+        FUN_0082f9c0();
+        piVar6 = (int *)FUN_00453a70();
+        (**(code **)(*piVar6 + 8))();
+        FUN_0040fbe0();
+        FUN_0049ff80();
+        FUN_00622bc0();
+        FUN_00626f10();
+        pcVar16 = (char *)FUN_00408d60();
+        if (*pcVar16 != '\0') {
+          FUN_006c0720();
+          FUN_006c0900();
+        }
+        if (DAT_011dea10 != 0) {
+          FUN_0086bee0(1);
+        }
+        FUN_0086beb0();
+        FID_conflict__Immortalize<std::_Generic_error_category>();
+        FUN_006eb980();
+        FUN_00651ab0();
+        FUN_00990ff0();
+        piVar6 = (int *)FUN_00b00a00();
+        (**(code **)(*piVar6 + 8))();
+        FUN_00664940();
+        FUN_00526eb0();
+        FUN_00408de0();
+        FUN_0086bdd0();
+        if (DAT_011d8804 != 0) {
+          FUN_0086bf10(1);
+        }
+        if (DAT_011dea0c != (char *)0x0) {
+          FUN_0086bf40(1);
+        }
+        DAT_011dea0c = (char *)0x0;
+        piVar6 = (int *)FID_conflict__Immortalize<std::_Generic_error_category>();
+        (**(code **)(*piVar6 + 8))();
+        FUN_004de490();
+        uVar15 = FUN_00717e50();
+        FUN_004de490(uVar15);
+        FUN_005e01b0(uVar15);
+        pcVar14 = FUN_00872570;
+        FUN_0043c4b0(FUN_00872570);
+        FUN_0086bb20(pcVar14);
+        pcVar14 = FUN_005d4a40;
+        FUN_0043c4b0(FUN_005d4a40);
+        FUN_0086bc10(pcVar14);
+        FUN_006a29a0();
+        FUN_00a62090();
+        FUN_00bc2960();
+        FUN_004da4d0(1);
+        FUN_0086bd00();
+        FUN_0045b050();
+        FUN_00c5d520();
+        FUN_004b8cf0();
+        FUN_00a1c790();
+        FUN_00aa2170();
+        FUN_008783c0("ExitData.mhd");
+        uVar15 = 0;
+        puVar4 = local_150;
+        FUN_00401020(puVar4,0);
+        FUN_00aa47c0(puVar4,uVar15);
+        FID_conflict__CXMLParser();
+        FUN_00404ee0();
+      }
+      else {
+        SetForegroundWindow(local_8);
+      }
+    }
+    else {
+      MessageBoxA((HWND)0x0,"This application cannot be run from remote desktop.","Error",0);
+    }
+  }
+LAB_0086b9f3:
+  __security_check_cookie(local_2c ^ (uint)&stack0xfffffffc);
+  return;
+}
+
+
+
+======================================================================
+DISASSEMBLY RANGE: renderer startup bucket 0x0086b028-0x0086b1e0
+======================================================================
+  0x0086b028: CALL 0x0086d500                              ; CALL 0x0086d500 NVR: InitializeRenderer
+  0x0086b02d: MOV byte ptr [0x011f4509],0x1               
+  0x0086b034: CALL 0x0043c4b0                              ; CALL 0x0043c4b0 frequent startup texture/cache helper
+  0x0086b039: MOV ECX,EAX                                 
+  0x0086b03b: CALL 0x004a0370                              ; CALL 0x004a0370 renderer bucket direct callee
+  0x0086b040: PUSH 0x0                                    
+  0x0086b042: PUSH 0x5d4a40                               
+  0x0086b047: CALL 0x0043c4b0                              ; CALL 0x0043c4b0 frequent startup texture/cache helper
+  0x0086b04c: MOV ECX,EAX                                 
+  0x0086b04e: CALL 0x0086bbd0                              ; CALL 0x0086bbd0 renderer bucket direct callee
+  0x0086b053: PUSH 0x0                                    
+  0x0086b055: PUSH 0x872570                               
+  0x0086b05a: CALL 0x0043c4b0                              ; CALL 0x0043c4b0 frequent startup texture/cache helper
+  0x0086b05f: MOV ECX,EAX                                 
+  0x0086b061: CALL 0x0086bae0                              ; CALL 0x0086bae0 renderer bucket direct callee
+  0x0086b066: CALL 0x0086bf70                              ; CALL 0x0086bf70 renderer bucket direct callee
+  0x0086b06b: MOV ECX,dword ptr [0x011dea0c]              
+  0x0086b071: CALL 0x0086d590                              ; CALL 0x0086d590 renderer bucket direct callee after InitializeRenderer
+  0x0086b076: PUSH 0x1                                    
+  0x0086b078: CALL 0x00702250                              ; CALL 0x00702250 renderer/menu or loading-state callee
+  0x0086b07d: ADD ESP,0x4                                 
+  0x0086b080: CALL 0x006519f0                              ; CALL 0x006519f0 renderer bucket direct callee
+  0x0086b085: PUSH 0x1                                    
+  0x0086b087: MOV ECX,dword ptr [0x011dea0c]              
+  0x0086b08d: CALL 0x00871c90                              ; CALL 0x00871c90 renderer bucket direct callee
+  0x0086b092: CALL 0x006a2920                              ; CALL 0x006a2920 renderer bucket direct callee
+  0x0086b097: CALL 0x0086c010                              ; CALL 0x0086c010 renderer bucket direct callee
+  0x0086b09c: CALL 0x0043c4b0                              ; CALL 0x0043c4b0 frequent startup texture/cache helper
+  0x0086b0a1: MOV ECX,EAX                                 
+  0x0086b0a3: CALL 0x004a03c0                              ; CALL 0x004a03c0 renderer bucket direct callee
+  0x0086b0a8: CALL 0x00866ff0                              ; CALL 0x00866ff0 renderer bucket direct callee
+  0x0086b0ad: PUSH ECX                                    
+  0x0086b0ae: FLDZ                                        
+  0x0086b0b0: FSTP float ptr [ESP]                        
+  0x0086b0b3: PUSH 0x1                                    
+  0x0086b0b5: PUSH 0x1                                    
+  0x0086b0b7: PUSH -0x1                                   
+  0x0086b0b9: PUSH 0x0                                    
+  0x0086b0bb: MOV ECX,0x11de72c                           
+  0x0086b0c0: CALL 0x00403df0                              ; CALL 0x00403df0 renderer bucket direct callee
+  0x0086b0c5: PUSH EAX                                    
+  0x0086b0c6: MOV ECX,dword ptr [0x0126fac4]              
+  0x0086b0cc: CALL 0x00ec16d0                              ; CALL 0x00ec16d0 runtime library/helper call
+  0x0086b0d1: LEA ECX,[EBP + 0xfffffeb0]                  
+  0x0086b0d7: CALL 0x00404f70                              ; CALL 0x00404f70 thread/context helper
+  0x0086b0dc: CALL 0x0045c670                              ; CALL 0x0045c670 repeated renderer bucket helper
+  0x0086b0e1: PUSH EAX                                    
+  0x0086b0e2: MOV ECX,dword ptr [0x011dea0c]              
+  0x0086b0e8: CALL 0x0086cf20                              ; CALL 0x0086cf20 renderer bucket direct callee
+  0x0086b0ed: CALL 0x0045c670                              ; CALL 0x0045c670 repeated renderer bucket helper
+  0x0086b0f2: MOV ECX,EAX                                 
+  0x0086b0f4: CALL 0x006629f0                              ; CALL 0x006629f0 repeated renderer bucket helper
+  0x0086b0f9: PUSH EAX                                    
+  0x0086b0fa: CALL 0x0086be90                              ; CALL 0x0086be90 renderer bucket direct callee
+  0x0086b0ff: ADD ESP,0x4                                 
+  0x0086b102: CALL 0x0045c670                              ; CALL 0x0045c670 repeated renderer bucket helper
+  0x0086b107: MOV ECX,EAX                                 
+  0x0086b109: CALL 0x006629f0                              ; CALL 0x006629f0 repeated renderer bucket helper
+  0x0086b10e: PUSH EAX                                    
+  0x0086b10f: CALL 0x0086be80                              ; CALL 0x0086be80 renderer bucket direct callee
+  0x0086b114: ADD ESP,0x4                                 
+  0x0086b117: MOV ECX,0x11c3ea4                           
+  0x0086b11c: CALL 0x0043d4d0                              ; CALL 0x0043d4d0 renderer bucket direct callee
+  0x0086b121: CMP dword ptr [EAX],0x1                     
+  0x0086b124: JLE 0x0086b132                              
+  0x0086b126: CALL 0x00713d80                              ; CALL 0x00713d80 renderer bucket direct callee
+  0x0086b12b: MOV ECX,EAX                                 
+  0x0086b12d: CALL 0x008c7290                              ; CALL 0x008c7290 renderer bucket direct callee
+  0x0086b132: CALL 0x006d0870                              ; CALL 0x006d0870 renderer bucket direct callee
+  0x0086b137: CALL 0x0047d0b0                              ; CALL 0x0047d0b0 renderer bucket direct callee
+  0x0086b13c: MOV ECX,EAX                                 
+  0x0086b13e: CALL 0x006eb8c0                              ; CALL 0x006eb8c0 renderer bucket direct callee
+  0x0086b143: MOV ECX,0x11d73e4                           
+  0x0086b148: CALL 0x00408d60                              ; CALL 0x00408d60 renderer bucket direct callee
+  0x0086b14d: MOVZX ECX,byte ptr [EAX]                    
+  0x0086b150: TEST ECX,ECX                                
+  0x0086b152: JZ 0x0086b160                               
+  0x0086b154: CALL 0x006c0720                              ; CALL 0x006c0720 renderer bucket direct callee
+  0x0086b159: MOV ECX,EAX                                 
+  0x0086b15b: CALL 0x006c07d0                              ; CALL 0x006c07d0 renderer bucket direct callee
+  0x0086b160: CALL 0x004e0540                              ; CALL 0x004e0540 renderer bucket direct callee
+  0x0086b165: CALL 0x004deb30                              ; CALL 0x004deb30 renderer bucket direct callee
+  0x0086b16a: MOV dword ptr [EBP + 0xfffffe68],0x0        
+  0x0086b174: MOV dword ptr [EBP + -0x8],0x0              
+  0x0086b17b: PUSH ECX                                    
+  0x0086b17c: FLD float ptr [0x0101e704]                  
+  0x0086b182: FSTP float ptr [ESP]                        
+  0x0086b185: PUSH ECX                                    
+  0x0086b186: FLD float ptr [0x01018bfc]                  
+  0x0086b18c: FSTP float ptr [ESP]                        
+  0x0086b18f: PUSH ECX                                    
+  0x0086b190: FLD float ptr [0x01018bfc]                  
+  0x0086b196: FSTP float ptr [ESP]                        
+  0x0086b199: LEA ECX,[EBP + 0xfffffe38]                  
+  0x0086b19f: CALL 0x00416870                              ; CALL 0x00416870 renderer bucket direct callee
+  0x0086b1a4: MOV ECX,dword ptr [0x011c3f2c]              
+  0x0086b1aa: CALL 0x00460140                              ; CALL 0x00460140 renderer bucket direct callee
+  0x0086b1af: MOV ECX,EAX                                 
+  0x0086b1b1: CALL 0x006815c0                              ; CALL 0x006815c0 renderer bucket direct callee
+  0x0086b1b6: MOV EDX,dword ptr [EAX]                     
+  0x0086b1b8: PUSH EDX                                    
+  0x0086b1b9: MOV ECX,dword ptr [0x011dea10]              
+  0x0086b1bf: CALL 0x00458200                              ; CALL 0x00458200 renderer bucket direct callee
+  0x0086b1c4: MOV ECX,dword ptr [0x011dea3c]              
+  0x0086b1ca: CALL 0x0095ee80                              ; CALL 0x0095ee80 renderer bucket direct callee
+  0x0086b1cf: PUSH 0x1                                    
+  0x0086b1d1: MOV ECX,dword ptr [0x011de45c]              
+  0x0086b1d7: CALL 0x008a8150                              ; CALL 0x008a8150 renderer bucket direct callee
+  0x0086b1dc: PUSH 0x108293c                              
+
+======================================================================
+DIRECT CALLS IN RANGE: renderer startup bucket 0x0086b028-0x0086b1e0
+======================================================================
+  0x0086b028 -> 0x0086d500 NVR: InitializeRenderer
+  0x0086b034 -> 0x0043c4b0 frequent startup texture/cache helper
+  0x0086b03b -> 0x004a0370 renderer bucket direct callee
+  0x0086b047 -> 0x0043c4b0 frequent startup texture/cache helper
+  0x0086b04e -> 0x0086bbd0 renderer bucket direct callee
+  0x0086b05a -> 0x0043c4b0 frequent startup texture/cache helper
+  0x0086b061 -> 0x0086bae0 renderer bucket direct callee
+  0x0086b066 -> 0x0086bf70 renderer bucket direct callee
+  0x0086b071 -> 0x0086d590 renderer bucket direct callee after InitializeRenderer
+  0x0086b078 -> 0x00702250 renderer/menu or loading-state callee
+  0x0086b080 -> 0x006519f0 renderer bucket direct callee
+  0x0086b08d -> 0x00871c90 renderer bucket direct callee
+  0x0086b092 -> 0x006a2920 renderer bucket direct callee
+  0x0086b097 -> 0x0086c010 renderer bucket direct callee
+  0x0086b09c -> 0x0043c4b0 frequent startup texture/cache helper
+  0x0086b0a3 -> 0x004a03c0 renderer bucket direct callee
+  0x0086b0a8 -> 0x00866ff0 renderer bucket direct callee
+  0x0086b0c0 -> 0x00403df0 renderer bucket direct callee
+  0x0086b0cc -> 0x00ec16d0 runtime library/helper call
+  0x0086b0d7 -> 0x00404f70 thread/context helper
+  0x0086b0dc -> 0x0045c670 repeated renderer bucket helper
+  0x0086b0e8 -> 0x0086cf20 renderer bucket direct callee
+  0x0086b0ed -> 0x0045c670 repeated renderer bucket helper
+  0x0086b0f4 -> 0x006629f0 repeated renderer bucket helper
+  0x0086b0fa -> 0x0086be90 renderer bucket direct callee
+  0x0086b102 -> 0x0045c670 repeated renderer bucket helper
+  0x0086b109 -> 0x006629f0 repeated renderer bucket helper
+  0x0086b10f -> 0x0086be80 renderer bucket direct callee
+  0x0086b11c -> 0x0043d4d0 renderer bucket direct callee
+  0x0086b126 -> 0x00713d80 renderer bucket direct callee
+  0x0086b12d -> 0x008c7290 renderer bucket direct callee
+  0x0086b132 -> 0x006d0870 renderer bucket direct callee
+  0x0086b137 -> 0x0047d0b0 renderer bucket direct callee
+  0x0086b13e -> 0x006eb8c0 renderer bucket direct callee
+  0x0086b148 -> 0x00408d60 renderer bucket direct callee
+  0x0086b154 -> 0x006c0720 renderer bucket direct callee
+  0x0086b15b -> 0x006c07d0 renderer bucket direct callee
+  0x0086b160 -> 0x004e0540 renderer bucket direct callee
+  0x0086b165 -> 0x004deb30 renderer bucket direct callee
+  0x0086b19f -> 0x00416870 renderer bucket direct callee
+  0x0086b1aa -> 0x00460140 renderer bucket direct callee
+  0x0086b1b1 -> 0x006815c0 renderer bucket direct callee
+  0x0086b1bf -> 0x00458200 renderer bucket direct callee
+  0x0086b1ca -> 0x0095ee80 renderer bucket direct callee
+  0x0086b1d7 -> 0x008a8150 renderer bucket direct callee
+  Total: 45 direct calls
+
+======================================================================
+UNIQUE DIRECT CALL TARGETS IN RENDERER BUCKET
+======================================================================
+
+======================================================================
+Renderer bucket callee: NVR: InitializeRenderer @ 0x0086d500
+======================================================================
+  Function: FUN_0086d500 @ 0x0086d500, Size: 127 bytes
+
+void __fastcall FUN_0086d500(int param_1)
+
+{
+  int iVar1;
+  undefined4 uVar2;
+  char local_20c [516];
+  uint local_8;
+  
+  local_8 = DAT_011c16bc ^ (uint)&stack0xfffffffc;
+  iVar1 = FUN_004da670(*(undefined4 *)(param_1 + 8),*(undefined4 *)(param_1 + 0xc));
+  if (iVar1 == 0) {
+    uVar2 = FUN_0086d580();
+    _sprintf(local_20c,"Failed to initialize renderer.\n%s",uVar2);
+    MessageBoxA((HWND)0x0,local_20c,"Fallout",0);
+                    /* WARNING: Subroutine does not return */
+    ExitProcess(0);
+  }
+  __security_check_cookie(local_8 ^ (uint)&stack0xfffffffc);
+  return;
+}
+
+
+
+--- Calls FROM NVR: InitializeRenderer (0x0086d500) ---
+  0x0086d52d -> 0x004da670 FUN_004da670
+  0x0086d539 -> 0x0086d580 FUN_0086d580
+  0x0086d54b -> 0x00ec623a _sprintf
+  0x0086d563 -> 0x000000ae unknown
+  0x0086d56b -> 0x00000031 unknown
+  0x0086d576 -> 0x00ec408c __security_check_cookie
+  Total: 6 calls
+
+======================================================================
+Renderer bucket callee: frequent startup texture/cache helper @ 0x0043c4b0
+======================================================================
+  Function: FUN_0043c4b0 @ 0x0043c4b0, Size: 10 bytes
+
+undefined4 FUN_0043c4b0(void)
+
+{
+  return DAT_011f4748;
+}
+
+
+
+--- Calls FROM frequent startup texture/cache helper (0x0043c4b0) ---
+  Total: 0 calls
+
+======================================================================
+Renderer bucket callee: renderer bucket direct callee @ 0x004a0370
+======================================================================
+  Function: FUN_004a0370 @ 0x004a0370, Size: 46 bytes
+
+void __fastcall FUN_004a0370(undefined4 param_1)
+
+{
+  int iVar1;
+  
+  FUN_0082f1b0(param_1);
+  iVar1 = FUN_004a03a0();
+  if (iVar1 == 1) {
+    FUN_00483710();
+  }
+  return;
+}
+
+
+
+--- Calls FROM renderer bucket direct callee (0x004a0370) ---
+  0x004a0380 -> 0x0082f1b0 FUN_0082f1b0
+  0x004a0388 -> 0x004a03a0 FUN_004a03a0
+  0x004a0395 -> 0x00483710 FUN_00483710
+  Total: 3 calls
+
+======================================================================
+Renderer bucket callee: renderer bucket direct callee @ 0x0086bbd0
+======================================================================
+  Function: FUN_0086bbd0 @ 0x0086bbd0, Size: 61 bytes
+
+undefined4 FUN_0086bbd0(void)
+
+{
+  undefined4 uVar1;
+  
+  uVar1 = FUN_00877a50(&stack0x00000004);
+  FUN_00470000(uVar1,&stack0x00000008);
+  return uVar1;
+}
+
+
+
+--- Calls FROM renderer bucket direct callee (0x0086bbd0) ---
+  0x0086bbe6 -> 0x00877a50 FUN_00877a50
+  0x0086bbff -> 0x00470000 FUN_00470000
+  Total: 2 calls
+
+======================================================================
+Renderer bucket callee: renderer bucket direct callee @ 0x0086bae0
+======================================================================
+  Function: FUN_0086bae0 @ 0x0086bae0, Size: 61 bytes
+
+undefined4 FUN_0086bae0(void)
+
+{
+  undefined4 uVar1;
+  
+  uVar1 = FUN_00877a50(&stack0x00000004);
+  FUN_00470000(uVar1,&stack0x00000008);
+  return uVar1;
+}
+
+
+
+--- Calls FROM renderer bucket direct callee (0x0086bae0) ---
+  0x0086baf6 -> 0x00877a50 FUN_00877a50
+  0x0086bb0f -> 0x00470000 FUN_00470000
+  Total: 2 calls
+
+======================================================================
+Renderer bucket callee: renderer bucket direct callee @ 0x0086bf70
+======================================================================
+  Function: FUN_0086bf70 @ 0x0086bf70, Size: 113 bytes
+
+/* WARNING: Globals starting with '_' overlap smaller symbols at the same address */
+
+void FUN_0086bf70(void)
+
+{
+  undefined1 *puVar1;
+  float10 fVar2;
+  
+  FUN_0040fbe0("Initializing Shader System...");
+  FUN_005c5a60(0);
+  FUN_0086bff0(FUN_0086a480);
+  puVar1 = (undefined1 *)FUN_00408d60();
+  FUN_0086c000(*puVar1);
+  puVar1 = (undefined1 *)FUN_00408d60();
+  DAT_011f9443 = *puVar1;
+  fVar2 = (float10)FUN_00450410();
+  _DAT_011f9484 = (float)fVar2;
+  fVar2 = (float10)FUN_00450410();
+  _DAT_011f9480 = (float)fVar2;
+  return;
+}
+
+
+
+--- Calls FROM renderer bucket direct callee (0x0086bf70) ---
+  0x0086bf78 -> 0x0040fbe0 FUN_0040fbe0
+  0x0086bf82 -> 0x005c5a60 FUN_005c5a60
+  0x0086bf8f -> 0x0086bff0 FUN_0086bff0
+  0x0086bf9c -> 0x00408d60 renderer bucket direct callee
+  0x0086bfa5 -> 0x0086c000 FUN_0086c000
+  0x0086bfb2 -> 0x00408d60 renderer bucket direct callee
+  0x0086bfc4 -> 0x00450410 FUN_00450410
+  0x0086bfd4 -> 0x00450410 FUN_00450410
+  Total: 8 calls
+
+======================================================================
+Renderer bucket callee: renderer bucket direct callee after InitializeRenderer @ 0x0086d590
+======================================================================
+  Function: FUN_0086d590 @ 0x0086d590, Size: 3667 bytes
+
+/* WARNING: Globals starting with '_' overlap smaller symbols at the same address */
+
+void FUN_0086d590(void)
+
+{
+  char cVar1;
+  uint uVar2;
+  int iVar3;
+  undefined4 uVar4;
+  int *piVar5;
+  int *unaff_FS_OFFSET;
+  undefined4 uVar6;
+  undefined4 uVar7;
+  undefined4 uVar8;
+  undefined1 *puVar9;
+  undefined4 uVar10;
+  undefined4 uVar11;
+  undefined4 *puVar12;
+  undefined4 local_180;
+  undefined4 local_17c;
+  undefined4 local_178;
+  undefined4 local_174;
+  undefined4 local_168;
+  undefined4 local_15c;
+  undefined4 local_150;
+  undefined4 local_144;
+  int *local_138;
+  undefined4 local_12c;
+  int *local_120;
+  undefined4 local_114;
+  undefined4 local_108;
+  undefined4 local_104;
+  uint local_fc;
+  int *local_f8;
+  undefined4 local_f4;
+  undefined1 local_48 [12];
+  undefined4 local_3c;
+  undefined4 local_38;
+  uint local_34;
+  uint local_30;
+  int *local_2c;
+  undefined1 local_28 [12];
+  undefined4 local_1c;
+  int *local_14;
+  int local_10;
+  undefined1 *puStack_c;
+  int local_8;
+  
+  local_8 = 0xffffffff;
+  puStack_c = &LAB_00f141c4;
+  local_10 = *unaff_FS_OFFSET;
+  uVar2 = DAT_011c16bc ^ (uint)&stack0xfffffffc;
+  *unaff_FS_OFFSET = (int)&local_10;
+  FUN_00404eb0(0x19,1,"D:\\_Fallout3\\Platforms\\Common\\Code\\Fallout\\Misc\\Main.cpp",0xf4c);
+  local_8 = 0;
+  iVar3 = FUN_00aa13e0(0xc0,uVar2);
+  local_8._0_1_ = 1;
+  if (iVar3 == 0) {
+    local_f4 = 0;
+  }
+  else {
+    local_f4 = FUN_00878610("World",0,0);
+  }
+  local_8._0_1_ = 0;
+  FUN_0066b0d0(local_f4);
+  iVar3 = FUN_00aa13e0(0x200,uVar2);
+  local_8._0_1_ = 2;
+  if (iVar3 == 0) {
+    local_f8 = (int *)0x0;
+  }
+  else {
+    local_f8 = (int *)FUN_00b5e0f0();
+  }
+  local_8 = (uint)local_8._1_3_ << 8;
+  local_14 = local_f8;
+  uVar4 = FUN_004bc3f0();
+  FUN_0086e520(uVar4);
+  FUN_0086e4e0("data\\shaders\\");
+  FUN_00b57420();
+  puVar12 = &DAT_011ad840;
+  FUN_00559450(&DAT_011ad840);
+  FUN_006629f0();
+  FUN_00712e60(puVar12);
+  FUN_0070b760(0);
+  FUN_00b4f2f0(0,local_14);
+  piVar5 = local_14;
+  FUN_00559450(local_14);
+  FUN_004a1020(piVar5);
+  piVar5 = local_14;
+  FUN_00559450(local_14);
+  FUN_004a1020(piVar5);
+  piVar5 = local_14;
+  FUN_00559450(local_14);
+  FUN_004a1020(piVar5);
+  piVar5 = local_14;
+  FUN_00559450(local_14);
+  FUN_004a1020(piVar5);
+  uVar4 = FUN_00450b80(1);
+  FUN_00559450(uVar4);
+  FUN_004a1020(uVar4);
+  FUN_0086e500(0);
+  FUN_0086e510(0);
+  cVar1 = FUN_0086e540();
+  local_30 = (uint)(cVar1 == '\x01');
+  cVar1 = FUN_0086e560();
+  local_30 = (-(uint)(cVar1 != '\x01') & 0xfffffffe) + 2 | local_30;
+  cVar1 = FUN_0086e5a0();
+  local_30 = (-(uint)(cVar1 != '\x01') & 0xfffffffc) + 4 | local_30;
+  cVar1 = FUN_0086e580();
+  local_30 = (-(uint)(cVar1 != '\x01') & 0xfffffff8) + 8 | local_30 | 0x10;
+  cVar1 = FUN_004bc400();
+  if (cVar1 != '\0') {
+    iVar3 = FUN_004dc060(0);
+    if (1 < iVar3) {
+      local_fc = 0x20;
+      goto LAB_0086d816;
+    }
+  }
+  local_fc = 0;
+LAB_0086d816:
+  local_30 = local_30 | local_fc;
+  FUN_004bc3d0(local_30);
+  cVar1 = FUN_0086e5c0();
+  local_34 = -(uint)(cVar1 != '\0') & 8;
+  cVar1 = FUN_0086e5e0();
+  _DAT_011ad82c = -(uint)(cVar1 != '\0') & 2 | local_34;
+  local_34 = _DAT_011ad82c;
+  FUN_0086e4d0(FUN_00564360);
+  _DAT_011fd870 = 0;
+  FUN_00559450();
+  uVar4 = FUN_006629f0();
+  FUN_0066b0d0(uVar4);
+  piVar5 = (int *)FUN_00559450();
+  (**(code **)(*piVar5 + 0xdc))(local_14,1);
+  iVar3 = FUN_00aa13e0(100);
+  local_8._0_1_ = 3;
+  if (iVar3 == 0) {
+    local_104 = 0;
+  }
+  else {
+    local_104 = FUN_00bb8180();
+  }
+  local_8._0_1_ = 0;
+  FUN_0066b0d0(local_104);
+  uVar4 = 1;
+  FUN_00559450(1);
+  FUN_0049ed90(uVar4);
+  uVar4 = 0x3f800000;
+  FUN_00559450(0x3f800000);
+  FUN_00bb8140(uVar4);
+  uVar4 = FUN_00559450();
+  FUN_00b55540(0,uVar4);
+  iVar3 = FUN_00aa13e0(0xb4);
+  local_8._0_1_ = 4;
+  if (iVar3 == 0) {
+    local_108 = 0;
+  }
+  else {
+    local_108 = FUN_00c46970();
+  }
+  local_8._0_1_ = 0;
+  FUN_0066b0d0(local_108);
+  uVar4 = 1;
+  FUN_00559450(1);
+  FUN_005468d0(uVar4);
+  uVar4 = 1;
+  FUN_00559450(1);
+  FUN_005467c0(uVar4);
+  uVar4 = FUN_00438170(&DAT_01082c88);
+  local_8._0_1_ = 5;
+  FUN_00559450(uVar4);
+  FUN_00a5b950(uVar4);
+  local_8._0_1_ = 0;
+  FUN_004381b0();
+  uVar4 = FUN_00559450();
+  (**(code **)(*local_14 + 0xf8))(0,uVar4);
+  iVar3 = FUN_00aa13e0(0xac);
+  local_8._0_1_ = 6;
+  if (iVar3 == 0) {
+    local_114 = 0;
+  }
+  else {
+    local_114 = FUN_00a5ecb0(0);
+  }
+  local_8._0_1_ = 0;
+  FUN_0066b0d0(local_114);
+  uVar4 = 1;
+  FUN_00559450(1);
+  FUN_00546780(uVar4);
+  uVar4 = 1;
+  FUN_00559450(1);
+  FUN_005467c0(uVar4);
+  uVar4 = FUN_00438170("Weather");
+  local_8._0_1_ = 7;
+  FUN_00559450(uVar4);
+  FUN_00a5b950(uVar4);
+  local_8._0_1_ = 0;
+  FUN_004381b0();
+  uVar4 = FUN_00559450();
+  (**(code **)(*local_14 + 0xf8))(1,uVar4);
+  FUN_004dc5c0();
+  FUN_004dc650();
+  iVar3 = FUN_00aa13e0(0xb8);
+  local_8._0_1_ = 8;
+  if (iVar3 == 0) {
+    local_120 = (int *)0x0;
+  }
+  else {
+    local_120 = (int *)FUN_00bc2980();
+  }
+  local_8._0_1_ = 0;
+  DAT_011dea14 = local_120;
+  uVar4 = FUN_00438170("LODRoot");
+  local_8._0_1_ = 9;
+  FUN_00a5b950(uVar4);
+  local_8._0_1_ = 0;
+  FUN_004381b0();
+  (**(code **)(*local_14 + 0xf8))(2,DAT_011dea14);
+  iVar3 = FUN_00aa13e0(0xac);
+  local_8._0_1_ = 10;
+  if (iVar3 == 0) {
+    local_12c = 0;
+  }
+  else {
+    local_12c = FUN_00a5ecb0(0);
+  }
+  local_8._0_1_ = 0;
+  local_2c = (int *)local_12c;
+  FUN_00546780(1);
+  FUN_005467c0(1);
+  uVar4 = FUN_00438170("LandLOD");
+  local_8._0_1_ = 0xb;
+  FUN_00a5b950(uVar4);
+  local_8._0_1_ = 0;
+  FUN_004381b0();
+  (**(code **)(*DAT_011dea14 + 0xdc))(local_2c,1);
+  puVar12 = (undefined4 *)FUN_00403e20();
+  _DAT_011ad808 = *puVar12;
+  iVar3 = FUN_00aa13e0(0xac);
+  local_8._0_1_ = 0xc;
+  if (iVar3 == 0) {
+    local_138 = (int *)0x0;
+  }
+  else {
+    local_138 = (int *)FUN_00a5ecb0(0);
+  }
+  local_8._0_1_ = 0;
+  local_2c = local_138;
+  FUN_00546780(1);
+  FUN_005467c0(1);
+  uVar4 = FUN_00438170("DistantRefLOD");
+  local_8._0_1_ = 0xd;
+  FUN_00a5b950(uVar4);
+  local_8._0_1_ = 0;
+  FUN_004381b0();
+  (**(code **)(*DAT_011dea14 + 0xdc))(local_2c
+
+--- Calls FROM renderer bucket direct callee after InitializeRenderer (0x0086d590) ---
+  0x0086d5cf -> 0x00404eb0 FUN_00404eb0
+  0x0086d5e0 -> 0x00aa13e0 FUN_00aa13e0
+  0x0086d601 -> 0x00878610 NVR: NewSceneGraph
+  0x0086d62e -> 0x0066b0d0 FUN_0066b0d0
+  0x0086d638 -> 0x00aa13e0 FUN_00aa13e0
+  0x0086d650 -> 0x00b5e0f0 FUN_00b5e0f0
+  0x0086d67a -> 0x004bc3f0 FUN_004bc3f0
+  0x0086d680 -> 0x0086e520 FUN_0086e520
+  0x0086d68d -> 0x0086e4e0 FUN_0086e4e0
+  0x0086d695 -> 0x00b57420 FUN_00b57420
+  0x0086d6a4 -> 0x00559450 FUN_00559450
+  0x0086d6ab -> 0x006629f0 repeated renderer bucket helper
+  0x0086d6b2 -> 0x00712e60 FUN_00712e60
+  0x0086d6bc -> 0x0070b760 FUN_0070b760
+  0x0086d6c7 -> 0x00b4f2f0 FUN_00b4f2f0
+  0x0086d6df -> 0x00559450 FUN_00559450
+  0x0086d6e6 -> 0x004a1020 FUN_004a1020
+  0x0086d6fb -> 0x00559450 FUN_00559450
+  0x0086d702 -> 0x004a1020 FUN_004a1020
+  0x0086d717 -> 0x00559450 FUN_00559450
+  0x0086d71e -> 0x004a1020 FUN_004a1020
+  0x0086d733 -> 0x00559450 FUN_00559450
+  0x0086d73a -> 0x004a1020 FUN_004a1020
+  0x0086d741 -> 0x00450b80 FUN_00450b80
+  0x0086d756 -> 0x00559450 FUN_00559450
+  0x0086d75d -> 0x004a1020 FUN_004a1020
+  0x0086d764 -> 0x0086e500 FUN_0086e500
+  0x0086d76e -> 0x0086e510 FUN_0086e510
+  0x0086d776 -> 0x0086e540 FUN_0086e540
+  0x0086d78b -> 0x0086e560 FUN_0086e560
+  0x0086d7a6 -> 0x0086e5a0 FUN_0086e5a0
+  0x0086d7c1 -> 0x0086e580 FUN_0086e580
+  0x0086d7e5 -> 0x004bc400 FUN_004bc400
+  0x0086d7f3 -> 0x004dc060 FUN_004dc060
+  0x0086d826 -> 0x004bc3d0 FUN_004bc3d0
+  0x0086d82e -> 0x0086e5c0 FUN_0086e5c0
+  0x0086d840 -> 0x0086e5e0 FUN_0086e5e0
+  0x0086d863 -> 0x0086e4d0 FUN_0086e4d0
+  0x0086d878 -> 0x00559450 FUN_00559450
+  0x0086d87f -> 0x006629f0 repeated renderer bucket helper
+  0x0086d88a -> 0x0066b0d0 FUN_0066b0d0
+  0x0086d894 -> 0x00559450 FUN_00559450
+  0x0086d8bd -> 0x00aa13e0 FUN_00aa13e0
+  0x0086d8d5 -> 0x00bb8180 FUN_00bb8180
+  0x0086d902 -> 0x0066b0d0 FUN_0066b0d0
+  0x0086d90e -> 0x00559450 FUN_00559450
+  0x0086d915 -> 0x0049ed90 FUN_0049ed90
+  0x0086d925 -> 0x00559450 FUN_00559450
+  0x0086d92c -> 0x00bb8140 FUN_00bb8140
+  0x0086d936 -> 0x00559450 FUN_00559450
+  0x0086d93e -> 0x00b55540 FUN_00b55540
+  0x0086d94b -> 0x00aa13e0 FUN_00aa13e0
+  0x0086d963 -> 0x00c46970 FUN_00c46970
+  0x0086d990 -> 0x0066b0d0 FUN_0066b0d0
+  0x0086d99c -> 0x00559450 FUN_00559450
+  0x0086d9a3 -> 0x005468d0 FUN_005468d0
+  0x0086d9af -> 0x00559450 FUN_00559450
+  0x0086d9b6 -> 0x005467c0 FUN_005467c0
+  0x0086d9c3 -> 0x00438170 FUN_00438170
+  0x0086d9ea -> 0x00559450 FUN_00559450
+  0x0086d9f1 -> 0x00a5b950 FUN_00a5b950
+  0x0086d9fd -> 0x004381b0 FUN_004381b0
+  0x0086da07 -> 0x00559450 FUN_00559450
+  0x0086da24 -> 0x00aa13e0 FUN_00aa13e0
+  0x0086da3e -> 0x00a5ecb0 FUN_00a5ecb0
+  0x0086da6b -> 0x0066b0d0 FUN_0066b0d0
+  0x0086da77 -> 0x00559450 FUN_00559450
+  0x0086da7e -> 0x00546780 FUN_00546780
+  0x0086da8a -> 0x00559450 FUN_00559450
+  0x0086da91 -> 0x005467c0 FUN_005467c0
+  0x0086da9e -> 0x00438170 FUN_00438170
+  0x0086dac5 -> 0x00559450 FUN_00559450
+  0x0086dacc -> 0x00a5b950 FUN_00a5b950
+  0x0086dad8 -> 0x004381b0 FUN_004381b0
+  0x0086dae2 -> 0x00559450 FUN_00559450
+  0x0086dafa -> 0x004dc5c0 FUN_004dc5c0
+  0x0086daff -> 0x004dc650 FUN_004dc650
+  0x0086db09 -> 0x00aa13e0 FUN_00aa13e0
+  0x0086db21 -> 0x00bc2980 FUN_00bc2980
+  0x0086db56 -> 0x00438170 FUN_00438170
+  0x0086db7e -> 0x00a5b950 FUN_00a5b950
+  0x0086db8a -> 0x004381b0 FUN_004381b0
+  0x0086dbad -> 0x00aa13e0 FUN_00aa13e0
+  0x0086dbd0 -> 0x00a5ecb0 FUN_00a5ecb0
+  0x0086dc05 -> 0x00546780 FUN_00546780
+  0x0086dc0f -> 0x005467c0 FUN_005467c0
+  0x0086dc1f -> 0x00438170 FUN_00438170
+  0x0086dc44 -> 0x00a5b950 FUN_00a5b950
+  0x0086dc53 -> 0x004381b0 FUN_004381b0
+  0x0086dc79 -> 0x00403e20 FUN_00403e20
+  0x0086dc8b -> 0x00aa13e0 FUN_00aa13e0
+  0x0086dcae -> 0x00a5ecb0 FUN_00a5ecb0
+  0x0086dce3 -> 0x00546780 FUN_00546780
+  0x0086dced -> 0x005467c0 FUN_005467c0
+  0x0086dcfd -> 0x00438170 FUN_00438170
+  0x0086dd22 -> 0x00a5b950 FUN_00a5b950
+  0x0086dd31 -> 0x004381b0 FUN_004381b0
+  0x0086dd57 -> 0x00aa13e0 FUN_00aa13e0
+  0x0086dd7a -> 0x00a5ecb0 FUN_00a5ecb0
+  0x0086ddb5 -> 0x00546780 FUN_00546780
+  0x0086ddc2 -> 0x005467c0 FUN_005467c0
+  0x0086ddd2 -> 0x00438170 FUN_00438170
+  0x0086ddfa -> 0x00a5b950 FUN_00a5b950
+  0x0086de09 -> 0x004381b0 FUN_004381b0
+  0x0086de32 -> 0x00aa13e0 FUN_00aa13e0
+  0x0086de55 -> 0x00a5ecb0 FUN_00a5ecb0
+  0x0086de8a -> 0x00546780 FUN_00546780
+  0x0086de94 -> 0x005467c0 FUN_005467c0
+  0x0086dea4 -> 0x00438170 FUN_00438170
+  0x0086dec9 -> 0x00a5b950 FUN_00a5b950
+  0x0086ded8 -> 0x004381b0 FUN_004381b0
+  0x0086def7 -> 0x0086e620 FUN_0086e620
+  0x0086df03 -> 0x0086e630 FUN_0086e630
+  0x0086df10 -> 0x00aa13e0 FUN_00aa13e0
+  0x0086df33 -> 0x00a5ecb0 FUN_00a5ecb0
+  0x0086df6d -> 0x00546780 FUN_00546780
+  0x0086df7a -> 0x005467c0 FUN_005467c0
+  0x0086df8a -> 0x00438170 FUN_00438170
+  0x0086dfb2 -> 0x00a5b950 FUN_00a5b950
+  0x0086dfc1 -> 0x004381b0 FUN_004381b0
+  0x0086dfe3 -> 0x00aa13e0 FUN_00aa13e0
+  0x0086e004 -> 0x00c503d0 FUN_00c503d0
+  0x0086e037 -> 0x0066b0d0 FUN_0066b0d0
+  0x0086e047 -> 0x00438170 FUN_00438170
+  0x0086e06e -> 0x00559450 FUN_00559450
+  0x0086e075 -> 0x00a5b950 FUN_00a5b950
+  0x0086e084 -> 0x004381b0 FUN_004381b0
+  0x0086e08e -> 0x00559450 FUN_00559450
+  0x0086e0c1 -> 0x00559450 FUN_00559450
+  0x0086e0c8 -> 0x00558310 FUN_00558310
+  0x0086e0cf -> 0x004bc1f0 FUN_004bc1f0
+  0x0086e0d9 -> 0x00559450 FUN_00559450
+  0x0086e0e0 -> 0x00a5a040 FUN_00a5a040
+  0x0086e0f2 -> 0x0043d410 FUN_0043d410
+  0x0086e100 -> 0x00559450 FUN_00559450
+  0x0086e107 -> 0x00a59c60 FUN_00a59c60
+  0x0086e10c -> 0x00b4f5c0 FUN_00b4f5c0
+  0x0086e112 -> 0x0043c4b0 frequent startup texture/cache helper
+  0x0086e119 -> 0x004dc540 FUN_004dc540
+  0x0086e11e -> 0x0086e600 FUN_0086e600
+  0x0086e12d -> 0x00559450 FUN_00559450
+  0x0086e13f -> 0x00aa13e0 FUN_00aa13e0
+  0x0086e15c -> 0x00aa13e0 FUN_00aa13e0
+  0x0086e18f -> 0x00a881e0 FUN_00a881e0
+  0x0086e1c3 -> 0x00a87810 FUN_00a87810
+  0x0086e1f6 -> 0x0066b0d0 FUN_0066b0d0
+  0x0086e206 -> 0x00559450 FUN_00559450
+  0x0086e20d -> 0x0086e3f0 FUN_0086e3f0
+  0x0086e231 -> 0x00559450 FUN_00559450
+  0x0086e238 -> 0x0086e420 FUN_0086e420
+  0x0086e242 -> 0x00559450 FUN_00559450
+  0x0086e249 -> 0x0086e4b0 FUN_0086e4b0
+  0x0086e26f -> 0x00559450 FUN_00559450
+  0x0086e276 -> 0x0086e460 FUN_0086e460
+  0x0086e27d -> 0x00aa13e0 FUN_00aa13e0
+  0x0086e29e -> 0x00a75650 FUN_00a75650
+  0x0086e2d6 -> 0x004bc450 FUN_004bc450
+  0x0086e2e4 -> 0x00559450 FUN_00559450
+  0x0086e2eb -> 0x00439410 FUN_00439410
+  0x0086e2f2 -> 0x00aa13e0 FUN_00aa13e0
+  0x0086e313 -> 0x00a6aa40 FUN_00a6aa40
+  0x0086e34a -> 0x00559450 FUN_00559450
+  0x0086e351 -> 0x004bc320 FUN_004bc320
+  0x0086e35a -> 0x005b8fc0 FUN_005b8fc0
+  0x0086e364 -> 0x0060aeb0 FUN_0060aeb0
+  0x0086e36e -> 0x004f3200 FUN_004f3200
+  0x0086e37c -> 0x00559450 FUN_00559450
+  0x0086e383 -> 0x00439410 FUN_00439410
+  0x0086e38d -> 0x00559450 FUN_00559450
+  0x0086e394 -> 0x00a5a040 FUN_00a5a040
+  0x0086e3a6 -> 0x0043d410 FUN_0043d410
+  0x0086e3b4 -> 0x00559450 FUN_00559450
+  0x0086e3bb -> 0x00a59c60 FUN_00a59c60
+  0x0086e3c0 -> 0x0057cf00 FUN_0057cf00
+  0x0086e3cf -> 0x00404ee0 FUN_00404ee0
+  Total: 175 calls
+
+======================================================================
+Renderer bucket callee: renderer/menu or loading-state callee @ 0x00702250
+======================================================================
+  Function: FUN_00702250 @ 0x00702250, Size: 109 bytes
+
+void FUN_00702250(undefined1 param_1)
+
+{
+  uint uVar1;
+  int *unaff_FS_OFFSET;
+  undefined4 extraout_var;
+  int local_10;
+  undefined1 *puStack_c;
+  undefined4 local_8;
+  
+  local_8 = 0xffffffff;
+  puStack_c = &LAB_00ef68c8;
+  local_10 = *unaff_FS_OFFSET;
+  uVar1 = DAT_011c16bc ^ (uint)&stack0xfffffffc;
+  *unaff_FS_OFFSET = (int)&local_10;
+  FUN_00404eb0(0xd,1,"D:\\_Fallout3\\Platforms\\Common\\Code\\Fallout\\Interface\\Interface.cpp",
+               0xb0);
+  local_8 = 0;
+  FUN_00709fd0(1,param_1,uVar1,extraout_var);
+  local_8 = 0xffffffff;
+  FUN_00404ee0();
+  *unaff_FS_OFFSET = local_10;
+  return;
+}
+
+
+
+--- Calls FROM renderer/menu or loading-state callee (0x00702250) ---
+  0x00702284 -> 0x00404eb0 FUN_00404eb0
+  0x00702297 -> 0x00709fd0 FUN_00709fd0
+  0x007022a9 -> 0x00404ee0 FUN_00404ee0
+  Total: 3 calls
+
+======================================================================
+Renderer bucket callee: renderer bucket direct callee @ 0x006519f0
+======================================================================
+  Function: FUN_006519f0 @ 0x006519f0, Size: 187 bytes
+
+void FUN_006519f0(void)
+
+{
+  uint uVar1;
+  int iVar2;
+  int *unaff_FS_OFFSET;
+  int local_20;
+  int local_10;
+  undefined1 *puStack_c;
+  undefined4 local_8;
+  
+  local_8 = 0xffffffff;
+  puStack_c = &LAB_00eee943;
+  local_10 = *unaff_FS_OFFSET;
+  uVar1 = DAT_011c16bc ^ (uint)&stack0xfffffffc;
+  *unaff_FS_OFFSET = (int)&local_10;
+  FUN_00404eb0(0x37,1,
+               "D:\\_Fallout3\\Platforms\\Common\\Code\\Fallout Shared\\FaceGen\\BSFaceGenManager.cpp"
+               ,0x316);
+  local_8 = 0;
+  if (DAT_011d59e8 == 0) {
+    iVar2 = FUN_00401000(0x11a4,uVar1);
+    local_8 = CONCAT31(local_8._1_3_,1);
+    if (iVar2 == 0) {
+      local_20 = 0;
+    }
+    else {
+      local_20 = FUN_00650ea0();
+    }
+    DAT_011d59e8 = local_20;
+    local_8 = 0xffffffff;
+    FUN_00404ee0();
+  }
+  else {
+    local_8 = 0xffffffff;
+    FUN_00404ee0();
+  }
+  *unaff_FS_OFFSET = local_10;
+  return;
+}
+
+
+
+--- Calls FROM renderer bucket direct callee (0x006519f0) ---
+  0x00651a26 -> 0x00404eb0 FUN_00404eb0
+  0x00651a45 -> 0x00404ee0 FUN_00404ee0
+  0x00651a51 -> 0x00401000 FUN_00401000
+  0x00651a69 -> 0x00650ea0 FUN_00650ea0
+  0x00651a97 -> 0x00404ee0 FUN_00404ee0
+  Total: 5 calls
+
+======================================================================
+Renderer bucket callee: renderer bucket direct callee @ 0x00871c90
+======================================================================
+  Function: FUN_00871c90 @ 0x00871c90, Size: 118 bytes
+
+void __thiscall FUN_00871c90(int param_1,char param_2)
+
+{
+  char *pcVar1;
+  int iVar2;
+  
+  pcVar1 = (char *)FUN_00408d60();
+  if (*pcVar1 != '\0') {
+    param_2 = '\x01';
+  }
+  iVar2 = FUN_007fdf30();
+  if (iVar2 != 0) {
+    FUN_007fdf30();
+    FUN_00a237b0();
+    FUN_007fdf30();
+    FUN_00a23010();
+    FUN_007fdf30();
+    FUN_00a253d0();
+  }
+  if (param_2 == '\0') {
+    FUN_00aa50a0();
+  }
+  else {
+    FUN_00aa5040();
+  }
+  *(char *)(param_1 + 3) = param_2;
+  return;
+}
+
+
+
+--- Calls FROM renderer bucket direct callee (0x00871c90) ---
+  0x00871c9c -> 0x00408d60 renderer bucket direct callee
+  0x00871cac -> 0x007fdf30 FUN_007fdf30
+  0x00871cb5 -> 0x007fdf30 FUN_007fdf30
+  0x00871cbc -> 0x00a237b0 FUN_00a237b0
+  0x00871cc1 -> 0x007fdf30 FUN_007fdf30
+  0x00871cc8 -> 0x00a23010 FUN_00a23010
+  0x00871ccd -> 0x007fdf30 FUN_007fdf30
+  0x00871cd4 -> 0x00a253d0 FUN_00a253d0
+  0x00871ce6 -> 0x00aa5040 FUN_00aa5040
+  0x00871cf2 -> 0x00aa50a0 FUN_00aa50a0
+  Total: 10 calls
+
+======================================================================
+Renderer bucket callee: renderer bucket direct callee @ 0x006a2920
+======================================================================
+  Function: FUN_006a2920 @ 0x006a2920, Size: 123 bytes
+
+void FUN_006a2920(void)
+
+{
+  uint uVar1;
+  int iVar2;
+  int *unaff_FS_OFFSET;
+  undefined4 local_1c;
+  int local_10;
+  undefined1 *puStack_c;
+  undefined4 local_8;
+  
+  local_8 = 0xffffffff;
+  puStack_c = &LAB_00f109cb;
+  local_10 = *unaff_FS_OFFSET;
+  uVar1 = DAT_011c16bc ^ (uint)&stack0xfffffffc;
+  *unaff_FS_OFFSET = (int)&local_10;
+  iVar2 = FUN_00401000(0x214,uVar1);
+  local_8 = 0;
+  if (iVar2 == 0) {
+    local_1c = 0;
+  }
+  else {
+    local_1c = FUN_006a2a20();
+  }
+  DAT_011d6e2c = local_1c;
+  *unaff_FS_OFFSET = local_10;
+  return;
+}
+
+
+
+--- Calls FROM renderer bucket direct callee (0x006a2920) ---
+  0x006a294a -> 0x00401000 FUN_00401000
+  0x006a2965 -> 0x006a2a20 FUN_006a2a20
+  Total: 2 calls
+
+======================================================================
+Renderer bucket callee: renderer bucket direct callee @ 0x0086c010
+======================================================================
+  Function: FUN_0086c010 @ 0x0086c010, Size: 176 bytes
+
+/* WARNING: Globals starting with '_' overlap smaller symbols at the same address */
+
+void __fastcall FUN_0086c010(undefined4 param_1)
+
+{
+  undefined4 *puVar1;
+  CDocManager *this;
+  float10 fVar2;
+  __POSITION **pp_Var3;
+  undefined4 uVar4;
+  
+  if (DAT_011f941e == '\0') {
+    fVar2 = (float10)FUN_0086c0c0(param_1);
+    FUN_0086c140((float)fVar2);
+    fVar2 = (float10)FUN_0086c0d0();
+    FUN_0086c150((float)fVar2);
+    fVar2 = (float10)FUN_0086c0e0();
+    _DAT_011adbcc = (float)fVar2;
+    fVar2 = (float10)FUN_0086c0f0();
+    _DAT_011adbd0 = (float)fVar2;
+  }
+  else {
+    fVar2 = (float10)FUN_0086c120();
+    _DAT_011adbcc = (float)fVar2;
+    fVar2 = (float10)FUN_0086c130();
+    _DAT_011adbd0 = (float)fVar2;
+    fVar2 = (float10)FUN_0086c100();
+    FUN_0086c140((float)fVar2);
+    fVar2 = (float10)FUN_0086c110();
+    FUN_0086c150((float)fVar2);
+  }
+  puVar1 = (undefined4 *)FUN_00403e20();
+  uVar4 = *puVar1;
+  pp_Var3 = (__POSITION **)0xc;
+  this = (CDocManager *)FUN_004e3270(0xc,uVar4);
+  CDocManager::GetNextDocTemplate(this,pp_Var3);
+  FUN_005b9f80(uVar4);
+  return;
+}
+
+
+
+--- Calls FROM renderer bucket direct callee (0x0086c010) ---
+  0x0086c01f -> 0x0086c120 FUN_0086c120
+  0x0086c02a -> 0x0086c130 FUN_0086c130
+  0x0086c035 -> 0x0086c100 FUN_0086c100
+  0x0086c03e -> 0x0086c140 FUN_0086c140
+  0x0086c046 -> 0x0086c110 FUN_0086c110
+  0x0086c04f -> 0x0086c150 FUN_0086c150
+  0x0086c059 -> 0x0086c0c0 FUN_0086c0c0
+  0x0086c062 -> 0x0086c140 FUN_0086c140
+  0x0086c06a -> 0x0086c0d0 FUN_0086c0d0
+  0x0086c073 -> 0x0086c150 FUN_0086c150
+  0x0086c07b -> 0x0086c0e0 FUN_0086c0e0
+  0x0086c086 -> 0x0086c0f0 FUN_0086c0f0
+  0x0086c096 -> 0x00403e20 FUN_00403e20
+  0x0086c0a9 -> 0x004e3270 FUN_004e3270
+  0x0086c0b0 -> 0x004ebbc0 GetNextDocTemplate
+  0x0086c0b7 -> 0x005b9f80 FUN_005b9f80
+  Total: 16 calls
+
+======================================================================
+Renderer bucket callee: renderer bucket direct callee @ 0x004a03c0
+======================================================================
+  Function: FUN_004a03c0 @ 0x004a03c0, Size: 46 bytes
+
+void __fastcall FUN_004a03c0(undefined4 param_1)
+
+{
+  int iVar1;
+  
+  iVar1 = FUN_004a03a0(param_1);
+  if (iVar1 == 1) {
+    FUN_00483710();
+  }
+  FUN_0082f1f0();
+  return;
+}
+
+
+
+--- Calls FROM renderer bucket direct callee (0x004a03c0) ---
+  0x004a03ca -> 0x004a03a0 FUN_004a03a0
+  0x004a03d7 -> 0x00483710 FUN_00483710
+  0x004a03e5 -> 0x0082f1f0 FUN_0082f1f0
+  Total: 3 calls
+
+======================================================================
+Renderer bucket callee: renderer bucket direct callee @ 0x00866ff0
+======================================================================
+  Function: FUN_00866ff0 @ 0x00866ff0, Size: 155 bytes
+
+void FUN_00866ff0(void)
+
+{
+  uint uVar1;
+  int iVar2;
+  int *unaff_FS_OFFSET;
+  undefined4 local_20;
+  int local_10;
+  undefined1 *puStack_c;
+  undefined4 local_8;
+  
+  local_8 = 0xffffffff;
+  puStack_c = &LAB_00eee943;
+  local_10 = *unaff_FS_OFFSET;
+  uVar1 = DAT_011c16bc ^ (uint)&stack0xfffffffc;
+  *unaff_FS_OFFSET = (int)&local_10;
+  FUN_00404eb0(0x14,1,"D:\\_Fallout3\\Platforms\\Common\\Code\\Fallout\\Misc\\BGSMoviePlayer.cpp",
+               0x1c);
+  local_8 = 0;
+  iVar2 = FUN_00401000(0x54,uVar1);
+  local_8 = CONCAT31(local_8._1_3_,1);
+  if (iVar2 == 0) {
+    local_20 = 0;
+  }
+  else {
+    local_20 = FUN_008670e0();
+  }
+  DAT_0126fac4 = local_20;
+  local_8 = 0xffffffff;
+  FUN_00404ee0();
+  *unaff_FS_OFFSET = local_10;
+  return;
+}
+
+
+
+--- Calls FROM renderer bucket direct callee (0x00866ff0) ---
+  0x00867023 -> 0x00404eb0 FUN_00404eb0
+  0x00867031 -> 0x00401000 FUN_00401000
+  0x00867049 -> 0x008670e0 FUN_008670e0
+  0x00867077 -> 0x00404ee0 FUN_00404ee0
+  Total: 4 calls
+
+======================================================================
+Renderer bucket callee: renderer bucket direct callee @ 0x00403df0
+======================================================================
+  Function: FUN_00403df0 @ 0x00403df0, Size: 40 bytes
+
+undefined4 __fastcall FUN_00403df0(int param_1)
+
+{
+  undefined4 local_c;
+  
+  if (param_1 == 0) {
+    local_c = 0;
+  }
+  else {
+    local_c = *(undefined4 *)(param_1 + 4);
+  }
+  return local_c;
+}
+
+
+
+--- Calls FROM renderer bucket direct callee (0x00403df0) ---
+  Total: 0 calls
+
+======================================================================
+Renderer bucket callee: runtime library/helper call @ 0x00ec16d0
+======================================================================
+  Function: FUN_00ec16d0 @ 0x00ec16d0, Size: 228 bytes
+
+/* WARNING: Removing unreachable block (ram,0x00ec1745) */
+
+void __thiscall
+FUN_00ec16d0(int param_1,LPVOID param_2,undefined1 param_3,int param_4,undefined1 param_5,
+            undefined1 param_6,undefined4 param_7)
+
+{
+  HANDLE pvVar1;
+  DWORD local_8;
+  
+  pvVar1 = CreateThread((LPSECURITY_ATTRIBUTES)0x0,0,lpStartAddress_00ec16b0,param_2,4,&local_8);
+  *(HANDLE *)(param_1 + 8) = pvVar1;
+  FUN_00aa2740(local_8,"MoviePlayer");
+  *(undefined1 *)(param_1 + 0x22) = param_3;
+  *(undefined1 *)(param_1 + 0x23) = param_5;
+  *(undefined1 *)(param_1 + 0x24) = param_6;
+  *(undefined4 *)(param_1 + 0x28) = param_7;
+  if (param_4 == -1) {
+    FUN_00ec18a0(DAT_0126fae4);
+  }
+  else {
+    FUN_00ec18a0(param_4);
+  }
+  ResumeThread(*(HANDLE *)(param_1 + 8));
+  local_8 = 0;
+  WaitForSingleObject(*(HANDLE *)(param_1 + 0x34),0xffffffff);
+  InterlockedDecrement((LONG *)(param_1 + 0x30));
+  return;
+}
+
+
+
+--- Calls FROM runtime library/helper call (0x00ec16d0) ---
+  0x00ec16ec -> 0x0000003f unknown
+  0x00ec1701 -> 0x00aa2740 FUN_00aa2740
+  0x00ec1765 -> 0x00ec18a0 FUN_00ec18a0
+  0x00ec1773 -> 0x00ec18a0 FUN_00ec18a0
+  0x00ec177f -> 0x0000004c unknown
+  0x00ec179e -> 0x00000068 unknown
+  0x00ec17a8 -> 0x00000067 unknown
+  Total: 7 calls
+
+======================================================================
+Renderer bucket callee: thread/context helper @ 0x00404f70
+======================================================================
+  Function: FUN_00404f70 @ 0x00404f70, Size: 25 bytes
+
+void __fastcall FUN_00404f70(undefined4 *param_1)
+
+{
+  FUN_00404f30(*param_1);
+  return;
+}
+
+
+
+--- Calls FROM thread/context helper (0x00404f70) ---
+  0x00404f7d -> 0x00404f30 FUN_00404f30
+  Total: 1 calls
+
+======================================================================
+Renderer bucket callee: repeated renderer bucket helper @ 0x0045c670
+======================================================================
+  Function: FUN_0045c670 @ 0x0045c670, Size: 15 bytes
+
+void FUN_0045c670(void)
+
+{
+  FUN_00559450();
+  return;
+}
+
+
+
+--- Calls FROM repeated renderer bucket helper (0x0045c670) ---
+  0x0045c678 -> 0x00559450 FUN_00559450
+  Total: 1 calls
+
+======================================================================
+Renderer bucket callee: renderer bucket direct callee @ 0x0086cf20
+======================================================================
+  Function: FUN_0086cf20 @ 0x0086cf20, Size: 1353 bytes
+
+/* WARNING: Globals starting with '_' overlap smaller symbols at the same address */
+
+void FUN_0086cf20(void)
+
+{
+  bool bVar1;
+  char cVar2;
+  uint uVar3;
+  int iVar4;
+  int *piVar5;
+  char *pcVar6;
+  size_t sVar7;
+  undefined4 uVar8;
+  undefined4 *puVar9;
+  int *unaff_FS_OFFSET;
+  undefined *puVar10;
+  int *local_98;
+  undefined4 local_94;
+  int local_90;
+  int local_5c;
+  undefined1 local_50 [12];
+  int local_44;
+  undefined4 local_40;
+  undefined *local_38;
+  undefined *local_34;
+  undefined *local_30;
+  undefined *local_2c;
+  undefined *local_28;
+  undefined *local_24;
+  undefined *local_20;
+  undefined *local_1c;
+  undefined *local_18;
+  undefined *local_14;
+  int local_10;
+  undefined1 *puStack_c;
+  int local_8;
+  
+  local_8 = 0xffffffff;
+  puStack_c = &LAB_00f1400e;
+  local_10 = *unaff_FS_OFFSET;
+  uVar3 = DAT_011c16bc ^ (uint)&stack0xfffffffc;
+  *unaff_FS_OFFSET = (int)&local_10;
+  FUN_00404eb0(10,1,"D:\\_Fallout3\\Platforms\\Common\\Code\\Fallout\\Misc\\Main.cpp",0xe4f);
+  local_8 = 0;
+  FUN_00404f00(10,1,"D:\\_Fallout3\\Platforms\\Common\\Code\\Fallout\\Misc\\Main.cpp",0xe51);
+  DAT_011dea20 = FUN_0046dd00(uVar3);
+  FUN_00877730();
+  local_40 = FUN_0086d470();
+  iVar4 = FUN_007a1480();
+  local_44 = iVar4;
+  if (iVar4 != 0) {
+    FUN_004505a0(iVar4);
+    FUN_00a89af0(iVar4);
+    piVar5 = (int *)FUN_0045bc00(0);
+    if (piVar5 == (int *)0x0) {
+      local_90 = 0;
+    }
+    else {
+      local_90 = (**(code **)(*piVar5 + 0xc))();
+    }
+    local_44 = local_90;
+  }
+  FUN_0040fbe0("Initializing TES...");
+  iVar4 = FUN_00401000(0xc4);
+  local_8._0_1_ = 1;
+  if (iVar4 == 0) {
+    local_94 = 0;
+  }
+  else {
+    local_94 = FUN_0044fb20(&DAT_010724e8,local_40,local_44,DAT_011dea20,DAT_011dea1c);
+  }
+  local_8 = (uint)local_8._1_3_ << 8;
+  DAT_011dea10 = local_94;
+  FUN_00404f70();
+  FUN_00450c50();
+  FUN_0040fbe0("Initializing TreeManager...");
+  FUN_00664870(0);
+  FUN_0040fbe0("Activating Tasklet Threads...");
+  FUN_00b00a00();
+  FUN_00b00df0();
+  FUN_00526e10();
+  FUN_00990f20();
+  FUN_00404f00(0x19,1,"D:\\_Fallout3\\Platforms\\Common\\Code\\Fallout\\Misc\\Main.cpp",0xe85);
+  FUN_00a5a040();
+  FUN_0043d410(0,0,0);
+  FUN_00a59c60(local_50);
+  FUN_00404f70();
+  bVar1 = false;
+  local_38 = &DAT_011debf0;
+  local_34 = &DAT_011deb88;
+  local_30 = &DAT_011decf8;
+  local_2c = &DAT_011dee9c;
+  local_28 = &DAT_011dec34;
+  local_24 = &DAT_011dee0c;
+  local_20 = &DAT_011ded14;
+  local_1c = &DAT_011dee48;
+  local_18 = &DAT_011dea70;
+  local_14 = &DAT_011ded48;
+  for (local_5c = 0; local_5c < 10; local_5c = local_5c + 1) {
+    iVar4 = FUN_00403df0();
+    if (iVar4 != 0) {
+      pcVar6 = (char *)FUN_00403df0();
+      sVar7 = _strlen(pcVar6);
+      if (sVar7 != 0) {
+        uVar8 = FUN_00403df0(0);
+        uVar8 = FUN_00464f30(uVar8);
+        iVar4 = FUN_00462f40(uVar8);
+        if (iVar4 != 0) {
+          FUN_00471d00(1);
+          bVar1 = true;
+        }
+      }
+    }
+  }
+  puVar10 = PTR_s___Plugins_txt_011a2ffc;
+  uVar8 = FUN_0086d480(PTR_s___Plugins_txt_011a2ffc);
+  cVar2 = FUN_00872430(uVar8,puVar10);
+  if (cVar2 != '\0') {
+    bVar1 = true;
+  }
+  if (!bVar1) {
+    iVar4 = FUN_00462f40("Fallout.esm");
+    if (iVar4 != 0) {
+      FUN_00471d00(1);
+    }
+  }
+  FUN_00404f00(0x34,1,"D:\\_Fallout3\\Platforms\\Common\\Code\\Fallout\\Misc\\Main.cpp",0xecb);
+  iVar4 = FUN_00401000(0xe50);
+  local_8._0_1_ = 2;
+  if (iVar4 == 0) {
+    local_98 = (int *)0x0;
+  }
+  else {
+    local_98 = (int *)FUN_00938180();
+  }
+  local_8 = (uint)local_8._1_3_ << 8;
+  DAT_011dea3c = local_98;
+  (**(code **)(*local_98 + 0x128))(0x14,1);
+  FUN_00404f70();
+  FUN_0040fbe0("Loading Files...");
+  FUN_00463070(0);
+  FUN_005f5880();
+  FUN_00459f10();
+  FUN_0045a370();
+  pcVar6 = (char *)FUN_00408d60();
+  if (*pcVar6 != '\0') {
+    FUN_0045a600();
+  }
+  FUN_0045a1e0();
+  FUN_0068b3e0();
+  FUN_0040fbe0("Initializing Player...");
+  FUN_00404f00(0x34,1,"D:\\_Fallout3\\Platforms\\Common\\Code\\Fallout\\Misc\\Main.cpp",0xf00);
+  uVar8 = FUN_004839c0(7,&PTR_PTR_01183028,&PTR_PTR_01183a1c,0);
+  uVar8 = FUN_00ec43fb(uVar8,0);
+  FUN_00575690(uVar8);
+  uVar8 = FUN_00416870(_DAT_01018bfc,_DAT_01018bfc,0);
+  (**(code **)(*DAT_011dea3c + 0x2a8))(uVar8);
+  FUN_0086d490(&DAT_011f426c);
+  (**(code **)(*DAT_011dea3c + 0x88))();
+  FUN_008c26e0(0);
+  iVar4 = (**(code **)(DAT_011dea3c[0x29] + 8))(0x10);
+  if (iVar4 == 0) {
+    FUN_00484e60(0);
+    uVar8 = FUN_00891170();
+    FUN_0040fbe0("ERROR: Health value is 0 on the Player. Fix \'%s\' with the editor.",uVar8);
+  }
+  FUN_0040fbe0("Initializing Scripts...");
+  FUN_00465040();
+  iVar4 = FUN_004503f0();
+  if (0 < iVar4) {
+    iVar4 = FUN_004503f0();
+    if (iVar4 < 200) {
+      puVar9 = (undefined4 *)FUN_0043d4d0();
+      FUN_0086d4c0(*puVar9);
+    }
+  }
+  local_8 = 0xffffffff;
+  FUN_00404ee0();
+  *unaff_FS_OFFSET = local_10;
+  return;
+}
+
+
+
+--- Calls FROM renderer bucket direct callee (0x0086cf20) ---
+  0x0086cf5f -> 0x00404eb0 FUN_00404eb0
+  0x0086cf7c -> 0x00404f00 FUN_00404f00
+  0x0086cf81 -> 0x0046dd00 FUN_0046dd00
+  0x0086cf8b -> 0x00877730 FUN_00877730
+  0x0086cf90 -> 0x0086d470 FUN_0086d470
+  0x0086cf98 -> 0x007a1480 FUN_007a1480
+  0x0086cfb0 -> 0x004505a0 FUN_004505a0
+  0x0086cfb7 -> 0x00a89af0 FUN_00a89af0
+  0x0086cfc1 -> 0x0045bc00 FUN_0045bc00
+  0x0086cffc -> 0x0040fbe0 FUN_0040fbe0
+  0x0086d009 -> 0x00401000 FUN_00401000
+  0x0086d03b -> 0x0044fb20 NVR: NewTES
+  0x0086d06b -> 0x00404f70 thread/context helper
+  0x0086d076 -> 0x00450c50 FUN_00450c50
+  0x0086d080 -> 0x0040fbe0 FUN_0040fbe0
+  0x0086d08a -> 0x00664870 FUN_00664870
+  0x0086d097 -> 0x0040fbe0 FUN_0040fbe0
+  0x0086d09f -> 0x00b00a00 FUN_00b00a00
+  0x0086d0a6 -> 0x00b00df0 FUN_00b00df0
+  0x0086d0ab -> 0x00526e10 FUN_00526e10
+  0x0086d0b0 -> 0x00990f20 FUN_00990f20
+  0x0086d0c6 -> 0x00404f00 FUN_00404f00
+  0x0086d0ce -> 0x00a5a040 FUN_00a5a040
+  0x0086d0e0 -> 0x0043d410 FUN_0043d410
+  0x0086d0ec -> 0x00a59c60 FUN_00a59c60
+  0x0086d0f4 -> 0x00404f70 thread/context helper
+  0x0086d162 -> 0x00403df0 renderer bucket direct callee
+  0x0086d172 -> 0x00403df0 renderer bucket direct callee
+  0x0086d178 -> 0x00ec6130 _strlen
+  0x0086d18d -> 0x00403df0 renderer bucket direct callee
+  0x0086d193 -> 0x00464f30 FUN_00464f30
+  0x0086d1a2 -> 0x00462f40 FUN_00462f40
+  0x0086d1b5 -> 0x00471d00 FUN_00471d00
+  0x0086d1c7 -> 0x0086d480 FUN_0086d480
+  0x0086d1d3 -> 0x00872430 FUN_00872430
+  0x0086d1f6 -> 0x00462f40 FUN_00462f40
+  0x0086d209 -> 0x00471d00 FUN_00471d00
+  0x0086d21f -> 0x00404f00 FUN_00404f00
+  0x0086d229 -> 0x00401000 FUN_00401000
+  0x0086d241 -> 0x00938180 NVR: NewPlayerCharacter
+  0x0086d28a -> 0x00404f70 thread/context helper
+  0x0086d294 -> 0x0040fbe0 FUN_0040fbe0
+  0x0086d2a4 -> 0x00463070 FUN_00463070
+  0x0086d2a9 -> 0x005f5880 FUN_005f5880
+  0x0086d2b4 -> 0x00459f10 FUN_00459f10
+  0x0086d2bf -> 0x0045a370 FUN_0045a370
+  0x0086d2c9 -> 0x00408d60 renderer bucket direct callee
+  0x0086d2db -> 0x0045a600 FUN_0045a600
+  0x0086d2e6 -> 0x0045a1e0 FUN_0045a1e0
+  0x0086d2eb -> 0x0068b3e0 FUN_0068b3e0
+  0x0086d2f5 -> 0x0040fbe0 FUN_0040fbe0
+  0x0086d30e -> 0x00404f00 FUN_00404f00
+  0x0086d321 -> 0x004839c0 FUN_004839c0
+  0x0086d32c -> 0x00ec43fb FUN_00ec43fb
+  0x0086d341 -> 0x00575690 FUN_00575690
+  0x0086d366 -> 0x00416870 renderer bucket direct callee
+  0x0086d38c -> 0x0086d490 FUN_0086d490
+  0x0086d3af -> 0x008c26e0 FUN_008c26e0
+  0x0086d3e1 -> 0x00484e60 FUN_00484e60
+  0x0086d3e8 -> 0x00891170 FUN_00891170
+  0x0086d3f3 -> 0x0040fbe0 FUN_0040fbe0
+  0x0086d400 -> 0x0040fbe0 FUN_0040fbe0
+  0x0086d40e -> 0x00465040 FUN_00465040
+  0x0086d418 -> 0x004503f0 FUN_004503f0
+  0x0086d426 -> 0x004503f0 FUN_004503f0
+  0x0086d437 -> 0x0043d4d0 renderer bucket direct callee
+  0x0086d444 -> 0x0086d4c0 FUN_0086d4c0
+  0x0086d453 -> 0x00404ee0 FUN_00404ee0
+  Total: 68 calls
+
+======================================================================
+Renderer bucket callee: repeated renderer bucket helper @ 0x006629f0
+======================================================================
+  Function: FUN_006629f0 @ 0x006629f0, Size: 25 bytes
+
+void __fastcall FUN_006629f0(undefined4 param_1)
+
+{
+  FUN_00559450(param_1);
+  return;
+}
+
+
+
+--- Calls FROM repeated renderer bucket helper (0x006629f0) ---
+  0x00662a00 -> 0x00559450 FUN_00559450
+  Total: 1 calls
+
+======================================================================
+Renderer bucket callee: renderer bucket direct callee @ 0x0086be90
+======================================================================
+  Function: FUN_0086be90 @ 0x0086be90, Size: 13 bytes
+
+void FUN_0086be90(undefined4 param_1)
+
+{
+  DAT_011d59ec = param_1;
+  return;
+}
+
+
+
+--- Calls FROM renderer bucket direct callee (0x0086be90) ---
+  Total: 0 calls
+
+======================================================================
+Renderer bucket callee: renderer bucket direct callee @ 0x0086be80
+======================================================================
+  Function: FUN_0086be80 @ 0x0086be80, Size: 13 bytes
+
+void FUN_0086be80(undefined4 param_1)
+
+{
+  DAT_011d5c44 = param_1;
+  return;
+}
+
+
+
+--- Calls FROM renderer bucket direct callee (0x0086be80) ---
+  Total: 0 calls
+
+======================================================================
+Renderer bucket callee: renderer bucket direct callee @ 0x0043d4d0
+======================================================================
+  Function: FUN_0043d4d0 @ 0x0043d4d0, Size: 56 bytes
+
+/* WARNING: Globals starting with '_' overlap smaller symbols at the same address */
+
+undefined1 * __fastcall FUN_0043d4d0(int param_1)
+
+{
+  undefined1 *local_10;
+  
+  if (param_1 == 0) {
+    _DAT_01202800 = 0;
+    local_10 = &DAT_01202800;
+  }
+  else {
+    local_10 = (undefined1 *)(param_1 + 4);
+  }
+  return local_10;
+}
+
+
+
+--- Calls FROM renderer bucket direct callee (0x0043d4d0) ---
+  Total: 0 calls
+
+======================================================================
+Renderer bucket callee: renderer bucket direct callee @ 0x00713d80
+======================================================================
+  Function: FUN_00713d80 @ 0x00713d80, Size: 10 bytes
+
+undefined * FUN_00713d80(void)
+
+{
+  return &DAT_011dfa50;
+}
+
+
+
+--- Calls FROM renderer bucket direct callee (0x00713d80) ---
+  Total: 0 calls
+
+======================================================================
+Renderer bucket callee: renderer bucket direct callee @ 0x008c7290
+======================================================================
+  Function: FUN_008c7290 @ 0x008c7290, Size: 259 bytes
+
+/* WARNING: Globals starting with '_' overlap smaller symbols at the same address */
+
+void __fastcall FUN_008c7290(int param_1)
+
+{
+  HANDLE pvVar1;
+  int *piVar2;
+  undefined4 *puVar3;
+  code *pcVar4;
+  char *pcVar5;
+  undefined4 uVar6;
+  int local_c;
+  int local_8;
+  
+  for (local_8 = 0; local_8 < 0xc; local_8 = local_8 + 1) {
+    pvVar1 = CreateEventA((LPSECURITY_ATTRIBUTES)0x0,1,0,(LPCSTR)0x0);
+    *(HANDLE *)(param_1 + 0x3c + local_8 * 4) = pvVar1;
+  }
+  for (local_c = 0; local_c < 8; local_c = local_c + 1) {
+    pvVar1 = CreateEventA((LPSECURITY_ATTRIBUTES)0x0,1,0,(LPCSTR)0x0);
+    *(HANDLE *)(param_1 + 0x6c + local_c * 4) = pvVar1;
+  }
+  piVar2 = (int *)FUN_0043d4d0();
+  if (*piVar2 < 3) {
+    uVar6 = 0x10000;
+    pcVar5 = "AI Linear Task Thread";
+    pcVar4 = FUN_008c7bd0;
+    puVar3 = (undefined4 *)FUN_0043d4d0(FUN_008c7bd0,"AI Linear Task Thread",0x10000);
+    FUN_008c74d0(0,*puVar3,pcVar4,pcVar5,uVar6);
+  }
+  else {
+    uVar6 = 0x10000;
+    pcVar5 = "AI Linear Task Thread 1";
+    pcVar4 = FUN_008c7da0;
+    puVar3 = (undefined4 *)FUN_0043d4d0(FUN_008c7da0,"AI Linear Task Thread 1",0x10000);
+    FUN_008c74d0(0,*puVar3,pcVar4,pcVar5,uVar6);
+    uVar6 = 0x10000;
+    pcVar5 = "AI Linear Task Thread 2";
+    pcVar4 = FUN_008c7f50;
+    puVar3 = (undefined4 *)FUN_0043d4d0(FUN_008c7f50,"AI Linear Task Thread 2",0x10000);
+    FUN_008c74d0(1,*puVar3,pcVar4,pcVar5,uVar6);
+  }
+  _DAT_011dfa10 = FUN_0059bb30();
+  return;
+}
+
+
+
+--- Calls FROM renderer bucket direct callee (0x008c7290) ---
+  0x008c72b9 -> 0x00000029 unknown
+  0x008c72eb -> 0x00000029 unknown
+  0x008c7302 -> 0x0043d4d0 renderer bucket direct callee
+  0x008c7320 -> 0x0043d4d0 renderer bucket direct callee
+  0x008c732d -> 0x008c74d0 FUN_008c74d0
+  0x008c7346 -> 0x0043d4d0 renderer bucket direct callee
+  0x008c7353 -> 0x008c74d0 FUN_008c74d0
+  0x008c736e -> 0x0043d4d0 renderer bucket direct callee
+  0x008c737b -> 0x008c74d0 FUN_008c74d0
+  0x008c7385 -> 0x0059bb30 FUN_0059bb30
+  Total: 10 calls
+
+======================================================================
+Renderer bucket callee: renderer bucket direct callee @ 0x006d0870
+======================================================================
+  Function: FUN_006d0870 @ 0x006d0870, Size: 138 bytes
+
+/* WARNING: Globals starting with '_' overlap smaller symbols at the same address */
+
+undefined4 FUN_006d0870(void)
+
+{
+  float *pfVar1;
+  float10 fVar2;
+  float10 extraout_ST0;
+  
+  pfVar1 = (float *)FUN_00403e20();
+  fVar2 = (float10)FUN_005b9e80(*pfVar1 * (float)_DAT_01023128);
+  _DAT_011a5cf4 = (float)fVar2;
+  pfVar1 = (float *)FUN_00403e20();
+  fVar2 = (float10)FUN_005b9e80(*pfVar1 * (float)_DAT_01023128);
+  _DAT_011a5cf8 = (float)fVar2;
+  pfVar1 = (float *)FUN_00403e20();
+  FUN_005b9e80(*pfVar1 * (float)_DAT_01023128);
+  _DAT_011a5cfc = (float)extraout_ST0;
+  return 1;
+}
+
+
+
+--- Calls FROM renderer bucket direct callee (0x006d0870) ---
+  0x006d087b -> 0x00403e20 FUN_00403e20
+  0x006d0892 -> 0x005b9e80 FUN_005b9e80
+  0x006d08a5 -> 0x00403e20 FUN_00403e20
+  0x006d08bc -> 0x005b9e80 FUN_005b9e80
+  0x006d08cf -> 0x00403e20 FUN_00403e20
+  0x006d08e6 -> 0x005b9e80 FUN_005b9e80
+  Total: 6 calls
+
+======================================================================
+Renderer bucket callee: renderer bucket direct callee @ 0x0047d0b0
+======================================================================
+  Function: FID_conflict:_Immortalize<std::_Generic_error_category> @ 0x0047d0b0, Size: 116 bytes
+
+/* Library Function - Multiple Matches With Different Base Names
+    class std::_Generic_error_category & __cdecl std::_Immortalize<class
+   std::_Generic_error_category>(void)
+    class std::_Iostream_error_category & __cdecl std::_Immortalize<class
+   std::_Iostream_error_category>(void)
+    class std::_System_error_category & __cdecl std::_Immortalize<class
+   std::_System_error_category>(void)
+    struct _AFX_AYGSHELL_STATE & __cdecl _AfxAygshellState(void)
+   
+   Libraries: Visual Studio 2005 Debug, Visual Studio 2008 Debug, Visual Studio 2015 Debug, Visual
+   Studio 2015 Release */
+
+undefined * FID_conflict__Immortalize<std::_Generic_error_category>(void)
+
+{
+  uint uVar1;
+  int *unaff_FS_OFFSET;
+  int local_10;
+  undefined1 *puStack_c;
+  undefined4 local_8;
+  
+  puStack_c = &LAB_00eeee3e;
+  local_10 = *unaff_FS_OFFSET;
+  uVar1 = DAT_011c16bc ^ (uint)&stack0xfffffffc;
+  *unaff_FS_OFFSET = (int)&local_10;
+  if ((DAT_011c5298 & 1) == 0) {
+    DAT_011c5298 = DAT_011c5298 | 1;
+    local_8 = 0;
+    FUN_006eb820(uVar1);
+    _atexit(FUN_00fc8480);
+  }
+  *unaff_FS_OFFSET = local_10;
+  return &DAT_011c5290;
+}
+
+
+
+--- Calls FROM renderer bucket direct callee (0x0047d0b0) ---
+  0x0047d0f7 -> 0x006eb820 FUN_006eb820
+  0x0047d101 -> 0x00ec658f _atexit
+  Total: 2 calls
+
+======================================================================
+Renderer bucket callee: renderer bucket direct callee @ 0x006eb8c0
+======================================================================
+  Function: FUN_006eb8c0 @ 0x006eb8c0, Size: 179 bytes
+
+undefined1 __fastcall FUN_006eb8c0(undefined4 *param_1)
+
+{
+  undefined1 uVar1;
+  uint uVar2;
+  int iVar3;
+  int *unaff_FS_OFFSET;
+  undefined4 local_28;
+  int local_10;
+  undefined1 *puStack_c;
+  int local_8;
+  
+  local_8 = 0xffffffff;
+  puStack_c = &LAB_00f06543;
+  local_10 = *unaff_FS_OFFSET;
+  uVar2 = DAT_011c16bc ^ (uint)&stack0xfffffffc;
+  *unaff_FS_OFFSET = (int)&local_10;
+  FUN_00404eb0(0x2d,1,
+               "D:\\_Fallout3\\Platforms\\Common\\Code\\Fallout Shared\\Pathfinding\\PathManager.cpp"
+               ,0x56a);
+  local_8 = 0;
+  iVar3 = FUN_00401000(0x14c0,uVar2);
+  local_8._0_1_ = 1;
+  if (iVar3 == 0) {
+    local_28 = 0;
+  }
+  else {
+    local_28 = FUN_006eaa30();
+  }
+  local_8 = (uint)local_8._1_3_ << 8;
+  *param_1 = local_28;
+  uVar1 = FUN_006eabe0();
+  local_8 = 0xffffffff;
+  FUN_00404ee0();
+  *unaff_FS_OFFSET = local_10;
+  return uVar1;
+}
+
+
+
+--- Calls FROM renderer bucket direct callee (0x006eb8c0) ---
+  0x006eb8f9 -> 0x00404eb0 FUN_00404eb0
+  0x006eb90a -> 0x00401000 FUN_00401000
+  0x006eb922 -> 0x006eaa30 FUN_006eaa30
+  0x006eb94a -> 0x006eabe0 FUN_006eabe0
+  0x006eb95c -> 0x00404ee0 FUN_00404ee0
+  Total: 5 calls
+
+======================================================================
+Renderer bucket callee: renderer bucket direct callee @ 0x00408d60
+======================================================================
+  Function: FUN_00408d60 @ 0x00408d60, Size: 53 bytes
+
+undefined1 * __fastcall FUN_00408d60(int param_1)
+
+{
+  undefined1 *local_10;
+  
+  if (param_1 == 0) {
+    DAT_01202800 = 0;
+    local_10 = &DAT_01202800;
+  }
+  else {
+    local_10 = (undefined1 *)(param_1 + 4);
+  }
+  return local_10;
+}
+
+
+
+--- Calls FROM renderer bucket direct callee (0x00408d60) ---
+  Total: 0 calls
+
+======================================================================
+Renderer bucket callee: renderer bucket direct callee @ 0x006c0720
+======================================================================
+  Function: FUN_006c0720 @ 0x006c0720, Size: 162 bytes
+
+undefined * FUN_006c0720(void)
+
+{
+  uint uVar1;
+  int *unaff_FS_OFFSET;
+  int local_10;
+  undefined1 *puStack_c;
+  undefined4 local_8;
+  
+  local_8 = 0xffffffff;
+  puStack_c = &LAB_00f03636;
+  local_10 = *unaff_FS_OFFSET;
+  uVar1 = DAT_011c16bc ^ (uint)&stack0xfffffffc;
+  *unaff_FS_OFFSET = (int)&local_10;
+  FUN_00404eb0(0x2e,1,
+               "D:\\_Fallout3\\Platforms\\Common\\Code\\Fallout Shared\\Pathfinding\\NavMeshObstacleManager.cpp"
+               ,0xd2);
+  if ((DAT_011d73a0 & 1) == 0) {
+    DAT_011d73a0 = DAT_011d73a0 | 1;
+    local_8 = 1;
+    FUN_006c02c0(uVar1);
+    _atexit(FUN_00fd7810);
+  }
+  local_8 = 0xffffffff;
+  FUN_00404ee0();
+  *unaff_FS_OFFSET = local_10;
+  return &DAT_011d71e0;
+}
+
+
+
+--- Calls FROM renderer bucket direct callee (0x006c0720) ---
+  0x006c0756 -> 0x00404eb0 FUN_00404eb0
+  0x006c0784 -> 0x006c02c0 FUN_006c02c0
+  0x006c078e -> 0x00ec658f _atexit
+  0x006c07ab -> 0x00404ee0 FUN_00404ee0
+  Total: 4 calls
+
+======================================================================
+Renderer bucket callee: renderer bucket direct callee @ 0x006c07d0
+======================================================================
+  Function: FUN_006c07d0 @ 0x006c07d0, Size: 262 bytes
+
+undefined4 __fastcall FUN_006c07d0(int param_1)
+
+{
+  char cVar1;
+  uint uVar2;
+  int iVar3;
+  undefined4 uVar4;
+  int *unaff_FS_OFFSET;
+  undefined4 local_2c;
+  undefined4 local_28;
+  int local_10;
+  undefined1 *puStack_c;
+  undefined4 local_8;
+  
+  local_8 = 0xffffffff;
+  puStack_c = &LAB_00f13436;
+  local_10 = *unaff_FS_OFFSET;
+  uVar2 = DAT_011c16bc ^ (uint)&stack0xfffffffc;
+  *unaff_FS_OFFSET = (int)&local_10;
+  iVar3 = param_1 + 0x128;
+  FUN_00b00a00(iVar3,uVar2);
+  cVar1 = FUN_00b00a80(iVar3);
+  if (cVar1 == '\0') {
+    uVar4 = 0;
+  }
+  else {
+    cVar1 = FUN_006c08e0();
+    if (cVar1 == '\0') {
+      uVar4 = 0;
+    }
+    else {
+      iVar3 = FUN_00401000(4);
+      local_8 = 0;
+      if (iVar3 == 0) {
+        local_28 = 0;
+      }
+      else {
+        local_28 = FUN_006c00b0();
+      }
+      local_8 = 0xffffffff;
+      *(undefined4 *)(param_1 + 0x120) = local_28;
+      iVar3 = FUN_00401000(4);
+      local_8 = 1;
+      if (iVar3 == 0) {
+        local_2c = 0;
+      }
+      else {
+        local_2c = FUN_006c0210();
+      }
+      *(undefined4 *)(param_1 + 0x124) = local_2c;
+      uVar4 = 1;
+    }
+  }
+  *unaff_FS_OFFSET = local_10;
+  return uVar4;
+}
+
+
+
+--- Calls FROM renderer bucket direct callee (0x006c07d0) ---
+  0x006c0801 -> 0x00b00a00 FUN_00b00a00
+  0x006c0808 -> 0x00b00a80 FUN_00b00a80
+  0x006c0824 -> 0x006c08e0 FUN_006c08e0
+  0x006c0839 -> 0x00401000 FUN_00401000
+  0x006c0854 -> 0x006c00b0 FUN_006c00b0
+  0x006c0880 -> 0x00401000 FUN_00401000
+  0x006c089b -> 0x006c0210 FUN_006c0210
+  Total: 7 calls
+
+======================================================================
+Renderer bucket callee: renderer bucket direct callee @ 0x004e0540
+======================================================================
+  Function: FUN_004e0540 @ 0x004e0540, Size: 702 bytes
+
+/* WARNING: Globals starting with '_' overlap smaller symbols at the same address */
+
+void FUN_004e0540(void)
+
+{
+  uint uVar1;
+  char *pcVar2;
+  uint uVar3;
+  int iVar4;
+  undefined4 uVar5;
+  int *unaff_FS_OFFSET;
+  undefined4 *puVar6;
+  undefined1 *puVar7;
+  undefined4 *puVar8;
+  float *pfVar9;
+  undefined4 local_8c;
+  undefined4 local_88;
+  float local_4c;
+  float local_48;
+  undefined4 local_44;
+  undefined4 local_40;
+  undefined4 local_3c;
+  undefined4 local_38;
+  undefined1 local_34;
+  undefined4 local_30;
+  undefined1 local_2c [12];
+  undefined1 local_20 [16];
+  int local_10;
+  undefined1 *puStack_c;
+  int local_8;
+  
+  local_8 = 0xffffffff;
+  puStack_c = &LAB_00ef216c;
+  local_10 = *unaff_FS_OFFSET;
+  uVar1 = DAT_011c16bc ^ (uint)&stack0xfffffffc;
+  *unaff_FS_OFFSET = (int)&local_10;
+  FUN_00404eb0(7,1,"D:\\_Fallout3\\Platforms\\Common\\Code\\Fallout Shared\\ScreenSplatter.cpp",0xb5
+              );
+  local_8 = 0;
+  pcVar2 = (char *)FUN_00408d60(uVar1);
+  DAT_011c7834 = *pcVar2;
+  if (DAT_011c7834 != '\0') {
+    local_30 = FUN_0043c4b0();
+    uVar1 = FUN_004dee10();
+    uVar3 = FUN_004dee70();
+    iVar4 = FUN_00aa13e0(0x114);
+    local_8._0_1_ = 1;
+    if (iVar4 == 0) {
+      local_88 = 0;
+    }
+    else {
+      local_88 = FUN_00a712f0();
+    }
+    local_8._0_1_ = 0;
+    FUN_0066b0d0(local_88);
+    uVar5 = FUN_00416870(0,0,_DAT_01022960);
+    FUN_00559450(uVar5);
+    FUN_00440460(uVar5);
+    FUN_0043d410(0,0,0);
+    puVar7 = local_2c;
+    FUN_00559450(puVar7);
+    FUN_00a59c60(puVar7);
+    puVar8 = &DAT_011a9478;
+    puVar6 = &DAT_011f426c;
+    FUN_00559450(&DAT_011f426c,&DAT_011a9478);
+    FUN_00a701b0(puVar6,puVar8);
+    FUN_00a71b70(0);
+    local_34 = 0;
+    local_44 = _DAT_01016248;
+    local_40 = DAT_0102295c;
+    local_4c = (float)((float10)uVar1 / (float10)uVar3) * (float)_DAT_01011598;
+    local_48 = (float)((float10)uVar1 / (float10)uVar3) * (float)_DAT_01011588;
+    local_38 = _DAT_01022958;
+    local_3c = 0x3f800000;
+    pfVar9 = &local_4c;
+    FUN_00559450(pfVar9);
+    FUN_00a6faf0(pfVar9);
+    FUN_0043d410(0,0,0);
+    puVar7 = local_20;
+    FUN_00559450(puVar7);
+    FUN_00a59c60(puVar7);
+    _DAT_01189550 = local_48;
+    _DAT_01189554 = local_44;
+    iVar4 = FUN_00aa13e0(0xac);
+    local_8._0_1_ = 2;
+    if (iVar4 == 0) {
+      local_8c = 0;
+    }
+    else {
+      local_8c = FUN_00a5ecb0(0);
+    }
+    local_8 = (uint)local_8._1_3_ << 8;
+    FUN_0066b0d0(local_8c);
+    DAT_011c7828 = 0;
+    uVar5 = FUN_00403df0();
+    FUN_0063fb70(&DAT_011c7864,uVar5);
+    uVar5 = FUN_00403df0();
+    FUN_0063fb70(&DAT_011c7860,uVar5);
+    if (DAT_011f941e != '\0') {
+      uVar5 = FUN_00403df0();
+      FUN_0063fb70(&DAT_011c7868,uVar5);
+    }
+  }
+  local_8 = 0xffffffff;
+  FUN_00404ee0();
+  *unaff_FS_OFFSET = local_10;
+  return;
+}
+
+
+
+--- Calls FROM renderer bucket direct callee (0x004e0540) ---
+  0x004e0576 -> 0x00404eb0 FUN_00404eb0
+  0x004e0587 -> 0x00408d60 renderer bucket direct callee
+  0x004e05a2 -> 0x0043c4b0 frequent startup texture/cache helper
+  0x004e05ad -> 0x004dee10 FUN_004dee10
+  0x004e05c5 -> 0x004dee70 FUN_004dee70
+  0x004e05e2 -> 0x00aa13e0 FUN_00aa13e0
+  0x004e05fa -> 0x00a712f0 FUN_00a712f0
+  0x004e0627 -> 0x0066b0d0 FUN_0066b0d0
+  0x004e0645 -> 0x00416870 renderer bucket direct callee
+  0x004e0650 -> 0x00559450 FUN_00559450
+  0x004e0657 -> 0x00440460 FUN_00440460
+  0x004e0669 -> 0x0043d410 FUN_0043d410
+  0x004e0677 -> 0x00559450 FUN_00559450
+  0x004e067e -> 0x00a59c60 FUN_00a59c60
+  0x004e0692 -> 0x00559450 FUN_00559450
+  0x004e0699 -> 0x00a701b0 FUN_00a701b0
+  0x004e06a3 -> 0x00a71b70 FUN_00a71b70
+  0x004e06ed -> 0x00559450 FUN_00559450
+  0x004e06f4 -> 0x00a6faf0 FUN_00a6faf0
+  0x004e0706 -> 0x0043d410 FUN_0043d410
+  0x004e0714 -> 0x00559450 FUN_00559450
+  0x004e071b -> 0x00a59c60 FUN_00a59c60
+  0x004e0737 -> 0x00aa13e0 FUN_00aa13e0
+  0x004e0751 -> 0x00a5ecb0 FUN_00a5ecb0
+  0x004e077e -> 0x0066b0d0 FUN_0066b0d0
+  0x004e0792 -> 0x00403df0 renderer bucket direct callee
+  0x004e079d -> 0x0063fb70 FUN_0063fb70
+  0x004e07aa -> 0x00403df0 renderer bucket direct callee
+  0x004e07b5 -> 0x0063fb70 FUN_0063fb70
+  0x004e07cd -> 0x00403df0 renderer bucket direct callee
+  0x004e07d8 -> 0x0063fb70 FUN_0063fb70
+  0x004e07ea -> 0x00404ee0 FUN_00404ee0
+  Total: 32 calls
+
+======================================================================
+Renderer bucket callee: renderer bucket direct callee @ 0x004deb30
+======================================================================
+  Function: FUN_004deb30 @ 0x004deb30, Size: 727 bytes
+
+/* WARNING: Globals starting with '_' overlap smaller symbols at the same address */
+
+void FUN_004deb30(void)
+
+{
+  uint uVar1;
+  char *pcVar2;
+  uint uVar3;
+  int iVar4;
+  undefined4 uVar5;
+  int *unaff_FS_OFFSET;
+  undefined4 *puVar6;
+  undefined1 *puVar7;
+  undefined4 *puVar8;
+  float *pfVar9;
+  undefined4 local_8c;
+  undefined4 local_88;
+  float local_4c;
+  float local_48;
+  undefined4 local_44;
+  undefined4 local_40;
+  undefined4 local_3c;
+  undefined4 local_38;
+  undefined1 local_34;
+  undefined4 local_30;
+  undefined1 local_2c [12];
+  undefined1 local_20 [16];
+  int local_10;
+  undefined1 *puStack_c;
+  int local_8;
+  
+  local_8 = 0xffffffff;
+  puStack_c = &LAB_00ef216c;
+  local_10 = *unaff_FS_OFFSET;
+  uVar1 = DAT_011c16bc ^ (uint)&stack0xfffffffc;
+  *unaff_FS_OFFSET = (int)&local_10;
+  FUN_00404eb0(7,1,
+               "D:\\_Fallout3\\Platforms\\Common\\Code\\Fallout Shared\\ScreenCustomSplatter.cpp",
+               0xbd);
+  local_8 = 0;
+  pcVar2 = (char *)FUN_00408d60(uVar1);
+  DAT_011c77e8 = *pcVar2;
+  if (DAT_011c77e8 != '\0') {
+    local_30 = FUN_0043c4b0();
+    uVar1 = FUN_004dee10();
+    uVar3 = FUN_004dee70();
+    iVar4 = FUN_00aa13e0(0x114);
+    local_8._0_1_ = 1;
+    if (iVar4 == 0) {
+      local_88 = 0;
+    }
+    else {
+      local_88 = FUN_00a712f0();
+    }
+    local_8._0_1_ = 0;
+    FUN_0066b0d0(local_88);
+    uVar5 = FUN_00416870(0,0,_DAT_01022960);
+    FUN_00559450(uVar5);
+    FUN_00440460(uVar5);
+    FUN_0043d410(0,0,0);
+    puVar7 = local_2c;
+    FUN_00559450(puVar7);
+    FUN_00a59c60(puVar7);
+    puVar8 = &DAT_011a9478;
+    puVar6 = &DAT_011f426c;
+    FUN_00559450(&DAT_011f426c,&DAT_011a9478);
+    FUN_00a701b0(puVar6,puVar8);
+    FUN_00a71b70(0);
+    local_34 = 0;
+    local_44 = _DAT_01016248;
+    local_40 = DAT_0102295c;
+    local_4c = (float)((float10)uVar1 / (float10)uVar3) * (float)_DAT_01011598;
+    local_48 = (float)((float10)uVar1 / (float10)uVar3) * (float)_DAT_01011588;
+    local_38 = _DAT_01022958;
+    local_3c = 0x3f800000;
+    pfVar9 = &local_4c;
+    FUN_00559450(pfVar9);
+    FUN_00a6faf0(pfVar9);
+    FUN_0043d410(0,0,0);
+    puVar7 = local_20;
+    FUN_00559450(puVar7);
+    FUN_00a59c60(puVar7);
+    _DAT_01189500 = local_48;
+    _DAT_01189504 = local_44;
+    puVar6 = (undefined4 *)FUN_00403e20();
+    _DAT_011c77ec = *puVar6;
+    DAT_011c77e9 = 0;
+    iVar4 = FUN_00aa13e0(0xac);
+    local_8._0_1_ = 2;
+    if (iVar4 == 0) {
+      local_8c = 0;
+    }
+    else {
+      local_8c = FUN_00a5ecb0(0);
+    }
+    local_8 = (uint)local_8._1_3_ << 8;
+    FUN_0066b0d0(local_8c);
+    DAT_011c77dc = 0;
+    uVar5 = FUN_00403df0();
+    FUN_0063fb70(&DAT_011c7808,uVar5);
+    uVar5 = FUN_00403df0();
+    FUN_0063fb70(&DAT_011c7804,uVar5);
+    if (DAT_011f941e != '\0') {
+      uVar5 = FUN_00403df0();
+      FUN_0063fb70(&DAT_011c780c,uVar5);
+    }
+  }
+  local_8 = 0xffffffff;
+  FUN_00404ee0();
+  *unaff_FS_OFFSET = local_10;
+  return;
+}
+
+
+
+--- Calls FROM renderer bucket direct callee (0x004deb30) ---
+  0x004deb66 -> 0x00404eb0 FUN_00404eb0
+  0x004deb77 -> 0x00408d60 renderer bucket direct callee
+  0x004deb92 -> 0x0043c4b0 frequent startup texture/cache helper
+  0x004deb9d -> 0x004dee10 FUN_004dee10
+  0x004debb5 -> 0x004dee70 FUN_004dee70
+  0x004debd2 -> 0x00aa13e0 FUN_00aa13e0
+  0x004debea -> 0x00a712f0 FUN_00a712f0
+  0x004dec17 -> 0x0066b0d0 FUN_0066b0d0
+  0x004dec35 -> 0x00416870 renderer bucket direct callee
+  0x004dec40 -> 0x00559450 FUN_00559450
+  0x004dec47 -> 0x00440460 FUN_00440460
+  0x004dec59 -> 0x0043d410 FUN_0043d410
+  0x004dec67 -> 0x00559450 FUN_00559450
+  0x004dec6e -> 0x00a59c60 FUN_00a59c60
+  0x004dec82 -> 0x00559450 FUN_00559450
+  0x004dec89 -> 0x00a701b0 FUN_00a701b0
+  0x004dec93 -> 0x00a71b70 FUN_00a71b70
+  0x004decdd -> 0x00559450 FUN_00559450
+  0x004dece4 -> 0x00a6faf0 FUN_00a6faf0
+  0x004decf6 -> 0x0043d410 FUN_0043d410
+  0x004ded04 -> 0x00559450 FUN_00559450
+  0x004ded0b -> 0x00a59c60 FUN_00a59c60
+  0x004ded27 -> 0x00403e20 FUN_00403e20
+  0x004ded40 -> 0x00aa13e0 FUN_00aa13e0
+  0x004ded5a -> 0x00a5ecb0 FUN_00a5ecb0
+  0x004ded87 -> 0x0066b0d0 FUN_0066b0d0
+  0x004ded9b -> 0x00403df0 renderer bucket direct callee
+  0x004deda6 -> 0x0063fb70 FUN_0063fb70
+  0x004dedb3 -> 0x00403df0 renderer bucket direct callee
+  0x004dedbe -> 0x0063fb70 FUN_0063fb70
+  0x004dedd6 -> 0x00403df0 renderer bucket direct callee
+  0x004dede1 -> 0x0063fb70 FUN_0063fb70
+  0x004dedf3 -> 0x00404ee0 FUN_00404ee0
+  Total: 33 calls
+
+======================================================================
+Renderer bucket callee: renderer bucket direct callee @ 0x00416870
+======================================================================
+  Function: FUN_00416870 @ 0x00416870, Size: 42 bytes
+
+undefined4 * __thiscall
+FUN_00416870(undefined4 *param_1,undefined4 param_2,undefined4 param_3,undefined4 param_4)
+
+{
+  *param_1 = param_2;
+  param_1[1] = param_3;
+  param_1[2] = param_4;
+  return param_1;
+}
+
+
+
+--- Calls FROM renderer bucket direct callee (0x00416870) ---
+  Total: 0 calls
+
+======================================================================
+Renderer bucket callee: renderer bucket direct callee @ 0x00460140
+======================================================================
+  Function: FUN_00460140 @ 0x00460140, Size: 17 bytes
+
+int __fastcall FUN_00460140(int param_1)
+
+{
+  return param_1 + 0x10;
+}
+
+
+
+--- Calls FROM renderer bucket direct callee (0x00460140) ---
+  Total: 0 calls
+
+======================================================================
+Renderer bucket callee: renderer bucket direct callee @ 0x006815c0
+======================================================================
+  Function: FUN_006815c0 @ 0x006815c0, Size: 14 bytes
+
+undefined4 __fastcall FUN_006815c0(undefined4 param_1)
+
+{
+  return param_1;
+}
+
+
+
+--- Calls FROM renderer bucket direct callee (0x006815c0) ---
+  Total: 0 calls
+
+======================================================================
+Renderer bucket callee: renderer bucket direct callee @ 0x00458200
+======================================================================
+  Function: FUN_00458200 @ 0x00458200, Size: 488 bytes
+
+void __thiscall FUN_00458200(int param_1,int param_2)
+
+{
+  char cVar1;
+  uint uVar2;
+  char *pcVar3;
+  int iVar4;
+  undefined4 uVar5;
+  int *unaff_FS_OFFSET;
+  cancellation_token_source *pcVar6;
+  undefined4 uVar7;
+  undefined4 uVar8;
+  cancellation_token_source local_1c [4];
+  int local_18;
+  int local_14;
+  int local_10;
+  undefined1 *puStack_c;
+  int local_8;
+  
+  local_8 = 0xffffffff;
+  puStack_c = &LAB_00eed4d0;
+  local_10 = *unaff_FS_OFFSET;
+  uVar2 = DAT_011c16bc ^ (uint)&stack0xfffffffc;
+  *unaff_FS_OFFSET = (int)&local_10;
+  if ((param_2 != 0) && (*(int *)(param_1 + 0x88) != param_2)) {
+    pcVar3 = (char *)FUN_00408d60(uVar2);
+    if (*pcVar3 != '\0') {
+      iVar4 = FUN_005f36f0();
+      if (iVar4 != 0) {
+        FUN_00453940();
+      }
+      local_18 = 0;
+      iVar4 = FUN_00455200(1,*(undefined4 *)(param_1 + 0x88));
+      local_18 = iVar4 + local_18;
+      iVar4 = FUN_005f36f0();
+      if (iVar4 == 0) {
+        iVar4 = FUN_00454d50(1);
+        local_18 = iVar4 + local_18;
+      }
+      if (local_18 != 0) {
+        FUN_00452490(0);
+      }
+    }
+    *(int *)(param_1 + 0x88) = param_2;
+    local_14 = FUN_00458400();
+    if (local_14 != 0) {
+      FUN_00526270();
+    }
+    uVar5 = FUN_006733e0();
+    FUN_0058eeb0(uVar5);
+    FUN_00453940();
+    FUN_00450d80();
+    FUN_007043c0();
+    FUN_00709d20(param_2);
+    pcVar3 = (char *)FUN_00454b50();
+    if (*pcVar3 == '\0') {
+      uVar5 = 0;
+      FUN_0070ec90(0);
+      FUN_0052d3b0(uVar5);
+    }
+    else {
+      FUN_00404eb0(0x1d,1,"D:\\_Fallout3\\Platforms\\Common\\Code\\Fallout Shared\\TES.cpp",0x1751);
+      local_8 = 0;
+      FUN_00633c90(0);
+      local_8._0_1_ = 1;
+      uVar8 = 1;
+      uVar7 = 1;
+      pcVar6 = local_1c;
+      uVar5 = FUN_00454b50(pcVar6,1,1);
+      FUN_004568c0(uVar5,pcVar6,uVar7,uVar8);
+      uVar5 = FUN_00559450();
+      FUN_0070ec90(uVar5);
+      FUN_0052d3b0(uVar5);
+      local_8 = (uint)local_8._1_3_ << 8;
+      Concurrency::cancellation_token_source::~cancellation_token_source(local_1c);
+      local_8 = 0xffffffff;
+      FUN_00404ee0();
+    }
+    cVar1 = FUN_005862e0();
+    FUN_004583f0(cVar1 == '\0');
+  }
+  *unaff_FS_OFFSET = local_10;
+  return;
+}
+
+
+
+--- Calls FROM renderer bucket direct callee (0x00458200) ---
+  0x00458249 -> 0x00408d60 renderer bucket direct callee
+  0x00458258 -> 0x005f36f0 FUN_005f36f0
+  0x00458264 -> 0x00453940 FUN_00453940
+  0x0045827f -> 0x00455200 FUN_00455200
+  0x0045828d -> 0x005f36f0 FUN_005f36f0
+  0x0045829b -> 0x00454d50 FUN_00454d50
+  0x004582b1 -> 0x00452490 FUN_00452490
+  0x004582cb -> 0x00458400 FUN_00458400
+  0x004582dc -> 0x00526270 FUN_00526270
+  0x004582ea -> 0x006733e0 FUN_006733e0
+  0x004582f0 -> 0x0058eeb0 FUN_0058eeb0
+  0x004582fb -> 0x00453940 FUN_00453940
+  0x00458303 -> 0x00450d80 FUN_00450d80
+  0x00458308 -> 0x007043c0 FUN_007043c0
+  0x00458311 -> 0x00709d20 FUN_00709d20
+  0x0045831c -> 0x00454b50 FUN_00454b50
+  0x00458339 -> 0x00404eb0 FUN_00404eb0
+  0x0045834a -> 0x00633c90 FUN_00633c90
+  0x0045835e -> 0x00454b50 FUN_00454b50
+  0x0045836a -> 0x004568c0 FUN_004568c0
+  0x00458372 -> 0x00559450 FUN_00559450
+  0x0045837e -> 0x0070ec90 FUN_0070ec90
+  0x00458385 -> 0x0052d3b0 FUN_0052d3b0
+  0x00458391 -> 0x0045cec0 ~cancellation_token_source
+  0x004583a0 -> 0x00404ee0 FUN_00404ee0
+  0x004583af -> 0x0070ec90 FUN_0070ec90
+  0x004583b6 -> 0x0052d3b0 FUN_0052d3b0
+  0x004583be -> 0x005862e0 FUN_005862e0
+  0x004583cf -> 0x004583f0 FUN_004583f0
+  Total: 29 calls
+
+======================================================================
+Renderer bucket callee: renderer bucket direct callee @ 0x0095ee80
+======================================================================
+  Function: FUN_0095ee80 @ 0x0095ee80, Size: 901 bytes
+
+void FUN_0095ee80(void)
+
+{
+  uint uVar1;
+  undefined4 uVar2;
+  int *unaff_FS_OFFSET;
+  undefined4 extraout_var;
+  char local_128 [268];
+  uint local_1c;
+  char *local_14;
+  int local_10;
+  undefined1 *puStack_c;
+  undefined4 local_8;
+  
+  local_8 = 0xffffffff;
+  puStack_c = &LAB_00f184b8;
+  local_10 = *unaff_FS_OFFSET;
+  uVar1 = DAT_011c16bc ^ (uint)&stack0xfffffffc;
+  *unaff_FS_OFFSET = (int)&local_10;
+  local_1c = uVar1;
+  FUN_00404eb0(0x34,1,"D:\\_Fallout3\\Platforms\\Common\\Code\\Fallout\\AI\\PlayerCharacter.cpp",
+               0x41c5);
+  local_8 = 0;
+  uVar2 = FUN_00403df0(uVar1,extraout_var);
+  FUN_00406d30(local_128,0x104,uVar2);
+  local_14 = strrchr(local_128,0x5c);
+  if (local_14 != (char *)0x0) {
+    FUN_00406d30(local_14 + 1,0x103 - ((int)local_14 - (int)local_128),"IdleAnims");
+  }
+  FUN_00600170(local_128,0,0);
+  FUN_00406d30(local_14,0x103 - ((int)local_14 - (int)local_128),"\\Locomotion\\IdleAnims");
+  FUN_00600170(local_128,0,0);
+  FUN_00406d30(local_14,0x103 - ((int)local_14 - (int)local_128),"\\Locomotion\\Hurt\\IdleAnims");
+  FUN_00600170(local_128,0,0);
+  FUN_00406d30(local_14,0x103 - ((int)local_14 - (int)local_128),"\\Locomotion\\Male\\IdleAnims");
+  FUN_00600170(local_128,0,0);
+  FUN_00406d30(local_14,0x103 - ((int)local_14 - (int)local_128),"\\Locomotion\\Female\\IdleAnims");
+  FUN_00600170(local_128,0,0);
+  FUN_00406d30(local_14,0x103 - ((int)local_14 - (int)local_128),"\\Locomotion\\Toddler\\IdleAnims")
+  ;
+  FUN_00600170(local_128,0,0);
+  uVar2 = FUN_005715d0();
+  FUN_00406d30(local_128,0x104,uVar2);
+  local_14 = strrchr(local_128,0x5c);
+  FUN_00406d30(local_14,0x103 - ((int)local_14 - (int)local_128),"\\Locomotion\\IdleAnims");
+  FUN_00600170(local_128,0,0);
+  FUN_00406d30(local_14,0x103 - ((int)local_14 - (int)local_128),"\\Locomotion\\Hurt\\IdleAnims");
+  FUN_00600170(local_128,0,0);
+  FUN_00406d30(local_14,0x103 - ((int)local_14 - (int)local_128),"\\Locomotion\\Male\\IdleAnims");
+  FUN_00600170(local_128,0,0);
+  FUN_00406d30(local_14,0x103 - ((int)local_14 - (int)local_128),"\\Locomotion\\Female\\IdleAnims");
+  FUN_00600170(local_128,0,0);
+  FUN_00406d30(local_14,0x103 - ((int)local_14 - (int)local_128),"\\Locomotion\\Child\\IdleAnims");
+  FUN_00600170(local_128,0,0);
+  local_8 = 0xffffffff;
+  FUN_00404ee0();
+  *unaff_FS_OFFSET = local_10;
+  __security_check_cookie(local_1c ^ (uint)&stack0xfffffffc);
+  return;
+}
+
+
+
+--- Calls FROM renderer bucket direct callee (0x0095ee80) ---
+  0x0095eec2 -> 0x00404eb0 FUN_00404eb0
+  0x0095eed3 -> 0x00403df0 renderer bucket direct callee
+  0x0095eee5 -> 0x00406d30 FUN_00406d30
+  0x0095eef6 -> 0x0040ab30 strrchr
+  0x0095ef29 -> 0x00406d30 FUN_00406d30
+  0x0095ef42 -> 0x00600170 FUN_00600170
+  0x0095ef66 -> 0x00406d30 FUN_00406d30
+  0x0095ef7f -> 0x00600170 FUN_00600170
+  0x0095efa3 -> 0x00406d30 FUN_00406d30
+  0x0095efbc -> 0x00600170 FUN_00600170
+  0x0095efe0 -> 0x00406d30 FUN_00406d30
+  0x0095eff9 -> 0x00600170 FUN_00600170
+  0x0095f01d -> 0x00406d30 FUN_00406d30
+  0x0095f036 -> 0x00600170 FUN_00600170
+  0x0095f05a -> 0x00406d30 FUN_00406d30
+  0x0095f073 -> 0x00600170 FUN_00600170
+  0x0095f07e -> 0x005715d0 FUN_005715d0
+  0x0095f090 -> 0x00406d30 FUN_00406d30
+  0x0095f0a1 -> 0x0040ab30 strrchr
+  0x0095f0cb -> 0x00406d30 FUN_00406d30
+  0x0095f0e4 -> 0x00600170 FUN_00600170
+  0x0095f108 -> 0x00406d30 FUN_00406d30
+  0x0095f121 -> 0x00600170 FUN_00600170
+  0x0095f145 -> 0x00406d30 FUN_00406d30
+  0x0095f15e -> 0x00600170 FUN_00600170
+  0x0095f182 -> 0x00406d30 FUN_00406d30
+  0x0095f19b -> 0x00600170 FUN_00600170
+  0x0095f1bf -> 0x00406d30 FUN_00406d30
+  0x0095f1d8 -> 0x00600170 FUN_00600170
+  0x0095f1e7 -> 0x00404ee0 FUN_00404ee0
+  0x0095f1fc -> 0x00ec408c __security_check_cookie
+  Total: 31 calls
+
+======================================================================
+Renderer bucket callee: renderer bucket direct callee @ 0x008a8150
+======================================================================
+  Function: FUN_008a8150 @ 0x008a8150, Size: 22 bytes
+
+void __thiscall FUN_008a8150(int param_1,undefined1 param_2)
+
+{
+  *(undefined1 *)(param_1 + 0x1c) = param_2;
+  return;
+}
+
+
+
+--- Calls FROM renderer bucket direct callee (0x008a8150) ---
+  Total: 0 calls
+
+----------------------------------------------------------------------
+VTable/dispatch table NiDX9Renderer @ 0x010ee4bc
+----------------------------------------------------------------------
+  [00] +0x00: 0x00e762f0 -> FUN_00e762f0
+  [01] +0x04: 0x00cfcc20 -> FUN_00cfcc20
+  [02] +0x08: 0x00e757b0 -> unknown
+  [03] +0x0c: 0x00acbb70 -> FUN_00acbb70
+  [04] +0x10: 0x00acbb70 -> FUN_00acbb70
+  [05] +0x14: 0x00acbb70 -> FUN_00acbb70
+  [06] +0x18: 0x00acbb70 -> FUN_00acbb70
+  [07] +0x1c: 0x00acbb70 -> FUN_00acbb70
+  [08] +0x20: 0x00acbb70 -> FUN_00acbb70
+  [09] +0x24: 0x00acbb70 -> FUN_00acbb70
+  [10] +0x28: 0x00acbb70 -> FUN_00acbb70
+  [11] +0x2c: 0x00acbb70 -> FUN_00acbb70
+  [12] +0x30: 0x00acbb70 -> FUN_00acbb70
+  [13] +0x34: 0x00acbb70 -> FUN_00acbb70
+  [14] +0x38: 0x00acbb70 -> FUN_00acbb70
+  [15] +0x3c: 0x00acbb70 -> FUN_00acbb70
+  [16] +0x40: 0x00acbb70 -> FUN_00acbb70
+  [17] +0x44: 0x00acbb70 -> FUN_00acbb70
+  [18] +0x48: 0x00a44840 -> unknown
+  [19] +0x4c: 0x00a5d610 -> FUN_00a5d610
+  [20] +0x50: 0x00a89af0 -> FUN_00a89af0
+  [21] +0x54: 0x00a5d2f0 -> FUN_00a5d2f0
+  [22] +0x58: 0x00a89af0 -> FUN_00a89af0
+  [23] +0x5c: 0x00a5d470 -> FUN_00a5d470
+  [24] +0x60: 0x00a63260 -> FUN_00a63260
+  [25] +0x64: 0x004534f0 -> FUN_004534f0
+  [26] +0x68: 0x00a5d430 -> FUN_00a5d430
+  [27] +0x6c: 0x00a89af0 -> FUN_00a89af0
+  [28] +0x70: 0x00ee8990 -> FUN_00ee8990
+  [29] +0x74: 0x00a5d310 -> unknown
+  [30] +0x78: 0x004534f0 -> FUN_004534f0
+  [31] +0x7c: 0x00e7cd40 -> FUN_00e7cd40
+  [32] +0x80: 0x00e7cd40 -> FUN_00e7cd40
+  [33] +0x84: 0x00a89af0 -> FUN_00a89af0
+  [34] +0x88: 0x00acbb70 -> FUN_00acbb70
+  [35] +0x8c: 0x00a29680 -> FUN_00a29680
+  [36] +0x90: 0x00e6bdc0 -> FUN_00e6bdc0
+  [37] +0x94: 0x00e6ee00 -> FUN_00e6ee00
+  [38] +0x98: 0x00e695c0 -> unknown
+  [39] +0x9c: 0x00e6c690 -> unknown
+  [40] +0xa0: 0x00e757d0 -> unknown
+  [41] +0xa4: 0x00e75820 -> unknown
+  [42] +0xa8: 0x00e75830 -> unknown
+  [43] +0xac: 0x00e758f0 -> FUN_00e758f0
+  [44] +0xb0: 0x00e75840 -> FUN_00e75840
+  [45] +0xb4: 0x00e759c0 -> unknown
+  [46] +0xb8: 0x00e75a20 -> unknown
+  [47] +0xbc: 0x00e75a30 -> unknown
+
+----------------------------------------------------------------------
+VTable/dispatch table NiDX9SourceTextureData @ 0x010ed37c
+----------------------------------------------------------------------
+  [00] +0x00: 0x00e68ea0 -> FUN_00e68ea0
+  [01] +0x04: 0x00cfcc20 -> FUN_00cfcc20
+  [02] +0x08: 0x00529530 -> FUN_00529530
+  [03] +0x0c: 0x00acbb70 -> FUN_00acbb70
+  [04] +0x10: 0x00acbb70 -> FUN_00acbb70
+  [05] +0x14: 0x00acbb70 -> FUN_00acbb70
+  [06] +0x18: 0x00acbb70 -> FUN_00acbb70
+  [07] +0x1c: 0x00acbb70 -> FUN_00acbb70
+  [08] +0x20: 0x00acbb70 -> FUN_00acbb70
+  [09] +0x24: 0x00acbb70 -> FUN_00acbb70
+  [10] +0x28: 0x00acbb70 -> FUN_00acbb70
+  [11] +0x2c: 0x00acbb70 -> FUN_00acbb70
+  [12] +0x30: 0x00acbb70 -> FUN_00acbb70
+  [13] +0x34: 0x00acbb70 -> FUN_00acbb70
+  [14] +0x38: 0x00acbb70 -> FUN_00acbb70
+  [15] +0x3c: 0x00acbb70 -> FUN_00acbb70
+  [16] +0x40: 0x00acbb70 -> FUN_00acbb70
+  [17] +0x44: 0x00acbb70 -> FUN_00acbb70
+  [18] +0x48: 0x00a44840 -> unknown
+  [19] +0x4c: 0x00a5d610 -> FUN_00a5d610
+  [20] +0x50: 0x00a89af0 -> FUN_00a89af0
+  [21] +0x54: 0x00a5d2f0 -> FUN_00a5d2f0
+  [22] +0x58: 0x00a89af0 -> FUN_00a89af0
+  [23] +0x5c: 0x00a5d470 -> FUN_00a5d470
+  [24] +0x60: 0x00a5d6e0 -> FUN_00a5d6e0
+  [25] +0x64: 0x004534f0 -> FUN_004534f0
+  [26] +0x68: 0x00a5d430 -> FUN_00a5d430
+  [27] +0x6c: 0x00a89af0 -> FUN_00a89af0
+  [28] +0x70: 0x00ee8990 -> FUN_00ee8990
+  [29] +0x74: 0x00a5d310 -> unknown
+  [30] +0x78: 0x004534f0 -> FUN_004534f0
+  [31] +0x7c: 0x00e7cd40 -> FUN_00e7cd40
+
+----------------------------------------------------------------------
+VTable/dispatch table QueuedTexture @ 0x01016788
+----------------------------------------------------------------------
+  [00] +0x00: 0x0043be30 -> FUN_0043be30
+  [01] +0x04: 0x0043c150 -> FUN_0043c150
+  [02] +0x08: 0x0043c550 -> FUN_0043c550
+  [03] +0x0c: 0x0043c650 -> FUN_0043c650
+  [04] +0x10: 0x0043c6b0 -> FUN_0043c6b0
+  [05] +0x14: 0x00483710 -> FUN_00483710
+  [06] +0x18: 0x00c3d440 -> FUN_00c3d440
+  [07] +0x1c: 0x00c3cae0 -> FUN_00c3cae0
+  [08] +0x20: 0x0043c050 -> FUN_0043c050
+  [09] +0x24: 0x0043bde0 -> FUN_0043bde0
+  [10] +0x28: 0x00c3c930 -> FUN_00c3c930
+  [11] +0x2c: 0x0043bfe0 -> FUN_0043bfe0
+  [12] +0x30: 0x45444f4d -> unknown
+  [13] +0x34: 0x203a534c -> unknown
+  [14] +0x38: 0x6c756f43 -> unknown
+  [15] +0x3c: 0x6f6e2064 -> unknown
+  [16] +0x40: 0x65672074 -> unknown
+  [17] +0x44: 0x69662074 -> unknown
+  [18] +0x48: 0x6620656c -> unknown
+  [19] +0x4c: 0x7420726f -> unknown
+  [20] +0x50: 0x75747865 -> unknown
+  [21] +0x54: 0x25206572 -> unknown
+  [22] +0x58: 0x00002e73 -> unknown
+  [23] +0x5c: 0x00000000 -> unknown
+
+----------------------------------------------------------------------
+References TO 0x0086d500 (InitializeRenderer)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x0086b028 (in FUN_0086a850)
+  Total: 1 refs
+
+----------------------------------------------------------------------
+References TO 0x00442650 (NewQueuedModelLoader)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x0044fefc (in FUN_0044fb20)
+  Total: 1 refs
+
+----------------------------------------------------------------------
+References TO 0x00878610 (NewSceneGraph)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x00712f17 (in FUN_00712e90)
+  UNCONDITIONAL_CALL @ 0x0086d601 (in FUN_0086d590)
+  UNCONDITIONAL_CALL @ 0x004dc60e (in FUN_004dc5c0)
+  UNCONDITIONAL_CALL @ 0x004dc69e (in FUN_004dc650)
+  Total: 4 refs
+
+----------------------------------------------------------------------
+References TO 0x00be0fe0 (CreateVertexShader)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x00bd178c (in FUN_00bd16f0)
+  UNCONDITIONAL_CALL @ 0x00b87584 (in FUN_00b874f0)
+  UNCONDITIONAL_CALL @ 0x00b8764e (in FUN_00b874f0)
+  UNCONDITIONAL_CALL @ 0x00b8772e (in FUN_00b874f0)
+  UNCONDITIONAL_CALL @ 0x00b8780e (in FUN_00b874f0)
+  UNCONDITIONAL_CALL @ 0x00b878d8 (in FUN_00b874f0)
+  UNCONDITIONAL_CALL @ 0x00b879b4 (in FUN_00b874f0)
+  UNCONDITIONAL_CALL @ 0x00b87ac2 (in FUN_00b874f0)
+  UNCONDITIONAL_CALL @ 0x00b87fc3 (in FUN_00b874f0)
+  UNCONDITIONAL_CALL @ 0x00b880af (in FUN_00b874f0)
+  UNCONDITIONAL_CALL @ 0x00b88179 (in FUN_00b874f0)
+  UNCONDITIONAL_CALL @ 0x00bcb59e (in FUN_00bcb4d0)
+  UNCONDITIONAL_CALL @ 0x00bcb683 (in FUN_00bcb4d0)
+  UNCONDITIONAL_CALL @ 0x00b828ba (in FUN_00b827c0)
+  UNCONDITIONAL_CALL @ 0x00b82981 (in FUN_00b827c0)
+  UNCONDITIONAL_CALL @ 0x00b82a4a (in FUN_00b827c0)
+  UNCONDITIONAL_CALL @ 0x00bc638e (in FUN_00bc5c40)
+  UNCONDITIONAL_CALL @ 0x00b8019d (in FUN_00b80090)
+  UNCONDITIONAL_CALL @ 0x00b80221 (in FUN_00b80090)
+  UNCONDITIONAL_CALL @ 0x00bb615f (in FUN_00bb6060)
+  UNCONDITIONAL_CALL @ 0x00b74000 (in FUN_00b71bf0)
+  UNCONDITIONAL_CALL @ 0x00b740b3 (in FUN_00b71bf0)
+  UNCONDITIONAL_CALL @ 0x00b7419f (in FUN_00b71bf0)
+  UNCONDITIONAL_CALL @ 0x00babc8b (in FUN_00baafc0)
+  UNCONDITIONAL_CALL @ 0x00babd9b (in FUN_00baafc0)
+  UNCONDITIONAL_CALL @ 0x00bba4fa (in FUN_00bb96f0)
+  UNCONDITIONAL_CALL @ 0x00bba52e (in FUN_00bb96f0)
+  UNCONDITIONAL_CALL @ 0x00bba555 (in FUN_00bb96f0)
+  UNCONDITIONAL_CALL @ 0x00ba51b1 (in ???)
+  UNCONDITIONAL_CALL @ 0x00bb02f7 (in ???)
+  UNCONDITIONAL_CALL @ 0x00bb1590 (in ???)
+  UNCONDITIONAL_CALL @ 0x00bc0a31 (in ???)
+  UNCONDITIONAL_CALL @ 0x00bc4701 (in ???)
+  UNCONDITIONAL_CALL @ 0x00bc5131 (in ???)
+  UNCONDITIONAL_CALL @ 0x00bca1d0 (in ???)
+  UNCONDITIONAL_CALL @ 0x00bccd9b (in ???)
+  UNCONDITIONAL_CALL @ 0x00bcf2a0 (in ???)
+  UNCONDITIONAL_CALL @ 0x00bd09a4 (in ???)
+  UNCONDITIONAL_CALL @ 0x00bd0a6b (in ???)
+  UNCONDITIONAL_CALL @ 0x00bd28f0 (in ???)
+  UNCONDITIONAL_CALL @ 0x00bd3b00 (in ???)
+  UNCONDITIONAL_CALL @ 0x00bd3bea (in ???)
+  UNCONDITIONAL_CALL @ 0x00bd50db (in ???)
+  UNCONDITIONAL_CALL @ 0x00bd521b (in ???)
+  UNCONDITIONAL_CALL @ 0x00c03b61 (in ???)
+  Total: 45 refs
+
+----------------------------------------------------------------------
+References TO 0x00be1750 (CreatePixelShader)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x00bd182f (in FUN_00bd16f0)
+  UNCONDITIONAL_CALL @ 0x00bd18e1 (in FUN_00bd16f0)
+  UNCONDITIONAL_CALL @ 0x00b87b7e (in FUN_00b874f0)
+  UNCONDITIONAL_CALL @ 0x00b87c4c (in FUN_00b874f0)
+  UNCONDITIONAL_CALL @ 0x00b87d2c (in FUN_00b874f0)
+  UNCONDITIONAL_CALL @ 0x00b87e15 (in FUN_00b874f0)
+  UNCONDITIONAL_CALL @ 0x00b87ee3 (in FUN_00b874f0)
+  UNCONDITIONAL_CALL @ 0x00b88269 (in FUN_00b874f0)
+  UNCONDITIONAL_CALL @ 0x00b8836b (in FUN_00b874f0)
+  UNCONDITIONAL_CALL @ 0x00b8844b (in FUN_00b874f0)
+  UNCONDITIONAL_CALL @ 0x00bcb75c (in FUN_00bcb4d0)
+  UNCONDITIONAL_CALL @ 0x00b83d45 (in FUN_00b827c0)
+  UNCONDITIONAL_CALL @ 0x00bc6590 (in FUN_00bc5c40)
+  UNCONDITIONAL_CALL @ 0x00bc661e (in FUN_00bc5c40)
+  UNCONDITIONAL_CALL @ 0x00bc66a6 (in FUN_00bc5c40)
+  UNCONDITIONAL_CALL @ 0x00bc672e (in FUN_00bc5c40)
+  UNCONDITIONAL_CALL @ 0x00bc67bc (in FUN_00bc5c40)
+  UNCONDITIONAL_CALL @ 0x00bc684a (in FUN_00bc5c40)
+  UNCONDITIONAL_CALL @ 0x00bc68d8 (in FUN_00bc5c40)
+  UNCONDITIONAL_CALL @ 0x00b802a5 (in FUN_00b80090)
+  UNCONDITIONAL_CALL @ 0x00b80323 (in FUN_00b80090)
+  UNCONDITIONAL_CALL @ 0x00bb61e3 (in FUN_00bb6060)
+  UNCONDITIONAL_CALL @ 0x00bb6261 (in FUN_00bb6060)
+  UNCONDITIONAL_CALL @ 0x00babf67 (in FUN_00baafc0)
+  UNCONDITIONAL_CALL @ 0x00bac0aa (in FUN_00baafc0)
+  UNCONDITIONAL_CALL @ 0x00bbb5a5 (in FUN_00bba5d0)
+  UNCONDITIONAL_CALL @ 0x00bbb5e5 (in FUN_00bba5d0)
+  UNCONDITIONAL_CALL @ 0x00bbb687 (in FUN_00bba5d0)
+  UNCONDITIONAL_CALL @ 0x00bbb6c0 (in FUN_00bba5d0)
+  UNCONDITIONAL_CALL @ 0x00bbb717 (in FUN_00bba5d0)
+  UNCONDITIONAL_CALL @ 0x00b78720 (in ???)
+  UNCONDITIONAL_CALL @ 0x00b78907 (in ???)
+  UNCONDITIONAL_CALL @ 0x00ba5255 (in ???)
+  UNCONDITIONAL_CALL @ 0x00bb041c (in ???)
+  UNCONDITIONAL_CALL @ 0x00bb1707 (in ???)
+  UNCONDITIONAL_CALL @ 0x00bb17dd (in ???)
+  UNCONDITIONAL_CALL @ 0x00bb18c5 (in ???)
+  UNCONDITIONAL_CALL @ 0x00bc0adb (in ???)
+  UNCONDITIONAL_CALL @ 0x00bc47ab (in ???)
+  UNCONDITIONAL_CALL @ 0x00bc5280 (in ???)
+  UNCONDITIONAL_CALL @ 0x00bca350 (in ???)
+  UNCONDITIONAL_CALL @ 0x00bce3ba (in ???)
+  UNCONDITIONAL_CALL @ 0x00bce48a (in ???)
+  UNCONDITIONAL_CALL @ 0x00bcf745 (in ???)
+  UNCONDITIONAL_CALL @ 0x00bd29e4 (in ???)
+  UNCONDITIONAL_CALL @ 0x00bd2ab2 (in ???)
+  UNCONDITIONAL_CALL @ 0x00bd3ee5 (in ???)
+  UNCONDITIONAL_CALL @ 0x00bd517f (in ???)
+  UNCONDITIONAL_CALL @ 0x00bd52bf (in ???)
+  UNCONDITIONAL_CALL @ 0x00c03bed (in ???)
+  Total: 50 refs
+
+----------------------------------------------------------------------
+References TO 0x00b4f710 (SetShaderPackage)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x004db187 (in FUN_004da670)
+  UNCONDITIONAL_CALL @ 0x004dcb9d (in FUN_004dc710)
+  Total: 2 refs
+
+----------------------------------------------------------------------
+References TO 0x00a61a60 (Texture cache find)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x0043c517 (in FUN_0043c4f0)
+  Total: 1 refs
+
+----------------------------------------------------------------------
+References TO 0x00a5fca0 (NiSourceTexture destructor)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x00a60163 (in FUN_00a60160)
+  UNCONDITIONAL_CALL @ 0x00a61281 (in FUN_00a61250)
+  Total: 2 refs
+
+----------------------------------------------------------------------
+References TO 0x010ee4bc (NiDX9Renderer vtable)
+----------------------------------------------------------------------
+  DATA @ 0x00e75a7e (in FUN_00e75a70)
+  DATA @ 0x00e754aa (in FUN_00e754a0)
+  Total: 2 refs
+
+----------------------------------------------------------------------
+References TO 0x010ed37c (NiDX9SourceTextureData vtable)
+----------------------------------------------------------------------
+  DATA @ 0x00e68834 (in FUN_00e68830)
+  DATA @ 0x00e68f4a (in FUN_00e68ef0)
+  DATA @ 0x00e68ea4 (in FUN_00e68ea0)
+  DATA @ 0x00e687bf (in FUN_00e687a0)
+  Total: 4 refs
+
+----------------------------------------------------------------------
+References TO 0x01016788 (QueuedTexture vtable)
+----------------------------------------------------------------------
+  DATA @ 0x0043bd5d (in FUN_0043bd10)
+  DATA @ 0x0043be9c (in FUN_0043be60)
+  DATA @ 0x0043bf2c (in FUN_0043bef0)
+  DATA @ 0x0043bfa9 (in FUN_0043bf80)
+  Total: 4 refs
+
+----------------------------------------------------------------------
+References TO 0x011f91bc (shader package max global)
+----------------------------------------------------------------------
+  READ @ 0x004dc06c (in FUN_004dc060)
+  READ @ 0x00b4f385 (in FUN_00b4f380)
+  WRITE @ 0x00b4f7a2 (in FUN_00b4f710)
+  WRITE @ 0x00b4f801 (in FUN_00b4f710)
+  WRITE @ 0x00b4f85b (in FUN_00b4f710)
+  WRITE @ 0x00b4f88c (in FUN_00b4f710)
+  WRITE @ 0x00b4f8dc (in FUN_00b4f710)
+  WRITE @ 0x00b4f90a (in FUN_00b4f710)
+  WRITE @ 0x00b4f92a (in FUN_00b4f710)
+  READ @ 0x00b78789 (in ???)
+  WRITE @ 0x00b542fb (in FUN_00b54280)
+  Total: 11 refs
+
+----------------------------------------------------------------------
+References TO 0x011f91c0 (shader package global)
+----------------------------------------------------------------------
+  READ @ 0x004dc077 (in FUN_004dc060)
+  READ @ 0x004dc0c9 (in FUN_004dc0c0)
+  READ @ 0x00b4f38c (in FUN_00b4f380)
+  READ @ 0x00b4f3e0 (in FUN_00b4f3e0)
+  READ @ 0x00b4f4a0 (in FUN_00b4f4a0)
+  WRITE @ 0x00b4f730 (in FUN_00b4f710)
+  READ @ 0x00b4f786 (in FUN_00b4f710)
+  WRITE @ 0x00b4f797 (in FUN_00b4f710)
+  WRITE @ 0x00b4f7c6 (in FUN_00b4f710)
+  WRITE @ 0x00b4f7e3 (in FUN_00b4f710)
+  WRITE @ 0x00b4f7fc (in FUN_00b4f710)
+  READ @ 0x00b4f83f (in FUN_00b4f710)
+  WRITE @ 0x00b4f850 (in FUN_00b4f710)
+  WRITE @ 0x00b4f887 (in FUN_00b4f710)
+  READ @ 0x00b4f8c0 (in FUN_00b4f710)
+  WRITE @ 0x00b4f8d1 (in FUN_00b4f710)
+  WRITE @ 0x00b4f905 (in FUN_00b4f710)
+  WRITE @ 0x00b4f925 (in FUN_00b4f710)
+  WRITE @ 0x00b4f953 (in FUN_00b4f710)
+  READ @ 0x00b5ea33 (in FUN_00b5e870)
+  READ @ 0x00b619fa (in FUN_00b61980)
+  READ @ 0x00b61d4a (in FUN_00b61980)
+  READ @ 0x00b7a9ce (in FUN_00b7a870)
+  READ @ 0x00b7faf0 (in FUN_00b7faf0)
+  READ @ 0x00b9dd13 (in FUN_00b9dcb0)
+  READ @ 0x00b9e003 (in FUN_00b9dfc0)
+  READ @ 0x00b9eacd (in FUN_00b9e970)
+  READ @ 0x00ba52d9 (in FUN_00ba52d0)
+  READ @ 0x00bb6039 (in FUN_00bb6030)
+  READ @ 0x00bd8c76 (in FUN_00bd8ae0)
+  READ @ 0x00bace2d (in FUN_00bacd00)
+  READ @ 0x00bd5883 (in FUN_00bd5670)
+  READ @ 0x00b82a91 (in FUN_00b827c0)
+  READ @ 0x00b86d1c (in FUN_00b86bd0)
+  READ @ 0x00ba56b8 (in FUN_00ba53f0)
+  READ @ 0x00bc0e98 (in FUN_00bc0c90)
+  READ @ 0x00bbc942 (in FUN_00bbc640)
+  READ @ 0x00bb6db0 (in FUN_00bb6c30)
+  READ @ 0x00bc15dd (in FUN_00bc15a0)
+  READ @ 0x00bc0b8b (in FUN_00bc0b70)
+  READ @ 0x00bc0b49 (in FUN_00bc0b40)
+  READ @ 0x00b5880b (in FUN_00b587c0)
+  READ @ 0x00b58935 (in FUN_00b587c0)
+  READ @ 0x00bd638b (in FUN_00bd6190)
+  READ @ 0x00ba6507 (in FUN_00ba64e0)
+  READ @ 0x00b60860 (in FUN_00b60790)
+  READ @ 0x00b60982 (in FUN_00b60790)
+  READ @ 0x00b68286 (in FUN_00b67be0)
+  READ @ 0x00b7410a (in FUN_00b71bf0)
+  READ @ 0x00b789d3 (in FUN_00b78980)
+  READ @ 0x00ba6c0a (in FUN_00ba69f0)
+  READ @ 0x00babba9 (in FUN_00baafc0)
+  READ @ 0x00bacbca (in FUN_00bac9c0)
+  READ @ 0x00b6034b (in FUN_00b60330)
+  READ @ 0x00b67b52 (in FUN_00b67a40)
+  READ @ 0x00bc1a65 (in FUN_00bc1950)
+  READ @ 0x00bd3f99 (in FUN_00bd3f80)
+  READ @ 0x00bd5565 (in FUN_00bd5490)
+  READ @ 0x00bdaf26 (in FUN_00bdaf10)
+  READ @ 0x00bdf855 (in FUN_00bdf790)
+  READ @ 0x00c1637d (in FUN_00c16350)
+  READ @ 0x00b68409 (in ???)
+  READ @ 0x00b78776 (in ???)
+  READ @ 0x00b7a7eb (in ???)
+  READ @ 0x00ba616d (in ???)
+  READ @ 0x00bb1617 (in ???)
+  READ @ 0x00bb6bc2 (in ???)
+  READ @ 0x00bccd2e (in ???)
+  READ @ 0x00bce231 (in ???)
+  READ @ 0x00bcf196 (in ???)
+  READ @ 0x00bcf6d0 (in ???)
+  READ @ 0x00bd09fe (in ???)
+  READ @ 0x00bd2978 (in ???)
+  READ @ 0x00bd3b79 (in ???)
+  READ @ 0x00bd5070 (in ???)
+  READ @ 0x00c04990 (in ???)
+  WRITE @ 0x00b542f5 (in FUN_00b54280)
+  Total: 77 refs
+
+----------------------------------------------------------------------
+References TO 0x011f91e0 (current geometry global)
+----------------------------------------------------------------------
+  WRITE @ 0x00b54a17 (in FUN_00b54630)
+  WRITE @ 0x00b57946 (in FUN_00b578a0)
+  WRITE @ 0x00b653f6 (in FUN_00b651e0)
+  WRITE @ 0x00b65445 (in FUN_00b651e0)
+  WRITE @ 0x00b9950c (in FUN_00b994f0)
+  READ @ 0x00b7c583 (in FUN_00b7c580)
+  READ @ 0x00b7c603 (in FUN_00b7c600)
+  READ @ 0x00b7de6a (in FUN_00b7dde0)
+  READ @ 0x00b7c7b3 (in FUN_00b7c7b0)
+  READ @ 0x00b7e22a (in FUN_00b7e150)
+  READ @ 0x00b7df5d (in FUN_00b7ded0)
+  READ @ 0x00b7c85a (in FUN_00b7c850)
+  READ @ 0x00b7e071 (in FUN_00b7dfe0)
+  READ @ 0x00b7cb04 (in FUN_00b7cb00)
+  READ @ 0x00b70878 (in FUN_00b70820)
+  READ @ 0x00b70e28 (in FUN_00b70de0)
+  READ @ 0x00b7b679 (in FUN_00b7b450)
+  READ @ 0x00b7b7b3 (in FUN_00b7b730)
+  READ @ 0x00b7baf2 (in FUN_00b7ba70)
+  READ @ 0x00b7bc5c (in FUN_00b7ba70)
+  READ @ 0x00b7be20 (in FUN_00b7be00)
+  READ @ 0x00b7dab3 (in FUN_00b7dab0)
+  READ @ 0x00b80c23 (in FUN_00b80c20)
+  READ @ 0x00b864d3 (in FUN_00b864d0)
+  READ @ 0x00b89d8d (in FUN_00b89d80)
+  READ @ 0x00baa940 (in FUN_00baa850)
+  READ @ 0x00baaac9 (in FUN_00baa850)
+  READ @ 0x00bac9c3 (in FUN_00bac9c0)
+  READ @ 0x00bb2765 (in FUN_00bb2760)
+  READ @ 0x00b71360 (in FUN_00b71360)
+  READ @ 0x00bb6a83 (in FUN_00bb6a80)
+  READ @ 0x00bbef9c (in FUN_00bbef90)
+  READ @ 0x00bbf181 (in FUN_00bbef90)
+  READ @ 0x00bc9a5b (in FUN_00bc9a50)
+  READ @ 0x00bca983 (in FUN_00bca980)
+  READ @ 0x00bcbce3 (in FUN_00bcbce0)
+  READ @ 0x00bd4ba3 (in FUN_00bd4ba0)
+  WRITE @ 0x00b9d0b1 (in FUN_00b9d020)
+  WRITE @ 0x00b9d0ef (in FUN_00b9d020)
+  READ @ 0x00c043f3 (in FUN_00c043f0)
+  WRITE @ 0x00b63337 (in FUN_00b63320)
+  READ @ 0x00b7d204 (in FUN_00b7d200)
+  READ @ 0x00ba5ee0 (in ???)
+  READ @ 0x00bac98e (in ???)
+  READ @ 0x00b7c12c (in FUN_00b7c120)
+  READ @ 0x00bd4987 (in ???)
+  READ @ 0x00c02ede (in ???)
+  READ @ 0x00c0ce34 (in ???)
+  READ @ 0x00c0c687 (in FUN_00c0bd40)
+  WRITE @ 0x00b542a9 (in FUN_00b54280)
+  Total: 50 refs
+
+----------------------------------------------------------------------
+References TO 0x0126f74c (current NiD3DPass global)
+----------------------------------------------------------------------
+  WRITE @ 0x00e90933 (in FUN_00e90850)
+  READ @ 0x00b7dd50 (in FUN_00b7dd50)
+  READ @ 0x00b7dda4 (in FUN_00b7dd50)
+  READ @ 0x00b7c4ec (in FUN_00b7c3a0)
+  READ @ 0x00b7ddf5 (in FUN_00b7dde0)
+  READ @ 0x00b7de19 (in FUN_00b7dde0)
+  READ @ 0x00b7de46 (in FUN_00b7dde0)
+  READ @ 0x00b7de57 (in FUN_00b7dde0)
+  READ @ 0x00b7c785 (in FUN_00b7c750)
+  READ @ 0x00b7c81d (in FUN_00b7c7b0)
+  READ @ 0x00b7e165 (in FUN_00b7e150)
+  READ @ 0x00b7e189 (in FUN_00b7e150)
+  READ @ 0x00b7e1b6 (in FUN_00b7e150)
+  READ @ 0x00b7e1f3 (in FUN_00b7e150)
+  READ @ 0x00b7e205 (in FUN_00b7e150)
+  READ @ 0x00b7e218 (in FUN_00b7e150)
+  READ @ 0x00b7e279 (in FUN_00b7e150)
+  READ @ 0x00b7dee8 (in FUN_00b7ded0)
+  READ @ 0x00b7df0c (in FUN_00b7ded0)
+  READ @ 0x00b7df39 (in FUN_00b7ded0)
+  READ @ 0x00b7df4a (in FUN_00b7ded0)
+  READ @ 0x00b7df9b (in FUN_00b7ded0)
+  READ @ 0x00b7c853 (in FUN_00b7c850)
+  READ @ 0x00b7c993 (in FUN_00b7c850)
+  READ @ 0x00b7dffc (in FUN_00b7dfe0)
+  READ @ 0x00b7e020 (in FUN_00b7dfe0)
+  READ @ 0x00b7e04d (in FUN_00b7dfe0)
+  READ @ 0x00b7e05e (in FUN_00b7dfe0)
+  READ @ 0x00b7e0e5 (in FUN_00b7dfe0)
+  READ @ 0x00b7e10c (in FUN_00b7dfe0)
+  READ @ 0x00b7cb2a (in FUN_00b7cb00)
+  READ @ 0x00b7cc66 (in FUN_00b7cb00)
+  READ @ 0x00e814ba (in FUN_00e814b0)
+  WRITE @ 0x00e80766 (in FUN_00e806c0)
+  WRITE @ 0x00b7af91 (in FUN_00b7af80)
+  READ @ 0x00b7b69d (in FUN_00b7b450)
+  READ @ 0x00b7dcb0 (in FUN_00b7dab0)
+  READ @ 0x00b7dceb (in FUN_00b7dab0)
+  WRITE @ 0x00b7ad73 (in FUN_00b7ad00)
+  READ @ 0x00b7cf24 (in FUN_00b7ce90)
+  READ @ 0x00b7cf44 (in FUN_00b7ce90)
+  READ @ 0x00b7cf65 (in FUN_00b7ce90)
+  WRITE @ 0x00b7cf9c (in FUN_00b7ce90)
+  READ @ 0x00b80cb4 (in FUN_00b80c20)
+  READ @ 0x00b80cf1 (in FUN_00b80c20)
+  READ @ 0x00b86afc (in FUN_00b864d0)
+  READ @ 0x00b86b39 (in FUN_00b864d0)
+  READ @ 0x00b8a0d3 (in FUN_00b89d80)
+  READ @ 0x00b8a10f (in FUN_00b89d80)
+  WRITE @ 0x00b92136 (in FUN_00b91f90)
+  READ @ 0x00bacc85 (in FUN_00bac9c0)
+  READ @ 0x00baccc1 (in FUN_00bac9c0)
+  WRITE @ 0x00bb25bd (in FUN_00bb2580)
+  READ @ 0x00bb26f8 (in FUN_00bb26d0)
+  READ @ 0x00bb2978 (in FUN_00bb2760)
+  READ @ 0x00bb29b5 (in FUN_00bb2760)
+  READ @ 0x00bb6adc (in FUN_00bb6a80)
+  READ @ 0x00bb6b19 (in FUN_00bb6a80)
+  READ @ 0x00bbf060 (in FUN_00bbef90)
+  READ @ 0x00bbf4bc (in FUN_00bbef90)
+  READ @ 0x00bbf4ce (in FUN_00bbef90)
+  READ @ 0x00bbf501 (in FUN_00bbef90)
+  READ @ 0x00bbf53e (in FUN_00bbef90)
+  READ @ 0x00bc9bc0 (in FUN_00bc9a50)
+  READ @ 0x00bc9c35 (in FUN_00bc9a50)
+  READ @ 0x00bca7a3 (in FUN_00bca760)
+  READ @ 0x00bca7be (in FUN_00bca760)
+  READ @ 0x00bca7dd (in FUN_00bca760)
+  READ @ 0x00bca803 (in FUN_00bca760)
+  READ @ 0x00bca81c (in FUN_00bca760)
+  READ @ 0x00bca84e (in FUN_00bca760)
+  READ @ 0x00bca85a (in FUN_00bca760)
+  READ @ 0x00bca87c (in FUN_00bca760)
+  READ @ 0x00bca8bc (in FUN_00bca760)
+  READ @ 0x00bca8d4 (in FUN_00bca760)
+  READ @ 0x00bcaa5e (in FUN_00bca980)
+  READ @ 0x00bcaaa0 (in FUN_00bca980)
+  READ @ 0x00bcbe7e (in FUN_00bcbce0)
+  READ @ 0x00bcbeb1 (in FUN_00bcbce0)
+  READ @ 0x00b7d066 (in FUN_00b7cfb0)
+  READ @ 0x00b7d07b (in FUN_00b7cfb0)
+  ... (truncated)
+  Total: 81 refs
+
+----------------------------------------------------------------------
+References TO 0x0126f92c (sampler type map global)
+----------------------------------------------------------------------
+  WRITE @ 0x00e885e1 (in FUN_00e881a0)
+  DATA @ 0x00e890c4 (in FUN_00e890c0)
+  DATA @ 0x00e910f4 (in ???)
+  DATA @ 0x00e910a5 (in FUN_00e910a0)
+  DATA @ 0x00e91125 (in FUN_00e91120)
+  Total: 5 refs
+
+----------------------------------------------------------------------
+References TO 0x011af70c (ModelLoader loading-complete flag)
+----------------------------------------------------------------------
+  WRITE @ 0x00452e46 (in FUN_00452e40)
+  WRITE @ 0x00c3dfb7 (in FUN_00c3dfa0)
+  WRITE @ 0x00c3e00b (in FUN_00c3dfa0)
+  WRITE @ 0x00c3e194 (in FUN_00c3dfa0)
+  Total: 4 refs
+
+----------------------------------------------------------------------
+References TO 0x01202d98 (IOManager singleton)
+----------------------------------------------------------------------
+  READ @ 0x0086b2c1 (in FUN_0086a850)
+  READ @ 0x00448448 (in FUN_00448420)
+  READ @ 0x004484b1 (in FUN_00448420)
+  READ @ 0x00448532 (in FUN_00448420)
+  READ @ 0x004485a6 (in FUN_00448420)
+  READ @ 0x004485bf (in FUN_00448420)
+  READ @ 0x004485c7 (in FUN_00448420)
+  READ @ 0x004485d2 (in FUN_00448420)
+  READ @ 0x004455d6 (in FUN_00445570)
+  READ @ 0x00445637 (in FUN_00445570)
+  READ @ 0x0054a5bc (in FUN_0054a070)
+  READ @ 0x0054a5c3 (in FUN_0054a070)
+  READ @ 0x0063fc3a (in FUN_0063fb70)
+  READ @ 0x0063fc42 (in FUN_0063fb70)
+  READ @ 0x006fa516 (in FUN_006fa420)
+  READ @ 0x006f549d (in FUN_006f5370)
+  READ @ 0x006f54c5 (in FUN_006f5370)
+  READ @ 0x006f7711 (in FUN_006f76b0)
+  READ @ 0x00837181 (in FUN_00837060)
+  READ @ 0x00837189 (in FUN_00837060)
+  READ @ 0x008492cb (in FUN_008492b0)
+  READ @ 0x0084934e (in FUN_008492b0)
+  READ @ 0x00849359 (in FUN_008492b0)
+  READ @ 0x00445536 (in FUN_004454d0)
+  READ @ 0x004508db (in FUN_00450770)
+  WRITE @ 0x00450909 (in FUN_00450770)
+  READ @ 0x00528043 (in FUN_00527fc0)
+  READ @ 0x00445496 (in FUN_00445430)
+  WRITE @ 0x0044fedc (in FUN_0044fb20)
+  READ @ 0x004429fc (in FUN_00442650)
+  READ @ 0x00442a0a (in FUN_00442650)
+  READ @ 0x00442a1a (in FUN_00442650)
+  READ @ 0x00442a2a (in FUN_00442650)
+  READ @ 0x00442a3a (in FUN_00442650)
+  READ @ 0x00442a4a (in FUN_00442650)
+  READ @ 0x00442a5a (in FUN_00442650)
+  READ @ 0x0086e891 (in FUN_0086e650)
+  READ @ 0x00456053 (in FUN_004556d0)
+  READ @ 0x004513bb (in FUN_004512c0)
+  READ @ 0x0045414d (in FUN_00453dc0)
+  READ @ 0x00454769 (in FUN_00454450)
+  READ @ 0x0046e46e (in FUN_0046ddb0)
+  READ @ 0x0052827a (in FUN_005281f0)
+  READ @ 0x00528355 (in FUN_005282d0)
+  READ @ 0x00528501 (in FUN_005283c0)
+  READ @ 0x00528509 (in FUN_005283c0)
+  READ @ 0x0044366d (in FUN_00443540)
+  READ @ 0x006f63f6 (in FUN_006f6370)
+  READ @ 0x006f642b (in FUN_006f6370)
+  READ @ 0x006f65c6 (in FUN_006f6540)
+  READ @ 0x006f65fb (in FUN_006f6540)
+  READ @ 0x00850bb3 (in FUN_00850ba0)
+  READ @ 0x00850bf7 (in FUN_00850bf0)
+  READ @ 0x00858b41 (in FUN_00858af0)
+  READ @ 0x00858e74 (in FUN_00858af0)
+  READ @ 0x00858e7f (in FUN_00858af0)
+  READ @ 0x008590bf (in FUN_00858af0)
+  READ @ 0x00856d61 (in FUN_00856ca0)
+  READ @ 0x008571da (in FUN_00856ca0)
+  READ @ 0x0086131f (in FUN_00861130)
+  READ @ 0x0086133f (in FUN_00861130)
+  READ @ 0x007fa99b (in FUN_007fa990)
+  READ @ 0x00877345 (in FUN_00877260)
+  READ @ 0x00878163 (in FUN_00878160)
+  READ @ 0x00878243 (in FUN_00878200)
+  READ @ 0x0093c56f (in FUN_0093c200)
+  READ @ 0x00847fe9 (in FUN_00847df0)
+  READ @ 0x00973440 (in FUN_00972d30)
+  READ @ 0x00addb82 (in FUN_00add960)
+  READ @ 0x00addb8a (in FUN_00add960)
+  READ @ 0x00b61b11 (in FUN_00b61980)
+  READ @ 0x00b61bc0 (in FUN_00b61980)
+  READ @ 0x00866c49 (in FUN_00866a90)
+  READ @ 0x00866c61 (in FUN_00866a90)
+  READ @ 0x00866c6e (in FUN_00866a90)
+  READ @ 0x00866c7b (in FUN_00866a90)
+  READ @ 0x00866c93 (in FUN_00866a90)
+  READ @ 0x00866ca0 (in FUN_00866a90)
+  READ @ 0x007b274e (in FUN_007b25a0)
+  READ @ 0x00adf15b (in FUN_00adf080)
+  READ @ 0x00adf383 (in FUN_00adf080)
+  ... (truncated)
+  Total: 81 refs
+
+----------------------------------------------------------------------
+References TO 0x011fdb08 (renderer/global candidate)
+----------------------------------------------------------------------
+  READ @ 0x00bebf23 (in FUN_00bebd20)
+  READ @ 0x00bed129 (in FUN_00bebd20)
+  READ @ 0x00c1818a (in FUN_00c17510)
+  DATA @ 0x00b7890c (in ???)
+  DATA @ 0x00b78934 (in ???)
+  READ @ 0x00b7884a (in ???)
+  WRITE @ 0x00b78870 (in ???)
+  Total: 7 refs
+
+----------------------------------------------------------------------
+References TO 0x011fde5c (renderer/global candidate)
+----------------------------------------------------------------------
+  READ @ 0x00bebee9 (in FUN_00bebd20)
+  READ @ 0x00bec1a5 (in FUN_00bebd20)
+  READ @ 0x00becbb2 (in FUN_00bebd20)
+  READ @ 0x00bece6a (in FUN_00bebd20)
+  READ @ 0x00b74127 (in FUN_00b71bf0)
+  WRITE @ 0x00b7414d (in FUN_00b71bf0)
+  Total: 6 refs
+
+----------------------------------------------------------------------
+References TO 0x011f9548 (renderer/global candidate)
+----------------------------------------------------------------------
+  DATA @ 0x00b5559f (in FUN_00b55560)
+  DATA @ 0x00b5571a (in FUN_00b55560)
+  DATA @ 0x00b556a5 (in FUN_00b55560)
+  DATA @ 0x00b556c2 (in FUN_00b55560)
+  DATA @ 0x00b556c8 (in FUN_00b55560)
+  READ @ 0x00b557d7 (in FUN_00b557d0)
+  READ @ 0x00b54930 (in FUN_00b54630)
+  READ @ 0x00b5495d (in FUN_00b54630)
+  WRITE @ 0x00b5497b (in FUN_00b54630)
+  READ @ 0x00b4f9a6 (in FUN_00b4f9a0)
+  DATA @ 0x00b4f9a1 (in FUN_00b4f9a0)
+  DATA @ 0x00b555a7 (in FUN_00b55560)
+  DATA @ 0x00b557d2 (in FUN_00b557d0)
+  DATA @ 0x00fb96ee (in ???)
+  READ @ 0x00b54310 (in FUN_00b54280)
+  WRITE @ 0x00b54329 (in FUN_00b54280)
+  DATA @ 0x00fdcb49 (in FUN_00fdcb40)
+  DATA @ 0x00b54308 (in FUN_00b54280)
+  Total: 18 refs

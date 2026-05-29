@@ -1,0 +1,610 @@
+======================================================================
+D3DX TEXTURE PATH AUDIT
+======================================================================
+Goal: explain why runtime create probes may not count while image-info does.
+
+======================================================================
+NiDX9SourceTextureData texture load @ 0x00e68a80
+======================================================================
+  Function: FUN_00e68a80 @ 0x00e68a80, Size: 1041 bytes
+
+void __thiscall
+FUN_00e68a80(undefined4 param_1,char *param_2,int *param_3,undefined4 param_4,int *param_5)
+
+{
+  char cVar1;
+  int iVar2;
+  int *piVar3;
+  void *_Src;
+  uint uVar4;
+  uint uVar5;
+  void *_Dst;
+  int *piVar6;
+  int *piStack_550;
+  int *piStack_54c;
+  undefined4 uStack_548;
+  void *local_544;
+  int *piStack_540;
+  uint uStack_53c;
+  uint uStack_538;
+  uint uStack_534;
+  uint uStack_530;
+  int iStack_524;
+  int iStack_520;
+  int iStack_51c;
+  uint uStack_518;
+  int *piStack_514;
+  undefined4 local_510;
+  char local_409 [769];
+  char local_108 [256];
+  uint uStack_8;
+  uint local_4;
+  
+  local_4 = DAT_011c16bc ^ (uint)&piStack_550;
+  local_510 = param_1;
+  if ((param_3 == (int *)0x0) || (local_544 = (void *)param_3[0xa2], local_544 == (void *)0x0)) {
+LAB_00e68e7e:
+    __security_check_cookie(local_4 ^ (uint)&piStack_550);
+    return;
+  }
+  if (param_5 == (int *)0x0) {
+    _strcpy_s(local_108,0x104,param_2);
+    FUN_00aa2a00(local_108);
+    FUN_00aa27d0(local_108);
+    iVar2 = __stricmp(local_409,".bmp");
+    if ((((iVar2 != 0) && (iVar2 = __stricmp(local_409,".tga"), iVar2 != 0)) &&
+        (iVar2 = __stricmp(local_409,".dds"), iVar2 != 0)) ||
+       (param_5 = (int *)thunk_FUN_00aa1b60(local_108,0,0x8000), param_5 == (int *)0x0))
+    goto LAB_00e68e7e;
+  }
+  cVar1 = (**(code **)(*param_5 + 4))();
+  if (cVar1 == '\0') {
+    (**(code **)*param_5)(1);
+    goto LAB_00e68e7e;
+  }
+  piVar3 = (int *)(*(code *)((undefined4 *)*param_5)[7])();
+  piStack_54c = piVar3;
+  if (piVar3 == (int *)0x0) {
+    (**(code **)*param_5)(1);
+    goto LAB_00e68c1e;
+  }
+  _Src = (void *)FUN_00aa1070(piVar3);
+  FUN_00462d80(_Src,piVar3);
+  (**(code **)*param_5)(1);
+  iVar2 = D3DXGetImageInfoFromFileInMemory(_Src,piVar3,&uStack_534);
+  if ((iVar2 < 0) ||
+     (((((*param_3 == 4 && (iStack_524 != 0x3c)) &&
+        ((iStack_524 != 0x3f && ((iStack_524 != 0x40 && (iStack_524 != 0x6e)))))) &&
+       (iStack_524 != 0x75)) &&
+      (((iStack_524 != 0x3d && (iStack_524 != 0x3e)) && (iStack_524 != 0x43)))))) {
+    FUN_00aa10f0(_Src);
+    goto LAB_00e68c1e;
+  }
+  uStack_538 = uStack_530;
+  piVar6 = (int *)0x0;
+  uStack_518 = uStack_534;
+  if (iStack_520 == 3) {
+    piStack_540 = (int *)0x0;
+    _Dst = _Src;
+    piVar6 = piVar3;
+    if ((iStack_51c == 4) && ((*(byte *)((int)_Src + 0x50) & 4) != 0)) {
+      iVar2 = *(int *)((int)_Src + 0x54);
+      if (iVar2 == 0x31545844) {
+        uStack_53c = 2;
+      }
+      else {
+        if (((iVar2 != 0x32545844) && (iVar2 != 0x33545844)) &&
+           ((iVar2 != 0x34545844 && (iVar2 != 0x35545844)))) goto LAB_00e68dc1;
+        uStack_53c = 1;
+      }
+      piStack_54c = *(int **)((int)_Src + 0x1c);
+      local_544 = (void *)((int)_Src + 0x80);
+      piVar6 = (int *)((int)piStack_54c - (int)DAT_0126efc4);
+      if ((int *)((int)piStack_54c - (int)DAT_0126efc4) <= DAT_0126efc8) {
+        piVar6 = DAT_0126efc8;
+      }
+      if ((piStack_54c <= DAT_0126efc4) && (piVar6 = piStack_54c, DAT_0126efc8 <= piStack_54c)) {
+        piVar6 = DAT_0126efc8;
+      }
+      if (piVar6 < piStack_54c) {
+        iVar2 = (int)piStack_54c - (int)piVar6;
+        do {
+          uVar5 = 1;
+          if (uStack_534 >> 2 != 0) {
+            uVar5 = uStack_534 >> 2;
+          }
+          uVar4 = uStack_530 >> 2;
+          if (uVar4 == 0) {
+            uVar4 = 1;
+          }
+          uVar5 = (uVar4 * uVar5 * 0x10) / uStack_53c;
+          local_544 = (void *)((int)local_544 + uVar5);
+          piVar3 = (int *)((int)piVar3 - uVar5);
+          uVar5 = uStack_534 >> 1;
+          uStack_534 = 1;
+          if (uVar5 != 0) {
+            uStack_534 = uVar5;
+          }
+          uVar5 = uStack_530 >> 1;
+          uStack_530 = 1;
+          if (uVar5 != 0) {
+            uStack_530 = uVar5;
+          }
+          piStack_54c = (int *)((int)piStack_54c - 1);
+          iVar2 = iVar2 + -1;
+        } while (iVar2 != 0);
+      }
+      piVar6 = piStack_550;
+      if (piStack_54c != *(int **)((int)_Src + 0x1c)) {
+        _Dst = (void *)FUN_00aa3e40(piVar3);
+        _memcpy(_Dst,_Src,0x80);
+        *(uint *)((int)_Dst + 0x10) = uStack_534;
+        *(uint *)((int)_Dst + 0xc) = uStack_530;
+        *(int **)((int)_Dst + 0x1c) = piStack_54c;
+        *(uint *)((int)_Dst + 0x14) = uStack_530 * uStack_534;
+        _memcpy((void *)((int)_Dst + 0x80),local_544,(size_t)(piVar3 + -0x20));
+        FUN_00aa4060(_Src);
+        piVar6 = piStack_550;
+      }
+    }
+LAB_00e68dc1:
+    iVar2 = D3DXCreateTextureFromFileInMemory(uStack_548,_Dst,piVar6,&piStack_540);
+    _Src = _Dst;
+    piVar6 = piStack_540;
+  }
+  else if (iStack_520 == 5) {
+    piStack_550 = (int *)0x0;
+    iVar2 = D3DXCreateCubeTextureFromFileInMemory(uStack_548,_Src,piVar3,&piStack_550);
+    piVar6 = piStack_550;
+  }
+  else if (iStack_520 == 4) {
+    iVar2 = D3DXCreateVolumeTextureFromFileInMemory(uStack_548,_Src,piVar3,&stack0xfffffaac);
+    piVar6 = (int *)0x0;
+  }
+  else {
+    iVar2 = -0x7789f794;
+  }
+  FUN_00aa10f0(_Src);
+  if ((-1 < iVar2) && (piVar6 != (int *)0x0)) {
+    cVar1 = (**(code **)(*piStack_514 + 0xb0))(piVar6);
+    piStack_514[3] = uStack_518;
+    piStack_514[4] = uStack_538;
+    if (cVar1 == '\0') {
+      (**(code **)(*piVar6 + 8))(piVar6);
+    }
+  }
+LAB_00e68c1e:
+  __security_check_cookie(uStack_8 ^ (uint)&stack0xfffffaac);
+  return;
+}
+
+
+
+--- Calls FROM NiDX9SourceTextureData texture load (0x00e68a80) ---
+  0x00e68ade -> 0x00ec65a6 _strcpy_s
+  0x00e68aeb -> 0x00aa2a00 FUN_00aa2a00
+  0x00e68aff -> 0x00aa27d0 FUN_00aa27d0
+  0x00e68b11 -> 0x00aa1360 __stricmp
+  0x00e68b2a -> 0x00aa1360 __stricmp
+  0x00e68b43 -> 0x00aa1360 __stricmp
+  0x00e68b62 -> 0x00aa1a20 thunk_FUN_00aa1b60
+  0x00e68ba9 -> 0x00aa1070 FUN_00aa1070
+  0x00e68bb7 -> 0x00462d80 FUN_00462d80
+  0x00e68bcd -> 0x00ee6e22 D3DXGetImageInfoFromFileInMemory
+  0x00e68c13 -> 0x00aa10f0 FUN_00aa10f0
+  0x00e68c29 -> 0x00ec408c __security_check_cookie
+  0x00e68d64 -> 0x00aa3e40 FUN_00aa3e40
+  0x00e68d72 -> 0x00ec44d0 _memcpy
+  0x00e68da8 -> 0x00ec44d0 _memcpy
+  0x00e68db6 -> 0x00aa4060 FUN_00aa4060
+  0x00e68dcd -> 0x00ee6e1c D3DXCreateTextureFromFileInMemory
+  0x00e68df3 -> 0x00ee6e16 D3DXCreateCubeTextureFromFileInMemory
+  0x00e68e18 -> 0x00ee6e10 D3DXCreateVolumeTextureFromFileInMemory
+  0x00e68e2b -> 0x00aa10f0 FUN_00aa10f0
+  0x00e68e8a -> 0x00ec408c __security_check_cookie
+  Total: 21 calls
+
+----------------------------------------------------------------------
+Import/symbol refs: D3DXGetImageInfoFromFileInMemory
+----------------------------------------------------------------------
+  Symbol D3DXGetImageInfoFromFileInMemory @ EXTERNAL:000000f1
+    DATA @ 0x00fdf3f8 in ???
+    COMPUTED_JUMP @ 0x00ee6e22 in D3DXGetImageInfoFromFileInMemory
+  Total refs printed: 2
+
+----------------------------------------------------------------------
+Import/symbol refs: D3DXCreateTextureFromFileInMemory
+----------------------------------------------------------------------
+  Symbol D3DXCreateTextureFromFileInMemory @ EXTERNAL:000000f2
+    DATA @ 0x00fdf3fc in ???
+    COMPUTED_JUMP @ 0x00ee6e1c in D3DXCreateTextureFromFileInMemory
+  Total refs printed: 2
+
+----------------------------------------------------------------------
+Import/symbol refs: D3DXCreateTextureFromFileInMemoryEx
+----------------------------------------------------------------------
+  Total refs printed: 0
+
+----------------------------------------------------------------------
+Import/symbol refs: D3DXCreateCubeTextureFromFileInMemory
+----------------------------------------------------------------------
+  Symbol D3DXCreateCubeTextureFromFileInMemory @ EXTERNAL:000000f3
+    DATA @ 0x00fdf400 in ???
+    COMPUTED_JUMP @ 0x00ee6e16 in D3DXCreateCubeTextureFromFileInMemory
+  Total refs printed: 2
+
+----------------------------------------------------------------------
+Import/symbol refs: D3DXCreateVolumeTextureFromFileInMemory
+----------------------------------------------------------------------
+  Symbol D3DXCreateVolumeTextureFromFileInMemory @ EXTERNAL:000000f4
+    DATA @ 0x00fdf404 in ???
+    COMPUTED_JUMP @ 0x00ee6e10 in D3DXCreateVolumeTextureFromFileInMemory
+  Total refs printed: 2
+
+----------------------------------------------------------------------
+Import/symbol refs: D3DXCreateTextureFromFileA
+----------------------------------------------------------------------
+  Total refs printed: 0
+
+----------------------------------------------------------------------
+Import/symbol refs: D3DXCreateCubeTextureFromFileA
+----------------------------------------------------------------------
+  Total refs printed: 0
+
+----------------------------------------------------------------------
+Import/symbol refs: D3DXCreateVolumeTextureFromFileA
+----------------------------------------------------------------------
+  Total refs printed: 0
+
+======================================================================
+IMPORT THUNK: D3DXGetImageInfoFromFileInMemory @ 0x00ee6e22
+======================================================================
+
+----------------------------------------------------------------------
+Disassembly D3DXGetImageInfoFromFileInMemory around 0x00ee6e22
+----------------------------------------------------------------------
+  0x00ee6e16: JMP dword ptr [0x00fdf400]                  
+  0x00ee6e1c: JMP dword ptr [0x00fdf3fc]                  
+  0x00ee6e22: JMP dword ptr [0x00fdf3f8]                   << TARGET
+  0x00ee6e28: JMP dword ptr [0x00fdf3f4]                  
+  0x00ee6e2e: JMP dword ptr [0x00fdf3f0]                  
+  0x00ee6e34: JMP dword ptr [0x00fdf3ec]                  
+  0x00ee6e3a: JMP dword ptr [0x00fdf3e8]                  
+
+----------------------------------------------------------------------
+References TO 0x00ee6e22 (D3DXGetImageInfoFromFileInMemory)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x00e68bcd (in FUN_00e68a80)
+  Total: 1 refs
+
+======================================================================
+IMPORT THUNK: D3DXCreateTextureFromFileInMemory @ 0x00ee6e1c
+======================================================================
+
+----------------------------------------------------------------------
+Disassembly D3DXCreateTextureFromFileInMemory around 0x00ee6e1c
+----------------------------------------------------------------------
+  0x00ee6e10: JMP dword ptr [0x00fdf404]                  
+  0x00ee6e16: JMP dword ptr [0x00fdf400]                  
+  0x00ee6e1c: JMP dword ptr [0x00fdf3fc]                   << TARGET
+  0x00ee6e22: JMP dword ptr [0x00fdf3f8]                  
+  0x00ee6e28: JMP dword ptr [0x00fdf3f4]                  
+  0x00ee6e2e: JMP dword ptr [0x00fdf3f0]                  
+  0x00ee6e34: JMP dword ptr [0x00fdf3ec]                  
+
+----------------------------------------------------------------------
+References TO 0x00ee6e1c (D3DXCreateTextureFromFileInMemory)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x00e68dcd (in FUN_00e68a80)
+  Total: 1 refs
+
+======================================================================
+IMPORT THUNK: D3DXCreateCubeTextureFromFileInMemory @ 0x00ee6e16
+======================================================================
+
+----------------------------------------------------------------------
+Disassembly D3DXCreateCubeTextureFromFileInMemory around 0x00ee6e16
+----------------------------------------------------------------------
+  0x00ee6e0a: JMP dword ptr [0x00fdf408]                  
+  0x00ee6e10: JMP dword ptr [0x00fdf404]                  
+  0x00ee6e16: JMP dword ptr [0x00fdf400]                   << TARGET
+  0x00ee6e1c: JMP dword ptr [0x00fdf3fc]                  
+  0x00ee6e22: JMP dword ptr [0x00fdf3f8]                  
+  0x00ee6e28: JMP dword ptr [0x00fdf3f4]                  
+  0x00ee6e2e: JMP dword ptr [0x00fdf3f0]                  
+
+----------------------------------------------------------------------
+References TO 0x00ee6e16 (D3DXCreateCubeTextureFromFileInMemory)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x00e68df3 (in FUN_00e68a80)
+  Total: 1 refs
+
+======================================================================
+IMPORT THUNK: D3DXCreateVolumeTextureFromFileInMemory @ 0x00ee6e10
+======================================================================
+
+----------------------------------------------------------------------
+Disassembly D3DXCreateVolumeTextureFromFileInMemory around 0x00ee6e10
+----------------------------------------------------------------------
+  0x00ee6e04: JMP dword ptr [0x00fdf40c]                  
+  0x00ee6e0a: JMP dword ptr [0x00fdf408]                  
+  0x00ee6e10: JMP dword ptr [0x00fdf404]                   << TARGET
+  0x00ee6e16: JMP dword ptr [0x00fdf400]                  
+  0x00ee6e1c: JMP dword ptr [0x00fdf3fc]                  
+  0x00ee6e22: JMP dword ptr [0x00fdf3f8]                  
+  0x00ee6e28: JMP dword ptr [0x00fdf3f4]                  
+
+----------------------------------------------------------------------
+References TO 0x00ee6e10 (D3DXCreateVolumeTextureFromFileInMemory)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x00e68e18 (in FUN_00e68a80)
+  Total: 1 refs
+
+======================================================================
+D3DX CALLSITE: image info @ 0x00e68bcd
+======================================================================
+  Instruction: CALL 0x00ee6e22
+  CALL target: 0x00ee6e22 D3DXGetImageInfoFromFileInMemory
+
+----------------------------------------------------------------------
+Disassembly image info around 0x00e68bcd
+----------------------------------------------------------------------
+  0x00e68bb7: CALL 0x00462d80                             
+  0x00e68bbc: MOV EDX,dword ptr [ESI]                     
+  0x00e68bbe: MOV EAX,dword ptr [EDX]                     
+  0x00e68bc0: PUSH 0x1                                    
+  0x00e68bc2: MOV ECX,ESI                                 
+  0x00e68bc4: CALL EAX                                    
+  0x00e68bc6: LEA ECX,[ESP + 0x2c]                        
+  0x00e68bca: PUSH ECX                                    
+  0x00e68bcb: PUSH EDI                                    
+  0x00e68bcc: PUSH EBX                                    
+  0x00e68bcd: CALL 0x00ee6e22                              << TARGET
+  0x00e68bd2: TEST EAX,EAX                                
+  0x00e68bd4: JL 0x00e68c12                               
+  0x00e68bd6: MOV EDX,dword ptr [ESP + 0x568]             
+  0x00e68bdd: MOV ECX,0x4                                 
+  0x00e68be2: CMP dword ptr [EDX],ECX                     
+  0x00e68be4: JNZ 0x00e68c37                              
+  0x00e68be6: MOV EAX,dword ptr [ESP + 0x3c]              
+  0x00e68bea: CMP EAX,0x3c                                
+  0x00e68bed: JZ 0x00e68c37                               
+  0x00e68bef: CMP EAX,0x3f                                
+  0x00e68bf2: JZ 0x00e68c37                               
+  0x00e68bf4: CMP EAX,0x40                                
+  0x00e68bf7: JZ 0x00e68c37                               
+  0x00e68bf9: CMP EAX,0x6e                                
+  0x00e68bfc: JZ 0x00e68c37                               
+  0x00e68bfe: CMP EAX,0x75                                
+  0x00e68c01: JZ 0x00e68c37                               
+  0x00e68c03: CMP EAX,0x3d                                
+
+======================================================================
+D3DX CALLSITE: 2D texture create @ 0x00e68dcd
+======================================================================
+  Instruction: CALL 0x00ee6e1c
+  CALL target: 0x00ee6e1c D3DXCreateTextureFromFileInMemory
+
+----------------------------------------------------------------------
+Disassembly 2D texture create around 0x00e68dcd
+----------------------------------------------------------------------
+  0x00e68db1: MOV ECX,0x11f6238                           
+  0x00e68db6: CALL 0x00aa4060                             
+  0x00e68dbb: MOV EBX,ESI                                 
+  0x00e68dbd: MOV EDI,dword ptr [ESP + 0x14]              
+  0x00e68dc1: MOV EAX,dword ptr [ESP + 0x1c]              
+  0x00e68dc5: LEA EDX,[ESP + 0x24]                        
+  0x00e68dc9: PUSH EDX                                    
+  0x00e68dca: PUSH EDI                                    
+  0x00e68dcb: PUSH EBX                                    
+  0x00e68dcc: PUSH EAX                                    
+  0x00e68dcd: CALL 0x00ee6e1c                              << TARGET
+  0x00e68dd2: MOV ESI,dword ptr [ESP + 0x24]              
+  0x00e68dd6: MOV EDI,EAX                                 
+  0x00e68dd8: JMP 0x00e68e2a                              
+  0x00e68dda: CMP EAX,0x5                                 
+  0x00e68ddd: JNZ 0x00e68e00                              
+  0x00e68ddf: MOV EDX,dword ptr [ESP + 0x1c]              
+  0x00e68de3: LEA ECX,[ESP + 0x14]                        
+  0x00e68de7: PUSH ECX                                    
+  0x00e68de8: PUSH EDI                                    
+  0x00e68de9: PUSH EBX                                    
+  0x00e68dea: PUSH EDX                                    
+  0x00e68deb: MOV dword ptr [ESP + 0x24],0x0              
+  0x00e68df3: CALL 0x00ee6e16                             
+  0x00e68df8: MOV ESI,dword ptr [ESP + 0x14]              
+  0x00e68dfc: MOV EDI,EAX                                 
+  0x00e68dfe: JMP 0x00e68e2a                              
+  0x00e68e00: CMP EAX,ECX                                 
+  0x00e68e02: JNZ 0x00e68e25                              
+
+======================================================================
+D3DX CALLSITE: cube texture create @ 0x00e68df3
+======================================================================
+  Instruction: CALL 0x00ee6e16
+  CALL target: 0x00ee6e16 D3DXCreateCubeTextureFromFileInMemory
+
+----------------------------------------------------------------------
+Disassembly cube texture create around 0x00e68df3
+----------------------------------------------------------------------
+  0x00e68dd8: JMP 0x00e68e2a                              
+  0x00e68dda: CMP EAX,0x5                                 
+  0x00e68ddd: JNZ 0x00e68e00                              
+  0x00e68ddf: MOV EDX,dword ptr [ESP + 0x1c]              
+  0x00e68de3: LEA ECX,[ESP + 0x14]                        
+  0x00e68de7: PUSH ECX                                    
+  0x00e68de8: PUSH EDI                                    
+  0x00e68de9: PUSH EBX                                    
+  0x00e68dea: PUSH EDX                                    
+  0x00e68deb: MOV dword ptr [ESP + 0x24],0x0              
+  0x00e68df3: CALL 0x00ee6e16                              << TARGET
+  0x00e68df8: MOV ESI,dword ptr [ESP + 0x14]              
+  0x00e68dfc: MOV EDI,EAX                                 
+  0x00e68dfe: JMP 0x00e68e2a                              
+  0x00e68e00: CMP EAX,ECX                                 
+  0x00e68e02: JNZ 0x00e68e25                              
+  0x00e68e04: MOV ECX,dword ptr [ESP + 0x1c]              
+  0x00e68e08: LEA EAX,[ESP + 0x10]                        
+  0x00e68e0c: PUSH EAX                                    
+  0x00e68e0d: PUSH EDI                                    
+  0x00e68e0e: PUSH EBX                                    
+  0x00e68e0f: PUSH ECX                                    
+  0x00e68e10: MOV dword ptr [ESP + 0x20],0x0              
+  0x00e68e18: CALL 0x00ee6e10                             
+  0x00e68e1d: MOV ESI,dword ptr [ESP + 0x10]              
+  0x00e68e21: MOV EDI,EAX                                 
+  0x00e68e23: JMP 0x00e68e2a                              
+  0x00e68e25: MOV EDI,0x8876086c                          
+  0x00e68e2a: PUSH EBX                                    
+
+======================================================================
+D3DX CALLSITE: volume texture create @ 0x00e68e18
+======================================================================
+  Instruction: CALL 0x00ee6e10
+  CALL target: 0x00ee6e10 D3DXCreateVolumeTextureFromFileInMemory
+
+----------------------------------------------------------------------
+Disassembly volume texture create around 0x00e68e18
+----------------------------------------------------------------------
+  0x00e68dfe: JMP 0x00e68e2a                              
+  0x00e68e00: CMP EAX,ECX                                 
+  0x00e68e02: JNZ 0x00e68e25                              
+  0x00e68e04: MOV ECX,dword ptr [ESP + 0x1c]              
+  0x00e68e08: LEA EAX,[ESP + 0x10]                        
+  0x00e68e0c: PUSH EAX                                    
+  0x00e68e0d: PUSH EDI                                    
+  0x00e68e0e: PUSH EBX                                    
+  0x00e68e0f: PUSH ECX                                    
+  0x00e68e10: MOV dword ptr [ESP + 0x20],0x0              
+  0x00e68e18: CALL 0x00ee6e10                              << TARGET
+  0x00e68e1d: MOV ESI,dword ptr [ESP + 0x10]              
+  0x00e68e21: MOV EDI,EAX                                 
+  0x00e68e23: JMP 0x00e68e2a                              
+  0x00e68e25: MOV EDI,0x8876086c                          
+  0x00e68e2a: PUSH EBX                                    
+  0x00e68e2b: CALL 0x00aa10f0                             
+  0x00e68e30: ADD ESP,0x4                                 
+  0x00e68e33: POP EBP                                     
+  0x00e68e34: TEST EDI,EDI                                
+  0x00e68e36: JL 0x00e68c1b                               
+  0x00e68e3c: TEST ESI,ESI                                
+  0x00e68e3e: JZ 0x00e68c1b                               
+  0x00e68e44: MOV EDI,dword ptr [ESP + 0x4c]              
+  0x00e68e48: MOV EDX,dword ptr [EDI]                     
+  0x00e68e4a: MOV EAX,dword ptr [EDX + 0xb0]              
+  0x00e68e50: PUSH ESI                                    
+  0x00e68e51: MOV ECX,EDI                                 
+  0x00e68e53: CALL EAX                                    
+
+======================================================================
+STEWIE-COMPATIBLE PATCH SURFACES
+======================================================================
+Stewie source patches 0x00E68DCD for bDontMirrorTexturesInRAM and 0x00E68BA9 for zeroing.
+
+----------------------------------------------------------------------
+Disassembly texture zeroing callsite around 0x00e68ba9
+----------------------------------------------------------------------
+  0x00e68b9b: MOV EAX,dword ptr [EDX]                     
+  0x00e68b9d: PUSH 0x1                                    
+  0x00e68b9f: MOV ECX,ESI                                 
+  0x00e68ba1: CALL EAX                                    
+  0x00e68ba3: XOR AL,AL                                   
+  0x00e68ba5: JMP 0x00e68c1e                              
+  0x00e68ba7: PUSH EBX                                    
+  0x00e68ba8: PUSH EDI                                    
+  0x00e68ba9: CALL 0x00aa1070                              << TARGET
+  0x00e68bae: ADD ESP,0x4                                 
+  0x00e68bb1: MOV EBX,EAX                                 
+  0x00e68bb3: PUSH EDI                                    
+  0x00e68bb4: PUSH EBX                                    
+  0x00e68bb5: MOV ECX,ESI                                 
+  0x00e68bb7: CALL 0x00462d80                             
+  0x00e68bbc: MOV EDX,dword ptr [ESI]                     
+  0x00e68bbe: MOV EAX,dword ptr [EDX]                     
+  0x00e68bc0: PUSH 0x1                                    
+  0x00e68bc2: MOV ECX,ESI                                 
+  0x00e68bc4: CALL EAX                                    
+  0x00e68bc6: LEA ECX,[ESP + 0x2c]                        
+  0x00e68bca: PUSH ECX                                    
+  0x00e68bcb: PUSH EDI                                    
+
+----------------------------------------------------------------------
+Disassembly texture create callsite around 0x00e68dcd
+----------------------------------------------------------------------
+  0x00e68dbb: MOV EBX,ESI                                 
+  0x00e68dbd: MOV EDI,dword ptr [ESP + 0x14]              
+  0x00e68dc1: MOV EAX,dword ptr [ESP + 0x1c]              
+  0x00e68dc5: LEA EDX,[ESP + 0x24]                        
+  0x00e68dc9: PUSH EDX                                    
+  0x00e68dca: PUSH EDI                                    
+  0x00e68dcb: PUSH EBX                                    
+  0x00e68dcc: PUSH EAX                                    
+  0x00e68dcd: CALL 0x00ee6e1c                              << TARGET
+  0x00e68dd2: MOV ESI,dword ptr [ESP + 0x24]              
+  0x00e68dd6: MOV EDI,EAX                                 
+  0x00e68dd8: JMP 0x00e68e2a                              
+  0x00e68dda: CMP EAX,0x5                                 
+  0x00e68ddd: JNZ 0x00e68e00                              
+  0x00e68ddf: MOV EDX,dword ptr [ESP + 0x1c]              
+  0x00e68de3: LEA ECX,[ESP + 0x14]                        
+  0x00e68de7: PUSH ECX                                    
+  0x00e68de8: PUSH EDI                                    
+  0x00e68de9: PUSH EBX                                    
+  0x00e68dea: PUSH EDX                                    
+  0x00e68deb: MOV dword ptr [ESP + 0x24],0x0              
+  0x00e68df3: CALL 0x00ee6e16                             
+  0x00e68df8: MOV ESI,dword ptr [ESP + 0x14]              
+
+----------------------------------------------------------------------
+Disassembly cube create callsite around 0x00e68df3
+----------------------------------------------------------------------
+  0x00e68ddd: JNZ 0x00e68e00                              
+  0x00e68ddf: MOV EDX,dword ptr [ESP + 0x1c]              
+  0x00e68de3: LEA ECX,[ESP + 0x14]                        
+  0x00e68de7: PUSH ECX                                    
+  0x00e68de8: PUSH EDI                                    
+  0x00e68de9: PUSH EBX                                    
+  0x00e68dea: PUSH EDX                                    
+  0x00e68deb: MOV dword ptr [ESP + 0x24],0x0              
+  0x00e68df3: CALL 0x00ee6e16                              << TARGET
+  0x00e68df8: MOV ESI,dword ptr [ESP + 0x14]              
+  0x00e68dfc: MOV EDI,EAX                                 
+  0x00e68dfe: JMP 0x00e68e2a                              
+  0x00e68e00: CMP EAX,ECX                                 
+  0x00e68e02: JNZ 0x00e68e25                              
+  0x00e68e04: MOV ECX,dword ptr [ESP + 0x1c]              
+  0x00e68e08: LEA EAX,[ESP + 0x10]                        
+  0x00e68e0c: PUSH EAX                                    
+  0x00e68e0d: PUSH EDI                                    
+  0x00e68e0e: PUSH EBX                                    
+  0x00e68e0f: PUSH ECX                                    
+  0x00e68e10: MOV dword ptr [ESP + 0x20],0x0              
+  0x00e68e18: CALL 0x00ee6e10                             
+  0x00e68e1d: MOV ESI,dword ptr [ESP + 0x10]              
+
+----------------------------------------------------------------------
+Disassembly volume create callsite around 0x00e68e18
+----------------------------------------------------------------------
+  0x00e68e02: JNZ 0x00e68e25                              
+  0x00e68e04: MOV ECX,dword ptr [ESP + 0x1c]              
+  0x00e68e08: LEA EAX,[ESP + 0x10]                        
+  0x00e68e0c: PUSH EAX                                    
+  0x00e68e0d: PUSH EDI                                    
+  0x00e68e0e: PUSH EBX                                    
+  0x00e68e0f: PUSH ECX                                    
+  0x00e68e10: MOV dword ptr [ESP + 0x20],0x0              
+  0x00e68e18: CALL 0x00ee6e10                              << TARGET
+  0x00e68e1d: MOV ESI,dword ptr [ESP + 0x10]              
+  0x00e68e21: MOV EDI,EAX                                 
+  0x00e68e23: JMP 0x00e68e2a                              
+  0x00e68e25: MOV EDI,0x8876086c                          
+  0x00e68e2a: PUSH EBX                                    
+  0x00e68e2b: CALL 0x00aa10f0                             
+  0x00e68e30: ADD ESP,0x4                                 
+  0x00e68e33: POP EBP                                     
+  0x00e68e34: TEST EDI,EDI                                
+  0x00e68e36: JL 0x00e68c1b                               
+  0x00e68e3c: TEST ESI,ESI                                
+  0x00e68e3e: JZ 0x00e68c1b                               
+  0x00e68e44: MOV EDI,dword ptr [ESP + 0x4c]              
+  0x00e68e48: MOV EDX,dword ptr [EDI]                     
