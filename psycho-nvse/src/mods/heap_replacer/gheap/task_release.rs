@@ -18,7 +18,7 @@ use windows::Win32::System::Memory::{MEM_COMMIT, PAGE_GUARD, PAGE_NOACCESS};
 
 use libpsycho::os::windows::winapi::virtual_query;
 
-use super::statics;
+use super::{pool, statics};
 
 const REFCOUNT_OFFSET: usize = 0x08;
 const QUEUED_TEXTURE_VTABLE: usize = 0x0101_6788;
@@ -26,11 +26,13 @@ const FNV_TEXT_START: usize = 0x0040_0000;
 const FNV_TEXT_END: usize = 0x00E0_0000;
 const FNV_RDATA_START: usize = 0x0100_0000;
 const FNV_RDATA_END: usize = 0x0110_0000;
+const DEAD_TASK_REFCOUNT: i32 = -0x7000_0000;
 
 static BAD_PTR_COUNT: AtomicU64 = AtomicU64::new(0);
 static NON_POSITIVE_COUNT: AtomicU64 = AtomicU64::new(0);
 static BAD_VTABLE_COUNT: AtomicU64 = AtomicU64::new(0);
 static QUEUED_TEXTURE_FINAL_COUNT: AtomicU64 = AtomicU64::new(0);
+static TOMBSTONE_COUNT: AtomicU64 = AtomicU64::new(0);
 static CONFIG_LOGGED: AtomicU64 = AtomicU64::new(0);
 
 pub unsafe extern "fastcall" fn hook_task_release(task: *mut c_void) {
@@ -50,6 +52,7 @@ pub unsafe extern "fastcall" fn hook_task_release(task: *mut c_void) {
         unsafe { ptr::read_unaligned((task as *const u8).add(REFCOUNT_OFFSET) as *const i32) };
 
     if refcount <= 0 {
+        tombstone_freed_task(task);
         log_guard(
             &NON_POSITIVE_COUNT,
             "non-positive-refcount",
@@ -104,6 +107,71 @@ pub unsafe extern "fastcall" fn hook_task_release(task: *mut c_void) {
     }
 
     call_original(task);
+}
+
+#[repr(C)]
+struct DeadTaskVTable {
+    dtor: DeadTaskDtorFn,
+    slot_04: DeadTaskNoArgFn,
+    slot_08: DeadTaskNoArgFn,
+    slot_0c: DeadTaskNoArgFn,
+    slot_10: DeadTaskNoArgFn,
+    slot_14: DeadTaskNoArgFn,
+    slot_18: DeadTaskNoArgFn,
+    slot_1c: DeadTaskOneArgFn,
+    slot_20: DeadTaskNoArgFn,
+}
+
+type DeadTaskDtorFn = unsafe extern "thiscall" fn(*mut c_void, u32) -> *mut c_void;
+type DeadTaskNoArgFn = unsafe extern "thiscall" fn(*mut c_void) -> usize;
+type DeadTaskOneArgFn = unsafe extern "thiscall" fn(*mut c_void, usize) -> usize;
+
+static DEAD_TASK_VTABLE: DeadTaskVTable = DeadTaskVTable {
+    dtor: dead_task_dtor,
+    slot_04: dead_task_no_arg,
+    slot_08: dead_task_no_arg,
+    slot_0c: dead_task_no_arg,
+    slot_10: dead_task_no_arg,
+    slot_14: dead_task_no_arg,
+    slot_18: dead_task_no_arg,
+    slot_1c: dead_task_one_arg,
+    slot_20: dead_task_no_arg,
+};
+
+unsafe extern "thiscall" fn dead_task_dtor(this: *mut c_void, _flags: u32) -> *mut c_void {
+    this
+}
+
+unsafe extern "thiscall" fn dead_task_no_arg(_this: *mut c_void) -> usize {
+    0
+}
+
+unsafe extern "thiscall" fn dead_task_one_arg(_this: *mut c_void, _arg: usize) -> usize {
+    0
+}
+
+fn tombstone_freed_task(task: *mut c_void) {
+    let dead_vtable = (&DEAD_TASK_VTABLE as *const DeadTaskVTable) as usize;
+    let Some(info) = pool::tombstone_free_cell(task, dead_vtable, DEAD_TASK_REFCOUNT) else {
+        return;
+    };
+
+    let n = TOMBSTONE_COUNT.fetch_add(1, Ordering::Relaxed) + 1;
+    if n.is_power_of_two() {
+        log::warn!(
+            "[TASK_RELEASE] tombstone total={} task=0x{:08x} pool#{} item={} cell={} state={}",
+            n,
+            task as usize,
+            info.pool_index,
+            info.item_size,
+            info.cell_index,
+            if info.is_deferred_free {
+                "deferred-free"
+            } else {
+                "free"
+            },
+        );
+    }
 }
 
 fn guard_enabled() -> bool {

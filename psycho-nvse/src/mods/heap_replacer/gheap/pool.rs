@@ -60,7 +60,7 @@
 
 use std::ptr::{self, null_mut};
 use std::sync::Mutex;
-use std::sync::atomic::{AtomicU8, AtomicU32, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU8, AtomicU32, AtomicU64, Ordering};
 
 use libc::c_void;
 use windows::Win32::System::Memory::{MEM_COMMIT, MEM_RESERVE, PAGE_READWRITE, VirtualAlloc};
@@ -372,6 +372,7 @@ pub struct PoolPtrInfo {
     pub offset: usize,
     pub committed: bool,
     pub is_free: bool,
+    pub is_deferred_free: bool,
 }
 
 // ---------------------------------------------------------------------------
@@ -402,9 +403,15 @@ struct Pool {
     /// free cells) AND there are no uncommitted blocks left. Also
     /// NULL before lazy init.
     next_free: *mut FreeLink,
+    /// Cells freed while ProcessDeferredDestruction is running. They
+    /// remain readable but are hidden from normal LIFO reuse until the
+    /// next frame maintenance point.
+    frozen_free: *mut FreeLink,
 
     /// Diagnostics: live cell count.
     live_cells: AtomicU32,
+    /// Diagnostics: cells currently hidden from reuse by the destruction guard.
+    frozen_cells: AtomicU32,
     /// Commit high-water mark in bytes (distance from base to cur).
     committed_bytes: AtomicU32,
 
@@ -442,7 +449,9 @@ impl Pool {
             end: ptr::null_mut(),
             free_cells: ptr::null_mut(),
             next_free: ptr::null_mut(),
+            frozen_free: ptr::null_mut(),
             live_cells: AtomicU32::new(0),
+            frozen_cells: AtomicU32::new(0),
             committed_bytes: AtomicU32::new(0),
             index: 0,
             state: AtomicU8::new(POOL_STATE_NOT_INIT),
@@ -493,14 +502,13 @@ impl Pool {
     }
 
     #[inline]
-    fn link_is_in_freelist(&self, target: *mut FreeLink) -> bool {
+    fn link_is_in_list(&self, mut cur: *mut FreeLink, target: *mut FreeLink) -> bool {
         if target.is_null() || self.free_cells.is_null() {
             return false;
         }
 
         let start = self.free_cells as usize;
         let end = start + self.max_cell_count as usize * std::mem::size_of::<FreeLink>();
-        let mut cur = self.next_free;
         let mut steps = 0usize;
 
         while !cur.is_null() && cur != FREE_LINK_TAIL && steps < self.max_cell_count as usize {
@@ -521,6 +529,17 @@ impl Pool {
         }
 
         false
+    }
+
+    #[inline]
+    fn link_is_free(&self, target: *mut FreeLink) -> bool {
+        self.link_is_in_list(self.next_free, target)
+            || self.link_is_in_list(self.frozen_free, target)
+    }
+
+    #[inline]
+    fn link_is_deferred_free(&self, target: *mut FreeLink) -> bool {
+        self.link_is_in_list(self.frozen_free, target)
     }
 
     /// Commit one more POOL_BLOCK_SIZE chunk from the reservation and
@@ -724,6 +743,7 @@ impl Pool {
     ///    1024/1280/2048/3072/3584) but does not eliminate the race.
     unsafe fn free(&mut self, cell: *mut u8) {
         let link = self.cell_to_link(cell);
+        let freeze_active = DESTRUCTION_FREEZE_DEPTH.load(Ordering::Acquire) != 0;
         unsafe {
             // Double-free guard: free cells always have either a real
             // next pointer or FREE_LINK_TAIL. Allocated cells are the
@@ -736,14 +756,89 @@ impl Pool {
                 );
                 return;
             }
-            (*link).next = if self.next_free.is_null() {
+            if freeze_active {
+                (*link).next = if self.frozen_free.is_null() {
+                    FREE_LINK_TAIL
+                } else {
+                    self.frozen_free
+                };
+                self.frozen_free = link;
+                self.frozen_cells.fetch_add(1, Ordering::Relaxed);
+                DESTRUCTION_FROZEN_TOTAL.fetch_add(1, Ordering::Relaxed);
+            } else {
+                (*link).next = if self.next_free.is_null() {
+                    FREE_LINK_TAIL
+                } else {
+                    self.next_free
+                };
+                self.next_free = link;
+            }
+        }
+        self.live_cells.fetch_sub(1, Ordering::Relaxed);
+    }
+
+    /// Move destruction-deferred frees back to the normal LIFO list.
+    /// Caller holds the pool lock and freeze depth is zero.
+    unsafe fn thaw_frozen(&mut self) -> u32 {
+        let head = self.frozen_free;
+        if head.is_null() {
+            return 0;
+        }
+
+        let start = self.free_cells as usize;
+        let end = start + self.max_cell_count as usize * std::mem::size_of::<FreeLink>();
+        let mut cur = head;
+        let mut tail = ptr::null_mut();
+        let mut count = 0u32;
+
+        while !cur.is_null() && cur != FREE_LINK_TAIL && count < self.max_cell_count {
+            let cur_addr = cur as usize;
+            if cur_addr < start
+                || cur_addr >= end
+                || (cur_addr - start) % std::mem::size_of::<FreeLink>() != 0
+            {
+                log::error!(
+                    "[POOL] Deferred free list corrupt: pool={} link=0x{:08x}",
+                    self.index,
+                    cur_addr,
+                );
+                return 0;
+            }
+
+            tail = cur;
+            cur = unsafe { (*cur).next };
+            count += 1;
+        }
+
+        if tail.is_null() || cur != FREE_LINK_TAIL {
+            log::error!(
+                "[POOL] Deferred free list refused: pool={} count={} max={}",
+                self.index,
+                count,
+                self.max_cell_count,
+            );
+            return 0;
+        }
+
+        unsafe {
+            (*tail).next = if self.next_free.is_null() {
                 FREE_LINK_TAIL
             } else {
                 self.next_free
             };
-            self.next_free = link;
         }
-        self.live_cells.fetch_sub(1, Ordering::Relaxed);
+        self.next_free = head;
+        self.frozen_free = ptr::null_mut();
+        let recorded = self.frozen_cells.swap(0, Ordering::Relaxed);
+        if recorded != 0 && recorded != count {
+            log::debug!(
+                "[POOL] Deferred free count adjusted: pool={} recorded={} scanned={}",
+                self.index,
+                recorded,
+                count,
+            );
+        }
+        count
     }
 
     /// Return true if `addr` is inside this pool's reservation.
@@ -772,6 +867,7 @@ impl Pool {
 
         let cell_start = self.base as usize + cell_index * self.item_size as usize;
         let link = unsafe { self.free_cells.add(cell_index) };
+        let is_deferred_free = self.link_is_deferred_free(link);
         Some(PoolPtrInfo {
             pool_index: self.index,
             item_size: self.item_size,
@@ -780,8 +876,31 @@ impl Pool {
             cell_start,
             offset: addr - cell_start,
             committed: cell_start + self.item_size as usize <= self.cur as usize,
-            is_free: self.link_is_in_freelist(link),
+            is_free: self.link_is_free(link),
+            is_deferred_free,
         })
+    }
+
+    unsafe fn tombstone_free_cell(
+        &mut self,
+        ptr: *mut c_void,
+        vtable: usize,
+        refcount: i32,
+    ) -> Option<PoolPtrInfo> {
+        let info = self.ptr_info(ptr)?;
+        if !info.committed || info.offset != 0 || info.item_size < 12 {
+            return None;
+        }
+        if !info.is_free && !info.is_deferred_free {
+            return None;
+        }
+
+        unsafe {
+            ptr::write_unaligned(info.cell_start as *mut usize, vtable);
+            ptr::write_unaligned((info.cell_start + 8) as *mut i32, refcount);
+        }
+
+        Some(info)
     }
 }
 
@@ -1307,6 +1426,22 @@ impl PoolHeap {
         self.pool_from_addr(ptr).and_then(|p| p.ptr_info(ptr))
     }
 
+    pub fn tombstone_free_cell(
+        &self,
+        ptr: *mut c_void,
+        vtable: usize,
+        refcount: i32,
+    ) -> Option<PoolPtrInfo> {
+        let pool = self.pool_from_addr(ptr)?;
+        unsafe {
+            let p = pool as *const Pool as *mut Pool;
+            (*p).acquire();
+            let result = (*p).tombstone_free_cell(ptr, vtable, refcount);
+            (*p).release();
+            result
+        }
+    }
+
     pub fn committed_bytes(&self) -> usize {
         self.pools
             .iter()
@@ -1328,6 +1463,13 @@ impl PoolHeap {
             .map(|p| p.live_cells.load(Ordering::Relaxed) as usize)
             .sum()
     }
+
+    pub fn deferred_free_cells(&self) -> usize {
+        self.pools
+            .iter()
+            .map(|p| p.frozen_cells.load(Ordering::Relaxed) as usize)
+            .sum()
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -1335,13 +1477,81 @@ impl PoolHeap {
 // ---------------------------------------------------------------------------
 
 use std::sync::OnceLock;
-use std::sync::atomic::AtomicU64;
-
 static HEAP: OnceLock<Box<PoolHeap>> = OnceLock::new();
 
 /// Total number of times `alloc` walked the full fallthrough chain
 /// and every pool refused. Power-of-two gated for log visibility.
 static POOL_EXHAUST_COUNT: AtomicU64 = AtomicU64::new(0);
+static DESTRUCTION_FREEZE_DEPTH: AtomicU32 = AtomicU32::new(0);
+static DESTRUCTION_THAW_PENDING: AtomicBool = AtomicBool::new(false);
+static DESTRUCTION_FROZEN_TOTAL: AtomicU64 = AtomicU64::new(0);
+static DESTRUCTION_THAWED_TOTAL: AtomicU64 = AtomicU64::new(0);
+static DESTRUCTION_THAW_EVENTS: AtomicU64 = AtomicU64::new(0);
+
+pub struct DestructionFreezeGuard;
+
+pub fn destruction_freeze_guard() -> DestructionFreezeGuard {
+    DESTRUCTION_FREEZE_DEPTH.fetch_add(1, Ordering::AcqRel);
+    DestructionFreezeGuard
+}
+
+impl Drop for DestructionFreezeGuard {
+    fn drop(&mut self) {
+        if DESTRUCTION_FREEZE_DEPTH.fetch_sub(1, Ordering::AcqRel) == 1 {
+            DESTRUCTION_THAW_PENDING.store(true, Ordering::Release);
+        }
+    }
+}
+
+/// Release cells hidden by the PDD reuse guard back to normal LIFO reuse.
+pub fn thaw_deferred_frees(reason: &'static str) {
+    if DESTRUCTION_FREEZE_DEPTH.load(Ordering::Acquire) != 0 {
+        return;
+    }
+    if !DESTRUCTION_THAW_PENDING.swap(false, Ordering::AcqRel) {
+        return;
+    }
+
+    let Some(heap) = HEAP.get() else {
+        return;
+    };
+
+    let mut total = 0u64;
+    for pool in &heap.pools {
+        if DESTRUCTION_FREEZE_DEPTH.load(Ordering::Acquire) != 0 {
+            DESTRUCTION_THAW_PENDING.store(true, Ordering::Release);
+            return;
+        }
+        if !pool.is_inited() {
+            continue;
+        }
+
+        unsafe {
+            let p = pool as *const Pool as *mut Pool;
+            (*p).acquire();
+            if DESTRUCTION_FREEZE_DEPTH.load(Ordering::Acquire) != 0 {
+                (*p).release();
+                DESTRUCTION_THAW_PENDING.store(true, Ordering::Release);
+                return;
+            }
+            total += (*p).thaw_frozen() as u64;
+            (*p).release();
+        }
+    }
+
+    if total > 0 {
+        let lifetime = DESTRUCTION_THAWED_TOTAL.fetch_add(total, Ordering::Relaxed) + total;
+        let events = DESTRUCTION_THAW_EVENTS.fetch_add(1, Ordering::Relaxed) + 1;
+        if total >= 1024 || events.is_power_of_two() {
+            log::debug!(
+                "[POOL] Destruction thaw: {} cells released to LIFO, total={} ({})",
+                total,
+                lifetime,
+                reason,
+            );
+        }
+    }
+}
 
 pub fn init() -> bool {
     match PoolHeap::create() {
@@ -1390,6 +1600,11 @@ pub fn ptr_info(ptr: *const c_void) -> Option<PoolPtrInfo> {
     HEAP.get().and_then(|h| h.ptr_info(ptr))
 }
 
+pub fn tombstone_free_cell(ptr: *mut c_void, vtable: usize, refcount: i32) -> Option<PoolPtrInfo> {
+    HEAP.get()
+        .and_then(|h| h.tombstone_free_cell(ptr, vtable, refcount))
+}
+
 pub fn committed_bytes() -> usize {
     HEAP.get().map(|h| h.committed_bytes()).unwrap_or(0)
 }
@@ -1400,6 +1615,10 @@ pub fn reserved_bytes() -> usize {
 
 pub fn live_cells() -> usize {
     HEAP.get().map(|h| h.live_cells()).unwrap_or(0)
+}
+
+pub fn deferred_free_cells() -> usize {
+    HEAP.get().map(|h| h.deferred_free_cells()).unwrap_or(0)
 }
 
 /// Crash diagnostic: describe the pool cell that owns `fault_addr`.
@@ -1420,6 +1639,7 @@ pub fn diagnose_ptr_buf(fault_addr: usize, r: &mut String) {
 
     let info = pool.ptr_info(fault_addr as *const c_void);
     let is_free = info.map(|i| i.is_free).unwrap_or(false);
+    let is_deferred_free = info.map(|i| i.is_deferred_free).unwrap_or(false);
 
     let _ = writeln!(r, "\n  Pool Cell Detail");
     let _ = writeln!(r, "  ----------------");
@@ -1445,5 +1665,12 @@ pub fn diagnose_ptr_buf(fault_addr: usize, r: &mut String) {
         pool.committed_mb(),
         pool.max_size / 1024 / 1024,
     );
-    let _ = writeln!(r, "  State:      {}", if is_free { "FREE" } else { "LIVE" });
+    let state = if is_deferred_free {
+        "DEFERRED_FREE"
+    } else if is_free {
+        "FREE"
+    } else {
+        "LIVE"
+    };
+    let _ = writeln!(r, "  State:      {}", state);
 }

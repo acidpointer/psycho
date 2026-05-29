@@ -73,6 +73,7 @@ static DEFAULT_TAIL_FIRST_BLOCK: AtomicUsize = AtomicUsize::new(0);
 static DEFAULT_TAIL_LAST_BLOCK: AtomicUsize = AtomicUsize::new(0);
 static DEFAULT_TAIL_FREE_COUNT: AtomicUsize = AtomicUsize::new(0);
 static DEFAULT_TAIL_LAST_POLL_MS: AtomicUsize = AtomicUsize::new(0);
+static DEFAULT_TAIL_FRONT_ACTIVITY_LOGGED: AtomicBool = AtomicBool::new(false);
 
 #[derive(Clone, Copy)]
 struct Snapshot {
@@ -482,26 +483,42 @@ fn default_tail_contract_intact() -> bool {
 
     let _lock = unsafe { lock_heap(heap) };
     let s = unsafe { Snapshot::read(heap) };
-    let ok = s.base == DEFAULT_TAIL_BASE.load(Ordering::Acquire)
-        && s.capacity == DEFAULT_TAIL_CAPACITY.load(Ordering::Acquire)
-        && s.bump_end == DEFAULT_TAIL_BUMP_END.load(Ordering::Acquire)
-        && s.high_water == DEFAULT_TAIL_HIGH_WATER.load(Ordering::Acquire)
-        && s.live_bytes == DEFAULT_TAIL_LIVE_BYTES.load(Ordering::Acquire)
-        && s.block_count == DEFAULT_TAIL_BLOCK_COUNT.load(Ordering::Acquire)
-        && s.first_block == DEFAULT_TAIL_FIRST_BLOCK.load(Ordering::Acquire)
-        && s.last_block == DEFAULT_TAIL_LAST_BLOCK.load(Ordering::Acquire)
-        && s.free_count == DEFAULT_TAIL_FREE_COUNT.load(Ordering::Acquire);
+    let expected_base = DEFAULT_TAIL_BASE.load(Ordering::Acquire);
+    let expected_capacity = DEFAULT_TAIL_CAPACITY.load(Ordering::Acquire);
+    let tail_start = expected_base.saturating_add(DEFAULT_TAIL_SKIP);
+    let tail_end = expected_base.saturating_add(expected_capacity);
+    let first_in_tail = s.first_block >= tail_start && s.first_block < tail_end;
+    let last_in_tail = s.last_block >= tail_start && s.last_block < tail_end;
+    let ok = s.base == expected_base
+        && s.capacity == expected_capacity
+        && s.bump_end <= DEFAULT_TAIL_SKIP
+        && s.high_water <= DEFAULT_TAIL_SKIP
+        && !first_in_tail
+        && !last_in_tail;
     if !ok {
         log::warn!(
-            "[VANILLA_HEAP_ADOPT] contract changed: base 0x{:08x}->0x{:08x}, cap {}MB->{}MB, bump {}KB->{}KB, high {}KB->{}KB, live {}KB->{}KB, blocks {}->{}, free {}->{}, first 0x{:08x}->0x{:08x}, last 0x{:08x}->0x{:08x}",
-            DEFAULT_TAIL_BASE.load(Ordering::Acquire),
+            "[VANILLA_HEAP_ADOPT] contract broken: base 0x{:08x}->0x{:08x}, cap {}MB->{}MB, bump {}KB, high {}KB, first 0x{:08x}, last 0x{:08x}, tail=0x{:08x}..0x{:08x}",
+            expected_base,
             s.base,
-            DEFAULT_TAIL_CAPACITY.load(Ordering::Acquire) / super::vas::MB,
+            expected_capacity / super::vas::MB,
             s.capacity / super::vas::MB,
-            DEFAULT_TAIL_BUMP_END.load(Ordering::Acquire) / 1024,
             s.bump_end / 1024,
-            DEFAULT_TAIL_HIGH_WATER.load(Ordering::Acquire) / 1024,
             s.high_water / 1024,
+            s.first_block,
+            s.last_block,
+            tail_start,
+            tail_end,
+        );
+    } else if !DEFAULT_TAIL_FRONT_ACTIVITY_LOGGED.load(Ordering::Relaxed)
+        && (s.live_bytes != DEFAULT_TAIL_LIVE_BYTES.load(Ordering::Acquire)
+            || s.block_count != DEFAULT_TAIL_BLOCK_COUNT.load(Ordering::Acquire)
+            || s.free_count != DEFAULT_TAIL_FREE_COUNT.load(Ordering::Acquire)
+            || s.first_block != DEFAULT_TAIL_FIRST_BLOCK.load(Ordering::Acquire)
+            || s.last_block != DEFAULT_TAIL_LAST_BLOCK.load(Ordering::Acquire))
+        && !DEFAULT_TAIL_FRONT_ACTIVITY_LOGGED.swap(true, Ordering::AcqRel)
+    {
+        log::debug!(
+            "[VANILLA_HEAP_ADOPT] Default front-zone activity tolerated: live {}KB->{}KB, blocks {}->{}, free {}->{}, first 0x{:08x}->0x{:08x}, last 0x{:08x}->0x{:08x}",
             DEFAULT_TAIL_LIVE_BYTES.load(Ordering::Acquire) / 1024,
             s.live_bytes / 1024,
             DEFAULT_TAIL_BLOCK_COUNT.load(Ordering::Acquire),

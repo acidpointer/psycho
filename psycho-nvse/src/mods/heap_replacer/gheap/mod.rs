@@ -14,6 +14,8 @@ pub mod havok_fix;
 pub mod heap_manager;
 pub mod hooks;
 pub mod memset_fix;
+pub mod model_task_fix;
+pub mod navmesh_fix;
 pub mod pool;
 pub mod pressure;
 pub mod statics;

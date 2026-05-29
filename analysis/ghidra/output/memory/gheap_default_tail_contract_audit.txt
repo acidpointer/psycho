@@ -1,0 +1,2352 @@
+AUDIT: gheap Default heap tail-adoption safety contract
+======================================================================
+
+Context:
+  gheap adopts the unused tail of the vanilla Default heap after
+  skipping the first 16MB. Runtime logs show adoption later disables
+  only because live/free counters changed in the front zone:
+    live 1546KB->1543KB, free 0->2
+  while bump/high-water and first/last physical blocks stayed below
+  the adopted tail. This script checks which fields are real tail-use
+  evidence and which are normal front-zone allocator counters.
+
+Known large-heap fields from earlier audits:
+  +0x14 reserve capacity
+  +0x18 initial commit size
+  +0x1c committed limit
+  +0x24 bump/end offset
+  +0x28 high-water offset
+  +0x2c current live bytes
+  +0x30 reservation base
+  +0x34 physical block count
+  +0x38 unknown/history
+  +0x3c first/last physical block pointer from prior runtime naming
+  +0x40 free block count
+  +0x44..+0x2043 free-list buckets
+  +0x2048/+0x204c large free-list sentinel/head
+
+Questions to answer from output:
+  1. Does a changed +0x2c/+0x34/+0x40 imply tail use?
+  2. Are +0x24/+0x28 monotonic upper bounds for all created blocks?
+  3. Is +0x3c enough to prove every physical block remains below tail?
+  4. Can gheap keep adopting tail while front-zone live/free counters move?
+
+
+======================================================================
+Focused field access summary
+======================================================================
+
+----------------------------------------------------------------------
+Field-sensitive instructions in large_heap_alloc_impl_00aa8f50 (0x00aa8f50)
+----------------------------------------------------------------------
+  0x00aa8f60: MOV dword ptr [EBP + -0x30],EAX
+  0x00aa8fcb: CMP dword ptr [EBP + 0xfffffcb0],0x400
+  0x00aa8fdd: ADD EDX,0x2048
+  0x00aa8ff7: LEA EDX,[ECX + EAX*0x8 + 0x44]
+  0x00aa901d: ADD EDX,0x2048
+  0x00aa9060: ADD EAX,0x2048
+  0x00aa906d: MOV dword ptr [EBP + -0x14],0x0
+  0x00aa90bd: MOV dword ptr [EBP + -0x14],EDX
+  0x00aa90c2: MOV EAX,dword ptr [EBP + -0x14]
+  0x00aa90c8: MOV dword ptr [EBP + -0x14],EAX
+  0x00aa90cb: CMP dword ptr [EBP + -0x14],0x10
+  0x00aa90e2: MOV EDX,dword ptr [EBP + -0x14]
+  0x00aa90eb: CMP dword ptr [EAX + EDX*0x8 + 0x2058],0x0
+  0x00aa90f9: MOV ECX,dword ptr [EBP + -0x14]
+  0x00aa9102: MOV EAX,dword ptr [EDX + ECX*0x8 + 0x205c]
+  0x00aa910e: MOV ECX,dword ptr [EBP + -0x14]
+  0x00aa9117: MOV EAX,dword ptr [EDX + ECX*0x8 + 0x205c]
+  0x00aa912a: CMP dword ptr [EBP + -0x14],0x10
+  0x00aa9130: MOV EDX,dword ptr [EBP + -0x14]
+  0x00aa9185: CMP dword ptr [EBP + -0x14],0x10
+  0x00aa9191: ADD EDX,0x2048
+  0x00aa91ac: MOV dword ptr [EBP + -0x18],EDX
+  0x00aa91af: CMP dword ptr [EBP + -0x18],0x0
+  0x00aa91b9: MOV EAX,dword ptr [EBP + -0x18]
+  0x00aa91ce: MOV dword ptr [EBP + -0x1c],EDX
+  0x00aa91d9: MOV ECX,dword ptr [EBP + -0x1c]
+  0x00aa91e5: MOV dword ptr [EBP + -0x24],0x0
+  0x00aa91ec: MOV EDX,dword ptr [EBP + -0x18]
+  0x00aa9200: MOV ECX,dword ptr [EBP + -0x18]
+  0x00aa9213: CMP dword ptr [EBP + -0x1c],0x0
+  0x00aa922c: ADD ECX,0x18
+  0x00aa922f: MOV dword ptr [EBP + -0x2c],ECX
+  0x00aa9239: MOV EDX,dword ptr [EBP + -0x2c]
+  0x00aa923d: MOV EAX,dword ptr [EBP + -0x18]
+  0x00aa925e: MOV EDX,dword ptr [EBP + -0x18]
+  0x00aa928a: MOV EDX,dword ptr [EBP + -0x18]
+  0x00aa9295: MOV ECX,dword ptr [EBP + -0x18]
+  0x00aa929d: MOV EDX,dword ptr [EBP + -0x18]
+  0x00aa92a8: MOV ECX,dword ptr [EBP + -0x18]
+  0x00aa92ae: MOV EDX,dword ptr [EBP + -0x2c]
+  0x00aa92b2: MOV EAX,dword ptr [EBP + -0x18]
+  0x00aa92cc: ADD ESP,0x14
+  0x00aa930b: MOV EAX,dword ptr [EDX + 0x14]
+  0x00aa9313: MOV EDX,dword ptr [EBP + -0x18]
+  0x00aa931a: MOV dword ptr [EBP + -0x24],EAX
+  0x00aa9328: MOV dword ptr [EBP + -0x28],EDX
+  0x00aa932b: MOV EAX,dword ptr [EBP + -0x24]
+  0x00aa9335: MOV ECX,dword ptr [EBP + -0x24]
+  0x00aa9341: MOV EDX,dword ptr [EBP + -0x28]
+  0x00aa9345: MOV ECX,dword ptr [EBP + -0x24]
+  0x00aa934d: MOV EAX,dword ptr [EBP + -0x24]
+  0x00aa9350: MOV ECX,dword ptr [EBP + -0x18]
+  0x00aa935b: MOV EAX,dword ptr [EBP + -0x18]
+  0x00aa935e: CMP EAX,dword ptr [EDX + 0x3c]
+  0x00aa9369: MOV EDX,dword ptr [EBP + -0x24]
+  0x00aa936c: MOV dword ptr [ECX + 0x3c],EDX
+  0x00aa9371: MOV EAX,dword ptr [EBP + -0x18]
+  0x00aa9389: MOV EAX,dword ptr [EBP + -0x18]
+  0x00aa939c: MOV EAX,dword ptr [EBP + -0x24]
+  0x00aa93a7: MOV EDX,dword ptr [ECX + 0x34]
+  0x00aa93b3: MOV dword ptr [EAX + 0x34],EDX
+  0x00aa93b6: MOV ECX,dword ptr [EBP + -0x24]
+  0x00aa93c5: MOV EDX,dword ptr [EBP + -0x24]
+  0x00aa93f3: MOV EDX,dword ptr [EBP + -0x18]
+  0x00aa9414: MOV ECX,dword ptr [EBP + -0x18]
+  0x00aa9441: MOV ECX,dword ptr [EBP + -0x18]
+  0x00aa944d: MOV EAX,dword ptr [EBP + -0x18]
+  0x00aa9455: MOV ECX,dword ptr [EBP + -0x18]
+  0x00aa9461: MOV EAX,dword ptr [EBP + -0x18]
+  0x00aa946e: MOV EDX,dword ptr [EBP + -0x18]
+  0x00aa9488: ADD ESP,0x14
+  0x00aa94c6: MOV EDX,dword ptr [EAX + 0x14]
+  0x00aa94cb: MOV EAX,dword ptr [EBP + -0x18]
+  0x00aa94da: MOV EDX,dword ptr [EBP + -0x18]
+  0x00aa94e0: MOV EAX,dword ptr [EBP + -0x18]
+  0x00aa94e9: MOV ECX,dword ptr [EBP + -0x18]
+  0x00aa9501: MOV ECX,dword ptr [EAX + 0x2c]
+  0x00aa9514: MOV dword ptr [ECX + 0x2c],EAX
+  0x00aa9519: MOV EDX,dword ptr [EBP + -0x18]
+  0x00aa951f: MOV dword ptr [EBP + -0x18],EAX
+  0x00aa9543: MOV EAX,dword ptr [EDX + 0x24]
+  0x00aa956a: CMP EAX,dword ptr [EDX + 0x1c]
+  0x00aa957b: CMP EDX,dword ptr [ECX + 0x14]
+  0x00aa958d: MOV EDX,dword ptr [ECX + 0x1c]
+  0x00aa9597: MOV ECX,dword ptr [EAX + 0x30]
+  0x00aa95a9: MOV EDX,dword ptr [EAX + 0x38]
+  0x00aa95b4: ADD EAX,dword ptr [ECX + 0x1c]
+  0x00aa95bd: MOV dword ptr [EDX + 0x1c],EAX
+  0x00aa95cc: CMP ECX,dword ptr [EAX + 0x1c]
+  0x00aa95db: MOV EAX,dword ptr [EDX + 0x30]
+  0x00aa95e4: ADD EAX,dword ptr [ECX + 0x24]
+  0x00aa966c: ADD ESP,0x14
+  0x00aa96aa: MOV EDX,dword ptr [EAX + 0x14]
+  ... scan truncated at 500 instructions
+  Field-sensitive instructions printed: 93
+
+----------------------------------------------------------------------
+Field-sensitive instructions in large_heap_free_impl_00aa98f0 (0x00aa98f0)
+----------------------------------------------------------------------
+  0x00aa9930: MOV EAX,dword ptr [EDX + 0x2c]
+  0x00aa9938: MOV dword ptr [ECX + 0x2c],EAX
+  Field-sensitive instructions printed: 2
+
+----------------------------------------------------------------------
+Field-sensitive instructions in free_block_insert_or_coalesce_00aa9bd0 (0x00aa9bd0)
+----------------------------------------------------------------------
+  0x00aa9bd3: SUB ESP,0x14
+  0x00aa9bd6: MOV dword ptr [EBP + -0x14],ECX
+  0x00aa9bf9: AND ECX,0x40000000
+  0x00aa9c14: MOV ECX,dword ptr [EBP + -0x14]
+  0x00aa9c2e: MOV EAX,dword ptr [EBP + -0x14]
+  0x00aa9c34: CMP ECX,dword ptr [EAX + 0x3c]
+  0x00aa9c50: AND EDX,0x40000000
+  0x00aa9c81: MOV ECX,dword ptr [EBP + -0x14]
+  0x00aa9c8b: MOV ECX,dword ptr [EBP + -0x14]
+  Field-sensitive instructions printed: 9
+
+----------------------------------------------------------------------
+Field-sensitive instructions in coalesce_adjacent_free_blocks_00aa9970 (0x00aa9970)
+----------------------------------------------------------------------
+  0x00aa99e4: MOV dword ptr [EBP + -0x14],ECX
+  0x00aa99f2: MOV dword ptr [EBP + -0x18],EAX
+  0x00aa9a01: MOV EAX,dword ptr [EBP + -0x18]
+  0x00aa9a04: MOV ECX,dword ptr [EBP + -0x14]
+  0x00aa9a19: CMP EAX,dword ptr [EDX + 0x3c]
+  0x00aa9a24: MOV dword ptr [ECX + 0x3c],EDX
+  0x00aa9a35: MOV dword ptr [EBP + -0x1c],ECX
+  0x00aa9a3b: ADD EDX,dword ptr [EBP + -0x1c]
+  0x00aa9a47: MOV EDX,dword ptr [ECX + 0x34]
+  0x00aa9a50: MOV dword ptr [EAX + 0x34],EDX
+  Field-sensitive instructions printed: 10
+
+----------------------------------------------------------------------
+Field-sensitive instructions in free_list_insert_00aa9d30 (0x00aa9d30)
+----------------------------------------------------------------------
+  0x00aa9d33: SUB ESP,0x1c
+  0x00aa9d36: MOV dword ptr [EBP + -0x18],ECX
+  0x00aa9d5c: OR ECX,0x40000000
+  0x00aa9d8b: MOV ECX,dword ptr [EBP + -0x18]
+  0x00aa9d9c: CMP dword ptr [EBP + -0xc],0x400
+  0x00aa9da5: MOV EDX,dword ptr [EBP + -0x18]
+  0x00aa9da8: ADD EDX,0x2048
+  0x00aa9dae: MOV dword ptr [EBP + -0x1c],EDX
+  0x00aa9db6: MOV ECX,dword ptr [EBP + -0x18]
+  0x00aa9db9: LEA EDX,[ECX + EAX*0x8 + 0x44]
+  0x00aa9dbd: MOV dword ptr [EBP + -0x1c],EDX
+  0x00aa9dc0: MOV EAX,dword ptr [EBP + -0x1c]
+  0x00aa9dd5: MOV dword ptr [EBP + -0x14],EAX
+  0x00aa9ddb: MOV EDX,dword ptr [EBP + -0x14]
+  0x00aa9de1: MOV EAX,dword ptr [EBP + -0x14]
+  0x00aa9e02: MOV EAX,dword ptr [EBP + -0x14]
+  0x00aa9e27: MOV EDX,dword ptr [EBP + -0x18]
+  0x00aa9e2a: MOV EAX,dword ptr [EDX + 0x40]
+  0x00aa9e30: MOV ECX,dword ptr [EBP + -0x18]
+  0x00aa9e33: MOV dword ptr [ECX + 0x40],EAX
+  0x00aa9e42: MOV ECX,dword ptr [EBP + -0x18]
+  Field-sensitive instructions printed: 21
+
+----------------------------------------------------------------------
+Field-sensitive instructions in free_list_remove_00aa9e50 (0x00aa9e50)
+----------------------------------------------------------------------
+  0x00aa9e53: SUB ESP,0x1c
+  0x00aa9e56: MOV dword ptr [EBP + -0x1c],ECX
+  0x00aa9e7d: OR EAX,0x40000000
+  0x00aa9ece: MOV ECX,dword ptr [EBP + -0x1c]
+  0x00aa9ed6: MOV EAX,dword ptr [EBP + -0x1c]
+  0x00aa9ed9: MOV ECX,dword ptr [EAX + 0x40]
+  0x00aa9edf: MOV EDX,dword ptr [EBP + -0x1c]
+  0x00aa9ee2: MOV dword ptr [EDX + 0x40],ECX
+  Field-sensitive instructions printed: 8
+
+----------------------------------------------------------------------
+Field-sensitive instructions in release_storage_00aa8ea0 (0x00aa8ea0)
+----------------------------------------------------------------------
+  0x00aa8ebb: CMP dword ptr [EBP + -0x4],0x400
+  0x00aa8eca: LEA EAX,[EDX + ECX*0x8 + 0x44]
+  0x00aa8ef4: CMP dword ptr [EDX + 0x204c],0x0
+  0x00aa8f00: MOV ECX,dword ptr [EAX + 0x204c]
+  0x00aa8f0a: ADD EDX,0x2048
+  0x00aa8f1e: MOV ECX,dword ptr [EAX + 0x30]
+  0x00aa8f2a: MOV EDX,dword ptr [EAX + 0x34]
+  0x00aa8f32: MOV dword ptr [EAX + 0x30],0x0
+  0x00aa8f3c: MOV dword ptr [ECX + 0x14],0x0
+  Field-sensitive instructions printed: 9
+
+# Construction/reservation paths
+
+======================================================================
+large_heap_base_ctor_fields_00aa8ca0 @ 0x00aa8ca0
+======================================================================
+  Function: FUN_00aa8ca0 @ 0x00aa8ca0, Size: 243 bytes
+
+undefined4 * __thiscall
+FUN_00aa8ca0(undefined4 *param_1,undefined4 param_2,undefined4 param_3,undefined4 param_4,
+            undefined4 param_5)
+
+{
+  *param_1 = &PTR_FUN_010a28c8;
+  *param_1 = &PTR_FUN_010a2bbc;
+  param_1[1] = param_4;
+  param_1[2] = 4;
+  param_1[4] = param_5;
+  param_1[5] = param_2;
+  param_1[6] = param_3;
+  param_1[7] = param_3;
+  param_1[8] = 0;
+  param_1[9] = 0;
+  param_1[10] = 0;
+  param_1[0xb] = 0;
+  param_1[0xc] = 0;
+  param_1[0xd] = 0;
+  param_1[0xe] = 0;
+  param_1[0xf] = 0;
+  param_1[0x10] = 0;
+  InitializeCriticalSection((LPCRITICAL_SECTION)(param_1 + 0x836));
+  param_1[3] = 0x10;
+  param_1[0x814] = 0;
+  param_1[0x815] = 0;
+  return param_1;
+}
+
+
+
+----------------------------------------------------------------------
+References TO 0x00aa8ca0 (large_heap_base_ctor_fields_00aa8ca0)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x00aa78da (in FUN_00aa78a0 @ 0x00aa78a0)
+  Total printed: 1
+
+----------------------------------------------------------------------
+Calls FROM large_heap_base_ctor_fields_00aa8ca0 (0x00aa8ca0)
+----------------------------------------------------------------------
+  0x00aa8d5c -> 0x0000000b ???
+  Total printed: 1
+
+----------------------------------------------------------------------
+Field-sensitive instructions in large_heap_base_ctor_fields_00aa8ca0 (0x00aa8ca0)
+----------------------------------------------------------------------
+  0x00aa8cd1: MOV EAX,dword ptr [EBP + 0x14]
+  0x00aa8cdd: MOV dword ptr [ECX + 0x14],EDX
+  0x00aa8ce6: MOV dword ptr [EAX + 0x18],ECX
+  0x00aa8cef: MOV dword ptr [EDX + 0x1c],EAX
+  0x00aa8cff: MOV dword ptr [EDX + 0x24],0x0
+  0x00aa8d09: MOV dword ptr [EAX + 0x28],0x0
+  0x00aa8d13: MOV dword ptr [ECX + 0x2c],0x0
+  0x00aa8d1d: MOV dword ptr [EDX + 0x30],0x0
+  0x00aa8d27: MOV dword ptr [EAX + 0x34],0x0
+  0x00aa8d31: MOV dword ptr [ECX + 0x38],0x0
+  0x00aa8d3b: MOV dword ptr [EDX + 0x3c],0x0
+  0x00aa8d45: MOV dword ptr [EAX + 0x40],0x0
+  0x00aa8d73: MOV dword ptr [EDX + 0x2050],0x0
+  0x00aa8d80: MOV dword ptr [EAX + 0x2054],0x0
+  Field-sensitive instructions printed: 14
+
+----------------------------------------------------------------------
+Disassembly: large_heap_base_ctor_fields_00aa8ca0 @ 0x00aa8ca0
+----------------------------------------------------------------------
+  0x00aa8ca0: PUSH EBP
+  0x00aa8ca1: MOV EBP,ESP
+  0x00aa8ca3: SUB ESP,0x8
+  0x00aa8ca6: MOV dword ptr [EBP + -0x8],ECX
+  0x00aa8ca9: MOV EAX,dword ptr [EBP + -0x8]
+  0x00aa8cac: MOV dword ptr [EAX],0x10a28c8
+  0x00aa8cb2: MOV ECX,dword ptr [EBP + -0x8]
+  0x00aa8cb5: MOV dword ptr [ECX],0x10a2bbc
+  0x00aa8cbb: MOV EDX,dword ptr [EBP + -0x8]
+  0x00aa8cbe: MOV EAX,dword ptr [EBP + 0x10]
+  0x00aa8cc1: MOV dword ptr [EDX + 0x4],EAX
+  0x00aa8cc4: MOV ECX,dword ptr [EBP + -0x8]
+  0x00aa8cc7: MOV dword ptr [ECX + 0x8],0x4
+  0x00aa8cce: MOV EDX,dword ptr [EBP + -0x8]
+  0x00aa8cd1: MOV EAX,dword ptr [EBP + 0x14]
+  0x00aa8cd4: MOV dword ptr [EDX + 0x10],EAX
+  0x00aa8cd7: MOV ECX,dword ptr [EBP + -0x8]
+  0x00aa8cda: MOV EDX,dword ptr [EBP + 0x8]
+  0x00aa8cdd: MOV dword ptr [ECX + 0x14],EDX
+  0x00aa8ce0: MOV EAX,dword ptr [EBP + -0x8]
+  0x00aa8ce3: MOV ECX,dword ptr [EBP + 0xc]
+  0x00aa8ce6: MOV dword ptr [EAX + 0x18],ECX
+  0x00aa8ce9: MOV EDX,dword ptr [EBP + -0x8]
+  0x00aa8cec: MOV EAX,dword ptr [EBP + 0xc]
+  0x00aa8cef: MOV dword ptr [EDX + 0x1c],EAX
+  0x00aa8cf2: MOV ECX,dword ptr [EBP + -0x8]
+  0x00aa8cf5: MOV dword ptr [ECX + 0x20],0x0
+  0x00aa8cfc: MOV EDX,dword ptr [EBP + -0x8]
+  0x00aa8cff: MOV dword ptr [EDX + 0x24],0x0
+  0x00aa8d06: MOV EAX,dword ptr [EBP + -0x8]
+  0x00aa8d09: MOV dword ptr [EAX + 0x28],0x0
+  0x00aa8d10: MOV ECX,dword ptr [EBP + -0x8]
+  0x00aa8d13: MOV dword ptr [ECX + 0x2c],0x0
+  0x00aa8d1a: MOV EDX,dword ptr [EBP + -0x8]
+  0x00aa8d1d: MOV dword ptr [EDX + 0x30],0x0
+  0x00aa8d24: MOV EAX,dword ptr [EBP + -0x8]
+  0x00aa8d27: MOV dword ptr [EAX + 0x34],0x0
+  0x00aa8d2e: MOV ECX,dword ptr [EBP + -0x8]
+  0x00aa8d31: MOV dword ptr [ECX + 0x38],0x0
+  0x00aa8d38: MOV EDX,dword ptr [EBP + -0x8]
+  0x00aa8d3b: MOV dword ptr [EDX + 0x3c],0x0
+  0x00aa8d42: MOV EAX,dword ptr [EBP + -0x8]
+  0x00aa8d45: MOV dword ptr [EAX + 0x40],0x0
+  0x00aa8d4c: MOV ECX,dword ptr [EBP + -0x8]
+  0x00aa8d4f: ADD ECX,0x20d8
+  0x00aa8d55: MOV dword ptr [EBP + -0x4],ECX
+  0x00aa8d58: MOV EDX,dword ptr [EBP + -0x4]
+  0x00aa8d5b: PUSH EDX
+  0x00aa8d5c: CALL dword ptr [0x00fdf054]
+  0x00aa8d62: MOV EAX,0x8
+  0x00aa8d67: ADD EAX,0x8
+  0x00aa8d6a: MOV ECX,dword ptr [EBP + -0x8]
+  0x00aa8d6d: MOV dword ptr [ECX + 0xc],EAX
+  0x00aa8d70: MOV EDX,dword ptr [EBP + -0x8]
+  0x00aa8d73: MOV dword ptr [EDX + 0x2050],0x0
+  0x00aa8d7d: MOV EAX,dword ptr [EBP + -0x8]
+  0x00aa8d80: MOV dword ptr [EAX + 0x2054],0x0
+  0x00aa8d8a: MOV EAX,dword ptr [EBP + -0x8]
+  0x00aa8d8d: MOV ESP,EBP
+  0x00aa8d8f: POP EBP
+  0x00aa8d90: RET 0x10
+  Instructions printed: 61
+
+======================================================================
+large_heap_post_setup_reserve_00aa8dd0 @ 0x00aa8dd0
+======================================================================
+  Function: FUN_00aa8dd0 @ 0x00aa8dd0, Size: 200 bytes
+
+void __fastcall FUN_00aa8dd0(int *param_1)
+
+{
+  int iVar1;
+  int local_c;
+  
+  iVar1 = (**(code **)(*param_1 + 0x30))(param_1[5],param_1[7]);
+  param_1[0xc] = iVar1;
+  if (param_1[0xc] == 0) {
+                    /* WARNING: Subroutine does not return */
+    _exit(0);
+  }
+  param_1[0x811] = (int)(param_1 + 0x80f);
+  for (local_c = 0; local_c < 0x10; local_c = local_c + 1) {
+    param_1[local_c * 2 + 0x816] = 0;
+    param_1[local_c * 2 + 0x817] = (int)(param_1 + local_c * 0x80 + 0x11);
+  }
+  _memset(param_1 + 0x11,0,0x2000);
+  _memset(param_1 + 0x812,0,8);
+  return;
+}
+
+
+
+----------------------------------------------------------------------
+References TO 0x00aa8dd0 (large_heap_post_setup_reserve_00aa8dd0)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x00aa7908 (in FUN_00aa78a0 @ 0x00aa78a0)
+  Total printed: 1
+
+----------------------------------------------------------------------
+Calls FROM large_heap_post_setup_reserve_00aa8dd0 (0x00aa8dd0)
+----------------------------------------------------------------------
+  0x00aa8e05 -> 0x00eccec5 _exit @ 0x00eccec5
+  0x00aa8e76 -> 0x00ec61c0 _memset @ 0x00ec61c0
+  0x00aa8e8c -> 0x00ec61c0 _memset @ 0x00ec61c0
+  Total printed: 3
+
+----------------------------------------------------------------------
+Field-sensitive instructions in large_heap_post_setup_reserve_00aa8dd0 (0x00aa8dd0)
+----------------------------------------------------------------------
+  0x00aa8ddc: MOV ECX,dword ptr [EAX + 0x1c]
+  0x00aa8de3: MOV EAX,dword ptr [EDX + 0x14]
+  0x00aa8def: MOV EAX,dword ptr [EDX + 0x30]
+  0x00aa8df7: MOV dword ptr [ECX + 0x30],EAX
+  0x00aa8dfd: CMP dword ptr [EDX + 0x30],0x0
+  0x00aa8e1b: MOV dword ptr [EBP + -0x4],0x40
+  0x00aa8e40: MOV dword ptr [ECX + EAX*0x8 + 0x2058],0x0
+  0x00aa8e55: LEA ECX,[EAX + EDX*0x8 + 0x44]
+  0x00aa8e5f: MOV dword ptr [EAX + EDX*0x8 + 0x205c],ECX
+  0x00aa8e72: ADD ECX,0x44
+  0x00aa8e85: ADD EDX,0x2048
+  Field-sensitive instructions printed: 11
+
+----------------------------------------------------------------------
+Disassembly: large_heap_post_setup_reserve_00aa8dd0 @ 0x00aa8dd0
+----------------------------------------------------------------------
+  0x00aa8dd0: PUSH EBP
+  0x00aa8dd1: MOV EBP,ESP
+  0x00aa8dd3: SUB ESP,0xc
+  0x00aa8dd6: MOV dword ptr [EBP + -0xc],ECX
+  0x00aa8dd9: MOV EAX,dword ptr [EBP + -0xc]
+  0x00aa8ddc: MOV ECX,dword ptr [EAX + 0x1c]
+  0x00aa8ddf: PUSH ECX
+  0x00aa8de0: MOV EDX,dword ptr [EBP + -0xc]
+  0x00aa8de3: MOV EAX,dword ptr [EDX + 0x14]
+  0x00aa8de6: PUSH EAX
+  0x00aa8de7: MOV ECX,dword ptr [EBP + -0xc]
+  0x00aa8dea: MOV EDX,dword ptr [ECX]
+  0x00aa8dec: MOV ECX,dword ptr [EBP + -0xc]
+  0x00aa8def: MOV EAX,dword ptr [EDX + 0x30]
+  0x00aa8df2: CALL EAX
+  0x00aa8df4: MOV ECX,dword ptr [EBP + -0xc]
+  0x00aa8df7: MOV dword ptr [ECX + 0x30],EAX
+  0x00aa8dfa: MOV EDX,dword ptr [EBP + -0xc]
+  0x00aa8dfd: CMP dword ptr [EDX + 0x30],0x0
+  0x00aa8e01: JNZ 0x00aa8e0a
+  0x00aa8e03: PUSH 0x0
+  0x00aa8e05: CALL 0x00eccec5
+  0x00aa8e0a: MOV EAX,dword ptr [EBP + -0xc]
+  0x00aa8e0d: ADD EAX,0x203c
+  0x00aa8e12: MOV ECX,dword ptr [EBP + -0xc]
+  0x00aa8e15: MOV dword ptr [ECX + 0x2044],EAX
+  0x00aa8e1b: MOV dword ptr [EBP + -0x4],0x40
+  0x00aa8e22: MOV dword ptr [EBP + -0x8],0x0
+  0x00aa8e29: JMP 0x00aa8e34
+  0x00aa8e2b: MOV EDX,dword ptr [EBP + -0x8]
+  0x00aa8e2e: ADD EDX,0x1
+  0x00aa8e31: MOV dword ptr [EBP + -0x8],EDX
+  0x00aa8e34: CMP dword ptr [EBP + -0x8],0x10
+  0x00aa8e38: JGE 0x00aa8e68
+  0x00aa8e3a: MOV EAX,dword ptr [EBP + -0x8]
+  0x00aa8e3d: MOV ECX,dword ptr [EBP + -0xc]
+  0x00aa8e40: MOV dword ptr [ECX + EAX*0x8 + 0x2058],0x0
+  0x00aa8e4b: MOV EDX,dword ptr [EBP + -0x8]
+  0x00aa8e4e: IMUL EDX,dword ptr [EBP + -0x4]
+  0x00aa8e52: MOV EAX,dword ptr [EBP + -0xc]
+  0x00aa8e55: LEA ECX,[EAX + EDX*0x8 + 0x44]
+  0x00aa8e59: MOV EDX,dword ptr [EBP + -0x8]
+  0x00aa8e5c: MOV EAX,dword ptr [EBP + -0xc]
+  0x00aa8e5f: MOV dword ptr [EAX + EDX*0x8 + 0x205c],ECX
+  0x00aa8e66: JMP 0x00aa8e2b
+  0x00aa8e68: PUSH 0x2000
+  0x00aa8e6d: PUSH 0x0
+  0x00aa8e6f: MOV ECX,dword ptr [EBP + -0xc]
+  0x00aa8e72: ADD ECX,0x44
+  0x00aa8e75: PUSH ECX
+  0x00aa8e76: CALL 0x00ec61c0
+  0x00aa8e7b: ADD ESP,0xc
+  0x00aa8e7e: PUSH 0x8
+  0x00aa8e80: PUSH 0x0
+  0x00aa8e82: MOV EDX,dword ptr [EBP + -0xc]
+  0x00aa8e85: ADD EDX,0x2048
+  0x00aa8e8b: PUSH EDX
+  0x00aa8e8c: CALL 0x00ec61c0
+  0x00aa8e91: ADD ESP,0xc
+  0x00aa8e94: MOV ESP,EBP
+  0x00aa8e96: POP EBP
+  0x00aa8e97: RET
+  Instructions printed: 62
+
+======================================================================
+reserve_and_initial_commit_00aa79a0 @ 0x00aa79a0
+======================================================================
+  Function: FUN_00aa79a0 @ 0x00aa79a0, Size: 135 bytes
+
+LPVOID FUN_00aa79a0(SIZE_T param_1,SIZE_T param_2)
+
+{
+  LPVOID pvVar1;
+  undefined4 local_8;
+  
+  local_8 = VirtualAlloc((LPVOID)0x0,param_1,0x2000,4);
+  if (local_8 != (LPVOID)0x0) {
+    pvVar1 = VirtualAlloc(local_8,param_2,0x1000,4);
+    if (pvVar1 == (LPVOID)0x0) {
+      VirtualFree(local_8,0,0x8000);
+      local_8 = (LPVOID)0x0;
+    }
+  }
+  return local_8;
+}
+
+
+
+----------------------------------------------------------------------
+References TO 0x00aa79a0 (reserve_and_initial_commit_00aa79a0)
+----------------------------------------------------------------------
+  DATA @ 0x010a292c (in ???)
+  Total printed: 1
+
+----------------------------------------------------------------------
+Calls FROM reserve_and_initial_commit_00aa79a0 (0x00aa79a0)
+----------------------------------------------------------------------
+  0x00aa79d5 -> 0x0000003b ???
+  0x00aa79f3 -> 0x0000003b ???
+  0x00aa7a11 -> 0x00000039 ???
+  Total printed: 3
+
+----------------------------------------------------------------------
+Field-sensitive instructions in reserve_and_initial_commit_00aa79a0 (0x00aa79a0)
+----------------------------------------------------------------------
+  Field-sensitive instructions printed: 0
+
+----------------------------------------------------------------------
+Disassembly: reserve_and_initial_commit_00aa79a0 @ 0x00aa79a0
+----------------------------------------------------------------------
+  0x00aa79a0: PUSH EBP
+  0x00aa79a1: MOV EBP,ESP
+  0x00aa79a3: SUB ESP,0x10
+  0x00aa79a6: MOV dword ptr [EBP + -0x10],ECX
+  0x00aa79a9: MOV EAX,dword ptr [EBP + -0x10]
+  0x00aa79ac: MOV ECX,0x10000
+  0x00aa79b1: CMP ECX,dword ptr [EAX + 0x10]
+  0x00aa79b4: SBB EDX,EDX
+  0x00aa79b6: AND EDX,0x0
+  0x00aa79b9: MOV dword ptr [EBP + -0x8],EDX
+  0x00aa79bc: MOV EAX,dword ptr [EBP + -0x10]
+  0x00aa79bf: MOV CL,byte ptr [EAX + 0x20f0]
+  0x00aa79c5: MOV byte ptr [EBP + -0x9],CL
+  0x00aa79c8: PUSH 0x4
+  0x00aa79ca: PUSH 0x2000
+  0x00aa79cf: MOV EDX,dword ptr [EBP + 0x8]
+  0x00aa79d2: PUSH EDX
+  0x00aa79d3: PUSH 0x0
+  0x00aa79d5: CALL dword ptr [0x00fdf114]
+  0x00aa79db: MOV dword ptr [EBP + -0x4],EAX
+  0x00aa79de: CMP dword ptr [EBP + -0x4],0x0
+  0x00aa79e2: JZ 0x00aa7a1e
+  0x00aa79e4: PUSH 0x4
+  0x00aa79e6: PUSH 0x1000
+  0x00aa79eb: MOV EAX,dword ptr [EBP + 0xc]
+  0x00aa79ee: PUSH EAX
+  0x00aa79ef: MOV ECX,dword ptr [EBP + -0x4]
+  0x00aa79f2: PUSH ECX
+  0x00aa79f3: CALL dword ptr [0x00fdf114]
+  0x00aa79f9: NEG EAX
+  0x00aa79fb: SBB EAX,EAX
+  0x00aa79fd: NEG EAX
+  0x00aa79ff: MOVZX EDX,AL
+  0x00aa7a02: TEST EDX,EDX
+  0x00aa7a04: JNZ 0x00aa7a1e
+  0x00aa7a06: PUSH 0x8000
+  0x00aa7a0b: PUSH 0x0
+  0x00aa7a0d: MOV EAX,dword ptr [EBP + -0x4]
+  0x00aa7a10: PUSH EAX
+  0x00aa7a11: CALL dword ptr [0x00fdf10c]
+  0x00aa7a17: MOV dword ptr [EBP + -0x4],0x0
+  0x00aa7a1e: MOV EAX,dword ptr [EBP + -0x4]
+  0x00aa7a21: MOV ESP,EBP
+  0x00aa7a23: POP EBP
+  0x00aa7a24: RET 0x8
+  Instructions printed: 45
+
+======================================================================
+commit_more_00aa7a50 @ 0x00aa7a50
+======================================================================
+  Function: FUN_00aa7a50 @ 0x00aa7a50, Size: 93 bytes
+
+uint __thiscall FUN_00aa7a50(int param_1,int param_2,int param_3,uint param_4)
+
+{
+  LPVOID pvVar1;
+  
+  param_4 = param_4 + *(int *)(param_1 + 0x10) & ~(*(int *)(param_1 + 0x10) - 1U);
+  pvVar1 = VirtualAlloc((LPVOID)(param_2 + param_3),param_4,0x1000,4);
+  if (pvVar1 == (LPVOID)0x0) {
+    param_4 = 0;
+  }
+  return param_4;
+}
+
+
+
+----------------------------------------------------------------------
+References TO 0x00aa7a50 (commit_more_00aa7a50)
+----------------------------------------------------------------------
+  DATA @ 0x010a2934 (in ???)
+  Total printed: 1
+
+----------------------------------------------------------------------
+Calls FROM commit_more_00aa7a50 (0x00aa7a50)
+----------------------------------------------------------------------
+  0x00aa7a8a -> 0x0000003b ???
+  Total printed: 1
+
+----------------------------------------------------------------------
+Field-sensitive instructions in commit_more_00aa7a50 (0x00aa7a50)
+----------------------------------------------------------------------
+  Field-sensitive instructions printed: 0
+
+----------------------------------------------------------------------
+Disassembly: commit_more_00aa7a50 @ 0x00aa7a50
+----------------------------------------------------------------------
+  0x00aa7a50: PUSH EBP
+  0x00aa7a51: MOV EBP,ESP
+  0x00aa7a53: SUB ESP,0x8
+  0x00aa7a56: MOV dword ptr [EBP + -0x8],ECX
+  0x00aa7a59: MOV EAX,dword ptr [EBP + 0x8]
+  0x00aa7a5c: ADD EAX,dword ptr [EBP + 0xc]
+  0x00aa7a5f: MOV dword ptr [EBP + -0x4],EAX
+  0x00aa7a62: MOV ECX,dword ptr [EBP + -0x8]
+  0x00aa7a65: MOV EDX,dword ptr [EBP + 0x10]
+  0x00aa7a68: ADD EDX,dword ptr [ECX + 0x10]
+  0x00aa7a6b: MOV EAX,dword ptr [EBP + -0x8]
+  0x00aa7a6e: MOV ECX,dword ptr [EAX + 0x10]
+  0x00aa7a71: SUB ECX,0x1
+  0x00aa7a74: NOT ECX
+  0x00aa7a76: AND EDX,ECX
+  0x00aa7a78: MOV dword ptr [EBP + 0x10],EDX
+  0x00aa7a7b: PUSH 0x4
+  0x00aa7a7d: PUSH 0x1000
+  0x00aa7a82: MOV EDX,dword ptr [EBP + 0x10]
+  0x00aa7a85: PUSH EDX
+  0x00aa7a86: MOV EAX,dword ptr [EBP + -0x4]
+  0x00aa7a89: PUSH EAX
+  0x00aa7a8a: CALL dword ptr [0x00fdf114]
+  0x00aa7a90: NEG EAX
+  0x00aa7a92: SBB EAX,EAX
+  0x00aa7a94: NEG EAX
+  0x00aa7a96: MOVZX ECX,AL
+  0x00aa7a99: TEST ECX,ECX
+  0x00aa7a9b: JNZ 0x00aa7aa4
+  0x00aa7a9d: MOV dword ptr [EBP + 0x10],0x0
+  0x00aa7aa4: MOV EAX,dword ptr [EBP + 0x10]
+  0x00aa7aa7: MOV ESP,EBP
+  0x00aa7aa9: POP EBP
+  0x00aa7aaa: RET 0xc
+  Instructions printed: 34
+
+======================================================================
+decommit_tail_00aa7ab0 @ 0x00aa7ab0
+======================================================================
+  Function: FUN_00aa7ab0 @ 0x00aa7ab0, Size: 110 bytes
+
+uint __thiscall FUN_00aa7ab0(int param_1,int param_2,int param_3,uint param_4)
+
+{
+  BOOL BVar1;
+  
+  param_4 = ~(*(int *)(param_1 + 0x10) - 1U) & param_4;
+  if (param_4 < *(uint *)(param_1 + 0x10)) {
+    param_4 = 0;
+  }
+  else {
+    BVar1 = VirtualFree((LPVOID)((param_2 + param_3) - param_4),param_4,0x4000);
+    if (BVar1 != 1) {
+      param_4 = 0;
+    }
+  }
+  return param_4;
+}
+
+
+
+----------------------------------------------------------------------
+References TO 0x00aa7ab0 (decommit_tail_00aa7ab0)
+----------------------------------------------------------------------
+  DATA @ 0x010a2938 (in ???)
+  Total printed: 1
+
+----------------------------------------------------------------------
+Calls FROM decommit_tail_00aa7ab0 (0x00aa7ab0)
+----------------------------------------------------------------------
+  0x00aa7aee -> 0x00000039 ???
+  Total printed: 1
+
+----------------------------------------------------------------------
+Field-sensitive instructions in decommit_tail_00aa7ab0 (0x00aa7ab0)
+----------------------------------------------------------------------
+  0x00aa7ae1: PUSH 0x4000
+  Field-sensitive instructions printed: 1
+
+----------------------------------------------------------------------
+Disassembly: decommit_tail_00aa7ab0 @ 0x00aa7ab0
+----------------------------------------------------------------------
+  0x00aa7ab0: PUSH EBP
+  0x00aa7ab1: MOV EBP,ESP
+  0x00aa7ab3: SUB ESP,0x8
+  0x00aa7ab6: MOV dword ptr [EBP + -0x8],ECX
+  0x00aa7ab9: MOV EAX,dword ptr [EBP + -0x8]
+  0x00aa7abc: MOV ECX,dword ptr [EAX + 0x10]
+  0x00aa7abf: SUB ECX,0x1
+  0x00aa7ac2: NOT ECX
+  0x00aa7ac4: AND ECX,dword ptr [EBP + 0x10]
+  0x00aa7ac7: MOV dword ptr [EBP + 0x10],ECX
+  0x00aa7aca: MOV EDX,dword ptr [EBP + -0x8]
+  0x00aa7acd: MOV EAX,dword ptr [EBP + 0x10]
+  0x00aa7ad0: CMP EAX,dword ptr [EDX + 0x10]
+  0x00aa7ad3: JC 0x00aa7b0e
+  0x00aa7ad5: MOV ECX,dword ptr [EBP + 0x8]
+  0x00aa7ad8: ADD ECX,dword ptr [EBP + 0xc]
+  0x00aa7adb: SUB ECX,dword ptr [EBP + 0x10]
+  0x00aa7ade: MOV dword ptr [EBP + -0x4],ECX
+  0x00aa7ae1: PUSH 0x4000
+  0x00aa7ae6: MOV EDX,dword ptr [EBP + 0x10]
+  0x00aa7ae9: PUSH EDX
+  0x00aa7aea: MOV EAX,dword ptr [EBP + -0x4]
+  0x00aa7aed: PUSH EAX
+  0x00aa7aee: CALL dword ptr [0x00fdf10c]
+  0x00aa7af4: SUB EAX,0x1
+  0x00aa7af7: NEG EAX
+  0x00aa7af9: SBB EAX,EAX
+  0x00aa7afb: ADD EAX,0x1
+  0x00aa7afe: MOVZX ECX,AL
+  0x00aa7b01: TEST ECX,ECX
+  0x00aa7b03: JNZ 0x00aa7b0c
+  0x00aa7b05: MOV dword ptr [EBP + 0x10],0x0
+  0x00aa7b0c: JMP 0x00aa7b15
+  0x00aa7b0e: MOV dword ptr [EBP + 0x10],0x0
+  0x00aa7b15: MOV EAX,dword ptr [EBP + 0x10]
+  0x00aa7b18: MOV ESP,EBP
+  0x00aa7b1a: POP EBP
+  0x00aa7b1b: RET 0xc
+  Instructions printed: 38
+
+# Allocation/free paths
+
+======================================================================
+large_heap_alloc_vtable_entry_00aa7b20 @ 0x00aa7b20
+======================================================================
+  Function: FUN_00aa7b20 @ 0x00aa7b20, Size: 25 bytes
+
+void FUN_00aa7b20(undefined4 param_1)
+
+{
+  FUN_00aa8f50(param_1);
+  return;
+}
+
+
+
+----------------------------------------------------------------------
+References TO 0x00aa7b20 (large_heap_alloc_vtable_entry_00aa7b20)
+----------------------------------------------------------------------
+  DATA @ 0x010a2904 (in ???)
+  Total printed: 1
+
+----------------------------------------------------------------------
+Calls FROM large_heap_alloc_vtable_entry_00aa7b20 (0x00aa7b20)
+----------------------------------------------------------------------
+  0x00aa7b2e -> 0x00aa8f50 FUN_00aa8f50 @ 0x00aa8f50
+  Total printed: 1
+
+----------------------------------------------------------------------
+Field-sensitive instructions in large_heap_alloc_vtable_entry_00aa7b20 (0x00aa7b20)
+----------------------------------------------------------------------
+  Field-sensitive instructions printed: 0
+
+----------------------------------------------------------------------
+Disassembly: large_heap_alloc_vtable_entry_00aa7b20 @ 0x00aa7b20
+----------------------------------------------------------------------
+  0x00aa7b20: PUSH EBP
+  0x00aa7b21: MOV EBP,ESP
+  0x00aa7b23: PUSH ECX
+  0x00aa7b24: MOV dword ptr [EBP + -0x4],ECX
+  0x00aa7b27: MOV EAX,dword ptr [EBP + 0x8]
+  0x00aa7b2a: PUSH EAX
+  0x00aa7b2b: MOV ECX,dword ptr [EBP + -0x4]
+  0x00aa7b2e: CALL 0x00aa8f50
+  0x00aa7b33: MOV ESP,EBP
+  0x00aa7b35: POP EBP
+  0x00aa7b36: RET 0x8
+  Instructions printed: 11
+
+======================================================================
+large_heap_alloc_impl_00aa8f50 @ 0x00aa8f50
+======================================================================
+  Function: FUN_00aa8f50 @ 0x00aa8f50, Size: 2057 bytes
+
+/* WARNING: Removing unreachable block (ram,0x00aa928a) */
+/* WARNING: Removing unreachable block (ram,0x00aa9441) */
+
+void __thiscall FUN_00aa8f50(int *param_1,uint param_2)
+
+{
+  int *piVar1;
+  int iVar2;
+  LPVOID pvVar3;
+  int *local_368;
+  undefined1 local_34c [256];
+  LPVOID local_24c;
+  uint local_248;
+  int local_244;
+  undefined1 local_23d;
+  undefined1 local_23c [256];
+  int *local_13c;
+  undefined1 local_135;
+  undefined1 local_134 [256];
+  uint local_34;
+  SIZE_T local_30;
+  int local_2c;
+  undefined4 *local_28;
+  char local_21;
+  int local_20;
+  LPVOID local_1c;
+  int local_18;
+  int local_14;
+  int *local_10;
+  uint local_c;
+  int local_8;
+  
+  local_34 = DAT_011c16bc ^ (uint)&stack0xfffffffc;
+  EnterCriticalSection((LPCRITICAL_SECTION)(param_1 + 0x836));
+  if (param_2 < 9) {
+    param_2 = 8;
+  }
+  else {
+    param_2 = (param_2 - 1) + param_1[2] & ~(param_1[2] - 1U);
+  }
+  local_8 = 0;
+  iVar2 = param_2 / (uint)param_1[2] - 1;
+  if (iVar2 < 0x400) {
+    local_368 = param_1 + iVar2 * 2 + 0x11;
+  }
+  else {
+    local_368 = param_1 + 0x812;
+  }
+  local_10 = local_368;
+  if ((local_368[1] == 0) && (local_368 != param_1 + 0x812)) {
+    local_10 = local_368 + ((uint)param_1[3] / (uint)param_1[2]) * 2;
+    if ((int *)param_1[0x811] < local_10) {
+      local_10 = param_1 + 0x812;
+    }
+    else {
+      if ((int)(param_2 + param_1[3]) < 0x1001) {
+        iVar2 = (int)(param_2 + param_1[3]) / param_1[2] + -1;
+        local_14 = (int)(iVar2 + (iVar2 >> 0x1f & 0x3fU)) >> 6;
+      }
+      else {
+        local_14 = -1;
+      }
+      local_18 = local_14;
+      while ((local_18 < 0x10 && (local_10[1] == 0))) {
+        if (param_1[local_18 * 2 + 0x816] != 0) {
+          if (local_10 < (int *)param_1[local_18 * 2 + 0x817]) {
+            local_10 = (int *)param_1[local_18 * 2 + 0x817];
+          }
+          for (; local_10[1] == 0; local_10 = local_10 + 2) {
+            if (local_18 < 0x10) {
+              piVar1 = (int *)param_1[local_18 * 2 + 0x819];
+            }
+            else {
+              piVar1 = (int *)param_1[0x811];
+            }
+            if (piVar1 <= local_10) break;
+          }
+        }
+        local_18 = local_18 + 1;
+      }
+      if (local_18 == 0x10) {
+        local_10 = param_1 + 0x812;
+      }
+    }
+  }
+  if (local_10[1] != 0) {
+    for (local_1c = (LPVOID)*local_10; local_1c != (LPVOID)0x0;
+        local_1c = *(LPVOID *)((int)local_1c + 0xc)) {
+      local_c = *(uint *)((int)local_1c + 4) & 0xfffffff;
+      local_20 = local_c - param_2;
+      if ((local_20 == 0) || (param_1[3] <= local_20)) {
+        local_28 = (undefined4 *)0x0;
+        local_21 = (*(uint *)((int)local_1c + 4) & 0x20000000) != 0;
+        FUN_00aa9e50(local_10,local_1c);
+        if (local_20 == 0) {
+          if (local_21 != '\0') {
+            pvVar3 = VirtualAlloc(local_1c,param_2 + 8,0x1000,4);
+            local_23d = pvVar3 != (LPVOID)0x0;
+            if (!(bool)local_23d) {
+              FUN_00aa9d30(local_1c);
+              LeaveCriticalSection((LPCRITICAL_SECTION)(param_1 + 0x836));
+              goto LAB_00aa9749;
+            }
+            *(uint *)((int)local_1c + 4) = *(uint *)((int)local_1c + 4) & 0xdfffffff;
+            FUN_00406d00(local_23c,0x100,"Committing perfectly matched Free Block: %08X, %08X\r\n",
+                         local_1c,param_2 + 8);
+            if (DAT_011f6388 != (int *)0x0) {
+              (**(code **)(*DAT_011f6388 + 0x14))(2,local_23c,0,0,0);
+            }
+          }
+        }
+        else {
+          if (local_21 != '\0') {
+            local_30 = param_2 + 0x18;
+            pvVar3 = VirtualAlloc(local_1c,local_30,0x1000,4);
+            local_135 = pvVar3 != (LPVOID)0x0;
+            if (!(bool)local_135) {
+              FUN_00aa9d30(local_1c);
+              LeaveCriticalSection((LPCRITICAL_SECTION)(param_1 + 0x836));
+              goto LAB_00aa9749;
+            }
+            *(uint *)((int)local_1c + 4) = *(uint *)((int)local_1c + 4) & 0xdfffffff;
+            FUN_00406d00(local_134,0x100,"Committing Entire Free Block: %08X, %08X\r\n",local_1c,
+                         local_30);
+            if (DAT_011f6388 != (int *)0x0) {
+              (**(code **)(*DAT_011f6388 + 0x14))(2,local_134,0,0,0);
+            }
+          }
+          local_28 = (undefined4 *)((int)local_1c + param_2 + 8);
+          local_2c = local_c - (param_2 + 8);
+          local_28[2] = 0;
+          local_28[3] = 0;
+          FUN_00aaa6e0(local_2c,0);
+          *local_28 = local_1c;
+          if (local_1c == (LPVOID)param_1[0xf]) {
+            param_1[0xf] = (int)local_28;
+          }
+          else {
+            local_13c = (int *)((int)local_1c + (*(uint *)((int)local_1c + 4) & 0xfffffff) + 8);
+            *local_13c = (int)local_28;
+          }
+          param_1[0xd] = param_1[0xd] + 1;
+          FUN_00aa9d30(local_28);
+          FUN_00aa9bd0(local_28);
+        }
+        *(uint *)((int)local_1c + 4) = *(uint *)((int)local_1c + 4) & 0xf0000000 | param_2;
+        local_8 = (int)local_1c + 8;
+        param_1[0xb] = (*(uint *)((int)local_1c + 4) & 0xfffffff) + 8 + param_1[0xb];
+        break;
+      }
+    }
+  }
+  if (local_8 == 0) {
+    local_244 = param_2 + 8;
+    local_248 = param_1[9] + local_244;
+    if (((param_1[4] != 0) && ((uint)param_1[7] < local_248)) && (local_248 <= (uint)param_1[5])) {
+      iVar2 = (**(code **)(*param_1 + 0x38))(param_1[0xc],param_1[7],local_244);
+      param_1[7] = iVar2 + param_1[7];
+    }
+    if (local_248 <= (uint)param_1[7]) {
+      local_24c = (LPVOID)(param_1[0xc] + param_1[9]);
+      if (param_1[4] != 0) {
+        pvVar3 = VirtualAlloc(local_24c,param_2 + 8,0x1000,4);
+        if (pvVar3 == (LPVOID)0x0) {
+          LeaveCriticalSection((LPCRITICAL_SECTION)(param_1 + 0x836));
+          goto LAB_00aa9749;
+        }
+        FUN_00406d00(local_34c,0x100,"Committing memory on end of heap: %08X, %08X\r\n",local_24c,
+                     param_2 + 8);
+        if (DAT_011f6388 != (int *)0x0) {
+          (**(code **)(*DAT_011f6388 + 0x14))(2,local_34c,0,0,0);
+        }
+      }
+      FUN_00aaa6e0(param_2,0);
+      FUN_00aa9ca0(local_24c);
+      param_1[9] = param_1[9] + local_244;
+      if (param_1[10] < param_1[9]) {
+        param_1[10] = param_1[9];
+      }
+      local_8 = (int)local_24c + 8;
+      param_1[0xb] = param_1[0xb] + local_244;
+    }
+  }
+  LeaveCriticalSection((LPCRITICAL_SECTION)(param_1 + 0x836));
+LAB_00aa9749:
+  __security_check_cookie(local_34 ^ (uint)&stack0xfffffffc);
+  return;
+}
+
+
+
+----------------------------------------------------------------------
+References TO 0x00aa8f50 (large_heap_alloc_impl_00aa8f50)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x00aa7b2e (in FUN_00aa7b20 @ 0x00aa7b20)
+  Total printed: 1
+
+----------------------------------------------------------------------
+Calls FROM large_heap_alloc_impl_00aa8f50 (0x00aa8f50)
+----------------------------------------------------------------------
+  0x00aa8f75 -> 0x0000000d ???
+  0x00aa920e -> 0x00aa9e50 FUN_00aa9e50 @ 0x00aa9e50
+  0x00aa9241 -> 0x0000003b ???
+  0x00aa9268 -> 0x00aa9d30 FUN_00aa9d30 @ 0x00aa9d30
+  0x00aa9279 -> 0x00000036 ???
+  0x00aa92c7 -> 0x00406d00 FUN_00406d00 @ 0x00406d00
+  0x00aa9348 -> 0x00aaa6e0 FUN_00aaa6e0 @ 0x00aaa6e0
+  0x00aa93c0 -> 0x00aa9d30 FUN_00aa9d30 @ 0x00aa9d30
+  0x00aa93cf -> 0x00aa9bd0 FUN_00aa9bd0 @ 0x00aa9bd0
+  0x00aa93f7 -> 0x0000003b ???
+  0x00aa941e -> 0x00aa9d30 FUN_00aa9d30 @ 0x00aa9d30
+  0x00aa9430 -> 0x00000036 ???
+  0x00aa9483 -> 0x00406d00 FUN_00406d00 @ 0x00406d00
+  0x00aa9612 -> 0x0000003b ???
+  0x00aa963b -> 0x00000036 ???
+  0x00aa9667 -> 0x00406d00 FUN_00406d00 @ 0x00406d00
+  0x00aa96bb -> 0x00aaa6e0 FUN_00aaa6e0 @ 0x00aaa6e0
+  0x00aa96cd -> 0x00aa9ca0 FUN_00aa9ca0 @ 0x00aa9ca0
+  0x00aa9740 -> 0x00000036 ???
+  0x00aa974e -> 0x00ec408c __security_check_cookie @ 0x00ec408c
+  Total printed: 20
+
+----------------------------------------------------------------------
+Field-sensitive instructions in large_heap_alloc_impl_00aa8f50 (0x00aa8f50)
+----------------------------------------------------------------------
+  0x00aa8f60: MOV dword ptr [EBP + -0x30],EAX
+  0x00aa8fcb: CMP dword ptr [EBP + 0xfffffcb0],0x400
+  0x00aa8fdd: ADD EDX,0x2048
+  0x00aa8ff7: LEA EDX,[ECX + EAX*0x8 + 0x44]
+  0x00aa901d: ADD EDX,0x2048
+  0x00aa9060: ADD EAX,0x2048
+  0x00aa906d: MOV dword ptr [EBP + -0x14],0x0
+  0x00aa90bd: MOV dword ptr [EBP + -0x14],EDX
+  0x00aa90c2: MOV EAX,dword ptr [EBP + -0x14]
+  0x00aa90c8: MOV dword ptr [EBP + -0x14],EAX
+  0x00aa90cb: CMP dword ptr [EBP + -0x14],0x10
+  0x00aa90e2: MOV EDX,dword ptr [EBP + -0x14]
+  0x00aa90eb: CMP dword ptr [EAX + EDX*0x8 + 0x2058],0x0
+  0x00aa90f9: MOV ECX,dword ptr [EBP + -0x14]
+  0x00aa9102: MOV EAX,dword ptr [EDX + ECX*0x8 + 0x205c]
+  0x00aa910e: MOV ECX,dword ptr [EBP + -0x14]
+  0x00aa9117: MOV EAX,dword ptr [EDX + ECX*0x8 + 0x205c]
+  0x00aa912a: CMP dword ptr [EBP + -0x14],0x10
+  0x00aa9130: MOV EDX,dword ptr [EBP + -0x14]
+  0x00aa9185: CMP dword ptr [EBP + -0x14],0x10
+  0x00aa9191: ADD EDX,0x2048
+  0x00aa91ac: MOV dword ptr [EBP + -0x18],EDX
+  0x00aa91af: CMP dword ptr [EBP + -0x18],0x0
+  0x00aa91b9: MOV EAX,dword ptr [EBP + -0x18]
+  0x00aa91ce: MOV dword ptr [EBP + -0x1c],EDX
+  0x00aa91d9: MOV ECX,dword ptr [EBP + -0x1c]
+  0x00aa91e5: MOV dword ptr [EBP + -0x24],0x0
+  0x00aa91ec: MOV EDX,dword ptr [EBP + -0x18]
+  0x00aa9200: MOV ECX,dword ptr [EBP + -0x18]
+  0x00aa9213: CMP dword ptr [EBP + -0x1c],0x0
+  0x00aa922c: ADD ECX,0x18
+  0x00aa922f: MOV dword ptr [EBP + -0x2c],ECX
+  0x00aa9239: MOV EDX,dword ptr [EBP + -0x2c]
+  0x00aa923d: MOV EAX,dword ptr [EBP + -0x18]
+  0x00aa925e: MOV EDX,dword ptr [EBP + -0x18]
+  0x00aa928a: MOV EDX,dword ptr [EBP + -0x18]
+  0x00aa9295: MOV ECX,dword ptr [EBP + -0x18]
+  0x00aa929d: MOV EDX,dword ptr [EBP + -0x18]
+  0x00aa92a8: MOV ECX,dword ptr [EBP + -0x18]
+  0x00aa92ae: MOV EDX,dword ptr [EBP + -0x2c]
+  0x00aa92b2: MOV EAX,dword ptr [EBP + -0x18]
+  0x00aa92cc: ADD ESP,0x14
+  0x00aa930b: MOV EAX,dword ptr [EDX + 0x14]
+  0x00aa9313: MOV EDX,dword ptr [EBP + -0x18]
+  0x00aa931a: MOV dword ptr [EBP + -0x24],EAX
+  0x00aa9328: MOV dword ptr [EBP + -0x28],EDX
+  0x00aa932b: MOV EAX,dword ptr [EBP + -0x24]
+  0x00aa9335: MOV ECX,dword ptr [EBP + -0x24]
+  0x00aa9341: MOV EDX,dword ptr [EBP + -0x28]
+  0x00aa9345: MOV ECX,dword ptr [EBP + -0x24]
+  0x00aa934d: MOV EAX,dword ptr [EBP + -0x24]
+  0x00aa9350: MOV ECX,dword ptr [EBP + -0x18]
+  0x00aa935b: MOV EAX,dword ptr [EBP + -0x18]
+  0x00aa935e: CMP EAX,dword ptr [EDX + 0x3c]
+  0x00aa9369: MOV EDX,dword ptr [EBP + -0x24]
+  0x00aa936c: MOV dword ptr [ECX + 0x3c],EDX
+  0x00aa9371: MOV EAX,dword ptr [EBP + -0x18]
+  0x00aa9389: MOV EAX,dword ptr [EBP + -0x18]
+  0x00aa939c: MOV EAX,dword ptr [EBP + -0x24]
+  0x00aa93a7: MOV EDX,dword ptr [ECX + 0x34]
+  0x00aa93b3: MOV dword ptr [EAX + 0x34],EDX
+  0x00aa93b6: MOV ECX,dword ptr [EBP + -0x24]
+  0x00aa93c5: MOV EDX,dword ptr [EBP + -0x24]
+  0x00aa93f3: MOV EDX,dword ptr [EBP + -0x18]
+  0x00aa9414: MOV ECX,dword ptr [EBP + -0x18]
+  0x00aa9441: MOV ECX,dword ptr [EBP + -0x18]
+  0x00aa944d: MOV EAX,dword ptr [EBP + -0x18]
+  0x00aa9455: MOV ECX,dword ptr [EBP + -0x18]
+  0x00aa9461: MOV EAX,dword ptr [EBP + -0x18]
+  0x00aa946e: MOV EDX,dword ptr [EBP + -0x18]
+  0x00aa9488: ADD ESP,0x14
+  0x00aa94c6: MOV EDX,dword ptr [EAX + 0x14]
+  0x00aa94cb: MOV EAX,dword ptr [EBP + -0x18]
+  0x00aa94da: MOV EDX,dword ptr [EBP + -0x18]
+  0x00aa94e0: MOV EAX,dword ptr [EBP + -0x18]
+  0x00aa94e9: MOV ECX,dword ptr [EBP + -0x18]
+  0x00aa9501: MOV ECX,dword ptr [EAX + 0x2c]
+  0x00aa9514: MOV dword ptr [ECX + 0x2c],EAX
+  0x00aa9519: MOV EDX,dword ptr [EBP + -0x18]
+  0x00aa951f: MOV dword ptr [EBP + -0x18],EAX
+  0x00aa9543: MOV EAX,dword ptr [EDX + 0x24]
+  0x00aa956a: CMP EAX,dword ptr [EDX + 0x1c]
+  0x00aa957b: CMP EDX,dword ptr [ECX + 0x14]
+  0x00aa958d: MOV EDX,dword ptr [ECX + 0x1c]
+  0x00aa9597: MOV ECX,dword ptr [EAX + 0x30]
+  0x00aa95a9: MOV EDX,dword ptr [EAX + 0x38]
+  0x00aa95b4: ADD EAX,dword ptr [ECX + 0x1c]
+  0x00aa95bd: MOV dword ptr [EDX + 0x1c],EAX
+  0x00aa95cc: CMP ECX,dword ptr [EAX + 0x1c]
+  0x00aa95db: MOV EAX,dword ptr [EDX + 0x30]
+  0x00aa95e4: ADD EAX,dword ptr [ECX + 0x24]
+  0x00aa966c: ADD ESP,0x14
+  0x00aa96aa: MOV EDX,dword ptr [EAX + 0x14]
+  ... scan truncated at 500 instructions
+  Field-sensitive instructions printed: 93
+
+----------------------------------------------------------------------
+Disassembly: large_heap_alloc_impl_00aa8f50 @ 0x00aa8f50
+----------------------------------------------------------------------
+  0x00aa8f50: PUSH EBP
+  0x00aa8f51: MOV EBP,ESP
+  0x00aa8f53: SUB ESP,0x374
+  0x00aa8f59: MOV EAX,[0x011c16bc]
+  0x00aa8f5e: XOR EAX,EBP
+  0x00aa8f60: MOV dword ptr [EBP + -0x30],EAX
+  0x00aa8f63: MOV dword ptr [EBP + 0xfffffca0],ECX
+  0x00aa8f69: MOV EAX,dword ptr [EBP + 0xfffffca0]
+  0x00aa8f6f: ADD EAX,0x20d8
+  0x00aa8f74: PUSH EAX
+  0x00aa8f75: CALL dword ptr [0x00fdf05c]
+  0x00aa8f7b: CMP dword ptr [EBP + 0x8],0x8
+  0x00aa8f7f: JA 0x00aa8f8a
+  0x00aa8f81: MOV dword ptr [EBP + 0x8],0x8
+  0x00aa8f88: JMP 0x00aa8fad
+  0x00aa8f8a: MOV ECX,dword ptr [EBP + 0xfffffca0]
+  0x00aa8f90: MOV EDX,dword ptr [ECX + 0x8]
+  0x00aa8f93: MOV EAX,dword ptr [EBP + 0x8]
+  0x00aa8f96: LEA ECX,[EAX + EDX*0x1 + -0x1]
+  0x00aa8f9a: MOV EDX,dword ptr [EBP + 0xfffffca0]
+  0x00aa8fa0: MOV EAX,dword ptr [EDX + 0x8]
+  0x00aa8fa3: SUB EAX,0x1
+  0x00aa8fa6: NOT EAX
+  0x00aa8fa8: AND ECX,EAX
+  0x00aa8faa: MOV dword ptr [EBP + 0x8],ECX
+  0x00aa8fad: MOV dword ptr [EBP + -0x4],0x0
+  0x00aa8fb4: MOV ECX,dword ptr [EBP + 0xfffffca0]
+  0x00aa8fba: MOV EAX,dword ptr [EBP + 0x8]
+  0x00aa8fbd: XOR EDX,EDX
+  0x00aa8fbf: DIV dword ptr [ECX + 0x8]
+  0x00aa8fc2: SUB EAX,0x1
+  0x00aa8fc5: MOV dword ptr [EBP + 0xfffffcb0],EAX
+  0x00aa8fcb: CMP dword ptr [EBP + 0xfffffcb0],0x400
+  0x00aa8fd5: JL 0x00aa8feb
+  0x00aa8fd7: MOV EDX,dword ptr [EBP + 0xfffffca0]
+  0x00aa8fdd: ADD EDX,0x2048
+  0x00aa8fe3: MOV dword ptr [EBP + 0xfffffc9c],EDX
+  0x00aa8fe9: JMP 0x00aa9001
+  0x00aa8feb: MOV EAX,dword ptr [EBP + 0xfffffcb0]
+  0x00aa8ff1: MOV ECX,dword ptr [EBP + 0xfffffca0]
+  0x00aa8ff7: LEA EDX,[ECX + EAX*0x8 + 0x44]
+  0x00aa8ffb: MOV dword ptr [EBP + 0xfffffc9c],EDX
+  0x00aa9001: MOV EAX,dword ptr [EBP + 0xfffffc9c]
+  0x00aa9007: MOV dword ptr [EBP + -0xc],EAX
+  0x00aa900a: MOV ECX,dword ptr [EBP + -0xc]
+  0x00aa900d: CMP dword ptr [ECX + 0x4],0x0
+  0x00aa9011: JNZ 0x00aa919a
+  0x00aa9017: MOV EDX,dword ptr [EBP + 0xfffffca0]
+  0x00aa901d: ADD EDX,0x2048
+  0x00aa9023: CMP dword ptr [EBP + -0xc],EDX
+  0x00aa9026: JZ 0x00aa919a
+  0x00aa902c: MOV EAX,dword ptr [EBP + 0xfffffca0]
+  0x00aa9032: MOV ECX,dword ptr [EBP + 0xfffffca0]
+  0x00aa9038: MOV EAX,dword ptr [EAX + 0xc]
+  0x00aa903b: XOR EDX,EDX
+  0x00aa903d: DIV dword ptr [ECX + 0x8]
+  0x00aa9040: MOV EDX,dword ptr [EBP + -0xc]
+  0x00aa9043: LEA EAX,[EDX + EAX*0x8]
+  0x00aa9046: MOV dword ptr [EBP + -0xc],EAX
+  0x00aa9049: MOV ECX,dword ptr [EBP + 0xfffffca0]
+  0x00aa904f: MOV EDX,dword ptr [EBP + -0xc]
+  0x00aa9052: CMP EDX,dword ptr [ECX + 0x2044]
+  0x00aa9058: JBE 0x00aa906d
+  0x00aa905a: MOV EAX,dword ptr [EBP + 0xfffffca0]
+  0x00aa9060: ADD EAX,0x2048
+  0x00aa9065: MOV dword ptr [EBP + -0xc],EAX
+  0x00aa9068: JMP 0x00aa919a
+  0x00aa906d: MOV dword ptr [EBP + -0x14],0x0
+  0x00aa9074: MOV ECX,dword ptr [EBP + 0xfffffca0]
+  0x00aa907a: MOV EDX,dword ptr [EBP + 0x8]
+  0x00aa907d: ADD EDX,dword ptr [ECX + 0xc]
+  0x00aa9080: MOV dword ptr [EBP + 0xfffffcac],EDX
+  0x00aa9086: CMP dword ptr [EBP + 0xfffffcac],0x1000
+  0x00aa9090: JLE 0x00aa909b
+  0x00aa9092: MOV dword ptr [EBP + -0x10],0xffffffff
+  0x00aa9099: JMP 0x00aa90ba
+  0x00aa909b: MOV ECX,dword ptr [EBP + 0xfffffca0]
+  0x00aa90a1: MOV EAX,dword ptr [EBP + 0xfffffcac]
+  0x00aa90a7: CDQ
+  0x00aa90a8: IDIV dword ptr [ECX + 0x8]
+  0x00aa90ab: SUB EAX,0x1
+  0x00aa90ae: CDQ
+  0x00aa90af: AND EDX,0x3f
+  0x00aa90b2: ADD EAX,EDX
+  0x00aa90b4: SAR EAX,0x6
+  0x00aa90b7: MOV dword ptr [EBP + -0x10],EAX
+  0x00aa90ba: MOV EDX,dword ptr [EBP + -0x10]
+  0x00aa90bd: MOV dword ptr [EBP + -0x14],EDX
+  0x00aa90c0: JMP 0x00aa90cb
+  0x00aa90c2: MOV EAX,dword ptr [EBP + -0x14]
+  0x00aa90c5: ADD EAX,0x1
+  0x00aa90c8: MOV dword ptr [EBP + -0x14],EAX
+  0x00aa90cb: CMP dword ptr [EBP + -0x14],0x10
+  0x00aa90cf: JGE 0x00aa9185
+  0x00aa90d5: MOV ECX,dword ptr [EBP + -0xc]
+  0x00aa90d8: CMP dword ptr [ECX + 0x4],0x0
+  0x00aa90dc: JNZ 0x00aa9185
+  0x00aa90e2: MOV EDX,dword ptr [EBP + -0x14]
+  0x00aa90e5: MOV EAX,dword ptr [EBP + 0xfffffca0]
+  0x00aa90eb: CMP dword ptr [EAX + EDX*0x8 + 0x2058],0x0
+  0x00aa90f3: JZ 0x00aa9180
+  0x00aa90f9: MOV ECX,dword ptr [EBP + -0x14]
+  0x00aa90fc: MOV EDX,dword ptr [EBP + 0xfffffca0]
+  0x00aa9102: MOV EAX,dword ptr [EDX + ECX*0x8 + 0x205c]
+  0x00aa9109: CMP EAX,dword ptr [EBP + -0xc]
+  0x00aa910c: JBE 0x00aa9121
+  0x00aa910e: MOV ECX,dword ptr [EBP + -0x14]
+  0x00aa9111: MOV EDX,dword ptr [EBP + 0xfffffca0]
+  0x00aa9117: MOV EAX,dword ptr [EDX + ECX*0x8 + 0x205c]
+  0x00aa911e: MOV dword ptr [EBP + -0xc],EAX
+  0x00aa9121: MOV ECX,dword ptr [EBP + -0xc]
+  0x00aa9124: CMP dword ptr [ECX + 0x4],0x0
+  0x00aa9128: JNZ 0x00aa9180
+  0x00aa912a: CMP dword ptr [EBP + -0x14],0x10
+  0x00aa912e: JGE 0x00aa9150
+  0x00aa9130: MOV EDX,dword ptr [EBP + -0x14]
+  0x00aa9133: MOV EAX,dword ptr [EBP + 0xfffffca0]
+  0x00aa9139: MOV ECX,dword ptr [EBP + -0xc]
+  0x00aa913c: CMP ECX,dword ptr [EAX + EDX*0x8 + 0x2064]
+  0x00aa9143: SBB EDX,EDX
+  0x00aa9145: ADD EDX,0x1
+  0x00aa9148: MOV dword ptr [EBP + 0xfffffc98],EDX
+  0x00aa914e: JMP 0x00aa916a
+  0x00aa9150: MOV EAX,dword ptr [EBP + 0xfffffca0]
+  0x00aa9156: MOV ECX,dword ptr [EBP + -0xc]
+  0x00aa9159: CMP ECX,dword ptr [EAX + 0x2044]
+  0x00aa915f: SBB EDX,EDX
+  0x00aa9161: ADD EDX,0x1
+  0x00aa9164: MOV dword ptr [EBP + 0xfffffc98],EDX
+  0x00aa916a: MOVZX EAX,byte ptr [EBP + 0xfffffc98]
+  0x00aa9171: TEST EAX,EAX
+  0x00aa9173: JNZ 0x00aa9180
+  0x00aa9175: MOV ECX,dword ptr [EBP + -0xc]
+  0x00aa9178: ADD ECX,0x8
+  0x00aa917b: MOV dword ptr [EBP + -0xc],ECX
+  0x00aa917e: JMP 0x00aa9121
+  0x00aa9180: JMP 0x00aa90c2
+  0x00aa9185: CMP dword ptr [EBP + -0x14],0x10
+  0x00aa9189: JNZ 0x00aa919a
+  0x00aa918b: MOV EDX,dword ptr [EBP + 0xfffffca0]
+  0x00aa9191: ADD EDX,0x2048
+  0x00aa9197: MOV dword ptr [EBP + -0xc],EDX
+  0x00aa919a: MOV EAX,dword ptr [EBP + -0xc]
+  0x00aa919d: CMP dword ptr [EAX + 0x4],0x0
+  0x00aa91a1: JZ 0x00aa9527
+  0x00aa91a7: MOV ECX,dword ptr [EBP + -0xc]
+  0x00aa91aa: MOV EDX,dword ptr [ECX]
+  0x00aa91ac: MOV dword ptr [EBP + -0x18],EDX
+  0x00aa91af: CMP dword ptr [EBP + -0x18],0x0
+  0x00aa91b3: JZ 0x00aa9527
+  0x00aa91b9: MOV EAX,dword ptr [EBP + -0x18]
+  0x00aa91bc: MOV ECX,dword ptr [EAX + 0x4]
+  0x00aa91bf: AND ECX,0xfffffff
+  0x00aa91c5: MOV dword ptr [EBP + -0x8],ECX
+  0x00aa91c8: MOV EDX,dword ptr [EBP + -0x8]
+  0x00aa91cb: SUB EDX,dword ptr [EBP + 0x8]
+  0x00aa91ce: MOV dword ptr [EBP + -0x1c],EDX
+  0x00aa91d1: JZ 0x00aa91e5
+  0x00aa91d3: MOV EAX,dword ptr [EBP + 0xfffffca0]
+  0x00aa91d9: MOV ECX,dword ptr [EBP + -0x1c]
+  0x00aa91dc: CMP ECX,dword ptr [EAX + 0xc]
+  0x00aa91df: JL 0x00aa9519
+  0x00aa91e5: MOV dword ptr [EBP + -0x24],0x0
+  0x00aa91ec: MOV EDX,dword ptr [EBP + -0x18]
+  0x00aa91ef: MOV EAX,dword ptr [EDX + 0x4]
+  0x00aa91f2: AND EAX,0x20000000
+  0x00aa91f7: NEG EAX
+  0x00aa91f9: SBB EAX,EAX
+  0x00aa91fb: NEG EAX
+  0x00aa91fd: MOV byte ptr [EBP + -0x1d],AL
+  0x00aa9200: MOV ECX,dword ptr [EBP + -0x18]
+  0x00aa9203: PUSH ECX
+  0x00aa9204: MOV EDX,dword ptr [EBP + -0xc]
+  0x00aa9207: PUSH EDX
+  0x00aa9208: MOV ECX,dword ptr [EBP + 0xfffffca0]
+  0x00aa920e: CALL 0x00aa9e50
+  0x00aa9213: CMP dword ptr [EBP + -0x1c],0x0
+  0x00aa9217: JZ 0x00aa93d9
+  0x00aa921d: MOVZX EAX,byte ptr [EBP + -0x1d]
+  0x00aa9221: TEST EAX,EAX
+  0x00aa9223: JZ 0x00aa9310
+  0x00aa9229: MOV ECX,dword ptr [EBP + 0x8]
+  0x00aa922c: ADD ECX,0x18
+  0x00aa922f: MOV dword ptr [EBP + -0x2c],ECX
+  0x00aa9232: PUSH 0x4
+  0x00aa9234: PUSH 0x1000
+  0x00aa9239: MOV EDX,dword ptr [EBP + -0x2c]
+  0x00aa923c: PUSH EDX
+  0x00aa923d: MOV EAX,dword ptr [EBP + -0x18]
+  0x00aa9240: PUSH EAX
+  0x00aa9241: CALL dword ptr [0x00fdf114]
+  0x00aa9247: NEG EAX
+  0x00aa9249: SBB EAX,EAX
+  0x00aa924b: NEG EAX
+  0x00aa924d: MOV byte ptr [EBP + 0xfffffecf],AL
+  0x00aa9253: MOVZX ECX,byte ptr [EBP + 0xfffffecf]
+  0x00aa925a: TEST ECX,ECX
+  0x00aa925c: JNZ 0x00aa9286
+  0x00aa925e: MOV EDX,dword ptr [EBP + -0x18]
+  0x00aa9261: PUSH EDX
+  0x00aa9262: MOV ECX,dword ptr [EBP + 0xfffffca0]
+  0x00aa9268: CALL 0x00aa9d30
+  0x00aa926d: MOV EAX,dword ptr [EBP + 0xfffffca0]
+  0x00aa9273: ADD EAX,0x20d8
+  0x00aa9278: PUSH EAX
+  0x00aa9279: CALL dword ptr [0x00fdf100]
+  0x00aa927f: XOR EAX,EAX
+  0x00aa9281: JMP 0x00aa9749
+  0x00aa9286: XOR ECX,ECX
+  0x00aa9288: JZ 0x00aa929d
+  0x00aa928a: MOV EDX,dword ptr [EBP + -0x18]
+  0x00aa928d: MOV EAX,dword ptr [EDX + 0x4]
+  0x00aa9290: OR EAX,0x20000000
+  0x00aa9295: MOV ECX,dword ptr [EBP + -0x18]
+  0x00aa9298: MOV dword ptr [ECX + 0x4],EAX
+  0x00aa929b: JMP 0x00aa92ae
+  0x00aa929d: MOV EDX,dword ptr [EBP + -0x18]
+  0x00aa92a0: MOV EAX,dword ptr [EDX + 0x4]
+  0x00aa92a3: AND EAX,0xdfffffff
+  0x00aa92a8: MOV ECX,dword ptr [EBP + -0x18]
+  0x00aa92ab: MOV dword ptr [ECX + 0x4],EAX
+  0x00aa92ae: MOV EDX,dword ptr [EBP + -0x2c]
+  0x00aa92b1: PUSH EDX
+  0x00aa92b2: MOV EAX,dword ptr [EBP + -0x18]
+  0x00aa92b5: PUSH EAX
+  0x00aa92b6: PUSH 0x10a29e4
+  0x00aa92bb: PUSH 0x100
+  0x00aa92c0: LEA ECX,[EBP + 0xfffffed0]
+  0x00aa92c6: PUSH ECX
+  0x00aa92c7: CALL 0x00406d00
+  0x00aa92cc: ADD ESP,0x14
+  0x00aa92cf: XOR EDX,EDX
+  0x00aa92d1: CMP dword ptr [0x011f6388],0x0
+  0x00aa92d8: SETNZ DL
+  0x00aa92db: MOVZX EAX,DL
+  0x00aa92de: TEST EAX,EAX
+  0x00aa92e0: JZ 0x00aa9310
+  0x00aa92e2: MOV ECX,dword ptr [0x011f6388]
+  0x00aa92e8: MOV dword ptr [EBP + 0xfffffc94],ECX
+  0x00aa92ee: PUSH 0x0
+  0x00aa92f0: PUSH 0x0
+  0x00aa92f2: PUSH 0x0
+  0x00aa92f4: LEA EDX,[EBP + 0xfffffed0]
+  0x00aa92fa: PUSH EDX
+  0x00aa92fb: PUSH 0x2
+  0x00aa92fd: MOV EAX,dword ptr [EBP + 0xfffffc94]
+  0x00aa9303: MOV EDX,dword ptr [EAX]
+  0x00aa9305: MOV ECX,dword ptr [EBP + 0xfffffc94]
+  0x00aa930b: MOV EAX,dword ptr [EDX + 0x14]
+  0x00aa930e: CALL EAX
+  0x00aa9310: MOV ECX,dword ptr [EBP + 0x8]
+  0x00aa9313: MOV EDX,dword ptr [EBP + -0x18]
+  0x00aa9316: LEA EAX,[EDX + ECX*0x1 + 0x8]
+  0x00aa931a: MOV dword ptr [EBP + -0x24],EAX
+  0x00aa931d: MOV ECX,dword ptr [EBP + 0x8]
+  0x00aa9320: ADD ECX,0x8
+  0x00aa9323: MOV EDX,dword ptr [EBP + -0x8]
+  0x00aa9326: SUB EDX,ECX
+  0x00aa9328: MOV dword ptr [EBP + -0x28],EDX
+  0x00aa932b: MOV EAX,dword ptr [EBP + -0x24]
+  ... (truncated at 260 instructions)
+  Instructions printed: 260
+
+======================================================================
+large_heap_free_vtable_entry_00aa7b40 @ 0x00aa7b40
+======================================================================
+  Function: FUN_00aa7b40 @ 0x00aa7b40, Size: 33 bytes
+
+void FUN_00aa7b40(int param_1)
+
+{
+  if (param_1 != 0) {
+    FUN_00aa98f0(param_1);
+  }
+  return;
+}
+
+
+
+----------------------------------------------------------------------
+References TO 0x00aa7b40 (large_heap_free_vtable_entry_00aa7b40)
+----------------------------------------------------------------------
+  DATA @ 0x010a2908 (in ???)
+  Total printed: 1
+
+----------------------------------------------------------------------
+Calls FROM large_heap_free_vtable_entry_00aa7b40 (0x00aa7b40)
+----------------------------------------------------------------------
+  0x00aa7b56 -> 0x00aa98f0 FUN_00aa98f0 @ 0x00aa98f0
+  Total printed: 1
+
+----------------------------------------------------------------------
+Field-sensitive instructions in large_heap_free_vtable_entry_00aa7b40 (0x00aa7b40)
+----------------------------------------------------------------------
+  Field-sensitive instructions printed: 0
+
+----------------------------------------------------------------------
+Disassembly: large_heap_free_vtable_entry_00aa7b40 @ 0x00aa7b40
+----------------------------------------------------------------------
+  0x00aa7b40: PUSH EBP
+  0x00aa7b41: MOV EBP,ESP
+  0x00aa7b43: PUSH ECX
+  0x00aa7b44: MOV dword ptr [EBP + -0x4],ECX
+  0x00aa7b47: CMP dword ptr [EBP + 0x8],0x0
+  0x00aa7b4b: JNZ 0x00aa7b4f
+  0x00aa7b4d: JMP 0x00aa7b5b
+  0x00aa7b4f: MOV EAX,dword ptr [EBP + 0x8]
+  0x00aa7b52: PUSH EAX
+  0x00aa7b53: MOV ECX,dword ptr [EBP + -0x4]
+  0x00aa7b56: CALL 0x00aa98f0
+  0x00aa7b5b: MOV ESP,EBP
+  0x00aa7b5d: POP EBP
+  0x00aa7b5e: RET 0x8
+  Instructions printed: 14
+
+======================================================================
+large_heap_free_impl_00aa98f0 @ 0x00aa98f0
+======================================================================
+  Function: FUN_00aa98f0 @ 0x00aa98f0, Size: 121 bytes
+
+void __thiscall FUN_00aa98f0(int param_1,int param_2)
+
+{
+  if (param_2 != 0) {
+    EnterCriticalSection((LPCRITICAL_SECTION)(param_1 + 0x20d8));
+    *(uint *)(param_1 + 0x2c) =
+         *(int *)(param_1 + 0x2c) - ((*(uint *)(param_2 + -4) & 0xfffffff) + 8);
+    FUN_00aa9d30(param_2 + -8);
+    FUN_00aa9bd0(param_2 + -8);
+    LeaveCriticalSection((LPCRITICAL_SECTION)(param_1 + 0x20d8));
+  }
+  return;
+}
+
+
+
+----------------------------------------------------------------------
+References TO 0x00aa98f0 (large_heap_free_impl_00aa98f0)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x00aa7b56 (in FUN_00aa7b40 @ 0x00aa7b40)
+  Total printed: 1
+
+----------------------------------------------------------------------
+Calls FROM large_heap_free_impl_00aa98f0 (0x00aa98f0)
+----------------------------------------------------------------------
+  0x00aa990a -> 0x0000000d ???
+  0x00aa9942 -> 0x00aa9d30 FUN_00aa9d30 @ 0x00aa9d30
+  0x00aa994e -> 0x00aa9bd0 FUN_00aa9bd0 @ 0x00aa9bd0
+  0x00aa995d -> 0x00000036 ???
+  Total printed: 4
+
+----------------------------------------------------------------------
+Field-sensitive instructions in large_heap_free_impl_00aa98f0 (0x00aa98f0)
+----------------------------------------------------------------------
+  0x00aa9930: MOV EAX,dword ptr [EDX + 0x2c]
+  0x00aa9938: MOV dword ptr [ECX + 0x2c],EAX
+  Field-sensitive instructions printed: 2
+
+----------------------------------------------------------------------
+Disassembly: large_heap_free_impl_00aa98f0 @ 0x00aa98f0
+----------------------------------------------------------------------
+  0x00aa98f0: PUSH EBP
+  0x00aa98f1: MOV EBP,ESP
+  0x00aa98f3: SUB ESP,0xc
+  0x00aa98f6: MOV dword ptr [EBP + -0xc],ECX
+  0x00aa98f9: CMP dword ptr [EBP + 0x8],0x0
+  0x00aa98fd: JNZ 0x00aa9901
+  0x00aa98ff: JMP 0x00aa9963
+  0x00aa9901: MOV EAX,dword ptr [EBP + -0xc]
+  0x00aa9904: ADD EAX,0x20d8
+  0x00aa9909: PUSH EAX
+  0x00aa990a: CALL dword ptr [0x00fdf05c]
+  0x00aa9910: MOV ECX,dword ptr [EBP + 0x8]
+  0x00aa9913: SUB ECX,0x8
+  0x00aa9916: MOV dword ptr [EBP + -0x4],ECX
+  0x00aa9919: MOV EDX,dword ptr [EBP + -0x4]
+  0x00aa991c: MOV EAX,dword ptr [EDX + 0x4]
+  0x00aa991f: AND EAX,0xfffffff
+  0x00aa9924: MOV dword ptr [EBP + -0x8],EAX
+  0x00aa9927: MOV ECX,dword ptr [EBP + -0x8]
+  0x00aa992a: ADD ECX,0x8
+  0x00aa992d: MOV EDX,dword ptr [EBP + -0xc]
+  0x00aa9930: MOV EAX,dword ptr [EDX + 0x2c]
+  0x00aa9933: SUB EAX,ECX
+  0x00aa9935: MOV ECX,dword ptr [EBP + -0xc]
+  0x00aa9938: MOV dword ptr [ECX + 0x2c],EAX
+  0x00aa993b: MOV EDX,dword ptr [EBP + -0x4]
+  0x00aa993e: PUSH EDX
+  0x00aa993f: MOV ECX,dword ptr [EBP + -0xc]
+  0x00aa9942: CALL 0x00aa9d30
+  0x00aa9947: MOV EAX,dword ptr [EBP + -0x4]
+  0x00aa994a: PUSH EAX
+  0x00aa994b: MOV ECX,dword ptr [EBP + -0xc]
+  0x00aa994e: CALL 0x00aa9bd0
+  0x00aa9953: MOV ECX,dword ptr [EBP + -0xc]
+  0x00aa9956: ADD ECX,0x20d8
+  0x00aa995c: PUSH ECX
+  0x00aa995d: CALL dword ptr [0x00fdf100]
+  0x00aa9963: MOV ESP,EBP
+  0x00aa9965: POP EBP
+  0x00aa9966: RET 0x4
+  Instructions printed: 40
+
+======================================================================
+free_block_insert_or_coalesce_00aa9bd0 @ 0x00aa9bd0
+======================================================================
+  Function: FUN_00aa9bd0 @ 0x00aa9bd0, Size: 201 bytes
+
+void __thiscall FUN_00aa9bd0(int param_1,int *param_2)
+
+{
+  int *piVar1;
+  int *local_8;
+  
+  local_8 = param_2;
+  if (param_2 != (int *)0x0) {
+    while ((piVar1 = (int *)*local_8, piVar1 != (int *)0x0 && ((piVar1[1] & 0x40000000U) != 0))) {
+      FUN_00aa9970(piVar1,local_8);
+      local_8 = piVar1;
+    }
+  }
+  if (local_8 != (int *)0x0) {
+    while ((local_8 != *(int **)(param_1 + 0x3c) &&
+           ((*(uint *)((int)local_8 + (local_8[1] & 0xfffffffU) + 0xc) & 0x40000000) != 0))) {
+      FUN_00aa9970(local_8,(int)local_8 + (local_8[1] & 0xfffffffU) + 8);
+    }
+  }
+  FUN_00aa9a70();
+  return;
+}
+
+
+
+----------------------------------------------------------------------
+References TO 0x00aa9bd0 (free_block_insert_or_coalesce_00aa9bd0)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x00aa93cf (in FUN_00aa8f50 @ 0x00aa8f50)
+  UNCONDITIONAL_CALL @ 0x00aa994e (in FUN_00aa98f0 @ 0x00aa98f0)
+  Total printed: 2
+
+----------------------------------------------------------------------
+Calls FROM free_block_insert_or_coalesce_00aa9bd0 (0x00aa9bd0)
+----------------------------------------------------------------------
+  0x00aa9c17 -> 0x00aa9970 FUN_00aa9970 @ 0x00aa9970
+  0x00aa9c84 -> 0x00aa9970 FUN_00aa9970 @ 0x00aa9970
+  0x00aa9c8e -> 0x00aa9a70 FUN_00aa9a70 @ 0x00aa9a70
+  Total printed: 3
+
+----------------------------------------------------------------------
+Field-sensitive instructions in free_block_insert_or_coalesce_00aa9bd0 (0x00aa9bd0)
+----------------------------------------------------------------------
+  0x00aa9bd3: SUB ESP,0x14
+  0x00aa9bd6: MOV dword ptr [EBP + -0x14],ECX
+  0x00aa9bf9: AND ECX,0x40000000
+  0x00aa9c14: MOV ECX,dword ptr [EBP + -0x14]
+  0x00aa9c2e: MOV EAX,dword ptr [EBP + -0x14]
+  0x00aa9c34: CMP ECX,dword ptr [EAX + 0x3c]
+  0x00aa9c50: AND EDX,0x40000000
+  0x00aa9c81: MOV ECX,dword ptr [EBP + -0x14]
+  0x00aa9c8b: MOV ECX,dword ptr [EBP + -0x14]
+  Field-sensitive instructions printed: 9
+
+----------------------------------------------------------------------
+Disassembly: free_block_insert_or_coalesce_00aa9bd0 @ 0x00aa9bd0
+----------------------------------------------------------------------
+  0x00aa9bd0: PUSH EBP
+  0x00aa9bd1: MOV EBP,ESP
+  0x00aa9bd3: SUB ESP,0x14
+  0x00aa9bd6: MOV dword ptr [EBP + -0x14],ECX
+  0x00aa9bd9: MOV EAX,dword ptr [EBP + 0x8]
+  0x00aa9bdc: MOV dword ptr [EBP + -0x4],EAX
+  0x00aa9bdf: CMP dword ptr [EBP + -0x4],0x0
+  0x00aa9be3: JZ 0x00aa9c28
+  0x00aa9be5: MOV ECX,dword ptr [EBP + -0x4]
+  0x00aa9be8: MOV EDX,dword ptr [ECX]
+  0x00aa9bea: MOV dword ptr [EBP + -0x8],EDX
+  0x00aa9bed: CMP dword ptr [EBP + -0x8],0x0
+  0x00aa9bf1: JZ 0x00aa9c24
+  0x00aa9bf3: MOV EAX,dword ptr [EBP + -0x8]
+  0x00aa9bf6: MOV ECX,dword ptr [EAX + 0x4]
+  0x00aa9bf9: AND ECX,0x40000000
+  0x00aa9bff: NEG ECX
+  0x00aa9c01: SBB ECX,ECX
+  0x00aa9c03: NEG ECX
+  0x00aa9c05: MOVZX EDX,CL
+  0x00aa9c08: TEST EDX,EDX
+  0x00aa9c0a: JZ 0x00aa9c24
+  0x00aa9c0c: MOV EAX,dword ptr [EBP + -0x4]
+  0x00aa9c0f: PUSH EAX
+  0x00aa9c10: MOV ECX,dword ptr [EBP + -0x8]
+  0x00aa9c13: PUSH ECX
+  0x00aa9c14: MOV ECX,dword ptr [EBP + -0x14]
+  0x00aa9c17: CALL 0x00aa9970
+  0x00aa9c1c: MOV EDX,dword ptr [EBP + -0x8]
+  0x00aa9c1f: MOV dword ptr [EBP + -0x4],EDX
+  0x00aa9c22: JMP 0x00aa9c26
+  0x00aa9c24: JMP 0x00aa9c28
+  0x00aa9c26: JMP 0x00aa9be5
+  0x00aa9c28: CMP dword ptr [EBP + -0x4],0x0
+  0x00aa9c2c: JZ 0x00aa9c8b
+  0x00aa9c2e: MOV EAX,dword ptr [EBP + -0x14]
+  0x00aa9c31: MOV ECX,dword ptr [EBP + -0x4]
+  0x00aa9c34: CMP ECX,dword ptr [EAX + 0x3c]
+  0x00aa9c37: JZ 0x00aa9c8b
+  0x00aa9c39: MOV EDX,dword ptr [EBP + -0x4]
+  0x00aa9c3c: MOV EAX,dword ptr [EDX + 0x4]
+  0x00aa9c3f: AND EAX,0xfffffff
+  0x00aa9c44: MOV dword ptr [EBP + -0xc],EAX
+  0x00aa9c47: MOV ECX,dword ptr [EBP + -0x4]
+  0x00aa9c4a: ADD ECX,dword ptr [EBP + -0xc]
+  0x00aa9c4d: MOV EDX,dword ptr [ECX + 0xc]
+  0x00aa9c50: AND EDX,0x40000000
+  0x00aa9c56: NEG EDX
+  0x00aa9c58: SBB EDX,EDX
+  0x00aa9c5a: NEG EDX
+  0x00aa9c5c: MOVZX EAX,DL
+  0x00aa9c5f: TEST EAX,EAX
+  0x00aa9c61: JZ 0x00aa9c8b
+  0x00aa9c63: MOV ECX,dword ptr [EBP + -0x4]
+  0x00aa9c66: MOV EDX,dword ptr [ECX + 0x4]
+  0x00aa9c69: AND EDX,0xfffffff
+  0x00aa9c6f: MOV dword ptr [EBP + -0x10],EDX
+  0x00aa9c72: MOV EAX,dword ptr [EBP + -0x10]
+  0x00aa9c75: MOV ECX,dword ptr [EBP + -0x4]
+  0x00aa9c78: LEA EDX,[ECX + EAX*0x1 + 0x8]
+  0x00aa9c7c: PUSH EDX
+  0x00aa9c7d: MOV EAX,dword ptr [EBP + -0x4]
+  0x00aa9c80: PUSH EAX
+  0x00aa9c81: MOV ECX,dword ptr [EBP + -0x14]
+  0x00aa9c84: CALL 0x00aa9970
+  0x00aa9c89: JMP 0x00aa9c2e
+  0x00aa9c8b: MOV ECX,dword ptr [EBP + -0x14]
+  0x00aa9c8e: CALL 0x00aa9a70
+  0x00aa9c93: MOV ESP,EBP
+  0x00aa9c95: POP EBP
+  0x00aa9c96: RET 0x4
+  Instructions printed: 71
+
+======================================================================
+coalesce_adjacent_free_blocks_00aa9970 @ 0x00aa9970
+======================================================================
+  Function: FUN_00aa9970 @ 0x00aa9970, Size: 245 bytes
+
+/* WARNING: Removing unreachable block (ram,0x00aa99c6) */
+
+void __thiscall FUN_00aa9970(int param_1,int param_2,int param_3)
+
+{
+  FUN_00aaa660(param_2);
+  FUN_00aaa660(param_3);
+  if ((*(uint *)(param_3 + 4) & 0x20000000) != 0) {
+    *(uint *)(param_2 + 4) = *(uint *)(param_2 + 4) | 0x20000000;
+  }
+  *(uint *)(param_2 + 4) =
+       (*(uint *)(param_2 + 4) & 0xfffffff) + 8 + (*(uint *)(param_3 + 4) & 0xfffffff) |
+       *(uint *)(param_2 + 4) & 0xf0000000;
+  if (param_3 == *(int *)(param_1 + 0x3c)) {
+    *(int *)(param_1 + 0x3c) = param_2;
+  }
+  else {
+    *(int *)(param_3 + (*(uint *)(param_3 + 4) & 0xfffffff) + 8) = param_2;
+  }
+  *(int *)(param_1 + 0x34) = *(int *)(param_1 + 0x34) + -1;
+  FUN_00aa9d30(param_2);
+  return;
+}
+
+
+
+----------------------------------------------------------------------
+References TO 0x00aa9970 (coalesce_adjacent_free_blocks_00aa9970)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x00aa9c17 (in FUN_00aa9bd0 @ 0x00aa9bd0)
+  UNCONDITIONAL_CALL @ 0x00aa9c84 (in FUN_00aa9bd0 @ 0x00aa9bd0)
+  Total printed: 2
+
+----------------------------------------------------------------------
+Calls FROM coalesce_adjacent_free_blocks_00aa9970 (0x00aa9970)
+----------------------------------------------------------------------
+  0x00aa9980 -> 0x00aaa660 FUN_00aaa660 @ 0x00aaa660
+  0x00aa998c -> 0x00aaa660 FUN_00aaa660 @ 0x00aaa660
+  0x00aa9a5a -> 0x00aa9d30 FUN_00aa9d30 @ 0x00aa9d30
+  Total printed: 3
+
+----------------------------------------------------------------------
+Field-sensitive instructions in coalesce_adjacent_free_blocks_00aa9970 (0x00aa9970)
+----------------------------------------------------------------------
+  0x00aa99e4: MOV dword ptr [EBP + -0x14],ECX
+  0x00aa99f2: MOV dword ptr [EBP + -0x18],EAX
+  0x00aa9a01: MOV EAX,dword ptr [EBP + -0x18]
+  0x00aa9a04: MOV ECX,dword ptr [EBP + -0x14]
+  0x00aa9a19: CMP EAX,dword ptr [EDX + 0x3c]
+  0x00aa9a24: MOV dword ptr [ECX + 0x3c],EDX
+  0x00aa9a35: MOV dword ptr [EBP + -0x1c],ECX
+  0x00aa9a3b: ADD EDX,dword ptr [EBP + -0x1c]
+  0x00aa9a47: MOV EDX,dword ptr [ECX + 0x34]
+  0x00aa9a50: MOV dword ptr [EAX + 0x34],EDX
+  Field-sensitive instructions printed: 10
+
+----------------------------------------------------------------------
+Disassembly: coalesce_adjacent_free_blocks_00aa9970 @ 0x00aa9970
+----------------------------------------------------------------------
+  0x00aa9970: PUSH EBP
+  0x00aa9971: MOV EBP,ESP
+  0x00aa9973: SUB ESP,0x20
+  0x00aa9976: MOV dword ptr [EBP + -0x20],ECX
+  0x00aa9979: MOV EAX,dword ptr [EBP + 0x8]
+  0x00aa997c: PUSH EAX
+  0x00aa997d: MOV ECX,dword ptr [EBP + -0x20]
+  0x00aa9980: CALL 0x00aaa660
+  0x00aa9985: MOV ECX,dword ptr [EBP + 0xc]
+  0x00aa9988: PUSH ECX
+  0x00aa9989: MOV ECX,dword ptr [EBP + -0x20]
+  0x00aa998c: CALL 0x00aaa660
+  0x00aa9991: MOV EDX,dword ptr [EBP + 0xc]
+  0x00aa9994: MOV EAX,dword ptr [EDX + 0x4]
+  0x00aa9997: AND EAX,0x20000000
+  0x00aa999c: NEG EAX
+  0x00aa999e: SBB EAX,EAX
+  0x00aa99a0: NEG EAX
+  0x00aa99a2: MOVZX ECX,AL
+  0x00aa99a5: TEST ECX,ECX
+  0x00aa99a7: JZ 0x00aa99d8
+  0x00aa99a9: MOV EDX,0x1
+  0x00aa99ae: TEST EDX,EDX
+  0x00aa99b0: JZ 0x00aa99c6
+  0x00aa99b2: MOV EAX,dword ptr [EBP + 0x8]
+  0x00aa99b5: MOV ECX,dword ptr [EAX + 0x4]
+  0x00aa99b8: OR ECX,0x20000000
+  0x00aa99be: MOV EDX,dword ptr [EBP + 0x8]
+  0x00aa99c1: MOV dword ptr [EDX + 0x4],ECX
+  0x00aa99c4: JMP 0x00aa99d8
+  0x00aa99c6: MOV EAX,dword ptr [EBP + 0x8]
+  0x00aa99c9: MOV ECX,dword ptr [EAX + 0x4]
+  0x00aa99cc: AND ECX,0xdfffffff
+  0x00aa99d2: MOV EDX,dword ptr [EBP + 0x8]
+  0x00aa99d5: MOV dword ptr [EDX + 0x4],ECX
+  0x00aa99d8: MOV EAX,dword ptr [EBP + 0x8]
+  0x00aa99db: MOV ECX,dword ptr [EAX + 0x4]
+  0x00aa99de: AND ECX,0xfffffff
+  0x00aa99e4: MOV dword ptr [EBP + -0x14],ECX
+  0x00aa99e7: MOV EDX,dword ptr [EBP + 0xc]
+  0x00aa99ea: MOV EAX,dword ptr [EDX + 0x4]
+  0x00aa99ed: AND EAX,0xfffffff
+  0x00aa99f2: MOV dword ptr [EBP + -0x18],EAX
+  0x00aa99f5: MOV ECX,dword ptr [EBP + 0x8]
+  0x00aa99f8: MOV EDX,dword ptr [ECX + 0x4]
+  0x00aa99fb: AND EDX,0xf0000000
+  0x00aa9a01: MOV EAX,dword ptr [EBP + -0x18]
+  0x00aa9a04: MOV ECX,dword ptr [EBP + -0x14]
+  0x00aa9a07: LEA EAX,[ECX + EAX*0x1 + 0x8]
+  0x00aa9a0b: OR EAX,EDX
+  0x00aa9a0d: MOV ECX,dword ptr [EBP + 0x8]
+  0x00aa9a10: MOV dword ptr [ECX + 0x4],EAX
+  0x00aa9a13: MOV EDX,dword ptr [EBP + -0x20]
+  0x00aa9a16: MOV EAX,dword ptr [EBP + 0xc]
+  0x00aa9a19: CMP EAX,dword ptr [EDX + 0x3c]
+  0x00aa9a1c: JNZ 0x00aa9a29
+  0x00aa9a1e: MOV ECX,dword ptr [EBP + -0x20]
+  0x00aa9a21: MOV EDX,dword ptr [EBP + 0x8]
+  0x00aa9a24: MOV dword ptr [ECX + 0x3c],EDX
+  0x00aa9a27: JMP 0x00aa9a44
+  0x00aa9a29: MOV EAX,dword ptr [EBP + 0xc]
+  0x00aa9a2c: MOV ECX,dword ptr [EAX + 0x4]
+  0x00aa9a2f: AND ECX,0xfffffff
+  0x00aa9a35: MOV dword ptr [EBP + -0x1c],ECX
+  0x00aa9a38: MOV EDX,dword ptr [EBP + 0xc]
+  0x00aa9a3b: ADD EDX,dword ptr [EBP + -0x1c]
+  0x00aa9a3e: MOV EAX,dword ptr [EBP + 0x8]
+  0x00aa9a41: MOV dword ptr [EDX + 0x8],EAX
+  0x00aa9a44: MOV ECX,dword ptr [EBP + -0x20]
+  0x00aa9a47: MOV EDX,dword ptr [ECX + 0x34]
+  0x00aa9a4a: SUB EDX,0x1
+  0x00aa9a4d: MOV EAX,dword ptr [EBP + -0x20]
+  0x00aa9a50: MOV dword ptr [EAX + 0x34],EDX
+  0x00aa9a53: MOV ECX,dword ptr [EBP + 0x8]
+  0x00aa9a56: PUSH ECX
+  0x00aa9a57: MOV ECX,dword ptr [EBP + -0x20]
+  0x00aa9a5a: CALL 0x00aa9d30
+  0x00aa9a5f: MOV ESP,EBP
+  0x00aa9a61: POP EBP
+  0x00aa9a62: RET 0x8
+  Instructions printed: 80
+
+======================================================================
+free_list_insert_00aa9d30 @ 0x00aa9d30
+======================================================================
+  Function: FUN_00aa9d30 @ 0x00aa9d30, Size: 288 bytes
+
+/* WARNING: Removing unreachable block (ram,0x00aa9d6a) */
+
+void __thiscall FUN_00aa9d30(int param_1,int param_2)
+
+{
+  int iVar1;
+  int iVar2;
+  int *local_20;
+  
+  *(undefined4 *)(param_2 + 0xc) = 0;
+  *(undefined4 *)(param_2 + 8) = 0;
+  *(uint *)(param_2 + 4) = *(uint *)(param_2 + 4) | 0x40000000;
+  iVar2 = (*(uint *)(param_2 + 4) & 0xfffffff) / *(uint *)(param_1 + 8) - 1;
+  if (iVar2 < 0x400) {
+    local_20 = (int *)(param_1 + 0x44 + iVar2 * 8);
+  }
+  else {
+    local_20 = (int *)(param_1 + 0x2048);
+  }
+  if (local_20[1] == 0) {
+    *local_20 = param_2;
+    local_20[1] = param_2;
+  }
+  else {
+    iVar2 = local_20[1];
+    *(int *)(param_2 + 8) = iVar2;
+    iVar1 = *(int *)(iVar2 + 0xc);
+    *(int *)(param_2 + 0xc) = iVar1;
+    if (iVar1 != 0) {
+      *(int *)(iVar1 + 8) = param_2;
+    }
+    *(int *)(iVar2 + 0xc) = param_2;
+    local_20[1] = param_2;
+  }
+  *(int *)(param_1 + 0x40) = *(int *)(param_1 + 0x40) + 1;
+  FUN_00aa9ef0(*(uint *)(param_2 + 4) & 0xfffffff);
+  return;
+}
+
+
+
+----------------------------------------------------------------------
+References TO 0x00aa9d30 (free_list_insert_00aa9d30)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x00aa9268 (in FUN_00aa8f50 @ 0x00aa8f50)
+  UNCONDITIONAL_CALL @ 0x00aa93c0 (in FUN_00aa8f50 @ 0x00aa8f50)
+  UNCONDITIONAL_CALL @ 0x00aa941e (in FUN_00aa8f50 @ 0x00aa8f50)
+  UNCONDITIONAL_CALL @ 0x00aa9a5a (in FUN_00aa9970 @ 0x00aa9970)
+  UNCONDITIONAL_CALL @ 0x00aa9942 (in FUN_00aa98f0 @ 0x00aa98f0)
+  Total printed: 5
+
+----------------------------------------------------------------------
+Calls FROM free_list_insert_00aa9d30 (0x00aa9d30)
+----------------------------------------------------------------------
+  0x00aa9e45 -> 0x00aa9ef0 FUN_00aa9ef0 @ 0x00aa9ef0
+  Total printed: 1
+
+----------------------------------------------------------------------
+Field-sensitive instructions in free_list_insert_00aa9d30 (0x00aa9d30)
+----------------------------------------------------------------------
+  0x00aa9d33: SUB ESP,0x1c
+  0x00aa9d36: MOV dword ptr [EBP + -0x18],ECX
+  0x00aa9d5c: OR ECX,0x40000000
+  0x00aa9d8b: MOV ECX,dword ptr [EBP + -0x18]
+  0x00aa9d9c: CMP dword ptr [EBP + -0xc],0x400
+  0x00aa9da5: MOV EDX,dword ptr [EBP + -0x18]
+  0x00aa9da8: ADD EDX,0x2048
+  0x00aa9dae: MOV dword ptr [EBP + -0x1c],EDX
+  0x00aa9db6: MOV ECX,dword ptr [EBP + -0x18]
+  0x00aa9db9: LEA EDX,[ECX + EAX*0x8 + 0x44]
+  0x00aa9dbd: MOV dword ptr [EBP + -0x1c],EDX
+  0x00aa9dc0: MOV EAX,dword ptr [EBP + -0x1c]
+  0x00aa9dd5: MOV dword ptr [EBP + -0x14],EAX
+  0x00aa9ddb: MOV EDX,dword ptr [EBP + -0x14]
+  0x00aa9de1: MOV EAX,dword ptr [EBP + -0x14]
+  0x00aa9e02: MOV EAX,dword ptr [EBP + -0x14]
+  0x00aa9e27: MOV EDX,dword ptr [EBP + -0x18]
+  0x00aa9e2a: MOV EAX,dword ptr [EDX + 0x40]
+  0x00aa9e30: MOV ECX,dword ptr [EBP + -0x18]
+  0x00aa9e33: MOV dword ptr [ECX + 0x40],EAX
+  0x00aa9e42: MOV ECX,dword ptr [EBP + -0x18]
+  Field-sensitive instructions printed: 21
+
+----------------------------------------------------------------------
+Disassembly: free_list_insert_00aa9d30 @ 0x00aa9d30
+----------------------------------------------------------------------
+  0x00aa9d30: PUSH EBP
+  0x00aa9d31: MOV EBP,ESP
+  0x00aa9d33: SUB ESP,0x1c
+  0x00aa9d36: MOV dword ptr [EBP + -0x18],ECX
+  0x00aa9d39: MOV EAX,dword ptr [EBP + 0x8]
+  0x00aa9d3c: MOV dword ptr [EAX + 0xc],0x0
+  0x00aa9d43: MOV ECX,dword ptr [EBP + 0x8]
+  0x00aa9d46: MOV dword ptr [ECX + 0x8],0x0
+  0x00aa9d4d: MOV EDX,0x1
+  0x00aa9d52: TEST EDX,EDX
+  0x00aa9d54: JZ 0x00aa9d6a
+  0x00aa9d56: MOV EAX,dword ptr [EBP + 0x8]
+  0x00aa9d59: MOV ECX,dword ptr [EAX + 0x4]
+  0x00aa9d5c: OR ECX,0x40000000
+  0x00aa9d62: MOV EDX,dword ptr [EBP + 0x8]
+  0x00aa9d65: MOV dword ptr [EDX + 0x4],ECX
+  0x00aa9d68: JMP 0x00aa9d7c
+  0x00aa9d6a: MOV EAX,dword ptr [EBP + 0x8]
+  0x00aa9d6d: MOV ECX,dword ptr [EAX + 0x4]
+  0x00aa9d70: AND ECX,0xbfffffff
+  0x00aa9d76: MOV EDX,dword ptr [EBP + 0x8]
+  0x00aa9d79: MOV dword ptr [EDX + 0x4],ECX
+  0x00aa9d7c: MOV EAX,dword ptr [EBP + 0x8]
+  0x00aa9d7f: MOV ECX,dword ptr [EAX + 0x4]
+  0x00aa9d82: AND ECX,0xfffffff
+  0x00aa9d88: MOV dword ptr [EBP + -0x8],ECX
+  0x00aa9d8b: MOV ECX,dword ptr [EBP + -0x18]
+  0x00aa9d8e: MOV EAX,dword ptr [EBP + -0x8]
+  0x00aa9d91: XOR EDX,EDX
+  0x00aa9d93: DIV dword ptr [ECX + 0x8]
+  0x00aa9d96: SUB EAX,0x1
+  0x00aa9d99: MOV dword ptr [EBP + -0xc],EAX
+  0x00aa9d9c: CMP dword ptr [EBP + -0xc],0x400
+  0x00aa9da3: JL 0x00aa9db3
+  0x00aa9da5: MOV EDX,dword ptr [EBP + -0x18]
+  0x00aa9da8: ADD EDX,0x2048
+  0x00aa9dae: MOV dword ptr [EBP + -0x1c],EDX
+  0x00aa9db1: JMP 0x00aa9dc0
+  0x00aa9db3: MOV EAX,dword ptr [EBP + -0xc]
+  0x00aa9db6: MOV ECX,dword ptr [EBP + -0x18]
+  0x00aa9db9: LEA EDX,[ECX + EAX*0x8 + 0x44]
+  0x00aa9dbd: MOV dword ptr [EBP + -0x1c],EDX
+  0x00aa9dc0: MOV EAX,dword ptr [EBP + -0x1c]
+  0x00aa9dc3: MOV dword ptr [EBP + -0x4],EAX
+  0x00aa9dc6: MOV ECX,dword ptr [EBP + -0x4]
+  0x00aa9dc9: CMP dword ptr [ECX + 0x4],0x0
+  0x00aa9dcd: JZ 0x00aa9e16
+  0x00aa9dcf: MOV EDX,dword ptr [EBP + -0x4]
+  0x00aa9dd2: MOV EAX,dword ptr [EDX + 0x4]
+  0x00aa9dd5: MOV dword ptr [EBP + -0x14],EAX
+  0x00aa9dd8: MOV ECX,dword ptr [EBP + 0x8]
+  0x00aa9ddb: MOV EDX,dword ptr [EBP + -0x14]
+  0x00aa9dde: MOV dword ptr [ECX + 0x8],EDX
+  0x00aa9de1: MOV EAX,dword ptr [EBP + -0x14]
+  0x00aa9de4: MOV ECX,dword ptr [EAX + 0xc]
+  0x00aa9de7: MOV dword ptr [EBP + -0x10],ECX
+  0x00aa9dea: MOV EDX,dword ptr [EBP + 0x8]
+  0x00aa9ded: MOV EAX,dword ptr [EBP + -0x10]
+  0x00aa9df0: MOV dword ptr [EDX + 0xc],EAX
+  0x00aa9df3: CMP dword ptr [EBP + -0x10],0x0
+  0x00aa9df7: JZ 0x00aa9e02
+  0x00aa9df9: MOV ECX,dword ptr [EBP + -0x10]
+  0x00aa9dfc: MOV EDX,dword ptr [EBP + 0x8]
+  0x00aa9dff: MOV dword ptr [ECX + 0x8],EDX
+  0x00aa9e02: MOV EAX,dword ptr [EBP + -0x14]
+  0x00aa9e05: MOV ECX,dword ptr [EBP + 0x8]
+  0x00aa9e08: MOV dword ptr [EAX + 0xc],ECX
+  0x00aa9e0b: MOV EDX,dword ptr [EBP + -0x4]
+  0x00aa9e0e: MOV EAX,dword ptr [EBP + 0x8]
+  0x00aa9e11: MOV dword ptr [EDX + 0x4],EAX
+  0x00aa9e14: JMP 0x00aa9e27
+  0x00aa9e16: MOV ECX,dword ptr [EBP + -0x4]
+  0x00aa9e19: MOV EDX,dword ptr [EBP + 0x8]
+  0x00aa9e1c: MOV dword ptr [ECX],EDX
+  0x00aa9e1e: MOV EAX,dword ptr [EBP + -0x4]
+  0x00aa9e21: MOV ECX,dword ptr [EBP + 0x8]
+  0x00aa9e24: MOV dword ptr [EAX + 0x4],ECX
+  0x00aa9e27: MOV EDX,dword ptr [EBP + -0x18]
+  0x00aa9e2a: MOV EAX,dword ptr [EDX + 0x40]
+  0x00aa9e2d: ADD EAX,0x1
+  0x00aa9e30: MOV ECX,dword ptr [EBP + -0x18]
+  0x00aa9e33: MOV dword ptr [ECX + 0x40],EAX
+  0x00aa9e36: MOV EDX,dword ptr [EBP + 0x8]
+  0x00aa9e39: MOV EAX,dword ptr [EDX + 0x4]
+  0x00aa9e3c: AND EAX,0xfffffff
+  0x00aa9e41: PUSH EAX
+  0x00aa9e42: MOV ECX,dword ptr [EBP + -0x18]
+  0x00aa9e45: CALL 0x00aa9ef0
+  0x00aa9e4a: MOV ESP,EBP
+  0x00aa9e4c: POP EBP
+  0x00aa9e4d: RET 0x4
+  Instructions printed: 91
+
+======================================================================
+free_list_remove_00aa9e50 @ 0x00aa9e50
+======================================================================
+  Function: FUN_00aa9e50 @ 0x00aa9e50, Size: 155 bytes
+
+/* WARNING: Removing unreachable block (ram,0x00aa9e77) */
+
+void __thiscall FUN_00aa9e50(int param_1,int *param_2,int param_3)
+
+{
+  int iVar1;
+  int iVar2;
+  
+  iVar1 = *(int *)(param_3 + 0xc);
+  iVar2 = *(int *)(param_3 + 8);
+  FUN_00aaa5e0();
+  *(uint *)(param_3 + 4) = *(uint *)(param_3 + 4) & 0xbfffffff;
+  if (param_3 == *param_2) {
+    *param_2 = iVar1;
+  }
+  if (param_3 == param_2[1]) {
+    param_2[1] = iVar2;
+  }
+  FUN_00aa9f50(*(uint *)(param_3 + 4) & 0xfffffff);
+  *(int *)(param_1 + 0x40) = *(int *)(param_1 + 0x40) + -1;
+  return;
+}
+
+
+
+----------------------------------------------------------------------
+References TO 0x00aa9e50 (free_list_remove_00aa9e50)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x00aa8ee8 (in FUN_00aa8ea0 @ 0x00aa8ea0)
+  UNCONDITIONAL_CALL @ 0x00aa8f14 (in FUN_00aa8ea0 @ 0x00aa8ea0)
+  UNCONDITIONAL_CALL @ 0x00aa920e (in FUN_00aa8f50 @ 0x00aa8f50)
+  UNCONDITIONAL_CALL @ 0x00aaa6b8 (in FUN_00aaa660 @ 0x00aaa660)
+  Total printed: 4
+
+----------------------------------------------------------------------
+Calls FROM free_list_remove_00aa9e50 (0x00aa9e50)
+----------------------------------------------------------------------
+  0x00aa9e6e -> 0x00aaa5e0 FUN_00aaa5e0 @ 0x00aaa5e0
+  0x00aa9ed1 -> 0x00aa9f50 FUN_00aa9f50 @ 0x00aa9f50
+  Total printed: 2
+
+----------------------------------------------------------------------
+Field-sensitive instructions in free_list_remove_00aa9e50 (0x00aa9e50)
+----------------------------------------------------------------------
+  0x00aa9e53: SUB ESP,0x1c
+  0x00aa9e56: MOV dword ptr [EBP + -0x1c],ECX
+  0x00aa9e7d: OR EAX,0x40000000
+  0x00aa9ece: MOV ECX,dword ptr [EBP + -0x1c]
+  0x00aa9ed6: MOV EAX,dword ptr [EBP + -0x1c]
+  0x00aa9ed9: MOV ECX,dword ptr [EAX + 0x40]
+  0x00aa9edf: MOV EDX,dword ptr [EBP + -0x1c]
+  0x00aa9ee2: MOV dword ptr [EDX + 0x40],ECX
+  Field-sensitive instructions printed: 8
+
+----------------------------------------------------------------------
+Disassembly: free_list_remove_00aa9e50 @ 0x00aa9e50
+----------------------------------------------------------------------
+  0x00aa9e50: PUSH EBP
+  0x00aa9e51: MOV EBP,ESP
+  0x00aa9e53: SUB ESP,0x1c
+  0x00aa9e56: MOV dword ptr [EBP + -0x1c],ECX
+  0x00aa9e59: MOV EAX,dword ptr [EBP + 0xc]
+  0x00aa9e5c: MOV ECX,dword ptr [EAX + 0xc]
+  0x00aa9e5f: MOV dword ptr [EBP + -0x8],ECX
+  0x00aa9e62: MOV EDX,dword ptr [EBP + 0xc]
+  0x00aa9e65: MOV EAX,dword ptr [EDX + 0x8]
+  0x00aa9e68: MOV dword ptr [EBP + -0x4],EAX
+  0x00aa9e6b: MOV ECX,dword ptr [EBP + 0xc]
+  0x00aa9e6e: CALL 0x00aaa5e0
+  0x00aa9e73: XOR ECX,ECX
+  0x00aa9e75: JZ 0x00aa9e8a
+  0x00aa9e77: MOV EDX,dword ptr [EBP + 0xc]
+  0x00aa9e7a: MOV EAX,dword ptr [EDX + 0x4]
+  0x00aa9e7d: OR EAX,0x40000000
+  0x00aa9e82: MOV ECX,dword ptr [EBP + 0xc]
+  0x00aa9e85: MOV dword ptr [ECX + 0x4],EAX
+  0x00aa9e88: JMP 0x00aa9e9b
+  0x00aa9e8a: MOV EDX,dword ptr [EBP + 0xc]
+  0x00aa9e8d: MOV EAX,dword ptr [EDX + 0x4]
+  0x00aa9e90: AND EAX,0xbfffffff
+  0x00aa9e95: MOV ECX,dword ptr [EBP + 0xc]
+  0x00aa9e98: MOV dword ptr [ECX + 0x4],EAX
+  0x00aa9e9b: MOV EDX,dword ptr [EBP + 0x8]
+  0x00aa9e9e: MOV EAX,dword ptr [EBP + 0xc]
+  0x00aa9ea1: CMP EAX,dword ptr [EDX]
+  0x00aa9ea3: JNZ 0x00aa9ead
+  0x00aa9ea5: MOV ECX,dword ptr [EBP + 0x8]
+  0x00aa9ea8: MOV EDX,dword ptr [EBP + -0x8]
+  0x00aa9eab: MOV dword ptr [ECX],EDX
+  0x00aa9ead: MOV EAX,dword ptr [EBP + 0x8]
+  0x00aa9eb0: MOV ECX,dword ptr [EBP + 0xc]
+  0x00aa9eb3: CMP ECX,dword ptr [EAX + 0x4]
+  0x00aa9eb6: JNZ 0x00aa9ec1
+  0x00aa9eb8: MOV EDX,dword ptr [EBP + 0x8]
+  0x00aa9ebb: MOV EAX,dword ptr [EBP + -0x4]
+  0x00aa9ebe: MOV dword ptr [EDX + 0x4],EAX
+  0x00aa9ec1: MOV ECX,dword ptr [EBP + 0xc]
+  0x00aa9ec4: MOV EDX,dword ptr [ECX + 0x4]
+  0x00aa9ec7: AND EDX,0xfffffff
+  0x00aa9ecd: PUSH EDX
+  0x00aa9ece: MOV ECX,dword ptr [EBP + -0x1c]
+  0x00aa9ed1: CALL 0x00aa9f50
+  0x00aa9ed6: MOV EAX,dword ptr [EBP + -0x1c]
+  0x00aa9ed9: MOV ECX,dword ptr [EAX + 0x40]
+  0x00aa9edc: SUB ECX,0x1
+  0x00aa9edf: MOV EDX,dword ptr [EBP + -0x1c]
+  0x00aa9ee2: MOV dword ptr [EDX + 0x40],ECX
+  0x00aa9ee5: MOV ESP,EBP
+  0x00aa9ee7: POP EBP
+  0x00aa9ee8: RET 0x8
+  Instructions printed: 53
+
+# Lookup/release paths
+
+======================================================================
+large_heap_msize_or_find_00aa7c60 @ 0x00aa7c60
+======================================================================
+  Function: FUN_00aa7c60 @ 0x00aa7c60, Size: 56 bytes
+
+void __thiscall FUN_00aa7c60(int param_1,undefined4 param_2,byte param_3)
+
+{
+  FUN_00aaa0e0(param_2,param_3 & 1U - (*(char *)(param_1 + 0x20f0) != '\0'));
+  return;
+}
+
+
+
+----------------------------------------------------------------------
+References TO 0x00aa7c60 (large_heap_msize_or_find_00aa7c60)
+----------------------------------------------------------------------
+  DATA @ 0x010a2914 (in ???)
+  Total printed: 1
+
+----------------------------------------------------------------------
+Calls FROM large_heap_msize_or_find_00aa7c60 (0x00aa7c60)
+----------------------------------------------------------------------
+  0x00aa7c8d -> 0x00aaa0e0 FUN_00aaa0e0 @ 0x00aaa0e0
+  Total printed: 1
+
+----------------------------------------------------------------------
+Field-sensitive instructions in large_heap_msize_or_find_00aa7c60 (0x00aa7c60)
+----------------------------------------------------------------------
+  Field-sensitive instructions printed: 0
+
+----------------------------------------------------------------------
+Disassembly: large_heap_msize_or_find_00aa7c60 @ 0x00aa7c60
+----------------------------------------------------------------------
+  0x00aa7c60: PUSH EBP
+  0x00aa7c61: MOV EBP,ESP
+  0x00aa7c63: PUSH ECX
+  0x00aa7c64: MOV dword ptr [EBP + -0x4],ECX
+  0x00aa7c67: MOVZX EAX,byte ptr [EBP + 0xc]
+  0x00aa7c6b: MOV ECX,dword ptr [EBP + -0x4]
+  0x00aa7c6e: MOVZX EDX,byte ptr [ECX + 0x20f0]
+  0x00aa7c75: NEG EDX
+  0x00aa7c77: SBB EDX,EDX
+  0x00aa7c79: ADD EDX,0x1
+  0x00aa7c7c: AND EAX,EDX
+  0x00aa7c7e: MOV byte ptr [EBP + 0xc],AL
+  0x00aa7c81: MOVZX EAX,byte ptr [EBP + 0xc]
+  0x00aa7c85: PUSH EAX
+  0x00aa7c86: MOV ECX,dword ptr [EBP + 0x8]
+  0x00aa7c89: PUSH ECX
+  0x00aa7c8a: MOV ECX,dword ptr [EBP + -0x4]
+  0x00aa7c8d: CALL 0x00aaa0e0
+  0x00aa7c92: MOV ESP,EBP
+  0x00aa7c94: POP EBP
+  0x00aa7c95: RET 0x8
+  Instructions printed: 21
+
+======================================================================
+large_heap_contains_or_validate_00aa7ca0 @ 0x00aa7ca0
+======================================================================
+  Function: FUN_00aa7ca0 @ 0x00aa7ca0, Size: 85 bytes
+
+undefined4 __thiscall FUN_00aa7ca0(int param_1,int *param_2)
+
+{
+  undefined4 local_c;
+  undefined4 local_8;
+  
+  local_8 = 0;
+  if (*(char *)(param_1 + 0x20f0) == '\0') {
+    local_8 = FUN_00aaa310(param_2);
+  }
+  else {
+    local_c = 0;
+    local_8 = (**(code **)(*param_2 + 8))(&local_c,4);
+  }
+  return local_8;
+}
+
+
+
+----------------------------------------------------------------------
+References TO 0x00aa7ca0 (large_heap_contains_or_validate_00aa7ca0)
+----------------------------------------------------------------------
+  DATA @ 0x010a2918 (in ???)
+  Total printed: 1
+
+----------------------------------------------------------------------
+Calls FROM large_heap_contains_or_validate_00aa7ca0 (0x00aa7ca0)
+----------------------------------------------------------------------
+  0x00aa7cc5 -> 0x00aaa310 FUN_00aaa310 @ 0x00aaa310
+  Total printed: 1
+
+----------------------------------------------------------------------
+Field-sensitive instructions in large_heap_contains_or_validate_00aa7ca0 (0x00aa7ca0)
+----------------------------------------------------------------------
+  Field-sensitive instructions printed: 0
+
+----------------------------------------------------------------------
+Disassembly: large_heap_contains_or_validate_00aa7ca0 @ 0x00aa7ca0
+----------------------------------------------------------------------
+  0x00aa7ca0: PUSH EBP
+  0x00aa7ca1: MOV EBP,ESP
+  0x00aa7ca3: SUB ESP,0xc
+  0x00aa7ca6: MOV dword ptr [EBP + -0xc],ECX
+  0x00aa7ca9: MOV dword ptr [EBP + -0x4],0x0
+  0x00aa7cb0: MOV EAX,dword ptr [EBP + -0xc]
+  0x00aa7cb3: MOVZX ECX,byte ptr [EAX + 0x20f0]
+  0x00aa7cba: TEST ECX,ECX
+  0x00aa7cbc: JNZ 0x00aa7ccf
+  0x00aa7cbe: MOV EDX,dword ptr [EBP + 0x8]
+  0x00aa7cc1: PUSH EDX
+  0x00aa7cc2: MOV ECX,dword ptr [EBP + -0xc]
+  0x00aa7cc5: CALL 0x00aaa310
+  0x00aa7cca: MOV dword ptr [EBP + -0x4],EAX
+  0x00aa7ccd: JMP 0x00aa7cec
+  0x00aa7ccf: MOV dword ptr [EBP + -0x8],0x0
+  0x00aa7cd6: PUSH 0x4
+  0x00aa7cd8: LEA EAX,[EBP + -0x8]
+  0x00aa7cdb: PUSH EAX
+  0x00aa7cdc: MOV ECX,dword ptr [EBP + 0x8]
+  0x00aa7cdf: MOV EDX,dword ptr [ECX]
+  0x00aa7ce1: MOV ECX,dword ptr [EBP + 0x8]
+  0x00aa7ce4: MOV EAX,dword ptr [EDX + 0x8]
+  0x00aa7ce7: CALL EAX
+  0x00aa7ce9: MOV dword ptr [EBP + -0x4],EAX
+  0x00aa7cec: MOV EAX,dword ptr [EBP + -0x4]
+  0x00aa7cef: MOV ESP,EBP
+  0x00aa7cf1: POP EBP
+  0x00aa7cf2: RET 0x4
+  Instructions printed: 29
+
+======================================================================
+large_heap_release_storage_00aa8ea0 @ 0x00aa8ea0
+======================================================================
+  Function: FUN_00aa8ea0 @ 0x00aa8ea0, Size: 167 bytes
+
+void __fastcall FUN_00aa8ea0(int *param_1)
+
+{
+  int *piVar1;
+  int local_8;
+  
+  for (local_8 = 0; local_8 < 0x400; local_8 = local_8 + 1) {
+    piVar1 = param_1 + local_8 * 2 + 0x11;
+    while (piVar1[1] != 0) {
+      FUN_00aa9e50(piVar1,piVar1[1]);
+    }
+  }
+  while (param_1[0x813] != 0) {
+    FUN_00aa9e50(param_1 + 0x812,param_1[0x813]);
+  }
+  (**(code **)(*param_1 + 0x34))(param_1[0xc]);
+  param_1[0xc] = 0;
+  param_1[5] = 0;
+  return;
+}
+
+
+
+----------------------------------------------------------------------
+References TO 0x00aa8ea0 (large_heap_release_storage_00aa8ea0)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x00aa7969 (in FUN_00aa7930 @ 0x00aa7930)
+  Total printed: 1
+
+----------------------------------------------------------------------
+Calls FROM large_heap_release_storage_00aa8ea0 (0x00aa8ea0)
+----------------------------------------------------------------------
+  0x00aa8ee8 -> 0x00aa9e50 FUN_00aa9e50 @ 0x00aa9e50
+  0x00aa8f14 -> 0x00aa9e50 FUN_00aa9e50 @ 0x00aa9e50
+  Total printed: 2
+
+----------------------------------------------------------------------
+Field-sensitive instructions in large_heap_release_storage_00aa8ea0 (0x00aa8ea0)
+----------------------------------------------------------------------
+  0x00aa8ebb: CMP dword ptr [EBP + -0x4],0x400
+  0x00aa8eca: LEA EAX,[EDX + ECX*0x8 + 0x44]
+  0x00aa8ef4: CMP dword ptr [EDX + 0x204c],0x0
+  0x00aa8f00: MOV ECX,dword ptr [EAX + 0x204c]
+  0x00aa8f0a: ADD EDX,0x2048
+  0x00aa8f1e: MOV ECX,dword ptr [EAX + 0x30]
+  0x00aa8f2a: MOV EDX,dword ptr [EAX + 0x34]
+  0x00aa8f32: MOV dword ptr [EAX + 0x30],0x0
+  0x00aa8f3c: MOV dword ptr [ECX + 0x14],0x0
+  Field-sensitive instructions printed: 9
+
+----------------------------------------------------------------------
+Disassembly: large_heap_release_storage_00aa8ea0 @ 0x00aa8ea0
+----------------------------------------------------------------------
+  0x00aa8ea0: PUSH EBP
+  0x00aa8ea1: MOV EBP,ESP
+  0x00aa8ea3: SUB ESP,0xc
+  0x00aa8ea6: MOV dword ptr [EBP + -0xc],ECX
+  0x00aa8ea9: MOV dword ptr [EBP + -0x4],0x0
+  0x00aa8eb0: JMP 0x00aa8ebb
+  0x00aa8eb2: MOV EAX,dword ptr [EBP + -0x4]
+  0x00aa8eb5: ADD EAX,0x1
+  0x00aa8eb8: MOV dword ptr [EBP + -0x4],EAX
+  0x00aa8ebb: CMP dword ptr [EBP + -0x4],0x400
+  0x00aa8ec2: JGE 0x00aa8ef1
+  0x00aa8ec4: MOV ECX,dword ptr [EBP + -0x4]
+  0x00aa8ec7: MOV EDX,dword ptr [EBP + -0xc]
+  0x00aa8eca: LEA EAX,[EDX + ECX*0x8 + 0x44]
+  0x00aa8ece: MOV dword ptr [EBP + -0x8],EAX
+  0x00aa8ed1: MOV ECX,dword ptr [EBP + -0x8]
+  0x00aa8ed4: CMP dword ptr [ECX + 0x4],0x0
+  0x00aa8ed8: JZ 0x00aa8eef
+  0x00aa8eda: MOV EDX,dword ptr [EBP + -0x8]
+  0x00aa8edd: MOV EAX,dword ptr [EDX + 0x4]
+  0x00aa8ee0: PUSH EAX
+  0x00aa8ee1: MOV ECX,dword ptr [EBP + -0x8]
+  0x00aa8ee4: PUSH ECX
+  0x00aa8ee5: MOV ECX,dword ptr [EBP + -0xc]
+  0x00aa8ee8: CALL 0x00aa9e50
+  0x00aa8eed: JMP 0x00aa8ed1
+  0x00aa8eef: JMP 0x00aa8eb2
+  0x00aa8ef1: MOV EDX,dword ptr [EBP + -0xc]
+  0x00aa8ef4: CMP dword ptr [EDX + 0x204c],0x0
+  0x00aa8efb: JZ 0x00aa8f1b
+  0x00aa8efd: MOV EAX,dword ptr [EBP + -0xc]
+  0x00aa8f00: MOV ECX,dword ptr [EAX + 0x204c]
+  0x00aa8f06: PUSH ECX
+  0x00aa8f07: MOV EDX,dword ptr [EBP + -0xc]
+  0x00aa8f0a: ADD EDX,0x2048
+  0x00aa8f10: PUSH EDX
+  0x00aa8f11: MOV ECX,dword ptr [EBP + -0xc]
+  0x00aa8f14: CALL 0x00aa9e50
+  0x00aa8f19: JMP 0x00aa8ef1
+  0x00aa8f1b: MOV EAX,dword ptr [EBP + -0xc]
+  0x00aa8f1e: MOV ECX,dword ptr [EAX + 0x30]
+  0x00aa8f21: PUSH ECX
+  0x00aa8f22: MOV EDX,dword ptr [EBP + -0xc]
+  0x00aa8f25: MOV EAX,dword ptr [EDX]
+  0x00aa8f27: MOV ECX,dword ptr [EBP + -0xc]
+  0x00aa8f2a: MOV EDX,dword ptr [EAX + 0x34]
+  0x00aa8f2d: CALL EDX
+  0x00aa8f2f: MOV EAX,dword ptr [EBP + -0xc]
+  0x00aa8f32: MOV dword ptr [EAX + 0x30],0x0
+  0x00aa8f39: MOV ECX,dword ptr [EBP + -0xc]
+  0x00aa8f3c: MOV dword ptr [ECX + 0x14],0x0
+  0x00aa8f43: MOV ESP,EBP
+  0x00aa8f45: POP EBP
+  0x00aa8f46: RET
+  Instructions printed: 54

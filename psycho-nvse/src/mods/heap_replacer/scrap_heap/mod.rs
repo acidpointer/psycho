@@ -1,4 +1,4 @@
-//! Scrap heap (SBM2) replacement module.
+//! scrap_heap replacement module.
 //!
 //! Replaces the game's ScrapHeap allocator with a per-identity bump-pointer
 //! allocator backed by mimalloc. Each game thread gets its own Heap with
@@ -16,6 +16,7 @@ use libc::c_void;
 use libpsycho::os::windows::hook::inline::inlinehook::InlineHookContainer;
 
 use runtime::Runtime;
+pub use runtime::ScrapSnapshot;
 
 // ---- Types ----
 
@@ -184,4 +185,8 @@ pub unsafe extern "fastcall" fn hook_free(
 
 pub unsafe extern "fastcall" fn hook_purge(sheap_ptr: *mut c_void, _edx: *mut c_void) {
     Runtime::get_instance().purge(sheap_ptr);
+}
+
+pub fn snapshot() -> ScrapSnapshot {
+    Runtime::get_instance().current_snapshot()
 }

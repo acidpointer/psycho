@@ -1,0 +1,604 @@
+======================================================================
+QUEUED CHARACTER TASK VTABLE / 80B LIFETIME AUDIT
+======================================================================
+
+Goal:
+  Identify what vtable 0x01097314 is, whether it belongs to an 80-byte queued task, and which constructor/destructor path owns it.
+  Runtime cell 0x1f7c5f10 is pool #15 class #11 80B, so 0x40/0x48/0x50 constructors are all relevant.
+
+----------------------------------------------------------------------
+Disassembly: CreateQueuedCharacter task construction and call section 0x004448e0..0x00444af0
+----------------------------------------------------------------------
+   0x004448e2: MOVZX EDX,AL
+   0x004448e5: TEST EDX,EDX
+   0x004448e7: JZ 0x004448ee
+   0x004448e9: JMP 0x00444ca2
+   0x004448ee: PUSH 0x0
+   0x004448f0: LEA ECX,[EBP + -0x10]
+   0x004448f3: CALL 0x00528cb0
+   0x004448f8: MOV dword ptr [EBP + -0x4],0x0
+   0x004448ff: LEA EAX,[EBP + -0x10]
+   0x00444902: PUSH EAX
+   0x00444903: MOV ECX,dword ptr [EBP + 0x8]
+   0x00444906: PUSH ECX
+   0x00444907: MOV EDX,dword ptr [EBP + -0x58]
+   0x0044490a: MOV EAX,dword ptr [EDX + 0x8]
+   0x0044490d: MOV ECX,dword ptr [EBP + -0x58]
+   0x00444910: MOV ECX,dword ptr [ECX + 0x8]
+   0x00444913: MOV EDX,dword ptr [EAX]
+   0x00444915: MOV EAX,dword ptr [EDX + 0x8]
+   0x00444918: CALL EAX
+   0x0044491a: MOVZX ECX,AL
+   0x0044491d: TEST ECX,ECX
+   0x0044491f: JZ 0x0044496b
+   0x00444921: LEA ECX,[EBP + -0x10]
+   0x00444924: CALL 0x00559450
+   0x00444929: MOV ECX,EAX
+   0x0044492b: CALL 0x0043cc60
+   0x00444930: MOV dword ptr [EBP + -0x1c],EAX
+   0x00444933: MOV EDX,dword ptr [EBP + -0x1c]
+   0x00444936: CMP EDX,dword ptr [EBP + 0xc]
+   0x00444939: JZ 0x00444957
+   0x0044493b: LEA ECX,[EBP + -0x10]
+   0x0044493e: CALL 0x00559450
+   0x00444943: MOV dword ptr [EBP + -0x5c],EAX
+   0x00444946: MOV EAX,dword ptr [EBP + 0xc]
+   0x00444949: PUSH EAX
+   0x0044494a: MOV ECX,dword ptr [EBP + -0x5c]
+   0x0044494d: MOV EDX,dword ptr [ECX]
+   0x0044494f: MOV ECX,dword ptr [EBP + -0x5c]
+   0x00444952: MOV EAX,dword ptr [EDX + 0x1c]
+   0x00444955: CALL EAX
+=> 0x00444957: MOV dword ptr [EBP + -0x4],0xffffffff
+   0x0044495e: LEA ECX,[EBP + -0x10]
+=> 0x00444961: CALL 0x0044cbf0
+   0x00444966: JMP 0x00444ca2
+   0x0044496b: PUSH 0xc4e
+   0x00444970: PUSH 0x1016840
+   0x00444975: PUSH 0x1
+   0x00444977: PUSH 0x31
+   0x00444979: LEA ECX,[EBP + -0x14]
+   0x0044497c: CALL 0x00404eb0
+   0x00444981: MOV byte ptr [EBP + -0x4],0x1
+   0x00444985: MOV ECX,dword ptr [EBP + 0x8]
+   0x00444988: CMP ECX,dword ptr [0x011dea3c]
+   0x0044498e: JNZ 0x00444a00
+   0x00444990: PUSH 0xc53
+   0x00444995: PUSH 0x1016840
+   0x0044499a: PUSH 0x1
+   0x0044499c: PUSH 0x34
+   0x0044499e: LEA ECX,[EBP + -0x20]
+   0x004449a1: CALL 0x00404eb0
+   0x004449a6: MOV byte ptr [EBP + -0x4],0x2
+   0x004449aa: PUSH 0x48
+   0x004449ac: CALL 0x00401000
+   0x004449b1: ADD ESP,0x4
+   0x004449b4: MOV dword ptr [EBP + -0x34],EAX
+   0x004449b7: MOV byte ptr [EBP + -0x4],0x3
+   0x004449bb: CMP dword ptr [EBP + -0x34],0x0
+   0x004449bf: JZ 0x004449d2
+   0x004449c1: MOV EDX,dword ptr [EBP + 0xc]
+   0x004449c4: PUSH EDX
+   0x004449c5: MOV ECX,dword ptr [EBP + -0x34]
+   0x004449c8: CALL 0x00441b20
+   0x004449cd: MOV dword ptr [EBP + -0x60],EAX
+   0x004449d0: JMP 0x004449d9
+   0x004449d2: MOV dword ptr [EBP + -0x60],0x0
+   0x004449d9: MOV EAX,dword ptr [EBP + -0x60]
+   0x004449dc: MOV dword ptr [EBP + -0x30],EAX
+   0x004449df: MOV byte ptr [EBP + -0x4],0x2
+   0x004449e3: MOV ECX,dword ptr [EBP + -0x30]
+   0x004449e6: PUSH ECX
+   0x004449e7: LEA ECX,[EBP + -0x10]
+   0x004449ea: CALL 0x006f74f0
+   0x004449ef: MOV byte ptr [EBP + -0x4],0x1
+   0x004449f3: LEA ECX,[EBP + -0x20]
+   0x004449f6: CALL 0x00404ee0
+   0x004449fb: JMP 0x00444ba9
+   0x00444a00: MOV ECX,dword ptr [EBP + 0x8]
+   0x00444a03: CALL 0x007af430
+   0x00444a08: MOV ECX,EAX
+   0x00444a0a: CALL 0x00401170
+   0x00444a0f: MOV dword ptr [EBP + -0x64],EAX
+   0x00444a12: CMP dword ptr [EBP + -0x64],0x25
+   0x00444a16: JZ 0x00444a2d
+   0x00444a18: CMP dword ptr [EBP + -0x64],0x2a
+   0x00444a1c: JZ 0x00444a7b
+   0x00444a1e: CMP dword ptr [EBP + -0x64],0x2b
+   0x00444a22: JZ 0x00444aef
+   0x00444a28: JMP 0x00444b60
+   0x00444a2d: PUSH 0x40
+   0x00444a2f: CALL 0x00401000
+   0x00444a34: ADD ESP,0x4
+   0x00444a37: MOV dword ptr [EBP + -0x3c],EAX
+   0x00444a3a: MOV byte ptr [EBP + -0x4],0x4
+   0x00444a3e: CMP dword ptr [EBP + -0x3c],0x0
+   0x00444a42: JZ 0x00444a59
+   0x00444a44: MOV EDX,dword ptr [EBP + 0xc]
+   0x00444a47: PUSH EDX
+   0x00444a48: MOV EAX,dword ptr [EBP + 0x8]
+   0x00444a4b: PUSH EAX
+   0x00444a4c: MOV ECX,dword ptr [EBP + -0x3c]
+   0x00444a4f: CALL 0x00440e50
+   0x00444a54: MOV dword ptr [EBP + -0x68],EAX
+   0x00444a57: JMP 0x00444a60
+   0x00444a59: MOV dword ptr [EBP + -0x68],0x0
+   0x00444a60: MOV ECX,dword ptr [EBP + -0x68]
+   0x00444a63: MOV dword ptr [EBP + -0x38],ECX
+   0x00444a66: MOV byte ptr [EBP + -0x4],0x1
+   0x00444a6a: MOV EDX,dword ptr [EBP + -0x38]
+   0x00444a6d: PUSH EDX
+   0x00444a6e: LEA ECX,[EBP + -0x10]
+   0x00444a71: CALL 0x006f74f0
+   0x00444a76: JMP 0x00444ba9
+   0x00444a7b: PUSH 0xc6b
+   0x00444a80: PUSH 0x1016840
+   0x00444a85: PUSH 0x1
+   0x00444a87: PUSH 0x32
+   0x00444a89: LEA ECX,[EBP + -0x24]
+   0x00444a8c: CALL 0x00404eb0
+   0x00444a91: MOV byte ptr [EBP + -0x4],0x5
+   0x00444a95: PUSH 0x48
+   0x00444a97: CALL 0x00401000
+   0x00444a9c: ADD ESP,0x4
+   0x00444a9f: MOV dword ptr [EBP + -0x44],EAX
+   0x00444aa2: MOV byte ptr [EBP + -0x4],0x6
+   0x00444aa6: CMP dword ptr [EBP + -0x44],0x0
+   0x00444aaa: JZ 0x00444ac1
+   0x00444aac: MOV EAX,dword ptr [EBP + 0xc]
+   0x00444aaf: PUSH EAX
+   0x00444ab0: MOV ECX,dword ptr [EBP + 0x8]
+   0x00444ab3: PUSH ECX
+   0x00444ab4: MOV ECX,dword ptr [EBP + -0x44]
+=> 0x00444ab7: CALL 0x00441440
+   0x00444abc: MOV dword ptr [EBP + -0x6c],EAX
+   0x00444abf: JMP 0x00444ac8
+   0x00444ac1: MOV dword ptr [EBP + -0x6c],0x0
+   0x00444ac8: MOV EDX,dword ptr [EBP + -0x6c]
+   0x00444acb: MOV dword ptr [EBP + -0x40],EDX
+   0x00444ace: MOV byte ptr [EBP + -0x4],0x5
+   0x00444ad2: MOV EAX,dword ptr [EBP + -0x40]
+   0x00444ad5: PUSH EAX
+   0x00444ad6: LEA ECX,[EBP + -0x10]
+=> 0x00444ad9: CALL 0x006f74f0
+   0x00444ade: MOV byte ptr [EBP + -0x4],0x1
+   0x00444ae2: LEA ECX,[EBP + -0x24]
+   0x00444ae5: CALL 0x00404ee0
+   0x00444aea: JMP 0x00444ba9
+   0x00444aef: PUSH 0xc72
+  Instructions printed: 157
+
+----------------------------------------------------------------------
+VTable/dword table suspicious task vtable from TASK_RELEASE log @ 0x01097314
+----------------------------------------------------------------------
+  [00] +0x00: 0x00a40410 -> 0x00a40410 FUN_00a40410 @ 0x00a40410
+  [01] +0x04: 0x00cfcc20 -> 0x00cfcc20 FUN_00cfcc20 @ 0x00cfcc20
+  [02] +0x08: 0x00a3fad0 -> 0x00a3fad0 ???
+  [03] +0x0c: 0x00acbb70 -> 0x00acbb70 FUN_00acbb70 @ 0x00acbb70
+  [04] +0x10: 0x00acbb70 -> 0x00acbb70 FUN_00acbb70 @ 0x00acbb70
+  [05] +0x14: 0x00acbb70 -> 0x00acbb70 FUN_00acbb70 @ 0x00acbb70
+  [06] +0x18: 0x00acbb70 -> 0x00acbb70 FUN_00acbb70 @ 0x00acbb70
+  [07] +0x1c: 0x00acbb70 -> 0x00acbb70 FUN_00acbb70 @ 0x00acbb70
+  [08] +0x20: 0x00acbb70 -> 0x00acbb70 FUN_00acbb70 @ 0x00acbb70
+  [09] +0x24: 0x00acbb70 -> 0x00acbb70 FUN_00acbb70 @ 0x00acbb70
+  [10] +0x28: 0x00acbb70 -> 0x00acbb70 FUN_00acbb70 @ 0x00acbb70
+  [11] +0x2c: 0x00acbb70 -> 0x00acbb70 FUN_00acbb70 @ 0x00acbb70
+  [12] +0x30: 0x00acbb70 -> 0x00acbb70 FUN_00acbb70 @ 0x00acbb70
+  [13] +0x34: 0x00acbb70 -> 0x00acbb70 FUN_00acbb70 @ 0x00acbb70
+  [14] +0x38: 0x00acbb70 -> 0x00acbb70 FUN_00acbb70 @ 0x00acbb70
+  [15] +0x3c: 0x00acbb70 -> 0x00acbb70 FUN_00acbb70 @ 0x00acbb70
+  [16] +0x40: 0x00acbb70 -> 0x00acbb70 FUN_00acbb70 @ 0x00acbb70
+  [17] +0x44: 0x00acbb70 -> 0x00acbb70 FUN_00acbb70 @ 0x00acbb70
+  [18] +0x48: 0x00a40460 -> 0x00a40460 ???
+  [19] +0x4c: 0x00a3f7b0 -> 0x00a3f7b0 ???
+  [20] +0x50: 0x00a43330 -> 0x00a43330 thunk_FUN_00a89af0 @ 0x00a43330
+  [21] +0x54: 0x00a3f870 -> 0x00a3f870 ???
+  [22] +0x58: 0x00a3f8a0 -> 0x00a3f8a0 ???
+  [23] +0x5c: 0x00a3f8d0 -> 0x00a3f8d0 ???
+  [24] +0x60: 0x00a404b0 -> 0x00a404b0 ???
+  [25] +0x64: 0x004534f0 -> 0x004534f0 FUN_004534f0 @ 0x004534f0
+  [26] +0x68: 0x00a5d430 -> 0x00a5d430 FUN_00a5d430 @ 0x00a5d430
+  [27] +0x6c: 0x00a89af0 -> 0x00a89af0 FUN_00a89af0 @ 0x00a89af0
+  [28] +0x70: 0x00ee8990 -> 0x00ee8990 FUN_00ee8990 @ 0x00ee8990
+  [29] +0x74: 0x00a5d310 -> 0x00a5d310 ???
+  [30] +0x78: 0x004534f0 -> 0x004534f0 FUN_004534f0 @ 0x004534f0
+  [31] +0x7c: 0x00e7cd40 -> 0x00e7cd40 FUN_00e7cd40 @ 0x00e7cd40
+
+----------------------------------------------------------------------
+VTable/dword table NiRefObject vtable seen in EDX at AV @ 0x0101dce4
+----------------------------------------------------------------------
+  [00] +0x00: 0x004968e0 -> 0x004968e0 FUN_004968e0 @ 0x004968e0
+  [01] +0x04: 0x00cfcc20 -> 0x00cfcc20 FUN_00cfcc20 @ 0x00cfcc20
+  [02] +0x08: 0x4d524f46 -> 0x4d524f46 ???
+  [03] +0x0c: 0x43203a53 -> 0x43203a53 ???
+  [04] +0x10: 0x646c756f -> 0x646c756f ???
+  [05] +0x14: 0x746f6e20 -> 0x746f6e20 ???
+  [06] +0x18: 0x6e696620 -> 0x6e696620 ???
+  [07] +0x1c: 0x64492064 -> 0x64492064 ???
+  [08] +0x20: 0x6f46656c -> 0x6f46656c ???
+  [09] +0x24: 0x25206d72 -> 0x25206d72 ???
+  [10] +0x28: 0x20583830 -> 0x20583830 ???
+  [11] +0x2c: 0x6e656877 -> 0x6e656877 ???
+  [12] +0x30: 0x616f6c20 -> 0x616f6c20 ???
+  [13] +0x34: 0x676e6964 -> 0x676e6964 ???
+  [14] +0x38: 0x74636120 -> 0x74636120 ???
+  [15] +0x3c: 0x2520726f -> 0x2520726f ???
+  [16] +0x40: 0x00000073 -> 0x00000073 ???
+  [17] +0x44: 0x4d494e41 -> 0x4d494e41 ???
+  [18] +0x48: 0x4f495441 -> 0x4f495441 ???
+  [19] +0x4c: 0x54203a4e -> 0x54203a4e ???
+  [20] +0x50: 0x6e697972 -> 0x6e697972 ???
+  [21] +0x54: 0x6f742067 -> 0x6f742067 ???
+  [22] +0x58: 0x65705320 -> 0x65705320 ???
+  [23] +0x5c: 0x6c616963 -> 0x6c616963 ???
+
+----------------------------------------------------------------------
+References TO 0x01097314 (suspicious task vtable)
+----------------------------------------------------------------------
+  DATA @ 0x00a3fafa (in FUN_00a3fae0 @ 0x00a3fae0)
+  DATA @ 0x00a3fa38 (in FUN_00a3fa30 @ 0x00a3fa30)
+  Total printed: 2
+
+----------------------------------------------------------------------
+References TO 0x0101dce4 (NiRefObject vtable)
+----------------------------------------------------------------------
+  DATA @ 0x00a9beb8 (in FUN_00a9beb0 @ 0x00a9beb0)
+  DATA @ 0x00a9be88 (in FUN_00a9be80 @ 0x00a9be80)
+  DATA @ 0x00c5a9fb (in FUN_00c5a9d0 @ 0x00c5a9d0)
+  DATA @ 0x00c5ae4a (in FUN_00c5ac00 @ 0x00c5ac00)
+  DATA @ 0x00e98a59 (in FUN_00e989c0 @ 0x00e989c0)
+  DATA @ 0x00e9891b (in FUN_00e98910 @ 0x00e98910)
+  DATA @ 0x00af8ed8 (in FUN_00af8e60 @ 0x00af8e60)
+  DATA @ 0x00b58293 (in FUN_00b581c0 @ 0x00b581c0)
+  DATA @ 0x00b592d3 (in FUN_00b587c0 @ 0x00b587c0)
+  DATA @ 0x00b9fdd2 (in FUN_00b9fda0 @ 0x00b9fda0)
+  DATA @ 0x00b9f45d (in FUN_00b9f0c0 @ 0x00b9f0c0)
+  DATA @ 0x00e7d86d (in FUN_00e7d850 @ 0x00e7d850)
+  DATA @ 0x00e7d94b (in FUN_00e7d940 @ 0x00e7d940)
+  DATA @ 0x00e7dc29 (in FUN_00e7dbc0 @ 0x00e7dbc0)
+  DATA @ 0x00e7d205 (in FUN_00e7d1b0 @ 0x00e7d1b0)
+  DATA @ 0x00e7d26e (in FUN_00e7d250 @ 0x00e7d250)
+  DATA @ 0x00a5d3a8 (in FUN_00a5d3a0 @ 0x00a5d3a0)
+  DATA @ 0x00e7d3ad (in FUN_00e7d390 @ 0x00e7d390)
+  DATA @ 0x00a5d3d5 (in FUN_00a5d3d0 @ 0x00a5d3d0)
+  DATA @ 0x00e7d535 (in FUN_00e7d4e0 @ 0x00e7d4e0)
+  DATA @ 0x00a5d4e8 (in FUN_00a5d4e0 @ 0x00a5d4e0)
+  DATA @ 0x00e7d6ce (in FUN_00e7d6b0 @ 0x00e7d6b0)
+  DATA @ 0x00e7d659 (in FUN_00e7d620 @ 0x00e7d620)
+  DATA @ 0x00c1cf28 (in FUN_00c1cf20 @ 0x00c1cf20)
+  DATA @ 0x00bb397d (in FUN_00bb3950 @ 0x00bb3950)
+  DATA @ 0x00e93adc (in FUN_00e93ad0 @ 0x00e93ad0)
+  DATA @ 0x00bb3b65 (in FUN_00bb3b10 @ 0x00bb3b10)
+  DATA @ 0x00e93e53 (in FUN_00e93e00 @ 0x00e93e00)
+  DATA @ 0x00bb33c8 (in FUN_00bb33c0 @ 0x00bb33c0)
+  DATA @ 0x00bb34cc (in FUN_00bb3470 @ 0x00bb3470)
+  DATA @ 0x00e90ae0 (in FUN_00e90ac0 @ 0x00e90ac0)
+  DATA @ 0x00e90a88 (in FUN_00e90a80 @ 0x00e90a80)
+  DATA @ 0x00af7f40 (in FUN_00af7eb0 @ 0x00af7eb0)
+  DATA @ 0x004968ba (in FUN_004968b0 @ 0x004968b0)
+  DATA @ 0x0049691a (in FUN_00496910 @ 0x00496910)
+  DATA @ 0x00a76be5 (in FUN_00a76bb0 @ 0x00a76bb0)
+  DATA @ 0x00a766b5 (in FUN_00a76680 @ 0x00a76680)
+  DATA @ 0x00a76658 (in FUN_00a76650 @ 0x00a76650)
+  DATA @ 0x00eea644 (in FUN_00eea5e0 @ 0x00eea5e0)
+  DATA @ 0x00eea58b (in FUN_00eea580 @ 0x00eea580)
+  DATA @ 0x00e89890 (in FUN_00e89840 @ 0x00e89840)
+  DATA @ 0x00ee9af8 (in FUN_00ee9a60 @ 0x00ee9a60)
+  DATA @ 0x00ee9bfb (in FUN_00ee9bf0 @ 0x00ee9bf0)
+  DATA @ 0x00e897db (in FUN_00e897d0 @ 0x00e897d0)
+  DATA @ 0x00e88b9f (in FUN_00e88b00 @ 0x00e88b00)
+  DATA @ 0x00e881ae (in FUN_00e881a0 @ 0x00e881a0)
+  DATA @ 0x00a8f845 (in FUN_00a8f810 @ 0x00a8f810)
+  DATA @ 0x00e8fa59 (in FUN_00e8f840 @ 0x00e8f840)
+  DATA @ 0x00a8f9e5 (in FUN_00a8f9b0 @ 0x00a8f9b0)
+  DATA @ 0x00e8fb2d (in FUN_00e8fb20 @ 0x00e8fb20)
+  DATA @ 0x00a8fe09 (in FUN_00a8fdb0 @ 0x00a8fdb0)
+  DATA @ 0x00a8f4b6 (in FUN_00a8f490 @ 0x00a8f490)
+  DATA @ 0x00a8f4f6 (in FUN_00a8f4d0 @ 0x00a8f4d0)
+  DATA @ 0x00a8f448 (in FUN_00a8f440 @ 0x00a8f440)
+  DATA @ 0x00e8eadb (in FUN_00e8ead0 @ 0x00e8ead0)
+  DATA @ 0x00e8eb4f (in FUN_00e8eb10 @ 0x00e8eb10)
+  DATA @ 0x00e8d0ed (in FUN_00e8d0e0 @ 0x00e8d0e0)
+  DATA @ 0x00e8d0b2 (in FUN_00e8ceb0 @ 0x00e8ceb0)
+  DATA @ 0x00e81bab (in FUN_00e81ba0 @ 0x00e81ba0)
+  DATA @ 0x00e81c49 (in FUN_00e81c00 @ 0x00e81c00)
+  DATA @ 0x00b60b1b (in FUN_00b60b10 @ 0x00b60b10)
+  DATA @ 0x00b60c47 (in FUN_00b60b50 @ 0x00b60b50)
+  DATA @ 0x00aa01c2 (in FUN_00aa0190 @ 0x00aa0190)
+  DATA @ 0x00aa039b (in FUN_00aa0390 @ 0x00aa0390)
+  DATA @ 0x00aa069c (in FUN_00aa05a0 @ 0x00aa05a0)
+  DATA @ 0x00e877e0 (in FUN_00e87690 @ 0x00e87690)
+  DATA @ 0x00b668e1 (in FUN_00b668b0 @ 0x00b668b0)
+  DATA @ 0x00b66818 (in FUN_00b66810 @ 0x00b66810)
+  DATA @ 0x00b6689c (in FUN_00b66850 @ 0x00b66850)
+  DATA @ 0x00b66ab3 (in FUN_00b669f0 @ 0x00b669f0)
+  DATA @ 0x00a8f961 (in FUN_00a8f950 @ 0x00a8f950)
+  DATA @ 0x00ee9de4 (in ??? @ 0x00000000)
+  DATA @ 0x00c1d68a (in ??? @ 0x00000000)
+  DATA @ 0x00aa00e3 (in FUN_00aa00d0 @ 0x00aa00d0)
+  DATA @ 0x00a8fe80 (in FUN_00a8fe70 @ 0x00a8fe70)
+  DATA @ 0x00a76ad0 (in FUN_00a76ab0 @ 0x00a76ab0)
+  Total printed: 76
+
+----------------------------------------------------------------------
+Potential vtable text-pointer runs: near 0x01097314 0x01096f00..0x01097700
+----------------------------------------------------------------------
+  run @ 0x01096f00 len=3 first=0x00a487f0 0x00a487f0 ???
+  run @ 0x01096f34 len=28 first=0x00a53540 0x00a53540 FUN_00a53540 @ 0x00a53540
+  run @ 0x01096fb8 len=8 first=0x00a89af0 0x00a89af0 FUN_00a89af0 @ 0x00a89af0
+  run @ 0x01096ff0 len=6 first=0x00a3c420 0x00a3c420 ???
+  run @ 0x01097010 len=7 first=0x00b6f470 0x00b6f470 ???
+  run @ 0x01097054 len=28 first=0x00a3ca50 0x00a3ca50 FUN_00a3ca50 @ 0x00a3ca50
+  run @ 0x010970d8 len=8 first=0x00a89af0 0x00a89af0 FUN_00a89af0 @ 0x00a89af0
+  run @ 0x01097110 len=6 first=0x00a29680 0x00a29680 FUN_00a29680 @ 0x00a29680
+  run @ 0x0109717c len=28 first=0x00a3dac0 0x00a3dac0 FUN_00a3dac0 @ 0x00a3dac0
+  run @ 0x0109720c len=28 first=0x00a3e980 0x00a3e980 FUN_00a3e980 @ 0x00a3e980
+  run @ 0x01097290 len=8 first=0x00a89af0 0x00a89af0 FUN_00a89af0 @ 0x00a89af0
+  run @ 0x010972c4 len=7 first=0x00b606e0 0x00b606e0 ???
+  run @ 0x010972e8 len=7 first=0x00c1ba40 0x00c1ba40 ???
+  run @ 0x01097314 len=28 first=0x00a40410 0x00a40410 FUN_00a40410 @ 0x00a40410
+  run @ 0x01097398 len=8 first=0x00a89af0 0x00a89af0 FUN_00a89af0 @ 0x00a89af0
+  run @ 0x010973cc len=7 first=0x00b606e0 0x00b606e0 ???
+  run @ 0x010973f0 len=7 first=0x00a6a000 0x00a6a000 ???
+  run @ 0x01097414 len=28 first=0x00a56630 0x00a56630 FUN_00a56630 @ 0x00a56630
+  run @ 0x01097498 len=8 first=0x00a89af0 0x00a89af0 FUN_00a89af0 @ 0x00a89af0
+  run @ 0x010974d0 len=6 first=0x00a36dc0 0x00a36dc0 FUN_00a36dc0 @ 0x00a36dc0
+  run @ 0x010974f0 len=4 first=0x00a36970 0x00a36970 FUN_00a36970 @ 0x00a36970
+  run @ 0x0109750c len=28 first=0x00a2ff70 0x00a2ff70 ???
+  run @ 0x01097590 len=8 first=0x00a89af0 0x00a89af0 FUN_00a89af0 @ 0x00a89af0
+  run @ 0x010975c4 len=7 first=0x00b606e0 0x00b606e0 ???
+  run @ 0x010975e8 len=4 first=0x00a36970 0x00a36970 FUN_00a36970 @ 0x00a36970
+  run @ 0x010975fc len=28 first=0x00a4fb10 0x00a4fb10 FUN_00a4fb10 @ 0x00a4fb10
+  run @ 0x01097680 len=26 first=0x00a89af0 0x00a89af0 FUN_00a89af0 @ 0x00a89af0
+  Total runs: 27
+
+======================================================================
+candidate queued-character task ctor: 0x40 allocation branch type 0x25 @ 0x00440e50
+======================================================================
+  Function: FUN_00440e50 @ 0x00440e50, Size: 41 bytes
+
+undefined4 * __thiscall FUN_00440e50(undefined4 *param_1,undefined4 param_2,undefined4 param_3)
+
+{
+  FUN_0043fd40(param_2,param_3);
+  *param_1 = &PTR_FUN_01016c5c;
+  return param_1;
+}
+
+
+
+----------------------------------------------------------------------
+References TO 0x00440e50 (candidate queued-character task ctor: 0x40 allocation branch type 0x25)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x00444a4f (in FUN_00444850 @ 0x00444850)
+  Total printed: 1
+
+----------------------------------------------------------------------
+Calls FROM candidate queued-character task ctor: 0x40 allocation branch type 0x25 (0x00440e50)
+----------------------------------------------------------------------
+  0x00440e62 -> 0x0043fd40 FUN_0043fd40 @ 0x0043fd40
+  Total printed: 1
+
+----------------------------------------------------------------------
+Instruction scan: candidate queued-character task ctor: 0x40 allocation branch type 0x25
+----------------------------------------------------------------------
+  0x00440e5b: MOV ECX,dword ptr [EBP + 0x8]
+  0x00440e76: RET 0x8
+  Total matches: 2
+
+======================================================================
+candidate queued-character task ctor: 0x48 allocation branch type 0x2a @ 0x00441440
+======================================================================
+  Function: FUN_00441440 @ 0x00441440, Size: 127 bytes
+
+undefined4 * __thiscall FUN_00441440(undefined4 *param_1,undefined4 param_2,undefined4 param_3)
+
+{
+  int *unaff_FS_OFFSET;
+  int local_10;
+  undefined1 *puStack_c;
+  undefined4 local_8;
+  
+  local_8 = 0xffffffff;
+  puStack_c = &LAB_00eec2e3;
+  local_10 = *unaff_FS_OFFSET;
+  *unaff_FS_OFFSET = (int)&local_10;
+  FUN_004411d0(param_2,param_3);
+  local_8 = 0;
+  *param_1 = &PTR_FUN_01016cec;
+  FUN_00528cb0(0);
+  local_8 = CONCAT31(local_8._1_3_,1);
+  FUN_00528cb0(0);
+  *unaff_FS_OFFSET = local_10;
+  return param_1;
+}
+
+
+
+----------------------------------------------------------------------
+References TO 0x00441440 (candidate queued-character task ctor: 0x48 allocation branch type 0x2a)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x00444ab7 (in FUN_00444850 @ 0x00444850)
+  UNCONDITIONAL_CALL @ 0x00441b35 (in FUN_00441b20 @ 0x00441b20)
+  Total printed: 2
+
+----------------------------------------------------------------------
+Calls FROM candidate queued-character task ctor: 0x48 allocation branch type 0x2a (0x00441440)
+----------------------------------------------------------------------
+  0x00441471 -> 0x004411d0 FUN_004411d0 @ 0x004411d0
+  0x0044148e -> 0x00528cb0 FUN_00528cb0 @ 0x00528cb0
+  0x0044149f -> 0x00528cb0 FUN_00528cb0 @ 0x00528cb0
+  Total printed: 3
+
+----------------------------------------------------------------------
+Instruction scan: candidate queued-character task ctor: 0x48 allocation branch type 0x2a
+----------------------------------------------------------------------
+  0x0044146a: MOV ECX,dword ptr [EBP + 0x8]
+  0x0044148b: ADD ECX,0x40
+  0x004414bc: RET 0x8
+  Total matches: 3
+
+======================================================================
+candidate queued-character task ctor: 0x40 allocation branch type 0x2b @ 0x00441920
+======================================================================
+  Function: FUN_00441920 @ 0x00441920, Size: 41 bytes
+
+undefined4 * __thiscall FUN_00441920(undefined4 *param_1,undefined4 param_2,undefined4 param_3)
+
+{
+  FUN_004411d0(param_2,param_3);
+  *param_1 = &PTR_FUN_01016d34;
+  return param_1;
+}
+
+
+
+----------------------------------------------------------------------
+References TO 0x00441920 (candidate queued-character task ctor: 0x40 allocation branch type 0x2b)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x00444b2b (in FUN_00444850 @ 0x00444850)
+  Total printed: 1
+
+----------------------------------------------------------------------
+Calls FROM candidate queued-character task ctor: 0x40 allocation branch type 0x2b (0x00441920)
+----------------------------------------------------------------------
+  0x00441932 -> 0x004411d0 FUN_004411d0 @ 0x004411d0
+  Total printed: 1
+
+----------------------------------------------------------------------
+Instruction scan: candidate queued-character task ctor: 0x40 allocation branch type 0x2b
+----------------------------------------------------------------------
+  0x0044192b: MOV ECX,dword ptr [EBP + 0x8]
+  0x00441946: RET 0x8
+  Total matches: 2
+
+======================================================================
+candidate queued-character task ctor: 0x40 allocation default branch @ 0x0043fd40
+======================================================================
+  Function: FUN_0043fd40 @ 0x0043fd40, Size: 166 bytes
+
+undefined4 * __thiscall FUN_0043fd40(undefined4 *param_1,undefined4 param_2,undefined4 param_3)
+
+{
+  int *unaff_FS_OFFSET;
+  int local_10;
+  undefined1 *puStack_c;
+  undefined4 local_8;
+  
+  local_8 = 0xffffffff;
+  puStack_c = &LAB_00eec1b9;
+  local_10 = *unaff_FS_OFFSET;
+  *unaff_FS_OFFSET = (int)&local_10;
+  FUN_00c3c590(param_3);
+  local_8 = 0;
+  *param_1 = &PTR_FUN_01016ba4;
+  param_1[10] = param_2;
+  FUN_00528cb0(0);
+  local_8._0_1_ = 1;
+  FUN_00633c90(0);
+  local_8._0_1_ = 2;
+  FUN_00633c90(0);
+  local_8 = CONCAT31(local_8._1_3_,3);
+  FUN_00528cb0(0);
+  *unaff_FS_OFFSET = local_10;
+  return param_1;
+}
+
+
+
+----------------------------------------------------------------------
+References TO 0x0043fd40 (candidate queued-character task ctor: 0x40 allocation default branch)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x00444b82 (in FUN_00444850 @ 0x00444850)
+  UNCONDITIONAL_CALL @ 0x00440e62 (in FUN_00440e50 @ 0x00440e50)
+  UNCONDITIONAL_CALL @ 0x004411e2 (in FUN_004411d0 @ 0x004411d0)
+  Total printed: 3
+
+----------------------------------------------------------------------
+Calls FROM candidate queued-character task ctor: 0x40 allocation default branch (0x0043fd40)
+----------------------------------------------------------------------
+  0x0043fd6d -> 0x00c3c590 FUN_00c3c590 @ 0x00c3c590
+  0x0043fd93 -> 0x00528cb0 FUN_00528cb0 @ 0x00528cb0
+  0x0043fda4 -> 0x00633c90 FUN_00633c90 @ 0x00633c90
+  0x0043fdb5 -> 0x00633c90 FUN_00633c90 @ 0x00633c90
+  0x0043fdc6 -> 0x00528cb0 FUN_00528cb0 @ 0x00528cb0
+  Total printed: 5
+
+----------------------------------------------------------------------
+Instruction scan: candidate queued-character task ctor: 0x40 allocation default branch
+----------------------------------------------------------------------
+  0x0043fd85: MOV EAX,dword ptr [EBP + 0x8]
+  0x0043fde3: RET 0x8
+  Total matches: 2
+
+======================================================================
+candidate queued-character task ctor: player branch 0x48 allocation @ 0x00441b20
+======================================================================
+  Function: FUN_00441b20 @ 0x00441b20, Size: 44 bytes
+
+undefined4 * __thiscall FUN_00441b20(undefined4 *param_1,undefined4 param_2)
+
+{
+  FUN_00441440(DAT_011dea3c,param_2);
+  *param_1 = &PTR_FUN_01016d7c;
+  return param_1;
+}
+
+
+
+----------------------------------------------------------------------
+References TO 0x00441b20 (candidate queued-character task ctor: player branch 0x48 allocation)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x004449c8 (in FUN_00444850 @ 0x00444850)
+  Total printed: 1
+
+----------------------------------------------------------------------
+Calls FROM candidate queued-character task ctor: player branch 0x48 allocation (0x00441b20)
+----------------------------------------------------------------------
+  0x00441b35 -> 0x00441440 FUN_00441440 @ 0x00441440
+  Total printed: 1
+
+----------------------------------------------------------------------
+Instruction scan: candidate queued-character task ctor: player branch 0x48 allocation
+----------------------------------------------------------------------
+  0x00441b27: MOV EAX,dword ptr [EBP + 0x8]
+  Total matches: 1
+
+======================================================================
+shared base ctor used by queued-character task constructors @ 0x004411d0
+======================================================================
+  Function: FUN_004411d0 @ 0x004411d0, Size: 41 bytes
+
+undefined4 * __thiscall FUN_004411d0(undefined4 *param_1,undefined4 param_2,undefined4 param_3)
+
+{
+  FUN_0043fd40(param_2,param_3);
+  *param_1 = &PTR_FUN_01016ca4;
+  return param_1;
+}
+
+
+
+----------------------------------------------------------------------
+References TO 0x004411d0 (shared base ctor used by queued-character task constructors)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x00441471 (in FUN_00441440 @ 0x00441440)
+  UNCONDITIONAL_CALL @ 0x00441932 (in FUN_00441920 @ 0x00441920)
+  Total printed: 2
+
+----------------------------------------------------------------------
+Calls FROM shared base ctor used by queued-character task constructors (0x004411d0)
+----------------------------------------------------------------------
+  0x004411e2 -> 0x0043fd40 FUN_0043fd40 @ 0x0043fd40
+  Total printed: 1
+
+----------------------------------------------------------------------
+Instruction scan: shared base ctor used by queued-character task constructors
+----------------------------------------------------------------------
+  0x004411db: MOV ECX,dword ptr [EBP + 0x8]
+  0x004411f6: RET 0x8
+  Total matches: 2
+
+======================================================================
+END QUEUED CHARACTER TASK VTABLE / 80B LIFETIME AUDIT
+======================================================================

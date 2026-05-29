@@ -76,6 +76,8 @@ pub static AI_THREAD_JOIN_HOOK: LazyLock<InlineHookContainer<AIThreadJoinFn>> =
 /// We hook this to set the destruction guard.
 pub const PDD_ADDR: usize = 0x00868D70;
 
+pub static PDD_HOOK: LazyLock<InlineHookContainer<PDDFn>> = LazyLock::new(InlineHookContainer::new);
+
 // ---- Texture cache ----
 
 pub const TEXTURE_CACHE_FIND_ADDR: usize = 0x00A61A60;
@@ -91,6 +93,23 @@ pub static NISOURCETEXTURE_DTOR_HOOK: LazyLock<InlineHookContainer<NiSourceTextu
 pub const TASK_RELEASE_ADDR: usize = 0x0044DD60;
 
 pub static TASK_RELEASE_HOOK: LazyLock<InlineHookContainer<TaskReleaseFn>> =
+    LazyLock::new(InlineHookContainer::new);
+
+/// FUN_00449A50: model-loader task scalar destructor. Under gheap stress,
+/// FUN_00446B50 can dispatch this on an already-freed 80-byte pool cell.
+pub const MODEL_TASK_DTOR_ADDR: usize = 0x00449A50;
+
+pub static MODEL_TASK_DTOR_HOOK: LazyLock<InlineHookContainer<ModelTaskDtorFn>> =
+    LazyLock::new(InlineHookContainer::new);
+
+// ---- Navmesh/pathfinding defensive guards ----
+
+/// FUN_00690830: path/navmesh helper that dereferences ECX+0x1C.
+/// Under gheap pressure the tasklet path can pass a small sentinel
+/// value (observed ECX=4), so we guard before the first dereference.
+pub const NAVMESH_NAME_HELPER_ADDR: usize = 0x00690830;
+
+pub static NAVMESH_NAME_HELPER_HOOK: LazyLock<InlineHookContainer<NavmeshNameHelperFn>> =
     LazyLock::new(InlineHookContainer::new);
 
 // ---- OOM Stage 8 (HeapCompact) ----
@@ -128,7 +147,14 @@ pub static HKWORLD_LOCK_HOOK: LazyLock<InlineHookContainer<HkWorldLockFn>> =
 pub static HKWORLD_UNLOCK_HOOK: LazyLock<InlineHookContainer<HkWorldUnlockFn>> =
     LazyLock::new(InlineHookContainer::new);
 
-// ---- Havok entity post-add callback (vanilla NULL-deref bugfix) ----
+// ---- Havok sparse entity batch guards (vanilla NULL-deref bugfixes) ----
+
+/// FUN_00C94BD0: hkpWorld::addEntityBatch. The first add loop writes
+/// `[entity + 0xD4]` without checking that the batch slot is non-NULL.
+pub const HAVOK_ADD_ENTITY_BATCH_ADDR: usize = 0x00C94BD0;
+
+pub static HAVOK_ADD_ENTITY_BATCH_HOOK: LazyLock<InlineHookContainer<HavokAddEntityBatchFn>> =
+    LazyLock::new(InlineHookContainer::new);
 
 /// FUN_00CFFA00: dispatches AddedToWorld listeners for a single hkpEntity.
 /// hkpWorld::addEntityBatch iterates the broadphase result array and calls
@@ -145,6 +171,13 @@ pub const HAVOK_NARROWPHASE_ADD_AGENTS_ADDR: usize = 0x00CF7080;
 pub static HAVOK_NARROWPHASE_ADD_AGENTS_HOOK: LazyLock<
     InlineHookContainer<HavokNarrowphaseAddAgentsFn>,
 > = LazyLock::new(InlineHookContainer::new);
+
+/// FUN_00C674D0: flushes pending hkpWorld entity-add arrays. The vanilla
+/// loop dereferences each slot without filtering NULL entries.
+pub const HAVOK_PENDING_ADD_FLUSH_ADDR: usize = 0x00C674D0;
+
+pub static HAVOK_PENDING_ADD_FLUSH_HOOK: LazyLock<InlineHookContainer<HavokPendingAddFlushFn>> =
+    LazyLock::new(InlineHookContainer::new);
 
 // ---- Game-inlined _memset (NULL-dst defensive bugfix) ----
 

@@ -1,0 +1,359 @@
+======================================================================
+CRASH 0x00559456 VIRTUAL TARGET IDENTITY AUDIT
+======================================================================
+
+Crash stack says FUN_00446B50 called through vtable slot +0x1c and landed in FUN_00449A50.
+This script identifies which vtable contains 0x00449A50 and whether it is a stale queued task/model object.
+
+----------------------------------------------------------------------
+Disassembly: virtual call in FUN_00446B50 0x00446c18..0x00446c90
+----------------------------------------------------------------------
+   0x00446c1b: JMP 0x00446c31
+   0x00446c1d: PUSH 0x0
+   0x00446c1f: MOV EDX,dword ptr [EBP + -0x28]
+   0x00446c22: PUSH EDX
+   0x00446c23: MOV ECX,dword ptr [0x011dea10]
+   0x00446c29: CALL 0x00458be0
+   0x00446c2e: MOV dword ptr [EBP + -0x2c],EAX
+   0x00446c31: MOV EAX,dword ptr [EBP + -0x30]
+   0x00446c34: CMP EAX,dword ptr [EBP + -0x2c]
+   0x00446c37: JZ 0x00446c55
+   0x00446c39: LEA ECX,[EBP + -0x20]
+=> 0x00446c3c: CALL 0x00559450
+   0x00446c41: MOV dword ptr [EBP + -0x38],EAX
+   0x00446c44: MOV ECX,dword ptr [EBP + -0x2c]
+   0x00446c47: PUSH ECX
+   0x00446c48: MOV EDX,dword ptr [EBP + -0x38]
+   0x00446c4b: MOV EAX,dword ptr [EDX]
+   0x00446c4d: MOV ECX,dword ptr [EBP + -0x38]
+   0x00446c50: MOV EDX,dword ptr [EAX + 0x1c]
+=> 0x00446c53: CALL EDX
+=> 0x00446c55: MOV byte ptr [EBP + -0x4],0x0
+   0x00446c59: LEA ECX,[EBP + -0x20]
+   0x00446c5c: CALL 0x0044cbf0
+   0x00446c61: JMP 0x00446b87
+   0x00446c66: MOV dword ptr [EBP + -0x4],0xffffffff
+   0x00446c6d: LEA ECX,[EBP + -0x1c]
+   0x00446c70: CALL 0x004499c0
+   0x00446c75: MOV ECX,dword ptr [EBP + -0xc]
+   0x00446c78: MOV dword ptr FS:[0x0],ECX
+   0x00446c7f: POP ECX
+   0x00446c80: MOV ESP,EBP
+   0x00446c82: POP EBP
+   0x00446c83: RET 0x4
+  Instructions printed: 33
+
+----------------------------------------------------------------------
+Disassembly: target FUN_00449A50 0x00449a40..0x00449a90
+----------------------------------------------------------------------
+   0x00449a40: ADD ESP,0x4
+   0x00449a43: MOV EAX,dword ptr [EBP + -0x4]
+   0x00449a46: MOV ESP,EBP
+   0x00449a48: POP EBP
+   0x00449a49: RET 0x4
+=> 0x00449a50: PUSH EBP
+   0x00449a51: MOV EBP,ESP
+   0x00449a53: PUSH ECX
+   0x00449a54: MOV dword ptr [EBP + -0x4],ECX
+   0x00449a57: MOV ECX,dword ptr [EBP + -0x4]
+=> 0x00449a5a: CALL 0x00449c30
+=> 0x00449a5f: MOV EAX,dword ptr [EBP + 0x8]
+   0x00449a62: AND EAX,0x1
+   0x00449a65: JZ 0x00449a73
+   0x00449a67: MOV ECX,dword ptr [EBP + -0x4]
+   0x00449a6a: PUSH ECX
+   0x00449a6b: CALL 0x00401030
+   0x00449a70: ADD ESP,0x4
+   0x00449a73: MOV EAX,dword ptr [EBP + -0x4]
+   0x00449a76: MOV ESP,EBP
+   0x00449a78: POP EBP
+   0x00449a79: RET 0x4
+   0x00449a80: PUSH EBP
+   0x00449a81: MOV EBP,ESP
+   0x00449a83: PUSH ECX
+   0x00449a84: MOV dword ptr [EBP + -0x4],ECX
+   0x00449a87: MOV ECX,dword ptr [EBP + -0x4]
+   0x00449a8a: CALL 0x00449d40
+   0x00449a8f: MOV EAX,dword ptr [EBP + 0x8]
+  Instructions printed: 29
+
+======================================================================
+caller that invokes task vtable slot +0x1c @ 0x00446b50
+======================================================================
+  Function: FUN_00446b50 @ 0x00446b50, Size: 310 bytes
+
+void FUN_00446b50(int param_1)
+
+{
+  char cVar1;
+  uint uVar2;
+  int iVar3;
+  int iVar4;
+  int *piVar5;
+  int *unaff_FS_OFFSET;
+  int local_30;
+  undefined4 local_28;
+  undefined1 local_24 [4];
+  TaskStack local_20 [16];
+  int local_10;
+  undefined1 *puStack_c;
+  uint local_8;
+  
+  local_8 = 0xffffffff;
+  puStack_c = &LAB_00eeca60;
+  local_10 = *unaff_FS_OFFSET;
+  uVar2 = DAT_011c16bc ^ (uint)&stack0xfffffffc;
+  *unaff_FS_OFFSET = (int)&local_10;
+  Concurrency::details::TaskStack::TaskStack(local_20);
+  local_8 = 0;
+  do {
+    cVar1 = FUN_006ebde0(uVar2);
+    if (cVar1 != '\0') {
+      local_8 = 0xffffffff;
+      FUN_004499c0();
+      *unaff_FS_OFFSET = local_10;
+      return;
+    }
+    local_28 = 0;
+    FUN_00528cb0(0);
+    local_8 = CONCAT31(local_8._1_3_,1);
+    cVar1 = FUN_00906570(local_20,&local_28,local_24,1);
+    if (cVar1 != '\0') {
+      iVar3 = FUN_008d6f30();
+      if (iVar3 != 0) {
+        FUN_00559450();
+        iVar4 = FUN_0043cc60();
+        if (iVar3 == param_1) {
+          cVar1 = FUN_00572350();
+          if (cVar1 == '\0') goto LAB_00446c1d;
+          local_30 = 0;
+        }
+        else {
+LAB_00446c1d:
+          local_30 = FUN_00458be0(iVar3,0);
+        }
+        if (iVar4 != local_30) {
+          piVar5 = (int *)FUN_00559450();
+          (**(code **)(*piVar5 + 0x1c))(local_30);
+        }
+      }
+    }
+    local_8 = local_8 & 0xffffff00;
+    FUN_0044cbf0();
+  } while( true );
+}
+
+
+
+----------------------------------------------------------------------
+Calls FROM caller that invokes task vtable slot +0x1c (0x00446b50)
+----------------------------------------------------------------------
+  0x00446b7b -> 0x0044cc10 TaskStack @ 0x0044cc10
+  0x00446b8a -> 0x006ebde0 FUN_006ebde0 @ 0x006ebde0
+  0x00446ba6 -> 0x00528cb0 FUN_00528cb0 @ 0x00528cb0
+  0x00446bc3 -> 0x00906570 FUN_00906570 @ 0x00906570
+  0x00446bd6 -> 0x008d6f30 FUN_008d6f30 @ 0x008d6f30
+  0x00446be7 -> 0x00559450 FUN_00559450 @ 0x00559450
+  0x00446bee -> 0x0043cc60 FUN_0043cc60 @ 0x0043cc60
+  0x00446c08 -> 0x00572350 FUN_00572350 @ 0x00572350
+  0x00446c29 -> 0x00458be0 FUN_00458be0 @ 0x00458be0
+  0x00446c3c -> 0x00559450 FUN_00559450 @ 0x00559450
+  0x00446c5c -> 0x0044cbf0 FUN_0044cbf0 @ 0x0044cbf0
+  0x00446c70 -> 0x004499c0 FUN_004499c0 @ 0x004499c0
+  Total printed: 12
+
+======================================================================
+virtual target / scalar destructor candidate @ 0x00449a50
+======================================================================
+  Function: FUN_00449a50 @ 0x00449a50, Size: 44 bytes
+
+undefined4 __thiscall FUN_00449a50(undefined4 param_1,uint param_2)
+
+{
+  FUN_00449c30();
+  if ((param_2 & 1) != 0) {
+    FUN_00401030(param_1);
+  }
+  return param_1;
+}
+
+
+
+======================================================================
+FUN_00449C30 wrapper @ 0x00449c30
+======================================================================
+  Function: FUN_00449c30 @ 0x00449c30, Size: 19 bytes
+
+void __fastcall FUN_00449c30(undefined4 param_1)
+
+{
+  FUN_00449c50(param_1);
+  return;
+}
+
+
+
+======================================================================
+LockFreeStringMap<Model*> destructor body @ 0x00449c50
+======================================================================
+  Function: FUN_00449c50 @ 0x00449c50, Size: 94 bytes
+
+void __fastcall FUN_00449c50(undefined4 *param_1)
+
+{
+  uint uVar1;
+  int *unaff_FS_OFFSET;
+  int local_10;
+  undefined1 *puStack_c;
+  undefined4 local_8;
+  
+  puStack_c = &LAB_00eecdf8;
+  local_10 = *unaff_FS_OFFSET;
+  uVar1 = DAT_011c16bc ^ (uint)&stack0xfffffffc;
+  *unaff_FS_OFFSET = (int)&local_10;
+  *param_1 = &PTR_FUN_010172dc;
+  local_8 = 0;
+  FUN_0044c480(1);
+  local_8 = 0xffffffff;
+  FUN_0044c1e0(uVar1);
+  *unaff_FS_OFFSET = local_10;
+  return;
+}
+
+
+
+======================================================================
+LockFree map clear/reset body @ 0x0044c480
+======================================================================
+  Function: FUN_0044c480 @ 0x0044c480, Size: 434 bytes
+
+void __thiscall FUN_0044c480(int param_1,char param_2)
+
+{
+  uint uVar1;
+  undefined4 uVar2;
+  int iVar3;
+  int *unaff_FS_OFFSET;
+  undefined4 local_40;
+  int local_20;
+  uint local_1c;
+  int local_10;
+  undefined1 *puStack_c;
+  int local_8;
+  
+  local_8 = 0xffffffff;
+  puStack_c = &LAB_00ef50b3;
+  local_10 = *unaff_FS_OFFSET;
+  uVar1 = DAT_011c16bc ^ (uint)&stack0xfffffffc;
+  *unaff_FS_OFFSET = (int)&local_10;
+  FUN_00404eb0(6,1,"d:\\_fallout3\\platforms\\common\\code\\bsmain\\ThreadSafeStructures.inl",0x42c)
+  ;
+  local_8 = 0;
+  if (*(int *)(param_1 + 0x14) == 0) {
+    local_8 = 0xffffffff;
+    FUN_00404ee0();
+  }
+  else {
+    FUN_0040fbf0(0);
+    uVar2 = FUN_00559450(uVar1);
+    if (*(int *)(param_1 + 0x14) != 0) {
+      FUN_00666570(1);
+    }
+    *(undefined4 *)(param_1 + 0x14) = 0;
+    *(undefined4 *)(param_1 + 0x18) = 0;
+    for (local_1c = 0; local_1c < *(uint *)(param_1 + 8); local_1c = local_1c + 1) {
+      local_20 = FUN_0044dec0();
+      FUN_006665a0();
+      while (local_20 != 0) {
+        iVar3 = FUN_0044dec0();
+        FUN_006665a0();
+        *(undefined4 *)(local_20 + 4) = 0;
+        FUN_0044dde0(local_20);
+        local_20 = iVar3;
+      }
+    }
+    if (param_2 == '\0') {
+      iVar3 = FUN_00401000(0x10);
+      local_8._0_1_ = 1;
+      if (iVar3 == 0) {
+        local_40 = 0;
+      }
+      else {
+        local_40 = FUN_006c73b0(uVar2);
+      }
+      local_8 = (uint)local_8._1_3_ << 8;
+      *(undefined4 *)(param_1 + 0x14) = local_40;
+    }
+    FUN_0040fba0();
+    local_8 = 0xffffffff;
+    FUN_00404ee0();
+  }
+  *unaff_FS_OFFSET = local_10;
+  return;
+}
+
+
+
+----------------------------------------------------------------------
+References TO 0x00449a50 (FUN_00449A50)
+----------------------------------------------------------------------
+  DATA @ 0x01017154 (in ???)
+  Total printed: 1
+
+----------------------------------------------------------------------
+References with context TO 0x00449a50 (FUN_00449A50)
+----------------------------------------------------------------------
+
+REF 1: DATA from 0x01017154 in ???
+
+----------------------------------------------------------------------
+Disassembly: xref context for 0x01017154 0x0101712c..0x010171e4
+----------------------------------------------------------------------
+  Instructions printed: 0
+  Total printed: 1
+
+======================================================================
+RDATA SCAN FOR 0x00449a50
+======================================================================
+  entry 0x01017154 contains target; slot+0x1c candidate vtable=0x01017138
+
+----------------------------------------------------------------------
+DWords: candidate vtable for CALL [vtable+0x1c] @ 0x01017138
+----------------------------------------------------------------------
+  +0x00: 0x00449a20 -> 0x00449a20 FUN_00449a20 @ 0x00449a20
+  +0x04: 0x00ec60fa -> 0x00ec60fa ???
+  +0x08: 0x00ec60fa -> 0x00ec60fa ???
+  +0x0c: 0x008d0600 -> 0x008d0600 FUN_008d0600 @ 0x008d0600
+  +0x10: 0x008d0300 -> 0x008d0300 FUN_008d0300 @ 0x008d0300
+  +0x14: 0x00000000 -> 0x00000000 ???
+  +0x18: 0x01105ecc -> 0x01105ecc ???
+  +0x1c: 0x00449a50 -> 0x00449a50 FUN_00449a50 @ 0x00449a50
+  +0x20: 0x00906400 -> 0x00906400 FUN_00906400 @ 0x00906400
+  +0x24: 0x004493d0 -> 0x004493d0 FUN_004493d0 @ 0x004493d0
+  +0x28: 0x006ec7e0 -> 0x006ec7e0 FUN_006ec7e0 @ 0x006ec7e0
+  +0x2c: 0x00449460 -> 0x00449460 FUN_00449460 @ 0x00449460
+  +0x30: 0x004497f0 -> 0x004497f0 FUN_004497f0 @ 0x004497f0
+  +0x34: 0x00449700 -> 0x00449700 FUN_00449700 @ 0x00449700
+  +0x38: 0x006ec900 -> 0x006ec900 FUN_006ec900 @ 0x006ec900
+  +0x3c: 0x004498b0 -> 0x004498b0 FUN_004498b0 @ 0x004498b0
+  +0x40: 0x00449750 -> 0x00449750 FUN_00449750 @ 0x00449750
+  +0x44: 0x006b8310 -> 0x006b8310 FUN_006b8310 @ 0x006b8310
+  +0x48: 0x004492f0 -> 0x004492f0 FUN_004492f0 @ 0x004492f0
+  +0x4c: 0x00449500 -> 0x00449500 FUN_00449500 @ 0x00449500
+  +0x50: 0x004496d0 -> 0x004496d0 FUN_004496d0 @ 0x004496d0
+  +0x54: 0x00449880 -> 0x00449880 operator!= @ 0x00449880
+  +0x58: 0x0044bbc0 -> 0x0044bbc0 FUN_0044bbc0 @ 0x0044bbc0
+  +0x5c: 0x0044b730 -> 0x0044b730 FUN_0044b730 @ 0x0044b730
+
+----------------------------------------------------------------------
+References TO 0x01017138 (candidate vtable base)
+----------------------------------------------------------------------
+  DATA @ 0x00c3c6df (in FUN_00c3c620 @ 0x00c3c620)
+  DATA @ 0x004490ea (in FUN_004490e0 @ 0x004490e0)
+  DATA @ 0x0044909a (in FUN_00449090 @ 0x00449090)
+  Total printed: 3
+  Total target entries printed: 1
+
+======================================================================
+END CRASH 0x00559456 VIRTUAL TARGET IDENTITY AUDIT
+======================================================================

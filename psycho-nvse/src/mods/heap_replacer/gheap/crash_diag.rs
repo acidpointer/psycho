@@ -228,7 +228,7 @@ fn log_pool_register(name: &str, value: u32) {
     };
 
     log::error!(
-        "[AVREG] {}=0x{:08X} pool#{} item={} max={}MB cell={} start=0x{:08X} off=0x{:X} committed={} free={}",
+        "[AVREG] {}=0x{:08X} pool#{} item={} max={}MB cell={} start=0x{:08X} off=0x{:X} committed={} free={} deferred_free={}",
         name,
         value,
         info.pool_index,
@@ -239,6 +239,7 @@ fn log_pool_register(name: &str, value: u32) {
         info.offset,
         info.committed,
         info.is_free,
+        info.is_deferred_free,
     );
 }
 

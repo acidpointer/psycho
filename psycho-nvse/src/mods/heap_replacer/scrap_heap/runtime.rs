@@ -24,12 +24,12 @@ const IDENTITY_LOG_STEP: usize = 16;
 type HeapMap<K, V> = clashmap::ClashMap<K, V, rustc_hash::FxBuildHasher>;
 
 #[derive(Default)]
-struct ScrapSnapshot {
-    live_bytes: usize,
-    identities: usize,
-    active_identities: usize,
-    regions: usize,
-    live_allocs: usize,
+pub struct ScrapSnapshot {
+    pub live_bytes: usize,
+    pub identities: usize,
+    pub active_identities: usize,
+    pub regions: usize,
+    pub live_allocs: usize,
 }
 
 #[derive(Default)]
@@ -183,7 +183,7 @@ impl Runtime {
 
     fn snapshot(pool: &HeapMap<usize, Arc<Heap>>) -> ScrapSnapshot {
         let mut snapshot = ScrapSnapshot {
-            live_bytes: mem_stats::global().sbm2_allocated() as usize,
+            live_bytes: mem_stats::global().scrap_heap_allocated() as usize,
             identities: pool.len(),
             ..ScrapSnapshot::default()
         };
@@ -198,6 +198,10 @@ impl Runtime {
         }
 
         snapshot
+    }
+
+    pub fn current_snapshot(&self) -> ScrapSnapshot {
+        Self::snapshot(&self.pool)
     }
 
     #[cold]

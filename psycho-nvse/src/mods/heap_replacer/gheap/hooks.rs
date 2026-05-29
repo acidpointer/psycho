@@ -29,6 +29,7 @@ use libc::c_void;
 use super::allocator;
 use super::engine::globals;
 use super::game_guard;
+use super::pool;
 use super::pressure::PressureRelief;
 use super::statics;
 use super::texture_cache;
@@ -59,12 +60,27 @@ pub unsafe extern "thiscall" fn hook_gheap_realloc(
     unsafe { allocator::realloc(ptr, new_size) }
 }
 
+/// ProcessDeferredDestruction guard.
+///
+/// Frees produced inside PDD stay readable but are not immediately
+/// reusable by the pool allocator. They return to normal LIFO reuse from
+/// a later frame maintenance point, after the surrounding cleanup code
+/// has finished walking parent/child object chains.
+pub unsafe extern "C" fn hook_pdd_guard(try_lock: u8) {
+    let _guard = pool::destruction_freeze_guard();
+    if let Ok(original) = statics::PDD_HOOK.original() {
+        unsafe { original(try_lock) };
+    }
+}
+
 /// Phase 7: per-frame queue drain (before AI_START).
 ///
 /// Orchestration is intentionally minimal and game-state-free. The
 /// allocator tiers are always "active"; there is no loading / menu /
 /// console branching here.
 pub unsafe extern "C" fn hook_per_frame_queue_drain() {
+    pool::thaw_deferred_frees("phase7-start");
+
     // Capture the main thread id on the first Phase 7 frame. Cheap to
     // call every frame since it short-circuits once set.
     globals::set_main_thread_id();
@@ -128,6 +144,8 @@ pub unsafe extern "thiscall" fn hook_main_loop_maintenance(this: *mut c_void) {
     if let Ok(original) = statics::MAIN_LOOP_MAINTENANCE_HOOK.original() {
         unsafe { original(this) };
     }
+
+    pool::thaw_deferred_frees("phase10");
 
     if let Some(pr) = PressureRelief::instance() {
         pr.calibrate_baseline();

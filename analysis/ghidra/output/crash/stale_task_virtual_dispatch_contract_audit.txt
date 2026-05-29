@@ -1,0 +1,1216 @@
+======================================================================
+STALE TASK VIRTUAL DISPATCH CONTRACT AUDIT
+======================================================================
+
+Goal:
+  Confirm which virtual slots are called on queued-task holders and whether a dead-vtable/no-op strategy is ABI-safe.
+  Crash site loads EAX from [vtable+0x1c] and CALLs it; base NiRefObject +0x1c points into string data.
+
+----------------------------------------------------------------------
+Disassembly: CreateQueuedCharacter slot +0x1c crash call 0x00444920..0x00444970
+----------------------------------------------------------------------
+   0x00444921: LEA ECX,[EBP + -0x10]
+   0x00444924: CALL 0x00559450
+   0x00444929: MOV ECX,EAX
+   0x0044492b: CALL 0x0043cc60
+   0x00444930: MOV dword ptr [EBP + -0x1c],EAX
+   0x00444933: MOV EDX,dword ptr [EBP + -0x1c]
+   0x00444936: CMP EDX,dword ptr [EBP + 0xc]
+   0x00444939: JZ 0x00444957
+   0x0044493b: LEA ECX,[EBP + -0x10]
+   0x0044493e: CALL 0x00559450
+   0x00444943: MOV dword ptr [EBP + -0x5c],EAX
+   0x00444946: MOV EAX,dword ptr [EBP + 0xc]
+   0x00444949: PUSH EAX
+   0x0044494a: MOV ECX,dword ptr [EBP + -0x5c]
+   0x0044494d: MOV EDX,dword ptr [ECX]
+   0x0044494f: MOV ECX,dword ptr [EBP + -0x5c]
+=> 0x00444952: MOV EAX,dword ptr [EDX + 0x1c]
+=> 0x00444955: CALL EAX
+=> 0x00444957: MOV dword ptr [EBP + -0x4],0xffffffff
+   0x0044495e: LEA ECX,[EBP + -0x10]
+   0x00444961: CALL 0x0044cbf0
+   0x00444966: JMP 0x00444ca2
+   0x0044496b: PUSH 0xc4e
+  Instructions printed: 23
+
+----------------------------------------------------------------------
+Disassembly: CreateQueuedCharacter slot +0x20 call 0x00444c20..0x00444c60
+----------------------------------------------------------------------
+   0x00444c21: MOV EDX,dword ptr [EDX]
+   0x00444c23: MOV EAX,dword ptr [EDX + 0x10]
+   0x00444c26: CALL EAX
+   0x00444c28: JMP 0x00444c42
+   0x00444c2a: LEA ECX,[EBP + -0x10]
+   0x00444c2d: CALL 0x00559450
+   0x00444c32: MOV dword ptr [EBP + -0x78],EAX
+   0x00444c35: MOV ECX,dword ptr [EBP + -0x78]
+   0x00444c38: MOV EDX,dword ptr [ECX]
+   0x00444c3a: MOV ECX,dword ptr [EBP + -0x78]
+=> 0x00444c3d: MOV EAX,dword ptr [EDX + 0x20]
+   0x00444c40: CALL EAX
+   0x00444c42: MOV ECX,dword ptr [EBP + 0x8]
+   0x00444c45: CALL 0x008d6f30
+   0x00444c4a: TEST EAX,EAX
+   0x00444c4c: JZ 0x00444c7b
+   0x00444c4e: MOV ECX,dword ptr [EBP + 0x8]
+   0x00444c51: CALL 0x008d6f30
+   0x00444c56: MOV ECX,EAX
+   0x00444c58: CALL 0x00444cc0
+   0x00444c5d: MOV ECX,dword ptr [EBP + 0x8]
+  Instructions printed: 21
+
+----------------------------------------------------------------------
+Disassembly: IO task helper slot +0x1c call 0x00c3e2b0..0x00c3e2f5
+----------------------------------------------------------------------
+   0x00c3e2b1: MOV ECX,dword ptr [EBP + -0x30]
+   0x00c3e2b4: CALL 0x0044dd60
+   0x00c3e2b9: JMP 0x00c3e2e9
+   0x00c3e2bb: MOV ECX,dword ptr [EBP + -0x30]
+   0x00c3e2be: MOV dword ptr [EBP + -0x74],ECX
+   0x00c3e2c1: MOV EDX,dword ptr [EBP + 0xc]
+   0x00c3e2c4: PUSH EDX
+   0x00c3e2c5: MOV EAX,dword ptr [EBP + -0x74]
+   0x00c3e2c8: MOV EDX,dword ptr [EAX]
+   0x00c3e2ca: MOV ECX,dword ptr [EBP + -0x74]
+=> 0x00c3e2cd: MOV EAX,dword ptr [EDX + 0x1c]
+   0x00c3e2d0: CALL EAX
+   0x00c3e2d2: MOV byte ptr [EBP + -0x4],0x0
+   0x00c3e2d6: CMP dword ptr [EBP + -0x30],0x0
+   0x00c3e2da: JZ 0x00c3e2e4
+   0x00c3e2dc: MOV ECX,dword ptr [EBP + -0x30]
+   0x00c3e2df: CALL 0x0044dd60
+   0x00c3e2e4: JMP 0x00c3e22e
+   0x00c3e2e9: MOV ECX,dword ptr [EBP + -0x70]
+   0x00c3e2ec: CALL 0x00c3e340
+   0x00c3e2f1: MOV dword ptr [EBP + -0x4],0xffffffff
+  Instructions printed: 21
+
+----------------------------------------------------------------------
+Disassembly: task-manager holder replace/release call #1 0x00c42670..0x00c426d0
+----------------------------------------------------------------------
+   0x00c42670: MOV ECX,dword ptr [EBP + 0x10]
+   0x00c42673: MOV EDX,dword ptr [EBP + 0xffffff3c]
+   0x00c42679: MOV EAX,dword ptr [ECX]
+   0x00c4267b: CMP EAX,dword ptr [EDX]
+   0x00c4267d: JZ 0x00c426c1
+   0x00c4267f: MOV ECX,dword ptr [EBP + 0x10]
+   0x00c42682: CMP dword ptr [ECX],0x0
+   0x00c42685: JZ 0x00c42691
+   0x00c42687: MOV EDX,dword ptr [EBP + 0x10]
+   0x00c4268a: MOV ECX,dword ptr [EDX]
+=> 0x00c4268c: CALL 0x0044dd60
+   0x00c42691: MOV EAX,dword ptr [EBP + 0x10]
+   0x00c42694: MOV ECX,dword ptr [EBP + 0xffffff3c]
+   0x00c4269a: MOV EDX,dword ptr [ECX]
+   0x00c4269c: MOV dword ptr [EAX],EDX
+   0x00c4269e: MOV EAX,dword ptr [EBP + 0x10]
+   0x00c426a1: CMP dword ptr [EAX],0x0
+   0x00c426a4: JZ 0x00c426c1
+   0x00c426a6: MOV ECX,dword ptr [EBP + 0x10]
+   0x00c426a9: MOV EDX,dword ptr [ECX]
+   0x00c426ab: MOV dword ptr [EBP + 0xffffff40],EDX
+   0x00c426b1: MOV EAX,dword ptr [EBP + 0xffffff40]
+   0x00c426b7: ADD EAX,0x8
+   0x00c426ba: PUSH EAX
+   0x00c426bb: CALL dword ptr [0x00fdf1c0]
+   0x00c426c1: MOV byte ptr [EBP + -0x1],0x1
+   0x00c426c5: MOV ECX,dword ptr [EBP + 0xfffffeec]
+   0x00c426cb: ADD ECX,0x18
+   0x00c426ce: MOV dword ptr [EBP + 0xffffff38],ECX
+  Instructions printed: 29
+
+----------------------------------------------------------------------
+Disassembly: task-manager holder replace/release call #2 0x00c42830..0x00c42890
+----------------------------------------------------------------------
+   0x00c42831: MOV ECX,dword ptr [EBP + 0x10]
+   0x00c42834: MOV EDX,dword ptr [EBP + 0xffffff0c]
+   0x00c4283a: MOV EAX,dword ptr [ECX]
+   0x00c4283c: CMP EAX,dword ptr [EDX]
+   0x00c4283e: JZ 0x00c42882
+   0x00c42840: MOV ECX,dword ptr [EBP + 0x10]
+   0x00c42843: CMP dword ptr [ECX],0x0
+   0x00c42846: JZ 0x00c42852
+   0x00c42848: MOV EDX,dword ptr [EBP + 0x10]
+   0x00c4284b: MOV ECX,dword ptr [EDX]
+=> 0x00c4284d: CALL 0x0044dd60
+   0x00c42852: MOV EAX,dword ptr [EBP + 0x10]
+   0x00c42855: MOV ECX,dword ptr [EBP + 0xffffff0c]
+   0x00c4285b: MOV EDX,dword ptr [ECX]
+   0x00c4285d: MOV dword ptr [EAX],EDX
+   0x00c4285f: MOV EAX,dword ptr [EBP + 0x10]
+   0x00c42862: CMP dword ptr [EAX],0x0
+   0x00c42865: JZ 0x00c42882
+   0x00c42867: MOV ECX,dword ptr [EBP + 0x10]
+   0x00c4286a: MOV EDX,dword ptr [ECX]
+   0x00c4286c: MOV dword ptr [EBP + 0xffffff10],EDX
+   0x00c42872: MOV EAX,dword ptr [EBP + 0xffffff10]
+   0x00c42878: ADD EAX,0x8
+   0x00c4287b: PUSH EAX
+   0x00c4287c: CALL dword ptr [0x00fdf1c0]
+   0x00c42882: MOV byte ptr [EBP + -0x1],0x1
+   0x00c42886: MOV ECX,dword ptr [EBP + 0xfffffeec]
+   0x00c4288c: ADD ECX,0x14
+   0x00c4288f: MOV dword ptr [EBP + 0xffffff08],ECX
+  Instructions printed: 29
+
+----------------------------------------------------------------------
+ASCII-adjacent dwords: NiRefObject/base vtable and following string @ 0x0101dce4
+----------------------------------------------------------------------
+  0x0101dce4: 0x004968e0  '.hI.'
+  0x0101dce8: 0x00cfcc20  ' ...'
+  0x0101dcec: 0x4d524f46  'FORM'
+  0x0101dcf0: 0x43203a53  'S: C'
+  0x0101dcf4: 0x646c756f  'ould'
+  0x0101dcf8: 0x746f6e20  ' not'
+  0x0101dcfc: 0x6e696620  ' fin'
+  0x0101dd00: 0x64492064  'd Id'
+  0x0101dd04: 0x6f46656c  'leFo'
+  0x0101dd08: 0x25206d72  'rm %'
+  0x0101dd0c: 0x20583830  '08X '
+  0x0101dd10: 0x6e656877  'when'
+  0x0101dd14: 0x616f6c20  ' loa'
+  0x0101dd18: 0x676e6964  'ding'
+  0x0101dd1c: 0x74636120  ' act'
+  0x0101dd20: 0x2520726f  'or %'
+  0x0101dd24: 0x00000073  's...'
+  0x0101dd28: 0x4d494e41  'ANIM'
+  0x0101dd2c: 0x4f495441  'ATIO'
+  0x0101dd30: 0x54203a4e  'N: T'
+  0x0101dd34: 0x6e697972  'ryin'
+  0x0101dd38: 0x6f742067  'g to'
+  0x0101dd3c: 0x65705320  ' Spe'
+  0x0101dd40: 0x6c616963  'cial'
+  0x0101dd44: 0x656c6449  'Idle'
+  0x0101dd48: 0x75657551  'Queu'
+  0x0101dd4c: 0x6e612065  'e an'
+  0x0101dd50: 0x696e6120  ' ani'
+
+----------------------------------------------------------------------
+Selected vtable slots: queued task default vtable @ 0x01016ba4
+----------------------------------------------------------------------
+  +0x00: 0x0043fe10 -> 0x0043fe10 FUN_0043fe10 @ 0x0043fe10
+  +0x04: 0x00483710 -> 0x00483710 FUN_00483710 @ 0x00483710
+  +0x08: 0x0043c610 -> 0x0043c610 FUN_0043c610 @ 0x0043c610
+  +0x0c: 0x004408f0 -> 0x004408f0 FUN_004408f0 @ 0x004408f0
+  +0x10: 0x00440dc0 -> 0x00440dc0 FUN_00440dc0 @ 0x00440dc0
+  +0x14: 0x0043fdf0 -> 0x0043fdf0 FUN_0043fdf0 @ 0x0043fdf0
+  +0x18: 0x0043db70 -> 0x0043db70 FUN_0043db70 @ 0x0043db70
+  +0x1c: 0x00c3cae0 -> 0x00c3cae0 FUN_00c3cae0 @ 0x00c3cae0
+  +0x20: 0x0043fed0 -> 0x0043fed0 FUN_0043fed0 @ 0x0043fed0
+  +0x24: 0x0043bde0 -> 0x0043bde0 FUN_0043bde0 @ 0x0043bde0
+  +0x28: 0x00440780 -> 0x00440780 FUN_00440780 @ 0x00440780
+  +0x2c: 0x00440050 -> 0x00440050 FUN_00440050 @ 0x00440050
+
+======================================================================
+queued task default vtable slot +0x00 @ 0x0043fe10
+======================================================================
+  Function: FUN_0043fe10 @ 0x0043fe10, Size: 44 bytes
+
+CBitmapButton * __thiscall FUN_0043fe10(CBitmapButton *param_1,uint param_2)
+
+{
+  CBitmapButton::~CBitmapButton(param_1);
+  if ((param_2 & 1) != 0) {
+    FUN_00401030(param_1);
+  }
+  return param_1;
+}
+
+
+
+======================================================================
+queued task default vtable slot +0x1c @ 0x00c3cae0
+======================================================================
+  Function: FUN_00c3cae0 @ 0x00c3cae0, Size: 132 bytes
+
+void __thiscall FUN_00c3cae0(int param_1,undefined4 param_2)
+
+{
+  uint uVar1;
+  int *piVar2;
+  undefined4 local_c;
+  
+  if (*(int *)(param_1 + 0x20) != 0) {
+    uVar1 = *(uint *)(*(int *)(param_1 + 0x20) + 8);
+    for (local_c = 0; local_c < uVar1; local_c = local_c + 1) {
+      piVar2 = *(int **)(*(int *)(*(int *)(param_1 + 0x20) + 4) + local_c * 4);
+      if (piVar2 != (int *)0x0) {
+        (**(code **)(*piVar2 + 0x1c))(param_2);
+      }
+    }
+  }
+  FUN_00c3df40(param_1,param_2);
+  return;
+}
+
+
+
+======================================================================
+queued task default vtable slot +0x20 @ 0x0043fed0
+======================================================================
+  Function: FUN_0043fed0 @ 0x0043fed0, Size: 369 bytes
+
+void __fastcall FUN_0043fed0(int *param_1)
+
+{
+  char cVar1;
+  undefined1 uVar2;
+  uint uVar3;
+  int iVar4;
+  undefined4 *puVar5;
+  undefined4 uVar6;
+  int *unaff_FS_OFFSET;
+  undefined4 uVar7;
+  int *piVar8;
+  int local_18;
+  int local_10;
+  undefined1 *puStack_c;
+  undefined4 local_8;
+  
+  local_8 = 0xffffffff;
+  puStack_c = &LAB_00f13468;
+  local_10 = *unaff_FS_OFFSET;
+  uVar3 = DAT_011c16bc ^ (uint)&stack0xfffffffc;
+  *unaff_FS_OFFSET = (int)&local_10;
+  FUN_00404eb0(param_1[6],1,
+               "D:\\_Fallout3\\Platforms\\Common\\Code\\Fallout Shared\\ModelLoader.cpp",0x72a);
+  local_8 = 0;
+  if (((param_1[10] != 0) && (cVar1 = FUN_00564e60(uVar3), cVar1 != '\0')) &&
+     (iVar4 = (**(code **)(*(int *)param_1[10] + 0x1d0))(), iVar4 == 0)) {
+    (**(code **)(*param_1 + 0x30))();
+  }
+  if (param_1[10] != 0) {
+    FUN_005d43c0();
+    local_18 = FUN_0041f050();
+    while ((local_18 != 0 && (cVar1 = FUN_008256d0(), cVar1 == '\0'))) {
+      puVar5 = (undefined4 *)FUN_006815c0();
+      piVar8 = (int *)*puVar5;
+      local_18 = FUN_00726070();
+      if (*piVar8 != 0) {
+        FUN_007af430();
+        iVar4 = FUN_00401170();
+        if (iVar4 == 4) {
+          uVar6 = FUN_007af430();
+          uVar7 = 0;
+          piVar8 = param_1;
+          uVar2 = FUN_0043cc80(param_1,0,uVar3,param_1,uVar6);
+          FUN_005930e0(uVar2,param_1,uVar7);
+          param_1 = piVar8;
+        }
+      }
+    }
+  }
+  (**(code **)(*param_1 + 0x2c))();
+  cVar1 = IsEnd();
+  if (cVar1 != '\0') {
+    FUN_00449150();
+  }
+  (**(code **)(*param_1 + 0x28))();
+  local_8 = 0xffffffff;
+  FUN_00404ee0();
+  *unaff_FS_OFFSET = local_10;
+  return;
+}
+
+
+
+----------------------------------------------------------------------
+References TO 0x01016ba4 (queued task default vtable)
+----------------------------------------------------------------------
+  DATA @ 0x0043fd7c (in FUN_0043fd40 @ 0x0043fd40)
+  Total printed: 1
+
+----------------------------------------------------------------------
+Selected vtable slots: queued task type 0x25 vtable @ 0x01016c5c
+----------------------------------------------------------------------
+  +0x00: 0x00440e80 -> 0x00440e80 FUN_00440e80 @ 0x00440e80
+  +0x04: 0x00483710 -> 0x00483710 FUN_00483710 @ 0x00483710
+  +0x08: 0x0043c610 -> 0x0043c610 FUN_0043c610 @ 0x0043c610
+  +0x0c: 0x004408f0 -> 0x004408f0 FUN_004408f0 @ 0x004408f0
+  +0x10: 0x00440dc0 -> 0x00440dc0 FUN_00440dc0 @ 0x00440dc0
+  +0x14: 0x0043fdf0 -> 0x0043fdf0 FUN_0043fdf0 @ 0x0043fdf0
+  +0x18: 0x0043db70 -> 0x0043db70 FUN_0043db70 @ 0x0043db70
+  +0x1c: 0x00c3cae0 -> 0x00c3cae0 FUN_00c3cae0 @ 0x00c3cae0
+  +0x20: 0x0043fed0 -> 0x0043fed0 FUN_0043fed0 @ 0x0043fed0
+  +0x24: 0x0043bde0 -> 0x0043bde0 FUN_0043bde0 @ 0x0043bde0
+  +0x28: 0x00440780 -> 0x00440780 FUN_00440780 @ 0x00440780
+  +0x2c: 0x00440ed0 -> 0x00440ed0 FUN_00440ed0 @ 0x00440ed0
+
+======================================================================
+queued task type 0x25 vtable slot +0x00 @ 0x00440e80
+======================================================================
+  Function: FUN_00440e80 @ 0x00440e80, Size: 44 bytes
+
+undefined4 __thiscall FUN_00440e80(undefined4 param_1,uint param_2)
+
+{
+  FUN_00440eb0();
+  if ((param_2 & 1) != 0) {
+    FUN_00401030(param_1);
+  }
+  return param_1;
+}
+
+
+
+======================================================================
+queued task type 0x25 vtable slot +0x1c @ 0x00c3cae0
+======================================================================
+  Function: FUN_00c3cae0 @ 0x00c3cae0, Size: 132 bytes
+
+void __thiscall FUN_00c3cae0(int param_1,undefined4 param_2)
+
+{
+  uint uVar1;
+  int *piVar2;
+  undefined4 local_c;
+  
+  if (*(int *)(param_1 + 0x20) != 0) {
+    uVar1 = *(uint *)(*(int *)(param_1 + 0x20) + 8);
+    for (local_c = 0; local_c < uVar1; local_c = local_c + 1) {
+      piVar2 = *(int **)(*(int *)(*(int *)(param_1 + 0x20) + 4) + local_c * 4);
+      if (piVar2 != (int *)0x0) {
+        (**(code **)(*piVar2 + 0x1c))(param_2);
+      }
+    }
+  }
+  FUN_00c3df40(param_1,param_2);
+  return;
+}
+
+
+
+======================================================================
+queued task type 0x25 vtable slot +0x20 @ 0x0043fed0
+======================================================================
+  Function: FUN_0043fed0 @ 0x0043fed0, Size: 369 bytes
+
+void __fastcall FUN_0043fed0(int *param_1)
+
+{
+  char cVar1;
+  undefined1 uVar2;
+  uint uVar3;
+  int iVar4;
+  undefined4 *puVar5;
+  undefined4 uVar6;
+  int *unaff_FS_OFFSET;
+  undefined4 uVar7;
+  int *piVar8;
+  int local_18;
+  int local_10;
+  undefined1 *puStack_c;
+  undefined4 local_8;
+  
+  local_8 = 0xffffffff;
+  puStack_c = &LAB_00f13468;
+  local_10 = *unaff_FS_OFFSET;
+  uVar3 = DAT_011c16bc ^ (uint)&stack0xfffffffc;
+  *unaff_FS_OFFSET = (int)&local_10;
+  FUN_00404eb0(param_1[6],1,
+               "D:\\_Fallout3\\Platforms\\Common\\Code\\Fallout Shared\\ModelLoader.cpp",0x72a);
+  local_8 = 0;
+  if (((param_1[10] != 0) && (cVar1 = FUN_00564e60(uVar3), cVar1 != '\0')) &&
+     (iVar4 = (**(code **)(*(int *)param_1[10] + 0x1d0))(), iVar4 == 0)) {
+    (**(code **)(*param_1 + 0x30))();
+  }
+  if (param_1[10] != 0) {
+    FUN_005d43c0();
+    local_18 = FUN_0041f050();
+    while ((local_18 != 0 && (cVar1 = FUN_008256d0(), cVar1 == '\0'))) {
+      puVar5 = (undefined4 *)FUN_006815c0();
+      piVar8 = (int *)*puVar5;
+      local_18 = FUN_00726070();
+      if (*piVar8 != 0) {
+        FUN_007af430();
+        iVar4 = FUN_00401170();
+        if (iVar4 == 4) {
+          uVar6 = FUN_007af430();
+          uVar7 = 0;
+          piVar8 = param_1;
+          uVar2 = FUN_0043cc80(param_1,0,uVar3,param_1,uVar6);
+          FUN_005930e0(uVar2,param_1,uVar7);
+          param_1 = piVar8;
+        }
+      }
+    }
+  }
+  (**(code **)(*param_1 + 0x2c))();
+  cVar1 = IsEnd();
+  if (cVar1 != '\0') {
+    FUN_00449150();
+  }
+  (**(code **)(*param_1 + 0x28))();
+  local_8 = 0xffffffff;
+  FUN_00404ee0();
+  *unaff_FS_OFFSET = local_10;
+  return;
+}
+
+
+
+----------------------------------------------------------------------
+References TO 0x01016c5c (queued task type 0x25 vtable)
+----------------------------------------------------------------------
+  DATA @ 0x00440e6a (in FUN_00440e50 @ 0x00440e50)
+  Total printed: 1
+
+----------------------------------------------------------------------
+Selected vtable slots: queued task shared base vtable @ 0x01016ca4
+----------------------------------------------------------------------
+  +0x00: 0x00440e80 -> 0x00440e80 FUN_00440e80 @ 0x00440e80
+  +0x04: 0x00483710 -> 0x00483710 FUN_00483710 @ 0x00483710
+  +0x08: 0x0043c610 -> 0x0043c610 FUN_0043c610 @ 0x0043c610
+  +0x0c: 0x004408f0 -> 0x004408f0 FUN_004408f0 @ 0x004408f0
+  +0x10: 0x00440dc0 -> 0x00440dc0 FUN_00440dc0 @ 0x00440dc0
+  +0x14: 0x0043fdf0 -> 0x0043fdf0 FUN_0043fdf0 @ 0x0043fdf0
+  +0x18: 0x0043db70 -> 0x0043db70 FUN_0043db70 @ 0x0043db70
+  +0x1c: 0x00c3cae0 -> 0x00c3cae0 FUN_00c3cae0 @ 0x00c3cae0
+  +0x20: 0x00441200 -> 0x00441200 FUN_00441200 @ 0x00441200
+  +0x24: 0x0043bde0 -> 0x0043bde0 FUN_0043bde0 @ 0x0043bde0
+  +0x28: 0x00440780 -> 0x00440780 FUN_00440780 @ 0x00440780
+  +0x2c: 0x004412e0 -> 0x004412e0 FUN_004412e0 @ 0x004412e0
+
+======================================================================
+queued task shared base vtable slot +0x00 @ 0x00440e80
+======================================================================
+  Function: FUN_00440e80 @ 0x00440e80, Size: 44 bytes
+
+undefined4 __thiscall FUN_00440e80(undefined4 param_1,uint param_2)
+
+{
+  FUN_00440eb0();
+  if ((param_2 & 1) != 0) {
+    FUN_00401030(param_1);
+  }
+  return param_1;
+}
+
+
+
+======================================================================
+queued task shared base vtable slot +0x1c @ 0x00c3cae0
+======================================================================
+  Function: FUN_00c3cae0 @ 0x00c3cae0, Size: 132 bytes
+
+void __thiscall FUN_00c3cae0(int param_1,undefined4 param_2)
+
+{
+  uint uVar1;
+  int *piVar2;
+  undefined4 local_c;
+  
+  if (*(int *)(param_1 + 0x20) != 0) {
+    uVar1 = *(uint *)(*(int *)(param_1 + 0x20) + 8);
+    for (local_c = 0; local_c < uVar1; local_c = local_c + 1) {
+      piVar2 = *(int **)(*(int *)(*(int *)(param_1 + 0x20) + 4) + local_c * 4);
+      if (piVar2 != (int *)0x0) {
+        (**(code **)(*piVar2 + 0x1c))(param_2);
+      }
+    }
+  }
+  FUN_00c3df40(param_1,param_2);
+  return;
+}
+
+
+
+======================================================================
+queued task shared base vtable slot +0x20 @ 0x00441200
+======================================================================
+  Function: FUN_00441200 @ 0x00441200, Size: 141 bytes
+
+void __fastcall FUN_00441200(int param_1)
+
+{
+  int *piVar1;
+  undefined1 uVar2;
+  char cVar3;
+  int iVar4;
+  
+  piVar1 = *(int **)(param_1 + 0x28);
+  (**(code **)(*piVar1 + 0x260))();
+  uVar2 = FUN_0043c130();
+  if (piVar1 != DAT_011dea3c) {
+    iVar4 = FUN_00936ef0();
+    if (iVar4 == 0) {
+      FUN_00441290(1);
+    }
+  }
+  cVar3 = FUN_008b7b70();
+  if (cVar3 != '\0') {
+    FUN_008b7360(1,param_1);
+  }
+  FUN_0043fed0();
+  FUN_00441290(uVar2);
+  return;
+}
+
+
+
+----------------------------------------------------------------------
+References TO 0x01016ca4 (queued task shared base vtable)
+----------------------------------------------------------------------
+  DATA @ 0x004411ea (in FUN_004411d0 @ 0x004411d0)
+  Total printed: 1
+
+----------------------------------------------------------------------
+Selected vtable slots: queued task type 0x2a vtable @ 0x01016cec
+----------------------------------------------------------------------
+  +0x00: 0x004414c0 -> 0x004414c0 FUN_004414c0 @ 0x004414c0
+  +0x04: 0x00483710 -> 0x00483710 FUN_00483710 @ 0x00483710
+  +0x08: 0x0043c610 -> 0x0043c610 FUN_0043c610 @ 0x0043c610
+  +0x0c: 0x004408f0 -> 0x004408f0 FUN_004408f0 @ 0x004408f0
+  +0x10: 0x00440dc0 -> 0x00440dc0 FUN_00440dc0 @ 0x00440dc0
+  +0x14: 0x0043fdf0 -> 0x0043fdf0 FUN_0043fdf0 @ 0x0043fdf0
+  +0x18: 0x0043db70 -> 0x0043db70 FUN_0043db70 @ 0x0043db70
+  +0x1c: 0x00c3cae0 -> 0x00c3cae0 FUN_00c3cae0 @ 0x00c3cae0
+  +0x20: 0x00441200 -> 0x00441200 FUN_00441200 @ 0x00441200
+  +0x24: 0x0043bde0 -> 0x0043bde0 FUN_0043bde0 @ 0x0043bde0
+  +0x28: 0x00440780 -> 0x00440780 FUN_00440780 @ 0x00440780
+  +0x2c: 0x00441560 -> 0x00441560 FUN_00441560 @ 0x00441560
+
+======================================================================
+queued task type 0x2a vtable slot +0x00 @ 0x004414c0
+======================================================================
+  Function: FUN_004414c0 @ 0x004414c0, Size: 44 bytes
+
+XImage * __thiscall FUN_004414c0(XImage *param_1,uint param_2)
+
+{
+  CMFCRibbonInfo::XImage::~XImage(param_1);
+  if ((param_2 & 1) != 0) {
+    FUN_00401030(param_1);
+  }
+  return param_1;
+}
+
+
+
+======================================================================
+queued task type 0x2a vtable slot +0x1c @ 0x00c3cae0
+======================================================================
+  Function: FUN_00c3cae0 @ 0x00c3cae0, Size: 132 bytes
+
+void __thiscall FUN_00c3cae0(int param_1,undefined4 param_2)
+
+{
+  uint uVar1;
+  int *piVar2;
+  undefined4 local_c;
+  
+  if (*(int *)(param_1 + 0x20) != 0) {
+    uVar1 = *(uint *)(*(int *)(param_1 + 0x20) + 8);
+    for (local_c = 0; local_c < uVar1; local_c = local_c + 1) {
+      piVar2 = *(int **)(*(int *)(*(int *)(param_1 + 0x20) + 4) + local_c * 4);
+      if (piVar2 != (int *)0x0) {
+        (**(code **)(*piVar2 + 0x1c))(param_2);
+      }
+    }
+  }
+  FUN_00c3df40(param_1,param_2);
+  return;
+}
+
+
+
+======================================================================
+queued task type 0x2a vtable slot +0x20 @ 0x00441200
+======================================================================
+  Function: FUN_00441200 @ 0x00441200, Size: 141 bytes
+
+void __fastcall FUN_00441200(int param_1)
+
+{
+  int *piVar1;
+  undefined1 uVar2;
+  char cVar3;
+  int iVar4;
+  
+  piVar1 = *(int **)(param_1 + 0x28);
+  (**(code **)(*piVar1 + 0x260))();
+  uVar2 = FUN_0043c130();
+  if (piVar1 != DAT_011dea3c) {
+    iVar4 = FUN_00936ef0();
+    if (iVar4 == 0) {
+      FUN_00441290(1);
+    }
+  }
+  cVar3 = FUN_008b7b70();
+  if (cVar3 != '\0') {
+    FUN_008b7360(1,param_1);
+  }
+  FUN_0043fed0();
+  FUN_00441290(uVar2);
+  return;
+}
+
+
+
+----------------------------------------------------------------------
+References TO 0x01016cec (queued task type 0x2a vtable)
+----------------------------------------------------------------------
+  DATA @ 0x00441480 (in FUN_00441440 @ 0x00441440)
+  Total printed: 1
+
+----------------------------------------------------------------------
+Selected vtable slots: queued task type 0x2b vtable @ 0x01016d34
+----------------------------------------------------------------------
+  +0x00: 0x00441950 -> 0x00441950 FUN_00441950 @ 0x00441950
+  +0x04: 0x00483710 -> 0x00483710 FUN_00483710 @ 0x00483710
+  +0x08: 0x0043c610 -> 0x0043c610 FUN_0043c610 @ 0x0043c610
+  +0x0c: 0x004408f0 -> 0x004408f0 FUN_004408f0 @ 0x004408f0
+  +0x10: 0x00440dc0 -> 0x00440dc0 FUN_00440dc0 @ 0x00440dc0
+  +0x14: 0x0043fdf0 -> 0x0043fdf0 FUN_0043fdf0 @ 0x0043fdf0
+  +0x18: 0x0043db70 -> 0x0043db70 FUN_0043db70 @ 0x0043db70
+  +0x1c: 0x00c3cae0 -> 0x00c3cae0 FUN_00c3cae0 @ 0x00c3cae0
+  +0x20: 0x00441200 -> 0x00441200 FUN_00441200 @ 0x00441200
+  +0x24: 0x0043bde0 -> 0x0043bde0 FUN_0043bde0 @ 0x0043bde0
+  +0x28: 0x00440780 -> 0x00440780 FUN_00440780 @ 0x00440780
+  +0x2c: 0x004419a0 -> 0x004419a0 FUN_004419a0 @ 0x004419a0
+
+======================================================================
+queued task type 0x2b vtable slot +0x00 @ 0x00441950
+======================================================================
+  Function: FUN_00441950 @ 0x00441950, Size: 44 bytes
+
+undefined4 __thiscall FUN_00441950(undefined4 param_1,uint param_2)
+
+{
+  FUN_00441980();
+  if ((param_2 & 1) != 0) {
+    FUN_00401030(param_1);
+  }
+  return param_1;
+}
+
+
+
+======================================================================
+queued task type 0x2b vtable slot +0x1c @ 0x00c3cae0
+======================================================================
+  Function: FUN_00c3cae0 @ 0x00c3cae0, Size: 132 bytes
+
+void __thiscall FUN_00c3cae0(int param_1,undefined4 param_2)
+
+{
+  uint uVar1;
+  int *piVar2;
+  undefined4 local_c;
+  
+  if (*(int *)(param_1 + 0x20) != 0) {
+    uVar1 = *(uint *)(*(int *)(param_1 + 0x20) + 8);
+    for (local_c = 0; local_c < uVar1; local_c = local_c + 1) {
+      piVar2 = *(int **)(*(int *)(*(int *)(param_1 + 0x20) + 4) + local_c * 4);
+      if (piVar2 != (int *)0x0) {
+        (**(code **)(*piVar2 + 0x1c))(param_2);
+      }
+    }
+  }
+  FUN_00c3df40(param_1,param_2);
+  return;
+}
+
+
+
+======================================================================
+queued task type 0x2b vtable slot +0x20 @ 0x00441200
+======================================================================
+  Function: FUN_00441200 @ 0x00441200, Size: 141 bytes
+
+void __fastcall FUN_00441200(int param_1)
+
+{
+  int *piVar1;
+  undefined1 uVar2;
+  char cVar3;
+  int iVar4;
+  
+  piVar1 = *(int **)(param_1 + 0x28);
+  (**(code **)(*piVar1 + 0x260))();
+  uVar2 = FUN_0043c130();
+  if (piVar1 != DAT_011dea3c) {
+    iVar4 = FUN_00936ef0();
+    if (iVar4 == 0) {
+      FUN_00441290(1);
+    }
+  }
+  cVar3 = FUN_008b7b70();
+  if (cVar3 != '\0') {
+    FUN_008b7360(1,param_1);
+  }
+  FUN_0043fed0();
+  FUN_00441290(uVar2);
+  return;
+}
+
+
+
+----------------------------------------------------------------------
+References TO 0x01016d34 (queued task type 0x2b vtable)
+----------------------------------------------------------------------
+  DATA @ 0x0044193a (in FUN_00441920 @ 0x00441920)
+  Total printed: 1
+
+----------------------------------------------------------------------
+Selected vtable slots: queued task player vtable @ 0x01016d7c
+----------------------------------------------------------------------
+  +0x00: 0x00441b50 -> 0x00441b50 FUN_00441b50 @ 0x00441b50
+  +0x04: 0x00483710 -> 0x00483710 FUN_00483710 @ 0x00483710
+  +0x08: 0x0043c610 -> 0x0043c610 FUN_0043c610 @ 0x0043c610
+  +0x0c: 0x004408f0 -> 0x004408f0 FUN_004408f0 @ 0x004408f0
+  +0x10: 0x00440dc0 -> 0x00440dc0 FUN_00440dc0 @ 0x00440dc0
+  +0x14: 0x0043fdf0 -> 0x0043fdf0 FUN_0043fdf0 @ 0x0043fdf0
+  +0x18: 0x0043db70 -> 0x0043db70 FUN_0043db70 @ 0x0043db70
+  +0x1c: 0x00c3cae0 -> 0x00c3cae0 FUN_00c3cae0 @ 0x00c3cae0
+  +0x20: 0x00441200 -> 0x00441200 FUN_00441200 @ 0x00441200
+  +0x24: 0x0043bde0 -> 0x0043bde0 FUN_0043bde0 @ 0x0043bde0
+  +0x28: 0x00440780 -> 0x00440780 FUN_00440780 @ 0x00440780
+  +0x2c: 0x00441ba0 -> 0x00441ba0 FUN_00441ba0 @ 0x00441ba0
+
+======================================================================
+queued task player vtable slot +0x00 @ 0x00441b50
+======================================================================
+  Function: FUN_00441b50 @ 0x00441b50, Size: 44 bytes
+
+undefined4 __thiscall FUN_00441b50(undefined4 param_1,uint param_2)
+
+{
+  FUN_00441b80();
+  if ((param_2 & 1) != 0) {
+    FUN_00401030(param_1);
+  }
+  return param_1;
+}
+
+
+
+======================================================================
+queued task player vtable slot +0x1c @ 0x00c3cae0
+======================================================================
+  Function: FUN_00c3cae0 @ 0x00c3cae0, Size: 132 bytes
+
+void __thiscall FUN_00c3cae0(int param_1,undefined4 param_2)
+
+{
+  uint uVar1;
+  int *piVar2;
+  undefined4 local_c;
+  
+  if (*(int *)(param_1 + 0x20) != 0) {
+    uVar1 = *(uint *)(*(int *)(param_1 + 0x20) + 8);
+    for (local_c = 0; local_c < uVar1; local_c = local_c + 1) {
+      piVar2 = *(int **)(*(int *)(*(int *)(param_1 + 0x20) + 4) + local_c * 4);
+      if (piVar2 != (int *)0x0) {
+        (**(code **)(*piVar2 + 0x1c))(param_2);
+      }
+    }
+  }
+  FUN_00c3df40(param_1,param_2);
+  return;
+}
+
+
+
+======================================================================
+queued task player vtable slot +0x20 @ 0x00441200
+======================================================================
+  Function: FUN_00441200 @ 0x00441200, Size: 141 bytes
+
+void __fastcall FUN_00441200(int param_1)
+
+{
+  int *piVar1;
+  undefined1 uVar2;
+  char cVar3;
+  int iVar4;
+  
+  piVar1 = *(int **)(param_1 + 0x28);
+  (**(code **)(*piVar1 + 0x260))();
+  uVar2 = FUN_0043c130();
+  if (piVar1 != DAT_011dea3c) {
+    iVar4 = FUN_00936ef0();
+    if (iVar4 == 0) {
+      FUN_00441290(1);
+    }
+  }
+  cVar3 = FUN_008b7b70();
+  if (cVar3 != '\0') {
+    FUN_008b7360(1,param_1);
+  }
+  FUN_0043fed0();
+  FUN_00441290(uVar2);
+  return;
+}
+
+
+
+----------------------------------------------------------------------
+References TO 0x01016d7c (queued task player vtable)
+----------------------------------------------------------------------
+  DATA @ 0x00441b3d (in FUN_00441b20 @ 0x00441b20)
+  Total printed: 1
+
+----------------------------------------------------------------------
+Selected vtable slots: IOTask base vtable @ 0x010c1554
+----------------------------------------------------------------------
+  +0x00: 0x00c3d410 -> 0x00c3d410 FUN_00c3d410 @ 0x00c3d410
+  +0x04: 0x00483710 -> 0x00483710 FUN_00483710 @ 0x00483710
+  +0x08: 0x0043c610 -> 0x0043c610 FUN_0043c610 @ 0x0043c610
+  +0x0c: 0x00c3cb70 -> 0x00c3cb70 FUN_00c3cb70 @ 0x00c3cb70
+  +0x10: 0x008d0300 -> 0x008d0300 FUN_008d0300 @ 0x008d0300
+  +0x14: 0x00483710 -> 0x00483710 FUN_00483710 @ 0x00483710
+  +0x18: 0x00c3d440 -> 0x00c3d440 FUN_00c3d440 @ 0x00c3d440
+  +0x1c: 0x00c3cae0 -> 0x00c3cae0 FUN_00c3cae0 @ 0x00c3cae0
+  +0x20: 0x00483710 -> 0x00483710 FUN_00483710 @ 0x00483710
+  +0x24: 0x0043bde0 -> 0x0043bde0 FUN_0043bde0 @ 0x0043bde0
+  +0x28: 0x00c3c930 -> 0x00c3c930 FUN_00c3c930 @ 0x00c3c930
+  +0x2c: 0x00ec60fa -> 0x00ec60fa ???
+
+======================================================================
+IOTask base vtable slot +0x00 @ 0x00c3d410
+======================================================================
+  Function: FUN_00c3d410 @ 0x00c3d410, Size: 46 bytes
+
+undefined4 __thiscall FUN_00c3d410(undefined4 param_1,uint param_2)
+
+{
+  FUN_00c3cea0();
+  if ((param_2 & 1) != 0) {
+    FUN_00aa4060(param_1);
+  }
+  return param_1;
+}
+
+
+
+======================================================================
+IOTask base vtable slot +0x1c @ 0x00c3cae0
+======================================================================
+  Function: FUN_00c3cae0 @ 0x00c3cae0, Size: 132 bytes
+
+void __thiscall FUN_00c3cae0(int param_1,undefined4 param_2)
+
+{
+  uint uVar1;
+  int *piVar2;
+  undefined4 local_c;
+  
+  if (*(int *)(param_1 + 0x20) != 0) {
+    uVar1 = *(uint *)(*(int *)(param_1 + 0x20) + 8);
+    for (local_c = 0; local_c < uVar1; local_c = local_c + 1) {
+      piVar2 = *(int **)(*(int *)(*(int *)(param_1 + 0x20) + 4) + local_c * 4);
+      if (piVar2 != (int *)0x0) {
+        (**(code **)(*piVar2 + 0x1c))(param_2);
+      }
+    }
+  }
+  FUN_00c3df40(param_1,param_2);
+  return;
+}
+
+
+
+======================================================================
+IOTask base vtable slot +0x20 @ 0x00483710
+======================================================================
+  Function: FUN_00483710 @ 0x00483710, Size: 11 bytes
+
+void FUN_00483710(void)
+
+{
+  return;
+}
+
+
+
+----------------------------------------------------------------------
+References TO 0x010c1554 (IOTask base vtable)
+----------------------------------------------------------------------
+  DATA @ 0x00c3ceac (in FUN_00c3cea0 @ 0x00c3cea0)
+  DATA @ 0x00c3ce76 (in FUN_00c3ce60 @ 0x00c3ce60)
+  Total printed: 2
+
+----------------------------------------------------------------------
+Selected vtable slots: NiRefObject/base vtable seen at crash @ 0x0101dce4
+----------------------------------------------------------------------
+  +0x00: 0x004968e0 -> 0x004968e0 FUN_004968e0 @ 0x004968e0
+  +0x04: 0x00cfcc20 -> 0x00cfcc20 FUN_00cfcc20 @ 0x00cfcc20
+  +0x08: 0x4d524f46 -> 0x4d524f46 ???
+  +0x0c: 0x43203a53 -> 0x43203a53 ???
+  +0x10: 0x646c756f -> 0x646c756f ???
+  +0x14: 0x746f6e20 -> 0x746f6e20 ???
+  +0x18: 0x6e696620 -> 0x6e696620 ???
+  +0x1c: 0x64492064 -> 0x64492064 ???
+  +0x20: 0x6f46656c -> 0x6f46656c ???
+  +0x24: 0x25206d72 -> 0x25206d72 ???
+  +0x28: 0x20583830 -> 0x20583830 ???
+  +0x2c: 0x6e656877 -> 0x6e656877 ???
+
+======================================================================
+NiRefObject/base vtable seen at crash slot +0x00 @ 0x004968e0
+======================================================================
+  Function: FUN_004968e0 @ 0x004968e0, Size: 46 bytes
+
+undefined4 __thiscall FUN_004968e0(undefined4 param_1,uint param_2)
+
+{
+  FUN_00496910();
+  if ((param_2 & 1) != 0) {
+    FUN_00aa1460(param_1,8);
+  }
+  return param_1;
+}
+
+
+
+NiRefObject/base vtable seen at crash +0x1c points outside text: 0x64492064
+
+NiRefObject/base vtable seen at crash +0x20 points outside text: 0x6f46656c
+
+----------------------------------------------------------------------
+References TO 0x0101dce4 (NiRefObject/base vtable seen at crash)
+----------------------------------------------------------------------
+  DATA @ 0x00a9beb8 (in FUN_00a9beb0 @ 0x00a9beb0)
+  DATA @ 0x00a9be88 (in FUN_00a9be80 @ 0x00a9be80)
+  DATA @ 0x00c5a9fb (in FUN_00c5a9d0 @ 0x00c5a9d0)
+  DATA @ 0x00c5ae4a (in FUN_00c5ac00 @ 0x00c5ac00)
+  DATA @ 0x00e98a59 (in FUN_00e989c0 @ 0x00e989c0)
+  DATA @ 0x00e9891b (in FUN_00e98910 @ 0x00e98910)
+  DATA @ 0x00af8ed8 (in FUN_00af8e60 @ 0x00af8e60)
+  DATA @ 0x00b58293 (in FUN_00b581c0 @ 0x00b581c0)
+  DATA @ 0x00b592d3 (in FUN_00b587c0 @ 0x00b587c0)
+  DATA @ 0x00b9fdd2 (in FUN_00b9fda0 @ 0x00b9fda0)
+  DATA @ 0x00b9f45d (in FUN_00b9f0c0 @ 0x00b9f0c0)
+  DATA @ 0x00e7d86d (in FUN_00e7d850 @ 0x00e7d850)
+  DATA @ 0x00e7d94b (in FUN_00e7d940 @ 0x00e7d940)
+  DATA @ 0x00e7dc29 (in FUN_00e7dbc0 @ 0x00e7dbc0)
+  DATA @ 0x00e7d205 (in FUN_00e7d1b0 @ 0x00e7d1b0)
+  DATA @ 0x00e7d26e (in FUN_00e7d250 @ 0x00e7d250)
+  DATA @ 0x00a5d3a8 (in FUN_00a5d3a0 @ 0x00a5d3a0)
+  DATA @ 0x00e7d3ad (in FUN_00e7d390 @ 0x00e7d390)
+  DATA @ 0x00a5d3d5 (in FUN_00a5d3d0 @ 0x00a5d3d0)
+  DATA @ 0x00e7d535 (in FUN_00e7d4e0 @ 0x00e7d4e0)
+  DATA @ 0x00a5d4e8 (in FUN_00a5d4e0 @ 0x00a5d4e0)
+  DATA @ 0x00e7d6ce (in FUN_00e7d6b0 @ 0x00e7d6b0)
+  DATA @ 0x00e7d659 (in FUN_00e7d620 @ 0x00e7d620)
+  DATA @ 0x00c1cf28 (in FUN_00c1cf20 @ 0x00c1cf20)
+  DATA @ 0x00bb397d (in FUN_00bb3950 @ 0x00bb3950)
+  DATA @ 0x00e93adc (in FUN_00e93ad0 @ 0x00e93ad0)
+  DATA @ 0x00bb3b65 (in FUN_00bb3b10 @ 0x00bb3b10)
+  DATA @ 0x00e93e53 (in FUN_00e93e00 @ 0x00e93e00)
+  DATA @ 0x00bb33c8 (in FUN_00bb33c0 @ 0x00bb33c0)
+  DATA @ 0x00bb34cc (in FUN_00bb3470 @ 0x00bb3470)
+  DATA @ 0x00e90ae0 (in FUN_00e90ac0 @ 0x00e90ac0)
+  DATA @ 0x00e90a88 (in FUN_00e90a80 @ 0x00e90a80)
+  DATA @ 0x00af7f40 (in FUN_00af7eb0 @ 0x00af7eb0)
+  DATA @ 0x004968ba (in FUN_004968b0 @ 0x004968b0)
+  DATA @ 0x0049691a (in FUN_00496910 @ 0x00496910)
+  DATA @ 0x00a76be5 (in FUN_00a76bb0 @ 0x00a76bb0)
+  DATA @ 0x00a766b5 (in FUN_00a76680 @ 0x00a76680)
+  DATA @ 0x00a76658 (in FUN_00a76650 @ 0x00a76650)
+  DATA @ 0x00eea644 (in FUN_00eea5e0 @ 0x00eea5e0)
+  DATA @ 0x00eea58b (in FUN_00eea580 @ 0x00eea580)
+  DATA @ 0x00e89890 (in FUN_00e89840 @ 0x00e89840)
+  DATA @ 0x00ee9af8 (in FUN_00ee9a60 @ 0x00ee9a60)
+  DATA @ 0x00ee9bfb (in FUN_00ee9bf0 @ 0x00ee9bf0)
+  DATA @ 0x00e897db (in FUN_00e897d0 @ 0x00e897d0)
+  DATA @ 0x00e88b9f (in FUN_00e88b00 @ 0x00e88b00)
+  DATA @ 0x00e881ae (in FUN_00e881a0 @ 0x00e881a0)
+  DATA @ 0x00a8f845 (in FUN_00a8f810 @ 0x00a8f810)
+  DATA @ 0x00e8fa59 (in FUN_00e8f840 @ 0x00e8f840)
+  DATA @ 0x00a8f9e5 (in FUN_00a8f9b0 @ 0x00a8f9b0)
+  DATA @ 0x00e8fb2d (in FUN_00e8fb20 @ 0x00e8fb20)
+  ... (truncated at 50)
+  Total printed: 50
+
+----------------------------------------------------------------------
+Selected vtable slots: reused object vtable observed before crash @ 0x01097314
+----------------------------------------------------------------------
+  +0x00: 0x00a40410 -> 0x00a40410 FUN_00a40410 @ 0x00a40410
+  +0x04: 0x00cfcc20 -> 0x00cfcc20 FUN_00cfcc20 @ 0x00cfcc20
+  +0x08: 0x00a3fad0 -> 0x00a3fad0 ???
+  +0x0c: 0x00acbb70 -> 0x00acbb70 FUN_00acbb70 @ 0x00acbb70
+  +0x10: 0x00acbb70 -> 0x00acbb70 FUN_00acbb70 @ 0x00acbb70
+  +0x14: 0x00acbb70 -> 0x00acbb70 FUN_00acbb70 @ 0x00acbb70
+  +0x18: 0x00acbb70 -> 0x00acbb70 FUN_00acbb70 @ 0x00acbb70
+  +0x1c: 0x00acbb70 -> 0x00acbb70 FUN_00acbb70 @ 0x00acbb70
+  +0x20: 0x00acbb70 -> 0x00acbb70 FUN_00acbb70 @ 0x00acbb70
+  +0x24: 0x00acbb70 -> 0x00acbb70 FUN_00acbb70 @ 0x00acbb70
+  +0x28: 0x00acbb70 -> 0x00acbb70 FUN_00acbb70 @ 0x00acbb70
+  +0x2c: 0x00acbb70 -> 0x00acbb70 FUN_00acbb70 @ 0x00acbb70
+
+======================================================================
+reused object vtable observed before crash slot +0x00 @ 0x00a40410
+======================================================================
+  Function: FUN_00a40410 @ 0x00a40410, Size: 66 bytes
+
+int __thiscall FUN_00a40410(int param_1,byte param_2)
+
+{
+  int *piVar1;
+  LONG LVar2;
+  
+  piVar1 = *(int **)(param_1 + 0x2c);
+  if (piVar1 != (int *)0x0) {
+    LVar2 = InterlockedDecrement(piVar1 + 1);
+    if (LVar2 == 0) {
+      (**(code **)(*piVar1 + 4))();
+    }
+  }
+  FUN_00a3ca30();
+  if ((param_2 & 1) != 0) {
+    FUN_00aa1460(param_1,0x48);
+  }
+  return param_1;
+}
+
+
+
+======================================================================
+reused object vtable observed before crash slot +0x1c @ 0x00acbb70
+======================================================================
+  Function: FUN_00acbb70 @ 0x00acbb70, Size: 13 bytes
+
+undefined4 FUN_00acbb70(void)
+
+{
+  return 0;
+}
+
+
+
+----------------------------------------------------------------------
+References TO 0x01097314 (reused object vtable observed before crash)
+----------------------------------------------------------------------
+  DATA @ 0x00a3fafa (in FUN_00a3fae0 @ 0x00a3fae0)
+  DATA @ 0x00a3fa38 (in FUN_00a3fa30 @ 0x00a3fa30)
+  Total printed: 2
+
+======================================================================
+default queued task ctor, sets vtable 0x01016ba4 @ 0x0043fd40
+======================================================================
+  Function: FUN_0043fd40 @ 0x0043fd40, Size: 166 bytes
+
+undefined4 * __thiscall FUN_0043fd40(undefined4 *param_1,undefined4 param_2,undefined4 param_3)
+
+{
+  int *unaff_FS_OFFSET;
+  int local_10;
+  undefined1 *puStack_c;
+  undefined4 local_8;
+  
+  local_8 = 0xffffffff;
+  puStack_c = &LAB_00eec1b9;
+  local_10 = *unaff_FS_OFFSET;
+  *unaff_FS_OFFSET = (int)&local_10;
+  FUN_00c3c590(param_3);
+  local_8 = 0;
+  *param_1 = &PTR_FUN_01016ba4;
+  param_1[10] = param_2;
+  FUN_00528cb0(0);
+  local_8._0_1_ = 1;
+  FUN_00633c90(0);
+  local_8._0_1_ = 2;
+  FUN_00633c90(0);
+  local_8 = CONCAT31(local_8._1_3_,3);
+  FUN_00528cb0(0);
+  *unaff_FS_OFFSET = local_10;
+  return param_1;
+}
+
+
+
+======================================================================
+queued task shared base ctor, sets vtable 0x01016ca4 @ 0x004411d0
+======================================================================
+  Function: FUN_004411d0 @ 0x004411d0, Size: 41 bytes
+
+undefined4 * __thiscall FUN_004411d0(undefined4 *param_1,undefined4 param_2,undefined4 param_3)
+
+{
+  FUN_0043fd40(param_2,param_3);
+  *param_1 = &PTR_FUN_01016ca4;
+  return param_1;
+}
+
+
+
+======================================================================
+queued task 0x2a ctor, sets vtable 0x01016cec @ 0x00441440
+======================================================================
+  Function: FUN_00441440 @ 0x00441440, Size: 127 bytes
+
+undefined4 * __thiscall FUN_00441440(undefined4 *param_1,undefined4 param_2,undefined4 param_3)
+
+{
+  int *unaff_FS_OFFSET;
+  int local_10;
+  undefined1 *puStack_c;
+  undefined4 local_8;
+  
+  local_8 = 0xffffffff;
+  puStack_c = &LAB_00eec2e3;
+  local_10 = *unaff_FS_OFFSET;
+  *unaff_FS_OFFSET = (int)&local_10;
+  FUN_004411d0(param_2,param_3);
+  local_8 = 0;
+  *param_1 = &PTR_FUN_01016cec;
+  FUN_00528cb0(0);
+  local_8 = CONCAT31(local_8._1_3_,1);
+  FUN_00528cb0(0);
+  *unaff_FS_OFFSET = local_10;
+  return param_1;
+}
+
+
+
+======================================================================
+IOTask_Release final dtor call @ 0x0044dd60
+======================================================================
+  Function: FUN_0044dd60 @ 0x0044dd60, Size: 81 bytes
+
+void __fastcall FUN_0044dd60(undefined4 *param_1)
+
+{
+  int iVar1;
+  
+  iVar1 = FUN_004019a0(param_1 + 2);
+  if ((iVar1 == 0) && (param_1 != (undefined4 *)0x0)) {
+    (**(code **)*param_1)(1);
+  }
+  return;
+}
+
+
+
+======================================================================
+IOTask/NiRefObject base ctor @ 0x00c3c590
+======================================================================
+  Function: FUN_00c3c590 @ 0x00c3c590, Size: 140 bytes
+
+undefined4 * __thiscall FUN_00c3c590(undefined4 *param_1,undefined4 param_2)
+
+{
+  int *piVar1;
+  int unaff_FS_OFFSET;
+  
+  FUN_00440540(param_2);
+  *param_1 = &PTR_FUN_010c1524;
+  piVar1 = param_1 + 7;
+  *piVar1 = 0;
+  if (*piVar1 != 0) {
+    InterlockedIncrement((LONG *)(*piVar1 + 8));
+  }
+  param_1[8] = 0;
+  param_1[9] = 0;
+  param_1[6] = *(undefined4 *)(*(int *)(*(int *)(unaff_FS_OFFSET + 0x2c) + _tls_index * 4) + 0x2b4);
+  return param_1;
+}
+
+
+
+======================================================================
+END STALE TASK VIRTUAL DISPATCH CONTRACT AUDIT
+======================================================================

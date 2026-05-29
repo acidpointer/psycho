@@ -1,0 +1,1151 @@
+======================================================================
+HAVOK AI THREAD SYNCHRONIZATION AUDIT
+======================================================================
+
+Question:
+  The stress crash happened on AI Linear Task Thread 2 inside Havok.
+  This script checks whether that call path has direct world-lock or
+  loading-state gating, and identifies where such gating could be added
+  if the path is unsynchronized.
+
+# SECTION 1: known synchronization anchors
+
+----------------------------------------------------------------------
+References TO 0x00c3e310 (hkWorld_Lock)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x0044844e (in FUN_00448420 @ 0x00448420)
+  UNCONDITIONAL_CALL @ 0x00850bb9 (in FUN_00850ba0 @ 0x00850ba0)
+  UNCONDITIONAL_CALL @ 0x00856d67 (in FUN_00856ca0 @ 0x00856ca0)
+  UNCONDITIONAL_CALL @ 0x00861345 (in FUN_00861130 @ 0x00861130)
+  UNCONDITIONAL_CALL @ 0x00878169 (in FUN_00878160 @ 0x00878160)
+  UNCONDITIONAL_CALL @ 0x00847fef (in FUN_00847df0 @ 0x00847df0)
+  UNCONDITIONAL_CALL @ 0x00c3e1e8 (in FUN_00c3e1b0 @ 0x00c3e1b0)
+  UNCONDITIONAL_CALL @ 0x005d168e (in FUN_005d15d0 @ 0x005d15d0)
+  UNCONDITIONAL_CALL @ 0x00869f7a (in FUN_00869f30 @ 0x00869f30)
+  UNCONDITIONAL_CALL @ 0x0086a00e (in FUN_00869f30 @ 0x00869f30)
+  Total printed: 10
+
+----------------------------------------------------------------------
+References TO 0x00c3e340 (hkWorld_Unlock)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x004485d8 (in FUN_00448420 @ 0x00448420)
+  UNCONDITIONAL_CALL @ 0x00849354 (in FUN_008492b0 @ 0x008492b0)
+  UNCONDITIONAL_CALL @ 0x00850bfd (in FUN_00850bf0 @ 0x00850bf0)
+  UNCONDITIONAL_CALL @ 0x008571e0 (in FUN_00856ca0 @ 0x00856ca0)
+  UNCONDITIONAL_CALL @ 0x00861325 (in FUN_00861130 @ 0x00861130)
+  UNCONDITIONAL_CALL @ 0x00878249 (in FUN_00878200 @ 0x00878200)
+  UNCONDITIONAL_CALL @ 0x00c3e2ec (in FUN_00c3e1b0 @ 0x00c3e1b0)
+  UNCONDITIONAL_CALL @ 0x005d16df (in FUN_005d15d0 @ 0x005d15d0)
+  UNCONDITIONAL_CALL @ 0x00869f9b (in FUN_00869f30 @ 0x00869f30)
+  Total printed: 9
+
+----------------------------------------------------------------------
+References TO 0x01202d6c (LOADING_STATE_COUNTER)
+----------------------------------------------------------------------
+  READ @ 0x0043b2de (in FUN_0043b2b0 @ 0x0043b2b0)
+  WRITE @ 0x0043b2e7 (in FUN_0043b2b0 @ 0x0043b2b0)
+  DATA @ 0x0043b2bc (in FUN_0043b2b0 @ 0x0043b2b0)
+  DATA @ 0x0043b2ce (in FUN_0043b2b0 @ 0x0043b2b0)
+  Total printed: 4
+
+# SECTION 2: full crash calltrace audit
+
+======================================================================
+Crash EIP / Havok object consumer @ 0x00c6757a
+======================================================================
+  Function: FUN_00c674d0 @ 0x00c674d0, Size: 527 bytes
+  NOTE: Requested 0x00c6757a is inside FUN_00c674d0 (entry at 0x00c674d0)
+
+/* WARNING: Globals starting with '_' overlap smaller symbols at the same address */
+
+void __thiscall FUN_00c674d0(int *param_1,void *param_2,uint param_3)
+
+{
+  int iVar1;
+  undefined1 auVar2 [16];
+  undefined1 auVar3 [16];
+  bool bVar4;
+  uint uVar5;
+  float *pfVar6;
+  int iVar7;
+  int extraout_EDX;
+  int extraout_EDX_00;
+  int iVar8;
+  undefined4 uVar9;
+  int *unaff_FS_OFFSET;
+  undefined1 uStack_41;
+  int iStack_40;
+  void *local_3c;
+  undefined4 local_38;
+  int local_34;
+  float fStack_30;
+  float fStack_2c;
+  float fStack_28;
+  float fStack_24;
+  int local_1c;
+  undefined1 *puStack_18;
+  undefined4 local_14;
+  
+  puStack_18 = &LAB_00f30728;
+  local_1c = *unaff_FS_OFFSET;
+  uVar5 = DAT_011c16bc ^ (uint)&stack0xffffffb0;
+  *unaff_FS_OFFSET = (int)&local_1c;
+  iVar8 = *(int *)(unaff_FS_OFFSET[0xb] + _tls_index * 4);
+  uVar9 = *(undefined4 *)(iVar8 + 0x2b4);
+  local_3c = param_2;
+  *(undefined4 *)(iVar8 + 0x2b4) = 0x10;
+  local_14 = 0;
+  local_38 = uVar9;
+  local_34 = iVar8;
+  iStack_40 = (**(code **)(*param_1 + 0x94))(uVar5);
+  if (iStack_40 == 0) {
+    *(undefined4 *)(iVar8 + 0x2b4) = uVar9;
+    *unaff_FS_OFFSET = local_1c;
+    return;
+  }
+  FUN_00c94bd0(param_2,param_3,0);
+  uVar5 = 0;
+  bVar4 = false;
+  if (param_3 != 0) {
+    fStack_30 = DAT_01017d00;
+    fStack_2c = DAT_01017d00;
+    fStack_28 = DAT_01017d00;
+    fStack_24 = DAT_01017d00;
+    do {
+      iVar8 = *(int *)((int)param_2 + uVar5 * 4);
+      if ((*(char *)(iVar8 + 0x28) == '\x01') &&
+         (iVar7 = (int)*(char *)(iVar8 + 0x20) + iVar8 + 0x10, iVar7 != 0)) {
+        iVar7 = *(int *)(iVar7 + 0xc);
+        if (iVar7 == 0) goto LAB_00c6759a;
+        *(uint *)(iVar7 + 0x10) = *(uint *)(iVar7 + 0x10) & 0xffffffef;
+      }
+      else {
+        iVar7 = 0;
+LAB_00c6759a:
+        FUN_00c91620(&uStack_41,iVar8);
+        iVar8 = extraout_EDX;
+      }
+      if (((!bVar4) &&
+          (iVar1 = *(int *)(*(int *)((int)param_2 + uVar5 * 4) + 0xcc), param_2 = local_3c,
+          iVar1 != 0)) && (*(short *)(iVar1 + 0x20) != -1)) {
+        if (DAT_01267b44 != '\0') {
+          FUN_00c92a80(*(undefined4 *)(iVar1 + 0x48),*(undefined4 *)(iVar1 + 0x4c));
+        }
+        FUN_00cb6e70(iStack_40,iVar1);
+        bVar4 = true;
+        iVar8 = extraout_EDX_00;
+        param_2 = local_3c;
+      }
+      if ((iVar7 == 0) || (*(int *)(iVar7 + 8) == 0)) {
+        pfVar6 = &DAT_01267e30;
+      }
+      else {
+        pfVar6 = (float *)(*(int *)(iVar7 + 8) + 0x1b0);
+      }
+      auVar2._4_4_ = -(uint)((float)((uint)(pfVar6[1] - DAT_01267e34) & _UNK_01017d14) <= fStack_2c)
+      ;
+      auVar2._0_4_ = -(uint)((float)((uint)(*pfVar6 - DAT_01267e30) & _DAT_01017d10) <= fStack_30);
+      auVar2._8_4_ = -(uint)((float)((uint)(pfVar6[2] - DAT_01267e38) & _UNK_01017d18) <= fStack_28)
+      ;
+      auVar2._12_4_ =
+           -(uint)((float)((uint)(pfVar6[3] - DAT_01267e3c) & _UNK_01017d1c) <= fStack_24);
+      uVar9 = movmskps(iVar8,auVar2);
+      if (((byte)uVar9 & 7) == 7) {
+        if ((iVar7 == 0) || (*(int *)(iVar7 + 8) == 0)) {
+          pfVar6 = &DAT_01267e30;
+        }
+        else {
+          pfVar6 = (float *)(*(int *)(iVar7 + 8) + 0x1c0);
+        }
+        auVar3._4_4_ = -(uint)((float)((uint)(pfVar6[1] - DAT_01267e34) & _UNK_01017d14) <=
+                              fStack_2c);
+        auVar3._0_4_ = -(uint)((float)((uint)(*pfVar6 - DAT_01267e30) & _DAT_01017d10) <= fStack_30)
+        ;
+        auVar3._8_4_ = -(uint)((float)((uint)(pfVar6[2] - DAT_01267e38) & _UNK_01017d18) <=
+                              fStack_28);
+        auVar3._12_4_ =
+             -(uint)((float)((uint)(pfVar6[3] - DAT_01267e3c) & _UNK_01017d1c) <= fStack_24);
+        uVar9 = movmskps(pfVar6,auVar3);
+        if (((byte)uVar9 & 7) != 7) goto LAB_00c67669;
+      }
+      else {
+LAB_00c67669:
+        if ((iVar7 != 0) && (*(int *)(iVar7 + 8) != 0)) {
+          FUN_00c9c1d0();
+        }
+      }
+      FUN_00c905b0();
+      uVar5 = uVar5 + 1;
+      iVar8 = local_34;
+    } while (uVar5 < param_3);
+  }
+  _memset(param_2,0,param_3 * 4);
+  *(undefined4 *)(iVar8 + 0x2b4) = local_38;
+  *unaff_FS_OFFSET = local_1c;
+  return;
+}
+
+
+
+----------------------------------------------------------------------
+References INTO function containing 0x00c6757a (Crash EIP / Havok object consumer)
+----------------------------------------------------------------------
+  target=0x00c674d0 UNCONDITIONAL_CALL from 0x00c6b599 in FUN_00c6b540 @ 0x00c6b540
+  target=0x00c674d0 UNCONDITIONAL_CALL from 0x00c68ab0 in FUN_00c68a40 @ 0x00c68a40
+  target=0x00c674d0 UNCONDITIONAL_CALL from 0x00c6b135 in FUN_00c6b0a0 @ 0x00c6b0a0
+  target=0x00c674d0 UNCONDITIONAL_CALL from 0x00c6b2aa in FUN_00c6b0a0 @ 0x00c6b0a0
+  target=0x00c674d0 UNCONDITIONAL_CALL from 0x00c6b475 in FUN_00c6b3c0 @ 0x00c6b3c0
+  target=0x00c674d0 UNCONDITIONAL_CALL from 0x00c6aeca in ???
+  Total printed: 6
+
+----------------------------------------------------------------------
+Calls FROM Crash EIP / Havok object consumer (0x00c6757a)
+----------------------------------------------------------------------
+  0x00c67551 -> 0x00c94bd0 FUN_00c94bd0 @ 0x00c94bd0
+  0x00c675a4 -> 0x00c91620 FUN_00c91620 @ 0x00c91620
+  0x00c675dd -> 0x00c92a80 FUN_00c92a80 @ 0x00c92a80
+  0x00c675e8 -> 0x00cb6e70 FUN_00cb6e70 @ 0x00cb6e70
+  0x00c67674 -> 0x00c9c1d0 FUN_00c9c1d0 @ 0x00c9c1d0
+  0x00c6767c -> 0x00c905b0 FUN_00c905b0 @ 0x00c905b0
+  0x00c6769d -> 0x00ec61c0 _memset @ 0x00ec61c0
+  Total printed: 7
+
+----------------------------------------------------------------------
+Target scan: Crash EIP / Havok object consumer
+----------------------------------------------------------------------
+  Total target refs in function: 0
+
+----------------------------------------------------------------------
+Instruction text scan: Crash EIP / Havok object consumer synchronization-like instructions
+----------------------------------------------------------------------
+  Total matches: 0
+
+======================================================================
+AI-thread Havok caller 1 @ 0x00c6aecf
+======================================================================
+  [function not found]
+
+----------------------------------------------------------------------
+References INTO function containing 0x00c6aecf (AI-thread Havok caller 1)
+----------------------------------------------------------------------
+  [function not found]
+
+----------------------------------------------------------------------
+Calls FROM AI-thread Havok caller 1 (0x00c6aecf)
+----------------------------------------------------------------------
+  [function not found]
+
+----------------------------------------------------------------------
+Target scan: AI-thread Havok caller 1
+----------------------------------------------------------------------
+  [function not found]
+
+----------------------------------------------------------------------
+Instruction text scan: AI-thread Havok caller 1 synchronization-like instructions
+----------------------------------------------------------------------
+  [function not found]
+
+======================================================================
+AI-thread caller 2 @ 0x004ba9b5
+======================================================================
+  Function: FUN_004ba9a0 @ 0x004ba9a0, Size: 269 bytes
+  NOTE: Requested 0x004ba9b5 is inside FUN_004ba9a0 (entry at 0x004ba9a0)
+
+void __thiscall FUN_004ba9a0(undefined4 param_1,undefined4 param_2)
+
+{
+  uint uVar1;
+  int *piVar2;
+  char local_19;
+  uint local_14;
+  uint local_10;
+  
+  FUN_00554780(param_2,param_1);
+  uVar1 = FUN_0084e3a0();
+  DAT_011c642c = '\x01' - (DAT_011c642c != '\0');
+  for (local_10 = 0; local_10 < uVar1; local_10 = local_10 + 1) {
+    for (local_14 = 0; local_14 < uVar1; local_14 = local_14 + 1) {
+      local_19 = '\x01';
+      if (((((local_10 == 0) || (local_14 == 0)) || (local_10 == uVar1 - 1)) ||
+          (local_14 == uVar1 - 1)) &&
+         (local_19 = ((local_10 ^ local_14) & 1) == 0, DAT_011c642c != '\0')) {
+        local_19 = '\x01' - local_19;
+      }
+      piVar2 = (int *)FUN_004ba490(local_10,local_14);
+      if (*piVar2 != 0) {
+        FUN_00551890(param_2,local_19 == '\0');
+      }
+    }
+  }
+  return;
+}
+
+
+
+----------------------------------------------------------------------
+References INTO function containing 0x004ba9b5 (AI-thread caller 2)
+----------------------------------------------------------------------
+  target=0x004ba9a0 UNCONDITIONAL_CALL from 0x0045361f in FUN_00453550 @ 0x00453550
+  Total printed: 1
+
+----------------------------------------------------------------------
+Calls FROM AI-thread caller 2 (0x004ba9b5)
+----------------------------------------------------------------------
+  0x004ba9b0 -> 0x00554780 FUN_00554780 @ 0x00554780
+  0x004ba9bb -> 0x0084e3a0 FUN_0084e3a0 @ 0x0084e3a0
+  0x004baa6f -> 0x004ba490 FUN_004ba490 @ 0x004ba490
+  0x004baa98 -> 0x00551890 FUN_00551890 @ 0x00551890
+  Total printed: 4
+
+----------------------------------------------------------------------
+Target scan: AI-thread caller 2
+----------------------------------------------------------------------
+  Total target refs in function: 0
+
+----------------------------------------------------------------------
+Instruction text scan: AI-thread caller 2 synchronization-like instructions
+----------------------------------------------------------------------
+  Total matches: 0
+
+======================================================================
+AI-thread caller 3 @ 0x00453624
+======================================================================
+  Function: FUN_00453550 @ 0x00453550, Size: 394 bytes
+  NOTE: Requested 0x00453624 is inside FUN_00453550 (entry at 0x00453550)
+
+/* WARNING: Globals starting with '_' overlap smaller symbols at the same address */
+
+void FUN_00453550(float param_1)
+
+{
+  char cVar1;
+  int iVar2;
+  int *piVar3;
+  float *pfVar4;
+  float10 fVar5;
+  float10 fVar6;
+  
+  iVar2 = FUN_005f36f0();
+  if (iVar2 == 0) {
+    fVar6 = (float10)FUN_004536e0();
+    fVar5 = (float10)FUN_00453700();
+    FUN_00c468c0((float)fVar6,(float)fVar5);
+    FUN_00c74550((float)fVar6,(float)fVar5);
+  }
+  else {
+    FUN_00c468c0(0,0);
+    FUN_00c74550(0,0);
+  }
+  _DAT_011c3c08 = _DAT_011c3c08 + param_1;
+  FUN_00453860(1);
+  if (iVar2 == 0) {
+    FUN_004ba9a0(_DAT_011c3c08);
+  }
+  else {
+    FUN_00551890(_DAT_011c3c08,0);
+  }
+  FUN_00453860(0);
+  piVar3 = (int *)FUN_0043d4d0();
+  if (1 < *piVar3) {
+    FUN_004537b0();
+    FUN_0087aa90();
+  }
+  FUN_00453720();
+  FUN_00623640();
+  piVar3 = (int *)FUN_0043d4d0();
+  if (*piVar3 == 1) {
+    cVar1 = FUN_007050d0();
+    if (cVar1 != '\0') {
+      fVar6 = (float10)FUN_0084d030();
+      pfVar4 = (float *)FUN_00403e20();
+      param_1 = *pfVar4 * (float)fVar6;
+    }
+    FUN_0063ac70(param_1);
+  }
+  piVar3 = (int *)FUN_0043d4d0();
+  if (*piVar3 == 1) {
+    FUN_004537c0();
+  }
+  FUN_00975080();
+  return;
+}
+
+
+
+----------------------------------------------------------------------
+References INTO function containing 0x00453624 (AI-thread caller 3)
+----------------------------------------------------------------------
+  target=0x00453550 UNCONDITIONAL_CALL from 0x0085f8ab in FUN_0085f850 @ 0x0085f850
+  target=0x00453550 UNCONDITIONAL_CALL from 0x0086fd08 in FUN_0086fc60 @ 0x0086fc60
+  target=0x00453550 UNCONDITIONAL_CALL from 0x0093cb59 in FUN_0093c200 @ 0x0093c200
+  target=0x00453550 UNCONDITIONAL_CALL from 0x008c7d03 in FUN_008c7bd0 @ 0x008c7bd0
+  target=0x00453550 UNCONDITIONAL_CALL from 0x008c803d in FUN_008c7f50 @ 0x008c7f50
+  Total printed: 5
+
+----------------------------------------------------------------------
+Calls FROM AI-thread caller 3 (0x00453624)
+----------------------------------------------------------------------
+  0x0045355c -> 0x005f36f0 FUN_005f36f0 @ 0x005f36f0
+  0x00453576 -> 0x00c468c0 FUN_00c468c0 @ 0x00c468c0
+  0x00453589 -> 0x00c74550 FUN_00c74550 @ 0x00c74550
+  0x00453599 -> 0x004536e0 FUN_004536e0 @ 0x004536e0
+  0x004535a7 -> 0x00453700 FUN_00453700 @ 0x00453700
+  0x004535bd -> 0x00c468c0 FUN_00c468c0 @ 0x00c468c0
+  0x004535d2 -> 0x00c74550 FUN_00c74550 @ 0x00c74550
+  0x004535ee -> 0x00453860 FUN_00453860 @ 0x00453860
+  0x00453608 -> 0x00551890 FUN_00551890 @ 0x00551890
+  0x0045361f -> 0x004ba9a0 FUN_004ba9a0 @ 0x004ba9a0
+  0x00453629 -> 0x00453860 FUN_00453860 @ 0x00453860
+  0x00453633 -> 0x0043d4d0 FUN_0043d4d0 @ 0x0043d4d0
+  0x0045363d -> 0x004537b0 FUN_004537b0 @ 0x004537b0
+  0x00453648 -> 0x0087aa90 FUN_0087aa90 @ 0x0087aa90
+  0x0045364d -> 0x00453720 FUN_00453720 @ 0x00453720
+  0x00453654 -> 0x00623640 FUN_00623640 @ 0x00623640
+  0x0045365e -> 0x0043d4d0 FUN_0043d4d0 @ 0x0043d4d0
+  0x00453668 -> 0x007050d0 FUN_007050d0 @ 0x007050d0
+  0x00453679 -> 0x0084d030 FUN_0084d030 @ 0x0084d030
+  0x00453686 -> 0x00403e20 FUN_00403e20 @ 0x00403e20
+  0x004536ae -> 0x0063ac70 FUN_0063ac70 @ 0x0063ac70
+  0x004536b8 -> 0x0043d4d0 FUN_0043d4d0 @ 0x0043d4d0
+  0x004536c5 -> 0x004537c0 FUN_004537c0 @ 0x004537c0
+  0x004536cf -> 0x00975080 FUN_00975080 @ 0x00975080
+  Total printed: 24
+
+----------------------------------------------------------------------
+Target scan: AI-thread caller 3
+----------------------------------------------------------------------
+  Total target refs in function: 0
+
+----------------------------------------------------------------------
+Instruction text scan: AI-thread caller 3 synchronization-like instructions
+----------------------------------------------------------------------
+  Total matches: 0
+
+======================================================================
+AI-thread task runner 1 @ 0x008c8042
+======================================================================
+  Function: FUN_008c7f50 @ 0x008c7f50, Size: 346 bytes
+  NOTE: Requested 0x008c8042 is inside FUN_008c7f50 (entry at 0x008c7f50)
+
+void FUN_008c7f50(void)
+
+{
+  float10 fVar1;
+  undefined4 uVar2;
+  undefined4 uVar3;
+  
+  uVar3 = 0;
+  uVar2 = 1;
+  FUN_00713d80(1,0);
+  FUN_008c79e0(uVar2,uVar3);
+  uVar3 = 1;
+  uVar2 = 0;
+  FUN_00713d80(0,1);
+  FUN_008c7a70(uVar2,uVar3);
+  FUN_004537b0();
+  FUN_0087a6b0();
+  FUN_0096c330();
+  uVar3 = 1;
+  uVar2 = 1;
+  FUN_00713d80(1,1);
+  FUN_008c79e0(uVar2,uVar3);
+  uVar3 = 2;
+  uVar2 = 1;
+  FUN_00713d80(1,2);
+  FUN_008c79e0(uVar2,uVar3);
+  uVar3 = 2;
+  uVar2 = 0;
+  FUN_00713d80(0,2);
+  FUN_008c7a70(uVar2,uVar3);
+  FUN_0096db30(0,0,0);
+  uVar3 = 3;
+  uVar2 = 1;
+  FUN_00713d80(1,3);
+  FUN_008c79e0(uVar2,uVar3);
+  FUN_008d0600(0,0);
+  FUN_0096cb50();
+  uVar3 = 4;
+  uVar2 = 1;
+  FUN_00713d80(1,4);
+  FUN_008c79e0(uVar2,uVar3);
+  FUN_004772f0();
+  uVar3 = 5;
+  uVar2 = 1;
+  FUN_00713d80(1,5);
+  FUN_008c79e0(uVar2,uVar3);
+  uVar3 = 4;
+  uVar2 = 0;
+  FUN_00713d80(0,4);
+  FUN_008c7a70(uVar2,uVar3);
+  fVar1 = (float10)FUN_00453850();
+  FUN_00453550((float)fVar1);
+  uVar3 = 6;
+  uVar2 = 1;
+  FUN_00713d80(1,6);
+  FUN_008c79e0(uVar2,uVar3);
+  FUN_004537b0();
+  FUN_0087a6d0();
+  uVar3 = 8;
+  uVar2 = 0;
+  FUN_00713d80(0,8);
+  FUN_008c7a70(uVar2,uVar3);
+  uVar3 = 7;
+  uVar2 = 1;
+  FUN_00713d80(1,7);
+  FUN_008c79e0(uVar2,uVar3);
+  FUN_005ae270();
+  FUN_005a9d60();
+  uVar3 = 9;
+  uVar2 = 0;
+  FUN_00713d80(0,9);
+  FUN_008c7a70(uVar2,uVar3);
+  uVar3 = 0xb;
+  uVar2 = 0;
+  FUN_00713d80(0,0xb);
+  FUN_008c7a70(uVar2,uVar3);
+  return;
+}
+
+
+
+----------------------------------------------------------------------
+References INTO function containing 0x008c8042 (AI-thread task runner 1)
+----------------------------------------------------------------------
+  target=0x008c7f50 DATA from 0x008c733c in FUN_008c7290 @ 0x008c7290
+  Total printed: 1
+
+----------------------------------------------------------------------
+Calls FROM AI-thread task runner 1 (0x008c8042)
+----------------------------------------------------------------------
+  0x008c7f57 -> 0x00713d80 FUN_00713d80 @ 0x00713d80
+  0x008c7f5e -> 0x008c79e0 FUN_008c79e0 @ 0x008c79e0
+  0x008c7f67 -> 0x00713d80 FUN_00713d80 @ 0x00713d80
+  0x008c7f6e -> 0x008c7a70 FUN_008c7a70 @ 0x008c7a70
+  0x008c7f73 -> 0x004537b0 FUN_004537b0 @ 0x004537b0
+  0x008c7f7a -> 0x0087a6b0 FUN_0087a6b0 @ 0x0087a6b0
+  0x008c7f84 -> 0x0096c330 FUN_0096c330 @ 0x0096c330
+  0x008c7f8d -> 0x00713d80 FUN_00713d80 @ 0x00713d80
+  0x008c7f94 -> 0x008c79e0 FUN_008c79e0 @ 0x008c79e0
+  0x008c7f9d -> 0x00713d80 FUN_00713d80 @ 0x00713d80
+  0x008c7fa4 -> 0x008c79e0 FUN_008c79e0 @ 0x008c79e0
+  0x008c7fad -> 0x00713d80 FUN_00713d80 @ 0x00713d80
+  0x008c7fb4 -> 0x008c7a70 FUN_008c7a70 @ 0x008c7a70
+  0x008c7fc8 -> 0x0096db30 FUN_0096db30 @ 0x0096db30
+  0x008c7fd1 -> 0x00713d80 FUN_00713d80 @ 0x00713d80
+  0x008c7fd8 -> 0x008c79e0 FUN_008c79e0 @ 0x008c79e0
+  0x008c7fea -> 0x008d0600 FUN_008d0600 @ 0x008d0600
+  0x008c7ff4 -> 0x0096cb50 FUN_0096cb50 @ 0x0096cb50
+  0x008c7ffd -> 0x00713d80 FUN_00713d80 @ 0x00713d80
+  0x008c8004 -> 0x008c79e0 FUN_008c79e0 @ 0x008c79e0
+  0x008c8009 -> 0x004772f0 FUN_004772f0 @ 0x004772f0
+  0x008c8012 -> 0x00713d80 FUN_00713d80 @ 0x00713d80
+  0x008c8019 -> 0x008c79e0 FUN_008c79e0 @ 0x008c79e0
+  0x008c8022 -> 0x00713d80 FUN_00713d80 @ 0x00713d80
+  0x008c8029 -> 0x008c7a70 FUN_008c7a70 @ 0x008c7a70
+  0x008c802e -> 0x00453850 FUN_00453850 @ 0x00453850
+  0x008c803d -> 0x00453550 FUN_00453550 @ 0x00453550
+  0x008c8046 -> 0x00713d80 FUN_00713d80 @ 0x00713d80
+  0x008c804d -> 0x008c79e0 FUN_008c79e0 @ 0x008c79e0
+  0x008c8052 -> 0x004537b0 FUN_004537b0 @ 0x004537b0
+  0x008c8059 -> 0x0087a6d0 FUN_0087a6d0 @ 0x0087a6d0
+  0x008c8062 -> 0x00713d80 FUN_00713d80 @ 0x00713d80
+  0x008c8069 -> 0x008c7a70 FUN_008c7a70 @ 0x008c7a70
+  0x008c8072 -> 0x00713d80 FUN_00713d80 @ 0x00713d80
+  0x008c8079 -> 0x008c79e0 FUN_008c79e0 @ 0x008c79e0
+  0x008c807e -> 0x005ae270 FUN_005ae270 @ 0x005ae270
+  0x008c8083 -> 0x005a9d60 FUN_005a9d60 @ 0x005a9d60
+  0x008c808c -> 0x00713d80 FUN_00713d80 @ 0x00713d80
+  0x008c8093 -> 0x008c7a70 FUN_008c7a70 @ 0x008c7a70
+  0x008c809c -> 0x00713d80 FUN_00713d80 @ 0x00713d80
+  0x008c80a3 -> 0x008c7a70 FUN_008c7a70 @ 0x008c7a70
+  Total printed: 41
+
+----------------------------------------------------------------------
+Target scan: AI-thread task runner 1
+----------------------------------------------------------------------
+  Total target refs in function: 0
+
+----------------------------------------------------------------------
+Instruction text scan: AI-thread task runner 1 synchronization-like instructions
+----------------------------------------------------------------------
+  Total matches: 0
+
+======================================================================
+AI-thread task runner 2 @ 0x008c71a8
+======================================================================
+  Function: FUN_008c7190 @ 0x008c7190, Size: 28 bytes
+  NOTE: Requested 0x008c71a8 is inside FUN_008c7190 (entry at 0x008c7190)
+
+void __fastcall FUN_008c7190(int param_1)
+
+{
+  if (*(int *)(param_1 + 0x4c) != 0) {
+    (**(code **)(param_1 + 0x4c))();
+  }
+  return;
+}
+
+
+
+----------------------------------------------------------------------
+References INTO function containing 0x008c71a8 (AI-thread task runner 2)
+----------------------------------------------------------------------
+  target=0x008c7190 DATA from 0x01085698 in ???
+  Total printed: 1
+
+----------------------------------------------------------------------
+Calls FROM AI-thread task runner 2 (0x008c71a8)
+----------------------------------------------------------------------
+  Total printed: 0
+
+----------------------------------------------------------------------
+Target scan: AI-thread task runner 2
+----------------------------------------------------------------------
+  Total target refs in function: 0
+
+----------------------------------------------------------------------
+Instruction text scan: AI-thread task runner 2 synchronization-like instructions
+----------------------------------------------------------------------
+  Total matches: 0
+
+======================================================================
+AI-thread task runner 3 @ 0x008c7764
+======================================================================
+  Function: FUN_008c7720 @ 0x008c7720, Size: 111 bytes
+  NOTE: Requested 0x008c7764 is inside FUN_008c7720 (entry at 0x008c7720)
+
+undefined4 __fastcall FUN_008c7720(int *param_1)
+
+{
+  (**(code **)(*param_1 + 8))();
+  while (((char)param_1[0x12] == '\0' && (FUN_004424e0(), (char)param_1[0x12] == '\0'))) {
+    (**(code **)(*param_1 + 0x10))();
+    FUN_00442550();
+  }
+  (**(code **)(*param_1 + 0xc))();
+  FUN_00442550();
+  return 0;
+}
+
+
+
+----------------------------------------------------------------------
+References INTO function containing 0x008c7764 (AI-thread task runner 3)
+----------------------------------------------------------------------
+  target=0x008c7720 DATA from 0x0108568c in ???
+  target=0x008c7720 DATA from 0x010856a4 in ???
+  target=0x008c7720 DATA from 0x010b7f54 in ???
+  target=0x008c7720 DATA from 0x010c1af4 in ???
+  Total printed: 4
+
+----------------------------------------------------------------------
+Calls FROM AI-thread task runner 3 (0x008c7764)
+----------------------------------------------------------------------
+  0x008c7745 -> 0x004424e0 FUN_004424e0 @ 0x004424e0
+  0x008c776a -> 0x00442550 FUN_00442550 @ 0x00442550
+  0x008c7784 -> 0x00442550 FUN_00442550 @ 0x00442550
+  Total printed: 3
+
+----------------------------------------------------------------------
+Target scan: AI-thread task runner 3
+----------------------------------------------------------------------
+  Total target refs in function: 0
+
+----------------------------------------------------------------------
+Instruction text scan: AI-thread task runner 3 synchronization-like instructions
+----------------------------------------------------------------------
+  Total matches: 0
+
+======================================================================
+thread entry wrapper @ 0x00aa64e0
+======================================================================
+  Function: lpStartAddress_00aa64d0 @ 0x00aa64d0, Size: 20 bytes
+  NOTE: Requested 0x00aa64e0 is inside lpStartAddress_00aa64d0 (entry at 0x00aa64d0)
+
+/* lpStartAddress parameter of CreateThread
+    */
+
+void lpStartAddress_00aa64d0(int *param_1)
+
+{
+  (**(code **)(*param_1 + 4))();
+  return;
+}
+
+
+
+----------------------------------------------------------------------
+References INTO function containing 0x00aa64e0 (thread entry wrapper)
+----------------------------------------------------------------------
+  target=0x00aa64d0 DATA from 0x00aa6476 in FUN_00aa6430 @ 0x00aa6430
+  Total printed: 1
+
+----------------------------------------------------------------------
+Calls FROM thread entry wrapper (0x00aa64e0)
+----------------------------------------------------------------------
+  Total printed: 0
+
+----------------------------------------------------------------------
+Target scan: thread entry wrapper
+----------------------------------------------------------------------
+  Total target refs in function: 0
+
+----------------------------------------------------------------------
+Instruction text scan: thread entry wrapper synchronization-like instructions
+----------------------------------------------------------------------
+  Total matches: 0
+
+# SECTION 3: known Havok sparse-result guard targets for comparison
+
+======================================================================
+FUN_00C94BD0 addEntityBatch @ 0x00c94bd0
+======================================================================
+  Function: FUN_00c94bd0 @ 0x00c94bd0, Size: 1495 bytes
+
+/* WARNING: Globals starting with '_' overlap smaller symbols at the same address */
+
+void __thiscall FUN_00c94bd0(int param_1,int param_2,int param_3,int param_4)
+
+{
+  undefined2 uVar1;
+  undefined4 *puVar2;
+  uint uVar3;
+  undefined4 uVar4;
+  undefined8 uVar5;
+  int iVar6;
+  float fVar7;
+  bool bVar8;
+  LPVOID pvVar9;
+  int iVar10;
+  int iVar11;
+  int *piVar12;
+  uint *puVar13;
+  ushort uVar14;
+  ushort uVar15;
+  code *pcVar16;
+  undefined4 *local_44;
+  uint local_3c;
+  int local_34;
+  uint local_30;
+  uint local_2c;
+  int local_28;
+  int local_24;
+  uint local_20;
+  undefined4 local_1c;
+  uint local_18;
+  undefined4 local_14;
+  int aiStack_10 [4];
+  
+  if (param_3 != 0) {
+    if (*(int *)(param_1 + 0x94) != 0) {
+      local_1c = CONCAT31(local_1c._1_3_,6);
+      local_18 = param_2;
+      local_14 = CONCAT22(CONCAT11(local_14._3_1_,(undefined1)param_4),(short)param_3);
+      FUN_00c91160(&local_1c);
+      return;
+    }
+    pvVar9 = TlsGetValue(DAT_0126835c);
+    puVar2 = *(undefined4 **)((int)pvVar9 + 4);
+    if (puVar2 < *(undefined4 **)((int)pvVar9 + 0xc)) {
+      *puVar2 = "LtAddEntities";
+      puVar2[3] = "Stinit";
+      uVar5 = rdtsc();
+      puVar2[1] = (int)uVar5;
+      *(undefined4 **)((int)pvVar9 + 4) = puVar2 + 4;
+    }
+    *(int *)(param_1 + 0x94) = *(int *)(param_1 + 0x94) + 1;
+    local_28 = 0;
+    local_24 = 0;
+    local_20 = 0x80000000;
+    iVar10 = FUN_00c85750();
+    if ((int)(local_20 & 0x3fffffff) < param_3) {
+      FUN_00c908c0(*(undefined4 *)(iVar10 + 0xc),&local_28,param_3,4);
+    }
+    local_34 = 0;
+    local_30 = 0;
+    local_2c = 0x80000000;
+    iVar10 = FUN_00c85750();
+    if ((int)(local_2c & 0x3fffffff) < param_3) {
+      FUN_00c908c0(*(undefined4 *)(iVar10 + 0xc),&local_34,param_3,0x20);
+    }
+    bVar8 = false;
+    if (*(char *)(param_1 + 200) == '\0') {
+      local_44 = (undefined4 *)**(int **)(param_1 + 0x28);
+      iVar10 = local_44[0x13] + param_3;
+      iVar11 = FUN_00c85750();
+      if ((int)(local_44[0x14] & 0x3fffffff) < iVar10) {
+        iVar6 = (local_44[0x14] & 0x3fffffff) * 2;
+        if (iVar10 < iVar6) {
+          iVar10 = iVar6;
+        }
+        FUN_00c908c0(*(undefined4 *)(iVar11 + 0x10),local_44 + 0x12,iVar10,4);
+      }
+    }
+    else {
+      iVar10 = FUN_00c85750();
+      iVar10 = (**(code **)(**(int **)(iVar10 + 0x10) + 4))(0x6c);
+      *(undefined2 *)(iVar10 + 4) = 0x6c;
+      local_44 = (undefined4 *)FUN_00d07830(param_1);
+      *(byte *)((int)local_44 + 0x25) = *(byte *)((int)local_44 + 0x25) & 0xfd | 1;
+      if (param_4 == 1) {
+        *(undefined2 *)(local_44 + 8) = *(undefined2 *)(param_1 + 0x2c);
+        *(byte *)((int)local_44 + 0x26) = *(byte *)((int)local_44 + 0x26) & 0xf5 | 5;
+      }
+      else {
+        uVar1 = *(undefined2 *)(param_1 + 0x38);
+        *(byte *)((int)local_44 + 0x26) = *(byte *)((int)local_44 + 0x26) & 0xf0;
+        *(undefined2 *)(local_44 + 8) = uVar1;
+      }
+    }
+    fVar7 = *(float *)(*(int *)(param_1 + 0x78) + 8) * (float)_DAT_01011588;
+    local_3c = 0;
+    if (0 < param_3) {
+      do {
+        piVar12 = *(int **)(param_2 + local_3c * 4);
+        *(int *)(param_1 + 0x104) = *(int *)(param_1 + 0x104) + 1;
+        piVar12[0x35] = *(int *)(param_1 + 0x104);
+        FUN_00c90510();
+        if (piVar12[6] == 0) {
+          iVar10 = (**(code **)(*piVar12 + 0x10))();
+          piVar12[6] = iVar10;
+        }
+        FUN_00cf1480(0,0,piVar12 + 0x3c);
+        *(undefined2 *)(piVar12 + 0x3b) = 0;
+        *(undefined2 *)((int)piVar12 + 0xea) = 0;
+        piVar12[2] = param_1;
+        uVar15 = (ushort)*(byte *)(param_1 + 0x305);
+        uVar14 = (ushort)*(byte *)(param_1 + 0x306);
+        if ((*(byte *)(param_1 + 0x307) & 3) < (*(byte *)((int)piVar12 + 0xe9) & 3)) {
+          uVar15 = ~uVar15;
+        }
+        if (*(byte *)(param_1 + 0x307) < *(byte *)((int)piVar12 + 0xe9)) {
+          uVar14 = ~uVar14;
+        }
+        *(ushort *)((int)piVar12 + 0xea) = *(ushort *)((int)piVar12 + 0xea) & 0x3fff | uVar15 << 0xe
+        ;
+        *(ushort *)(piVar12 + 0x3b) = *(ushort *)(piVar12 + 0x3b) & 0x3fff | uVar14 << 0xe;
+        if ((char)piVar12[0x3a] == '\x05') {
+          FUN_00d07420(piVar12);
+        }
+        else {
+          bVar8 = true;
+          FUN_00d07420(piVar12);
+        }
+        iVar10 = piVar12[4];
+        piVar12[0xc] = 1;
+        piVar12[0x10] = 0;
+        if (iVar10 != 0) {
+          iVar11 = local_30 * 0x20;
+          local_30 = local_30 + 1;
+          (**(code **)(*(int *)piVar12[4] + 0x1c))(piVar12[6],fVar7,iVar11 + local_34);
+          *(int **)(local_28 + local_24 * 4) = piVar12 + 9;
+          local_24 = local_24 + 1;
+          FUN_00c9c040(param_1,iVar10);
+        }
+        local_3c = local_3c + 1;
+      } while ((int)local_3c < param_3);
+    }
+    if (*(char *)(param_1 + 200) != '\0') {
+      if (bVar8) {
+        *(undefined1 *)(local_44 + 9) = *(undefined1 *)(*(int *)local_44[0x12] + 0xd4);
+        piVar12 = (int *)(param_1 + 0x28);
+        if (param_4 != 1) {
+          piVar12 = (int *)(param_1 + 0x34);
+        }
+        iVar10 = FUN_00c85750();
+        if (piVar12[1] == (piVar12[2] & 0x3fffffffU)) {
+          FUN_00c90940(*(undefined4 *)(iVar10 + 0x10),piVar12,4);
+        }
+        *(undefined4 **)(*piVar12 + piVar12[1] * 4) = local_44;
+        piVar12[1] = piVar12[1] + 1;
+      }
+      else {
+        (**(code **)*local_44)(1);
+      }
+    }
+    uVar3 = *(uint *)(param_1 + 0x338);
+    aiStack_10[0] = 0;
+    aiStack_10[1] = 0;
+    aiStack_10[2] = 0x80000000;
+    piVar12 = (int *)FUN_00c85750();
+    pcVar16 = TlsGetValue_exref;
+    aiStack_10[0] = *piVar12;
+    *piVar12 = (uVar3 * 8 + 0x7f & 0xffffff80) + aiStack_10[0];
+    aiStack_10[2] = uVar3 | 0x80000000;
+    aiStack_10[3] = aiStack_10[0];
+    pvVar9 = TlsGetValue(DAT_0126835c);
+    puVar2 = *(undefined4 **)((int)pvVar9 + 4);
+    if (puVar2 < *(undefined4 **)((int)pvVar9 + 0xc)) {
+      *puVar2 = "StBroadphase";
+      uVar5 = rdtsc();
+      puVar2[1] = (int)uVar5;
+      *(undefined4 **)((int)pvVar9 + 4) = puVar2 + 3;
+    }
+    (**(code **)(**(int **)(param_1 + 0x58) + 0x18))(&local_28,&local_34,aiStack_10);
+    pvVar9 = TlsGetValue(DAT_0126835c);
+    puVar2 = *(undefined4 **)((int)pvVar9 + 4);
+    if (puVar2 < *(undefined4 **)((int)pvVar9 + 0xc)) {
+      *puVar2 = "StCreateAgents";
+      uVar5 = rdtsc();
+      puVar2[1] = (int)uVar5;
+      *(undefined4 **)((int)pvVar9 + 4) = puVar2 + 3;
+    }
+    if (*(int *)(param_1 + 0x7c) == 0) {
+      iVar10 = 0;
+    }
+    else {
+      iVar10 = *(int *)(param_1 + 0x7c) + 8;
+    }
+    FUN_00cf7080(local_1c,local_18,iVar10);
+    pvVar9 = TlsGetValue(DAT_0126835c);
+    puVar2 = *(undefined4 **)((int)pvVar9 + 4);
+    if (puVar2 < *(undefined4 **)((int)pvVar9 + 0xc)) {
+      *puVar2 = "StAddedCb";
+      uVar5 = rdtsc();
+      puVar2[1] = (int)uVar5;
+      *(undefined4 **)((int)pvVar9 + 4) = puVar2 + 3;
+    }
+    iVar10 = 0;
+    if (0 < param_3) {
+      do {
+        uVar4 = *(undefined4 *)(aiStack_10[2] + iVar10 * 4);
+        FUN_00d00500(param_1,uVar4);
+        FUN_00cffa00(uVar4);
+        iVar10 = iVar10 + 1;
+        pcVar16 = TlsGetValue_exref;
+      } while (iVar10 < aiStack_10[3]);
+    }
+    piVar12 = (int *)(param_1 + 0x94);
+    *piVar12 = *piVar12 + -1;
+    if ((*piVar12 == 0) && (*(char *)(param_1 + 0x9c) == '\0')) {
+      if (*(int *)(param_1 + 0x8c) != 0) {
+        FUN_00c91120();
+      }
+      if ((*(int *)(param_1 + 0xa4) == 1) && (*(int *)(param_1 + 0x90) != 0)) {
+        FUN_00c91140();
+      }
+    }
+    iVar10 = (*pcVar16)(DAT_0126835c);
+    puVar2 = *(undefined4 **)(iVar10 + 4);
+    if (puVar2 < *(undefined4 **)(iVar10 + 0xc)) {
+      *puVar2 = &DAT_01076f38;
+      uVar5 = rdtsc();
+      aiStack_10[2] = (int)uVar5;
+      puVar2[1] = aiStack_10[2];
+      *(undefined4 **)(iVar10 + 4) = puVar2 + 3;
+    }
+    if (local_14 == local_20) {
+      local_1c = 0;
+    }
+    puVar13 = (uint *)FUN_00c85750();
+    *puVar13 = local_14;
+    iVar10 = FUN_00c85750();
+    local_1c = 0;
+    if ((local_18 & 0x80000000) == 0) {
+      (**(code **)(**(int **)(iVar10 + 0x10) + 0x10))(local_20,local_18 * 8);
+    }
+    local_20 = 0;
+    local_18 = 0x80000000;
+    iVar10 = FUN_00c85750();
+    if ((local_3c & 0x80000000) == 0) {
+      (**(code **)(**(int **)(iVar10 + 0xc) + 0x10))(local_44,local_3c << 5);
+    }
+    iVar10 = FUN_00c85750();
+    local_34 = 0;
+    if ((local_30 & 0x80000000) == 0) {
+      (**(code **)(**(int **)(iVar10 + 0xc) + 0x10))(fVar7,local_30 * 4);
+    }
+  }
+  return;
+}
+
+
+
+----------------------------------------------------------------------
+References INTO function containing 0x00c94bd0 (FUN_00C94BD0 addEntityBatch)
+----------------------------------------------------------------------
+  target=0x00c94bd0 UNCONDITIONAL_CALL from 0x00c67551 in FUN_00c674d0 @ 0x00c674d0
+  target=0x00c94bd0 UNCONDITIONAL_CALL from 0x00cf7db0 in FUN_00cf7c10 @ 0x00cf7c10
+  target=0x00c94bd0 UNCONDITIONAL_CALL from 0x00ce16aa in FUN_00ce1680 @ 0x00ce1680
+  target=0x00c94bd0 UNCONDITIONAL_CALL from 0x00c97fc6 in FUN_00c97f80 @ 0x00c97f80
+  Total printed: 4
+
+----------------------------------------------------------------------
+Calls FROM FUN_00C94BD0 addEntityBatch (0x00c94bd0)
+----------------------------------------------------------------------
+  0x00c94c0f -> 0x00c91160 FUN_00c91160 @ 0x00c91160
+  0x00c94c24 -> 0x00000007 ???
+  0x00c94c6b -> 0x00c85750 FUN_00c85750 @ 0x00c85750
+  0x00c94c8a -> 0x00c908c0 FUN_00c908c0 @ 0x00c908c0
+  0x00c94c9e -> 0x00c85750 FUN_00c85750 @ 0x00c85750
+  0x00c94cbd -> 0x00c908c0 FUN_00c908c0 @ 0x00c908c0
+  0x00c94cd1 -> 0x00c85750 FUN_00c85750 @ 0x00c85750
+  0x00c94cee -> 0x00d07830 FUN_00d07830 @ 0x00d07830
+  0x00c94d41 -> 0x00c85750 FUN_00c85750 @ 0x00c85750
+  0x00c94d62 -> 0x00c908c0 FUN_00c908c0 @ 0x00c908c0
+  0x00c94dab -> 0x00c90510 FUN_00c90510 @ 0x00c90510
+  0x00c94dd5 -> 0x00cf1480 FUN_00cf1480 @ 0x00cf1480
+  0x00c94e6e -> 0x00d07420 FUN_00d07420 @ 0x00d07420
+  0x00c94e84 -> 0x00d07420 FUN_00d07420 @ 0x00d07420
+  0x00c94edd -> 0x00c9c040 FUN_00c9c040 @ 0x00c9c040
+  0x00c94f24 -> 0x00c85750 FUN_00c85750 @ 0x00c85750
+  0x00c94f3e -> 0x00c90940 FUN_00c90940 @ 0x00c90940
+  0x00c94f77 -> 0x00c85750 FUN_00c85750 @ 0x00c85750
+  0x00c94faa -> 0x00000007 ???
+  0x00c94fef -> 0x00000007 ???
+  0x00c95030 -> 0x00cf7080 FUN_00cf7080 @ 0x00cf7080
+  0x00c9503c -> 0x00000007 ???
+  0x00c95070 -> 0x00d00500 FUN_00d00500 @ 0x00d00500
+  0x00c95076 -> 0x00cffa00 FUN_00cffa00 @ 0x00cffa00
+  0x00c950a8 -> 0x00c91120 FUN_00c91120 @ 0x00c91120
+  0x00c950c1 -> 0x00c91140 FUN_00c91140 @ 0x00c91140
+  0x00c950cd -> 0x00000007 ???
+  0x00c95102 -> 0x00c85750 FUN_00c85750 @ 0x00c85750
+  0x00c95109 -> 0x00c85750 FUN_00c85750 @ 0x00c85750
+  0x00c95142 -> 0x00c85750 FUN_00c85750 @ 0x00c85750
+  0x00c95173 -> 0x00c85750 FUN_00c85750 @ 0x00c85750
+  Total printed: 31
+
+----------------------------------------------------------------------
+Target scan: FUN_00C94BD0 addEntityBatch
+----------------------------------------------------------------------
+  Total target refs in function: 0
+
+----------------------------------------------------------------------
+Instruction text scan: FUN_00C94BD0 addEntityBatch synchronization-like instructions
+----------------------------------------------------------------------
+  Total matches: 0
+
+======================================================================
+FUN_00CFFA00 entity post-add callback @ 0x00cffa00
+======================================================================
+  Function: FUN_00cffa00 @ 0x00cffa00, Size: 175 bytes
+
+void FUN_00cffa00(int param_1)
+
+{
+  int iVar1;
+  undefined4 *puVar2;
+  undefined8 uVar3;
+  LPVOID pvVar4;
+  uint uVar5;
+  
+  iVar1 = *(int *)(param_1 + 0x214);
+  if (iVar1 != 0) {
+    uVar5 = (uint)*(ushort *)(iVar1 + 0xc);
+    while (uVar5 = uVar5 - 1, -1 < (int)uVar5) {
+      if (*(int *)(*(int *)(iVar1 + 8) + uVar5 * 4) != 0) {
+        pvVar4 = TlsGetValue(DAT_0126835c);
+        puVar2 = *(undefined4 **)((int)pvVar4 + 4);
+        if (puVar2 < *(undefined4 **)((int)pvVar4 + 0xc)) {
+          *puVar2 = "TtentAddCb";
+          uVar3 = rdtsc();
+          puVar2[1] = (int)uVar3;
+          *(undefined4 **)((int)pvVar4 + 4) = puVar2 + 3;
+        }
+        (**(code **)(**(int **)(*(int *)(iVar1 + 8) + uVar5 * 4) + 4))(param_1);
+        pvVar4 = TlsGetValue(DAT_0126835c);
+        puVar2 = *(undefined4 **)((int)pvVar4 + 4);
+        if (puVar2 < *(undefined4 **)((int)pvVar4 + 0xc)) {
+          *puVar2 = &DAT_010c41f8;
+          uVar3 = rdtsc();
+          puVar2[1] = (int)uVar3;
+          *(undefined4 **)((int)pvVar4 + 4) = puVar2 + 3;
+        }
+      }
+    }
+  }
+  return;
+}
+
+
+
+----------------------------------------------------------------------
+References INTO function containing 0x00cffa00 (FUN_00CFFA00 entity post-add callback)
+----------------------------------------------------------------------
+  target=0x00cffa00 UNCONDITIONAL_CALL from 0x00c915cb in FUN_00c914d0 @ 0x00c914d0
+  target=0x00cffa00 UNCONDITIONAL_CALL from 0x00c95076 in FUN_00c94bd0 @ 0x00c94bd0
+  Total printed: 2
+
+----------------------------------------------------------------------
+Calls FROM FUN_00CFFA00 entity post-add callback (0x00cffa00)
+----------------------------------------------------------------------
+  0x00cffa40 -> 0x00000007 ???
+  0x00cffa7d -> 0x00000007 ???
+  Total printed: 2
+
+----------------------------------------------------------------------
+Target scan: FUN_00CFFA00 entity post-add callback
+----------------------------------------------------------------------
+  Total target refs in function: 0
+
+----------------------------------------------------------------------
+Instruction text scan: FUN_00CFFA00 entity post-add callback synchronization-like instructions
+----------------------------------------------------------------------
+  Total matches: 0
+
+======================================================================
+FUN_00CF7080 narrowphase add-agent dispatcher @ 0x00cf7080
+======================================================================
+  Function: FUN_00cf7080 @ 0x00cf7080, Size: 103 bytes
+
+void __thiscall FUN_00cf7080(int param_1,int *param_2,int param_3,int *param_4)
+
+{
+  int iVar1;
+  int *piVar2;
+  char *pcVar3;
+  
+  piVar2 = param_4;
+  iVar1 = param_3;
+  while (iVar1 = iVar1 + -1, -1 < iVar1) {
+    pcVar3 = (char *)(**(code **)(*piVar2 + 4))
+                               (&param_3,(int)*(char *)(*param_2 + 5) + *param_2,
+                                (int)*(char *)(param_2[1] + 5) + param_2[1]);
+    if (*pcVar3 != '\0') {
+      (**(code **)(**(int **)(param_1 +
+                             ((int)*(char *)(param_2[1] + 4) + *(char *)(*param_2 + 4) * 8) * 4) + 4
+                  ))(param_2);
+    }
+    param_2 = param_2 + 2;
+  }
+  return;
+}
+
+
+
+----------------------------------------------------------------------
+References INTO function containing 0x00cf7080 (FUN_00CF7080 narrowphase add-agent dispatcher)
+----------------------------------------------------------------------
+  target=0x00cf7080 UNCONDITIONAL_CALL from 0x00c95030 in FUN_00c94bd0 @ 0x00c94bd0
+  target=0x00cf7080 UNCONDITIONAL_CALL from 0x00c956e2 in FUN_00c954e0 @ 0x00c954e0
+  target=0x00cf7080 UNCONDITIONAL_CALL from 0x00c96ae5 in FUN_00c96a20 @ 0x00c96a20
+  target=0x00cf7080 UNCONDITIONAL_CALL from 0x00c94b15 in FUN_00c946e0 @ 0x00c946e0
+  target=0x00cf7080 UNCONDITIONAL_CALL from 0x00cb5ab1 in FUN_00cb59f0 @ 0x00cb59f0
+  target=0x00cf7080 UNCONDITIONAL_CALL from 0x00cb5bb3 in FUN_00cb5b10 @ 0x00cb5b10
+  target=0x00cf7080 UNCONDITIONAL_CALL from 0x00cf9fad in FUN_00cf9c60 @ 0x00cf9c60
+  target=0x00cf7080 UNCONDITIONAL_CALL from 0x00d0801a in FUN_00d07ec0 @ 0x00d07ec0
+  target=0x00cf7080 UNCONDITIONAL_CALL from 0x00cb5908 in FUN_00cb5750 @ 0x00cb5750
+  target=0x00cf7080 UNCONDITIONAL_CALL from 0x00c9145f in FUN_00c913b0 @ 0x00c913b0
+  target=0x00cf7080 UNCONDITIONAL_CALL from 0x00d0d7d1 in FUN_00d0d3f0 @ 0x00d0d3f0
+  target=0x00cf7080 UNCONDITIONAL_CALL from 0x00d93fdf in FUN_00d93ba0 @ 0x00d93ba0
+  Total printed: 12
+
+----------------------------------------------------------------------
+Calls FROM FUN_00CF7080 narrowphase add-agent dispatcher (0x00cf7080)
+----------------------------------------------------------------------
+  Total printed: 0
+
+----------------------------------------------------------------------
+Target scan: FUN_00CF7080 narrowphase add-agent dispatcher
+----------------------------------------------------------------------
+  Total target refs in function: 0
+
+----------------------------------------------------------------------
+Instruction text scan: FUN_00CF7080 narrowphase add-agent dispatcher synchronization-like instructions
+----------------------------------------------------------------------
+  Total matches: 0
+
+======================================================================
+END HAVOK AI THREAD SYNCHRONIZATION AUDIT
+======================================================================

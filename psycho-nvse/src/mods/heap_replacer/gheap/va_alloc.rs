@@ -242,3 +242,15 @@ pub fn live_count() -> usize {
 pub fn live_bytes() -> u64 {
     TOTAL_VAS_BYTES.load(Ordering::Relaxed)
 }
+
+pub fn alloc_count() -> u64 {
+    ALLOC_COUNT.load(Ordering::Relaxed)
+}
+
+pub fn free_count() -> u64 {
+    FREE_COUNT.load(Ordering::Relaxed)
+}
+
+pub fn fail_count() -> u64 {
+    ALLOC_FAIL_COUNT.load(Ordering::Relaxed)
+}

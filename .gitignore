@@ -23,6 +23,12 @@ Thumbs.db
 # Debug files
 *.pdb
 
+# Python cache
+__pycache__/
+
+# Local analysis reports
+/.reports/
+
 
 .release
 .research/*

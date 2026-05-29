@@ -75,6 +75,17 @@ pub type NiSourceTextureDtorFn = unsafe extern "fastcall" fn(*mut c_void);
 /// FUN_0044dd60: IOTask release, DecRef at this+8, if 0 calls vtable[0](1).
 pub type TaskReleaseFn = unsafe extern "fastcall" fn(*mut c_void);
 
+/// FUN_00449a50: scalar destructor for the model-loader
+/// LockFreeStringMap<Model*> task object. Called through task vtable slot
+/// +0x1c from FUN_00446b50.
+pub type ModelTaskDtorFn = unsafe extern "thiscall" fn(*mut c_void, u32) -> *mut c_void;
+
+// ---- Navmesh/pathfinding defensive guards ----
+
+/// FUN_00690830: returns a NavMeshInfo parent/cell identity pointer.
+/// ECX is expected to be a NavMeshInfo-like object pointer.
+pub type NavmeshNameHelperFn = unsafe extern "fastcall" fn(*mut c_void) -> *mut c_void;
+
 // ---- Pressure relief: cell management and destruction protocol ----
 
 /// FUN_00453a80: finds a loaded exterior cell eligible for eviction.
@@ -198,10 +209,19 @@ pub type HavokRaycastFn =
 /// havok_fix.rs for the defensive wrapper rationale.
 pub type HavokEntityPostAddFn = unsafe extern "C" fn(entity: *mut c_void);
 
+/// FUN_00C94BD0: hkpWorld::addEntityBatch.
+/// this = world; args = entity pointer array, count, add mode.
+pub type HavokAddEntityBatchFn =
+    unsafe extern "thiscall" fn(*mut c_void, *mut *mut c_void, i32, i32);
+
 /// FUN_00CF7080: Havok narrowphase add-agent dispatcher.
 /// this = world+0x64 dispatch table; args = pair array, pair count, collision filter.
 pub type HavokNarrowphaseAddAgentsFn =
     unsafe extern "thiscall" fn(*mut c_void, *mut c_void, i32, *mut c_void);
+
+/// FUN_00C674D0: flushes the hkpWorld pending-add queue.
+/// this = pending manager; args = entity pointer array, count.
+pub type HavokPendingAddFlushFn = unsafe extern "thiscall" fn(*mut c_void, *mut *mut c_void, u32);
 
 /// hkWorld_Unlock (fastcall, world ptr in ECX).
 pub type HkWorldUnlockFn = unsafe extern "fastcall" fn(*mut c_void);

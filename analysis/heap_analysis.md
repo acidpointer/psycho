@@ -1053,7 +1053,7 @@ each push, compare counters across frames to determine staleness.
 ## Chapter 10: SBM Patches
 
 > **TL;DR:** SBM pool functions are RET-patched since mimalloc handles all allocations.
-> Three SBM functions are left alive for pre-hook pointer cleanup. Scrap heap (sbm2)
+> Three SBM functions are left alive for pre-hook pointer cleanup. scrap_heap
 > is separately hooked.
 
 ### RET-Patched (Disabled)
@@ -1084,7 +1084,7 @@ each push, compare counters across frames to determine staleness.
 | `0x00C42EB1` | CRT heap initialization |
 | `0x00EC1701` | CRT heap initialization |
 
-### Scrap Heap (sbm2) Hooks
+### scrap_heap Hooks
 
 | Address | Name | Convention |
 |---------|------|------------|
@@ -1095,7 +1095,7 @@ each push, compare counters across frames to determine staleness.
 | `0x00AA5460` | SheapPurge | fastcall |
 | `0x00AA42E0` | SheapGetThreadLocal | cdecl |
 
-### sbm2 Region Overlap Bug (FIXED)
+### scrap_heap Region Overlap Bug (FIXED)
 
 The bump allocator's `new_offset` didn't account for alignment padding.
 `new_offset = old_offset + align_up(size+4, align)` was wrong -- it computed the
@@ -1129,7 +1129,7 @@ when consecutive allocations overlapped.
 | Havok Broadphase OOM | EXCEPTION_ACCESS_VIOLATION on main thread, stack: PathingSearchRayCast → hkp3AxisSweep → hkLargeBlockAllocator | At 1.4-1.5GB commit, Havok's internal allocator (backed by GameHeap → mimalloc) fails at VA ceiling. Broadphase (hkp3AxisSweep) data structures corrupted from failed allocations. hkpWorldRayCaster → hkpClosestRayHitCollector crashes. | Irreducible 32-bit VA limit — cannot be fixed by allocator replacement |
 | Aggressive cell unload | AI thread crash on hkBSHeightFieldShape | Cooldown < 2000ms or > 20 cells causes AI to access unloading cells | Conservative tuning (2s/20 cells) |
 | Music broken | Crash on NULL music path in FUN_008300c0 | Misidentified FUN_008324e0 as Havok instead of music | Don't call FUN_008324e0(1) |
-| sbm2 region overlap | Memory corruption in scrap heap | Bump allocator new_offset didn't account for alignment padding | Fixed offset calculation |
+| scrap_heap region overlap | Memory corruption in scrap heap | Bump allocator new_offset didn't account for alignment padding | Fixed offset calculation |
 | NVSE event dispatch during cell destruction | EXCEPTION_ACCESS_VIOLATION in nvse_stewie_tweaks LowProcess__Func011F or johnnyguitar HandlePLChangeEvent | FindCellToUnload triggers actor process changes during cell destruction, which fires NVSE plugin event handlers (PLChangeEvent). These handlers access objects mid-destruction (refcount 0). | Set loading state counter DAT_01202d6c > 0 before FindCellToUnload |
 | CellTransitionHandler AI thread crash (ENGINE BUG) | EXCEPTION_ACCESS_VIOLATION on AI Linear Task Thread, hkpSimulationIsland / hkScaledMoppBvTreeShape with ecx=NULL | Game's own CellTransitionHandler runs BLOCKING PDD without hkWorld_Lock. AI threads from post-render signal race with freed physics data. | Hook CellTransitionHandler, wrap with hkWorld_Lock/Unlock + loading state counter |
 | AI thread join semaphore | Havok world corruption, ragdoll crash on next frame | Calling FUN_008c7990 from our hook consumes the completion semaphore; game's own join deadlocks | Two-hook architecture: defer cell unloading to Hook 2 (AI join wrapper) instead of calling join directly |
@@ -1156,7 +1156,7 @@ when consecutive allocations overlapped.
 | HeapCompact Stage 4/5 unsafe | Trigger limited to stages 0-2 | FIXED |
 | Quarantine OOM during loading | Stale push bypass with loading flag check | FIXED |
 | OOM during cell transition | purge_delay=0 + quarantine | FIXED |
-| sbm2 region overlap | new_offset = actual consumed | FIXED |
+| scrap_heap region overlap | new_offset = actual consumed | FIXED |
 | CellTransitionHandler AI crash (engine bug) | Hook with hkWorld_Lock + loading counter | FIXED |
 | CellTransitionHandler IO crash | IO lock + FUN_00448620 task cancellation | FIXED |
 | PDD queue cross-dependency | Removed queue skip, process all queues together | FIXED |
@@ -1351,7 +1351,7 @@ data from freed cells, and AI threads race on Havok access.
 **Aggressive tuning 600MB/30cells:** More cells per cycle causes BSTreeNode UAF
 faster than per-frame drain can handle.
 
-### sbm2 Region Overlap Bug (FIXED)
+### scrap_heap Region Overlap Bug (FIXED)
 
 The scrap heap's bump allocator had a memory corruption bug in `region.rs`. The
 `new_offset` calculation used `old_offset + align_up(size + 4, align)` which didn't
@@ -1359,7 +1359,7 @@ account for alignment padding between `old_offset + 4` and the actual aligned da
 address. This caused subsequent allocations to overlap previous ones when alignment
 padding was needed. Fixed by computing `new_offset = (data_addr + size) - start_addr`
 — using the actual allocated position instead of an independent reservation calculation.
-This was likely the root cause of the documented "sbm2 region offset leak" bug.
+This was likely the root cause of the documented "scrap_heap region offset leak" bug.
 
 ---
 

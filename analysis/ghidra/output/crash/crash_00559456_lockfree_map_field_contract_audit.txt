@@ -1,0 +1,906 @@
+======================================================================
+CRASH 0x00559456 LOCKFREE MAP FIELD CONTRACT AUDIT
+======================================================================
+
+Crash mechanism:
+  FUN_0044C480 tests this+0x14 for nonzero, then passes *(this+0x14) to FUN_00559450.
+  In the crash, this is the freed 80-byte cell 0x34E798F0 and this+0x14 contains 1.
+  The goal is to learn who initializes, clears, releases, and rebuilds this field.
+
+----------------------------------------------------------------------
+Disassembly: full map clear/reset body 0x0044c480..0x0044c640
+----------------------------------------------------------------------
+   0x0044c480: PUSH EBP
+   0x0044c481: MOV EBP,ESP
+   0x0044c483: PUSH -0x1
+   0x0044c485: PUSH 0xef50b3
+   0x0044c48a: MOV EAX,FS:[0x0]
+   0x0044c490: PUSH EAX
+   0x0044c491: SUB ESP,0x30
+   0x0044c494: MOV EAX,[0x011c16bc]
+   0x0044c499: XOR EAX,EBP
+   0x0044c49b: PUSH EAX
+   0x0044c49c: LEA EAX,[EBP + -0xc]
+   0x0044c49f: MOV FS:[0x0],EAX
+   0x0044c4a5: MOV dword ptr [EBP + -0x34],ECX
+   0x0044c4a8: PUSH 0x42c
+   0x0044c4ad: PUSH 0x10173f8
+   0x0044c4b2: PUSH 0x1
+   0x0044c4b4: PUSH 0x6
+   0x0044c4b6: LEA ECX,[EBP + -0x14]
+   0x0044c4b9: CALL 0x00404eb0
+   0x0044c4be: MOV dword ptr [EBP + -0x4],0x0
+   0x0044c4c5: MOV EAX,dword ptr [EBP + -0x34]
+=> 0x0044c4c8: CMP dword ptr [EAX + 0x14],0x0
+   0x0044c4cc: JNZ 0x0044c4e2
+   0x0044c4ce: MOV dword ptr [EBP + -0x4],0xffffffff
+   0x0044c4d5: LEA ECX,[EBP + -0x14]
+   0x0044c4d8: CALL 0x00404ee0
+   0x0044c4dd: JMP 0x0044c621
+   0x0044c4e2: PUSH 0x0
+   0x0044c4e4: MOV ECX,dword ptr [EBP + -0x34]
+   0x0044c4e7: ADD ECX,0x20
+   0x0044c4ea: CALL 0x0040fbf0
+   0x0044c4ef: MOV ECX,dword ptr [EBP + -0x34]
+=> 0x0044c4f2: MOV ECX,dword ptr [ECX + 0x14]
+=> 0x0044c4f5: CALL 0x00559450
+   0x0044c4fa: MOV dword ptr [EBP + -0x10],EAX
+   0x0044c4fd: MOV EDX,dword ptr [EBP + -0x34]
+   0x0044c500: MOV EAX,dword ptr [EDX + 0x14]
+   0x0044c503: MOV dword ptr [EBP + -0x28],EAX
+   0x0044c506: MOV ECX,dword ptr [EBP + -0x28]
+   0x0044c509: MOV dword ptr [EBP + -0x24],ECX
+   0x0044c50c: CMP dword ptr [EBP + -0x24],0x0
+   0x0044c510: JZ 0x0044c521
+   0x0044c512: PUSH 0x1
+   0x0044c514: MOV ECX,dword ptr [EBP + -0x24]
+   0x0044c517: CALL 0x00666570
+   0x0044c51c: MOV dword ptr [EBP + -0x38],EAX
+   0x0044c51f: JMP 0x0044c528
+   0x0044c521: MOV dword ptr [EBP + -0x38],0x0
+   0x0044c528: MOV EDX,dword ptr [EBP + -0x34]
+=> 0x0044c52b: MOV dword ptr [EDX + 0x14],0x0
+   0x0044c532: MOV EAX,dword ptr [EBP + -0x34]
+   0x0044c535: MOV dword ptr [EAX + 0x18],0x0
+   0x0044c53c: MOV dword ptr [EBP + -0x18],0x0
+   0x0044c543: JMP 0x0044c54e
+   0x0044c545: MOV ECX,dword ptr [EBP + -0x18]
+   0x0044c548: ADD ECX,0x1
+   0x0044c54b: MOV dword ptr [EBP + -0x18],ECX
+   0x0044c54e: MOV EDX,dword ptr [EBP + -0x34]
+   0x0044c551: MOV EAX,dword ptr [EBP + -0x18]
+   0x0044c554: CMP EAX,dword ptr [EDX + 0x8]
+   0x0044c557: JNC 0x0044c5bd
+   0x0044c559: MOV ECX,dword ptr [EBP + -0x34]
+   0x0044c55c: MOV EDX,dword ptr [ECX + 0xc]
+   0x0044c55f: MOV EAX,dword ptr [EBP + -0x18]
+   0x0044c562: LEA ECX,[EDX + EAX*0x4]
+   0x0044c565: CALL 0x0044dec0
+   0x0044c56a: MOV dword ptr [EBP + -0x1c],EAX
+   0x0044c56d: MOV ECX,dword ptr [EBP + -0x34]
+   0x0044c570: MOV EDX,dword ptr [ECX + 0xc]
+   0x0044c573: MOV EAX,dword ptr [EBP + -0x18]
+   0x0044c576: LEA ECX,[EDX + EAX*0x4]
+   0x0044c579: CALL 0x006665a0
+   0x0044c57e: CMP dword ptr [EBP + -0x1c],0x0
+   0x0044c582: JZ 0x0044c5bb
+   0x0044c584: MOV ECX,dword ptr [EBP + -0x1c]
+   0x0044c587: ADD ECX,0x8
+   0x0044c58a: CALL 0x0044dec0
+   0x0044c58f: MOV dword ptr [EBP + -0x20],EAX
+   0x0044c592: MOV ECX,dword ptr [EBP + -0x1c]
+   0x0044c595: ADD ECX,0x8
+   0x0044c598: CALL 0x006665a0
+   0x0044c59d: MOV ECX,dword ptr [EBP + -0x1c]
+   0x0044c5a0: MOV dword ptr [ECX + 0x4],0x0
+   0x0044c5a7: MOV EDX,dword ptr [EBP + -0x1c]
+   0x0044c5aa: PUSH EDX
+   0x0044c5ab: MOV ECX,dword ptr [EBP + -0x34]
+   0x0044c5ae: CALL 0x0044dde0
+   0x0044c5b3: MOV EAX,dword ptr [EBP + -0x20]
+   0x0044c5b6: MOV dword ptr [EBP + -0x1c],EAX
+   0x0044c5b9: JMP 0x0044c57e
+   0x0044c5bb: JMP 0x0044c545
+   0x0044c5bd: MOVZX ECX,byte ptr [EBP + 0x8]
+   0x0044c5c1: TEST ECX,ECX
+   0x0044c5c3: JNZ 0x0044c607
+   0x0044c5c5: PUSH 0x10
+   0x0044c5c7: CALL 0x00401000
+   0x0044c5cc: ADD ESP,0x4
+   0x0044c5cf: MOV dword ptr [EBP + -0x30],EAX
+   0x0044c5d2: MOV byte ptr [EBP + -0x4],0x1
+   0x0044c5d6: CMP dword ptr [EBP + -0x30],0x0
+   0x0044c5da: JZ 0x0044c5ed
+   0x0044c5dc: MOV EDX,dword ptr [EBP + -0x10]
+   0x0044c5df: PUSH EDX
+   0x0044c5e0: MOV ECX,dword ptr [EBP + -0x30]
+   0x0044c5e3: CALL 0x006c73b0
+   0x0044c5e8: MOV dword ptr [EBP + -0x3c],EAX
+   0x0044c5eb: JMP 0x0044c5f4
+   0x0044c5ed: MOV dword ptr [EBP + -0x3c],0x0
+   0x0044c5f4: MOV EAX,dword ptr [EBP + -0x3c]
+   0x0044c5f7: MOV dword ptr [EBP + -0x2c],EAX
+   0x0044c5fa: MOV byte ptr [EBP + -0x4],0x0
+   0x0044c5fe: MOV ECX,dword ptr [EBP + -0x34]
+   0x0044c601: MOV EDX,dword ptr [EBP + -0x2c]
+=> 0x0044c604: MOV dword ptr [ECX + 0x14],EDX
+   0x0044c607: MOV ECX,dword ptr [EBP + -0x34]
+   0x0044c60a: ADD ECX,0x20
+   0x0044c60d: CALL 0x0040fba0
+   0x0044c612: MOV dword ptr [EBP + -0x4],0xffffffff
+   0x0044c619: LEA ECX,[EBP + -0x14]
+   0x0044c61c: CALL 0x00404ee0
+   0x0044c621: MOV ECX,dword ptr [EBP + -0xc]
+   0x0044c624: MOV dword ptr FS:[0x0],ECX
+   0x0044c62b: POP ECX
+   0x0044c62c: MOV ESP,EBP
+   0x0044c62e: POP EBP
+   0x0044c62f: RET 0x4
+  Instructions printed: 126
+
+======================================================================
+LockFree map clear/reset @ 0x0044c480
+======================================================================
+  Function: FUN_0044c480 @ 0x0044c480, Size: 434 bytes
+
+void __thiscall FUN_0044c480(int param_1,char param_2)
+
+{
+  uint uVar1;
+  undefined4 uVar2;
+  int iVar3;
+  int *unaff_FS_OFFSET;
+  undefined4 local_40;
+  int local_20;
+  uint local_1c;
+  int local_10;
+  undefined1 *puStack_c;
+  int local_8;
+  
+  local_8 = 0xffffffff;
+  puStack_c = &LAB_00ef50b3;
+  local_10 = *unaff_FS_OFFSET;
+  uVar1 = DAT_011c16bc ^ (uint)&stack0xfffffffc;
+  *unaff_FS_OFFSET = (int)&local_10;
+  FUN_00404eb0(6,1,"d:\\_fallout3\\platforms\\common\\code\\bsmain\\ThreadSafeStructures.inl",0x42c)
+  ;
+  local_8 = 0;
+  if (*(int *)(param_1 + 0x14) == 0) {
+    local_8 = 0xffffffff;
+    FUN_00404ee0();
+  }
+  else {
+    FUN_0040fbf0(0);
+    uVar2 = FUN_00559450(uVar1);
+    if (*(int *)(param_1 + 0x14) != 0) {
+      FUN_00666570(1);
+    }
+    *(undefined4 *)(param_1 + 0x14) = 0;
+    *(undefined4 *)(param_1 + 0x18) = 0;
+    for (local_1c = 0; local_1c < *(uint *)(param_1 + 8); local_1c = local_1c + 1) {
+      local_20 = FUN_0044dec0();
+      FUN_006665a0();
+      while (local_20 != 0) {
+        iVar3 = FUN_0044dec0();
+        FUN_006665a0();
+        *(undefined4 *)(local_20 + 4) = 0;
+        FUN_0044dde0(local_20);
+        local_20 = iVar3;
+      }
+    }
+    if (param_2 == '\0') {
+      iVar3 = FUN_00401000(0x10);
+      local_8._0_1_ = 1;
+      if (iVar3 == 0) {
+        local_40 = 0;
+      }
+      else {
+        local_40 = FUN_006c73b0(uVar2);
+      }
+      local_8 = (uint)local_8._1_3_ << 8;
+      *(undefined4 *)(param_1 + 0x14) = local_40;
+    }
+    FUN_0040fba0();
+    local_8 = 0xffffffff;
+    FUN_00404ee0();
+  }
+  *unaff_FS_OFFSET = local_10;
+  return;
+}
+
+
+
+----------------------------------------------------------------------
+Calls FROM LockFree map clear/reset (0x0044c480)
+----------------------------------------------------------------------
+  0x0044c4b9 -> 0x00404eb0 FUN_00404eb0 @ 0x00404eb0
+  0x0044c4d8 -> 0x00404ee0 FUN_00404ee0 @ 0x00404ee0
+  0x0044c4ea -> 0x0040fbf0 FUN_0040fbf0 @ 0x0040fbf0
+  0x0044c4f5 -> 0x00559450 FUN_00559450 @ 0x00559450
+  0x0044c517 -> 0x00666570 FUN_00666570 @ 0x00666570
+  0x0044c565 -> 0x0044dec0 FUN_0044dec0 @ 0x0044dec0
+  0x0044c579 -> 0x006665a0 FUN_006665a0 @ 0x006665a0
+  0x0044c58a -> 0x0044dec0 FUN_0044dec0 @ 0x0044dec0
+  0x0044c598 -> 0x006665a0 FUN_006665a0 @ 0x006665a0
+  0x0044c5ae -> 0x0044dde0 FUN_0044dde0 @ 0x0044dde0
+  0x0044c5c7 -> 0x00401000 FUN_00401000 @ 0x00401000
+  0x0044c5e3 -> 0x006c73b0 FUN_006c73b0 @ 0x006c73b0
+  0x0044c60d -> 0x0040fba0 FUN_0040fba0 @ 0x0040fba0
+  0x0044c61c -> 0x00404ee0 FUN_00404ee0 @ 0x00404ee0
+  Total printed: 14
+
+----------------------------------------------------------------------
+Field/disasm scan: LockFree map clear/reset
+----------------------------------------------------------------------
+  0x0044c4c8: CMP dword ptr [EAX + 0x14],0x0
+  0x0044c4f2: MOV ECX,dword ptr [ECX + 0x14]
+  0x0044c4f5: CALL 0x00559450
+  0x0044c500: MOV EAX,dword ptr [EDX + 0x14]
+  0x0044c52b: MOV dword ptr [EDX + 0x14],0x0
+  0x0044c535: MOV dword ptr [EAX + 0x18],0x0
+  0x0044c604: MOV dword ptr [ECX + 0x14],EDX
+  Total matches: 7
+
+======================================================================
+LockFree map constructor/init @ 0x0044c040
+======================================================================
+  Function: FUN_0044c040 @ 0x0044c040, Size: 381 bytes
+
+undefined4 * __thiscall
+FUN_0044c040(undefined4 *param_1,int param_2,undefined4 param_3,undefined4 param_4)
+
+{
+  longlong lVar1;
+  uint uVar2;
+  undefined4 uVar3;
+  int iVar4;
+  int *unaff_FS_OFFSET;
+  undefined4 local_38;
+  void *local_34;
+  int local_10;
+  undefined1 *puStack_c;
+  int local_8;
+  
+  local_8 = 0xffffffff;
+  puStack_c = &LAB_00eecf76;
+  local_10 = *unaff_FS_OFFSET;
+  uVar2 = DAT_011c16bc ^ (uint)&stack0xfffffffc;
+  *unaff_FS_OFFSET = (int)&local_10;
+  FUN_0044d7f0(uVar2);
+  local_8 = 0;
+  *param_1 = &PTR_FUN_010175bc;
+  Concurrency::details::QuickBitSet::QuickBitSet((QuickBitSet *)(param_1 + 8));
+  FUN_00404eb0(6,1,"d:\\_fallout3\\platforms\\common\\code\\bsmain\\ThreadSafeStructures.inl",0x390)
+  ;
+  local_8._0_1_ = 1;
+  param_1[6] = 0;
+  param_1[2] = param_3;
+  uVar2 = param_1[2];
+  lVar1 = (ulonglong)uVar2 * 4;
+  local_34 = (void *)FUN_00401000(-(uint)((int)((ulonglong)lVar1 >> 0x20) != 0) | (uint)lVar1);
+  local_8._0_1_ = 2;
+  if (local_34 == (void *)0x0) {
+    local_34 = (void *)0x0;
+  }
+  else {
+    _vector_constructor_iterator_(local_34,4,uVar2,FUN_0044dee0);
+  }
+  local_8._0_1_ = 1;
+  param_1[3] = local_34;
+  lVar1 = (ulonglong)(uint)(param_2 * 3) * 4;
+  uVar3 = FUN_00401000(-(uint)((int)((ulonglong)lVar1 >> 0x20) != 0) | (uint)lVar1);
+  param_1[1] = uVar3;
+  param_1[4] = param_4;
+  iVar4 = FUN_00401000(0x10);
+  local_8._0_1_ = 3;
+  if (iVar4 == 0) {
+    local_38 = 0;
+  }
+  else {
+    local_38 = FUN_006c73b0(param_2);
+  }
+  param_1[5] = local_38;
+  local_8 = (uint)local_8._1_3_ << 8;
+  FUN_00404ee0();
+  *unaff_FS_OFFSET = local_10;
+  return param_1;
+}
+
+
+
+----------------------------------------------------------------------
+Calls FROM LockFree map constructor/init (0x0044c040)
+----------------------------------------------------------------------
+  0x0044c06b -> 0x0044d7f0 FUN_0044d7f0 @ 0x0044d7f0
+  0x0044c086 -> 0x0096a2d0 QuickBitSet @ 0x0096a2d0
+  0x0044c09c -> 0x00404eb0 FUN_00404eb0 @ 0x00404eb0
+  0x0044c0d5 -> 0x00401000 FUN_00401000 @ 0x00401000
+  0x0044c0f9 -> 0x00401050 `vector_constructor_iterator' @ 0x00401050
+  0x0044c137 -> 0x00401000 FUN_00401000 @ 0x00401000
+  0x0044c156 -> 0x00401000 FUN_00401000 @ 0x00401000
+  0x0044c172 -> 0x006c73b0 FUN_006c73b0 @ 0x006c73b0
+  0x0044c19d -> 0x00404ee0 FUN_00404ee0 @ 0x00404ee0
+  Total printed: 9
+
+----------------------------------------------------------------------
+Field/disasm scan: LockFree map constructor/init
+----------------------------------------------------------------------
+  0x0044c0a8: MOV dword ptr [ECX + 0x18],0x0
+  0x0044c193: MOV dword ptr [EAX + 0x14],ECX
+  Total matches: 2
+
+======================================================================
+LockFree map destructor/finalize @ 0x0044c1e0
+======================================================================
+  Function: FUN_0044c1e0 @ 0x0044c1e0, Size: 138 bytes
+
+void __fastcall FUN_0044c1e0(undefined4 *param_1)
+
+{
+  uint uVar1;
+  int *unaff_FS_OFFSET;
+  int local_10;
+  undefined1 *puStack_c;
+  undefined4 local_8;
+  
+  puStack_c = &LAB_00eed038;
+  local_10 = *unaff_FS_OFFSET;
+  uVar1 = DAT_011c16bc ^ (uint)&stack0xfffffffc;
+  *unaff_FS_OFFSET = (int)&local_10;
+  *param_1 = &PTR_FUN_010175bc;
+  local_8 = 0;
+  FUN_0044c480(1);
+  FUN_00401030(param_1[3],uVar1);
+  FUN_00401030(param_1[1]);
+  local_8 = 0xffffffff;
+  FUN_0044b4b0();
+  *unaff_FS_OFFSET = local_10;
+  return;
+}
+
+
+
+----------------------------------------------------------------------
+Calls FROM LockFree map destructor/finalize (0x0044c1e0)
+----------------------------------------------------------------------
+  0x0044c21d -> 0x0044c480 FUN_0044c480 @ 0x0044c480
+  0x0044c22f -> 0x00401030 FUN_00401030 @ 0x00401030
+  0x0044c244 -> 0x00401030 FUN_00401030 @ 0x00401030
+  0x0044c256 -> 0x0044b4b0 FUN_0044b4b0 @ 0x0044b4b0
+  Total printed: 4
+
+----------------------------------------------------------------------
+Field/disasm scan: LockFree map destructor/finalize
+----------------------------------------------------------------------
+  0x0044c21d: CALL 0x0044c480
+  0x0044c22f: CALL 0x00401030
+  0x0044c244: CALL 0x00401030
+  Total matches: 3
+
+======================================================================
+LockFree map constructor/init variant @ 0x0044c270
+======================================================================
+  Function: FUN_0044c270 @ 0x0044c270, Size: 381 bytes
+
+undefined4 * __thiscall
+FUN_0044c270(undefined4 *param_1,int param_2,undefined4 param_3,undefined4 param_4)
+
+{
+  longlong lVar1;
+  uint uVar2;
+  undefined4 uVar3;
+  int iVar4;
+  int *unaff_FS_OFFSET;
+  undefined4 local_38;
+  void *local_34;
+  int local_10;
+  undefined1 *puStack_c;
+  int local_8;
+  
+  local_8 = 0xffffffff;
+  puStack_c = &LAB_00eecf76;
+  local_10 = *unaff_FS_OFFSET;
+  uVar2 = DAT_011c16bc ^ (uint)&stack0xfffffffc;
+  *unaff_FS_OFFSET = (int)&local_10;
+  FUN_0044d7f0(uVar2);
+  local_8 = 0;
+  *param_1 = &PTR_FUN_0101760c;
+  Concurrency::details::QuickBitSet::QuickBitSet((QuickBitSet *)(param_1 + 8));
+  FUN_00404eb0(6,1,"d:\\_fallout3\\platforms\\common\\code\\bsmain\\ThreadSafeStructures.inl",0x390)
+  ;
+  local_8._0_1_ = 1;
+  param_1[6] = 0;
+  param_1[2] = param_3;
+  uVar2 = param_1[2];
+  lVar1 = (ulonglong)uVar2 * 4;
+  local_34 = (void *)FUN_00401000(-(uint)((int)((ulonglong)lVar1 >> 0x20) != 0) | (uint)lVar1);
+  local_8._0_1_ = 2;
+  if (local_34 == (void *)0x0) {
+    local_34 = (void *)0x0;
+  }
+  else {
+    _vector_constructor_iterator_(local_34,4,uVar2,FUN_0044dee0);
+  }
+  local_8._0_1_ = 1;
+  param_1[3] = local_34;
+  lVar1 = (ulonglong)(uint)(param_2 * 3) * 4;
+  uVar3 = FUN_00401000(-(uint)((int)((ulonglong)lVar1 >> 0x20) != 0) | (uint)lVar1);
+  param_1[1] = uVar3;
+  param_1[4] = param_4;
+  iVar4 = FUN_00401000(0x10);
+  local_8._0_1_ = 3;
+  if (iVar4 == 0) {
+    local_38 = 0;
+  }
+  else {
+    local_38 = FUN_006c73b0(param_2);
+  }
+  param_1[5] = local_38;
+  local_8 = (uint)local_8._1_3_ << 8;
+  FUN_00404ee0();
+  *unaff_FS_OFFSET = local_10;
+  return param_1;
+}
+
+
+
+----------------------------------------------------------------------
+Calls FROM LockFree map constructor/init variant (0x0044c270)
+----------------------------------------------------------------------
+  0x0044c29b -> 0x0044d7f0 FUN_0044d7f0 @ 0x0044d7f0
+  0x0044c2b6 -> 0x0096a2d0 QuickBitSet @ 0x0096a2d0
+  0x0044c2cc -> 0x00404eb0 FUN_00404eb0 @ 0x00404eb0
+  0x0044c305 -> 0x00401000 FUN_00401000 @ 0x00401000
+  0x0044c329 -> 0x00401050 `vector_constructor_iterator' @ 0x00401050
+  0x0044c367 -> 0x00401000 FUN_00401000 @ 0x00401000
+  0x0044c386 -> 0x00401000 FUN_00401000 @ 0x00401000
+  0x0044c3a2 -> 0x006c73b0 FUN_006c73b0 @ 0x006c73b0
+  0x0044c3cd -> 0x00404ee0 FUN_00404ee0 @ 0x00404ee0
+  Total printed: 9
+
+----------------------------------------------------------------------
+Field/disasm scan: LockFree map constructor/init variant
+----------------------------------------------------------------------
+  0x0044c2d8: MOV dword ptr [ECX + 0x18],0x0
+  0x0044c3c3: MOV dword ptr [EAX + 0x14],ECX
+  Total matches: 2
+
+======================================================================
+LockFree map clear/rebuild variant @ 0x0044c3f0
+======================================================================
+  Function: FUN_0044c3f0 @ 0x0044c3f0, Size: 138 bytes
+
+void __fastcall FUN_0044c3f0(undefined4 *param_1)
+
+{
+  uint uVar1;
+  int *unaff_FS_OFFSET;
+  int local_10;
+  undefined1 *puStack_c;
+  undefined4 local_8;
+  
+  puStack_c = &LAB_00eed038;
+  local_10 = *unaff_FS_OFFSET;
+  uVar1 = DAT_011c16bc ^ (uint)&stack0xfffffffc;
+  *unaff_FS_OFFSET = (int)&local_10;
+  *param_1 = &PTR_FUN_0101760c;
+  local_8 = 0;
+  FUN_0044c480(1);
+  FUN_00401030(param_1[3],uVar1);
+  FUN_00401030(param_1[1]);
+  local_8 = 0xffffffff;
+  FUN_0044b4b0();
+  *unaff_FS_OFFSET = local_10;
+  return;
+}
+
+
+
+----------------------------------------------------------------------
+Calls FROM LockFree map clear/rebuild variant (0x0044c3f0)
+----------------------------------------------------------------------
+  0x0044c42d -> 0x0044c480 FUN_0044c480 @ 0x0044c480
+  0x0044c43f -> 0x00401030 FUN_00401030 @ 0x00401030
+  0x0044c454 -> 0x00401030 FUN_00401030 @ 0x00401030
+  0x0044c466 -> 0x0044b4b0 FUN_0044b4b0 @ 0x0044b4b0
+  Total printed: 4
+
+----------------------------------------------------------------------
+Field/disasm scan: LockFree map clear/rebuild variant
+----------------------------------------------------------------------
+  0x0044c42d: CALL 0x0044c480
+  0x0044c43f: CALL 0x00401030
+  0x0044c454: CALL 0x00401030
+  Total matches: 3
+
+======================================================================
+LockFree map clear caller variant @ 0x0044cae0
+======================================================================
+  Function: FUN_0044cae0 @ 0x0044cae0, Size: 138 bytes
+
+void __fastcall FUN_0044cae0(undefined4 *param_1)
+
+{
+  uint uVar1;
+  int *unaff_FS_OFFSET;
+  int local_10;
+  undefined1 *puStack_c;
+  undefined4 local_8;
+  
+  puStack_c = &LAB_00eed038;
+  local_10 = *unaff_FS_OFFSET;
+  uVar1 = DAT_011c16bc ^ (uint)&stack0xfffffffc;
+  *unaff_FS_OFFSET = (int)&local_10;
+  *param_1 = &PTR_FUN_010176ac;
+  local_8 = 0;
+  FUN_0044c480(1);
+  FUN_00401030(param_1[3],uVar1);
+  FUN_00401030(param_1[1]);
+  local_8 = 0xffffffff;
+  FUN_0044b4b0();
+  *unaff_FS_OFFSET = local_10;
+  return;
+}
+
+
+
+----------------------------------------------------------------------
+Calls FROM LockFree map clear caller variant (0x0044cae0)
+----------------------------------------------------------------------
+  0x0044cb1d -> 0x0044c480 FUN_0044c480 @ 0x0044c480
+  0x0044cb2f -> 0x00401030 FUN_00401030 @ 0x00401030
+  0x0044cb44 -> 0x00401030 FUN_00401030 @ 0x00401030
+  0x0044cb56 -> 0x0044b4b0 FUN_0044b4b0 @ 0x0044b4b0
+  Total printed: 4
+
+----------------------------------------------------------------------
+Field/disasm scan: LockFree map clear caller variant
+----------------------------------------------------------------------
+  0x0044cb1d: CALL 0x0044c480
+  0x0044cb2f: CALL 0x00401030
+  0x0044cb44: CALL 0x00401030
+  Total matches: 3
+
+======================================================================
+QueuedReference map constructor helper @ 0x0044d7f0
+======================================================================
+  Function: FUN_0044d7f0 @ 0x0044d7f0, Size: 23 bytes
+
+undefined4 * __fastcall FUN_0044d7f0(undefined4 *param_1)
+
+{
+  *param_1 = &PTR_FUN_01017458;
+  return param_1;
+}
+
+
+
+----------------------------------------------------------------------
+Calls FROM QueuedReference map constructor helper (0x0044d7f0)
+----------------------------------------------------------------------
+  Total printed: 0
+
+----------------------------------------------------------------------
+Field/disasm scan: QueuedReference map constructor helper
+----------------------------------------------------------------------
+  Total matches: 0
+
+======================================================================
+QueuedReference map destructor @ 0x0044d8f0
+======================================================================
+  Function: FUN_0044d8f0 @ 0x0044d8f0, Size: 138 bytes
+
+void __fastcall FUN_0044d8f0(undefined4 *param_1)
+
+{
+  uint uVar1;
+  int *unaff_FS_OFFSET;
+  int local_10;
+  undefined1 *puStack_c;
+  undefined4 local_8;
+  
+  puStack_c = &LAB_00eed038;
+  local_10 = *unaff_FS_OFFSET;
+  uVar1 = DAT_011c16bc ^ (uint)&stack0xfffffffc;
+  *unaff_FS_OFFSET = (int)&local_10;
+  *param_1 = &PTR_FUN_0101747c;
+  local_8 = 0;
+  FUN_00528e40(1);
+  FUN_00401030(param_1[3],uVar1);
+  FUN_00401030(param_1[1]);
+  local_8 = 0xffffffff;
+  FUN_0044b4b0();
+  *unaff_FS_OFFSET = local_10;
+  return;
+}
+
+
+
+----------------------------------------------------------------------
+Calls FROM QueuedReference map destructor (0x0044d8f0)
+----------------------------------------------------------------------
+  0x0044d92d -> 0x00528e40 FUN_00528e40 @ 0x00528e40
+  0x0044d93f -> 0x00401030 FUN_00401030 @ 0x00401030
+  0x0044d954 -> 0x00401030 FUN_00401030 @ 0x00401030
+  0x0044d966 -> 0x0044b4b0 FUN_0044b4b0 @ 0x0044b4b0
+  Total printed: 4
+
+----------------------------------------------------------------------
+Field/disasm scan: QueuedReference map destructor
+----------------------------------------------------------------------
+  0x0044d93f: CALL 0x00401030
+  0x0044d954: CALL 0x00401030
+  Total matches: 2
+
+======================================================================
+QueuedReference map clear helper @ 0x00528e40
+======================================================================
+  Function: FUN_00528e40 @ 0x00528e40, Size: 437 bytes
+
+void __thiscall FUN_00528e40(int param_1,char param_2)
+
+{
+  uint uVar1;
+  undefined4 uVar2;
+  int iVar3;
+  int *unaff_FS_OFFSET;
+  undefined4 local_40;
+  int local_20;
+  uint local_1c;
+  int local_10;
+  undefined1 *puStack_c;
+  int local_8;
+  
+  local_8 = 0xffffffff;
+  puStack_c = &LAB_00ef50b3;
+  local_10 = *unaff_FS_OFFSET;
+  uVar1 = DAT_011c16bc ^ (uint)&stack0xfffffffc;
+  *unaff_FS_OFFSET = (int)&local_10;
+  FUN_00404eb0(6,1,"d:\\_fallout3\\platforms\\common\\code\\bsmain\\ThreadSafeStructures.inl",0x42c)
+  ;
+  local_8 = 0;
+  if (*(int *)(param_1 + 0x14) == 0) {
+    local_8 = 0xffffffff;
+    FUN_00404ee0();
+  }
+  else {
+    FUN_0040fbf0(0);
+    uVar2 = FUN_00559450(uVar1);
+    if (*(int *)(param_1 + 0x14) != 0) {
+      FUN_00529300(1);
+    }
+    *(undefined4 *)(param_1 + 0x14) = 0;
+    *(undefined4 *)(param_1 + 0x18) = 0;
+    for (local_1c = 0; local_1c < *(uint *)(param_1 + 8); local_1c = local_1c + 1) {
+      local_20 = FUN_0044dec0();
+      FUN_006665a0();
+      while (local_20 != 0) {
+        iVar3 = FUN_0044dec0();
+        FUN_006665a0();
+        FUN_006f74f0(0);
+        FUN_0044edd0(local_20);
+        local_20 = iVar3;
+      }
+    }
+    if (param_2 == '\0') {
+      iVar3 = FUN_00401000(0x10);
+      local_8._0_1_ = 1;
+      if (iVar3 == 0) {
+        local_40 = 0;
+      }
+      else {
+        local_40 = FUN_006c73b0(uVar2);
+      }
+      local_8 = (uint)local_8._1_3_ << 8;
+      *(undefined4 *)(param_1 + 0x14) = local_40;
+    }
+    FUN_0040fba0();
+    local_8 = 0xffffffff;
+    FUN_00404ee0();
+  }
+  *unaff_FS_OFFSET = local_10;
+  return;
+}
+
+
+
+----------------------------------------------------------------------
+Calls FROM QueuedReference map clear helper (0x00528e40)
+----------------------------------------------------------------------
+  0x00528e79 -> 0x00404eb0 FUN_00404eb0 @ 0x00404eb0
+  0x00528e98 -> 0x00404ee0 FUN_00404ee0 @ 0x00404ee0
+  0x00528eaa -> 0x0040fbf0 FUN_0040fbf0 @ 0x0040fbf0
+  0x00528eb5 -> 0x00559450 FUN_00559450 @ 0x00559450
+  0x00528ed7 -> 0x00529300 FUN_00529300 @ 0x00529300
+  0x00528f25 -> 0x0044dec0 FUN_0044dec0 @ 0x0044dec0
+  0x00528f39 -> 0x006665a0 FUN_006665a0 @ 0x006665a0
+  0x00528f4a -> 0x0044dec0 FUN_0044dec0 @ 0x0044dec0
+  0x00528f58 -> 0x006665a0 FUN_006665a0 @ 0x006665a0
+  0x00528f65 -> 0x006f74f0 FUN_006f74f0 @ 0x006f74f0
+  0x00528f71 -> 0x0044edd0 FUN_0044edd0 @ 0x0044edd0
+  0x00528f8a -> 0x00401000 FUN_00401000 @ 0x00401000
+  0x00528fa6 -> 0x006c73b0 FUN_006c73b0 @ 0x006c73b0
+  0x00528fd0 -> 0x0040fba0 FUN_0040fba0 @ 0x0040fba0
+  0x00528fdf -> 0x00404ee0 FUN_00404ee0 @ 0x00404ee0
+  Total printed: 15
+
+----------------------------------------------------------------------
+Field/disasm scan: QueuedReference map clear helper
+----------------------------------------------------------------------
+  0x00528e88: CMP dword ptr [EAX + 0x14],0x0
+  0x00528eb2: MOV ECX,dword ptr [ECX + 0x14]
+  0x00528eb5: CALL 0x00559450
+  0x00528ec0: MOV EAX,dword ptr [EDX + 0x14]
+  0x00528eeb: MOV dword ptr [EDX + 0x14],0x0
+  0x00528ef5: MOV dword ptr [EAX + 0x18],0x0
+  0x00528fc7: MOV dword ptr [EAX + 0x14],ECX
+  Total matches: 7
+
+======================================================================
+LockFree map bucket/count helper @ 0x0044ddc0
+======================================================================
+  Function: FUN_0044ddc0 @ 0x0044ddc0, Size: 17 bytes
+
+undefined4 __fastcall FUN_0044ddc0(int param_1)
+
+{
+  return *(undefined4 *)(param_1 + 8);
+}
+
+
+
+----------------------------------------------------------------------
+Calls FROM LockFree map bucket/count helper (0x0044ddc0)
+----------------------------------------------------------------------
+  Total printed: 0
+
+----------------------------------------------------------------------
+Field/disasm scan: LockFree map bucket/count helper
+----------------------------------------------------------------------
+  Total matches: 0
+
+======================================================================
+LockFree map node read helper @ 0x0044dec0
+======================================================================
+  Function: FUN_0044dec0 @ 0x0044dec0, Size: 19 bytes
+
+uint __fastcall FUN_0044dec0(uint *param_1)
+
+{
+  return *param_1 & 0xfffffffe;
+}
+
+
+
+----------------------------------------------------------------------
+Calls FROM LockFree map node read helper (0x0044dec0)
+----------------------------------------------------------------------
+  Total printed: 0
+
+----------------------------------------------------------------------
+Field/disasm scan: LockFree map node read helper
+----------------------------------------------------------------------
+  Total matches: 0
+
+======================================================================
+LockFree map node free helper @ 0x0044dde0
+======================================================================
+  Function: FUN_0044dde0 @ 0x0044dde0, Size: 52 bytes
+
+void __thiscall FUN_0044dde0(int *param_1,undefined4 *param_2)
+
+{
+  (**(code **)(*param_1 + 0x28))(*param_2);
+  FUN_00401030(param_2);
+  return;
+}
+
+
+
+----------------------------------------------------------------------
+Calls FROM LockFree map node free helper (0x0044dde0)
+----------------------------------------------------------------------
+  0x0044de06 -> 0x00401030 FUN_00401030 @ 0x00401030
+  Total printed: 1
+
+----------------------------------------------------------------------
+Field/disasm scan: LockFree map node free helper
+----------------------------------------------------------------------
+  0x0044de06: CALL 0x00401030
+  Total matches: 1
+
+======================================================================
+replacement holder allocator from clear/reset @ 0x006c73b0
+======================================================================
+  Function: FUN_006c73b0 @ 0x006c73b0, Size: 233 bytes
+
+uint * __thiscall FUN_006c73b0(uint *param_1,uint param_2)
+
+{
+  longlong lVar1;
+  uint uVar2;
+  uint uVar3;
+  int *unaff_FS_OFFSET;
+  void *local_28;
+  int local_10;
+  undefined1 *puStack_c;
+  int local_8;
+  
+  local_8 = 0xffffffff;
+  puStack_c = &LAB_00f16bc3;
+  local_10 = *unaff_FS_OFFSET;
+  uVar2 = DAT_011c16bc ^ (uint)&stack0xfffffffc;
+  *unaff_FS_OFFSET = (int)&local_10;
+  FUN_00404eb0(6,1,"d:\\_fallout3\\platforms\\common\\code\\bsmain\\ThreadSafeStructures.inl",0x14);
+  local_8 = 0;
+  param_1[3] = 0;
+  *param_1 = param_2;
+  uVar3 = *param_1;
+  lVar1 = (ulonglong)uVar3 * 8;
+  local_28 = (void *)FUN_00401000(-(uint)((int)((ulonglong)lVar1 >> 0x20) != 0) | (uint)lVar1,uVar2)
+  ;
+  local_8._0_1_ = 1;
+  if (local_28 == (void *)0x0) {
+    local_28 = (void *)0x0;
+  }
+  else {
+    _vector_constructor_iterator_(local_28,8,uVar3,Concurrency::details::QuickBitSet::QuickBitSet);
+  }
+  local_8 = (uint)local_8._1_3_ << 8;
+  param_1[2] = (uint)local_28;
+  uVar3 = FUN_0044e330();
+  param_1[1] = uVar3;
+  local_8 = 0xffffffff;
+  FUN_00404ee0();
+  *unaff_FS_OFFSET = local_10;
+  return param_1;
+}
+
+
+
+----------------------------------------------------------------------
+Calls FROM replacement holder allocator from clear/reset (0x006c73b0)
+----------------------------------------------------------------------
+  0x006c73e6 -> 0x00404eb0 FUN_00404eb0 @ 0x00404eb0
+  0x006c7420 -> 0x00401000 FUN_00401000 @ 0x00401000
+  0x006c7444 -> 0x00401050 `vector_constructor_iterator' @ 0x00401050
+  0x006c746b -> 0x0044e330 FUN_0044e330 @ 0x0044e330
+  0x006c7480 -> 0x00404ee0 FUN_00404ee0 @ 0x00404ee0
+  Total printed: 5
+
+----------------------------------------------------------------------
+Field/disasm scan: replacement holder allocator from clear/reset
+----------------------------------------------------------------------
+  Total matches: 0
+
+======================================================================
+CALLERS TO LOCKFREE MAP CLEAR 0x0044C480
+======================================================================
+  0x006ec8ad -> 0x0044c480 from FUN_006ec870 @ 0x006ec870
+  0x006eb5f7 -> 0x0044c480 from FUN_006eb440 @ 0x006eb440
+  0x00449c8b -> 0x0044c480 from FUN_00449c50 @ 0x00449c50
+  0x0044c21d -> 0x0044c480 from FUN_0044c1e0 @ 0x0044c1e0
+  0x00449d9b -> 0x0044c480 from FUN_00449d60 @ 0x00449d60
+  0x0044c42d -> 0x0044c480 from FUN_0044c3f0 @ 0x0044c3f0
+  0x00449efb -> 0x0044c480 from FUN_00449ec0 @ 0x00449ec0
+  0x0044cb1d -> 0x0044c480 from FUN_0044cae0 @ 0x0044cae0
+  0x0066621d -> 0x0044c480 from FUN_006661e0 @ 0x006661e0
+  Total callers printed: 9
+
+----------------------------------------------------------------------
+References TO 0x0044c480 (LockFree map clear/reset)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x006ec8ad (in FUN_006ec870 @ 0x006ec870)
+  UNCONDITIONAL_CALL @ 0x006eb5f7 (in FUN_006eb440 @ 0x006eb440)
+  UNCONDITIONAL_CALL @ 0x00449c8b (in FUN_00449c50 @ 0x00449c50)
+  UNCONDITIONAL_CALL @ 0x0044c21d (in FUN_0044c1e0 @ 0x0044c1e0)
+  UNCONDITIONAL_CALL @ 0x00449d9b (in FUN_00449d60 @ 0x00449d60)
+  UNCONDITIONAL_CALL @ 0x0044c42d (in FUN_0044c3f0 @ 0x0044c3f0)
+  UNCONDITIONAL_CALL @ 0x00449efb (in FUN_00449ec0 @ 0x00449ec0)
+  UNCONDITIONAL_CALL @ 0x0044cb1d (in FUN_0044cae0 @ 0x0044cae0)
+  UNCONDITIONAL_CALL @ 0x0066621d (in FUN_006661e0 @ 0x006661e0)
+  Total printed: 9
+
+======================================================================
+END CRASH 0x00559456 LOCKFREE MAP FIELD CONTRACT AUDIT
+======================================================================

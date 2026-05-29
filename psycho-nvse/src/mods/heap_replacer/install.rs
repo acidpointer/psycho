@@ -115,6 +115,17 @@ pub fn install_gheap_initialize() -> anyhow::Result<()> {
         )?;
     }
 
+    // ProcessDeferredDestruction reuse guard
+    {
+        use gheap::statics::*;
+
+        PDD_HOOK.init(
+            "pdd_reuse_guard",
+            PDD_ADDR as *mut c_void,
+            gheap::hooks::hook_pdd_guard,
+        )?;
+    }
+
     // ai thread sync
     {
         use gheap::statics::*;
@@ -167,6 +178,23 @@ pub fn install_gheap_initialize() -> anyhow::Result<()> {
             TASK_RELEASE_ADDR as *mut c_void,
             gheap::task_release::hook_task_release,
         )?;
+
+        MODEL_TASK_DTOR_HOOK.init(
+            "model_task_dtor_guard",
+            MODEL_TASK_DTOR_ADDR as *mut c_void,
+            gheap::model_task_fix::hook_model_task_dtor,
+        )?;
+    }
+
+    // Navmesh/pathfinding invalid endpoint guard
+    {
+        use gheap::statics::*;
+
+        NAVMESH_NAME_HELPER_HOOK.init(
+            "navmesh_name_helper_guard",
+            NAVMESH_NAME_HELPER_ADDR as *mut c_void,
+            gheap::navmesh_fix::hook_navmesh_name_helper,
+        )?;
     }
 
     // CRT inline hooks
@@ -217,10 +245,20 @@ pub fn install_gheap_initialize() -> anyhow::Result<()> {
         )?;
     }
 
-    // havok vanilla-bug shim (NULL hkpEntity in addEntityBatch result array)
+    // Havok vanilla-bug shims: sparse pending-add/broadphase arrays.
     {
         use gheap::statics::*;
 
+        HAVOK_ADD_ENTITY_BATCH_HOOK.init(
+            "havok_add_entity_batch",
+            HAVOK_ADD_ENTITY_BATCH_ADDR as *mut c_void,
+            gheap::havok_fix::hook_havok_add_entity_batch,
+        )?;
+        HAVOK_PENDING_ADD_FLUSH_HOOK.init(
+            "havok_pending_add_flush",
+            HAVOK_PENDING_ADD_FLUSH_ADDR as *mut c_void,
+            gheap::havok_fix::hook_havok_pending_add_flush,
+        )?;
         HAVOK_NARROWPHASE_ADD_AGENTS_HOOK.init(
             "havok_narrowphase_add_agents",
             HAVOK_NARROWPHASE_ADD_AGENTS_ADDR as *mut c_void,
@@ -231,6 +269,7 @@ pub fn install_gheap_initialize() -> anyhow::Result<()> {
             HAVOK_ENTITY_POST_ADD_ADDR as *mut c_void,
             gheap::havok_fix::hook_havok_entity_post_add,
         )?;
+        gheap::havok_fix::install_pending_add_loop_null_guard()?;
     }
 
     // game-inlined _memset NULL-dst defensive shim
@@ -281,6 +320,14 @@ pub fn install_gheap_activate() -> anyhow::Result<()> {
         log::info!("[HOOKS] Frame hooks active");
     }
 
+    // ProcessDeferredDestruction reuse guard
+    {
+        use gheap::statics::*;
+
+        PDD_HOOK.enable()?;
+        log::info!("[PDD] Destruction reuse guard active");
+    }
+
     // ai sync
     {
         use gheap::statics::*;
@@ -312,7 +359,16 @@ pub fn install_gheap_activate() -> anyhow::Result<()> {
         use super::gheap::statics::*;
 
         TASK_RELEASE_HOOK.enable()?;
-        log::info!("[TASK_RELEASE] Guard hook active");
+        MODEL_TASK_DTOR_HOOK.enable()?;
+        log::info!("[TASK_RELEASE] Guard hooks active");
+    }
+
+    // Navmesh/pathfinding invalid endpoint guard
+    {
+        use super::gheap::statics::*;
+
+        NAVMESH_NAME_HELPER_HOOK.enable()?;
+        log::info!("[NAVMESH] Low endpoint pointer guard active");
     }
 
     // CRT IAT
@@ -355,13 +411,15 @@ pub fn install_gheap_activate() -> anyhow::Result<()> {
         log::info!("[HAVOK] World lock hooks active");
     }
 
-    // havok vanilla-bug shim
+    // Havok vanilla-bug shims.
     {
         use gheap::statics::*;
 
+        HAVOK_ADD_ENTITY_BATCH_HOOK.enable()?;
+        HAVOK_PENDING_ADD_FLUSH_HOOK.enable()?;
         HAVOK_NARROWPHASE_ADD_AGENTS_HOOK.enable()?;
         HAVOK_ENTITY_POST_ADD_HOOK.enable()?;
-        log::info!("[HAVOK] Narrowphase pair guards active");
+        log::info!("[HAVOK] Add-batch, pending-add, broadphase, and narrowphase guards active");
     }
 
     // _memset NULL-dst defensive shim

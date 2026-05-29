@@ -28,7 +28,7 @@ impl Region {
         let ptr = unsafe { libmimalloc::mi_malloc_aligned(capacity, align) };
         let start = NonNull::new(ptr as *mut u8)?;
 
-        mem_stats::global().sbm2_add(capacity as u64);
+        mem_stats::global().scrap_heap_add(capacity as u64);
 
         Some(Self {
             start,
@@ -76,6 +76,6 @@ impl Drop for Region {
         unsafe {
             libmimalloc::mi_free(self.start.as_ptr() as *mut c_void);
         }
-        mem_stats::global().sbm2_sub(self.capacity as u64);
+        mem_stats::global().scrap_heap_sub(self.capacity as u64);
     }
 }
