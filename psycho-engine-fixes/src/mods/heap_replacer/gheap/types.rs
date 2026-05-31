@@ -86,6 +86,22 @@ pub type ModelTaskDtorFn = unsafe extern "thiscall" fn(*mut c_void, u32) -> *mut
 /// ECX is expected to be a NavMeshInfo-like object pointer.
 pub type NavmeshNameHelperFn = unsafe extern "fastcall" fn(*mut c_void) -> *mut c_void;
 
+// ---- ExtraContainerChanges::EntryData save/load guards ----
+
+/// FUN_004D4090: saves the EntryData list owned by ExtraContainerChanges.
+/// `this` is the list object; arg is the save buffer.
+pub type EntryDataListSaveFn = unsafe extern "thiscall" fn(*mut c_void, *mut c_void);
+
+/// FUN_004BEE00: loads one EntryData body from the save buffer.
+/// `this` is EntryData; arg is the load buffer.
+pub type EntryDataLoadFn = unsafe extern "thiscall" fn(*mut c_void, *mut c_void);
+
+// ---- ExtraOwnership load/access guard ----
+
+/// FUN_00410220: BaseExtraList::GetByType.
+/// `this` is BaseExtraList, arg is the requested BSExtraData type.
+pub type BaseExtraListGetByTypeFn = unsafe extern "thiscall" fn(*mut c_void, u8) -> *mut c_void;
+
 // ---- Pressure relief: cell management and destruction protocol ----
 
 /// FUN_00453a80: finds a loaded exterior cell eligible for eviction.

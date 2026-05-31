@@ -81,6 +81,10 @@ When investigating any game behavior, crash, or engine mechanism, Ghidra output 
 
 If a knowledge gap exists (unknown function behavior, unclear call paths, missing data flow), immediately prepare a Ghidra script to investigate and fill the gap with correct knowledge. Do not guess or reason from assumptions when a script can give a concrete answer.
 
+No guessing rule: never implement a crash fix from an inferred model when the exact game contract is still unknown. If the current Ghidra output does not explain the failing function, caller ownership, data layout, lifetime, and safe intervention point, the next action is more research scripts -- not a patch. Partial research is not enough.
+
+Architecture rule: do not place engine-fix crash patches in `psycho-engine-fixes-helper`. The helper exists for xNVSE commands/messages and optional access to data exported by the core DLL. Engine behavior fixes belong in `psycho-engine-fixes`, loaded by `psycho-loader`, unless the user explicitly asks for a helper-side compatibility shim.
+
 Operational rule: do not run Ghidra, `analyzeHeadless`, or `ghidraRun` yourself. Prepare scripts in `analysis/ghidra/scripts/`, ask the user to run them, and analyze the resulting `.txt` output after the user provides it.
 
 ## Runtime debugging constraints

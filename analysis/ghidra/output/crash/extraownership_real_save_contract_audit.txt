@@ -1,0 +1,2114 @@
+======================================================================
+REAL EXTRAOWNERSHIP SAVE CONTRACT AUDIT
+======================================================================
+Known source layout:
+  ExtraOwnership is BSExtraData type 0x21
+  owner field is at +0x0C
+
+Previous false assumption to disprove:
+  0x004BED60 is not ExtraOwnership save; it is EntryData save.
+
+======================================================================
+ExtraDataList::SaveGame candidate 0x00426A30 @ 0x00426a30
+======================================================================
+  Function: FUN_00426a30 @ 0x00426a30, Size: 5312 bytes
+
+void FUN_00426a30(int ***param_1)
+
+{
+  char cVar1;
+  int iVar2;
+  int *piVar3;
+  undefined4 uVar4;
+  int *unaff_FS_OFFSET;
+  int ***pppiStack_224;
+  uint uStack_220;
+  undefined4 local_21c;
+  undefined4 local_218;
+  undefined4 local_214;
+  undefined4 local_210;
+  undefined4 local_20c;
+  int **local_208;
+  int **local_204;
+  undefined4 local_200;
+  undefined4 local_1fc;
+  undefined4 local_1f8;
+  int **local_1f4;
+  undefined4 local_1f0;
+  int **local_1ec;
+  int local_1e8;
+  char local_1e1;
+  int local_1e0;
+  CArray<CMFCRibbonInfo::XQAT::XQATItem,CMFCRibbonInfo::XQAT::XQATItem> local_1dc [8];
+  CArray<CMFCRibbonInfo::XQAT::XQATItem,CMFCRibbonInfo::XQAT::XQATItem> local_1d4 [8];
+  undefined1 *local_1cc;
+  undefined1 local_1c8 [4];
+  int local_1c4;
+  undefined4 local_1c0;
+  int local_1bc;
+  int local_1b8;
+  int local_1b4;
+  int **local_1b0;
+  int local_1ac;
+  int local_1a8;
+  int local_1a4;
+  int local_1a0;
+  int local_19c;
+  uint local_198;
+  int *local_194;
+  int local_190;
+  int **local_18c;
+  int local_188;
+  int local_184;
+  int local_180;
+  undefined4 local_17c;
+  int local_178;
+  undefined4 *local_174;
+  int **local_170;
+  int **local_16c;
+  int *local_168;
+  int **local_164;
+  int **local_160;
+  int local_15c;
+  int local_158;
+  int local_154;
+  int local_150;
+  int local_14c;
+  int local_148;
+  int local_144;
+  int local_140;
+  int local_13c;
+  int local_138;
+  int local_134;
+  int local_130;
+  int local_12c;
+  int local_128;
+  int local_124;
+  int local_120;
+  int local_11c;
+  int local_118;
+  int local_114;
+  int local_110;
+  undefined4 *local_10c;
+  int **local_108;
+  int **local_104;
+  int local_100;
+  undefined1 local_f9;
+  int local_f8;
+  undefined1 local_f1;
+  int local_f0;
+  undefined4 *local_ec;
+  int local_e8;
+  int **local_e4;
+  int local_e0;
+  int local_dc;
+  undefined4 local_d8;
+  int **local_d4;
+  int **local_d0;
+  int local_cc;
+  undefined4 local_c8;
+  undefined4 local_c4;
+  int local_c0;
+  int local_bc;
+  int **local_b8;
+  int local_b4;
+  int local_b0;
+  int local_ac;
+  int local_a8;
+  undefined4 *local_a4;
+  int local_a0;
+  int **local_9c;
+  int local_98;
+  int local_94;
+  int local_90;
+  int local_8c;
+  int local_88;
+  int **local_84;
+  int local_80;
+  int local_7c;
+  undefined4 *local_78;
+  int local_74;
+  int **local_70;
+  int local_6c;
+  int local_68;
+  int local_64;
+  int local_60;
+  int local_5c;
+  undefined4 local_58;
+  int local_54;
+  int local_50;
+  int local_4c;
+  int local_48;
+  int local_44;
+  int local_40;
+  int local_3c;
+  int local_38;
+  int local_34;
+  int local_30;
+  byte local_2a;
+  char local_29;
+  int local_28;
+  int local_24;
+  char local_1d;
+  int local_1c;
+  int local_18;
+  int **local_14;
+  int local_10;
+  undefined1 *puStack_c;
+  undefined4 local_8;
+  
+  local_8 = 0xffffffff;
+  puStack_c = &LAB_00eeb296;
+  local_10 = *unaff_FS_OFFSET;
+  uStack_220 = DAT_011c16bc ^ (uint)&stack0xfffffffc;
+  *unaff_FS_OFFSET = (int)&local_10;
+  local_28 = 0;
+  pppiStack_224 = (int ***)0x426a6d;
+  local_14 = (int **)FUN_00865f20();
+  pppiStack_224 = (int ***)0x426a7d;
+  local_1c = (*(code *)(*param_1)[1])();
+  pppiStack_224 = (int ***)0x426a8d;
+  local_18 = (*(code *)(*param_1)[2])();
+  if (local_1c == 0) {
+    local_1e1 = '\0';
+  }
+  else {
+    pppiStack_224 = (int ***)0x426a9e;
+    pppiStack_224 = (int ***)FUN_0084e3a0();
+    local_1e1 = FUN_00469860();
+  }
+  local_1d = local_1e1;
+  local_24 = *(int *)(local_1e0 + 4);
+  while (local_24 != 0) {
+    pppiStack_224 = (int ***)0x426ae0;
+    local_2a = FUN_004f1540();
+    local_29 = '\0';
+    if (*(int *)(&DAT_01183d30 + (uint)local_2a * 4) != 0) {
+      pppiStack_224 = *(int ****)(&DAT_01183d30 + (uint)local_2a * 4);
+      FUN_00428110(local_1c8);
+      cVar1 = FUN_004280f0();
+      if (cVar1 != '\0') {
+        local_29 = '\x01';
+      }
+    }
+    if (((local_1d == '\0') && (local_29 != '\0')) &&
+       ((*(uint *)(&DAT_01183d30 + (uint)local_2a * 4) & 0x40000000) != 0)) {
+      local_29 = '\0';
+    }
+    if ((local_18 == 0) && (local_2a == 0x89)) {
+      local_29 = '\0';
+    }
+    if (local_29 != '\0') {
+      pppiStack_224 = (int ***)0x0;
+      FUN_00865e50(&local_2a,1);
+      local_1e8 = local_2a - 0xd;
+      switch(local_2a) {
+      case 0xd:
+        local_54 = local_24;
+        pppiStack_224 = (int ***)0x0;
+        FUN_00865df0(*(undefined4 *)(local_24 + 0xc));
+        pppiStack_224 = param_1;
+        FUN_005a9db0();
+        break;
+      default:
+        pppiStack_224 = (int ***)(uint)local_2a;
+        FUN_00845cc0("SAVELOAD: Unknown extra data type %i found in ExtraDataList::SaveGame");
+        break;
+      case 0x16:
+        break;
+      case 0x18:
+        local_64 = local_24;
+        pppiStack_224 = (int ***)0x0;
+        FUN_00865df0(*(undefined4 *)(local_24 + 0xc));
+        pppiStack_224 = (int ***)0x0;
+        FUN_00865e50(local_64 + 0x10,0xc);
+        pppiStack_224 = (int ***)0x0;
+        FUN_00865e50(local_64 + 0x1c,4);
+        break;
+      case 0x19:
+        local_60 = local_24;
+        pppiStack_224 = (int ***)0x0;
+        FUN_00865df0(*(undefined4 *)(local_24 + 0xc));
+        pppiStack_224 = (int ***)0x0;
+        FUN_00865df0(*(undefined4 *)(local_60 + 0x14));
+        pppiStack_224 = (int ***)0x0;
+        FUN_00865e50(local_60 + 0x10,4);
+        pppiStack_224 = (int ***)0x0;
+        FUN_00865e50(local_60 + 0x18,1);
+        pppiStack_224 = (int ***)0x0;
+        FUN_00865e50(local_60 + 0x19,1);
+        pppiStack_224 = (int ***)0x0;
+        FUN_00865e50(local_60 + 0x1a,1);
+        break;
+      case 0x1a:
+        local_124 = local_24;
+        pppiStack_224 = (int ***)0x0;
+        FUN_00865df0(*(undefined4 *)(local_24 + 0xc));
+        if (*(int *)(local_124 + 0xc) != 0) {
+          pppiStack_224 = param_1;
+          (**(code **)(**(int **)(local_124 + 0xc) + 0x54))();
+        }
+        break;
+      case 0x1b:
+        local_68 = local_24;
+        local_6c = 0;
+        pppiStack_224 = (int ***)0x426e07;
+        local_70 = (int **)FUN_00865f20();
+        local_74 = *(int *)(local_68 + 0xc);
+        while (local_74 != 0) {
+          pppiStack_224 = (int ***)0x426e21;
+          piVar3 = (int *)FUN_006815c0();
+          local_78 = (undefined4 *)*piVar3;
+          if (local_78 != (undefined4 *)0x0) {
+            pppiStack_224 = (int ***)0x0;
+            FUN_00865df0(*local_78);
+            pppiStack_224 = (int ***)0x0;
+            FUN_00865e50(local_78 + 1,1);
+            local_6c = local_6c + 1;
+          }
+          pppiStack_224 = (int ***)0x426e60;
+          local_74 = FUN_00726070();
+        }
+        pppiStack_224 = (int ***)local_70;
+        FUN_00865ff0(local_6c);
+        break;
+      case 0x1c:
+        local_48 = local_24;
+        pppiStack_224 = (int ***)0x0;
+        FUN_00865df0(*(undefined4 *)(local_24 + 0xc));
+        break;
+      case 0x1d:
+        local_7c = local_24;
+        local_80 = 0;
+        pppiStack_224 = (int ***)0x426e8f;
+        local_84 = (int **)FUN_00865f20();
+        local_88 = *(int *)(local_7c + 0xc);
+        while (local_88 != 0) {
+          pppiStack_224 = (int ***)0x426eb2;
+          piVar3 = (int *)FUN_006815c0();
+          local_8c = *piVar3;
+          if (local_8c != 0) {
+            pppiStack_224 = (int ***)0x0;
+            FUN_00865df0(local_8c);
+            local_80 = local_80 + 1;
+          }
+          pppiStack_224 = (int ***)0x426ee8;
+          local_88 = FUN_00726070();
+        }
+        pppiStack_224 = (int ***)local_84;
+        FUN_00865ff0(local_80);
+        break;
+      case 0x1e:
+        local_120 = local_24;
+        pppiStack_224 = (int ***)0x0;
+        FUN_00865e50(local_24 + 0xc,4);
+        break;
+      case 0x1f:
+        break;
+      case 0x21:
+        local_3c = local_24;
+        pppiStack_224 = (int ***)0x0;
+        FUN_00865df0(*(undefined4 *)(local_24 + 0xc));
+        break;
+      case 0x22:
+        local_44 = local_24;
+        pppiStack_224 = (int ***)0x0;
+        FUN_00865df0(*(undefined4 *)(local_24 + 0xc));
+        break;
+      case 0x23:
+        local_40 = local_24;
+        pppiStack_224 = (int ***)0x0;
+        FUN_00865e50(local_24 + 0xc,4);
+        break;
+      case 0x24:
+        local_30 = local_24;
+        pppiStack_224 = (int ***)0x0;
+        FUN_00865e50(local_24 + 0xc,2);
+        break;
+      case 0x25:
+        local_34 = local_24;
+        pppiStack_224 = (int ***)0x0;
+        FUN_00865e50(local_24 + 0xc,4);
+        break;
+      case 0x26:
+        local_128 = local_24;
+        pppiStack_224 = (int ***)0x0;
+        FUN_00865e50(local_24 + 0xc,1);
+        break;
+      case 0x27:
+        local_130 = local_24;
+        pppiStack_224 = (int ***)0x0;
+        FUN_00865e50(local_24 + 0xc,4);
+        break;
+      case 0x28:
+        local_134 = local_24;
+        pppiStack_224 = (int ***)0x0;
+        FUN_00865e50(local_24 + 0xc,4);
+        break;
+      case 0x2a:
+        local_138 = local_24;
+        pppiStack_224 = (int ***)0x0;
+        FUN_00865e50(*(undefined4 *)(local_24 + 0xc),1);
+        pppiStack_224 = (int ***)0x0;
+        FUN_00865e50(*(int *)(local_138 + 0xc) + 8,1);
+        pppiStack_224 = (int ***)0x0;
+        FUN_00865df0(*(undefined4 *)(*(int *)(local_138 + 0xc) + 4));
+        pppiStack_224 = (int ***)0x0;
+        FUN_00865e50(*(int *)(local_138 + 0xc) + 0xc,4);
+        pppiStack_224 = (int ***)0x0;
+        FUN_00865e50(*(int *)(local_138 + 0xc) + 0x10,4);
+        break;
+      case 0x2b:
+        local_184 = local_24;
+        pppiStack_224 = param_1;
+        FUN_0043aa40();
+        break;
+      case 0x2c:
+        local_f8 = local_24;
+        local_f9 = 0;
+        if (*(int *)(local_24 + 0xc) != 0) {
+          pppiStack_224 = (int ***)0x427378;
+          local_f9 = FUN_00424940();
+        }
+        pppiStack_224 = (int ***)0x0;
+        FUN_00865e50(&local_f9,1);
+        break;
+      case 0x2e:
+        local_190 = local_24;
+        pppiStack_224 = (int ***)0x0;
+        FUN_00865df0(*(undefined4 *)(local_24 + 0xc));
+        pppiStack_224 = (int ***)0x0;
+        FUN_00865df0(*(undefined4 *)(local_190 + 0x10));
+        pppiStack_224 = (int ***)0x427b6a;
+        local_194 = (int *)FUN_004181e0();
+        pppiStack_224 = (int ***)0x427b7e;
+        local_198 = FUN_0045cd60();
+        pppiStack_224 = (int ***)0x0;
+        FUN_00865e50(&local_198,4);
+        pppiStack_224 = &local_18c;
+        FUN_00428110();
+        local_1cc = (undefined1 *)&pppiStack_224;
+        std::locale::id::id((id *)&pppiStack_224,local_198);
+        FUN_00428130();
+        pppiStack_224 = param_1;
+        (**(code **)(*local_194 + 0x54))();
+        pppiStack_224 = (int ***)local_18c;
+        FUN_00428130();
+        break;
+      case 0x2f:
+        local_13c = local_24;
+        pppiStack_224 = (int ***)0x0;
+        FUN_00865e50(local_24 + 0xc,4);
+        pppiStack_224 = (int ***)0x0;
+        FUN_00865e50(local_13c + 0x10,1);
+        break;
+      case 0x30:
+        local_38 = local_24;
+        pppiStack_224 = (int ***)0x0;
+        FUN_00865e50(local_24 + 0xc,4);
+        break;
+      case 0x32:
+        local_140 = local_24;
+        if (*(int *)(local_24 + 0x18) == 0) {
+          local_1f8 = 0;
+        }
+        else {
+          pppiStack_224 = (int ***)0x4276d1;
+          local_1f8 = FUN_0040a1e0();
+        }
+        pppiStack_224 = (int ***)0x0;
+        FUN_00865db0(local_1f8);
+        if (*(int *)(local_140 + 0x1c) == 0) {
+          local_1fc = 0;
+        }
+        else {
+          pppiStack_224 = (int ***)0x42770e;
+          local_1fc = FUN_008254c0();
+        }
+        pppiStack_224 = (int ***)0x0;
+        FUN_00865db0(local_1fc);
+        pppiStack_224 = (int ***)0x0;
+        FUN_00865df0(*(undefined4 *)(local_140 + 0x20));
+        break;
+      case 0x33:
+        local_144 = local_24;
+        pppiStack_224 = (int ***)0x0;
+        FUN_00865df0(*(undefined4 *)(local_24 + 0x1c));
+        pppiStack_224 = (int ***)(local_144 + 0x20);
+        FUN_00806a10(param_1);
+        break;
+      case 0x35:
+        local_b0 = local_24;
+        local_b4 = 0;
+        pppiStack_224 = (int ***)0x42708a;
+        local_b8 = (int **)FUN_00865f20();
+        local_bc = *(int *)(local_b0 + 0xc);
+        while (local_bc != 0) {
+          pppiStack_224 = (int ***)0x4270b7;
+          piVar3 = (int *)FUN_006815c0();
+          local_c0 = *piVar3;
+          if (local_c0 != 0) {
+            pppiStack_224 = (int ***)0x4270d3;
+            local_c8 = FUN_0045cd60();
+            pppiStack_224 = (int ***)0x4270e4;
+            local_c4 = FUN_00726070();
+            pppiStack_224 = (int ***)0x0;
+            FUN_00865e50(&local_c8,4);
+            pppiStack_224 = (int ***)0x0;
+            FUN_00865e50(&local_c4,4);
+            local_b4 = local_b4 + 1;
+          }
+          pppiStack_224 = (int ***)0x42712a;
+          local_bc = FUN_00726070();
+        }
+        pppiStack_224 = (int ***)local_b8;
+        FUN_00865ff0(local_b4);
+        break;
+      case 0x39:
+        local_148 = local_24;
+        pppiStack_224 = (int ***)0x0;
+        FUN_00865df0(*(undefined4 *)(local_24 + 0xc));
+        break;
+      case 0x3c:
+        local_188 = local_24;
+        pppiStack_224 = (int ***)0x0;
+        FUN_00865df0(*(undefined4 *)(local_24 + 0xc));
+        break;
+      case 0x3e:
+        break;
+      case 0x3f:
+        local_14c = local_24;
+        if (*(int *)(local_24 + 0xc) == 0) {
+          local_200 = 0;
+        }
+        else {
+          pppiStack_224 = (int ***)0x4277ca;
+          local_200 = FUN_0040a1e0();
+        }
+        pppiStack_224 = (int ***)0x0;
+        FUN_00865db0(local_200);
+        break;
+      case 0x45:
+        local_cc = local_24;
+        pppiStack_224 = (int ***)0x427164;
+        FUN_00435e40();
+        if (local_cc == -0xc) {
+          local_1ec = (int **)0x0;
+        }
+        else {
+          pppiStack_224 = (int ***)0x42717d;
+          local_1ec = (int **)FUN_0044ddc0();
+        }
+        local_d0 = local_1ec;
+        pppiStack_224 = (int ***)local_1ec;
+        FUN_00865f60();
+        for (local_d4 = (int **)0x0; local_d4 < local_d0; local_d4 = (int **)((int)local_d4 + 1)) {
+          pppiStack_224 = (int ***)local_d4;
+          local_d8 = FUN_006a7ad0();
+          pppiStack_224 = param_1;
+          FUN_009a5f90();
+        }
+        break;
+      case 0x46:
+        local_150 = local_24;
+        pppiStack_224 = (int ***)0x0;
+        FUN_00865df0(*(undefined4 *)(local_24 + 0xc));
+        break;
+      case 0x49:
+        local_4c = local_24;
+        pppiStack_224 = (int ***)0x0;
+        FUN_00865df0(*(undefined4 *)(local_24 + 0xc));
+        break;
+      case 0x4a:
+        local_ac = local_24;
+        pppiStack_224 = (int ***)0x0;
+        FUN_00865e50(local_24 + 0xc,1);
+        break;
+      case 0x4d:
+        local_154 = local_24;
+        pppiStack_224 = param_1;
+        FUN_0083fb10();
+        break;
+      case 0x4e:
+        local_158 = local_24;
+        pppiStack_224 = (int ***)0x0;
+        FUN_00865e50(local_24 + 0xc,1);
+        break;
+      case 0x50:
+        local_1a0 = local_24;
+        pppiStack_224 = (int ***)0x0;
+        FUN_00865e50(local_24 + 0xc,1);
+        pppiStack_224 = (int ***)0x0;
+        FUN_00865e50(local_1a0 + 0xd,1);
+        break;
+      case 0x54:
+        local_19c = local_24;
+        pppiStack_224 = (int ***)0x0;
+        FUN_00865e50(local_24 + 0x14,4);
+        break;
+      case 0x55:
+        local_178 = local_24;
+        pppiStack_224 = (int ***)0x0;
+        FUN_00865df0(*(undefined4 *)(local_24 + 0xc));
+        break;
+      case 0x56:
+        local_50 = local_24;
+        pppiStack_224 = (int ***)0x0;
+        FUN_00865e50(local_24 + 0xc,4);
+        break;
+      case 0x5b:
+        local_5c = local_24;
+        pppiStack_224 = (int ***)0x0;
+        FUN_00865df0(*(undefined4 *)(local_24 + 0x10));
+        pppiStack_224 = *(int ****)(local_5c + 0xc);
+        local_58 = FUN_00475920(*(undefined4 *)(local_5c + 0x10));
+        pppiStack_224 = (int ***)0x0;
+        FUN_00865e50(&local_58,4);
+        break;
+      case 0x5c:
+        local_114 = local_24;
+        pppiStack_224 = (int ***)0x0;
+        FUN_00865e50(local_24 + 0xc,4);
+        break;
+      case 0x5d:
+        local_118 = local_24;
+        pppiStack_224 = (int ***)0x0;
+        FUN_00865e50(local_24 + 0xc,4);
+        break;
+      case 0x5e:
+        local_dc = local_24;
+        local_e0 = 0;
+        pppiStack_224 = (int ***)0x42721f;
+        local_e4 = (int **)FUN_00865f20();
+        local_e8 = *(int *)(local_dc + 0xc);
+        while (local_e8 != 0) {
+          pppiStack_224 = (int ***)0x427248;
+          piVar3 = (int *)FUN_006815c0();
+          local_ec = (undefined4 *)*piVar3;
+          if (local_ec != (undefined4 *)0x0) {
+            pppiStack_224 = (int ***)0x0;
+            FUN_00865df0(*local_ec);
+            pppiStack_224 = (int ***)0x0;
+            FUN_00865e50(local_ec + 1,1);
+            local_e0 = local_e0 + 1;
+          }
+          pppiStack_224 = (int ***)0x42729c;
+          local_e8 = FUN_00726070();
+        }
+        pppiStack_224 = (int ***)local_e4;
+        FUN_00865ff0(local_e0);
+        break;
+      case 0x5f:
+        local_15c = local_24;
+        pppiStack_224 = (int ***)0x0;
+        FUN_00865e50(local_24 + 0xc,2);
+        pppiStack_224 = (int ***)0x0;
+        FUN_00865e50(local_15c + 0x10,4);
+        pppiStack_224 = (int ***)0x0;
+        FUN_00865e50(local_15c + 0x18,4);
+        pppiStack_224 = (int ***)0x0;
+        FUN_00865e50(local_15c + 0x1c,1);
+        pppiStack_224 = (int ***)0x0;
+        FUN_00865df0(*(undefined4 *)(local_15c + 0x14));
+        if (local_15c == -0x20) {
+          local_204 = (int **)0x0;
+        }
+        else {
+          pppiStack_224 = (int ***)0x4278e6;
+          local_204 = (int **)FUN_0044ddc0();
+        }
+        local_160 = local_204;
+        pppiStack_224 = (int ***)local_204;
+        FUN_00865f60();
+        for (local_164 = (int **)0x0; local_164 < local_160;
+            local_164 = (int **)((int)local_164 + 1)) {
+          pppiStack_224 = (int ***)local_164;
+          local_168 = (int *)FUN_006a7ad0();
+          pppiStack_224 = (int ***)0x0;
+          FUN_00865e50(*local_168,1);
+          pppiStack_224 = (int ***)0x0;
+          FUN_00865e50(*local_168 + 1,1);
+          pppiStack_224 = (int ***)0x0;
+          FUN_00865e50(*local_168 + 2,1);
+          pppiStack_224 = (int ***)0x0;
+          FUN_00865e50(*local_168 + 3,1);
+          if (*local_168 == -4) {
+            local_208 = (int **)0x0;
+          }
+          else {
+            pppiStack_224 = (int ***)0x4279d5;
+            local_208 = (int **)FUN_0044ddc0();
+          }
+          local_16c = local_208;
+          pppiStack_224 = (int ***)local_208;
+          FUN_00865f60();
+          for (local_170 = (int **)0x0; local_170 < local_16c;
+              local_170 = (int **)((int)local_170 + 1)) {
+            pppiStack_224 = (int ***)local_170;
+            local_174 = (undefined4 *)FUN_006a7ad0();
+            pppiStack_224 = (int ***)0x0;
+            FUN_00865df0(*local_174);
+          }
+        }
+        break;
+      case 0x60:
+        local_180 = local_24;
+        pppiStack_224 = (int ***)0x427aa0;
+        iVar2 = FUN_00559450();
+        if (iVar2 == 0) {
+          local_20c = 0xffffffff;
+        }
+        else {
+          pppiStack_224 = (int ***)0x427ab2;
+          FUN_00559450();
+          pppiStack_224 = (int ***)0x427ab9;
+          local_20c = FUN_00825c00();
+        }
+        local_17c = local_20c;
+        pppiStack_224 = (int ***)0x0;
+        FUN_00865e50(&local_17c,4);
+        break;
+      case 0x6c:
+        local_90 = local_24;
+        pppiStack_224 = (int ***)0x0;
+        FUN_00865df0(*(undefined4 *)(local_24 + 0xc));
+        break;
+      case 0x6e:
+        local_11c = local_24;
+        pppiStack_224 = (int ***)0x0;
+        FUN_00865df0(*(undefined4 *)(local_24 + 0xc));
+        pppiStack_224 = (int ***)0x0;
+        FUN_00865e50(local_11c + 0x10,4);
+        break;
+      case 0x70:
+        local_f0 = local_24;
+        if (*(int *)(local_24 + 0xc) == 0) {
+          local_1f0 = 0xffffffff;
+        }
+        else {
+          pppiStack_224 = (int ***)0x4272ef;
+          local_1f0 = (**(code **)(**(int **)(local_24 + 0xc) + 8))();
+        }
+        local_f1 = (undefined1)local_1f0;
+        pppiStack_224 = (int ***)0x0;
+        FUN_00865e50(&local_f1,1);
+        if (*(int *)(local_f0 + 0xc) != 0) {
+          pppiStack_224 = param_1;
+          (**(code **)(**(int **)(local_f0 + 0xc) + 0xc))();
+        }
+        break;
+      case 0x73:
+        local_94 = local_24;
+        local_98 = 0;
+        pppiStack_224 = (int ***)0x426f42;
+        local_9c = (int **)FUN_00865f20();
+        local_a0 = *(int *)(local_94 + 0xc);
+        while (local_a0 != 0) {
+          pppiStack_224 = (int ***)0x426f6f;
+          piVar3 = (int *)FUN_006815c0();
+          local_a4 = (undefined4 *)*piVar3;
+          if (local_a4 != (undefined4 *)0x0) {
+            pppiStack_224 = (int ***)0x0;
+            FUN_00865df0(*local_a4);
+            pppiStack_224 = (int ***)0x0;
+            FUN_00865e50(local_a4 + 1,4);
+            pppiStack_224 = (int ***)0x0;
+            FUN_00865e50(local_a4 + 2,4);
+            local_98 = local_98 + 1;
+          }
+          pppiStack_224 = (int ***)0x426fd9;
+          local_a0 = FUN_00726070();
+        }
+        pppiStack_224 = (int ***)local_9c;
+        FUN_00865ff0(local_98);
+        break;
+      case 0x74:
+        local_110 = local_24;
+        pppiStack_224 = (int ***)0x0;
+        FUN_00865df0(*(undefined4 *)(local_24 + 0xc));
+        break;
+      case 0x75:
+        local_a8 = local_24;
+        pppiStack_224 = (int ***)0x0;
+        FUN_00865df0(*(undefined4 *)(local_24 + 0x10));
+        pppiStack_224 = (int ***)0x0;
+        FUN_00865df0(*(undefined4 *)(local_a8 + 0xc));
+        pppiStack_224 = (int ***)0x0;
+        FUN_00865e50(local_a8 + 0x18,1);
+        break;
+      case 0x7c:
+        local_100 = local_24;
+        if (local_24 == -0xc) {
+          local_1f4 = (int **)0x0;
+        }
+        else {
+          pppiStack_224 = (int ***)0x4273bd;
+          local_1f4 = (int **)FUN_0044ddc0();
+        }
+        local_104 = local_1f4;
+        pppiStack_224 = (int ***)local_1f4;
+        FUN_00865f60();
+        for (local_108 = (int **)0x0; local_108 < local_104;
+            local_108 = (int **)((int)local_108 + 1)) {
+          pppiStack_224 = (int ***)local_108;
+          local_10c = (undefined4 *)FUN_006a7ad0();
+          pppiStack_224 = (int ***)0x0;
+          FUN_00865db0(*local_10c);
+        }
+        break;
+      case 0x89:
+        local_1a4 = local_24;
+        pppiStack_224 = (int ***)0x0;
+        FUN_00865df0(*(undefined4 *)(local_24 + 0xc));
+        break;
+      case 0x8b:
+        local_1a8 = local_24;
+        pppiStack_224 = (int ***)0x0;
+        FUN_00865e50(local_24 + 0x10,0xc);
+        pppiStack_224 = (int ***)0x0;
+        FUN_00865db0(*(undefined4 *)(local_1a8 + 0x1c));
+        pppiStack_224 = (int ***)0x0;
+        FUN_00865e50(local_1a8 + 0xc,4);
+        local_1ac = 0;
+        pppiStack_224 = (int ***)0x427cc9;
+        local_1b0 = (int **)FUN_00865f20();
+        local_1b4 = local_1a8 + 0x20;
+        while (local_1b4 != 0) {
+          pppiStack_224 = (int ***)0x427cf6;
+          piVar3 = (int *)FUN_006815c0();
+          local_1b8 = *piVar3;
+          if (local_1b8 != 0) {
+            pppiStack_224 = (int ***)0x0;
+            FUN_00865e50(local_1b8,0xc);
+            pppiStack_224 = (int ***)0x0;
+            FUN_00865db0(*(undefined4 *)(local_1b8 + 0xc));
+            pppiStack_224 = (int ***)0x0;
+            FUN_00865e50(local_1b8 + 0x10,0xc);
+            pppiStack_224 = (int ***)0x0;
+            FUN_00865db0(*(undefined4 *)(local_1b8 + 0x1c));
+            pppiStack_224 = (int ***)0x0;
+            FUN_00865e50(local_1b8 + 0x20,1);
+            local_1ac = local_1ac + 1;
+          }
+          pppiStack_224 = (int ***)0x427d88;
+          local_1b4 = FUN_00726070();
+        }
+        pppiStack_224 = (int ***)local_1b0;
+        FUN_00865ff0(local_1ac);
+        break;
+      case 0x8d:
+        local_12c = local_24;
+        pppiStack_224 = (int ***)0x0;
+        FUN_00865e50(local_24 + 0xc,1);
+        break;
+      case 0x8f:
+        local_1bc = local_24;
+        pppiStack_224 = (int ***)0x0;
+        local_214 = FUN_00428070(local_1d4);
+        local_8 = 0;
+        local_210 = local_214;
+        uVar4 = FUN_00559450();
+        FUN_00865e70(uVar4);
+        local_8 = 0xffffffff;
+        pppiStack_224 = (int ***)0x427e0a;
+        CArray<CMFCRibbonInfo::XQAT::XQATItem,CMFCRibbonInfo::XQAT::XQATItem>::RemoveAll(local_1d4);
+        pppiStack_224 = (int ***)0x0;
+        local_21c = FUN_004280b0(local_1dc);
+        local_8 = 1;
+        local_218 = local_21c;
+        uVar4 = FUN_00559450();
+        FUN_00865e70(uVar4);
+        local_8 = 0xffffffff;
+        pppiStack_224 = (int ***)0x427e5d;
+        CArray<CMFCRibbonInfo::XQAT::XQATItem,CMFCRibbonInfo::XQAT::XQATItem>::RemoveAll(local_1dc);
+        break;
+      case 0x90:
+      case 0x91:
+        break;
+      case 0x92:
+        local_1c4 = local_24;
+        pppiStack_224 = (int ***)0x427e73;
+        local_1c0 = FUN_0084e3a0();
+        pppiStack_224 = (int ***)0x0;
+        FUN_00865e50(&local_1c0,4);
+        pppiStack_224 = (int ***)0x0;
+        FUN_00865e50(local_1c4 + 0x10,4);
+      }
+      local_28 = local_28 + 1;
+    }
+    pppiStack_224 = (int ***)0x427ec7;
+    local_24 = FUN_0044ddc0();
+  }
+  pppiStack_224 = (int ***)local_14;
+  FUN_00865ff0(local_28);
+  *unaff_FS_OFFSET = local_10;
+  return;
+}
+
+
+
+----------------------------------------------------------------------
+Calls FROM ExtraDataList::SaveGame candidate (0x00426a30)
+----------------------------------------------------------------------
+  0x00426a68 -> 0x00865f20 FUN_00865f20 @ 0x00865f20
+  0x00426a99 -> 0x0084e3a0 FUN_0084e3a0 @ 0x0084e3a0
+  0x00426aa5 -> 0x00469860 FUN_00469860 @ 0x00469860
+  0x00426adb -> 0x004f1540 FUN_004f1540 @ 0x004f1540
+  0x00426b0b -> 0x00428110 FUN_00428110 @ 0x00428110
+  0x00426b12 -> 0x004280f0 FUN_004280f0 @ 0x004280f0
+  0x00426b75 -> 0x00865e50 FUN_00865e50 @ 0x00865e50
+  0x00426bd5 -> 0x00865e50 FUN_00865e50 @ 0x00865e50
+  0x00426bf3 -> 0x00865e50 FUN_00865e50 @ 0x00865e50
+  0x00426c11 -> 0x00865e50 FUN_00865e50 @ 0x00865e50
+  0x00426c2d -> 0x00865df0 FUN_00865df0 @ 0x00865df0
+  0x00426c4b -> 0x00865e50 FUN_00865e50 @ 0x00865e50
+  0x00426c67 -> 0x00865df0 FUN_00865df0 @ 0x00865df0
+  0x00426c83 -> 0x00865df0 FUN_00865df0 @ 0x00865df0
+  0x00426c9f -> 0x00865df0 FUN_00865df0 @ 0x00865df0
+  0x00426cbd -> 0x00865e50 FUN_00865e50 @ 0x00865e50
+  0x00426cd9 -> 0x00865df0 FUN_00865df0 @ 0x00865df0
+  0x00426ce8 -> 0x005a9db0 FUN_005a9db0 @ 0x005a9db0
+  0x00426d04 -> 0x00865df0 FUN_00865df0 @ 0x00865df0
+  0x00426d17 -> 0x00475920 FUN_00475920 @ 0x00475920
+  0x00426d2d -> 0x00865e50 FUN_00865e50 @ 0x00865e50
+  0x00426d49 -> 0x00865df0 FUN_00865df0 @ 0x00865df0
+  0x00426d5a -> 0x00865df0 FUN_00865df0 @ 0x00865df0
+  0x00426d6d -> 0x00865e50 FUN_00865e50 @ 0x00865e50
+  0x00426d80 -> 0x00865e50 FUN_00865e50 @ 0x00865e50
+  0x00426d93 -> 0x00865e50 FUN_00865e50 @ 0x00865e50
+  0x00426da6 -> 0x00865e50 FUN_00865e50 @ 0x00865e50
+  0x00426dc2 -> 0x00865df0 FUN_00865df0 @ 0x00865df0
+  0x00426dd5 -> 0x00865e50 FUN_00865e50 @ 0x00865e50
+  0x00426de8 -> 0x00865e50 FUN_00865e50 @ 0x00865e50
+  0x00426e02 -> 0x00865f20 FUN_00865f20 @ 0x00865f20
+  0x00426e1c -> 0x006815c0 FUN_006815c0 @ 0x006815c0
+  0x00426e37 -> 0x00865df0 FUN_00865df0 @ 0x00865df0
+  0x00426e4a -> 0x00865e50 FUN_00865e50 @ 0x00865e50
+  0x00426e5b -> 0x00726070 FUN_00726070 @ 0x00726070
+  0x00426e70 -> 0x00865ff0 FUN_00865ff0 @ 0x00865ff0
+  0x00426e8a -> 0x00865f20 FUN_00865f20 @ 0x00865f20
+  0x00426ead -> 0x006815c0 FUN_006815c0 @ 0x006815c0
+  0x00426ecf -> 0x00865df0 FUN_00865df0 @ 0x00865df0
+  0x00426ee3 -> 0x00726070 FUN_00726070 @ 0x00726070
+  0x00426efb -> 0x00865ff0 FUN_00865ff0 @ 0x00865ff0
+  0x00426f1d -> 0x00865df0 FUN_00865df0 @ 0x00865df0
+  0x00426f3d -> 0x00865f20 FUN_00865f20 @ 0x00865f20
+  0x00426f6a -> 0x006815c0 FUN_006815c0 @ 0x006815c0
+  0x00426f8e -> 0x00865df0 FUN_00865df0 @ 0x00865df0
+  0x00426fa4 -> 0x00865e50 FUN_00865e50 @ 0x00865e50
+  0x00426fba -> 0x00865e50 FUN_00865e50 @ 0x00865e50
+  0x00426fd4 -> 0x00726070 FUN_00726070 @ 0x00726070
+  0x00426ff5 -> 0x00865ff0 FUN_00865ff0 @ 0x00865ff0
+  0x00427017 -> 0x00865df0 FUN_00865df0 @ 0x00865df0
+  0x0042702b -> 0x00865df0 FUN_00865df0 @ 0x00865df0
+  0x00427041 -> 0x00865e50 FUN_00865e50 @ 0x00865e50
+  0x00427065 -> 0x00865e50 FUN_00865e50 @ 0x00865e50
+  0x00427085 -> 0x00865f20 FUN_00865f20 @ 0x00865f20
+  0x004270b2 -> 0x006815c0 FUN_006815c0 @ 0x006815c0
+  0x004270ce -> 0x0045cd60 FUN_0045cd60 @ 0x0045cd60
+  0x004270df -> 0x00726070 FUN_00726070 @ 0x00726070
+  0x004270f8 -> 0x00865e50 FUN_00865e50 @ 0x00865e50
+  0x0042710b -> 0x00865e50 FUN_00865e50 @ 0x00865e50
+  0x00427125 -> 0x00726070 FUN_00726070 @ 0x00726070
+  0x00427146 -> 0x00865ff0 FUN_00865ff0 @ 0x00865ff0
+  0x0042715f -> 0x00435e40 FUN_00435e40 @ 0x00435e40
+  0x00427178 -> 0x0044ddc0 FUN_0044ddc0 @ 0x0044ddc0
+  0x004271a5 -> 0x00865f60 FUN_00865f60 @ 0x00865f60
+  0x004271e3 -> 0x006a7ad0 FUN_006a7ad0 @ 0x006a7ad0
+  0x004271f8 -> 0x009a5f90 FUN_009a5f90 @ 0x009a5f90
+  0x0042721a -> 0x00865f20 FUN_00865f20 @ 0x00865f20
+  0x00427243 -> 0x006815c0 FUN_006815c0 @ 0x006815c0
+  0x00427267 -> 0x00865df0 FUN_00865df0 @ 0x00865df0
+  0x0042727d -> 0x00865e50 FUN_00865e50 @ 0x00865e50
+  0x00427297 -> 0x00726070 FUN_00726070 @ 0x00726070
+  0x004272b5 -> 0x00865ff0 FUN_00865ff0 @ 0x00865ff0
+  0x0042731b -> 0x00865e50 FUN_00865e50 @ 0x00865e50
+  0x00427373 -> 0x00424940 FUN_00424940 @ 0x00424940
+  0x0042738c -> 0x00865e50 FUN_00865e50 @ 0x00865e50
+  0x004273b8 -> 0x0044ddc0 FUN_0044ddc0 @ 0x0044ddc0
+  0x004273e5 -> 0x00865f60 FUN_00865f60 @ 0x00865f60
+  0x00427423 -> 0x006a7ad0 FUN_006a7ad0 @ 0x006a7ad0
+  0x0042743c -> 0x00865db0 FUN_00865db0 @ 0x00865db0
+  0x00427460 -> 0x00865df0 FUN_00865df0 @ 0x00865df0
+  0x00427484 -> 0x00865e50 FUN_00865e50 @ 0x00865e50
+  0x004274a8 -> 0x00865e50 FUN_00865e50 @ 0x00865e50
+  0x004274ca -> 0x00865df0 FUN_00865df0 @ 0x00865df0
+  0x004274e0 -> 0x00865e50 FUN_00865e50 @ 0x00865e50
+  0x00427504 -> 0x00865e50 FUN_00865e50 @ 0x00865e50
+  0x00427526 -> 0x00865df0 FUN_00865df0 @ 0x00865df0
+  0x00427578 -> 0x00865e50 FUN_00865e50 @ 0x00865e50
+  0x0042759c -> 0x00865e50 FUN_00865e50 @ 0x00865e50
+  0x004275c0 -> 0x00865e50 FUN_00865e50 @ 0x00865e50
+  0x004275e4 -> 0x00865e50 FUN_00865e50 @ 0x00865e50
+  0x00427608 -> 0x00865e50 FUN_00865e50 @ 0x00865e50
+  0x00427621 -> 0x00865e50 FUN_00865e50 @ 0x00865e50
+  0x00427638 -> 0x00865df0 FUN_00865df0 @ 0x00865df0
+  0x00427651 -> 0x00865e50 FUN_00865e50 @ 0x00865e50
+  0x0042766a -> 0x00865e50 FUN_00865e50 @ 0x00865e50
+  0x0042768e -> 0x00865e50 FUN_00865e50 @ 0x00865e50
+  0x004276a4 -> 0x00865e50 FUN_00865e50 @ 0x00865e50
+  0x004276cc -> 0x0040a1e0 FUN_0040a1e0 @ 0x0040a1e0
+  0x004276ef -> 0x00865db0 FUN_00865db0 @ 0x00865db0
+  0x00427709 -> 0x008254c0 FUN_008254c0 @ 0x008254c0
+  0x0042772c -> 0x00865db0 FUN_00865db0 @ 0x00865db0
+  0x00427740 -> 0x00865df0 FUN_00865df0 @ 0x00865df0
+  0x00427762 -> 0x00865df0 FUN_00865df0 @ 0x00865df0
+  0x00427775 -> 0x00806a10 FUN_00806a10 @ 0x00806a10
+  0x0042779a -> 0x00865df0 FUN_00865df0 @ 0x00865df0
+  0x004277c5 -> 0x0040a1e0 FUN_0040a1e0 @ 0x0040a1e0
+  0x004277e8 -> 0x00865db0 FUN_00865db0 @ 0x00865db0
+  0x0042780a -> 0x00865df0 FUN_00865df0 @ 0x00865df0
+  0x0042782a -> 0x0083fb10 FUN_0083fb10 @ 0x0083fb10
+  0x0042784e -> 0x00865e50 FUN_00865e50 @ 0x00865e50
+  0x00427872 -> 0x00865e50 FUN_00865e50 @ 0x00865e50
+  0x00427888 -> 0x00865e50 FUN_00865e50 @ 0x00865e50
+  0x0042789e -> 0x00865e50 FUN_00865e50 @ 0x00865e50
+  0x004278b4 -> 0x00865e50 FUN_00865e50 @ 0x00865e50
+  0x004278c8 -> 0x00865df0 FUN_00865df0 @ 0x00865df0
+  0x004278e1 -> 0x0044ddc0 FUN_0044ddc0 @ 0x0044ddc0
+  0x0042790e -> 0x00865f60 FUN_00865f60 @ 0x00865f60
+  0x00427950 -> 0x006a7ad0 FUN_006a7ad0 @ 0x006a7ad0
+  0x0042796b -> 0x00865e50 FUN_00865e50 @ 0x00865e50
+  0x00427983 -> 0x00865e50 FUN_00865e50 @ 0x00865e50
+  0x0042799b -> 0x00865e50 FUN_00865e50 @ 0x00865e50
+  0x004279b3 -> 0x00865e50 FUN_00865e50 @ 0x00865e50
+  0x004279d0 -> 0x0044ddc0 FUN_0044ddc0 @ 0x0044ddc0
+  0x004279fd -> 0x00865f60 FUN_00865f60 @ 0x00865f60
+  0x00427a3d -> 0x006a7ad0 FUN_006a7ad0 @ 0x006a7ad0
+  0x00427a56 -> 0x00865df0 FUN_00865df0 @ 0x00865df0
+  0x00427a7f -> 0x00865df0 FUN_00865df0 @ 0x00865df0
+  0x00427a9b -> 0x00559450 FUN_00559450 @ 0x00559450
+  0x00427aad -> 0x00559450 FUN_00559450 @ 0x00559450
+  0x00427ab4 -> 0x00825c00 FUN_00825c00 @ 0x00825c00
+  0x00427ae5 -> 0x00865e50 FUN_00865e50 @ 0x00865e50
+  0x00427b05 -> 0x0043aa40 FUN_0043aa40 @ 0x0043aa40
+  0x00427b27 -> 0x00865df0 FUN_00865df0 @ 0x00865df0
+  0x00427b49 -> 0x00865df0 FUN_00865df0 @ 0x00865df0
+  0x00427b5d -> 0x00865df0 FUN_00865df0 @ 0x00865df0
+  0x00427b65 -> 0x004181e0 FUN_004181e0 @ 0x004181e0
+  0x00427b79 -> 0x0045cd60 FUN_0045cd60 @ 0x0045cd60
+  0x00427b92 -> 0x00865e50 FUN_00865e50 @ 0x00865e50
+  0x00427ba1 -> 0x00428110 FUN_00428110 @ 0x00428110
+  0x00427bb6 -> 0x008c71b0 id @ 0x008c71b0
+  0x00427bbe -> 0x00428130 FUN_00428130 @ 0x00428130
+  0x00427be4 -> 0x00428130 FUN_00428130 @ 0x00428130
+  0x00427c08 -> 0x00865e50 FUN_00865e50 @ 0x00865e50
+  0x00427c2c -> 0x00865e50 FUN_00865e50 @ 0x00865e50
+  0x00427c42 -> 0x00865e50 FUN_00865e50 @ 0x00865e50
+  0x00427c64 -> 0x00865df0 FUN_00865df0 @ 0x00865df0
+  0x00427c88 -> 0x00865e50 FUN_00865e50 @ 0x00865e50
+  0x00427c9c -> 0x00865db0 FUN_00865db0 @ 0x00865db0
+  0x00427cb2 -> 0x00865e50 FUN_00865e50 @ 0x00865e50
+  0x00427cc4 -> 0x00865f20 FUN_00865f20 @ 0x00865f20
+  0x00427cf1 -> 0x006815c0 FUN_006815c0 @ 0x006815c0
+  0x00427d15 -> 0x00865e50 FUN_00865e50 @ 0x00865e50
+  0x00427d29 -> 0x00865db0 FUN_00865db0 @ 0x00865db0
+  0x00427d3f -> 0x00865e50 FUN_00865e50 @ 0x00865e50
+  0x00427d53 -> 0x00865db0 FUN_00865db0 @ 0x00865db0
+  0x00427d69 -> 0x00865e50 FUN_00865e50 @ 0x00865e50
+  0x00427d83 -> 0x00726070 FUN_00726070 @ 0x00726070
+  0x00427da4 -> 0x00865ff0 FUN_00865ff0 @ 0x00865ff0
+  0x00427dc6 -> 0x00428070 FUN_00428070 @ 0x00428070
+  0x00427dea -> 0x00559450 FUN_00559450 @ 0x00559450
+  0x00427df3 -> 0x00865e70 FUN_00865e70 @ 0x00865e70
+  0x00427e05 -> 0x004037d0 RemoveAll @ 0x004037d0
+  0x00427e19 -> 0x004280b0 FUN_004280b0 @ 0x004280b0
+  0x00427e3d -> 0x00559450 FUN_00559450 @ 0x00559450
+  0x00427e46 -> 0x00865e70 FUN_00865e70 @ 0x00865e70
+  0x00427e58 -> 0x004037d0 RemoveAll @ 0x004037d0
+  0x00427e6e -> 0x0084e3a0 FUN_0084e3a0 @ 0x0084e3a0
+  0x00427e87 -> 0x00865e50 FUN_00865e50 @ 0x00865e50
+  0x00427e9d -> 0x00865e50 FUN_00865e50 @ 0x00865e50
+  0x00427eae -> 0x00845cc0 FUN_00845cc0 @ 0x00845cc0
+  0x00427ec2 -> 0x0044ddc0 FUN_0044ddc0 @ 0x0044ddc0
+  0x00427eda -> 0x00865ff0 FUN_00865ff0 @ 0x00865ff0
+  Total printed: 172
+
+----------------------------------------------------------------------
+References TO 0x00426a30 (ExtraDataList::SaveGame candidate)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x004bedc7 (in FUN_004bed60 @ 0x004bed60)
+  UNCONDITIONAL_CALL @ 0x005622c6 (in FUN_00562230 @ 0x00562230)
+  Total printed: 2
+
+======================================================================
+All FUN_00865DF0 call sites inside ExtraDataList::SaveGame candidate
+======================================================================
+
+  call 01 at 0x00426c2d
+
+----------------------------------------------------------------------
+Disassembly form-writer call inside ExtraDataList::SaveGame around 0x00426c2d
+----------------------------------------------------------------------
+  0x00426c0a: ADD ECX,0xc                                   
+  0x00426c0d: PUSH ECX                                      
+  0x00426c0e: MOV ECX,dword ptr [EBP + 0x8]                 
+  0x00426c11: CALL 0x00865e50                               
+      call -> 0x00865e50 FUN_00865e50 @ 0x00865e50
+  0x00426c16: JMP 0x00427eb6                                
+  0x00426c1b: MOV EDX,dword ptr [EBP + -0x20]               
+  0x00426c1e: MOV dword ptr [EBP + -0x38],EDX               
+  0x00426c21: PUSH 0x0                                      
+  0x00426c23: MOV EAX,dword ptr [EBP + -0x38]               
+  0x00426c26: MOV ECX,dword ptr [EAX + 0xc]                 
+  0x00426c29: PUSH ECX                                      
+  0x00426c2a: MOV ECX,dword ptr [EBP + 0x8]                 
+  0x00426c2d: CALL 0x00865df0                                << target
+      call -> 0x00865df0 FUN_00865df0 @ 0x00865df0
+  0x00426c32: JMP 0x00427eb6                                
+  0x00426c37: MOV EDX,dword ptr [EBP + -0x20]               
+  0x00426c3a: MOV dword ptr [EBP + -0x3c],EDX               
+  0x00426c3d: PUSH 0x0                                      
+  0x00426c3f: PUSH 0x4                                      
+  0x00426c41: MOV EAX,dword ptr [EBP + -0x3c]               
+  0x00426c44: ADD EAX,0xc                                   
+  0x00426c47: PUSH EAX                                      
+  0x00426c48: MOV ECX,dword ptr [EBP + 0x8]                 
+  0x00426c4b: CALL 0x00865e50                               
+      call -> 0x00865e50 FUN_00865e50 @ 0x00865e50
+
+  call 02 at 0x00426c67
+
+----------------------------------------------------------------------
+Disassembly form-writer call inside ExtraDataList::SaveGame around 0x00426c67
+----------------------------------------------------------------------
+  0x00426c44: ADD EAX,0xc                                   
+  0x00426c47: PUSH EAX                                      
+  0x00426c48: MOV ECX,dword ptr [EBP + 0x8]                 
+  0x00426c4b: CALL 0x00865e50                               
+      call -> 0x00865e50 FUN_00865e50 @ 0x00865e50
+  0x00426c50: JMP 0x00427eb6                                
+  0x00426c55: MOV ECX,dword ptr [EBP + -0x20]               
+  0x00426c58: MOV dword ptr [EBP + -0x40],ECX               
+  0x00426c5b: PUSH 0x0                                      
+  0x00426c5d: MOV EDX,dword ptr [EBP + -0x40]               
+  0x00426c60: MOV EAX,dword ptr [EDX + 0xc]                 
+  0x00426c63: PUSH EAX                                      
+  0x00426c64: MOV ECX,dword ptr [EBP + 0x8]                 
+  0x00426c67: CALL 0x00865df0                                << target
+      call -> 0x00865df0 FUN_00865df0 @ 0x00865df0
+  0x00426c6c: JMP 0x00427eb6                                
+  0x00426c71: MOV ECX,dword ptr [EBP + -0x20]               
+  0x00426c74: MOV dword ptr [EBP + -0x44],ECX               
+  0x00426c77: PUSH 0x0                                      
+  0x00426c79: MOV EDX,dword ptr [EBP + -0x44]               
+  0x00426c7c: MOV EAX,dword ptr [EDX + 0xc]                 
+  0x00426c7f: PUSH EAX                                      
+  0x00426c80: MOV ECX,dword ptr [EBP + 0x8]                 
+  0x00426c83: CALL 0x00865df0                               
+      call -> 0x00865df0 FUN_00865df0 @ 0x00865df0
+  0x00426c88: JMP 0x00427eb6                                
+
+  call 03 at 0x00426c83
+
+----------------------------------------------------------------------
+Disassembly form-writer call inside ExtraDataList::SaveGame around 0x00426c83
+----------------------------------------------------------------------
+  0x00426c60: MOV EAX,dword ptr [EDX + 0xc]                 
+  0x00426c63: PUSH EAX                                      
+  0x00426c64: MOV ECX,dword ptr [EBP + 0x8]                 
+  0x00426c67: CALL 0x00865df0                               
+      call -> 0x00865df0 FUN_00865df0 @ 0x00865df0
+  0x00426c6c: JMP 0x00427eb6                                
+  0x00426c71: MOV ECX,dword ptr [EBP + -0x20]               
+  0x00426c74: MOV dword ptr [EBP + -0x44],ECX               
+  0x00426c77: PUSH 0x0                                      
+  0x00426c79: MOV EDX,dword ptr [EBP + -0x44]               
+  0x00426c7c: MOV EAX,dword ptr [EDX + 0xc]                 
+  0x00426c7f: PUSH EAX                                      
+  0x00426c80: MOV ECX,dword ptr [EBP + 0x8]                 
+  0x00426c83: CALL 0x00865df0                                << target
+      call -> 0x00865df0 FUN_00865df0 @ 0x00865df0
+  0x00426c88: JMP 0x00427eb6                                
+  0x00426c8d: MOV ECX,dword ptr [EBP + -0x20]               
+  0x00426c90: MOV dword ptr [EBP + -0x48],ECX               
+  0x00426c93: PUSH 0x0                                      
+  0x00426c95: MOV EDX,dword ptr [EBP + -0x48]               
+  0x00426c98: MOV EAX,dword ptr [EDX + 0xc]                 
+  0x00426c9b: PUSH EAX                                      
+  0x00426c9c: MOV ECX,dword ptr [EBP + 0x8]                 
+  0x00426c9f: CALL 0x00865df0                               
+      call -> 0x00865df0 FUN_00865df0 @ 0x00865df0
+  0x00426ca4: JMP 0x00427eb6                                
+
+  call 04 at 0x00426c9f
+
+----------------------------------------------------------------------
+Disassembly form-writer call inside ExtraDataList::SaveGame around 0x00426c9f
+----------------------------------------------------------------------
+  0x00426c7c: MOV EAX,dword ptr [EDX + 0xc]                 
+  0x00426c7f: PUSH EAX                                      
+  0x00426c80: MOV ECX,dword ptr [EBP + 0x8]                 
+  0x00426c83: CALL 0x00865df0                               
+      call -> 0x00865df0 FUN_00865df0 @ 0x00865df0
+  0x00426c88: JMP 0x00427eb6                                
+  0x00426c8d: MOV ECX,dword ptr [EBP + -0x20]               
+  0x00426c90: MOV dword ptr [EBP + -0x48],ECX               
+  0x00426c93: PUSH 0x0                                      
+  0x00426c95: MOV EDX,dword ptr [EBP + -0x48]               
+  0x00426c98: MOV EAX,dword ptr [EDX + 0xc]                 
+  0x00426c9b: PUSH EAX                                      
+  0x00426c9c: MOV ECX,dword ptr [EBP + 0x8]                 
+  0x00426c9f: CALL 0x00865df0                                << target
+      call -> 0x00865df0 FUN_00865df0 @ 0x00865df0
+  0x00426ca4: JMP 0x00427eb6                                
+  0x00426ca9: MOV ECX,dword ptr [EBP + -0x20]               
+  0x00426cac: MOV dword ptr [EBP + -0x4c],ECX               
+  0x00426caf: PUSH 0x0                                      
+  0x00426cb1: PUSH 0x4                                      
+  0x00426cb3: MOV EDX,dword ptr [EBP + -0x4c]               
+  0x00426cb6: ADD EDX,0xc                                   
+  0x00426cb9: PUSH EDX                                      
+  0x00426cba: MOV ECX,dword ptr [EBP + 0x8]                 
+  0x00426cbd: CALL 0x00865e50                               
+      call -> 0x00865e50 FUN_00865e50 @ 0x00865e50
+
+  call 05 at 0x00426cd9
+
+----------------------------------------------------------------------
+Disassembly form-writer call inside ExtraDataList::SaveGame around 0x00426cd9
+----------------------------------------------------------------------
+  0x00426cb6: ADD EDX,0xc                                   
+  0x00426cb9: PUSH EDX                                      
+  0x00426cba: MOV ECX,dword ptr [EBP + 0x8]                 
+  0x00426cbd: CALL 0x00865e50                               
+      call -> 0x00865e50 FUN_00865e50 @ 0x00865e50
+  0x00426cc2: JMP 0x00427eb6                                
+  0x00426cc7: MOV EAX,dword ptr [EBP + -0x20]               
+  0x00426cca: MOV dword ptr [EBP + -0x50],EAX               
+  0x00426ccd: PUSH 0x0                                      
+  0x00426ccf: MOV ECX,dword ptr [EBP + -0x50]               
+  0x00426cd2: MOV EDX,dword ptr [ECX + 0xc]                 
+  0x00426cd5: PUSH EDX                                      
+  0x00426cd6: MOV ECX,dword ptr [EBP + 0x8]                 
+  0x00426cd9: CALL 0x00865df0                                << target
+      call -> 0x00865df0 FUN_00865df0 @ 0x00865df0
+  0x00426cde: MOV EAX,dword ptr [EBP + 0x8]                 
+  0x00426ce1: PUSH EAX                                      
+  0x00426ce2: MOV ECX,dword ptr [EBP + -0x50]               
+  0x00426ce5: MOV ECX,dword ptr [ECX + 0x10]                
+  0x00426ce8: CALL 0x005a9db0                               
+      call -> 0x005a9db0 FUN_005a9db0 @ 0x005a9db0
+  0x00426ced: JMP 0x00427eb6                                
+  0x00426cf2: MOV EDX,dword ptr [EBP + -0x20]               
+  0x00426cf5: MOV dword ptr [EBP + -0x58],EDX               
+  0x00426cf8: PUSH 0x0                                      
+  0x00426cfa: MOV EAX,dword ptr [EBP + -0x58]               
+
+  call 06 at 0x00426d04
+
+----------------------------------------------------------------------
+Disassembly form-writer call inside ExtraDataList::SaveGame around 0x00426d04
+----------------------------------------------------------------------
+  0x00426ce1: PUSH EAX                                      
+  0x00426ce2: MOV ECX,dword ptr [EBP + -0x50]               
+  0x00426ce5: MOV ECX,dword ptr [ECX + 0x10]                
+  0x00426ce8: CALL 0x005a9db0                               
+      call -> 0x005a9db0 FUN_005a9db0 @ 0x005a9db0
+  0x00426ced: JMP 0x00427eb6                                
+  0x00426cf2: MOV EDX,dword ptr [EBP + -0x20]               
+  0x00426cf5: MOV dword ptr [EBP + -0x58],EDX               
+  0x00426cf8: PUSH 0x0                                      
+  0x00426cfa: MOV EAX,dword ptr [EBP + -0x58]               
+  0x00426cfd: MOV ECX,dword ptr [EAX + 0x10]                
+  0x00426d00: PUSH ECX                                      
+  0x00426d01: MOV ECX,dword ptr [EBP + 0x8]                 
+  0x00426d04: CALL 0x00865df0                                << target
+      call -> 0x00865df0 FUN_00865df0 @ 0x00865df0
+  0x00426d09: MOV EDX,dword ptr [EBP + -0x58]               
+  0x00426d0c: MOV EAX,dword ptr [EDX + 0xc]                 
+  0x00426d0f: PUSH EAX                                      
+  0x00426d10: MOV ECX,dword ptr [EBP + -0x58]               
+  0x00426d13: MOV EDX,dword ptr [ECX + 0x10]                
+  0x00426d16: PUSH EDX                                      
+  0x00426d17: CALL 0x00475920                               
+      call -> 0x00475920 FUN_00475920 @ 0x00475920
+  0x00426d1c: ADD ESP,0x8                                   
+  0x00426d1f: MOV dword ptr [EBP + -0x54],EAX               
+  0x00426d22: PUSH 0x0                                      
+
+  call 07 at 0x00426d49
+
+----------------------------------------------------------------------
+Disassembly form-writer call inside ExtraDataList::SaveGame around 0x00426d49
+----------------------------------------------------------------------
+  0x00426d26: LEA EAX,[EBP + -0x54]                         
+  0x00426d29: PUSH EAX                                      
+  0x00426d2a: MOV ECX,dword ptr [EBP + 0x8]                 
+  0x00426d2d: CALL 0x00865e50                               
+      call -> 0x00865e50 FUN_00865e50 @ 0x00865e50
+  0x00426d32: JMP 0x00427eb6                                
+  0x00426d37: MOV ECX,dword ptr [EBP + -0x20]               
+  0x00426d3a: MOV dword ptr [EBP + -0x5c],ECX               
+  0x00426d3d: PUSH 0x0                                      
+  0x00426d3f: MOV EDX,dword ptr [EBP + -0x5c]               
+  0x00426d42: MOV EAX,dword ptr [EDX + 0xc]                 
+  0x00426d45: PUSH EAX                                      
+  0x00426d46: MOV ECX,dword ptr [EBP + 0x8]                 
+  0x00426d49: CALL 0x00865df0                                << target
+      call -> 0x00865df0 FUN_00865df0 @ 0x00865df0
+  0x00426d4e: PUSH 0x0                                      
+  0x00426d50: MOV ECX,dword ptr [EBP + -0x5c]               
+  0x00426d53: MOV EDX,dword ptr [ECX + 0x14]                
+  0x00426d56: PUSH EDX                                      
+  0x00426d57: MOV ECX,dword ptr [EBP + 0x8]                 
+  0x00426d5a: CALL 0x00865df0                               
+      call -> 0x00865df0 FUN_00865df0 @ 0x00865df0
+  0x00426d5f: PUSH 0x0                                      
+  0x00426d61: PUSH 0x4                                      
+  0x00426d63: MOV EAX,dword ptr [EBP + -0x5c]               
+  0x00426d66: ADD EAX,0x10                                  
+
+  call 08 at 0x00426d5a
+
+----------------------------------------------------------------------
+Disassembly form-writer call inside ExtraDataList::SaveGame around 0x00426d5a
+----------------------------------------------------------------------
+  0x00426d3a: MOV dword ptr [EBP + -0x5c],ECX               
+  0x00426d3d: PUSH 0x0                                      
+  0x00426d3f: MOV EDX,dword ptr [EBP + -0x5c]               
+  0x00426d42: MOV EAX,dword ptr [EDX + 0xc]                 
+  0x00426d45: PUSH EAX                                      
+  0x00426d46: MOV ECX,dword ptr [EBP + 0x8]                 
+  0x00426d49: CALL 0x00865df0                               
+      call -> 0x00865df0 FUN_00865df0 @ 0x00865df0
+  0x00426d4e: PUSH 0x0                                      
+  0x00426d50: MOV ECX,dword ptr [EBP + -0x5c]               
+  0x00426d53: MOV EDX,dword ptr [ECX + 0x14]                
+  0x00426d56: PUSH EDX                                      
+  0x00426d57: MOV ECX,dword ptr [EBP + 0x8]                 
+  0x00426d5a: CALL 0x00865df0                                << target
+      call -> 0x00865df0 FUN_00865df0 @ 0x00865df0
+  0x00426d5f: PUSH 0x0                                      
+  0x00426d61: PUSH 0x4                                      
+  0x00426d63: MOV EAX,dword ptr [EBP + -0x5c]               
+  0x00426d66: ADD EAX,0x10                                  
+  0x00426d69: PUSH EAX                                      
+  0x00426d6a: MOV ECX,dword ptr [EBP + 0x8]                 
+  0x00426d6d: CALL 0x00865e50                               
+      call -> 0x00865e50 FUN_00865e50 @ 0x00865e50
+  0x00426d72: PUSH 0x0                                      
+  0x00426d74: PUSH 0x1                                      
+  0x00426d76: MOV ECX,dword ptr [EBP + -0x5c]               
+
+  call 09 at 0x00426dc2
+
+----------------------------------------------------------------------
+Disassembly form-writer call inside ExtraDataList::SaveGame around 0x00426dc2
+----------------------------------------------------------------------
+  0x00426d9f: ADD EAX,0x1a                                  
+  0x00426da2: PUSH EAX                                      
+  0x00426da3: MOV ECX,dword ptr [EBP + 0x8]                 
+  0x00426da6: CALL 0x00865e50                               
+      call -> 0x00865e50 FUN_00865e50 @ 0x00865e50
+  0x00426dab: JMP 0x00427eb6                                
+  0x00426db0: MOV ECX,dword ptr [EBP + -0x20]               
+  0x00426db3: MOV dword ptr [EBP + -0x60],ECX               
+  0x00426db6: PUSH 0x0                                      
+  0x00426db8: MOV EDX,dword ptr [EBP + -0x60]               
+  0x00426dbb: MOV EAX,dword ptr [EDX + 0xc]                 
+  0x00426dbe: PUSH EAX                                      
+  0x00426dbf: MOV ECX,dword ptr [EBP + 0x8]                 
+  0x00426dc2: CALL 0x00865df0                                << target
+      call -> 0x00865df0 FUN_00865df0 @ 0x00865df0
+  0x00426dc7: PUSH 0x0                                      
+  0x00426dc9: PUSH 0xc                                      
+  0x00426dcb: MOV ECX,dword ptr [EBP + -0x60]               
+  0x00426dce: ADD ECX,0x10                                  
+  0x00426dd1: PUSH ECX                                      
+  0x00426dd2: MOV ECX,dword ptr [EBP + 0x8]                 
+  0x00426dd5: CALL 0x00865e50                               
+      call -> 0x00865e50 FUN_00865e50 @ 0x00865e50
+  0x00426dda: PUSH 0x0                                      
+  0x00426ddc: PUSH 0x4                                      
+  0x00426dde: MOV EDX,dword ptr [EBP + -0x60]               
+
+  call 10 at 0x00426e37
+
+----------------------------------------------------------------------
+Disassembly form-writer call inside ExtraDataList::SaveGame around 0x00426e37
+----------------------------------------------------------------------
+  0x00426e17: JZ 0x00426e65                                 
+  0x00426e19: MOV ECX,dword ptr [EBP + -0x70]               
+  0x00426e1c: CALL 0x006815c0                               
+      call -> 0x006815c0 FUN_006815c0 @ 0x006815c0
+  0x00426e21: MOV EAX,dword ptr [EAX]                       
+  0x00426e23: MOV dword ptr [EBP + -0x74],EAX               
+  0x00426e26: CMP dword ptr [EBP + -0x74],0x0               
+  0x00426e2a: JZ 0x00426e58                                 
+  0x00426e2c: PUSH 0x0                                      
+  0x00426e2e: MOV ECX,dword ptr [EBP + -0x74]               
+  0x00426e31: MOV EDX,dword ptr [ECX]                       
+  0x00426e33: PUSH EDX                                      
+  0x00426e34: MOV ECX,dword ptr [EBP + 0x8]                 
+  0x00426e37: CALL 0x00865df0                                << target
+      call -> 0x00865df0 FUN_00865df0 @ 0x00865df0
+  0x00426e3c: PUSH 0x0                                      
+  0x00426e3e: PUSH 0x1                                      
+  0x00426e40: MOV EAX,dword ptr [EBP + -0x74]               
+  0x00426e43: ADD EAX,0x4                                   
+  0x00426e46: PUSH EAX                                      
+  0x00426e47: MOV ECX,dword ptr [EBP + 0x8]                 
+  0x00426e4a: CALL 0x00865e50                               
+      call -> 0x00865e50 FUN_00865e50 @ 0x00865e50
+  0x00426e4f: MOV ECX,dword ptr [EBP + -0x68]               
+  0x00426e52: ADD ECX,0x1                                   
+  0x00426e55: MOV dword ptr [EBP + -0x68],ECX               
+
+  call 11 at 0x00426ecf
+
+----------------------------------------------------------------------
+Disassembly form-writer call inside ExtraDataList::SaveGame around 0x00426ecf
+----------------------------------------------------------------------
+  0x00426e9e: CMP dword ptr [EBP + 0xffffff7c],0x0          
+  0x00426ea5: JZ 0x00426ef0                                 
+  0x00426ea7: MOV ECX,dword ptr [EBP + 0xffffff7c]          
+  0x00426ead: CALL 0x006815c0                               
+      call -> 0x006815c0 FUN_006815c0 @ 0x006815c0
+  0x00426eb2: MOV ECX,dword ptr [EAX]                       
+  0x00426eb4: MOV dword ptr [EBP + 0xffffff78],ECX          
+  0x00426eba: CMP dword ptr [EBP + 0xffffff78],0x0          
+  0x00426ec1: JZ 0x00426edd                                 
+  0x00426ec3: PUSH 0x0                                      
+  0x00426ec5: MOV EDX,dword ptr [EBP + 0xffffff78]          
+  0x00426ecb: PUSH EDX                                      
+  0x00426ecc: MOV ECX,dword ptr [EBP + 0x8]                 
+  0x00426ecf: CALL 0x00865df0                                << target
+      call -> 0x00865df0 FUN_00865df0 @ 0x00865df0
+  0x00426ed4: MOV EAX,dword ptr [EBP + -0x7c]               
+  0x00426ed7: ADD EAX,0x1                                   
+  0x00426eda: MOV dword ptr [EBP + -0x7c],EAX               
+  0x00426edd: MOV ECX,dword ptr [EBP + 0xffffff7c]          
+  0x00426ee3: CALL 0x00726070                               
+      call -> 0x00726070 FUN_00726070 @ 0x00726070
+  0x00426ee8: MOV dword ptr [EBP + 0xffffff7c],EAX          
+  0x00426eee: JMP 0x00426e9e                                
+  0x00426ef0: MOV ECX,dword ptr [EBP + -0x80]               
+  0x00426ef3: PUSH ECX                                      
+  0x00426ef4: MOV EDX,dword ptr [EBP + -0x7c]               
+
+  call 12 at 0x00426f1d
+
+----------------------------------------------------------------------
+Disassembly form-writer call inside ExtraDataList::SaveGame around 0x00426f1d
+----------------------------------------------------------------------
+  0x00426ef4: MOV EDX,dword ptr [EBP + -0x7c]               
+  0x00426ef7: PUSH EDX                                      
+  0x00426ef8: MOV ECX,dword ptr [EBP + 0x8]                 
+  0x00426efb: CALL 0x00865ff0                               
+      call -> 0x00865ff0 FUN_00865ff0 @ 0x00865ff0
+  0x00426f00: JMP 0x00427eb6                                
+  0x00426f05: MOV EAX,dword ptr [EBP + -0x20]               
+  0x00426f08: MOV dword ptr [EBP + 0xffffff74],EAX          
+  0x00426f0e: PUSH 0x0                                      
+  0x00426f10: MOV ECX,dword ptr [EBP + 0xffffff74]          
+  0x00426f16: MOV EDX,dword ptr [ECX + 0xc]                 
+  0x00426f19: PUSH EDX                                      
+  0x00426f1a: MOV ECX,dword ptr [EBP + 0x8]                 
+  0x00426f1d: CALL 0x00865df0                                << target
+      call -> 0x00865df0 FUN_00865df0 @ 0x00865df0
+  0x00426f22: JMP 0x00427eb6                                
+  0x00426f27: MOV EAX,dword ptr [EBP + -0x20]               
+  0x00426f2a: MOV dword ptr [EBP + 0xffffff70],EAX          
+  0x00426f30: MOV dword ptr [EBP + 0xffffff6c],0x0          
+  0x00426f3a: MOV ECX,dword ptr [EBP + 0x8]                 
+  0x00426f3d: CALL 0x00865f20                               
+      call -> 0x00865f20 FUN_00865f20 @ 0x00865f20
+  0x00426f42: MOV dword ptr [EBP + 0xffffff68],EAX          
+  0x00426f48: MOV ECX,dword ptr [EBP + 0xffffff70]          
+  0x00426f4e: MOV EDX,dword ptr [ECX + 0xc]                 
+  0x00426f51: MOV dword ptr [EBP + 0xffffff64],EDX          
+
+  call 13 at 0x00426f8e
+
+----------------------------------------------------------------------
+Disassembly form-writer call inside ExtraDataList::SaveGame around 0x00426f8e
+----------------------------------------------------------------------
+  0x00426f5e: JZ 0x00426fe4                                 
+  0x00426f64: MOV ECX,dword ptr [EBP + 0xffffff64]          
+  0x00426f6a: CALL 0x006815c0                               
+      call -> 0x006815c0 FUN_006815c0 @ 0x006815c0
+  0x00426f6f: MOV EAX,dword ptr [EAX]                       
+  0x00426f71: MOV dword ptr [EBP + 0xffffff60],EAX          
+  0x00426f77: CMP dword ptr [EBP + 0xffffff60],0x0          
+  0x00426f7e: JZ 0x00426fce                                 
+  0x00426f80: PUSH 0x0                                      
+  0x00426f82: MOV ECX,dword ptr [EBP + 0xffffff60]          
+  0x00426f88: MOV EDX,dword ptr [ECX]                       
+  0x00426f8a: PUSH EDX                                      
+  0x00426f8b: MOV ECX,dword ptr [EBP + 0x8]                 
+  0x00426f8e: CALL 0x00865df0                                << target
+      call -> 0x00865df0 FUN_00865df0 @ 0x00865df0
+  0x00426f93: PUSH 0x0                                      
+  0x00426f95: PUSH 0x4                                      
+  0x00426f97: MOV EAX,dword ptr [EBP + 0xffffff60]          
+  0x00426f9d: ADD EAX,0x4                                   
+  0x00426fa0: PUSH EAX                                      
+  0x00426fa1: MOV ECX,dword ptr [EBP + 0x8]                 
+  0x00426fa4: CALL 0x00865e50                               
+      call -> 0x00865e50 FUN_00865e50 @ 0x00865e50
+  0x00426fa9: PUSH 0x0                                      
+  0x00426fab: PUSH 0x4                                      
+  0x00426fad: MOV ECX,dword ptr [EBP + 0xffffff60]          
+
+  call 14 at 0x00427017
+
+----------------------------------------------------------------------
+Disassembly form-writer call inside ExtraDataList::SaveGame around 0x00427017
+----------------------------------------------------------------------
+  0x00426feb: MOV ECX,dword ptr [EBP + 0xffffff6c]          
+  0x00426ff1: PUSH ECX                                      
+  0x00426ff2: MOV ECX,dword ptr [EBP + 0x8]                 
+  0x00426ff5: CALL 0x00865ff0                               
+      call -> 0x00865ff0 FUN_00865ff0 @ 0x00865ff0
+  0x00426ffa: JMP 0x00427eb6                                
+  0x00426fff: MOV EDX,dword ptr [EBP + -0x20]               
+  0x00427002: MOV dword ptr [EBP + 0xffffff5c],EDX          
+  0x00427008: PUSH 0x0                                      
+  0x0042700a: MOV EAX,dword ptr [EBP + 0xffffff5c]          
+  0x00427010: MOV ECX,dword ptr [EAX + 0x10]                
+  0x00427013: PUSH ECX                                      
+  0x00427014: MOV ECX,dword ptr [EBP + 0x8]                 
+  0x00427017: CALL 0x00865df0                                << target
+      call -> 0x00865df0 FUN_00865df0 @ 0x00865df0
+  0x0042701c: PUSH 0x0                                      
+  0x0042701e: MOV EDX,dword ptr [EBP + 0xffffff5c]          
+  0x00427024: MOV EAX,dword ptr [EDX + 0xc]                 
+  0x00427027: PUSH EAX                                      
+  0x00427028: MOV ECX,dword ptr [EBP + 0x8]                 
+  0x0042702b: CALL 0x00865df0                               
+      call -> 0x00865df0 FUN_00865df0 @ 0x00865df0
+  0x00427030: PUSH 0x0                                      
+  0x00427032: PUSH 0x1                                      
+  0x00427034: MOV ECX,dword ptr [EBP + 0xffffff5c]          
+  0x0042703a: ADD ECX,0x18                                  
+
+  call 15 at 0x0042702b
+
+----------------------------------------------------------------------
+Disassembly form-writer call inside ExtraDataList::SaveGame around 0x0042702b
+----------------------------------------------------------------------
+  0x00427002: MOV dword ptr [EBP + 0xffffff5c],EDX          
+  0x00427008: PUSH 0x0                                      
+  0x0042700a: MOV EAX,dword ptr [EBP + 0xffffff5c]          
+  0x00427010: MOV ECX,dword ptr [EAX + 0x10]                
+  0x00427013: PUSH ECX                                      
+  0x00427014: MOV ECX,dword ptr [EBP + 0x8]                 
+  0x00427017: CALL 0x00865df0                               
+      call -> 0x00865df0 FUN_00865df0 @ 0x00865df0
+  0x0042701c: PUSH 0x0                                      
+  0x0042701e: MOV EDX,dword ptr [EBP + 0xffffff5c]          
+  0x00427024: MOV EAX,dword ptr [EDX + 0xc]                 
+  0x00427027: PUSH EAX                                      
+  0x00427028: MOV ECX,dword ptr [EBP + 0x8]                 
+  0x0042702b: CALL 0x00865df0                                << target
+      call -> 0x00865df0 FUN_00865df0 @ 0x00865df0
+  0x00427030: PUSH 0x0                                      
+  0x00427032: PUSH 0x1                                      
+  0x00427034: MOV ECX,dword ptr [EBP + 0xffffff5c]          
+  0x0042703a: ADD ECX,0x18                                  
+  0x0042703d: PUSH ECX                                      
+  0x0042703e: MOV ECX,dword ptr [EBP + 0x8]                 
+  0x00427041: CALL 0x00865e50                               
+      call -> 0x00865e50 FUN_00865e50 @ 0x00865e50
+  0x00427046: JMP 0x00427eb6                                
+  0x0042704b: MOV EDX,dword ptr [EBP + -0x20]               
+  0x0042704e: MOV dword ptr [EBP + 0xffffff58],EDX          
+
+  call 16 at 0x00427267
+
+----------------------------------------------------------------------
+Disassembly form-writer call inside ExtraDataList::SaveGame around 0x00427267
+----------------------------------------------------------------------
+  0x0042723b: JZ 0x004272a4                                 
+  0x0042723d: MOV ECX,dword ptr [EBP + 0xffffff1c]          
+  0x00427243: CALL 0x006815c0                               
+      call -> 0x006815c0 FUN_006815c0 @ 0x006815c0
+  0x00427248: MOV EAX,dword ptr [EAX]                       
+  0x0042724a: MOV dword ptr [EBP + 0xffffff18],EAX          
+  0x00427250: CMP dword ptr [EBP + 0xffffff18],0x0          
+  0x00427257: JZ 0x00427291                                 
+  0x00427259: PUSH 0x0                                      
+  0x0042725b: MOV ECX,dword ptr [EBP + 0xffffff18]          
+  0x00427261: MOV EDX,dword ptr [ECX]                       
+  0x00427263: PUSH EDX                                      
+  0x00427264: MOV ECX,dword ptr [EBP + 0x8]                 
+  0x00427267: CALL 0x00865df0                                << target
+      call -> 0x00865df0 FUN_00865df0 @ 0x00865df0
+  0x0042726c: PUSH 0x0                                      
+  0x0042726e: PUSH 0x1                                      
+  0x00427270: MOV EAX,dword ptr [EBP + 0xffffff18]          
+  0x00427276: ADD EAX,0x4                                   
+  0x00427279: PUSH EAX                                      
+  0x0042727a: MOV ECX,dword ptr [EBP + 0x8]                 
+  0x0042727d: CALL 0x00865e50                               
+      call -> 0x00865e50 FUN_00865e50 @ 0x00865e50
+  0x00427282: MOV ECX,dword ptr [EBP + 0xffffff24]          
+  0x00427288: ADD ECX,0x1                                   
+  0x0042728b: MOV dword ptr [EBP + 0xffffff24],ECX          
+
+  call 17 at 0x00427460
+
+----------------------------------------------------------------------
+Disassembly form-writer call inside ExtraDataList::SaveGame around 0x00427460
+----------------------------------------------------------------------
+  0x00427438: PUSH ECX                                      
+  0x00427439: MOV ECX,dword ptr [EBP + 0x8]                 
+  0x0042743c: CALL 0x00865db0                               
+      call -> 0x00865db0 FUN_00865db0 @ 0x00865db0
+  0x00427441: JMP 0x004273f6                                
+  0x00427443: JMP 0x00427eb6                                
+  0x00427448: MOV EDX,dword ptr [EBP + -0x20]               
+  0x0042744b: MOV dword ptr [EBP + 0xfffffef4],EDX          
+  0x00427451: PUSH 0x0                                      
+  0x00427453: MOV EAX,dword ptr [EBP + 0xfffffef4]          
+  0x00427459: MOV ECX,dword ptr [EAX + 0xc]                 
+  0x0042745c: PUSH ECX                                      
+  0x0042745d: MOV ECX,dword ptr [EBP + 0x8]                 
+  0x00427460: CALL 0x00865df0                                << target
+      call -> 0x00865df0 FUN_00865df0 @ 0x00865df0
+  0x00427465: JMP 0x00427eb6                                
+  0x0042746a: MOV EDX,dword ptr [EBP + -0x20]               
+  0x0042746d: MOV dword ptr [EBP + 0xfffffef0],EDX          
+  0x00427473: PUSH 0x0                                      
+  0x00427475: PUSH 0x4                                      
+  0x00427477: MOV EAX,dword ptr [EBP + 0xfffffef0]          
+  0x0042747d: ADD EAX,0xc                                   
+  0x00427480: PUSH EAX                                      
+  0x00427481: MOV ECX,dword ptr [EBP + 0x8]                 
+  0x00427484: CALL 0x00865e50                               
+      call -> 0x00865e50 FUN_00865e50 @ 0x00865e50
+
+  call 18 at 0x004274ca
+
+----------------------------------------------------------------------
+Disassembly form-writer call inside ExtraDataList::SaveGame around 0x004274ca
+----------------------------------------------------------------------
+  0x004274a1: ADD EDX,0xc                                   
+  0x004274a4: PUSH EDX                                      
+  0x004274a5: MOV ECX,dword ptr [EBP + 0x8]                 
+  0x004274a8: CALL 0x00865e50                               
+      call -> 0x00865e50 FUN_00865e50 @ 0x00865e50
+  0x004274ad: JMP 0x00427eb6                                
+  0x004274b2: MOV EAX,dword ptr [EBP + -0x20]               
+  0x004274b5: MOV dword ptr [EBP + 0xfffffee8],EAX          
+  0x004274bb: PUSH 0x0                                      
+  0x004274bd: MOV ECX,dword ptr [EBP + 0xfffffee8]          
+  0x004274c3: MOV EDX,dword ptr [ECX + 0xc]                 
+  0x004274c6: PUSH EDX                                      
+  0x004274c7: MOV ECX,dword ptr [EBP + 0x8]                 
+  0x004274ca: CALL 0x00865df0                                << target
+      call -> 0x00865df0 FUN_00865df0 @ 0x00865df0
+  0x004274cf: PUSH 0x0                                      
+  0x004274d1: PUSH 0x4                                      
+  0x004274d3: MOV EAX,dword ptr [EBP + 0xfffffee8]          
+  0x004274d9: ADD EAX,0x10                                  
+  0x004274dc: PUSH EAX                                      
+  0x004274dd: MOV ECX,dword ptr [EBP + 0x8]                 
+  0x004274e0: CALL 0x00865e50                               
+      call -> 0x00865e50 FUN_00865e50 @ 0x00865e50
+  0x004274e5: JMP 0x00427eb6                                
+  0x004274ea: MOV ECX,dword ptr [EBP + -0x20]               
+  0x004274ed: MOV dword ptr [EBP + 0xfffffee4],ECX          
+
+  call 19 at 0x00427526
+
+----------------------------------------------------------------------
+Disassembly form-writer call inside ExtraDataList::SaveGame around 0x00427526
+----------------------------------------------------------------------
+  0x004274fd: ADD EDX,0xc                                   
+  0x00427500: PUSH EDX                                      
+  0x00427501: MOV ECX,dword ptr [EBP + 0x8]                 
+  0x00427504: CALL 0x00865e50                               
+      call -> 0x00865e50 FUN_00865e50 @ 0x00865e50
+  0x00427509: JMP 0x00427eb6                                
+  0x0042750e: MOV EAX,dword ptr [EBP + -0x20]               
+  0x00427511: MOV dword ptr [EBP + 0xfffffee0],EAX          
+  0x00427517: PUSH 0x0                                      
+  0x00427519: MOV ECX,dword ptr [EBP + 0xfffffee0]          
+  0x0042751f: MOV EDX,dword ptr [ECX + 0xc]                 
+  0x00427522: PUSH EDX                                      
+  0x00427523: MOV ECX,dword ptr [EBP + 0x8]                 
+  0x00427526: CALL 0x00865df0                                << target
+      call -> 0x00865df0 FUN_00865df0 @ 0x00865df0
+  0x0042752b: MOV EAX,dword ptr [EBP + 0xfffffee0]          
+  0x00427531: CMP dword ptr [EAX + 0xc],0x0                 
+  0x00427535: JZ 0x00427554                                 
+  0x00427537: MOV ECX,dword ptr [EBP + 0x8]                 
+  0x0042753a: PUSH ECX                                      
+  0x0042753b: MOV EDX,dword ptr [EBP + 0xfffffee0]          
+  0x00427541: MOV EAX,dword ptr [EDX + 0xc]                 
+  0x00427544: MOV ECX,dword ptr [EBP + 0xfffffee0]          
+  0x0042754a: MOV ECX,dword ptr [ECX + 0xc]                 
+  0x0042754d: MOV EDX,dword ptr [EAX]                       
+
+  call 20 at 0x00427638
+
+----------------------------------------------------------------------
+Disassembly form-writer call inside ExtraDataList::SaveGame around 0x00427638
+----------------------------------------------------------------------
+  0x00427611: MOV EAX,dword ptr [EBP + 0xfffffecc]          
+  0x00427617: MOV ECX,dword ptr [EAX + 0xc]                 
+  0x0042761a: ADD ECX,0x8                                   
+  0x0042761d: PUSH ECX                                      
+  0x0042761e: MOV ECX,dword ptr [EBP + 0x8]                 
+  0x00427621: CALL 0x00865e50                               
+      call -> 0x00865e50 FUN_00865e50 @ 0x00865e50
+  0x00427626: PUSH 0x0                                      
+  0x00427628: MOV EDX,dword ptr [EBP + 0xfffffecc]          
+  0x0042762e: MOV EAX,dword ptr [EDX + 0xc]                 
+  0x00427631: MOV ECX,dword ptr [EAX + 0x4]                 
+  0x00427634: PUSH ECX                                      
+  0x00427635: MOV ECX,dword ptr [EBP + 0x8]                 
+  0x00427638: CALL 0x00865df0                                << target
+      call -> 0x00865df0 FUN_00865df0 @ 0x00865df0
+  0x0042763d: PUSH 0x0                                      
+  0x0042763f: PUSH 0x4                                      
+  0x00427641: MOV EDX,dword ptr [EBP + 0xfffffecc]          
+  0x00427647: MOV EAX,dword ptr [EDX + 0xc]                 
+  0x0042764a: ADD EAX,0xc                                   
+  0x0042764d: PUSH EAX                                      
+  0x0042764e: MOV ECX,dword ptr [EBP + 0x8]                 
+  0x00427651: CALL 0x00865e50                               
+      call -> 0x00865e50 FUN_00865e50 @ 0x00865e50
+  0x00427656: PUSH 0x0                                      
+  0x00427658: PUSH 0x4                                      
+
+  call 21 at 0x00427740
+
+----------------------------------------------------------------------
+Disassembly form-writer call inside ExtraDataList::SaveGame around 0x00427740
+----------------------------------------------------------------------
+  0x00427714: JMP 0x00427720                                
+  0x00427716: MOV dword ptr [EBP + 0xfffffe08],0x0          
+  0x00427720: PUSH 0x0                                      
+  0x00427722: MOV EAX,dword ptr [EBP + 0xfffffe08]          
+  0x00427728: PUSH EAX                                      
+  0x00427729: MOV ECX,dword ptr [EBP + 0x8]                 
+  0x0042772c: CALL 0x00865db0                               
+      call -> 0x00865db0 FUN_00865db0 @ 0x00865db0
+  0x00427731: PUSH 0x0                                      
+  0x00427733: MOV ECX,dword ptr [EBP + 0xfffffec4]          
+  0x00427739: MOV EDX,dword ptr [ECX + 0x20]                
+  0x0042773c: PUSH EDX                                      
+  0x0042773d: MOV ECX,dword ptr [EBP + 0x8]                 
+  0x00427740: CALL 0x00865df0                                << target
+      call -> 0x00865df0 FUN_00865df0 @ 0x00865df0
+  0x00427745: JMP 0x00427eb6                                
+  0x0042774a: MOV EAX,dword ptr [EBP + -0x20]               
+  0x0042774d: MOV dword ptr [EBP + 0xfffffec0],EAX          
+  0x00427753: PUSH 0x0                                      
+  0x00427755: MOV ECX,dword ptr [EBP + 0xfffffec0]          
+  0x0042775b: MOV EDX,dword ptr [ECX + 0x1c]                
+  0x0042775e: PUSH EDX                                      
+  0x0042775f: MOV ECX,dword ptr [EBP + 0x8]                 
+  0x00427762: CALL 0x00865df0                               
+      call -> 0x00865df0 FUN_00865df0 @ 0x00865df0
+  0x00427767: MOV EAX,dword ptr [EBP + 0xfffffec0]          
+
+  call 22 at 0x00427762
+
+----------------------------------------------------------------------
+Disassembly form-writer call inside ExtraDataList::SaveGame around 0x00427762
+----------------------------------------------------------------------
+  0x00427739: MOV EDX,dword ptr [ECX + 0x20]                
+  0x0042773c: PUSH EDX                                      
+  0x0042773d: MOV ECX,dword ptr [EBP + 0x8]                 
+  0x00427740: CALL 0x00865df0                               
+      call -> 0x00865df0 FUN_00865df0 @ 0x00865df0
+  0x00427745: JMP 0x00427eb6                                
+  0x0042774a: MOV EAX,dword ptr [EBP + -0x20]               
+  0x0042774d: MOV dword ptr [EBP + 0xfffffec0],EAX          
+  0x00427753: PUSH 0x0                                      
+  0x00427755: MOV ECX,dword ptr [EBP + 0xfffffec0]          
+  0x0042775b: MOV EDX,dword ptr [ECX + 0x1c]                
+  0x0042775e: PUSH EDX                                      
+  0x0042775f: MOV ECX,dword ptr [EBP + 0x8]                 
+  0x00427762: CALL 0x00865df0                                << target
+      call -> 0x00865df0 FUN_00865df0 @ 0x00865df0
+  0x00427767: MOV EAX,dword ptr [EBP + 0xfffffec0]          
+  0x0042776d: ADD EAX,0x20                                  
+  0x00427770: PUSH EAX                                      
+  0x00427771: MOV ECX,dword ptr [EBP + 0x8]                 
+  0x00427774: PUSH ECX                                      
+  0x00427775: CALL 0x00806a10                               
+      call -> 0x00806a10 FUN_00806a10 @ 0x00806a10
+  0x0042777a: ADD ESP,0x8                                   
+  0x0042777d: JMP 0x00427eb6                                
+  0x00427782: MOV EDX,dword ptr [EBP + -0x20]               
+  0x00427785: MOV dword ptr [EBP + 0xfffffebc],EDX          
+
+  call 23 at 0x0042779a
+
+----------------------------------------------------------------------
+Disassembly form-writer call inside ExtraDataList::SaveGame around 0x0042779a
+----------------------------------------------------------------------
+  0x00427771: MOV ECX,dword ptr [EBP + 0x8]                 
+  0x00427774: PUSH ECX                                      
+  0x00427775: CALL 0x00806a10                               
+      call -> 0x00806a10 FUN_00806a10 @ 0x00806a10
+  0x0042777a: ADD ESP,0x8                                   
+  0x0042777d: JMP 0x00427eb6                                
+  0x00427782: MOV EDX,dword ptr [EBP + -0x20]               
+  0x00427785: MOV dword ptr [EBP + 0xfffffebc],EDX          
+  0x0042778b: PUSH 0x0                                      
+  0x0042778d: MOV EAX,dword ptr [EBP + 0xfffffebc]          
+  0x00427793: MOV ECX,dword ptr [EAX + 0xc]                 
+  0x00427796: PUSH ECX                                      
+  0x00427797: MOV ECX,dword ptr [EBP + 0x8]                 
+  0x0042779a: CALL 0x00865df0                                << target
+      call -> 0x00865df0 FUN_00865df0 @ 0x00865df0
+  0x0042779f: JMP 0x00427eb6                                
+  0x004277a4: MOV EDX,dword ptr [EBP + -0x20]               
+  0x004277a7: MOV dword ptr [EBP + 0xfffffeb8],EDX          
+  0x004277ad: MOV EAX,dword ptr [EBP + 0xfffffeb8]          
+  0x004277b3: CMP dword ptr [EAX + 0xc],0x0                 
+  0x004277b7: JZ 0x004277d2                                 
+  0x004277b9: MOV ECX,dword ptr [EBP + 0xfffffeb8]          
+  0x004277bf: MOV ECX,dword ptr [ECX + 0xc]                 
+  0x004277c2: ADD ECX,0x30                                  
+  0x004277c5: CALL 0x0040a1e0                               
+      call -> 0x0040a1e0 FUN_0040a1e0 @ 0x0040a1e0
+
+  call 24 at 0x0042780a
+
+----------------------------------------------------------------------
+Disassembly form-writer call inside ExtraDataList::SaveGame around 0x0042780a
+----------------------------------------------------------------------
+  0x004277de: MOV EDX,dword ptr [EBP + 0xfffffe04]          
+  0x004277e4: PUSH EDX                                      
+  0x004277e5: MOV ECX,dword ptr [EBP + 0x8]                 
+  0x004277e8: CALL 0x00865db0                               
+      call -> 0x00865db0 FUN_00865db0 @ 0x00865db0
+  0x004277ed: JMP 0x00427eb6                                
+  0x004277f2: MOV EAX,dword ptr [EBP + -0x20]               
+  0x004277f5: MOV dword ptr [EBP + 0xfffffeb4],EAX          
+  0x004277fb: PUSH 0x0                                      
+  0x004277fd: MOV ECX,dword ptr [EBP + 0xfffffeb4]          
+  0x00427803: MOV EDX,dword ptr [ECX + 0xc]                 
+  0x00427806: PUSH EDX                                      
+  0x00427807: MOV ECX,dword ptr [EBP + 0x8]                 
+  0x0042780a: CALL 0x00865df0                                << target
+      call -> 0x00865df0 FUN_00865df0 @ 0x00865df0
+  0x0042780f: JMP 0x00427eb6                                
+  0x00427814: MOV EAX,dword ptr [EBP + -0x20]               
+  0x00427817: MOV dword ptr [EBP + 0xfffffeb0],EAX          
+  0x0042781d: MOV ECX,dword ptr [EBP + 0x8]                 
+  0x00427820: PUSH ECX                                      
+  0x00427821: MOV EDX,dword ptr [EBP + 0xfffffeb0]          
+  0x00427827: MOV ECX,dword ptr [EDX + 0xc]                 
+  0x0042782a: CALL 0x0083fb10                               
+      call -> 0x0083fb10 FUN_0083fb10 @ 0x0083fb10
+  0x0042782f: JMP 0x00427eb6                                
+  0x00427834: MOV EAX,dword ptr [EBP + -0x20]               
+
+  call 25 at 0x004278c8
+
+----------------------------------------------------------------------
+Disassembly form-writer call inside ExtraDataList::SaveGame around 0x004278c8
+----------------------------------------------------------------------
+  0x004278a3: PUSH 0x0                                      
+  0x004278a5: PUSH 0x1                                      
+  0x004278a7: MOV EAX,dword ptr [EBP + 0xfffffea8]          
+  0x004278ad: ADD EAX,0x1c                                  
+  0x004278b0: PUSH EAX                                      
+  0x004278b1: MOV ECX,dword ptr [EBP + 0x8]                 
+  0x004278b4: CALL 0x00865e50                               
+      call -> 0x00865e50 FUN_00865e50 @ 0x00865e50
+  0x004278b9: PUSH 0x0                                      
+  0x004278bb: MOV ECX,dword ptr [EBP + 0xfffffea8]          
+  0x004278c1: MOV EDX,dword ptr [ECX + 0x14]                
+  0x004278c4: PUSH EDX                                      
+  0x004278c5: MOV ECX,dword ptr [EBP + 0x8]                 
+  0x004278c8: CALL 0x00865df0                                << target
+      call -> 0x00865df0 FUN_00865df0 @ 0x00865df0
+  0x004278cd: MOV EAX,dword ptr [EBP + 0xfffffea8]          
+  0x004278d3: ADD EAX,0x20                                  
+  0x004278d6: JZ 0x004278ee                                 
+  0x004278d8: MOV ECX,dword ptr [EBP + 0xfffffea8]          
+  0x004278de: ADD ECX,0x20                                  
+  0x004278e1: CALL 0x0044ddc0                               
+      call -> 0x0044ddc0 FUN_0044ddc0 @ 0x0044ddc0
+  0x004278e6: MOV dword ptr [EBP + 0xfffffe00],EAX          
+  0x004278ec: JMP 0x004278f8                                
+  0x004278ee: MOV dword ptr [EBP + 0xfffffe00],0x0          
+  0x004278f8: MOV ECX,dword ptr [EBP + 0xfffffe00]          
+
+  call 26 at 0x00427a56
+
+----------------------------------------------------------------------
+Disassembly form-writer call inside ExtraDataList::SaveGame around 0x00427a56
+----------------------------------------------------------------------
+  0x00427a2b: MOV EAX,dword ptr [EBP + 0xfffffe94]          
+  0x00427a31: PUSH EAX                                      
+  0x00427a32: MOV ECX,dword ptr [EBP + 0xfffffe9c]          
+  0x00427a38: MOV ECX,dword ptr [ECX]                       
+  0x00427a3a: ADD ECX,0x4                                   
+  0x00427a3d: CALL 0x006a7ad0                               
+      call -> 0x006a7ad0 FUN_006a7ad0 @ 0x006a7ad0
+  0x00427a42: MOV dword ptr [EBP + 0xfffffe90],EAX          
+  0x00427a48: PUSH 0x0                                      
+  0x00427a4a: MOV EDX,dword ptr [EBP + 0xfffffe90]          
+  0x00427a50: MOV EAX,dword ptr [EDX]                       
+  0x00427a52: PUSH EAX                                      
+  0x00427a53: MOV ECX,dword ptr [EBP + 0x8]                 
+  0x00427a56: CALL 0x00865df0                                << target
+      call -> 0x00865df0 FUN_00865df0 @ 0x00865df0
+  0x00427a5b: JMP 0x00427a0e                                
+  0x00427a5d: JMP 0x0042791f                                
+  0x00427a62: JMP 0x00427eb6                                
+  0x00427a67: MOV ECX,dword ptr [EBP + -0x20]               
+  0x00427a6a: MOV dword ptr [EBP + 0xfffffe8c],ECX          
+  0x00427a70: PUSH 0x0                                      
+  0x00427a72: MOV EDX,dword ptr [EBP + 0xfffffe8c]          
+  0x00427a78: MOV EAX,dword ptr [EDX + 0xc]                 
+  0x00427a7b: PUSH EAX                                      
+  0x00427a7c: MOV ECX,dword ptr [EBP + 0x8]                 
+
+  call 27 at 0x00427a7f
+
+----------------------------------------------------------------------
+Disassembly form-writer call inside ExtraDataList::SaveGame around 0x00427a7f
+----------------------------------------------------------------------
+  0x00427a53: MOV ECX,dword ptr [EBP + 0x8]                 
+  0x00427a56: CALL 0x00865df0                               
+      call -> 0x00865df0 FUN_00865df0 @ 0x00865df0
+  0x00427a5b: JMP 0x00427a0e                                
+  0x00427a5d: JMP 0x0042791f                                
+  0x00427a62: JMP 0x00427eb6                                
+  0x00427a67: MOV ECX,dword ptr [EBP + -0x20]               
+  0x00427a6a: MOV dword ptr [EBP + 0xfffffe8c],ECX          
+  0x00427a70: PUSH 0x0                                      
+  0x00427a72: MOV EDX,dword ptr [EBP + 0xfffffe8c]          
+  0x00427a78: MOV EAX,dword ptr [EDX + 0xc]                 
+  0x00427a7b: PUSH EAX                                      
+  0x00427a7c: MOV ECX,dword ptr [EBP + 0x8]                 
+  0x00427a7f: CALL 0x00865df0                                << target
+      call -> 0x00865df0 FUN_00865df0 @ 0x00865df0
+  0x00427a84: JMP 0x00427eb6                                
+  0x00427a89: MOV ECX,dword ptr [EBP + -0x20]               
+  0x00427a8c: MOV dword ptr [EBP + 0xfffffe84],ECX          
+  0x00427a92: MOV ECX,dword ptr [EBP + 0xfffffe84]          
+  0x00427a98: ADD ECX,0xc                                   
+  0x00427a9b: CALL 0x00559450                               
+      call -> 0x00559450 FUN_00559450 @ 0x00559450
+  0x00427aa0: TEST EAX,EAX                                  
+  0x00427aa2: JZ 0x00427ac1                                 
+  0x00427aa4: MOV ECX,dword ptr [EBP + 0xfffffe84]          
+  0x00427aaa: ADD ECX,0xc                                   
+
+  call 28 at 0x00427b27
+
+----------------------------------------------------------------------
+Disassembly form-writer call inside ExtraDataList::SaveGame around 0x00427b27
+----------------------------------------------------------------------
+  0x00427afb: PUSH EDX                                      
+  0x00427afc: MOV EAX,dword ptr [EBP + 0xfffffe80]          
+  0x00427b02: MOV ECX,dword ptr [EAX + 0xc]                 
+  0x00427b05: CALL 0x0043aa40                               
+      call -> 0x0043aa40 FUN_0043aa40 @ 0x0043aa40
+  0x00427b0a: JMP 0x00427eb6                                
+  0x00427b0f: MOV ECX,dword ptr [EBP + -0x20]               
+  0x00427b12: MOV dword ptr [EBP + 0xfffffe7c],ECX          
+  0x00427b18: PUSH 0x0                                      
+  0x00427b1a: MOV EDX,dword ptr [EBP + 0xfffffe7c]          
+  0x00427b20: MOV EAX,dword ptr [EDX + 0xc]                 
+  0x00427b23: PUSH EAX                                      
+  0x00427b24: MOV ECX,dword ptr [EBP + 0x8]                 
+  0x00427b27: CALL 0x00865df0                                << target
+      call -> 0x00865df0 FUN_00865df0 @ 0x00865df0
+  0x00427b2c: JMP 0x00427eb6                                
+  0x00427b31: MOV ECX,dword ptr [EBP + -0x20]               
+  0x00427b34: MOV dword ptr [EBP + 0xfffffe74],ECX          
+  0x00427b3a: PUSH 0x0                                      
+  0x00427b3c: MOV EDX,dword ptr [EBP + 0xfffffe74]          
+  0x00427b42: MOV EAX,dword ptr [EDX + 0xc]                 
+  0x00427b45: PUSH EAX                                      
+  0x00427b46: MOV ECX,dword ptr [EBP + 0x8]                 
+  0x00427b49: CALL 0x00865df0                               
+      call -> 0x00865df0 FUN_00865df0 @ 0x00865df0
+  0x00427b4e: PUSH 0x0                                      
+
+  call 29 at 0x00427b49
+
+----------------------------------------------------------------------
+Disassembly form-writer call inside ExtraDataList::SaveGame around 0x00427b49
+----------------------------------------------------------------------
+  0x00427b20: MOV EAX,dword ptr [EDX + 0xc]                 
+  0x00427b23: PUSH EAX                                      
+  0x00427b24: MOV ECX,dword ptr [EBP + 0x8]                 
+  0x00427b27: CALL 0x00865df0                               
+      call -> 0x00865df0 FUN_00865df0 @ 0x00865df0
+  0x00427b2c: JMP 0x00427eb6                                
+  0x00427b31: MOV ECX,dword ptr [EBP + -0x20]               
+  0x00427b34: MOV dword ptr [EBP + 0xfffffe74],ECX          
+  0x00427b3a: PUSH 0x0                                      
+  0x00427b3c: MOV EDX,dword ptr [EBP + 0xfffffe74]          
+  0x00427b42: MOV EAX,dword ptr [EDX + 0xc]                 
+  0x00427b45: PUSH EAX                                      
+  0x00427b46: MOV ECX,dword ptr [EBP + 0x8]                 
+  0x00427b49: CALL 0x00865df0                                << target
+      call -> 0x00865df0 FUN_00865df0 @ 0x00865df0
+  0x00427b4e: PUSH 0x0                                      
+  0x00427b50: MOV ECX,dword ptr [EBP + 0xfffffe74]          
+  0x00427b56: MOV EDX,dword ptr [ECX + 0x10]                
+  0x00427b59: PUSH EDX                                      
+  0x00427b5a: MOV ECX,dword ptr [EBP + 0x8]                 
+  0x00427b5d: CALL 0x00865df0                               
+      call -> 0x00865df0 FUN_00865df0 @ 0x00865df0
+  0x00427b62: MOV ECX,dword ptr [EBP + -0x14]               
+  0x00427b65: CALL 0x004181e0                               
+      call -> 0x004181e0 FUN_004181e0 @ 0x004181e0
+  0x00427b6a: MOV dword ptr [EBP + 0xfffffe70],EAX          
+  0x00427b70: MOV ECX,dword ptr [EBP + 0xfffffe70]          
+
+  call 30 at 0x00427b5d
+
+----------------------------------------------------------------------
+Disassembly form-writer call inside ExtraDataList::SaveGame around 0x00427b5d
+----------------------------------------------------------------------
+  0x00427b34: MOV dword ptr [EBP + 0xfffffe74],ECX          
+  0x00427b3a: PUSH 0x0                                      
+  0x00427b3c: MOV EDX,dword ptr [EBP + 0xfffffe74]          
+  0x00427b42: MOV EAX,dword ptr [EDX + 0xc]                 
+  0x00427b45: PUSH EAX                                      
+  0x00427b46: MOV ECX,dword ptr [EBP + 0x8]                 
+  0x00427b49: CALL 0x00865df0                               
+      call -> 0x00865df0 FUN_00865df0 @ 0x00865df0
+  0x00427b4e: PUSH 0x0                                      
+  0x00427b50: MOV ECX,dword ptr [EBP + 0xfffffe74]          
+  0x00427b56: MOV EDX,dword ptr [ECX + 0x10]                
+  0x00427b59: PUSH EDX                                      
+  0x00427b5a: MOV ECX,dword ptr [EBP + 0x8]                 
+  0x00427b5d: CALL 0x00865df0                                << target
+      call -> 0x00865df0 FUN_00865df0 @ 0x00865df0
+  0x00427b62: MOV ECX,dword ptr [EBP + -0x14]               
+  0x00427b65: CALL 0x004181e0                               
+      call -> 0x004181e0 FUN_004181e0 @ 0x004181e0
+  0x00427b6a: MOV dword ptr [EBP + 0xfffffe70],EAX          
+  0x00427b70: MOV ECX,dword ptr [EBP + 0xfffffe70]          
+  0x00427b76: ADD ECX,0x30                                  
+  0x00427b79: CALL 0x0045cd60                               
+      call -> 0x0045cd60 FUN_0045cd60 @ 0x0045cd60
+  0x00427b7e: MOV dword ptr [EBP + 0xfffffe6c],EAX          
+  0x00427b84: PUSH 0x0                                      
+  0x00427b86: PUSH 0x4                                      
+  0x00427b88: LEA EAX,[EBP + 0xfffffe6c]                    
+
+  call 31 at 0x00427c64
+
+----------------------------------------------------------------------
+Disassembly form-writer call inside ExtraDataList::SaveGame around 0x00427c64
+----------------------------------------------------------------------
+  0x00427c3b: ADD EAX,0xd                                   
+  0x00427c3e: PUSH EAX                                      
+  0x00427c3f: MOV ECX,dword ptr [EBP + 0x8]                 
+  0x00427c42: CALL 0x00865e50                               
+      call -> 0x00865e50 FUN_00865e50 @ 0x00865e50
+  0x00427c47: JMP 0x00427eb6                                
+  0x00427c4c: MOV ECX,dword ptr [EBP + -0x20]               
+  0x00427c4f: MOV dword ptr [EBP + 0xfffffe60],ECX          
+  0x00427c55: PUSH 0x0                                      
+  0x00427c57: MOV EDX,dword ptr [EBP + 0xfffffe60]          
+  0x00427c5d: MOV EAX,dword ptr [EDX + 0xc]                 
+  0x00427c60: PUSH EAX                                      
+  0x00427c61: MOV ECX,dword ptr [EBP + 0x8]                 
+  0x00427c64: CALL 0x00865df0                                << target
+      call -> 0x00865df0 FUN_00865df0 @ 0x00865df0
+  0x00427c69: JMP 0x00427eb6                                
+  0x00427c6e: MOV ECX,dword ptr [EBP + -0x20]               
+  0x00427c71: MOV dword ptr [EBP + 0xfffffe5c],ECX          
+  0x00427c77: PUSH 0x0                                      
+  0x00427c79: PUSH 0xc                                      
+  0x00427c7b: MOV EDX,dword ptr [EBP + 0xfffffe5c]          
+  0x00427c81: ADD EDX,0x10                                  
+  0x00427c84: PUSH EDX                                      
+  0x00427c85: MOV ECX,dword ptr [EBP + 0x8]                 
+  0x00427c88: CALL 0x00865e50                               
+      call -> 0x00865e50 FUN_00865e50 @ 0x00865e50
+  Total FUN_00865DF0 calls inside 0x00426A30: 31
+
+======================================================================
+ExtraOwnership default constructor @ 0x0042c5e0
+======================================================================
+  Function: FUN_0042c5e0 @ 0x0042c5e0, Size: 43 bytes
+
+undefined4 * __fastcall FUN_0042c5e0(undefined4 *param_1)
+
+{
+  FUN_0040ec80(0x21);
+  *param_1 = &PTR_FUN_010158b4;
+  param_1[3] = 0;
+  return param_1;
+}
+
+
+
+======================================================================
+ExtraOwnership owner constructor @ 0x00431a40
+======================================================================
+  Function: CPrintDialog @ 0x00431a40, Size: 44 bytes
+
+/* Library Function - Multiple Matches With Same Base Name
+    protected: __thiscall CPrintDialog::CPrintDialog(struct tagPDA &)
+    protected: __thiscall CPrintDialog::CPrintDialog(struct tagPDW &)
+   
+   Libraries: Visual Studio 2003 Debug, Visual Studio 2005 Debug, Visual Studio 2008 Debug */
+
+undefined4 * __thiscall CPrintDialog(undefined4 *param_1,undefined4 param_2)
+
+{
+  FUN_0040ec80(0x21);
+  *param_1 = &PTR_FUN_010158b4;
+  param_1[3] = param_2;
+  return param_1;
+}
+
+
+
+======================================================================
+ExtraOwnership compare/default helper @ 0x00431a70
+======================================================================
+  Function: FUN_00431a70 @ 0x00431a70, Size: 97 bytes
+
+undefined4 __thiscall FUN_00431a70(int param_1,undefined4 param_2)
+
+{
+  char cVar1;
+  int iVar2;
+  undefined4 uVar3;
+  
+  iVar2 = FUN_00ec43fb(param_2,0,&PTR_PTR_01183b2c,&PTR_PTR_0118476c,0);
+  if (iVar2 == 0) {
+    uVar3 = 1;
+  }
+  else {
+    cVar1 = FUN_0040f700(param_2);
+    if (cVar1 == '\0') {
+      if (*(int *)(param_1 + 0xc) == *(int *)(iVar2 + 0xc)) {
+        uVar3 = 0;
+      }
+      else {
+        uVar3 = 1;
+      }
+    }
+    else {
+      uVar3 = 1;
+    }
+  }
+  return uVar3;
+}
+
+
+
+----------------------------------------------------------------------
+References TO 0x0042c5e0 (ExtraOwnership default constructor)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x00428638 (in FUN_00428150 @ 0x00428150)
+  Total printed: 1
+
+----------------------------------------------------------------------
+References TO 0x00431a40 (ExtraOwnership owner constructor)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x00419783 (in FUN_00419700 @ 0x00419700)
+  Total printed: 1

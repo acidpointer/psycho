@@ -1,0 +1,338 @@
+Crash 0x00401170 direct caller audit
+
+Runtime Stewie patches 0x00401170 to a 5-byte GetTypeID inline. Crash register ECX=7 means the caller supplied an invalid this pointer.
+
+----------------------------------------------------------------------
+Disassembly: Direct GetTypeID call in FUN_009F5070 0x009f5138..0x009f5178
+----------------------------------------------------------------------
+   0x009f5139: MOV ECX,dword ptr [EBP + 0x8]
+   0x009f513c: CALL 0x0057b500
+      call -> 0x0057b500 FUN_0057b500 @ 0x0057b500
+   0x009f5141: MOVZX ECX,AL
+   0x009f5144: TEST ECX,ECX
+   0x009f5146: JZ 0x009f514f
+   0x009f5148: XOR AL,AL
+   0x009f514a: JMP 0x009f547d
+   0x009f514f: MOV ECX,dword ptr [EBP + 0x8]
+   0x009f5152: CALL 0x007af430
+      call -> 0x007af430 FUN_007af430 @ 0x007af430
+   0x009f5157: MOV ECX,EAX
+=> 0x009f5159: CALL 0x00401170
+      call -> 0x00401170 FUN_00401170 @ 0x00401170
+   0x009f515e: MOV dword ptr [EBP + 0xffffff6c],EAX
+   0x009f5164: MOV EDX,dword ptr [EBP + 0xffffff6c]
+   0x009f516a: SUB EDX,0x1d
+   0x009f516d: MOV dword ptr [EBP + 0xffffff6c],EDX
+   0x009f5173: CMP dword ptr [EBP + 0xffffff6c],0x13
+
+======================================================================
+Full callback FUN_009F5070 @ 0x009f5070
+======================================================================
+  Function: FUN_009f5070 @ 0x009f5070, Size: 1041 bytes
+
+uint FUN_009f5070(int *param_1)
+
+{
+  char cVar1;
+  int *piVar2;
+  int *piVar3;
+  uint uVar4;
+  int iVar5;
+  int *piVar6;
+  undefined4 uVar7;
+  
+  piVar2 = (int *)FUN_00726070();
+  piVar3 = (int *)FUN_00559450();
+  if (piVar2 == (int *)0x0) {
+    return (uint)piVar3 & 0xffffff00;
+  }
+  if ((piVar3 == (int *)0x0) || (uVar4 = FUN_007af430(), uVar4 == 0)) {
+    return 0;
+  }
+  if (((param_1 != (int *)0x0) && (uVar4 = FUN_00440d80(), (uVar4 & 0xff) == 0)) &&
+     (uVar4 = FUN_004077c0(), (uVar4 & 0xff) == 0)) {
+    uVar4 = FUN_00440da0();
+    uVar4 = uVar4 & 0xff;
+    if (uVar4 == 0) {
+      cVar1 = (**(code **)(*piVar3 + 0x1a0))(0);
+      if (cVar1 != '\0') {
+        cVar1 = FUN_008859e0(param_1);
+        uVar4 = 0;
+        if (cVar1 == '\0') goto LAB_009f511a;
+      }
+      iVar5 = FUN_009344a0();
+      if (iVar5 == 0) {
+        return 0;
+      }
+      uVar4 = FUN_0057b500();
+      if ((uVar4 & 0xff) != 0) {
+        return uVar4 & 0xffffff00;
+      }
+      FUN_007af430();
+      iVar5 = FUN_00401170();
+      piVar6 = (int *)(iVar5 + -0x1d);
+      switch(iVar5) {
+      case 0x1d:
+      case 0x2f:
+        piVar6 = (int *)FUN_009f45e0();
+        if ((((uint)piVar6 & 0xff) != 0) &&
+           ((iVar5 = FUN_00567790(), iVar5 == 0 ||
+            (piVar6 = (int *)FUN_005785e0(piVar3,1), ((uint)piVar6 & 0xff) != 0)))) {
+          uVar7 = FUN_009f3800(param_1,2,1);
+          FUN_009f6340(uVar7);
+          *(undefined1 *)((int)piVar2 + 0x35) = 1;
+          piVar6 = piVar2;
+        }
+        break;
+      case 0x27:
+        iVar5 = (**(code **)(*param_1 + 0x1d0))();
+        if (iVar5 == 0) {
+          return 0;
+        }
+        iVar5 = FUN_00c54400(iVar5);
+        if (iVar5 == 0) {
+          return 0;
+        }
+        iVar5 = FUN_00509490();
+        if (iVar5 == 0) {
+          return 0;
+        }
+        FUN_007af430();
+        cVar1 = FUN_009f4600();
+        if (((cVar1 == '\0') || (cVar1 = FUN_00509420(), cVar1 == '\0')) ||
+           ((iVar5 = FUN_00567790(), iVar5 != 0 && (cVar1 = FUN_005785e0(piVar3,1), cVar1 == '\0')))
+           ) {
+          cVar1 = FUN_009f4620();
+          if (((cVar1 == '\0') || (cVar1 = FUN_005093f0(), cVar1 == '\0')) ||
+             ((iVar5 = FUN_00567790(), iVar5 != 0 && (cVar1 = FUN_005785e0(piVar3,1), cVar1 == '\0')
+              ))) {
+            piVar6 = (int *)FUN_009f4620();
+            if ((((uint)piVar6 & 0xff) != 0) &&
+               (piVar6 = (int *)FUN_005093f0(), ((uint)piVar6 & 0xff) == 0)) {
+              uVar4 = FUN_00509420();
+              piVar6 = (int *)(uVar4 & 0xff);
+              if ((piVar6 == (int *)0x0) &&
+                 ((iVar5 = FUN_00567790(), iVar5 == 0 ||
+                  (piVar6 = (int *)FUN_005785e0(piVar3,1), ((uint)piVar6 & 0xff) != 0)))) {
+                uVar7 = FUN_009f3800(param_1,0,1);
+                piVar6 = (int *)FUN_009f6340(uVar7);
+                *(undefined1 *)((int)piVar2 + 0x36) = 1;
+              }
+            }
+          }
+          else {
+            uVar7 = FUN_009f3800(param_1,0,1);
+            FUN_009f6340(uVar7);
+            *(undefined1 *)((int)piVar2 + 0x36) = 1;
+            piVar6 = piVar2;
+          }
+        }
+        else {
+          uVar7 = FUN_009f3800(param_1,1,1);
+          FUN_009f6340(uVar7);
+          *(undefined1 *)((int)piVar2 + 0x37) = 1;
+          piVar6 = piVar2;
+        }
+        break;
+      case 0x2a:
+      case 0x2b:
+        cVar1 = FUN_00901c50();
+        piVar6 = (int *)0x0;
+        if (((cVar1 != '\0') &&
+            (piVar6 = (int *)(**(code **)(*param_1 + 0x100))(), ((uint)piVar6 & 0xff) != 0)) &&
+           ((param_1 != DAT_011dea3c && (piVar6 = param_1, param_1 != piVar3)))) {
+          uVar7 = FUN_009f3800(param_1,5,1);
+          piVar6 = (int *)FUN_009f6340(uVar7);
+        }
+        break;
+      case 0x30:
+        piVar6 = (int *)FUN_009f54b0();
+        if ((((uint)piVar6 & 0xff) != 0) &&
+           ((iVar5 = FUN_00567790(), iVar5 == 0 ||
+            (piVar6 = (int *)FUN_005785e0(piVar3,1), ((uint)piVar6 & 0xff) != 0)))) {
+          FUN_007af430();
+          FUN_0092b440();
+          FUN_00479e80();
+          piVar6 = (int *)FUN_00479fb0(piVar3,param_1);
+          if (((uint)piVar6 & 0xff) != 0) {
+            uVar7 = FUN_009f3800(param_1,4,1);
+            piVar6 = (int *)FUN_009f6340(uVar7);
+          }
+        }
+      }
+      return (uint)piVar6 & 0xffffff00;
+    }
+  }
+LAB_009f511a:
+  return uVar4 & 0xffffff00;
+}
+
+
+
+======================================================================
+Pre-GetTypeID gate @ 0x0057b500
+======================================================================
+  Function: FUN_0057b500 @ 0x0057b500, Size: 26 bytes
+
+void __fastcall FUN_0057b500(undefined4 param_1)
+
+{
+  FUN_005d43c0(param_1);
+  FUN_0042f2d0();
+  return;
+}
+
+
+
+======================================================================
+Earlier callback gate @ 0x009344a0
+======================================================================
+  Function: FUN_009344a0 @ 0x009344a0, Size: 46 bytes
+
+undefined4 __fastcall FUN_009344a0(int param_1)
+
+{
+  undefined4 uVar1;
+  
+  if (*(int *)(param_1 + 0x68) == 0) {
+    uVar1 = 0;
+  }
+  else {
+    uVar1 = (**(code **)(**(int **)(param_1 + 0x68) + 0x27c))();
+  }
+  return uVar1;
+}
+
+
+
+======================================================================
+Same callback branch helper @ 0x005785e0
+======================================================================
+  Function: FUN_005785e0 @ 0x005785e0, Size: 388 bytes
+
+/* WARNING: Globals starting with '_' overlap smaller symbols at the same address */
+
+undefined1 FUN_005785e0(int *param_1,char param_2)
+
+{
+  char cVar1;
+  int iVar2;
+  int local_28;
+  int local_20;
+  int local_1c;
+  int local_14;
+  int local_c;
+  undefined1 local_5;
+  
+  local_5 = 0;
+  local_14 = 0;
+  local_c = 0;
+  iVar2 = FUN_00567790();
+  if (iVar2 != 0) {
+    local_14 = FUN_00567790();
+    FUN_005679f0();
+    local_c = FUN_00567960();
+  }
+  if ((local_14 == 0) || (param_1 == (int *)0x0)) {
+    if (local_14 == 0) {
+      local_5 = 1;
+    }
+  }
+  else {
+    local_20 = (**(code **)(*param_1 + 0x1a4))();
+    if (local_20 == 0) {
+      local_20 = FUN_007af430();
+    }
+    local_1c = 0;
+    iVar2 = FUN_00401170();
+    if ((0x29 < iVar2) && (iVar2 < 0x2c)) {
+      local_1c = FUN_00ec43fb(local_20,0,&PTR_PTR_01183108,&PTR_PTR_011846e8,0);
+    }
+    if (local_14 == local_20) {
+      local_5 = 1;
+    }
+    else {
+      local_28 = 0;
+      if ((local_14 != 0) && (iVar2 = FUN_00401170(), iVar2 == 8)) {
+        local_28 = local_14;
+      }
+      if ((local_28 != 0) && (cVar1 = FUN_00578770(), cVar1 != '\0')) {
+        param_2 = '\x01';
+      }
+      if ((local_28 == 0) || (param_2 == '\0')) {
+        if (local_c != 0) {
+          FUN_00526ac0();
+        }
+        local_5 = 0;
+      }
+      else if (((local_28 != 0) && (local_1c != 0)) &&
+              (cVar1 = FUN_008b8e90(local_28), cVar1 != '\0')) {
+        local_5 = 1;
+      }
+    }
+  }
+  return local_5;
+}
+
+
+
+----------------------------------------------------------------------
+References TO 0x009f5070 (Callback entry)
+----------------------------------------------------------------------
+  DATA @ 0x009f55e5 (in FUN_009f54d0 @ 0x009f54d0)
+  Total printed: 1
+
+----------------------------------------------------------------------
+Calls FROM Callback entry (0x009f5070)
+----------------------------------------------------------------------
+  0x009f5082 -> 0x00726070 FUN_00726070 @ 0x00726070
+  0x009f508d -> 0x00559450 FUN_00559450 @ 0x00559450
+  0x009f50ab -> 0x007af430 FUN_007af430 @ 0x007af430
+  0x009f50c4 -> 0x00440d80 FUN_00440d80 @ 0x00440d80
+  0x009f50d3 -> 0x004077c0 FUN_004077c0 @ 0x004077c0
+  0x009f50e2 -> 0x00440da0 FUN_00440da0 @ 0x00440da0
+  0x009f510e -> 0x008859e0 FUN_008859e0 @ 0x008859e0
+  0x009f5124 -> 0x009344a0 FUN_009344a0 @ 0x009344a0
+  0x009f513c -> 0x0057b500 FUN_0057b500 @ 0x0057b500
+  0x009f5152 -> 0x007af430 FUN_007af430 @ 0x007af430
+  0x009f5159 -> 0x00401170 FUN_00401170 @ 0x00401170
+  0x009f5197 -> 0x009f54b0 FUN_009f54b0 @ 0x009f54b0
+  0x009f51aa -> 0x00567790 FUN_00567790 @ 0x00567790
+  0x009f51bc -> 0x005785e0 FUN_005785e0 @ 0x005785e0
+  0x009f51cb -> 0x007af430 FUN_007af430 @ 0x007af430
+  0x009f51d9 -> 0x0092b440 FUN_0092b440 @ 0x0092b440
+  0x009f51e7 -> 0x00479e80 FUN_00479e80 @ 0x00479e80
+  0x009f5201 -> 0x00479fb0 FUN_00479fb0 @ 0x00479fb0
+  0x009f5218 -> 0x009f3800 FUN_009f3800 @ 0x009f3800
+  0x009f5224 -> 0x009f6340 FUN_009f6340 @ 0x009f6340
+  0x009f5231 -> 0x00901c50 FUN_00901c50 @ 0x00901c50
+  0x009f5272 -> 0x009f3800 FUN_009f3800 @ 0x009f3800
+  0x009f527e -> 0x009f6340 FUN_009f6340 @ 0x009f6340
+  0x009f52ac -> 0x00c54400 FUN_00c54400 @ 0x00c54400
+  0x009f52c7 -> 0x00509490 FUN_00509490 @ 0x00509490
+  0x009f52df -> 0x007af430 FUN_007af430 @ 0x007af430
+  0x009f52ea -> 0x009f4600 FUN_009f4600 @ 0x009f4600
+  0x009f52f9 -> 0x00509420 FUN_00509420 @ 0x00509420
+  0x009f5308 -> 0x00567790 FUN_00567790 @ 0x00567790
+  0x009f531a -> 0x005785e0 FUN_005785e0 @ 0x005785e0
+  0x009f5331 -> 0x009f3800 FUN_009f3800 @ 0x009f3800
+  0x009f533d -> 0x009f6340 FUN_009f6340 @ 0x009f6340
+  0x009f5351 -> 0x009f4620 FUN_009f4620 @ 0x009f4620
+  0x009f5360 -> 0x005093f0 FUN_005093f0 @ 0x005093f0
+  0x009f536f -> 0x00567790 FUN_00567790 @ 0x00567790
+  0x009f5381 -> 0x005785e0 FUN_005785e0 @ 0x005785e0
+  0x009f5398 -> 0x009f3800 FUN_009f3800 @ 0x009f3800
+  0x009f53a4 -> 0x009f6340 FUN_009f6340 @ 0x009f6340
+  0x009f53b5 -> 0x009f4620 FUN_009f4620 @ 0x009f4620
+  0x009f53c4 -> 0x005093f0 FUN_005093f0 @ 0x005093f0
+  0x009f53d3 -> 0x00509420 FUN_00509420 @ 0x00509420
+  0x009f53e2 -> 0x00567790 FUN_00567790 @ 0x00567790
+  0x009f53f4 -> 0x005785e0 FUN_005785e0 @ 0x005785e0
+  0x009f540b -> 0x009f3800 FUN_009f3800 @ 0x009f3800
+  0x009f5417 -> 0x009f6340 FUN_009f6340 @ 0x009f6340
+  0x009f5428 -> 0x009f45e0 FUN_009f45e0 @ 0x009f45e0
+  0x009f5437 -> 0x00567790 FUN_00567790 @ 0x00567790
+  0x009f5449 -> 0x005785e0 FUN_005785e0 @ 0x005785e0
+  0x009f5463 -> 0x009f3800 FUN_009f3800 @ 0x009f3800
+  0x009f546f -> 0x009f6340 FUN_009f6340 @ 0x009f6340
+  Total printed: 50

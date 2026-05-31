@@ -187,6 +187,33 @@ pub fn install_gheap_initialize() -> anyhow::Result<()> {
         )?;
     }
 
+    // ExtraContainerChanges::EntryData stale form guard
+    {
+        use gheap::statics::*;
+
+        ENTRYDATA_LIST_SAVE_HOOK.init(
+            "entrydata_list_save_guard",
+            ENTRYDATA_LIST_SAVE_ADDR as *mut c_void,
+            gheap::entrydata_guard::hook_entrydata_list_save,
+        )?;
+        ENTRYDATA_LOAD_HOOK.init(
+            "entrydata_load_guard",
+            ENTRYDATA_LOAD_ADDR as *mut c_void,
+            gheap::entrydata_guard::hook_entrydata_load,
+        )?;
+    }
+
+    // ExtraOwnership invalid-owner guard
+    {
+        use gheap::statics::*;
+
+        BASE_EXTRA_LIST_GET_BY_TYPE_HOOK.init(
+            "base_extra_list_get_by_type_ownership_guard",
+            BASE_EXTRA_LIST_GET_BY_TYPE_ADDR as *mut c_void,
+            gheap::extraownership_guard::hook_base_extra_list_get_by_type,
+        )?;
+    }
+
     // CRT inline hooks
     {
         use super::crt_inline::*;
@@ -355,6 +382,24 @@ pub fn install_gheap_hooks() -> anyhow::Result<()> {
 
         NAVMESH_NAME_HELPER_HOOK.enable()?;
         log::info!("[NAVMESH] Low endpoint pointer guard active");
+    }
+
+    // ExtraContainerChanges::EntryData stale form guard
+    {
+        use super::gheap::statics::*;
+
+        ENTRYDATA_LIST_SAVE_HOOK.enable()?;
+        ENTRYDATA_LOAD_HOOK.enable()?;
+        log::info!("[ENTRYDATA] Save/load form guards active");
+    }
+
+    // ExtraOwnership invalid-owner guard
+    {
+        use super::gheap::statics::*;
+
+        BASE_EXTRA_LIST_GET_BY_TYPE_HOOK.enable()?;
+        gheap::extraownership_guard::install_load_hook()?;
+        log::info!("[EXTRAOWNERSHIP] Load and access guards active");
     }
 
     // CRT IAT

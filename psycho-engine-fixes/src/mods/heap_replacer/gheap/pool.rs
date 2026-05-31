@@ -1475,8 +1475,10 @@ static HEAP: OnceLock<Box<PoolHeap>> = OnceLock::new();
 /// Total number of times `alloc` walked the full fallthrough chain
 /// and every pool refused. Power-of-two gated for log visibility.
 static POOL_EXHAUST_COUNT: AtomicU64 = AtomicU64::new(0);
+const DESTRUCTION_THAW_QUIET_MS: u32 = 5_000;
 static DESTRUCTION_FREEZE_DEPTH: AtomicU32 = AtomicU32::new(0);
 static DESTRUCTION_THAW_PENDING: AtomicBool = AtomicBool::new(false);
+static DESTRUCTION_LAST_FREEZE_END_MS: AtomicU32 = AtomicU32::new(0);
 static DESTRUCTION_FROZEN_TOTAL: AtomicU64 = AtomicU64::new(0);
 static DESTRUCTION_THAWED_TOTAL: AtomicU64 = AtomicU64::new(0);
 static DESTRUCTION_THAW_EVENTS: AtomicU64 = AtomicU64::new(0);
@@ -1491,6 +1493,10 @@ pub fn destruction_freeze_guard() -> DestructionFreezeGuard {
 impl Drop for DestructionFreezeGuard {
     fn drop(&mut self) {
         if DESTRUCTION_FREEZE_DEPTH.fetch_sub(1, Ordering::AcqRel) == 1 {
+            DESTRUCTION_LAST_FREEZE_END_MS.store(
+                libpsycho::os::windows::winapi::get_tick_count(),
+                Ordering::Release,
+            );
             DESTRUCTION_THAW_PENDING.store(true, Ordering::Release);
         }
     }
@@ -1501,6 +1507,24 @@ pub fn thaw_deferred_frees(reason: &'static str) {
     if DESTRUCTION_FREEZE_DEPTH.load(Ordering::Acquire) != 0 {
         return;
     }
+    if !DESTRUCTION_THAW_PENDING.load(Ordering::Acquire) {
+        return;
+    }
+
+    // A PDD return only means the cleanup function stopped writing. AI and
+    // Stewie/NVSE callbacks can still be walking references produced by that
+    // cleanup burst. Keep the cells readable for a short quiet window before
+    // normal LIFO reuse can overwrite them.
+    if super::game_guard::is_ai_active() {
+        return;
+    }
+
+    let now = libpsycho::os::windows::winapi::get_tick_count();
+    let freeze_end = DESTRUCTION_LAST_FREEZE_END_MS.load(Ordering::Acquire);
+    if now.wrapping_sub(freeze_end) < DESTRUCTION_THAW_QUIET_MS {
+        return;
+    }
+
     if !DESTRUCTION_THAW_PENDING.swap(false, Ordering::AcqRel) {
         return;
     }

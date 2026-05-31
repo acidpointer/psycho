@@ -112,6 +112,36 @@ pub const NAVMESH_NAME_HELPER_ADDR: usize = 0x00690830;
 pub static NAVMESH_NAME_HELPER_HOOK: LazyLock<InlineHookContainer<NavmeshNameHelperFn>> =
     LazyLock::new(InlineHookContainer::new);
 
+// ---- ExtraContainerChanges::EntryData guards ----
+
+/// FUN_004D4090: EntryData list save dispatcher. The saved count is patched
+/// after each EntryData body save, so invalid entries must be skipped here.
+pub const ENTRYDATA_LIST_SAVE_ADDR: usize = 0x004D4090;
+
+/// FUN_004BEE00: EntryData body load. Vanilla rejects only NULL type forms
+/// after this returns; we sanitize unreadable/stale type forms to NULL first.
+pub const ENTRYDATA_LOAD_ADDR: usize = 0x004BEE00;
+
+pub static ENTRYDATA_LIST_SAVE_HOOK: LazyLock<InlineHookContainer<EntryDataListSaveFn>> =
+    LazyLock::new(InlineHookContainer::new);
+pub static ENTRYDATA_LOAD_HOOK: LazyLock<InlineHookContainer<EntryDataLoadFn>> =
+    LazyLock::new(InlineHookContainer::new);
+
+// ---- ExtraOwnership guard ----
+
+/// CALL in ExtraDataList::LoadGame immediately before vanilla stores
+/// the resolved owner into ExtraOwnership +0x0C.
+pub const EXTRAOWNERSHIP_LOAD_RESOLVE_CALL_ADDR: usize = 0x0042868F;
+
+/// FUN_00410220: BaseExtraList::GetByType. We filter only type 0x21
+/// after the original function returns, so unrelated extra-data lookups
+/// keep the vanilla path.
+pub const BASE_EXTRA_LIST_GET_BY_TYPE_ADDR: usize = 0x00410220;
+
+pub static BASE_EXTRA_LIST_GET_BY_TYPE_HOOK: LazyLock<
+    InlineHookContainer<BaseExtraListGetByTypeFn>,
+> = LazyLock::new(InlineHookContainer::new);
+
 // ---- OOM Stage 8 (HeapCompact) ----
 
 /// FUN_00866a90: OOM stage executor. Called by GameHeap retry loop,

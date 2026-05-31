@@ -1,0 +1,735 @@
+======================================================================
+EXTRAOWNERSHIP LAYOUT AND CREATION AUDIT
+======================================================================
+Known xNVSE source model to prove against Ghidra:
+  BSExtraData: vtbl +0, type +4, next +8
+  ExtraOwnership: owner +0x0C
+  ExtraOwnership vtable: 0x010158B4, type: 0x21
+
+======================================================================
+ExtraOwnership vtable @ 0x010158b4
+======================================================================
+  [00] 0x010158b4 -> 0x0041b680 FUN_0041b680 @ 0x0041b680
+  [01] 0x010158b8 -> 0x00431a70 FUN_00431a70 @ 0x00431a70
+  [02] 0x010158bc -> 0x01103510 ???
+  [03] 0x010158c0 -> 0x0041b680 FUN_0041b680 @ 0x0041b680
+  [04] 0x010158c4 -> 0x00431b10 FUN_00431b10 @ 0x00431b10
+  [05] 0x010158c8 -> 0x0110355c ???
+  [06] 0x010158cc -> 0x0041b680 FUN_0041b680 @ 0x0041b680
+  [07] 0x010158d0 -> 0x00431bb0 FUN_00431bb0 @ 0x00431bb0
+  [08] 0x010158d4 -> 0x011035a8 ???
+  [09] 0x010158d8 -> 0x0041b680 FUN_0041b680 @ 0x0041b680
+  [10] 0x010158dc -> 0x00431c50 FUN_00431c50 @ 0x00431c50
+  [11] 0x010158e0 -> 0x011035f4 ???
+  [12] 0x010158e4 -> 0x0041b680 FUN_0041b680 @ 0x0041b680
+  [13] 0x010158e8 -> 0x00431d40 FUN_00431d40 @ 0x00431d40
+  [14] 0x010158ec -> 0x01103640 ???
+  [15] 0x010158f0 -> 0x0041b680 FUN_0041b680 @ 0x0041b680
+  [16] 0x010158f4 -> 0x00431e50 FUN_00431e50 @ 0x00431e50
+  [17] 0x010158f8 -> 0x0110368c ???
+  [18] 0x010158fc -> 0x0041b680 FUN_0041b680 @ 0x0041b680
+  [19] 0x01015900 -> 0x00431ef0 FUN_00431ef0 @ 0x00431ef0
+  [20] 0x01015904 -> 0x011036d8 ???
+  [21] 0x01015908 -> 0x0041b680 FUN_0041b680 @ 0x0041b680
+  [22] 0x0101590c -> 0x00431f90 FUN_00431f90 @ 0x00431f90
+  [23] 0x01015910 -> 0x01103724 ???
+
+----------------------------------------------------------------------
+References TO 0x010158b4 (ExtraOwnership vtable)
+----------------------------------------------------------------------
+  DATA @ 0x00431a54 (in CPrintDialog @ 0x00431a40)
+  DATA @ 0x0042c5f4 (in FUN_0042c5e0 @ 0x0042c5e0)
+  Total printed: 2
+
+----------------------------------------------------------------------
+References TO 0x0118476c (ExtraOwnership RTTI)
+----------------------------------------------------------------------
+  DATA @ 0x00431a7b (in FUN_00431a70 @ 0x00431a70)
+  Total printed: 1
+
+======================================================================
+Functions referencing ExtraOwnership vtable 0x010158b4
+======================================================================
+
+----------------------------------------------------------------------
+Disassembly ref to ExtraOwnership vtable around 0x00431a54
+----------------------------------------------------------------------
+  0x00431a2d: POP EBP                                   
+  0x00431a2e: RET 0x4                                   
+  0x00431a40: PUSH EBP                                  
+  0x00431a41: MOV EBP,ESP                               
+  0x00431a43: PUSH ECX                                  
+  0x00431a44: MOV dword ptr [EBP + -0x4],ECX            
+  0x00431a47: PUSH 0x21                                 
+  0x00431a49: MOV ECX,dword ptr [EBP + -0x4]            
+  0x00431a4c: CALL 0x0040ec80                           
+      call -> 0x0040ec80 FUN_0040ec80 @ 0x0040ec80
+  0x00431a51: MOV EAX,dword ptr [EBP + -0x4]            
+  0x00431a54: MOV dword ptr [EAX],0x10158b4              << ref
+  0x00431a5a: MOV ECX,dword ptr [EBP + -0x4]            
+  0x00431a5d: MOV EDX,dword ptr [EBP + 0x8]             
+  0x00431a60: MOV dword ptr [ECX + 0xc],EDX             
+  0x00431a63: MOV EAX,dword ptr [EBP + -0x4]            
+  0x00431a66: MOV ESP,EBP                               
+  0x00431a68: POP EBP                                   
+  0x00431a69: RET 0x4                                   
+  0x00431a70: PUSH EBP                                  
+  0x00431a71: MOV EBP,ESP                               
+  0x00431a73: SUB ESP,0x8                               
+  0x00431a76: MOV dword ptr [EBP + -0x8],ECX            
+  0x00431a79: PUSH 0x0                                  
+  0x00431a7b: PUSH 0x118476c                            
+  0x00431a80: PUSH 0x1183b2c                            
+  0x00431a85: PUSH 0x0                                  
+  0x00431a87: MOV EAX,dword ptr [EBP + 0x8]             
+  0x00431a8a: PUSH EAX                                  
+  0x00431a8b: CALL 0x00ec43fb                           
+      call -> 0x00ec43fb FUN_00ec43fb @ 0x00ec43fb
+
+======================================================================
+ref function for ExtraOwnership vtable @ 0x00431a40
+======================================================================
+  Function: CPrintDialog @ 0x00431a40, Size: 44 bytes
+
+/* Library Function - Multiple Matches With Same Base Name
+    protected: __thiscall CPrintDialog::CPrintDialog(struct tagPDA &)
+    protected: __thiscall CPrintDialog::CPrintDialog(struct tagPDW &)
+   
+   Libraries: Visual Studio 2003 Debug, Visual Studio 2005 Debug, Visual Studio 2008 Debug */
+
+undefined4 * __thiscall CPrintDialog(undefined4 *param_1,undefined4 param_2)
+
+{
+  FUN_0040ec80(0x21);
+  *param_1 = &PTR_FUN_010158b4;
+  param_1[3] = param_2;
+  return param_1;
+}
+
+
+
+----------------------------------------------------------------------
+Calls FROM ref function for ExtraOwnership vtable (0x00431a40)
+----------------------------------------------------------------------
+  0x00431a4c -> 0x0040ec80 FUN_0040ec80 @ 0x0040ec80
+  Total printed: 1
+
+----------------------------------------------------------------------
+Disassembly ref to ExtraOwnership vtable around 0x0042c5f4
+----------------------------------------------------------------------
+  0x0042c5d8: POP EBP                                   
+  0x0042c5d9: RET 0x4                                   
+  0x0042c5e0: PUSH EBP                                  
+  0x0042c5e1: MOV EBP,ESP                               
+  0x0042c5e3: PUSH ECX                                  
+  0x0042c5e4: MOV dword ptr [EBP + -0x4],ECX            
+  0x0042c5e7: PUSH 0x21                                 
+  0x0042c5e9: MOV ECX,dword ptr [EBP + -0x4]            
+  0x0042c5ec: CALL 0x0040ec80                           
+      call -> 0x0040ec80 FUN_0040ec80 @ 0x0040ec80
+  0x0042c5f1: MOV EAX,dword ptr [EBP + -0x4]            
+  0x0042c5f4: MOV dword ptr [EAX],0x10158b4              << ref
+  0x0042c5fa: MOV ECX,dword ptr [EBP + -0x4]            
+  0x0042c5fd: MOV dword ptr [ECX + 0xc],0x0             
+  0x0042c604: MOV EAX,dword ptr [EBP + -0x4]            
+  0x0042c607: MOV ESP,EBP                               
+  0x0042c609: POP EBP                                   
+  0x0042c60a: RET                                       
+  0x0042c610: PUSH EBP                                  
+  0x0042c611: MOV EBP,ESP                               
+  0x0042c613: PUSH ECX                                  
+  0x0042c614: MOV dword ptr [EBP + -0x4],ECX            
+  0x0042c617: PUSH 0x22                                 
+  0x0042c619: MOV ECX,dword ptr [EBP + -0x4]            
+  0x0042c61c: CALL 0x0040ec80                           
+      call -> 0x0040ec80 FUN_0040ec80 @ 0x0040ec80
+  0x0042c621: MOV EAX,dword ptr [EBP + -0x4]            
+  0x0042c624: MOV dword ptr [EAX],0x10158c0             
+  0x0042c62a: MOV ECX,dword ptr [EBP + -0x4]            
+  0x0042c62d: MOV dword ptr [ECX + 0xc],0x0             
+  0x0042c634: MOV EAX,dword ptr [EBP + -0x4]            
+
+======================================================================
+ref function for ExtraOwnership vtable @ 0x0042c5e0
+======================================================================
+  Function: FUN_0042c5e0 @ 0x0042c5e0, Size: 43 bytes
+
+undefined4 * __fastcall FUN_0042c5e0(undefined4 *param_1)
+
+{
+  FUN_0040ec80(0x21);
+  *param_1 = &PTR_FUN_010158b4;
+  param_1[3] = 0;
+  return param_1;
+}
+
+
+
+----------------------------------------------------------------------
+Calls FROM ref function for ExtraOwnership vtable (0x0042c5e0)
+----------------------------------------------------------------------
+  0x0042c5ec -> 0x0040ec80 FUN_0040ec80 @ 0x0040ec80
+  Total printed: 1
+  Total unique functions printed: 2
+
+======================================================================
+Functions referencing ExtraOwnership RTTI 0x0118476c
+======================================================================
+
+----------------------------------------------------------------------
+Disassembly ref to ExtraOwnership RTTI around 0x00431a7b
+----------------------------------------------------------------------
+  0x00431a60: MOV dword ptr [ECX + 0xc],EDX             
+  0x00431a63: MOV EAX,dword ptr [EBP + -0x4]            
+  0x00431a66: MOV ESP,EBP                               
+  0x00431a68: POP EBP                                   
+  0x00431a69: RET 0x4                                   
+  0x00431a70: PUSH EBP                                  
+  0x00431a71: MOV EBP,ESP                               
+  0x00431a73: SUB ESP,0x8                               
+  0x00431a76: MOV dword ptr [EBP + -0x8],ECX            
+  0x00431a79: PUSH 0x0                                  
+  0x00431a7b: PUSH 0x118476c                             << ref
+  0x00431a80: PUSH 0x1183b2c                            
+  0x00431a85: PUSH 0x0                                  
+  0x00431a87: MOV EAX,dword ptr [EBP + 0x8]             
+  0x00431a8a: PUSH EAX                                  
+  0x00431a8b: CALL 0x00ec43fb                           
+      call -> 0x00ec43fb FUN_00ec43fb @ 0x00ec43fb
+  0x00431a90: ADD ESP,0x14                              
+  0x00431a93: MOV dword ptr [EBP + -0x4],EAX            
+  0x00431a96: CMP dword ptr [EBP + -0x4],0x0            
+  0x00431a9a: JNZ 0x00431aa0                            
+  0x00431a9c: MOV AL,0x1                                
+  0x00431a9e: JMP 0x00431acb                            
+  0x00431aa0: MOV ECX,dword ptr [EBP + 0x8]             
+  0x00431aa3: PUSH ECX                                  
+  0x00431aa4: MOV ECX,dword ptr [EBP + -0x8]            
+  0x00431aa7: CALL 0x0040f700                           
+      call -> 0x0040f700 FUN_0040f700 @ 0x0040f700
+  0x00431aac: MOVZX EDX,AL                              
+  0x00431aaf: TEST EDX,EDX                              
+  0x00431ab1: JZ 0x00431ab7                             
+
+======================================================================
+ref function for ExtraOwnership RTTI @ 0x00431a70
+======================================================================
+  Function: FUN_00431a70 @ 0x00431a70, Size: 97 bytes
+
+undefined4 __thiscall FUN_00431a70(int param_1,undefined4 param_2)
+
+{
+  char cVar1;
+  int iVar2;
+  undefined4 uVar3;
+  
+  iVar2 = FUN_00ec43fb(param_2,0,&PTR_PTR_01183b2c,&PTR_PTR_0118476c,0);
+  if (iVar2 == 0) {
+    uVar3 = 1;
+  }
+  else {
+    cVar1 = FUN_0040f700(param_2);
+    if (cVar1 == '\0') {
+      if (*(int *)(param_1 + 0xc) == *(int *)(iVar2 + 0xc)) {
+        uVar3 = 0;
+      }
+      else {
+        uVar3 = 1;
+      }
+    }
+    else {
+      uVar3 = 1;
+    }
+  }
+  return uVar3;
+}
+
+
+
+----------------------------------------------------------------------
+Calls FROM ref function for ExtraOwnership RTTI (0x00431a70)
+----------------------------------------------------------------------
+  0x00431a8b -> 0x00ec43fb FUN_00ec43fb @ 0x00ec43fb
+  0x00431aa7 -> 0x0040f700 FUN_0040f700 @ 0x0040f700
+  Total printed: 2
+  Total unique functions printed: 1
+
+======================================================================
+Known/likely ExtraOwnership create/constructor ref target @ 0x0042c5e0
+======================================================================
+  Function: FUN_0042c5e0 @ 0x0042c5e0, Size: 43 bytes
+
+undefined4 * __fastcall FUN_0042c5e0(undefined4 *param_1)
+
+{
+  FUN_0040ec80(0x21);
+  *param_1 = &PTR_FUN_010158b4;
+  param_1[3] = 0;
+  return param_1;
+}
+
+
+
+----------------------------------------------------------------------
+References TO 0x0042c5e0 (0x0042C5E0 create/constructor candidate)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x00428638 (in FUN_00428150 @ 0x00428150)
+  Total printed: 1
+
+----------------------------------------------------------------------
+Calls FROM 0x0042C5E0 create/constructor candidate (0x0042c5e0)
+----------------------------------------------------------------------
+  0x0042c5ec -> 0x0040ec80 FUN_0040ec80 @ 0x0040ec80
+  Total printed: 1
+
+======================================================================
+All instruction text hits for displacement +0x0C (candidate owner field)
+======================================================================
+  0x00401067: ADD ECX,dword ptr [EBP + 0xc]                    in `vector_constructor_iterator' @ 0x00401050
+  0x00401467: MOV ECX,dword ptr [EBP + 0xc]                    in FUN_00401460 @ 0x00401460
+  0x00402a29: MOVZX EAX,byte ptr [EBP + 0xc]                   in FUN_00402a20 @ 0x00402a20
+  0x00402cdc: MOV dword ptr [ECX + 0xc],0x1011cf4              in FUN_00402c90 @ 0x00402c90
+  0x00402ec1: MOV dword ptr [EDX + 0xc0],0x0                   in FUN_00402ea0 @ 0x00402ea0
+  0x00402ed0: FSTP float ptr [EAX + 0xc4]                      in FUN_00402ea0 @ 0x00402ea0
+  0x00402ed9: MOV dword ptr [ECX + 0xc8],0x0                   in FUN_00402ea0 @ 0x00402ea0
+  0x004030ba: MOV EAX,dword ptr [EAX + 0xc0]                   in GetIScheduler @ 0x004030b0
+  0x004030dd: MOV dword ptr [EAX + 0xc8],ECX                   in FUN_004030d0 @ 0x004030d0
+  0x00403293: MOV EAX,dword ptr [EBP + 0xc]                    in FUN_00403280 @ 0x00403280
+  0x0040381d: MOV EDX,dword ptr [EBP + 0xc]                    in FUN_004037f0 @ 0x004037f0
+  0x00403947: CMP EAX,dword ptr [EBP + 0xc]                    in FUN_00403940 @ 0x00403940
+  0x00403954: MOV EDX,dword ptr [EBP + 0xc]                    in FUN_00403940 @ 0x00403940
+  0x00403a8d: MOV EDX,dword ptr [EBP + 0xc]                    in FUN_00403a70 @ 0x00403a70
+  0x00403b01: MOV ECX,dword ptr [EBP + 0xc]                    in FUN_00403ab0 @ 0x00403ab0
+  0x00403bc7: MOV dword ptr [EAX + 0xc],0x0                    in FUN_00403ba0 @ 0x00403ba0
+  0x00403c8f: AND EAX,dword ptr [EBP + 0xc]                    in FUN_00403c80 @ 0x00403c80
+  0x00403d37: MOV ECX,dword ptr [EBP + 0xc]                    in _Fiopen @ 0x00403d30
+  0x00404017: FLD float ptr [EBP + 0xc]                        in FUN_00404010 @ 0x00404010
+  0x0040402b: FLD float ptr [EBP + 0xc]                        in FUN_00404010 @ 0x00404010
+  0x0040418d: CMP dword ptr [EBP + 0xc],0x0                    in FUN_00404120 @ 0x00404120
+  0x0040419c: MOV ECX,dword ptr [EBP + 0xc]                    in FUN_00404120 @ 0x00404120
+  0x004045c1: MOV dword ptr [EAX + 0xc],ECX                    in FUN_00404560 @ 0x00404560
+  0x004046f3: MOV EAX,dword ptr [EBP + 0xc]                    in FUN_004046f0 @ 0x004046f0
+  0x0040493c: MOV ECX,dword ptr [EBP + 0xc]                    in FUN_00404920 @ 0x00404920
+  0x00404d57: MOVZX EAX,byte ptr [EBP + 0xc]                   in FUN_00404d50 @ 0x00404d50
+  0x00404d87: MOV ECX,dword ptr [EBP + 0xc]                    in _Unchecked_idl0<> @ 0x00404d80
+  0x00404dc3: MOV EAX,dword ptr [EBP + 0xc]                    in FUN_00404dc0 @ 0x00404dc0
+  0x00404ebf: MOVZX EDX,byte ptr [EBP + 0xc]                   in FUN_00404eb0 @ 0x00404eb0
+  0x004054bb: MOV ECX,dword ptr [EAX + 0xc]                    in FUN_00405430 @ 0x00405430
+  0x004054c4: MOV dword ptr [EDX + 0xc],ECX                    in FUN_00405430 @ 0x00405430
+  0x0040554b: MOV ECX,dword ptr [EAX + 0xc]                    in FUN_00405430 @ 0x00405430
+  0x00405554: MOV dword ptr [EDX + 0xc],ECX                    in FUN_00405430 @ 0x00405430
+  0x00405577: MOVZX EAX,byte ptr [EBP + 0xc]                   in FUN_00405570 @ 0x00405570
+  0x004055ef: MOV AL,byte ptr [EBP + 0xc]                      in FUN_004055d0 @ 0x004055d0
+  0x0040564e: MOV dword ptr [EAX + 0xc],0x0                    in FUN_00405630 @ 0x00405630
+  0x004056be: MOV dword ptr [ECX + 0xc],0x0                    in FUN_004056a0 @ 0x004056a0
+  0x0040586a: MOV EDX,dword ptr [EBP + 0xc]                    in FUN_00405760 @ 0x00405760
+  0x00405892: CMP dword ptr [EBP + 0xc],0x0                    in FUN_00405760 @ 0x00405760
+  0x004058a1: MOV EAX,dword ptr [EBP + 0xc]                    in FUN_00405760 @ 0x00405760
+  0x00405925: CMP dword ptr [EBP + 0xc],0x0                    in FUN_00405760 @ 0x00405760
+  0x00405934: MOV ECX,dword ptr [EBP + 0xc]                    in FUN_00405760 @ 0x00405760
+  0x0040595a: MOV ECX,dword ptr [EBP + 0xc]                    in FUN_00405760 @ 0x00405760
+  0x00405982: MOV EDX,dword ptr [ECX + 0xc]                    in FUN_00405760 @ 0x00405760
+  0x0040598b: MOV dword ptr [EAX + 0xc],EDX                    in FUN_00405760 @ 0x00405760
+  0x00405990: CMP dword ptr [EBP + 0xc],0x0                    in FUN_00405760 @ 0x00405760
+  0x0040599f: MOV ECX,dword ptr [EBP + 0xc]                    in FUN_00405760 @ 0x00405760
+  0x00405c76: CMP dword ptr [EBP + 0xc],0x3                    in FUN_00405c00 @ 0x00405c00
+  0x00405c84: CMP EAX,dword ptr [EBP + 0xc]                    in FUN_00405c00 @ 0x00405c00
+  0x00405d65: MOV ECX,dword ptr [EAX + 0xc]                    in FUN_00405d20 @ 0x00405d20
+  0x00405d6e: MOV dword ptr [EDX + 0xc],ECX                    in FUN_00405d20 @ 0x00405d20
+  0x00405d8c: CMP dword ptr [EAX + 0xc],0x0                    in FUN_00405d80 @ 0x00405d80
+  0x00406549: MOVZX EDX,byte ptr [EBP + 0xc]                   in FUN_004064d0 @ 0x004064d0
+  0x00406810: MOV ECX,dword ptr [EBP + 0xc]                    in FUN_00406620 @ 0x00406620
+  0x00406827: MOV ECX,dword ptr [EBP + 0xc]                    in FUN_00406620 @ 0x00406620
+  0x00406840: MOV ECX,dword ptr [EBP + 0xc]                    in FUN_00406620 @ 0x00406620
+  0x00406c78: MOV EAX,dword ptr [EBP + 0xc]                    in FUN_00406620 @ 0x00406620
+  0x00406d12: MOV EAX,dword ptr [EBP + 0xc]                    in FUN_00406d00 @ 0x00406d00
+  0x00406d37: MOV ECX,dword ptr [EBP + 0xc]                    in FUN_00406d30 @ 0x00406d30
+  0x00406d57: MOV ECX,dword ptr [EBP + 0xc]                    in FUN_00406d50 @ 0x00406d50
+  0x00406d80: AND EAX,dword ptr [EBP + 0xc]                    in FUN_00406d70 @ 0x00406d70
+  0x00406f70: MOV EDX,dword ptr [EBP + 0xc]                    in FUN_00406f60 @ 0x00406f60
+  0x00406fb0: MOV EAX,dword ptr [EBP + 0xc]                    in FUN_00406f90 @ 0x00406f90
+  0x00407007: MOV ECX,dword ptr [EBP + 0xc]                    in FUN_00407000 @ 0x00407000
+  0x00407e09: MOVZX EAX,byte ptr [EBP + 0xc]                   in FUN_00407e00 @ 0x00407e00
+  0x00408a9b: MOVZX EAX,byte ptr [EBP + 0xc]                   in FUN_00408a80 @ 0x00408a80
+  0x00408b23: MOV EAX,dword ptr [EBP + 0xc]                    in FUN_00408b20 @ 0x00408b20
+  0x00408ed6: MOV ECX,dword ptr [EBP + 0xc]                    in FUN_00408e40 @ 0x00408e40
+  0x0040970a: MOVZX ECX,byte ptr [EAX + 0xc0]                  in FUN_00409700 @ 0x00409700
+  0x004097b9: CMP dword ptr [EBP + 0xc],0x0                    in FUN_00409720 @ 0x00409720
+  0x004097bf: MOV ECX,dword ptr [EBP + 0xc]                    in FUN_00409720 @ 0x00409720
+  0x00409840: CMP dword ptr [EBP + 0xc],0x0                    in FUN_00409720 @ 0x00409720
+  0x00409846: MOV ECX,dword ptr [EBP + 0xc]                    in FUN_00409720 @ 0x00409720
+  0x00409aa9: MOVZX EAX,byte ptr [EBP + 0xc]                   in FUN_00409aa0 @ 0x00409aa0
+  0x00409db3: MOV EAX,dword ptr [EBP + 0xc]                    in FUN_00409da0 @ 0x00409da0
+  0x0040a172: MOV dword ptr [ECX + 0xc],0x1011cf4              in FUN_0040a140 @ 0x0040a140
+  0x0040ab33: MOV EAX,dword ptr [EBP + 0xc]                    in strrchr @ 0x0040ab30
+  0x0040bf00: MOV EAX,dword ptr [EBP + 0xc]                    in FUN_0040bef0 @ 0x0040bef0
+  0x0040c178: MOV EAX,dword ptr [EBP + 0xc]                    in FUN_0040c150 @ 0x0040c150
+  0x0040cb59: MOV EAX,dword ptr [EDX + 0xc8]                   in FUN_0040ca50 @ 0x0040ca50
+  0x0040cc3c: MOV EAX,dword ptr [EDX + 0xc8]                   in FUN_0040ca50 @ 0x0040ca50
+  0x0040cd1f: MOV EAX,dword ptr [EDX + 0xc8]                   in FUN_0040ca50 @ 0x0040ca50
+  0x0040ce02: MOV EAX,dword ptr [EDX + 0xc8]                   in FUN_0040ca50 @ 0x0040ca50
+  0x0040cee5: MOV EAX,dword ptr [EDX + 0xc8]                   in FUN_0040ca50 @ 0x0040ca50
+  0x0040cfc8: MOV EAX,dword ptr [EDX + 0xc8]                   in FUN_0040ca50 @ 0x0040ca50
+  0x0040d0ab: MOV EAX,dword ptr [EDX + 0xc8]                   in FUN_0040ca50 @ 0x0040ca50
+  0x0040d18e: MOV EAX,dword ptr [EDX + 0xc8]                   in FUN_0040ca50 @ 0x0040ca50
+  0x0040d271: MOV EAX,dword ptr [EDX + 0xc8]                   in FUN_0040ca50 @ 0x0040ca50
+  0x0040d354: MOV EAX,dword ptr [EDX + 0xc8]                   in FUN_0040ca50 @ 0x0040ca50
+  0x0040d437: MOV EAX,dword ptr [EDX + 0xc8]                   in FUN_0040ca50 @ 0x0040ca50
+  0x0040d51a: MOV EAX,dword ptr [EDX + 0xc8]                   in FUN_0040ca50 @ 0x0040ca50
+  0x0040d5fd: MOV EAX,dword ptr [EDX + 0xc8]                   in FUN_0040ca50 @ 0x0040ca50
+  0x0040d6e0: MOV EAX,dword ptr [EDX + 0xc8]                   in FUN_0040ca50 @ 0x0040ca50
+  0x0040d7d2: MOV EAX,dword ptr [EDX + 0xc8]                   in FUN_0040ca50 @ 0x0040ca50
+  0x0040d8c4: MOV EAX,dword ptr [EDX + 0xc8]                   in FUN_0040ca50 @ 0x0040ca50
+  0x0040d9b6: MOV EAX,dword ptr [EDX + 0xc8]                   in FUN_0040ca50 @ 0x0040ca50
+  0x0040daa8: MOV EAX,dword ptr [EDX + 0xc8]                   in FUN_0040ca50 @ 0x0040ca50
+  0x0040dba6: MOV EAX,dword ptr [EDX + 0xc8]                   in FUN_0040ca50 @ 0x0040ca50
+  0x0040dca4: MOV EAX,dword ptr [EDX + 0xc8]                   in FUN_0040ca50 @ 0x0040ca50
+  0x0040dda2: MOV EAX,dword ptr [EDX + 0xc8]                   in FUN_0040ca50 @ 0x0040ca50
+  0x0040de9d: MOV EAX,dword ptr [EDX + 0xc8]                   in FUN_0040ca50 @ 0x0040ca50
+  0x0040dfac: CMP dword ptr [EBP + 0xc],0x0                    in FUN_0040dfa0 @ 0x0040dfa0
+  0x0040dfdd: MOV ECX,dword ptr [EBP + 0xc]                    in FUN_0040dfa0 @ 0x0040dfa0
+  0x0040e005: MOV ECX,dword ptr [EBP + 0xc]                    in FUN_0040dfa0 @ 0x0040dfa0
+  0x0040e08b: MOV ECX,dword ptr [EBP + 0xc]                    in FUN_0040dfa0 @ 0x0040dfa0
+  0x0040e0d9: FLD float ptr [EBP + 0xc]                        in FUN_0040e0b0 @ 0x0040e0b0
+  0x0040e14c: FLD float ptr [EBP + 0xc]                        in FUN_0040e130 @ 0x0040e130
+  0x0040e239: MOVZX EAX,byte ptr [EBP + 0xc]                   in FUN_0040e230 @ 0x0040e230
+  0x0040ea96: CMP dword ptr [EBP + 0xc],0x0                    in FUN_0040ea20 @ 0x0040ea20
+  0x0040eac5: MOV EAX,dword ptr [EBP + 0xc]                    in FUN_0040ea20 @ 0x0040ea20
+  0x0040eaca: MOV ECX,dword ptr [EBP + 0xc]                    in FUN_0040ea20 @ 0x0040ea20
+  0x0040eb2d: FLD float ptr [EBP + 0xc]                        in FUN_0040eb10 @ 0x0040eb10
+  0x0040eb3c: FSUB float ptr [EBP + 0xc]                       in FUN_0040eb10 @ 0x0040eb10
+  0x0040eb62: FLD float ptr [EBP + 0xc]                        in FUN_0040eb10 @ 0x0040eb10
+  0x0040ebd7: FLD float ptr [EBP + 0xc]                        in FUN_0040ebd0 @ 0x0040ebd0
+  0x0040ebeb: FLD float ptr [EBP + 0xc]                        in FUN_0040ebd0 @ 0x0040ebd0
+  0x0040ef20: MOV dword ptr [ECX + 0xc],EDX                    in CPrintDialog @ 0x0040ef00
+  0x0040ef50: MOV dword ptr [ECX + 0xc],EDX                    in CPrintDialog @ 0x0040ef30
+  0x0040efad: MOV EDX,dword ptr [EAX + 0xc]                    in FUN_0040ef60 @ 0x0040ef60
+  0x0040efb0: CMP EDX,dword ptr [ECX + 0xc]                    in FUN_0040ef60 @ 0x0040ef60
+  0x0040eff3: MOV dword ptr [ECX + 0xc],EDX                    in regex_error @ 0x0040efd0
+  0x0040f04d: MOV EDX,dword ptr [EAX + 0xc]                    in FUN_0040f000 @ 0x0040f000
+  0x0040f050: CMP EDX,dword ptr [ECX + 0xc]                    in FUN_0040f000 @ 0x0040f000
+  0x0040f090: MOV dword ptr [ECX + 0xc],EDX                    in CPrintDialog @ 0x0040f070
+  0x0040f0ed: MOV EDX,dword ptr [EAX + 0xc]                    in FUN_0040f0a0 @ 0x0040f0a0
+  0x0040f0f0: CMP EDX,dword ptr [ECX + 0xc]                    in FUN_0040f0a0 @ 0x0040f0a0
+  0x0040f130: MOV dword ptr [ECX + 0xc],EDX                    in CPrintDialog @ 0x0040f110
+  0x0040f18d: MOV EDX,dword ptr [EAX + 0xc]                    in FUN_0040f140 @ 0x0040f140
+  0x0040f190: CMP EDX,dword ptr [ECX + 0xc]                    in FUN_0040f140 @ 0x0040f140
+  0x0040f1d0: MOV dword ptr [ECX + 0xc],0x0                    in FUN_0040f1b0 @ 0x0040f1b0
+  0x0040f24b: MOV EDX,dword ptr [ECX + 0xc]                    in FUN_0040f210 @ 0x0040f210
+  0x0040f31a: CMP dword ptr [EAX + 0xc],0x0                    in FUN_0040f2d0 @ 0x0040f2d0
+  0x0040f323: CMP dword ptr [ECX + 0xc],0x0                    in FUN_0040f2d0 @ 0x0040f2d0
+  0x0040f32c: MOV EAX,dword ptr [EDX + 0xc]                    in FUN_0040f2d0 @ 0x0040f2d0
+  0x0040f333: MOV ECX,dword ptr [ECX + 0xc]                    in FUN_0040f2d0 @ 0x0040f2d0
+  0x0040f34b: CMP dword ptr [EAX + 0xc],0x0                    in FUN_0040f2d0 @ 0x0040f2d0
+  0x0040f354: CMP dword ptr [ECX + 0xc],0x0                    in FUN_0040f2d0 @ 0x0040f2d0
+  0x0040f38d: MOV dword ptr [ECX + 0xc],0x0                    in FUN_0040f370 @ 0x0040f370
+  0x0040f3ed: MOV EDX,dword ptr [EAX + 0xc]                    in FUN_0040f3a0 @ 0x0040f3a0
+  0x0040f3f0: CMP EDX,dword ptr [ECX + 0xc]                    in FUN_0040f3a0 @ 0x0040f3a0
+  0x0040f42d: MOV dword ptr [ECX + 0xc],0x0                    in FUN_0040f410 @ 0x0040f410
+  0x0040f497: MOV dword ptr [ECX + 0xc],EDX                    in FUN_0040f440 @ 0x0040f440
+  0x0040f49a: MOV EAX,dword ptr [EBP + 0xc]                    in FUN_0040f440 @ 0x0040f440
+  0x0040f539: MOV dword ptr [ECX + 0xc],0x0                    in FUN_0040f500 @ 0x0040f500
+  0x0040f5ad: MOV dword ptr [ECX + 0xc],0x0                    in FUN_0040f590 @ 0x0040f590
+  0x0040f62b: MOV EDX,dword ptr [ECX + 0xc]                    in FUN_0040f5f0 @ 0x0040f5f0
+  0x0040f69f: FSTP float ptr [ECX + 0xc]                       in FUN_0040f680 @ 0x0040f680
+  0x0040f6cd: MOV dword ptr [ECX + 0xc],0x0                    in FUN_0040f6b0 @ 0x0040f6b0
+  0x0040f7f0: MOV ECX,dword ptr [EAX + 0xc]                    in FUN_0040f7d0 @ 0x0040f7d0
+  0x0040f808: MOV dword ptr [EDX + 0xc],ECX                    in FUN_0040f7d0 @ 0x0040f7d0
+  0x0040f828: CMP dword ptr [EBP + 0xc],0x0                    in FUN_0040f7d0 @ 0x0040f7d0
+  0x0040f82e: CMP dword ptr [EBP + 0xc],0x93                   in FUN_0040f7d0 @ 0x0040f7d0
+  0x0040f847: MOV ECX,dword ptr [EBP + 0xc]                    in FUN_0040f7d0 @ 0x0040f7d0
+  0x0040f880: MOV ECX,dword ptr [EAX + 0xc]                    in FUN_0040f860 @ 0x0040f860
+  0x0040f898: MOV dword ptr [EDX + 0xc],ECX                    in FUN_0040f860 @ 0x0040f860
+  0x0040f912: MOV EAX,dword ptr [EDX + 0xc]                    in FUN_0040f900 @ 0x0040f900
+  0x0040f975: MOV dword ptr [EAX + 0xc],ECX                    in FUN_0040f900 @ 0x0040f900
+  0x0040fa0a: CMP dword ptr [EBP + 0xc],0x0                    in FUN_0040f9e0 @ 0x0040f9e0
+  0x0040fa10: CMP dword ptr [EBP + 0xc],0x93                   in FUN_0040f9e0 @ 0x0040f9e0
+  0x0040fa29: MOV ECX,dword ptr [EBP + 0xc]                    in FUN_0040f9e0 @ 0x0040f9e0
+  0x0040fa4e: CMP dword ptr [EBP + 0xc],0x0                    in FUN_0040fa40 @ 0x0040fa40
+  0x0040fabb: MOV ECX,dword ptr [EBP + 0xc]                    in FUN_0040fa40 @ 0x0040fa40
+  0x0040fac6: MOV EDX,dword ptr [EBP + 0xc]                    in FUN_0040fa40 @ 0x0040fa40
+  0x0040ff2d: MOVZX ECX,byte ptr [EBP + 0xc]                   in FUN_0040fee0 @ 0x0040fee0
+  0x00410098: MOVZX EDX,byte ptr [EBP + 0xc]                   in FUN_00410020 @ 0x00410020
+  0x00410105: MOV EDX,dword ptr [ECX + 0xc]                    in FUN_00410020 @ 0x00410020
+  0x0041011d: MOV dword ptr [EAX + 0xc],EDX                    in FUN_00410020 @ 0x00410020
+  0x00410557: MOVZX EDX,byte ptr [ECX + 0xc]                   in FUN_004103d0 @ 0x004103d0
+  0x0041056f: MOV ECX,dword ptr [EAX + 0xc]                    in FUN_004103d0 @ 0x004103d0
+  0x00410586: MOV EAX,dword ptr [EDX + 0xc]                    in FUN_004103d0 @ 0x004103d0
+  0x0041059d: MOV EDX,dword ptr [ECX + 0xc]                    in FUN_004103d0 @ 0x004103d0
+  0x004105b4: MOVZX ECX,word ptr [EAX + 0xc]                   in FUN_004103d0 @ 0x004103d0
+  0x004105d9: MOV EAX,dword ptr [EDX + 0xc]                    in FUN_004103d0 @ 0x004103d0
+  0x00410604: MOVZX EDX,byte ptr [ECX + 0xc]                   in FUN_004103d0 @ 0x004103d0
+  0x00410630: MOVZX ECX,byte ptr [EAX + 0xc]                   in FUN_004103d0 @ 0x004103d0
+  0x00410648: MOV EAX,dword ptr [EDX + 0xc]                    in FUN_004103d0 @ 0x004103d0
+  0x00410672: FLD float ptr [EAX + 0xc]                        in FUN_004103d0 @ 0x004103d0
+  0x0041068c: FLD float ptr [ECX + 0xc]                        in FUN_004103d0 @ 0x004103d0
+  0x004106a6: MOVZX EAX,byte ptr [EDX + 0xc]                   in FUN_004103d0 @ 0x004103d0
+  0x004106be: FLD float ptr [ECX + 0xc]                        in FUN_004103d0 @ 0x004103d0
+  0x004106d8: FLD float ptr [EDX + 0xc]                        in FUN_004103d0 @ 0x004103d0
+  0x004106f2: MOV ECX,dword ptr [EAX + 0xc]                    in FUN_004103d0 @ 0x004103d0
+  0x0041071c: FLD float ptr [ECX + 0xc]                        in FUN_004103d0 @ 0x004103d0
+  0x00410790: MOV EDX,dword ptr [ECX + 0xc]                    in FUN_004103d0 @ 0x004103d0
+  0x00410827: MOV EAX,dword ptr [EDX + 0xc]                    in FUN_004103d0 @ 0x004103d0
+  0x004108a3: MOV EDX,dword ptr [ECX + 0xc]                    in FUN_004103d0 @ 0x004103d0
+  0x0041091f: MOV ECX,dword ptr [EAX + 0xc]                    in FUN_004103d0 @ 0x004103d0
+  0x0041099b: MOV EAX,dword ptr [EDX + 0xc]                    in FUN_004103d0 @ 0x004103d0
+  0x004109cc: MOV EAX,dword ptr [EDX + 0xc]                    in FUN_004103d0 @ 0x004103d0
+  0x004109ec: MOV EDX,dword ptr [ECX + 0xc]                    in FUN_004103d0 @ 0x004103d0
+  0x00410a27: MOV EDX,dword ptr [ECX + 0xc]                    in FUN_004103d0 @ 0x004103d0
+  0x00410a55: MOV EDX,dword ptr [ECX + 0xc]                    in FUN_004103d0 @ 0x004103d0
+  0x00410a9f: MOV EAX,dword ptr [EDX + 0xc]                    in FUN_004103d0 @ 0x004103d0
+  0x00410ab6: MOV EDX,dword ptr [ECX + 0xc]                    in FUN_004103d0 @ 0x004103d0
+  0x00410ae9: MOV ECX,dword ptr [EAX + 0xc]                    in FUN_004103d0 @ 0x004103d0
+  0x00410b00: MOV EAX,dword ptr [EDX + 0xc]                    in FUN_004103d0 @ 0x004103d0
+  0x00410b17: MOV EDX,dword ptr [ECX + 0xc]                    in FUN_004103d0 @ 0x004103d0
+  0x00410b3e: MOV EDX,dword ptr [ECX + 0xc]                    in FUN_004103d0 @ 0x004103d0
+  0x00410b6c: MOV ECX,dword ptr [EAX + 0xc]                    in FUN_004103d0 @ 0x004103d0
+  0x00410b83: MOV EAX,dword ptr [EDX + 0xc]                    in FUN_004103d0 @ 0x004103d0
+  0x00410bf6: MOV ECX,dword ptr [EAX + 0xc]                    in FUN_004103d0 @ 0x004103d0
+  0x00410c19: MOV ECX,dword ptr [EAX + 0xc]                    in FUN_004103d0 @ 0x004103d0
+  0x00410c56: MOV ECX,dword ptr [EAX + 0xc]                    in FUN_004103d0 @ 0x004103d0
+  0x00410c6d: MOV EAX,dword ptr [EDX + 0xc]                    in FUN_004103d0 @ 0x004103d0
+  0x00410c84: MOV EDX,dword ptr [ECX + 0xc]                    in FUN_004103d0 @ 0x004103d0
+  0x00410cdd: MOV EDX,dword ptr [ECX + 0xc]                    in FUN_004103d0 @ 0x004103d0
+  0x00410cf4: MOV ECX,dword ptr [EAX + 0xc]                    in FUN_004103d0 @ 0x004103d0
+  0x00410d1e: MOV EDX,dword ptr [ECX + 0xc]                    in FUN_004103d0 @ 0x004103d0
+  0x00410d35: MOV ECX,dword ptr [EAX + 0xc]                    in FUN_004103d0 @ 0x004103d0
+  0x004110ac: MOV EAX,dword ptr [EDX + 0xc]                    in FUN_004103d0 @ 0x004103d0
+  0x004110c3: MOV EDX,dword ptr [ECX + 0xc]                    in FUN_004103d0 @ 0x004103d0
+  0x004110da: MOV ECX,dword ptr [EAX + 0xc]                    in FUN_004103d0 @ 0x004103d0
+  0x004110f1: MOV EAX,dword ptr [EDX + 0xc]                    in FUN_004103d0 @ 0x004103d0
+  0x00411108: MOV EDX,dword ptr [ECX + 0xc]                    in FUN_004103d0 @ 0x004103d0
+  0x00411126: MOV ECX,dword ptr [EAX + 0xc]                    in FUN_004103d0 @ 0x004103d0
+  0x004111ae: MOV ECX,dword ptr [EAX + 0xc]                    in FUN_004103d0 @ 0x004103d0
+  0x004111c6: FLD float ptr [EDX + 0xc]                        in FUN_004103d0 @ 0x004103d0
+  0x004111f9: FLD float ptr [EAX + 0xc]                        in FUN_004103d0 @ 0x004103d0
+  0x00411213: FLD float ptr [ECX + 0xc]                        in FUN_004103d0 @ 0x004103d0
+  0x00411245: MOV EAX,dword ptr [EDX + 0xc]                    in FUN_004103d0 @ 0x004103d0
+  0x004112b0: MOV EDX,dword ptr [ECX + 0xc]                    in FUN_004103d0 @ 0x004103d0
+  0x0041137c: MOV EDX,dword ptr [ECX + 0xc]                    in FUN_004103d0 @ 0x004103d0
+  0x00411429: MOV EDX,dword ptr [ECX + 0xc]                    in FUN_004103d0 @ 0x004103d0
+  0x0041149c: MOV ECX,dword ptr [EAX + 0xc]                    in FUN_004103d0 @ 0x004103d0
+  0x00411501: MOV EAX,dword ptr [EDX + 0xc]                    in FUN_004103d0 @ 0x004103d0
+  0x004115e0: MOV ECX,dword ptr [EAX + 0xc]                    in FUN_004103d0 @ 0x004103d0
+  0x0041160e: MOV EAX,dword ptr [EDX + 0xc]                    in FUN_004103d0 @ 0x004103d0
+  0x00411774: MOV ECX,dword ptr [EAX + 0xc]                    in FUN_004103d0 @ 0x004103d0
+  0x00411777: MOV dword ptr [EDX + 0xc],ECX                    in FUN_004103d0 @ 0x004103d0
+  0x004118e2: MOV EAX,dword ptr [EDX + 0xc]                    in FUN_004103d0 @ 0x004103d0
+  0x00411b2b: MOV dword ptr [ECX + 0xc],0x0                    in FUN_00411b00 @ 0x00411b00
+  0x00411e2a: MOVZX EAX,byte ptr [EAX + 0xc]                   in FUN_00411e20 @ 0x00411e20
+  0x00411e60: MOV dword ptr [ECX + 0xc],0x0                    in FUN_00411e40 @ 0x00411e40
+  0x00412260: MOVZX EDX,byte ptr [EBP + 0xc]                   in FUN_004121e0 @ 0x004121e0
+  0x00412291: MOVZX ECX,byte ptr [EBP + 0xc]                   in FUN_004121e0 @ 0x004121e0
+  0x00412523: MOVZX ECX,byte ptr [EBP + 0xc]                   in FUN_00412490 @ 0x00412490
+  0x0041254b: MOVZX EDX,byte ptr [EBP + 0xc]                   in FUN_00412490 @ 0x00412490
+  0x004126ef: MOVZX EDX,byte ptr [EBP + 0xc]                   in FUN_004126c0 @ 0x004126c0
+  0x00412a07: MOVZX ECX,byte ptr [EAX + 0xc]                   in FUN_00412970 @ 0x00412970
+  0x00412a27: MOV ECX,dword ptr [EAX + 0xc]                    in FUN_00412970 @ 0x00412970
+  0x00412ab2: MOV ECX,dword ptr [EAX + 0xc]                    in FUN_00412970 @ 0x00412970
+  0x00412ac9: MOV dword ptr [EDX + 0xc],EAX                    in FUN_00412970 @ 0x00412970
+  0x00412b0d: MOV dword ptr [EAX + 0xc],ECX                    in FUN_00412970 @ 0x00412970
+  0x00412b18: MOV ECX,dword ptr [EDX + 0xc]                    in FUN_00412970 @ 0x00412970
+  0x00412b35: MOV ECX,dword ptr [EAX + 0xc]                    in FUN_00412970 @ 0x00412970
+  0x00412b52: MOV ECX,dword ptr [ECX + 0xc]                    in FUN_00412970 @ 0x00412970
+  0x00412b6f: MOV ECX,dword ptr [EDX + 0xc]                    in FUN_00412970 @ 0x00412970
+  0x00412b7f: MOV ECX,dword ptr [EAX + 0xc]                    in FUN_00412970 @ 0x00412970
+  0x00412ba9: MOV ECX,dword ptr [EAX + 0xc]                    in FUN_00412970 @ 0x00412970
+  0x00412bd3: MOV ECX,dword ptr [EAX + 0xc]                    in FUN_00412970 @ 0x00412970
+  0x00412bf2: MOVSX ECX,word ptr [EAX + 0xc]                   in FUN_00412970 @ 0x00412970
+  0x00412c1b: CMP dword ptr [EDX + 0xc],0x0                    in FUN_00412970 @ 0x00412970
+  0x00412c24: MOV ECX,dword ptr [EAX + 0xc]                    in FUN_00412970 @ 0x00412970
+  0x00412c71: FLD float ptr [ECX + 0xc]                        in FUN_00412970 @ 0x00412970
+  0x00412c96: FLD float ptr [EAX + 0xc]                        in FUN_00412970 @ 0x00412970
+  0x00412cb1: MOVZX EDX,byte ptr [ECX + 0xc]                   in FUN_00412970 @ 0x00412970
+  0x00412cd1: FLD float ptr [ECX + 0xc]                        in FUN_00412970 @ 0x00412970
+  0x00412cf3: FLD float ptr [EDX + 0xc]                        in FUN_00412970 @ 0x00412970
+  0x00412d15: MOV ECX,dword ptr [EAX + 0xc]                    in FUN_00412970 @ 0x00412970
+  0x00412d64: MOV EDX,dword ptr [ECX + 0xc]                    in FUN_00412970 @ 0x00412970
+  ... (truncated at 260)
+  Total printed: 260
+
+======================================================================
+All instruction text hits for literal 0x21 (candidate ExtraOwnership type)
+======================================================================
+  0x00404e08: PUSH 0x21b                                       in FUN_00404de0 @ 0x00404de0
+  0x004051d2: MOV byte ptr [EBP + -0x21],CL                    in FUN_00405120 @ 0x00405120
+  0x004051e4: MOV AL,byte ptr [EBP + -0x21]                    in FUN_00405120 @ 0x00405120
+  0x0041271b: CMP ECX,0x21                                     in FUN_004126c0 @ 0x004126c0
+  0x00416da5: MOV byte ptr [EBP + -0x21],0x0                   in FUN_00416be0 @ 0x00416be0
+  0x00416db2: MOVZX EAX,byte ptr [EBP + -0x21]                 in FUN_00416be0 @ 0x00416be0
+  0x00418669: PUSH 0x21                                        in FUN_00418660 @ 0x00418660
+  0x00419728: PUSH 0x21                                        in FUN_00419700 @ 0x00419700
+  0x0041a151: MOV byte ptr [EBP + -0x21],AL                    in FUN_0041a090 @ 0x0041a090
+  0x0041a163: MOVZX ECX,byte ptr [EBP + -0x21]                 in FUN_0041a090 @ 0x0041a090
+  0x0041a344: MOV byte ptr [EBP + -0x21],AL                    in FUN_0041a280 @ 0x0041a280
+  0x0041a356: MOVZX ECX,byte ptr [EBP + -0x21]                 in FUN_0041a280 @ 0x0041a280
+  0x0041a4a4: MOV byte ptr [EBP + -0x21],AL                    in FUN_0041a3e0 @ 0x0041a3e0
+  0x0041a4b6: MOVZX ECX,byte ptr [EBP + -0x21]                 in FUN_0041a3e0 @ 0x0041a3e0
+  0x0041a604: MOV byte ptr [EBP + -0x21],AL                    in FUN_0041a540 @ 0x0041a540
+  0x0041a616: MOVZX ECX,byte ptr [EBP + -0x21]                 in FUN_0041a540 @ 0x0041a540
+  0x0041a764: MOV byte ptr [EBP + -0x21],AL                    in FUN_0041a6a0 @ 0x0041a6a0
+  0x0041a776: MOVZX ECX,byte ptr [EBP + -0x21]                 in FUN_0041a6a0 @ 0x0041a6a0
+  0x0041a8c1: MOV byte ptr [EBP + -0x21],AL                    in FUN_0041a800 @ 0x0041a800
+  0x0041a8d3: MOVZX ECX,byte ptr [EBP + -0x21]                 in FUN_0041a800 @ 0x0041a800
+  0x0041aed7: PUSH 0x21                                        in FUN_0041aed0 @ 0x0041aed0
+  0x004236c1: MOV byte ptr [EBP + -0x21],AL                    in FUN_004235e0 @ 0x004235e0
+  0x00423720: LEA EDX,[EBP + -0x21]                            in FUN_004235e0 @ 0x004235e0
+  0x0042375a: LEA ECX,[EBP + -0x21]                            in FUN_004235e0 @ 0x004235e0
+  0x00423792: LEA EDX,[EBP + -0x21]                            in FUN_004235e0 @ 0x004235e0
+  0x004237ca: LEA ECX,[EBP + -0x21]                            in FUN_004235e0 @ 0x004235e0
+  0x00423802: LEA EAX,[EBP + -0x21]                            in FUN_004235e0 @ 0x004235e0
+  0x0042383a: LEA ECX,[EBP + -0x21]                            in FUN_004235e0 @ 0x004235e0
+  0x00423875: LEA EDX,[EBP + -0x21]                            in FUN_004235e0 @ 0x004235e0
+  0x004238f0: LEA EDX,[EBP + -0x21]                            in FUN_004235e0 @ 0x004235e0
+  0x00423928: LEA EAX,[EBP + -0x21]                            in FUN_004235e0 @ 0x004235e0
+  0x00423965: LEA ECX,[EBP + -0x21]                            in FUN_004235e0 @ 0x004235e0
+  0x004239a2: LEA EDX,[EBP + -0x21]                            in FUN_004235e0 @ 0x004235e0
+  0x004239da: LEA ECX,[EBP + -0x21]                            in FUN_004235e0 @ 0x004235e0
+  0x004239f0: LEA EDX,[EBP + -0x21]                            in FUN_004235e0 @ 0x004235e0
+  0x00423a0e: LEA ECX,[EBP + -0x21]                            in FUN_004235e0 @ 0x004235e0
+  0x00423a5c: LEA ECX,[EBP + -0x21]                            in FUN_004235e0 @ 0x004235e0
+  0x00423ab7: LEA EDX,[EBP + -0x21]                            in FUN_004235e0 @ 0x004235e0
+  0x00423bda: LEA EDX,[EBP + -0x21]                            in FUN_004235e0 @ 0x004235e0
+  0x00423c63: LEA EDX,[EBP + -0x21]                            in FUN_004235e0 @ 0x004235e0
+  0x00423cbd: LEA ECX,[EBP + -0x21]                            in FUN_004235e0 @ 0x004235e0
+  0x00423cd3: LEA EDX,[EBP + -0x21]                            in FUN_004235e0 @ 0x004235e0
+  0x00423df5: LEA ECX,[EBP + -0x21]                            in FUN_004235e0 @ 0x004235e0
+  0x00423ec0: LEA EAX,[EBP + -0x21]                            in FUN_004235e0 @ 0x004235e0
+  0x00423fd3: LEA ECX,[EBP + -0x21]                            in FUN_004235e0 @ 0x004235e0
+  0x0042412c: LEA EAX,[EBP + -0x21]                            in FUN_004235e0 @ 0x004235e0
+  0x004241eb: LEA ECX,[EBP + -0x21]                            in FUN_004235e0 @ 0x004235e0
+  0x00424237: LEA EDX,[EBP + -0x21]                            in FUN_004235e0 @ 0x004235e0
+  0x0042429f: LEA ECX,[EBP + -0x21]                            in FUN_004235e0 @ 0x004235e0
+  0x00424326: LEA ECX,[EBP + -0x21]                            in FUN_004235e0 @ 0x004235e0
+  0x0042438c: LEA EAX,[EBP + -0x21]                            in FUN_004235e0 @ 0x004235e0
+  0x004243ca: LEA EAX,[EBP + -0x21]                            in FUN_004235e0 @ 0x004235e0
+  0x00424421: LEA ECX,[EBP + -0x21]                            in FUN_004235e0 @ 0x004235e0
+  0x004244a1: LEA EAX,[EBP + -0x21]                            in FUN_004235e0 @ 0x004235e0
+  0x0042451a: LEA EDX,[EBP + -0x21]                            in FUN_004235e0 @ 0x004235e0
+  0x00424596: LEA EDX,[EBP + -0x21]                            in FUN_004235e0 @ 0x004235e0
+  0x004245d9: LEA EAX,[EBP + -0x21]                            in FUN_004235e0 @ 0x004235e0
+  0x0042463b: LEA EAX,[EBP + -0x21]                            in FUN_004235e0 @ 0x004235e0
+  0x0042465c: LEA EDX,[EBP + -0x21]                            in FUN_004235e0 @ 0x004235e0
+  0x0042a3cc: MOV dword ptr [EBP + -0x4],0x21                  in FUN_00428150 @ 0x00428150
+  0x0042b97d: MOV EAX,dword ptr [EDX + 0x218]                  in FUN_00428150 @ 0x00428150
+  0x0042c5e7: PUSH 0x21                                        in FUN_0042c5e0 @ 0x0042c5e0
+  0x00430521: MOV EAX,dword ptr [EDX + 0x218]                  in FUN_00430410 @ 0x00430410
+  0x00431a47: PUSH 0x21                                        in CPrintDialog @ 0x00431a40
+  0x00439d49: MOV byte ptr [EBP + -0x21],0x4                   in FUN_00439940 @ 0x00439940
+  0x0043b1ea: ADD ECX,0x21c                                    in FUN_0043b1e0 @ 0x0043b1e0
+  0x0043b20e: ADD ECX,0x21c                                    in FUN_0043b200 @ 0x0043b200
+  0x0043d913: SUB ESP,0x21c                                    in FUN_0043d910 @ 0x0043d910
+  0x00444780: MOV byte ptr [EBP + -0x21],0x1                   in FUN_004446a0 @ 0x004446a0
+  0x00444793: MOV AL,byte ptr [EBP + -0x21]                    in FUN_004446a0 @ 0x004446a0
+  0x00445f79: MOV EAX,dword ptr [EDX + 0x218]                  in FUN_00445a10 @ 0x00445a10
+  0x00452977: MOV byte ptr [EBP + -0x21],AL                    in FUN_00452580 @ 0x00452580
+  0x0045297a: MOVZX EAX,byte ptr [EBP + -0x21]                 in FUN_00452580 @ 0x00452580
+  0x004529b0: MOV byte ptr [EBP + -0x21],0x1                   in FUN_00452580 @ 0x00452580
+  0x00452c4b: MOVZX ECX,byte ptr [EBP + -0x21]                 in FUN_00452580 @ 0x00452580
+  0x00452c9f: MOVZX EDX,byte ptr [EBP + -0x21]                 in FUN_00452580 @ 0x00452580
+  0x00452cd5: MOV byte ptr [EBP + -0x21],0x1                   in FUN_00452580 @ 0x00452580
+  0x0045d4ce: MOV byte ptr [EBP + -0x4],0x21                   in FUN_0045d270 @ 0x0045d270
+  0x0045d6c3: ADD ECX,0x210                                    in FUN_0045d270 @ 0x0045d270
+  0x0045d6e2: MOV dword ptr [ECX + 0x218],0x0                  in FUN_0045d270 @ 0x0045d270
+  0x0045d763: ADD ECX,0x21c                                    in FUN_0045d270 @ 0x0045d270
+  0x0045dace: ADD ECX,0x210                                    in FUN_0045d970 @ 0x0045d970
+  0x0045dcad: MOV byte ptr [EBP + -0x4],0x21                   in FUN_0045d970 @ 0x0045d970
+  0x0045dfca: ADD EAX,0x210                                    in FUN_0045dfc0 @ 0x0045dfc0
+  0x0045fe99: CMP ECX,dword ptr [EAX + 0x218]                  in FUN_0045dfe0 @ 0x0045dfe0
+  0x0045feaa: MOV dword ptr [EAX + EDX*0x4 + 0x21c],0x0        in FUN_0045dfe0 @ 0x0045dfe0
+  0x0045febd: MOV dword ptr [ECX + 0x218],0x0                  in FUN_0045dfe0 @ 0x0045dfe0
+  0x00461d82: CMP EAX,dword ptr [EDX + 0x218]                  in FUN_00461cf0 @ 0x00461cf0
+  0x00461d90: CMP dword ptr [EDX + ECX*0x4 + 0x21c],0x0        in FUN_00461cf0 @ 0x00461cf0
+  0x00461da0: MOV ECX,dword ptr [ECX + EAX*0x4 + 0x21c]        in FUN_00461cf0 @ 0x00461cf0
+  0x00461e40: CMP ECX,dword ptr [EAX + 0x218]                  in FUN_00461cf0 @ 0x00461cf0
+  0x00461e52: MOV ECX,dword ptr [EAX + EDX*0x4 + 0x21c]        in FUN_00461cf0 @ 0x00461cf0
+  0x004630df: MOV dword ptr [EDX + 0x218],0x0                  in FUN_00463070 @ 0x00463070
+  0x0046345b: MOV EDX,dword ptr [ECX + 0x218]                  in FUN_00463070 @ 0x00463070
+  0x0046346d: MOV dword ptr [EAX + EDX*0x4 + 0x21c],ECX        in FUN_00463070 @ 0x00463070
+  0x0046347a: MOV AL,byte ptr [EDX + 0x218]                    in FUN_00463070 @ 0x00463070
+  0x0046348c: MOV EDX,dword ptr [ECX + 0x218]                  in FUN_00463070 @ 0x00463070
+  0x0046349b: MOV dword ptr [EAX + 0x218],EDX                  in FUN_00463070 @ 0x00463070
+  0x004634ba: CMP dword ptr [EDX + 0x218],0xff                 in FUN_00463070 @ 0x00463070
+  0x004635de: MOV EDX,dword ptr [ECX + 0x218]                  in FUN_00463070 @ 0x00463070
+  0x004635f6: MOV dword ptr [EAX + EDX*0x4 + 0x21c],ECX        in FUN_00463070 @ 0x00463070
+  0x00463603: MOV AL,byte ptr [EDX + 0x218]                    in FUN_00463070 @ 0x00463070
+  0x00463615: MOV EDX,dword ptr [ECX + 0x218]                  in FUN_00463070 @ 0x00463070
+  0x00463624: MOV dword ptr [EAX + 0x218],EDX                  in FUN_00463070 @ 0x00463070
+  0x00463649: CMP dword ptr [EAX + 0x218],0xff                 in FUN_00463070 @ 0x00463070
+  0x00463693: CMP EAX,dword ptr [EDX + 0x218]                  in FUN_00463070 @ 0x00463070
+  0x004636ab: MOV ECX,dword ptr [EDX + ECX*0x4 + 0x21c]        in FUN_00463070 @ 0x00463070
+  0x004636d9: MOV ECX,dword ptr [EDX + ECX*0x4 + 0x21c]        in FUN_00463070 @ 0x00463070
+  0x00463719: CMP EDX,dword ptr [ECX + 0x218]                  in FUN_00463070 @ 0x00463070
+  0x0046374e: MOV ECX,dword ptr [ECX + EAX*0x4 + 0x21c]        in FUN_00463070 @ 0x00463070
+  0x00463778: MOV ECX,dword ptr [ECX + EAX*0x4 + 0x21c]        in FUN_00463070 @ 0x00463070
+  0x004638f4: CMP ECX,dword ptr [EAX + 0x218]                  in FUN_00463070 @ 0x00463070
+  0x0046392b: MOV ECX,dword ptr [ECX + EAX*0x4 + 0x21c]        in FUN_00463070 @ 0x00463070
+  0x00463947: MOV ECX,dword ptr [EAX + EDX*0x4 + 0x21c]        in FUN_00463070 @ 0x00463070
+  0x00463973: MOV EDX,dword ptr [ECX + EAX*0x4 + 0x21c]        in FUN_00463070 @ 0x00463070
+  0x004648e8: PUSH 0x21                                        in FUN_00463070 @ 0x00463070
+  0x00465030: MOV EAX,dword ptr [ECX + EAX*0x4 + 0x21c]        in FUN_00465010 @ 0x00465010
+  0x00465c63: MOV byte ptr [EBP + -0x4],0x21                   in FUN_00465110 @ 0x00465110
+  0x00467979: MOV byte ptr [EBP + -0x21],0x0                   in FUN_00467780 @ 0x00467780
+  0x004679d2: MOV byte ptr [EBP + -0x21],0x1                   in FUN_00467780 @ 0x00467780
+  0x004679f0: MOVZX EAX,byte ptr [EBP + -0x21]                 in FUN_00467780 @ 0x00467780
+  0x00468a4b: PUSH 0x2111                                      in FUN_00467bd0 @ 0x00467bd0
+  0x00468bd1: PUSH 0x213b                                      in FUN_00467bd0 @ 0x00467bd0
+  0x00468cba: PUSH 0x2152                                      in FUN_00467bd0 @ 0x00467bd0
+  0x004696fc: MOV ECX,dword ptr [EAX + 0x218]                  in FUN_004696f0 @ 0x004696f0
+  0x0046b420: PUSH 0x21                                        in FUN_0046a370 @ 0x0046a370
+  0x0046b49f: PUSH 0x21                                        in FUN_0046a370 @ 0x0046a370
+  0x0046c887: MOV byte ptr [EBP + -0x4],0x21                   in FUN_0046a370 @ 0x0046a370
+  0x0046dd3a: PUSH 0x21                                        in FUN_0046dd00 @ 0x0046dd00
+  0x0046debb: MOV byte ptr [EBP + -0x21],0x0                   in FUN_0046ddb0 @ 0x0046ddb0
+  0x0046ded6: MOV byte ptr [EBP + -0x21],0x1                   in FUN_0046ddb0 @ 0x0046ddb0
+  0x0046dffb: MOVZX ECX,byte ptr [EBP + -0x21]                 in FUN_0046ddb0 @ 0x0046ddb0
+  0x00475d51: MOV byte ptr [EBP + -0x21],CL                    in FUN_00475b20 @ 0x00475b20
+  0x00475d54: MOVZX EDX,byte ptr [EBP + -0x21]                 in FUN_00475b20 @ 0x00475b20
+  0x00475d6c: MOV byte ptr [EBP + -0x21],0x1                   in FUN_00475b20 @ 0x00475b20
+  0x00475e15: MOVZX EDX,byte ptr [EBP + -0x21]                 in FUN_00475b20 @ 0x00475b20
+  0x00475efe: MOV byte ptr [EBP + -0x21],DL                    in FUN_00475b20 @ 0x00475b20
+  0x00475f14: MOVZX EAX,byte ptr [EBP + -0x21]                 in FUN_00475b20 @ 0x00475b20
+  0x0047677a: MOVZX EDX,byte ptr [EBP + -0x21]                 in FUN_00475b20 @ 0x00475b20
+  0x004767e6: MOVZX ECX,byte ptr [EBP + -0x21]                 in FUN_00475b20 @ 0x00475b20
+  0x0047b3e3: MOV byte ptr [EBP + -0x21],CL                    in FUN_0047b360 @ 0x0047b360
+  0x0047b3e6: MOVZX EDX,byte ptr [EBP + -0x21]                 in FUN_0047b360 @ 0x0047b360
+  0x0047b426: MOVZX ECX,byte ptr [EBP + -0x21]                 in FUN_0047b360 @ 0x0047b360
+  0x0047b437: MOVZX EDX,byte ptr [EBP + -0x21]                 in FUN_0047b360 @ 0x0047b360
+  0x0047e846: LEA EDX,[EBP + -0x21]                            in FUN_0047e6f0 @ 0x0047e6f0
+  0x0047e888: MOV DL,byte ptr [EBP + -0x21]                    in FUN_0047e6f0 @ 0x0047e6f0
+  0x0048a239: MOV byte ptr [EBP + -0x21],AL                    in FUN_0048a0d0 @ 0x0048a0d0
+  0x0048a264: MOVZX ECX,byte ptr [EBP + -0x21]                 in FUN_0048a0d0 @ 0x0048a0d0
+  0x0048a281: MOVZX EAX,byte ptr [EBP + -0x21]                 in FUN_0048a0d0 @ 0x0048a0d0
+  0x0048a680: MOV byte ptr [EBP + -0x21],AL                    in FUN_0048a590 @ 0x0048a590
+  0x0048a683: MOVZX ECX,byte ptr [EBP + -0x21]                 in FUN_0048a590 @ 0x0048a590
+  0x0048e5b3: SUB ESP,0x218                                    in FUN_0048e5b0 @ 0x0048e5b0
+  0x00493319: MOV byte ptr [EBP + -0x21],0x0                   in FUN_00491180 @ 0x00491180
+  0x00493353: MOV byte ptr [EBP + -0x21],AL                    in FUN_00491180 @ 0x00491180
+  0x00493356: MOVZX EAX,byte ptr [EBP + -0x21]                 in FUN_00491180 @ 0x00491180
+  0x00494430: MOV EDX,dword ptr [EAX + 0x21c]                  in FUN_00494390 @ 0x00494390
+  0x004945f8: MOV EAX,dword ptr [EDX + 0x214]                  in FUN_00494390 @ 0x00494390
+  0x00499dc0: MOV byte ptr [EBP + -0x21],0xff                  in FUN_00499b90 @ 0x00499b90
+  0x00499e06: MOV byte ptr [EBP + -0x21],AL                    in FUN_00499b90 @ 0x00499b90
+  0x00499e5f: MOV byte ptr [EBP + -0x21],0xfe                  in FUN_00499b90 @ 0x00499b90
+  0x00499e65: LEA ECX,[EBP + -0x21]                            in FUN_00499b90 @ 0x00499b90
+  0x004a7579: PUSH 0x21                                        in FUN_004a72d0 @ 0x004a72d0
+  0x004abfe3: SUB ESP,0x21c                                    in FUN_004abfe0 @ 0x004abfe0
+  0x004ac133: SUB ESP,0x21c                                    in FUN_004ac130 @ 0x004ac130
+  0x004b1828: MOV EAX,0x21                                     in FUN_004b1680 @ 0x004b1680
+  0x004b84f6: MOV dword ptr [EBP + -0x4],0x21                  in FUN_004b7920 @ 0x004b7920
+  0x004c0e15: MOV byte ptr [EBP + -0x21],0x1                   in FUN_004c0cf0 @ 0x004c0cf0
+  0x004c0ec3: MOV byte ptr [EBP + -0x21],0x0                   in FUN_004c0cf0 @ 0x004c0cf0
+  0x004c0ec9: MOVZX EAX,byte ptr [EBP + -0x21]                 in FUN_004c0cf0 @ 0x004c0cf0
+  0x004c108e: MOV byte ptr [EBP + -0x21],0x0                   in FUN_004c0cf0 @ 0x004c0cf0
+  0x004c1094: MOVZX EAX,byte ptr [EBP + -0x21]                 in FUN_004c0cf0 @ 0x004c0cf0
+  0x004d04b8: MOV byte ptr [EBP + -0x21],0x0                   in FUN_004d0490 @ 0x004d0490
+  0x004d04fc: MOVZX ECX,byte ptr [EBP + -0x21]                 in FUN_004d0490 @ 0x004d0490
+  0x004d0557: MOV byte ptr [EBP + -0x21],0x1                   in FUN_004d0490 @ 0x004d0490
+  0x004d0584: MOV byte ptr [EBP + -0x21],0x0                   in FUN_004d0490 @ 0x004d0490
+  0x004d0598: MOVZX ECX,byte ptr [EBP + -0x21]                 in FUN_004d0490 @ 0x004d0490
+  0x004d05bd: MOVZX EDX,byte ptr [EBP + -0x21]                 in FUN_004d0490 @ 0x004d0490
+  0x004d060c: MOV byte ptr [EBP + -0x21],0x1                   in FUN_004d0490 @ 0x004d0490
+  0x004d061d: MOV DL,byte ptr [EBP + -0x21]                    in FUN_004d0490 @ 0x004d0490
+  0x004e3a0b: MOV byte ptr [EBP + -0x21],AL                    in FUN_004e3590 @ 0x004e3590
+  ... (truncated at 180)
+  Total printed: 180

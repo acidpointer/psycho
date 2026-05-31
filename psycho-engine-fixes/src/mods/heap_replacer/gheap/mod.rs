@@ -8,6 +8,8 @@
 pub mod allocator;
 pub mod block;
 pub mod engine;
+pub mod entrydata_guard;
+pub mod extraownership_guard;
 pub mod game_guard;
 pub mod havok_fix;
 pub mod heap_manager;

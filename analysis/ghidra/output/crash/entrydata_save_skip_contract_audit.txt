@@ -1,0 +1,1672 @@
+======================================================================
+ENTRYDATA SAVE SKIP CONTRACT AUDIT
+======================================================================
+Question: if EntryData.type is invalid, can we skip only that entry without corrupting save block counts?
+
+======================================================================
+EntryData list save dispatcher 0x004D4090 @ 0x004d4090
+======================================================================
+  Function: FUN_004d4090 @ 0x004d4090, Size: 198 bytes
+
+void FUN_004d4090(undefined4 *param_1)
+
+{
+  int *piVar1;
+  undefined4 *puStack_28;
+  int *local_24;
+  int local_1c;
+  int local_18;
+  undefined4 local_14;
+  int local_10;
+  undefined4 local_c;
+  undefined4 local_8;
+  
+  puStack_28 = (undefined4 *)0x4d40a5;
+  local_8 = (**(code **)*param_1)();
+  puStack_28 = &local_c;
+  FUN_00428110();
+  puStack_28 = (undefined4 *)0x0;
+  FUN_0050f9c0();
+  std::locale::id::id((id *)&puStack_28,0x400);
+  FUN_00428130();
+  local_10 = 0;
+  puStack_28 = (undefined4 *)0x4d40e2;
+  local_14 = FUN_00865f20();
+  local_18 = *local_24;
+  while (local_18 != 0) {
+    puStack_28 = (undefined4 *)0x4d40fb;
+    piVar1 = (int *)FUN_006815c0();
+    local_1c = *piVar1;
+    if (local_1c != 0) {
+      puStack_28 = param_1;
+      FUN_004bed60();
+      local_10 = local_10 + 1;
+    }
+    puStack_28 = (undefined4 *)0x4d4123;
+    local_18 = FUN_00726070();
+  }
+  puStack_28 = (undefined4 *)local_14;
+  FUN_00865ff0(local_10);
+  puStack_28 = (undefined4 *)local_8;
+  FUN_0050f9c0();
+  puStack_28 = (undefined4 *)local_c;
+  FUN_00428130();
+  return;
+}
+
+
+
+----------------------------------------------------------------------
+Disassembly call to EntryData save and post-call count increment around 0x004d410d
+----------------------------------------------------------------------
+  0x004d4030: PUSH EBP                                      
+  0x004d4031: MOV EBP,ESP                                   
+  0x004d4033: SUB ESP,0xc                                   
+  0x004d4036: MOV dword ptr [EBP + -0xc],ECX                
+  0x004d4039: MOV EAX,dword ptr [EBP + -0xc]                
+  0x004d403c: MOV ECX,dword ptr [EAX]                       
+  0x004d403e: MOV dword ptr [EBP + -0x4],ECX                
+  0x004d4041: CMP dword ptr [EBP + -0x4],0x0                
+  0x004d4045: JZ 0x004d407e                                 
+  0x004d4047: MOV ECX,dword ptr [EBP + -0x4]                
+  0x004d404a: CALL 0x008256d0                               
+      call -> 0x008256d0 FUN_008256d0 @ 0x008256d0
+  0x004d404f: MOVZX EDX,AL                                  
+  0x004d4052: TEST EDX,EDX                                  
+  0x004d4054: JNZ 0x004d407e                                
+  0x004d4056: MOV ECX,dword ptr [EBP + -0x4]                
+  0x004d4059: CALL 0x006815c0                               
+      call -> 0x006815c0 FUN_006815c0 @ 0x006815c0
+  0x004d405e: MOV EAX,dword ptr [EAX]                       
+  0x004d4060: MOV dword ptr [EBP + -0x8],EAX                
+  0x004d4063: CMP dword ptr [EBP + -0x8],0x0                
+  0x004d4067: JZ 0x004d4071                                 
+  0x004d4069: MOV ECX,dword ptr [EBP + -0x8]                
+  0x004d406c: CALL 0x004bed00                               
+      call -> 0x004bed00 FUN_004bed00 @ 0x004bed00
+  0x004d4071: MOV ECX,dword ptr [EBP + -0x4]                
+  0x004d4074: CALL 0x00726070                               
+      call -> 0x00726070 FUN_00726070 @ 0x00726070
+  0x004d4079: MOV dword ptr [EBP + -0x4],EAX                
+  0x004d407c: JMP 0x004d4041                                
+  0x004d407e: MOV ESP,EBP                                   
+  0x004d4080: POP EBP                                       
+  0x004d4081: RET                                           
+  0x004d4090: PUSH EBP                                      
+  0x004d4091: MOV EBP,ESP                                   
+  0x004d4093: SUB ESP,0x20                                  
+  0x004d4096: MOV dword ptr [EBP + -0x20],ECX               
+  0x004d4099: MOV EAX,dword ptr [EBP + 0x8]                 
+  0x004d409c: MOV EDX,dword ptr [EAX]                       
+  0x004d409e: MOV ECX,dword ptr [EBP + 0x8]                 
+  0x004d40a1: MOV EAX,dword ptr [EDX]                       
+  0x004d40a3: CALL EAX                                      
+  0x004d40a5: MOV dword ptr [EBP + -0x4],EAX                
+  0x004d40a8: LEA ECX,[EBP + -0x8]                          
+  0x004d40ab: PUSH ECX                                      
+  0x004d40ac: MOV ECX,dword ptr [EBP + 0x8]                 
+  0x004d40af: CALL 0x00428110                               
+      call -> 0x00428110 FUN_00428110 @ 0x00428110
+  0x004d40b4: PUSH 0x0                                      
+  0x004d40b6: MOV ECX,dword ptr [EBP + 0x8]                 
+  0x004d40b9: CALL 0x0050f9c0                               
+      call -> 0x0050f9c0 FUN_0050f9c0 @ 0x0050f9c0
+  0x004d40be: PUSH ECX                                      
+  0x004d40bf: MOV ECX,ESP                                   
+  0x004d40c1: PUSH 0x400                                    
+  0x004d40c6: CALL 0x008c71b0                               
+      call -> 0x008c71b0 id @ 0x008c71b0
+  0x004d40cb: MOV ECX,dword ptr [EBP + 0x8]                 
+  0x004d40ce: CALL 0x00428130                               
+      call -> 0x00428130 FUN_00428130 @ 0x00428130
+  0x004d40d3: MOV dword ptr [EBP + -0xc],0x0                
+  0x004d40da: MOV ECX,dword ptr [EBP + 0x8]                 
+  0x004d40dd: CALL 0x00865f20                               
+      call -> 0x00865f20 FUN_00865f20 @ 0x00865f20
+  0x004d40e2: MOV dword ptr [EBP + -0x10],EAX               
+  0x004d40e5: MOV EDX,dword ptr [EBP + -0x20]               
+  0x004d40e8: MOV EAX,dword ptr [EDX]                       
+  0x004d40ea: MOV dword ptr [EBP + -0x14],EAX               
+  0x004d40ed: CMP dword ptr [EBP + -0x14],0x0               
+  0x004d40f1: JZ 0x004d4128                                 
+  0x004d40f3: MOV ECX,dword ptr [EBP + -0x14]               
+  0x004d40f6: CALL 0x006815c0                               
+      call -> 0x006815c0 FUN_006815c0 @ 0x006815c0
+  0x004d40fb: MOV ECX,dword ptr [EAX]                       
+  0x004d40fd: MOV dword ptr [EBP + -0x18],ECX               
+  0x004d4100: CMP dword ptr [EBP + -0x18],0x0               
+  0x004d4104: JZ 0x004d411b                                 
+  0x004d4106: MOV EDX,dword ptr [EBP + 0x8]                 
+  0x004d4109: PUSH EDX                                      
+  0x004d410a: MOV ECX,dword ptr [EBP + -0x18]               
+  0x004d410d: CALL 0x004bed60                                << target
+      call -> 0x004bed60 FUN_004bed60 @ 0x004bed60
+  0x004d4112: MOV EAX,dword ptr [EBP + -0xc]                
+  0x004d4115: ADD EAX,0x1                                   
+  0x004d4118: MOV dword ptr [EBP + -0xc],EAX                
+  0x004d411b: MOV ECX,dword ptr [EBP + -0x14]               
+  0x004d411e: CALL 0x00726070                               
+      call -> 0x00726070 FUN_00726070 @ 0x00726070
+  0x004d4123: MOV dword ptr [EBP + -0x14],EAX               
+  0x004d4126: JMP 0x004d40ed                                
+  0x004d4128: MOV ECX,dword ptr [EBP + -0x10]               
+  0x004d412b: PUSH ECX                                      
+  0x004d412c: MOV EDX,dword ptr [EBP + -0xc]                
+  0x004d412f: PUSH EDX                                      
+  0x004d4130: MOV ECX,dword ptr [EBP + 0x8]                 
+  0x004d4133: CALL 0x00865ff0                               
+      call -> 0x00865ff0 FUN_00865ff0 @ 0x00865ff0
+  0x004d4138: MOV EAX,dword ptr [EBP + -0x4]                
+  0x004d413b: PUSH EAX                                      
+  0x004d413c: MOV ECX,dword ptr [EBP + 0x8]                 
+  0x004d413f: CALL 0x0050f9c0                               
+      call -> 0x0050f9c0 FUN_0050f9c0 @ 0x0050f9c0
+  0x004d4144: MOV ECX,dword ptr [EBP + -0x8]                
+  0x004d4147: PUSH ECX                                      
+  0x004d4148: MOV ECX,dword ptr [EBP + 0x8]                 
+  0x004d414b: CALL 0x00428130                               
+      call -> 0x00428130 FUN_00428130 @ 0x00428130
+  0x004d4150: MOV ESP,EBP                                   
+  0x004d4152: POP EBP                                       
+  0x004d4153: RET 0x4                                       
+  0x004d4160: PUSH EBP                                      
+  0x004d4161: MOV EBP,ESP                                   
+  0x004d4163: PUSH -0x1                                     
+  0x004d4165: PUSH 0xef1d4b                                 
+  0x004d416a: MOV EAX,FS:[0x0]                              
+  0x004d4170: PUSH EAX                                      
+  0x004d4171: SUB ESP,0x3c                                  
+  0x004d4174: MOV EAX,[0x011c16bc]                          
+  0x004d4179: XOR EAX,EBP                                   
+  0x004d417b: PUSH EAX                                      
+  0x004d417c: LEA EAX,[EBP + -0xc]                          
+  0x004d417f: MOV FS:[0x0],EAX                              
+  0x004d4185: MOV dword ptr [EBP + -0x40],ECX               
+  0x004d4188: MOV EAX,dword ptr [EBP + 0x8]                 
+  0x004d418b: MOV EDX,dword ptr [EAX]                       
+  0x004d418d: MOV ECX,dword ptr [EBP + 0x8]                 
+  0x004d4190: MOV EAX,dword ptr [EDX + 0x4]                 
+  0x004d4193: CALL EAX                                      
+  0x004d4195: MOV dword ptr [EBP + -0x10],EAX               
+  0x004d4198: LEA ECX,[EBP + -0x14]                         
+  0x004d419b: PUSH ECX                                      
+  0x004d419c: MOV ECX,dword ptr [EBP + 0x8]                 
+  0x004d419f: CALL 0x00428110                               
+      call -> 0x00428110 FUN_00428110 @ 0x00428110
+  0x004d41a4: LEA EDX,[EBP + -0x18]                         
+  0x004d41a7: PUSH EDX                                      
+  0x004d41a8: MOV ECX,dword ptr [EBP + 0x8]                 
+  0x004d41ab: CALL 0x0042ce30                               
+      call -> 0x0042ce30 FUN_0042ce30 @ 0x0042ce30
+  0x004d41b0: PUSH 0x0                                      
+  0x004d41b2: MOV ECX,dword ptr [EBP + 0x8]                 
+  0x004d41b5: CALL 0x007037c0                               
+      call -> 0x007037c0 FUN_007037c0 @ 0x007037c0
+  0x004d41ba: PUSH ECX                                      
+  0x004d41bb: MOV ECX,ESP                                   
+  0x004d41bd: MOV dword ptr [EBP + -0x28],ESP               
+  0x004d41c0: PUSH 0x400                                    
+  0x004d41c5: CALL 0x008c71b0                               
+      call -> 0x008c71b0 id @ 0x008c71b0
+  0x004d41ca: MOV ECX,dword ptr [EBP + 0x8]                 
+  0x004d41cd: CALL 0x00428130                               
+      call -> 0x00428130 FUN_00428130 @ 0x00428130
+  0x004d41d2: PUSH ECX                                      
+
+----------------------------------------------------------------------
+Calls FROM EntryData list save dispatcher (0x004d4090)
+----------------------------------------------------------------------
+  0x004d40af -> 0x00428110 FUN_00428110 @ 0x00428110
+  0x004d40b9 -> 0x0050f9c0 FUN_0050f9c0 @ 0x0050f9c0
+  0x004d40c6 -> 0x008c71b0 id @ 0x008c71b0
+  0x004d40ce -> 0x00428130 FUN_00428130 @ 0x00428130
+  0x004d40dd -> 0x00865f20 FUN_00865f20 @ 0x00865f20
+  0x004d40f6 -> 0x006815c0 FUN_006815c0 @ 0x006815c0
+  0x004d410d -> 0x004bed60 FUN_004bed60 @ 0x004bed60
+  0x004d411e -> 0x00726070 FUN_00726070 @ 0x00726070
+  0x004d4133 -> 0x00865ff0 FUN_00865ff0 @ 0x00865ff0
+  0x004d413f -> 0x0050f9c0 FUN_0050f9c0 @ 0x0050f9c0
+  0x004d414b -> 0x00428130 FUN_00428130 @ 0x00428130
+  Total printed: 11
+
+----------------------------------------------------------------------
+References TO 0x004d4090 (EntryData list save dispatcher)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x00562300 (in FUN_00562230 @ 0x00562230)
+  Total printed: 1
+
+======================================================================
+EntryData save function 0x004BED60 @ 0x004bed60
+======================================================================
+  Function: FUN_004bed60 @ 0x004bed60, Size: 152 bytes
+
+void __thiscall FUN_004bed60(int *param_1,undefined4 param_2)
+
+{
+  undefined4 uVar1;
+  int *piVar2;
+  int local_10;
+  int local_8;
+  
+  FUN_00865df0(param_1[2],0);
+  FUN_00865e50(param_1 + 1,4,0);
+  local_8 = 0;
+  uVar1 = FUN_00865f20();
+  local_10 = *param_1;
+  while (local_10 != 0) {
+    piVar2 = (int *)FUN_006815c0();
+    if (*piVar2 != 0) {
+      FUN_00426a30(param_2);
+      local_8 = local_8 + 1;
+    }
+    local_10 = FUN_00726070();
+  }
+  FUN_00865ff0(local_8,uVar1);
+  return;
+}
+
+
+
+----------------------------------------------------------------------
+Disassembly EntryData.type form write around 0x004bed75
+----------------------------------------------------------------------
+  0x004bed2e: MOV EAX,dword ptr [EAX]                       
+  0x004bed30: MOV dword ptr [EBP + -0x8],EAX                
+  0x004bed33: CMP dword ptr [EBP + -0x8],0x0                
+  0x004bed37: JZ 0x004bed4e                                 
+  0x004bed39: MOV ECX,dword ptr [EBP + -0xc]                
+  0x004bed3c: MOV EDX,dword ptr [ECX + 0x8]                 
+  0x004bed3f: PUSH EDX                                      
+  0x004bed40: PUSH 0x0                                      
+  0x004bed42: PUSH 0x0                                      
+  0x004bed44: PUSH 0x0                                      
+  0x004bed46: MOV ECX,dword ptr [EBP + -0x8]                
+  0x004bed49: CALL 0x00426020                               
+      call -> 0x00426020 FUN_00426020 @ 0x00426020
+  0x004bed4e: MOV ECX,dword ptr [EBP + -0x4]                
+  0x004bed51: CALL 0x00726070                               
+      call -> 0x00726070 FUN_00726070 @ 0x00726070
+  0x004bed56: MOV dword ptr [EBP + -0x4],EAX                
+  0x004bed59: JMP 0x004bed11                                
+  0x004bed5b: MOV ESP,EBP                                   
+  0x004bed5d: POP EBP                                       
+  0x004bed5e: RET                                           
+  0x004bed60: PUSH EBP                                      
+  0x004bed61: MOV EBP,ESP                                   
+  0x004bed63: SUB ESP,0x14                                  
+  0x004bed66: MOV dword ptr [EBP + -0x14],ECX               
+  0x004bed69: PUSH 0x0                                      
+  0x004bed6b: MOV EAX,dword ptr [EBP + -0x14]               
+  0x004bed6e: MOV ECX,dword ptr [EAX + 0x8]                 
+  0x004bed71: PUSH ECX                                      
+  0x004bed72: MOV ECX,dword ptr [EBP + 0x8]                 
+  0x004bed75: CALL 0x00865df0                                << target
+      call -> 0x00865df0 FUN_00865df0 @ 0x00865df0
+  0x004bed7a: PUSH 0x0                                      
+  0x004bed7c: PUSH 0x4                                      
+  0x004bed7e: MOV EDX,dword ptr [EBP + -0x14]               
+  0x004bed81: ADD EDX,0x4                                   
+  0x004bed84: PUSH EDX                                      
+  0x004bed85: MOV ECX,dword ptr [EBP + 0x8]                 
+  0x004bed88: CALL 0x00865e50                               
+      call -> 0x00865e50 FUN_00865e50 @ 0x00865e50
+  0x004bed8d: MOV dword ptr [EBP + -0x4],0x0                
+  0x004bed94: MOV ECX,dword ptr [EBP + 0x8]                 
+  0x004bed97: CALL 0x00865f20                               
+      call -> 0x00865f20 FUN_00865f20 @ 0x00865f20
+  0x004bed9c: MOV dword ptr [EBP + -0x8],EAX                
+  0x004bed9f: MOV EAX,dword ptr [EBP + -0x14]               
+  0x004beda2: MOV ECX,dword ptr [EAX]                       
+  0x004beda4: MOV dword ptr [EBP + -0xc],ECX                
+  0x004beda7: CMP dword ptr [EBP + -0xc],0x0                
+  0x004bedab: JZ 0x004bede2                                 
+  0x004bedad: MOV ECX,dword ptr [EBP + -0xc]                
+  0x004bedb0: CALL 0x006815c0                               
+      call -> 0x006815c0 FUN_006815c0 @ 0x006815c0
+  0x004bedb5: MOV EDX,dword ptr [EAX]                       
+  0x004bedb7: MOV dword ptr [EBP + -0x10],EDX               
+  0x004bedba: CMP dword ptr [EBP + -0x10],0x0               
+  0x004bedbe: JZ 0x004bedd5                                 
+  0x004bedc0: MOV EAX,dword ptr [EBP + 0x8]                 
+  0x004bedc3: PUSH EAX                                      
+  0x004bedc4: MOV ECX,dword ptr [EBP + -0x10]               
+  0x004bedc7: CALL 0x00426a30                               
+      call -> 0x00426a30 FUN_00426a30 @ 0x00426a30
+  0x004bedcc: MOV ECX,dword ptr [EBP + -0x4]                
+  0x004bedcf: ADD ECX,0x1                                   
+  0x004bedd2: MOV dword ptr [EBP + -0x4],ECX                
+  0x004bedd5: MOV ECX,dword ptr [EBP + -0xc]                
+  0x004bedd8: CALL 0x00726070                               
+      call -> 0x00726070 FUN_00726070 @ 0x00726070
+  0x004beddd: MOV dword ptr [EBP + -0xc],EAX                
+  0x004bede0: JMP 0x004beda7                                
+  0x004bede2: MOV EDX,dword ptr [EBP + -0x8]                
+  0x004bede5: PUSH EDX                                      
+  0x004bede6: MOV EAX,dword ptr [EBP + -0x4]                
+  0x004bede9: PUSH EAX                                      
+  0x004bedea: MOV ECX,dword ptr [EBP + 0x8]                 
+  0x004beded: CALL 0x00865ff0                               
+      call -> 0x00865ff0 FUN_00865ff0 @ 0x00865ff0
+  0x004bedf2: MOV ESP,EBP                                   
+
+----------------------------------------------------------------------
+Disassembly ExtendDataList nested ExtraDataList save around 0x004bedc7
+----------------------------------------------------------------------
+  0x004bed56: MOV dword ptr [EBP + -0x4],EAX                
+  0x004bed59: JMP 0x004bed11                                
+  0x004bed5b: MOV ESP,EBP                                   
+  0x004bed5d: POP EBP                                       
+  0x004bed5e: RET                                           
+  0x004bed60: PUSH EBP                                      
+  0x004bed61: MOV EBP,ESP                                   
+  0x004bed63: SUB ESP,0x14                                  
+  0x004bed66: MOV dword ptr [EBP + -0x14],ECX               
+  0x004bed69: PUSH 0x0                                      
+  0x004bed6b: MOV EAX,dword ptr [EBP + -0x14]               
+  0x004bed6e: MOV ECX,dword ptr [EAX + 0x8]                 
+  0x004bed71: PUSH ECX                                      
+  0x004bed72: MOV ECX,dword ptr [EBP + 0x8]                 
+  0x004bed75: CALL 0x00865df0                               
+      call -> 0x00865df0 FUN_00865df0 @ 0x00865df0
+  0x004bed7a: PUSH 0x0                                      
+  0x004bed7c: PUSH 0x4                                      
+  0x004bed7e: MOV EDX,dword ptr [EBP + -0x14]               
+  0x004bed81: ADD EDX,0x4                                   
+  0x004bed84: PUSH EDX                                      
+  0x004bed85: MOV ECX,dword ptr [EBP + 0x8]                 
+  0x004bed88: CALL 0x00865e50                               
+      call -> 0x00865e50 FUN_00865e50 @ 0x00865e50
+  0x004bed8d: MOV dword ptr [EBP + -0x4],0x0                
+  0x004bed94: MOV ECX,dword ptr [EBP + 0x8]                 
+  0x004bed97: CALL 0x00865f20                               
+      call -> 0x00865f20 FUN_00865f20 @ 0x00865f20
+  0x004bed9c: MOV dword ptr [EBP + -0x8],EAX                
+  0x004bed9f: MOV EAX,dword ptr [EBP + -0x14]               
+  0x004beda2: MOV ECX,dword ptr [EAX]                       
+  0x004beda4: MOV dword ptr [EBP + -0xc],ECX                
+  0x004beda7: CMP dword ptr [EBP + -0xc],0x0                
+  0x004bedab: JZ 0x004bede2                                 
+  0x004bedad: MOV ECX,dword ptr [EBP + -0xc]                
+  0x004bedb0: CALL 0x006815c0                               
+      call -> 0x006815c0 FUN_006815c0 @ 0x006815c0
+  0x004bedb5: MOV EDX,dword ptr [EAX]                       
+  0x004bedb7: MOV dword ptr [EBP + -0x10],EDX               
+  0x004bedba: CMP dword ptr [EBP + -0x10],0x0               
+  0x004bedbe: JZ 0x004bedd5                                 
+  0x004bedc0: MOV EAX,dword ptr [EBP + 0x8]                 
+  0x004bedc3: PUSH EAX                                      
+  0x004bedc4: MOV ECX,dword ptr [EBP + -0x10]               
+  0x004bedc7: CALL 0x00426a30                                << target
+      call -> 0x00426a30 FUN_00426a30 @ 0x00426a30
+  0x004bedcc: MOV ECX,dword ptr [EBP + -0x4]                
+  0x004bedcf: ADD ECX,0x1                                   
+  0x004bedd2: MOV dword ptr [EBP + -0x4],ECX                
+  0x004bedd5: MOV ECX,dword ptr [EBP + -0xc]                
+  0x004bedd8: CALL 0x00726070                               
+      call -> 0x00726070 FUN_00726070 @ 0x00726070
+  0x004beddd: MOV dword ptr [EBP + -0xc],EAX                
+  0x004bede0: JMP 0x004beda7                                
+  0x004bede2: MOV EDX,dword ptr [EBP + -0x8]                
+  0x004bede5: PUSH EDX                                      
+  0x004bede6: MOV EAX,dword ptr [EBP + -0x4]                
+  0x004bede9: PUSH EAX                                      
+  0x004bedea: MOV ECX,dword ptr [EBP + 0x8]                 
+  0x004beded: CALL 0x00865ff0                               
+      call -> 0x00865ff0 FUN_00865ff0 @ 0x00865ff0
+  0x004bedf2: MOV ESP,EBP                                   
+  0x004bedf4: POP EBP                                       
+  0x004bedf5: RET 0x4                                       
+  0x004bee00: PUSH EBP                                      
+  0x004bee01: MOV EBP,ESP                                   
+  0x004bee03: PUSH -0x1                                     
+  0x004bee05: PUSH 0xf00b76                                 
+  0x004bee0a: MOV EAX,FS:[0x0]                              
+  0x004bee10: PUSH EAX                                      
+  0x004bee11: SUB ESP,0x28                                  
+  0x004bee14: MOV EAX,[0x011c16bc]                          
+  0x004bee19: XOR EAX,EBP                                   
+  0x004bee1b: PUSH EAX                                      
+  0x004bee1c: LEA EAX,[EBP + -0xc]                          
+  0x004bee1f: MOV FS:[0x0],EAX                              
+  0x004bee25: MOV dword ptr [EBP + -0x2c],ECX               
+  0x004bee28: PUSH 0x0                                      
+  0x004bee2a: PUSH 0x1183108                                
+  0x004bee2f: PUSH 0x1183028                                
+  0x004bee34: MOV ECX,dword ptr [EBP + 0x8]                 
+  0x004bee37: CALL 0x008648a0                               
+      call -> 0x008648a0 FUN_008648a0 @ 0x008648a0
+  0x004bee3c: PUSH EAX                                      
+  0x004bee3d: CALL 0x004839c0                               
+      call -> 0x004839c0 FUN_004839c0 @ 0x004839c0
+  0x004bee42: ADD ESP,0x4                                   
+  0x004bee45: PUSH 0x0                                      
+  0x004bee47: PUSH EAX                                      
+  0x004bee48: CALL 0x00ec43fb                               
+      call -> 0x00ec43fb FUN_00ec43fb @ 0x00ec43fb
+
+----------------------------------------------------------------------
+Calls FROM EntryData save function (0x004bed60)
+----------------------------------------------------------------------
+  0x004bed75 -> 0x00865df0 FUN_00865df0 @ 0x00865df0
+  0x004bed88 -> 0x00865e50 FUN_00865e50 @ 0x00865e50
+  0x004bed97 -> 0x00865f20 FUN_00865f20 @ 0x00865f20
+  0x004bedb0 -> 0x006815c0 FUN_006815c0 @ 0x006815c0
+  0x004bedc7 -> 0x00426a30 FUN_00426a30 @ 0x00426a30
+  0x004bedd8 -> 0x00726070 FUN_00726070 @ 0x00726070
+  0x004beded -> 0x00865ff0 FUN_00865ff0 @ 0x00865ff0
+  Total printed: 7
+
+----------------------------------------------------------------------
+References TO 0x004bed60 (EntryData save function)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x004d410d (in FUN_004d4090 @ 0x004d4090)
+  UNCONDITIONAL_CALL @ 0x00959b02 (in FUN_009590f0 @ 0x009590f0)
+  UNCONDITIONAL_CALL @ 0x009c525b (in FUN_009c4ff0 @ 0x009c4ff0)
+  Total printed: 3
+
+======================================================================
+save count begin marker @ 0x00865f20
+======================================================================
+  Function: FUN_00865f20 @ 0x00865f20, Size: 52 bytes
+
+undefined4 __fastcall FUN_00865f20(int param_1)
+
+{
+  undefined1 local_9;
+  undefined4 local_8;
+  
+  local_8 = *(undefined4 *)(param_1 + 0xc);
+  local_9 = 0x23;
+  FUN_00865ce0(&local_9,1,*(undefined4 *)(param_1 + 0xc),0);
+  return local_8;
+}
+
+
+
+----------------------------------------------------------------------
+Calls FROM save count begin marker (0x00865f20)
+----------------------------------------------------------------------
+  0x00865f48 -> 0x00865ce0 FUN_00865ce0 @ 0x00865ce0
+  Total printed: 1
+
+======================================================================
+save count patch/end marker @ 0x00865ff0
+======================================================================
+  Function: FUN_00865ff0 @ 0x00865ff0, Size: 187 bytes
+
+void __thiscall FUN_00865ff0(undefined4 param_1,uint param_2,undefined4 param_3)
+
+{
+  uint local_10;
+  ushort local_c [3];
+  undefined1 local_5;
+  
+  if (param_2 < 0x40) {
+    local_5 = (undefined1)(param_2 << 2);
+    FUN_00865ce0(&local_5,1,param_3,0);
+  }
+  else if (param_2 < 0x4000) {
+    FUN_00866140(param_3,1);
+    local_c[0] = (ushort)(param_2 << 2) | 1;
+    FUN_00865ce0(local_c,2,param_3,0);
+  }
+  else if (param_2 < 0x40000000) {
+    FUN_00866140(param_3,3);
+    local_10 = param_2 << 2 | 2;
+    FUN_00865ce0(&local_10,4,param_3,0);
+  }
+  else {
+    FUN_00845cc0("SAVELOAD: Variable-sized value %08X is too large to be stored.",param_2,param_1);
+  }
+  return;
+}
+
+
+
+----------------------------------------------------------------------
+Calls FROM save count patch/end marker (0x00865ff0)
+----------------------------------------------------------------------
+  0x00866017 -> 0x00865ce0 FUN_00865ce0 @ 0x00865ce0
+  0x00866033 -> 0x00866140 FUN_00866140 @ 0x00866140
+  0x00866054 -> 0x00865ce0 FUN_00865ce0 @ 0x00865ce0
+  0x0086606d -> 0x00866140 FUN_00866140 @ 0x00866140
+  0x0086608d -> 0x00865ce0 FUN_00865ce0 @ 0x00865ce0
+  0x0086609d -> 0x00845cc0 FUN_00845cc0 @ 0x00845cc0
+  Total printed: 6
+
+======================================================================
+raw save writer @ 0x00865570
+======================================================================
+  Function: FUN_00865570 @ 0x00865570, Size: 41 bytes
+
+void __thiscall FUN_00865570(int param_1,undefined4 param_2,undefined4 param_3,undefined1 param_4)
+
+{
+  FUN_00865ce0(param_2,param_3,*(undefined4 *)(param_1 + 0xc),param_4);
+  return;
+}
+
+
+
+----------------------------------------------------------------------
+Calls FROM raw save writer (0x00865570)
+----------------------------------------------------------------------
+  0x0086558e -> 0x00865ce0 FUN_00865ce0 @ 0x00865ce0
+  Total printed: 1
+
+======================================================================
+TESForm/form-ref save writer @ 0x00865df0
+======================================================================
+  Function: FUN_00865df0 @ 0x00865df0, Size: 83 bytes
+
+void __thiscall FUN_00865df0(undefined4 param_1,int param_2)
+
+{
+  undefined4 uVar1;
+  undefined1 local_8 [4];
+  
+  if (param_2 == 0) {
+    uVar1 = 0;
+  }
+  else {
+    uVar1 = FUN_0084e3a0();
+  }
+  FUN_0084eaf0(uVar1,param_1,uVar1);
+  FUN_00853570(uVar1);
+  FUN_00865570(local_8,3,0);
+  return;
+}
+
+
+
+----------------------------------------------------------------------
+Calls FROM TESForm/form-ref save writer (0x00865df0)
+----------------------------------------------------------------------
+  0x00865e02 -> 0x0084e3a0 FUN_0084e3a0 @ 0x0084e3a0
+  0x00865e1c -> 0x0084eaf0 FUN_0084eaf0 @ 0x0084eaf0
+  0x00865e28 -> 0x00853570 FUN_00853570 @ 0x00853570
+  0x00865e38 -> 0x00865570 FUN_00865570 @ 0x00865570
+  Total printed: 4
+
+======================================================================
+raw field save writer @ 0x00865e50
+======================================================================
+  Function: FUN_00865e50 @ 0x00865e50, Size: 31 bytes
+
+void FUN_00865e50(undefined4 param_1,undefined4 param_2)
+
+{
+  FUN_00865570(param_1,param_2,0);
+  return;
+}
+
+
+
+----------------------------------------------------------------------
+Calls FROM raw field save writer (0x00865e50)
+----------------------------------------------------------------------
+  0x00865e64 -> 0x00865570 FUN_00865570 @ 0x00865570
+  Total printed: 1
+
+======================================================================
+change flag reader/helper @ 0x00428110
+======================================================================
+  Function: FUN_00428110 @ 0x00428110, Size: 27 bytes
+
+undefined4 * __thiscall FUN_00428110(int param_1,undefined4 *param_2)
+
+{
+  *param_2 = *(undefined4 *)(param_1 + 0x17);
+  return param_2;
+}
+
+
+
+----------------------------------------------------------------------
+Calls FROM change flag reader/helper (0x00428110)
+----------------------------------------------------------------------
+  Total printed: 0
+
+======================================================================
+change flag scope/end helper @ 0x00428130
+======================================================================
+  Function: FUN_00428130 @ 0x00428130, Size: 22 bytes
+
+void __thiscall FUN_00428130(int param_1,undefined4 param_2)
+
+{
+  *(undefined4 *)(param_1 + 0x17) = param_2;
+  return;
+}
+
+
+
+----------------------------------------------------------------------
+Calls FROM change flag scope/end helper (0x00428130)
+----------------------------------------------------------------------
+  Total printed: 0
+
+======================================================================
+save buffer state helper @ 0x0050f9c0
+======================================================================
+  Function: FUN_0050f9c0 @ 0x0050f9c0, Size: 22 bytes
+
+void __thiscall FUN_0050f9c0(int param_1,undefined4 param_2)
+
+{
+  *(undefined4 *)(param_1 + 0x20) = param_2;
+  return;
+}
+
+
+
+----------------------------------------------------------------------
+Calls FROM save buffer state helper (0x0050f9c0)
+----------------------------------------------------------------------
+  Total printed: 0
+
+======================================================================
+neighbor before save dispatcher @ 0x004d4000
+======================================================================
+  Function: FUN_004d3cc0 @ 0x004d3cc0, Size: 876 bytes
+  NOTE: Requested 0x004d4000 is inside FUN_004d3cc0 (entry at 0x004d3cc0)
+
+void FUN_004d3cc0(void)
+
+{
+  char cVar1;
+  undefined1 uVar2;
+  uint uVar3;
+  undefined4 uVar4;
+  int iVar5;
+  undefined4 *puVar6;
+  int *piVar7;
+  int *unaff_FS_OFFSET;
+  int local_54;
+  int local_30;
+  int *local_2c;
+  undefined4 *local_28;
+  int local_24;
+  ushort local_20 [2];
+  int local_1c;
+  ushort local_18 [2];
+  int local_14;
+  int local_10;
+  undefined1 *puStack_c;
+  undefined4 local_8;
+  
+  local_8 = 0xffffffff;
+  puStack_c = &LAB_00ef1d1b;
+  local_10 = *unaff_FS_OFFSET;
+  uVar3 = DAT_011c16bc ^ (uint)&stack0xfffffffc;
+  *unaff_FS_OFFSET = (int)&local_10;
+  local_18[0] = 0;
+  local_1c = 0;
+  cVar1 = FUN_00862110(uVar3);
+  if (cVar1 != '\0') {
+    FUN_008579e0(&local_24,4);
+    if (local_24 != 0x424c4f4b) {
+      local_28 = (undefined4 *)FUN_004fd3c0();
+      if (local_28 == (undefined4 *)0x0) {
+        uVar2 = FUN_008df040();
+        FUN_005b5e40("SAVELOAD: (LoadGame Buffer error) Block Header is incorrect in file %s on line %i.  Current version is %i"
+                     ,"D:\\_Fallout3\\Platforms\\Common\\Code\\Fallout Shared\\InventoryChanges.cpp"
+                     ,0x2871,uVar2);
+      }
+      else {
+        local_2c = (int *)FUN_004839c0(*local_28);
+        uVar4 = (**(code **)(*local_2c + 0x130))
+                          (*(undefined1 *)((int)local_28 + 9),*(undefined4 *)((int)local_28 + 5));
+        FUN_005b5e40("SAVELOAD: (LoadGame Buffer error) Block Header is incorrect in file %s on line %i.  Currently loading form is %08X %s with version %i and flags %08X"
+                     ,"D:\\_Fallout3\\Platforms\\Common\\Code\\Fallout Shared\\InventoryChanges.cpp"
+                     ,0x2871,*local_28,uVar4);
+      }
+    }
+    local_1c = FUN_00825c00();
+    FUN_008579e0(local_18,2);
+  }
+  FUN_008579e0(local_20,2);
+  for (local_14 = 0; local_14 < (int)(uint)local_20[0]; local_14 = local_14 + 1) {
+    iVar5 = FUN_00401000(0xc);
+    local_8 = 0;
+    if (iVar5 == 0) {
+      local_54 = 0;
+    }
+    else {
+      local_54 = FUN_0076b630();
+    }
+    local_8 = 0xffffffff;
+    local_30 = local_54;
+    FUN_004be930();
+    iVar5 = FUN_0044ddc0();
+    if (iVar5 == 0) {
+      FUN_004bc780();
+      if (local_30 != 0) {
+        FUN_004459e0(1);
+      }
+    }
+    else {
+      FUN_005ae3d0(&local_30);
+    }
+  }
+  FUN_004cbbc0();
+  cVar1 = FUN_00862110();
+  if (cVar1 != '\0') {
+    uVar3 = FUN_00825c00();
+    puVar6 = (undefined4 *)FUN_004fd3c0();
+    if (puVar6 == (undefined4 *)0x0) {
+      if ((uint)local_18[0] + local_1c < uVar3) {
+        uVar2 = FUN_008df040();
+        FUN_005b5e40("SAVELOAD: LoadGame Buffer overrun of %i bytes in file %s on line %i.  Current version is %i"
+                     ,uVar3 - ((uint)local_18[0] + local_1c),
+                     "D:\\_Fallout3\\Platforms\\Common\\Code\\Fallout Shared\\InventoryChanges.cpp",
+                     0x2884,uVar2);
+      }
+      else if (uVar3 < (uint)local_18[0] + local_1c) {
+        uVar2 = FUN_008df040();
+        FUN_005b5e40("SAVELOAD: LoadGame Buffer underrun of %i bytes in file %s on line %i.  Current version is %i"
+                     ,((uint)local_18[0] + local_1c) - uVar3,
+                     "D:\\_Fallout3\\Platforms\\Common\\Code\\Fallout Shared\\InventoryChanges.cpp",
+                     0x2884,uVar2);
+      }
+    }
+    else {
+      piVar7 = (int *)FUN_004839c0(*puVar6);
+      if ((uint)local_18[0] + local_1c < uVar3) {
+        uVar4 = (**(code **)(*piVar7 + 0x130))
+                          (*(undefined1 *)((int)puVar6 + 9),*(undefined4 *)((int)puVar6 + 5));
+        FUN_005b5e40("SAVELOAD: LoadGame Buffer overrun of %i bytes in file %s on line %i.  Currently loading form is %08X %s with version %i and flags %08X"
+                     ,uVar3 - ((uint)local_18[0] + local_1c),
+                     "D:\\_Fallout3\\Platforms\\Common\\Code\\Fallout Shared\\InventoryChanges.cpp",
+                     0x2884,*puVar6,uVar4);
+      }
+      else if (uVar3 < (uint)local_18[0] + local_1c) {
+        uVar4 = (**(code **)(*piVar7 + 0x130))
+                          (*(undefined1 *)((int)puVar6 + 9),*(undefined4 *)((int)puVar6 + 5));
+        FUN_005b5e40("SAVELOAD: LoadGame Buffer underrun of %i bytes in file %s on line %i.  Currently loading form is %08X %s with version %i and flags %08X"
+                     ,((uint)local_18[0] + local_1c) - uVar3,
+                     "D:\\_Fallout3\\Platforms\\Common\\Code\\Fallout Shared\\InventoryChanges.cpp",
+                     0x2884,*puVar6,uVar4);
+      }
+    }
+  }
+  *unaff_FS_OFFSET = local_10;
+  return;
+}
+
+
+
+----------------------------------------------------------------------
+Calls FROM neighbor before save dispatcher (0x004d4000)
+----------------------------------------------------------------------
+  0x004d3cfb -> 0x00862110 FUN_00862110 @ 0x00862110
+  0x004d3d17 -> 0x008579e0 FUN_008579e0 @ 0x008579e0
+  0x004d3d2f -> 0x004fd3c0 FUN_004fd3c0 @ 0x004fd3c0
+  0x004d3d43 -> 0x004839c0 FUN_004839c0 @ 0x004839c0
+  0x004d3d83 -> 0x005b5e40 FUN_005b5e40 @ 0x005b5e40
+  0x004d3d93 -> 0x008df040 FUN_008df040 @ 0x008df040
+  0x004d3dab -> 0x005b5e40 FUN_005b5e40 @ 0x005b5e40
+  0x004d3db9 -> 0x00825c00 FUN_00825c00 @ 0x00825c00
+  0x004d3dcd -> 0x008579e0 FUN_008579e0 @ 0x008579e0
+  0x004d3dde -> 0x008579e0 FUN_008579e0 @ 0x008579e0
+  0x004d3e04 -> 0x00401000 FUN_00401000 @ 0x00401000
+  0x004d3e1f -> 0x0076b630 FUN_0076b630 @ 0x0076b630
+  0x004d3e46 -> 0x004be930 FUN_004be930 @ 0x004be930
+  0x004d3e4e -> 0x0044ddc0 FUN_0044ddc0 @ 0x0044ddc0
+  0x004d3e60 -> 0x005ae3d0 FUN_005ae3d0 @ 0x005ae3d0
+  0x004d3e6a -> 0x004bc780 FUN_004bc780 @ 0x004bc780
+  0x004d3e86 -> 0x004459e0 FUN_004459e0 @ 0x004459e0
+  0x004d3e9f -> 0x004cbbc0 FUN_004cbbc0 @ 0x004cbbc0
+  0x004d3eaa -> 0x00862110 FUN_00862110 @ 0x00862110
+  0x004d3ec0 -> 0x00825c00 FUN_00825c00 @ 0x00825c00
+  0x004d3ece -> 0x004fd3c0 FUN_004fd3c0 @ 0x004fd3c0
+  0x004d3ee6 -> 0x004839c0 FUN_004839c0 @ 0x004839c0
+  0x004d3f3f -> 0x005b5e40 FUN_005b5e40 @ 0x005b5e40
+  0x004d3f95 -> 0x005b5e40 FUN_005b5e40 @ 0x005b5e40
+  0x004d3fb1 -> 0x008df040 FUN_008df040 @ 0x008df040
+  0x004d3fd6 -> 0x005b5e40 FUN_005b5e40 @ 0x005b5e40
+  0x004d3ff2 -> 0x008df040 FUN_008df040 @ 0x008df040
+  0x004d4015 -> 0x005b5e40 FUN_005b5e40 @ 0x005b5e40
+  Total printed: 28
+
+======================================================================
+neighbor after save dispatcher @ 0x004d4160
+======================================================================
+  Function: FUN_004d4160 @ 0x004d4160, Size: 392 bytes
+
+void FUN_004d4160(int *param_1)
+
+{
+  int iVar1;
+  int *unaff_FS_OFFSET;
+  int *piStack_54;
+  uint uStack_50;
+  undefined4 local_4c;
+  int local_48;
+  int local_40;
+  int local_3c;
+  int local_38;
+  int local_34;
+  undefined1 *local_30;
+  undefined1 *local_2c;
+  int local_28;
+  uint local_24;
+  uint local_20;
+  int *local_1c;
+  int *local_18;
+  int *local_14;
+  int local_10;
+  undefined1 *puStack_c;
+  undefined4 local_8;
+  
+  local_8 = 0xffffffff;
+  puStack_c = &LAB_00ef1d4b;
+  local_10 = *unaff_FS_OFFSET;
+  uStack_50 = DAT_011c16bc ^ (uint)&stack0xfffffffc;
+  *unaff_FS_OFFSET = (int)&local_10;
+  piStack_54 = (int *)0x4d4195;
+  local_14 = (int *)(**(code **)(*param_1 + 4))();
+  piStack_54 = (int *)&local_18;
+  FUN_00428110();
+  piStack_54 = (int *)&local_1c;
+  FUN_0042ce30();
+  piStack_54 = (int *)0x0;
+  FUN_007037c0();
+  local_2c = (undefined1 *)&piStack_54;
+  std::locale::id::id((id *)&piStack_54,0x400);
+  FUN_00428130();
+  local_30 = (undefined1 *)&piStack_54;
+  std::locale::id::id((id *)&piStack_54,0);
+  FUN_0086cf00();
+  piStack_54 = (int *)0x4d41ef;
+  local_20 = FUN_00864a60();
+  for (local_24 = 0; local_24 < local_20; local_24 = local_24 + 1) {
+    piStack_54 = (int *)0xc;
+    local_38 = FUN_00401000();
+    local_8 = 0;
+    if (local_38 == 0) {
+      local_48 = 0;
+    }
+    else {
+      piStack_54 = (int *)0x4d4232;
+      local_48 = FUN_0076b630();
+    }
+    local_34 = local_48;
+    local_8 = 0xffffffff;
+    local_28 = local_48;
+    piStack_54 = param_1;
+    FUN_004bee00();
+    piStack_54 = (int *)0x4d4265;
+    iVar1 = FUN_0044ddc0();
+    if (iVar1 == 0) {
+      piStack_54 = (int *)0x4d4271;
+      FUN_004bc780();
+      local_40 = local_28;
+      local_3c = local_28;
+      if (local_28 == 0) {
+        local_4c = 0;
+      }
+      else {
+        piStack_54 = (int *)0x1;
+        local_4c = FUN_004459e0();
+      }
+      local_28 = 0;
+    }
+    piStack_54 = &local_28;
+    FUN_005ae3d0();
+  }
+  piStack_54 = local_14;
+  FUN_007037c0();
+  piStack_54 = local_18;
+  FUN_00428130();
+  piStack_54 = local_1c;
+  FUN_0086cf00();
+  *unaff_FS_OFFSET = local_10;
+  return;
+}
+
+
+
+----------------------------------------------------------------------
+Calls FROM neighbor after save dispatcher (0x004d4160)
+----------------------------------------------------------------------
+  0x004d419f -> 0x00428110 FUN_00428110 @ 0x00428110
+  0x004d41ab -> 0x0042ce30 FUN_0042ce30 @ 0x0042ce30
+  0x004d41b5 -> 0x007037c0 FUN_007037c0 @ 0x007037c0
+  0x004d41c5 -> 0x008c71b0 id @ 0x008c71b0
+  0x004d41cd -> 0x00428130 FUN_00428130 @ 0x00428130
+  0x004d41da -> 0x008c71b0 id @ 0x008c71b0
+  0x004d41e2 -> 0x0086cf00 FUN_0086cf00 @ 0x0086cf00
+  0x004d41ea -> 0x00864a60 FUN_00864a60 @ 0x00864a60
+  0x004d4212 -> 0x00401000 FUN_00401000 @ 0x00401000
+  0x004d422d -> 0x0076b630 FUN_0076b630 @ 0x0076b630
+  0x004d4258 -> 0x004bee00 FUN_004bee00 @ 0x004bee00
+  0x004d4260 -> 0x0044ddc0 FUN_0044ddc0 @ 0x0044ddc0
+  0x004d426c -> 0x004bc780 FUN_004bc780 @ 0x004bc780
+  0x004d4288 -> 0x004459e0 FUN_004459e0 @ 0x004459e0
+  0x004d42a9 -> 0x005ae3d0 FUN_005ae3d0 @ 0x005ae3d0
+  0x004d42ba -> 0x007037c0 FUN_007037c0 @ 0x007037c0
+  0x004d42c6 -> 0x00428130 FUN_00428130 @ 0x00428130
+  0x004d42d2 -> 0x0086cf00 FUN_0086cf00 @ 0x0086cf00
+  Total printed: 18
+
+======================================================================
+caller family 0x009590F0 @ 0x009590f0
+======================================================================
+  Function: FUN_009590f0 @ 0x009590f0, Size: 4786 bytes
+
+void __thiscall FUN_009590f0(int param_1,undefined4 param_2)
+
+{
+  char cVar1;
+  int *piVar2;
+  float10 fVar3;
+  undefined4 uVar4;
+  undefined4 local_140;
+  uint local_13c;
+  undefined4 local_138;
+  undefined4 *local_134;
+  undefined1 local_128 [4];
+  undefined4 local_124;
+  int local_120;
+  int local_11c;
+  undefined1 local_116;
+  undefined1 local_115;
+  undefined4 *local_114;
+  int local_110;
+  undefined4 local_10c;
+  int local_108;
+  undefined4 local_104;
+  undefined4 local_100;
+  int local_fc;
+  int local_f8;
+  undefined4 local_f4;
+  int local_f0;
+  undefined1 local_e9;
+  undefined4 local_e8;
+  undefined1 local_e1;
+  int local_e0;
+  int local_dc;
+  undefined4 local_d8;
+  int local_d4;
+  int local_d0;
+  int local_cc;
+  undefined4 local_c8;
+  int local_c4;
+  int local_c0;
+  int local_bc;
+  undefined4 local_b8;
+  int local_b4;
+  int local_b0;
+  int local_ac;
+  undefined4 local_a8;
+  int local_a4;
+  int local_a0;
+  int local_9c;
+  undefined4 local_98;
+  int local_94;
+  undefined4 *local_90;
+  int local_8c;
+  undefined4 local_88;
+  int local_84;
+  undefined4 *local_80;
+  int local_7c;
+  undefined4 local_78;
+  int local_74;
+  undefined4 local_70;
+  uint local_6c;
+  uint local_68;
+  int local_64;
+  int local_60;
+  undefined4 local_5c;
+  int local_58;
+  int local_54;
+  int local_50;
+  int local_4c;
+  undefined4 local_48;
+  uint local_44;
+  int local_40;
+  undefined4 local_3c;
+  int local_38;
+  uint local_34;
+  uint local_30;
+  uint local_2c;
+  uint local_28;
+  undefined4 local_24;
+  float local_20;
+  float local_1c;
+  int local_18;
+  int local_14;
+  undefined4 local_10;
+  undefined4 local_c;
+  undefined4 local_8;
+  
+  local_28 = 0x4d;
+  for (local_2c = 0; local_2c < local_28; local_2c = local_2c + 1) {
+    FUN_00865e50(param_1 + 0x244 + local_2c * 4,4,0);
+  }
+  for (local_30 = 0; local_30 < local_28; local_30 = local_30 + 1) {
+    FUN_00865e50(param_1 + 0x378 + local_30 * 4,4,0);
+  }
+  for (local_34 = 0; local_34 < local_28; local_34 = local_34 + 1) {
+    FUN_00865e50(param_1 + 0x4b0 + local_34 * 4,4,0);
+  }
+  FUN_00865e50(param_1 + 0x4ac,4,0);
+  FUN_008d33a0(param_2);
+  uVar4 = 0x10000000;
+  FUN_00428110(local_128);
+  cVar1 = FUN_004280f0(uVar4);
+  if (cVar1 != '\0') {
+    local_3c = FUN_00865f20();
+    local_38 = FUN_0084e3a0();
+    FUN_0049ab40(param_2);
+    local_40 = FUN_0084e3a0();
+    FUN_00865ff0(local_40 - local_38,local_3c);
+  }
+  FUN_00865e50(param_1 + 0x64a,1,0);
+  FUN_00865e50(param_1 + 0x64d,1,0);
+  FUN_00865e50(param_1 + 0x651,1,0);
+  FUN_00865e50(param_1 + 0x652,1,0);
+  FUN_00865e50(param_1 + 0x654,4,0);
+  FUN_00865e50(param_1 + 0x660,4,0);
+  FUN_00865e50(param_1 + 0x664,4,0);
+  FUN_00865e50(param_1 + 0x668,4,0);
+  FUN_00865e50(param_1 + 0x66c,1,0);
+  FUN_00865e50(param_1 + 0x6cc,1,0);
+  FUN_00865e50(param_1 + 0x6d0,4,0);
+  FUN_00865e50(param_1 + 0x6d4,4,0);
+  FUN_00865e50(param_1 + 0x6d8,1,0);
+  FUN_00865e50(param_1 + 0x6dc,4,0);
+  FUN_00865e50(param_1 + 0x6e8,1,0);
+  FUN_00865e50(param_1 + 0x681,1,0);
+  FUN_00865e50(param_1 + 0x7c5,1,0);
+  FUN_00865e50(param_1 + 0x7c6,1,0);
+  if (*(int *)(param_1 + 0x6f4) == 0) {
+    local_134 = &DAT_011f426c;
+  }
+  else {
+    local_134 = (undefined4 *)(**(code **)(**(int **)(param_1 + 0x6f4) + 500))();
+  }
+  local_10 = *local_134;
+  local_c = local_134[1];
+  local_8 = local_134[2];
+  FUN_00865e50(param_1 + 0x6e4,4,0);
+  FUN_00865e50(&local_10,0xc,0);
+  FUN_00865e50(param_1 + 0x698,4,0);
+  FUN_00865e50(param_1 + 0x67c,4,0);
+  FUN_00865e50(param_1 + 0x738,4,0);
+  FUN_00865e50(param_1 + 0x658,1,0);
+  FUN_00865e50(param_1 + 0x65c,4,0);
+  FUN_00865e50(param_1 + 0x674,4,0);
+  FUN_00865e50(param_1 + 0x670,4,0);
+  FUN_00865e50(param_1 + 0x75c,1,0);
+  FUN_00865e50(param_1 + 0x730,4,0);
+  FUN_00865e50(param_1 + 0x790,4,0);
+  FUN_00865e50(param_1 + 0x680,1,0);
+  FUN_00865e50(param_1 + 0x7c4,1,0);
+  FUN_00865e50(param_1 + 0x63c,4,0);
+  FUN_00865e50(param_1 + 0x640,4,0);
+  FUN_00865e50(param_1 + 0x644,4,0);
+  FUN_00865e50(param_1 + 0x200,4,0);
+  FUN_00865e50(param_1 + 0x240,1,0);
+  FUN_00865e50(param_1 + 0x64e,1,0);
+  FUN_00865e50(param_1 + 0x66d,1,0);
+  FUN_00865e50(param_1 + 0x794,4,0);
+  FUN_00865e50(&DAT_011e0b5c,4,0);
+  FUN_00865e50(param_1 + 0xd6c,4,0);
+  FUN_00865e50(param_1 + 0xd70,4,0);
+  FUN_00865e50(param_1 + 0x228,4,0);
+  FUN_00865e50(param_1 + 0x22c,4,0);
+  FUN_00865e50(param_1 + 0x230,4,0);
+  FUN_00865e50(param_1 + 0x234,4,0);
+  FUN_00865e50(param_1 + 0x608,1,0);
+  FUN_00865e50(param_1 + 0xdf2,1,0);
+  FUN_00865e50(param_1 + 0x64f,1,0);
+  FUN_00865e50(param_1 + 0x650,1,0);
+  FUN_00865e50(param_1 + 0x7c7,1,0);
+  FUN_00865e50(param_1 + 0x5f8,1,0);
+  FUN_00865e50(param_1 + 0x1fc,4,0);
+  FUN_00865e50(param_1 + 0x684,4,0);
+  for (local_44 = 0; local_44 < 5; local_44 = local_44 + 1) {
+    FUN_00865e50(param_1 + 0x744 + local_44 * 4,4,0);
+  }
+  FUN_008d5660(param_2);
+  local_18 = 0;
+  if (*(int *)(param_1 + 0x6f4) != 0) {
+    local_18 = FUN_00575d70();
+    if (local_18 == 0) {
+      local_18 = FUN_008d6f30();
+    }
+  }
+  FUN_00865df0(*(undefined4 *)(param_1 + 0x6b8),0);
+  FUN_00865df0(*(undefined4 *)(param_1 + 0x73c),0);
+  FUN_00865df0(local_18,0);
+  FUN_00865df0(*(undefined4 *)(param_1 + 0x760),0);
+  if (*(int *)(param_1 + 0x760) == 0) {
+    local_138 = 0;
+  }
+  else {
+    local_138 = FUN_0059bb30();
+  }
+  FUN_00865df0(local_138,0);
+  FUN_00865df0(*(undefined4 *)(param_1 + 0x208),0);
+  FUN_00865df0(*(undefined4 *)(param_1 + 0x224),0);
+  FUN_00865df0(*(undefined4 *)(param_1 + 0x638),0);
+  FUN_00865df0(*(undefined4 *)(param_1 + 0x604),0);
+  FUN_00865df0(*(undefined4 *)(param_1 + 0xd2c),0);
+  FUN_00865df0(*(undefined4 *)(param_1 + 0xd44),0);
+  local_50 = 0;
+  local_48 = FUN_00865f20();
+  local_4c = param_1 + 0x6a8;
+  while (local_4c != 0) {
+    piVar2 = (int *)FUN_006815c0();
+    local_54 = *piVar2;
+    if (local_54 != 0) {
+      cVar1 = FUN_00619410();
+      if (cVar1 == '\0') {
+        FUN_00865df0(local_54,0);
+        local_50 = local_50 + 1;
+      }
+    }
+    local_4c = FUN_00726070();
+  }
+  FUN_00865ff0(local_50,local_48);
+  local_58 = 0;
+  local_5c = FUN_00865f20();
+  local_60 = param_1 + 0x5e4;
+  while (local_60 != 0) {
+    piVar2 = (int *)FUN_006815c0();
+    local_64 = *piVar2;
+    if (local_64 != 0) {
+      FUN_00865df0(local_64,0);
+      local_58 = local_58 + 1;
+    }
+    local_60 = FUN_00726070();
+  }
+  FUN_00865ff0(local_58,local_5c);
+  if (param_1 == -0xdf4) {
+    local_13c = 0;
+  }
+  else {
+    local_13c = FUN_0044ddc0();
+  }
+  local_68 = local_13c;
+  FUN_00865f60(local_13c);
+  for (local_6c = 0; local_6c < local_68; local_6c = local_6c + 1) {
+    local_70 = FUN_006a7ad0(local_6c);
+    FUN_004bed60(param_2);
+  }
+  local_74 = 0;
+  local_78 = FUN_00865f20();
+  local_7c = *(int *)(param_1 + 0xd48);
+  while (local_7c != 0) {
+    piVar2 = (int *)FUN_006815c0();
+    local_80 = (undefined4 *)*piVar2;
+    if (local_80 != (undefined4 *)0x0) {
+      FUN_00865df0(*local_80,0);
+      FUN_00865e50(local_80 + 1,1,0);
+      FUN_00865e50((int)local_80 + 5,1,0);
+      local_74 = local_74 + 1;
+    }
+    local_7c = FUN_00726070();
+  }
+  FUN_00865ff0(local_74,local_78);
+  local_84 = 0;
+  local_88 = FUN_00865f20();
+  local_8c = param_1 + 0x87c;
+  while (local_8c != 0) {
+    piVar2 = (int *)FUN_006815c0();
+    local_90 = (undefined4 *)*piVar2;
+    if (local_90 != (undefined4 *)0x0) {
+      FUN_00865df0(*local_90,0);
+      FUN_00865e50(local_90 + 1,1,0);
+      local_84 = local_84 + 1;
+    }
+    local_8c = FUN_00726070();
+  }
+  FUN_00865ff0(local_84,local_88);
+  local_94 = 0;
+  local_98 = FUN_00865f20();
+  local_9c = *(int *)(param_1 + 0x60c);
+  while (local_9c != 0) {
+    piVar2 = (int *)FUN_006815c0();
+    local_a0 = *piVar2;
+    if (local_a0 != 0) {
+      FUN_00865e50(local_a0,4,0);
+      FUN_00865e50(local_a0 + 4,4,0);
+      FUN_00865df0(*(undefined4 *)(local_a0 + 8),0);
+      local_94 = local_94 + 1;
+    }
+    local_9c = FUN_00726070();
+  }
+  FUN_00865ff0(local_94,local_98);
+  local_a4 = 0;
+  local_a8 = FUN_00865f20();
+  local_ac = *(int *)(param_1 + 0x610);
+  while (local_ac != 0) {
+    piVar2 = (int *)FUN_006815c0();
+    local_b0 = *piVar2;
+    if (local_b0 != 0) {
+      FUN_00865e50(local_b0,4,0);
+      FUN_00865e50(local_b0 + 4,4,0);
+      FUN_00865e50(local_b0 + 8,2,0);
+      local_a4 = local_a4 + 1;
+    }
+    local_ac = FUN_00726070();
+  }
+  FUN_00865ff0(local_a4,local_a8);
+  local_b4 = 0;
+  local_b8 = FUN_00865f20();
+  local_bc = *(int *)(param_1 + 0x614);
+  while (local_bc != 0) {
+    piVar2 = (int *)FUN_006815c0();
+    local_c0 = *piVar2;
+    if (local_c0 != 0) {
+      FUN_00865df0(local_c0,0);
+      local_b4 = local_b4 + 1;
+    }
+    local_bc = FUN_00726070();
+  }
+  FUN_00865ff0(local_b4,local_b8);
+  local_c4 = 0;
+  local_c8 = FUN_00865f20();
+  local_cc = *(int *)(param_1 + 0x618);
+  while (local_cc != 0) {
+    piVar2 = (int *)FUN_006815c0();
+    local_d0 = *piVar2;
+    if (local_d0 != 0) {
+      FUN_00865df0(local_d0,0);
+      local_c4 = local_c4 + 1;
+    }
+    local_cc = FUN_00726070();
+  }
+  FUN_00865ff0(local_c4,local_c8);
+  FUN_00865e50(param_1 + 0x61c,4,0);
+  FUN_00865e50(param_1 + 0x620,4,0);
+  FUN_00865e50(param_1 + 0x624,4,0);
+  FUN_00865e50(param_1 + 0x628,4,0);
+  FUN_00865e50(param_1 + 0x62c,4,0);
+  local_d4 = 0;
+  local_d8 = FUN_00865f20();
+  local_dc = param_1 + 0x6b0;
+  while (local_dc != 0) {
+    piVar2 = (int *)FUN_006815c0();
+    local_e0 = *piVar2;
+    if (local_e0 != 0) {
+      local_e8 = FUN_005e3fa0();
+      local_e9 = FUN_0060f1a0(local_e0);
+      local_e1 = FUN_005dc980();
+      FUN_00865df0(local_e8,0);
+      FUN_00865e50(&local_e9,1,0);
+      FUN_00865e50(&local_e1,1,0);
+      local_d4 = local_d4 + 1;
+    }
+    local_dc = FUN_00726070();
+  }
+  FUN_00865ff0(local_d4,local_d8);
+  local_f0 = 0;
+  local_f4 = FUN_00865f20();
+  local_f8 = param_1 + 0x6bc;
+  while (local_f8 != 0) {
+    piVar2 = (int *)FUN_006815c0();
+    local_fc = *piVar2;
+    if (local_fc != 0) {
+      local_100 = FUN_0044edb0();
+      local_104 = FUN_00726070();
+      FUN_00865df0(local_100,0);
+      FUN_00865e50(&local_104,4,0);
+      local_f0 = local_f0 + 1;
+    }
+    local_f8 = FUN_00726070();
+  }
+  FUN_00865ff0(local_f0,local_f4);
+  FUN_00806a10(param_2,*(undefined4 *)(param_1 + 0x210));
+  if (*(int *)(param_1 + 0xd64) == 0) {
+    local_140 = 0;
+  }
+  else {
+    local_140 = FUN_00726070();
+  }
+  local_24 = local_140;
+  FUN_00865e50(&local_24,4,0);
+  fVar3 = (float10)FUN_008d1cf0();
+  local_20 = (float)fVar3;
+  fVar3 = (float10)FUN_008d1d00();
+  local_1c = (float)fVar3;
+  FUN_00865e50(&local_20,4,0);
+  FUN_00865e50(&local_1c,4,0);
+  local_108 = 0;
+  local_10c = FUN_00865f20();
+  local_110 = param_1 + 0xad4;
+  while (local_110 != 0) {
+    piVar2 = (int *)FUN_006815c0();
+    local_114 = (undefined4 *)*piVar2;
+    if (local_114 != (undefined4 *)0x0) {
+      FUN_00865df0(*local_114,0);
+      FUN_00865e50(local_114 + 1,1,0);
+      local_108 = local_108 + 1;
+    }
+    local_110 = FUN_00726070();
+  }
+  FUN_00865ff0(local_108,local_10c);
+  local_116 = FUN_005a6050();
+  local_115 = FUN_004d1360();
+  FUN_00865e50(&local_115,1,0);
+  FUN_00865e50(&local_116,1,0);
+  FUN_00865e50(param_1 + 0x66e,1,0);
+  local_14 = 8;
+  for (local_11c = 0; local_11c < local_14; local_11c = local_11c + 1) {
+    local_120 = FUN_004bfb30(local_11c);
+    local_124 = 0;
+    if (local_120 == 0) {
+      FUN_00865e50(&local_124,4,0);
+    }
+    else {
+      local_124 = FUN_0084e3a0();
+      FUN_00865e50(&local_124,4,0);
+    }
+  }
+  FUN_005aa930(param_2);
+  return;
+}
+
+
+
+----------------------------------------------------------------------
+Calls FROM caller family 0x009590F0 (0x009590f0)
+----------------------------------------------------------------------
+  0x00959138 -> 0x00865e50 FUN_00865e50 @ 0x00865e50
+  0x00959171 -> 0x00865e50 FUN_00865e50 @ 0x00865e50
+  0x009591aa -> 0x00865e50 FUN_00865e50 @ 0x00865e50
+  0x009591c4 -> 0x00865e50 FUN_00865e50 @ 0x00865e50
+  0x009591d3 -> 0x008d33a0 FUN_008d33a0 @ 0x008d33a0
+  0x009591e7 -> 0x00428110 FUN_00428110 @ 0x00428110
+  0x009591ee -> 0x004280f0 FUN_004280f0 @ 0x004280f0
+  0x009591fd -> 0x00865f20 FUN_00865f20 @ 0x00865f20
+  0x00959208 -> 0x0084e3a0 FUN_0084e3a0 @ 0x0084e3a0
+  0x00959220 -> 0x0049ab40 FUN_0049ab40 @ 0x0049ab40
+  0x00959228 -> 0x0084e3a0 FUN_0084e3a0 @ 0x0084e3a0
+  0x0095923e -> 0x00865ff0 FUN_00865ff0 @ 0x00865ff0
+  0x00959257 -> 0x00865e50 FUN_00865e50 @ 0x00865e50
+  0x0095926f -> 0x00865e50 FUN_00865e50 @ 0x00865e50
+  0x00959288 -> 0x00865e50 FUN_00865e50 @ 0x00865e50
+  0x009592a1 -> 0x00865e50 FUN_00865e50 @ 0x00865e50
+  0x009592b9 -> 0x00865e50 FUN_00865e50 @ 0x00865e50
+  0x009592d2 -> 0x00865e50 FUN_00865e50 @ 0x00865e50
+  0x009592eb -> 0x00865e50 FUN_00865e50 @ 0x00865e50
+  0x00959303 -> 0x00865e50 FUN_00865e50 @ 0x00865e50
+  0x0095931c -> 0x00865e50 FUN_00865e50 @ 0x00865e50
+  0x00959335 -> 0x00865e50 FUN_00865e50 @ 0x00865e50
+  0x0095934d -> 0x00865e50 FUN_00865e50 @ 0x00865e50
+  0x00959366 -> 0x00865e50 FUN_00865e50 @ 0x00865e50
+  0x0095937f -> 0x00865e50 FUN_00865e50 @ 0x00865e50
+  0x00959397 -> 0x00865e50 FUN_00865e50 @ 0x00865e50
+  0x009593b0 -> 0x00865e50 FUN_00865e50 @ 0x00865e50
+  0x009593c9 -> 0x00865e50 FUN_00865e50 @ 0x00865e50
+  0x009593e1 -> 0x00865e50 FUN_00865e50 @ 0x00865e50
+  0x009593fa -> 0x00865e50 FUN_00865e50 @ 0x00865e50
+  0x0095947a -> 0x00865e50 FUN_00865e50 @ 0x00865e50
+  0x0095948a -> 0x00865e50 FUN_00865e50 @ 0x00865e50
+  0x009594a3 -> 0x00865e50 FUN_00865e50 @ 0x00865e50
+  0x009594bb -> 0x00865e50 FUN_00865e50 @ 0x00865e50
+  0x009594d4 -> 0x00865e50 FUN_00865e50 @ 0x00865e50
+  0x009594ed -> 0x00865e50 FUN_00865e50 @ 0x00865e50
+  0x00959505 -> 0x00865e50 FUN_00865e50 @ 0x00865e50
+  0x0095951e -> 0x00865e50 FUN_00865e50 @ 0x00865e50
+  0x00959537 -> 0x00865e50 FUN_00865e50 @ 0x00865e50
+  0x0095954f -> 0x00865e50 FUN_00865e50 @ 0x00865e50
+  0x00959568 -> 0x00865e50 FUN_00865e50 @ 0x00865e50
+  0x00959581 -> 0x00865e50 FUN_00865e50 @ 0x00865e50
+  0x00959599 -> 0x00865e50 FUN_00865e50 @ 0x00865e50
+  0x009595b2 -> 0x00865e50 FUN_00865e50 @ 0x00865e50
+  0x009595cb -> 0x00865e50 FUN_00865e50 @ 0x00865e50
+  0x009595e3 -> 0x00865e50 FUN_00865e50 @ 0x00865e50
+  0x009595fc -> 0x00865e50 FUN_00865e50 @ 0x00865e50
+  0x00959615 -> 0x00865e50 FUN_00865e50 @ 0x00865e50
+  0x0095962d -> 0x00865e50 FUN_00865e50 @ 0x00865e50
+  0x00959646 -> 0x00865e50 FUN_00865e50 @ 0x00865e50
+  0x0095965f -> 0x00865e50 FUN_00865e50 @ 0x00865e50
+  0x00959677 -> 0x00865e50 FUN_00865e50 @ 0x00865e50
+  0x00959688 -> 0x00865e50 FUN_00865e50 @ 0x00865e50
+  0x009596a1 -> 0x00865e50 FUN_00865e50 @ 0x00865e50
+  0x009596ba -> 0x00865e50 FUN_00865e50 @ 0x00865e50
+  0x009596d2 -> 0x00865e50 FUN_00865e50 @ 0x00865e50
+  0x009596eb -> 0x00865e50 FUN_00865e50 @ 0x00865e50
+  0x00959704 -> 0x00865e50 FUN_00865e50 @ 0x00865e50
+  0x0095971c -> 0x00865e50 FUN_00865e50 @ 0x00865e50
+  0x00959735 -> 0x00865e50 FUN_00865e50 @ 0x00865e50
+  0x0095974e -> 0x00865e50 FUN_00865e50 @ 0x00865e50
+  0x00959766 -> 0x00865e50 FUN_00865e50 @ 0x00865e50
+  0x0095977f -> 0x00865e50 FUN_00865e50 @ 0x00865e50
+  0x00959798 -> 0x00865e50 FUN_00865e50 @ 0x00865e50
+  0x009597b0 -> 0x00865e50 FUN_00865e50 @ 0x00865e50
+  0x009597c9 -> 0x00865e50 FUN_00865e50 @ 0x00865e50
+  0x009597e2 -> 0x00865e50 FUN_00865e50 @ 0x00865e50
+  0x00959817 -> 0x00865e50 FUN_00865e50 @ 0x00865e50
+  0x0095982e -> 0x008d5660 FUN_008d5660 @ 0x008d5660
+  0x00959855 -> 0x00575d70 FUN_00575d70 @ 0x00575d70
+  0x0095986f -> 0x008d6f30 FUN_008d6f30 @ 0x008d6f30
+  0x00959889 -> 0x00865df0 FUN_00865df0 @ 0x00865df0
+  0x009598a0 -> 0x00865df0 FUN_00865df0 @ 0x00865df0
+  0x009598ae -> 0x00865df0 FUN_00865df0 @ 0x00865df0
+  0x009598c5 -> 0x00865df0 FUN_00865df0 @ 0x00865df0
+  0x009598e5 -> 0x0059bb30 FUN_0059bb30 @ 0x0059bb30
+  0x00959908 -> 0x00865df0 FUN_00865df0 @ 0x00865df0
+  0x0095991f -> 0x00865df0 FUN_00865df0 @ 0x00865df0
+  0x00959936 -> 0x00865df0 FUN_00865df0 @ 0x00865df0
+  0x0095994d -> 0x00865df0 FUN_00865df0 @ 0x00865df0
+  0x00959964 -> 0x00865df0 FUN_00865df0 @ 0x00865df0
+  0x0095997b -> 0x00865df0 FUN_00865df0 @ 0x00865df0
+  0x00959992 -> 0x00865df0 FUN_00865df0 @ 0x00865df0
+  0x009599a1 -> 0x00865f20 FUN_00865f20 @ 0x00865f20
+  0x009599c0 -> 0x006815c0 FUN_006815c0 @ 0x006815c0
+  0x009599d3 -> 0x00619410 FUN_00619410 @ 0x00619410
+  0x009599e8 -> 0x00865df0 FUN_00865df0 @ 0x00865df0
+  0x009599f9 -> 0x00726070 FUN_00726070 @ 0x00726070
+  0x00959a0e -> 0x00865ff0 FUN_00865ff0 @ 0x00865ff0
+  0x00959a1d -> 0x00865f20 FUN_00865f20 @ 0x00865f20
+  0x00959a3d -> 0x006815c0 FUN_006815c0 @ 0x006815c0
+  0x00959a56 -> 0x00865df0 FUN_00865df0 @ 0x00865df0
+  0x00959a67 -> 0x00726070 FUN_00726070 @ 0x00726070
+  0x00959a7c -> 0x00865ff0 FUN_00865ff0 @ 0x00865ff0
+  0x00959a9b -> 0x0044ddc0 FUN_0044ddc0 @ 0x0044ddc0
+  0x00959ac2 -> 0x00865f60 FUN_00865f60 @ 0x00865f60
+  0x00959af1 -> 0x006a7ad0 FUN_006a7ad0 @ 0x006a7ad0
+  0x00959b02 -> 0x004bed60 FUN_004bed60 @ 0x004bed60
+  0x00959b13 -> 0x00865f20 FUN_00865f20 @ 0x00865f20
+  0x00959b33 -> 0x006815c0 FUN_006815c0 @ 0x006815c0
+  0x00959b4e -> 0x00865df0 FUN_00865df0 @ 0x00865df0
+  0x00959b61 -> 0x00865e50 FUN_00865e50 @ 0x00865e50
+  0x00959b74 -> 0x00865e50 FUN_00865e50 @ 0x00865e50
+  0x00959b85 -> 0x00726070 FUN_00726070 @ 0x00726070
+  0x00959b9a -> 0x00865ff0 FUN_00865ff0 @ 0x00865ff0
+  0x00959ba9 -> 0x00865f20 FUN_00865f20 @ 0x00865f20
+  0x00959bd5 -> 0x006815c0 FUN_006815c0 @ 0x006815c0
+  0x00959bf9 -> 0x00865df0 FUN_00865df0 @ 0x00865df0
+  0x00959c0f -> 0x00865e50 FUN_00865e50 @ 0x00865e50
+  0x00959c23 -> 0x00726070 FUN_00726070 @ 0x00726070
+  0x00959c3e -> 0x00865ff0 FUN_00865ff0 @ 0x00865ff0
+  0x00959c50 -> 0x00865f20 FUN_00865f20 @ 0x00865f20
+  0x00959c7c -> 0x006815c0 FUN_006815c0 @ 0x006815c0
+  0x00959ca0 -> 0x00865e50 FUN_00865e50 @ 0x00865e50
+  0x00959cb6 -> 0x00865e50 FUN_00865e50 @ 0x00865e50
+  0x00959cca -> 0x00865df0 FUN_00865df0 @ 0x00865df0
+  0x00959ce4 -> 0x00726070 FUN_00726070 @ 0x00726070
+  0x00959d05 -> 0x00865ff0 FUN_00865ff0 @ 0x00865ff0
+  0x00959d17 -> 0x00865f20 FUN_00865f20 @ 0x00865f20
+  0x00959d47 -> 0x006815c0 FUN_006815c0 @ 0x006815c0
+  0x00959d6b -> 0x00865e50 FUN_00865e50 @ 0x00865e50
+  0x00959d81 -> 0x00865e50 FUN_00865e50 @ 0x00865e50
+  0x00959d97 -> 0x00865e50 FUN_00865e50 @ 0x00865e50
+  0x00959db1 -> 0x00726070 FUN_00726070 @ 0x00726070
+  0x00959dd2 -> 0x00865ff0 FUN_00865ff0 @ 0x00865ff0
+  0x00959de4 -> 0x00865f20 FUN_00865f20 @ 0x00865f20
+  0x00959e10 -> 0x006815c0 FUN_006815c0 @ 0x006815c0
+  0x00959e32 -> 0x00865df0 FUN_00865df0 @ 0x00865df0
+  0x00959e4c -> 0x00726070 FUN_00726070 @ 0x00726070
+  0x00959e6a -> 0x00865ff0 FUN_00865ff0 @ 0x00865ff0
+  0x00959e7c -> 0x00865f20 FUN_00865f20 @ 0x00865f20
+  0x00959ea8 -> 0x006815c0 FUN_006815c0 @ 0x006815c0
+  0x00959eca -> 0x00865df0 FUN_00865df0 @ 0x00865df0
+  0x00959ee4 -> 0x00726070 FUN_00726070 @ 0x00726070
+  0x00959f02 -> 0x00865ff0 FUN_00865ff0 @ 0x00865ff0
+  0x00959f1a -> 0x00865e50 FUN_00865e50 @ 0x00865e50
+  0x00959f33 -> 0x00865e50 FUN_00865e50 @ 0x00865e50
+  0x00959f4c -> 0x00865e50 FUN_00865e50 @ 0x00865e50
+  0x00959f64 -> 0x00865e50 FUN_00865e50 @ 0x00865e50
+  0x00959f7d -> 0x00865e50 FUN_00865e50 @ 0x00865e50
+  0x00959f8f -> 0x00865f20 FUN_00865f20 @ 0x00865f20
+  0x00959fbf -> 0x006815c0 FUN_006815c0 @ 0x006815c0
+  0x00959fdf -> 0x005e3fa0 FUN_005e3fa0 @ 0x005e3fa0
+  0x00959ff7 -> 0x0060f1a0 FUN_0060f1a0 @ 0x0060f1a0
+  0x0095a008 -> 0x005dc980 FUN_005dc980 @ 0x005dc980
+  0x0095a01f -> 0x00865df0 FUN_00865df0 @ 0x00865df0
+  0x0095a032 -> 0x00865e50 FUN_00865e50 @ 0x00865e50
+  0x0095a045 -> 0x00865e50 FUN_00865e50 @ 0x00865e50
+  0x0095a05f -> 0x00726070 FUN_00726070 @ 0x00726070
+  0x0095a080 -> 0x00865ff0 FUN_00865ff0 @ 0x00865ff0
+  0x0095a092 -> 0x00865f20 FUN_00865f20 @ 0x00865f20
+  0x0095a0c2 -> 0x006815c0 FUN_006815c0 @ 0x006815c0
+  0x0095a0de -> 0x0044edb0 FUN_0044edb0 @ 0x0044edb0
+  0x0095a0ef -> 0x00726070 FUN_00726070 @ 0x00726070
+  0x0095a106 -> 0x00865df0 FUN_00865df0 @ 0x00865df0
+  0x0095a119 -> 0x00865e50 FUN_00865e50 @ 0x00865e50
+  0x0095a133 -> 0x00726070 FUN_00726070 @ 0x00726070
+  0x0095a154 -> 0x00865ff0 FUN_00865ff0 @ 0x00865ff0
+  0x0095a16a -> 0x00806a10 FUN_00806a10 @ 0x00806a10
+  0x0095a18d -> 0x00726070 FUN_00726070 @ 0x00726070
+  0x0095a1b8 -> 0x00865e50 FUN_00865e50 @ 0x00865e50
+  0x0095a1bd -> 0x008d1cf0 FUN_008d1cf0 @ 0x008d1cf0
+  0x0095a1c5 -> 0x008d1d00 FUN_008d1d00 @ 0x008d1d00
+  0x0095a1d8 -> 0x00865e50 FUN_00865e50 @ 0x00865e50
+  0x0095a1e8 -> 0x00865e50 FUN_00865e50 @ 0x00865e50
+  0x0095a1fa -> 0x00865f20 FUN_00865f20 @ 0x00865f20
+  0x0095a225 -> 0x006815c0 FUN_006815c0 @ 0x006815c0
+  0x0095a249 -> 0x00865df0 FUN_00865df0 @ 0x00865df0
+  0x0095a25f -> 0x00865e50 FUN_00865e50 @ 0x00865e50
+  0x0095a279 -> 0x00726070 FUN_00726070 @ 0x00726070
+  0x0095a297 -> 0x00865ff0 FUN_00865ff0 @ 0x00865ff0
+  0x0095a2a2 -> 0x005a6050 FUN_005a6050 @ 0x005a6050
+  0x0095a2b3 -> 0x004d1360 FUN_004d1360 @ 0x004d1360
+  0x0095a2cc -> 0x00865e50 FUN_00865e50 @ 0x00865e50
+  0x0095a2df -> 0x00865e50 FUN_00865e50 @ 0x00865e50
+  0x0095a2f8 -> 0x00865e50 FUN_00865e50 @ 0x00865e50
+  0x0095a337 -> 0x004bfb30 FUN_004bfb30 @ 0x004bfb30
+  0x0095a35b -> 0x0084e3a0 FUN_0084e3a0 @ 0x0084e3a0
+  0x0095a374 -> 0x00865e50 FUN_00865e50 @ 0x00865e50
+  0x0095a389 -> 0x00865e50 FUN_00865e50 @ 0x00865e50
+  0x0095a394 -> 0x005aa930 FUN_005aa930 @ 0x005aa930
+  Total printed: 181
+
+======================================================================
+caller family 0x009C4FF0 @ 0x009c4ff0
+======================================================================
+  Function: FUN_009c4ff0 @ 0x009c4ff0, Size: 757 bytes
+
+void __thiscall FUN_009c4ff0(int param_1,undefined4 param_2)
+
+{
+  int iVar1;
+  undefined4 uVar2;
+  int *piVar3;
+  undefined4 local_24;
+  int local_18;
+  int local_10;
+  char local_9;
+  undefined4 local_8;
+  
+  FUN_00932880(param_2);
+  FUN_00865e50(param_1 + 200,4,0);
+  FUN_00865e50(param_1 + 0xcc,4,0);
+  FUN_00865e50(param_1 + 0xd4,4,0);
+  FUN_00865e50(param_1 + 0xd0,4,0);
+  FUN_00865e50(param_1 + 0xd8,4,0);
+  FUN_00865e50(param_1 + 0xdc,4,0);
+  FUN_00865e50(param_1 + 0xe0,4,0);
+  FUN_00865e50(param_1 + 0xe4,4,0);
+  FUN_00865e50(param_1 + 0xe8,4,0);
+  FUN_00865df0(*(undefined4 *)(param_1 + 0xf8),0);
+  FUN_00865df0(*(undefined4 *)(param_1 + 0xfc),0);
+  FUN_00865df0(*(undefined4 *)(param_1 + 0x100),0);
+  FUN_00865e50(param_1 + 0x104,0xc,0);
+  FUN_00865e50(param_1 + 0x110,4,0);
+  FUN_00865e50(param_1 + 0x118,1,0);
+  FUN_00865e50(param_1 + 0x124,4,0);
+  FUN_00865ee0(param_1 + 0x94,0x24,0);
+  FUN_00865e50(param_1 + 0xb8,0xc,0);
+  FUN_00865e50(param_1 + 0xc4,4,0);
+  FUN_00865e50(param_1 + 0xec,4,0);
+  FUN_00865e50(param_1 + 0xf0,4,0);
+  FUN_00865e50(param_1 + 0xf4,4,0);
+  iVar1 = FUN_00559450();
+  if (iVar1 == 0) {
+    local_24 = 0xffffffff;
+  }
+  else {
+    FUN_00559450();
+    local_24 = FUN_00825c00();
+  }
+  local_8 = local_24;
+  FUN_00865e50(&local_8,4,0);
+  local_9 = *(int *)(param_1 + 0x144) != 0;
+  FUN_00865e50(&local_9,1,0);
+  if (local_9 != '\0') {
+    FUN_004bed60(param_2);
+  }
+  local_10 = 0;
+  uVar2 = FUN_00865f20();
+  local_18 = param_1 + 0x88;
+  while (local_18 != 0) {
+    piVar3 = (int *)FUN_006815c0();
+    if (*piVar3 != 0) {
+      FUN_009bb970(param_2);
+      local_10 = local_10 + 1;
+    }
+    local_18 = FUN_00726070();
+  }
+  FUN_00865ff0(local_10,uVar2);
+  FUN_00865e50(param_1 + 0x90,1,0);
+  return;
+}
+
+
+
+----------------------------------------------------------------------
+Calls FROM caller family 0x009C4FF0 (0x009c4ff0)
+----------------------------------------------------------------------
+  0x009c5000 -> 0x00932880 FUN_00932880 @ 0x00932880
+  0x009c5016 -> 0x00865e50 FUN_00865e50 @ 0x00865e50
+  0x009c502c -> 0x00865e50 FUN_00865e50 @ 0x00865e50
+  0x009c5041 -> 0x00865e50 FUN_00865e50 @ 0x00865e50
+  0x009c5057 -> 0x00865e50 FUN_00865e50 @ 0x00865e50
+  0x009c506d -> 0x00865e50 FUN_00865e50 @ 0x00865e50
+  0x009c5082 -> 0x00865e50 FUN_00865e50 @ 0x00865e50
+  0x009c5098 -> 0x00865e50 FUN_00865e50 @ 0x00865e50
+  0x009c50ae -> 0x00865e50 FUN_00865e50 @ 0x00865e50
+  0x009c50c3 -> 0x00865e50 FUN_00865e50 @ 0x00865e50
+  0x009c50d7 -> 0x00865df0 FUN_00865df0 @ 0x00865df0
+  0x009c50eb -> 0x00865df0 FUN_00865df0 @ 0x00865df0
+  0x009c50ff -> 0x00865df0 FUN_00865df0 @ 0x00865df0
+  0x009c5115 -> 0x00865e50 FUN_00865e50 @ 0x00865e50
+  0x009c512b -> 0x00865e50 FUN_00865e50 @ 0x00865e50
+  0x009c5140 -> 0x00865e50 FUN_00865e50 @ 0x00865e50
+  0x009c5156 -> 0x00865e50 FUN_00865e50 @ 0x00865e50
+  0x009c516c -> 0x00865ee0 FUN_00865ee0 @ 0x00865ee0
+  0x009c5181 -> 0x00865e50 FUN_00865e50 @ 0x00865e50
+  0x009c5197 -> 0x00865e50 FUN_00865e50 @ 0x00865e50
+  0x009c51ad -> 0x00865e50 FUN_00865e50 @ 0x00865e50
+  0x009c51c2 -> 0x00865e50 FUN_00865e50 @ 0x00865e50
+  0x009c51d8 -> 0x00865e50 FUN_00865e50 @ 0x00865e50
+  0x009c51e6 -> 0x00559450 FUN_00559450 @ 0x00559450
+  0x009c51f8 -> 0x00559450 FUN_00559450 @ 0x00559450
+  0x009c51ff -> 0x00825c00 FUN_00825c00 @ 0x00825c00
+  0x009c5221 -> 0x00865e50 FUN_00865e50 @ 0x00865e50
+  0x009c5241 -> 0x00865e50 FUN_00865e50 @ 0x00865e50
+  0x009c525b -> 0x004bed60 FUN_004bed60 @ 0x004bed60
+  0x009c526a -> 0x00865f20 FUN_00865f20 @ 0x00865f20
+  0x009c5287 -> 0x006815c0 FUN_006815c0 @ 0x006815c0
+  0x009c529e -> 0x009bb970 FUN_009bb970 @ 0x009bb970
+  0x009c52af -> 0x00726070 FUN_00726070 @ 0x00726070
+  0x009c52c4 -> 0x00865ff0 FUN_00865ff0 @ 0x00865ff0
+  0x009c52da -> 0x00865e50 FUN_00865e50 @ 0x00865e50
+  Total printed: 35
