@@ -1,9 +1,7 @@
 //! Core `psycho_engine_fixes.dll` engine patches.
 //!
-//! First of all, this plugin is testing polygon for `libpsycho`, but meantime
-//! it tries to be safe and useful for gamers.
-//!
-//! At the moment, arhitecture of this plugin is unstable and may significantly change.
+//! This DLL is loaded early by `psycho-loader` and owns all engine patches.
+//! The xNVSE helper is only a late command/event adapter.
 
 // use libmimalloc::MiMalloc;
 
@@ -13,4 +11,7 @@
 mod command_api;
 mod config;
 mod entry;
+mod events;
+mod host_events;
 mod mods;
+mod startup;

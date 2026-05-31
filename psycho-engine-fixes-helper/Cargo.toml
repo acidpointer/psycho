@@ -12,6 +12,5 @@ anyhow = { workspace = true }
 libc = { workspace = true }
 libnvse = { path = "../libnvse" }
 libpsycho = { path = "../libpsycho" }
-psycho-engine-fixes-api = { path = "../psycho-engine-fixes-api" }
 log = { workspace = true }
 windows = { workspace = true }

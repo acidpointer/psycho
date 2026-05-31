@@ -6,7 +6,6 @@ members = [
   "libnvse",
   "libpsycho",
   "psycho-loader-api",
-  "psycho-engine-fixes-api",
   "psycho-loader",
   "psycho-engine-fixes",
   "psycho-engine-fixes-helper"

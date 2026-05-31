@@ -1,55 +1,150 @@
-//! Command data provider for external host adapters.
+//! Command ABI for late host adapters.
+//!
+//! The xNVSE helper owns command registration. The core owns command behavior
+//! and returns text through a caller-owned buffer so no allocation crosses DLLs.
 
 use std::{fmt::Write as _, ptr};
-
-use psycho_engine_fixes_api::{
-    PSYCHO_COMMAND_CELL_UNLOAD, PSYCHO_COMMAND_HAS_RESULT, PSYCHO_COMMAND_MEM,
-    PSYCHO_COMMAND_MEM_BYTES, PSYCHO_COMMAND_MEM_HUD, PSYCHO_COMMAND_MEM_MB,
-    PSYCHO_COMMAND_QUARANTINE, PSYCHO_COMMAND_SCRAP_HEAP, PsychoCommandOutput,
-};
 
 use crate::mods::heap_replacer::gheap::engine::cell_unload;
 use crate::mods::heap_replacer::gheap::{allocator, block, pool, va_alloc};
 use crate::mods::heap_replacer::{AllocatorMode, current_mode, mem_stats, scrap_heap};
 
-pub unsafe extern "system" fn run_command(command: u32, output: *mut PsychoCommandOutput) -> i32 {
+const COMMAND_MEM: u32 = 1;
+const COMMAND_MEM_MB: u32 = 2;
+const COMMAND_MEM_BYTES: u32 = 3;
+const COMMAND_SCRAP_HEAP: u32 = 4;
+const COMMAND_MEM_HUD: u32 = 5;
+const COMMAND_QUARANTINE: u32 = 6;
+const COMMAND_CELL_UNLOAD: u32 = 7;
+
+const COMMAND_HAS_RESULT: u32 = 1;
+
+#[derive(Clone, Copy)]
+enum Command {
+    MemoryReport,
+    MemoryMegabytes,
+    MemoryBytes,
+    ScrapHeap,
+    MemoryHud,
+    Quarantine,
+    CellUnload,
+}
+
+impl Command {
+    fn from_id(id: u32) -> Option<Self> {
+        match id {
+            COMMAND_MEM => Some(Self::MemoryReport),
+            COMMAND_MEM_MB => Some(Self::MemoryMegabytes),
+            COMMAND_MEM_BYTES => Some(Self::MemoryBytes),
+            COMMAND_SCRAP_HEAP => Some(Self::ScrapHeap),
+            COMMAND_MEM_HUD => Some(Self::MemoryHud),
+            COMMAND_QUARANTINE => Some(Self::Quarantine),
+            COMMAND_CELL_UNLOAD => Some(Self::CellUnload),
+            _ => None,
+        }
+    }
+
+    fn run(self) -> CommandResponse {
+        match self {
+            Self::MemoryReport => CommandResponse::text(mem_stats::MemStats::detailed_report()),
+            Self::MemoryMegabytes => mem_mb(),
+            Self::MemoryBytes => mem_bytes(),
+            Self::ScrapHeap => scrap_heap_report(),
+            Self::MemoryHud => CommandResponse::text(mem_stats::MemStats::hud_summary()),
+            Self::Quarantine => quarantine_report(),
+            Self::CellUnload => cell_unload_report(),
+        }
+    }
+}
+
+struct CommandResponse {
+    text: String,
+    result: Option<f64>,
+}
+
+impl CommandResponse {
+    fn text(text: String) -> Self {
+        Self { text, result: None }
+    }
+
+    fn with_result(text: String, result: f64) -> Self {
+        Self {
+            text,
+            result: Some(result),
+        }
+    }
+
+    unsafe fn write_to(self, output: &mut CommandOutput) {
+        let bytes = self.text.as_bytes();
+        output.written = bytes.len();
+        output.flags = 0;
+        output.result = 0.0;
+
+        if !output.text.is_null() && output.text_len > 0 {
+            let copy_len = bytes.len().min(output.text_len);
+            unsafe { ptr::copy_nonoverlapping(bytes.as_ptr(), output.text, copy_len) };
+        }
+
+        if let Some(value) = self.result {
+            output.result = value;
+            output.flags |= COMMAND_HAS_RESULT;
+        }
+    }
+}
+
+/// Caller-owned output buffer for `PsychoEngineFixes_RunCommand`.
+///
+/// `written` is always the full response length, even when `text_len` is too
+/// small and the text is truncated.
+#[repr(C)]
+pub struct CommandOutput {
+    pub text: *mut u8,
+    pub text_len: usize,
+    pub written: usize,
+    pub result: f64,
+    pub flags: u32,
+}
+
+/// Run a diagnostic/control command requested by a host adapter.
+#[unsafe(no_mangle)]
+pub unsafe extern "system" fn PsychoEngineFixes_RunCommand(
+    command: u32,
+    output: *mut CommandOutput,
+) -> i32 {
     if output.is_null() {
         return 0;
     }
 
-    let (text, result) = match command {
-        PSYCHO_COMMAND_MEM => (mem_stats::MemStats::detailed_report(), None),
-        PSYCHO_COMMAND_MEM_MB => mem_mb(),
-        PSYCHO_COMMAND_MEM_BYTES => mem_bytes(),
-        PSYCHO_COMMAND_SCRAP_HEAP => scrap_heap_report(),
-        PSYCHO_COMMAND_MEM_HUD => (mem_stats::MemStats::hud_summary(), None),
-        PSYCHO_COMMAND_QUARANTINE => quarantine_report(),
-        PSYCHO_COMMAND_CELL_UNLOAD => cell_unload_report(),
-        _ => return 0,
+    if !crate::entry::is_initialized() {
+        return 0;
+    }
+
+    let Some(command) = Command::from_id(command) else {
+        return 0;
     };
 
-    unsafe { write_output(&mut *output, &text, result) };
+    unsafe { command.run().write_to(&mut *output) };
     1
 }
 
-fn mem_mb() -> (String, Option<f64>) {
+fn mem_mb() -> CommandResponse {
     let bytes = mem_stats::current_allocator_bytes();
     let mb = bytes as f64 / 1024.0 / 1024.0;
-    (
+    CommandResponse::with_result(
         format!("{}: {:.1} MB", mem_stats::current_allocator_name(), mb),
-        Some(mb),
+        mb,
     )
 }
 
-fn mem_bytes() -> (String, Option<f64>) {
+fn mem_bytes() -> CommandResponse {
     let bytes = mem_stats::current_allocator_bytes();
-    (
+    CommandResponse::with_result(
         format!("{}: {} bytes", mem_stats::current_allocator_name(), bytes),
-        Some(bytes as f64),
+        bytes as f64,
     )
 }
 
-fn scrap_heap_report() -> (String, Option<f64>) {
+fn scrap_heap_report() -> CommandResponse {
     let stats = mem_stats::global();
     let scrap = scrap_heap::snapshot();
     let scrap_heap_mb = scrap.live_bytes as f64 / 1024.0 / 1024.0;
@@ -91,14 +186,13 @@ fn scrap_heap_report() -> (String, Option<f64>) {
         );
     }
 
-    (report, Some(scrap_heap_mb))
+    CommandResponse::with_result(report, scrap_heap_mb)
 }
 
-fn quarantine_report() -> (String, Option<f64>) {
+fn quarantine_report() -> CommandResponse {
     if current_mode() != Some(AllocatorMode::GheapAndScrapHeap) {
-        return (
+        return CommandResponse::text(
             "gheap is disabled; set memory.allocator = 2 to enable gheap + scrap_heap".to_owned(),
-            None,
         );
     }
 
@@ -139,14 +233,13 @@ fn quarantine_report() -> (String, Option<f64>) {
         allocator::is_main_thread()
     );
 
-    (report, None)
+    CommandResponse::text(report)
 }
 
-fn cell_unload_report() -> (String, Option<f64>) {
+fn cell_unload_report() -> CommandResponse {
     if current_mode() != Some(AllocatorMode::GheapAndScrapHeap) {
-        return (
+        return CommandResponse::text(
             "Cell unload reclaim is gheap-only; set memory.allocator = 2 to enable it".to_owned(),
-            None,
         );
     }
 
@@ -166,22 +259,5 @@ fn cell_unload_report() -> (String, Option<f64>) {
     let _ = writeln!(report, "Requesting 20 cells at next AI_JOIN...");
 
     cell_unload::request_deferred(20);
-    (report, None)
-}
-
-unsafe fn write_output(output: &mut PsychoCommandOutput, text: &str, result: Option<f64>) {
-    let bytes = text.as_bytes();
-    output.written = bytes.len();
-    output.flags = 0;
-    output.result = 0.0;
-
-    if !output.text.is_null() && output.text_len > 0 {
-        let copy_len = bytes.len().min(output.text_len);
-        unsafe { ptr::copy_nonoverlapping(bytes.as_ptr(), output.text, copy_len) };
-    }
-
-    if let Some(value) = result {
-        output.result = value;
-        output.flags |= PSYCHO_COMMAND_HAS_RESULT;
-    }
+    CommandResponse::text(report)
 }

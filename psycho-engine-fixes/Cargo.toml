@@ -11,7 +11,6 @@ crate-type = ["cdylib", "rlib"]
 [dependencies]
 libmimalloc = { path = "../libmimalloc" }
 psycho-loader-api = { path = "../psycho-loader-api" }
-psycho-engine-fixes-api = { path = "../psycho-engine-fixes-api" }
 libpsycho = { path = "../libpsycho" }
 windows = { workspace = true }
 log = { workspace = true }

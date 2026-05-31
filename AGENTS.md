@@ -30,8 +30,7 @@ git submodule update --init --recursive
 | Crate | Role |
 |---|---|
 | `psycho-engine-fixes` | Core DLL (`psycho_engine_fixes.dll`). Loaded early by `psycho-loader` from `<game root>/mods/psycho_engine_fixes.dll`; owns engine patches and shared state. |
-| `psycho-engine-fixes-helper` | Thin xNVSE plugin (`psycho_engine_fixes_helper.dll`). Registers console commands/messages and uses the core API only if `psycho_engine_fixes.dll` is already loaded. It must never load or initialize the core DLL. |
-| `psycho-engine-fixes-api` | Tiny `psycho_engine_fixes.dll` domain ABI crate shared by `psycho-engine-fixes` and `psycho-engine-fixes-helper`. Do not put this API in `libpsycho`. |
+| `psycho-engine-fixes-helper` | Thin xNVSE plugin (`psycho_engine_fixes_helper.dll`, plugin name `psycho-nvse-helper`). Registers console commands/messages and lazily resolves exact named exports from `psycho_engine_fixes.dll` only if it is already loaded. It must never load or initialize the core DLL. |
 | `psycho-loader` | Generic early `dinput8.dll` proxy. Loads every `<game root>/mods/*.dll` before xNVSE plugin load. Must stay mod/plugin agnostic, `no_std`, and independent of `libpsycho`. |
 | `psycho-loader-api` | Tiny generic ABI for DLLs loaded by `psycho-loader`. Loaded DLLs should export `PsychoLoader_ModInit` and do real startup there, not in DllMain/TLS callbacks. |
 | `libpsycho` | WinAPI wrappers, IAT/inline/VMT hooking, logging. |
@@ -39,7 +38,7 @@ git submodule update --init --recursive
 | `libmimalloc` | Fork of mimalloc sys crate. Builds C source via `cc`. |
 | `libf4se` | Deprecated F4SE bindings. Not maintained. |
 
-Plugin entry flow: `dinput8.dll` attach callback (`DllMain` or TLS) -> loader thread loads every `<game root>/mods/*.dll` -> loader calls each optional `PsychoLoader_ModInit` export outside the loaded DLL's loader-lock callback -> `psycho_engine_fixes.dll` completes all setup from that single entrypoint -> `psycho_engine_fixes_helper.dll` `NVSEPlugin_*` only registers helper services and forwards optional messages/commands if the core API is already available.
+Plugin entry flow: `dinput8.dll` attach callback (`DllMain` or TLS) -> loader thread loads every `<game root>/mods/*.dll` -> loader calls each optional `PsychoLoader_ModInit` export outside the loaded DLL's loader-lock callback -> `psycho_engine_fixes.dll` completes all setup from that single entrypoint -> `psycho_engine_fixes_helper.dll` `NVSEPlugin_*` only registers helper services and forwards optional messages/commands through `PsychoEngineFixes_RunCommand` / `PsychoEngineFixes_NotifyEvent` if the core DLL is already available.
 
 ## WinAPI usage
 

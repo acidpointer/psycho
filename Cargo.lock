@@ -902,7 +902,6 @@ dependencies = [
  "libpsycho",
  "log",
  "parking_lot",
- "psycho-engine-fixes-api",
  "psycho-loader-api",
  "rand",
  "rustc-hash",
@@ -913,10 +912,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "psycho-engine-fixes-api"
-version = "0.1.0"
-
-[[package]]
 name = "psycho-engine-fixes-helper"
 version = "0.1.0"
 dependencies = [
@@ -925,7 +920,6 @@ dependencies = [
  "libnvse",
  "libpsycho",
  "log",
- "psycho-engine-fixes-api",
  "windows",
 ]
 

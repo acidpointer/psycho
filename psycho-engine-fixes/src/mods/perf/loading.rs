@@ -9,6 +9,7 @@ use std::{
     },
 };
 
+use crate::events;
 use libc::{c_char, c_void};
 use libpsycho::ffi::fnptr::FnPtr;
 use libpsycho::os::windows::hook::iat::iathook::IatHookContainer;
@@ -18,10 +19,6 @@ use libpsycho::os::windows::winapi::{
     safe_write_32,
 };
 use parking_lot::Mutex;
-use psycho_engine_fixes_api::{
-    PSYCHO_EVENT_DEFERRED_INIT, PSYCHO_EVENT_LOAD_GAME, PSYCHO_EVENT_MAIN_GAME_LOOP,
-    PSYCHO_EVENT_ON_FRAME_PRESENT, PSYCHO_EVENT_POST_LOAD_GAME, PSYCHO_EVENT_PRE_LOAD_GAME,
-};
 use windows::Win32::{
     Foundation::FILETIME,
     System::{
@@ -1669,8 +1666,8 @@ pub fn mark_init_start() {
 
 pub fn observe_event(kind: u32, path: Option<&str>, bool_value: i32) {
     match kind {
-        PSYCHO_EVENT_DEFERRED_INIT => store_first_tick(&DEFERRED_INIT_TICK_MS),
-        PSYCHO_EVENT_PRE_LOAD_GAME => {
+        events::DEFERRED_INIT => store_first_tick(&DEFERRED_INIT_TICK_MS),
+        events::PRE_LOAD_GAME => {
             let now = now_tick_ms();
             SAVE_LOAD_PRE_TICK_MS.store(now, Ordering::Release);
             SAVE_LOAD_GAME_TICK_MS.store(0, Ordering::Release);
@@ -1679,7 +1676,7 @@ pub fn observe_event(kind: u32, path: Option<&str>, bool_value: i32) {
                 path.unwrap_or("<unknown>")
             );
         }
-        PSYCHO_EVENT_LOAD_GAME => {
+        events::LOAD_GAME => {
             let now = now_tick_ms();
             SAVE_LOAD_GAME_TICK_MS.store(now, Ordering::Release);
             let pre = SAVE_LOAD_PRE_TICK_MS.load(Ordering::Acquire);
@@ -1689,7 +1686,7 @@ pub fn observe_event(kind: u32, path: Option<&str>, bool_value: i32) {
                 format_duration(elapsed_from_tick(pre, now))
             );
         }
-        PSYCHO_EVENT_POST_LOAD_GAME => {
+        events::POST_LOAD_GAME => {
             let now = now_tick_ms();
             let pre = SAVE_LOAD_PRE_TICK_MS.swap(0, Ordering::AcqRel);
             let game = SAVE_LOAD_GAME_TICK_MS.swap(0, Ordering::AcqRel);
@@ -1700,8 +1697,8 @@ pub fn observe_event(kind: u32, path: Option<&str>, bool_value: i32) {
                 format_duration(elapsed_from_tick(game, now))
             );
         }
-        PSYCHO_EVENT_MAIN_GAME_LOOP => observe_main_loop(),
-        PSYCHO_EVENT_ON_FRAME_PRESENT => observe_frame_present(),
+        events::MAIN_GAME_LOOP => observe_main_loop(),
+        events::ON_FRAME_PRESENT => observe_frame_present(),
         _ => {}
     }
 }

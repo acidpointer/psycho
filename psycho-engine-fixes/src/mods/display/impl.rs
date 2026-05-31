@@ -7,10 +7,10 @@
 use std::sync::LazyLock;
 use std::sync::atomic::{AtomicBool, AtomicU32, AtomicUsize, Ordering};
 
+use crate::events;
 use libc::c_void;
 use libpsycho::os::windows::hook::inline::inlinehook::InlineHookContainer;
 use libpsycho::os::windows::winapi::{safe_write_8, safe_write_32};
-use psycho_engine_fixes_api::{PSYCHO_EVENT_DEFERRED_INIT, PSYCHO_EVENT_ON_FRAME_PRESENT};
 
 unsafe extern "system" {
     fn AdjustWindowRectEx(rect: *mut Rect, style: u32, menu: i32, ex_style: u32) -> i32;
@@ -399,10 +399,10 @@ pub fn observe_event(kind: u32) {
     }
 
     match kind {
-        PSYCHO_EVENT_DEFERRED_INIT => {
+        events::DEFERRED_INIT => {
             verify_display_resolution();
         }
-        PSYCHO_EVENT_ON_FRAME_PRESENT => {
+        events::ON_FRAME_PRESENT => {
             if PENDING_FULLSCREEN_REPAIR.swap(false, Ordering::AcqRel) {
                 repair_fullscreen_window("focus-regain-present", true);
             }

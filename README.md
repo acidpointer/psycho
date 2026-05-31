@@ -29,10 +29,7 @@ The early `dinput8.dll` proxy. It forwards to the system dinput8 and loads every
 Tiny generic ABI crate for DLLs loaded by `psycho-loader`. This stays mod-agnostic.
 
 ### `psycho-engine-fixes-helper`
-The thin xNVSE plugin. It exports `NVSEPlugin_*`, registers commands/messages, and talks to `psycho_engine_fixes.dll` only through the optional core API if that DLL is already loaded.
-
-### `psycho-engine-fixes-api`
-Tiny domain ABI crate shared by `psycho_engine_fixes.dll` and `psycho-engine-fixes-helper`. This is deliberately separate from `libpsycho`, which remains reusable modding infrastructure.
+The thin xNVSE plugin. Its xNVSE plugin name is `psycho-nvse-helper`. It exports `NVSEPlugin_*`, registers commands/messages, and lazily calls exact named exports from `psycho_engine_fixes.dll` if that DLL is already loaded. It never loads or initializes the core DLL.
 
 ### `libpsycho`
 Core library providing the low-level infrastructure everything else is built on.
