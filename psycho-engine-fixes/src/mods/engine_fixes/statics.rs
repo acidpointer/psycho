@@ -32,6 +32,7 @@ pub static ENTRYDATA_LOAD_HOOK: LazyLock<InlineHookContainer<EntryDataLoadFn>> =
 
 pub const EXTRAOWNERSHIP_LOAD_RESOLVE_CALL_ADDR: usize = 0x0042868F;
 pub const BASE_EXTRA_LIST_GET_BY_TYPE_ADDR: usize = 0x00410220;
+pub const LINKED_REF_CHILDREN_REMOVE_GET_BY_TYPE_CALL_ADDR: usize = 0x0041E614;
 
 pub static BASE_EXTRA_LIST_GET_BY_TYPE_HOOK: LazyLock<
     InlineHookContainer<BaseExtraListGetByTypeFn>,

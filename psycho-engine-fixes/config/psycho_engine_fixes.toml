@@ -22,6 +22,11 @@ entrydata_invalid_form_guard = true
 # pointers to no-owner instead of letting vanilla/xNVSE dereference them.
 extraownership_invalid_owner_guard = true
 
+# Fixes a save-to-save transition crash where a deleted/unloading reference
+# has a stale linked-reference child list. The game already treats a missing
+# list as valid, so corrupt lists are ignored during this cleanup path.
+linked_ref_children_stale_list_guard = true
+
 # Fixes a Havok crash where hkpWorld::addEntityBatch receives NULL entity
 # slots and vanilla writes through them.
 havok_add_entity_batch_null_guard = true

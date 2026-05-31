@@ -1,0 +1,3914 @@
+Crash 0x00410286 GetByType stack audit
+
+Crash facts from log: EIP=0x00410286, EBX/requested type=0x52 (ExtraLinkedRefChildren), ECX/EDX=0x2E646C72, ESI=0x06007B07.
+Goal: prove the exact caller path and whether the caller can tolerate GetByType returning NULL for type 0x52.
+
+======================================================================
+BaseExtraList traversal helpers
+======================================================================
+
+----------------------------------------------------------------------
+Disassembly: BaseExtraList::GetByType around 0x00410220
+----------------------------------------------------------------------
+  0x00410206: PUSH ECX                                                
+  0x00410207: MOV ECX,dword ptr [EBP + -0x14]                         
+  0x0041020a: CALL 0x0040fee0                                         
+      call -> 0x0040fee0 FUN_0040fee0 @ 0x0040fee0
+  0x0041020f: MOV ECX,0x11c3920                                       
+  0x00410214: CALL 0x0040fba0                                         
+      call -> 0x0040fba0 FUN_0040fba0 @ 0x0040fba0
+  0x00410219: MOV ESP,EBP                                             
+  0x0041021b: POP EBP                                                 
+  0x0041021c: RET 0x4                                                 
+  0x00410220: PUSH EBP                                                 << target
+  0x00410221: MOV EBP,ESP                                             
+  0x00410223: SUB ESP,0xc                                             
+  0x00410226: MOV dword ptr [EBP + -0xc],ECX                          
+  0x00410229: MOVZX EAX,byte ptr [EBP + 0x8]                          
+  0x0041022d: PUSH EAX                                                
+  0x0041022e: MOV ECX,dword ptr [EBP + -0xc]                          
+  0x00410231: CALL 0x0040fe80                                         
+      call -> 0x0040fe80 FUN_0040fe80 @ 0x0040fe80
+  0x00410236: MOVZX ECX,AL                                            
+  0x00410239: TEST ECX,ECX                                            
+  0x0041023b: JNZ 0x00410244                                          
+  0x0041023d: XOR EAX,EAX                                             
+  0x0041023f: JMP 0x004102c8                                          
+  0x00410244: MOV dword ptr [EBP + -0x4],0x0                          
+  0x0041024b: MOVZX EDX,byte ptr [EBP + 0x8]                          
+  0x0041024f: PUSH EDX                                                
+  0x00410250: MOV EAX,dword ptr [EBP + -0xc]                          
+  0x00410253: PUSH EAX                                                
+  0x00410254: CALL 0x0040f9e0                                         
+      call -> 0x0040f9e0 FUN_0040f9e0 @ 0x0040f9e0
+  0x00410259: ADD ESP,0x8                                             
+  0x0041025c: MOV dword ptr [EBP + -0x4],EAX                          
+  0x0041025f: CMP dword ptr [EBP + -0x4],0x0                          
+  0x00410263: JNZ 0x004102c5                                          
+  0x00410265: PUSH 0x10143a0                                          
+  0x0041026a: MOV ECX,0x11c3920                                       
+  0x0041026f: CALL 0x0040fbf0                                         
+      call -> 0x0040fbf0 FUN_0040fbf0 @ 0x0040fbf0
+  0x00410274: MOV ECX,dword ptr [EBP + -0xc]                          
+  0x00410277: MOV EDX,dword ptr [ECX + 0x4]                           
+  0x0041027a: MOV dword ptr [EBP + -0x8],EDX                          
+  0x0041027d: CMP dword ptr [EBP + -0x8],0x0                          
+  0x00410281: JZ 0x004102bb                                           
+  0x00410283: MOV ECX,dword ptr [EBP + -0x8]                          
+  0x00410286: CALL 0x004f1540                                         
+      call -> 0x004f1540 FUN_004f1540 @ 0x004f1540
+  0x0041028b: MOVZX EAX,AL                                            
+  0x0041028e: MOVZX ECX,byte ptr [EBP + 0x8]                          
+  0x00410292: CMP EAX,ECX                                             
+  0x00410294: JNZ 0x004102ae                                          
+  0x00410296: MOV EDX,dword ptr [EBP + -0x8]                          
+  0x00410299: PUSH EDX                                                
+  0x0041029a: MOV EAX,dword ptr [EBP + -0xc]                          
+  0x0041029d: PUSH EAX                                                
+  0x0041029e: CALL 0x0040fa40                                         
+      call -> 0x0040fa40 FUN_0040fa40 @ 0x0040fa40
+  0x004102a3: ADD ESP,0x8                                             
+  0x004102a6: MOV ECX,dword ptr [EBP + -0x8]                          
+  0x004102a9: MOV dword ptr [EBP + -0x4],ECX                          
+  0x004102ac: JMP 0x004102bb                                          
+  0x004102ae: MOV ECX,dword ptr [EBP + -0x8]                          
+  0x004102b1: CALL 0x0044ddc0                                         
+      call -> 0x0044ddc0 FUN_0044ddc0 @ 0x0044ddc0
+  0x004102b6: MOV dword ptr [EBP + -0x8],EAX                          
+  0x004102b9: JMP 0x0041027d                                          
+  0x004102bb: MOV ECX,0x11c3920                                       
+  0x004102c0: CALL 0x0040fba0                                         
+      call -> 0x0040fba0 FUN_0040fba0 @ 0x0040fba0
+  0x004102c5: MOV EAX,dword ptr [EBP + -0x4]                          
+  0x004102c8: MOV ESP,EBP                                             
+  0x004102ca: POP EBP                                                 
+  0x004102cb: RET 0x4                                                 
+  0x004102d0: PUSH EBP                                                
+  0x004102d1: MOV EBP,ESP                                             
+  0x004102d3: SUB ESP,0xc                                             
+  0x004102d6: MOV dword ptr [EBP + -0xc],ECX                          
+  0x004102d9: MOVZX EAX,byte ptr [EBP + 0x8]                          
+  0x004102dd: PUSH EAX                                                
+  0x004102de: MOV ECX,dword ptr [EBP + -0xc]                          
+  0x004102e1: CALL 0x0040fe80                                         
+      call -> 0x0040fe80 FUN_0040fe80 @ 0x0040fe80
+  0x004102e6: MOVZX ECX,AL                                            
+  0x004102e9: TEST ECX,ECX                                            
+  0x004102eb: JNZ 0x004102f1                                          
+  0x004102ed: XOR EAX,EAX                                             
+  0x004102ef: JMP 0x0041034b                                          
+  0x004102f1: PUSH 0x10143c0                                          
+  0x004102f6: MOV ECX,0x11c3920                                       
+  0x004102fb: CALL 0x0040fbf0                                         
+      call -> 0x0040fbf0 FUN_0040fbf0 @ 0x0040fbf0
+  0x00410300: MOV EDX,dword ptr [EBP + -0xc]                          
+  0x00410303: MOV EAX,dword ptr [EDX + 0x4]                           
+  0x00410306: MOV dword ptr [EBP + -0x8],EAX                          
+  0x00410309: MOV dword ptr [EBP + -0x4],0x0                          
+  0x00410310: CMP dword ptr [EBP + -0x8],0x0                          
+  0x00410314: JZ 0x0041033e                                           
+  0x00410316: MOV ECX,dword ptr [EBP + -0x8]                          
+  0x00410319: CALL 0x004f1540                                         
+      call -> 0x004f1540 FUN_004f1540 @ 0x004f1540
+  0x0041031e: MOVZX ECX,AL                                            
+
+----------------------------------------------------------------------
+Disassembly: crashing deref in GetByType around 0x00410286
+----------------------------------------------------------------------
+  0x0041023f: JMP 0x004102c8                                          
+  0x00410244: MOV dword ptr [EBP + -0x4],0x0                          
+  0x0041024b: MOVZX EDX,byte ptr [EBP + 0x8]                          
+  0x0041024f: PUSH EDX                                                
+  0x00410250: MOV EAX,dword ptr [EBP + -0xc]                          
+  0x00410253: PUSH EAX                                                
+  0x00410254: CALL 0x0040f9e0                                         
+      call -> 0x0040f9e0 FUN_0040f9e0 @ 0x0040f9e0
+  0x00410259: ADD ESP,0x8                                             
+  0x0041025c: MOV dword ptr [EBP + -0x4],EAX                          
+  0x0041025f: CMP dword ptr [EBP + -0x4],0x0                          
+  0x00410263: JNZ 0x004102c5                                          
+  0x00410265: PUSH 0x10143a0                                          
+  0x0041026a: MOV ECX,0x11c3920                                       
+  0x0041026f: CALL 0x0040fbf0                                         
+      call -> 0x0040fbf0 FUN_0040fbf0 @ 0x0040fbf0
+  0x00410274: MOV ECX,dword ptr [EBP + -0xc]                          
+  0x00410277: MOV EDX,dword ptr [ECX + 0x4]                           
+  0x0041027a: MOV dword ptr [EBP + -0x8],EDX                          
+  0x0041027d: CMP dword ptr [EBP + -0x8],0x0                          
+  0x00410281: JZ 0x004102bb                                           
+  0x00410283: MOV ECX,dword ptr [EBP + -0x8]                          
+  0x00410286: CALL 0x004f1540                                          << target
+      call -> 0x004f1540 FUN_004f1540 @ 0x004f1540
+  0x0041028b: MOVZX EAX,AL                                            
+  0x0041028e: MOVZX ECX,byte ptr [EBP + 0x8]                          
+  0x00410292: CMP EAX,ECX                                             
+  0x00410294: JNZ 0x004102ae                                          
+  0x00410296: MOV EDX,dword ptr [EBP + -0x8]                          
+  0x00410299: PUSH EDX                                                
+  0x0041029a: MOV EAX,dword ptr [EBP + -0xc]                          
+  0x0041029d: PUSH EAX                                                
+  0x0041029e: CALL 0x0040fa40                                         
+      call -> 0x0040fa40 FUN_0040fa40 @ 0x0040fa40
+  0x004102a3: ADD ESP,0x8                                             
+  0x004102a6: MOV ECX,dword ptr [EBP + -0x8]                          
+  0x004102a9: MOV dword ptr [EBP + -0x4],ECX                          
+  0x004102ac: JMP 0x004102bb                                          
+  0x004102ae: MOV ECX,dword ptr [EBP + -0x8]                          
+  0x004102b1: CALL 0x0044ddc0                                         
+      call -> 0x0044ddc0 FUN_0044ddc0 @ 0x0044ddc0
+  0x004102b6: MOV dword ptr [EBP + -0x8],EAX                          
+  0x004102b9: JMP 0x0041027d                                          
+  0x004102bb: MOV ECX,0x11c3920                                       
+  0x004102c0: CALL 0x0040fba0                                         
+      call -> 0x0040fba0 FUN_0040fba0 @ 0x0040fba0
+  0x004102c5: MOV EAX,dword ptr [EBP + -0x4]                          
+  0x004102c8: MOV ESP,EBP                                             
+  0x004102ca: POP EBP                                                 
+  0x004102cb: RET 0x4                                                 
+  0x004102d0: PUSH EBP                                                
+
+----------------------------------------------------------------------
+Disassembly: BaseExtraList cached lookup helper around 0x0040f9e0
+----------------------------------------------------------------------
+  0x0040f990: MOV dword ptr [EBP + -0x4],ECX                          
+  0x0040f993: CMP dword ptr [EBP + -0x4],0x1f                         
+  0x0040f997: JA 0x0040f9ae                                           
+  0x0040f999: MOV EDX,dword ptr [EBP + -0x4]                          
+  0x0040f99c: MOVZX EAX,byte ptr [EDX + 0x40f9bc]                     
+  0x0040f9a3: JMP dword ptr [EAX*0x4 + 0x40f9b4]                      
+  0x0040f9aa: MOV AL,0x1                                              
+  0x0040f9ac: JMP 0x0040f9b0                                          
+  0x0040f9ae: XOR AL,AL                                               
+  0x0040f9b0: MOV ESP,EBP                                             
+  0x0040f9b2: POP EBP                                                 
+  0x0040f9b3: RET                                                     
+  0x0040f9e0: PUSH EBP                                                 << target
+  0x0040f9e1: MOV EBP,ESP                                             
+  0x0040f9e3: PUSH ECX                                                
+  0x0040f9e4: MOV dword ptr [EBP + -0x4],0x0                          
+  0x0040f9eb: MOV EAX,[0x0126fd98]                                    
+  0x0040f9f0: MOV ECX,dword ptr FS:[0x2c]                             
+  0x0040f9f7: MOV EDX,dword ptr [ECX + EAX*0x4]                       
+  0x0040f9fa: MOV EAX,dword ptr [EBP + 0x8]                           
+  0x0040f9fd: CMP EAX,dword ptr [EDX + 0x8]                           
+  0x0040fa03: JNZ 0x0040fa36                                          
+  0x0040fa05: CALL 0x0040f900                                         
+      call -> 0x0040f900 FUN_0040f900 @ 0x0040f900
+  0x0040fa0a: CMP dword ptr [EBP + 0xc],0x0                           
+  0x0040fa0e: JL 0x0040fa36                                           
+  0x0040fa10: CMP dword ptr [EBP + 0xc],0x93                          
+  0x0040fa17: JGE 0x0040fa36                                          
+  0x0040fa19: MOV ECX,dword ptr [0x0126fd98]                          
+  0x0040fa1f: MOV EDX,dword ptr FS:[0x2c]                             
+  0x0040fa26: MOV EAX,dword ptr [EDX + ECX*0x4]                       
+  0x0040fa29: MOV ECX,dword ptr [EBP + 0xc]                           
+  0x0040fa2c: MOV EDX,dword ptr [EAX + ECX*0x4 + 0x10]                
+  0x0040fa33: MOV dword ptr [EBP + -0x4],EDX                          
+  0x0040fa36: MOV EAX,dword ptr [EBP + -0x4]                          
+  0x0040fa39: MOV ESP,EBP                                             
+  0x0040fa3b: POP EBP                                                 
+  0x0040fa3c: RET                                                     
+  0x0040fa40: PUSH EBP                                                
+  0x0040fa41: MOV EBP,ESP                                             
+  0x0040fa43: PUSH ESI                                                
+  0x0040fa44: CMP dword ptr [EBP + 0x8],0x0                           
+  0x0040fa48: JZ 0x0040fad0                                           
+  0x0040fa4e: CMP dword ptr [EBP + 0xc],0x0                           
+  0x0040fa52: JZ 0x0040fad0                                           
+  0x0040fa54: MOV EAX,[0x0126fd98]                                    
+  0x0040fa59: MOV ECX,dword ptr FS:[0x2c]                             
+  0x0040fa60: MOV EDX,dword ptr [ECX + EAX*0x4]                       
+
+----------------------------------------------------------------------
+Disassembly: BaseExtraList cache store helper around 0x0040fa40
+----------------------------------------------------------------------
+  0x0040fa10: CMP dword ptr [EBP + 0xc],0x93                          
+  0x0040fa17: JGE 0x0040fa36                                          
+  0x0040fa19: MOV ECX,dword ptr [0x0126fd98]                          
+  0x0040fa1f: MOV EDX,dword ptr FS:[0x2c]                             
+  0x0040fa26: MOV EAX,dword ptr [EDX + ECX*0x4]                       
+  0x0040fa29: MOV ECX,dword ptr [EBP + 0xc]                           
+  0x0040fa2c: MOV EDX,dword ptr [EAX + ECX*0x4 + 0x10]                
+  0x0040fa33: MOV dword ptr [EBP + -0x4],EDX                          
+  0x0040fa36: MOV EAX,dword ptr [EBP + -0x4]                          
+  0x0040fa39: MOV ESP,EBP                                             
+  0x0040fa3b: POP EBP                                                 
+  0x0040fa3c: RET                                                     
+  0x0040fa40: PUSH EBP                                                 << target
+  0x0040fa41: MOV EBP,ESP                                             
+  0x0040fa43: PUSH ESI                                                
+  0x0040fa44: CMP dword ptr [EBP + 0x8],0x0                           
+  0x0040fa48: JZ 0x0040fad0                                           
+  0x0040fa4e: CMP dword ptr [EBP + 0xc],0x0                           
+  0x0040fa52: JZ 0x0040fad0                                           
+  0x0040fa54: MOV EAX,[0x0126fd98]                                    
+  0x0040fa59: MOV ECX,dword ptr FS:[0x2c]                             
+  0x0040fa60: MOV EDX,dword ptr [ECX + EAX*0x4]                       
+  0x0040fa63: MOV EAX,dword ptr [EBP + 0x8]                           
+  0x0040fa66: CMP EAX,dword ptr [EDX + 0x8]                           
+  0x0040fa6c: JZ 0x0040faac                                           
+  0x0040fa6e: PUSH 0x24c                                              
+  0x0040fa73: PUSH 0x0                                                
+  0x0040fa75: MOV ECX,dword ptr [0x0126fd98]                          
+  0x0040fa7b: MOV EDX,dword ptr FS:[0x2c]                             
+  0x0040fa82: MOV EAX,dword ptr [EDX + ECX*0x4]                       
+  0x0040fa85: ADD EAX,0x10                                            
+  0x0040fa8a: PUSH EAX                                                
+  0x0040fa8b: CALL 0x00403d30                                         
+      call -> 0x00403d30 _Fiopen @ 0x00403d30
+  0x0040fa90: ADD ESP,0xc                                             
+  0x0040fa93: MOV ECX,dword ptr [0x0126fd98]                          
+  0x0040fa99: MOV EDX,dword ptr FS:[0x2c]                             
+  0x0040faa0: MOV EAX,dword ptr [EDX + ECX*0x4]                       
+  0x0040faa3: MOV ECX,dword ptr [EBP + 0x8]                           
+  0x0040faa6: MOV dword ptr [EAX + 0x8],ECX                           
+  0x0040faac: MOV EDX,dword ptr [0x0126fd98]                          
+  0x0040fab2: MOV EAX,FS:[0x2c]                                       
+  0x0040fab8: MOV ESI,dword ptr [EAX + EDX*0x4]                       
+  0x0040fabb: MOV ECX,dword ptr [EBP + 0xc]                           
+  0x0040fabe: CALL 0x004f1540                                         
+      call -> 0x004f1540 FUN_004f1540 @ 0x004f1540
+  0x0040fac3: MOVZX ECX,AL                                            
+  0x0040fac6: MOV EDX,dword ptr [EBP + 0xc]                           
+  0x0040fac9: MOV dword ptr [ESI + ECX*0x4 + 0x10],EDX                
+
+----------------------------------------------------------------------
+Disassembly: BSExtraData next helper around 0x0044ddc0
+----------------------------------------------------------------------
+  0x0044dd98: MOV EDX,dword ptr [EAX]                                 
+  0x0044dd9a: MOV ECX,dword ptr [EBP + -0x8]                          
+  0x0044dd9d: MOV EAX,dword ptr [EDX]                                 
+  0x0044dd9f: CALL EAX                                                
+  0x0044dda1: MOV dword ptr [EBP + -0x14],EAX                         
+  0x0044dda4: JMP 0x0044ddad                                          
+  0x0044dda6: MOV dword ptr [EBP + -0x14],0x0                         
+  0x0044ddad: MOV ESP,EBP                                             
+  0x0044ddaf: POP EBP                                                 
+  0x0044ddb0: RET                                                     
+  0x0044ddc0: PUSH EBP                                                 << target
+  0x0044ddc1: MOV EBP,ESP                                             
+  0x0044ddc3: PUSH ECX                                                
+  0x0044ddc4: MOV dword ptr [EBP + -0x4],ECX                          
+  0x0044ddc7: MOV EAX,dword ptr [EBP + -0x4]                          
+  0x0044ddca: MOV EAX,dword ptr [EAX + 0x8]                           
+  0x0044ddcd: MOV ESP,EBP                                             
+  0x0044ddcf: POP EBP                                                 
+  0x0044ddd0: RET                                                     
+  0x0044dde0: PUSH EBP                                                
+  0x0044dde1: MOV EBP,ESP                                             
+  0x0044dde3: SUB ESP,0x8                                             
+  0x0044dde6: MOV dword ptr [EBP + -0x8],ECX                          
+  0x0044dde9: MOV EAX,dword ptr [EBP + 0x8]                           
+  0x0044ddec: MOV ECX,dword ptr [EAX]                                 
+  0x0044ddee: PUSH ECX                                                
+  0x0044ddef: MOV EDX,dword ptr [EBP + -0x8]                          
+  0x0044ddf2: MOV EAX,dword ptr [EDX]                                 
+  0x0044ddf4: MOV ECX,dword ptr [EBP + -0x8]                          
+  0x0044ddf7: MOV EDX,dword ptr [EAX + 0x28]                          
+  0x0044ddfa: CALL EDX                                                
+  0x0044ddfc: MOV EAX,dword ptr [EBP + 0x8]                           
+  0x0044ddff: MOV dword ptr [EBP + -0x4],EAX                          
+  0x0044de02: MOV ECX,dword ptr [EBP + -0x4]                          
+  0x0044de05: PUSH ECX                                                
+  0x0044de06: CALL 0x00401030                                         
+      call -> 0x00401030 FUN_00401030 @ 0x00401030
+  0x0044de0b: ADD ESP,0x4                                             
+  0x0044de0e: MOV ESP,EBP                                             
+  0x0044de10: POP EBP                                                 
+
+----------------------------------------------------------------------
+Disassembly: BSExtraData type helper around 0x004f1540
+----------------------------------------------------------------------
+  0x004f1523: ADD ESP,0xc                                             
+  0x004f1526: CALL 0x00401500                                         
+      call -> 0x00401500 FUN_00401500 @ 0x00401500
+  0x004f152b: MOVZX EAX,AL                                            
+  0x004f152e: TEST EAX,EAX                                            
+  0x004f1530: JZ 0x004f153a                                           
+  0x004f1532: LEA ECX,[EBP + -0x8]                                    
+  0x004f1535: CALL 0x00503210                                         
+      call -> 0x00503210 FUN_00503210 @ 0x00503210
+  0x004f153a: MOV ESP,EBP                                             
+  0x004f153c: POP EBP                                                 
+  0x004f153d: RET                                                     
+  0x004f1540: PUSH EBP                                                 << target
+  0x004f1541: MOV EBP,ESP                                             
+  0x004f1543: PUSH ECX                                                
+  0x004f1544: MOV dword ptr [EBP + -0x4],ECX                          
+  0x004f1547: MOV EAX,dword ptr [EBP + -0x4]                          
+  0x004f154a: MOV AL,byte ptr [EAX + 0x4]                             
+  0x004f154d: MOV ESP,EBP                                             
+  0x004f154f: POP EBP                                                 
+  0x004f1550: RET                                                     
+  0x004f1560: PUSH EBP                                                
+  0x004f1561: MOV EBP,ESP                                             
+  0x004f1563: PUSH ECX                                                
+  0x004f1564: MOV dword ptr [EBP + -0x4],ECX                          
+  0x004f1567: CMP dword ptr [EBP + 0x8],0x0                           
+  0x004f156b: JNZ 0x004f1571                                          
+  0x004f156d: XOR AL,AL                                               
+  0x004f156f: JMP 0x004f1593                                          
+  0x004f1571: MOV EAX,dword ptr [EBP + 0x8]                           
+  0x004f1574: MOVZX ECX,byte ptr [EAX + 0x4]                          
+  0x004f1578: PUSH ECX                                                
+  0x004f1579: MOV ECX,dword ptr [EBP + -0x4]                          
+  0x004f157c: CALL 0x004f15a0                                         
+      call -> 0x004f15a0 FUN_004f15a0 @ 0x004f15a0
+  0x004f1581: MOV EDX,dword ptr [EBP + 0x8]                           
+  0x004f1584: MOVZX EAX,byte ptr [EDX + 0x5]                          
+  0x004f1588: PUSH EAX                                                
+  0x004f1589: MOV ECX,dword ptr [EBP + -0x4]                          
+  0x004f158c: CALL 0x004f15c0                                         
+      call -> 0x004f15c0 FUN_004f15c0 @ 0x004f15c0
+  0x004f1591: MOV AL,0x1                                              
+  0x004f1593: MOV ESP,EBP                                             
+
+======================================================================
+BaseExtraList::GetByType @ 0x00410220
+======================================================================
+  Function: FUN_00410220 @ 0x00410220, Size: 174 bytes
+
+int __thiscall FUN_00410220(int param_1,char param_2)
+
+{
+  char cVar1;
+  int local_c;
+  int local_8;
+  
+  cVar1 = FUN_0040fe80(param_2);
+  if (cVar1 == '\0') {
+    local_8 = 0;
+  }
+  else {
+    local_8 = FUN_0040f9e0(param_1,param_2);
+    if (local_8 == 0) {
+      FUN_0040fbf0("BaseExtraList::GetExtraData()");
+      local_c = *(int *)(param_1 + 4);
+      while (local_c != 0) {
+        cVar1 = FUN_004f1540();
+        if (cVar1 == param_2) {
+          FUN_0040fa40(param_1,local_c);
+          local_8 = local_c;
+          break;
+        }
+        local_c = FUN_0044ddc0();
+      }
+      FUN_0040fba0();
+    }
+  }
+  return local_8;
+}
+
+
+
+======================================================================
+BaseExtraList cached lookup helper @ 0x0040f9e0
+======================================================================
+  Function: FUN_0040f9e0 @ 0x0040f9e0, Size: 93 bytes
+
+undefined4 FUN_0040f9e0(int param_1,int param_2)
+
+{
+  int unaff_FS_OFFSET;
+  undefined4 local_8;
+  
+  local_8 = 0;
+  if (param_1 == *(int *)(*(int *)(*(int *)(unaff_FS_OFFSET + 0x2c) + _tls_index * 4) + 8)) {
+    FUN_0040f900();
+    if ((-1 < param_2) && (param_2 < 0x93)) {
+      local_8 = *(undefined4 *)
+                 (*(int *)(*(int *)(unaff_FS_OFFSET + 0x2c) + _tls_index * 4) + 0x10 + param_2 * 4);
+    }
+  }
+  return local_8;
+}
+
+
+
+======================================================================
+BaseExtraList cache store helper @ 0x0040fa40
+======================================================================
+  Function: FUN_0040fa40 @ 0x0040fa40, Size: 147 bytes
+
+void FUN_0040fa40(int param_1,int param_2)
+
+{
+  int iVar1;
+  uint uVar2;
+  int unaff_FS_OFFSET;
+  
+  if ((param_1 != 0) && (param_2 != 0)) {
+    if (param_1 != *(int *)(*(int *)(*(int *)(unaff_FS_OFFSET + 0x2c) + _tls_index * 4) + 8)) {
+      std::_Fiopen((wchar_t *)(*(int *)(*(int *)(unaff_FS_OFFSET + 0x2c) + _tls_index * 4) + 0x10),0
+                   ,0x24c);
+      *(int *)(*(int *)(*(int *)(unaff_FS_OFFSET + 0x2c) + _tls_index * 4) + 8) = param_1;
+    }
+    iVar1 = *(int *)(*(int *)(unaff_FS_OFFSET + 0x2c) + _tls_index * 4);
+    uVar2 = FUN_004f1540();
+    *(int *)(iVar1 + 0x10 + (uVar2 & 0xff) * 4) = param_2;
+  }
+  return;
+}
+
+
+
+======================================================================
+BSExtraData next helper @ 0x0044ddc0
+======================================================================
+  Function: FUN_0044ddc0 @ 0x0044ddc0, Size: 17 bytes
+
+undefined4 __fastcall FUN_0044ddc0(int param_1)
+
+{
+  return *(undefined4 *)(param_1 + 8);
+}
+
+
+
+======================================================================
+BSExtraData type helper @ 0x004f1540
+======================================================================
+  Function: FUN_004f1540 @ 0x004f1540, Size: 17 bytes
+
+undefined1 __fastcall FUN_004f1540(int param_1)
+
+{
+  return *(undefined1 *)(param_1 + 4);
+}
+
+
+
+======================================================================
+Crash stack function chain
+======================================================================
+
+----------------------------------------------------------------------
+Disassembly: crash EIP inside BaseExtraList::GetByType around 0x00410286
+----------------------------------------------------------------------
+  0x00410254: CALL 0x0040f9e0                                         
+      call -> 0x0040f9e0 FUN_0040f9e0 @ 0x0040f9e0
+  0x00410259: ADD ESP,0x8                                             
+  0x0041025c: MOV dword ptr [EBP + -0x4],EAX                          
+  0x0041025f: CMP dword ptr [EBP + -0x4],0x0                          
+  0x00410263: JNZ 0x004102c5                                          
+  0x00410265: PUSH 0x10143a0                                          
+  0x0041026a: MOV ECX,0x11c3920                                       
+  0x0041026f: CALL 0x0040fbf0                                         
+      call -> 0x0040fbf0 FUN_0040fbf0 @ 0x0040fbf0
+  0x00410274: MOV ECX,dword ptr [EBP + -0xc]                          
+  0x00410277: MOV EDX,dword ptr [ECX + 0x4]                           
+  0x0041027a: MOV dword ptr [EBP + -0x8],EDX                          
+  0x0041027d: CMP dword ptr [EBP + -0x8],0x0                          
+  0x00410281: JZ 0x004102bb                                           
+  0x00410283: MOV ECX,dword ptr [EBP + -0x8]                          
+  0x00410286: CALL 0x004f1540                                          << target
+      call -> 0x004f1540 FUN_004f1540 @ 0x004f1540
+  0x0041028b: MOVZX EAX,AL                                            
+  0x0041028e: MOVZX ECX,byte ptr [EBP + 0x8]                          
+  0x00410292: CMP EAX,ECX                                             
+  0x00410294: JNZ 0x004102ae                                          
+  0x00410296: MOV EDX,dword ptr [EBP + -0x8]                          
+  0x00410299: PUSH EDX                                                
+  0x0041029a: MOV EAX,dword ptr [EBP + -0xc]                          
+  0x0041029d: PUSH EAX                                                
+  0x0041029e: CALL 0x0040fa40                                         
+      call -> 0x0040fa40 FUN_0040fa40 @ 0x0040fa40
+  0x004102a3: ADD ESP,0x8                                             
+  0x004102a6: MOV ECX,dword ptr [EBP + -0x8]                          
+  0x004102a9: MOV dword ptr [EBP + -0x4],ECX                          
+  0x004102ac: JMP 0x004102bb                                          
+  0x004102ae: MOV ECX,dword ptr [EBP + -0x8]                          
+  0x004102b1: CALL 0x0044ddc0                                         
+      call -> 0x0044ddc0 FUN_0044ddc0 @ 0x0044ddc0
+  0x004102b6: MOV dword ptr [EBP + -0x8],EAX                          
+  0x004102b9: JMP 0x0041027d                                          
+  0x004102bb: MOV ECX,0x11c3920                                       
+  0x004102c0: CALL 0x0040fba0                                         
+      call -> 0x0040fba0 FUN_0040fba0 @ 0x0040fba0
+  0x004102c5: MOV EAX,dword ptr [EBP + -0x4]                          
+  0x004102c8: MOV ESP,EBP                                             
+  0x004102ca: POP EBP                                                 
+  0x004102cb: RET 0x4                                                 
+  0x004102d0: PUSH EBP                                                
+  0x004102d1: MOV EBP,ESP                                             
+  0x004102d3: SUB ESP,0xc                                             
+  0x004102d6: MOV dword ptr [EBP + -0xc],ECX                          
+  0x004102d9: MOVZX EAX,byte ptr [EBP + 0x8]                          
+  0x004102dd: PUSH EAX                                                
+  0x004102de: MOV ECX,dword ptr [EBP + -0xc]                          
+  0x004102e1: CALL 0x0040fe80                                         
+      call -> 0x0040fe80 FUN_0040fe80 @ 0x0040fe80
+  0x004102e6: MOVZX ECX,AL                                            
+  0x004102e9: TEST ECX,ECX                                            
+  0x004102eb: JNZ 0x004102f1                                          
+
+======================================================================
+crash EIP inside BaseExtraList::GetByType @ 0x00410286
+======================================================================
+  Function: FUN_00410220 @ 0x00410220, Size: 174 bytes
+  NOTE: Requested 0x00410286 is inside FUN_00410220 (entry at 0x00410220)
+
+int __thiscall FUN_00410220(int param_1,char param_2)
+
+{
+  char cVar1;
+  int local_c;
+  int local_8;
+  
+  cVar1 = FUN_0040fe80(param_2);
+  if (cVar1 == '\0') {
+    local_8 = 0;
+  }
+  else {
+    local_8 = FUN_0040f9e0(param_1,param_2);
+    if (local_8 == 0) {
+      FUN_0040fbf0("BaseExtraList::GetExtraData()");
+      local_c = *(int *)(param_1 + 4);
+      while (local_c != 0) {
+        cVar1 = FUN_004f1540();
+        if (cVar1 == param_2) {
+          FUN_0040fa40(param_1,local_c);
+          local_8 = local_c;
+          break;
+        }
+        local_c = FUN_0044ddc0();
+      }
+      FUN_0040fba0();
+    }
+  }
+  return local_8;
+}
+
+
+
+----------------------------------------------------------------------
+Calls FROM crash EIP inside BaseExtraList::GetByType (0x00410286)
+----------------------------------------------------------------------
+  0x00410231 -> 0x0040fe80 FUN_0040fe80 @ 0x0040fe80
+  0x00410254 -> 0x0040f9e0 FUN_0040f9e0 @ 0x0040f9e0
+  0x0041026f -> 0x0040fbf0 FUN_0040fbf0 @ 0x0040fbf0
+  0x00410286 -> 0x004f1540 FUN_004f1540 @ 0x004f1540
+  0x0041029e -> 0x0040fa40 FUN_0040fa40 @ 0x0040fa40
+  0x004102b1 -> 0x0044ddc0 FUN_0044ddc0 @ 0x0044ddc0
+  0x004102c0 -> 0x0040fba0 FUN_0040fba0 @ 0x0040fba0
+  Total printed: 7
+
+----------------------------------------------------------------------
+Disassembly: return after GetByType caller around 0x0041e619
+----------------------------------------------------------------------
+  0x0041e5ea: MOV dword ptr FS:[0x0],ECX                              
+  0x0041e5f1: POP ECX                                                 
+  0x0041e5f2: MOV ESP,EBP                                             
+  0x0041e5f4: POP EBP                                                 
+  0x0041e5f5: RET 0x4                                                 
+  0x0041e600: PUSH EBP                                                
+  0x0041e601: MOV EBP,ESP                                             
+  0x0041e603: SUB ESP,0x8                                             
+  0x0041e606: MOV dword ptr [EBP + -0x8],ECX                          
+  0x0041e609: CMP dword ptr [EBP + 0x8],0x0                           
+  0x0041e60d: JZ 0x0041e651                                           
+  0x0041e60f: PUSH 0x52                                               
+  0x0041e611: MOV ECX,dword ptr [EBP + -0x8]                          
+  0x0041e614: CALL 0x00410220                                         
+      call -> 0x00410220 FUN_00410220 @ 0x00410220
+  0x0041e619: MOV dword ptr [EBP + -0x4],EAX                           << target
+  0x0041e61c: CMP dword ptr [EBP + -0x4],0x0                          
+  0x0041e620: JZ 0x0041e651                                           
+  0x0041e622: LEA EAX,[EBP + 0x8]                                     
+  0x0041e625: PUSH EAX                                                
+  0x0041e626: MOV ECX,dword ptr [EBP + -0x4]                          
+  0x0041e629: ADD ECX,0xc                                             
+  0x0041e62c: CALL 0x00905330                                         
+      call -> 0x00905330 FUN_00905330 @ 0x00905330
+  0x0041e631: MOV ECX,dword ptr [EBP + -0x4]                          
+  0x0041e634: ADD ECX,0xc                                             
+  0x0041e637: CALL 0x008256d0                                         
+      call -> 0x008256d0 FUN_008256d0 @ 0x008256d0
+  0x0041e63c: MOVZX ECX,AL                                            
+  0x0041e63f: TEST ECX,ECX                                            
+  0x0041e641: JZ 0x0041e651                                           
+  0x0041e643: PUSH 0x1                                                
+  0x0041e645: MOV EDX,dword ptr [EBP + -0x4]                          
+  0x0041e648: PUSH EDX                                                
+  0x0041e649: MOV ECX,dword ptr [EBP + -0x8]                          
+  0x0041e64c: CALL 0x00410020                                         
+      call -> 0x00410020 FUN_00410020 @ 0x00410020
+  0x0041e651: MOV ESP,EBP                                             
+  0x0041e653: POP EBP                                                 
+  0x0041e654: RET 0x4                                                 
+  0x0041e660: PUSH EBP                                                
+  0x0041e661: MOV EBP,ESP                                             
+  0x0041e663: SUB ESP,0x8                                             
+  0x0041e666: MOV dword ptr [EBP + -0x8],ECX                          
+  0x0041e669: PUSH 0x6c                                               
+  0x0041e66b: MOV ECX,dword ptr [EBP + -0x8]                          
+  0x0041e66e: CALL 0x00410220                                         
+      call -> 0x00410220 FUN_00410220 @ 0x00410220
+  0x0041e673: MOV dword ptr [EBP + -0x4],EAX                          
+  0x0041e676: CMP dword ptr [EBP + -0x4],0x0                          
+  0x0041e67a: JZ 0x0041e684                                           
+  0x0041e67c: MOV EAX,dword ptr [EBP + -0x4]                          
+  0x0041e67f: MOV EAX,dword ptr [EAX + 0xc]                           
+  0x0041e682: JMP 0x0041e686                                          
+
+======================================================================
+return after GetByType caller @ 0x0041e619
+======================================================================
+  Function: FUN_0041e600 @ 0x0041e600, Size: 87 bytes
+  NOTE: Requested 0x0041e619 is inside FUN_0041e600 (entry at 0x0041e600)
+
+void FUN_0041e600(int param_1)
+
+{
+  char cVar1;
+  int iVar2;
+  undefined4 extraout_var;
+  undefined4 uVar3;
+  
+  if (param_1 != 0) {
+    iVar2 = FUN_00410220(0x52);
+    if (iVar2 != 0) {
+      uVar3 = extraout_var;
+      FUN_00905330(&param_1);
+      cVar1 = FUN_008256d0(uVar3);
+      if (cVar1 != '\0') {
+        FUN_00410020(iVar2,1);
+      }
+    }
+  }
+  return;
+}
+
+
+
+----------------------------------------------------------------------
+Calls FROM return after GetByType caller (0x0041e619)
+----------------------------------------------------------------------
+  0x0041e614 -> 0x00410220 FUN_00410220 @ 0x00410220
+  0x0041e62c -> 0x00905330 FUN_00905330 @ 0x00905330
+  0x0041e637 -> 0x008256d0 FUN_008256d0 @ 0x008256d0
+  0x0041e64c -> 0x00410020 FUN_00410020 @ 0x00410020
+  Total printed: 4
+
+----------------------------------------------------------------------
+Disassembly: stack caller around 0x0055a976
+----------------------------------------------------------------------
+  0x0055a949: PUSH ECX                                                
+  0x0055a94a: CALL 0x00477410                                         
+      call -> 0x00477410 FUN_00477410 @ 0x00477410
+  0x0055a94f: ADD ESP,0x4                                             
+  0x0055a952: MOV ECX,dword ptr [EBP + -0x5c]                         
+  0x0055a955: CALL 0x00569b80                                         
+      call -> 0x00569b80 FUN_00569b80 @ 0x00569b80
+  0x0055a95a: MOV dword ptr [EBP + -0x10],EAX                         
+  0x0055a95d: CMP dword ptr [EBP + -0x10],0x0                         
+  0x0055a961: JZ 0x0055a976                                           
+  0x0055a963: MOV EDX,dword ptr [EBP + -0x5c]                         
+  0x0055a966: PUSH EDX                                                
+  0x0055a967: MOV ECX,dword ptr [EBP + -0x10]                         
+  0x0055a96a: CALL 0x005d43c0                                         
+      call -> 0x005d43c0 FUN_005d43c0 @ 0x005d43c0
+  0x0055a96f: MOV ECX,EAX                                             
+  0x0055a971: CALL 0x0041e600                                         
+      call -> 0x0041e600 FUN_0041e600 @ 0x0041e600
+  0x0055a976: MOV ECX,dword ptr [EBP + -0x5c]                          << target
+  0x0055a979: CALL 0x005d43c0                                         
+      call -> 0x005d43c0 FUN_005d43c0 @ 0x005d43c0
+  0x0055a97e: MOV ECX,EAX                                             
+  0x0055a980: CALL 0x0041e500                                         
+      call -> 0x0041e500 FUN_0041e500 @ 0x0041e500
+  0x0055a985: MOV dword ptr [EBP + -0x18],EAX                         
+  0x0055a988: CMP dword ptr [EBP + -0x18],0x0                         
+  0x0055a98c: JZ 0x0055a9bb                                           
+  0x0055a98e: MOV ECX,dword ptr [EBP + -0x18]                         
+  0x0055a991: CALL 0x008256d0                                         
+      call -> 0x008256d0 FUN_008256d0 @ 0x008256d0
+  0x0055a996: MOVZX EAX,AL                                            
+  0x0055a999: TEST EAX,EAX                                            
+  0x0055a99b: JNZ 0x0055a9bb                                          
+  0x0055a99d: PUSH 0x0                                                
+  0x0055a99f: MOV ECX,dword ptr [EBP + -0x18]                         
+  0x0055a9a2: CALL 0x006815c0                                         
+      call -> 0x006815c0 FUN_006815c0 @ 0x006815c0
+  0x0055a9a7: MOV ECX,dword ptr [EAX]                                 
+  0x0055a9a9: CALL 0x00569ba0                                         
+      call -> 0x00569ba0 FUN_00569ba0 @ 0x00569ba0
+  0x0055a9ae: MOV ECX,dword ptr [EBP + -0x18]                         
+  0x0055a9b1: CALL 0x00726070                                         
+      call -> 0x00726070 FUN_00726070 @ 0x00726070
+  0x0055a9b6: MOV dword ptr [EBP + -0x18],EAX                         
+  0x0055a9b9: JMP 0x0055a988                                          
+  0x0055a9bb: MOV ECX,dword ptr [EBP + -0x5c]                         
+  0x0055a9be: CALL 0x005d43c0                                         
+      call -> 0x005d43c0 FUN_005d43c0 @ 0x005d43c0
+  0x0055a9c3: MOV ECX,EAX                                             
+  0x0055a9c5: CALL 0x0041e780                                         
+      call -> 0x0041e780 FUN_0041e780 @ 0x0041e780
+  0x0055a9ca: MOV dword ptr [EBP + -0x1c],EAX                         
+  0x0055a9cd: CMP dword ptr [EBP + -0x1c],0x0                         
+  0x0055a9d1: JZ 0x0055aa0b                                           
+  0x0055a9d3: MOV ECX,dword ptr [EBP + -0x1c]                         
+  0x0055a9d6: CALL 0x008256d0                                         
+      call -> 0x008256d0 FUN_008256d0 @ 0x008256d0
+  0x0055a9db: MOVZX ECX,AL                                            
+  0x0055a9de: TEST ECX,ECX                                            
+  0x0055a9e0: JNZ 0x0055aa0b                                          
+  0x0055a9e2: MOV EDX,dword ptr [EBP + -0x5c]                         
+  0x0055a9e5: PUSH EDX                                                
+
+======================================================================
+stack caller @ 0x0055a976
+======================================================================
+  Function: FUN_0055a430 @ 0x0055a430, Size: 1963 bytes
+  NOTE: Requested 0x0055a976 is inside FUN_0055a430 (entry at 0x0055a430)
+
+void __fastcall FUN_0055a430(undefined4 *param_1)
+
+{
+  char cVar1;
+  uint uVar2;
+  int *piVar3;
+  int iVar4;
+  undefined4 uVar5;
+  undefined4 *puVar6;
+  int *unaff_FS_OFFSET;
+  undefined4 **ppuVar7;
+  int local_68;
+  undefined4 *local_5c;
+  undefined4 *local_58;
+  undefined4 *local_54;
+  int local_50;
+  undefined4 local_4c;
+  int local_48;
+  int local_44;
+  int local_40;
+  int local_3c;
+  int local_38;
+  int local_34;
+  int local_30;
+  int local_2c;
+  int local_28;
+  int local_24;
+  int local_20;
+  int local_1c;
+  undefined1 local_15;
+  int local_14;
+  int local_10;
+  undefined1 *puStack_c;
+  uint local_8;
+  
+  puStack_c = &LAB_00ef6ca3;
+  local_10 = *unaff_FS_OFFSET;
+  uVar2 = DAT_011c16bc ^ (uint)&stack0xfffffffc;
+  *unaff_FS_OFFSET = (int)&local_10;
+  *param_1 = &PTR_FUN_0102f55c;
+  param_1[6] = &PTR_FUN_0102f550;
+  local_8 = 1;
+  local_1c = 0;
+  FUN_0057acc0(param_1,uVar2);
+  cVar1 = FUN_00568680();
+  if (cVar1 != '\0') {
+    FUN_004538e0(0);
+    DAT_011ca28c = FUN_00825c00();
+    local_24 = FUN_0096e290();
+    while (local_24 != 0) {
+      piVar3 = (int *)FUN_006815c0();
+      local_28 = *piVar3;
+      if ((local_28 != 0) && (iVar4 = FUN_008d8520(), iVar4 != 0)) {
+        piVar3 = (int *)FUN_008d8520();
+        (**(code **)(*piVar3 + 0x4cc))(param_1);
+      }
+      local_24 = FUN_00726070();
+    }
+    FUN_0082f1f0();
+  }
+  iVar4 = FUN_00401170();
+  if (iVar4 == 0x27) {
+    DAT_011ca28c = FUN_00825c00();
+  }
+  FUN_00868270(param_1);
+  iVar4 = FUN_007af430();
+  if (iVar4 != 0) {
+    FUN_007af430();
+    cVar1 = FUN_00549580();
+    if (((cVar1 != '\0') && (local_2c = FUN_00575d70(), local_2c != 0)) &&
+       (iVar4 = FUN_00586170(), iVar4 != 0)) {
+      puVar6 = param_1;
+      FUN_00586170(param_1);
+      FUN_006fcf30(puVar6);
+    }
+  }
+  if (param_1[0x19] != 0) {
+    iVar4 = FUN_008d6f30();
+    if (iVar4 == 0) {
+      local_68 = 0;
+    }
+    else {
+      FUN_008d6f30();
+      local_68 = FUN_004543c0();
+    }
+    local_30 = local_68;
+    if (local_68 != 0) {
+      uVar5 = FUN_00559450();
+      FUN_005380d0(uVar5);
+    }
+    FUN_0066b0d0(0);
+  }
+  local_15 = FUN_008a81c0();
+  FUN_008a8150(0);
+  cVar1 = FUN_004077c0();
+  if (cVar1 == '\0') {
+    FUN_00576760();
+    FUN_008d15b0(param_1);
+    FUN_008623a0(param_1);
+    cVar1 = FUN_004226e0();
+    if (cVar1 == '\0') {
+      local_40 = FUN_0056a9f0();
+      if (local_40 != 0) {
+        puVar6 = param_1;
+        FUN_005d43c0(param_1);
+        FUN_0041dda0(puVar6);
+      }
+      local_3c = FUN_0056ac90();
+      while ((local_3c != 0 && (cVar1 = FUN_008256d0(), cVar1 == '\0'))) {
+        uVar5 = 0;
+        FUN_006815c0(0);
+        FUN_0056aa10(uVar5);
+        local_3c = FUN_0056ac90();
+      }
+    }
+    FUN_005d43c0();
+    local_38 = FUN_0041de00();
+    if (local_38 != 0) {
+      puVar6 = param_1;
+      FUN_005d43c0(param_1);
+      FUN_0041e0d0(puVar6);
+    }
+    FUN_005d43c0();
+    local_34 = FUN_0041df90();
+    while ((local_34 != 0 && (cVar1 = FUN_008256d0(), cVar1 == '\0'))) {
+      uVar5 = 0;
+      FUN_006815c0(0);
+      FUN_005d43c0();
+      FUN_0041de40(uVar5);
+      FUN_006815c0();
+      puVar6 = (undefined4 *)FUN_00567790();
+      if (puVar6 == param_1) {
+        FUN_006815c0();
+        FUN_00567c50();
+      }
+      local_34 = FUN_00726070();
+    }
+    cVar1 = FUN_004226e0();
+    if (cVar1 == '\0') {
+      FUN_005d43c0();
+      local_48 = FUN_0041e310();
+      if (local_48 != 0) {
+        uVar5 = 0;
+        FUN_005d43c0(0);
+        FUN_0041e340(uVar5);
+      }
+      FUN_005d43c0();
+      local_44 = FUN_0041f170();
+      while ((local_44 != 0 && (piVar3 = (int *)FUN_006815c0(), *piVar3 != 0))) {
+        puVar6 = (undefined4 *)FUN_006815c0();
+        local_4c = *puVar6;
+        local_44 = FUN_00726070();
+        uVar5 = 0;
+        puVar6 = param_1;
+        FUN_005d43c0(param_1,0);
+        FUN_0041f4c0(puVar6,uVar5);
+        uVar5 = 0;
+        puVar6 = param_1;
+        FUN_005d43c0(param_1,0);
+        FUN_0041f650(puVar6,uVar5);
+      }
+      FUN_005aa5d0(param_1);
+      ppuVar7 = &local_54;
+      local_54 = param_1;
+      FUN_004e3260(ppuVar7);
+      FUN_00905330(ppuVar7);
+      ppuVar7 = &local_58;
+      local_58 = param_1;
+      FUN_004ec7b0(ppuVar7);
+      FUN_00905330(ppuVar7);
+      cVar1 = FUN_00564d80();
+      if (cVar1 != '\0') {
+        iVar4 = FUN_00401170();
+        if ((iVar4 < 0x3b) || (0x3c < iVar4)) {
+          FUN_00976680(param_1);
+          FUN_00963d60(param_1);
+          FUN_0096f600(param_1,1);
+          FUN_00975320(param_1);
+          FUN_00978660(param_1);
+        }
+        else {
+          FUN_00963d60(param_1);
+        }
+      }
+      cVar1 = FUN_005725b0();
+      if (cVar1 == '\0') {
+        FUN_009749b0(param_1);
+      }
+    }
+    cVar1 = FUN_0055abe0();
+    if (cVar1 != '\0') {
+      FUN_0055ac40(param_1);
+    }
+    cVar1 = FUN_004226e0();
+    if ((cVar1 == '\0') && (cVar1 = FUN_00568680(), cVar1 != '\0')) {
+      ppuVar7 = &local_5c;
+      local_5c = param_1;
+      FUN_0055ac00(ppuVar7);
+      FUN_00905330(ppuVar7);
+    }
+    cVar1 = FUN_00452370();
+    if (cVar1 != '\0') {
+      FUN_00477410(param_1);
+    }
+  }
+  local_14 = FUN_00569b80();
+  if (local_14 != 0) {
+    puVar6 = param_1;
+    FUN_005d43c0(param_1);
+    FUN_0041e600(puVar6);
+  }
+  FUN_005d43c0();
+  local_1c = FUN_0041e500();
+  while ((local_1c != 0 && (cVar1 = FUN_008256d0(), cVar1 == '\0'))) {
+    uVar5 = 0;
+    FUN_006815c0(0);
+    FUN_00569ba0(uVar5);
+    local_1c = FUN_00726070();
+  }
+  FUN_005d43c0();
+  local_20 = FUN_0041e780();
+  while ((local_20 != 0 && (cVar1 = FUN_008256d0(), cVar1 == '\0'))) {
+    puVar6 = param_1;
+    FUN_006815c0(param_1);
+    FUN_005d43c0();
+    FUN_0041ef20(puVar6);
+    local_20 = FUN_00726070();
+  }
+  FUN_005d43c0();
+  local_20 = FUN_0041eda0();
+  while ((local_20 != 0 && (cVar1 = FUN_008256d0(), cVar1 == '\0'))) {
+    puVar6 = param_1;
+    FUN_006815c0(param_1);
+    FUN_005d43c0();
+    FUN_0041e960(puVar6);
+    local_20 = FUN_00726070();
+  }
+  FUN_00564930(1);
+  FUN_0055ad20();
+  if (param_1[0x10] != 0) {
+    FUN_0054ca90(param_1);
+  }
+  cVar1 = FUN_005653d0();
+  if ((((cVar1 != '\0') && (DAT_011c3f2c != 0)) && (cVar1 = FUN_004226e0(), cVar1 == '\0')) &&
+     (local_50 = FUN_00575dc0(), local_50 != 0)) {
+    FUN_0054ca90(param_1);
+  }
+  iVar4 = FUN_007af430();
+  if ((iVar4 != 0) && (cVar1 = FUN_00564bc0(), cVar1 != '\0')) {
+    puVar6 = param_1;
+    FUN_006c0720(param_1);
+    FUN_006c0c80(puVar6);
+  }
+  iVar4 = FUN_007af430();
+  if (iVar4 != 0) {
+    FUN_007af430();
+    iVar4 = FUN_00401170();
+    if (iVar4 == 0x1c) {
+      puVar6 = param_1;
+      FUN_006c0720(param_1);
+      FUN_006c1060(puVar6);
+    }
+  }
+  FUN_00705b30(param_1);
+  puVar6 = (undefined4 *)FUN_0055ac70();
+  if (puVar6 == param_1) {
+    FUN_0055ac80();
+  }
+  cVar1 = FUN_004226e0();
+  if (cVar1 == '\0') {
+    puVar6 = (undefined4 *)FUN_007038d0();
+    if (puVar6 == param_1) {
+      FUN_007038b0(0);
+    }
+    if (DAT_011dea3c != 0) {
+      FUN_00962cd0(param_1);
+    }
+  }
+  puVar6 = (undefined4 *)FUN_0089f4e0();
+  if (puVar6 == param_1) {
+    FUN_0055ac20();
+  }
+  FUN_008a8150(local_15);
+  local_8 = local_8 & 0xffffff00;
+  FUN_004103b0();
+  local_8 = 0xffffffff;
+  FUN_00483630();
+  *unaff_FS_OFFSET = local_10;
+  return;
+}
+
+
+
+----------------------------------------------------------------------
+Calls FROM stack caller (0x0055a976)
+----------------------------------------------------------------------
+  0x0055a47d -> 0x0057acc0 FUN_0057acc0 @ 0x0057acc0
+  0x0055a488 -> 0x00568680 FUN_00568680 @ 0x00568680
+  0x0055a49f -> 0x004538e0 FUN_004538e0 @ 0x004538e0
+  0x0055a4a9 -> 0x00825c00 FUN_00825c00 @ 0x00825c00
+  0x0055a4b8 -> 0x0096e290 FUN_0096e290 @ 0x0096e290
+  0x0055a4c5 -> 0x00726070 FUN_00726070 @ 0x00726070
+  0x0055a4d6 -> 0x006815c0 FUN_006815c0 @ 0x006815c0
+  0x0055a4e9 -> 0x008d8520 FUN_008d8520 @ 0x008d8520
+  0x0055a4f5 -> 0x008d8520 FUN_008d8520 @ 0x008d8520
+  0x0055a518 -> 0x0082f1f0 FUN_0082f1f0 @ 0x0082f1f0
+  0x0055a520 -> 0x00401170 FUN_00401170 @ 0x00401170
+  0x0055a52f -> 0x00825c00 FUN_00825c00 @ 0x00825c00
+  0x0055a53d -> 0x00868270 FUN_00868270 @ 0x00868270
+  0x0055a548 -> 0x007af430 FUN_007af430 @ 0x007af430
+  0x0055a554 -> 0x007af430 FUN_007af430 @ 0x007af430
+  0x0055a55b -> 0x00549580 FUN_00549580 @ 0x00549580
+  0x0055a56a -> 0x00575d70 FUN_00575d70 @ 0x00575d70
+  0x0055a57b -> 0x00586170 FUN_00586170 @ 0x00586170
+  0x0055a58b -> 0x00586170 FUN_00586170 @ 0x00586170
+  0x0055a592 -> 0x006fcf30 FUN_006fcf30 @ 0x006fcf30
+  0x0055a5a3 -> 0x008d6f30 FUN_008d6f30 @ 0x008d6f30
+  0x0055a5af -> 0x008d6f30 FUN_008d6f30 @ 0x008d6f30
+  0x0055a5b6 -> 0x004543c0 FUN_004543c0 @ 0x004543c0
+  0x0055a5dc -> 0x00559450 FUN_00559450 @ 0x00559450
+  0x0055a5e5 -> 0x005380d0 FUN_005380d0 @ 0x005380d0
+  0x0055a5f5 -> 0x0066b0d0 FUN_0066b0d0 @ 0x0066b0d0
+  0x0055a600 -> 0x008a81c0 FUN_008a81c0 @ 0x008a81c0
+  0x0055a610 -> 0x008a8150 FUN_008a8150 @ 0x008a8150
+  0x0055a618 -> 0x004077c0 FUN_004077c0 @ 0x004077c0
+  0x0055a62b -> 0x00576760 FUN_00576760 @ 0x00576760
+  0x0055a634 -> 0x008d15b0 FUN_008d15b0 @ 0x008d15b0
+  0x0055a646 -> 0x008623a0 FUN_008623a0 @ 0x008623a0
+  0x0055a651 -> 0x004226e0 FUN_004226e0 @ 0x004226e0
+  0x0055a660 -> 0x0056a9f0 FUN_0056a9f0 @ 0x0056a9f0
+  0x0055a675 -> 0x005d43c0 FUN_005d43c0 @ 0x005d43c0
+  0x0055a67c -> 0x0041dda0 FUN_0041dda0 @ 0x0041dda0
+  0x0055a684 -> 0x0056ac90 FUN_0056ac90 @ 0x0056ac90
+  0x0055a695 -> 0x008256d0 FUN_008256d0 @ 0x008256d0
+  0x0055a6a6 -> 0x006815c0 FUN_006815c0 @ 0x006815c0
+  0x0055a6ad -> 0x0056aa10 FUN_0056aa10 @ 0x0056aa10
+  0x0055a6b5 -> 0x0056ac90 FUN_0056ac90 @ 0x0056ac90
+  0x0055a6c2 -> 0x005d43c0 FUN_005d43c0 @ 0x005d43c0
+  0x0055a6c9 -> 0x0041de00 FUN_0041de00 @ 0x0041de00
+  0x0055a6de -> 0x005d43c0 FUN_005d43c0 @ 0x005d43c0
+  0x0055a6e5 -> 0x0041e0d0 FUN_0041e0d0 @ 0x0041e0d0
+  0x0055a6ed -> 0x005d43c0 FUN_005d43c0 @ 0x005d43c0
+  0x0055a6f4 -> 0x0041df90 FUN_0041df90 @ 0x0041df90
+  0x0055a705 -> 0x008256d0 FUN_008256d0 @ 0x008256d0
+  0x0055a716 -> 0x006815c0 FUN_006815c0 @ 0x006815c0
+  0x0055a71d -> 0x005d43c0 FUN_005d43c0 @ 0x005d43c0
+  0x0055a724 -> 0x0041de40 FUN_0041de40 @ 0x0041de40
+  0x0055a72c -> 0x006815c0 FUN_006815c0 @ 0x006815c0
+  0x0055a733 -> 0x00567790 FUN_00567790 @ 0x00567790
+  0x0055a740 -> 0x006815c0 FUN_006815c0 @ 0x006815c0
+  0x0055a747 -> 0x00567c50 FUN_00567c50 @ 0x00567c50
+  0x0055a74f -> 0x00726070 FUN_00726070 @ 0x00726070
+  0x0055a75f -> 0x004226e0 FUN_004226e0 @ 0x004226e0
+  0x0055a772 -> 0x005d43c0 FUN_005d43c0 @ 0x005d43c0
+  0x0055a779 -> 0x0041e310 FUN_0041e310 @ 0x0041e310
+  0x0055a78c -> 0x005d43c0 FUN_005d43c0 @ 0x005d43c0
+  0x0055a793 -> 0x0041e340 FUN_0041e340 @ 0x0041e340
+  0x0055a79b -> 0x005d43c0 FUN_005d43c0 @ 0x005d43c0
+  0x0055a7a2 -> 0x0041f170 FUN_0041f170 @ 0x0041f170
+  0x0055a7b3 -> 0x006815c0 FUN_006815c0 @ 0x006815c0
+  0x0055a7c0 -> 0x006815c0 FUN_006815c0 @ 0x006815c0
+  0x0055a7cd -> 0x00726070 FUN_00726070 @ 0x00726070
+  0x0055a7e0 -> 0x005d43c0 FUN_005d43c0 @ 0x005d43c0
+  0x0055a7e7 -> 0x0041f4c0 FUN_0041f4c0 @ 0x0041f4c0
+  0x0055a7f7 -> 0x005d43c0 FUN_005d43c0 @ 0x005d43c0
+  0x0055a7fe -> 0x0041f650 FUN_0041f650 @ 0x0041f650
+  0x0055a809 -> 0x005aa5d0 FUN_005aa5d0 @ 0x005aa5d0
+  0x0055a81b -> 0x004e3260 FUN_004e3260 @ 0x004e3260
+  0x0055a822 -> 0x00905330 FUN_00905330 @ 0x00905330
+  0x0055a831 -> 0x004ec7b0 FUN_004ec7b0 @ 0x004ec7b0
+  0x0055a838 -> 0x00905330 FUN_00905330 @ 0x00905330
+  0x0055a840 -> 0x00564d80 FUN_00564d80 @ 0x00564d80
+  0x0055a84f -> 0x00401170 FUN_00401170 @ 0x00401170
+  0x0055a86f -> 0x00963d60 FUN_00963d60 @ 0x00963d60
+  0x0055a87f -> 0x00976680 FUN_00976680 @ 0x00976680
+  0x0055a88e -> 0x00963d60 FUN_00963d60 @ 0x00963d60
+  0x0055a89e -> 0x0096f600 FUN_0096f600 @ 0x0096f600
+  0x0055a8ac -> 0x00975320 FUN_00975320 @ 0x00975320
+  0x0055a8ba -> 0x00978660 FUN_00978660 @ 0x00978660
+  0x0055a8c2 -> 0x005725b0 FUN_005725b0 @ 0x005725b0
+  0x0055a8d7 -> 0x009749b0 FUN_009749b0 @ 0x009749b0
+  0x0055a8df -> 0x0055abe0 FUN_0055abe0 @ 0x0055abe0
+  0x0055a8f5 -> 0x0055ac40 FUN_0055ac40 @ 0x0055ac40
+  0x0055a900 -> 0x004226e0 FUN_004226e0 @ 0x004226e0
+  0x0055a90f -> 0x00568680 FUN_00568680 @ 0x00568680
+  0x0055a92b -> 0x0055ac00 FUN_0055ac00 @ 0x0055ac00
+  0x0055a932 -> 0x00905330 FUN_00905330 @ 0x00905330
+  0x0055a93a -> 0x00452370 FUN_00452370 @ 0x00452370
+  0x0055a94a -> 0x00477410 FUN_00477410 @ 0x00477410
+  0x0055a955 -> 0x00569b80 FUN_00569b80 @ 0x00569b80
+  0x0055a96a -> 0x005d43c0 FUN_005d43c0 @ 0x005d43c0
+  0x0055a971 -> 0x0041e600 FUN_0041e600 @ 0x0041e600
+  0x0055a979 -> 0x005d43c0 FUN_005d43c0 @ 0x005d43c0
+  0x0055a980 -> 0x0041e500 FUN_0041e500 @ 0x0041e500
+  0x0055a991 -> 0x008256d0 FUN_008256d0 @ 0x008256d0
+  0x0055a9a2 -> 0x006815c0 FUN_006815c0 @ 0x006815c0
+  0x0055a9a9 -> 0x00569ba0 FUN_00569ba0 @ 0x00569ba0
+  0x0055a9b1 -> 0x00726070 FUN_00726070 @ 0x00726070
+  0x0055a9be -> 0x005d43c0 FUN_005d43c0 @ 0x005d43c0
+  0x0055a9c5 -> 0x0041e780 FUN_0041e780 @ 0x0041e780
+  0x0055a9d6 -> 0x008256d0 FUN_008256d0 @ 0x008256d0
+  0x0055a9e9 -> 0x006815c0 FUN_006815c0 @ 0x006815c0
+  0x0055a9f2 -> 0x005d43c0 FUN_005d43c0 @ 0x005d43c0
+  0x0055a9f9 -> 0x0041ef20 FUN_0041ef20 @ 0x0041ef20
+  0x0055aa01 -> 0x00726070 FUN_00726070 @ 0x00726070
+  0x0055aa0e -> 0x005d43c0 FUN_005d43c0 @ 0x005d43c0
+  0x0055aa15 -> 0x0041eda0 FUN_0041eda0 @ 0x0041eda0
+  0x0055aa26 -> 0x008256d0 FUN_008256d0 @ 0x008256d0
+  0x0055aa39 -> 0x006815c0 FUN_006815c0 @ 0x006815c0
+  0x0055aa42 -> 0x005d43c0 FUN_005d43c0 @ 0x005d43c0
+  0x0055aa49 -> 0x0041e960 FUN_0041e960 @ 0x0041e960
+  0x0055aa51 -> 0x00726070 FUN_00726070 @ 0x00726070
+  0x0055aa60 -> 0x00564930 FUN_00564930 @ 0x00564930
+  0x0055aa68 -> 0x0055ad20 FUN_0055ad20 @ 0x0055ad20
+  0x0055aa80 -> 0x0054ca90 FUN_0054ca90 @ 0x0054ca90
+  0x0055aa88 -> 0x005653d0 FUN_005653d0 @ 0x005653d0
+  ... (truncated at 120)
+  Total printed: 120
+
+----------------------------------------------------------------------
+Disassembly: stack caller around 0x0055a3df
+----------------------------------------------------------------------
+  0x0055a3b4: MOV dword ptr [EBP + -0x4],ECX                          
+  0x0055a3b7: MOV ECX,dword ptr [EBP + -0x4]                          
+  0x0055a3ba: CALL 0x005d43c0                                         
+      call -> 0x005d43c0 FUN_005d43c0 @ 0x005d43c0
+  0x0055a3bf: MOV ECX,EAX                                             
+  0x0055a3c1: CALL 0x00418220                                         
+      call -> 0x00418220 FUN_00418220 @ 0x00418220
+  0x0055a3c6: MOV ESP,EBP                                             
+  0x0055a3c8: POP EBP                                                 
+  0x0055a3c9: RET                                                     
+  0x0055a3d0: PUSH EBP                                                
+  0x0055a3d1: MOV EBP,ESP                                             
+  0x0055a3d3: PUSH ECX                                                
+  0x0055a3d4: MOV dword ptr [EBP + -0x4],ECX                          
+  0x0055a3d7: MOV ECX,dword ptr [EBP + -0x4]                          
+  0x0055a3da: CALL 0x0055a430                                         
+      call -> 0x0055a430 FUN_0055a430 @ 0x0055a430
+  0x0055a3df: MOV EAX,dword ptr [EBP + 0x8]                            << target
+  0x0055a3e2: AND EAX,0x1                                             
+  0x0055a3e5: JZ 0x0055a3f3                                           
+  0x0055a3e7: MOV ECX,dword ptr [EBP + -0x4]                          
+  0x0055a3ea: PUSH ECX                                                
+  0x0055a3eb: CALL 0x00401030                                         
+      call -> 0x00401030 FUN_00401030 @ 0x00401030
+  0x0055a3f0: ADD ESP,0x4                                             
+  0x0055a3f3: MOV EAX,dword ptr [EBP + -0x4]                          
+  0x0055a3f6: MOV ESP,EBP                                             
+  0x0055a3f8: POP EBP                                                 
+  0x0055a3f9: RET 0x4                                                 
+  0x0055a400: PUSH EBP                                                
+  0x0055a401: MOV EBP,ESP                                             
+  0x0055a403: PUSH ECX                                                
+  0x0055a404: MOV dword ptr [EBP + -0x4],ECX                          
+  0x0055a407: MOV ECX,dword ptr [EBP + -0x4]                          
+  0x0055a40a: ADD ECX,0x4                                             
+  0x0055a40d: CALL 0x006815c0                                         
+      call -> 0x006815c0 FUN_006815c0 @ 0x006815c0
+  0x0055a412: MOV ECX,dword ptr [EBP + -0x4]                          
+  0x0055a415: ADD ECX,0x10                                            
+  0x0055a418: CALL 0x006815c0                                         
+      call -> 0x006815c0 FUN_006815c0 @ 0x006815c0
+  0x0055a41d: MOV EAX,dword ptr [EBP + -0x4]                          
+  0x0055a420: MOV ESP,EBP                                             
+  0x0055a422: POP EBP                                                 
+  0x0055a423: RET                                                     
+  0x0055a430: PUSH EBP                                                
+  0x0055a431: MOV EBP,ESP                                             
+  0x0055a433: PUSH -0x1                                               
+  0x0055a435: PUSH 0xef6ca3                                           
+  0x0055a43a: MOV EAX,FS:[0x0]                                        
+  0x0055a440: PUSH EAX                                                
+  0x0055a441: SUB ESP,0x5c                                            
+  0x0055a444: MOV EAX,[0x011c16bc]                                    
+  0x0055a449: XOR EAX,EBP                                             
+  0x0055a44b: PUSH EAX                                                
+
+======================================================================
+stack caller @ 0x0055a3df
+======================================================================
+  Function: FUN_0055a3d0 @ 0x0055a3d0, Size: 44 bytes
+  NOTE: Requested 0x0055a3df is inside FUN_0055a3d0 (entry at 0x0055a3d0)
+
+undefined4 __thiscall FUN_0055a3d0(undefined4 param_1,uint param_2)
+
+{
+  FUN_0055a430();
+  if ((param_2 & 1) != 0) {
+    FUN_00401030(param_1);
+  }
+  return param_1;
+}
+
+
+
+----------------------------------------------------------------------
+Calls FROM stack caller (0x0055a3df)
+----------------------------------------------------------------------
+  0x0055a3da -> 0x0055a430 FUN_0055a430 @ 0x0055a430
+  0x0055a3eb -> 0x00401030 FUN_00401030 @ 0x00401030
+  Total printed: 2
+
+----------------------------------------------------------------------
+Disassembly: stack caller around 0x0086816a
+----------------------------------------------------------------------
+  0x00868145: TEST EAX,EAX                                            
+  0x00868147: JZ 0x00868183                                           
+  0x00868149: MOV ECX,dword ptr [EBP + 0x8]                           
+  0x0086814c: MOV dword ptr [EBP + -0x30],ECX                         
+  0x0086814f: MOV EDX,dword ptr [EBP + -0x30]                         
+  0x00868152: MOV dword ptr [EBP + -0x2c],EDX                         
+  0x00868155: CMP dword ptr [EBP + -0x2c],0x0                         
+  0x00868159: JZ 0x0086816f                                           
+  0x0086815b: PUSH 0x1                                                
+  0x0086815d: MOV EAX,dword ptr [EBP + -0x2c]                         
+  0x00868160: MOV EDX,dword ptr [EAX]                                 
+  0x00868162: MOV ECX,dword ptr [EBP + -0x2c]                         
+  0x00868165: MOV EAX,dword ptr [EDX + 0x10]                          
+  0x00868168: CALL EAX                                                
+  0x0086816a: MOV dword ptr [EBP + -0x38],EAX                          << target
+  0x0086816d: JMP 0x00868176                                          
+  0x0086816f: MOV dword ptr [EBP + -0x38],0x0                         
+  0x00868176: MOV ECX,dword ptr [0x011c3b3c]                          
+  0x0086817c: CALL 0x004aaf10                                         
+      call -> 0x004aaf10 FUN_004aaf10 @ 0x004aaf10
+  0x00868181: JMP 0x00868191                                          
+  0x00868183: LEA ECX,[EBP + 0x8]                                     
+  0x00868186: PUSH ECX                                                
+  0x00868187: MOV ECX,0x11de8bc                                       
+  0x0086818c: CALL 0x008693c0                                         
+      call -> 0x008693c0 FUN_008693c0 @ 0x008693c0
+  0x00868191: JMP 0x008681a1                                          
+  0x00868193: LEA EDX,[EBP + 0x8]                                     
+  0x00868196: PUSH EDX                                                
+  0x00868197: MOV ECX,0x11de874                                       
+  0x0086819c: CALL 0x008693c0                                         
+      call -> 0x008693c0 FUN_008693c0 @ 0x008693c0
+  0x008681a1: MOV dword ptr [EBP + -0x4],0xffffffff                   
+  0x008681a8: LEA ECX,[EBP + -0x14]                                   
+  0x008681ab: CALL 0x00868210                                         
+      call -> 0x00868210 FUN_00868210 @ 0x00868210
+  0x008681b0: MOV ECX,dword ptr [EBP + -0xc]                          
+  0x008681b3: MOV dword ptr FS:[0x0],ECX                              
+  0x008681ba: POP ECX                                                 
+  0x008681bb: MOV ESP,EBP                                             
+  0x008681bd: POP EBP                                                 
+  0x008681be: RET                                                     
+  0x008681c0: PUSH EBP                                                
+  0x008681c1: MOV EBP,ESP                                             
+  0x008681c3: PUSH ECX                                                
+  0x008681c4: MOV dword ptr [EBP + -0x4],ECX                          
+  0x008681c7: MOV EAX,dword ptr [EBP + -0x4]                          
+  0x008681ca: MOV ECX,dword ptr [EBP + 0x8]                           
+  0x008681cd: MOV dword ptr [EAX],ECX                                 
+  0x008681cf: PUSH 0x0                                                
+  0x008681d1: MOV EDX,dword ptr [EBP + 0xc]                           
+  0x008681d4: PUSH EDX                                                
+  0x008681d5: CALL 0x00867f50                                         
+      call -> 0x00867f50 FUN_00867f50 @ 0x00867f50
+
+======================================================================
+stack caller @ 0x0086816a
+======================================================================
+  Function: FUN_00867f90 @ 0x00867f90, Size: 559 bytes
+  NOTE: Requested 0x0086816a is inside FUN_00867f90 (entry at 0x00867f90)
+
+void FUN_00867f90(int *param_1)
+
+{
+  char cVar1;
+  uint uVar2;
+  undefined4 uVar3;
+  int *piVar4;
+  int iVar5;
+  int *unaff_FS_OFFSET;
+  int local_10;
+  undefined1 *puStack_c;
+  undefined4 local_8;
+  
+  local_8 = 0xffffffff;
+  puStack_c = &LAB_00f13c08;
+  local_10 = *unaff_FS_OFFSET;
+  uVar2 = DAT_011c16bc ^ (uint)&stack0xfffffffc;
+  *unaff_FS_OFFSET = (int)&local_10;
+  FUN_008681c0(1,"GarbageCollector::Add(TESObjectREFR)");
+  local_8 = 0;
+  uVar3 = FUN_0084e3a0(uVar2);
+  piVar4 = (int *)FUN_004839c0(uVar3);
+  if (piVar4 == param_1) {
+    (**(code **)(*param_1 + 0xc4))(1);
+    FUN_0056fcb0();
+    cVar1 = (**(code **)(*param_1 + 0x100))();
+    if (cVar1 != '\0') {
+      (**(code **)(*param_1 + 0x434))(0);
+    }
+    cVar1 = (**(code **)(*param_1 + 0x224))();
+    if (cVar1 != '\0') {
+      FUN_00420ba0(0);
+      FUN_005de0a0(0x400,0);
+    }
+    FUN_00445570(param_1);
+    FUN_00483c70();
+    FUN_007af430();
+    cVar1 = FUN_00549580();
+    if (((cVar1 != '\0') && (iVar5 = FUN_00575d70(), iVar5 != 0)) &&
+       (iVar5 = FUN_00586170(), iVar5 != 0)) {
+      piVar4 = param_1;
+      FUN_00586170(param_1);
+      FUN_006fcf30(piVar4);
+    }
+    (**(code **)(*param_1 + 0x228))(0);
+    if ((*(char *)(*(int *)(unaff_FS_OFFSET[0xb] + _tls_index * 4) + 0x298) == '\0') ||
+       ((DAT_011ddf38 != 0 && (cVar1 = FUN_0042ce10(), cVar1 != '\0')))) {
+      cVar1 = FUN_00868250();
+      if (cVar1 == '\0') {
+        FUN_008693c0(&param_1);
+      }
+      else {
+        if (param_1 == (int *)0x0) {
+          uVar3 = 0;
+        }
+        else {
+          uVar3 = (**(code **)(*param_1 + 0x10))(1);
+        }
+        FUN_004aaf10(uVar2,uVar3);
+      }
+    }
+    else {
+      FUN_008693c0(&param_1);
+    }
+  }
+  else if (param_1 != (int *)0x0) {
+    (**(code **)(*param_1 + 0x10))(1);
+  }
+  local_8 = 0xffffffff;
+  FUN_00868210();
+  *unaff_FS_OFFSET = local_10;
+  return;
+}
+
+
+
+----------------------------------------------------------------------
+Calls FROM stack caller (0x0086816a)
+----------------------------------------------------------------------
+  0x00867fbf -> 0x008681c0 FUN_008681c0 @ 0x008681c0
+  0x00867fce -> 0x0084e3a0 FUN_0084e3a0 @ 0x0084e3a0
+  0x00867fd4 -> 0x004839c0 FUN_004839c0 @ 0x004839c0
+  0x00868028 -> 0x0056fcb0 FUN_0056fcb0 @ 0x0056fcb0
+  0x0086807e -> 0x00420ba0 FUN_00420ba0 @ 0x00420ba0
+  0x0086808d -> 0x005de0a0 FUN_005de0a0 @ 0x005de0a0
+  0x0086809c -> 0x00445570 FUN_00445570 @ 0x00445570
+  0x008680a4 -> 0x00483c70 FUN_00483c70 @ 0x00483c70
+  0x008680ac -> 0x007af430 FUN_007af430 @ 0x007af430
+  0x008680b3 -> 0x00549580 FUN_00549580 @ 0x00549580
+  0x008680c2 -> 0x00575d70 FUN_00575d70 @ 0x00575d70
+  0x008680d3 -> 0x00586170 FUN_00586170 @ 0x00586170
+  0x008680e3 -> 0x00586170 FUN_00586170 @ 0x00586170
+  0x008680ea -> 0x006fcf30 FUN_006fcf30 @ 0x006fcf30
+  0x0086812b -> 0x0042ce10 FUN_0042ce10 @ 0x0042ce10
+  0x0086813d -> 0x00868250 FUN_00868250 @ 0x00868250
+  0x0086817c -> 0x004aaf10 FUN_004aaf10 @ 0x004aaf10
+  0x0086818c -> 0x008693c0 FUN_008693c0 @ 0x008693c0
+  0x0086819c -> 0x008693c0 FUN_008693c0 @ 0x008693c0
+  0x008681ab -> 0x00868210 FUN_00868210 @ 0x00868210
+  Total printed: 20
+
+----------------------------------------------------------------------
+Disassembly: stack caller around 0x00550ac2
+----------------------------------------------------------------------
+  0x00550a98: JZ 0x00550aa6                                           
+  0x00550a9a: MOV EDX,dword ptr [EBP + -0x24]                         
+  0x00550a9d: PUSH EDX                                                
+  0x00550a9e: MOV ECX,dword ptr [EBP + -0x50]                         
+  0x00550aa1: CALL 0x00558ba0                                         
+      call -> 0x00558ba0 FUN_00558ba0 @ 0x00558ba0
+  0x00550aa6: MOVZX EAX,byte ptr [EBP + -0x25]                        
+  0x00550aaa: TEST EAX,EAX                                            
+  0x00550aac: JZ 0x00550ac5                                           
+  0x00550aae: MOV ECX,dword ptr [EBP + -0x24]                         
+  0x00550ab1: CMP ECX,dword ptr [0x011dea3c]                          
+  0x00550ab7: JZ 0x00550ac5                                           
+  0x00550ab9: MOV EDX,dword ptr [EBP + -0x24]                         
+  0x00550abc: PUSH EDX                                                
+  0x00550abd: CALL 0x00867f90                                         
+      call -> 0x00867f90 FUN_00867f90 @ 0x00867f90
+  0x00550ac2: ADD ESP,0x4                                              << target
+  0x00550ac5: JMP 0x00550ad8                                          
+  0x00550ac7: MOV EAX,dword ptr [EBP + -0x20]                         
+  0x00550aca: MOV dword ptr [EBP + -0x14],EAX                         
+  0x00550acd: MOV ECX,dword ptr [EBP + -0x20]                         
+  0x00550ad0: CALL 0x00726070                                         
+      call -> 0x00726070 FUN_00726070 @ 0x00726070
+  0x00550ad5: MOV dword ptr [EBP + -0x20],EAX                         
+  0x00550ad8: JMP 0x00550922                                          
+  0x00550add: MOVZX ECX,byte ptr [EBP + -0x19]                        
+  0x00550ae1: PUSH ECX                                                
+  0x00550ae2: MOV ECX,dword ptr [0x011ddf38]                          
+  0x00550ae8: CALL 0x004623f0                                         
+      call -> 0x004623f0 FUN_004623f0 @ 0x004623f0
+  0x00550aed: MOV ECX,dword ptr [EBP + -0x50]                         
+  0x00550af0: CALL 0x00541ae0                                         
+      call -> 0x00541ae0 FUN_00541ae0 @ 0x00541ae0
+  0x00550af5: MOV ECX,dword ptr [EBP + -0x50]                         
+  0x00550af8: CALL 0x00546fb0                                         
+      call -> 0x00546fb0 FUN_00546fb0 @ 0x00546fb0
+  0x00550afd: MOV dword ptr [EBP + -0x10],EAX                         
+  0x00550b00: CMP dword ptr [EBP + -0x10],0x0                         
+  0x00550b04: JZ 0x00550b39                                           
+  0x00550b06: PUSH -0x1                                               
+  0x00550b08: MOV ECX,dword ptr [EBP + -0x10]                         
+  0x00550b0b: CALL 0x00484e60                                         
+      call -> 0x00484e60 FUN_00484e60 @ 0x00484e60
+  0x00550b10: MOV dword ptr [EBP + -0x34],EAX                         
+  0x00550b13: CMP dword ptr [EBP + -0x34],0x0                         
+  0x00550b17: JZ 0x00550b28                                           
+  0x00550b19: MOV ECX,dword ptr [EBP + -0x34]                         
+  0x00550b1c: CALL 0x00471c20                                         
+      call -> 0x00471c20 FUN_00471c20 @ 0x00471c20
+  0x00550b21: MOVZX EDX,AL                                            
+  0x00550b24: TEST EDX,EDX                                            
+  0x00550b26: JZ 0x00550b39                                           
+  0x00550b28: PUSH 0x0                                                
+  0x00550b2a: MOV ECX,dword ptr [EBP + -0x50]                         
+  0x00550b2d: CALL 0x005470a0                                         
+      call -> 0x005470a0 FUN_005470a0 @ 0x005470a0
+  0x00550b32: MOV dword ptr [EBP + -0x10],0x0                         
+  0x00550b39: MOV ECX,dword ptr [EBP + -0x50]                         
+
+======================================================================
+stack caller @ 0x00550ac2
+======================================================================
+  Function: FUN_005508b0 @ 0x005508b0, Size: 936 bytes
+  NOTE: Requested 0x00550ac2 is inside FUN_005508b0 (entry at 0x005508b0)
+
+void FUN_005508b0(void)
+
+{
+  char cVar1;
+  undefined4 *puVar2;
+  int iVar3;
+  int ***pppiVar4;
+  undefined4 uVar5;
+  int *unaff_FS_OFFSET;
+  int ***pppiStack_64;
+  uint uStack_60;
+  undefined4 local_5c;
+  undefined4 local_58;
+  int **local_54;
+  undefined1 local_50 [4];
+  undefined1 *local_4c;
+  undefined1 local_48 [4];
+  int local_44;
+  int **local_40;
+  int local_38;
+  undefined4 local_34;
+  int **local_30;
+  char local_29;
+  int **local_28;
+  int local_24;
+  byte local_1d;
+  int local_1c;
+  int local_18;
+  int local_14;
+  int local_10;
+  undefined1 *puStack_c;
+  int local_8;
+  
+  local_8 = 0xffffffff;
+  puStack_c = &LAB_00ef65f8;
+  local_10 = *unaff_FS_OFFSET;
+  uStack_60 = DAT_011c16bc ^ (uint)&stack0xfffffffc;
+  *unaff_FS_OFFSET = (int)&local_10;
+  pppiStack_64 = (int ***)0x5508e0;
+  FUN_00541ac0();
+  *(undefined2 *)(local_54 + 0x2a) = 0;
+  *(undefined2 *)((int)local_54 + 0xaa) = 0;
+  pppiStack_64 = (int ***)0x0;
+  local_1d = FUN_004623f0();
+  pppiStack_64 = (int ***)0x550910;
+  FUN_005576c0();
+  pppiStack_64 = (int ***)0x550918;
+  local_24 = FUN_009604f0();
+  local_18 = 0;
+  while (local_24 != 0) {
+    pppiStack_64 = (int ***)0x550934;
+    cVar1 = FUN_008256d0();
+    if (cVar1 != '\0') break;
+    pppiStack_64 = (int ***)0x550947;
+    puVar2 = (undefined4 *)FUN_006815c0();
+    local_28 = (int **)*puVar2;
+    pppiStack_64 = (int ***)0x550954;
+    cVar1 = FUN_005653d0();
+    if (cVar1 == '\0') {
+      pppiStack_64 = (int ***)0xffffffff;
+      iVar3 = FUN_00484e60();
+      if (iVar3 != 0) {
+        pppiStack_64 = (int ***)0xffffffff;
+        FUN_00484e60();
+        pppiStack_64 = (int ***)0x55097e;
+        cVar1 = FUN_00471c20();
+        if (cVar1 == '\0') goto LAB_00550ac7;
+      }
+      if (local_18 == 0) {
+        pppiStack_64 = (int ***)0x5509b0;
+        FUN_0063f7b0();
+      }
+      else {
+        pppiStack_64 = &local_28;
+        FUN_00905330();
+        pppiStack_64 = (int ***)0x5509a3;
+        local_24 = FUN_00726070();
+      }
+      pppiStack_64 = (int ***)local_28;
+      FUN_005270b0();
+      pppiStack_64 = (int ***)0x5509cf;
+      cVar1 = (*(code *)(*local_28)[0x40])();
+      if (cVar1 != '\0') {
+        local_30 = local_28;
+        pppiStack_64 = (int ***)0x5509e4;
+        iVar3 = FUN_00931850();
+        if (iVar3 == 0) {
+          pppiStack_64 = (int ***)0x5509f0;
+          FUN_00881d10();
+        }
+      }
+      pppiStack_64 = (int ***)local_28;
+      FUN_008d0370();
+      pppiStack_64 = (int ***)0x0;
+      FUN_00849730(local_28);
+      local_29 = '\x01';
+      pppiStack_64 = (int ***)0x550a1f;
+      cVar1 = FUN_0042ce10();
+      if (cVar1 != '\0') {
+        local_4c = (undefined1 *)&pppiStack_64;
+        std::locale::id::id((id *)&pppiStack_64,8);
+        cVar1 = FUN_0084a700(local_28);
+        if (cVar1 != '\0') {
+          pppiStack_64 = (int ***)local_54;
+          cVar1 = FUN_00561ef0();
+          if (cVar1 != '\0') {
+            local_29 = '\0';
+          }
+        }
+      }
+      pppiStack_64 = (int ***)0x550a68;
+      iVar3 = FUN_007af430();
+      if (iVar3 != 0) {
+        pppiStack_64 = (int ***)0x550a74;
+        FUN_007af430();
+        pppiStack_64 = (int ***)0x550a7b;
+        iVar3 = FUN_00401170();
+        if (iVar3 == 0x23) {
+          pppiStack_64 = (int ***)0x550a88;
+          local_34 = FUN_007af430();
+          pppiStack_64 = (int ***)0x550a93;
+          cVar1 = FUN_00452440();
+          if (cVar1 != '\0') {
+            pppiStack_64 = (int ***)local_28;
+            FUN_00558ba0();
+          }
+        }
+      }
+      if ((local_29 != '\0') && ((int ***)local_28 != DAT_011dea3c)) {
+        pppiStack_64 = (int ***)local_28;
+        FUN_00867f90();
+      }
+    }
+    else {
+LAB_00550ac7:
+      local_18 = local_24;
+      pppiStack_64 = (int ***)0x550ad5;
+      local_24 = FUN_00726070();
+    }
+  }
+  pppiStack_64 = (int ***)(uint)local_1d;
+  FUN_004623f0();
+  pppiStack_64 = (int ***)0x550af5;
+  FUN_00541ae0();
+  pppiStack_64 = (int ***)0x550afd;
+  local_14 = FUN_00546fb0();
+  if (local_14 != 0) {
+    pppiStack_64 = (int ***)0xffffffff;
+    local_38 = FUN_00484e60();
+    if (local_38 != 0) {
+      pppiStack_64 = (int ***)0x550b21;
+      cVar1 = FUN_00471c20();
+      if (cVar1 == '\0') goto LAB_00550b39;
+    }
+    pppiStack_64 = (int ***)0x0;
+    FUN_005470a0();
+    local_14 = 0;
+  }
+LAB_00550b39:
+  pppiStack_64 = (int ***)0x550b41;
+  local_1c = FUN_0070ec90();
+  if (local_1c != 0) {
+    pppiStack_64 = (int ***)0x2769;
+    FUN_00404eb0(0x2e,1,"D:\\_Fallout3\\Platforms\\Common\\Code\\Fallout Shared\\TESObjectCELL.cpp")
+    ;
+    local_8 = 0;
+    local_40 = (int **)0x0;
+    while( true ) {
+      pppiStack_64 = (int ***)0x550b85;
+      pppiVar4 = (int ***)FUN_00620b80();
+      if (pppiVar4 <= local_40) break;
+      pppiStack_64 = (int ***)0xffffffff;
+      local_5c = FUN_00464f60(local_50,local_40);
+      local_8._0_1_ = 1;
+      local_58 = local_5c;
+      FUN_00559450();
+      local_44 = FUN_00484e60();
+      local_8 = (uint)local_8._1_3_ << 8;
+      pppiStack_64 = (int ***)0x550bcb;
+      FUN_0042fa40();
+      if (local_44 == 0) {
+LAB_00550be0:
+        pppiStack_64 = (int ***)local_40;
+        FUN_00464f60(local_48);
+        local_8._0_1_ = 2;
+        pppiStack_64 = (int ***)0x0;
+        uVar5 = FUN_00458b50();
+        FUN_00849730(uVar5);
+        pppiStack_64 = (int ***)local_40;
+        FUN_0069bc50();
+        local_40 = (int **)((int)local_40 - 1);
+        local_8 = (uint)local_8._1_3_ << 8;
+        pppiStack_64 = (int ***)0x550c2b;
+        FUN_0042fa40();
+      }
+      else {
+        pppiStack_64 = (int ***)0x550bd9;
+        cVar1 = FUN_00471c20();
+        if (cVar1 != '\0') goto LAB_00550be0;
+      }
+      local_40 = (int **)((int)local_40 + 1);
+    }
+    local_8 = 0xffffffff;
+    pppiStack_64 = (int ***)0x550c3f;
+    FUN_00404ee0();
+  }
+  pppiStack_64 = (int ***)0x0;
+  FUN_00551440();
+  *unaff_FS_OFFSET = local_10;
+  return;
+}
+
+
+
+----------------------------------------------------------------------
+Calls FROM stack caller (0x00550ac2)
+----------------------------------------------------------------------
+  0x005508db -> 0x00541ac0 FUN_00541ac0 @ 0x00541ac0
+  0x00550900 -> 0x004623f0 FUN_004623f0 @ 0x004623f0
+  0x0055090b -> 0x005576c0 FUN_005576c0 @ 0x005576c0
+  0x00550913 -> 0x009604f0 FUN_009604f0 @ 0x009604f0
+  0x0055092f -> 0x008256d0 FUN_008256d0 @ 0x008256d0
+  0x00550942 -> 0x006815c0 FUN_006815c0 @ 0x006815c0
+  0x0055094f -> 0x005653d0 FUN_005653d0 @ 0x005653d0
+  0x00550964 -> 0x00484e60 FUN_00484e60 @ 0x00484e60
+  0x00550972 -> 0x00484e60 FUN_00484e60 @ 0x00484e60
+  0x00550979 -> 0x00471c20 FUN_00471c20 @ 0x00471c20
+  0x00550996 -> 0x00905330 FUN_00905330 @ 0x00905330
+  0x0055099e -> 0x00726070 FUN_00726070 @ 0x00726070
+  0x005509ab -> 0x0063f7b0 FUN_0063f7b0 @ 0x0063f7b0
+  0x005509ba -> 0x005270b0 FUN_005270b0 @ 0x005270b0
+  0x005509df -> 0x00931850 FUN_00931850 @ 0x00931850
+  0x005509eb -> 0x00881d10 FUN_00881d10 @ 0x00881d10
+  0x005509fa -> 0x008d0370 FUN_008d0370 @ 0x008d0370
+  0x00550a0b -> 0x00849730 FUN_00849730 @ 0x00849730
+  0x00550a1a -> 0x0042ce10 FUN_0042ce10 @ 0x0042ce10
+  0x00550a2e -> 0x008c71b0 id @ 0x008c71b0
+  0x00550a3d -> 0x0084a700 FUN_0084a700 @ 0x0084a700
+  0x00550a50 -> 0x00561ef0 FUN_00561ef0 @ 0x00561ef0
+  0x00550a63 -> 0x007af430 FUN_007af430 @ 0x007af430
+  0x00550a6f -> 0x007af430 FUN_007af430 @ 0x007af430
+  0x00550a76 -> 0x00401170 FUN_00401170 @ 0x00401170
+  0x00550a83 -> 0x007af430 FUN_007af430 @ 0x007af430
+  0x00550a8e -> 0x00452440 FUN_00452440 @ 0x00452440
+  0x00550aa1 -> 0x00558ba0 FUN_00558ba0 @ 0x00558ba0
+  0x00550abd -> 0x00867f90 FUN_00867f90 @ 0x00867f90
+  0x00550ad0 -> 0x00726070 FUN_00726070 @ 0x00726070
+  0x00550ae8 -> 0x004623f0 FUN_004623f0 @ 0x004623f0
+  0x00550af0 -> 0x00541ae0 FUN_00541ae0 @ 0x00541ae0
+  0x00550af8 -> 0x00546fb0 FUN_00546fb0 @ 0x00546fb0
+  0x00550b0b -> 0x00484e60 FUN_00484e60 @ 0x00484e60
+  0x00550b1c -> 0x00471c20 FUN_00471c20 @ 0x00471c20
+  0x00550b2d -> 0x005470a0 FUN_005470a0 @ 0x005470a0
+  0x00550b3c -> 0x0070ec90 FUN_0070ec90 @ 0x0070ec90
+  0x00550b5f -> 0x00404eb0 FUN_00404eb0 @ 0x00404eb0
+  0x00550b80 -> 0x00620b80 FUN_00620b80 @ 0x00620b80
+  0x00550b9b -> 0x00464f60 FUN_00464f60 @ 0x00464f60
+  0x00550bb0 -> 0x00559450 FUN_00559450 @ 0x00559450
+  0x00550bb7 -> 0x00484e60 FUN_00484e60 @ 0x00484e60
+  0x00550bc6 -> 0x0042fa40 FUN_0042fa40 @ 0x0042fa40
+  0x00550bd4 -> 0x00471c20 FUN_00471c20 @ 0x00471c20
+  0x00550beb -> 0x00464f60 FUN_00464f60 @ 0x00464f60
+  0x00550bf9 -> 0x00458b50 FUN_00458b50 @ 0x00458b50
+  0x00550c05 -> 0x00849730 FUN_00849730 @ 0x00849730
+  0x00550c11 -> 0x0069bc50 FUN_0069bc50 @ 0x0069bc50
+  0x00550c26 -> 0x0042fa40 FUN_0042fa40 @ 0x0042fa40
+  0x00550c3a -> 0x00404ee0 FUN_00404ee0 @ 0x00404ee0
+  0x00550c44 -> 0x00551440 FUN_00551440 @ 0x00551440
+  Total printed: 51
+
+----------------------------------------------------------------------
+Disassembly: stack caller around 0x0046230d
+----------------------------------------------------------------------
+  0x004622db: CALL 0x004623f0                                         
+      call -> 0x004623f0 FUN_004623f0 @ 0x004623f0
+  0x004622e0: MOV byte ptr [EBP + -0x1],AL                            
+  0x004622e3: PUSH 0x1                                                
+  0x004622e5: MOV ECX,dword ptr [EBP + 0x8]                           
+  0x004622e8: CALL 0x00552bd0                                         
+      call -> 0x00552bd0 FUN_00552bd0 @ 0x00552bd0
+  0x004622ed: MOV EDX,dword ptr [EBP + 0x8]                           
+  0x004622f0: PUSH EDX                                                
+  0x004622f1: MOV ECX,0x11e0e80                                       
+  0x004622f6: CALL 0x009740a0                                         
+      call -> 0x009740a0 FUN_009740a0 @ 0x009740a0
+  0x004622fb: PUSH 0x1                                                
+  0x004622fd: MOV ECX,dword ptr [EBP + 0x8]                           
+  0x00462300: CALL 0x004512a0                                         
+      call -> 0x004512a0 FUN_004512a0 @ 0x004512a0
+  0x00462305: MOV ECX,dword ptr [EBP + 0x8]                           
+  0x00462308: CALL 0x005508b0                                         
+      call -> 0x005508b0 FUN_005508b0 @ 0x005508b0
+  0x0046230d: MOV ECX,dword ptr [EBP + 0x8]                            << target
+  0x00462310: CALL 0x0054b750                                         
+      call -> 0x0054b750 FUN_0054b750 @ 0x0054b750
+  0x00462315: MOV ECX,dword ptr [EBP + 0x8]                           
+  0x00462318: CALL 0x00551620                                         
+      call -> 0x00551620 FUN_00551620 @ 0x00551620
+  0x0046231d: MOVZX EAX,AL                                            
+  0x00462320: TEST EAX,EAX                                            
+  0x00462322: JZ 0x00462330                                           
+  0x00462324: PUSH 0x0                                                
+  0x00462326: MOV ECX,dword ptr [EBP + 0x8]                           
+  0x00462329: CALL 0x00551480                                         
+      call -> 0x00551480 FUN_00551480 @ 0x00551480
+  0x0046232e: JMP 0x00462315                                          
+  0x00462330: MOV ECX,dword ptr [0x011c3f2c]                          
+  0x00462336: CALL 0x004226e0                                         
+      call -> 0x004226e0 FUN_004226e0 @ 0x004226e0
+  0x0046233b: MOVZX ECX,AL                                            
+  0x0046233e: TEST ECX,ECX                                            
+  0x00462340: JNZ 0x00462361                                          
+  0x00462342: MOV ECX,dword ptr [0x011dea3c]                          
+  0x00462348: CALL 0x0094df60                                         
+      call -> 0x0094df60 FUN_0094df60 @ 0x0094df60
+  0x0046234d: MOVZX EDX,AL                                            
+  0x00462350: TEST EDX,EDX                                            
+  0x00462352: SETZ AL                                                 
+  0x00462355: MOVZX ECX,AL                                            
+  0x00462358: PUSH ECX                                                
+  0x00462359: MOV ECX,dword ptr [EBP + 0x8]                           
+  0x0046235c: CALL 0x0054af40                                         
+      call -> 0x0054af40 FUN_0054af40 @ 0x0054af40
+  0x00462361: MOV ECX,dword ptr [EBP + 0x8]                           
+  0x00462364: CALL 0x00425fd0                                         
+      call -> 0x00425fd0 FUN_00425fd0 @ 0x00425fd0
+  0x00462369: MOVZX EDX,AL                                            
+  0x0046236c: TEST EDX,EDX                                            
+  0x0046236e: JNZ 0x0046237f                                          
+  0x00462370: MOV ECX,dword ptr [EBP + 0x8]                           
+  0x00462373: CALL 0x00546fb0                                         
+      call -> 0x00546fb0 FUN_00546fb0 @ 0x00546fb0
+  0x00462378: MOV ECX,EAX                                             
+  0x0046237a: CALL 0x00536d80                                         
+      call -> 0x00536d80 FUN_00536d80 @ 0x00536d80
+  0x0046237f: MOV ECX,dword ptr [EBP + 0x8]                           
+
+======================================================================
+stack caller @ 0x0046230d
+======================================================================
+  Function: FUN_00462290 @ 0x00462290, Size: 341 bytes
+  NOTE: Requested 0x0046230d is inside FUN_00462290 (entry at 0x00462290)
+
+void __thiscall FUN_00462290(undefined4 param_1,int param_2)
+
+{
+  char cVar1;
+  undefined1 local_5;
+  
+  if ((param_2 != 0) && (cVar1 = FUN_00440d80(param_1), cVar1 == '\0')) {
+    FUN_0044ada0(1);
+    local_5 = 0;
+    cVar1 = FUN_0042ce10();
+    if (cVar1 != '\0') {
+      local_5 = FUN_004623f0(0);
+    }
+    FUN_00552bd0(1);
+    FUN_009740a0(param_2);
+    FUN_004512a0(1);
+    FUN_005508b0();
+    FUN_0054b750();
+    while (cVar1 = FUN_00551620(), cVar1 != '\0') {
+      FUN_00551480(0);
+    }
+    cVar1 = FUN_004226e0();
+    if (cVar1 == '\0') {
+      cVar1 = FUN_0094df60();
+      FUN_0054af40(cVar1 == '\0');
+    }
+    cVar1 = FUN_00425fd0();
+    if (cVar1 == '\0') {
+      FUN_00546fb0();
+      FUN_00536d80();
+    }
+    FUN_00546970();
+    FUN_00961f30(0);
+    cVar1 = FUN_00425fd0();
+    if (cVar1 == '\0') {
+      FUN_0054ddd0(param_2);
+      FUN_00585e00(param_2);
+    }
+    cVar1 = FUN_0042ce10();
+    if (cVar1 != '\0') {
+      FUN_004623f0(local_5);
+    }
+    FUN_0044ada0(0);
+  }
+  return;
+}
+
+
+
+----------------------------------------------------------------------
+Calls FROM stack caller (0x0046230d)
+----------------------------------------------------------------------
+  0x004622a2 -> 0x00440d80 FUN_00440d80 @ 0x00440d80
+  0x004622b5 -> 0x0044ada0 FUN_0044ada0 @ 0x0044ada0
+  0x004622c7 -> 0x0042ce10 FUN_0042ce10 @ 0x0042ce10
+  0x004622db -> 0x004623f0 FUN_004623f0 @ 0x004623f0
+  0x004622e8 -> 0x00552bd0 FUN_00552bd0 @ 0x00552bd0
+  0x004622f6 -> 0x009740a0 FUN_009740a0 @ 0x009740a0
+  0x00462300 -> 0x004512a0 FUN_004512a0 @ 0x004512a0
+  0x00462308 -> 0x005508b0 FUN_005508b0 @ 0x005508b0
+  0x00462310 -> 0x0054b750 FUN_0054b750 @ 0x0054b750
+  0x00462318 -> 0x00551620 FUN_00551620 @ 0x00551620
+  0x00462329 -> 0x00551480 FUN_00551480 @ 0x00551480
+  0x00462336 -> 0x004226e0 FUN_004226e0 @ 0x004226e0
+  0x00462348 -> 0x0094df60 FUN_0094df60 @ 0x0094df60
+  0x0046235c -> 0x0054af40 FUN_0054af40 @ 0x0054af40
+  0x00462364 -> 0x00425fd0 FUN_00425fd0 @ 0x00425fd0
+  0x00462373 -> 0x00546fb0 FUN_00546fb0 @ 0x00546fb0
+  0x0046237a -> 0x00536d80 FUN_00536d80 @ 0x00536d80
+  0x00462382 -> 0x00546970 FUN_00546970 @ 0x00546970
+  0x0046238c -> 0x00961f30 FUN_00961f30 @ 0x00961f30
+  0x00462394 -> 0x00425fd0 FUN_00425fd0 @ 0x00425fd0
+  0x004623a7 -> 0x0054ddd0 FUN_0054ddd0 @ 0x0054ddd0
+  0x004623ae -> 0x00585e00 FUN_00585e00 @ 0x00585e00
+  0x004623b9 -> 0x0042ce10 FUN_0042ce10 @ 0x0042ce10
+  0x004623d0 -> 0x004623f0 FUN_004623f0 @ 0x004623f0
+  0x004623d7 -> 0x0044ada0 FUN_0044ada0 @ 0x0044ada0
+  Total printed: 25
+
+----------------------------------------------------------------------
+Disassembly: stack caller around 0x00454def
+----------------------------------------------------------------------
+  0x00454dc2: MOV EAX,dword ptr [EDX + 0x38]                          
+  0x00454dc5: MOV ECX,dword ptr [EBP + -0x8]                          
+  0x00454dc8: MOV ECX,dword ptr [EAX + ECX*0x4]                       
+  0x00454dcb: CALL 0x00557090                                         
+      call -> 0x00557090 FUN_00557090 @ 0x00557090
+  0x00454dd0: MOVZX EDX,AL                                            
+  0x00454dd3: TEST EDX,EDX                                            
+  0x00454dd5: JNZ 0x00454e08                                          
+  0x00454dd7: MOV EAX,dword ptr [EBP + -0xc]                          
+  0x00454dda: MOV ECX,dword ptr [EAX + 0x38]                          
+  0x00454ddd: MOV EDX,dword ptr [EBP + -0x8]                          
+  0x00454de0: MOV EAX,dword ptr [ECX + EDX*0x4]                       
+  0x00454de3: PUSH EAX                                                
+  0x00454de4: MOV ECX,dword ptr [0x011c3f2c]                          
+  0x00454dea: CALL 0x00462290                                         
+      call -> 0x00462290 FUN_00462290 @ 0x00462290
+  0x00454def: MOV ECX,dword ptr [EBP + -0xc]                           << target
+  0x00454df2: MOV EDX,dword ptr [ECX + 0x38]                          
+  0x00454df5: MOV EAX,dword ptr [EBP + -0x8]                          
+  0x00454df8: MOV dword ptr [EDX + EAX*0x4],0x0                       
+  0x00454dff: MOV ECX,dword ptr [EBP + -0x4]                          
+  0x00454e02: ADD ECX,0x1                                             
+  0x00454e05: MOV dword ptr [EBP + -0x4],ECX                          
+  0x00454e08: JMP 0x00454d6a                                          
+  0x00454e0d: MOV EAX,dword ptr [EBP + -0x4]                          
+  0x00454e10: POP ESI                                                 
+  0x00454e11: MOV ESP,EBP                                             
+  0x00454e13: POP EBP                                                 
+  0x00454e14: RET 0x4                                                 
+  0x00454e20: PUSH EBP                                                
+  0x00454e21: MOV EBP,ESP                                             
+  0x00454e23: SUB ESP,0x8                                             
+  0x00454e26: MOV dword ptr [EBP + -0x8],ECX                          
+  0x00454e29: MOV dword ptr [EBP + -0x4],0x0                          
+  0x00454e30: JMP 0x00454e3b                                          
+  0x00454e32: MOV EAX,dword ptr [EBP + -0x4]                          
+  0x00454e35: ADD EAX,0x1                                             
+  0x00454e38: MOV dword ptr [EBP + -0x4],EAX                          
+  0x00454e3b: MOV ECX,0x11c3c90                                       
+  0x00454e40: CALL 0x004503f0                                         
+      call -> 0x004503f0 FUN_004503f0 @ 0x004503f0
+  0x00454e45: CMP dword ptr [EBP + -0x4],EAX                          
+  0x00454e48: JNC 0x00454e61                                          
+  0x00454e4a: MOV ECX,dword ptr [EBP + -0x8]                          
+  0x00454e4d: MOV EDX,dword ptr [ECX + 0x3c]                          
+  0x00454e50: MOV EAX,dword ptr [EBP + -0x4]                          
+  0x00454e53: MOV ECX,dword ptr [EDX + EAX*0x4]                       
+  0x00454e56: CMP ECX,dword ptr [EBP + 0x8]                           
+  0x00454e59: JNZ 0x00454e5f                                          
+  0x00454e5b: MOV AL,0x1                                              
+  0x00454e5d: JMP 0x00454e63                                          
+  0x00454e5f: JMP 0x00454e32                                          
+
+======================================================================
+stack caller @ 0x00454def
+======================================================================
+  Function: FUN_00454d50 @ 0x00454d50, Size: 199 bytes
+  NOTE: Requested 0x00454def is inside FUN_00454d50 (entry at 0x00454d50)
+
+int __thiscall FUN_00454d50(int param_1,char param_2)
+
+{
+  char cVar1;
+  uint uVar2;
+  int iVar3;
+  int iVar4;
+  uint local_c;
+  int local_8;
+  
+  local_8 = 0;
+  local_c = 0;
+  do {
+    uVar2 = FUN_004503f0();
+    if (uVar2 <= local_c) {
+      return local_8;
+    }
+    if (*(int *)(*(int *)(param_1 + 0x38) + local_c * 4) != 0) {
+      if (param_2 != '\0') {
+        iVar3 = FUN_005f36f0();
+        if (iVar3 != 0) {
+          iVar3 = *(int *)(param_1 + 0x38);
+          iVar4 = FUN_005f36f0();
+          if (*(int *)(iVar3 + local_c * 4) == iVar4) goto LAB_00454d6a;
+        }
+      }
+      cVar1 = FUN_00557090();
+      if (cVar1 == '\0') {
+        FUN_00462290(*(undefined4 *)(*(int *)(param_1 + 0x38) + local_c * 4));
+        *(undefined4 *)(*(int *)(param_1 + 0x38) + local_c * 4) = 0;
+        local_8 = local_8 + 1;
+      }
+    }
+LAB_00454d6a:
+    local_c = local_c + 1;
+  } while( true );
+}
+
+
+
+----------------------------------------------------------------------
+Calls FROM stack caller (0x00454def)
+----------------------------------------------------------------------
+  0x00454d78 -> 0x004503f0 FUN_004503f0 @ 0x004503f0
+  0x00454da0 -> 0x005f36f0 FUN_005f36f0 @ 0x005f36f0
+  0x00454db2 -> 0x005f36f0 FUN_005f36f0 @ 0x005f36f0
+  0x00454dcb -> 0x00557090 FUN_00557090 @ 0x00557090
+  0x00454dea -> 0x00462290 FUN_00462290 @ 0x00462290
+  Total printed: 5
+
+----------------------------------------------------------------------
+Disassembly: stack caller around 0x00452b83
+----------------------------------------------------------------------
+  0x00452b53: CALL 0x005f36f0                                         
+      call -> 0x005f36f0 FUN_005f36f0 @ 0x005f36f0
+  0x00452b58: TEST EAX,EAX                                            
+  0x00452b5a: JZ 0x00452b68                                           
+  0x00452b5c: MOVZX EAX,byte ptr [EBP + -0x9]                         
+  0x00452b60: TEST EAX,EAX                                            
+  0x00452b62: JZ 0x00452d5c                                           
+  0x00452b68: MOV ECX,0x11c3d40                                       
+  0x00452b6d: CALL 0x00408d60                                         
+      call -> 0x00408d60 FUN_00408d60 @ 0x00408d60
+  0x00452b72: MOVZX ECX,byte ptr [EAX]                                
+  0x00452b75: TEST ECX,ECX                                            
+  0x00452b77: JZ 0x00452b91                                           
+  0x00452b79: PUSH 0x1                                                
+  0x00452b7b: MOV ECX,dword ptr [EBP + -0x5c]                         
+  0x00452b7e: CALL 0x00454d50                                         
+      call -> 0x00454d50 FUN_00454d50 @ 0x00454d50
+  0x00452b83: TEST EAX,EAX                                             << target
+  0x00452b85: JZ 0x00452b91                                           
+  0x00452b87: PUSH 0x0                                                
+  0x00452b89: MOV ECX,dword ptr [EBP + -0x5c]                         
+  0x00452b8c: CALL 0x00452490                                         
+      call -> 0x00452490 FUN_00452490 @ 0x00452490
+  0x00452b91: MOV ECX,dword ptr [EBP + -0x5c]                         
+  0x00452b94: CALL 0x004fd3e0                                         
+      call -> 0x004fd3e0 FUN_004fd3e0 @ 0x004fd3e0
+  0x00452b99: TEST EAX,EAX                                            
+  0x00452b9b: JNZ 0x00452bba                                          
+  0x00452b9d: MOV ECX,dword ptr [0x011c3f2c]                          
+  0x00452ba3: CALL 0x00460140                                         
+      call -> 0x00460140 FUN_00460140 @ 0x00460140
+  0x00452ba8: MOV ECX,EAX                                             
+  0x00452baa: CALL 0x006815c0                                         
+      call -> 0x006815c0 FUN_006815c0 @ 0x006815c0
+  0x00452baf: MOV EDX,dword ptr [EAX]                                 
+  0x00452bb1: PUSH EDX                                                
+  0x00452bb2: MOV ECX,dword ptr [EBP + -0x5c]                         
+  0x00452bb5: CALL 0x00458200                                         
+      call -> 0x00458200 FUN_00458200 @ 0x00458200
+  0x00452bba: MOV byte ptr [EBP + -0x4d],0x0                          
+  0x00452bbe: MOV EAX,dword ptr [EBP + -0x14]                         
+  0x00452bc1: PUSH EAX                                                
+  0x00452bc2: CALL 0x00ec7d40                                         
+      call -> 0x00ec7d40 FUN_00ec7d40 @ 0x00ec7d40
+  0x00452bc7: ADD ESP,0x4                                             
+  0x00452bca: CMP EAX,0x1                                             
+  0x00452bcd: JG 0x00452be0                                           
+  0x00452bcf: MOV ECX,dword ptr [EBP + -0x1c]                         
+  0x00452bd2: PUSH ECX                                                
+  0x00452bd3: CALL 0x00ec7d40                                         
+      call -> 0x00ec7d40 FUN_00ec7d40 @ 0x00ec7d40
+  0x00452bd8: ADD ESP,0x4                                             
+  0x00452bdb: CMP EAX,0x1                                             
+  0x00452bde: JLE 0x00452be4                                          
+  0x00452be0: MOV byte ptr [EBP + -0x4d],0x1                          
+  0x00452be4: CALL 0x00451010                                         
+      call -> 0x00451010 FUN_00451010 @ 0x00451010
+  0x00452be9: TEST EAX,EAX                                            
+  0x00452beb: JZ 0x00452c25                                           
+  0x00452bed: MOVZX EDX,byte ptr [EBP + -0x4d]                        
+
+======================================================================
+stack caller @ 0x00452b83
+======================================================================
+  Function: FUN_00452580 @ 0x00452580, Size: 2105 bytes
+  NOTE: Requested 0x00452b83 is inside FUN_00452580 (entry at 0x00452580)
+
+/* WARNING: Globals starting with '_' overlap smaller symbols at the same address */
+
+undefined4 __thiscall FUN_00452580(int param_1,undefined4 *param_2,byte param_3)
+
+{
+  bool bVar1;
+  char cVar2;
+  char cVar3;
+  int iVar4;
+  undefined4 uVar5;
+  int *piVar6;
+  char *pcVar7;
+  uint *puVar8;
+  undefined4 uVar9;
+  undefined4 *puVar10;
+  uint uVar11;
+  int iVar12;
+  int iVar13;
+  int iVar14;
+  float10 fVar15;
+  int local_50;
+  int local_4c;
+  int local_48;
+  int local_38;
+  float local_2c;
+  char local_25;
+  int local_24;
+  int local_14;
+  
+  FUN_0045bb80();
+  FUN_00470470();
+  FUN_0045c840();
+  if (((DAT_011c3c0c != '\0') && (DAT_011f94aa == '\0')) && (iVar4 = FUN_005f36f0(), iVar4 == 0)) {
+    DAT_011c3c0c = '\0';
+    FUN_0045c780();
+  }
+  cVar2 = FUN_0042ce10();
+  if (cVar2 != '\0') {
+    FUN_00559450();
+    FUN_00628da0();
+  }
+  uVar9 = *(undefined4 *)(param_1 + 8);
+  uVar5 = FUN_00457070(uVar9);
+  FUN_00559450(uVar5);
+  FUN_006271b0(uVar5,uVar9);
+  if (DAT_011c3f2c == 0) {
+    return 0;
+  }
+  if ((*(int *)(param_1 + 0x24) == 0x7fffffff) || (*(int *)(param_1 + 0x28) == 0x7fffffff)) {
+    if (param_2 != (undefined4 *)0x0) {
+      iVar4 = FUN_00406d90(*param_2);
+      *(int *)(param_1 + 0x24) = iVar4 >> 0xc;
+      iVar4 = FUN_00406d90(param_2[1]);
+      *(int *)(param_1 + 0x28) = iVar4 >> 0xc;
+      *(undefined4 *)(param_1 + 0x2c) = *(undefined4 *)(param_1 + 0x24);
+      *(undefined4 *)(param_1 + 0x30) = *(undefined4 *)(param_1 + 0x28);
+    }
+    FUN_00457d70(1,*(undefined4 *)(param_1 + 0x88),0);
+    FUN_004515a0(param_2,0);
+    return 1;
+  }
+  local_14 = FUN_00406d90(*param_2);
+  local_24 = FUN_00406d90(param_2[1]);
+  iVar4 = *(int *)(param_1 + 0x24);
+  iVar12 = *(int *)(param_1 + 0x28);
+  local_2c = _DAT_01017a3c;
+  piVar6 = (int *)FUN_0043d4d0();
+  if (*piVar6 == 3) {
+    local_2c = _DAT_01017a38;
+  }
+  iVar4 = FUN_00ec7d40(local_14 - (iVar4 * 0x1000 + 0x800));
+  *(float *)(param_1 + 0x80) = local_2c - (float)iVar4;
+  iVar4 = FUN_00ec7d40(local_24 - (iVar12 * 0x1000 + 0x800));
+  *(float *)(param_1 + 0x84) = local_2c - (float)iVar4;
+  cVar2 = FUN_0042ce10();
+  local_24 = local_24 >> 0xc;
+  local_14 = local_14 >> 0xc;
+  if ((((float)_DAT_01012060 < *(float *)(param_1 + 0x80)) &&
+      ((float)_DAT_01012060 < *(float *)(param_1 + 0x84))) && (cVar2 == '\0')) {
+    pcVar7 = (char *)FUN_00408d60();
+    if ((*pcVar7 != '\0') && (iVar4 = FUN_005f36f0(), iVar4 == 0)) {
+      if ((*(int *)(param_1 + 0x2c) != local_14) || (*(int *)(param_1 + 0x30) != local_24)) {
+        pcVar7 = (char *)FUN_00408d60();
+        if ((*pcVar7 != '\0') && (iVar4 = FUN_00454d50(1), iVar4 != 0)) {
+          FUN_00452490(0);
+        }
+        puVar8 = (uint *)FUN_0043d4d0();
+        uVar11 = *puVar8 >> 1;
+        local_48 = *(int *)(param_1 + 0x2c);
+        iVar4 = local_14 - *(int *)(param_1 + 0x2c);
+        if (iVar4 != 0) {
+          local_48 = (uVar11 + 1) * iVar4 + local_48;
+          for (local_4c = -uVar11; local_4c <= (int)uVar11; local_4c = local_4c + 1) {
+            iVar13 = local_4c + *(int *)(param_1 + 0x30);
+            iVar12 = local_48;
+            uVar9 = FUN_004fd3e0(local_48,iVar13);
+            FUN_005283c0(uVar9,iVar12,iVar13);
+          }
+        }
+        local_38 = *(int *)(param_1 + 0x30);
+        iVar12 = local_24 - *(int *)(param_1 + 0x30);
+        if (iVar12 != 0) {
+          local_38 = (uVar11 + 1) * iVar12 + local_38;
+          for (local_50 = -uVar11; local_50 <= (int)uVar11; local_50 = local_50 + 1) {
+            iVar14 = local_50 + *(int *)(param_1 + 0x2c);
+            iVar13 = local_38;
+            uVar9 = FUN_004fd3e0(iVar14,local_38);
+            FUN_005283c0(uVar9,iVar14,iVar13);
+          }
+        }
+        if ((iVar4 != 0) && (iVar12 != 0)) {
+          uVar9 = FUN_004fd3e0(local_48,local_38);
+          FUN_005283c0(uVar9,local_48,local_38);
+        }
+      }
+      *(int *)(param_1 + 0x2c) = local_14;
+      *(int *)(param_1 + 0x30) = local_24;
+    }
+    return 0;
+  }
+  FUN_00452e40(0);
+  local_25 = FUN_00705e80();
+  if (((local_25 == '\0') && (iVar4 = FUN_005285a0(), iVar4 != 0)) &&
+     (cVar3 = FUN_0042ce10(), cVar3 == '\0')) {
+    FUN_004581e0("Loading Area (queued cells)...");
+    local_25 = '\x01';
+  }
+  cVar3 = FUN_0042ce10();
+  if ((cVar3 != '\0') && (cVar3 = FUN_00452e90(), cVar3 != '\0')) {
+    local_14 = *(int *)(param_1 + 0x24);
+    local_24 = *(int *)(param_1 + 0x28);
+  }
+  iVar12 = local_14 - *(int *)(param_1 + 0x24);
+  iVar4 = local_24 - *(int *)(param_1 + 0x28);
+  *(int *)(param_1 + 0x24) = local_14;
+  *(int *)(param_1 + 0x28) = local_24;
+  *(undefined4 *)(param_1 + 0x2c) = *(undefined4 *)(param_1 + 0x24);
+  *(undefined4 *)(param_1 + 0x30) = *(undefined4 *)(param_1 + 0x28);
+  DAT_011f9634 = DAT_011f962c;
+  DAT_011f9638 = DAT_011f9630;
+  puVar10 = (undefined4 *)
+            FUN_00452dc0(((float)*(int *)(param_1 + 0x24) + (float)_DAT_01011588) *
+                         (float)_DAT_01017a10,
+                         ((float)*(int *)(param_1 + 0x28) + (float)_DAT_01011588) *
+                         (float)_DAT_01017a10);
+  DAT_011f962c = *puVar10;
+  DAT_011f9630 = puVar10[1];
+  cVar3 = FUN_00452df0(&DAT_011f4980);
+  if (((cVar3 != '\0') || (iVar13 = FUN_00ec7d40(iVar12), 1 < iVar13)) ||
+     (iVar13 = FUN_00ec7d40(iVar4), 1 < iVar13)) {
+    DAT_011f9634 = DAT_011f962c;
+    DAT_011f9638 = DAT_011f9630;
+  }
+  fVar15 = (float10)FUN_00452e70(0);
+  _DAT_011f94ac = (float)fVar15;
+  DAT_011c3c0c = 1;
+  DAT_011f94aa = 1;
+  FUN_0045c840();
+  FUN_0045c780();
+  FUN_00528110();
+  iVar13 = FUN_005281f0();
+  if (iVar13 != 0) {
+    FUN_005282d0();
+  }
+  iVar13 = FUN_005f36f0();
+  if ((iVar13 == 0) || (cVar2 != '\0')) {
+    pcVar7 = (char *)FUN_00408d60();
+    if ((*pcVar7 != '\0') && (iVar13 = FUN_00454d50(1), iVar13 != 0)) {
+      FUN_00452490(0);
+    }
+    iVar13 = FUN_004fd3e0();
+    if (iVar13 == 0) {
+      FUN_00460140();
+      puVar10 = (undefined4 *)FUN_006815c0();
+      FUN_00458200(*puVar10);
+    }
+    bVar1 = false;
+    iVar13 = FUN_00ec7d40(iVar12);
+    if ((1 < iVar13) || (iVar13 = FUN_00ec7d40(iVar4), 1 < iVar13)) {
+      bVar1 = true;
+    }
+    iVar13 = FUN_00451010();
+    if (iVar13 != 0) {
+      if ((bVar1) || (param_3 == 0)) {
+        uVar9 = 0;
+        FUN_00451010(0);
+        FUN_00c6b540(uVar9);
+        uVar9 = 0;
+        FUN_00451010(0);
+        FUN_00c68f00(uVar9);
+      }
+      FUN_00451010();
+      FUN_00c66310();
+    }
+    (**(code **)(**(int **)(param_1 + 8) + 0x10))(local_14,local_24);
+    iVar13 = FUN_00451010();
+    if (iVar13 != 0) {
+      if ((local_25 == '\0') && ((!bVar1 || (iVar13 = FUN_005285a0(), iVar13 == 0)))) {
+        FUN_00451010();
+        FUN_0068a830();
+      }
+      if (bVar1) {
+        uVar9 = 0;
+        FUN_00451010(0);
+        FUN_00c68f00(uVar9);
+      }
+      else {
+        uVar11 = (uint)param_3;
+        FUN_00451010(uVar11);
+        FUN_00c68f00(uVar11);
+      }
+    }
+    if (((local_25 == '\0') && (cVar2 = FUN_00452ed0(), cVar2 == '\0')) &&
+       (cVar2 = FUN_0042ce10(), cVar2 == '\0')) {
+      FUN_004581e0("Loading Area (unloaded cells)...");
+    }
+    iVar12 = FUN_00ec7d40(iVar12);
+    if ((1 < iVar12) || (iVar4 = FUN_00ec7d40(iVar4), 1 < iVar4)) {
+      FUN_00457be0(0);
+    }
+    iVar4 = FUN_00451010();
+    if (iVar4 != 0) {
+      FUN_00451010();
+      FUN_00c66300();
+    }
+    FUN_00452ff0();
+    FUN_00452e50();
+    iVar4 = FUN_00451010();
+    if (iVar4 != 0) {
+      if (bVar1) {
+        uVar9 = 0;
+        FUN_00451010(0);
+        FUN_00c6b540(uVar9);
+      }
+      else {
+        uVar11 = (uint)param_3;
+        FUN_00451010(uVar11);
+        FUN_00c6b540(uVar11);
+      }
+    }
+  }
+  FUN_00452490(0);
+  FUN_0062f460();
+  iVar4 = FUN_005f36f0();
+  if (iVar4 == 0) {
+    uVar5 = 0xf;
+    uVar9 = (**(code **)(*DAT_011dea3c + 500))(0xf);
+    FUN_00586170(uVar9);
+    FUN_006fca90(uVar9,uVar5);
+  }
+  FUN_00452e40(1);
+  return 1;
+}
+
+
+
+----------------------------------------------------------------------
+Calls FROM stack caller (0x00452b83)
+----------------------------------------------------------------------
+  0x0045258c -> 0x0045bb80 FUN_0045bb80 @ 0x0045bb80
+  0x00452593 -> 0x00470470 FUN_00470470 @ 0x00470470
+  0x0045259b -> 0x0045c840 FUN_0045c840 @ 0x0045c840
+  0x004525b9 -> 0x005f36f0 FUN_005f36f0 @ 0x005f36f0
+  0x004525cc -> 0x0045c780 FUN_0045c780 @ 0x0045c780
+  0x004525d7 -> 0x0042ce10 FUN_0042ce10 @ 0x0042ce10
+  0x004525ec -> 0x00559450 FUN_00559450 @ 0x00559450
+  0x004525f3 -> 0x00628da0 FUN_00628da0 @ 0x00628da0
+  0x00452602 -> 0x00457070 FUN_00457070 @ 0x00457070
+  0x00452611 -> 0x00559450 FUN_00559450 @ 0x00559450
+  0x00452618 -> 0x006271b0 FUN_006271b0 @ 0x006271b0
+  0x00452658 -> 0x00406d90 FUN_00406d90 @ 0x00406d90
+  0x00452673 -> 0x00406d90 FUN_00406d90 @ 0x00406d90
+  0x004526ad -> 0x00457d70 FUN_00457d70 @ 0x00457d70
+  0x004526bb -> 0x004515a0 FUN_004515a0 @ 0x004515a0
+  0x004526d3 -> 0x00406d90 FUN_00406d90 @ 0x00406d90
+  0x004526e8 -> 0x00406d90 FUN_00406d90 @ 0x00406d90
+  0x0045272f -> 0x0043d4d0 FUN_0043d4d0 @ 0x0043d4d0
+  0x00452746 -> 0x00ec7d40 FUN_00ec7d40 @ 0x00ec7d40
+  0x00452764 -> 0x00ec7d40 FUN_00ec7d40 @ 0x00ec7d40
+  0x00452788 -> 0x0042ce10 FUN_0042ce10 @ 0x0042ce10
+  0x004527d5 -> 0x00408d60 FUN_00408d60 @ 0x00408d60
+  0x004527e8 -> 0x005f36f0 FUN_005f36f0 @ 0x005f36f0
+  0x00452826 -> 0x00408d60 FUN_00408d60 @ 0x00408d60
+  0x00452837 -> 0x00454d50 FUN_00454d50 @ 0x00454d50
+  0x00452845 -> 0x00452490 FUN_00452490 @ 0x00452490
+  0x0045284f -> 0x0043d4d0 FUN_0043d4d0 @ 0x0043d4d0
+  0x004528ae -> 0x004fd3e0 FUN_004fd3e0 @ 0x004fd3e0
+  0x004528ba -> 0x005283c0 FUN_005283c0 @ 0x005283c0
+  0x00452914 -> 0x004fd3e0 FUN_004fd3e0 @ 0x004fd3e0
+  0x00452920 -> 0x005283c0 FUN_005283c0 @ 0x005283c0
+  0x0045293e -> 0x004fd3e0 FUN_004fd3e0 @ 0x004fd3e0
+  0x0045294a -> 0x005283c0 FUN_005283c0 @ 0x005283c0
+  0x0045296a -> 0x00452e40 FUN_00452e40 @ 0x00452e40
+  0x00452972 -> 0x00705e80 FUN_00705e80 @ 0x00705e80
+  0x00452988 -> 0x005285a0 FUN_005285a0 @ 0x005285a0
+  0x00452997 -> 0x0042ce10 FUN_0042ce10 @ 0x0042ce10
+  0x004529ab -> 0x004581e0 FUN_004581e0 @ 0x004581e0
+  0x004529cc -> 0x0042ce10 FUN_0042ce10 @ 0x0042ce10
+  0x004529de -> 0x00452e90 FUN_00452e90 @ 0x00452e90
+  0x00452a8f -> 0x00452dc0 FUN_00452dc0 @ 0x00452dc0
+  0x00452aaf -> 0x00452df0 FUN_00452df0 @ 0x00452df0
+  0x00452abf -> 0x00ec7d40 FUN_00ec7d40 @ 0x00ec7d40
+  0x00452ad0 -> 0x00ec7d40 FUN_00ec7d40 @ 0x00ec7d40
+  0x00452af5 -> 0x00452e70 FUN_00452e70 @ 0x00452e70
+  0x00452b19 -> 0x0045c840 FUN_0045c840 @ 0x0045c840
+  0x00452b21 -> 0x0045c780 FUN_0045c780 @ 0x0045c780
+  0x00452b2c -> 0x00528110 FUN_00528110 @ 0x00528110
+  0x00452b37 -> 0x005281f0 FUN_005281f0 @ 0x005281f0
+  0x00452b4b -> 0x005282d0 FUN_005282d0 @ 0x005282d0
+  0x00452b53 -> 0x005f36f0 FUN_005f36f0 @ 0x005f36f0
+  0x00452b6d -> 0x00408d60 FUN_00408d60 @ 0x00408d60
+  0x00452b7e -> 0x00454d50 FUN_00454d50 @ 0x00454d50
+  0x00452b8c -> 0x00452490 FUN_00452490 @ 0x00452490
+  0x00452b94 -> 0x004fd3e0 FUN_004fd3e0 @ 0x004fd3e0
+  0x00452ba3 -> 0x00460140 FUN_00460140 @ 0x00460140
+  0x00452baa -> 0x006815c0 FUN_006815c0 @ 0x006815c0
+  0x00452bb5 -> 0x00458200 FUN_00458200 @ 0x00458200
+  0x00452bc2 -> 0x00ec7d40 FUN_00ec7d40 @ 0x00ec7d40
+  0x00452bd3 -> 0x00ec7d40 FUN_00ec7d40 @ 0x00ec7d40
+  0x00452be4 -> 0x00451010 FUN_00451010 @ 0x00451010
+  0x00452bff -> 0x00451010 FUN_00451010 @ 0x00451010
+  0x00452c06 -> 0x00c6b540 FUN_00c6b540 @ 0x00c6b540
+  0x00452c0d -> 0x00451010 FUN_00451010 @ 0x00451010
+  0x00452c14 -> 0x00c68f00 FUN_00c68f00 @ 0x00c68f00
+  0x00452c19 -> 0x00451010 FUN_00451010 @ 0x00451010
+  0x00452c20 -> 0x00c66310 FUN_00c66310 @ 0x00c66310
+  0x00452c42 -> 0x00451010 FUN_00451010 @ 0x00451010
+  0x00452c61 -> 0x005285a0 FUN_005285a0 @ 0x005285a0
+  0x00452c6a -> 0x00451010 FUN_00451010 @ 0x00451010
+  0x00452c71 -> 0x0068a830 FUN_0068a830 @ 0x0068a830
+  0x00452c80 -> 0x00451010 FUN_00451010 @ 0x00451010
+  0x00452c87 -> 0x00c68f00 FUN_00c68f00 @ 0x00c68f00
+  0x00452c93 -> 0x00451010 FUN_00451010 @ 0x00451010
+  0x00452c9a -> 0x00c68f00 FUN_00c68f00 @ 0x00c68f00
+  0x00452caa -> 0x00452ed0 FUN_00452ed0 @ 0x00452ed0
+  0x00452cbc -> 0x0042ce10 FUN_0042ce10 @ 0x0042ce10
+  0x00452cd0 -> 0x004581e0 FUN_004581e0 @ 0x004581e0
+  0x00452cdd -> 0x00ec7d40 FUN_00ec7d40 @ 0x00ec7d40
+  0x00452cee -> 0x00ec7d40 FUN_00ec7d40 @ 0x00ec7d40
+  0x00452d00 -> 0x00457be0 FUN_00457be0 @ 0x00457be0
+  0x00452d05 -> 0x00451010 FUN_00451010 @ 0x00451010
+  0x00452d0e -> 0x00451010 FUN_00451010 @ 0x00451010
+  0x00452d15 -> 0x00c66300 FUN_00c66300 @ 0x00c66300
+  0x00452d1d -> 0x00452ff0 FUN_00452ff0 @ 0x00452ff0
+  0x00452d25 -> 0x00452e50 FUN_00452e50 @ 0x00452e50
+  0x00452d2a -> 0x00451010 FUN_00451010 @ 0x00451010
+  0x00452d3d -> 0x00451010 FUN_00451010 @ 0x00451010
+  0x00452d44 -> 0x00c6b540 FUN_00c6b540 @ 0x00c6b540
+  0x00452d50 -> 0x00451010 FUN_00451010 @ 0x00451010
+  0x00452d57 -> 0x00c6b540 FUN_00c6b540 @ 0x00c6b540
+  0x00452d61 -> 0x00452490 FUN_00452490 @ 0x00452490
+  0x00452d66 -> 0x0062f460 FUN_0062f460 @ 0x0062f460
+  0x00452d6e -> 0x005f36f0 FUN_005f36f0 @ 0x005f36f0
+  0x00452d98 -> 0x00586170 FUN_00586170 @ 0x00586170
+  0x00452d9f -> 0x006fca90 FUN_006fca90 @ 0x006fca90
+  0x00452da6 -> 0x00452e40 FUN_00452e40 @ 0x00452e40
+  Total printed: 97
+
+----------------------------------------------------------------------
+Disassembly: stack caller around 0x0045470b
+----------------------------------------------------------------------
+  0x004546dc: CALL 0x0042ce10                                         
+      call -> 0x0042ce10 FUN_0042ce10 @ 0x0042ce10
+  0x004546e1: MOV byte ptr [EBP + -0xd],AL                            
+  0x004546e4: MOV ECX,dword ptr [0x011de45c]                          
+  0x004546ea: CALL 0x0047c850                                         
+      call -> 0x0047c850 FUN_0047c850 @ 0x0047c850
+  0x004546ef: MOV byte ptr [EBP + -0x15],AL                           
+  0x004546f2: MOVZX ECX,byte ptr [EBP + -0x15]                        
+  0x004546f6: TEST ECX,ECX                                            
+  0x004546f8: SETZ DL                                                 
+  0x004546fb: MOVZX EAX,DL                                            
+  0x004546fe: PUSH EAX                                                
+  0x004546ff: MOV ECX,dword ptr [EBP + 0x8]                           
+  0x00454702: PUSH ECX                                                
+  0x00454703: MOV ECX,dword ptr [EBP + -0x44]                         
+  0x00454706: CALL 0x00452580                                         
+      call -> 0x00452580 FUN_00452580 @ 0x00452580
+  0x0045470b: MOV EDX,dword ptr [EBP + -0x44]                          << target
+  0x0045470e: MOV EAX,dword ptr [EDX + 0x28]                          
+  0x00454711: PUSH EAX                                                
+  0x00454712: MOV ECX,dword ptr [EBP + -0x44]                         
+  0x00454715: MOV EDX,dword ptr [ECX + 0x24]                          
+  0x00454718: PUSH EDX                                                
+  0x00454719: MOV ECX,dword ptr [EBP + -0x44]                         
+  0x0045471c: CALL 0x00451900                                         
+      call -> 0x00451900 FUN_00451900 @ 0x00451900
+  0x00454721: MOV dword ptr [EBP + -0x2c],EAX                         
+  0x00454724: MOV EAX,dword ptr [EBP + -0x2c]                         
+  0x00454727: PUSH EAX                                                
+  0x00454728: MOV ECX,dword ptr [0x011c3b3c]                          
+  0x0045472e: CALL 0x00447950                                         
+      call -> 0x00447950 FUN_00447950 @ 0x00447950
+  0x00454733: MOVZX ECX,AL                                            
+  0x00454736: TEST ECX,ECX                                            
+  0x00454738: JZ 0x0045474a                                           
+  0x0045473a: PUSH 0x0                                                
+  0x0045473c: MOV EDX,dword ptr [EBP + -0x2c]                         
+  0x0045473f: PUSH EDX                                                
+  0x00454740: PUSH 0x1                                                
+  0x00454742: MOV ECX,dword ptr [EBP + -0x44]                         
+  0x00454745: CALL 0x00457d70                                         
+      call -> 0x00457d70 FUN_00457d70 @ 0x00457d70
+  0x0045474a: CALL 0x00451010                                         
+      call -> 0x00451010 FUN_00451010 @ 0x00451010
+  0x0045474f: TEST EAX,EAX                                            
+  0x00454751: JZ 0x0045475f                                           
+  0x00454753: CALL 0x00451010                                         
+      call -> 0x00451010 FUN_00451010 @ 0x00451010
+  0x00454758: MOV ECX,EAX                                             
+  0x0045475a: CALL 0x00c66300                                         
+      call -> 0x00c66300 FUN_00c66300 @ 0x00c66300
+  0x0045475f: MOVZX EAX,byte ptr [EBP + -0xd]                         
+  0x00454763: TEST EAX,EAX                                            
+  0x00454765: JNZ 0x00454774                                          
+  0x00454767: PUSH 0x4                                                
+  0x00454769: MOV ECX,dword ptr [0x01202d98]                          
+  0x0045476f: CALL 0x00c3dfa0                                         
+      call -> 0x00c3dfa0 FUN_00c3dfa0 @ 0x00c3dfa0
+  0x00454774: MOV ECX,dword ptr [EBP + -0x44]                         
+
+======================================================================
+stack caller @ 0x0045470b
+======================================================================
+  Function: FUN_00454450 @ 0x00454450, Size: 1672 bytes
+  NOTE: Requested 0x0045470b is inside FUN_00454450 (entry at 0x00454450)
+
+/* WARNING: Globals starting with '_' overlap smaller symbols at the same address */
+
+void __thiscall FUN_00454450(int param_1,undefined4 *param_2)
+
+{
+  char cVar1;
+  uint uVar2;
+  int iVar3;
+  int iVar4;
+  undefined4 *puVar5;
+  char *pcVar6;
+  int *unaff_FS_OFFSET;
+  float10 fVar7;
+  cancellation_token_source *pcVar8;
+  undefined4 uVar9;
+  undefined4 uVar10;
+  undefined4 uVar11;
+  cancellation_token_source local_38 [4];
+  int local_34;
+  undefined4 local_30;
+  undefined4 local_2c;
+  undefined4 local_28;
+  undefined4 local_24;
+  int local_20;
+  char local_19;
+  int local_18;
+  char local_11;
+  int local_10;
+  undefined1 *puStack_c;
+  int local_8;
+  
+  local_8 = 0xffffffff;
+  puStack_c = &LAB_00eed3d0;
+  local_10 = *unaff_FS_OFFSET;
+  uVar2 = DAT_011c16bc ^ (uint)&stack0xfffffffc;
+  *unaff_FS_OFFSET = (int)&local_10;
+  local_18 = FUN_004fd3e0(uVar2);
+  if (local_18 != 0) {
+    uVar10 = 0xf;
+    puVar5 = param_2;
+    FUN_00586170(param_2,0xf);
+    FUN_006fca90(puVar5,uVar10);
+    puVar5 = param_2;
+    FUN_00586170(param_2);
+    FUN_006fcdb0(puVar5);
+  }
+  FUN_00454440(0);
+  if (*(int *)(param_1 + 0x88) != 0) {
+    uVar10 = FUN_006733e0();
+    FUN_0058eeb0(uVar10);
+  }
+  FUN_00b58070(0);
+  uVar10 = 1;
+  FUN_00451010(1);
+  FUN_00454380(uVar10);
+  local_20 = FUN_005f36f0();
+  if (local_20 != 0) {
+    FUN_00450b80(0);
+    iVar3 = FUN_00454b30();
+    iVar4 = FUN_009d9f20();
+    if (iVar3 == iVar4) {
+      uVar10 = 0;
+      FUN_00450b80(0,0);
+      FUN_00b5ddf0(uVar10);
+    }
+    FUN_00552bd0(1);
+    cVar1 = FUN_00454bd0(local_20);
+    if (cVar1 == '\0') {
+      FUN_00462290(local_20);
+    }
+    else {
+      FUN_0054af40(1);
+    }
+    FUN_008d7dc0(0);
+    cVar1 = FUN_0042ce10();
+    if (cVar1 == '\0') {
+      if (*(int *)(param_1 + 0x48) == 0x7fffffff) {
+        iVar3 = FUN_00457620(param_2);
+        if (iVar3 == 0) {
+          *(undefined4 *)(param_1 + 0x24) = 0x7fffffff;
+          *(undefined4 *)(param_1 + 0x28) = 0x7fffffff;
+          *(undefined4 *)(param_1 + 0x2c) = *(undefined4 *)(param_1 + 0x24);
+          *(undefined4 *)(param_1 + 0x30) = *(undefined4 *)(param_1 + 0x28);
+        }
+      }
+      else {
+        if (**(int **)(param_1 + 0x3c) == 0) {
+          *(undefined4 *)(param_1 + 0x24) = 0x7fffffff;
+          *(undefined4 *)(param_1 + 0x28) = 0x7fffffff;
+          *(undefined4 *)(param_1 + 0x2c) = *(undefined4 *)(param_1 + 0x24);
+          *(undefined4 *)(param_1 + 0x30) = *(undefined4 *)(param_1 + 0x28);
+        }
+        else {
+          *(undefined4 *)(param_1 + 0x24) = *(undefined4 *)(param_1 + 0x48);
+          *(undefined4 *)(param_1 + 0x28) = *(undefined4 *)(param_1 + 0x4c);
+          FUN_00450dd0(0,param_2);
+        }
+        *(undefined4 *)(param_1 + 0x48) = 0x7fffffff;
+        *(undefined4 *)(param_1 + 0x4c) = 0x7fffffff;
+      }
+    }
+    FUN_00450b80(0);
+    FUN_00b5d180();
+    uVar10 = FUN_00950bb0(0);
+    FUN_00450b80(0,uVar10);
+    FUN_00b5cbd0(uVar10);
+  }
+  if (*(int *)(param_1 + 0x10) != 0) {
+    local_34 = FUN_009611e0();
+    if (local_34 != 0) {
+      FUN_00450f90(0);
+    }
+    FUN_006fd1f0(1);
+  }
+  FUN_00451010();
+  uVar2 = FUN_00454ae0();
+  uVar2 = uVar2 & 0xff;
+  FUN_00451010(uVar2);
+  FUN_00c6a640(uVar2);
+  local_11 = 0;
+  local_19 = 0;
+  local_11 = FUN_0042ce10();
+  local_19 = FUN_0047c850();
+  FUN_00452580(param_2,local_19 == '\0');
+  local_30 = FUN_00451900(*(undefined4 *)(param_1 + 0x24),*(undefined4 *)(param_1 + 0x28));
+  cVar1 = FUN_00447950(local_30);
+  if (cVar1 != '\0') {
+    FUN_00457d70(1,local_30,0);
+  }
+  iVar3 = FUN_00451010();
+  if (iVar3 != 0) {
+    FUN_00451010();
+    FUN_00c66300();
+  }
+  if (local_11 == '\0') {
+    FUN_00c3dfa0(4);
+  }
+  FUN_0044ddc0();
+  FUN_004ba7d0();
+  FUN_0045c840();
+  FUN_0045c780();
+  iVar3 = FUN_00451010();
+  if (iVar3 != 0) {
+    uVar10 = 0;
+    FUN_00451010(0);
+    FUN_00c6b540(uVar10);
+  }
+  FUN_0045cda0();
+  FUN_00416870(*param_2,param_2[1],0);
+  FUN_004572e0(param_2,&local_24);
+  FUN_00451590(0);
+  FUN_0057d0a0(local_2c,local_28,local_24,DAT_011a9478,DAT_011a947c,DAT_011a9480,0x3f800000);
+  FUN_00451590(1);
+  cVar1 = FUN_00451530();
+  if ((cVar1 == '\0') && (local_11 == '\0')) {
+    uVar10 = 1;
+    puVar5 = (undefined4 *)FUN_00403e20(1);
+    FUN_00700960(1,*puVar5,uVar10);
+  }
+  if (local_11 == '\0') {
+    FUN_00975f90();
+    FUN_00459870();
+    FUN_00972d30();
+    FUN_00972bb0();
+  }
+  if ((local_20 != 0) && (cVar1 = FUN_00454b10(), cVar1 == '\0')) {
+    uVar10 = FUN_0044edb0();
+    FUN_0063ddb0(uVar10);
+    uVar10 = FUN_00825c00();
+    FUN_0063ddb0(uVar10);
+  }
+  FUN_00451cf0();
+  FUN_00455400(0);
+  FUN_00a5a040();
+  FUN_007038b0(0);
+  cVar1 = FUN_00451530();
+  if (cVar1 != '\0') {
+    FUN_00457d70(0,0,0);
+  }
+  FUN_00452490(0);
+  if ((*(int *)(param_1 + 0x88) == 0) || (pcVar6 = (char *)FUN_00454b50(), *pcVar6 == '\0')) {
+    uVar10 = 0;
+    FUN_0070ec90(0);
+    FUN_0052d3b0(uVar10);
+  }
+  else {
+    FUN_00404eb0(0x1d,1,"D:\\_Fallout3\\Platforms\\Common\\Code\\Fallout Shared\\TES.cpp",0xd6a);
+    local_8 = 0;
+    FUN_00633c90(0);
+    local_8._0_1_ = 1;
+    uVar11 = 0;
+    uVar9 = 1;
+    pcVar8 = local_38;
+    uVar10 = FUN_00454b50(pcVar8,1,0);
+    FUN_004568c0(uVar10,pcVar8,uVar9,uVar11);
+    uVar10 = FUN_00559450();
+    FUN_0070ec90(uVar10);
+    FUN_0052d3b0(uVar10);
+    local_8 = (uint)local_8._1_3_ << 8;
+    Concurrency::cancellation_token_source::~cancellation_token_source(local_38);
+    local_8 = 0xffffffff;
+    FUN_00404ee0();
+  }
+  DAT_01189625 = 1;
+  puVar5 = (undefined4 *)
+           FUN_00452dc0(((float)*(int *)(param_1 + 0x24) + (float)_DAT_01011588) *
+                        (float)_DAT_01017a10,
+                        ((float)*(int *)(param_1 + 0x28) + (float)_DAT_01011588) *
+                        (float)_DAT_01017a10);
+  DAT_011f962c = *puVar5;
+  DAT_011f9630 = puVar5[1];
+  DAT_011f9634 = DAT_011f962c;
+  DAT_011f9638 = DAT_011f9630;
+  fVar7 = (float10)FUN_00452e70(0);
+  _DAT_011f94ac = (float)fVar7;
+  DAT_011c3c0c = 0;
+  DAT_011f94aa = 0;
+  FUN_004fd3e0();
+  FUN_00586170();
+  cVar1 = FUN_00454b70();
+  DAT_011f94ab = cVar1 != '\0';
+  cVar1 = FUN_0042ce10();
+  if (cVar1 == '\0') {
+    FUN_006c0720();
+    FUN_006c39c0();
+  }
+  *unaff_FS_OFFSET = local_10;
+  return;
+}
+
+
+
+----------------------------------------------------------------------
+Calls FROM stack caller (0x0045470b)
+----------------------------------------------------------------------
+  0x0045447c -> 0x004fd3e0 FUN_004fd3e0 @ 0x004fd3e0
+  0x00454493 -> 0x00586170 FUN_00586170 @ 0x00586170
+  0x0045449a -> 0x006fca90 FUN_006fca90 @ 0x006fca90
+  0x004544a6 -> 0x00586170 FUN_00586170 @ 0x00586170
+  0x004544ad -> 0x006fcdb0 FUN_006fcdb0 @ 0x006fcdb0
+  0x004544b4 -> 0x00454440 FUN_00454440 @ 0x00454440
+  0x004544d1 -> 0x006733e0 FUN_006733e0 @ 0x006733e0
+  0x004544d7 -> 0x0058eeb0 FUN_0058eeb0 @ 0x0058eeb0
+  0x004544e1 -> 0x00b58070 FUN_00b58070 @ 0x00b58070
+  0x004544eb -> 0x00451010 FUN_00451010 @ 0x00451010
+  0x004544f2 -> 0x00454380 FUN_00454380 @ 0x00454380
+  0x004544fa -> 0x005f36f0 FUN_005f36f0 @ 0x005f36f0
+  0x0045450e -> 0x00450b80 FUN_00450b80 @ 0x00450b80
+  0x00454518 -> 0x00454b30 FUN_00454b30 @ 0x00454b30
+  0x00454522 -> 0x009d9f20 FUN_009d9f20 @ 0x009d9f20
+  0x0045452f -> 0x00450b80 FUN_00450b80 @ 0x00450b80
+  0x00454539 -> 0x00b5ddf0 FUN_00b5ddf0 @ 0x00b5ddf0
+  0x00454543 -> 0x00552bd0 FUN_00552bd0 @ 0x00552bd0
+  0x0045454f -> 0x00454bd0 FUN_00454bd0 @ 0x00454bd0
+  0x00454565 -> 0x00462290 FUN_00462290 @ 0x00462290
+  0x00454571 -> 0x0054af40 FUN_0054af40 @ 0x0054af40
+  0x0045457b -> 0x008d7dc0 FUN_008d7dc0 @ 0x008d7dc0
+  0x00454586 -> 0x0042ce10 FUN_0042ce10 @ 0x0042ce10
+  0x004545ce -> 0x00450dd0 FUN_00450dd0 @ 0x00450dd0
+  0x0045461e -> 0x00457620 FUN_00457620 @ 0x00457620
+  0x00454655 -> 0x00450b80 FUN_00450b80 @ 0x00450b80
+  0x0045465f -> 0x00b5d180 FUN_00b5d180 @ 0x00b5d180
+  0x0045466c -> 0x00950bb0 FUN_00950bb0 @ 0x00950bb0
+  0x00454674 -> 0x00450b80 FUN_00450b80 @ 0x00450b80
+  0x0045467e -> 0x00b5cbd0 FUN_00b5cbd0 @ 0x00b5cbd0
+  0x00454692 -> 0x009611e0 FUN_009611e0 @ 0x009611e0
+  0x004546a5 -> 0x00450f90 FUN_00450f90 @ 0x00450f90
+  0x004546ac -> 0x006fd1f0 FUN_006fd1f0 @ 0x006fd1f0
+  0x004546b4 -> 0x00451010 FUN_00451010 @ 0x00451010
+  0x004546b9 -> 0x00454ae0 FUN_00454ae0 @ 0x00454ae0
+  0x004546c2 -> 0x00451010 FUN_00451010 @ 0x00451010
+  0x004546c9 -> 0x00c6a640 FUN_00c6a640 @ 0x00c6a640
+  0x004546dc -> 0x0042ce10 FUN_0042ce10 @ 0x0042ce10
+  0x004546ea -> 0x0047c850 FUN_0047c850 @ 0x0047c850
+  0x00454706 -> 0x00452580 FUN_00452580 @ 0x00452580
+  0x0045471c -> 0x00451900 FUN_00451900 @ 0x00451900
+  0x0045472e -> 0x00447950 FUN_00447950 @ 0x00447950
+  0x00454745 -> 0x00457d70 FUN_00457d70 @ 0x00457d70
+  0x0045474a -> 0x00451010 FUN_00451010 @ 0x00451010
+  0x00454753 -> 0x00451010 FUN_00451010 @ 0x00451010
+  0x0045475a -> 0x00c66300 FUN_00c66300 @ 0x00c66300
+  0x0045476f -> 0x00c3dfa0 FUN_00c3dfa0 @ 0x00c3dfa0
+  0x00454777 -> 0x0044ddc0 FUN_0044ddc0 @ 0x0044ddc0
+  0x0045477e -> 0x004ba7d0 FUN_004ba7d0 @ 0x004ba7d0
+  0x00454786 -> 0x0045c840 FUN_0045c840 @ 0x0045c840
+  0x0045478e -> 0x0045c780 FUN_0045c780 @ 0x0045c780
+  0x00454793 -> 0x00451010 FUN_00451010 @ 0x00451010
+  0x0045479e -> 0x00451010 FUN_00451010 @ 0x00451010
+  0x004547a5 -> 0x00c6b540 FUN_00c6b540 @ 0x00c6b540
+  0x004547ad -> 0x0045cda0 FUN_0045cda0 @ 0x0045cda0
+  0x004547ce -> 0x00416870 FUN_00416870 @ 0x00416870
+  0x004547de -> 0x004572e0 FUN_004572e0 @ 0x004572e0
+  0x004547e5 -> 0x00451590 FUN_00451590 @ 0x00451590
+  0x00454822 -> 0x0057d0a0 FUN_0057d0a0 @ 0x0057d0a0
+  0x0045482c -> 0x00451590 FUN_00451590 @ 0x00451590
+  0x00454837 -> 0x00451530 FUN_00451530 @ 0x00451530
+  0x00454852 -> 0x00403e20 FUN_00403e20 @ 0x00403e20
+  0x00454865 -> 0x00700960 FUN_00700960 @ 0x00700960
+  0x00454877 -> 0x00975f90 FUN_00975f90 @ 0x00975f90
+  0x0045487f -> 0x00459870 FUN_00459870 @ 0x00459870
+  0x00454889 -> 0x00972d30 FUN_00972d30 @ 0x00972d30
+  0x00454893 -> 0x00972bb0 FUN_00972bb0 @ 0x00972bb0
+  0x004548a1 -> 0x00454b10 FUN_00454b10 @ 0x00454b10
+  0x004548b3 -> 0x0044edb0 FUN_0044edb0 @ 0x0044edb0
+  0x004548bf -> 0x0063ddb0 FUN_0063ddb0 @ 0x0063ddb0
+  0x004548ca -> 0x00825c00 FUN_00825c00 @ 0x00825c00
+  0x004548d6 -> 0x0063ddb0 FUN_0063ddb0 @ 0x0063ddb0
+  0x004548de -> 0x00451cf0 FUN_00451cf0 @ 0x00451cf0
+  0x004548e8 -> 0x00455400 FUN_00455400 @ 0x00455400
+  0x004548f3 -> 0x00a5a040 FUN_00a5a040 @ 0x00a5a040
+  0x004548fa -> 0x007038b0 FUN_007038b0 @ 0x007038b0
+  0x00454905 -> 0x00451530 FUN_00451530 @ 0x00451530
+  0x0045491a -> 0x00457d70 FUN_00457d70 @ 0x00457d70
+  0x00454924 -> 0x00452490 FUN_00452490 @ 0x00452490
+  0x00454942 -> 0x00454b50 FUN_00454b50 @ 0x00454b50
+  0x00454963 -> 0x00404eb0 FUN_00404eb0 @ 0x00404eb0
+  0x00454974 -> 0x00633c90 FUN_00633c90 @ 0x00633c90
+  0x0045498e -> 0x00454b50 FUN_00454b50 @ 0x00454b50
+  0x0045499a -> 0x004568c0 FUN_004568c0 @ 0x004568c0
+  0x004549a2 -> 0x00559450 FUN_00559450 @ 0x00559450
+  0x004549ae -> 0x0070ec90 FUN_0070ec90 @ 0x0070ec90
+  0x004549b5 -> 0x0052d3b0 FUN_0052d3b0 @ 0x0052d3b0
+  0x004549c1 -> 0x0045cec0 ~cancellation_token_source @ 0x0045cec0
+  0x004549d0 -> 0x00404ee0 FUN_00404ee0 @ 0x00404ee0
+  0x004549df -> 0x0070ec90 FUN_0070ec90 @ 0x0070ec90
+  0x004549e6 -> 0x0052d3b0 FUN_0052d3b0 @ 0x0052d3b0
+  0x00454a2d -> 0x00452dc0 FUN_00452dc0 @ 0x00452dc0
+  0x00454a5c -> 0x00452e70 FUN_00452e70 @ 0x00452e70
+  0x00454a7e -> 0x004fd3e0 FUN_004fd3e0 @ 0x004fd3e0
+  0x00454a85 -> 0x00586170 FUN_00586170 @ 0x00586170
+  0x00454a8c -> 0x00454b70 FUN_00454b70 @ 0x00454b70
+  0x00454aae -> 0x0042ce10 FUN_0042ce10 @ 0x0042ce10
+  0x00454aba -> 0x006c0720 FUN_006c0720 @ 0x006c0720
+  0x00454ac1 -> 0x006c39c0 FUN_006c39c0 @ 0x006c39c0
+  Total printed: 99
+
+----------------------------------------------------------------------
+Disassembly: stack caller around 0x0093c500
+----------------------------------------------------------------------
+  0x0093c4cf: MOV dword ptr [EBP + -0x40],EDX                         
+  0x0093c4d2: JMP 0x0093c4db                                          
+  0x0093c4d4: MOV dword ptr [EBP + -0x40],0x0                         
+  0x0093c4db: PUSH 0x0                                                
+  0x0093c4dd: PUSH 0x0                                                
+  0x0093c4df: MOV EAX,dword ptr [EBP + -0x40]                         
+  0x0093c4e2: PUSH EAX                                                
+  0x0093c4e3: MOV ECX,dword ptr [EBP + -0x8]                          
+  0x0093c4e6: ADD ECX,0x94                                            
+  0x0093c4ec: CALL 0x00824400                                         
+      call -> 0x00824400 FUN_00824400 @ 0x00824400
+  0x0093c4f1: LEA ECX,[EBX + 0x8]                                     
+  0x0093c4f4: PUSH ECX                                                
+  0x0093c4f5: MOV ECX,dword ptr [0x011dea10]                          
+  0x0093c4fb: CALL 0x00454450                                         
+      call -> 0x00454450 FUN_00454450 @ 0x00454450
+  0x0093c500: CALL 0x00453a70                                          << target
+      call -> 0x00453a70 FUN_00453a70 @ 0x00453a70
+  0x0093c505: MOV ECX,EAX                                             
+  0x0093c507: CALL 0x00483710                                         
+      call -> 0x00483710 FUN_00483710 @ 0x00483710
+  0x0093c50c: PUSH 0x1000                                             
+  0x0093c511: CALL 0x00453a70                                         
+      call -> 0x00453a70 FUN_00453a70 @ 0x00453a70
+  0x0093c516: MOV ECX,EAX                                             
+  0x0093c518: CALL 0x00ad8780                                         
+      call -> 0x00ad8780 FUN_00ad8780 @ 0x00ad8780
+  0x0093c51d: MOVZX EDX,byte ptr [EBX + 0x24]                         
+  0x0093c521: TEST EDX,EDX                                            
+  0x0093c523: JZ 0x0093c531                                           
+  0x0093c525: CALL 0x0046dd00                                         
+      call -> 0x0046dd00 FUN_0046dd00 @ 0x0046dd00
+  0x0093c52a: MOV ECX,EAX                                             
+  0x0093c52c: CALL 0x0063d060                                         
+      call -> 0x0063d060 FUN_0063d060 @ 0x0063d060
+  0x0093c531: PUSH 0x0                                                
+  0x0093c533: MOV ECX,dword ptr [EBP + -0x8]                          
+  0x0093c536: CALL 0x00575bb0                                         
+      call -> 0x00575bb0 FUN_00575bb0 @ 0x00575bb0
+  0x0093c53b: PUSH 0x0                                                
+  0x0093c53d: MOV EAX,dword ptr [EBP + -0x8]                          
+  0x0093c540: PUSH EAX                                                
+  0x0093c541: MOV ECX,dword ptr [EBX + 0x20]                          
+  0x0093c544: CALL 0x00548230                                         
+      call -> 0x00548230 FUN_00548230 @ 0x00548230
+  0x0093c549: MOV ECX,dword ptr [EBP + -0x8]                          
+  0x0093c54c: MOV EDX,dword ptr [ECX]                                 
+  0x0093c54e: MOV ECX,dword ptr [EBP + -0x8]                          
+  0x0093c551: MOV EAX,dword ptr [EDX + 0x1d0]                         
+  0x0093c557: CALL EAX                                                
+  0x0093c559: TEST EAX,EAX                                            
+  0x0093c55b: JNZ 0x0093c58f                                          
+  0x0093c55d: MOV ECX,dword ptr [0x011ddf38]                          
+  0x0093c563: CALL 0x0042ce10                                         
+      call -> 0x0042ce10 FUN_0042ce10 @ 0x0042ce10
+  0x0093c568: MOVZX ECX,AL                                            
+  0x0093c56b: TEST ECX,ECX                                            
+  0x0093c56d: JNZ 0x0093c58f                                          
+  0x0093c56f: MOV ECX,dword ptr [0x01202d98]                          
+  0x0093c575: CALL 0x00456520                                         
+      call -> 0x00456520 FUN_00456520 @ 0x00456520
+
+======================================================================
+stack caller @ 0x0093c500
+======================================================================
+  Function: FUN_0093c200 @ 0x0093c200, Size: 2753 bytes
+  NOTE: Requested 0x0093c500 is inside FUN_0093c200 (entry at 0x0093c200)
+
+/* WARNING: Globals starting with '_' overlap smaller symbols at the same address */
+
+void FUN_0093c200(void)
+
+{
+  char cVar1;
+  int iVar2;
+  char *pcVar3;
+  undefined4 *puVar4;
+  undefined4 *puVar5;
+  float10 fVar6;
+  float in_stack_00000010;
+  float in_stack_00000014;
+  float in_stack_00000018;
+  int in_stack_0000001c;
+  char in_stack_00000020;
+  undefined4 uVar7;
+  undefined4 uVar8;
+  undefined4 uVar9;
+  float fVar10;
+  undefined4 uVar11;
+  undefined4 uVar12;
+  undefined4 uVar13;
+  undefined4 uVar14;
+  undefined4 uVar15;
+  undefined1 local_150 [16];
+  float local_140;
+  undefined4 local_13c;
+  undefined4 local_138;
+  float local_134;
+  undefined4 local_130;
+  undefined4 local_12c;
+  undefined4 local_128;
+  undefined4 local_124;
+  undefined4 local_120;
+  float local_11c;
+  int local_118;
+  float local_114;
+  undefined4 local_110;
+  undefined4 local_10c;
+  float local_108;
+  int local_104;
+  float local_c4;
+  float local_c0;
+  undefined4 local_74 [9];
+  int local_50;
+  int local_4c;
+  int local_48;
+  int local_44;
+  undefined1 local_3e;
+  char local_3d;
+  undefined4 local_3c;
+  int local_38;
+  int local_34;
+  undefined4 local_30;
+  int local_2c;
+  char local_25;
+  undefined4 local_24;
+  undefined4 *local_20;
+  undefined4 *local_1c;
+  int *local_18;
+  uint local_14;
+  
+  local_14 = DAT_011c16bc ^ (uint)&stack0xfffffff0;
+  cVar1 = FUN_00451530();
+  if (cVar1 == '\0') {
+    FUN_00871dc0();
+  }
+  FUN_009785d0();
+  cVar1 = FUN_0070edf0();
+  if (cVar1 != '\0') {
+    FUN_00705e30();
+    FUN_0070ede0();
+    FUN_00a09030();
+    local_20 = (undefined4 *)FUN_00a03c90();
+    local_1c = local_20;
+    if (local_20 == (undefined4 *)0x0) {
+      local_24 = 0;
+    }
+    else {
+      local_24 = (**(code **)*local_20)();
+    }
+  }
+  iVar2 = FUN_005f36f0();
+  local_25 = iVar2 != 0;
+  local_2c = FUN_004fd3e0();
+  local_30 = FUN_0054ddd0();
+  local_34 = FUN_00546c20();
+  local_38 = 0;
+  iVar2 = FUN_008d6f30();
+  if (iVar2 == 0) {
+    if (local_2c != 0) {
+      local_38 = FUN_00458400();
+    }
+  }
+  else {
+    FUN_008d6f30();
+    local_38 = FUN_00546c20();
+  }
+  if (local_38 != local_34) {
+    local_3c = FUN_00867e30();
+    if (local_38 != 0) {
+      FUN_00526070();
+    }
+    if (local_34 != 0) {
+      FUN_005260a0();
+    }
+  }
+  local_3d = FUN_00ec17c0();
+  local_3e = 0;
+  iVar2 = FUN_008d6f30();
+  if (iVar2 != 0) {
+    FUN_008d6f30();
+    FUN_0054ca90();
+  }
+  (**(code **)(*local_18 + 0x2a8))();
+  FUN_0086d490();
+  FUN_00575bb0();
+  if ((in_stack_0000001c != 0) && (cVar1 = FUN_00425fd0(), cVar1 != '\0')) {
+    iVar2 = FUN_005474b0();
+    local_18[0x1ed] = iVar2;
+    FUN_00453dc0();
+    FUN_00665860();
+    goto LAB_0093c500;
+  }
+  if (in_stack_0000001c != 0) {
+    iVar2 = FUN_005474b0();
+    local_18[0x1ed] = iVar2;
+    cVar1 = FUN_00452480();
+    if (cVar1 == '\0') {
+LAB_0093c425:
+      FUN_00665860();
+      FUN_0044ddc0();
+      FUN_004baec0();
+    }
+    else {
+      FUN_0054ddd0();
+      pcVar3 = (char *)FUN_00548210();
+      if (*pcVar3 == '\0') goto LAB_0093c425;
+      FUN_00665610();
+    }
+    FUN_0054ddd0();
+    FUN_00458200();
+  }
+  if (local_25 != '\0') {
+    local_44 = FUN_0093ccd0();
+    if (local_44 == 0) {
+      local_48 = 0;
+    }
+    else {
+      local_48 = local_44 + 0x18;
+    }
+    cVar1 = FUN_00822b90();
+    if (cVar1 != '\0') {
+      FUN_00705990();
+      FUN_007fa310();
+      FUN_00705990();
+      FUN_007fa310();
+      local_4c = FUN_0093ccd0();
+      if (local_4c == 0) {
+        local_50 = 0;
+      }
+      else {
+        local_50 = local_4c + 0x18;
+      }
+      FUN_00824400();
+    }
+  }
+  FUN_00454450();
+LAB_0093c500:
+  FUN_00453a70();
+  FUN_00483710();
+  FUN_00453a70();
+  FUN_00ad8780();
+  if (in_stack_00000020 != '\0') {
+    FUN_0046dd00();
+    FUN_0063d060();
+  }
+  FUN_00575bb0();
+  FUN_00548230();
+  iVar2 = (**(code **)(*local_18 + 0x1d0))();
+  if ((iVar2 == 0) && (cVar1 = FUN_0042ce10(), cVar1 == '\0')) {
+    FUN_00456520();
+    FUN_00700960();
+  }
+  puVar4 = &DAT_011a9448;
+  puVar5 = local_74;
+  for (iVar2 = 9; iVar2 != 0; iVar2 = iVar2 + -1) {
+    *puVar5 = *puVar4;
+    puVar4 = puVar4 + 1;
+    puVar5 = puVar5 + 1;
+  }
+  FUN_006815c0();
+  for (; (float)_DAT_0101ff40 < in_stack_00000018;
+      in_stack_00000018 = in_stack_00000018 - (float)_DAT_0101ff48) {
+  }
+  for (; in_stack_00000018 < (float)_DAT_0101ff58;
+      in_stack_00000018 = in_stack_00000018 + (float)_DAT_0101ff48) {
+  }
+  FUN_004a0c90();
+  puVar4 = (undefined4 *)FUN_0043f8d0();
+  puVar5 = local_74;
+  for (iVar2 = 9; iVar2 != 0; iVar2 = iVar2 + -1) {
+    *puVar5 = *puVar4;
+    puVar4 = puVar4 + 1;
+    puVar5 = puVar5 + 1;
+  }
+  if (in_stack_00000018 < (float)_DAT_01012060) {
+    local_c4 = in_stack_00000010 + in_stack_00000014;
+    FUN_00524ac0();
+  }
+  else {
+    local_c0 = in_stack_00000010 - in_stack_00000014;
+    FUN_00524ac0();
+  }
+  iVar2 = (**(code **)(*local_18 + 0x1d0))();
+  if (iVar2 != 0) {
+    (**(code **)(*local_18 + 0x1d0))();
+    FUN_0043fa80();
+  }
+  puVar4 = (undefined4 *)FUN_0043f8d0();
+  puVar5 = local_74;
+  for (iVar2 = 9; iVar2 != 0; iVar2 = iVar2 + -1) {
+    *puVar5 = *puVar4;
+    puVar4 = puVar4 + 1;
+    puVar5 = puVar5 + 1;
+  }
+  FUN_0045c670();
+  FUN_00558310();
+  FUN_0043fa80();
+  FUN_0045c670();
+  FUN_00558310();
+  FUN_00440460();
+  FUN_0043d410();
+  FUN_0045c670();
+  FUN_00558310();
+  FUN_00a59c60();
+  FUN_0084e3a0();
+  FUN_00a5a040();
+  FUN_00453a70();
+  FUN_00ad78b0();
+  uVar14 = 0;
+  uVar12 = 0;
+  fVar6 = (float10)(**(code **)(*local_18 + 700))(0,0);
+  fVar6 = (float10)FUN_005b9e80((float)fVar6);
+  fVar10 = (float)fVar6;
+  uVar9 = 0;
+  fVar6 = (float10)(**(code **)(*local_18 + 700))(0,fVar10);
+  fVar6 = (float10)FUN_005c53d0((float)fVar6);
+  puVar4 = (undefined4 *)FUN_00416870((float)fVar6,uVar9,fVar10);
+  uVar9 = *puVar4;
+  uVar7 = puVar4[1];
+  uVar8 = puVar4[2];
+  FUN_00453a70(uVar9,uVar7,uVar8);
+  FUN_00ad7940(uVar9,uVar7,uVar8,uVar12,uVar14);
+  FUN_00952c30();
+  local_104 = FUN_00b4f5c0();
+  if (local_104 != 0) {
+    FUN_00b655b0();
+  }
+  iVar2 = FUN_00559450();
+  if (iVar2 != 0) {
+    FUN_00705990();
+    FUN_007fa200();
+    FUN_00450b80();
+    FUN_00b5fd60();
+    cVar1 = FUN_0042ce10();
+    if (cVar1 == '\0') {
+      puVar4 = (undefined4 *)(**(code **)(*local_18 + 500))();
+      local_110 = *puVar4;
+      local_10c = puVar4[1];
+      local_108 = (float)puVar4[2];
+      if ((in_stack_0000001c != 0) && (cVar1 = FUN_00425fd0(), cVar1 == '\0')) {
+        local_114 = 0.0;
+        cVar1 = FUN_005547c0(&local_110);
+        if ((cVar1 != '\0') && (local_108 < local_114 + (float)_DAT_0102f070)) {
+          local_108 = local_114 + (float)_DAT_0102f070;
+          (**(code **)(*local_18 + 0x2a8))();
+        }
+      }
+      for (local_118 = 0; local_118 < 100; local_118 = local_118 + 1) {
+        puVar4 = (undefined4 *)(**(code **)(*local_18 + 500))();
+        local_124 = *puVar4;
+        local_120 = puVar4[1];
+        local_11c = (float)puVar4[2];
+        local_130 = DAT_011f426c;
+        local_12c = DAT_011f4270;
+        local_128 = DAT_011f4274;
+        FUN_0092f260(_DAT_0108aff0,&local_130);
+        puVar4 = (undefined4 *)(**(code **)(*local_18 + 500))();
+        local_13c = *puVar4;
+        local_138 = puVar4[1];
+        local_134 = (float)puVar4[2];
+        local_140 = local_134 - local_11c;
+        fVar6 = (float10)FUN_00408840();
+        if (fVar6 < (float10)_DAT_0101ffa0) break;
+      }
+      if (local_118 == 100) {
+        (**(code **)(*local_18 + 0x2a8))();
+      }
+    }
+    *(bool *)((int)local_18 + 0x64a) = *(char *)((int)local_18 + 0x64a) == '\0';
+    FUN_008d3550();
+    uVar9 = FUN_00950a60(*(char *)((int)local_18 + 0x64a) == '\0');
+    FUN_008885e0(uVar9);
+    *(char *)((int)local_18 + 0x64a) = '\x01' - (*(char *)((int)local_18 + 0x64a) != '\0');
+    FUN_008d3550();
+    uVar9 = FUN_00950a60(*(char *)((int)local_18 + 0x64a) == '\0');
+    FUN_008885e0(uVar9);
+    FUN_0094ae40(0);
+  }
+  iVar2 = FUN_00559450();
+  if (iVar2 != 0) {
+    FUN_006815c0();
+    (**(code **)(*local_18 + 500))();
+    FUN_004a3e00(local_150);
+    FUN_00559450();
+    FUN_005610f0();
+  }
+  uVar9 = FUN_00524c90();
+  FUN_006652e0(uVar9);
+  FUN_0084d030();
+  FUN_00453550();
+  cVar1 = FUN_0042ce10();
+  if (cVar1 == '\0') {
+    FUN_0078cfc0();
+  }
+  if (local_3d != '\0') {
+    FUN_00ec1800();
+  }
+  FUN_00961f90();
+  FUN_0045a750();
+  iVar2 = FUN_00575d70();
+  if (iVar2 != 0) {
+    uVar9 = (**(code **)(*local_18 + 500))();
+    FUN_00575d70(uVar9);
+    FUN_00586170();
+    FUN_006fca90(uVar9);
+    (**(code **)(*local_18 + 500))();
+    FUN_00575d70();
+    FUN_00586170();
+    FUN_006fcdb0();
+  }
+  FUN_00483710();
+  if (DAT_011d8907 != '\0') {
+    FUN_00457d70(0,0);
+    FUN_00771700();
+    FUN_008304a0();
+    uVar15 = 1;
+    uVar13 = 0;
+    uVar11 = 1;
+    uVar14 = 1;
+    uVar12 = 0;
+    uVar8 = 1;
+    uVar7 = 1;
+    uVar9 = FUN_00403df0(1,1,0,1,1,0,1);
+    FUN_00ec2320(uVar9,uVar7,uVar8,uVar12,uVar14,uVar11,uVar13,uVar15);
+    FUN_00771700();
+  }
+  iVar2 = FUN_00575d70();
+  if (iVar2 != 0) {
+    FUN_00575d70();
+    FUN_00408da0();
+  }
+  FUN_00772c30();
+  FUN_00973de0();
+  __security_check_cookie(local_14 ^ (uint)&stack0xfffffff0);
+  return;
+}
+
+
+
+----------------------------------------------------------------------
+Calls FROM stack caller (0x0093c500)
+----------------------------------------------------------------------
+  0x0093c228 -> 0x00451530 FUN_00451530 @ 0x00451530
+  0x0093c23a -> 0x00871dc0 FUN_00871dc0 @ 0x00871dc0
+  0x0093c244 -> 0x009785d0 FUN_009785d0 @ 0x009785d0
+  0x0093c249 -> 0x0070edf0 FUN_0070edf0 @ 0x0070edf0
+  0x0093c255 -> 0x00705e30 FUN_00705e30 @ 0x00705e30
+  0x0093c25a -> 0x0070ede0 FUN_0070ede0 @ 0x0070ede0
+  0x0093c260 -> 0x00a09030 FUN_00a09030 @ 0x00a09030
+  0x0093c26a -> 0x00a03c90 FUN_00a03c90 @ 0x00a03c90
+  0x0093c29e -> 0x005f36f0 FUN_005f36f0 @ 0x005f36f0
+  0x0093c2b2 -> 0x004fd3e0 FUN_004fd3e0 @ 0x004fd3e0
+  0x0093c2bd -> 0x0054ddd0 FUN_0054ddd0 @ 0x0054ddd0
+  0x0093c2c8 -> 0x00546c20 FUN_00546c20 @ 0x00546c20
+  0x0093c2da -> 0x008d6f30 FUN_008d6f30 @ 0x008d6f30
+  0x0093c2e6 -> 0x008d6f30 FUN_008d6f30 @ 0x008d6f30
+  0x0093c2ed -> 0x00546c20 FUN_00546c20 @ 0x00546c20
+  0x0093c300 -> 0x00458400 FUN_00458400 @ 0x00458400
+  0x0093c315 -> 0x00867e30 FUN_00867e30 @ 0x00867e30
+  0x0093c32a -> 0x00526070 FUN_00526070 @ 0x00526070
+  0x0093c33c -> 0x005260a0 FUN_005260a0 @ 0x005260a0
+  0x0093c347 -> 0x00ec17c0 FUN_00ec17c0 @ 0x00ec17c0
+  0x0093c356 -> 0x008d6f30 FUN_008d6f30 @ 0x008d6f30
+  0x0093c366 -> 0x008d6f30 FUN_008d6f30 @ 0x008d6f30
+  0x0093c36d -> 0x0054ca90 FUN_0054ca90 @ 0x0054ca90
+  0x0093c38d -> 0x0086d490 FUN_0086d490 @ 0x0086d490
+  0x0093c399 -> 0x00575bb0 FUN_00575bb0 @ 0x00575bb0
+  0x0093c3a7 -> 0x00425fd0 FUN_00425fd0 @ 0x00425fd0
+  0x0093c3b8 -> 0x005474b0 FUN_005474b0 @ 0x005474b0
+  0x0093c3d4 -> 0x00453dc0 FUN_00453dc0 @ 0x00453dc0
+  0x0093c3d9 -> 0x00665860 FUN_00665860 @ 0x00665860
+  0x0093c3ee -> 0x005474b0 FUN_005474b0 @ 0x005474b0
+  0x0093c3fc -> 0x00452480 FUN_00452480 @ 0x00452480
+  0x0093c40b -> 0x0054ddd0 FUN_0054ddd0 @ 0x0054ddd0
+  0x0093c412 -> 0x00548210 FUN_00548210 @ 0x00548210
+  0x0093c41e -> 0x00665610 FUN_00665610 @ 0x00665610
+  0x0093c425 -> 0x00665860 FUN_00665860 @ 0x00665860
+  0x0093c430 -> 0x0044ddc0 FUN_0044ddc0 @ 0x0044ddc0
+  0x0093c437 -> 0x004baec0 FUN_004baec0 @ 0x004baec0
+  0x0093c43f -> 0x0054ddd0 FUN_0054ddd0 @ 0x0054ddd0
+  0x0093c44b -> 0x00458200 FUN_00458200 @ 0x00458200
+  0x0093c45c -> 0x0093ccd0 FUN_0093ccd0 @ 0x0093ccd0
+  0x0093c48b -> 0x00822b90 FUN_00822b90 @ 0x00822b90
+  0x0093c49d -> 0x00705990 FUN_00705990 @ 0x00705990
+  0x0093c4a4 -> 0x007fa310 FUN_007fa310 @ 0x007fa310
+  0x0093c4af -> 0x00705990 FUN_00705990 @ 0x00705990
+  0x0093c4b6 -> 0x007fa310 FUN_007fa310 @ 0x007fa310
+  0x0093c4bb -> 0x0093ccd0 FUN_0093ccd0 @ 0x0093ccd0
+  0x0093c4ec -> 0x00824400 FUN_00824400 @ 0x00824400
+  0x0093c4fb -> 0x00454450 FUN_00454450 @ 0x00454450
+  0x0093c500 -> 0x00453a70 FUN_00453a70 @ 0x00453a70
+  0x0093c507 -> 0x00483710 FUN_00483710 @ 0x00483710
+  0x0093c511 -> 0x00453a70 FUN_00453a70 @ 0x00453a70
+  0x0093c518 -> 0x00ad8780 FUN_00ad8780 @ 0x00ad8780
+  0x0093c525 -> 0x0046dd00 FUN_0046dd00 @ 0x0046dd00
+  0x0093c52c -> 0x0063d060 FUN_0063d060 @ 0x0063d060
+  0x0093c536 -> 0x00575bb0 FUN_00575bb0 @ 0x00575bb0
+  0x0093c544 -> 0x00548230 FUN_00548230 @ 0x00548230
+  0x0093c563 -> 0x0042ce10 FUN_0042ce10 @ 0x0042ce10
+  0x0093c575 -> 0x00456520 FUN_00456520 @ 0x00456520
+  0x0093c58a -> 0x00700960 FUN_00700960 @ 0x00700960
+  0x0093c5a4 -> 0x006815c0 FUN_006815c0 @ 0x006815c0
+  0x0093c5f2 -> 0x004a0c90 FUN_004a0c90 @ 0x004a0c90
+  0x0093c608 -> 0x0043f8d0 FUN_0043f8d0 @ 0x0043f8d0
+  0x0093c645 -> 0x00524ac0 FUN_00524ac0 @ 0x00524ac0
+  0x0093c668 -> 0x00524ac0 FUN_00524ac0 @ 0x00524ac0
+  0x0093c69a -> 0x0043fa80 FUN_0043fa80 @ 0x0043fa80
+  0x0093c6b0 -> 0x0043f8d0 FUN_0043f8d0 @ 0x0043f8d0
+  0x0093c6c5 -> 0x0045c670 FUN_0045c670 @ 0x0045c670
+  0x0093c6cc -> 0x00558310 FUN_00558310 @ 0x00558310
+  0x0093c6d3 -> 0x0043fa80 FUN_0043fa80 @ 0x0043fa80
+  0x0093c6dc -> 0x0045c670 FUN_0045c670 @ 0x0045c670
+  0x0093c6e3 -> 0x00558310 FUN_00558310 @ 0x00558310
+  0x0093c6ea -> 0x00440460 FUN_00440460 @ 0x00440460
+  0x0093c6ff -> 0x0043d410 FUN_0043d410 @ 0x0043d410
+  0x0093c70b -> 0x0045c670 FUN_0045c670 @ 0x0045c670
+  0x0093c712 -> 0x00558310 FUN_00558310 @ 0x00558310
+  0x0093c719 -> 0x00a59c60 FUN_00a59c60 @ 0x00a59c60
+  0x0093c724 -> 0x0084e3a0 FUN_0084e3a0 @ 0x0084e3a0
+  0x0093c72b -> 0x00a5a040 FUN_00a5a040 @ 0x00a5a040
+  0x0093c746 -> 0x00453a70 FUN_00453a70 @ 0x00453a70
+  0x0093c74d -> 0x00ad78b0 FUN_00ad78b0 @ 0x00ad78b0
+  0x0093c78c -> 0x005b9e80 FUN_005b9e80 @ 0x005b9e80
+  0x0093c7aa -> 0x005c53d0 FUN_005c53d0 @ 0x005c53d0
+  0x0093c7b8 -> 0x00416870 FUN_00416870 @ 0x00416870
+  0x0093c7d2 -> 0x00453a70 FUN_00453a70 @ 0x00453a70
+  0x0093c7d9 -> 0x00ad7940 FUN_00ad7940 @ 0x00ad7940
+  0x0093c7e5 -> 0x00952c30 FUN_00952c30 @ 0x00952c30
+  0x0093c7ea -> 0x00b4f5c0 FUN_00b4f5c0 @ 0x00b4f5c0
+  0x0093c804 -> 0x00b655b0 FUN_00b655b0 @ 0x00b655b0
+  0x0093c812 -> 0x00559450 FUN_00559450 @ 0x00559450
+  0x0093c81f -> 0x00705990 FUN_00705990 @ 0x00705990
+  0x0093c826 -> 0x007fa200 FUN_007fa200 @ 0x007fa200
+  0x0093c82d -> 0x00450b80 FUN_00450b80 @ 0x00450b80
+  0x0093c837 -> 0x00b5fd60 FUN_00b5fd60 @ 0x00b5fd60
+  0x0093c842 -> 0x0042ce10 FUN_0042ce10 @ 0x0042ce10
+  0x0093c885 -> 0x00425fd0 FUN_00425fd0 @ 0x00425fd0
+  0x0093c8aa -> 0x005547c0 FUN_005547c0 @ 0x005547c0
+  0x0093c985 -> 0x0092f260 FUN_0092f260 @ 0x0092f260
+  0x0093c9d0 -> 0x00408840 FUN_00408840 @ 0x00408840
+  0x0093ca2f -> 0x008d3550 FUN_008d3550 @ 0x008d3550
+  0x0093ca50 -> 0x00950a60 FUN_00950a60 @ 0x00950a60
+  0x0093ca59 -> 0x008885e0 FUN_008885e0 @ 0x008885e0
+  0x0093ca81 -> 0x008d3550 FUN_008d3550 @ 0x008d3550
+  0x0093caa2 -> 0x00950a60 FUN_00950a60 @ 0x00950a60
+  0x0093caab -> 0x008885e0 FUN_008885e0 @ 0x008885e0
+  0x0093cab7 -> 0x0094ae40 FUN_0094ae40 @ 0x0094ae40
+  0x0093cac5 -> 0x00559450 FUN_00559450 @ 0x00559450
+  0x0093cad4 -> 0x006815c0 FUN_006815c0 @ 0x006815c0
+  0x0093cb11 -> 0x004a3e00 FUN_004a3e00 @ 0x004a3e00
+  0x0093cb29 -> 0x00559450 FUN_00559450 @ 0x00559450
+  0x0093cb30 -> 0x005610f0 FUN_005610f0 @ 0x005610f0
+  0x0093cb37 -> 0x00524c90 FUN_00524c90 @ 0x00524c90
+  0x0093cb3d -> 0x006652e0 FUN_006652e0 @ 0x006652e0
+  0x0093cb4a -> 0x0084d030 FUN_0084d030 @ 0x0084d030
+  0x0093cb59 -> 0x00453550 FUN_00453550 @ 0x00453550
+  0x0093cb64 -> 0x0042ce10 FUN_0042ce10 @ 0x0042ce10
+  0x0093cb70 -> 0x0078cfc0 FUN_0078cfc0 @ 0x0078cfc0
+  0x0093cb83 -> 0x00ec1800 FUN_00ec1800 @ 0x00ec1800
+  0x0093cb8b -> 0x00961f90 FUN_00961f90 @ 0x00961f90
+  0x0093cb96 -> 0x0045a750 FUN_0045a750 @ 0x0045a750
+  0x0093cb9e -> 0x00575d70 FUN_00575d70 @ 0x00575d70
+  ... (truncated at 120)
+  Total printed: 120
+
+----------------------------------------------------------------------
+References TO 0x00410220 (BaseExtraList::GetByType)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x0041b9d4 (in FUN_0041b9a0 @ 0x0041b9a0)
+  UNCONDITIONAL_CALL @ 0x0041b8fd (in FUN_0041b8d0 @ 0x0041b8d0)
+  UNCONDITIONAL_CALL @ 0x005514b0 (in FUN_00551480 @ 0x00551480)
+  UNCONDITIONAL_CALL @ 0x0055162f (in FUN_00551620 @ 0x00551620)
+  UNCONDITIONAL_CALL @ 0x0041fbee (in FUN_0041fbe0 @ 0x0041fbe0)
+  UNCONDITIONAL_CALL @ 0x00420ede (in FUN_00420ed0 @ 0x00420ed0)
+  UNCONDITIONAL_CALL @ 0x00421883 (in FUN_00421850 @ 0x00421850)
+  UNCONDITIONAL_CALL @ 0x0041ba8d (in FUN_0041ba60 @ 0x0041ba60)
+  UNCONDITIONAL_CALL @ 0x0041bb44 (in FUN_0041bb10 @ 0x0041bb10)
+  UNCONDITIONAL_CALL @ 0x0054c2c9 (in FUN_0054c030 @ 0x0054c030)
+  UNCONDITIONAL_CALL @ 0x0041852e (in FUN_00418520 @ 0x00418520)
+  UNCONDITIONAL_CALL @ 0x00419685 (in FUN_00419650 @ 0x00419650)
+  UNCONDITIONAL_CALL @ 0x0041c8de (in FUN_0041c8d0 @ 0x0041c8d0)
+  UNCONDITIONAL_CALL @ 0x0041846e (in FUN_00418460 @ 0x00418460)
+  UNCONDITIONAL_CALL @ 0x0042202e (in FUN_00422020 @ 0x00422020)
+  UNCONDITIONAL_CALL @ 0x00422087 (in FUN_00422050 @ 0x00422050)
+  UNCONDITIONAL_CALL @ 0x00421f0e (in FUN_00421f00 @ 0x00421f00)
+  UNCONDITIONAL_CALL @ 0x004207ee (in FUN_004207e0 @ 0x004207e0)
+  UNCONDITIONAL_CALL @ 0x0042081e (in FUN_00420810 @ 0x00420810)
+  UNCONDITIONAL_CALL @ 0x0042046d (in FUN_00420440 @ 0x00420440)
+  UNCONDITIONAL_CALL @ 0x00420f37 (in FUN_00420f00 @ 0x00420f00)
+  UNCONDITIONAL_CALL @ 0x00421e1e (in FUN_00421e10 @ 0x00421e10)
+  UNCONDITIONAL_CALL @ 0x0041f02e (in FUN_0041f020 @ 0x0041f020)
+  UNCONDITIONAL_CALL @ 0x0041825e (in FUN_00418250 @ 0x00418250)
+  UNCONDITIONAL_CALL @ 0x0041828e (in FUN_00418280 @ 0x00418280)
+  UNCONDITIONAL_CALL @ 0x0041f821 (in FUN_0041f810 @ 0x0041f810)
+  UNCONDITIONAL_CALL @ 0x0041b21d (in FUN_0041b1e0 @ 0x0041b1e0)
+  UNCONDITIONAL_CALL @ 0x0041b32e (in FUN_0041b320 @ 0x0041b320)
+  UNCONDITIONAL_CALL @ 0x0041d3bd (in FUN_0041d390 @ 0x0041d390)
+  UNCONDITIONAL_CALL @ 0x00527096 (in FUN_00527080 @ 0x00527080)
+  UNCONDITIONAL_CALL @ 0x0042041e (in FUN_00420410 @ 0x00420410)
+  UNCONDITIONAL_CALL @ 0x004208dd (in FUN_004208b0 @ 0x004208b0)
+  UNCONDITIONAL_CALL @ 0x0042095e (in FUN_00420950 @ 0x00420950)
+  UNCONDITIONAL_CALL @ 0x00420dde (in FUN_00420dd0 @ 0x00420dd0)
+  UNCONDITIONAL_CALL @ 0x00420e37 (in FUN_00420e00 @ 0x00420e00)
+  UNCONDITIONAL_CALL @ 0x0042212e (in FUN_00422120 @ 0x00422120)
+  UNCONDITIONAL_CALL @ 0x00422187 (in FUN_00422150 @ 0x00422150)
+  UNCONDITIONAL_CALL @ 0x00420bce (in FUN_00420bc0 @ 0x00420bc0)
+  UNCONDITIONAL_CALL @ 0x0042010e (in FUN_00420100 @ 0x00420100)
+  UNCONDITIONAL_CALL @ 0x00421c3e (in FUN_00421c30 @ 0x00421c30)
+  UNCONDITIONAL_CALL @ 0x00421c93 (in FUN_00421c60 @ 0x00421c60)
+  UNCONDITIONAL_CALL @ 0x00421d2e (in FUN_00421d20 @ 0x00421d20)
+  UNCONDITIONAL_CALL @ 0x00421e73 (in FUN_00421e40 @ 0x00421e40)
+  UNCONDITIONAL_CALL @ 0x0041889e (in FUN_00418890 @ 0x00418890)
+  UNCONDITIONAL_CALL @ 0x0041a82d (in FUN_0041a800 @ 0x0041a800)
+  UNCONDITIONAL_CALL @ 0x0041877e (in FUN_00418770 @ 0x00418770)
+  UNCONDITIONAL_CALL @ 0x0041df1c (in FUN_0041df00 @ 0x0041df00)
+  UNCONDITIONAL_CALL @ 0x0041e321 (in FUN_0041e310 @ 0x0041e310)
+  UNCONDITIONAL_CALL @ 0x004186fe (in FUN_004186f0 @ 0x004186f0)
+  UNCONDITIONAL_CALL @ 0x00418bb1 (in FUN_00418ba0 @ 0x00418ba0)
+  UNCONDITIONAL_CALL @ 0x0042e571 (in FUN_0042e560 @ 0x0042e560)
+  UNCONDITIONAL_CALL @ 0x00418c11 (in FUN_00418c00 @ 0x00418c00)
+  UNCONDITIONAL_CALL @ 0x0041c06e (in FUN_0041c060 @ 0x0041c060)
+  UNCONDITIONAL_CALL @ 0x0041866e (in FUN_00418660 @ 0x00418660)
+  UNCONDITIONAL_CALL @ 0x004186ce (in FUN_004186c0 @ 0x004186c0)
+  UNCONDITIONAL_CALL @ 0x0041869e (in FUN_00418690 @ 0x00418690)
+  UNCONDITIONAL_CALL @ 0x00568a34 (in FUN_005686b0 @ 0x005686b0)
+  UNCONDITIONAL_CALL @ 0x00567f99 (in FUN_00567f80 @ 0x00567f80)
+  UNCONDITIONAL_CALL @ 0x00567fb0 (in FUN_00567f80 @ 0x00567f80)
+  UNCONDITIONAL_CALL @ 0x004182be (in FUN_004182b0 @ 0x004182b0)
+  UNCONDITIONAL_CALL @ 0x0041b37e (in FUN_0041b370 @ 0x0041b370)
+  UNCONDITIONAL_CALL @ 0x004182ee (in FUN_004182e0 @ 0x004182e0)
+  UNCONDITIONAL_CALL @ 0x0041883e (in FUN_00418830 @ 0x00418830)
+  UNCONDITIONAL_CALL @ 0x00421b4e (in FUN_00421b40 @ 0x00421b40)
+  UNCONDITIONAL_CALL @ 0x0041277d (in FUN_004126c0 @ 0x004126c0)
+  UNCONDITIONAL_CALL @ 0x00419afd (in FUN_00419ad0 @ 0x00419ad0)
+  UNCONDITIONAL_CALL @ 0x0042de0d (in FUN_0042dde0 @ 0x0042dde0)
+  UNCONDITIONAL_CALL @ 0x0042dea2 (in FUN_0042de90 @ 0x0042de90)
+  UNCONDITIONAL_CALL @ 0x004c78a8 (in FUN_004c7400 @ 0x004c7400)
+  UNCONDITIONAL_CALL @ 0x004c7df4 (in FUN_004c7400 @ 0x004c7400)
+  UNCONDITIONAL_CALL @ 0x004187ae (in FUN_004187a0 @ 0x004187a0)
+  UNCONDITIONAL_CALL @ 0x004c8455 (in FUN_004c8220 @ 0x004c8220)
+  UNCONDITIONAL_CALL @ 0x004c88b2 (in FUN_004c8220 @ 0x004c8220)
+  UNCONDITIONAL_CALL @ 0x00422b9e (in FUN_00422b90 @ 0x00422b90)
+  UNCONDITIONAL_CALL @ 0x0042023d (in FUN_00420210 @ 0x00420210)
+  UNCONDITIONAL_CALL @ 0x0042150e (in FUN_004214f0 @ 0x004214f0)
+  UNCONDITIONAL_CALL @ 0x0041972d (in FUN_00419700 @ 0x00419700)
+  UNCONDITIONAL_CALL @ 0x004197fd (in FUN_004197d0 @ 0x004197d0)
+  UNCONDITIONAL_CALL @ 0x004198cd (in FUN_004198a0 @ 0x004198a0)
+  UNCONDITIONAL_CALL @ 0x0041999d (in FUN_00419970 @ 0x00419970)
+  UNCONDITIONAL_CALL @ 0x0041d2ad (in FUN_0041d280 @ 0x0041d280)
+  UNCONDITIONAL_CALL @ 0x0041880e (in FUN_00418800 @ 0x00418800)
+  UNCONDITIONAL_CALL @ 0x0041c846 (in FUN_0041c7f0 @ 0x0041c7f0)
+  UNCONDITIONAL_CALL @ 0x0042eb4e (in FUN_0042eb40 @ 0x0042eb40)
+  UNCONDITIONAL_CALL @ 0x0041d36e (in FUN_0041d360 @ 0x0041d360)
+  UNCONDITIONAL_CALL @ 0x00419efd (in FUN_00419ed0 @ 0x00419ed0)
+  UNCONDITIONAL_CALL @ 0x00419f8e (in FUN_00419f80 @ 0x00419f80)
+  UNCONDITIONAL_CALL @ 0x00565795 (in FUN_00565730 @ 0x00565730)
+  UNCONDITIONAL_CALL @ 0x00421789 (in FUN_00421750 @ 0x00421750)
+  UNCONDITIONAL_CALL @ 0x004216fe (in FUN_004216f0 @ 0x004216f0)
+  UNCONDITIONAL_CALL @ 0x00422982 (in FUN_00422940 @ 0x00422940)
+  UNCONDITIONAL_CALL @ 0x00422b02 (in FUN_00422ac0 @ 0x00422ac0)
+  UNCONDITIONAL_CALL @ 0x0041f870 (in FUN_0041f840 @ 0x0041f840)
+  UNCONDITIONAL_CALL @ 0x0057b543 (in FUN_0057b520 @ 0x0057b520)
+  UNCONDITIONAL_CALL @ 0x0042f1de (in FUN_0042f1d0 @ 0x0042f1d0)
+  UNCONDITIONAL_CALL @ 0x0041e13e (in FUN_0041e130 @ 0x0041e130)
+  UNCONDITIONAL_CALL @ 0x0057b2c4 (in FUN_0057b240 @ 0x0057b240)
+  UNCONDITIONAL_CALL @ 0x0042f05d (in FUN_0042f030 @ 0x0042f030)
+  UNCONDITIONAL_CALL @ 0x0042f13e (in FUN_0042f130 @ 0x0042f130)
+  UNCONDITIONAL_CALL @ 0x0042edee (in FUN_0042ede0 @ 0x0042ede0)
+  UNCONDITIONAL_CALL @ 0x0041edae (in FUN_0041eda0 @ 0x0041eda0)
+  UNCONDITIONAL_CALL @ 0x0041effe (in FUN_0041eff0 @ 0x0041eff0)
+  UNCONDITIONAL_CALL @ 0x0041e7be (in FUN_0041e7b0 @ 0x0041e7b0)
+  UNCONDITIONAL_CALL @ 0x0041eb6e (in FUN_0041eb60 @ 0x0041eb60)
+  UNCONDITIONAL_CALL @ 0x004213ce (in FUN_004213c0 @ 0x004213c0)
+  UNCONDITIONAL_CALL @ 0x0041e9ee (in FUN_0041e9e0 @ 0x0041e9e0)
+  UNCONDITIONAL_CALL @ 0x0041b3de (in FUN_0041b3d0 @ 0x0041b3d0)
+  UNCONDITIONAL_CALL @ 0x004195dd (in FUN_004195b0 @ 0x004195b0)
+  UNCONDITIONAL_CALL @ 0x0041b4be (in FUN_0041b4b0 @ 0x0041b4b0)
+  UNCONDITIONAL_CALL @ 0x0041f05e (in FUN_0041f050 @ 0x0041f050)
+  UNCONDITIONAL_CALL @ 0x0041bbfd (in FUN_0041bbd0 @ 0x0041bbd0)
+  UNCONDITIONAL_CALL @ 0x0041bcee (in FUN_0041bce0 @ 0x0041bce0)
+  UNCONDITIONAL_CALL @ 0x0041c471 (in FUN_0041c460 @ 0x0041c460)
+  UNCONDITIONAL_CALL @ 0x0041de73 (in FUN_0041de40 @ 0x0041de40)
+  UNCONDITIONAL_CALL @ 0x0041dfa5 (in FUN_0041df90 @ 0x0041df90)
+  UNCONDITIONAL_CALL @ 0x0041dfde (in FUN_0041dfd0 @ 0x0041dfd0)
+  UNCONDITIONAL_CALL @ 0x0042e25e (in FUN_0042e250 @ 0x0042e250)
+  UNCONDITIONAL_CALL @ 0x0041b6be (in FUN_0041b6b0 @ 0x0041b6b0)
+  UNCONDITIONAL_CALL @ 0x0041b70d (in FUN_0041b6e0 @ 0x0041b6e0)
+  UNCONDITIONAL_CALL @ 0x0042e17d (in FUN_0042e150 @ 0x0042e150)
+  UNCONDITIONAL_CALL @ 0x0042182e (in FUN_00421820 @ 0x00421820)
+  UNCONDITIONAL_CALL @ 0x00422bce (in FUN_00422bc0 @ 0x00422bc0)
+  UNCONDITIONAL_CALL @ 0x004c398f (in FUN_004c37d0 @ 0x004c37d0)
+  UNCONDITIONAL_CALL @ 0x0041872e (in FUN_00418720 @ 0x00418720)
+  UNCONDITIONAL_CALL @ 0x0041886e (in FUN_00418860 @ 0x00418860)
+  UNCONDITIONAL_CALL @ 0x0041c90e (in FUN_0041c900 @ 0x0041c900)
+  UNCONDITIONAL_CALL @ 0x0041d00e (in FUN_0041d000 @ 0x0041d000)
+  UNCONDITIONAL_CALL @ 0x00421977 (in FUN_00421940 @ 0x00421940)
+  UNCONDITIONAL_CALL @ 0x00421a4e (in FUN_00421a40 @ 0x00421a40)
+  UNCONDITIONAL_CALL @ 0x0042191e (in FUN_00421910 @ 0x00421910)
+  UNCONDITIONAL_CALL @ 0x0041863e (in FUN_00418630 @ 0x00418630)
+  UNCONDITIONAL_CALL @ 0x0042140e (in FUN_00421400 @ 0x00421400)
+  UNCONDITIONAL_CALL @ 0x004d2ffd (in FUN_004d26d0 @ 0x004d26d0)
+  UNCONDITIONAL_CALL @ 0x0041857d (in FUN_00418550 @ 0x00418550)
+  UNCONDITIONAL_CALL @ 0x0041860e (in FUN_00418600 @ 0x00418600)
+  UNCONDITIONAL_CALL @ 0x00568b6f (in FUN_00568ad0 @ 0x00568ad0)
+  UNCONDITIONAL_CALL @ 0x0041d46e (in FUN_0041d460 @ 0x0041d460)
+  UNCONDITIONAL_CALL @ 0x0041cd7e (in FUN_0041cd70 @ 0x0041cd70)
+  UNCONDITIONAL_CALL @ 0x00857e60 (in FUN_00857d10 @ 0x00857d10)
+  UNCONDITIONAL_CALL @ 0x0041c171 (in FUN_0041c160 @ 0x0041c160)
+  UNCONDITIONAL_CALL @ 0x0041c58e (in FUN_0041c580 @ 0x0041c580)
+  UNCONDITIONAL_CALL @ 0x0042232e (in FUN_00422320 @ 0x00422320)
+  UNCONDITIONAL_CALL @ 0x0041dbde (in FUN_0041dbd0 @ 0x0041dbd0)
+  UNCONDITIONAL_CALL @ 0x0041dc2e (in FUN_0041dc20 @ 0x0041dc20)
+  UNCONDITIONAL_CALL @ 0x0041db0e (in FUN_0041db00 @ 0x0041db00)
+  UNCONDITIONAL_CALL @ 0x0041dcae (in FUN_0041dca0 @ 0x0041dca0)
+  UNCONDITIONAL_CALL @ 0x0056808e (in FUN_00568020 @ 0x00568020)
+  UNCONDITIONAL_CALL @ 0x0041f14e (in FUN_0041f140 @ 0x0041f140)
+  UNCONDITIONAL_CALL @ 0x0042282e (in FUN_00422820 @ 0x00422820)
+  UNCONDITIONAL_CALL @ 0x0088ca27 (in FUN_0088c830 @ 0x0088c830)
+  UNCONDITIONAL_CALL @ 0x004189d1 (in FUN_004189c0 @ 0x004189c0)
+  UNCONDITIONAL_CALL @ 0x00418a11 (in FUN_00418a00 @ 0x00418a00)
+  UNCONDITIONAL_CALL @ 0x0041a410 (in FUN_0041a3e0 @ 0x0041a3e0)
+  UNCONDITIONAL_CALL @ 0x0041a570 (in FUN_0041a540 @ 0x0041a540)
+  UNCONDITIONAL_CALL @ 0x00418b7e (in FUN_00418b70 @ 0x00418b70)
+  UNCONDITIONAL_CALL @ 0x0041894e (in FUN_00418940 @ 0x00418940)
+  UNCONDITIONAL_CALL @ 0x0041a0bd (in FUN_0041a090 @ 0x0041a090)
+  UNCONDITIONAL_CALL @ 0x0041cdae (in FUN_0041cda0 @ 0x0041cda0)
+  UNCONDITIONAL_CALL @ 0x0041cf3e (in FUN_0041cf30 @ 0x0041cf30)
+  UNCONDITIONAL_CALL @ 0x0042172e (in FUN_00421720 @ 0x00421720)
+  UNCONDITIONAL_CALL @ 0x0041cb1e (in FUN_0041cb10 @ 0x0041cb10)
+  UNCONDITIONAL_CALL @ 0x0041e037 (in FUN_0041e000 @ 0x0041e000)
+  UNCONDITIONAL_CALL @ 0x0041822e (in FUN_00418220 @ 0x00418220)
+  UNCONDITIONAL_CALL @ 0x00418c6d (in FUN_00418c40 @ 0x00418c40)
+  UNCONDITIONAL_CALL @ 0x0042269e (in FUN_00422690 @ 0x00422690)
+  UNCONDITIONAL_CALL @ 0x0042ea2e (in FUN_0042ea20 @ 0x0042ea20)
+  UNCONDITIONAL_CALL @ 0x0042e8ce (in FUN_0042e8c0 @ 0x0042e8c0)
+  UNCONDITIONAL_CALL @ 0x0042e80e (in FUN_0042e800 @ 0x0042e800)
+  UNCONDITIONAL_CALL @ 0x0041ce7d (in FUN_0041ce50 @ 0x0041ce50)
+  UNCONDITIONAL_CALL @ 0x0041cf0e (in FUN_0041cf00 @ 0x0041cf00)
+  UNCONDITIONAL_CALL @ 0x0041ad2d (in FUN_0041ad00 @ 0x0041ad00)
+  UNCONDITIONAL_CALL @ 0x0042edbe (in FUN_0042edb0 @ 0x0042edb0)
+  UNCONDITIONAL_CALL @ 0x0042ee3d (in FUN_0042ee00 @ 0x0042ee00)
+  UNCONDITIONAL_CALL @ 0x0042ed45 (in FUN_0042ed30 @ 0x0042ed30)
+  UNCONDITIONAL_CALL @ 0x0042ed85 (in FUN_0042ed70 @ 0x0042ed70)
+  UNCONDITIONAL_CALL @ 0x0042ef5d (in FUN_0042ef20 @ 0x0042ef20)
+  UNCONDITIONAL_CALL @ 0x0042f00e (in FUN_0042f000 @ 0x0042f000)
+  UNCONDITIONAL_CALL @ 0x0042efee (in FUN_0042efe0 @ 0x0042efe0)
+  UNCONDITIONAL_CALL @ 0x0041d6de (in FUN_0041d6d0 @ 0x0041d6d0)
+  UNCONDITIONAL_CALL @ 0x005682dc (in FUN_005682c0 @ 0x005682c0)
+  ... (truncated at 180)
+  Total printed: 180
+
+----------------------------------------------------------------------
+References TO 0x0041e619 (specific return/callsite address)
+----------------------------------------------------------------------
+  Total printed: 0
+
+----------------------------------------------------------------------
+References TO 0x004f1540 (BSExtraData type helper)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x00410286 (in FUN_00410220 @ 0x00410220)
+  UNCONDITIONAL_CALL @ 0x0040fabe (in FUN_0040fa40 @ 0x0040fa40)
+  UNCONDITIONAL_CALL @ 0x0040ff7b (in FUN_0040ff60 @ 0x0040ff60)
+  UNCONDITIONAL_CALL @ 0x0040fffa (in FUN_0040ff60 @ 0x0040ff60)
+  UNCONDITIONAL_CALL @ 0x00410046 (in FUN_00410020 @ 0x00410020)
+  UNCONDITIONAL_CALL @ 0x00410319 (in FUN_004102d0 @ 0x004102d0)
+  UNCONDITIONAL_CALL @ 0x00410173 (in FUN_00410140 @ 0x00410140)
+  UNCONDITIONAL_CALL @ 0x004123aa (in FUN_00412380 @ 0x00412380)
+  UNCONDITIONAL_CALL @ 0x0041d153 (in FUN_0041d120 @ 0x0041d120)
+  UNCONDITIONAL_CALL @ 0x0041d193 (in FUN_0041d120 @ 0x0041d120)
+  UNCONDITIONAL_CALL @ 0x0041d05b (in FUN_0041d030 @ 0x0041d030)
+  UNCONDITIONAL_CALL @ 0x007896f6 (in FUN_007890e0 @ 0x007890e0)
+  UNCONDITIONAL_CALL @ 0x00789754 (in FUN_007890e0 @ 0x007890e0)
+  UNCONDITIONAL_CALL @ 0x004126fa (in FUN_004126c0 @ 0x004126c0)
+  UNCONDITIONAL_CALL @ 0x00412713 (in FUN_004126c0 @ 0x004126c0)
+  UNCONDITIONAL_CALL @ 0x0041272c (in FUN_004126c0 @ 0x004126c0)
+  UNCONDITIONAL_CALL @ 0x00412751 (in FUN_004126c0 @ 0x004126c0)
+  UNCONDITIONAL_CALL @ 0x00412761 (in FUN_004126c0 @ 0x004126c0)
+  UNCONDITIONAL_CALL @ 0x00412771 (in FUN_004126c0 @ 0x004126c0)
+  UNCONDITIONAL_CALL @ 0x004828b0 (in FUN_00482770 @ 0x00482770)
+  UNCONDITIONAL_CALL @ 0x00867125 (in FUN_008670e0 @ 0x008670e0)
+  UNCONDITIONAL_CALL @ 0x00411f36 (in FUN_00411f20 @ 0x00411f20)
+  UNCONDITIONAL_CALL @ 0x00410434 (in FUN_004103d0 @ 0x004103d0)
+  UNCONDITIONAL_CALL @ 0x004118ec (in FUN_004103d0 @ 0x004103d0)
+  UNCONDITIONAL_CALL @ 0x004a0438 (in FUN_004a03f0 @ 0x004a03f0)
+  UNCONDITIONAL_CALL @ 0x004124e5 (in FUN_00412490 @ 0x00412490)
+  UNCONDITIONAL_CALL @ 0x0070bf9b (in FUN_0070bc20 @ 0x0070bc20)
+  UNCONDITIONAL_CALL @ 0x0070c02b (in FUN_0070bc20 @ 0x0070bc20)
+  UNCONDITIONAL_CALL @ 0x00631dd3 (in FUN_00631d60 @ 0x00631d60)
+  UNCONDITIONAL_CALL @ 0x008774ac (in FUN_008774a0 @ 0x008774a0)
+  UNCONDITIONAL_CALL @ 0x008933da (in FUN_00893340 @ 0x00893340)
+  UNCONDITIONAL_CALL @ 0x006eb684 (in FUN_006eb670 @ 0x006eb670)
+  UNCONDITIONAL_CALL @ 0x00412822 (in FUN_004127e0 @ 0x004127e0)
+  UNCONDITIONAL_CALL @ 0x0041289a (in FUN_004127e0 @ 0x004127e0)
+  UNCONDITIONAL_CALL @ 0x00412920 (in FUN_004127e0 @ 0x004127e0)
+  UNCONDITIONAL_CALL @ 0x00486121 (in FUN_00485e20 @ 0x00485e20)
+  UNCONDITIONAL_CALL @ 0x0040f715 (in FUN_0040f700 @ 0x0040f700)
+  UNCONDITIONAL_CALL @ 0x0040f720 (in FUN_0040f700 @ 0x0040f700)
+  UNCONDITIONAL_CALL @ 0x0040fcf1 (in FUN_0040fcb0 @ 0x0040fcb0)
+  UNCONDITIONAL_CALL @ 0x00412102 (in FUN_004120b0 @ 0x004120b0)
+  UNCONDITIONAL_CALL @ 0x00412212 (in FUN_004121e0 @ 0x004121e0)
+  UNCONDITIONAL_CALL @ 0x004129c3 (in FUN_00412970 @ 0x00412970)
+  UNCONDITIONAL_CALL @ 0x00416c2c (in FUN_00416be0 @ 0x00416be0)
+  UNCONDITIONAL_CALL @ 0x00422cb4 (in FUN_00422c40 @ 0x00422c40)
+  UNCONDITIONAL_CALL @ 0x0042332f (in FUN_00422c40 @ 0x00422c40)
+  UNCONDITIONAL_CALL @ 0x00423358 (in FUN_00422c40 @ 0x00422c40)
+  UNCONDITIONAL_CALL @ 0x00423381 (in FUN_00422c40 @ 0x00422c40)
+  UNCONDITIONAL_CALL @ 0x004233a7 (in FUN_00422c40 @ 0x00422c40)
+  UNCONDITIONAL_CALL @ 0x004233cd (in FUN_00422c40 @ 0x00422c40)
+  UNCONDITIONAL_CALL @ 0x004233eb (in FUN_00422c40 @ 0x00422c40)
+  UNCONDITIONAL_CALL @ 0x004236bc (in FUN_004235e0 @ 0x004235e0)
+  UNCONDITIONAL_CALL @ 0x004236d5 (in FUN_004235e0 @ 0x004235e0)
+  UNCONDITIONAL_CALL @ 0x00426adb (in FUN_00426a30 @ 0x00426a30)
+  UNCONDITIONAL_CALL @ 0x004281d5 (in FUN_00428150 @ 0x00428150)
+  UNCONDITIONAL_CALL @ 0x0047f1ec (in FUN_0047f1e0 @ 0x0047f1e0)
+  UNCONDITIONAL_CALL @ 0x0047f337 (in FUN_0047f300 @ 0x0047f300)
+  UNCONDITIONAL_CALL @ 0x0047f342 (in FUN_0047f300 @ 0x0047f300)
+  UNCONDITIONAL_CALL @ 0x004cc834 (in FUN_004cbbc0 @ 0x004cbbc0)
+  UNCONDITIONAL_CALL @ 0x004cd779 (in FUN_004cbbc0 @ 0x004cbbc0)
+  UNCONDITIONAL_CALL @ 0x004f14ec (in FUN_004f14c0 @ 0x004f14c0)
+  UNCONDITIONAL_CALL @ 0x004f1c22 (in FUN_004f1be0 @ 0x004f1be0)
+  UNCONDITIONAL_CALL @ 0x004f1ca9 (in FUN_004f1be0 @ 0x004f1be0)
+  UNCONDITIONAL_CALL @ 0x004f1cd2 (in FUN_004f1be0 @ 0x004f1be0)
+  UNCONDITIONAL_CALL @ 0x004f1d35 (in FUN_004f1be0 @ 0x004f1be0)
+  UNCONDITIONAL_CALL @ 0x004f1d44 (in FUN_004f1be0 @ 0x004f1be0)
+  UNCONDITIONAL_CALL @ 0x004f2c0f (in FUN_004f2b90 @ 0x004f2b90)
+  UNCONDITIONAL_CALL @ 0x004f2c91 (in FUN_004f2b90 @ 0x004f2b90)
+  UNCONDITIONAL_CALL @ 0x004f2cba (in FUN_004f2b90 @ 0x004f2b90)
+  UNCONDITIONAL_CALL @ 0x004f2d1d (in FUN_004f2b90 @ 0x004f2b90)
+  UNCONDITIONAL_CALL @ 0x004f2d2c (in FUN_004f2b90 @ 0x004f2b90)
+  UNCONDITIONAL_CALL @ 0x004f4042 (in FUN_004f4000 @ 0x004f4000)
+  UNCONDITIONAL_CALL @ 0x004f40aa (in FUN_004f4000 @ 0x004f4000)
+  UNCONDITIONAL_CALL @ 0x004f40d3 (in FUN_004f4000 @ 0x004f4000)
+  UNCONDITIONAL_CALL @ 0x004f4120 (in FUN_004f4000 @ 0x004f4000)
+  UNCONDITIONAL_CALL @ 0x004f412f (in FUN_004f4000 @ 0x004f4000)
+  UNCONDITIONAL_CALL @ 0x004f4d32 (in FUN_004f4cf0 @ 0x004f4cf0)
+  UNCONDITIONAL_CALL @ 0x004f4d9a (in FUN_004f4cf0 @ 0x004f4cf0)
+  UNCONDITIONAL_CALL @ 0x004f4dc3 (in FUN_004f4cf0 @ 0x004f4cf0)
+  UNCONDITIONAL_CALL @ 0x004f4e10 (in FUN_004f4cf0 @ 0x004f4cf0)
+  UNCONDITIONAL_CALL @ 0x004f4e1f (in FUN_004f4cf0 @ 0x004f4cf0)
+  UNCONDITIONAL_CALL @ 0x004f5362 (in FUN_004f5320 @ 0x004f5320)
+  UNCONDITIONAL_CALL @ 0x004f53c3 (in FUN_004f5320 @ 0x004f5320)
+  UNCONDITIONAL_CALL @ 0x004f53ec (in FUN_004f5320 @ 0x004f5320)
+  UNCONDITIONAL_CALL @ 0x004f5432 (in FUN_004f5320 @ 0x004f5320)
+  UNCONDITIONAL_CALL @ 0x004f5441 (in FUN_004f5320 @ 0x004f5320)
+  UNCONDITIONAL_CALL @ 0x004f6bd6 (in FUN_004f6850 @ 0x004f6850)
+  UNCONDITIONAL_CALL @ 0x0054fe5d (in FUN_0054fd70 @ 0x0054fd70)
+  UNCONDITIONAL_CALL @ 0x0054ff77 (in FUN_0054fd70 @ 0x0054fd70)
+  UNCONDITIONAL_CALL @ 0x00586865 (in FUN_00586500 @ 0x00586500)
+  UNCONDITIONAL_CALL @ 0x005868c6 (in FUN_00586500 @ 0x00586500)
+  UNCONDITIONAL_CALL @ 0x0085260e (in FUN_00852080 @ 0x00852080)
+  UNCONDITIONAL_CALL @ 0x005eb467 (in FUN_005eb460 @ 0x005eb460)
+  UNCONDITIONAL_CALL @ 0x005eb472 (in FUN_005eb460 @ 0x005eb460)
+  UNCONDITIONAL_CALL @ 0x005eb48e (in FUN_005eb460 @ 0x005eb460)
+  UNCONDITIONAL_CALL @ 0x005eb499 (in FUN_005eb460 @ 0x005eb460)
+  UNCONDITIONAL_CALL @ 0x005eb59b (in FUN_005eb550 @ 0x005eb550)
+  UNCONDITIONAL_CALL @ 0x005eb5a6 (in FUN_005eb550 @ 0x005eb550)
+  UNCONDITIONAL_CALL @ 0x005eb5bc (in FUN_005eb550 @ 0x005eb550)
+  UNCONDITIONAL_CALL @ 0x005eb5c7 (in FUN_005eb550 @ 0x005eb550)
+  UNCONDITIONAL_CALL @ 0x005eb6de (in FUN_005eb6a0 @ 0x005eb6a0)
+  UNCONDITIONAL_CALL @ 0x005eb70c (in FUN_005eb6a0 @ 0x005eb6a0)
+  UNCONDITIONAL_CALL @ 0x005eb949 (in FUN_005eb900 @ 0x005eb900)
+  UNCONDITIONAL_CALL @ 0x005eb9ae (in FUN_005eb980 @ 0x005eb980)
+  UNCONDITIONAL_CALL @ 0x00788894 (in FUN_007887a0 @ 0x007887a0)
+  UNCONDITIONAL_CALL @ 0x009f2bfd (in FUN_009f2ba0 @ 0x009f2ba0)
+  UNCONDITIONAL_CALL @ 0x009f2de7 (in FUN_009f2da0 @ 0x009f2da0)
+  UNCONDITIONAL_CALL @ 0x009f2ec5 (in FUN_009f2ea0 @ 0x009f2ea0)
+  UNCONDITIONAL_CALL @ 0x005f10b9 (in FUN_005f0fb0 @ 0x005f0fb0)
+  UNCONDITIONAL_CALL @ 0x00412253 (in FUN_004121e0 @ 0x004121e0)
+  UNCONDITIONAL_CALL @ 0x0086a1ee (in FUN_0086a0a0 @ 0x0086a0a0)
+  UNCONDITIONAL_CALL @ 0x0091a7c0 (in FUN_00919f60 @ 0x00919f60)
+  UNCONDITIONAL_CALL @ 0x008f17e2 (in FUN_008eeec0 @ 0x008eeec0)
+  UNCONDITIONAL_CALL @ 0x0094d453 (in ???)
+  UNCONDITIONAL_CALL @ 0x0094d627 (in ???)
+  UNCONDITIONAL_CALL @ 0x0094d639 (in ???)
+  UNCONDITIONAL_CALL @ 0x0094d64b (in ???)
+  UNCONDITIONAL_CALL @ 0x0094d659 (in ???)
+  Total printed: 117
+
+----------------------------------------------------------------------
+References TO 0x0044ddc0 (BSExtraData next helper)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x0086b2f2 (in FUN_0086a850 @ 0x0086a850)
+  UNCONDITIONAL_CALL @ 0x004a434f (in FUN_004a4340 @ 0x004a4340)
+  UNCONDITIONAL_CALL @ 0x004dee58 (in FUN_004dee10 @ 0x004dee10)
+  UNCONDITIONAL_CALL @ 0x004102b1 (in FUN_00410220 @ 0x00410220)
+  UNCONDITIONAL_CALL @ 0x0040ffc8 (in FUN_0040ff60 @ 0x0040ff60)
+  UNCONDITIONAL_CALL @ 0x0040ffd4 (in FUN_0040ff60 @ 0x0040ff60)
+  UNCONDITIONAL_CALL @ 0x0041006a (in FUN_00410020 @ 0x00410020)
+  UNCONDITIONAL_CALL @ 0x0041007d (in FUN_00410020 @ 0x00410020)
+  UNCONDITIONAL_CALL @ 0x00410334 (in FUN_004102d0 @ 0x004102d0)
+  UNCONDITIONAL_CALL @ 0x00464f73 (in FUN_00464f60 @ 0x00464f60)
+  UNCONDITIONAL_CALL @ 0x005516ca (in FUN_005516c0 @ 0x005516c0)
+  UNCONDITIONAL_CALL @ 0x0041018c (in FUN_00410140 @ 0x00410140)
+  UNCONDITIONAL_CALL @ 0x004101a5 (in FUN_00410140 @ 0x00410140)
+  UNCONDITIONAL_CALL @ 0x004101b8 (in FUN_00410140 @ 0x00410140)
+  UNCONDITIONAL_CALL @ 0x0056545c (in FUN_00565450 @ 0x00565450)
+  UNCONDITIONAL_CALL @ 0x00549c18 (in FUN_005497c0 @ 0x005497c0)
+  UNCONDITIONAL_CALL @ 0x00564e6c (in FUN_00564e60 @ 0x00564e60)
+  UNCONDITIONAL_CALL @ 0x005516fc (in FUN_005516f0 @ 0x005516f0)
+  UNCONDITIONAL_CALL @ 0x00620b8a (in FUN_00620b80 @ 0x00620b80)
+  UNCONDITIONAL_CALL @ 0x006c0a77 (in FUN_006c09f0 @ 0x006c09f0)
+  UNCONDITIONAL_CALL @ 0x006c0af8 (in FUN_006c09f0 @ 0x006c09f0)
+  UNCONDITIONAL_CALL @ 0x00699400 (in FUN_006993c0 @ 0x006993c0)
+  UNCONDITIONAL_CALL @ 0x00699059 (in FUN_00699000 @ 0x00699000)
+  UNCONDITIONAL_CALL @ 0x00699170 (in FUN_00699000 @ 0x00699000)
+  UNCONDITIONAL_CALL @ 0x006996b8 (in FUN_00699690 @ 0x00699690)
+  UNCONDITIONAL_CALL @ 0x00699711 (in FUN_00699690 @ 0x00699690)
+  UNCONDITIONAL_CALL @ 0x006bbc97 (in FUN_006bbc50 @ 0x006bbc50)
+  UNCONDITIONAL_CALL @ 0x006bbd94 (in FUN_006bbd30 @ 0x006bbd30)
+  UNCONDITIONAL_CALL @ 0x006bbf38 (in FUN_006bbd30 @ 0x006bbd30)
+  UNCONDITIONAL_CALL @ 0x006bbf90 (in FUN_006bbd30 @ 0x006bbd30)
+  UNCONDITIONAL_CALL @ 0x006bc05e (in FUN_006bbd30 @ 0x006bbd30)
+  UNCONDITIONAL_CALL @ 0x0055820d (in FUN_00558200 @ 0x00558200)
+  UNCONDITIONAL_CALL @ 0x00698a98 (in FUN_006987d0 @ 0x006987d0)
+  UNCONDITIONAL_CALL @ 0x006bc443 (in FUN_006bc3e0 @ 0x006bc3e0)
+  UNCONDITIONAL_CALL @ 0x006bc54a (in FUN_006bc3e0 @ 0x006bc3e0)
+  UNCONDITIONAL_CALL @ 0x006bc59c (in FUN_006bc3e0 @ 0x006bc3e0)
+  UNCONDITIONAL_CALL @ 0x006bc5f0 (in FUN_006bc3e0 @ 0x006bc3e0)
+  UNCONDITIONAL_CALL @ 0x006bc71e (in FUN_006bc3e0 @ 0x006bc3e0)
+  UNCONDITIONAL_CALL @ 0x006bc96b (in FUN_006bc940 @ 0x006bc940)
+  UNCONDITIONAL_CALL @ 0x006bc9cc (in FUN_006bc940 @ 0x006bc940)
+  UNCONDITIONAL_CALL @ 0x006bca45 (in FUN_006bca20 @ 0x006bca20)
+  UNCONDITIONAL_CALL @ 0x006bcb3d (in FUN_006bca20 @ 0x006bca20)
+  UNCONDITIONAL_CALL @ 0x006bcb72 (in FUN_006bca20 @ 0x006bca20)
+  UNCONDITIONAL_CALL @ 0x006bcc84 (in FUN_006bcc60 @ 0x006bcc60)
+  UNCONDITIONAL_CALL @ 0x00697ba3 (in FUN_00697b70 @ 0x00697b70)
+  UNCONDITIONAL_CALL @ 0x006bd56a (in FUN_006bd540 @ 0x006bd540)
+  UNCONDITIONAL_CALL @ 0x006bd5f4 (in FUN_006bd540 @ 0x006bd540)
+  UNCONDITIONAL_CALL @ 0x006bdcd1 (in FUN_006bdcb0 @ 0x006bdcb0)
+  UNCONDITIONAL_CALL @ 0x006bde71 (in FUN_006bde50 @ 0x006bde50)
+  UNCONDITIONAL_CALL @ 0x006bdeb8 (in FUN_006bde50 @ 0x006bde50)
+  UNCONDITIONAL_CALL @ 0x006bdf71 (in FUN_006bdf50 @ 0x006bdf50)
+  UNCONDITIONAL_CALL @ 0x006bdfbe (in FUN_006bdf50 @ 0x006bdf50)
+  UNCONDITIONAL_CALL @ 0x006be14f (in FUN_006be120 @ 0x006be120)
+  UNCONDITIONAL_CALL @ 0x006be19c (in FUN_006be120 @ 0x006be120)
+  UNCONDITIONAL_CALL @ 0x006be2b7 (in FUN_006be120 @ 0x006be120)
+  UNCONDITIONAL_CALL @ 0x006be681 (in FUN_006be660 @ 0x006be660)
+  UNCONDITIONAL_CALL @ 0x006be714 (in FUN_006be6f0 @ 0x006be6f0)
+  UNCONDITIONAL_CALL @ 0x006be7e4 (in FUN_006be770 @ 0x006be770)
+  UNCONDITIONAL_CALL @ 0x006be851 (in FUN_006be830 @ 0x006be830)
+  UNCONDITIONAL_CALL @ 0x006be99f (in FUN_006be950 @ 0x006be950)
+  UNCONDITIONAL_CALL @ 0x006beb24 (in FUN_006be950 @ 0x006be950)
+  UNCONDITIONAL_CALL @ 0x006910bc (in FUN_006910a0 @ 0x006910a0)
+  UNCONDITIONAL_CALL @ 0x006becfb (in FUN_006bec40 @ 0x006bec40)
+  UNCONDITIONAL_CALL @ 0x006befb5 (in FUN_006beea0 @ 0x006beea0)
+  UNCONDITIONAL_CALL @ 0x006bf191 (in FUN_006bf170 @ 0x006bf170)
+  UNCONDITIONAL_CALL @ 0x006bf244 (in FUN_006bf220 @ 0x006bf220)
+  UNCONDITIONAL_CALL @ 0x006bf2f4 (in FUN_006bf2d0 @ 0x006bf2d0)
+  UNCONDITIONAL_CALL @ 0x006c0d41 (in FUN_006c0c80 @ 0x006c0c80)
+  UNCONDITIONAL_CALL @ 0x006c5706 (in FUN_006c5460 @ 0x006c5460)
+  UNCONDITIONAL_CALL @ 0x006f840b (in FUN_006f83f0 @ 0x006f83f0)
+  UNCONDITIONAL_CALL @ 0x004e523d (in FUN_004e5140 @ 0x004e5140)
+  UNCONDITIONAL_CALL @ 0x006f8701 (in FUN_006f86e0 @ 0x006f86e0)
+  UNCONDITIONAL_CALL @ 0x0048ff11 (in FUN_0048fef0 @ 0x0048fef0)
+  UNCONDITIONAL_CALL @ 0x0071d6ca (in FUN_0071d620 @ 0x0071d620)
+  UNCONDITIONAL_CALL @ 0x0071d39b (in FUN_0071d380 @ 0x0071d380)
+  UNCONDITIONAL_CALL @ 0x0071d3ab (in FUN_0071d380 @ 0x0071d380)
+  UNCONDITIONAL_CALL @ 0x0071d3e0 (in FUN_0071d380 @ 0x0071d380)
+  UNCONDITIONAL_CALL @ 0x0071d3f0 (in FUN_0071d380 @ 0x0071d380)
+  UNCONDITIONAL_CALL @ 0x0077181b (in FUN_00771700 @ 0x00771700)
+  UNCONDITIONAL_CALL @ 0x00776ea9 (in FUN_00775a00 @ 0x00775a00)
+  UNCONDITIONAL_CALL @ 0x007780f6 (in FUN_00775a00 @ 0x00775a00)
+  UNCONDITIONAL_CALL @ 0x0077810a (in FUN_00775a00 @ 0x00775a00)
+  UNCONDITIONAL_CALL @ 0x0077818d (in FUN_00775a00 @ 0x00775a00)
+  UNCONDITIONAL_CALL @ 0x004123e7 (in FUN_00412380 @ 0x00412380)
+  UNCONDITIONAL_CALL @ 0x004bd44a (in FUN_004bd400 @ 0x004bd400)
+  UNCONDITIONAL_CALL @ 0x005259e3 (in FUN_00525980 @ 0x00525980)
+  UNCONDITIONAL_CALL @ 0x00525a27 (in FUN_00525980 @ 0x00525980)
+  UNCONDITIONAL_CALL @ 0x004c9304 (in FUN_004c8fd0 @ 0x004c8fd0)
+  UNCONDITIONAL_CALL @ 0x004c9324 (in FUN_004c8fd0 @ 0x004c8fd0)
+  UNCONDITIONAL_CALL @ 0x004c9340 (in FUN_004c8fd0 @ 0x004c8fd0)
+  UNCONDITIONAL_CALL @ 0x004c935c (in FUN_004c8fd0 @ 0x004c8fd0)
+  UNCONDITIONAL_CALL @ 0x0040fb24 (in FUN_0040fae0 @ 0x0040fae0)
+  UNCONDITIONAL_CALL @ 0x0040fe5a (in FUN_0040fe20 @ 0x0040fe20)
+  UNCONDITIONAL_CALL @ 0x0057b490 (in FUN_0057b460 @ 0x0057b460)
+  UNCONDITIONAL_CALL @ 0x0077015e (in FUN_007700f0 @ 0x007700f0)
+  UNCONDITIONAL_CALL @ 0x007731e1 (in FUN_00773190 @ 0x00773190)
+  UNCONDITIONAL_CALL @ 0x0078adaa (in FUN_0078ada0 @ 0x0078ada0)
+  UNCONDITIONAL_CALL @ 0x0078ae4a (in FUN_0078adc0 @ 0x0078adc0)
+  UNCONDITIONAL_CALL @ 0x0078ae56 (in FUN_0078adc0 @ 0x0078adc0)
+  UNCONDITIONAL_CALL @ 0x0071402f (in FUN_00713fb0 @ 0x00713fb0)
+  UNCONDITIONAL_CALL @ 0x007143f9 (in FUN_00713fb0 @ 0x00713fb0)
+  UNCONDITIONAL_CALL @ 0x00713e41 (in FUN_00713e20 @ 0x00713e20)
+  UNCONDITIONAL_CALL @ 0x007aa49d (in FUN_007aa480 @ 0x007aa480)
+  UNCONDITIONAL_CALL @ 0x007a92b0 (in FUN_007a92a0 @ 0x007a92a0)
+  UNCONDITIONAL_CALL @ 0x007cbd88 (in FUN_007cbaf0 @ 0x007cbaf0)
+  UNCONDITIONAL_CALL @ 0x007aaf30 (in FUN_007aaf20 @ 0x007aaf20)
+  UNCONDITIONAL_CALL @ 0x007ce6cd (in FUN_007ce6b0 @ 0x007ce6b0)
+  UNCONDITIONAL_CALL @ 0x007ce735 (in FUN_007ce6b0 @ 0x007ce6b0)
+  UNCONDITIONAL_CALL @ 0x007d3acc (in FUN_007d3aa0 @ 0x007d3aa0)
+  UNCONDITIONAL_CALL @ 0x00835345 (in FUN_00834260 @ 0x00834260)
+  UNCONDITIONAL_CALL @ 0x0071d217 (in FUN_0071d0a0 @ 0x0071d0a0)
+  UNCONDITIONAL_CALL @ 0x0071d278 (in FUN_0071d0a0 @ 0x0071d0a0)
+  UNCONDITIONAL_CALL @ 0x0071d28f (in FUN_0071d0a0 @ 0x0071d0a0)
+  UNCONDITIONAL_CALL @ 0x0071d333 (in FUN_0071d0a0 @ 0x0071d0a0)
+  UNCONDITIONAL_CALL @ 0x0061a956 (in FUN_0061a7d0 @ 0x0061a7d0)
+  UNCONDITIONAL_CALL @ 0x008492ee (in FUN_008492b0 @ 0x008492b0)
+  UNCONDITIONAL_CALL @ 0x008493ce (in FUN_008492b0 @ 0x008492b0)
+  UNCONDITIONAL_CALL @ 0x005651ec (in FUN_005651e0 @ 0x005651e0)
+  UNCONDITIONAL_CALL @ 0x00842e34 (in FUN_008427f0 @ 0x008427f0)
+  UNCONDITIONAL_CALL @ 0x00842fb1 (in FUN_008427f0 @ 0x008427f0)
+  UNCONDITIONAL_CALL @ 0x008432ec (in FUN_008432e0 @ 0x008432e0)
+  UNCONDITIONAL_CALL @ 0x0084338c (in FUN_00843380 @ 0x00843380)
+  UNCONDITIONAL_CALL @ 0x00843bbb (in FUN_00843bb0 @ 0x00843bb0)
+  UNCONDITIONAL_CALL @ 0x00843bc8 (in FUN_00843bb0 @ 0x00843bb0)
+  UNCONDITIONAL_CALL @ 0x005f9f51 (in FUN_005f9e00 @ 0x005f9e00)
+  UNCONDITIONAL_CALL @ 0x005f9f6d (in FUN_005f9e00 @ 0x005f9e00)
+  UNCONDITIONAL_CALL @ 0x005f9f8f (in FUN_005f9e00 @ 0x005f9e00)
+  UNCONDITIONAL_CALL @ 0x005f9fae (in FUN_005f9e00 @ 0x005f9e00)
+  UNCONDITIONAL_CALL @ 0x005f9ffc (in FUN_005f9e00 @ 0x005f9e00)
+  UNCONDITIONAL_CALL @ 0x004bff20 (in FUN_004bfe50 @ 0x004bfe50)
+  UNCONDITIONAL_CALL @ 0x004bff4d (in FUN_004bfe50 @ 0x004bfe50)
+  UNCONDITIONAL_CALL @ 0x00412744 (in FUN_004126c0 @ 0x004126c0)
+  UNCONDITIONAL_CALL @ 0x004127b2 (in FUN_004126c0 @ 0x004126c0)
+  UNCONDITIONAL_CALL @ 0x004c818f (in FUN_004c7400 @ 0x004c7400)
+  UNCONDITIONAL_CALL @ 0x004c81cd (in FUN_004c7400 @ 0x004c7400)
+  UNCONDITIONAL_CALL @ 0x004c8d29 (in FUN_004c8c10 @ 0x004c8c10)
+  UNCONDITIONAL_CALL @ 0x004c8d46 (in FUN_004c8c10 @ 0x004c8c10)
+  UNCONDITIONAL_CALL @ 0x004c8d74 (in FUN_004c8c10 @ 0x004c8c10)
+  UNCONDITIONAL_CALL @ 0x004c8df2 (in FUN_004c8c10 @ 0x004c8c10)
+  UNCONDITIONAL_CALL @ 0x004c8e5e (in FUN_004c8c10 @ 0x004c8c10)
+  UNCONDITIONAL_CALL @ 0x00571ba4 (in FUN_00571b50 @ 0x00571b50)
+  UNCONDITIONAL_CALL @ 0x006048fc (in FUN_006047c0 @ 0x006047c0)
+  UNCONDITIONAL_CALL @ 0x00604a60 (in FUN_006047c0 @ 0x006047c0)
+  UNCONDITIONAL_CALL @ 0x00604ac9 (in FUN_006047c0 @ 0x006047c0)
+  UNCONDITIONAL_CALL @ 0x00604b18 (in FUN_006047c0 @ 0x006047c0)
+  UNCONDITIONAL_CALL @ 0x008045bb (in FUN_00804560 @ 0x00804560)
+  UNCONDITIONAL_CALL @ 0x00804d53 (in FUN_00804cd0 @ 0x00804cd0)
+  UNCONDITIONAL_CALL @ 0x0081c6d5 (in FUN_0081c630 @ 0x0081c630)
+  UNCONDITIONAL_CALL @ 0x0081f3e7 (in FUN_0081f350 @ 0x0081f350)
+  UNCONDITIONAL_CALL @ 0x0081f4df (in FUN_0081f350 @ 0x0081f350)
+  UNCONDITIONAL_CALL @ 0x0084333c (in FUN_00843330 @ 0x00843330)
+  UNCONDITIONAL_CALL @ 0x004c2ba6 (in FUN_004c29a0 @ 0x004c29a0)
+  UNCONDITIONAL_CALL @ 0x004c341d (in FUN_004c3380 @ 0x004c3380)
+  UNCONDITIONAL_CALL @ 0x004c3431 (in FUN_004c3380 @ 0x004c3380)
+  UNCONDITIONAL_CALL @ 0x004d1f79 (in FUN_004d1960 @ 0x004d1960)
+  UNCONDITIONAL_CALL @ 0x00564c8c (in FUN_00564c60 @ 0x00564c60)
+  UNCONDITIONAL_CALL @ 0x00564ebc (in FUN_00564eb0 @ 0x00564eb0)
+  UNCONDITIONAL_CALL @ 0x0056549f (in FUN_00565480 @ 0x00565480)
+  UNCONDITIONAL_CALL @ 0x0044c6fc (in FUN_0044c640 @ 0x0044c640)
+  UNCONDITIONAL_CALL @ 0x00852dd5 (in FUN_00852d20 @ 0x00852d20)
+  ... (truncated at 160)
+  Total printed: 160

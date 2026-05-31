@@ -155,6 +155,8 @@ pub struct EngineFixesConfig {
     pub entrydata_invalid_form_guard: bool,
     /// Scrub invalid ExtraOwnership.owner pointers to NULL.
     pub extraownership_invalid_owner_guard: bool,
+    /// Ignore stale linked-reference child lists during save-to-save cleanup.
+    pub linked_ref_children_stale_list_guard: bool,
     /// Compact NULL hkpEntity slots before hkpWorld::addEntityBatch.
     pub havok_add_entity_batch_null_guard: bool,
     /// Compact NULL hkpWorld pending-add slots before flush loops use them.
@@ -174,6 +176,7 @@ impl Default for EngineFixesConfig {
             navmesh_low_pointer_guard: true,
             entrydata_invalid_form_guard: true,
             extraownership_invalid_owner_guard: true,
+            linked_ref_children_stale_list_guard: true,
             havok_add_entity_batch_null_guard: true,
             havok_pending_add_null_guard: true,
             havok_narrowphase_invalid_pair_guard: true,
@@ -208,6 +211,9 @@ impl EngineFixesConfig {
             extraownership_invalid_owner_guard: raw
                 .extraownership_invalid_owner_guard
                 .unwrap_or(default.extraownership_invalid_owner_guard),
+            linked_ref_children_stale_list_guard: raw
+                .linked_ref_children_stale_list_guard
+                .unwrap_or(default.linked_ref_children_stale_list_guard),
             havok_add_entity_batch_null_guard: raw
                 .havok_add_entity_batch_null_guard
                 .unwrap_or(default.havok_add_entity_batch_null_guard),
@@ -300,6 +306,7 @@ struct RawEngineFixesConfig {
     navmesh_low_pointer_guard: Option<bool>,
     entrydata_invalid_form_guard: Option<bool>,
     extraownership_invalid_owner_guard: Option<bool>,
+    linked_ref_children_stale_list_guard: Option<bool>,
     havok_add_entity_batch_null_guard: Option<bool>,
     havok_pending_add_null_guard: Option<bool>,
     havok_narrowphase_invalid_pair_guard: Option<bool>,

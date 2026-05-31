@@ -12,6 +12,7 @@ mod display;
 mod entrydata;
 mod extraownership;
 mod havok;
+mod linkedrefs;
 mod memset;
 mod navmesh;
 mod statics;
@@ -22,6 +23,7 @@ pub fn install(config: &EngineFixesConfig) -> anyhow::Result<()> {
     install_navmesh_low_pointer(config)?;
     install_entrydata_invalid_form(config)?;
     install_extraownership_invalid_owner(config)?;
+    install_linked_ref_children_stale_list(config)?;
     install_havok_guards(config)?;
     install_memset_null_dst(config)?;
 
@@ -97,6 +99,17 @@ fn install_extraownership_invalid_owner(config: &EngineFixesConfig) -> anyhow::R
     statics::BASE_EXTRA_LIST_GET_BY_TYPE_HOOK.enable()?;
     extraownership::install_load_hook()?;
     log::info!("[EXTRAOWNERSHIP] Invalid owner guard active");
+    Ok(())
+}
+
+fn install_linked_ref_children_stale_list(config: &EngineFixesConfig) -> anyhow::Result<()> {
+    if !config.linked_ref_children_stale_list_guard {
+        log::info!("[LINKED_REFS] Stale child-list guard disabled by config");
+        return Ok(());
+    }
+
+    linkedrefs::install_remove_guard()?;
+    log::info!("[LINKED_REFS] Stale child-list guard active");
     Ok(())
 }
 
