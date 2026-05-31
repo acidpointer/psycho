@@ -50,7 +50,7 @@ jobs:
         run: rustup target add i686-pc-windows-gnu
 
       - name: Build release archives
-        run: ./.github/scripts/package_release.sh "${{ steps.tag.outputs.tag }}"
+        run: bash ./.github/scripts/package_release.sh "${{ steps.tag.outputs.tag }}"
 
       - name: Verify archives
         env:
