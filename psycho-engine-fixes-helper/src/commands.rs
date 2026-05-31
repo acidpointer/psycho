@@ -12,6 +12,9 @@ use crate::engine_fixes::{self, CommandOutput};
 
 const COMMAND_BUFFER_SIZE: usize = 64 * 1024;
 
+// Keep command metadata static and registration direct. The helper is loaded
+// during xNVSE plugin startup, so unnecessary discovery or dynamic command-table
+// rewrites can change startup timing and memory layout for other plugins.
 #[derive(Clone, Copy)]
 struct CommandSpec {
     name: &'static str,

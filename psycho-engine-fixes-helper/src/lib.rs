@@ -5,6 +5,12 @@
 //! This DLL exists only because console commands and xNVSE messages must be
 //! registered from an xNVSE plugin. Core engine patches are owned by
 //! `psycho_engine_fixes.dll`, loaded earlier by `psycho-loader`.
+//!
+//! Keep this helper boring. A previous style refactor split the load path into
+//! extra probing helpers and changed xNVSE startup behavior enough to reproduce
+//! a deterministic startup crash in a heavy plugin setup. The exact crash site
+//! was outside this DLL, but the regression window was this helper. Preserve the
+//! simple load order below unless a test explicitly proves a new shape is safe.
 
 mod commands;
 mod engine_fixes;
@@ -15,6 +21,8 @@ use libnvse::plugin::PluginContext;
 use libnvse::{NVSEInterfaceFFI, PluginInfoFFI};
 use windows::core::BOOL;
 
+// xNVSE expects PluginInfo::kInfoVersion here. Leaving it as zero makes this
+// plugin look malformed in nvse.log and can confuse plugin-query consumers.
 const PLUGIN_INFO_VERSION: u32 = 1;
 
 // The previous 0x3F00 range collides with common graphics plugins and xNVSE
@@ -79,8 +87,11 @@ fn helper_load(nvse: *const NVSEInterfaceFFI) -> anyhow::Result<()> {
         console.set_global();
     }
 
-    // The listener owns a static function pointer through PluginContext.
-    // Register it before commands, matching the last stable helper shape.
+    // Order matters. This is the last tested stable helper load shape:
+    // console pointer -> NVSE listener -> opcode base -> commands -> leak ctx.
+    // Avoid adding command-table probing or extra allocation-heavy discovery
+    // here; the helper only adapts xNVSE services and should not perturb plugin
+    // startup more than necessary.
     ctx.on_message(events::forward_to_engine_fixes)?;
 
     if let Err(err) = ctx.set_opcode_base(OPCODE_BASE) {
