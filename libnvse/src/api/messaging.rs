@@ -18,7 +18,7 @@
 //!        log::debug!("Message received: {}", msg.get_type());
 //!
 //!        if msg.get_type() == NVSEMessageType::DeferredInit {
-//!            match show_message_box("psycho-nvse loaded! Have FUN!", "YUP", || {
+//!            match show_message_box("NVSE plugin loaded", "OK", || {
 //!                log::info!("YES! BUTTON PRESSED!!!!")
 //!            }) {
 //!                Ok(_) => {}

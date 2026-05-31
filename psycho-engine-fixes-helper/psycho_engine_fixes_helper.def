@@ -1,0 +1,6 @@
+LIBRARY psycho_engine_fixes_helper.dll
+
+EXPORTS
+    NVSEPlugin_Preload @1
+    NVSEPlugin_Query @2
+    NVSEPlugin_Load @3

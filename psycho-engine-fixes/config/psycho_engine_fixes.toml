@@ -1,0 +1,12 @@
+[memory]
+# 0 = off, 1 = scrap_heap, 2 = gheap + scrap_heap
+allocator = 2
+
+[performance]
+rng = true
+zlib = true
+display_tweaks = true
+
+[diagnostics]
+console = false
+debug_log = true

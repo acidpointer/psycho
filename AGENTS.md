@@ -5,7 +5,7 @@
 Only supported target: `i686-pc-windows-gnu` (32-bit, FNV/xNVSE requirement).
 
 ```
-cargo build --release --target i686-pc-windows-gnu -p psycho-nvse
+cargo build --release --target i686-pc-windows-gnu -p psycho-loader -p psycho-engine-fixes -p psycho-engine-fixes-helper
 ```
 
 Requires `mingw-w64` (`i686-w64-mingw32-gcc`) on `$PATH` and `rustup target add i686-pc-windows-gnu`.
@@ -29,13 +29,23 @@ git submodule update --init --recursive
 
 | Crate | Role |
 |---|---|
-| `psycho-nvse` | Main plugin (`cdylib`). Entry points in `src/entry.rs`. |
+| `psycho-engine-fixes` | Core DLL (`psycho_engine_fixes.dll`). Loaded early by `psycho-loader` from `<game root>/mods/psycho_engine_fixes.dll`; owns engine patches and shared state. |
+| `psycho-engine-fixes-helper` | Thin xNVSE plugin (`psycho_engine_fixes_helper.dll`). Registers console commands/messages and uses the core API only if `psycho_engine_fixes.dll` is already loaded. It must never load or initialize the core DLL. |
+| `psycho-engine-fixes-api` | Tiny `psycho_engine_fixes.dll` domain ABI crate shared by `psycho-engine-fixes` and `psycho-engine-fixes-helper`. Do not put this API in `libpsycho`. |
+| `psycho-loader` | Generic early `dinput8.dll` proxy. Loads every `<game root>/mods/*.dll` before xNVSE plugin load. Must stay mod/plugin agnostic, `no_std`, and independent of `libpsycho`. |
+| `psycho-loader-api` | Tiny generic ABI for DLLs loaded by `psycho-loader`. Loaded DLLs should export `PsychoLoader_ModInit` and do real startup there, not in DllMain/TLS callbacks. |
 | `libpsycho` | WinAPI wrappers, IAT/inline/VMT hooking, logging. |
 | `libnvse` | Rust bindings to xNVSE via `bindgen`. |
 | `libmimalloc` | Fork of mimalloc sys crate. Builds C source via `cc`. |
 | `libf4se` | Deprecated F4SE bindings. Not maintained. |
 
-Plugin entry flow: `DllMain` (empty) -> `NVSEPlugin_Preload` (config, logger, trampolines) -> `NVSEPlugin_Query` (version info) -> `NVSEPlugin_Load` (activate hooks).
+Plugin entry flow: `dinput8.dll` attach callback (`DllMain` or TLS) -> loader thread loads every `<game root>/mods/*.dll` -> loader calls each optional `PsychoLoader_ModInit` export outside the loaded DLL's loader-lock callback -> `psycho_engine_fixes.dll` completes all setup from that single entrypoint -> `psycho_engine_fixes_helper.dll` `NVSEPlugin_*` only registers helper services and forwards optional messages/commands if the core API is already available.
+
+## WinAPI usage
+
+Do not call WinAPI directly outside allocator hot paths. Use `libpsycho::os::windows::winapi` wrappers instead.
+
+If a wrapper is missing, add it to `libpsycho` and make it as safe/idiomatic as practical. Direct WinAPI calls are allowed only in allocator code where per-allocation performance is critical and wrapper checks would be too expensive.
 
 ## Testing
 
@@ -43,15 +53,15 @@ No test suite exists. No `tests/` directories. Verify changes by building: `carg
 
 ## Config
 
-Plugin runtime config: `psycho-nvse/config/psycho-nvse.toml`. Controls heap replacer, zlib, display tweaks, logging, debug probes.
+Plugin runtime config: `psycho-engine-fixes/config/psycho_engine_fixes.toml`, deployed beside the core DLL as `<game root>/mods/psycho_engine_fixes.toml`. Important memory setting: `memory.allocator` (`0` = off, `1` = scrap_heap, `2` = gheap + scrap_heap). It also controls zlib, display tweaks, logging, and debug probes.
 
 ## Key subsystem: gheap
 
-`psycho-nvse/src/mods/heap_replacer/gheap/` replaces the game's SBM allocator with a zombie-safe slab allocator.
+`psycho-engine-fixes/src/mods/heap_replacer/gheap/` replaces the game's SBM allocator with a zombie-safe slab allocator.
 
 Current project state:
 - The project works and all features have been tested.
-- `light_mode` is the best practical/default solution today. It gives less performance improvement than full gheap and can still have some random-user stability issues, but overall it works well and is now preferred even by the user.
+- `memory.allocator = 1` runs scrap_heap only. It gives less performance improvement than gheap + scrap_heap and can still have some random-user stability issues, but it is the safest practical allocator mode today.
 - Full gheap can run on lightweight modpacks, but huge modpacks usually hit instant crashes or delayed VAS exhaustion/OOM crashes.
 - Full gheap has location-specific crashes whose root cause is still unknown. Treat OOM/VAS exhaustion and UAF/reuse races as both plausible until proven otherwise.
 - Full gheap is not broadly stable for other users. It is only known to be stable-ish on the user's own modpack.
@@ -71,6 +81,8 @@ Critical constraints:
 When investigating any game behavior, crash, or engine mechanism, Ghidra output is the authoritative reference. Pre-existing research lives in `analysis/ghidra/output/` (subdirs: `crash/`, `disasm/`, `memory/`, `perf/`). Each `.txt` file there maps to a source Ghidra script in `analysis/ghidra/scripts/`. Ignore `.md` files in `analysis/` -- they are outdated prose. Only trust the `.txt` Ghidra output unless user explicitly requests otherwise.
 
 If a knowledge gap exists (unknown function behavior, unclear call paths, missing data flow), immediately prepare a Ghidra script to investigate and fill the gap with correct knowledge. Do not guess or reason from assumptions when a script can give a concrete answer.
+
+Operational rule: do not run Ghidra, `analyzeHeadless`, or `ghidraRun` yourself. Prepare scripts in `analysis/ghidra/scripts/`, ask the user to run them, and analyze the resulting `.txt` output after the user provides it.
 
 ## Runtime debugging constraints
 
@@ -116,11 +128,12 @@ Never tell the user what they want to hear if it is wrong. If an idea, assumptio
 
 ## Logs
 
-- **Fresh logs** -- symlinks created by `ln_logs.sh` in `psycho-nvse/`: `psycho-nvse-latest.log`, `CrashLogger.log`. Always point to the game directory.
+- **Fresh logs** -- symlinks created by `ln_logs.sh` in `psycho-engine-fixes/`: `psycho-engine-fixes-latest.log`, `CrashLogger.log`. Always point to the game directory.
 - **User reports** -- put problem report logs into `.reports/` for analysis.
 
 ## Shell scripts
 
-- `psycho-nvse/build.sh` -- builds and copies DLL to game directory (edit `TARGET_DIR` at top)
-- `psycho-nvse/release.sh` -- builds release and packages zips in `.release/`
-- `psycho-nvse/ln_logs.sh` -- symlinks game log files into repo for inspection
+- `build_fnv.sh` -- builds and installs the full FNV set: `FalloutNV/dinput8.dll`, `FalloutNV/mods/psycho_engine_fixes.dll`, `FalloutNV/mods/psycho_engine_fixes.toml`, and helper DLL to the legacy xNVSE mod path `mods/psycho_nvse/nvse/plugins/psycho_engine_fixes_helper.dll` (edit `TARGET_DIR` at top). It also removes exact stale Psycho configs/DLLs from old install layouts.
+- `psycho-engine-fixes/build.sh` -- compatibility wrapper that calls `../build_fnv.sh`
+- `psycho-engine-fixes/release.sh` -- builds release and packages zips in `.release/`
+- `psycho-engine-fixes/ln_logs.sh` -- symlinks game log files into repo for inspection

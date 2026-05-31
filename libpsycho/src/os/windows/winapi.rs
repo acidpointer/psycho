@@ -17,23 +17,27 @@ use windows::Win32::System::Console::{
     STD_OUTPUT_HANDLE, SetConsoleMode,
 };
 use windows::Win32::System::LibraryLoader::{
-    GetModuleHandleA, GetModuleHandleW, GetProcAddress, LoadLibraryA,
+    DisableThreadLibraryCalls, GetModuleFileNameW, GetModuleHandleA, GetModuleHandleW,
+    GetProcAddress, LoadLibraryA, LoadLibraryW,
 };
 use windows::Win32::System::Memory::{
     MEM_COMMIT, MEM_RELEASE, MEM_RESERVE, MEMORY_BASIC_INFORMATION, PAGE_EXECUTE_READWRITE,
-    PAGE_PROTECTION_FLAGS, VIRTUAL_ALLOCATION_TYPE, VIRTUAL_FREE_TYPE, VirtualAlloc, VirtualFree,
-    VirtualProtect,
+    PAGE_PROTECTION_FLAGS, PAGE_READWRITE, VIRTUAL_ALLOCATION_TYPE, VIRTUAL_FREE_TYPE,
+    VirtualAlloc, VirtualFree, VirtualProtect,
 };
 use windows::Win32::System::ProcessStatus::{
     EnumProcessModules, GetModuleBaseNameA, GetModuleInformation, MODULEINFO,
 };
-use windows::Win32::System::SystemInformation::GetTickCount as WinGetTickCount;
+use windows::Win32::System::SystemInformation::{
+    GetSystemDirectoryW, GetTickCount as WinGetTickCount,
+};
+use windows::Win32::System::SystemServices::MEM_TOP_DOWN;
 use windows::Win32::System::Threading::{
-    CRITICAL_SECTION, GetCurrentThreadId as WinGetCurrentThreadId, GetExitCodeThread,
+    CRITICAL_SECTION, CreateThread, GetCurrentThreadId as WinGetCurrentThreadId, GetExitCodeThread,
     InitializeCriticalSection, OpenThread, ReleaseSemaphore as WinReleaseSemaphore,
-    SetThreadPriority, Sleep as WinSleep, THREAD_PRIORITY, THREAD_PRIORITY_ABOVE_NORMAL,
-    THREAD_PRIORITY_BELOW_NORMAL, THREAD_PRIORITY_HIGHEST, THREAD_PRIORITY_IDLE,
-    THREAD_PRIORITY_LOWEST, THREAD_PRIORITY_MIN, THREAD_PRIORITY_NORMAL,
+    SetThreadPriority, Sleep as WinSleep, THREAD_CREATION_FLAGS, THREAD_PRIORITY,
+    THREAD_PRIORITY_ABOVE_NORMAL, THREAD_PRIORITY_BELOW_NORMAL, THREAD_PRIORITY_HIGHEST,
+    THREAD_PRIORITY_IDLE, THREAD_PRIORITY_LOWEST, THREAD_PRIORITY_MIN, THREAD_PRIORITY_NORMAL,
     THREAD_PRIORITY_TIME_CRITICAL, THREAD_QUERY_LIMITED_INFORMATION,
     WaitForSingleObject as WinWaitForSingleObject,
 };
@@ -157,6 +161,11 @@ pub fn flush_instructions_cache(base: *mut c_void, size: usize) -> WinapiResult<
 /// WinAPI: SetLastError(error_code)
 pub fn set_last_error(error_code: u32) {
     unsafe { SetLastError(WIN32_ERROR(error_code)) }
+}
+
+/// WinAPI: GetLastError()
+pub fn get_last_error_code() -> u32 {
+    unsafe { GetLastError().0 }
 }
 
 /// WinAPI: SetLastError(0)
@@ -355,6 +364,34 @@ pub fn get_current_process() -> WinapiResult<Handle> {
     handle.try_into()
 }
 
+pub type ThreadStartRoutine = unsafe extern "system" fn(*mut c_void) -> u32;
+
+/// WinAPI: CreateThread(...)
+pub fn create_thread(
+    start: ThreadStartRoutine,
+    parameter: Option<*mut c_void>,
+) -> WinapiResult<Handle> {
+    let handle = unsafe {
+        CreateThread(
+            None,
+            0,
+            Some(start),
+            parameter.map(|ptr| ptr as *const c_void),
+            THREAD_CREATION_FLAGS(0),
+            None,
+        )?
+    };
+
+    handle.try_into()
+}
+
+/// WinAPI: CloseHandle(...)
+pub fn close_handle(handle: Handle) -> WinapiResult<()> {
+    unsafe { CloseHandle(handle.into())? };
+
+    Ok(())
+}
+
 /// WinAPI: GetCurrentThreadId()
 /// Returns the thread identifier of the calling thread.
 ///
@@ -435,6 +472,13 @@ impl TryFrom<HMODULE> for HModule {
     fn try_from(value: HMODULE) -> Result<Self, Self::Error> {
         unsafe { HModule::new(value.0) }
     }
+}
+
+/// WinAPI: DisableThreadLibraryCalls(...)
+pub fn disable_thread_library_calls(module: HModule) -> WinapiResult<()> {
+    unsafe { DisableThreadLibraryCalls(module.into())? };
+
+    Ok(())
 }
 
 /// Wrapper for WinAPI MODULEINFO type
@@ -764,6 +808,93 @@ pub fn load_library_a(dll: &str) -> WinapiResult<HModule> {
     hmodule.try_into()
 }
 
+/// WinAPI: LoadLibraryW(...)
+pub fn load_library_w(dll: &str) -> WinapiResult<HModule> {
+    let dll_name = WinString::new(dll)?;
+
+    let hmodule =
+        dll_name.try_with_pcwstr(|lplibfilename| Ok(unsafe { LoadLibraryW(lplibfilename) }?))?;
+
+    hmodule.try_into()
+}
+
+/// WinAPI: GetModuleFileNameW(...)
+pub fn get_module_file_name_w(module: Option<HModule>) -> WinapiResult<String> {
+    const MAX_PATH: usize = 260;
+
+    let mut buffer = [0u16; MAX_PATH];
+    let module = module.map(Into::into);
+    let length = unsafe { GetModuleFileNameW(module, &mut buffer) } as usize;
+
+    if length == 0 {
+        return Err(WinapiError::WindowsCore(windows::core::Error::from_win32()));
+    }
+
+    if length < buffer.len() {
+        return Ok(String::from_utf16_lossy(&buffer[..length]));
+    }
+
+    let mut buffer = vec![0u16; 32768];
+    let length = unsafe { GetModuleFileNameW(module, &mut buffer) } as usize;
+
+    if length == 0 || length >= buffer.len() {
+        return Err(WinapiError::WindowsCore(windows::core::Error::from_win32()));
+    }
+
+    Ok(String::from_utf16_lossy(&buffer[..length]))
+}
+
+/// Load a DLL from `<game root>/mods`.
+pub fn load_root_mod_library_w(dll: &str) -> WinapiResult<HModule> {
+    let mut path = get_module_file_name_w(None)?;
+
+    match path.rfind(['\\', '/']) {
+        Some(pos) => path.truncate(pos + 1),
+        None => path.clear(),
+    }
+
+    path.push_str("mods\\");
+    path.push_str(dll);
+    load_library_w(&path)
+}
+
+/// WinAPI: GetSystemDirectoryW(...)
+pub fn get_system_directory_w() -> WinapiResult<String> {
+    const MAX_PATH: usize = 260;
+
+    let mut buffer = [0u16; MAX_PATH];
+    let length = unsafe { GetSystemDirectoryW(Some(&mut buffer)) } as usize;
+
+    if length == 0 {
+        return Err(WinapiError::WindowsCore(windows::core::Error::from_win32()));
+    }
+
+    if length < buffer.len() {
+        return Ok(String::from_utf16_lossy(&buffer[..length]));
+    }
+
+    let mut buffer = vec![0u16; length + 1];
+    let length = unsafe { GetSystemDirectoryW(Some(&mut buffer)) } as usize;
+
+    if length == 0 || length >= buffer.len() {
+        return Err(WinapiError::WindowsCore(windows::core::Error::from_win32()));
+    }
+
+    Ok(String::from_utf16_lossy(&buffer[..length]))
+}
+
+/// Load a DLL from the Windows system directory.
+pub fn load_system_library_w(dll: &str) -> WinapiResult<HModule> {
+    let mut path = get_system_directory_w()?;
+
+    if !path.ends_with('\\') {
+        path.push('\\');
+    }
+
+    path.push_str(dll);
+    load_library_w(&path)
+}
+
 /// If function exist in loaded dll, returns it's address as *mut c_void
 /// Otherwise return error
 pub fn get_proc_address_in_dll(dll: &str, function_name: &str) -> WinapiResult<*mut c_void> {
@@ -778,6 +909,7 @@ pub fn get_proc_address_in_dll(dll: &str, function_name: &str) -> WinapiResult<*
 pub enum AllocationType {
     Commit,
     Reserve,
+    ReserveTopDown,
     CommitReserve,
 }
 
@@ -786,6 +918,7 @@ impl From<AllocationType> for VIRTUAL_ALLOCATION_TYPE {
         match value {
             AllocationType::Commit => MEM_COMMIT,
             AllocationType::Reserve => MEM_RESERVE,
+            AllocationType::ReserveTopDown => VIRTUAL_ALLOCATION_TYPE(MEM_RESERVE.0 | MEM_TOP_DOWN),
             AllocationType::CommitReserve => MEM_COMMIT | MEM_RESERVE,
         }
     }
@@ -848,6 +981,11 @@ pub unsafe fn virtual_free(address: *mut c_void, free_type: FreeType) -> WinapiR
     unsafe { VirtualFree(address, size, free_type.into()) }?;
 
     Ok(())
+}
+
+/// Reserve address space near the top of the process VAS.
+pub fn virtual_reserve_top_down(size: usize) -> WinapiResult<*mut c_void> {
+    unsafe { virtual_alloc(None, size, AllocationType::ReserveTopDown, PAGE_READWRITE) }
 }
 
 /// WinAPI: GetModuleHandleW(...)

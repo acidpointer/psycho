@@ -1,0 +1,592 @@
+DISPLAY BORDERLESS STARTUP AUDIT
+Goal: verify whether forcing bFull Screen false plus popup window styles prevents exclusive fullscreen startup.
+
+======================================================================
+INISettingCollection::ReadSetting @ 0x00c44280
+======================================================================
+  Function: FUN_00c44280 @ 0x00c44280, Size: 1605 bytes
+
+/* WARNING: Removing unreachable block (ram,0x00c4438b) */
+/* WARNING: Globals starting with '_' overlap smaller symbols at the same address */
+
+void __thiscall FUN_00c44280(int *param_1,int param_2)
+
+{
+  int iVar1;
+  UINT UVar2;
+  INT *local_b0c;
+  char *local_b08;
+  float *local_b04;
+  INT *local_b00;
+  INT *local_afc;
+  LPCSTR local_af8;
+  int local_ab8;
+  uint local_ab4;
+  uint local_ab0;
+  uint local_aac;
+  int local_aa8;
+  uint local_aa4;
+  uint local_aa0;
+  CHAR local_a9c [1024];
+  CHAR local_69c [1024];
+  CHAR local_29c [256];
+  CHAR local_19c [68];
+  undefined4 local_158;
+  char local_154 [64];
+  CHAR local_114 [260];
+  uint local_10;
+  char local_a;
+  char local_9;
+  DWORD local_8;
+  
+  local_10 = DAT_011c16bc ^ (uint)&stack0xfffffffc;
+  local_9 = '\0';
+  if (*(int *)(param_2 + 8) != 0) {
+    local_a = param_1[0x42] == 0;
+    if ((bool)local_a) {
+      (**(code **)(*param_1 + 0x18))();
+    }
+    if (param_1[0x42] != 0) {
+      local_158 = FUN_00c33090();
+      FUN_00c43da0(param_2);
+      FUN_00c43e00(param_2);
+      switch(local_158) {
+      case 0:
+        if (param_2 == 0) {
+          _DAT_01202800 = _DAT_01202800 & 0xffffff00;
+          local_b08 = &DAT_01202800;
+        }
+        else {
+          local_b08 = (char *)(param_2 + 4);
+        }
+        UVar2 = GetPrivateProfileIntA
+                          (local_154,local_19c,(uint)(*local_b08 != '\0'),(LPCSTR)(param_1 + 1));
+        *(bool *)(param_2 + 4) = UVar2 != 0;
+        break;
+      case 1:
+        if (param_2 == 0) {
+          _DAT_01202800 = 0;
+          local_afc = (INT *)&DAT_01202800;
+        }
+        else {
+          local_afc = (INT *)(param_2 + 4);
+        }
+        UVar2 = GetPrivateProfileIntA(local_154,local_19c,*local_afc,(LPCSTR)(param_1 + 1));
+        *(char *)(param_2 + 4) = (char)UVar2;
+        break;
+      default:
+        if (param_2 == 0) {
+          _DAT_01202800 = 0;
+          local_b0c = (INT *)&DAT_01202800;
+        }
+        else {
+          local_b0c = (INT *)(param_2 + 4);
+        }
+        UVar2 = GetPrivateProfileIntA(local_154,local_19c,*local_b0c,(LPCSTR)(param_1 + 1));
+        if (param_2 != 0) {
+          *(UINT *)(param_2 + 4) = UVar2;
+        }
+        break;
+      case 3:
+        if (param_2 == 0) {
+          _DAT_01202800 = 0;
+          local_b00 = (INT *)&DAT_01202800;
+        }
+        else {
+          local_b00 = (INT *)(param_2 + 4);
+        }
+        UVar2 = GetPrivateProfileIntA(local_154,local_19c,*local_b00,(LPCSTR)(param_1 + 1));
+        if (param_2 != 0) {
+          *(UINT *)(param_2 + 4) = UVar2;
+        }
+        break;
+      case 5:
+        if (param_2 == 0) {
+          _DAT_01202800 = 0;
+          local_b04 = (float *)&DAT_01202800;
+        }
+        else {
+          local_b04 = (float *)(param_2 + 4);
+        }
+        FUN_00406d00(local_114,0x100,&DAT_01094cf0,(double)*local_b04);
+        local_8 = GetPrivateProfileStringA
+                            (local_154,local_19c,local_114,local_29c,0x100,(LPCSTR)(param_1 + 1));
+        if (local_8 != 0) {
+          iVar1 = FID_conflict__sscanf(local_29c,"%f");
+          local_9 = '\x01' - (iVar1 != 1);
+        }
+        break;
+      case 6:
+        iVar1 = _strcmp(local_154,"LANGUAGE");
+        if (iVar1 == 0) {
+          local_8 = GetPrivateProfileStringA
+                              ("General","sLanguage",DAT_011c3cb8,local_a9c,0x100,
+                               (LPCSTR)(param_1 + 1));
+          FUN_00ec6370(local_154);
+        }
+        if (param_2 == 0) {
+          local_af8 = (LPCSTR)0x0;
+        }
+        else {
+          local_af8 = *(LPCSTR *)(param_2 + 4);
+        }
+        local_8 = GetPrivateProfileStringA
+                            (local_154,local_19c,local_af8,local_69c,0x100,(LPCSTR)(param_1 + 1));
+        FUN_00c33170();
+        break;
+      case 7:
+        local_8 = GetPrivateProfileStringA
+                            (local_154,local_19c,"",local_29c,0x100,(LPCSTR)(param_1 + 1));
+        if (local_8 != 0) {
+          iVar1 = FID_conflict__sscanf(local_29c,"%u,%u,%u",&local_aa8,&local_aa4,&local_aa0);
+          local_9 = iVar1 == 3;
+          *(uint *)(param_2 + 4) =
+               (local_aa0 & 0xff) << 8 | (local_aa4 & 0xff) << 0x10 | local_aa8 << 0x18 | 0xff;
+        }
+        break;
+      case 8:
+        local_8 = GetPrivateProfileStringA
+                            (local_154,local_19c,"",local_29c,0x100,(LPCSTR)(param_1 + 1));
+        if (local_8 != 0) {
+          iVar1 = FID_conflict__sscanf
+                            (local_29c,"%u,%u,%u,%u",&local_ab8,&local_ab4,&local_ab0,&local_aac);
+          local_9 = iVar1 == 4;
+          *(uint *)(param_2 + 4) =
+               local_aac & 0xff |
+               (local_ab0 & 0xff) << 8 | (local_ab4 & 0xff) << 0x10 | local_ab8 << 0x18;
+        }
+      }
+    }
+    if (local_a != '\0') {
+      (**(code **)(*param_1 + 0x1c))();
+    }
+  }
+  __security_check_cookie(local_10 ^ (uint)&stack0xfffffffc);
+  return;
+}
+
+
+
+======================================================================
+fullscreen predicate @ 0x00446e10
+======================================================================
+  Function: FUN_00446e10 @ 0x00446e10, Size: 17 bytes
+
+undefined1 FUN_00446e10(void)
+
+{
+  undefined1 *puVar1;
+  
+  puVar1 = (undefined1 *)FUN_00408d60();
+  return *puVar1;
+}
+
+
+
+======================================================================
+setting value pointer helper @ 0x00408d60
+======================================================================
+  Function: FUN_00408d60 @ 0x00408d60, Size: 53 bytes
+
+undefined1 * __fastcall FUN_00408d60(int param_1)
+
+{
+  undefined1 *local_10;
+  
+  if (param_1 == 0) {
+    DAT_01202800 = 0;
+    local_10 = &DAT_01202800;
+  }
+  else {
+    local_10 = (undefined1 *)(param_1 + 4);
+  }
+  return local_10;
+}
+
+
+
+--- Calls FROM fullscreen predicate (0x00446e10) ---
+  0x00446e18 -> 0x00408d60 setting value pointer helper
+  Total: 1 calls
+
+----------------------------------------------------------------------
+References TO 0x011c77b4 (bFull Screen:Display setting object)
+----------------------------------------------------------------------
+  DATA @ 0x00446e13 (in FUN_00446e10)
+  DATA @ 0x004da83c (in FUN_004da670)
+  DATA @ 0x004da98c (in FUN_004da670)
+  DATA @ 0x004dadb8 (in FUN_004da670)
+  DATA @ 0x004dd1cb (in FUN_004dd180)
+  DATA @ 0x00f3fd0a (in FUN_00f3fd00)
+  DATA @ 0x00fc91d3 (in FUN_00fc91d0)
+  Total: 7 refs
+
+----------------------------------------------------------------------
+References TO 0x011c77b8 (bFull Screen:Display setting value)
+----------------------------------------------------------------------
+  Total: 0 refs
+
+----------------------------------------------------------------------
+startup window creation style setup 0x0086aee0-0x0086af50
+----------------------------------------------------------------------
+  0x0086aee5: MOV dword ptr [EBP + -0x1c],0x0                 
+  0x0086aeec: MOV dword ptr [EBP + -0x18],0x0                 
+  0x0086aef3: MOV dword ptr [EBP + -0x14],0x140               
+  0x0086aefa: MOV dword ptr [EBP + -0x10],0xf0                
+  0x0086af01: PUSH 0x0                                        
+  0x0086af03: PUSH 0x10000000                                 
+  0x0086af08: LEA ECX,[EBP + -0x1c]                           
+  0x0086af0b: PUSH ECX                                        
+  0x0086af0c: CALL dword ptr [0x00fdf310]                     
+  0x0086af12: PUSH 0x0                                        
+  0x0086af14: MOV EDX,dword ptr [EBP + 0x8]                   
+  0x0086af17: PUSH EDX                                        
+  0x0086af18: PUSH 0x0                                        
+  0x0086af1a: PUSH 0x0                                        
+  0x0086af1c: MOV EAX,dword ptr [EBP + -0x10]                 
+  0x0086af1f: SUB EAX,dword ptr [EBP + -0x18]                 
+  0x0086af22: PUSH EAX                                        
+  0x0086af23: MOV ECX,dword ptr [EBP + -0x14]                 
+  0x0086af26: SUB ECX,dword ptr [EBP + -0x1c]                 
+  0x0086af29: PUSH ECX                                        
+  0x0086af2a: PUSH 0x0                                        
+  0x0086af2c: PUSH 0x0                                        
+  0x0086af2e: PUSH 0x10000000                                 
+  0x0086af33: MOV EDX,dword ptr [0x011a2fe8]                  
+  0x0086af39: PUSH EDX                                        
+  0x0086af3a: MOV EAX,[0x011a2fe8]                            
+  0x0086af3f: PUSH EAX                                        
+  0x0086af40: PUSH 0x0                                        
+  0x0086af42: CALL dword ptr [0x00fdf2b8]                     
+  0x0086af48: MOV dword ptr [EBP + -0x24],EAX                 
+  0x0086af4b: PUSH 0xa4                                       
+  0x0086af50: CALL 0x00401000                                 
+
+----------------------------------------------------------------------
+D3D9 CreateDevice callsite 0x00e731d8-0x00e73208
+----------------------------------------------------------------------
+  0x00e731d9: JMP 0x00e73206                                  
+  0x00e731db: MOV ECX,dword ptr [EAX]                         
+  0x00e731dd: LEA EDI,[ESI + 0x288]                           
+  0x00e731e3: PUSH EDI                                        
+  0x00e731e4: LEA EDX,[ESP + 0x5c]                            
+  0x00e731e8: PUSH EDX                                        
+  0x00e731e9: MOV EDX,dword ptr [EBP]                         
+  0x00e731ec: PUSH EDX                                        
+  0x00e731ed: MOV EDX,dword ptr [ESI + 0x3c0]                 
+  0x00e731f3: PUSH EDX                                        
+  0x00e731f4: MOV EDX,dword ptr [EBX]                         
+  0x00e731f6: PUSH EDX                                        
+  0x00e731f7: MOV EDX,dword ptr [ESI + 0x5c4]                 
+  0x00e731fd: PUSH EDX                                        
+  0x00e731fe: PUSH EAX                                        
+  0x00e731ff: MOV EAX,dword ptr [ECX + 0x40]                   ; NiDX9Renderer CreateDevice vtable call
+  0x00e73202: CALL EAX                                        
+  0x00e73204: MOV ECX,EAX                                      ; NiDX9Renderer CreateDevice return
+  0x00e73206: MOV EDX,dword ptr [ESP + 0x5c]                  
+
+======================================================================
+NiDX9Renderer device initialization @ 0x00e72e60
+======================================================================
+  Function: FUN_00e72e60 @ 0x00e72e60, Size: 2116 bytes
+
+/* WARNING: Globals starting with '_' overlap smaller symbols at the same address */
+
+undefined4 __thiscall
+FUN_00e72e60(int *param_1,int param_2,int param_3,uint param_4,int param_5,int param_6,int param_7,
+            int param_8,int param_9,int param_10,int param_11,int param_12,int param_13,int param_14
+            ,int param_15)
+
+{
+  uint *puVar1;
+  float fVar2;
+  float fVar3;
+  char cVar4;
+  uint uVar5;
+  int iVar6;
+  int iVar7;
+  int *piVar8;
+  undefined4 uVar9;
+  undefined4 extraout_ECX;
+  undefined4 unaff_EBX;
+  int *piVar10;
+  char *pcVar11;
+  undefined4 uStack_80;
+  undefined4 uStack_7c;
+  int local_78;
+  int aiStack_74 [2];
+  undefined4 local_6c;
+  int local_68;
+  int local_64;
+  int local_60;
+  undefined4 local_5c;
+  undefined4 local_58;
+  int local_38;
+  int iStack_34;
+  undefined4 local_30;
+  int local_2c;
+  int local_18;
+  int iStack_14;
+  
+  param_1[0x2a6] = param_2;
+  param_1[0x2a7] = param_3;
+  param_1[0x2a8] = param_4;
+  param_1[0x2ac] = param_8;
+  param_1[0x2ad] = param_9;
+  param_1[0x2ae] = param_10;
+  param_1[0x2af] = param_11;
+  param_1[0x2b0] = param_12;
+  param_1[0x2a9] = param_5;
+  param_1[0x2aa] = param_6;
+  param_1[0x2ab] = param_7;
+  param_1[0x2b1] = param_13;
+  param_1[0x2b2] = param_14;
+  param_1[0x2b3] = param_15;
+  _DAT_0126efd4 = 0;
+  DAT_0126efd1 = 0;
+  FUN_00e69a60();
+  param_1[0x171] = param_7;
+  param_1[0xef] = param_5;
+  puVar1 = (uint *)(param_1 + 0x173);
+  param_1[0xf0] = param_6;
+  cVar4 = FUN_00e69510(param_8,param_1 + 0x172,puVar1);
+  if (cVar4 != '\0') {
+    if ((param_4 & 0x40) != 0) {
+      *puVar1 = *puVar1 | 2;
+    }
+    if ((param_4 & 0x20) != 0) {
+      *puVar1 = *puVar1 | 4;
+    }
+    if ((uint)param_1[0x171] < (uint)*(ushort *)(DAT_0126f0e8 + 0xe)) {
+      iVar7 = *(int *)(*(int *)(DAT_0126f0e8 + 8) + param_1[0x171] * 4);
+    }
+    else {
+      iVar7 = 0;
+    }
+    param_1[0x176] = iVar7;
+    if (iVar7 == 0) {
+      _strncpy_s(&DAT_011f4648,0x100,"Creation failed: Invalid Adapter",0xff);
+      FUN_00a29680("NiDX9Renderer::Initialize> Invalid Adapter specified - FAILING\n");
+      return 0;
+    }
+    if (param_1[0x172] == 1) {
+      uVar5 = *(uint *)(iVar7 + 0x460);
+    }
+    else {
+      uVar5 = *(uint *)(iVar7 + 0x464);
+    }
+    uVar5 = -(uint)(*(int *)(uVar5 + 4) != 0) & uVar5;
+    param_1[0x177] = uVar5;
+    if (uVar5 != 0) {
+      _memset(&local_38,0,0x38);
+      do {
+        piVar10 = param_1 + 0x172;
+        FUN_00a29680("NiDX9Renderer::Initialize> Attempting to create rendering device\n");
+        if ((uint)param_1[0x171] < (uint)*(ushort *)(DAT_0126f0e8 + 0xe)) {
+          iVar7 = *(int *)(*(int *)(DAT_0126f0e8 + 8) + param_1[0x171] * 4);
+        }
+        else {
+          iVar7 = 0;
+        }
+        if (*piVar10 == 1) {
+          iVar7 = *(int *)(iVar7 + 0x460);
+        }
+        else {
+          iVar7 = *(int *)(iVar7 + 0x464);
+        }
+        if ((*(int *)(iVar7 + 4) == 0) || (iVar7 == 0)) {
+          _strncpy_s(&DAT_011f4648,0x100,"Creation failed: Requested device not valid",0xff);
+          FUN_00a29680("NiDX9Renderer::Initialize> No device of specified type \n");
+        }
+        else {
+          cVar4 = FUN_00e6bf50(param_1[0xef],param_2,param_3,param_4,param_13,param_9,param_10,
+                               param_14,param_12,param_15,param_11,&local_38);
+          iVar7 = local_2c;
+          if (cVar4 != '\0') {
+            param_14 = local_2c;
+            local_60 = param_15;
+            local_6c = 0x18;
+            local_64 = param_3;
+            local_68 = param_2;
+            local_58 = 1;
+            local_5c = local_30;
+            if (DAT_0126f0d0 == '\0') {
+              iVar6 = (**(code **)(*DAT_0126f0d8 + 0x40))
+                                (DAT_0126f0d8,param_1[0x171],*piVar10,param_1[0xf0],*puVar1,
+                                 &local_38,param_1 + 0xa2);
+            }
+            else {
+              iVar6 = (**(code **)(*DAT_0126f0d8 + 0x50))
+                                (DAT_0126f0d8,param_1[0x171],*piVar10,param_1[0xf0],*puVar1,
+                                 &local_38,~-(uint)(local_18 != 0) & (uint)&local_6c,&local_78);
+              param_1[0xa2] = local_78;
+            }
+            fVar2 = (float)iStack_34;
+            if (iStack_34 < 0) {
+              fVar2 = fVar2 + _DAT_01099378;
+            }
+            fVar3 = (float)local_38;
+            if (local_38 < 0) {
+              fVar3 = fVar3 + _DAT_01099378;
+            }
+            *(bool *)(param_1 + 0x2b4) = fVar2 / fVar3 < (float)_DAT_0101de30;
+            if (-1 < iVar6) {
+LAB_00e73353:
+              if (param_1[0xa2] != 0) {
+                cVar4 = FUN_00e6c240(&local_38);
+                if (cVar4 == '\0') {
+                  return 0;
+                }
+                *(byte *)(param_1 + 0x175) = ~(byte)(*puVar1 >> 6) & 1;
+                *(byte *)((int)param_1 + 0x5d5) = (byte)(*puVar1 >> 7) & 1;
+                piVar10 = (int *)0x0;
+                uStack_80 = 0;
+                uStack_7c = 0;
+                iVar7 = FUN_00e7d6b0(param_1[0xa2],&local_38,&uStack_80);
+                if (iStack_14 != 0) {
+                  FUN_00e7d850(param_1[0xa2],&uStack_7c);
+                }
+                piVar8 = (int *)FUN_00ee8710(1,param_1);
+                param_1[0x221] = (int)piVar8;
+                (**(code **)(*piVar8 + 0xa8))(uStack_80,0);
+                (**(code **)(*(int *)param_1[0x221] + 0xac))(unaff_EBX);
+                uVar9 = extraout_ECX;
+                FUN_00b6aed0(param_1[0x221]);
+                FUN_00e72cf0(param_2,uVar9);
+                iVar6 = (**(code **)(*(int *)param_1[0x221] + 0x9c))(0);
+                uVar9 = FUN_00e69d00(*(undefined4 *)(iVar6 + 0xc));
+                iVar6 = FUN_00e69c90(uVar9);
+                param_1[0x174] = iVar6;
+                cVar4 = FUN_00e6ec90();
+                if (cVar4 != '\0') {
+                  iVar6 = FUN_00e91590(param_1,param_1 + 0xa3,1);
+                  param_1[0x22e] = iVar6;
+                  FUN_00e81940(param_1);
+                  iVar6 = FUN_00aa13e0(0x100);
+                  if (iVar6 == 0) {
+                    iVar6 = 0;
+                  }
+                  else {
+                    iVar6 = FUN_00e8d0e0(param_1[0xa2]);
+                  }
+                  param_1[0x22f] = iVar6;
+                  iVar6 = FUN_00aa13e0(0x4c);
+                  if (iVar6 == 0) {
+                    iVar6 = 0;
+                  }
+                  else {
+                    iVar6 = FUN_00e8fb20(param_1[0xa2]);
+                  }
+                  param_1[0x230] = iVar6;
+                  iVar6 = FUN_00aa13e0(0x10);
+                  if (iVar6 == 0) {
+                    iVar6 = 0;
+                  }
+                  else {
+                    iVar6 = FUN_00e90a80(param_1);
+                  }
+                  param_1[0x231] = iVar6;
+                  iVar6 = FUN_00e88eb0(param_1[0xa2],param_1[0x22f]);
+                  param_1[0x22b] = iVar6;
+                  uVar5 = (**(code **)(*param_1 + 0xa0))();
+                  FUN_00e88c20((byte)(uVar5 >> 1) & 1);
+                  iVar6 = (**(code **)(*(int *)param_1[0x22b] + 4))(1);
+                  param_1[0x22c] = iVar6;
+                  iVar6 = (**(code **)(*(int *)param_1[0x22b] + 4))(2);
+                  param_1[0x22d] = iVar6;
+                  iVar6 = FUN_00aa13e0(0x23c);
+                  if (iVar6 == 0) {
+                    iVar6 = 0;
+                  }
+                  else {
+                    iVar6 = FUN_00e8bae0(param_1[0x22e],param_1[0xa2]);
+                  }
+                  param_1[0x232] = iVar6;
+                  if (*(int *)(iVar7 + 0x30) != 0) {
+                    (**(code **)(*(int *)param_1[0x22e] + 0x34))(1);
+                  }
+                  param_1[0x222] = param_1[0x221];
+                  FUN_00a71b70(0);
+                  local_60 = DAT_01012054;
+                  local_6c = DAT_01012054;
+                  local_64 = 0x3f800000;
+                  local_68 = 0x3f800000;
+                  local_5c = _DAT_0101e2bc;
+                  local_58 = 0x3f800000;
+                  local_78 = 0;
+                  uStack_80 = 0x3f800000;
+                  uStack_7c = 0x3f800000;
+                  (**(code **)(*param_1 + 0x18c))
+                            (&DAT_011f426c,&DAT_011a946c,&DAT_011a9478,&DAT_011a9484,&local_6c,
+                             &stack0xffffff7c);
+                  param_1[0x222] = 0;
+                  param_1[0x223] = 0;
+                  FUN_00a9fff0();
+                  iVar7 = FUN_00aa13e0(0x40);
+                  if (iVar7 != 0) {
+                    piVar10 = (int *)FUN_00e909e0();
+                  }
+                  (**(code **)(*piVar10 + 0x4c))();
+                  FUN_00e6e6e0(piVar10);
+                  return 1;
+                }
+                FUN_00a29680(
+                            "NiDX9Renderer::Initialize> Could not initialize texture defaults - FAILING\n"
+                            );
+                return 0;
+              }
+              FUN_00e69ad0("Creation failed: Could not create hardware device");
+              pcVar11 = "NiDX9Renderer::Initialize> Could not create device of any type - FAILING\n"
+              ;
+              goto LAB_00e7333c;
+            }
+            *(undefined1 *)(param_1 + 0x1bf) = 0;
+            if (iVar7 != local_2c) {
+              FUN_00a29680(
+                          "NiDX9Renderer::Initialize> Specified number of backbuffers was invalid - trying fewer backbuffers\n"
+                          );
+              if (DAT_0126f0d0 == '\0') {
+                iVar7 = (**(code **)(*DAT_0126f0d8 + 0x40))
+                                  (DAT_0126f0d8,param_1[0x171],*piVar10,param_1[0xf0],*puVar1,
+                                   &local_38,param_1 + 0xa2);
+              }
+              else {
+                iVar7 = (**(code **)(*DAT_0126f0d8 + 0x50))
+                                  (DAT_0126f0d8,param_1[0x171],param_1[0x172],param_1[0xf0],*puVar1,
+                                   &local_38,~-(uint)(local_18 != 0) & (uint)&local_6c,aiStack_74);
+                param_1[0xa2] = aiStack_74[0];
+              }
+              if (-1 < iVar7) goto LAB_00e73353;
+            }
+          }
+        }
+        if (param_8 == 4) {
+          FUN_00e69ad0("Creation failed: Could not create reference device");
+          pcVar11 = 
+          "NiDX9Renderer::Initialize> Could not create requested reference device - FAILING\n";
+          goto LAB_00e7333c;
+        }
+        param_8 = param_8 + 1;
+        if (param_8 == 4) {
+          FUN_00a29680(
+                      "NiDX9Renderer::Initialize> Could not create hardware device of any type - FAILING\n"
+                      );
+          return 0;
+        }
+        FUN_00a29680(
+                    "NiDX9Renderer::Initialize> Could not create device of desired type - trying next-lower device type\n"
+                    );
+        cVar4 = FUN_00e69510(param_8,param_1 + 0x172,puVar1);
+      } while (cVar4 != '\0');
+      FUN_00e69ad0("Creation failed: Invalid 3D device type");
+      pcVar11 = "NiDX9Renderer::Initialize> Invalid device ID specified - FAILING\n";
+LAB_00e7333c:
+      FUN_00a29680(pcVar11);
+      return 0;
+    }
+  }
+  _strncpy_s(&DAT_011f4648,0x100,"Creation failed: Invalid 3D device type",0xff);
+  FUN_00a29680("NiDX9Renderer::Initialize> Invalid device ID specified - FAILING\n");
+  return 0;
+}
+

@@ -1,0 +1,17 @@
+[package]
+name = "psycho-engine-fixes-helper"
+version = "0.1.0"
+edition = "2024"
+
+[lib]
+name = "psycho_engine_fixes_helper"
+crate-type = ["cdylib"]
+
+[dependencies]
+anyhow = { workspace = true }
+libc = { workspace = true }
+libnvse = { path = "../libnvse" }
+libpsycho = { path = "../libpsycho" }
+psycho-engine-fixes-api = { path = "../psycho-engine-fixes-api" }
+log = { workspace = true }
+windows = { workspace = true }

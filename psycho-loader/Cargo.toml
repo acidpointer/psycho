@@ -1,0 +1,11 @@
+[package]
+name = "psycho-loader"
+version = "0.1.0"
+edition = "2024"
+
+[lib]
+name = "dinput8"
+crate-type = ["cdylib"]
+
+[dependencies]
+psycho-loader-api = { path = "../psycho-loader-api" }

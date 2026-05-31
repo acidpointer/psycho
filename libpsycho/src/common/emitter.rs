@@ -4,8 +4,8 @@
 //! so you can subscribe to events or emit them, while dealing
 //! with addresses relocation.
 
-use clashmap::ClashMap;
 use parking_lot::RwLock;
+use std::collections::HashMap;
 use std::hash::Hash;
 use std::sync::Arc;
 
@@ -17,10 +17,18 @@ pub type ListenerId = u128;
 ///
 /// # Safety
 /// Safe, because inner callback stored in Arc and have same lifetime as EventEmitter
-#[derive(Clone)]
 pub struct Listener<'a, P: Send + Sync> {
     id: ListenerId,
     callback: Arc<dyn Fn(&P) + Send + Sync + 'a>,
+}
+
+impl<P: Send + Sync> Clone for Listener<'_, P> {
+    fn clone(&self) -> Self {
+        Self {
+            id: self.id,
+            callback: Arc::clone(&self.callback),
+        }
+    }
 }
 
 impl<'a, P: Send + Sync> Listener<'a, P> {
@@ -52,11 +60,7 @@ impl<'a, P: Send + Sync> Listener<'a, P> {
 pub struct EventEmitter<'a, E: Send + Sync + Copy + Clone + Eq + Hash, P: Send + Sync> {
     last_id: RwLock<ListenerId>,
 
-    /// We store listeners in nested hashmap.
-    /// DashMap is quite good for such type of task, because
-    /// it offers built-in concurrency support and already
-    /// correctly implements needed synchronizations under the hood.
-    listeners: ClashMap<E, ClashMap<ListenerId, Listener<'a, P>>>,
+    listeners: RwLock<HashMap<E, HashMap<ListenerId, Listener<'a, P>>>>,
 }
 
 impl<'a, E: Send + Sync + Copy + Clone + Eq + Hash, P: Send + Sync> Default
@@ -82,14 +86,9 @@ impl<'a, E: Send + Sync + Copy + Clone + Eq + Hash, P: Send + Sync> EventEmitter
 
         let id = *listener_id;
         let listener = Listener::new(id, callback);
+        let mut listeners = self.listeners.write();
 
-        if let Some(listeners) = self.listeners.get_mut(&event) {
-            listeners.insert(id, listener);
-        } else {
-            let map = ClashMap::new();
-            map.insert(id, listener);
-            self.listeners.insert(event, map);
-        }
+        listeners.entry(event).or_default().insert(id, listener);
 
         *listener_id += 1;
 
@@ -98,10 +97,11 @@ impl<'a, E: Send + Sync + Copy + Clone + Eq + Hash, P: Send + Sync> EventEmitter
 
     /// Remove listener from EventEmitter by listener id
     pub fn off(&self, listener_id: ListenerId) -> bool {
-        for all_listeners in self.listeners.iter() {
-            match all_listeners.remove(&listener_id) {
-                Some((_listener_id, _listener)) => return true,
-                None => continue,
+        let mut listeners = self.listeners.write();
+
+        for all_listeners in listeners.values_mut() {
+            if all_listeners.remove(&listener_id).is_some() {
+                return true;
             }
         }
 
@@ -112,12 +112,15 @@ impl<'a, E: Send + Sync + Copy + Clone + Eq + Hash, P: Send + Sync> EventEmitter
     /// All subscribed listeners will execute it's callbacks with non-mut ref
     /// to payload
     pub fn emit(&self, event: E, payload: P) {
-        let listeners_for_event = match self.listeners.get(&event) {
-            Some(listeners) => listeners,
-            None => return,
+        let callbacks = {
+            let listeners = self.listeners.read();
+            match listeners.get(&event) {
+                Some(listeners) => listeners.values().cloned().collect::<Vec<_>>(),
+                None => return,
+            }
         };
 
-        for listener in listeners_for_event.iter() {
+        for listener in callbacks {
             (listener.callback)(&payload);
         }
     }

@@ -5,14 +5,17 @@ members = [
   "libmimalloc",
   "libnvse",
   "libpsycho",
-  "psycho-nvse"
+  "psycho-loader-api",
+  "psycho-engine-fixes-api",
+  "psycho-loader",
+  "psycho-engine-fixes",
+  "psycho-engine-fixes-helper"
 ]
 
 [workspace.dependencies]
 ahash = "0.8.12"
 rustc-hash = { version = "2.1.2", default-features = false }
 anyhow = { version = "1.0" }
-clashmap = { version = "1.2.1", features = ["inline"] }
 closure-ffi = { version = "5.0.1" }
 criterion = "0.5"
 crossfire = { version = "3.1.7" }
@@ -47,3 +50,6 @@ windows = { version = "=0.60", features = [
   "Win32_System_WindowsProgramming",
   "Win32_UI_WindowsAndMessaging",
 ] }
+
+[profile.release]
+panic = "abort"

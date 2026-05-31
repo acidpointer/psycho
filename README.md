@@ -16,11 +16,23 @@ Rust is a natural fit for game modding. Modding inherently involves unsafe low-l
 
 ## Workspace Structure
 
-### `psycho-nvse`
-The main plugin. A `cdylib` loaded by xNVSE at startup. Performs all engine patches:
+### `psycho-engine-fixes`
+The core `psycho_engine_fixes.dll`. Loaded early by the generic `dinput8.dll` loader from `<game root>/mods/psycho_engine_fixes.dll`. It completes all setup from `PsychoLoader_ModInit`; the xNVSE helper does not own core setup. Performs all engine patches:
 - CRT allocator replacement via IAT hooks (mimalloc)
 - Scrap heap replacement (custom region bump allocator)
 - zlib reimplementation (zlib-rs backend)
+
+### `psycho-loader`
+The early `dinput8.dll` proxy. It forwards to the system dinput8 and loads every `*.dll` from `<game root>/mods` in deterministic filename order. After mapping a DLL it calls the optional `PsychoLoader_ModInit` export outside the loader-lock callback.
+
+### `psycho-loader-api`
+Tiny generic ABI crate for DLLs loaded by `psycho-loader`. This stays mod-agnostic.
+
+### `psycho-engine-fixes-helper`
+The thin xNVSE plugin. It exports `NVSEPlugin_*`, registers commands/messages, and talks to `psycho_engine_fixes.dll` only through the optional core API if that DLL is already loaded.
+
+### `psycho-engine-fixes-api`
+Tiny domain ABI crate shared by `psycho_engine_fixes.dll` and `psycho-engine-fixes-helper`. This is deliberately separate from `libpsycho`, which remains reusable modding infrastructure.
 
 ### `libpsycho`
 Core library providing the low-level infrastructure everything else is built on.
@@ -55,7 +67,6 @@ Key third-party crates used across the workspace:
 | Crate | Purpose |
 |---|---|
 | `parking_lot` | Fast synchronization primitives — `Mutex`, `RwLock`, `Once`. Significantly faster than `std::sync` equivalents |
-| `clashmap` | Concurrent hashmap (fork of DashMap). Used for the scrap heap registry and other shared concurrent state |
 | `rustc-hash` (`FxHash`) | Extremely fast non-cryptographic hasher. Used where key distribution is trusted and speed matters |
 | `ahash` | Fast, DoS-resistant non-cryptographic hasher. Used where slightly more hash quality is needed |
 | `crossbeam-queue` | Lock-free MPMC queue used in the GC and thread communication |
@@ -89,8 +100,11 @@ The codebase is written with 32-bit in mind throughout. All pointer arithmetic a
 # Install the target
 rustup target add i686-pc-windows-gnu
 
-# Build the plugin
-cargo build --release --target i686-pc-windows-gnu -p psycho-nvse
+# Build the loader, core DLL, and xNVSE helper
+cargo build --release --target i686-pc-windows-gnu -p psycho-loader -p psycho-engine-fixes -p psycho-engine-fixes-helper
+
+# Build and install into the local FNV setup
+./build_fnv.sh
 ```
 
 Requires `mingw-w64` (`i686-w64-mingw32-gcc`) on `$PATH`.
@@ -101,7 +115,7 @@ Requires `mingw-w64` (`i686-w64-mingw32-gcc`) on `$PATH`.
 
 Contributions are welcome — especially on the library side (`libpsycho`, `libnvse`). The more complete and robust these become, the more useful the infrastructure is for the broader Rust modding community.
 
-If you want to write your own NVSE plugin in Rust, this repository is a working starting point. The libraries are designed to be reusable independently of `psycho-nvse` itself.
+If you want to write your own NVSE plugin in Rust, this repository is a working starting point. The libraries are designed to be reusable independently of `psycho` itself.
 
 Bug reports, API improvements, new hook types, better test coverage — all appreciated. Open an issue or a PR on GitHub.
 

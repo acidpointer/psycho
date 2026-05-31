@@ -1,0 +1,6 @@
+LIBRARY psycho_engine_fixes.dll
+
+EXPORTS
+    PsychoEngineFixes_GetApi @1
+    PsychoEngineFixes_GetState @2
+    PsychoLoader_ModInit @3

@@ -157,20 +157,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "clashmap"
-version = "1.2.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a535602c23eae05bdccc72892c639ada0735d7900ca80067158cb50341d7b834"
-dependencies = [
- "crossbeam-utils",
- "hashbrown 0.15.5",
- "lock_api",
- "parking_lot_core",
- "polonius-the-crab",
- "replace_with",
-]
-
-[[package]]
 name = "closure-ffi"
 version = "5.0.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -401,17 +387,6 @@ name = "heck"
 version = "0.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "2304e00983f87ffb38b55b444b5e3b60a884b5d30c0fca7d82fe33449bbe55ea"
-
-[[package]]
-name = "higher-kinded-types"
-version = "0.2.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e690f8474c6c5d8ff99656fcbc195a215acc3949481a8b0b3351c838972dc776"
-dependencies = [
- "macro_rules_attribute",
- "never-say-never",
- "paste",
-]
 
 [[package]]
 name = "iana-time-zone"
@@ -724,7 +699,6 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "bitflags",
- "clashmap",
  "crossfire",
  "goblin",
  "iced-x86",
@@ -772,22 +746,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "5e5032e24019045c762d3c0f28f5b6b8bbf38563a65908389bf7978758920897"
 
 [[package]]
-name = "macro_rules_attribute"
-version = "0.2.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "65049d7923698040cd0b1ddcced9b0eb14dd22c5f86ae59c3740eab64a676520"
-dependencies = [
- "macro_rules_attribute-proc_macro",
- "paste",
-]
-
-[[package]]
-name = "macro_rules_attribute-proc_macro"
-version = "0.2.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "670fdfda89751bc4a84ac13eaa63e205cf0fd22b4c9a5fbfa085b63c1f1d3a30"
-
-[[package]]
 name = "memchr"
 version = "2.7.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -817,12 +775,6 @@ dependencies = [
  "adler2",
  "simd-adler32",
 ]
-
-[[package]]
-name = "never-say-never"
-version = "6.6.666"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "cf5a574dadd7941adeaa71823ecba5e28331b8313fb2e1c6a5c7e5981ea53ad6"
 
 [[package]]
 name = "nom"
@@ -903,16 +855,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b4596b6d070b27117e987119b4dac604f3c58cfb0b191112e24771b2faeac1a6"
 
 [[package]]
-name = "polonius-the-crab"
-version = "0.5.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ec242d7eccbb2fd8b3b5b6e3cf89f94a91a800f469005b44d154359609f8af72"
-dependencies = [
- "higher-kinded-types",
- "never-say-never",
-]
-
-[[package]]
 name = "potential_utf"
 version = "0.1.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -947,21 +889,21 @@ dependencies = [
 ]
 
 [[package]]
-name = "psycho-nvse"
+name = "psycho-engine-fixes"
 version = "0.1.0"
 dependencies = [
  "ahash",
  "anyhow",
- "clashmap",
  "crossfire",
  "flate2",
  "iced-x86",
  "libc",
  "libmimalloc",
- "libnvse",
  "libpsycho",
  "log",
  "parking_lot",
+ "psycho-engine-fixes-api",
+ "psycho-loader-api",
  "rand",
  "rustc-hash",
  "serde",
@@ -969,6 +911,34 @@ dependencies = [
  "toml",
  "windows",
 ]
+
+[[package]]
+name = "psycho-engine-fixes-api"
+version = "0.1.0"
+
+[[package]]
+name = "psycho-engine-fixes-helper"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "libc",
+ "libnvse",
+ "libpsycho",
+ "log",
+ "psycho-engine-fixes-api",
+ "windows",
+]
+
+[[package]]
+name = "psycho-loader"
+version = "0.1.0"
+dependencies = [
+ "psycho-loader-api",
+]
+
+[[package]]
+name = "psycho-loader-api"
+version = "0.1.0"
 
 [[package]]
 name = "quote"
@@ -1045,12 +1015,6 @@ name = "regex-syntax"
 version = "0.8.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7a2d987857b319362043e95f5353c0535c1f58eec5336fdfcf626430af7def58"
-
-[[package]]
-name = "replace_with"
-version = "0.1.8"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "51743d3e274e2b18df81c4dc6caf8a5b8e15dbe799e0dca05c7617380094e884"
 
 [[package]]
 name = "rustc-hash"

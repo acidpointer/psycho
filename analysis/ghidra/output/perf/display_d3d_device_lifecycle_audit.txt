@@ -1,0 +1,1086 @@
+DISPLAY D3D DEVICE LIFECYCLE AUDIT
+Goal: identify the safe plugin-owned layer for device lost/reset and fullscreen/windowed present params.
+
+----------------------------------------------------------------------
+Import/symbol refs: Direct3DCreate9
+----------------------------------------------------------------------
+  Total refs printed: 0
+
+----------------------------------------------------------------------
+Import/symbol refs: Direct3DCreate9Ex
+----------------------------------------------------------------------
+  Total refs printed: 0
+
+----------------------------------------------------------------------
+Import/symbol refs: D3DPERF_BeginEvent
+----------------------------------------------------------------------
+  Total refs printed: 0
+
+----------------------------------------------------------------------
+Import/symbol refs: D3DPERF_EndEvent
+----------------------------------------------------------------------
+  Total refs printed: 0
+
+======================================================================
+NiDX9Renderer device initialization @ 0x00e72e60
+======================================================================
+  Function: FUN_00e72e60 @ 0x00e72e60, Size: 2116 bytes
+
+/* WARNING: Globals starting with '_' overlap smaller symbols at the same address */
+
+undefined4 __thiscall
+FUN_00e72e60(int *param_1,int param_2,int param_3,uint param_4,int param_5,int param_6,int param_7,
+            int param_8,int param_9,int param_10,int param_11,int param_12,int param_13,int param_14
+            ,int param_15)
+
+{
+  uint *puVar1;
+  float fVar2;
+  float fVar3;
+  char cVar4;
+  uint uVar5;
+  int iVar6;
+  int iVar7;
+  int *piVar8;
+  undefined4 uVar9;
+  undefined4 extraout_ECX;
+  undefined4 unaff_EBX;
+  int *piVar10;
+  char *pcVar11;
+  undefined4 uStack_80;
+  undefined4 uStack_7c;
+  int local_78;
+  int aiStack_74 [2];
+  undefined4 local_6c;
+  int local_68;
+  int local_64;
+  int local_60;
+  undefined4 local_5c;
+  undefined4 local_58;
+  int local_38;
+  int iStack_34;
+  undefined4 local_30;
+  int local_2c;
+  int local_18;
+  int iStack_14;
+  
+  param_1[0x2a6] = param_2;
+  param_1[0x2a7] = param_3;
+  param_1[0x2a8] = param_4;
+  param_1[0x2ac] = param_8;
+  param_1[0x2ad] = param_9;
+  param_1[0x2ae] = param_10;
+  param_1[0x2af] = param_11;
+  param_1[0x2b0] = param_12;
+  param_1[0x2a9] = param_5;
+  param_1[0x2aa] = param_6;
+  param_1[0x2ab] = param_7;
+  param_1[0x2b1] = param_13;
+  param_1[0x2b2] = param_14;
+  param_1[0x2b3] = param_15;
+  _DAT_0126efd4 = 0;
+  DAT_0126efd1 = 0;
+  FUN_00e69a60();
+  param_1[0x171] = param_7;
+  param_1[0xef] = param_5;
+  puVar1 = (uint *)(param_1 + 0x173);
+  param_1[0xf0] = param_6;
+  cVar4 = FUN_00e69510(param_8,param_1 + 0x172,puVar1);
+  if (cVar4 != '\0') {
+    if ((param_4 & 0x40) != 0) {
+      *puVar1 = *puVar1 | 2;
+    }
+    if ((param_4 & 0x20) != 0) {
+      *puVar1 = *puVar1 | 4;
+    }
+    if ((uint)param_1[0x171] < (uint)*(ushort *)(DAT_0126f0e8 + 0xe)) {
+      iVar7 = *(int *)(*(int *)(DAT_0126f0e8 + 8) + param_1[0x171] * 4);
+    }
+    else {
+      iVar7 = 0;
+    }
+    param_1[0x176] = iVar7;
+    if (iVar7 == 0) {
+      _strncpy_s(&DAT_011f4648,0x100,"Creation failed: Invalid Adapter",0xff);
+      FUN_00a29680("NiDX9Renderer::Initialize> Invalid Adapter specified - FAILING\n");
+      return 0;
+    }
+    if (param_1[0x172] == 1) {
+      uVar5 = *(uint *)(iVar7 + 0x460);
+    }
+    else {
+      uVar5 = *(uint *)(iVar7 + 0x464);
+    }
+    uVar5 = -(uint)(*(int *)(uVar5 + 4) != 0) & uVar5;
+    param_1[0x177] = uVar5;
+    if (uVar5 != 0) {
+      _memset(&local_38,0,0x38);
+      do {
+        piVar10 = param_1 + 0x172;
+        FUN_00a29680("NiDX9Renderer::Initialize> Attempting to create rendering device\n");
+        if ((uint)param_1[0x171] < (uint)*(ushort *)(DAT_0126f0e8 + 0xe)) {
+          iVar7 = *(int *)(*(int *)(DAT_0126f0e8 + 8) + param_1[0x171] * 4);
+        }
+        else {
+          iVar7 = 0;
+        }
+        if (*piVar10 == 1) {
+          iVar7 = *(int *)(iVar7 + 0x460);
+        }
+        else {
+          iVar7 = *(int *)(iVar7 + 0x464);
+        }
+        if ((*(int *)(iVar7 + 4) == 0) || (iVar7 == 0)) {
+          _strncpy_s(&DAT_011f4648,0x100,"Creation failed: Requested device not valid",0xff);
+          FUN_00a29680("NiDX9Renderer::Initialize> No device of specified type \n");
+        }
+        else {
+          cVar4 = FUN_00e6bf50(param_1[0xef],param_2,param_3,param_4,param_13,param_9,param_10,
+                               param_14,param_12,param_15,param_11,&local_38);
+          iVar7 = local_2c;
+          if (cVar4 != '\0') {
+            param_14 = local_2c;
+            local_60 = param_15;
+            local_6c = 0x18;
+            local_64 = param_3;
+            local_68 = param_2;
+            local_58 = 1;
+            local_5c = local_30;
+            if (DAT_0126f0d0 == '\0') {
+              iVar6 = (**(code **)(*DAT_0126f0d8 + 0x40))
+                                (DAT_0126f0d8,param_1[0x171],*piVar10,param_1[0xf0],*puVar1,
+                                 &local_38,param_1 + 0xa2);
+            }
+            else {
+              iVar6 = (**(code **)(*DAT_0126f0d8 + 0x50))
+                                (DAT_0126f0d8,param_1[0x171],*piVar10,param_1[0xf0],*puVar1,
+                                 &local_38,~-(uint)(local_18 != 0) & (uint)&local_6c,&local_78);
+              param_1[0xa2] = local_78;
+            }
+            fVar2 = (float)iStack_34;
+            if (iStack_34 < 0) {
+              fVar2 = fVar2 + _DAT_01099378;
+            }
+            fVar3 = (float)local_38;
+            if (local_38 < 0) {
+              fVar3 = fVar3 + _DAT_01099378;
+            }
+            *(bool *)(param_1 + 0x2b4) = fVar2 / fVar3 < (float)_DAT_0101de30;
+            if (-1 < iVar6) {
+LAB_00e73353:
+              if (param_1[0xa2] != 0) {
+                cVar4 = FUN_00e6c240(&local_38);
+                if (cVar4 == '\0') {
+                  return 0;
+                }
+                *(byte *)(param_1 + 0x175) = ~(byte)(*puVar1 >> 6) & 1;
+                *(byte *)((int)param_1 + 0x5d5) = (byte)(*puVar1 >> 7) & 1;
+                piVar10 = (int *)0x0;
+                uStack_80 = 0;
+                uStack_7c = 0;
+                iVar7 = FUN_00e7d6b0(param_1[0xa2],&local_38,&uStack_80);
+                if (iStack_14 != 0) {
+                  FUN_00e7d850(param_1[0xa2],&uStack_7c);
+                }
+                piVar8 = (int *)FUN_00ee8710(1,param_1);
+                param_1[0x221] = (int)piVar8;
+                (**(code **)(*piVar8 + 0xa8))(uStack_80,0);
+                (**(code **)(*(int *)param_1[0x221] + 0xac))(unaff_EBX);
+                uVar9 = extraout_ECX;
+                FUN_00b6aed0(param_1[0x221]);
+                FUN_00e72cf0(param_2,uVar9);
+                iVar6 = (**(code **)(*(int *)param_1[0x221] + 0x9c))(0);
+                uVar9 = FUN_00e69d00(*(undefined4 *)(iVar6 + 0xc));
+                iVar6 = FUN_00e69c90(uVar9);
+                param_1[0x174] = iVar6;
+                cVar4 = FUN_00e6ec90();
+                if (cVar4 != '\0') {
+                  iVar6 = FUN_00e91590(param_1,param_1 + 0xa3,1);
+                  param_1[0x22e] = iVar6;
+                  FUN_00e81940(param_1);
+                  iVar6 = FUN_00aa13e0(0x100);
+                  if (iVar6 == 0) {
+                    iVar6 = 0;
+                  }
+                  else {
+                    iVar6 = FUN_00e8d0e0(param_1[0xa2]);
+                  }
+                  param_1[0x22f] = iVar6;
+                  iVar6 = FUN_00aa13e0(0x4c);
+                  if (iVar6 == 0) {
+                    iVar6 = 0;
+                  }
+                  else {
+                    iVar6 = FUN_00e8fb20(param_1[0xa2]);
+                  }
+                  param_1[0x230] = iVar6;
+                  iVar6 = FUN_00aa13e0(0x10);
+                  if (iVar6 == 0) {
+                    iVar6 = 0;
+                  }
+                  else {
+                    iVar6 = FUN_00e90a80(param_1);
+                  }
+                  param_1[0x231] = iVar6;
+                  iVar6 = FUN_00e88eb0(param_1[0xa2],param_1[0x22f]);
+                  param_1[0x22b] = iVar6;
+                  uVar5 = (**(code **)(*param_1 + 0xa0))();
+                  FUN_00e88c20((byte)(uVar5 >> 1) & 1);
+                  iVar6 = (**(code **)(*(int *)param_1[0x22b] + 4))(1);
+                  param_1[0x22c] = iVar6;
+                  iVar6 = (**(code **)(*(int *)param_1[0x22b] + 4))(2);
+                  param_1[0x22d] = iVar6;
+                  iVar6 = FUN_00aa13e0(0x23c);
+                  if (iVar6 == 0) {
+                    iVar6 = 0;
+                  }
+                  else {
+                    iVar6 = FUN_00e8bae0(param_1[0x22e],param_1[0xa2]);
+                  }
+                  param_1[0x232] = iVar6;
+                  if (*(int *)(iVar7 + 0x30) != 0) {
+                    (**(code **)(*(int *)param_1[0x22e] + 0x34))(1);
+                  }
+                  param_1[0x222] = param_1[0x221];
+                  FUN_00a71b70(0);
+                  local_60 = DAT_01012054;
+                  local_6c = DAT_01012054;
+                  local_64 = 0x3f800000;
+                  local_68 = 0x3f800000;
+                  local_5c = _DAT_0101e2bc;
+                  local_58 = 0x3f800000;
+                  local_78 = 0;
+                  uStack_80 = 0x3f800000;
+                  uStack_7c = 0x3f800000;
+                  (**(code **)(*param_1 + 0x18c))
+                            (&DAT_011f426c,&DAT_011a946c,&DAT_011a9478,&DAT_011a9484,&local_6c,
+                             &stack0xffffff7c);
+                  param_1[0x222] = 0;
+                  param_1[0x223] = 0;
+                  FUN_00a9fff0();
+                  iVar7 = FUN_00aa13e0(0x40);
+                  if (iVar7 != 0) {
+                    piVar10 = (int *)FUN_00e909e0();
+                  }
+                  (**(code **)(*piVar10 + 0x4c))();
+                  FUN_00e6e6e0(piVar10);
+                  return 1;
+                }
+                FUN_00a29680(
+                            "NiDX9Renderer::Initialize> Could not initialize texture defaults - FAILING\n"
+                            );
+                return 0;
+              }
+              FUN_00e69ad0("Creation failed: Could not create hardware device");
+              pcVar11 = "NiDX9Renderer::Initialize> Could not create device of any type - FAILING\n"
+              ;
+              goto LAB_00e7333c;
+            }
+            *(undefined1 *)(param_1 + 0x1bf) = 0;
+            if (iVar7 != local_2c) {
+              FUN_00a29680(
+                          "NiDX9Renderer::Initialize> Specified number of backbuffers was invalid - trying fewer backbuffers\n"
+                          );
+              if (DAT_0126f0d0 == '\0') {
+                iVar7 = (**(code **)(*DAT_0126f0d8 + 0x40))
+                                  (DAT_0126f0d8,param_1[0x171],*piVar10,param_1[0xf0],*puVar1,
+                                   &local_38,param_1 + 0xa2);
+              }
+              else {
+                iVar7 = (**(code **)(*DAT_0126f0d8 + 0x50))
+                                  (DAT_0126f0d8,param_1[0x171],param_1[0x172],param_1[0xf0],*puVar1,
+                                   &local_38,~-(uint)(local_18 != 0) & (uint)&local_6c,aiStack_74);
+                param_1[0xa2] = aiStack_74[0];
+              }
+              if (-1 < iVar7) goto LAB_00e73353;
+            }
+          }
+        }
+        if (param_8 == 4) {
+          FUN_00e69ad0("Creation failed: Could not create reference device");
+          pcVar11 = 
+          "NiDX9Renderer::Initialize> Could not create requested reference device - FAILING\n";
+          goto LAB_00e7333c;
+        }
+        param_8 = param_8 + 1;
+        if (param_8 == 4) {
+          FUN_00a29680(
+                      "NiDX9Renderer::Initialize> Could not create hardware device of any type - FAILING\n"
+                      );
+          return 0;
+        }
+        FUN_00a29680(
+                    "NiDX9Renderer::Initialize> Could not create device of desired type - trying next-lower device type\n"
+                    );
+        cVar4 = FUN_00e69510(param_8,param_1 + 0x172,puVar1);
+      } while (cVar4 != '\0');
+      FUN_00e69ad0("Creation failed: Invalid 3D device type");
+      pcVar11 = "NiDX9Renderer::Initialize> Invalid device ID specified - FAILING\n";
+LAB_00e7333c:
+      FUN_00a29680(pcVar11);
+      return 0;
+    }
+  }
+  _strncpy_s(&DAT_011f4648,0x100,"Creation failed: Invalid 3D device type",0xff);
+  FUN_00a29680("NiDX9Renderer::Initialize> Invalid device ID specified - FAILING\n");
+  return 0;
+}
+
+
+
+--- Calls FROM NiDX9Renderer device initialization (0x00e72e60) ---
+  0x00e72f2b -> 0x00e69a60 FUN_00e69a60
+  0x00e72f58 -> 0x00e69510 FUN_00e69510
+  0x00e72f78 -> 0x00ec8d5f _strncpy_s
+  0x00e72f82 -> 0x00a29680 FUN_00a29680
+  0x00e72fec -> 0x00ec8d5f _strncpy_s
+  0x00e72ff6 -> 0x00a29680 FUN_00a29680
+  0x00e73040 -> 0x00ec61c0 _memset
+  0x00e73055 -> 0x00a29680 FUN_00a29680
+  0x00e730ac -> 0x00ec8d5f _strncpy_s
+  0x00e730b6 -> 0x00a29680 FUN_00a29680
+  0x00e73121 -> 0x00e6bf50 D3DPRESENT_PARAMETERS builder
+  0x00e7326a -> 0x00a29680 FUN_00a29680
+  0x00e73315 -> 0x00a29680 FUN_00a29680
+  0x00e7331d -> 0x00e69510 FUN_00e69510
+  0x00e73332 -> 0x00e69ad0 FUN_00e69ad0
+  0x00e7333c -> 0x00a29680 FUN_00a29680
+  0x00e73361 -> 0x00e69ad0 FUN_00e69ad0
+  0x00e73374 -> 0x00e6c240 D3D post-create/backbuffer validation
+  0x00e733b9 -> 0x00e7d6b0 FUN_00e7d6b0
+  0x00e733d5 -> 0x00e7d850 FUN_00e7d850
+  0x00e733e0 -> 0x00ee8710 FUN_00ee8710
+  0x00e7341f -> 0x00b6aed0 FUN_00b6aed0
+  0x00e73432 -> 0x00e72cf0 FUN_00e72cf0
+  0x00e7344c -> 0x00e69d00 FUN_00e69d00
+  0x00e73452 -> 0x00e69c90 FUN_00e69c90
+  0x00e73462 -> 0x00e6ec90 FUN_00e6ec90
+  0x00e73470 -> 0x00a29680 FUN_00a29680
+  0x00e73491 -> 0x00e91590 FUN_00e91590
+  0x00e7349d -> 0x00e81940 FUN_00e81940
+  0x00e734a7 -> 0x00aa13e0 FUN_00aa13e0
+  0x00e734bc -> 0x00e8d0e0 FUN_00e8d0e0
+  0x00e734cd -> 0x00aa13e0 FUN_00aa13e0
+  0x00e734e2 -> 0x00e8fb20 FUN_00e8fb20
+  0x00e734f3 -> 0x00aa13e0 FUN_00aa13e0
+  0x00e73502 -> 0x00e90a80 FUN_00e90a80
+  0x00e7351f -> 0x00e88eb0 FUN_00e88eb0
+  0x00e73547 -> 0x00e88c20 FUN_00e88c20
+  0x00e7357b -> 0x00aa13e0 FUN_00aa13e0
+  0x00e73597 -> 0x00e8bae0 FUN_00e8bae0
+  0x00e735cb -> 0x00a71b70 FUN_00a71b70
+  0x00e7363e -> 0x00a9fff0 FUN_00a9fff0
+  0x00e73645 -> 0x00aa13e0 FUN_00aa13e0
+  0x00e73653 -> 0x00e909e0 FUN_00e909e0
+  0x00e73666 -> 0x00e6e6e0 FUN_00e6e6e0
+  0x00e7367f -> 0x00e69ad0 FUN_00e69ad0
+  0x00e73693 -> 0x00a29680 FUN_00a29680
+  Total: 46 calls
+
+----------------------------------------------------------------------
+Vtable-call candidates in NiDX9Renderer device initialization (0x00e72e60)
+----------------------------------------------------------------------
+  0x00e72e66: MOV EDX,dword ptr [ESP + 0xc]
+  0x00e72ede: MOV EAX,dword ptr [ESP + 0xc0]
+  0x00e72eeb: MOV ECX,dword ptr [ESP + 0xc4]
+  0x00e730ca: MOV ECX,dword ptr [ESP + 0xc8]
+  0x00e730dd: MOV EDX,dword ptr [ESP + 0xc0]
+  0x00e730e5: MOV EAX,dword ptr [ESP + 0xcc]
+  0x00e730ed: MOV ECX,dword ptr [ESP + 0xc0]
+  0x00e730f5: MOV EDX,dword ptr [ESP + 0xc0]
+  0x00e73152: MOV dword ptr [ESP + 0x34],EAX
+  0x00e7315a: MOV EAX,dword ptr [ESP + 0xc8]
+  0x00e73161: MOV dword ptr [ESP + 0xc4],ECX
+  0x00e7318d: MOV dword ptr [ESP + 0x34],ECX
+  0x00e73195: MOV EDX,dword ptr [EDX + 0x50]
+  0x00e731ff: MOV EAX,dword ptr [ECX + 0x40]
+  0x00e7324d: MOV ECX,dword ptr [ESP + 0xc4]
+  0x00e73282: MOV EDX,dword ptr [EDX + 0x50]
+  0x00e732ca: MOV EDX,dword ptr [EDX + 0x40]
+  0x00e73392: LEA EAX,[ESP + 0x10]
+  0x00e733cf: LEA EAX,[ESP + 0x14]
+  0x00e73408: MOV EDX,dword ptr [ESP + 0x14]
+  0x00e73448: MOV ECX,dword ptr [EAX + 0xc]
+  0x00e735b3: MOV EDX,dword ptr [EAX + 0x34]
+  0x00e735c1: LEA ECX,[ESP + 0x40]
+  0x00e735d8: FST float ptr [ESP + 0x48]
+  0x00e735ec: FST float ptr [ESP + 0x44]
+  0x00e735f1: FST float ptr [ESP + 0x44]
+  0x00e735f5: LEA ECX,[ESP + 0x40]
+  0x00e73624: FSTP float ptr [ESP + 0x48]
+  0x00e73628: FST float ptr [ESP + 0x40]
+  0x00e7362c: FSTP float ptr [ESP + 0x44]
+  Total candidates: 30
+
+======================================================================
+D3DPRESENT_PARAMETERS builder @ 0x00e6bf50
+======================================================================
+  Function: FUN_00e6bf50 @ 0x00e6bf50, Size: 745 bytes
+
+undefined4 __thiscall
+FUN_00e6bf50(int param_1,undefined4 param_2,undefined4 param_3,undefined4 param_4,uint param_5,
+            uint param_6,int param_7,int param_8,undefined4 param_9,int param_10,int param_11,
+            undefined4 param_12,undefined4 *param_13)
+
+{
+  int *piVar1;
+  byte bVar2;
+  undefined4 uVar3;
+  uint uVar4;
+  undefined4 uVar5;
+  int iVar6;
+  undefined4 uVar7;
+  int iVar8;
+  uint uVar9;
+  int unaff_EDI;
+  int *piVar10;
+  undefined1 *puVar11;
+  uint local_10;
+  undefined1 local_8 [4];
+  undefined4 local_4;
+  
+  uVar9 = param_5;
+  bVar2 = ~(byte)(param_5 >> 2);
+  local_4 = *(undefined4 *)(param_1 + 0x5dc);
+  local_10 = CONCAT31(local_10._1_3_,bVar2) & 0xffffff01;
+  param_5 = 0x20;
+  if ((uVar9 & 0x10) != 0) {
+    param_5 = 0x10;
+  }
+  if (param_7 == 0) {
+    param_7 = FUN_00e7aed0(local_10,param_5);
+    if (param_7 == 0) {
+      _strncpy_s(&DAT_011f4648,0x100,"Creation failed: Could not find desired framebuffer format",
+                 0xff);
+      FUN_00a29680("NiDX9Renderer::Initialize> No matching framebuffer format available\n");
+      return 0;
+    }
+  }
+  uVar3 = FUN_004dcbe0(param_7);
+  if (param_8 == 0) {
+    uVar4 = uVar9 & 8;
+    uVar7 = uVar3;
+    uVar5 = FUN_00e69c90(param_7,uVar3,param_5,uVar4);
+    param_8 = FUN_00e7b0f0(uVar5,uVar7,param_5,uVar4);
+    if (param_8 == 0) {
+      _strncpy_s(&DAT_011f4648,0x100,"Creation failed: Could not find desired depth/stencil format",
+                 0xff);
+      FUN_00a29680("NiDX9Renderer::Initialize> No matching depth/stencil format available\n");
+      return 0;
+    }
+  }
+  _memset(param_13,0,0x38);
+  param_13[2] = uVar3;
+  *param_13 = param_3;
+  param_13[1] = param_4;
+  iVar6 = FUN_00b6c200(param_6);
+  param_13[4] = iVar6;
+  if (iVar6 == 1) {
+    param_13[5] = param_6 & 0x7fffffff;
+  }
+  else {
+    param_13[5] = 0;
+  }
+  param_13[10] = param_8;
+  param_13[3] = param_9;
+  param_13[9] = (byte)~(byte)uVar9 & 1;
+  uVar9 = bVar2 & 1;
+  param_13[8] = uVar9;
+  if (((param_6 == 0) || (param_6 == 1)) && (param_10 != 1)) {
+    if (param_10 == 2) {
+      uVar7 = 2;
+      goto LAB_00e6c0e0;
+    }
+    if (param_10 == 3) {
+      uVar7 = 3;
+      goto LAB_00e6c0e0;
+    }
+  }
+  uVar7 = 1;
+LAB_00e6c0e0:
+  param_13[6] = uVar7;
+  piVar1 = param_13 + 0xc;
+  *piVar1 = param_11;
+  param_13[7] = param_2;
+  param_13[0xb] = (uint)(param_6 == 1);
+  uVar7 = FUN_00e69e50(param_12);
+  puVar11 = local_8;
+  param_13[0xd] = uVar7;
+  iVar6 = (**(code **)(*DAT_0126f0d8 + 0x2c))
+                    (DAT_0126f0d8,*(undefined4 *)(param_1 + 0x5c4),*(undefined4 *)(param_1 + 0x5c8),
+                     uVar3,uVar9,iVar6);
+  if (iVar6 < 0) {
+    FUN_00a29680(
+                "NiDX9Renderer::Initialize> Could not support requested antialiasing mode - disabling\n"
+                );
+    param_13[4] = 0;
+  }
+  else if (puVar11 <= (undefined1 *)param_13[5]) {
+    param_13[5] = puVar11 + -1;
+  }
+  if (param_13[3] == 0) {
+    param_13[3] = 1;
+  }
+  else if (3 < (uint)param_13[3]) {
+    param_13[3] = 3;
+  }
+  iVar6 = *piVar1;
+  if (param_13[8] == 0) {
+    uVar3 = param_13[1];
+    uVar7 = *param_13;
+    piVar10 = piVar1;
+    uVar5 = FUN_00e69d00(param_13[2],uVar7,uVar3,piVar1);
+    uVar5 = FUN_00e69c90(uVar5);
+    iVar8 = FUN_00e7b190(uVar5,uVar7,uVar3,piVar10);
+    if (iVar8 == 0) {
+      FUN_00e69ad0("Creation failed: Could not match desired fullscreen mode");
+      FUN_00a29680("NiDX9Renderer::Initialize> Could not find matching fullscreen display mode\n");
+      return 0;
+    }
+    if (iVar6 != *piVar1) {
+      FUN_00a29680(
+                  "NiDX9Renderer::Initialize> Could not match requested fullscreen refresh rate - using closest\n"
+                  );
+    }
+  }
+  else {
+    *piVar1 = 0;
+  }
+  if (param_13[8] == 0) {
+    if ((param_13[0xd] & *(uint *)(unaff_EDI + 0x18)) == 0) {
+      param_13[0xd] = 1;
+    }
+  }
+  else {
+    iVar6 = param_13[0xd];
+    if (((iVar6 != 0) && (iVar6 != -0x80000000)) && (iVar6 != 1)) {
+      param_13[0xd] = 0x80000000;
+      return 1;
+    }
+  }
+  return 1;
+}
+
+
+
+--- Calls FROM D3DPRESENT_PARAMETERS builder (0x00e6bf50) ---
+  0x00e6bf9b -> 0x00e7aed0 FUN_00e7aed0
+  0x00e6bfba -> 0x00ec8d5f _strncpy_s
+  0x00e6bfc4 -> 0x00a29680 FUN_00a29680
+  0x00e6bfd9 -> 0x004dcbe0 FUN_004dcbe0
+  0x00e6bffc -> 0x00e69c90 FUN_00e69c90
+  0x00e6c00f -> 0x00e7b0f0 FUN_00e7b0f0
+  0x00e6c02e -> 0x00ec8d5f _strncpy_s
+  0x00e6c038 -> 0x00a29680 FUN_00a29680
+  0x00e6c055 -> 0x00ec61c0 _memset
+  0x00e6c06f -> 0x00b6c200 FUN_00b6c200
+  0x00e6c103 -> 0x00e69e50 FUN_00e69e50
+  0x00e6c146 -> 0x00a29680 FUN_00a29680
+  0x00e6c19c -> 0x00e69d00 FUN_00e69d00
+  0x00e6c1a2 -> 0x00e69c90 FUN_00e69c90
+  0x00e6c1b1 -> 0x00e7b190 FUN_00e7b190
+  0x00e6c1bf -> 0x00e69ad0 FUN_00e69ad0
+  0x00e6c1c9 -> 0x00a29680 FUN_00a29680
+  0x00e6c1e6 -> 0x00a29680 FUN_00a29680
+  Total: 18 calls
+
+----------------------------------------------------------------------
+Vtable-call candidates in D3DPRESENT_PARAMETERS builder (0x00e6bf50)
+----------------------------------------------------------------------
+  0x00e6bf70: MOV dword ptr [ESP + 0x14],ECX
+  0x00e6bfde: MOV EDI,dword ptr [ESP + 0x40]
+  0x00e6c04c: MOV ESI,dword ptr [ESP + 0x50]
+  0x00e6c05a: MOV EAX,dword ptr [ESP + 0x34]
+  0x00e6c065: MOV EBP,dword ptr [ESP + 0x40]
+  0x00e6c07b: MOV dword ptr [ESI + 0x10],EAX
+  0x00e6c08b: MOV dword ptr [ESI + 0x14],EDX
+  0x00e6c090: MOV dword ptr [ESI + 0x14],0x0
+  0x00e6c097: MOV EAX,dword ptr [ESP + 0x40]
+  0x00e6c0a0: MOV dword ptr [ESI + 0xc],EAX
+  0x00e6c0a9: MOVZX EBX,byte ptr [ESP + 0x10]
+  0x00e6c0ba: MOV EAX,dword ptr [ESP + 0x44]
+  0x00e6c0ec: MOV EAX,dword ptr [ESP + 0x48]
+  0x00e6c110: MOV EDX,dword ptr [ESP + 0x34]
+  0x00e6c115: MOV EDX,dword ptr [ESP + 0x40]
+  0x00e6c11e: MOV dword ptr [ESI + 0x34],EAX
+  0x00e6c14e: MOV dword ptr [ESI + 0x10],0x0
+  0x00e6c15b: CMP EAX,dword ptr [ESI + 0x14]
+  0x00e6c161: MOV dword ptr [ESI + 0x14],EAX
+  0x00e6c164: MOV EAX,dword ptr [ESI + 0xc]
+  0x00e6c16b: MOV dword ptr [ESI + 0xc],0x1
+  0x00e6c179: MOV dword ptr [ESI + 0xc],0x3
+  0x00e6c1f4: MOV EAX,dword ptr [ESI + 0x34]
+  0x00e6c209: MOV dword ptr [ESI + 0x34],0x80000000
+  0x00e6c221: TEST dword ptr [ESI + 0x34],EDX
+  0x00e6c226: MOV dword ptr [ESI + 0x34],0x1
+  Total candidates: 26
+
+======================================================================
+D3D post-create/backbuffer validation @ 0x00e6c240
+======================================================================
+  Function: FUN_00e6c240 @ 0x00e6c240, Size: 776 bytes
+
+/* WARNING: Globals starting with '_' overlap smaller symbols at the same address */
+
+uint __fastcall FUN_00e6c240(int param_1)
+
+{
+  undefined4 uVar1;
+  int iVar2;
+  uint uVar3;
+  undefined4 uVar4;
+  
+  iVar2 = (**(code **)(**(int **)(param_1 + 0x288) + 0x1c))
+                    (*(int **)(param_1 + 0x288),param_1 + 0x28c);
+  if (iVar2 < 0) {
+    _strncpy_s(&DAT_011f4648,0x100,"Creation failed: Could not query device caps",0xff);
+    uVar3 = FUN_00a29680("NiDX9Renderer::Initialize> Could not query device caps - FAILING\n");
+    return uVar3 & 0xffffff00;
+  }
+  if ((1 < *(uint *)(param_1 + 800)) && (1 < *(uint *)(param_1 + 0x324))) {
+    uVar3 = *(uint *)(param_1 + 0x2c8);
+    *(undefined4 *)(param_1 + 0x5ec) = 0;
+    if ((uVar3 & 2) == 0) {
+      *(undefined4 *)(param_1 + 0x5ec) = 8;
+    }
+    else if ((uVar3 & 0x100) != 0) {
+      *(undefined4 *)(param_1 + 0x5ec) = 4;
+    }
+    *(undefined4 *)(param_1 + 0x6e4) = *(undefined4 *)(param_1 + 0x334);
+    if ((*(char *)(param_1 + 0x5d4) != '\0') && (*(char *)(param_1 + 0x5d5) == '\0')) {
+      *(undefined4 *)(param_1 + 0x6e4) = 4;
+    }
+    if (3 < *(uint *)(param_1 + 0x6e4)) {
+      *(uint *)(param_1 + 0x5ec) = *(uint *)(param_1 + 0x5ec) | 2;
+    }
+    uVar4 = *(undefined4 *)(param_1 + 0x350);
+    *(byte *)(param_1 + 0x6f4) = (byte)(uVar3 >> 0x10) & 1;
+    *(byte *)(param_1 + 0x6f5) = (byte)((uint)*(undefined4 *)(param_1 + 0x298) >> 0x1d) & 1;
+    *(undefined4 *)(param_1 + 0x8a0) = *(undefined4 *)(param_1 + 0x37c);
+    *(byte *)(param_1 + 0x8a4) = (byte)(*(uint *)(param_1 + 0x2ac) >> 0x12) & 1;
+    *(undefined4 *)(param_1 + 0x6e8) = *(undefined4 *)(param_1 + 0x348);
+    uVar1 = *(undefined4 *)(param_1 + 0x358);
+    *(byte *)(param_1 + 0x8a5) = (byte)(*(uint *)(param_1 + 0x2ac) >> 0x13) & 1;
+    *(undefined4 *)(param_1 + 0x6ec) = uVar1;
+    *(undefined4 *)(param_1 + 0x6f0) = uVar4;
+    *(undefined4 *)(param_1 + 0x918) = uVar1;
+    *(undefined4 *)(param_1 + 0x91c) = 0xffff0000;
+    *(undefined4 *)(param_1 + 0x920) = uVar1;
+    *(undefined4 *)(param_1 + 0x924) = uVar4;
+    *(undefined4 *)(param_1 + 0x928) = 0xfffe0000;
+    *(undefined4 *)(param_1 + 0x92c) = uVar4;
+    *(undefined4 *)(param_1 + 0x930) = 0xfffe0000;
+    *(undefined4 *)(param_1 + 0x934) = 0xfffe0000;
+    *(undefined4 *)(param_1 + 0x938) = 0xfffe0000;
+    *(undefined4 *)(param_1 + 0x93c) = 2;
+    FUN_00e7f830(*(uint *)(param_1 + 800));
+    FUN_00e7f840(*(undefined4 *)(param_1 + 0x324));
+    if (*(uint *)(param_1 + 0x6ec) < 0xffff0200) {
+      uVar4 = *(undefined4 *)(param_1 + 800);
+    }
+    else {
+      uVar4 = 0x10;
+    }
+    FUN_00e7f850(uVar4);
+    uVar3 = *(uint *)(param_1 + 0x2cc) >> 10;
+    DAT_0126f0d1 = (byte)uVar3 & 1;
+    DAT_0126f0d2 = (byte)((uint)*(undefined4 *)(param_1 + 0x2cc) >> 0x1a) & 1;
+    _DAT_0126f058 = 0;
+    _DAT_0126f064 = 0;
+    _DAT_0126f0ac = 0;
+    _DAT_0126f0c4 = 3;
+    _DAT_0126f0b8 = 3;
+    _DAT_0126f0b0 = 3;
+    _DAT_0126f0b4 = 3;
+    _DAT_0126f0a4 = 3;
+    _DAT_0126f09c = (DAT_0126f0d2 != 0) + 2;
+    _DAT_0126f0c8 = 1;
+    _DAT_0126f0cc = 1;
+    _DAT_0126f0c0 = 1;
+    _DAT_0126f0bc = 1;
+    _DAT_0126f054 = 1;
+    _DAT_0126f050 = 1;
+    _DAT_0126f060 = 2;
+    _DAT_0126f05c = 2;
+    _DAT_0126f06c = 2;
+    _DAT_0126f068 = 2;
+    _DAT_0126f070 = 2;
+    _DAT_0126f078 = 1;
+    _DAT_0126f074 = 1;
+    _DAT_0126f07c = 1;
+    _DAT_0126f084 = 1;
+    _DAT_0126f080 = 1;
+    _DAT_0126f088 = 2;
+    _DAT_0126f090 = 2;
+    _DAT_0126f08c = 2;
+    _DAT_0126f094 = 1;
+    _DAT_0126f0a8 = 2;
+    _DAT_0126f0a0 = 2;
+    _DAT_0126f098 = ((uVar3 & 1) != 0) + 2;
+    DAT_0126f0e4 = (-(uint)((*(uint *)(param_1 + 0x2c8) & 0x400) != 0) & 0x101) + 2;
+    return CONCAT31((uint3)(*(uint *)(param_1 + 0x2cc) >> 0x12),1);
+  }
+  _strncpy_s(&DAT_011f4648,0x100,
+             "Creation failed: Device does not support single-pass multi-texture",0xff);
+  uVar3 = FUN_00a29680(
+                      "NiDX9Renderer::Initialize> Device does not support single-pass multi-texture - FAILING\n"
+                      );
+  return uVar3 & 0xffffff00;
+}
+
+
+
+--- Calls FROM D3D post-create/backbuffer validation (0x00e6c240) ---
+  0x00e6c270 -> 0x00ec8d5f _strncpy_s
+  0x00e6c27a -> 0x00a29680 FUN_00a29680
+  0x00e6c3c8 -> 0x00e7f830 FUN_00e7f830
+  0x00e6c3d4 -> 0x00e7f840 FUN_00e7f840
+  0x00e6c3f3 -> 0x00e7f850 FUN_00e7f850
+  0x00e6c52f -> 0x00ec8d5f _strncpy_s
+  0x00e6c539 -> 0x00a29680 FUN_00a29680
+  Total: 7 calls
+
+----------------------------------------------------------------------
+Vtable-call candidates in D3D post-create/backbuffer validation (0x00e6c240)
+----------------------------------------------------------------------
+  0x00e6c315: MOV ECX,dword ptr [ESI + 0x348]
+  Total candidates: 1
+
+======================================================================
+Texture cache pre-reset @ 0x00a62030
+======================================================================
+  Function: FUN_00a62030 @ 0x00a62030, Size: 83 bytes
+
+/* WARNING: Globals starting with '_' overlap smaller symbols at the same address */
+
+void FUN_00a62030(void)
+
+{
+  uint uVar1;
+  
+  if (DAT_011f4468 != 0) {
+    FUN_0040fbf0(0);
+    FUN_00a615c0();
+    uVar1 = 0;
+    do {
+      FUN_00a61ec0();
+      uVar1 = uVar1 + 0xb28;
+    } while (uVar1 < 0x4e18);
+    _DAT_011f4484 = _DAT_011f4484 + -1;
+    if (_DAT_011f4484 == 0) {
+      _DAT_011f4480 = 0;
+    }
+  }
+  return;
+}
+
+
+
+--- Calls FROM Texture cache pre-reset (0x00a62030) ---
+  0x00a62041 -> 0x0040fbf0 FUN_0040fbf0
+  0x00a6204c -> 0x00a615c0 FUN_00a615c0
+  0x00a6205b -> 0x00a61ec0 FUN_00a61ec0
+  Total: 3 calls
+
+----------------------------------------------------------------------
+Vtable-call candidates in Texture cache pre-reset (0x00a62030)
+----------------------------------------------------------------------
+  Total candidates: 0
+
+======================================================================
+Texture cache reset @ 0x00a62090
+======================================================================
+  Function: FUN_00a62090 @ 0x00a62090, Size: 123 bytes
+
+void FUN_00a62090(void)
+
+{
+  int iVar1;
+  int iVar2;
+  
+  FUN_00a62030();
+  iVar1 = DAT_011f4468;
+  if (DAT_011f4468 != 0) {
+    FUN_00a615c0();
+    FUN_00aa4060(iVar1);
+  }
+  DAT_011f4468 = 0;
+  if (DAT_011f4464 != 0) {
+    iVar2 = *(int *)(DAT_011f4464 + -4);
+    iVar1 = DAT_011f4464 + -4;
+    while (iVar2 = iVar2 + -1, -1 < iVar2) {
+      FUN_00a61ec0();
+    }
+    FUN_00aa4060(iVar1);
+  }
+  DAT_011f4464 = 0;
+  return;
+}
+
+
+
+--- Calls FROM Texture cache reset (0x00a62090) ---
+  0x00a62091 -> 0x00a62030 Texture cache pre-reset
+  0x00a620a2 -> 0x00a615c0 FUN_00a615c0
+  0x00a620ad -> 0x00aa4060 FUN_00aa4060
+  0x00a620e8 -> 0x00a61ec0 FUN_00a61ec0
+  0x00a620f8 -> 0x00aa4060 FUN_00aa4060
+  Total: 5 calls
+
+----------------------------------------------------------------------
+Vtable-call candidates in Texture cache reset (0x00a62090)
+----------------------------------------------------------------------
+  Total candidates: 0
+
+----------------------------------------------------------------------
+Disassembly IDirect3D9 CreateDevice callsite around 0x00e731ff
+----------------------------------------------------------------------
+  0x00e731a3: SBB ECX,ECX                                         
+  0x00e731a5: NOT ECX                                             
+  0x00e731a7: LEA EDI,[ESP + 0x28]                                
+  0x00e731ab: AND ECX,EDI                                         
+  0x00e731ad: PUSH ECX                                            
+  0x00e731ae: LEA ECX,[ESP + 0x60]                                
+  0x00e731b2: PUSH ECX                                            
+  0x00e731b3: MOV ECX,dword ptr [EBP]                             
+  0x00e731b6: PUSH ECX                                            
+  0x00e731b7: MOV ECX,dword ptr [ESI + 0x3c0]                     
+  0x00e731bd: PUSH ECX                                            
+  0x00e731be: MOV ECX,dword ptr [EBX]                             
+  0x00e731c0: PUSH ECX                                            
+  0x00e731c1: MOV ECX,dword ptr [ESI + 0x5c4]                     
+  0x00e731c7: PUSH ECX                                            
+  0x00e731c8: PUSH EAX                                            
+  0x00e731c9: CALL EDX                                            
+  0x00e731cb: MOV ECX,EAX                                         
+  0x00e731cd: MOV EAX,dword ptr [ESP + 0x18]                      
+  0x00e731d1: LEA EDI,[ESI + 0x288]                               
+  0x00e731d7: MOV dword ptr [EDI],EAX                             
+  0x00e731d9: JMP 0x00e73206                                      
+  0x00e731db: MOV ECX,dword ptr [EAX]                             
+  0x00e731dd: LEA EDI,[ESI + 0x288]                               
+  0x00e731e3: PUSH EDI                                            
+  0x00e731e4: LEA EDX,[ESP + 0x5c]                                
+  0x00e731e8: PUSH EDX                                            
+  0x00e731e9: MOV EDX,dword ptr [EBP]                             
+  0x00e731ec: PUSH EDX                                            
+  0x00e731ed: MOV EDX,dword ptr [ESI + 0x3c0]                     
+  0x00e731f3: PUSH EDX                                            
+  0x00e731f4: MOV EDX,dword ptr [EBX]                             
+  0x00e731f6: PUSH EDX                                            
+  0x00e731f7: MOV EDX,dword ptr [ESI + 0x5c4]                     
+  0x00e731fd: PUSH EDX                                            
+  0x00e731fe: PUSH EAX                                            
+  0x00e731ff: MOV EAX,dword ptr [ECX + 0x40]                       << TARGET
+  0x00e73202: CALL EAX                                            
+  0x00e73204: MOV ECX,EAX                                         
+  0x00e73206: MOV EDX,dword ptr [ESP + 0x5c]                      
+  0x00e7320a: FILD dword ptr [ESP + 0x5c]                         
+  0x00e7320e: TEST EDX,EDX                                        
+  0x00e73210: JGE 0x00e73218                                      
+  0x00e73212: FADD float ptr [0x01099378]                         
+  0x00e73218: MOV EAX,dword ptr [ESP + 0x58]                      
+  0x00e7321c: FILD dword ptr [ESP + 0x58]                         
+  0x00e73220: TEST EAX,EAX                                        
+  0x00e73222: JGE 0x00e7322a                                      
+  0x00e73224: FADD float ptr [0x01099378]                         
+  0x00e7322a: FDIVP                                               
+  0x00e7322c: FCOMP double ptr [0x0101de30]                       
+  0x00e73232: FNSTSW AX                                           
+  0x00e73234: TEST AH,0x1                                         
+  0x00e73237: JNZ 0x00e7323d                                      
+  0x00e73239: XOR AL,AL                                           
+  0x00e7323b: JMP 0x00e7323f                                      
+  0x00e7323d: MOV AL,0x1                                          
+  0x00e7323f: MOV byte ptr [ESI + 0xad0],AL                       
+  0x00e73245: TEST ECX,ECX                                        
+  0x00e73247: JGE 0x00e73353                                      
+  0x00e7324d: MOV ECX,dword ptr [ESP + 0xc4]                      
+  0x00e73254: MOV byte ptr [ESI + 0x6fc],0x0                      
+  0x00e7325b: CMP ECX,dword ptr [ESP + 0x64]                      
+  0x00e7325f: JZ 0x00e732ef                                       
+  0x00e73265: PUSH 0x10ee048                                      
+  0x00e7326a: CALL 0x00a29680                                     
+  0x00e7326f: MOV EAX,[0x0126f0d8]                                
+  0x00e73274: MOV EDX,dword ptr [EAX]                             
+  0x00e73276: ADD ESP,0x4                                         
+  0x00e73279: CMP byte ptr [0x0126f0d0],0x0                       
+  0x00e73280: JZ 0x00e732ca                                       
+  0x00e73282: MOV EDX,dword ptr [EDX + 0x50]                      
+  0x00e73285: LEA ECX,[ESP + 0x1c]                                
+  0x00e73289: PUSH ECX                                            
+  0x00e7328a: MOV ECX,dword ptr [ESP + 0x7c]                      
+  0x00e7328e: NEG ECX                                             
+  0x00e73290: SBB ECX,ECX                                         
+  0x00e73292: NOT ECX                                             
+  0x00e73294: LEA EBX,[ESP + 0x28]                                
+  0x00e73298: AND ECX,EBX                                         
+  0x00e7329a: PUSH ECX                                            
+  0x00e7329b: LEA ECX,[ESP + 0x60]                                
+  0x00e7329f: PUSH ECX                                            
+  0x00e732a0: MOV ECX,dword ptr [EBP]                             
+  0x00e732a3: PUSH ECX                                            
+
+----------------------------------------------------------------------
+Disassembly CreateDevice return and HRESULT handling around 0x00e73204
+----------------------------------------------------------------------
+  0x00e731a7: LEA EDI,[ESP + 0x28]                                
+  0x00e731ab: AND ECX,EDI                                         
+  0x00e731ad: PUSH ECX                                            
+  0x00e731ae: LEA ECX,[ESP + 0x60]                                
+  0x00e731b2: PUSH ECX                                            
+  0x00e731b3: MOV ECX,dword ptr [EBP]                             
+  0x00e731b6: PUSH ECX                                            
+  0x00e731b7: MOV ECX,dword ptr [ESI + 0x3c0]                     
+  0x00e731bd: PUSH ECX                                            
+  0x00e731be: MOV ECX,dword ptr [EBX]                             
+  0x00e731c0: PUSH ECX                                            
+  0x00e731c1: MOV ECX,dword ptr [ESI + 0x5c4]                     
+  0x00e731c7: PUSH ECX                                            
+  0x00e731c8: PUSH EAX                                            
+  0x00e731c9: CALL EDX                                            
+  0x00e731cb: MOV ECX,EAX                                         
+  0x00e731cd: MOV EAX,dword ptr [ESP + 0x18]                      
+  0x00e731d1: LEA EDI,[ESI + 0x288]                               
+  0x00e731d7: MOV dword ptr [EDI],EAX                             
+  0x00e731d9: JMP 0x00e73206                                      
+  0x00e731db: MOV ECX,dword ptr [EAX]                             
+  0x00e731dd: LEA EDI,[ESI + 0x288]                               
+  0x00e731e3: PUSH EDI                                            
+  0x00e731e4: LEA EDX,[ESP + 0x5c]                                
+  0x00e731e8: PUSH EDX                                            
+  0x00e731e9: MOV EDX,dword ptr [EBP]                             
+  0x00e731ec: PUSH EDX                                            
+  0x00e731ed: MOV EDX,dword ptr [ESI + 0x3c0]                     
+  0x00e731f3: PUSH EDX                                            
+  0x00e731f4: MOV EDX,dword ptr [EBX]                             
+  0x00e731f6: PUSH EDX                                            
+  0x00e731f7: MOV EDX,dword ptr [ESI + 0x5c4]                     
+  0x00e731fd: PUSH EDX                                            
+  0x00e731fe: PUSH EAX                                            
+  0x00e731ff: MOV EAX,dword ptr [ECX + 0x40]                      
+  0x00e73202: CALL EAX                                            
+  0x00e73204: MOV ECX,EAX                                          << TARGET
+  0x00e73206: MOV EDX,dword ptr [ESP + 0x5c]                      
+  0x00e7320a: FILD dword ptr [ESP + 0x5c]                         
+  0x00e7320e: TEST EDX,EDX                                        
+  0x00e73210: JGE 0x00e73218                                      
+  0x00e73212: FADD float ptr [0x01099378]                         
+  0x00e73218: MOV EAX,dword ptr [ESP + 0x58]                      
+  0x00e7321c: FILD dword ptr [ESP + 0x58]                         
+  0x00e73220: TEST EAX,EAX                                        
+  0x00e73222: JGE 0x00e7322a                                      
+  0x00e73224: FADD float ptr [0x01099378]                         
+  0x00e7322a: FDIVP                                               
+  0x00e7322c: FCOMP double ptr [0x0101de30]                       
+  0x00e73232: FNSTSW AX                                           
+  0x00e73234: TEST AH,0x1                                         
+  0x00e73237: JNZ 0x00e7323d                                      
+  0x00e73239: XOR AL,AL                                           
+  0x00e7323b: JMP 0x00e7323f                                      
+  0x00e7323d: MOV AL,0x1                                          
+  0x00e7323f: MOV byte ptr [ESI + 0xad0],AL                       
+  0x00e73245: TEST ECX,ECX                                        
+  0x00e73247: JGE 0x00e73353                                      
+  0x00e7324d: MOV ECX,dword ptr [ESP + 0xc4]                      
+  0x00e73254: MOV byte ptr [ESI + 0x6fc],0x0                      
+  0x00e7325b: CMP ECX,dword ptr [ESP + 0x64]                      
+  0x00e7325f: JZ 0x00e732ef                                       
+  0x00e73265: PUSH 0x10ee048                                      
+  0x00e7326a: CALL 0x00a29680                                     
+  0x00e7326f: MOV EAX,[0x0126f0d8]                                
+  0x00e73274: MOV EDX,dword ptr [EAX]                             
+  0x00e73276: ADD ESP,0x4                                         
+  0x00e73279: CMP byte ptr [0x0126f0d0],0x0                       
+  0x00e73280: JZ 0x00e732ca                                       
+  0x00e73282: MOV EDX,dword ptr [EDX + 0x50]                      
+  0x00e73285: LEA ECX,[ESP + 0x1c]                                
+  0x00e73289: PUSH ECX                                            
+  0x00e7328a: MOV ECX,dword ptr [ESP + 0x7c]                      
+  0x00e7328e: NEG ECX                                             
+  0x00e73290: SBB ECX,ECX                                         
+  0x00e73292: NOT ECX                                             
+  0x00e73294: LEA EBX,[ESP + 0x28]                                
+  0x00e73298: AND ECX,EBX                                         
+  0x00e7329a: PUSH ECX                                            
+  0x00e7329b: LEA ECX,[ESP + 0x60]                                
+  0x00e7329f: PUSH ECX                                            
+  0x00e732a0: MOV ECX,dword ptr [EBP]                             
+  0x00e732a3: PUSH ECX                                            
+  0x00e732a4: MOV ECX,dword ptr [ESI + 0x3c0]                     
+  0x00e732aa: PUSH ECX                                            
+
+----------------------------------------------------------------------
+References TO 0x0126f0d8 (Direct3D9 interface/global candidate)
+----------------------------------------------------------------------
+  READ @ 0x004dc043 (in FUN_004dc040)
+  READ @ 0x00e6e569 (in FUN_00e6dfc0)
+  READ @ 0x00e69464 (in FUN_00e69460)
+  WRITE @ 0x00e694b8 (in FUN_00e69460)
+  READ @ 0x00e694c5 (in FUN_00e69460)
+  WRITE @ 0x00e694d6 (in FUN_00e69460)
+  READ @ 0x00e73170 (in FUN_00e72e60)
+  READ @ 0x00e7326f (in FUN_00e72e60)
+  READ @ 0x00e6c121 (in FUN_00e6bf50)
+  READ @ 0x00e69112 (in FUN_00e68ef0)
+  READ @ 0x00e8ad93 (in FUN_00e8abf0)
+  READ @ 0x00e7cf96 (in FUN_00e7cf72)
+  READ @ 0x00e7da21 (in FUN_00e7d9d0)
+  READ @ 0x00e6c6c2 (in ???)
+  READ @ 0x00e6f2d3 (in ???)
+  READ @ 0x00e6ec20 (in FUN_00e6ec20)
+  WRITE @ 0x00e6ec31 (in FUN_00e6ec20)
+  Total: 17 refs
+
+----------------------------------------------------------------------
+References TO 0x0126f0d0 (Direct3D9Ex mode flag candidate)
+----------------------------------------------------------------------
+  READ @ 0x00e74361 (in FUN_00e74120)
+  READ @ 0x00e6d9ed (in FUN_00e6d780)
+  READ @ 0x00e72325 (in FUN_00e71fe0)
+  WRITE @ 0x00e694b1 (in FUN_00e69460)
+  READ @ 0x00e7313b (in FUN_00e72e60)
+  READ @ 0x00e73279 (in FUN_00e72e60)
+  READ @ 0x00ebf80e (in FUN_00ebf7d0)
+  READ @ 0x00ebf817 (in FUN_00ebf7d0)
+  READ @ 0x00e680c7 (in FUN_00e68010)
+  READ @ 0x00e6834f (in FUN_00e682b0)
+  READ @ 0x00e8aa89 (in FUN_00e8aa70)
+  READ @ 0x00e7029f (in FUN_00e70140)
+  READ @ 0x00e703a8 (in FUN_00e70140)
+  READ @ 0x00e70a61 (in FUN_00e70720)
+  READ @ 0x00e70c82 (in FUN_00e70be0)
+  READ @ 0x00e7292b (in FUN_00e723a0)
+  READ @ 0x00e74c12 (in FUN_00e74c00)
+  READ @ 0x00e8fea3 (in FUN_00e8fe10)
+  READ @ 0x00e941bd (in FUN_00e941a0)
+  READ @ 0x00e94e71 (in ???)
+  Total: 20 refs
+
+----------------------------------------------------------------------
+References TO 0x011c73b4 (NiDX9Renderer singleton pointer)
+----------------------------------------------------------------------
+  DATA @ 0x004bc3f3 (in FUN_004bc3f0)
+  DATA @ 0x004da4e8 (in FUN_004da4d0)
+  DATA @ 0x004da4f6 (in FUN_004da4d0)
+  DATA @ 0x004da511 (in FUN_004da4d0)
+  DATA @ 0x004da536 (in FUN_004da4d0)
+  DATA @ 0x004da55a (in FUN_004da4d0)
+  DATA @ 0x004daa55 (in FUN_004da670)
+  DATA @ 0x004dabb3 (in FUN_004da670)
+  DATA @ 0x004dabc5 (in FUN_004da670)
+  DATA @ 0x004dabfc (in FUN_004da670)
+  DATA @ 0x004dae28 (in FUN_004da670)
+  DATA @ 0x004dae72 (in FUN_004da670)
+  DATA @ 0x004db1c8 (in FUN_004da670)
+  DATA @ 0x004db672 (in FUN_004da670)
+  DATA @ 0x004db6dc (in FUN_004da670)
+  DATA @ 0x004dbf71 (in FUN_004da670)
+  DATA @ 0x004dc4f3 (in FUN_004dc360)
+  DATA @ 0x004dd0e8 (in FUN_004dcef0)
+  DATA @ 0x004dd186 (in FUN_004dd180)
+  DATA @ 0x004dd1b3 (in FUN_004dd180)
+  DATA @ 0x004dd1dd (in FUN_004dd180)
+  DATA @ 0x00f415b5 (in FUN_00f415b0)
+  DATA @ 0x00fc9a03 (in FUN_00fc9a00)
+  Total: 23 refs
