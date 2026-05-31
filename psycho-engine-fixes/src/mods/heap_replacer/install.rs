@@ -176,44 +176,6 @@ pub fn install_gheap_initialize() -> anyhow::Result<()> {
         )?;
     }
 
-    // Navmesh/pathfinding invalid endpoint guard
-    {
-        use gheap::statics::*;
-
-        NAVMESH_NAME_HELPER_HOOK.init(
-            "navmesh_name_helper_guard",
-            NAVMESH_NAME_HELPER_ADDR as *mut c_void,
-            gheap::navmesh_fix::hook_navmesh_name_helper,
-        )?;
-    }
-
-    // ExtraContainerChanges::EntryData stale form guard
-    {
-        use gheap::statics::*;
-
-        ENTRYDATA_LIST_SAVE_HOOK.init(
-            "entrydata_list_save_guard",
-            ENTRYDATA_LIST_SAVE_ADDR as *mut c_void,
-            gheap::entrydata_guard::hook_entrydata_list_save,
-        )?;
-        ENTRYDATA_LOAD_HOOK.init(
-            "entrydata_load_guard",
-            ENTRYDATA_LOAD_ADDR as *mut c_void,
-            gheap::entrydata_guard::hook_entrydata_load,
-        )?;
-    }
-
-    // ExtraOwnership invalid-owner guard
-    {
-        use gheap::statics::*;
-
-        BASE_EXTRA_LIST_GET_BY_TYPE_HOOK.init(
-            "base_extra_list_get_by_type_ownership_guard",
-            BASE_EXTRA_LIST_GET_BY_TYPE_ADDR as *mut c_void,
-            gheap::extraownership_guard::hook_base_extra_list_get_by_type,
-        )?;
-    }
-
     // CRT inline hooks
     {
         use super::crt_inline::*;
@@ -259,44 +221,6 @@ pub fn install_gheap_initialize() -> anyhow::Result<()> {
             "hkworld_unlock",
             HKWORLD_UNLOCK_ADDR as *mut c_void,
             hook_hkworld_unlock,
-        )?;
-    }
-
-    // Havok vanilla-bug shims: sparse pending-add/broadphase arrays.
-    {
-        use gheap::statics::*;
-
-        HAVOK_ADD_ENTITY_BATCH_HOOK.init(
-            "havok_add_entity_batch",
-            HAVOK_ADD_ENTITY_BATCH_ADDR as *mut c_void,
-            gheap::havok_fix::hook_havok_add_entity_batch,
-        )?;
-        HAVOK_PENDING_ADD_FLUSH_HOOK.init(
-            "havok_pending_add_flush",
-            HAVOK_PENDING_ADD_FLUSH_ADDR as *mut c_void,
-            gheap::havok_fix::hook_havok_pending_add_flush,
-        )?;
-        HAVOK_NARROWPHASE_ADD_AGENTS_HOOK.init(
-            "havok_narrowphase_add_agents",
-            HAVOK_NARROWPHASE_ADD_AGENTS_ADDR as *mut c_void,
-            gheap::havok_fix::hook_havok_narrowphase_add_agents,
-        )?;
-        HAVOK_ENTITY_POST_ADD_HOOK.init(
-            "havok_entity_post_add",
-            HAVOK_ENTITY_POST_ADD_ADDR as *mut c_void,
-            gheap::havok_fix::hook_havok_entity_post_add,
-        )?;
-        gheap::havok_fix::install_pending_add_loop_null_guard()?;
-    }
-
-    // game-inlined _memset NULL-dst defensive shim
-    {
-        use gheap::statics::*;
-
-        MEMSET_HOOK.init(
-            "memset_null_guard",
-            MEMSET_ADDR as *mut c_void,
-            gheap::memset_fix::hook_memset,
         )?;
     }
 
@@ -376,32 +300,6 @@ pub fn install_gheap_hooks() -> anyhow::Result<()> {
         log::info!("[TASK_RELEASE] Guard hooks active");
     }
 
-    // Navmesh/pathfinding invalid endpoint guard
-    {
-        use super::gheap::statics::*;
-
-        NAVMESH_NAME_HELPER_HOOK.enable()?;
-        log::info!("[NAVMESH] Low endpoint pointer guard active");
-    }
-
-    // ExtraContainerChanges::EntryData stale form guard
-    {
-        use super::gheap::statics::*;
-
-        ENTRYDATA_LIST_SAVE_HOOK.enable()?;
-        ENTRYDATA_LOAD_HOOK.enable()?;
-        log::info!("[ENTRYDATA] Save/load form guards active");
-    }
-
-    // ExtraOwnership invalid-owner guard
-    {
-        use super::gheap::statics::*;
-
-        BASE_EXTRA_LIST_GET_BY_TYPE_HOOK.enable()?;
-        gheap::extraownership_guard::install_load_hook()?;
-        log::info!("[EXTRAOWNERSHIP] Load and access guards active");
-    }
-
     // CRT IAT
     {
         use super::crt_iat::*;
@@ -440,25 +338,6 @@ pub fn install_gheap_hooks() -> anyhow::Result<()> {
         HKWORLD_LOCK_HOOK.enable()?;
         HKWORLD_UNLOCK_HOOK.enable()?;
         log::info!("[HAVOK] World lock hooks active");
-    }
-
-    // Havok vanilla-bug shims.
-    {
-        use gheap::statics::*;
-
-        HAVOK_ADD_ENTITY_BATCH_HOOK.enable()?;
-        HAVOK_PENDING_ADD_FLUSH_HOOK.enable()?;
-        HAVOK_NARROWPHASE_ADD_AGENTS_HOOK.enable()?;
-        HAVOK_ENTITY_POST_ADD_HOOK.enable()?;
-        log::info!("[HAVOK] Add-batch, pending-add, broadphase, and narrowphase guards active");
-    }
-
-    // _memset NULL-dst defensive shim
-    {
-        use gheap::statics::*;
-
-        MEMSET_HOOK.enable()?;
-        log::info!("[CRT] _memset NULL-dst guard active");
     }
 
     // SBM disable patches (must be after hooks are active)

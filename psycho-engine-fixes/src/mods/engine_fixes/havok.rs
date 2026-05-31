@@ -32,10 +32,12 @@ use std::sync::atomic::{AtomicU64, Ordering};
 
 use anyhow::{Context, Result};
 use libc::c_void;
-use libpsycho::os::windows::winapi::{flush_instructions_cache, patch_jmp, virtual_alloc_rwx};
+use libpsycho::os::windows::winapi::{
+    flush_instructions_cache, patch_jmp, virtual_alloc_rwx, virtual_query,
+};
 use windows::Win32::System::Memory::{
-    MEM_COMMIT, MEMORY_BASIC_INFORMATION, PAGE_EXECUTE, PAGE_EXECUTE_READ, PAGE_EXECUTE_READWRITE,
-    PAGE_EXECUTE_WRITECOPY, PAGE_NOACCESS, VirtualQuery,
+    MEM_COMMIT, PAGE_EXECUTE, PAGE_EXECUTE_READ, PAGE_EXECUTE_READWRITE, PAGE_EXECUTE_WRITECOPY,
+    PAGE_GUARD, PAGE_NOACCESS,
 };
 
 use super::statics;
@@ -369,15 +371,13 @@ fn is_readable(addr: usize, len: usize) -> bool {
         return false;
     }
 
-    let mut mbi: MEMORY_BASIC_INFORMATION = unsafe { core::mem::zeroed() };
-    let ret = unsafe {
-        VirtualQuery(
-            Some(addr as *const c_void),
-            &mut mbi,
-            core::mem::size_of::<MEMORY_BASIC_INFORMATION>(),
-        )
+    let Ok(info) = virtual_query(addr as *mut c_void) else {
+        return false;
     };
-    if ret == 0 {
+    if info.state != MEM_COMMIT.0 || info.protect == PAGE_NOACCESS {
+        return false;
+    }
+    if (info.protect.0 & PAGE_GUARD.0) != 0 {
         return false;
     }
 
@@ -385,8 +385,8 @@ fn is_readable(addr: usize, len: usize) -> bool {
         Some(end) => end,
         None => return false,
     };
-    let region_end = mbi.BaseAddress as usize + mbi.RegionSize;
-    mbi.State == MEM_COMMIT && mbi.Protect != PAGE_NOACCESS && end <= region_end
+    let region_end = info.base_address as usize + info.region_size;
+    end <= region_end
 }
 
 fn is_executable(addr: usize) -> bool {
@@ -394,23 +394,20 @@ fn is_executable(addr: usize) -> bool {
         return false;
     }
 
-    let mut mbi: MEMORY_BASIC_INFORMATION = unsafe { core::mem::zeroed() };
-    let ret = unsafe {
-        VirtualQuery(
-            Some(addr as *const c_void),
-            &mut mbi,
-            core::mem::size_of::<MEMORY_BASIC_INFORMATION>(),
-        )
+    let Ok(info) = virtual_query(addr as *mut c_void) else {
+        return false;
     };
-    if ret == 0 || mbi.State != MEM_COMMIT {
+    if info.state != MEM_COMMIT.0 {
         return false;
     }
 
-    let protect = mbi.Protect.0;
-    protect & PAGE_EXECUTE.0 != 0
-        || protect & PAGE_EXECUTE_READ.0 != 0
-        || protect & PAGE_EXECUTE_READWRITE.0 != 0
-        || protect & PAGE_EXECUTE_WRITECOPY.0 != 0
+    matches!(
+        info.protect.0,
+        p if p == PAGE_EXECUTE.0
+            || p == PAGE_EXECUTE_READ.0
+            || p == PAGE_EXECUTE_READWRITE.0
+            || p == PAGE_EXECUTE_WRITECOPY.0
+    )
 }
 
 fn rel32(src_after: usize, dst: usize) -> [u8; 4] {

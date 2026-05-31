@@ -80,28 +80,6 @@ pub type TaskReleaseFn = unsafe extern "fastcall" fn(*mut c_void);
 /// +0x1c from FUN_00446b50.
 pub type ModelTaskDtorFn = unsafe extern "thiscall" fn(*mut c_void, u32) -> *mut c_void;
 
-// ---- Navmesh/pathfinding defensive guards ----
-
-/// FUN_00690830: returns a NavMeshInfo parent/cell identity pointer.
-/// ECX is expected to be a NavMeshInfo-like object pointer.
-pub type NavmeshNameHelperFn = unsafe extern "fastcall" fn(*mut c_void) -> *mut c_void;
-
-// ---- ExtraContainerChanges::EntryData save/load guards ----
-
-/// FUN_004D4090: saves the EntryData list owned by ExtraContainerChanges.
-/// `this` is the list object; arg is the save buffer.
-pub type EntryDataListSaveFn = unsafe extern "thiscall" fn(*mut c_void, *mut c_void);
-
-/// FUN_004BEE00: loads one EntryData body from the save buffer.
-/// `this` is EntryData; arg is the load buffer.
-pub type EntryDataLoadFn = unsafe extern "thiscall" fn(*mut c_void, *mut c_void);
-
-// ---- ExtraOwnership load/access guard ----
-
-/// FUN_00410220: BaseExtraList::GetByType.
-/// `this` is BaseExtraList, arg is the requested BSExtraData type.
-pub type BaseExtraListGetByTypeFn = unsafe extern "thiscall" fn(*mut c_void, u8) -> *mut c_void;
-
 // ---- Pressure relief: cell management and destruction protocol ----
 
 /// FUN_00453a80: finds a loaded exterior cell eligible for eviction.
@@ -219,25 +197,6 @@ pub type HavokAddEntityFn = unsafe extern "thiscall" fn(*mut c_void, i32, i32, i
 pub type HavokCollObjDtorFn = unsafe extern "thiscall" fn(*mut c_void, u8);
 pub type HavokRaycastFn =
     unsafe extern "thiscall" fn(*mut c_void, *mut c_void, *mut c_void, i32, u32, u32);
-
-/// FUN_00CFFA00: per-entity AddedToWorld callback dispatcher (cdecl, 1 arg).
-/// First instruction reads [entity + 0x214]; crashes on NULL. See
-/// havok_fix.rs for the defensive wrapper rationale.
-pub type HavokEntityPostAddFn = unsafe extern "C" fn(entity: *mut c_void);
-
-/// FUN_00C94BD0: hkpWorld::addEntityBatch.
-/// this = world; args = entity pointer array, count, add mode.
-pub type HavokAddEntityBatchFn =
-    unsafe extern "thiscall" fn(*mut c_void, *mut *mut c_void, i32, i32);
-
-/// FUN_00CF7080: Havok narrowphase add-agent dispatcher.
-/// this = world+0x64 dispatch table; args = pair array, pair count, collision filter.
-pub type HavokNarrowphaseAddAgentsFn =
-    unsafe extern "thiscall" fn(*mut c_void, *mut c_void, i32, *mut c_void);
-
-/// FUN_00C674D0: flushes the hkpWorld pending-add queue.
-/// this = pending manager; args = entity pointer array, count.
-pub type HavokPendingAddFlushFn = unsafe extern "thiscall" fn(*mut c_void, *mut *mut c_void, u32);
 
 /// hkWorld_Unlock (fastcall, world ptr in ECX).
 pub type HkWorldUnlockFn = unsafe extern "fastcall" fn(*mut c_void);

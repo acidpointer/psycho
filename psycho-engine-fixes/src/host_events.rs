@@ -4,7 +4,8 @@
 //! Keep it independent from xNVSE types so the core DLL remains loader-driven.
 
 use crate::mods::{
-    display::observe_event as observe_display_event, perf::observe_event as observe_perf_event,
+    engine_fixes::observe_event as observe_engine_fix_event,
+    perf::observe_event as observe_perf_event,
 };
 
 #[unsafe(no_mangle)]
@@ -20,7 +21,7 @@ pub unsafe extern "system" fn PsychoEngineFixes_NotifyEvent(
 
     with_event_path(data, data_len, |path| {
         observe_perf_event(kind, path, bool_value);
-        observe_display_event(kind);
+        observe_engine_fix_event(kind);
     });
 
     if kind == crate::events::DEFERRED_INIT {

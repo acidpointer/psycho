@@ -102,46 +102,6 @@ pub const MODEL_TASK_DTOR_ADDR: usize = 0x00449A50;
 pub static MODEL_TASK_DTOR_HOOK: LazyLock<InlineHookContainer<ModelTaskDtorFn>> =
     LazyLock::new(InlineHookContainer::new);
 
-// ---- Navmesh/pathfinding defensive guards ----
-
-/// FUN_00690830: path/navmesh helper that dereferences ECX+0x1C.
-/// Under gheap pressure the tasklet path can pass a small sentinel
-/// value (observed ECX=4), so we guard before the first dereference.
-pub const NAVMESH_NAME_HELPER_ADDR: usize = 0x00690830;
-
-pub static NAVMESH_NAME_HELPER_HOOK: LazyLock<InlineHookContainer<NavmeshNameHelperFn>> =
-    LazyLock::new(InlineHookContainer::new);
-
-// ---- ExtraContainerChanges::EntryData guards ----
-
-/// FUN_004D4090: EntryData list save dispatcher. The saved count is patched
-/// after each EntryData body save, so invalid entries must be skipped here.
-pub const ENTRYDATA_LIST_SAVE_ADDR: usize = 0x004D4090;
-
-/// FUN_004BEE00: EntryData body load. Vanilla rejects only NULL type forms
-/// after this returns; we sanitize unreadable/stale type forms to NULL first.
-pub const ENTRYDATA_LOAD_ADDR: usize = 0x004BEE00;
-
-pub static ENTRYDATA_LIST_SAVE_HOOK: LazyLock<InlineHookContainer<EntryDataListSaveFn>> =
-    LazyLock::new(InlineHookContainer::new);
-pub static ENTRYDATA_LOAD_HOOK: LazyLock<InlineHookContainer<EntryDataLoadFn>> =
-    LazyLock::new(InlineHookContainer::new);
-
-// ---- ExtraOwnership guard ----
-
-/// CALL in ExtraDataList::LoadGame immediately before vanilla stores
-/// the resolved owner into ExtraOwnership +0x0C.
-pub const EXTRAOWNERSHIP_LOAD_RESOLVE_CALL_ADDR: usize = 0x0042868F;
-
-/// FUN_00410220: BaseExtraList::GetByType. We filter only type 0x21
-/// after the original function returns, so unrelated extra-data lookups
-/// keep the vanilla path.
-pub const BASE_EXTRA_LIST_GET_BY_TYPE_ADDR: usize = 0x00410220;
-
-pub static BASE_EXTRA_LIST_GET_BY_TYPE_HOOK: LazyLock<
-    InlineHookContainer<BaseExtraListGetByTypeFn>,
-> = LazyLock::new(InlineHookContainer::new);
-
 // ---- OOM Stage 8 (HeapCompact) ----
 
 /// FUN_00866a90: OOM stage executor. Called by GameHeap retry loop,
@@ -175,50 +135,6 @@ pub const HKWORLD_UNLOCK_ADDR: usize = 0x00C3E340;
 pub static HKWORLD_LOCK_HOOK: LazyLock<InlineHookContainer<HkWorldLockFn>> =
     LazyLock::new(InlineHookContainer::new);
 pub static HKWORLD_UNLOCK_HOOK: LazyLock<InlineHookContainer<HkWorldUnlockFn>> =
-    LazyLock::new(InlineHookContainer::new);
-
-// ---- Havok sparse entity batch guards (vanilla NULL-deref bugfixes) ----
-
-/// FUN_00C94BD0: hkpWorld::addEntityBatch. The first add loop writes
-/// `[entity + 0xD4]` without checking that the batch slot is non-NULL.
-pub const HAVOK_ADD_ENTITY_BATCH_ADDR: usize = 0x00C94BD0;
-
-pub static HAVOK_ADD_ENTITY_BATCH_HOOK: LazyLock<InlineHookContainer<HavokAddEntityBatchFn>> =
-    LazyLock::new(InlineHookContainer::new);
-
-/// FUN_00CFFA00: dispatches AddedToWorld listeners for a single hkpEntity.
-/// hkpWorld::addEntityBatch iterates the broadphase result array and calls
-/// this per slot without filtering NULL slots. We wrap it to skip NULLs.
-pub const HAVOK_ENTITY_POST_ADD_ADDR: usize = 0x00CFFA00;
-
-pub static HAVOK_ENTITY_POST_ADD_HOOK: LazyLock<InlineHookContainer<HavokEntityPostAddFn>> =
-    LazyLock::new(InlineHookContainer::new);
-
-/// FUN_00CF7080: loops over broadphase pairs and dispatches add-agent
-/// callbacks through the world collision-agent table.
-pub const HAVOK_NARROWPHASE_ADD_AGENTS_ADDR: usize = 0x00CF7080;
-
-pub static HAVOK_NARROWPHASE_ADD_AGENTS_HOOK: LazyLock<
-    InlineHookContainer<HavokNarrowphaseAddAgentsFn>,
-> = LazyLock::new(InlineHookContainer::new);
-
-/// FUN_00C674D0: flushes pending hkpWorld entity-add arrays. The vanilla
-/// loop dereferences each slot without filtering NULL entries.
-pub const HAVOK_PENDING_ADD_FLUSH_ADDR: usize = 0x00C674D0;
-
-pub static HAVOK_PENDING_ADD_FLUSH_HOOK: LazyLock<InlineHookContainer<HavokPendingAddFlushFn>> =
-    LazyLock::new(InlineHookContainer::new);
-
-// ---- Game-inlined _memset (NULL-dst defensive bugfix) ----
-
-/// FUN_00EC61C0: the game's inlined MSVC 2008 `_memset`. Called by the
-/// aligned-calloc wrapper at `FUN_00aa2240` without a NULL check on the
-/// alloc result. When our OOM recovery returns NULL, the game passes
-/// NULL straight here and crashes in `__VEC_memzero` at `0x00ED2C9E`.
-/// Our hook short-circuits on `dst == NULL`.
-pub const MEMSET_ADDR: usize = 0x00EC61C0;
-
-pub static MEMSET_HOOK: LazyLock<InlineHookContainer<libpsycho::os::windows::types::MemsetFn>> =
     LazyLock::new(InlineHookContainer::new);
 
 // // ---- Actor process synchronization ----

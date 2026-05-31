@@ -20,6 +20,7 @@ static CONFIG: OnceLock<PsychoConfig> = OnceLock::new();
 #[derive(Debug, Serialize)]
 pub struct PsychoConfig {
     pub memory: MemoryConfig,
+    pub engine_fixes: EngineFixesConfig,
     pub performance: PerformanceConfig,
     pub diagnostics: DiagnosticsConfig,
 }
@@ -28,6 +29,7 @@ impl Default for PsychoConfig {
     fn default() -> Self {
         Self {
             memory: MemoryConfig::default(),
+            engine_fixes: EngineFixesConfig::default(),
             performance: PerformanceConfig::default(),
             diagnostics: DiagnosticsConfig::default(),
         }
@@ -40,14 +42,15 @@ impl<'de> Deserialize<'de> for PsychoConfig {
         D: Deserializer<'de>,
     {
         let raw = RawPsychoConfig::deserialize(deserializer)?;
+        let legacy_display_tweaks = raw.performance.as_ref().and_then(|p| p.display_tweaks);
         Ok(Self {
             memory: MemoryConfig::from_raw(raw.memory),
-            performance: PerformanceConfig::from_raw(
-                raw.performance,
-                raw.perf,
-                raw.zlib,
+            engine_fixes: EngineFixesConfig::from_raw(
+                raw.engine_fixes,
+                legacy_display_tweaks,
                 raw.display,
             ),
+            performance: PerformanceConfig::from_raw(raw.performance, raw.perf, raw.zlib),
             diagnostics: DiagnosticsConfig::from_raw(raw.diagnostics, raw.general, raw.logger),
         })
     }
@@ -112,8 +115,6 @@ pub struct PerformanceConfig {
     pub rng: bool,
     /// Replace zlib decompression.
     pub zlib: bool,
-    /// Enable display tweaks, mostly the alt-tab fix.
-    pub display_tweaks: bool,
 }
 
 impl Default for PerformanceConfig {
@@ -121,7 +122,6 @@ impl Default for PerformanceConfig {
         Self {
             rng: true,
             zlib: true,
-            display_tweaks: true,
         }
     }
 }
@@ -131,21 +131,98 @@ impl PerformanceConfig {
         raw: Option<RawPerformanceConfig>,
         legacy_perf: Option<RawPerfConfig>,
         legacy_zlib: Option<RawZlibConfig>,
-        legacy_display: Option<RawDisplayConfig>,
     ) -> Self {
         let raw = raw.unwrap_or_default();
         let legacy_perf = legacy_perf.unwrap_or_default();
         let legacy_zlib = legacy_zlib.unwrap_or_default();
-        let legacy_display = legacy_display.unwrap_or_default();
         let default = Self::default();
 
         Self {
             rng: raw.rng.or(legacy_perf.rng).unwrap_or(default.rng),
             zlib: raw.zlib.or(legacy_zlib.enabled).unwrap_or(default.zlib),
-            display_tweaks: raw
-                .display_tweaks
+        }
+    }
+}
+
+#[derive(Debug, Serialize)]
+pub struct EngineFixesConfig {
+    /// Prevent the game from losing or blacking out the fullscreen window
+    /// after alt-tab/focus changes.
+    pub display_alt_tab: bool,
+    /// Treat invalid NavMeshInfo low pointers as "no path identity".
+    pub navmesh_low_pointer_guard: bool,
+    /// Drop invalid ExtraContainerChanges::EntryData forms during load/save.
+    pub entrydata_invalid_form_guard: bool,
+    /// Scrub invalid ExtraOwnership.owner pointers to NULL.
+    pub extraownership_invalid_owner_guard: bool,
+    /// Compact NULL hkpEntity slots before hkpWorld::addEntityBatch.
+    pub havok_add_entity_batch_null_guard: bool,
+    /// Compact NULL hkpWorld pending-add slots before flush loops use them.
+    pub havok_pending_add_null_guard: bool,
+    /// Skip invalid Havok narrowphase collision pairs.
+    pub havok_narrowphase_invalid_pair_guard: bool,
+    /// Skip AddedToWorld callback dispatch for NULL hkpEntity pointers.
+    pub havok_post_add_null_entity_guard: bool,
+    /// Make the game's inlined memset a no-op for NULL destinations.
+    pub memset_null_dst_guard: bool,
+}
+
+impl Default for EngineFixesConfig {
+    fn default() -> Self {
+        Self {
+            display_alt_tab: true,
+            navmesh_low_pointer_guard: true,
+            entrydata_invalid_form_guard: true,
+            extraownership_invalid_owner_guard: true,
+            havok_add_entity_batch_null_guard: true,
+            havok_pending_add_null_guard: true,
+            havok_narrowphase_invalid_pair_guard: true,
+            havok_post_add_null_entity_guard: true,
+            memset_null_dst_guard: true,
+        }
+    }
+}
+
+impl EngineFixesConfig {
+    fn from_raw(
+        raw: Option<RawEngineFixesConfig>,
+        legacy_display_tweaks: Option<bool>,
+        legacy_display: Option<RawDisplayConfig>,
+    ) -> Self {
+        let raw = raw.unwrap_or_default();
+        let legacy_display = legacy_display.unwrap_or_default();
+        let default = Self::default();
+
+        Self {
+            display_alt_tab: raw
+                .display_alt_tab
+                .or(legacy_display_tweaks)
                 .or(legacy_display.tweaks)
-                .unwrap_or(default.display_tweaks),
+                .unwrap_or(default.display_alt_tab),
+            navmesh_low_pointer_guard: raw
+                .navmesh_low_pointer_guard
+                .unwrap_or(default.navmesh_low_pointer_guard),
+            entrydata_invalid_form_guard: raw
+                .entrydata_invalid_form_guard
+                .unwrap_or(default.entrydata_invalid_form_guard),
+            extraownership_invalid_owner_guard: raw
+                .extraownership_invalid_owner_guard
+                .unwrap_or(default.extraownership_invalid_owner_guard),
+            havok_add_entity_batch_null_guard: raw
+                .havok_add_entity_batch_null_guard
+                .unwrap_or(default.havok_add_entity_batch_null_guard),
+            havok_pending_add_null_guard: raw
+                .havok_pending_add_null_guard
+                .unwrap_or(default.havok_pending_add_null_guard),
+            havok_narrowphase_invalid_pair_guard: raw
+                .havok_narrowphase_invalid_pair_guard
+                .unwrap_or(default.havok_narrowphase_invalid_pair_guard),
+            havok_post_add_null_entity_guard: raw
+                .havok_post_add_null_entity_guard
+                .unwrap_or(default.havok_post_add_null_entity_guard),
+            memset_null_dst_guard: raw
+                .memset_null_dst_guard
+                .unwrap_or(default.memset_null_dst_guard),
         }
     }
 }
@@ -179,6 +256,7 @@ impl DiagnosticsConfig {
 #[serde(default)]
 struct RawPsychoConfig {
     memory: RawMemoryConfig,
+    engine_fixes: Option<RawEngineFixesConfig>,
     performance: Option<RawPerformanceConfig>,
     diagnostics: Option<RawDiagnosticsConfig>,
 
@@ -211,7 +289,22 @@ struct RawMemoryConfig {
 struct RawPerformanceConfig {
     rng: Option<bool>,
     zlib: Option<bool>,
+    /// Legacy key. New configs use engine_fixes.display_alt_tab.
     display_tweaks: Option<bool>,
+}
+
+#[derive(Default, Deserialize)]
+#[serde(default)]
+struct RawEngineFixesConfig {
+    display_alt_tab: Option<bool>,
+    navmesh_low_pointer_guard: Option<bool>,
+    entrydata_invalid_form_guard: Option<bool>,
+    extraownership_invalid_owner_guard: Option<bool>,
+    havok_add_entity_batch_null_guard: Option<bool>,
+    havok_pending_add_null_guard: Option<bool>,
+    havok_narrowphase_invalid_pair_guard: Option<bool>,
+    havok_post_add_null_entity_guard: Option<bool>,
+    memset_null_dst_guard: Option<bool>,
 }
 
 #[derive(Default, Deserialize)]

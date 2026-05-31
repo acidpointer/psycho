@@ -8,15 +8,10 @@
 pub mod allocator;
 pub mod block;
 pub mod engine;
-pub mod entrydata_guard;
-pub mod extraownership_guard;
 pub mod game_guard;
-pub mod havok_fix;
 pub mod heap_manager;
 pub mod hooks;
-pub mod memset_fix;
 pub mod model_task_fix;
-pub mod navmesh_fix;
 pub mod pool;
 pub mod pressure;
 pub mod statics;

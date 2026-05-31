@@ -93,12 +93,45 @@ pub struct MemoryBasicInformation {
     pub r#type: u32,
 }
 
+/// Win32 RECT with plain Rust field names.
+#[repr(C)]
+pub struct Rect {
+    pub left: i32,
+    pub top: i32,
+    pub right: i32,
+    pub bottom: i32,
+}
+
 mod sys {
     use libc::c_void;
 
     #[link(name = "kernel32")]
     unsafe extern "system" {
         pub fn IsBadReadPtr(lp: *const c_void, ucb: usize) -> i32;
+    }
+
+    #[link(name = "user32")]
+    unsafe extern "system" {
+        pub fn AdjustWindowRectEx(
+            rect: *mut super::Rect,
+            style: u32,
+            menu: i32,
+            ex_style: u32,
+        ) -> i32;
+        pub fn DisableProcessWindowsGhosting();
+        pub fn GetActiveWindow() -> *mut c_void;
+        pub fn GetWindowLongA(hwnd: *mut c_void, index: i32) -> i32;
+        pub fn IsWindow(hwnd: *mut c_void) -> i32;
+        pub fn SetWindowPos(
+            hwnd: *mut c_void,
+            after: *mut c_void,
+            x: i32,
+            y: i32,
+            cx: i32,
+            cy: i32,
+            flags: u32,
+        ) -> i32;
+        pub fn ShowWindow(hwnd: *mut c_void, cmd: i32) -> i32;
     }
 }
 
@@ -111,6 +144,49 @@ mod sys {
 /// Unsafe WinAPI call.
 pub unsafe fn is_readable_ptr(ptr: *const c_void, ucb: usize) -> bool {
     unsafe { sys::IsBadReadPtr(ptr, ucb) == 0 }
+}
+
+/// Adjust a window rectangle for style flags.
+pub fn adjust_window_rect_ex(rect: &mut Rect, style: u32, menu: bool, ex_style: u32) -> bool {
+    unsafe { sys::AdjustWindowRectEx(rect, style, i32::from(menu), ex_style) != 0 }
+}
+
+/// Disable Windows ghost-window substitution for hung windows.
+pub fn disable_process_windows_ghosting() {
+    unsafe { sys::DisableProcessWindowsGhosting() };
+}
+
+/// Return the thread's active window, or NULL.
+pub fn get_active_window() -> *mut c_void {
+    unsafe { sys::GetActiveWindow() }
+}
+
+/// Return a window long value.
+pub fn get_window_long_a(hwnd: *mut c_void, index: i32) -> i32 {
+    unsafe { sys::GetWindowLongA(hwnd, index) }
+}
+
+/// True if HWND names a live window.
+pub fn is_window(hwnd: *mut c_void) -> bool {
+    !hwnd.is_null() && unsafe { sys::IsWindow(hwnd) != 0 }
+}
+
+/// Set position/size/z-order for a window.
+pub fn set_window_pos(
+    hwnd: *mut c_void,
+    after: *mut c_void,
+    x: i32,
+    y: i32,
+    cx: i32,
+    cy: i32,
+    flags: u32,
+) -> bool {
+    unsafe { sys::SetWindowPos(hwnd, after, x, y, cx, cy, flags) != 0 }
+}
+
+/// Change window show state.
+pub fn show_window(hwnd: *mut c_void, cmd: i32) -> bool {
+    unsafe { sys::ShowWindow(hwnd, cmd) != 0 }
 }
 
 /// Query memory with VirtualQuery(...)

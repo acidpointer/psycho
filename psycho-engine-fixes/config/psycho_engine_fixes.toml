@@ -1,12 +1,57 @@
 [memory]
-# 0 = off, 1 = scrap_heap, 2 = gheap + scrap_heap
+# Heap allocator mode:
+# 0 = vanilla game allocators
+# 1 = scrap_heap only
+# 2 = gheap + scrap_heap
 allocator = 2
 
+[engine_fixes]
+# Fixes the fullscreen alt-tab/focus bug. Without it, the game can become
+# black, invisible, or impossible to select after focus changes.
+display_alt_tab = true
+
+# Fixes a navmesh/pathfinding crash where the game passes a tiny invalid
+# pointer instead of a NavMeshInfo object.
+navmesh_low_pointer_guard = true
+
+# Fixes corrupted container EntryData during load/save by dropping invalid
+# item type forms before vanilla save code dereferences them.
+entrydata_invalid_form_guard = true
+
+# Fixes corrupted ownership data by converting invalid ExtraOwnership.owner
+# pointers to no-owner instead of letting vanilla/xNVSE dereference them.
+extraownership_invalid_owner_guard = true
+
+# Fixes a Havok crash where hkpWorld::addEntityBatch receives NULL entity
+# slots and vanilla writes through them.
+havok_add_entity_batch_null_guard = true
+
+# Fixes a Havok pending-add crash where the pending entity array contains
+# NULL slots after broadphase processing.
+havok_pending_add_null_guard = true
+
+# Fixes a Havok narrowphase crash by skipping invalid collision pairs before
+# vanilla dispatches through the collision-agent table.
+havok_narrowphase_invalid_pair_guard = true
+
+# Fixes a Havok callback crash where vanilla dispatches AddedToWorld for a
+# NULL entity pointer.
+havok_post_add_null_entity_guard = true
+
+# Fixes a game memset crash when an upstream allocation fails and vanilla
+# calls memset(NULL, ...). This turns that memset into a no-op.
+memset_null_dst_guard = true
+
 [performance]
+# Replace the game's Mersenne Twister RNG with a faster compatible path.
 rng = true
+
+# Replace the bundled zlib decompression path with a faster implementation.
 zlib = true
-display_tweaks = true
 
 [diagnostics]
+# Open a Windows console for live log output.
 console = false
+
+# Enable verbose debug logging in psycho-engine-fixes-latest.log.
 debug_log = true

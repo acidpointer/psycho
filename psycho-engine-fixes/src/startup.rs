@@ -6,9 +6,9 @@
 use shadow_rs::shadow;
 
 use crate::{
-    config::{DiagnosticsConfig, MemoryConfig, PerformanceConfig, load_config},
+    config::{DiagnosticsConfig, EngineFixesConfig, MemoryConfig, PerformanceConfig, load_config},
     mods::{
-        display::install_display_hooks,
+        engine_fixes::install as install_engine_fixes,
         heap_replacer::{
             AllocatorMode, decide_mode, initialize_mimalloc, install_gheap_hooks,
             install_gheap_initialize, install_sheap_hooks, install_sheap_initialize,
@@ -36,6 +36,7 @@ pub(crate) fn initialize() -> anyhow::Result<()> {
 
     initialize_diagnostics(&cfg.diagnostics)?;
     initialize_memory(&cfg.memory)?;
+    install_engine_fix_hooks(&cfg.engine_fixes)?;
     install_runtime_hooks(&cfg.performance)?;
 
     log_runtime();
@@ -102,6 +103,10 @@ fn initialize_scrap_heap() -> anyhow::Result<()> {
     Ok(())
 }
 
+fn install_engine_fix_hooks(engine_fixes: &EngineFixesConfig) -> anyhow::Result<()> {
+    install_engine_fixes(engine_fixes)
+}
+
 fn install_runtime_hooks(performance: &PerformanceConfig) -> anyhow::Result<()> {
     if performance.rng {
         install_rng_hook()?;
@@ -109,12 +114,6 @@ fn install_runtime_hooks(performance: &PerformanceConfig) -> anyhow::Result<()> 
 
     if performance.zlib {
         install_zlib_hooks(false)?;
-    }
-
-    if performance.display_tweaks
-        && let Err(err) = install_display_hooks()
-    {
-        log::warn!("[DISPLAY] Alt-tab fix disabled: {}", err);
     }
 
     Ok(())

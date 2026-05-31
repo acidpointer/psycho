@@ -10,25 +10,10 @@ use std::sync::atomic::{AtomicBool, AtomicU32, AtomicUsize, Ordering};
 use crate::events;
 use libc::c_void;
 use libpsycho::os::windows::hook::inline::inlinehook::InlineHookContainer;
-use libpsycho::os::windows::winapi::{safe_write_8, safe_write_32};
-
-unsafe extern "system" {
-    fn AdjustWindowRectEx(rect: *mut Rect, style: u32, menu: i32, ex_style: u32) -> i32;
-    fn DisableProcessWindowsGhosting();
-    fn GetActiveWindow() -> *mut c_void;
-    fn GetWindowLongA(hwnd: *mut c_void, index: i32) -> i32;
-    fn IsWindow(hwnd: *mut c_void) -> i32;
-    fn SetWindowPos(
-        hwnd: *mut c_void,
-        after: *mut c_void,
-        x: i32,
-        y: i32,
-        cx: i32,
-        cy: i32,
-        flags: u32,
-    ) -> i32;
-    fn ShowWindow(hwnd: *mut c_void, cmd: i32) -> i32;
-}
+use libpsycho::os::windows::winapi::{
+    Rect, adjust_window_rect_ex, disable_process_windows_ghosting, get_active_window,
+    get_window_long_a, is_window, safe_write_8, safe_write_32, set_window_pos, show_window,
+};
 
 const FOCUS_STATE_FUNC: usize = 0x00871C90;
 const FOCUS_SUBSYSTEM_FUNC: usize = 0x007FDF30;
@@ -79,14 +64,6 @@ static REPAIR_ATTEMPTS: AtomicU32 = AtomicU32::new(0);
 static REPAIR_IN_PROGRESS: AtomicBool = AtomicBool::new(false);
 static FORCED_INACTIVE_CORRECTIONS: AtomicU32 = AtomicU32::new(0);
 static SKIPPED_VANILLA_WINDOW_REPAIRS: AtomicU32 = AtomicU32::new(0);
-
-#[repr(C)]
-struct Rect {
-    left: i32,
-    top: i32,
-    right: i32,
-    bottom: i32,
-}
 
 struct WindowSize {
     width: i32,
@@ -206,8 +183,8 @@ fn fullscreen_window_rect(hwnd: *mut c_void) -> Option<(Rect, &'static str)> {
         bottom: size.height,
     };
 
-    let style = unsafe { GetWindowLongA(hwnd, GWL_STYLE) };
-    if unsafe { AdjustWindowRectEx(&mut rect, style as u32, 0, 0) } == 0 {
+    let style = get_window_long_a(hwnd, GWL_STYLE);
+    if !adjust_window_rect_ex(&mut rect, style as u32, false, 0) {
         return None;
     }
 
@@ -215,7 +192,7 @@ fn fullscreen_window_rect(hwnd: *mut c_void) -> Option<(Rect, &'static str)> {
 }
 
 fn game_window_is_active(hwnd: *mut c_void) -> bool {
-    unsafe { GetActiveWindow() == hwnd }
+    get_active_window() == hwnd
 }
 
 fn correct_forced_fullscreen_inactive(os_globals: *mut c_void) {
@@ -253,7 +230,7 @@ fn repair_fullscreen_window(reason: &str, require_active_window: bool) {
     };
 
     let hwnd = game_hwnd_from_os_globals(current_os_globals());
-    if hwnd.is_null() || unsafe { IsWindow(hwnd) } == 0 {
+    if hwnd.is_null() || !is_window(hwnd) {
         log::warn!("[DISPLAY] fullscreen repair skipped: game window is not available");
         return;
     }
@@ -263,9 +240,9 @@ fn repair_fullscreen_window(reason: &str, require_active_window: bool) {
         return;
     }
 
-    let style = unsafe { GetWindowLongA(hwnd, GWL_STYLE) };
+    let style = get_window_long_a(hwnd, GWL_STYLE);
     if (style as u32) & WS_MINIMIZE != 0 {
-        unsafe { ShowWindow(hwnd, SW_RESTORE) };
+        show_window(hwnd, SW_RESTORE);
     }
 
     let Some(rect) = fullscreen_window_rect(hwnd) else {
@@ -288,17 +265,15 @@ fn repair_fullscreen_window(reason: &str, require_active_window: bool) {
     }
 
     let attempt = REPAIR_ATTEMPTS.fetch_add(1, Ordering::AcqRel) + 1;
-    let ok = unsafe {
-        SetWindowPos(
-            hwnd,
-            HWND_TOP,
-            rect.left,
-            rect.top,
-            width,
-            height,
-            WINDOW_REPAIR_FLAGS,
-        )
-    } != 0;
+    let ok = set_window_pos(
+        hwnd,
+        HWND_TOP,
+        rect.left,
+        rect.top,
+        width,
+        height,
+        WINDOW_REPAIR_FLAGS,
+    );
 
     if !ok {
         log::warn!(
@@ -369,7 +344,7 @@ unsafe extern "system" fn hook_main_loop_set_window_pos(
         return 1;
     }
 
-    unsafe { SetWindowPos(hwnd, after, x, y, cx, cy, flags) }
+    i32::from(set_window_pos(hwnd, after, x, y, cx, cy, flags))
 }
 
 unsafe fn replace_indirect_call(call_addr: usize, target: SetWindowPosFn) -> anyhow::Result<()> {
@@ -433,7 +408,7 @@ pub fn verify_display_resolution() {
 pub fn install_display_hooks() -> anyhow::Result<()> {
     log::info!("[DISPLAY] Installing alt-tab fix");
 
-    unsafe { DisableProcessWindowsGhosting() };
+    disable_process_windows_ghosting();
 
     FOCUS_STATE_HOOK.init(
         "display_focus_state",
