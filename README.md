@@ -1,123 +1,231 @@
-# Project PSYCHO
+# Psycho Engine Fixes
 
-> *Psycho was always in the Wasteland. Now it's in your engine.*
+Performance and engine fixes for Fallout: New Vegas.
 
-An experimental NVSE plugin written entirely in **Rust** that replaces core Fallout: New Vegas engine subsystems with modern, high-performance alternatives. Started as a fun attempt to write a memory allocator replacement, grew into a full Rust modding infrastructure for Bethesda-engine games.
+This mod is made for heavy setups. It loads early, patches engine code directly,
+and tries to remove some of the old bottlenecks that hurt New Vegas today:
+memory allocation, loading, decompression, fullscreen focus, and several known
+crash paths.
 
-Source: [https://github.com/acidpointer/psycho](https://github.com/acidpointer/psycho)
+## What It Does
 
----
+- Replaces hot heap paths with `gheap` and `scrap_heap`.
+- Speeds up zlib decompression for compressed resources.
+- Replaces the old RNG path with a faster compatible one.
+- Fixes fullscreen and borderless alt-tab/focus problems.
+- Adds small crash guards for known broken engine states.
+- Writes useful diagnostics for crash reports and memory pressure.
+- Includes an early `dinput8.dll` loader for DLLs in `FalloutNV/mods`.
 
-## Why Rust?
+## Requirements
 
-Rust is a natural fit for game modding. Modding inherently involves unsafe low-level memory manipulation, hooking, and patching — exactly the domain where memory safety bugs are most destructive and hardest to debug. Rust lets you write unsafe code where necessary while keeping the rest of the codebase honest. The compiler catches entire categories of bugs before they become a 3-hour debugging session in x64dbg.
+- Fallout: New Vegas
+- xNVSE
+- A mod manager, or manual install if you know what you are doing
 
----
+The mod is built for the normal 32-bit Fallout: New Vegas executable.
 
-## Workspace Structure
+## Installation
 
-### `psycho-engine-fixes`
-The core `psycho_engine_fixes.dll`. Loaded early by the generic `dinput8.dll` loader from `<game root>/mods/psycho_engine_fixes.dll`. It completes all setup from `PsychoLoader_ModInit`; the xNVSE helper does not own core setup. Performs all engine patches:
-- CRT allocator replacement via IAT hooks (mimalloc)
-- Scrap heap replacement (custom region bump allocator)
-- zlib reimplementation (zlib-rs backend)
+Install the release archive into the Fallout: New Vegas game folder, where
+`FalloutNV.exe` is located.
 
-### `psycho-loader`
-The early `dinput8.dll` proxy. It forwards to the system dinput8 and loads every `*.dll` from `<game root>/mods` in deterministic filename order. After mapping a DLL it calls the optional `PsychoLoader_ModInit` export outside the loader-lock callback.
+Expected layout:
 
-### `psycho-loader-api`
-Tiny generic ABI crate for DLLs loaded by `psycho-loader`. This stays mod-agnostic.
+```text
+FalloutNV/
+  dinput8.dll
+  mods/
+    psycho_engine_fixes.dll
+    psycho_engine_fixes.toml
+  Data/
+    NVSE/
+      plugins/
+        psycho_engine_fixes_helper.dll
+```
 
-### `psycho-engine-fixes-helper`
-The thin xNVSE plugin. Its xNVSE plugin name is `psycho-nvse-helper`. It exports `NVSEPlugin_*`, registers commands/messages, and lazily calls exact named exports from `psycho_engine_fixes.dll` if that DLL is already loaded. It never loads or initializes the core DLL.
+Do not move `psycho_engine_fixes.dll` to `Data/NVSE/plugins`. It belongs in
+`FalloutNV/mods` and is loaded by `dinput8.dll`.
 
-### `libpsycho`
-Core library providing the low-level infrastructure everything else is built on.
+The xNVSE helper belongs in `Data/NVSE/plugins`. It is only a helper for console
+commands and runtime messages.
 
-- **WinAPI wrappers** — safe abstractions over `VirtualProtect`, memory patching, NOP/CALL writing, PE parsing, and related Win32 operations
-- **IAT hooking** — rewrites Import Address Table entries at runtime to redirect function calls
-- **Inline hooking** — JMP-trampoline hooks with disassembly-aware trampoline generation via `iced-x86`. Handles cases where patching overwrites partial instructions correctly
-- **VMT hooking** — Virtual Method Table hooking, implemented but not yet battle-tested in production
-- **Logging** — a forked `simplelog` with a threaded writer backend. Log calls return immediately; a dedicated thread handles the actual I/O. Suitable for high-frequency logging scenarios without stalling the game thread
+## Updating
 
-### `libnvse`
-Rust bindings to **xNVSE**, auto-generated from official C++ headers via `bindgen` at build time. Provides safe(r) Rust wrappers around the raw FFI types. Work in progress — not all of the xNVSE API surface is covered, but enough to write functional plugins without touching C++.
+Replace the old files with the new archive.
 
-Uses `closure-ffi` for safely passing Rust closures across FFI boundaries.
+Check `mods/psycho_engine_fixes.toml` after updating. New versions can add new
+options, and the config file has comments for them.
 
-### `libmimalloc`
-A fork of the `mimalloc` Rust crate tracking the upstream mimalloc C library directly rather than waiting on crates.io releases. Exposes:
-- A global allocator interface (implements `GlobalAlloc`)
-- A per-heap `MiHeap` API used internally by the scrap heap replacer
+## Uninstalling
 
-### `libf4se`
-⚠️ **Deprecated.** Early-stage Rust bindings to **F4SE** for Fallout 4. Supports only old-gen (1.10.163) and a small subset of the F4SE C API. Not actively maintained.
+Remove these files:
 
-Still usable as a starting point or reference for anyone wanting to build Fallout 4 tooling in Rust. The infrastructure in `libpsycho` is fully compatible.
+```text
+FalloutNV/dinput8.dll
+FalloutNV/mods/psycho_engine_fixes.dll
+FalloutNV/mods/psycho_engine_fixes.toml
+FalloutNV/Data/NVSE/plugins/psycho_engine_fixes_helper.dll
+```
 
----
+Only remove `dinput8.dll` if it is the Psycho loader. If another mod installed
+its own `dinput8.dll`, check before deleting.
 
-## Dependencies
+## Configuration
 
-Key third-party crates used across the workspace:
+Config file:
 
-| Crate | Purpose |
-|---|---|
-| `parking_lot` | Fast synchronization primitives — `Mutex`, `RwLock`, `Once`. Significantly faster than `std::sync` equivalents |
-| `rustc-hash` (`FxHash`) | Extremely fast non-cryptographic hasher. Used where key distribution is trusted and speed matters |
-| `ahash` | Fast, DoS-resistant non-cryptographic hasher. Used where slightly more hash quality is needed |
-| `crossbeam-queue` | Lock-free MPMC queue used in the GC and thread communication |
-| `iced-x86` | x86/x64 disassembler and assembler. Used by the inline hook engine for instruction-aware trampoline generation |
-| `goblin` | PE32/PE64 binary parsing. Used for IAT resolution and module inspection |
-| `windows` | Official Microsoft Rust bindings to the Windows API |
-| `libz-rs-sys` | Rust-native zlib reimplementation (zlib-rs). Drop-in replacement for the C zlib ABI |
-| `closure-ffi` | Safely pass Rust closures across FFI boundaries |
-| `anyhow` / `thiserror` | Error handling |
-| `bindgen` | Auto-generate Rust FFI bindings from C/C++ headers (build dependency for `libnvse`) |
+```text
+FalloutNV/mods/psycho_engine_fixes.toml
+```
 
----
+The config is documented in place. Read comments in the file. Main sections:
 
-## Cross-Compilation
+- `memory` - choose vanilla allocator, `scrap_heap`, or `gheap + scrap_heap`
+- `engine_fixes` - individual crash and display fixes
+- `performance` - zlib and RNG patches
+- `diagnostics` - console and debug log
 
-The project is developed on **Linux** and **cross-compiled to Windows targets**. This is a deliberate design constraint, not an afterthought.
+Most users should start with defaults.
 
-### Supported Targets
+For crash reports, keep `debug_log` enabled and include the config file.
 
-| Target | Toolchain | Notes |
-|---|---|---|
-| `i686-pc-windows-gnu` | `mingw-w64` | Only supported target. 32-bit, required for FNV/xNVSE compatibility. Full `rust-analyzer` support |
+## Allocator Modes
 
-The codebase is written with 32-bit in mind throughout. All pointer arithmetic and struct layouts account for 32-bit targets. Other targets are not supported.
+This is the main feature of the mod.
 
----
+`gheap` replaces the main game heap. It can give the strongest performance
+improvement, but it has to deal with ugly engine behavior: stale pointers,
+worker threads, Havok, loading, and cell transitions.
 
-## Building
+`scrap_heap` replaces temporary allocation heaps. It is usually safer for very
+large modlists and is useful for troubleshooting.
+
+If full allocator mode crashes for you, try the safer allocator mode in the
+config and keep logs. That information is useful.
+
+## Logs And Crash Reports
+
+Main log:
+
+```text
+FalloutNV/psycho-engine-fixes-latest.log
+```
+
+When reporting a crash, include:
+
+- `psycho-engine-fixes-latest.log`
+- `CrashLogger.log`, if installed
+- `psycho_engine_fixes.toml`
+- what you were doing before the crash
+- whether changing allocator mode changes the crash
+
+Without logs, most memory and engine crashes are impossible to understand.
+
+## Compatibility
+
+Psycho should work with normal xNVSE setups.
+
+It is also designed to be compatible with common engine/plugin stacks, but any
+mod that patches the same engine code can conflict. If something breaks, report
+it with logs and your mod list.
+
+The alt-tab fix is meant for fullscreen and borderless-window users. It was
+tested with Proton/Wine and should also help with related Windows focus issues.
+
+## Psycho Loader
+
+`psycho-loader` is the `dinput8.dll` shipped with this mod.
+
+It is a generic early loader, not an xNVSE plugin. It loads DLLs from:
+
+```text
+FalloutNV/mods/*.dll
+```
+
+After loading a DLL, it looks for this optional export:
+
+```text
+PsychoLoader_ModInit
+```
+
+If present, it calls that function after `LoadLibraryW` returns. This gives mods
+a clean startup point outside `DllMain`, which is important because doing real
+work from `DllMain` can deadlock on Windows loader lock.
+
+For other developers:
+
+- put your early DLL in `FalloutNV/mods`
+- export `PsychoLoader_ModInit`
+- initialize from that function
+- keep `DllMain` minimal
+- use a separate xNVSE plugin only when you need xNVSE services
+
+The loader is intentionally small, `no_std`, and mod-agnostic.
+
+## Building From Source
+
+This project builds fully from Linux by cross-compiling to Windows.
+
+Target:
+
+```text
+i686-pc-windows-gnu
+```
+
+Setup:
 
 ```sh
-# Install the target
 rustup target add i686-pc-windows-gnu
+git submodule update --init --recursive
+```
 
-# Build the loader, core DLL, and xNVSE helper
+Build:
+
+```sh
 cargo build --release --target i686-pc-windows-gnu -p psycho-loader -p psycho-engine-fixes -p psycho-engine-fixes-helper
+```
 
-# Build and install into the local FNV setup
+Requires `mingw-w64` with `i686-w64-mingw32-gcc` on `PATH`.
+
+Local test install:
+
+```sh
 ./build_fnv.sh
 ```
 
-Requires `mingw-w64` (`i686-w64-mingw32-gcc`) on `$PATH`.
+Release archives:
 
----
+```sh
+cd psycho-engine-fixes
+./release.sh
+```
 
-## Contributing
+## Developer Notes
 
-Contributions are welcome — especially on the library side (`libpsycho`, `libnvse`). The more complete and robust these become, the more useful the infrastructure is for the broader Rust modding community.
+`libpsycho` is the low-level Rust modding library used by this project. It
+contains WinAPI wrappers, IAT hooks, inline hooks with trampolines, VMT hooks,
+memory patching helpers, PE/module inspection, FFI helpers, executable version
+checks, and threaded logging.
 
-If you want to write your own NVSE plugin in Rust, this repository is a working starting point. The libraries are designed to be reusable independently of `psycho` itself.
+The workspace also has a local `libmimalloc` fork. It builds mimalloc C sources
+directly in the workspace, so Psycho can control build flags and allocator
+features for this 32-bit target.
 
-Bug reports, API improvements, new hook types, better test coverage — all appreciated. Open an issue or a PR on GitHub.
+## Workspace
 
----
+- `psycho-loader` - generic early `dinput8.dll` loader
+- `psycho-loader-api` - ABI for early-loaded DLLs
+- `psycho-engine-fixes` - core engine fix DLL
+- `psycho-engine-fixes-helper` - xNVSE helper plugin
+- `libpsycho` - shared modding infrastructure
+- `libnvse` - Rust bindings for xNVSE
+- `libmimalloc` - local mimalloc build
+- `libf4se` - old Fallout 4 bindings, not maintained
 
-## Inspiration
+## Source
 
-This project started after reading the source code of **NVHR (New Vegas Heap Replacer)**. NVHR is a well-engineered mod and worth reading. Psycho asks what the same problem space looks like approached entirely in Rust.
+```text
+https://github.com/acidpointer/psycho
+```
+
