@@ -96,8 +96,8 @@ thread_local! {
 }
 
 /// True when the current OS thread is the game's main thread. Cached
-/// in a TLS cell after first call. Used by `cell_unload` and the OOM
-/// Stage 8 handler only -- the allocator itself does not branch on it.
+/// in a TLS cell after first call. Used by engine guards; the allocator
+/// itself does not branch on it.
 #[inline]
 pub fn is_main_thread() -> bool {
     THREAD_ROLE.with(|r| match r.get() {
@@ -113,13 +113,6 @@ pub fn is_main_thread() -> bool {
             is_main
         }
     })
-}
-
-/// Legacy scoped guard retained as an ABI shim so `heap_manager`
-/// keeps compiling. Large-bypass had meaning in the old
-/// slab+mimalloc world; with pool+block it's a no-op.
-pub fn with_large_bypass<R>(f: impl FnOnce() -> R) -> R {
-    f()
 }
 
 // ---------------------------------------------------------------------------

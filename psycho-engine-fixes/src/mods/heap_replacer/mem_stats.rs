@@ -68,40 +68,26 @@ impl MemStats {
         self.scrap_heap_allocated.load(Ordering::Relaxed)
     }
 
-    // -- Queries --
-
-    /// Short one-line summary for HUD notification.
-    pub fn hud_summary() -> String {
-        match current_mode() {
-            Some(AllocatorMode::GheapAndScrapHeap) => {
-                let bytes = gheap_owned_bytes();
-                let largest = vas::sample()
-                    .map(|s| format!(", largest VAS {}MB", s.largest_free / vas::MB))
-                    .unwrap_or_default();
-                format!("gheap: {}{}", format_bytes(bytes), largest)
-            }
-            Some(AllocatorMode::ScrapHeap) => {
-                let s = scrap_heap::snapshot();
-                format!(
-                    "scrap_heap: {}, {} ids, {} regions",
-                    format_bytes(s.live_bytes),
-                    s.active_identities,
-                    s.regions,
-                )
-            }
-            Some(AllocatorMode::Disabled) | None => "memory allocator: vanilla".to_string(),
-        }
-    }
-
     /// Detailed multi-line report for console.
     pub fn detailed_report() -> String {
         match current_mode() {
             Some(AllocatorMode::GheapAndScrapHeap) => Self::gheap_report(),
             Some(AllocatorMode::ScrapHeap) => Self::scrap_heap_report(),
-            Some(AllocatorMode::Disabled) | None => {
-                "=== psycho Memory Report ===\nmemory allocator: vanilla\n".to_string()
-            }
+            Some(AllocatorMode::Disabled) | None => Self::vanilla_report(),
         }
+    }
+
+    fn vanilla_report() -> String {
+        let mut r = String::with_capacity(256);
+
+        push_report_title(&mut r);
+        r.push_str("Allocator: vanilla game allocator\n\n");
+
+        push_section(&mut r, "Meaning");
+        r.push_str("  Psycho heap replacement is disabled.\n");
+        r.push_str("  No gheap or scrap_heap memory is owned by Psycho.\n");
+
+        r
     }
 
     fn gheap_report() -> String {
@@ -112,92 +98,114 @@ impl MemStats {
         let pool_reserved = pool::reserved_bytes();
         let block_commit = block::committed_bytes();
         let va_live = va_alloc::live_bytes() as usize;
-        let gheap_total = pool_commit
-            .saturating_add(block_commit)
-            .saturating_add(va_live);
+        let gheap_total = gheap_owned_bytes();
         let scrap = scrap_heap::snapshot();
 
-        r.push_str("=== psycho Memory Report: gheap ===\n");
-        r.push_str("Allocator: gheap + scrap_heap\n");
+        push_report_title(&mut r);
+        r.push_str("Allocator: gheap + scrap_heap\n\n");
+
+        push_section(&mut r, "Status");
+        if let Some(s) = vas::sample() {
+            if s.largest_free < vas::CRITICAL_LARGEST_HOLE {
+                r.push_str("  CRITICAL - address space is badly fragmented.\n");
+                r.push_str(&format!(
+                    "  Largest free block: {}\n",
+                    format_bytes(s.largest_free)
+                ));
+                r.push_str("  Meaning: large texture/model loads may fail.\n\n");
+            } else {
+                r.push_str("  OK - address space still has room for big loads.\n");
+                r.push_str(&format!(
+                    "  Largest free block: {}\n\n",
+                    format_bytes(s.largest_free)
+                ));
+            }
+        } else {
+            r.push_str("  Address space sample unavailable.\n\n");
+        }
+
+        push_section(&mut r, "Memory");
+        r.push_str(&format!("  gheap total: {}\n", format_bytes(gheap_total),));
         r.push_str(&format!(
-            "gheap:     {} owned by allocator tiers\n",
-            format_bytes(gheap_total),
-        ));
-        r.push_str(&format!(
-            "  pool:    {} committed / {} reserved, live_cells={}, deferred_free={}\n",
+            "    pool:  {} committed, {} reserved\n",
             format_bytes(pool_commit),
             format_bytes(pool_reserved),
-            pool::live_cells(),
-            pool::deferred_free_cells(),
         ));
         r.push_str(&format!(
-            "  block:   {} committed, blocks={}\n",
+            "    block: {} committed in {} blocks\n",
             format_bytes(block_commit),
             block::block_count(),
         ));
         r.push_str(&format!(
-            "  va:      {} live, blocks={}, allocs={}, frees={}, fails={}\n",
+            "    large: {} in {} direct blocks\n",
             format_bytes(va_live),
             va_alloc::live_count(),
+        ));
+        r.push_str(&format!(
+            "  scrap_heap: {} in {} regions\n",
+            format_bytes(scrap.live_bytes),
+            scrap.regions,
+        ));
+        r.push_str(&format!(
+            "  combined: {}\n\n",
+            format_bytes(gheap_total.saturating_add(scrap.live_bytes)),
+        ));
+
+        push_section(&mut r, "Reuse safety");
+        r.push_str(&format!("  live pool cells: {}\n", pool::live_cells(),));
+        r.push_str(&format!(
+            "  waiting for safe reuse: {}\n\n",
+            pool::deferred_free_cells(),
+        ));
+
+        let cycles = stats.pressure_cycles();
+        push_section(&mut r, "Cleanup");
+        if cycles > 0 {
+            r.push_str(&format!(
+                "  pressure relief: {} runs, {} cells unloaded\n",
+                cycles,
+                stats.pressure_cells_unloaded(),
+            ));
+        } else {
+            r.push_str("  pressure relief: no runs yet\n");
+        }
+
+        r.push('\n');
+        push_section(&mut r, "Advanced");
+        r.push_str(&format!(
+            "  direct allocs: {} alloc, {} free, {} failed\n",
             va_alloc::alloc_count(),
             va_alloc::free_count(),
             va_alloc::fail_count(),
         ));
         r.push_str(&format!(
-            "scrap:     {}, ids={} active={} regions={} live_allocs={}\n",
-            format_bytes(scrap.live_bytes),
-            scrap.identities,
-            scrap.active_identities,
-            scrap.regions,
-            scrap.live_allocs,
+            "  scrap ids: {} total, {} active\n",
+            scrap.identities, scrap.active_identities,
         ));
         r.push_str(&format!(
-            "total:     {} gheap + scrap_heap\n",
-            format_bytes(gheap_total.saturating_add(scrap.live_bytes)),
+            "  scrap live allocations: {}\n",
+            scrap.live_allocs,
         ));
-
         if let Some(s) = vas::sample() {
-            let largest_state = if s.largest_free < vas::CRITICAL_LARGEST_HOLE {
-                "CRITICAL"
-            } else {
-                "ok"
-            };
             r.push_str(&format!(
-                "VAS:       free={} largest=0x{:08x}+{} second=0x{:08x}+{} holes={} ({})\n",
+                "  VAS free total: {}\n",
                 format_bytes(s.total_free),
+            ));
+            r.push_str(&format!(
+                "  VAS largest:  0x{:08x} + {}\n",
                 s.largest_base,
                 format_bytes(s.largest_free),
+            ));
+            r.push_str(&format!(
+                "  VAS second:   0x{:08x} + {}\n",
                 s.second_base,
                 format_bytes(s.second_free),
-                s.holes,
-                largest_state,
             ));
             r.push_str(&format!(
-                "VAS map:   commit={} reserve={} regions={}\n",
+                "  VAS map: {} commit, {} reserve, {} holes\n",
                 format_bytes(s.total_commit),
                 format_bytes(s.total_reserve),
-                s.regions,
-            ));
-        }
-
-        let cycles = stats.pressure_cycles();
-        if cycles > 0 {
-            r.push_str(&format!(
-                "Pressure:  {} cycles, {} cells freed\n",
-                cycles,
-                stats.pressure_cells_unloaded(),
-            ));
-        } else {
-            r.push_str("Pressure:  no events\n");
-        }
-
-        let unload_cycles = super::gheap::engine::cell_unload::total_cycles();
-        if unload_cycles > 0 {
-            r.push_str(&format!(
-                "Cell GC:   {} cells in {} cycles, freed {}\n",
-                super::gheap::engine::cell_unload::total_cells_unloaded(),
-                unload_cycles,
-                format_bytes(super::gheap::engine::cell_unload::total_bytes_freed()),
+                s.holes,
             ));
         }
 
@@ -208,45 +216,47 @@ impl MemStats {
         let s = scrap_heap::snapshot();
         let mut r = String::with_capacity(512);
 
-        r.push_str("=== psycho Memory Report: scrap_heap ===\n");
-        r.push_str("Allocator: scrap_heap\n");
+        push_report_title(&mut r);
+        r.push_str("Allocator: scrap_heap only\n\n");
+
+        push_section(&mut r, "Status");
+        r.push_str("  OK - only temporary heaps are replaced.\n");
+        r.push_str("  gheap is disabled, so main game heap stays vanilla.\n\n");
+
+        push_section(&mut r, "Memory");
         r.push_str(&format!(
-            "scrap:     {} live region capacity\n",
+            "  scrap_heap: {} in {} regions\n",
+            format_bytes(s.live_bytes),
+            s.regions,
+        ));
+        r.push_str(&format!("  live allocations: {}\n\n", s.live_allocs,));
+
+        push_section(&mut r, "Advanced");
+        r.push_str(&format!(
+            "  live region capacity: {}\n",
             format_bytes(s.live_bytes)
         ));
         r.push_str(&format!(
-            "ids:       {} total, {} active\n",
+            "  identities: {} total, {} active\n",
             s.identities, s.active_identities
         ));
-        r.push_str(&format!("regions:   {}\n", s.regions));
-        r.push_str(&format!(
-            "allocs:    {} live scrap allocations\n",
-            s.live_allocs
-        ));
-        r.push_str("gheap:     disabled\n");
+        r.push_str("  gheap: disabled\n");
         r
     }
 }
 
-/// Get the global MemStats instance.
+fn push_report_title(out: &mut String) {
+    out.push_str("================ PsychoInfo ================\n\n");
+}
+
+fn push_section(out: &mut String, title: &str) {
+    out.push_str("==== ");
+    out.push_str(title);
+    out.push_str(" ====\n");
+}
+
 pub fn global() -> &'static MemStats {
     &INSTANCE
-}
-
-pub fn current_allocator_bytes() -> usize {
-    match current_mode() {
-        Some(AllocatorMode::GheapAndScrapHeap) => gheap_owned_bytes(),
-        Some(AllocatorMode::ScrapHeap) => scrap_heap::snapshot().live_bytes,
-        Some(AllocatorMode::Disabled) | None => 0,
-    }
-}
-
-pub fn current_allocator_name() -> &'static str {
-    match current_mode() {
-        Some(AllocatorMode::GheapAndScrapHeap) => "gheap",
-        Some(AllocatorMode::ScrapHeap) => "scrap_heap",
-        Some(AllocatorMode::Disabled) | None => "vanilla",
-    }
 }
 
 fn gheap_owned_bytes() -> usize {

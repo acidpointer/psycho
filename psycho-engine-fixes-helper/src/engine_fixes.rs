@@ -21,15 +21,7 @@ pub(crate) const EVENT_MAIN_GAME_LOOP: u32 = 5;
 pub(crate) const EVENT_ON_FRAME_PRESENT: u32 = 6;
 
 // These ids mirror `psycho-engine-fixes/src/command_api.rs`.
-pub(crate) const COMMAND_MEM: u32 = 1;
-pub(crate) const COMMAND_MEM_MB: u32 = 2;
-pub(crate) const COMMAND_MEM_BYTES: u32 = 3;
-pub(crate) const COMMAND_SCRAP_HEAP: u32 = 4;
-pub(crate) const COMMAND_MEM_HUD: u32 = 5;
-pub(crate) const COMMAND_QUARANTINE: u32 = 6;
-pub(crate) const COMMAND_CELL_UNLOAD: u32 = 7;
-
-pub(crate) const COMMAND_HAS_RESULT: u32 = 1;
+pub(crate) const COMMAND_INFO: u32 = 1;
 
 type RunCommandFn = unsafe extern "system" fn(command: u32, output: *mut CommandOutput) -> i32;
 type NotifyEventFn =

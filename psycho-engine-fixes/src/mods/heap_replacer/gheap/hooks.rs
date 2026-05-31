@@ -164,20 +164,13 @@ pub unsafe extern "fastcall" fn hook_ai_thread_start(mgr: *mut c_void) {
     }
 }
 
-/// AI_JOIN: AI threads completed. Execute any deferred console
-/// cell-unload request. `execute` itself aborts when AI/Havok are
-/// busy, which is the real safety condition -- no need to branch on
-/// game loading/menu state here.
+/// AI_JOIN: AI threads completed, so the game can safely leave the
+/// AI-active guard state.
 pub unsafe extern "fastcall" fn hook_ai_thread_join(mgr: *mut c_void) {
     if let Ok(original) = statics::AI_THREAD_JOIN_HOOK.original() {
         unsafe { original(mgr) };
     }
     game_guard::clear_ai_active();
-
-    let deferred = super::engine::cell_unload::take_deferred_request();
-    if deferred > 0 {
-        let _ = super::engine::cell_unload::execute(deferred);
-    }
 }
 
 // ---- Havok world synchronization hooks ----

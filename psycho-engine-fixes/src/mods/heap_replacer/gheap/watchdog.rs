@@ -246,16 +246,6 @@ fn log_diagnostics(poll_count: u32, info: &MiMallocProcessInfo) {
             );
         }
     }
-
-    let cu_cells = super::engine::cell_unload::total_cells_unloaded();
-    let cu_freed = super::engine::cell_unload::total_bytes_freed() / 1024 / 1024;
-    if cu_cells > 0 {
-        log::info!(
-            "[RECLAIM] cell_unload: {} cells, freed {}MB",
-            cu_cells,
-            cu_freed,
-        );
-    }
 }
 
 fn log_pressure(commit: usize) {

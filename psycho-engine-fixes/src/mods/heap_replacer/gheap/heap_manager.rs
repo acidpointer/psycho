@@ -53,15 +53,11 @@ impl HeapManager {
     /// `bypass`: when true, large frees (>= 1KB) go to mi_free during
     /// the game call. When false, all frees go to pool (zombie-safe).
     ///
-    /// Use `bypass=true` for OOM retry loop (need VAS back, crash is
-    /// the alternative). Use `bypass=false` for background cleanup at
-    /// AI_JOIN (IO thread may access freed objects concurrently).
-    ///
     /// Returns `(next_stage, give_up)`.
     ///
     /// # Safety
     /// Calls game code.
-    pub unsafe fn run_oom_stage(&self, stage: i32, bypass: bool) -> (i32, bool) {
+    pub unsafe fn run_oom_stage(&self, stage: i32, _bypass: bool) -> (i32, bool) {
         let heap_singleton = addr::HEAP_SINGLETON as *mut c_void;
         let primary_heap = unsafe {
             let p =
@@ -82,22 +78,12 @@ impl HeapManager {
         let commit_before = self.commit_bytes();
 
         // pool/block do not recycle freed cells into user data, so the
-        // old slab "destruction freeze" is a no-op here. Stage 5 runs
-        // under the cell_unload guard which already serializes with IO
-        // and Havok.
+        // old slab "destruction freeze" is a no-op here. Vanilla Stage 5
+        // is the cell-unload stage and owns its engine-side synchronization.
 
         let mut done: u8 = 0;
         let next = match unsafe { oom_exec.as_fn() } {
-            Ok(f) => {
-                if bypass {
-                    use super::allocator::with_large_bypass;
-                    with_large_bypass(|| unsafe {
-                        f(heap_singleton, primary_heap, stage, &mut done)
-                    })
-                } else {
-                    unsafe { f(heap_singleton, primary_heap, stage, &mut done) }
-                }
-            }
+            Ok(f) => unsafe { f(heap_singleton, primary_heap, stage, &mut done) },
             Err(e) => {
                 log::error!("[OOM] oom_exec.as_fn() failed at stage {}: {:?}", stage, e);
                 return (stage + 1, true);

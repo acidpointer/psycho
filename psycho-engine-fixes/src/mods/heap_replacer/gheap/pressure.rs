@@ -3,37 +3,29 @@
 //! Pressure detection is handled by the watchdog thread (watchdog.rs).
 //! This module provides:
 //!   - Baseline commit calibration
-//!   - Deferred cell unload (signaled by watchdog, executed at AI_JOIN)
-//!   - Destruction protocol (Havok lock + FindCellToUnload + pool drain)
-//!   - Loading state counter management
+//!   - Loading state counter cleanup after reclaim paths
 //!
 //! # Hook positions
 //!
 //!   Phase 7  (hook_per_frame_queue_drain): watchdog flag consumption
 //!   Phase 10 (hook_main_loop_maintenance): baseline calibration
-//!   AI_JOIN  (hook_ai_thread_join): deferred cell unload execution
 
 use std::sync::LazyLock;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 
 use super::engine::globals;
 
-/// Max cells to unload per relief cycle.
-const MAX_CELLS_PER_CYCLE: usize = 20;
-
 // ---------------------------------------------------------------------------
 // PressureRelief
 // ---------------------------------------------------------------------------
 
-/// Manages deferred cell unloading and baseline commit tracking.
+/// Tracks baseline commit and delayed loading-state counter cleanup.
 ///
-/// Pressure detection is handled by the watchdog thread. This struct
-/// holds the deferred-unload flag (set by watchdog, consumed at AI_JOIN)
-/// and the baseline commit used for threshold computation.
+/// Pressure detection is handled by the watchdog thread. This struct keeps the
+/// baseline commit used for threshold computation and owns the delayed cleanup
+/// flag for reclaim paths that temporarily elevate the loading-state counter.
 pub struct PressureRelief {
-    /// Set by destruction_protocol when cells were unloaded. The loading
-    /// state counter is kept elevated to suppress PLChangeEvent dispatch.
-    /// `flush_pending_counter_decrement()` decrements it on the next frame.
+    /// Set by reclaim paths that need one-frame-delayed loading-state cleanup.
     pending_counter_decrement: AtomicBool,
 
     /// Commit at first tick. Used by watchdog for threshold computation.
@@ -42,7 +34,7 @@ pub struct PressureRelief {
 
 impl PressureRelief {
     fn new() -> Self {
-        log::info!("[PRESSURE] Initialized (max_cells={})", MAX_CELLS_PER_CYCLE,);
+        log::info!("[PRESSURE] Initialized");
 
         Self {
             pending_counter_decrement: AtomicBool::new(false),
