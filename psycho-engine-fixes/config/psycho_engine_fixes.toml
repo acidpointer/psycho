@@ -1,13 +1,55 @@
 [memory]
-# Heap allocator mode:
+# Heap allocator mode.
+#
+# Fallout: New Vegas is a 32-bit game. Even on a modern PC it can only use a
+# limited virtual address space, and heavily modded setups can run into slow
+# allocation paths, fragmentation, or out-of-memory crashes. This option
+# controls how much of the game's memory allocation system Psycho replaces.
+#
 # 0 = vanilla game allocators
+#     Psycho does not replace the game's heaps.
+#     Use this when you want maximum compatibility, or when testing whether a
+#     crash is related to Psycho's heap replacement. This gives no heap-related
+#     performance improvement.
+#
 # 1 = scrap_heap only
+#     Replaces the game's temporary/scratch allocation heaps.
+#     This is the safer Psycho allocator mode. It can reduce some allocation
+#     overhead while leaving the game's main object heap alone. Use this for
+#     very heavy modlists, troubleshooting, or if full gheap mode is unstable.
+#
 # 2 = gheap + scrap_heap
+#     Replaces the game's main heap with gheap and also enables scrap_heap.
+#     This gives the strongest performance benefit and is the intended default.
+#     gheap is built for New Vegas' unsafe memory behavior: it keeps freed
+#     game-object memory readable for a while instead of immediately reusing it,
+#     because the engine and worker threads can touch stale pointers during
+#     loading, AI, Havok, and cell transitions.
+#
+#     Tradeoff: this mode is more complex and can expose address-space pressure
+#     on very large modlists. If you get crashes that disappear when this is set
+#     to 1, keep the crash log and psycho-engine-fixes-latest.log for a bug
+#     report.
+#
+# Change this value, save the file, then restart the game.
 allocator = 2
 
 [engine_fixes]
-# Fixes the fullscreen alt-tab/focus bug. Without it, the game can become
-# black, invisible, or impossible to select after focus changes.
+# Fixes the fullscreen alt-tab/focus bug.
+#
+# New Vegas has fragile fullscreen window handling. During startup or loading
+# screens, alt-tab/focus changes can leave the window black, invisible, stuck
+# behind other windows, or impossible to select again. This is especially
+# visible on Proton/Wine, but Windows users can hit related focus and
+# device-reset problems too.
+#
+# true  = Psycho manages the game window/focus repair path.
+#         Recommended for fullscreen and borderless-window users. The goal is
+#         to let you alt-tab at any time, including during loading.
+#
+# false = leave window/focus handling to the game.
+#         Use this only for troubleshooting if another display/window mod
+#         conflicts with Psycho.
 display_alt_tab = true
 
 # Fixes a navmesh/pathfinding crash where the game passes a tiny invalid
@@ -49,14 +91,66 @@ memset_null_dst_guard = true
 
 [performance]
 # Replace the game's Mersenne Twister RNG with a faster compatible path.
+#
+# The engine calls its random-number generator very often from many small
+# systems. The original implementation is old and slower than it needs to be.
+#
+# true  = use Psycho's faster compatible RNG path.
+#         Recommended for most users.
+#
+# false = use the game's original RNG implementation.
+#         Use this only for troubleshooting if you suspect a rare compatibility
+#         issue with another plugin that also patches RNG.
 rng = true
 
-# Replace the bundled zlib decompression path with a faster implementation.
+# Replace the game's zlib decompression path with a faster implementation.
+#
+# New Vegas uses zlib to decompress compressed data from archives and other game
+# resources. This can be a real loading-time cost on modded setups, especially
+# when many compressed files are read during startup, save loading, or cell
+# transitions.
+#
+# true  = use Psycho's faster zlib path.
+#         Recommended for most users. It does not change texture quality,
+#         meshes, plugins, or saves; it only changes how compressed bytes are
+#         decompressed.
+#
+# false = use the game's original zlib path.
+#         Use this only for troubleshooting if you suspect a startup/load crash
+#         is related to decompression.
 zlib = true
 
 [diagnostics]
 # Open a Windows console for live log output.
+#
+# This is mainly useful when actively testing Psycho or when you want to watch
+# startup/loading messages in real time. The console can also show early loader
+# messages before the normal log file is fully useful.
+#
+# true  = open a console window and mirror log output there.
+#         Useful for development, focused troubleshooting, or confirming that
+#         Psycho loaded before xNVSE plugins.
+#
+# false = do not open a console window.
+#         Recommended for normal play. Logs are still written to the log file
+#         when debug_log is enabled.
 console = false
 
-# Enable verbose debug logging in psycho-engine-fixes-latest.log.
+# Enable verbose diagnostic logging.
+#
+# The log is the most important file for support reports. It records which
+# fixes were enabled, allocator mode, startup/loading timing, memory pressure,
+# OOM recovery attempts, and guard paths that prevented engine crashes.
+#
+# Log file:
+#   <FalloutNV>/psycho-engine-fixes-latest.log
+#
+# true  = write detailed diagnostics.
+#         Recommended. Keep this enabled if you use gheap, test crashes, or
+#         report bugs. The log is designed to be useful without spamming users
+#         during normal play.
+#
+# false = write less diagnostic detail.
+#         Use this only if you do not need support logs and want the quietest
+#         setup possible.
 debug_log = true
