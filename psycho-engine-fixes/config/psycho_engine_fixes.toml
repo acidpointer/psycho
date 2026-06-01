@@ -69,6 +69,19 @@ extraownership_invalid_owner_guard = true
 # list as valid, so corrupt lists are ignored during this cleanup path.
 linked_ref_children_stale_list_guard = true
 
+# Fixes activation/link-ref crashes where ExtraLinkedRef points at a reference
+# with a broken base form pointer. Vanilla checks only for NULL before calling
+# GetTypeID; Psycho treats invalid base forms as "not the linked-ref type
+# vanilla wanted" and skips that optional path.
+linked_ref_target_base_form_guard = true
+
+# Fixes a Havok ragdoll update crash where the game starts updating a
+# bhkRagdollController before its bone pointer table is fully populated.
+# Vanilla blindly reads bone_table[i] + 0x34; when bone_table[i] is NULL the
+# game crashes at address 0x00A6DF48. Psycho skips only that not-ready update
+# frame and lets the next frame try again.
+ragdoll_null_bone_guard = true
+
 # Fixes a Havok crash where hkpWorld::addEntityBatch receives NULL entity
 # slots and vanilla writes through them.
 havok_add_entity_batch_null_guard = true
@@ -84,6 +97,14 @@ havok_narrowphase_invalid_pair_guard = true
 # Fixes a Havok callback crash where vanilla dispatches AddedToWorld for a
 # NULL entity pointer.
 havok_post_add_null_entity_guard = true
+
+# Fixes a Havok remove/add-agent crash on AI Linear Task threads.
+# Vanilla enters a Havok critical section, runs narrowphase agent work, then
+# rereads a broadphase entity slot only to pass an argument that the unlock
+# wrapper does not actually use. That slot can become NULL during StAddAgt and
+# crash at 0x00D0D7D8. Psycho keeps the unlock call but removes the unsafe
+# dead-argument reread.
+havok_remove_agent_null_reread_guard = true
 
 # Fixes a game memset crash when an upstream allocation fails and vanilla
 # calls memset(NULL, ...). This turns that memset into a no-op.

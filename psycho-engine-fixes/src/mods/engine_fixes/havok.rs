@@ -33,7 +33,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use anyhow::{Context, Result};
 use libc::c_void;
 use libpsycho::os::windows::winapi::{
-    flush_instructions_cache, patch_jmp, virtual_alloc_rwx, virtual_query,
+    flush_instructions_cache, patch_bytes, patch_jmp, virtual_alloc_rwx, virtual_query,
 };
 use windows::Win32::System::Memory::{
     MEM_COMMIT, PAGE_EXECUTE, PAGE_EXECUTE_READ, PAGE_EXECUTE_READWRITE, PAGE_EXECUTE_WRITECOPY,
@@ -51,6 +51,7 @@ static NARROWPHASE_SKIPS: AtomicU64 = AtomicU64::new(0);
 static PENDING_ADD_NULL_FLUSHES: AtomicU64 = AtomicU64::new(0);
 static PENDING_ADD_NULL_SLOTS: AtomicU64 = AtomicU64::new(0);
 static PENDING_ADD_LOOP_PATCHED: AtomicU64 = AtomicU64::new(0);
+static REMOVE_AGENT_UNLOCK_PATCHED: AtomicU64 = AtomicU64::new(0);
 
 const PAIR_SIZE: usize = 8;
 const COLLISION_TYPE_COUNT: u8 = 8;
@@ -58,6 +59,58 @@ const DISPATCH_TABLE_ENTRIES: usize = 64;
 const PENDING_ADD_LOOP_SLOT_LOAD_ADDR: usize = 0x00C67577;
 const PENDING_ADD_LOOP_CONTINUE_ADDR: usize = 0x00C6757E;
 const PENDING_ADD_LOOP_NEXT_SLOT_ADDR: usize = 0x00C67681;
+const REMOVE_AGENT_UNLOCK_ARG_LOAD_ADDR: usize = 0x00D0D7D6;
+const REMOVE_AGENT_UNLOCK_ARG_LOAD_LEN: usize = 9;
+const TOI_UNLOCK_ARG_LOAD_ADDR: usize = 0x00D93FE4;
+const TOI_UNLOCK_ARG_LOAD_LEN: usize = 13;
+
+const REMOVE_AGENT_UNLOCK_ARG_PATCH: [u8; REMOVE_AGENT_UNLOCK_ARG_LOAD_LEN] =
+    [0x6A, 0x00, 0x90, 0x90, 0x90, 0x90, 0x90, 0x90, 0x90];
+const TOI_UNLOCK_ARG_PATCH: [u8; TOI_UNLOCK_ARG_LOAD_LEN] = [
+    0x6A, 0x00, 0x90, 0x90, 0x90, 0x90, 0x90, 0x90, 0x90, 0x90, 0x90, 0x90, 0x90,
+];
+
+/// Replaces two unsafe dead-argument rereads before `FUN_00C91210`.
+///
+/// `FUN_00C911D0` / `FUN_00C91210` are thin wrappers around
+/// `EnterCriticalSection` / `LeaveCriticalSection`. Both use `ECX + 0xB8`
+/// as the critical-section pointer and overwrite the stack argument before
+/// jumping to WinAPI. If no lock exists, they simply `ret 4`. The pushed
+/// `entity + 0xCC` value is therefore only stack shape, not behavior.
+///
+/// Vanilla rereads the broadphase entity slot after `FUN_00CF7080`
+/// (`StAddAgt`). That slot can become NULL during Havok remove/add-agent
+/// processing, causing the crash at `0x00D0D7D8`. `push 0` keeps the same
+/// stack contract without dereferencing a slot that may no longer be valid.
+pub fn install_remove_agent_unlock_guard() -> Result<()> {
+    if REMOVE_AGENT_UNLOCK_PATCHED.swap(1, Ordering::AcqRel) != 0 {
+        return Ok(());
+    }
+
+    unsafe {
+        patch_bytes(
+            REMOVE_AGENT_UNLOCK_ARG_LOAD_ADDR as *mut c_void,
+            &REMOVE_AGENT_UNLOCK_ARG_PATCH,
+        )
+    }
+    .context("patching FUN_00D0D3F0 remove-agent unlock dead arg")?;
+
+    unsafe {
+        patch_bytes(
+            TOI_UNLOCK_ARG_LOAD_ADDR as *mut c_void,
+            &TOI_UNLOCK_ARG_PATCH,
+        )
+    }
+    .context("patching FUN_00D93BA0 TOI unlock dead arg")?;
+
+    log::info!(
+        "[HAVOK] Remove-agent unlock NULL-reread guard active at 0x{:08X} and 0x{:08X}",
+        REMOVE_AGENT_UNLOCK_ARG_LOAD_ADDR,
+        TOI_UNLOCK_ARG_LOAD_ADDR,
+    );
+
+    Ok(())
+}
 
 /// Installs a tiny code-cave guard inside `FUN_00C674D0` after its internal
 /// `addEntityBatch` call. The entry wrapper can only filter the initial

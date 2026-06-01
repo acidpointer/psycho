@@ -33,9 +33,24 @@ pub static ENTRYDATA_LOAD_HOOK: LazyLock<InlineHookContainer<EntryDataLoadFn>> =
 pub const EXTRAOWNERSHIP_LOAD_RESOLVE_CALL_ADDR: usize = 0x0042868F;
 pub const BASE_EXTRA_LIST_GET_BY_TYPE_ADDR: usize = 0x00410220;
 pub const LINKED_REF_CHILDREN_REMOVE_GET_BY_TYPE_CALL_ADDR: usize = 0x0041E614;
+pub const LINKED_REF_TARGET_TYPE_GATE_ADDR: usize = 0x00568680;
 
 pub static BASE_EXTRA_LIST_GET_BY_TYPE_HOOK: LazyLock<
     InlineHookContainer<BaseExtraListGetByTypeFn>,
+> = LazyLock::new(InlineHookContainer::new);
+pub static LINKED_REF_TARGET_TYPE_GATE_HOOK: LazyLock<
+    InlineHookContainer<LinkedRefTargetTypeGateFn>,
+> = LazyLock::new(InlineHookContainer::new);
+
+// ---- bhkRagdollController not-ready bone table guard ----
+
+pub const RAGDOLL_ALTERNATE_UPDATE_ADDR: usize = 0x00C7D630;
+pub const RAGDOLL_BONE_TRANSFORM_UPDATE_ADDR: usize = 0x00C7D810;
+
+pub static RAGDOLL_ALTERNATE_UPDATE_HOOK: LazyLock<InlineHookContainer<RagdollAlternateUpdateFn>> =
+    LazyLock::new(InlineHookContainer::new);
+pub static RAGDOLL_BONE_TRANSFORM_UPDATE_HOOK: LazyLock<
+    InlineHookContainer<RagdollBoneTransformUpdateFn>,
 > = LazyLock::new(InlineHookContainer::new);
 
 // ---- Havok sparse/invalid input guards ----

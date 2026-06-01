@@ -17,6 +17,16 @@ pub type EntryDataLoadFn = unsafe extern "thiscall" fn(*mut c_void, *mut c_void)
 /// FUN_00410220: BaseExtraList::GetByType.
 pub type BaseExtraListGetByTypeFn = unsafe extern "thiscall" fn(*mut c_void, u8) -> *mut c_void;
 
+/// FUN_00568680: checks whether a linked reference target has the terminal-like base type.
+pub type LinkedRefTargetTypeGateFn = unsafe extern "thiscall" fn(*mut c_void) -> u8;
+
+/// FUN_00C7D630: alternate bhkRagdollController update wrapper. It has one
+/// stack argument and returns with `ret 4`.
+pub type RagdollAlternateUpdateFn = unsafe extern "thiscall" fn(*mut c_void, u32);
+
+/// FUN_00C7D810: bhkRagdollController bone transform update wrapper.
+pub type RagdollBoneTransformUpdateFn = unsafe extern "thiscall" fn(*mut c_void);
+
 /// FUN_00CFFA00: per-entity AddedToWorld callback dispatcher.
 pub type HavokEntityPostAddFn = unsafe extern "C" fn(entity: *mut c_void);
 

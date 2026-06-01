@@ -1,0 +1,599 @@
+HAVOK REMOVE-AGENT SAFE PATCH SURFACE AUDIT
+
+Patch quality bar:
+  Do not skip C91210 if C911D0 already ran; that risks leaving a critical section held.
+  Do not blindly skip CF7080; that changes narrowphase semantics.
+  Prove whether the island pointer can be captured before CF7080 and reused for C91210.
+  Also check sibling functions, because a one-site patch may only move the crash.
+
+----------------------------------------------------------------------
+Bytes: crash worker unsafe region bytes @ 0x00d0d73e len=0xb0
+----------------------------------------------------------------------
+  0x00d0d73e: 8b 7c 24 4c 8b 07 8b 88 cc 00 00 00 51 8b cd e8
+  0x00d0d74e: 7e 3a f8 ff 8b 54 24 2c 8b 44 24 28 8b 4d 64 52
+  0x00d0d75e: 50 e8 8c 99 fe ff 8b 74 24 3c e8 e3 7f f7 ff 8b
+  0x00d0d76e: 48 10 8b 11 8b 42 24 c1 e6 0a 56 ff d0 84 c0 75
+  0x00d0d77e: 0b 8b 0f 8b 91 cc 00 00 00 52 eb 55 a1 5c 83 26
+  0x00d0d78e: 01 50 ff d3 8b f0 8b 4e 04 3b 4e 0c 73 19 c7 01
+  0x00d0d79e: d8 c5 0c 01 0f 31 89 44 24 1c 8b 54 24 1c 89 51
+  0x00d0d7ae: 04 83 c1 0c 89 4e 04 8b 45 7c 85 c0 74 05 83 c0
+  0x00d0d7be: 08 eb 02 33 c0 8b 4c 24 38 50 8b 44 24 40 50 51
+  0x00d0d7ce: 8b 4d 64 e8 aa 98 fe ff 8b 17 8b 82 cc 00 00 00
+  0x00d0d7de: 50 8b cd e8 2a 3a f8 ff 8b 0d 5c 83 26 01 51 ff
+
+----------------------------------------------------------------------
+Disassembly: initial island read before C911D0 around 0x00d0d744
+----------------------------------------------------------------------
+  0x00d0d72b: RDTSC                                                     
+  0x00d0d72d: MOV dword ptr [ESP + 0x18],EAX                            
+  0x00d0d731: MOV EDX,dword ptr [ESP + 0x18]                            
+  0x00d0d735: MOV dword ptr [ECX + 0x4],EDX                             
+  0x00d0d738: ADD ECX,0xc                                               
+  0x00d0d73b: MOV dword ptr [ESI + 0x4],ECX                             
+  0x00d0d73e: MOV EDI,dword ptr [ESP + 0x4c]                            
+  0x00d0d742: MOV EAX,dword ptr [EDI]                                   
+  0x00d0d744: MOV ECX,dword ptr [EAX + 0xcc]                             << target
+  0x00d0d74a: PUSH ECX                                                  
+  0x00d0d74b: MOV ECX,EBP                                               
+  0x00d0d74d: CALL 0x00c911d0                                           
+      call -> 0x00c911d0 FUN_00c911d0 @ 0x00c911d0
+  0x00d0d752: MOV EDX,dword ptr [ESP + 0x2c]                            
+  0x00d0d756: MOV EAX,dword ptr [ESP + 0x28]                            
+  0x00d0d75a: MOV ECX,dword ptr [EBP + 0x64]                            
+  0x00d0d75d: PUSH EDX                                                  
+  0x00d0d75e: PUSH EAX                                                  
+  0x00d0d75f: CALL 0x00cf70f0                                           
+      call -> 0x00cf70f0 FUN_00cf70f0 @ 0x00cf70f0
+  0x00d0d764: MOV ESI,dword ptr [ESP + 0x3c]                            
+  0x00d0d768: CALL 0x00c85750                                           
+      call -> 0x00c85750 FUN_00c85750 @ 0x00c85750
+  0x00d0d76d: MOV ECX,dword ptr [EAX + 0x10]                            
+
+----------------------------------------------------------------------
+Disassembly: StAddAgt call before crash reread around 0x00d0d7d1
+----------------------------------------------------------------------
+  0x00d0d7a2: RDTSC                                                     
+  0x00d0d7a4: MOV dword ptr [ESP + 0x1c],EAX                            
+  0x00d0d7a8: MOV EDX,dword ptr [ESP + 0x1c]                            
+  0x00d0d7ac: MOV dword ptr [ECX + 0x4],EDX                             
+  0x00d0d7af: ADD ECX,0xc                                               
+  0x00d0d7b2: MOV dword ptr [ESI + 0x4],ECX                             
+  0x00d0d7b5: MOV EAX,dword ptr [EBP + 0x7c]                            
+  0x00d0d7b8: TEST EAX,EAX                                              
+  0x00d0d7ba: JZ 0x00d0d7c1                                             
+  0x00d0d7bc: ADD EAX,0x8                                               
+  0x00d0d7bf: JMP 0x00d0d7c3                                            
+  0x00d0d7c1: XOR EAX,EAX                                               
+  0x00d0d7c3: MOV ECX,dword ptr [ESP + 0x38]                            
+  0x00d0d7c7: PUSH EAX                                                  
+  0x00d0d7c8: MOV EAX,dword ptr [ESP + 0x40]                            
+  0x00d0d7cc: PUSH EAX                                                  
+  0x00d0d7cd: PUSH ECX                                                  
+  0x00d0d7ce: MOV ECX,dword ptr [EBP + 0x64]                            
+  0x00d0d7d1: CALL 0x00cf7080                                            << target
+      call -> 0x00cf7080 FUN_00cf7080 @ 0x00cf7080
+  0x00d0d7d6: MOV EDX,dword ptr [EDI]                                   
+  0x00d0d7d8: MOV EAX,dword ptr [EDX + 0xcc]                            
+  0x00d0d7de: PUSH EAX                                                  
+  0x00d0d7df: MOV ECX,EBP                                               
+  0x00d0d7e1: CALL 0x00c91210                                           
+      call -> 0x00c91210 FUN_00c91210 @ 0x00c91210
+  0x00d0d7e6: MOV ECX,dword ptr [0x0126835c]                            
+  0x00d0d7ec: PUSH ECX                                                  
+  0x00d0d7ed: CALL EBX                                                  
+      call -> 0x00000007 ???
+  0x00d0d7ef: MOV ESI,EAX                                               
+  0x00d0d7f1: MOV ECX,dword ptr [ESI + 0x4]                             
+  0x00d0d7f4: POP EBP                                                   
+  0x00d0d7f5: CMP ECX,dword ptr [ESI + 0xc]                             
+  0x00d0d7f8: JNC 0x00d0d813                                            
+  0x00d0d7fa: MOV dword ptr [ECX],0x1076f38                             
+  0x00d0d800: RDTSC                                                     
+  0x00d0d802: MOV dword ptr [ESP + 0x1c],EAX                            
+  0x00d0d806: MOV EDX,dword ptr [ESP + 0x1c]                            
+  0x00d0d80a: MOV dword ptr [ECX + 0x4],EDX                             
+
+----------------------------------------------------------------------
+Disassembly: crash reread before C91210 around 0x00d0d7d8
+----------------------------------------------------------------------
+  0x00d0d7ba: JZ 0x00d0d7c1                                             
+  0x00d0d7bc: ADD EAX,0x8                                               
+  0x00d0d7bf: JMP 0x00d0d7c3                                            
+  0x00d0d7c1: XOR EAX,EAX                                               
+  0x00d0d7c3: MOV ECX,dword ptr [ESP + 0x38]                            
+  0x00d0d7c7: PUSH EAX                                                  
+  0x00d0d7c8: MOV EAX,dword ptr [ESP + 0x40]                            
+  0x00d0d7cc: PUSH EAX                                                  
+  0x00d0d7cd: PUSH ECX                                                  
+  0x00d0d7ce: MOV ECX,dword ptr [EBP + 0x64]                            
+  0x00d0d7d1: CALL 0x00cf7080                                           
+      call -> 0x00cf7080 FUN_00cf7080 @ 0x00cf7080
+  0x00d0d7d6: MOV EDX,dword ptr [EDI]                                   
+  0x00d0d7d8: MOV EAX,dword ptr [EDX + 0xcc]                             << target
+  0x00d0d7de: PUSH EAX                                                  
+  0x00d0d7df: MOV ECX,EBP                                               
+  0x00d0d7e1: CALL 0x00c91210                                           
+      call -> 0x00c91210 FUN_00c91210 @ 0x00c91210
+  0x00d0d7e6: MOV ECX,dword ptr [0x0126835c]                            
+  0x00d0d7ec: PUSH ECX                                                  
+  0x00d0d7ed: CALL EBX                                                  
+      call -> 0x00000007 ???
+  0x00d0d7ef: MOV ESI,EAX                                               
+  0x00d0d7f1: MOV ECX,dword ptr [ESI + 0x4]                             
+  0x00d0d7f4: POP EBP                                                   
+  0x00d0d7f5: CMP ECX,dword ptr [ESI + 0xc]                             
+  0x00d0d7f8: JNC 0x00d0d813                                            
+  0x00d0d7fa: MOV dword ptr [ECX],0x1076f38                             
+  0x00d0d800: RDTSC                                                     
+  0x00d0d802: MOV dword ptr [ESP + 0x1c],EAX                            
+  0x00d0d806: MOV EDX,dword ptr [ESP + 0x1c]                            
+  0x00d0d80a: MOV dword ptr [ECX + 0x4],EDX                             
+  0x00d0d80d: ADD ECX,0xc                                               
+  0x00d0d810: MOV dword ptr [ESI + 0x4],ECX                             
+
+----------------------------------------------------------------------
+Disassembly: sibling initial island read around 0x00d93f4a
+----------------------------------------------------------------------
+  0x00d93f23: MOV ECX,dword ptr [EBP + 0x4]                             
+  0x00d93f26: CMP ECX,dword ptr [EBP + 0xc]                             
+  0x00d93f29: JNC 0x00d93f44                                            
+  0x00d93f2b: MOV dword ptr [ECX],0x10cc5e4                             
+  0x00d93f31: RDTSC                                                     
+  0x00d93f33: MOV dword ptr [ESP + 0x2c],EAX                            
+  0x00d93f37: MOV EAX,dword ptr [ESP + 0x2c]                            
+  0x00d93f3b: MOV dword ptr [ECX + 0x4],EAX                             
+  0x00d93f3e: ADD ECX,0xc                                               
+  0x00d93f41: MOV dword ptr [EBP + 0x4],ECX                             
+  0x00d93f44: MOV ECX,dword ptr [ESP + 0x10]                            
+  0x00d93f48: MOV EDX,dword ptr [ECX]                                   
+  0x00d93f4a: MOV EAX,dword ptr [EDX + 0xcc]                             << target
+  0x00d93f50: PUSH EAX                                                  
+  0x00d93f51: MOV ECX,EBX                                               
+  0x00d93f53: CALL 0x00c911d0                                           
+      call -> 0x00c911d0 FUN_00c911d0 @ 0x00c911d0
+  0x00d93f58: MOV ECX,dword ptr [ESP + 0x4c]                            
+  0x00d93f5c: MOV EDX,dword ptr [ESP + 0x48]                            
+  0x00d93f60: PUSH ECX                                                  
+  0x00d93f61: MOV ECX,dword ptr [EBX + 0x64]                            
+  0x00d93f64: PUSH EDX                                                  
+  0x00d93f65: CALL 0x00cf70f0                                           
+      call -> 0x00cf70f0 FUN_00cf70f0 @ 0x00cf70f0
+  0x00d93f6a: MOV EBP,dword ptr [ESP + 0x5c]                            
+  0x00d93f6e: CALL 0x00c85750                                           
+      call -> 0x00c85750 FUN_00c85750 @ 0x00c85750
+  0x00d93f73: MOV ECX,dword ptr [EAX + 0x10]                            
+  0x00d93f76: MOV EAX,dword ptr [ECX]                                   
+  0x00d93f78: MOV EDX,dword ptr [EAX + 0x24]                            
+  0x00d93f7b: SHL EBP,0xa                                               
+  0x00d93f7e: PUSH EBP                                                  
+
+----------------------------------------------------------------------
+Disassembly: sibling leave island reread around 0x00d93fea
+----------------------------------------------------------------------
+  0x00d93fca: ADD EAX,0x8                                               
+  0x00d93fcd: JMP 0x00d93fd1                                            
+  0x00d93fcf: XOR EAX,EAX                                               
+  0x00d93fd1: MOV ECX,dword ptr [ESP + 0x58]                            
+  0x00d93fd5: PUSH EAX                                                  
+  0x00d93fd6: MOV EAX,dword ptr [ESP + 0x60]                            
+  0x00d93fda: PUSH EAX                                                  
+  0x00d93fdb: PUSH ECX                                                  
+  0x00d93fdc: MOV ECX,dword ptr [EBX + 0x64]                            
+  0x00d93fdf: CALL 0x00cf7080                                           
+      call -> 0x00cf7080 FUN_00cf7080 @ 0x00cf7080
+  0x00d93fe4: MOV EDX,dword ptr [ESP + 0x10]                            
+  0x00d93fe8: MOV EAX,dword ptr [EDX]                                   
+  0x00d93fea: MOV ECX,dword ptr [EAX + 0xcc]                             << target
+  0x00d93ff0: PUSH ECX                                                  
+  0x00d93ff1: MOV ECX,EBX                                               
+  0x00d93ff3: CALL 0x00c91210                                           
+      call -> 0x00c91210 FUN_00c91210 @ 0x00c91210
+  0x00d93ff8: MOV EDX,dword ptr [0x0126835c]                            
+  0x00d93ffe: PUSH EDX                                                  
+  0x00d93fff: CALL dword ptr [0x00fdf044]                               
+      call -> 0x00000007 ???
+  0x00d94005: MOV EBX,EAX                                               
+  0x00d94007: MOV ECX,dword ptr [EBX + 0x4]                             
+  0x00d9400a: CMP ECX,dword ptr [EBX + 0xc]                             
+  0x00d9400d: JNC 0x00d94028                                            
+  0x00d9400f: MOV dword ptr [ECX],0x1076f38                             
+  0x00d94015: RDTSC                                                     
+  0x00d94017: MOV dword ptr [ESP + 0x34],EAX                            
+  0x00d9401b: MOV EAX,dword ptr [ESP + 0x34]                            
+  0x00d9401f: MOV dword ptr [ECX + 0x4],EAX                             
+  0x00d94022: ADD ECX,0xc                                               
+
+======================================================================
+C911D0 enter critical section @ 0x00c911d0
+======================================================================
+  Function: FUN_00c911d0 @ 0x00c911d0, Size: 23 bytes
+
+void __fastcall FUN_00c911d0(int param_1)
+
+{
+  if (*(LPCRITICAL_SECTION *)(param_1 + 0xb8) != (LPCRITICAL_SECTION)0x0) {
+                    /* WARNING: Could not recover jumptable at 0x00c911de. Too many branches */
+                    /* WARNING: Treating indirect jump as call */
+    EnterCriticalSection(*(LPCRITICAL_SECTION *)(param_1 + 0xb8));
+    return;
+  }
+  return;
+}
+
+
+
+======================================================================
+C91210 leave critical section @ 0x00c91210
+======================================================================
+  Function: FUN_00c91210 @ 0x00c91210, Size: 23 bytes
+
+void __fastcall FUN_00c91210(int param_1)
+
+{
+  if (*(LPCRITICAL_SECTION *)(param_1 + 0xb8) != (LPCRITICAL_SECTION)0x0) {
+                    /* WARNING: Could not recover jumptable at 0x00c9121e. Too many branches */
+                    /* WARNING: Treating indirect jump as call */
+    LeaveCriticalSection(*(LPCRITICAL_SECTION *)(param_1 + 0xb8));
+    return;
+  }
+  return;
+}
+
+
+
+======================================================================
+CF7080 StAddAgt side-effect boundary @ 0x00cf7080
+======================================================================
+  Function: FUN_00cf7080 @ 0x00cf7080, Size: 103 bytes
+
+void __thiscall FUN_00cf7080(int param_1,int *param_2,int param_3,int *param_4)
+
+{
+  int iVar1;
+  int *piVar2;
+  char *pcVar3;
+  
+  piVar2 = param_4;
+  iVar1 = param_3;
+  while (iVar1 = iVar1 + -1, -1 < iVar1) {
+    pcVar3 = (char *)(**(code **)(*piVar2 + 4))
+                               (&param_3,(int)*(char *)(*param_2 + 5) + *param_2,
+                                (int)*(char *)(param_2[1] + 5) + param_2[1]);
+    if (*pcVar3 != '\0') {
+      (**(code **)(**(int **)(param_1 +
+                             ((int)*(char *)(param_2[1] + 4) + *(char *)(*param_2 + 4) * 8) * 4) + 4
+                  ))(param_2);
+    }
+    param_2 = param_2 + 2;
+  }
+  return;
+}
+
+
+
+----------------------------------------------------------------------
+References TO 0x00c911d0 (C911D0)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x00d931e8 (in FUN_00d931a0 @ 0x00d931a0)
+  UNCONDITIONAL_CALL @ 0x00d0d74d (in FUN_00d0d3f0 @ 0x00d0d3f0)
+  UNCONDITIONAL_CALL @ 0x00d936f8 (in FUN_00d93380 @ 0x00d93380)
+  UNCONDITIONAL_CALL @ 0x00d93f53 (in FUN_00d93ba0 @ 0x00d93ba0)
+  Total printed: 4
+
+----------------------------------------------------------------------
+References TO 0x00c91210 (C91210)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x00d932b1 (in FUN_00d931a0 @ 0x00d931a0)
+  UNCONDITIONAL_CALL @ 0x00d0d7e1 (in FUN_00d0d3f0 @ 0x00d0d3f0)
+  UNCONDITIONAL_CALL @ 0x00d93742 (in FUN_00d93380 @ 0x00d93380)
+  UNCONDITIONAL_CALL @ 0x00d93ff3 (in FUN_00d93ba0 @ 0x00d93ba0)
+  Total printed: 4
+
+----------------------------------------------------------------------
+References TO 0x00cf7080 (CF7080)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x00c95030 (in FUN_00c94bd0 @ 0x00c94bd0)
+  UNCONDITIONAL_CALL @ 0x00c956e2 (in FUN_00c954e0 @ 0x00c954e0)
+  UNCONDITIONAL_CALL @ 0x00c96ae5 (in FUN_00c96a20 @ 0x00c96a20)
+  UNCONDITIONAL_CALL @ 0x00c94b15 (in FUN_00c946e0 @ 0x00c946e0)
+  UNCONDITIONAL_CALL @ 0x00cb5ab1 (in FUN_00cb59f0 @ 0x00cb59f0)
+  UNCONDITIONAL_CALL @ 0x00cb5bb3 (in FUN_00cb5b10 @ 0x00cb5b10)
+  UNCONDITIONAL_CALL @ 0x00cf9fad (in FUN_00cf9c60 @ 0x00cf9c60)
+  UNCONDITIONAL_CALL @ 0x00d0801a (in FUN_00d07ec0 @ 0x00d07ec0)
+  UNCONDITIONAL_CALL @ 0x00cb5908 (in FUN_00cb5750 @ 0x00cb5750)
+  UNCONDITIONAL_CALL @ 0x00c9145f (in FUN_00c913b0 @ 0x00c913b0)
+  UNCONDITIONAL_CALL @ 0x00d0d7d1 (in FUN_00d0d3f0 @ 0x00d0d3f0)
+  UNCONDITIONAL_CALL @ 0x00d93fdf (in FUN_00d93ba0 @ 0x00d93ba0)
+  Total printed: 12
+
+----------------------------------------------------------------------
+Calls FROM crash worker (0x00d0d3f0)
+----------------------------------------------------------------------
+  0x00d0d40a -> 0x00000007 ???
+  0x00d0d455 -> 0x00c85750 FUN_00c85750 @ 0x00c85750
+  0x00d0d492 -> 0x00c85750 FUN_00c85750 @ 0x00c85750
+  0x00d0d4b9 -> 0x00c85750 FUN_00c85750 @ 0x00c85750
+  0x00d0d4d3 -> 0x00c85750 FUN_00c85750 @ 0x00c85750
+  0x00d0d545 -> 0x00d1a330 FUN_00d1a330 @ 0x00d1a330
+  0x00d0d5d3 -> 0x00000007 ???
+  0x00d0d60b -> 0x00d97050 FUN_00d97050 @ 0x00d97050
+  0x00d0d630 -> 0x00d97060 FUN_00d97060 @ 0x00d97060
+  0x00d0d635 -> 0x00c85750 FUN_00c85750 @ 0x00c85750
+  0x00d0d63c -> 0x00c85750 FUN_00c85750 @ 0x00c85750
+  0x00d0d65e -> 0x00000007 ???
+  0x00d0d68d -> 0x00cf7130 FUN_00cf7130 @ 0x00cf7130
+  0x00d0d6a3 -> 0x00000007 ???
+  0x00d0d6dc -> 0x00000007 ???
+  0x00d0d719 -> 0x00000007 ???
+  0x00d0d74d -> 0x00c911d0 FUN_00c911d0 @ 0x00c911d0
+  0x00d0d75f -> 0x00cf70f0 FUN_00cf70f0 @ 0x00cf70f0
+  0x00d0d768 -> 0x00c85750 FUN_00c85750 @ 0x00c85750
+  0x00d0d790 -> 0x00000007 ???
+  0x00d0d7d1 -> 0x00cf7080 FUN_00cf7080 @ 0x00cf7080
+  0x00d0d7e1 -> 0x00c91210 FUN_00c91210 @ 0x00c91210
+  0x00d0d7ed -> 0x00000007 ???
+  0x00d0d823 -> 0x00c85750 FUN_00c85750 @ 0x00c85750
+  0x00d0d82a -> 0x00c85750 FUN_00c85750 @ 0x00c85750
+  0x00d0d870 -> 0x00c85750 FUN_00c85750 @ 0x00c85750
+  0x00d0d877 -> 0x00c85750 FUN_00c85750 @ 0x00c85750
+  Total printed: 27
+
+======================================================================
+Enter/leave pair regions: crash worker FUN_00D0D3F0 @ 0x00d0d3f0
+======================================================================
+  C911D0 calls: 1, C91210 calls: 1
+
+  Local context for C911D0 enter at 0x00d0d74d
+    0x00d0d72d: MOV dword ptr [ESP + 0x18],EAX                            
+    0x00d0d731: MOV EDX,dword ptr [ESP + 0x18]                            
+    0x00d0d735: MOV dword ptr [ECX + 0x4],EDX                             
+    0x00d0d738: ADD ECX,0xc                                               
+    0x00d0d73b: MOV dword ptr [ESI + 0x4],ECX                             
+    0x00d0d73e: MOV EDI,dword ptr [ESP + 0x4c]                            
+    0x00d0d742: MOV EAX,dword ptr [EDI]                                   
+    0x00d0d744: MOV ECX,dword ptr [EAX + 0xcc]                            
+    0x00d0d74a: PUSH ECX                                                  
+    0x00d0d74b: MOV ECX,EBP                                               
+    0x00d0d74d: CALL 0x00c911d0                                            << C911D0 enter
+    0x00d0d752: MOV EDX,dword ptr [ESP + 0x2c]                            
+    0x00d0d756: MOV EAX,dword ptr [ESP + 0x28]                            
+    0x00d0d75a: MOV ECX,dword ptr [EBP + 0x64]                            
+    0x00d0d75d: PUSH EDX                                                  
+    0x00d0d75e: PUSH EAX                                                  
+    0x00d0d75f: CALL 0x00cf70f0                                           
+    0x00d0d764: MOV ESI,dword ptr [ESP + 0x3c]                            
+    0x00d0d768: CALL 0x00c85750                                           
+    0x00d0d76d: MOV ECX,dword ptr [EAX + 0x10]                            
+    0x00d0d770: MOV EDX,dword ptr [ECX]                                   
+    0x00d0d772: MOV EAX,dword ptr [EDX + 0x24]                            
+    0x00d0d775: SHL ESI,0xa                                               
+    0x00d0d778: PUSH ESI                                                  
+
+  Local context for C91210 leave at 0x00d0d7e1
+    0x00d0d7c7: PUSH EAX                                                  
+    0x00d0d7c8: MOV EAX,dword ptr [ESP + 0x40]                            
+    0x00d0d7cc: PUSH EAX                                                  
+    0x00d0d7cd: PUSH ECX                                                  
+    0x00d0d7ce: MOV ECX,dword ptr [EBP + 0x64]                            
+    0x00d0d7d1: CALL 0x00cf7080                                           
+    0x00d0d7d6: MOV EDX,dword ptr [EDI]                                   
+    0x00d0d7d8: MOV EAX,dword ptr [EDX + 0xcc]                            
+    0x00d0d7de: PUSH EAX                                                  
+    0x00d0d7df: MOV ECX,EBP                                               
+    0x00d0d7e1: CALL 0x00c91210                                            << C91210 leave
+    0x00d0d7e6: MOV ECX,dword ptr [0x0126835c]                            
+    0x00d0d7ec: PUSH ECX                                                  
+    0x00d0d7ed: CALL EBX                                                  
+    0x00d0d7ef: MOV ESI,EAX                                               
+    0x00d0d7f1: MOV ECX,dword ptr [ESI + 0x4]                             
+    0x00d0d7f4: POP EBP                                                   
+    0x00d0d7f5: CMP ECX,dword ptr [ESI + 0xc]                             
+    0x00d0d7f8: JNC 0x00d0d813                                            
+    0x00d0d7fa: MOV dword ptr [ECX],0x1076f38                             
+    0x00d0d800: RDTSC                                                     
+    0x00d0d802: MOV dword ptr [ESP + 0x1c],EAX                            
+    0x00d0d806: MOV EDX,dword ptr [ESP + 0x1c]                            
+    0x00d0d80a: MOV dword ptr [ECX + 0x4],EDX                             
+
+  Region C911D0 -> C91210: 0x00d0d74d..0x00d0d7e1
+    0x00d0d74d: CALL 0x00c911d0
+    0x00d0d781: MOV EDX,dword ptr [ECX + 0xcc]
+    0x00d0d7d1: CALL 0x00cf7080
+    0x00d0d7d8: MOV EAX,dword ptr [EDX + 0xcc]
+    0x00d0d7e1: CALL 0x00c91210
+    Interesting instructions printed: 5
+
+======================================================================
+Enter/leave pair regions: sibling worker FUN_00D931A0 @ 0x00d931a0
+======================================================================
+  C911D0 calls: 1, C91210 calls: 1
+
+  Local context for C911D0 enter at 0x00d931e8
+    0x00d931c9: MOV dword ptr [ESP + 0xc],EAX                             
+    0x00d931cd: MOV EDX,dword ptr [ESP + 0xc]                             
+    0x00d931d1: MOV dword ptr [ECX + 0x4],EDX                             
+    0x00d931d4: ADD ECX,0x10                                              
+    0x00d931d7: MOV dword ptr [ESI + 0x4],ECX                             
+    0x00d931da: MOV EBP,dword ptr [ESP + 0x1c]                            
+    0x00d931de: MOV ESI,dword ptr [EBP + 0x14]                            
+    0x00d931e1: MOV EAX,dword ptr [ESP + 0x14]                            
+    0x00d931e5: MOV ECX,dword ptr [EAX]                                   
+    0x00d931e7: PUSH ESI                                                  
+    0x00d931e8: CALL 0x00c911d0                                            << C911D0 enter
+    0x00d931ed: MOV ECX,dword ptr [EBP + 0x20]                            
+    0x00d931f0: MOV EDX,dword ptr [ECX]                                   
+    0x00d931f2: XOR EBX,EBX                                               
+    0x00d931f4: MOV dword ptr [ESP + 0xc],EDX                             
+    0x00d931f8: TEST EDX,EDX                                              
+    0x00d931fa: JLE 0x00d932a2                                            
+    0x00d93200: PUSH EDI                                                  
+    0x00d93201: LEA EAX,[EDX + -0x4]                                      
+    0x00d93204: CMP EBX,EAX                                               
+    0x00d93206: JGE 0x00d93218                                            
+    0x00d93208: LEA EAX,[EBX + 0x4]                                       
+    0x00d9320b: MOVSX ECX,AX                                              
+    0x00d9320e: MOV EAX,dword ptr [EBP + 0x20]                            
+
+  Local context for C91210 leave at 0x00d932b1
+    0x00d93295: ADD ESP,0xc                                               
+    0x00d93298: INC EBX                                                   
+    0x00d93299: CMP EBX,EDX                                               
+    0x00d9329b: JL 0x00d93201                                             
+    0x00d932a1: POP EDI                                                   
+    0x00d932a2: MOV ECX,dword ptr [EBP + 0x20]                            
+    0x00d932a5: CALL 0x00d965b0                                           
+    0x00d932aa: MOV EDX,dword ptr [ESP + 0x14]                            
+    0x00d932ae: MOV ECX,dword ptr [EDX]                                   
+    0x00d932b0: PUSH ESI                                                  
+    0x00d932b1: CALL 0x00c91210                                            << C91210 leave
+    0x00d932b6: MOV EAX,[0x0126835c]                                      
+    0x00d932bb: PUSH EAX                                                  
+    0x00d932bc: CALL dword ptr [0x00fdf044]                               
+    0x00d932c2: MOV ECX,EAX                                               
+    0x00d932c4: MOV ESI,dword ptr [ECX + 0x4]                             
+    0x00d932c7: CMP ESI,dword ptr [ECX + 0xc]                             
+    0x00d932ca: JNC 0x00d932e5                                            
+    0x00d932cc: MOV dword ptr [ESI],0x1076f38                             
+    0x00d932d2: RDTSC                                                     
+    0x00d932d4: MOV dword ptr [ESP + 0x1c],EAX                            
+    0x00d932d8: MOV EDX,dword ptr [ESP + 0x1c]                            
+    0x00d932dc: MOV dword ptr [ESI + 0x4],EDX                             
+    0x00d932df: ADD ESI,0xc                                               
+
+  Region C911D0 -> C91210: 0x00d931e8..0x00d932b1
+    0x00d931e8: CALL 0x00c911d0
+    0x00d932b1: CALL 0x00c91210
+    Interesting instructions printed: 2
+
+======================================================================
+Enter/leave pair regions: sibling worker FUN_00D93380 @ 0x00d93380
+======================================================================
+  C911D0 calls: 1, C91210 calls: 1
+
+  Local context for C911D0 enter at 0x00d936f8
+    0x00d936d6: OR ECX,dword ptr [ESP + 0x50]                             
+    0x00d936da: OR ECX,dword ptr [ESP + 0x4c]                             
+    0x00d936de: OR ECX,dword ptr [ESP + 0x48]                             
+    0x00d936e2: JNZ 0x00d936ee                                            
+    0x00d936e4: CMP dword ptr [ESP + 0x74],EDI                            
+    0x00d936e8: JZ 0x00d937b4                                             
+    0x00d936ee: MOV ESI,dword ptr [ESP + 0xc]                             
+    0x00d936f2: MOV EDI,dword ptr [EBP + 0x8]                             
+    0x00d936f5: MOV ECX,dword ptr [EDI]                                   
+    0x00d936f7: PUSH ESI                                                  
+    0x00d936f8: CALL 0x00c911d0                                            << C911D0 enter
+    0x00d936fd: MOV EAX,dword ptr [ESI + 0x8]                             
+    0x00d93700: MOV ECX,dword ptr [ESP + 0x48]                            
+    0x00d93704: CMP EAX,ECX                                               
+    0x00d93706: JG 0x00d9370a                                             
+    0x00d93708: MOV EAX,ECX                                               
+    0x00d9370a: MOV dword ptr [ESI + 0x8],EAX                             
+    0x00d9370d: MOV EDX,dword ptr [ESP + 0x4c]                            
+    0x00d93711: ADD dword ptr [ESI + 0xc],EDX                             
+    0x00d93714: MOV EAX,dword ptr [ESP + 0x50]                            
+    0x00d93718: ADD dword ptr [ESI + 0x10],EAX                            
+    0x00d9371b: MOV ECX,dword ptr [ESP + 0x54]                            
+    0x00d9371f: ADD dword ptr [ESI + 0x14],ECX                            
+    0x00d93722: MOV EAX,dword ptr [ESP + 0x74]                            
+
+  Local context for C91210 leave at 0x00d93742
+    0x00d9372a: MOV EDX,dword ptr [ESP + 0x70]                            
+    0x00d9372e: MOV ECX,dword ptr [EDI]                                   
+    0x00d93730: PUSH EAX                                                  
+    0x00d93731: LEA EAX,[ESP + EDX*0x1 + 0x74]                            
+    0x00d93735: PUSH EAX                                                  
+    0x00d93736: PUSH ECX                                                  
+    0x00d93737: CALL 0x00df25f0                                           
+    0x00d9373c: ADD ESP,0xc                                               
+    0x00d9373f: MOV ECX,dword ptr [EDI]                                   
+    0x00d93741: PUSH ESI                                                  
+    0x00d93742: CALL 0x00c91210                                            << C91210 leave
+    0x00d93747: JMP 0x00d937b4                                            
+    0x00d93749: MOVSX EDX,word ptr [ECX + 0x24]                           
+    0x00d9374d: MOV ESI,dword ptr [EAX + EDX*0x4 + 0xc]                   
+    0x00d93751: MOV EAX,dword ptr [ESP + 0x48]                            
+    0x00d93755: MOV dword ptr [ESI],EAX                                   
+    0x00d93757: MOV ECX,dword ptr [ESP + 0x4c]                            
+    0x00d9375b: MOV dword ptr [ESI + 0x4],ECX                             
+    0x00d9375e: MOV EDX,dword ptr [ESP + 0x50]                            
+    0x00d93762: MOV dword ptr [ESI + 0x8],EDX                             
+    0x00d93765: MOV EAX,dword ptr [ESP + 0x54]                            
+    0x00d93769: MOV dword ptr [ESI + 0xc],EAX                             
+    0x00d9376c: MOV EDX,dword ptr [ESP + 0x74]                            
+    0x00d93770: MOV EBX,EDX                                               
+
+  Region C911D0 -> C91210: 0x00d936f8..0x00d93742
+    0x00d936f8: CALL 0x00c911d0
+    0x00d93742: CALL 0x00c91210
+    Interesting instructions printed: 2
+
+======================================================================
+Enter/leave pair regions: sibling worker FUN_00D93BA0 @ 0x00d93ba0
+======================================================================
+  C911D0 calls: 1, C91210 calls: 1
+
+  Local context for C911D0 enter at 0x00d93f53
+    0x00d93f33: MOV dword ptr [ESP + 0x2c],EAX                            
+    0x00d93f37: MOV EAX,dword ptr [ESP + 0x2c]                            
+    0x00d93f3b: MOV dword ptr [ECX + 0x4],EAX                             
+    0x00d93f3e: ADD ECX,0xc                                               
+    0x00d93f41: MOV dword ptr [EBP + 0x4],ECX                             
+    0x00d93f44: MOV ECX,dword ptr [ESP + 0x10]                            
+    0x00d93f48: MOV EDX,dword ptr [ECX]                                   
+    0x00d93f4a: MOV EAX,dword ptr [EDX + 0xcc]                            
+    0x00d93f50: PUSH EAX                                                  
+    0x00d93f51: MOV ECX,EBX                                               
+    0x00d93f53: CALL 0x00c911d0                                            << C911D0 enter
+    0x00d93f58: MOV ECX,dword ptr [ESP + 0x4c]                            
+    0x00d93f5c: MOV EDX,dword ptr [ESP + 0x48]                            
+    0x00d93f60: PUSH ECX                                                  
+    0x00d93f61: MOV ECX,dword ptr [EBX + 0x64]                            
+    0x00d93f64: PUSH EDX                                                  
+    0x00d93f65: CALL 0x00cf70f0                                           
+    0x00d93f6a: MOV EBP,dword ptr [ESP + 0x5c]                            
+    0x00d93f6e: CALL 0x00c85750                                           
+    0x00d93f73: MOV ECX,dword ptr [EAX + 0x10]                            
+    0x00d93f76: MOV EAX,dword ptr [ECX]                                   
+    0x00d93f78: MOV EDX,dword ptr [EAX + 0x24]                            
+    0x00d93f7b: SHL EBP,0xa                                               
+    0x00d93f7e: PUSH EBP                                                  
+
+  Local context for C91210 leave at 0x00d93ff3
+    0x00d93fd6: MOV EAX,dword ptr [ESP + 0x60]                            
+    0x00d93fda: PUSH EAX                                                  
+    0x00d93fdb: PUSH ECX                                                  
+    0x00d93fdc: MOV ECX,dword ptr [EBX + 0x64]                            
+    0x00d93fdf: CALL 0x00cf7080                                           
+    0x00d93fe4: MOV EDX,dword ptr [ESP + 0x10]                            
+    0x00d93fe8: MOV EAX,dword ptr [EDX]                                   
+    0x00d93fea: MOV ECX,dword ptr [EAX + 0xcc]                            
+    0x00d93ff0: PUSH ECX                                                  
+    0x00d93ff1: MOV ECX,EBX                                               
+    0x00d93ff3: CALL 0x00c91210                                            << C91210 leave
+    0x00d93ff8: MOV EDX,dword ptr [0x0126835c]                            
+    0x00d93ffe: PUSH EDX                                                  
+    0x00d93fff: CALL dword ptr [0x00fdf044]                               
+    0x00d94005: MOV EBX,EAX                                               
+    0x00d94007: MOV ECX,dword ptr [EBX + 0x4]                             
+    0x00d9400a: CMP ECX,dword ptr [EBX + 0xc]                             
+    0x00d9400d: JNC 0x00d94028                                            
+    0x00d9400f: MOV dword ptr [ECX],0x1076f38                             
+    0x00d94015: RDTSC                                                     
+    0x00d94017: MOV dword ptr [ESP + 0x34],EAX                            
+    0x00d9401b: MOV EAX,dword ptr [ESP + 0x34]                            
+    0x00d9401f: MOV dword ptr [ECX + 0x4],EAX                             
+    0x00d94022: ADD ECX,0xc                                               
+
+  Region C911D0 -> C91210: 0x00d93f53..0x00d93ff3
+    0x00d93f53: CALL 0x00c911d0
+    0x00d93f8b: MOV EDX,dword ptr [ECX + 0xcc]
+    0x00d93fdf: CALL 0x00cf7080
+    0x00d93fea: MOV ECX,dword ptr [EAX + 0xcc]
+    0x00d93ff3: CALL 0x00c91210
+    Interesting instructions printed: 5
+
+Questions this output must answer before code changes:
+  1. Is the C911D0 argument exactly the island pointer we must pass to C91210?
+  2. Is the crash reread only needed to recompute the same island pointer?
+  3. Do all C911D0/C91210 users follow the same saveable pattern?
+  4. Is there enough local stack/register space for a tiny patch without changing frame layout?

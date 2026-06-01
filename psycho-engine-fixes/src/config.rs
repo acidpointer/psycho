@@ -157,6 +157,10 @@ pub struct EngineFixesConfig {
     pub extraownership_invalid_owner_guard: bool,
     /// Ignore stale linked-reference child lists during save-to-save cleanup.
     pub linked_ref_children_stale_list_guard: bool,
+    /// Treat linked-reference targets with invalid base forms as not matching the type gate.
+    pub linked_ref_target_base_form_guard: bool,
+    /// Skip ragdoll update frames while the Havok bone pointer table is not ready.
+    pub ragdoll_null_bone_guard: bool,
     /// Compact NULL hkpEntity slots before hkpWorld::addEntityBatch.
     pub havok_add_entity_batch_null_guard: bool,
     /// Compact NULL hkpWorld pending-add slots before flush loops use them.
@@ -165,6 +169,8 @@ pub struct EngineFixesConfig {
     pub havok_narrowphase_invalid_pair_guard: bool,
     /// Skip AddedToWorld callback dispatch for NULL hkpEntity pointers.
     pub havok_post_add_null_entity_guard: bool,
+    /// Replace unsafe Havok remove-agent unlock dead-argument rereads.
+    pub havok_remove_agent_null_reread_guard: bool,
     /// Make the game's inlined memset a no-op for NULL destinations.
     pub memset_null_dst_guard: bool,
 }
@@ -177,10 +183,13 @@ impl Default for EngineFixesConfig {
             entrydata_invalid_form_guard: true,
             extraownership_invalid_owner_guard: true,
             linked_ref_children_stale_list_guard: true,
+            linked_ref_target_base_form_guard: true,
+            ragdoll_null_bone_guard: true,
             havok_add_entity_batch_null_guard: true,
             havok_pending_add_null_guard: true,
             havok_narrowphase_invalid_pair_guard: true,
             havok_post_add_null_entity_guard: true,
+            havok_remove_agent_null_reread_guard: true,
             memset_null_dst_guard: true,
         }
     }
@@ -214,6 +223,12 @@ impl EngineFixesConfig {
             linked_ref_children_stale_list_guard: raw
                 .linked_ref_children_stale_list_guard
                 .unwrap_or(default.linked_ref_children_stale_list_guard),
+            linked_ref_target_base_form_guard: raw
+                .linked_ref_target_base_form_guard
+                .unwrap_or(default.linked_ref_target_base_form_guard),
+            ragdoll_null_bone_guard: raw
+                .ragdoll_null_bone_guard
+                .unwrap_or(default.ragdoll_null_bone_guard),
             havok_add_entity_batch_null_guard: raw
                 .havok_add_entity_batch_null_guard
                 .unwrap_or(default.havok_add_entity_batch_null_guard),
@@ -226,6 +241,9 @@ impl EngineFixesConfig {
             havok_post_add_null_entity_guard: raw
                 .havok_post_add_null_entity_guard
                 .unwrap_or(default.havok_post_add_null_entity_guard),
+            havok_remove_agent_null_reread_guard: raw
+                .havok_remove_agent_null_reread_guard
+                .unwrap_or(default.havok_remove_agent_null_reread_guard),
             memset_null_dst_guard: raw
                 .memset_null_dst_guard
                 .unwrap_or(default.memset_null_dst_guard),
@@ -307,10 +325,13 @@ struct RawEngineFixesConfig {
     entrydata_invalid_form_guard: Option<bool>,
     extraownership_invalid_owner_guard: Option<bool>,
     linked_ref_children_stale_list_guard: Option<bool>,
+    linked_ref_target_base_form_guard: Option<bool>,
+    ragdoll_null_bone_guard: Option<bool>,
     havok_add_entity_batch_null_guard: Option<bool>,
     havok_pending_add_null_guard: Option<bool>,
     havok_narrowphase_invalid_pair_guard: Option<bool>,
     havok_post_add_null_entity_guard: Option<bool>,
+    havok_remove_agent_null_reread_guard: Option<bool>,
     memset_null_dst_guard: Option<bool>,
 }
 

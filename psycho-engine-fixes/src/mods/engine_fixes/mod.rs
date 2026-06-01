@@ -15,6 +15,7 @@ mod havok;
 mod linkedrefs;
 mod memset;
 mod navmesh;
+mod ragdoll;
 mod statics;
 mod types;
 
@@ -24,6 +25,8 @@ pub fn install(config: &EngineFixesConfig) -> anyhow::Result<()> {
     install_entrydata_invalid_form(config)?;
     install_extraownership_invalid_owner(config)?;
     install_linked_ref_children_stale_list(config)?;
+    install_linked_ref_target_base_form(config)?;
+    install_ragdoll_null_bone(config)?;
     install_havok_guards(config)?;
     install_memset_null_dst(config)?;
 
@@ -113,6 +116,39 @@ fn install_linked_ref_children_stale_list(config: &EngineFixesConfig) -> anyhow:
     Ok(())
 }
 
+fn install_linked_ref_target_base_form(config: &EngineFixesConfig) -> anyhow::Result<()> {
+    if !config.linked_ref_target_base_form_guard {
+        log::info!("[LINKED_REFS] Target base-form guard disabled by config");
+        return Ok(());
+    }
+
+    linkedrefs::install_target_base_form_guard()?;
+    log::info!("[LINKED_REFS] Target base-form guard active");
+    Ok(())
+}
+
+fn install_ragdoll_null_bone(config: &EngineFixesConfig) -> anyhow::Result<()> {
+    if !config.ragdoll_null_bone_guard {
+        log::info!("[RAGDOLL] Null bone-array guard disabled by config");
+        return Ok(());
+    }
+
+    statics::RAGDOLL_BONE_TRANSFORM_UPDATE_HOOK.init(
+        "ragdoll_bone_transform_update_guard",
+        statics::RAGDOLL_BONE_TRANSFORM_UPDATE_ADDR as *mut c_void,
+        ragdoll::hook_ragdoll_bone_transform_update,
+    )?;
+    statics::RAGDOLL_ALTERNATE_UPDATE_HOOK.init(
+        "ragdoll_alternate_update_guard",
+        statics::RAGDOLL_ALTERNATE_UPDATE_ADDR as *mut c_void,
+        ragdoll::hook_ragdoll_alternate_update,
+    )?;
+    statics::RAGDOLL_BONE_TRANSFORM_UPDATE_HOOK.enable()?;
+    statics::RAGDOLL_ALTERNATE_UPDATE_HOOK.enable()?;
+    log::info!("[RAGDOLL] Null bone-array guard active");
+    Ok(())
+}
+
 fn install_havok_guards(config: &EngineFixesConfig) -> anyhow::Result<()> {
     if config.havok_add_entity_batch_null_guard {
         statics::HAVOK_ADD_ENTITY_BATCH_HOOK.init(
@@ -153,6 +189,10 @@ fn install_havok_guards(config: &EngineFixesConfig) -> anyhow::Result<()> {
         )?;
         statics::HAVOK_ENTITY_POST_ADD_HOOK.enable()?;
         log::info!("[HAVOK] Post-add NULL entity guard active");
+    }
+
+    if config.havok_remove_agent_null_reread_guard {
+        havok::install_remove_agent_unlock_guard()?;
     }
 
     Ok(())
