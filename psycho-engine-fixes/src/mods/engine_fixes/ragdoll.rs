@@ -21,6 +21,8 @@ use windows::Win32::System::Memory::{MEM_COMMIT, PAGE_GUARD, PAGE_NOACCESS};
 
 use libpsycho::os::windows::winapi::virtual_query;
 
+use crate::mods::diagnostics;
+
 use super::statics;
 
 const LOW_POINTER_LIMIT: usize = 0x10000;
@@ -45,24 +47,23 @@ static SKIPPED_UPDATES: AtomicU64 = AtomicU64::new(0);
 static GUARD_CALLS: AtomicU64 = AtomicU64::new(0);
 static GUARD_SKIPS: AtomicU64 = AtomicU64::new(0);
 static GUARD_VIRTUAL_QUERIES: AtomicU64 = AtomicU64::new(0);
-static GUARD_TOTAL_TICKS: AtomicU64 = AtomicU64::new(0);
-static GUARD_MAX_TICKS: AtomicU64 = AtomicU64::new(0);
+static GUARD_TOTAL_US: AtomicU64 = AtomicU64::new(0);
+static GUARD_MAX_US: AtomicU64 = AtomicU64::new(0);
 static GUARD_LAST_REPORT_MS: AtomicU32 = AtomicU32::new(0);
-static PERF_FREQUENCY: AtomicU64 = AtomicU64::new(0);
-static HITCH_GUARD_CALLS: AtomicU64 = AtomicU64::new(0);
-static HITCH_GUARD_SKIPS: AtomicU64 = AtomicU64::new(0);
+static DIAGNOSTIC_GUARD_CALLS: AtomicU64 = AtomicU64::new(0);
+static DIAGNOSTIC_GUARD_SKIPS: AtomicU64 = AtomicU64::new(0);
 
 const PERF_REPORT_MS: u32 = 5_000;
 
-pub(super) struct HitchCounters {
+pub(super) struct DiagnosticCounters {
     pub calls: u64,
     pub skips: u64,
 }
 
-pub(super) fn take_hitch_counters() -> HitchCounters {
-    HitchCounters {
-        calls: HITCH_GUARD_CALLS.swap(0, Ordering::AcqRel),
-        skips: HITCH_GUARD_SKIPS.swap(0, Ordering::AcqRel),
+pub(super) fn take_diagnostic_counters() -> DiagnosticCounters {
+    DiagnosticCounters {
+        calls: DIAGNOSTIC_GUARD_CALLS.swap(0, Ordering::AcqRel),
+        skips: DIAGNOSTIC_GUARD_SKIPS.swap(0, Ordering::AcqRel),
     }
 }
 
@@ -78,13 +79,13 @@ pub unsafe extern "thiscall" fn hook_ragdoll_bone_transform_update(ragdoll: *mut
         }
     };
 
-    let start = perf_counter();
+    let timer = diagnostics::Stopwatch::start_if_debug();
     if let Err(reason) = ragdoll_ready_for_bone_update(ragdoll) {
-        record_guard_sample(start, true);
+        record_guard_sample(timer, true);
         log_skip("bone-transform", reason, ragdoll);
         return;
     }
-    record_guard_sample(start, false);
+    record_guard_sample(timer, false);
 
     unsafe { original(ragdoll) };
 }
@@ -101,13 +102,13 @@ pub unsafe extern "thiscall" fn hook_ragdoll_alternate_update(ragdoll: *mut c_vo
         }
     };
 
-    let start = perf_counter();
+    let timer = diagnostics::Stopwatch::start_if_debug();
     if let Err(reason) = ragdoll_ready_for_bone_update(ragdoll) {
-        record_guard_sample(start, true);
+        record_guard_sample(timer, true);
         log_skip("alternate", reason, ragdoll);
         return;
     }
-    record_guard_sample(start, false);
+    record_guard_sample(timer, false);
 
     unsafe { original(ragdoll, arg) };
 }
@@ -124,13 +125,13 @@ pub unsafe extern "fastcall" fn hook_ragdoll_save_load_writeback(ragdoll: *mut c
         }
     };
 
-    let start = perf_counter();
+    let timer = diagnostics::Stopwatch::start_if_debug();
     if let Err(reason) = ragdoll_ready_for_bone_update(ragdoll) {
-        record_guard_sample(start, true);
+        record_guard_sample(timer, true);
         log_skip("save-load-writeback", reason, ragdoll);
         return;
     }
-    record_guard_sample(start, false);
+    record_guard_sample(timer, false);
 
     unsafe { original(ragdoll) };
 }
@@ -300,7 +301,7 @@ fn query_readable_region(addr: usize) -> Option<(usize, usize)> {
 
 fn log_skip(site: &'static str, reason: &'static str, ragdoll: *mut c_void) {
     let n = SKIPPED_UPDATES.fetch_add(1, Ordering::Relaxed) + 1;
-    if n != 1 && !n.is_power_of_two() {
+    if !diagnostics::should_log_power_of_two(n) {
         return;
     }
 
@@ -334,38 +335,28 @@ fn format_ragdoll_state(ragdoll: *mut c_void) -> String {
     )
 }
 
-fn record_guard_sample(start: u64, skipped: bool) {
-    GUARD_CALLS.fetch_add(1, Ordering::Relaxed);
-    HITCH_GUARD_CALLS.fetch_add(1, Ordering::Relaxed);
-    if skipped {
-        GUARD_SKIPS.fetch_add(1, Ordering::Relaxed);
-        HITCH_GUARD_SKIPS.fetch_add(1, Ordering::Relaxed);
+fn record_guard_sample(timer: diagnostics::Stopwatch, skipped: bool) {
+    if !diagnostics::debug_enabled() {
+        return;
     }
 
-    let end = perf_counter();
-    if start != 0 && end >= start {
-        let ticks = end - start;
-        GUARD_TOTAL_TICKS.fetch_add(ticks, Ordering::Relaxed);
-        update_max(&GUARD_MAX_TICKS, ticks);
+    GUARD_CALLS.fetch_add(1, Ordering::Relaxed);
+    DIAGNOSTIC_GUARD_CALLS.fetch_add(1, Ordering::Relaxed);
+    if skipped {
+        GUARD_SKIPS.fetch_add(1, Ordering::Relaxed);
+        DIAGNOSTIC_GUARD_SKIPS.fetch_add(1, Ordering::Relaxed);
+    }
+
+    if let Some(elapsed_us) = timer.elapsed_us() {
+        GUARD_TOTAL_US.fetch_add(elapsed_us, Ordering::Relaxed);
+        diagnostics::update_max_u64(&GUARD_MAX_US, elapsed_us);
     }
 
     maybe_log_perf();
 }
 
 fn maybe_log_perf() {
-    let now = libpsycho::os::windows::winapi::get_tick_count();
-    let last = GUARD_LAST_REPORT_MS.load(Ordering::Acquire);
-    if last == 0 {
-        let _ = GUARD_LAST_REPORT_MS.compare_exchange(0, now, Ordering::AcqRel, Ordering::Relaxed);
-        return;
-    }
-    if now.wrapping_sub(last) < PERF_REPORT_MS {
-        return;
-    }
-    if GUARD_LAST_REPORT_MS
-        .compare_exchange(last, now, Ordering::AcqRel, Ordering::Relaxed)
-        .is_err()
-    {
+    if !diagnostics::should_tick(&GUARD_LAST_REPORT_MS, PERF_REPORT_MS) {
         return;
     }
 
@@ -376,10 +367,8 @@ fn maybe_log_perf() {
 
     let skips = GUARD_SKIPS.swap(0, Ordering::AcqRel);
     let queries = GUARD_VIRTUAL_QUERIES.swap(0, Ordering::AcqRel);
-    let total_ticks = GUARD_TOTAL_TICKS.swap(0, Ordering::AcqRel);
-    let max_ticks = GUARD_MAX_TICKS.swap(0, Ordering::AcqRel);
-    let total_us = ticks_to_us(total_ticks);
-    let max_us = ticks_to_us(max_ticks);
+    let total_us = GUARD_TOTAL_US.swap(0, Ordering::AcqRel);
+    let max_us = GUARD_MAX_US.swap(0, Ordering::AcqRel);
     let avg_us = total_us / calls.max(1);
 
     log::debug!(
@@ -391,45 +380,4 @@ fn maybe_log_perf() {
         avg_us,
         max_us,
     );
-}
-
-fn perf_counter() -> u64 {
-    libpsycho::os::windows::winapi::query_performance_counter()
-        .ok()
-        .and_then(|v| u64::try_from(v).ok())
-        .unwrap_or(0)
-}
-
-fn ticks_to_us(ticks: u64) -> u64 {
-    let freq = perf_frequency();
-    if freq == 0 {
-        return 0;
-    }
-    ticks.saturating_mul(1_000_000) / freq
-}
-
-fn perf_frequency() -> u64 {
-    let current = PERF_FREQUENCY.load(Ordering::Acquire);
-    if current != 0 {
-        return current;
-    }
-
-    let freq = libpsycho::os::windows::winapi::query_performance_frequency()
-        .ok()
-        .and_then(|v| u64::try_from(v).ok())
-        .unwrap_or(0);
-    if freq != 0 {
-        PERF_FREQUENCY.store(freq, Ordering::Release);
-    }
-    freq
-}
-
-fn update_max(slot: &AtomicU64, value: u64) {
-    let mut old = slot.load(Ordering::Relaxed);
-    while value > old {
-        match slot.compare_exchange_weak(old, value, Ordering::Relaxed, Ordering::Relaxed) {
-            Ok(_) => return,
-            Err(next) => old = next,
-        }
-    }
 }

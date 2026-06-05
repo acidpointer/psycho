@@ -19,7 +19,7 @@ mod ragdoll;
 mod statics;
 mod types;
 
-pub(crate) struct HitchCounters {
+pub(crate) struct DiagnosticCounters {
     pub(crate) ragdoll_calls: u64,
     pub(crate) ragdoll_skips: u64,
     pub(crate) extra_owner_load_scrubs: u64,
@@ -45,11 +45,11 @@ pub fn observe_event(kind: u32) {
     display::observe_event(kind);
 }
 
-pub(crate) fn take_hitch_counters() -> HitchCounters {
-    let ragdoll = ragdoll::take_hitch_counters();
-    let extra_owner = extraownership::take_hitch_counters();
+pub(crate) fn take_diagnostic_counters() -> DiagnosticCounters {
+    let ragdoll = ragdoll::take_diagnostic_counters();
+    let extra_owner = extraownership::take_diagnostic_counters();
 
-    HitchCounters {
+    DiagnosticCounters {
         ragdoll_calls: ragdoll.calls,
         ragdoll_skips: ragdoll.skips,
         extra_owner_load_scrubs: extra_owner.load_scrubs,

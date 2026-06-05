@@ -24,6 +24,8 @@ use windows::Win32::System::Memory::{
 
 use libpsycho::os::windows::winapi::{replace_call, virtual_query};
 
+use crate::mods::diagnostics;
+
 use super::statics;
 
 const EXTRAOWNERSHIP_TYPE: u8 = 0x21;
@@ -43,21 +45,21 @@ type LoadedFormResolverFn = unsafe extern "C" fn(u32) -> *mut c_void;
 static LOAD_SCRUB_COUNT: AtomicU64 = AtomicU64::new(0);
 static ACCESS_SCRUB_COUNT: AtomicU64 = AtomicU64::new(0);
 static ACCESS_UNREADABLE_COUNT: AtomicU64 = AtomicU64::new(0);
-static HITCH_LOAD_SCRUB_COUNT: AtomicU64 = AtomicU64::new(0);
-static HITCH_ACCESS_SCRUB_COUNT: AtomicU64 = AtomicU64::new(0);
-static HITCH_ACCESS_UNREADABLE_COUNT: AtomicU64 = AtomicU64::new(0);
+static DIAGNOSTIC_LOAD_SCRUB_COUNT: AtomicU64 = AtomicU64::new(0);
+static DIAGNOSTIC_ACCESS_SCRUB_COUNT: AtomicU64 = AtomicU64::new(0);
+static DIAGNOSTIC_ACCESS_UNREADABLE_COUNT: AtomicU64 = AtomicU64::new(0);
 
-pub(super) struct HitchCounters {
+pub(super) struct DiagnosticCounters {
     pub load_scrubs: u64,
     pub access_scrubs: u64,
     pub unreadable: u64,
 }
 
-pub(super) fn take_hitch_counters() -> HitchCounters {
-    HitchCounters {
-        load_scrubs: HITCH_LOAD_SCRUB_COUNT.swap(0, Ordering::AcqRel),
-        access_scrubs: HITCH_ACCESS_SCRUB_COUNT.swap(0, Ordering::AcqRel),
-        unreadable: HITCH_ACCESS_UNREADABLE_COUNT.swap(0, Ordering::AcqRel),
+pub(super) fn take_diagnostic_counters() -> DiagnosticCounters {
+    DiagnosticCounters {
+        load_scrubs: DIAGNOSTIC_LOAD_SCRUB_COUNT.swap(0, Ordering::AcqRel),
+        access_scrubs: DIAGNOSTIC_ACCESS_SCRUB_COUNT.swap(0, Ordering::AcqRel),
+        unreadable: DIAGNOSTIC_ACCESS_UNREADABLE_COUNT.swap(0, Ordering::AcqRel),
     }
 }
 
@@ -107,7 +109,7 @@ unsafe extern "C" fn resolve_loaded_owner_checked(saved_ref: u32) -> *mut c_void
         return owner;
     }
 
-    HITCH_LOAD_SCRUB_COUNT.fetch_add(1, Ordering::Relaxed);
+    DIAGNOSTIC_LOAD_SCRUB_COUNT.fetch_add(1, Ordering::Relaxed);
     log_invalid_owner(&LOAD_SCRUB_COUNT, "load", ptr::null_mut(), owner);
     ptr::null_mut()
 }
@@ -124,7 +126,7 @@ fn scrub_extraownership(extra: *mut c_void) -> *mut c_void {
         return extra;
     }
 
-    HITCH_ACCESS_SCRUB_COUNT.fetch_add(1, Ordering::Relaxed);
+    DIAGNOSTIC_ACCESS_SCRUB_COUNT.fetch_add(1, Ordering::Relaxed);
     log_invalid_owner(&ACCESS_SCRUB_COUNT, "access", extra, owner);
 
     if is_writable(owner_slot as usize, 4) {
@@ -191,9 +193,9 @@ fn is_text_ptr(addr: usize) -> bool {
 }
 
 fn log_unreadable_extra(extra: *mut c_void) {
-    HITCH_ACCESS_UNREADABLE_COUNT.fetch_add(1, Ordering::Relaxed);
+    DIAGNOSTIC_ACCESS_UNREADABLE_COUNT.fetch_add(1, Ordering::Relaxed);
     let n = ACCESS_UNREADABLE_COUNT.fetch_add(1, Ordering::Relaxed) + 1;
-    if n == 1 || n.is_power_of_two() {
+    if diagnostics::should_log_power_of_two(n) {
         log::warn!(
             "[EXTRAOWNERSHIP] unreadable ownership extra hidden: total={} extra=0x{:08X}",
             n,
@@ -209,7 +211,7 @@ fn log_invalid_owner(
     owner: *mut c_void,
 ) {
     let n = counter.fetch_add(1, Ordering::Relaxed) + 1;
-    if n != 1 && !n.is_power_of_two() {
+    if !diagnostics::should_log_power_of_two(n) {
         return;
     }
 

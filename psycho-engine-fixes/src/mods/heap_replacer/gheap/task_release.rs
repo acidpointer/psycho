@@ -18,6 +18,8 @@ use windows::Win32::System::Memory::{MEM_COMMIT, PAGE_GUARD, PAGE_NOACCESS};
 
 use libpsycho::os::windows::winapi::virtual_query;
 
+use crate::mods::diagnostics;
+
 use super::{pool, statics};
 
 const REFCOUNT_OFFSET: usize = 0x08;
@@ -34,21 +36,21 @@ static BAD_VTABLE_COUNT: AtomicU64 = AtomicU64::new(0);
 static QUEUED_TEXTURE_FINAL_COUNT: AtomicU64 = AtomicU64::new(0);
 static TOMBSTONE_COUNT: AtomicU64 = AtomicU64::new(0);
 static CONFIG_LOGGED: AtomicU64 = AtomicU64::new(0);
-static HITCH_QUEUED_TEXTURE_FINAL_COUNT: AtomicU64 = AtomicU64::new(0);
-static HITCH_GUARD_COUNT: AtomicU64 = AtomicU64::new(0);
-static HITCH_TOMBSTONE_COUNT: AtomicU64 = AtomicU64::new(0);
+static DIAGNOSTIC_QUEUED_TEXTURE_FINAL_COUNT: AtomicU64 = AtomicU64::new(0);
+static DIAGNOSTIC_GUARD_COUNT: AtomicU64 = AtomicU64::new(0);
+static DIAGNOSTIC_TOMBSTONE_COUNT: AtomicU64 = AtomicU64::new(0);
 
-pub struct HitchCounters {
+pub struct DiagnosticCounters {
     pub queued_texture_finals: u64,
     pub guards: u64,
     pub tombstones: u64,
 }
 
-pub fn take_hitch_counters() -> HitchCounters {
-    HitchCounters {
-        queued_texture_finals: HITCH_QUEUED_TEXTURE_FINAL_COUNT.swap(0, Ordering::AcqRel),
-        guards: HITCH_GUARD_COUNT.swap(0, Ordering::AcqRel),
-        tombstones: HITCH_TOMBSTONE_COUNT.swap(0, Ordering::AcqRel),
+pub fn take_diagnostic_counters() -> DiagnosticCounters {
+    DiagnosticCounters {
+        queued_texture_finals: DIAGNOSTIC_QUEUED_TEXTURE_FINAL_COUNT.swap(0, Ordering::AcqRel),
+        guards: DIAGNOSTIC_GUARD_COUNT.swap(0, Ordering::AcqRel),
+        tombstones: DIAGNOSTIC_TOMBSTONE_COUNT.swap(0, Ordering::AcqRel),
     }
 }
 
@@ -173,9 +175,9 @@ fn tombstone_freed_task(task: *mut c_void) {
         return;
     };
 
-    HITCH_TOMBSTONE_COUNT.fetch_add(1, Ordering::Relaxed);
+    DIAGNOSTIC_TOMBSTONE_COUNT.fetch_add(1, Ordering::Relaxed);
     let n = TOMBSTONE_COUNT.fetch_add(1, Ordering::Relaxed) + 1;
-    if n.is_power_of_two() {
+    if diagnostics::should_log_power_of_two(n) {
         log::warn!(
             "[TASK_RELEASE] tombstone total={} task=0x{:08x} pool#{} item={} cell={} state={}",
             n,
@@ -245,9 +247,9 @@ fn log_observe(
     dtor: usize,
     refcount: i32,
 ) {
-    HITCH_QUEUED_TEXTURE_FINAL_COUNT.fetch_add(1, Ordering::Relaxed);
+    DIAGNOSTIC_QUEUED_TEXTURE_FINAL_COUNT.fetch_add(1, Ordering::Relaxed);
     let n = counter.fetch_add(1, Ordering::Relaxed) + 1;
-    if n.is_power_of_two() {
+    if diagnostics::should_log_power_of_two(n) {
         log::debug!(
             "[TASK_RELEASE] observe={} total={} task=0x{:08x} vt=0x{:08x} dtor=0x{:08x} rc={}",
             reason,
@@ -268,9 +270,9 @@ fn log_guard(
     dtor: usize,
     refcount: i32,
 ) {
-    HITCH_GUARD_COUNT.fetch_add(1, Ordering::Relaxed);
+    DIAGNOSTIC_GUARD_COUNT.fetch_add(1, Ordering::Relaxed);
     let n = counter.fetch_add(1, Ordering::Relaxed) + 1;
-    if n.is_power_of_two() {
+    if diagnostics::should_log_power_of_two(n) {
         log::warn!(
             "[TASK_RELEASE] guard={} total={} task=0x{:08x} vt=0x{:08x} dtor=0x{:08x} rc={}",
             reason,

@@ -9,7 +9,7 @@ use std::ptr::NonNull;
 use libc::c_void;
 use thiserror::Error;
 use windows::Win32::Foundation::{
-    CloseHandle, GetLastError, HANDLE, HMODULE, HWND, INVALID_HANDLE_VALUE, STILL_ACTIVE,
+    CloseHandle, FILETIME, GetLastError, HANDLE, HMODULE, HWND, INVALID_HANDLE_VALUE, STILL_ACTIVE,
     SetLastError, WIN32_ERROR,
 };
 use windows::Win32::System::Console::{
@@ -30,15 +30,16 @@ use windows::Win32::System::ProcessStatus::{
     EnumProcessModules, GetModuleBaseNameA, GetModuleInformation, MODULEINFO,
 };
 use windows::Win32::System::SystemInformation::{
-    GetSystemDirectoryW, GetTickCount as WinGetTickCount,
+    GetSystemDirectoryW, GetSystemTimeAsFileTime, GetTickCount as WinGetTickCount,
 };
 use windows::Win32::System::SystemServices::MEM_TOP_DOWN;
 use windows::Win32::System::Threading::{
     CRITICAL_SECTION, CreateThread, GetCurrentThreadId as WinGetCurrentThreadId, GetExitCodeThread,
-    InitializeCriticalSection, OpenThread, ReleaseSemaphore as WinReleaseSemaphore,
-    SetThreadPriority, Sleep as WinSleep, THREAD_CREATION_FLAGS, THREAD_PRIORITY,
-    THREAD_PRIORITY_ABOVE_NORMAL, THREAD_PRIORITY_BELOW_NORMAL, THREAD_PRIORITY_HIGHEST,
-    THREAD_PRIORITY_IDLE, THREAD_PRIORITY_LOWEST, THREAD_PRIORITY_MIN, THREAD_PRIORITY_NORMAL,
+    GetProcessTimes, InitializeCriticalSection, OpenThread,
+    ReleaseSemaphore as WinReleaseSemaphore, SetThreadPriority, Sleep as WinSleep,
+    THREAD_CREATION_FLAGS, THREAD_PRIORITY, THREAD_PRIORITY_ABOVE_NORMAL,
+    THREAD_PRIORITY_BELOW_NORMAL, THREAD_PRIORITY_HIGHEST, THREAD_PRIORITY_IDLE,
+    THREAD_PRIORITY_LOWEST, THREAD_PRIORITY_MIN, THREAD_PRIORITY_NORMAL,
     THREAD_PRIORITY_TIME_CRITICAL, THREAD_QUERY_LIMITED_INFORMATION,
     WaitForSingleObject as WinWaitForSingleObject,
 };
@@ -1608,6 +1609,23 @@ pub fn get_tick_count() -> u32 {
     unsafe { WinGetTickCount() }
 }
 
+/// Returns milliseconds since the current process was created.
+pub fn process_elapsed_ms() -> WinapiResult<u64> {
+    let process = unsafe { GetCurrentProcess() };
+    let mut creation = FILETIME::default();
+    let mut exit = FILETIME::default();
+    let mut kernel = FILETIME::default();
+    let mut user = FILETIME::default();
+
+    unsafe { GetProcessTimes(process, &mut creation, &mut exit, &mut kernel, &mut user)? };
+
+    let now = unsafe { GetSystemTimeAsFileTime() };
+    let creation = filetime_to_u64(creation);
+    let now = filetime_to_u64(now);
+
+    Ok(now.saturating_sub(creation) / 10_000)
+}
+
 /// Returns a high-resolution performance counter tick.
 pub fn query_performance_counter() -> WinapiResult<i64> {
     let mut value = 0i64;
@@ -1620,4 +1638,8 @@ pub fn query_performance_frequency() -> WinapiResult<i64> {
     let mut value = 0i64;
     unsafe { QueryPerformanceFrequency(&mut value)? };
     Ok(value)
+}
+
+fn filetime_to_u64(ft: FILETIME) -> u64 {
+    ((ft.dwHighDateTime as u64) << 32) | ft.dwLowDateTime as u64
 }

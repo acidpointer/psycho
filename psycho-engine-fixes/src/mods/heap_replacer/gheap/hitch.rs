@@ -3,9 +3,12 @@
 //! This is diagnostic only. It samples Phase 10 spacing and emits a compact
 //! summary when a frame interval jumps above the recent baseline.
 
-use std::sync::atomic::{AtomicU32, AtomicU64, Ordering};
+use std::{
+    fmt::Write as _,
+    sync::atomic::{AtomicU32, AtomicU64, Ordering},
+};
 
-use crate::mods::{engine_fixes, heap_replacer::scrap_heap};
+use crate::mods::{diagnostics, engine_fixes, heap_replacer::scrap_heap};
 
 use super::engine::globals::{self, PddQueue};
 use super::{block, pool, task_release, va_alloc};
@@ -47,51 +50,165 @@ static WINDOW_HITCHES: AtomicU64 = AtomicU64::new(0);
 static WINDOW_TOTAL_US: AtomicU64 = AtomicU64::new(0);
 static WINDOW_MAX_US: AtomicU64 = AtomicU64::new(0);
 static LAST_REPORT_MS: AtomicU32 = AtomicU32::new(0);
-static PERF_FREQUENCY: AtomicU64 = AtomicU64::new(0);
 static SPAN_CALLS: [AtomicU64; SPAN_COUNT] = [const { AtomicU64::new(0) }; SPAN_COUNT];
 static SPAN_TOTAL_US: [AtomicU64; SPAN_COUNT] = [const { AtomicU64::new(0) }; SPAN_COUNT];
 static SPAN_MAX_US: [AtomicU64; SPAN_COUNT] = [const { AtomicU64::new(0) }; SPAN_COUNT];
 
+#[derive(Clone, Copy, Default)]
+struct SpanStats {
+    calls: u64,
+    total_us: u64,
+    max_us: u64,
+}
+
+#[derive(Clone, Copy)]
+struct SpanDescriptor {
+    span: Span,
+    name: &'static str,
+}
+
+const SPAN_DESCRIPTORS: [SpanDescriptor; SPAN_COUNT] = [
+    SpanDescriptor {
+        span: Span::Phase7DeadSet,
+        name: "7ds",
+    },
+    SpanDescriptor {
+        span: Span::Phase7Pdd,
+        name: "7pdd",
+    },
+    SpanDescriptor {
+        span: Span::Phase7OptionalPdd,
+        name: "7opt",
+    },
+    SpanDescriptor {
+        span: Span::Phase10Original,
+        name: "10orig",
+    },
+    SpanDescriptor {
+        span: Span::Phase10Pre,
+        name: "10pre",
+    },
+    SpanDescriptor {
+        span: Span::Phase10AudioUpdate,
+        name: "pre32",
+    },
+    SpanDescriptor {
+        span: Span::Phase10AudioWorker,
+        name: "pre33",
+    },
+    SpanDescriptor {
+        span: Span::RadioSignalScan,
+        name: "radScan",
+    },
+    SpanDescriptor {
+        span: Span::RadioStationUpdate,
+        name: "radUpd",
+    },
+    SpanDescriptor {
+        span: Span::Phase10PreTail,
+        name: "prefb",
+    },
+    SpanDescriptor {
+        span: Span::Phase10WorldUpdate,
+        name: "pred7",
+    },
+    SpanDescriptor {
+        span: Span::Phase10Mid,
+        name: "10mid",
+    },
+    SpanDescriptor {
+        span: Span::Phase10QueueDrain,
+        name: "10q",
+    },
+    SpanDescriptor {
+        span: Span::Phase10Post,
+        name: "10post",
+    },
+    SpanDescriptor {
+        span: Span::Phase10Pressure,
+        name: "10prs",
+    },
+    SpanDescriptor {
+        span: Span::Phase10Tail,
+        name: "10tail",
+    },
+    SpanDescriptor {
+        span: Span::AiStartOriginal,
+        name: "aiS",
+    },
+    SpanDescriptor {
+        span: Span::AiJoinOriginal,
+        name: "aiJ",
+    },
+    SpanDescriptor {
+        span: Span::HavokStopStartOriginal,
+        name: "hSS",
+    },
+    SpanDescriptor {
+        span: Span::HavokLockOriginal,
+        name: "hkL",
+    },
+    SpanDescriptor {
+        span: Span::HavokUnlockOriginal,
+        name: "hkU",
+    },
+];
+
 #[derive(Default)]
 struct SpanSnapshot {
-    calls: [u64; SPAN_COUNT],
-    total_us: [u64; SPAN_COUNT],
-    max_us: [u64; SPAN_COUNT],
+    spans: [SpanStats; SPAN_COUNT],
 }
 
 impl SpanSnapshot {
     #[inline]
-    fn calls(&self, span: Span) -> u64 {
-        self.calls[span as usize]
+    fn get(&self, span: Span) -> SpanStats {
+        self.spans[span as usize]
     }
 
-    #[inline]
-    fn total_us(&self, span: Span) -> u64 {
-        self.total_us[span as usize]
-    }
+    fn format_compact(&self) -> String {
+        let mut output = String::with_capacity(240);
 
-    #[inline]
-    fn max_us(&self, span: Span) -> u64 {
-        self.max_us[span as usize]
+        for (index, descriptor) in SPAN_DESCRIPTORS.iter().enumerate() {
+            if index != 0 {
+                output.push(' ');
+            }
+
+            let stats = self.get(descriptor.span);
+            let _ = write!(
+                output,
+                "{}:{}/{}/{}",
+                descriptor.name, stats.calls, stats.max_us, stats.total_us
+            );
+        }
+
+        output
     }
 }
 
 pub fn measure_span<R>(span: Span, f: impl FnOnce() -> R) -> R {
-    let start = perf_counter();
+    if !diagnostics::debug_enabled() {
+        return f();
+    }
+
+    let timer = diagnostics::Stopwatch::start();
     let result = f();
-    record_span(span, start);
+    record_span(span, timer);
     result
 }
 
 pub fn on_phase10_enter() {
-    let now = perf_counter();
+    if !diagnostics::debug_enabled() {
+        return;
+    }
+
+    let now = diagnostics::perf_counter();
     if now == 0 {
         return;
     }
 
     let last = LAST_PHASE10_TICKS.swap(now, Ordering::AcqRel);
     if last != 0 && now > last {
-        let frame_us = ticks_to_us(now - last);
+        let frame_us = diagnostics::ticks_to_us(now - last);
         if frame_us != 0 {
             observe_frame(frame_us);
         }
@@ -112,7 +229,7 @@ fn observe_frame(frame_us: u64) {
     if frame_us >= ABSOLUTE_HITCH_US || relative_hitch {
         WINDOW_HITCHES.fetch_add(1, Ordering::Relaxed);
         WINDOW_TOTAL_US.fetch_add(frame_us, Ordering::Relaxed);
-        update_max(&WINDOW_MAX_US, frame_us);
+        diagnostics::update_max_u64(&WINDOW_MAX_US, frame_us);
     }
 
     let next_ema = (prev_ema.saturating_mul(7)).saturating_add(frame_us.saturating_mul(3)) / 10;
@@ -137,8 +254,8 @@ fn maybe_log_window() {
         return;
     }
 
-    let engine = engine_fixes::take_hitch_counters();
-    let task = task_release::take_hitch_counters();
+    let engine = engine_fixes::take_diagnostic_counters();
+    let task = task_release::take_diagnostic_counters();
     let spans = take_span_snapshot();
     let hitches = WINDOW_HITCHES.swap(0, Ordering::AcqRel);
     let total_us = WINDOW_TOTAL_US.swap(0, Ordering::AcqRel);
@@ -149,7 +266,7 @@ fn maybe_log_window() {
 
     let scrap = scrap_heap::snapshot();
     log::debug!(
-        "[HITCH] events={} max_us={} avg_us={} ema_us={} loading={} pddq={}/{}/{}/{}/{} ragdoll={}/{} extra_owner=load:{} access:{} unreadable:{} task=qt_final:{} guard:{} tombstone:{} pool={}/{}MB live={} blocks={} block_mb={} va={}MB scrap={}KB ids={} active_ids={} regions={} allocs={} spans=calls/max/total 7ds:{}/{}/{} 7pdd:{}/{}/{} 7opt:{}/{}/{} 10orig:{}/{}/{} 10pre:{}/{}/{} pre32:{}/{}/{} pre33:{}/{}/{} radScan:{}/{}/{} radUpd:{}/{}/{} prefb:{}/{}/{} pred7:{}/{}/{} 10mid:{}/{}/{} 10q:{}/{}/{} 10post:{}/{}/{} 10prs:{}/{}/{} 10tail:{}/{}/{} aiS:{}/{}/{} aiJ:{}/{}/{} hSS:{}/{}/{} hkL:{}/{}/{} hkU:{}/{}/{}",
+        "[HITCH] events={} max_us={} avg_us={} ema_us={} loading={} pddq={}/{}/{}/{}/{} ragdoll={}/{} extra_owner=load:{} access:{} unreadable:{} task=qt_final:{} guard:{} tombstone:{} pool={}/{}MB live={} blocks={} block_mb={} va={}MB scrap={}KB ids={} active_ids={} regions={} allocs={} spans=calls/max/total {}",
         hitches,
         max_us,
         total_us / hitches.max(1),
@@ -179,142 +296,34 @@ fn maybe_log_window() {
         scrap.active_identities,
         scrap.regions,
         scrap.live_allocs,
-        spans.calls(Span::Phase7DeadSet),
-        spans.max_us(Span::Phase7DeadSet),
-        spans.total_us(Span::Phase7DeadSet),
-        spans.calls(Span::Phase7Pdd),
-        spans.max_us(Span::Phase7Pdd),
-        spans.total_us(Span::Phase7Pdd),
-        spans.calls(Span::Phase7OptionalPdd),
-        spans.max_us(Span::Phase7OptionalPdd),
-        spans.total_us(Span::Phase7OptionalPdd),
-        spans.calls(Span::Phase10Original),
-        spans.max_us(Span::Phase10Original),
-        spans.total_us(Span::Phase10Original),
-        spans.calls(Span::Phase10Pre),
-        spans.max_us(Span::Phase10Pre),
-        spans.total_us(Span::Phase10Pre),
-        spans.calls(Span::Phase10AudioUpdate),
-        spans.max_us(Span::Phase10AudioUpdate),
-        spans.total_us(Span::Phase10AudioUpdate),
-        spans.calls(Span::Phase10AudioWorker),
-        spans.max_us(Span::Phase10AudioWorker),
-        spans.total_us(Span::Phase10AudioWorker),
-        spans.calls(Span::RadioSignalScan),
-        spans.max_us(Span::RadioSignalScan),
-        spans.total_us(Span::RadioSignalScan),
-        spans.calls(Span::RadioStationUpdate),
-        spans.max_us(Span::RadioStationUpdate),
-        spans.total_us(Span::RadioStationUpdate),
-        spans.calls(Span::Phase10PreTail),
-        spans.max_us(Span::Phase10PreTail),
-        spans.total_us(Span::Phase10PreTail),
-        spans.calls(Span::Phase10WorldUpdate),
-        spans.max_us(Span::Phase10WorldUpdate),
-        spans.total_us(Span::Phase10WorldUpdate),
-        spans.calls(Span::Phase10Mid),
-        spans.max_us(Span::Phase10Mid),
-        spans.total_us(Span::Phase10Mid),
-        spans.calls(Span::Phase10QueueDrain),
-        spans.max_us(Span::Phase10QueueDrain),
-        spans.total_us(Span::Phase10QueueDrain),
-        spans.calls(Span::Phase10Post),
-        spans.max_us(Span::Phase10Post),
-        spans.total_us(Span::Phase10Post),
-        spans.calls(Span::Phase10Pressure),
-        spans.max_us(Span::Phase10Pressure),
-        spans.total_us(Span::Phase10Pressure),
-        spans.calls(Span::Phase10Tail),
-        spans.max_us(Span::Phase10Tail),
-        spans.total_us(Span::Phase10Tail),
-        spans.calls(Span::AiStartOriginal),
-        spans.max_us(Span::AiStartOriginal),
-        spans.total_us(Span::AiStartOriginal),
-        spans.calls(Span::AiJoinOriginal),
-        spans.max_us(Span::AiJoinOriginal),
-        spans.total_us(Span::AiJoinOriginal),
-        spans.calls(Span::HavokStopStartOriginal),
-        spans.max_us(Span::HavokStopStartOriginal),
-        spans.total_us(Span::HavokStopStartOriginal),
-        spans.calls(Span::HavokLockOriginal),
-        spans.max_us(Span::HavokLockOriginal),
-        spans.total_us(Span::HavokLockOriginal),
-        spans.calls(Span::HavokUnlockOriginal),
-        spans.max_us(Span::HavokUnlockOriginal),
-        spans.total_us(Span::HavokUnlockOriginal),
+        spans.format_compact(),
     );
 }
 
 fn drain_external_counters() {
-    let _ = engine_fixes::take_hitch_counters();
-    let _ = task_release::take_hitch_counters();
+    let _ = engine_fixes::take_diagnostic_counters();
+    let _ = task_release::take_diagnostic_counters();
     let _ = take_span_snapshot();
 }
 
-fn perf_counter() -> u64 {
-    libpsycho::os::windows::winapi::query_performance_counter()
-        .ok()
-        .and_then(|v| u64::try_from(v).ok())
-        .unwrap_or(0)
-}
-
-fn ticks_to_us(ticks: u64) -> u64 {
-    let freq = perf_frequency();
-    if freq == 0 {
-        return 0;
-    }
-    ticks.saturating_mul(1_000_000) / freq
-}
-
-fn perf_frequency() -> u64 {
-    let current = PERF_FREQUENCY.load(Ordering::Acquire);
-    if current != 0 {
-        return current;
-    }
-
-    let freq = libpsycho::os::windows::winapi::query_performance_frequency()
-        .ok()
-        .and_then(|v| u64::try_from(v).ok())
-        .unwrap_or(0);
-    if freq != 0 {
-        PERF_FREQUENCY.store(freq, Ordering::Release);
-    }
-    freq
-}
-
-fn update_max(slot: &AtomicU64, value: u64) {
-    let mut old = slot.load(Ordering::Relaxed);
-    while value > old {
-        match slot.compare_exchange_weak(old, value, Ordering::Relaxed, Ordering::Relaxed) {
-            Ok(_) => return,
-            Err(next) => old = next,
-        }
-    }
-}
-
-fn record_span(span: Span, start_ticks: u64) {
-    if start_ticks == 0 {
+fn record_span(span: Span, timer: diagnostics::Stopwatch) {
+    let Some(elapsed_us) = timer.elapsed_us() else {
         return;
-    }
-
-    let end_ticks = perf_counter();
-    if end_ticks <= start_ticks {
-        return;
-    }
-
-    let elapsed_us = ticks_to_us(end_ticks - start_ticks);
+    };
     let index = span as usize;
     SPAN_CALLS[index].fetch_add(1, Ordering::Relaxed);
     SPAN_TOTAL_US[index].fetch_add(elapsed_us, Ordering::Relaxed);
-    update_max(&SPAN_MAX_US[index], elapsed_us);
+    diagnostics::update_max_u64(&SPAN_MAX_US[index], elapsed_us);
 }
 
 fn take_span_snapshot() -> SpanSnapshot {
     let mut snapshot = SpanSnapshot::default();
     for index in 0..SPAN_COUNT {
-        snapshot.calls[index] = SPAN_CALLS[index].swap(0, Ordering::AcqRel);
-        snapshot.total_us[index] = SPAN_TOTAL_US[index].swap(0, Ordering::AcqRel);
-        snapshot.max_us[index] = SPAN_MAX_US[index].swap(0, Ordering::AcqRel);
+        snapshot.spans[index] = SpanStats {
+            calls: SPAN_CALLS[index].swap(0, Ordering::AcqRel),
+            total_us: SPAN_TOTAL_US[index].swap(0, Ordering::AcqRel),
+            max_us: SPAN_MAX_US[index].swap(0, Ordering::AcqRel),
+        };
     }
     snapshot
 }

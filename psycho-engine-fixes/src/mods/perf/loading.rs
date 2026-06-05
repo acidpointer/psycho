@@ -9,7 +9,7 @@ use std::{
     },
 };
 
-use crate::events;
+use crate::{events, mods::diagnostics};
 use libc::{c_char, c_void};
 use libpsycho::ffi::fnptr::FnPtr;
 use libpsycho::os::windows::hook::iat::iathook::IatHookContainer;
@@ -19,13 +19,6 @@ use libpsycho::os::windows::winapi::{
     safe_write_32,
 };
 use parking_lot::Mutex;
-use windows::Win32::{
-    Foundation::FILETIME,
-    System::{
-        SystemInformation::GetSystemTimeAsFileTime,
-        Threading::{GetCurrentProcess, GetProcessTimes},
-    },
-};
 
 const MODEL_LOADER_SLEEP_PUSH_ADDR: usize = 0x00C3E105;
 const MODEL_LOADER_SLEEP_IMM_ADDR: usize = 0x00C3E106;
@@ -186,7 +179,7 @@ impl StartupProbe {
     fn record(&self, elapsed_ms: u32) {
         self.count.fetch_add(1, Ordering::Relaxed);
         self.total_ms.fetch_add(elapsed_ms, Ordering::Relaxed);
-        update_max(&self.max_ms, elapsed_ms);
+        update_probe_max(&self.max_ms, elapsed_ms);
     }
 
     fn snapshot(&self) -> ProbeSnapshot {
@@ -380,7 +373,11 @@ fn patch_completion_drain_budget() -> anyhow::Result<()> {
     Ok(())
 }
 
-fn update_max(slot: &AtomicU32, value: u32) {
+fn should_profile_startup() -> bool {
+    !MAIN_MENU_VISIBLE_LOGGED.load(Ordering::Acquire)
+}
+
+fn update_probe_max(slot: &AtomicU32, value: u32) {
     let mut current = slot.load(Ordering::Relaxed);
     while value > current {
         match slot.compare_exchange_weak(current, value, Ordering::AcqRel, Ordering::Relaxed) {
@@ -388,10 +385,6 @@ fn update_max(slot: &AtomicU32, value: u32) {
             Err(next) => current = next,
         }
     }
-}
-
-fn should_profile_startup() -> bool {
-    !MAIN_MENU_VISIBLE_LOGGED.load(Ordering::Acquire)
 }
 
 fn time_startup_call<R>(probe: &StartupProbe, call: impl FnOnce() -> R) -> R {
@@ -639,6 +632,10 @@ fn texture_create_target_summary() -> String {
 }
 
 fn log_startup_probe_summary() {
+    if !startup_probe_has_samples() {
+        return;
+    }
+
     log::info!(
         "[LOADING] startup profile phases: init_renderer=({}) shader_system=({}) world_render_setup=({}) idle_anim_scan=({})",
         format_probe(INIT_RENDERER_PROBE.snapshot()),
@@ -686,6 +683,32 @@ fn log_startup_probe_summary() {
         "[LOADING] startup slow texture stages: {}",
         format_slow_texture_stages()
     );
+}
+
+fn startup_probe_has_samples() -> bool {
+    let probes = [
+        INIT_RENDERER_PROBE.snapshot(),
+        SHADER_SYSTEM_INIT_PROBE.snapshot(),
+        WORLD_RENDER_SETUP_PROBE.snapshot(),
+        IDLE_ANIM_SCAN_PROBE.snapshot(),
+        CREATE_VERTEX_SHADER_PROBE.snapshot(),
+        CREATE_PIXEL_SHADER_PROBE.snapshot(),
+        TEXTURE_LOAD_PROBE.snapshot(),
+        TEXTURE_OPEN_PROBE.snapshot(),
+        TEXTURE_TEMP_ALLOC_PROBE.snapshot(),
+        TEXTURE_TEMP_FREE_PROBE.snapshot(),
+        TEXTURE_READ_BUFFER_PROBE.snapshot(),
+        D3DX_IMAGE_INFO_PROBE.snapshot(),
+        D3DX_CREATE_TEXTURE_PROBE.snapshot(),
+        D3DX_CREATE_TEXTURE_EX_PROBE.snapshot(),
+        D3DX_CREATE_TEXTURE_CALLSITE_PROBE.snapshot(),
+        D3DX_CREATE_CUBE_TEXTURE_CALLSITE_PROBE.snapshot(),
+        D3DX_CREATE_VOLUME_TEXTURE_CALLSITE_PROBE.snapshot(),
+    ];
+
+    probes.iter().any(|probe| probe.count != 0)
+        || !SLOW_TEXTURE_LOADS.lock().is_empty()
+        || !SLOW_TEXTURE_STAGES.lock().is_empty()
 }
 
 fn install_profile_hook<T: Copy + 'static>(
@@ -1555,32 +1578,12 @@ fn elapsed_from_tick(start: u32, now: u32) -> Option<u64> {
     }
 }
 
-fn filetime_to_u64(ft: FILETIME) -> u64 {
-    ((ft.dwHighDateTime as u64) << 32) | ft.dwLowDateTime as u64
-}
-
 fn process_elapsed_ms_now() -> Option<u64> {
-    let process = unsafe { GetCurrentProcess() };
-    let mut creation = FILETIME::default();
-    let mut exit = FILETIME::default();
-    let mut kernel = FILETIME::default();
-    let mut user = FILETIME::default();
-
-    unsafe { GetProcessTimes(process, &mut creation, &mut exit, &mut kernel, &mut user).ok()? };
-
-    let now = unsafe { GetSystemTimeAsFileTime() };
-
-    let creation = filetime_to_u64(creation);
-    let now = filetime_to_u64(now);
-    now.checked_sub(creation)
-        .map(|ticks_100ns| ticks_100ns / 10_000)
+    diagnostics::process_elapsed_ms_now()
 }
 
 fn format_duration(ms: Option<u64>) -> String {
-    match ms {
-        Some(ms) => format!("{}.{:03}s", ms / 1000, ms % 1000),
-        None => "n/a".to_string(),
-    }
+    diagnostics::format_duration_ms(ms)
 }
 
 fn is_start_menu_by_engine() -> bool {
