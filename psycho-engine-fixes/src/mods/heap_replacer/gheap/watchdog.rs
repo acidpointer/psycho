@@ -1,6 +1,6 @@
 //! Background memory telemetry thread.
 //!
-//! Polls mimalloc commit every 250ms, tracks growth rate via integer EMA,
+//! Polls process memory periodically, tracks growth rate via integer EMA,
 //! and emits diagnostic logs.
 //!
 //! The watchdog does NOT call havok_gc or mi_collect. An earlier design
@@ -31,13 +31,17 @@ use super::pressure::PressureRelief;
 // Configuration
 // ---------------------------------------------------------------------------
 
-/// Poll interval in milliseconds. 250ms gives 2x faster detection
-/// with no game impact (background thread, only sets atomic flags).
-const POLL_MS: u32 = 250;
+/// Poll interval in milliseconds.
+///
+/// `mi_process_info` reaches Windows process accounting APIs
+/// (`GetProcessTimes` / `GetProcessMemoryInfo`). Polling it at 250ms
+/// caused visible 1-3ms frame hitches on high-FPS playthroughs. Keep
+/// this watchdog on a diagnostics cadence instead of a frame-pacing
+/// cadence.
+const POLL_MS: u32 = 5_000;
 
 /// Diagnostic logging interval (every N polls = every N*POLL_MS ms).
-/// 20 polls * 250ms = 5 seconds, matching the old monitor interval.
-const LOG_INTERVAL: u32 = 20;
+const LOG_INTERVAL: u32 = 1;
 
 /// Human-facing summary interval. Detailed watchdog samples stay in DEBUG.
 const INFO_SUMMARY_INTERVAL: u32 = LOG_INTERVAL * 12;
@@ -181,6 +185,8 @@ fn log_diagnostics(poll_count: u32, info: &MiMallocProcessInfo) {
     if !poll_count.is_multiple_of(LOG_INTERVAL) {
         return;
     }
+
+    super::hang::log_if_main_stale();
 
     let stats = mem_stats::global();
     let relief = stats.pressure_cycles();

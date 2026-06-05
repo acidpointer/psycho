@@ -108,7 +108,6 @@ struct TlcEntry {
     sheap_id: usize,
     generation: usize,
     heap: *const Heap,
-    region: *const Region,
 }
 
 impl TlcEntry {
@@ -117,7 +116,6 @@ impl TlcEntry {
             sheap_id: 0,
             generation: 0,
             heap: ptr::null(),
-            region: ptr::null(),
         }
     }
 }
@@ -298,7 +296,6 @@ impl Runtime {
                 sheap_id,
                 generation,
                 heap: &*heap as *const Heap,
-                region: heap.hot_region_ptr(),
             });
         });
 
@@ -314,32 +311,18 @@ impl Runtime {
             let heap = unsafe { &*tlc.heap };
 
             if heap.get_generation() == tlc.generation {
-                if !tlc.region.is_null()
-                    && let Some(ptr) = unsafe { heap.try_alloc_fast(tlc.region, size, align) }
-                {
-                    return ptr;
-                }
-                return self.alloc_slow(heap, tlc, size, align);
+                return self.alloc_cached(heap, size, align);
             }
         }
 
         self.alloc_cold(sheap_id, size, align)
     }
 
-    #[cold]
-    fn alloc_slow(&self, heap: &Heap, tlc: TlcEntry, size: usize, align: usize) -> *mut c_void {
+    fn alloc_cached(&self, heap: &Heap, size: usize, align: usize) -> *mut c_void {
         match heap.try_alloc_slow_with_reserved(size, align, |capacity| {
             self.take_emergency_region(capacity)
         }) {
-            Some(ptr) => {
-                TLC.with(|c| {
-                    c.set(TlcEntry {
-                        region: heap.hot_region_ptr(),
-                        ..tlc
-                    });
-                });
-                ptr
-            }
+            Some(ptr) => ptr,
             None => null_mut(),
         }
     }
@@ -358,7 +341,6 @@ impl Runtime {
                         sheap_id,
                         generation,
                         heap: &*heap as *const Heap,
-                        region: heap.hot_region_ptr(),
                     });
                 });
                 ptr

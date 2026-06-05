@@ -19,6 +19,14 @@ mod ragdoll;
 mod statics;
 mod types;
 
+pub(crate) struct HitchCounters {
+    pub(crate) ragdoll_calls: u64,
+    pub(crate) ragdoll_skips: u64,
+    pub(crate) extra_owner_load_scrubs: u64,
+    pub(crate) extra_owner_access_scrubs: u64,
+    pub(crate) extra_owner_unreadable: u64,
+}
+
 pub fn install(config: &EngineFixesConfig) -> anyhow::Result<()> {
     install_display_alt_tab(config)?;
     install_navmesh_low_pointer(config)?;
@@ -35,6 +43,19 @@ pub fn install(config: &EngineFixesConfig) -> anyhow::Result<()> {
 
 pub fn observe_event(kind: u32) {
     display::observe_event(kind);
+}
+
+pub(crate) fn take_hitch_counters() -> HitchCounters {
+    let ragdoll = ragdoll::take_hitch_counters();
+    let extra_owner = extraownership::take_hitch_counters();
+
+    HitchCounters {
+        ragdoll_calls: ragdoll.calls,
+        ragdoll_skips: ragdoll.skips,
+        extra_owner_load_scrubs: extra_owner.load_scrubs,
+        extra_owner_access_scrubs: extra_owner.access_scrubs,
+        extra_owner_unreadable: extra_owner.unreadable,
+    }
 }
 
 fn install_display_alt_tab(config: &EngineFixesConfig) -> anyhow::Result<()> {
@@ -143,9 +164,16 @@ fn install_ragdoll_null_bone(config: &EngineFixesConfig) -> anyhow::Result<()> {
         statics::RAGDOLL_ALTERNATE_UPDATE_ADDR as *mut c_void,
         ragdoll::hook_ragdoll_alternate_update,
     )?;
+    statics::RAGDOLL_SAVE_LOAD_WRITEBACK_HOOK.init(
+        "ragdoll_save_load_writeback_guard",
+        statics::RAGDOLL_SAVE_LOAD_WRITEBACK_ADDR as *mut c_void,
+        ragdoll::hook_ragdoll_save_load_writeback,
+    )?;
     statics::RAGDOLL_BONE_TRANSFORM_UPDATE_HOOK.enable()?;
     statics::RAGDOLL_ALTERNATE_UPDATE_HOOK.enable()?;
+    statics::RAGDOLL_SAVE_LOAD_WRITEBACK_HOOK.enable()?;
     log::info!("[RAGDOLL] Null bone-array guard active");
+    log::info!("[RAGDOLL] Controller table guard active");
     Ok(())
 }
 

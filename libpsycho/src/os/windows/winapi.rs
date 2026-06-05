@@ -25,6 +25,7 @@ use windows::Win32::System::Memory::{
     PAGE_PROTECTION_FLAGS, PAGE_READWRITE, VIRTUAL_ALLOCATION_TYPE, VIRTUAL_FREE_TYPE,
     VirtualAlloc, VirtualFree, VirtualProtect,
 };
+use windows::Win32::System::Performance::{QueryPerformanceCounter, QueryPerformanceFrequency};
 use windows::Win32::System::ProcessStatus::{
     EnumProcessModules, GetModuleBaseNameA, GetModuleInformation, MODULEINFO,
 };
@@ -1605,4 +1606,18 @@ pub fn sleep(millis: u32) {
 /// Returns the number of milliseconds since system start.
 pub fn get_tick_count() -> u32 {
     unsafe { WinGetTickCount() }
+}
+
+/// Returns a high-resolution performance counter tick.
+pub fn query_performance_counter() -> WinapiResult<i64> {
+    let mut value = 0i64;
+    unsafe { QueryPerformanceCounter(&mut value)? };
+    Ok(value)
+}
+
+/// Returns the high-resolution performance counter frequency.
+pub fn query_performance_frequency() -> WinapiResult<i64> {
+    let mut value = 0i64;
+    unsafe { QueryPerformanceFrequency(&mut value)? };
+    Ok(value)
 }

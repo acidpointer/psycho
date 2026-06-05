@@ -34,6 +34,23 @@ static BAD_VTABLE_COUNT: AtomicU64 = AtomicU64::new(0);
 static QUEUED_TEXTURE_FINAL_COUNT: AtomicU64 = AtomicU64::new(0);
 static TOMBSTONE_COUNT: AtomicU64 = AtomicU64::new(0);
 static CONFIG_LOGGED: AtomicU64 = AtomicU64::new(0);
+static HITCH_QUEUED_TEXTURE_FINAL_COUNT: AtomicU64 = AtomicU64::new(0);
+static HITCH_GUARD_COUNT: AtomicU64 = AtomicU64::new(0);
+static HITCH_TOMBSTONE_COUNT: AtomicU64 = AtomicU64::new(0);
+
+pub struct HitchCounters {
+    pub queued_texture_finals: u64,
+    pub guards: u64,
+    pub tombstones: u64,
+}
+
+pub fn take_hitch_counters() -> HitchCounters {
+    HitchCounters {
+        queued_texture_finals: HITCH_QUEUED_TEXTURE_FINAL_COUNT.swap(0, Ordering::AcqRel),
+        guards: HITCH_GUARD_COUNT.swap(0, Ordering::AcqRel),
+        tombstones: HITCH_TOMBSTONE_COUNT.swap(0, Ordering::AcqRel),
+    }
+}
 
 pub unsafe extern "fastcall" fn hook_task_release(task: *mut c_void) {
     if !guard_enabled() {
@@ -156,6 +173,7 @@ fn tombstone_freed_task(task: *mut c_void) {
         return;
     };
 
+    HITCH_TOMBSTONE_COUNT.fetch_add(1, Ordering::Relaxed);
     let n = TOMBSTONE_COUNT.fetch_add(1, Ordering::Relaxed) + 1;
     if n.is_power_of_two() {
         log::warn!(
@@ -165,11 +183,7 @@ fn tombstone_freed_task(task: *mut c_void) {
             info.pool_index,
             info.item_size,
             info.cell_index,
-            if info.is_deferred_free {
-                "deferred-free"
-            } else {
-                "free"
-            },
+            "free",
         );
     }
 }
@@ -231,6 +245,7 @@ fn log_observe(
     dtor: usize,
     refcount: i32,
 ) {
+    HITCH_QUEUED_TEXTURE_FINAL_COUNT.fetch_add(1, Ordering::Relaxed);
     let n = counter.fetch_add(1, Ordering::Relaxed) + 1;
     if n.is_power_of_two() {
         log::debug!(
@@ -253,6 +268,7 @@ fn log_guard(
     dtor: usize,
     refcount: i32,
 ) {
+    HITCH_GUARD_COUNT.fetch_add(1, Ordering::Relaxed);
     let n = counter.fetch_add(1, Ordering::Relaxed) + 1;
     if n.is_power_of_two() {
         log::warn!(

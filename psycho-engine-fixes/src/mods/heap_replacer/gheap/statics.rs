@@ -35,6 +35,36 @@ pub static GHEAP_REALLOC_HOOK_2: LazyLock<InlineHookContainer<GameHeapReallocFn>
 /// scene graph data, safe to unload cells.
 pub const MAIN_LOOP_MAINTENANCE_ADDR: usize = 0x008705D0;
 
+/// FUN_0086f640: first helper called by post-render maintenance.
+pub const PHASE10_PRE_ADDR: usize = 0x0086F640;
+
+/// FUN_00832ad0: audio/radio update helper called from FUN_0086f640.
+pub const PHASE10_AUDIO_UPDATE_ADDR: usize = 0x00832AD0;
+
+/// FUN_00833d00: focus/audio update worker called from FUN_00832ad0.
+pub const PHASE10_AUDIO_WORKER_ADDR: usize = 0x00833D00;
+
+/// FUN_004ff1a0: scans radio station refs and builds the candidate list.
+pub const RADIO_SIGNAL_SCAN_ADDR: usize = 0x004FF1A0;
+
+/// FUN_00834260: updates one radio station/list entry.
+pub const RADIO_STATION_UPDATE_ADDR: usize = 0x00834260;
+
+/// FUN_0082fb70: helper called from FUN_0086f640 before world update.
+pub const PHASE10_PRE_TAIL_ADDR: usize = 0x0082FB70;
+
+/// FUN_0082d7c0: large world update helper called from FUN_0086f640.
+pub const PHASE10_WORLD_UPDATE_ADDR: usize = 0x0082D7C0;
+
+/// FUN_0086f890: render update helper called by post-render maintenance.
+pub const PHASE10_MID_ADDR: usize = 0x0086F890;
+
+/// FUN_00552570: queued object/model processing drain.
+pub const PHASE10_QUEUE_DRAIN_ADDR: usize = 0x00552570;
+
+/// FUN_0086f670: final helper called by post-render maintenance.
+pub const PHASE10_POST_ADDR: usize = 0x0086F670;
+
 /// Per-frame queue drain. Runs every frame pre-AI, pre-render.
 /// Drains 10-20 NiNodes per call; under pressure we call it extra times.
 pub const PER_FRAME_QUEUE_DRAIN_ADDR: usize = 0x00868850;
@@ -61,11 +91,33 @@ pub const HAVOK_STOP_START_ADDR: usize = 0x008324E0;
 
 pub static MAIN_LOOP_MAINTENANCE_HOOK: LazyLock<InlineHookContainer<MainLoopMaintenanceFn>> =
     LazyLock::new(InlineHookContainer::new);
+pub static PHASE10_PRE_HOOK: LazyLock<InlineHookContainer<Phase10PreFn>> =
+    LazyLock::new(InlineHookContainer::new);
+pub static PHASE10_AUDIO_UPDATE_HOOK: LazyLock<InlineHookContainer<Phase10AudioUpdateFn>> =
+    LazyLock::new(InlineHookContainer::new);
+pub static PHASE10_AUDIO_WORKER_HOOK: LazyLock<InlineHookContainer<Phase10AudioWorkerFn>> =
+    LazyLock::new(InlineHookContainer::new);
+pub static RADIO_SIGNAL_SCAN_HOOK: LazyLock<InlineHookContainer<RadioSignalScanFn>> =
+    LazyLock::new(InlineHookContainer::new);
+pub static RADIO_STATION_UPDATE_HOOK: LazyLock<InlineHookContainer<RadioStationUpdateFn>> =
+    LazyLock::new(InlineHookContainer::new);
+pub static PHASE10_PRE_TAIL_HOOK: LazyLock<InlineHookContainer<Phase10PreTailFn>> =
+    LazyLock::new(InlineHookContainer::new);
+pub static PHASE10_WORLD_UPDATE_HOOK: LazyLock<InlineHookContainer<Phase10WorldUpdateFn>> =
+    LazyLock::new(InlineHookContainer::new);
+pub static PHASE10_MID_HOOK: LazyLock<InlineHookContainer<Phase10MidFn>> =
+    LazyLock::new(InlineHookContainer::new);
+pub static PHASE10_QUEUE_DRAIN_HOOK: LazyLock<InlineHookContainer<Phase10QueueDrainFn>> =
+    LazyLock::new(InlineHookContainer::new);
+pub static PHASE10_POST_HOOK: LazyLock<InlineHookContainer<Phase10PostFn>> =
+    LazyLock::new(InlineHookContainer::new);
 pub static PER_FRAME_QUEUE_DRAIN_HOOK: LazyLock<InlineHookContainer<PerFrameQueueDrainFn>> =
     LazyLock::new(InlineHookContainer::new);
 pub static AI_THREAD_START_HOOK: LazyLock<InlineHookContainer<AIThreadStartFn>> =
     LazyLock::new(InlineHookContainer::new);
 pub static AI_THREAD_JOIN_HOOK: LazyLock<InlineHookContainer<AIThreadJoinFn>> =
+    LazyLock::new(InlineHookContainer::new);
+pub static HAVOK_STOP_START_HOOK: LazyLock<InlineHookContainer<HavokStopStartFn>> =
     LazyLock::new(InlineHookContainer::new);
 
 // ---- PDD (ProcessDeferredDestruction) ----
@@ -73,10 +125,7 @@ pub static AI_THREAD_JOIN_HOOK: LazyLock<InlineHookContainer<AIThreadJoinFn>> =
 /// FUN_00868d70: the core destruction function (1037 bytes, cdecl).
 /// Called by ALL destruction paths: 5 normal PDD callers,
 /// CellTransitionHandler, HeapCompact, per-frame drain.
-/// We hook this to set the destruction guard.
 pub const PDD_ADDR: usize = 0x00868D70;
-
-pub static PDD_HOOK: LazyLock<InlineHookContainer<PDDFn>> = LazyLock::new(InlineHookContainer::new);
 
 // ---- Texture cache ----
 

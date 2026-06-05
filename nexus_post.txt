@@ -1,0 +1,410 @@
+[center][size=6][b]Psycho Engine Fixes[/b][/size][/center]
+[center][i]Early-loading engine fixes and performance patches for Fallout: New Vegas.[/i][/center]
+
+[center][b]Memory fixes. Faster loading paths. Better fullscreen alt-tab.
+Useful crash diagnostics.[/b][/center]
+
+
+[b]READ THIS FIRST[/b]
+
+Psycho is not a normal "drop one dll into NVSE/plugins" mod anymore.
+
+The main engine-fixes DLL is loaded early by [b]dinput8.dll[/b], before xNVSE
+plugins start. This is needed because some fixes must happen early enough to
+help with address-space pressure, heap setup, fullscreen startup, and other
+engine-level problems.
+
+[b]Install the core archive into the FalloutNV.exe folder.[/b]
+
+The optional xNVSE helper is only for console commands and late xNVSE messages.
+It does not load the main mod by itself.
+
+
+[b]REQUIREMENTS[/b]
+
+[list]
+[*][b]Fallout: New Vegas[/b]
+Normal 32-bit FalloutNV.exe. TTW is fine if it runs through the normal New
+Vegas executable.
+
+[*][b]4GB / Large Address Aware executable[/b]
+Strongly recommended. Heavy modlists need this. Psycho helps memory behavior,
+but it cannot make a 32-bit game unlimited.
+
+[*][b]Latest xNVSE[/b]
+Required for the optional helper and [b]psyinfo[/b] console command. Strongly
+recommended for any modern New Vegas setup.
+
+[*][b]Root-folder install support[/b]
+The core archive must place [b]dinput8.dll[/b] beside [b]FalloutNV.exe[/b].
+A pure Data-folder install is not enough.
+
+[*][b]Crash Logger[/b]
+Optional, but very useful for bug reports.
+[/list]
+
+
+[b]WHAT TO DOWNLOAD[/b]
+
+[list]
+[*][b]psycho-engine-fixes-vX.Y.Z-aio.zip[/b]
+Required for normal users. Contains:
+  - dinput8.dll
+  - mods/psycho_engine_fixes.dll
+  - mods/psycho_engine_fixes.toml
+
+[*][b]psycho-engine-fixes-helper-vX.Y.Z.zip[/b]
+Optional, but recommended. Adds the in-game console command:
+  - PsychoInfo
+  - psyinfo
+
+[*][b]Separate component archives[/b]
+Only for advanced/manual installs:
+  - psycho-loader-vX.Y.Z.zip
+  - psycho-engine-fixes-vX.Y.Z.zip
+  - psycho-engine-fixes-config-vX.Y.Z.zip
+[/list]
+
+
+[b]CURRENT STATE[/b]
+
+Psycho is usable now, but the heap replacer is still the most sensitive part.
+
+[list]
+[*][b]scrap_heap mode[/b] is the safer mode. Good for very heavy modlists and troubleshooting.
+[*][b]gheap + scrap_heap mode[/b] gives the strongest performance improvement,
+but huge modlists can still hit Fallout NV's 32-bit address-space limit.
+[*]If the game crashes only with gheap enabled, set [b]memory.allocator = 1[/b] and send logs.
+[*]This mod cannot make New Vegas a 64-bit game. VAS/OOM problems can still
+exist with very large texture/model setups.
+[/list]
+
+Default config currently uses the full allocator mode because that is the main
+goal of the mod. If your setup is too heavy or unstable, use the safer mode
+first.
+
+
+[b]INSTALLATION[/b]
+
+[b]Manual install is the clearest way.[/b]
+
+Extract [b]psycho-engine-fixes-vX.Y.Z-aio.zip[/b] into the folder where [b]FalloutNV.exe[/b] is located.
+
+After install, you should have:
+
+[code]
+FalloutNV/
+  FalloutNV.exe
+  dinput8.dll
+  mods/
+    psycho_engine_fixes.dll
+    psycho_engine_fixes.toml
+[/code]
+
+Then install the optional helper if you want the console command:
+
+[code]
+FalloutNV/
+  Data/
+    NVSE/
+      plugins/
+        psycho_engine_fixes_helper.dll
+[/code]
+
+[b]Important for mod managers:[/b]
+
+Normal MO2/Data-only installs may not place [b]dinput8.dll[/b] beside
+[b]FalloutNV.exe[/b]. If your mod manager does not support root-folder files,
+install the core archive manually or use a root-folder install tool.
+
+
+[b]UPDATING FROM THE OLD NVSE-ONLY VERSION[/b]
+
+Old versions were loaded as an xNVSE plugin. New versions are loaded early from the game root.
+
+[b]Before installing the new version, remove old files if they exist:[/b]
+
+[code]
+FalloutNV/Data/NVSE/Plugins/psycho_nvse.dll
+FalloutNV/Data/NVSE/Plugins/psycho_nvse_helper.dll
+FalloutNV/Data/NVSE/Plugins/psycho.toml
+FalloutNV/Data/NVSE/Plugins/psycho-nvse.toml
+
+FalloutNV/mods/psycho.dll
+FalloutNV/mods/psycho.toml
+[/code]
+
+Then install:
+
+[code]
+FalloutNV/dinput8.dll
+FalloutNV/mods/psycho_engine_fixes.dll
+FalloutNV/mods/psycho_engine_fixes.toml
+FalloutNV/Data/NVSE/plugins/psycho_engine_fixes_helper.dll   optional
+[/code]
+
+[b]Do not put psycho_engine_fixes.dll into Data/NVSE/plugins.[/b]
+It belongs in [b]FalloutNV/mods[/b] and is loaded by [b]dinput8.dll[/b].
+
+
+[b]WHAT TO EXPECT IN GAME[/b]
+
+[list]
+[*]The game should start normally. There is no MCM and no big UI.
+[*]A log file is written to the game folder:
+  FalloutNV/psycho-engine-fixes-latest.log
+[*]If the helper is installed, open console and run:
+  psyinfo
+[*]Fullscreen and borderless alt-tab should behave better, including during loading.
+[*]Some loading and decompression paths should be faster, especially on modded setups.
+[/list]
+
+
+[b]CONFIGURATION[/b]
+
+Config file:
+
+[code]
+FalloutNV/mods/psycho_engine_fixes.toml
+[/code]
+
+The file is commented. Most users should start with defaults.
+
+[b]Main option: memory.allocator[/b]
+
+[code]
+0 = vanilla game allocators
+1 = scrap_heap only
+2 = gheap + scrap_heap
+[/code]
+
+[b]Use mode 2[/b] for best performance.
+
+[b]Use mode 1[/b] if:
+
+[list]
+[*]the game crashes only with full gheap
+[*]you use a very heavy modlist
+[*]you want safer troubleshooting
+[*]you need to confirm whether a crash is allocator-related
+[/list]
+
+[b]Use mode 0[/b] only to test whether Psycho's heap replacement is involved in a crash.
+
+
+[b]OTHER IMPORTANT OPTIONS[/b]
+
+[list]
+[*][b]performance.zlib[/b]
+Faster decompression path. Recommended on.
+
+[*][b]performance.rng[/b]
+Faster compatible RNG path. Recommended on.
+
+[*][b]engine_fixes.display_alt_tab[/b]
+Fixes fullscreen/borderless focus and alt-tab problems. Recommended on.
+
+[*][b]diagnostics.debug_log[/b]
+Keeps useful logs for crash reports. Recommended on.
+
+[*][b]diagnostics.console[/b]
+Opens a live console window. Usually off unless testing.
+[/list]
+
+
+[b]TROUBLESHOOTING[/b]
+
+[b]No log file appears[/b]
+
+Psycho probably did not load.
+
+Check:
+
+[code]
+FalloutNV/dinput8.dll
+FalloutNV/mods/psycho_engine_fixes.dll
+FalloutNV/mods/psycho_engine_fixes.toml
+[/code]
+
+Also check that another mod did not replace [b]dinput8.dll[/b].
+
+
+[b]Game starts, but psyinfo command does not exist[/b]
+
+The main mod may be loaded, but the optional helper is missing.
+
+Install:
+
+[code]
+FalloutNV/Data/NVSE/plugins/psycho_engine_fixes_helper.dll
+[/code]
+
+You also need xNVSE.
+
+
+[b]Crash on startup or save load[/b]
+
+First test allocator mode:
+
+[code]
+[memory]
+allocator = 1
+[/code]
+
+If it still crashes, test:
+
+[code]
+allocator = 0
+[/code]
+
+If mode 1 works but mode 2 crashes, the crash is probably related to gheap,
+memory pressure, stale pointers, or address-space exhaustion. Please report it
+with logs.
+
+
+[b]Out-of-memory, VAS, or random crashes in heavy modlists[/b]
+
+Fallout NV is a 32-bit game. Heavy texture/model setups can fragment address space even on modern PCs.
+
+Try:
+
+[list]
+[*]set [b]memory.allocator = 1[/b]
+[*]keep [b]diagnostics.debug_log = true[/b]
+[*]check whether the crash happens at the same location/save
+[*]include CrashLogger output if you have it
+[/list]
+
+
+[b]Black screen or focus problem after alt-tab[/b]
+
+Keep this enabled:
+
+[code]
+[engine_fixes]
+display_alt_tab = true
+[/code]
+
+If you use another fullscreen/window/display plugin, mention it in your report.
+
+
+[b]HOW TO REPORT A BUG[/b]
+
+Please include:
+
+[list]
+[*]FalloutNV/psycho-engine-fixes-latest.log
+[*]CrashLogger.log, if installed
+[*]FalloutNV/mods/psycho_engine_fixes.toml
+[*]your allocator mode: 0, 1, or 2
+[*]whether changing allocator mode changes the crash
+[*]what you were doing: startup, loading save, entering location, fast travel, combat, etc.
+[*]whether the crash is instant, delayed, random, or same place every time
+[/list]
+
+Reports without logs are usually impossible to fix. Memory crashes need exact context.
+
+
+[b]INCOMPATIBLE / CONFLICTING MODS[/b]
+
+Psycho is a low-level engine mod. Most normal gameplay mods are fine, but mods
+that replace the same engine systems can conflict.
+
+[b]Do not use together:[/b]
+
+[list]
+[*][b]Old Psycho / old psycho-nvse files[/b]
+Remove old [b]psycho_nvse.dll[/b], old configs, and old helper DLLs before
+installing this version.
+
+[*][b]Other heap replacers, for example New Vegas Heap Replacer[/b]
+Do not run another game-heap replacer together with Psycho's heap replacement.
+Choose one allocator mod, not two.
+
+If you want to keep another heap replacer, set Psycho to:
+
+[code]
+[memory]
+allocator = 0
+[/code]
+
+That disables Psycho's heap replacement and leaves only non-allocator fixes.
+
+[*][b]Another dinput8.dll proxy[/b]
+Only one file can be named [b]FalloutNV/dinput8.dll[/b]. If another mod also
+uses dinput8.dll, it will conflict unless the loaders are manually chained or
+one of the mods is configured to use a different proxy DLL.
+[/list]
+
+[b]Use caution / test carefully:[/b]
+
+[list]
+[*][b]New Vegas Stutter Remover heap or critical-section features[/b]
+NVSR is old and its heap-related features can fight with modern engine fixes.
+If you still use NVSR, disable its heap replacement features or remove it.
+
+[*][b]New Vegas Tick Fix memory/heap features[/b]
+Normal NVTF timing features should be fine. If you enabled any memory manager,
+heap replacement, or similar experimental option there, disable that overlap
+before testing Psycho.
+
+[*][b]Overlapping engine patch mods[/b]
+Any mod that patches the same allocator, zlib, RNG, fullscreen, or D3D startup
+paths can conflict.
+It may work, but if something breaks, disable overlapping features one by one.
+
+[*][b]ENB/ReShade/SpecialK/DXVK-style proxy setups[/b]
+These are not automatically incompatible. The problem is only when they use the
+same proxy DLL name or patch the same display/device path. If they use
+[b]d3d9.dll[/b] and Psycho uses [b]dinput8.dll[/b], that part is usually fine.
+[/list]
+
+[b]Expected to work in normal setups:[/b]
+
+[list]
+[*]xNVSE
+[*]JIP LN
+[*]JohnnyGuitar
+[*]Crash Logger
+[*]Stewie Tweaks
+[*]New Vegas Tick Fix with normal timing settings
+[*]normal gameplay, quest, texture, mesh, and animation mods
+[/list]
+
+The optional helper is not the main mod. It only talks to the already-loaded
+core DLL.
+
+
+[b]FOR DEVELOPERS[/b]
+
+The included [b]psycho-loader[/b] is generic. It loads DLLs from:
+
+[code]
+FalloutNV/mods/*.dll
+[/code]
+
+If a loaded DLL exports:
+
+[code]
+PsychoLoader_ModInit
+[/code]
+
+the loader calls it after LoadLibrary returns, outside the loaded DLL's
+loader-lock callback. This gives early-loaded mods a clean startup point without
+doing real work inside DllMain.
+
+Basic rules:
+
+[list]
+[*]put early DLLs in FalloutNV/mods
+[*]keep DllMain minimal
+[*]do real startup from PsychoLoader_ModInit
+[*]use xNVSE only for features that actually need xNVSE
+[/list]
+
+
+[b]SOURCE[/b]
+
+[code]
+https://github.com/acidpointer/psycho
+[/code]

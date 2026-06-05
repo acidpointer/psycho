@@ -27,6 +27,9 @@ pub type RagdollAlternateUpdateFn = unsafe extern "thiscall" fn(*mut c_void, u32
 /// FUN_00C7D810: bhkRagdollController bone transform update wrapper.
 pub type RagdollBoneTransformUpdateFn = unsafe extern "thiscall" fn(*mut c_void);
 
+/// FUN_00C75B40: writes the controller transform buffer back into bone entries.
+pub type RagdollSaveLoadWritebackFn = unsafe extern "fastcall" fn(*mut c_void);
+
 /// FUN_00CFFA00: per-entity AddedToWorld callback dispatcher.
 pub type HavokEntityPostAddFn = unsafe extern "C" fn(entity: *mut c_void);
 

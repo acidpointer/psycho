@@ -8,7 +8,6 @@
 //!   - periodic full PDD drain (10 s cooldown) -- PDD maintenance only,
 //!     does not consult game loading/menu state
 //!   - AI start / AI join sync flags
-//!   - deferred console cell-unload execution on AI join
 //!   - OOM Stage 8 safe BSTaskManagerThread semaphore release
 //!
 //! No explicit `havok_gc` call here. It races with AI Linear Task
@@ -29,7 +28,8 @@ use libc::c_void;
 use super::allocator;
 use super::engine::globals;
 use super::game_guard;
-use super::pool;
+use super::hang::{self, Site};
+use super::hitch::{self, Span};
 use super::pressure::PressureRelief;
 use super::statics;
 use super::texture_cache;
@@ -60,51 +60,48 @@ pub unsafe extern "thiscall" fn hook_gheap_realloc(
     unsafe { allocator::realloc(ptr, new_size) }
 }
 
-/// ProcessDeferredDestruction guard.
-///
-/// Frees produced inside PDD stay readable but are not immediately
-/// reusable by the pool allocator. They return to normal LIFO reuse from
-/// a later frame maintenance point, after the surrounding cleanup code
-/// has finished walking parent/child object chains.
-pub unsafe extern "C" fn hook_pdd_guard(try_lock: u8) {
-    let _guard = pool::destruction_freeze_guard();
-    if let Ok(original) = statics::PDD_HOOK.original() {
-        unsafe { original(try_lock) };
-    }
-}
-
 /// Phase 7: per-frame queue drain (before AI_START).
 ///
 /// Orchestration is intentionally minimal and game-state-free. The
 /// allocator tiers are always "active"; there is no loading / menu /
 /// console branching here.
 pub unsafe extern "C" fn hook_per_frame_queue_drain() {
-    pool::thaw_deferred_frees("phase7-start");
+    hang::phase7_enter();
 
     // Capture the main thread id on the first Phase 7 frame. Cheap to
     // call every frame since it short-circuits once set.
     globals::set_main_thread_id();
 
     // Clear texture dead-set under write lock.
-    game_guard::with_write("dead_set_clear", || {
-        texture_cache::clear_dead_set();
+    hang::mark_main(Site::Phase7BeforeDeadSet);
+    hitch::measure_span(Span::Phase7DeadSet, || {
+        game_guard::with_write("dead_set_clear", || {
+            texture_cache::clear_dead_set();
+        });
     });
+    hang::mark_main(Site::Phase7AfterDeadSet);
 
     // Vanilla per-frame PDD drain. Skip if any queue has a NULL buffer
     // (memcpy(NULL) crash defence).
     if let Ok(original) = statics::PER_FRAME_QUEUE_DRAIN_HOOK.original() {
         if !pdd_queues_have_valid_buffers() {
             log::warn!("[PDD] Queue buffer is NULL, skipping drain this frame");
+            hang::mark_main(Site::Phase7Exit);
             return;
         }
-        unsafe { original() };
+        hang::mark_main(Site::Phase7BeforePdd);
+        hitch::measure_span(Span::Phase7Pdd, || unsafe { original() });
+        hang::mark_main(Site::Phase7AfterPdd);
     }
 
     // Optional legacy full PDD drain. Ghidra shows full PDD drains whole
     // queues while vanilla per-frame PDD drains small fixed budgets. The
     // old always-on 10 s purge is therefore too aggressive for gheap
     // reuse semantics and is now opt-in only.
-    maybe_drain_pdd();
+    hitch::measure_span(Span::Phase7OptionalPdd, || {
+        maybe_drain_pdd();
+    });
+    hang::mark_main(Site::Phase7Exit);
 }
 
 /// Cooldown gate + optional direct PDD purge on a 10 s cadence.
@@ -141,52 +138,142 @@ fn maybe_drain_pdd() {
 
 /// Phase 10: post-render maintenance (before AI_JOIN).
 pub unsafe extern "thiscall" fn hook_main_loop_maintenance(this: *mut c_void) {
+    hang::phase10_enter();
+    hitch::on_phase10_enter();
+
     if let Ok(original) = statics::MAIN_LOOP_MAINTENANCE_HOOK.original() {
-        unsafe { original(this) };
+        hitch::measure_span(Span::Phase10Original, || unsafe { original(this) });
     }
+    hang::mark_main(Site::Phase10AfterOriginal);
 
-    pool::thaw_deferred_frees("phase10");
+    hitch::measure_span(Span::Phase10Pressure, || {
+        if let Some(pr) = PressureRelief::instance() {
+            pr.calibrate_baseline();
+            pr.flush_pending_counter_decrement();
+        }
+    });
+    hang::mark_main(Site::Phase10AfterPressure);
 
-    if let Some(pr) = PressureRelief::instance() {
-        pr.calibrate_baseline();
-        pr.flush_pending_counter_decrement();
+    hitch::measure_span(Span::Phase10Tail, || {
+        super::vanilla_large_heap::run_once();
+        super::vanilla_large_heap::poll_default_tail_contract();
+    });
+    hang::mark_main(Site::Phase10Exit);
+}
+
+pub unsafe extern "C" fn hook_phase10_pre() {
+    if let Ok(original) = statics::PHASE10_PRE_HOOK.original() {
+        hitch::measure_span(Span::Phase10Pre, || unsafe { original() });
     }
+}
 
-    super::vanilla_large_heap::run_once();
-    super::vanilla_large_heap::poll_default_tail_contract();
+pub unsafe extern "C" fn hook_phase10_audio_update(force: u8) -> u32 {
+    if let Ok(original) = statics::PHASE10_AUDIO_UPDATE_HOOK.original() {
+        return hitch::measure_span(Span::Phase10AudioUpdate, || unsafe { original(force) });
+    }
+    0
+}
+
+pub unsafe extern "C" fn hook_phase10_audio_worker(force: u8) {
+    if let Ok(original) = statics::PHASE10_AUDIO_WORKER_HOOK.original() {
+        hitch::measure_span(Span::Phase10AudioWorker, || unsafe { original(force) });
+    }
+}
+
+pub unsafe extern "C" fn hook_radio_signal_scan(
+    current_cell: *mut c_void,
+    out_list: *mut c_void,
+    out_meta: *mut c_void,
+) {
+    if let Ok(original) = statics::RADIO_SIGNAL_SCAN_HOOK.original() {
+        hitch::measure_span(Span::RadioSignalScan, || unsafe {
+            original(current_cell, out_list, out_meta);
+        });
+    }
+}
+
+pub unsafe extern "C" fn hook_radio_station_update(station: *mut c_void) {
+    if let Ok(original) = statics::RADIO_STATION_UPDATE_HOOK.original() {
+        hitch::measure_span(Span::RadioStationUpdate, || unsafe { original(station) });
+    }
+}
+
+pub unsafe extern "C" fn hook_phase10_pre_tail() {
+    if let Ok(original) = statics::PHASE10_PRE_TAIL_HOOK.original() {
+        hitch::measure_span(Span::Phase10PreTail, || unsafe { original() });
+    }
+}
+
+pub unsafe extern "C" fn hook_phase10_world_update() {
+    if let Ok(original) = statics::PHASE10_WORLD_UPDATE_HOOK.original() {
+        hitch::measure_span(Span::Phase10WorldUpdate, || unsafe { original() });
+    }
+}
+
+pub unsafe extern "fastcall" fn hook_phase10_mid(this: *mut c_void) {
+    if let Ok(original) = statics::PHASE10_MID_HOOK.original() {
+        hitch::measure_span(Span::Phase10Mid, || unsafe { original(this) });
+    }
+}
+
+pub unsafe extern "C" fn hook_phase10_queue_drain() {
+    if let Ok(original) = statics::PHASE10_QUEUE_DRAIN_HOOK.original() {
+        hitch::measure_span(Span::Phase10QueueDrain, || unsafe { original() });
+    }
+}
+
+pub unsafe extern "C" fn hook_phase10_post() {
+    if let Ok(original) = statics::PHASE10_POST_HOOK.original() {
+        hitch::measure_span(Span::Phase10Post, || unsafe { original() });
+    }
 }
 
 /// Phase 8: AI thread dispatch. Sets AI_ACTIVE flag before dispatching.
 pub unsafe extern "fastcall" fn hook_ai_thread_start(mgr: *mut c_void) {
+    hang::ai_start_enter();
     game_guard::set_ai_active();
     if let Ok(original) = statics::AI_THREAD_START_HOOK.original() {
-        unsafe { original(mgr) };
+        hitch::measure_span(Span::AiStartOriginal, || unsafe { original(mgr) });
     }
+    hang::ai_start_exit();
 }
 
 /// AI_JOIN: AI threads completed, so the game can safely leave the
 /// AI-active guard state.
 pub unsafe extern "fastcall" fn hook_ai_thread_join(mgr: *mut c_void) {
+    hang::ai_join_enter();
     if let Ok(original) = statics::AI_THREAD_JOIN_HOOK.original() {
-        unsafe { original(mgr) };
+        hitch::measure_span(Span::AiJoinOriginal, || unsafe { original(mgr) });
     }
     game_guard::clear_ai_active();
+    hang::ai_join_exit();
 }
 
 // ---- Havok world synchronization hooks ----
 
 pub unsafe extern "fastcall" fn hook_hkworld_lock(this: *mut c_void) {
+    hang::havok_lock_enter();
     game_guard::set_havok_active();
     if let Ok(original) = statics::HKWORLD_LOCK_HOOK.original() {
-        unsafe { original(this) };
+        hitch::measure_span(Span::HavokLockOriginal, || unsafe { original(this) });
     }
+    hang::havok_lock_exit();
 }
 
 pub unsafe extern "fastcall" fn hook_hkworld_unlock(this: *mut c_void) {
+    hang::havok_unlock_enter();
     if let Ok(original) = statics::HKWORLD_UNLOCK_HOOK.original() {
-        unsafe { original(this) };
+        hitch::measure_span(Span::HavokUnlockOriginal, || unsafe { original(this) });
     }
     game_guard::clear_havok_active();
+    hang::havok_unlock_exit();
+}
+
+pub unsafe extern "C" fn hook_havok_stop_start(mode: u8) -> u8 {
+    if let Ok(original) = statics::HAVOK_STOP_START_HOOK.original() {
+        return hitch::measure_span(Span::HavokStopStartOriginal, || unsafe { original(mode) });
+    }
+    mode
 }
 
 /// Check if PDD queues with pending items have valid buffer pointers.

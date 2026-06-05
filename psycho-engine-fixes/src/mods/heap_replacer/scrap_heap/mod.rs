@@ -114,7 +114,7 @@ pub unsafe extern "fastcall" fn hook_alloc(
         log::error!("[scrap_heap] alloc: null heap pointer");
         return null_mut();
     }
-    let actual_align = align.max(16);
+    let actual_align = align;
     let rt = Runtime::get_instance();
 
     let ptr = rt.alloc(sheap_ptr, size, actual_align);

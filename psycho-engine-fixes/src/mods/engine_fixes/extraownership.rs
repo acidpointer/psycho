@@ -43,6 +43,23 @@ type LoadedFormResolverFn = unsafe extern "C" fn(u32) -> *mut c_void;
 static LOAD_SCRUB_COUNT: AtomicU64 = AtomicU64::new(0);
 static ACCESS_SCRUB_COUNT: AtomicU64 = AtomicU64::new(0);
 static ACCESS_UNREADABLE_COUNT: AtomicU64 = AtomicU64::new(0);
+static HITCH_LOAD_SCRUB_COUNT: AtomicU64 = AtomicU64::new(0);
+static HITCH_ACCESS_SCRUB_COUNT: AtomicU64 = AtomicU64::new(0);
+static HITCH_ACCESS_UNREADABLE_COUNT: AtomicU64 = AtomicU64::new(0);
+
+pub(super) struct HitchCounters {
+    pub load_scrubs: u64,
+    pub access_scrubs: u64,
+    pub unreadable: u64,
+}
+
+pub(super) fn take_hitch_counters() -> HitchCounters {
+    HitchCounters {
+        load_scrubs: HITCH_LOAD_SCRUB_COUNT.swap(0, Ordering::AcqRel),
+        access_scrubs: HITCH_ACCESS_SCRUB_COUNT.swap(0, Ordering::AcqRel),
+        unreadable: HITCH_ACCESS_UNREADABLE_COUNT.swap(0, Ordering::AcqRel),
+    }
+}
 
 pub fn install_load_hook() -> anyhow::Result<()> {
     unsafe {
@@ -90,6 +107,7 @@ unsafe extern "C" fn resolve_loaded_owner_checked(saved_ref: u32) -> *mut c_void
         return owner;
     }
 
+    HITCH_LOAD_SCRUB_COUNT.fetch_add(1, Ordering::Relaxed);
     log_invalid_owner(&LOAD_SCRUB_COUNT, "load", ptr::null_mut(), owner);
     ptr::null_mut()
 }
@@ -106,6 +124,7 @@ fn scrub_extraownership(extra: *mut c_void) -> *mut c_void {
         return extra;
     }
 
+    HITCH_ACCESS_SCRUB_COUNT.fetch_add(1, Ordering::Relaxed);
     log_invalid_owner(&ACCESS_SCRUB_COUNT, "access", extra, owner);
 
     if is_writable(owner_slot as usize, 4) {
@@ -172,6 +191,7 @@ fn is_text_ptr(addr: usize) -> bool {
 }
 
 fn log_unreadable_extra(extra: *mut c_void) {
+    HITCH_ACCESS_UNREADABLE_COUNT.fetch_add(1, Ordering::Relaxed);
     let n = ACCESS_UNREADABLE_COUNT.fetch_add(1, Ordering::Relaxed) + 1;
     if n == 1 || n.is_power_of_two() {
         log::warn!(

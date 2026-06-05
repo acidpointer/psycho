@@ -13,7 +13,7 @@ use crate::{
             AllocatorMode, decide_mode, initialize_mimalloc, install_gheap_hooks,
             install_gheap_initialize, install_sheap_hooks, install_sheap_initialize,
         },
-        perf::{install_rng_hook, mark_init_start},
+        perf::{install_radio_signal_scan_cache, install_rng_hook, mark_init_start},
         zlib::install_zlib_hooks,
     },
 };
@@ -108,6 +108,12 @@ fn install_engine_fix_hooks(engine_fixes: &EngineFixesConfig) -> anyhow::Result<
 }
 
 fn install_runtime_hooks(performance: &PerformanceConfig) -> anyhow::Result<()> {
+    if performance.radio_signal_scan_cache {
+        install_radio_signal_scan_cache(performance.radio_signal_scan_cache_ttl_ms)?;
+    } else {
+        log::info!("[RADIO] Periodic nearby-station scan cache disabled by config");
+    }
+
     if performance.rng {
         install_rng_hook()?;
     }

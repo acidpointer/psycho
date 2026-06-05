@@ -115,6 +115,10 @@ pub struct PerformanceConfig {
     pub rng: bool,
     /// Replace zlib decompression.
     pub zlib: bool,
+    /// Cache periodic nearby-radio scans to avoid TTW Capital Wasteland stutter.
+    pub radio_signal_scan_cache: bool,
+    /// Cache lifetime for periodic nearby-radio scan results, clamped to 500..=10000ms by the hook.
+    pub radio_signal_scan_cache_ttl_ms: u32,
 }
 
 impl Default for PerformanceConfig {
@@ -122,6 +126,8 @@ impl Default for PerformanceConfig {
         Self {
             rng: true,
             zlib: true,
+            radio_signal_scan_cache: true,
+            radio_signal_scan_cache_ttl_ms: 2_000,
         }
     }
 }
@@ -140,6 +146,12 @@ impl PerformanceConfig {
         Self {
             rng: raw.rng.or(legacy_perf.rng).unwrap_or(default.rng),
             zlib: raw.zlib.or(legacy_zlib.enabled).unwrap_or(default.zlib),
+            radio_signal_scan_cache: raw
+                .radio_signal_scan_cache
+                .unwrap_or(default.radio_signal_scan_cache),
+            radio_signal_scan_cache_ttl_ms: raw
+                .radio_signal_scan_cache_ttl_ms
+                .unwrap_or(default.radio_signal_scan_cache_ttl_ms),
         }
     }
 }
@@ -313,6 +325,8 @@ struct RawMemoryConfig {
 struct RawPerformanceConfig {
     rng: Option<bool>,
     zlib: Option<bool>,
+    radio_signal_scan_cache: Option<bool>,
+    radio_signal_scan_cache_ttl_ms: Option<u32>,
     /// Legacy key. New configs use engine_fixes.display_alt_tab.
     display_tweaks: Option<bool>,
 }

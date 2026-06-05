@@ -98,21 +98,60 @@ pub fn install_gheap_initialize() -> anyhow::Result<()> {
             MAIN_LOOP_MAINTENANCE_ADDR as *mut c_void,
             gheap::hooks::hook_main_loop_maintenance,
         )?;
+        PHASE10_PRE_HOOK.init(
+            "phase10_pre",
+            PHASE10_PRE_ADDR as *mut c_void,
+            gheap::hooks::hook_phase10_pre,
+        )?;
+        PHASE10_AUDIO_UPDATE_HOOK.init(
+            "phase10_audio_update",
+            PHASE10_AUDIO_UPDATE_ADDR as *mut c_void,
+            gheap::hooks::hook_phase10_audio_update,
+        )?;
+        PHASE10_AUDIO_WORKER_HOOK.init(
+            "phase10_audio_worker",
+            PHASE10_AUDIO_WORKER_ADDR as *mut c_void,
+            gheap::hooks::hook_phase10_audio_worker,
+        )?;
+        RADIO_SIGNAL_SCAN_HOOK.init(
+            "radio_signal_scan",
+            RADIO_SIGNAL_SCAN_ADDR as *mut c_void,
+            gheap::hooks::hook_radio_signal_scan,
+        )?;
+        RADIO_STATION_UPDATE_HOOK.init(
+            "radio_station_update",
+            RADIO_STATION_UPDATE_ADDR as *mut c_void,
+            gheap::hooks::hook_radio_station_update,
+        )?;
+        PHASE10_PRE_TAIL_HOOK.init(
+            "phase10_pre_tail",
+            PHASE10_PRE_TAIL_ADDR as *mut c_void,
+            gheap::hooks::hook_phase10_pre_tail,
+        )?;
+        PHASE10_WORLD_UPDATE_HOOK.init(
+            "phase10_world_update",
+            PHASE10_WORLD_UPDATE_ADDR as *mut c_void,
+            gheap::hooks::hook_phase10_world_update,
+        )?;
+        PHASE10_MID_HOOK.init(
+            "phase10_mid",
+            PHASE10_MID_ADDR as *mut c_void,
+            gheap::hooks::hook_phase10_mid,
+        )?;
+        PHASE10_QUEUE_DRAIN_HOOK.init(
+            "phase10_queue_drain",
+            PHASE10_QUEUE_DRAIN_ADDR as *mut c_void,
+            gheap::hooks::hook_phase10_queue_drain,
+        )?;
+        PHASE10_POST_HOOK.init(
+            "phase10_post",
+            PHASE10_POST_ADDR as *mut c_void,
+            gheap::hooks::hook_phase10_post,
+        )?;
         PER_FRAME_QUEUE_DRAIN_HOOK.init(
             "per_frame_queue_drain",
             PER_FRAME_QUEUE_DRAIN_ADDR as *mut c_void,
             gheap::hooks::hook_per_frame_queue_drain,
-        )?;
-    }
-
-    // ProcessDeferredDestruction reuse guard
-    {
-        use gheap::statics::*;
-
-        PDD_HOOK.init(
-            "pdd_reuse_guard",
-            PDD_ADDR as *mut c_void,
-            gheap::hooks::hook_pdd_guard,
         )?;
     }
 
@@ -212,6 +251,11 @@ pub fn install_gheap_initialize() -> anyhow::Result<()> {
         use gheap::hooks::{hook_hkworld_lock, hook_hkworld_unlock};
         use gheap::statics::*;
 
+        HAVOK_STOP_START_HOOK.init(
+            "havok_stop_start",
+            HAVOK_STOP_START_ADDR as *mut c_void,
+            gheap::hooks::hook_havok_stop_start,
+        )?;
         HKWORLD_LOCK_HOOK.init(
             "hkworld_lock",
             HKWORLD_LOCK_ADDR as *mut c_void,
@@ -253,16 +297,18 @@ pub fn install_gheap_hooks() -> anyhow::Result<()> {
         use gheap::statics::*;
 
         MAIN_LOOP_MAINTENANCE_HOOK.enable()?;
+        PHASE10_PRE_HOOK.enable()?;
+        PHASE10_AUDIO_UPDATE_HOOK.enable()?;
+        PHASE10_AUDIO_WORKER_HOOK.enable()?;
+        RADIO_SIGNAL_SCAN_HOOK.enable()?;
+        RADIO_STATION_UPDATE_HOOK.enable()?;
+        PHASE10_PRE_TAIL_HOOK.enable()?;
+        PHASE10_WORLD_UPDATE_HOOK.enable()?;
+        PHASE10_MID_HOOK.enable()?;
+        PHASE10_QUEUE_DRAIN_HOOK.enable()?;
+        PHASE10_POST_HOOK.enable()?;
         PER_FRAME_QUEUE_DRAIN_HOOK.enable()?;
         log::info!("[HOOKS] Frame hooks active");
-    }
-
-    // ProcessDeferredDestruction reuse guard
-    {
-        use gheap::statics::*;
-
-        PDD_HOOK.enable()?;
-        log::info!("[PDD] Destruction reuse guard active");
     }
 
     // ai sync
@@ -335,6 +381,7 @@ pub fn install_gheap_hooks() -> anyhow::Result<()> {
     {
         use gheap::statics::*;
 
+        HAVOK_STOP_START_HOOK.enable()?;
         HKWORLD_LOCK_HOOK.enable()?;
         HKWORLD_UNLOCK_HOOK.enable()?;
         log::info!("[HAVOK] World lock hooks active");

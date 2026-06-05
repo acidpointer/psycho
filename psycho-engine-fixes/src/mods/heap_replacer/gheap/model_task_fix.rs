@@ -7,7 +7,7 @@
 //! FUN_00559450(1) and faulted reading address 1.
 //!
 //! Normal live destructors still run through vanilla. Only cells that
-//! gheap already marks free or destruction-deferred are skipped.
+//! gheap already marks free are skipped.
 
 use std::sync::atomic::{AtomicU64, Ordering};
 
@@ -46,7 +46,7 @@ fn is_stale_model_task(this: *mut c_void) -> bool {
     if !info.committed || info.offset != 0 || info.item_size != MODEL_TASK_POOL_SIZE {
         return false;
     }
-    if !info.is_free && !info.is_deferred_free {
+    if !info.is_free {
         return false;
     }
 
@@ -57,15 +57,7 @@ fn is_stale_model_task(this: *mut c_void) -> bool {
 fn log_skip(this: *mut c_void, flags: u32) {
     let n = STALE_MODEL_TASK_DTORS.fetch_add(1, Ordering::Relaxed) + 1;
     if n.is_power_of_two() {
-        let state = pool::ptr_info(this)
-            .map(|info| {
-                if info.is_deferred_free {
-                    "deferred-free"
-                } else {
-                    "free"
-                }
-            })
-            .unwrap_or("unknown");
+        let state = pool::ptr_info(this).map(|_| "free").unwrap_or("unknown");
         log::warn!(
             "[MODEL_TASK] skipped stale LockFreeStringMap<Model*> destructor total={} this=0x{:08x} flags=0x{:x} state={}",
             n,

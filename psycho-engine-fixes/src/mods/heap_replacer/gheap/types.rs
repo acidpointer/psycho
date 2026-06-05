@@ -27,6 +27,36 @@ pub type GameHeapFreeFn = unsafe extern "thiscall" fn(*mut c_void, *mut c_void);
 /// FUN_008705d0: post-render maintenance, called at main loop line 486.
 pub type MainLoopMaintenanceFn = unsafe extern "thiscall" fn(*mut c_void);
 
+/// FUN_0086f640: first helper called by post-render maintenance.
+pub type Phase10PreFn = unsafe extern "C" fn();
+
+/// FUN_00832ad0: audio/radio update helper called from FUN_0086f640.
+pub type Phase10AudioUpdateFn = unsafe extern "C" fn(u8) -> u32;
+
+/// FUN_00833d00: focus/audio update worker called from FUN_00832ad0.
+pub type Phase10AudioWorkerFn = unsafe extern "C" fn(u8);
+
+/// FUN_004ff1a0: collects audible radio stations near the player.
+pub type RadioSignalScanFn = unsafe extern "C" fn(*mut c_void, *mut c_void, *mut c_void);
+
+/// FUN_00834260: per-station radio update called from FUN_00833d00.
+pub type RadioStationUpdateFn = unsafe extern "C" fn(*mut c_void);
+
+/// FUN_0082fb70: helper called from FUN_0086f640 before world update.
+pub type Phase10PreTailFn = unsafe extern "C" fn();
+
+/// FUN_0082d7c0: large world update helper called from FUN_0086f640.
+pub type Phase10WorldUpdateFn = unsafe extern "C" fn();
+
+/// FUN_0086f890: render update helper called by post-render maintenance.
+pub type Phase10MidFn = unsafe extern "fastcall" fn(*mut c_void);
+
+/// FUN_00552570: multi-threaded queued object/model processing drain.
+pub type Phase10QueueDrainFn = unsafe extern "C" fn();
+
+/// FUN_0086f670: final helper called by post-render maintenance.
+pub type Phase10PostFn = unsafe extern "C" fn();
+
 /// FUN_00868850: per-frame queue drain, runs before AI dispatch.
 pub type PerFrameQueueDrainFn = unsafe extern "C" fn();
 

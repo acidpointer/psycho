@@ -1,4 +1,4 @@
-//! Guard for not-ready bhkRagdollController bone tables.
+//! Guard for not-ready or internally mismatched bhkRagdollController bone tables.
 //!
 //! The crash at `0x00A6DF48` is not an OOM. Ghidra shows the path:
 //!
@@ -7,11 +7,14 @@
 //! `FUN_00C79680` reads `*(ragdoll + 0xA4)[boneIndex] + 0x34`.
 //! During cell attach a ragdoll can have a valid hierarchy at `+0x2A4`
 //! while the bone pointer table at `+0xA4` still contains NULL entries.
-//! Vanilla never checks this; with clean gheap memory the latent bug becomes
-//! a reliable NULL+0x34 crash. The update wrappers are void best-effort
-//! frame updates, so we skip the not-ready frame and let the next update retry.
+//! `FUN_00C75B40` and `FUN_00C79A50` also write controller transforms back
+//! into `+0xA4` bone entries, so stale-but-readable tables can become silent
+//! deformation bugs instead of crashes. Vanilla never checks this; with clean
+//! gheap memory the latent bug becomes a reliable NULL+0x34 crash. The update
+//! wrappers are void best-effort frame/update helpers, so we skip not-ready or
+//! mismatched frames and let the next valid controller state retry.
 
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicU32, AtomicU64, Ordering};
 
 use libc::c_void;
 use windows::Win32::System::Memory::{MEM_COMMIT, PAGE_GUARD, PAGE_NOACCESS};
@@ -24,7 +27,12 @@ const LOW_POINTER_LIMIT: usize = 0x10000;
 const RAGDOLL_MIN_SIZE: usize = RAGDOLL_HIERARCHY_OFFSET + 4;
 const RAGDOLL_SCENE_ROOT_OFFSET: usize = 0x48;
 const RAGDOLL_TRANSFORM_ROOT_OFFSET: usize = 0x58;
+const RAGDOLL_SKELETON_STATE_OFFSET: usize = 0x88;
+const RAGDOLL_TRANSFORM_BUFFER_OFFSET: usize = 0x94;
+const RAGDOLL_TRANSFORM_COUNT_OFFSET: usize = 0x98;
 const RAGDOLL_BONE_TABLE_OFFSET: usize = 0xA4;
+const RAGDOLL_BONE_TABLE_COUNT_OFFSET: usize = 0xA8;
+const RAGDOLL_BONE_TABLE_CAPACITY_OFFSET: usize = 0xAC;
 const RAGDOLL_HIERARCHY_OFFSET: usize = 0x2A4;
 const TRANSFORM_ROOT_MIN_SIZE: usize = 0x9C;
 const SCENE_ROOT_MIN_SIZE: usize = 0x30;
@@ -34,6 +42,29 @@ const BONE_GROUP_MIN_SIZE: usize = BONE_GROUP_COUNT_OFFSET + 4;
 const MAX_BONES: usize = 512;
 
 static SKIPPED_UPDATES: AtomicU64 = AtomicU64::new(0);
+static GUARD_CALLS: AtomicU64 = AtomicU64::new(0);
+static GUARD_SKIPS: AtomicU64 = AtomicU64::new(0);
+static GUARD_VIRTUAL_QUERIES: AtomicU64 = AtomicU64::new(0);
+static GUARD_TOTAL_TICKS: AtomicU64 = AtomicU64::new(0);
+static GUARD_MAX_TICKS: AtomicU64 = AtomicU64::new(0);
+static GUARD_LAST_REPORT_MS: AtomicU32 = AtomicU32::new(0);
+static PERF_FREQUENCY: AtomicU64 = AtomicU64::new(0);
+static HITCH_GUARD_CALLS: AtomicU64 = AtomicU64::new(0);
+static HITCH_GUARD_SKIPS: AtomicU64 = AtomicU64::new(0);
+
+const PERF_REPORT_MS: u32 = 5_000;
+
+pub(super) struct HitchCounters {
+    pub calls: u64,
+    pub skips: u64,
+}
+
+pub(super) fn take_hitch_counters() -> HitchCounters {
+    HitchCounters {
+        calls: HITCH_GUARD_CALLS.swap(0, Ordering::AcqRel),
+        skips: HITCH_GUARD_SKIPS.swap(0, Ordering::AcqRel),
+    }
+}
 
 pub unsafe extern "thiscall" fn hook_ragdoll_bone_transform_update(ragdoll: *mut c_void) {
     let original = match statics::RAGDOLL_BONE_TRANSFORM_UPDATE_HOOK.original() {
@@ -47,10 +78,13 @@ pub unsafe extern "thiscall" fn hook_ragdoll_bone_transform_update(ragdoll: *mut
         }
     };
 
+    let start = perf_counter();
     if let Err(reason) = ragdoll_ready_for_bone_update(ragdoll) {
+        record_guard_sample(start, true);
         log_skip("bone-transform", reason, ragdoll);
         return;
     }
+    record_guard_sample(start, false);
 
     unsafe { original(ragdoll) };
 }
@@ -67,12 +101,38 @@ pub unsafe extern "thiscall" fn hook_ragdoll_alternate_update(ragdoll: *mut c_vo
         }
     };
 
+    let start = perf_counter();
     if let Err(reason) = ragdoll_ready_for_bone_update(ragdoll) {
+        record_guard_sample(start, true);
         log_skip("alternate", reason, ragdoll);
         return;
     }
+    record_guard_sample(start, false);
 
     unsafe { original(ragdoll, arg) };
+}
+
+pub unsafe extern "fastcall" fn hook_ragdoll_save_load_writeback(ragdoll: *mut c_void) {
+    let original = match statics::RAGDOLL_SAVE_LOAD_WRITEBACK_HOOK.original() {
+        Ok(original) => original,
+        Err(e) => {
+            log::error!(
+                "[RAGDOLL] FUN_00C75B40 original trampoline missing: {:?}",
+                e
+            );
+            return;
+        }
+    };
+
+    let start = perf_counter();
+    if let Err(reason) = ragdoll_ready_for_bone_update(ragdoll) {
+        record_guard_sample(start, true);
+        log_skip("save-load-writeback", reason, ragdoll);
+        return;
+    }
+    record_guard_sample(start, false);
+
+    unsafe { original(ragdoll) };
 }
 
 fn ragdoll_ready_for_bone_update(ragdoll: *mut c_void) -> Result<(), &'static str> {
@@ -80,54 +140,77 @@ fn ragdoll_ready_for_bone_update(ragdoll: *mut c_void) -> Result<(), &'static st
         return Err("null-ragdoll");
     }
 
+    let mut cache = ReadableRegionCache::default();
     let base = ragdoll as usize;
-    if !is_readable(base, RAGDOLL_MIN_SIZE) {
+    if !is_readable_cached(&mut cache, base, RAGDOLL_MIN_SIZE) {
         return Err("bad-ragdoll");
     }
 
-    let scene_root = read_u32(base + RAGDOLL_SCENE_ROOT_OFFSET).ok_or("bad-scene-root-slot")?;
-    if scene_root == 0 || !is_readable(scene_root as usize, SCENE_ROOT_MIN_SIZE) {
+    let scene_root = unsafe { read_u32_unchecked(base + RAGDOLL_SCENE_ROOT_OFFSET) };
+    if scene_root == 0 || !is_readable_cached(&mut cache, scene_root as usize, SCENE_ROOT_MIN_SIZE)
+    {
         return Err("bad-scene-root");
     }
 
-    let transform_root =
-        read_u32(base + RAGDOLL_TRANSFORM_ROOT_OFFSET).ok_or("bad-transform-root-slot")?;
-    if transform_root == 0 || !is_readable(transform_root as usize, TRANSFORM_ROOT_MIN_SIZE) {
+    let transform_root = unsafe { read_u32_unchecked(base + RAGDOLL_TRANSFORM_ROOT_OFFSET) };
+    if transform_root == 0
+        || !is_readable_cached(&mut cache, transform_root as usize, TRANSFORM_ROOT_MIN_SIZE)
+    {
         return Err("bad-transform-root");
     }
 
-    let hierarchy = read_u32(base + RAGDOLL_HIERARCHY_OFFSET).ok_or("bad-hierarchy-slot")?;
-    if hierarchy == 0 || !is_readable(hierarchy as usize, HIERARCHY_MIN_SIZE) {
+    let hierarchy = unsafe { read_u32_unchecked(base + RAGDOLL_HIERARCHY_OFFSET) };
+    if hierarchy == 0 || !is_readable_cached(&mut cache, hierarchy as usize, HIERARCHY_MIN_SIZE) {
         return Err("bad-hierarchy");
     }
 
-    let bone_group = read_u32(hierarchy as usize + 0x0C).ok_or("bad-bone-group-slot")?;
-    if bone_group == 0 || !is_readable(bone_group as usize, BONE_GROUP_MIN_SIZE) {
+    let bone_group = unsafe { read_u32_unchecked(hierarchy as usize + 0x0C) };
+    if bone_group == 0 || !is_readable_cached(&mut cache, bone_group as usize, BONE_GROUP_MIN_SIZE)
+    {
         return Err("bad-bone-group");
     }
 
-    let bone_count = read_u32(bone_group as usize + BONE_GROUP_COUNT_OFFSET)
-        .ok_or("bad-bone-count-slot")? as usize;
-    if bone_count == 0 {
-        return Ok(());
-    }
+    let bone_count =
+        unsafe { read_u32_unchecked(bone_group as usize + BONE_GROUP_COUNT_OFFSET) } as usize;
     if bone_count > MAX_BONES {
         return Err("bad-bone-count");
     }
 
-    let bone_table = read_u32(base + RAGDOLL_BONE_TABLE_OFFSET).ok_or("bad-bone-table-slot")?;
+    let bone_table_count =
+        unsafe { read_u32_unchecked(base + RAGDOLL_BONE_TABLE_COUNT_OFFSET) } as usize;
+    if bone_table_count != bone_count {
+        return Err("bone-table-count-mismatch");
+    }
+
+    let bone_table_capacity =
+        unsafe { read_u32_unchecked(base + RAGDOLL_BONE_TABLE_CAPACITY_OFFSET) } as usize;
+    if bone_table_capacity < bone_table_count || bone_table_capacity > MAX_BONES {
+        return Err("bad-bone-table-capacity");
+    }
+
+    let transform_count =
+        unsafe { read_u32_unchecked(base + RAGDOLL_TRANSFORM_COUNT_OFFSET) } as usize;
+    if transform_count != bone_count {
+        return Err("transform-count-mismatch");
+    }
+
+    if bone_count == 0 {
+        return Ok(());
+    }
+
+    let bone_table = unsafe { read_u32_unchecked(base + RAGDOLL_BONE_TABLE_OFFSET) };
     let table_len = bone_count
         .checked_mul(core::mem::size_of::<u32>())
         .ok_or("bad-bone-count")?;
-    if bone_table == 0 || !is_readable(bone_table as usize, table_len) {
+    if bone_table == 0 || !is_readable_cached(&mut cache, bone_table as usize, table_len) {
         return Err("bad-bone-table");
     }
 
     for i in 0..bone_count {
-        let Some(bone) = read_u32(bone_table as usize + i * core::mem::size_of::<u32>()) else {
-            return Err("bad-bone-slot");
-        };
-        if bone as usize <= LOW_POINTER_LIMIT {
+        let bone =
+            unsafe { read_u32_unchecked(bone_table as usize + i * core::mem::size_of::<u32>()) }
+                as usize;
+        if bone <= LOW_POINTER_LIMIT {
             return Err("null-bone");
         }
     }
@@ -135,12 +218,52 @@ fn ragdoll_ready_for_bone_update(ragdoll: *mut c_void) -> Result<(), &'static st
     Ok(())
 }
 
+#[derive(Default)]
+struct ReadableRegionCache {
+    base: usize,
+    end: usize,
+}
+
+impl ReadableRegionCache {
+    fn contains(&self, addr: usize, end: usize) -> bool {
+        self.base <= addr && end <= self.end
+    }
+}
+
 fn read_u32(addr: usize) -> Option<u32> {
     if !is_readable(addr, core::mem::size_of::<u32>()) {
         return None;
     }
 
-    Some(unsafe { core::ptr::read_unaligned(addr as *const u32) })
+    Some(unsafe { read_u32_unchecked(addr) })
+}
+
+unsafe fn read_u32_unchecked(addr: usize) -> u32 {
+    unsafe { core::ptr::read_unaligned(addr as *const u32) }
+}
+
+fn is_readable_cached(cache: &mut ReadableRegionCache, addr: usize, len: usize) -> bool {
+    if addr < LOW_POINTER_LIMIT || len == 0 {
+        return false;
+    }
+
+    let Some(end) = addr.checked_add(len) else {
+        return false;
+    };
+    if cache.contains(addr, end) {
+        return true;
+    }
+
+    let Some((base, region_end)) = query_readable_region(addr) else {
+        return false;
+    };
+    if end > region_end {
+        return false;
+    }
+
+    cache.base = base;
+    cache.end = region_end;
+    true
 }
 
 fn is_readable(addr: usize, len: usize) -> bool {
@@ -148,21 +271,31 @@ fn is_readable(addr: usize, len: usize) -> bool {
         return false;
     }
 
-    let Ok(info) = virtual_query(addr as *mut c_void) else {
+    let Some((_, region_end)) = query_readable_region(addr) else {
         return false;
     };
-    if info.state != MEM_COMMIT.0 || info.protect == PAGE_NOACCESS {
-        return false;
-    }
-    if (info.protect.0 & PAGE_GUARD.0) != 0 {
-        return false;
-    }
-
     let Some(end) = addr.checked_add(len) else {
         return false;
     };
-    let region_end = (info.base_address as usize).saturating_add(info.region_size);
     end <= region_end
+}
+
+fn query_readable_region(addr: usize) -> Option<(usize, usize)> {
+    GUARD_VIRTUAL_QUERIES.fetch_add(1, Ordering::Relaxed);
+
+    let Ok(info) = virtual_query(addr as *mut c_void) else {
+        return None;
+    };
+    if info.state != MEM_COMMIT.0 || info.protect == PAGE_NOACCESS {
+        return None;
+    }
+    if (info.protect.0 & PAGE_GUARD.0) != 0 {
+        return None;
+    };
+
+    let base = info.base_address as usize;
+    let region_end = base.saturating_add(info.region_size);
+    Some((base, region_end))
 }
 
 fn log_skip(site: &'static str, reason: &'static str, ragdoll: *mut c_void) {
@@ -172,10 +305,131 @@ fn log_skip(site: &'static str, reason: &'static str, ragdoll: *mut c_void) {
     }
 
     log::warn!(
-        "[RAGDOLL] not-ready update skipped: site={} reason={} total={} ragdoll=0x{:08X}",
+        "[RAGDOLL] not-ready update skipped: site={} reason={} total={} ragdoll=0x{:08X} state={}",
         site,
         reason,
         n,
         ragdoll as usize,
+        format_ragdoll_state(ragdoll),
     );
+}
+
+fn format_ragdoll_state(ragdoll: *mut c_void) -> String {
+    if ragdoll.is_null() {
+        return "null".to_owned();
+    }
+
+    let base = ragdoll as usize;
+    format!(
+        "scene=0x{:08X} transform_root=0x{:08X} hierarchy=0x{:08X} skeleton=0x{:08X} xform_buf=0x{:08X} xform_count={} table=0x{:08X} table_count={} table_capacity={}",
+        read_u32(base + RAGDOLL_SCENE_ROOT_OFFSET).unwrap_or(0),
+        read_u32(base + RAGDOLL_TRANSFORM_ROOT_OFFSET).unwrap_or(0),
+        read_u32(base + RAGDOLL_HIERARCHY_OFFSET).unwrap_or(0),
+        read_u32(base + RAGDOLL_SKELETON_STATE_OFFSET).unwrap_or(0),
+        read_u32(base + RAGDOLL_TRANSFORM_BUFFER_OFFSET).unwrap_or(0),
+        read_u32(base + RAGDOLL_TRANSFORM_COUNT_OFFSET).unwrap_or(u32::MAX),
+        read_u32(base + RAGDOLL_BONE_TABLE_OFFSET).unwrap_or(0),
+        read_u32(base + RAGDOLL_BONE_TABLE_COUNT_OFFSET).unwrap_or(u32::MAX),
+        read_u32(base + RAGDOLL_BONE_TABLE_CAPACITY_OFFSET).unwrap_or(u32::MAX),
+    )
+}
+
+fn record_guard_sample(start: u64, skipped: bool) {
+    GUARD_CALLS.fetch_add(1, Ordering::Relaxed);
+    HITCH_GUARD_CALLS.fetch_add(1, Ordering::Relaxed);
+    if skipped {
+        GUARD_SKIPS.fetch_add(1, Ordering::Relaxed);
+        HITCH_GUARD_SKIPS.fetch_add(1, Ordering::Relaxed);
+    }
+
+    let end = perf_counter();
+    if start != 0 && end >= start {
+        let ticks = end - start;
+        GUARD_TOTAL_TICKS.fetch_add(ticks, Ordering::Relaxed);
+        update_max(&GUARD_MAX_TICKS, ticks);
+    }
+
+    maybe_log_perf();
+}
+
+fn maybe_log_perf() {
+    let now = libpsycho::os::windows::winapi::get_tick_count();
+    let last = GUARD_LAST_REPORT_MS.load(Ordering::Acquire);
+    if last == 0 {
+        let _ = GUARD_LAST_REPORT_MS.compare_exchange(0, now, Ordering::AcqRel, Ordering::Relaxed);
+        return;
+    }
+    if now.wrapping_sub(last) < PERF_REPORT_MS {
+        return;
+    }
+    if GUARD_LAST_REPORT_MS
+        .compare_exchange(last, now, Ordering::AcqRel, Ordering::Relaxed)
+        .is_err()
+    {
+        return;
+    }
+
+    let calls = GUARD_CALLS.swap(0, Ordering::AcqRel);
+    if calls == 0 {
+        return;
+    }
+
+    let skips = GUARD_SKIPS.swap(0, Ordering::AcqRel);
+    let queries = GUARD_VIRTUAL_QUERIES.swap(0, Ordering::AcqRel);
+    let total_ticks = GUARD_TOTAL_TICKS.swap(0, Ordering::AcqRel);
+    let max_ticks = GUARD_MAX_TICKS.swap(0, Ordering::AcqRel);
+    let total_us = ticks_to_us(total_ticks);
+    let max_us = ticks_to_us(max_ticks);
+    let avg_us = total_us / calls.max(1);
+
+    log::debug!(
+        "[RAGDOLL_PERF] calls={} skips={} virtual_queries={} total_us={} avg_us={} max_us={}",
+        calls,
+        skips,
+        queries,
+        total_us,
+        avg_us,
+        max_us,
+    );
+}
+
+fn perf_counter() -> u64 {
+    libpsycho::os::windows::winapi::query_performance_counter()
+        .ok()
+        .and_then(|v| u64::try_from(v).ok())
+        .unwrap_or(0)
+}
+
+fn ticks_to_us(ticks: u64) -> u64 {
+    let freq = perf_frequency();
+    if freq == 0 {
+        return 0;
+    }
+    ticks.saturating_mul(1_000_000) / freq
+}
+
+fn perf_frequency() -> u64 {
+    let current = PERF_FREQUENCY.load(Ordering::Acquire);
+    if current != 0 {
+        return current;
+    }
+
+    let freq = libpsycho::os::windows::winapi::query_performance_frequency()
+        .ok()
+        .and_then(|v| u64::try_from(v).ok())
+        .unwrap_or(0);
+    if freq != 0 {
+        PERF_FREQUENCY.store(freq, Ordering::Release);
+    }
+    freq
+}
+
+fn update_max(slot: &AtomicU64, value: u64) {
+    let mut old = slot.load(Ordering::Relaxed);
+    while value > old {
+        match slot.compare_exchange_weak(old, value, Ordering::Relaxed, Ordering::Relaxed) {
+            Ok(_) => return,
+            Err(next) => old = next,
+        }
+    }
 }

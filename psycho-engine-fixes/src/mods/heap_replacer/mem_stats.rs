@@ -151,12 +151,8 @@ impl MemStats {
             format_bytes(gheap_total.saturating_add(scrap.live_bytes)),
         ));
 
-        push_section(&mut r, "Reuse safety");
-        r.push_str(&format!("  live pool cells: {}\n", pool::live_cells(),));
-        r.push_str(&format!(
-            "  waiting for safe reuse: {}\n\n",
-            pool::deferred_free_cells(),
-        ));
+        push_section(&mut r, "Pool cells");
+        r.push_str(&format!("  live pool cells: {}\n\n", pool::live_cells(),));
 
         let cycles = stats.pressure_cycles();
         push_section(&mut r, "Cleanup");

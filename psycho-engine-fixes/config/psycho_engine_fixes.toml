@@ -141,6 +141,38 @@ rng = true
 #         is related to decompression.
 zlib = true
 
+# Cache the game's periodic nearby-radio station scan.
+#
+# In TTW Capital Wasteland, the vanilla nearby-station scan can repeatedly
+# spend tens of milliseconds in connected-interior/path checks while rotating
+# the camera or moving through some areas. Psycho caches only the periodic
+# radio worker callsite; direct station selection and menu/Pip-Boy radio
+# callers still use the vanilla scan path.
+#
+# true  = cache periodic nearby-radio scan results.
+#         Recommended for TTW and large modlists. This reduces recurring
+#         camera stutter in radio-heavy worldspaces.
+#
+# false = use the game's original periodic scan cadence.
+#         Use this for troubleshooting if nearby radio station detection feels
+#         stale or another plugin also patches the same radio worker callsite.
+radio_signal_scan_cache = true
+
+# Lifetime for cached periodic nearby-radio scan results.
+#
+# Higher values reduce scan hitches further but delay radio signal/station
+# refresh while moving. Lower values update radio state more often but allow
+# more vanilla scan hitches through.
+#
+# Supported range: 500..10000 ms. Values outside this range are clamped at
+# startup and logged.
+#
+# Recommended: 2000 ms. Do not set this below 500 ms unless you are explicitly
+# testing the vanilla scan cost; too-short TTLs can bring back recurring
+# Capital Wasteland stutter. Do not set this above 10000 ms for normal play;
+# too-long TTLs can make nearby station availability feel stale.
+radio_signal_scan_cache_ttl_ms = 2000
+
 [diagnostics]
 # Open a Windows console for live log output.
 #
