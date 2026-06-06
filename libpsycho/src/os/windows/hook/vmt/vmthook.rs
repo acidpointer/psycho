@@ -8,7 +8,7 @@ use crate::{
     hook::traits::Hook,
     os::windows::{
         hook::vmt::{VmtHookResult, errors::VmtHookError},
-        memory::validate_memory_access,
+        memory::{validate_memory_access, validate_memory_range},
         winapi::with_virtual_protect,
     },
 };
@@ -59,8 +59,11 @@ impl<F: Copy + 'static> VmtHook<F> {
 
         let vmt_entry_ptr = unsafe { vmt_ptr.add(method_index) };
 
-        // This validation is highly important, because method_index can be potentially invalid
-        validate_memory_access(vmt_entry_ptr as *mut c_void)?;
+        // The vtable slot is data. The function pointer stored inside it must be executable.
+        validate_memory_range(
+            vmt_entry_ptr as *const c_void,
+            std::mem::size_of::<*mut c_void>(),
+        )?;
 
         let original_method_ptr = unsafe { *vmt_entry_ptr };
 

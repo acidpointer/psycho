@@ -89,7 +89,9 @@
 //!
 //! fn setup_cosave(ctx: &mut PluginContext) -> Result<(), PluginError> {
 //!     ctx.on_save(|writer| {
-//!         let state = STATE.lock().unwrap();
+//!         let Some(state) = STATE.lock().ok() else {
+//!             return Ok(());
+//!         };
 //!         writer.write(b"STAT", 1, |w| {
 //!             w.write_u32(state.kill_count)?;
 //!             w.write_string(&state.player_name)?;
@@ -99,7 +101,9 @@
 //!     })?;
 //!
 //!     ctx.on_load(|reader| {
-//!         let mut state = STATE.lock().unwrap();
+//!         let Some(mut state) = STATE.lock().ok() else {
+//!             return Ok(());
+//!         };
 //!         while let Some(rec) = reader.next_record()? {
 //!             if rec.tag == *b"STAT" {
 //!                 state.kill_count = reader.read_u32()?;
@@ -113,8 +117,9 @@
 //!     })?;
 //!
 //!     ctx.on_new_game(|| {
-//!         let mut state = STATE.lock().unwrap();
-//!         *state = MyState::default();
+//!         if let Ok(mut state) = STATE.lock() {
+//!             *state = MyState::default();
+//!         }
 //!     })?;
 //!
 //!     Ok(())
@@ -558,7 +563,7 @@ impl PluginContext {
             self.commands = Some(builder);
         }
         // SAFETY: the `is_none` check above guarantees this is `Some`.
-        // Using `ok_or` instead of `.expect()` to follow project no-panic rules.
+        // Keep this fallible so missing interfaces are reported instead of panicking.
         self.commands
             .as_mut()
             .ok_or(PluginError::Interface(NVSEInterfaceError::InterfaceIsNull))
@@ -683,7 +688,7 @@ impl PluginContext {
             self.serialization = Some(ser);
         }
         // SAFETY: the `is_none` check above guarantees this is `Some`.
-        // Using `ok_or` instead of `.expect()` to follow project no-panic rules.
+        // Keep this fallible so missing interfaces are reported instead of panicking.
         self.serialization
             .as_mut()
             .ok_or(PluginError::Interface(NVSEInterfaceError::InterfaceIsNull))

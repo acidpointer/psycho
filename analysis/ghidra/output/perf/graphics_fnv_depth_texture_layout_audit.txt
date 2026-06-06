@@ -1,0 +1,1070 @@
+FNV DEPTH TEXTURE LAYOUT AUDIT
+
+======================================================================
+psycho-graphics raw offset contract to verify
+======================================================================
+NiTexture::m_pkRendererData expected offset: 0x24
+NiDX9TextureData::m_pkD3DTexture expected offset: 0x64
+NiCamera::m_kViewFrustum.m_fNear expected offset: 0xEC
+NiCamera::m_kViewFrustum.m_fFar expected offset: 0xF0
+ImageSpaceManager::GetDepthTexture expected to return NiTexture* in EAX
+
+======================================================================
+ImageSpaceManager::GetDepthTexture @ 0x00b54090
+======================================================================
+  Function: thunk_FUN_00ba3780 @ 0x00b54090, Size: 17 bytes
+
+void thunk_FUN_00ba3780(void)
+
+{
+  FUN_00ba3780();
+  return;
+}
+
+
+
+--- Calls FROM ImageSpaceManager::GetDepthTexture (0x00b54090) ---
+  0x00b5409c -> 0x00ba3780 ImageSpaceTexture::GetTexture
+  Total: 1 calls
+
+======================================================================
+ImageSpaceTexture::GetTexture @ 0x00ba3780
+======================================================================
+  Function: FUN_00ba3780 @ 0x00ba3780, Size: 21 bytes
+
+undefined4 __fastcall FUN_00ba3780(int param_1)
+
+{
+  undefined4 uVar1;
+  
+  if (*(char *)(param_1 + 1) != '\0') {
+    uVar1 = FUN_004bc320(0);
+    return uVar1;
+  }
+  return *(undefined4 *)(param_1 + 4);
+}
+
+
+
+--- Calls FROM ImageSpaceTexture::GetTexture (0x00ba3780) ---
+  0x00ba378b -> 0x004bc320 FUN_004bc320
+  Total: 1 calls
+
+======================================================================
+RenderEffect with NiTexture source @ 0x00b8c980
+======================================================================
+  Function: FUN_00b8c980 @ 0x00b8c980, Size: 327 bytes
+
+void __thiscall
+FUN_00b8c980(int param_1,int *param_2,undefined4 param_3,undefined4 param_4,undefined4 param_5,
+            undefined4 param_6,undefined4 param_7)
+
+{
+  int iVar1;
+  undefined4 uVar2;
+  uint uVar3;
+  undefined4 *puVar4;
+  int *unaff_FS_OFFSET;
+  undefined1 local_2c;
+  undefined1 local_2b;
+  undefined1 local_2a;
+  undefined4 local_28;
+  undefined4 local_24;
+  undefined4 local_20;
+  undefined1 local_1c;
+  undefined1 local_1b;
+  undefined1 local_1a;
+  undefined4 local_18;
+  undefined4 local_14;
+  undefined4 local_10;
+  int local_c;
+  undefined1 *puStack_8;
+  int local_4;
+  
+  puStack_8 = &LAB_00f295d8;
+  local_c = *unaff_FS_OFFSET;
+  uVar3 = DAT_011c16bc ^ (uint)&stack0xffffffc0;
+  *unaff_FS_OFFSET = (int)&local_c;
+  iVar1 = *(int *)(unaff_FS_OFFSET[0xb] + _tls_index * 4);
+  uVar2 = *(undefined4 *)(iVar1 + 0x2b4);
+  *(undefined4 *)(iVar1 + 0x2b4) = 0x27;
+  local_1c = 0;
+  local_1b = 0;
+  local_1a = 0;
+  local_18 = 0;
+  local_14 = 0;
+  local_10 = 0;
+  local_2c = 0;
+  local_2b = 0;
+  local_2a = 0;
+  local_28 = 0;
+  local_24 = 0;
+  local_20 = 0;
+  local_4 = 2;
+  FUN_00ba37f0(param_4);
+  FUN_00ba37a0(param_5);
+  if (param_2 != (int *)0x0) {
+    FUN_00ba3cb0(0,&local_2c,0);
+    FUN_00ba3cb0(1,&local_1c,0);
+    puVar4 = (undefined4 *)(param_1 + 0x1f8);
+    if (*(char *)(param_1 + 0x1fc) == '\0') {
+      puVar4 = (undefined4 *)(param_1 + 0x1f0);
+    }
+    (**(code **)(*param_2 + 4))(*puVar4,param_3,param_6,param_7,uVar3);
+    FUN_00ba3cb0(0,0,0);
+    FUN_00ba3cb0(1,0,0);
+  }
+  local_4._0_1_ = 1;
+  FUN_00ba3a00();
+  local_4 = (uint)local_4._1_3_ << 8;
+  FUN_00ba3a00();
+  *(undefined4 *)(iVar1 + 0x2b4) = uVar2;
+  *unaff_FS_OFFSET = local_c;
+  return;
+}
+
+
+
+--- Calls FROM RenderEffect with NiTexture source (0x00b8c980) ---
+  0x00b8ca10 -> 0x00ba37f0 FUN_00ba37f0
+  0x00b8ca1e -> 0x00ba37a0 FUN_00ba37a0
+  0x00b8ca34 -> 0x00ba3cb0 FUN_00ba3cb0
+  0x00b8ca43 -> 0x00ba3cb0 FUN_00ba3cb0
+  0x00b8ca7c -> 0x00ba3cb0 FUN_00ba3cb0
+  0x00b8ca87 -> 0x00ba3cb0 FUN_00ba3cb0
+  0x00b8ca95 -> 0x00ba3a00 FUN_00ba3a00
+  0x00b8caa2 -> 0x00ba3a00 FUN_00ba3a00
+  Total: 8 calls
+
+======================================================================
+RenderEffect id with NiTexture source @ 0x00b975f0
+======================================================================
+  Function: FUN_00b975f0 @ 0x00b975f0, Size: 145 bytes
+
+void __thiscall
+FUN_00b975f0(int param_1,int param_2,undefined4 param_3,undefined4 param_4,undefined4 param_5,
+            undefined4 param_6,undefined4 param_7)
+
+{
+  int iVar1;
+  undefined4 uVar2;
+  int *unaff_FS_OFFSET;
+  int local_c;
+  undefined1 *puStack_8;
+  undefined4 local_4;
+  
+  puStack_8 = &LAB_00f306c8;
+  local_c = *unaff_FS_OFFSET;
+  *unaff_FS_OFFSET = (int)&local_c;
+  iVar1 = *(int *)(unaff_FS_OFFSET[0xb] + _tls_index * 4);
+  uVar2 = *(undefined4 *)(iVar1 + 0x2b4);
+  *(undefined4 *)(iVar1 + 0x2b4) = 0x27;
+  local_4 = 0;
+  FUN_00b8c980(*(undefined4 *)(*(int *)(param_1 + 8) + param_2 * 4),param_3,param_4,param_5,param_6,
+               param_7);
+  *(undefined4 *)(iVar1 + 0x2b4) = uVar2;
+  *unaff_FS_OFFSET = local_c;
+  return;
+}
+
+
+
+--- Calls FROM RenderEffect id with NiTexture source (0x00b975f0) ---
+  0x00b97662 -> 0x00b8c980 ImageSpaceManager::RenderEffect effect/source NiTexture
+  Total: 1 calls
+
+======================================================================
+BSShader::CreateVertexShader @ 0x00be0fe0
+======================================================================
+  Function: FUN_00be0fe0 @ 0x00be0fe0, Size: 1889 bytes
+
+/* WARNING: Function: __alloca_probe replaced with injection: alloca_probe */
+
+void FUN_00be0fe0(char *param_1,int *param_2,undefined4 param_3,undefined4 param_4)
+
+{
+  undefined4 uVar1;
+  char cVar2;
+  undefined1 uVar3;
+  uint uVar4;
+  int *piVar5;
+  undefined4 uVar6;
+  undefined4 uVar7;
+  FILE *_File;
+  int *piVar8;
+  void *_Str;
+  undefined1 *puVar9;
+  int iVar10;
+  int iVar11;
+  int *unaff_FS_OFFSET;
+  FILE *_File_00;
+  FILE *pFVar12;
+  char *pcVar13;
+  undefined4 uStack_12a4;
+  int *local_12a0;
+  int *local_129c;
+  int *local_1298;
+  int *local_1294;
+  undefined4 local_1290;
+  int *local_128c;
+  undefined4 local_1288;
+  undefined4 local_1284;
+  int iStack_1280;
+  int *local_127c;
+  int *local_1278;
+  undefined4 local_1274;
+  char *local_1270;
+  undefined4 local_126c;
+  undefined4 local_1268;
+  undefined4 local_1264;
+  undefined **ppuStack_1260;
+  char *pcStack_125c;
+  char local_1258 [260];
+  undefined1 local_1154 [256];
+  undefined1 auStack_1054 [4];
+  char acStack_1050 [1300];
+  undefined1 local_b3c [260];
+  char acStack_a38 [1296];
+  undefined1 auStack_528 [4];
+  undefined1 auStack_524 [1300];
+  uint local_10;
+  int local_c;
+  undefined1 *puStack_8;
+  undefined4 uStack_4;
+  
+  uStack_4 = 0xffffffff;
+  puStack_8 = &LAB_00f2d322;
+  local_c = *unaff_FS_OFFSET;
+  local_10 = DAT_011c16bc ^ (uint)&uStack_12a4;
+  uVar4 = DAT_011c16bc ^ (uint)&stack0xffffed4c;
+  *unaff_FS_OFFSET = (int)&local_c;
+  iVar10 = 0;
+  local_1270 = param_1;
+  local_1294 = param_2;
+  local_1264 = param_3;
+  local_1284 = param_4;
+  local_129c = (int *)0x0;
+  local_1298 = (int *)0x0;
+  local_127c = (int *)0x0;
+  local_1268 = 0;
+  local_1290 = 0;
+  FUN_00be0dc0(local_1258,param_1,param_4,&DAT_010bc868,uVar4);
+  uStack_12a4._0_3_ = (uint3)uStack_12a4 & 0xffff;
+  uStack_12a4 = (int *)CONCAT13(1,(uint3)uStack_12a4);
+  if (DAT_011f9498 != 0) {
+    iVar10 = FUN_00b7fac0(param_4);
+  }
+  if ((DAT_011ae638 != '\0') && (iVar10 == 0)) {
+    local_1278 = (int *)0x0;
+    local_1274 = 0;
+    local_128c = (int *)0x0;
+    local_1288 = 0;
+    cVar2 = FUN_00afe7d0(local_1258,&local_128c,0x20);
+    uStack_12a4._0_3_ = CONCAT12(cVar2,(ushort)uStack_12a4);
+    uVar3 = FUN_00afe7d0(param_1,&local_1278,0x20);
+    uStack_12a4._0_2_ = CONCAT11(uVar3,(byte)uStack_12a4);
+    if ((cVar2 == '\0') && (DAT_011f94a7 != '\0')) {
+      if (DAT_011f9200 == '\0') {
+        _strcpy_s(&DAT_011f9200,0x104,"cache:\\");
+        FUN_00be0dc0(local_1258,param_1,param_4,&DAT_010bc868);
+      }
+      cVar2 = FUN_00afe7d0(local_1258,&local_128c,0x20);
+      uStack_12a4._0_3_ = CONCAT12(cVar2,(ushort)uStack_12a4);
+    }
+    if (uStack_12a4._1_1_ == '\0') {
+      FUN_00406d00(local_1154,0x104,"SHADER ERROR : error opening HLSL source file : %s",param_1);
+    }
+    param_2 = local_1294;
+    if (cVar2 == '\0') {
+      uStack_12a4 = (int *)((uint)uStack_12a4 & 0xffffff);
+    }
+  }
+  uVar4 = (uint)uStack_12a4;
+  uStack_12a4._0_2_ = (ushort)(byte)uStack_12a4;
+  piVar5 = uStack_12a4;
+  local_12a0 = (int *)0x0;
+  if (iVar10 == 0) {
+    uStack_12a4._3_1_ = SUB41(uVar4,3);
+    uStack_12a4 = piVar5;
+    if (uStack_12a4._3_1_ == '\0') {
+      local_1278 = (int *)0x0;
+      if (DAT_011f941e != '\0') {
+        iVar10 = *param_2;
+        local_1278 = param_2;
+        while (iVar10 != 0) {
+          local_1278 = local_1278 + 2;
+          iVar10 = *local_1278;
+        }
+        *local_1278 = (int)&DAT_010bc828;
+        local_1278[1] = (int)&lpWindowName_01011584;
+      }
+      piVar5 = (int *)FUN_00afdf20(param_1,0,0x4000,0x20);
+      if (piVar5 != (int *)0x0) {
+        if ((char)piVar5[0xb] != '\0') {
+          uVar6 = (*(code *)((undefined4 *)*piVar5)[10])();
+          uVar7 = FUN_00aa3e40(uVar6);
+          FUN_00462d80(uVar7,uVar6);
+          pcStack_125c = param_1;
+          piVar8 = local_1294 + 1;
+          ppuStack_1260 = &PTR_LAB_010bc610;
+          acStack_1050[0] = '\0';
+          acStack_a38[0] = '\0';
+          iStack_1280 = 8;
+          local_128c = piVar8;
+          do {
+            if ((char *)piVar8[-1] != (char *)0x0) {
+              _strcat_s(acStack_1050,0x514,(char *)piVar8[-1]);
+              _strcat_s(acStack_a38,0x514," /D");
+              _strcat_s(acStack_a38,0x514,(char *)piVar8[-1]);
+              if (((char *)*piVar8 == (char *)0x0) || (*(char *)*piVar8 == '\0')) {
+                _strcat_s(acStack_a38,0x514,"=1");
+              }
+              else {
+                _strcat_s(acStack_1050,0x514,"=");
+                _strcat_s(acStack_1050,0x514,(char *)*piVar8);
+                _strcat_s(acStack_a38,0x514,"=");
+                _strcat_s(acStack_a38,0x514,(char *)*piVar8);
+              }
+              _strcat_s(acStack_1050,0x514,", ");
+            }
+            uVar1 = local_1264;
+            piVar8 = piVar8 + 2;
+            iStack_1280 = iStack_1280 + -1;
+          } while (iStack_1280 != 0);
+          FUN_00406d00(auStack_524,0x514,"compiling : %s\n %s %s",local_1270,local_1264,acStack_1050
+                      );
+          iVar10 = D3DXCompileShader(uVar7,uVar6,local_1294,&ppuStack_1260,&DAT_01094d90,uVar1,0,
+                                     &local_129c,&local_1298,&local_1268);
+          (**(code **)*piVar5)(1);
+          FUN_00aa4060(uVar7);
+          if ((local_1298 != (int *)0x0) && (local_129c == (int *)0x0)) {
+            acStack_1050[0] = '\0';
+            iVar11 = 0;
+            piVar5 = local_128c;
+            do {
+              if ((char *)piVar5[-1] == (char *)0x0) break;
+              _strcat_s(acStack_1050,0x514,(char *)piVar5[-1]);
+              if (((char *)*piVar5 != (char *)0x0) && (*(char *)*piVar5 != '\0')) {
+                _strcat_s(acStack_1050,0x514,"=");
+                _strcat_s(acStack_1050,0x514,(char *)*piVar5);
+              }
+              _strcat_s(acStack_1050,0x514,", ");
+              iVar11 = iVar11 + 1;
+              piVar5 = piVar5 + 2;
+            } while (iVar11 < 8);
+            uVar6 = (**(code **)(*local_1298 + 0xc))(local_1298);
+            FUN_00406d00(auStack_528,0x514,"%s\n %s\n %s",local_1274,auStack_1054,uVar6);
+            (**(code **)(*local_129c + 8))(local_129c);
+            local_1298 = (int *)0x0;
+          }
+          if ((iVar10 == 0) && (local_129c != (int *)0x0)) {
+            _File = _fopen(local_1258,"wb");
+            if (_File == (FILE *)0x0) {
+              FUN_00406d00(local_1154,0xff,"invalid cache file : %s",local_1258);
+              local_12a0 = (int *)(**(code **)(*local_129c + 0xc))(local_129c);
+            }
+            else {
+              piVar8 = (int *)(**(code **)(*local_129c + 0x10))(local_129c);
+              _File_00 = (FILE *)&DAT_00000001;
+              piVar5 = local_12a0;
+              pFVar12 = _File;
+              local_1294 = piVar8;
+              _Str = (void *)(**(code **)(*local_12a0 + 0xc))();
+              _fwrite(_Str,(size_t)piVar5,(size_t)piVar8,_File_00);
+              _fclose(_File);
+              FUN_00af5e40(&ppuStack_1260);
+              local_12a0 = (int *)(**(code **)(*uStack_12a4 + 0xc))(uStack_12a4,pFVar12);
+            }
+          }
+          else {
+            if ((uStack_12a4._2_1_ == '\0') ||
+               (piVar5 = (int *)FUN_00afdf20(local_1258,0,0x4000,0x20), piVar5 == (int *)0x0))
+            goto LAB_00be1717;
+            piVar8 = local_12a0;
+            if ((char)piVar5[0xb] != '\0') {
+              uVar6 = (**(code **)(*piVar5 + 0x28))();
+              local_1290 = uVar6;
+              piVar8 = (int *)FUN_00aa3e40(uVar6);
+              uStack_12a4._0_2_ = CONCAT11(1,(byte)uStack_12a4);
+              local_12a0 = piVar8;
+              FUN_00462d80(piVar8,uVar6);
+            }
+            (**(code **)*piVar5)(1);
+            if (piVar8 == (int *)0x0) goto LAB_00be1717;
+          }
+          param_4 = local_1284;
+          if (local_1278 != (int *)0x0) {
+            *local_1278 = 0;
+            local_1278[1] = 0;
+          }
+          goto LAB_00be163b;
+        }
+        (**(code **)*piVar5)(1);
+      }
+      pcVar13 = "SHADER ERROR : error opening hlsl file : %s";
+      puVar9 = local_1154;
+    }
+    else {
+      piVar5 = (int *)FUN_00afdf20(local_1258,0,0x4000,0x20);
+      if (piVar5 != (int *)0x0) {
+        if ((char)piVar5[0xb] != '\0') {
+          uVar6 = (**(code **)(*piVar5 + 0x28))();
+          local_1290 = uVar6;
+          local_12a0 = (int *)FUN_00aa3e40(uVar6);
+          uStack_12a4._0_2_ = CONCAT11(1,(byte)uStack_12a4);
+          FUN_00462d80(local_12a0,uVar6);
+        }
+        (**(code **)*piVar5)(1);
+        goto LAB_00be163b;
+      }
+      pcVar13 = "SHADER ERROR : error opening cache file : %s";
+LAB_00be1700:
+      param_1 = local_1258;
+      puVar9 = local_b3c;
+    }
+    FUN_00406d00(puVar9,0x104,pcVar13,param_1);
+  }
+  else {
+    local_12a0 = (int *)(iVar10 + 0x104);
+LAB_00be163b:
+    piVar5 = local_12a0;
+    if (local_12a0 != (int *)0x0) {
+      if (DAT_011f9494 == 0) {
+        iVar10 = (**(code **)(**(int **)(DAT_011f9508 + 0x288) + 0x16c))
+                           (*(int **)(DAT_011f9508 + 0x288),local_12a0,&local_126c);
+        if (iVar10 != 0) {
+          pcVar13 = "SHADER ERROR : failed to create vertex shader : %s";
+          goto LAB_00be1700;
+        }
+        local_128c = (int *)FUN_00aa13e0(0x3c);
+        uStack_4 = 0;
+        if (local_128c == (int *)0x0) {
+          local_127c = (int *)0x0;
+        }
+        else {
+          local_127c = (int *)FUN_00be0b30(DAT_011f9508);
+        }
+        uStack_4 = 0xffffffff;
+        (**(code **)(*local_127c + 0x88))(local_126c);
+      }
+      else {
+        FUN_00b7fd90(param_4,local_12a0,local_1290);
+      }
+    }
+    if (uStack_12a4._1_1_ != '\0') {
+      FUN_00aa4060(piVar5);
+    }
+  }
+LAB_00be1717:
+  *unaff_FS_OFFSET = local_c;
+  __security_check_cookie(local_10 ^ (uint)&uStack_12a4);
+  return;
+}
+
+
+
+--- Calls FROM BSShader::CreateVertexShader (0x00be0fe0) ---
+  0x00be0ff3 -> 0x00ec8660 __alloca_probe
+  0x00be106d -> 0x00be0dc0 FUN_00be0dc0
+  0x00be108a -> 0x00b7fac0 FUN_00b7fac0
+  0x00be10c4 -> 0x00afe7d0 FUN_00afe7d0
+  0x00be10d7 -> 0x00afe7d0 FUN_00afe7d0
+  0x00be1110 -> 0x00ec65a6 _strcpy_s
+  0x00be1121 -> 0x00be0dc0 FUN_00be0dc0
+  0x00be1135 -> 0x00afe7d0 FUN_00afe7d0
+  0x00be115d -> 0x00406d00 FUN_00406d00
+  0x00be11d4 -> 0x00afdf20 FUN_00afdf20
+  0x00be1201 -> 0x00aa3e40 FUN_00aa3e40
+  0x00be120c -> 0x00462d80 FUN_00462d80
+  0x00be1259 -> 0x00ec6bd2 _strcat_s
+  0x00be1270 -> 0x00ec6bd2 _strcat_s
+  0x00be1286 -> 0x00ec6bd2 _strcat_s
+  0x00be12ab -> 0x00ec6bd2 _strcat_s
+  0x00be12c0 -> 0x00ec6bd2 _strcat_s
+  0x00be12d7 -> 0x00ec6bd2 _strcat_s
+  0x00be12ec -> 0x00ec6bd2 _strcat_s
+  0x00be1308 -> 0x00ec6bd2 _strcat_s
+  0x00be1322 -> 0x00ec6bd2 _strcat_s
+  0x00be135c -> 0x00406d00 FUN_00406d00
+  0x00be1387 -> 0x00ee6e0a D3DXCompileShader
+  0x00be139e -> 0x00aa4060 FUN_00aa4060
+  0x00be13dc -> 0x00ec6bd2 _strcat_s
+  0x00be1401 -> 0x00ec6bd2 _strcat_s
+  0x00be1416 -> 0x00ec6bd2 _strcat_s
+  0x00be1430 -> 0x00ec6bd2 _strcat_s
+  0x00be146d -> 0x00406d00 FUN_00406d00
+  0x00be14a5 -> 0x00ec9a47 _fopen
+  0x00be14d4 -> 0x00ecb086 _fwrite
+  0x00be14da -> 0x00ec9907 _fclose
+  0x00be14e4 -> 0x00af5e40 FUN_00af5e40
+  0x00be1518 -> 0x00406d00 FUN_00406d00
+  0x00be154b -> 0x00afdf20 FUN_00afdf20
+  0x00be1578 -> 0x00aa3e40 FUN_00aa3e40
+  0x00be158c -> 0x00462d80 FUN_00462d80
+  0x00be15ed -> 0x00afdf20 FUN_00afdf20
+  0x00be161a -> 0x00aa3e40 FUN_00aa3e40
+  0x00be162c -> 0x00462d80 FUN_00462d80
+  0x00be1658 -> 0x00b7fd90 FUN_00b7fd90
+  0x00be1691 -> 0x00aa13e0 FUN_00aa13e0
+  0x00be16b5 -> 0x00be0b30 FUN_00be0b30
+  0x00be16eb -> 0x00aa4060 FUN_00aa4060
+  0x00be170d -> 0x00406d00 FUN_00406d00
+  0x00be1733 -> 0x00ec408c __security_check_cookie
+  Total: 46 calls
+
+======================================================================
+BSShader::CreatePixelShader @ 0x00be1750
+======================================================================
+  Function: FUN_00be1750 @ 0x00be1750, Size: 1884 bytes
+
+/* WARNING: Function: __alloca_probe replaced with injection: alloca_probe */
+
+void FUN_00be1750(char *param_1,int *param_2,char *param_3,undefined4 param_4)
+
+{
+  undefined1 uVar1;
+  char cVar2;
+  uint uVar3;
+  int *piVar4;
+  undefined4 uVar5;
+  undefined4 uVar6;
+  FILE *_File;
+  int *piVar7;
+  void *_Str;
+  undefined1 *puVar8;
+  int iVar9;
+  int iVar10;
+  int *unaff_FS_OFFSET;
+  FILE *_File_00;
+  char *pcVar11;
+  undefined4 uStack_12a8;
+  int *local_12a4;
+  int *local_12a0;
+  int *local_129c;
+  int *local_1298;
+  undefined4 local_1294;
+  char *local_1290;
+  int *local_128c;
+  undefined4 local_1288;
+  int *local_1284;
+  undefined4 local_1280;
+  undefined4 local_127c;
+  char *local_1278;
+  int *local_1274;
+  int iStack_1270;
+  char *local_126c;
+  undefined4 local_1268;
+  undefined4 local_1264;
+  undefined **ppuStack_1260;
+  char *pcStack_125c;
+  char local_1258 [256];
+  undefined1 auStack_1158 [4];
+  char acStack_1154 [1300];
+  undefined1 local_c40 [260];
+  undefined1 local_b3c [260];
+  char acStack_a38 [1296];
+  undefined1 auStack_528 [4];
+  undefined1 auStack_524 [1300];
+  uint local_10;
+  int local_c;
+  undefined1 *puStack_8;
+  undefined4 uStack_4;
+  
+  uStack_4 = 0xffffffff;
+  puStack_8 = &LAB_00f2d362;
+  local_c = *unaff_FS_OFFSET;
+  local_10 = DAT_011c16bc ^ (uint)&uStack_12a8;
+  uVar3 = DAT_011c16bc ^ (uint)&stack0xffffed48;
+  *unaff_FS_OFFSET = (int)&local_c;
+  iVar9 = 0;
+  local_1278 = param_1;
+  local_1298 = param_2;
+  local_126c = param_3;
+  local_127c = param_4;
+  local_12a0 = (int *)0x0;
+  local_129c = (int *)0x0;
+  local_1274 = (int *)0x0;
+  local_1264 = 0;
+  local_1294 = 0;
+  FUN_00be0dc0(local_1258,param_1,param_4,&DAT_010bc8a0,uVar3);
+  uStack_12a8._0_3_ = (uint3)uStack_12a8 & 0xffff;
+  uStack_12a8 = (int *)CONCAT13(1,(uint3)uStack_12a8);
+  if (DAT_011f9498 != 0) {
+    iVar9 = FUN_00b7fac0(param_4);
+  }
+  if ((DAT_011ae638 != '\0') && (iVar9 == 0)) {
+    local_1284 = (int *)0x0;
+    local_1280 = 0;
+    local_128c = (int *)0x0;
+    local_1288 = 0;
+    uVar1 = FUN_00afe7d0(param_1,&local_1284,0x20);
+    uStack_12a8._0_2_ = CONCAT11(uVar1,(byte)uStack_12a8);
+    cVar2 = FUN_00afe7d0(local_1258,&local_128c,0x20);
+    uStack_12a8._0_3_ = CONCAT12(cVar2,(ushort)uStack_12a8);
+    if ((cVar2 == '\0') && (DAT_011f94a7 != '\0')) {
+      if (DAT_011f9200 == '\0') {
+        _strcpy_s(&DAT_011f9200,0x104,"cache:\\");
+        FUN_00be0dc0(local_1258,param_1,param_4,&DAT_010bc8a0);
+      }
+      cVar2 = FUN_00afe7d0(local_1258,&local_128c,0x20);
+      uStack_12a8._0_3_ = CONCAT12(cVar2,(ushort)uStack_12a8);
+    }
+    if (uStack_12a8._1_1_ == '\0') {
+      FUN_00406d00(local_c40,0x104,"SHADER ERROR : error opening HLSL source file : %s",param_1);
+    }
+    param_2 = local_1298;
+    if (cVar2 == '\0') {
+      uStack_12a8 = (int *)((uint)uStack_12a8 & 0xffffff);
+    }
+  }
+  pcVar11 = local_126c;
+  uVar3 = (uint)uStack_12a8;
+  uStack_12a8._0_2_ = (ushort)(byte)uStack_12a8;
+  piVar4 = uStack_12a8;
+  local_12a4 = (int *)0x0;
+  if (iVar9 == 0) {
+    uStack_12a8._3_1_ = SUB41(uVar3,3);
+    uStack_12a8 = piVar4;
+    if (uStack_12a8._3_1_ == '\0') {
+      local_1284 = (int *)0x0;
+      if (DAT_011f941e != '\0') {
+        iVar9 = *param_2;
+        local_1284 = param_2;
+        while (iVar9 != 0) {
+          local_1284 = local_1284 + 2;
+          iVar9 = *local_1284;
+        }
+        *local_1284 = (int)&DAT_010bc828;
+        local_1284[1] = (int)&lpWindowName_01011584;
+      }
+      local_1290 = local_126c;
+      iVar9 = _strncmp(local_126c,"ps_2_0",4);
+      if ((iVar9 == 0) && (local_1290 = (char *)FUN_00b4f380(1), local_1290 == (char *)0x0)) {
+        local_1290 = pcVar11;
+      }
+      piVar4 = (int *)FUN_00afdf20(param_1,0,0x4000,0x20);
+      if (piVar4 != (int *)0x0) {
+        if ((char)piVar4[0xb] != '\0') {
+          uVar5 = (*(code *)((undefined4 *)*piVar4)[10])();
+          uVar6 = FUN_00aa3e40(uVar5);
+          FUN_00462d80(uVar6,uVar5);
+          pcStack_125c = param_1;
+          piVar7 = local_1298 + 1;
+          ppuStack_1260 = &PTR_LAB_010bc610;
+          acStack_1154[0] = '\0';
+          acStack_a38[0] = '\0';
+          iStack_1270 = 8;
+          local_128c = piVar7;
+          do {
+            if ((char *)piVar7[-1] != (char *)0x0) {
+              _strcat_s(acStack_1154,0x514,(char *)piVar7[-1]);
+              _strcat_s(acStack_a38,0x514," /D");
+              _strcat_s(acStack_a38,0x514,(char *)piVar7[-1]);
+              if (((char *)*piVar7 == (char *)0x0) || (*(char *)*piVar7 == '\0')) {
+                _strcat_s(acStack_a38,0x514,"=1");
+              }
+              else {
+                _strcat_s(acStack_1154,0x514,"=");
+                _strcat_s(acStack_1154,0x514,(char *)*piVar7);
+                _strcat_s(acStack_a38,0x514,"=");
+                _strcat_s(acStack_a38,0x514,(char *)*piVar7);
+              }
+              _strcat_s(acStack_1154,0x514,", ");
+            }
+            piVar7 = piVar7 + 2;
+            iStack_1270 = iStack_1270 + -1;
+          } while (iStack_1270 != 0);
+          FUN_00406d00(auStack_524,0x514,"compiling : %s\n %s %s",local_1278,local_126c,acStack_1154
+                      );
+          iVar9 = D3DXCompileShader(uVar6,uVar5,local_1298,&ppuStack_1260,&DAT_01094d90,local_1290,0
+                                    ,&local_12a0,&local_129c,&local_1264);
+          (**(code **)*piVar4)(1);
+          FUN_00aa4060(uVar6);
+          if ((local_129c != (int *)0x0) && (local_12a0 == (int *)0x0)) {
+            acStack_1154[0] = '\0';
+            iVar10 = 8;
+            piVar4 = local_128c;
+            do {
+              if ((char *)piVar4[-1] != (char *)0x0) {
+                _strcat_s(acStack_1154,0x514,(char *)piVar4[-1]);
+                if (((char *)*piVar4 != (char *)0x0) && (*(char *)*piVar4 != '\0')) {
+                  _strcat_s(acStack_1154,0x514,"=");
+                  _strcat_s(acStack_1154,0x514,(char *)*piVar4);
+                }
+                _strcat_s(acStack_1154,0x514,", ");
+              }
+              piVar4 = piVar4 + 2;
+              iVar10 = iVar10 + -1;
+            } while (iVar10 != 0);
+            uVar5 = (**(code **)(*local_129c + 0xc))(local_129c);
+            FUN_00406d00(auStack_528,0x514,"%s\n %s\n %s",local_127c,auStack_1158,uVar5);
+            (**(code **)(*local_12a0 + 8))(local_12a0);
+            local_129c = (int *)0x0;
+          }
+          if ((iVar9 == 0) && (local_12a0 != (int *)0x0)) {
+            _File = _fopen(local_1258,"wb");
+            piVar7 = (int *)(**(code **)(*local_12a0 + 0x10))(local_12a0);
+            _File_00 = (FILE *)&DAT_00000001;
+            piVar4 = local_12a4;
+            local_1298 = piVar7;
+            _Str = (void *)(**(code **)(*local_12a4 + 0xc))();
+            _fwrite(_Str,(size_t)piVar4,(size_t)piVar7,_File_00);
+            _fflush(_File);
+            _fclose(_File);
+            FUN_00af5e40(&ppuStack_1260);
+            local_12a4 = (int *)(**(code **)(*uStack_12a8 + 0xc))(uStack_12a8);
+          }
+          else {
+            if ((uStack_12a8._2_1_ == '\0') ||
+               (piVar4 = (int *)FUN_00afdf20(local_1258,0,0x4000,0x20), piVar4 == (int *)0x0))
+            goto LAB_00be1e82;
+            piVar7 = local_12a4;
+            if ((char)piVar4[0xb] != '\0') {
+              uVar5 = (**(code **)(*piVar4 + 0x28))();
+              local_1294 = uVar5;
+              piVar7 = (int *)FUN_00aa3e40(uVar5);
+              uStack_12a8._0_2_ = CONCAT11(1,(byte)uStack_12a8);
+              local_12a4 = piVar7;
+              FUN_00462d80(piVar7,uVar5);
+            }
+            (**(code **)*piVar4)(1);
+            if (piVar7 == (int *)0x0) goto LAB_00be1e82;
+          }
+          param_4 = local_127c;
+          if (local_1284 != (int *)0x0) {
+            *local_1284 = 0;
+            local_1284[1] = 0;
+          }
+          goto LAB_00be1da6;
+        }
+        (**(code **)*piVar4)(1);
+      }
+      pcVar11 = "SHADER ERROR : error opening hlsl file : %s";
+      puVar8 = local_c40;
+    }
+    else {
+      piVar4 = (int *)FUN_00afdf20(local_1258,0,0x4000,0x20);
+      if (piVar4 != (int *)0x0) {
+        if ((char)piVar4[0xb] != '\0') {
+          uVar5 = (**(code **)(*piVar4 + 0x28))();
+          local_1294 = uVar5;
+          local_12a4 = (int *)FUN_00aa3e40(uVar5);
+          uStack_12a8._0_2_ = CONCAT11(1,(byte)uStack_12a8);
+          FUN_00462d80(local_12a4,uVar5);
+        }
+        (**(code **)*piVar4)(1);
+        goto LAB_00be1da6;
+      }
+      pcVar11 = "SHADER ERROR : error opening cache file : %s";
+LAB_00be1e6b:
+      param_1 = local_1258;
+      puVar8 = local_b3c;
+    }
+    FUN_00406d00(puVar8,0x104,pcVar11,param_1);
+  }
+  else {
+    local_12a4 = (int *)(iVar9 + 0x104);
+LAB_00be1da6:
+    piVar4 = local_12a4;
+    if (local_12a4 != (int *)0x0) {
+      if (DAT_011f9494 == 0) {
+        iVar9 = (**(code **)(**(int **)(DAT_011f9508 + 0x288) + 0x1a8))
+                          (*(int **)(DAT_011f9508 + 0x288),local_12a4,&local_1268);
+        if (iVar9 != 0) {
+          pcVar11 = "SHADER ERROR : failed to create pixel shader : %s";
+          goto LAB_00be1e6b;
+        }
+        local_128c = (int *)FUN_00aa13e0(0x30);
+        uStack_4 = 0;
+        if (local_128c == (int *)0x0) {
+          local_1274 = (int *)0x0;
+        }
+        else {
+          local_1274 = (int *)FUN_00be08f0(DAT_011f9508);
+        }
+        uStack_4 = 0xffffffff;
+        (**(code **)(*local_1274 + 0x80))(local_1268);
+      }
+      else {
+        FUN_00b7fd90(param_4,local_12a4,local_1294);
+      }
+    }
+    if (uStack_12a8._1_1_ != '\0') {
+      FUN_00aa4060(piVar4);
+    }
+  }
+LAB_00be1e82:
+  *unaff_FS_OFFSET = local_c;
+  __security_check_cookie(local_10 ^ (uint)&uStack_12a8);
+  return;
+}
+
+
+
+--- Calls FROM BSShader::CreatePixelShader (0x00be1750) ---
+  0x00be1763 -> 0x00ec8660 __alloca_probe
+  0x00be17dd -> 0x00be0dc0 FUN_00be0dc0
+  0x00be17fa -> 0x00b7fac0 FUN_00b7fac0
+  0x00be1830 -> 0x00afe7d0 FUN_00afe7d0
+  0x00be1845 -> 0x00afe7d0 FUN_00afe7d0
+  0x00be1880 -> 0x00ec65a6 _strcpy_s
+  0x00be1891 -> 0x00be0dc0 FUN_00be0dc0
+  0x00be18a5 -> 0x00afe7d0 FUN_00afe7d0
+  0x00be18cd -> 0x00406d00 FUN_00406d00
+  0x00be194b -> 0x00ec8a19 _strncmp
+  0x00be1959 -> 0x00b4f380 FUN_00b4f380
+  0x00be1977 -> 0x00afdf20 FUN_00afdf20
+  0x00be19a4 -> 0x00aa3e40 FUN_00aa3e40
+  0x00be19af -> 0x00462d80 FUN_00462d80
+  0x00be19fc -> 0x00ec6bd2 _strcat_s
+  0x00be1a13 -> 0x00ec6bd2 _strcat_s
+  0x00be1a29 -> 0x00ec6bd2 _strcat_s
+  0x00be1a4e -> 0x00ec6bd2 _strcat_s
+  0x00be1a63 -> 0x00ec6bd2 _strcat_s
+  0x00be1a7a -> 0x00ec6bd2 _strcat_s
+  0x00be1a8f -> 0x00ec6bd2 _strcat_s
+  0x00be1aab -> 0x00ec6bd2 _strcat_s
+  0x00be1ac5 -> 0x00ec6bd2 _strcat_s
+  0x00be1aff -> 0x00406d00 FUN_00406d00
+  0x00be1b2e -> 0x00ee6e0a D3DXCompileShader
+  0x00be1b45 -> 0x00aa4060 FUN_00aa4060
+  0x00be1b86 -> 0x00ec6bd2 _strcat_s
+  0x00be1bab -> 0x00ec6bd2 _strcat_s
+  0x00be1bc0 -> 0x00ec6bd2 _strcat_s
+  0x00be1bda -> 0x00ec6bd2 _strcat_s
+  0x00be1c16 -> 0x00406d00 FUN_00406d00
+  0x00be1c42 -> 0x00ec9a47 _fopen
+  0x00be1c6d -> 0x00ecb086 _fwrite
+  0x00be1c73 -> 0x00ecda70 _fflush
+  0x00be1c79 -> 0x00ec9907 _fclose
+  0x00be1c83 -> 0x00af5e40 FUN_00af5e40
+  0x00be1cb6 -> 0x00afdf20 FUN_00afdf20
+  0x00be1ce3 -> 0x00aa3e40 FUN_00aa3e40
+  0x00be1cf7 -> 0x00462d80 FUN_00462d80
+  0x00be1d58 -> 0x00afdf20 FUN_00afdf20
+  0x00be1d85 -> 0x00aa3e40 FUN_00aa3e40
+  0x00be1d97 -> 0x00462d80 FUN_00462d80
+  0x00be1dc3 -> 0x00b7fd90 FUN_00b7fd90
+  0x00be1dfc -> 0x00aa13e0 FUN_00aa13e0
+  0x00be1e20 -> 0x00be08f0 FUN_00be08f0
+  0x00be1e56 -> 0x00aa4060 FUN_00aa4060
+  0x00be1e78 -> 0x00406d00 FUN_00406d00
+  0x00be1e9e -> 0x00ec408c __security_check_cookie
+  Total: 48 calls
+
+----------------------------------------------------------------------
+References TO 0x011f917c (BSShaderManager::pCamera)
+----------------------------------------------------------------------
+  WRITE @ 0x00876125 (in FUN_00875fd0)
+  WRITE @ 0x00b548bd (in FUN_00b54630)
+  WRITE @ 0x00b5ea46 (in FUN_00b5e870)
+  WRITE @ 0x00b6ba3f (in FUN_00b6ba20)
+  WRITE @ 0x00b6c0ef (in FUN_00b6c0d0)
+  READ @ 0x00b8b8d3 (in FUN_00b8b8d0)
+  READ @ 0x00b8bb73 (in FUN_00b8bb70)
+  READ @ 0x00b8b7d3 (in FUN_00b8b7d0)
+  READ @ 0x00b5a22d (in FUN_00b5a220)
+  READ @ 0x00bb1a93 (in FUN_00bb1a90)
+  READ @ 0x00bd66c3 (in FUN_00bd66c0)
+  READ @ 0x00bd684d (in FUN_00bd66c0)
+  READ @ 0x00c04c2c (in ???)
+  WRITE @ 0x00b54605 (in FUN_00b54280)
+  Total: 14 refs
+
+----------------------------------------------------------------------
+References TO 0x011f91ac (ImageSpaceManager singleton pointer)
+----------------------------------------------------------------------
+  READ @ 0x004e3273 (in FUN_004e3270)
+  READ @ 0x00b540b0 (in thunk_FUN_00ba39a0)
+  READ @ 0x00b548b7 (in FUN_00b54630)
+  WRITE @ 0x00b548d9 (in FUN_00b54630)
+  READ @ 0x00b55acf (in FUN_00b55ac0)
+  WRITE @ 0x00b575a3 (in FUN_00b57420)
+  READ @ 0x00b578f8 (in FUN_00b578a0)
+  WRITE @ 0x00b57914 (in FUN_00b578a0)
+  WRITE @ 0x00b579aa (in FUN_00b578a0)
+  READ @ 0x00b645a2 (in FUN_00b64570)
+  READ @ 0x00b647d1 (in FUN_00b64570)
+  READ @ 0x00b65230 (in FUN_00b651e0)
+  READ @ 0x00b65481 (in FUN_00b651e0)
+  READ @ 0x00b654b6 (in FUN_00b651e0)
+  READ @ 0x00b654f8 (in FUN_00b651e0)
+  READ @ 0x00b4f530 (in FUN_00b4f530)
+  READ @ 0x00b6e819 (in FUN_00b6e450)
+  READ @ 0x00b9fadd (in FUN_00b9f780)
+  READ @ 0x00b9fb17 (in FUN_00b9f780)
+  READ @ 0x00b55820 (in FUN_00b557d0)
+  READ @ 0x00b65cc8 (in FUN_00b65c60)
+  READ @ 0x00c03082 (in FUN_00c03010)
+  READ @ 0x00c031ad (in FUN_00c03180)
+  READ @ 0x00ba1153 (in FUN_00ba0900)
+  READ @ 0x00bae350 (in FUN_00badb90)
+  READ @ 0x00bb75ba (in FUN_00bb7530)
+  READ @ 0x00bb78d1 (in FUN_00bb7530)
+  READ @ 0x00bb7936 (in FUN_00bb7530)
+  READ @ 0x00bbed54 (in FUN_00bbecd0)
+  READ @ 0x00bd7f6f (in FUN_00bd7bb0)
+  READ @ 0x00c03e85 (in FUN_00c03d80)
+  READ @ 0x00b4f434 (in FUN_00b4f430)
+  READ @ 0x00b54090 (in thunk_FUN_00ba3780)
+  READ @ 0x00bae59e (in ???)
+  READ @ 0x00bd9243 (in ???)
+  READ @ 0x00c0c997 (in FUN_00c0bd40)
+  READ @ 0x00c0c9ad (in FUN_00c0bd40)
+  READ @ 0x00c0c9ea (in FUN_00c0bd40)
+  READ @ 0x00c0ca01 (in FUN_00c0bd40)
+  WRITE @ 0x00b54617 (in FUN_00b54280)
+  Total: 40 refs
+
+----------------------------------------------------------------------
+Disassembly GetDepthTexture entry around 0x00b54090
+----------------------------------------------------------------------
+  0x00b54075: FDIVR float ptr [ESP + 0x4]                 
+  0x00b54079: FSTP float ptr [0x011adcc8]                 
+  0x00b5407f: ADD ESP,0x8                                 
+  0x00b54082: RET                                         
+  0x00b54090: MOV ECX,dword ptr [0x011f91ac]               << TARGET
+  0x00b54096: ADD ECX,0x204                               
+  0x00b5409c: JMP 0x00ba3780                               ; CALL 0x00ba3780 ImageSpaceTexture::GetTexture
+  0x00b540b0: MOV ECX,dword ptr [0x011f91ac]              
+  0x00b540b6: ADD ECX,0x204                               
+  0x00b540bc: JMP 0x00ba39a0                               ; CALL 0x00ba39a0 FUN_00ba39a0
+  0x00b540d0: MOV EAX,0x1                                 
+  0x00b540d5: SUB dword ptr [0x011ffa10],EAX              
+  0x00b540db: SUB dword ptr [0x011ffa0c],EAX              
+  0x00b540e1: PUSH 0x0                                    
+  0x00b540e3: PUSH 0x0                                    
+  0x00b540e5: CALL 0x00b984f0                              ; CALL 0x00b984f0 FUN_00b984f0
+  0x00b540ea: ADD ESP,0x8                                 
+
+----------------------------------------------------------------------
+Disassembly ImageSpaceTexture::GetTexture entry around 0x00ba3780
+----------------------------------------------------------------------
+  0x00ba3764: MOV dword ptr [ECX + 0xc],EAX               
+  0x00ba3767: RET 0x4                                     
+  0x00ba3770: CMP byte ptr [ECX + 0x1],0x0                
+  0x00ba3774: JZ 0x00ba377a                               
+  0x00ba3776: MOV EAX,dword ptr [ECX + 0x4]               
+  0x00ba3779: RET                                         
+  0x00ba377a: XOR EAX,EAX                                 
+  0x00ba377c: RET                                         
+  0x00ba3780: CMP byte ptr [ECX + 0x1],0x0                 << TARGET
+  0x00ba3784: JZ 0x00ba3791                               
+  0x00ba3786: MOV ECX,dword ptr [ECX + 0x4]               
+  0x00ba3789: PUSH 0x0                                    
+  0x00ba378b: CALL 0x004bc320                              ; CALL 0x004bc320 FUN_004bc320
+  0x00ba3790: RET                                         
+  0x00ba3791: MOV EAX,dword ptr [ECX + 0x4]               
+  0x00ba3794: RET                                         
+  0x00ba37a0: PUSH EBX                                    
+  0x00ba37a1: MOV EBX,dword ptr [ESP + 0x8]               
+  0x00ba37a5: PUSH ESI                                    
+  0x00ba37a6: MOV ESI,ECX                                 
+  0x00ba37a8: PUSH EDI                                    
+  0x00ba37a9: MOV EDI,dword ptr [ESI + 0x4]               
+  0x00ba37ac: CMP EDI,EBX                                 
+  0x00ba37ae: JZ 0x00ba37dc                               
+  0x00ba37b0: TEST EDI,EDI                                
+  0x00ba37b2: JZ 0x00ba37cb                               
+  0x00ba37b4: LEA EAX,[EDI + 0x4]                         
+  0x00ba37b7: PUSH EAX                                    
+  0x00ba37b8: CALL dword ptr [0x00fdf1c4]                  ; CALL 0x00000067 unknown
+  0x00ba37be: TEST EAX,EAX                                
+  0x00ba37c0: JNZ 0x00ba37cb                              
+  0x00ba37c2: MOV EDX,dword ptr [EDI]                     
+  0x00ba37c4: MOV EAX,dword ptr [EDX + 0x4]               
+  0x00ba37c7: MOV ECX,EDI                                 
+  0x00ba37c9: CALL EAX                                    
+  0x00ba37cb: MOV dword ptr [ESI + 0x4],EBX               
+  0x00ba37ce: TEST EBX,EBX                                
+
+----------------------------------------------------------------------
+Disassembly RenderEffect NiTexture source around 0x00b8c980
+----------------------------------------------------------------------
+  0x00b8c940: MOV byte ptr [ESP + 0x40],0x1               
+  0x00b8c945: CALL 0x00ba3a00                              ; CALL 0x00ba3a00 FUN_00ba3a00
+  0x00b8c94a: LEA ECX,[ESP + 0x28]                        
+  0x00b8c94e: MOV byte ptr [ESP + 0x40],BL                
+  0x00b8c952: CALL 0x00ba3a00                              ; CALL 0x00ba3a00 FUN_00ba3a00
+  0x00b8c957: MOV EAX,dword ptr [ESP + 0x14]              
+  0x00b8c95b: MOV dword ptr [EDI + 0x2b4],EAX             
+  0x00b8c961: MOV ECX,dword ptr [ESP + 0x38]              
+  0x00b8c965: MOV dword ptr FS:[0x0],ECX                  
+  0x00b8c96c: POP ECX                                     
+  0x00b8c96d: POP EDI                                     
+  0x00b8c96e: POP ESI                                     
+  0x00b8c96f: POP EBP                                     
+  0x00b8c970: POP EBX                                     
+  0x00b8c971: ADD ESP,0x30                                
+  0x00b8c974: RET 0x18                                    
+  0x00b8c980: PUSH -0x1                                    << TARGET
+  0x00b8c982: PUSH 0xf295d8                               
+  0x00b8c987: MOV EAX,FS:[0x0]                            
+  0x00b8c98d: PUSH EAX                                    
+  0x00b8c98e: SUB ESP,0x24                                
+  0x00b8c991: PUSH EBX                                    
+  0x00b8c992: PUSH EBP                                    
+  0x00b8c993: PUSH ESI                                    
+  0x00b8c994: PUSH EDI                                    
+  0x00b8c995: MOV EAX,[0x011c16bc]                        
+  0x00b8c99a: XOR EAX,ESP                                 
+  0x00b8c99c: PUSH EAX                                    
+  0x00b8c99d: LEA EAX,[ESP + 0x38]                        
+  0x00b8c9a1: MOV FS:[0x0],EAX                            
+  0x00b8c9a7: MOV EBP,ECX                                 
+  0x00b8c9a9: MOV EAX,[0x0126fd98]                        
+  0x00b8c9ae: MOV ECX,dword ptr FS:[0x2c]                 
+  0x00b8c9b5: MOV EDI,dword ptr [ECX + EAX*0x4]           
+  0x00b8c9b8: MOV EDX,dword ptr [EDI + 0x2b4]             
+  0x00b8c9be: MOV dword ptr [ESP + 0x14],EDX              
+  0x00b8c9c2: MOV dword ptr [EDI + 0x2b4],0x27            
+  0x00b8c9cc: XOR EBX,EBX                                 
+  0x00b8c9ce: MOV dword ptr [ESP + 0x40],EBX              
+  0x00b8c9d2: MOV byte ptr [ESP + 0x28],BL                
+  0x00b8c9d6: MOV byte ptr [ESP + 0x29],BL                
+  0x00b8c9da: MOV byte ptr [ESP + 0x2a],BL                
+  0x00b8c9de: MOV dword ptr [ESP + 0x2c],EBX              
+  0x00b8c9e2: MOV dword ptr [ESP + 0x30],EBX              
+  0x00b8c9e6: MOV dword ptr [ESP + 0x34],EBX              
+  0x00b8c9ea: MOV byte ptr [ESP + 0x18],BL                
+  0x00b8c9ee: MOV byte ptr [ESP + 0x19],BL                
+  0x00b8c9f2: MOV byte ptr [ESP + 0x1a],BL                
+  0x00b8c9f6: MOV dword ptr [ESP + 0x1c],EBX              
+  0x00b8c9fa: MOV dword ptr [ESP + 0x20],EBX              
+  0x00b8c9fe: MOV dword ptr [ESP + 0x24],EBX              
+  0x00b8ca02: MOV EAX,dword ptr [ESP + 0x50]              
+  0x00b8ca06: PUSH EAX                                    
+  0x00b8ca07: LEA ECX,[ESP + 0x2c]                        
+  0x00b8ca0b: MOV byte ptr [ESP + 0x44],0x2               
+  0x00b8ca10: CALL 0x00ba37f0                              ; CALL 0x00ba37f0 FUN_00ba37f0
+  0x00b8ca15: MOV ECX,dword ptr [ESP + 0x54]              
+  0x00b8ca19: PUSH ECX                                    
+  0x00b8ca1a: LEA ECX,[ESP + 0x1c]                        
+  0x00b8ca1e: CALL 0x00ba37a0                              ; CALL 0x00ba37a0 FUN_00ba37a0
+  0x00b8ca23: MOV ESI,dword ptr [ESP + 0x48]              
+  0x00b8ca27: CMP ESI,EBX                                 
+  0x00b8ca29: JZ 0x00b8ca8c                               
+  0x00b8ca2b: PUSH EBX                                    
+  0x00b8ca2c: LEA EDX,[ESP + 0x1c]                        
+  0x00b8ca30: PUSH EDX                                    
+  0x00b8ca31: PUSH EBX                                    
+  0x00b8ca32: MOV ECX,ESI                                 
+  0x00b8ca34: CALL 0x00ba3cb0                              ; CALL 0x00ba3cb0 FUN_00ba3cb0
+  0x00b8ca39: PUSH EBX                                    
+  0x00b8ca3a: LEA EAX,[ESP + 0x2c]                        
+  0x00b8ca3e: PUSH EAX                                    
+  0x00b8ca3f: PUSH 0x1                                    
+  0x00b8ca41: MOV ECX,ESI                                 
+  0x00b8ca43: CALL 0x00ba3cb0                              ; CALL 0x00ba3cb0 FUN_00ba3cb0
+  0x00b8ca48: LEA EAX,[EBP + 0x1f8]                       
+  0x00b8ca4e: CMP byte ptr [EBP + 0x1fc],BL               
+  0x00b8ca54: JNZ 0x00b8ca5c                              
+  0x00b8ca56: LEA EAX,[EBP + 0x1f0]                       
+  0x00b8ca5c: MOV ECX,dword ptr [ESP + 0x5c]              
+  0x00b8ca60: MOV EAX,dword ptr [EAX]                     
+  0x00b8ca62: MOV EDX,dword ptr [ESI]                     
+  0x00b8ca64: MOV EDX,dword ptr [EDX + 0x4]               
+  0x00b8ca67: PUSH ECX                                    
+  0x00b8ca68: MOV ECX,dword ptr [ESP + 0x5c]              
+  0x00b8ca6c: PUSH ECX                                    
+  0x00b8ca6d: MOV ECX,dword ptr [ESP + 0x54]              

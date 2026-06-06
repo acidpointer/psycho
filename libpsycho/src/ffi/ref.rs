@@ -60,19 +60,13 @@ impl<T> FFIRef<T> {
 
 impl<T> AsRef<T> for FFIRef<T> {
     fn as_ref(&self) -> &T {
-        let ptr = self.as_ptr();
-
-        // Safety: Pointer can't be NULL because of validation in constructor
-        unsafe { ptr.as_ref().unwrap() }
+        unsafe { &*self.as_ptr() }
     }
 }
 
 impl<T> AsMut<T> for FFIRef<T> {
     fn as_mut(&mut self) -> &mut T {
-        let ptr = self.as_mut_ptr();
-
-        // Safety: Pointer can't be NULL, .unwrap call is correct here
-        unsafe { ptr.as_mut().unwrap() }
+        unsafe { &mut *self.as_mut_ptr() }
     }
 }
 

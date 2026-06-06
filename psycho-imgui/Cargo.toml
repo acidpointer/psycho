@@ -1,0 +1,14 @@
+[package]
+name = "psycho-imgui"
+version = "0.1.0"
+edition = "2024"
+
+[lib]
+name = "psycho_imgui"
+crate-type = ["rlib"]
+
+[dependencies]
+thiserror = { workspace = true }
+
+[build-dependencies]
+cc = "1.0"

@@ -121,9 +121,17 @@ mod sys {
             ex_style: u32,
         ) -> i32;
         pub fn DisableProcessWindowsGhosting();
+        pub fn CallWindowProcA(
+            prev_wnd_func: *mut c_void,
+            hwnd: *mut c_void,
+            msg: u32,
+            wparam: usize,
+            lparam: isize,
+        ) -> isize;
         pub fn GetActiveWindow() -> *mut c_void;
         pub fn GetWindowLongA(hwnd: *mut c_void, index: i32) -> i32;
         pub fn IsWindow(hwnd: *mut c_void) -> i32;
+        pub fn SetWindowLongA(hwnd: *mut c_void, index: i32, value: i32) -> i32;
         pub fn SetWindowPos(
             hwnd: *mut c_void,
             after: *mut c_void,
@@ -163,9 +171,30 @@ pub fn get_active_window() -> *mut c_void {
     unsafe { sys::GetActiveWindow() }
 }
 
+/// Call a previous Win32 window procedure.
+///
+/// # Safety
+///
+/// `wnd_proc` must be a valid procedure returned by `GetWindowLongA` or
+/// `SetWindowLongA` for this window.
+pub unsafe fn call_window_proc_a(
+    wnd_proc: *mut c_void,
+    hwnd: *mut c_void,
+    msg: u32,
+    wparam: usize,
+    lparam: isize,
+) -> isize {
+    unsafe { sys::CallWindowProcA(wnd_proc, hwnd, msg, wparam, lparam) }
+}
+
 /// Return a window long value.
 pub fn get_window_long_a(hwnd: *mut c_void, index: i32) -> i32 {
     unsafe { sys::GetWindowLongA(hwnd, index) }
+}
+
+/// Set a window long value and return the previous value.
+pub fn set_window_long_a(hwnd: *mut c_void, index: i32, value: i32) -> i32 {
+    unsafe { sys::SetWindowLongA(hwnd, index, value) }
 }
 
 /// True if HWND names a live window.

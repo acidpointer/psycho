@@ -116,12 +116,21 @@ impl Watchdog {
         let run = Arc::new(AtomicBool::new(true));
         let run_clone = run.clone();
 
-        let handle = thread::Builder::new()
+        let handle = match thread::Builder::new()
             .name("gheap-watchdog".into())
             .spawn(move || watchdog_loop(run_clone))
-            .expect("failed to spawn watchdog thread");
+        {
+            Ok(handle) => Some(handle),
+            Err(err) => {
+                run.store(false, Ordering::Release);
+                log::error!("[MEM] Failed to spawn watchdog thread: {err}");
+                None
+            }
+        };
 
-        log::info!("[MEM] Watchdog started");
+        if handle.is_some() {
+            log::info!("[MEM] Watchdog started");
+        }
         log::debug!(
             "[MEM] Watchdog config: poll={}ms, growth thresholds={}%/{}%/{}% of headroom",
             POLL_MS,
@@ -130,10 +139,7 @@ impl Watchdog {
             (CRITICAL_GROWTH_PCT * 100.0) as u32,
         );
 
-        Self {
-            run,
-            handle: Some(handle),
-        }
+        Self { run, handle }
     }
 }
 

@@ -1,15 +1,19 @@
 use std::env;
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::process;
 
 fn main() {
-    let target = env::var("TARGET").expect("TARGET not set");
+    let target = match env::var("TARGET") {
+        Ok(target) => target,
+        Err(err) => fail(format!("TARGET not set: {err}")),
+    };
 
     // xNVSE is 32-bit only
     if !target.contains("i686") && !target.contains("i586") {
-        panic!(
+        fail(
             "libnvse only supports i686 (32-bit) targets. \
-             xNVSE is designed for 32-bit Fallout New Vegas."
+             xNVSE is designed for 32-bit Fallout New Vegas.",
         );
     }
 
@@ -19,9 +23,9 @@ fn main() {
     let nvse_dir = PathBuf::from("xnvse");
 
     if !nvse_dir.exists() || !nvse_dir.join("nvse/nvse/PluginAPI.h").exists() {
-        panic!(
+        fail(
             "xNVSE submodule not found or not initialized.\n\
-             Please run: git submodule update --init --recursive"
+             Please run: git submodule update --init --recursive",
         );
     }
 
@@ -72,7 +76,7 @@ fn main() {
         .clang_arg("-nostdinc++")
         .clang_arg(format!("-I{}", "wrapper/include"));
 
-    let bindings = builder
+    let bindings = match builder
         // Bindgen configuration
         .parse_callbacks(Box::new(bindgen::CargoCallbacks::new()))
         // Block C++ stdlib types (we don't cross the FFI boundary with them)
@@ -110,12 +114,18 @@ fn main() {
         .layout_tests(false)
         .raw_line("#![allow(unsafe_op_in_unsafe_fn)]")
         .generate()
-        .expect("Unable to generate bindings");
+    {
+        Ok(bindings) => bindings,
+        Err(err) => fail(format!("Unable to generate bindings: {err}")),
+    };
 
     let bindings_path = PathBuf::from("src/bindings/nvse.rs");
-    bindings
-        .write_to_file(&bindings_path)
-        .expect("Couldn't write bindings");
+    if let Err(err) = bindings.write_to_file(&bindings_path) {
+        fail(format!(
+            "Couldn't write bindings to {}: {err}",
+            bindings_path.display()
+        ));
+    }
 
     eprintln!(
         "[OK] Generated xNVSE bindings at {}",
@@ -128,6 +138,13 @@ fn main() {
     println!("cargo:rerun-if-changed=xnvse/nvse/nvse/PluginAPI.h");
     println!("cargo:rerun-if-changed=xnvse/nvse/nvse/GameAPI.h");
     println!("cargo:rerun-if-changed=build.rs");
+}
+
+fn fail(message: impl AsRef<str>) -> ! {
+    let message = message.as_ref();
+    println!("cargo:warning={message}");
+    eprintln!("{message}");
+    process::exit(1);
 }
 
 fn patch_xnvse_headers(nvse_dir: &Path) {

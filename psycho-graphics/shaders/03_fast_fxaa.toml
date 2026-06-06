@@ -1,0 +1,39 @@
+[shader]
+enabled = false
+passes = 1
+
+[[options]]
+key = "edge_threshold"
+label = "Edge threshold"
+kind = "float"
+value = 0.08
+min = 0.03
+max = 0.20
+constant = "c3.x"
+
+[[options]]
+key = "reduce"
+label = "Reduce"
+kind = "float"
+value = 0.25
+min = 0.05
+max = 0.60
+constant = "c3.y"
+
+[[options]]
+key = "span"
+label = "Span"
+kind = "float"
+value = 3.0
+min = 1.0
+max = 8.0
+constant = "c3.z"
+
+[[options]]
+key = "blend"
+label = "Blend"
+kind = "float"
+value = 0.75
+min = 0.0
+max = 1.0
+constant = "c3.w"

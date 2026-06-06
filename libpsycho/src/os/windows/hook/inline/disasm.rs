@@ -465,7 +465,14 @@ impl Disasm {
 
                 // Generate new CALL instruction with correct displacement
                 let call_bytes =
-                    thunk::generate_call_rel32(trampoline_instr_addr, target_addr as usize);
+                    thunk::generate_call_rel32(trampoline_instr_addr, target_addr as usize)
+                        .ok_or_else(|| {
+                            DisasmError::EncodingError(format!(
+                                "Failed to relocate CALL at 0x{:X} targeting 0x{:X}",
+                                instr.ip(),
+                                target_addr
+                            ))
+                        })?;
 
                 relocated_bytes.extend_from_slice(&call_bytes);
                 original_offset += instr_len;
@@ -515,7 +522,14 @@ impl Disasm {
                             trampoline_instr_addr,
                             target_addr as usize,
                             condition,
-                        );
+                        )
+                        .ok_or_else(|| {
+                            DisasmError::EncodingError(format!(
+                                "Failed to relocate Jcc at 0x{:X} targeting 0x{:X}",
+                                instr.ip(),
+                                target_addr
+                            ))
+                        })?;
 
                         // CRITICAL: Check if size changed
                         if jcc_bytes.len() != instr_len {

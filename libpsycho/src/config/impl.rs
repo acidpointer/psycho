@@ -18,7 +18,13 @@
 //! }
 //!
 //! // Simple load (no migration):
-//! let cfg = Config::load_or_default::<MyConfig>("./my_plugin.toml").unwrap();
+//! let cfg = match Config::load_or_default::<MyConfig>("./my_plugin.toml") {
+//!     Ok(cfg) => cfg,
+//!     Err(err) => {
+//!         eprintln!("config load failed: {err}");
+//!         return;
+//!     }
+//! };
 //!
 //! // Load with automatic schema migration:
 //! let cfg = Config::load_or_migrate::<MyConfig>("./my_plugin.toml");

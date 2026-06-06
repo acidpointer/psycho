@@ -214,7 +214,14 @@ impl Block {
 
         // Remove from free index.
         {
-            let v = self.free_by_size.get_mut(&picked_size).unwrap();
+            let Some(v) = self.free_by_size.get_mut(&picked_size) else {
+                log::error!(
+                    "[GHEAP] Free index corrupt: size bucket {} missing for cell {}",
+                    picked_size,
+                    picked_idx
+                );
+                return None;
+            };
             v.pop();
             if v.is_empty() {
                 self.free_by_size.remove(&picked_size);
@@ -517,8 +524,15 @@ impl BlockHeap {
                 continue;
             };
             if let Some(cell_idx) = block.alloc(rounded) {
-                let block = self.blocks[i].as_ref().unwrap();
-                let offset = block.cells[cell_idx as usize].offset;
+                let Some(cell) = block.cells.get(cell_idx as usize) else {
+                    log::error!(
+                        "[GHEAP] Allocated cell index {} is missing in block {}",
+                        cell_idx,
+                        i
+                    );
+                    return null_mut();
+                };
+                let offset = cell.offset;
                 let addr = unsafe { block.base.add(offset as usize) };
                 return addr as *mut c_void;
             }
@@ -529,11 +543,21 @@ impl BlockHeap {
             Some(i) => i,
             None => return null_mut(),
         };
-        let block = self.blocks[new_idx].as_mut().unwrap();
+        let Some(block) = self.blocks[new_idx].as_mut() else {
+            log::error!("[GHEAP] New block slot {} is empty after commit", new_idx);
+            return null_mut();
+        };
         match block.alloc(rounded) {
             Some(cell_idx) => {
-                let block = self.blocks[new_idx].as_ref().unwrap();
-                let offset = block.cells[cell_idx as usize].offset;
+                let Some(cell) = block.cells.get(cell_idx as usize) else {
+                    log::error!(
+                        "[GHEAP] Allocated cell index {} is missing in new block {}",
+                        cell_idx,
+                        new_idx
+                    );
+                    return null_mut();
+                };
+                let offset = cell.offset;
                 let addr = unsafe { block.base.add(offset as usize) };
                 addr as *mut c_void
             }

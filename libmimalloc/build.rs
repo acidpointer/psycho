@@ -1,4 +1,5 @@
 use std::env;
+use std::process;
 
 fn main() {
     let mut build = cc::Build::new();
@@ -7,9 +8,9 @@ fn main() {
     build.include("c_src/mimalloc/src");
     build.file("c_src/mimalloc/src/static.c");
 
-    let target_os = env::var("CARGO_CFG_TARGET_OS").expect("target_os not defined!");
-    let target_family = env::var("CARGO_CFG_TARGET_FAMILY").expect("target_family not defined!");
-    let target_arch = env::var("CARGO_CFG_TARGET_ARCH").expect("target_arch not defined!");
+    let target_os = require_env("CARGO_CFG_TARGET_OS");
+    let target_family = require_env("CARGO_CFG_TARGET_FAMILY");
+    let target_arch = require_env("CARGO_CFG_TARGET_ARCH");
 
     if target_family != "windows" {
         build.flag("-Wno-error=date-time");
@@ -80,6 +81,17 @@ fn main() {
 
         for lib in libs {
             println!("cargo:rustc-link-lib={}", lib);
+        }
+    }
+
+    fn require_env(name: &str) -> String {
+        match env::var(name) {
+            Ok(value) => value,
+            Err(err) => {
+                println!("cargo:warning={name} not defined: {err}");
+                eprintln!("{name} not defined: {err}");
+                process::exit(1);
+            }
         }
     }
 }

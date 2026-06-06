@@ -1,0 +1,46 @@
+[shader]
+enabled = true
+passes = 1
+
+[[options]]
+key = "strength"
+label = "Strength"
+kind = "float"
+value = 0.65
+min = 0.0
+max = 1.75
+constant = "c3.x"
+
+[[options]]
+key = "depth_range"
+label = "Depth range"
+kind = "float"
+value = 0.012
+min = 0.002
+max = 0.06
+constant = "c3.y"
+
+[[options]]
+key = "clamp"
+label = "Clamp"
+kind = "float"
+value = 0.10
+min = 0.02
+max = 0.30
+constant = "c3.z"
+
+[[options]]
+key = "detail_floor"
+label = "Detail floor"
+kind = "float"
+value = 0.012
+min = 0.002
+max = 0.08
+constant = "c3.w"
+
+[[options]]
+key = "depth_reversed"
+label = "Reversed depth"
+kind = "bool"
+value = true
+constant = "c4.y"

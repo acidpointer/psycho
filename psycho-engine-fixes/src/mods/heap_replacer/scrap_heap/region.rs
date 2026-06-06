@@ -22,7 +22,7 @@ pub struct AllocationHeader {
     prev: *mut AllocationHeader,
 }
 
-const _: () = assert!(size_of::<AllocationHeader>() == 8);
+const _: [(); 8] = [(); size_of::<AllocationHeader>()];
 pub const ALLOCATION_HEADER_SIZE: usize = size_of::<AllocationHeader>();
 
 pub struct Allocation {

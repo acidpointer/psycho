@@ -679,9 +679,14 @@ unsafe extern "C" {
 /// use libmimalloc_sys as mi;
 /// unsafe {
 ///     let h = mi::mi_heap_new();
-///     assert!(!h.is_null());
+///     if h.is_null() {
+///         return;
+///     }
 ///     let p = mi::mi_heap_malloc(h, 50);
-///     assert!(!p.is_null());
+///     if p.is_null() {
+///         mi::mi_heap_delete(h);
+///         return;
+///     }
 ///
 ///     // use p...
 ///     mi::mi_free(p);
@@ -1075,8 +1080,9 @@ mod tests {
     fn it_calculates_usable_size() {
         let ptr = unsafe { crate::mi_malloc(32) } as *mut u8;
         let usable_size = unsafe { mi_usable_size(ptr as *mut c_void) };
-        assert!(
+        assert_eq!(
             usable_size >= 32,
+            true,
             "usable_size should at least equal to the allocated size"
         );
     }

@@ -1,0 +1,1520 @@
+======================================================================
+FNV POST-DEPTH HOOK AUDIT
+======================================================================
+Goal: verify exact FNV render hook surface before Psycho Graphics patches it.
+
+----------------------------------------------------------------------
+Function identity for DepthResolve skip depth-group accumulation patch @ 0x00b64057
+----------------------------------------------------------------------
+  [function not found]
+
+----------------------------------------------------------------------
+Instruction detail: DepthResolve skip depth-group accumulation patch @ 0x00b64057
+----------------------------------------------------------------------
+  Address: 0x00b64057
+  Text: JZ 0x00b640a8
+  Length: 2
+  Bytes: 74 4F
+  Ref: CONDITIONAL_JUMP -> 0x00b640a8 unknown
+
+----------------------------------------------------------------------
+Disassembly DepthResolve skip depth-group accumulation patch around 0x00b64057
+----------------------------------------------------------------------
+  0x00b64013: CMP EDI,dword ptr [ESI + 0x10]                  
+  0x00b64016: JC 0x00b63fd6                                   
+  0x00b64018: POP EBP                                         
+  0x00b64019: POP EDI                                         
+  0x00b6401a: POP ESI                                         
+  0x00b6401b: MOV AL,0x1                                      
+  0x00b6401d: POP EBX                                         
+  0x00b6401e: POP ECX                                         
+  0x00b6401f: RET                                             
+  0x00b64020: SUB ESP,0x8                                     
+  0x00b64023: PUSH ESI                                        
+  0x00b64024: MOV ESI,dword ptr [ESP + 0x10]                  
+  0x00b64028: CMP byte ptr [ESI + 0x164],0x0                  
+  0x00b6402f: JZ 0x00b6403f                                   
+  0x00b64031: MOV EAX,dword ptr [ESP + 0x20]                  
+  0x00b64035: CMP dword ptr [EAX + 0x68],0xd                  
+  0x00b64039: JZ 0x00b643f2                                   
+  0x00b6403f: CMP byte ptr [ESI + 0x3a],0x0                   
+  0x00b64043: PUSH EBX                                        
+  0x00b64044: MOV EBX,dword ptr [ESP + 0x20]                  
+  0x00b64048: PUSH EBP                                        
+  0x00b64049: MOV EBP,dword ptr FS:[0x2c]                     
+  0x00b64050: PUSH EDI                                        
+  0x00b64051: MOV EDI,dword ptr [0x0126fd98]                  
+  0x00b64057: JZ 0x00b640a8                                    << TARGET
+  0x00b64059: MOV EDX,dword ptr [EBX]                         
+  0x00b6405b: MOV EAX,dword ptr [ESP + 0x20]                  
+  0x00b6405f: MOV EDX,dword ptr [EDX + 0xac]                  
+  0x00b64065: PUSH EAX                                        
+  0x00b64066: MOV ECX,EBX                                     
+  0x00b64068: CALL EDX                                        
+  0x00b6406a: TEST EAX,EAX                                    
+  0x00b6406c: JZ 0x00b640a8                                   
+  0x00b6406e: CMP byte ptr [ESI + 0x85],0x0                   
+  0x00b64075: PUSH 0x0                                        
+  0x00b64077: JZ 0x00b6408f                                   
+  0x00b64079: PUSH 0xc                                        
+  0x00b6407b: PUSH EAX                                        
+  0x00b6407c: MOV EAX,dword ptr [EBP + EDI*0x4]               
+  0x00b64080: MOV ECX,dword ptr [EAX + 0x2bc]                 
+  0x00b64086: MOV ECX,dword ptr [ESI + ECX*0x4 + 0x174]       
+  0x00b6408d: JMP 0x00b640a3                                  
+  0x00b6408f: MOV EDX,dword ptr [EBP + EDI*0x4]               
+  0x00b64093: PUSH 0xb                                        
+  0x00b64095: PUSH EAX                                        
+  0x00b64096: MOV EAX,dword ptr [EDX + 0x2bc]                 
+  0x00b6409c: MOV ECX,dword ptr [ESI + EAX*0x4 + 0x174]       
+  0x00b640a3: CALL 0x00b9b3b0                                  ; CALL 0x00b9b3b0 FUN_00b9b3b0
+  0x00b640a8: MOV EDI,dword ptr [EBP + EDI*0x4]               
+  0x00b640ac: MOV EAX,dword ptr [EDI + 0x2bc]                 
+  0x00b640b2: XOR EDX,EDX                                     
+  0x00b640b4: DIV dword ptr [ESI + 0x18c]                     
+  0x00b640ba: MOV EDX,dword ptr [ESI + EDX*0x4 + 0x174]       
+  0x00b640c1: MOV EAX,dword ptr [EDX + 0x34]                  
+  0x00b640c4: TEST EAX,EAX                                    
+  0x00b640c6: JLE 0x00b640d5                                  
+  0x00b640c8: CMP byte ptr [EDX + 0x38],0x0                   
+  0x00b640cc: JZ 0x00b640d5                                   
+  0x00b640ce: MOV ECX,0x1                                     
+  0x00b640d3: JMP 0x00b640d7                                  
+  0x00b640d5: XOR ECX,ECX                                     
+  0x00b640d7: MOV EBX,dword ptr [EBX + 0x20]                  
+  0x00b640da: AND EBX,0x200                                   
+  0x00b640e0: XOR EBP,EBP                                     
+  0x00b640e2: CMP EBP,EBX                                     
+
+----------------------------------------------------------------------
+Function identity for DepthResolve skip alpha blend rendering patch A @ 0x00b65c43
+----------------------------------------------------------------------
+  Function: FUN_00b65ae0
+  Entry: 0x00b65ae0
+  Offset from entry: 0x163
+  Size: 373 bytes
+  Body: [[00b65ae0, 00b65c54]]
+
+----------------------------------------------------------------------
+Instruction detail: DepthResolve skip alpha blend rendering patch A @ 0x00b65c43
+----------------------------------------------------------------------
+  Address: 0x00b65c43
+  Text: PUSH 0x0
+  Length: 2
+  Bytes: 6A 00
+
+----------------------------------------------------------------------
+Disassembly DepthResolve skip alpha blend rendering patch A around 0x00b65c43
+----------------------------------------------------------------------
+  0x00b65beb: PUSH 0x1                                        
+  0x00b65bed: CALL 0x00b63770                                  ; CALL 0x00b63770 FUN_00b63770
+  0x00b65bf2: PUSH EDI                                        
+  0x00b65bf3: MOV EDI,dword ptr [0x011a9608]                  
+  0x00b65bf9: PUSH 0x0                                        
+  0x00b65bfb: PUSH 0x0                                        
+  0x00b65bfd: MOV ECX,ESI                                     
+  0x00b65bff: MOV dword ptr [0x011a9608],0x1                  
+  0x00b65c09: CALL 0x00b639e0                                  ; CALL 0x00b639e0 FUN_00b639e0
+  0x00b65c0e: MOV ECX,ESI                                     
+  0x00b65c10: MOV dword ptr [0x011a9608],EDI                  
+  0x00b65c16: CALL 0x00b64e30                                  ; CALL 0x00b64e30 FUN_00b64e30
+  0x00b65c1b: PUSH -0x1                                       
+  0x00b65c1d: PUSH 0x0                                        
+  0x00b65c1f: PUSH 0x287                                      
+  0x00b65c24: PUSH 0x25c                                      
+  0x00b65c29: MOV ECX,ESI                                     
+  0x00b65c2b: CALL 0x00b63770                                  ; CALL 0x00b63770 FUN_00b63770
+  0x00b65c30: MOV ECX,ESI                                     
+  0x00b65c32: CALL 0x00b63a50                                  ; CALL 0x00b63a50 FUN_00b63a50
+  0x00b65c37: CMP byte ptr [ESI + 0x167],0x0                  
+  0x00b65c3e: POP EDI                                         
+  0x00b65c3f: MOV ECX,ESI                                     
+  0x00b65c41: JZ 0x00b65c4c                                   
+  0x00b65c43: PUSH 0x0                                         << TARGET
+  0x00b65c45: CALL 0x00b650c0                                  ; CALL 0x00b650c0 FUN_00b650c0
+  0x00b65c4a: POP ESI                                         
+  0x00b65c4b: RET                                             
+  0x00b65c4c: PUSH 0x1                                        
+  0x00b65c4e: CALL 0x00b650c0                                  ; CALL 0x00b650c0 FUN_00b650c0
+  0x00b65c53: POP ESI                                         
+  0x00b65c54: RET                                             
+  0x00b65c60: PUSH ESI                                        
+  0x00b65c61: MOV ESI,dword ptr [ESP + 0x8]                   
+  0x00b65c65: CMP byte ptr [ESI + 0x38],0x0                   
+  0x00b65c69: JZ 0x00b65cfb                                   
+  0x00b65c6f: PUSH 0x2ce                                      
+  0x00b65c74: PUSH 0x288                                      
+  0x00b65c79: MOV ECX,ESI                                     
+  0x00b65c7b: CALL 0x00b63120                                  ; CALL 0x00b63120 FUN_00b63120
+  0x00b65c80: TEST AL,AL                                      
+  0x00b65c82: JZ 0x00b65cfb                                   
+  0x00b65c84: CMP dword ptr [0x011f9438],0x0                  
+  0x00b65c8b: JZ 0x00b65cec                                   
+  0x00b65c8d: CALL 0x00b6b790                                  ; CALL 0x00b6b790 BSRenderedTexture::StopOffscreen
+  0x00b65c92: MOV EAX,[0x011f943c]                            
+  0x00b65c97: TEST EAX,EAX                                    
+  0x00b65c99: JNZ 0x00b65cb6                                  
+  0x00b65c9b: MOV ECX,dword ptr [0x011f91a8]                  
+  0x00b65ca1: PUSH EAX                                        
+  0x00b65ca2: PUSH EAX                                        
+  0x00b65ca3: PUSH EAX                                        
+  0x00b65ca4: MOV EAX,[0x011f9508]                            
+  0x00b65ca9: PUSH 0x5                                        
+  0x00b65cab: PUSH EAX                                        
+  0x00b65cac: CALL 0x00b6e110                                  ; CALL 0x00b6e110 FUN_00b6e110
+  0x00b65cb1: MOV [0x011f943c],EAX                            
+  0x00b65cb6: MOV ECX,dword ptr [0x011f9438]                  
+  0x00b65cbc: MOV EDX,dword ptr [0x011f9508]                  
+  0x00b65cc2: PUSH 0x1                                        
+  0x00b65cc4: PUSH 0x0                                        
+  0x00b65cc6: PUSH EAX                                        
+  0x00b65cc7: PUSH ECX                                        
+  0x00b65cc8: MOV ECX,dword ptr [0x011f91ac]                  
+  0x00b65cce: PUSH EDX                                        
+
+----------------------------------------------------------------------
+Function identity for DepthResolve skip alpha blend rendering patch B @ 0x00b65c4c
+----------------------------------------------------------------------
+  Function: FUN_00b65ae0
+  Entry: 0x00b65ae0
+  Offset from entry: 0x16c
+  Size: 373 bytes
+  Body: [[00b65ae0, 00b65c54]]
+
+----------------------------------------------------------------------
+Instruction detail: DepthResolve skip alpha blend rendering patch B @ 0x00b65c4c
+----------------------------------------------------------------------
+  Address: 0x00b65c4c
+  Text: PUSH 0x1
+  Length: 2
+  Bytes: 6A 01
+
+----------------------------------------------------------------------
+Disassembly DepthResolve skip alpha blend rendering patch B around 0x00b65c4c
+----------------------------------------------------------------------
+  0x00b65bf9: PUSH 0x0                                        
+  0x00b65bfb: PUSH 0x0                                        
+  0x00b65bfd: MOV ECX,ESI                                     
+  0x00b65bff: MOV dword ptr [0x011a9608],0x1                  
+  0x00b65c09: CALL 0x00b639e0                                  ; CALL 0x00b639e0 FUN_00b639e0
+  0x00b65c0e: MOV ECX,ESI                                     
+  0x00b65c10: MOV dword ptr [0x011a9608],EDI                  
+  0x00b65c16: CALL 0x00b64e30                                  ; CALL 0x00b64e30 FUN_00b64e30
+  0x00b65c1b: PUSH -0x1                                       
+  0x00b65c1d: PUSH 0x0                                        
+  0x00b65c1f: PUSH 0x287                                      
+  0x00b65c24: PUSH 0x25c                                      
+  0x00b65c29: MOV ECX,ESI                                     
+  0x00b65c2b: CALL 0x00b63770                                  ; CALL 0x00b63770 FUN_00b63770
+  0x00b65c30: MOV ECX,ESI                                     
+  0x00b65c32: CALL 0x00b63a50                                  ; CALL 0x00b63a50 FUN_00b63a50
+  0x00b65c37: CMP byte ptr [ESI + 0x167],0x0                  
+  0x00b65c3e: POP EDI                                         
+  0x00b65c3f: MOV ECX,ESI                                     
+  0x00b65c41: JZ 0x00b65c4c                                   
+  0x00b65c43: PUSH 0x0                                        
+  0x00b65c45: CALL 0x00b650c0                                  ; CALL 0x00b650c0 FUN_00b650c0
+  0x00b65c4a: POP ESI                                         
+  0x00b65c4b: RET                                             
+  0x00b65c4c: PUSH 0x1                                         << TARGET
+  0x00b65c4e: CALL 0x00b650c0                                  ; CALL 0x00b650c0 FUN_00b650c0
+  0x00b65c53: POP ESI                                         
+  0x00b65c54: RET                                             
+  0x00b65c60: PUSH ESI                                        
+  0x00b65c61: MOV ESI,dword ptr [ESP + 0x8]                   
+  0x00b65c65: CMP byte ptr [ESI + 0x38],0x0                   
+  0x00b65c69: JZ 0x00b65cfb                                   
+  0x00b65c6f: PUSH 0x2ce                                      
+  0x00b65c74: PUSH 0x288                                      
+  0x00b65c79: MOV ECX,ESI                                     
+  0x00b65c7b: CALL 0x00b63120                                  ; CALL 0x00b63120 FUN_00b63120
+  0x00b65c80: TEST AL,AL                                      
+  0x00b65c82: JZ 0x00b65cfb                                   
+  0x00b65c84: CMP dword ptr [0x011f9438],0x0                  
+  0x00b65c8b: JZ 0x00b65cec                                   
+  0x00b65c8d: CALL 0x00b6b790                                  ; CALL 0x00b6b790 BSRenderedTexture::StopOffscreen
+  0x00b65c92: MOV EAX,[0x011f943c]                            
+  0x00b65c97: TEST EAX,EAX                                    
+  0x00b65c99: JNZ 0x00b65cb6                                  
+  0x00b65c9b: MOV ECX,dword ptr [0x011f91a8]                  
+  0x00b65ca1: PUSH EAX                                        
+  0x00b65ca2: PUSH EAX                                        
+  0x00b65ca3: PUSH EAX                                        
+  0x00b65ca4: MOV EAX,[0x011f9508]                            
+  0x00b65ca9: PUSH 0x5                                        
+  0x00b65cab: PUSH EAX                                        
+  0x00b65cac: CALL 0x00b6e110                                  ; CALL 0x00b6e110 FUN_00b6e110
+  0x00b65cb1: MOV [0x011f943c],EAX                            
+  0x00b65cb6: MOV ECX,dword ptr [0x011f9438]                  
+  0x00b65cbc: MOV EDX,dword ptr [0x011f9508]                  
+  0x00b65cc2: PUSH 0x1                                        
+  0x00b65cc4: PUSH 0x0                                        
+  0x00b65cc6: PUSH EAX                                        
+  0x00b65cc7: PUSH ECX                                        
+  0x00b65cc8: MOV ECX,dword ptr [0x011f91ac]                  
+  0x00b65cce: PUSH EDX                                        
+  0x00b65ccf: PUSH 0x22                                       
+  0x00b65cd1: CALL 0x00b97550                                  ; CALL 0x00b97550 ImageSpaceManager::RenderEffect id/source rendered texture
+  0x00b65cd6: MOV ECX,dword ptr [0x011f9438]                  
+  0x00b65cdc: CALL 0x00b6b260                                  ; CALL 0x00b6b260 FUN_00b6b260
+
+----------------------------------------------------------------------
+Function identity for DepthResolve post-depth replacement call A @ 0x00b6657d
+----------------------------------------------------------------------
+  Function: FUN_00b66570
+  Entry: 0x00b66570
+  Offset from entry: 0xd
+  Size: 41 bytes
+  Body: [[00b66570, 00b66598]]
+
+----------------------------------------------------------------------
+Instruction detail: DepthResolve post-depth replacement call A @ 0x00b6657d
+----------------------------------------------------------------------
+  Address: 0x00b6657d
+  Text: CALL 0x00b65c60
+  Length: 5
+  Bytes: E8 DE F6 FF FF
+  Ref: UNCONDITIONAL_CALL -> 0x00b65c60 BSShaderAccumulator::FinishAccumulating_Standard_PreResolveDepth
+
+----------------------------------------------------------------------
+Disassembly DepthResolve post-depth replacement call A around 0x00b6657d
+----------------------------------------------------------------------
+  0x00b66535: ADD ESP,0x4                                     
+  0x00b66538: PUSH ESI                                        
+  0x00b66539: TEST EAX,EAX                                    
+  0x00b6653b: JNZ 0x00b66547                                  
+  0x00b6653d: CALL 0x00b65ae0                                  ; CALL 0x00b65ae0 FUN_00b65ae0
+  0x00b66542: ADD ESP,0x4                                     
+  0x00b66545: POP ESI                                         
+  0x00b66546: RET                                             
+  0x00b66547: MOV EAX,dword ptr [EAX*0x4 + 0x11f9f40]         
+  0x00b6654e: TEST EAX,EAX                                    
+  0x00b66550: JZ 0x00b66559                                   
+  0x00b66552: CALL EAX                                        
+  0x00b66554: ADD ESP,0x4                                     
+  0x00b66557: POP ESI                                         
+  0x00b66558: RET                                             
+  0x00b66559: CALL dword ptr [0x011f9f40]                     
+  0x00b6655f: ADD ESP,0x4                                     
+  0x00b66562: POP ESI                                         
+  0x00b66563: RET                                             
+  0x00b66570: PUSH ESI                                        
+  0x00b66571: MOV ESI,ECX                                     
+  0x00b66573: CMP dword ptr [ESI + 0x19c],0x0                 
+  0x00b6657a: JNZ 0x00b66585                                  
+  0x00b6657c: PUSH ESI                                        
+  0x00b6657d: CALL 0x00b65c60                                  << TARGET ; CALL 0x00b65c60 BSShaderAccumulator::FinishAccumulating_Standard_PreResolveDepth
+  0x00b66582: ADD ESP,0x4                                     
+  0x00b66585: MOV EAX,[0x011f4748]                            
+  0x00b6658a: MOV ECX,ESI                                     
+  0x00b6658c: MOV dword ptr [EAX + 0xc],0x0                   
+  0x00b66593: POP ESI                                         
+  0x00b66594: JMP 0x00aa0fe0                                   ; CALL 0x00aa0fe0 FUN_00aa0fe0
+  0x00b665a0: PUSH ESI                                        
+  0x00b665a1: MOV ESI,dword ptr [ESP + 0x8]                   
+  0x00b665a5: PUSH ESI                                        
+  0x00b665a6: CALL 0x00b65ae0                                  ; CALL 0x00b65ae0 FUN_00b65ae0
+  0x00b665ab: PUSH ESI                                        
+  0x00b665ac: CALL 0x00b65c60                                  ; CALL 0x00b65c60 BSShaderAccumulator::FinishAccumulating_Standard_PreResolveDepth
+  0x00b665b1: ADD ESP,0x8                                     
+  0x00b665b4: POP ESI                                         
+  0x00b665b5: RET                                             
+  0x00b665c0: MOV EAX,dword ptr [ESP + 0x4]                   
+  0x00b665c4: PUSH EAX                                        
+  0x00b665c5: CALL 0x00b70270                                  ; CALL 0x00b70270 FUN_00b70270
+  0x00b665ca: XOR AL,AL                                       
+  0x00b665cc: RET 0x4                                         
+  0x00b665d0: MOV EAX,dword ptr [ESP + 0x8]                   
+  0x00b665d4: PUSH ESI                                        
+  0x00b665d5: PUSH EDI                                        
+  0x00b665d6: MOV EDI,dword ptr [ESP + 0xc]                   
+  0x00b665da: PUSH EAX                                        
+  0x00b665db: PUSH EDI                                        
+  0x00b665dc: MOV ESI,ECX                                     
+  0x00b665de: CALL 0x00b702b0                                  ; CALL 0x00b702b0 FUN_00b702b0
+  0x00b665e3: MOV EDX,dword ptr [ESI]                         
+  0x00b665e5: MOV EAX,dword ptr [EDX + 0xd0]                  
+  0x00b665eb: PUSH EDI                                        
+  0x00b665ec: MOV ECX,ESI                                     
+  0x00b665ee: CALL EAX                                        
+  0x00b665f0: POP EDI                                         
+  0x00b665f1: POP ESI                                         
+  0x00b665f2: RET 0x8                                         
+  0x00b66600: PUSH ESI                                        
+  0x00b66601: PUSH EDI                                        
+  0x00b66602: MOV EDI,dword ptr [ESP + 0xc]                   
+  0x00b66606: PUSH EDI                                        
+
+----------------------------------------------------------------------
+Function identity for DepthResolve post-depth replacement call B @ 0x00b665ac
+----------------------------------------------------------------------
+  Function: FUN_00b665a0
+  Entry: 0x00b665a0
+  Offset from entry: 0xc
+  Size: 22 bytes
+  Body: [[00b665a0, 00b665b5]]
+
+----------------------------------------------------------------------
+Instruction detail: DepthResolve post-depth replacement call B @ 0x00b665ac
+----------------------------------------------------------------------
+  Address: 0x00b665ac
+  Text: CALL 0x00b65c60
+  Length: 5
+  Bytes: E8 AF F6 FF FF
+  Ref: UNCONDITIONAL_CALL -> 0x00b65c60 BSShaderAccumulator::FinishAccumulating_Standard_PreResolveDepth
+
+----------------------------------------------------------------------
+Disassembly DepthResolve post-depth replacement call B around 0x00b665ac
+----------------------------------------------------------------------
+  0x00b66554: ADD ESP,0x4                                     
+  0x00b66557: POP ESI                                         
+  0x00b66558: RET                                             
+  0x00b66559: CALL dword ptr [0x011f9f40]                     
+  0x00b6655f: ADD ESP,0x4                                     
+  0x00b66562: POP ESI                                         
+  0x00b66563: RET                                             
+  0x00b66570: PUSH ESI                                        
+  0x00b66571: MOV ESI,ECX                                     
+  0x00b66573: CMP dword ptr [ESI + 0x19c],0x0                 
+  0x00b6657a: JNZ 0x00b66585                                  
+  0x00b6657c: PUSH ESI                                        
+  0x00b6657d: CALL 0x00b65c60                                  ; CALL 0x00b65c60 BSShaderAccumulator::FinishAccumulating_Standard_PreResolveDepth
+  0x00b66582: ADD ESP,0x4                                     
+  0x00b66585: MOV EAX,[0x011f4748]                            
+  0x00b6658a: MOV ECX,ESI                                     
+  0x00b6658c: MOV dword ptr [EAX + 0xc],0x0                   
+  0x00b66593: POP ESI                                         
+  0x00b66594: JMP 0x00aa0fe0                                   ; CALL 0x00aa0fe0 FUN_00aa0fe0
+  0x00b665a0: PUSH ESI                                        
+  0x00b665a1: MOV ESI,dword ptr [ESP + 0x8]                   
+  0x00b665a5: PUSH ESI                                        
+  0x00b665a6: CALL 0x00b65ae0                                  ; CALL 0x00b65ae0 FUN_00b65ae0
+  0x00b665ab: PUSH ESI                                        
+  0x00b665ac: CALL 0x00b65c60                                  << TARGET ; CALL 0x00b65c60 BSShaderAccumulator::FinishAccumulating_Standard_PreResolveDepth
+  0x00b665b1: ADD ESP,0x8                                     
+  0x00b665b4: POP ESI                                         
+  0x00b665b5: RET                                             
+  0x00b665c0: MOV EAX,dword ptr [ESP + 0x4]                   
+  0x00b665c4: PUSH EAX                                        
+  0x00b665c5: CALL 0x00b70270                                  ; CALL 0x00b70270 FUN_00b70270
+  0x00b665ca: XOR AL,AL                                       
+  0x00b665cc: RET 0x4                                         
+  0x00b665d0: MOV EAX,dword ptr [ESP + 0x8]                   
+  0x00b665d4: PUSH ESI                                        
+  0x00b665d5: PUSH EDI                                        
+  0x00b665d6: MOV EDI,dword ptr [ESP + 0xc]                   
+  0x00b665da: PUSH EAX                                        
+  0x00b665db: PUSH EDI                                        
+  0x00b665dc: MOV ESI,ECX                                     
+  0x00b665de: CALL 0x00b702b0                                  ; CALL 0x00b702b0 FUN_00b702b0
+  0x00b665e3: MOV EDX,dword ptr [ESI]                         
+  0x00b665e5: MOV EAX,dword ptr [EDX + 0xd0]                  
+  0x00b665eb: PUSH EDI                                        
+  0x00b665ec: MOV ECX,ESI                                     
+  0x00b665ee: CALL EAX                                        
+  0x00b665f0: POP EDI                                         
+  0x00b665f1: POP ESI                                         
+  0x00b665f2: RET 0x8                                         
+  0x00b66600: PUSH ESI                                        
+  0x00b66601: PUSH EDI                                        
+  0x00b66602: MOV EDI,dword ptr [ESP + 0xc]                   
+  0x00b66606: PUSH EDI                                        
+  0x00b66607: MOV ESI,ECX                                     
+  0x00b66609: CALL 0x00b70290                                  ; CALL 0x00b70290 FUN_00b70290
+  0x00b6660e: MOV EAX,dword ptr [ESI]                         
+  0x00b66610: MOV EDX,dword ptr [EAX + 0xd0]                  
+  0x00b66616: PUSH EDI                                        
+  0x00b66617: MOV ECX,ESI                                     
+  0x00b66619: CALL EDX                                        
+  0x00b6661b: POP EDI                                         
+  0x00b6661c: POP ESI                                         
+  0x00b6661d: RET 0x4                                         
+  0x00b66620: MOV EAX,dword ptr [ESP + 0x4]                   
+  0x00b66624: SUB EAX,0x3                                     
+
+======================================================================
+FinishAccumulating_Standard_PreResolveDepth owner @ 0x00b65c60
+======================================================================
+  Function: FUN_00b65c60 @ 0x00b65c60, Size: 340 bytes
+
+void FUN_00b65c60(int param_1)
+
+{
+  char cVar1;
+  undefined4 uVar2;
+  
+  if ((*(char *)(param_1 + 0x38) != '\0') && (cVar1 = FUN_00b63120(0x288,0x2ce), cVar1 != '\0')) {
+    if (DAT_011f9438 != 0) {
+      FUN_00b6b790();
+      if (DAT_011f943c == 0) {
+        DAT_011f943c = FUN_00b6e110(DAT_011f9508,5,0,0,0);
+      }
+      FUN_00b97550(0x22,DAT_011f9508,DAT_011f9438,DAT_011f943c,0,1);
+      uVar2 = FUN_00b6b260();
+      FUN_00b6b8d0(0,uVar2);
+    }
+    FUN_004e9bb0(*(undefined4 *)(param_1 + 8));
+  }
+  FUN_00b63770(0x288,0x289,0,0xffffffff);
+  FUN_00b63770(0x28a,0x2ab,0,0xffffffff);
+  FUN_00b63770(0x2ac,0x2ce,0,0xffffffff);
+  if (*(char *)(param_1 + 0x38) != '\0') {
+    FUN_00b6da10(DAT_011f943c);
+    DAT_011f943c = 0;
+  }
+  FUN_00b639e0(9,1);
+  FUN_00b650c0(*(char *)(param_1 + 0x167) != '\0');
+  FUN_00b97fa0(0,0);
+  FUN_00b97fa0(0,0);
+  FUN_00b63770(0x2cf,0x2d7,0,0xffffffff);
+  FUN_00b639e0(1,0);
+  return;
+}
+
+
+
+--- Calls FROM FinishAccumulating_Standard_PreResolveDepth owner (0x00b65c60) ---
+  0x00b65c7b -> 0x00b63120 FUN_00b63120
+  0x00b65c8d -> 0x00b6b790 BSRenderedTexture::StopOffscreen
+  0x00b65cac -> 0x00b6e110 FUN_00b6e110
+  0x00b65cd1 -> 0x00b97550 ImageSpaceManager::RenderEffect id/source rendered texture
+  0x00b65cdc -> 0x00b6b260 FUN_00b6b260
+  0x00b65ce4 -> 0x00b6b8d0 BSRenderedTexture::StartOffscreen
+  0x00b65cf6 -> 0x004e9bb0 FUN_004e9bb0
+  0x00b65d0b -> 0x00b63770 FUN_00b63770
+  0x00b65d20 -> 0x00b63770 FUN_00b63770
+  0x00b65d35 -> 0x00b63770 FUN_00b63770
+  0x00b65d4d -> 0x00b6da10 FUN_00b6da10
+  0x00b65d62 -> 0x00b639e0 FUN_00b639e0
+  0x00b65d78 -> 0x00b650c0 FUN_00b650c0
+  0x00b65d81 -> 0x00b97fa0 FUN_00b97fa0
+  0x00b65d8a -> 0x00b97fa0 FUN_00b97fa0
+  0x00b65da2 -> 0x00b63770 FUN_00b63770
+  0x00b65dad -> 0x00b639e0 FUN_00b639e0
+  Total: 17 calls
+
+======================================================================
+CALLER SCAN: FinishAccumulating_Standard_PreResolveDepth owner @ 0x00b65c60
+======================================================================
+
+Caller 1: 0x00b6657d in FUN_00b66570
+
+----------------------------------------------------------------------
+Disassembly caller of FinishAccumulating_Standard_PreResolveDepth owner around 0x00b6657d
+----------------------------------------------------------------------
+  0x00b66558: RET                                             
+  0x00b66559: CALL dword ptr [0x011f9f40]                     
+  0x00b6655f: ADD ESP,0x4                                     
+  0x00b66562: POP ESI                                         
+  0x00b66563: RET                                             
+  0x00b66570: PUSH ESI                                        
+  0x00b66571: MOV ESI,ECX                                     
+  0x00b66573: CMP dword ptr [ESI + 0x19c],0x0                 
+  0x00b6657a: JNZ 0x00b66585                                  
+  0x00b6657c: PUSH ESI                                        
+  0x00b6657d: CALL 0x00b65c60                                  << TARGET ; CALL 0x00b65c60 BSShaderAccumulator::FinishAccumulating_Standard_PreResolveDepth
+  0x00b66582: ADD ESP,0x4                                     
+  0x00b66585: MOV EAX,[0x011f4748]                            
+  0x00b6658a: MOV ECX,ESI                                     
+  0x00b6658c: MOV dword ptr [EAX + 0xc],0x0                   
+  0x00b66593: POP ESI                                         
+  0x00b66594: JMP 0x00aa0fe0                                   ; CALL 0x00aa0fe0 FUN_00aa0fe0
+  0x00b665a0: PUSH ESI                                        
+  0x00b665a1: MOV ESI,dword ptr [ESP + 0x8]                   
+  0x00b665a5: PUSH ESI                                        
+  0x00b665a6: CALL 0x00b65ae0                                  ; CALL 0x00b65ae0 FUN_00b65ae0
+  0x00b665ab: PUSH ESI                                        
+  0x00b665ac: CALL 0x00b65c60                                  ; CALL 0x00b65c60 BSShaderAccumulator::FinishAccumulating_Standard_PreResolveDepth
+  0x00b665b1: ADD ESP,0x8                                     
+  0x00b665b4: POP ESI                                         
+  0x00b665b5: RET                                             
+  0x00b665c0: MOV EAX,dword ptr [ESP + 0x4]                   
+  0x00b665c4: PUSH EAX                                        
+  0x00b665c5: CALL 0x00b70270                                  ; CALL 0x00b70270 FUN_00b70270
+  0x00b665ca: XOR AL,AL                                       
+  0x00b665cc: RET 0x4                                         
+  0x00b665d0: MOV EAX,dword ptr [ESP + 0x8]                   
+  0x00b665d4: PUSH ESI                                        
+  0x00b665d5: PUSH EDI                                        
+  0x00b665d6: MOV EDI,dword ptr [ESP + 0xc]                   
+
+Caller 2: 0x00b665ac in FUN_00b665a0
+
+----------------------------------------------------------------------
+Disassembly caller of FinishAccumulating_Standard_PreResolveDepth owner around 0x00b665ac
+----------------------------------------------------------------------
+  0x00b66585: MOV EAX,[0x011f4748]                            
+  0x00b6658a: MOV ECX,ESI                                     
+  0x00b6658c: MOV dword ptr [EAX + 0xc],0x0                   
+  0x00b66593: POP ESI                                         
+  0x00b66594: JMP 0x00aa0fe0                                   ; CALL 0x00aa0fe0 FUN_00aa0fe0
+  0x00b665a0: PUSH ESI                                        
+  0x00b665a1: MOV ESI,dword ptr [ESP + 0x8]                   
+  0x00b665a5: PUSH ESI                                        
+  0x00b665a6: CALL 0x00b65ae0                                  ; CALL 0x00b65ae0 FUN_00b65ae0
+  0x00b665ab: PUSH ESI                                        
+  0x00b665ac: CALL 0x00b65c60                                  << TARGET ; CALL 0x00b65c60 BSShaderAccumulator::FinishAccumulating_Standard_PreResolveDepth
+  0x00b665b1: ADD ESP,0x8                                     
+  0x00b665b4: POP ESI                                         
+  0x00b665b5: RET                                             
+  0x00b665c0: MOV EAX,dword ptr [ESP + 0x4]                   
+  0x00b665c4: PUSH EAX                                        
+  0x00b665c5: CALL 0x00b70270                                  ; CALL 0x00b70270 FUN_00b70270
+  0x00b665ca: XOR AL,AL                                       
+  0x00b665cc: RET 0x4                                         
+  0x00b665d0: MOV EAX,dword ptr [ESP + 0x8]                   
+  0x00b665d4: PUSH ESI                                        
+  0x00b665d5: PUSH EDI                                        
+  0x00b665d6: MOV EDI,dword ptr [ESP + 0xc]                   
+  0x00b665da: PUSH EAX                                        
+  0x00b665db: PUSH EDI                                        
+  0x00b665dc: MOV ESI,ECX                                     
+  0x00b665de: CALL 0x00b702b0                                  ; CALL 0x00b702b0 FUN_00b702b0
+  0x00b665e3: MOV EDX,dword ptr [ESI]                         
+  0x00b665e5: MOV EAX,dword ptr [EDX + 0xd0]                  
+  0x00b665eb: PUSH EDI                                        
+  0x00b665ec: MOV ECX,ESI                                     
+  0x00b665ee: CALL EAX                                        
+  0x00b665f0: POP EDI                                         
+  0x00b665f1: POP ESI                                         
+  0x00b665f2: RET 0x8                                         
+Total callers printed: 2
+
+======================================================================
+RenderEffect rendered texture @ 0x00b97550
+======================================================================
+  Function: FUN_00b97550 @ 0x00b97550, Size: 145 bytes
+
+void __thiscall
+FUN_00b97550(int param_1,int param_2,undefined4 param_3,undefined4 param_4,undefined4 param_5,
+            undefined4 param_6,undefined4 param_7)
+
+{
+  int iVar1;
+  undefined4 uVar2;
+  int *unaff_FS_OFFSET;
+  int local_c;
+  undefined1 *puStack_8;
+  undefined4 local_4;
+  
+  puStack_8 = &LAB_00f306c8;
+  local_c = *unaff_FS_OFFSET;
+  *unaff_FS_OFFSET = (int)&local_c;
+  iVar1 = *(int *)(unaff_FS_OFFSET[0xb] + _tls_index * 4);
+  uVar2 = *(undefined4 *)(iVar1 + 0x2b4);
+  *(undefined4 *)(iVar1 + 0x2b4) = 0x27;
+  local_4 = 0;
+  FUN_00b8c830(*(undefined4 *)(*(int *)(param_1 + 8) + param_2 * 4),param_3,param_4,param_5,param_6,
+               param_7);
+  *(undefined4 *)(iVar1 + 0x2b4) = uVar2;
+  *unaff_FS_OFFSET = local_c;
+  return;
+}
+
+
+
+--- Calls FROM RenderEffect rendered texture (0x00b97550) ---
+  0x00b975c2 -> 0x00b8c830 FUN_00b8c830
+  Total: 1 calls
+
+======================================================================
+CALLER SCAN: RenderEffect rendered texture @ 0x00b97550
+======================================================================
+
+Caller 1: 0x004e9424 in FUN_004e8ec0
+
+----------------------------------------------------------------------
+Disassembly caller of RenderEffect rendered texture around 0x004e9424
+----------------------------------------------------------------------
+  0x004e9404: CALL 0x00559450                                  ; CALL 0x00559450 FUN_00559450
+  0x004e9409: PUSH EAX                                        
+  0x004e940a: MOV ECX,0x11c7b64                               
+  0x004e940f: CALL 0x00559450                                  ; CALL 0x00559450 FUN_00559450
+  0x004e9414: PUSH EAX                                        
+  0x004e9415: CALL 0x004a0e90                                  ; CALL 0x004a0e90 FUN_004a0e90
+  0x004e941a: PUSH EAX                                        
+  0x004e941b: PUSH 0x20                                       
+  0x004e941d: CALL 0x004e3270                                  ; CALL 0x004e3270 FUN_004e3270
+  0x004e9422: MOV ECX,EAX                                     
+  0x004e9424: CALL 0x00b97550                                  << TARGET ; CALL 0x00b97550 ImageSpaceManager::RenderEffect id/source rendered texture
+  0x004e9429: MOV byte ptr [0x011fffed],0x0                   
+  0x004e9430: JMP 0x004e950c                                  
+  0x004e9435: MOV ECX,dword ptr [EBP + -0x64]                 
+  0x004e9438: ADD ECX,0x3c                                    
+  0x004e943b: CALL 0x00559450                                  ; CALL 0x00559450 FUN_00559450
+  0x004e9440: MOV dword ptr [EBP + -0x58],EAX                 
+  0x004e9443: MOV dword ptr [EBP + -0x5c],0x0                 
+  0x004e944a: CMP dword ptr [EBP + -0x58],0x0                 
+  0x004e944e: JZ 0x004e94d4                                   
+  0x004e9454: MOV EDX,dword ptr [EBP + -0x58]                 
+  0x004e9457: PUSH EDX                                        
+  0x004e9458: MOV ECX,dword ptr [EBP + -0x64]                 
+  0x004e945b: ADD ECX,0x3c                                    
+  0x004e945e: CALL 0x007b52d0                                  ; CALL 0x007b52d0 FUN_007b52d0
+  0x004e9463: MOV dword ptr [EBP + -0x5c],EAX                 
+  0x004e9466: CMP dword ptr [EBP + -0x58],0x0                 
+  0x004e946a: JZ 0x004e94c9                                   
+  0x004e946c: MOV EAX,dword ptr [EBP + -0x58]                 
+  0x004e946f: PUSH EAX                                        
+  0x004e9470: MOV ECX,dword ptr [EBP + -0x64]                 
+  0x004e9473: ADD ECX,0x3c                                    
+  0x004e9476: CALL 0x006317a0                                  ; CALL 0x006317a0 FUN_006317a0
+  0x004e947b: MOV ECX,dword ptr [EAX]                         
+  0x004e947d: MOV dword ptr [EBP + -0x60],ECX                 
+
+Caller 2: 0x004eb9c6 in FUN_004eb540
+
+----------------------------------------------------------------------
+Disassembly caller of RenderEffect rendered texture around 0x004eb9c6
+----------------------------------------------------------------------
+  0x004eb9a6: PUSH EAX                                        
+  0x004eb9a7: MOV ECX,0x11c7ad4                               
+  0x004eb9ac: CALL 0x00559450                                  ; CALL 0x00559450 FUN_00559450
+  0x004eb9b1: PUSH EAX                                        
+  0x004eb9b2: CALL 0x004a0e90                                  ; CALL 0x004a0e90 FUN_004a0e90
+  0x004eb9b7: PUSH EAX                                        
+  0x004eb9b8: MOV EAX,dword ptr [EBP + 0xffffff68]            
+  0x004eb9be: PUSH EAX                                        
+  0x004eb9bf: CALL 0x004e3270                                  ; CALL 0x004e3270 FUN_004e3270
+  0x004eb9c4: MOV ECX,EAX                                     
+  0x004eb9c6: CALL 0x00b97550                                  << TARGET ; CALL 0x00b97550 ImageSpaceManager::RenderEffect id/source rendered texture
+  0x004eb9cb: MOV ECX,dword ptr [EBP + -0x70]                 
+  0x004eb9ce: PUSH ECX                                        
+  0x004eb9cf: CALL 0x004a0ea0                                  ; CALL 0x004a0ea0 FUN_004a0ea0
+  0x004eb9d4: MOV ECX,EAX                                     
+  0x004eb9d6: CALL 0x00b6da10                                  ; CALL 0x00b6da10 FUN_00b6da10
+  0x004eb9db: MOV byte ptr [EBP + -0x4],0x1                   
+  0x004eb9df: LEA ECX,[EBP + 0xffffff6c]                      
+  0x004eb9e5: CALL 0x004eba90                                  ; CALL 0x004eba90 FUN_004eba90
+  0x004eb9ea: MOV byte ptr [EBP + -0x4],0x0                   
+  0x004eb9ee: LEA ECX,[EBP + -0x6c]                           
+  0x004eb9f1: CALL 0x00ba3a00                                  ; CALL 0x00ba3a00 FUN_00ba3a00
+  0x004eb9f6: MOV dword ptr [EBP + -0x4],0xffffffff           
+  0x004eb9fd: LEA ECX,[EBP + -0x38]                           
+  0x004eba00: CALL 0x00404ee0                                  ; CALL 0x00404ee0 FUN_00404ee0
+  0x004eba05: MOV ECX,dword ptr [EBP + -0xc]                  
+  0x004eba08: MOV dword ptr FS:[0x0],ECX                      
+  0x004eba0f: POP ECX                                         
+  0x004eba10: MOV ESP,EBP                                     
+  0x004eba12: POP EBP                                         
+  0x004eba13: RET                                             
+  0x004eba20: PUSH EBP                                        
+  0x004eba21: MOV EBP,ESP                                     
+  0x004eba23: PUSH -0x1                                       
+  0x004eba25: PUSH 0xef282b                                   
+
+Caller 3: 0x00874be3 in FUN_00874b90
+
+----------------------------------------------------------------------
+Disassembly caller of RenderEffect rendered texture around 0x00874be3
+----------------------------------------------------------------------
+  0x00874bc9: NOT EAX                                         
+  0x00874bcb: AND EAX,dword ptr [EBP + 0x14]                  
+  0x00874bce: PUSH EAX                                        
+  0x00874bcf: MOV ECX,0x11ded3c                               
+  0x00874bd4: CALL 0x00559450                                  ; CALL 0x00559450 FUN_00559450
+  0x00874bd9: PUSH EAX                                        
+  0x00874bda: MOV ECX,dword ptr [EBP + 0xc]                   
+  0x00874bdd: PUSH ECX                                        
+  0x00874bde: PUSH 0x22                                       
+  0x00874be0: MOV ECX,dword ptr [EBP + 0x8]                   
+  0x00874be3: CALL 0x00b97550                                  << TARGET ; CALL 0x00b97550 ImageSpaceManager::RenderEffect id/source rendered texture
+  0x00874be8: PUSH 0x1                                        
+  0x00874bea: CALL 0x00714ae0                                  ; CALL 0x00714ae0 FUN_00714ae0
+  0x00874bef: ADD ESP,0x4                                     
+  0x00874bf2: PUSH 0x1                                        
+  0x00874bf4: CALL 0x004eced0                                  ; CALL 0x004eced0 FUN_004eced0
+  0x00874bf9: ADD ESP,0x4                                     
+  0x00874bfc: MOV ESP,EBP                                     
+  0x00874bfe: POP EBP                                         
+  0x00874bff: RET 0x10                                        
+  0x00874c10: PUSH EBP                                        
+  0x00874c11: MOV EBP,ESP                                     
+  0x00874c13: PUSH -0x1                                       
+  0x00874c15: PUSH 0xf14368                                   
+  0x00874c1a: MOV EAX,FS:[0x0]                                
+  0x00874c20: PUSH EAX                                        
+  0x00874c21: SUB ESP,0xa4                                    
+  0x00874c27: PUSH ESI                                        
+  0x00874c28: PUSH EDI                                        
+  0x00874c29: MOV EAX,[0x011c16bc]                            
+  0x00874c2e: XOR EAX,EBP                                     
+  0x00874c30: PUSH EAX                                        
+  0x00874c31: LEA EAX,[EBP + -0xc]                            
+  0x00874c34: MOV FS:[0x0],EAX                                
+  0x00874c3a: MOV dword ptr [EBP + 0xffffff60],ECX            
+
+Caller 4: 0x00b654c1 in FUN_00b651e0
+
+----------------------------------------------------------------------
+Disassembly caller of RenderEffect rendered texture around 0x00b654c1
+----------------------------------------------------------------------
+  0x00b654a3: MOV dword ptr [EAX + 0x60],EBP                  
+  0x00b654a6: PUSH 0x0                                        
+  0x00b654a8: MOV byte ptr [EAX + 0x5],0x1                    
+  0x00b654ac: MOV dword ptr [EAX + 0x64],ESI                  
+  0x00b654af: MOV EAX,dword ptr [ESP + 0x8c]                  
+  0x00b654b6: MOV ECX,dword ptr [0x011f91ac]                  
+  0x00b654bc: PUSH EAX                                        
+  0x00b654bd: PUSH EAX                                        
+  0x00b654be: PUSH EDI                                        
+  0x00b654bf: PUSH 0xd                                        
+  0x00b654c1: CALL 0x00b97550                                  << TARGET ; CALL 0x00b97550 ImageSpaceManager::RenderEffect id/source rendered texture
+  0x00b654c6: CMP dword ptr [ESP + 0x18],0x0                  
+  0x00b654cb: JNZ 0x00b65304                                  
+  0x00b654d1: MOV EBP,dword ptr [ESP + 0x20]                  
+  0x00b654d5: LEA ECX,[EBX + 0x90]                            
+  0x00b654db: CALL 0x00b71300                                  ; CALL 0x00b71300 FUN_00b71300
+  0x00b654e0: MOV EDX,dword ptr [EDI]                         
+  0x00b654e2: MOV EDX,dword ptr [EDX + 0xac]                  
+  0x00b654e8: LEA EAX,[ESP + 0x60]                            
+  0x00b654ec: PUSH EAX                                        
+  0x00b654ed: MOV ECX,EDI                                     
+  0x00b654ef: CALL EDX                                        
+  0x00b654f1: MOV EAX,dword ptr [ESP + 0x24]                  
+  0x00b654f5: MOV dword ptr [EBX + 0x8],EAX                   
+  0x00b654f8: MOV ECX,dword ptr [0x011f91ac]                  
+  0x00b654fe: MOV EDX,dword ptr [ECX + 0x8]                   
+  0x00b65501: MOV EAX,dword ptr [EDX + 0xa8]                  
+  0x00b65507: TEST EAX,EAX                                    
+  0x00b65509: JZ 0x00b65510                                   
+  0x00b6550b: LEA ECX,[EAX + -0x6c]                           
+  0x00b6550e: JMP 0x00b65512                                  
+  0x00b65510: XOR ECX,ECX                                     
+  0x00b65512: CALL 0x00b63d10                                  ; CALL 0x00b63d10 FUN_00b63d10
+  0x00b65517: LEA ECX,[ESP + 0x50]                            
+  0x00b6551b: MOV dword ptr [ESP + 0x78],0xffffffff           
+
+Caller 5: 0x00b97a01 in FUN_00b97900
+
+----------------------------------------------------------------------
+Disassembly caller of RenderEffect rendered texture around 0x00b97a01
+----------------------------------------------------------------------
+  0x00b979ef: TEST AL,AL                                      
+  0x00b979f1: JZ 0x00b97a10                                   
+  0x00b979f3: MOV ECX,dword ptr [ESP + 0x30]                  
+  0x00b979f7: PUSH 0x1                                        
+  0x00b979f9: PUSH 0x0                                        
+  0x00b979fb: PUSH EDI                                        
+  0x00b979fc: PUSH EBP                                        
+  0x00b979fd: PUSH ECX                                        
+  0x00b979fe: PUSH EBX                                        
+  0x00b979ff: MOV ECX,ESI                                     
+  0x00b97a01: CALL 0x00b97550                                  << TARGET ; CALL 0x00b97550 ImageSpaceManager::RenderEffect id/source rendered texture
+  0x00b97a06: INC dword ptr [ESP + 0x14]                      
+  0x00b97a0a: MOV EAX,EBP                                     
+  0x00b97a0c: MOV EBP,EDI                                     
+  0x00b97a0e: MOV EDI,EAX                                     
+  0x00b97a10: MOV EDX,dword ptr [ESP + 0x34]                  
+  0x00b97a14: INC EBX                                         
+  0x00b97a15: CMP EBX,dword ptr [ESI + 0x1ec]                 
+  0x00b97a1b: JLE 0x00b979c3                                  
+  0x00b97a1d: TEST EDX,EDX                                    
+  0x00b97a1f: JZ 0x00b97a2d                                   
+  0x00b97a21: MOV ECX,dword ptr [0x011f91a8]                  
+  0x00b97a27: PUSH EDX                                        
+  0x00b97a28: CALL 0x00b6da10                                  ; CALL 0x00b6da10 FUN_00b6da10
+  0x00b97a2d: MOV EAX,dword ptr [ESP + 0x1c]                  
+  0x00b97a31: MOV EDX,dword ptr [ESP + 0x18]                  
+  0x00b97a35: MOV dword ptr [EAX + 0x2b4],EDX                 
+  0x00b97a3b: MOV ECX,dword ptr [ESP + 0x20]                  
+  0x00b97a3f: MOV dword ptr FS:[0x0],ECX                      
+  0x00b97a46: POP ECX                                         
+  0x00b97a47: POP EDI                                         
+  0x00b97a48: POP ESI                                         
+  0x00b97a49: POP EBP                                         
+  0x00b97a4a: POP EBX                                         
+  0x00b97a4b: ADD ESP,0x18                                    
+
+Caller 6: 0x00b97a68 in FUN_00b97900
+
+----------------------------------------------------------------------
+Disassembly caller of RenderEffect rendered texture around 0x00b97a68
+----------------------------------------------------------------------
+  0x00b97a53: MOV EDX,dword ptr [ESP + 0x34]                  
+  0x00b97a57: MOV EAX,dword ptr [EDX]                         
+  0x00b97a59: PUSH 0x1                                        
+  0x00b97a5b: PUSH 0x0                                        
+  0x00b97a5d: PUSH ECX                                        
+  0x00b97a5e: MOV ECX,dword ptr [ESP + 0x3c]                  
+  0x00b97a62: PUSH EAX                                        
+  0x00b97a63: PUSH ECX                                        
+  0x00b97a64: PUSH 0x22                                       
+  0x00b97a66: MOV ECX,ESI                                     
+  0x00b97a68: CALL 0x00b97550                                  << TARGET ; CALL 0x00b97550 ImageSpaceManager::RenderEffect id/source rendered texture
+  0x00b97a6d: MOV dword ptr [EDI + 0x2b4],EBX                 
+  0x00b97a73: JMP 0x00b97a3b                                  
+  0x00b97a80: PUSH -0x1                                       
+  0x00b97a82: PUSH 0xf29e71                                   
+  0x00b97a87: MOV EAX,FS:[0x0]                                
+  0x00b97a8d: PUSH EAX                                        
+  0x00b97a8e: PUSH ECX                                        
+  0x00b97a8f: PUSH ESI                                        
+  0x00b97a90: MOV EAX,[0x011c16bc]                            
+  0x00b97a95: XOR EAX,ESP                                     
+  0x00b97a97: PUSH EAX                                        
+  0x00b97a98: LEA EAX,[ESP + 0xc]                             
+  0x00b97a9c: MOV FS:[0x0],EAX                                
+  0x00b97aa2: MOV ESI,ECX                                     
+  0x00b97aa4: MOV dword ptr [ESP + 0x8],ESI                   
+  0x00b97aa8: MOV EAX,0x74                                    
+  0x00b97aad: MOV word ptr [ESI + 0xc],AX                     
+  0x00b97ab1: MOV ECX,0x1                                     
+  0x00b97ab6: XOR EDX,EDX                                     
+  0x00b97ab8: XOR EAX,EAX                                     
+  0x00b97aba: PUSH 0x1d0                                      
+  0x00b97abf: MOV dword ptr [ESI + 0x4],0x10b9d24             
+  0x00b97ac6: MOV word ptr [ESI + 0x12],CX                    
+  0x00b97aca: MOV word ptr [ESI + 0xe],DX                     
+
+Caller 7: 0x00b9fb22 in FUN_00b9f780
+
+----------------------------------------------------------------------
+Disassembly caller of RenderEffect rendered texture around 0x00b9fb22
+----------------------------------------------------------------------
+  0x00b9fb04: MOV EAX,dword ptr [EBX + 0x10c]                 
+  0x00b9fb0a: MOV EDX,dword ptr [0x011f9508]                  
+  0x00b9fb10: PUSH 0x1                                        
+  0x00b9fb12: LEA ECX,[ESP + 0x60]                            
+  0x00b9fb16: PUSH ECX                                        
+  0x00b9fb17: MOV ECX,dword ptr [0x011f91ac]                  
+  0x00b9fb1d: PUSH EAX                                        
+  0x00b9fb1e: PUSH EAX                                        
+  0x00b9fb1f: PUSH EDX                                        
+  0x00b9fb20: PUSH 0x11                                       
+  0x00b9fb22: CALL 0x00b97550                                  << TARGET ; CALL 0x00b97550 ImageSpaceManager::RenderEffect id/source rendered texture
+  0x00b9fb27: MOV ECX,dword ptr [0x011f91a8]                  
+  0x00b9fb2d: PUSH ESI                                        
+  0x00b9fb2e: CALL 0x00b6d4c0                                  ; CALL 0x00b6d4c0 FUN_00b6d4c0
+  0x00b9fb33: LEA ECX,[ESP + 0x5c]                            
+  0x00b9fb37: MOV byte ptr [ESP + 0x140],0x0                  
+  0x00b9fb3f: CALL 0x004eba90                                  ; CALL 0x004eba90 FUN_004eba90
+  0x00b9fb44: LEA ECX,[ESP + 0x24]                            
+  0x00b9fb48: MOV dword ptr [ESP + 0x140],0xffffffff          
+  0x00b9fb53: CALL 0x00ba3a00                                  ; CALL 0x00ba3a00 FUN_00ba3a00
+  0x00b9fb58: CMP byte ptr [EBX + 0x124],0x0                  
+  0x00b9fb5f: JZ 0x00b9fb81                                   
+  0x00b9fb61: MOV ECX,dword ptr [EBX + 0x10c]                 
+  0x00b9fb67: PUSH EDI                                        
+  0x00b9fb68: CALL 0x004bc320                                  ; CALL 0x004bc320 FUN_004bc320
+  0x00b9fb6d: PUSH 0x9                                        
+  0x00b9fb6f: MOV ESI,EAX                                     
+  0x00b9fb71: CALL 0x00b55560                                  ; CALL 0x00b55560 FUN_00b55560
+  0x00b9fb76: ADD ESP,0x4                                     
+  0x00b9fb79: PUSH ESI                                        
+  0x00b9fb7a: MOV ECX,EAX                                     
+  0x00b9fb7c: CALL 0x00bd22c0                                  ; CALL 0x00bd22c0 FUN_00bd22c0
+  0x00b9fb81: MOV byte ptr [EBX + 0x208],0x0                  
+  0x00b9fb88: MOV ECX,dword ptr [ESP + 0x138]                 
+  0x00b9fb8f: MOV dword ptr FS:[0x0],ECX                      
+
+Caller 8: 0x007fc12c in FUN_007fbee0
+
+----------------------------------------------------------------------
+Disassembly caller of RenderEffect rendered texture around 0x007fc12c
+----------------------------------------------------------------------
+  0x007fc113: PUSH 0x0                                        
+  0x007fc115: MOV EDX,dword ptr [EBP + 0xc]                   
+  0x007fc118: PUSH EDX                                        
+  0x007fc119: MOV EAX,dword ptr [EBP + 0x8]                   
+  0x007fc11c: PUSH EAX                                        
+  0x007fc11d: CALL 0x0043c4b0                                  ; CALL 0x0043c4b0 FUN_0043c4b0
+  0x007fc122: PUSH EAX                                        
+  0x007fc123: PUSH 0xa                                        
+  0x007fc125: CALL 0x004e3270                                  ; CALL 0x004e3270 FUN_004e3270
+  0x007fc12a: MOV ECX,EAX                                     
+  0x007fc12c: CALL 0x00b97550                                  << TARGET ; CALL 0x00b97550 ImageSpaceManager::RenderEffect id/source rendered texture
+  0x007fc131: PUSH 0x0                                        
+  0x007fc133: MOV ECX,0x1200818                               
+  0x007fc138: CALL 0x0066b0d0                                  ; CALL 0x0066b0d0 FUN_0066b0d0
+  0x007fc13d: MOV ESP,EBP                                     
+  0x007fc13f: POP EBP                                         
+  0x007fc140: RET 0xc                                         
+  0x007fc150: PUSH EBP                                        
+  0x007fc151: MOV EBP,ESP                                     
+  0x007fc153: PUSH -0x1                                       
+  0x007fc155: PUSH 0xf0ff6a                                   
+  0x007fc15a: MOV EAX,FS:[0x0]                                
+  0x007fc160: PUSH EAX                                        
+  0x007fc161: SUB ESP,0x18                                    
+  0x007fc164: MOV EAX,[0x011c16bc]                            
+  0x007fc169: XOR EAX,EBP                                     
+  0x007fc16b: PUSH EAX                                        
+  0x007fc16c: LEA EAX,[EBP + -0xc]                            
+  0x007fc16f: MOV FS:[0x0],EAX                                
+  0x007fc175: MOV dword ptr [EBP + -0x20],ECX                 
+  0x007fc178: PUSH 0x280                                      
+  0x007fc17d: CALL 0x00aa13e0                                  ; CALL 0x00aa13e0 FUN_00aa13e0
+  0x007fc182: ADD ESP,0x4                                     
+  0x007fc185: MOV dword ptr [EBP + -0x1c],EAX                 
+  0x007fc188: MOV dword ptr [EBP + -0x4],0x0                  
+
+Caller 9: 0x007feb34 in FUN_007fe9c0
+
+----------------------------------------------------------------------
+Disassembly caller of RenderEffect rendered texture around 0x007feb34
+----------------------------------------------------------------------
+  0x007feb1b: PUSH 0x0                                        
+  0x007feb1d: MOV ECX,dword ptr [EBP + 0xc]                   
+  0x007feb20: PUSH ECX                                        
+  0x007feb21: MOV EDX,dword ptr [EBP + 0x8]                   
+  0x007feb24: PUSH EDX                                        
+  0x007feb25: CALL 0x0043c4b0                                  ; CALL 0x0043c4b0 FUN_0043c4b0
+  0x007feb2a: PUSH EAX                                        
+  0x007feb2b: PUSH 0x1e                                       
+  0x007feb2d: CALL 0x004e3270                                  ; CALL 0x004e3270 FUN_004e3270
+  0x007feb32: MOV ECX,EAX                                     
+  0x007feb34: CALL 0x00b97550                                  << TARGET ; CALL 0x00b97550 ImageSpaceManager::RenderEffect id/source rendered texture
+  0x007feb39: MOV ESP,EBP                                     
+  0x007feb3b: POP EBP                                         
+  0x007feb3c: RET 0xc                                         
+  0x007feb40: PUSH EBP                                        
+  0x007feb41: MOV EBP,ESP                                     
+  0x007feb43: PUSH ECX                                        
+  0x007feb44: MOV dword ptr [EBP + -0x4],ECX                  
+  0x007feb47: MOV EAX,dword ptr [EBP + -0x4]                  
+  0x007feb4a: ADD EAX,0xc0                                    
+  0x007feb4f: MOV ECX,dword ptr [EBP + 0x8]                   
+  0x007feb52: MOV EDX,dword ptr [EAX]                         
+  0x007feb54: MOV dword ptr [ECX],EDX                         
+  0x007feb56: MOV EDX,dword ptr [EAX + 0x4]                   
+  0x007feb59: MOV dword ptr [ECX + 0x4],EDX                   
+  0x007feb5c: MOV EDX,dword ptr [EAX + 0x8]                   
+  0x007feb5f: MOV dword ptr [ECX + 0x8],EDX                   
+  0x007feb62: MOV EAX,dword ptr [EAX + 0xc]                   
+  0x007feb65: MOV dword ptr [ECX + 0xc],EAX                   
+  0x007feb68: MOV EAX,dword ptr [EBP + 0x8]                   
+  0x007feb6b: MOV ESP,EBP                                     
+  0x007feb6d: POP EBP                                         
+  0x007feb6e: RET 0x4                                         
+  0x007feb80: PUSH EBP                                        
+  0x007feb81: MOV EBP,ESP                                     
+
+Caller 10: 0x00b65cd1 in FUN_00b65c60
+
+----------------------------------------------------------------------
+Disassembly caller of RenderEffect rendered texture around 0x00b65cd1
+----------------------------------------------------------------------
+  0x00b65cb1: MOV [0x011f943c],EAX                            
+  0x00b65cb6: MOV ECX,dword ptr [0x011f9438]                  
+  0x00b65cbc: MOV EDX,dword ptr [0x011f9508]                  
+  0x00b65cc2: PUSH 0x1                                        
+  0x00b65cc4: PUSH 0x0                                        
+  0x00b65cc6: PUSH EAX                                        
+  0x00b65cc7: PUSH ECX                                        
+  0x00b65cc8: MOV ECX,dword ptr [0x011f91ac]                  
+  0x00b65cce: PUSH EDX                                        
+  0x00b65ccf: PUSH 0x22                                       
+  0x00b65cd1: CALL 0x00b97550                                  << TARGET ; CALL 0x00b97550 ImageSpaceManager::RenderEffect id/source rendered texture
+  0x00b65cd6: MOV ECX,dword ptr [0x011f9438]                  
+  0x00b65cdc: CALL 0x00b6b260                                  ; CALL 0x00b6b260 FUN_00b6b260
+  0x00b65ce1: PUSH EAX                                        
+  0x00b65ce2: PUSH 0x0                                        
+  0x00b65ce4: CALL 0x00b6b8d0                                  ; CALL 0x00b6b8d0 BSRenderedTexture::StartOffscreen
+  0x00b65ce9: ADD ESP,0x8                                     
+  0x00b65cec: MOV EAX,dword ptr [ESI + 0x8]                   
+  0x00b65cef: MOV ECX,dword ptr [0x011f9508]                  
+  0x00b65cf5: PUSH EAX                                        
+  0x00b65cf6: CALL 0x004e9bb0                                  ; CALL 0x004e9bb0 FUN_004e9bb0
+  0x00b65cfb: PUSH -0x1                                       
+  0x00b65cfd: PUSH 0x0                                        
+  0x00b65cff: PUSH 0x289                                      
+  0x00b65d04: PUSH 0x288                                      
+  0x00b65d09: MOV ECX,ESI                                     
+  0x00b65d0b: CALL 0x00b63770                                  ; CALL 0x00b63770 FUN_00b63770
+  0x00b65d10: PUSH -0x1                                       
+  0x00b65d12: PUSH 0x0                                        
+  0x00b65d14: PUSH 0x2ab                                      
+  0x00b65d19: PUSH 0x28a                                      
+  0x00b65d1e: MOV ECX,ESI                                     
+  0x00b65d20: CALL 0x00b63770                                  ; CALL 0x00b63770 FUN_00b63770
+  0x00b65d25: PUSH -0x1                                       
+  0x00b65d27: PUSH 0x0                                        
+  ... caller scan truncated
+Total callers printed: 10
+
+======================================================================
+RenderEffect NiTexture @ 0x00b975f0
+======================================================================
+  Function: FUN_00b975f0 @ 0x00b975f0, Size: 145 bytes
+
+void __thiscall
+FUN_00b975f0(int param_1,int param_2,undefined4 param_3,undefined4 param_4,undefined4 param_5,
+            undefined4 param_6,undefined4 param_7)
+
+{
+  int iVar1;
+  undefined4 uVar2;
+  int *unaff_FS_OFFSET;
+  int local_c;
+  undefined1 *puStack_8;
+  undefined4 local_4;
+  
+  puStack_8 = &LAB_00f306c8;
+  local_c = *unaff_FS_OFFSET;
+  *unaff_FS_OFFSET = (int)&local_c;
+  iVar1 = *(int *)(unaff_FS_OFFSET[0xb] + _tls_index * 4);
+  uVar2 = *(undefined4 *)(iVar1 + 0x2b4);
+  *(undefined4 *)(iVar1 + 0x2b4) = 0x27;
+  local_4 = 0;
+  FUN_00b8c980(*(undefined4 *)(*(int *)(param_1 + 8) + param_2 * 4),param_3,param_4,param_5,param_6,
+               param_7);
+  *(undefined4 *)(iVar1 + 0x2b4) = uVar2;
+  *unaff_FS_OFFSET = local_c;
+  return;
+}
+
+
+
+--- Calls FROM RenderEffect NiTexture (0x00b975f0) ---
+  0x00b97662 -> 0x00b8c980 FUN_00b8c980
+  Total: 1 calls
+
+======================================================================
+CALLER SCAN: RenderEffect NiTexture @ 0x00b975f0
+======================================================================
+
+Caller 1: 0x004e43fd in FUN_004e3d60
+
+----------------------------------------------------------------------
+Disassembly caller of RenderEffect NiTexture around 0x004e43fd
+----------------------------------------------------------------------
+  0x004e43de: PUSH EAX                                        
+  0x004e43df: MOV ECX,dword ptr [EBP + -0x30]                 
+  0x004e43e2: ADD ECX,0x134                                   
+  0x004e43e8: CALL 0x00559450                                  ; CALL 0x00559450 FUN_00559450
+  0x004e43ed: PUSH EAX                                        
+  0x004e43ee: CALL 0x004a0e90                                  ; CALL 0x004a0e90 FUN_004a0e90
+  0x004e43f3: PUSH EAX                                        
+  0x004e43f4: PUSH 0x21                                       
+  0x004e43f6: CALL 0x004e3270                                  ; CALL 0x004e3270 FUN_004e3270
+  0x004e43fb: MOV ECX,EAX                                     
+  0x004e43fd: CALL 0x00b975f0                                  << TARGET ; CALL 0x00b975f0 ImageSpaceManager::RenderEffect id/source NiTexture
+  0x004e4402: PUSH 0x1                                        
+  0x004e4404: MOV EAX,dword ptr [EBP + -0x20]                 
+  0x004e4407: PUSH EAX                                        
+  0x004e4408: MOV ECX,dword ptr [EBP + -0x50]                 
+  0x004e440b: ADD ECX,0x6c                                    
+  0x004e440e: CALL 0x0084d310                                  ; CALL 0x0084d310 FUN_0084d310
+  0x004e4413: MOV ECX,dword ptr [EBP + -0x14]                 
+  0x004e4416: MOV dword ptr [EBP + -0x10],ECX                 
+  0x004e4419: JMP 0x004e3da0                                  
+  0x004e441e: MOV ECX,dword ptr [EBP + -0xc]                  
+  0x004e4421: MOV dword ptr FS:[0x0],ECX                      
+  0x004e4428: POP ECX                                         
+  0x004e4429: MOV ESP,EBP                                     
+  0x004e442b: POP EBP                                         
+  0x004e442c: RET 0x4                                         
+  0x004e4430: PUSH EBP                                        
+  0x004e4431: MOV EBP,ESP                                     
+  0x004e4433: PUSH ECX                                        
+  0x004e4434: FLD float ptr [EBP + 0x8]                       
+  0x004e4437: FSTP float ptr [ESP]                            
+  0x004e443a: CALL 0x004e4450                                  ; CALL 0x004e4450 FUN_004e4450
+  0x004e443f: ADD ESP,0x4                                     
+  0x004e4442: POP EBP                                         
+  0x004e4443: RET                                             
+
+Caller 2: 0x00bd8045 in FUN_00bd7bb0
+
+----------------------------------------------------------------------
+Disassembly caller of RenderEffect NiTexture around 0x00bd8045
+----------------------------------------------------------------------
+  0x00bd8029: CALL 0x00b8a760                                  ; CALL 0x00b8a760 FUN_00b8a760
+  0x00bd802e: PUSH 0x0                                        
+  0x00bd8030: LEA ECX,[ESP + 0x128]                           
+  0x00bd8037: PUSH ECX                                        
+  0x00bd8038: MOV EAX,dword ptr [ESI + 0x130]                 
+  0x00bd803e: PUSH EAX                                        
+  0x00bd803f: PUSH EDI                                        
+  0x00bd8040: PUSH EBX                                        
+  0x00bd8041: PUSH 0x2f                                       
+  0x00bd8043: MOV ECX,EBP                                     
+  0x00bd8045: CALL 0x00b975f0                                  << TARGET ; CALL 0x00b975f0 ImageSpaceManager::RenderEffect id/source NiTexture
+  0x00bd804a: DEC dword ptr [0x011ff9f0]                      
+  0x00bd8050: PUSH 0x0                                        
+  0x00bd8052: PUSH 0x0                                        
+  0x00bd8054: CALL 0x00b97fa0                                  ; CALL 0x00b97fa0 FUN_00b97fa0
+  0x00bd8059: ADD ESP,0x8                                     
+  0x00bd805c: CALL 0x00b6b790                                  ; CALL 0x00b6b790 BSRenderedTexture::StopOffscreen
+  0x00bd8061: LEA ECX,[ESP + 0x124]                           
+  0x00bd8068: MOV dword ptr [ESP + 0x1b8],0xffffffff          
+  0x00bd8073: CALL 0x00b8a8e0                                  ; CALL 0x00b8a8e0 FUN_00b8a8e0
+  0x00bd8078: MOV EBX,dword ptr [ESP + 0x24]                  
+  0x00bd807c: INC EBX                                         
+  0x00bd807d: CMP EBX,0x6                                     
+  0x00bd8080: MOV dword ptr [ESP + 0x24],EBX                  
+  0x00bd8084: JL 0x00bd7c85                                   
+  0x00bd808a: MOV ECX,dword ptr [0x011f9508]                  
+  0x00bd8090: MOV EDX,dword ptr [ECX]                         
+  0x00bd8092: MOV EDX,dword ptr [EDX + 0xac]                  
+  0x00bd8098: LEA EAX,[ESP + 0x3c]                            
+  0x00bd809c: PUSH EAX                                        
+  0x00bd809d: CALL EDX                                        
+  0x00bd809f: MOV ECX,dword ptr [ESP + 0x1b0]                 
+  0x00bd80a6: MOV dword ptr FS:[0x0],ECX                      
+  0x00bd80ad: POP ECX                                         
+  0x00bd80ae: POP EDI                                         
+Total callers printed: 2
+
+======================================================================
+GetDepthTexture @ 0x00b54090
+======================================================================
+  Function: thunk_FUN_00ba3780 @ 0x00b54090, Size: 17 bytes
+
+void thunk_FUN_00ba3780(void)
+
+{
+  FUN_00ba3780();
+  return;
+}
+
+
+
+--- Calls FROM GetDepthTexture (0x00b54090) ---
+  0x00b5409c -> 0x00ba3780 FUN_00ba3780
+  Total: 1 calls
+
+======================================================================
+CALLER SCAN: GetDepthTexture @ 0x00b54090
+======================================================================
+
+Caller 1: 0x00b5a371 in ???
+
+----------------------------------------------------------------------
+Disassembly caller of GetDepthTexture around 0x00b5a371
+----------------------------------------------------------------------
+  0x00b5a34d: MOV dword ptr [ESP + 0xc],ECX                   
+  0x00b5a351: CALL 0x00ba3840                                  ; CALL 0x00ba3840 FUN_00ba3840
+  0x00b5a356: LEA EAX,[ESP + 0x8]                             
+  0x00b5a35a: PUSH EAX                                        
+  0x00b5a35b: LEA EDI,[ESI + 0x28]                            
+  0x00b5a35e: PUSH 0x2                                        
+  0x00b5a360: MOV ECX,EDI                                     
+  0x00b5a362: CALL 0x00ba3aa0                                  ; CALL 0x00ba3aa0 FUN_00ba3aa0
+  0x00b5a367: ADD ESI,0xc4                                    
+  0x00b5a36d: MOV dword ptr [ESP + 0x8],ESI                   
+  0x00b5a371: CALL 0x00b54090                                  << TARGET ; CALL 0x00b54090 ImageSpaceManager::GetDepthTexture
+  0x00b5a376: PUSH EAX                                        
+  0x00b5a377: MOV ECX,ESI                                     
+  0x00b5a379: CALL 0x00ba37f0                                  ; CALL 0x00ba37f0 FUN_00ba37f0
+  0x00b5a37e: LEA ECX,[ESP + 0x8]                             
+  0x00b5a382: PUSH ECX                                        
+  0x00b5a383: PUSH 0x3                                        
+  0x00b5a385: MOV ECX,EDI                                     
+  0x00b5a387: CALL 0x00ba3aa0                                  ; CALL 0x00ba3aa0 FUN_00ba3aa0
+  0x00b5a38c: POP EDI                                         
+  0x00b5a38d: POP ESI                                         
+  0x00b5a38e: POP ECX                                         
+  0x00b5a38f: RET 0x4                                         
+  0x00b5a3a0: PUSH ECX                                        
+  0x00b5a3a1: PUSH ESI                                        
+  0x00b5a3a2: MOV ESI,ECX                                     
+  0x00b5a3a4: MOV EAX,dword ptr [ESI + 0x2c]                  
+  0x00b5a3a7: MOV ECX,dword ptr [EAX + 0x8]                   
+  0x00b5a3aa: CALL 0x00ba39a0                                  ; CALL 0x00ba39a0 FUN_00ba39a0
+  0x00b5a3af: LEA ECX,[ESP + 0x4]                             
+  0x00b5a3b3: PUSH ECX                                        
+  0x00b5a3b4: ADD ESI,0x28                                    
+  0x00b5a3b7: PUSH 0x2                                        
+  0x00b5a3b9: MOV ECX,ESI                                     
+  0x00b5a3bb: MOV dword ptr [ESP + 0xc],0x0                   
+
+Caller 2: 0x00bd6a05 in ???
+
+----------------------------------------------------------------------
+Disassembly caller of GetDepthTexture around 0x00bd6a05
+----------------------------------------------------------------------
+  0x00bd69dd: LEA ECX,[ESI + 0x7c]                            
+  0x00bd69e0: CALL 0x00ba39a0                                  ; CALL 0x00ba39a0 FUN_00ba39a0
+  0x00bd69e5: LEA EDX,[ESP + 0x8]                             
+  0x00bd69e9: MOV dword ptr [ESP + 0x8],0x0                   
+  0x00bd69f1: PUSH EDX                                        
+  0x00bd69f2: PUSH 0x5                                        
+  0x00bd69f4: MOV ECX,EDI                                     
+  0x00bd69f6: CALL 0x00ba3aa0                                  ; CALL 0x00ba3aa0 FUN_00ba3aa0
+  0x00bd69fb: ADD ESI,0xac                                    
+  0x00bd6a01: MOV dword ptr [ESP + 0x8],ESI                   
+  0x00bd6a05: CALL 0x00b54090                                  << TARGET ; CALL 0x00b54090 ImageSpaceManager::GetDepthTexture
+  0x00bd6a0a: PUSH EAX                                        
+  0x00bd6a0b: MOV ECX,ESI                                     
+  0x00bd6a0d: CALL 0x00ba37f0                                  ; CALL 0x00ba37f0 FUN_00ba37f0
+  0x00bd6a12: LEA EAX,[ESP + 0x8]                             
+  0x00bd6a16: PUSH EAX                                        
+  0x00bd6a17: PUSH 0x4                                        
+  0x00bd6a19: MOV ECX,EDI                                     
+  0x00bd6a1b: CALL 0x00ba3aa0                                  ; CALL 0x00ba3aa0 FUN_00ba3aa0
+  0x00bd6a20: POP EDI                                         
+  0x00bd6a21: POP ESI                                         
+  0x00bd6a22: POP ECX                                         
+  0x00bd6a23: RET 0x4                                         
+  0x00bd6a30: PUSH ECX                                        
+  0x00bd6a31: PUSH EBX                                        
+  0x00bd6a32: PUSH ESI                                        
+  0x00bd6a33: MOV ESI,ECX                                     
+  0x00bd6a35: MOV EAX,dword ptr [ESI + 0x2c]                  
+  0x00bd6a38: MOV ECX,dword ptr [EAX + 0x8]                   
+  0x00bd6a3b: PUSH EDI                                        
+  0x00bd6a3c: CALL 0x00ba39a0                                  ; CALL 0x00ba39a0 FUN_00ba39a0
+  0x00bd6a41: LEA ECX,[ESP + 0xc]                             
+  0x00bd6a45: PUSH ECX                                        
+  0x00bd6a46: LEA EDI,[ESI + 0x28]                            
+  0x00bd6a49: XOR EBX,EBX                                     
+
+Caller 3: 0x00bd6ac5 in ???
+
+----------------------------------------------------------------------
+Disassembly caller of GetDepthTexture around 0x00bd6ac5
+----------------------------------------------------------------------
+  0x00bd6aab: POP EBX                                         
+  0x00bd6aac: POP ECX                                         
+  0x00bd6aad: RET                                             
+  0x00bd6ab0: FLDZ                                            
+  0x00bd6ab2: FCOMP float ptr [ECX + 0x70]                    
+  0x00bd6ab5: FNSTSW AX                                       
+  0x00bd6ab7: TEST AH,0x5                                     
+  0x00bd6aba: JP 0x00bd6ad4                                   
+  0x00bd6abc: CMP byte ptr [0x012023d4],0x0                   
+  0x00bd6ac3: JZ 0x00bd6ad4                                   
+  0x00bd6ac5: CALL 0x00b54090                                  << TARGET ; CALL 0x00b54090 ImageSpaceManager::GetDepthTexture
+  0x00bd6aca: TEST EAX,EAX                                    
+  0x00bd6acc: JZ 0x00bd6ad4                                   
+  0x00bd6ace: MOV EAX,0x1                                     
+  0x00bd6ad3: RET                                             
+  0x00bd6ad4: XOR EAX,EAX                                     
+  0x00bd6ad6: RET                                             
+  0x00bd6ae0: MOV EDX,dword ptr [ESP + 0x4]                   
+  0x00bd6ae4: PUSH ESI                                        
+  0x00bd6ae5: MOV ESI,ECX                                     
+  0x00bd6ae7: MOVZX EAX,word ptr [ESI + 0x8]                  
+  0x00bd6aeb: CMP EDX,EAX                                     
+  0x00bd6aed: JZ 0x00bd6ba0                                   
+  0x00bd6af3: MOVZX EAX,word ptr [ESI + 0xa]                  
+  0x00bd6af7: MOVZX ECX,AX                                    
+  0x00bd6afa: PUSH EDI                                        
+  0x00bd6afb: CMP EDX,ECX                                     
+  0x00bd6afd: JNC 0x00bd6b2b                                  
+  0x00bd6aff: MOVZX ECX,DX                                    
+  0x00bd6b02: CMP DX,AX                                       
+  0x00bd6b05: JNC 0x00bd6b27                                  
+  0x00bd6b07: MOV EDI,dword ptr [ESI + 0x4]                   
+  0x00bd6b0a: MOVZX EAX,CX                                    
+  0x00bd6b0d: ADD EAX,EDI                                     
+  0x00bd6b0f: CMP byte ptr [EAX],0x0                          
+Total callers printed: 3
+
+----------------------------------------------------------------------
+References TO 0x011f917c (camera pointer)
+----------------------------------------------------------------------
+  WRITE @ 0x00876125 (in FUN_00875fd0)
+  WRITE @ 0x00b548bd (in FUN_00b54630)
+  WRITE @ 0x00b5ea46 (in FUN_00b5e870)
+  WRITE @ 0x00b6ba3f (in FUN_00b6ba20)
+  WRITE @ 0x00b6c0ef (in FUN_00b6c0d0)
+  READ @ 0x00b8b8d3 (in FUN_00b8b8d0)
+  READ @ 0x00b8bb73 (in FUN_00b8bb70)
+  READ @ 0x00b8b7d3 (in FUN_00b8b7d0)
+  READ @ 0x00b5a22d (in FUN_00b5a220)
+  READ @ 0x00bb1a93 (in FUN_00bb1a90)
+  READ @ 0x00bd66c3 (in FUN_00bd66c0)
+  READ @ 0x00bd684d (in FUN_00bd66c0)
+  READ @ 0x00c04c2c (in ???)
+  WRITE @ 0x00b54605 (in FUN_00b54280)
+  Total: 14 refs
+
+----------------------------------------------------------------------
+References TO 0x011f91a8 (texture manager pointer)
+----------------------------------------------------------------------
+  READ @ 0x004a0ea3 (in FUN_004a0ea0)
+  READ @ 0x00b4f519 (in FUN_00b4f510)
+  READ @ 0x00ba39ba (in FUN_00ba39a0)
+  READ @ 0x00b548df (in FUN_00b54630)
+  WRITE @ 0x00b548fb (in FUN_00b54630)
+  WRITE @ 0x00b574b2 (in FUN_00b57420)
+  READ @ 0x00b575ce (in FUN_00b57420)
+  READ @ 0x00b5791a (in FUN_00b578a0)
+  WRITE @ 0x00b57936 (in FUN_00b578a0)
+  WRITE @ 0x00b5796f (in FUN_00b578a0)
+  READ @ 0x00b579b4 (in FUN_00b578a0)
+  READ @ 0x00b5b08b (in FUN_00b5b060)
+  READ @ 0x00b5b212 (in FUN_00b5b1f0)
+  READ @ 0x00b5b24f (in FUN_00b5b1f0)
+  READ @ 0x00b5c3e9 (in FUN_00b5c3c0)
+  READ @ 0x00b5fe42 (in FUN_00b5fd60)
+  READ @ 0x00b5ed60 (in FUN_00b5eca0)
+  READ @ 0x00b5ed74 (in FUN_00b5eca0)
+  READ @ 0x00b5edae (in FUN_00b5eca0)
+  READ @ 0x00b63cc8 (in FUN_00b63c60)
+  READ @ 0x00b63d38 (in FUN_00b63d10)
+  READ @ 0x00b976ee (in FUN_00b97690)
+  READ @ 0x00b979a6 (in FUN_00b97900)
+  READ @ 0x00b97a21 (in FUN_00b97900)
+  READ @ 0x00b978ce (in FUN_00b977d0)
+  READ @ 0x00b9dd39 (in FUN_00b9dcb0)
+  READ @ 0x00b9e036 (in FUN_00b9dfc0)
+  READ @ 0x00b9e6dc (in FUN_00b9dfc0)
+  READ @ 0x00b9eec8 (in FUN_00b9e970)
+  READ @ 0x00b9fa95 (in FUN_00b9f780)
+  READ @ 0x00b9fb27 (in FUN_00b9f780)
+  READ @ 0x00ba3857 (in FUN_00ba3840)
+  READ @ 0x00bd9395 (in FUN_00bd9380)
+  READ @ 0x00b5e687 (in FUN_00b5e5a0)
+  READ @ 0x00b65c9b (in FUN_00b65c60)
+  READ @ 0x00b65d47 (in FUN_00b65c60)
+  READ @ 0x00b9f156 (in FUN_00b9f0c0)
+  READ @ 0x00badfcc (in FUN_00badb90)
+  READ @ 0x00bd91d7 (in FUN_00bd9160)
+  READ @ 0x00bd9353 (in FUN_00bd92b0)
+  Total: 40 refs
+
+----------------------------------------------------------------------
+References TO 0x011f91ac (image-space manager singleton)
+----------------------------------------------------------------------
+  READ @ 0x004e3273 (in FUN_004e3270)
+  READ @ 0x00b540b0 (in thunk_FUN_00ba39a0)
+  READ @ 0x00b548b7 (in FUN_00b54630)
+  WRITE @ 0x00b548d9 (in FUN_00b54630)
+  READ @ 0x00b55acf (in FUN_00b55ac0)
+  WRITE @ 0x00b575a3 (in FUN_00b57420)
+  READ @ 0x00b578f8 (in FUN_00b578a0)
+  WRITE @ 0x00b57914 (in FUN_00b578a0)
+  WRITE @ 0x00b579aa (in FUN_00b578a0)
+  READ @ 0x00b645a2 (in FUN_00b64570)
+  READ @ 0x00b647d1 (in FUN_00b64570)
+  READ @ 0x00b65230 (in FUN_00b651e0)
+  READ @ 0x00b65481 (in FUN_00b651e0)
+  READ @ 0x00b654b6 (in FUN_00b651e0)
+  READ @ 0x00b654f8 (in FUN_00b651e0)
+  READ @ 0x00b4f530 (in FUN_00b4f530)
+  READ @ 0x00b6e819 (in FUN_00b6e450)
+  READ @ 0x00b9fadd (in FUN_00b9f780)
+  READ @ 0x00b9fb17 (in FUN_00b9f780)
+  READ @ 0x00b55820 (in FUN_00b557d0)
+  READ @ 0x00b65cc8 (in FUN_00b65c60)
+  READ @ 0x00c03082 (in FUN_00c03010)
+  READ @ 0x00c031ad (in FUN_00c03180)
+  READ @ 0x00ba1153 (in FUN_00ba0900)
+  READ @ 0x00bae350 (in FUN_00badb90)
+  READ @ 0x00bb75ba (in FUN_00bb7530)
+  READ @ 0x00bb78d1 (in FUN_00bb7530)
+  READ @ 0x00bb7936 (in FUN_00bb7530)
+  READ @ 0x00bbed54 (in FUN_00bbecd0)
+  READ @ 0x00bd7f6f (in FUN_00bd7bb0)
+  READ @ 0x00c03e85 (in FUN_00c03d80)
+  READ @ 0x00b4f434 (in FUN_00b4f430)
+  READ @ 0x00b54090 (in thunk_FUN_00ba3780)
+  READ @ 0x00bae59e (in ???)
+  READ @ 0x00bd9243 (in ???)
+  READ @ 0x00c0c997 (in FUN_00c0bd40)
+  READ @ 0x00c0c9ad (in FUN_00c0bd40)
+  READ @ 0x00c0c9ea (in FUN_00c0bd40)
+  READ @ 0x00c0ca01 (in FUN_00c0bd40)
+  WRITE @ 0x00b54617 (in FUN_00b54280)
+  Total: 40 refs
+
+----------------------------------------------------------------------
+References TO 0x011f9438 (current render target)
+----------------------------------------------------------------------
+  WRITE @ 0x00872fdf (in FUN_00872f50)
+  READ @ 0x0087589f (in FUN_00875110)
+  READ @ 0x00b65c84 (in FUN_00b65c60)
+  READ @ 0x00b65cb6 (in FUN_00b65c60)
+  READ @ 0x00b65cd6 (in FUN_00b65c60)
+  Total: 5 refs
+
+----------------------------------------------------------------------
+References TO 0x011f943c (water refraction target)
+----------------------------------------------------------------------
+  READ @ 0x00b65c92 (in FUN_00b65c60)
+  WRITE @ 0x00b65cb1 (in FUN_00b65c60)
+  READ @ 0x00b65d40 (in FUN_00b65c60)
+  WRITE @ 0x00b65d52 (in FUN_00b65c60)
+  READ @ 0x00b8642f (in ???)
+  Total: 5 refs
+
+----------------------------------------------------------------------
+References TO 0x011f9508 (renderer pointer)
+----------------------------------------------------------------------
+  READ @ 0x00b549ee (in FUN_00b54630)
+  WRITE @ 0x00b54a0c (in FUN_00b54630)
+  READ @ 0x00b55585 (in FUN_00b55560)
+  READ @ 0x00b558e6 (in FUN_00b55840)
+  READ @ 0x00b55a33 (in FUN_00b55a10)
+  READ @ 0x00b55ae0 (in FUN_00b55ac0)
+  READ @ 0x00b57556 (in FUN_00b57420)
+  READ @ 0x00b575c9 (in FUN_00b57420)
+  READ @ 0x00b56cfa (in FUN_00b55bb0)
+  READ @ 0x00b56da7 (in FUN_00b55bb0)
+  READ @ 0x00b57974 (in FUN_00b578a0)
+  READ @ 0x00b579af (in FUN_00b578a0)
+  READ @ 0x00b5ed51 (in FUN_00b5eca0)
+  READ @ 0x00b6b644 (in FUN_00b6b610)
+  READ @ 0x00b6b214 (in FUN_00b6b180)
+  READ @ 0x00b6b24e (in FUN_00b6b180)
+  READ @ 0x00b6de2c (in FUN_00b6dd80)
+  READ @ 0x00b6d273 (in FUN_00b6d170)
+  READ @ 0x00b6e497 (in FUN_00b6e450)
+  READ @ 0x00b6e4ae (in FUN_00b6e450)
+  READ @ 0x00b6e4cc (in FUN_00b6e450)
+  READ @ 0x00b6e4fa (in FUN_00b6e450)
+  READ @ 0x00b6e509 (in FUN_00b6e450)
+  READ @ 0x00b6e529 (in FUN_00b6e450)
+  READ @ 0x00b6e56b (in FUN_00b6e450)
+  READ @ 0x00b6e5c8 (in FUN_00b6e450)
+  READ @ 0x00b6e605 (in FUN_00b6e450)
+  READ @ 0x00b6e674 (in FUN_00b6e450)
+  READ @ 0x00b6e6da (in FUN_00b6e450)
+  READ @ 0x00b6e757 (in FUN_00b6e450)
+  READ @ 0x00b6e79a (in FUN_00b6e450)
+  READ @ 0x00b8ab53 (in FUN_00b8ab10)
+  READ @ 0x00b8abb9 (in FUN_00b8ab10)
+  READ @ 0x00b97df1 (in FUN_00b97de0)
+  READ @ 0x00b97e41 (in FUN_00b97e30)
+  READ @ 0x00b97e91 (in FUN_00b97e80)
+  READ @ 0x00b97ee1 (in FUN_00b97ed0)
+  READ @ 0x00b97f32 (in FUN_00b97f20)
+  READ @ 0x00b97f71 (in FUN_00b97f20)
+  READ @ 0x00b97fb1 (in FUN_00b97fa0)
+  READ @ 0x00b98002 (in FUN_00b97ff0)
+  READ @ 0x00b98041 (in FUN_00b97ff0)
+  READ @ 0x00b98081 (in FUN_00b98070)
+  READ @ 0x00b980cf (in FUN_00b980c0)
+  READ @ 0x00b98102 (in FUN_00b980c0)
+  READ @ 0x00b98137 (in FUN_00b980c0)
+  READ @ 0x00b9818f (in FUN_00b98180)
+  READ @ 0x00b981c2 (in FUN_00b98180)
+  READ @ 0x00b981f0 (in FUN_00b98180)
+  READ @ 0x00b98241 (in FUN_00b98230)
+  READ @ 0x00b98291 (in FUN_00b98280)
+  READ @ 0x00b98339 (in FUN_00b98320)
+  READ @ 0x00b98391 (in FUN_00b98380)
+  READ @ 0x00b98491 (in FUN_00b98480)
+  READ @ 0x00b98501 (in FUN_00b984f0)
+  READ @ 0x00b9856e (in FUN_00b98540)
+  READ @ 0x00b9859c (in FUN_00b98540)
+  READ @ 0x00b99579 (in FUN_00b994f0)
+  READ @ 0x00b984d4 (in FUN_00b984d0)
+  READ @ 0x00b9f91a (in FUN_00b9f780)
+  READ @ 0x00b9fb0a (in FUN_00b9f780)
+  READ @ 0x00ba384f (in FUN_00ba3840)
+  READ @ 0x00ba9435 (in FUN_00ba9420)
+  READ @ 0x00bd2413 (in FUN_00bd23f0)
+  READ @ 0x00be1662 (in FUN_00be0fe0)
+  READ @ 0x00be16ac (in FUN_00be0fe0)
+  READ @ 0x00be1dcd (in FUN_00be1750)
+  READ @ 0x00be1e17 (in FUN_00be1750)
+  READ @ 0x00c04030 (in FUN_00c04030)
+  READ @ 0x00b7a3a5 (in FUN_00b7a380)
+  READ @ 0x00b7a3b4 (in FUN_00b7a380)
+  READ @ 0x00b7a3c6 (in FUN_00b7a380)
+  READ @ 0x00b7a3dc (in FUN_00b7a380)
+  READ @ 0x00bacf4a (in FUN_00bacf00)
+  READ @ 0x00bd5943 (in FUN_00bd5920)
+  READ @ 0x00bd4773 (in FUN_00bd4750)
+  READ @ 0x00bd2eba (in FUN_00bd2e70)
+  READ @ 0x00bb2c23 (in FUN_00bb2c00)
+  READ @ 0x00b8a3b3 (in FUN_00b8a390)
+  READ @ 0x00bd14d3 (in FUN_00bd14b0)
+  READ @ 0x00bd14e2 (in FUN_00bd14b0)
+  ... (truncated)
+  Total: 81 refs

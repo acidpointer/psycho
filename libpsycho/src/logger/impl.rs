@@ -54,11 +54,14 @@
 //! use libpsycho::logger::Logger;
 //! use log::LevelFilter;
 //!
-//! Logger::new()
+//! if let Err(err) = Logger::new()
 //!     .with_level(LevelFilter::Info)
 //!     .with_utc_timestamps()
 //!     .init()
-//!     .unwrap();
+//! {
+//!     eprintln!("logger init failed: {err}");
+//!     return;
+//! }
 //!
 //! log::info!("Application started");
 //! log::warn!("This is a warning");
@@ -72,11 +75,14 @@
 //! use libpsycho::logger::Logger;
 //! use log::LevelFilter;
 //!
-//! Logger::new()
+//! if let Err(err) = Logger::new()
 //!     .with_level(LevelFilter::Debug)
 //!     .with_file_timestamped("./logs", "myapp")
 //!     .init()
-//!     .unwrap();
+//! {
+//!     eprintln!("logger init failed: {err}");
+//!     return;
+//! }
 //!
 //! log::debug!("This goes to both console and ./logs/myapp-26-12-2025--14-30-52.log");
 //!
@@ -88,10 +94,13 @@
 //! ```no_run
 //! use libpsycho::logger::Logger;
 //!
-//! Logger::new()
+//! if let Err(err) = Logger::new()
 //!     .with_file_rotating("./latest.log")
 //!     .init()
-//!     .unwrap();
+//! {
+//!     eprintln!("logger init failed: {err}");
+//!     return;
+//! }
 //!
 //! log::info!("Always writes to ./latest.log, truncated on each run");
 //!
@@ -103,10 +112,13 @@
 //! ```no_run
 //! use libpsycho::logger::Logger;
 //!
-//! Logger::new()
+//! if let Err(err) = Logger::new()
 //!     .with_file_rotated_limit("./logs", "myapp", 5)
 //!     .init()
-//!     .unwrap();
+//! {
+//!     eprintln!("logger init failed: {err}");
+//!     return;
+//! }
 //!
 //! log::info!("Creates timestamped files, keeps only the 5 most recent");
 //!
@@ -119,12 +131,15 @@
 //! use libpsycho::logger::Logger;
 //! use log::{LevelFilter, info, warn, error};
 //!
-//! Logger::new()
+//! if let Err(err) = Logger::new()
 //!     .with_level(LevelFilter::Info)
 //!     .with_file_rotated_limit("C:\\logs\\myapp", "game", 10)
 //!     .with_utc_timestamps()
 //!     .init()
-//!     .expect("Failed to initialize logger");
+//! {
+//!     eprintln!("logger init failed: {err}");
+//!     return;
+//! }
 //!
 //! info!("Game mod loaded");
 //! warn!("Texture cache low");
@@ -139,12 +154,15 @@
 //! use libpsycho::logger::Logger;
 //! use log::LevelFilter;
 //!
-//! Logger::new()
+//! if let Err(err) = Logger::new()
 //!     .with_level(LevelFilter::Warn)
 //!     .with_module_level("myapp::renderer", LevelFilter::Debug)
 //!     .with_module_level("myapp::network", LevelFilter::Trace)
 //!     .init()
-//!     .unwrap();
+//! {
+//!     eprintln!("logger init failed: {err}");
+//!     return;
+//! }
 //!
 //! log::info!("This won't show (global level is Warn)");
 //!
@@ -172,7 +190,10 @@
 //! ```no_run
 //! use libpsycho::logger::Logger;
 //!
-//! Logger::new().init().unwrap();
+//! if let Err(err) = Logger::new().init() {
+//!     eprintln!("logger init failed: {err}");
+//!     return;
+//! }
 //!
 //! log::info!("Application running");
 //!
@@ -296,12 +317,15 @@ pub enum FileOutput {
 /// use libpsycho::logger::Logger;
 /// use log::LevelFilter;
 ///
-/// Logger::new()
+/// if let Err(err) = Logger::new()
 ///     .with_level(LevelFilter::Info)
 ///     .with_file_timestamped("./logs", "myapp")
 ///     .with_utc_timestamps()
 ///     .init()
-///     .unwrap();
+/// {
+///     eprintln!("logger init failed: {err}");
+///     return;
+/// }
 ///
 /// log::info!("Logger initialized");
 ///
@@ -348,10 +372,13 @@ impl Logger {
     /// ```no_run
     /// use libpsycho::logger::Logger;
     ///
-    /// Logger::new()
+    /// if let Err(err) = Logger::new()
     ///     .with_level(log::LevelFilter::Info)
     ///     .init()
-    ///     .unwrap();
+    /// {
+    ///     eprintln!("logger init failed: {err}");
+    ///     return;
+    /// }
     /// ```
     #[must_use = "You must call init() to begin logging"]
     pub fn new() -> Self {
@@ -394,7 +421,13 @@ impl Logger {
     /// use libpsycho::logger::Logger;
     /// use log::LevelFilter;
     ///
-    /// Logger::new().with_module_level("chatty_dependency", LevelFilter::Warn).init().unwrap();
+    /// if let Err(err) = Logger::new()
+    ///     .with_module_level("chatty_dependency", LevelFilter::Warn)
+    ///     .init()
+    /// {
+    ///     eprintln!("logger init failed: {err}");
+    ///     return;
+    /// }
     /// ```
     ///
     /// Disable logging for all dependencies:
@@ -403,11 +436,14 @@ impl Logger {
     /// use libpsycho::logger::Logger;
     /// use log::LevelFilter;
     ///
-    /// Logger::new()
+    /// if let Err(err) = Logger::new()
     ///     .with_level(LevelFilter::Off)
     ///     .with_module_level("my_crate", LevelFilter::Info)
     ///     .init()
-    ///     .unwrap();
+    /// {
+    ///     eprintln!("logger init failed: {err}");
+    ///     return;
+    /// }
     /// ```
     //
     // This method *must* sort `module_levels` for the [`enabled`](#method.enabled) method to work correctly.
@@ -472,11 +508,14 @@ impl Logger {
     /// ```no_run
     /// use libpsycho::logger::Logger;
     ///
-    /// Logger::new()
+    /// if let Err(err) = Logger::new()
     ///  .with_level(log::LevelFilter::Debug)
     ///  .with_timestamp_format(time::macros::format_description!("[year]-[month]-[day] [hour]:[minute]:[second]"))
     ///  .init()
-    ///  .unwrap();
+    /// {
+    ///     eprintln!("logger init failed: {err}");
+    ///     return;
+    /// }
     /// ```
     #[must_use = "You must call init() to begin logging"]
     pub fn with_timestamp_format(mut self, format: &'static [FormatItem<'static>]) -> Self {
@@ -600,10 +639,13 @@ impl Logger {
     /// ```no_run
     /// use libpsycho::logger::Logger;
     ///
-    /// Logger::new()
+    /// if let Err(err) = Logger::new()
     ///     .with_file_rotating("./app.log")
     ///     .init()
-    ///     .expect("Failed to initialize logger");
+    /// {
+    ///     eprintln!("logger init failed: {err}");
+    ///     return;
+    /// }
     ///
     /// log::info!("Application started");
     ///
@@ -779,7 +821,10 @@ impl Logger {
     /// ```no_run
     /// use libpsycho::logger::Logger;
     ///
-    /// Logger::new().init().unwrap();
+    /// if let Err(err) = Logger::new().init() {
+    ///     eprintln!("logger init failed: {err}");
+    ///     return;
+    /// }
     ///
     /// log::info!("Doing work...");
     ///
@@ -792,10 +837,13 @@ impl Logger {
     /// use libpsycho::logger::Logger;
     ///
     /// fn log_test() {
-    ///     Logger::new()
+    ///     if let Err(err) = Logger::new()
     ///         .with_file_rotating("./app.log")
     ///         .init()
-    ///         .unwrap();
+    ///     {
+    ///         eprintln!("logger init failed: {err}");
+    ///         return;
+    ///     }
     ///
     ///     log::info!("Application starting");
     ///

@@ -1,0 +1,19 @@
+[package]
+name = "psycho-graphics"
+version = "0.1.0"
+edition = "2024"
+
+[lib]
+name = "psycho_graphics"
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+anyhow = { workspace = true }
+libpsycho = { path = "../libpsycho" }
+log = { workspace = true }
+parking_lot = { workspace = true }
+psycho-imgui = { path = "../psycho-imgui" }
+psycho-loader-api = { path = "../psycho-loader-api" }
+serde = { workspace = true }
+toml = { workspace = true }
+windows = { workspace = true }

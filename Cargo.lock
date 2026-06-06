@@ -924,6 +924,29 @@ dependencies = [
 ]
 
 [[package]]
+name = "psycho-graphics"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "libpsycho",
+ "log",
+ "parking_lot",
+ "psycho-imgui",
+ "psycho-loader-api",
+ "serde",
+ "toml",
+ "windows",
+]
+
+[[package]]
+name = "psycho-imgui"
+version = "0.1.0"
+dependencies = [
+ "cc",
+ "thiserror",
+]
+
+[[package]]
 name = "psycho-loader"
 version = "0.1.0"
 dependencies = [

@@ -49,7 +49,7 @@ impl<F: Copy + 'static> IatHook<F> {
             NonNull::new(iat_entry_info.module_base).ok_or(IatHookError::ModuleBaseNull)?;
 
         let detour_fn = unsafe { FnPtr::from_fn(detour) }?;
-        let library_name = Some(iat_entry_info.library_name.clone());
+        let library_name = iat_entry_info.library_name.clone();
         let function_name = iat_entry_info.function_name.clone();
         let iat_entry = iat_entry_info.iat_address;
         let current_fn_ptr = iat_entry_info.current_function;
@@ -59,7 +59,7 @@ impl<F: Copy + 'static> IatHook<F> {
         log::debug!(
             "Creating hook '{}' for '{}::{}' at IAT={:p}, fn={:p}",
             name_str,
-            library_name.as_ref().unwrap(),
+            library_name,
             function_name,
             iat_entry,
             current_fn_ptr
@@ -73,7 +73,7 @@ impl<F: Copy + 'static> IatHook<F> {
         Ok(Self {
             name: name_str,
             module_base,
-            library_name,
+            library_name: Some(library_name),
             function_name,
             original_fn,
             detour_fn,

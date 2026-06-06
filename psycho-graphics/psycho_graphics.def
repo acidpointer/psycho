@@ -1,0 +1,4 @@
+LIBRARY psycho_graphics.dll
+
+EXPORTS
+    PsychoLoader_ModInit @1

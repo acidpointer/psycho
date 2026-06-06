@@ -1,0 +1,72 @@
+[graphics]
+# Load and apply compiled D3D9 screen-space pixel shaders.
+#
+# Shader files are loaded only from:
+#   ./mods/psycho_shaders
+#
+# Supported file extensions:
+#   .pso
+#   .cso
+#   .hlsl
+#
+# Files are applied in filename sort order. Each sidecar TOML can set
+# [shader].passes from 1 to 8. .pso/.cso files must contain D3D9 pixel shader
+# bytecode. .hlsl files are compiled once at startup as ps_3_0 with entry point
+# Main.
+#
+# true  = load and apply screen-space shader passes.
+# false = do not install D3D Present/Reset hooks for shader rendering.
+screen_space_shaders = true
+
+# In-game shader menu.
+#
+# The menu uses Dear ImGui through psycho-imgui. It is rendered by the D3D9
+# Present hook and lets you enable/disable shaders and edit every sidecar TOML
+# option without restarting the game.
+imgui_menu = true
+
+# Virtual-key code used to toggle the menu.
+#
+# 0x2D = Insert
+menu_toggle_key = 45
+
+# How often the shader directory is checked for added/removed/changed shader
+# files and sidecar TOML configs.
+#
+# Lower values react faster but touch the filesystem more often. Shader source
+# recompilation still happens only when a shader file actually changes.
+shader_scan_interval_ms = 200
+
+# Optional depth input for shaders that need scene depth.
+#
+# Supported values:
+#   "none"
+#       No depth is bound; shader sampler s1 is cleared and constant c1.w is 0.
+#
+#   "fallout_new_vegas"
+#       FalloutNV-specific scene boundary. Hooks the verified
+#       BSShaderAccumulator::RenderBatches late-scene path and applies
+#       depth-dependent shaders immediately after the final pre-first-person
+#       scene batches.
+#       The current BSShaderManager render target is read through the engine
+#       RTGroup depth-stencil chain and resolved into an owned INTZ texture
+#       with RESZ. Does not call or depend on third-party graphics mods.
+#       Existing "d3d9_auto" configs are accepted as an alias.
+#
+# Shader constants:
+#   c1.w = 1 when depth is available, otherwise 0
+#   c2.x = camera near plane
+#   c2.y = camera far plane
+#   c2.z = aspect ratio
+#   c2.w = provider id, 2 for fallout_new_vegas
+depth_provider = "fallout_new_vegas"
+
+[diagnostics]
+# Enable verbose graphics-module logging.
+#
+# Log file:
+#   <FalloutNV>/psycho-graphics-latest.log
+#
+# true  = write detailed startup and shader loading diagnostics.
+# false = write only normal informational logs.
+debug_log = true

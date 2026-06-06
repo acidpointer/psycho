@@ -37,7 +37,11 @@ struct JccRel32 {
 ///
 /// # Returns
 /// The displacement as i32 (signed 32-bit offset)
-fn calculate_displacement(source: usize, destination: usize, instruction_size: usize) -> i32 {
+fn calculate_displacement(
+    source: usize,
+    destination: usize,
+    instruction_size: usize,
+) -> Option<i32> {
     let displacement = (destination as isize)
         .wrapping_sub(source as isize)
         .wrapping_sub(instruction_size as isize);
@@ -48,16 +52,19 @@ fn calculate_displacement(source: usize, destination: usize, instruction_size: u
     {
         const MAX_DISPLACEMENT: isize = 0x7FFFFFFF;
         const MIN_DISPLACEMENT: isize = -0x80000000;
-        assert!(
-            displacement >= MIN_DISPLACEMENT && displacement <= MAX_DISPLACEMENT,
-            "Displacement out of range: {:#x} (source: {:#x}, dest: {:#x})",
-            displacement,
-            source,
-            destination
-        );
+
+        if displacement < MIN_DISPLACEMENT || displacement > MAX_DISPLACEMENT {
+            log::error!(
+                "Displacement out of range: {:#x} (source: {:#x}, dest: {:#x})",
+                displacement,
+                source,
+                destination
+            );
+            return None;
+        }
     }
 
-    displacement as i32
+    Some(displacement as i32)
 }
 
 /// Generates a relative JMP instruction (5 bytes: E9 XX XX XX XX)
@@ -68,11 +75,11 @@ fn calculate_displacement(source: usize, destination: usize, instruction_size: u
 ///
 /// # Returns
 /// Vec<u8> containing the JMP instruction bytes
-pub fn generate_jmp_rel32(source: usize, destination: usize) -> Vec<u8> {
+pub fn generate_jmp_rel32(source: usize, destination: usize) -> Option<Vec<u8>> {
     const JMP_OPCODE: u8 = 0xE9;
     const INSTRUCTION_SIZE: usize = 5;
 
-    let displacement = calculate_displacement(source, destination, INSTRUCTION_SIZE);
+    let displacement = calculate_displacement(source, destination, INSTRUCTION_SIZE)?;
 
     let instruction = JumpRel32 {
         opcode: JMP_OPCODE,
@@ -81,7 +88,7 @@ pub fn generate_jmp_rel32(source: usize, destination: usize) -> Vec<u8> {
 
     unsafe {
         let bytes: [u8; 5] = mem::transmute(instruction);
-        bytes.to_vec()
+        Some(bytes.to_vec())
     }
 }
 
@@ -93,11 +100,11 @@ pub fn generate_jmp_rel32(source: usize, destination: usize) -> Vec<u8> {
 ///
 /// # Returns
 /// Vec<u8> containing the CALL instruction bytes
-pub fn generate_call_rel32(source: usize, destination: usize) -> Vec<u8> {
+pub fn generate_call_rel32(source: usize, destination: usize) -> Option<Vec<u8>> {
     const CALL_OPCODE: u8 = 0xE8;
     const INSTRUCTION_SIZE: usize = 5;
 
-    let displacement = calculate_displacement(source, destination, INSTRUCTION_SIZE);
+    let displacement = calculate_displacement(source, destination, INSTRUCTION_SIZE)?;
 
     let instruction = CallRel32 {
         opcode: CALL_OPCODE,
@@ -106,7 +113,7 @@ pub fn generate_call_rel32(source: usize, destination: usize) -> Vec<u8> {
 
     unsafe {
         let bytes: [u8; 5] = mem::transmute(instruction);
-        bytes.to_vec()
+        Some(bytes.to_vec())
     }
 }
 
@@ -137,18 +144,17 @@ pub fn generate_call_rel32(source: usize, destination: usize) -> Vec<u8> {
 /// - 0xD: JGE/JNL (greater or equal/not less)
 /// - 0xE: JLE/JNG (less or equal/not greater)
 /// - 0xF: JG/JNLE (greater/not less or equal)
-pub fn generate_jcc_rel32(source: usize, destination: usize, condition: u8) -> Vec<u8> {
+pub fn generate_jcc_rel32(source: usize, destination: usize, condition: u8) -> Option<Vec<u8>> {
     const JCC_OPCODE0: u8 = 0x0F;
     const JCC_OPCODE1_BASE: u8 = 0x80;
     const INSTRUCTION_SIZE: usize = 6;
 
-    assert!(
-        condition <= 0x0F,
-        "Invalid condition code: {:#x}",
-        condition
-    );
+    if condition > 0x0F {
+        log::error!("Invalid condition code: {:#x}", condition);
+        return None;
+    }
 
-    let displacement = calculate_displacement(source, destination, INSTRUCTION_SIZE);
+    let displacement = calculate_displacement(source, destination, INSTRUCTION_SIZE)?;
 
     let instruction = JccRel32 {
         opcode0: JCC_OPCODE0,
@@ -158,7 +164,7 @@ pub fn generate_jcc_rel32(source: usize, destination: usize, condition: u8) -> V
 
     unsafe {
         let bytes: [u8; 6] = mem::transmute(instruction);
-        bytes.to_vec()
+        Some(bytes.to_vec())
     }
 }
 
@@ -186,7 +192,7 @@ mod tests {
     #[test]
     fn test_jmp_rel32_generation() {
         // JMP from 0x1000 to 0x2000
-        let bytes = generate_jmp_rel32(0x1000, 0x2000);
+        let bytes = generate_jmp_rel32(0x1000, 0x2000).unwrap_or_default();
         assert_eq!(bytes.len(), 5);
         assert_eq!(bytes[0], 0xE9); // JMP opcode
 
@@ -198,7 +204,7 @@ mod tests {
     #[test]
     fn test_call_rel32_generation() {
         // CALL from 0x1000 to 0x1500
-        let bytes = generate_call_rel32(0x1000, 0x1500);
+        let bytes = generate_call_rel32(0x1000, 0x1500).unwrap_or_default();
         assert_eq!(bytes.len(), 5);
         assert_eq!(bytes[0], 0xE8); // CALL opcode
 
@@ -210,7 +216,7 @@ mod tests {
     #[test]
     fn test_jcc_rel32_generation() {
         // JNZ (condition 0x5) from 0x1000 to 0x2000
-        let bytes = generate_jcc_rel32(0x1000, 0x2000, 0x5);
+        let bytes = generate_jcc_rel32(0x1000, 0x2000, 0x5).unwrap_or_default();
         assert_eq!(bytes.len(), 6);
         assert_eq!(bytes[0], 0x0F); // Jcc prefix
         assert_eq!(bytes[1], 0x85); // JNZ long form (0x80 | 0x5)
@@ -238,7 +244,7 @@ mod tests {
     #[test]
     fn test_backward_jump() {
         // JMP from 0x2000 to 0x1000 (backward)
-        let bytes = generate_jmp_rel32(0x2000, 0x1000);
+        let bytes = generate_jmp_rel32(0x2000, 0x1000).unwrap_or_default();
         assert_eq!(bytes[0], 0xE9);
 
         // Displacement should be negative: 0x1000 - 0x2000 - 5 = -0x1005

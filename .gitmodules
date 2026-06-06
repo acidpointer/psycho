@@ -4,3 +4,6 @@
 [submodule "libnvse/xnvse"]
 	path = libnvse/xnvse
 	url = https://github.com/xNVSE/NVSE.git
+[submodule "psycho-imgui/vendor/imgui"]
+	path = psycho-imgui/vendor/imgui
+	url = https://github.com/ocornut/imgui.git

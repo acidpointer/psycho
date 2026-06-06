@@ -8,7 +8,9 @@ members = [
   "psycho-loader-api",
   "psycho-loader",
   "psycho-engine-fixes",
-  "psycho-engine-fixes-helper"
+  "psycho-engine-fixes-helper",
+  "psycho-graphics",
+  "psycho-imgui"
 ]
 
 [workspace.dependencies]
@@ -31,6 +33,7 @@ windows = { version = "=0.60", features = [
   "Wdk_System_SystemServices",
   "Win32_Foundation",
   "Win32_Graphics_Direct3D",
+  "Win32_Graphics_Direct3D9",
   "Win32_Graphics_Direct3D11",
   "Win32_Graphics_Gdi",
   "Win32_Security",
