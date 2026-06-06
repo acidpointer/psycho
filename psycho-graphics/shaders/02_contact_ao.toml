@@ -62,3 +62,12 @@ value = 0.75
 min = 0.0
 max = 1.0
 constant = "c4.w"
+
+[[options]]
+key = "first_person_mask"
+label = "1P mask"
+kind = "float"
+value = 1.0
+min = 0.0
+max = 1.0
+constant = "c5.x"

@@ -31,14 +31,24 @@ pub(crate) fn depth_texture_ptr(depth_provider: DepthProvider) -> Option<*mut c_
     }
 }
 
+pub(crate) fn first_person_depth_texture_ptr(depth_provider: DepthProvider) -> Option<*mut c_void> {
+    match depth_provider {
+        DepthProvider::None => None,
+        DepthProvider::FalloutNewVegas => fnv::first_person_depth_texture_ptr(),
+    }
+}
+
 pub(crate) unsafe fn resolve_scene_depth(
     depth_provider: DepthProvider,
     device_ptr: *mut c_void,
+    slot: DepthResolveSlot,
     reason: &'static str,
 ) -> bool {
     match depth_provider {
         DepthProvider::None => false,
-        DepthProvider::FalloutNewVegas => unsafe { fnv::resolve_scene_depth(device_ptr, reason) },
+        DepthProvider::FalloutNewVegas => unsafe {
+            fnv::resolve_scene_depth(device_ptr, slot, reason)
+        },
     }
 }
 
@@ -75,6 +85,21 @@ impl From<DepthProviderConfig> for DepthProvider {
     }
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum DepthResolveSlot {
+    World,
+    FirstPerson,
+}
+
+impl DepthResolveSlot {
+    pub(crate) fn label(self) -> &'static str {
+        match self {
+            Self::World => "world",
+            Self::FirstPerson => "first_person",
+        }
+    }
+}
+
 #[derive(Clone, Copy, Debug, Default)]
 pub(crate) struct FrameInputs {
     pub(crate) camera: CameraFrame,
@@ -85,6 +110,7 @@ pub(crate) struct FrameInputs {
 pub(crate) struct DepthFrame {
     pub(crate) provider: DepthProvider,
     pub(crate) texture: Option<DepthTexture>,
+    pub(crate) first_person_texture: Option<DepthTexture>,
 }
 
 impl DepthFrame {
@@ -92,13 +118,19 @@ impl DepthFrame {
         Self {
             provider: DepthProvider::None,
             texture: None,
+            first_person_texture: None,
         }
     }
 
-    pub(crate) fn from_texture(provider: DepthProvider, texture: DepthTexture) -> Self {
+    pub(crate) fn from_textures(
+        provider: DepthProvider,
+        texture: DepthTexture,
+        first_person_texture: Option<DepthTexture>,
+    ) -> Self {
         Self {
             provider,
             texture: Some(texture),
+            first_person_texture,
         }
     }
 

@@ -8,29 +8,20 @@ use std::{
     },
 };
 
-use libpsycho::os::windows::{
-    hook::inline::inlinehook::InlineHookContainer, memory::read_bytes, winapi::patch_bytes,
-};
+use libpsycho::os::windows::hook::inline::inlinehook::InlineHookContainer;
 
 const PROCESS_IMAGE_SPACE_SHADERS_ADDR: usize = 0x00B55AC0;
 const RENDER_WORLD_SCENE_GRAPH_ADDR: usize = 0x00873200;
 const RENDER_FIRST_PERSON_ADDR: usize = 0x00875110;
-const FIRST_PERSON_SETUP_AFTER_DEPTH_CLEAR_ADDR: usize = 0x00874C10;
-const FIRST_PERSON_DEPTH_CLEAR_ARG_ADDR: usize = 0x008751C0;
 
 const MAX_HOOK_ERROR_LOGS: u32 = 8;
 const MAX_DEPTH_CAPTURE_LOGS: u32 = 16;
 const MAX_FINAL_APPLY_LOGS: u32 = 16;
 
-const FIRST_PERSON_CLEAR_MODE_DISABLED: u32 = 0;
-const FIRST_PERSON_CLEAR_MODE_OWNED: u32 = 1;
-const FIRST_PERSON_CLEAR_MODE_EXTERNAL_NEUTRALIZED: u32 = 2;
-
 type ProcessImageSpaceShadersFn = unsafe extern "cdecl" fn(*mut c_void, *mut c_void, *mut c_void);
 type RenderWorldSceneGraphFn = unsafe extern "thiscall" fn(*mut c_void, *mut c_void, u8, u8, u8);
 type RenderFirstPersonFn =
     unsafe extern "thiscall" fn(*mut c_void, *mut c_void, *mut c_void, *mut c_void, *mut c_void);
-type FirstPersonSetupFn = unsafe extern "thiscall" fn(*mut c_void);
 
 static PROCESS_IMAGE_SPACE_SHADERS_HOOK: LazyLock<InlineHookContainer<ProcessImageSpaceShadersFn>> =
     LazyLock::new(InlineHookContainer::new);
@@ -39,14 +30,11 @@ static RENDER_WORLD_SCENE_GRAPH_HOOK: LazyLock<InlineHookContainer<RenderWorldSc
 static RENDER_FIRST_PERSON_HOOK: LazyLock<InlineHookContainer<RenderFirstPersonFn>> =
     LazyLock::new(InlineHookContainer::new);
 
-static FIRST_PERSON_CLEAR_MODE: AtomicU32 = AtomicU32::new(FIRST_PERSON_CLEAR_MODE_DISABLED);
 static HOOK_ERROR_LOGS: AtomicU32 = AtomicU32::new(0);
-static FIRST_PERSON_CLEAR_PATCH_LOGS: AtomicU32 = AtomicU32::new(0);
 static DEPTH_CAPTURE_LOGS: AtomicU32 = AtomicU32::new(0);
 static FINAL_APPLY_LOGS: AtomicU32 = AtomicU32::new(0);
 
 pub(crate) fn install_scene_boundary_hook() {
-    inspect_first_person_depth_clear();
     install_process_image_space_shaders_hook();
     install_render_world_scene_graph_hook();
     install_render_first_person_hook();
@@ -137,46 +125,6 @@ fn install_render_first_person_hook() {
     }
 }
 
-fn inspect_first_person_depth_clear() {
-    let bytes = match read_bytes(FIRST_PERSON_DEPTH_CLEAR_ARG_ADDR as *const c_void, 1) {
-        Ok(bytes) => bytes,
-        Err(err) => {
-            log_first_person_clear_patch_failure(err);
-            return;
-        }
-    };
-
-    let Some(current) = bytes.first().copied() else {
-        log::warn!(
-            "[FNV] First-person depth clear patch skipped at 0x{FIRST_PERSON_DEPTH_CLEAR_ARG_ADDR:08X}: empty read"
-        );
-        return;
-    };
-
-    if current == 0 {
-        FIRST_PERSON_CLEAR_MODE.store(
-            FIRST_PERSON_CLEAR_MODE_EXTERNAL_NEUTRALIZED,
-            Ordering::Release,
-        );
-        log::info!(
-            "[FNV] First-person depth clear already neutralized by existing code at 0x{FIRST_PERSON_DEPTH_CLEAR_ARG_ADDR:08X}"
-        );
-        return;
-    }
-
-    if current != 4 {
-        log::warn!(
-            "[FNV] First-person depth clear patch skipped at 0x{FIRST_PERSON_DEPTH_CLEAR_ARG_ADDR:08X}: unexpected byte 0x{current:02X}"
-        );
-        return;
-    }
-
-    FIRST_PERSON_CLEAR_MODE.store(FIRST_PERSON_CLEAR_MODE_OWNED, Ordering::Release);
-    log::info!(
-        "[FNV] First-person depth clear will be neutralized only during FNV depth captures at 0x{FIRST_PERSON_DEPTH_CLEAR_ARG_ADDR:08X}"
-    );
-}
-
 unsafe extern "cdecl" fn hook_process_image_space_shaders(
     renderer: *mut c_void,
     rendered_texture_1: *mut c_void,
@@ -209,9 +157,11 @@ unsafe extern "thiscall" fn hook_render_world_scene_graph(
 
     unsafe {
         original(main, sky_sun, is_first_person, wireframe, arg4);
-        if is_first_person == 0 {
-            capture_depth("FNV after world scene graph");
-        }
+        capture_depth(
+            crate::backend::DepthResolveSlot::World,
+            "FNV after world scene graph",
+        );
+        capture_world_color();
     }
 }
 
@@ -228,51 +178,15 @@ unsafe extern "thiscall" fn hook_render_first_person(
     };
 
     unsafe {
-        let clear_mode = FIRST_PERSON_CLEAR_MODE.load(Ordering::Acquire);
-        if clear_mode == FIRST_PERSON_CLEAR_MODE_DISABLED {
-            original(main, renderer, geo, sky_sun, rendered_texture);
-            return;
-        }
-
-        if !crate::runtime::needs_fnv_depth_capture() {
-            if clear_mode == FIRST_PERSON_CLEAR_MODE_OWNED {
-                let _ = set_first_person_depth_clear_arg(4);
-            }
-            original(main, renderer, geo, sky_sun, rendered_texture);
-            return;
-        }
-
-        if clear_mode == FIRST_PERSON_CLEAR_MODE_OWNED {
-            if !set_first_person_depth_clear_arg(0) {
-                original(main, renderer, geo, sky_sun, rendered_texture);
-                return;
-            }
-        }
-
         original(main, renderer, geo, sky_sun, rendered_texture);
-
-        capture_depth("FNV after first-person depth");
-        clear_depth_for_first_person_redraw();
-        setup_first_person_after_depth_clear(main);
-        original(main, renderer, geo, sky_sun, rendered_texture);
-
-        if clear_mode == FIRST_PERSON_CLEAR_MODE_OWNED {
-            let _ = set_first_person_depth_clear_arg(4);
-        }
+        capture_depth(
+            crate::backend::DepthResolveSlot::FirstPerson,
+            "FNV after first-person depth",
+        );
     }
 }
 
-unsafe fn set_first_person_depth_clear_arg(value: u8) -> bool {
-    match unsafe { patch_bytes(FIRST_PERSON_DEPTH_CLEAR_ARG_ADDR as *mut c_void, &[value]) } {
-        Ok(()) => true,
-        Err(err) => {
-            log_first_person_clear_patch_failure(err);
-            false
-        }
-    }
-}
-
-unsafe fn capture_depth(reason: &'static str) {
+unsafe fn capture_depth(slot: crate::backend::DepthResolveSlot, reason: &'static str) {
     if !crate::runtime::needs_fnv_depth_capture() {
         return;
     }
@@ -282,8 +196,18 @@ unsafe fn capture_depth(reason: &'static str) {
     };
 
     let depth_provider = crate::backend::DepthProvider::FalloutNewVegas;
-    if unsafe { crate::backend::resolve_scene_depth(depth_provider, device_ptr, reason) } {
-        log_depth_capture(reason);
+    if unsafe { crate::backend::resolve_scene_depth(depth_provider, device_ptr, slot, reason) } {
+        log_depth_capture(slot, reason);
+    }
+}
+
+unsafe fn capture_world_color() {
+    let Some(device_ptr) = crate::backend::d3d_device_ptr() else {
+        return;
+    };
+
+    unsafe {
+        crate::runtime::capture_fnv_world_color(device_ptr);
     }
 }
 
@@ -298,51 +222,18 @@ unsafe fn apply_final_image_space(reason: &'static str) {
     }
 }
 
-unsafe fn clear_depth_for_first_person_redraw() {
-    let Some(device_ptr) = crate::backend::d3d_device_ptr() else {
-        return;
-    };
-
-    let Some(device) =
-        (unsafe { libpsycho::os::windows::directx9::Device9Ref::from_raw_void(device_ptr) })
-    else {
-        return;
-    };
-
-    if let Err(err) = device.clear_zbuffer() {
-        log::warn!("[FNV] First-person depth redraw clear failed: {err}");
-    }
-}
-
-unsafe fn setup_first_person_after_depth_clear(main: *mut c_void) {
-    if main.is_null() {
-        return;
-    }
-
-    let setup: FirstPersonSetupFn =
-        unsafe { core::mem::transmute(FIRST_PERSON_SETUP_AFTER_DEPTH_CLEAR_ADDR as *const ()) };
-    unsafe {
-        setup(main);
-    }
-}
-
 fn log_hook_error(message: &'static str) {
     if HOOK_ERROR_LOGS.fetch_add(1, Ordering::AcqRel) < MAX_HOOK_ERROR_LOGS {
         log::warn!("{message}");
     }
 }
 
-fn log_first_person_clear_patch_failure(err: impl core::fmt::Display) {
-    if FIRST_PERSON_CLEAR_PATCH_LOGS.fetch_add(1, Ordering::AcqRel) < MAX_HOOK_ERROR_LOGS {
-        log::warn!(
-            "[FNV] First-person depth clear patch skipped at 0x{FIRST_PERSON_DEPTH_CLEAR_ARG_ADDR:08X}: {err}"
-        );
-    }
-}
-
-fn log_depth_capture(reason: &'static str) {
+fn log_depth_capture(slot: crate::backend::DepthResolveSlot, reason: &'static str) {
     if DEPTH_CAPTURE_LOGS.fetch_add(1, Ordering::AcqRel) < MAX_DEPTH_CAPTURE_LOGS {
-        log::debug!("[FNV] Depth capture trigger: {reason}");
+        log::debug!(
+            "[FNV] Depth capture trigger: slot={}, reason={reason}",
+            slot.label()
+        );
     }
 }
 

@@ -1,5 +1,6 @@
 sampler2D SceneColor : register(s0);
 sampler2D SceneDepth : register(s1);
+sampler2D FirstPersonDepth : register(s2);
 
 float4 ScreenData : register(c0);
 float4 FrameData : register(c1);
@@ -23,6 +24,10 @@ struct PixelInput {
 
 float HardwareDepth(float2 uv) {
     return tex2Dlod(SceneDepth, float4(uv, 0.0f, 0.0f)).r;
+}
+
+float FirstPersonHardwareDepth(float2 uv) {
+    return tex2Dlod(FirstPersonDepth, float4(uv, 0.0f, 0.0f)).r;
 }
 
 bool UseReversedDepth() {
@@ -94,6 +99,19 @@ float Stability() {
     return 0.65f;
 }
 
+bool FirstPersonMaskEnabled() {
+    return OptionData2.y > 0.5f;
+}
+
+bool IsFirstPersonPixel(float2 uv) {
+    if (!FirstPersonMaskEnabled()) {
+        return false;
+    }
+
+    float depth = FirstPersonHardwareDepth(uv);
+    return depth > DepthEndpointEpsilon && depth < (1.0f - DepthEndpointEpsilon);
+}
+
 float SoftRangeWeight(float delta, float range) {
     float softBand = lerp(0.18f, 0.65f, Stability());
     float start = range * (1.0f - softBand);
@@ -112,13 +130,18 @@ float RadiusPixels(float linearDepth) {
 }
 
 float NeighborDepthDelta(float centerDepth, float2 uv, float2 offset) {
-    float rawDepth = HardwareDepth(uv + offset);
+    float2 sampleUv = uv + offset;
+    float rawDepth = HardwareDepth(sampleUv);
     if (!IsValidDepth(rawDepth)) {
         return 0.0f;
     }
 
     float linearDepth = LinearDepth(rawDepth);
     if (IsSkyDepth(rawDepth, linearDepth)) {
+        return 0.0f;
+    }
+
+    if (IsFirstPersonPixel(sampleUv)) {
         return 0.0f;
     }
 
@@ -139,13 +162,18 @@ float EdgeFade(float centerDepth, float2 uv, float range) {
 
 float SampleOcclusion(float centerDepth, float2 uv, float2 direction, float radiusPixels, float range, float bias) {
     float2 offset = direction * radiusPixels * ScreenData.zw;
-    float rawSampleDepth = HardwareDepth(uv + offset);
+    float2 sampleUv = uv + offset;
+    float rawSampleDepth = HardwareDepth(sampleUv);
     if (!IsValidDepth(rawSampleDepth)) {
         return 0.0f;
     }
 
     float sampleDepth = LinearDepth(rawSampleDepth);
     if (IsSkyDepth(rawSampleDepth, sampleDepth)) {
+        return 0.0f;
+    }
+
+    if (IsFirstPersonPixel(sampleUv)) {
         return 0.0f;
     }
 
@@ -185,6 +213,10 @@ float4 Main(PixelInput input) : COLOR0 {
     if (OptionData1.x > 0.5f) {
         float depthView = DepthDebugView(centerDepth);
         return float4(depthView, depthView, depthView, 1.0f);
+    }
+
+    if (IsFirstPersonPixel(input.uv)) {
+        return color;
     }
 
     float passIndex = FrameData.y;

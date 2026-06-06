@@ -1,11 +1,13 @@
 sampler2D SceneColor : register(s0);
 sampler2D SceneDepth : register(s1);
+sampler2D FirstPersonDepth : register(s2);
 
 float4 ScreenData : register(c0);
 float4 FrameData : register(c1);
 float4 CameraData : register(c2);
 float4 OptionData0 : register(c3);
 float4 OptionData1 : register(c4);
+float4 OptionData2 : register(c5);
 
 static const float DepthEndpointEpsilon = 0.000001f;
 static const float3 LuminanceFactors = float3(0.2126f, 0.7152f, 0.0722f);
@@ -16,6 +18,10 @@ struct PixelInput {
 
 float HardwareDepth(float2 uv) {
     return tex2Dlod(SceneDepth, float4(uv, 0.0f, 0.0f)).r;
+}
+
+float FirstPersonHardwareDepth(float2 uv) {
+    return tex2Dlod(FirstPersonDepth, float4(uv, 0.0f, 0.0f)).r;
 }
 
 bool UseReversedDepth() {
@@ -49,7 +55,24 @@ bool IsSkyDepth(float rawDepth, float linearDepth) {
     return rawDepth >= (1.0f - DepthEndpointEpsilon) || linearDepth >= farZ * 0.995f;
 }
 
-float DepthWeight(float centerDepth, float rawDepth, float range) {
+bool FirstPersonMaskEnabled() {
+    return OptionData2.x > 0.5f;
+}
+
+bool IsFirstPersonPixel(float2 uv) {
+    if (!FirstPersonMaskEnabled()) {
+        return false;
+    }
+
+    float depth = FirstPersonHardwareDepth(uv);
+    return depth > DepthEndpointEpsilon && depth < (1.0f - DepthEndpointEpsilon);
+}
+
+float DepthWeight(float centerDepth, float rawDepth, float2 uv, float range) {
+    if (IsFirstPersonPixel(uv)) {
+        return 0.0f;
+    }
+
     if (!IsValidDepth(rawDepth)) {
         return 0.0f;
     }
@@ -89,6 +112,9 @@ float4 Main(PixelInput input) : COLOR0 {
     if (IsSkyDepth(rawCenterDepth, centerDepth)) {
         return centerColor;
     }
+    if (IsFirstPersonPixel(input.uv)) {
+        return centerColor;
+    }
 
     float2 texel = ScreenData.zw;
     float2 uvN = input.uv + float2(0.0f, -texel.y);
@@ -102,12 +128,16 @@ float4 Main(PixelInput input) : COLOR0 {
     float3 west = tex2D(SceneColor, uvW).rgb;
 
     float depthRange = max(centerDepth * OptionData0.y, 0.15f);
-    float wN = DepthWeight(centerDepth, HardwareDepth(uvN), depthRange);
-    float wS = DepthWeight(centerDepth, HardwareDepth(uvS), depthRange);
-    float wE = DepthWeight(centerDepth, HardwareDepth(uvE), depthRange);
-    float wW = DepthWeight(centerDepth, HardwareDepth(uvW), depthRange);
+    float wN = DepthWeight(centerDepth, HardwareDepth(uvN), uvN, depthRange);
+    float wS = DepthWeight(centerDepth, HardwareDepth(uvS), uvS, depthRange);
+    float wE = DepthWeight(centerDepth, HardwareDepth(uvE), uvE, depthRange);
+    float wW = DepthWeight(centerDepth, HardwareDepth(uvW), uvW, depthRange);
 
-    float weightSum = max(wN + wS + wE + wW, 0.001f);
+    float weightSum = wN + wS + wE + wW;
+    if (weightSum < 0.001f) {
+        return centerColor;
+    }
+
     float3 blur = (north * wN + south * wS + east * wE + west * wW) / weightSum;
     float3 detail = centerColor.rgb - blur;
 

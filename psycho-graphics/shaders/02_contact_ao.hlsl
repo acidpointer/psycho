@@ -1,11 +1,13 @@
 sampler2D SceneColor : register(s0);
 sampler2D SceneDepth : register(s1);
+sampler2D FirstPersonDepth : register(s2);
 
 float4 ScreenData : register(c0);
 float4 FrameData : register(c1);
 float4 CameraData : register(c2);
 float4 OptionData0 : register(c3);
 float4 OptionData1 : register(c4);
+float4 OptionData2 : register(c5);
 
 static const float DepthEndpointEpsilon = 0.000001f;
 static const float MinBias = 0.01f;
@@ -16,6 +18,10 @@ struct PixelInput {
 
 float HardwareDepth(float2 uv) {
     return tex2Dlod(SceneDepth, float4(uv, 0.0f, 0.0f)).r;
+}
+
+float FirstPersonHardwareDepth(float2 uv) {
+    return tex2Dlod(FirstPersonDepth, float4(uv, 0.0f, 0.0f)).r;
 }
 
 bool UseReversedDepth() {
@@ -62,6 +68,19 @@ float Stability() {
     return 0.75f;
 }
 
+bool FirstPersonMaskEnabled() {
+    return OptionData2.x > 0.5f;
+}
+
+bool IsFirstPersonPixel(float2 uv) {
+    if (!FirstPersonMaskEnabled()) {
+        return false;
+    }
+
+    float depth = FirstPersonHardwareDepth(uv);
+    return depth > DepthEndpointEpsilon && depth < (1.0f - DepthEndpointEpsilon);
+}
+
 float SoftRangeWeight(float delta, float range) {
     float softBand = lerp(0.25f, 0.75f, Stability());
     float start = range * (1.0f - softBand);
@@ -69,13 +88,18 @@ float SoftRangeWeight(float delta, float range) {
 }
 
 float ContactSample(float centerDepth, float2 uv, float2 direction, float radiusPixels, float range, float bias) {
-    float rawSampleDepth = HardwareDepth(uv + direction * radiusPixels * ScreenData.zw);
+    float2 sampleUv = uv + direction * radiusPixels * ScreenData.zw;
+    float rawSampleDepth = HardwareDepth(sampleUv);
     if (!IsValidDepth(rawSampleDepth)) {
         return 0.0f;
     }
 
     float sampleDepth = LinearDepth(rawSampleDepth);
     if (IsSkyDepth(rawSampleDepth, sampleDepth)) {
+        return 0.0f;
+    }
+
+    if (IsFirstPersonPixel(sampleUv)) {
         return 0.0f;
     }
 
@@ -103,6 +127,10 @@ float4 Main(PixelInput input) : COLOR0 {
 
     float centerDepth = LinearDepth(rawDepth);
     if (IsSkyDepth(rawDepth, centerDepth)) {
+        return color;
+    }
+
+    if (IsFirstPersonPixel(input.uv)) {
         return color;
     }
 

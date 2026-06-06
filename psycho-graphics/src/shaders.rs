@@ -424,8 +424,15 @@ fn assign_missing_bindings(options: &mut [ShaderOption]) {
 fn compile_hlsl_shader(path: &Path) -> Result<Vec<u32>> {
     let source = fs::read(path)
         .with_context(|| format!("failed to read shader source {}", path.display()))?;
+    let source_name = path.to_string_lossy();
+    let bytecode = compile_hlsl_bytes(&source_name, &source)?;
+    log::info!("[SHADERS] Compiled HLSL shader '{}'", path.display());
+    Ok(bytecode)
+}
+
+fn compile_hlsl_bytes(source_name: &str, source: &[u8]) -> Result<Vec<u32>> {
     let compiler = d3d_compile_fn()?;
-    let source_name = CString::new(path.to_string_lossy().as_bytes())?;
+    let source_name = CString::new(source_name.as_bytes())?;
     let entry = CString::new("Main")?;
     let target = CString::new("ps_3_0")?;
     let flags = D3DCOMPILE_ENABLE_BACKWARDS_COMPATIBILITY | D3DCOMPILE_OPTIMIZATION_LEVEL3;
@@ -455,10 +462,7 @@ fn compile_hlsl_shader(path: &Path) -> Result<Vec<u32>> {
     }
 
     if let Some(message) = error_text {
-        log::debug!(
-            "[SHADERS] Compiler diagnostics for {}: {message}",
-            path.display()
-        );
+        log::debug!("[SHADERS] Compiler diagnostics for {source_name:?}: {message}");
     }
 
     let Some(code) = (unsafe { take_blob(code) }) else {
@@ -466,9 +470,7 @@ fn compile_hlsl_shader(path: &Path) -> Result<Vec<u32>> {
     };
 
     let bytes = unsafe { blob_bytes(&code) };
-    let bytecode = dword_aligned_bytecode(bytes)?;
-    log::info!("[SHADERS] Compiled HLSL shader '{}'", path.display());
-    Ok(bytecode)
+    dword_aligned_bytecode(bytes)
 }
 
 fn dword_aligned_bytecode(bytes: &[u8]) -> Result<Vec<u32>> {

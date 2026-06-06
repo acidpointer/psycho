@@ -11,12 +11,12 @@ use std::{
 
 use libpsycho::os::windows::{
     directx9::{
-        D3DCULL_NONE, D3DPT_TRIANGLESTRIP, D3DRS_ALPHABLENDENABLE, D3DRS_CULLMODE, D3DRS_ZENABLE,
-        D3DRS_ZWRITEENABLE, D3DSAMP_ADDRESSU, D3DSAMP_ADDRESSV, D3DSAMP_MAGFILTER,
-        D3DSAMP_MINFILTER, D3DSAMP_MIPFILTER, D3DSBT_ALL, D3DTA_TEXTURE, D3DTADDRESS_CLAMP,
-        D3DTEXF_LINEAR, D3DTEXF_NONE, D3DTEXF_POINT, D3DTOP_SELECTARG1, D3DTSS_ALPHAARG1,
-        D3DTSS_ALPHAOP, D3DTSS_COLORARG1, D3DTSS_COLOROP, Device9Ref, Direct3DResult, PixelShader9,
-        ScreenVertex, StateBlock9, Surface9, Texture9,
+        D3DCULL_NONE, D3DPT_TRIANGLESTRIP, D3DRS_ALPHABLENDENABLE, D3DRS_COLORWRITEENABLE,
+        D3DRS_CULLMODE, D3DRS_ZENABLE, D3DRS_ZWRITEENABLE, D3DSAMP_ADDRESSU, D3DSAMP_ADDRESSV,
+        D3DSAMP_MAGFILTER, D3DSAMP_MINFILTER, D3DSAMP_MIPFILTER, D3DSBT_ALL, D3DTA_TEXTURE,
+        D3DTADDRESS_CLAMP, D3DTEXF_LINEAR, D3DTEXF_NONE, D3DTEXF_POINT, D3DTOP_SELECTARG1,
+        D3DTSS_ALPHAARG1, D3DTSS_ALPHAOP, D3DTSS_COLORARG1, D3DTSS_COLOROP, Device9Ref,
+        Direct3DResult, PixelShader9, ScreenVertex, StateBlock9, Surface9, Texture9,
     },
     winapi::{get_active_window, is_window},
 };
@@ -36,6 +36,7 @@ use crate::{
 
 const DEFAULT_SCAN_INTERVAL_MS: u64 = 200;
 const FIRST_OPTION_REGISTER: u32 = 3;
+const COLOR_WRITE_ALL: u32 = 0x0F;
 const WM_KEYDOWN: u32 = 0x0100;
 const WM_SYSKEYDOWN: u32 = 0x0104;
 const WM_KEYUP: u32 = 0x0101;
@@ -86,14 +87,23 @@ pub(crate) unsafe fn apply_fnv_scene_frame(device_ptr: *mut c_void) {
     }
 }
 
+pub(crate) unsafe fn capture_fnv_world_color(device_ptr: *mut c_void) {
+    let Some(mut runtime) = RUNTIME.try_lock() else {
+        return;
+    };
+
+    let result = unsafe { runtime.capture_fnv_world_color(device_ptr) };
+    if let Err(err) = result {
+        runtime.log_world_color_error(&err);
+    }
+}
+
 pub(crate) fn needs_fnv_depth_capture() -> bool {
     let Some(runtime) = RUNTIME.try_lock() else {
         return false;
     };
 
-    runtime.settings.depth_provider == DepthProvider::FalloutNewVegas
-        && !runtime.shaders_applied_this_frame
-        && runtime.has_enabled_shader()
+    runtime.needs_fnv_scene_inputs()
 }
 
 pub(crate) unsafe fn release_device_resources(device_ptr: *mut c_void) {
@@ -160,6 +170,7 @@ struct ScreenShaderRuntime {
     device_ptr: usize,
     compiled: Option<Vec<CompiledPass>>,
     backbuffer_copy: Option<BackbufferCopy>,
+    world_color_copy: Option<BackbufferCopy>,
     state_block: Option<StateBlock9>,
     imgui: Option<psycho_imgui::Dx9Context>,
     imgui_hwnd: usize,
@@ -171,6 +182,8 @@ struct ScreenShaderRuntime {
     scan_error_logs: u32,
     imgui_error_logs: u32,
     scene_apply_logs: u32,
+    world_color_capture_logs: u32,
+    world_color_captured_this_frame: bool,
     shaders_applied_this_frame: bool,
 }
 
@@ -182,6 +195,7 @@ impl Default for ScreenShaderRuntime {
             device_ptr: 0,
             compiled: None,
             backbuffer_copy: None,
+            world_color_copy: None,
             state_block: None,
             imgui: None,
             imgui_hwnd: 0,
@@ -193,6 +207,8 @@ impl Default for ScreenShaderRuntime {
             scan_error_logs: 0,
             imgui_error_logs: 0,
             scene_apply_logs: 0,
+            world_color_capture_logs: 0,
+            world_color_captured_this_frame: false,
             shaders_applied_this_frame: false,
         }
     }
@@ -357,6 +373,51 @@ impl ScreenShaderRuntime {
         Ok(())
     }
 
+    unsafe fn capture_fnv_world_color(&mut self, device_ptr: *mut c_void) -> Direct3DResult<()> {
+        if !self.needs_fnv_scene_inputs() {
+            return Ok(());
+        }
+
+        let Some(device) = (unsafe { Device9Ref::from_raw_void(device_ptr) }) else {
+            return Ok(());
+        };
+
+        if self.device_ptr != device_ptr as usize {
+            self.release_for_new_device();
+            self.device_ptr = device_ptr as usize;
+        }
+
+        let render_target = match device.render_target(0) {
+            Ok(render_target) => render_target,
+            Err(err) => {
+                self.release_default_pool_resources();
+                return Err(err);
+            }
+        };
+        let desc = render_target.desc()?;
+        if desc.Width == 0 || desc.Height == 0 {
+            return Ok(());
+        }
+
+        self.ensure_world_color_copy(&device, &desc)?;
+        let Some(copy) = self.world_color_copy.as_ref() else {
+            return Ok(());
+        };
+
+        device.stretch_rect(&render_target, None, &copy.surface, None, D3DTEXF_POINT)?;
+        self.world_color_captured_this_frame = true;
+        if self.world_color_capture_logs < 8 {
+            log::debug!(
+                "[FNV] Captured world color before first-person: {}x{}",
+                desc.Width,
+                desc.Height
+            );
+            self.world_color_capture_logs += 1;
+        }
+
+        Ok(())
+    }
+
     fn scan_shaders_if_due(&mut self) {
         let now = Instant::now();
         if self.next_scan.is_some_and(|next| now < next) {
@@ -479,6 +540,28 @@ impl ScreenShaderRuntime {
         Ok(())
     }
 
+    fn ensure_world_color_copy(
+        &mut self,
+        device: &Device9Ref<'_>,
+        desc: &D3DSURFACE_DESC,
+    ) -> Direct3DResult<()> {
+        let needs_copy = self
+            .world_color_copy
+            .as_ref()
+            .is_none_or(|copy| !copy.matches(desc));
+
+        if needs_copy {
+            self.world_color_copy = Some(BackbufferCopy::create(device, desc)?);
+            log::info!(
+                "[SHADERS] FNV world color copy target: {}x{}",
+                desc.Width,
+                desc.Height
+            );
+        }
+
+        Ok(())
+    }
+
     fn ensure_state_block(&mut self, device: &Device9Ref<'_>) -> Direct3DResult<()> {
         if self.state_block.is_none() {
             self.state_block = Some(device.create_state_block(D3DSBT_ALL)?);
@@ -509,7 +592,6 @@ impl ScreenShaderRuntime {
             depth: self.current_depth_frame(),
         };
         self.log_depth_state(&frame_inputs);
-        self.bind_common_state(device, backbuffer, desc, &frame_inputs)?;
 
         let Some(copy) = self.backbuffer_copy.as_ref() else {
             return Ok(());
@@ -517,6 +599,8 @@ impl ScreenShaderRuntime {
         let Some(passes) = self.compiled.as_ref() else {
             return Ok(());
         };
+
+        self.bind_common_state(device, backbuffer, desc, &frame_inputs, copy)?;
 
         let pass_count = enabled_count as f32;
         let quad = fullscreen_quad(desc);
@@ -601,13 +685,13 @@ impl ScreenShaderRuntime {
             return DepthFrame::none();
         }
 
-        if let Some(texture) = backend::depth_texture_ptr(provider) {
-            return DepthTexture::new(texture).map_or_else(DepthFrame::none, |texture| {
-                DepthFrame::from_texture(provider, texture)
-            });
-        }
+        let Some(texture) = backend::depth_texture_ptr(provider).and_then(DepthTexture::new) else {
+            return DepthFrame::none();
+        };
 
-        DepthFrame::none()
+        let first_person_texture =
+            backend::first_person_depth_texture_ptr(provider).and_then(DepthTexture::new);
+        DepthFrame::from_textures(provider, texture, first_person_texture)
     }
 
     fn draw_menu(&mut self) -> Direct3DResult<()> {
@@ -634,6 +718,7 @@ impl ScreenShaderRuntime {
         backbuffer: &Surface9,
         desc: &D3DSURFACE_DESC,
         frame_inputs: &backend::FrameInputs,
+        current_color_copy: &BackbufferCopy,
     ) -> Direct3DResult<()> {
         let viewport = D3DVIEWPORT9 {
             X: 0,
@@ -652,7 +737,8 @@ impl ScreenShaderRuntime {
         device.set_render_state(D3DRS_ALPHABLENDENABLE, 0)?;
         device.set_render_state(D3DRS_ZENABLE, 0)?;
         device.set_render_state(D3DRS_ZWRITEENABLE, 0)?;
-        for sampler in [0, 1] {
+        device.set_render_state(D3DRS_COLORWRITEENABLE, COLOR_WRITE_ALL)?;
+        for sampler in [0, 1, 2, 3] {
             device.set_sampler_state(sampler, D3DSAMP_ADDRESSU, D3DTADDRESS_CLAMP.0 as u32)?;
             device.set_sampler_state(sampler, D3DSAMP_ADDRESSV, D3DTADDRESS_CLAMP.0 as u32)?;
             device.set_sampler_state(sampler, D3DSAMP_MINFILTER, D3DTEXF_LINEAR.0 as u32)?;
@@ -661,12 +747,32 @@ impl ScreenShaderRuntime {
         }
         device.set_sampler_state(1, D3DSAMP_MINFILTER, D3DTEXF_POINT.0 as u32)?;
         device.set_sampler_state(1, D3DSAMP_MAGFILTER, D3DTEXF_POINT.0 as u32)?;
+        device.set_sampler_state(2, D3DSAMP_MINFILTER, D3DTEXF_POINT.0 as u32)?;
+        device.set_sampler_state(2, D3DSAMP_MAGFILTER, D3DTEXF_POINT.0 as u32)?;
+        device.set_sampler_state(3, D3DSAMP_MINFILTER, D3DTEXF_POINT.0 as u32)?;
+        device.set_sampler_state(3, D3DSAMP_MAGFILTER, D3DTEXF_POINT.0 as u32)?;
         if let Some(depth_texture) = frame_inputs.depth.texture {
             unsafe {
                 device.set_raw_base_texture(1, depth_texture.as_ptr())?;
             }
         } else {
             device.clear_texture(1)?;
+        }
+        if let Some(depth_texture) = frame_inputs.depth.first_person_texture {
+            unsafe {
+                device.set_raw_base_texture(2, depth_texture.as_ptr())?;
+            }
+        } else {
+            device.clear_texture(2)?;
+        }
+        if self.world_color_captured_this_frame {
+            if let Some(world_color) = self.world_color_copy.as_ref() {
+                device.set_texture(3, &world_color.texture)?;
+            } else {
+                device.set_texture(3, &current_color_copy.texture)?;
+            }
+        } else {
+            device.set_texture(3, &current_color_copy.texture)?;
         }
         device.set_texture_stage_state(0, D3DTSS_COLOROP, D3DTOP_SELECTARG1.0 as u32)?;
         device.set_texture_stage_state(0, D3DTSS_COLORARG1, D3DTA_TEXTURE)?;
@@ -680,6 +786,12 @@ impl ScreenShaderRuntime {
         self.sources
             .iter()
             .any(|source| source.enabled && source.bytecode.is_some())
+    }
+
+    fn needs_fnv_scene_inputs(&self) -> bool {
+        self.settings.depth_provider == DepthProvider::FalloutNewVegas
+            && !self.shaders_applied_this_frame
+            && self.has_enabled_shader()
     }
 
     fn has_drawable_shader(&self) -> bool {
@@ -699,6 +811,7 @@ impl ScreenShaderRuntime {
     fn finish_present_frame(&mut self, device_ptr: *mut c_void) {
         let _ = device_ptr;
         self.shaders_applied_this_frame = false;
+        self.world_color_captured_this_frame = false;
         self.frame_index = self.frame_index.wrapping_add(1);
         backend::finish_frame();
     }
@@ -722,6 +835,8 @@ impl ScreenShaderRuntime {
 
     fn release_default_pool_resources(&mut self) {
         self.backbuffer_copy = None;
+        self.world_color_copy = None;
+        self.world_color_captured_this_frame = false;
         self.state_block = None;
     }
 
@@ -736,6 +851,13 @@ impl ScreenShaderRuntime {
         if self.imgui_error_logs < 8 {
             log::warn!("{message}");
             self.imgui_error_logs += 1;
+        }
+    }
+
+    fn log_world_color_error(&mut self, err: &windows::core::Error) {
+        if self.error_logs < 8 {
+            log::warn!("[FNV] World color capture skipped: {err}");
+            self.error_logs += 1;
         }
     }
 }

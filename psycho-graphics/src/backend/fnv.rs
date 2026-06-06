@@ -19,7 +19,7 @@ use parking_lot::Mutex;
 use windows::Win32::Graphics::Direct3D9::D3DSURFACE_DESC;
 use windows::core::Error as WindowsError;
 
-use super::CameraFrame;
+use super::{CameraFrame, DepthResolveSlot};
 
 const NIDX9_RENDERER_SINGLETON_PTR: usize = 0x011C73B4;
 const BSSHADERMANAGER_CAMERA_PTR: usize = 0x011F917C;
@@ -29,7 +29,8 @@ const NICAMERA_FRUSTUM_FAR_OFFSET: usize = 0xF0;
 const MAX_DEPTH_RESOLVE_LOGS: u32 = 16;
 
 static DEPTH_RESOLVE_LOGS: AtomicU32 = AtomicU32::new(0);
-static RESOLVED_DEPTH_TEXTURE: AtomicUsize = AtomicUsize::new(0);
+static RESOLVED_WORLD_DEPTH_TEXTURE: AtomicUsize = AtomicUsize::new(0);
+static RESOLVED_FIRST_PERSON_DEPTH_TEXTURE: AtomicUsize = AtomicUsize::new(0);
 static DEPTH_RESOLVE: LazyLock<Mutex<FnvDepthResolve>> =
     LazyLock::new(|| Mutex::new(FnvDepthResolve::default()));
 
@@ -82,26 +83,37 @@ pub(super) fn camera_frame(desc: &D3DSURFACE_DESC) -> CameraFrame {
 }
 
 pub(super) fn depth_texture_ptr() -> Option<*mut c_void> {
-    let ptr = RESOLVED_DEPTH_TEXTURE.load(Ordering::Acquire);
+    let ptr = RESOLVED_WORLD_DEPTH_TEXTURE.load(Ordering::Acquire);
     (ptr != 0).then_some(ptr as *mut c_void)
 }
 
-pub(super) unsafe fn resolve_scene_depth(device_ptr: *mut c_void, reason: &'static str) -> bool {
-    match unsafe { DEPTH_RESOLVE.lock().resolve(device_ptr, reason) } {
+pub(super) fn first_person_depth_texture_ptr() -> Option<*mut c_void> {
+    let ptr = RESOLVED_FIRST_PERSON_DEPTH_TEXTURE.load(Ordering::Acquire);
+    (ptr != 0).then_some(ptr as *mut c_void)
+}
+
+pub(super) unsafe fn resolve_scene_depth(
+    device_ptr: *mut c_void,
+    slot: DepthResolveSlot,
+    reason: &'static str,
+) -> bool {
+    match unsafe { DEPTH_RESOLVE.lock().resolve(device_ptr, slot, reason) } {
         Ok(()) => true,
         Err(err) => {
-            log_depth_resolve_skip(reason, &err);
+            log_depth_resolve_skip(slot, reason, &err);
             false
         }
     }
 }
 
 pub(super) fn finish_frame() {
-    RESOLVED_DEPTH_TEXTURE.store(0, Ordering::Release);
+    RESOLVED_WORLD_DEPTH_TEXTURE.store(0, Ordering::Release);
+    RESOLVED_FIRST_PERSON_DEPTH_TEXTURE.store(0, Ordering::Release);
 }
 
 pub(super) fn reset_depth_resources() {
-    RESOLVED_DEPTH_TEXTURE.store(0, Ordering::Release);
+    RESOLVED_WORLD_DEPTH_TEXTURE.store(0, Ordering::Release);
+    RESOLVED_FIRST_PERSON_DEPTH_TEXTURE.store(0, Ordering::Release);
     DEPTH_RESOLVE.lock().release();
 }
 
@@ -121,16 +133,24 @@ unsafe fn read_f32(address: usize) -> Option<f32> {
     Some(unsafe { (address as *const f32).read() })
 }
 
-fn log_depth_resolve_skip(reason: &'static str, err: &FnvDepthResolveError) {
+fn log_depth_resolve_skip(
+    slot: DepthResolveSlot,
+    reason: &'static str,
+    err: &FnvDepthResolveError,
+) {
     if DEPTH_RESOLVE_LOGS.fetch_add(1, Ordering::AcqRel) < MAX_DEPTH_RESOLVE_LOGS {
-        log::warn!("[FNV] Active D3D depth resolve skipped: reason={reason}, err={err}");
+        log::warn!(
+            "[FNV] Active D3D depth resolve skipped: slot={}, reason={reason}, err={err}",
+            slot.label()
+        );
     }
 }
 
 #[derive(Default)]
 struct FnvDepthResolve {
     device_ptr: usize,
-    target: Option<FnvDepthTarget>,
+    world_target: Option<FnvDepthTarget>,
+    first_person_target: Option<FnvDepthTarget>,
     state_block: Option<StateBlock9>,
     success_logs: u32,
 }
@@ -139,6 +159,7 @@ impl FnvDepthResolve {
     unsafe fn resolve(
         &mut self,
         device_ptr: *mut c_void,
+        slot: DepthResolveSlot,
         reason: &'static str,
     ) -> Result<(), FnvDepthResolveError> {
         let Some(device) = (unsafe { Device9Ref::from_raw_void(device_ptr) }) else {
@@ -161,9 +182,9 @@ impl FnvDepthResolve {
             return Err(FnvDepthResolveError::Static("empty depth surface"));
         }
 
-        self.ensure_resources(&device, &desc)?;
+        self.ensure_resources(&device, &desc, slot)?;
 
-        let Some(target) = self.target.as_ref() else {
+        let Some(target) = self.target(slot).as_ref() else {
             return Err(FnvDepthResolveError::Static("missing INTZ target"));
         };
         let Some(state_block) = self.state_block.as_ref() else {
@@ -188,11 +209,16 @@ impl FnvDepthResolve {
         state_restore_result?;
         device.set_depth_stencil_surface(original_depth.as_ref())?;
 
-        RESOLVED_DEPTH_TEXTURE.store(
-            target.texture.as_raw_base_texture() as usize,
-            Ordering::Release,
-        );
-        self.log_success(reason, &desc);
+        let texture_ptr = target.texture.as_raw_base_texture() as usize;
+        match slot {
+            DepthResolveSlot::World => {
+                RESOLVED_WORLD_DEPTH_TEXTURE.store(texture_ptr, Ordering::Release);
+            }
+            DepthResolveSlot::FirstPerson => {
+                RESOLVED_FIRST_PERSON_DEPTH_TEXTURE.store(texture_ptr, Ordering::Release);
+            }
+        }
+        self.log_success(slot, reason, &desc);
         Ok(())
     }
 
@@ -200,15 +226,21 @@ impl FnvDepthResolve {
         &mut self,
         device: &Device9Ref<'_>,
         desc: &D3DSURFACE_DESC,
+        slot: DepthResolveSlot,
     ) -> Result<(), FnvDepthResolveError> {
         let needs_target = self
-            .target
+            .target(slot)
             .as_ref()
             .is_none_or(|target| !target.matches(desc));
 
         if needs_target {
-            self.target = Some(FnvDepthTarget::create(device, desc)?);
-            log::info!("[FNV] INTZ depth target: {}x{}", desc.Width, desc.Height);
+            *self.target_mut(slot) = Some(FnvDepthTarget::create(device, desc)?);
+            log::info!(
+                "[FNV] INTZ depth target: slot={}, size={}x{}",
+                slot.label(),
+                desc.Width,
+                desc.Height
+            );
         }
 
         if self.state_block.is_none() {
@@ -218,10 +250,30 @@ impl FnvDepthResolve {
         Ok(())
     }
 
-    fn log_success(&mut self, reason: &'static str, desc: &D3DSURFACE_DESC) {
+    fn target(&self, slot: DepthResolveSlot) -> &Option<FnvDepthTarget> {
+        match slot {
+            DepthResolveSlot::World => &self.world_target,
+            DepthResolveSlot::FirstPerson => &self.first_person_target,
+        }
+    }
+
+    fn target_mut(&mut self, slot: DepthResolveSlot) -> &mut Option<FnvDepthTarget> {
+        match slot {
+            DepthResolveSlot::World => &mut self.world_target,
+            DepthResolveSlot::FirstPerson => &mut self.first_person_target,
+        }
+    }
+
+    fn log_success(
+        &mut self,
+        slot: DepthResolveSlot,
+        reason: &'static str,
+        desc: &D3DSURFACE_DESC,
+    ) {
         if self.success_logs < 8 {
             log::debug!(
-                "[FNV] Active D3D depth resolved: reason={reason}, size={}x{}",
+                "[FNV] Active D3D depth resolved: slot={}, reason={reason}, size={}x{}",
+                slot.label(),
                 desc.Width,
                 desc.Height
             );
@@ -231,7 +283,8 @@ impl FnvDepthResolve {
 
     fn release(&mut self) {
         self.device_ptr = 0;
-        self.target = None;
+        self.world_target = None;
+        self.first_person_target = None;
         self.state_block = None;
     }
 }
