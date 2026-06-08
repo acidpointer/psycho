@@ -1,5 +1,6 @@
 [shader]
 enabled = false
+phase = "final_image_space"
 passes = 1
 
 [[options]]

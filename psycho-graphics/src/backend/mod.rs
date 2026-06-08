@@ -24,6 +24,13 @@ pub(crate) fn camera_frame(depth_provider: DepthProvider, desc: &D3DSURFACE_DESC
     }
 }
 
+pub(crate) fn environment_frame(depth_provider: DepthProvider) -> EnvironmentFrame {
+    match depth_provider {
+        DepthProvider::None => EnvironmentFrame::default(),
+        DepthProvider::FalloutNewVegas => fnv::environment_frame(),
+    }
+}
+
 pub(crate) fn depth_texture_ptr(depth_provider: DepthProvider) -> Option<*mut c_void> {
     match depth_provider {
         DepthProvider::None => None,
@@ -35,6 +42,31 @@ pub(crate) fn first_person_depth_texture_ptr(depth_provider: DepthProvider) -> O
     match depth_provider {
         DepthProvider::None => None,
         DepthProvider::FalloutNewVegas => fnv::first_person_depth_texture_ptr(),
+    }
+}
+
+pub(crate) fn rendered_texture_color_surface(
+    depth_provider: DepthProvider,
+    rendered_texture: *mut c_void,
+) -> Option<*mut c_void> {
+    match depth_provider {
+        DepthProvider::None => None,
+        DepthProvider::FalloutNewVegas => fnv::rendered_texture_color_surface(rendered_texture),
+    }
+}
+
+pub(crate) unsafe fn resolve_rendered_texture_depth(
+    depth_provider: DepthProvider,
+    device_ptr: *mut c_void,
+    rendered_texture: *mut c_void,
+    slot: DepthResolveSlot,
+    reason: &'static str,
+) -> bool {
+    match depth_provider {
+        DepthProvider::None => false,
+        DepthProvider::FalloutNewVegas => unsafe {
+            fnv::resolve_rendered_texture_depth(device_ptr, rendered_texture, slot, reason)
+        },
     }
 }
 
@@ -104,6 +136,7 @@ impl DepthResolveSlot {
 pub(crate) struct FrameInputs {
     pub(crate) camera: CameraFrame,
     pub(crate) depth: DepthFrame,
+    pub(crate) environment: EnvironmentFrame,
 }
 
 #[derive(Clone, Copy, Debug, Default)]
@@ -190,6 +223,31 @@ impl Default for CameraFrame {
             near_z: 0.0,
             far_z: 0.0,
             aspect_ratio: 1.0,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct EnvironmentFrame {
+    pub(crate) fog_start: f32,
+    pub(crate) fog_end: f32,
+    pub(crate) fog_power: f32,
+    pub(crate) fog_available: bool,
+}
+
+impl EnvironmentFrame {
+    pub(crate) fn fog_available_f32(self) -> f32 {
+        if self.fog_available { 1.0 } else { 0.0 }
+    }
+}
+
+impl Default for EnvironmentFrame {
+    fn default() -> Self {
+        Self {
+            fog_start: 0.0,
+            fog_end: 0.0,
+            fog_power: 1.0,
+            fog_available: false,
         }
     }
 }

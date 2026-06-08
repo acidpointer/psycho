@@ -255,6 +255,22 @@ impl<'a> Device9Ref<'a> {
         unsafe { self.inner.SetRenderTarget(index, surface.as_inner()) }
     }
 
+    /// Set a borrowed raw `IDirect3DSurface9` as current render target.
+    ///
+    /// # Safety
+    ///
+    /// `surface` must be a live `IDirect3DSurface9*` for the duration of the call.
+    /// This does not take ownership of the caller's reference.
+    pub unsafe fn set_raw_render_target(
+        &self,
+        index: u32,
+        surface: *mut c_void,
+    ) -> Direct3DResult<()> {
+        let ptr = NonNull::new(surface).ok_or_else(|| WindowsError::from_hresult(E_POINTER))?;
+        let surface = unsafe { InterfaceRef::<IDirect3DSurface9>::from_raw(ptr) };
+        unsafe { self.inner.SetRenderTarget(index, surface) }
+    }
+
     /// Clear the currently bound depth buffer to the default far depth.
     pub fn clear_zbuffer(&self) -> Direct3DResult<()> {
         unsafe {

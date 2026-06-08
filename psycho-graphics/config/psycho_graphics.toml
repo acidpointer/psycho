@@ -9,10 +9,26 @@
 #   .cso
 #   .hlsl
 #
-# Files are applied in filename sort order. Each sidecar TOML can set
-# [shader].passes from 1 to 8. .pso/.cso files must contain D3D9 pixel shader
-# bytecode. .hlsl files are compiled once at startup as ps_3_0 with entry point
-# Main.
+# Files are applied in filename sort order inside each phase. Each sidecar TOML
+# can set [shader].phase and [shader].passes from 1 to 8. .pso/.cso files must
+# contain D3D9 pixel shader bytecode. .hlsl files are compiled once at startup
+# as ps_3_0 with entry point Main.
+#
+# Supported shader phases:
+#   "scene_pre_image_space"
+#       FalloutNV scene boundary immediately before vanilla
+#       ProcessImageSpaceShaders. World and first-person depth have already
+#       been captured. Use for AO/contact shadows that should not be drawn over
+#       far fog.
+#
+#   "scene_post_image_space"
+#       FalloutNV boundary immediately after vanilla ProcessImageSpaceShaders.
+#       Reserved for effects that need to run after vanilla image-space but
+#       before final user passes.
+#
+#   "final_image_space"
+#       Final user pass. Use for AA, sharpening, color grading, debug overlays,
+#       and effects that need full-frame first-person depth.
 #
 # true  = load and apply screen-space shader passes.
 # false = do not install D3D Present/Reset hooks for shader rendering.
@@ -45,11 +61,11 @@ shader_scan_interval_ms = 200
 #
 #   "fallout_new_vegas"
 #       FalloutNV-specific scene boundaries. Captures world depth after
-#       RenderWorldSceneGraph, captures world color before first-person,
-#       captures first-person depth as a mask after RenderFirstPerson, then
-#       applies shaders after ProcessImageSpaceShaders so the final pass is not
-#       overwritten by later scene, first-person, or vanilla image-space
-#       rendering.
+#       RenderWorldSceneGraph, captures world color after world rendering,
+#       captures first-person depth as a mask after RenderFirstPerson, applies
+#       "scene_pre_image_space" passes immediately before vanilla
+#       ProcessImageSpaceShaders, then applies "scene_post_image_space" and
+#       "final_image_space" passes after ProcessImageSpaceShaders.
 #       The active D3D9 depth surface is resolved into owned INTZ textures with
 #       RESZ. Does not call or depend on third-party graphics mods, and does
 #       not patch DepthResolve/TESReloaded render callsites.

@@ -8,6 +8,7 @@ float4 CameraData : register(c2);
 float4 OptionData0 : register(c3);
 float4 OptionData1 : register(c4);
 float4 OptionData2 : register(c5);
+float4 EnvironmentData : register(c6);
 
 static const float DepthEndpointEpsilon = 0.000001f;
 static const float MinRadiusPixels = 1.0f;
@@ -101,6 +102,29 @@ float Stability() {
 
 bool FirstPersonMaskEnabled() {
     return OptionData2.y > 0.5f;
+}
+
+float FogFadeAmount() {
+    return saturate(OptionData2.z);
+}
+
+float FogAoVisibility(float linearDepth) {
+    float amount = FogFadeAmount();
+    if (amount <= 0.0f || EnvironmentData.w < 0.5f) {
+        return 1.0f;
+    }
+
+    float fogStart = EnvironmentData.x;
+    float fogEnd = EnvironmentData.y;
+    if (fogEnd <= fogStart || fogEnd <= 0.0f) {
+        return 1.0f;
+    }
+
+    float fogPower = max(EnvironmentData.z, 0.001f);
+    float fogT = saturate((linearDepth - fogStart) / max(fogEnd - fogStart, 0.001f));
+    float fogAlpha = max(pow(fogT, fogPower), Smooth01(fogT));
+    float visibility = 1.0f - Smooth01(saturate((fogAlpha - 0.05f) / 0.80f));
+    return lerp(1.0f, visibility, amount);
 }
 
 bool IsFirstPersonPixel(float2 uv) {
@@ -210,13 +234,13 @@ float4 Main(PixelInput input) : COLOR0 {
         return color;
     }
 
+    if (IsFirstPersonPixel(input.uv)) {
+        return color;
+    }
+
     if (OptionData1.x > 0.5f) {
         float depthView = DepthDebugView(centerDepth);
         return float4(depthView, depthView, depthView, 1.0f);
-    }
-
-    if (IsFirstPersonPixel(input.uv)) {
-        return color;
     }
 
     float passIndex = FrameData.y;
@@ -239,7 +263,8 @@ float4 Main(PixelInput input) : COLOR0 {
     float passStrength = OptionData0.x / totalPasses;
     float luminance = dot(color.rgb, LuminanceFactors);
     float luminanceFade = saturate(1.0f - luminance * LuminanceProtection());
-    float amount = saturate(occlusion * 0.22f) * passStrength * edgeFade * luminanceFade;
+    float fogVisibility = FogAoVisibility(centerDepth);
+    float amount = saturate(occlusion * 0.22f) * passStrength * edgeFade * luminanceFade * fogVisibility;
     float ao = max(1.0f - amount, MinAmbient());
     color.rgb *= ao;
     return color;

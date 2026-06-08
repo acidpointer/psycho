@@ -11,7 +11,7 @@ use libpsycho::os::windows::{
         D3DCULL_NONE, D3DFMT_INTZ, D3DPT_POINTLIST, D3DRESZ_POINT_SIZE, D3DRS_ALPHABLENDENABLE,
         D3DRS_COLORWRITEENABLE, D3DRS_CULLMODE, D3DRS_POINTSIZE, D3DRS_ZENABLE, D3DRS_ZWRITEENABLE,
         D3DSBT_ALL, Device9Ref, Direct3DResult, NIDX9_RENDERER_DEVICE_OFFSET, PositionVertex,
-        StateBlock9, Texture9,
+        StateBlock9, Surface9, Texture9,
     },
     memory::validate_memory_range,
 };
@@ -19,13 +19,31 @@ use parking_lot::Mutex;
 use windows::Win32::Graphics::Direct3D9::D3DSURFACE_DESC;
 use windows::core::Error as WindowsError;
 
-use super::{CameraFrame, DepthResolveSlot};
+use super::{CameraFrame, DepthResolveSlot, EnvironmentFrame};
 
 const NIDX9_RENDERER_SINGLETON_PTR: usize = 0x011C73B4;
 const BSSHADERMANAGER_CAMERA_PTR: usize = 0x011F917C;
+const BSSHADERMANAGER_SCENE_GRAPH_INDEX: usize = 0x011F91C4;
+const BSSHADERMANAGER_SHADOW_SCENE_NODE_ARRAY: usize = 0x011F91C8;
+const BSSHADERMANAGER_SHADOW_SCENE_NODE_COUNT: usize = 4;
 
 const NICAMERA_FRUSTUM_NEAR_OFFSET: usize = 0xEC;
 const NICAMERA_FRUSTUM_FAR_OFFSET: usize = 0xF0;
+const BSRENDEREDTEXTURE_SIZE: usize = 0x40;
+const BSRENDEREDTEXTURE_RENDER_TARGET_GROUP0_OFFSET: usize = 0x08;
+const NIRENDERTARGETGROUP_SIZE: usize = 0x28;
+const NIRENDERTARGETGROUP_BUFFER0_OFFSET: usize = 0x0C;
+const NIRENDERTARGETGROUP_BUFFER_COUNT_OFFSET: usize = 0x1C;
+const NIRENDERTARGETGROUP_DEPTH_BUFFER_OFFSET: usize = 0x20;
+const NI2DBUFFER_SIZE: usize = 0x14;
+const NI2DBUFFER_RENDERER_DATA_OFFSET: usize = 0x10;
+const NIDX9_TEXTURE_BUFFER_DATA_SURFACE_OFFSET: usize = 0x14;
+const SHADOW_SCENE_NODE_FOG_PROPERTY_OFFSET: usize = 0x134;
+const BSFOGPROPERTY_VTABLE: usize = 0x010B9E38;
+const BSFOGPROPERTY_SIZE: usize = 0x64;
+const BSFOGPROPERTY_START_DISTANCE_OFFSET: usize = 0x2C;
+const BSFOGPROPERTY_END_DISTANCE_OFFSET: usize = 0x30;
+const BSFOGPROPERTY_POWER_OFFSET: usize = 0x60;
 const MAX_DEPTH_RESOLVE_LOGS: u32 = 16;
 
 static DEPTH_RESOLVE_LOGS: AtomicU32 = AtomicU32::new(0);
@@ -82,6 +100,10 @@ pub(super) fn camera_frame(desc: &D3DSURFACE_DESC) -> CameraFrame {
     }
 }
 
+pub(super) fn environment_frame() -> EnvironmentFrame {
+    unsafe { read_environment_frame().unwrap_or_default() }
+}
+
 pub(super) fn depth_texture_ptr() -> Option<*mut c_void> {
     let ptr = RESOLVED_WORLD_DEPTH_TEXTURE.load(Ordering::Acquire);
     (ptr != 0).then_some(ptr as *mut c_void)
@@ -90,6 +112,41 @@ pub(super) fn depth_texture_ptr() -> Option<*mut c_void> {
 pub(super) fn first_person_depth_texture_ptr() -> Option<*mut c_void> {
     let ptr = RESOLVED_FIRST_PERSON_DEPTH_TEXTURE.load(Ordering::Acquire);
     (ptr != 0).then_some(ptr as *mut c_void)
+}
+
+pub(super) fn rendered_texture_color_surface(rendered_texture: *mut c_void) -> Option<*mut c_void> {
+    unsafe { read_rendered_texture_color_surface(rendered_texture).ok() }
+}
+
+pub(super) unsafe fn resolve_rendered_texture_depth(
+    device_ptr: *mut c_void,
+    rendered_texture: *mut c_void,
+    slot: DepthResolveSlot,
+    reason: &'static str,
+) -> bool {
+    let source_surface = match unsafe { read_rendered_texture_depth_surface(rendered_texture) } {
+        Ok(surface) => surface,
+        Err(err) => {
+            log_depth_resolve_skip(slot, reason, &FnvDepthResolveError::Static(err));
+            return false;
+        }
+    };
+
+    match unsafe {
+        DEPTH_RESOLVE.lock().resolve_from_raw_surface(
+            device_ptr,
+            source_surface,
+            slot,
+            reason,
+            "render target group",
+        )
+    } {
+        Ok(()) => true,
+        Err(err) => {
+            log_depth_resolve_skip(slot, reason, &err);
+            false
+        }
+    }
 }
 
 pub(super) unsafe fn resolve_scene_depth(
@@ -133,6 +190,179 @@ unsafe fn read_f32(address: usize) -> Option<f32> {
     Some(unsafe { (address as *const f32).read() })
 }
 
+unsafe fn read_u8(address: usize) -> Option<u8> {
+    let slot = address as *const c_void;
+    validate_memory_range(slot, size_of::<u8>()).ok()?;
+    Some(unsafe { (address as *const u8).read() })
+}
+
+unsafe fn read_u32(address: usize) -> Option<u32> {
+    let slot = address as *const c_void;
+    validate_memory_range(slot, size_of::<u32>()).ok()?;
+    Some(unsafe { (address as *const u32).read() })
+}
+
+unsafe fn read_rendered_texture_color_surface(
+    rendered_texture: *mut c_void,
+) -> Result<*mut c_void, &'static str> {
+    let group = unsafe { read_rendered_texture_group(rendered_texture)? };
+
+    let buffer_count =
+        unsafe { read_u32(group as usize + NIRENDERTARGETGROUP_BUFFER_COUNT_OFFSET) }
+            .ok_or("unreadable render target buffer count")?;
+    if buffer_count == 0 {
+        return Err("render target group has no color buffers");
+    }
+
+    let buffer = unsafe {
+        read_ptr_checked(
+            group as usize + NIRENDERTARGETGROUP_BUFFER0_OFFSET,
+            "missing render target color buffer",
+        )?
+    };
+    unsafe { read_ni_buffer_surface(buffer, "color buffer") }
+}
+
+unsafe fn read_rendered_texture_depth_surface(
+    rendered_texture: *mut c_void,
+) -> Result<*mut c_void, &'static str> {
+    let group = unsafe { read_rendered_texture_group(rendered_texture)? };
+    let buffer = unsafe {
+        read_ptr_checked(
+            group as usize + NIRENDERTARGETGROUP_DEPTH_BUFFER_OFFSET,
+            "missing render target depth buffer",
+        )?
+    };
+    unsafe { read_ni_buffer_surface(buffer, "depth buffer") }
+}
+
+unsafe fn read_rendered_texture_group(
+    rendered_texture: *mut c_void,
+) -> Result<*mut u8, &'static str> {
+    if rendered_texture.is_null() {
+        return Err("missing rendered texture");
+    }
+    validate_memory_range(rendered_texture.cast_const(), BSRENDEREDTEXTURE_SIZE)
+        .map_err(|_| "unreadable rendered texture")?;
+
+    let group = unsafe {
+        read_ptr_checked(
+            rendered_texture as usize + BSRENDEREDTEXTURE_RENDER_TARGET_GROUP0_OFFSET,
+            "missing render target group",
+        )?
+    };
+    if group.is_null() {
+        return Err("missing render target group");
+    }
+    validate_memory_range(group as *const c_void, NIRENDERTARGETGROUP_SIZE)
+        .map_err(|_| "unreadable render target group")?;
+
+    Ok(group)
+}
+
+unsafe fn read_ni_buffer_surface(
+    buffer: *mut u8,
+    label: &'static str,
+) -> Result<*mut c_void, &'static str> {
+    if buffer.is_null() {
+        return Err(match label {
+            "depth buffer" => "missing render target depth buffer",
+            _ => "missing render target color buffer",
+        });
+    }
+    validate_memory_range(buffer as *const c_void, NI2DBUFFER_SIZE).map_err(|_| match label {
+        "depth buffer" => "unreadable render target depth buffer",
+        _ => "unreadable render target color buffer",
+    })?;
+
+    let renderer_data = unsafe {
+        read_ptr_checked(
+            buffer as usize + NI2DBUFFER_RENDERER_DATA_OFFSET,
+            match label {
+                "depth buffer" => "missing depth buffer renderer data",
+                _ => "missing color buffer renderer data",
+            },
+        )?
+    };
+    if renderer_data.is_null() {
+        return Err(match label {
+            "depth buffer" => "missing depth buffer renderer data",
+            _ => "missing color buffer renderer data",
+        });
+    }
+
+    let surface = unsafe {
+        read_ptr_checked(
+            renderer_data as usize + NIDX9_TEXTURE_BUFFER_DATA_SURFACE_OFFSET,
+            match label {
+                "depth buffer" => "missing depth buffer D3D surface",
+                _ => "missing color buffer D3D surface",
+            },
+        )?
+    };
+    if surface.is_null() {
+        return Err(match label {
+            "depth buffer" => "missing depth buffer D3D surface",
+            _ => "missing color buffer D3D surface",
+        });
+    }
+    validate_memory_range(surface as *const c_void, size_of::<*mut c_void>()).map_err(|_| {
+        match label {
+            "depth buffer" => "unreadable depth buffer D3D surface",
+            _ => "unreadable color buffer D3D surface",
+        }
+    })?;
+
+    Ok(surface.cast::<c_void>())
+}
+
+unsafe fn read_environment_frame() -> Option<EnvironmentFrame> {
+    let scene_index = unsafe { read_u8(BSSHADERMANAGER_SCENE_GRAPH_INDEX)? } as usize;
+    if scene_index >= BSSHADERMANAGER_SHADOW_SCENE_NODE_COUNT {
+        return None;
+    }
+
+    let scene_node = unsafe {
+        read_ptr(BSSHADERMANAGER_SHADOW_SCENE_NODE_ARRAY + scene_index * size_of::<usize>())?
+    };
+    if scene_node.is_null() {
+        return None;
+    }
+
+    let fog_property =
+        unsafe { read_ptr(scene_node as usize + SHADOW_SCENE_NODE_FOG_PROPERTY_OFFSET)? };
+    if fog_property.is_null() {
+        return None;
+    }
+    validate_memory_range(fog_property as *const c_void, BSFOGPROPERTY_SIZE).ok()?;
+
+    let vtable = unsafe { read_ptr(fog_property as usize)? } as usize;
+    if vtable != BSFOGPROPERTY_VTABLE {
+        return None;
+    }
+
+    let fog_start =
+        unsafe { read_f32(fog_property as usize + BSFOGPROPERTY_START_DISTANCE_OFFSET)? };
+    let fog_end = unsafe { read_f32(fog_property as usize + BSFOGPROPERTY_END_DISTANCE_OFFSET)? };
+    let fog_power = unsafe { read_f32(fog_property as usize + BSFOGPROPERTY_POWER_OFFSET)? };
+
+    if !fog_start.is_finite()
+        || !fog_end.is_finite()
+        || !fog_power.is_finite()
+        || fog_end <= fog_start
+        || fog_end <= 0.0
+    {
+        return None;
+    }
+
+    Some(EnvironmentFrame {
+        fog_start,
+        fog_end,
+        fog_power: fog_power.max(0.001),
+        fog_available: true,
+    })
+}
+
 fn log_depth_resolve_skip(
     slot: DepthResolveSlot,
     reason: &'static str,
@@ -140,7 +370,7 @@ fn log_depth_resolve_skip(
 ) {
     if DEPTH_RESOLVE_LOGS.fetch_add(1, Ordering::AcqRel) < MAX_DEPTH_RESOLVE_LOGS {
         log::warn!(
-            "[FNV] Active D3D depth resolve skipped: slot={}, reason={reason}, err={err}",
+            "[FNV] D3D depth resolve skipped: slot={}, reason={reason}, err={err}",
             slot.label()
         );
     }
@@ -166,23 +396,73 @@ impl FnvDepthResolve {
             return Err(FnvDepthResolveError::Static("null D3D device"));
         };
 
-        if self.device_ptr != 0 && self.device_ptr != device_ptr as usize {
-            self.release();
-        }
-        self.device_ptr = device_ptr as usize;
-
         let source_surface = device.depth_stencil_surface()?;
         let Some(source_surface) = source_surface.as_ref() else {
             return Err(FnvDepthResolveError::Static(
                 "missing active D3D depth surface",
             ));
         };
-        let desc = source_surface.desc()?;
+
+        unsafe {
+            self.resolve_from_surface(
+                &device,
+                device_ptr,
+                source_surface.as_raw(),
+                slot,
+                reason,
+                "active D3D",
+            )
+        }
+    }
+
+    unsafe fn resolve_from_raw_surface(
+        &mut self,
+        device_ptr: *mut c_void,
+        source_surface: *mut c_void,
+        slot: DepthResolveSlot,
+        reason: &'static str,
+        source_label: &'static str,
+    ) -> Result<(), FnvDepthResolveError> {
+        let Some(device) = (unsafe { Device9Ref::from_raw_void(device_ptr) }) else {
+            return Err(FnvDepthResolveError::Static("null D3D device"));
+        };
+
+        unsafe {
+            self.resolve_from_surface(
+                &device,
+                device_ptr,
+                source_surface,
+                slot,
+                reason,
+                source_label,
+            )
+        }
+    }
+
+    unsafe fn resolve_from_surface(
+        &mut self,
+        device: &Device9Ref<'_>,
+        device_ptr: *mut c_void,
+        source_surface: *mut c_void,
+        slot: DepthResolveSlot,
+        reason: &'static str,
+        source_label: &'static str,
+    ) -> Result<(), FnvDepthResolveError> {
+        if source_surface.is_null() {
+            return Err(FnvDepthResolveError::Static("missing D3D depth surface"));
+        }
+
+        if self.device_ptr != 0 && self.device_ptr != device_ptr as usize {
+            self.release();
+        }
+        self.device_ptr = device_ptr as usize;
+
+        let desc = unsafe { Surface9::raw_desc(source_surface)? };
         if desc.Width == 0 || desc.Height == 0 {
             return Err(FnvDepthResolveError::Static("empty depth surface"));
         }
 
-        self.ensure_resources(&device, &desc, slot)?;
+        self.ensure_resources(device, &desc, slot)?;
 
         let Some(target) = self.target(slot).as_ref() else {
             return Err(FnvDepthResolveError::Static("missing INTZ target"));
@@ -192,22 +472,26 @@ impl FnvDepthResolve {
         };
 
         state_block.capture()?;
-        let states = D3dResolveStates::capture(&device)?;
+        let states = D3dResolveStates::capture(device)?;
         let original_depth = device.depth_stencil_surface()?;
 
-        let draw_result = (|| -> Direct3DResult<()> { target.resolve(&device) })();
+        let draw_result = (|| -> Direct3DResult<()> {
+            unsafe { device.set_raw_depth_stencil_surface(source_surface)? };
+            target.resolve(device)
+        })();
 
-        let restore_result = states.restore_before_resz(&device);
+        let restore_result = states.restore_before_resz(device);
         let resz_result = device.set_render_state(D3DRS_POINTSIZE, D3DRESZ_POINT_SIZE);
         let point_size_restore_result = device.set_render_state(D3DRS_POINTSIZE, states.point_size);
         let state_restore_result = state_block.apply();
+        let depth_restore_result = device.set_depth_stencil_surface(original_depth.as_ref());
 
         draw_result?;
         restore_result?;
         resz_result?;
         point_size_restore_result?;
         state_restore_result?;
-        device.set_depth_stencil_surface(original_depth.as_ref())?;
+        depth_restore_result?;
 
         let texture_ptr = target.texture.as_raw_base_texture() as usize;
         match slot {
@@ -218,7 +502,7 @@ impl FnvDepthResolve {
                 RESOLVED_FIRST_PERSON_DEPTH_TEXTURE.store(texture_ptr, Ordering::Release);
             }
         }
-        self.log_success(slot, reason, &desc);
+        self.log_success(slot, reason, source_label, &desc);
         Ok(())
     }
 
@@ -268,11 +552,12 @@ impl FnvDepthResolve {
         &mut self,
         slot: DepthResolveSlot,
         reason: &'static str,
+        source_label: &'static str,
         desc: &D3DSURFACE_DESC,
     ) {
         if self.success_logs < 8 {
             log::debug!(
-                "[FNV] Active D3D depth resolved: slot={}, reason={reason}, size={}x{}",
+                "[FNV] D3D depth resolved: slot={}, source={source_label}, reason={reason}, size={}x{}",
                 slot.label(),
                 desc.Width,
                 desc.Height

@@ -31,11 +31,12 @@ use windows::{
 
 use crate::{
     backend::{self, DepthFrame, DepthProvider, DepthTexture},
-    shaders::{self, ScreenShaderSource, ShaderOptionValue},
+    shaders::{self, ScreenShaderSource, ShaderOptionValue, ShaderPhase},
 };
 
 const DEFAULT_SCAN_INTERVAL_MS: u64 = 200;
 const FIRST_OPTION_REGISTER: u32 = 3;
+const ENVIRONMENT_REGISTER: u32 = 6;
 const COLOR_WRITE_ALL: u32 = 0x0F;
 const WM_KEYDOWN: u32 = 0x0100;
 const WM_SYSKEYDOWN: u32 = 0x0104;
@@ -76,12 +77,55 @@ pub(crate) unsafe fn apply_present_frame(device_ptr: *mut c_void, hwnd_hint: *mu
     }
 }
 
-pub(crate) unsafe fn apply_fnv_scene_frame(device_ptr: *mut c_void) {
+pub(crate) unsafe fn apply_fnv_scene_pre_image_space(
+    device_ptr: *mut c_void,
+    source_rendered_texture: *mut c_void,
+) {
     let Some(mut runtime) = RUNTIME.try_lock() else {
         return;
     };
 
-    let result = unsafe { runtime.apply_scene_frame(device_ptr) };
+    let result = unsafe {
+        runtime.apply_scene_phase(
+            device_ptr,
+            ShaderPhase::ScenePreImageSpace,
+            ScenePhaseTarget::RenderedTextureSource(source_rendered_texture),
+        )
+    };
+    if let Err(err) = result {
+        runtime.log_frame_error(&err);
+    }
+}
+
+pub(crate) unsafe fn apply_fnv_scene_post_image_space(device_ptr: *mut c_void) {
+    let Some(mut runtime) = RUNTIME.try_lock() else {
+        return;
+    };
+
+    let result = unsafe {
+        runtime.apply_scene_phase(
+            device_ptr,
+            ShaderPhase::ScenePostImageSpace,
+            ScenePhaseTarget::CurrentRenderTarget,
+        )
+    };
+    if let Err(err) = result {
+        runtime.log_frame_error(&err);
+    }
+}
+
+pub(crate) unsafe fn apply_fnv_final_image_space(device_ptr: *mut c_void) {
+    let Some(mut runtime) = RUNTIME.try_lock() else {
+        return;
+    };
+
+    let result = unsafe {
+        runtime.apply_scene_phase(
+            device_ptr,
+            ShaderPhase::FinalImageSpace,
+            ScenePhaseTarget::CurrentRenderTarget,
+        )
+    };
     if let Err(err) = result {
         runtime.log_frame_error(&err);
     }
@@ -178,13 +222,15 @@ struct ScreenShaderRuntime {
     next_scan: Option<Instant>,
     frame_index: u32,
     last_depth_available: Option<bool>,
+    last_fog_available: Option<bool>,
     error_logs: u32,
     scan_error_logs: u32,
     imgui_error_logs: u32,
     scene_apply_logs: u32,
+    scene_target_logs: u32,
     world_color_capture_logs: u32,
     world_color_captured_this_frame: bool,
-    shaders_applied_this_frame: bool,
+    applied_phases: AppliedShaderPhases,
 }
 
 impl Default for ScreenShaderRuntime {
@@ -203,13 +249,15 @@ impl Default for ScreenShaderRuntime {
             next_scan: None,
             frame_index: 0,
             last_depth_available: None,
+            last_fog_available: None,
             error_logs: 0,
             scan_error_logs: 0,
             imgui_error_logs: 0,
             scene_apply_logs: 0,
+            scene_target_logs: 0,
             world_color_capture_logs: 0,
             world_color_captured_this_frame: false,
-            shaders_applied_this_frame: false,
+            applied_phases: AppliedShaderPhases::default(),
         }
     }
 }
@@ -244,8 +292,9 @@ impl ScreenShaderRuntime {
 
         let menu_open = self.settings.imgui_menu && MENU_OPEN.load(Ordering::Acquire);
         let can_apply_at_present = self.settings.depth_provider == DepthProvider::None;
-        let has_shader_work =
-            can_apply_at_present && !self.shaders_applied_this_frame && self.has_enabled_shader();
+        let has_shader_work = can_apply_at_present
+            && !self.applied_phases.is_applied(ShaderPhase::FinalImageSpace)
+            && self.has_enabled_shader_for_phase(ShaderPhase::FinalImageSpace);
         if !menu_open && !has_shader_work {
             return Ok(());
         }
@@ -287,7 +336,9 @@ impl ScreenShaderRuntime {
         state_block.capture()?;
 
         let draw_result = match shader_target.as_ref() {
-            Some((backbuffer, desc)) => self.draw_passes(&device, backbuffer, desc),
+            Some((backbuffer, desc)) => {
+                self.draw_passes(&device, backbuffer, desc, ShaderPhase::FinalImageSpace)
+            }
             None => Ok(()),
         };
         let menu_result = if menu_open { self.draw_menu() } else { Ok(()) };
@@ -302,17 +353,28 @@ impl ScreenShaderRuntime {
         restore_result?;
         draw_result?;
         menu_result?;
+        if has_shader_work {
+            self.applied_phases
+                .mark_applied(ShaderPhase::FinalImageSpace);
+        }
 
         Ok(())
     }
 
-    unsafe fn apply_scene_frame(&mut self, device_ptr: *mut c_void) -> Direct3DResult<()> {
-        if self.shaders_applied_this_frame || self.settings.depth_provider == DepthProvider::None {
+    unsafe fn apply_scene_phase(
+        &mut self,
+        device_ptr: *mut c_void,
+        phase: ShaderPhase,
+        target: ScenePhaseTarget,
+    ) -> Direct3DResult<()> {
+        if self.applied_phases.is_applied(phase)
+            || self.settings.depth_provider == DepthProvider::None
+        {
             return Ok(());
         }
 
         self.scan_shaders_if_due();
-        if !self.has_enabled_shader() {
+        if !self.has_enabled_shader_for_phase(phase) {
             return Ok(());
         }
 
@@ -325,24 +387,19 @@ impl ScreenShaderRuntime {
             self.device_ptr = device_ptr as usize;
         }
 
-        let render_target = match device.render_target(0) {
-            Ok(render_target) => render_target,
+        self.ensure_shaders(&device);
+        if !self.has_drawable_shader_for_phase(phase) {
+            return Ok(());
+        }
+
+        let restore_target = match device.render_target(0) {
+            Ok(restore_target) => restore_target,
             Err(err) => {
                 self.release_default_pool_resources();
                 return Err(err);
             }
         };
-        let desc = render_target.desc()?;
-        if desc.Width == 0 || desc.Height == 0 {
-            return Ok(());
-        }
 
-        self.ensure_shaders(&device);
-        if !self.has_drawable_shader() {
-            return Ok(());
-        }
-
-        self.ensure_backbuffer_copy(&device, &desc)?;
         self.ensure_state_block(&device)?;
         let Some(state_block) = self.state_block.as_ref() else {
             return Err(runtime_error(
@@ -351,7 +408,35 @@ impl ScreenShaderRuntime {
         };
         state_block.capture()?;
 
-        let draw_result = self.draw_passes(&device, &render_target, &desc);
+        let render_target = match self.scene_phase_render_target(&device, &restore_target, target) {
+            Ok(Some(render_target)) => render_target,
+            Ok(None) => return Ok(()),
+            Err(err) => {
+                let _ = device.set_render_target(0, &restore_target);
+                return Err(err);
+            }
+        };
+
+        let desc = match render_target.desc() {
+            Ok(desc) => desc,
+            Err(err) => {
+                let _ = device.set_render_target(0, &restore_target);
+                return Err(err);
+            }
+        };
+        if desc.Width == 0 || desc.Height == 0 {
+            let _ = device.set_render_target(0, &restore_target);
+            return Ok(());
+        }
+
+        if let Err(err) = self.ensure_backbuffer_copy(&device, &desc) {
+            let _ = device.set_render_target(0, &restore_target);
+            return Err(err);
+        }
+
+        self.resolve_scene_phase_depth(&device, phase, target);
+
+        let draw_result = self.draw_passes(&device, &render_target, &desc, phase);
         let restore_result = if let Some(state_block) = self.state_block.as_ref() {
             state_block.apply()
         } else {
@@ -359,18 +444,91 @@ impl ScreenShaderRuntime {
                 "[SHADERS] Missing D3D state block before scene restore",
             ))
         };
-        let restore_render_target_result = device.set_render_target(0, &render_target);
+        let restore_render_target_result = device.set_render_target(0, &restore_target);
 
         restore_result?;
         restore_render_target_result?;
         draw_result?;
 
-        self.shaders_applied_this_frame = true;
+        self.applied_phases.mark_applied(phase);
         if self.scene_apply_logs < 8 {
-            log::debug!("[SHADERS] Applied screen-space shaders at FNV scene boundary");
+            log::debug!(
+                "[SHADERS] Applied '{}' screen-space shaders at FNV scene boundary",
+                phase.label()
+            );
             self.scene_apply_logs += 1;
         }
         Ok(())
+    }
+
+    fn scene_phase_render_target(
+        &mut self,
+        device: &Device9Ref<'_>,
+        current_target: &Surface9,
+        target: ScenePhaseTarget,
+    ) -> Direct3DResult<Option<Surface9>> {
+        match target {
+            ScenePhaseTarget::CurrentRenderTarget => Ok(Some(current_target.clone())),
+            ScenePhaseTarget::RenderedTextureSource(rendered_texture) => {
+                let Some(surface) = backend::rendered_texture_color_surface(
+                    self.settings.depth_provider,
+                    rendered_texture,
+                ) else {
+                    self.log_scene_target_skip(
+                        "[SHADERS] Scene-pre source rendered texture has no readable color surface",
+                    );
+                    return Ok(None);
+                };
+
+                let desc = unsafe { Surface9::raw_desc(surface)? };
+                if desc.Width == 0 || desc.Height == 0 {
+                    self.log_scene_target_skip(
+                        "[SHADERS] Scene-pre source rendered texture has an empty color surface",
+                    );
+                    return Ok(None);
+                }
+
+                unsafe { device.set_raw_render_target(0, surface)? };
+                device.render_target(0).map(Some)
+            }
+        }
+    }
+
+    fn resolve_scene_phase_depth(
+        &mut self,
+        device: &Device9Ref<'_>,
+        phase: ShaderPhase,
+        target: ScenePhaseTarget,
+    ) {
+        if phase != ShaderPhase::ScenePreImageSpace {
+            return;
+        }
+
+        let ScenePhaseTarget::RenderedTextureSource(rendered_texture) = target else {
+            return;
+        };
+
+        let resolved = unsafe {
+            backend::resolve_rendered_texture_depth(
+                self.settings.depth_provider,
+                device.as_raw(),
+                rendered_texture,
+                backend::DepthResolveSlot::FirstPerson,
+                "FNV scene-pre source first-person depth",
+            )
+        };
+        if resolved && self.scene_apply_logs < 8 {
+            log::debug!(
+                "[SHADERS] Scene-pre first-person depth resolved from source render target"
+            );
+        }
+    }
+
+    fn log_scene_target_skip(&mut self, message: &'static str) {
+        if self.scene_target_logs < 8 {
+            log::warn!("{message}");
+            self.scene_target_logs += 1;
+        }
     }
 
     unsafe fn capture_fnv_world_color(&mut self, device_ptr: *mut c_void) -> Direct3DResult<()> {
@@ -575,11 +733,15 @@ impl ScreenShaderRuntime {
         device: &Device9Ref<'_>,
         backbuffer: &Surface9,
         desc: &D3DSURFACE_DESC,
+        phase: ShaderPhase,
     ) -> Direct3DResult<()> {
         let enabled_count: u32 = self.compiled.as_ref().map_or(0, |passes| {
             passes
                 .iter()
-                .filter(|pass| self.sources[pass.source_index].enabled)
+                .filter(|pass| {
+                    let source = &self.sources[pass.source_index];
+                    source.enabled && source.phase() == phase
+                })
                 .map(|pass| self.sources[pass.source_index].pass_count)
                 .sum()
         });
@@ -590,8 +752,9 @@ impl ScreenShaderRuntime {
         let frame_inputs = backend::FrameInputs {
             camera: backend::camera_frame(self.settings.depth_provider, desc),
             depth: self.current_depth_frame(),
+            environment: backend::environment_frame(self.settings.depth_provider),
         };
-        self.log_depth_state(&frame_inputs);
+        self.log_frame_input_state(&frame_inputs);
 
         let Some(copy) = self.backbuffer_copy.as_ref() else {
             return Ok(());
@@ -613,7 +776,7 @@ impl ScreenShaderRuntime {
 
         for pass in passes {
             let source = &self.sources[pass.source_index];
-            if !source.enabled {
+            if !source.enabled || source.phase() != phase {
                 continue;
             }
 
@@ -651,8 +814,21 @@ impl ScreenShaderRuntime {
                         &source.option_constants,
                     )?;
                 }
+                device.set_pixel_shader_constant_f(
+                    ENVIRONMENT_REGISTER,
+                    &[[
+                        frame_inputs.environment.fog_start,
+                        frame_inputs.environment.fog_end,
+                        frame_inputs.environment.fog_power,
+                        frame_inputs.environment.fog_available_f32(),
+                    ]],
+                )?;
 
-                log::trace!("[SHADERS] Drawing screen pass '{}'", source.name);
+                log::trace!(
+                    "[SHADERS] Drawing '{}' screen pass '{}'",
+                    phase.label(),
+                    source.name
+                );
                 unsafe {
                     device.draw_primitive_up(D3DPT_TRIANGLESTRIP, 2, &quad)?;
                 }
@@ -663,19 +839,35 @@ impl ScreenShaderRuntime {
         Ok(())
     }
 
-    fn log_depth_state(&mut self, frame_inputs: &backend::FrameInputs) {
-        let available = frame_inputs.depth.is_available();
-        if self.last_depth_available == Some(available) {
+    fn log_frame_input_state(&mut self, frame_inputs: &backend::FrameInputs) {
+        let depth_available = frame_inputs.depth.is_available();
+        let fog_available = frame_inputs.environment.fog_available;
+        if self.last_depth_available == Some(depth_available)
+            && self.last_fog_available == Some(fog_available)
+        {
             return;
         }
 
-        self.last_depth_available = Some(available);
+        self.last_depth_available = Some(depth_available);
+        self.last_fog_available = Some(fog_available);
         log::info!(
-            "[SHADERS] Depth input {} (provider={}, near={:.3}, far={:.3})",
-            if available { "available" } else { "missing" },
+            "[SHADERS] Frame inputs: depth={} (provider={}, near={:.3}, far={:.3}), fog={} (start={:.3}, end={:.3}, power={:.3})",
+            if depth_available {
+                "available"
+            } else {
+                "missing"
+            },
             frame_inputs.depth.provider_id(),
             frame_inputs.camera.near_z,
-            frame_inputs.camera.far_z
+            frame_inputs.camera.far_z,
+            if fog_available {
+                "available"
+            } else {
+                "missing"
+            },
+            frame_inputs.environment.fog_start,
+            frame_inputs.environment.fog_end,
+            frame_inputs.environment.fog_power
         );
     }
 
@@ -788,9 +980,15 @@ impl ScreenShaderRuntime {
             .any(|source| source.enabled && source.bytecode.is_some())
     }
 
+    fn has_enabled_shader_for_phase(&self, phase: ShaderPhase) -> bool {
+        self.sources
+            .iter()
+            .any(|source| source.enabled && source.phase() == phase && source.bytecode.is_some())
+    }
+
     fn needs_fnv_scene_inputs(&self) -> bool {
         self.settings.depth_provider == DepthProvider::FalloutNewVegas
-            && !self.shaders_applied_this_frame
+            && !self.applied_phases.is_applied(ShaderPhase::FinalImageSpace)
             && self.has_enabled_shader()
     }
 
@@ -802,6 +1000,15 @@ impl ScreenShaderRuntime {
         })
     }
 
+    fn has_drawable_shader_for_phase(&self, phase: ShaderPhase) -> bool {
+        self.compiled.as_ref().is_some_and(|passes| {
+            passes.iter().any(|pass| {
+                let source = &self.sources[pass.source_index];
+                source.enabled && source.phase() == phase
+            })
+        })
+    }
+
     fn release_if_device(&mut self, device_ptr: *mut c_void) {
         if self.device_ptr == 0 || self.device_ptr == device_ptr as usize {
             self.release_device_resources();
@@ -810,7 +1017,7 @@ impl ScreenShaderRuntime {
 
     fn finish_present_frame(&mut self, device_ptr: *mut c_void) {
         let _ = device_ptr;
-        self.shaders_applied_this_frame = false;
+        self.applied_phases = AppliedShaderPhases::default();
         self.world_color_captured_this_frame = false;
         self.frame_index = self.frame_index.wrapping_add(1);
         backend::finish_frame();
@@ -865,6 +1072,37 @@ impl ScreenShaderRuntime {
 struct CompiledPass {
     source_index: usize,
     shader: PixelShader9,
+}
+
+#[derive(Clone, Copy)]
+enum ScenePhaseTarget {
+    CurrentRenderTarget,
+    RenderedTextureSource(*mut c_void),
+}
+
+#[derive(Default)]
+struct AppliedShaderPhases {
+    scene_pre_image_space: bool,
+    scene_post_image_space: bool,
+    final_image_space: bool,
+}
+
+impl AppliedShaderPhases {
+    fn is_applied(&self, phase: ShaderPhase) -> bool {
+        match phase {
+            ShaderPhase::ScenePreImageSpace => self.scene_pre_image_space,
+            ShaderPhase::ScenePostImageSpace => self.scene_post_image_space,
+            ShaderPhase::FinalImageSpace => self.final_image_space,
+        }
+    }
+
+    fn mark_applied(&mut self, phase: ShaderPhase) {
+        match phase {
+            ShaderPhase::ScenePreImageSpace => self.scene_pre_image_space = true,
+            ShaderPhase::ScenePostImageSpace => self.scene_post_image_space = true,
+            ShaderPhase::FinalImageSpace => self.final_image_space = true,
+        }
+    }
 }
 
 struct BackbufferCopy {
@@ -928,6 +1166,9 @@ fn draw_shader_entry(ui: &mut psycho_imgui::Ui<'_>, source: &mut ScreenShaderSou
 
     let path_text = cstring(source.path.display().to_string());
     ui.text(&path_text);
+
+    let phase_text = cstring(format!("Phase: {}", source.phase().label()));
+    ui.text(&phase_text);
 
     if let Some(error) = &source.shader_error {
         let text = cstring(format!("Shader error: {error}"));

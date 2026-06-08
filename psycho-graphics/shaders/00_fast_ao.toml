@@ -1,5 +1,6 @@
 [shader]
 enabled = true
+phase = "scene_pre_image_space"
 passes = 2
 
 [[options]]
@@ -87,3 +88,12 @@ value = 1.0
 min = 0.0
 max = 1.0
 constant = "c5.y"
+
+[[options]]
+key = "fog_fade"
+label = "Fog fade"
+kind = "float"
+value = 1.0
+min = 0.0
+max = 1.0
+constant = "c5.z"

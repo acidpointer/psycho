@@ -1,0 +1,3627 @@
+FNV GRAPHICS WEATHER/FOG CONTRACT AUDIT
+
+Questions:
+1. Which FNV Sky offsets expose first/second weather and weather blend?
+2. Which TESWeather fields or methods expose fog distance/color used by vanilla fog?
+3. Can Psycho read fog constants safely before ProcessImageSpaceShaders?
+4. Which values must remain research-only because they are TESReloaded-derived but not FNV-proven?
+
+======================================================================
+WEATHER/FOG CONTRACT TO PROVE
+======================================================================
+Read-only default runtime is acceptable only after these are proven in FNV:
+  Sky firstWeather, secondWeather, weatherPercent offsets.
+  TESWeather day/night fog near/far fields or getter functions.
+  Fog color/current fog blend source used by image-space/fog rendering.
+  Interior/exterior and weather transition behavior at image-space phase.
+
+Do not implement fog-aware AO or godray weather constants from TESReloaded offsets alone.
+
+----------------------------------------------------------------------
+References TO 0x011dea20 (Sky::singleton)
+----------------------------------------------------------------------
+  WRITE @ 0x0086cf86 (in FUN_0086cf20)
+  READ @ 0x0086cfaa (in FUN_0086cf20)
+  READ @ 0x0086d025 (in FUN_0086cf20)
+  READ @ 0x00871000 (in FUN_00870bd0)
+  READ @ 0x0087100d (in FUN_00870bd0)
+  READ @ 0x00871020 (in FUN_00870bd0)
+  READ @ 0x00877795 (in FUN_00877730)
+  READ @ 0x008777af (in FUN_00877730)
+  READ @ 0x008777d2 (in FUN_00877730)
+  READ @ 0x00877916 (in FUN_00877730)
+  Total: 10 refs
+
+======================================================================
+REFERENCE WINDOWS: Sky::singleton @ 0x011dea20
+======================================================================
+
+Reference 1: 0x0086cf86 in FUN_0086cf20
+
+----------------------------------------------------------------------
+Disassembly reference to Sky::singleton around 0x0086cf86
+----------------------------------------------------------------------
+  0x0086cf64: MOV dword ptr [EBP + -0x4],0x0                      
+  0x0086cf6b: PUSH 0xe51                                          
+  0x0086cf70: PUSH 0x10829c4                                      
+  0x0086cf75: PUSH 0x1                                            
+  0x0086cf77: PUSH 0xa                                            
+  0x0086cf79: LEA ECX,[EBP + -0x38]                               
+  0x0086cf7c: CALL 0x00404f00                                      ; CALL 0x00404f00 FUN_00404f00
+  0x0086cf81: CALL 0x0046dd00                                      ; CALL 0x0046dd00 FUN_0046dd00
+  0x0086cf86: MOV [0x011dea20],EAX                                 << TARGET
+  0x0086cf8b: CALL 0x00877730                                      ; CALL 0x00877730 Sky render/update candidate
+  0x0086cf90: CALL 0x0086d470                                      ; CALL 0x0086d470 FUN_0086d470
+  0x0086cf95: MOV dword ptr [EBP + -0x3c],EAX                     
+  0x0086cf98: CALL 0x007a1480                                      ; CALL 0x007a1480 FUN_007a1480
+  0x0086cf9d: MOV dword ptr [EBP + -0x40],EAX                     
+  0x0086cfa0: CMP dword ptr [EBP + -0x40],0x0                     
+  0x0086cfa4: JZ 0x0086cff7                                       
+  0x0086cfa6: MOV EAX,dword ptr [EBP + -0x40]                     
+  0x0086cfa9: PUSH EAX                                            
+  0x0086cfaa: MOV ECX,dword ptr [0x011dea20]                      
+  0x0086cfb0: CALL 0x004505a0                                      ; CALL 0x004505a0 Sky current climate/weather getter candidate
+  0x0086cfb5: MOV ECX,EAX                                         
+  0x0086cfb7: CALL 0x00a89af0                                      ; CALL 0x00a89af0 FUN_00a89af0
+  0x0086cfbc: PUSH 0x0                                            
+  0x0086cfbe: MOV ECX,dword ptr [EBP + -0x40]                     
+  0x0086cfc1: CALL 0x0045bc00                                      ; CALL 0x0045bc00 FUN_0045bc00
+  0x0086cfc6: MOV dword ptr [EBP + -0x54],EAX                     
+  0x0086cfc9: CMP dword ptr [EBP + -0x54],0x0                     
+  0x0086cfcd: JZ 0x0086cfe4                                       
+  0x0086cfcf: MOV ECX,dword ptr [EBP + -0x54]                     
+
+Reference 2: 0x0086cfaa in FUN_0086cf20
+
+----------------------------------------------------------------------
+Disassembly reference to Sky::singleton around 0x0086cfaa
+----------------------------------------------------------------------
+  0x0086cf90: CALL 0x0086d470                                      ; CALL 0x0086d470 FUN_0086d470
+  0x0086cf95: MOV dword ptr [EBP + -0x3c],EAX                     
+  0x0086cf98: CALL 0x007a1480                                      ; CALL 0x007a1480 FUN_007a1480
+  0x0086cf9d: MOV dword ptr [EBP + -0x40],EAX                     
+  0x0086cfa0: CMP dword ptr [EBP + -0x40],0x0                     
+  0x0086cfa4: JZ 0x0086cff7                                       
+  0x0086cfa6: MOV EAX,dword ptr [EBP + -0x40]                     
+  0x0086cfa9: PUSH EAX                                            
+  0x0086cfaa: MOV ECX,dword ptr [0x011dea20]                       << TARGET
+  0x0086cfb0: CALL 0x004505a0                                      ; CALL 0x004505a0 Sky current climate/weather getter candidate
+  0x0086cfb5: MOV ECX,EAX                                         
+  0x0086cfb7: CALL 0x00a89af0                                      ; CALL 0x00a89af0 FUN_00a89af0
+  0x0086cfbc: PUSH 0x0                                            
+  0x0086cfbe: MOV ECX,dword ptr [EBP + -0x40]                     
+  0x0086cfc1: CALL 0x0045bc00                                      ; CALL 0x0045bc00 FUN_0045bc00
+  0x0086cfc6: MOV dword ptr [EBP + -0x54],EAX                     
+  0x0086cfc9: CMP dword ptr [EBP + -0x54],0x0                     
+  0x0086cfcd: JZ 0x0086cfe4                                       
+  0x0086cfcf: MOV ECX,dword ptr [EBP + -0x54]                     
+  0x0086cfd2: MOV EDX,dword ptr [ECX]                             
+  0x0086cfd4: MOV ECX,dword ptr [EBP + -0x54]                     
+  0x0086cfd7: MOV EAX,dword ptr [EDX + 0xc]                       
+  0x0086cfda: CALL EAX                                            
+  0x0086cfdc: MOV dword ptr [EBP + 0xffffff74],EAX                
+  0x0086cfe2: JMP 0x0086cfee                                      
+  0x0086cfe4: MOV dword ptr [EBP + 0xffffff74],0x0                
+  0x0086cfee: MOV ECX,dword ptr [EBP + 0xffffff74]                
+  0x0086cff4: MOV dword ptr [EBP + -0x40],ECX                     
+  0x0086cff7: PUSH 0x1082be8                                      
+
+Reference 3: 0x0086d025 in FUN_0086cf20
+
+----------------------------------------------------------------------
+Disassembly reference to Sky::singleton around 0x0086d025
+----------------------------------------------------------------------
+  0x0086d009: CALL 0x00401000                                      ; CALL 0x00401000 FUN_00401000
+  0x0086d00e: ADD ESP,0x4                                         
+  0x0086d011: MOV dword ptr [EBP + -0x70],EAX                     
+  0x0086d014: MOV byte ptr [EBP + -0x4],0x1                       
+  0x0086d018: CMP dword ptr [EBP + -0x70],0x0                     
+  0x0086d01c: JZ 0x0086d048                                       
+  0x0086d01e: MOV EDX,dword ptr [0x011dea1c]                      
+  0x0086d024: PUSH EDX                                            
+  0x0086d025: MOV EAX,[0x011dea20]                                 << TARGET
+  0x0086d02a: PUSH EAX                                            
+  0x0086d02b: MOV ECX,dword ptr [EBP + -0x40]                     
+  0x0086d02e: PUSH ECX                                            
+  0x0086d02f: MOV EDX,dword ptr [EBP + -0x3c]                     
+  0x0086d032: PUSH EDX                                            
+  0x0086d033: PUSH 0x10724e8                                      
+  0x0086d038: MOV ECX,dword ptr [EBP + -0x70]                     
+  0x0086d03b: CALL 0x0044fb20                                      ; CALL 0x0044fb20 NewTES
+  0x0086d040: MOV dword ptr [EBP + 0xffffff70],EAX                
+  0x0086d046: JMP 0x0086d052                                      
+  0x0086d048: MOV dword ptr [EBP + 0xffffff70],0x0                
+  0x0086d052: MOV EAX,dword ptr [EBP + 0xffffff70]                
+  0x0086d058: MOV dword ptr [EBP + -0x6c],EAX                     
+  0x0086d05b: MOV byte ptr [EBP + -0x4],0x0                       
+  0x0086d05f: MOV ECX,dword ptr [EBP + -0x6c]                     
+  0x0086d062: MOV dword ptr [0x011dea10],ECX                      
+  0x0086d068: LEA ECX,[EBP + -0x38]                               
+  0x0086d06b: CALL 0x00404f70                                      ; CALL 0x00404f70 FUN_00404f70
+  0x0086d070: MOV ECX,dword ptr [0x011dea10]                      
+  0x0086d076: CALL 0x00450c50                                      ; CALL 0x00450c50 FUN_00450c50
+
+Reference 4: 0x00871000 in FUN_00870bd0
+
+----------------------------------------------------------------------
+Disassembly reference to Sky::singleton around 0x00871000
+----------------------------------------------------------------------
+  0x00870fdc: CALL 0x00875fa0                                      ; CALL 0x00875fa0 FUN_00875fa0
+  0x00870fe1: MOVZX EAX,byte ptr [EBP + -0x23]                    
+  0x00870fe5: TEST EAX,EAX                                        
+  0x00870fe7: JZ 0x008710c4                                       
+  0x00870fed: MOV ECX,dword ptr [0x011dea10]                      
+  0x00870ff3: CALL 0x005f36f0                                      ; CALL 0x005f36f0 FUN_005f36f0
+  0x00870ff8: TEST EAX,EAX                                        
+  0x00870ffa: JNZ 0x008710c4                                      
+  0x00871000: CMP dword ptr [0x011dea20],0x0                       << TARGET
+  0x00871007: JZ 0x008710c4                                       
+  0x0087100d: MOV ECX,dword ptr [0x011dea20]                      
+  0x00871013: CALL 0x0045cd60                                      ; CALL 0x0045cd60 Sky sun/current object getter candidate
+  0x00871018: TEST EAX,EAX                                        
+  0x0087101a: JZ 0x008710c4                                       
+  0x00871020: MOV ECX,dword ptr [0x011dea20]                      
+  0x00871026: CALL 0x0045cd60                                      ; CALL 0x0045cd60 Sky sun/current object getter candidate
+  0x0087102b: MOV dword ptr [EBP + 0xffffff4c],EAX                
+  0x00871031: MOV ECX,dword ptr [EBP + 0xffffff4c]                
+  0x00871037: MOV EDX,dword ptr [ECX]                             
+  0x00871039: MOV ECX,dword ptr [EBP + 0xffffff4c]                
+  0x0087103f: MOV EAX,dword ptr [EDX + 0x4]                       
+  0x00871042: CALL EAX                                            
+  0x00871044: MOV ECX,EAX                                         
+  0x00871046: CALL 0x0045bb80                                      ; CALL 0x0045bb80 CameraVectorGetter_0045BB80
+  0x0087104b: MOV ECX,dword ptr [EAX]                             
+  0x0087104d: MOV dword ptr [EBP + -0x4c],ECX                     
+  0x00871050: MOV EDX,dword ptr [EAX + 0x4]                       
+  0x00871053: MOV dword ptr [EBP + -0x48],EDX                     
+  0x00871056: MOV EAX,dword ptr [EAX + 0x8]                       
+
+Reference 5: 0x0087100d in FUN_00870bd0
+
+----------------------------------------------------------------------
+Disassembly reference to Sky::singleton around 0x0087100d
+----------------------------------------------------------------------
+  0x00870fe5: TEST EAX,EAX                                        
+  0x00870fe7: JZ 0x008710c4                                       
+  0x00870fed: MOV ECX,dword ptr [0x011dea10]                      
+  0x00870ff3: CALL 0x005f36f0                                      ; CALL 0x005f36f0 FUN_005f36f0
+  0x00870ff8: TEST EAX,EAX                                        
+  0x00870ffa: JNZ 0x008710c4                                      
+  0x00871000: CMP dword ptr [0x011dea20],0x0                      
+  0x00871007: JZ 0x008710c4                                       
+  0x0087100d: MOV ECX,dword ptr [0x011dea20]                       << TARGET
+  0x00871013: CALL 0x0045cd60                                      ; CALL 0x0045cd60 Sky sun/current object getter candidate
+  0x00871018: TEST EAX,EAX                                        
+  0x0087101a: JZ 0x008710c4                                       
+  0x00871020: MOV ECX,dword ptr [0x011dea20]                      
+  0x00871026: CALL 0x0045cd60                                      ; CALL 0x0045cd60 Sky sun/current object getter candidate
+  0x0087102b: MOV dword ptr [EBP + 0xffffff4c],EAX                
+  0x00871031: MOV ECX,dword ptr [EBP + 0xffffff4c]                
+  0x00871037: MOV EDX,dword ptr [ECX]                             
+  0x00871039: MOV ECX,dword ptr [EBP + 0xffffff4c]                
+  0x0087103f: MOV EAX,dword ptr [EDX + 0x4]                       
+  0x00871042: CALL EAX                                            
+  0x00871044: MOV ECX,EAX                                         
+  0x00871046: CALL 0x0045bb80                                      ; CALL 0x0045bb80 CameraVectorGetter_0045BB80
+  0x0087104b: MOV ECX,dword ptr [EAX]                             
+  0x0087104d: MOV dword ptr [EBP + -0x4c],ECX                     
+  0x00871050: MOV EDX,dword ptr [EAX + 0x4]                       
+  0x00871053: MOV dword ptr [EBP + -0x48],EDX                     
+  0x00871056: MOV EAX,dword ptr [EAX + 0x8]                       
+  0x00871059: MOV dword ptr [EBP + -0x44],EAX                     
+  0x0087105c: FLDZ                                                
+
+Reference 6: 0x00871020 in FUN_00870bd0
+
+----------------------------------------------------------------------
+Disassembly reference to Sky::singleton around 0x00871020
+----------------------------------------------------------------------
+  0x00870ff8: TEST EAX,EAX                                        
+  0x00870ffa: JNZ 0x008710c4                                      
+  0x00871000: CMP dword ptr [0x011dea20],0x0                      
+  0x00871007: JZ 0x008710c4                                       
+  0x0087100d: MOV ECX,dword ptr [0x011dea20]                      
+  0x00871013: CALL 0x0045cd60                                      ; CALL 0x0045cd60 Sky sun/current object getter candidate
+  0x00871018: TEST EAX,EAX                                        
+  0x0087101a: JZ 0x008710c4                                       
+  0x00871020: MOV ECX,dword ptr [0x011dea20]                       << TARGET
+  0x00871026: CALL 0x0045cd60                                      ; CALL 0x0045cd60 Sky sun/current object getter candidate
+  0x0087102b: MOV dword ptr [EBP + 0xffffff4c],EAX                
+  0x00871031: MOV ECX,dword ptr [EBP + 0xffffff4c]                
+  0x00871037: MOV EDX,dword ptr [ECX]                             
+  0x00871039: MOV ECX,dword ptr [EBP + 0xffffff4c]                
+  0x0087103f: MOV EAX,dword ptr [EDX + 0x4]                       
+  0x00871042: CALL EAX                                            
+  0x00871044: MOV ECX,EAX                                         
+  0x00871046: CALL 0x0045bb80                                      ; CALL 0x0045bb80 CameraVectorGetter_0045BB80
+  0x0087104b: MOV ECX,dword ptr [EAX]                             
+  0x0087104d: MOV dword ptr [EBP + -0x4c],ECX                     
+  0x00871050: MOV EDX,dword ptr [EAX + 0x4]                       
+  0x00871053: MOV dword ptr [EBP + -0x48],EDX                     
+  0x00871056: MOV EAX,dword ptr [EAX + 0x8]                       
+  0x00871059: MOV dword ptr [EBP + -0x44],EAX                     
+  0x0087105c: FLDZ                                                
+  0x0087105e: FSTP float ptr [EBP + -0x54]                        
+  0x00871061: FLD float ptr [EBP + -0x54]                         
+  0x00871064: FSTP float ptr [EBP + -0x58]                        
+  0x00871067: FLD float ptr [EBP + -0x58]                         
+
+Reference 7: 0x00877795 in FUN_00877730
+
+----------------------------------------------------------------------
+Disassembly reference to Sky::singleton around 0x00877795
+----------------------------------------------------------------------
+  0x00877777: CALL 0x0040fbe0                                      ; CALL 0x0040fbe0 FUN_0040fbe0
+  0x0087777c: ADD ESP,0x4                                         
+  0x0087777f: MOV ECX,0x11deb00                                   
+  0x00877784: CALL 0x00559450                                      ; CALL 0x00559450 FUN_00559450
+  0x00877789: PUSH EAX                                            
+  0x0087778a: MOV ECX,0x11deb34                                   
+  0x0087778f: CALL 0x00559450                                      ; CALL 0x00559450 FUN_00559450
+  0x00877794: PUSH EAX                                            
+  0x00877795: MOV ECX,dword ptr [0x011dea20]                       << TARGET
+  0x0087779b: CALL 0x0063a630                                      ; CALL 0x0063a630 Sky setup/update with render textures candidate
+  0x008777a0: MOV ECX,0x11deda4                                   
+  0x008777a5: CALL 0x00559450                                      ; CALL 0x00559450 FUN_00559450
+  0x008777aa: MOV dword ptr [EBP + -0x38],EAX                     
+  0x008777ad: PUSH 0x1                                            
+  0x008777af: MOV ECX,dword ptr [0x011dea20]                      
+  0x008777b5: CALL 0x0045cd60                                      ; CALL 0x0045cd60 Sky sun/current object getter candidate
+  0x008777ba: MOV ECX,EAX                                         
+  0x008777bc: CALL 0x0043b230                                      ; CALL 0x0043b230 FUN_0043b230
+  0x008777c1: PUSH EAX                                            
+  0x008777c2: MOV EAX,dword ptr [EBP + -0x38]                     
+  0x008777c5: MOV EDX,dword ptr [EAX]                             
+  0x008777c7: MOV ECX,dword ptr [EBP + -0x38]                     
+  0x008777ca: MOV EAX,dword ptr [EDX + 0xdc]                      
+  0x008777d0: CALL EAX                                            
+  0x008777d2: MOV ECX,dword ptr [0x011dea20]                      
+  0x008777d8: CALL 0x004505a0                                      ; CALL 0x004505a0 Sky current climate/weather getter candidate
+  0x008777dd: PUSH EAX                                            
+  0x008777de: PUSH 0x0                                            
+  0x008777e0: CALL 0x00450b80                                      ; CALL 0x00450b80 FUN_00450b80
+
+Reference 8: 0x008777af in FUN_00877730
+
+----------------------------------------------------------------------
+Disassembly reference to Sky::singleton around 0x008777af
+----------------------------------------------------------------------
+  0x0087778f: CALL 0x00559450                                      ; CALL 0x00559450 FUN_00559450
+  0x00877794: PUSH EAX                                            
+  0x00877795: MOV ECX,dword ptr [0x011dea20]                      
+  0x0087779b: CALL 0x0063a630                                      ; CALL 0x0063a630 Sky setup/update with render textures candidate
+  0x008777a0: MOV ECX,0x11deda4                                   
+  0x008777a5: CALL 0x00559450                                      ; CALL 0x00559450 FUN_00559450
+  0x008777aa: MOV dword ptr [EBP + -0x38],EAX                     
+  0x008777ad: PUSH 0x1                                            
+  0x008777af: MOV ECX,dword ptr [0x011dea20]                       << TARGET
+  0x008777b5: CALL 0x0045cd60                                      ; CALL 0x0045cd60 Sky sun/current object getter candidate
+  0x008777ba: MOV ECX,EAX                                         
+  0x008777bc: CALL 0x0043b230                                      ; CALL 0x0043b230 FUN_0043b230
+  0x008777c1: PUSH EAX                                            
+  0x008777c2: MOV EAX,dword ptr [EBP + -0x38]                     
+  0x008777c5: MOV EDX,dword ptr [EAX]                             
+  0x008777c7: MOV ECX,dword ptr [EBP + -0x38]                     
+  0x008777ca: MOV EAX,dword ptr [EDX + 0xdc]                      
+  0x008777d0: CALL EAX                                            
+  0x008777d2: MOV ECX,dword ptr [0x011dea20]                      
+  0x008777d8: CALL 0x004505a0                                      ; CALL 0x004505a0 Sky current climate/weather getter candidate
+  0x008777dd: PUSH EAX                                            
+  0x008777de: PUSH 0x0                                            
+  0x008777e0: CALL 0x00450b80                                      ; CALL 0x00450b80 FUN_00450b80
+  0x008777e5: ADD ESP,0x4                                         
+  0x008777e8: MOV ECX,EAX                                         
+  0x008777ea: CALL 0x00b5aac0                                      ; CALL 0x00b5aac0 FUN_00b5aac0
+  0x008777ef: MOV ECX,0x11deb34                                   
+  0x008777f4: CALL 0x00559450                                      ; CALL 0x00559450 FUN_00559450
+  0x008777f9: MOV ECX,EAX                                         
+
+Reference 9: 0x008777d2 in FUN_00877730
+
+----------------------------------------------------------------------
+Disassembly reference to Sky::singleton around 0x008777d2
+----------------------------------------------------------------------
+  0x008777ba: MOV ECX,EAX                                         
+  0x008777bc: CALL 0x0043b230                                      ; CALL 0x0043b230 FUN_0043b230
+  0x008777c1: PUSH EAX                                            
+  0x008777c2: MOV EAX,dword ptr [EBP + -0x38]                     
+  0x008777c5: MOV EDX,dword ptr [EAX]                             
+  0x008777c7: MOV ECX,dword ptr [EBP + -0x38]                     
+  0x008777ca: MOV EAX,dword ptr [EDX + 0xdc]                      
+  0x008777d0: CALL EAX                                            
+  0x008777d2: MOV ECX,dword ptr [0x011dea20]                       << TARGET
+  0x008777d8: CALL 0x004505a0                                      ; CALL 0x004505a0 Sky current climate/weather getter candidate
+  0x008777dd: PUSH EAX                                            
+  0x008777de: PUSH 0x0                                            
+  0x008777e0: CALL 0x00450b80                                      ; CALL 0x00450b80 FUN_00450b80
+  0x008777e5: ADD ESP,0x4                                         
+  0x008777e8: MOV ECX,EAX                                         
+  0x008777ea: CALL 0x00b5aac0                                      ; CALL 0x00b5aac0 FUN_00b5aac0
+  0x008777ef: MOV ECX,0x11deb34                                   
+  0x008777f4: CALL 0x00559450                                      ; CALL 0x00559450 FUN_00559450
+  0x008777f9: MOV ECX,EAX                                         
+  0x008777fb: CALL 0x00a5a040                                      ; CALL 0x00a5a040 FUN_00a5a040
+  0x00877800: MOV ECX,0x11deadc                                   
+  0x00877805: CALL 0x00408d60                                      ; CALL 0x00408d60 FUN_00408d60
+  0x0087780a: MOVZX ECX,byte ptr [EAX]                            
+  0x0087780d: PUSH ECX                                            
+  0x0087780e: CALL 0x004e3270                                      ; CALL 0x004e3270 FUN_004e3270
+  0x00877813: MOV ECX,EAX                                         
+  0x00877815: CALL 0x00b8b200                                      ; CALL 0x00b8b200 FUN_00b8b200
+  0x0087781a: MOV ECX,0x11deadc                                   
+  0x0087781f: CALL 0x00408d60                                      ; CALL 0x00408d60 FUN_00408d60
+
+Reference 10: 0x00877916 in FUN_00877730
+
+----------------------------------------------------------------------
+Disassembly reference to Sky::singleton around 0x00877916
+----------------------------------------------------------------------
+  0x008778fd: PUSH 0x0                                            
+  0x008778ff: MOV ECX,0x11deb34                                   
+  0x00877904: CALL 0x00559450                                      ; CALL 0x00559450 FUN_00559450
+  0x00877909: PUSH EAX                                            
+  0x0087790a: CALL 0x00b57e30                                      ; CALL 0x00b57e30 FUN_00b57e30
+  0x0087790f: ADD ESP,0xc                                         
+  0x00877912: PUSH 0x0                                            
+  0x00877914: PUSH 0x0                                            
+  0x00877916: MOV ECX,dword ptr [0x011dea20]                       << TARGET
+  0x0087791c: CALL 0x0045cd60                                      ; CALL 0x0045cd60 Sky sun/current object getter candidate
+  0x00877921: MOV ECX,EAX                                         
+  0x00877923: CALL 0x0043b230                                      ; CALL 0x0043b230 FUN_0043b230
+  0x00877928: PUSH EAX                                            
+  0x00877929: CALL 0x00b57e30                                      ; CALL 0x00b57e30 FUN_00b57e30
+  0x0087792e: ADD ESP,0xc                                         
+  0x00877931: MOV dword ptr [EBP + -0x4],0xffffffff               
+  0x00877938: LEA ECX,[EBP + -0x1c]                               
+  0x0087793b: CALL 0x00404ee0                                      ; CALL 0x00404ee0 FUN_00404ee0
+  0x00877940: MOV ECX,dword ptr [EBP + -0xc]                      
+  0x00877943: MOV dword ptr FS:[0x0],ECX                          
+  0x0087794a: POP ECX                                             
+  0x0087794b: MOV ESP,EBP                                         
+  0x0087794d: POP EBP                                             
+  0x0087794e: RET                                                 
+  0x00877950: PUSH EBP                                            
+  0x00877951: MOV EBP,ESP                                         
+  0x00877953: CALL 0x00877960                                      ; CALL 0x00877960 FUN_00877960
+  0x00877958: MOV EAX,[0x01204368]                                
+  0x0087795d: POP EBP                                             
+Total reference windows printed: 10
+
+----------------------------------------------------------------------
+References TO 0x011dea10 (TES singleton candidate)
+----------------------------------------------------------------------
+  READ @ 0x0086b1b9 (in FUN_0086a850)
+  READ @ 0x0086b351 (in FUN_0086a850)
+  READ @ 0x0086b774 (in FUN_0086a850)
+  READ @ 0x0086b783 (in FUN_0086a850)
+  READ @ 0x0086b802 (in FUN_0086a850)
+  READ @ 0x00458364 (in FUN_00458200)
+  READ @ 0x00458378 (in FUN_00458200)
+  READ @ 0x004583a9 (in FUN_00458200)
+  READ @ 0x00552c1d (in FUN_00552bd0)
+  READ @ 0x00552c45 (in FUN_00552bd0)
+  READ @ 0x00552c56 (in FUN_00552bd0)
+  READ @ 0x00552c86 (in FUN_00552bd0)
+  READ @ 0x00552d34 (in FUN_00552bd0)
+  READ @ 0x0055751c (in FUN_005574d0)
+  READ @ 0x0055752f (in FUN_005574d0)
+  READ @ 0x00561f91 (in FUN_00561ef0)
+  READ @ 0x00573a27 (in FUN_00573800)
+  READ @ 0x00573b55 (in FUN_00573800)
+  READ @ 0x00573bd2 (in FUN_00573800)
+  READ @ 0x00548493 (in FUN_00548230)
+  READ @ 0x0054859a (in FUN_00548230)
+  READ @ 0x0054893e (in FUN_00548880)
+  READ @ 0x005492d7 (in FUN_00548880)
+  READ @ 0x004e4be6 (in FUN_004e4730)
+  READ @ 0x004e4bf5 (in FUN_004e4730)
+  READ @ 0x004e4c1d (in FUN_004e4730)
+  READ @ 0x006c5635 (in FUN_006c5460)
+  READ @ 0x006c567a (in FUN_006c5460)
+  READ @ 0x006fb410 (in FUN_006fb3d0)
+  READ @ 0x006fb44a (in FUN_006fb3d0)
+  READ @ 0x006fb4fa (in FUN_006fb3d0)
+  READ @ 0x006fb534 (in FUN_006fb3d0)
+  READ @ 0x004ed437 (in FUN_004ed3e0)
+  READ @ 0x0078a47f (in FUN_0078a3e0)
+  READ @ 0x007cbb56 (in FUN_007cbaf0)
+  READ @ 0x00849343 (in FUN_008492b0)
+  READ @ 0x008493a0 (in FUN_008492b0)
+  READ @ 0x005571b7 (in FUN_005571a0)
+  READ @ 0x0084f649 (in FUN_0084f330)
+  READ @ 0x0084f729 (in FUN_0084f330)
+  READ @ 0x00469d4d (in FUN_004698a0)
+  READ @ 0x0049530c (in FUN_004949a0)
+  READ @ 0x004aefb3 (in FUN_004aeed0)
+  READ @ 0x004b781e (in FUN_004b7660)
+  READ @ 0x0056fd11 (in FUN_0056fcb0)
+  READ @ 0x0056ff34 (in FUN_0056fcb0)
+  READ @ 0x0056ff4e (in FUN_0056fcb0)
+  READ @ 0x00570047 (in FUN_0056fcb0)
+  READ @ 0x0057b529 (in FUN_0057b520)
+  READ @ 0x0057b66c (in FUN_0057b520)
+  READ @ 0x0057b67f (in FUN_0057b520)
+  READ @ 0x0062fe44 (in FUN_0062fc70)
+  READ @ 0x0062ea4b (in FUN_0062e970)
+  READ @ 0x0062ea62 (in FUN_0062e970)
+  READ @ 0x0062eb04 (in FUN_0062e970)
+  READ @ 0x004573b1 (in FUN_004572e0)
+  READ @ 0x004e82ed (in FUN_004e8160)
+  READ @ 0x0062ee10 (in FUN_0062eb50)
+  READ @ 0x006893ae (in FUN_00689310)
+  READ @ 0x006893ca (in FUN_00689310)
+  READ @ 0x0045e016 (in FUN_0045dfe0)
+  READ @ 0x0045e021 (in FUN_0045dfe0)
+  READ @ 0x0045e02c (in FUN_0045dfe0)
+  READ @ 0x0045fa35 (in FUN_0045dfe0)
+  READ @ 0x0045fa46 (in FUN_0045dfe0)
+  WRITE @ 0x0086d062 (in FUN_0086cf20)
+  READ @ 0x0086d070 (in FUN_0086cf20)
+  READ @ 0x0086d2ae (in FUN_0086cf20)
+  READ @ 0x0086d2b9 (in FUN_0086cf20)
+  READ @ 0x0086d2d5 (in FUN_0086cf20)
+  READ @ 0x0086d2e0 (in FUN_0086cf20)
+  READ @ 0x0045a6cd (in FUN_0045a600)
+  READ @ 0x004630ed (in FUN_00463070)
+  READ @ 0x00463100 (in FUN_00463070)
+  READ @ 0x0046310d (in FUN_00463070)
+  READ @ 0x00463118 (in FUN_00463070)
+  READ @ 0x004646c1 (in FUN_00463070)
+  READ @ 0x004646d0 (in FUN_00463070)
+  READ @ 0x004e17d4 (in FUN_004e1650)
+  READ @ 0x0063f00f (in FUN_0063ef20)
+  READ @ 0x0063f04d (in FUN_0063ef20)
+  READ @ 0x0063f12b (in FUN_0063ef20)
+  READ @ 0x0063f169 (in FUN_0063ef20)
+  READ @ 0x00861ecf (in FUN_00861ea0)
+  READ @ 0x0086e8cd (in FUN_0086e650)
+  READ @ 0x0086e95b (in FUN_0086e650)
+  READ @ 0x0086e96d (in FUN_0086e650)
+  READ @ 0x0086e981 (in FUN_0086e650)
+  READ @ 0x0086e9de (in FUN_0086e650)
+  READ @ 0x0086ebc6 (in FUN_0086e650)
+  READ @ 0x0086ec12 (in FUN_0086e650)
+  READ @ 0x00456097 (in FUN_004556d0)
+  READ @ 0x00452ed9 (in FUN_00452ed0)
+  READ @ 0x00452fa3 (in FUN_00452ed0)
+  READ @ 0x00453151 (in FUN_00452ff0)
+  READ @ 0x00454168 (in FUN_00453dc0)
+  READ @ 0x004542f9 (in FUN_00453dc0)
+  READ @ 0x0045430d (in FUN_00453dc0)
+  READ @ 0x0045433e (in FUN_00453dc0)
+  READ @ 0x00454994 (in FUN_00454450)
+  READ @ 0x004549a8 (in FUN_00454450)
+  READ @ 0x004549d9 (in FUN_00454450)
+  READ @ 0x004576e6 (in FUN_00457620)
+  READ @ 0x0046e5cb (in FUN_0046ddb0)
+  READ @ 0x0046e627 (in FUN_0046ddb0)
+  READ @ 0x0046e71c (in FUN_0046ddb0)
+  READ @ 0x004a08c4 (in FUN_004a04c0)
+  READ @ 0x004a30ee (in FUN_004a2d50)
+  READ @ 0x004a340e (in FUN_004a2d50)
+  READ @ 0x004a34c4 (in FUN_004a2d50)
+  READ @ 0x00451a2a (in FUN_004519d0)
+  READ @ 0x004a8c06 (in FUN_004a8bb0)
+  READ @ 0x004a8c19 (in FUN_004a8bb0)
+  READ @ 0x004a8d37 (in FUN_004a8bb0)
+  READ @ 0x004a7d48 (in FUN_004a7d20)
+  READ @ 0x004a8a75 (in FUN_004a82d0)
+  READ @ 0x004a9065 (in FUN_004a9050)
+  READ @ 0x004a9074 (in FUN_004a9050)
+  READ @ 0x00528410 (in FUN_005283c0)
+  READ @ 0x00528426 (in FUN_005283c0)
+  READ @ 0x0053a4d4 (in FUN_0053a090)
+  ... (truncated)
+  Total: 121 refs
+
+======================================================================
+REFERENCE WINDOWS: TES singleton candidate @ 0x011dea10
+======================================================================
+
+Reference 1: 0x0086b1b9 in FUN_0086a850
+
+----------------------------------------------------------------------
+Disassembly reference to TES singleton candidate around 0x0086b1b9
+----------------------------------------------------------------------
+  0x0086b199: LEA ECX,[EBP + 0xfffffe38]                          
+  0x0086b19f: CALL 0x00416870                                      ; CALL 0x00416870 FUN_00416870
+  0x0086b1a4: MOV ECX,dword ptr [0x011c3f2c]                      
+  0x0086b1aa: CALL 0x00460140                                      ; CALL 0x00460140 FUN_00460140
+  0x0086b1af: MOV ECX,EAX                                         
+  0x0086b1b1: CALL 0x006815c0                                      ; CALL 0x006815c0 FUN_006815c0
+  0x0086b1b6: MOV EDX,dword ptr [EAX]                             
+  0x0086b1b8: PUSH EDX                                            
+  0x0086b1b9: MOV ECX,dword ptr [0x011dea10]                       << TARGET
+  0x0086b1bf: CALL 0x00458200                                      ; CALL 0x00458200 FUN_00458200
+  0x0086b1c4: MOV ECX,dword ptr [0x011dea3c]                      
+  0x0086b1ca: CALL 0x0095ee80                                      ; CALL 0x0095ee80 FUN_0095ee80
+  0x0086b1cf: PUSH 0x1                                            
+  0x0086b1d1: MOV ECX,dword ptr [0x011de45c]                      
+  0x0086b1d7: CALL 0x008a8150                                      ; CALL 0x008a8150 FUN_008a8150
+  0x0086b1dc: PUSH 0x108293c                                      
+  0x0086b1e1: CALL 0x0040fbe0                                      ; CALL 0x0040fbe0 FUN_0040fbe0
+  0x0086b1e6: ADD ESP,0x4                                         
+  0x0086b1e9: MOV ECX,0x11e0e80                                   
+  0x0086b1ee: CALL 0x00970d50                                      ; CALL 0x00970d50 FUN_00970d50
+  0x0086b1f3: MOV ECX,dword ptr [0x011c3f2c]                      
+  0x0086b1f9: CALL 0x004614e0                                      ; CALL 0x004614e0 FUN_004614e0
+  0x0086b1fe: PUSH 0x1                                            
+  0x0086b200: MOV ECX,dword ptr [0x011ddf38]                      
+  0x0086b206: CALL 0x007d6bd0                                      ; CALL 0x007d6bd0 FUN_007d6bd0
+  0x0086b20b: PUSH 0x1082924                                      
+  0x0086b210: CALL 0x0040fbe0                                      ; CALL 0x0040fbe0 FUN_0040fbe0
+  0x0086b215: ADD ESP,0x4                                         
+  0x0086b218: LEA EAX,[EBP + 0xfffffe38]                          
+
+Reference 2: 0x0086b351 in FUN_0086a850
+
+----------------------------------------------------------------------
+Disassembly reference to TES singleton candidate around 0x0086b351
+----------------------------------------------------------------------
+  0x0086b32e: CALL dword ptr [0x00fdf298]                          ; CALL 0x00000097 unknown
+  0x0086b334: LEA EDX,[EBP + 0xfffffe94]                          
+  0x0086b33a: PUSH EDX                                            
+  0x0086b33b: CALL dword ptr [0x00fdf294]                          ; CALL 0x00000096 unknown
+  0x0086b341: JMP 0x0086b30e                                      
+  0x0086b343: CALL dword ptr [0x00fdf2fc]                          ; CALL 0x000000b0 unknown
+  0x0086b349: CMP EAX,dword ptr [EBP + 0xfffffecc]                
+  0x0086b34f: JZ 0x0086b386                                       
+  0x0086b351: MOV ECX,dword ptr [0x011dea10]                       << TARGET
+  0x0086b357: CALL 0x00451530                                      ; CALL 0x00451530 FUN_00451530
+  0x0086b35c: MOVZX EAX,AL                                        
+  0x0086b35f: TEST EAX,EAX                                        
+  0x0086b361: JNZ 0x0086b386                                      
+  0x0086b363: MOV ECX,0x11deb30                                   
+  0x0086b368: CALL 0x00559450                                      ; CALL 0x00559450 FUN_00559450
+  0x0086b36d: TEST EAX,EAX                                        
+  0x0086b36f: JNZ 0x0086b386                                      
+  0x0086b371: MOV ECX,0x11deed8                                   
+  0x0086b376: CALL 0x00408d60                                      ; CALL 0x00408d60 FUN_00408d60
+  0x0086b37b: MOVZX ECX,byte ptr [EAX]                            
+  0x0086b37e: TEST ECX,ECX                                        
+  0x0086b380: JZ 0x0086b4f6                                       
+  0x0086b386: CALL 0x0043c4b0                                      ; CALL 0x0043c4b0 FUN_0043c4b0
+  0x0086b38b: MOV ECX,EAX                                         
+  0x0086b38d: CALL 0x004dc020                                      ; CALL 0x004dc020 FUN_004dc020
+  0x0086b392: MOV dword ptr [EBP + 0xfffffca0],EAX                
+  0x0086b398: MOV EDX,dword ptr [EBP + 0xfffffca0]                
+  0x0086b39e: MOV EAX,dword ptr [EDX]                             
+  0x0086b3a0: MOV ECX,dword ptr [EBP + 0xfffffca0]                
+
+Reference 3: 0x0086b774 in FUN_0086a850
+
+----------------------------------------------------------------------
+Disassembly reference to TES singleton candidate around 0x0086b774
+----------------------------------------------------------------------
+  0x0086b752: JLE 0x0086b760                                      
+  0x0086b754: CALL 0x00713d80                                      ; CALL 0x00713d80 FUN_00713d80
+  0x0086b759: MOV ECX,EAX                                         
+  0x0086b75b: CALL 0x008c73a0                                      ; CALL 0x008c73a0 FUN_008c73a0
+  0x0086b760: CALL 0x00867090                                      ; CALL 0x00867090 FUN_00867090
+  0x0086b765: CALL 0x004dc560                                      ; CALL 0x004dc560 FUN_004dc560
+  0x0086b76a: CALL 0x004dc590                                      ; CALL 0x004dc590 FUN_004dc590
+  0x0086b76f: CALL 0x00702330                                      ; CALL 0x00702330 FUN_00702330
+  0x0086b774: MOV ECX,dword ptr [0x011dea10]                       << TARGET
+  0x0086b77a: CALL 0x008d8520                                      ; CALL 0x008d8520 FUN_008d8520
+  0x0086b77f: TEST EAX,EAX                                        
+  0x0086b781: JZ 0x0086b795                                       
+  0x0086b783: MOV ECX,dword ptr [0x011dea10]                      
+  0x0086b789: CALL 0x008d8520                                      ; CALL 0x008d8520 FUN_008d8520
+  0x0086b78e: MOV ECX,EAX                                         
+  0x0086b790: CALL 0x0086be30                                      ; CALL 0x0086be30 FUN_0086be30
+  0x0086b795: CALL 0x004e0800                                      ; CALL 0x004e0800 FUN_004e0800
+  0x0086b79a: CALL 0x004def20                                      ; CALL 0x004def20 FUN_004def20
+  0x0086b79f: CALL 0x007ffe00                                      ; CALL 0x007ffe00 FUN_007ffe00
+  0x0086b7a4: CALL 0x00832010                                      ; CALL 0x00832010 FUN_00832010
+  0x0086b7a9: CALL 0x008304a0                                      ; CALL 0x008304a0 FUN_008304a0
+  0x0086b7ae: CALL 0x0082f9c0                                      ; CALL 0x0082f9c0 FUN_0082f9c0
+  0x0086b7b3: CALL 0x00453a70                                      ; CALL 0x00453a70 FUN_00453a70
+  0x0086b7b8: MOV dword ptr [EBP + 0xfffffc9c],EAX                
+  0x0086b7be: MOV ECX,dword ptr [EBP + 0xfffffc9c]                
+  0x0086b7c4: MOV EDX,dword ptr [ECX]                             
+  0x0086b7c6: MOV ECX,dword ptr [EBP + 0xfffffc9c]                
+  0x0086b7cc: MOV EAX,dword ptr [EDX + 0x8]                       
+  0x0086b7cf: CALL EAX                                            
+
+Reference 4: 0x0086b783 in FUN_0086a850
+
+----------------------------------------------------------------------
+Disassembly reference to TES singleton candidate around 0x0086b783
+----------------------------------------------------------------------
+  0x0086b760: CALL 0x00867090                                      ; CALL 0x00867090 FUN_00867090
+  0x0086b765: CALL 0x004dc560                                      ; CALL 0x004dc560 FUN_004dc560
+  0x0086b76a: CALL 0x004dc590                                      ; CALL 0x004dc590 FUN_004dc590
+  0x0086b76f: CALL 0x00702330                                      ; CALL 0x00702330 FUN_00702330
+  0x0086b774: MOV ECX,dword ptr [0x011dea10]                      
+  0x0086b77a: CALL 0x008d8520                                      ; CALL 0x008d8520 FUN_008d8520
+  0x0086b77f: TEST EAX,EAX                                        
+  0x0086b781: JZ 0x0086b795                                       
+  0x0086b783: MOV ECX,dword ptr [0x011dea10]                       << TARGET
+  0x0086b789: CALL 0x008d8520                                      ; CALL 0x008d8520 FUN_008d8520
+  0x0086b78e: MOV ECX,EAX                                         
+  0x0086b790: CALL 0x0086be30                                      ; CALL 0x0086be30 FUN_0086be30
+  0x0086b795: CALL 0x004e0800                                      ; CALL 0x004e0800 FUN_004e0800
+  0x0086b79a: CALL 0x004def20                                      ; CALL 0x004def20 FUN_004def20
+  0x0086b79f: CALL 0x007ffe00                                      ; CALL 0x007ffe00 FUN_007ffe00
+  0x0086b7a4: CALL 0x00832010                                      ; CALL 0x00832010 FUN_00832010
+  0x0086b7a9: CALL 0x008304a0                                      ; CALL 0x008304a0 FUN_008304a0
+  0x0086b7ae: CALL 0x0082f9c0                                      ; CALL 0x0082f9c0 FUN_0082f9c0
+  0x0086b7b3: CALL 0x00453a70                                      ; CALL 0x00453a70 FUN_00453a70
+  0x0086b7b8: MOV dword ptr [EBP + 0xfffffc9c],EAX                
+  0x0086b7be: MOV ECX,dword ptr [EBP + 0xfffffc9c]                
+  0x0086b7c4: MOV EDX,dword ptr [ECX]                             
+  0x0086b7c6: MOV ECX,dword ptr [EBP + 0xfffffc9c]                
+  0x0086b7cc: MOV EAX,dword ptr [EDX + 0x8]                       
+  0x0086b7cf: CALL EAX                                            
+  0x0086b7d1: CALL 0x0040fbe0                                      ; CALL 0x0040fbe0 FUN_0040fbe0
+  0x0086b7d6: CALL 0x0049ff80                                      ; CALL 0x0049ff80 FUN_0049ff80
+  0x0086b7db: CALL 0x00622bc0                                      ; CALL 0x00622bc0 FUN_00622bc0
+  0x0086b7e0: CALL 0x00626f10                                      ; CALL 0x00626f10 FUN_00626f10
+
+Reference 5: 0x0086b802 in FUN_0086a850
+
+----------------------------------------------------------------------
+Disassembly reference to TES singleton candidate around 0x0086b802
+----------------------------------------------------------------------
+  0x0086b7e5: MOV ECX,0x11d73e4                                   
+  0x0086b7ea: CALL 0x00408d60                                      ; CALL 0x00408d60 FUN_00408d60
+  0x0086b7ef: MOVZX ECX,byte ptr [EAX]                            
+  0x0086b7f2: TEST ECX,ECX                                        
+  0x0086b7f4: JZ 0x0086b802                                       
+  0x0086b7f6: CALL 0x006c0720                                      ; CALL 0x006c0720 FUN_006c0720
+  0x0086b7fb: MOV ECX,EAX                                         
+  0x0086b7fd: CALL 0x006c0900                                      ; CALL 0x006c0900 FUN_006c0900
+  0x0086b802: MOV EDX,dword ptr [0x011dea10]                       << TARGET
+  0x0086b808: MOV dword ptr [EBP + 0xfffffcc8],EDX                
+  0x0086b80e: MOV EAX,dword ptr [EBP + 0xfffffcc8]                
+  0x0086b814: MOV dword ptr [EBP + 0xfffffccc],EAX                
+  0x0086b81a: CMP dword ptr [EBP + 0xfffffccc],0x0                
+  0x0086b821: JZ 0x0086b838                                       
+  0x0086b823: PUSH 0x1                                            
+  0x0086b825: MOV ECX,dword ptr [EBP + 0xfffffccc]                
+  0x0086b82b: CALL 0x0086bee0                                      ; CALL 0x0086bee0 FUN_0086bee0
+  0x0086b830: MOV dword ptr [EBP + 0xfffffc98],EAX                
+  0x0086b836: JMP 0x0086b842                                      
+  0x0086b838: MOV dword ptr [EBP + 0xfffffc98],0x0                
+  0x0086b842: CALL 0x0086beb0                                      ; CALL 0x0086beb0 FUN_0086beb0
+  0x0086b847: CALL 0x0047d0b0                                      ; CALL 0x0047d0b0 FID_conflict:_Immortalize<std::_Generic_error_category>
+  0x0086b84c: MOV ECX,EAX                                         
+  0x0086b84e: CALL 0x006eb980                                      ; CALL 0x006eb980 FUN_006eb980
+  0x0086b853: CALL 0x00651ab0                                      ; CALL 0x00651ab0 FUN_00651ab0
+  0x0086b858: CALL 0x00990ff0                                      ; CALL 0x00990ff0 FUN_00990ff0
+  0x0086b85d: CALL 0x00b00a00                                      ; CALL 0x00b00a00 FUN_00b00a00
+  0x0086b862: MOV dword ptr [EBP + 0xfffffc94],EAX                
+  0x0086b868: MOV ECX,dword ptr [EBP + 0xfffffc94]                
+
+Reference 6: 0x00458364 in FUN_00458200
+
+----------------------------------------------------------------------
+Disassembly reference to TES singleton candidate around 0x00458364
+----------------------------------------------------------------------
+  0x0045834f: MOV byte ptr [EBP + -0x4],0x1                       
+  0x00458353: PUSH 0x1                                            
+  0x00458355: PUSH 0x1                                            
+  0x00458357: LEA EDX,[EBP + -0x18]                               
+  0x0045835a: PUSH EDX                                            
+  0x0045835b: MOV ECX,dword ptr [EBP + 0x8]                       
+  0x0045835e: CALL 0x00454b50                                      ; CALL 0x00454b50 FUN_00454b50
+  0x00458363: PUSH EAX                                            
+  0x00458364: MOV ECX,dword ptr [0x011dea10]                       << TARGET
+  0x0045836a: CALL 0x004568c0                                      ; CALL 0x004568c0 FUN_004568c0
+  0x0045836f: LEA ECX,[EBP + -0x18]                               
+  0x00458372: CALL 0x00559450                                      ; CALL 0x00559450 FUN_00559450
+  0x00458377: PUSH EAX                                            
+  0x00458378: MOV ECX,dword ptr [0x011dea10]                      
+  0x0045837e: CALL 0x0070ec90                                      ; CALL 0x0070ec90 FUN_0070ec90
+  0x00458383: MOV ECX,EAX                                         
+  0x00458385: CALL 0x0052d3b0                                      ; CALL 0x0052d3b0 FUN_0052d3b0
+  0x0045838a: MOV byte ptr [EBP + -0x4],0x0                       
+  0x0045838e: LEA ECX,[EBP + -0x18]                               
+  0x00458391: CALL 0x0045cec0                                      ; CALL 0x0045cec0 ~cancellation_token_source
+  0x00458396: MOV dword ptr [EBP + -0x4],0xffffffff               
+  0x0045839d: LEA ECX,[EBP + -0x1c]                               
+  0x004583a0: CALL 0x00404ee0                                      ; CALL 0x00404ee0 FUN_00404ee0
+  0x004583a5: JMP 0x004583bb                                      
+  0x004583a7: PUSH 0x0                                            
+  0x004583a9: MOV ECX,dword ptr [0x011dea10]                      
+  0x004583af: CALL 0x0070ec90                                      ; CALL 0x0070ec90 FUN_0070ec90
+  0x004583b4: MOV ECX,EAX                                         
+  0x004583b6: CALL 0x0052d3b0                                      ; CALL 0x0052d3b0 FUN_0052d3b0
+
+Reference 7: 0x00458378 in FUN_00458200
+
+----------------------------------------------------------------------
+Disassembly reference to TES singleton candidate around 0x00458378
+----------------------------------------------------------------------
+  0x0045835b: MOV ECX,dword ptr [EBP + 0x8]                       
+  0x0045835e: CALL 0x00454b50                                      ; CALL 0x00454b50 FUN_00454b50
+  0x00458363: PUSH EAX                                            
+  0x00458364: MOV ECX,dword ptr [0x011dea10]                      
+  0x0045836a: CALL 0x004568c0                                      ; CALL 0x004568c0 FUN_004568c0
+  0x0045836f: LEA ECX,[EBP + -0x18]                               
+  0x00458372: CALL 0x00559450                                      ; CALL 0x00559450 FUN_00559450
+  0x00458377: PUSH EAX                                            
+  0x00458378: MOV ECX,dword ptr [0x011dea10]                       << TARGET
+  0x0045837e: CALL 0x0070ec90                                      ; CALL 0x0070ec90 FUN_0070ec90
+  0x00458383: MOV ECX,EAX                                         
+  0x00458385: CALL 0x0052d3b0                                      ; CALL 0x0052d3b0 FUN_0052d3b0
+  0x0045838a: MOV byte ptr [EBP + -0x4],0x0                       
+  0x0045838e: LEA ECX,[EBP + -0x18]                               
+  0x00458391: CALL 0x0045cec0                                      ; CALL 0x0045cec0 ~cancellation_token_source
+  0x00458396: MOV dword ptr [EBP + -0x4],0xffffffff               
+  0x0045839d: LEA ECX,[EBP + -0x1c]                               
+  0x004583a0: CALL 0x00404ee0                                      ; CALL 0x00404ee0 FUN_00404ee0
+  0x004583a5: JMP 0x004583bb                                      
+  0x004583a7: PUSH 0x0                                            
+  0x004583a9: MOV ECX,dword ptr [0x011dea10]                      
+  0x004583af: CALL 0x0070ec90                                      ; CALL 0x0070ec90 FUN_0070ec90
+  0x004583b4: MOV ECX,EAX                                         
+  0x004583b6: CALL 0x0052d3b0                                      ; CALL 0x0052d3b0 FUN_0052d3b0
+  0x004583bb: MOV ECX,dword ptr [EBP + 0x8]                       
+  0x004583be: CALL 0x005862e0                                      ; CALL 0x005862e0 FUN_005862e0
+  0x004583c3: MOVZX EAX,AL                                        
+  0x004583c6: TEST EAX,EAX                                        
+  0x004583c8: SETZ CL                                             
+
+Reference 8: 0x004583a9 in FUN_00458200
+
+----------------------------------------------------------------------
+Disassembly reference to TES singleton candidate around 0x004583a9
+----------------------------------------------------------------------
+  0x0045838a: MOV byte ptr [EBP + -0x4],0x0                       
+  0x0045838e: LEA ECX,[EBP + -0x18]                               
+  0x00458391: CALL 0x0045cec0                                      ; CALL 0x0045cec0 ~cancellation_token_source
+  0x00458396: MOV dword ptr [EBP + -0x4],0xffffffff               
+  0x0045839d: LEA ECX,[EBP + -0x1c]                               
+  0x004583a0: CALL 0x00404ee0                                      ; CALL 0x00404ee0 FUN_00404ee0
+  0x004583a5: JMP 0x004583bb                                      
+  0x004583a7: PUSH 0x0                                            
+  0x004583a9: MOV ECX,dword ptr [0x011dea10]                       << TARGET
+  0x004583af: CALL 0x0070ec90                                      ; CALL 0x0070ec90 FUN_0070ec90
+  0x004583b4: MOV ECX,EAX                                         
+  0x004583b6: CALL 0x0052d3b0                                      ; CALL 0x0052d3b0 FUN_0052d3b0
+  0x004583bb: MOV ECX,dword ptr [EBP + 0x8]                       
+  0x004583be: CALL 0x005862e0                                      ; CALL 0x005862e0 FUN_005862e0
+  0x004583c3: MOVZX EAX,AL                                        
+  0x004583c6: TEST EAX,EAX                                        
+  0x004583c8: SETZ CL                                             
+  0x004583cb: MOVZX EDX,CL                                        
+  0x004583ce: PUSH EDX                                            
+  0x004583cf: CALL 0x004583f0                                      ; CALL 0x004583f0 FUN_004583f0
+  0x004583d4: ADD ESP,0x4                                         
+  0x004583d7: MOV ECX,dword ptr [EBP + -0xc]                      
+  0x004583da: MOV dword ptr FS:[0x0],ECX                          
+  0x004583e1: POP ECX                                             
+  0x004583e2: MOV ESP,EBP                                         
+  0x004583e4: POP EBP                                             
+  0x004583e5: RET 0x4                                             
+  0x004583f0: PUSH EBP                                            
+  0x004583f1: MOV EBP,ESP                                         
+
+Reference 9: 0x00552c1d in FUN_00552bd0
+
+----------------------------------------------------------------------
+Disassembly reference to TES singleton candidate around 0x00552c1d
+----------------------------------------------------------------------
+  0x00552bfe: MOV ECX,dword ptr [EBP + -0x10]                     
+  0x00552c01: CALL 0x004512a0                                      ; CALL 0x004512a0 FUN_004512a0
+  0x00552c06: MOV ECX,dword ptr [EBP + -0x10]                     
+  0x00552c09: CALL 0x00557c40                                      ; CALL 0x00557c40 FUN_00557c40
+  0x00552c0e: MOV EAX,dword ptr [EBP + -0x10]                     
+  0x00552c11: PUSH EAX                                            
+  0x00552c12: MOV ECX,dword ptr [0x011c3b3c]                      
+  0x00552c18: CALL 0x00445670                                      ; CALL 0x00445670 FUN_00445670
+  0x00552c1d: MOV ECX,dword ptr [0x011dea10]                       << TARGET
+  0x00552c23: CALL 0x00452e50                                      ; CALL 0x00452e50 FUN_00452e50
+  0x00552c28: PUSH 0x0                                            
+  0x00552c2a: MOV ECX,dword ptr [EBP + -0x10]                     
+  0x00552c2d: CALL 0x0054ba80                                      ; CALL 0x0054ba80 FUN_0054ba80
+  0x00552c32: MOV ECX,dword ptr [EBP + -0x10]                     
+  0x00552c35: CALL 0x00425fd0                                      ; CALL 0x00425fd0 FUN_00425fd0
+  0x00552c3a: MOVZX ECX,AL                                        
+  0x00552c3d: TEST ECX,ECX                                        
+  0x00552c3f: JZ 0x00552c52                                       
+  0x00552c41: MOV EDX,dword ptr [EBP + -0x10]                     
+  0x00552c44: PUSH EDX                                            
+  0x00552c45: MOV ECX,dword ptr [0x011dea10]                      
+  0x00552c4b: CALL 0x00454c20                                      ; CALL 0x00454c20 FUN_00454c20
+  0x00552c50: JMP 0x00552c61                                      
+  0x00552c52: MOV EAX,dword ptr [EBP + -0x10]                     
+  0x00552c55: PUSH EAX                                            
+  0x00552c56: MOV ECX,dword ptr [0x011dea10]                      
+  0x00552c5c: CALL 0x00455130                                      ; CALL 0x00455130 FUN_00455130
+  0x00552c61: MOVZX ECX,byte ptr [EBP + 0x8]                      
+  0x00552c65: TEST ECX,ECX                                        
+
+Reference 10: 0x00552c45 in FUN_00552bd0
+
+----------------------------------------------------------------------
+Disassembly reference to TES singleton candidate around 0x00552c45
+----------------------------------------------------------------------
+  0x00552c2d: CALL 0x0054ba80                                      ; CALL 0x0054ba80 FUN_0054ba80
+  0x00552c32: MOV ECX,dword ptr [EBP + -0x10]                     
+  0x00552c35: CALL 0x00425fd0                                      ; CALL 0x00425fd0 FUN_00425fd0
+  0x00552c3a: MOVZX ECX,AL                                        
+  0x00552c3d: TEST ECX,ECX                                        
+  0x00552c3f: JZ 0x00552c52                                       
+  0x00552c41: MOV EDX,dword ptr [EBP + -0x10]                     
+  0x00552c44: PUSH EDX                                            
+  0x00552c45: MOV ECX,dword ptr [0x011dea10]                       << TARGET
+  0x00552c4b: CALL 0x00454c20                                      ; CALL 0x00454c20 FUN_00454c20
+  0x00552c50: JMP 0x00552c61                                      
+  0x00552c52: MOV EAX,dword ptr [EBP + -0x10]                     
+  0x00552c55: PUSH EAX                                            
+  0x00552c56: MOV ECX,dword ptr [0x011dea10]                      
+  0x00552c5c: CALL 0x00455130                                      ; CALL 0x00455130 FUN_00455130
+  0x00552c61: MOVZX ECX,byte ptr [EBP + 0x8]                      
+  0x00552c65: TEST ECX,ECX                                        
+  0x00552c67: JZ 0x00552c71                                       
+  0x00552c69: MOV ECX,dword ptr [EBP + -0x10]                     
+  0x00552c6c: CALL 0x00553700                                      ; CALL 0x00553700 FUN_00553700
+  0x00552c71: PUSH 0x0                                            
+  0x00552c73: MOV ECX,dword ptr [EBP + -0x10]                     
+  0x00552c76: CALL 0x005577b0                                      ; CALL 0x005577b0 FUN_005577b0
+  0x00552c7b: MOV ECX,dword ptr [EBP + -0x10]                     
+  0x00552c7e: CALL 0x00545cf0                                      ; CALL 0x00545cf0 FUN_00545cf0
+  0x00552c83: MOV dword ptr [EBP + -0x8],EAX                      
+  0x00552c86: MOV ECX,dword ptr [0x011dea10]                      
+  0x00552c8c: CALL 0x0084e3a0                                      ; CALL 0x0084e3a0 FUN_0084e3a0
+  0x00552c91: MOV dword ptr [EBP + -0x14],EAX                     
+
+Reference 11: 0x00552c56 in FUN_00552bd0
+
+----------------------------------------------------------------------
+Disassembly reference to TES singleton candidate around 0x00552c56
+----------------------------------------------------------------------
+  0x00552c3f: JZ 0x00552c52                                       
+  0x00552c41: MOV EDX,dword ptr [EBP + -0x10]                     
+  0x00552c44: PUSH EDX                                            
+  0x00552c45: MOV ECX,dword ptr [0x011dea10]                      
+  0x00552c4b: CALL 0x00454c20                                      ; CALL 0x00454c20 FUN_00454c20
+  0x00552c50: JMP 0x00552c61                                      
+  0x00552c52: MOV EAX,dword ptr [EBP + -0x10]                     
+  0x00552c55: PUSH EAX                                            
+  0x00552c56: MOV ECX,dword ptr [0x011dea10]                       << TARGET
+  0x00552c5c: CALL 0x00455130                                      ; CALL 0x00455130 FUN_00455130
+  0x00552c61: MOVZX ECX,byte ptr [EBP + 0x8]                      
+  0x00552c65: TEST ECX,ECX                                        
+  0x00552c67: JZ 0x00552c71                                       
+  0x00552c69: MOV ECX,dword ptr [EBP + -0x10]                     
+  0x00552c6c: CALL 0x00553700                                      ; CALL 0x00553700 FUN_00553700
+  0x00552c71: PUSH 0x0                                            
+  0x00552c73: MOV ECX,dword ptr [EBP + -0x10]                     
+  0x00552c76: CALL 0x005577b0                                      ; CALL 0x005577b0 FUN_005577b0
+  0x00552c7b: MOV ECX,dword ptr [EBP + -0x10]                     
+  0x00552c7e: CALL 0x00545cf0                                      ; CALL 0x00545cf0 FUN_00545cf0
+  0x00552c83: MOV dword ptr [EBP + -0x8],EAX                      
+  0x00552c86: MOV ECX,dword ptr [0x011dea10]                      
+  0x00552c8c: CALL 0x0084e3a0                                      ; CALL 0x0084e3a0 FUN_0084e3a0
+  0x00552c91: MOV dword ptr [EBP + -0x14],EAX                     
+  0x00552c94: MOV EDX,dword ptr [EBP + -0x8]                      
+  0x00552c97: PUSH EDX                                            
+  0x00552c98: MOV EAX,dword ptr [EBP + -0x14]                     
+  0x00552c9b: MOV EDX,dword ptr [EAX]                             
+  0x00552c9d: MOV ECX,dword ptr [EBP + -0x14]                     
+
+Reference 12: 0x00552c86 in FUN_00552bd0
+
+----------------------------------------------------------------------
+Disassembly reference to TES singleton candidate around 0x00552c86
+----------------------------------------------------------------------
+  0x00552c69: MOV ECX,dword ptr [EBP + -0x10]                     
+  0x00552c6c: CALL 0x00553700                                      ; CALL 0x00553700 FUN_00553700
+  0x00552c71: PUSH 0x0                                            
+  0x00552c73: MOV ECX,dword ptr [EBP + -0x10]                     
+  0x00552c76: CALL 0x005577b0                                      ; CALL 0x005577b0 FUN_005577b0
+  0x00552c7b: MOV ECX,dword ptr [EBP + -0x10]                     
+  0x00552c7e: CALL 0x00545cf0                                      ; CALL 0x00545cf0 FUN_00545cf0
+  0x00552c83: MOV dword ptr [EBP + -0x8],EAX                      
+  0x00552c86: MOV ECX,dword ptr [0x011dea10]                       << TARGET
+  0x00552c8c: CALL 0x0084e3a0                                      ; CALL 0x0084e3a0 FUN_0084e3a0
+  0x00552c91: MOV dword ptr [EBP + -0x14],EAX                     
+  0x00552c94: MOV EDX,dword ptr [EBP + -0x8]                      
+  0x00552c97: PUSH EDX                                            
+  0x00552c98: MOV EAX,dword ptr [EBP + -0x14]                     
+  0x00552c9b: MOV EDX,dword ptr [EAX]                             
+  0x00552c9d: MOV ECX,dword ptr [EBP + -0x14]                     
+  0x00552ca0: MOV EAX,dword ptr [EDX + 0xe8]                      
+  0x00552ca6: CALL EAX                                            
+  0x00552ca8: MOV ECX,dword ptr [EBP + -0x10]                     
+  0x00552cab: CALL 0x005574d0                                      ; CALL 0x005574d0 FUN_005574d0
+  0x00552cb0: MOV ECX,dword ptr [EBP + -0x10]                     
+  0x00552cb3: CALL 0x005576c0                                      ; CALL 0x005576c0 FUN_005576c0
+  0x00552cb8: PUSH 0x3                                            
+  0x00552cba: MOV ECX,dword ptr [EBP + -0x10]                     
+  0x00552cbd: CALL 0x004512a0                                      ; CALL 0x004512a0 FUN_004512a0
+  0x00552cc2: MOV ECX,dword ptr [EBP + -0x10]                     
+  0x00552cc5: MOV byte ptr [ECX + 0xd1],0x1                       
+  0x00552ccc: MOV ECX,dword ptr [0x011de134]                      
+  0x00552cd2: CALL 0x00552da0                                      ; CALL 0x00552da0 FUN_00552da0
+  ... reference window scan truncated
+Total reference windows printed: 12
+
+----------------------------------------------------------------------
+References TO 0x011ca9e8 (Cached sunrise begin)
+----------------------------------------------------------------------
+  WRITE @ 0x00595edf (in FUN_00595ea0)
+  READ @ 0x00595efc (in FUN_00595ea0)
+  Total: 2 refs
+
+======================================================================
+REFERENCE WINDOWS: Cached sunrise begin @ 0x011ca9e8
+======================================================================
+
+Reference 1: 0x00595edf in FUN_00595ea0
+
+----------------------------------------------------------------------
+Disassembly reference to Cached sunrise begin around 0x00595edf
+----------------------------------------------------------------------
+  0x00595ec3: PUSH 0x0                                            
+  0x00595ec5: MOV EAX,dword ptr [EBP + -0x4]                      
+  0x00595ec8: MOV ECX,dword ptr [EAX + 0xc]                       
+  0x00595ecb: CALL 0x00595f10                                      ; CALL 0x00595f10 Sky sunrise/sunset byte getter candidate
+  0x00595ed0: MOVZX ECX,AL                                        
+  0x00595ed3: MOV dword ptr [EBP + -0x8],ECX                      
+  0x00595ed6: FILD dword ptr [EBP + -0x8]                         
+  0x00595ed9: FDIV double ptr [0x01034208]                        
+  0x00595edf: FSTP float ptr [0x011ca9e8]                          << TARGET
+  0x00595ee5: MOV EDX,dword ptr [EBP + -0x4]                      
+  0x00595ee8: MOV EAX,dword ptr [EDX + 0x118]                     
+  0x00595eee: AND EAX,0xfffffeff                                  
+  0x00595ef3: MOV ECX,dword ptr [EBP + -0x4]                      
+  0x00595ef6: MOV dword ptr [ECX + 0x118],EAX                     
+  0x00595efc: FLD float ptr [0x011ca9e8]                          
+  0x00595f02: MOV ESP,EBP                                         
+  0x00595f04: POP EBP                                             
+  0x00595f05: RET                                                 
+  0x00595f10: PUSH EBP                                            
+  0x00595f11: MOV EBP,ESP                                         
+  0x00595f13: SUB ESP,0x8                                         
+  0x00595f16: MOV dword ptr [EBP + -0x4],ECX                      
+  0x00595f19: CMP dword ptr [EBP + 0x8],0x4                       
+  0x00595f1d: JGE 0x00595f34                                      
+  0x00595f1f: CMP dword ptr [EBP + 0x8],0x0                       
+  0x00595f23: JL 0x00595f34                                       
+  0x00595f25: MOV EAX,dword ptr [EBP + -0x4]                      
+  0x00595f28: ADD EAX,dword ptr [EBP + 0x8]                       
+  0x00595f2b: MOVZX ECX,byte ptr [EAX + 0x50]                     
+
+Reference 2: 0x00595efc in FUN_00595ea0
+
+----------------------------------------------------------------------
+Disassembly reference to Cached sunrise begin around 0x00595efc
+----------------------------------------------------------------------
+  0x00595ed6: FILD dword ptr [EBP + -0x8]                         
+  0x00595ed9: FDIV double ptr [0x01034208]                        
+  0x00595edf: FSTP float ptr [0x011ca9e8]                         
+  0x00595ee5: MOV EDX,dword ptr [EBP + -0x4]                      
+  0x00595ee8: MOV EAX,dword ptr [EDX + 0x118]                     
+  0x00595eee: AND EAX,0xfffffeff                                  
+  0x00595ef3: MOV ECX,dword ptr [EBP + -0x4]                      
+  0x00595ef6: MOV dword ptr [ECX + 0x118],EAX                     
+  0x00595efc: FLD float ptr [0x011ca9e8]                           << TARGET
+  0x00595f02: MOV ESP,EBP                                         
+  0x00595f04: POP EBP                                             
+  0x00595f05: RET                                                 
+  0x00595f10: PUSH EBP                                            
+  0x00595f11: MOV EBP,ESP                                         
+  0x00595f13: SUB ESP,0x8                                         
+  0x00595f16: MOV dword ptr [EBP + -0x4],ECX                      
+  0x00595f19: CMP dword ptr [EBP + 0x8],0x4                       
+  0x00595f1d: JGE 0x00595f34                                      
+  0x00595f1f: CMP dword ptr [EBP + 0x8],0x0                       
+  0x00595f23: JL 0x00595f34                                       
+  0x00595f25: MOV EAX,dword ptr [EBP + -0x4]                      
+  0x00595f28: ADD EAX,dword ptr [EBP + 0x8]                       
+  0x00595f2b: MOVZX ECX,byte ptr [EAX + 0x50]                     
+  0x00595f2f: MOV dword ptr [EBP + -0x8],ECX                      
+  0x00595f32: JMP 0x00595f3b                                      
+  0x00595f34: MOV dword ptr [EBP + -0x8],0x0                      
+  0x00595f3b: MOV AL,byte ptr [EBP + -0x8]                        
+  0x00595f3e: MOV ESP,EBP                                         
+  0x00595f40: POP EBP                                             
+Total reference windows printed: 2
+
+----------------------------------------------------------------------
+References TO 0x011ca9ec (Cached sunrise end)
+----------------------------------------------------------------------
+  WRITE @ 0x00595f8f (in FUN_00595f50)
+  READ @ 0x00595fac (in FUN_00595f50)
+  Total: 2 refs
+
+======================================================================
+REFERENCE WINDOWS: Cached sunrise end @ 0x011ca9ec
+======================================================================
+
+Reference 1: 0x00595f8f in FUN_00595f50
+
+----------------------------------------------------------------------
+Disassembly reference to Cached sunrise end around 0x00595f8f
+----------------------------------------------------------------------
+  0x00595f73: PUSH 0x1                                            
+  0x00595f75: MOV EAX,dword ptr [EBP + -0x4]                      
+  0x00595f78: MOV ECX,dword ptr [EAX + 0xc]                       
+  0x00595f7b: CALL 0x00595f10                                      ; CALL 0x00595f10 Sky sunrise/sunset byte getter candidate
+  0x00595f80: MOVZX ECX,AL                                        
+  0x00595f83: MOV dword ptr [EBP + -0x8],ECX                      
+  0x00595f86: FILD dword ptr [EBP + -0x8]                         
+  0x00595f89: FDIV double ptr [0x01034208]                        
+  0x00595f8f: FSTP float ptr [0x011ca9ec]                          << TARGET
+  0x00595f95: MOV EDX,dword ptr [EBP + -0x4]                      
+  0x00595f98: MOV EAX,dword ptr [EDX + 0x118]                     
+  0x00595f9e: AND EAX,0xfffffdff                                  
+  0x00595fa3: MOV ECX,dword ptr [EBP + -0x4]                      
+  0x00595fa6: MOV dword ptr [ECX + 0x118],EAX                     
+  0x00595fac: FLD float ptr [0x011ca9ec]                          
+  0x00595fb2: MOV ESP,EBP                                         
+  0x00595fb4: POP EBP                                             
+  0x00595fb5: RET                                                 
+  0x00595fc0: PUSH EBP                                            
+  0x00595fc1: MOV EBP,ESP                                         
+  0x00595fc3: SUB ESP,0x8                                         
+  0x00595fc6: MOV dword ptr [EBP + -0x4],ECX                      
+  0x00595fc9: MOV EAX,dword ptr [EBP + -0x4]                      
+  0x00595fcc: MOV ECX,dword ptr [EAX + 0x118]                     
+  0x00595fd2: AND ECX,0x400                                       
+  0x00595fd8: JZ 0x0059601c                                       
+  0x00595fda: MOV EDX,dword ptr [EBP + -0x4]                      
+  0x00595fdd: CMP dword ptr [EDX + 0xc],0x0                       
+  0x00595fe1: JZ 0x0059601c                                       
+
+Reference 2: 0x00595fac in FUN_00595f50
+
+----------------------------------------------------------------------
+Disassembly reference to Cached sunrise end around 0x00595fac
+----------------------------------------------------------------------
+  0x00595f86: FILD dword ptr [EBP + -0x8]                         
+  0x00595f89: FDIV double ptr [0x01034208]                        
+  0x00595f8f: FSTP float ptr [0x011ca9ec]                         
+  0x00595f95: MOV EDX,dword ptr [EBP + -0x4]                      
+  0x00595f98: MOV EAX,dword ptr [EDX + 0x118]                     
+  0x00595f9e: AND EAX,0xfffffdff                                  
+  0x00595fa3: MOV ECX,dword ptr [EBP + -0x4]                      
+  0x00595fa6: MOV dword ptr [ECX + 0x118],EAX                     
+  0x00595fac: FLD float ptr [0x011ca9ec]                           << TARGET
+  0x00595fb2: MOV ESP,EBP                                         
+  0x00595fb4: POP EBP                                             
+  0x00595fb5: RET                                                 
+  0x00595fc0: PUSH EBP                                            
+  0x00595fc1: MOV EBP,ESP                                         
+  0x00595fc3: SUB ESP,0x8                                         
+  0x00595fc6: MOV dword ptr [EBP + -0x4],ECX                      
+  0x00595fc9: MOV EAX,dword ptr [EBP + -0x4]                      
+  0x00595fcc: MOV ECX,dword ptr [EAX + 0x118]                     
+  0x00595fd2: AND ECX,0x400                                       
+  0x00595fd8: JZ 0x0059601c                                       
+  0x00595fda: MOV EDX,dword ptr [EBP + -0x4]                      
+  0x00595fdd: CMP dword ptr [EDX + 0xc],0x0                       
+  0x00595fe1: JZ 0x0059601c                                       
+  0x00595fe3: PUSH 0x2                                            
+  0x00595fe5: MOV EAX,dword ptr [EBP + -0x4]                      
+  0x00595fe8: MOV ECX,dword ptr [EAX + 0xc]                       
+  0x00595feb: CALL 0x00595f10                                      ; CALL 0x00595f10 Sky sunrise/sunset byte getter candidate
+  0x00595ff0: MOVZX ECX,AL                                        
+  0x00595ff3: MOV dword ptr [EBP + -0x8],ECX                      
+Total reference windows printed: 2
+
+----------------------------------------------------------------------
+References TO 0x011ca9f0 (Cached sunset begin)
+----------------------------------------------------------------------
+  WRITE @ 0x00595fff (in FUN_00595fc0)
+  READ @ 0x0059601c (in FUN_00595fc0)
+  Total: 2 refs
+
+======================================================================
+REFERENCE WINDOWS: Cached sunset begin @ 0x011ca9f0
+======================================================================
+
+Reference 1: 0x00595fff in FUN_00595fc0
+
+----------------------------------------------------------------------
+Disassembly reference to Cached sunset begin around 0x00595fff
+----------------------------------------------------------------------
+  0x00595fe3: PUSH 0x2                                            
+  0x00595fe5: MOV EAX,dword ptr [EBP + -0x4]                      
+  0x00595fe8: MOV ECX,dword ptr [EAX + 0xc]                       
+  0x00595feb: CALL 0x00595f10                                      ; CALL 0x00595f10 Sky sunrise/sunset byte getter candidate
+  0x00595ff0: MOVZX ECX,AL                                        
+  0x00595ff3: MOV dword ptr [EBP + -0x8],ECX                      
+  0x00595ff6: FILD dword ptr [EBP + -0x8]                         
+  0x00595ff9: FDIV double ptr [0x01034208]                        
+  0x00595fff: FSTP float ptr [0x011ca9f0]                          << TARGET
+  0x00596005: MOV EDX,dword ptr [EBP + -0x4]                      
+  0x00596008: MOV EAX,dword ptr [EDX + 0x118]                     
+  0x0059600e: AND EAX,0xfffffbff                                  
+  0x00596013: MOV ECX,dword ptr [EBP + -0x4]                      
+  0x00596016: MOV dword ptr [ECX + 0x118],EAX                     
+  0x0059601c: FLD float ptr [0x011ca9f0]                          
+  0x00596022: MOV ESP,EBP                                         
+  0x00596024: POP EBP                                             
+  0x00596025: RET                                                 
+  0x00596030: PUSH EBP                                            
+  0x00596031: MOV EBP,ESP                                         
+  0x00596033: SUB ESP,0x8                                         
+  0x00596036: MOV dword ptr [EBP + -0x4],ECX                      
+  0x00596039: MOV EAX,dword ptr [EBP + -0x4]                      
+  0x0059603c: MOV ECX,dword ptr [EAX + 0x118]                     
+  0x00596042: AND ECX,0x800                                       
+  0x00596048: JZ 0x0059608c                                       
+  0x0059604a: MOV EDX,dword ptr [EBP + -0x4]                      
+  0x0059604d: CMP dword ptr [EDX + 0xc],0x0                       
+  0x00596051: JZ 0x0059608c                                       
+
+Reference 2: 0x0059601c in FUN_00595fc0
+
+----------------------------------------------------------------------
+Disassembly reference to Cached sunset begin around 0x0059601c
+----------------------------------------------------------------------
+  0x00595ff6: FILD dword ptr [EBP + -0x8]                         
+  0x00595ff9: FDIV double ptr [0x01034208]                        
+  0x00595fff: FSTP float ptr [0x011ca9f0]                         
+  0x00596005: MOV EDX,dword ptr [EBP + -0x4]                      
+  0x00596008: MOV EAX,dword ptr [EDX + 0x118]                     
+  0x0059600e: AND EAX,0xfffffbff                                  
+  0x00596013: MOV ECX,dword ptr [EBP + -0x4]                      
+  0x00596016: MOV dword ptr [ECX + 0x118],EAX                     
+  0x0059601c: FLD float ptr [0x011ca9f0]                           << TARGET
+  0x00596022: MOV ESP,EBP                                         
+  0x00596024: POP EBP                                             
+  0x00596025: RET                                                 
+  0x00596030: PUSH EBP                                            
+  0x00596031: MOV EBP,ESP                                         
+  0x00596033: SUB ESP,0x8                                         
+  0x00596036: MOV dword ptr [EBP + -0x4],ECX                      
+  0x00596039: MOV EAX,dword ptr [EBP + -0x4]                      
+  0x0059603c: MOV ECX,dword ptr [EAX + 0x118]                     
+  0x00596042: AND ECX,0x800                                       
+  0x00596048: JZ 0x0059608c                                       
+  0x0059604a: MOV EDX,dword ptr [EBP + -0x4]                      
+  0x0059604d: CMP dword ptr [EDX + 0xc],0x0                       
+  0x00596051: JZ 0x0059608c                                       
+  0x00596053: PUSH 0x3                                            
+  0x00596055: MOV EAX,dword ptr [EBP + -0x4]                      
+  0x00596058: MOV ECX,dword ptr [EAX + 0xc]                       
+  0x0059605b: CALL 0x00595f10                                      ; CALL 0x00595f10 Sky sunrise/sunset byte getter candidate
+  0x00596060: MOVZX ECX,AL                                        
+  0x00596063: MOV dword ptr [EBP + -0x8],ECX                      
+Total reference windows printed: 2
+
+----------------------------------------------------------------------
+References TO 0x011ca9f4 (Cached sunset end)
+----------------------------------------------------------------------
+  WRITE @ 0x0059606f (in FUN_00596030)
+  READ @ 0x0059608c (in FUN_00596030)
+  Total: 2 refs
+
+======================================================================
+REFERENCE WINDOWS: Cached sunset end @ 0x011ca9f4
+======================================================================
+
+Reference 1: 0x0059606f in FUN_00596030
+
+----------------------------------------------------------------------
+Disassembly reference to Cached sunset end around 0x0059606f
+----------------------------------------------------------------------
+  0x00596053: PUSH 0x3                                            
+  0x00596055: MOV EAX,dword ptr [EBP + -0x4]                      
+  0x00596058: MOV ECX,dword ptr [EAX + 0xc]                       
+  0x0059605b: CALL 0x00595f10                                      ; CALL 0x00595f10 Sky sunrise/sunset byte getter candidate
+  0x00596060: MOVZX ECX,AL                                        
+  0x00596063: MOV dword ptr [EBP + -0x8],ECX                      
+  0x00596066: FILD dword ptr [EBP + -0x8]                         
+  0x00596069: FDIV double ptr [0x01034208]                        
+  0x0059606f: FSTP float ptr [0x011ca9f4]                          << TARGET
+  0x00596075: MOV EDX,dword ptr [EBP + -0x4]                      
+  0x00596078: MOV EAX,dword ptr [EDX + 0x118]                     
+  0x0059607e: AND EAX,0xfffff7ff                                  
+  0x00596083: MOV ECX,dword ptr [EBP + -0x4]                      
+  0x00596086: MOV dword ptr [ECX + 0x118],EAX                     
+  0x0059608c: FLD float ptr [0x011ca9f4]                          
+  0x00596092: MOV ESP,EBP                                         
+  0x00596094: POP EBP                                             
+  0x00596095: RET                                                 
+  0x005960a0: PUSH EBP                                            
+  0x005960a1: MOV EBP,ESP                                         
+  0x005960a3: PUSH -0x1                                           
+  0x005960a5: PUSH 0xef8654                                       
+  0x005960aa: MOV EAX,FS:[0x0]                                    
+  0x005960b0: PUSH EAX                                            
+  0x005960b1: PUSH ECX                                            
+  0x005960b2: MOV EAX,[0x011c16bc]                                
+  0x005960b7: XOR EAX,EBP                                         
+  0x005960b9: PUSH EAX                                            
+  0x005960ba: LEA EAX,[EBP + -0xc]                                
+
+Reference 2: 0x0059608c in FUN_00596030
+
+----------------------------------------------------------------------
+Disassembly reference to Cached sunset end around 0x0059608c
+----------------------------------------------------------------------
+  0x00596066: FILD dword ptr [EBP + -0x8]                         
+  0x00596069: FDIV double ptr [0x01034208]                        
+  0x0059606f: FSTP float ptr [0x011ca9f4]                         
+  0x00596075: MOV EDX,dword ptr [EBP + -0x4]                      
+  0x00596078: MOV EAX,dword ptr [EDX + 0x118]                     
+  0x0059607e: AND EAX,0xfffff7ff                                  
+  0x00596083: MOV ECX,dword ptr [EBP + -0x4]                      
+  0x00596086: MOV dword ptr [ECX + 0x118],EAX                     
+  0x0059608c: FLD float ptr [0x011ca9f4]                           << TARGET
+  0x00596092: MOV ESP,EBP                                         
+  0x00596094: POP EBP                                             
+  0x00596095: RET                                                 
+  0x005960a0: PUSH EBP                                            
+  0x005960a1: MOV EBP,ESP                                         
+  0x005960a3: PUSH -0x1                                           
+  0x005960a5: PUSH 0xef8654                                       
+  0x005960aa: MOV EAX,FS:[0x0]                                    
+  0x005960b0: PUSH EAX                                            
+  0x005960b1: PUSH ECX                                            
+  0x005960b2: MOV EAX,[0x011c16bc]                                
+  0x005960b7: XOR EAX,EBP                                         
+  0x005960b9: PUSH EAX                                            
+  0x005960ba: LEA EAX,[EBP + -0xc]                                
+  0x005960bd: MOV FS:[0x0],EAX                                    
+  0x005960c3: MOV dword ptr [EBP + -0x10],ECX                     
+  0x005960c6: MOV EAX,dword ptr [EBP + -0x10]                     
+  0x005960c9: MOV dword ptr [EAX],0x10340c4                       
+  0x005960cf: MOV ECX,dword ptr [EBP + -0x10]                     
+  0x005960d2: MOV dword ptr [ECX + 0x18],0x10340ac                
+Total reference windows printed: 2
+
+----------------------------------------------------------------------
+References TO 0x011cccfc (Cached sunrise color begin)
+----------------------------------------------------------------------
+  WRITE @ 0x0063b9fc (in FUN_0063b9b0)
+  READ @ 0x0063ba19 (in FUN_0063b9b0)
+  Total: 2 refs
+
+======================================================================
+REFERENCE WINDOWS: Cached sunrise color begin @ 0x011cccfc
+======================================================================
+
+Reference 1: 0x0063b9fc in FUN_0063b9b0
+
+----------------------------------------------------------------------
+Disassembly reference to Cached sunrise color begin around 0x0063b9fc
+----------------------------------------------------------------------
+  0x0063b9e7: FLD float ptr [EBP + -0x10]                         
+  0x0063b9ea: PUSH ECX                                            
+  0x0063b9eb: FSTP float ptr [ESP]                                
+  0x0063b9ee: PUSH ECX                                            
+  0x0063b9ef: FLDZ                                                
+  0x0063b9f1: FSTP float ptr [ESP]                                
+  0x0063b9f4: CALL 0x00404010                                      ; CALL 0x00404010 FUN_00404010
+  0x0063b9f9: ADD ESP,0x8                                         
+  0x0063b9fc: FSTP float ptr [0x011cccfc]                          << TARGET
+  0x0063ba02: MOV EDX,dword ptr [EBP + -0x4]                      
+  0x0063ba05: MOV EAX,dword ptr [EDX + 0x118]                     
+  0x0063ba0b: AND EAX,0xffffefff                                  
+  0x0063ba10: MOV ECX,dword ptr [EBP + -0x4]                      
+  0x0063ba13: MOV dword ptr [ECX + 0x118],EAX                     
+  0x0063ba19: FLD float ptr [0x011cccfc]                          
+  0x0063ba1f: MOV ESP,EBP                                         
+  0x0063ba21: POP EBP                                             
+  0x0063ba22: RET                                                 
+  0x0063ba30: PUSH EBP                                            
+  0x0063ba31: MOV EBP,ESP                                         
+  0x0063ba33: SUB ESP,0x10                                        
+  0x0063ba36: MOV dword ptr [EBP + -0x4],ECX                      
+  0x0063ba39: MOV EAX,dword ptr [EBP + -0x4]                      
+  0x0063ba3c: MOV ECX,dword ptr [EAX + 0x118]                     
+  0x0063ba42: AND ECX,0x2000                                      
+  0x0063ba48: JZ 0x0063ba9d                                       
+  0x0063ba4a: MOV ECX,dword ptr [EBP + -0x4]                      
+  0x0063ba4d: CALL 0x00596030                                      ; CALL 0x00596030 Sky::GetSunsetEnd
+  0x0063ba52: MOV ECX,0x11ccbd8                                   
+
+Reference 2: 0x0063ba19 in FUN_0063b9b0
+
+----------------------------------------------------------------------
+Disassembly reference to Cached sunrise color begin around 0x0063ba19
+----------------------------------------------------------------------
+  0x0063b9f4: CALL 0x00404010                                      ; CALL 0x00404010 FUN_00404010
+  0x0063b9f9: ADD ESP,0x8                                         
+  0x0063b9fc: FSTP float ptr [0x011cccfc]                         
+  0x0063ba02: MOV EDX,dword ptr [EBP + -0x4]                      
+  0x0063ba05: MOV EAX,dword ptr [EDX + 0x118]                     
+  0x0063ba0b: AND EAX,0xffffefff                                  
+  0x0063ba10: MOV ECX,dword ptr [EBP + -0x4]                      
+  0x0063ba13: MOV dword ptr [ECX + 0x118],EAX                     
+  0x0063ba19: FLD float ptr [0x011cccfc]                           << TARGET
+  0x0063ba1f: MOV ESP,EBP                                         
+  0x0063ba21: POP EBP                                             
+  0x0063ba22: RET                                                 
+  0x0063ba30: PUSH EBP                                            
+  0x0063ba31: MOV EBP,ESP                                         
+  0x0063ba33: SUB ESP,0x10                                        
+  0x0063ba36: MOV dword ptr [EBP + -0x4],ECX                      
+  0x0063ba39: MOV EAX,dword ptr [EBP + -0x4]                      
+  0x0063ba3c: MOV ECX,dword ptr [EAX + 0x118]                     
+  0x0063ba42: AND ECX,0x2000                                      
+  0x0063ba48: JZ 0x0063ba9d                                       
+  0x0063ba4a: MOV ECX,dword ptr [EBP + -0x4]                      
+  0x0063ba4d: CALL 0x00596030                                      ; CALL 0x00596030 Sky::GetSunsetEnd
+  0x0063ba52: MOV ECX,0x11ccbd8                                   
+  0x0063ba57: FSTP double ptr [EBP + -0xc]                        
+  0x0063ba5a: CALL 0x00403e20                                      ; CALL 0x00403e20 FUN_00403e20
+  0x0063ba5f: FLD float ptr [EAX]                                 
+  0x0063ba61: FADD double ptr [EBP + -0xc]                        
+  0x0063ba64: FSTP float ptr [EBP + -0x10]                        
+  0x0063ba67: FLD float ptr [EBP + -0x10]                         
+Total reference windows printed: 2
+
+----------------------------------------------------------------------
+References TO 0x011ccd00 (Cached sunset color end)
+----------------------------------------------------------------------
+  WRITE @ 0x0063ba80 (in FUN_0063ba30)
+  READ @ 0x0063ba9d (in FUN_0063ba30)
+  Total: 2 refs
+
+======================================================================
+REFERENCE WINDOWS: Cached sunset color end @ 0x011ccd00
+======================================================================
+
+Reference 1: 0x0063ba80 in FUN_0063ba30
+
+----------------------------------------------------------------------
+Disassembly reference to Cached sunset color end around 0x0063ba80
+----------------------------------------------------------------------
+  0x0063ba67: FLD float ptr [EBP + -0x10]                         
+  0x0063ba6a: PUSH ECX                                            
+  0x0063ba6b: FSTP float ptr [ESP]                                
+  0x0063ba6e: PUSH ECX                                            
+  0x0063ba6f: FLD float ptr [0x0104ede4]                          
+  0x0063ba75: FSTP float ptr [ESP]                                
+  0x0063ba78: CALL 0x0040ebd0                                      ; CALL 0x0040ebd0 FUN_0040ebd0
+  0x0063ba7d: ADD ESP,0x8                                         
+  0x0063ba80: FSTP float ptr [0x011ccd00]                          << TARGET
+  0x0063ba86: MOV EDX,dword ptr [EBP + -0x4]                      
+  0x0063ba89: MOV EAX,dword ptr [EDX + 0x118]                     
+  0x0063ba8f: AND EAX,0xffffdfff                                  
+  0x0063ba94: MOV ECX,dword ptr [EBP + -0x4]                      
+  0x0063ba97: MOV dword ptr [ECX + 0x118],EAX                     
+  0x0063ba9d: FLD float ptr [0x011ccd00]                          
+  0x0063baa3: MOV ESP,EBP                                         
+  0x0063baa5: POP EBP                                             
+  0x0063baa6: RET                                                 
+  0x0063bab0: PUSH EBP                                            
+  0x0063bab1: MOV EBP,ESP                                         
+  0x0063bab3: PUSH ECX                                            
+  0x0063bab4: MOV dword ptr [EBP + -0x4],ECX                      
+  0x0063bab7: CMP dword ptr [EBP + 0xc],0x0                       
+  0x0063babb: JNZ 0x0063babf                                      
+  0x0063babd: JMP 0x0063bb3a                                      
+  0x0063babf: MOV EAX,dword ptr [EBP + 0x18]                      
+  0x0063bac2: MOV ECX,dword ptr [EAX]                             
+  0x0063bac4: PUSH ECX                                            
+  0x0063bac5: MOV EDX,dword ptr [EBP + 0x14]                      
+
+Reference 2: 0x0063ba9d in FUN_0063ba30
+
+----------------------------------------------------------------------
+Disassembly reference to Cached sunset color end around 0x0063ba9d
+----------------------------------------------------------------------
+  0x0063ba78: CALL 0x0040ebd0                                      ; CALL 0x0040ebd0 FUN_0040ebd0
+  0x0063ba7d: ADD ESP,0x8                                         
+  0x0063ba80: FSTP float ptr [0x011ccd00]                         
+  0x0063ba86: MOV EDX,dword ptr [EBP + -0x4]                      
+  0x0063ba89: MOV EAX,dword ptr [EDX + 0x118]                     
+  0x0063ba8f: AND EAX,0xffffdfff                                  
+  0x0063ba94: MOV ECX,dword ptr [EBP + -0x4]                      
+  0x0063ba97: MOV dword ptr [ECX + 0x118],EAX                     
+  0x0063ba9d: FLD float ptr [0x011ccd00]                           << TARGET
+  0x0063baa3: MOV ESP,EBP                                         
+  0x0063baa5: POP EBP                                             
+  0x0063baa6: RET                                                 
+  0x0063bab0: PUSH EBP                                            
+  0x0063bab1: MOV EBP,ESP                                         
+  0x0063bab3: PUSH ECX                                            
+  0x0063bab4: MOV dword ptr [EBP + -0x4],ECX                      
+  0x0063bab7: CMP dword ptr [EBP + 0xc],0x0                       
+  0x0063babb: JNZ 0x0063babf                                      
+  0x0063babd: JMP 0x0063bb3a                                      
+  0x0063babf: MOV EAX,dword ptr [EBP + 0x18]                      
+  0x0063bac2: MOV ECX,dword ptr [EAX]                             
+  0x0063bac4: PUSH ECX                                            
+  0x0063bac5: MOV EDX,dword ptr [EBP + 0x14]                      
+  0x0063bac8: PUSH EDX                                            
+  0x0063bac9: MOV ECX,dword ptr [EBP + 0xc]                       
+  0x0063bacc: CALL 0x0063bb40                                      ; CALL 0x0063bb40 FUN_0063bb40
+  0x0063bad1: MOV ECX,dword ptr [EBP + 0x8]                       
+  0x0063bad4: MOV dword ptr [ECX],EAX                             
+  0x0063bad6: MOV EDX,dword ptr [EBP + 0x1c]                      
+Total reference windows printed: 2
+
+Bytes @ 0x00871000 (FUN_00870bd0+0x430): 83 3D 20 EA 1D 01 00 0F 84 B7 00 00 00 8B 0D 20
+
+----------------------------------------------------------------------
+Disassembly FUN_00870bd0+0x430 around 0x00871000
+----------------------------------------------------------------------
+  0x00870fc9: PUSH EDX                                            
+  0x00870fca: MOV ECX,dword ptr [EBP + -0x78]                     
+  0x00870fcd: ADD ECX,0x88                                        
+  0x00870fd3: CALL 0x00559450                                      ; CALL 0x00559450 FUN_00559450
+  0x00870fd8: PUSH EAX                                            
+  0x00870fd9: MOV ECX,dword ptr [EBP + -0x78]                     
+  0x00870fdc: CALL 0x00875fa0                                      ; CALL 0x00875fa0 FUN_00875fa0
+  0x00870fe1: MOVZX EAX,byte ptr [EBP + -0x23]                    
+  0x00870fe5: TEST EAX,EAX                                        
+  0x00870fe7: JZ 0x008710c4                                       
+  0x00870fed: MOV ECX,dword ptr [0x011dea10]                      
+  0x00870ff3: CALL 0x005f36f0                                      ; CALL 0x005f36f0 FUN_005f36f0
+  0x00870ff8: TEST EAX,EAX                                        
+  0x00870ffa: JNZ 0x008710c4                                      
+  0x00871000: CMP dword ptr [0x011dea20],0x0                       << TARGET
+  0x00871007: JZ 0x008710c4                                       
+  0x0087100d: MOV ECX,dword ptr [0x011dea20]                      
+  0x00871013: CALL 0x0045cd60                                      ; CALL 0x0045cd60 Sky sun/current object getter candidate
+  0x00871018: TEST EAX,EAX                                        
+  0x0087101a: JZ 0x008710c4                                       
+  0x00871020: MOV ECX,dword ptr [0x011dea20]                      
+  0x00871026: CALL 0x0045cd60                                      ; CALL 0x0045cd60 Sky sun/current object getter candidate
+  0x0087102b: MOV dword ptr [EBP + 0xffffff4c],EAX                
+  0x00871031: MOV ECX,dword ptr [EBP + 0xffffff4c]                
+  0x00871037: MOV EDX,dword ptr [ECX]                             
+  0x00871039: MOV ECX,dword ptr [EBP + 0xffffff4c]                
+  0x0087103f: MOV EAX,dword ptr [EDX + 0x4]                       
+  0x00871042: CALL EAX                                            
+  0x00871044: MOV ECX,EAX                                         
+  0x00871046: CALL 0x0045bb80                                      ; CALL 0x0045bb80 CameraVectorGetter_0045BB80
+  0x0087104b: MOV ECX,dword ptr [EAX]                             
+  0x0087104d: MOV dword ptr [EBP + -0x4c],ECX                     
+  0x00871050: MOV EDX,dword ptr [EAX + 0x4]                       
+  0x00871053: MOV dword ptr [EBP + -0x48],EDX                     
+  0x00871056: MOV EAX,dword ptr [EAX + 0x8]                       
+  0x00871059: MOV dword ptr [EBP + -0x44],EAX                     
+  0x0087105c: FLDZ                                                
+  0x0087105e: FSTP float ptr [EBP + -0x54]                        
+  0x00871061: FLD float ptr [EBP + -0x54]                         
+  0x00871064: FSTP float ptr [EBP + -0x58]                        
+  0x00871067: FLD float ptr [EBP + -0x58]                         
+  0x0087106a: FSTP float ptr [EBP + -0x40]                        
+  0x0087106d: CALL 0x0045c670                                      ; CALL 0x0045c670 FUN_0045c670
+  0x00871072: MOV dword ptr [EBP + -0x50],EAX                     
+  0x00871075: PUSH ECX                                            
+  0x00871076: FLD float ptr [0x010718c0]                          
+  0x0087107c: FSTP float ptr [ESP]                                
+  0x0087107f: LEA ECX,[EBP + -0x54]                               
+  0x00871082: PUSH ECX                                            
+
+Bytes @ 0x00871013 (FUN_00870bd0+0x443): E8 48 BD BE FF 85 C0 0F 84 A4 00 00 00 8B 0D 20
+
+----------------------------------------------------------------------
+Disassembly FUN_00870bd0+0x443 around 0x00871013
+----------------------------------------------------------------------
+  0x00870fd3: CALL 0x00559450                                      ; CALL 0x00559450 FUN_00559450
+  0x00870fd8: PUSH EAX                                            
+  0x00870fd9: MOV ECX,dword ptr [EBP + -0x78]                     
+  0x00870fdc: CALL 0x00875fa0                                      ; CALL 0x00875fa0 FUN_00875fa0
+  0x00870fe1: MOVZX EAX,byte ptr [EBP + -0x23]                    
+  0x00870fe5: TEST EAX,EAX                                        
+  0x00870fe7: JZ 0x008710c4                                       
+  0x00870fed: MOV ECX,dword ptr [0x011dea10]                      
+  0x00870ff3: CALL 0x005f36f0                                      ; CALL 0x005f36f0 FUN_005f36f0
+  0x00870ff8: TEST EAX,EAX                                        
+  0x00870ffa: JNZ 0x008710c4                                      
+  0x00871000: CMP dword ptr [0x011dea20],0x0                      
+  0x00871007: JZ 0x008710c4                                       
+  0x0087100d: MOV ECX,dword ptr [0x011dea20]                      
+  0x00871013: CALL 0x0045cd60                                      << TARGET ; CALL 0x0045cd60 Sky sun/current object getter candidate
+  0x00871018: TEST EAX,EAX                                        
+  0x0087101a: JZ 0x008710c4                                       
+  0x00871020: MOV ECX,dword ptr [0x011dea20]                      
+  0x00871026: CALL 0x0045cd60                                      ; CALL 0x0045cd60 Sky sun/current object getter candidate
+  0x0087102b: MOV dword ptr [EBP + 0xffffff4c],EAX                
+  0x00871031: MOV ECX,dword ptr [EBP + 0xffffff4c]                
+  0x00871037: MOV EDX,dword ptr [ECX]                             
+  0x00871039: MOV ECX,dword ptr [EBP + 0xffffff4c]                
+  0x0087103f: MOV EAX,dword ptr [EDX + 0x4]                       
+  0x00871042: CALL EAX                                            
+  0x00871044: MOV ECX,EAX                                         
+  0x00871046: CALL 0x0045bb80                                      ; CALL 0x0045bb80 CameraVectorGetter_0045BB80
+  0x0087104b: MOV ECX,dword ptr [EAX]                             
+  0x0087104d: MOV dword ptr [EBP + -0x4c],ECX                     
+  0x00871050: MOV EDX,dword ptr [EAX + 0x4]                       
+  0x00871053: MOV dword ptr [EBP + -0x48],EDX                     
+  0x00871056: MOV EAX,dword ptr [EAX + 0x8]                       
+  0x00871059: MOV dword ptr [EBP + -0x44],EAX                     
+  0x0087105c: FLDZ                                                
+  0x0087105e: FSTP float ptr [EBP + -0x54]                        
+  0x00871061: FLD float ptr [EBP + -0x54]                         
+  0x00871064: FSTP float ptr [EBP + -0x58]                        
+  0x00871067: FLD float ptr [EBP + -0x58]                         
+  0x0087106a: FSTP float ptr [EBP + -0x40]                        
+  0x0087106d: CALL 0x0045c670                                      ; CALL 0x0045c670 FUN_0045c670
+  0x00871072: MOV dword ptr [EBP + -0x50],EAX                     
+  0x00871075: PUSH ECX                                            
+  0x00871076: FLD float ptr [0x010718c0]                          
+  0x0087107c: FSTP float ptr [ESP]                                
+  0x0087107f: LEA ECX,[EBP + -0x54]                               
+  0x00871082: PUSH ECX                                            
+  0x00871083: LEA EDX,[EBP + -0x58]                               
+  0x00871086: PUSH EDX                                            
+  0x00871087: LEA EAX,[EBP + -0x40]                               
+
+Bytes @ 0x00871026 (FUN_00870bd0+0x456): E8 35 BD BE FF 89 85 4C FF FF FF 8B 8D 4C FF FF
+
+----------------------------------------------------------------------
+Disassembly FUN_00870bd0+0x456 around 0x00871026
+----------------------------------------------------------------------
+  0x00870fe1: MOVZX EAX,byte ptr [EBP + -0x23]                    
+  0x00870fe5: TEST EAX,EAX                                        
+  0x00870fe7: JZ 0x008710c4                                       
+  0x00870fed: MOV ECX,dword ptr [0x011dea10]                      
+  0x00870ff3: CALL 0x005f36f0                                      ; CALL 0x005f36f0 FUN_005f36f0
+  0x00870ff8: TEST EAX,EAX                                        
+  0x00870ffa: JNZ 0x008710c4                                      
+  0x00871000: CMP dword ptr [0x011dea20],0x0                      
+  0x00871007: JZ 0x008710c4                                       
+  0x0087100d: MOV ECX,dword ptr [0x011dea20]                      
+  0x00871013: CALL 0x0045cd60                                      ; CALL 0x0045cd60 Sky sun/current object getter candidate
+  0x00871018: TEST EAX,EAX                                        
+  0x0087101a: JZ 0x008710c4                                       
+  0x00871020: MOV ECX,dword ptr [0x011dea20]                      
+  0x00871026: CALL 0x0045cd60                                      << TARGET ; CALL 0x0045cd60 Sky sun/current object getter candidate
+  0x0087102b: MOV dword ptr [EBP + 0xffffff4c],EAX                
+  0x00871031: MOV ECX,dword ptr [EBP + 0xffffff4c]                
+  0x00871037: MOV EDX,dword ptr [ECX]                             
+  0x00871039: MOV ECX,dword ptr [EBP + 0xffffff4c]                
+  0x0087103f: MOV EAX,dword ptr [EDX + 0x4]                       
+  0x00871042: CALL EAX                                            
+  0x00871044: MOV ECX,EAX                                         
+  0x00871046: CALL 0x0045bb80                                      ; CALL 0x0045bb80 CameraVectorGetter_0045BB80
+  0x0087104b: MOV ECX,dword ptr [EAX]                             
+  0x0087104d: MOV dword ptr [EBP + -0x4c],ECX                     
+  0x00871050: MOV EDX,dword ptr [EAX + 0x4]                       
+  0x00871053: MOV dword ptr [EBP + -0x48],EDX                     
+  0x00871056: MOV EAX,dword ptr [EAX + 0x8]                       
+  0x00871059: MOV dword ptr [EBP + -0x44],EAX                     
+  0x0087105c: FLDZ                                                
+  0x0087105e: FSTP float ptr [EBP + -0x54]                        
+  0x00871061: FLD float ptr [EBP + -0x54]                         
+  0x00871064: FSTP float ptr [EBP + -0x58]                        
+  0x00871067: FLD float ptr [EBP + -0x58]                         
+  0x0087106a: FSTP float ptr [EBP + -0x40]                        
+  0x0087106d: CALL 0x0045c670                                      ; CALL 0x0045c670 FUN_0045c670
+  0x00871072: MOV dword ptr [EBP + -0x50],EAX                     
+  0x00871075: PUSH ECX                                            
+  0x00871076: FLD float ptr [0x010718c0]                          
+  0x0087107c: FSTP float ptr [ESP]                                
+  0x0087107f: LEA ECX,[EBP + -0x54]                               
+  0x00871082: PUSH ECX                                            
+  0x00871083: LEA EDX,[EBP + -0x58]                               
+  0x00871086: PUSH EDX                                            
+  0x00871087: LEA EAX,[EBP + -0x40]                               
+  0x0087108a: PUSH EAX                                            
+  0x0087108b: LEA ECX,[EBP + -0x4c]                               
+  0x0087108e: PUSH ECX                                            
+  0x0087108f: MOV ECX,dword ptr [EBP + -0x50]                     
+
+Bytes @ 0x00871046 (FUN_00870bd0+0x476): E8 35 AB BE FF 8B 08 89 4D B4 8B 50 04 89 55 B8
+
+----------------------------------------------------------------------
+Disassembly FUN_00870bd0+0x476 around 0x00871046
+----------------------------------------------------------------------
+  0x00871007: JZ 0x008710c4                                       
+  0x0087100d: MOV ECX,dword ptr [0x011dea20]                      
+  0x00871013: CALL 0x0045cd60                                      ; CALL 0x0045cd60 Sky sun/current object getter candidate
+  0x00871018: TEST EAX,EAX                                        
+  0x0087101a: JZ 0x008710c4                                       
+  0x00871020: MOV ECX,dword ptr [0x011dea20]                      
+  0x00871026: CALL 0x0045cd60                                      ; CALL 0x0045cd60 Sky sun/current object getter candidate
+  0x0087102b: MOV dword ptr [EBP + 0xffffff4c],EAX                
+  0x00871031: MOV ECX,dword ptr [EBP + 0xffffff4c]                
+  0x00871037: MOV EDX,dword ptr [ECX]                             
+  0x00871039: MOV ECX,dword ptr [EBP + 0xffffff4c]                
+  0x0087103f: MOV EAX,dword ptr [EDX + 0x4]                       
+  0x00871042: CALL EAX                                            
+  0x00871044: MOV ECX,EAX                                         
+  0x00871046: CALL 0x0045bb80                                      << TARGET ; CALL 0x0045bb80 CameraVectorGetter_0045BB80
+  0x0087104b: MOV ECX,dword ptr [EAX]                             
+  0x0087104d: MOV dword ptr [EBP + -0x4c],ECX                     
+  0x00871050: MOV EDX,dword ptr [EAX + 0x4]                       
+  0x00871053: MOV dword ptr [EBP + -0x48],EDX                     
+  0x00871056: MOV EAX,dword ptr [EAX + 0x8]                       
+  0x00871059: MOV dword ptr [EBP + -0x44],EAX                     
+  0x0087105c: FLDZ                                                
+  0x0087105e: FSTP float ptr [EBP + -0x54]                        
+  0x00871061: FLD float ptr [EBP + -0x54]                         
+  0x00871064: FSTP float ptr [EBP + -0x58]                        
+  0x00871067: FLD float ptr [EBP + -0x58]                         
+  0x0087106a: FSTP float ptr [EBP + -0x40]                        
+  0x0087106d: CALL 0x0045c670                                      ; CALL 0x0045c670 FUN_0045c670
+  0x00871072: MOV dword ptr [EBP + -0x50],EAX                     
+  0x00871075: PUSH ECX                                            
+  0x00871076: FLD float ptr [0x010718c0]                          
+  0x0087107c: FSTP float ptr [ESP]                                
+  0x0087107f: LEA ECX,[EBP + -0x54]                               
+  0x00871082: PUSH ECX                                            
+  0x00871083: LEA EDX,[EBP + -0x58]                               
+  0x00871086: PUSH EDX                                            
+  0x00871087: LEA EAX,[EBP + -0x40]                               
+  0x0087108a: PUSH EAX                                            
+  0x0087108b: LEA ECX,[EBP + -0x4c]                               
+  0x0087108e: PUSH ECX                                            
+  0x0087108f: MOV ECX,dword ptr [EBP + -0x50]                     
+  0x00871092: CALL 0x006629f0                                      ; CALL 0x006629f0 FUN_006629f0
+  0x00871097: MOV ECX,EAX                                         
+  0x00871099: CALL 0x00a6fdb0                                      ; CALL 0x00a6fdb0 FUN_00a6fdb0
+  0x0087109e: MOV byte ptr [EBP + -0x59],AL                       
+  0x008710a1: PUSH ECX                                            
+  0x008710a2: FLD float ptr [EBP + -0x58]                         
+  0x008710a5: FSTP float ptr [ESP]                                
+  0x008710a8: PUSH ECX                                            
+
+Bytes @ 0x00877795 (FUN_00877730+0x65): 8B 0D 20 EA 1D 01 E8 90 2E DC FF B9 A4 ED 1D 01
+
+----------------------------------------------------------------------
+Disassembly FUN_00877730+0x65 around 0x00877795
+----------------------------------------------------------------------
+  0x0087775f: PUSH 0x1                                            
+  0x00877761: PUSH 0x21                                           
+  0x00877763: LEA ECX,[EBP + -0x1c]                               
+  0x00877766: CALL 0x00404eb0                                      ; CALL 0x00404eb0 FUN_00404eb0
+  0x0087776b: MOV dword ptr [EBP + -0x4],0x0                      
+  0x00877772: PUSH 0x1082ec0                                      
+  0x00877777: CALL 0x0040fbe0                                      ; CALL 0x0040fbe0 FUN_0040fbe0
+  0x0087777c: ADD ESP,0x4                                         
+  0x0087777f: MOV ECX,0x11deb00                                   
+  0x00877784: CALL 0x00559450                                      ; CALL 0x00559450 FUN_00559450
+  0x00877789: PUSH EAX                                            
+  0x0087778a: MOV ECX,0x11deb34                                   
+  0x0087778f: CALL 0x00559450                                      ; CALL 0x00559450 FUN_00559450
+  0x00877794: PUSH EAX                                            
+  0x00877795: MOV ECX,dword ptr [0x011dea20]                       << TARGET
+  0x0087779b: CALL 0x0063a630                                      ; CALL 0x0063a630 Sky setup/update with render textures candidate
+  0x008777a0: MOV ECX,0x11deda4                                   
+  0x008777a5: CALL 0x00559450                                      ; CALL 0x00559450 FUN_00559450
+  0x008777aa: MOV dword ptr [EBP + -0x38],EAX                     
+  0x008777ad: PUSH 0x1                                            
+  0x008777af: MOV ECX,dword ptr [0x011dea20]                      
+  0x008777b5: CALL 0x0045cd60                                      ; CALL 0x0045cd60 Sky sun/current object getter candidate
+  0x008777ba: MOV ECX,EAX                                         
+  0x008777bc: CALL 0x0043b230                                      ; CALL 0x0043b230 FUN_0043b230
+  0x008777c1: PUSH EAX                                            
+  0x008777c2: MOV EAX,dword ptr [EBP + -0x38]                     
+  0x008777c5: MOV EDX,dword ptr [EAX]                             
+  0x008777c7: MOV ECX,dword ptr [EBP + -0x38]                     
+  0x008777ca: MOV EAX,dword ptr [EDX + 0xdc]                      
+  0x008777d0: CALL EAX                                            
+  0x008777d2: MOV ECX,dword ptr [0x011dea20]                      
+  0x008777d8: CALL 0x004505a0                                      ; CALL 0x004505a0 Sky current climate/weather getter candidate
+  0x008777dd: PUSH EAX                                            
+  0x008777de: PUSH 0x0                                            
+  0x008777e0: CALL 0x00450b80                                      ; CALL 0x00450b80 FUN_00450b80
+  0x008777e5: ADD ESP,0x4                                         
+  0x008777e8: MOV ECX,EAX                                         
+  0x008777ea: CALL 0x00b5aac0                                      ; CALL 0x00b5aac0 FUN_00b5aac0
+  0x008777ef: MOV ECX,0x11deb34                                   
+  0x008777f4: CALL 0x00559450                                      ; CALL 0x00559450 FUN_00559450
+  0x008777f9: MOV ECX,EAX                                         
+  0x008777fb: CALL 0x00a5a040                                      ; CALL 0x00a5a040 FUN_00a5a040
+  0x00877800: MOV ECX,0x11deadc                                   
+  0x00877805: CALL 0x00408d60                                      ; CALL 0x00408d60 FUN_00408d60
+  0x0087780a: MOVZX ECX,byte ptr [EAX]                            
+  0x0087780d: PUSH ECX                                            
+  0x0087780e: CALL 0x004e3270                                      ; CALL 0x004e3270 FUN_004e3270
+  0x00877813: MOV ECX,EAX                                         
+  0x00877815: CALL 0x00b8b200                                      ; CALL 0x00b8b200 FUN_00b8b200
+
+Bytes @ 0x008777af (FUN_00877730+0x7f): 8B 0D 20 EA 1D 01 E8 A6 55 BE FF 8B C8 E8 6F 3A
+
+----------------------------------------------------------------------
+Disassembly FUN_00877730+0x7f around 0x008777af
+----------------------------------------------------------------------
+  0x00877777: CALL 0x0040fbe0                                      ; CALL 0x0040fbe0 FUN_0040fbe0
+  0x0087777c: ADD ESP,0x4                                         
+  0x0087777f: MOV ECX,0x11deb00                                   
+  0x00877784: CALL 0x00559450                                      ; CALL 0x00559450 FUN_00559450
+  0x00877789: PUSH EAX                                            
+  0x0087778a: MOV ECX,0x11deb34                                   
+  0x0087778f: CALL 0x00559450                                      ; CALL 0x00559450 FUN_00559450
+  0x00877794: PUSH EAX                                            
+  0x00877795: MOV ECX,dword ptr [0x011dea20]                      
+  0x0087779b: CALL 0x0063a630                                      ; CALL 0x0063a630 Sky setup/update with render textures candidate
+  0x008777a0: MOV ECX,0x11deda4                                   
+  0x008777a5: CALL 0x00559450                                      ; CALL 0x00559450 FUN_00559450
+  0x008777aa: MOV dword ptr [EBP + -0x38],EAX                     
+  0x008777ad: PUSH 0x1                                            
+  0x008777af: MOV ECX,dword ptr [0x011dea20]                       << TARGET
+  0x008777b5: CALL 0x0045cd60                                      ; CALL 0x0045cd60 Sky sun/current object getter candidate
+  0x008777ba: MOV ECX,EAX                                         
+  0x008777bc: CALL 0x0043b230                                      ; CALL 0x0043b230 FUN_0043b230
+  0x008777c1: PUSH EAX                                            
+  0x008777c2: MOV EAX,dword ptr [EBP + -0x38]                     
+  0x008777c5: MOV EDX,dword ptr [EAX]                             
+  0x008777c7: MOV ECX,dword ptr [EBP + -0x38]                     
+  0x008777ca: MOV EAX,dword ptr [EDX + 0xdc]                      
+  0x008777d0: CALL EAX                                            
+  0x008777d2: MOV ECX,dword ptr [0x011dea20]                      
+  0x008777d8: CALL 0x004505a0                                      ; CALL 0x004505a0 Sky current climate/weather getter candidate
+  0x008777dd: PUSH EAX                                            
+  0x008777de: PUSH 0x0                                            
+  0x008777e0: CALL 0x00450b80                                      ; CALL 0x00450b80 FUN_00450b80
+  0x008777e5: ADD ESP,0x4                                         
+  0x008777e8: MOV ECX,EAX                                         
+  0x008777ea: CALL 0x00b5aac0                                      ; CALL 0x00b5aac0 FUN_00b5aac0
+  0x008777ef: MOV ECX,0x11deb34                                   
+  0x008777f4: CALL 0x00559450                                      ; CALL 0x00559450 FUN_00559450
+  0x008777f9: MOV ECX,EAX                                         
+  0x008777fb: CALL 0x00a5a040                                      ; CALL 0x00a5a040 FUN_00a5a040
+  0x00877800: MOV ECX,0x11deadc                                   
+  0x00877805: CALL 0x00408d60                                      ; CALL 0x00408d60 FUN_00408d60
+  0x0087780a: MOVZX ECX,byte ptr [EAX]                            
+  0x0087780d: PUSH ECX                                            
+  0x0087780e: CALL 0x004e3270                                      ; CALL 0x004e3270 FUN_004e3270
+  0x00877813: MOV ECX,EAX                                         
+  0x00877815: CALL 0x00b8b200                                      ; CALL 0x00b8b200 FUN_00b8b200
+  0x0087781a: MOV ECX,0x11deadc                                   
+  0x0087781f: CALL 0x00408d60                                      ; CALL 0x00408d60 FUN_00408d60
+  0x00877824: MOVZX EDX,byte ptr [EAX]                            
+  0x00877827: TEST EDX,EDX                                        
+  0x00877829: JZ 0x0087789c                                       
+  0x0087782b: PUSH 0x24                                           
+
+Bytes @ 0x008777d2 (FUN_00877730+0xa2): 8B 0D 20 EA 1D 01 E8 C3 8D BD FF 50 6A 00 E8 9B
+
+----------------------------------------------------------------------
+Disassembly FUN_00877730+0xa2 around 0x008777d2
+----------------------------------------------------------------------
+  0x008777a0: MOV ECX,0x11deda4                                   
+  0x008777a5: CALL 0x00559450                                      ; CALL 0x00559450 FUN_00559450
+  0x008777aa: MOV dword ptr [EBP + -0x38],EAX                     
+  0x008777ad: PUSH 0x1                                            
+  0x008777af: MOV ECX,dword ptr [0x011dea20]                      
+  0x008777b5: CALL 0x0045cd60                                      ; CALL 0x0045cd60 Sky sun/current object getter candidate
+  0x008777ba: MOV ECX,EAX                                         
+  0x008777bc: CALL 0x0043b230                                      ; CALL 0x0043b230 FUN_0043b230
+  0x008777c1: PUSH EAX                                            
+  0x008777c2: MOV EAX,dword ptr [EBP + -0x38]                     
+  0x008777c5: MOV EDX,dword ptr [EAX]                             
+  0x008777c7: MOV ECX,dword ptr [EBP + -0x38]                     
+  0x008777ca: MOV EAX,dword ptr [EDX + 0xdc]                      
+  0x008777d0: CALL EAX                                            
+  0x008777d2: MOV ECX,dword ptr [0x011dea20]                       << TARGET
+  0x008777d8: CALL 0x004505a0                                      ; CALL 0x004505a0 Sky current climate/weather getter candidate
+  0x008777dd: PUSH EAX                                            
+  0x008777de: PUSH 0x0                                            
+  0x008777e0: CALL 0x00450b80                                      ; CALL 0x00450b80 FUN_00450b80
+  0x008777e5: ADD ESP,0x4                                         
+  0x008777e8: MOV ECX,EAX                                         
+  0x008777ea: CALL 0x00b5aac0                                      ; CALL 0x00b5aac0 FUN_00b5aac0
+  0x008777ef: MOV ECX,0x11deb34                                   
+  0x008777f4: CALL 0x00559450                                      ; CALL 0x00559450 FUN_00559450
+  0x008777f9: MOV ECX,EAX                                         
+  0x008777fb: CALL 0x00a5a040                                      ; CALL 0x00a5a040 FUN_00a5a040
+  0x00877800: MOV ECX,0x11deadc                                   
+  0x00877805: CALL 0x00408d60                                      ; CALL 0x00408d60 FUN_00408d60
+  0x0087780a: MOVZX ECX,byte ptr [EAX]                            
+  0x0087780d: PUSH ECX                                            
+  0x0087780e: CALL 0x004e3270                                      ; CALL 0x004e3270 FUN_004e3270
+  0x00877813: MOV ECX,EAX                                         
+  0x00877815: CALL 0x00b8b200                                      ; CALL 0x00b8b200 FUN_00b8b200
+  0x0087781a: MOV ECX,0x11deadc                                   
+  0x0087781f: CALL 0x00408d60                                      ; CALL 0x00408d60 FUN_00408d60
+  0x00877824: MOVZX EDX,byte ptr [EAX]                            
+  0x00877827: TEST EDX,EDX                                        
+  0x00877829: JZ 0x0087789c                                       
+  0x0087782b: PUSH 0x24                                           
+  0x0087782d: CALL 0x00aa13e0                                      ; CALL 0x00aa13e0 FUN_00aa13e0
+  0x00877832: ADD ESP,0x4                                         
+  0x00877835: MOV dword ptr [EBP + -0x34],EAX                     
+  0x00877838: MOV byte ptr [EBP + -0x4],0x1                       
+  0x0087783c: CMP dword ptr [EBP + -0x34],0x0                     
+  0x00877840: JZ 0x0087784f                                       
+  0x00877842: MOV ECX,dword ptr [EBP + -0x34]                     
+  0x00877845: CALL 0x0049ec80                                      ; CALL 0x0049ec80 FUN_0049ec80
+  0x0087784a: MOV dword ptr [EBP + -0x3c],EAX                     
+  0x0087784d: JMP 0x00877856                                      
+
+Bytes @ 0x00877916 (FUN_00877730+0x1e6): 8B 0D 20 EA 1D 01 E8 3F 54 BE FF 8B C8 E8 08 39
+
+----------------------------------------------------------------------
+Disassembly FUN_00877730+0x1e6 around 0x00877916
+----------------------------------------------------------------------
+  0x008778e9: PUSH ECX                                            
+  0x008778ea: MOV ECX,0x11deda4                                   
+  0x008778ef: CALL 0x00559450                                      ; CALL 0x00559450 FUN_00559450
+  0x008778f4: MOV ECX,EAX                                         
+  0x008778f6: CALL 0x00a59c60                                      ; CALL 0x00a59c60 FUN_00a59c60
+  0x008778fb: PUSH 0x0                                            
+  0x008778fd: PUSH 0x0                                            
+  0x008778ff: MOV ECX,0x11deb34                                   
+  0x00877904: CALL 0x00559450                                      ; CALL 0x00559450 FUN_00559450
+  0x00877909: PUSH EAX                                            
+  0x0087790a: CALL 0x00b57e30                                      ; CALL 0x00b57e30 FUN_00b57e30
+  0x0087790f: ADD ESP,0xc                                         
+  0x00877912: PUSH 0x0                                            
+  0x00877914: PUSH 0x0                                            
+  0x00877916: MOV ECX,dword ptr [0x011dea20]                       << TARGET
+  0x0087791c: CALL 0x0045cd60                                      ; CALL 0x0045cd60 Sky sun/current object getter candidate
+  0x00877921: MOV ECX,EAX                                         
+  0x00877923: CALL 0x0043b230                                      ; CALL 0x0043b230 FUN_0043b230
+  0x00877928: PUSH EAX                                            
+  0x00877929: CALL 0x00b57e30                                      ; CALL 0x00b57e30 FUN_00b57e30
+  0x0087792e: ADD ESP,0xc                                         
+  0x00877931: MOV dword ptr [EBP + -0x4],0xffffffff               
+  0x00877938: LEA ECX,[EBP + -0x1c]                               
+  0x0087793b: CALL 0x00404ee0                                      ; CALL 0x00404ee0 FUN_00404ee0
+  0x00877940: MOV ECX,dword ptr [EBP + -0xc]                      
+  0x00877943: MOV dword ptr FS:[0x0],ECX                          
+  0x0087794a: POP ECX                                             
+  0x0087794b: MOV ESP,EBP                                         
+  0x0087794d: POP EBP                                             
+  0x0087794e: RET                                                 
+  0x00877950: PUSH EBP                                            
+  0x00877951: MOV EBP,ESP                                         
+  0x00877953: CALL 0x00877960                                      ; CALL 0x00877960 FUN_00877960
+  0x00877958: MOV EAX,[0x01204368]                                
+  0x0087795d: POP EBP                                             
+  0x0087795e: RET                                                 
+  0x00877960: PUSH EBP                                            
+  0x00877961: MOV EBP,ESP                                         
+  0x00877963: PUSH -0x1                                           
+  0x00877965: PUSH 0xf109cb                                       
+  0x0087796a: MOV EAX,FS:[0x0]                                    
+  0x00877970: PUSH EAX                                            
+  0x00877971: SUB ESP,0xc                                         
+  0x00877974: MOV EAX,[0x011c16bc]                                
+  0x00877979: XOR EAX,EBP                                         
+  0x0087797b: PUSH EAX                                            
+  0x0087797c: LEA EAX,[EBP + -0xc]                                
+  0x0087797f: MOV FS:[0x0],EAX                                    
+  0x00877985: CMP dword ptr [0x01204368],0x0                      
+
+======================================================================
+Sky/TES initialization candidate @ 0x0086cf20
+======================================================================
+  Function: FUN_0086cf20 @ 0x0086cf20, Size: 1353 bytes
+
+/* WARNING: Globals starting with '_' overlap smaller symbols at the same address */
+
+void FUN_0086cf20(void)
+
+{
+  bool bVar1;
+  char cVar2;
+  uint uVar3;
+  int iVar4;
+  int *piVar5;
+  char *pcVar6;
+  size_t sVar7;
+  undefined4 uVar8;
+  undefined4 *puVar9;
+  int *unaff_FS_OFFSET;
+  undefined *puVar10;
+  int *local_98;
+  undefined4 local_94;
+  int local_90;
+  int local_5c;
+  undefined1 local_50 [12];
+  int local_44;
+  undefined4 local_40;
+  undefined *local_38;
+  undefined *local_34;
+  undefined *local_30;
+  undefined *local_2c;
+  undefined *local_28;
+  undefined *local_24;
+  undefined *local_20;
+  undefined *local_1c;
+  undefined *local_18;
+  undefined *local_14;
+  int local_10;
+  undefined1 *puStack_c;
+  int local_8;
+  
+  local_8 = 0xffffffff;
+  puStack_c = &LAB_00f1400e;
+  local_10 = *unaff_FS_OFFSET;
+  uVar3 = DAT_011c16bc ^ (uint)&stack0xfffffffc;
+  *unaff_FS_OFFSET = (int)&local_10;
+  FUN_00404eb0(10,1,"D:\\_Fallout3\\Platforms\\Common\\Code\\Fallout\\Misc\\Main.cpp",0xe4f);
+  local_8 = 0;
+  FUN_00404f00(10,1,"D:\\_Fallout3\\Platforms\\Common\\Code\\Fallout\\Misc\\Main.cpp",0xe51);
+  DAT_011dea20 = FUN_0046dd00(uVar3);
+  FUN_00877730();
+  local_40 = FUN_0086d470();
+  iVar4 = FUN_007a1480();
+  local_44 = iVar4;
+  if (iVar4 != 0) {
+    FUN_004505a0(iVar4);
+    FUN_00a89af0(iVar4);
+    piVar5 = (int *)FUN_0045bc00(0);
+    if (piVar5 == (int *)0x0) {
+      local_90 = 0;
+    }
+    else {
+      local_90 = (**(code **)(*piVar5 + 0xc))();
+    }
+    local_44 = local_90;
+  }
+  FUN_0040fbe0("Initializing TES...");
+  iVar4 = FUN_00401000(0xc4);
+  local_8._0_1_ = 1;
+  if (iVar4 == 0) {
+    local_94 = 0;
+  }
+  else {
+    local_94 = FUN_0044fb20(&DAT_010724e8,local_40,local_44,DAT_011dea20,DAT_011dea1c);
+  }
+  local_8 = (uint)local_8._1_3_ << 8;
+  DAT_011dea10 = local_94;
+  FUN_00404f70();
+  FUN_00450c50();
+  FUN_0040fbe0("Initializing TreeManager...");
+  FUN_00664870(0);
+  FUN_0040fbe0("Activating Tasklet Threads...");
+  FUN_00b00a00();
+  FUN_00b00df0();
+  FUN_00526e10();
+  FUN_00990f20();
+  FUN_00404f00(0x19,1,"D:\\_Fallout3\\Platforms\\Common\\Code\\Fallout\\Misc\\Main.cpp",0xe85);
+  FUN_00a5a040();
+  FUN_0043d410(0,0,0);
+  FUN_00a59c60(local_50);
+  FUN_00404f70();
+  bVar1 = false;
+  local_38 = &DAT_011debf0;
+  local_34 = &DAT_011deb88;
+  local_30 = &DAT_011decf8;
+  local_2c = &DAT_011dee9c;
+  local_28 = &DAT_011dec34;
+  local_24 = &DAT_011dee0c;
+  local_20 = &DAT_011ded14;
+  local_1c = &DAT_011dee48;
+  local_18 = &DAT_011dea70;
+  local_14 = &DAT_011ded48;
+  for (local_5c = 0; local_5c < 10; local_5c = local_5c + 1) {
+    iVar4 = FUN_00403df0();
+    if (iVar4 != 0) {
+      pcVar6 = (char *)FUN_00403df0();
+      sVar7 = _strlen(pcVar6);
+      if (sVar7 != 0) {
+        uVar8 = FUN_00403df0(0);
+        uVar8 = FUN_00464f30(uVar8);
+        iVar4 = FUN_00462f40(uVar8);
+        if (iVar4 != 0) {
+          FUN_00471d00(1);
+          bVar1 = true;
+        }
+      }
+    }
+  }
+  puVar10 = PTR_s___Plugins_txt_011a2ffc;
+  uVar8 = FUN_0086d480(PTR_s___Plugins_txt_011a2ffc);
+  cVar2 = FUN_00872430(uVar8,puVar10);
+  if (cVar2 != '\0') {
+    bVar1 = true;
+  }
+  if (!bVar1) {
+    iVar4 = FUN_00462f40("Fallout.esm");
+    if (iVar4 != 0) {
+      FUN_00471d00(1);
+    }
+  }
+  FUN_00404f00(0x34,1,"D:\\_Fallout3\\Platforms\\Common\\Code\\Fallout\\Misc\\Main.cpp",0xecb);
+  iVar4 = FUN_00401000(0xe50);
+  local_8._0_1_ = 2;
+  if (iVar4 == 0) {
+    local_98 = (int *)0x0;
+  }
+  else {
+    local_98 = (int *)FUN_00938180();
+  }
+  local_8 = (uint)local_8._1_3_ << 8;
+  DAT_011dea3c = local_98;
+  (**(code **)(*local_98 + 0x128))(0x14,1);
+  FUN_00404f70();
+  FUN_0040fbe0("Loading Files...");
+  FUN_00463070(0);
+  FUN_005f5880();
+  FUN_00459f10();
+  FUN_0045a370();
+  pcVar6 = (char *)FUN_00408d60();
+  if (*pcVar6 != '\0') {
+    FUN_0045a600();
+  }
+  FUN_0045a1e0();
+  FUN_0068b3e0();
+  FUN_0040fbe0("Initializing Player...");
+  FUN_00404f00(0x34,1,"D:\\_Fallout3\\Platforms\\Common\\Code\\Fallout\\Misc\\Main.cpp",0xf00);
+  uVar8 = FUN_004839c0(7,&PTR_PTR_01183028,&PTR_PTR_01183a1c,0);
+  uVar8 = FUN_00ec43fb(uVar8,0);
+  FUN_00575690(uVar8);
+  uVar8 = FUN_00416870(_DAT_01018bfc,_DAT_01018bfc,0);
+  (**(code **)(*DAT_011dea3c + 0x2a8))(uVar8);
+  FUN_0086d490(&DAT_011f426c);
+  (**(code **)(*DAT_011dea3c + 0x88))();
+  FUN_008c26e0(0);
+  iVar4 = (**(code **)(DAT_011dea3c[0x29] + 8))(0x10);
+  if (iVar4 == 0) {
+    FUN_00484e60(0);
+    uVar8 = FUN_00891170();
+    FUN_0040fbe0("ERROR: Health value is 0 on the Player. Fix \'%s\' with the editor.",uVar8);
+  }
+  FUN_0040fbe0("Initializing Scripts...");
+  FUN_00465040();
+  iVar4 = FUN_004503f0();
+  if (0 < iVar4) {
+    iVar4 = FUN_004503f0();
+    if (iVar4 < 200) {
+      puVar9 = (undefined4 *)FUN_0043d4d0();
+      FUN_0086d4c0(*puVar9);
+    }
+  }
+  local_8 = 0xffffffff;
+  FUN_00404ee0();
+  *unaff_FS_OFFSET = local_10;
+  return;
+}
+
+
+
+--- Calls FROM Sky/TES initialization candidate (0x0086cf20) ---
+  0x0086cf5f -> 0x00404eb0 FUN_00404eb0
+  0x0086cf7c -> 0x00404f00 FUN_00404f00
+  0x0086cf81 -> 0x0046dd00 FUN_0046dd00
+  0x0086cf8b -> 0x00877730 Sky render/update candidate
+  0x0086cf90 -> 0x0086d470 FUN_0086d470
+  0x0086cf98 -> 0x007a1480 FUN_007a1480
+  0x0086cfb0 -> 0x004505a0 Sky current climate/weather getter candidate
+  0x0086cfb7 -> 0x00a89af0 FUN_00a89af0
+  0x0086cfc1 -> 0x0045bc00 FUN_0045bc00
+  0x0086cffc -> 0x0040fbe0 FUN_0040fbe0
+  0x0086d009 -> 0x00401000 FUN_00401000
+  0x0086d03b -> 0x0044fb20 NewTES
+  0x0086d06b -> 0x00404f70 FUN_00404f70
+  0x0086d076 -> 0x00450c50 FUN_00450c50
+  0x0086d080 -> 0x0040fbe0 FUN_0040fbe0
+  0x0086d08a -> 0x00664870 FUN_00664870
+  0x0086d097 -> 0x0040fbe0 FUN_0040fbe0
+  0x0086d09f -> 0x00b00a00 FUN_00b00a00
+  0x0086d0a6 -> 0x00b00df0 FUN_00b00df0
+  0x0086d0ab -> 0x00526e10 FUN_00526e10
+  0x0086d0b0 -> 0x00990f20 FUN_00990f20
+  0x0086d0c6 -> 0x00404f00 FUN_00404f00
+  0x0086d0ce -> 0x00a5a040 FUN_00a5a040
+  0x0086d0e0 -> 0x0043d410 FUN_0043d410
+  0x0086d0ec -> 0x00a59c60 FUN_00a59c60
+  0x0086d0f4 -> 0x00404f70 FUN_00404f70
+  0x0086d162 -> 0x00403df0 FUN_00403df0
+  0x0086d172 -> 0x00403df0 FUN_00403df0
+  0x0086d178 -> 0x00ec6130 _strlen
+  0x0086d18d -> 0x00403df0 FUN_00403df0
+  0x0086d193 -> 0x00464f30 FUN_00464f30
+  0x0086d1a2 -> 0x00462f40 FUN_00462f40
+  0x0086d1b5 -> 0x00471d00 FUN_00471d00
+  0x0086d1c7 -> 0x0086d480 FUN_0086d480
+  0x0086d1d3 -> 0x00872430 FUN_00872430
+  0x0086d1f6 -> 0x00462f40 FUN_00462f40
+  0x0086d209 -> 0x00471d00 FUN_00471d00
+  0x0086d21f -> 0x00404f00 FUN_00404f00
+  0x0086d229 -> 0x00401000 FUN_00401000
+  0x0086d241 -> 0x00938180 FUN_00938180
+  0x0086d28a -> 0x00404f70 FUN_00404f70
+  0x0086d294 -> 0x0040fbe0 FUN_0040fbe0
+  0x0086d2a4 -> 0x00463070 FUN_00463070
+  0x0086d2a9 -> 0x005f5880 FUN_005f5880
+  0x0086d2b4 -> 0x00459f10 FUN_00459f10
+  0x0086d2bf -> 0x0045a370 FUN_0045a370
+  0x0086d2c9 -> 0x00408d60 FUN_00408d60
+  0x0086d2db -> 0x0045a600 FUN_0045a600
+  0x0086d2e6 -> 0x0045a1e0 FUN_0045a1e0
+  0x0086d2eb -> 0x0068b3e0 FUN_0068b3e0
+  0x0086d2f5 -> 0x0040fbe0 FUN_0040fbe0
+  0x0086d30e -> 0x00404f00 FUN_00404f00
+  0x0086d321 -> 0x004839c0 FUN_004839c0
+  0x0086d32c -> 0x00ec43fb FUN_00ec43fb
+  0x0086d341 -> 0x00575690 FUN_00575690
+  0x0086d366 -> 0x00416870 FUN_00416870
+  0x0086d38c -> 0x0086d490 FUN_0086d490
+  0x0086d3af -> 0x008c26e0 FUN_008c26e0
+  0x0086d3e1 -> 0x00484e60 FUN_00484e60
+  0x0086d3e8 -> 0x00891170 FUN_00891170
+  0x0086d3f3 -> 0x0040fbe0 FUN_0040fbe0
+  0x0086d400 -> 0x0040fbe0 FUN_0040fbe0
+  0x0086d40e -> 0x00465040 FUN_00465040
+  0x0086d418 -> 0x004503f0 FUN_004503f0
+  0x0086d426 -> 0x004503f0 FUN_004503f0
+  0x0086d437 -> 0x0043d4d0 FUN_0043d4d0
+  0x0086d444 -> 0x0086d4c0 FUN_0086d4c0
+  0x0086d453 -> 0x00404ee0 FUN_00404ee0
+  Total: 68 calls
+
+======================================================================
+OFFSET MATCHES: Sky/TES initialization candidate @ 0x0086cf20
+======================================================================
+  L0044:   FUN_00404eb0(10,1,"D:\\_Fallout3\\Platforms\\Common\\Code\\Fallout\\Misc\\Main.cpp",0xe4f);
+  L0046:   FUN_00404f00(10,1,"D:\\_Fallout3\\Platforms\\Common\\Code\\Fallout\\Misc\\Main.cpp",0xe51);
+  L0047:   DAT_011dea20 = FUN_0046dd00(uVar3);
+  L0060:       local_90 = (**(code **)(*piVar5 + 0xc))();
+  L0065:   iVar4 = FUN_00401000(0xc4);
+  L0071:     local_94 = FUN_0044fb20(&DAT_010724e8,local_40,local_44,DAT_011dea20,DAT_011dea1c);
+  L0074:   DAT_011dea10 = local_94;
+  L0129:   iVar4 = FUN_00401000(0xe50);
+  L0139:   (**(code **)(*local_98 + 0x128))(0x14,1);
+  L0162:   iVar4 = (**(code **)(DAT_011dea3c[0x29] + 8))(0x10);
+  Total matched lines: 10
+
+======================================================================
+NewTES @ 0x0044fb20
+======================================================================
+  Function: FUN_0044fb20 @ 0x0044fb20, Size: 2248 bytes
+
+/* WARNING: Globals starting with '_' overlap smaller symbols at the same address */
+
+wchar_t * __thiscall
+FUN_0044fb20(wchar_t *param_1,undefined4 param_2,undefined4 param_3,undefined4 param_4,
+            undefined4 param_5,undefined4 param_6)
+
+{
+  int iVar1;
+  int iVar2;
+  uint uVar3;
+  undefined4 uVar4;
+  undefined1 *puVar5;
+  undefined4 *puVar6;
+  float *pfVar7;
+  float *pfVar8;
+  int iVar9;
+  int *piVar10;
+  int *piVar11;
+  uint *puVar12;
+  int *unaff_FS_OFFSET;
+  float10 fVar13;
+  undefined4 local_94;
+  undefined4 local_90;
+  undefined4 local_8c;
+  undefined4 local_88;
+  undefined4 local_84;
+  undefined4 local_80;
+  undefined4 local_7c;
+  undefined4 local_78;
+  undefined4 local_74;
+  undefined4 local_70;
+  uint local_14;
+  int local_10;
+  undefined1 *puStack_c;
+  undefined4 local_8;
+  
+  local_8 = 0xffffffff;
+  puStack_c = &LAB_00eed280;
+  local_10 = *unaff_FS_OFFSET;
+  uVar3 = DAT_011c16bc ^ (uint)&stack0xfffffffc;
+  *unaff_FS_OFFSET = (int)&local_10;
+  *(undefined ***)param_1 = &PTR_FUN_010178b4;
+  FUN_004ee810(uVar3);
+  local_8 = 0;
+  Concurrency::details::QuickBitSet::QuickBitSet((QuickBitSet *)(param_1 + 0x46));
+  local_8._0_1_ = 1;
+  Concurrency::details::QuickBitSet::QuickBitSet((QuickBitSet *)(param_1 + 0x4a));
+  local_8._0_1_ = 2;
+  Concurrency::details::QuickBitSet::QuickBitSet((QuickBitSet *)(param_1 + 0x4e));
+  local_8._0_1_ = 3;
+  FUN_00528cb0(0);
+  local_8._0_1_ = 4;
+  FUN_00633c90(0);
+  local_8._0_1_ = 5;
+  FUN_00528cb0(0);
+  local_8._0_1_ = 6;
+  FUN_00633c90(0);
+  local_8._0_1_ = 7;
+  FUN_00404eb0(10,1,"D:\\_Fallout3\\Platforms\\Common\\Code\\Fallout Shared\\TES.cpp",0x16a);
+  local_8._0_1_ = 8;
+  std::_Fiopen(param_1,0,0xc4);
+  FUN_00450430(1);
+  FUN_00624bf0();
+  uVar4 = FUN_004503f0();
+  FUN_00450450(uVar4);
+  FUN_00450470(0,FUN_005764f0);
+  puVar5 = (undefined1 *)FUN_00408d60();
+  FUN_00450490(*puVar5);
+  puVar6 = (undefined4 *)FUN_00403e20();
+  FUN_004504a0(*puVar6);
+  puVar6 = (undefined4 *)FUN_00403e20();
+  FUN_004504b0(*puVar6);
+  puVar6 = (undefined4 *)FUN_00403e20();
+  FUN_00450460(*puVar6);
+  puVar6 = (undefined4 *)FUN_00403e20();
+  FUN_004504c0(*puVar6);
+  puVar6 = (undefined4 *)FUN_00403e20();
+  FUN_004504d0(*puVar6);
+  puVar6 = (undefined4 *)FUN_0043d4d0();
+  FUN_004504e0(*puVar6);
+  fVar13 = (float10)FUN_00450410();
+  FUN_00450670((float)fVar13);
+  pfVar7 = (float *)FUN_00403e20();
+  pfVar8 = (float *)FUN_00403e20();
+  FUN_00450680(*pfVar7 * *pfVar8);
+  puVar6 = (undefined4 *)FUN_00403e20();
+  FUN_00450690(*puVar6);
+  FUN_004506b0();
+  FUN_004504f0(6,0);
+  FUN_004504f0(7,DAT_01012054);
+  puVar6 = (undefined4 *)FUN_00403e20();
+  FUN_00450540(*puVar6);
+  puVar6 = (undefined4 *)FUN_00403e20();
+  FUN_00450530(*puVar6);
+  puVar6 = (undefined4 *)FUN_00403e20();
+  FUN_00450510(*puVar6);
+  puVar6 = (undefined4 *)FUN_00403e20();
+  FUN_00450520(*puVar6);
+  puVar6 = (undefined4 *)FUN_00403e20();
+  FUN_00450550(*puVar6);
+  puVar5 = (undefined1 *)FUN_00408d60();
+  FUN_00450440(*puVar5);
+  puVar5 = (undefined1 *)FUN_00408d60();
+  FUN_00450560(*puVar5);
+  FUN_004505d0(FUN_00577450);
+  FUN_004505e0(FUN_00577ca0);
+  iVar9 = FUN_00401000(0x28);
+  local_8._0_1_ = 9;
+  if (iVar9 == 0) {
+    local_70 = 0;
+  }
+  else {
+    local_70 = FUN_004ba280();
+  }
+  local_8._0_1_ = 8;
+  *(undefined4 *)(param_1 + 4) = local_70;
+  (**(code **)(**(int **)(param_1 + 4) + 4))();
+  FUN_00404eb0(0x12,1,"D:\\_Fallout3\\Platforms\\Common\\Code\\Fallout Shared\\TES.cpp",0x1ae);
+  local_8._0_1_ = 10;
+  FUN_00527eb0();
+  iVar9 = FUN_00401000(0xa0);
+  local_8._0_1_ = 0xb;
+  if (iVar9 == 0) {
+    local_74 = 0;
+  }
+  else {
+    local_74 = FUN_00c3da50();
+  }
+  local_8._0_1_ = 10;
+  DAT_01202d98 = local_74;
+  iVar9 = FUN_00401000(0x30);
+  local_8._0_1_ = 0xc;
+  if (iVar9 == 0) {
+    local_78 = 0;
+  }
+  else {
+    local_78 = FUN_00442650();
+  }
+  DAT_011c3b3c = local_78;
+  local_8._0_1_ = 8;
+  FUN_00404ee0();
+  piVar10 = (int *)FUN_0043d4d0();
+  if (1 < *piVar10) {
+    iVar9 = FUN_00401000(0x10);
+    local_8._0_1_ = 0xd;
+    if (iVar9 == 0) {
+      local_7c = 0;
+    }
+    else {
+      local_7c = FUN_00c44980();
+    }
+    local_8._0_1_ = 8;
+    DAT_01202df4 = local_7c;
+  }
+  iVar9 = FUN_00401000(0x63c);
+  local_8._0_1_ = 0xe;
+  if (iVar9 == 0) {
+    local_80 = 0;
+  }
+  else {
+    local_80 = FUN_0045d270();
+  }
+  local_8._0_1_ = 8;
+  DAT_011c3f2c = local_80;
+  FUN_004624b0(param_2);
+  iVar9 = FUN_00401000(0x1c8);
+  local_8._0_1_ = 0xf;
+  if (iVar9 == 0) {
+    local_84 = 0;
+  }
+  else {
+    local_84 = FUN_00856380();
+  }
+  local_8 = CONCAT31(local_8._1_3_,8);
+  DAT_011de45c = local_84;
+  FUN_00847480();
+  FUN_0084fc70();
+  uVar3 = FUN_004503f0();
+  piVar10 = (int *)FUN_0043d4d0();
+  piVar11 = (int *)FUN_0043d4d0();
+  iVar9 = *piVar10;
+  iVar1 = *piVar11;
+  piVar10 = (int *)FUN_0043d4d0();
+  iVar2 = *piVar10;
+  piVar10 = (int *)FUN_0043d4d0();
+  if (uVar3 < (uint)(iVar9 * iVar1 + iVar2 + 1 + *piVar10)) {
+    piVar10 = (int *)FUN_0043d4d0();
+    piVar11 = (int *)FUN_0043d4d0();
+    iVar9 = *piVar10;
+    iVar1 = *piVar11;
+    piVar10 = (int *)FUN_0043d4d0();
+    iVar2 = *piVar10;
+    piVar10 = (int *)FUN_0043d4d0();
+    FUN_0045ce80(iVar9 * iVar1 + iVar2 + 1 + *piVar10);
+  }
+  iVar9 = FUN_004503f0();
+  if (iVar9 == 0) {
+    FUN_0045ce80(1);
+  }
+  puVar12 = (uint *)FUN_0043d4d0();
+  uVar4 = FUN_00401000(-(uint)((int)((ulonglong)*puVar12 * 4 >> 0x20) != 0) |
+                       (uint)((ulonglong)*puVar12 * 4));
+  *(undefined4 *)(param_1 + 0x1c) = uVar4;
+  puVar12 = (uint *)FUN_0043d4d0();
+  uVar4 = FUN_00401000(-(uint)((int)((ulonglong)*puVar12 * 4 >> 0x20) != 0) |
+                       (uint)((ulonglong)*puVar12 * 4));
+  *(undefined4 *)(param_1 + 0x1e) = uVar4;
+  local_14 = 0;
+  while( true ) {
+    uVar3 = FUN_004503f0();
+    if (uVar3 <= local_14) break;
+    *(undefined4 *)(*(int *)(param_1 + 0x1c) + local_14 * 4) = 0;
+    local_14 = local_14 + 1;
+  }
+  local_14 = 0;
+  while( true ) {
+    uVar3 = FUN_004503f0();
+    if (uVar3 <= local_14) break;
+    *(undefined4 *)(*(int *)(param_1 + 0x1e) + local_14 * 4) = 0;
+    local_14 = local_14 + 1;
+  }
+  param_1[0x22] = L'\0';
+  param_1[0x23] = L'\0';
+  param_1[0x20] = L'\0';
+  param_1[0x21] = L'\0';
+  FUN_00450d80();
+  *(undefined4 *)(param_1 + 6) = param_3;
+  iVar9 = FUN_00aa13e0(0xb0);
+  local_8._0_1_ = 0x10;
+  if (iVar9 == 0) {
+    local_88 = 0;
+  }
+  else {
+    local_88 = FUN_004505f0();
+  }
+  local_8 = CONCAT31(local_8._1_3_,8);
+  *(undefined4 *)(param_1 + 0xc) = local_88;
+  if (*(int *)(param_1 + 6) != 0) {
+    (**(code **)(**(int **)(param_1 + 6) + 0xdc))(*(undefined4 *)(param_1 + 0xc),1);
+  }
+  *(undefined4 *)(param_1 + 8) = param_4;
+  *(undefined4 *)(param_1 + 10) = param_6;
+  *(undefined4 *)(param_1 + 0x34) = param_5;
+  if (*(int *)(param_1 + 0x34) == 0) {
+    local_8c = 0;
+  }
+  else {
+    local_8c = FUN_004505a0();
+  }
+  *(undefined4 *)(param_1 + 0xe) = local_8c;
+  if (*(int *)(param_1 + 0x34) == 0) {
+    local_90 = 0;
+  }
+  else {
+    local_90 = FUN_00450570();
+  }
+  *(undefined4 *)(param_1 + 0x10) = local_90;
+  *(undefined1 *)((int)param_1 + 0x7d) = 0;
+  param_1[0x44] = L'\0';
+  param_1[0x45] = L'\0';
+  param_1[0x58] = L'\0';
+  param_1[0x59] = L'\0';
+  *(undefined1 *)(param_1 + 0x5a) = 1;
+  piVar10 = (int *)FUN_0043d4d0();
+  piVar11 = (int *)FUN_0043d4d0();
+  if (DAT_011c3c00 < (uint)(*piVar10 * *piVar11)) {
+    piVar10 = (int *)FUN_0043d4d0();
+    piVar11 = (int *)FUN_0043d4d0();
+    DAT_011c3c00 = *piVar10 * *piVar11;
+  }
+  *(undefined1 *)(param_1 + 0x30) = 0;
+  *(undefined1 *)((int)param_1 + 0x51) = 0;
+  *(undefined1 *)(param_1 + 0x29) = 0;
+  *(undefined1 *)((int)param_1 + 0xb5) = 1;
+  param_1[0x5e] = L'\0';
+  param_1[0x5f] = L'\0';
+  FUN_004506a0(FUN_0045c680);
+  iVar9 = FUN_00aa13e0(0x44);
+  local_8._0_1_ = 0x11;
+  if (iVar9 == 0) {
+    local_94 = 0;
+  }
+  else {
+    local_94 = FUN_00626fd0(_DAT_01017868,_DAT_0101786c,_DAT_01013974,_DAT_01017870);
+  }
+  local_8._0_1_ = 8;
+  FUN_0066b0d0(local_94);
+  param_1[0x2e] = L'\0';
+  param_1[0x2f] = L'\0';
+  local_8 = CONCAT31(local_8._1_3_,7);
+  FUN_00404ee0();
+  *unaff_FS_OFFSET = local_10;
+  return param_1;
+}
+
+
+
+--- Calls FROM NewTES (0x0044fb20) ---
+  0x0044fb5c -> 0x004ee810 FUN_004ee810
+  0x0044fb71 -> 0x0096a2d0 QuickBitSet
+  0x0044fb83 -> 0x0096a2d0 QuickBitSet
+  0x0044fb95 -> 0x0096a2d0 QuickBitSet
+  0x0044fba9 -> 0x00528cb0 FUN_00528cb0
+  0x0044fbbd -> 0x00633c90 FUN_00633c90
+  0x0044fbd1 -> 0x00528cb0 FUN_00528cb0
+  0x0044fbe5 -> 0x00633c90 FUN_00633c90
+  0x0044fbff -> 0x00404eb0 FUN_00404eb0
+  0x0044fc13 -> 0x00403d30 _Fiopen
+  0x0044fc1d -> 0x00450430 FUN_00450430
+  0x0044fc25 -> 0x00624bf0 FUN_00624bf0
+  0x0044fc2f -> 0x004503f0 FUN_004503f0
+  0x0044fc35 -> 0x00450450 FUN_00450450
+  0x0044fc44 -> 0x00450470 FUN_00450470
+  0x0044fc51 -> 0x00408d60 FUN_00408d60
+  0x0044fc5a -> 0x00450490 FUN_00450490
+  0x0044fc67 -> 0x00403e20 FUN_00403e20
+  0x0044fc72 -> 0x004504a0 FUN_004504a0
+  0x0044fc7f -> 0x00403e20 FUN_00403e20
+  0x0044fc8a -> 0x004504b0 FUN_004504b0
+  0x0044fc97 -> 0x00403e20 FUN_00403e20
+  0x0044fca2 -> 0x00450460 FUN_00450460
+  0x0044fcaf -> 0x00403e20 FUN_00403e20
+  0x0044fcba -> 0x004504c0 FUN_004504c0
+  0x0044fcc7 -> 0x00403e20 FUN_00403e20
+  0x0044fcd2 -> 0x004504d0 FUN_004504d0
+  0x0044fcdf -> 0x0043d4d0 FUN_0043d4d0
+  0x0044fce7 -> 0x004504e0 FUN_004504e0
+  0x0044fcf4 -> 0x00450410 FUN_00450410
+  0x0044fcfd -> 0x00450670 FUN_00450670
+  0x0044fd0a -> 0x00403e20 FUN_00403e20
+  0x0044fd16 -> 0x00403e20 FUN_00403e20
+  0x0044fd29 -> 0x00450680 FUN_00450680
+  0x0044fd36 -> 0x00403e20 FUN_00403e20
+  0x0044fd41 -> 0x00450690 FUN_00450690
+  0x0044fd49 -> 0x004506b0 FUN_004506b0
+  0x0044fd56 -> 0x004504f0 FUN_004504f0
+  0x0044fd69 -> 0x004504f0 FUN_004504f0
+  0x0044fd76 -> 0x00403e20 FUN_00403e20
+  0x0044fd81 -> 0x00450540 FUN_00450540
+  0x0044fd8e -> 0x00403e20 FUN_00403e20
+  0x0044fd99 -> 0x00450530 FUN_00450530
+  0x0044fda6 -> 0x00403e20 FUN_00403e20
+  0x0044fdb1 -> 0x00450510 FUN_00450510
+  0x0044fdbe -> 0x00403e20 FUN_00403e20
+  0x0044fdc9 -> 0x00450520 FUN_00450520
+  0x0044fdd6 -> 0x00403e20 FUN_00403e20
+  0x0044fde1 -> 0x00450550 FUN_00450550
+  0x0044fdee -> 0x00408d60 FUN_00408d60
+  0x0044fdf7 -> 0x00450440 FUN_00450440
+  0x0044fe04 -> 0x00408d60 FUN_00408d60
+  0x0044fe0d -> 0x00450560 FUN_00450560
+  0x0044fe1a -> 0x004505d0 FUN_004505d0
+  0x0044fe27 -> 0x004505e0 FUN_004505e0
+  0x0044fe31 -> 0x00401000 FUN_00401000
+  0x0044fe49 -> 0x004ba280 FUN_004ba280
+  0x0044fe93 -> 0x00404eb0 FUN_00404eb0
+  0x0044fe9c -> 0x00527eb0 FUN_00527eb0
+  0x0044fea6 -> 0x00401000 FUN_00401000
+  0x0044febe -> 0x00c3da50 FUN_00c3da50
+  0x0044fee4 -> 0x00401000 FUN_00401000
+  0x0044fefc -> 0x00442650 FUN_00442650
+  0x0044ff27 -> 0x00404ee0 FUN_00404ee0
+  0x0044ff31 -> 0x0043d4d0 FUN_0043d4d0
+  0x0044ff3d -> 0x00401000 FUN_00401000
+  0x0044ff55 -> 0x00c44980 FUN_00c44980
+  0x0044ff7d -> 0x00401000 FUN_00401000
+  0x0044ff95 -> 0x0045d270 FUN_0045d270
+  0x0044ffc3 -> 0x004624b0 FUN_004624b0
+  0x0044ffcd -> 0x00401000 FUN_00401000
+  0x0044ffe5 -> 0x00856380 FUN_00856380
+  0x00450009 -> 0x00847480 FUN_00847480
+  0x0045000e -> 0x0084fc70 FUN_0084fc70
+  0x00450018 -> 0x004503f0 FUN_004503f0
+  0x00450024 -> 0x0043d4d0 FUN_0043d4d0
+  0x00450030 -> 0x0043d4d0 FUN_0043d4d0
+  0x0045003f -> 0x0043d4d0 FUN_0043d4d0
+  0x0045004b -> 0x0043d4d0 FUN_0043d4d0
+  0x0045005f -> 0x0043d4d0 FUN_0043d4d0
+  0x0045006b -> 0x0043d4d0 FUN_0043d4d0
+  0x0045007a -> 0x0043d4d0 FUN_0043d4d0
+  0x00450086 -> 0x0043d4d0 FUN_0043d4d0
+  0x00450097 -> 0x0045ce80 FUN_0045ce80
+  0x004500a1 -> 0x004503f0 FUN_004503f0
+  0x004500b2 -> 0x0045ce80 FUN_0045ce80
+  0x004500bc -> 0x0043d4d0 FUN_0043d4d0
+  0x004500d4 -> 0x00401000 FUN_00401000
+  0x004500ed -> 0x0043d4d0 FUN_0043d4d0
+  0x00450105 -> 0x00401000 FUN_00401000
+  0x00450130 -> 0x004503f0 FUN_004503f0
+  0x00450163 -> 0x004503f0 FUN_004503f0
+  0x00450196 -> 0x00450d80 FUN_00450d80
+  0x004501a9 -> 0x00aa13e0 FUN_00aa13e0
+  0x004501c1 -> 0x004505f0 FUN_004505f0
+  0x00450240 -> 0x004505a0 Sky current climate/weather getter candidate
+  0x00450272 -> 0x00450570 FUN_00450570
+  0x004502c5 -> 0x0043d4d0 FUN_0043d4d0
+  0x004502d1 -> 0x0043d4d0 FUN_0043d4d0
+  0x004502e8 -> 0x0043d4d0 FUN_0043d4d0
+  0x004502f4 -> 0x0043d4d0 FUN_0043d4d0
+  0x00450335 -> 0x004506a0 FUN_004506a0
+  0x0045033f -> 0x00aa13e0 FUN_00aa13e0
+  0x0045037f -> 0x00626fd0 FUN_00626fd0
+  0x004503b0 -> 0x0066b0d0 FUN_0066b0d0
+  0x004503c6 -> 0x00404ee0 FUN_00404ee0
+  Total: 106 calls
+
+======================================================================
+OFFSET MATCHES: NewTES @ 0x0044fb20
+======================================================================
+  L0062:   std::_Fiopen(param_1,0,0xc4);
+  L0108:   iVar9 = FUN_00401000(0x28);
+  L0133:   local_8._0_1_ = 0xc;
+  L0145:     iVar9 = FUN_00401000(0x10);
+  L0230:   local_8._0_1_ = 0x10;
+  L0238:   *(undefined4 *)(param_1 + 0xc) = local_88;
+  L0240:     (**(code **)(**(int **)(param_1 + 6) + 0xdc))(*(undefined4 *)(param_1 + 0xc),1);
+  L0258:   *(undefined4 *)(param_1 + 0x10) = local_90;
+  Total matched lines: 8
+
+======================================================================
+Sky current climate/weather getter candidate @ 0x004505a0
+======================================================================
+  Function: FUN_004505a0 @ 0x004505a0, Size: 48 bytes
+
+undefined4 __fastcall FUN_004505a0(int param_1)
+
+{
+  undefined4 local_c;
+  
+  if (*(int *)(param_1 + 0x28) == 0) {
+    local_c = 0;
+  }
+  else {
+    local_c = FUN_006838b0();
+  }
+  return local_c;
+}
+
+
+
+--- Calls FROM Sky current climate/weather getter candidate (0x004505a0) ---
+  0x004505b8 -> 0x006838b0 FUN_006838b0
+  Total: 1 calls
+
+======================================================================
+OFFSET MATCHES: Sky current climate/weather getter candidate @ 0x004505a0
+======================================================================
+  L0007:   if (*(int *)(param_1 + 0x28) == 0) {
+  Total matched lines: 1
+
+======================================================================
+Sky sun/current object getter candidate @ 0x0045cd60
+======================================================================
+  Function: FUN_0045cd60 @ 0x0045cd60, Size: 17 bytes
+
+undefined4 __fastcall FUN_0045cd60(int param_1)
+
+{
+  return *(undefined4 *)(param_1 + 0x28);
+}
+
+
+
+--- Calls FROM Sky sun/current object getter candidate (0x0045cd60) ---
+  Total: 0 calls
+
+======================================================================
+OFFSET MATCHES: Sky sun/current object getter candidate @ 0x0045cd60
+======================================================================
+  L0005:   return *(undefined4 *)(param_1 + 0x28);
+  Total matched lines: 1
+
+======================================================================
+Sky setup/update with render textures candidate @ 0x0063a630
+======================================================================
+  Function: FUN_0063a630 @ 0x0063a630, Size: 1592 bytes
+
+/* WARNING: Globals starting with '_' overlap smaller symbols at the same address */
+
+void __thiscall FUN_0063a630(int param_1,int param_2,undefined4 param_3)
+
+{
+  char cVar1;
+  uint uVar2;
+  int iVar3;
+  int *piVar4;
+  undefined4 uVar5;
+  char *pcVar6;
+  int *unaff_FS_OFFSET;
+  undefined4 *puVar7;
+  undefined4 local_c0;
+  undefined4 local_bc;
+  undefined4 local_b4;
+  undefined4 local_a8;
+  undefined4 local_a4;
+  undefined4 local_9c;
+  undefined4 local_94;
+  undefined4 local_8c;
+  cancellation_token_source local_18 [8];
+  int local_10;
+  undefined1 *puStack_c;
+  int local_8;
+  
+  local_8 = 0xffffffff;
+  puStack_c = &LAB_00efcfea;
+  local_10 = *unaff_FS_OFFSET;
+  uVar2 = DAT_011c16bc ^ (uint)&stack0xfffffffc;
+  *unaff_FS_OFFSET = (int)&local_10;
+  FUN_00404eb0(0x21,1,"D:\\_Fallout3\\Platforms\\Common\\Code\\Fallout Shared\\Sky\\Sky.cpp",0x152);
+  local_8 = 0;
+  cVar1 = FUN_0052aa80(0);
+  if (cVar1 != '\0') {
+    FUN_00559450(uVar2);
+    iVar3 = FUN_009611e0();
+    if (iVar3 != 0) {
+      FUN_00559450(uVar2);
+      piVar4 = (int *)FUN_009611e0();
+      uVar5 = FUN_00559450();
+      (**(code **)(*piVar4 + 0xe8))(uVar5);
+    }
+    FUN_0066b0d0(0);
+  }
+  if (param_2 == 0) {
+    iVar3 = FUN_00aa13e0(0xb4);
+    local_8._0_1_ = 1;
+    if (iVar3 == 0) {
+      local_8c = 0;
+    }
+    else {
+      local_8c = FUN_00c46970();
+    }
+    local_8 = (uint)local_8._1_3_ << 8;
+    FUN_0066b0d0(local_8c);
+    uVar5 = 1;
+    FUN_00559450(1);
+    FUN_005468d0(uVar5);
+    uVar5 = 1;
+    FUN_00559450(1);
+    FUN_004902f0(uVar5);
+  }
+  else {
+    FUN_0066b0d0(param_2);
+  }
+  puVar7 = &DAT_011f426c;
+  FUN_00559450(&DAT_011f426c);
+  FUN_00440460(puVar7);
+  if ((*(int *)(param_1 + 0x20) != 0) && (*(undefined4 **)(param_1 + 0x20) != (undefined4 *)0x0)) {
+    (**(code **)**(undefined4 **)(param_1 + 0x20))(1);
+  }
+  iVar3 = FUN_00401000(0x1c);
+  local_8._0_1_ = 2;
+  if (iVar3 == 0) {
+    local_94 = 0;
+  }
+  else {
+    local_94 = FUN_00633080();
+  }
+  local_8 = (uint)local_8._1_3_ << 8;
+  *(undefined4 *)(param_1 + 0x20) = local_94;
+  uVar5 = FUN_00559450(param_3);
+  (**(code **)(**(int **)(param_1 + 0x20) + 0x10))(uVar5);
+  if ((*(int *)(param_1 + 0x24) != 0) && (*(undefined4 **)(param_1 + 0x24) != (undefined4 *)0x0)) {
+    (**(code **)**(undefined4 **)(param_1 + 0x24))(1);
+  }
+  iVar3 = FUN_00401000(0x10);
+  local_8._0_1_ = 3;
+  if (iVar3 == 0) {
+    local_9c = 0;
+  }
+  else {
+    local_9c = FUN_0063fc70();
+  }
+  local_8 = (uint)local_8._1_3_ << 8;
+  *(undefined4 *)(param_1 + 0x24) = local_9c;
+  uVar5 = FUN_00559450();
+  (**(code **)(**(int **)(param_1 + 0x24) + 8))(uVar5);
+  if ((*(int *)(param_1 + 0x28) != 0) && (*(undefined4 **)(param_1 + 0x28) != (undefined4 *)0x0)) {
+    (**(code **)**(undefined4 **)(param_1 + 0x28))(1);
+  }
+  iVar3 = FUN_00401000(0x2c);
+  local_8._0_1_ = 4;
+  if (iVar3 == 0) {
+    local_a4 = 0;
+  }
+  else {
+    local_a4 = FUN_006404f0();
+  }
+  local_8._0_1_ = 0;
+  *(undefined4 *)(param_1 + 0x28) = local_a4;
+  uVar5 = FUN_00559450();
+  (**(code **)(**(int **)(param_1 + 0x28) + 8))(uVar5);
+  iVar3 = FUN_00aa13e0(0xac);
+  local_8._0_1_ = 5;
+  if (iVar3 == 0) {
+    local_a8 = 0;
+  }
+  else {
+    local_a8 = FUN_00a5ecb0(0);
+  }
+  local_8 = (uint)local_8._1_3_ << 8;
+  FUN_0066b0d0(local_a8);
+  piVar4 = (int *)FUN_00559450();
+  uVar5 = FUN_00559450(1);
+  (**(code **)(*piVar4 + 0xdc))(uVar5);
+  if ((*(int *)(param_1 + 0x38) != 0) && (*(undefined4 **)(param_1 + 0x38) != (undefined4 *)0x0)) {
+    (**(code **)**(undefined4 **)(param_1 + 0x38))(1);
+  }
+  pcVar6 = (char *)FUN_00408d60();
+  if (*pcVar6 == '\0') {
+    *(undefined4 *)(param_1 + 0x38) = 0;
+  }
+  else {
+    iVar3 = FUN_00401000(0x18);
+    local_8._0_1_ = 6;
+    if (iVar3 == 0) {
+      local_b4 = 0;
+    }
+    else {
+      local_b4 = FUN_00636a40();
+    }
+    local_8 = (uint)local_8._1_3_ << 8;
+    *(undefined4 *)(param_1 + 0x38) = local_b4;
+    FUN_00636bb0();
+  }
+  if ((*(int *)(param_1 + 0x2c) != 0) && (*(undefined4 **)(param_1 + 0x2c) != (undefined4 *)0x0)) {
+    (**(code **)**(undefined4 **)(param_1 + 0x2c))(1);
+  }
+  iVar3 = FUN_00401000(0x5c);
+  local_8._0_1_ = 7;
+  if (iVar3 == 0) {
+    local_bc = 0;
+  }
+  else {
+    local_bc = FUN_00633cc0();
+  }
+  local_8._0_1_ = 0;
+  *(undefined4 *)(param_1 + 0x2c) = local_bc;
+  uVar5 = FUN_00559450();
+  (**(code **)(**(int **)(param_1 + 0x2c) + 8))(uVar5);
+  iVar3 = FUN_00aa13e0(0x1c);
+  local_8._0_1_ = 8;
+  if (iVar3 == 0) {
+    local_c0 = 0;
+  }
+  else {
+    local_c0 = FUN_004391c0();
+  }
+  local_8._0_1_ = 0;
+  FUN_00633c90(local_c0);
+  local_8._0_1_ = 9;
+  uVar5 = 6;
+  FUN_00559450(6);
+  FUN_00439340(uVar5);
+  uVar5 = 7;
+  FUN_00559450(7);
+  FUN_00439390(uVar5);
+  uVar5 = 1;
+  FUN_00559450(1);
+  FUN_0049ed90(uVar5);
+  uVar5 = 1;
+  FUN_00559450(1);
+  FUN_00636000(uVar5);
+  uVar5 = FUN_00559450();
+  FUN_00559450(uVar5);
+  FUN_00439410(uVar5);
+  FUN_0066b0d0(0);
+  local_8 = (uint)local_8._1_3_ << 8;
+  Concurrency::cancellation_token_source::~cancellation_token_source(local_18);
+  if (DAT_011f941e != '\0') {
+    _DAT_011ad87c = 0x3f800000;
+    _DAT_011ad880 = 0x3f800000;
+  }
+  FUN_00559450();
+  FUN_00a5a040();
+  local_8 = 0xffffffff;
+  FUN_00404ee0();
+  *unaff_FS_OFFSET = local_10;
+  return;
+}
+
+
+
+--- Calls FROM Sky setup/update with render textures candidate (0x0063a630) ---
+  0x0063a66c -> 0x00404eb0 FUN_00404eb0
+  0x0063a680 -> 0x0052aa80 FUN_0052aa80
+  0x0063a692 -> 0x00559450 FUN_00559450
+  0x0063a699 -> 0x009611e0 FUN_009611e0
+  0x0063a6a8 -> 0x00559450 FUN_00559450
+  0x0063a6af -> 0x009611e0 FUN_009611e0
+  0x0063a6c0 -> 0x00559450 FUN_00559450
+  0x0063a6e4 -> 0x0066b0d0 FUN_0066b0d0
+  0x0063a6f9 -> 0x0066b0d0 FUN_0066b0d0
+  0x0063a705 -> 0x00aa13e0 FUN_00aa13e0
+  0x0063a71d -> 0x00c46970 FUN_00c46970
+  0x0063a74b -> 0x0066b0d0 FUN_0066b0d0
+  0x0063a758 -> 0x00559450 FUN_00559450
+  0x0063a75f -> 0x005468d0 FUN_005468d0
+  0x0063a76c -> 0x00559450 FUN_00559450
+  0x0063a773 -> 0x004902f0 FUN_004902f0
+  0x0063a783 -> 0x00559450 FUN_00559450
+  0x0063a78a -> 0x00440460 FUN_00440460
+  0x0063a7cf -> 0x00401000 FUN_00401000
+  0x0063a7e7 -> 0x00633080 FUN_00633080
+  0x0063a81e -> 0x00559450 FUN_00559450
+  0x0063a877 -> 0x00401000 FUN_00401000
+  0x0063a88f -> 0x0063fc70 FUN_0063fc70
+  0x0063a8c2 -> 0x00559450 FUN_00559450
+  0x0063a91d -> 0x00401000 FUN_00401000
+  0x0063a935 -> 0x006404f0 FUN_006404f0
+  0x0063a968 -> 0x00559450 FUN_00559450
+  0x0063a988 -> 0x00aa13e0 FUN_00aa13e0
+  0x0063a9a2 -> 0x00a5ecb0 FUN_00a5ecb0
+  0x0063a9d0 -> 0x0066b0d0 FUN_0066b0d0
+  0x0063a9db -> 0x00559450 FUN_00559450
+  0x0063a9ee -> 0x00559450 FUN_00559450
+  0x0063aa4d -> 0x00408d60 FUN_00408d60
+  0x0063aa5b -> 0x00401000 FUN_00401000
+  0x0063aa73 -> 0x00636a40 FUN_00636a40
+  0x0063aaa3 -> 0x00636bb0 FUN_00636bb0
+  0x0063aaf4 -> 0x00401000 FUN_00401000
+  0x0063ab0c -> 0x00633cc0 FUN_00633cc0
+  0x0063ab3f -> 0x00559450 FUN_00559450
+  0x0063ab5a -> 0x00aa13e0 FUN_00aa13e0
+  0x0063ab72 -> 0x004391c0 FUN_004391c0
+  0x0063ab9d -> 0x00633c90 FUN_00633c90
+  0x0063abab -> 0x00559450 FUN_00559450
+  0x0063abb2 -> 0x00439340 FUN_00439340
+  0x0063abbc -> 0x00559450 FUN_00559450
+  0x0063abc3 -> 0x00439390 FUN_00439390
+  0x0063abcd -> 0x00559450 FUN_00559450
+  0x0063abd4 -> 0x0049ed90 FUN_0049ed90
+  0x0063abde -> 0x00559450 FUN_00559450
+  0x0063abe5 -> 0x00636000 FUN_00636000
+  0x0063abed -> 0x00559450 FUN_00559450
+  0x0063abf9 -> 0x00559450 FUN_00559450
+  0x0063ac00 -> 0x00439410 FUN_00439410
+  0x0063ac0a -> 0x0066b0d0 FUN_0066b0d0
+  0x0063ac16 -> 0x0045cec0 ~cancellation_token_source
+  0x0063ac3c -> 0x00559450 FUN_00559450
+  0x0063ac43 -> 0x00a5a040 FUN_00a5a040
+  0x0063ac52 -> 0x00404ee0 FUN_00404ee0
+  Total: 58 calls
+
+======================================================================
+OFFSET MATCHES: Sky setup/update with render textures candidate @ 0x0063a630
+======================================================================
+  L0085:   (**(code **)(**(int **)(param_1 + 0x20) + 0x10))(uVar5);
+  L0089:   iVar3 = FUN_00401000(0x10);
+  L0101:   if ((*(int *)(param_1 + 0x28) != 0) && (*(undefined4 **)(param_1 + 0x28) != (undefined4 *)0x0)) {
+  L0102:     (**(code **)**(undefined4 **)(param_1 + 0x28))(1);
+  L0113:   *(undefined4 *)(param_1 + 0x28) = local_a4;
+  L0115:   (**(code **)(**(int **)(param_1 + 0x28) + 8))(uVar5);
+  Total matched lines: 6
+
+======================================================================
+Sky render/update candidate @ 0x00877730
+======================================================================
+  Function: FUN_00877730 @ 0x00877730, Size: 543 bytes
+
+void FUN_00877730(void)
+
+{
+  uint uVar1;
+  undefined4 uVar2;
+  undefined4 uVar3;
+  int *piVar4;
+  byte *pbVar5;
+  char *pcVar6;
+  int iVar7;
+  int *unaff_FS_OFFSET;
+  undefined1 *puVar8;
+  undefined4 local_40;
+  undefined1 local_2c [16];
+  undefined1 local_1c [12];
+  int local_10;
+  undefined1 *puStack_c;
+  int local_8;
+  
+  local_8 = 0xffffffff;
+  puStack_c = &LAB_00f14467;
+  local_10 = *unaff_FS_OFFSET;
+  uVar1 = DAT_011c16bc ^ (uint)&stack0xfffffffc;
+  *unaff_FS_OFFSET = (int)&local_10;
+  FUN_00404eb0(0x21,1,"D:\\_Fallout3\\Platforms\\Common\\Code\\Fallout\\Misc\\Main.cpp",0x26bd);
+  local_8 = 0;
+  FUN_0040fbe0("Initializing Sky...",uVar1);
+  uVar2 = FUN_00559450();
+  uVar3 = FUN_00559450(uVar2);
+  FUN_0063a630(uVar3,uVar2);
+  piVar4 = (int *)FUN_00559450();
+  FUN_0045cd60(1);
+  uVar2 = FUN_0043b230();
+  (**(code **)(*piVar4 + 0xdc))(uVar2);
+  uVar2 = FUN_004505a0();
+  FUN_00450b80(0,uVar2);
+  FUN_00b5aac0(uVar2);
+  FUN_00559450();
+  FUN_00a5a040();
+  pbVar5 = (byte *)FUN_00408d60();
+  uVar1 = (uint)*pbVar5;
+  FUN_004e3270(uVar1);
+  FUN_00b8b200(uVar1);
+  pcVar6 = (char *)FUN_00408d60();
+  if (*pcVar6 != '\0') {
+    iVar7 = FUN_00aa13e0(0x24);
+    local_8._0_1_ = 1;
+    if (iVar7 == 0) {
+      local_40 = 0;
+    }
+    else {
+      local_40 = FUN_0049ec80();
+    }
+    local_8 = (uint)local_8._1_3_ << 8;
+    FUN_0049ed90(1);
+    FUN_0049ede0(2);
+    FUN_0050f9a0(0xff);
+    FUN_00559450(local_40);
+    FUN_00439410(local_40);
+  }
+  FUN_0043d410(0,0,0);
+  puVar8 = local_2c;
+  FUN_00559450(puVar8);
+  FUN_00a59c60(puVar8);
+  FUN_00559450();
+  FUN_00a5a040();
+  FUN_0043d410(0,0,0);
+  puVar8 = local_1c;
+  FUN_00559450(puVar8);
+  FUN_00a59c60(puVar8);
+  uVar2 = FUN_00559450(0,0);
+  FUN_00b57e30(uVar2);
+  FUN_0045cd60(0,0);
+  uVar2 = FUN_0043b230();
+  FUN_00b57e30(uVar2);
+  local_8 = 0xffffffff;
+  FUN_00404ee0();
+  *unaff_FS_OFFSET = local_10;
+  return;
+}
+
+
+
+--- Calls FROM Sky render/update candidate (0x00877730) ---
+  0x00877766 -> 0x00404eb0 FUN_00404eb0
+  0x00877777 -> 0x0040fbe0 FUN_0040fbe0
+  0x00877784 -> 0x00559450 FUN_00559450
+  0x0087778f -> 0x00559450 FUN_00559450
+  0x0087779b -> 0x0063a630 Sky setup/update with render textures candidate
+  0x008777a5 -> 0x00559450 FUN_00559450
+  0x008777b5 -> 0x0045cd60 Sky sun/current object getter candidate
+  0x008777bc -> 0x0043b230 FUN_0043b230
+  0x008777d8 -> 0x004505a0 Sky current climate/weather getter candidate
+  0x008777e0 -> 0x00450b80 FUN_00450b80
+  0x008777ea -> 0x00b5aac0 FUN_00b5aac0
+  0x008777f4 -> 0x00559450 FUN_00559450
+  0x008777fb -> 0x00a5a040 FUN_00a5a040
+  0x00877805 -> 0x00408d60 FUN_00408d60
+  0x0087780e -> 0x004e3270 FUN_004e3270
+  0x00877815 -> 0x00b8b200 FUN_00b8b200
+  0x0087781f -> 0x00408d60 FUN_00408d60
+  0x0087782d -> 0x00aa13e0 FUN_00aa13e0
+  0x00877845 -> 0x0049ec80 FUN_0049ec80
+  0x0087786b -> 0x0049ed90 FUN_0049ed90
+  0x00877875 -> 0x0049ede0 FUN_0049ede0
+  0x00877882 -> 0x0050f9a0 FUN_0050f9a0
+  0x00877890 -> 0x00559450 FUN_00559450
+  0x00877897 -> 0x00439410 FUN_00439410
+  0x008778a9 -> 0x0043d410 FUN_0043d410
+  0x008778b7 -> 0x00559450 FUN_00559450
+  0x008778be -> 0x00a59c60 FUN_00a59c60
+  0x008778c8 -> 0x00559450 FUN_00559450
+  0x008778cf -> 0x00a5a040 FUN_00a5a040
+  0x008778e1 -> 0x0043d410 FUN_0043d410
+  0x008778ef -> 0x00559450 FUN_00559450
+  0x008778f6 -> 0x00a59c60 FUN_00a59c60
+  0x00877904 -> 0x00559450 FUN_00559450
+  0x0087790a -> 0x00b57e30 FUN_00b57e30
+  0x0087791c -> 0x0045cd60 Sky sun/current object getter candidate
+  0x00877923 -> 0x0043b230 FUN_0043b230
+  0x00877929 -> 0x00b57e30 FUN_00b57e30
+  0x0087793b -> 0x00404ee0 FUN_00404ee0
+  Total: 38 calls
+
+======================================================================
+OFFSET MATCHES: Sky render/update candidate @ 0x00877730
+======================================================================
+  Total matched lines: 0
+
+======================================================================
+Main render world caller B @ 0x00870bd0
+======================================================================
+  Function: FUN_00870bd0 @ 0x00870bd0, Size: 1604 bytes
+
+/* WARNING: Removing unreachable block (ram,0x00870fc6) */
+/* WARNING: Globals starting with '_' overlap smaller symbols at the same address */
+
+void FUN_00870bd0(int param_1,char param_2)
+
+{
+  char cVar1;
+  int iVar2;
+  float *pfVar3;
+  char *pcVar4;
+  undefined4 uVar5;
+  int *piVar6;
+  undefined4 *puVar7;
+  uint uVar8;
+  float10 fVar9;
+  undefined4 *puVar10;
+  undefined4 *puVar11;
+  undefined4 *puVar12;
+  undefined4 uVar13;
+  char local_b1;
+  undefined4 local_b0;
+  undefined4 local_a0;
+  char local_80;
+  undefined4 local_70;
+  undefined4 local_6c;
+  undefined4 local_68;
+  undefined4 local_64;
+  undefined1 local_5d;
+  undefined4 local_5c;
+  undefined4 local_58;
+  undefined4 local_54;
+  undefined4 local_50;
+  undefined4 local_4c;
+  undefined4 local_48;
+  undefined4 local_44;
+  uint local_40;
+  float local_3c;
+  undefined4 local_38;
+  float local_34;
+  float local_30;
+  undefined4 local_2c;
+  char local_27;
+  char local_26;
+  char local_25;
+  undefined4 local_24;
+  CDocTemplate *local_20;
+  undefined1 local_1a;
+  char local_19;
+  undefined1 local_18;
+  char local_17;
+  char local_16;
+  undefined1 local_15;
+  int local_14;
+  undefined1 local_e;
+  byte local_d;
+  CDocManager *local_c;
+  char local_5;
+  
+  local_24 = FUN_0043c4b0();
+  local_c = (CDocManager *)FUN_004e3270();
+  local_14 = 0;
+  FUN_00950bb0(1);
+  local_5 = FUN_00456610();
+  local_18 = FUN_004dc310();
+  FUN_00872ad0();
+  local_14 = FUN_00872b00();
+  FUN_008727d0();
+  local_e = FUN_008749b0();
+  FUN_00871290();
+  local_2c = FUN_00872f50(local_24,param_1,0,local_18);
+  FUN_00874ac0(local_e);
+  FUN_00874b50(local_2c,local_18,5);
+  if ((local_5 == '\0') && (param_2 == '\0')) {
+    FUN_00705910();
+    iVar2 = FUN_005585e0();
+    if ((iVar2 == 0) && (cVar1 = FUN_00705100(), cVar1 == '\0')) {
+      local_80 = '\x01';
+      goto LAB_00870cb7;
+    }
+  }
+  local_80 = '\0';
+LAB_00870cb7:
+  local_17 = local_80;
+  local_d = 0;
+  if ((local_80 != '\0') && (local_14 != 0)) {
+    FUN_0043b230();
+    local_d = FUN_00456610();
+    uVar13 = 1;
+    FUN_0043b230(1);
+    FUN_00450f90(uVar13);
+  }
+  local_16 = '\x01';
+  cVar1 = FUN_004de080();
+  if (cVar1 != '\0') {
+    local_16 = '\0';
+  }
+  local_26 = FUN_00709cb0();
+  if (local_26 != '\0') {
+    local_40 = FUN_004dee10();
+    local_38 = FUN_004dee70();
+    pfVar3 = (float *)FUN_00403e20();
+    fVar9 = (float10)FUN_00706e70();
+    local_34 = (float)(fVar9 * (float10)*pfVar3 * (float10)_DAT_01011588);
+    local_3c = (float)local_40 * local_34;
+    local_30 = (float)local_40 - local_3c;
+    if (local_16 != '\0') {
+      local_a0 = (undefined4)(longlong)ROUND(local_30);
+      local_b0 = (undefined4)(longlong)ROUND(local_3c);
+      FUN_00b4f540(local_b0,0,local_a0,local_38);
+    }
+  }
+  FUN_00873200(local_14,local_17,0,local_e);
+  if ((local_17 != '\0') && (local_14 != 0)) {
+    uVar8 = (uint)local_d;
+    FUN_0043b230(uVar8);
+    FUN_00450f90(uVar8);
+  }
+  local_20 = CDocManager::GetNextDocTemplate(local_c,(__POSITION **)0x4);
+  local_25 = FUN_00871220();
+  cVar1 = FUN_00b8b390(9);
+  if (((cVar1 == '\0') || (iVar2 = FUN_005f36f0(), iVar2 != 0)) ||
+     (pcVar4 = (char *)FUN_00408d60(), *pcVar4 == '\0')) {
+    local_b1 = '\0';
+  }
+  else {
+    local_b1 = '\x01';
+  }
+  local_27 = local_b1;
+  local_1a = 0;
+  local_15 = 0;
+  local_19 = '\0';
+  if ((local_25 != '\0') && (local_17 != '\0')) {
+    local_19 = '\x01';
+    FUN_008746d0(local_2c);
+    FUN_00874b50(local_2c,local_18,0);
+  }
+  cVar1 = FUN_005b9b00();
+  if (cVar1 != '\0') {
+    FUN_00559450();
+    iVar2 = FUN_00b63a90();
+    if (iVar2 != 0) {
+      uVar13 = local_2c;
+      uVar5 = FUN_00559450(local_2c);
+      FUN_00874920(uVar5,uVar13);
+    }
+  }
+  if (local_17 == '\0') {
+    uVar5 = 0x16;
+    uVar13 = 0;
+    FUN_004ea970(0,0x16);
+    FUN_00ba30f0(uVar13,uVar5);
+    uVar5 = 0x16;
+    uVar13 = 1;
+    FUN_004ea970(1,0x16);
+    FUN_00ba3130(uVar13,uVar5);
+  }
+  else {
+    FUN_00874c10();
+    FUN_00874b50(local_2c,local_18,0);
+    if (local_19 == '\0') {
+      uVar5 = 0x16;
+      uVar13 = 1;
+      FUN_004ea970(1,0x16);
+      FUN_00ba3130(uVar13,uVar5);
+    }
+    FUN_00875110(local_24,0,local_14,local_2c);
+  }
+  if (local_25 != '\0') {
+    uVar13 = local_2c;
+    uVar5 = FUN_00559450(local_2c);
+    FUN_00875e40(uVar5,uVar13);
+  }
+  if (((local_27 != '\0') && (iVar2 = FUN_005f36f0(), iVar2 == 0)) &&
+     ((DAT_011dea20 != 0 && (iVar2 = FUN_0045cd60(), iVar2 != 0)))) {
+    piVar6 = (int *)FUN_0045cd60();
+    (**(code **)(*piVar6 + 4))();
+    puVar7 = (undefined4 *)FUN_0045bb80();
+    local_50 = *puVar7;
+    local_4c = puVar7[1];
+    local_48 = puVar7[2];
+    local_58 = 0;
+    local_5c = 0;
+    local_44 = 0;
+    local_54 = FUN_0045c670();
+    puVar7 = &local_58;
+    puVar12 = &local_5c;
+    puVar11 = &local_44;
+    puVar10 = &local_50;
+    uVar13 = _DAT_010718c0;
+    FUN_006629f0(puVar10,puVar11,puVar12,puVar7,_DAT_010718c0);
+    local_5d = FUN_00a6fdb0(puVar10,puVar11,puVar12,puVar7,uVar13);
+    uVar13 = FUN_00452dc0(local_44,local_5c);
+    FUN_004e3270(uVar13);
+    FUN_00b8b1e0(uVar13);
+  }
+  cVar1 = FUN_008709f0();
+  if (cVar1 == '\0') {
+    if (param_1 != 0) {
+      FUN_00876830(local_18,param_1);
+    }
+  }
+  else {
+    FUN_00875fd0(local_18,local_2c,local_24,param_1);
+    cVar1 = FUN_00871260();
+    if (((cVar1 != '\0') || (cVar1 = FUN_005bac20(), cVar1 != '\0')) &&
+       (cVar1 = FUN_00705a00(), cVar1 == '\0')) {
+      FUN_00876a20(local_24);
+    }
+  }
+  if (local_26 != '\0') {
+    if (local_16 != '\0') {
+      FUN_00b540d0();
+    }
+    cVar1 = FUN_004de080();
+    if (cVar1 != '\0') {
+      piVar6 = (int *)FUN_0043c4b0();
+      (**(code **)(*piVar6 + 0xac))(&DAT_011a9bd0);
+      FUN_00414430(0,0,0,0);
+      local_70 = 0;
+      local_6c = _DAT_01026994;
+      local_68 = 0x3f800000;
+      local_64 = 0;
+      uVar13 = 1;
+      puVar7 = &local_70;
+      FUN_0043c4b0(puVar7,1);
+      FUN_007148c0(puVar7,uVar13);
+      local_70 = _DAT_010340a4;
+      local_6c = 0x3f800000;
+      local_68 = 0x3f800000;
+      local_64 = 0;
+      uVar13 = 1;
+      puVar7 = &local_70;
+      FUN_0043c4b0(puVar7,1);
+      FUN_007148c0(puVar7,uVar13);
+    }
+  }
+  FUN_00876850(local_2c,local_c,local_24,local_14);
+  return;
+}
+
+
+
+--- Calls FROM Main render world caller B (0x00870bd0) ---
+  0x00870bdd -> 0x0043c4b0 FUN_0043c4b0
+  0x00870be5 -> 0x004e3270 FUN_004e3270
+  0x00870bfc -> 0x00950bb0 FUN_00950bb0
+  0x00870c03 -> 0x00456610 FUN_00456610
+  0x00870c0b -> 0x004dc310 FUN_004dc310
+  0x00870c16 -> 0x00872ad0 FUN_00872ad0
+  0x00870c1e -> 0x00872b00 FUN_00872b00
+  0x00870c29 -> 0x008727d0 FUN_008727d0
+  0x00870c31 -> 0x008749b0 FUN_008749b0
+  0x00870c3c -> 0x00871290 FUN_00871290
+  0x00870c53 -> 0x00872f50 FUN_00872f50
+  0x00870c63 -> 0x00874ac0 FUN_00874ac0
+  0x00870c76 -> 0x00874b50 FUN_00874b50
+  0x00870c8b -> 0x00705910 FUN_00705910
+  0x00870c92 -> 0x005585e0 FUN_005585e0
+  0x00870c9b -> 0x00705100 FUN_00705100
+  0x00870cd2 -> 0x0043b230 FUN_0043b230
+  0x00870cd9 -> 0x00456610 FUN_00456610
+  0x00870ce6 -> 0x0043b230 FUN_0043b230
+  0x00870ced -> 0x00450f90 FUN_00450f90
+  0x00870cf6 -> 0x004de080 FUN_004de080
+  0x00870d06 -> 0x00709cb0 FUN_00709cb0
+  0x00870d1d -> 0x004dee10 FUN_004dee10
+  0x00870d28 -> 0x004dee70 FUN_004dee70
+  0x00870d35 -> 0x00403e20 FUN_00403e20
+  0x00870d3c -> 0x00706e70 FUN_00706e70
+  0x00870dfd -> 0x00b4f540 FUN_00b4f540
+  0x00870e18 -> 0x00873200 FUN_00873200
+  0x00870e33 -> 0x0043b230 FUN_0043b230
+  0x00870e3a -> 0x00450f90 FUN_00450f90
+  0x00870e44 -> 0x004ebbc0 GetNextDocTemplate
+  0x00870e4f -> 0x00871220 FUN_00871220
+  0x00870e5c -> 0x00b8b390 FUN_00b8b390
+  0x00870e6e -> 0x005f36f0 FUN_005f36f0
+  0x00870e7c -> 0x00408d60 FUN_00408d60
+  0x00870ed0 -> 0x008746d0 FUN_008746d0
+  0x00870ee3 -> 0x00874b50 FUN_00874b50
+  0x00870ee8 -> 0x005b9b00 FUN_005b9b00
+  0x00870efd -> 0x00559450 FUN_00559450
+  0x00870f04 -> 0x00b63a90 FUN_00b63a90
+  0x00870f1a -> 0x00559450 FUN_00559450
+  0x00870f23 -> 0x00874920 FUN_00874920
+  0x00870f33 -> 0x00874c10 FUN_00874c10
+  0x00870f46 -> 0x00874b50 FUN_00874b50
+  0x00870f57 -> 0x004ea970 FUN_004ea970
+  0x00870f5e -> 0x00ba3130 FUN_00ba3130
+  0x00870f74 -> 0x00875110 FUN_00875110
+  0x00870f7f -> 0x004ea970 FUN_004ea970
+  0x00870f86 -> 0x00ba30f0 FUN_00ba30f0
+  0x00870f8f -> 0x004ea970 FUN_004ea970
+  0x00870f96 -> 0x00ba3130 FUN_00ba3130
+  0x00870fb4 -> 0x00559450 FUN_00559450
+  0x00870fbd -> 0x00875e40 FUN_00875e40
+  0x00870fd3 -> 0x00559450 FUN_00559450
+  0x00870fdc -> 0x00875fa0 FUN_00875fa0
+  0x00870ff3 -> 0x005f36f0 FUN_005f36f0
+  0x00871013 -> 0x0045cd60 Sky sun/current object getter candidate
+  0x00871026 -> 0x0045cd60 Sky sun/current object getter candidate
+  0x00871046 -> 0x0045bb80 CameraVectorGetter_0045BB80
+  0x0087106d -> 0x0045c670 FUN_0045c670
+  0x00871092 -> 0x006629f0 FUN_006629f0
+  0x00871099 -> 0x00a6fdb0 FUN_00a6fdb0
+  0x008710b2 -> 0x00452dc0 FUN_00452dc0
+  0x008710b8 -> 0x004e3270 FUN_004e3270
+  0x008710bf -> 0x00b8b1e0 FUN_00b8b1e0
+  0x008710c4 -> 0x008709f0 FUN_008709f0
+  0x008710e4 -> 0x00875fd0 FUN_00875fd0
+  0x008710e9 -> 0x00871260 FUN_00871260
+  0x008710f5 -> 0x005bac20 FUN_005bac20
+  0x00871101 -> 0x00705a00 FUN_00705a00
+  0x00871114 -> 0x00876a20 FUN_00876a20
+  0x0087112d -> 0x00876830 FUN_00876830
+  0x00871146 -> 0x00b540d0 FUN_00b540d0
+  0x0087114b -> 0x004de080 FUN_004de080
+  0x0087115b -> 0x0043c4b0 FUN_0043c4b0
+  0x0087119c -> 0x00414430 FUN_00414430
+  0x008711bf -> 0x0043c4b0 FUN_0043c4b0
+  0x008711c6 -> 0x007148c0 FUN_007148c0
+  0x008711e9 -> 0x0043c4b0 FUN_0043c4b0
+  0x008711f0 -> 0x007148c0 FUN_007148c0
+  0x00871208 -> 0x00876850 FUN_00876850
+  Total: 81 calls
+
+======================================================================
+OFFSET MATCHES: Main render world caller B @ 0x00870bd0
+======================================================================
+  L0175:      ((DAT_011dea20 != 0 && (iVar2 = FUN_0045cd60(), iVar2 != 0)))) {
+  Total matched lines: 1
+
+======================================================================
+Sky sunrise/sunset byte getter candidate @ 0x00595f10
+======================================================================
+  Function: FUN_00595f10 @ 0x00595f10, Size: 52 bytes
+
+undefined1 __thiscall FUN_00595f10(int param_1,int param_2)
+
+{
+  undefined1 uVar1;
+  
+  if ((param_2 < 4) && (-1 < param_2)) {
+    uVar1 = *(undefined1 *)(param_1 + param_2 + 0x50);
+  }
+  else {
+    uVar1 = 0;
+  }
+  return uVar1;
+}
+
+
+
+--- Calls FROM Sky sunrise/sunset byte getter candidate (0x00595f10) ---
+  Total: 0 calls
+
+======================================================================
+OFFSET MATCHES: Sky sunrise/sunset byte getter candidate @ 0x00595f10
+======================================================================
+  Total matched lines: 0
+
+======================================================================
+Sky::GetSunriseBegin @ 0x00595ea0
+======================================================================
+  Function: FUN_00595ea0 @ 0x00595ea0, Size: 102 bytes
+
+/* WARNING: Globals starting with '_' overlap smaller symbols at the same address */
+
+float10 __fastcall FUN_00595ea0(int param_1)
+
+{
+  byte bVar1;
+  
+  if (((*(uint *)(param_1 + 0x118) & 0x100) != 0) && (*(int *)(param_1 + 0xc) != 0)) {
+    bVar1 = FUN_00595f10(0);
+    _DAT_011ca9e8 = (float)bVar1 / (float)_DAT_01034208;
+    *(uint *)(param_1 + 0x118) = *(uint *)(param_1 + 0x118) & 0xfffffeff;
+  }
+  return (float10)_DAT_011ca9e8;
+}
+
+
+
+--- Calls FROM Sky::GetSunriseBegin (0x00595ea0) ---
+  0x00595ecb -> 0x00595f10 Sky sunrise/sunset byte getter candidate
+  Total: 1 calls
+
+======================================================================
+OFFSET MATCHES: Sky::GetSunriseBegin @ 0x00595ea0
+======================================================================
+  L0009:   if (((*(uint *)(param_1 + 0x118) & 0x100) != 0) && (*(int *)(param_1 + 0xc) != 0)) {
+  L0011:     _DAT_011ca9e8 = (float)bVar1 / (float)_DAT_01034208;
+  L0012:     *(uint *)(param_1 + 0x118) = *(uint *)(param_1 + 0x118) & 0xfffffeff;
+  L0014:   return (float10)_DAT_011ca9e8;
+  Total matched lines: 4
+
+======================================================================
+Sky::GetSunriseEnd @ 0x00595f50
+======================================================================
+  Function: FUN_00595f50 @ 0x00595f50, Size: 102 bytes
+
+/* WARNING: Globals starting with '_' overlap smaller symbols at the same address */
+
+float10 __fastcall FUN_00595f50(int param_1)
+
+{
+  byte bVar1;
+  
+  if (((*(uint *)(param_1 + 0x118) & 0x200) != 0) && (*(int *)(param_1 + 0xc) != 0)) {
+    bVar1 = FUN_00595f10(1);
+    _DAT_011ca9ec = (float)bVar1 / (float)_DAT_01034208;
+    *(uint *)(param_1 + 0x118) = *(uint *)(param_1 + 0x118) & 0xfffffdff;
+  }
+  return (float10)_DAT_011ca9ec;
+}
+
+
+
+--- Calls FROM Sky::GetSunriseEnd (0x00595f50) ---
+  0x00595f7b -> 0x00595f10 Sky sunrise/sunset byte getter candidate
+  Total: 1 calls
+
+======================================================================
+OFFSET MATCHES: Sky::GetSunriseEnd @ 0x00595f50
+======================================================================
+  L0009:   if (((*(uint *)(param_1 + 0x118) & 0x200) != 0) && (*(int *)(param_1 + 0xc) != 0)) {
+  L0011:     _DAT_011ca9ec = (float)bVar1 / (float)_DAT_01034208;
+  L0012:     *(uint *)(param_1 + 0x118) = *(uint *)(param_1 + 0x118) & 0xfffffdff;
+  L0014:   return (float10)_DAT_011ca9ec;
+  Total matched lines: 4
+
+======================================================================
+Sky::GetSunsetBegin @ 0x00595fc0
+======================================================================
+  Function: FUN_00595fc0 @ 0x00595fc0, Size: 102 bytes
+
+/* WARNING: Globals starting with '_' overlap smaller symbols at the same address */
+
+float10 __fastcall FUN_00595fc0(int param_1)
+
+{
+  byte bVar1;
+  
+  if (((*(uint *)(param_1 + 0x118) & 0x400) != 0) && (*(int *)(param_1 + 0xc) != 0)) {
+    bVar1 = FUN_00595f10(2);
+    _DAT_011ca9f0 = (float)bVar1 / (float)_DAT_01034208;
+    *(uint *)(param_1 + 0x118) = *(uint *)(param_1 + 0x118) & 0xfffffbff;
+  }
+  return (float10)_DAT_011ca9f0;
+}
+
+
+
+--- Calls FROM Sky::GetSunsetBegin (0x00595fc0) ---
+  0x00595feb -> 0x00595f10 Sky sunrise/sunset byte getter candidate
+  Total: 1 calls
+
+======================================================================
+OFFSET MATCHES: Sky::GetSunsetBegin @ 0x00595fc0
+======================================================================
+  L0009:   if (((*(uint *)(param_1 + 0x118) & 0x400) != 0) && (*(int *)(param_1 + 0xc) != 0)) {
+  L0011:     _DAT_011ca9f0 = (float)bVar1 / (float)_DAT_01034208;
+  L0012:     *(uint *)(param_1 + 0x118) = *(uint *)(param_1 + 0x118) & 0xfffffbff;
+  L0014:   return (float10)_DAT_011ca9f0;
+  Total matched lines: 4
+
+======================================================================
+Sky::GetSunsetEnd @ 0x00596030
+======================================================================
+  Function: FUN_00596030 @ 0x00596030, Size: 102 bytes
+
+/* WARNING: Globals starting with '_' overlap smaller symbols at the same address */
+
+float10 __fastcall FUN_00596030(int param_1)
+
+{
+  byte bVar1;
+  
+  if (((*(uint *)(param_1 + 0x118) & 0x800) != 0) && (*(int *)(param_1 + 0xc) != 0)) {
+    bVar1 = FUN_00595f10(3);
+    _DAT_011ca9f4 = (float)bVar1 / (float)_DAT_01034208;
+    *(uint *)(param_1 + 0x118) = *(uint *)(param_1 + 0x118) & 0xfffff7ff;
+  }
+  return (float10)_DAT_011ca9f4;
+}
+
+
+
+--- Calls FROM Sky::GetSunsetEnd (0x00596030) ---
+  0x0059605b -> 0x00595f10 Sky sunrise/sunset byte getter candidate
+  Total: 1 calls
+
+======================================================================
+OFFSET MATCHES: Sky::GetSunsetEnd @ 0x00596030
+======================================================================
+  L0009:   if (((*(uint *)(param_1 + 0x118) & 0x800) != 0) && (*(int *)(param_1 + 0xc) != 0)) {
+  L0011:     _DAT_011ca9f4 = (float)bVar1 / (float)_DAT_01034208;
+  L0012:     *(uint *)(param_1 + 0x118) = *(uint *)(param_1 + 0x118) & 0xfffff7ff;
+  L0014:   return (float10)_DAT_011ca9f4;
+  Total matched lines: 4
+
+======================================================================
+Sky::GetSunriseColorBegin @ 0x0063b9b0
+======================================================================
+  Function: FUN_0063b9b0 @ 0x0063b9b0, Size: 115 bytes
+
+/* WARNING: Globals starting with '_' overlap smaller symbols at the same address */
+
+float10 __fastcall FUN_0063b9b0(int param_1)
+
+{
+  float *pfVar1;
+  float10 fVar2;
+  
+  if ((*(uint *)(param_1 + 0x118) & 0x1000) != 0) {
+    fVar2 = (float10)FUN_00595ea0();
+    pfVar1 = (float *)FUN_00403e20();
+    fVar2 = (float10)FUN_00404010(0,(float)fVar2 - *pfVar1);
+    _DAT_011cccfc = (float)fVar2;
+    *(uint *)(param_1 + 0x118) = *(uint *)(param_1 + 0x118) & 0xffffefff;
+  }
+  return (float10)_DAT_011cccfc;
+}
+
+
+
+--- Calls FROM Sky::GetSunriseColorBegin (0x0063b9b0) ---
+  0x0063b9cd -> 0x00595ea0 Sky::GetSunriseBegin
+  0x0063b9da -> 0x00403e20 FUN_00403e20
+  0x0063b9f4 -> 0x00404010 FUN_00404010
+  Total: 3 calls
+
+======================================================================
+OFFSET MATCHES: Sky::GetSunriseColorBegin @ 0x0063b9b0
+======================================================================
+  L0010:   if ((*(uint *)(param_1 + 0x118) & 0x1000) != 0) {
+  L0014:     _DAT_011cccfc = (float)fVar2;
+  L0015:     *(uint *)(param_1 + 0x118) = *(uint *)(param_1 + 0x118) & 0xffffefff;
+  L0017:   return (float10)_DAT_011cccfc;
+  Total matched lines: 4
+
+======================================================================
+Sky::GetSunsetColorEnd @ 0x0063ba30
+======================================================================
+  Function: FUN_0063ba30 @ 0x0063ba30, Size: 119 bytes
+
+/* WARNING: Globals starting with '_' overlap smaller symbols at the same address */
+
+float10 __fastcall FUN_0063ba30(int param_1)
+
+{
+  float *pfVar1;
+  float10 fVar2;
+  
+  if ((*(uint *)(param_1 + 0x118) & 0x2000) != 0) {
+    fVar2 = (float10)FUN_00596030();
+    pfVar1 = (float *)FUN_00403e20();
+    fVar2 = (float10)FUN_0040ebd0(_DAT_0104ede4,*pfVar1 + (float)fVar2);
+    _DAT_011ccd00 = (float)fVar2;
+    *(uint *)(param_1 + 0x118) = *(uint *)(param_1 + 0x118) & 0xffffdfff;
+  }
+  return (float10)_DAT_011ccd00;
+}
+
+
+
+--- Calls FROM Sky::GetSunsetColorEnd (0x0063ba30) ---
+  0x0063ba4d -> 0x00596030 Sky::GetSunsetEnd
+  0x0063ba5a -> 0x00403e20 FUN_00403e20
+  0x0063ba78 -> 0x0040ebd0 FUN_0040ebd0
+  Total: 3 calls
+
+======================================================================
+OFFSET MATCHES: Sky::GetSunsetColorEnd @ 0x0063ba30
+======================================================================
+  L0010:   if ((*(uint *)(param_1 + 0x118) & 0x2000) != 0) {
+  L0014:     _DAT_011ccd00 = (float)fVar2;
+  L0015:     *(uint *)(param_1 + 0x118) = *(uint *)(param_1 + 0x118) & 0xffffdfff;
+  L0017:   return (float10)_DAT_011ccd00;
+  Total matched lines: 4

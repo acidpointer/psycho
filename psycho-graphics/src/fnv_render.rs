@@ -16,7 +16,8 @@ const RENDER_FIRST_PERSON_ADDR: usize = 0x00875110;
 
 const MAX_HOOK_ERROR_LOGS: u32 = 8;
 const MAX_DEPTH_CAPTURE_LOGS: u32 = 16;
-const MAX_FINAL_APPLY_LOGS: u32 = 16;
+const MAX_DEPTH_CAPTURE_SKIP_LOGS: u32 = 16;
+const MAX_SHADER_APPLY_LOGS: u32 = 16;
 
 type ProcessImageSpaceShadersFn = unsafe extern "cdecl" fn(*mut c_void, *mut c_void, *mut c_void);
 type RenderWorldSceneGraphFn = unsafe extern "thiscall" fn(*mut c_void, *mut c_void, u8, u8, u8);
@@ -32,7 +33,8 @@ static RENDER_FIRST_PERSON_HOOK: LazyLock<InlineHookContainer<RenderFirstPersonF
 
 static HOOK_ERROR_LOGS: AtomicU32 = AtomicU32::new(0);
 static DEPTH_CAPTURE_LOGS: AtomicU32 = AtomicU32::new(0);
-static FINAL_APPLY_LOGS: AtomicU32 = AtomicU32::new(0);
+static DEPTH_CAPTURE_SKIP_LOGS: AtomicU32 = AtomicU32::new(0);
+static SHADER_APPLY_LOGS: AtomicU32 = AtomicU32::new(0);
 
 pub(crate) fn install_scene_boundary_hook() {
     install_process_image_space_shaders_hook();
@@ -136,9 +138,18 @@ unsafe extern "cdecl" fn hook_process_image_space_shaders(
     };
 
     unsafe {
-        original(renderer, rendered_texture_1, rendered_texture_2);
         if rendered_texture_2.is_null() {
-            apply_final_image_space("FNV after image-space shaders");
+            apply_scene_pre_image_space(
+                "FNV before vanilla image-space shaders",
+                rendered_texture_1,
+            );
+        }
+
+        original(renderer, rendered_texture_1, rendered_texture_2);
+
+        if rendered_texture_2.is_null() {
+            apply_scene_post_image_space("FNV after image-space shaders");
+            apply_final_image_space("FNV final image-space");
         }
     }
 }
@@ -188,10 +199,12 @@ unsafe extern "thiscall" fn hook_render_first_person(
 
 unsafe fn capture_depth(slot: crate::backend::DepthResolveSlot, reason: &'static str) {
     if !crate::runtime::needs_fnv_depth_capture() {
+        log_depth_capture_skip(slot, reason, "runtime not ready or no scene inputs needed");
         return;
     }
 
     let Some(device_ptr) = crate::backend::d3d_device_ptr() else {
+        log_depth_capture_skip(slot, reason, "missing D3D device");
         return;
     };
 
@@ -216,9 +229,31 @@ unsafe fn apply_final_image_space(reason: &'static str) {
         return;
     };
 
-    log_final_apply(reason);
+    log_shader_apply(reason);
     unsafe {
-        crate::runtime::apply_fnv_scene_frame(device_ptr);
+        crate::runtime::apply_fnv_final_image_space(device_ptr);
+    }
+}
+
+unsafe fn apply_scene_pre_image_space(reason: &'static str, source_rendered_texture: *mut c_void) {
+    let Some(device_ptr) = crate::backend::d3d_device_ptr() else {
+        return;
+    };
+
+    log_shader_apply(reason);
+    unsafe {
+        crate::runtime::apply_fnv_scene_pre_image_space(device_ptr, source_rendered_texture);
+    }
+}
+
+unsafe fn apply_scene_post_image_space(reason: &'static str) {
+    let Some(device_ptr) = crate::backend::d3d_device_ptr() else {
+        return;
+    };
+
+    log_shader_apply(reason);
+    unsafe {
+        crate::runtime::apply_fnv_scene_post_image_space(device_ptr);
     }
 }
 
@@ -237,8 +272,21 @@ fn log_depth_capture(slot: crate::backend::DepthResolveSlot, reason: &'static st
     }
 }
 
-fn log_final_apply(reason: &'static str) {
-    if FINAL_APPLY_LOGS.fetch_add(1, Ordering::AcqRel) < MAX_FINAL_APPLY_LOGS {
+fn log_depth_capture_skip(
+    slot: crate::backend::DepthResolveSlot,
+    reason: &'static str,
+    cause: &'static str,
+) {
+    if DEPTH_CAPTURE_SKIP_LOGS.fetch_add(1, Ordering::AcqRel) < MAX_DEPTH_CAPTURE_SKIP_LOGS {
+        log::debug!(
+            "[FNV] Depth capture skipped: slot={}, reason={reason}, cause={cause}",
+            slot.label()
+        );
+    }
+}
+
+fn log_shader_apply(reason: &'static str) {
+    if SHADER_APPLY_LOGS.fetch_add(1, Ordering::AcqRel) < MAX_SHADER_APPLY_LOGS {
         log::debug!("[FNV] Screen-space shader trigger: {reason}");
     }
 }

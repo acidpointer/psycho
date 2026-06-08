@@ -8,6 +8,7 @@ float4 CameraData : register(c2);
 float4 OptionData0 : register(c3);
 float4 OptionData1 : register(c4);
 float4 OptionData2 : register(c5);
+float4 EnvironmentData : register(c6);
 
 static const float DepthEndpointEpsilon = 0.000001f;
 static const float MinBias = 0.01f;
@@ -70,6 +71,29 @@ float Stability() {
 
 bool FirstPersonMaskEnabled() {
     return OptionData2.x > 0.5f;
+}
+
+float FogFadeAmount() {
+    return saturate(OptionData2.y);
+}
+
+float FogAoVisibility(float linearDepth) {
+    float amount = FogFadeAmount();
+    if (amount <= 0.0f || EnvironmentData.w < 0.5f) {
+        return 1.0f;
+    }
+
+    float fogStart = EnvironmentData.x;
+    float fogEnd = EnvironmentData.y;
+    if (fogEnd <= fogStart || fogEnd <= 0.0f) {
+        return 1.0f;
+    }
+
+    float fogPower = max(EnvironmentData.z, 0.001f);
+    float fogT = saturate((linearDepth - fogStart) / max(fogEnd - fogStart, 0.001f));
+    float fogAlpha = max(pow(fogT, fogPower), Smooth01(fogT));
+    float visibility = 1.0f - Smooth01(saturate((fogAlpha - 0.05f) / 0.80f));
+    return lerp(1.0f, visibility, amount);
 }
 
 bool IsFirstPersonPixel(float2 uv) {
@@ -148,7 +172,7 @@ float4 Main(PixelInput input) : COLOR0 {
     occlusion += ContactSample(centerDepth, input.uv, float2( 0.7071f, -0.7071f), radiusPixels * 1.35f, range, bias);
     occlusion += ContactSample(centerDepth, input.uv, float2(-0.7071f, -0.7071f), radiusPixels * 1.35f, range, bias);
 
-    float amount = saturate(occlusion * 0.125f) * OptionData0.x;
+    float amount = saturate(occlusion * 0.125f) * OptionData0.x * FogAoVisibility(centerDepth);
     float ao = max(1.0f - amount, OptionData1.z);
     color.rgb *= ao;
     return color;

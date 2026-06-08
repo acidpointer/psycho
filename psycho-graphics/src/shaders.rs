@@ -22,6 +22,7 @@ use windows::{
 
 pub(crate) const SHADER_DIR: &str = "./mods/psycho_shaders";
 const FIRST_OPTION_REGISTER: u32 = 3;
+const ENVIRONMENT_REGISTER: u32 = 6;
 const MAX_OPTION_REGISTER: u32 = 31;
 const MIN_SHADER_PASSES: u32 = 1;
 const MAX_SHADER_PASSES: u32 = 8;
@@ -57,6 +58,7 @@ pub(crate) struct ScreenShaderSource {
     pub(crate) config_path: PathBuf,
     pub(crate) bytecode: Option<Vec<u32>>,
     pub(crate) enabled: bool,
+    pub(crate) phase: ShaderPhase,
     pub(crate) pass_count: u32,
     pub(crate) options: Vec<ShaderOption>,
     pub(crate) option_constants: Vec<[f32; 4]>,
@@ -88,6 +90,10 @@ impl ScreenShaderSource {
 
         self.pass_count = pass_count;
         self.save_config()
+    }
+
+    pub(crate) fn phase(&self) -> ShaderPhase {
+        self.phase
     }
 
     pub(crate) fn set_option_float(&mut self, index: usize, value: f32) -> Result<()> {
@@ -320,6 +326,7 @@ fn load_shader_file(
         config_path: shader_config_path(path),
         bytecode: Some(bytecode),
         enabled: previous.map_or(true, |source| source.enabled),
+        phase: previous.map_or(ShaderPhase::default(), |source| source.phase),
         pass_count: previous.map_or(MIN_SHADER_PASSES, |source| source.pass_count),
         options: previous.map_or_else(Vec::new, |source| source.options.clone()),
         option_constants: previous.map_or_else(Vec::new, |source| source.option_constants.clone()),
@@ -350,6 +357,7 @@ fn failed_shader_source(
         config_path: shader_config_path(path),
         bytecode: None,
         enabled: true,
+        phase: previous.map_or(ShaderPhase::default(), |source| source.phase),
         pass_count: MIN_SHADER_PASSES,
         options: Vec::new(),
         option_constants: Vec::new(),
@@ -367,6 +375,7 @@ fn apply_config(source: &mut ScreenShaderSource, config_path: &Path, config_stam
     match load_shader_config(config_path) {
         Ok(config) => {
             source.enabled = config.shader.enabled;
+            source.phase = config.shader.phase;
             source.pass_count = sanitize_pass_count(config.shader.passes);
             source.options = config.options.into_iter().map(ShaderOption::from).collect();
             assign_missing_bindings(&mut source.options);
@@ -381,6 +390,25 @@ fn apply_config(source: &mut ScreenShaderSource, config_path: &Path, config_stam
                 "[SHADERS] Failed to load shader config {}: {message}",
                 config_path.display()
             );
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub(crate) enum ShaderPhase {
+    ScenePreImageSpace,
+    ScenePostImageSpace,
+    #[default]
+    FinalImageSpace,
+}
+
+impl ShaderPhase {
+    pub(crate) fn label(self) -> &'static str {
+        match self {
+            Self::ScenePreImageSpace => "scene_pre_image_space",
+            Self::ScenePostImageSpace => "scene_post_image_space",
+            Self::FinalImageSpace => "final_image_space",
         }
     }
 }
@@ -416,9 +444,17 @@ fn assign_missing_bindings(options: &mut [ShaderOption]) {
         next_component += 1;
         if next_component == 4 {
             next_component = 0;
-            next_register += 1;
+            next_register = next_option_register(next_register);
         }
     }
+}
+
+fn next_option_register(register: u32) -> u32 {
+    let mut next = register + 1;
+    if next == ENVIRONMENT_REGISTER {
+        next += 1;
+    }
+    next
 }
 
 fn compile_hlsl_shader(path: &Path) -> Result<Vec<u32>> {
@@ -571,7 +607,9 @@ impl ConstantBinding {
         let rest = text.strip_prefix('c')?;
         let (register, component) = rest.split_once('.')?;
         let register = register.parse::<u32>().ok()?;
-        if !(FIRST_OPTION_REGISTER..=MAX_OPTION_REGISTER).contains(&register) {
+        if !(FIRST_OPTION_REGISTER..=MAX_OPTION_REGISTER).contains(&register)
+            || register == ENVIRONMENT_REGISTER
+        {
             return None;
         }
 
@@ -621,6 +659,7 @@ impl ShaderConfigFile {
         Self {
             shader: ShaderConfigHeader {
                 enabled: source.enabled,
+                phase: source.phase,
                 passes: source.pass_count,
             },
             options: source
@@ -636,6 +675,7 @@ impl ShaderConfigFile {
 #[serde(default)]
 struct ShaderConfigHeader {
     enabled: bool,
+    phase: ShaderPhase,
     passes: u32,
 }
 
@@ -643,6 +683,7 @@ impl Default for ShaderConfigHeader {
     fn default() -> Self {
         Self {
             enabled: true,
+            phase: ShaderPhase::default(),
             passes: MIN_SHADER_PASSES,
         }
     }

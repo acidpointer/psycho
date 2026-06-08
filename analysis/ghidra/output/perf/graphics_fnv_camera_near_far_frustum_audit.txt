@@ -1,0 +1,1685 @@
+FNV GRAPHICS CAMERA NEAR/FAR FRUSTUM AUDIT
+
+Questions:
+1. Are camera +0xEC/+0xF0 the right near/far constants for Psycho depth reconstruction?
+2. Which exact fields are position, basis, frustum, and projection fields?
+3. Which globals mirror camera fields and can be used to validate raw reads?
+4. Is there a safe CPU-side projection contract for sun screen UV?
+
+----------------------------------------------------------------------
+References TO 0x011f917c (BSShaderManager::pCurrentCamera)
+----------------------------------------------------------------------
+  WRITE @ 0x00876125 (in FUN_00875fd0)
+  WRITE @ 0x00b548bd (in FUN_00b54630)
+  WRITE @ 0x00b5ea46 (in FUN_00b5e870)
+  WRITE @ 0x00b6ba3f (in FUN_00b6ba20)
+  WRITE @ 0x00b6c0ef (in FUN_00b6c0d0)
+  READ @ 0x00b8b8d3 (in FUN_00b8b8d0)
+  READ @ 0x00b8bb73 (in FUN_00b8bb70)
+  READ @ 0x00b8b7d3 (in FUN_00b8b7d0)
+  READ @ 0x00b5a22d (in FUN_00b5a220)
+  READ @ 0x00bb1a93 (in FUN_00bb1a90)
+  READ @ 0x00bd66c3 (in FUN_00bd66c0)
+  READ @ 0x00bd684d (in FUN_00bd66c0)
+  READ @ 0x00c04c2c (in ???)
+  WRITE @ 0x00b54605 (in FUN_00b54280)
+  Total: 14 refs
+
+----------------------------------------------------------------------
+References TO 0x011fa280 (Camera global block 0x011FA280)
+----------------------------------------------------------------------
+  WRITE @ 0x00b5ec02 (in FUN_00b5e870)
+  WRITE @ 0x00b7c404 (in FUN_00b7c3a0)
+  WRITE @ 0x00b7c48e (in FUN_00b7c3a0)
+  WRITE @ 0x00b7b594 (in FUN_00b7b450)
+  WRITE @ 0x00b7b61c (in FUN_00b7b450)
+  WRITE @ 0x00bb214a (in FUN_00bb1f60)
+  DATA @ 0x00b7e63d (in FUN_00b7e430)
+  DATA @ 0x00b7c501 (in FUN_00b7c3a0)
+  DATA @ 0x00bd31c6 (in FUN_00bd3000)
+  DATA @ 0x00bb2e54 (in FUN_00bb2d10)
+  DATA @ 0x00bd5c24 (in FUN_00bd5a60)
+  DATA @ 0x00bad210 (in FUN_00bad100)
+  WRITE @ 0x00baa489 (in ???)
+  WRITE @ 0x00baa500 (in ???)
+  WRITE @ 0x00bb1ba9 (in ???)
+  Total: 15 refs
+
+----------------------------------------------------------------------
+References TO 0x011fa2a0 (Camera position/vector global X)
+----------------------------------------------------------------------
+  WRITE @ 0x00b5eae2 (in FUN_00b5e870)
+  READ @ 0x00b78f28 (in FUN_00b78ef0)
+  READ @ 0x00b78fed (in FUN_00b78ef0)
+  READ @ 0x00b79742 (in FUN_00b79730)
+  READ @ 0x00b86520 (in FUN_00b864d0)
+  READ @ 0x00b89eb9 (in FUN_00b89d80)
+  READ @ 0x00bb1fcd (in FUN_00bb1f60)
+  READ @ 0x00bbb8ae (in FUN_00bbb890)
+  READ @ 0x00bbbe92 (in FUN_00bbbe80)
+  READ @ 0x00bc7120 (in FUN_00bc7100)
+  DATA @ 0x00b7e266 (in FUN_00b7e150)
+  DATA @ 0x00b7e0c4 (in FUN_00b7dfe0)
+  READ @ 0x00bbe555 (in ???)
+  Total: 13 refs
+
+----------------------------------------------------------------------
+References TO 0x011fa2a4 (Camera position/vector global Y)
+----------------------------------------------------------------------
+  WRITE @ 0x00b5eaeb (in FUN_00b5e870)
+  READ @ 0x00b78f39 (in FUN_00b78ef0)
+  READ @ 0x00b78ffb (in FUN_00b78ef0)
+  READ @ 0x00b79757 (in FUN_00b79730)
+  READ @ 0x00b86525 (in FUN_00b864d0)
+  READ @ 0x00b89ebf (in FUN_00b89d80)
+  READ @ 0x00bb1fd7 (in FUN_00bb1f60)
+  READ @ 0x00bbb8b4 (in FUN_00bbb890)
+  READ @ 0x00bbbea7 (in FUN_00bbbe80)
+  READ @ 0x00bc712f (in FUN_00bc7100)
+  READ @ 0x00bbe55b (in ???)
+  Total: 11 refs
+
+----------------------------------------------------------------------
+References TO 0x011fa2a8 (Camera position/vector global Z)
+----------------------------------------------------------------------
+  WRITE @ 0x00b5eaf5 (in FUN_00b5e870)
+  READ @ 0x00b78f43 (in FUN_00b78ef0)
+  READ @ 0x00b7900a (in FUN_00b78ef0)
+  READ @ 0x00b7976b (in FUN_00b79730)
+  READ @ 0x00b8652b (in FUN_00b864d0)
+  READ @ 0x00b89ec4 (in FUN_00b89d80)
+  READ @ 0x00bb1fe1 (in FUN_00bb1f60)
+  READ @ 0x00bbb8b9 (in FUN_00bbb890)
+  READ @ 0x00bbbebd (in FUN_00bbbe80)
+  READ @ 0x00bc7145 (in FUN_00bc7100)
+  READ @ 0x00bbe561 (in ???)
+  Total: 11 refs
+
+----------------------------------------------------------------------
+References TO 0x011fa2b0 (Camera basis/global candidate A)
+----------------------------------------------------------------------
+  WRITE @ 0x00b5eb28 (in FUN_00b5e870)
+  Total: 1 refs
+
+----------------------------------------------------------------------
+References TO 0x011fa2c0 (Camera basis/global candidate B)
+----------------------------------------------------------------------
+  WRITE @ 0x00b5eb83 (in FUN_00b5e870)
+  Total: 1 refs
+
+Bytes @ 0x00876125 (FUN_00875fd0+0x155): A3 7C 91 1F 01 8B 4D 14 51 8B 55 0C 52 8B 45 10
+
+----------------------------------------------------------------------
+Disassembly FUN_00875fd0+0x155 around 0x00876125
+----------------------------------------------------------------------
+  0x008760ed: TEST EDX,EDX                                        
+  0x008760ef: JZ 0x00876119                                       
+  0x008760f1: MOV byte ptr [0x012005a2],0x1                       
+  0x008760f8: CALL 0x00707ad0                                      ; CALL 0x00707ad0 FUN_00707ad0
+  0x008760fd: MOV dword ptr [EBP + -0x34],EAX                     
+  0x00876100: MOV EAX,dword ptr [EBP + -0x34]                     
+  0x00876103: MOV EDX,dword ptr [EAX]                             
+  0x00876105: MOV ECX,dword ptr [EBP + -0x34]                     
+  0x00876108: MOV EAX,dword ptr [EDX + 0x2c]                      
+  0x0087610b: CALL EAX                                            
+  0x0087610d: FSTP float ptr [EBP + -0x18]                        
+  0x00876110: FLD float ptr [EBP + -0x18]                         
+  0x00876113: FSTP float ptr [0x011add08]                         
+  0x00876119: CALL 0x0045c670                                      ; CALL 0x0045c670 CurrentCameraGetter_0045C670
+  0x0087611e: MOV ECX,EAX                                         
+  0x00876120: CALL 0x006629f0                                      ; CALL 0x006629f0 CameraOrSceneGetter_006629F0
+  0x00876125: MOV [0x011f917c],EAX                                 << TARGET
+  0x0087612a: MOV ECX,dword ptr [EBP + 0x14]                      
+  0x0087612d: PUSH ECX                                            
+  0x0087612e: MOV EDX,dword ptr [EBP + 0xc]                       
+  0x00876131: PUSH EDX                                            
+  0x00876132: MOV EAX,dword ptr [EBP + 0x10]                      
+  0x00876135: PUSH EAX                                            
+  0x00876136: CALL 0x00b55ac0                                      ; CALL 0x00b55ac0 FUN_00b55ac0
+  0x0087613b: ADD ESP,0xc                                         
+  0x0087613e: MOV ECX,0x11deb38                                   
+  0x00876143: CALL 0x00559450                                      ; CALL 0x00559450 FUN_00559450
+  0x00876148: TEST EAX,EAX                                        
+  0x0087614a: JZ 0x0087617b                                       
+  0x0087614c: CALL 0x00705910                                      ; CALL 0x00705910 FUN_00705910
+  0x00876151: MOV ECX,EAX                                         
+  0x00876153: CALL 0x008019d0                                      ; CALL 0x008019d0 FUN_008019d0
+  0x00876158: MOV ECX,0x11deb38                                   
+  0x0087615d: CALL 0x00559450                                      ; CALL 0x00559450 FUN_00559450
+  0x00876162: PUSH EAX                                            
+  0x00876163: CALL 0x004a0ea0                                      ; CALL 0x004a0ea0 FUN_004a0ea0
+  0x00876168: MOV ECX,EAX                                         
+  0x0087616a: CALL 0x00b6da10                                      ; CALL 0x00b6da10 FUN_00b6da10
+  0x0087616f: PUSH 0x0                                            
+  0x00876171: MOV ECX,0x11deb38                                   
+  0x00876176: CALL 0x0066b0d0                                      ; CALL 0x0066b0d0 FUN_0066b0d0
+  0x0087617b: MOVZX ECX,byte ptr [EBP + -0xd]                     
+  0x0087617f: TEST ECX,ECX                                        
+  0x00876181: JZ 0x00876192                                       
+  0x00876183: MOV byte ptr [0x012005a2],0x0                       
+  0x0087618a: FLD1                                                
+  0x0087618c: FSTP float ptr [0x011add08]                         
+  0x00876192: PUSH ECX                                            
+  0x00876193: FLDZ                                                
+  0x00876195: FSTP float ptr [ESP]                                
+  0x00876198: PUSH ECX                                            
+  0x00876199: FLD1                                                
+  0x0087619b: FSTP float ptr [ESP]                                
+  0x0087619e: PUSH ECX                                            
+  0x0087619f: FLD1                                                
+  0x008761a1: FSTP float ptr [ESP]                                
+  0x008761a4: PUSH ECX                                            
+  0x008761a5: FLDZ                                                
+  0x008761a7: FSTP float ptr [ESP]                                
+
+Bytes @ 0x00876136 (FUN_00875fd0+0x166): E8 85 F9 2D 00 83 C4 0C B9 38 EB 1D 01 E8 08 33
+
+----------------------------------------------------------------------
+Disassembly FUN_00875fd0+0x166 around 0x00876136
+----------------------------------------------------------------------
+  0x00876105: MOV ECX,dword ptr [EBP + -0x34]                     
+  0x00876108: MOV EAX,dword ptr [EDX + 0x2c]                      
+  0x0087610b: CALL EAX                                            
+  0x0087610d: FSTP float ptr [EBP + -0x18]                        
+  0x00876110: FLD float ptr [EBP + -0x18]                         
+  0x00876113: FSTP float ptr [0x011add08]                         
+  0x00876119: CALL 0x0045c670                                      ; CALL 0x0045c670 CurrentCameraGetter_0045C670
+  0x0087611e: MOV ECX,EAX                                         
+  0x00876120: CALL 0x006629f0                                      ; CALL 0x006629f0 CameraOrSceneGetter_006629F0
+  0x00876125: MOV [0x011f917c],EAX                                
+  0x0087612a: MOV ECX,dword ptr [EBP + 0x14]                      
+  0x0087612d: PUSH ECX                                            
+  0x0087612e: MOV EDX,dword ptr [EBP + 0xc]                       
+  0x00876131: PUSH EDX                                            
+  0x00876132: MOV EAX,dword ptr [EBP + 0x10]                      
+  0x00876135: PUSH EAX                                            
+  0x00876136: CALL 0x00b55ac0                                      << TARGET ; CALL 0x00b55ac0 FUN_00b55ac0
+  0x0087613b: ADD ESP,0xc                                         
+  0x0087613e: MOV ECX,0x11deb38                                   
+  0x00876143: CALL 0x00559450                                      ; CALL 0x00559450 FUN_00559450
+  0x00876148: TEST EAX,EAX                                        
+  0x0087614a: JZ 0x0087617b                                       
+  0x0087614c: CALL 0x00705910                                      ; CALL 0x00705910 FUN_00705910
+  0x00876151: MOV ECX,EAX                                         
+  0x00876153: CALL 0x008019d0                                      ; CALL 0x008019d0 FUN_008019d0
+  0x00876158: MOV ECX,0x11deb38                                   
+  0x0087615d: CALL 0x00559450                                      ; CALL 0x00559450 FUN_00559450
+  0x00876162: PUSH EAX                                            
+  0x00876163: CALL 0x004a0ea0                                      ; CALL 0x004a0ea0 FUN_004a0ea0
+  0x00876168: MOV ECX,EAX                                         
+  0x0087616a: CALL 0x00b6da10                                      ; CALL 0x00b6da10 FUN_00b6da10
+  0x0087616f: PUSH 0x0                                            
+  0x00876171: MOV ECX,0x11deb38                                   
+  0x00876176: CALL 0x0066b0d0                                      ; CALL 0x0066b0d0 FUN_0066b0d0
+  0x0087617b: MOVZX ECX,byte ptr [EBP + -0xd]                     
+  0x0087617f: TEST ECX,ECX                                        
+  0x00876181: JZ 0x00876192                                       
+  0x00876183: MOV byte ptr [0x012005a2],0x0                       
+  0x0087618a: FLD1                                                
+  0x0087618c: FSTP float ptr [0x011add08]                         
+  0x00876192: PUSH ECX                                            
+  0x00876193: FLDZ                                                
+  0x00876195: FSTP float ptr [ESP]                                
+  0x00876198: PUSH ECX                                            
+  0x00876199: FLD1                                                
+  0x0087619b: FSTP float ptr [ESP]                                
+  0x0087619e: PUSH ECX                                            
+  0x0087619f: FLD1                                                
+  0x008761a1: FSTP float ptr [ESP]                                
+  0x008761a4: PUSH ECX                                            
+  0x008761a5: FLDZ                                                
+  0x008761a7: FSTP float ptr [ESP]                                
+  0x008761aa: LEA ECX,[EBP + -0x28]                               
+  0x008761ad: CALL 0x00414430                                      ; CALL 0x00414430 FUN_00414430
+  0x008761b2: PUSH EAX                                            
+  0x008761b3: CALL 0x00524c90                                      ; CALL 0x00524c90 FUN_00524c90
+  0x008761b8: MOV ECX,EAX                                         
+  0x008761ba: CALL 0x00712e60                                      ; CALL 0x00712e60 FUN_00712e60
+  0x008761bf: MOV dword ptr [EBP + -0x4],0xffffffff               
+
+Bytes @ 0x00b5ea9e (FUN_00b5e870+0x22e): 8B 83 8C 00 00 00 8B 8B 90 00 00 00 8B 93 94 00
+
+----------------------------------------------------------------------
+Disassembly FUN_00b5e870+0x22e around 0x00b5ea9e
+----------------------------------------------------------------------
+  0x00b5ea4f: MOV ECX,EDI                                         
+  0x00b5ea51: CALL 0x00a5dbe0                                      ; CALL 0x00a5dbe0 FUN_00a5dbe0
+  0x00b5ea56: JMP 0x00b5ec87                                      
+  0x00b5ea5b: CMP byte ptr [0x011f91a7],0x1                       
+  0x00b5ea62: JNZ 0x00b5ea85                                      
+  0x00b5ea64: CMP dword ptr [0x011ad868],-0x1                     
+  0x00b5ea6b: JNZ 0x00b5ea79                                      
+  0x00b5ea6d: MOV EDX,dword ptr [0x011f91d8]                      
+  0x00b5ea73: MOV dword ptr [0x011ad868],EDX                      
+  0x00b5ea79: MOV dword ptr [0x011f91d8],0x4                      
+  0x00b5ea83: JMP 0x00b5ea9e                                      
+  0x00b5ea85: MOV EAX,[0x011ad868]                                
+  0x00b5ea8a: CMP EAX,-0x1                                        
+  0x00b5ea8d: JZ 0x00b5ea9e                                       
+  0x00b5ea8f: MOV [0x011f91d8],EAX                                
+  0x00b5ea94: MOV dword ptr [0x011ad868],0xffffffff               
+  0x00b5ea9e: MOV EAX,dword ptr [EBX + 0x8c]                       << TARGET
+  0x00b5eaa4: MOV ECX,dword ptr [EBX + 0x90]                      
+  0x00b5eaaa: MOV EDX,dword ptr [EBX + 0x94]                      
+  0x00b5eab0: MOV dword ptr [ESP + 0x24],EAX                      
+  0x00b5eab4: FLD float ptr [ESP + 0x24]                          
+  0x00b5eab8: FSTP float ptr [ESP + 0x30]                         
+  0x00b5eabc: MOV EAX,dword ptr [ESP + 0x30]                      
+  0x00b5eac0: MOV dword ptr [ESP + 0x28],ECX                      
+  0x00b5eac4: FLD float ptr [ESP + 0x28]                          
+  0x00b5eac8: FSTP float ptr [ESP + 0x34]                         
+  0x00b5eacc: MOV ECX,dword ptr [ESP + 0x34]                      
+  0x00b5ead0: MOV dword ptr [ESP + 0x2c],EDX                      
+  0x00b5ead4: FLD float ptr [ESP + 0x2c]                          
+  0x00b5ead8: FSTP float ptr [ESP + 0x38]                         
+  0x00b5eadc: MOV EDX,dword ptr [ESP + 0x38]                      
+  0x00b5eae0: FLDZ                                                
+  0x00b5eae2: MOV [0x011fa2a0],EAX                                
+  0x00b5eae7: FST float ptr [ESP + 0x3c]                          
+  0x00b5eaeb: MOV dword ptr [0x011fa2a4],ECX                      
+  0x00b5eaf1: MOV EAX,dword ptr [ESP + 0x3c]                      
+  0x00b5eaf5: MOV dword ptr [0x011fa2a8],EDX                      
+  0x00b5eafb: MOV [0x011fa2ac],EAX                                
+  0x00b5eb00: FLD float ptr [EBX + 0x68]                          
+  0x00b5eb03: FSTP float ptr [ESP + 0x24]                         
+  0x00b5eb07: FLD float ptr [EBX + 0x74]                          
+  0x00b5eb0a: FSTP float ptr [ESP + 0x28]                         
+  0x00b5eb0e: FLD float ptr [EBX + 0x80]                          
+  0x00b5eb14: FSTP float ptr [ESP + 0x2c]                         
+  0x00b5eb18: FLD float ptr [ESP + 0x24]                          
+  0x00b5eb1c: FSTP float ptr [ESP + 0x30]                         
+  0x00b5eb20: MOV ECX,dword ptr [ESP + 0x30]                      
+  0x00b5eb24: FLD float ptr [ESP + 0x28]                          
+  0x00b5eb28: MOV dword ptr [0x011fa2b0],ECX                      
+  0x00b5eb2e: FSTP float ptr [ESP + 0x34]                         
+  0x00b5eb32: MOV EDX,dword ptr [ESP + 0x34]                      
+  0x00b5eb36: FLD float ptr [ESP + 0x2c]                          
+  0x00b5eb3a: MOV dword ptr [0x011fa2b4],EDX                      
+  0x00b5eb40: FSTP float ptr [ESP + 0x38]                         
+  0x00b5eb44: MOV EAX,dword ptr [ESP + 0x38]                      
+  0x00b5eb48: MOV [0x011fa2b8],EAX                                
+  0x00b5eb4d: FST float ptr [ESP + 0x3c]                          
+  0x00b5eb51: MOV ECX,dword ptr [ESP + 0x3c]                      
+  0x00b5eb55: MOV dword ptr [0x011fa2bc],ECX                      
+
+Bytes @ 0x00b5eab0 (FUN_00b5e870+0x240): 89 44 24 24 D9 44 24 24 D9 5C 24 30 8B 44 24 30
+
+----------------------------------------------------------------------
+Disassembly FUN_00b5e870+0x240 around 0x00b5eab0
+----------------------------------------------------------------------
+  0x00b5ea5b: CMP byte ptr [0x011f91a7],0x1                       
+  0x00b5ea62: JNZ 0x00b5ea85                                      
+  0x00b5ea64: CMP dword ptr [0x011ad868],-0x1                     
+  0x00b5ea6b: JNZ 0x00b5ea79                                      
+  0x00b5ea6d: MOV EDX,dword ptr [0x011f91d8]                      
+  0x00b5ea73: MOV dword ptr [0x011ad868],EDX                      
+  0x00b5ea79: MOV dword ptr [0x011f91d8],0x4                      
+  0x00b5ea83: JMP 0x00b5ea9e                                      
+  0x00b5ea85: MOV EAX,[0x011ad868]                                
+  0x00b5ea8a: CMP EAX,-0x1                                        
+  0x00b5ea8d: JZ 0x00b5ea9e                                       
+  0x00b5ea8f: MOV [0x011f91d8],EAX                                
+  0x00b5ea94: MOV dword ptr [0x011ad868],0xffffffff               
+  0x00b5ea9e: MOV EAX,dword ptr [EBX + 0x8c]                      
+  0x00b5eaa4: MOV ECX,dword ptr [EBX + 0x90]                      
+  0x00b5eaaa: MOV EDX,dword ptr [EBX + 0x94]                      
+  0x00b5eab0: MOV dword ptr [ESP + 0x24],EAX                       << TARGET
+  0x00b5eab4: FLD float ptr [ESP + 0x24]                          
+  0x00b5eab8: FSTP float ptr [ESP + 0x30]                         
+  0x00b5eabc: MOV EAX,dword ptr [ESP + 0x30]                      
+  0x00b5eac0: MOV dword ptr [ESP + 0x28],ECX                      
+  0x00b5eac4: FLD float ptr [ESP + 0x28]                          
+  0x00b5eac8: FSTP float ptr [ESP + 0x34]                         
+  0x00b5eacc: MOV ECX,dword ptr [ESP + 0x34]                      
+  0x00b5ead0: MOV dword ptr [ESP + 0x2c],EDX                      
+  0x00b5ead4: FLD float ptr [ESP + 0x2c]                          
+  0x00b5ead8: FSTP float ptr [ESP + 0x38]                         
+  0x00b5eadc: MOV EDX,dword ptr [ESP + 0x38]                      
+  0x00b5eae0: FLDZ                                                
+  0x00b5eae2: MOV [0x011fa2a0],EAX                                
+  0x00b5eae7: FST float ptr [ESP + 0x3c]                          
+  0x00b5eaeb: MOV dword ptr [0x011fa2a4],ECX                      
+  0x00b5eaf1: MOV EAX,dword ptr [ESP + 0x3c]                      
+  0x00b5eaf5: MOV dword ptr [0x011fa2a8],EDX                      
+  0x00b5eafb: MOV [0x011fa2ac],EAX                                
+  0x00b5eb00: FLD float ptr [EBX + 0x68]                          
+  0x00b5eb03: FSTP float ptr [ESP + 0x24]                         
+  0x00b5eb07: FLD float ptr [EBX + 0x74]                          
+  0x00b5eb0a: FSTP float ptr [ESP + 0x28]                         
+  0x00b5eb0e: FLD float ptr [EBX + 0x80]                          
+  0x00b5eb14: FSTP float ptr [ESP + 0x2c]                         
+  0x00b5eb18: FLD float ptr [ESP + 0x24]                          
+  0x00b5eb1c: FSTP float ptr [ESP + 0x30]                         
+  0x00b5eb20: MOV ECX,dword ptr [ESP + 0x30]                      
+  0x00b5eb24: FLD float ptr [ESP + 0x28]                          
+  0x00b5eb28: MOV dword ptr [0x011fa2b0],ECX                      
+  0x00b5eb2e: FSTP float ptr [ESP + 0x34]                         
+  0x00b5eb32: MOV EDX,dword ptr [ESP + 0x34]                      
+  0x00b5eb36: FLD float ptr [ESP + 0x2c]                          
+  0x00b5eb3a: MOV dword ptr [0x011fa2b4],EDX                      
+  0x00b5eb40: FSTP float ptr [ESP + 0x38]                         
+  0x00b5eb44: MOV EAX,dword ptr [ESP + 0x38]                      
+  0x00b5eb48: MOV [0x011fa2b8],EAX                                
+  0x00b5eb4d: FST float ptr [ESP + 0x3c]                          
+  0x00b5eb51: MOV ECX,dword ptr [ESP + 0x3c]                      
+  0x00b5eb55: MOV dword ptr [0x011fa2bc],ECX                      
+  0x00b5eb5b: FLD float ptr [EBX + 0x70]                          
+  0x00b5eb5e: FSTP float ptr [ESP + 0x24]                         
+  0x00b5eb62: FLD float ptr [EBX + 0x7c]                          
+
+Bytes @ 0x00b5eacc (FUN_00b5e870+0x25c): 8B 4C 24 34 89 54 24 2C D9 44 24 2C D9 5C 24 38
+
+----------------------------------------------------------------------
+Disassembly FUN_00b5e870+0x25c around 0x00b5eacc
+----------------------------------------------------------------------
+  0x00b5ea83: JMP 0x00b5ea9e                                      
+  0x00b5ea85: MOV EAX,[0x011ad868]                                
+  0x00b5ea8a: CMP EAX,-0x1                                        
+  0x00b5ea8d: JZ 0x00b5ea9e                                       
+  0x00b5ea8f: MOV [0x011f91d8],EAX                                
+  0x00b5ea94: MOV dword ptr [0x011ad868],0xffffffff               
+  0x00b5ea9e: MOV EAX,dword ptr [EBX + 0x8c]                      
+  0x00b5eaa4: MOV ECX,dword ptr [EBX + 0x90]                      
+  0x00b5eaaa: MOV EDX,dword ptr [EBX + 0x94]                      
+  0x00b5eab0: MOV dword ptr [ESP + 0x24],EAX                      
+  0x00b5eab4: FLD float ptr [ESP + 0x24]                          
+  0x00b5eab8: FSTP float ptr [ESP + 0x30]                         
+  0x00b5eabc: MOV EAX,dword ptr [ESP + 0x30]                      
+  0x00b5eac0: MOV dword ptr [ESP + 0x28],ECX                      
+  0x00b5eac4: FLD float ptr [ESP + 0x28]                          
+  0x00b5eac8: FSTP float ptr [ESP + 0x34]                         
+  0x00b5eacc: MOV ECX,dword ptr [ESP + 0x34]                       << TARGET
+  0x00b5ead0: MOV dword ptr [ESP + 0x2c],EDX                      
+  0x00b5ead4: FLD float ptr [ESP + 0x2c]                          
+  0x00b5ead8: FSTP float ptr [ESP + 0x38]                         
+  0x00b5eadc: MOV EDX,dword ptr [ESP + 0x38]                      
+  0x00b5eae0: FLDZ                                                
+  0x00b5eae2: MOV [0x011fa2a0],EAX                                
+  0x00b5eae7: FST float ptr [ESP + 0x3c]                          
+  0x00b5eaeb: MOV dword ptr [0x011fa2a4],ECX                      
+  0x00b5eaf1: MOV EAX,dword ptr [ESP + 0x3c]                      
+  0x00b5eaf5: MOV dword ptr [0x011fa2a8],EDX                      
+  0x00b5eafb: MOV [0x011fa2ac],EAX                                
+  0x00b5eb00: FLD float ptr [EBX + 0x68]                          
+  0x00b5eb03: FSTP float ptr [ESP + 0x24]                         
+  0x00b5eb07: FLD float ptr [EBX + 0x74]                          
+  0x00b5eb0a: FSTP float ptr [ESP + 0x28]                         
+  0x00b5eb0e: FLD float ptr [EBX + 0x80]                          
+  0x00b5eb14: FSTP float ptr [ESP + 0x2c]                         
+  0x00b5eb18: FLD float ptr [ESP + 0x24]                          
+  0x00b5eb1c: FSTP float ptr [ESP + 0x30]                         
+  0x00b5eb20: MOV ECX,dword ptr [ESP + 0x30]                      
+  0x00b5eb24: FLD float ptr [ESP + 0x28]                          
+  0x00b5eb28: MOV dword ptr [0x011fa2b0],ECX                      
+  0x00b5eb2e: FSTP float ptr [ESP + 0x34]                         
+  0x00b5eb32: MOV EDX,dword ptr [ESP + 0x34]                      
+  0x00b5eb36: FLD float ptr [ESP + 0x2c]                          
+  0x00b5eb3a: MOV dword ptr [0x011fa2b4],EDX                      
+  0x00b5eb40: FSTP float ptr [ESP + 0x38]                         
+  0x00b5eb44: MOV EAX,dword ptr [ESP + 0x38]                      
+  0x00b5eb48: MOV [0x011fa2b8],EAX                                
+  0x00b5eb4d: FST float ptr [ESP + 0x3c]                          
+  0x00b5eb51: MOV ECX,dword ptr [ESP + 0x3c]                      
+  0x00b5eb55: MOV dword ptr [0x011fa2bc],ECX                      
+  0x00b5eb5b: FLD float ptr [EBX + 0x70]                          
+  0x00b5eb5e: FSTP float ptr [ESP + 0x24]                         
+  0x00b5eb62: FLD float ptr [EBX + 0x7c]                          
+  0x00b5eb65: FSTP float ptr [ESP + 0x28]                         
+  0x00b5eb69: FLD float ptr [EBX + 0x88]                          
+  0x00b5eb6f: FSTP float ptr [ESP + 0x2c]                         
+  0x00b5eb73: FLD float ptr [ESP + 0x24]                          
+  0x00b5eb77: FSTP float ptr [ESP + 0x30]                         
+  0x00b5eb7b: MOV EDX,dword ptr [ESP + 0x30]                      
+  0x00b5eb7f: FLD float ptr [ESP + 0x28]                          
+
+Bytes @ 0x00b5eae8 (FUN_00b5e870+0x278): 54 24 3C 89 0D A4 A2 1F 01 8B 44 24 3C 89 15 A8
+
+----------------------------------------------------------------------
+Disassembly FUN_00b5e870+0x278 around 0x00b5eae8
+----------------------------------------------------------------------
+  0x00b5eaa4: MOV ECX,dword ptr [EBX + 0x90]                      
+  0x00b5eaaa: MOV EDX,dword ptr [EBX + 0x94]                      
+  0x00b5eab0: MOV dword ptr [ESP + 0x24],EAX                      
+  0x00b5eab4: FLD float ptr [ESP + 0x24]                          
+  0x00b5eab8: FSTP float ptr [ESP + 0x30]                         
+  0x00b5eabc: MOV EAX,dword ptr [ESP + 0x30]                      
+  0x00b5eac0: MOV dword ptr [ESP + 0x28],ECX                      
+  0x00b5eac4: FLD float ptr [ESP + 0x28]                          
+  0x00b5eac8: FSTP float ptr [ESP + 0x34]                         
+  0x00b5eacc: MOV ECX,dword ptr [ESP + 0x34]                      
+  0x00b5ead0: MOV dword ptr [ESP + 0x2c],EDX                      
+  0x00b5ead4: FLD float ptr [ESP + 0x2c]                          
+  0x00b5ead8: FSTP float ptr [ESP + 0x38]                         
+  0x00b5eadc: MOV EDX,dword ptr [ESP + 0x38]                      
+  0x00b5eae0: FLDZ                                                
+  0x00b5eae2: MOV [0x011fa2a0],EAX                                
+  0x00b5eae7: FST float ptr [ESP + 0x3c]                          
+  0x00b5eaeb: MOV dword ptr [0x011fa2a4],ECX                      
+  0x00b5eaf1: MOV EAX,dword ptr [ESP + 0x3c]                      
+  0x00b5eaf5: MOV dword ptr [0x011fa2a8],EDX                      
+  0x00b5eafb: MOV [0x011fa2ac],EAX                                
+  0x00b5eb00: FLD float ptr [EBX + 0x68]                          
+  0x00b5eb03: FSTP float ptr [ESP + 0x24]                         
+  0x00b5eb07: FLD float ptr [EBX + 0x74]                          
+  0x00b5eb0a: FSTP float ptr [ESP + 0x28]                         
+  0x00b5eb0e: FLD float ptr [EBX + 0x80]                          
+  0x00b5eb14: FSTP float ptr [ESP + 0x2c]                         
+  0x00b5eb18: FLD float ptr [ESP + 0x24]                          
+  0x00b5eb1c: FSTP float ptr [ESP + 0x30]                         
+  0x00b5eb20: MOV ECX,dword ptr [ESP + 0x30]                      
+  0x00b5eb24: FLD float ptr [ESP + 0x28]                          
+  0x00b5eb28: MOV dword ptr [0x011fa2b0],ECX                      
+  0x00b5eb2e: FSTP float ptr [ESP + 0x34]                         
+  0x00b5eb32: MOV EDX,dword ptr [ESP + 0x34]                      
+  0x00b5eb36: FLD float ptr [ESP + 0x2c]                          
+  0x00b5eb3a: MOV dword ptr [0x011fa2b4],EDX                      
+  0x00b5eb40: FSTP float ptr [ESP + 0x38]                         
+  0x00b5eb44: MOV EAX,dword ptr [ESP + 0x38]                      
+  0x00b5eb48: MOV [0x011fa2b8],EAX                                
+  0x00b5eb4d: FST float ptr [ESP + 0x3c]                          
+  0x00b5eb51: MOV ECX,dword ptr [ESP + 0x3c]                      
+  0x00b5eb55: MOV dword ptr [0x011fa2bc],ECX                      
+  0x00b5eb5b: FLD float ptr [EBX + 0x70]                          
+  0x00b5eb5e: FSTP float ptr [ESP + 0x24]                         
+  0x00b5eb62: FLD float ptr [EBX + 0x7c]                          
+  0x00b5eb65: FSTP float ptr [ESP + 0x28]                         
+  0x00b5eb69: FLD float ptr [EBX + 0x88]                          
+  0x00b5eb6f: FSTP float ptr [ESP + 0x2c]                         
+  0x00b5eb73: FLD float ptr [ESP + 0x24]                          
+  0x00b5eb77: FSTP float ptr [ESP + 0x30]                         
+  0x00b5eb7b: MOV EDX,dword ptr [ESP + 0x30]                      
+  0x00b5eb7f: FLD float ptr [ESP + 0x28]                          
+  0x00b5eb83: MOV dword ptr [0x011fa2c0],EDX                      
+  0x00b5eb89: FSTP float ptr [ESP + 0x34]                         
+  0x00b5eb8d: MOV EAX,dword ptr [ESP + 0x34]                      
+  0x00b5eb91: FLD float ptr [ESP + 0x2c]                          
+  0x00b5eb95: MOV [0x011fa2c4],EAX                                
+  0x00b5eb9a: FSTP float ptr [ESP + 0x38]                         
+  0x00b5eb9e: MOV ECX,dword ptr [ESP + 0x38]                      
+
+Bytes @ 0x00b5eb04 (FUN_00b5e870+0x294): 5C 24 24 D9 43 74 D9 5C 24 28 D9 83 80 00 00 00
+
+----------------------------------------------------------------------
+Disassembly FUN_00b5e870+0x294 around 0x00b5eb04
+----------------------------------------------------------------------
+  0x00b5eac0: MOV dword ptr [ESP + 0x28],ECX                      
+  0x00b5eac4: FLD float ptr [ESP + 0x28]                          
+  0x00b5eac8: FSTP float ptr [ESP + 0x34]                         
+  0x00b5eacc: MOV ECX,dword ptr [ESP + 0x34]                      
+  0x00b5ead0: MOV dword ptr [ESP + 0x2c],EDX                      
+  0x00b5ead4: FLD float ptr [ESP + 0x2c]                          
+  0x00b5ead8: FSTP float ptr [ESP + 0x38]                         
+  0x00b5eadc: MOV EDX,dword ptr [ESP + 0x38]                      
+  0x00b5eae0: FLDZ                                                
+  0x00b5eae2: MOV [0x011fa2a0],EAX                                
+  0x00b5eae7: FST float ptr [ESP + 0x3c]                          
+  0x00b5eaeb: MOV dword ptr [0x011fa2a4],ECX                      
+  0x00b5eaf1: MOV EAX,dword ptr [ESP + 0x3c]                      
+  0x00b5eaf5: MOV dword ptr [0x011fa2a8],EDX                      
+  0x00b5eafb: MOV [0x011fa2ac],EAX                                
+  0x00b5eb00: FLD float ptr [EBX + 0x68]                          
+  0x00b5eb03: FSTP float ptr [ESP + 0x24]                         
+  0x00b5eb07: FLD float ptr [EBX + 0x74]                          
+  0x00b5eb0a: FSTP float ptr [ESP + 0x28]                         
+  0x00b5eb0e: FLD float ptr [EBX + 0x80]                          
+  0x00b5eb14: FSTP float ptr [ESP + 0x2c]                         
+  0x00b5eb18: FLD float ptr [ESP + 0x24]                          
+  0x00b5eb1c: FSTP float ptr [ESP + 0x30]                         
+  0x00b5eb20: MOV ECX,dword ptr [ESP + 0x30]                      
+  0x00b5eb24: FLD float ptr [ESP + 0x28]                          
+  0x00b5eb28: MOV dword ptr [0x011fa2b0],ECX                      
+  0x00b5eb2e: FSTP float ptr [ESP + 0x34]                         
+  0x00b5eb32: MOV EDX,dword ptr [ESP + 0x34]                      
+  0x00b5eb36: FLD float ptr [ESP + 0x2c]                          
+  0x00b5eb3a: MOV dword ptr [0x011fa2b4],EDX                      
+  0x00b5eb40: FSTP float ptr [ESP + 0x38]                         
+  0x00b5eb44: MOV EAX,dword ptr [ESP + 0x38]                      
+  0x00b5eb48: MOV [0x011fa2b8],EAX                                
+  0x00b5eb4d: FST float ptr [ESP + 0x3c]                          
+  0x00b5eb51: MOV ECX,dword ptr [ESP + 0x3c]                      
+  0x00b5eb55: MOV dword ptr [0x011fa2bc],ECX                      
+  0x00b5eb5b: FLD float ptr [EBX + 0x70]                          
+  0x00b5eb5e: FSTP float ptr [ESP + 0x24]                         
+  0x00b5eb62: FLD float ptr [EBX + 0x7c]                          
+  0x00b5eb65: FSTP float ptr [ESP + 0x28]                         
+  0x00b5eb69: FLD float ptr [EBX + 0x88]                          
+  0x00b5eb6f: FSTP float ptr [ESP + 0x2c]                         
+  0x00b5eb73: FLD float ptr [ESP + 0x24]                          
+  0x00b5eb77: FSTP float ptr [ESP + 0x30]                         
+  0x00b5eb7b: MOV EDX,dword ptr [ESP + 0x30]                      
+  0x00b5eb7f: FLD float ptr [ESP + 0x28]                          
+  0x00b5eb83: MOV dword ptr [0x011fa2c0],EDX                      
+  0x00b5eb89: FSTP float ptr [ESP + 0x34]                         
+  0x00b5eb8d: MOV EAX,dword ptr [ESP + 0x34]                      
+  0x00b5eb91: FLD float ptr [ESP + 0x2c]                          
+  0x00b5eb95: MOV [0x011fa2c4],EAX                                
+  0x00b5eb9a: FSTP float ptr [ESP + 0x38]                         
+  0x00b5eb9e: MOV ECX,dword ptr [ESP + 0x38]                      
+  0x00b5eba2: MOV dword ptr [0x011fa2c8],ECX                      
+  0x00b5eba8: FST float ptr [ESP + 0x3c]                          
+  0x00b5ebac: MOV EDX,dword ptr [ESP + 0x3c]                      
+  0x00b5ebb0: MOV dword ptr [0x011fa2cc],EDX                      
+  0x00b5ebb6: MOV EAX,dword ptr [EDI + 0x134]                     
+  0x00b5ebbc: TEST EAX,EAX                                        
+
+Bytes @ 0x00c52020 (SetCameraDepthValues_00C52020): 55 8B EC 81 EC CC 00 00 00 56 89 8D 78 FF FF FF
+
+----------------------------------------------------------------------
+Disassembly SetCameraDepthValues_00C52020 around 0x00c52020
+----------------------------------------------------------------------
+  0x00c51fe4: FSTP float ptr [EBP + -0xc]                         
+  0x00c51fe7: MOV byte ptr [EBP + -0x8],0x0                       
+  0x00c51feb: MOV byte ptr [EBP + -0x7],0x0                       
+  0x00c51fef: MOV byte ptr [EBP + -0x6],0x0                       
+  0x00c51ff3: MOV byte ptr [EBP + -0x5],0x0                       
+  0x00c51ff7: MOV byte ptr [EBP + -0x4],0x0                       
+  0x00c51ffb: MOV EAX,dword ptr [EBP + -0x38]                     
+  0x00c51ffe: MOV ECX,dword ptr [EAX + 0xac]                      
+  0x00c52004: MOV dword ptr [EBP + -0x34],ECX                     
+  0x00c52007: LEA EDX,[EBP + -0xc]                                
+  0x00c5200a: PUSH EDX                                            
+  0x00c5200b: MOV ECX,dword ptr [EBP + -0x34]                     
+  0x00c5200e: CALL 0x00a59c60                                      ; CALL 0x00a59c60 FUN_00a59c60
+  0x00c52013: MOV ESP,EBP                                         
+  0x00c52015: POP EBP                                             
+  0x00c52016: RET                                                 
+  0x00c52020: PUSH EBP                                             << TARGET
+  0x00c52021: MOV EBP,ESP                                         
+  0x00c52023: SUB ESP,0xcc                                        
+  0x00c52029: PUSH ESI                                            
+  0x00c5202a: MOV dword ptr [EBP + 0xffffff78],ECX                
+  0x00c52030: MOV EAX,dword ptr [EBP + 0x10]                      
+  0x00c52033: MOV dword ptr [EBP + -0x8],EAX                      
+  0x00c52036: CMP dword ptr [EBP + -0x8],0x0                      
+  0x00c5203a: JNZ 0x00c5204b                                      
+  0x00c5203c: MOV ECX,dword ptr [EBP + 0xffffff78]                
+  0x00c52042: MOV EDX,dword ptr [ECX + 0xac]                      
+  0x00c52048: MOV dword ptr [EBP + -0x8],EDX                      
+  0x00c5204b: CMP dword ptr [EBP + 0x10],0x0                      
+  0x00c5204f: JNZ 0x00c520d8                                      
+  0x00c52055: MOVZX EAX,byte ptr [EBP + 0xc]                      
+  0x00c52059: TEST EAX,EAX                                        
+  0x00c5205b: JNZ 0x00c520c9                                      
+  0x00c5205d: MOV ECX,dword ptr [EBP + 0xffffff78]                
+  0x00c52063: FLD float ptr [ECX + 0xbc]                          
+  0x00c52069: FLD float ptr [EBP + 0x8]                           
+  0x00c5206c: FUCOMPP                                             
+  0x00c5206e: FNSTSW AX                                           
+  0x00c52070: TEST AH,0x44                                        
+  0x00c52073: JP 0x00c520c9                                       
+  0x00c52075: MOVZX EDX,byte ptr [EBP + 0x14]                     
+  0x00c52079: TEST EDX,EDX                                        
+  0x00c5207b: JZ 0x00c520c4                                       
+  0x00c5207d: MOV EAX,0x1203150                                   
+  0x00c52082: TEST EAX,EAX                                        
+  0x00c52084: JZ 0x00c52092                                       
+  0x00c52086: MOV dword ptr [EBP + 0xffffff74],0x1203154          
+  0x00c52090: JMP 0x00c520a4                                      
+  0x00c52092: FLDZ                                                
+  0x00c52094: FSTP float ptr [0x01202800]                         
+  0x00c5209a: MOV dword ptr [EBP + 0xffffff74],0x1202800          
+  0x00c520a4: MOV ECX,dword ptr [EBP + 0xffffff74]                
+  0x00c520aa: MOV dword ptr [EBP + -0x48],ECX                     
+  0x00c520ad: MOV EDX,dword ptr [EBP + -0x48]                     
+  0x00c520b0: FLD float ptr [EDX]                                 
+  0x00c520b2: FDIVR float ptr [EBP + 0x8]                         
+  0x00c520b5: FSTP float ptr [EBP + -0x4c]                        
+  0x00c520b8: MOV EAX,dword ptr [EBP + -0x8]                      
+  0x00c520bb: FLD float ptr [EBP + -0x4c]                         
+
+======================================================================
+CameraVectorGetter_0045BB80 @ 0x0045bb80
+======================================================================
+  Function: FUN_0045bb80 @ 0x0045bb80, Size: 19 bytes
+
+int __fastcall FUN_0045bb80(int param_1)
+
+{
+  return param_1 + 0x8c;
+}
+
+
+
+--- Calls FROM CameraVectorGetter_0045BB80 (0x0045bb80) ---
+  Total: 0 calls
+
+======================================================================
+NEAR/FAR/FRUSTUM MATCHES: CameraVectorGetter_0045BB80 @ 0x0045bb80
+======================================================================
+  L0005:   return param_1 + 0x8c;
+  Total matched lines: 1
+
+======================================================================
+CurrentCameraGetter_0045C670 @ 0x0045c670
+======================================================================
+  Function: FUN_0045c670 @ 0x0045c670, Size: 15 bytes
+
+void FUN_0045c670(void)
+
+{
+  FUN_00559450();
+  return;
+}
+
+
+
+--- Calls FROM CurrentCameraGetter_0045C670 (0x0045c670) ---
+  0x0045c678 -> 0x00559450 FUN_00559450
+  Total: 1 calls
+
+======================================================================
+NEAR/FAR/FRUSTUM MATCHES: CurrentCameraGetter_0045C670 @ 0x0045c670
+======================================================================
+  Total matched lines: 0
+
+======================================================================
+CameraOrSceneGetter_006629F0 @ 0x006629f0
+======================================================================
+  Function: FUN_006629f0 @ 0x006629f0, Size: 25 bytes
+
+void __fastcall FUN_006629f0(undefined4 param_1)
+
+{
+  FUN_00559450(param_1);
+  return;
+}
+
+
+
+--- Calls FROM CameraOrSceneGetter_006629F0 (0x006629f0) ---
+  0x00662a00 -> 0x00559450 FUN_00559450
+  Total: 1 calls
+
+======================================================================
+NEAR/FAR/FRUSTUM MATCHES: CameraOrSceneGetter_006629F0 @ 0x006629f0
+======================================================================
+  Total matched lines: 0
+
+======================================================================
+WorldCameraDepthValue_00710AB0 @ 0x00710ab0
+======================================================================
+  Function: FUN_00710ab0 @ 0x00710ab0, Size: 20 bytes
+
+float10 __fastcall FUN_00710ab0(int param_1)
+
+{
+  return (float10)*(float *)(param_1 + 0x670);
+}
+
+
+
+--- Calls FROM WorldCameraDepthValue_00710AB0 (0x00710ab0) ---
+  Total: 0 calls
+
+======================================================================
+NEAR/FAR/FRUSTUM MATCHES: WorldCameraDepthValue_00710AB0 @ 0x00710ab0
+======================================================================
+  Total matched lines: 0
+
+======================================================================
+FirstPersonCameraDepthValue_00874900 @ 0x00874900
+======================================================================
+  Function: FUN_00874900 @ 0x00874900, Size: 20 bytes
+
+float10 __fastcall FUN_00874900(int param_1)
+
+{
+  return (float10)*(float *)(param_1 + 0x674);
+}
+
+
+
+--- Calls FROM FirstPersonCameraDepthValue_00874900 (0x00874900) ---
+  Total: 0 calls
+
+======================================================================
+NEAR/FAR/FRUSTUM MATCHES: FirstPersonCameraDepthValue_00874900 @ 0x00874900
+======================================================================
+  Total matched lines: 0
+
+======================================================================
+RenderImageSpaceCaller_00875FD0 @ 0x00875fd0
+======================================================================
+  Function: FUN_00875fd0 @ 0x00875fd0, Size: 527 bytes
+
+/* WARNING: Globals starting with '_' overlap smaller symbols at the same address */
+
+void __thiscall
+FUN_00875fd0(int param_1,undefined4 param_2,undefined4 param_3,undefined4 param_4,undefined4 param_5
+            )
+
+{
+  bool bVar1;
+  char cVar2;
+  uint uVar3;
+  int iVar4;
+  undefined4 uVar5;
+  int *piVar6;
+  undefined4 uVar7;
+  int *unaff_FS_OFFSET;
+  float10 fVar8;
+  undefined4 uVar9;
+  undefined4 uVar10;
+  int local_10;
+  undefined1 *puStack_c;
+  undefined4 local_8;
+  
+  local_8 = 0xffffffff;
+  puStack_c = &LAB_00f07e88;
+  local_10 = *unaff_FS_OFFSET;
+  uVar3 = DAT_011c16bc ^ (uint)&stack0xfffffffc;
+  *unaff_FS_OFFSET = (int)&local_10;
+  FUN_00404eb0(0x27,1,"D:\\_Fallout3\\Platforms\\Common\\Code\\Fallout\\Misc\\Main.cpp",0x2362);
+  local_8 = 0;
+  cVar2 = FUN_004e9510(uVar3);
+  if (cVar2 == '\0') {
+    FUN_00b6b790();
+  }
+  cVar2 = FUN_00705a00();
+  if (cVar2 == '\0') {
+    cVar2 = FUN_00702360();
+    if (cVar2 == '\0') {
+      cVar2 = FUN_00705e80();
+      if (cVar2 == '\0') {
+        cVar2 = FUN_0042ce10();
+        if (cVar2 == '\0') {
+          cVar2 = FUN_005621d0();
+          if ((cVar2 == '\0') && (*(char *)(param_1 + 0x9c) == '\0')) {
+            FUN_00702870();
+          }
+        }
+      }
+    }
+  }
+  iVar4 = FUN_00559450();
+  if (iVar4 != 0) {
+    uVar10 = 0;
+    uVar9 = 0;
+    uVar5 = FUN_00559450(0,0);
+    uVar7 = param_3;
+    FUN_00705910(param_3,uVar5);
+    FUN_00801a60(uVar7,uVar5,uVar9,uVar10);
+  }
+  cVar2 = FUN_007079b0();
+  if (((cVar2 == '\0') || (*(char *)(param_1 + 0x9c) != '\0')) || (DAT_011dea29 == '\0')) {
+    bVar1 = false;
+  }
+  else {
+    bVar1 = true;
+  }
+  if (bVar1) {
+    DAT_012005a2 = 1;
+    piVar6 = (int *)FUN_00707ad0();
+    fVar8 = (float10)(**(code **)(*piVar6 + 0x2c))();
+    _DAT_011add08 = (float)fVar8;
+  }
+  FUN_0045c670();
+  DAT_011f917c = FUN_006629f0();
+  FUN_00b55ac0(param_4,param_3,param_5);
+  iVar4 = FUN_00559450();
+  if (iVar4 != 0) {
+    FUN_00705910();
+    FUN_008019d0();
+    uVar7 = FUN_00559450();
+    FUN_004a0ea0(uVar7);
+    FUN_00b6da10(uVar7);
+    FUN_0066b0d0(0);
+  }
+  if (bVar1) {
+    DAT_012005a2 = 0;
+    _DAT_011add08 = 1.0;
+  }
+  uVar7 = FUN_00414430(0,0x3f800000,0x3f800000,0);
+  FUN_00524c90(uVar7);
+  FUN_00712e60(uVar7);
+  local_8 = 0xffffffff;
+  FUN_00404ee0();
+  *unaff_FS_OFFSET = local_10;
+  return;
+}
+
+
+
+--- Calls FROM RenderImageSpaceCaller_00875FD0 (0x00875fd0) ---
+  0x00876009 -> 0x00404eb0 FUN_00404eb0
+  0x00876015 -> 0x004e9510 FUN_004e9510
+  0x00876021 -> 0x00b6b790 FUN_00b6b790
+  0x00876026 -> 0x00705a00 FUN_00705a00
+  0x00876032 -> 0x00702360 FUN_00702360
+  0x0087603e -> 0x00705e80 FUN_00705e80
+  0x00876050 -> 0x0042ce10 FUN_0042ce10
+  0x00876062 -> 0x005621d0 FUN_005621d0
+  0x0087607c -> 0x00702870 FUN_00702870
+  0x00876086 -> 0x00559450 FUN_00559450
+  0x00876098 -> 0x00559450 FUN_00559450
+  0x008760a2 -> 0x00705910 FUN_00705910
+  0x008760a9 -> 0x00801a60 FUN_00801a60
+  0x008760ae -> 0x007079b0 FUN_007079b0
+  0x008760f8 -> 0x00707ad0 FUN_00707ad0
+  0x00876119 -> 0x0045c670 CurrentCameraGetter_0045C670
+  0x00876120 -> 0x006629f0 CameraOrSceneGetter_006629F0
+  0x00876136 -> 0x00b55ac0 FUN_00b55ac0
+  0x00876143 -> 0x00559450 FUN_00559450
+  0x0087614c -> 0x00705910 FUN_00705910
+  0x00876153 -> 0x008019d0 FUN_008019d0
+  0x0087615d -> 0x00559450 FUN_00559450
+  0x00876163 -> 0x004a0ea0 FUN_004a0ea0
+  0x0087616a -> 0x00b6da10 FUN_00b6da10
+  0x00876176 -> 0x0066b0d0 FUN_0066b0d0
+  0x008761ad -> 0x00414430 FUN_00414430
+  0x008761b3 -> 0x00524c90 FUN_00524c90
+  0x008761ba -> 0x00712e60 FUN_00712e60
+  0x008761c9 -> 0x00404ee0 FUN_00404ee0
+  Total: 29 calls
+
+======================================================================
+NEAR/FAR/FRUSTUM MATCHES: RenderImageSpaceCaller_00875FD0 @ 0x00875fd0
+======================================================================
+  L0074:   DAT_011f917c = FUN_006629f0();
+  Total matched lines: 1
+
+======================================================================
+SetDepthOrClipValue_00B54000 @ 0x00b54000
+======================================================================
+  Function: FUN_00b54000 @ 0x00b54000, Size: 131 bytes
+
+/* WARNING: Globals starting with '_' overlap smaller symbols at the same address */
+
+void FUN_00b54000(void)
+
+{
+  float10 fVar1;
+  float10 fVar2;
+  float10 fVar3;
+  float10 fVar4;
+  
+  fVar1 = (float10)FUN_00eca0a0();
+  fVar2 = (float10)FUN_00ec9f70();
+  fVar3 = (float10)FUN_00eca0a0();
+  fVar4 = (float10)FUN_00ec9f70();
+  _DAT_011adcc8 = ((float)fVar1 / (float)fVar2) / ((float)fVar3 / (float)fVar4);
+  return;
+}
+
+
+
+--- Calls FROM SetDepthOrClipValue_00B54000 (0x00b54000) ---
+  0x00b5401b -> 0x00eca0a0 Depth/projection helper 00ECA0A0
+  0x00b5402d -> 0x00ec9f70 Depth/projection helper 00EC9F70
+  0x00b5404f -> 0x00eca0a0 Depth/projection helper 00ECA0A0
+  0x00b54065 -> 0x00ec9f70 Depth/projection helper 00EC9F70
+  Total: 4 calls
+
+======================================================================
+NEAR/FAR/FRUSTUM MATCHES: SetDepthOrClipValue_00B54000 @ 0x00b54000
+======================================================================
+  Total matched lines: 0
+
+======================================================================
+CameraWriter_00B5E870 @ 0x00b5e870
+======================================================================
+  Function: FUN_00b5e870 @ 0x00b5e870, Size: 1069 bytes
+
+/* WARNING: Globals starting with '_' overlap smaller symbols at the same address */
+
+void __thiscall FUN_00b5e870(int param_1,int param_2)
+
+{
+  int iVar1;
+  int *piVar2;
+  int *piVar3;
+  int *piVar4;
+  char cVar5;
+  uint uVar6;
+  LONG LVar7;
+  int *unaff_FS_OFFSET;
+  int *local_38;
+  int *local_34;
+  int *local_30;
+  int *local_2c [8];
+  int local_c;
+  undefined1 *puStack_8;
+  undefined4 local_4;
+  
+  local_4 = 0xffffffff;
+  puStack_8 = &LAB_00f27940;
+  local_c = *unaff_FS_OFFSET;
+  uVar6 = DAT_011c16bc ^ (uint)&stack0xffffffb8;
+  *unaff_FS_OFFSET = (int)&local_c;
+  FUN_00c4f360(uVar6);
+  iVar1 = *(int *)(param_2 + 0xc);
+  piVar4 = local_38;
+  if (*(char *)(param_1 + 0x130) == '\0') {
+    piVar3 = *(int **)(param_1 + 0xb4);
+joined_r0x00b5e8bc:
+    local_38 = piVar3;
+    if (local_38 != (int *)0x0) {
+      piVar2 = (int *)local_38[2];
+      piVar3 = (int *)*local_38;
+      piVar4 = local_38;
+      if (piVar2 != (int *)0x0) {
+        if ((piVar2[0x3e] != 0) && (*(int *)(piVar2[0x3e] + 4) != 1)) {
+          if ((char)piVar2[0x3f] != '\0') {
+            FUN_00b5d270(piVar2);
+          }
+          if (((char)piVar2[0x3b] == '\0') ||
+             (cVar5 = FUN_005bf7b0(), piVar4 = local_38, cVar5 == '\0')) {
+            FUN_00b9e970(param_2);
+            piVar4 = local_38;
+          }
+          goto joined_r0x00b5e8bc;
+        }
+        if (piVar2[0x90] == *(int *)(param_1 + 0x1e0)) {
+          local_34 = piVar2;
+          InterlockedIncrement(piVar2 + 1);
+          local_4 = 1;
+          FUN_00b5d040(&local_34,&local_38);
+          piVar2 = local_34;
+        }
+        else {
+          if ((char)piVar2[0x3b] == '\0') {
+            FUN_00b9efa0(local_2c,&local_38);
+            piVar2 = local_2c[0];
+            piVar4 = local_38;
+            if ((local_2c[0] != (int *)0x0) &&
+               (LVar7 = InterlockedDecrement(local_2c[0] + 1), piVar4 = local_38, LVar7 == 0)) {
+              (**(code **)(*piVar2 + 4))();
+              piVar4 = local_38;
+            }
+            goto joined_r0x00b5e8bc;
+          }
+          local_38 = piVar2;
+          InterlockedIncrement(piVar2 + 1);
+          local_4 = 0;
+          FUN_00b9fcc0(&local_30,&local_38);
+          piVar4 = local_30;
+          piVar2 = local_38;
+          if ((local_30 != (int *)0x0) &&
+             (LVar7 = InterlockedDecrement(local_30 + 1), piVar2 = local_38, LVar7 == 0)) {
+            (**(code **)(*piVar4 + 4))();
+            piVar2 = local_38;
+          }
+        }
+        local_4 = 0xffffffff;
+        piVar4 = local_38;
+        if (piVar2 != (int *)0x0) {
+          local_4 = 0xffffffff;
+          LVar7 = InterlockedDecrement(piVar2 + 1);
+          piVar4 = local_38;
+          if (LVar7 == 0) {
+            (**(code **)(*piVar2 + 4))();
+            piVar4 = local_38;
+          }
+        }
+      }
+      goto joined_r0x00b5e8bc;
+    }
+  }
+  local_38 = piVar4;
+  DAT_011f91c4 = *(undefined1 *)(param_1 + 0x120);
+  DAT_011f917c = iVar1;
+  if (DAT_011f91c0 == 0) {
+    FUN_00a5dbe0(param_2);
+  }
+  else {
+    if (DAT_011f91a7 == '\x01') {
+      if (DAT_011ad868 == -1) {
+        DAT_011ad868 = DAT_011f91d8;
+      }
+      DAT_011f91d8 = 4;
+    }
+    else if (DAT_011ad868 != -1) {
+      DAT_011f91d8 = DAT_011ad868;
+      DAT_011ad868 = -1;
+    }
+    DAT_011fa2a0 = *(undefined4 *)(iVar1 + 0x8c);
+    DAT_011fa2a4 = *(undefined4 *)(iVar1 + 0x90);
+    DAT_011fa2a8 = *(undefined4 *)(iVar1 + 0x94);
+    DAT_011fa2ac = 0;
+    _DAT_011fa2b0 = *(undefined4 *)(iVar1 + 0x68);
+    _DAT_011fa2b4 = *(undefined4 *)(iVar1 + 0x74);
+    _DAT_011fa2b8 = *(undefined4 *)(iVar1 + 0x80);
+    _DAT_011fa2bc = 0;
+    _DAT_011fa2c0 = *(undefined4 *)(iVar1 + 0x70);
+    _DAT_011fa2c4 = *(undefined4 *)(iVar1 + 0x7c);
+    _DAT_011fa2c8 = *(undefined4 *)(iVar1 + 0x88);
+    _DAT_011fa2cc = 0;
+    iVar1 = *(int *)(param_1 + 0x134);
+    if (iVar1 != 0) {
+      _DAT_011fa280 = *(float *)(iVar1 + 0x30);
+      _DAT_011fa290 = *(undefined4 *)(iVar1 + 0x20);
+      _DAT_011fa294 = *(undefined4 *)(iVar1 + 0x24);
+      _DAT_011fa298 = *(undefined4 *)(iVar1 + 0x28);
+      _DAT_011fa284 = _DAT_011fa280 - *(float *)(iVar1 + 0x2c);
+      _DAT_011fa288 = *(undefined4 *)(iVar1 + 0x60);
+      _DAT_011fa28c = 0;
+      _DAT_011fa29c = 0;
+    }
+    _DAT_01200558 = _DAT_01200500 + _DAT_011ad824 * (_DAT_01200504 - _DAT_01200500);
+  }
+  *unaff_FS_OFFSET = local_c;
+  return;
+}
+
+
+
+--- Calls FROM CameraWriter_00B5E870 (0x00b5e870) ---
+  0x00b5e89f -> 0x00c4f360 FUN_00c4f360
+  0x00b5e8f3 -> 0x00b5d270 FUN_00b5d270
+  0x00b5e901 -> 0x005bf7b0 FUN_005bf7b0
+  0x00b5e915 -> 0x00b9e970 FUN_00b9e970
+  0x00b5e942 -> 0x00000066 unknown
+  0x00b5e960 -> 0x00b9fcc0 FUN_00b9fcc0
+  0x00b5e973 -> 0x00000067 unknown
+  0x00b5e9af -> 0x00b9efa0 FUN_00b9efa0
+  0x00b5e9c2 -> 0x00000067 unknown
+  0x00b5e9df -> 0x00000066 unknown
+  0x00b5e9f9 -> 0x00b5d040 FUN_00b5d040
+  0x00b5ea14 -> 0x00000067 unknown
+  0x00b5ea51 -> 0x00a5dbe0 FUN_00a5dbe0
+  Total: 13 calls
+
+======================================================================
+NEAR/FAR/FRUSTUM MATCHES: CameraWriter_00B5E870 @ 0x00b5e870
+======================================================================
+  L0099:   DAT_011f917c = iVar1;
+  L0114:     DAT_011fa2a0 = *(undefined4 *)(iVar1 + 0x8c);
+  L0115:     DAT_011fa2a4 = *(undefined4 *)(iVar1 + 0x90);
+  L0116:     DAT_011fa2a8 = *(undefined4 *)(iVar1 + 0x94);
+  L0117:     DAT_011fa2ac = 0;
+  L0118:     _DAT_011fa2b0 = *(undefined4 *)(iVar1 + 0x68);
+  L0119:     _DAT_011fa2b4 = *(undefined4 *)(iVar1 + 0x74);
+  L0120:     _DAT_011fa2b8 = *(undefined4 *)(iVar1 + 0x80);
+  L0121:     _DAT_011fa2bc = 0;
+  L0122:     _DAT_011fa2c0 = *(undefined4 *)(iVar1 + 0x70);
+  L0123:     _DAT_011fa2c4 = *(undefined4 *)(iVar1 + 0x7c);
+  L0124:     _DAT_011fa2c8 = *(undefined4 *)(iVar1 + 0x88);
+  L0125:     _DAT_011fa2cc = 0;
+  L0128:       _DAT_011fa280 = *(float *)(iVar1 + 0x30);
+  L0129:       _DAT_011fa290 = *(undefined4 *)(iVar1 + 0x20);
+  L0130:       _DAT_011fa294 = *(undefined4 *)(iVar1 + 0x24);
+  L0131:       _DAT_011fa298 = *(undefined4 *)(iVar1 + 0x28);
+  L0132:       _DAT_011fa284 = _DAT_011fa280 - *(float *)(iVar1 + 0x2c);
+  L0133:       _DAT_011fa288 = *(undefined4 *)(iVar1 + 0x60);
+  L0134:       _DAT_011fa28c = 0;
+  L0135:       _DAT_011fa29c = 0;
+  Total matched lines: 21
+
+======================================================================
+CameraWriter_00B6BA20 @ 0x00b6ba20
+======================================================================
+  Function: FUN_00b6ba20 @ 0x00b6ba20, Size: 74 bytes
+
+void FUN_00b6ba20(int param_1,int *param_2)
+
+{
+  if ((DAT_011f4748 != 0) && (param_1 != 0)) {
+    FUN_004e9bb0(param_1);
+    DAT_011f917c = param_1;
+    FUN_00b54b10(param_2);
+    (**(code **)(*param_2 + 0x8c))(param_1);
+                    /* WARNING: Could not recover jumptable at 0x00b6ba66. Too many branches */
+                    /* WARNING: Treating indirect jump as call */
+    (**(code **)(*param_2 + 0xa8))();
+    return;
+  }
+  return;
+}
+
+
+
+--- Calls FROM CameraWriter_00B6BA20 (0x00b6ba20) ---
+  0x00b6ba35 -> 0x004e9bb0 FUN_004e9bb0
+  0x00b6ba45 -> 0x00b54b10 FUN_00b54b10
+  Total: 2 calls
+
+======================================================================
+NEAR/FAR/FRUSTUM MATCHES: CameraWriter_00B6BA20 @ 0x00b6ba20
+======================================================================
+  L0007:     DAT_011f917c = param_1;
+  L0009:     (**(code **)(*param_2 + 0x8c))(param_1);
+  Total matched lines: 2
+
+======================================================================
+CameraWriter_00B6C0D0 @ 0x00b6c0d0
+======================================================================
+  Function: FUN_00b6c0d0 @ 0x00b6c0d0, Size: 84 bytes
+
+void FUN_00b6c0d0(int param_1,int *param_2)
+
+{
+  if ((DAT_011f4748 != 0) && (param_1 != 0)) {
+    FUN_004e9bb0(param_1);
+    DAT_011f917c = param_1;
+    FUN_00b54b10(param_2);
+    (**(code **)(*param_2 + 0x8c))(param_1);
+    (**(code **)(*param_2 + 0xa8))();
+  }
+                    /* WARNING: Could not recover jumptable at 0x00b6c122. Too many branches */
+                    /* WARNING: Treating indirect jump as call */
+  (**(code **)(*param_2 + 0xac))();
+  return;
+}
+
+
+
+--- Calls FROM CameraWriter_00B6C0D0 (0x00b6c0d0) ---
+  0x00b6c0e9 -> 0x004e9bb0 FUN_004e9bb0
+  0x00b6c0f5 -> 0x00b54b10 FUN_00b54b10
+  Total: 2 calls
+
+======================================================================
+NEAR/FAR/FRUSTUM MATCHES: CameraWriter_00B6C0D0 @ 0x00b6c0d0
+======================================================================
+  L0007:     DAT_011f917c = param_1;
+  L0009:     (**(code **)(*param_2 + 0x8c))(param_1);
+  Total matched lines: 2
+
+======================================================================
+SetCameraDepthValues_00C52020 @ 0x00c52020
+======================================================================
+  Function: FUN_00c52020 @ 0x00c52020, Size: 1072 bytes
+
+/* WARNING: Removing unreachable block (ram,0x00c52122) */
+/* WARNING: Removing unreachable block (ram,0x00c52411) */
+/* WARNING: Removing unreachable block (ram,0x00c52092) */
+/* WARNING: Heritage AFTER dead removal. Example location: r0x01203154 : 0x00c520b0 */
+/* WARNING: Globals starting with '_' overlap smaller symbols at the same address */
+/* WARNING: Restarted to delay deadcode elimination for space: ram */
+
+void __thiscall FUN_00c52020(int *param_1,float param_2,char param_3,int param_4,char param_5)
+
+{
+  float fVar1;
+  int iVar2;
+  int iVar3;
+  int *piVar4;
+  int *piVar5;
+  float10 fVar6;
+  
+  if (param_4 == 0) {
+    param_4 = param_1[0x2b];
+    if ((param_3 == '\0') && (param_2 == (float)param_1[0x2f])) {
+      if (param_5 == '\0') {
+        return;
+      }
+      *(float *)(param_4 + 0x110) = param_2 / DAT_01203154;
+      return;
+    }
+    param_1[0x2f] = (int)param_2;
+  }
+  fVar1 = param_2 * (float)_DAT_01023128 * (float)_DAT_01011588;
+  FUN_00a71b70();
+  fVar6 = (float10)(**(code **)(*param_1 + 0x100))();
+  *(float *)(param_4 + 0xfc) = (float)fVar6 / DAT_01203148;
+  piVar5 = DAT_011f4748;
+  if (DAT_011f4748 != (int *)0x0) {
+    FUN_004dee70();
+    FUN_004dee10();
+    iVar2 = (**(code **)(*piVar5 + 0xcc))();
+    if (iVar2 != 0) {
+      iVar2 = (**(code **)(*piVar5 + 0xcc))();
+      iVar3 = (**(code **)(*piVar5 + 200))();
+      if (iVar2 != iVar3) {
+        piVar4 = (int *)(**(code **)(*piVar5 + 0xcc))();
+        (**(code **)(*piVar4 + 0xb0))();
+        piVar5 = (int *)(**(code **)(*piVar5 + 0xcc))();
+        (**(code **)(*piVar5 + 0xb0))(0);
+      }
+    }
+  }
+  FUN_00eca590((double)fVar1);
+  FUN_00eca590((double)fVar1);
+  FUN_00eca590((double)fVar1);
+  FUN_00eca590((double)fVar1);
+  FUN_00a6faf0();
+  FUN_00a59c60();
+  if (param_5 != '\0') {
+    *(float *)(param_4 + 0x110) = param_2 / DAT_01203154;
+  }
+  return;
+}
+
+
+
+--- Calls FROM SetCameraDepthValues_00C52020 (0x00c52020) ---
+  0x00c520ef -> 0x00a71b70 FUN_00a71b70
+  0x00c5216c -> 0x004dee70 FUN_004dee70
+  0x00c521a1 -> 0x004dee10 FUN_004dee10
+  0x00c52336 -> 0x00eca590 Projection update helper 00ECA590
+  0x00c5235b -> 0x00eca590 Projection update helper 00ECA590
+  0x00c5237e -> 0x00eca590 Projection update helper 00ECA590
+  0x00c523a6 -> 0x00eca590 Projection update helper 00ECA590
+  0x00c523ca -> 0x00a6faf0 FUN_00a6faf0
+  0x00c523ef -> 0x00a59c60 FUN_00a59c60
+  Total: 9 calls
+
+======================================================================
+NEAR/FAR/FRUSTUM MATCHES: SetCameraDepthValues_00C52020 @ 0x00c52020
+======================================================================
+  L0025:       *(float *)(param_4 + 0x110) = param_2 / DAT_01203154;
+  L0032:   fVar6 = (float10)(**(code **)(*param_1 + 0x100))();
+  L0033:   *(float *)(param_4 + 0xfc) = (float)fVar6 / DAT_01203148;
+  L0057:     *(float *)(param_4 + 0x110) = param_2 / DAT_01203154;
+  Total matched lines: 4
+
+======================================================================
+Depth/projection helper 00EC9F70 @ 0x00ec9f70
+======================================================================
+  Function: FUN_00ec9f70 @ 0x00ec9f70, Size: 79 bytes
+
+void FUN_00ec9f70(void)
+
+{
+  ushort in_FPUControlWord;
+  float10 in_ST0;
+  
+  if ((DAT_01270a64 != 0) && ((MXCSR & 0x1f80) == 0x1f80 && (in_FPUControlWord & 0x7f) == 0x7f)) {
+    FUN_00ed9780();
+    return;
+  }
+  FUN_00ed2808((double)in_ST0);
+  FUN_00ec9fc8();
+  return;
+}
+
+
+
+--- Calls FROM Depth/projection helper 00EC9F70 (0x00ec9f70) ---
+  0x00ec9fa6 -> 0x00ed9780 FUN_00ed9780
+  0x00ec9fb1 -> 0x00ed2808 FUN_00ed2808
+  0x00ec9fb6 -> 0x00ec9fc8 FUN_00ec9fc8
+  Total: 3 calls
+
+======================================================================
+NEAR/FAR/FRUSTUM MATCHES: Depth/projection helper 00EC9F70 @ 0x00ec9f70
+======================================================================
+  Total matched lines: 0
+
+======================================================================
+Depth/projection helper 00ECA0A0 @ 0x00eca0a0
+======================================================================
+  Function: FUN_00eca0a0 @ 0x00eca0a0, Size: 79 bytes
+
+void FUN_00eca0a0(void)
+
+{
+  ushort in_FPUControlWord;
+  float10 in_ST0;
+  
+  if ((DAT_01270a64 != 0) && ((MXCSR & 0x1f80) == 0x1f80 && (in_FPUControlWord & 0x7f) == 0x7f)) {
+    FUN_00ed9930();
+    return;
+  }
+  FUN_00ed2808((double)in_ST0);
+  FUN_00eca0f8();
+  return;
+}
+
+
+
+--- Calls FROM Depth/projection helper 00ECA0A0 (0x00eca0a0) ---
+  0x00eca0d6 -> 0x00ed9930 FUN_00ed9930
+  0x00eca0e1 -> 0x00ed2808 FUN_00ed2808
+  0x00eca0e6 -> 0x00eca0f8 FUN_00eca0f8
+  Total: 3 calls
+
+======================================================================
+NEAR/FAR/FRUSTUM MATCHES: Depth/projection helper 00ECA0A0 @ 0x00eca0a0
+======================================================================
+  Total matched lines: 0
+
+======================================================================
+Projection update helper 00ECA590 @ 0x00eca590
+======================================================================
+  Function: FUN_00eca590 @ 0x00eca590, Size: 63 bytes
+
+void FUN_00eca590(void)
+
+{
+  ushort in_FPUControlWord;
+  
+  if ((DAT_01270a64 != 0) && ((MXCSR & 0x1f80) == 0x1f80 && (in_FPUControlWord & 0x7f) == 0x7f)) {
+    FUN_00edb898();
+    return;
+  }
+                    /* WARNING: Subroutine does not return */
+  __fload_withFB();
+}
+
+
+
+--- Calls FROM Projection update helper 00ECA590 (0x00eca590) ---
+  0x00eca5ca -> 0x00edb898 FUN_00edb898
+  Total: 1 calls
+
+======================================================================
+NEAR/FAR/FRUSTUM MATCHES: Projection update helper 00ECA590 @ 0x00eca590
+======================================================================
+  Total matched lines: 0
+
+======================================================================
+PROGRAM INSTRUCTION SCAN FOR CAMERA OFFSETS
+======================================================================
+  0x0040291f in FUN_00402820: MOV dword ptr [ECX + 0x94],0x1011880
+  0x00402dc1 in FUN_00402d50: MOV dword ptr [ECX + 0x94],0x1011880
+  0x00407166 in FUN_00407020: MOV dword ptr [EDX + 0x8c],0x0
+  0x0040717f in FUN_00407020: FSTP float ptr [ECX + 0x90]
+  0x00407194 in FUN_00407020: FSTP float ptr [EDX + 0x94]
+  0x00407409 in FUN_00407300: MOV ECX,dword ptr [EAX + 0x8c]
+  0x00407415 in FUN_00407300: CMP dword ptr [EDX + 0x8c],0x0
+  0x00407421 in FUN_00407300: MOV ECX,dword ptr [EAX + 0x8c]
+  0x0040743e in FUN_00407300: MOV dword ptr [ECX + 0x8c],EDX
+  0x0040757a in FUN_00407300: MOV dword ptr [EAX + 0x8c],ECX
+  0x0040786d in FUN_00407860: FSTP float ptr [EAX + 0x90]
+  0x0040788d in FUN_00407880: FSTP float ptr [EAX + 0x94]
+  0x004099cb in FUN_004098f0: MOV dword ptr [ECX + 0x8c],0x10131a4
+  0x004099d8 in FUN_004098f0: MOV dword ptr [EDX + 0x94],0x1013190
+  0x00409bb1 in FUN_00409b40: MOV dword ptr [ECX + 0x8c],0x10131a4
+  0x00409bbe in FUN_00409b40: MOV dword ptr [EDX + 0x94],0x1013190
+  0x00416a13 in FUN_004169f0: MOV byte ptr [ECX + 0xe4],0x1
+  0x00416a4b in FUN_00416a30: MOV byte ptr [ECX + 0xe4],0x1
+  0x00416a8c in FUN_00416a70: MOV byte ptr [EAX + 0xe4],0x1
+  0x004174cd in FUN_00416be0: MOV EDX,dword ptr [EAX + 0x100]
+  0x004181d0 in FUN_004181c0: MOV dword ptr [ECX + EAX*0x4 + 0xec],EDX
+  0x00420bad in FUN_00420ba0: MOV dword ptr [EAX + 0x100],ECX
+  0x0042324c in FUN_00422c40: MOV EAX,dword ptr [EDX + 0x100]
+  0x00424410 in FUN_004235e0: MOV EDX,dword ptr [EAX + 0x100]
+  0x004258ca in FUN_00424960: MOV EDX,dword ptr [EAX + 0x100]
+  0x00426041 in FUN_00426020: MOV EAX,dword ptr [EDX + 0x100]
+  0x0042673b in FUN_00426720: MOV EAX,dword ptr [EDX + 0x100]
+  0x004267eb in FUN_004267d0: MOV EAX,dword ptr [EDX + 0x100]
+  0x004269db in FUN_004269c0: MOV EAX,dword ptr [EDX + 0x100]
+  0x0042da3b in FUN_0042d9e0: MOV EAX,dword ptr [EDX + 0xfc]
+  0x004304f1 in FUN_00430410: MOV EAX,dword ptr [EDX + 0x100]
+  0x00431180 in FUN_00431120: MOV EAX,dword ptr [EDX + 0xf0]
+  0x0043119d in FUN_00431120: MOV EAX,dword ptr [EDX + 0x100]
+  0x00437b2c in FUN_00437ab0: MOV EAX,dword ptr [EDX + 0x100]
+  0x00439440 in FUN_00439410: MOV EAX,dword ptr [EDX + 0x8c]
+  0x0043b03d in FUN_0043ace0: MOV EDX,dword ptr [EAX + 0x90]
+  0x0043c239 in FUN_0043c150: MOV EDX,dword ptr [EAX + 0x8c]
+  0x0043ee79 in FUN_0043ed90: MOV dword ptr [EAX + 0xe8],ECX
+  0x0043ee9c in FUN_0043ed90: MOV dword ptr [EAX + 0xe8],EDX
+  0x0043f753 in FUN_0043f2f0: MOV EAX,dword ptr [EDX + 0xe4]
+  0x00445bfc in FUN_00445a10: MOV EDX,dword ptr [EAX + 0x100]
+  0x00445ec4 in FUN_00445a10: MOV EDX,dword ptr [EAX + 0x100]
+  0x0044639a in FUN_00446390: MOVSX EAX,byte ptr [EAX + 0xf4]
+  0x00451e14 in FUN_00451da0: MOV EAX,dword ptr [EDX + 0xe8]
+  0x00451eb1 in FUN_00451ea0: MOV EAX,dword ptr [EDX + 0x100]
+  0x0045205c in FUN_00451ef0: MOV EAX,dword ptr [EDX + 0xe8]
+  0x0045208e in FUN_00451ef0: MOV EDX,dword ptr [EAX + 0x100]
+  0x0045218c in FUN_00451ef0: MOV EAX,dword ptr [EDX + 0x100]
+  0x00452323 in FUN_00451ef0: MOV EAX,dword ptr [EDX + 0x100]
+  0x00457add in FUN_00457a00: MOV EDX,dword ptr [EAX + 0xe4]
+  0x00457af8 in FUN_00457a00: MOV EAX,dword ptr [EDX + 0xe4]
+  0x00469bf8 in FUN_004698a0: MOV EAX,dword ptr [EDX + 0x100]
+  0x0046dccd in FUN_0046dcc0: MOV byte ptr [EAX + 0xf4],CL
+  0x0046e8ca in FUN_0046e8c0: MOVZX ECX,byte ptr [EAX + 0x100]
+  0x0046f0a3 in FUN_0046f090: MOV EDX,dword ptr [EAX + 0x8c]
+  0x0046f49a in FUN_0046f310: MOV EDX,dword ptr [EAX + 0x100]
+  0x0047356b in FUN_004734d0: MOV EAX,dword ptr [EDX + 0x8c]
+  0x004735d0 in FUN_004734d0: MOV EAX,dword ptr [EDX + 0x110]
+  0x00473726 in FUN_004736c0: MOV EDX,dword ptr [EAX + 0x110]
+  0x004737a6 in FUN_004736c0: MOV EAX,dword ptr [EDX + 0x110]
+  0x00475ac1 in FUN_00475ab0: MOV EAX,dword ptr [EDX + 0x100]
+  0x00475c93 in FUN_00475b20: MOV EDX,dword ptr [EAX + 0x100]
+  0x0047739b in FUN_004772f0: MOV EAX,dword ptr [EDX + 0x100]
+  0x0047a6ff in FUN_0047a560: MOV EAX,dword ptr [EDX + 0x100]
+  0x0047b238 in FUN_0047b220: MOV EAX,dword ptr [EDX + 0x8c]
+  0x0047bc01 in FUN_0047bb50: MOV EAX,dword ptr [EDX + 0x94]
+  0x0047bcfa in FUN_0047bcf0: MOVZX ECX,byte ptr [EAX + 0x100]
+  0x0047c4ed in FUN_0047c070: MOV dword ptr [ECX + 0x8c],EAX
+  0x0047c510 in FUN_0047c070: MOV dword ptr [ECX + 0x90],EAX
+  0x0047c533 in FUN_0047c070: MOV dword ptr [ECX + 0x94],EAX
+  0x0047cf47 in FUN_0047ce10: MOV EDX,dword ptr [EAX + 0xfc]
+  0x0047cfde in FUN_0047ce10: MOV EAX,dword ptr [EDX + 0x100]
+  0x00480514 in FUN_004804d0: MOV EAX,dword ptr [EDX + 0x8c]
+  0x004805a5 in FUN_00480570: MOV EDX,dword ptr [EAX + 0x8c]
+  0x0048082e in FUN_004807a0: MOV EAX,dword ptr [EDX + 0x8c]
+  0x004809a8 in FUN_004808f0: MOV EAX,dword ptr [EDX + 0x8c]
+  0x00481240 in FUN_00481230: LEA ECX,[ECX + EAX*0x1 + 0x8c]
+  0x00481266 in FUN_00481230: LEA ECX,[EAX + EDX*0x1 + 0x8c]
+  0x00484de2 in FUN_00484da0: MOV EAX,dword ptr [EDX + 0xf0]
+  0x00485caa in FUN_00485c10: MOV EAX,dword ptr [EDX + 0x90]
+  0x0048810b in FUN_00487f70: MOV EAX,dword ptr [EDX + 0xe4]
+  0x00488241 in FUN_00487f70: MOV EDX,dword ptr [EAX + 0xe4]
+  0x004882e1 in FUN_00487f70: MOV EAX,dword ptr [EDX + 0xe4]
+  0x0048f970 in FUN_0048f810: MOV dword ptr [ECX + 0x100],0x0
+  0x0048faba in FUN_0048f810: FSTP float ptr [EDX + 0x110]
+  0x004902b3 in FUN_0048ffd0: MOV EDX,dword ptr [EAX + 0x8c]
+  0x00490851 in FUN_00490500: CMP EAX,dword ptr [ECX + 0x100]
+  0x0049085f in FUN_00490500: MOV dword ptr [EDX + 0x100],0x0
+  0x00490902 in FUN_00490500: CMP dword ptr [ECX + 0x100],0x0
+  0x00490920 in FUN_00490500: CMP EAX,dword ptr [ECX + 0x100]
+  0x0049092e in FUN_00490500: MOV dword ptr [EDX + 0x100],0x0
+  0x00490c37 in FUN_00490500: CMP EAX,dword ptr [EDX + 0x100]
+  0x00490c45 in FUN_00490500: MOV dword ptr [ECX + 0x100],0x0
+  0x0049125d in FUN_00491180: MOV EDX,dword ptr [ECX + 0xf0]
+  0x004913e2 in FUN_00491180: MOV EDX,dword ptr [ECX + 0xf0]
+  0x004913fb in FUN_00491180: MOV ECX,dword ptr [EAX + 0xf0]
+  0x0049152b in FUN_00491180: MOV EAX,dword ptr [EDX + 0x100]
+  0x00491be8 in FUN_00491180: FMUL float ptr [ECX + 0x110]
+  0x00492d85 in FUN_00491180: CMP dword ptr [EDX + 0xe4],0x0
+  0x00492db2 in FUN_00491180: MOV ECX,dword ptr [ECX + 0xe4]
+  0x00492dd8 in FUN_00491180: MOV ECX,dword ptr [EAX + 0xe4]
+  0x00492e0d in FUN_00491180: MOV ECX,dword ptr [ECX + 0xe4]
+  0x00492eb7 in FUN_00491180: MOV ECX,dword ptr [EDX + 0xe4]
+  0x00492f00 in FUN_00491180: MOV ECX,dword ptr [EDX + 0xe4]
+  0x0049300e in FUN_00491180: MOV ECX,dword ptr [EAX + 0xe4]
+  0x00493075 in FUN_00491180: MOV ECX,dword ptr [EAX + 0xe4]
+  0x004932a2 in FUN_00491180: CMP dword ptr [EAX + 0xe4],0x0
+  0x004932b1 in FUN_00491180: CMP dword ptr [ECX + 0x100],0x0
+  0x004932c0 in FUN_00491180: MOV ECX,dword ptr [EDX + 0x100]
+  0x004932eb in FUN_00491180: CMP dword ptr [EDX + 0x100],0x0
+  0x004932fa in FUN_00491180: MOV ECX,dword ptr [EAX + 0x100]
+  0x0049330f in FUN_00491180: MOV dword ptr [ECX + 0x100],0x0
+  0x0049402c in FUN_00493d50: MOV EDX,dword ptr [EAX + 0x8c]
+  0x00494052 in FUN_00493d50: MOV EAX,dword ptr [EDX + 0x8c]
+  0x00494459 in FUN_00494390: CMP dword ptr [EDX + 0xe4],0x0
+  0x00494469 in FUN_00494390: MOV ECX,dword ptr [EAX + 0xe4]
+  0x00494487 in FUN_00494390: MOV ECX,dword ptr [ECX + 0xe4]
+  0x004944a5 in FUN_00494390: MOV ECX,dword ptr [EDX + 0xe4]
+  0x004944da in FUN_00494390: CMP dword ptr [EDX + 0xf0],0x0
+  0x004944e6 in FUN_00494390: MOV ECX,dword ptr [EAX + 0xf0]
+  0x004944f9 in FUN_00494390: MOV ECX,dword ptr [ECX + 0xf0]
+  0x0049450e in FUN_00494390: FMUL float ptr [EDX + 0x110]
+  0x00494953 in FUN_004948c0: MOV EDX,dword ptr [ECX + 0xf0]
+  0x00494bc5 in FUN_004949a0: MOV EAX,dword ptr [EDX + 0x8c]
+  0x00495367 in FUN_004949a0: MOV EAX,dword ptr [EDX + 0x100]
+  0x00495bec in FUN_00495be0: CMP dword ptr [EAX + 0xe4],0x0
+  0x00495cee in FUN_00495be0: CMP EAX,dword ptr [EDX + 0xe4]
+  0x00495e53 in FUN_00495e40: CMP dword ptr [EAX + 0xf0],0x0
+  0x00495e66 in FUN_00495e40: MOV ECX,dword ptr [ECX + 0xf0]
+  0x00496223 in FUN_00496080: MOV dword ptr [EAX + 0x100],ECX
+  0x00496bcc in FUN_00496a50: MOV EAX,dword ptr [EDX + 0xe8]
+  0x004987d5 in FUN_00498670: CMP EAX,dword ptr [ECX + 0x100]
+  0x004987e0 in FUN_00498670: MOV dword ptr [EDX + 0x100],0x0
+  0x00498820 in FUN_00498670: MOV EDX,dword ptr [ECX + 0x100]
+  0x00498839 in FUN_00498670: MOV dword ptr [ECX + 0x100],0x0
+  0x00499944 in FUN_004997f0: MOV EAX,dword ptr [EDX + 0x100]
+  0x00499a25 in FUN_004997f0: MOV EAX,dword ptr [EDX + 0x8c]
+  0x00499ebf in FUN_00499b90: MOV EAX,dword ptr [EDX + 0x100]
+  0x00499f99 in FUN_00499b90: MOV EAX,dword ptr [EDX + 0x8c]
+  0x0049a2c8 in FUN_0049a1c0: MOV EDX,dword ptr [EAX + 0x100]
+  0x0049a578 in FUN_0049a1c0: MOV dword ptr [ECX + 0xfc],0x0
+  0x0049a610 in FUN_0049a1c0: MOV EAX,dword ptr [EDX + 0x8c]
+  0x0049a9a9 in FUN_0049a920: MOV dword ptr [EDX + 0xfc],0x0
+  0x0049bc06 in FUN_0049bb70: MOV dword ptr [EAX + 0xfc],0x0
+  0x0049bddc in FUN_0049bdc0: CMP dword ptr [EAX + 0xec],0x0
+  0x0049bdf0 in FUN_0049bdc0: MOV ECX,dword ptr [ECX + 0xec]
+  0x0049be13 in FUN_0049bdc0: CMP dword ptr [EDX + 0xec],0x0
+  0x0049be32 in FUN_0049bdc0: CMP dword ptr [EAX + 0xec],0x0
+  0x0049be40 in FUN_0049bdc0: MOV ECX,dword ptr [ECX + 0xec]
+  0x0049be61 in FUN_0049bdc0: MOV ECX,dword ptr [EAX + 0xec]
+  0x0049be6f in FUN_0049bdc0: CMP dword ptr [ECX + 0xec],0x0
+  0x0049be7f in FUN_0049bdc0: MOV ECX,dword ptr [EDX + 0xec]
+  0x0049be92 in FUN_0049bdc0: MOV ECX,dword ptr [EAX + 0xec]
+  0x0049bea0 in FUN_0049bdc0: MOV ECX,dword ptr [ECX + 0xec]
+  0x0049beb7 in FUN_0049bdc0: MOV ECX,dword ptr [EDX + 0xec]
+  0x0049becd in FUN_0049bdc0: FSTP float ptr [EAX + 0xd4]
+  0x0049bed8 in FUN_0049bdc0: FLD float ptr [ECX + 0xd4]
+  0x0049bef4 in FUN_0049bdc0: MOV ECX,dword ptr [EAX + 0xec]
+  0x004a011d in FUN_004a0030: MOV EAX,dword ptr [EDX + 0x8c]
+  0x004a016d in FUN_004a0030: MOV EAX,dword ptr [EDX + 0x8c]
+  0x004a0ef5 in FUN_004a0eb0: MOV dword ptr [EDX + 0x90],0x0
+  0x004a2138 in FUN_004a2070: MOV EAX,dword ptr [EDX + 0x90]
+  0x004a2545 in FUN_004a2070: MOV EAX,dword ptr [EDX + 0x8c]
+  0x004a2972 in FUN_004a2070: MOV EAX,dword ptr [EDX + 0x8c]
+  0x004a609d in FUN_004a5ff0: MOV byte ptr [ECX + 0xe4],0x1
+  0x004a6251 in FUN_004a61f0: MOV byte ptr [ECX + 0xe4],0x1
+  0x004a626f in FUN_004a61f0: MOV dword ptr [ECX + 0x100],0x0
+  0x004a627c in FUN_004a61f0: MOV dword ptr [EDX + 0xfc],0x0
+  0x004a80b2 in FUN_004a8090: MOV EAX,dword ptr [EDX + 0x90]
+  0x004ab120 in FUN_004ab0c0: MOV EAX,dword ptr [EDX + 0xe8]
+  0x004ab678 in FUN_004ab5b0: MOV EAX,dword ptr [EDX + 0x100]
+  0x004ab71b in FUN_004ab5b0: MOV EAX,dword ptr [EDX + 0xe8]
+  0x004ab73a in FUN_004ab730: MOVZX ECX,byte ptr [EAX + 0x100]
+  0x004ab92b in FUN_004ab750: MOV EAX,dword ptr [EDX + 0x100]
+  0x004ac219 in FUN_004ac1e0: CMP dword ptr [EAX + 0x8c],0x0
+  0x004acace in FUN_004ac1e0: MOV EAX,dword ptr [EDX + 0xe4]
+  0x004ace55 in FUN_004ac1e0: MOV EAX,dword ptr [EDX + 0xe8]
+  0x004ad01a in FUN_004ad010: MOVZX ECX,byte ptr [EAX + 0x100]
+  0x004ad771 in FUN_004ad4a0: MOV EAX,dword ptr [EDX + 0xe8]
+  0x004ad80c in FUN_004ad4a0: MOV EAX,dword ptr [EDX + 0xe8]
+  0x004ad8cd in FUN_004ad4a0: MOV EAX,dword ptr [EDX + 0xe8]
+  0x004ad958 in FUN_004ad4a0: MOV EAX,dword ptr [EDX + 0xe8]
+  0x004ada85 in FUN_004ad4a0: MOV EDX,dword ptr [EAX + 0xe4]
+  0x004ae1f5 in FUN_004ade40: MOV EAX,dword ptr [EDX + 0xe8]
+  0x004aebac in FUN_004aeb20: CMP dword ptr [ECX + 0x8c],0x0
+  0x004af697 in FUN_004af490: MOV EAX,dword ptr [EDX + 0xfc]
+  0x004af79c in FUN_004af490: MOV EDX,dword ptr [EAX + 0x100]
+  0x004af7cf in FUN_004af490: MOV EAX,dword ptr [EDX + 0xfc]
+  0x004af7ed in FUN_004af490: MOV EAX,dword ptr [EDX + 0x100]
+  0x004b3481 in FUN_004b2eb0: MOV word ptr [EAX + 0x8c],DX
+  0x004b5ba4 in FUN_004b5b20: MOV EAX,dword ptr [EDX + 0xf0]
+  0x004b5dfb in FUN_004b5d10: MOV EAX,dword ptr [EDX + 0x90]
+  0x004b5e19 in FUN_004b5d10: MOV EAX,dword ptr [EDX + 0x90]
+  0x004b5e37 in FUN_004b5d10: MOV EAX,dword ptr [EDX + 0x90]
+  0x004b5e55 in FUN_004b5d10: MOV EAX,dword ptr [EDX + 0x90]
+  0x004b5e80 in FUN_004b5d10: MOV EDX,dword ptr [EAX + 0xe8]
+  0x004b7712 in FUN_004b7660: MOV EDX,dword ptr [EAX + 0xe8]
+  0x004b776a in FUN_004b7660: MOV EAX,dword ptr [EDX + 0xf4]
+  0x004b7854 in FUN_004b7660: MOV EDX,dword ptr [EAX + 0xf0]
+  0x004bf118 in FUN_004bf0e0: MOV EAX,dword ptr [EDX + 0x100]
+  0x004bf254 in FUN_004bf220: MOV EAX,dword ptr [EDX + 0xfc]
+  0x004bf26b in FUN_004bf220: MOV EDX,dword ptr [EAX + 0x100]
+  0x004c0c3c in FUN_004c0c30: MOV CL,byte ptr [EAX + 0xf4]
+  0x004c0c6c in FUN_004c0c60: MOV CL,byte ptr [EAX + 0xf4]
+  0x004c0cb0 in FUN_004c0c90: FSTP float ptr [EAX + 0x110]
+  0x004c0cbe in FUN_004c0c90: FSTP float ptr [ECX + 0x110]
+  0x004c2922 in FUN_004c1c90: MOV EAX,dword ptr [EDX + 0x100]
+  0x004c2b12 in FUN_004c29a0: MOV EAX,dword ptr [EDX + 0x100]
+  0x004c32f5 in FUN_004c29a0: MOV EAX,dword ptr [EDX + 0x100]
+  0x004c38e6 in FUN_004c37d0: MOV EAX,dword ptr [EDX + 0x100]
+  0x004c3d71 in FUN_004c37d0: MOV EDX,dword ptr [EAX + 0x100]
+  0x004c3ea1 in FUN_004c37d0: MOV EAX,dword ptr [EDX + 0x100]
+  0x004c4919 in FUN_004c37d0: MOV EAX,dword ptr [EDX + 0x100]
+  0x004c4a3b in FUN_004c37d0: MOV EDX,dword ptr [EAX + 0x100]
+  0x004c51ee in FUN_004c37d0: MOV EAX,dword ptr [EDX + 0x100]
+  0x004c60b0 in FUN_004c37d0: MOV EDX,dword ptr [EAX + 0x100]
+  0x004c6518 in FUN_004c37d0: MOV EDX,dword ptr [EAX + 0x100]
+  0x004c66c7 in FUN_004c37d0: MOV EAX,dword ptr [EDX + 0x100]
+  0x004c6858 in FUN_004c37d0: MOV EAX,dword ptr [EDX + 0x100]
+  0x004c748f in FUN_004c7400: MOV EAX,dword ptr [EDX + 0x100]
+  0x004c76fa in FUN_004c7400: MOV EAX,dword ptr [EDX + 0x100]
+  0x004c7808 in FUN_004c7400: MOV EAX,dword ptr [EDX + 0x100]
+  0x004c7bfe in FUN_004c7400: MOV EAX,dword ptr [EDX + 0x100]
+  0x004c7d47 in FUN_004c7400: MOV EDX,dword ptr [EAX + 0x100]
+  0x004cb6a9 in FUN_004cb5f0: MOV EAX,dword ptr [EDX + 0x94]
+  0x004cb6e1 in FUN_004cb5f0: MOV EDX,dword ptr [EAX + 0x100]
+  0x004ce4ab in FUN_004ce380: MOV EAX,dword ptr [EDX + 0x94]
+  0x004ce78b in FUN_004ce380: MOV EAX,dword ptr [EDX + 0x100]
+  0x004ce8e9 in FUN_004ce380: MOV EDX,dword ptr [EAX + 0x100]
+  0x004cedc1 in FUN_004ce380: MOV EAX,dword ptr [EDX + 0x94]
+  0x004ceeb3 in FUN_004ce380: MOV EDX,dword ptr [EAX + 0x94]
+  0x004cf2de in FUN_004ce380: MOV EAX,dword ptr [EDX + 0x100]
+  0x004cf8b7 in FUN_004ce380: MOV EDX,dword ptr [EAX + 0x100]
+  0x004d001d in FUN_004cffe0: MOV EAX,dword ptr [EDX + 0x100]
+  0x004d03b9 in FUN_004d0360: MOV EAX,dword ptr [EDX + 0x94]
+  0x004d0460 in FUN_004d0360: MOV EAX,dword ptr [EDX + 0x94]
+  0x004d0921 in FUN_004d0900: MOV EAX,dword ptr [EDX + 0x100]
+  0x004d0a06 in FUN_004d0900: MOV EDX,dword ptr [EAX + 0x94]
+  0x004d0bc5 in FUN_004d0900: MOV EAX,dword ptr [EDX + 0x94]
+  0x004d0fa0 in FUN_004d0f40: MOV EAX,dword ptr [EDX + 0x94]
+  0x004d10f9 in FUN_004d0f40: MOV EAX,dword ptr [EDX + 0x94]
+  0x004d149b in FUN_004d1440: MOV EAX,dword ptr [EDX + 0x100]
+  0x004d28cf in FUN_004d26d0: MOV EAX,dword ptr [EDX + 0x94]
+  0x004d45cd in FUN_004d4530: MOV EAX,dword ptr [EDX + 0x94]
+  0x004d4701 in FUN_004d4530: MOV EAX,dword ptr [EDX + 0x94]
+  0x004d490c in FUN_004d4830: MOV EAX,dword ptr [EDX + 0x94]
+  0x004d4a23 in FUN_004d4830: MOV EDX,dword ptr [EAX + 0x94]
+  0x004d5a13 in FUN_004d5930: MOV EAX,dword ptr [EDX + 0xec]
+  0x004d5a34 in FUN_004d5930: MOV EDX,dword ptr [EAX + 0xf0]
+  0x004d5a64 in FUN_004d5930: MOV EAX,dword ptr [EDX + 0xf4]
+  0x004d5a7f in FUN_004d5930: MOV EAX,dword ptr [EDX + 0xf4]
+  0x004d9876 in FUN_004d9800: MOV EDX,dword ptr [EAX + 0x100]
+  0x004d9984 in FUN_004d9910: MOV EAX,dword ptr [EDX + 0x100]
+  0x004da262 in FUN_004da230: MOV EAX,dword ptr [EDX + 0x100]
+  0x004da357 in FUN_004da340: MOV EAX,dword ptr [EDX + 0x100]
+  0x004dae13 in FUN_004da670: CMP dword ptr [EDX + 0x110],0x20
+  0x004de6dc in FUN_004de600: MOV EDX,dword ptr [EAX + 0xf0]
+  0x004e01ec in FUN_004e0110: MOV EDX,dword ptr [EAX + 0xf0]
+  0x004e38d2 in FUN_004e3590: FSTP float ptr [EAX + 0x100]
+  0x004e3905 in FUN_004e3590: FSTP float ptr [EAX + 0xd4]
+  0x004e3f8e in FUN_004e3d60: MOV EDX,dword ptr [EAX + 0x94]
+  0x004e45ea in FUN_004e45e0: FLD float ptr [EAX + 0xe8]
+  0x004e460a in FUN_004e4600: FLD float ptr [EAX + 0xf0]
+  0x004e5162 in FUN_004e5140: MOV EAX,dword ptr [EDX + 0xe8]
+  0x004e5d46 in FUN_004e5c80: MOV EAX,dword ptr [EDX + 0x100]
+  0x004e5e61 in FUN_004e5e50: MOV EAX,dword ptr [EDX + 0x100]
+  0x004e5ebe in FUN_004e5e50: MOV EAX,dword ptr [EDX + 0x100]
+  0x004e5f08 in FUN_004e5e50: MOV EAX,dword ptr [EDX + 0x100]
+  0x004e5f74 in FUN_004e5e50: MOV EAX,dword ptr [EDX + 0x100]
+  0x004e6133 in FUN_004e5fe0: MOV EAX,dword ptr [EDX + 0x100]
+  0x004e6190 in FUN_004e5fe0: MOV EAX,dword ptr [EDX + 0x100]
+  0x004e61da in FUN_004e5fe0: MOV EAX,dword ptr [EDX + 0x100]
+  0x004e6269 in FUN_004e5fe0: MOV EDX,dword ptr [EAX + 0x100]
+  0x004e656a in FUN_004e6560: MOV AX,word ptr [EAX + 0x110]
+  0x004e94b4 in FUN_004e8ec0: MOV EDX,dword ptr [EAX + 0xe8]
+  0x004e9f1a in FUN_004e9d40: MOV EAX,dword ptr [EDX + 0x8c]
+  0x004eabed in FUN_004eaa00: MOV EAX,dword ptr [EDX + 0x8c]
+  0x004eb14c in FUN_004eaf80: MOV EAX,dword ptr [EDX + 0x8c]
+  0x004ec160 in FUN_004ebef0: MOV EAX,dword ptr [EDX + 0x8c]
+  0x004ed4e5 in FUN_004ed3e0: MOV EAX,dword ptr [EDX + 0xe8]
+  0x004ee7be in FUN_004ee770: MOV EAX,dword ptr [EDX + 0xf0]
+  0x004eecf8 in FUN_004eecb0: MOV EDX,dword ptr [EAX + 0x8c]
+  0x004eed79 in FUN_004eecb0: MOV EAX,dword ptr [EDX + 0x90]
+  0x004eee35 in FUN_004eee00: MOV EAX,dword ptr [EDX + 0x8c]
+  0x004eee9c in FUN_004eee00: MOV EAX,dword ptr [EDX + 0x8c]
+  0x004eff0a in FUN_004efe80: MOV EDX,dword ptr [EAX + 0x94]
+  0x004effbb in FUN_004eff50: MOV EAX,dword ptr [EDX + 0x90]
+  0x004effef in FUN_004eff50: MOV EDX,dword ptr [EAX + 0x94]
+  0x004f00c1 in FUN_004f0040: MOV EDX,dword ptr [EAX + 0x94]
+  0x004f0453 in FUN_004f0380: MOV EAX,dword ptr [EDX + 0x8c]
+  0x004f0527 in FUN_004f0380: MOV EDX,dword ptr [EAX + 0x8c]
+  0x004f943a in FUN_004f93b0: MOV dword ptr [EDX + 0x8c],0x10244d8
+  0x004f952b in FUN_004f94b0: MOV dword ptr [EDX + 0x8c],0x10244d8
+  0x004fb0bd in FUN_004fb0b0: MOV dword ptr [EAX + 0x90],ECX
+  0x004fca1b in FUN_004fc9e0: MOV EAX,dword ptr [EDX + 0x100]
+  0x004fe7aa in FUN_004fe7a0: MOV dword ptr [EAX + 0x94],0x0
+  0x004fe7e8 in FUN_004fe7c0: MOV dword ptr [ECX + 0x90],0x0
+  0x004fe7f5 in FUN_004fe7c0: MOV EAX,dword ptr [EDX + 0x94]
+  0x004fe841 in FUN_004fe7c0: MOV dword ptr [ECX + 0x94],EAX
+  0x004fe84a in FUN_004fe7c0: CMP dword ptr [EDX + 0x94],0x0
+  0x004febfd in FUN_004febf0: MOV dword ptr [EAX + 0x94],ECX
+  0x004fec87 in FUN_004fec10: CMP dword ptr [EAX + 0x94],0x0
+  0x004fec93 in FUN_004fec10: MOV ECX,dword ptr [ECX + 0x94]
+  0x004fef20 in FUN_004feeb0: MOV EDX,dword ptr [EAX + 0xfc]
+  0x004fef8a in FUN_004feeb0: MOV EAX,dword ptr [EDX + 0x100]
+  0x004fefd6 in FUN_004feeb0: MOV EDX,dword ptr [ECX + 0x90]
+  0x004ff0f5 in FUN_004ff0e0: MOV EAX,dword ptr [EDX + 0x100]
+  0x004ff10a in FUN_004ff0e0: MOV dword ptr [EDX + 0x90],EAX
+  0x004ff839 in FUN_004ff800: MOV ECX,dword ptr [EAX + 0x90]
+  0x004ff8d7 in FUN_004ff8a0: CMP dword ptr [EAX + 0x90],0x0
+  0x004ff8ef in FUN_004ff8a0: MOV EDX,dword ptr [ECX + 0x90]
+  0x004ff91b in FUN_004ff8a0: MOV dword ptr [EAX + 0x90],ECX
+  0x004ff967 in FUN_004ff930: MOV dword ptr [EAX + 0x90],0x0
+  0x004ffb21 in FUN_004ffaa0: MOV dword ptr [EAX + 0x90],0x1025888
+  0x004ffc04 in FUN_004ffba0: MOV dword ptr [EAX + 0x90],0x1025888
+  0x0050155a in FUN_00501310: MOV EAX,dword ptr [EDX + 0x100]
+  0x005027cc in FUN_005026b0: MOV dword ptr [EDX + 0x90],0x1025f98
+  0x005028fe in FUN_00502880: MOV dword ptr [EDX + 0x90],0x1025f98
+  0x005038e1 in FUN_00503820: MOV EAX,dword ptr [EDX + 0xe8]
+  0x005039a2 in FUN_00503820: MOV EDX,dword ptr [EAX + 0xe8]
+  ... instruction scan truncated
+  Total printed matches: 320
