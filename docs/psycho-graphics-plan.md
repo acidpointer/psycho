@@ -396,7 +396,8 @@ Current sunshafts runtime finding:
   - the procedural sun source dominates over scene brightness, so native sun
     sprite/glare size no longer drives shaft source diameter;
   - sun-core repair no longer requires the exact native sun pixel to classify
-    as sky, but it still refuses to repaint first-person pixels;
+    as endpoint sky, but it is constrained to sky/far-depth surfaces and still
+    refuses to repaint first-person or nearby opaque world pixels;
   - radial accumulation uses more half-resolution taps and a less binary
     blocked-decay curve so thin wires attenuate shafts instead of instantly
     killing the whole light chain.

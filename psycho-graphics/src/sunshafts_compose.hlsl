@@ -152,8 +152,24 @@ float ExposureCurve(float amount) {
     return amount / (1.0f + amount * 1.25f);
 }
 
-float SunCoreRepair(float2 uv, float visibility) {
+float SunRepairSurface(float2 uv) {
     if (FirstPersonBlock(uv) > 0.0f) {
+        return 0.0f;
+    }
+
+    float sky = SkyMask(uv);
+    if (sky > 0.0f) {
+        return sky;
+    }
+
+    float linearDepth = LinearDepth(HardwareDepth(uv));
+    float farZ = max(CameraData.y, 2.0f);
+    return Smooth01((linearDepth - farZ * 0.92f) / max(farZ * 0.08f, 1.0f));
+}
+
+float SunCoreRepair(float2 uv, float visibility) {
+    float surface = SunRepairSurface(uv);
+    if (surface <= 0.0f) {
         return 0.0f;
     }
 
@@ -162,7 +178,7 @@ float SunCoreRepair(float2 uv, float visibility) {
     float haloRadius = max(OptionData3.y * 1.35f, 0.042f);
     float core = 1.0f - Smooth01(distance / coreRadius);
     float halo = 1.0f - Smooth01(distance / haloRadius);
-    return saturate(core * core + halo * halo * 0.18f) * visibility;
+    return saturate(core * core + halo * halo * 0.18f) * visibility * surface;
 }
 
 float4 Main(PixelInput input) : COLOR0 {
