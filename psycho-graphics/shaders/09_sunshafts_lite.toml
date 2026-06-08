@@ -7,36 +7,36 @@ passes = 1
 key = "intensity"
 label = "Intensity"
 kind = "float"
-value = 0.75
+value = 0.9
 min = 0.0
-max = 2.0
+max = 2.5
 constant = "c3.x"
 
 [[options]]
 key = "exposure"
 label = "Exposure"
 kind = "float"
-value = 0.85
+value = 1.1
 min = 0.0
-max = 2.0
+max = 2.8
 constant = "c3.y"
 
 [[options]]
 key = "decay"
 label = "Decay"
 kind = "float"
-value = 0.935
+value = 1.005
 min = 0.65
-max = 0.985
+max = 1.035
 constant = "c3.z"
 
 [[options]]
 key = "density"
 label = "Density"
 kind = "float"
-value = 0.82
+value = 0.9
 min = 0.20
-max = 1.20
+max = 1.35
 constant = "c3.w"
 
 [[options]]
@@ -52,8 +52,8 @@ constant = "c4.x"
 key = "bright_threshold"
 label = "Bright threshold"
 kind = "float"
-value = 0.72
-min = 0.35
+value = 0.58
+min = 0.28
 max = 0.95
 constant = "c4.z"
 
@@ -79,9 +79,9 @@ constant = "c5.x"
 key = "sun_falloff"
 label = "Sun falloff"
 kind = "float"
-value = 0.62
+value = 0.78
 min = 0.16
-max = 1.05
+max = 1.20
 constant = "c5.y"
 
 [[options]]
@@ -121,10 +121,10 @@ max = 0.080
 constant = "c7.y"
 
 [[options]]
-key = "sky_haze"
-label = "Sky haze"
+key = "occlusion_softness"
+label = "Occlusion softness"
 kind = "float"
-value = 0.26
+value = 0.32
 min = 0.0
 max = 0.75
 constant = "c7.w"

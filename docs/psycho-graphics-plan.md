@@ -325,7 +325,7 @@ Current sunshafts runtime finding:
     never cast into or block the shaft path;
   - the source term was not constrained tightly enough around the sun, so bright
     sky/fog became a large full-screen wash.
-- the current single-pass shader is an occlusion/transmittance model. It uses:
+- the following single-pass shader was still the wrong architecture. It used:
   - CPU-projected sun UV from `c8`;
   - a sun-local emitter mask from bright open sky near the sun;
   - world depth and first-person depth as blockers in every radial tap;
@@ -334,6 +334,21 @@ Current sunshafts runtime finding:
   - fog-only limited receiving on solid world pixels;
   - compressed/clamped energy so the `Force` slider cannot create the previous
     full-screen white/gold plate.
+- Runtime testing then exposed an anchor-dot failure: first-person depth crossing
+  the projected sun point stopped most shafts because sun visibility and source
+  sampling both used the same first-person-aware sky mask. The shader now splits
+  that contract:
+  - `SourceSkyMask` is world-depth-only and decides whether the sun source exists;
+  - `PathOpenMask` includes first-person depth and attenuates individual ray
+    taps;
+  - `ReceiverMask` still hard-rejects current first-person pixels;
+  - `SunCoreRepair` adds a tiny sky-only core around the CPU sun UV to cover the
+    native dark sun/glare dot without drawing a large disk.
+- Runtime testing after the shaft-strength follow-up exposed the real
+  architectural failure: first-person silhouettes were stamped repeatedly along
+  the ray path, producing a low-sample "slideshow" rather than soft shafts.
+  This was caused by trying to solve a multi-buffer effect inside the generic
+  single-pass shader path. That path is now considered invalid for sunshafts.
 - `09_sunshafts_lite` now runs in `scene_post_image_space`, so it is composed
   after vanilla image-space but before Psycho final passes such as bloom/AA.
   This is closer to a lighting contribution than a final overlay.
@@ -344,12 +359,29 @@ Current sunshafts runtime finding:
   compression, sun-color/halo contribution, and composing before final
   bloom/combine. Its 100-160 sample paths and multiple engine textures are not
   appropriate for the current Psycho single-pass `ps_3_0` full-resolution path.
-- The current Psycho variant borrows the useful SoC ideas without copying its
-  engine-specific inputs: sun-distance exposure fades, occlusion gating,
-  conservative brightness compression, and color contribution before final
-  bloom/AA. It does not copy SoC's high sample counts, alpha/material tests, or
-  multiple deferred textures because Psycho currently has only scene color,
-  world depth, first-person depth, fog constants, and CPU-projected sun data.
+- The current Psycho variant no longer treats sunshafts as a normal live
+  screen-space shader. `09_sunshafts_lite.hlsl` is only a config/menu anchor;
+  the actual effect is a named engine-side runtime pipeline in
+  `psycho-graphics/src/sunshafts.rs`.
+- The engine-side pipeline owns the missing SoC-like buffers:
+  - half-resolution source/occlusion mask render target;
+  - half-resolution radial accumulation render target;
+  - half-resolution blur ping-pong render target;
+  - final full-resolution compose pass.
+- The internal mask shader separates source availability from ray-path
+  openness: world depth decides whether sky/sun source exists, while
+  first-person depth only blocks individual ray taps. This prevents weapon/hand
+  depth from hiding the whole sun source.
+- The internal radial shader accumulates the low-resolution mask with a fixed
+  multi-sample ray march and SoC-style decay near/above `1.0`, then the blur
+  stages smooth the discrete taps before compose. This is the engine-side
+  structure needed to avoid repeated first-person silhouette stamps.
+- The compose pass samples the blurred shaft buffer, applies receiver gating
+  from world/first-person depth, and keeps sun-core repair separate from ray
+  energy so tuning rays does not recreate a giant additive sun plate.
+- Remaining gap against SoC: Psycho still does not have SoC's material/alpha
+  buffers, weather sun color, cloud mask, dust/noise textures, or shadow-map
+  sun visibility. Those require new engine-side contracts before shader work.
 
 Follow-up script prepared:
 
@@ -392,9 +424,10 @@ Follow-up result:
   - `c3`: intensity, exposure, decay, density;
   - `c4`: force, unused, source brightness threshold, warmth;
   - `c5`: first-person occlusion, shaft falloff, reversed depth flag, debug mask;
-  - `c7`: sun visibility sample radius, corona radius, unused, sky haze.
+  - `c7`: sun visibility sample radius, sun repair radius, unused, occlusion
+    softness.
 - `09_sunshafts_lite` debug mask is diagnostic only. When enabled, it replaces
-  the final image with `(sunVisibility, sourceBrightness, radialLight)`, so a
+  the final image with `(sunVisibility, receiverMask, blurredShaftLight)`, so a
   red/orange full-screen view means the mask is being visualized rather than the
   normal godray compose.
 

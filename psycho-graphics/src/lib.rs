@@ -13,3 +13,4 @@ mod input;
 mod runtime;
 mod shaders;
 mod startup;
+mod sunshafts;

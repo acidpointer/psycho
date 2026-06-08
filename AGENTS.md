@@ -50,6 +50,10 @@ If a wrapper is missing, add it to `libpsycho` and make it as safe/idiomatic as 
 
 No test suite exists. No `tests/` directories. Verify changes by building: `cargo build --release --target i686-pc-windows-gnu`. Linting: check for `cargo clippy` or `rustfmt` if needed (no CI config found).
 
+## Graphics feature rule
+
+Do not implement graphics effects as shader-only guesses when the effect needs engine data, intermediate buffers, masks, or render-stage control. Implement and prove the engine-side contract first: required textures, depth/color sources, constants, phase ownership, lifetime, compatibility behavior, and failure fallback. If the engine-side contract is missing or unproven, the correct next step is engine research/instrumentation or runtime buffer implementation, not another shader tweak.
+
 ## Config
 
 Plugin runtime config: `psycho-engine-fixes/config/psycho_engine_fixes.toml`, deployed beside the core DLL as `<game root>/mods/psycho_engine_fixes.toml`. Important memory setting: `memory.allocator` (`0` = off, `1` = scrap_heap, `2` = gheap + scrap_heap). It also controls zlib, display tweaks, logging, and debug probes.

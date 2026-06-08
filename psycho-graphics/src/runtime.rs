@@ -32,6 +32,7 @@ use windows::{
 use crate::{
     backend::{self, DepthFrame, DepthProvider, DepthTexture},
     shaders::{self, ScreenShaderSource, ShaderOptionValue, ShaderPhase},
+    sunshafts,
 };
 
 const DEFAULT_SCAN_INTERVAL_MS: u64 = 200;
@@ -214,6 +215,7 @@ struct ScreenShaderRuntime {
     sources: Vec<ScreenShaderSource>,
     device_ptr: usize,
     compiled: Option<Vec<CompiledPass>>,
+    sunshafts: Option<sunshafts::SunshaftsEffect>,
     backbuffer_copy: Option<BackbufferCopy>,
     world_color_copy: Option<BackbufferCopy>,
     state_block: Option<StateBlock9>,
@@ -242,6 +244,7 @@ impl Default for ScreenShaderRuntime {
             sources: Vec::new(),
             device_ptr: 0,
             compiled: None,
+            sunshafts: None,
             backbuffer_copy: None,
             world_color_copy: None,
             state_block: None,
@@ -760,14 +763,14 @@ impl ScreenShaderRuntime {
         };
         self.log_frame_input_state(&frame_inputs);
 
-        let Some(copy) = self.backbuffer_copy.as_ref() else {
+        let Some(copy) = self.backbuffer_copy.as_ref().cloned() else {
             return Ok(());
         };
-        let Some(passes) = self.compiled.as_ref() else {
+        if self.compiled.is_none() {
             return Ok(());
-        };
+        }
 
-        self.bind_common_state(device, backbuffer, desc, &frame_inputs, copy)?;
+        self.bind_common_state(device, backbuffer, desc, &frame_inputs, &copy)?;
 
         let pass_count = enabled_count as f32;
         let quad = fullscreen_quad(desc);
@@ -778,17 +781,50 @@ impl ScreenShaderRuntime {
         };
         let mut pass_index = 0u32;
 
-        for pass in passes {
-            let source = &self.sources[pass.source_index];
+        let compiled_len = self.compiled.as_ref().map_or(0, Vec::len);
+        for pass_position in 0..compiled_len {
+            let Some(source_index) = self
+                .compiled
+                .as_ref()
+                .and_then(|passes| passes.get(pass_position))
+                .map(|pass| pass.source_index)
+            else {
+                continue;
+            };
+            let source = &self.sources[source_index];
             if !source.enabled || source.phase() != phase {
                 continue;
             }
+
+            if sunshafts::is_config_source(&source.name) {
+                let source = source.clone();
+                self.draw_sunshafts_pipeline(
+                    device,
+                    backbuffer,
+                    desc,
+                    &frame_inputs,
+                    &copy,
+                    &source,
+                )?;
+                self.bind_common_state(device, backbuffer, desc, &frame_inputs, &copy)?;
+                pass_index = pass_index.saturating_add(source.pass_count.max(1));
+                continue;
+            }
+
+            let Some(shader) = self
+                .compiled
+                .as_ref()
+                .and_then(|passes| passes.get(pass_position))
+                .map(|pass| &pass.shader)
+            else {
+                continue;
+            };
 
             for _ in 0..source.pass_count {
                 device.clear_texture(0)?;
                 device.stretch_rect(backbuffer, None, &copy.surface, None, D3DTEXF_POINT)?;
                 device.set_texture(0, &copy.texture)?;
-                device.set_pixel_shader(&pass.shader)?;
+                device.set_pixel_shader(shader)?;
                 device.set_pixel_shader_constant_f(
                     0,
                     &[
@@ -850,6 +886,43 @@ impl ScreenShaderRuntime {
         }
 
         Ok(())
+    }
+
+    fn draw_sunshafts_pipeline(
+        &mut self,
+        device: &Device9Ref<'_>,
+        backbuffer: &Surface9,
+        desc: &D3DSURFACE_DESC,
+        frame_inputs: &backend::FrameInputs,
+        current_color_copy: &BackbufferCopy,
+        source: &ScreenShaderSource,
+    ) -> Direct3DResult<()> {
+        if self.sunshafts.is_none() {
+            self.sunshafts = Some(sunshafts::SunshaftsEffect::create(device)?);
+            log::info!("[SUNSHAFTS] Engine-side pipeline initialized");
+        }
+
+        let Some(effect) = self.sunshafts.as_mut() else {
+            return Ok(());
+        };
+
+        device.clear_texture(0)?;
+        device.stretch_rect(
+            backbuffer,
+            None,
+            &current_color_copy.surface,
+            None,
+            D3DTEXF_POINT,
+        )?;
+        effect.draw(
+            device,
+            backbuffer,
+            desc,
+            frame_inputs,
+            source,
+            &current_color_copy.texture,
+            self.frame_index,
+        )
     }
 
     fn log_frame_input_state(&mut self, frame_inputs: &backend::FrameInputs) {
@@ -1057,6 +1130,7 @@ impl ScreenShaderRuntime {
 
     fn release_device_resources(&mut self) {
         self.compiled = None;
+        self.sunshafts = None;
         self.release_default_pool_resources();
         if let Some(imgui) = self.imgui.as_mut() {
             imgui.invalidate_device_objects();
@@ -1067,6 +1141,7 @@ impl ScreenShaderRuntime {
     fn release_default_pool_resources(&mut self) {
         self.backbuffer_copy = None;
         self.world_color_copy = None;
+        self.sunshafts = None;
         self.world_color_captured_this_frame = false;
         self.state_block = None;
     }
@@ -1129,6 +1204,7 @@ impl AppliedShaderPhases {
     }
 }
 
+#[derive(Clone)]
 struct BackbufferCopy {
     width: u32,
     height: u32,

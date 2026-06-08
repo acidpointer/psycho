@@ -471,6 +471,10 @@ fn compile_hlsl_shader(path: &Path) -> Result<Vec<u32>> {
     Ok(bytecode)
 }
 
+pub(crate) fn compile_hlsl_source(source_name: &str, source: &[u8]) -> Result<Vec<u32>> {
+    compile_hlsl_bytes(source_name, source)
+}
+
 fn compile_hlsl_bytes(source_name: &str, source: &[u8]) -> Result<Vec<u32>> {
     let compiler = d3d_compile_fn()?;
     let source_name = CString::new(source_name.as_bytes())?;
