@@ -111,29 +111,17 @@ float ShaftSourceMask(float3 color) {
     return saturate(broad);
 }
 
-float SunVisibilityAround(float2 sunUv) {
-    if (!IsInsideScreen(sunUv)) {
-        return 0.0f;
-    }
-
-    float radiusPixels = max(OptionData3.x, 10.0f);
-    float2 stepUv = ScreenData.zw * radiusPixels;
-    float center = SkyMask(sunUv);
-    float s0 = SkyMask(sunUv + float2( stepUv.x, 0.0f));
-    float s1 = SkyMask(sunUv + float2(-stepUv.x, 0.0f));
-    float s2 = SkyMask(sunUv + float2(0.0f,  stepUv.y));
-    float s3 = SkyMask(sunUv + float2(0.0f, -stepUv.y));
-    float s4 = SkyMask(sunUv + float2( stepUv.x,  stepUv.y));
-    float s5 = SkyMask(sunUv + float2(-stepUv.x,  stepUv.y));
-    float s6 = SkyMask(sunUv + float2( stepUv.x, -stepUv.y));
-    float s7 = SkyMask(sunUv + float2(-stepUv.x, -stepUv.y));
-    float average = center * 0.12f + (s0 + s1 + s2 + s3) * 0.12f + (s4 + s5 + s6 + s7) * 0.10f;
-    float peak = max(max(max(s0, s1), max(s2, s3)), max(max(s4, s5), max(s6, s7)));
-    return saturate(max(Smooth01(average * 1.18f), peak * 0.38f));
+float SunScreenFade(float2 sunUv) {
+    float margin = 0.32f;
+    float xEdge = min(sunUv.x, 1.0f - sunUv.x);
+    float yEdge = min(sunUv.y, 1.0f - sunUv.y);
+    float fadeX = Smooth01((xEdge + margin) / margin);
+    float fadeY = Smooth01((yEdge + margin) / margin);
+    return saturate(fadeX * fadeY * max(SunData.w, 0.0f));
 }
 
 float SunSource(float2 uv) {
-    float visibility = SunVisibilityAround(SunData.xy);
+    float visibility = SunScreenFade(SunData.xy);
     if (visibility <= 0.0f) {
         return 0.0f;
     }

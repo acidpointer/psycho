@@ -389,8 +389,10 @@ Current sunshafts runtime finding:
   - power lines and other thin geometry could blink the shafts because one
     closed radial tap decayed the remaining accumulation too hard.
 - The current follow-up removes that exact-center dependency:
-  - source/compose visibility now use a wider ring of world-depth sky samples
-    around the CPU-projected sun, with low center weight;
+  - source/compose visibility now use CPU sun availability plus smooth
+    screen-edge fade, not depth classification at the exact sun point;
+  - world and first-person depth are ray-path and receiver masks only; they do
+    not decide whether the sun exists globally;
   - the procedural sun source dominates over scene brightness, so native sun
     sprite/glare size no longer drives shaft source diameter;
   - sun-core repair no longer requires the exact native sun pixel to classify
