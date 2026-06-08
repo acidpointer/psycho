@@ -31,6 +31,7 @@ use windows::{
 
 use crate::{
     backend::{self, DepthFrame, DepthProvider, DepthTexture},
+    blooming_hdr,
     shaders::{self, ScreenShaderSource, ShaderOptionValue, ShaderPhase},
     sunshafts,
 };
@@ -215,6 +216,7 @@ struct ScreenShaderRuntime {
     sources: Vec<ScreenShaderSource>,
     device_ptr: usize,
     compiled: Option<Vec<CompiledPass>>,
+    blooming_hdr: Option<blooming_hdr::BloomingHdrEffect>,
     sunshafts: Option<sunshafts::SunshaftsEffect>,
     backbuffer_copy: Option<BackbufferCopy>,
     world_color_copy: Option<BackbufferCopy>,
@@ -244,6 +246,7 @@ impl Default for ScreenShaderRuntime {
             sources: Vec::new(),
             device_ptr: 0,
             compiled: None,
+            blooming_hdr: None,
             sunshafts: None,
             backbuffer_copy: None,
             world_color_copy: None,
@@ -796,6 +799,21 @@ impl ScreenShaderRuntime {
                 continue;
             }
 
+            if blooming_hdr::is_config_source(&source.name) {
+                let source = source.clone();
+                self.draw_blooming_hdr_pipeline(
+                    device,
+                    backbuffer,
+                    desc,
+                    &frame_inputs,
+                    &copy,
+                    &source,
+                )?;
+                self.bind_common_state(device, backbuffer, desc, &frame_inputs, &copy)?;
+                pass_index = pass_index.saturating_add(source.pass_count.max(1));
+                continue;
+            }
+
             if sunshafts::is_config_source(&source.name) {
                 let source = source.clone();
                 self.draw_sunshafts_pipeline(
@@ -869,7 +887,7 @@ impl ScreenShaderRuntime {
                         frame_inputs.sun.screen_x,
                         frame_inputs.sun.screen_y,
                         frame_inputs.sun.available_f32(),
-                        frame_inputs.sun.facing,
+                        frame_inputs.sun.daylight,
                     ]],
                 )?;
 
@@ -886,6 +904,43 @@ impl ScreenShaderRuntime {
         }
 
         Ok(())
+    }
+
+    fn draw_blooming_hdr_pipeline(
+        &mut self,
+        device: &Device9Ref<'_>,
+        backbuffer: &Surface9,
+        desc: &D3DSURFACE_DESC,
+        frame_inputs: &backend::FrameInputs,
+        current_color_copy: &BackbufferCopy,
+        source: &ScreenShaderSource,
+    ) -> Direct3DResult<()> {
+        if self.blooming_hdr.is_none() {
+            self.blooming_hdr = Some(blooming_hdr::BloomingHdrEffect::create(device)?);
+            log::info!("[BLOOM_HDR] Engine-side pipeline initialized");
+        }
+
+        let Some(effect) = self.blooming_hdr.as_mut() else {
+            return Ok(());
+        };
+
+        device.clear_texture(0)?;
+        device.stretch_rect(
+            backbuffer,
+            None,
+            &current_color_copy.surface,
+            None,
+            D3DTEXF_POINT,
+        )?;
+        effect.draw(
+            device,
+            backbuffer,
+            desc,
+            frame_inputs,
+            source,
+            &current_color_copy.texture,
+            self.frame_index,
+        )
     }
 
     fn draw_sunshafts_pipeline(
@@ -940,7 +995,7 @@ impl ScreenShaderRuntime {
         self.last_fog_available = Some(fog_available);
         self.last_sun_available = Some(sun_available);
         log::info!(
-            "[SHADERS] Frame inputs: depth={} (provider={}, near={:.3}, far={:.3}), fog={} (start={:.3}, end={:.3}, power={:.3}), sun={} (uv={:.3},{:.3}, facing={:.3})",
+            "[SHADERS] Frame inputs: depth={} (provider={}, near={:.3}, far={:.3}), fog={} (start={:.3}, end={:.3}, power={:.3}), sun={} (uv={:.3},{:.3}, daylight={:.3})",
             if depth_available {
                 "available"
             } else {
@@ -964,7 +1019,7 @@ impl ScreenShaderRuntime {
             },
             frame_inputs.sun.screen_x,
             frame_inputs.sun.screen_y,
-            frame_inputs.sun.facing
+            frame_inputs.sun.daylight
         );
     }
 
@@ -1130,6 +1185,7 @@ impl ScreenShaderRuntime {
 
     fn release_device_resources(&mut self) {
         self.compiled = None;
+        self.blooming_hdr = None;
         self.sunshafts = None;
         self.release_default_pool_resources();
         if let Some(imgui) = self.imgui.as_mut() {
@@ -1141,6 +1197,7 @@ impl ScreenShaderRuntime {
     fn release_default_pool_resources(&mut self) {
         self.backbuffer_copy = None;
         self.world_color_copy = None;
+        self.blooming_hdr = None;
         self.sunshafts = None;
         self.world_color_captured_this_frame = false;
         self.state_block = None;

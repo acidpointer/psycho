@@ -1,4 +1,4 @@
-//! Engine-side sunshafts pipeline.
+//! Engine-side atmospheric bloom and HDR pipeline.
 
 use libpsycho::os::windows::directx9::{
     D3DCULL_NONE, D3DPT_TRIANGLESTRIP, D3DRS_ALPHABLENDENABLE, D3DRS_COLORWRITEENABLE,
@@ -18,36 +18,33 @@ use crate::{
     shaders::{self, ScreenShaderSource},
 };
 
-pub(crate) const SHADER_NAME: &str = "09_sunshafts_lite";
+pub(crate) const SHADER_NAME: &str = "07_blooming_hdr_lite";
 
 const COLOR_WRITE_ALL: u32 = 0x0F;
 const EFFECT_CONSTANT_REGISTER: u32 = 9;
-const MASK_SCALE: u32 = 2;
+const BLOOM_SCALE: u32 = 4;
 
-const MASK_SHADER: &[u8] = include_bytes!("sunshafts_mask.hlsl");
-const RADIAL_SHADER: &[u8] = include_bytes!("sunshafts_radial.hlsl");
-const BLUR_SHADER: &[u8] = include_bytes!("sunshafts_blur.hlsl");
-const COMPOSE_SHADER: &[u8] = include_bytes!("sunshafts_compose.hlsl");
+const EXTRACT_SHADER: &[u8] = include_bytes!("bloom_hdr_extract.hlsl");
+const BLUR_SHADER: &[u8] = include_bytes!("bloom_hdr_blur.hlsl");
+const COMPOSE_SHADER: &[u8] = include_bytes!("bloom_hdr_compose.hlsl");
 
 pub(crate) fn is_config_source(name: &str) -> bool {
     name == SHADER_NAME
 }
 
-pub(crate) struct SunshaftsEffect {
-    mask_shader: PixelShader9,
-    radial_shader: PixelShader9,
+pub(crate) struct BloomingHdrEffect {
+    extract_shader: PixelShader9,
     blur_shader: PixelShader9,
     compose_shader: PixelShader9,
-    targets: Option<SunshaftTargets>,
+    targets: Option<BloomTargets>,
 }
 
-impl SunshaftsEffect {
+impl BloomingHdrEffect {
     pub(crate) fn create(device: &Device9Ref<'_>) -> Direct3DResult<Self> {
         Ok(Self {
-            mask_shader: compile_shader(device, "sunshafts_mask.hlsl", MASK_SHADER)?,
-            radial_shader: compile_shader(device, "sunshafts_radial.hlsl", RADIAL_SHADER)?,
-            blur_shader: compile_shader(device, "sunshafts_blur.hlsl", BLUR_SHADER)?,
-            compose_shader: compile_shader(device, "sunshafts_compose.hlsl", COMPOSE_SHADER)?,
+            extract_shader: compile_shader(device, "bloom_hdr_extract.hlsl", EXTRACT_SHADER)?,
+            blur_shader: compile_shader(device, "bloom_hdr_blur.hlsl", BLUR_SHADER)?,
+            compose_shader: compile_shader(device, "bloom_hdr_compose.hlsl", COMPOSE_SHADER)?,
             targets: None,
         })
     }
@@ -62,23 +59,15 @@ impl SunshaftsEffect {
         scene_color: &Texture9,
         frame_index: u32,
     ) -> Direct3DResult<()> {
-        if frame_inputs.sun.available_f32() <= 0.5 || frame_inputs.depth.texture.is_none() {
-            return Ok(());
-        }
-
         self.ensure_targets(device, desc)?;
         let Some(targets) = self.targets.as_ref() else {
             return Ok(());
         };
 
         bind_pipeline_state(device)?;
-        bind_depth_inputs(
-            device,
-            &frame_inputs.depth.texture,
-            &frame_inputs.depth.first_person_texture,
-        )?;
+        bind_depth_inputs(device, &frame_inputs.depth.first_person_texture)?;
 
-        self.draw_mask(
+        self.draw_extract(
             device,
             targets,
             desc,
@@ -87,7 +76,6 @@ impl SunshaftsEffect {
             scene_color,
             frame_index,
         )?;
-        self.draw_radial(device, targets, frame_inputs, source, frame_index)?;
         self.draw_blur(
             device,
             targets,
@@ -121,8 +109,8 @@ impl SunshaftsEffect {
         device: &Device9Ref<'_>,
         desc: &D3DSURFACE_DESC,
     ) -> Direct3DResult<()> {
-        let width = (desc.Width / MASK_SCALE).max(1);
-        let height = (desc.Height / MASK_SCALE).max(1);
+        let width = (desc.Width / BLOOM_SCALE).max(1);
+        let height = (desc.Height / BLOOM_SCALE).max(1);
         let format = desc.Format;
 
         let needs_targets = self
@@ -130,68 +118,53 @@ impl SunshaftsEffect {
             .as_ref()
             .is_none_or(|targets| !targets.matches(width, height, format));
         if needs_targets {
-            self.targets = Some(SunshaftTargets::create(device, width, height, format)?);
-            log::info!("[SUNSHAFTS] Intermediate targets: {}x{}", width, height);
+            self.targets = Some(BloomTargets::create(device, width, height, format)?);
+            log::info!("[BLOOM_HDR] Intermediate targets: {}x{}", width, height);
         }
 
         Ok(())
     }
 
-    fn draw_mask(
+    fn draw_extract(
         &self,
         device: &Device9Ref<'_>,
-        targets: &SunshaftTargets,
+        targets: &BloomTargets,
         desc: &D3DSURFACE_DESC,
         frame_inputs: &FrameInputs,
         source: &ScreenShaderSource,
         scene_color: &Texture9,
         frame_index: u32,
     ) -> Direct3DResult<()> {
-        bind_target(device, &targets.mask.surface, targets.width, targets.height)?;
-        device.set_texture(0, scene_color)?;
-        bind_common_constants(device, desc, frame_inputs, source, frame_index, 0.0)?;
-        device.set_pixel_shader(&self.mask_shader)?;
-        draw_quad(device, targets.width, targets.height)
-    }
-
-    fn draw_radial(
-        &self,
-        device: &Device9Ref<'_>,
-        targets: &SunshaftTargets,
-        frame_inputs: &FrameInputs,
-        source: &ScreenShaderSource,
-        frame_index: u32,
-    ) -> Direct3DResult<()> {
         bind_target(
             device,
-            &targets.radial.surface,
+            &targets.extract.surface,
             targets.width,
             targets.height,
         )?;
-        device.set_texture(0, &targets.mask.texture)?;
-        bind_lowres_constants(device, targets, frame_inputs, source, frame_index, 1.0)?;
-        device.set_pixel_shader(&self.radial_shader)?;
+        device.set_texture(0, scene_color)?;
+        bind_common_constants(device, desc, frame_inputs, source, frame_index, 0.0)?;
+        device.set_pixel_shader(&self.extract_shader)?;
         draw_quad(device, targets.width, targets.height)
     }
 
     fn draw_blur(
         &self,
         device: &Device9Ref<'_>,
-        targets: &SunshaftTargets,
+        targets: &BloomTargets,
         frame_inputs: &FrameInputs,
         source: &ScreenShaderSource,
         frame_index: u32,
         direction: [f32; 2],
     ) -> Direct3DResult<()> {
         let (input, output) = if direction[0] != 0.0 {
-            (&targets.radial.texture, &targets.blur.surface)
+            (&targets.extract.texture, &targets.blur.surface)
         } else {
-            (&targets.blur.texture, &targets.radial.surface)
+            (&targets.blur.texture, &targets.extract.surface)
         };
 
         bind_target(device, output, targets.width, targets.height)?;
         device.set_texture(0, input)?;
-        bind_lowres_constants(device, targets, frame_inputs, source, frame_index, 2.0)?;
+        bind_lowres_constants(device, targets, frame_inputs, source, frame_index, 1.0)?;
         device.set_pixel_shader_constant_f(
             EFFECT_CONSTANT_REGISTER,
             &[[direction[0], direction[1], 0.0, 0.0]],
@@ -205,7 +178,7 @@ impl SunshaftsEffect {
         device: &Device9Ref<'_>,
         backbuffer: &Surface9,
         desc: &D3DSURFACE_DESC,
-        targets: &SunshaftTargets,
+        targets: &BloomTargets,
         frame_inputs: &FrameInputs,
         source: &ScreenShaderSource,
         scene_color: &Texture9,
@@ -213,12 +186,8 @@ impl SunshaftsEffect {
     ) -> Direct3DResult<()> {
         bind_target(device, backbuffer, desc.Width, desc.Height)?;
         device.set_texture(0, scene_color)?;
-        bind_depth_inputs(
-            device,
-            &frame_inputs.depth.texture,
-            &frame_inputs.depth.first_person_texture,
-        )?;
-        device.set_texture(4, &targets.radial.texture)?;
+        bind_depth_inputs(device, &frame_inputs.depth.first_person_texture)?;
+        device.set_texture(4, &targets.extract.texture)?;
         bind_common_constants(device, desc, frame_inputs, source, frame_index, 3.0)?;
         device.set_pixel_shader_constant_f(
             EFFECT_CONSTANT_REGISTER,
@@ -242,7 +211,7 @@ fn compile_shader(
     let bytecode = match shaders::compile_hlsl_source(source_name, source) {
         Ok(bytecode) => bytecode,
         Err(err) => {
-            log::warn!("[SUNSHAFTS] Failed to compile {source_name}: {err:#}");
+            log::warn!("[BLOOM_HDR] Failed to compile {source_name}: {err:#}");
             return Err(WindowsError::from_hresult(
                 windows::Win32::Foundation::E_FAIL,
             ));
@@ -301,17 +270,8 @@ fn bind_target(
 
 fn bind_depth_inputs(
     device: &Device9Ref<'_>,
-    world_depth: &Option<DepthTexture>,
     first_person_depth: &Option<DepthTexture>,
 ) -> Direct3DResult<()> {
-    if let Some(depth) = world_depth {
-        unsafe {
-            device.set_raw_base_texture(1, depth.as_ptr())?;
-        }
-    } else {
-        device.clear_texture(1)?;
-    }
-
     if let Some(depth) = first_person_depth {
         unsafe {
             device.set_raw_base_texture(2, depth.as_ptr())?;
@@ -359,7 +319,7 @@ fn bind_common_constants(
 
 fn bind_lowres_constants(
     device: &Device9Ref<'_>,
-    targets: &SunshaftTargets,
+    targets: &BloomTargets,
     frame_inputs: &FrameInputs,
     source: &ScreenShaderSource,
     frame_index: u32,
@@ -435,18 +395,17 @@ fn fullscreen_quad(width: u32, height: u32) -> [ScreenVertex; 4] {
     ]
 }
 
-struct SunshaftTargets {
+struct BloomTargets {
     width: u32,
     height: u32,
     inv_width: f32,
     inv_height: f32,
     format: D3DFORMAT,
-    mask: EffectTarget,
-    radial: EffectTarget,
+    extract: EffectTarget,
     blur: EffectTarget,
 }
 
-impl SunshaftTargets {
+impl BloomTargets {
     fn create(
         device: &Device9Ref<'_>,
         width: u32,
@@ -459,8 +418,7 @@ impl SunshaftTargets {
             inv_width: 1.0 / width as f32,
             inv_height: 1.0 / height as f32,
             format,
-            mask: EffectTarget::create(device, width, height, format)?,
-            radial: EffectTarget::create(device, width, height, format)?,
+            extract: EffectTarget::create(device, width, height, format)?,
             blur: EffectTarget::create(device, width, height, format)?,
         })
     }

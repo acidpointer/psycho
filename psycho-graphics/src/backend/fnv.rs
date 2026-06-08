@@ -27,8 +27,18 @@ const BSSHADERMANAGER_SCENE_GRAPH_INDEX: usize = 0x011F91C4;
 const BSSHADERMANAGER_SHADOW_SCENE_NODE_ARRAY: usize = 0x011F91C8;
 const BSSHADERMANAGER_SHADOW_SCENE_NODE_COUNT: usize = 4;
 const SKY_SINGLETON_PTR: usize = 0x011DEA20;
+const TIME_GLOBALS_BASE: usize = 0x011DE7B8;
+const TIME_GLOBALS_GAME_HOUR_OFFSET: usize = 0x0C;
+const SKY_CLIMATE_OFFSET: usize = 0x0C;
 const SKY_SUN_OFFSET: usize = 0x28;
 const SKYOBJECT_ROOT_NODE_OFFSET: usize = 0x04;
+const CLIMATE_SUN_TIME_BYTES_OFFSET: usize = 0x50;
+const CLIMATE_SUN_TIME_BYTES_LEN: usize = 4;
+const CACHED_SUNRISE_BEGIN: usize = 0x011CA9E8;
+const CACHED_SUNRISE_END: usize = 0x011CA9EC;
+const CACHED_SUNSET_BEGIN: usize = 0x011CA9F0;
+const CACHED_SUNSET_END: usize = 0x011CA9F4;
+const SKY_SUN_TIME_DIVISOR: usize = 0x01034208;
 
 const NIAVOBJECT_WORLD_ROT_FORWARD_X_OFFSET: usize = 0x68;
 const NIAVOBJECT_WORLD_ROT_FORWARD_Y_OFFSET: usize = 0x74;
@@ -209,6 +219,12 @@ unsafe fn read_f32(address: usize) -> Option<f32> {
     let slot = address as *const c_void;
     validate_memory_range(slot, size_of::<f32>()).ok()?;
     Some(unsafe { (address as *const f32).read() })
+}
+
+unsafe fn read_f64(address: usize) -> Option<f64> {
+    let slot = address as *const c_void;
+    validate_memory_range(slot, size_of::<f64>()).ok()?;
+    Some(unsafe { (address as *const f64).read() })
 }
 
 unsafe fn read_u8(address: usize) -> Option<u8> {
@@ -398,6 +414,11 @@ unsafe fn read_sun_frame() -> Option<SunFrame> {
         return None;
     }
 
+    let daylight = unsafe { read_daylight_strength(sky)? };
+    if daylight <= 0.001 {
+        return None;
+    }
+
     let sun = unsafe { read_ptr(sky as usize + SKY_SUN_OFFSET)? };
     if sun.is_null() {
         return None;
@@ -474,8 +495,113 @@ unsafe fn read_sun_frame() -> Option<SunFrame> {
         screen_x,
         screen_y,
         available: true,
-        facing: 1.0,
+        daylight,
     })
+}
+
+unsafe fn read_daylight_strength(sky: *mut u8) -> Option<f32> {
+    let game_hour = unsafe { read_f32(TIME_GLOBALS_BASE + TIME_GLOBALS_GAME_HOUR_OFFSET)? };
+    if !game_hour.is_finite() || !(0.0..=24.1).contains(&game_hour) {
+        return None;
+    }
+
+    let times = unsafe { read_cached_daylight_times() }
+        .or_else(|| unsafe { read_climate_daylight_times(sky) })?;
+    let day_time = (game_hour / 24.0).rem_euclid(1.0);
+    Some(times.daylight_at(day_time))
+}
+
+unsafe fn read_cached_daylight_times() -> Option<DaylightTimes> {
+    DaylightTimes::new(
+        unsafe { read_f32(CACHED_SUNRISE_BEGIN)? },
+        unsafe { read_f32(CACHED_SUNRISE_END)? },
+        unsafe { read_f32(CACHED_SUNSET_BEGIN)? },
+        unsafe { read_f32(CACHED_SUNSET_END)? },
+    )
+}
+
+unsafe fn read_climate_daylight_times(sky: *mut u8) -> Option<DaylightTimes> {
+    let climate = unsafe { read_ptr(sky as usize + SKY_CLIMATE_OFFSET)? };
+    if climate.is_null() {
+        return None;
+    }
+    validate_memory_range(
+        unsafe { climate.add(CLIMATE_SUN_TIME_BYTES_OFFSET) }.cast::<c_void>(),
+        CLIMATE_SUN_TIME_BYTES_LEN,
+    )
+    .ok()?;
+
+    let base = climate as usize + CLIMATE_SUN_TIME_BYTES_OFFSET;
+    let divisor = unsafe { read_f64(SKY_SUN_TIME_DIVISOR)? } as f32;
+    if !divisor.is_finite() || divisor <= 0.0 {
+        return None;
+    }
+    DaylightTimes::new(
+        unsafe { read_u8(base)? } as f32 / divisor,
+        unsafe { read_u8(base + 1)? } as f32 / divisor,
+        unsafe { read_u8(base + 2)? } as f32 / divisor,
+        unsafe { read_u8(base + 3)? } as f32 / divisor,
+    )
+}
+
+#[derive(Clone, Copy)]
+struct DaylightTimes {
+    sunrise_begin: f32,
+    sunrise_end: f32,
+    sunset_begin: f32,
+    sunset_end: f32,
+}
+
+impl DaylightTimes {
+    fn new(
+        sunrise_begin: f32,
+        sunrise_end: f32,
+        sunset_begin: f32,
+        sunset_end: f32,
+    ) -> Option<Self> {
+        let times = Self {
+            sunrise_begin,
+            sunrise_end,
+            sunset_begin,
+            sunset_end,
+        };
+        times.is_valid().then_some(times)
+    }
+
+    fn is_valid(self) -> bool {
+        self.sunrise_begin.is_finite()
+            && self.sunrise_end.is_finite()
+            && self.sunset_begin.is_finite()
+            && self.sunset_end.is_finite()
+            && (0.0..=1.0).contains(&self.sunrise_begin)
+            && (0.0..=1.0).contains(&self.sunrise_end)
+            && (0.0..=1.0).contains(&self.sunset_begin)
+            && (0.0..=1.0).contains(&self.sunset_end)
+            && self.sunrise_begin < self.sunrise_end
+            && self.sunrise_end < self.sunset_begin
+            && self.sunset_begin < self.sunset_end
+    }
+
+    fn daylight_at(self, day_time: f32) -> f32 {
+        if day_time < self.sunrise_begin || day_time >= self.sunset_end {
+            return 0.0;
+        }
+        if day_time < self.sunrise_end {
+            return smooth01(
+                (day_time - self.sunrise_begin) / (self.sunrise_end - self.sunrise_begin),
+            );
+        }
+        if day_time < self.sunset_begin {
+            return 1.0;
+        }
+
+        1.0 - smooth01((day_time - self.sunset_begin) / (self.sunset_end - self.sunset_begin))
+    }
+}
+
+fn smooth01(value: f32) -> f32 {
+    let value = value.clamp(0.0, 1.0);
+    value * value * (3.0 - 2.0 * value)
 }
 
 #[derive(Clone, Copy)]

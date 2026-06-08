@@ -265,7 +265,7 @@ pub(crate) struct SunFrame {
     pub(crate) screen_x: f32,
     pub(crate) screen_y: f32,
     pub(crate) available: bool,
-    pub(crate) facing: f32,
+    pub(crate) daylight: f32,
 }
 
 impl SunFrame {
@@ -280,7 +280,7 @@ impl Default for SunFrame {
             screen_x: 0.5,
             screen_y: 0.18,
             available: false,
-            facing: 0.0,
+            daylight: 0.0,
         }
     }
 }

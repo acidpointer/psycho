@@ -410,6 +410,45 @@ Current sunshafts runtime finding:
   buffers, weather sun color, cloud mask, dust/noise textures, or shadow-map
   sun visibility. Those require new engine-side contracts before shader work.
 
+Current Blooming HDR runtime finding:
+
+- The deployed `07_blooming_hdr_lite` was another stale shader that was not
+  tracked in the repo. It was a compact single-pass ReShade/AstrayFX-inspired
+  port with only the center pixel plus four neighbor samples. That is cheap,
+  but it cannot create broad atmospheric bloom; it mostly creates local
+  highlight softening.
+- The current implementation treats `07_blooming_hdr_lite.hlsl` as a
+  config/menu anchor. The actual effect is a named engine-side final-image
+  pipeline in `psycho-graphics/src/blooming_hdr.rs`.
+- The Blooming HDR pipeline owns the missing buffers:
+  - quarter-resolution bright/atmosphere extraction target;
+  - quarter-resolution blur ping-pong target;
+  - final full-resolution HDR compose pass.
+- The extraction pass combines soft bright-threshold bloom with a restrained
+  midtone atmosphere term. This is intentionally not physically strict: for
+  Fallout NV, the goal is dusty post-apocalyptic mood and retro cinematic glow,
+  not modern camera realism.
+- The compose pass applies exposure bias, shadow lift, warm/cool tint,
+  saturation, highlight shoulder, mild ACES-style rolloff, and dithering. It
+  attenuates bloom over first-person pixels to avoid weapon/hand halos.
+- This is still intentionally cheap: the expensive blur work happens at
+  quarter resolution with two separable 9-tap passes, instead of full-screen
+  wide sampling or a deep bloom mip chain.
+
+Current sunshaft daylight contract:
+
+- `Sky::sun` projection alone is not a valid sunshaft enable signal. Runtime
+  testing proved that a night celestial object can still project through the
+  same path, producing moon/night shafts.
+- `SunFrame` now gates availability through the Ghidra-proven time contract:
+  `TimeGlobals + 0x0C` for current `GameHour` and cached sunrise/sunset globals
+  `0x011CA9E8..0x011CA9F4`. If cached values are not initialized, it falls back
+  to the same climate time bytes used by `Sky::GetSunriseBegin/End` and
+  `Sky::GetSunsetBegin/End`, divided by the same game divisor at `0x01034208`.
+- Sunshafts fail closed at night and fade smoothly during sunrise/sunset. The
+  shader-side `c8.w` lane now means daylight strength, not a generic facing
+  value.
+
 Follow-up script prepared:
 
 - `analysis/ghidra/scripts/graphics_fnv_sun_projection_deep_contract_audit.py`
@@ -441,7 +480,7 @@ Follow-up result:
   near/far at `+0xEC/+0xF0`, and CPU-projects sun UV.
 - Runtime built-in constants now reserve:
   - `c6`: fog/environment data;
-  - `c8`: sun screen data `(uv.x, uv.y, available, facing)`.
+  - `c8`: sun screen data `(uv.x, uv.y, available, daylight)`.
 - Shader option auto-binding skips `c6` and `c8`; `09_sunshafts_lite` keeps its
   own options on `c3`, `c4`, `c5`, and `c7`.
 - If any sun/camera/frustum read fails validation, `c8.z` is `0` and the shader

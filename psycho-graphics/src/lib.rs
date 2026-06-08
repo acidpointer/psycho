@@ -5,6 +5,7 @@
 //! increasing the blast radius of allocator or engine-fix changes.
 
 mod backend;
+mod blooming_hdr;
 mod config;
 mod entry;
 mod fnv_render;
