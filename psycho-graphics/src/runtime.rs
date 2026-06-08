@@ -37,6 +37,7 @@ use crate::{
 const DEFAULT_SCAN_INTERVAL_MS: u64 = 200;
 const FIRST_OPTION_REGISTER: u32 = 3;
 const ENVIRONMENT_REGISTER: u32 = 6;
+const SUN_REGISTER: u32 = 8;
 const COLOR_WRITE_ALL: u32 = 0x0F;
 const WM_KEYDOWN: u32 = 0x0100;
 const WM_SYSKEYDOWN: u32 = 0x0104;
@@ -223,6 +224,7 @@ struct ScreenShaderRuntime {
     frame_index: u32,
     last_depth_available: Option<bool>,
     last_fog_available: Option<bool>,
+    last_sun_available: Option<bool>,
     error_logs: u32,
     scan_error_logs: u32,
     imgui_error_logs: u32,
@@ -250,6 +252,7 @@ impl Default for ScreenShaderRuntime {
             frame_index: 0,
             last_depth_available: None,
             last_fog_available: None,
+            last_sun_available: None,
             error_logs: 0,
             scan_error_logs: 0,
             imgui_error_logs: 0,
@@ -753,6 +756,7 @@ impl ScreenShaderRuntime {
             camera: backend::camera_frame(self.settings.depth_provider, desc),
             depth: self.current_depth_frame(),
             environment: backend::environment_frame(self.settings.depth_provider),
+            sun: backend::sun_frame(self.settings.depth_provider),
         };
         self.log_frame_input_state(&frame_inputs);
 
@@ -823,6 +827,15 @@ impl ScreenShaderRuntime {
                         frame_inputs.environment.fog_available_f32(),
                     ]],
                 )?;
+                device.set_pixel_shader_constant_f(
+                    SUN_REGISTER,
+                    &[[
+                        frame_inputs.sun.screen_x,
+                        frame_inputs.sun.screen_y,
+                        frame_inputs.sun.available_f32(),
+                        frame_inputs.sun.facing,
+                    ]],
+                )?;
 
                 log::trace!(
                     "[SHADERS] Drawing '{}' screen pass '{}'",
@@ -842,16 +855,19 @@ impl ScreenShaderRuntime {
     fn log_frame_input_state(&mut self, frame_inputs: &backend::FrameInputs) {
         let depth_available = frame_inputs.depth.is_available();
         let fog_available = frame_inputs.environment.fog_available;
+        let sun_available = frame_inputs.sun.available;
         if self.last_depth_available == Some(depth_available)
             && self.last_fog_available == Some(fog_available)
+            && self.last_sun_available == Some(sun_available)
         {
             return;
         }
 
         self.last_depth_available = Some(depth_available);
         self.last_fog_available = Some(fog_available);
+        self.last_sun_available = Some(sun_available);
         log::info!(
-            "[SHADERS] Frame inputs: depth={} (provider={}, near={:.3}, far={:.3}), fog={} (start={:.3}, end={:.3}, power={:.3})",
+            "[SHADERS] Frame inputs: depth={} (provider={}, near={:.3}, far={:.3}), fog={} (start={:.3}, end={:.3}, power={:.3}), sun={} (uv={:.3},{:.3}, facing={:.3})",
             if depth_available {
                 "available"
             } else {
@@ -867,7 +883,15 @@ impl ScreenShaderRuntime {
             },
             frame_inputs.environment.fog_start,
             frame_inputs.environment.fog_end,
-            frame_inputs.environment.fog_power
+            frame_inputs.environment.fog_power,
+            if sun_available {
+                "available"
+            } else {
+                "missing"
+            },
+            frame_inputs.sun.screen_x,
+            frame_inputs.sun.screen_y,
+            frame_inputs.sun.facing
         );
     }
 

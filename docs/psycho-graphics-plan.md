@@ -298,6 +298,106 @@ are proven. Since TESReloaded is trusted prior art, we do not need to prove that
 the concept works, but we still need a safe Psycho data contract before shipping
 code that dereferences game memory and advertises compatibility.
 
+Current sunshafts runtime finding:
+
+- the previously deployed `09_sunshafts_lite` was not tracked in the repo. It
+  survived because `build_fnv.sh` copies current shader files over the target
+  directory but does not delete old shader files;
+- that shader did not auto-detect the sun. It used manual screen UV sliders at
+  `c4.xy`;
+- the shader read its third option block from `c6`, but Psycho reserves `c6` for
+  environment constants. Its TOML wrote `sun_sample_px` and `glare_radius` to
+  `c7`, so the shader was reading fog data where it expected sunshafts options;
+- the tracked interim `09_sunshafts_lite` fixed the option register to `c7`,
+  previously kept manual sun UV sliders as a fallback, and exposed a debug mask
+  that shows sun visibility, source brightness, and radial light;
+- CPU-fed sun constants are now implemented after the deeper audit. Runtime
+  screenshots confirm that sun positioning is correct;
+- the first CPU-sun shader technically worked but had unacceptable quality:
+  hard low-sample bands, giant additive glare, and ugly screen-space silhouettes
+  when the full scene color was treated as radial source data;
+- the next stronger CPU-sun shader failed runtime testing. It still behaved like
+  a broad additive sky haze, not an occlusion shaft model. The direct causes:
+  - `ReceiverMask()` allowed at least `0.52` on solid world pixels;
+  - first-person pixels were only attenuated to roughly `0.46..0.72`, so the
+    weapon/hand received the additive shaft color and looked transparent;
+  - `RadialShaft()` sampled only world `SkyMask`, so first-person depth could
+    never cast into or block the shaft path;
+  - the source term was not constrained tightly enough around the sun, so bright
+    sky/fog became a large full-screen wash.
+- the current single-pass shader is an occlusion/transmittance model. It uses:
+  - CPU-projected sun UV from `c8`;
+  - a sun-local emitter mask from bright open sky near the sun;
+  - world depth and first-person depth as blockers in every radial tap;
+  - a hard first-person receiver reject so weapon/hand pixels keep their
+    original color;
+  - fog-only limited receiving on solid world pixels;
+  - compressed/clamped energy so the `Force` slider cannot create the previous
+    full-screen white/gold plate.
+- `09_sunshafts_lite` now runs in `scene_post_image_space`, so it is composed
+  after vanilla image-space but before Psycho final passes such as bloom/AA.
+  This is closer to a lighting contribution than a final overlay.
+- `.research/soc_shaders` contains a strong S.T.A.L.K.E.R. SoC reference
+  implementation in `shaders/r2/_sun_shafts.h`, `shafts.h`, and
+  `_shafts_config.h`. Its useful transferable ideas are GPU-Gems-style radial
+  sampling, sun-distance exposure fades, low-luminance boost, high-luminance
+  compression, sun-color/halo contribution, and composing before final
+  bloom/combine. Its 100-160 sample paths and multiple engine textures are not
+  appropriate for the current Psycho single-pass `ps_3_0` full-resolution path.
+- The current Psycho variant borrows the useful SoC ideas without copying its
+  engine-specific inputs: sun-distance exposure fades, occlusion gating,
+  conservative brightness compression, and color contribution before final
+  bloom/AA. It does not copy SoC's high sample counts, alpha/material tests, or
+  multiple deferred textures because Psycho currently has only scene color,
+  world depth, first-person depth, fog constants, and CPU-projected sun data.
+
+Follow-up script prepared:
+
+- `analysis/ghidra/scripts/graphics_fnv_sun_projection_deep_contract_audit.py`
+- expected output:
+  `analysis/ghidra/output/perf/graphics_fnv_sun_projection_deep_contract_audit.txt`
+- this script traces `Sky::singleton`, current camera globals, camera basis
+  copies, near/far readers, and the image-space boundary so the next
+  implementation can project sun direction on the CPU without using guessed
+  matrix offsets.
+
+Follow-up result:
+
+- `graphics_fnv_sun_projection_deep_contract_audit.txt` proves
+  `Sky sun/current object getter @ 0x0045CD60` returns `Sky + 0x28`.
+- Vanilla render path `0x00870BD0` checks `Sky::singleton @ 0x011DEA20`, calls
+  `0x0045CD60`, calls the returned sky object's vtable `+0x04`, then calls
+  `0x0045BB80`, which returns the returned `NiAVObject + 0x8C` vector. This is
+  the vanilla path for the sun world vector used before image-space.
+- The same audit confirms `CameraWriter_00B5E870` publishes the active camera
+  and copies position/basis fields:
+  - position: `camera + 0x8C/+0x90/+0x94`;
+  - forward: `camera + 0x68/+0x74/+0x80`;
+  - right: `camera + 0x70/+0x7C/+0x88`;
+  - up is the remaining matrix column at `camera + 0x6C/+0x78/+0x84`, matching
+    TESReloaded's `RenderManager::SetupSceneCamera`.
+- The initial implementation now reads the sun root pointer as `Sun + 0x04`,
+  reads `sunRoot + 0x8C` as world position, reads the active camera position and
+  basis, reads the camera frustum at `+0xDC/+0xE0/+0xE4/+0xE8` with proven
+  near/far at `+0xEC/+0xF0`, and CPU-projects sun UV.
+- Runtime built-in constants now reserve:
+  - `c6`: fog/environment data;
+  - `c8`: sun screen data `(uv.x, uv.y, available, facing)`.
+- Shader option auto-binding skips `c6` and `c8`; `09_sunshafts_lite` keeps its
+  own options on `c3`, `c4`, `c5`, and `c7`.
+- If any sun/camera/frustum read fails validation, `c8.z` is `0` and the shader
+  skips sunshafts for that frame. Manual sun UV sliders were removed because CPU
+  sun projection is now the contract.
+- Current sunshafts option layout:
+  - `c3`: intensity, exposure, decay, density;
+  - `c4`: force, unused, source brightness threshold, warmth;
+  - `c5`: first-person occlusion, shaft falloff, reversed depth flag, debug mask;
+  - `c7`: sun visibility sample radius, corona radius, unused, sky haze.
+- `09_sunshafts_lite` debug mask is diagnostic only. When enabled, it replaces
+  the final image with `(sunVisibility, sourceBrightness, radialLight)`, so a
+  red/orange full-screen view means the mask is being visualized rather than the
+  normal godray compose.
+
 The newer sun/weather layout audit proves `Sky::singleton @ 0x011DEA20` is a
 real global used by render code, and it confirms the image-space phase has a
 fresh current camera. It does not yet prove the full `TESWeather` fog field

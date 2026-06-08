@@ -19,14 +19,31 @@ use parking_lot::Mutex;
 use windows::Win32::Graphics::Direct3D9::D3DSURFACE_DESC;
 use windows::core::Error as WindowsError;
 
-use super::{CameraFrame, DepthResolveSlot, EnvironmentFrame};
+use super::{CameraFrame, DepthResolveSlot, EnvironmentFrame, SunFrame};
 
 const NIDX9_RENDERER_SINGLETON_PTR: usize = 0x011C73B4;
 const BSSHADERMANAGER_CAMERA_PTR: usize = 0x011F917C;
 const BSSHADERMANAGER_SCENE_GRAPH_INDEX: usize = 0x011F91C4;
 const BSSHADERMANAGER_SHADOW_SCENE_NODE_ARRAY: usize = 0x011F91C8;
 const BSSHADERMANAGER_SHADOW_SCENE_NODE_COUNT: usize = 4;
+const SKY_SINGLETON_PTR: usize = 0x011DEA20;
+const SKY_SUN_OFFSET: usize = 0x28;
+const SKYOBJECT_ROOT_NODE_OFFSET: usize = 0x04;
 
+const NIAVOBJECT_WORLD_ROT_FORWARD_X_OFFSET: usize = 0x68;
+const NIAVOBJECT_WORLD_ROT_FORWARD_Y_OFFSET: usize = 0x74;
+const NIAVOBJECT_WORLD_ROT_FORWARD_Z_OFFSET: usize = 0x80;
+const NIAVOBJECT_WORLD_ROT_UP_X_OFFSET: usize = 0x6C;
+const NIAVOBJECT_WORLD_ROT_UP_Y_OFFSET: usize = 0x78;
+const NIAVOBJECT_WORLD_ROT_UP_Z_OFFSET: usize = 0x84;
+const NIAVOBJECT_WORLD_ROT_RIGHT_X_OFFSET: usize = 0x70;
+const NIAVOBJECT_WORLD_ROT_RIGHT_Y_OFFSET: usize = 0x7C;
+const NIAVOBJECT_WORLD_ROT_RIGHT_Z_OFFSET: usize = 0x88;
+const NIAVOBJECT_WORLD_POS_OFFSET: usize = 0x8C;
+const NICAMERA_FRUSTUM_LEFT_OFFSET: usize = 0xDC;
+const NICAMERA_FRUSTUM_RIGHT_OFFSET: usize = 0xE0;
+const NICAMERA_FRUSTUM_TOP_OFFSET: usize = 0xE4;
+const NICAMERA_FRUSTUM_BOTTOM_OFFSET: usize = 0xE8;
 const NICAMERA_FRUSTUM_NEAR_OFFSET: usize = 0xEC;
 const NICAMERA_FRUSTUM_FAR_OFFSET: usize = 0xF0;
 const BSRENDEREDTEXTURE_SIZE: usize = 0x40;
@@ -102,6 +119,10 @@ pub(super) fn camera_frame(desc: &D3DSURFACE_DESC) -> CameraFrame {
 
 pub(super) fn environment_frame() -> EnvironmentFrame {
     unsafe { read_environment_frame().unwrap_or_default() }
+}
+
+pub(super) fn sun_frame() -> SunFrame {
+    unsafe { read_sun_frame().unwrap_or_default() }
 }
 
 pub(super) fn depth_texture_ptr() -> Option<*mut c_void> {
@@ -200,6 +221,14 @@ unsafe fn read_u32(address: usize) -> Option<u32> {
     let slot = address as *const c_void;
     validate_memory_range(slot, size_of::<u32>()).ok()?;
     Some(unsafe { (address as *const u32).read() })
+}
+
+unsafe fn read_vec3(address: usize) -> Option<Vec3> {
+    Some(Vec3 {
+        x: unsafe { read_f32(address)? },
+        y: unsafe { read_f32(address + size_of::<f32>())? },
+        z: unsafe { read_f32(address + size_of::<f32>() * 2)? },
+    })
 }
 
 unsafe fn read_rendered_texture_color_surface(
@@ -361,6 +390,135 @@ unsafe fn read_environment_frame() -> Option<EnvironmentFrame> {
         fog_power: fog_power.max(0.001),
         fog_available: true,
     })
+}
+
+unsafe fn read_sun_frame() -> Option<SunFrame> {
+    let sky = unsafe { read_ptr(SKY_SINGLETON_PTR)? };
+    if sky.is_null() {
+        return None;
+    }
+
+    let sun = unsafe { read_ptr(sky as usize + SKY_SUN_OFFSET)? };
+    if sun.is_null() {
+        return None;
+    }
+
+    let sun_root = unsafe { read_ptr(sun as usize + SKYOBJECT_ROOT_NODE_OFFSET)? };
+    if sun_root.is_null() {
+        return None;
+    }
+
+    let sun_position = unsafe { read_vec3(sun_root as usize + NIAVOBJECT_WORLD_POS_OFFSET)? };
+    if !sun_position.is_valid() {
+        return None;
+    }
+
+    let camera = unsafe { read_ptr(BSSHADERMANAGER_CAMERA_PTR)? };
+    if camera.is_null() {
+        return None;
+    }
+
+    let camera_position = unsafe { read_vec3(camera as usize + NIAVOBJECT_WORLD_POS_OFFSET)? };
+    let forward = Vec3 {
+        x: unsafe { read_f32(camera as usize + NIAVOBJECT_WORLD_ROT_FORWARD_X_OFFSET)? },
+        y: unsafe { read_f32(camera as usize + NIAVOBJECT_WORLD_ROT_FORWARD_Y_OFFSET)? },
+        z: unsafe { read_f32(camera as usize + NIAVOBJECT_WORLD_ROT_FORWARD_Z_OFFSET)? },
+    }
+    .normalized()?;
+    let up = Vec3 {
+        x: unsafe { read_f32(camera as usize + NIAVOBJECT_WORLD_ROT_UP_X_OFFSET)? },
+        y: unsafe { read_f32(camera as usize + NIAVOBJECT_WORLD_ROT_UP_Y_OFFSET)? },
+        z: unsafe { read_f32(camera as usize + NIAVOBJECT_WORLD_ROT_UP_Z_OFFSET)? },
+    }
+    .normalized()?;
+    let right = Vec3 {
+        x: unsafe { read_f32(camera as usize + NIAVOBJECT_WORLD_ROT_RIGHT_X_OFFSET)? },
+        y: unsafe { read_f32(camera as usize + NIAVOBJECT_WORLD_ROT_RIGHT_Y_OFFSET)? },
+        z: unsafe { read_f32(camera as usize + NIAVOBJECT_WORLD_ROT_RIGHT_Z_OFFSET)? },
+    }
+    .normalized()?;
+
+    let left = unsafe { read_f32(camera as usize + NICAMERA_FRUSTUM_LEFT_OFFSET)? };
+    let frustum_right = unsafe { read_f32(camera as usize + NICAMERA_FRUSTUM_RIGHT_OFFSET)? };
+    let top = unsafe { read_f32(camera as usize + NICAMERA_FRUSTUM_TOP_OFFSET)? };
+    let bottom = unsafe { read_f32(camera as usize + NICAMERA_FRUSTUM_BOTTOM_OFFSET)? };
+    if !left.is_finite()
+        || !frustum_right.is_finite()
+        || !top.is_finite()
+        || !bottom.is_finite()
+        || frustum_right <= left
+        || top <= bottom
+    {
+        return None;
+    }
+
+    let to_sun = sun_position.sub(camera_position);
+    let view_x = to_sun.dot(right);
+    let view_y = to_sun.dot(up);
+    let view_z = to_sun.dot(forward);
+    if !view_x.is_finite() || !view_y.is_finite() || !view_z.is_finite() || view_z <= 0.001 {
+        return None;
+    }
+
+    let frustum_width = frustum_right - left;
+    let frustum_height = top - bottom;
+    let ndc_x = ((2.0 * view_x / view_z) - (frustum_right + left)) / frustum_width;
+    let ndc_y = ((2.0 * view_y / view_z) - (top + bottom)) / frustum_height;
+    let screen_x = ndc_x * 0.5 + 0.5;
+    let screen_y = 0.5 - ndc_y * 0.5;
+    if !screen_x.is_finite() || !screen_y.is_finite() {
+        return None;
+    }
+
+    Some(SunFrame {
+        screen_x,
+        screen_y,
+        available: true,
+        facing: 1.0,
+    })
+}
+
+#[derive(Clone, Copy)]
+struct Vec3 {
+    x: f32,
+    y: f32,
+    z: f32,
+}
+
+impl Vec3 {
+    fn is_valid(self) -> bool {
+        self.x.is_finite() && self.y.is_finite() && self.z.is_finite()
+    }
+
+    fn dot(self, other: Self) -> f32 {
+        self.x * other.x + self.y * other.y + self.z * other.z
+    }
+
+    fn sub(self, other: Self) -> Self {
+        Self {
+            x: self.x - other.x,
+            y: self.y - other.y,
+            z: self.z - other.z,
+        }
+    }
+
+    fn normalized(self) -> Option<Self> {
+        if !self.is_valid() {
+            return None;
+        }
+
+        let len_sq = self.dot(self);
+        if !len_sq.is_finite() || len_sq <= 0.000001 {
+            return None;
+        }
+
+        let inv_len = len_sq.sqrt().recip();
+        Some(Self {
+            x: self.x * inv_len,
+            y: self.y * inv_len,
+            z: self.z * inv_len,
+        })
+    }
 }
 
 fn log_depth_resolve_skip(

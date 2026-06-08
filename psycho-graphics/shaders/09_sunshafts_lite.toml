@@ -1,0 +1,130 @@
+[shader]
+enabled = true
+phase = "scene_post_image_space"
+passes = 1
+
+[[options]]
+key = "intensity"
+label = "Intensity"
+kind = "float"
+value = 0.75
+min = 0.0
+max = 2.0
+constant = "c3.x"
+
+[[options]]
+key = "exposure"
+label = "Exposure"
+kind = "float"
+value = 0.85
+min = 0.0
+max = 2.0
+constant = "c3.y"
+
+[[options]]
+key = "decay"
+label = "Decay"
+kind = "float"
+value = 0.935
+min = 0.65
+max = 0.985
+constant = "c3.z"
+
+[[options]]
+key = "density"
+label = "Density"
+kind = "float"
+value = 0.82
+min = 0.20
+max = 1.20
+constant = "c3.w"
+
+[[options]]
+key = "force"
+label = "Force"
+kind = "float"
+value = 1.0
+min = 0.0
+max = 4.0
+constant = "c4.x"
+
+[[options]]
+key = "bright_threshold"
+label = "Bright threshold"
+kind = "float"
+value = 0.72
+min = 0.35
+max = 0.95
+constant = "c4.z"
+
+[[options]]
+key = "warmth"
+label = "Warmth"
+kind = "float"
+value = 0.45
+min = 0.0
+max = 1.0
+constant = "c4.w"
+
+[[options]]
+key = "first_person_occlusion"
+label = "1P occlusion"
+kind = "float"
+value = 1.0
+min = 0.0
+max = 1.0
+constant = "c5.x"
+
+[[options]]
+key = "sun_falloff"
+label = "Sun falloff"
+kind = "float"
+value = 0.62
+min = 0.16
+max = 1.05
+constant = "c5.y"
+
+[[options]]
+key = "depth_reversed"
+label = "Reversed depth"
+kind = "bool"
+value = true
+min = 0.0
+max = 1.0
+constant = "c5.z"
+
+[[options]]
+key = "debug_mask"
+label = "Debug mask"
+kind = "bool"
+value = false
+min = 0.0
+max = 1.0
+constant = "c5.w"
+
+[[options]]
+key = "sun_sample_px"
+label = "Sun sample px"
+kind = "float"
+value = 16.0
+min = 2.0
+max = 48.0
+constant = "c7.x"
+
+[[options]]
+key = "glare_radius"
+label = "Glare radius"
+kind = "float"
+value = 0.032
+min = 0.010
+max = 0.080
+constant = "c7.y"
+
+[[options]]
+key = "sky_haze"
+label = "Sky haze"
+kind = "float"
+value = 0.26
+min = 0.0
+max = 0.75
+constant = "c7.w"

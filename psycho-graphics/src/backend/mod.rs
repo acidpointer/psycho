@@ -31,6 +31,13 @@ pub(crate) fn environment_frame(depth_provider: DepthProvider) -> EnvironmentFra
     }
 }
 
+pub(crate) fn sun_frame(depth_provider: DepthProvider) -> SunFrame {
+    match depth_provider {
+        DepthProvider::None => SunFrame::default(),
+        DepthProvider::FalloutNewVegas => fnv::sun_frame(),
+    }
+}
+
 pub(crate) fn depth_texture_ptr(depth_provider: DepthProvider) -> Option<*mut c_void> {
     match depth_provider {
         DepthProvider::None => None,
@@ -137,6 +144,7 @@ pub(crate) struct FrameInputs {
     pub(crate) camera: CameraFrame,
     pub(crate) depth: DepthFrame,
     pub(crate) environment: EnvironmentFrame,
+    pub(crate) sun: SunFrame,
 }
 
 #[derive(Clone, Copy, Debug, Default)]
@@ -248,6 +256,31 @@ impl Default for EnvironmentFrame {
             fog_end: 0.0,
             fog_power: 1.0,
             fog_available: false,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct SunFrame {
+    pub(crate) screen_x: f32,
+    pub(crate) screen_y: f32,
+    pub(crate) available: bool,
+    pub(crate) facing: f32,
+}
+
+impl SunFrame {
+    pub(crate) fn available_f32(self) -> f32 {
+        if self.available { 1.0 } else { 0.0 }
+    }
+}
+
+impl Default for SunFrame {
+    fn default() -> Self {
+        Self {
+            screen_x: 0.5,
+            screen_y: 0.18,
+            available: false,
+            facing: 0.0,
         }
     }
 }

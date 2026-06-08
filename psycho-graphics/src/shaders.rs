@@ -23,6 +23,7 @@ use windows::{
 pub(crate) const SHADER_DIR: &str = "./mods/psycho_shaders";
 const FIRST_OPTION_REGISTER: u32 = 3;
 const ENVIRONMENT_REGISTER: u32 = 6;
+const SUN_REGISTER: u32 = 8;
 const MAX_OPTION_REGISTER: u32 = 31;
 const MIN_SHADER_PASSES: u32 = 1;
 const MAX_SHADER_PASSES: u32 = 8;
@@ -451,10 +452,14 @@ fn assign_missing_bindings(options: &mut [ShaderOption]) {
 
 fn next_option_register(register: u32) -> u32 {
     let mut next = register + 1;
-    if next == ENVIRONMENT_REGISTER {
+    while is_reserved_register(next) {
         next += 1;
     }
     next
+}
+
+fn is_reserved_register(register: u32) -> bool {
+    register == ENVIRONMENT_REGISTER || register == SUN_REGISTER
 }
 
 fn compile_hlsl_shader(path: &Path) -> Result<Vec<u32>> {
@@ -608,7 +613,7 @@ impl ConstantBinding {
         let (register, component) = rest.split_once('.')?;
         let register = register.parse::<u32>().ok()?;
         if !(FIRST_OPTION_REGISTER..=MAX_OPTION_REGISTER).contains(&register)
-            || register == ENVIRONMENT_REGISTER
+            || is_reserved_register(register)
         {
             return None;
         }
