@@ -111,21 +111,49 @@ float ShaftSourceMask(float3 color) {
     return saturate(broad);
 }
 
-float SunSource(float2 uv, float sky) {
+float SunVisibilityAround(float2 sunUv) {
+    if (!IsInsideScreen(sunUv)) {
+        return 0.0f;
+    }
+
+    float radiusPixels = max(OptionData3.x, 10.0f);
+    float2 stepUv = ScreenData.zw * radiusPixels;
+    float center = SkyMask(sunUv);
+    float s0 = SkyMask(sunUv + float2( stepUv.x, 0.0f));
+    float s1 = SkyMask(sunUv + float2(-stepUv.x, 0.0f));
+    float s2 = SkyMask(sunUv + float2(0.0f,  stepUv.y));
+    float s3 = SkyMask(sunUv + float2(0.0f, -stepUv.y));
+    float s4 = SkyMask(sunUv + float2( stepUv.x,  stepUv.y));
+    float s5 = SkyMask(sunUv + float2(-stepUv.x,  stepUv.y));
+    float s6 = SkyMask(sunUv + float2( stepUv.x, -stepUv.y));
+    float s7 = SkyMask(sunUv + float2(-stepUv.x, -stepUv.y));
+    float average = center * 0.12f + (s0 + s1 + s2 + s3) * 0.12f + (s4 + s5 + s6 + s7) * 0.10f;
+    float peak = max(max(max(s0, s1), max(s2, s3)), max(max(s4, s5), max(s6, s7)));
+    return saturate(max(Smooth01(average * 1.18f), peak * 0.38f));
+}
+
+float SunSource(float2 uv) {
+    float visibility = SunVisibilityAround(SunData.xy);
+    if (visibility <= 0.0f) {
+        return 0.0f;
+    }
+
     float distanceToSun = ScreenDistance(uv, SunData.xy);
     float coreRadius = max(OptionData3.y, 0.012f);
-    float haloRadius = max(OptionData2.y, coreRadius * 2.0f);
+    float haloRadius = max(coreRadius * 4.0f, 0.080f);
+    float fieldRadius = max(coreRadius * 9.0f, 0.260f);
     float core = 1.0f - Smooth01(distanceToSun / coreRadius);
     float halo = 1.0f - Smooth01(distanceToSun / haloRadius);
+    float field = 1.0f - Smooth01(distanceToSun / fieldRadius);
     float sceneSource = ShaftSourceMask(SceneSample(uv));
-    return sky * saturate(max(sceneSource * 0.85f, core * 1.00f + halo * 0.42f));
+    return visibility * saturate(core * 0.88f + halo * 0.42f + field * 0.24f + sceneSource * 0.035f);
 }
 
 float4 Main(PixelInput input) : COLOR0 {
     float sky = SkyMask(input.uv);
     float firstPerson = FirstPersonBlock(input.uv);
     float pathOpen = sky * (1.0f - firstPerson);
-    float source = SunSource(input.uv, sky);
+    float source = SunSource(input.uv);
 
     return float4(source, pathOpen, firstPerson, 1.0f);
 }

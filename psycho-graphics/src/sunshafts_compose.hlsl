@@ -131,20 +131,25 @@ float ReceiverMask(float2 uv) {
     return saturate(FogAlpha(linearDepth) * 0.16f);
 }
 
-float SunVisibility(float2 sunUv) {
+float SunVisibilityAround(float2 sunUv) {
     if (!IsInsideScreen(sunUv)) {
         return 0.0f;
     }
 
-    float radiusPixels = max(OptionData3.x, 2.0f);
+    float radiusPixels = max(OptionData3.x, 12.0f);
     float2 stepUv = ScreenData.zw * radiusPixels;
-    float visibility = 0.0f;
-    visibility += SkyMask(sunUv) * 0.34f;
-    visibility += SkyMask(sunUv + float2( stepUv.x, 0.0f)) * 0.165f;
-    visibility += SkyMask(sunUv + float2(-stepUv.x, 0.0f)) * 0.165f;
-    visibility += SkyMask(sunUv + float2(0.0f,  stepUv.y)) * 0.165f;
-    visibility += SkyMask(sunUv + float2(0.0f, -stepUv.y)) * 0.165f;
-    return saturate(visibility);
+    float center = SkyMask(sunUv);
+    float s0 = SkyMask(sunUv + float2( stepUv.x, 0.0f));
+    float s1 = SkyMask(sunUv + float2(-stepUv.x, 0.0f));
+    float s2 = SkyMask(sunUv + float2(0.0f,  stepUv.y));
+    float s3 = SkyMask(sunUv + float2(0.0f, -stepUv.y));
+    float s4 = SkyMask(sunUv + float2( stepUv.x,  stepUv.y));
+    float s5 = SkyMask(sunUv + float2(-stepUv.x,  stepUv.y));
+    float s6 = SkyMask(sunUv + float2( stepUv.x, -stepUv.y));
+    float s7 = SkyMask(sunUv + float2(-stepUv.x, -stepUv.y));
+    float average = center * 0.08f + (s0 + s1 + s2 + s3) * 0.13f + (s4 + s5 + s6 + s7) * 0.10f;
+    float peak = max(max(max(s0, s1), max(s2, s3)), max(max(s4, s5), max(s6, s7)));
+    return saturate(max(Smooth01(average * 1.16f), peak * 0.34f));
 }
 
 float DistanceShape(float screenDistance) {
@@ -160,10 +165,13 @@ float ExposureCurve(float amount) {
 }
 
 float SunCoreRepair(float2 uv, float visibility) {
-    float sky = SkyMask(uv) * (1.0f - FirstPersonBlock(uv));
-    float radius = max(OptionData3.y * 0.42f, 0.0065f);
+    if (FirstPersonBlock(uv) > 0.0f) {
+        return 0.0f;
+    }
+
+    float radius = max(OptionData3.y * 0.60f, 0.010f);
     float core = 1.0f - Smooth01(ScreenDistance(uv, SunData.xy) / radius);
-    return core * core * sky * visibility;
+    return core * core * visibility;
 }
 
 float4 Main(PixelInput input) : COLOR0 {
@@ -172,7 +180,7 @@ float4 Main(PixelInput input) : COLOR0 {
         return color;
     }
 
-    float visibility = SunVisibility(SunData.xy);
+    float visibility = SunVisibilityAround(SunData.xy);
     float receiver = ReceiverMask(input.uv);
     float shaft = tex2Dlod(ShaftLight, float4(input.uv, 0.0f, 0.0f)).r;
     float screenDistance = ScreenDistance(input.uv, SunData.xy);
@@ -186,12 +194,14 @@ float4 Main(PixelInput input) : COLOR0 {
     float rawAmount = shaft * visibility * receiver * distanceShape;
     rawAmount *= max(OptionData0.x, 0.0f) * max(OptionData0.y, 0.0f) * force * 2.35f;
     float shaftAmount = min(ExposureCurve(rawAmount), 0.46f);
-    float repairAmount = min(SunCoreRepair(input.uv, visibility) * force * 0.20f, 0.14f);
+    float repairMask = SunCoreRepair(input.uv, visibility);
+    float repairAmount = min(repairMask * force * 0.24f, 0.18f);
 
     float warmth = saturate(OptionData1.w);
     float3 tint = lerp(DayTint, WarmTint, warmth);
-    float3 rays = tint * (shaftAmount + repairAmount);
-    float3 composed = color.rgb + rays * (1.0f - color.rgb * 0.55f);
+    float3 composed = color.rgb + tint * shaftAmount * (1.0f - color.rgb * 0.55f);
+    composed += tint * repairAmount * (1.0f - color.rgb * 0.30f);
+    composed = lerp(composed, max(composed, tint * 0.88f), saturate(repairMask * visibility * 0.36f));
 
     return float4(saturate(composed), color.a);
 }

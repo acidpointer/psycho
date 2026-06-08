@@ -10,7 +10,7 @@ float4 EnvironmentData : register(c6);
 float4 OptionData3 : register(c7);
 float4 SunData : register(c8);
 
-static const int SampleCount = 36;
+static const int SampleCount = 48;
 
 struct PixelInput {
     float2 uv : TEXCOORD0;
@@ -28,13 +28,14 @@ float4 Main(PixelInput input) : COLOR0 {
 
     float density = max(OptionData0.w, 0.10f);
     float decay = clamp(OptionData0.z, 0.55f, 1.04f);
-    float blockedDecay = lerp(0.015f, 0.085f, saturate(OptionData3.w));
+    float occlusionSoftness = saturate(OptionData3.w);
+    float blockedDecay = lerp(0.10f, 0.34f, occlusionSoftness);
     float2 delta = (SunData.xy - input.uv) * density / SampleCount;
     float2 sampleUv = input.uv + delta * InterleavedNoise(input.uv);
 
     float illumination = 1.0f;
     float light = 0.0f;
-    float weight = 0.030f;
+    float weight = 0.024f;
 
     [loop]
     for (int i = 0; i < SampleCount; ++i) {
@@ -43,9 +44,10 @@ float4 Main(PixelInput input) : COLOR0 {
         float source = mask.r;
         float pathOpen = mask.g;
         illumination *= lerp(blockedDecay, decay, pathOpen);
-        light += source * pathOpen * illumination * weight;
-        weight *= 1.018f;
+        float softenedOpen = saturate(pathOpen + occlusionSoftness * 0.10f);
+        light += source * softenedOpen * illumination * weight;
+        weight *= 1.014f;
     }
 
-    return float4(saturate(light * 2.65f), 0.0f, 0.0f, 1.0f);
+    return float4(saturate(light * 2.70f), 0.0f, 0.0f, 1.0f);
 }

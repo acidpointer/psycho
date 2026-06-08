@@ -379,6 +379,30 @@ Current sunshafts runtime finding:
 - The compose pass samples the blurred shaft buffer, applies receiver gating
   from world/first-person depth, and keeps sun-core repair separate from ray
   energy so tuning rays does not recreate a giant additive sun plate.
+- Latest runtime tuning confirms the multi-pass path can produce smooth shafts,
+  but also exposed three SoC-parity issues:
+  - exact projected sun-center classification still leaked as a visible dark
+    dot and could make the effect disappear when the weapon/hand crossed that
+    one pixel;
+  - visible sun radius changed too sharply with look angle because source
+    strength still partially depended on the native rendered sun/glare pixel;
+  - power lines and other thin geometry could blink the shafts because one
+    closed radial tap decayed the remaining accumulation too hard.
+- The current follow-up removes that exact-center dependency:
+  - source/compose visibility now use a wider ring of world-depth sky samples
+    around the CPU-projected sun, with low center weight;
+  - the procedural sun source dominates over scene brightness, so native sun
+    sprite/glare size no longer drives shaft source diameter;
+  - sun-core repair no longer requires the exact native sun pixel to classify
+    as sky, but it still refuses to repaint first-person pixels;
+  - radial accumulation uses more half-resolution taps and a less binary
+    blocked-decay curve so thin wires attenuate shafts instead of instantly
+    killing the whole light chain.
+- User in-game tuning was used as the new baseline rather than the earlier bad
+  defaults: intensity around `0.34`, exposure around `0.52`, force around
+  `2.05`, decay around `1.005`, density around `1.08`, wider sun sampling, and
+  softer occlusion. This is intentionally closer to SoC's broad, smooth shaft
+  feel while staying within Psycho's current buffer contract.
 - Remaining gap against SoC: Psycho still does not have SoC's material/alpha
   buffers, weather sun color, cloud mask, dust/noise textures, or shadow-map
   sun visibility. Those require new engine-side contracts before shader work.
