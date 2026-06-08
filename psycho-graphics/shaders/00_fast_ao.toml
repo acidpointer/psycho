@@ -1,13 +1,13 @@
 [shader]
 enabled = true
 phase = "scene_pre_image_space"
-passes = 2
+passes = 1
 
 [[options]]
 key = "strength"
 label = "Strength"
 kind = "float"
-value = 2.25
+value = 0.73
 min = 0.0
 max = 8.0
 constant = "c3.x"
@@ -16,7 +16,7 @@ constant = "c3.x"
 key = "radius_scale"
 label = "Radius scale"
 kind = "float"
-value = 96.0
+value = 75.5
 min = 8.0
 max = 260.0
 constant = "c3.y"
@@ -25,7 +25,7 @@ constant = "c3.y"
 key = "max_radius_pixels"
 label = "Max radius"
 kind = "float"
-value = 12.0
+value = 7.6
 min = 1.0
 max = 48.0
 constant = "c3.z"
@@ -34,7 +34,7 @@ constant = "c3.z"
 key = "range_scale"
 label = "Range scale"
 kind = "float"
-value = 0.032
+value = 0.076
 min = 0.006
 max = 0.2
 constant = "c3.w"
