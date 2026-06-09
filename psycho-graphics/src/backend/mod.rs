@@ -62,21 +62,6 @@ pub(crate) fn rendered_texture_color_surface(
     }
 }
 
-pub(crate) unsafe fn resolve_rendered_texture_depth(
-    depth_provider: DepthProvider,
-    device_ptr: *mut c_void,
-    rendered_texture: *mut c_void,
-    slot: DepthResolveSlot,
-    reason: &'static str,
-) -> bool {
-    match depth_provider {
-        DepthProvider::None => false,
-        DepthProvider::FalloutNewVegas => unsafe {
-            fnv::resolve_rendered_texture_depth(device_ptr, rendered_texture, slot, reason)
-        },
-    }
-}
-
 pub(crate) unsafe fn resolve_scene_depth(
     depth_provider: DepthProvider,
     device_ptr: *mut c_void,

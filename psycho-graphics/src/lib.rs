@@ -4,6 +4,7 @@
 //! hooks and Direct3D state management should be developed and tested without
 //! increasing the blast radius of allocator or engine-fix changes.
 
+mod ambient_occlusion;
 mod backend;
 mod blooming_hdr;
 mod config;

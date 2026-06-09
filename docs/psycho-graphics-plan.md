@@ -441,10 +441,14 @@ Current sunshaft daylight contract:
   testing proved that a night celestial object can still project through the
   same path, producing moon/night shafts.
 - `SunFrame` now gates availability through the Ghidra-proven time contract:
-  `TimeGlobals + 0x0C` for current `GameHour` and cached sunrise/sunset globals
-  `0x011CA9E8..0x011CA9F4`. If cached values are not initialized, it falls back
-  to the same climate time bytes used by `Sky::GetSunriseBegin/End` and
-  `Sky::GetSunsetBegin/End`, divided by the same game divisor at `0x01034208`.
+  `Sky + 0xEC` for current hour, with `TimeGlobals + 0x0C` only as fallback,
+  and cached sunrise/sunset globals `0x011CA9E8..0x011CA9F4`. If cached values
+  are not initialized, it falls back to the same climate time bytes used by
+  `Sky::GetSunriseBegin/End` and `Sky::GetSunsetBegin/End`, divided by the same
+  game divisor at `0x01034208`.
+- These values are hour-domain values in the `0..24` range, not normalized
+  `0..1` fractions. Treating them as normalized rejects normal schedules like
+  `6, 8, 18, 20` and makes sunshafts fail closed all day.
 - Sunshafts fail closed at night and fade smoothly during sunrise/sunset. The
   shader-side `c8.w` lane now means daylight strength, not a generic facing
   value.

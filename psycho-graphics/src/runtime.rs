@@ -30,6 +30,7 @@ use windows::{
 };
 
 use crate::{
+    ambient_occlusion,
     backend::{self, DepthFrame, DepthProvider, DepthTexture},
     blooming_hdr,
     shaders::{self, ScreenShaderSource, ShaderOptionValue, ShaderPhase},
@@ -216,6 +217,7 @@ struct ScreenShaderRuntime {
     sources: Vec<ScreenShaderSource>,
     device_ptr: usize,
     compiled: Option<Vec<CompiledPass>>,
+    ambient_occlusion: Option<ambient_occlusion::AmbientOcclusionEffect>,
     blooming_hdr: Option<blooming_hdr::BloomingHdrEffect>,
     sunshafts: Option<sunshafts::SunshaftsEffect>,
     backbuffer_copy: Option<BackbufferCopy>,
@@ -246,6 +248,7 @@ impl Default for ScreenShaderRuntime {
             sources: Vec::new(),
             device_ptr: 0,
             compiled: None,
+            ambient_occlusion: None,
             blooming_hdr: None,
             sunshafts: None,
             backbuffer_copy: None,
@@ -443,8 +446,6 @@ impl ScreenShaderRuntime {
             return Err(err);
         }
 
-        self.resolve_scene_phase_depth(&device, phase, target);
-
         let draw_result = self.draw_passes(&device, &render_target, &desc, phase);
         let restore_result = if let Some(state_block) = self.state_block.as_ref() {
             state_block.apply()
@@ -500,36 +501,6 @@ impl ScreenShaderRuntime {
                 unsafe { device.set_raw_render_target(0, surface)? };
                 device.render_target(0).map(Some)
             }
-        }
-    }
-
-    fn resolve_scene_phase_depth(
-        &mut self,
-        device: &Device9Ref<'_>,
-        phase: ShaderPhase,
-        target: ScenePhaseTarget,
-    ) {
-        if phase != ShaderPhase::ScenePreImageSpace {
-            return;
-        }
-
-        let ScenePhaseTarget::RenderedTextureSource(rendered_texture) = target else {
-            return;
-        };
-
-        let resolved = unsafe {
-            backend::resolve_rendered_texture_depth(
-                self.settings.depth_provider,
-                device.as_raw(),
-                rendered_texture,
-                backend::DepthResolveSlot::FirstPerson,
-                "FNV scene-pre source first-person depth",
-            )
-        };
-        if resolved && self.scene_apply_logs < 8 {
-            log::debug!(
-                "[SHADERS] Scene-pre first-person depth resolved from source render target"
-            );
         }
     }
 
@@ -783,6 +754,7 @@ impl ScreenShaderRuntime {
             0.0
         };
         let mut pass_index = 0u32;
+        let mut ambient_occlusion_drawn = false;
 
         let compiled_len = self.compiled.as_ref().map_or(0, Vec::len);
         for pass_position in 0..compiled_len {
@@ -796,6 +768,29 @@ impl ScreenShaderRuntime {
             };
             let source = &self.sources[source_index];
             if !source.enabled || source.phase() != phase {
+                continue;
+            }
+
+            if ambient_occlusion::is_config_source(&source.name) {
+                let source_pass_count = source.pass_count.max(1);
+                if !ambient_occlusion_drawn {
+                    let fast_source =
+                        self.find_enabled_source(ambient_occlusion::FAST_AO_SHADER_NAME, phase);
+                    let contact_source =
+                        self.find_enabled_source(ambient_occlusion::CONTACT_AO_SHADER_NAME, phase);
+                    self.draw_ambient_occlusion_pipeline(
+                        device,
+                        backbuffer,
+                        desc,
+                        &frame_inputs,
+                        &copy,
+                        fast_source.as_ref(),
+                        contact_source.as_ref(),
+                    )?;
+                    self.bind_common_state(device, backbuffer, desc, &frame_inputs, &copy)?;
+                    ambient_occlusion_drawn = true;
+                }
+                pass_index = pass_index.saturating_add(source_pass_count);
                 continue;
             }
 
@@ -904,6 +899,53 @@ impl ScreenShaderRuntime {
         }
 
         Ok(())
+    }
+
+    fn find_enabled_source(&self, name: &str, phase: ShaderPhase) -> Option<ScreenShaderSource> {
+        self.sources
+            .iter()
+            .find(|source| source.enabled && source.name == name && source.phase() == phase)
+            .cloned()
+    }
+
+    fn draw_ambient_occlusion_pipeline(
+        &mut self,
+        device: &Device9Ref<'_>,
+        backbuffer: &Surface9,
+        desc: &D3DSURFACE_DESC,
+        frame_inputs: &backend::FrameInputs,
+        current_color_copy: &BackbufferCopy,
+        fast_source: Option<&ScreenShaderSource>,
+        contact_source: Option<&ScreenShaderSource>,
+    ) -> Direct3DResult<()> {
+        if self.ambient_occlusion.is_none() {
+            self.ambient_occlusion =
+                Some(ambient_occlusion::AmbientOcclusionEffect::create(device)?);
+            log::info!("[AO] Engine-side pipeline initialized");
+        }
+
+        let Some(effect) = self.ambient_occlusion.as_mut() else {
+            return Ok(());
+        };
+
+        device.clear_texture(0)?;
+        device.stretch_rect(
+            backbuffer,
+            None,
+            &current_color_copy.surface,
+            None,
+            D3DTEXF_POINT,
+        )?;
+        effect.draw(
+            device,
+            backbuffer,
+            desc,
+            frame_inputs,
+            fast_source,
+            contact_source,
+            &current_color_copy.texture,
+            self.frame_index,
+        )
     }
 
     fn draw_blooming_hdr_pipeline(
@@ -1185,6 +1227,7 @@ impl ScreenShaderRuntime {
 
     fn release_device_resources(&mut self) {
         self.compiled = None;
+        self.ambient_occlusion = None;
         self.blooming_hdr = None;
         self.sunshafts = None;
         self.release_default_pool_resources();
@@ -1197,6 +1240,7 @@ impl ScreenShaderRuntime {
     fn release_default_pool_resources(&mut self) {
         self.backbuffer_copy = None;
         self.world_color_copy = None;
+        self.ambient_occlusion = None;
         self.blooming_hdr = None;
         self.sunshafts = None;
         self.world_color_captured_this_frame = false;

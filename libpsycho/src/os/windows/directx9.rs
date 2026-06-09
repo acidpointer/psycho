@@ -72,6 +72,9 @@ pub type Direct3DResult<T> = WindowsResult<T>;
 /// D3D9 INTZ depth texture format used for shader-readable depth.
 pub const D3DFMT_INTZ: D3DFORMAT = D3DFORMAT(make_fourcc(b'I', b'N', b'T', b'Z'));
 
+/// Two-channel 16-bit float render target used for compact intermediate buffers.
+pub const D3DFMT_G16R16F: D3DFORMAT = D3DFORMAT(112);
+
 /// Magic render-state value that triggers RESZ depth resolve on supported D3D9 drivers.
 pub const D3DRESZ_POINT_SIZE: u32 = 0x7FA0_5000;
 

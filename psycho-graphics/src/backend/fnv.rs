@@ -31,6 +31,7 @@ const TIME_GLOBALS_BASE: usize = 0x011DE7B8;
 const TIME_GLOBALS_GAME_HOUR_OFFSET: usize = 0x0C;
 const SKY_CLIMATE_OFFSET: usize = 0x0C;
 const SKY_SUN_OFFSET: usize = 0x28;
+const SKY_GAME_HOUR_OFFSET: usize = 0xEC;
 const SKYOBJECT_ROOT_NODE_OFFSET: usize = 0x04;
 const CLIMATE_SUN_TIME_BYTES_OFFSET: usize = 0x50;
 const CLIMATE_SUN_TIME_BYTES_LEN: usize = 4;
@@ -61,7 +62,6 @@ const BSRENDEREDTEXTURE_RENDER_TARGET_GROUP0_OFFSET: usize = 0x08;
 const NIRENDERTARGETGROUP_SIZE: usize = 0x28;
 const NIRENDERTARGETGROUP_BUFFER0_OFFSET: usize = 0x0C;
 const NIRENDERTARGETGROUP_BUFFER_COUNT_OFFSET: usize = 0x1C;
-const NIRENDERTARGETGROUP_DEPTH_BUFFER_OFFSET: usize = 0x20;
 const NI2DBUFFER_SIZE: usize = 0x14;
 const NI2DBUFFER_RENDERER_DATA_OFFSET: usize = 0x10;
 const NIDX9_TEXTURE_BUFFER_DATA_SURFACE_OFFSET: usize = 0x14;
@@ -147,37 +147,6 @@ pub(super) fn first_person_depth_texture_ptr() -> Option<*mut c_void> {
 
 pub(super) fn rendered_texture_color_surface(rendered_texture: *mut c_void) -> Option<*mut c_void> {
     unsafe { read_rendered_texture_color_surface(rendered_texture).ok() }
-}
-
-pub(super) unsafe fn resolve_rendered_texture_depth(
-    device_ptr: *mut c_void,
-    rendered_texture: *mut c_void,
-    slot: DepthResolveSlot,
-    reason: &'static str,
-) -> bool {
-    let source_surface = match unsafe { read_rendered_texture_depth_surface(rendered_texture) } {
-        Ok(surface) => surface,
-        Err(err) => {
-            log_depth_resolve_skip(slot, reason, &FnvDepthResolveError::Static(err));
-            return false;
-        }
-    };
-
-    match unsafe {
-        DEPTH_RESOLVE.lock().resolve_from_raw_surface(
-            device_ptr,
-            source_surface,
-            slot,
-            reason,
-            "render target group",
-        )
-    } {
-        Ok(()) => true,
-        Err(err) => {
-            log_depth_resolve_skip(slot, reason, &err);
-            false
-        }
-    }
 }
 
 pub(super) unsafe fn resolve_scene_depth(
@@ -266,19 +235,6 @@ unsafe fn read_rendered_texture_color_surface(
         )?
     };
     unsafe { read_ni_buffer_surface(buffer, "color buffer") }
-}
-
-unsafe fn read_rendered_texture_depth_surface(
-    rendered_texture: *mut c_void,
-) -> Result<*mut c_void, &'static str> {
-    let group = unsafe { read_rendered_texture_group(rendered_texture)? };
-    let buffer = unsafe {
-        read_ptr_checked(
-            group as usize + NIRENDERTARGETGROUP_DEPTH_BUFFER_OFFSET,
-            "missing render target depth buffer",
-        )?
-    };
-    unsafe { read_ni_buffer_surface(buffer, "depth buffer") }
 }
 
 unsafe fn read_rendered_texture_group(
@@ -500,15 +456,22 @@ unsafe fn read_sun_frame() -> Option<SunFrame> {
 }
 
 unsafe fn read_daylight_strength(sky: *mut u8) -> Option<f32> {
-    let game_hour = unsafe { read_f32(TIME_GLOBALS_BASE + TIME_GLOBALS_GAME_HOUR_OFFSET)? };
-    if !game_hour.is_finite() || !(0.0..=24.1).contains(&game_hour) {
-        return None;
-    }
+    let game_hour =
+        unsafe { read_sky_game_hour(sky) }.or_else(|| unsafe { read_global_game_hour() })?;
 
     let times = unsafe { read_cached_daylight_times() }
         .or_else(|| unsafe { read_climate_daylight_times(sky) })?;
-    let day_time = (game_hour / 24.0).rem_euclid(1.0);
-    Some(times.daylight_at(day_time))
+    Some(times.daylight_at(game_hour))
+}
+
+unsafe fn read_sky_game_hour(sky: *mut u8) -> Option<f32> {
+    let game_hour = unsafe { read_f32(sky as usize + SKY_GAME_HOUR_OFFSET)? };
+    is_valid_day_hour(game_hour).then_some(game_hour)
+}
+
+unsafe fn read_global_game_hour() -> Option<f32> {
+    let game_hour = unsafe { read_f32(TIME_GLOBALS_BASE + TIME_GLOBALS_GAME_HOUR_OFFSET)? };
+    is_valid_day_hour(game_hour).then_some(game_hour)
 }
 
 unsafe fn read_cached_daylight_times() -> Option<DaylightTimes> {
@@ -569,14 +532,10 @@ impl DaylightTimes {
     }
 
     fn is_valid(self) -> bool {
-        self.sunrise_begin.is_finite()
-            && self.sunrise_end.is_finite()
-            && self.sunset_begin.is_finite()
-            && self.sunset_end.is_finite()
-            && (0.0..=1.0).contains(&self.sunrise_begin)
-            && (0.0..=1.0).contains(&self.sunrise_end)
-            && (0.0..=1.0).contains(&self.sunset_begin)
-            && (0.0..=1.0).contains(&self.sunset_end)
+        is_valid_day_hour(self.sunrise_begin)
+            && is_valid_day_hour(self.sunrise_end)
+            && is_valid_day_hour(self.sunset_begin)
+            && is_valid_day_hour(self.sunset_end)
             && self.sunrise_begin < self.sunrise_end
             && self.sunrise_end < self.sunset_begin
             && self.sunset_begin < self.sunset_end
@@ -597,6 +556,10 @@ impl DaylightTimes {
 
         1.0 - smooth01((day_time - self.sunset_begin) / (self.sunset_end - self.sunset_begin))
     }
+}
+
+fn is_valid_day_hour(value: f32) -> bool {
+    value.is_finite() && (0.0..=24.1).contains(&value)
 }
 
 fn smooth01(value: f32) -> f32 {
@@ -695,30 +658,6 @@ impl FnvDepthResolve {
                 slot,
                 reason,
                 "active D3D",
-            )
-        }
-    }
-
-    unsafe fn resolve_from_raw_surface(
-        &mut self,
-        device_ptr: *mut c_void,
-        source_surface: *mut c_void,
-        slot: DepthResolveSlot,
-        reason: &'static str,
-        source_label: &'static str,
-    ) -> Result<(), FnvDepthResolveError> {
-        let Some(device) = (unsafe { Device9Ref::from_raw_void(device_ptr) }) else {
-            return Err(FnvDepthResolveError::Static("null D3D device"));
-        };
-
-        unsafe {
-            self.resolve_from_surface(
-                &device,
-                device_ptr,
-                source_surface,
-                slot,
-                reason,
-                source_label,
             )
         }
     }
