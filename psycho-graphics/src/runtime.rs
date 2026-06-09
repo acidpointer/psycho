@@ -226,6 +226,8 @@ struct ScreenShaderRuntime {
     imgui: Option<psycho_imgui::Dx9Context>,
     imgui_hwnd: usize,
     imgui_needs_device_objects: bool,
+    selected_shader_index: usize,
+    frame_pacing: FramePacing,
     next_scan: Option<Instant>,
     frame_index: u32,
     last_depth_available: Option<bool>,
@@ -257,6 +259,8 @@ impl Default for ScreenShaderRuntime {
             imgui: None,
             imgui_hwnd: 0,
             imgui_needs_device_objects: false,
+            selected_shader_index: 0,
+            frame_pacing: FramePacing::default(),
             next_scan: None,
             frame_index: 0,
             last_depth_available: None,
@@ -1090,8 +1094,14 @@ impl ScreenShaderRuntime {
         }
 
         {
+            let frame_pacing = self.frame_pacing.snapshot();
             let mut ui = imgui.new_frame(true);
-            draw_shader_menu(&mut ui, &mut self.sources);
+            draw_shader_menu(
+                &mut ui,
+                &mut self.sources,
+                &mut self.selected_shader_index,
+                &frame_pacing,
+            );
         }
 
         imgui.render();
@@ -1211,6 +1221,7 @@ impl ScreenShaderRuntime {
 
     fn finish_present_frame(&mut self, device_ptr: *mut c_void) {
         let _ = device_ptr;
+        self.frame_pacing.record_frame();
         self.applied_phases = AppliedShaderPhases::default();
         self.world_color_captured_this_frame = false;
         self.frame_index = self.frame_index.wrapping_add(1);
@@ -1333,83 +1344,314 @@ impl BackbufferCopy {
     }
 }
 
-fn draw_shader_menu(ui: &mut psycho_imgui::Ui<'_>, sources: &mut [ScreenShaderSource]) {
+const FRAME_PACING_HISTORY: usize = 180;
+const FRAME_PACING_MAX_MS: f32 = 100.0;
+
+#[derive(Clone)]
+struct FramePacing {
+    samples: [f32; FRAME_PACING_HISTORY],
+    next_index: usize,
+    count: usize,
+    last_present: Option<Instant>,
+    smoothed_ms: f32,
+}
+
+impl Default for FramePacing {
+    fn default() -> Self {
+        Self {
+            samples: [0.0; FRAME_PACING_HISTORY],
+            next_index: 0,
+            count: 0,
+            last_present: None,
+            smoothed_ms: 0.0,
+        }
+    }
+}
+
+impl FramePacing {
+    fn record_frame(&mut self) {
+        let now = Instant::now();
+        if let Some(last_present) = self.last_present {
+            let frame_ms = now
+                .duration_since(last_present)
+                .as_secs_f32()
+                .mul_add(1000.0, 0.0)
+                .clamp(0.0, FRAME_PACING_MAX_MS);
+            self.samples[self.next_index] = frame_ms;
+            self.next_index = (self.next_index + 1) % FRAME_PACING_HISTORY;
+            self.count = (self.count + 1).min(FRAME_PACING_HISTORY);
+            self.smoothed_ms = if self.smoothed_ms <= f32::EPSILON {
+                frame_ms
+            } else {
+                self.smoothed_ms * 0.92 + frame_ms * 0.08
+            };
+        }
+        self.last_present = Some(now);
+    }
+
+    fn snapshot(&self) -> FramePacingSnapshot {
+        let mut samples = Vec::with_capacity(self.count);
+        if self.count == FRAME_PACING_HISTORY {
+            samples.extend_from_slice(&self.samples[self.next_index..]);
+            samples.extend_from_slice(&self.samples[..self.next_index]);
+        } else {
+            samples.extend_from_slice(&self.samples[..self.count]);
+        }
+
+        let last_ms = samples.last().copied().unwrap_or(0.0);
+        let fps = if self.smoothed_ms > 0.001 {
+            1000.0 / self.smoothed_ms
+        } else {
+            0.0
+        };
+        let scale_max = samples
+            .iter()
+            .copied()
+            .fold(33.3_f32, f32::max)
+            .clamp(16.7, FRAME_PACING_MAX_MS);
+
+        FramePacingSnapshot {
+            fps,
+            last_ms,
+            scale_max,
+            samples,
+        }
+    }
+}
+
+struct FramePacingSnapshot {
+    fps: f32,
+    last_ms: f32,
+    scale_max: f32,
+    samples: Vec<f32>,
+}
+
+const MENU_MUTED_TEXT: [f32; 4] = [0.56, 0.62, 0.67, 1.0];
+const MENU_GOOD_TEXT: [f32; 4] = [0.35, 0.88, 0.78, 1.0];
+const MENU_WARN_TEXT: [f32; 4] = [0.95, 0.70, 0.30, 1.0];
+const MENU_ERROR_TEXT: [f32; 4] = [1.0, 0.40, 0.35, 1.0];
+const MENU_ACCENT_TEXT: [f32; 4] = [0.58, 0.86, 0.96, 1.0];
+const MENU_SLIDER_WIDTH: f32 = 480.0;
+
+fn draw_shader_menu(
+    ui: &mut psycho_imgui::Ui<'_>,
+    sources: &mut [ScreenShaderSource],
+    selected_index: &mut usize,
+    frame_pacing: &FramePacingSnapshot,
+) {
+    ui.set_next_window_pos(24.0, 36.0, psycho_imgui::Condition::FirstUseEver);
+    ui.set_next_window_size(860.0, 680.0, psycho_imgui::Condition::FirstUseEver);
+
     let title = cstring("Psycho Graphics");
     let window = ui.window(&title, None);
     if !window.is_visible() {
         return;
     }
 
-    let header = cstring(format!("Screen-space shaders: {}", sources.len()));
-    ui.text(&header);
+    draw_shader_menu_header(ui, sources, frame_pacing);
     ui.separator();
 
     if sources.is_empty() {
         let empty = cstring("No shader files found in ./mods/psycho_shaders");
-        ui.text(&empty);
+        ui.text_colored(MENU_WARN_TEXT, &empty);
         return;
     }
 
-    for source in sources {
-        draw_shader_entry(ui, source);
-        ui.separator();
+    clamp_selected_shader_index(sources, selected_index);
+
+    {
+        let shader_list = cstring("shader_list");
+        let child = ui.child(&shader_list, 278.0, 0.0, true);
+        if child.is_visible() {
+            draw_shader_list(ui, sources, selected_index);
+        }
+    }
+
+    ui.same_line();
+
+    {
+        let shader_details = cstring("shader_details");
+        let child = ui.child(&shader_details, 0.0, 0.0, true);
+        if child.is_visible() {
+            draw_shader_details(ui, &mut sources[*selected_index]);
+        }
     }
 }
 
-fn draw_shader_entry(ui: &mut psycho_imgui::Ui<'_>, source: &mut ScreenShaderSource) {
+fn draw_shader_menu_header(
+    ui: &mut psycho_imgui::Ui<'_>,
+    sources: &mut [ScreenShaderSource],
+    frame_pacing: &FramePacingSnapshot,
+) {
+    let (enabled_count, error_count, scene_count, final_count) = shader_counts(sources);
+    let title = cstring("Screen-space shaders");
+    ui.text_colored(MENU_ACCENT_TEXT, &title);
+    ui.same_line();
+    let summary = cstring(format!(
+        "{} loaded | {} enabled | {} scene | {} final | {} issue{}",
+        sources.len(),
+        enabled_count,
+        scene_count,
+        final_count,
+        error_count,
+        if error_count == 1 { "" } else { "s" }
+    ));
+    ui.text_colored(MENU_MUTED_TEXT, &summary);
+
+    if !sources.is_empty() {
+        let fraction = enabled_count as f32 / sources.len() as f32;
+        let overlay = cstring(format!("{enabled_count}/{} enabled", sources.len()));
+        ui.progress_bar(fraction, 220.0, 0.0, &overlay);
+        ui.same_line();
+    }
+
+    let enable_all = cstring("Enable all");
+    if ui.button(&enable_all) {
+        set_all_sources_enabled(sources, true);
+    }
+    ui.same_line();
+    let disable_all = cstring("Disable all");
+    if ui.button(&disable_all) {
+        set_all_sources_enabled(sources, false);
+    }
+
+    ui.same_line();
+    draw_frame_pacing_panel(ui, frame_pacing);
+}
+
+fn draw_frame_pacing_panel(ui: &mut psycho_imgui::Ui<'_>, frame_pacing: &FramePacingSnapshot) {
+    let summary = cstring(format!(
+        "FPS {:>5.1} | {:>5.2} ms",
+        frame_pacing.fps, frame_pacing.last_ms
+    ));
+    ui.text_colored(MENU_GOOD_TEXT, &summary);
+
+    if frame_pacing.samples.len() > 1 {
+        let label = cstring("##frame_pacing");
+        ui.plot_lines(
+            &label,
+            &frame_pacing.samples,
+            0.0,
+            frame_pacing.scale_max,
+            300.0,
+            42.0,
+        );
+    }
+}
+
+fn draw_shader_list(
+    ui: &mut psycho_imgui::Ui<'_>,
+    sources: &[ScreenShaderSource],
+    selected_index: &mut usize,
+) {
+    let heading = cstring("Shaders");
+    ui.text_colored(MENU_ACCENT_TEXT, &heading);
+    ui.separator();
+
+    for (index, source) in sources.iter().enumerate() {
+        let label = cstring(shader_list_label(source, index));
+        if ui.selectable(&label, index == *selected_index) {
+            *selected_index = index;
+        }
+    }
+}
+
+fn draw_shader_details(ui: &mut psycho_imgui::Ui<'_>, source: &mut ScreenShaderSource) {
+    let name = cstring(source.name.as_str());
+    ui.text_colored(MENU_ACCENT_TEXT, &name);
+    ui.same_line();
+
     let mut enabled = source.enabled;
-    let enabled_label = cstring(format!("{}##{}.enabled", source.name, source.name));
+    let enabled_label = cstring(format!("Enabled##{}.enabled", source.name));
     if ui.checkbox(&enabled_label, &mut enabled)
         && let Err(err) = source.set_enabled(enabled)
     {
         source.config_error = Some(format!("{err:#}"));
     }
 
-    let path_text = cstring(source.path.display().to_string());
-    ui.text(&path_text);
+    ui.separator();
+    draw_shader_status(ui, source);
 
     let phase_text = cstring(format!("Phase: {}", source.phase().label()));
-    ui.text(&phase_text);
+    ui.text_colored(MENU_MUTED_TEXT, &phase_text);
+
+    let path_text = cstring(format!("Shader: {}", source.path.display()));
+    ui.text_wrapped(&path_text);
+    let config_text = cstring(format!("Config: {}", source.config_path.display()));
+    ui.text_wrapped(&config_text);
 
     if let Some(error) = &source.shader_error {
         let text = cstring(format!("Shader error: {error}"));
-        ui.text(&text);
+        ui.text_colored(MENU_ERROR_TEXT, &text);
     }
     if let Some(error) = &source.config_error {
         let text = cstring(format!("Config error: {error}"));
-        ui.text(&text);
+        ui.text_colored(MENU_ERROR_TEXT, &text);
     }
 
-    let mut pass_count = source.pass_count as f32;
-    let pass_label = cstring(format!("Passes##{}.passes", source.name));
-    if ui.slider_float(&pass_label, &mut pass_count, 1.0, 8.0) {
-        let pass_count = pass_count.round().clamp(1.0, 8.0) as u32;
+    ui.spacing();
+    let pass_heading = cstring("Pass schedule");
+    ui.text_colored(MENU_ACCENT_TEXT, &pass_heading);
+    let mut pass_count = source.pass_count as i32;
+    if draw_int_slider(
+        ui,
+        "Passes",
+        &format!("{}.passes", source.name),
+        &mut pass_count,
+        1,
+        8,
+    ) {
+        let pass_count = pass_count.clamp(1, 8) as u32;
         if let Err(err) = source.set_pass_count(pass_count) {
             source.config_error = Some(format!("{err:#}"));
         }
     }
 
+    ui.spacing();
+    let option_heading = cstring("Options");
+    ui.text_colored(MENU_ACCENT_TEXT, &option_heading);
     if source.options.is_empty() {
         let text = cstring("No dynamic options");
-        ui.text(&text);
+        ui.text_colored(MENU_MUTED_TEXT, &text);
         return;
     }
 
     for option_index in 0..source.options.len() {
         let option = source.options[option_index].clone();
-        let label = cstring(format!("{}##{}.{}", option.label, source.name, option.key));
 
         match option.value {
             ShaderOptionValue::Float(value) => {
                 let mut value = value;
-                if ui.slider_float(&label, &mut value, option.min, option.max)
-                    && let Err(err) = source.set_option_float(option_index, value)
+                if draw_float_slider(
+                    ui,
+                    option.label.as_str(),
+                    &format!("{}.{}", source.name, option.key),
+                    &mut value,
+                    option.min,
+                    option.max,
+                ) && let Err(err) = source.set_option_float(option_index, value)
+                {
+                    source.config_error = Some(format!("{err:#}"));
+                }
+            }
+            ShaderOptionValue::Integer(value) => {
+                let mut value = value;
+                let (min, max) = integer_option_bounds(&option);
+                if draw_int_slider(
+                    ui,
+                    option.label.as_str(),
+                    &format!("{}.{}", source.name, option.key),
+                    &mut value,
+                    min,
+                    max,
+                ) && let Err(err) = source.set_option_integer(option_index, value)
                 {
                     source.config_error = Some(format!("{err:#}"));
                 }
             }
             ShaderOptionValue::Bool(value) => {
                 let mut value = value;
+                let label = cstring(format!("{}##{}.{}", option.label, source.name, option.key));
                 if ui.checkbox(&label, &mut value)
                     && let Err(err) = source.set_option_bool(option_index, value)
                 {
@@ -1417,6 +1659,117 @@ fn draw_shader_entry(ui: &mut psycho_imgui::Ui<'_>, source: &mut ScreenShaderSou
                 }
             }
         }
+    }
+}
+
+fn draw_float_slider(
+    ui: &mut psycho_imgui::Ui<'_>,
+    label: &str,
+    id: &str,
+    value: &mut f32,
+    min: f32,
+    max: f32,
+) -> bool {
+    let display = cstring(format!("{label}: {:.3}", *value));
+    ui.text(&display);
+    let slider_id = cstring(format!("##{id}"));
+    let _width = ui.push_item_width(MENU_SLIDER_WIDTH);
+    ui.slider_float(&slider_id, value, min, max)
+}
+
+fn draw_int_slider(
+    ui: &mut psycho_imgui::Ui<'_>,
+    label: &str,
+    id: &str,
+    value: &mut i32,
+    min: i32,
+    max: i32,
+) -> bool {
+    let display = cstring(format!("{label}: {}", *value));
+    ui.text(&display);
+    let slider_id = cstring(format!("##{id}"));
+    let _width = ui.push_item_width(MENU_SLIDER_WIDTH);
+    ui.slider_int(&slider_id, value, min, max)
+}
+
+fn integer_option_bounds(option: &crate::shaders::ShaderOption) -> (i32, i32) {
+    let min = finite_i32(option.min.round());
+    let max = finite_i32(option.max.round());
+    if min <= max { (min, max) } else { (max, min) }
+}
+
+fn finite_i32(value: f32) -> i32 {
+    if !value.is_finite() {
+        return 0;
+    }
+
+    value.clamp(i32::MIN as f32, i32::MAX as f32) as i32
+}
+
+fn draw_shader_status(ui: &mut psycho_imgui::Ui<'_>, source: &ScreenShaderSource) {
+    let (color, label) = if shader_has_error(source) {
+        (MENU_ERROR_TEXT, "Status: error")
+    } else if !source.enabled {
+        (MENU_WARN_TEXT, "Status: disabled")
+    } else if source.bytecode.is_none() {
+        (MENU_ERROR_TEXT, "Status: no bytecode")
+    } else {
+        (MENU_GOOD_TEXT, "Status: active")
+    };
+    let text = cstring(label);
+    ui.text_colored(color, &text);
+}
+
+fn shader_counts(sources: &[ScreenShaderSource]) -> (usize, usize, usize, usize) {
+    let mut enabled_count = 0usize;
+    let mut error_count = 0usize;
+    let mut scene_count = 0usize;
+    let mut final_count = 0usize;
+
+    for source in sources {
+        if source.enabled {
+            enabled_count += 1;
+        }
+        if shader_has_error(source) {
+            error_count += 1;
+        }
+        match source.phase() {
+            ShaderPhase::ScenePreImageSpace | ShaderPhase::ScenePostImageSpace => scene_count += 1,
+            ShaderPhase::FinalImageSpace => final_count += 1,
+        }
+    }
+
+    (enabled_count, error_count, scene_count, final_count)
+}
+
+fn shader_list_label(source: &ScreenShaderSource, index: usize) -> String {
+    let status = if shader_has_error(source) {
+        "ERR"
+    } else if source.enabled {
+        "ON "
+    } else {
+        "OFF"
+    };
+    format!("{status}  {}##shader_select_{index}", source.name)
+}
+
+fn shader_has_error(source: &ScreenShaderSource) -> bool {
+    source.shader_error.is_some() || source.config_error.is_some() || source.bytecode.is_none()
+}
+
+fn set_all_sources_enabled(sources: &mut [ScreenShaderSource], enabled: bool) {
+    for source in sources {
+        if let Err(err) = source.set_enabled(enabled) {
+            source.config_error = Some(format!("{err:#}"));
+        }
+    }
+}
+
+fn clamp_selected_shader_index(sources: &[ScreenShaderSource], selected_index: &mut usize) {
+    if sources.is_empty() {
+        *selected_index = 0;
+    } else if *selected_index >= sources.len() {
+        *selected_index = sources.len() - 1;
     }
 }
 

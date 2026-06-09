@@ -115,6 +115,25 @@ impl ScreenShaderSource {
         self.save_config()
     }
 
+    pub(crate) fn set_option_integer(&mut self, index: usize, value: i32) -> Result<()> {
+        let Some(option) = self.options.get_mut(index) else {
+            return Ok(());
+        };
+        let (min, max) = integer_bounds(option.min, option.max);
+        let ShaderOptionValue::Integer(integer) = &mut option.value else {
+            return Ok(());
+        };
+
+        let value = value.clamp(min, max);
+        if *integer == value {
+            return Ok(());
+        }
+
+        *integer = value;
+        self.rebuild_option_constants();
+        self.save_config()
+    }
+
     pub(crate) fn set_option_bool(&mut self, index: usize, value: bool) -> Result<()> {
         let Some(option) = self.options.get_mut(index) else {
             return Ok(());
@@ -173,6 +192,7 @@ pub(crate) struct ShaderOption {
 #[derive(Clone, Debug)]
 pub(crate) enum ShaderOptionValue {
     Float(f32),
+    Integer(i32),
     Bool(bool),
 }
 
@@ -180,6 +200,7 @@ impl ShaderOptionValue {
     fn as_constant(&self) -> f32 {
         match self {
             Self::Float(value) => *value,
+            Self::Integer(value) => *value as f32,
             Self::Bool(value) => {
                 if *value {
                     1.0
@@ -731,6 +752,10 @@ impl ShaderOptionConfig {
                 ShaderOptionKind::Float,
                 ShaderOptionConfigValue::Float(value),
             ),
+            ShaderOptionValue::Integer(value) => (
+                ShaderOptionKind::Integer,
+                ShaderOptionConfigValue::Integer(value as i64),
+            ),
             ShaderOptionValue::Bool(value) => {
                 (ShaderOptionKind::Bool, ShaderOptionConfigValue::Bool(value))
             }
@@ -766,6 +791,11 @@ impl From<ShaderOptionConfig> for ShaderOption {
             ShaderOptionKind::Float => {
                 ShaderOptionValue::Float(sanitize_float_value(config.value.as_float(), min, max))
             }
+            ShaderOptionKind::Integer => ShaderOptionValue::Integer(sanitize_integer_value(
+                config.value.as_integer(),
+                min,
+                max,
+            )),
             ShaderOptionKind::Bool => ShaderOptionValue::Bool(config.value.as_bool()),
         };
         let binding = config.constant.as_deref().and_then(ConstantBinding::parse);
@@ -796,10 +826,31 @@ fn sanitize_float_value(value: f32, min: f32, max: f32) -> f32 {
     }
 }
 
+fn sanitize_integer_value(value: i32, min: f32, max: f32) -> i32 {
+    let (min, max) = integer_bounds(min, max);
+    value.clamp(min, max)
+}
+
+fn integer_bounds(min: f32, max: f32) -> (i32, i32) {
+    let (min, max) = sanitize_float_bounds(min, max);
+    let min = finite_i32(min.round());
+    let max = finite_i32(max.round());
+    if min <= max { (min, max) } else { (max, min) }
+}
+
+fn finite_i32(value: f32) -> i32 {
+    if !value.is_finite() {
+        return 0;
+    }
+
+    value.clamp(i32::MIN as f32, i32::MAX as f32) as i32
+}
+
 #[derive(Clone, Copy, Debug, Deserialize, Serialize)]
 #[serde(rename_all = "snake_case")]
 enum ShaderOptionKind {
     Float,
+    Integer,
     Bool,
 }
 
@@ -835,6 +886,20 @@ impl ShaderOptionConfigValue {
                 }
             }
             Self::Integer(value) => value as f32,
+        }
+    }
+
+    fn as_integer(self) -> i32 {
+        match self {
+            Self::Float(value) => finite_i32(value.round()),
+            Self::Bool(value) => {
+                if value {
+                    1
+                } else {
+                    0
+                }
+            }
+            Self::Integer(value) => value.clamp(i32::MIN as i64, i32::MAX as i64) as i32,
         }
     }
 

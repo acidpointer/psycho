@@ -17,6 +17,10 @@ const MOUSE_DEVICE_OFFSET: usize = 0x30;
 const GET_DEVICE_STATE_INDEX: usize = 0x24 / size_of::<*mut c_void>();
 const GET_DEVICE_DATA_INDEX: usize = 0x28 / size_of::<*mut c_void>();
 const MAX_ZEROED_STATE_BYTES: u32 = 0x100;
+const DIMOUSESTATE_LZ_OFFSET: usize = 0x08;
+const DIDEVICEOBJECTDATA_DWOFS_OFFSET: usize = 0x00;
+const DIDEVICEOBJECTDATA_DWDATA_OFFSET: usize = 0x04;
+const DIMOFS_Z: u32 = 0x08;
 const DI_OK: i32 = 0;
 
 type GetDeviceStateFn = unsafe extern "system" fn(*mut c_void, u32, *mut c_void) -> i32;
@@ -37,6 +41,12 @@ struct DirectInputHooks {
     get_device_data: Option<VmtHook<GetDeviceDataFn>>,
     hooked_vtable: usize,
     error_logs: u32,
+}
+
+#[derive(Clone, Copy, Eq, PartialEq)]
+enum BlockedDeviceKind {
+    Keyboard,
+    Mouse,
 }
 
 pub(crate) fn set_menu_input_blocked(blocked: bool) {
@@ -156,14 +166,19 @@ fn refresh_devices() {
     MOUSE_DEVICE.store(mouse as usize, Ordering::Release);
 }
 
-fn should_block_device(device: *mut c_void) -> bool {
+fn blocked_device_kind(device: *mut c_void) -> Option<BlockedDeviceKind> {
     if !MENU_INPUT_BLOCKED.load(Ordering::Acquire) || device.is_null() {
-        return false;
+        return None;
     }
 
     let device = device as usize;
-    device == KEYBOARD_DEVICE.load(Ordering::Acquire)
-        || device == MOUSE_DEVICE.load(Ordering::Acquire)
+    if device == KEYBOARD_DEVICE.load(Ordering::Acquire) {
+        Some(BlockedDeviceKind::Keyboard)
+    } else if device == MOUSE_DEVICE.load(Ordering::Acquire) {
+        Some(BlockedDeviceKind::Mouse)
+    } else {
+        None
+    }
 }
 
 unsafe extern "system" fn get_device_state_detour(
@@ -171,20 +186,24 @@ unsafe extern "system" fn get_device_state_detour(
     data_size: u32,
     data: *mut c_void,
 ) -> i32 {
-    if should_block_device(device) {
+    if let Some(kind) = blocked_device_kind(device) {
+        let result = if kind == BlockedDeviceKind::Mouse {
+            unsafe { call_original_get_device_state(device, data_size, data) }
+        } else {
+            DI_OK
+        };
+
+        if kind == BlockedDeviceKind::Mouse && direct_input_succeeded(result) {
+            queue_mouse_wheel_from_state(data_size, data);
+        }
+
         if !data.is_null() && data_size <= MAX_ZEROED_STATE_BYTES {
             unsafe { ptr::write_bytes(data, 0, data_size as usize) };
         }
         return DI_OK;
     }
 
-    let original = ORIGINAL_GET_DEVICE_STATE.load(Ordering::Acquire);
-    if original == 0 {
-        return DI_OK;
-    }
-
-    let original: GetDeviceStateFn = unsafe { std::mem::transmute(original) };
-    unsafe { original(device, data_size, data) }
+    unsafe { call_original_get_device_state(device, data_size, data) }
 }
 
 unsafe extern "system" fn get_device_data_detour(
@@ -194,13 +213,58 @@ unsafe extern "system" fn get_device_data_detour(
     inout_count: *mut u32,
     flags: u32,
 ) -> i32 {
-    if should_block_device(device) {
+    if let Some(kind) = blocked_device_kind(device) {
+        if kind == BlockedDeviceKind::Mouse {
+            let result = unsafe {
+                call_original_get_device_data(
+                    device,
+                    object_data_size,
+                    object_data,
+                    inout_count,
+                    flags,
+                )
+            };
+            if direct_input_succeeded(result) {
+                queue_mouse_wheel_from_buffer(object_data_size, object_data, inout_count);
+            }
+            if !inout_count.is_null() {
+                unsafe { *inout_count = 0 };
+            }
+            return DI_OK;
+        }
+
         if !inout_count.is_null() {
             unsafe { *inout_count = 0 };
         }
         return DI_OK;
     }
 
+    unsafe {
+        call_original_get_device_data(device, object_data_size, object_data, inout_count, flags)
+    }
+}
+
+unsafe fn call_original_get_device_state(
+    device: *mut c_void,
+    data_size: u32,
+    data: *mut c_void,
+) -> i32 {
+    let original = ORIGINAL_GET_DEVICE_STATE.load(Ordering::Acquire);
+    if original == 0 {
+        return DI_OK;
+    }
+
+    let original: GetDeviceStateFn = unsafe { std::mem::transmute(original) };
+    unsafe { original(device, data_size, data) }
+}
+
+unsafe fn call_original_get_device_data(
+    device: *mut c_void,
+    object_data_size: u32,
+    object_data: *mut c_void,
+    inout_count: *mut u32,
+    flags: u32,
+) -> i32 {
     let original = ORIGINAL_GET_DEVICE_DATA.load(Ordering::Acquire);
     if original == 0 {
         return DI_OK;
@@ -208,6 +272,60 @@ unsafe extern "system" fn get_device_data_detour(
 
     let original: GetDeviceDataFn = unsafe { std::mem::transmute(original) };
     unsafe { original(device, object_data_size, object_data, inout_count, flags) }
+}
+
+fn queue_mouse_wheel_from_state(data_size: u32, data: *mut c_void) {
+    if data.is_null() || data_size < (DIMOUSESTATE_LZ_OFFSET + size_of::<i32>()) as u32 {
+        return;
+    }
+
+    let wheel = unsafe {
+        ptr::read_unaligned(
+            (data as *const u8)
+                .add(DIMOUSESTATE_LZ_OFFSET)
+                .cast::<i32>(),
+        )
+    };
+    queue_mouse_wheel(wheel);
+}
+
+fn queue_mouse_wheel_from_buffer(
+    object_data_size: u32,
+    object_data: *mut c_void,
+    inout_count: *mut u32,
+) {
+    if object_data.is_null()
+        || inout_count.is_null()
+        || object_data_size < (DIDEVICEOBJECTDATA_DWDATA_OFFSET + size_of::<u32>()) as u32
+    {
+        return;
+    }
+
+    let count = unsafe { *inout_count } as usize;
+    let stride = object_data_size as usize;
+    for index in 0..count {
+        let base = unsafe { (object_data as *const u8).add(index * stride) };
+        let offset =
+            unsafe { ptr::read_unaligned(base.add(DIDEVICEOBJECTDATA_DWOFS_OFFSET).cast::<u32>()) };
+        if offset != DIMOFS_Z {
+            continue;
+        }
+
+        let wheel = unsafe {
+            ptr::read_unaligned(base.add(DIDEVICEOBJECTDATA_DWDATA_OFFSET).cast::<u32>())
+        } as i32;
+        queue_mouse_wheel(wheel);
+    }
+}
+
+fn queue_mouse_wheel(wheel: i32) {
+    if wheel != 0 {
+        psycho_imgui::queue_mouse_wheel_delta(wheel, 0);
+    }
+}
+
+fn direct_input_succeeded(result: i32) -> bool {
+    result >= 0
 }
 
 unsafe fn read_game_ptr(address: usize) -> *mut c_void {

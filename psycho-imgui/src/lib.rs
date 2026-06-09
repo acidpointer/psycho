@@ -93,7 +93,28 @@ pub struct Ui<'a> {
     _context: PhantomData<&'a mut Dx9Context>,
 }
 
+#[derive(Clone, Copy, Debug)]
+#[repr(i32)]
+pub enum Condition {
+    Always = 1 << 0,
+    Once = 1 << 1,
+    FirstUseEver = 1 << 2,
+    Appearing = 1 << 3,
+}
+
 impl Ui<'_> {
+    pub fn set_next_window_size(&mut self, width: f32, height: f32, condition: Condition) {
+        unsafe {
+            ffi::psycho_imgui_set_next_window_size(width, height, condition as i32);
+        }
+    }
+
+    pub fn set_next_window_pos(&mut self, x: f32, y: f32, condition: Condition) {
+        unsafe {
+            ffi::psycho_imgui_set_next_window_pos(x, y, condition as i32);
+        }
+    }
+
     pub fn window(&mut self, title: &CStr, open: Option<&mut bool>) -> Window {
         let visible = unsafe {
             ffi::psycho_imgui_begin_window(
@@ -105,12 +126,31 @@ impl Ui<'_> {
         Window { visible }
     }
 
+    pub fn child(&mut self, id: &CStr, width: f32, height: f32, border: bool) -> Child {
+        let visible = unsafe { ffi::psycho_imgui_begin_child(id.as_ptr(), width, height, border) };
+        Child { visible }
+    }
+
     pub fn text(&mut self, text: &CStr) {
         unsafe { ffi::psycho_imgui_text_unformatted(text.as_ptr()) };
     }
 
+    pub fn text_wrapped(&mut self, text: &CStr) {
+        unsafe { ffi::psycho_imgui_text_wrapped(text.as_ptr()) };
+    }
+
+    pub fn text_colored(&mut self, rgba: [f32; 4], text: &CStr) {
+        unsafe {
+            ffi::psycho_imgui_text_colored(rgba[0], rgba[1], rgba[2], rgba[3], text.as_ptr())
+        };
+    }
+
     pub fn separator(&mut self) {
         unsafe { ffi::psycho_imgui_separator() };
+    }
+
+    pub fn spacing(&mut self) {
+        unsafe { ffi::psycho_imgui_spacing() };
     }
 
     pub fn checkbox(&mut self, label: &CStr, value: &mut bool) -> bool {
@@ -121,8 +161,49 @@ impl Ui<'_> {
         unsafe { ffi::psycho_imgui_slider_float(label.as_ptr(), value as *mut f32, min, max) }
     }
 
+    pub fn slider_int(&mut self, label: &CStr, value: &mut i32, min: i32, max: i32) -> bool {
+        unsafe { ffi::psycho_imgui_slider_int(label.as_ptr(), value as *mut i32, min, max) }
+    }
+
+    pub fn selectable(&mut self, label: &CStr, selected: bool) -> bool {
+        unsafe { ffi::psycho_imgui_selectable(label.as_ptr(), selected) }
+    }
+
     pub fn button(&mut self, label: &CStr) -> bool {
         unsafe { ffi::psycho_imgui_button(label.as_ptr()) }
+    }
+
+    pub fn progress_bar(&mut self, fraction: f32, width: f32, height: f32, overlay: &CStr) {
+        unsafe { ffi::psycho_imgui_progress_bar(fraction, width, height, overlay.as_ptr()) };
+    }
+
+    pub fn plot_lines(
+        &mut self,
+        label: &CStr,
+        values: &[f32],
+        scale_min: f32,
+        scale_max: f32,
+        width: f32,
+        height: f32,
+    ) {
+        unsafe {
+            ffi::psycho_imgui_plot_lines(
+                label.as_ptr(),
+                values.as_ptr(),
+                values.len() as i32,
+                scale_min,
+                scale_max,
+                width,
+                height,
+            )
+        };
+    }
+
+    pub fn push_item_width(&mut self, width: f32) -> ItemWidth {
+        unsafe { ffi::psycho_imgui_push_item_width(width) };
+        ItemWidth {
+            _context: PhantomData,
+        }
     }
 
     pub fn same_line(&mut self) {
@@ -147,8 +228,40 @@ impl Drop for Window {
     }
 }
 
+#[must_use]
+pub struct Child {
+    visible: bool,
+}
+
+impl Child {
+    pub fn is_visible(&self) -> bool {
+        self.visible
+    }
+}
+
+impl Drop for Child {
+    fn drop(&mut self) {
+        unsafe { ffi::psycho_imgui_end_child() };
+    }
+}
+
+#[must_use]
+pub struct ItemWidth {
+    _context: PhantomData<*mut ()>,
+}
+
+impl Drop for ItemWidth {
+    fn drop(&mut self) {
+        unsafe { ffi::psycho_imgui_pop_item_width() };
+    }
+}
+
 pub fn wndproc(hwnd: *mut c_void, msg: u32, wparam: usize, lparam: isize) -> isize {
     unsafe { ffi::psycho_imgui_wndproc(hwnd, msg, wparam, lparam) }
+}
+
+pub fn queue_mouse_wheel_delta(vertical: i32, horizontal: i32) {
+    unsafe { ffi::psycho_imgui_queue_mouse_wheel_delta(vertical, horizontal) };
 }
 
 #[repr(C)]
@@ -184,10 +297,23 @@ mod ffi {
             lparam: isize,
         ) -> isize;
         pub fn psycho_imgui_io_state() -> RawIoState;
+        pub fn psycho_imgui_queue_mouse_wheel_delta(vertical: i32, horizontal: i32);
+        pub fn psycho_imgui_set_next_window_size(width: f32, height: f32, condition: i32);
+        pub fn psycho_imgui_set_next_window_pos(x: f32, y: f32, condition: i32);
         pub fn psycho_imgui_begin_window(title: *const c_char, open: *mut bool) -> bool;
         pub fn psycho_imgui_end_window();
+        pub fn psycho_imgui_begin_child(
+            id: *const c_char,
+            width: f32,
+            height: f32,
+            border: bool,
+        ) -> bool;
+        pub fn psycho_imgui_end_child();
         pub fn psycho_imgui_text_unformatted(text: *const c_char);
+        pub fn psycho_imgui_text_wrapped(text: *const c_char);
+        pub fn psycho_imgui_text_colored(r: f32, g: f32, b: f32, a: f32, text: *const c_char);
         pub fn psycho_imgui_separator();
+        pub fn psycho_imgui_spacing();
         pub fn psycho_imgui_checkbox(label: *const c_char, value: *mut bool) -> bool;
         pub fn psycho_imgui_slider_float(
             label: *const c_char,
@@ -195,7 +321,31 @@ mod ffi {
             min: f32,
             max: f32,
         ) -> bool;
+        pub fn psycho_imgui_slider_int(
+            label: *const c_char,
+            value: *mut i32,
+            min: i32,
+            max: i32,
+        ) -> bool;
+        pub fn psycho_imgui_selectable(label: *const c_char, selected: bool) -> bool;
         pub fn psycho_imgui_button(label: *const c_char) -> bool;
+        pub fn psycho_imgui_progress_bar(
+            fraction: f32,
+            width: f32,
+            height: f32,
+            overlay: *const c_char,
+        );
+        pub fn psycho_imgui_plot_lines(
+            label: *const c_char,
+            values: *const f32,
+            count: i32,
+            scale_min: f32,
+            scale_max: f32,
+            width: f32,
+            height: f32,
+        );
+        pub fn psycho_imgui_push_item_width(width: f32);
+        pub fn psycho_imgui_pop_item_width();
         pub fn psycho_imgui_same_line();
     }
 }

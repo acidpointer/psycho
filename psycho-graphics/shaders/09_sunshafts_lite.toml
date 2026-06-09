@@ -105,8 +105,8 @@ constant = "c5.w"
 [[options]]
 key = "sun_sample_px"
 label = "Sun sample px"
-kind = "float"
-value = 32.0
+kind = "integer"
+value = 32
 min = 2.0
 max = 48.0
 constant = "c7.x"
