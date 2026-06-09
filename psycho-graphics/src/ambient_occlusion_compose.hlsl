@@ -13,6 +13,7 @@ float4 EnvironmentData : register(c6);
 float4 ContactOption0 : register(c7);
 float4 ContactOption1 : register(c8);
 float4 ContactOption2 : register(c9);
+float4 EffectData : register(c10);
 
 static const float DepthEndpointEpsilon = 0.000001f;
 static const float3 LuminanceFactors = float3(0.2126f, 0.7152f, 0.0722f);
@@ -28,6 +29,10 @@ float Smooth01(float value) {
 
 bool UseReversedDepth() {
     return FastOption1.y > 0.5f || ContactOption1.y > 0.5f;
+}
+
+bool IsInsideScreen(float2 uv) {
+    return uv.x >= 0.0f && uv.y >= 0.0f && uv.x <= 1.0f && uv.y <= 1.0f;
 }
 
 float HardwareDepth(float2 uv) {
@@ -80,11 +85,11 @@ float DepthDebugView(float linearDepth) {
 }
 
 bool FirstPersonMaskEnabled() {
-    return FastOption2.y > 0.5f || ContactOption2.x > 0.5f;
+    return FrameData.z > 0.5f && (FastOption2.y > 0.5f || ContactOption2.x > 0.5f);
 }
 
 bool IsFirstPersonPixel(float2 uv) {
-    if (!FirstPersonMaskEnabled()) {
+    if (!IsInsideScreen(uv) || !FirstPersonMaskEnabled()) {
         return false;
     }
 
@@ -130,6 +135,39 @@ float MinAmbient() {
     return clamp(fastMin, 0.05f, 0.95f);
 }
 
+float2 ClampAoUv(float2 uv) {
+    float2 halfTexel = EffectData.xy * 0.5f;
+    return clamp(uv, halfTexel, 1.0f - halfTexel);
+}
+
+float2 AccumulateAo(float2 uv, float centerKey, float spatialWeight) {
+    float4 sample = tex2Dlod(AOTexture, float4(ClampAoUv(uv), 0.0f, 0.0f));
+    float depthWeight = saturate(1.0f - abs(sample.g - centerKey) * 52.0f);
+    depthWeight *= depthWeight;
+    float weight = spatialWeight * depthWeight;
+    return float2(saturate(sample.r) * weight, weight);
+}
+
+float ResolveAo(float2 uv, float centerKey) {
+    float2 aoTexel = max(EffectData.xy, ScreenData.zw);
+    float2 aoPixel = uv / aoTexel - 0.5f;
+    float2 basePixel = floor(aoPixel);
+    float2 blend = saturate(aoPixel - basePixel);
+
+    float2 uv00 = (basePixel + float2(0.5f, 0.5f)) * aoTexel;
+    float2 uv10 = (basePixel + float2(1.5f, 0.5f)) * aoTexel;
+    float2 uv01 = (basePixel + float2(0.5f, 1.5f)) * aoTexel;
+    float2 uv11 = (basePixel + float2(1.5f, 1.5f)) * aoTexel;
+
+    float2 sum = 0.0f;
+    sum += AccumulateAo(uv00, centerKey, (1.0f - blend.x) * (1.0f - blend.y));
+    sum += AccumulateAo(uv10, centerKey, blend.x * (1.0f - blend.y));
+    sum += AccumulateAo(uv01, centerKey, (1.0f - blend.x) * blend.y);
+    sum += AccumulateAo(uv11, centerKey, blend.x * blend.y);
+
+    return sum.y > 0.0001f ? saturate(sum.x / sum.y) : 0.0f;
+}
+
 float4 Main(PixelInput input) : COLOR0 {
     float4 color = tex2D(SceneColor, input.uv);
 
@@ -165,15 +203,13 @@ float4 Main(PixelInput input) : COLOR0 {
         return float4(depthView, depthView, depthView, 1.0f);
     }
 
-    float4 aoSample = tex2D(AOTexture, input.uv);
     float centerKey = DepthKey(centerDepth);
-    float upsampleWeight = saturate(1.0f - abs(aoSample.g - centerKey) * 52.0f);
-    upsampleWeight *= upsampleWeight;
+    float aoAmount = ResolveAo(input.uv, centerKey);
 
     float lumaProtect = FastOption1.w > 0.0f ? FastOption1.w : 0.45f;
     float luminance = dot(color.rgb, LuminanceFactors);
     float luminanceFade = saturate(1.0f - luminance * lumaProtect);
-    float amount = saturate(aoSample.r) * upsampleWeight * luminanceFade * FogAoVisibility(centerDepth);
+    float amount = aoAmount * luminanceFade * FogAoVisibility(centerDepth);
     float ao = max(1.0f - amount, MinAmbient());
     color.rgb *= ao;
     return color;

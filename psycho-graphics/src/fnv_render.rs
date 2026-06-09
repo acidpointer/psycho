@@ -13,6 +13,7 @@ use libpsycho::os::windows::hook::inline::inlinehook::InlineHookContainer;
 const PROCESS_IMAGE_SPACE_SHADERS_ADDR: usize = 0x00B55AC0;
 const RENDER_WORLD_SCENE_GRAPH_ADDR: usize = 0x00873200;
 const RENDER_FIRST_PERSON_ADDR: usize = 0x00875110;
+const WORLD_SCENE_GRAPH_PHASE: u8 = 0;
 
 const MAX_HOOK_ERROR_LOGS: u32 = 8;
 const MAX_DEPTH_CAPTURE_LOGS: u32 = 16;
@@ -156,10 +157,10 @@ unsafe extern "cdecl" fn hook_process_image_space_shaders(
 
 unsafe extern "thiscall" fn hook_render_world_scene_graph(
     main: *mut c_void,
-    sky_sun: *mut c_void,
-    is_first_person: u8,
-    wireframe: u8,
-    arg4: u8,
+    scene_graph: *mut c_void,
+    render_first_person: u8,
+    scene_graph_phase: u8,
+    render_flags: u8,
 ) {
     let Ok(original) = RENDER_WORLD_SCENE_GRAPH_HOOK.original() else {
         log_hook_error("[FNV] Missing original RenderWorldSceneGraph function");
@@ -167,12 +168,30 @@ unsafe extern "thiscall" fn hook_render_world_scene_graph(
     };
 
     unsafe {
-        original(main, sky_sun, is_first_person, wireframe, arg4);
-        capture_depth(
-            crate::backend::DepthResolveSlot::World,
-            "FNV after world scene graph",
+        original(
+            main,
+            scene_graph,
+            render_first_person,
+            scene_graph_phase,
+            render_flags,
         );
-        capture_world_color();
+
+        // Ghidra callsites prove the third stack argument is the scene phase:
+        // 0x00870AE8 pushes 1, 0x00870E18 pushes 0. The second u8 is not the
+        // world/first-person discriminator.
+        if scene_graph_phase == WORLD_SCENE_GRAPH_PHASE {
+            capture_depth(
+                crate::backend::DepthResolveSlot::World,
+                "FNV after world scene graph",
+            );
+            capture_world_color();
+        } else {
+            log_depth_capture_skip(
+                crate::backend::DepthResolveSlot::World,
+                "FNV after world scene graph",
+                "non-world scene graph phase",
+            );
+        }
     }
 }
 

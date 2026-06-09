@@ -28,6 +28,10 @@ float Smooth01(float value) {
     return value * value * (3.0f - 2.0f * value);
 }
 
+bool IsInsideScreen(float2 uv) {
+    return uv.x >= 0.0f && uv.y >= 0.0f && uv.x <= 1.0f && uv.y <= 1.0f;
+}
+
 bool UseReversedDepth() {
     return FastOption1.y > 0.5f || ContactOption1.y > 0.5f;
 }
@@ -68,11 +72,11 @@ bool IsSkyDepth(float rawDepth, float linearDepth) {
 }
 
 bool FirstPersonMaskEnabled() {
-    return FastOption2.y > 0.5f || ContactOption2.x > 0.5f;
+    return FrameData.z > 0.5f && (FastOption2.y > 0.5f || ContactOption2.x > 0.5f);
 }
 
 bool IsFirstPersonPixel(float2 uv) {
-    if (!FirstPersonMaskEnabled()) {
+    if (!IsInsideScreen(uv) || !FirstPersonMaskEnabled()) {
         return false;
     }
 
@@ -112,13 +116,17 @@ float FastRadiusPixels(float linearDepth) {
 float2 SampleOcclusionPair(float centerDepth, float2 uv, float2 direction, float fastRadius, float fastRange, float fastBias, float contactRadius, float contactRange, float contactBias) {
     float sampleRadius = max(fastRadius, contactRadius);
     float2 sampleUv = uv + direction * sampleRadius * ScreenData.zw;
+    if (!IsInsideScreen(sampleUv)) {
+        return float2(0.0f, 0.0f);
+    }
+
     float rawSampleDepth = HardwareDepth(sampleUv);
     if (!IsValidDepth(rawSampleDepth)) {
         return float2(0.0f, 0.0f);
     }
 
     float sampleDepth = LinearDepth(rawSampleDepth);
-    if (IsSkyDepth(rawSampleDepth, sampleDepth) || IsFirstPersonPixel(sampleUv)) {
+    if (IsSkyDepth(rawSampleDepth, sampleDepth)) {
         return float2(0.0f, 0.0f);
     }
 
@@ -136,23 +144,27 @@ float2 SampleOcclusionPair(float centerDepth, float2 uv, float2 direction, float
     return float2(fast, contact);
 }
 
+float4 NoOcclusion() {
+    return float4(0.0f, 1.0f, 0.0f, 1.0f);
+}
+
 float4 Main(PixelInput input) : COLOR0 {
     if (FrameData.w < 0.5f) {
-        return float4(0.0f, 1.0f, 0.0f, 1.0f);
+        return NoOcclusion();
     }
 
     if (IsFirstPersonPixel(input.uv)) {
-        return float4(0.0f, 1.0f, 0.0f, 1.0f);
+        return NoOcclusion();
     }
 
     float rawDepth = HardwareDepth(input.uv);
     if (!IsValidDepth(rawDepth)) {
-        return float4(0.0f, 1.0f, 0.0f, 1.0f);
+        return NoOcclusion();
     }
 
     float centerDepth = LinearDepth(rawDepth);
     if (IsSkyDepth(rawDepth, centerDepth)) {
-        return float4(0.0f, 1.0f, 0.0f, 1.0f);
+        return NoOcclusion();
     }
 
     float fastStrength = max(FastOption0.x, 0.0f);

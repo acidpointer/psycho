@@ -245,6 +245,10 @@ impl AmbientOcclusionEffect {
             frame_index,
             2.0,
         )?;
+        device.set_pixel_shader_constant_f(
+            EFFECT_CONSTANT_REGISTER,
+            &[[targets.inv_width, targets.inv_height, AO_SCALE as f32, 0.0]],
+        )?;
         device.set_pixel_shader(&self.compose_shader)?;
         draw_quad(device, desc.Width, desc.Height)
     }
@@ -283,7 +287,7 @@ fn bind_pipeline_state(device: &Device9Ref<'_>) -> Direct3DResult<()> {
         device.set_sampler_state(sampler, D3DSAMP_MAGFILTER, D3DTEXF_LINEAR.0 as u32)?;
         device.set_sampler_state(sampler, D3DSAMP_MIPFILTER, D3DTEXF_NONE.0 as u32)?;
     }
-    for sampler in [1, 2] {
+    for sampler in [1, 2, 4] {
         device.set_sampler_state(sampler, D3DSAMP_MINFILTER, D3DTEXF_POINT.0 as u32)?;
         device.set_sampler_state(sampler, D3DSAMP_MAGFILTER, D3DTEXF_POINT.0 as u32)?;
     }
@@ -360,7 +364,7 @@ fn bind_fullres_constants(
             [
                 frame_index as f32,
                 pass_index,
-                3.0,
+                frame_inputs.depth.first_person_texture.is_some() as u8 as f32,
                 frame_inputs.depth.is_available() as u8 as f32,
             ],
             [
