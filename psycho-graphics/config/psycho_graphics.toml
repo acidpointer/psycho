@@ -98,8 +98,9 @@ enabled = false
 
 # Placeholder for the later visible BRDF replacement path.
 #
-# This currently logs and stays disabled until Ghidra proves the exact
-# PPLighting pixel-shader input contract. Do not enable for normal play.
+# The vanilla draw-time shader handle binding contract is proven and captured,
+# but visible replacement still needs a concrete replacement shader contract.
+# Do not enable for normal play.
 experimental_shader_replacement = false
 
 # true  = skip native PBR if any native PBR hook target is already patched.

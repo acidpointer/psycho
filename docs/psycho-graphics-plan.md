@@ -1158,10 +1158,101 @@ Ghidra-backed NewVegasReloaded contract findings:
   selector virtual `+0x148` then `+0x14C`. Ghidra did not bind functions for
   raw slots `+0xC0` (`0x00E81420`) or `+0x150` (`0x00B7A730`) in this output,
   so those remain unresolved before visible replacement.
-- Remaining hard gap: inspect raw selector slots `+0xC0/+0x150` and wrapper
-  children `+0x148/+0x14C`, then prove shader object replacement ownership and
-  restore timing. Visible native PBR replacement stays disabled until that
-  contract is proven.
+- `graphics_fnv_pbr_selector_setup_raw_slot_followup_audit.txt` narrows the
+  late selector setup contract. Raw slot `+0xC0` at `0x00E81420` is code even
+  though Ghidra did not bind a function; its entry block is a ref-counted setter
+  for selector `+0x28`, not shader creation. Slot `+0x144` is only a wrapper:
+  call selector virtual `+0x148`, then tail-jump `+0x14C`. Slot `+0x148`
+  (`FUN_00B71BF0`) is a large recognized setup function that calls
+  `BSShader::CreateVertexShader @ 0x00BE0FE0` three times with `"vs_2_0"`.
+  Slot `+0x150` starts by propagating global resource records through the
+  selector family and then calls many `BE/BF/C0` setup helpers; adjacent helper
+  `FUN_00B7A870` copies selector `+0x30 -> +0x7C` and `+0x34 -> +0x80` for
+  selector indices `1`, `0xE`, `0xF`, and `0xD`. Raw slot `+0x14C` begins a
+  very large setup function that Ghidra still did not bind/decompile; nearby
+  unknown calls to `BSShader::CreatePixelShader @ 0x00BE1750` remain the next
+  shader-creation lifecycle target.
+- Remaining hard gap: prove exact `CreateVertexShader`/`CreatePixelShader`
+  signatures, call-site argument/return ownership, which selector fields receive
+  created shader objects, and draw-time restore timing. Visible native PBR
+  replacement stays disabled until that contract is proven.
+- `graphics_fnv_pbr_shader_creation_lifecycle_followup_audit.txt` proves the
+  native shader creation ABI. `BSShader::CreateVertexShader @ 0x00BE0FE0`
+  takes `(source_path, defines, profile, cache_name)`, compiles/caches through
+  `D3DXCompileShader`, creates a native D3D vertex shader via renderer device
+  vtable `+0x16C`, allocates a `0x3C` `NiD3DVertexShader`, initializes it with
+  vtable `0x010EF87C`, and stores the native handle through its virtual
+  `+0x88` setter. `BSShader::CreatePixelShader @ 0x00BE1750` takes
+  `(source_path, defines, profile, cache_name)`, optionally substitutes the
+  `ps_2_0` profile through `FUN_00B4F380(1)`, creates a native D3D pixel
+  shader via renderer device vtable `+0x1A8`, allocates a `0x30`
+  `NiD3DPixelShader`, initializes it with vtable `0x010EF7D4`, and stores the
+  native handle through virtual `+0x80`. Selector `+0x148` writes returned
+  vertex shader objects into global arrays `0x011FDD88`, `0x011FDE04`, and
+  `0x011FDE5C` with ref-count handoff. Selector `+0x14C` writes returned pixel
+  shader objects into global arrays `0x011FDA48` and `0x011FDB08`, also with
+  ref-count handoff. This strongly supports a replacement side table keyed by
+  returned `NiD3D*Shader` object pointer rather than mutating object layout, but
+  the exact PPLighting callsite arguments and handle getter/setter slots still
+  need one more focused audit.
+- `graphics_fnv_pbr_shader_creation_callsite_args_audit.txt` proves the
+  concrete PPLighting shader creation groups. Selector `+0x148` creates vertex
+  group A at `0x00B74000` into global array `0x011FDD88` (`0x1F` entries,
+  `lighting\1x\v\base.v.hlsl`, cache `SLS1%03i.vso`, profile `vs_2_0`),
+  group B at `0x00B740B3` into `0x011FDE04` (`0x16` entries, cache
+  `SLS1S%03i.vso`, profile `vs_2_0`), and group C at `0x00B7419F` into
+  `0x011FDE5C` (`0x67` entries, cache `SLS2%03i.vso`, profile `vs_2_0`,
+  with old-entry clearing when the source descriptor is null). Selector
+  `+0x14C` creates pixel group A at `0x00B78720` into `0x011FDA48` (`0x30`
+  entries, `lighting\1x\p\base.p.hlsl`/`diffusePt.p.hlsl`, cache
+  `SLS1%03i.pso`, profile `ps_2_0`) and pixel group B at `0x00B78907` into
+  `0x011FDB08` (`0xA0` entries, cache `SLS2%03i.pso` or
+  `SLS2%03is%01i.pso`, profile `ps_2_0`). All five groups use the same
+  ref-count handoff shape: read old array entry, release old object if needed,
+  store the returned object, then addref the new object.
+- The same callsite-args audit tightens the handle-slot contract. Pixel shader
+  vtable `0x010EF7D4 +0x80` writes the native handle to object `+0x2C`;
+  `+0x84` is a release/check slot that tests `+0x2C`; `+0x7C` is still the
+  getter candidate used by `SetShaders`, but Ghidra did not bind it as a
+  function in this output. Vertex shader vtable `0x010EF87C +0x88` writes the
+  create-time native handle to object `+0x34`; `+0x80` writes `+0x30`, `+0x90`
+  writes `+0x38`, and `+0x98` writes byte `+0x2C`. Vertex `+0x84` remains the
+  getter candidate used by `SetShaders`, but it also needs raw disassembly
+  proof because Ghidra did not bind `0x00E95D50` as a function here.
+- Remaining hard gap after creation callsite proof: raw-disassemble the
+  unbound getter thunks (`0x00BE0B10`, `0x00E95D50`, and adjacent tiny slots),
+  re-prove the `BSShader::SetShaders @ 0x00BE1F90` bind sequence from raw
+  instructions because this output did not bind it as a function, and choose
+  the least invasive replacement/restore point. Visible native PBR replacement
+  stays disabled until those facts are concrete.
+- `graphics_fnv_pbr_shader_handle_getter_setshaders_contract_audit.txt` closes
+  the vanilla shader-handle binding contract. Pixel shader vtable
+  `0x010EF7D4 +0x7C` points at raw thunk `0x00BE0B10`
+  (`mov eax, [ecx+0x2C]; ret`) and `+0x80` writes the same `+0x2C` native
+  handle. Vertex shader vtable `0x010EF87C +0x84` points at raw thunk
+  `0x00E95D50` (`mov eax, [ecx+0x34]; ret`) and create-time setter `+0x88`
+  writes the same `+0x34` native handle. Vertex `+0x7C/+0x80` get/set `+0x30`,
+  `+0x8C/+0x90` get/set `+0x38`, and `+0x94/+0x98` get/set byte `+0x2C`.
+- The same handle audit raw-disassembles `BSShader::SetShaders @ 0x00BE1F90`:
+  it reads current pass global `0x0126F74C`, gets the renderer helper through
+  `0x00E7F7C0`, binds the vertex handle from pass `+0x5C -> vtable +0x84`
+  through renderer helper vtable `+0x8C`, then, if pass `+0x44` is non-null,
+  binds the pixel handle from pass `+0x44 -> vtable +0x7C` through renderer
+  helper vtable `+0x7C`. It returns immediately after those binds. This makes
+  `SetShaders` a proven post-constant shader-handle binding boundary.
+- NewVegasReloaded's source path is now explicitly rejected as a compatibility
+  model for Psycho: it casts vanilla `NiD3DVertexShader`/`NiD3DPixelShader`
+  allocations to larger `NiD3D*ShaderEx` structs and appends fields such as
+  replacement shader records, backup handles, and names after the vanilla
+  object. Ghidra proves vanilla allocations are only `0x3C` and `0x30`, so
+  Psycho must not extend those objects. The compatible model is a side table
+  keyed by vanilla shader object pointer plus draw-scoped native handle binding.
+- Remaining PBR implementation gap after handle binding: the binding lifecycle
+  is proven, but visible BRDF replacement still needs a concrete replacement
+  shader contract for at least one safe shader family: input semantics,
+  constants, texture-stage policy, fallback behavior, and shader source/bytecode
+  ownership. Until that exists, replacement may capture handles but must not
+  rebind a guessed material shader.
 - Current Psycho implementation state: `graphics.native_pbr` is default-off and
   prologue-gated. When explicitly enabled it captures the proven contract at
   `BSShader::SetShaders`, `FUN_00BD4BA0`, and
@@ -1169,8 +1260,11 @@ Ghidra-backed NewVegasReloaded contract findings:
   selector/draw-param `+0x30/+0x34` interface pointers, selector alternate
   fields `+0x7C/+0x80`, active copies `+0x84/+0x88`, and their `vtable +0x78`
   function pointers for telemetry. It classifies whether those interfaces match
-  the proven vanilla `0x010EF544 -> 0x00E826D0` constant dispatcher. It does not
-  replace shaders yet.
+  the proven vanilla `0x010EF544 -> 0x00E826D0` constant dispatcher, and it
+  captures the final vanilla D3D shader handles from pass `+0x5C` vertex object
+  `+0x34` and pass `+0x44` pixel object `+0x2C` only when their vtables match
+  the proven vanilla `0x010EF87C`/`0x010EF7D4` objects. It does not replace
+  shaders yet.
 
 ### Fallout Shader Loader
 
@@ -1803,6 +1897,25 @@ Prepared native PBR follow-up script:
   - decompile wrapper children `+0x148` and `+0x14C`;
   - prove whether any late selector setup/finalize path mutates native shader
     handles after the `+0x11C` constant-interface setup.
+- `analysis/ghidra/scripts/graphics_fnv_pbr_shader_creation_lifecycle_followup_audit.py`
+  - decompile `BSShader::CreateVertexShader` and `BSShader::CreatePixelShader`;
+  - print call-site windows inside selector slots `+0x148/+0x14C`;
+  - prove creation return ownership and whether a side-table replacement model
+    can stay layout-compatible with other graphics mods.
+- `analysis/ghidra/scripts/graphics_fnv_pbr_shader_creation_callsite_args_audit.py`
+  - print backward/forward instruction windows around the five PPLighting shader
+    create calls;
+  - identify concrete HLSL paths, define arrays, profiles, cache names, and
+    global array destinations;
+  - decompile `NiD3DVertexShader`/`NiD3DPixelShader` handle getter/setter vtable
+    slots used by creation and `SetShaders`.
+- `analysis/ghidra/scripts/graphics_fnv_pbr_shader_handle_getter_setshaders_contract_audit.py`
+  - dump raw bytes and disassembly for unbound shader handle getter/setter
+    thunks including `0x00BE0B10`, `0x00E95D50`, and adjacent tiny slots;
+  - raw-disassemble `BSShader::SetShaders @ 0x00BE1F90` even when Ghidra has
+    not created a function for it;
+  - prove whether PBR replacement should hook getter slots, substitute handles
+    inside `SetShaders`, or avoid mutation until a safer binding point exists.
 
 ### Runtime Telemetry
 

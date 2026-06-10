@@ -1,0 +1,3761 @@
+FNV PBR SHADER CREATION LIFECYCLE FOLLOWUP AUDIT
+
+Questions:
+1. What exact arguments and return ownership do BSShader::CreateVertexShader/CreatePixelShader use?
+2. Which selector setup slots create PPLighting shader objects, and where are returned objects assigned?
+3. Does selector +0x14C contain pixel shader creation for the PPLighting family?
+4. Is a creation-time replacement side table safer than mutating NiD3D shader object layouts?
+
+Compatibility rule:
+Do not implement visible PBR replacement until creation hooks, return ownership, and draw-time restore timing are proven.
+
+----------------------------------------------------------------------
+References TO 0x00be0fe0 (BSShader::CreateVertexShader)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x00bd178c (in FUN_00bd16f0) CALL 0x00be0fe0 range=outside focus ranges
+  UNCONDITIONAL_CALL @ 0x00b87584 (in FUN_00b874f0) CALL 0x00be0fe0 range=outside focus ranges
+  UNCONDITIONAL_CALL @ 0x00b8764e (in FUN_00b874f0) CALL 0x00be0fe0 range=outside focus ranges
+  UNCONDITIONAL_CALL @ 0x00b8772e (in FUN_00b874f0) CALL 0x00be0fe0 range=outside focus ranges
+  UNCONDITIONAL_CALL @ 0x00b8780e (in FUN_00b874f0) CALL 0x00be0fe0 range=outside focus ranges
+  UNCONDITIONAL_CALL @ 0x00b878d8 (in FUN_00b874f0) CALL 0x00be0fe0 range=outside focus ranges
+  UNCONDITIONAL_CALL @ 0x00b879b4 (in FUN_00b874f0) CALL 0x00be0fe0 range=outside focus ranges
+  UNCONDITIONAL_CALL @ 0x00b87ac2 (in FUN_00b874f0) CALL 0x00be0fe0 range=outside focus ranges
+  UNCONDITIONAL_CALL @ 0x00b87fc3 (in FUN_00b874f0) CALL 0x00be0fe0 range=outside focus ranges
+  UNCONDITIONAL_CALL @ 0x00b880af (in FUN_00b874f0) CALL 0x00be0fe0 range=outside focus ranges
+  UNCONDITIONAL_CALL @ 0x00b88179 (in FUN_00b874f0) CALL 0x00be0fe0 range=outside focus ranges
+  UNCONDITIONAL_CALL @ 0x00bcb59e (in FUN_00bcb4d0) CALL 0x00be0fe0 range=outside focus ranges
+  UNCONDITIONAL_CALL @ 0x00bcb683 (in FUN_00bcb4d0) CALL 0x00be0fe0 range=outside focus ranges
+  UNCONDITIONAL_CALL @ 0x00b828ba (in FUN_00b827c0) CALL 0x00be0fe0 range=outside focus ranges
+  UNCONDITIONAL_CALL @ 0x00b82981 (in FUN_00b827c0) CALL 0x00be0fe0 range=outside focus ranges
+  UNCONDITIONAL_CALL @ 0x00b82a4a (in FUN_00b827c0) CALL 0x00be0fe0 range=outside focus ranges
+  UNCONDITIONAL_CALL @ 0x00bc638e (in FUN_00bc5c40) CALL 0x00be0fe0 range=outside focus ranges
+  UNCONDITIONAL_CALL @ 0x00b8019d (in FUN_00b80090) CALL 0x00be0fe0 range=outside focus ranges
+  UNCONDITIONAL_CALL @ 0x00b80221 (in FUN_00b80090) CALL 0x00be0fe0 range=outside focus ranges
+  UNCONDITIONAL_CALL @ 0x00bb615f (in FUN_00bb6060) CALL 0x00be0fe0 range=outside focus ranges
+  UNCONDITIONAL_CALL @ 0x00b74000 (in FUN_00b71bf0) CALL 0x00be0fe0 range=selector +0x148 recognized vertex creation function
+  UNCONDITIONAL_CALL @ 0x00b740b3 (in FUN_00b71bf0) CALL 0x00be0fe0 range=selector +0x148 recognized vertex creation function
+  UNCONDITIONAL_CALL @ 0x00b7419f (in FUN_00b71bf0) CALL 0x00be0fe0 range=selector +0x148 recognized vertex creation function
+  UNCONDITIONAL_CALL @ 0x00babc8b (in FUN_00baafc0) CALL 0x00be0fe0 range=outside focus ranges
+  UNCONDITIONAL_CALL @ 0x00babd9b (in FUN_00baafc0) CALL 0x00be0fe0 range=outside focus ranges
+  UNCONDITIONAL_CALL @ 0x00bba4fa (in FUN_00bb96f0) CALL 0x00be0fe0 range=outside focus ranges
+  UNCONDITIONAL_CALL @ 0x00bba52e (in FUN_00bb96f0) CALL 0x00be0fe0 range=outside focus ranges
+  UNCONDITIONAL_CALL @ 0x00bba555 (in FUN_00bb96f0) CALL 0x00be0fe0 range=outside focus ranges
+  UNCONDITIONAL_CALL @ 0x00ba51b1 (in ???) CALL 0x00be0fe0 range=outside focus ranges
+  UNCONDITIONAL_CALL @ 0x00bb02f7 (in ???) CALL 0x00be0fe0 range=outside focus ranges
+  UNCONDITIONAL_CALL @ 0x00bb1590 (in ???) CALL 0x00be0fe0 range=outside focus ranges
+  UNCONDITIONAL_CALL @ 0x00bc0a31 (in ???) CALL 0x00be0fe0 range=outside focus ranges
+  UNCONDITIONAL_CALL @ 0x00bc4701 (in ???) CALL 0x00be0fe0 range=outside focus ranges
+  UNCONDITIONAL_CALL @ 0x00bc5131 (in ???) CALL 0x00be0fe0 range=outside focus ranges
+  UNCONDITIONAL_CALL @ 0x00bca1d0 (in ???) CALL 0x00be0fe0 range=outside focus ranges
+  UNCONDITIONAL_CALL @ 0x00bccd9b (in ???) CALL 0x00be0fe0 range=outside focus ranges
+  UNCONDITIONAL_CALL @ 0x00bcf2a0 (in ???) CALL 0x00be0fe0 range=outside focus ranges
+  UNCONDITIONAL_CALL @ 0x00bd09a4 (in ???) CALL 0x00be0fe0 range=outside focus ranges
+  UNCONDITIONAL_CALL @ 0x00bd0a6b (in ???) CALL 0x00be0fe0 range=outside focus ranges
+  UNCONDITIONAL_CALL @ 0x00bd28f0 (in ???) CALL 0x00be0fe0 range=outside focus ranges
+  UNCONDITIONAL_CALL @ 0x00bd3b00 (in ???) CALL 0x00be0fe0 range=outside focus ranges
+  UNCONDITIONAL_CALL @ 0x00bd3bea (in ???) CALL 0x00be0fe0 range=outside focus ranges
+  UNCONDITIONAL_CALL @ 0x00bd50db (in ???) CALL 0x00be0fe0 range=outside focus ranges
+  UNCONDITIONAL_CALL @ 0x00bd521b (in ???) CALL 0x00be0fe0 range=outside focus ranges
+  UNCONDITIONAL_CALL @ 0x00c03b61 (in ???) CALL 0x00be0fe0 range=outside focus ranges
+  Total printed: 45 refs
+
+----------------------------------------------------------------------
+References TO 0x00be1750 (BSShader::CreatePixelShader)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x00bd182f (in FUN_00bd16f0) CALL 0x00be1750 range=outside focus ranges
+  UNCONDITIONAL_CALL @ 0x00bd18e1 (in FUN_00bd16f0) CALL 0x00be1750 range=outside focus ranges
+  UNCONDITIONAL_CALL @ 0x00b87b7e (in FUN_00b874f0) CALL 0x00be1750 range=outside focus ranges
+  UNCONDITIONAL_CALL @ 0x00b87c4c (in FUN_00b874f0) CALL 0x00be1750 range=outside focus ranges
+  UNCONDITIONAL_CALL @ 0x00b87d2c (in FUN_00b874f0) CALL 0x00be1750 range=outside focus ranges
+  UNCONDITIONAL_CALL @ 0x00b87e15 (in FUN_00b874f0) CALL 0x00be1750 range=outside focus ranges
+  UNCONDITIONAL_CALL @ 0x00b87ee3 (in FUN_00b874f0) CALL 0x00be1750 range=outside focus ranges
+  UNCONDITIONAL_CALL @ 0x00b88269 (in FUN_00b874f0) CALL 0x00be1750 range=outside focus ranges
+  UNCONDITIONAL_CALL @ 0x00b8836b (in FUN_00b874f0) CALL 0x00be1750 range=outside focus ranges
+  UNCONDITIONAL_CALL @ 0x00b8844b (in FUN_00b874f0) CALL 0x00be1750 range=outside focus ranges
+  UNCONDITIONAL_CALL @ 0x00bcb75c (in FUN_00bcb4d0) CALL 0x00be1750 range=outside focus ranges
+  UNCONDITIONAL_CALL @ 0x00b83d45 (in FUN_00b827c0) CALL 0x00be1750 range=outside focus ranges
+  UNCONDITIONAL_CALL @ 0x00bc6590 (in FUN_00bc5c40) CALL 0x00be1750 range=outside focus ranges
+  UNCONDITIONAL_CALL @ 0x00bc661e (in FUN_00bc5c40) CALL 0x00be1750 range=outside focus ranges
+  UNCONDITIONAL_CALL @ 0x00bc66a6 (in FUN_00bc5c40) CALL 0x00be1750 range=outside focus ranges
+  UNCONDITIONAL_CALL @ 0x00bc672e (in FUN_00bc5c40) CALL 0x00be1750 range=outside focus ranges
+  UNCONDITIONAL_CALL @ 0x00bc67bc (in FUN_00bc5c40) CALL 0x00be1750 range=outside focus ranges
+  UNCONDITIONAL_CALL @ 0x00bc684a (in FUN_00bc5c40) CALL 0x00be1750 range=outside focus ranges
+  UNCONDITIONAL_CALL @ 0x00bc68d8 (in FUN_00bc5c40) CALL 0x00be1750 range=outside focus ranges
+  UNCONDITIONAL_CALL @ 0x00b802a5 (in FUN_00b80090) CALL 0x00be1750 range=outside focus ranges
+  UNCONDITIONAL_CALL @ 0x00b80323 (in FUN_00b80090) CALL 0x00be1750 range=outside focus ranges
+  UNCONDITIONAL_CALL @ 0x00bb61e3 (in FUN_00bb6060) CALL 0x00be1750 range=outside focus ranges
+  UNCONDITIONAL_CALL @ 0x00bb6261 (in FUN_00bb6060) CALL 0x00be1750 range=outside focus ranges
+  UNCONDITIONAL_CALL @ 0x00babf67 (in FUN_00baafc0) CALL 0x00be1750 range=outside focus ranges
+  UNCONDITIONAL_CALL @ 0x00bac0aa (in FUN_00baafc0) CALL 0x00be1750 range=outside focus ranges
+  UNCONDITIONAL_CALL @ 0x00bbb5a5 (in FUN_00bba5d0) CALL 0x00be1750 range=outside focus ranges
+  UNCONDITIONAL_CALL @ 0x00bbb5e5 (in FUN_00bba5d0) CALL 0x00be1750 range=outside focus ranges
+  UNCONDITIONAL_CALL @ 0x00bbb687 (in FUN_00bba5d0) CALL 0x00be1750 range=outside focus ranges
+  UNCONDITIONAL_CALL @ 0x00bbb6c0 (in FUN_00bba5d0) CALL 0x00be1750 range=outside focus ranges
+  UNCONDITIONAL_CALL @ 0x00bbb717 (in FUN_00bba5d0) CALL 0x00be1750 range=outside focus ranges
+  UNCONDITIONAL_CALL @ 0x00b78720 (in ???) CALL 0x00be1750 range=selector +0x14C raw candidate range
+  UNCONDITIONAL_CALL @ 0x00b78907 (in ???) CALL 0x00be1750 range=selector +0x14C raw candidate range
+  UNCONDITIONAL_CALL @ 0x00ba5255 (in ???) CALL 0x00be1750 range=outside focus ranges
+  UNCONDITIONAL_CALL @ 0x00bb041c (in ???) CALL 0x00be1750 range=outside focus ranges
+  UNCONDITIONAL_CALL @ 0x00bb1707 (in ???) CALL 0x00be1750 range=outside focus ranges
+  UNCONDITIONAL_CALL @ 0x00bb17dd (in ???) CALL 0x00be1750 range=outside focus ranges
+  UNCONDITIONAL_CALL @ 0x00bb18c5 (in ???) CALL 0x00be1750 range=outside focus ranges
+  UNCONDITIONAL_CALL @ 0x00bc0adb (in ???) CALL 0x00be1750 range=outside focus ranges
+  UNCONDITIONAL_CALL @ 0x00bc47ab (in ???) CALL 0x00be1750 range=outside focus ranges
+  UNCONDITIONAL_CALL @ 0x00bc5280 (in ???) CALL 0x00be1750 range=outside focus ranges
+  UNCONDITIONAL_CALL @ 0x00bca350 (in ???) CALL 0x00be1750 range=outside focus ranges
+  UNCONDITIONAL_CALL @ 0x00bce3ba (in ???) CALL 0x00be1750 range=outside focus ranges
+  UNCONDITIONAL_CALL @ 0x00bce48a (in ???) CALL 0x00be1750 range=outside focus ranges
+  UNCONDITIONAL_CALL @ 0x00bcf745 (in ???) CALL 0x00be1750 range=outside focus ranges
+  UNCONDITIONAL_CALL @ 0x00bd29e4 (in ???) CALL 0x00be1750 range=outside focus ranges
+  UNCONDITIONAL_CALL @ 0x00bd2ab2 (in ???) CALL 0x00be1750 range=outside focus ranges
+  UNCONDITIONAL_CALL @ 0x00bd3ee5 (in ???) CALL 0x00be1750 range=outside focus ranges
+  UNCONDITIONAL_CALL @ 0x00bd517f (in ???) CALL 0x00be1750 range=outside focus ranges
+  UNCONDITIONAL_CALL @ 0x00bd52bf (in ???) CALL 0x00be1750 range=outside focus ranges
+  UNCONDITIONAL_CALL @ 0x00c03bed (in ???) CALL 0x00be1750 range=outside focus ranges
+  Total printed: 50 refs
+
+======================================================================
+BSShader::CreateVertexShader @ 0x00be0fe0
+======================================================================
+  Function: FUN_00be0fe0 @ 0x00be0fe0, Size: 1889 bytes
+
+/* WARNING: Function: __alloca_probe replaced with injection: alloca_probe */
+
+void FUN_00be0fe0(char *param_1,int *param_2,undefined4 param_3,undefined4 param_4)
+
+{
+  undefined4 uVar1;
+  char cVar2;
+  undefined1 uVar3;
+  uint uVar4;
+  int *piVar5;
+  undefined4 uVar6;
+  undefined4 uVar7;
+  FILE *_File;
+  int *piVar8;
+  void *_Str;
+  undefined1 *puVar9;
+  int iVar10;
+  int iVar11;
+  int *unaff_FS_OFFSET;
+  FILE *_File_00;
+  FILE *pFVar12;
+  char *pcVar13;
+  undefined4 uStack_12a4;
+  int *local_12a0;
+  int *local_129c;
+  int *local_1298;
+  int *local_1294;
+  undefined4 local_1290;
+  int *local_128c;
+  undefined4 local_1288;
+  undefined4 local_1284;
+  int iStack_1280;
+  int *local_127c;
+  int *local_1278;
+  undefined4 local_1274;
+  char *local_1270;
+  undefined4 local_126c;
+  undefined4 local_1268;
+  undefined4 local_1264;
+  undefined **ppuStack_1260;
+  char *pcStack_125c;
+  char local_1258 [260];
+  undefined1 local_1154 [256];
+  undefined1 auStack_1054 [4];
+  char acStack_1050 [1300];
+  undefined1 local_b3c [260];
+  char acStack_a38 [1296];
+  undefined1 auStack_528 [4];
+  undefined1 auStack_524 [1300];
+  uint local_10;
+  int local_c;
+  undefined1 *puStack_8;
+  undefined4 uStack_4;
+  
+  uStack_4 = 0xffffffff;
+  puStack_8 = &LAB_00f2d322;
+  local_c = *unaff_FS_OFFSET;
+  local_10 = DAT_011c16bc ^ (uint)&uStack_12a4;
+  uVar4 = DAT_011c16bc ^ (uint)&stack0xffffed4c;
+  *unaff_FS_OFFSET = (int)&local_c;
+  iVar10 = 0;
+  local_1270 = param_1;
+  local_1294 = param_2;
+  local_1264 = param_3;
+  local_1284 = param_4;
+  local_129c = (int *)0x0;
+  local_1298 = (int *)0x0;
+  local_127c = (int *)0x0;
+  local_1268 = 0;
+  local_1290 = 0;
+  FUN_00be0dc0(local_1258,param_1,param_4,&DAT_010bc868,uVar4);
+  uStack_12a4._0_3_ = (uint3)uStack_12a4 & 0xffff;
+  uStack_12a4 = (int *)CONCAT13(1,(uint3)uStack_12a4);
+  if (DAT_011f9498 != 0) {
+    iVar10 = FUN_00b7fac0(param_4);
+  }
+  if ((DAT_011ae638 != '\0') && (iVar10 == 0)) {
+    local_1278 = (int *)0x0;
+    local_1274 = 0;
+    local_128c = (int *)0x0;
+    local_1288 = 0;
+    cVar2 = FUN_00afe7d0(local_1258,&local_128c,0x20);
+    uStack_12a4._0_3_ = CONCAT12(cVar2,(ushort)uStack_12a4);
+    uVar3 = FUN_00afe7d0(param_1,&local_1278,0x20);
+    uStack_12a4._0_2_ = CONCAT11(uVar3,(byte)uStack_12a4);
+    if ((cVar2 == '\0') && (DAT_011f94a7 != '\0')) {
+      if (DAT_011f9200 == '\0') {
+        _strcpy_s(&DAT_011f9200,0x104,"cache:\\");
+        FUN_00be0dc0(local_1258,param_1,param_4,&DAT_010bc868);
+      }
+      cVar2 = FUN_00afe7d0(local_1258,&local_128c,0x20);
+      uStack_12a4._0_3_ = CONCAT12(cVar2,(ushort)uStack_12a4);
+    }
+    if (uStack_12a4._1_1_ == '\0') {
+      FUN_00406d00(local_1154,0x104,"SHADER ERROR : error opening HLSL source file : %s",param_1);
+    }
+    param_2 = local_1294;
+    if (cVar2 == '\0') {
+      uStack_12a4 = (int *)((uint)uStack_12a4 & 0xffffff);
+    }
+  }
+  uVar4 = (uint)uStack_12a4;
+  uStack_12a4._0_2_ = (ushort)(byte)uStack_12a4;
+  piVar5 = uStack_12a4;
+  local_12a0 = (int *)0x0;
+  if (iVar10 == 0) {
+    uStack_12a4._3_1_ = SUB41(uVar4,3);
+    uStack_12a4 = piVar5;
+    if (uStack_12a4._3_1_ == '\0') {
+      local_1278 = (int *)0x0;
+      if (DAT_011f941e != '\0') {
+        iVar10 = *param_2;
+        local_1278 = param_2;
+        while (iVar10 != 0) {
+          local_1278 = local_1278 + 2;
+          iVar10 = *local_1278;
+        }
+        *local_1278 = (int)&DAT_010bc828;
+        local_1278[1] = (int)&lpWindowName_01011584;
+      }
+      piVar5 = (int *)FUN_00afdf20(param_1,0,0x4000,0x20);
+      if (piVar5 != (int *)0x0) {
+        if ((char)piVar5[0xb] != '\0') {
+          uVar6 = (*(code *)((undefined4 *)*piVar5)[10])();
+          uVar7 = FUN_00aa3e40(uVar6);
+          FUN_00462d80(uVar7,uVar6);
+          pcStack_125c = param_1;
+          piVar8 = local_1294 + 1;
+          ppuStack_1260 = &PTR_LAB_010bc610;
+          acStack_1050[0] = '\0';
+          acStack_a38[0] = '\0';
+          iStack_1280 = 8;
+          local_128c = piVar8;
+          do {
+            if ((char *)piVar8[-1] != (char *)0x0) {
+              _strcat_s(acStack_1050,0x514,(char *)piVar8[-1]);
+              _strcat_s(acStack_a38,0x514," /D");
+              _strcat_s(acStack_a38,0x514,(char *)piVar8[-1]);
+              if (((char *)*piVar8 == (char *)0x0) || (*(char *)*piVar8 == '\0')) {
+                _strcat_s(acStack_a38,0x514,"=1");
+              }
+              else {
+                _strcat_s(acStack_1050,0x514,"=");
+                _strcat_s(acStack_1050,0x514,(char *)*piVar8);
+                _strcat_s(acStack_a38,0x514,"=");
+                _strcat_s(acStack_a38,0x514,(char *)*piVar8);
+              }
+              _strcat_s(acStack_1050,0x514,", ");
+            }
+            uVar1 = local_1264;
+            piVar8 = piVar8 + 2;
+            iStack_1280 = iStack_1280 + -1;
+          } while (iStack_1280 != 0);
+          FUN_00406d00(auStack_524,0x514,"compiling : %s\n %s %s",local_1270,local_1264,acStack_1050
+                      );
+          iVar10 = D3DXCompileShader(uVar7,uVar6,local_1294,&ppuStack_1260,&DAT_01094d90,uVar1,0,
+                                     &local_129c,&local_1298,&local_1268);
+          (**(code **)*piVar5)(1);
+          FUN_00aa4060(uVar7);
+          if ((local_1298 != (int *)0x0) && (local_129c == (int *)0x0)) {
+            acStack_1050[0] = '\0';
+            iVar11 = 0;
+            piVar5 = local_128c;
+            do {
+              if ((char *)piVar5[-1] == (char *)0x0) break;
+              _strcat_s(acStack_1050,0x514,(char *)piVar5[-1]);
+              if (((char *)*piVar5 != (char *)0x0) && (*(char *)*piVar5 != '\0')) {
+                _strcat_s(acStack_1050,0x514,"=");
+                _strcat_s(acStack_1050,0x514,(char *)*piVar5);
+              }
+              _strcat_s(acStack_1050,0x514,", ");
+              iVar11 = iVar11 + 1;
+              piVar5 = piVar5 + 2;
+            } while (iVar11 < 8);
+            uVar6 = (**(code **)(*local_1298 + 0xc))(local_1298);
+            FUN_00406d00(auStack_528,0x514,"%s\n %s\n %s",local_1274,auStack_1054,uVar6);
+            (**(code **)(*local_129c + 8))(local_129c);
+            local_1298 = (int *)0x0;
+          }
+          if ((iVar10 == 0) && (local_129c != (int *)0x0)) {
+            _File = _fopen(local_1258,"wb");
+            if (_File == (FILE *)0x0) {
+              FUN_00406d00(local_1154,0xff,"invalid cache file : %s",local_1258);
+              local_12a0 = (int *)(**(code **)(*local_129c + 0xc))(local_129c);
+            }
+            else {
+              piVar8 = (int *)(**(code **)(*local_129c + 0x10))(local_129c);
+              _File_00 = (FILE *)&DAT_00000001;
+              piVar5 = local_12a0;
+              pFVar12 = _File;
+              local_1294 = piVar8;
+              _Str = (void *)(**(code **)(*local_12a0 + 0xc))();
+              _fwrite(_Str,(size_t)piVar5,(size_t)piVar8,_File_00);
+              _fclose(_File);
+              FUN_00af5e40(&ppuStack_1260);
+              local_12a0 = (int *)(**(code **)(*uStack_12a4 + 0xc))(uStack_12a4,pFVar12);
+            }
+          }
+          else {
+            if ((uStack_12a4._2_1_ == '\0') ||
+               (piVar5 = (int *)FUN_00afdf20(local_1258,0,0x4000,0x20), piVar5 == (int *)0x0))
+            goto LAB_00be1717;
+            piVar8 = local_12a0;
+            if ((char)piVar5[0xb] != '\0') {
+              uVar6 = (**(code **)(*piVar5 + 0x28))();
+              local_1290 = uVar6;
+              piVar8 = (int *)FUN_00aa3e40(uVar6);
+              uStack_12a4._0_2_ = CONCAT11(1,(byte)uStack_12a4);
+              local_12a0 = piVar8;
+              FUN_00462d80(piVar8,uVar6);
+            }
+            (**(code **)*piVar5)(1);
+            if (piVar8 == (int *)0x0) goto LAB_00be1717;
+          }
+          param_4 = local_1284;
+          if (local_1278 != (int *)0x0) {
+            *local_1278 = 0;
+            local_1278[1] = 0;
+          }
+          goto LAB_00be163b;
+        }
+        (**(code **)*piVar5)(1);
+      }
+      pcVar13 = "SHADER ERROR : error opening hlsl file : %s";
+      puVar9 = local_1154;
+    }
+    else {
+      piVar5 = (int *)FUN_00afdf20(local_1258,0,0x4000,0x20);
+      if (piVar5 != (int *)0x0) {
+        if ((char)piVar5[0xb] != '\0') {
+          uVar6 = (**(code **)(*piVar5 + 0x28))();
+          local_1290 = uVar6;
+          local_12a0 = (int *)FUN_00aa3e40(uVar6);
+          uStack_12a4._0_2_ = CONCAT11(1,(byte)uStack_12a4);
+          FUN_00462d80(local_12a0,uVar6);
+        }
+        (**(code **)*piVar5)(1);
+        goto LAB_00be163b;
+      }
+      pcVar13 = "SHADER ERROR : error opening cache file : %s";
+LAB_00be1700:
+      param_1 = local_1258;
+      puVar9 = local_b3c;
+    }
+    FUN_00406d00(puVar9,0x104,pcVar13,param_1);
+  }
+  else {
+    local_12a0 = (int *)(iVar10 + 0x104);
+LAB_00be163b:
+    piVar5 = local_12a0;
+    if (local_12a0 != (int *)0x0) {
+      if (DAT_011f9494 == 0) {
+        iVar10 = (**(code **)(**(int **)(DAT_011f9508 + 0x288) + 0x16c))
+                           (*(int **)(DAT_011f9508 + 0x288),local_12a0,&local_126c);
+        if (iVar10 != 0) {
+          pcVar13 = "SHADER ERROR : failed to create vertex shader : %s";
+          goto LAB_00be1700;
+        }
+        local_128c = (int *)FUN_00aa13e0(0x3c);
+        uStack_4 = 0;
+        if (local_128c == (int *)0x0) {
+          local_127c = (int *)0x0;
+        }
+        else {
+          local_127c = (int *)FUN_00be0b30(DAT_011f9508);
+        }
+        uStack_4 = 0xffffffff;
+        (**(code **)(*local_127c + 0x88))(local_126c);
+      }
+      else {
+        FUN_00b7fd90(param_4,local_12a0,local_1290);
+      }
+    }
+    if (uStack_12a4._1_1_ != '\0') {
+      FUN_00aa4060(piVar5);
+    }
+  }
+LAB_00be1717:
+  *unaff_FS_OFFSET = local_c;
+  __security_check_cookie(local_10 ^ (uint)&uStack_12a4);
+  return;
+}
+
+
+
+--- Calls FROM BSShader::CreateVertexShader (0x00be0fe0) ---
+  0x00be0ff3 -> 0x00ec8660 __alloca_probe
+  0x00be106d -> 0x00be0dc0 FUN_00be0dc0
+  0x00be108a -> 0x00b7fac0 FUN_00b7fac0
+  0x00be10c4 -> 0x00afe7d0 FUN_00afe7d0
+  0x00be10d7 -> 0x00afe7d0 FUN_00afe7d0
+  0x00be1110 -> 0x00ec65a6 _strcpy_s
+  0x00be1121 -> 0x00be0dc0 FUN_00be0dc0
+  0x00be1135 -> 0x00afe7d0 FUN_00afe7d0
+  0x00be115d -> 0x00406d00 FUN_00406d00
+  0x00be11d4 -> 0x00afdf20 FUN_00afdf20
+  0x00be1201 -> 0x00aa3e40 FUN_00aa3e40
+  0x00be120c -> 0x00462d80 FUN_00462d80
+  0x00be1259 -> 0x00ec6bd2 _strcat_s
+  0x00be1270 -> 0x00ec6bd2 _strcat_s
+  0x00be1286 -> 0x00ec6bd2 _strcat_s
+  0x00be12ab -> 0x00ec6bd2 _strcat_s
+  0x00be12c0 -> 0x00ec6bd2 _strcat_s
+  0x00be12d7 -> 0x00ec6bd2 _strcat_s
+  0x00be12ec -> 0x00ec6bd2 _strcat_s
+  0x00be1308 -> 0x00ec6bd2 _strcat_s
+  0x00be1322 -> 0x00ec6bd2 _strcat_s
+  0x00be135c -> 0x00406d00 FUN_00406d00
+  0x00be1387 -> 0x00ee6e0a D3DXCompileShader
+  0x00be139e -> 0x00aa4060 FUN_00aa4060
+  0x00be13dc -> 0x00ec6bd2 _strcat_s
+  0x00be1401 -> 0x00ec6bd2 _strcat_s
+  0x00be1416 -> 0x00ec6bd2 _strcat_s
+  0x00be1430 -> 0x00ec6bd2 _strcat_s
+  0x00be146d -> 0x00406d00 FUN_00406d00
+  0x00be14a5 -> 0x00ec9a47 _fopen
+  0x00be14d4 -> 0x00ecb086 _fwrite
+  0x00be14da -> 0x00ec9907 _fclose
+  0x00be14e4 -> 0x00af5e40 FUN_00af5e40
+  0x00be1518 -> 0x00406d00 FUN_00406d00
+  0x00be154b -> 0x00afdf20 FUN_00afdf20
+  0x00be1578 -> 0x00aa3e40 FUN_00aa3e40
+  0x00be158c -> 0x00462d80 FUN_00462d80
+  0x00be15ed -> 0x00afdf20 FUN_00afdf20
+  0x00be161a -> 0x00aa3e40 FUN_00aa3e40
+  0x00be162c -> 0x00462d80 FUN_00462d80
+  0x00be1658 -> 0x00b7fd90 FUN_00b7fd90
+  0x00be1691 -> 0x00aa13e0 FUN_00aa13e0
+  0x00be16b5 -> 0x00be0b30 NiD3DVertexShader initializer
+  0x00be16eb -> 0x00aa4060 FUN_00aa4060
+  0x00be170d -> 0x00406d00 FUN_00406d00
+  0x00be1733 -> 0x00ec408c __security_check_cookie
+  Total: 46 calls
+
+======================================================================
+MATCHED DECOMPILE LINES: BSShader::CreateVertexShader @ 0x00be0fe0
+======================================================================
+  void FUN_00be0fe0(char *param_1,int *param_2,undefined4 param_3,undefined4 param_4)
+        FUN_00406d00(local_1154,0x104,"SHADER ERROR : error opening HLSL source file : %s",param_1);
+            iVar10 = D3DXCompileShader(uVar7,uVar6,local_1294,&ppuStack_1260,&DAT_01094d90,uVar1,0,
+        pcVar13 = "SHADER ERROR : error opening hlsl file : %s";
+        pcVar13 = "SHADER ERROR : error opening cache file : %s";
+            pcVar13 = "SHADER ERROR : failed to create vertex shader : %s";
+            local_127c = (int *)FUN_00be0b30(DAT_011f9508);
+          (**(code **)(*local_127c + 0x88))(local_126c);
+  Total matched lines: 8
+
+======================================================================
+BSShader::CreatePixelShader @ 0x00be1750
+======================================================================
+  Function: FUN_00be1750 @ 0x00be1750, Size: 1884 bytes
+
+/* WARNING: Function: __alloca_probe replaced with injection: alloca_probe */
+
+void FUN_00be1750(char *param_1,int *param_2,char *param_3,undefined4 param_4)
+
+{
+  undefined1 uVar1;
+  char cVar2;
+  uint uVar3;
+  int *piVar4;
+  undefined4 uVar5;
+  undefined4 uVar6;
+  FILE *_File;
+  int *piVar7;
+  void *_Str;
+  undefined1 *puVar8;
+  int iVar9;
+  int iVar10;
+  int *unaff_FS_OFFSET;
+  FILE *_File_00;
+  char *pcVar11;
+  undefined4 uStack_12a8;
+  int *local_12a4;
+  int *local_12a0;
+  int *local_129c;
+  int *local_1298;
+  undefined4 local_1294;
+  char *local_1290;
+  int *local_128c;
+  undefined4 local_1288;
+  int *local_1284;
+  undefined4 local_1280;
+  undefined4 local_127c;
+  char *local_1278;
+  int *local_1274;
+  int iStack_1270;
+  char *local_126c;
+  undefined4 local_1268;
+  undefined4 local_1264;
+  undefined **ppuStack_1260;
+  char *pcStack_125c;
+  char local_1258 [256];
+  undefined1 auStack_1158 [4];
+  char acStack_1154 [1300];
+  undefined1 local_c40 [260];
+  undefined1 local_b3c [260];
+  char acStack_a38 [1296];
+  undefined1 auStack_528 [4];
+  undefined1 auStack_524 [1300];
+  uint local_10;
+  int local_c;
+  undefined1 *puStack_8;
+  undefined4 uStack_4;
+  
+  uStack_4 = 0xffffffff;
+  puStack_8 = &LAB_00f2d362;
+  local_c = *unaff_FS_OFFSET;
+  local_10 = DAT_011c16bc ^ (uint)&uStack_12a8;
+  uVar3 = DAT_011c16bc ^ (uint)&stack0xffffed48;
+  *unaff_FS_OFFSET = (int)&local_c;
+  iVar9 = 0;
+  local_1278 = param_1;
+  local_1298 = param_2;
+  local_126c = param_3;
+  local_127c = param_4;
+  local_12a0 = (int *)0x0;
+  local_129c = (int *)0x0;
+  local_1274 = (int *)0x0;
+  local_1264 = 0;
+  local_1294 = 0;
+  FUN_00be0dc0(local_1258,param_1,param_4,&DAT_010bc8a0,uVar3);
+  uStack_12a8._0_3_ = (uint3)uStack_12a8 & 0xffff;
+  uStack_12a8 = (int *)CONCAT13(1,(uint3)uStack_12a8);
+  if (DAT_011f9498 != 0) {
+    iVar9 = FUN_00b7fac0(param_4);
+  }
+  if ((DAT_011ae638 != '\0') && (iVar9 == 0)) {
+    local_1284 = (int *)0x0;
+    local_1280 = 0;
+    local_128c = (int *)0x0;
+    local_1288 = 0;
+    uVar1 = FUN_00afe7d0(param_1,&local_1284,0x20);
+    uStack_12a8._0_2_ = CONCAT11(uVar1,(byte)uStack_12a8);
+    cVar2 = FUN_00afe7d0(local_1258,&local_128c,0x20);
+    uStack_12a8._0_3_ = CONCAT12(cVar2,(ushort)uStack_12a8);
+    if ((cVar2 == '\0') && (DAT_011f94a7 != '\0')) {
+      if (DAT_011f9200 == '\0') {
+        _strcpy_s(&DAT_011f9200,0x104,"cache:\\");
+        FUN_00be0dc0(local_1258,param_1,param_4,&DAT_010bc8a0);
+      }
+      cVar2 = FUN_00afe7d0(local_1258,&local_128c,0x20);
+      uStack_12a8._0_3_ = CONCAT12(cVar2,(ushort)uStack_12a8);
+    }
+    if (uStack_12a8._1_1_ == '\0') {
+      FUN_00406d00(local_c40,0x104,"SHADER ERROR : error opening HLSL source file : %s",param_1);
+    }
+    param_2 = local_1298;
+    if (cVar2 == '\0') {
+      uStack_12a8 = (int *)((uint)uStack_12a8 & 0xffffff);
+    }
+  }
+  pcVar11 = local_126c;
+  uVar3 = (uint)uStack_12a8;
+  uStack_12a8._0_2_ = (ushort)(byte)uStack_12a8;
+  piVar4 = uStack_12a8;
+  local_12a4 = (int *)0x0;
+  if (iVar9 == 0) {
+    uStack_12a8._3_1_ = SUB41(uVar3,3);
+    uStack_12a8 = piVar4;
+    if (uStack_12a8._3_1_ == '\0') {
+      local_1284 = (int *)0x0;
+      if (DAT_011f941e != '\0') {
+        iVar9 = *param_2;
+        local_1284 = param_2;
+        while (iVar9 != 0) {
+          local_1284 = local_1284 + 2;
+          iVar9 = *local_1284;
+        }
+        *local_1284 = (int)&DAT_010bc828;
+        local_1284[1] = (int)&lpWindowName_01011584;
+      }
+      local_1290 = local_126c;
+      iVar9 = _strncmp(local_126c,"ps_2_0",4);
+      if ((iVar9 == 0) && (local_1290 = (char *)FUN_00b4f380(1), local_1290 == (char *)0x0)) {
+        local_1290 = pcVar11;
+      }
+      piVar4 = (int *)FUN_00afdf20(param_1,0,0x4000,0x20);
+      if (piVar4 != (int *)0x0) {
+        if ((char)piVar4[0xb] != '\0') {
+          uVar5 = (*(code *)((undefined4 *)*piVar4)[10])();
+          uVar6 = FUN_00aa3e40(uVar5);
+          FUN_00462d80(uVar6,uVar5);
+          pcStack_125c = param_1;
+          piVar7 = local_1298 + 1;
+          ppuStack_1260 = &PTR_LAB_010bc610;
+          acStack_1154[0] = '\0';
+          acStack_a38[0] = '\0';
+          iStack_1270 = 8;
+          local_128c = piVar7;
+          do {
+            if ((char *)piVar7[-1] != (char *)0x0) {
+              _strcat_s(acStack_1154,0x514,(char *)piVar7[-1]);
+              _strcat_s(acStack_a38,0x514," /D");
+              _strcat_s(acStack_a38,0x514,(char *)piVar7[-1]);
+              if (((char *)*piVar7 == (char *)0x0) || (*(char *)*piVar7 == '\0')) {
+                _strcat_s(acStack_a38,0x514,"=1");
+              }
+              else {
+                _strcat_s(acStack_1154,0x514,"=");
+                _strcat_s(acStack_1154,0x514,(char *)*piVar7);
+                _strcat_s(acStack_a38,0x514,"=");
+                _strcat_s(acStack_a38,0x514,(char *)*piVar7);
+              }
+              _strcat_s(acStack_1154,0x514,", ");
+            }
+            piVar7 = piVar7 + 2;
+            iStack_1270 = iStack_1270 + -1;
+          } while (iStack_1270 != 0);
+          FUN_00406d00(auStack_524,0x514,"compiling : %s\n %s %s",local_1278,local_126c,acStack_1154
+                      );
+          iVar9 = D3DXCompileShader(uVar6,uVar5,local_1298,&ppuStack_1260,&DAT_01094d90,local_1290,0
+                                    ,&local_12a0,&local_129c,&local_1264);
+          (**(code **)*piVar4)(1);
+          FUN_00aa4060(uVar6);
+          if ((local_129c != (int *)0x0) && (local_12a0 == (int *)0x0)) {
+            acStack_1154[0] = '\0';
+            iVar10 = 8;
+            piVar4 = local_128c;
+            do {
+              if ((char *)piVar4[-1] != (char *)0x0) {
+                _strcat_s(acStack_1154,0x514,(char *)piVar4[-1]);
+                if (((char *)*piVar4 != (char *)0x0) && (*(char *)*piVar4 != '\0')) {
+                  _strcat_s(acStack_1154,0x514,"=");
+                  _strcat_s(acStack_1154,0x514,(char *)*piVar4);
+                }
+                _strcat_s(acStack_1154,0x514,", ");
+              }
+              piVar4 = piVar4 + 2;
+              iVar10 = iVar10 + -1;
+            } while (iVar10 != 0);
+            uVar5 = (**(code **)(*local_129c + 0xc))(local_129c);
+            FUN_00406d00(auStack_528,0x514,"%s\n %s\n %s",local_127c,auStack_1158,uVar5);
+            (**(code **)(*local_12a0 + 8))(local_12a0);
+            local_129c = (int *)0x0;
+          }
+          if ((iVar9 == 0) && (local_12a0 != (int *)0x0)) {
+            _File = _fopen(local_1258,"wb");
+            piVar7 = (int *)(**(code **)(*local_12a0 + 0x10))(local_12a0);
+            _File_00 = (FILE *)&DAT_00000001;
+            piVar4 = local_12a4;
+            local_1298 = piVar7;
+            _Str = (void *)(**(code **)(*local_12a4 + 0xc))();
+            _fwrite(_Str,(size_t)piVar4,(size_t)piVar7,_File_00);
+            _fflush(_File);
+            _fclose(_File);
+            FUN_00af5e40(&ppuStack_1260);
+            local_12a4 = (int *)(**(code **)(*uStack_12a8 + 0xc))(uStack_12a8);
+          }
+          else {
+            if ((uStack_12a8._2_1_ == '\0') ||
+               (piVar4 = (int *)FUN_00afdf20(local_1258,0,0x4000,0x20), piVar4 == (int *)0x0))
+            goto LAB_00be1e82;
+            piVar7 = local_12a4;
+            if ((char)piVar4[0xb] != '\0') {
+              uVar5 = (**(code **)(*piVar4 + 0x28))();
+              local_1294 = uVar5;
+              piVar7 = (int *)FUN_00aa3e40(uVar5);
+              uStack_12a8._0_2_ = CONCAT11(1,(byte)uStack_12a8);
+              local_12a4 = piVar7;
+              FUN_00462d80(piVar7,uVar5);
+            }
+            (**(code **)*piVar4)(1);
+            if (piVar7 == (int *)0x0) goto LAB_00be1e82;
+          }
+          param_4 = local_127c;
+          if (local_1284 != (int *)0x0) {
+            *local_1284 = 0;
+            local_1284[1] = 0;
+          }
+          goto LAB_00be1da6;
+        }
+        (**(code **)*piVar4)(1);
+      }
+      pcVar11 = "SHADER ERROR : error opening hlsl file : %s";
+      puVar8 = local_c40;
+    }
+    else {
+      piVar4 = (int *)FUN_00afdf20(local_1258,0,0x4000,0x20);
+      if (piVar4 != (int *)0x0) {
+        if ((char)piVar4[0xb] != '\0') {
+          uVar5 = (**(code **)(*piVar4 + 0x28))();
+          local_1294 = uVar5;
+          local_12a4 = (int *)FUN_00aa3e40(uVar5);
+          uStack_12a8._0_2_ = CONCAT11(1,(byte)uStack_12a8);
+          FUN_00462d80(local_12a4,uVar5);
+        }
+        (**(code **)*piVar4)(1);
+        goto LAB_00be1da6;
+      }
+      pcVar11 = "SHADER ERROR : error opening cache file : %s";
+LAB_00be1e6b:
+      param_1 = local_1258;
+      puVar8 = local_b3c;
+    }
+    FUN_00406d00(puVar8,0x104,pcVar11,param_1);
+  }
+  else {
+    local_12a4 = (int *)(iVar9 + 0x104);
+LAB_00be1da6:
+    piVar4 = local_12a4;
+    if (local_12a4 != (int *)0x0) {
+      if (DAT_011f9494 == 0) {
+        iVar9 = (**(code **)(**(int **)(DAT_011f9508 + 0x288) + 0x1a8))
+                          (*(int **)(DAT_011f9508 + 0x288),local_12a4,&local_1268);
+        if (iVar9 != 0) {
+          pcVar11 = "SHADER ERROR : failed to create pixel shader : %s";
+          goto LAB_00be1e6b;
+        }
+        local_128c = (int *)FUN_00aa13e0(0x30);
+        uStack_4 = 0;
+        if (local_128c == (int *)0x0) {
+          local_1274 = (int *)0x0;
+        }
+        else {
+          local_1274 = (int *)FUN_00be08f0(DAT_011f9508);
+        }
+        uStack_4 = 0xffffffff;
+        (**(code **)(*local_1274 + 0x80))(local_1268);
+      }
+      else {
+        FUN_00b7fd90(param_4,local_12a4,local_1294);
+      }
+    }
+    if (uStack_12a8._1_1_ != '\0') {
+      FUN_00aa4060(piVar4);
+    }
+  }
+LAB_00be1e82:
+  *unaff_FS_OFFSET = local_c;
+  __security_check_cookie(local_10 ^ (uint)&uStack_12a8);
+  return;
+}
+
+
+
+--- Calls FROM BSShader::CreatePixelShader (0x00be1750) ---
+  0x00be1763 -> 0x00ec8660 __alloca_probe
+  0x00be17dd -> 0x00be0dc0 FUN_00be0dc0
+  0x00be17fa -> 0x00b7fac0 FUN_00b7fac0
+  0x00be1830 -> 0x00afe7d0 FUN_00afe7d0
+  0x00be1845 -> 0x00afe7d0 FUN_00afe7d0
+  0x00be1880 -> 0x00ec65a6 _strcpy_s
+  0x00be1891 -> 0x00be0dc0 FUN_00be0dc0
+  0x00be18a5 -> 0x00afe7d0 FUN_00afe7d0
+  0x00be18cd -> 0x00406d00 FUN_00406d00
+  0x00be194b -> 0x00ec8a19 _strncmp
+  0x00be1959 -> 0x00b4f380 FUN_00b4f380
+  0x00be1977 -> 0x00afdf20 FUN_00afdf20
+  0x00be19a4 -> 0x00aa3e40 FUN_00aa3e40
+  0x00be19af -> 0x00462d80 FUN_00462d80
+  0x00be19fc -> 0x00ec6bd2 _strcat_s
+  0x00be1a13 -> 0x00ec6bd2 _strcat_s
+  0x00be1a29 -> 0x00ec6bd2 _strcat_s
+  0x00be1a4e -> 0x00ec6bd2 _strcat_s
+  0x00be1a63 -> 0x00ec6bd2 _strcat_s
+  0x00be1a7a -> 0x00ec6bd2 _strcat_s
+  0x00be1a8f -> 0x00ec6bd2 _strcat_s
+  0x00be1aab -> 0x00ec6bd2 _strcat_s
+  0x00be1ac5 -> 0x00ec6bd2 _strcat_s
+  0x00be1aff -> 0x00406d00 FUN_00406d00
+  0x00be1b2e -> 0x00ee6e0a D3DXCompileShader
+  0x00be1b45 -> 0x00aa4060 FUN_00aa4060
+  0x00be1b86 -> 0x00ec6bd2 _strcat_s
+  0x00be1bab -> 0x00ec6bd2 _strcat_s
+  0x00be1bc0 -> 0x00ec6bd2 _strcat_s
+  0x00be1bda -> 0x00ec6bd2 _strcat_s
+  0x00be1c16 -> 0x00406d00 FUN_00406d00
+  0x00be1c42 -> 0x00ec9a47 _fopen
+  0x00be1c6d -> 0x00ecb086 _fwrite
+  0x00be1c73 -> 0x00ecda70 _fflush
+  0x00be1c79 -> 0x00ec9907 _fclose
+  0x00be1c83 -> 0x00af5e40 FUN_00af5e40
+  0x00be1cb6 -> 0x00afdf20 FUN_00afdf20
+  0x00be1ce3 -> 0x00aa3e40 FUN_00aa3e40
+  0x00be1cf7 -> 0x00462d80 FUN_00462d80
+  0x00be1d58 -> 0x00afdf20 FUN_00afdf20
+  0x00be1d85 -> 0x00aa3e40 FUN_00aa3e40
+  0x00be1d97 -> 0x00462d80 FUN_00462d80
+  0x00be1dc3 -> 0x00b7fd90 FUN_00b7fd90
+  0x00be1dfc -> 0x00aa13e0 FUN_00aa13e0
+  0x00be1e20 -> 0x00be08f0 NiD3DPixelShader initializer
+  0x00be1e56 -> 0x00aa4060 FUN_00aa4060
+  0x00be1e78 -> 0x00406d00 FUN_00406d00
+  0x00be1e9e -> 0x00ec408c __security_check_cookie
+  Total: 48 calls
+
+======================================================================
+MATCHED DECOMPILE LINES: BSShader::CreatePixelShader @ 0x00be1750
+======================================================================
+  void FUN_00be1750(char *param_1,int *param_2,char *param_3,undefined4 param_4)
+        FUN_00406d00(local_c40,0x104,"SHADER ERROR : error opening HLSL source file : %s",param_1);
+        iVar9 = _strncmp(local_126c,"ps_2_0",4);
+            iVar9 = D3DXCompileShader(uVar6,uVar5,local_1298,&ppuStack_1260,&DAT_01094d90,local_1290,0
+        pcVar11 = "SHADER ERROR : error opening hlsl file : %s";
+        pcVar11 = "SHADER ERROR : error opening cache file : %s";
+            pcVar11 = "SHADER ERROR : failed to create pixel shader : %s";
+            local_1274 = (int *)FUN_00be08f0(DAT_011f9508);
+          (**(code **)(*local_1274 + 0x80))(local_1268);
+  Total matched lines: 9
+
+======================================================================
+NiD3DVertexShader initializer @ 0x00be0b30
+======================================================================
+  Function: FUN_00be0b30 @ 0x00be0b30, Size: 42 bytes
+
+undefined4 * __thiscall FUN_00be0b30(undefined4 *param_1,undefined4 param_2)
+
+{
+  FUN_00e897d0(param_2,0);
+  *(undefined1 *)(param_1 + 0xb) = 0;
+  param_1[0xc] = 0;
+  param_1[0xd] = 0;
+  param_1[0xe] = 0;
+  *param_1 = &PTR_FUN_010ef87c;
+  return param_1;
+}
+
+
+
+--- Calls FROM NiD3DVertexShader initializer (0x00be0b30) ---
+  0x00be0b3c -> 0x00e897d0 FUN_00e897d0
+  Total: 1 calls
+
+======================================================================
+MATCHED DECOMPILE LINES: NiD3DVertexShader initializer @ 0x00be0b30
+======================================================================
+  undefined4 * __thiscall FUN_00be0b30(undefined4 *param_1,undefined4 param_2)
+  Total matched lines: 1
+
+======================================================================
+NiD3DPixelShader initializer @ 0x00be08f0
+======================================================================
+  Function: FUN_00be08f0 @ 0x00be08f0, Size: 34 bytes
+
+undefined4 * __thiscall FUN_00be08f0(undefined4 *param_1,undefined4 param_2)
+
+{
+  FUN_00e897d0(param_2,2);
+  *param_1 = &PTR_FUN_010ef7d4;
+  param_1[0xb] = 0;
+  return param_1;
+}
+
+
+
+--- Calls FROM NiD3DPixelShader initializer (0x00be08f0) ---
+  0x00be08fa -> 0x00e897d0 FUN_00e897d0
+  Total: 1 calls
+
+======================================================================
+MATCHED DECOMPILE LINES: NiD3DPixelShader initializer @ 0x00be08f0
+======================================================================
+  undefined4 * __thiscall FUN_00be08f0(undefined4 *param_1,undefined4 param_2)
+  Total matched lines: 1
+
+======================================================================
+current-pass shader creator/writer @ 0x00bd16f0
+======================================================================
+  Function: FUN_00bd16f0 @ 0x00bd16f0, Size: 586 bytes
+
+void __fastcall FUN_00bd16f0(int param_1)
+
+{
+  int *piVar1;
+  undefined4 uVar2;
+  int *piVar3;
+  LONG LVar4;
+  char *pcStack_2f0;
+  char *pcStack_2ec;
+  undefined *puStack_2e8;
+  undefined4 uStack_2e4;
+  undefined1 auStack_2e0 [60];
+  char *local_2a4;
+  undefined4 local_2a0;
+  undefined4 local_29c;
+  undefined1 local_298 [64];
+  char *local_258;
+  undefined4 local_254;
+  undefined4 local_250;
+  undefined1 local_24c [64];
+  undefined1 local_20c [260];
+  undefined1 local_108 [260];
+  uint local_4;
+  
+  local_4 = DAT_011c16bc ^ (uint)&pcStack_2f0;
+  uVar2 = FUN_00b4f380(1);
+  local_254 = 0;
+  local_250 = 0;
+  local_258 = "imagespace\\1x\\v\\base_old.v.hlsl";
+  _memset(local_24c,0,0x40);
+  FUN_00be0c00(local_258,local_108);
+  FUN_00406d00(local_20c,0x104,"DEBUG.vso");
+  piVar3 = (int *)FUN_00be0fe0(local_108,&local_254,"vs_1_1",local_20c);
+  piVar1 = *(int **)(param_1 + 0xb0);
+  if (piVar1 != piVar3) {
+    if (piVar1 != (int *)0x0) {
+      LVar4 = InterlockedDecrement(piVar1 + 1);
+      if (LVar4 == 0) {
+        (**(code **)(*piVar1 + 4))();
+      }
+    }
+    *(int **)(param_1 + 0xb0) = piVar3;
+    if (piVar3 != (int *)0x0) {
+      InterlockedIncrement(piVar3 + 1);
+    }
+  }
+  local_2a4 = "imagespace\\1x\\p\\copy.p.hlsl";
+  local_2a0 = 0;
+  local_29c = 0;
+  _memset(local_298,0,0x40);
+  FUN_00be0c00(local_2a4,local_108);
+  FUN_00406d00(local_20c,0x104,"DEBUG00.pso");
+  piVar3 = (int *)FUN_00be1750(local_108,&local_2a0,uVar2,local_20c);
+  piVar1 = *(int **)(param_1 + 0xb4);
+  if (piVar1 != piVar3) {
+    if (piVar1 != (int *)0x0) {
+      LVar4 = InterlockedDecrement(piVar1 + 1);
+      if (LVar4 == 0) {
+        (**(code **)(*piVar1 + 4))();
+      }
+    }
+    *(int **)(param_1 + 0xb4) = piVar3;
+    if (piVar3 != (int *)0x0) {
+      InterlockedIncrement(piVar3 + 1);
+    }
+  }
+  pcStack_2f0 = "imagespace\\1x\\p\\copy.p.hlsl";
+  pcStack_2ec = "CHANNELMASK";
+  puStack_2e8 = &lpWindowName_01011584;
+  uStack_2e4 = 0;
+  _memset(auStack_2e0,0,0x3c);
+  FUN_00be0c00(pcStack_2f0,local_108);
+  FUN_00406d00(local_20c,0x104,"DEBUG01.pso");
+  piVar3 = (int *)FUN_00be1750(local_108,&pcStack_2ec,uVar2,local_20c);
+  piVar1 = *(int **)(param_1 + 0xb8);
+  if (piVar1 != piVar3) {
+    if (piVar1 != (int *)0x0) {
+      LVar4 = InterlockedDecrement(piVar1 + 1);
+      if (LVar4 == 0) {
+        (**(code **)(*piVar1 + 4))();
+      }
+    }
+    *(int **)(param_1 + 0xb8) = piVar3;
+    if (piVar3 != (int *)0x0) {
+      InterlockedIncrement(piVar3 + 1);
+    }
+  }
+  __security_check_cookie(local_4 ^ (uint)&pcStack_2f0);
+  return;
+}
+
+
+
+--- Calls FROM current-pass shader creator/writer (0x00bd16f0) ---
+  0x00bd170c -> 0x00b4f380 FUN_00b4f380
+  0x00bd1739 -> 0x00ec61c0 _memset
+  0x00bd174e -> 0x00be0c00 FUN_00be0c00
+  0x00bd1765 -> 0x00406d00 FUN_00406d00
+  0x00bd178c -> 0x00be0fe0 BSShader::CreateVertexShader
+  0x00bd17a5 -> 0x00000067 unknown
+  0x00bd17c6 -> 0x00000066 unknown
+  0x00bd17e6 -> 0x00ec61c0 _memset
+  0x00bd17f8 -> 0x00be0c00 FUN_00be0c00
+  0x00bd180f -> 0x00406d00 FUN_00406d00
+  0x00bd182f -> 0x00be1750 BSShader::CreatePixelShader
+  0x00bd1848 -> 0x00000067 unknown
+  0x00bd1869 -> 0x00000066 unknown
+  0x00bd1898 -> 0x00ec61c0 _memset
+  0x00bd18aa -> 0x00be0c00 FUN_00be0c00
+  0x00bd18c1 -> 0x00406d00 FUN_00406d00
+  0x00bd18e1 -> 0x00be1750 BSShader::CreatePixelShader
+  0x00bd18fa -> 0x00000067 unknown
+  0x00bd191b -> 0x00000066 unknown
+  0x00bd192e -> 0x00ec408c __security_check_cookie
+  Total: 20 calls
+
+======================================================================
+MATCHED DECOMPILE LINES: current-pass shader creator/writer @ 0x00bd16f0
+======================================================================
+    piVar3 = (int *)FUN_00be0fe0(local_108,&local_254,"vs_1_1",local_20c);
+    piVar3 = (int *)FUN_00be1750(local_108,&local_2a0,uVar2,local_20c);
+    piVar3 = (int *)FUN_00be1750(local_108,&pcStack_2ec,uVar2,local_20c);
+  Total matched lines: 3
+
+======================================================================
+current-pass writer @ 0x00bd1c50
+======================================================================
+  Function: FUN_00bd1c50 @ 0x00bd1c50, Size: 159 bytes
+
+undefined4 __fastcall FUN_00bd1c50(int *param_1)
+
+{
+  int iVar1;
+  int *piVar2;
+  int *piVar3;
+  LONG LVar4;
+  
+  (**(code **)(*param_1 + 0xec))();
+  *(int *)(**(int **)(param_1[0x17] + 0x24) + 8) = param_1[param_1[0x2f] + 0x1b];
+  iVar1 = param_1[0x17];
+  piVar2 = (int *)param_1[DAT_01202338 + 0x2d];
+  piVar3 = *(int **)(iVar1 + 0x44);
+  if (piVar3 == piVar2) {
+    DAT_0126f74c = param_1[0x17];
+    return 0;
+  }
+  if (piVar3 != (int *)0x0) {
+    LVar4 = InterlockedDecrement(piVar3 + 1);
+    if (LVar4 == 0) {
+      (**(code **)(*piVar3 + 4))();
+    }
+  }
+  *(int **)(iVar1 + 0x44) = piVar2;
+  if (piVar2 != (int *)0x0) {
+    InterlockedIncrement(piVar2 + 1);
+    DAT_0126f74c = param_1[0x17];
+    return 0;
+  }
+  DAT_0126f74c = param_1[0x17];
+  return 0;
+}
+
+
+
+--- Calls FROM current-pass writer (0x00bd1c50) ---
+  0x00bd1c96 -> 0x00000067 unknown
+  0x00bd1cb4 -> 0x00000066 unknown
+  Total: 2 calls
+
+======================================================================
+MATCHED DECOMPILE LINES: current-pass writer @ 0x00bd1c50
+======================================================================
+  undefined4 __fastcall FUN_00bd1c50(int *param_1)
+    piVar3 = *(int **)(iVar1 + 0x44);
+    *(int **)(iVar1 + 0x44) = piVar2;
+  Total matched lines: 3
+
+======================================================================
+current-pass shader-interface apply @ 0x00bd4ba0
+======================================================================
+  Function: FUN_00bd4ba0 @ 0x00bd4ba0, Size: 344 bytes
+
+void __thiscall FUN_00bd4ba0(int *param_1,int param_2)
+
+{
+  int iVar1;
+  undefined4 uVar2;
+  undefined4 uVar3;
+  undefined4 uVar4;
+  int iVar5;
+  int unaff_ESI;
+  undefined4 uVar6;
+  
+  iVar1 = *DAT_011f91e0;
+  uVar6 = *(undefined4 *)(param_2 + 8);
+  uVar2 = *(undefined4 *)(*(int *)(iVar1 + 0xb8) + 0x34);
+  uVar3 = *(undefined4 *)(iVar1 + 0xbc);
+  FUN_00b7dab0(param_2);
+  uVar4 = FUN_00b55520(DAT_011f91c4);
+  (**(code **)(*param_1 + 0x154))(iVar1,uVar4,uVar6);
+  iVar5 = FUN_00b55560(1);
+  uVar4 = uVar2;
+  (**(code **)(**(int **)(iVar5 + 0x30) + 0x78))
+            (*(undefined4 *)(DAT_0126f74c + 0x44),iVar1,uVar3,0,uVar2,param_2,0,iVar1 + 0x68,
+             unaff_ESI,0,1);
+  uVar6 = uVar2;
+  iVar5 = param_2;
+  (**(code **)(**(int **)(unaff_ESI + 0x34) + 0x78))
+            (*(undefined4 *)(DAT_0126f74c + 0x5c),iVar1,uVar3,0,uVar2,param_2,0,iVar1 + 0x68,uVar4,0
+             ,1);
+  if ((*(int **)(iVar5 + 0x30) != (int *)0x0) && (*(int *)(DAT_0126f74c + 0x44) != 0)) {
+    (**(code **)(**(int **)(iVar5 + 0x30) + 0x78))
+              (*(int *)(DAT_0126f74c + 0x44),iVar1,uVar3,0,uVar2,param_2,0,iVar1 + 0x68,uVar6,0,1);
+  }
+  if ((*(int **)(iVar5 + 0x34) != (int *)0x0) && (*(int *)(DAT_0126f74c + 0x5c) != 0)) {
+    (**(code **)(**(int **)(iVar5 + 0x34) + 0x78))
+              (*(int *)(DAT_0126f74c + 0x5c),iVar1,uVar3,0,uVar2,param_2,0,iVar1 + 0x68,uVar6,0,1);
+  }
+  return;
+}
+
+
+
+--- Calls FROM current-pass shader-interface apply (0x00bd4ba0) ---
+  0x00bd4be0 -> 0x00b7dab0 FUN_00b7dab0
+  0x00bd4bed -> 0x00b55520 FUN_00b55520
+  0x00bd4c14 -> 0x00b55560 FUN_00b55560
+  Total: 3 calls
+
+======================================================================
+MATCHED DECOMPILE LINES: current-pass shader-interface apply @ 0x00bd4ba0
+======================================================================
+  void __thiscall FUN_00bd4ba0(int *param_1,int param_2)
+    uVar2 = *(undefined4 *)(*(int *)(iVar1 + 0xb8) + 0x34);
+    (**(code **)(**(int **)(iVar5 + 0x30) + 0x78))
+              (*(undefined4 *)(DAT_0126f74c + 0x44),iVar1,uVar3,0,uVar2,param_2,0,iVar1 + 0x68,
+    (**(code **)(**(int **)(unaff_ESI + 0x34) + 0x78))
+              (*(undefined4 *)(DAT_0126f74c + 0x5c),iVar1,uVar3,0,uVar2,param_2,0,iVar1 + 0x68,uVar4,0
+    if ((*(int **)(iVar5 + 0x30) != (int *)0x0) && (*(int *)(DAT_0126f74c + 0x44) != 0)) {
+      (**(code **)(**(int **)(iVar5 + 0x30) + 0x78))
+                (*(int *)(DAT_0126f74c + 0x44),iVar1,uVar3,0,uVar2,param_2,0,iVar1 + 0x68,uVar6,0,1);
+    if ((*(int **)(iVar5 + 0x34) != (int *)0x0) && (*(int *)(DAT_0126f74c + 0x5c) != 0)) {
+      (**(code **)(**(int **)(iVar5 + 0x34) + 0x78))
+                (*(int *)(DAT_0126f74c + 0x5c),iVar1,uVar3,0,uVar2,param_2,0,iVar1 + 0x68,uVar6,0,1);
+  Total matched lines: 12
+
+======================================================================
+selector slot +0x148 target @ 0x00b71bf0
+======================================================================
+  Function: FUN_00b71bf0 @ 0x00b71bf0, Size: 9756 bytes
+
+/* WARNING: Function: __alloca_probe replaced with injection: alloca_probe */
+
+void FUN_00b71bf0(void)
+
+{
+  char **ppcVar1;
+  int *piVar2;
+  LONG LVar3;
+  int *piVar4;
+  char **ppcVar5;
+  int iVar6;
+  char **local_3064 [2];
+  char *local_305c;
+  undefined4 local_3058;
+  undefined1 local_3054 [68];
+  char *local_3010;
+  undefined *local_300c;
+  undefined *local_3008;
+  undefined4 local_3004;
+  undefined1 local_3000 [60];
+  char *local_2fc4;
+  char *local_2fc0;
+  undefined *local_2fbc;
+  char *local_2fb8;
+  undefined *local_2fb4;
+  char *local_2fb0;
+  undefined *local_2fac;
+  undefined4 local_2fa8;
+  undefined1 local_2fa4 [44];
+  char *local_2f78;
+  undefined *local_2f74;
+  undefined *local_2f70;
+  undefined4 local_2f6c;
+  undefined1 local_2f68 [60];
+  char *local_2f2c;
+  char *local_2f28;
+  undefined *local_2f24;
+  undefined4 local_2f20;
+  undefined1 local_2f1c [60];
+  char *local_2ee0;
+  char *local_2edc;
+  undefined *local_2ed8;
+  char *local_2ed4;
+  undefined *local_2ed0;
+  char *local_2ecc;
+  undefined *local_2ec8;
+  char *local_2ec4;
+  undefined *local_2ec0;
+  undefined4 local_2ebc;
+  undefined4 local_2eb8;
+  undefined4 local_2eb4;
+  undefined4 local_2eb0;
+  undefined4 local_2eac;
+  undefined4 local_2ea8;
+  undefined4 local_2ea4;
+  undefined4 local_2ea0;
+  undefined4 local_2e9c;
+  undefined4 local_2e98;
+  char *local_2e94;
+  undefined *local_2e90;
+  undefined *local_2e8c;
+  char *local_2e88;
+  undefined *local_2e84;
+  undefined4 local_2e80;
+  undefined1 local_2e7c [52];
+  char *local_2e48;
+  undefined *local_2e44;
+  undefined *local_2e40;
+  undefined4 local_2e3c;
+  undefined1 local_2e38 [60];
+  char *local_2dfc;
+  char *local_2df8;
+  undefined *local_2df4;
+  undefined4 local_2df0;
+  undefined1 local_2dec [60];
+  char *local_2db0;
+  char *local_2dac;
+  undefined *local_2da8;
+  undefined *local_2da4;
+  undefined *local_2da0;
+  undefined4 local_2d9c;
+  undefined1 local_2d98 [52];
+  char *local_2d64;
+  char *local_2d60;
+  undefined *local_2d5c;
+  char *local_2d58;
+  undefined *local_2d54;
+  undefined4 local_2d50;
+  undefined1 local_2d4c [52];
+  char *local_2d18;
+  char *local_2d14;
+  undefined *local_2d10;
+  undefined *local_2d0c;
+  undefined *local_2d08;
+  char *local_2d04;
+  undefined *local_2d00;
+  undefined4 local_2cfc;
+  undefined1 local_2cf8 [44];
+  char *local_2ccc;
+  char *local_2cc8;
+  undefined *local_2cc4;
+  undefined4 local_2cc0;
+  undefined1 local_2cbc [60];
+  char *local_2c80;
+  char *local_2c7c;
+  undefined *local_2c78;
+  undefined *local_2c74;
+  undefined *local_2c70;
+  undefined4 local_2c6c;
+  undefined1 local_2c68 [52];
+  char *local_2c34;
+  char *local_2c30;
+  undefined *local_2c2c;
+  char *local_2c28;
+  undefined *local_2c24;
+  undefined4 local_2c20;
+  undefined1 local_2c1c [52];
+  char *local_2be8;
+  char *local_2be4;
+  undefined *local_2be0;
+  undefined *local_2bdc;
+  undefined *local_2bd8;
+  char *local_2bd4;
+  undefined *local_2bd0;
+  undefined4 local_2bcc;
+  undefined1 local_2bc8 [44];
+  char *local_2b9c;
+  char *local_2b98;
+  undefined *local_2b94;
+  char *local_2b90;
+  undefined *local_2b8c;
+  undefined4 local_2b88;
+  undefined1 local_2b84 [52];
+  char *local_2b50;
+  char *local_2b4c;
+  undefined *local_2b48;
+  char *local_2b44;
+  undefined *local_2b40;
+  undefined *local_2b3c;
+  undefined *local_2b38;
+  undefined4 local_2b34;
+  undefined1 local_2b30 [44];
+  char *local_2b04;
+  char *local_2b00;
+  undefined *local_2afc;
+  char *local_2af8;
+  undefined *local_2af4;
+  char *local_2af0;
+  undefined *local_2aec;
+  undefined4 local_2ae8;
+  undefined1 local_2ae4 [44];
+  char *local_2ab8;
+  char *local_2ab4;
+  undefined *local_2ab0;
+  char *local_2aac;
+  undefined *local_2aa8;
+  undefined *local_2aa4;
+  undefined *local_2aa0;
+  char *local_2a9c;
+  undefined *local_2a98;
+  undefined4 local_2a94;
+  undefined4 local_2a90;
+  undefined4 local_2a8c;
+  undefined4 local_2a88;
+  undefined4 local_2a84;
+  undefined4 local_2a80;
+  undefined4 local_2a7c;
+  undefined4 local_2a78;
+  undefined4 local_2a74;
+  undefined4 local_2a70;
+  char *local_2a6c;
+  char *local_2a68;
+  undefined *local_2a64;
+  undefined4 local_2a60;
+  undefined1 local_2a5c [60];
+  char *local_2a20;
+  char *local_2a1c;
+  undefined *local_2a18;
+  undefined *local_2a14;
+  undefined *local_2a10;
+  undefined4 local_2a0c;
+  undefined1 local_2a08 [52];
+  char *local_29d4;
+  char *local_29d0;
+  undefined *local_29cc;
+  undefined4 local_29c8;
+  undefined1 local_29c4 [60];
+  char *local_2988;
+  undefined *local_2984;
+  undefined *local_2980;
+  char *local_297c;
+  undefined *local_2978;
+  undefined4 local_2974;
+  undefined1 local_2970 [52];
+  char *local_293c;
+  char *local_2938;
+  undefined *local_2934;
+  undefined *local_2930;
+  undefined *local_292c;
+  undefined4 local_2928;
+  undefined1 local_2924 [52];
+  char *local_28f0;
+  char *local_28ec;
+  undefined *local_28e8;
+  char *local_28e4;
+  undefined *local_28e0;
+  undefined4 local_28dc;
+  undefined1 local_28d8 [52];
+  char *local_28a4;
+  undefined *local_28a0;
+  undefined *local_289c;
+  char *local_2898;
+  undefined *local_2894;
+  char *local_2890;
+  undefined *local_288c;
+  undefined4 local_2888;
+  undefined1 local_2884 [44];
+  char *local_2858;
+  char *local_2854;
+  undefined *local_2850;
+  char *local_284c;
+  undefined *local_2848;
+  undefined *local_2844;
+  undefined *local_2840;
+  undefined4 local_283c;
+  undefined1 local_2838 [44];
+  char *local_280c;
+  char *local_2808;
+  undefined *local_2804;
+  undefined4 local_2800;
+  undefined1 local_27fc [60];
+  char *local_27c0;
+  char *local_27bc;
+  undefined *local_27b8;
+  undefined *local_27b4;
+  undefined *local_27b0;
+  undefined4 local_27ac;
+  undefined1 local_27a8 [52];
+  char *local_2774;
+  char *local_2770;
+  undefined *local_276c;
+  char *local_2768;
+  undefined *local_2764;
+  undefined4 local_2760;
+  undefined1 local_275c [52];
+  char *local_2728;
+  char *local_2724;
+  undefined *local_2720;
+  undefined *local_271c;
+  undefined *local_2718;
+  char *local_2714;
+  undefined *local_2710;
+  undefined4 local_270c;
+  undefined1 local_2708 [44];
+  char *local_26dc;
+  char *local_26d8;
+  undefined *local_26d4;
+  undefined4 local_26d0;
+  undefined1 local_26cc [60];
+  char *local_2690;
+  char *local_268c;
+  undefined *local_2688;
+  undefined *local_2684;
+  undefined *local_2680;
+  undefined4 local_267c;
+  undefined1 local_2678 [52];
+  char *local_2644;
+  char *local_2640;
+  undefined *local_263c;
+  char *local_2638;
+  undefined *local_2634;
+  undefined4 local_2630;
+  undefined1 local_262c [52];
+  char *local_25f8;
+  char *local_25f4;
+  undefined *local_25f0;
+  undefined *local_25ec;
+  undefined *local_25e8;
+  char *local_25e4;
+  undefined *local_25e0;
+  undefined4 local_25dc;
+  undefined1 local_25d8 [44];
+  char *local_25ac;
+  char *local_25a8;
+  undefined *local_25a4;
+  undefined4 local_25a0;
+  undefined1 local_259c [60];
+  char *local_2560;
+  char *local_255c;
+  undefined *local_2558;
+  undefined *local_2554;
+  undefined *local_2550;
+  undefined4 local_254c;
+  undefined1 local_2548 [52];
+  char *local_2514;
+  char *local_2510;
+  undefined *local_250c;
+  undefined4 local_2508;
+  undefined1 local_2504 [60];
+  char *local_24c8;
+  char *local_24c4;
+  undefined *local_24c0;
+  undefined *local_24bc;
+  undefined *local_24b8;
+  undefined4 local_24b4;
+  undefined1 local_24b0 [52];
+  char *local_247c;
+  undefined4 local_2478;
+  undefined1 local_2474 [68];
+  char *local_2430;
+  undefined *local_242c;
+  undefined *local_2428;
+  undefined4 local_2424;
+  undefined1 local_2420 [60];
+  char *local_23e4;
+  char *local_23e0;
+  undefined *local_23dc;
+  undefined4 local_23d8;
+  undefined1 local_23d4 [60];
+  char *local_2398;
+  undefined *local_2394;
+  undefined *local_2390;
+  char *local_238c;
+  undefined *local_2388;
+  undefined4 local_2384;
+  undefined1 local_2380 [52];
+  char *local_234c;
+  char *local_2348;
+  undefined *local_2344;
+  undefined4 local_2340;
+  undefined1 local_233c [60];
+  char *local_2300;
+  undefined *local_22fc;
+  undefined *local_22f8;
+  char *local_22f4;
+  undefined *local_22f0;
+  undefined4 local_22ec;
+  undefined1 local_22e8 [52];
+  char *local_22b4;
+  char *local_22b0;
+  undefined *local_22ac;
+  char *local_22a8;
+  undefined *local_22a4;
+  undefined4 local_22a0;
+  undefined1 local_229c [52];
+  char *local_2268;
+  char *local_2264;
+  undefined *local_2260;
+  undefined *local_225c;
+  undefined *local_2258;
+  char *local_2254;
+  undefined *local_2250;
+  undefined4 local_224c;
+  undefined1 local_2248 [44];
+  char *local_221c;
+  char *local_2218;
+  undefined *local_2214;
+  char *local_2210;
+  undefined *local_220c;
+  undefined4 local_2208;
+  undefined1 local_2204 [52];
+  char *local_21d0;
+  char *local_21cc;
+  undefined *local_21c8;
+  undefined *local_21c4;
+  undefined *local_21c0;
+  char *local_21bc;
+  undefined *local_21b8;
+  undefined4 local_21b4;
+  undefined1 local_21b0 [44];
+  char *local_2184;
+  char *local_2180;
+  undefined *local_217c;
+  undefined4 local_2178;
+  undefined1 local_2174 [60];
+  char *local_2138;
+  undefined *local_2134;
+  undefined *local_2130;
+  char *local_212c;
+  undefined *local_2128;
+  undefined4 local_2124;
+  undefined1 local_2120 [52];
+  char *local_20ec;
+  char *local_20e8;
+  undefined *local_20e4;
+  undefined *local_20e0;
+  undefined4 local_20dc;
+  undefined4 local_20d8;
+  undefined1 local_20d4 [52];
+  char *local_20a0;
+  char *local_209c;
+  undefined *local_2098;
+  undefined4 local_2094;
+  undefined1 local_2090 [60];
+  char *local_2054;
+  char *local_2050;
+  undefined *local_204c;
+  char *local_2048;
+  undefined *local_2044;
+  undefined4 local_2040;
+  undefined1 local_203c [52];
+  char *local_2008;
+  undefined *local_2004;
+  undefined *local_2000;
+  char *local_1ffc;
+  undefined *local_1ff8;
+  undefined4 local_1ff4;
+  undefined1 local_1ff0 [52];
+  char *local_1fbc;
+  char *local_1fb8;
+  undefined *local_1fb4;
+  undefined4 local_1fb0;
+  undefined1 local_1fac [60];
+  undefined4 local_1f70;
+  undefined1 local_1f6c [72];
+  char *local_1f24;
+  char *local_1f20;
+  undefined *local_1f1c;
+  undefined *local_1f18;
+  undefined *local_1f14;
+  char *local_1f10;
+  undefined *local_1f0c;
+  undefined4 local_1f08;
+  undefined1 local_1f04 [44];
+  char *local_1ed8;
+  char *local_1ed4;
+  undefined *local_1ed0;
+  char *local_1ecc;
+  undefined *local_1ec8;
+  undefined4 local_1ec4;
+  undefined1 local_1ec0 [52];
+  undefined4 local_1e8c;
+  undefined1 local_1e88 [72];
+  char *local_1e40;
+  char *local_1e3c;
+  undefined *local_1e38;
+  char *local_1e34;
+  undefined *local_1e30;
+  undefined4 local_1e2c;
+  undefined1 local_1e28 [52];
+  char *local_1df4;
+  char *local_1df0;
+  undefined *local_1dec;
+  char *local_1de8;
+  undefined *local_1de4;
+  char *local_1de0;
+  undefined *local_1ddc;
+  undefined4 local_1dd8;
+  undefined1 local_1dd4 [44];
+  char *local_1da8;
+  char *local_1da4;
+  undefined *local_1da0;
+  undefined4 local_1d9c;
+  undefined1 local_1d98 [60];
+  char *local_1d5c;
+  char *local_1d58;
+  undefined *local_1d54;
+  char *local_1d50;
+  undefined *local_1d4c;
+  undefined4 local_1d48;
+  undefined1 local_1d44 [52];
+  char *local_1d10;
+  char *local_1d0c;
+  undefined *local_1d08;
+  undefined *local_1d04;
+  undefined *local_1d00;
+  undefined4 local_1cfc;
+  undefined1 local_1cf8 [52];
+  char *local_1cc4;
+  char *local_1cc0;
+  undefined *local_1cbc;
+  undefined *local_1cb8;
+  undefined *local_1cb4;
+  char *local_1cb0;
+  undefined *local_1cac;
+  undefined4 local_1ca8;
+  undefined1 local_1ca4 [44];
+  char *local_1c78;
+  char *local_1c74;
+  undefined *local_1c70;
+  char *local_1c6c;
+  undefined *local_1c68;
+  undefined4 local_1c64;
+  undefined1 local_1c60 [52];
+  char *local_1c2c;
+  undefined4 local_1c28;
+  undefined1 local_1c24 [68];
+  char *local_1be0;
+  undefined *local_1bdc;
+  undefined *local_1bd8;
+  undefined4 local_1bd4;
+  undefined1 local_1bd0 [60];
+  char *local_1b94;
+  undefined *local_1b90;
+  undefined *local_1b8c;
+  undefined4 local_1b88;
+  undefined1 local_1b84 [60];
+  char *local_1b48;
+  char *local_1b44;
+  undefined *local_1b40;
+  undefined4 local_1b3c;
+  undefined1 local_1b38 [60];
+  char *local_1afc;
+  char *local_1af8;
+  undefined *local_1af4;
+  undefined *local_1af0;
+  undefined *local_1aec;
+  undefined4 local_1ae8;
+  undefined1 local_1ae4 [52];
+  char *local_1ab0;
+  undefined4 local_1aac;
+  undefined1 local_1aa8 [68];
+  char *local_1a64;
+  undefined *local_1a60;
+  undefined *local_1a5c;
+  undefined4 local_1a58;
+  undefined1 local_1a54 [60];
+  char *local_1a18;
+  char *local_1a14;
+  undefined *local_1a10;
+  undefined4 local_1a0c;
+  undefined1 local_1a08 [60];
+  char *local_19cc;
+  undefined4 local_19c8;
+  undefined1 local_19c4 [68];
+  char *local_1980;
+  undefined *local_197c;
+  undefined *local_1978;
+  undefined4 local_1974;
+  undefined1 local_1970 [60];
+  char *local_1934;
+  undefined4 local_1930;
+  undefined1 local_192c [68];
+  char *local_18e8;
+  char *local_18e4;
+  undefined *local_18e0;
+  undefined4 local_18dc;
+  undefined1 local_18d8 [60];
+  char *local_189c;
+  char *local_1898;
+  undefined *local_1894;
+  undefined *local_1890;
+  undefined *local_188c;
+  undefined4 local_1888;
+  undefined1 local_1884 [52];
+  char *local_1850;
+  char *local_184c;
+  undefined *local_1848;
+  undefined *local_1844;
+  undefined *local_1840;
+  undefined4 local_183c;
+  undefined1 local_1838 [52];
+  char *local_1804;
+  char *local_1800;
+  undefined *local_17fc;
+  undefined4 local_17f8;
+  undefined1 local_17f4 [60];
+  char *local_17b8;
+  char *local_17b4;
+  undefined *local_17b0;
+  char *local_17ac;
+  undefined *local_17a8;
+  undefined4 local_17a4;
+  undefined1 local_17a0 [52];
+  char *local_176c;
+  undefined4 local_1768;
+  undefined1 local_1764 [68];
+  char *local_1720;
+  undefined *local_171c;
+  undefined *local_1718;
+  undefined4 local_1714;
+  undefined1 local_1710 [60];
+  char *local_16d4;
+  char *local_16d0;
+  undefined *local_16cc;
+  undefined4 local_16c8;
+  undefined1 local_16c4 [60];
+  char *local_1688;
+  undefined4 local_1684;
+  undefined1 local_1680 [68];
+  char *local_163c;
+  undefined *local_1638;
+  undefined *local_1634;
+  undefined4 local_1630;
+  undefined1 local_162c [60];
+  char *local_15f0;
+  char *local_15ec;
+  undefined *local_15e8;
+  undefined4 local_15e4;
+  undefined1 local_15e0 [60];
+  char *local_15a4;
+  char *local_15a0;
+  undefined *local_159c;
+  undefined *local_1598;
+  undefined *local_1594;
+  undefined4 local_1590;
+  undefined1 local_158c [52];
+  char *local_1558;
+  char *local_1554;
+  undefined *local_1550;
+  undefined *local_154c;
+  undefined *local_1548;
+  undefined *local_1544;
+  undefined *local_1540;
+  undefined4 local_153c;
+  undefined1 local_1538 [44];
+  char *local_150c;
+  undefined4 local_1508;
+  undefined1 local_1504 [68];
+  char *local_14c0;
+  undefined *local_14bc;
+  undefined *local_14b8;
+  undefined4 local_14b4;
+  undefined1 local_14b0 [60];
+  char *local_1474;
+  char *local_1470;
+  undefined *local_146c;
+  undefined4 local_1468;
+  undefined1 local_1464 [60];
+  char *local_1428;
+  undefined *local_1424;
+  undefined *local_1420;
+  char *local_141c;
+  undefined *local_1418;
+  undefined4 local_1414;
+  undefined1 local_1410 [52];
+  char *local_13dc;
+  undefined *local_13d8;
+  undefined *local_13d4;
+  undefined4 local_13d0;
+  undefined1 local_13cc [60];
+  char *local_1390;
+  undefined *local_138c;
+  undefined *local_1388;
+  undefined *local_1384;
+  undefined *local_1380;
+  undefined4 local_137c;
+  undefined1 local_1378 [52];
+  char *local_1344;
+  undefined *local_1340;
+  undefined *local_133c;
+  char *local_1338;
+  undefined *local_1334;
+  undefined4 local_1330;
+  undefined1 local_132c [52];
+  char *local_12f8;
+  undefined *local_12f4;
+  undefined *local_12f0;
+  undefined *local_12ec;
+  undefined *local_12e8;
+  char *local_12e4;
+  undefined *local_12e0;
+  undefined4 local_12dc;
+  undefined1 local_12d8 [44];
+  char *local_12ac;
+  undefined *local_12a8;
+  undefined *local_12a4;
+  undefined4 local_12a0;
+  undefined1 local_129c [60];
+  char *local_1260;
+  undefined *local_125c;
+  undefined *local_1258;
+  char *local_1254;
+  undefined *local_1250;
+  undefined4 local_124c;
+  undefined1 local_1248 [52];
+  char *local_1214;
+  char *local_1210;
+  undefined *local_120c;
+  undefined4 local_1208;
+  undefined1 local_1204 [60];
+  char *local_11c8;
+  undefined *local_11c4;
+  undefined *local_11c0;
+  undefined4 local_11bc;
+  undefined1 local_11b8 [60];
+  char *local_117c;
+  undefined *local_1178;
+  undefined *local_1174;
+  undefined *local_1170;
+  undefined *local_116c;
+  char *local_1168;
+  undefined *local_1164;
+  undefined4 local_1160;
+  undefined1 local_115c [44];
+  char *local_1130;
+  undefined *local_112c;
+  undefined *local_1128;
+  undefined *local_1124;
+  undefined *local_1120;
+  undefined *local_111c;
+  undefined *local_1118;
+  undefined4 local_1114;
+  undefined1 local_1110 [44];
+  char *local_10e4;
+  undefined *local_10e0;
+  undefined *local_10dc;
+  undefined4 local_10d8;
+  undefined1 local_10d4 [60];
+  char *local_1098;
+  undefined *local_1094;
+  undefined *local_1090;
+  undefined4 local_108c;
+  undefined1 local_1088 [60];
+  char *local_104c;
+  undefined *local_1048;
+  undefined *local_1044;
+  undefined4 local_1040;
+  undefined1 local_103c [60];
+  char *local_1000;
+  undefined *local_ffc;
+  undefined *local_ff8;
+  undefined *local_ff4;
+  undefined *local_ff0;
+  undefined4 local_fec;
+  undefined1 local_fe8 [52];
+  char *local_fb4;
+  undefined *local_fb0;
+  undefined *local_fac;
+  char *local_fa8;
+  undefined *local_fa4;
+  undefined4 local_fa0;
+  undefined1 local_f9c [52];
+  char *local_f68;
+  undefined *local_f64;
+  undefined *local_f60;
+  undefined4 local_f5c;
+  undefined1 local_f58 [60];
+  char *local_f1c;
+  undefined *local_f18;
+  undefined *local_f14;
+  undefined4 local_f10;
+  undefined1 local_f0c [60];
+  char *local_ed0;
+  undefined *local_ecc;
+  undefined *local_ec8;
+  undefined4 local_ec4;
+  undefined1 local_ec0 [60];
+  char *local_e84;
+  undefined *local_e80;
+  undefined *local_e7c;
+  undefined *local_e78;
+  undefined *local_e74;
+  undefined4 local_e70;
+  undefined1 local_e6c [52];
+  char *local_e38;
+  undefined *local_e34;
+  undefined *local_e30;
+  undefined *local_e2c;
+  undefined *local_e28;
+  undefined4 local_e24;
+  undefined1 local_e20 [52];
+  char *local_dec;
+  undefined *local_de8;
+  undefined *local_de4;
+  undefined *local_de0;
+  undefined *local_ddc;
+  undefined *local_dd8;
+  undefined *local_dd4;
+  undefined4 local_dd0;
+  undefined1 local_dcc [44];
+  char *local_da0;
+  undefined *local_d9c;
+  undefined *local_d98;
+  char *local_d94;
+  undefined *local_d90;
+  undefined4 local_d8c;
+  undefined1 local_d88 [52];
+  char *local_d54;
+  undefined *local_d50;
+  undefined *local_d4c;
+  char *local_d48;
+  undefined *local_d44;
+  undefined *local_d40;
+  undefined *local_d3c;
+  undefined4 local_d38;
+  undefined1 local_d34 [44];
+  char *local_d08;
+  undefined *local_d04;
+  undefined *local_d00;
+  undefined4 local_cfc;
+  undefined1 local_cf8 [60];
+  char *local_cbc;
+  undefined *local_cb8;
+  undefined *local_cb4;
+  undefined4 local_cb0;
+  undefined1 local_cac [60];
+  undefined4 local_c70;
+  undefined4 local_c6c;
+  undefined1 local_c68 [68];
+  undefined4 local_c24;
+  undefined4 local_c20;
+  undefined1 local_c1c [68];
+  char *local_bd8;
+  undefined *local_bd4;
+  undefined *local_bd0;
+  undefined *local_bcc;
+  undefined *local_bc8;
+  undefined4 local_bc4;
+  undefined1 local_bc0 [52];
+  undefined4 local_b8c;
+  undefined4 local_b88;
+  undefined1 local_b84 [68];
+  char *local_b40;
+  undefined4 local_b3c;
+  undefined1 local_b38 [68];
+  undefined4 local_af4;
+  undefined4 local_af0;
+  undefined1 local_aec [68];
+  undefined4 local_aa8;
+  undefined4 local_aa4;
+  undefined1 local_aa0 [68];
+  char *local_a5c;
+  undefined4 local_a58;
+  undefined1 local_a54 [68];
+  char *local_a10;
+  undefined4 local_a0c;
+  undefined1 local_a08 [68];
+  char *local_9c4;
+  undefined4 local_9c0;
+  undefined1 local_9bc [68];
+  char *local_978;
+  undefined *local_974;
+  undefined *local_970;
+  undefined4 local_96c;
+  undefined1 local_968 [60];
+  char *local_92c;
+  char *local_928;
+  undefined *local_924;
+  undefined4 local_920;
+  undefined1 local_91c [60];
+  char *local_8e0;
+  undefined4 local_8dc;
+  undefined1 local_8d8 [68];
+  char *local_894;
+  undefined4 local_890;
+  undefined1 local_88c [68];
+  char *local_848;
+  undefined4 local_844;
+  undefined1 local_840 [68];
+  char *local_7fc;
+  undefined *local_7f8;
+  undefined *local_7f4;
+  undefined4 local_7f0;
+  undefined1 local_7ec [60];
+  char *local_7b0;
+  undefined *local_7ac;
+  undefined *local_7a8;
+  undefined4 local_7a4;
+  undefined1 local_7a0 [60];
+  char *local_764;
+  undefined *local_760;
+  undefined *local_75c;
+  undefined *local_758;
+  undefined *local_754;
+  undefined4 local_750;
+  undefined1 local_74c [52];
+  char *local_718;
+  char *local_714;
+  undefined *local_710;
+  undefined4 local_70c;
+  undefined1 local_708 [60];
+  char *local_6cc;
+  char *local_6c8;
+  undefined *local_6c4;
+  undefined *local_6c0;
+  undefined *local_6bc;
+  undefined4 local_6b8;
+  undefined1 local_6b4 [52];
+  char *local_680;
+  undefined4 local_67c;
+  undefined1 local_678 [68];
+  char *local_634;
+  undefined *local_630;
+  undefined *local_62c;
+  char *local_628;
+  undefined *local_624;
+  undefined4 local_620;
+  undefined1 local_61c [52];
+  char *local_5e8;
+  undefined *local_5e4;
+  undefined *local_5e0;
+  undefined *local_5dc;
+  undefined *local_5d8;
+  undefined4 local_5d4;
+  undefined1 local_5d0 [52];
+  char *local_59c;
+  undefined4 local_598;
+  undefined1 local_594 [68];
+  char *local_550;
+  undefined4 local_54c;
+  undefined1 local_548 [68];
+  char *local_504;
+  undefined *local_500;
+  undefined *local_4fc;
+  undefined4 local_4f8;
+  undefined1 local_4f4 [60];
+  char *local_4b8;
+  undefined4 local_4b4;
+  undefined1 local_4b0 [68];
+  char *local_46c;
+  undefined *local_468;
+  undefined *local_464;
+  undefined4 local_460;
+  undefined1 local_45c [60];
+  char *local_420;
+  undefined *local_41c;
+  undefined *local_418;
+  undefined4 local_414;
+  undefined1 local_410 [60];
+  char *local_3d4;
+  undefined4 local_3d0;
+  undefined1 local_3cc [68];
+  char *local_388;
+  char *local_384;
+  undefined *local_380;
+  undefined4 local_37c;
+  undefined1 local_378 [60];
+  char *local_33c;
+  char *local_338;
+  undefined *local_334;
+  undefined *local_330;
+  undefined *local_32c;
+  undefined4 local_328;
+  undefined1 local_324 [52];
+  char *local_2f0;
+  char *local_2ec;
+  undefined *local_2e8;
+  undefined4 local_2e4;
+  undefined1 local_2e0 [60];
+  char *local_2a4;
+  char *local_2a0;
+  undefined *local_29c;
+  char *local_298;
+  undefined *local_294;
+  undefined4 local_290;
+  undefined1 local_28c [52];
+  undefined4 local_258;
+  undefined4 local_254;
+  undefined1 local_250 [68];
+  undefined1 local_20c [260];
+  undefined1 local_108 [260];
+  uint local_4;
+  
+  local_4 = DAT_011c16bc ^ (uint)local_3064;
+  local_b40 = "lighting\\1x\\v\\base.v.hlsl";
+  local_b3c = 0;
+  _memset(local_b38,0,0x44);
+  local_af4 = 0;
+  local_af0 = 0;
+  _memset(local_aec,0,0x44);
+  local_aa8 = 0;
+  local_aa4 = 0;
+  _memset(local_aa0,0,0x44);
+  local_a5c = "lighting\\1x\\v\\diffusePt.v.hlsl";
+  local_a58 = 0;
+  _memset(local_a54,0,0x44);
+  local_a10 = "lighting\\1x\\v\\diffuseDir.v.hlsl";
+  local_a0c = 0;
+  _memset(local_a08,0,0x44);
+  local_9c4 = "lighting\\1x\\v\\base.v.hlsl";
+  local_9c0 = 0;
+  _memset(local_9bc,0,0x44);
+  local_978 = "lighting\\1x\\v\\base.v.hlsl";
+  local_974 = &DAT_010aed64;
+  local_970 = &lpWindowName_01011584;
+  local_96c = 0;
+  _memset(local_968,0,0x3c);
+  local_92c = "lighting\\1x\\v\\base.v.hlsl";
+  local_928 = "FACEGENBLEND";
+  local_924 = &lpWindowName_01011584;
+  local_920 = 0;
+  _memset(local_91c,0,0x3c);
+  local_8e0 = "lighting\\1x\\v\\specularPt.v.hlsl";
+  local_8dc = 0;
+  _memset(local_8d8,0,0x44);
+  local_894 = "lighting\\1x\\v\\specularDir.v.hlsl";
+  local_890 = 0;
+  _memset(local_88c,0,0x44);
+  local_848 = "lighting\\1x\\v\\ambDiffuseDirTexture.v.hlsl";
+  local_844 = 0;
+  _memset(local_840,0,0x44);
+  local_7fc = "lighting\\1x\\v\\ambDiffuseDirTexture.v.hlsl";
+  local_7f8 = &DAT_010aece0;
+  local_7f4 = &lpWindowName_01011584;
+  local_7f0 = 0;
+  _memset(local_7ec,0,0x3c);
+  local_7b0 = "lighting\\1x\\v\\ambDiffuseDirTexture.v.hlsl";
+  local_7ac = &DAT_010aed64;
+  local_7a8 = &lpWindowName_01011584;
+  local_7a4 = 0;
+  _memset(local_7a0,0,0x3c);
+  local_764 = "lighting\\1x\\v\\ambDiffuseDirTexture.v.hlsl";
+  local_760 = &DAT_010aece0;
+  local_75c = &lpWindowName_01011584;
+  local_758 = &DAT_010aed64;
+  local_754 = &lpWindowName_01011584;
+  local_750 = 0;
+  _memset(local_74c,0,0x34);
+  local_718 = "lighting\\1x\\v\\ambDiffuseDirTexture.v.hlsl";
+  local_714 = "FACEGENBLEND";
+  local_710 = &lpWindowName_01011584;
+  local_70c = 0;
+  _memset(local_708,0,0x3c);
+  local_6cc = "lighting\\1x\\v\\ambDiffuseDirTexture.v.hlsl";
+  local_6c8 = "FACEGENBLEND";
+  local_6c4 = &lpWindowName_01011584;
+  local_6c0 = &DAT_010aece0;
+  local_6bc = &lpWindowName_01011584;
+  local_6b8 = 0;
+  _memset(local_6b4,0,0x34);
+  local_680 = "lighting\\1x\\v\\ambDiffuseDirAndPt.v.hlsl";
+  local_67c = 0;
+  _memset(local_678,0,0x44);
+  local_634 = "lighting\\1x\\v\\base.v.hlsl";
+  local_630 = &DAT_010aece0;
+  local_62c = &lpWindowName_01011584;
+  local_628 = "NO_TEX";
+  local_624 = &lpWindowName_01011584;
+  local_620 = 0;
+  _memset(local_61c,0,0x34);
+  local_5e8 = "lighting\\1x\\v\\base.v.hlsl";
+  local_5e4 = &DAT_010aece0;
+  local_5e0 = &lpWindowName_01011584;
+  local_5dc = &DAT_010aecac;
+  local_5d8 = &lpWindowName_01011584;
+  local_5d4 = 0;
+  _memset(local_5d0,0,0x34);
+  local_59c = "lighting\\1x\\v\\envmap.v.hlsl";
+  local_598 = 0;
+  _memset(local_594,0,0x44);
+  local_550 = "lighting\\1x\\v\\vertDir.v.hlsl";
+  local_54c = 0;
+  _memset(local_548,0,0x44);
+  local_504 = "lighting\\1x\\v\\vertDir.v.hlsl";
+  local_500 = &DAT_010aed64;
+  local_4fc = &lpWindowName_01011584;
+  local_4f8 = 0;
+  _memset(local_4f4,0,0x3c);
+  local_4b8 = "lighting\\1x\\v\\vertDirAndPt.v.hlsl";
+  local_4b4 = 0;
+  _memset(local_4b0,0,0x44);
+  local_46c = "lighting\\1x\\v\\vertDirAndPt.v.hlsl";
+  local_468 = &DAT_010aed64;
+  local_464 = &lpWindowName_01011584;
+  local_460 = 0;
+  _memset(local_45c,0,0x3c);
+  local_420 = "lighting\\1x\\v\\base.v.hlsl";
+  local_41c = &DAT_010aec48;
+  local_418 = &lpWindowName_01011584;
+  local_414 = 0;
+  _memset(local_410,0,0x3c);
+  local_3d4 = "lighting\\1x\\v\\land.v.hlsl";
+  local_3d0 = 0;
+  _memset(local_3cc,0,0x44);
+  local_388 = "lighting\\1x\\v\\land.v.hlsl";
+  local_384 = "LANDALPHA";
+  local_380 = &lpWindowName_01011584;
+  local_37c = 0;
+  _memset(local_378,0,0x3c);
+  local_33c = "lighting\\1x\\v\\land.v.hlsl";
+  local_338 = "LANDALPHA";
+  local_334 = &lpWindowName_01011584;
+  local_330 = &DAT_010aec48;
+  local_32c = &lpWindowName_01011584;
+  local_328 = 0;
+  _memset(local_324,0,0x34);
+  local_2f0 = "lighting\\1x\\v\\land.v.hlsl";
+  local_2ec = "PTLIGHT";
+  local_2e8 = &lpWindowName_01011584;
+  local_2e4 = 0;
+  _memset(local_2e0,0,0x3c);
+  local_2a4 = "lighting\\1x\\v\\land.v.hlsl";
+  local_2a0 = "LANDALPHA";
+  local_29c = &lpWindowName_01011584;
+  local_298 = "PTLIGHT";
+  local_294 = &lpWindowName_01011584;
+  local_290 = 0;
+  _memset(local_28c,0,0x34);
+  local_258 = 0;
+  local_254 = 0;
+  _memset(local_250,0,0x44);
+  local_11c8 = "lighting\\1x\\v\\base.v.hlsl";
+  local_11c4 = &DAT_010aec10;
+  local_11c0 = &lpWindowName_01011584;
+  local_11bc = 0;
+  _memset(local_11b8,0,0x3c);
+  local_117c = "lighting\\1x\\v\\base.v.hlsl";
+  local_1178 = &DAT_010aec10;
+  local_1174 = &lpWindowName_01011584;
+  local_1170 = &DAT_010aece0;
+  local_116c = &lpWindowName_01011584;
+  local_1168 = "NO_TEX";
+  local_1164 = &lpWindowName_01011584;
+  local_1160 = 0;
+  _memset(local_115c,0,0x2c);
+  local_1130 = "lighting\\1x\\v\\base.v.hlsl";
+  local_112c = &DAT_010aec10;
+  local_1128 = &lpWindowName_01011584;
+  local_1124 = &DAT_010aece0;
+  local_1120 = &lpWindowName_01011584;
+  local_111c = &DAT_010aecac;
+  local_1118 = &lpWindowName_01011584;
+  local_1114 = 0;
+  _memset(local_1110,0,0x2c);
+  local_10e4 = "lighting\\1x\\v\\diffusePt.v.hlsl";
+  local_10e0 = &DAT_010aec10;
+  local_10dc = &lpWindowName_01011584;
+  local_10d8 = 0;
+  _memset(local_10d4,0,0x3c);
+  local_1098 = "lighting\\1x\\v\\diffuseDir.v.hlsl";
+  local_1094 = &DAT_010aec10;
+  local_1090 = &lpWindowName_01011584;
+  local_108c = 0;
+  _memset(local_1088,0,0x3c);
+  local_104c = "lighting\\1x\\v\\base.v.hlsl";
+  local_1048 = &DAT_010aec10;
+  local_1044 = &lpWindowName_01011584;
+  local_1040 = 0;
+  _memset(local_103c,0,0x3c);
+  local_1000 = "lighting\\1x\\v\\base.v.hlsl";
+  local_ffc = &DAT_010aec10;
+  local_ff8 = &lpWindowName_01011584;
+  local_ff4 = &DAT_010aed64;
+  local_ff0 = &lpWindowName_01011584;
+  local_fec = 0;
+  _memset(local_fe8,0,0x34);
+  local_fb4 = "lighting\\1x\\v\\base.v.hlsl";
+  local_fb0 = &DAT_010aec10;
+  local_fac = &lpWindowName_01011584;
+  local_fa8 = "FACEGENBLEND";
+  local_fa4 = &lpWindowName_01011584;
+  local_fa0 = 0;
+  _memset(local_f9c,0,0x34);
+  local_f68 = "lighting\\1x\\v\\specularPt.v.hlsl";
+  local_f64 = &DAT_010aec10;
+  local_f60 = &lpWindowName_01011584;
+  local_f5c = 0;
+  _memset(local_f58,0,0x3c);
+  local_f1c = "lighting\\1x\\v\\specularDir.v.hlsl";
+  local_f18 = &DAT_010aec10;
+  local_f14 = &lpWindowName_01011584;
+  local_f10 = 0;
+  _memset(local_f0c,0,0x3c);
+  local_ed0 = "lighting\\1x\\v\\ambDiffuseDirTexture.v.hlsl";
+  local_ecc = &DAT_010aec10;
+  local_ec8 = &lpWindowName_01011584;
+  local_ec4 = 0;
+  _memset(local_ec0,0,0x3c);
+  local_e84 = "lighting\\1x\\v\\ambDiffuseDirTexture.v.hlsl";
+  local_e80 = &DAT_010aec10;
+  local_e7c = &lpWindowName_01011584;
+  local_e78 = &DAT_010aed64;
+  local_e74 = &lpWindowName_01011584;
+  local_e70 = 0;
+  _memset(local_e6c,0,0x34);
+  local_e38 = "lighting\\1x\\v\\ambDiffuseDirTexture.v.hlsl";
+  local_e34 = &DAT_010aec10;
+  local_e30 = &lpWindowName_01011584;
+  local_e2c = &DAT_010aece0;
+  local_e28 = &lpWindowName_01011584;
+  local_e24 = 0;
+  _memset(local_e20,0,0x34);
+  local_dec = "lighting\\1x\\v\\ambDiffuseDirTexture.v.hlsl";
+  local_de8 = &DAT_010aec10;
+  local_de4 = &lpWindowName_01011584;
+  local_de0 = &DAT_010aece0;
+  local_ddc = &lpWindowName_01011584;
+  local_dd8 = &DAT_010aed64;
+  local_dd4 = &lpWindowName_01011584;
+  local_dd0 = 0;
+  _memset(local_dcc,0,0x2c);
+  local_da0 = "lighting\\1x\\v\\ambDiffuseDirTexture.v.hlsl";
+  local_d9c = &DAT_010aec10;
+  local_d98 = &lpWindowName_01011584;
+  local_d94 = "FACEGENBLEND";
+  local_d90 = &lpWindowName_01011584;
+  local_d8c = 0;
+  _memset(local_d88,0,0x34);
+  local_d54 = "lighting\\1x\\v\\ambDiffuseDirTexture.v.hlsl";
+  local_d50 = &DAT_010aec10;
+  local_d4c = &lpWindowName_01011584;
+  local_d48 = "FACEGENBLEND";
+  local_d44 = &lpWindowName_01011584;
+  local_d40 = &DAT_010aece0;
+  local_d3c = &lpWindowName_01011584;
+  local_d38 = 0;
+  _memset(local_d34,0,0x2c);
+  local_d08 = "lighting\\1x\\v\\ambDiffuseDirAndPt.v.hlsl";
+  local_d04 = &DAT_010aec10;
+  local_d00 = &lpWindowName_01011584;
+  local_cfc = 0;
+  _memset(local_cf8,0,0x3c);
+  local_cbc = "lighting\\1x\\v\\envmap.v.hlsl";
+  local_cb8 = &DAT_010aec10;
+  local_cb4 = &lpWindowName_01011584;
+  local_cb0 = 0;
+  _memset(local_cac,0,0x3c);
+  local_c70 = 0;
+  local_c6c = 0;
+  _memset(local_c68,0,0x44);
+  local_c24 = 0;
+  local_c20 = 0;
+  _memset(local_c1c,0,0x44);
+  local_bd8 = "lighting\\1x\\v\\base.v.hlsl";
+  local_bd4 = &DAT_010aec10;
+  local_bd0 = &lpWindowName_01011584;
+  local_bcc = &DAT_010aec48;
+  local_bc8 = &lpWindowName_01011584;
+  local_bc4 = 0;
+  _memset(local_bc0,0,0x34);
+  local_b8c = 0;
+  local_b88 = 0;
+  _memset(local_b84,0,0x44);
+  local_305c = "lighting\\2x\\v\\ADTS.v.hlsl";
+  local_3058 = 0;
+  _memset(local_3054,0,0x44);
+  local_3010 = "lighting\\2x\\v\\ADTS.v.hlsl";
+  local_300c = &DAT_01039578;
+  local_3008 = &lpWindowName_01011584;
+  local_3004 = 0;
+  _memset(local_3000,0,0x3c);
+  local_2fc4 = "lighting\\2x\\v\\landlod.v.hlsl";
+  local_2fc0 = "MODELSPACENORM";
+  local_2fbc = &lpWindowName_01011584;
+  local_2fb8 = "LODLANDCLIP";
+  local_2fb4 = &lpWindowName_01011584;
+  local_2fb0 = "GEOMORPH";
+  local_2fac = &lpWindowName_01011584;
+  local_2fa8 = 0;
+  _memset(local_2fa4,0,0x2c);
+  local_2f78 = "lighting\\2x\\v\\ADTS.v.hlsl";
+  local_2f74 = &DAT_010aec10;
+  local_2f70 = &lpWindowName_01011584;
+  local_2f6c = 0;
+  _memset(local_2f68,0,0x3c);
+  local_2f2c = "lighting\\2x\\v\\ADTS.v.hlsl";
+  local_2f28 = "PROJ_SHADOW";
+  local_2f24 = &lpWindowName_01011584;
+  local_2f20 = 0;
+  _memset(local_2f1c,0,0x3c);
+  local_2ee0 = "lighting\\2x\\v\\landlod.v.hlsl";
+  local_2edc = "MODELSPACENORM";
+  local_2ed8 = &lpWindowName_01011584;
+  local_2ed4 = "PROJ_SHADOW";
+  local_2ed0 = &lpWindowName_01011584;
+  local_2ecc = "LODLANDCLIP";
+  local_2ec8 = &lpWindowName_01011584;
+  local_2ec4 = "GEOMORPH";
+  local_2ec0 = &lpWindowName_01011584;
+  local_2ebc = 0;
+  local_2eb8 = 0;
+  local_2eb4 = 0;
+  local_2eb0 = 0;
+  local_2eac = 0;
+  local_2ea8 = 0;
+  local_2ea4 = 0;
+  local_2ea0 = 0;
+  local_2e9c = 0;
+  local_2e98 = 0;
+  local_2e94 = "lighting\\2x\\v\\ADTS.v.hlsl";
+  local_2e90 = &DAT_010aec10;
+  local_2e8c = &lpWindowName_01011584;
+  local_2e88 = "PROJ_SHADOW";
+  local_2e84 = &lpWindowName_01011584;
+  local_2e80 = 0;
+  _memset(local_2e7c,0,0x34);
+  local_2e48 = "lighting\\2x\\v\\ADTS.v.hlsl";
+  local_2e44 = &DAT_0102bf34;
+  local_2e40 = &lpWindowName_01011584;
+  local_2e3c = 0;
+  _memset(local_2e38,0,0x3c);
+  local_2dfc = "lighting\\2x\\v\\ADTS.v.hlsl";
+  local_2df8 = "LIGHTS";
+  local_2df4 = &DAT_01063f3c;
+  local_2df0 = 0;
+  _memset(local_2dec,0,0x3c);
+  local_2db0 = "lighting\\2x\\v\\ADTS.v.hlsl";
+  local_2dac = "LIGHTS";
+  local_2da8 = &DAT_01063f3c;
+  local_2da4 = &DAT_010aec10;
+  local_2da0 = &lpWindowName_01011584;
+  local_2d9c = 0;
+  _memset(local_2d98,0,0x34);
+  local_2d64 = "lighting\\2x\\v\\ADTS.v.hlsl";
+  local_2d60 = "LIGHTS";
+  local_2d5c = &DAT_01063f3c;
+  local_2d58 = "PROJ_SHADOW";
+  local_2d54 = &lpWindowName_01011584;
+  local_2d50 = 0;
+  _memset(local_2d4c,0,0x34);
+  local_2d18 = "lighting\\2x\\v\\ADTS.v.hlsl";
+  local_2d14 = "LIGHTS";
+  local_2d10 = &DAT_01063f3c;
+  local_2d0c = &DAT_010aec10;
+  local_2d08 = &lpWindowName_01011584;
+  local_2d04 = "PROJ_SHADOW";
+  local_2d00 = &lpWindowName_01011584;
+  local_2cfc = 0;
+  _memset(local_2cf8,0,0x2c);
+  local_2ccc = "lighting\\2x\\v\\ADTS.v.hlsl";
+  local_2cc8 = "SPECULAR";
+  local_2cc4 = &lpWindowName_01011584;
+  local_2cc0 = 0;
+  _memset(local_2cbc,0,0x3c);
+  local_2c80 = "lighting\\2x\\v\\ADTS.v.hlsl";
+  local_2c7c = "SPECULAR";
+  local_2c78 = &lpWindowName_01011584;
+  local_2c74 = &DAT_010aec10;
+  local_2c70 = &lpWindowName_01011584;
+  local_2c6c = 0;
+  _memset(local_2c68,0,0x34);
+  local_2c34 = "lighting\\2x\\v\\ADTS.v.hlsl";
+  local_2c30 = "SPECULAR";
+  local_2c2c = &lpWindowName_01011584;
+  local_2c28 = "PROJ_SHADOW";
+  local_2c24 = &lpWindowName_01011584;
+  local_2c20 = 0;
+  _memset(local_2c1c,0,0x34);
+  local_2be8 = "lighting\\2x\\v\\ADTS.v.hlsl";
+  local_2be4 = "SPECULAR";
+  local_2be0 = &lpWindowName_01011584;
+  local_2bdc = &DAT_010aec10;
+  local_2bd8 = &lpWindowName_01011584;
+  local_2bd4 = "PROJ_SHADOW";
+  local_2bd0 = &lpWindowName_01011584;
+  local_2bcc = 0;
+  _memset(local_2bc8,0,0x2c);
+  local_2b9c = "lighting\\2x\\v\\ADTS.v.hlsl";
+  local_2b98 = "SPECULAR";
+  local_2b94 = &lpWindowName_01011584;
+  local_2b90 = "LIGHTS";
+  local_2b8c = &DAT_01063f3c;
+  local_2b88 = 0;
+  _memset(local_2b84,0,0x34);
+  local_2b50 = "lighting\\2x\\v\\ADTS.v.hlsl";
+  local_2b4c = "SPECULAR";
+  local_2b48 = &lpWindowName_01011584;
+  local_2b44 = "LIGHTS";
+  local_2b40 = &DAT_01063f3c;
+  local_2b3c = &DAT_010aec10;
+  local_2b38 = &lpWindowName_01011584;
+  local_2b34 = 0;
+  _memset(local_2b30,0,0x2c);
+  local_2b04 = "lighting\\2x\\v\\ADTS.v.hlsl";
+  local_2b00 = "SPECULAR";
+  local_2afc = &lpWindowName_01011584;
+  local_2af8 = "LIGHTS";
+  local_2af4 = &DAT_01063f3c;
+  local_2af0 = "PROJ_SHADOW";
+  local_2aec = &lpWindowName_01011584;
+  local_2ae8 = 0;
+  _memset(local_2ae4,0,0x2c);
+  local_2ab8 = "lighting\\2x\\v\\ADTS.v.hlsl";
+  local_2ab4 = "SPECULAR";
+  local_2ab0 = &lpWindowName_01011584;
+  local_2aac = "LIGHTS";
+  local_2aa8 = &DAT_01063f3c;
+  local_2aa4 = &DAT_010aec10;
+  local_2
+
+--- Calls FROM selector slot +0x148 target (0x00b71bf0) ---
+  0x00b71bf5 -> 0x00ec8660 __alloca_probe
+  0x00b71c30 -> 0x00ec61c0 _memset
+  0x00b71c4e -> 0x00ec61c0 _memset
+  0x00b71c6c -> 0x00ec61c0 _memset
+  0x00b71c8e -> 0x00ec61c0 _memset
+  0x00b71cb0 -> 0x00ec61c0 _memset
+  0x00b71cce -> 0x00ec61c0 _memset
+  0x00b71d06 -> 0x00ec61c0 _memset
+  0x00b71d36 -> 0x00ec61c0 _memset
+  0x00b71d58 -> 0x00ec61c0 _memset
+  0x00b71d7a -> 0x00ec61c0 _memset
+  0x00b71d9d -> 0x00ec61c0 _memset
+  0x00b71dcd -> 0x00ec61c0 _memset
+  0x00b71e00 -> 0x00ec61c0 _memset
+  0x00b71e42 -> 0x00ec61c0 _memset
+  0x00b71e72 -> 0x00ec61c0 _memset
+  0x00b71eb5 -> 0x00ec61c0 _memset
+  0x00b71ed7 -> 0x00ec61c0 _memset
+  0x00b71f15 -> 0x00ec61c0 _memset
+  0x00b71f56 -> 0x00ec61c0 _memset
+  0x00b71f78 -> 0x00ec61c0 _memset
+  0x00b71f9b -> 0x00ec61c0 _memset
+  0x00b71fcb -> 0x00ec61c0 _memset
+  0x00b71fee -> 0x00ec61c0 _memset
+  0x00b7201e -> 0x00ec61c0 _memset
+  0x00b72051 -> 0x00ec61c0 _memset
+  0x00b72074 -> 0x00ec61c0 _memset
+  0x00b720a4 -> 0x00ec61c0 _memset
+  0x00b720e6 -> 0x00ec61c0 _memset
+  0x00b72116 -> 0x00ec61c0 _memset
+  0x00b72158 -> 0x00ec61c0 _memset
+  0x00b72179 -> 0x00ec61c0 _memset
+  0x00b721aa -> 0x00ec61c0 _memset
+  0x00b721fa -> 0x00ec61c0 _memset
+  0x00b7224a -> 0x00ec61c0 _memset
+  0x00b7227a -> 0x00ec61c0 _memset
+  0x00b722aa -> 0x00ec61c0 _memset
+  0x00b722d9 -> 0x00ec61c0 _memset
+  0x00b72317 -> 0x00ec61c0 _memset
+  0x00b72355 -> 0x00ec61c0 _memset
+  0x00b72385 -> 0x00ec61c0 _memset
+  0x00b723b5 -> 0x00ec61c0 _memset
+  0x00b723e5 -> 0x00ec61c0 _memset
+  0x00b7242a -> 0x00ec61c0 _memset
+  0x00b7246c -> 0x00ec61c0 _memset
+  0x00b724c0 -> 0x00ec61c0 _memset
+  0x00b72502 -> 0x00ec61c0 _memset
+  0x00b72556 -> 0x00ec61c0 _memset
+  0x00b72586 -> 0x00ec61c0 _memset
+  0x00b725b9 -> 0x00ec61c0 _memset
+  0x00b725d7 -> 0x00ec61c0 _memset
+  0x00b725f5 -> 0x00ec61c0 _memset
+  0x00b72633 -> 0x00ec61c0 _memset
+  0x00b72651 -> 0x00ec61c0 _memset
+  0x00b7266b -> 0x00ec61c0 _memset
+  0x00b7268f -> 0x00ec61c0 _memset
+  0x00b726e7 -> 0x00ec61c0 _memset
+  0x00b72713 -> 0x00ec61c0 _memset
+  0x00b72743 -> 0x00ec61c0 _memset
+  0x00b72817 -> 0x00ec61c0 _memset
+  0x00b72847 -> 0x00ec61c0 _memset
+  0x00b7287f -> 0x00ec61c0 _memset
+  0x00b728c1 -> 0x00ec61c0 _memset
+  0x00b72907 -> 0x00ec61c0 _memset
+  0x00b7295b -> 0x00ec61c0 _memset
+  0x00b7298f -> 0x00ec61c0 _memset
+  0x00b729d1 -> 0x00ec61c0 _memset
+  0x00b72a1a -> 0x00ec61c0 _memset
+  0x00b72a6e -> 0x00ec61c0 _memset
+  0x00b72ab4 -> 0x00ec61c0 _memset
+  0x00b72b08 -> 0x00ec61c0 _memset
+  0x00b72b60 -> 0x00ec61c0 _memset
+  0x00b72c29 -> 0x00ec61c0 _memset
+  0x00b72c6e -> 0x00ec61c0 _memset
+  0x00b72ca2 -> 0x00ec61c0 _memset
+  0x00b72ce8 -> 0x00ec61c0 _memset
+  0x00b72d2a -> 0x00ec61c0 _memset
+  0x00b72d70 -> 0x00ec61c0 _memset
+  0x00b72dc8 -> 0x00ec61c0 _memset
+  0x00b72e1f -> 0x00ec61c0 _memset
+  0x00b72e53 -> 0x00ec61c0 _memset
+  0x00b72e95 -> 0x00ec61c0 _memset
+  0x00b72edb -> 0x00ec61c0 _memset
+  0x00b72f2f -> 0x00ec61c0 _memset
+  0x00b72f63 -> 0x00ec61c0 _memset
+  0x00b72fa8 -> 0x00ec61c0 _memset
+  0x00b72fee -> 0x00ec61c0 _memset
+  0x00b73042 -> 0x00ec61c0 _memset
+  0x00b73076 -> 0x00ec61c0 _memset
+  0x00b730b8 -> 0x00ec61c0 _memset
+  0x00b730ec -> 0x00ec61c0 _memset
+  0x00b73131 -> 0x00ec61c0 _memset
+  0x00b73153 -> 0x00ec61c0 _memset
+  0x00b73183 -> 0x00ec61c0 _memset
+  0x00b731b7 -> 0x00ec61c0 _memset
+  0x00b731f9 -> 0x00ec61c0 _memset
+  0x00b7322d -> 0x00ec61c0 _memset
+  0x00b73272 -> 0x00ec61c0 _memset
+  0x00b732bc -> 0x00ec61c0 _memset
+  0x00b73314 -> 0x00ec61c0 _memset
+  0x00b7335e -> 0x00ec61c0 _memset
+  0x00b733b6 -> 0x00ec61c0 _memset
+  0x00b733ea -> 0x00ec61c0 _memset
+  0x00b7342f -> 0x00ec61c0 _memset
+  0x00b73475 -> 0x00ec61c0 _memset
+  0x00b734a9 -> 0x00ec61c0 _memset
+  0x00b734ef -> 0x00ec61c0 _memset
+  0x00b73535 -> 0x00ec61c0 _memset
+  0x00b73569 -> 0x00ec61c0 _memset
+  0x00b73583 -> 0x00ec61c0 _memset
+  0x00b735db -> 0x00ec61c0 _memset
+  0x00b73621 -> 0x00ec61c0 _memset
+  0x00b73638 -> 0x00ec61c0 _memset
+  0x00b7367e -> 0x00ec61c0 _memset
+  0x00b736d6 -> 0x00ec61c0 _memset
+  0x00b7370d -> 0x00ec61c0 _memset
+  0x00b73753 -> 0x00ec61c0 _memset
+  0x00b73795 -> 0x00ec61c0 _memset
+  0x00b737e9 -> 0x00ec61c0 _memset
+  0x00b7382f -> 0x00ec61c0 _memset
+  0x00b73851 -> 0x00ec61c0 _memset
+  0x00b73884 -> 0x00ec61c0 _memset
+  0x00b738b8 -> 0x00ec61c0 _memset
+  0x00b738ec -> 0x00ec61c0 _memset
+  0x00b7392e -> 0x00ec61c0 _memset
+  0x00b73950 -> 0x00ec61c0 _memset
+  0x00b73980 -> 0x00ec61c0 _memset
+  0x00b739b7 -> 0x00ec61c0 _memset
+  0x00b739d9 -> 0x00ec61c0 _memset
+  0x00b73a09 -> 0x00ec61c0 _memset
+  0x00b73a2b -> 0x00ec61c0 _memset
+  0x00b73a5f -> 0x00ec61c0 _memset
+  0x00b73aa5 -> 0x00ec61c0 _memset
+  0x00b73aee -> 0x00ec61c0 _memset
+  0x00b73b22 -> 0x00ec61c0 _memset
+  0x00b73b68 -> 0x00ec61c0 _memset
+  0x00b73b8a -> 0x00ec61c0 _memset
+  0x00b73bba -> 0x00ec61c0 _memset
+  0x00b73bee -> 0x00ec61c0 _memset
+  0x00b73c13 -> 0x00ec61c0 _memset
+  0x00b73c43 -> 0x00ec61c0 _memset
+  0x00b73c77 -> 0x00ec61c0 _memset
+  0x00b73cb9 -> 0x00ec61c0 _memset
+  0x00b73d11 -> 0x00ec61c0 _memset
+  0x00b73d33 -> 0x00ec61c0 _memset
+  0x00b73d66 -> 0x00ec61c0 _memset
+  0x00b73d9a -> 0x00ec61c0 _memset
+  0x00b73ddc -> 0x00ec61c0 _memset
+  0x00b73e10 -> 0x00ec61c0 _memset
+  0x00b73e52 -> 0x00ec61c0 _memset
+  0x00b73e98 -> 0x00ec61c0 _memset
+  0x00b73eef -> 0x00ec61c0 _memset
+  0x00b73f24 -> 0x00ec61c0 _memset
+  0x00b73f66 -> 0x00ec61c0 _memset
+  0x00b73f9a -> 0x00ec61c0 _memset
+  0x00b73fc3 -> 0x00be0c00 FUN_00be0c00
+  0x00b73fdb -> 0x00406d00 FUN_00406d00
+  0x00b74000 -> 0x00be0fe0 BSShader::CreateVertexShader
+  0x00b7401c -> 0x00000067 unknown
+  0x00b74043 -> 0x00000066 unknown
+  0x00b74076 -> 0x00be0c00 FUN_00be0c00
+  0x00b7408e -> 0x00406d00 FUN_00406d00
+  0x00b740b3 -> 0x00be0fe0 BSShader::CreateVertexShader
+  0x00b740cd -> 0x00000067 unknown
+  0x00b740ef -> 0x00000066 unknown
+  0x00b7413a -> 0x00000067 unknown
+  0x00b74162 -> 0x00be0c00 FUN_00be0c00
+  0x00b7417a -> 0x00406d00 FUN_00406d00
+  0x00b7419f -> 0x00be0fe0 BSShader::CreateVertexShader
+  0x00b741b9 -> 0x00000067 unknown
+  0x00b741db -> 0x00000066 unknown
+  0x00b74203 -> 0x00ec408c __security_check_cookie
+  Total: 172 calls
+
+======================================================================
+MATCHED DECOMPILE LINES: selector slot +0x148 target @ 0x00b71bf0
+======================================================================
+        local_3064[0] = (char **)FUN_00be0fe0(local_20c,ppcVar5 + 1,"vs_2_0",local_108);
+        piVar4 = (int *)FUN_00be0fe0(local_20c,ppcVar5 + 1,"vs_2_0",local_108);
+          piVar4 = (int *)FUN_00be0fe0(local_20c,ppcVar5 + 1,"vs_2_0",local_108);
+  Total matched lines: 3
+
+======================================================================
+RAW RANGE CALL/PATTERN SCAN: selector +0x148 recognized vertex creation function 0x00b71bf0..0x00b74210
+======================================================================
+  CALL 0x00b71bf5: CALL 0x00ec8660                              -> 0x00ec8660 __alloca_probe
+  PAT  0x00b71c01: MOV dword ptr [ESP + 0x3060],EAX
+  CALL 0x00b71c30: CALL 0x00ec61c0                              -> 0x00ec61c0 _memset
+  CALL 0x00b71c4e: CALL 0x00ec61c0                              -> 0x00ec61c0 _memset
+  CALL 0x00b71c6c: CALL 0x00ec61c0                              -> 0x00ec61c0 _memset
+  CALL 0x00b71c8e: CALL 0x00ec61c0                              -> 0x00ec61c0 _memset
+  CALL 0x00b71cb0: CALL 0x00ec61c0                              -> 0x00ec61c0 _memset
+  CALL 0x00b71cce: CALL 0x00ec61c0                              -> 0x00ec61c0 _memset
+  CALL 0x00b71d06: CALL 0x00ec61c0                              -> 0x00ec61c0 _memset
+  CALL 0x00b71d36: CALL 0x00ec61c0                              -> 0x00ec61c0 _memset
+  CALL 0x00b71d58: CALL 0x00ec61c0                              -> 0x00ec61c0 _memset
+  CALL 0x00b71d7a: CALL 0x00ec61c0                              -> 0x00ec61c0 _memset
+  CALL 0x00b71d9d: CALL 0x00ec61c0                              -> 0x00ec61c0 _memset
+  CALL 0x00b71dcd: CALL 0x00ec61c0                              -> 0x00ec61c0 _memset
+  CALL 0x00b71e00: CALL 0x00ec61c0                              -> 0x00ec61c0 _memset
+  CALL 0x00b71e42: CALL 0x00ec61c0                              -> 0x00ec61c0 _memset
+  CALL 0x00b71e72: CALL 0x00ec61c0                              -> 0x00ec61c0 _memset
+  CALL 0x00b71eb5: CALL 0x00ec61c0                              -> 0x00ec61c0 _memset
+  CALL 0x00b71ed7: CALL 0x00ec61c0                              -> 0x00ec61c0 _memset
+  CALL 0x00b71f15: CALL 0x00ec61c0                              -> 0x00ec61c0 _memset
+  CALL 0x00b71f56: CALL 0x00ec61c0                              -> 0x00ec61c0 _memset
+  CALL 0x00b71f78: CALL 0x00ec61c0                              -> 0x00ec61c0 _memset
+  CALL 0x00b71f9b: CALL 0x00ec61c0                              -> 0x00ec61c0 _memset
+  CALL 0x00b71fcb: CALL 0x00ec61c0                              -> 0x00ec61c0 _memset
+  CALL 0x00b71fee: CALL 0x00ec61c0                              -> 0x00ec61c0 _memset
+  PAT  0x00b71ff5: LEA EDX,[ESP + 0x2c58]
+  PAT  0x00b71ffe: MOV dword ptr [ESP + 0x2c50],EBX
+  PAT  0x00b72005: MOV dword ptr [ESP + 0x2c54],0x10aed64
+  PAT  0x00b72010: MOV dword ptr [ESP + 0x2c58],ESI
+  PAT  0x00b72017: MOV dword ptr [ESP + 0x2c5c],EDI
+  CALL 0x00b7201e: CALL 0x00ec61c0                              -> 0x00ec61c0 _memset
+  PAT  0x00b72028: LEA EAX,[ESP + 0x2c68]
+  PAT  0x00b72031: MOV dword ptr [ESP + 0x2c60],EBP
+  PAT  0x00b72038: MOV dword ptr [ESP + 0x2c64],0x10aec48
+  PAT  0x00b72043: MOV dword ptr [ESP + 0x2c68],ESI
+  PAT  0x00b7204a: MOV dword ptr [ESP + 0x2c6c],EDI
+  CALL 0x00b72051: CALL 0x00ec61c0                              -> 0x00ec61c0 _memset
+  PAT  0x00b72058: LEA ECX,[ESP + 0x2cb8]
+  PAT  0x00b72066: MOV dword ptr [ESP + 0x2cb8],EBX
+  PAT  0x00b7206d: MOV dword ptr [ESP + 0x2cbc],EDI
+  CALL 0x00b72074: CALL 0x00ec61c0                              -> 0x00ec61c0 _memset
+  CALL 0x00b720a4: CALL 0x00ec61c0                              -> 0x00ec61c0 _memset
+  CALL 0x00b720e6: CALL 0x00ec61c0                              -> 0x00ec61c0 _memset
+  CALL 0x00b72116: CALL 0x00ec61c0                              -> 0x00ec61c0 _memset
+  CALL 0x00b72158: CALL 0x00ec61c0                              -> 0x00ec61c0 _memset
+  CALL 0x00b72179: CALL 0x00ec61c0                              -> 0x00ec61c0 _memset
+  CALL 0x00b721aa: CALL 0x00ec61c0                              -> 0x00ec61c0 _memset
+  CALL 0x00b721fa: CALL 0x00ec61c0                              -> 0x00ec61c0 _memset
+  CALL 0x00b7224a: CALL 0x00ec61c0                              -> 0x00ec61c0 _memset
+  CALL 0x00b7227a: CALL 0x00ec61c0                              -> 0x00ec61c0 _memset
+  CALL 0x00b722aa: CALL 0x00ec61c0                              -> 0x00ec61c0 _memset
+  CALL 0x00b722d9: CALL 0x00ec61c0                              -> 0x00ec61c0 _memset
+  CALL 0x00b72317: CALL 0x00ec61c0                              -> 0x00ec61c0 _memset
+  CALL 0x00b72355: CALL 0x00ec61c0                              -> 0x00ec61c0 _memset
+  CALL 0x00b72385: CALL 0x00ec61c0                              -> 0x00ec61c0 _memset
+  CALL 0x00b723b5: CALL 0x00ec61c0                              -> 0x00ec61c0 _memset
+  CALL 0x00b723e5: CALL 0x00ec61c0                              -> 0x00ec61c0 _memset
+  CALL 0x00b7242a: CALL 0x00ec61c0                              -> 0x00ec61c0 _memset
+  CALL 0x00b7246c: CALL 0x00ec61c0                              -> 0x00ec61c0 _memset
+  CALL 0x00b724c0: CALL 0x00ec61c0                              -> 0x00ec61c0 _memset
+  CALL 0x00b72502: CALL 0x00ec61c0                              -> 0x00ec61c0 _memset
+  CALL 0x00b72556: CALL 0x00ec61c0                              -> 0x00ec61c0 _memset
+  CALL 0x00b72586: CALL 0x00ec61c0                              -> 0x00ec61c0 _memset
+  CALL 0x00b725b9: CALL 0x00ec61c0                              -> 0x00ec61c0 _memset
+  CALL 0x00b725d7: CALL 0x00ec61c0                              -> 0x00ec61c0 _memset
+  CALL 0x00b725f5: CALL 0x00ec61c0                              -> 0x00ec61c0 _memset
+  CALL 0x00b72633: CALL 0x00ec61c0                              -> 0x00ec61c0 _memset
+  CALL 0x00b72651: CALL 0x00ec61c0                              -> 0x00ec61c0 _memset
+  CALL 0x00b7266b: CALL 0x00ec61c0                              -> 0x00ec61c0 _memset
+  PAT  0x00b7268b: MOV dword ptr [ESP + 0x7c],EDI
+  CALL 0x00b7268f: CALL 0x00ec61c0                              -> 0x00ec61c0 _memset
+  CALL 0x00b726e7: CALL 0x00ec61c0                              -> 0x00ec61c0 _memset
+  CALL 0x00b72713: CALL 0x00ec61c0                              -> 0x00ec61c0 _memset
+  CALL 0x00b72743: CALL 0x00ec61c0                              -> 0x00ec61c0 _memset
+  CALL 0x00b72817: CALL 0x00ec61c0                              -> 0x00ec61c0 _memset
+  CALL 0x00b72847: CALL 0x00ec61c0                              -> 0x00ec61c0 _memset
+  CALL 0x00b7287f: CALL 0x00ec61c0                              -> 0x00ec61c0 _memset
+  CALL 0x00b728c1: CALL 0x00ec61c0                              -> 0x00ec61c0 _memset
+  PAT  0x00b728c8: LEA EDX,[ESP + 0x344]
+  PAT  0x00b728ee: MOV dword ptr [ESP + 0x340],0x10aeba0
+  PAT  0x00b728f9: MOV dword ptr [ESP + 0x344],ESI
+  PAT  0x00b72900: MOV dword ptr [ESP + 0x348],EDI
+  CALL 0x00b72907: CALL 0x00ec61c0                              -> 0x00ec61c0 _memset
+  PAT  0x00b72917: MOV dword ptr [ESP + 0x38c],0x10aebf4
+  CALL 0x00b7295b: CALL 0x00ec61c0                              -> 0x00ec61c0 _memset
+  CALL 0x00b7298f: CALL 0x00ec61c0                              -> 0x00ec61c0 _memset
+  PAT  0x00b729a1: LEA EDX,[ESP + 0x44c]
+  PAT  0x00b729aa: MOV dword ptr [ESP + 0x440],0x10aeb8c
+  PAT  0x00b729b5: MOV dword ptr [ESP + 0x444],ESI
+  PAT  0x00b729bc: MOV dword ptr [ESP + 0x448],EBX
+  PAT  0x00b729c3: MOV dword ptr [ESP + 0x44c],ESI
+  CALL 0x00b729d1: CALL 0x00ec61c0                              -> 0x00ec61c0 _memset
+  PAT  0x00b729e4: MOV dword ptr [ESP + 0x44c],0x10aebf4
+  CALL 0x00b72a1a: CALL 0x00ec61c0                              -> 0x00ec61c0 _memset
+  CALL 0x00b72a6e: CALL 0x00ec61c0                              -> 0x00ec61c0 _memset
+  CALL 0x00b72ab4: CALL 0x00ec61c0                              -> 0x00ec61c0 _memset
+  CALL 0x00b72b08: CALL 0x00ec61c0                              -> 0x00ec61c0 _memset
+  PAT  0x00b72b0f: LEA ECX,[ESP + 0x5c4]
+  PAT  0x00b72b47: MOV dword ptr [ESP + 0x5c0],0x10aeba0
+  PAT  0x00b72b52: MOV dword ptr [ESP + 0x5c4],ESI
+  PAT  0x00b72b59: MOV dword ptr [ESP + 0x5c8],EDI
+  CALL 0x00b72b60: CALL 0x00ec61c0                              -> 0x00ec61c0 _memset
+  CALL 0x00b72c29: CALL 0x00ec61c0                              -> 0x00ec61c0 _memset
+  CALL 0x00b72c6e: CALL 0x00ec61c0                              -> 0x00ec61c0 _memset
+  CALL 0x00b72ca2: CALL 0x00ec61c0                              -> 0x00ec61c0 _memset
+  CALL 0x00b72ce8: CALL 0x00ec61c0                              -> 0x00ec61c0 _memset
+  CALL 0x00b72d2a: CALL 0x00ec61c0                              -> 0x00ec61c0 _memset
+  PAT  0x00b72d3a: MOV dword ptr [ESP + 0x7c0],0x10aeb70
+  PAT  0x00b72d45: MOV dword ptr [ESP + 0x7c4],0x10aeb8c
+  PAT  0x00b72d50: MOV dword ptr [ESP + 0x7c8],ESI
+  PAT  0x00b72d57: MOV dword ptr [ESP + 0x7cc],EBP
+  CALL 0x00b72d70: CALL 0x00ec61c0                              -> 0x00ec61c0 _memset
+  PAT  0x00b72d75: MOV dword ptr [ESP + 0x80c],0x10aeb70
+  CALL 0x00b72dc8: CALL 0x00ec61c0                              -> 0x00ec61c0 _memset
+  PAT  0x00b72dd2: LEA EAX,[ESP + 0x840]
+  PAT  0x00b72e11: MOV dword ptr [ESP + 0x840],ESI
+  PAT  0x00b72e18: MOV dword ptr [ESP + 0x844],EDI
+  CALL 0x00b72e1f: CALL 0x00ec61c0                              -> 0x00ec61c0 _memset
+  PAT  0x00b72e26: LEA ECX,[ESP + 0x888]
+  PAT  0x00b72e2f: MOV dword ptr [ESP + 0x880],0x10aeb54
+  PAT  0x00b72e3a: MOV dword ptr [ESP + 0x884],EBP
+  PAT  0x00b72e41: MOV dword ptr [ESP + 0x888],0x1063f3c
+  PAT  0x00b72e4c: MOV dword ptr [ESP + 0x88c],EDI
+  CALL 0x00b72e53: CALL 0x00ec61c0                              -> 0x00ec61c0 _memset
+  CALL 0x00b72e95: CALL 0x00ec61c0                              -> 0x00ec61c0 _memset
+  CALL 0x00b72edb: CALL 0x00ec61c0                              -> 0x00ec61c0 _memset
+  CALL 0x00b72f2f: CALL 0x00ec61c0                              -> 0x00ec61c0 _memset
+  CALL 0x00b72f63: CALL 0x00ec61c0                              -> 0x00ec61c0 _memset
+  CALL 0x00b72fa8: CALL 0x00ec61c0                              -> 0x00ec61c0 _memset
+  CALL 0x00b72fee: CALL 0x00ec61c0                              -> 0x00ec61c0 _memset
+  CALL 0x00b73042: CALL 0x00ec61c0                              -> 0x00ec61c0 _memset
+  CALL 0x00b73076: CALL 0x00ec61c0                              -> 0x00ec61c0 _memset
+  CALL 0x00b730b8: CALL 0x00ec61c0                              -> 0x00ec61c0 _memset
+  CALL 0x00b730ec: CALL 0x00ec61c0                              -> 0x00ec61c0 _memset
+  CALL 0x00b73131: CALL 0x00ec61c0                              -> 0x00ec61c0 _memset
+  CALL 0x00b73153: CALL 0x00ec61c0                              -> 0x00ec61c0 _memset
+  CALL 0x00b73183: CALL 0x00ec61c0                              -> 0x00ec61c0 _memset
+  CALL 0x00b731b7: CALL 0x00ec61c0                              -> 0x00ec61c0 _memset
+  CALL 0x00b731f9: CALL 0x00ec61c0                              -> 0x00ec61c0 _memset
+  CALL 0x00b7322d: CALL 0x00ec61c0                              -> 0x00ec61c0 _memset
+  CALL 0x00b73272: CALL 0x00ec61c0                              -> 0x00ec61c0 _memset
+  CALL 0x00b732bc: CALL 0x00ec61c0                              -> 0x00ec61c0 _memset
+  CALL 0x00b73314: CALL 0x00ec61c0                              -> 0x00ec61c0 _memset
+  CALL 0x00b7335e: CALL 0x00ec61c0                              -> 0x00ec61c0 _memset
+  CALL 0x00b733b6: CALL 0x00ec61c0                              -> 0x00ec61c0 _memset
+  CALL 0x00b733ea: CALL 0x00ec61c0                              -> 0x00ec61c0 _memset
+  CALL 0x00b7342f: CALL 0x00ec61c0                              -> 0x00ec61c0 _memset
+  CALL 0x00b73475: CALL 0x00ec61c0                              -> 0x00ec61c0 _memset
+  CALL 0x00b734a9: CALL 0x00ec61c0                              -> 0x00ec61c0 _memset
+  CALL 0x00b734ef: CALL 0x00ec61c0                              -> 0x00ec61c0 _memset
+  CALL 0x00b73535: CALL 0x00ec61c0                              -> 0x00ec61c0 _memset
+  CALL 0x00b73569: CALL 0x00ec61c0                              -> 0x00ec61c0 _memset
+  CALL 0x00b73583: CALL 0x00ec61c0                              -> 0x00ec61c0 _memset
+  CALL 0x00b735db: CALL 0x00ec61c0                              -> 0x00ec61c0 _memset
+  CALL 0x00b73621: CALL 0x00ec61c0                              -> 0x00ec61c0 _memset
+  CALL 0x00b73638: CALL 0x00ec61c0                              -> 0x00ec61c0 _memset
+  CALL 0x00b7367e: CALL 0x00ec61c0                              -> 0x00ec61c0 _memset
+  CALL 0x00b736d6: CALL 0x00ec61c0                              -> 0x00ec61c0 _memset
+  CALL 0x00b7370d: CALL 0x00ec61c0                              -> 0x00ec61c0 _memset
+  CALL 0x00b73753: CALL 0x00ec61c0                              -> 0x00ec61c0 _memset
+  CALL 0x00b73795: CALL 0x00ec61c0                              -> 0x00ec61c0 _memset
+  CALL 0x00b737e9: CALL 0x00ec61c0                              -> 0x00ec61c0 _memset
+  CALL 0x00b7382f: CALL 0x00ec61c0                              -> 0x00ec61c0 _memset
+  CALL 0x00b73851: CALL 0x00ec61c0                              -> 0x00ec61c0 _memset
+  CALL 0x00b73884: CALL 0x00ec61c0                              -> 0x00ec61c0 _memset
+  CALL 0x00b738b8: CALL 0x00ec61c0                              -> 0x00ec61c0 _memset
+  CALL 0x00b738ec: CALL 0x00ec61c0                              -> 0x00ec61c0 _memset
+  CALL 0x00b7392e: CALL 0x00ec61c0                              -> 0x00ec61c0 _memset
+  CALL 0x00b73950: CALL 0x00ec61c0                              -> 0x00ec61c0 _memset
+  CALL 0x00b73980: CALL 0x00ec61c0                              -> 0x00ec61c0 _memset
+  CALL 0x00b739b7: CALL 0x00ec61c0                              -> 0x00ec61c0 _memset
+  CALL 0x00b739d9: CALL 0x00ec61c0                              -> 0x00ec61c0 _memset
+  CALL 0x00b73a09: CALL 0x00ec61c0                              -> 0x00ec61c0 _memset
+  CALL 0x00b73a2b: CALL 0x00ec61c0                              -> 0x00ec61c0 _memset
+  CALL 0x00b73a5f: CALL 0x00ec61c0                              -> 0x00ec61c0 _memset
+  CALL 0x00b73aa5: CALL 0x00ec61c0                              -> 0x00ec61c0 _memset
+  CALL 0x00b73aee: CALL 0x00ec61c0                              -> 0x00ec61c0 _memset
+  CALL 0x00b73b22: CALL 0x00ec61c0                              -> 0x00ec61c0 _memset
+  CALL 0x00b73b68: CALL 0x00ec61c0                              -> 0x00ec61c0 _memset
+  CALL 0x00b73b8a: CALL 0x00ec61c0                              -> 0x00ec61c0 _memset
+  CALL 0x00b73bba: CALL 0x00ec61c0                              -> 0x00ec61c0 _memset
+  CALL 0x00b73bee: CALL 0x00ec61c0                              -> 0x00ec61c0 _memset
+  CALL 0x00b73c13: CALL 0x00ec61c0                              -> 0x00ec61c0 _memset
+  CALL 0x00b73c43: CALL 0x00ec61c0                              -> 0x00ec61c0 _memset
+  CALL 0x00b73c77: CALL 0x00ec61c0                              -> 0x00ec61c0 _memset
+  CALL 0x00b73cb9: CALL 0x00ec61c0                              -> 0x00ec61c0 _memset
+  CALL 0x00b73d11: CALL 0x00ec61c0                              -> 0x00ec61c0 _memset
+  CALL 0x00b73d33: CALL 0x00ec61c0                              -> 0x00ec61c0 _memset
+  CALL 0x00b73d66: CALL 0x00ec61c0                              -> 0x00ec61c0 _memset
+  CALL 0x00b73d9a: CALL 0x00ec61c0                              -> 0x00ec61c0 _memset
+  CALL 0x00b73ddc: CALL 0x00ec61c0                              -> 0x00ec61c0 _memset
+  CALL 0x00b73e10: CALL 0x00ec61c0                              -> 0x00ec61c0 _memset
+  CALL 0x00b73e52: CALL 0x00ec61c0                              -> 0x00ec61c0 _memset
+  CALL 0x00b73e98: CALL 0x00ec61c0                              -> 0x00ec61c0 _memset
+  CALL 0x00b73eef: CALL 0x00ec61c0                              -> 0x00ec61c0 _memset
+  CALL 0x00b73f24: CALL 0x00ec61c0                              -> 0x00ec61c0 _memset
+  CALL 0x00b73f66: CALL 0x00ec61c0                              -> 0x00ec61c0 _memset
+  CALL 0x00b73f9a: CALL 0x00ec61c0                              -> 0x00ec61c0 _memset
+  CALL 0x00b73fc3: CALL 0x00be0c00                              -> 0x00be0c00 FUN_00be0c00
+  CALL 0x00b73fdb: CALL 0x00406d00                              -> 0x00406d00 FUN_00406d00
+  CALL 0x00b74000: CALL 0x00be0fe0                              -> 0x00be0fe0 BSShader::CreateVertexShader
+  CALL 0x00b7401c: CALL dword ptr [0x00fdf1c4]                  -> 0x00000067 unknown
+  CALL 0x00b74043: CALL dword ptr [0x00fdf1c0]                  -> 0x00000066 unknown
+  CALL 0x00b74076: CALL 0x00be0c00                              -> 0x00be0c00 FUN_00be0c00
+  CALL 0x00b7408e: CALL 0x00406d00                              -> 0x00406d00 FUN_00406d00
+  CALL 0x00b740b3: CALL 0x00be0fe0                              -> 0x00be0fe0 BSShader::CreateVertexShader
+  CALL 0x00b740cd: CALL dword ptr [0x00fdf1c4]                  -> 0x00000067 unknown
+  CALL 0x00b740ef: CALL dword ptr [0x00fdf1c0]                  -> 0x00000066 unknown
+  CALL 0x00b7413a: CALL dword ptr [0x00fdf1c4]                  -> 0x00000067 unknown
+  CALL 0x00b74162: CALL 0x00be0c00                              -> 0x00be0c00 FUN_00be0c00
+  CALL 0x00b7417a: CALL 0x00406d00                              -> 0x00406d00 FUN_00406d00
+  CALL 0x00b7419f: CALL 0x00be0fe0                              -> 0x00be0fe0 BSShader::CreateVertexShader
+  CALL 0x00b741b9: CALL dword ptr [0x00fdf1c4]                  -> 0x00000067 unknown
+  CALL 0x00b741db: CALL dword ptr [0x00fdf1c0]                  -> 0x00000066 unknown
+  PAT  0x00b741f6: MOV ECX,dword ptr [ESP + 0x3070]
+  CALL 0x00b74203: CALL 0x00ec408c                              -> 0x00ec408c __security_check_cookie
+  Instructions scanned: 1776, matched lines: 216
+
+======================================================================
+RAW RANGE CALL/PATTERN SCAN: selector +0x14C raw candidate range 0x00b74210..0x00b79b00
+======================================================================
+  CALL 0x00b74215: CALL 0x00ec8660                              -> 0x00ec8660 __alloca_probe
+  CALL 0x00b74246: CALL 0x00ecdd16                              -> 0x00ecdd16 __gcvt
+  CALL 0x00b74264: CALL 0x00ecdd16                              -> 0x00ecdd16 __gcvt
+  CALL 0x00b74289: CALL 0x00ec61c0                              -> 0x00ec61c0 _memset
+  PAT  0x00b74290: LEA EAX,[ESP + 0x3014]
+  PAT  0x00b74299: MOV dword ptr [ESP + 0x3014],0x10af2b4
+  PAT  0x00b742a4: MOV dword ptr [ESP + 0x3018],EDI
+  CALL 0x00b742ab: CALL 0x00ec61c0                              -> 0x00ec61c0 _memset
+  PAT  0x00b742b2: LEA ECX,[ESP + 0x306c]
+  PAT  0x00b742bb: MOV dword ptr [ESP + 0x306c],0x10af294
+  PAT  0x00b742c6: MOV dword ptr [ESP + 0x3070],EDI
+  CALL 0x00b742cd: CALL 0x00ec61c0                              -> 0x00ec61c0 _memset
+  PAT  0x00b742d4: LEA EDX,[ESP + 0x30cc]
+  PAT  0x00b742e7: MOV dword ptr [ESP + 0x30c4],EBX
+  PAT  0x00b742ee: MOV dword ptr [ESP + 0x30c8],EBP
+  PAT  0x00b742f5: MOV dword ptr [ESP + 0x30cc],ESI
+  PAT  0x00b742fc: MOV dword ptr [ESP + 0x30d0],EDI
+  CALL 0x00b74303: CALL 0x00ec61c0                              -> 0x00ec61c0 _memset
+  PAT  0x00b7430d: LEA EAX,[ESP + 0x30ec]
+  PAT  0x00b74316: MOV dword ptr [ESP + 0x30dc],EBX
+  PAT  0x00b7431d: MOV dword ptr [ESP + 0x30e0],EBP
+  PAT  0x00b74324: MOV dword ptr [ESP + 0x30e4],ESI
+  PAT  0x00b7432b: MOV dword ptr [ESP + 0x30e8],0x10aed64
+  PAT  0x00b74336: MOV dword ptr [ESP + 0x30ec],ESI
+  PAT  0x00b7433d: MOV dword ptr [ESP + 0x30f0],EDI
+  CALL 0x00b74344: CALL 0x00ec61c0                              -> 0x00ec61c0 _memset
+  CALL 0x00b74382: CALL 0x00ec61c0                              -> 0x00ec61c0 _memset
+  CALL 0x00b743c0: CALL 0x00ec61c0                              -> 0x00ec61c0 _memset
+  CALL 0x00b743fc: CALL 0x00ec61c0                              -> 0x00ec61c0 _memset
+  CALL 0x00b74433: CALL 0x00ec61c0                              -> 0x00ec61c0 _memset
+  CALL 0x00b74456: CALL 0x00ec61c0                              -> 0x00ec61c0 _memset
+  CALL 0x00b7448a: CALL 0x00ec61c0                              -> 0x00ec61c0 _memset
+  CALL 0x00b744ba: CALL 0x00ec61c0                              -> 0x00ec61c0 _memset
+  CALL 0x00b744f8: CALL 0x00ec61c0                              -> 0x00ec61c0 _memset
+  CALL 0x00b74528: CALL 0x00ec61c0                              -> 0x00ec61c0 _memset
+  PAT  0x00b7453f: MOV dword ptr [ESP + 0x3400],ESI
+  PAT  0x00b74546: MOV dword ptr [ESP + 0x3404],EBX
+  PAT  0x00b7454d: MOV dword ptr [ESP + 0x3408],ESI
+  PAT  0x00b74556: LEA EAX,[ESP + 0x3414]
+  PAT  0x00b7455f: MOV dword ptr [ESP + 0x3418],EDI
+  CALL 0x00b74566: CALL 0x00ec61c0                              -> 0x00ec61c0 _memset
+  PAT  0x00b7456d: LEA ECX,[ESP + 0x346c]
+  PAT  0x00b74576: MOV dword ptr [ESP + 0x345c],EBP
+  PAT  0x00b7457d: MOV dword ptr [ESP + 0x3460],0x10aed64
+  PAT  0x00b74588: MOV dword ptr [ESP + 0x3464],ESI
+  PAT  0x00b7458f: MOV dword ptr [ESP + 0x3468],0x10af214
+  PAT  0x00b7459a: MOV dword ptr [ESP + 0x346c],ESI
+  PAT  0x00b745a1: MOV dword ptr [ESP + 0x3470],EDI
+  CALL 0x00b745a8: CALL 0x00ec61c0                              -> 0x00ec61c0 _memset
+  PAT  0x00b745b2: LEA EDX,[ESP + 0x3484]
+  PAT  0x00b745bb: MOV dword ptr [ESP + 0x346c],EBP
+  PAT  0x00b745c2: MOV dword ptr [ESP + 0x3470],0x10aed64
+  PAT  0x00b745cd: MOV dword ptr [ESP + 0x3474],ESI
+  PAT  0x00b745d4: MOV dword ptr [ESP + 0x3478],0x10af214
+  PAT  0x00b745df: MOV dword ptr [ESP + 0x347c],ESI
+  PAT  0x00b745e6: MOV dword ptr [ESP + 0x3480],EBX
+  PAT  0x00b745ed: MOV dword ptr [ESP + 0x3484],ESI
+  PAT  0x00b745f4: MOV dword ptr [ESP + 0x3488],EDI
+  CALL 0x00b745fb: CALL 0x00ec61c0                              -> 0x00ec61c0 _memset
+  PAT  0x00b74602: LEA EAX,[ESP + 0x34cc]
+  PAT  0x00b7460b: MOV dword ptr [ESP + 0x34c4],EBP
+  PAT  0x00b74612: MOV dword ptr [ESP + 0x34c8],0x10aed54
+  PAT  0x00b7461d: MOV dword ptr [ESP + 0x34cc],ESI
+  PAT  0x00b74624: MOV dword ptr [ESP + 0x34d0],EDI
+  CALL 0x00b7462b: CALL 0x00ec61c0                              -> 0x00ec61c0 _memset
+  CALL 0x00b74669: CALL 0x00ec61c0                              -> 0x00ec61c0 _memset
+  CALL 0x00b746ab: CALL 0x00ec61c0                              -> 0x00ec61c0 _memset
+  CALL 0x00b746fb: CALL 0x00ec61c0                              -> 0x00ec61c0 _memset
+  CALL 0x00b7472b: CALL 0x00ec61c0                              -> 0x00ec61c0 _memset
+  CALL 0x00b7476c: CALL 0x00ec61c0                              -> 0x00ec61c0 _memset
+  CALL 0x00b747ae: CALL 0x00ec61c0                              -> 0x00ec61c0 _memset
+  CALL 0x00b747fe: CALL 0x00ec61c0                              -> 0x00ec61c0 _memset
+  CALL 0x00b74840: CALL 0x00ec61c0                              -> 0x00ec61c0 _memset
+  CALL 0x00b74890: CALL 0x00ec61c0                              -> 0x00ec61c0 _memset
+  PAT  0x00b74897: LEA ECX,[ESP + 0x3804]
+  PAT  0x00b748cb: MOV dword ptr [ESP + 0x3800],0x10af214
+  PAT  0x00b748d6: MOV dword ptr [ESP + 0x3804],ESI
+  PAT  0x00b748dd: MOV dword ptr [ESP + 0x3808],EDI
+  CALL 0x00b748e4: CALL 0x00ec61c0                              -> 0x00ec61c0 _memset
+  PAT  0x00b748e9: MOV dword ptr [ESP + 0x3838],EBP
+  PAT  0x00b7490c: LEA EDX,[ESP + 0x3848]
+  PAT  0x00b74915: MOV dword ptr [ESP + 0x3808],EBP
+  PAT  0x00b7491c: MOV dword ptr [ESP + 0x380c],ESI
+  PAT  0x00b74923: MOV dword ptr [ESP + 0x3810],0x10af214
+  PAT  0x00b7492e: MOV dword ptr [ESP + 0x3814],ESI
+  PAT  0x00b74935: MOV dword ptr [ESP + 0x3818],EBX
+  PAT  0x00b7493c: MOV dword ptr [ESP + 0x381c],ESI
+  PAT  0x00b74943: MOV dword ptr [ESP + 0x3820],EDI
+  PAT  0x00b7494a: MOV dword ptr [ESP + 0x3824],EDI
+  PAT  0x00b74951: MOV dword ptr [ESP + 0x3828],EDI
+  PAT  0x00b74958: MOV dword ptr [ESP + 0x382c],EDI
+  PAT  0x00b7495f: MOV dword ptr [ESP + 0x3830],EDI
+  PAT  0x00b74966: MOV dword ptr [ESP + 0x3834],EDI
+  PAT  0x00b7496d: MOV dword ptr [ESP + 0x3838],EDI
+  PAT  0x00b74974: MOV dword ptr [ESP + 0x383c],EDI
+  PAT  0x00b7497b: MOV dword ptr [ESP + 0x3840],EDI
+  PAT  0x00b74982: MOV dword ptr [ESP + 0x3844],EDI
+  PAT  0x00b74989: MOV dword ptr [ESP + 0x3848],0x10af1ec
+  PAT  0x00b74994: MOV dword ptr [ESP + 0x384c],EDI
+  CALL 0x00b7499b: CALL 0x00ec61c0                              -> 0x00ec61c0 _memset
+  PAT  0x00b749a2: LEA EAX,[ESP + 0x38a8]
+  PAT  0x00b749ab: MOV dword ptr [ESP + 0x38a0],0x10af2d4
+  PAT  0x00b749b6: MOV dword ptr [ESP + 0x38a4],EBX
+  PAT  0x00b749bd: MOV dword ptr [ESP + 0x38a8],ESI
+  PAT  0x00b749c4: MOV dword ptr [ESP + 0x38ac],EDI
+  CALL 0x00b749cb: CALL 0x00ec61c0                              -> 0x00ec61c0 _memset
+  PAT  0x00b749db: MOV dword ptr [ESP + 0x38f8],0x10af2d4
+  PAT  0x00b749e6: MOV dword ptr [ESP + 0x38fc],EBX
+  CALL 0x00b74a0d: CALL 0x00ec61c0                              -> 0x00ec61c0 _memset
+  CALL 0x00b74a2f: CALL 0x00ec61c0                              -> 0x00ec61c0 _memset
+  CALL 0x00b74a5f: CALL 0x00ec61c0                              -> 0x00ec61c0 _memset
+  CALL 0x00b74a81: CALL 0x00ec61c0                              -> 0x00ec61c0 _memset
+  CALL 0x00b74aa6: CALL 0x00ec61c0                              -> 0x00ec61c0 _memset
+  CALL 0x00b74af4: CALL 0x00ec61c0                              -> 0x00ec61c0 _memset
+  CALL 0x00b74b2b: CALL 0x00ec61c0                              -> 0x00ec61c0 _memset
+  CALL 0x00b74b5b: CALL 0x00ec61c0                              -> 0x00ec61c0 _memset
+  CALL 0x00b74b7d: CALL 0x00ec61c0                              -> 0x00ec61c0 _memset
+  CALL 0x00b74ba0: CALL 0x00ec61c0                              -> 0x00ec61c0 _memset
+  CALL 0x00b74bd3: CALL 0x00ec61c0                              -> 0x00ec61c0 _memset
+  CALL 0x00b74c03: CALL 0x00ec61c0                              -> 0x00ec61c0 _memset
+  CALL 0x00b74c45: CALL 0x00ec61c0                              -> 0x00ec61c0 _memset
+  CALL 0x00b74c75: CALL 0x00ec61c0                              -> 0x00ec61c0 _memset
+  CALL 0x00b74cb7: CALL 0x00ec61c0                              -> 0x00ec61c0 _memset
+  CALL 0x00b74cce: CALL 0x00ec61c0                              -> 0x00ec61c0 _memset
+  CALL 0x00b74d05: CALL 0x00ec61c0                              -> 0x00ec61c0 _memset
+  PAT  0x00b74d0c: LEA EDX,[ESP + 0x38]
+  PAT  0x00b74d17: MOV dword ptr [ESP + 0x38],EBP
+  CALL 0x00b74d1f: CALL 0x00ec61c0                              -> 0x00ec61c0 _memset
+  CALL 0x00b74d4f: CALL 0x00ec61c0                              -> 0x00ec61c0 _memset
+  CALL 0x00b74d91: CALL 0x00ec61c0                              -> 0x00ec61c0 _memset
+  CALL 0x00b74de9: CALL 0x00ec61c0                              -> 0x00ec61c0 _memset
+  CALL 0x00b74e19: CALL 0x00ec61c0                              -> 0x00ec61c0 _memset
+  CALL 0x00b74e4c: CALL 0x00ec61c0                              -> 0x00ec61c0 _memset
+  CALL 0x00b74ea4: CALL 0x00ec61c0                              -> 0x00ec61c0 _memset
+  CALL 0x00b74ee6: CALL 0x00ec61c0                              -> 0x00ec61c0 _memset
+  CALL 0x00b74f16: CALL 0x00ec61c0                              -> 0x00ec61c0 _memset
+  PAT  0x00b74f26: MOV dword ptr [ESP + 0x308],EBP
+  PAT  0x00b74f2d: MOV dword ptr [ESP + 0x30c],0x101c61c
+  CALL 0x00b74f46: CALL 0x00ec61c0                              -> 0x00ec61c0 _memset
+  CALL 0x00b74f88: CALL 0x00ec61c0                              -> 0x00ec61c0 _memset
+  CALL 0x00b74fc0: CALL 0x00ec61c0                              -> 0x00ec61c0 _memset
+  CALL 0x00b75006: CALL 0x00ec61c0                              -> 0x00ec61c0 _memset
+  CALL 0x00b7504c: CALL 0x00ec61c0                              -> 0x00ec61c0 _memset
+  CALL 0x00b75092: CALL 0x00ec61c0                              -> 0x00ec61c0 _memset
+  CALL 0x00b750ea: CALL 0x00ec61c0                              -> 0x00ec61c0 _memset
+  CALL 0x00b75142: CALL 0x00ec61c0                              -> 0x00ec61c0 _memset
+  CALL 0x00b75179: CALL 0x00ec61c0                              -> 0x00ec61c0 _memset
+  CALL 0x00b751bf: CALL 0x00ec61c0                              -> 0x00ec61c0 _memset
+  CALL 0x00b75205: CALL 0x00ec61c0                              -> 0x00ec61c0 _memset
+  CALL 0x00b7524b: CALL 0x00ec61c0                              -> 0x00ec61c0 _memset
+  CALL 0x00b752a3: CALL 0x00ec61c0                              -> 0x00ec61c0 _memset
+  CALL 0x00b752fb: CALL 0x00ec61c0                              -> 0x00ec61c0 _memset
+  CALL 0x00b75344: CALL 0x00ec61c0                              -> 0x00ec61c0 _memset
+  CALL 0x00b7539c: CALL 0x00ec61c0                              -> 0x00ec61c0 _memset
+  CALL 0x00b753b3: CALL 0x00ec61c0                              -> 0x00ec61c0 _memset
+  PAT  0x00b753c3: MOV dword ptr [ESP + 0x808],0x10af114
+  PAT  0x00b753ce: MOV dword ptr [ESP + 0x80c],0x10aeb8c
+  CALL 0x00b7540b: CALL 0x00ec61c0                              -> 0x00ec61c0 _memset
+  PAT  0x00b75467: MOV dword ptr [ESP + 0x880],ESI
+  PAT  0x00b7546e: MOV dword ptr [ESP + 0x884],EDI
+  PAT  0x00b75475: MOV dword ptr [ESP + 0x888],EDI
+  PAT  0x00b7547c: MOV dword ptr [ESP + 0x88c],EDI
+  CALL 0x00b754bb: CALL 0x00ec61c0                              -> 0x00ec61c0 _memset
+  CALL 0x00b754ef: CALL 0x00ec61c0                              -> 0x00ec61c0 _memset
+  CALL 0x00b75538: CALL 0x00ec61c0                              -> 0x00ec61c0 _memset
+  CALL 0x00b7556c: CALL 0x00ec61c0                              -> 0x00ec61c0 _memset
+  CALL 0x00b755b2: CALL 0x00ec61c0                              -> 0x00ec61c0 _memset
+  CALL 0x00b755f8: CALL 0x00ec61c0                              -> 0x00ec61c0 _memset
+  CALL 0x00b7563e: CALL 0x00ec61c0                              -> 0x00ec61c0 _memset
+  CALL 0x00b75696: CALL 0x00ec61c0                              -> 0x00ec61c0 _memset
+  CALL 0x00b756f1: CALL 0x00ec61c0                              -> 0x00ec61c0 _memset
+  CALL 0x00b75725: CALL 0x00ec61c0                              -> 0x00ec61c0 _memset
+  CALL 0x00b7576b: CALL 0x00ec61c0                              -> 0x00ec61c0 _memset
+  CALL 0x00b757b1: CALL 0x00ec61c0                              -> 0x00ec61c0 _memset
+  CALL 0x00b75809: CALL 0x00ec61c0                              -> 0x00ec61c0 _memset
+  CALL 0x00b7583d: CALL 0x00ec61c0                              -> 0x00ec61c0 _memset
+  CALL 0x00b75886: CALL 0x00ec61c0                              -> 0x00ec61c0 _memset
+  CALL 0x00b758cc: CALL 0x00ec61c0                              -> 0x00ec61c0 _memset
+  CALL 0x00b75924: CALL 0x00ec61c0                              -> 0x00ec61c0 _memset
+  CALL 0x00b75958: CALL 0x00ec61c0                              -> 0x00ec61c0 _memset
+  CALL 0x00b7598c: CALL 0x00ec61c0                              -> 0x00ec61c0 _memset
+  CALL 0x00b759af: CALL 0x00ec61c0                              -> 0x00ec61c0 _memset
+  CALL 0x00b759e2: CALL 0x00ec61c0                              -> 0x00ec61c0 _memset
+  CALL 0x00b75a12: CALL 0x00ec61c0                              -> 0x00ec61c0 _memset
+  CALL 0x00b75a54: CALL 0x00ec61c0                              -> 0x00ec61c0 _memset
+  CALL 0x00b75a84: CALL 0x00ec61c0                              -> 0x00ec61c0 _memset
+  CALL 0x00b75ac6: CALL 0x00ec61c0                              -> 0x00ec61c0 _memset
+  CALL 0x00b75b0c: CALL 0x00ec61c0                              -> 0x00ec61c0 _memset
+  CALL 0x00b75b67: CALL 0x00ec61c0                              -> 0x00ec61c0 _memset
+  CALL 0x00b75bad: CALL 0x00ec61c0                              -> 0x00ec61c0 _memset
+  CALL 0x00b75c05: CALL 0x00ec61c0                              -> 0x00ec61c0 _memset
+  CALL 0x00b75c28: CALL 0x00ec61c0                              -> 0x00ec61c0 _memset
+  CALL 0x00b75c58: CALL 0x00ec61c0                              -> 0x00ec61c0 _memset
+  CALL 0x00b75c88: CALL 0x00ec61c0                              -> 0x00ec61c0 _memset
+  CALL 0x00b75cc0: CALL 0x00ec61c0                              -> 0x00ec61c0 _memset
+  CALL 0x00b75d03: CALL 0x00ec61c0                              -> 0x00ec61c0 _memset
+  CALL 0x00b75d49: CALL 0x00ec61c0                              -> 0x00ec61c0 _memset
+  CALL 0x00b75d7d: CALL 0x00ec61c0                              -> 0x00ec61c0 _memset
+  CALL 0x00b75d94: CALL 0x00ec61c0                              -> 0x00ec61c0 _memset
+  CALL 0x00b75de8: CALL 0x00ec61c0                              -> 0x00ec61c0 _memset
+  CALL 0x00b75e2d: CALL 0x00ec61c0                              -> 0x00ec61c0 _memset
+  CALL 0x00b75e44: CALL 0x00ec61c0                              -> 0x00ec61c0 _memset
+  CALL 0x00b75e8a: CALL 0x00ec61c0                              -> 0x00ec61c0 _memset
+  CALL 0x00b75ede: CALL 0x00ec61c0                              -> 0x00ec61c0 _memset
+  CALL 0x00b75f28: CALL 0x00ec61c0                              -> 0x00ec61c0 _memset
+  CALL 0x00b75f84: CALL 0x00ec61c0                              -> 0x00ec61c0 _memset
+  CALL 0x00b75fe3: CALL 0x00ec61c0                              -> 0x00ec61c0 _memset
+  CALL 0x00b760c0: CALL 0x00ec61c0                              -> 0x00ec61c0 _memset
+  CALL 0x00b760e2: CALL 0x00ec61c0                              -> 0x00ec61c0 _memset
+  CALL 0x00b76116: CALL 0x00ec61c0                              -> 0x00ec61c0 _memset
+  CALL 0x00b7614a: CALL 0x00ec61c0                              -> 0x00ec61c0 _memset
+  CALL 0x00b7616c: CALL 0x00ec61c0                              -> 0x00ec61c0 _memset
+  CALL 0x00b76191: CALL 0x00ec61c0                              -> 0x00ec61c0 _memset
+  CALL 0x00b761b3: CALL 0x00ec61c0                              -> 0x00ec61c0 _memset
+  CALL 0x00b761e3: CALL 0x00ec61c0                              -> 0x00ec61c0 _memset
+  CALL 0x00b76225: CALL 0x00ec61c0                              -> 0x00ec61c0 _memset
+  CALL 0x00b76259: CALL 0x00ec61c0                              -> 0x00ec61c0 _memset
+  CALL 0x00b7629b: CALL 0x00ec61c0                              -> 0x00ec61c0 _memset
+  CALL 0x00b762d2: CALL 0x00ec61c0                              -> 0x00ec61c0 _memset
+  CALL 0x00b76314: CALL 0x00ec61c0                              -> 0x00ec61c0 _memset
+  CALL 0x00b76337: CALL 0x00ec61c0                              -> 0x00ec61c0 _memset
+  CALL 0x00b76367: CALL 0x00ec61c0                              -> 0x00ec61c0 _memset
+  CALL 0x00b7639b: CALL 0x00ec61c0                              -> 0x00ec61c0 _memset
+  CALL 0x00b763be: CALL 0x00ec61c0                              -> 0x00ec61c0 _memset
+  CALL 0x00b763f1: CALL 0x00ec61c0                              -> 0x00ec61c0 _memset
+  CALL 0x00b7644a: CALL 0x00ec61c0                              -> 0x00ec61c0 _memset
+  CALL 0x00b76878: CALL 0x00ec61c0                              -> 0x00ec61c0 _memset
+  CALL 0x00b76ca6: CALL 0x00ec61c0                              -> 0x00ec61c0 _memset
+  CALL 0x00b770d4: CALL 0x00ec61c0                              -> 0x00ec61c0 _memset
+  CALL 0x00b77502: CALL 0x00ec61c0                              -> 0x00ec61c0 _memset
+  CALL 0x00b77933: CALL 0x00ec61c0                              -> 0x00ec61c0 _memset
+  CALL 0x00b77d61: CALL 0x00ec61c0                              -> 0x00ec61c0 _memset
+  PAT  0x00b780b2: LEA EAX,[ESP + 0x2c40]
+  PAT  0x00b780f1: MOV dword ptr [ESP + 0x2c00],ESI
+  PAT  0x00b780f8: MOV dword ptr [ESP + 0x2c04],0x10aeeb0
+  PAT  0x00b78103: MOV dword ptr [ESP + 0x2c08],ESI
+  PAT  0x00b7810a: MOV dword ptr [ESP + 0x2c0c],0x10aeebc
+  PAT  0x00b78115: MOV dword ptr [ESP + 0x2c10],ESI
+  PAT  0x00b7811c: MOV dword ptr [ESP + 0x2c14],0x10aeba0
+  PAT  0x00b78127: MOV dword ptr [ESP + 0x2c18],ESI
+  PAT  0x00b7812e: MOV dword ptr [ESP + 0x2c1c],EDI
+  PAT  0x00b78135: MOV dword ptr [ESP + 0x2c20],EDI
+  PAT  0x00b7813c: MOV dword ptr [ESP + 0x2c24],EDI
+  PAT  0x00b78143: MOV dword ptr [ESP + 0x2c28],EDI
+  PAT  0x00b7814a: MOV dword ptr [ESP + 0x2c2c],EDI
+  PAT  0x00b78151: MOV dword ptr [ESP + 0x2c30],EDI
+  PAT  0x00b78158: MOV dword ptr [ESP + 0x2c34],0x10aee88
+  PAT  0x00b78163: MOV dword ptr [ESP + 0x2c38],EBX
+  PAT  0x00b7816a: MOV dword ptr [ESP + 0x2c3c],ESI
+  PAT  0x00b78171: MOV dword ptr [ESP + 0x2c40],EBP
+  PAT  0x00b78178: MOV dword ptr [ESP + 0x2c44],ESI
+  CALL 0x00b7817f: CALL 0x00ec61c0                              -> 0x00ec61c0 _memset
+  PAT  0x00b78186: LEA ECX,[ESP + 0x2ce8]
+  PAT  0x00b7818f: MOV dword ptr [ESP + 0x2c8c],0x10af0f4
+  PAT  0x00b7819a: MOV dword ptr [ESP + 0x2c90],0x10aebc4
+  PAT  0x00b781a5: MOV dword ptr [ESP + 0x2c94],ESI
+  PAT  0x00b781ac: MOV dword ptr [ESP + 0x2c98],0x10aebb8
+  PAT  0x00b781b7: MOV dword ptr [ESP + 0x2c9c],ESI
+  PAT  0x00b781be: MOV dword ptr [ESP + 0x2ca0],0x10af0e4
+  PAT  0x00b781c9: MOV dword ptr [ESP + 0x2ca4],ESI
+  PAT  0x00b781d0: MOV dword ptr [ESP + 0x2ca8],EBP
+  PAT  0x00b781d7: MOV dword ptr [ESP + 0x2cac],ESI
+  PAT  0x00b781de: MOV dword ptr [ESP + 0x2cb0],EDI
+  PAT  0x00b781e5: MOV dword ptr [ESP + 0x2cb4],EDI
+  PAT  0x00b781ec: MOV dword ptr [ESP + 0x2cb8],EDI
+  PAT  0x00b781f3: MOV dword ptr [ESP + 0x2cbc],EDI
+  PAT  0x00b781fa: MOV dword ptr [ESP + 0x2cc0],EDI
+  PAT  0x00b78201: MOV dword ptr [ESP + 0x2cc4],EDI
+  PAT  0x00b78208: MOV dword ptr [ESP + 0x2cc8],EDI
+  PAT  0x00b7820f: MOV dword ptr [ESP + 0x2ccc],EDI
+  PAT  0x00b78216: MOV dword ptr [ESP + 0x2cd0],EDI
+  PAT  0x00b7821d: MOV dword ptr [ESP + 0x2cd4],EDI
+  PAT  0x00b78224: MOV dword ptr [ESP + 0x2cd8],0x10af2d4
+  PAT  0x00b7822f: MOV dword ptr [ESP + 0x2cdc],EBX
+  PAT  0x00b78236: MOV dword ptr [ESP + 0x2ce0],ESI
+  PAT  0x00b7823d: MOV dword ptr [ESP + 0x2ce4],0x10aee78
+  PAT  0x00b78248: MOV dword ptr [ESP + 0x2ce8],ESI
+  PAT  0x00b7824f: MOV dword ptr [ESP + 0x2cec],EDI
+  CALL 0x00b78256: CALL 0x00ec61c0                              -> 0x00ec61c0 _memset
+  CALL 0x00b7829c: CALL 0x00ec61c0                              -> 0x00ec61c0 _memset
+  CALL 0x00b78689: CALL 0x00ec61c0                              -> 0x00ec61c0 _memset
+  CALL 0x00b786bc: CALL 0x00ec61c0                              -> 0x00ec61c0 _memset
+  CALL 0x00b786e3: CALL 0x00be0c00                              -> 0x00be0c00 FUN_00be0c00
+  CALL 0x00b786fb: CALL 0x00406d00                              -> 0x00406d00 FUN_00406d00
+  CALL 0x00b78720: CALL 0x00be1750                              -> 0x00be1750 BSShader::CreatePixelShader
+  CALL 0x00b7873c: CALL dword ptr [0x00fdf1c4]                  -> 0x00000067 unknown
+  CALL 0x00b78763: CALL dword ptr [0x00fdf1c0]                  -> 0x00000066 unknown
+  CALL 0x00b787f7: CALL 0x00ec623a                              -> 0x00ec623a _sprintf
+  PAT  0x00b78804: LEA EBX,[ESP + 0x2c]
+  CALL 0x00b7885d: CALL dword ptr [0x00fdf1c4]                  -> 0x00000067 unknown
+  CALL 0x00b78896: CALL 0x00be0c00                              -> 0x00be0c00 FUN_00be0c00
+  CALL 0x00b788ae: CALL 0x00406d00                              -> 0x00406d00 FUN_00406d00
+  CALL 0x00b788e2: CALL 0x00406d00                              -> 0x00406d00 FUN_00406d00
+  CALL 0x00b78907: CALL 0x00be1750                              -> 0x00be1750 BSShader::CreatePixelShader
+  CALL 0x00b78921: CALL dword ptr [0x00fdf1c4]                  -> 0x00000067 unknown
+  CALL 0x00b78943: CALL dword ptr [0x00fdf1c0]                  -> 0x00000066 unknown
+  CALL 0x00b7896e: CALL 0x00ec408c                              -> 0x00ec408c __security_check_cookie
+  CALL 0x00b7898f: CALL 0x00beb070                              -> 0x00beb070 FUN_00beb070
+  CALL 0x00b78996: CALL 0x00be22b0                              -> 0x00be22b0 FUN_00be22b0
+  CALL 0x00b7899d: CALL 0x00be39e0                              -> 0x00be39e0 FUN_00be39e0
+  CALL 0x00b789a4: CALL 0x00be7420                              -> 0x00be7420 FUN_00be7420
+  CALL 0x00b789ab: CALL 0x00be78e0                              -> 0x00be78e0 FUN_00be78e0
+  CALL 0x00b789b2: CALL 0x00be7f40                              -> 0x00be7f40 FUN_00be7f40
+  CALL 0x00b789b9: CALL 0x00be8960                              -> 0x00be8960 FUN_00be8960
+  CALL 0x00b789c0: CALL 0x00be8fb0                              -> 0x00be8fb0 FUN_00be8fb0
+  CALL 0x00b789c7: CALL 0x00be9920                              -> 0x00be9920 FUN_00be9920
+  CALL 0x00b789ce: CALL 0x00beac70                              -> 0x00beac70 FUN_00beac70
+  CALL 0x00b789de: CALL 0x00bf66c0                              -> 0x00bf66c0 FUN_00bf66c0
+  CALL 0x00b789e5: CALL 0x00bebd20                              -> 0x00bebd20 FUN_00bebd20
+  CALL 0x00b789ec: CALL 0x00bf0720                              -> 0x00bf0720 FUN_00bf0720
+  CALL 0x00b789f3: CALL 0x00bf8f70                              -> 0x00bf8f70 FUN_00bf8f70
+  CALL 0x00b789fa: CALL 0x00bf96b0                              -> 0x00bf96b0 FUN_00bf96b0
+  CALL 0x00b78a01: CALL 0x00bfbf60                              -> 0x00bfbf60 FUN_00bfbf60
+  CALL 0x00b78a08: CALL 0x00bfc860                              -> 0x00bfc860 FUN_00bfc860
+  CALL 0x00b78a0f: CALL 0x00c01020                              -> 0x00c01020 FUN_00c01020
+  CALL 0x00b78a16: CALL 0x00c017c0                              -> 0x00c017c0 FUN_00c017c0
+  CALL 0x00b78a1d: CALL 0x00c01c20                              -> 0x00c01c20 FUN_00c01c20
+  CALL 0x00b78a24: CALL 0x00c01f60                              -> 0x00c01f60 FUN_00c01f60
+  CALL 0x00b78a2b: CALL 0x00c00be0                              -> 0x00c00be0 FUN_00c00be0
+  CALL 0x00b78a33: JMP 0x00c02340                               -> 0x00c02340 FUN_00c02340
+  CALL 0x00b78a39: JMP 0x00bea040                               -> 0x00bea040 FUN_00bea040
+  CALL 0x00b78aa6: CALL 0x00b4f5d0                              -> 0x00b4f5d0 FUN_00b4f5d0
+  CALL 0x00b78b60: CALL 0x00b70820                              -> 0x00b70820 FUN_00b70820
+  PAT  0x00b78c13: MOV dword ptr [ESP + 0x44],EAX
+  PAT  0x00b78c20: FLD float ptr [ESP + 0x44]
+  PAT  0x00b78c2d: LEA EAX,[ESP + 0x2c]
+  PAT  0x00b78c3a: FADD float ptr [ESP + 0x2c]
+  PAT  0x00b78c3e: FSTP float ptr [ESP + 0x2c]
+  CALL 0x00b78c42: CALL 0x00ee6df8                              -> 0x00ee6df8 D3DXVec3TransformCoord
+  PAT  0x00b78c7a: FLD float ptr [EAX + 0x30]
+  PAT  0x00b78c99: FMUL float ptr [ESP + 0x2c]
+  PAT  0x00b78c9d: FSTP float ptr [ESP + 0x2c]
+  PAT  0x00b78cae: FDIV float ptr [ECX + 0x30]
+  PAT  0x00b78cc9: FLD float ptr [ESP + 0x2c]
+  PAT  0x00b78ce6: FSTP float ptr [ESP + 0x34]
+  PAT  0x00b78cea: LEA EAX,[ESP + 0x34]
+  PAT  0x00b78d08: FSTP float ptr [ESP + 0x44]
+  CALL 0x00b78d0c: CALL 0x00ee6df2                              -> 0x00ee6df2 D3DXVec3TransformNormal
+  PAT  0x00b78d16: LEA EAX,[ESP + 0x34]
+  CALL 0x00b78d1b: CALL 0x00ee6dec                              -> 0x00ee6dec D3DXVec3Normalize
+  PAT  0x00b78d20: FLD float ptr [ESP + 0x30]
+  PAT  0x00b78d2a: FLD float ptr [ESP + 0x34]
+  PAT  0x00b78d34: FLD float ptr [ESP + 0x38]
+  PAT  0x00b78d55: MOV EDX,dword ptr [ESP + 0x5c]
+  PAT  0x00b78dc2: MOV dword ptr [ESP + 0x44],ECX
+  PAT  0x00b78de2: FLD float ptr [ESP + 0x44]
+  PAT  0x00b78ded: FSTP float ptr [ESP + 0x44]
+  PAT  0x00b78df1: MOV ECX,dword ptr [ESP + 0x44]
+  CALL 0x00b78e3c: CALL 0x00b70590                              -> 0x00b70590 FUN_00b70590
+  CALL 0x00b78e90: CALL 0x00b70590                              -> 0x00b70590 FUN_00b70590
+  PAT  0x00b78eb8: FSTP float ptr [ESP + 0x5c]
+  PAT  0x00b78ebc: MOV EAX,dword ptr [ESP + 0x5c]
+  PAT  0x00b78f49: FSTP float ptr [ESP + 0x2c]
+  PAT  0x00b78f62: FLD float ptr [ESP + 0x2c]
+  PAT  0x00b78f66: FSUB float ptr [EAX + 0x2c]
+  CALL 0x00b78f6d: CALL 0x004a0c10                              -> 0x004a0c10 FUN_004a0c10
+  PAT  0x00b78fb3: FLD float ptr [ESP + 0x2c]
+  PAT  0x00b78fbd: FSTP float ptr [ESP + 0x2c]
+  PAT  0x00b78fd5: FLD float ptr [ESP + 0x2c]
+  CALL 0x00b79019: CALL 0x00ee6df8                              -> 0x00ee6df8 D3DXVec3TransformCoord
+  ... (matched output truncated)
+  Instructions scanned: 3338, matched lines: 360
+
+======================================================================
+RAW RANGE CALL/PATTERN SCAN: selector +0x150 raw setup/copy range 0x00b7a730..0x00b7aa20
+======================================================================
+  CALL 0x00b7a749: CALL 0x00e804d0                              -> 0x00e804d0 FUN_00e804d0
+  PAT  0x00b7a756: MOV EDI,dword ptr [ESI + 0x5c]
+  CALL 0x00b7a76d: CALL dword ptr [0x00fdf1c4]                  -> 0x00000067 unknown
+  CALL 0x00b7a78a: CALL dword ptr [0x00fdf1c0]                  -> 0x00000066 unknown
+  CALL 0x00b7a7a0: CALL 0x00beb070                              -> 0x00beb070 FUN_00beb070
+  CALL 0x00b7a7a7: CALL 0x00beb830                              -> 0x00beb830 FUN_00beb830
+  CALL 0x00b7a7ae: CALL 0x00be22b0                              -> 0x00be22b0 FUN_00be22b0
+  CALL 0x00b7a7b5: CALL 0x00be39e0                              -> 0x00be39e0 FUN_00be39e0
+  CALL 0x00b7a7bc: CALL 0x00be7420                              -> 0x00be7420 FUN_00be7420
+  CALL 0x00b7a7c3: CALL 0x00be78e0                              -> 0x00be78e0 FUN_00be78e0
+  CALL 0x00b7a7ca: CALL 0x00be7f40                              -> 0x00be7f40 FUN_00be7f40
+  CALL 0x00b7a7d1: CALL 0x00be8960                              -> 0x00be8960 FUN_00be8960
+  CALL 0x00b7a7d8: CALL 0x00be8fb0                              -> 0x00be8fb0 FUN_00be8fb0
+  CALL 0x00b7a7df: CALL 0x00be9920                              -> 0x00be9920 FUN_00be9920
+  CALL 0x00b7a7e6: CALL 0x00beac70                              -> 0x00beac70 FUN_00beac70
+  CALL 0x00b7a7f6: CALL 0x00bf66c0                              -> 0x00bf66c0 FUN_00bf66c0
+  CALL 0x00b7a7fd: CALL 0x00bebd20                              -> 0x00bebd20 FUN_00bebd20
+  CALL 0x00b7a804: CALL 0x00bf0720                              -> 0x00bf0720 FUN_00bf0720
+  CALL 0x00b7a80b: CALL 0x00bf8f70                              -> 0x00bf8f70 FUN_00bf8f70
+  CALL 0x00b7a812: CALL 0x00bf96b0                              -> 0x00bf96b0 FUN_00bf96b0
+  CALL 0x00b7a819: CALL 0x00bfbf60                              -> 0x00bfbf60 FUN_00bfbf60
+  CALL 0x00b7a820: CALL 0x00bfc860                              -> 0x00bfc860 FUN_00bfc860
+  CALL 0x00b7a827: CALL 0x00c01020                              -> 0x00c01020 FUN_00c01020
+  CALL 0x00b7a82e: CALL 0x00c017c0                              -> 0x00c017c0 FUN_00c017c0
+  CALL 0x00b7a835: CALL 0x00c01c20                              -> 0x00c01c20 FUN_00c01c20
+  CALL 0x00b7a83c: CALL 0x00c01f60                              -> 0x00c01f60 FUN_00c01f60
+  CALL 0x00b7a843: CALL 0x00c00be0                              -> 0x00c00be0 FUN_00c00be0
+  CALL 0x00b7a84a: CALL 0x00c02340                              -> 0x00c02340 FUN_00c02340
+  CALL 0x00b7a859: CALL 0x00bea040                              -> 0x00bea040 FUN_00bea040
+  CALL 0x00b7a877: CALL 0x00b55560                              -> 0x00b55560 FUN_00b55560
+  CALL 0x00b7a880: CALL 0x00b55560                              -> 0x00b55560 FUN_00b55560
+  CALL 0x00b7a889: CALL 0x00b55560                              -> 0x00b55560 FUN_00b55560
+  CALL 0x00b7a892: CALL 0x00b55560                              -> 0x00b55560 FUN_00b55560
+  PAT  0x00b7a8b5: LEA ECX,[EDI + 0x7c]
+  PAT  0x00b7a8b9: LEA ECX,[EDI + 0x30]
+  CALL 0x00b7a8bc: CALL 0x00c663d0                              -> 0x00c663d0 FUN_00c663d0
+  PAT  0x00b7a8c1: LEA EDX,[EDI + 0x80]
+  PAT  0x00b7a8c8: LEA ECX,[EDI + 0x34]
+  CALL 0x00b7a8cb: CALL 0x00c663d0                              -> 0x00c663d0 FUN_00c663d0
+  PAT  0x00b7a8d4: LEA EAX,[EBX + 0x7c]
+  PAT  0x00b7a8d8: LEA ECX,[EBX + 0x30]
+  CALL 0x00b7a8db: CALL 0x00c663d0                              -> 0x00c663d0 FUN_00c663d0
+  PAT  0x00b7a8e0: LEA ECX,[EBX + 0x80]
+  PAT  0x00b7a8e7: LEA ECX,[EBX + 0x34]
+  CALL 0x00b7a8ea: CALL 0x00c663d0                              -> 0x00c663d0 FUN_00c663d0
+  PAT  0x00b7a8f3: LEA EDX,[EBP + 0x7c]
+  PAT  0x00b7a8f7: LEA ECX,[EBP + 0x30]
+  CALL 0x00b7a8fa: CALL 0x00c663d0                              -> 0x00c663d0 FUN_00c663d0
+  PAT  0x00b7a8ff: LEA EAX,[EBP + 0x80]
+  PAT  0x00b7a906: LEA ECX,[EBP + 0x34]
+  CALL 0x00b7a909: CALL 0x00c663d0                              -> 0x00c663d0 FUN_00c663d0
+  PAT  0x00b7a91a: LEA ECX,[EAX + 0x7c]
+  PAT  0x00b7a91e: LEA ECX,[EAX + 0x30]
+  CALL 0x00b7a921: CALL 0x00c663d0                              -> 0x00c663d0 FUN_00c663d0
+  PAT  0x00b7a92a: LEA EDX,[EAX + 0x80]
+  PAT  0x00b7a931: LEA ECX,[EAX + 0x34]
+  CALL 0x00b7a934: CALL 0x00c663d0                              -> 0x00c663d0 FUN_00c663d0
+  PAT  0x00b7a942: LEA EAX,[EDI + 0x84]
+  PAT  0x00b7a949: LEA ECX,[EDI + 0x30]
+  CALL 0x00b7a94c: CALL 0x00c663d0                              -> 0x00c663d0 FUN_00c663d0
+  PAT  0x00b7a951: LEA ECX,[EDI + 0x88]
+  PAT  0x00b7a958: LEA ECX,[EDI + 0x34]
+  CALL 0x00b7a95b: CALL 0x00c663d0                              -> 0x00c663d0 FUN_00c663d0
+  PAT  0x00b7a964: LEA EDX,[EBX + 0x84]
+  PAT  0x00b7a96b: LEA ECX,[EBX + 0x30]
+  CALL 0x00b7a96e: CALL 0x00c663d0                              -> 0x00c663d0 FUN_00c663d0
+  PAT  0x00b7a973: LEA EAX,[EBX + 0x88]
+  PAT  0x00b7a97a: LEA ECX,[EBX + 0x34]
+  CALL 0x00b7a97d: CALL 0x00c663d0                              -> 0x00c663d0 FUN_00c663d0
+  PAT  0x00b7a986: LEA ECX,[EBP + 0x84]
+  PAT  0x00b7a98d: LEA ECX,[EBP + 0x30]
+  CALL 0x00b7a990: CALL 0x00c663d0                              -> 0x00c663d0 FUN_00c663d0
+  PAT  0x00b7a995: LEA EDX,[EBP + 0x88]
+  PAT  0x00b7a99c: LEA ECX,[EBP + 0x34]
+  CALL 0x00b7a99f: CALL 0x00c663d0                              -> 0x00c663d0 FUN_00c663d0
+  PAT  0x00b7a9ac: LEA ECX,[EAX + 0x84]
+  PAT  0x00b7a9b3: LEA ECX,[EAX + 0x30]
+  CALL 0x00b7a9b6: CALL 0x00c663d0                              -> 0x00c663d0 FUN_00c663d0
+  PAT  0x00b7a9bf: LEA EDX,[EAX + 0x88]
+  PAT  0x00b7a9c6: LEA ECX,[EAX + 0x34]
+  CALL 0x00b7a9c9: CALL 0x00c663d0                              -> 0x00c663d0 FUN_00c663d0
+  CALL 0x00b7a9d9: CALL 0x00c02ce0                              -> 0x00c02ce0 FUN_00c02ce0
+  CALL 0x00b7a9e6: CALL 0x00c02f70                              -> 0x00c02f70 FUN_00c02f70
+  PAT  0x00b7aa01: CMP dword ptr [EDI + 0x30],0x0
+  CALL 0x00b7aa07: CALL 0x00e7f5d0                              -> 0x00e7f5d0 FUN_00e7f5d0
+  PAT  0x00b7aa0c: MOV dword ptr [EDI + 0x30],EAX
+  PAT  0x00b7aa0f: MOV ECX,dword ptr [EDI + 0x30]
+  CALL 0x00b7aa18: CALL 0x00e7f430                              -> 0x00e7f430 FUN_00e7f430
+  Instructions scanned: 235, matched lines: 88
+
+======================================================================
+RAW RANGE CALL/PATTERN SCAN: selector +0xC0 raw setter and adjacent helpers 0x00e81420..0x00e81660
+======================================================================
+  CALL 0x00e81438: CALL dword ptr [0x00fdf1c4]                  -> 0x00000067 unknown
+  CALL 0x00e81456: CALL dword ptr [0x00fdf1c0]                  -> 0x00000066 unknown
+  PAT  0x00e8147e: MOV ECX,dword ptr [ESI + 0x44]
+  PAT  0x00e81487: MOV EDX,dword ptr [EAX + 0x84]
+  PAT  0x00e8148f: MOV ECX,dword ptr [ESI + 0x5c]
+  PAT  0x00e814c4: MOV ECX,dword ptr [ESI + 0x44]
+  PAT  0x00e814cd: MOV EDX,dword ptr [EAX + 0x88]
+  PAT  0x00e814d5: MOV ECX,dword ptr [ESI + 0x5c]
+  PAT  0x00e814f5: CMP dword ptr [EAX + 0x5c],0x0
+  PAT  0x00e81505: CMP dword ptr [EAX + 0x44],0x0
+  CALL 0x00e81520: CALL 0x00a5be90                              -> 0x00a5be90 FUN_00a5be90
+  PAT  0x00e81529: MOV EAX,dword ptr [EBX + 0x34]
+  PAT  0x00e81542: MOV ECX,dword ptr [EBX + 0x34]
+  PAT  0x00e81569: MOV EAX,dword ptr [EBX + 0x30]
+  PAT  0x00e81580: MOV ECX,dword ptr [EBX + 0x30]
+  PAT  0x00e815b3: MOV EDI,dword ptr [EBP + 0x34]
+  CALL 0x00e8163c: CALL 0x00aa13e0                              -> 0x00aa13e0 FUN_00aa13e0
+  CALL 0x00e81659: CALL 0x00ee8910                              -> 0x00ee8910 FUN_00ee8910
+  Instructions scanned: 204, matched lines: 18
+
+======================================================================
+CREATE SHADER CALL WINDOWS INSIDE FOCUS RANGES
+======================================================================
+
+----------------------------------------------------------------------
+Disassembly selector +0x148 recognized vertex creation function call to BSShader::CreateVertexShader around 0x00b74000
+----------------------------------------------------------------------
+  0x00b74000: CALL 0x00be0fe0                                        << TARGET
+      ref UNCONDITIONAL_CALL -> 0x00be0fe0 BSShader::CreateVertexShader
+  0x00b74005: MOV EBP,dword ptr [ESI*0x4 + 0x11fdd88]               
+      ref READ -> 0x011fdd88 unknown
+  0x00b7400c: MOV dword ptr [ESP + 0x10],EAX                        
+      ref WRITE -> 0x-0003064 unknown
+  0x00b74010: CMP EBP,EAX                                           
+  0x00b74012: JZ 0x00b74049                                         
+      ref CONDITIONAL_JUMP -> 0x00b74049 FUN_00b71bf0+0x2459
+  0x00b74014: CMP EBP,EDI                                           
+  0x00b74016: JZ 0x00b74034                                         
+      ref CONDITIONAL_JUMP -> 0x00b74034 FUN_00b71bf0+0x2444
+  0x00b74018: LEA EAX,[EBP + 0x4]                                   
+  0x00b7401b: PUSH EAX                                              
+  0x00b7401c: CALL dword ptr [0x00fdf1c4]                           
+      ref READ -> 0x00fdf1c4 unknown
+      ref COMPUTED_CALL -> 0x00000067 unknown
+  0x00b74022: TEST EAX,EAX                                          
+  0x00b74024: JNZ 0x00b74030                                        
+      ref CONDITIONAL_JUMP -> 0x00b74030 FUN_00b71bf0+0x2440
+  0x00b74026: MOV EDX,dword ptr [EBP]                               
+  0x00b74029: MOV EAX,dword ptr [EDX + 0x4]                         
+  0x00b7402c: MOV ECX,EBP                                           
+  0x00b7402e: CALL EAX                                              
+  0x00b74030: MOV EAX,dword ptr [ESP + 0x10]                        
+      ref READ -> 0x-0003064 unknown
+  0x00b74034: MOV dword ptr [ESI*0x4 + 0x11fdd88],EAX               
+      ref WRITE -> 0x011fdd88 unknown
+  0x00b7403b: CMP EAX,EDI                                           
+  0x00b7403d: JZ 0x00b74049                                         
+      ref CONDITIONAL_JUMP -> 0x00b74049 FUN_00b71bf0+0x2459
+  0x00b7403f: ADD EAX,0x4                                           
+  0x00b74042: PUSH EAX                                              
+  0x00b74043: CALL dword ptr [0x00fdf1c0]                           
+      ref READ -> 0x00fdf1c0 unknown
+      ref COMPUTED_CALL -> 0x00000066 unknown
+  0x00b74049: INC ESI                                               
+  0x00b7404a: ADD EBX,0x4c                                          
+  0x00b7404d: CMP ESI,0x1f                                          
+  0x00b74050: JL 0x00b73fb0                                         
+      ref CONDITIONAL_JUMP -> 0x00b73fb0 FUN_00b71bf0+0x23c0
+  0x00b74056: LEA EBX,[ESP + 0x1eac]                                
+  0x00b7405d: XOR ESI,ESI                                           
+  0x00b7405f: MOV dword ptr [ESP + 0x10],EBX                        
+  0x00b74063: MOV EAX,dword ptr [EBX]                               
+  0x00b74065: CMP EAX,EDI                                           
+  0x00b74067: JZ 0x00b740f5                                         
+      ref CONDITIONAL_JUMP -> 0x00b740f5 FUN_00b71bf0+0x2505
+  0x00b7406d: LEA ECX,[ESP + 0x2e68]                                
+  0x00b74074: PUSH ECX                                              
+  0x00b74075: PUSH EAX                                              
+  0x00b74076: CALL 0x00be0c00                                       
+      ref UNCONDITIONAL_CALL -> 0x00be0c00 FUN_00be0c00
+  0x00b7407b: PUSH ESI                                              
+  0x00b7407c: PUSH 0x10ae8d8                                        
+      ref DATA -> 0x010ae8d8 unknown
+  0x00b74081: LEA EDX,[ESP + 0x2f7c]                                
+  0x00b74088: PUSH 0x104                                            
+  0x00b7408d: PUSH EDX                                              
+  0x00b7408e: CALL 0x00406d00                                       
+      ref UNCONDITIONAL_CALL -> 0x00406d00 FUN_00406d00
+  0x00b74093: ADD ESP,0x18                                          
+  0x00b74096: LEA EAX,[ESP + 0x2f6c]                                
+  0x00b7409d: PUSH EAX                                              
+  0x00b7409e: PUSH 0x10a93e4                                        
+      ref DATA -> 0x010a93e4 unknown
+  0x00b740a3: ADD EBX,0x4                                           
+  0x00b740a6: PUSH EBX                                              
+  0x00b740a7: LEA ECX,[ESP + 0x2e74]                                
+  0x00b740ae: PUSH ECX                                              
+  0x00b740af: MOV ECX,dword ptr [ESP + 0x24]                        
+
+----------------------------------------------------------------------
+Disassembly selector +0x148 recognized vertex creation function call to BSShader::CreateVertexShader around 0x00b740b3
+----------------------------------------------------------------------
+  0x00b740b3: CALL 0x00be0fe0                                        << TARGET
+      ref UNCONDITIONAL_CALL -> 0x00be0fe0 BSShader::CreateVertexShader
+  0x00b740b8: MOV EBX,dword ptr [ESI*0x4 + 0x11fde04]               
+      ref READ -> 0x011fde04 unknown
+  0x00b740bf: MOV EBP,EAX                                           
+  0x00b740c1: CMP EBX,EBP                                           
+  0x00b740c3: JZ 0x00b740f5                                         
+      ref CONDITIONAL_JUMP -> 0x00b740f5 FUN_00b71bf0+0x2505
+  0x00b740c5: CMP EBX,EDI                                           
+  0x00b740c7: JZ 0x00b740e0                                         
+      ref CONDITIONAL_JUMP -> 0x00b740e0 FUN_00b71bf0+0x24f0
+  0x00b740c9: LEA EDX,[EBX + 0x4]                                   
+  0x00b740cc: PUSH EDX                                              
+  0x00b740cd: CALL dword ptr [0x00fdf1c4]                           
+      ref READ -> 0x00fdf1c4 unknown
+      ref COMPUTED_CALL -> 0x00000067 unknown
+  0x00b740d3: TEST EAX,EAX                                          
+  0x00b740d5: JNZ 0x00b740e0                                        
+      ref CONDITIONAL_JUMP -> 0x00b740e0 FUN_00b71bf0+0x24f0
+  0x00b740d7: MOV EAX,dword ptr [EBX]                               
+  0x00b740d9: MOV EDX,dword ptr [EAX + 0x4]                         
+  0x00b740dc: MOV ECX,EBX                                           
+  0x00b740de: CALL EDX                                              
+  0x00b740e0: MOV dword ptr [ESI*0x4 + 0x11fde04],EBP               
+      ref WRITE -> 0x011fde04 unknown
+  0x00b740e7: CMP EBP,EDI                                           
+  0x00b740e9: JZ 0x00b740f5                                         
+      ref CONDITIONAL_JUMP -> 0x00b740f5 FUN_00b71bf0+0x2505
+  0x00b740eb: ADD EBP,0x4                                           
+  0x00b740ee: PUSH EBP                                              
+  0x00b740ef: CALL dword ptr [0x00fdf1c0]                           
+      ref READ -> 0x00fdf1c0 unknown
+      ref COMPUTED_CALL -> 0x00000066 unknown
+  0x00b740f5: MOV EBX,dword ptr [ESP + 0x10]                        
+  0x00b740f9: INC ESI                                               
+  0x00b740fa: ADD EBX,0x4c                                          
+  0x00b740fd: CMP ESI,0x16                                          
+  0x00b74100: MOV dword ptr [ESP + 0x10],EBX                        
+  0x00b74104: JL 0x00b74063                                         
+      ref CONDITIONAL_JUMP -> 0x00b74063 FUN_00b71bf0+0x2473
+  0x00b7410a: CMP dword ptr [0x011f91c0],0x2                        
+      ref READ -> 0x011f91c0 unknown
+  0x00b74111: JL 0x00b741f6                                         
+      ref CONDITIONAL_JUMP -> 0x00b741f6 FUN_00b71bf0+0x2606
+  0x00b74117: LEA EBX,[ESP + 0x18]                                  
+  0x00b7411b: XOR ESI,ESI                                           
+  0x00b7411d: MOV dword ptr [ESP + 0x10],EBX                        
+  0x00b74121: MOV EAX,dword ptr [EBX]                               
+  0x00b74123: CMP EAX,EDI                                           
+  0x00b74125: JNZ 0x00b74159                                        
+      ref CONDITIONAL_JUMP -> 0x00b74159 FUN_00b71bf0+0x2569
+  0x00b74127: MOV EBX,dword ptr [ESI*0x4 + 0x11fde5c]               
+      ref READ -> 0x011fde5c unknown
+      ref READ -> 0x011fde60 unknown
+  0x00b7412e: CMP EBX,EDI                                           
+  0x00b74130: JZ 0x00b741e1                                         
+      ref CONDITIONAL_JUMP -> 0x00b741e1 FUN_00b71bf0+0x25f1
+  0x00b74136: LEA EAX,[EBX + 0x4]                                   
+  0x00b74139: PUSH EAX                                              
+  0x00b7413a: CALL dword ptr [0x00fdf1c4]                           
+      ref READ -> 0x00fdf1c4 unknown
+      ref COMPUTED_CALL -> 0x00000067 unknown
+  0x00b74140: TEST EAX,EAX                                          
+  0x00b74142: JNZ 0x00b7414d                                        
+      ref CONDITIONAL_JUMP -> 0x00b7414d FUN_00b71bf0+0x255d
+  0x00b74144: MOV EDX,dword ptr [EBX]                               
+  0x00b74146: MOV EAX,dword ptr [EDX + 0x4]                         
+  0x00b74149: MOV ECX,EBX                                           
+  0x00b7414b: CALL EAX                                              
+  0x00b7414d: MOV dword ptr [ESI*0x4 + 0x11fde5c],EDI               
+      ref WRITE -> 0x011fde5c unknown
+  0x00b74154: JMP 0x00b741e1                                        
+      ref UNCONDITIONAL_JUMP -> 0x00b741e1 FUN_00b71bf0+0x25f1
+  0x00b74159: LEA ECX,[ESP + 0x2e68]                                
+  0x00b74160: PUSH ECX                                              
+
+----------------------------------------------------------------------
+Disassembly selector +0x148 recognized vertex creation function call to BSShader::CreateVertexShader around 0x00b7419f
+----------------------------------------------------------------------
+  0x00b7419f: CALL 0x00be0fe0                                        << TARGET
+      ref UNCONDITIONAL_CALL -> 0x00be0fe0 BSShader::CreateVertexShader
+  0x00b741a4: MOV EBX,dword ptr [ESI*0x4 + 0x11fde5c]               
+      ref READ -> 0x011fde60 unknown
+  0x00b741ab: MOV EBP,EAX                                           
+  0x00b741ad: CMP EBX,EBP                                           
+  0x00b741af: JZ 0x00b741e1                                         
+      ref CONDITIONAL_JUMP -> 0x00b741e1 FUN_00b71bf0+0x25f1
+  0x00b741b1: CMP EBX,EDI                                           
+  0x00b741b3: JZ 0x00b741cc                                         
+      ref CONDITIONAL_JUMP -> 0x00b741cc FUN_00b71bf0+0x25dc
+  0x00b741b5: LEA EDX,[EBX + 0x4]                                   
+  0x00b741b8: PUSH EDX                                              
+  0x00b741b9: CALL dword ptr [0x00fdf1c4]                           
+      ref READ -> 0x00fdf1c4 unknown
+      ref COMPUTED_CALL -> 0x00000067 unknown
+  0x00b741bf: TEST EAX,EAX                                          
+  0x00b741c1: JNZ 0x00b741cc                                        
+      ref CONDITIONAL_JUMP -> 0x00b741cc FUN_00b71bf0+0x25dc
+  0x00b741c3: MOV EAX,dword ptr [EBX]                               
+  0x00b741c5: MOV EDX,dword ptr [EAX + 0x4]                         
+  0x00b741c8: MOV ECX,EBX                                           
+  0x00b741ca: CALL EDX                                              
+  0x00b741cc: MOV dword ptr [ESI*0x4 + 0x11fde5c],EBP               
+      ref WRITE -> 0x011fde60 unknown
+  0x00b741d3: CMP EBP,EDI                                           
+  0x00b741d5: JZ 0x00b741e1                                         
+      ref CONDITIONAL_JUMP -> 0x00b741e1 FUN_00b71bf0+0x25f1
+  0x00b741d7: ADD EBP,0x4                                           
+  0x00b741da: PUSH EBP                                              
+  0x00b741db: CALL dword ptr [0x00fdf1c0]                           
+      ref READ -> 0x00fdf1c0 unknown
+      ref COMPUTED_CALL -> 0x00000066 unknown
+  0x00b741e1: MOV EBX,dword ptr [ESP + 0x10]                        
+  0x00b741e5: INC ESI                                               
+  0x00b741e6: ADD EBX,0x4c                                          
+  0x00b741e9: CMP ESI,0x67                                          
+  0x00b741ec: MOV dword ptr [ESP + 0x10],EBX                        
+  0x00b741f0: JL 0x00b74121                                         
+      ref CONDITIONAL_JUMP -> 0x00b74121 FUN_00b71bf0+0x2531
+  0x00b741f6: MOV ECX,dword ptr [ESP + 0x3070]                      
+  0x00b741fd: POP EDI                                               
+  0x00b741fe: POP ESI                                               
+  0x00b741ff: POP EBP                                               
+  0x00b74200: POP EBX                                               
+  0x00b74201: XOR ECX,ESP                                           
+  0x00b74203: CALL 0x00ec408c                                       
+      ref UNCONDITIONAL_CALL -> 0x00ec408c __security_check_cookie
+  0x00b74208: ADD ESP,0x3064                                        
+  0x00b7420e: RET                                                   
+  0x00b74210: MOV EAX,0x42a4                                        
+  0x00b74215: CALL 0x00ec8660                                       
+      ref UNCONDITIONAL_CALL -> 0x00ec8660 __alloca_probe
+  0x00b7421a: MOV EAX,[0x011c16bc]                                  
+      ref READ -> 0x011c16bc unknown
+  0x00b7421f: XOR EAX,ESP                                           
+  0x00b74221: MOV dword ptr [ESP + 0x42a0],EAX                      
+  0x00b74228: FLD float ptr [0x011adbcc]                            
+      ref READ -> 0x011adbcc unknown
+  0x00b7422e: PUSH EBX                                              
+  0x00b7422f: PUSH EBP                                              
+  0x00b74230: PUSH ESI                                              
+  0x00b74231: PUSH EDI                                              
+  0x00b74232: LEA EAX,[ESP + 0x4150]                                
+  0x00b74239: PUSH EAX                                              
+  0x00b7423a: PUSH 0xc                                              
+  0x00b7423c: SUB ESP,0x8                                           
+  0x00b7423f: FSTP double ptr [ESP]                                 
+
+----------------------------------------------------------------------
+Disassembly selector +0x14C raw candidate range call to BSShader::CreatePixelShader around 0x00b78720
+----------------------------------------------------------------------
+  0x00b78720: CALL 0x00be1750                                        << TARGET
+      ref UNCONDITIONAL_CALL -> 0x00be1750 BSShader::CreatePixelShader
+  0x00b78725: MOV EBP,dword ptr [ESI*0x4 + 0x11fda48]               
+      ref READ -> 0x011fda48 unknown
+  0x00b7872c: MOV dword ptr [ESP + 0x10],EAX                        
+  0x00b78730: CMP EBP,EAX                                           
+  0x00b78732: JZ 0x00b78769                                         
+      ref CONDITIONAL_JUMP -> 0x00b78769 unknown
+  0x00b78734: CMP EBP,EDI                                           
+  0x00b78736: JZ 0x00b78754                                         
+      ref CONDITIONAL_JUMP -> 0x00b78754 unknown
+  0x00b78738: LEA ECX,[EBP + 0x4]                                   
+  0x00b7873b: PUSH ECX                                              
+  0x00b7873c: CALL dword ptr [0x00fdf1c4]                           
+      ref READ -> 0x00fdf1c4 unknown
+      ref COMPUTED_CALL -> 0x00000067 unknown
+  0x00b78742: TEST EAX,EAX                                          
+  0x00b78744: JNZ 0x00b78750                                        
+      ref CONDITIONAL_JUMP -> 0x00b78750 unknown
+  0x00b78746: MOV EDX,dword ptr [EBP]                               
+  0x00b78749: MOV EAX,dword ptr [EDX + 0x4]                         
+  0x00b7874c: MOV ECX,EBP                                           
+  0x00b7874e: CALL EAX                                              
+  0x00b78750: MOV EAX,dword ptr [ESP + 0x10]                        
+  0x00b78754: MOV dword ptr [ESI*0x4 + 0x11fda48],EAX               
+      ref WRITE -> 0x011fda48 unknown
+  0x00b7875b: CMP EAX,EDI                                           
+  0x00b7875d: JZ 0x00b78769                                         
+      ref CONDITIONAL_JUMP -> 0x00b78769 unknown
+  0x00b7875f: ADD EAX,0x4                                           
+  0x00b78762: PUSH EAX                                              
+  0x00b78763: CALL dword ptr [0x00fdf1c0]                           
+      ref READ -> 0x00fdf1c0 unknown
+      ref COMPUTED_CALL -> 0x00000066 unknown
+  0x00b78769: INC ESI                                               
+  0x00b7876a: ADD EBX,0x4c                                          
+  0x00b7876d: CMP ESI,0x30                                          
+  0x00b78770: JL 0x00b786d0                                         
+      ref CONDITIONAL_JUMP -> 0x00b786d0 unknown
+  0x00b78776: MOV EBP,dword ptr [0x011f91c0]                        
+      ref READ -> 0x011f91c0 unknown
+  0x00b7877c: CMP EBP,0x2                                           
+  0x00b7877f: MOV dword ptr [ESP + 0x1c],EBP                        
+  0x00b78783: JL 0x00b78961                                         
+      ref CONDITIONAL_JUMP -> 0x00b78961 unknown
+  0x00b78789: MOV EAX,[0x011f91bc]                                  
+      ref READ -> 0x011f91bc unknown
+  0x00b7878e: MOV ECX,dword ptr [0x010aede8]                        
+      ref READ -> 0x010aede8 unknown
+  0x00b78794: MOV DL,byte ptr [0x010aedec]                          
+      ref READ -> 0x010aedec unknown
+  0x00b7879a: MOV dword ptr [ESP + 0x3de0],ECX                      
+  0x00b787a1: MOV byte ptr [ESP + 0x3de4],DL                        
+  0x00b787a8: CMP EAX,0x6                                           
+  0x00b787ab: JZ 0x00b787b2                                         
+      ref CONDITIONAL_JUMP -> 0x00b787b2 unknown
+  0x00b787ad: CMP EAX,0x4                                           
+  0x00b787b0: JNZ 0x00b787e7                                        
+      ref CONDITIONAL_JUMP -> 0x00b787e7 unknown
+  0x00b787b2: LEA EAX,[ESP + 0x3de0]                                
+  0x00b787b9: MOV ECX,EAX                                           
+  0x00b787bb: MOV EDX,EAX                                           
+  0x00b787bd: MOV dword ptr [ESP + 0x2d50],EAX                      
+  0x00b787c4: MOV dword ptr [ESP + 0x2d9c],ECX                      
+  0x00b787cb: MOV dword ptr [ESP + 0x2de8],EDX                      
+  0x00b787d2: MOV dword ptr [ESP + 0x2e34],EAX                      
+  0x00b787d9: MOV dword ptr [ESP + 0x2e80],ECX                      
+  0x00b787e0: MOV dword ptr [ESP + 0x2ecc],EDX                      
+  0x00b787e7: MOV EAX,[0x011f91b0]                                  
+      ref READ -> 0x011f91b0 unknown
+  0x00b787ec: PUSH EAX                                              
+  0x00b787ed: LEA ECX,[ESP + 0x14]                                  
+
+----------------------------------------------------------------------
+Disassembly selector +0x14C raw candidate range call to BSShader::CreatePixelShader around 0x00b78907
+----------------------------------------------------------------------
+  0x00b78907: CALL 0x00be1750                                        << TARGET
+      ref UNCONDITIONAL_CALL -> 0x00be1750 BSShader::CreatePixelShader
+  0x00b7890c: MOV EBX,dword ptr [ESI*0x4 + 0x11fdb08]               
+      ref DATA -> 0x011fdb08 unknown
+      ref READ -> 0x011fdb0c unknown
+  0x00b78913: MOV EBP,EAX                                           
+  0x00b78915: CMP EBX,EBP                                           
+  0x00b78917: JZ 0x00b78949                                         
+      ref CONDITIONAL_JUMP -> 0x00b78949 unknown
+  0x00b78919: CMP EBX,EDI                                           
+  0x00b7891b: JZ 0x00b78934                                         
+      ref CONDITIONAL_JUMP -> 0x00b78934 unknown
+  0x00b7891d: LEA EDX,[EBX + 0x4]                                   
+  0x00b78920: PUSH EDX                                              
+  0x00b78921: CALL dword ptr [0x00fdf1c4]                           
+      ref READ -> 0x00fdf1c4 unknown
+      ref COMPUTED_CALL -> 0x00000067 unknown
+  0x00b78927: TEST EAX,EAX                                          
+  0x00b78929: JNZ 0x00b78934                                        
+      ref CONDITIONAL_JUMP -> 0x00b78934 unknown
+  0x00b7892b: MOV EAX,dword ptr [EBX]                               
+  0x00b7892d: MOV EDX,dword ptr [EAX + 0x4]                         
+  0x00b78930: MOV ECX,EBX                                           
+  0x00b78932: CALL EDX                                              
+  0x00b78934: MOV dword ptr [ESI*0x4 + 0x11fdb08],EBP               
+      ref DATA -> 0x011fdb08 unknown
+      ref WRITE -> 0x011fdb0c unknown
+  0x00b7893b: CMP EBP,EDI                                           
+  0x00b7893d: JZ 0x00b78949                                         
+      ref CONDITIONAL_JUMP -> 0x00b78949 unknown
+  0x00b7893f: ADD EBP,0x4                                           
+  0x00b78942: PUSH EBP                                              
+  0x00b78943: CALL dword ptr [0x00fdf1c0]                           
+      ref READ -> 0x00fdf1c0 unknown
+      ref COMPUTED_CALL -> 0x00000066 unknown
+  0x00b78949: MOV EBX,dword ptr [ESP + 0x18]                        
+  0x00b7894d: INC ESI                                               
+  0x00b7894e: ADD EBX,0x4c                                          
+  0x00b78951: CMP ESI,0xa0                                          
+  0x00b78957: MOV dword ptr [ESP + 0x18],EBX                        
+  0x00b7895b: JL 0x00b78840                                         
+      ref CONDITIONAL_JUMP -> 0x00b78840 unknown
+  0x00b78961: MOV ECX,dword ptr [ESP + 0x42b0]                      
+  0x00b78968: POP EDI                                               
+  0x00b78969: POP ESI                                               
+  0x00b7896a: POP EBP                                               
+  0x00b7896b: POP EBX                                               
+  0x00b7896c: XOR ECX,ESP                                           
+  0x00b7896e: CALL 0x00ec408c                                       
+      ref UNCONDITIONAL_CALL -> 0x00ec408c __security_check_cookie
+  0x00b78973: ADD ESP,0x42a4                                        
+  0x00b78979: RET                                                   
+  0x00b78980: PUSH ESI                                              
+  0x00b78981: MOV ESI,ECX                                           
+  0x00b78983: MOV EAX,dword ptr [ESI]                               
+  0x00b78985: MOV EDX,dword ptr [EAX + 0x144]                       
+  0x00b7898b: CALL EDX                                              
+  0x00b7898d: MOV ECX,ESI                                           
+  0x00b7898f: CALL 0x00beb070                                       
+      ref UNCONDITIONAL_CALL -> 0x00beb070 FUN_00beb070
+  0x00b78994: MOV ECX,ESI                                           
+  0x00b78996: CALL 0x00be22b0                                       
+      ref UNCONDITIONAL_CALL -> 0x00be22b0 FUN_00be22b0
+  0x00b7899b: MOV ECX,ESI                                           
+  0x00b7899d: CALL 0x00be39e0                                       
+      ref UNCONDITIONAL_CALL -> 0x00be39e0 FUN_00be39e0
+  0x00b789a2: MOV ECX,ESI                                           
+  0x00b789a4: CALL 0x00be7420                                       
+      ref UNCONDITIONAL_CALL -> 0x00be7420 FUN_00be7420
+  0x00b789a9: MOV ECX,ESI                                           
+  0x00b789ab: CALL 0x00be78e0                                       
+      ref UNCONDITIONAL_CALL -> 0x00be78e0 FUN_00be78e0

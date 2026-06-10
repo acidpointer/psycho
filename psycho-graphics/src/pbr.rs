@@ -2,8 +2,8 @@
 //!
 //! This module owns only the proven engine-side contract for material PBR:
 //! draw-scoped current pass capture and final vanilla texture-stage capture.
-//! It intentionally does not replace native shaders until the pixel-shader
-//! input contract is proven from Ghidra output.
+//! It intentionally does not mutate native shader objects. Visible replacement
+//! stays opt-in until a concrete replacement shader input contract exists.
 
 use std::{
     array,
@@ -31,6 +31,10 @@ const SHADER_INTERFACE_SELECTOR_ARRAY_ADDR: usize = 0x011F9548;
 const PPLIGHTING_SHADER_SELECTOR_INDEX: usize = 1;
 const PASS_PIXEL_SHADER_OFFSET: usize = 0x44;
 const PASS_VERTEX_SHADER_OFFSET: usize = 0x5C;
+const NID3D_PIXEL_SHADER_VTABLE_ADDR: usize = 0x010EF7D4;
+const NID3D_VERTEX_SHADER_VTABLE_ADDR: usize = 0x010EF87C;
+const PIXEL_SHADER_NATIVE_HANDLE_OFFSET: usize = 0x2C;
+const VERTEX_SHADER_SET_SHADERS_HANDLE_OFFSET: usize = 0x34;
 const APPLY_PARAM_RESOURCE_OFFSET: usize = 0x08;
 const SHADER_INTERFACE_PIXEL_OFFSET: usize = 0x30;
 const SHADER_INTERFACE_VERTEX_OFFSET: usize = 0x34;
@@ -131,6 +135,8 @@ struct DrawCapture {
     pass: AtomicUsize,
     vertex_shader: AtomicUsize,
     pixel_shader: AtomicUsize,
+    vertex_shader_handle: AtomicUsize,
+    pixel_shader_handle: AtomicUsize,
     render_state: AtomicUsize,
     set_shader_calls: AtomicU32,
 }
@@ -142,6 +148,8 @@ impl DrawCapture {
             pass: AtomicUsize::new(0),
             vertex_shader: AtomicUsize::new(0),
             pixel_shader: AtomicUsize::new(0),
+            vertex_shader_handle: AtomicUsize::new(0),
+            pixel_shader_handle: AtomicUsize::new(0),
             render_state: AtomicUsize::new(0),
             set_shader_calls: AtomicU32::new(0),
         }
@@ -152,6 +160,8 @@ impl DrawCapture {
         self.pass.store(0, Ordering::Release);
         self.vertex_shader.store(0, Ordering::Release);
         self.pixel_shader.store(0, Ordering::Release);
+        self.vertex_shader_handle.store(0, Ordering::Release);
+        self.pixel_shader_handle.store(0, Ordering::Release);
         self.render_state.store(0, Ordering::Release);
     }
 }
@@ -311,7 +321,7 @@ pub(crate) fn install(settings: NativePbrSettings) -> Result<()> {
 
     if settings.experimental_shader_replacement {
         log::warn!(
-            "[PBR] Experimental shader replacement requested but disabled until the native shader input contract is proven"
+            "[PBR] Experimental shader replacement requested; draw-time shader handles are captured, but visible replacement is disabled until a concrete replacement shader contract is implemented"
         );
     }
 
@@ -524,6 +534,20 @@ unsafe fn record_draw_context(pass_index: u32) {
     let pass = unsafe { read_ptr(CURRENT_PASS_GLOBAL_ADDR) };
     let vertex_shader = unsafe { read_ptr_offset(pass, PASS_VERTEX_SHADER_OFFSET) };
     let pixel_shader = unsafe { read_ptr_offset(pass, PASS_PIXEL_SHADER_OFFSET) };
+    let vertex_shader_handle = unsafe {
+        read_shader_native_handle(
+            vertex_shader,
+            NID3D_VERTEX_SHADER_VTABLE_ADDR,
+            VERTEX_SHADER_SET_SHADERS_HANDLE_OFFSET,
+        )
+    };
+    let pixel_shader_handle = unsafe {
+        read_shader_native_handle(
+            pixel_shader,
+            NID3D_PIXEL_SHADER_VTABLE_ADDR,
+            PIXEL_SHADER_NATIVE_HANDLE_OFFSET,
+        )
+    };
     let render_state = TEXTURE_CAPTURE.render_state.load(Ordering::Acquire);
 
     DRAW_CAPTURE.pass_index.store(pass_index, Ordering::Release);
@@ -535,6 +559,12 @@ unsafe fn record_draw_context(pass_index: u32) {
         .pixel_shader
         .store(pixel_shader as usize, Ordering::Release);
     DRAW_CAPTURE
+        .vertex_shader_handle
+        .store(vertex_shader_handle as usize, Ordering::Release);
+    DRAW_CAPTURE
+        .pixel_shader_handle
+        .store(pixel_shader_handle as usize, Ordering::Release);
+    DRAW_CAPTURE
         .render_state
         .store(render_state, Ordering::Release);
     DRAW_CAPTURE
@@ -542,7 +572,15 @@ unsafe fn record_draw_context(pass_index: u32) {
         .fetch_add(1, Ordering::Relaxed);
 
     if DEBUG_LOG_DRAWS.load(Ordering::Acquire) {
-        log_draw_context(pass_index, pass, vertex_shader, pixel_shader, render_state);
+        log_draw_context(
+            pass_index,
+            pass,
+            vertex_shader,
+            pixel_shader,
+            vertex_shader_handle,
+            pixel_shader_handle,
+            render_state,
+        );
     }
 }
 
@@ -825,6 +863,19 @@ unsafe fn read_vtable_slot(object: *mut c_void, slot_offset: usize) -> *mut c_vo
     unsafe { read_ptr_offset(vtable, slot_offset) }
 }
 
+unsafe fn read_shader_native_handle(
+    shader: *mut c_void,
+    expected_vtable: usize,
+    handle_offset: usize,
+) -> *mut c_void {
+    let vtable = unsafe { read_ptr_from(shader) };
+    if vtable as usize != expected_vtable {
+        return null_mut();
+    }
+
+    unsafe { read_ptr_offset(shader, handle_offset) }
+}
+
 unsafe fn offset_ptr(base: *mut c_void, offset: usize) -> *mut c_void {
     if base.is_null() {
         return null_mut();
@@ -838,6 +889,8 @@ fn log_draw_context(
     pass: *mut c_void,
     vertex_shader: *mut c_void,
     pixel_shader: *mut c_void,
+    vertex_shader_handle: *mut c_void,
+    pixel_shader_handle: *mut c_void,
     render_state: usize,
 ) {
     let count = DRAW_LOGS.fetch_add(1, Ordering::Relaxed);
@@ -847,11 +900,13 @@ fn log_draw_context(
 
     let stages = &TEXTURE_CAPTURE.stages;
     log::debug!(
-        "[PBR] Draw pass={} pass={:p} vs={:p} ps={:p} render_state=0x{:08X} s0=0x{:08X} s1=0x{:08X} s2=0x{:08X} s3=0x{:08X}",
+        "[PBR] Draw pass={} pass={:p} vs={:p} ps={:p} vs_handle={:p} ps_handle={:p} render_state=0x{:08X} s0=0x{:08X} s1=0x{:08X} s2=0x{:08X} s3=0x{:08X}",
         pass_index,
         pass,
         vertex_shader,
         pixel_shader,
+        vertex_shader_handle,
+        pixel_shader_handle,
         render_state,
         stages[0].load(Ordering::Acquire),
         stages[1].load(Ordering::Acquire),
@@ -985,7 +1040,7 @@ fn log_replacement_blocked() {
     }
 
     log::warn!(
-        "[PBR] Native shader replacement is not active; selector apply dispatcher is known, but setup ownership/replacement lifecycle is still unproven"
+        "[PBR] Native shader replacement is not active; vanilla handle binding is proven, but no visible replacement shader contract has been enabled"
     );
 }
 
