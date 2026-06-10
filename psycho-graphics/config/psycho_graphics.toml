@@ -82,6 +82,33 @@ shader_scan_interval_ms = 200
 #   s3 = world color before first-person, or current color if unavailable
 depth_provider = "fallout_new_vegas"
 
+[graphics.native_pbr]
+# Native material/PBR engine contract layer.
+#
+# This is opt-in because it hooks native FalloutNV material draw functions used
+# by other graphics mods. When enabled, Psycho captures the proven draw-time
+# contract:
+#   - BSShader::SetShaders current NiD3DPass context
+#   - current pass shader-interface apply context
+#   - NiDX9RenderState::SetTexture final 16-stage texture cache
+#
+# The hook refuses to install when the target prologues are not vanilla by
+# default, which avoids stacking on top of an unknown shader loader.
+enabled = false
+
+# Placeholder for the later visible BRDF replacement path.
+#
+# This currently logs and stays disabled until Ghidra proves the exact
+# PPLighting pixel-shader input contract. Do not enable for normal play.
+experimental_shader_replacement = false
+
+# true  = skip native PBR if any native PBR hook target is already patched.
+# false = install anyway and rely on inline-hook chaining; use only for testing.
+require_vanilla_prologues = true
+
+# Log the first native draw contexts and captured texture stages.
+debug_log_draws = false
+
 [diagnostics]
 # Enable verbose graphics-module logging.
 #

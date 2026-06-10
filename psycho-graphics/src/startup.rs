@@ -15,6 +15,13 @@ pub(crate) fn initialize() -> Result<()> {
         crate::config::CONFIG_PATH
     );
 
+    crate::pbr::install(crate::pbr::NativePbrSettings {
+        enabled: cfg.graphics.native_pbr.enabled,
+        experimental_shader_replacement: cfg.graphics.native_pbr.experimental_shader_replacement,
+        require_vanilla_prologues: cfg.graphics.native_pbr.require_vanilla_prologues,
+        debug_log_draws: cfg.graphics.native_pbr.debug_log_draws,
+    })?;
+
     if !cfg.graphics.screen_space_shaders {
         log::info!("[SHADERS] Screen-space shaders disabled by config");
         return Ok(());

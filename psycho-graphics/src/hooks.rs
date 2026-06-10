@@ -27,7 +27,7 @@ use windows::Win32::{
 };
 use windows::core::HRESULT;
 
-use crate::{backend, runtime};
+use crate::{backend, pbr, runtime};
 
 type PresentFn = unsafe extern "system" fn(
     *mut c_void,
@@ -203,6 +203,7 @@ unsafe extern "system" fn reset_detour(
     unsafe {
         runtime::release_device_resources(device_ptr);
         backend::reset_depth_resources();
+        pbr::reset_runtime_state();
         call_original_reset(device_ptr, params)
     }
 }

@@ -29,6 +29,7 @@ impl Default for PsychoGraphicsConfig {
 #[serde(default)]
 pub(crate) struct GraphicsConfig {
     pub(crate) screen_space_shaders: bool,
+    pub(crate) native_pbr: NativePbrConfig,
     pub(crate) depth_provider: DepthProviderConfig,
     pub(crate) imgui_menu: bool,
     pub(crate) menu_toggle_key: u32,
@@ -39,10 +40,31 @@ impl Default for GraphicsConfig {
     fn default() -> Self {
         Self {
             screen_space_shaders: true,
+            native_pbr: NativePbrConfig::default(),
             depth_provider: DepthProviderConfig::default(),
             imgui_menu: true,
             menu_toggle_key: 0x2D,
             shader_scan_interval_ms: 200,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Serialize)]
+#[serde(default)]
+pub(crate) struct NativePbrConfig {
+    pub(crate) enabled: bool,
+    pub(crate) experimental_shader_replacement: bool,
+    pub(crate) require_vanilla_prologues: bool,
+    pub(crate) debug_log_draws: bool,
+}
+
+impl Default for NativePbrConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            experimental_shader_replacement: false,
+            require_vanilla_prologues: true,
+            debug_log_draws: false,
         }
     }
 }

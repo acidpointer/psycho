@@ -1,0 +1,3640 @@
+FNV PBR SELECTOR SETUP RAW SLOT FOLLOWUP AUDIT
+
+Questions:
+1. Are selector vtable raw slots +0xC0 and +0x150 code, thunks, or bad function boundaries?
+2. What do wrapper slot +0x144 children +0x148 and +0x14C do?
+3. Do any of these slots mutate native pixel/vertex shader handles, or are they constants/cache setup only?
+4. Is visible native shader replacement safe after +0x11C setup, or do later slots still own shader objects?
+
+Compatibility rule:
+Visible native PBR replacement remains blocked unless this script proves shader handle ownership and restore timing.
+
+----------------------------------------------------------------------
+DATA WINDOW: selector vtable around setup/finalize slots centered at 0x010af2f8
+----------------------------------------------------------------------
+  0x010af248 slot -044 offset -0b0: 0x676e6974  unknown
+  0x010af24c slot -043 offset -0ac: 0x5c78315c  unknown
+  0x010af250 slot -042 offset -0a8: 0x70735c70  unknown
+  0x010af254 slot -041 offset -0a4: 0x6c756365  unknown
+  0x010af258 slot -040 offset -0a0: 0x69447261  unknown
+  0x010af25c slot -039 offset -09c: 0x2e702e72  unknown
+  0x010af260 slot -038 offset -098: 0x6c736c68  unknown
+  0x010af264 slot -037 offset -094: 0x00000000  unknown
+  0x010af268 slot -036 offset -090: 0x6867696c  unknown
+  0x010af26c slot -035 offset -08c: 0x676e6974  unknown
+  0x010af270 slot -034 offset -088: 0x5c78315c  unknown
+  0x010af274 slot -033 offset -084: 0x70735c70  unknown
+  0x010af278 slot -032 offset -080: 0x6c756365  unknown
+  0x010af27c slot -031 offset -07c: 0x74507261  unknown
+  0x010af280 slot -030 offset -078: 0x682e702e  unknown
+  0x010af284 slot -029 offset -074: 0x006c736c  unknown
+  0x010af288 slot -028 offset -070: 0x43455053  unknown
+  0x010af28c slot -027 offset -06c: 0x544c554d  unknown
+  0x010af290 slot -026 offset -068: 0x00000000  unknown
+  0x010af294 slot -025 offset -064: 0x6867696c  unknown
+  0x010af298 slot -024 offset -060: 0x676e6974  unknown
+  0x010af29c slot -023 offset -05c: 0x5c78315c  unknown
+  0x010af2a0 slot -022 offset -058: 0x69645c70  unknown
+  0x010af2a4 slot -021 offset -054: 0x73756666  unknown
+  0x010af2a8 slot -020 offset -050: 0x72694465  unknown
+  0x010af2ac slot -019 offset -04c: 0x682e702e  unknown
+  0x010af2b0 slot -018 offset -048: 0x006c736c  unknown
+  0x010af2b4 slot -017 offset -044: 0x6867696c  unknown
+  0x010af2b8 slot -016 offset -040: 0x676e6974  unknown
+  0x010af2bc slot -015 offset -03c: 0x5c78315c  unknown
+  0x010af2c0 slot -014 offset -038: 0x69645c70  unknown
+  0x010af2c4 slot -013 offset -034: 0x73756666  unknown
+  0x010af2c8 slot -012 offset -030: 0x2e745065  unknown
+  0x010af2cc slot -011 offset -02c: 0x6c682e70  unknown
+  0x010af2d0 slot -010 offset -028: 0x00006c73  unknown
+  0x010af2d4 slot -009 offset -024: 0x6867696c  unknown
+  0x010af2d8 slot -008 offset -020: 0x676e6974  unknown
+  0x010af2dc slot -007 offset -01c: 0x5c78315c  unknown
+  0x010af2e0 slot -006 offset -018: 0x61625c70  unknown
+  0x010af2e4 slot -005 offset -014: 0x702e6573  unknown
+  0x010af2e8 slot -004 offset -010: 0x736c682e  unknown
+  0x010af2ec slot -003 offset -00c: 0x0000006c  unknown
+  0x010af2f0 slot -002 offset -008: 0x3b800000  unknown
+  0x010af2f4 slot -001 offset -004: 0x00000000  unknown
+  0x010af2f8 slot +000 offset +000: 0x00b7ce60  FUN_00b7ce60 << CENTER
+  0x010af2fc slot +001 offset +004: 0x00cfcc20  FUN_00cfcc20
+  0x010af300 slot +002 offset +008: 0x00b79dd0  unknown
+  0x010af304 slot +003 offset +00c: 0x00e7cd40  FUN_00e7cd40
+  0x010af308 slot +004 offset +010: 0x00e7cd40  FUN_00e7cd40
+  0x010af30c slot +005 offset +014: 0x00e7cd40  FUN_00e7cd40
+  0x010af310 slot +006 offset +018: 0x00e7cd40  FUN_00e7cd40
+  0x010af314 slot +007 offset +01c: 0x00e7cd40  FUN_00e7cd40
+  0x010af318 slot +008 offset +020: 0x00e7cd40  FUN_00e7cd40
+  0x010af31c slot +009 offset +024: 0x00e7cd40  FUN_00e7cd40
+  0x010af320 slot +010 offset +028: 0x00e7cd40  FUN_00e7cd40
+  0x010af324 slot +011 offset +02c: 0x00e7cd40  FUN_00e7cd40
+  0x010af328 slot +012 offset +030: 0x00e7cd40  FUN_00e7cd40
+  0x010af32c slot +013 offset +034: 0x00e7cd40  FUN_00e7cd40
+  0x010af330 slot +014 offset +038: 0x00e7cd40  FUN_00e7cd40
+  0x010af334 slot +015 offset +03c: 0x00e7cd40  FUN_00e7cd40
+  0x010af338 slot +016 offset +040: 0x00e7cd40  FUN_00e7cd40
+  0x010af33c slot +017 offset +044: 0x00e7cd40  FUN_00e7cd40
+  0x010af340 slot +018 offset +048: 0x00b79d70  unknown
+  0x010af344 slot +019 offset +04c: 0x00b7a170  Selector setup slot +0x4C cache reset
+  0x010af348 slot +020 offset +050: 0x00be08c0  FUN_00be08c0
+  0x010af34c slot +021 offset +054: 0x00e7c720  FUN_00e7c720
+  0x010af350 slot +022 offset +058: 0x00e7cc10  FUN_00e7cc10
+  0x010af354 slot +023 offset +05c: 0x00e805b0  FUN_00e805b0
+  0x010af358 slot +024 offset +060: 0x00e807d0  FUN_00e807d0
+  0x010af35c slot +025 offset +064: 0x00b7a2c0  FUN_00b7a2c0
+  0x010af360 slot +026 offset +068: 0x00e811d0  FUN_00e811d0
+  0x010af364 slot +027 offset +06c: 0x00e812f0  FUN_00e812f0
+  0x010af368 slot +028 offset +070: 0x00a8f3f0  FUN_00a8f3f0
+  0x010af36c slot +029 offset +074: 0x00e7c580  unknown
+  0x010af370 slot +030 offset +078: 0x00b7d200  FUN_00b7d200
+  0x010af374 slot +031 offset +07c: 0x00b7dab0  FUN_00b7dab0
+  0x010af378 slot +032 offset +080: 0x00be1ff0  FUN_00be1ff0
+  0x010af37c slot +033 offset +084: 0x00be20b0  unknown
+  0x010af380 slot +034 offset +088: 0x00be20e0  unknown
+  0x010af384 slot +035 offset +08c: 0x00b7c320  unknown
+  0x010af388 slot +036 offset +090: 0x00e80580  FUN_00e80580
+  0x010af38c slot +037 offset +094: 0x00e80590  FUN_00e80590
+  0x010af390 slot +038 offset +098: 0x00ee8990  FUN_00ee8990
+  0x010af394 slot +039 offset +09c: 0x00a8f410  unknown
+  0x010af398 slot +040 offset +0a0: 0x00c9a420  FUN_00c9a420
+  0x010af39c slot +041 offset +0a4: 0x00a8f420  unknown
+  0x010af3a0 slot +042 offset +0a8: 0x00b79d80  unknown
+  0x010af3a4 slot +043 offset +0ac: 0x00a57020  unknown
+  0x010af3a8 slot +044 offset +0b0: 0x00a8f410  unknown
+  0x010af3ac slot +045 offset +0b4: 0x00a8f430  unknown
+  0x010af3b0 slot +046 offset +0b8: 0x00e7cd40  FUN_00e7cd40
+  0x010af3b4 slot +047 offset +0bc: 0x00eea530  FUN_00eea530
+  0x010af3b8 slot +048 offset +0c0: 0x00e81420  Selector setup slot +0xC0 raw target
+  0x010af3bc slot +049 offset +0c4: 0x00a29680  FUN_00a29680
+  0x010af3c0 slot +050 offset +0c8: 0x00a29680  FUN_00a29680
+  0x010af3c4 slot +051 offset +0cc: 0x00e81470  FUN_00e81470
+  0x010af3c8 slot +052 offset +0d0: 0x00b71b90  FUN_00b71b90
+  0x010af3cc slot +053 offset +0d4: 0x00e814f0  unknown
+  0x010af3d0 slot +054 offset +0d8: 0x00e814f0  unknown
+  0x010af3d4 slot +055 offset +0dc: 0x00e81500  unknown
+  0x010af3d8 slot +056 offset +0e0: 0x00e81500  unknown
+  0x010af3dc slot +057 offset +0e4: 0x00b79d90  unknown
+  0x010af3e0 slot +058 offset +0e8: 0x00b79da0  unknown
+  0x010af3e4 slot +059 offset +0ec: 0x00e80610  unknown
+  0x010af3e8 slot +060 offset +0f0: 0x00b7af80  FUN_00b7af80
+  0x010af3ec slot +061 offset +0f4: 0x00be1f90  BSShader::SetShaders
+  0x010af3f0 slot +062 offset +0f8: 0x00b7cfb0  FUN_00b7cfb0
+  0x010af3f4 slot +063 offset +0fc: 0x00b7b450  FUN_00b7b450
+  0x010af3f8 slot +064 offset +100: 0x00be0eb0  unknown
+  0x010af3fc slot +065 offset +104: 0x00be0ee0  unknown
+  0x010af400 slot +066 offset +108: 0x00be2170  FUN_00be2170
+  0x010af404 slot +067 offset +10c: 0x00be21b0  FUN_00be21b0
+  0x010af408 slot +068 offset +110: 0x00be0e50  unknown
+  0x010af40c slot +069 offset +114: 0x00be0e90  unknown
+  0x010af410 slot +070 offset +118: 0x00b7a6f0  unknown
+  0x010af414 slot +071 offset +11c: 0x00b7e430  Selector setup slot +0x11C interface setup
+  0x010af418 slot +072 offset +120: 0x00b78980  FUN_00b78980
+  0x010af41c slot +073 offset +124: 0x00b78a40  FUN_00b78a40
+  0x010af420 slot +074 offset +128: 0x00be0fb0  unknown
+  0x010af424 slot +075 offset +12c: 0x00b606e0  unknown
+  0x010af428 slot +076 offset +130: 0x00be08e0  unknown
+  0x010af42c slot +077 offset +134: 0x00b606e0  unknown
+  0x010af430 slot +078 offset +138: 0x00b79db0  unknown
+  0x010af434 slot +079 offset +13c: 0x00c02e20  unknown
+  0x010af438 slot +080 offset +140: 0x00d070a0  unknown
+  0x010af43c slot +081 offset +144: 0x00bd0470  Selector setup slot +0x144 wrapper
+  0x010af440 slot +082 offset +148: 0x00b71bf0  Selector setup slot +0x148 target
+  0x010af444 slot +083 offset +14c: 0x00b74210  Selector setup slot +0x14C target
+  0x010af448 slot +084 offset +150: 0x00b7a730  Selector setup slot +0x150 raw target
+  0x010af44c slot +085 offset +154: 0x00c02d90  FUN_00c02d90
+  0x010af450 slot +086 offset +158: 0x42c60000  unknown
+  0x010af454 slot +087 offset +15c: 0x72615666  unknown
+  0x010af458 slot +088 offset +160: 0x00000073  unknown
+  0x010af45c slot +089 offset +164: 0x206d6952  unknown
+  0x010af460 slot +090 offset +168: 0x6f6c6f43  unknown
+  0x010af464 slot +091 offset +16c: 0x00000072  unknown
+  0x010af468 slot +092 offset +170: 0x6c6c6946  unknown
+
+======================================================================
+TARGET SELECTOR VTABLE SLOTS
+======================================================================
+  selector setup slot +0xC0 vtable=0x010af2f8 offset=0x0c0 -> 0x00e81420 Selector setup slot +0xC0 raw target
+  selector setup slot +0x144 vtable=0x010af2f8 offset=0x144 -> 0x00bd0470 Selector setup slot +0x144 wrapper
+  selector setup slot +0x148 vtable=0x010af2f8 offset=0x148 -> 0x00b71bf0 Selector setup slot +0x148 target
+  selector setup slot +0x14C vtable=0x010af2f8 offset=0x14c -> 0x00b74210 Selector setup slot +0x14C target
+  selector setup slot +0x150 vtable=0x010af2f8 offset=0x150 -> 0x00b7a730 Selector setup slot +0x150 raw target
+
+----------------------------------------------------------------------
+References TO 0x010af2f8 (PPLighting selector vtable)
+----------------------------------------------------------------------
+  DATA @ 0x00b79b34 (in FUN_00b79b00) MOV dword ptr [ESI],0x10af2f8
+  DATA @ 0x00b79e0b (in FUN_00b79de0) MOV dword ptr [EBP],0x10af2f8
+  Total printed: 2 refs
+
+----------------------------------------------------------------------
+References TO 0x00e81420 (Selector setup slot +0xC0 raw target)
+----------------------------------------------------------------------
+  DATA @ 0x010af3b8 (in ???) 
+  DATA @ 0x010af820 (in ???) 
+  DATA @ 0x010afaa0 (in ???) 
+  DATA @ 0x010afed8 (in ???) 
+  DATA @ 0x010b0080 (in ???) 
+  DATA @ 0x010b0258 (in ???) 
+  DATA @ 0x010b03f8 (in ???) 
+  DATA @ 0x010b05d8 (in ???) 
+  DATA @ 0x010b0780 (in ???) 
+  DATA @ 0x010b0920 (in ???) 
+  DATA @ 0x010b0ac0 (in ???) 
+  DATA @ 0x010b0c58 (in ???) 
+  DATA @ 0x010b0e00 (in ???) 
+  DATA @ 0x010b0f80 (in ???) 
+  DATA @ 0x010b1100 (in ???) 
+  DATA @ 0x010b1280 (in ???) 
+  DATA @ 0x010b1400 (in ???) 
+  DATA @ 0x010b1580 (in ???) 
+  DATA @ 0x010b1700 (in ???) 
+  DATA @ 0x010b18b8 (in ???) 
+  DATA @ 0x010b1a40 (in ???) 
+  DATA @ 0x010b1bc8 (in ???) 
+  DATA @ 0x010b1d50 (in ???) 
+  DATA @ 0x010b1ee0 (in ???) 
+  DATA @ 0x010b2070 (in ???) 
+  DATA @ 0x010b2200 (in ???) 
+  DATA @ 0x010b2b58 (in ???) 
+  DATA @ 0x010b23c8 (in ???) 
+  DATA @ 0x010b2550 (in ???) 
+  DATA @ 0x010b26d0 (in ???) 
+  DATA @ 0x010b2868 (in ???) 
+  DATA @ 0x010b29e0 (in ???) 
+  DATA @ 0x010b2cd0 (in ???) 
+  DATA @ 0x010b2e70 (in ???) 
+  DATA @ 0x010b3010 (in ???) 
+  DATA @ 0x010b31a0 (in ???) 
+  DATA @ 0x010b3328 (in ???) 
+  DATA @ 0x010b34b0 (in ???) 
+  DATA @ 0x010b3658 (in ???) 
+  DATA @ 0x010b3868 (in ???) 
+  DATA @ 0x010b3a18 (in ???) 
+  DATA @ 0x010b3bb0 (in ???) 
+  DATA @ 0x010b3d38 (in ???) 
+  DATA @ 0x010b3ed8 (in ???) 
+  DATA @ 0x010b4068 (in ???) 
+  DATA @ 0x010b41f8 (in ???) 
+  DATA @ 0x010b4388 (in ???) 
+  DATA @ 0x010b4520 (in ???) 
+  DATA @ 0x010b46c0 (in ???) 
+  DATA @ 0x010b4860 (in ???) 
+  DATA @ 0x010b49f8 (in ???) 
+  DATA @ 0x010b4b90 (in ???) 
+  DATA @ 0x010b4d28 (in ???) 
+  DATA @ 0x010b4ea8 (in ???) 
+  DATA @ 0x010b5040 (in ???) 
+  DATA @ 0x010b5200 (in ???) 
+  DATA @ 0x010b5380 (in ???) 
+  DATA @ 0x010b5540 (in ???) 
+  DATA @ 0x010b5700 (in ???) 
+  DATA @ 0x010b5890 (in ???) 
+  DATA @ 0x010b5a38 (in ???) 
+  DATA @ 0x010b5bd0 (in ???) 
+  DATA @ 0x010b5d78 (in ???) 
+  DATA @ 0x010b5f68 (in ???) 
+  DATA @ 0x010b6108 (in ???) 
+  DATA @ 0x010b62b0 (in ???) 
+  DATA @ 0x010b6458 (in ???) 
+  DATA @ 0x010b6608 (in ???) 
+  DATA @ 0x010b67b0 (in ???) 
+  DATA @ 0x010b6960 (in ???) 
+  DATA @ 0x010b6b00 (in ???) 
+  DATA @ 0x010b6c98 (in ???) 
+  DATA @ 0x010b6e50 (in ???) 
+  DATA @ 0x010b6ff8 (in ???) 
+  DATA @ 0x010b7198 (in ???) 
+  DATA @ 0x010b7338 (in ???) 
+  DATA @ 0x010b74d8 (in ???) 
+  DATA @ 0x010b7658 (in ???) 
+  DATA @ 0x010b77e0 (in ???) 
+  DATA @ 0x010b7978 (in ???) 
+  DATA @ 0x010b7b10 (in ???) 
+  DATA @ 0x010b7cb0 (in ???) 
+  DATA @ 0x010b8168 (in ???) 
+  DATA @ 0x010b8a40 (in ???) 
+  DATA @ 0x010b8f40 (in ???) 
+  DATA @ 0x010b9250 (in ???) 
+  DATA @ 0x010b9b68 (in ???) 
+  DATA @ 0x010ba1b8 (in ???) 
+  DATA @ 0x010ba470 (in ???) 
+  DATA @ 0x010bae58 (in ???) 
+  DATA @ 0x010bb020 (in ???) 
+  DATA @ 0x010bb2f0 (in ???) 
+  DATA @ 0x010bb4d0 (in ???) 
+  DATA @ 0x010bb648 (in ???) 
+  DATA @ 0x010bb868 (in ???) 
+  DATA @ 0x010bba40 (in ???) 
+  DATA @ 0x010bbc10 (in ???) 
+  DATA @ 0x010bbdc8 (in ???) 
+  DATA @ 0x010bbf78 (in ???) 
+  DATA @ 0x010bc130 (in ???) 
+  DATA @ 0x010bc320 (in ???) 
+  DATA @ 0x010bc6d8 (in ???) 
+  DATA @ 0x010bc9b8 (in ???) 
+  DATA @ 0x010eed6c (in ???) 
+  DATA @ 0x010eee64 (in ???) 
+  DATA @ 0x010f0004 (in ???) 
+  DATA @ 0x010f0824 (in ???) 
+  Total printed: 107 refs
+
+----------------------------------------------------------------------
+References TO 0x00bd0470 (Selector setup slot +0x144 wrapper)
+----------------------------------------------------------------------
+  DATA @ 0x010af43c (in ???) 
+  DATA @ 0x010bb8ec (in ???) 
+  DATA @ 0x010bbac4 (in ???) 
+  DATA @ 0x010bbc94 (in ???) 
+  DATA @ 0x010bc1b4 (in ???) 
+  Total printed: 5 refs
+
+----------------------------------------------------------------------
+References TO 0x00b71bf0 (Selector setup slot +0x148 target)
+----------------------------------------------------------------------
+  DATA @ 0x010af440 (in ???) 
+  Total printed: 1 refs
+
+----------------------------------------------------------------------
+References TO 0x00b74210 (Selector setup slot +0x14C target)
+----------------------------------------------------------------------
+  DATA @ 0x010af444 (in ???) 
+  Total printed: 1 refs
+
+----------------------------------------------------------------------
+References TO 0x00b7a730 (Selector setup slot +0x150 raw target)
+----------------------------------------------------------------------
+  DATA @ 0x010af448 (in ???) 
+  Total printed: 1 refs
+
+----------------------------------------------------------------------
+References TO 0x00e826d0 (Shader-interface constant apply dispatcher)
+----------------------------------------------------------------------
+  DATA @ 0x010ef5bc (in ???) 
+  Total printed: 1 refs
+
+----------------------------------------------------------------------
+References TO 0x00be1f90 (BSShader::SetShaders)
+----------------------------------------------------------------------
+  DATA @ 0x010af3ec (in ???) 
+  DATA @ 0x010af854 (in ???) 
+  DATA @ 0x010afad4 (in ???) 
+  DATA @ 0x010aff0c (in ???) 
+  DATA @ 0x010b00b4 (in ???) 
+  DATA @ 0x010b028c (in ???) 
+  DATA @ 0x010b042c (in ???) 
+  DATA @ 0x010b060c (in ???) 
+  DATA @ 0x010b07b4 (in ???) 
+  DATA @ 0x010b0954 (in ???) 
+  DATA @ 0x010b0af4 (in ???) 
+  DATA @ 0x010b0c8c (in ???) 
+  DATA @ 0x010b0e34 (in ???) 
+  DATA @ 0x010b0fb4 (in ???) 
+  DATA @ 0x010b1134 (in ???) 
+  DATA @ 0x010b12b4 (in ???) 
+  DATA @ 0x010b1434 (in ???) 
+  DATA @ 0x010b15b4 (in ???) 
+  DATA @ 0x010b1734 (in ???) 
+  DATA @ 0x010b18ec (in ???) 
+  DATA @ 0x010b1a74 (in ???) 
+  DATA @ 0x010b1bfc (in ???) 
+  DATA @ 0x010b1d84 (in ???) 
+  DATA @ 0x010b1f14 (in ???) 
+  DATA @ 0x010b20a4 (in ???) 
+  DATA @ 0x010b2234 (in ???) 
+  DATA @ 0x010b2b8c (in ???) 
+  DATA @ 0x010b23fc (in ???) 
+  DATA @ 0x010b2584 (in ???) 
+  DATA @ 0x010b2704 (in ???) 
+  DATA @ 0x010b289c (in ???) 
+  DATA @ 0x010b2a14 (in ???) 
+  DATA @ 0x010b2d04 (in ???) 
+  DATA @ 0x010b2ea4 (in ???) 
+  DATA @ 0x010b3044 (in ???) 
+  DATA @ 0x010b31d4 (in ???) 
+  DATA @ 0x010b335c (in ???) 
+  DATA @ 0x010b34e4 (in ???) 
+  DATA @ 0x010b368c (in ???) 
+  DATA @ 0x010b389c (in ???) 
+  DATA @ 0x010b3a4c (in ???) 
+  DATA @ 0x010b3be4 (in ???) 
+  DATA @ 0x010b3d6c (in ???) 
+  DATA @ 0x010b3f0c (in ???) 
+  DATA @ 0x010b409c (in ???) 
+  DATA @ 0x010b422c (in ???) 
+  DATA @ 0x010b43bc (in ???) 
+  DATA @ 0x010b4554 (in ???) 
+  DATA @ 0x010b46f4 (in ???) 
+  DATA @ 0x010b4894 (in ???) 
+  DATA @ 0x010b4a2c (in ???) 
+  DATA @ 0x010b4bc4 (in ???) 
+  DATA @ 0x010b4d5c (in ???) 
+  DATA @ 0x010b4edc (in ???) 
+  DATA @ 0x010b5074 (in ???) 
+  DATA @ 0x010b5234 (in ???) 
+  DATA @ 0x010b53b4 (in ???) 
+  DATA @ 0x010b5574 (in ???) 
+  DATA @ 0x010b5734 (in ???) 
+  DATA @ 0x010b58c4 (in ???) 
+  DATA @ 0x010b5a6c (in ???) 
+  DATA @ 0x010b5c04 (in ???) 
+  DATA @ 0x010b5dac (in ???) 
+  DATA @ 0x010b5f9c (in ???) 
+  DATA @ 0x010b613c (in ???) 
+  DATA @ 0x010b62e4 (in ???) 
+  DATA @ 0x010b648c (in ???) 
+  DATA @ 0x010b663c (in ???) 
+  DATA @ 0x010b67e4 (in ???) 
+  DATA @ 0x010b6994 (in ???) 
+  DATA @ 0x010b6b34 (in ???) 
+  DATA @ 0x010b6ccc (in ???) 
+  DATA @ 0x010b6e84 (in ???) 
+  DATA @ 0x010b702c (in ???) 
+  DATA @ 0x010b71cc (in ???) 
+  DATA @ 0x010b736c (in ???) 
+  DATA @ 0x010b750c (in ???) 
+  DATA @ 0x010b768c (in ???) 
+  DATA @ 0x010b7814 (in ???) 
+  DATA @ 0x010b79ac (in ???) 
+  DATA @ 0x010b7b44 (in ???) 
+  DATA @ 0x010b7ce4 (in ???) 
+  DATA @ 0x010b819c (in ???) 
+  DATA @ 0x010b8a74 (in ???) 
+  DATA @ 0x010b8f74 (in ???) 
+  DATA @ 0x010b9284 (in ???) 
+  DATA @ 0x010b9b9c (in ???) 
+  DATA @ 0x010ba1ec (in ???) 
+  DATA @ 0x010ba4a4 (in ???) 
+  DATA @ 0x010bae8c (in ???) 
+  DATA @ 0x010bb054 (in ???) 
+  DATA @ 0x010bb324 (in ???) 
+  DATA @ 0x010bb67c (in ???) 
+  DATA @ 0x010bb89c (in ???) 
+  DATA @ 0x010bba74 (in ???) 
+  DATA @ 0x010bbc44 (in ???) 
+  DATA @ 0x010bbdfc (in ???) 
+  DATA @ 0x010bbfac (in ???) 
+  DATA @ 0x010bc164 (in ???) 
+  DATA @ 0x010bc354 (in ???) 
+  DATA @ 0x010bc70c (in ???) 
+  DATA @ 0x010bc9ec (in ???) 
+  Total printed: 102 refs
+
+----------------------------------------------------------------------
+References TO 0x00be1750 (BSShader::CreatePixelShader)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x00bd182f (in FUN_00bd16f0) CALL 0x00be1750
+  UNCONDITIONAL_CALL @ 0x00bd18e1 (in FUN_00bd16f0) CALL 0x00be1750
+  UNCONDITIONAL_CALL @ 0x00b87b7e (in FUN_00b874f0) CALL 0x00be1750
+  UNCONDITIONAL_CALL @ 0x00b87c4c (in FUN_00b874f0) CALL 0x00be1750
+  UNCONDITIONAL_CALL @ 0x00b87d2c (in FUN_00b874f0) CALL 0x00be1750
+  UNCONDITIONAL_CALL @ 0x00b87e15 (in FUN_00b874f0) CALL 0x00be1750
+  UNCONDITIONAL_CALL @ 0x00b87ee3 (in FUN_00b874f0) CALL 0x00be1750
+  UNCONDITIONAL_CALL @ 0x00b88269 (in FUN_00b874f0) CALL 0x00be1750
+  UNCONDITIONAL_CALL @ 0x00b8836b (in FUN_00b874f0) CALL 0x00be1750
+  UNCONDITIONAL_CALL @ 0x00b8844b (in FUN_00b874f0) CALL 0x00be1750
+  UNCONDITIONAL_CALL @ 0x00bcb75c (in FUN_00bcb4d0) CALL 0x00be1750
+  UNCONDITIONAL_CALL @ 0x00b83d45 (in FUN_00b827c0) CALL 0x00be1750
+  UNCONDITIONAL_CALL @ 0x00bc6590 (in FUN_00bc5c40) CALL 0x00be1750
+  UNCONDITIONAL_CALL @ 0x00bc661e (in FUN_00bc5c40) CALL 0x00be1750
+  UNCONDITIONAL_CALL @ 0x00bc66a6 (in FUN_00bc5c40) CALL 0x00be1750
+  UNCONDITIONAL_CALL @ 0x00bc672e (in FUN_00bc5c40) CALL 0x00be1750
+  UNCONDITIONAL_CALL @ 0x00bc67bc (in FUN_00bc5c40) CALL 0x00be1750
+  UNCONDITIONAL_CALL @ 0x00bc684a (in FUN_00bc5c40) CALL 0x00be1750
+  UNCONDITIONAL_CALL @ 0x00bc68d8 (in FUN_00bc5c40) CALL 0x00be1750
+  UNCONDITIONAL_CALL @ 0x00b802a5 (in FUN_00b80090) CALL 0x00be1750
+  UNCONDITIONAL_CALL @ 0x00b80323 (in FUN_00b80090) CALL 0x00be1750
+  UNCONDITIONAL_CALL @ 0x00bb61e3 (in FUN_00bb6060) CALL 0x00be1750
+  UNCONDITIONAL_CALL @ 0x00bb6261 (in FUN_00bb6060) CALL 0x00be1750
+  UNCONDITIONAL_CALL @ 0x00babf67 (in FUN_00baafc0) CALL 0x00be1750
+  UNCONDITIONAL_CALL @ 0x00bac0aa (in FUN_00baafc0) CALL 0x00be1750
+  UNCONDITIONAL_CALL @ 0x00bbb5a5 (in FUN_00bba5d0) CALL 0x00be1750
+  UNCONDITIONAL_CALL @ 0x00bbb5e5 (in FUN_00bba5d0) CALL 0x00be1750
+  UNCONDITIONAL_CALL @ 0x00bbb687 (in FUN_00bba5d0) CALL 0x00be1750
+  UNCONDITIONAL_CALL @ 0x00bbb6c0 (in FUN_00bba5d0) CALL 0x00be1750
+  UNCONDITIONAL_CALL @ 0x00bbb717 (in FUN_00bba5d0) CALL 0x00be1750
+  UNCONDITIONAL_CALL @ 0x00b78720 (in ???) CALL 0x00be1750
+  UNCONDITIONAL_CALL @ 0x00b78907 (in ???) CALL 0x00be1750
+  UNCONDITIONAL_CALL @ 0x00ba5255 (in ???) CALL 0x00be1750
+  UNCONDITIONAL_CALL @ 0x00bb041c (in ???) CALL 0x00be1750
+  UNCONDITIONAL_CALL @ 0x00bb1707 (in ???) CALL 0x00be1750
+  UNCONDITIONAL_CALL @ 0x00bb17dd (in ???) CALL 0x00be1750
+  UNCONDITIONAL_CALL @ 0x00bb18c5 (in ???) CALL 0x00be1750
+  UNCONDITIONAL_CALL @ 0x00bc0adb (in ???) CALL 0x00be1750
+  UNCONDITIONAL_CALL @ 0x00bc47ab (in ???) CALL 0x00be1750
+  UNCONDITIONAL_CALL @ 0x00bc5280 (in ???) CALL 0x00be1750
+  UNCONDITIONAL_CALL @ 0x00bca350 (in ???) CALL 0x00be1750
+  UNCONDITIONAL_CALL @ 0x00bce3ba (in ???) CALL 0x00be1750
+  UNCONDITIONAL_CALL @ 0x00bce48a (in ???) CALL 0x00be1750
+  UNCONDITIONAL_CALL @ 0x00bcf745 (in ???) CALL 0x00be1750
+  UNCONDITIONAL_CALL @ 0x00bd29e4 (in ???) CALL 0x00be1750
+  UNCONDITIONAL_CALL @ 0x00bd2ab2 (in ???) CALL 0x00be1750
+  UNCONDITIONAL_CALL @ 0x00bd3ee5 (in ???) CALL 0x00be1750
+  UNCONDITIONAL_CALL @ 0x00bd517f (in ???) CALL 0x00be1750
+  UNCONDITIONAL_CALL @ 0x00bd52bf (in ???) CALL 0x00be1750
+  UNCONDITIONAL_CALL @ 0x00c03bed (in ???) CALL 0x00be1750
+  Total printed: 50 refs
+
+----------------------------------------------------------------------
+References TO 0x00be0fe0 (BSShader::CreateVertexShader)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x00bd178c (in FUN_00bd16f0) CALL 0x00be0fe0
+  UNCONDITIONAL_CALL @ 0x00b87584 (in FUN_00b874f0) CALL 0x00be0fe0
+  UNCONDITIONAL_CALL @ 0x00b8764e (in FUN_00b874f0) CALL 0x00be0fe0
+  UNCONDITIONAL_CALL @ 0x00b8772e (in FUN_00b874f0) CALL 0x00be0fe0
+  UNCONDITIONAL_CALL @ 0x00b8780e (in FUN_00b874f0) CALL 0x00be0fe0
+  UNCONDITIONAL_CALL @ 0x00b878d8 (in FUN_00b874f0) CALL 0x00be0fe0
+  UNCONDITIONAL_CALL @ 0x00b879b4 (in FUN_00b874f0) CALL 0x00be0fe0
+  UNCONDITIONAL_CALL @ 0x00b87ac2 (in FUN_00b874f0) CALL 0x00be0fe0
+  UNCONDITIONAL_CALL @ 0x00b87fc3 (in FUN_00b874f0) CALL 0x00be0fe0
+  UNCONDITIONAL_CALL @ 0x00b880af (in FUN_00b874f0) CALL 0x00be0fe0
+  UNCONDITIONAL_CALL @ 0x00b88179 (in FUN_00b874f0) CALL 0x00be0fe0
+  UNCONDITIONAL_CALL @ 0x00bcb59e (in FUN_00bcb4d0) CALL 0x00be0fe0
+  UNCONDITIONAL_CALL @ 0x00bcb683 (in FUN_00bcb4d0) CALL 0x00be0fe0
+  UNCONDITIONAL_CALL @ 0x00b828ba (in FUN_00b827c0) CALL 0x00be0fe0
+  UNCONDITIONAL_CALL @ 0x00b82981 (in FUN_00b827c0) CALL 0x00be0fe0
+  UNCONDITIONAL_CALL @ 0x00b82a4a (in FUN_00b827c0) CALL 0x00be0fe0
+  UNCONDITIONAL_CALL @ 0x00bc638e (in FUN_00bc5c40) CALL 0x00be0fe0
+  UNCONDITIONAL_CALL @ 0x00b8019d (in FUN_00b80090) CALL 0x00be0fe0
+  UNCONDITIONAL_CALL @ 0x00b80221 (in FUN_00b80090) CALL 0x00be0fe0
+  UNCONDITIONAL_CALL @ 0x00bb615f (in FUN_00bb6060) CALL 0x00be0fe0
+  UNCONDITIONAL_CALL @ 0x00b74000 (in FUN_00b71bf0) CALL 0x00be0fe0
+  UNCONDITIONAL_CALL @ 0x00b740b3 (in FUN_00b71bf0) CALL 0x00be0fe0
+  UNCONDITIONAL_CALL @ 0x00b7419f (in FUN_00b71bf0) CALL 0x00be0fe0
+  UNCONDITIONAL_CALL @ 0x00babc8b (in FUN_00baafc0) CALL 0x00be0fe0
+  UNCONDITIONAL_CALL @ 0x00babd9b (in FUN_00baafc0) CALL 0x00be0fe0
+  UNCONDITIONAL_CALL @ 0x00bba4fa (in FUN_00bb96f0) CALL 0x00be0fe0
+  UNCONDITIONAL_CALL @ 0x00bba52e (in FUN_00bb96f0) CALL 0x00be0fe0
+  UNCONDITIONAL_CALL @ 0x00bba555 (in FUN_00bb96f0) CALL 0x00be0fe0
+  UNCONDITIONAL_CALL @ 0x00ba51b1 (in ???) CALL 0x00be0fe0
+  UNCONDITIONAL_CALL @ 0x00bb02f7 (in ???) CALL 0x00be0fe0
+  UNCONDITIONAL_CALL @ 0x00bb1590 (in ???) CALL 0x00be0fe0
+  UNCONDITIONAL_CALL @ 0x00bc0a31 (in ???) CALL 0x00be0fe0
+  UNCONDITIONAL_CALL @ 0x00bc4701 (in ???) CALL 0x00be0fe0
+  UNCONDITIONAL_CALL @ 0x00bc5131 (in ???) CALL 0x00be0fe0
+  UNCONDITIONAL_CALL @ 0x00bca1d0 (in ???) CALL 0x00be0fe0
+  UNCONDITIONAL_CALL @ 0x00bccd9b (in ???) CALL 0x00be0fe0
+  UNCONDITIONAL_CALL @ 0x00bcf2a0 (in ???) CALL 0x00be0fe0
+  UNCONDITIONAL_CALL @ 0x00bd09a4 (in ???) CALL 0x00be0fe0
+  UNCONDITIONAL_CALL @ 0x00bd0a6b (in ???) CALL 0x00be0fe0
+  UNCONDITIONAL_CALL @ 0x00bd28f0 (in ???) CALL 0x00be0fe0
+  UNCONDITIONAL_CALL @ 0x00bd3b00 (in ???) CALL 0x00be0fe0
+  UNCONDITIONAL_CALL @ 0x00bd3bea (in ???) CALL 0x00be0fe0
+  UNCONDITIONAL_CALL @ 0x00bd50db (in ???) CALL 0x00be0fe0
+  UNCONDITIONAL_CALL @ 0x00bd521b (in ???) CALL 0x00be0fe0
+  UNCONDITIONAL_CALL @ 0x00c03b61 (in ???) CALL 0x00be0fe0
+  Total printed: 45 refs
+
+----------------------------------------------------------------------
+Nearby functions for raw selector slot +0xC0 target 0x00e81420
+----------------------------------------------------------------------
+  containing: none
+  before: none
+  after: none
+
+----------------------------------------------------------------------
+Raw disassembly raw selector slot +0xC0 target around 0x00e81420
+----------------------------------------------------------------------
+  0x00e81420: PUSH EBX                                               << TARGET
+  0x00e81421: PUSH ESI                                              
+  0x00e81422: MOV EBX,ECX                                           
+  0x00e81424: MOV ESI,dword ptr [EBX + 0x28]                        
+  0x00e81427: PUSH EDI                                              
+  0x00e81428: MOV EDI,dword ptr [ESP + 0x10]                        
+  0x00e8142c: CMP ESI,EDI                                           
+  0x00e8142e: JZ 0x00e8145c                                         
+      ref CONDITIONAL_JUMP -> 0x00e8145c unknown
+  0x00e81430: TEST ESI,ESI                                          
+  0x00e81432: JZ 0x00e8144b                                         
+      ref CONDITIONAL_JUMP -> 0x00e8144b unknown
+  0x00e81434: LEA EAX,[ESI + 0x4]                                   
+  0x00e81437: PUSH EAX                                              
+  0x00e81438: CALL dword ptr [0x00fdf1c4]                           
+      ref READ -> 0x00fdf1c4 unknown
+      ref COMPUTED_CALL -> 0x00000067 unknown
+  0x00e8143e: TEST EAX,EAX                                          
+  0x00e81440: JNZ 0x00e8144b                                        
+      ref CONDITIONAL_JUMP -> 0x00e8144b unknown
+  0x00e81442: MOV EDX,dword ptr [ESI]                               
+  0x00e81444: MOV EAX,dword ptr [EDX + 0x4]                         
+  0x00e81447: MOV ECX,ESI                                           
+  0x00e81449: CALL EAX                                              
+  0x00e8144b: MOV dword ptr [EBX + 0x28],EDI                        
+  0x00e8144e: TEST EDI,EDI                                          
+  0x00e81450: JZ 0x00e8145c                                         
+      ref CONDITIONAL_JUMP -> 0x00e8145c unknown
+  0x00e81452: ADD EDI,0x4                                           
+  0x00e81455: PUSH EDI                                              
+  0x00e81456: CALL dword ptr [0x00fdf1c0]                           
+      ref READ -> 0x00fdf1c0 unknown
+      ref COMPUTED_CALL -> 0x00000066 unknown
+  0x00e8145c: POP EDI                                               
+  0x00e8145d: POP ESI                                               
+  0x00e8145e: POP EBX                                               
+  0x00e8145f: RET 0x4                                               
+  0x00e81470: PUSH ESI                                              
+  0x00e81471: MOV ESI,dword ptr [0x0126f74c]                        
+      ref READ -> 0x0126f74c unknown
+  0x00e81477: PUSH EDI                                              
+  0x00e81478: MOV EDI,ECX                                           
+  0x00e8147a: TEST ESI,ESI                                          
+  0x00e8147c: JZ 0x00e814a0                                         
+      ref CONDITIONAL_JUMP -> 0x00e814a0 FUN_00e81470+0x30
+  0x00e8147e: MOV ECX,dword ptr [ESI + 0x44]                        
+  0x00e81481: TEST ECX,ECX                                          
+  0x00e81483: JZ 0x00e8148f                                         
+      ref CONDITIONAL_JUMP -> 0x00e8148f FUN_00e81470+0x1f
+  0x00e81485: MOV EAX,dword ptr [ECX]                               
+  0x00e81487: MOV EDX,dword ptr [EAX + 0x84]                        
+  0x00e8148d: CALL EDX                                              
+  0x00e8148f: MOV ECX,dword ptr [ESI + 0x5c]                        
+  0x00e81492: TEST ECX,ECX                                          
+  0x00e81494: JZ 0x00e814a0                                         
+      ref CONDITIONAL_JUMP -> 0x00e814a0 FUN_00e81470+0x30
+  0x00e81496: MOV EAX,dword ptr [ECX]                               
+  0x00e81498: MOV EDX,dword ptr [EAX + 0x9c]                        
+  0x00e8149e: CALL EDX                                              
+  0x00e814a0: MOV byte ptr [EDI + 0x10],0x0                         
+  0x00e814a4: POP EDI                                               
+  0x00e814a5: POP ESI                                               
+  0x00e814a6: RET                                                   
+  0x00e814b0: PUSH EDI                                              
+  0x00e814b1: MOV EDI,ECX                                           
+  0x00e814b3: CMP dword ptr [EDI + 0x18],0x0                        
+  0x00e814b7: JZ 0x00e814eb                                         
+      ref CONDITIONAL_JUMP -> 0x00e814eb FUN_00e814b0+0x3b
+  0x00e814b9: PUSH ESI                                              
+  0x00e814ba: MOV ESI,dword ptr [0x0126f74c]                        
+      ref READ -> 0x0126f74c unknown
+  0x00e814c0: TEST ESI,ESI                                          
+  0x00e814c2: JZ 0x00e814e6                                         
+      ref CONDITIONAL_JUMP -> 0x00e814e6 FUN_00e814b0+0x36
+  0x00e814c4: MOV ECX,dword ptr [ESI + 0x44]                        
+  0x00e814c7: TEST ECX,ECX                                          
+  0x00e814c9: JZ 0x00e814d5                                         
+      ref CONDITIONAL_JUMP -> 0x00e814d5 FUN_00e814b0+0x25
+  0x00e814cb: MOV EAX,dword ptr [ECX]                               
+  0x00e814cd: MOV EDX,dword ptr [EAX + 0x88]                        
+  0x00e814d3: CALL EDX                                              
+  0x00e814d5: MOV ECX,dword ptr [ESI + 0x5c]                        
+  0x00e814d8: TEST ECX,ECX                                          
+  0x00e814da: JZ 0x00e814e6                                         
+      ref CONDITIONAL_JUMP -> 0x00e814e6 FUN_00e814b0+0x36
+  0x00e814dc: MOV EAX,dword ptr [ECX]                               
+  0x00e814de: MOV EDX,dword ptr [EAX + 0xa0]                        
+  0x00e814e4: CALL EDX                                              
+  0x00e814e6: MOV byte ptr [EDI + 0x10],0x1                         
+  0x00e814ea: POP ESI                                               
+  0x00e814eb: POP EDI                                               
+  0x00e814ec: RET                                                   
+  0x00e814f0: MOV EAX,[0x0126f74c]                                  
+      ref READ -> 0x0126f74c unknown
+  0x00e814f5: CMP dword ptr [EAX + 0x5c],0x0                        
+  0x00e814f9: SETNZ AL                                              
+  0x00e814fc: RET                                                   
+  0x00e81500: MOV EAX,[0x0126f74c]                                  
+      ref READ -> 0x0126f74c unknown
+  0x00e81505: CMP dword ptr [EAX + 0x44],0x0                        
+  0x00e81509: SETNZ AL                                              
+  0x00e8150c: RET                                                   
+  0x00e81510: SUB ESP,0x8                                           
+  0x00e81513: MOV ECX,dword ptr [ESP + 0x10]                        
+      ref READ -> 0x00000008 unknown
+  0x00e81517: PUSH EBX                                              
+  0x00e81518: PUSH EBP                                              
+  0x00e81519: PUSH ESI                                              
+  0x00e8151a: PUSH EDI                                              
+  0x00e8151b: PUSH 0x126f750                                        
+      ref DATA -> 0x0126f750 unknown
+  0x00e81520: CALL 0x00a5be90                                       
+      ref UNCONDITIONAL_CALL -> 0x00a5be90 FUN_00a5be90
+  0x00e81525: MOV EBX,dword ptr [ESP + 0x1c]                        
+      ref READ -> 0x00000004 unknown
+  0x00e81529: MOV EAX,dword ptr [EBX + 0x34]                        
+  0x00e8152c: XOR ESI,ESI                                           
+  0x00e8152e: MOV dword ptr [ESP + 0x14],ESI                        
+      ref WRITE -> 0x-0000004 unknown
+  0x00e81532: MOV dword ptr [ESP + 0x10],ESI                        
+      ref WRITE -> 0x-0000008 unknown
+  0x00e81536: CMP EAX,ESI                                           
+  0x00e81538: JZ 0x00e81569                                         
+      ref CONDITIONAL_JUMP -> 0x00e81569 FUN_00e81510+0x59
+  0x00e8153a: MOVZX EDI,word ptr [EAX + 0x18]                       
+  0x00e8153e: CMP EDI,ESI                                           
+  0x00e81540: JBE 0x00e81569                                        
+      ref CONDITIONAL_JUMP -> 0x00e81569 FUN_00e81510+0x59
+  0x00e81542: MOV ECX,dword ptr [EBX + 0x34]                        
+  0x00e81545: MOV EAX,dword ptr [ECX]                               
+  0x00e81547: MOV EDX,dword ptr [EAX + 0x74]                        
+  0x00e8154a: PUSH ESI                                              
+  0x00e8154b: CALL EDX                                              
+  0x00e8154d: TEST EAX,EAX                                          
+  0x00e8154f: JZ 0x00e81564                                         
+      ref CONDITIONAL_JUMP -> 0x00e81564 FUN_00e81510+0x54
+  0x00e81551: MOV EAX,dword ptr [EAX + 0x14]                        
+  0x00e81554: AND EAX,0xf0000000                                    
+  0x00e81559: CMP EAX,0x30000000                                    
+  0x00e8155e: JNZ 0x00e81564                                        
+      ref CONDITIONAL_JUMP -> 0x00e81564 FUN_00e81510+0x54
+  0x00e81560: INC dword ptr [ESP + 0x14]                            
+  0x00e81564: INC ESI                                               
+  0x00e81565: CMP ESI,EDI                                           
+  0x00e81567: JC 0x00e81542                                         
+      ref CONDITIONAL_JUMP -> 0x00e81542 FUN_00e81510+0x32
+  0x00e81569: MOV EAX,dword ptr [EBX + 0x30]                        
+  0x00e8156c: TEST EAX,EAX                                          
+  0x00e8156e: JZ 0x00e815a9                                         
+      ref CONDITIONAL_JUMP -> 0x00e815a9 FUN_00e81510+0x99
+  0x00e81570: MOVZX EDI,word ptr [EAX + 0x18]                       
+  0x00e81574: XOR ESI,ESI                                           
+  0x00e81576: TEST EDI,EDI                                          
+  0x00e81578: JBE 0x00e815a9                                        
+      ref CONDITIONAL_JUMP -> 0x00e815a9 FUN_00e81510+0x99
+  0x00e8157a: LEA EBX,[EBX]                                         
+  0x00e81580: MOV ECX,dword ptr [EBX + 0x30]                        
+  0x00e81583: MOV EDX,dword ptr [ECX]                               
+  0x00e81585: MOV EAX,dword ptr [EDX + 0x74]                        
+  0x00e81588: PUSH ESI                                              
+  0x00e81589: CALL EAX                                              
+  0x00e8158b: TEST EAX,EAX                                          
+  0x00e8158d: JZ 0x00e815a4                                         
+      ref CONDITIONAL_JUMP -> 0x00e815a4 FUN_00e81510+0x94
+  0x00e8158f: MOV ECX,dword ptr [EAX + 0x14]                        
+  0x00e81592: AND ECX,0xf0000000                                    
+  0x00e81598: CMP ECX,0x30000000                                    
+  0x00e8159e: JNZ 0x00e815a4                                        
+      ref CONDITIONAL_JUMP -> 0x00e815a4 FUN_00e81510+0x94
+  0x00e815a0: INC dword ptr [ESP + 0x10]                            
+  0x00e815a4: INC ESI                                               
+  0x00e815a5: CMP ESI,EDI                                           
+  0x00e815a7: JC 0x00e81580                                         
+      ref CONDITIONAL_JUMP -> 0x00e81580 FUN_00e81510+0x70
+  0x00e815a9: MOV EBP,dword ptr [0x0126f74c]                        
+      ref READ -> 0x0126f74c unknown
+  0x00e815af: TEST EBP,EBP                                          
+  0x00e815b1: JZ 0x00e81628                                         
+      ref CONDITIONAL_JUMP -> 0x00e81628 FUN_00e81510+0x118
+  0x00e815b3: MOV EDI,dword ptr [EBP + 0x34]                        
+  0x00e815b6: TEST EDI,EDI                                          
+  0x00e815b8: JZ 0x00e815ec                                         
+      ref CONDITIONAL_JUMP -> 0x00e815ec FUN_00e81510+0xdc
+  0x00e815ba: MOVZX EBX,word ptr [EDI + 0x18]                       
+  0x00e815be: XOR ESI,ESI                                           
+  0x00e815c0: TEST EBX,EBX                                          
+  0x00e815c2: JBE 0x00e815ec                                        
+      ref CONDITIONAL_JUMP -> 0x00e815ec FUN_00e81510+0xdc
+  0x00e815c4: MOV EDX,dword ptr [EDI]                               
+  0x00e815c6: MOV EAX,dword ptr [EDX + 0x74]                        
+  0x00e815c9: PUSH ESI                                              
+  0x00e815ca: MOV ECX,EDI                                           
+  0x00e815cc: CALL EAX                                              
+  0x00e815ce: TEST EAX,EAX                                          
+  0x00e815d0: JZ 0x00e815e7                                         
+      ref CONDITIONAL_JUMP -> 0x00e815e7 FUN_00e81510+0xd7
+  0x00e815d2: MOV ECX,dword ptr [EAX + 0x14]                        
+  0x00e815d5: AND ECX,0xf0000000                                    
+  0x00e815db: CMP ECX,0x30000000                                    
+  0x00e815e1: JNZ 0x00e815e7                                        
+      ref CONDITIONAL_JUMP -> 0x00e815e7 FUN_00e81510+0xd7
+  0x00e815e3: INC dword ptr [ESP + 0x10]                            
+  0x00e815e7: INC ESI                                               
+  0x00e815e8: CMP ESI,EBX                                           
+  0x00e815ea: JC 0x00e815c4                                         
+      ref CONDITIONAL_JUMP -> 0x00e815c4 FUN_00e81510+0xb4
+  0x00e815ec: MOV EDI,dword ptr [EBP + 0x48]                        
+  0x00e815ef: TEST EDI,EDI                                          
+  0x00e815f1: JZ 0x00e81628                                         
+      ref CONDITIONAL_JUMP -> 0x00e81628 FUN_00e81510+0x118
+  0x00e815f3: MOVZX EBX,word ptr [EDI + 0x18]                       
+  0x00e815f7: XOR ESI,ESI                                           
+  0x00e815f9: TEST EBX,EBX                                          
+  0x00e815fb: JBE 0x00e81628                                        
+      ref CONDITIONAL_JUMP -> 0x00e81628 FUN_00e81510+0x118
+  0x00e815fd: LEA ECX,[ECX]                                         
+  0x00e81600: MOV EDX,dword ptr [EDI]                               
+  0x00e81602: MOV EAX,dword ptr [EDX + 0x74]                        
+  0x00e81605: PUSH ESI                                              
+  0x00e81606: MOV ECX,EDI                                           
+  0x00e81608: CALL EAX                                              
+  0x00e8160a: TEST EAX,EAX                                          
+  0x00e8160c: JZ 0x00e81623                                         
+      ref CONDITIONAL_JUMP -> 0x00e81623 FUN_00e81510+0x113
+  0x00e8160e: MOV ECX,dword ptr [EAX + 0x14]                        
+
+----------------------------------------------------------------------
+References TO 0x00e81420 (raw selector slot +0xC0 target)
+----------------------------------------------------------------------
+  DATA @ 0x010af3b8 (in ???) 
+  DATA @ 0x010af820 (in ???) 
+  DATA @ 0x010afaa0 (in ???) 
+  DATA @ 0x010afed8 (in ???) 
+  DATA @ 0x010b0080 (in ???) 
+  DATA @ 0x010b0258 (in ???) 
+  DATA @ 0x010b03f8 (in ???) 
+  DATA @ 0x010b05d8 (in ???) 
+  DATA @ 0x010b0780 (in ???) 
+  DATA @ 0x010b0920 (in ???) 
+  DATA @ 0x010b0ac0 (in ???) 
+  DATA @ 0x010b0c58 (in ???) 
+  DATA @ 0x010b0e00 (in ???) 
+  DATA @ 0x010b0f80 (in ???) 
+  DATA @ 0x010b1100 (in ???) 
+  DATA @ 0x010b1280 (in ???) 
+  DATA @ 0x010b1400 (in ???) 
+  DATA @ 0x010b1580 (in ???) 
+  DATA @ 0x010b1700 (in ???) 
+  DATA @ 0x010b18b8 (in ???) 
+  DATA @ 0x010b1a40 (in ???) 
+  DATA @ 0x010b1bc8 (in ???) 
+  DATA @ 0x010b1d50 (in ???) 
+  DATA @ 0x010b1ee0 (in ???) 
+  DATA @ 0x010b2070 (in ???) 
+  DATA @ 0x010b2200 (in ???) 
+  DATA @ 0x010b2b58 (in ???) 
+  DATA @ 0x010b23c8 (in ???) 
+  DATA @ 0x010b2550 (in ???) 
+  DATA @ 0x010b26d0 (in ???) 
+  DATA @ 0x010b2868 (in ???) 
+  DATA @ 0x010b29e0 (in ???) 
+  DATA @ 0x010b2cd0 (in ???) 
+  DATA @ 0x010b2e70 (in ???) 
+  DATA @ 0x010b3010 (in ???) 
+  DATA @ 0x010b31a0 (in ???) 
+  DATA @ 0x010b3328 (in ???) 
+  DATA @ 0x010b34b0 (in ???) 
+  DATA @ 0x010b3658 (in ???) 
+  DATA @ 0x010b3868 (in ???) 
+  DATA @ 0x010b3a18 (in ???) 
+  DATA @ 0x010b3bb0 (in ???) 
+  DATA @ 0x010b3d38 (in ???) 
+  DATA @ 0x010b3ed8 (in ???) 
+  DATA @ 0x010b4068 (in ???) 
+  DATA @ 0x010b41f8 (in ???) 
+  DATA @ 0x010b4388 (in ???) 
+  DATA @ 0x010b4520 (in ???) 
+  DATA @ 0x010b46c0 (in ???) 
+  DATA @ 0x010b4860 (in ???) 
+  DATA @ 0x010b49f8 (in ???) 
+  DATA @ 0x010b4b90 (in ???) 
+  DATA @ 0x010b4d28 (in ???) 
+  DATA @ 0x010b4ea8 (in ???) 
+  DATA @ 0x010b5040 (in ???) 
+  DATA @ 0x010b5200 (in ???) 
+  DATA @ 0x010b5380 (in ???) 
+  DATA @ 0x010b5540 (in ???) 
+  DATA @ 0x010b5700 (in ???) 
+  DATA @ 0x010b5890 (in ???) 
+  DATA @ 0x010b5a38 (in ???) 
+  DATA @ 0x010b5bd0 (in ???) 
+  DATA @ 0x010b5d78 (in ???) 
+  DATA @ 0x010b5f68 (in ???) 
+  DATA @ 0x010b6108 (in ???) 
+  DATA @ 0x010b62b0 (in ???) 
+  DATA @ 0x010b6458 (in ???) 
+  DATA @ 0x010b6608 (in ???) 
+  DATA @ 0x010b67b0 (in ???) 
+  DATA @ 0x010b6960 (in ???) 
+  DATA @ 0x010b6b00 (in ???) 
+  DATA @ 0x010b6c98 (in ???) 
+  DATA @ 0x010b6e50 (in ???) 
+  DATA @ 0x010b6ff8 (in ???) 
+  DATA @ 0x010b7198 (in ???) 
+  DATA @ 0x010b7338 (in ???) 
+  DATA @ 0x010b74d8 (in ???) 
+  DATA @ 0x010b7658 (in ???) 
+  DATA @ 0x010b77e0 (in ???) 
+  DATA @ 0x010b7978 (in ???) 
+  DATA @ 0x010b7b10 (in ???) 
+  DATA @ 0x010b7cb0 (in ???) 
+  DATA @ 0x010b8168 (in ???) 
+  DATA @ 0x010b8a40 (in ???) 
+  DATA @ 0x010b8f40 (in ???) 
+  DATA @ 0x010b9250 (in ???) 
+  DATA @ 0x010b9b68 (in ???) 
+  DATA @ 0x010ba1b8 (in ???) 
+  DATA @ 0x010ba470 (in ???) 
+  DATA @ 0x010bae58 (in ???) 
+  DATA @ 0x010bb020 (in ???) 
+  DATA @ 0x010bb2f0 (in ???) 
+  DATA @ 0x010bb4d0 (in ???) 
+  DATA @ 0x010bb648 (in ???) 
+  DATA @ 0x010bb868 (in ???) 
+  DATA @ 0x010bba40 (in ???) 
+  DATA @ 0x010bbc10 (in ???) 
+  DATA @ 0x010bbdc8 (in ???) 
+  DATA @ 0x010bbf78 (in ???) 
+  DATA @ 0x010bc130 (in ???) 
+  DATA @ 0x010bc320 (in ???) 
+  DATA @ 0x010bc6d8 (in ???) 
+  DATA @ 0x010bc9b8 (in ???) 
+  DATA @ 0x010eed6c (in ???) 
+  DATA @ 0x010eee64 (in ???) 
+  DATA @ 0x010f0004 (in ???) 
+  DATA @ 0x010f0824 (in ???) 
+  Total printed: 107 refs
+
+======================================================================
+raw selector slot +0xC0 target @ 0x00e81420
+======================================================================
+  [function not found]
+
+--- Calls FROM raw selector slot +0xC0 target (0x00e81420) ---
+  [function not found]
+
+======================================================================
+MATCHED DECOMPILE LINES: raw selector slot +0xC0 target @ 0x00e81420
+======================================================================
+  [decompilation failed]
+
+----------------------------------------------------------------------
+Nearby functions for selector slot +0x144 wrapper 0x00bd0470
+----------------------------------------------------------------------
+  containing: FUN_00bd0470 @ 0x00bd0470
+  before: none
+  after: none
+
+----------------------------------------------------------------------
+Raw disassembly selector slot +0x144 wrapper around 0x00bd0470
+----------------------------------------------------------------------
+  0x00bd0440: PUSH ESI                                              
+  0x00bd0441: MOV ESI,ECX                                           
+  0x00bd0443: CALL 0x00bcf920                                       
+      ref UNCONDITIONAL_CALL -> 0x00bcf920 FUN_00bcf920
+  0x00bd0448: TEST byte ptr [ESP + 0x8],0x1                         
+      ref READ -> 0x00000004 unknown
+  0x00bd044d: JZ 0x00bd045d                                         
+      ref CONDITIONAL_JUMP -> 0x00bd045d FUN_00bd0440+0x1d
+  0x00bd044f: PUSH 0x128                                            
+  0x00bd0454: PUSH ESI                                              
+  0x00bd0455: CALL 0x00aa1460                                       
+      ref UNCONDITIONAL_CALL -> 0x00aa1460 FUN_00aa1460
+  0x00bd045a: ADD ESP,0x8                                           
+  0x00bd045d: MOV EAX,ESI                                           
+  0x00bd045f: POP ESI                                               
+  0x00bd0460: RET 0x4                                               
+  0x00bd0470: PUSH ESI                                               << TARGET
+  0x00bd0471: MOV ESI,ECX                                           
+  0x00bd0473: MOV EAX,dword ptr [ESI]                               
+  0x00bd0475: MOV EDX,dword ptr [EAX + 0x148]                       
+  0x00bd047b: CALL EDX                                              
+  0x00bd047d: MOV EAX,dword ptr [ESI]                               
+  0x00bd047f: MOV EDX,dword ptr [EAX + 0x14c]                       
+  0x00bd0485: MOV ECX,ESI                                           
+  0x00bd0487: POP ESI                                               
+  0x00bd0488: JMP EDX                                               
+  0x00bd0490: MOV EAX,dword ptr [ECX]                               
+  0x00bd0492: MOV EDX,dword ptr [EAX + 0x144]                       
+  0x00bd0498: JMP EDX                                               
+  0x00bd04a0: PUSH EBX                                              
+  0x00bd04a1: MOV EBX,ECX                                           
+  0x00bd04a3: CMP dword ptr [EBX + 0x28],0x0                        
+  0x00bd04a7: PUSH ESI                                              
+  0x00bd04a8: PUSH EDI                                              
+  0x00bd04a9: JZ 0x00bd04f8                                         
+      ref CONDITIONAL_JUMP -> 0x00bd04f8 FUN_00bd04a0+0x58
+  0x00bd04ab: LEA ESI,[EBX + 0x94]                                  
+  0x00bd04b1: MOV EDI,0x7                                           
+  0x00bd04b6: MOV ECX,dword ptr [ESI]                               
+  0x00bd04b8: TEST ECX,ECX                                          
+  0x00bd04ba: JZ 0x00bd04c6                                         
+      ref CONDITIONAL_JUMP -> 0x00bd04c6 FUN_00bd04a0+0x26
+  0x00bd04bc: MOV EAX,dword ptr [ECX]                               
+  0x00bd04be: MOV EDX,dword ptr [EAX + 0xa0]                        
+  0x00bd04c4: CALL EDX                                              
+  0x00bd04c6: ADD ESI,0x4                                           
+  0x00bd04c9: SUB EDI,0x1                                           
+  0x00bd04cc: JNZ 0x00bd04b6                                        
+      ref CONDITIONAL_JUMP -> 0x00bd04b6 FUN_00bd04a0+0x16
+  0x00bd04ce: LEA ESI,[EBX + 0xbc]                                  
+  0x00bd04d4: MOV EDI,0x7                                           
+  0x00bd04d9: LEA ESP,[ESP]                                         
+  0x00bd04e0: MOV ECX,dword ptr [ESI]                               
+  0x00bd04e2: TEST ECX,ECX                                          
+  0x00bd04e4: JZ 0x00bd04f0                                         
+      ref CONDITIONAL_JUMP -> 0x00bd04f0 FUN_00bd04a0+0x50
+  0x00bd04e6: MOV EAX,dword ptr [ECX]                               
+  0x00bd04e8: MOV EDX,dword ptr [EAX + 0xa0]                        
+  0x00bd04ee: CALL EDX                                              
+  0x00bd04f0: ADD ESI,0x4                                           
+  0x00bd04f3: SUB EDI,0x1                                           
+  0x00bd04f6: JNZ 0x00bd04e0                                        
+      ref CONDITIONAL_JUMP -> 0x00bd04e0 FUN_00bd04a0+0x40
+  0x00bd04f8: LEA ESI,[EBX + 0xd8]                                  
+  0x00bd04fe: MOV EDI,0x3                                           
+  0x00bd0503: MOV ECX,dword ptr [ESI + -0x28]                       
+  0x00bd0506: TEST ECX,ECX                                          
+  0x00bd0508: JZ 0x00bd0514                                         
+      ref CONDITIONAL_JUMP -> 0x00bd0514 FUN_00bd04a0+0x74
+  0x00bd050a: MOV EAX,dword ptr [ECX]                               
+  0x00bd050c: MOV EDX,dword ptr [EAX + 0x88]                        
+  0x00bd0512: CALL EDX                                              
+  0x00bd0514: MOV ECX,dword ptr [ESI]                               
+  0x00bd0516: TEST ECX,ECX                                          
+  0x00bd0518: JZ 0x00bd0524                                         
+      ref CONDITIONAL_JUMP -> 0x00bd0524 FUN_00bd04a0+0x84
+  0x00bd051a: MOV EAX,dword ptr [ECX]                               
+  0x00bd051c: MOV EDX,dword ptr [EAX + 0x88]                        
+  0x00bd0522: CALL EDX                                              
+  0x00bd0524: ADD ESI,0x4                                           
+  0x00bd0527: SUB EDI,0x1                                           
+  0x00bd052a: JNZ 0x00bd0503                                        
+      ref CONDITIONAL_JUMP -> 0x00bd0503 FUN_00bd04a0+0x63
+  0x00bd052c: POP EDI                                               
+  0x00bd052d: POP ESI                                               
+  0x00bd052e: MOV ECX,EBX                                           
+  0x00bd0530: POP EBX                                               
+  0x00bd0531: JMP 0x00b71b90                                        
+      ref UNCONDITIONAL_CALL -> 0x00b71b90 FUN_00b71b90
+  0x00bd0540: SUB ESP,0x640                                         
+  0x00bd0546: MOV EAX,[0x011c16bc]                                  
+      ref READ -> 0x011c16bc unknown
+  0x00bd054b: XOR EAX,ESP                                           
+  0x00bd054d: MOV dword ptr [ESP + 0x63c],EAX                       
+  0x00bd0554: PUSH EBX                                              
+  0x00bd0555: PUSH EBP                                              
+  0x00bd0556: PUSH ESI                                              
+  0x00bd0557: PUSH EDI                                              
+  0x00bd0558: XOR EDI,EDI                                           
+  0x00bd055a: PUSH 0x3c                                             
+  0x00bd055c: LEA EAX,[ESP + 0x244]                                 
+  0x00bd0563: PUSH EDI                                              
+  0x00bd0564: MOV EBX,0x10bbb38                                     
+      ref DATA -> 0x010bbb38 unknown
+  0x00bd0569: MOV EBP,0x10bbb30                                     
+      ref DATA -> 0x010bbb30 unknown
+  0x00bd056e: MOV ESI,0x1011584                                     
+      ref DATA -> 0x01011584 unknown
+  0x00bd0573: PUSH EAX                                              
+  0x00bd0574: MOV dword ptr [ESP + 0x24],ECX                        
+  0x00bd0578: MOV dword ptr [ESP + 0x23c],EBX                       
+      ref DATA -> 0x010bbb38 unknown
+  0x00bd057f: MOV dword ptr [ESP + 0x240],EBP                       
+      ref DATA -> 0x010bbb30 unknown
+  0x00bd0586: MOV dword ptr [ESP + 0x244],ESI                       
+      ref DATA -> 0x01011584 unknown
+  0x00bd058d: MOV dword ptr [ESP + 0x248],EDI                       
+  0x00bd0594: CALL 0x00ec61c0                                       
+      ref UNCONDITIONAL_CALL -> 0x00ec61c0 _memset
+  0x00bd0599: PUSH 0x34                                             
+  0x00bd059b: MOV dword ptr [ESP + 0x290],EBP                       
+      ref DATA -> 0x010bbb30 unknown
+  0x00bd05a2: LEA ECX,[ESP + 0x2a4]                                 
+  0x00bd05a9: PUSH EDI                                              
+  0x00bd05aa: MOV EBP,0x10bbb2c                                     
+      ref DATA -> 0x010bbb2c unknown
+  0x00bd05af: PUSH ECX                                              
+  0x00bd05b0: MOV dword ptr [ESP + 0x294],EBX                       
+      ref DATA -> 0x010bbb38 unknown
+  0x00bd05b7: MOV dword ptr [ESP + 0x29c],ESI                       
+      ref DATA -> 0x01011584 unknown
+  0x00bd05be: MOV dword ptr [ESP + 0x2a0],EBP                       
+      ref DATA -> 0x010bbb2c unknown
+  0x00bd05c5: MOV dword ptr [ESP + 0x2a4],ESI                       
+      ref DATA -> 0x01011584 unknown
+  0x00bd05cc: MOV dword ptr [ESP + 0x2a8],EDI                       
+  0x00bd05d3: CALL 0x00ec61c0                                       
+      ref UNCONDITIONAL_CALL -> 0x00ec61c0 _memset
+  0x00bd05d8: PUSH 0x34                                             
+  0x00bd05da: MOV dword ptr [ESP + 0x2e4],EBX                       
+      ref DATA -> 0x010bbb38 unknown
+  0x00bd05e1: LEA EDX,[ESP + 0x2fc]                                 
+  0x00bd05e8: PUSH EDI                                              
+  0x00bd05e9: MOV EBX,0x10bbb28                                     
+      ref DATA -> 0x010bbb28 unknown
+  0x00bd05ee: PUSH EDX                                              
+  0x00bd05ef: MOV dword ptr [ESP + 0x2f0],EBX                       
+      ref DATA -> 0x010bbb28 unknown
+  0x00bd05f6: MOV dword ptr [ESP + 0x2f4],ESI                       
+      ref DATA -> 0x01011584 unknown
+  0x00bd05fd: MOV dword ptr [ESP + 0x2f8],0x10bbb20                 
+      ref DATA -> 0x010bbb20 unknown
+  0x00bd0608: MOV dword ptr [ESP + 0x2fc],ESI                       
+      ref DATA -> 0x01011584 unknown
+  0x00bd060f: MOV dword ptr [ESP + 0x300],EDI                       
+  0x00bd0616: CALL 0x00ec61c0                                       
+      ref UNCONDITIONAL_CALL -> 0x00ec61c0 _memset
+  0x00bd061b: PUSH 0x2c                                             
+  0x00bd061d: LEA EAX,[ESP + 0x35c]                                 
+  0x00bd0624: PUSH EDI                                              
+  0x00bd0625: PUSH EAX                                              
+  0x00bd0626: MOV dword ptr [ESP + 0x344],0x10bbb38                 
+      ref DATA -> 0x010bbb38 unknown
+  0x00bd0631: MOV dword ptr [ESP + 0x348],0x10bbb30                 
+      ref DATA -> 0x010bbb30 unknown
+  0x00bd063c: MOV dword ptr [ESP + 0x34c],ESI                       
+      ref DATA -> 0x01011584 unknown
+  0x00bd0643: MOV dword ptr [ESP + 0x350],EBP                       
+      ref DATA -> 0x010bbb2c unknown
+  0x00bd064a: MOV dword ptr [ESP + 0x354],ESI                       
+      ref DATA -> 0x01011584 unknown
+  0x00bd0651: MOV dword ptr [ESP + 0x358],0x10bbb1c                 
+      ref DATA -> 0x010bbb1c unknown
+  0x00bd065c: MOV dword ptr [ESP + 0x35c],ESI                       
+      ref DATA -> 0x01011584 unknown
+  0x00bd0663: MOV dword ptr [ESP + 0x360],EDI                       
+  0x00bd066a: CALL 0x00ec61c0                                       
+      ref UNCONDITIONAL_CALL -> 0x00ec61c0 _memset
+  0x00bd066f: PUSH 0x2c                                             
+  0x00bd0671: LEA ECX,[ESP + 0x3b4]                                 
+  0x00bd0678: PUSH EDI                                              
+  0x00bd0679: PUSH ECX                                              
+  0x00bd067a: MOV dword ptr [ESP + 0x39c],0x10bbb38                 
+      ref DATA -> 0x010bbb38 unknown
+  0x00bd0685: MOV dword ptr [ESP + 0x3a0],EBX                       
+      ref DATA -> 0x010bbb28 unknown
+  0x00bd068c: MOV dword ptr [ESP + 0x3a4],ESI                       
+      ref DATA -> 0x01011584 unknown
+  0x00bd0693: MOV dword ptr [ESP + 0x3a8],0x10bbb20                 
+      ref DATA -> 0x010bbb20 unknown
+  0x00bd069e: MOV dword ptr [ESP + 0x3ac],ESI                       
+      ref DATA -> 0x01011584 unknown
+  0x00bd06a5: MOV dword ptr [ESP + 0x3b0],0x10bbb1c                 
+      ref DATA -> 0x010bbb1c unknown
+  0x00bd06b0: MOV dword ptr [ESP + 0x3b4],ESI                       
+      ref DATA -> 0x01011584 unknown
+  0x00bd06b7: MOV dword ptr [ESP + 0x3b8],EDI                       
+  0x00bd06be: CALL 0x00ec61c0                                       
+      ref UNCONDITIONAL_CALL -> 0x00ec61c0 _memset
+  0x00bd06c3: PUSH 0x2c                                             
+  0x00bd06c5: LEA EDX,[ESP + 0x40c]                                 
+  0x00bd06cc: PUSH EDI                                              
+  0x00bd06cd: PUSH EDX                                              
+  0x00bd06ce: MOV dword ptr [ESP + 0x3f4],0x10bbb38                 
+      ref DATA -> 0x010bbb38 unknown
+  0x00bd06d9: MOV dword ptr [ESP + 0x3f8],EBX                       
+      ref DATA -> 0x010bbb28 unknown
+  0x00bd06e0: MOV dword ptr [ESP + 0x3fc],ESI                       
+      ref DATA -> 0x01011584 unknown
+  0x00bd06e7: MOV dword ptr [ESP + 0x400],EBP                       
+      ref DATA -> 0x010bbb2c unknown
+  0x00bd06ee: MOV dword ptr [ESP + 0x404],ESI                       
+      ref DATA -> 0x01011584 unknown
+  0x00bd06f5: MOV dword ptr [ESP + 0x408],0x10bbb1c                 
+      ref DATA -> 0x010bbb1c unknown
+  0x00bd0700: MOV dword ptr [ESP + 0x40c],ESI                       
+      ref DATA -> 0x01011584 unknown
+  0x00bd0707: MOV dword ptr [ESP + 0x410],EDI                       
+  0x00bd070e: CALL 0x00ec61c0                                       
+      ref UNCONDITIONAL_CALL -> 0x00ec61c0 _memset
+  0x00bd0713: ADD ESP,0x48                                          
+  0x00bd0716: PUSH 0x34                                             
+  0x00bd0718: LEA EAX,[ESP + 0x414]                                 
+  0x00bd071f: PUSH EDI                                              
+  0x00bd0720: PUSH EAX                                              
+  0x00bd0721: MOV dword ptr [ESP + 0x404],0x10bbb38                 
+      ref DATA -> 0x010bbb38 unknown
+  0x00bd072c: MOV dword ptr [ESP + 0x408],EBX                       
+      ref DATA -> 0x010bbb28 unknown
+  0x00bd0733: MOV dword ptr [ESP + 0x40c],ESI                       
+      ref DATA -> 0x01011584 unknown
+  0x00bd073a: MOV dword ptr [ESP + 0x410],EBP                       
+      ref DATA -> 0x010bbb2c unknown
+  0x00bd0741: MOV dword ptr [ESP + 0x414],ESI                       
+      ref DATA -> 0x01011584 unknown
+  0x00bd0748: MOV dword ptr [ESP + 0x418],EDI                       
+  0x00bd074f: CALL 0x00ec61c0                                       
+      ref UNCONDITIONAL_CALL -> 0x00ec61c0 _memset
+  0x00bd0754: PUSH 0x3c                                             
+  0x00bd0756: LEA ECX,[ESP + 0x3c]                                  
+  0x00bd075a: PUSH EDI                                              
+  0x00bd075b: PUSH ECX                                              
+  0x00bd075c: MOV dword ptr [ESP + 0x34],0x10bbb08                  
+      ref DATA -> 0x010bbb08 unknown
+  0x00bd0764: MOV dword ptr [ESP + 0x38],0x10bbb30                  
+      ref DATA -> 0x010bbb30 unknown
+  0x00bd076c: MOV dword ptr [ESP + 0x3c],ESI                        
+      ref DATA -> 0x01011584 unknown
+
+----------------------------------------------------------------------
+References TO 0x00bd0470 (selector slot +0x144 wrapper)
+----------------------------------------------------------------------
+  DATA @ 0x010af43c (in ???) 
+  DATA @ 0x010bb8ec (in ???) 
+  DATA @ 0x010bbac4 (in ???) 
+  DATA @ 0x010bbc94 (in ???) 
+  DATA @ 0x010bc1b4 (in ???) 
+  Total printed: 5 refs
+
+======================================================================
+selector slot +0x144 wrapper @ 0x00bd0470
+======================================================================
+  Function: FUN_00bd0470 @ 0x00bd0470, Size: 26 bytes
+
+void __fastcall FUN_00bd0470(int *param_1)
+
+{
+  (**(code **)(*param_1 + 0x148))();
+                    /* WARNING: Could not recover jumptable at 0x00bd0488. Too many branches */
+                    /* WARNING: Treating indirect jump as call */
+  (**(code **)(*param_1 + 0x14c))();
+  return;
+}
+
+
+
+--- Calls FROM selector slot +0x144 wrapper (0x00bd0470) ---
+  Total: 0 calls
+
+======================================================================
+MATCHED DECOMPILE LINES: selector slot +0x144 wrapper @ 0x00bd0470
+======================================================================
+  Total matched lines: 0
+
+----------------------------------------------------------------------
+Nearby functions for selector slot +0x148 target 0x00b71bf0
+----------------------------------------------------------------------
+  containing: FUN_00b71bf0 @ 0x00b71bf0
+  before: none
+  after: none
+
+----------------------------------------------------------------------
+Raw disassembly selector slot +0x148 target around 0x00b71bf0
+----------------------------------------------------------------------
+  0x00b71bf0: MOV EAX,0x3064                                         << TARGET
+  0x00b71bf5: CALL 0x00ec8660                                       
+      ref UNCONDITIONAL_CALL -> 0x00ec8660 __alloca_probe
+  0x00b71bfa: MOV EAX,[0x011c16bc]                                  
+      ref READ -> 0x011c16bc unknown
+  0x00b71bff: XOR EAX,ESP                                           
+  0x00b71c01: MOV dword ptr [ESP + 0x3060],EAX                      
+      ref WRITE -> 0x-0000004 unknown
+  0x00b71c08: PUSH EBX                                              
+  0x00b71c09: PUSH EBP                                              
+  0x00b71c0a: PUSH ESI                                              
+  0x00b71c0b: PUSH EDI                                              
+  0x00b71c0c: XOR EDI,EDI                                           
+  0x00b71c0e: PUSH 0x44                                             
+  0x00b71c10: LEA EAX,[ESP + 0x2540]                                
+      ref DATA -> 0x-0000b38 unknown
+  0x00b71c17: PUSH EDI                                              
+  0x00b71c18: MOV EBP,0x10aeda8                                     
+      ref DATA -> 0x010aeda8 unknown
+  0x00b71c1d: PUSH EAX                                              
+  0x00b71c1e: MOV dword ptr [ESP + 0x20],ECX                        
+      ref WRITE -> 0x-0003060 unknown
+  0x00b71c22: MOV dword ptr [ESP + 0x2540],EBP                      
+      ref DATA -> 0x010aeda8 unknown
+      ref WRITE -> 0x-0000b40 unknown
+  0x00b71c29: MOV dword ptr [ESP + 0x2544],EDI                      
+      ref WRITE -> 0x-0000b3c unknown
+  0x00b71c30: CALL 0x00ec61c0                                       
+      ref UNCONDITIONAL_CALL -> 0x00ec61c0 _memset
+  0x00b71c35: PUSH 0x44                                             
+  0x00b71c37: LEA ECX,[ESP + 0x2598]                                
+      ref DATA -> 0x-0000aec unknown
+  0x00b71c3e: PUSH EDI                                              
+  0x00b71c3f: PUSH ECX                                              
+  0x00b71c40: MOV dword ptr [ESP + 0x2598],EDI                      
+      ref WRITE -> 0x-0000af4 unknown
+  0x00b71c47: MOV dword ptr [ESP + 0x259c],EDI                      
+      ref WRITE -> 0x-0000af0 unknown
+  0x00b71c4e: CALL 0x00ec61c0                                       
+      ref UNCONDITIONAL_CALL -> 0x00ec61c0 _memset
+  0x00b71c53: PUSH 0x44                                             
+  0x00b71c55: LEA EDX,[ESP + 0x25f0]                                
+      ref DATA -> 0x-0000aa0 unknown
+  0x00b71c5c: PUSH EDI                                              
+  0x00b71c5d: PUSH EDX                                              
+  0x00b71c5e: MOV dword ptr [ESP + 0x25f0],EDI                      
+      ref WRITE -> 0x-0000aa8 unknown
+  0x00b71c65: MOV dword ptr [ESP + 0x25f4],EDI                      
+      ref WRITE -> 0x-0000aa4 unknown
+  0x00b71c6c: CALL 0x00ec61c0                                       
+      ref UNCONDITIONAL_CALL -> 0x00ec61c0 _memset
+  0x00b71c71: PUSH 0x44                                             
+  0x00b71c73: LEA EAX,[ESP + 0x2648]                                
+      ref DATA -> 0x-0000a54 unknown
+  0x00b71c7a: PUSH EDI                                              
+  0x00b71c7b: PUSH EAX                                              
+  0x00b71c7c: MOV dword ptr [ESP + 0x2648],0x10aed88                
+      ref DATA -> 0x010aed88 unknown
+      ref WRITE -> 0x-0000a5c unknown
+  0x00b71c87: MOV dword ptr [ESP + 0x264c],EDI                      
+      ref WRITE -> 0x-0000a58 unknown
+  0x00b71c8e: CALL 0x00ec61c0                                       
+      ref UNCONDITIONAL_CALL -> 0x00ec61c0 _memset
+  0x00b71c93: PUSH 0x44                                             
+  0x00b71c95: LEA ECX,[ESP + 0x26a0]                                
+      ref DATA -> 0x-0000a08 unknown
+  0x00b71c9c: PUSH EDI                                              
+  0x00b71c9d: PUSH ECX                                              
+  0x00b71c9e: MOV dword ptr [ESP + 0x26a0],0x10aed68                
+      ref DATA -> 0x010aed68 unknown
+      ref WRITE -> 0x-0000a10 unknown
+  0x00b71ca9: MOV dword ptr [ESP + 0x26a4],EDI                      
+      ref WRITE -> 0x-0000a0c unknown
+  0x00b71cb0: CALL 0x00ec61c0                                       
+      ref UNCONDITIONAL_CALL -> 0x00ec61c0 _memset
+  0x00b71cb5: PUSH 0x44                                             
+  0x00b71cb7: LEA EDX,[ESP + 0x26f8]                                
+      ref DATA -> 0x-00009bc unknown
+  0x00b71cbe: PUSH EDI                                              
+  0x00b71cbf: PUSH EDX                                              
+  0x00b71cc0: MOV dword ptr [ESP + 0x26f8],EBP                      
+      ref DATA -> 0x010aeda8 unknown
+      ref WRITE -> 0x-00009c4 unknown
+  0x00b71cc7: MOV dword ptr [ESP + 0x26fc],EDI                      
+      ref WRITE -> 0x-00009c0 unknown
+  0x00b71cce: CALL 0x00ec61c0                                       
+      ref UNCONDITIONAL_CALL -> 0x00ec61c0 _memset
+  0x00b71cd3: ADD ESP,0x48                                          
+  0x00b71cd6: PUSH 0x3c                                             
+  0x00b71cd8: LEA EAX,[ESP + 0x2710]                                
+      ref DATA -> 0x-0000968 unknown
+  0x00b71cdf: PUSH EDI                                              
+  0x00b71ce0: MOV ESI,0x1011584                                     
+      ref DATA -> 0x01011584 unknown
+  0x00b71ce5: PUSH EAX                                              
+  0x00b71ce6: MOV dword ptr [ESP + 0x2708],EBP                      
+      ref DATA -> 0x010aeda8 unknown
+      ref WRITE -> 0x-0000978 unknown
+  0x00b71ced: MOV dword ptr [ESP + 0x270c],0x10aed64                
+      ref DATA -> 0x010aed64 unknown
+      ref WRITE -> 0x-0000974 unknown
+  0x00b71cf8: MOV dword ptr [ESP + 0x2710],ESI                      
+      ref DATA -> 0x01011584 unknown
+      ref WRITE -> 0x-0000970 unknown
+  0x00b71cff: MOV dword ptr [ESP + 0x2714],EDI                      
+      ref WRITE -> 0x-000096c unknown
+  0x00b71d06: CALL 0x00ec61c0                                       
+      ref UNCONDITIONAL_CALL -> 0x00ec61c0 _memset
+  0x00b71d0b: PUSH 0x3c                                             
+  0x00b71d0d: LEA ECX,[ESP + 0x2768]                                
+      ref DATA -> 0x-000091c unknown
+  0x00b71d14: PUSH EDI                                              
+  0x00b71d15: PUSH ECX                                              
+  0x00b71d16: MOV dword ptr [ESP + 0x2760],EBP                      
+      ref DATA -> 0x010aeda8 unknown
+      ref WRITE -> 0x-000092c unknown
+  0x00b71d1d: MOV dword ptr [ESP + 0x2764],0x10aed54                
+      ref DATA -> 0x010aed54 unknown
+      ref WRITE -> 0x-0000928 unknown
+  0x00b71d28: MOV dword ptr [ESP + 0x2768],ESI                      
+      ref DATA -> 0x01011584 unknown
+      ref WRITE -> 0x-0000924 unknown
+  0x00b71d2f: MOV dword ptr [ESP + 0x276c],EDI                      
+      ref WRITE -> 0x-0000920 unknown
+  0x00b71d36: CALL 0x00ec61c0                                       
+      ref UNCONDITIONAL_CALL -> 0x00ec61c0 _memset
+  0x00b71d3b: PUSH 0x44                                             
+  0x00b71d3d: LEA EDX,[ESP + 0x27b8]                                
+      ref DATA -> 0x-00008d8 unknown
+  0x00b71d44: PUSH EDI                                              
+  0x00b71d45: PUSH EDX                                              
+  0x00b71d46: MOV dword ptr [ESP + 0x27b8],0x10aed34                
+      ref DATA -> 0x010aed34 unknown
+      ref WRITE -> 0x-00008e0 unknown
+  0x00b71d51: MOV dword ptr [ESP + 0x27bc],EDI                      
+      ref WRITE -> 0x-00008dc unknown
+  0x00b71d58: CALL 0x00ec61c0                                       
+      ref UNCONDITIONAL_CALL -> 0x00ec61c0 _memset
+  0x00b71d5d: PUSH 0x44                                             
+  0x00b71d5f: MOV dword ptr [ESP + 0x2808],0x10aed10                
+      ref DATA -> 0x010aed10 unknown
+      ref WRITE -> 0x-0000894 unknown
+  0x00b71d6a: MOV dword ptr [ESP + 0x280c],EDI                      
+      ref WRITE -> 0x-0000890 unknown
+  0x00b71d71: PUSH EDI                                              
+  0x00b71d72: LEA EAX,[ESP + 0x2814]                                
+      ref DATA -> 0x-000088c unknown
+  0x00b71d79: PUSH EAX                                              
+  0x00b71d7a: CALL 0x00ec61c0                                       
+      ref UNCONDITIONAL_CALL -> 0x00ec61c0 _memset
+  0x00b71d7f: PUSH 0x44                                             
+  0x00b71d81: LEA ECX,[ESP + 0x2868]                                
+      ref DATA -> 0x-0000840 unknown
+  0x00b71d88: PUSH EDI                                              
+  0x00b71d89: MOV EBX,0x10aece4                                     
+      ref DATA -> 0x010aece4 unknown
+  0x00b71d8e: PUSH ECX                                              
+  0x00b71d8f: MOV dword ptr [ESP + 0x2868],EBX                      
+      ref DATA -> 0x010aece4 unknown
+      ref WRITE -> 0x-0000848 unknown
+  0x00b71d96: MOV dword ptr [ESP + 0x286c],EDI                      
+      ref WRITE -> 0x-0000844 unknown
+  0x00b71d9d: CALL 0x00ec61c0                                       
+      ref UNCONDITIONAL_CALL -> 0x00ec61c0 _memset
+  0x00b71da2: PUSH 0x3c                                             
+  0x00b71da4: LEA EDX,[ESP + 0x28c8]                                
+      ref DATA -> 0x-00007ec unknown
+  0x00b71dab: PUSH EDI                                              
+  0x00b71dac: PUSH EDX                                              
+  0x00b71dad: MOV dword ptr [ESP + 0x28c0],EBX                      
+      ref DATA -> 0x010aece4 unknown
+      ref WRITE -> 0x-00007fc unknown
+  0x00b71db4: MOV dword ptr [ESP + 0x28c4],0x10aece0                
+      ref DATA -> 0x010aece0 unknown
+      ref WRITE -> 0x-00007f8 unknown
+  0x00b71dbf: MOV dword ptr [ESP + 0x28c8],ESI                      
+      ref DATA -> 0x01011584 unknown
+      ref WRITE -> 0x-00007f4 unknown
+  0x00b71dc6: MOV dword ptr [ESP + 0x28cc],EDI                      
+      ref WRITE -> 0x-00007f0 unknown
+  0x00b71dcd: CALL 0x00ec61c0                                       
+      ref UNCONDITIONAL_CALL -> 0x00ec61c0 _memset
+  0x00b71dd2: ADD ESP,0x48                                          
+  0x00b71dd5: PUSH 0x3c                                             
+  0x00b71dd7: LEA EAX,[ESP + 0x28d8]                                
+      ref DATA -> 0x-00007a0 unknown
+  0x00b71dde: PUSH EDI                                              
+  0x00b71ddf: PUSH EAX                                              
+  0x00b71de0: MOV dword ptr [ESP + 0x28d0],EBX                      
+      ref DATA -> 0x010aece4 unknown
+      ref WRITE -> 0x-00007b0 unknown
+  0x00b71de7: MOV dword ptr [ESP + 0x28d4],0x10aed64                
+      ref DATA -> 0x010aed64 unknown
+      ref WRITE -> 0x-00007ac unknown
+  0x00b71df2: MOV dword ptr [ESP + 0x28d8],ESI                      
+      ref DATA -> 0x01011584 unknown
+      ref WRITE -> 0x-00007a8 unknown
+  0x00b71df9: MOV dword ptr [ESP + 0x28dc],EDI                      
+      ref WRITE -> 0x-00007a4 unknown
+  0x00b71e00: CALL 0x00ec61c0                                       
+      ref UNCONDITIONAL_CALL -> 0x00ec61c0 _memset
+  0x00b71e05: PUSH 0x34                                             
+  0x00b71e07: LEA ECX,[ESP + 0x2938]                                
+      ref DATA -> 0x-000074c unknown
+  0x00b71e0e: PUSH EDI                                              
+  0x00b71e0f: PUSH ECX                                              
+  0x00b71e10: MOV dword ptr [ESP + 0x2928],EBX                      
+      ref DATA -> 0x010aece4 unknown
+      ref WRITE -> 0x-0000764 unknown
+  0x00b71e17: MOV dword ptr [ESP + 0x292c],0x10aece0                
+      ref DATA -> 0x010aece0 unknown
+      ref WRITE -> 0x-0000760 unknown
+  0x00b71e22: MOV dword ptr [ESP + 0x2930],ESI                      
+      ref DATA -> 0x01011584 unknown
+      ref WRITE -> 0x-000075c unknown
+  0x00b71e29: MOV dword ptr [ESP + 0x2934],0x10aed64                
+      ref DATA -> 0x010aed64 unknown
+      ref WRITE -> 0x-0000758 unknown
+  0x00b71e34: MOV dword ptr [ESP + 0x2938],ESI                      
+      ref DATA -> 0x01011584 unknown
+      ref WRITE -> 0x-0000754 unknown
+  0x00b71e3b: MOV dword ptr [ESP + 0x293c],EDI                      
+      ref WRITE -> 0x-0000750 unknown
+  0x00b71e42: CALL 0x00ec61c0                                       
+      ref UNCONDITIONAL_CALL -> 0x00ec61c0 _memset
+  0x00b71e47: PUSH 0x3c                                             
+  0x00b71e49: LEA EDX,[ESP + 0x2988]                                
+      ref DATA -> 0x-0000708 unknown
+  0x00b71e50: PUSH EDI                                              
+  0x00b71e51: PUSH EDX                                              
+  0x00b71e52: MOV dword ptr [ESP + 0x2980],EBX                      
+      ref DATA -> 0x010aece4 unknown
+      ref WRITE -> 0x-0000718 unknown
+  0x00b71e59: MOV dword ptr [ESP + 0x2984],0x10aed54                
+      ref DATA -> 0x010aed54 unknown
+      ref WRITE -> 0x-0000714 unknown
+  0x00b71e64: MOV dword ptr [ESP + 0x2988],ESI                      
+      ref DATA -> 0x01011584 unknown
+      ref WRITE -> 0x-0000710 unknown
+  0x00b71e6b: MOV dword ptr [ESP + 0x298c],EDI                      
+      ref WRITE -> 0x-000070c unknown
+  0x00b71e72: CALL 0x00ec61c0                                       
+      ref UNCONDITIONAL_CALL -> 0x00ec61c0 _memset
+  0x00b71e77: PUSH 0x34                                             
+  0x00b71e79: MOV dword ptr [ESP + 0x29d0],EBX                      
+      ref DATA -> 0x010aece4 unknown
+      ref WRITE -> 0x-00006cc unknown
+  0x00b71e80: LEA EAX,[ESP + 0x29e8]                                
+      ref DATA -> 0x-00006b4 unknown
+  0x00b71e87: PUSH EDI                                              
+  0x00b71e88: MOV EBX,0x10aece0                                     
+      ref DATA -> 0x010aece0 unknown
+  0x00b71e8d: PUSH EAX                                              
+  0x00b71e8e: MOV dword ptr [ESP + 0x29dc],0x10aed54                
+      ref DATA -> 0x010aed54 unknown
+      ref WRITE -> 0x-00006c8 unknown
+  0x00b71e99: MOV dword ptr [ESP + 0x29e0],ESI                      
+      ref DATA -> 0x01011584 unknown
+      ref WRITE -> 0x-00006c4 unknown
+  0x00b71ea0: MOV dword ptr [ESP + 0x29e4],EBX                      
+      ref DATA -> 0x010aece0 unknown
+      ref WRITE -> 0x-00006c0 unknown
+  0x00b71ea7: MOV dword ptr [ESP + 0x29e8],ESI                      
+      ref DATA -> 0x01011584 unknown
+      ref WRITE -> 0x-00006bc unknown
+  0x00b71eae: MOV dword ptr [ESP + 0x29ec],EDI                      
+      ref WRITE -> 0x-00006b8 unknown
+  0x00b71eb5: CALL 0x00ec61c0                                       
+      ref UNCONDITIONAL_CALL -> 0x00ec61c0 _memset
+  0x00b71eba: PUSH 0x44                                             
+  0x00b71ebc: LEA ECX,[ESP + 0x2a30]                                
+      ref DATA -> 0x-0000678 unknown
+  0x00b71ec3: PUSH EDI                                              
+  0x00b71ec4: PUSH ECX                                              
+  0x00b71ec5: MOV dword ptr [ESP + 0x2a30],0x10aecb8                
+      ref DATA -> 0x010aecb8 unknown
+      ref WRITE -> 0x-0000680 unknown
+  0x00b71ed0: MOV dword ptr [ESP + 0x2a34],EDI                      
+      ref WRITE -> 0x-000067c unknown
+  0x00b71ed7: CALL 0x00ec61c0                                       
+      ref UNCONDITIONAL_CALL -> 0x00ec61c0 _memset
+  0x00b71edc: PUSH 0x34                                             
+  0x00b71ede: LEA EDX,[ESP + 0x2a98]                                
+      ref DATA -> 0x-000061c unknown
+  0x00b71ee5: PUSH EDI                                              
+  0x00b71ee6: PUSH EDX                                              
+  0x00b71ee7: MOV dword ptr [ESP + 0x2a88],EBP                      
+      ref DATA -> 0x010aeda8 unknown
+      ref WRITE -> 0x-0000634 unknown
+  0x00b71eee: MOV dword ptr [ESP + 0x2a8c],EBX                      
+      ref DATA -> 0x010aece0 unknown
+      ref WRITE -> 0x-0000630 unknown
+  0x00b71ef5: MOV dword ptr [ESP + 0x2a90],ESI                      
+      ref DATA -> 0x01011584 unknown
+      ref WRITE -> 0x-000062c unknown
+  0x00b71efc: MOV dword ptr [ESP + 0x2a94],0x10aecb0                
+      ref DATA -> 0x010aecb0 unknown
+      ref WRITE -> 0x-0000628 unknown
+  0x00b71f07: MOV dword ptr [ESP + 0x2a98],ESI                      
+      ref DATA -> 0x01011584 unknown
+      ref WRITE -> 0x-0000624 unknown
+  0x00b71f0e: MOV dword ptr [ESP + 0x2a9c],EDI                      
+      ref WRITE -> 0x-0000620 unknown
+  0x00b71f15: CALL 0x00ec61c0                                       
+      ref UNCONDITIONAL_CALL -> 0x00ec61c0 _memset
+  0x00b71f1a: ADD ESP,0x48                                          
+  0x00b71f1d: MOV dword ptr [ESP + 0x2a8c],EBP                      
+      ref DATA -> 0x010aeda8 unknown
+      ref WRITE -> 0x-00005e8 unknown
+  0x00b71f24: PUSH 0x34                                             
+  0x00b71f26: LEA EAX,[ESP + 0x2aa8]                                
+      ref DATA -> 0x-00005d0 unknown
+  0x00b71f2d: PUSH EDI                                              
+  0x00b71f2e: PUSH EAX                                              
+  0x00b71f2f: MOV dword ptr [ESP + 0x2a9c],EBX                      
+      ref DATA -> 0x010aece0 unknown
+      ref WRITE -> 0x-00005e4 unknown
+  0x00b71f36: MOV dword ptr [ESP + 0x2aa0],ESI                      
+      ref DATA -> 0x01011584 unknown
+      ref WRITE -> 0x-00005e0 unknown
+  0x00b71f3d: MOV dword ptr [ESP + 0x2aa4],0x10aecac                
+      ref DATA -> 0x010aecac unknown
+      ref WRITE -> 0x-00005dc unknown
+  0x00b71f48: MOV dword ptr [ESP + 0x2aa8],ESI                      
+      ref DATA -> 0x01011584 unknown
+      ref WRITE -> 0x-00005d8 unknown
+  0x00b71f4f: MOV dword ptr [ESP + 0x2aac],EDI                      
+      ref WRITE -> 0x-00005d4 unknown
+  0x00b71f56: CALL 0x00ec61c0                                       
+      ref UNCONDITIONAL_CALL -> 0x00ec61c0 _memset
+  0x00b71f5b: PUSH 0x44                                             
+  0x00b71f5d: LEA ECX,[ESP + 0x2af0]                                
+      ref DATA -> 0x-0000594 unknown
+  0x00b71f64: PUSH EDI                                              
+
+----------------------------------------------------------------------
+References TO 0x00b71bf0 (selector slot +0x148 target)
+----------------------------------------------------------------------
+  DATA @ 0x010af440 (in ???) 
+  Total printed: 1 refs
+
+======================================================================
+selector slot +0x148 target @ 0x00b71bf0
+======================================================================
+  Function: FUN_00b71bf0 @ 0x00b71bf0, Size: 9756 bytes
+
+/* WARNING: Function: __alloca_probe replaced with injection: alloca_probe */
+
+void FUN_00b71bf0(void)
+
+{
+  char **ppcVar1;
+  int *piVar2;
+  LONG LVar3;
+  int *piVar4;
+  char **ppcVar5;
+  int iVar6;
+  char **local_3064 [2];
+  char *local_305c;
+  undefined4 local_3058;
+  undefined1 local_3054 [68];
+  char *local_3010;
+  undefined *local_300c;
+  undefined *local_3008;
+  undefined4 local_3004;
+  undefined1 local_3000 [60];
+  char *local_2fc4;
+  char *local_2fc0;
+  undefined *local_2fbc;
+  char *local_2fb8;
+  undefined *local_2fb4;
+  char *local_2fb0;
+  undefined *local_2fac;
+  undefined4 local_2fa8;
+  undefined1 local_2fa4 [44];
+  char *local_2f78;
+  undefined *local_2f74;
+  undefined *local_2f70;
+  undefined4 local_2f6c;
+  undefined1 local_2f68 [60];
+  char *local_2f2c;
+  char *local_2f28;
+  undefined *local_2f24;
+  undefined4 local_2f20;
+  undefined1 local_2f1c [60];
+  char *local_2ee0;
+  char *local_2edc;
+  undefined *local_2ed8;
+  char *local_2ed4;
+  undefined *local_2ed0;
+  char *local_2ecc;
+  undefined *local_2ec8;
+  char *local_2ec4;
+  undefined *local_2ec0;
+  undefined4 local_2ebc;
+  undefined4 local_2eb8;
+  undefined4 local_2eb4;
+  undefined4 local_2eb0;
+  undefined4 local_2eac;
+  undefined4 local_2ea8;
+  undefined4 local_2ea4;
+  undefined4 local_2ea0;
+  undefined4 local_2e9c;
+  undefined4 local_2e98;
+  char *local_2e94;
+  undefined *local_2e90;
+  undefined *local_2e8c;
+  char *local_2e88;
+  undefined *local_2e84;
+  undefined4 local_2e80;
+  undefined1 local_2e7c [52];
+  char *local_2e48;
+  undefined *local_2e44;
+  undefined *local_2e40;
+  undefined4 local_2e3c;
+  undefined1 local_2e38 [60];
+  char *local_2dfc;
+  char *local_2df8;
+  undefined *local_2df4;
+  undefined4 local_2df0;
+  undefined1 local_2dec [60];
+  char *local_2db0;
+  char *local_2dac;
+  undefined *local_2da8;
+  undefined *local_2da4;
+  undefined *local_2da0;
+  undefined4 local_2d9c;
+  undefined1 local_2d98 [52];
+  char *local_2d64;
+  char *local_2d60;
+  undefined *local_2d5c;
+  char *local_2d58;
+  undefined *local_2d54;
+  undefined4 local_2d50;
+  undefined1 local_2d4c [52];
+  char *local_2d18;
+  char *local_2d14;
+  undefined *local_2d10;
+  undefined *local_2d0c;
+  undefined *local_2d08;
+  char *local_2d04;
+  undefined *local_2d00;
+  undefined4 local_2cfc;
+  undefined1 local_2cf8 [44];
+  char *local_2ccc;
+  char *local_2cc8;
+  undefined *local_2cc4;
+  undefined4 local_2cc0;
+  undefined1 local_2cbc [60];
+  char *local_2c80;
+  char *local_2c7c;
+  undefined *local_2c78;
+  undefined *local_2c74;
+  undefined *local_2c70;
+  undefined4 local_2c6c;
+  undefined1 local_2c68 [52];
+  char *local_2c34;
+  char *local_2c30;
+  undefined *local_2c2c;
+  char *local_2c28;
+  undefined *local_2c24;
+  undefined4 local_2c20;
+  undefined1 local_2c1c [52];
+  char *local_2be8;
+  char *local_2be4;
+  undefined *local_2be0;
+  undefined *local_2bdc;
+  undefined *local_2bd8;
+  char *local_2bd4;
+  undefined *local_2bd0;
+  undefined4 local_2bcc;
+  undefined1 local_2bc8 [44];
+  char *local_2b9c;
+  char *local_2b98;
+  undefined *local_2b94;
+  char *local_2b90;
+  undefined *local_2b8c;
+  undefined4 local_2b88;
+  undefined1 local_2b84 [52];
+  char *local_2b50;
+  char *local_2b4c;
+  undefined *local_2b48;
+  char *local_2b44;
+  undefined *local_2b40;
+  undefined *local_2b3c;
+  undefined *local_2b38;
+  undefined4 local_2b34;
+  undefined1 local_2b30 [44];
+  char *local_2b04;
+  char *local_2b00;
+  undefined *local_2afc;
+  char *local_2af8;
+  undefined *local_2af4;
+  char *local_2af0;
+  undefined *local_2aec;
+  undefined4 local_2ae8;
+  undefined1 local_2ae4 [44];
+  char *local_2ab8;
+  char *local_2ab4;
+  undefined *local_2ab0;
+  char *local_2aac;
+  undefined *local_2aa8;
+  undefined *local_2aa4;
+  undefined *local_2aa0;
+  char *local_2a9c;
+  undefined *local_2a98;
+  undefined4 local_2a94;
+  undefined4 local_2a90;
+  undefined4 local_2a8c;
+  undefined4 local_2a88;
+  undefined4 local_2a84;
+  undefined4 local_2a80;
+  undefined4 local_2a7c;
+  undefined4 local_2a78;
+  undefined4 local_2a74;
+  undefined4 local_2a70;
+  char *local_2a6c;
+  char *local_2a68;
+  undefined *local_2a64;
+  undefined4 local_2a60;
+  undefined1 local_2a5c [60];
+  char *local_2a20;
+  char *local_2a1c;
+  undefined *local_2a18;
+  undefined *local_2a14;
+  undefined *local_2a10;
+  undefined4 local_2a0c;
+  undefined1 local_2a08 [52];
+  char *local_29d4;
+  char *local_29d0;
+  undefined *local_29cc;
+  undefined4 local_29c8;
+  undefined1 local_29c4 [60];
+  char *local_2988;
+  undefined *local_2984;
+  undefined *local_2980;
+  char *local_297c;
+  undefined *local_2978;
+  undefined4 local_2974;
+  undefined1 local_2970 [52];
+  char *local_293c;
+  char *local_2938;
+  undefined *local_2934;
+  undefined *local_2930;
+  undefined *local_292c;
+  undefined4 local_2928;
+  undefined1 local_2924 [52];
+  char *local_28f0;
+  char *local_28ec;
+  undefined *local_28e8;
+  char *local_28e4;
+  undefined *local_28e0;
+  undefined4 local_28dc;
+  undefined1 local_28d8 [52];
+  char *local_28a4;
+  undefined *local_28a0;
+  undefined *local_289c;
+  char *local_2898;
+  undefined *local_2894;
+  char *local_2890;
+  undefined *local_288c;
+  undefined4 local_2888;
+  undefined1 local_2884 [44];
+  char *local_2858;
+  char *local_2854;
+  undefined *local_2850;
+  char *local_284c;
+  undefined *local_2848;
+  undefined *local_2844;
+  undefined *local_2840;
+  undefined4 local_283c;
+  undefined1 local_2838 [44];
+  char *local_280c;
+  char *local_2808;
+  undefined *local_2804;
+  undefined4 local_2800;
+  undefined1 local_27fc [60];
+  char *local_27c0;
+  char *local_27bc;
+  undefined *local_27b8;
+  undefined *local_27b4;
+  undefined *local_27b0;
+  undefined4 local_27ac;
+  undefined1 local_27a8 [52];
+  char *local_2774;
+  char *local_2770;
+  undefined *local_276c;
+  char *local_2768;
+  undefined *local_2764;
+  undefined4 local_2760;
+  undefined1 local_275c [52];
+  char *local_2728;
+  char *local_2724;
+  undefined *local_2720;
+  undefined *local_271c;
+  undefined *local_2718;
+  char *local_2714;
+  undefined *local_2710;
+  undefined4 local_270c;
+  undefined1 local_2708 [44];
+  char *local_26dc;
+  char *local_26d8;
+  undefined *local_26d4;
+  undefined4 local_26d0;
+  undefined1 local_26cc [60];
+  char *local_2690;
+  char *local_268c;
+  undefined *local_2688;
+  undefined *local_2684;
+  undefined *local_2680;
+  undefined4 local_267c;
+  undefined1 local_2678 [52];
+  char *local_2644;
+  char *local_2640;
+  undefined *local_263c;
+  char *local_2638;
+  undefined *local_2634;
+  undefined4 local_2630;
+  undefined1 local_262c [52];
+  char *local_25f8;
+  char *local_25f4;
+  undefined *local_25f0;
+  undefined *local_25ec;
+  undefined *local_25e8;
+  char *local_25e4;
+  undefined *local_25e0;
+  undefined4 local_25dc;
+  undefined1 local_25d8 [44];
+  char *local_25ac;
+  char *local_25a8;
+  undefined *local_25a4;
+  undefined4 local_25a0;
+  undefined1 local_259c [60];
+  char *local_2560;
+  char *local_255c;
+  undefined *local_2558;
+  undefined *local_2554;
+  undefined *local_2550;
+  undefined4 local_254c;
+  undefined1 local_2548 [52];
+  char *local_2514;
+  char *local_2510;
+  undefined *local_250c;
+  undefined4 local_2508;
+  undefined1 local_2504 [60];
+  char *local_24c8;
+  char *local_24c4;
+  undefined *local_24c0;
+  undefined *local_24bc;
+  undefined *local_24b8;
+  undefined4 local_24b4;
+  undefined1 local_24b0 [52];
+  char *local_247c;
+  undefined4 local_2478;
+  undefined1 local_2474 [68];
+  char *local_2430;
+  undefined *local_242c;
+  undefined *local_2428;
+  undefined4 local_2424;
+  undefined1 local_2420 [60];
+  char *local_23e4;
+  char *local_23e0;
+  undefined *local_23dc;
+  undefined4 local_23d8;
+  undefined1 local_23d4 [60];
+  char *local_2398;
+  undefined *local_2394;
+  undefined *local_2390;
+  char *local_238c;
+  undefined *local_2388;
+  undefined4 local_2384;
+  undefined1 local_2380 [52];
+  char *local_234c;
+  char *local_2348;
+  undefined *local_2344;
+  undefined4 local_2340;
+  undefined1 local_233c [60];
+  char *local_2300;
+  undefined *local_22fc;
+  undefined *local_22f8;
+  char *local_22f4;
+  undefined *local_22f0;
+  undefined4 local_22ec;
+  undefined1 local_22e8 [52];
+  char *local_22b4;
+  char *local_22b0;
+  undefined *local_22ac;
+  char *local_22a8;
+  undefined *local_22a4;
+  undefined4 local_22a0;
+  undefined1 local_229c [52];
+  char *local_2268;
+  char *local_2264;
+  undefined *local_2260;
+  undefined *local_225c;
+  undefined *local_2258;
+  char *local_2254;
+  undefined *local_2250;
+  undefined4 local_224c;
+  undefined1 local_2248 [44];
+  char *local_221c;
+  char *local_2218;
+  undefined *local_2214;
+  char *local_2210;
+  undefined *local_220c;
+  undefined4 local_2208;
+  undefined1 local_2204 [52];
+  char *local_21d0;
+  char *local_21cc;
+  undefined *local_21c8;
+  undefined *local_21c4;
+  undefined *local_21c0;
+  char *local_21bc;
+  undefined *local_21b8;
+  undefined4 local_21b4;
+  undefined1 local_21b0 [44];
+  char *local_2184;
+  char *local_2180;
+  undefined *local_217c;
+  undefined4 local_2178;
+  undefined1 local_2174 [60];
+  char *local_2138;
+  undefined *local_2134;
+  undefined *local_2130;
+  char *local_212c;
+  undefined *local_2128;
+  undefined4 local_2124;
+  undefined1 local_2120 [52];
+  char *local_20ec;
+  char *local_20e8;
+  undefined *local_20e4;
+  undefined *local_20e0;
+  undefined4 local_20dc;
+  undefined4 local_20d8;
+  undefined1 local_20d4 [52];
+  char *local_20a0;
+  char *local_209c;
+  undefined *local_2098;
+  undefined4 local_2094;
+  undefined1 local_2090 [60];
+  char *local_2054;
+  char *local_2050;
+  undefined *local_204c;
+  char *local_2048;
+  undefined *local_2044;
+  undefined4 local_2040;
+  undefined1 local_203c [52];
+  char *local_2008;
+  undefined *local_2004;
+  undefined *local_2000;
+  char *local_1ffc;
+  undefined *local_1ff8;
+  undefined4 local_1ff4;
+  undefined1 local_1ff0 [52];
+  char *local_1fbc;
+  char *local_1fb8;
+  undefined *local_1fb4;
+  undefined4 local_1fb0;
+  undefined1 local_1fac [60];
+  undefined4 local_1f70;
+  undefined1 local_1f6c [72];
+  char *local_1f24;
+  char *local_1f20;
+  undefined *local_1f1c;
+  undefined *local_1f18;
+  undefined *local_1f14;
+  char *local_1f10;
+  undefined *local_1f0c;
+  undefined4 local_1f08;
+  undefined1 local_1f04 [44];
+  char *local_1ed8;
+  char *local_1ed4;
+  undefined *local_1ed0;
+  char *local_1ecc;
+  undefined *local_1ec8;
+  undefined4 local_1ec4;
+  undefined1 local_1ec0 [52];
+  undefined4 local_1e8c;
+  undefined1 local_1e88 [72];
+  char *local_1e40;
+  char *local_1e3c;
+  undefined *local_1e38;
+  char *local_1e34;
+  undefined *local_1e30;
+  undefined4 local_1e2c;
+  undefined1 local_1e28 [52];
+  char *local_1df4;
+  char *local_1df0;
+  undefined *local_1dec;
+  char *local_1de8;
+  undefined *local_1de4;
+  char *local_1de0;
+  undefined *local_1ddc;
+  undefined4 local_1dd8;
+  undefined1 local_1dd4 [44];
+  char *local_1da8;
+  char *local_1da4;
+  undefined *local_1da0;
+  undefined4 local_1d9c;
+  undefined1 local_1d98 [60];
+  char *local_1d5c;
+  char *local_1d58;
+  undefined *local_1d54;
+  char *local_1d50;
+  undefined *local_1d4c;
+  undefined4 local_1d48;
+  undefined1 local_1d44 [52];
+  char *local_1d10;
+  char *local_1d0c;
+  undefined *local_1d08;
+  undefined *local_1d04;
+  undefined *local_1d00;
+  undefined4 local_1cfc;
+  undefined1 local_1cf8 [52];
+  char *local_1cc4;
+  char *local_1cc0;
+  undefined *local_1cbc;
+  undefined *local_1cb8;
+  undefined *local_1cb4;
+  char *local_1cb0;
+  undefined *local_1cac;
+  undefined4 local_1ca8;
+  undefined1 local_1ca4 [44];
+  char *local_1c78;
+  char *local_1c74;
+  undefined *local_1c70;
+  char *local_1c6c;
+  undefined *local_1c68;
+  undefined4 local_1c64;
+  undefined1 local_1c60 [52];
+  char *local_1c2c;
+  undefined4 local_1c28;
+  undefined1 local_1c24 [68];
+  char *local_1be0;
+  undefined *local_1bdc;
+  undefined *local_1bd8;
+  undefined4 local_1bd4;
+  undefined1 local_1bd0 [60];
+  char *local_1b94;
+  undefined *local_1b90;
+  undefined *local_1b8c;
+  undefined4 local_1b88;
+  undefined1 local_1b84 [60];
+  char *local_1b48;
+  char *local_1b44;
+  undefined *local_1b40;
+  undefined4 local_1b3c;
+  undefined1 local_1b38 [60];
+  char *local_1afc;
+  char *local_1af8;
+  undefined *local_1af4;
+  undefined *local_1af0;
+  undefined *local_1aec;
+  undefined4 local_1ae8;
+  undefined1 local_1ae4 [52];
+  char *local_1ab0;
+  undefined4 local_1aac;
+  undefined1 local_1aa8 [68];
+  char *local_1a64;
+  undefined *local_1a60;
+  undefined *local_1a5c;
+  undefined4 local_1a58;
+  undefined1 local_1a54 [60];
+  char *local_1a18;
+  char *local_1a14;
+  undefined *local_1a10;
+  undefined4 local_1a0c;
+  undefined1 local_1a08 [60];
+  char *local_19cc;
+  undefined4 local_19c8;
+  undefined1 local_19c4 [68];
+  char *local_1980;
+  undefined *local_197c;
+  undefined *local_1978;
+  undefined4 local_1974;
+  undefined1 local_1970 [60];
+  char *local_1934;
+  undefined4 local_1930;
+  undefined1 local_192c [68];
+  char *local_18e8;
+  char *local_18e4;
+  undefined *local_18e0;
+  undefined4 local_18dc;
+  undefined1 local_18d8 [60];
+  char *local_189c;
+  char *local_1898;
+  undefined *local_1894;
+  undefined *local_1890;
+  undefined *local_188c;
+  undefined4 local_1888;
+  undefined1 local_1884 [52];
+  char *local_1850;
+  char *local_184c;
+  undefined *local_1848;
+  undefined *local_1844;
+  undefined *local_1840;
+  undefined4 local_183c;
+  undefined1 local_1838 [52];
+  char *local_1804;
+  char *local_1800;
+  undefined *local_17fc;
+  undefined4 local_17f8;
+  undefined1 local_17f4 [60];
+  char *local_17b8;
+  char *local_17b4;
+  undefined *local_17b0;
+  char *local_17ac;
+  undefined *local_17a8;
+  undefined4 local_17a4;
+  undefined1 local_17a0 [52];
+  char *local_176c;
+  undefined4 local_1768;
+  undefined1 local_1764 [68];
+  char *local_1720;
+  undefined *local_171c;
+  undefined *local_1718;
+  undefined4 local_1714;
+  undefined1 local_1710 [60];
+  char *local_16d4;
+  char *local_16d0;
+  undefined *local_16cc;
+  undefined4 local_16c8;
+  undefined1 local_16c4 [60];
+  char *local_1688;
+  undefined4 local_1684;
+  undefined1 local_1680 [68];
+  char *local_163c;
+  undefined *local_1638;
+  undefined *local_1634;
+  undefined4 local_1630;
+  undefined1 local_162c [60];
+  char *local_15f0;
+  char *local_15ec;
+  undefined *local_15e8;
+  undefined4 local_15e4;
+  undefined1 local_15e0 [60];
+  char *local_15a4;
+  char *local_15a0;
+  undefined *local_159c;
+  undefined *local_1598;
+  undefined *local_1594;
+  undefined4 local_1590;
+  undefined1 local_158c [52];
+  char *local_1558;
+  char *local_1554;
+  undefined *local_1550;
+  undefined *local_154c;
+  undefined *local_1548;
+  undefined *local_1544;
+  undefined *local_1540;
+  undefined4 local_153c;
+  undefined1 local_1538 [44];
+  char *local_150c;
+  undefined4 local_1508;
+  undefined1 local_1504 [68];
+  char *local_14c0;
+  undefined *local_14bc;
+  undefined *local_14b8;
+  undefined4 local_14b4;
+  undefined1 local_14b0 [60];
+  char *local_1474;
+  char *local_1470;
+  undefined *local_146c;
+  undefined4 local_1468;
+  undefined1 local_1464 [60];
+  char *local_1428;
+  undefined *local_1424;
+  undefined *local_1420;
+  char *local_141c;
+  undefined *local_1418;
+  undefined4 local_1414;
+  undefined1 local_1410 [52];
+  char *local_13dc;
+  undefined *local_13d8;
+  undefined *local_13d4;
+  undefined4 local_13d0;
+  undefined1 local_13cc [60];
+  char *local_1390;
+  undefined *local_138c;
+  undefined *local_1388;
+  undefined *local_1384;
+  undefined *local_1380;
+  undefined4 local_137c;
+  undefined1 local_1378 [52];
+  char *local_1344;
+  undefined *local_1340;
+  undefined *local_133c;
+  char *local_1338;
+  undefined *local_1334;
+  undefined4 local_1330;
+  undefined1 local_132c [52];
+  char *local_12f8;
+  undefined *local_12f4;
+  undefined *local_12f0;
+  undefined *local_12ec;
+  undefined *local_12e8;
+  char *local_12e4;
+  undefined *local_12e0;
+  undefined4 local_12dc;
+  undefined1 local_12d8 [44];
+  char *local_12ac;
+  undefined *local_12a8;
+  undefined *local_12a4;
+  undefined4 local_12a0;
+  undefined1 local_129c [60];
+  char *local_1260;
+  undefined *local_125c;
+  undefined *local_1258;
+  char *local_1254;
+  undefined *local_1250;
+  undefined4 local_124c;
+  undefined1 local_1248 [52];
+  char *local_1214;
+  char *local_1210;
+  undefined *local_120c;
+  undefined4 local_1208;
+  undefined1 local_1204 [60];
+  char *local_11c8;
+  undefined *local_11c4;
+  undefined *local_11c0;
+  undefined4 local_11bc;
+  undefined1 local_11b8 [60];
+  char *local_117c;
+  undefined *local_1178;
+  undefined *local_1174;
+  undefined *local_1170;
+  undefined *local_116c;
+  char *local_1168;
+  undefined *local_1164;
+  undefined4 local_1160;
+  undefined1 local_115c [44];
+  char *local_1130;
+  undefined *local_112c;
+  undefined *local_1128;
+  undefined *local_1124;
+  undefined *local_1120;
+  undefined *local_111c;
+  undefined *local_1118;
+  undefined4 local_1114;
+  undefined1 local_1110 [44];
+  char *local_10e4;
+  undefined *local_10e0;
+  undefined *local_10dc;
+  undefined4 local_10d8;
+  undefined1 local_10d4 [60];
+  char *local_1098;
+  undefined *local_1094;
+  undefined *local_1090;
+  undefined4 local_108c;
+  undefined1 local_1088 [60];
+  char *local_104c;
+  undefined *local_1048;
+  undefined *local_1044;
+  undefined4 local_1040;
+  undefined1 local_103c [60];
+  char *local_1000;
+  undefined *local_ffc;
+  undefined *local_ff8;
+  undefined *local_ff4;
+  undefined *local_ff0;
+  undefined4 local_fec;
+  undefined1 local_fe8 [52];
+  char *local_fb4;
+  undefined *local_fb0;
+  undefined *local_fac;
+  char *local_fa8;
+  undefined *local_fa4;
+  undefined4 local_fa0;
+  undefined1 local_f9c [52];
+  char *local_f68;
+  undefined *local_f64;
+  undefined *local_f60;
+  undefined4 local_f5c;
+  undefined1 local_f58 [60];
+  char *local_f1c;
+  undefined *local_f18;
+  undefined *local_f14;
+  undefined4 local_f10;
+  undefined1 local_f0c [60];
+  char *local_ed0;
+  undefined *local_ecc;
+  undefined *local_ec8;
+  undefined4 local_ec4;
+  undefined1 local_ec0 [60];
+  char *local_e84;
+  undefined *local_e80;
+  undefined *local_e7c;
+  undefined *local_e78;
+  undefined *local_e74;
+  undefined4 local_e70;
+  undefined1 local_e6c [52];
+  char *local_e38;
+  undefined *local_e34;
+  undefined *local_e30;
+  undefined *local_e2c;
+  undefined *local_e28;
+  undefined4 local_e24;
+  undefined1 local_e20 [52];
+  char *local_dec;
+  undefined *local_de8;
+  undefined *local_de4;
+  undefined *local_de0;
+  undefined *local_ddc;
+  undefined *local_dd8;
+  undefined *local_dd4;
+  undefined4 local_dd0;
+  undefined1 local_dcc [44];
+  char *local_da0;
+  undefined *local_d9c;
+  undefined *local_d98;
+  char *local_d94;
+  undefined *local_d90;
+  undefined4 local_d8c;
+  undefined1 local_d88 [52];
+  char *local_d54;
+  undefined *local_d50;
+  undefined *local_d4c;
+  char *local_d48;
+  undefined *local_d44;
+  undefined *local_d40;
+  undefined *local_d3c;
+  undefined4 local_d38;
+  undefined1 local_d34 [44];
+  char *local_d08;
+  undefined *local_d04;
+  undefined *local_d00;
+  undefined4 local_cfc;
+  undefined1 local_cf8 [60];
+  char *local_cbc;
+  undefined *local_cb8;
+  undefined *local_cb4;
+  undefined4 local_cb0;
+  undefined1 local_cac [60];
+  undefined4 local_c70;
+  undefined4 local_c6c;
+  undefined1 local_c68 [68];
+  undefined4 local_c24;
+  undefined4 local_c20;
+  undefined1 local_c1c [68];
+  char *local_bd8;
+  undefined *local_bd4;
+  undefined *local_bd0;
+  undefined *local_bcc;
+  undefined *local_bc8;
+  undefined4 local_bc4;
+  undefined1 local_bc0 [52];
+  undefined4 local_b8c;
+  undefined4 local_b88;
+  undefined1 local_b84 [68];
+  char *local_b40;
+  undefined4 local_b3c;
+  undefined1 local_b38 [68];
+  undefined4 local_af4;
+  undefined4 local_af0;
+  undefined1 local_aec [68];
+  undefined4 local_aa8;
+  undefined4 local_aa4;
+  undefined1 local_aa0 [68];
+  char *local_a5c;
+  undefined4 local_a58;
+  undefined1 local_a54 [68];
+  char *local_a10;
+  undefined4 local_a0c;
+  undefined1 local_a08 [68];
+  char *local_9c4;
+  undefined4 local_9c0;
+  undefined1 local_9bc [68];
+  char *local_978;
+  undefined *local_974;
+  undefined *local_970;
+  undefined4 local_96c;
+  undefined1 local_968 [60];
+  char *local_92c;
+  char *local_928;
+  undefined *local_924;
+  undefined4 local_920;
+  undefined1 local_91c [60];
+  char *local_8e0;
+  undefined4 local_8dc;
+  undefined1 local_8d8 [68];
+  char *local_894;
+  undefined4 local_890;
+  undefined1 local_88c [68];
+  char *local_848;
+  undefined4 local_844;
+  undefined1 local_840 [68];
+  char *local_7fc;
+  undefined *local_7f8;
+  undefined *local_7f4;
+  undefined4 local_7f0;
+  undefined1 local_7ec [60];
+  char *local_7b0;
+  undefined *local_7ac;
+  undefined *local_7a8;
+  undefined4 local_7a4;
+  undefined1 local_7a0 [60];
+  char *local_764;
+  undefined *local_760;
+  undefined *local_75c;
+  undefined *local_758;
+  undefined *local_754;
+  undefined4 local_750;
+  undefined1 local_74c [52];
+  char *local_718;
+  char *local_714;
+  undefined *local_710;
+  undefined4 local_70c;
+  undefined1 local_708 [60];
+  char *local_6cc;
+  char *local_6c8;
+  undefined *local_6c4;
+  undefined *local_6c0;
+  undefined *local_6bc;
+  undefined4 local_6b8;
+  undefined1 local_6b4 [52];
+  char *local_680;
+  undefined4 local_67c;
+  undefined1 local_678 [68];
+  char *local_634;
+  undefined *local_630;
+  undefined *local_62c;
+  char *local_628;
+  undefined *local_624;
+  undefined4 local_620;
+  undefined1 local_61c [52];
+  char *local_5e8;
+  undefined *local_5e4;
+  undefined *local_5e0;
+  undefined *local_5dc;
+  undefined *local_5d8;
+  undefined4 local_5d4;
+  undefined1 local_5d0 [52];
+  char *local_59c;
+  undefined4 local_598;
+  undefined1 local_594 [68];
+  char *local_550;
+  undefined4 local_54c;
+  undefined1 local_548 [68];
+  char *local_504;
+  undefined *local_500;
+  undefined *local_4fc;
+  undefined4 local_4f8;
+  undefined1 local_4f4 [60];
+  char *local_4b8;
+  undefined4 local_4b4;
+  undefined1 local_4b0 [68];
+  char *local_46c;
+  undefined *local_468;
+  undefined *local_464;
+  undefined4 local_460;
+  undefined1 local_45c [60];
+  char *local_420;
+  undefined *local_41c;
+  undefined *local_418;
+  undefined4 local_414;
+  undefined1 local_410 [60];
+  char *local_3d4;
+  undefined4 local_3d0;
+  undefined1 local_3cc [68];
+  char *local_388;
+  char *local_384;
+  undefined *local_380;
+  undefined4 local_37c;
+  undefined1 local_378 [60];
+  char *local_33c;
+  char *local_338;
+  undefined *local_334;
+  undefined *local_330;
+  undefined *local_32c;
+  undefined4 local_328;
+  undefined1 local_324 [52];
+  char *local_2f0;
+  char *local_2ec;
+  undefined *local_2e8;
+  undefined4 local_2e4;
+  undefined1 local_2e0 [60];
+  char *local_2a4;
+  char *local_2a0;
+  undefined *local_29c;
+  char *local_298;
+  undefined *local_294;
+  undefined4 local_290;
+  undefined1 local_28c [52];
+  undefined4 local_258;
+  undefined4 local_254;
+  undefined1 local_250 [68];
+  undefined1 local_20c [260];
+  undefined1 local_108 [260];
+  uint local_4;
+  
+  local_4 = DAT_011c16bc ^ (uint)local_3064;
+  local_b40 = "lighting\\1x\\v\\base.v.hlsl";
+  local_b3c = 0;
+  _memset(local_b38,0,0x44);
+  local_af4 = 0;
+  local_af0 = 0;
+  _memset(local_aec,0,0x44);
+  local_aa8 = 0;
+  local_aa4 = 0;
+  _memset(local_aa0,0,0x44);
+  local_a5c = "lighting\\1x\\v\\diffusePt.v.hlsl";
+  local_a58 = 0;
+  _memset(local_a54,0,0x44);
+  local_a10 = "lighting\\1x\\v\\diffuseDir.v.hlsl";
+  local_a0c = 0;
+  _memset(local_a08,0,0x44);
+  local_9c4 = "lighting\\1x\\v\\base.v.hlsl";
+  local_9c0 = 0;
+  _memset(local_9bc,0,0x44);
+  local_978 = "lighting\\1x\\v\\base.v.hlsl";
+  local_974 = &DAT_010aed64;
+  local_970 = &lpWindowName_01011584;
+  local_96c = 0;
+  _memset(local_968,0,0x3c);
+  local_92c = "lighting\\1x\\v\\base.v.hlsl";
+  local_928 = "FACEGENBLEND";
+  local_924 = &lpWindowName_01011584;
+  local_920 = 0;
+  _memset(local_91c,0,0x3c);
+  local_8e0 = "lighting\\1x\\v\\specularPt.v.hlsl";
+  local_8dc = 0;
+  _memset(local_8d8,0,0x44);
+  local_894 = "lighting\\1x\\v\\specularDir.v.hlsl";
+  local_890 = 0;
+  _memset(local_88c,0,0x44);
+  local_848 = "lighting\\1x\\v\\ambDiffuseDirTexture.v.hlsl";
+  local_844 = 0;
+  _memset(local_840,0,0x44);
+  local_7fc = "lighting\\1x\\v\\ambDiffuseDirTexture.v.hlsl";
+  local_7f8 = &DAT_010aece0;
+  local_7f4 = &lpWindowName_01011584;
+  local_7f0 = 0;
+  _memset(local_7ec,0,0x3c);
+  local_7b0 = "lighting\\1x\\v\\ambDiffuseDirTexture.v.hlsl";
+  local_7ac = &DAT_010aed64;
+  local_7a8 = &lpWindowName_01011584;
+  local_7a4 = 0;
+  _memset(local_7a0,0,0x3c);
+  local_764 = "lighting\\1x\\v\\ambDiffuseDirTexture.v.hlsl";
+  local_760 = &DAT_010aece0;
+  local_75c = &lpWindowName_01011584;
+  local_758 = &DAT_010aed64;
+  local_754 = &lpWindowName_01011584;
+  local_750 = 0;
+  _memset(local_74c,0,0x34);
+  local_718 = "lighting\\1x\\v\\ambDiffuseDirTexture.v.hlsl";
+  local_714 = "FACEGENBLEND";
+  local_710 = &lpWindowName_01011584;
+  local_70c = 0;
+  _memset(local_708,0,0x3c);
+  local_6cc = "lighting\\1x\\v\\ambDiffuseDirTexture.v.hlsl";
+  local_6c8 = "FACEGENBLEND";
+  local_6c4 = &lpWindowName_01011584;
+  local_6c0 = &DAT_010aece0;
+  local_6bc = &lpWindowName_01011584;
+  local_6b8 = 0;
+  _memset(local_6b4,0,0x34);
+  local_680 = "lighting\\1x\\v\\ambDiffuseDirAndPt.v.hlsl";
+  local_67c = 0;
+  _memset(local_678,0,0x44);
+  local_634 = "lighting\\1x\\v\\base.v.hlsl";
+  local_630 = &DAT_010aece0;
+  local_62c = &lpWindowName_01011584;
+  local_628 = "NO_TEX";
+  local_624 = &lpWindowName_01011584;
+  local_620 = 0;
+  _memset(local_61c,0,0x34);
+  local_5e8 = "lighting\\1x\\v\\base.v.hlsl";
+  local_5e4 = &DAT_010aece0;
+  local_5e0 = &lpWindowName_01011584;
+  local_5dc = &DAT_010aecac;
+  local_5d8 = &lpWindowName_01011584;
+  local_5d4 = 0;
+  _memset(local_5d0,0,0x34);
+  local_59c = "lighting\\1x\\v\\envmap.v.hlsl";
+  local_598 = 0;
+  _memset(local_594,0,0x44);
+  local_550 = "lighting\\1x\\v\\vertDir.v.hlsl";
+  local_54c = 0;
+  _memset(local_548,0,0x44);
+  local_504 = "lighting\\1x\\v\\vertDir.v.hlsl";
+  local_500 = &DAT_010aed64;
+  local_4fc = &lpWindowName_01011584;
+  local_4f8 = 0;
+  _memset(local_4f4,0,0x3c);
+  local_4b8 = "lighting\\1x\\v\\vertDirAndPt.v.hlsl";
+  local_4b4 = 0;
+  _memset(local_4b0,0,0x44);
+  local_46c = "lighting\\1x\\v\\vertDirAndPt.v.hlsl";
+  local_468 = &DAT_010aed64;
+  local_464 = &lpWindowName_01011584;
+  local_460 = 0;
+  _memset(local_45c,0,0x3c);
+  local_420 = "lighting\\1x\\v\\base.v.hlsl";
+  local_41c = &DAT_010aec48;
+  local_418 = &lpWindowName_01011584;
+  local_414 = 0;
+  _memset(local_410,0,0x3c);
+  local_3d4 = "lighting\\1x\\v\\land.v.hlsl";
+  local_3d0 = 0;
+  _memset(local_3cc,0,0x44);
+  local_388 = "lighting\\1x\\v\\land.v.hlsl";
+  local_384 = "LANDALPHA";
+  local_380 = &lpWindowName_01011584;
+  local_37c = 0;
+  _memset(local_378,0,0x3c);
+  local_33c = "lighting\\1x\\v\\land.v.hlsl";
+  local_338 = "LANDALPHA";
+  local_334 = &lpWindowName_01011584;
+  local_330 = &DAT_010aec48;
+  local_32c = &lpWindowName_01011584;
+  local_328 = 0;
+  _memset(local_324,0,0x34);
+  local_2f0 = "lighting\\1x\\v\\land.v.hlsl";
+  local_2ec = "PTLIGHT";
+  local_2e8 = &lpWindowName_01011584;
+  local_2e4 = 0;
+  _memset(local_2e0,0,0x3c);
+  local_2a4 = "lighting\\1x\\v\\land.v.hlsl";
+  local_2a0 = "LANDALPHA";
+  local_29c = &lpWindowName_01011584;
+  local_298 = "PTLIGHT";
+  local_294 = &lpWindowName_01011584;
+  local_290 = 0;
+  _memset(local_28c,0,0x34);
+  local_258 = 0;
+  local_254 = 0;
+  _memset(local_250,0,0x44);
+  local_11c8 = "lighting\\1x\\v\\base.v.hlsl";
+  local_11c4 = &DAT_010aec10;
+  local_11c0 = &lpWindowName_01011584;
+  local_11bc = 0;
+  _memset(local_11b8,0,0x3c);
+  local_117c = "lighting\\1x\\v\\base.v.hlsl";
+  local_1178 = &DAT_010aec10;
+  local_1174 = &lpWindowName_01011584;
+  local_1170 = &DAT_010aece0;
+  local_116c = &lpWindowName_01011584;
+  local_1168 = "NO_TEX";
+  local_1164 = &lpWindowName_01011584;
+  local_1160 = 0;
+  _memset(local_115c,0,0x2c);
+  local_1130 = "lighting\\1x\\v\\base.v.hlsl";
+  local_112c = &DAT_010aec10;
+  local_1128 = &lpWindowName_01011584;
+  local_1124 = &DAT_010aece0;
+  local_1120 = &lpWindowName_01011584;
+  local_111c = &DAT_010aecac;
+  local_1118 = &lpWindowName_01011584;
+  local_1114 = 0;
+  _memset(local_1110,0,0x2c);
+  local_10e4 = "lighting\\1x\\v\\diffusePt.v.hlsl";
+  local_10e0 = &DAT_010aec10;
+  local_10dc = &lpWindowName_01011584;
+  local_10d8 = 0;
+  _memset(local_10d4,0,0x3c);
+  local_1098 = "lighting\\1x\\v\\diffuseDir.v.hlsl";
+  local_1094 = &DAT_010aec10;
+  local_1090 = &lpWindowName_01011584;
+  local_108c = 0;
+  _memset(local_1088,0,0x3c);
+  local_104c = "lighting\\1x\\v\\base.v.hlsl";
+  local_1048 = &DAT_010aec10;
+  local_1044 = &lpWindowName_01011584;
+  local_1040 = 0;
+  _memset(local_103c,0,0x3c);
+  local_1000 = "lighting\\1x\\v\\base.v.hlsl";
+  local_ffc = &DAT_010aec10;
+  local_ff8 = &lpWindowName_01011584;
+  local_ff4 = &DAT_010aed64;
+  local_ff0 = &lpWindowName_01011584;
+  local_fec = 0;
+  _memset(local_fe8,0,0x34);
+  local_fb4 = "lighting\\1x\\v\\base.v.hlsl";
+  local_fb0 = &DAT_010aec10;
+  local_fac = &lpWindowName_01011584;
+  local_fa8 = "FACEGENBLEND";
+  local_fa4 = &lpWindowName_01011584;
+  local_fa0 = 0;
+  _memset(local_f9c,0,0x34);
+  local_f68 = "lighting\\1x\\v\\specularPt.v.hlsl";
+  local_f64 = &DAT_010aec10;
+  local_f60 = &lpWindowName_01011584;
+  local_f5c = 0;
+  _memset(local_f58,0,0x3c);
+  local_f1c = "lighting\\1x\\v\\specularDir.v.hlsl";
+  local_f18 = &DAT_010aec10;
+  local_f14 = &lpWindowName_01011584;
+  local_f10 = 0;
+  _memset(local_f0c,0,0x3c);
+  local_ed0 = "lighting\\1x\\v\\ambDiffuseDirTexture.v.hlsl";
+  local_ecc = &DAT_010aec10;
+  local_ec8 = &lpWindowName_01011584;
+  local_ec4 = 0;
+  _memset(local_ec0,0,0x3c);
+  local_e84 = "lighting\\1x\\v\\ambDiffuseDirTexture.v.hlsl";
+  local_e80 = &DAT_010aec10;
+  local_e7c = &lpWindowName_01011584;
+  local_e78 = &DAT_010aed64;
+  local_e74 = &lpWindowName_01011584;
+  local_e70 = 0;
+  _memset(local_e6c,0,0x34);
+  local_e38 = "lighting\\1x\\v\\ambDiffuseDirTexture.v.hlsl";
+  local_e34 = &DAT_010aec10;
+  local_e30 = &lpWindowName_01011584;
+  local_e2c = &DAT_010aece0;
+  local_e28 = &lpWindowName_01011584;
+  local_e24 = 0;
+  _memset(local_e20,0,0x34);
+  local_dec = "lighting\\1x\\v\\ambDiffuseDirTexture.v.hlsl";
+  local_de8 = &DAT_010aec10;
+  local_de4 = &lpWindowName_01011584;
+  local_de0 = &DAT_010aece0;
+  local_ddc = &lpWindowName_01011584;
+  local_dd8 = &DAT_010aed64;
+  local_dd4 = &lpWindowName_01011584;
+  local_dd0 = 0;
+  _memset(local_dcc,0,0x2c);
+  local_da0 = "lighting\\1x\\v\\ambDiffuseDirTexture.v.hlsl";
+  local_d9c = &DAT_010aec10;
+  local_d98 = &lpWindowName_01011584;
+  local_d94 = "FACEGENBLEND";
+  local_d90 = &lpWindowName_01011584;
+  local_d8c = 0;
+  _memset(local_d88,0,0x34);
+  local_d54 = "lighting\\1x\\v\\ambDiffuseDirTexture.v.hlsl";
+  local_d50 = &DAT_010aec10;
+  local_d4c = &lpWindowName_01011584;
+  local_d48 = "FACEGENBLEND";
+  local_d44 = &lpWindowName_01011584;
+  local_d40 = &DAT_010aece0;
+  local_d3c = &lpWindowName_01011584;
+  local_d38 = 0;
+  _memset(local_d34,0,0x2c);
+  local_d08 = "lighting\\1x\\v\\ambDiffuseDirAndPt.v.hlsl";
+  local_d04 = &DAT_010aec10;
+  local_d00 = &lpWindowName_01011584;
+  local_cfc = 0;
+  _memset(local_cf8,0,0x3c);
+  local_cbc = "lighting\\1x\\v\\envmap.v.hlsl";
+  local_cb8 = &DAT_010aec10;
+  local_cb4 = &lpWindowName_01011584;
+  local_cb0 = 0;
+  _memset(local_cac,0,0x3c);
+  local_c70 = 0;
+  local_c6c = 0;
+  _memset(local_c68,0,0x44);
+  local_c24 = 0;
+  local_c20 = 0;
+  _memset(local_c1c,0,0x44);
+  local_bd8 = "lighting\\1x\\v\\base.v.hlsl";
+  local_bd4 = &DAT_010aec10;
+  local_bd0 = &lpWindowName_01011584;
+  local_bcc = &DAT_010aec48;
+  local_bc8 = &lpWindowName_01011584;
+  local_bc4 = 0;
+  _memset(local_bc0,0,0x34);
+  local_b8c = 0;
+  local_b88 = 0;
+  _memset(local_b84,0,0x44);
+  local_305c = "lighting\\2x\\v\\ADTS.v.hlsl";
+  local_3058 = 0;
+  _memset(local_3054,0,0x44);
+  local_3010 = "lighting\\2x\\v\\ADTS.v.hlsl";
+  local_300c = &DAT_01039578;
+  local_3008 = &lpWindowName_01011584;
+  local_3004 = 0;
+  _memset(local_3000,0,0x3c);
+  local_2fc4 = "lighting\\2x\\v\\landlod.v.hlsl";
+  local_2fc0 = "MODELSPACENORM";
+  local_2fbc = &lpWindowName_01011584;
+  local_2fb8 = "LODLANDCLIP";
+  local_2fb4 = &lpWindowName_01011584;
+  local_2fb0 = "GEOMORPH";
+  local_2fac = &lpWindowName_01011584;
+  local_2fa8 = 0;
+  _memset(local_2fa4,0,0x2c);
+  local_2f78 = "lighting\\2x\\v\\ADTS.v.hlsl";
+  local_2f74 = &DAT_010aec10;
+  local_2f70 = &lpWindowName_01011584;
+  local_2f6c = 0;
+  _memset(local_2f68,0,0x3c);
+  local_2f2c = "lighting\\2x\\v\\ADTS.v.hlsl";
+  local_2f28 = "PROJ_SHADOW";
+  local_2f24 = &lpWindowName_01011584;
+  local_2f20 = 0;
+  _memset(local_2f1c,0,0x3c);
+  local_2ee0 = "lighting\\2x\\v\\landlod.v.hlsl";
+  local_2edc = "MODELSPACENORM";
+  local_2ed8 = &lpWindowName_01011584;
+  local_2ed4 = "PROJ_SHADOW";
+  local_2ed0 = &lpWindowName_01011584;
+  local_2ecc = "LODLANDCLIP";
+  local_2ec8 = &lpWindowName_01011584;
+  local_2ec4 = "GEOMORPH";
+  local_2ec0 = &lpWindowName_01011584;
+  local_2ebc = 0;
+  local_2eb8 = 0;
+  local_2eb4 = 0;
+  local_2eb0 = 0;
+  local_2eac = 0;
+  local_2ea8 = 0;
+  local_2ea4 = 0;
+  local_2ea0 = 0;
+  local_2e9c = 0;
+  local_2e98 = 0;
+  local_2e94 = "lighting\\2x\\v\\ADTS.v.hlsl";
+  local_2e90 = &DAT_010aec10;
+  local_2e8c = &lpWindowName_01011584;
+  local_2e88 = "PROJ_SHADOW";
+  local_2e84 = &lpWindowName_01011584;
+  local_2e80 = 0;
+  _memset(local_2e7c,0,0x34);
+  local_2e48 = "lighting\\2x\\v\\ADTS.v.hlsl";
+  local_2e44 = &DAT_0102bf34;
+  local_2e40 = &lpWindowName_01011584;
+  local_2e3c = 0;
+  _memset(local_2e38,0,0x3c);
+  local_2dfc = "lighting\\2x\\v\\ADTS.v.hlsl";
+  local_2df8 = "LIGHTS";
+  local_2df4 = &DAT_01063f3c;
+  local_2df0 = 0;
+  _memset(local_2dec,0,0x3c);
+  local_2db0 = "lighting\\2x\\v\\ADTS.v.hlsl";
+  local_2dac = "LIGHTS";
+  local_2da8 = &DAT_01063f3c;
+  local_2da4 = &DAT_010aec10;
+  local_2da0 = &lpWindowName_01011584;
+  local_2d9c = 0;
+  _memset(local_2d98,0,0x34);
+  local_2d64 = "lighting\\2x\\v\\ADTS.v.hlsl";
+  local_2d60 = "LIGHTS";
+  local_2d5c = &DAT_01063f3c;
+  local_2d58 = "PROJ_SHADOW";
+  local_2d54 = &lpWindowName_01011584;
+  local_2d50 = 0;
+  _memset(local_2d4c,0,0x34);
+  local_2d18 = "lighting\\2x\\v\\ADTS.v.hlsl";
+  local_2d14 = "LIGHTS";
+  local_2d10 = &DAT_01063f3c;
+  local_2d0c = &DAT_010aec10;
+  local_2d08 = &lpWindowName_01011584;
+  local_2d04 = "PROJ_SHADOW";
+  local_2d00 = &lpWindowName_01011584;
+  local_2cfc = 0;
+  _memset(local_2cf8,0,0x2c);
+  local_2ccc = "lighting\\2x\\v\\ADTS.v.hlsl";
+  local_2cc8 = "SPECULAR";
+  local_2cc4 = &lpWindowName_01011584;
+  local_2cc0 = 0;
+  _memset(local_2cbc,0,0x3c);
+  local_2c80 = "lighting\\2x\\v\\ADTS.v.hlsl";
+  local_2c7c = "SPECULAR";
+  local_2c78 = &lpWindowName_01011584;
+  local_2c74 = &DAT_010aec10;
+  local_2c70 = &lpWindowName_01011584;
+  local_2c6c = 0;
+  _memset(local_2c68,0,0x34);
+  local_2c34 = "lighting\\2x\\v\\ADTS.v.hlsl";
+  local_2c30 = "SPECULAR";
+  local_2c2c = &lpWindowName_01011584;
+  local_2c28 = "PROJ_SHADOW";
+  local_2c24 = &lpWindowName_01011584;
+  local_2c20 = 0;
+  _memset(local_2c1c,0,0x34);
+  local_2be8 = "lighting\\2x\\v\\ADTS.v.hlsl";
+  local_2be4 = "SPECULAR";
+  local_2be0 = &lpWindowName_01011584;
+  local_2bdc = &DAT_010aec10;
+  local_2bd8 = &lpWindowName_01011584;
+  local_2bd4 = "PROJ_SHADOW";
+  local_2bd0 = &lpWindowName_01011584;
+  local_2bcc = 0;
+  _memset(local_2bc8,0,0x2c);
+  local_2b9c = "lighting\\2x\\v\\ADTS.v.hlsl";
+  local_2b98 = "SPECULAR";
+  local_2b94 = &lpWindowName_01011584;
+  local_2b90 = "LIGHTS";
+  local_2b8c = &DAT_01063f3c;
+  local_2b88 = 0;
+  _memset(local_2b84,0,0x34);
+  local_2b50 = "lighting\\2x\\v\\ADTS.v.hlsl";
+  local_2b4c = "SPECULAR";
+  local_2b48 = &lpWindowName_01011584;
+  local_2b44 = "LIGHTS";
+  local_2b40 = &DAT_01063f3c;
+  local_2b3c = &DAT_010aec10;
+  local_2b38 = &lpWindowName_01011584;
+  local_2b34 = 0;
+  _memset(local_2b30,0,0x2c);
+  local_2b04 = "lighting\\2x\\v\\ADTS.v.hlsl";
+  local_2b00 = "SPECULAR";
+  local_2afc = &lpWindowName_01011584;
+  local_2af8 = "LIGHTS";
+  local_2af4 = &DAT_01063f3c;
+  local_2af0 = "PROJ_SHADOW";
+  local_2aec = &lpWindowName_01011584;
+  local_2ae8 = 0;
+  _memset(local_2ae4,0,0x2c);
+  local_2ab8 = "lighting\\2x\\v\\ADTS.v.hlsl";
+  local_2ab4 = "SPECULAR";
+  local_2ab0 = &lpWindowName_01011584;
+  local_2aac = "LIGHTS";
+  local_2aa8 = &DAT_01063f3c;
+  local_2aa4 = &DAT_010aec10;
+  local_2
+
+--- Calls FROM selector slot +0x148 target (0x00b71bf0) ---
+  0x00b71bf5 -> 0x00ec8660 __alloca_probe
+  0x00b71c30 -> 0x00ec61c0 _memset
+  0x00b71c4e -> 0x00ec61c0 _memset
+  0x00b71c6c -> 0x00ec61c0 _memset
+  0x00b71c8e -> 0x00ec61c0 _memset
+  0x00b71cb0 -> 0x00ec61c0 _memset
+  0x00b71cce -> 0x00ec61c0 _memset
+  0x00b71d06 -> 0x00ec61c0 _memset
+  0x00b71d36 -> 0x00ec61c0 _memset
+  0x00b71d58 -> 0x00ec61c0 _memset
+  0x00b71d7a -> 0x00ec61c0 _memset
+  0x00b71d9d -> 0x00ec61c0 _memset
+  0x00b71dcd -> 0x00ec61c0 _memset
+  0x00b71e00 -> 0x00ec61c0 _memset
+  0x00b71e42 -> 0x00ec61c0 _memset
+  0x00b71e72 -> 0x00ec61c0 _memset
+  0x00b71eb5 -> 0x00ec61c0 _memset
+  0x00b71ed7 -> 0x00ec61c0 _memset
+  0x00b71f15 -> 0x00ec61c0 _memset
+  0x00b71f56 -> 0x00ec61c0 _memset
+  0x00b71f78 -> 0x00ec61c0 _memset
+  0x00b71f9b -> 0x00ec61c0 _memset
+  0x00b71fcb -> 0x00ec61c0 _memset
+  0x00b71fee -> 0x00ec61c0 _memset
+  0x00b7201e -> 0x00ec61c0 _memset
+  0x00b72051 -> 0x00ec61c0 _memset
+  0x00b72074 -> 0x00ec61c0 _memset
+  0x00b720a4 -> 0x00ec61c0 _memset
+  0x00b720e6 -> 0x00ec61c0 _memset
+  0x00b72116 -> 0x00ec61c0 _memset
+  0x00b72158 -> 0x00ec61c0 _memset
+  0x00b72179 -> 0x00ec61c0 _memset
+  0x00b721aa -> 0x00ec61c0 _memset
+  0x00b721fa -> 0x00ec61c0 _memset
+  0x00b7224a -> 0x00ec61c0 _memset
+  0x00b7227a -> 0x00ec61c0 _memset
+  0x00b722aa -> 0x00ec61c0 _memset
+  0x00b722d9 -> 0x00ec61c0 _memset
+  0x00b72317 -> 0x00ec61c0 _memset
+  0x00b72355 -> 0x00ec61c0 _memset
+  0x00b72385 -> 0x00ec61c0 _memset
+  0x00b723b5 -> 0x00ec61c0 _memset
+  0x00b723e5 -> 0x00ec61c0 _memset
+  0x00b7242a -> 0x00ec61c0 _memset
+  0x00b7246c -> 0x00ec61c0 _memset
+  0x00b724c0 -> 0x00ec61c0 _memset
+  0x00b72502 -> 0x00ec61c0 _memset
+  0x00b72556 -> 0x00ec61c0 _memset
+  0x00b72586 -> 0x00ec61c0 _memset
+  0x00b725b9 -> 0x00ec61c0 _memset
+  0x00b725d7 -> 0x00ec61c0 _memset
+  0x00b725f5 -> 0x00ec61c0 _memset
+  0x00b72633 -> 0x00ec61c0 _memset
+  0x00b72651 -> 0x00ec61c0 _memset
+  0x00b7266b -> 0x00ec61c0 _memset
+  0x00b7268f -> 0x00ec61c0 _memset
+  0x00b726e7 -> 0x00ec61c0 _memset
+  0x00b72713 -> 0x00ec61c0 _memset
+  0x00b72743 -> 0x00ec61c0 _memset
+  0x00b72817 -> 0x00ec61c0 _memset
+  0x00b72847 -> 0x00ec61c0 _memset
+  0x00b7287f -> 0x00ec61c0 _memset
+  0x00b728c1 -> 0x00ec61c0 _memset
+  0x00b72907 -> 0x00ec61c0 _memset
+  0x00b7295b -> 0x00ec61c0 _memset
+  0x00b7298f -> 0x00ec61c0 _memset
+  0x00b729d1 -> 0x00ec61c0 _memset
+  0x00b72a1a -> 0x00ec61c0 _memset
+  0x00b72a6e -> 0x00ec61c0 _memset
+  0x00b72ab4 -> 0x00ec61c0 _memset
+  0x00b72b08 -> 0x00ec61c0 _memset
+  0x00b72b60 -> 0x00ec61c0 _memset
+  0x00b72c29 -> 0x00ec61c0 _memset
+  0x00b72c6e -> 0x00ec61c0 _memset
+  0x00b72ca2 -> 0x00ec61c0 _memset
+  0x00b72ce8 -> 0x00ec61c0 _memset
+  0x00b72d2a -> 0x00ec61c0 _memset
+  0x00b72d70 -> 0x00ec61c0 _memset
+  0x00b72dc8 -> 0x00ec61c0 _memset
+  0x00b72e1f -> 0x00ec61c0 _memset
+  0x00b72e53 -> 0x00ec61c0 _memset
+  0x00b72e95 -> 0x00ec61c0 _memset
+  0x00b72edb -> 0x00ec61c0 _memset
+  0x00b72f2f -> 0x00ec61c0 _memset
+  0x00b72f63 -> 0x00ec61c0 _memset
+  0x00b72fa8 -> 0x00ec61c0 _memset
+  0x00b72fee -> 0x00ec61c0 _memset
+  0x00b73042 -> 0x00ec61c0 _memset
+  0x00b73076 -> 0x00ec61c0 _memset
+  0x00b730b8 -> 0x00ec61c0 _memset
+  0x00b730ec -> 0x00ec61c0 _memset
+  0x00b73131 -> 0x00ec61c0 _memset
+  0x00b73153 -> 0x00ec61c0 _memset
+  0x00b73183 -> 0x00ec61c0 _memset
+  0x00b731b7 -> 0x00ec61c0 _memset
+  0x00b731f9 -> 0x00ec61c0 _memset
+  0x00b7322d -> 0x00ec61c0 _memset
+  0x00b73272 -> 0x00ec61c0 _memset
+  0x00b732bc -> 0x00ec61c0 _memset
+  0x00b73314 -> 0x00ec61c0 _memset
+  0x00b7335e -> 0x00ec61c0 _memset
+  0x00b733b6 -> 0x00ec61c0 _memset
+  0x00b733ea -> 0x00ec61c0 _memset
+  0x00b7342f -> 0x00ec61c0 _memset
+  0x00b73475 -> 0x00ec61c0 _memset
+  0x00b734a9 -> 0x00ec61c0 _memset
+  0x00b734ef -> 0x00ec61c0 _memset
+  0x00b73535 -> 0x00ec61c0 _memset
+  0x00b73569 -> 0x00ec61c0 _memset
+  0x00b73583 -> 0x00ec61c0 _memset
+  0x00b735db -> 0x00ec61c0 _memset
+  0x00b73621 -> 0x00ec61c0 _memset
+  0x00b73638 -> 0x00ec61c0 _memset
+  0x00b7367e -> 0x00ec61c0 _memset
+  0x00b736d6 -> 0x00ec61c0 _memset
+  0x00b7370d -> 0x00ec61c0 _memset
+  0x00b73753 -> 0x00ec61c0 _memset
+  0x00b73795 -> 0x00ec61c0 _memset
+  0x00b737e9 -> 0x00ec61c0 _memset
+  0x00b7382f -> 0x00ec61c0 _memset
+  0x00b73851 -> 0x00ec61c0 _memset
+  0x00b73884 -> 0x00ec61c0 _memset
+  0x00b738b8 -> 0x00ec61c0 _memset
+  0x00b738ec -> 0x00ec61c0 _memset
+  0x00b7392e -> 0x00ec61c0 _memset
+  0x00b73950 -> 0x00ec61c0 _memset
+  0x00b73980 -> 0x00ec61c0 _memset
+  0x00b739b7 -> 0x00ec61c0 _memset
+  0x00b739d9 -> 0x00ec61c0 _memset
+  0x00b73a09 -> 0x00ec61c0 _memset
+  0x00b73a2b -> 0x00ec61c0 _memset
+  0x00b73a5f -> 0x00ec61c0 _memset
+  0x00b73aa5 -> 0x00ec61c0 _memset
+  0x00b73aee -> 0x00ec61c0 _memset
+  0x00b73b22 -> 0x00ec61c0 _memset
+  0x00b73b68 -> 0x00ec61c0 _memset
+  0x00b73b8a -> 0x00ec61c0 _memset
+  0x00b73bba -> 0x00ec61c0 _memset
+  0x00b73bee -> 0x00ec61c0 _memset
+  0x00b73c13 -> 0x00ec61c0 _memset
+  0x00b73c43 -> 0x00ec61c0 _memset
+  0x00b73c77 -> 0x00ec61c0 _memset
+  0x00b73cb9 -> 0x00ec61c0 _memset
+  0x00b73d11 -> 0x00ec61c0 _memset
+  0x00b73d33 -> 0x00ec61c0 _memset
+  0x00b73d66 -> 0x00ec61c0 _memset
+  0x00b73d9a -> 0x00ec61c0 _memset
+  0x00b73ddc -> 0x00ec61c0 _memset
+  0x00b73e10 -> 0x00ec61c0 _memset
+  0x00b73e52 -> 0x00ec61c0 _memset
+  0x00b73e98 -> 0x00ec61c0 _memset
+  0x00b73eef -> 0x00ec61c0 _memset
+  0x00b73f24 -> 0x00ec61c0 _memset
+  0x00b73f66 -> 0x00ec61c0 _memset
+  0x00b73f9a -> 0x00ec61c0 _memset
+  0x00b73fc3 -> 0x00be0c00 FUN_00be0c00
+  0x00b73fdb -> 0x00406d00 FUN_00406d00
+  0x00b74000 -> 0x00be0fe0 BSShader::CreateVertexShader
+  0x00b7401c -> 0x00000067 unknown
+  0x00b74043 -> 0x00000066 unknown
+  0x00b74076 -> 0x00be0c00 FUN_00be0c00
+  0x00b7408e -> 0x00406d00 FUN_00406d00
+  0x00b740b3 -> 0x00be0fe0 BSShader::CreateVertexShader
+  0x00b740cd -> 0x00000067 unknown
+  0x00b740ef -> 0x00000066 unknown
+  0x00b7413a -> 0x00000067 unknown
+  0x00b74162 -> 0x00be0c00 FUN_00be0c00
+  0x00b7417a -> 0x00406d00 FUN_00406d00
+  0x00b7419f -> 0x00be0fe0 BSShader::CreateVertexShader
+  0x00b741b9 -> 0x00000067 unknown
+  0x00b741db -> 0x00000066 unknown
+  0x00b74203 -> 0x00ec408c __security_check_cookie
+  Total: 172 calls
+
+======================================================================
+MATCHED DECOMPILE LINES: selector slot +0x148 target @ 0x00b71bf0
+======================================================================
+        local_3064[0] = (char **)FUN_00be0fe0(local_20c,ppcVar5 + 1,"vs_2_0",local_108);
+        piVar4 = (int *)FUN_00be0fe0(local_20c,ppcVar5 + 1,"vs_2_0",local_108);
+          piVar4 = (int *)FUN_00be0fe0(local_20c,ppcVar5 + 1,"vs_2_0",local_108);
+  Total matched lines: 3
+
+----------------------------------------------------------------------
+Nearby functions for selector slot +0x14C target 0x00b74210
+----------------------------------------------------------------------
+  containing: none
+  before: none
+  after: none
+
+----------------------------------------------------------------------
+Raw disassembly selector slot +0x14C target around 0x00b74210
+----------------------------------------------------------------------
+  0x00b74210: MOV EAX,0x42a4                                         << TARGET
+  0x00b74215: CALL 0x00ec8660                                       
+      ref UNCONDITIONAL_CALL -> 0x00ec8660 __alloca_probe
+  0x00b7421a: MOV EAX,[0x011c16bc]                                  
+      ref READ -> 0x011c16bc unknown
+  0x00b7421f: XOR EAX,ESP                                           
+  0x00b74221: MOV dword ptr [ESP + 0x42a0],EAX                      
+  0x00b74228: FLD float ptr [0x011adbcc]                            
+      ref READ -> 0x011adbcc unknown
+  0x00b7422e: PUSH EBX                                              
+  0x00b7422f: PUSH EBP                                              
+  0x00b74230: PUSH ESI                                              
+  0x00b74231: PUSH EDI                                              
+  0x00b74232: LEA EAX,[ESP + 0x4150]                                
+  0x00b74239: PUSH EAX                                              
+  0x00b7423a: PUSH 0xc                                              
+  0x00b7423c: SUB ESP,0x8                                           
+  0x00b7423f: FSTP double ptr [ESP]                                 
+  0x00b74242: MOV dword ptr [ESP + 0x24],ECX                        
+  0x00b74246: CALL 0x00ecdd16                                       
+      ref UNCONDITIONAL_CALL -> 0x00ecdd16 __gcvt
+  0x00b7424b: FLD float ptr [0x011adbd0]                            
+      ref READ -> 0x011adbd0 unknown
+  0x00b74251: ADD ESP,0x10                                          
+  0x00b74254: LEA ECX,[ESP + 0x3ff0]                                
+  0x00b7425b: PUSH ECX                                              
+  0x00b7425c: PUSH 0xc                                              
+  0x00b7425e: SUB ESP,0x8                                           
+  0x00b74261: FSTP double ptr [ESP]                                 
+  0x00b74264: CALL 0x00ecdd16                                       
+      ref UNCONDITIONAL_CALL -> 0x00ecdd16 __gcvt
+  0x00b74269: XOR EDI,EDI                                           
+  0x00b7426b: PUSH 0x44                                             
+  0x00b7426d: LEA EDX,[ESP + 0x2fbc]                                
+  0x00b74274: PUSH EDI                                              
+  0x00b74275: MOV EBX,0x10af2d4                                     
+      ref DATA -> 0x010af2d4 unknown
+  0x00b7427a: PUSH EDX                                              
+  0x00b7427b: MOV dword ptr [ESP + 0x2fbc],EBX                      
+      ref DATA -> 0x010af2d4 unknown
+  0x00b74282: MOV dword ptr [ESP + 0x2fc0],EDI                      
+  0x00b74289: CALL 0x00ec61c0                                       
+      ref UNCONDITIONAL_CALL -> 0x00ec61c0 _memset
+  0x00b7428e: PUSH 0x44                                             
+  0x00b74290: LEA EAX,[ESP + 0x3014]                                
+  0x00b74297: PUSH EDI                                              
+  0x00b74298: PUSH EAX                                              
+  0x00b74299: MOV dword ptr [ESP + 0x3014],0x10af2b4                
+      ref DATA -> 0x010af2b4 unknown
+  0x00b742a4: MOV dword ptr [ESP + 0x3018],EDI                      
+  0x00b742ab: CALL 0x00ec61c0                                       
+      ref UNCONDITIONAL_CALL -> 0x00ec61c0 _memset
+  0x00b742b0: PUSH 0x44                                             
+  0x00b742b2: LEA ECX,[ESP + 0x306c]                                
+  0x00b742b9: PUSH EDI                                              
+  0x00b742ba: PUSH ECX                                              
+  0x00b742bb: MOV dword ptr [ESP + 0x306c],0x10af294                
+      ref DATA -> 0x010af294 unknown
+  0x00b742c6: MOV dword ptr [ESP + 0x3070],EDI                      
+  0x00b742cd: CALL 0x00ec61c0                                       
+      ref UNCONDITIONAL_CALL -> 0x00ec61c0 _memset
+  0x00b742d2: PUSH 0x3c                                             
+  0x00b742d4: LEA EDX,[ESP + 0x30cc]                                
+  0x00b742db: PUSH EDI                                              
+  0x00b742dc: MOV EBP,0x10aecac                                     
+      ref DATA -> 0x010aecac unknown
+  0x00b742e1: MOV ESI,0x1011584                                     
+      ref DATA -> 0x01011584 unknown
+  0x00b742e6: PUSH EDX                                              
+  0x00b742e7: MOV dword ptr [ESP + 0x30c4],EBX                      
+      ref DATA -> 0x010af2d4 unknown
+  0x00b742ee: MOV dword ptr [ESP + 0x30c8],EBP                      
+      ref DATA -> 0x010aecac unknown
+  0x00b742f5: MOV dword ptr [ESP + 0x30cc],ESI                      
+      ref DATA -> 0x01011584 unknown
+  0x00b742fc: MOV dword ptr [ESP + 0x30d0],EDI                      
+  0x00b74303: CALL 0x00ec61c0                                       
+      ref UNCONDITIONAL_CALL -> 0x00ec61c0 _memset
+  0x00b74308: ADD ESP,0x40                                          
+  0x00b7430b: PUSH 0x34                                             
+  0x00b7430d: LEA EAX,[ESP + 0x30ec]                                
+  0x00b74314: PUSH EDI                                              
+  0x00b74315: PUSH EAX                                              
+  0x00b74316: MOV dword ptr [ESP + 0x30dc],EBX                      
+      ref DATA -> 0x010af2d4 unknown
+  0x00b7431d: MOV dword ptr [ESP + 0x30e0],EBP                      
+      ref DATA -> 0x010aecac unknown
+  0x00b74324: MOV dword ptr [ESP + 0x30e4],ESI                      
+      ref DATA -> 0x01011584 unknown
+  0x00b7432b: MOV dword ptr [ESP + 0x30e8],0x10aed64                
+      ref DATA -> 0x010aed64 unknown
+  0x00b74336: MOV dword ptr [ESP + 0x30ec],ESI                      
+      ref DATA -> 0x01011584 unknown
+  0x00b7433d: MOV dword ptr [ESP + 0x30f0],EDI                      
+  0x00b74344: CALL 0x00ec61c0                                       
+      ref UNCONDITIONAL_CALL -> 0x00ec61c0 _memset
+  0x00b74349: PUSH 0x34                                             
+  0x00b7434b: LEA ECX,[ESP + 0x3144]                                
+  0x00b74352: PUSH EDI                                              
+  0x00b74353: PUSH ECX                                              
+  0x00b74354: MOV dword ptr [ESP + 0x3134],EBX                      
+      ref DATA -> 0x010af2d4 unknown
+  0x00b7435b: MOV dword ptr [ESP + 0x3138],EBP                      
+      ref DATA -> 0x010aecac unknown
+  0x00b74362: MOV dword ptr [ESP + 0x313c],ESI                      
+      ref DATA -> 0x01011584 unknown
+  0x00b74369: MOV dword ptr [ESP + 0x3140],0x10aed54                
+      ref DATA -> 0x010aed54 unknown
+  0x00b74374: MOV dword ptr [ESP + 0x3144],ESI                      
+      ref DATA -> 0x01011584 unknown
+  0x00b7437b: MOV dword ptr [ESP + 0x3148],EDI                      
+  0x00b74382: CALL 0x00ec61c0                                       
+      ref UNCONDITIONAL_CALL -> 0x00ec61c0 _memset
+  0x00b74387: MOV dword ptr [ESP + 0x3180],EBX                      
+      ref DATA -> 0x010af2d4 unknown
+  0x00b7438e: MOV dword ptr [ESP + 0x3184],EBP                      
+      ref DATA -> 0x010aecac unknown
+  0x00b74395: MOV dword ptr [ESP + 0x3188],ESI                      
+      ref DATA -> 0x01011584 unknown
+  0x00b7439c: MOV dword ptr [ESP + 0x318c],0x101c61c                
+      ref DATA -> 0x0101c61c unknown
+  0x00b743a7: PUSH 0x34                                             
+  0x00b743a9: LEA EDX,[ESP + 0x319c]                                
+  0x00b743b0: PUSH EDI                                              
+  0x00b743b1: PUSH EDX                                              
+  0x00b743b2: MOV dword ptr [ESP + 0x319c],ESI                      
+      ref DATA -> 0x01011584 unknown
+  0x00b743b9: MOV dword ptr [ESP + 0x31a0],EDI                      
+  0x00b743c0: CALL 0x00ec61c0                                       
+      ref UNCONDITIONAL_CALL -> 0x00ec61c0 _memset
+  0x00b743c5: PUSH 0x3c                                             
+  0x00b743c7: LEA ECX,[ESP + 0x31ec]                                
+  0x00b743ce: LEA EAX,[ESP + 0x4178]                                
+  0x00b743d5: PUSH EDI                                              
+  0x00b743d6: MOV EBX,0x10af288                                     
+      ref DATA -> 0x010af288 unknown
+  0x00b743db: PUSH ECX                                              
+  0x00b743dc: MOV dword ptr [ESP + 0x31e4],0x10af268                
+      ref DATA -> 0x010af268 unknown
+  0x00b743e7: MOV dword ptr [ESP + 0x31e8],EBX                      
+      ref DATA -> 0x010af288 unknown
+  0x00b743ee: MOV dword ptr [ESP + 0x31ec],EAX                      
+  0x00b743f5: MOV dword ptr [ESP + 0x31f0],EDI                      
+  0x00b743fc: CALL 0x00ec61c0                                       
+      ref UNCONDITIONAL_CALL -> 0x00ec61c0 _memset
+  0x00b74401: PUSH 0x3c                                             
+  0x00b74403: LEA EAX,[ESP + 0x3244]                                
+  0x00b7440a: LEA EDX,[ESP + 0x4184]                                
+  0x00b74411: PUSH EDI                                              
+  0x00b74412: PUSH EAX                                              
+  0x00b74413: MOV dword ptr [ESP + 0x323c],0x10af244                
+      ref DATA -> 0x010af244 unknown
+  0x00b7441e: MOV dword ptr [ESP + 0x3240],EBX                      
+      ref DATA -> 0x010af288 unknown
+  0x00b74425: MOV dword ptr [ESP + 0x3244],EDX                      
+  0x00b7442c: MOV dword ptr [ESP + 0x3248],EDI                      
+  0x00b74433: CALL 0x00ec61c0                                       
+      ref UNCONDITIONAL_CALL -> 0x00ec61c0 _memset
+  0x00b74438: PUSH 0x44                                             
+  0x00b7443a: LEA ECX,[ESP + 0x3294]                                
+  0x00b74441: PUSH EDI                                              
+  0x00b74442: MOV EBP,0x10af21c                                     
+      ref DATA -> 0x010af21c unknown
+  0x00b74447: PUSH ECX                                              
+  0x00b74448: MOV dword ptr [ESP + 0x3294],EBP                      
+      ref DATA -> 0x010af21c unknown
+  0x00b7444f: MOV dword ptr [ESP + 0x3298],EDI                      
+  0x00b74456: CALL 0x00ec61c0                                       
+      ref UNCONDITIONAL_CALL -> 0x00ec61c0 _memset
+  0x00b7445b: ADD ESP,0x48                                          
+  0x00b7445e: PUSH 0x3c                                             
+  0x00b74460: LEA EDX,[ESP + 0x32ac]                                
+  0x00b74467: PUSH EDI                                              
+  0x00b74468: MOV EBX,0x10aece0                                     
+      ref DATA -> 0x010aece0 unknown
+  0x00b7446d: PUSH EDX                                              
+  0x00b7446e: MOV dword ptr [ESP + 0x32a4],EBP                      
+      ref DATA -> 0x010af21c unknown
+  0x00b74475: MOV dword ptr [ESP + 0x32a8],EBX                      
+      ref DATA -> 0x010aece0 unknown
+  0x00b7447c: MOV dword ptr [ESP + 0x32ac],ESI                      
+      ref DATA -> 0x01011584 unknown
+  0x00b74483: MOV dword ptr [ESP + 0x32b0],EDI                      
+  0x00b7448a: CALL 0x00ec61c0                                       
+      ref UNCONDITIONAL_CALL -> 0x00ec61c0 _memset
+  0x00b7448f: PUSH 0x3c                                             
+  0x00b74491: LEA EAX,[ESP + 0x3304]                                
+  0x00b74498: PUSH EDI                                              
+  0x00b74499: PUSH EAX                                              
+  0x00b7449a: MOV dword ptr [ESP + 0x32fc],EBP                      
+      ref DATA -> 0x010af21c unknown
+  0x00b744a1: MOV dword ptr [ESP + 0x3300],0x10af214                
+      ref DATA -> 0x010af214 unknown
+  0x00b744ac: MOV dword ptr [ESP + 0x3304],ESI                      
+      ref DATA -> 0x01011584 unknown
+  0x00b744b3: MOV dword ptr [ESP + 0x3308],EDI                      
+  0x00b744ba: CALL 0x00ec61c0                                       
+      ref UNCONDITIONAL_CALL -> 0x00ec61c0 _memset
+  0x00b744bf: PUSH 0x34                                             
+  0x00b744c1: LEA ECX,[ESP + 0x3364]                                
+  0x00b744c8: PUSH EDI                                              
+  0x00b744c9: PUSH ECX                                              
+  0x00b744ca: MOV dword ptr [ESP + 0x3354],EBP                      
+      ref DATA -> 0x010af21c unknown
+  0x00b744d1: MOV dword ptr [ESP + 0x3358],0x10af214                
+      ref DATA -> 0x010af214 unknown
+  0x00b744dc: MOV dword ptr [ESP + 0x335c],ESI                      
+      ref DATA -> 0x01011584 unknown
+  0x00b744e3: MOV dword ptr [ESP + 0x3360],EBX                      
+      ref DATA -> 0x010aece0 unknown
+  0x00b744ea: MOV dword ptr [ESP + 0x3364],ESI                      
+      ref DATA -> 0x01011584 unknown
+  0x00b744f1: MOV dword ptr [ESP + 0x3368],EDI                      
+  0x00b744f8: CALL 0x00ec61c0                                       
+      ref UNCONDITIONAL_CALL -> 0x00ec61c0 _memset
+  0x00b744fd: PUSH 0x3c                                             
+  0x00b744ff: LEA EDX,[ESP + 0x33b4]                                
+  0x00b74506: PUSH EDI                                              
+  0x00b74507: PUSH EDX                                              
+  0x00b74508: MOV dword ptr [ESP + 0x33ac],EBP                      
+      ref DATA -> 0x010af21c unknown
+  0x00b7450f: MOV dword ptr [ESP + 0x33b0],0x10aed64                
+      ref DATA -> 0x010aed64 unknown
+  0x00b7451a: MOV dword ptr [ESP + 0x33b4],ESI                      
+      ref DATA -> 0x01011584 unknown
+  0x00b74521: MOV dword ptr [ESP + 0x33b8],EDI                      
+  0x00b74528: CALL 0x00ec61c0                                       
+      ref UNCONDITIONAL_CALL -> 0x00ec61c0 _memset
+  0x00b7452d: MOV dword ptr [ESP + 0x33f8],EBP                      
+      ref DATA -> 0x010af21c unknown
+  0x00b74534: MOV dword ptr [ESP + 0x33fc],0x10aed64                
+      ref DATA -> 0x010aed64 unknown
+  0x00b7453f: MOV dword ptr [ESP + 0x3400],ESI                      
+      ref DATA -> 0x01011584 unknown
+  0x00b74546: MOV dword ptr [ESP + 0x3404],EBX                      
+      ref DATA -> 0x010aece0 unknown
+  0x00b7454d: MOV dword ptr [ESP + 0x3408],ESI                      
+      ref DATA -> 0x01011584 unknown
+  0x00b74554: PUSH 0x34                                             
+  0x00b74556: LEA EAX,[ESP + 0x3414]                                
+  0x00b7455d: PUSH EDI                                              
+  0x00b7455e: PUSH EAX                                              
+  0x00b7455f: MOV dword ptr [ESP + 0x3418],EDI                      
+  0x00b74566: CALL 0x00ec61c0                                       
+      ref UNCONDITIONAL_CALL -> 0x00ec61c0 _memset
+  0x00b7456b: PUSH 0x34                                             
+  0x00b7456d: LEA ECX,[ESP + 0x346c]                                
+  0x00b74574: PUSH EDI                                              
+  0x00b74575: PUSH ECX                                              
+  0x00b74576: MOV dword ptr [ESP + 0x345c],EBP                      
+      ref DATA -> 0x010af21c unknown
+  0x00b7457d: MOV dword ptr [ESP + 0x3460],0x10aed64                
+      ref DATA -> 0x010aed64 unknown
+  0x00b74588: MOV dword ptr [ESP + 0x3464],ESI                      
+      ref DATA -> 0x01011584 unknown
+
+----------------------------------------------------------------------
+References TO 0x00b74210 (selector slot +0x14C target)
+----------------------------------------------------------------------
+  DATA @ 0x010af444 (in ???) 
+  Total printed: 1 refs
+
+======================================================================
+selector slot +0x14C target @ 0x00b74210
+======================================================================
+  [function not found]
+
+--- Calls FROM selector slot +0x14C target (0x00b74210) ---
+  [function not found]
+
+======================================================================
+MATCHED DECOMPILE LINES: selector slot +0x14C target @ 0x00b74210
+======================================================================
+  [decompilation failed]
+
+----------------------------------------------------------------------
+Nearby functions for raw selector slot +0x150 target 0x00b7a730
+----------------------------------------------------------------------
+  containing: none
+  before: none
+  after: none
+
+----------------------------------------------------------------------
+Raw disassembly raw selector slot +0x150 target around 0x00b7a730
+----------------------------------------------------------------------
+  0x00b7a700: RET 0x8                                               
+  0x00b7a703: MOV EAX,dword ptr [ESP + 0x8]                         
+  0x00b7a707: TEST EAX,EAX                                          
+  0x00b7a709: JZ 0x00b7a71a                                         
+      ref CONDITIONAL_JUMP -> 0x00b7a71a unknown
+  0x00b7a70b: TEST dword ptr [EAX + 0x20],0x1000                    
+  0x00b7a712: JBE 0x00b7a71a                                        
+      ref CONDITIONAL_JUMP -> 0x00b7a71a unknown
+  0x00b7a714: MOV EAX,dword ptr [ECX + 0x74]                        
+  0x00b7a717: RET 0x8                                               
+  0x00b7a71a: TEST dword ptr [EAX + 0x20],0x4000                    
+  0x00b7a721: JBE 0x00b7a729                                        
+      ref CONDITIONAL_JUMP -> 0x00b7a729 unknown
+  0x00b7a723: MOV EAX,dword ptr [ECX + 0x78]                        
+  0x00b7a726: RET 0x8                                               
+  0x00b7a729: MOV EAX,dword ptr [ECX + 0x6c]                        
+  0x00b7a72c: RET 0x8                                               
+  0x00b7a730: SUB ESP,0x8                                            << TARGET
+  0x00b7a733: PUSH EBX                                              
+  0x00b7a734: PUSH EBP                                              
+  0x00b7a735: PUSH ESI                                              
+  0x00b7a736: PUSH EDI                                              
+  0x00b7a737: MOV dword ptr [ESP + 0x14],ECX                        
+  0x00b7a73b: MOV EBP,0x11fdff8                                     
+      ref DATA -> 0x011fdff8 unknown
+  0x00b7a740: MOV dword ptr [ESP + 0x10],0x2f7                      
+  0x00b7a748: PUSH EBP                                              
+      ref DATA -> 0x011fdff8 unknown
+      ref DATA -> 0x011fdffc unknown
+  0x00b7a749: CALL 0x00e804d0                                       
+      ref UNCONDITIONAL_CALL -> 0x00e804d0 FUN_00e804d0
+  0x00b7a74e: MOV ESI,dword ptr [EBP]                               
+      ref READ -> 0x011fdff8 unknown
+  0x00b7a751: MOV EAX,[0x011fdd88]                                  
+      ref READ -> 0x011fdd88 unknown
+  0x00b7a756: MOV EDI,dword ptr [ESI + 0x5c]                        
+  0x00b7a759: ADD ESI,0x5c                                          
+  0x00b7a75c: ADD ESP,0x4                                           
+  0x00b7a75f: MOV EBX,EAX                                           
+  0x00b7a761: CMP EDI,EAX                                           
+  0x00b7a763: JZ 0x00b7a790                                         
+      ref CONDITIONAL_JUMP -> 0x00b7a790 unknown
+  0x00b7a765: TEST EDI,EDI                                          
+  0x00b7a767: JZ 0x00b7a780                                         
+      ref CONDITIONAL_JUMP -> 0x00b7a780 unknown
+  0x00b7a769: LEA EAX,[EDI + 0x4]                                   
+  0x00b7a76c: PUSH EAX                                              
+  0x00b7a76d: CALL dword ptr [0x00fdf1c4]                           
+      ref READ -> 0x00fdf1c4 unknown
+      ref COMPUTED_CALL -> 0x00000067 unknown
+  0x00b7a773: TEST EAX,EAX                                          
+  0x00b7a775: JNZ 0x00b7a780                                        
+      ref CONDITIONAL_JUMP -> 0x00b7a780 unknown
+  0x00b7a777: MOV EDX,dword ptr [EDI]                               
+  0x00b7a779: MOV EAX,dword ptr [EDX + 0x4]                         
+  0x00b7a77c: MOV ECX,EDI                                           
+  0x00b7a77e: CALL EAX                                              
+  0x00b7a780: MOV dword ptr [ESI],EBX                               
+  0x00b7a782: TEST EBX,EBX                                          
+  0x00b7a784: JZ 0x00b7a790                                         
+      ref CONDITIONAL_JUMP -> 0x00b7a790 unknown
+  0x00b7a786: ADD EBX,0x4                                           
+  0x00b7a789: PUSH EBX                                              
+  0x00b7a78a: CALL dword ptr [0x00fdf1c0]                           
+      ref READ -> 0x00fdf1c0 unknown
+      ref COMPUTED_CALL -> 0x00000066 unknown
+  0x00b7a790: ADD EBP,0x4                                           
+  0x00b7a793: SUB dword ptr [ESP + 0x10],0x1                        
+  0x00b7a798: JNZ 0x00b7a748                                        
+      ref CONDITIONAL_JUMP -> 0x00b7a748 unknown
+  0x00b7a79a: MOV ESI,dword ptr [ESP + 0x14]                        
+  0x00b7a79e: MOV ECX,ESI                                           
+  0x00b7a7a0: CALL 0x00beb070                                       
+      ref UNCONDITIONAL_CALL -> 0x00beb070 FUN_00beb070
+  0x00b7a7a5: MOV ECX,ESI                                           
+  0x00b7a7a7: CALL 0x00beb830                                       
+      ref UNCONDITIONAL_CALL -> 0x00beb830 FUN_00beb830
+  0x00b7a7ac: MOV ECX,ESI                                           
+  0x00b7a7ae: CALL 0x00be22b0                                       
+      ref UNCONDITIONAL_CALL -> 0x00be22b0 FUN_00be22b0
+  0x00b7a7b3: MOV ECX,ESI                                           
+  0x00b7a7b5: CALL 0x00be39e0                                       
+      ref UNCONDITIONAL_CALL -> 0x00be39e0 FUN_00be39e0
+  0x00b7a7ba: MOV ECX,ESI                                           
+  0x00b7a7bc: CALL 0x00be7420                                       
+      ref UNCONDITIONAL_CALL -> 0x00be7420 FUN_00be7420
+  0x00b7a7c1: MOV ECX,ESI                                           
+  0x00b7a7c3: CALL 0x00be78e0                                       
+      ref UNCONDITIONAL_CALL -> 0x00be78e0 FUN_00be78e0
+  0x00b7a7c8: MOV ECX,ESI                                           
+  0x00b7a7ca: CALL 0x00be7f40                                       
+      ref UNCONDITIONAL_CALL -> 0x00be7f40 FUN_00be7f40
+  0x00b7a7cf: MOV ECX,ESI                                           
+  0x00b7a7d1: CALL 0x00be8960                                       
+      ref UNCONDITIONAL_CALL -> 0x00be8960 FUN_00be8960
+  0x00b7a7d6: MOV ECX,ESI                                           
+  0x00b7a7d8: CALL 0x00be8fb0                                       
+      ref UNCONDITIONAL_CALL -> 0x00be8fb0 FUN_00be8fb0
+  0x00b7a7dd: MOV ECX,ESI                                           
+  0x00b7a7df: CALL 0x00be9920                                       
+      ref UNCONDITIONAL_CALL -> 0x00be9920 FUN_00be9920
+  0x00b7a7e4: MOV ECX,ESI                                           
+  0x00b7a7e6: CALL 0x00beac70                                       
+      ref UNCONDITIONAL_CALL -> 0x00beac70 FUN_00beac70
+  0x00b7a7eb: CMP dword ptr [0x011f91c0],0x2                        
+      ref READ -> 0x011f91c0 unknown
+  0x00b7a7f2: MOV ECX,ESI                                           
+  0x00b7a7f4: JL 0x00b7a859                                         
+      ref CONDITIONAL_JUMP -> 0x00b7a859 unknown
+  0x00b7a7f6: CALL 0x00bf66c0                                       
+      ref UNCONDITIONAL_CALL -> 0x00bf66c0 FUN_00bf66c0
+  0x00b7a7fb: MOV ECX,ESI                                           
+  0x00b7a7fd: CALL 0x00bebd20                                       
+      ref UNCONDITIONAL_CALL -> 0x00bebd20 FUN_00bebd20
+  0x00b7a802: MOV ECX,ESI                                           
+  0x00b7a804: CALL 0x00bf0720                                       
+      ref UNCONDITIONAL_CALL -> 0x00bf0720 FUN_00bf0720
+  0x00b7a809: MOV ECX,ESI                                           
+  0x00b7a80b: CALL 0x00bf8f70                                       
+      ref UNCONDITIONAL_CALL -> 0x00bf8f70 FUN_00bf8f70
+  0x00b7a810: MOV ECX,ESI                                           
+  0x00b7a812: CALL 0x00bf96b0                                       
+      ref UNCONDITIONAL_CALL -> 0x00bf96b0 FUN_00bf96b0
+  0x00b7a817: MOV ECX,ESI                                           
+  0x00b7a819: CALL 0x00bfbf60                                       
+      ref UNCONDITIONAL_CALL -> 0x00bfbf60 FUN_00bfbf60
+  0x00b7a81e: MOV ECX,ESI                                           
+  0x00b7a820: CALL 0x00bfc860                                       
+      ref UNCONDITIONAL_CALL -> 0x00bfc860 FUN_00bfc860
+  0x00b7a825: MOV ECX,ESI                                           
+  0x00b7a827: CALL 0x00c01020                                       
+      ref UNCONDITIONAL_CALL -> 0x00c01020 FUN_00c01020
+  0x00b7a82c: MOV ECX,ESI                                           
+  0x00b7a82e: CALL 0x00c017c0                                       
+      ref UNCONDITIONAL_CALL -> 0x00c017c0 FUN_00c017c0
+  0x00b7a833: MOV ECX,ESI                                           
+  0x00b7a835: CALL 0x00c01c20                                       
+      ref UNCONDITIONAL_CALL -> 0x00c01c20 FUN_00c01c20
+  0x00b7a83a: MOV ECX,ESI                                           
+  0x00b7a83c: CALL 0x00c01f60                                       
+      ref UNCONDITIONAL_CALL -> 0x00c01f60 FUN_00c01f60
+  0x00b7a841: MOV ECX,ESI                                           
+  0x00b7a843: CALL 0x00c00be0                                       
+      ref UNCONDITIONAL_CALL -> 0x00c00be0 FUN_00c00be0
+  0x00b7a848: MOV ECX,ESI                                           
+  0x00b7a84a: CALL 0x00c02340                                       
+      ref UNCONDITIONAL_CALL -> 0x00c02340 FUN_00c02340
+  0x00b7a84f: POP EDI                                               
+  0x00b7a850: POP ESI                                               
+  0x00b7a851: POP EBP                                               
+  0x00b7a852: MOV AL,0x1                                            
+  0x00b7a854: POP EBX                                               
+  0x00b7a855: ADD ESP,0x8                                           
+  0x00b7a858: RET                                                   
+  0x00b7a859: CALL 0x00bea040                                       
+      ref UNCONDITIONAL_CALL -> 0x00bea040 FUN_00bea040
+  0x00b7a85e: POP EDI                                               
+  0x00b7a85f: POP ESI                                               
+  0x00b7a860: POP EBP                                               
+  0x00b7a861: MOV AL,0x1                                            
+  0x00b7a863: POP EBX                                               
+  0x00b7a864: ADD ESP,0x8                                           
+  0x00b7a867: RET                                                   
+  0x00b7a870: PUSH ECX                                              
+  0x00b7a871: PUSH EBX                                              
+  0x00b7a872: PUSH EBP                                              
+  0x00b7a873: PUSH ESI                                              
+  0x00b7a874: PUSH EDI                                              
+  0x00b7a875: PUSH 0x1                                              
+  0x00b7a877: CALL 0x00b55560                                       
+      ref UNCONDITIONAL_CALL -> 0x00b55560 FUN_00b55560
+  0x00b7a87c: PUSH 0xe                                              
+  0x00b7a87e: MOV EDI,EAX                                           
+  0x00b7a880: CALL 0x00b55560                                       
+      ref UNCONDITIONAL_CALL -> 0x00b55560 FUN_00b55560
+  0x00b7a885: PUSH 0xf                                              
+  0x00b7a887: MOV EBX,EAX                                           
+  0x00b7a889: CALL 0x00b55560                                       
+      ref UNCONDITIONAL_CALL -> 0x00b55560 FUN_00b55560
+  0x00b7a88e: PUSH 0xd                                              
+  0x00b7a890: MOV EBP,EAX                                           
+  0x00b7a892: CALL 0x00b55560                                       
+      ref UNCONDITIONAL_CALL -> 0x00b55560 FUN_00b55560
+  0x00b7a897: MOV ESI,dword ptr [ESP + 0x28]                        
+      ref READ -> 0x00000004 unknown
+  0x00b7a89b: MOV dword ptr [ESP + 0x20],EAX                        
+      ref WRITE -> 0x-0000004 unknown
+  0x00b7a89f: LEA EAX,[ESI + 0xfffffdb2]                            
+  0x00b7a8a5: ADD ESP,0x10                                          
+  0x00b7a8a8: CMP EAX,0x3                                           
+  0x00b7a8ab: JA 0x00b7a93e                                         
+      ref CONDITIONAL_JUMP -> 0x00b7a93e FUN_00b7a870+0xce
+  0x00b7a8b1: TEST EDI,EDI                                          
+  0x00b7a8b3: JZ 0x00b7a8d0                                         
+      ref CONDITIONAL_JUMP -> 0x00b7a8d0 FUN_00b7a870+0x60
+  0x00b7a8b5: LEA ECX,[EDI + 0x7c]                                  
+  0x00b7a8b8: PUSH ECX                                              
+  0x00b7a8b9: LEA ECX,[EDI + 0x30]                                  
+  0x00b7a8bc: CALL 0x00c663d0                                       
+      ref UNCONDITIONAL_CALL -> 0x00c663d0 FUN_00c663d0
+  0x00b7a8c1: LEA EDX,[EDI + 0x80]                                  
+  0x00b7a8c7: PUSH EDX                                              
+  0x00b7a8c8: LEA ECX,[EDI + 0x34]                                  
+  0x00b7a8cb: CALL 0x00c663d0                                       
+      ref UNCONDITIONAL_CALL -> 0x00c663d0 FUN_00c663d0
+  0x00b7a8d0: TEST EBX,EBX                                          
+  0x00b7a8d2: JZ 0x00b7a8ef                                         
+      ref CONDITIONAL_JUMP -> 0x00b7a8ef FUN_00b7a870+0x7f
+  0x00b7a8d4: LEA EAX,[EBX + 0x7c]                                  
+  0x00b7a8d7: PUSH EAX                                              
+  0x00b7a8d8: LEA ECX,[EBX + 0x30]                                  
+  0x00b7a8db: CALL 0x00c663d0                                       
+      ref UNCONDITIONAL_CALL -> 0x00c663d0 FUN_00c663d0
+  0x00b7a8e0: LEA ECX,[EBX + 0x80]                                  
+  0x00b7a8e6: PUSH ECX                                              
+  0x00b7a8e7: LEA ECX,[EBX + 0x34]                                  
+  0x00b7a8ea: CALL 0x00c663d0                                       
+      ref UNCONDITIONAL_CALL -> 0x00c663d0 FUN_00c663d0
+  0x00b7a8ef: TEST EBP,EBP                                          
+  0x00b7a8f1: JZ 0x00b7a90e                                         
+      ref CONDITIONAL_JUMP -> 0x00b7a90e FUN_00b7a870+0x9e
+  0x00b7a8f3: LEA EDX,[EBP + 0x7c]                                  
+  0x00b7a8f6: PUSH EDX                                              
+  0x00b7a8f7: LEA ECX,[EBP + 0x30]                                  
+  0x00b7a8fa: CALL 0x00c663d0                                       
+      ref UNCONDITIONAL_CALL -> 0x00c663d0 FUN_00c663d0
+  0x00b7a8ff: LEA EAX,[EBP + 0x80]                                  
+  0x00b7a905: PUSH EAX                                              
+  0x00b7a906: LEA ECX,[EBP + 0x34]                                  
+  0x00b7a909: CALL 0x00c663d0                                       
+      ref UNCONDITIONAL_CALL -> 0x00c663d0 FUN_00c663d0
+  0x00b7a90e: MOV EAX,dword ptr [ESP + 0x10]                        
+      ref READ -> 0x-0000004 unknown
+  0x00b7a912: TEST EAX,EAX                                          
+  0x00b7a914: JZ 0x00b7a9ee                                         
+      ref CONDITIONAL_JUMP -> 0x00b7a9ee FUN_00b7a870+0x17e
+  0x00b7a91a: LEA ECX,[EAX + 0x7c]                                  
+  0x00b7a91d: PUSH ECX                                              
+  0x00b7a91e: LEA ECX,[EAX + 0x30]                                  
+  0x00b7a921: CALL 0x00c663d0                                       
+      ref UNCONDITIONAL_CALL -> 0x00c663d0 FUN_00c663d0
+  0x00b7a926: MOV EAX,dword ptr [ESP + 0x10]                        
+      ref READ -> 0x-0000004 unknown
+  0x00b7a92a: LEA EDX,[EAX + 0x80]                                  
+  0x00b7a930: PUSH EDX                                              
+
+----------------------------------------------------------------------
+References TO 0x00b7a730 (raw selector slot +0x150 target)
+----------------------------------------------------------------------
+  DATA @ 0x010af448 (in ???) 
+  Total printed: 1 refs
+
+======================================================================
+raw selector slot +0x150 target @ 0x00b7a730
+======================================================================
+  [function not found]
+
+--- Calls FROM raw selector slot +0x150 target (0x00b7a730) ---
+  [function not found]
+
+======================================================================
+MATCHED DECOMPILE LINES: raw selector slot +0x150 target @ 0x00b7a730
+======================================================================
+  [decompilation failed]

@@ -12,6 +12,7 @@ mod entry;
 mod fnv_render;
 mod hooks;
 mod input;
+mod pbr;
 mod runtime;
 mod shaders;
 mod startup;

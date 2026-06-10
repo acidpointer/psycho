@@ -1095,6 +1095,82 @@ Ghidra-backed NewVegasReloaded contract findings:
   `E7EA00` and `E88A20`, but additional map semantics still need an explicit
   stage policy or observed final stage bindings; do not resurrect source-array
   or `spTexEffectData` guesses as PBR map discovery.
+- `graphics_fnv_pbr_shader_interface_contract_audit.txt` proves
+  `BSShader::SetShaders @ 0x00BE1F90` is only a shader-handle binder. It reads
+  current pass `0x0126F74C`, calls the vertex shader object vtable `+0x84`,
+  binds the returned handle through renderer helper `+0x8C`, then calls the
+  pixel shader object vtable `+0x7C` and binds that handle through renderer
+  helper `+0x7C`. It does not upload PBR constants, select texture stages, or
+  provide a pixel-input semantic contract.
+- The same PBR interface audit confirms vanilla shader object allocation
+  sizes: pixel shader objects are allocated at `0x30` bytes and initialized via
+  `FUN_00BE08F0`; vertex shader objects are allocated at `0x3C` bytes and
+  initialized via `FUN_00BE0B30`. Psycho must keep using side tables/replacement
+  handles rather than extending native object layouts.
+- `FUN_00BD1C50` is confirmed as the current-pass writer and pass `+0x44`
+  pixel-shader ownership updater. `FUN_00BD4BA0` is the stronger PBR lead: it
+  calls the B7 pass dispatcher, resolves the current geometry/proxy slot through
+  `0x011F91E0`, and invokes shader-interface virtual slot `+0x78` with the
+  current pass pixel/vertex shader objects plus draw context. That is the
+  likely constant/interface application boundary, not `SetShaders`.
+- `graphics_fnv_pbr_shader_virtual_interface_followup_audit.txt` proves
+  `FUN_00B55560` is a lazy selector cache over `0x011F9548 + index * 4`.
+  Selector index `1` is created by `FUN_00B7A380`; `FUN_00BD4BA0` reads this
+  selector and calls its `+0x30/+0x34` shader-interface objects through virtual
+  slot `+0x78`, then optionally calls the draw parameter's own
+  `+0x30/+0x34` interfaces the same way. The audit also confirms
+  `FUN_00B7A870` and related setup paths initialize per-effect resources and
+  constants through this selector family. It still does not prove the concrete
+  vtables installed into the selector's `+0x30/+0x34` fields or the exact
+  `+0x78` target bodies.
+- `graphics_fnv_pbr_shader_interface_object_vtable_audit.txt` proves the
+  selector index `1` factory path in more detail: `FUN_00B7A380` builds four
+  stage-layout objects through `FUN_00E76700`, initializes their semantic
+  layouts through virtual slots `+0x8C/+0x94`, allocates an `0x8C` selector
+  object, and calls `FUN_00B79B00`. The audit also tightens the shader object
+  ABI: `NiD3DPixelShader` is a `0x30` object with its native handle stored at
+  `+0x2C`, and `NiD3DVertexShader` is a `0x3C` object with native handles in
+  the `+0x30/+0x34/+0x38` range. This is useful for replacement side tables,
+  but it is still not enough to replace shaders visibly because
+  `FUN_00B79B00`, vtables `0x010EF544/0x010F003C`, and the concrete
+  selector-field `+0x78` bodies remain unresolved.
+- `graphics_fnv_pbr_selector_object_constructor_vtable_audit.txt` proves
+  `FUN_00B79B00` is a base selector constructor, not the final setup owner for
+  `+0x30/+0x34`. It installs selector vtable `0x010AF2F8`, stores the factory
+  stage-layout objects into selector fields `+0x28`, `+0x6C`, `+0x70`,
+  `+0x74`, and `+0x78`, and leaves later selector virtual setup calls to build
+  or assign shader-interface fields. The same audit proves the concrete
+  `0x010EF544 + 0x78` target is `FUN_00E826D0`, a shader-interface constant
+  apply dispatcher that iterates constant records and routes type-specific
+  uploads through helper slots such as `+0x8C/+0x90/+0x94/+0x98/+0x9C/+0xA4`.
+  This confirms the vanilla constant application family, but it still does not
+  prove the selector vtable setup slots `+0x4C/+0xC0/+0x11C/+0x144/+0x150` or
+  a safe shader replacement lifecycle.
+- `graphics_fnv_pbr_selector_setup_vtable_deep_audit.txt` proves selector
+  setup slot `+0x11C` is the final owner for the PPLighting selector
+  shader-interface fields. It allocates `0x44` byte `FUN_00B7E330` objects for
+  selector `+0x34` (vertex, constructor mode `0`) and `+0x30` (pixel,
+  constructor mode `2`), registers the vanilla PPLighting constant records, and
+  copies those pointers into `+0x88` and `+0x84`. It also builds the alternate
+  `+0x80` vertex and `+0x7C` pixel interfaces. These objects use the proven
+  `0x010EF544 -> 0x00E826D0` constant apply dispatcher. Slot `+0x4C` is a
+  global constant/resource cache reset. Slot `+0x144` is only a wrapper around
+  selector virtual `+0x148` then `+0x14C`. Ghidra did not bind functions for
+  raw slots `+0xC0` (`0x00E81420`) or `+0x150` (`0x00B7A730`) in this output,
+  so those remain unresolved before visible replacement.
+- Remaining hard gap: inspect raw selector slots `+0xC0/+0x150` and wrapper
+  children `+0x148/+0x14C`, then prove shader object replacement ownership and
+  restore timing. Visible native PBR replacement stays disabled until that
+  contract is proven.
+- Current Psycho implementation state: `graphics.native_pbr` is default-off and
+  prologue-gated. When explicitly enabled it captures the proven contract at
+  `BSShader::SetShaders`, `FUN_00BD4BA0`, and
+  `NiDX9RenderState::SetTexture`. It now also captures selector index `1`,
+  selector/draw-param `+0x30/+0x34` interface pointers, selector alternate
+  fields `+0x7C/+0x80`, active copies `+0x84/+0x88`, and their `vtable +0x78`
+  function pointers for telemetry. It classifies whether those interfaces match
+  the proven vanilla `0x010EF544 -> 0x00E826D0` constant dispatcher. It does not
+  replace shaders yet.
 
 ### Fallout Shader Loader
 
@@ -1512,7 +1588,8 @@ Expected implementation model:
 
 - when vanilla creates a shader, record name/path and native handle;
 - if a Psycho replacement exists, create a replacement D3D shader;
-- during `SetShaders`, bind replacement handles and constants;
+- during the proven shader-interface/`SetShaders` boundary, bind replacement
+  handles and constants only after the virtual `+0x78` contract is proven;
 - restore/chain cleanly.
 - never patch vanilla `NiD3DVertexShader`/`NiD3DPixelShader` allocation sizes;
 - validate `0x0126F74C` only inside the draw hook;
@@ -1650,6 +1727,7 @@ Completed native material/texture scripts:
 - `analysis/ghidra/scripts/graphics_fnv_pplighting_renderer_global_virtual_apply_contract_audit.py`
 - `analysis/ghidra/scripts/graphics_fnv_pplighting_render_state_global_identity_followup_audit.py`
 - `analysis/ghidra/scripts/graphics_fnv_pplighting_renderer_8b8_render_state_constructor_audit.py`
+- `analysis/ghidra/scripts/graphics_fnv_pbr_shader_interface_contract_audit.py`
 
 They prove the safe draw-time shader bind point, the unsafe/proxy nature of
 `0x011F91E0`, the shader object allocation-size hazard, and the render-state
@@ -1693,6 +1771,38 @@ proves `renderer +0x8B8` is the vtable-B render-state object created by
 `E91590` in `E72E60`, so `E7EA00 +0xDC` is now the final
 `NiDX9RenderState::SetTexture @ 0x00E88A20` route for PPLighting pass-entry
 resources.
+
+Prepared native PBR follow-up script:
+
+- `analysis/ghidra/scripts/graphics_fnv_pbr_shader_virtual_interface_followup_audit.py`
+  - resolve `FUN_00B55560(1)` object identity and the writers for its
+    `+0x30/+0x34` shader-interface fields;
+  - identify concrete virtual `+0x78` targets;
+  - prove whether those targets upload constants, bind textures, or mutate
+    shader objects.
+- `analysis/ghidra/scripts/graphics_fnv_pbr_shader_interface_object_vtable_audit.py`
+  - decompile selector index `1` factory `FUN_00B7A380`;
+  - trace `+0x30/+0x34` interface writers and factories such as
+    `FUN_00B7E330`, `FUN_00E7F5D0`, and `FUN_00E7F430`;
+  - print/decompile `NiD3DPixelShader` and `NiD3DVertexShader` vtable windows
+    around the handle getter/setter and apply-adjacent slots.
+- `analysis/ghidra/scripts/graphics_fnv_pbr_selector_object_constructor_vtable_audit.py`
+  - decompile selector constructors `FUN_00B79B00` and `FUN_00BD44C0`;
+  - print data windows for shader-interface vtable candidates
+    `0x010EF544/0x010F003C`;
+  - decompile functions reached from those vtable windows, especially the
+    candidate `+0x78` apply slots and shader handle getter/setter slots.
+- `analysis/ghidra/scripts/graphics_fnv_pbr_selector_setup_vtable_deep_audit.py`
+  - print/decompile selector vtable `0x010AF2F8`, especially setup slots
+    `+0x4C/+0xC0/+0x11C/+0x144/+0x150`;
+  - trace which setup slots create or assign selector `+0x30/+0x34`;
+  - prove whether those slots only manage constant/interface records or also
+    mutate native shader handles.
+- `analysis/ghidra/scripts/graphics_fnv_pbr_selector_setup_raw_slot_followup_audit.py`
+  - raw-disassemble unresolved selector setup slots `+0xC0` and `+0x150`;
+  - decompile wrapper children `+0x148` and `+0x14C`;
+  - prove whether any late selector setup/finalize path mutates native shader
+    handles after the `+0x11C` constant-interface setup.
 
 ### Runtime Telemetry
 
