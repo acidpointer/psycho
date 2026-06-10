@@ -1,0 +1,1544 @@
+FNV NATIVE MATERIAL DRAW CONTRACT FOLLOW-UP AUDIT
+
+Questions:
+1. Is 0x011F91E0 always a real NiGeometry pointer at draw time?
+2. Which writer paths store stack/proxy objects instead of engine geometry?
+3. Which offsets does BSShader::SetShaders consume from current NiD3DPass?
+4. Can Psycho read current pass/geometry safely without extending native shader object layouts?
+
+Expected compatibility result:
+Use 0x0126F74C only inside SetShaders, validate all pass pointers, and treat 0x011F91E0 as optional/proven-by-vtable material context rather than unconditional NiGeometry.
+
+----------------------------------------------------------------------
+Disassembly BSShader::SetShaders around 0x00be1f90
+----------------------------------------------------------------------
+  0x00be1f62: CALL EDX                                            
+  0x00be1f64: MOV EAX,0x80004005                                  
+  0x00be1f69: MOV ECX,dword ptr [ESP + 0x114]                     
+  0x00be1f70: POP ESI                                             
+  0x00be1f71: POP EBP                                             
+  0x00be1f72: POP EBX                                             
+  0x00be1f73: XOR ECX,ESP                                         
+  0x00be1f75: CALL 0x00ec408c                                      ; CALL 0x00ec408c __security_check_cookie
+  0x00be1f7a: ADD ESP,0x10c                                       
+  0x00be1f80: RET 0x18                                            
+  0x00be1f90: MOV ECX,dword ptr [0x0126f74c]                       << TARGET
+  0x00be1f96: PUSH ESI                                            
+  0x00be1f97: PUSH EDI                                            
+  0x00be1f98: CALL 0x00e7f7c0                                      ; CALL 0x00e7f7c0 FUN_00e7f7c0
+  0x00be1f9d: MOV ESI,EAX                                         
+  0x00be1f9f: MOV EAX,[0x0126f74c]                                
+  0x00be1fa4: MOV ECX,dword ptr [EAX + 0x5c]                      
+  0x00be1fa7: MOV EDX,dword ptr [ECX]                             
+  0x00be1fa9: MOV EAX,dword ptr [EDX + 0x84]                      
+  0x00be1faf: MOV EDI,dword ptr [ESI]                             
+  0x00be1fb1: PUSH 0x0                                            
+  0x00be1fb3: CALL EAX                                            
+  0x00be1fb5: MOV EDX,dword ptr [EDI + 0x8c]                      
+  0x00be1fbb: PUSH EAX                                            
+  0x00be1fbc: MOV ECX,ESI                                         
+  0x00be1fbe: CALL EDX                                            
+  0x00be1fc0: MOV EAX,[0x0126f74c]                                
+  0x00be1fc5: MOV ECX,dword ptr [EAX + 0x44]                      
+  0x00be1fc8: TEST ECX,ECX                                        
+  0x00be1fca: JZ 0x00be1fdf                                       
+  0x00be1fcc: MOV EDX,dword ptr [ECX]                             
+  0x00be1fce: MOV EAX,dword ptr [EDX + 0x7c]                      
+  0x00be1fd1: MOV EDI,dword ptr [ESI]                             
+  0x00be1fd3: PUSH 0x0                                            
+  0x00be1fd5: CALL EAX                                            
+  0x00be1fd7: MOV EDX,dword ptr [EDI + 0x7c]                      
+  0x00be1fda: PUSH EAX                                            
+  0x00be1fdb: MOV ECX,ESI                                         
+  0x00be1fdd: CALL EDX                                            
+  0x00be1fdf: POP EDI                                             
+  0x00be1fe0: POP ESI                                             
+  0x00be1fe1: RET 0x4                                             
+  0x00be1ff0: MOV EAX,dword ptr [ESP + 0x4]                       
+  0x00be1ff4: PUSH EBX                                            
+  0x00be1ff5: PUSH ESI                                            
+  0x00be1ff6: MOV ESI,dword ptr [EAX]                             
+  0x00be1ff8: MOV EAX,dword ptr [EAX + 0xc]                       
+  0x00be1ffb: TEST EAX,EAX                                        
+  0x00be1ffd: JNZ 0x00be2003                                      
+  0x00be1fff: XOR ECX,ECX                                         
+  0x00be2001: JMP 0x00be200d                                      
+  0x00be2003: MOV ECX,dword ptr [EAX + 0x1c]                      
+  0x00be2006: INC ECX                                             
+  0x00be2007: NEG ECX                                             
+  0x00be2009: SBB ECX,ECX                                         
+  0x00be200b: AND ECX,EAX                                         
+  0x00be200d: XOR DL,DL                                           
+  0x00be200f: XOR BL,BL                                           
+  0x00be2011: MOV byte ptr [ESP + 0xc],DL                         
+
+----------------------------------------------------------------------
+References TO 0x011f91e0 (Current geometry slot/pointer candidate)
+----------------------------------------------------------------------
+  WRITE @ 0x00b54a17 (in FUN_00b54630) MOV dword ptr [0x011f91e0],EBP
+  WRITE @ 0x00b57946 (in FUN_00b578a0) MOV dword ptr [0x011f91e0],EBX
+  WRITE @ 0x00b653f6 (in FUN_00b651e0) MOV dword ptr [0x011f91e0],ECX
+  WRITE @ 0x00b65445 (in FUN_00b651e0) MOV dword ptr [0x011f91e0],ECX
+  WRITE @ 0x00b9950c (in FUN_00b994f0) MOV dword ptr [0x011f91e0],ESI
+  READ @ 0x00b7c583 (in FUN_00b7c580) MOV EAX,[0x011f91e0]
+  READ @ 0x00b7c603 (in FUN_00b7c600) MOV EAX,[0x011f91e0]
+  READ @ 0x00b7de6a (in FUN_00b7dde0) MOV ECX,dword ptr [0x011f91e0]
+  READ @ 0x00b7c7b3 (in FUN_00b7c7b0) MOV EAX,[0x011f91e0]
+  READ @ 0x00b7e22a (in FUN_00b7e150) MOV EDX,dword ptr [0x011f91e0]
+  READ @ 0x00b7df5d (in FUN_00b7ded0) MOV ECX,dword ptr [0x011f91e0]
+  READ @ 0x00b7c85a (in FUN_00b7c850) MOV ESI,dword ptr [0x011f91e0]
+  READ @ 0x00b7e071 (in FUN_00b7dfe0) MOV EBX,dword ptr [0x011f91e0]
+  READ @ 0x00b7cb04 (in FUN_00b7cb00) MOV ESI,dword ptr [0x011f91e0]
+  READ @ 0x00b70878 (in FUN_00b70820) MOV ECX,dword ptr [0x011f91e0]
+  READ @ 0x00b70e28 (in FUN_00b70de0) MOV ECX,dword ptr [0x011f91e0]
+  READ @ 0x00b7b679 (in FUN_00b7b450) MOV ECX,dword ptr [0x011f91e0]
+  READ @ 0x00b7b7b3 (in FUN_00b7b730) MOV ESI,dword ptr [0x011f91e0]
+  READ @ 0x00b7baf2 (in FUN_00b7ba70) MOV EDI,dword ptr [0x011f91e0]
+  READ @ 0x00b7bc5c (in FUN_00b7ba70) MOV ECX,dword ptr [0x011f91e0]
+  READ @ 0x00b7be20 (in FUN_00b7be00) MOV EDX,dword ptr [0x011f91e0]
+  READ @ 0x00b7dab3 (in FUN_00b7dab0) MOV EAX,[0x011f91e0]
+  READ @ 0x00b80c23 (in FUN_00b80c20) MOV EAX,[0x011f91e0]
+  READ @ 0x00b864d3 (in FUN_00b864d0) MOV EAX,[0x011f91e0]
+  READ @ 0x00b89d8d (in FUN_00b89d80) MOV ECX,dword ptr [0x011f91e0]
+  READ @ 0x00baa940 (in FUN_00baa850) MOV EAX,[0x011f91e0]
+  READ @ 0x00baaac9 (in FUN_00baa850) MOV EDX,dword ptr [0x011f91e0]
+  READ @ 0x00bac9c3 (in FUN_00bac9c0) MOV EAX,[0x011f91e0]
+  READ @ 0x00bb2765 (in FUN_00bb2760) MOV EBP,dword ptr [0x011f91e0]
+  READ @ 0x00b71360 (in FUN_00b71360) MOV EAX,[0x011f91e0]
+  READ @ 0x00bb6a83 (in FUN_00bb6a80) MOV EAX,[0x011f91e0]
+  READ @ 0x00bbef9c (in FUN_00bbef90) MOV EAX,[0x011f91e0]
+  READ @ 0x00bbf181 (in FUN_00bbef90) MOV ECX,dword ptr [0x011f91e0]
+  READ @ 0x00bc9a5b (in FUN_00bc9a50) MOV ECX,dword ptr [0x011f91e0]
+  READ @ 0x00bca983 (in FUN_00bca980) MOV EAX,[0x011f91e0]
+  READ @ 0x00bcbce3 (in FUN_00bcbce0) MOV EAX,[0x011f91e0]
+  READ @ 0x00bd4ba3 (in FUN_00bd4ba0) MOV EAX,[0x011f91e0]
+  WRITE @ 0x00b9d0b1 (in FUN_00b9d020) MOV dword ptr [0x011f91e0],EBX
+  WRITE @ 0x00b9d0ef (in FUN_00b9d020) MOV dword ptr [0x011f91e0],EBX
+  READ @ 0x00c043f3 (in FUN_00c043f0) MOV EAX,[0x011f91e0]
+  WRITE @ 0x00b63337 (in FUN_00b63320) MOV dword ptr [0x011f91e0],ESI
+  READ @ 0x00b7d204 (in FUN_00b7d200) MOV EDX,dword ptr [0x011f91e0]
+  READ @ 0x00ba5ee0 (in ???) MOV EAX,[0x011f91e0]
+  READ @ 0x00bac98e (in ???) MOV EAX,[0x011f91e0]
+  READ @ 0x00b7c12c (in FUN_00b7c120) MOV EAX,[0x011f91e0]
+  READ @ 0x00bd4987 (in ???) MOV EAX,[0x011f91e0]
+  READ @ 0x00c02ede (in ???) MOV EDX,dword ptr [0x011f91e0]
+  READ @ 0x00c0ce34 (in ???) MOV EDX,dword ptr [0x011f91e0]
+  READ @ 0x00c0c687 (in FUN_00c0bd40) MOV ECX,dword ptr [0x011f91e0]
+  WRITE @ 0x00b542a9 (in FUN_00b54280) MOV dword ptr [0x011f91e0],EBX
+  Total: 50 refs
+
+----------------------------------------------------------------------
+References TO 0x011f91e4 (Current shader mode/id candidate)
+----------------------------------------------------------------------
+  WRITE @ 0x00b6540a (in FUN_00b651e0) MOV [0x011f91e4],EAX
+  WRITE @ 0x00b65424 (in FUN_00b651e0) MOV [0x011f91e4],EAX
+  WRITE @ 0x00b65450 (in FUN_00b651e0) MOV [0x011f91e4],EAX
+  WRITE @ 0x00b99506 (in FUN_00b994f0) MOV dword ptr [0x011f91e4],EDI
+  READ @ 0x00b7c527 (in FUN_00b7c510) MOV EBX,dword ptr [0x011f91e4]
+  READ @ 0x00b7c546 (in FUN_00b7c510) MOV EBX,dword ptr [0x011f91e4]
+  READ @ 0x00b70cd5 (in FUN_00b70820) MOVZX EAX,word ptr [0x011f91e4]
+  READ @ 0x00b7bdc9 (in FUN_00b7ba70) MOV EDX,dword ptr [0x011f91e4]
+  READ @ 0x00b7dac5 (in FUN_00b7dab0) MOV EDI,dword ptr [0x011f91e4]
+  READ @ 0x00b80c62 (in FUN_00b80c20) CMP dword ptr [0x011f91e4],0x2f0
+  READ @ 0x00b864d9 (in FUN_00b864d0) MOV EBX,dword ptr [0x011f91e4]
+  READ @ 0x00b89d83 (in FUN_00b89d80) MOV EAX,[0x011f91e4]
+  READ @ 0x00bbefa8 (in FUN_00bbef90) MOV ECX,dword ptr [0x011f91e4]
+  READ @ 0x00bc9a53 (in FUN_00bc9a50) MOV EAX,[0x011f91e4]
+  READ @ 0x00bc7100 (in FUN_00bc7100) MOV EAX,[0x011f91e4]
+  WRITE @ 0x00b9d0bb (in FUN_00b9d020) MOV dword ptr [0x011f91e4],0x5c
+  WRITE @ 0x00b9d0ce (in FUN_00b9d020) MOV dword ptr [0x011f91e4],0x58
+  WRITE @ 0x00b9d0f7 (in FUN_00b9d020) MOV dword ptr [0x011f91e4],0x1ca
+  WRITE @ 0x00b9d108 (in FUN_00b9d020) MOV dword ptr [0x011f91e4],0x1c8
+  WRITE @ 0x00b63331 (in FUN_00b63320) MOV dword ptr [0x011f91e4],EDI
+  READ @ 0x00b7c322 (in ???) MOV EDI,dword ptr [0x011f91e4]
+  READ @ 0x00b80b3b (in FUN_00b80b30) MOV EAX,[0x011f91e4]
+  READ @ 0x00b863a1 (in ???) MOV EAX,[0x011f91e4]
+  READ @ 0x00b86b89 (in ???) MOV EDI,dword ptr [0x011f91e4]
+  READ @ 0x00b89d02 (in ???) MOV ECX,dword ptr [0x011f91e4]
+  READ @ 0x00baac32 (in ???) MOV EAX,[0x011f91e4]
+  READ @ 0x00bac95c (in ???) MOV ESI,dword ptr [0x011f91e4]
+  READ @ 0x00bbc5c0 (in ???) MOV EAX,[0x011f91e4]
+  READ @ 0x00bbe65a (in ???) MOV EDI,dword ptr [0x011f91e4]
+  READ @ 0x00bbeef1 (in ???) MOV ESI,dword ptr [0x011f91e4]
+  READ @ 0x00bc8ed0 (in ???) MOV EDX,dword ptr [0x011f91e4]
+  READ @ 0x00bce500 (in ???) MOV EAX,[0x011f91e4]
+  READ @ 0x00bd02e0 (in ???) MOV EAX,[0x011f91e4]
+  READ @ 0x00bd48a1 (in ???) MOV EDI,dword ptr [0x011f91e4]
+  READ @ 0x00be0e50 (in ???) MOV EAX,[0x011f91e4]
+  READ @ 0x00be20e7 (in ???) MOV ESI,dword ptr [0x011f91e4]
+  READ @ 0x00c02ec1 (in ???) MOV ECX,dword ptr [0x011f91e4]
+  READ @ 0x00c0ce13 (in ???) MOV EDX,dword ptr [0x011f91e4]
+  WRITE @ 0x00b542a3 (in FUN_00b54280) MOV dword ptr [0x011f91e4],EBX
+  Total: 39 refs
+
+----------------------------------------------------------------------
+References TO 0x0126f74c (Current NiD3DPass global)
+----------------------------------------------------------------------
+  WRITE @ 0x00e90933 (in FUN_00e90850) MOV [0x0126f74c],EAX
+  READ @ 0x00b7dd50 (in FUN_00b7dd50) MOV EAX,[0x0126f74c]
+  READ @ 0x00b7dda4 (in FUN_00b7dd50) MOV EAX,[0x0126f74c]
+  READ @ 0x00b7c4ec (in FUN_00b7c3a0) MOV EAX,[0x0126f74c]
+  READ @ 0x00b7ddf5 (in FUN_00b7dde0) MOV ECX,dword ptr [0x0126f74c]
+  READ @ 0x00b7de19 (in FUN_00b7dde0) MOV ECX,dword ptr [0x0126f74c]
+  READ @ 0x00b7de46 (in FUN_00b7dde0) MOV EAX,[0x0126f74c]
+  READ @ 0x00b7de57 (in FUN_00b7dde0) MOV EDX,dword ptr [0x0126f74c]
+  READ @ 0x00b7c785 (in FUN_00b7c750) MOV EAX,[0x0126f74c]
+  READ @ 0x00b7c81d (in FUN_00b7c7b0) MOV EDX,dword ptr [0x0126f74c]
+  READ @ 0x00b7e165 (in FUN_00b7e150) MOV ECX,dword ptr [0x0126f74c]
+  READ @ 0x00b7e189 (in FUN_00b7e150) MOV ECX,dword ptr [0x0126f74c]
+  READ @ 0x00b7e1b6 (in FUN_00b7e150) MOV EAX,[0x0126f74c]
+  READ @ 0x00b7e1f3 (in FUN_00b7e150) MOV EDX,dword ptr [0x0126f74c]
+  READ @ 0x00b7e205 (in FUN_00b7e150) MOV ECX,dword ptr [0x0126f74c]
+  READ @ 0x00b7e218 (in FUN_00b7e150) MOV EAX,[0x0126f74c]
+  READ @ 0x00b7e279 (in FUN_00b7e150) MOV ECX,dword ptr [0x0126f74c]
+  READ @ 0x00b7dee8 (in FUN_00b7ded0) MOV ECX,dword ptr [0x0126f74c]
+  READ @ 0x00b7df0c (in FUN_00b7ded0) MOV ECX,dword ptr [0x0126f74c]
+  READ @ 0x00b7df39 (in FUN_00b7ded0) MOV EAX,[0x0126f74c]
+  READ @ 0x00b7df4a (in FUN_00b7ded0) MOV EDX,dword ptr [0x0126f74c]
+  READ @ 0x00b7df9b (in FUN_00b7ded0) MOV EAX,[0x0126f74c]
+  READ @ 0x00b7c853 (in FUN_00b7c850) MOV ECX,dword ptr [0x0126f74c]
+  READ @ 0x00b7c993 (in FUN_00b7c850) MOV ECX,dword ptr [0x0126f74c]
+  READ @ 0x00b7dffc (in FUN_00b7dfe0) MOV ECX,dword ptr [0x0126f74c]
+  READ @ 0x00b7e020 (in FUN_00b7dfe0) MOV ECX,dword ptr [0x0126f74c]
+  READ @ 0x00b7e04d (in FUN_00b7dfe0) MOV EAX,[0x0126f74c]
+  READ @ 0x00b7e05e (in FUN_00b7dfe0) MOV EDX,dword ptr [0x0126f74c]
+  READ @ 0x00b7e0e5 (in FUN_00b7dfe0) MOV EDX,dword ptr [0x0126f74c]
+  READ @ 0x00b7e10c (in FUN_00b7dfe0) MOV EAX,[0x0126f74c]
+  READ @ 0x00b7cb2a (in FUN_00b7cb00) MOV ECX,dword ptr [0x0126f74c]
+  READ @ 0x00b7cc66 (in FUN_00b7cb00) MOV ECX,dword ptr [0x0126f74c]
+  READ @ 0x00e814ba (in FUN_00e814b0) MOV ESI,dword ptr [0x0126f74c]
+  WRITE @ 0x00e80766 (in FUN_00e806c0) MOV dword ptr [0x0126f74c],EBP
+  WRITE @ 0x00b7af91 (in FUN_00b7af80) MOV [0x0126f74c],EAX
+  READ @ 0x00b7b69d (in FUN_00b7b450) MOV EDX,dword ptr [0x0126f74c]
+  READ @ 0x00b7dcb0 (in FUN_00b7dab0) MOV EAX,[0x0126f74c]
+  READ @ 0x00b7dceb (in FUN_00b7dab0) MOV EAX,[0x0126f74c]
+  WRITE @ 0x00b7ad73 (in FUN_00b7ad00) MOV dword ptr [0x0126f74c],EDI
+  READ @ 0x00b7cf24 (in FUN_00b7ce90) MOV ECX,dword ptr [0x0126f74c]
+  READ @ 0x00b7cf44 (in FUN_00b7ce90) MOV ECX,dword ptr [0x0126f74c]
+  READ @ 0x00b7cf65 (in FUN_00b7ce90) MOV ECX,dword ptr [0x0126f74c]
+  WRITE @ 0x00b7cf9c (in FUN_00b7ce90) MOV dword ptr [0x0126f74c],EBP
+  READ @ 0x00b80cb4 (in FUN_00b80c20) MOV EAX,[0x0126f74c]
+  READ @ 0x00b80cf1 (in FUN_00b80c20) MOV EDX,dword ptr [0x0126f74c]
+  READ @ 0x00b86afc (in FUN_00b864d0) MOV EDX,dword ptr [0x0126f74c]
+  READ @ 0x00b86b39 (in FUN_00b864d0) MOV EDX,dword ptr [0x0126f74c]
+  READ @ 0x00b8a0d3 (in FUN_00b89d80) MOV EAX,[0x0126f74c]
+  READ @ 0x00b8a10f (in FUN_00b89d80) MOV EAX,[0x0126f74c]
+  WRITE @ 0x00b92136 (in FUN_00b91f90) MOV [0x0126f74c],EAX
+  READ @ 0x00bacc85 (in FUN_00bac9c0) MOV EAX,[0x0126f74c]
+  READ @ 0x00baccc1 (in FUN_00bac9c0) MOV EAX,[0x0126f74c]
+  WRITE @ 0x00bb25bd (in FUN_00bb2580) MOV dword ptr [0x0126f74c],ECX
+  READ @ 0x00bb26f8 (in FUN_00bb26d0) MOV EDX,dword ptr [0x0126f74c]
+  READ @ 0x00bb2978 (in FUN_00bb2760) MOV EDX,dword ptr [0x0126f74c]
+  READ @ 0x00bb29b5 (in FUN_00bb2760) MOV EAX,[0x0126f74c]
+  READ @ 0x00bb6adc (in FUN_00bb6a80) MOV EAX,[0x0126f74c]
+  READ @ 0x00bb6b19 (in FUN_00bb6a80) MOV EAX,[0x0126f74c]
+  READ @ 0x00bbf060 (in FUN_00bbef90) MOV EAX,[0x0126f74c]
+  READ @ 0x00bbf4bc (in FUN_00bbef90) MOV EAX,[0x0126f74c]
+  READ @ 0x00bbf4ce (in FUN_00bbef90) MOV EDX,dword ptr [0x0126f74c]
+  READ @ 0x00bbf501 (in FUN_00bbef90) MOV EAX,[0x0126f74c]
+  READ @ 0x00bbf53e (in FUN_00bbef90) MOV EAX,[0x0126f74c]
+  READ @ 0x00bc9bc0 (in FUN_00bc9a50) MOV EAX,[0x0126f74c]
+  READ @ 0x00bc9c35 (in FUN_00bc9a50) MOV EAX,[0x0126f74c]
+  READ @ 0x00bca7a3 (in FUN_00bca760) MOV ECX,dword ptr [0x0126f74c]
+  READ @ 0x00bca7be (in FUN_00bca760) MOV ECX,dword ptr [0x0126f74c]
+  READ @ 0x00bca7dd (in FUN_00bca760) MOV EAX,[0x0126f74c]
+  READ @ 0x00bca803 (in FUN_00bca760) MOV ECX,dword ptr [0x0126f74c]
+  READ @ 0x00bca81c (in FUN_00bca760) MOV EAX,[0x0126f74c]
+  READ @ 0x00bca84e (in FUN_00bca760) MOV ECX,dword ptr [0x0126f74c]
+  READ @ 0x00bca85a (in FUN_00bca760) MOV ECX,dword ptr [0x0126f74c]
+  READ @ 0x00bca87c (in FUN_00bca760) MOV EAX,[0x0126f74c]
+  READ @ 0x00bca8bc (in FUN_00bca760) MOV ECX,dword ptr [0x0126f74c]
+  READ @ 0x00bca8d4 (in FUN_00bca760) MOV ECX,dword ptr [0x0126f74c]
+  READ @ 0x00bcaa5e (in FUN_00bca980) MOV EDX,dword ptr [0x0126f74c]
+  READ @ 0x00bcaaa0 (in FUN_00bca980) MOV EDX,dword ptr [0x0126f74c]
+  READ @ 0x00bcbe7e (in FUN_00bcbce0) MOV EDX,dword ptr [0x0126f74c]
+  READ @ 0x00bcbeb1 (in FUN_00bcbce0) MOV EDX,dword ptr [0x0126f74c]
+  READ @ 0x00b7d066 (in FUN_00b7cfb0) MOV ECX,dword ptr [0x0126f74c]
+  READ @ 0x00b7d07b (in FUN_00b7cfb0) MOV EDX,dword ptr [0x0126f74c]
+  WRITE @ 0x00bcd011 (in FUN_00bcce40) MOV dword ptr [0x0126f74c],EDX
+  WRITE @ 0x00bd1cc0 (in FUN_00bd1c50) MOV dword ptr [0x0126f74c],ECX
+  WRITE @ 0x00bd1cd2 (in FUN_00bd1c50) MOV dword ptr [0x0126f74c],EDX
+  WRITE @ 0x00bd1ce4 (in FUN_00bd1c50) MOV [0x0126f74c],EAX
+  READ @ 0x00bd4c35 (in FUN_00bd4ba0) MOV EAX,[0x0126f74c]
+  READ @ 0x00bd4c61 (in FUN_00bd4ba0) MOV EAX,[0x0126f74c]
+  READ @ 0x00bd4c7f (in FUN_00bd4ba0) MOV EDX,dword ptr [0x0126f74c]
+  READ @ 0x00bd4cbc (in FUN_00bd4ba0) MOV EDX,dword ptr [0x0126f74c]
+  READ @ 0x00be2173 (in FUN_00be2170) MOV EDI,dword ptr [0x0126f74c]
+  READ @ 0x00be21b4 (in FUN_00be21b0) MOV EDI,dword ptr [0x0126f74c]
+  WRITE @ 0x00c042c6 (in FUN_00c04120) MOV [0x0126f74c],EAX
+  READ @ 0x00c04351 (in FUN_00c04310) MOV ECX,dword ptr [0x0126f74c]
+  READ @ 0x00c04428 (in FUN_00c043f0) MOV EAX,[0x0126f74c]
+  READ @ 0x00c0445d (in FUN_00c043f0) MOV EAX,[0x0126f74c]
+  READ @ 0x00c044d1 (in FUN_00c04490) MOV ECX,dword ptr [0x0126f74c]
+  READ @ 0x00c0450b (in FUN_00c04490) MOV ECX,dword ptr [0x0126f74c]
+  WRITE @ 0x00e7c7a2 (in FUN_00e7c790) MOV dword ptr [0x0126f74c],0x0
+  WRITE @ 0x00e7c7bb (in FUN_00e7c790) MOV [0x0126f74c],EAX
+  READ @ 0x00e7c834 (in FUN_00e7c830) MOV ECX,dword ptr [0x0126f74c]
+  READ @ 0x00e7c9d9 (in FUN_00e7c830) MOV ECX,dword ptr [0x0126f74c]
+  READ @ 0x00e7ca20 (in FUN_00e7ca20) CMP dword ptr [0x0126f74c],0x0
+  READ @ 0x00e81201 (in FUN_00e811d0) MOV ECX,dword ptr [0x0126f74c]
+  READ @ 0x00e81236 (in FUN_00e811d0) MOV EDX,dword ptr [0x0126f74c]
+  READ @ 0x00e8127c (in FUN_00e811d0) MOV EDX,dword ptr [0x0126f74c]
+  READ @ 0x00e815a9 (in FUN_00e81510) MOV EBP,dword ptr [0x0126f74c]
+  READ @ 0x00e81664 (in FUN_00e81510) MOV EAX,[0x0126f74c]
+  WRITE @ 0x00e90569 (in FUN_00e90560) MOV dword ptr [0x0126f74c],0x0
+  READ @ 0x00b7cfe3 (in FUN_00b7cfb0) MOV ECX,dword ptr [0x0126f74c]
+  READ @ 0x00b7cff8 (in FUN_00b7cfb0) MOV EDX,dword ptr [0x0126f74c]
+  READ @ 0x00b7d010 (in FUN_00b7cfb0) MOV EAX,[0x0126f74c]
+  READ @ 0x00b7d023 (in FUN_00b7cfb0) MOV ECX,dword ptr [0x0126f74c]
+  READ @ 0x00b7d03b (in FUN_00b7cfb0) MOV EDX,dword ptr [0x0126f74c]
+  READ @ 0x00b7d050 (in FUN_00b7cfb0) MOV EAX,[0x0126f74c]
+  READ @ 0x00b7d0ab (in FUN_00b7cfb0) MOV ECX,dword ptr [0x0126f74c]
+  READ @ 0x00b7d0c0 (in FUN_00b7cfb0) MOV EDX,dword ptr [0x0126f74c]
+  READ @ 0x00b7c150 (in FUN_00b7c150) MOV EAX,[0x0126f74c]
+  READ @ 0x00b7c170 (in FUN_00b7c170) MOV EAX,[0x0126f74c]
+  WRITE @ 0x00bcceba (in FUN_00bcce40) MOV dword ptr [0x0126f74c],EDX
+  WRITE @ 0x00bccecc (in FUN_00bcce40) MOV [0x0126f74c],EAX
+  WRITE @ 0x00bccede (in FUN_00bcce40) MOV dword ptr [0x0126f74c],ECX
+  WRITE @ 0x00bccef1 (in FUN_00bcce40) MOV dword ptr [0x0126f74c],EDX
+  WRITE @ 0x00bccf03 (in FUN_00bcce40) MOV [0x0126f74c],EAX
+  WRITE @ 0x00bccf15 (in FUN_00bcce40) MOV dword ptr [0x0126f74c],ECX
+  WRITE @ 0x00bccf28 (in FUN_00bcce40) MOV dword ptr [0x0126f74c],EDX
+  WRITE @ 0x00bccf3a (in FUN_00bcce40) MOV [0x0126f74c],EAX
+  WRITE @ 0x00bccf4c (in FUN_00bcce40) MOV dword ptr [0x0126f74c],ECX
+  WRITE @ 0x00bccf5f (in FUN_00bcce40) MOV dword ptr [0x0126f74c],EDX
+  WRITE @ 0x00bccf71 (in FUN_00bcce40) MOV [0x0126f74c],EAX
+  WRITE @ 0x00bccf83 (in FUN_00bcce40) MOV dword ptr [0x0126f74c],ECX
+  WRITE @ 0x00bccf96 (in FUN_00bcce40) MOV dword ptr [0x0126f74c],EDX
+  WRITE @ 0x00bccfa8 (in FUN_00bcce40) MOV [0x0126f74c],EAX
+  WRITE @ 0x00bccfba (in FUN_00bcce40) MOV dword ptr [0x0126f74c],ECX
+  WRITE @ 0x00bccfcd (in FUN_00bcce40) MOV dword ptr [0x0126f74c],EDX
+  WRITE @ 0x00bcd041 (in FUN_00bcce40) MOV dword ptr [0x0126f74c],ECX
+  WRITE @ 0x00bcd054 (in FUN_00bcce40) MOV dword ptr [0x0126f74c],EDX
+  WRITE @ 0x00bcd066 (in FUN_00bcce40) MOV [0x0126f74c],EAX
+  WRITE @ 0x00bcd078 (in FUN_00bcce40) MOV dword ptr [0x0126f74c],ECX
+  WRITE @ 0x00bcd08b (in FUN_00bcce40) MOV dword ptr [0x0126f74c],EDX
+  WRITE @ 0x00bcd09d (in FUN_00bcce40) MOV [0x0126f74c],EAX
+  WRITE @ 0x00bcd0af (in FUN_00bcce40) MOV dword ptr [0x0126f74c],ECX
+  WRITE @ 0x00bcd0c2 (in FUN_00bcce40) MOV dword ptr [0x0126f74c],EDX
+  WRITE @ 0x00bcd0d4 (in FUN_00bcce40) MOV [0x0126f74c],EAX
+  WRITE @ 0x00bcd0e6 (in FUN_00bcce40) MOV dword ptr [0x0126f74c],ECX
+  WRITE @ 0x00bcd0f9 (in FUN_00bcce40) MOV dword ptr [0x0126f74c],EDX
+  WRITE @ 0x00bcd10b (in FUN_00bcce40) MOV [0x0126f74c],EAX
+  WRITE @ 0x00bcd11d (in FUN_00bcce40) MOV dword ptr [0x0126f74c],ECX
+  WRITE @ 0x00bcd130 (in FUN_00bcce40) MOV dword ptr [0x0126f74c],EDX
+  WRITE @ 0x00bcd142 (in FUN_00bcce40) MOV [0x0126f74c],EAX
+  WRITE @ 0x00bcd154 (in FUN_00bcce40) MOV dword ptr [0x0126f74c],ECX
+  READ @ 0x00b7a31a (in FUN_00b7a2c0) MOV EDX,dword ptr [0x0126f74c]
+  READ @ 0x00b7a352 (in FUN_00b7a2c0) MOV ECX,dword ptr [0x0126f74c]
+  READ @ 0x00b7d21a (in FUN_00b7d200) MOV EAX,[0x0126f74c]
+  WRITE @ 0x00b805e3 (in ???) MOV [0x0126f74c],EAX
+  WRITE @ 0x00b805ee (in ???) MOV dword ptr [0x0126f74c],ECX
+  READ @ 0x00b863b0 (in ???) MOV ESI,dword ptr [0x0126f74c]
+  WRITE @ 0x00b884f9 (in ???) MOV [0x0126f74c],EAX
+  WRITE @ 0x00b88507 (in ???) MOV dword ptr [0x0126f74c],ECX
+  READ @ 0x00b89cc5 (in ???) MOV EBX,dword ptr [0x0126f74c]
+  WRITE @ 0x00ba52ba (in ???) MOV [0x0126f74c],EAX
+  WRITE @ 0x00ba52c5 (in ???) MOV dword ptr [0x0126f74c],ECX
+  READ @ 0x00ba61c3 (in ???) MOV EDX,dword ptr [0x0126f74c]
+  READ @ 0x00ba6200 (in ???) MOV EAX,[0x0126f74c]
+  READ @ 0x00ba625c (in ???) MOV ECX,dword ptr [0x0126f74c]
+  WRITE @ 0x00baa400 (in ???) MOV [0x0126f74c],EAX
+  WRITE @ 0x00baa41a (in ???) MOV [0x0126f74c],EAX
+  READ @ 0x00bac8d4 (in ???) MOV ECX,dword ptr [0x0126f74c]
+  READ @ 0x00bac954 (in ???) MOV EDX,dword ptr [0x0126f74c]
+  READ @ 0x00bac985 (in ???) MOV ECX,dword ptr [0x0126f74c]
+  WRITE @ 0x00bb1b2f (in ???) MOV [0x0126f74c],EAX
+  WRITE @ 0x00bb1b42 (in ???) MOV dword ptr [0x0126f74c],ECX
+  WRITE @ 0x00bb62c3 (in ???) MOV [0x0126f74c],EAX
+  WRITE @ 0x00bb62dd (in ???) MOV [0x0126f74c],EAX
+  READ @ 0x00bb66c9 (in ???) MOV ECX,dword ptr [0x0126f74c]
+  WRITE @ 0x00bbb82f (in ???) MOV [0x0126f74c],EAX
+  READ @ 0x00bbd05f (in FUN_00bbd000) MOV ESI,dword ptr [0x0126f74c]
+  READ @ 0x00bbd098 (in FUN_00bbd000) MOV ECX,dword ptr [0x0126f74c]
+  WRITE @ 0x00bbe03a (in ???) MOV [0x0126f74c],EAX
+  WRITE @ 0x00bc6c44 (in ???) MOV [0x0126f74c],EAX
+  READ @ 0x00bc8d40 (in ???) MOV EAX,[0x0126f74c]
+  READ @ 0x00bc8f4b (in ???) MOV ECX,dword ptr [0x0126f74c]
+  WRITE @ 0x00bca503 (in ???) MOV [0x0126f74c],EAX
+  WRITE @ 0x00bcb199 (in ???) MOV [0x0126f74c],EAX
+  WRITE @ 0x00bcb1b3 (in ???) MOV [0x0126f74c],EAX
+  READ @ 0x00bcb49e (in FUN_00bcb460) MOV ECX,dword ptr [0x0126f74c]
+  READ @ 0x00bcbcb0 (in ???) MOV EAX,[0x0126f74c]
+  READ @ 0x00b7c0a0 (in FUN_00b7c0a0) MOV EAX,[0x0126f74c]
+  READ @ 0x00b7c120 (in FUN_00b7c120) MOV EAX,[0x0126f74c]
+  WRITE @ 0x00bcff20 (in ???) MOV dword ptr [0x0126f74c],EDX
+  WRITE @ 0x00bd41ae (in ???) MOV [0x0126f74c],EAX
+  READ @ 0x00bd489a (in ???) MOV ESI,dword ptr [0x0126f74c]
+  READ @ 0x00be0eb0 (in ???) MOV EAX,[0x0126f74c]
+  READ @ 0x00be0ee0 (in ???) MOV EAX,[0x0126f74c]
+  READ @ 0x00be1f90 (in ???) MOV ECX,dword ptr [0x0126f74c]
+  READ @ 0x00be1f9f (in ???) MOV EAX,[0x0126f74c]
+  READ @ 0x00be1fc0 (in ???) MOV EAX,[0x0126f74c]
+  READ @ 0x00c02e2b (in ???) MOV EBX,dword ptr [0x0126f74c]
+  WRITE @ 0x00c03d73 (in ???) MOV [0x0126f74c],EAX
+  READ @ 0x00c0cd81 (in ???) MOV EBX,dword ptr [0x0126f74c]
+  READ @ 0x00c0cf15 (in ???) MOV ESI,dword ptr [0x0126f74c]
+  READ @ 0x00e80582 (in FUN_00e80580) CMP dword ptr [0x0126f74c],EAX
+  READ @ 0x00e80590 (in FUN_00e80590) MOV EAX,[0x0126f74c]
+  READ @ 0x00e805b4 (in FUN_00e805b0) MOV ECX,dword ptr [0x0126f74c]
+  WRITE @ 0x00e80612 (in ???) MOV [0x0126f74c],EAX
+  READ @ 0x00e81471 (in FUN_00e81470) MOV ESI,dword ptr [0x0126f74c]
+  READ @ 0x00e814f0 (in ???) MOV EAX,[0x0126f74c]
+  READ @ 0x00e81500 (in ???) MOV EAX,[0x0126f74c]
+  READ @ 0x00e8d45d (in ???) MOV ESI,dword ptr [0x0126f74c]
+  READ @ 0x00e8d591 (in ???) CMP dword ptr [0x0126f74c],0x0
+  WRITE @ 0x00e8d5b5 (in ???) MOV [0x0126f74c],EAX
+  READ @ 0x00e8d5fc (in ???) MOV ECX,dword ptr [0x0126f74c]
+  READ @ 0x00e8d63f (in ???) MOV ESI,dword ptr [0x0126f74c]
+  READ @ 0x00e8dc37 (in ???) MOV ESI,dword ptr [0x0126f74c]
+  READ @ 0x00e8dcad (in ???) MOV EDI,dword ptr [0x0126f74c]
+  READ @ 0x00b7d25d (in FUN_00b7d200) MOV ECX,dword ptr [0x0126f74c]
+  READ @ 0x00b7c0e0 (in FUN_00b7c0e0) MOV EAX,[0x0126f74c]
+  READ @ 0x00b7d2a8 (in FUN_00b7d200) MOV EAX,[0x0126f74c]
+  READ @ 0x00b7c290 (in FUN_00b7c290) MOV EAX,[0x0126f74c]
+  READ @ 0x00b7c2c0 (in FUN_00b7c2c0) MOV EAX,[0x0126f74c]
+  READ @ 0x00b7d3d9 (in FUN_00b7d200) MOV ECX,dword ptr [0x0126f74c]
+  READ @ 0x00b7c197 (in FUN_00b7c190) MOV EAX,[0x0126f74c]
+  ... (truncated)
+  Total: 221 refs
+
+======================================================================
+BSShader::SetShaders @ 0x00be1f90
+======================================================================
+  [function not found]
+
+======================================================================
+NATIVE MATERIAL DRAW MATCHES: BSShader::SetShaders @ 0x00be1f90
+======================================================================
+  [decompilation failed]
+
+--- Calls FROM BSShader::SetShaders (0x00be1f90) ---
+  [function not found]
+
+======================================================================
+BSShaderManager package/global init candidate @ 0x00b54280
+======================================================================
+  Function: FUN_00b54280 @ 0x00b54280, Size: 928 bytes
+
+/* WARNING: Globals starting with '_' overlap smaller symbols at the same address */
+
+undefined4 __fastcall FUN_00b54280(undefined4 param_1)
+
+{
+  int *piVar1;
+  LONG LVar2;
+  int *piVar3;
+  
+  DAT_011f9308 = 0;
+  DAT_011f9200 = 0;
+  DAT_011f91df = 1;
+  DAT_011f91e4 = 0;
+  DAT_011f91e0 = 0;
+  DAT_011f91de = 1;
+  DAT_011f91dd = 0;
+  DAT_011f91d8 = 0x2f;
+  _DAT_011f91f8 = &LAB_00b4f2e0;
+  DAT_011f91f0 = 0;
+  DAT_011f91ec = 0;
+  DAT_011f91c7 = 1;
+  DAT_011f91c6 = 0;
+  DAT_011f91c5 = 0;
+  DAT_011f91a7 = 0;
+  DAT_011f91c0 = 0;
+  DAT_011f91bc = 0;
+  DAT_011f91a5 = 1;
+  piVar3 = &DAT_011f9548;
+  do {
+    piVar1 = (int *)*piVar3;
+    if (piVar1 != (int *)0x0) {
+      LVar2 = InterlockedDecrement(piVar1 + 1);
+      if (LVar2 == 0) {
+        (**(code **)(*piVar1 + 4))();
+      }
+      *piVar3 = 0;
+    }
+    piVar1 = DAT_011f950c;
+    piVar3 = piVar3 + 1;
+  } while ((int)piVar3 < 0x11f95d4);
+  if (DAT_011f950c != (int *)0x0) {
+    LVar2 = InterlockedDecrement(DAT_011f950c + 1);
+    if (LVar2 == 0) {
+      (**(code **)(*piVar1 + 4))();
+    }
+    DAT_011f950c = (int *)0x0;
+  }
+  piVar3 = DAT_011f9514;
+  if (DAT_011f9514 != (int *)0x0) {
+    LVar2 = InterlockedDecrement(DAT_011f9514 + 1);
+    if (LVar2 == 0) {
+      (**(code **)(*piVar3 + 4))();
+    }
+    DAT_011f9514 = (int *)0x0;
+  }
+  piVar3 = DAT_011f9510;
+  if (DAT_011f9510 != (int *)0x0) {
+    LVar2 = InterlockedDecrement(DAT_011f9510 + 1);
+    if (LVar2 == 0) {
+      (**(code **)(*piVar3 + 4))();
+    }
+    DAT_011f9510 = (int *)0x0;
+  }
+  piVar3 = DAT_011f9518;
+  if (DAT_011f9518 != (int *)0x0) {
+    LVar2 = InterlockedDecrement(DAT_011f9518 + 1);
+    if (LVar2 == 0) {
+      (**(code **)(*piVar3 + 4))();
+    }
+    DAT_011f9518 = (int *)0x0;
+  }
+  piVar3 = DAT_011f951c;
+  if (DAT_011f951c != (int *)0x0) {
+    LVar2 = InterlockedDecrement(DAT_011f951c + 1);
+    if (LVar2 == 0) {
+      (**(code **)(*piVar3 + 4))();
+    }
+    DAT_011f951c = (int *)0x0;
+  }
+  piVar3 = DAT_011f9520;
+  if (DAT_011f9520 != (int *)0x0) {
+    LVar2 = InterlockedDecrement(DAT_011f9520 + 1);
+    if (LVar2 == 0) {
+      (**(code **)(*piVar3 + 4))();
+    }
+    DAT_011f9520 = (int *)0x0;
+  }
+  piVar3 = DAT_011f9524;
+  if (DAT_011f9524 != (int *)0x0) {
+    LVar2 = InterlockedDecrement(DAT_011f9524 + 1);
+    if (LVar2 == 0) {
+      (**(code **)(*piVar3 + 4))();
+    }
+    DAT_011f9524 = (int *)0x0;
+  }
+  piVar3 = DAT_011f9528;
+  if (DAT_011f9528 != (int *)0x0) {
+    LVar2 = InterlockedDecrement(DAT_011f9528 + 1);
+    if (LVar2 == 0) {
+      (**(code **)(*piVar3 + 4))();
+    }
+    DAT_011f9528 = (int *)0x0;
+  }
+  piVar3 = DAT_011f952c;
+  if (DAT_011f952c != (int *)0x0) {
+    LVar2 = InterlockedDecrement(DAT_011f952c + 1);
+    if (LVar2 == 0) {
+      (**(code **)(*piVar3 + 4))();
+    }
+    DAT_011f952c = (int *)0x0;
+  }
+  piVar3 = DAT_011f9530;
+  if (DAT_011f9530 != (int *)0x0) {
+    LVar2 = InterlockedDecrement(DAT_011f9530 + 1);
+    if (LVar2 == 0) {
+      (**(code **)(*piVar3 + 4))();
+    }
+    DAT_011f9530 = (int *)0x0;
+  }
+  piVar3 = DAT_011f9534;
+  if (DAT_011f9534 != (int *)0x0) {
+    LVar2 = InterlockedDecrement(DAT_011f9534 + 1);
+    if (LVar2 == 0) {
+      (**(code **)(*piVar3 + 4))();
+    }
+    DAT_011f9534 = (int *)0x0;
+  }
+  piVar3 = DAT_011f9538;
+  if (DAT_011f9538 != (int *)0x0) {
+    LVar2 = InterlockedDecrement(DAT_011f9538 + 1);
+    if (LVar2 == 0) {
+      (**(code **)(*piVar3 + 4))();
+    }
+    DAT_011f9538 = (int *)0x0;
+  }
+  piVar3 = DAT_011f953c;
+  if (DAT_011f953c != (int *)0x0) {
+    LVar2 = InterlockedDecrement(DAT_011f953c + 1);
+    if (LVar2 == 0) {
+      (**(code **)(*piVar3 + 4))();
+    }
+    DAT_011f953c = (int *)0x0;
+  }
+  piVar3 = DAT_011f9540;
+  if (DAT_011f9540 != (int *)0x0) {
+    LVar2 = InterlockedDecrement(DAT_011f9540 + 1);
+    if (LVar2 == 0) {
+      (**(code **)(*piVar3 + 4))();
+    }
+    DAT_011f9540 = (int *)0x0;
+  }
+  piVar3 = DAT_011f9544;
+  if (DAT_011f9544 != (int *)0x0) {
+    LVar2 = InterlockedDecrement(DAT_011f9544 + 1);
+    if (LVar2 == 0) {
+      (**(code **)(*piVar3 + 4))();
+    }
+    DAT_011f9544 = (int *)0x0;
+  }
+  piVar3 = DAT_011f95d4;
+  if (DAT_011f95d4 != (int *)0x0) {
+    LVar2 = InterlockedDecrement(DAT_011f95d4 + 1);
+    if (LVar2 == 0) {
+      (**(code **)(*piVar3 + 4))();
+    }
+    DAT_011f95d4 = (int *)0x0;
+  }
+  piVar3 = DAT_011f95ec;
+  DAT_011f91c4 = 0;
+  DAT_011ad80c = 1;
+  DAT_011f91dc = 0;
+  DAT_011f91a4 = 1;
+  _DAT_011f9178 = 0;
+  if (DAT_011f95ec != (int *)0x0) {
+    LVar2 = InterlockedDecrement(DAT_011f95ec + 1);
+    if (LVar2 == 0) {
+      (**(code **)(*piVar3 + 4))();
+    }
+    DAT_011f95ec = (int *)0x0;
+  }
+  DAT_011f9181 = 0;
+  FUN_00b54000(_DAT_0102f0f8);
+  _DAT_011f9190 = 0x3f800000;
+  _DAT_011f918c = 0x3f800000;
+  _DAT_011f9188 = 0x3f800000;
+  _DAT_011f9184 = 0x3f800000;
+  DAT_011f91a3 = 0;
+  DAT_011f9182 = 0;
+  DAT_011f9180 = 0;
+  DAT_011f917c = 0;
+  DAT_011f94a4 = 0;
+  DAT_011f94a6 = 0;
+  DAT_011f91ac = 0;
+  return param_1;
+}
+
+
+
+======================================================================
+NATIVE MATERIAL DRAW MATCHES: BSShaderManager package/global init candidate @ 0x00b54280
+======================================================================
+  L0014:   DAT_011f91e4 = 0;
+  L0015:   DAT_011f91e0 = 0;
+  Total matched lines: 2
+
+--- Calls FROM BSShaderManager package/global init candidate (0x00b54280) ---
+  0x00b5431a -> 0x00000067 unknown
+  0x00b54346 -> 0x00000067 unknown
+  0x00b5436a -> 0x00000067 unknown
+  0x00b5438e -> 0x00000067 unknown
+  0x00b543b2 -> 0x00000067 unknown
+  0x00b543d6 -> 0x00000067 unknown
+  0x00b543fa -> 0x00000067 unknown
+  0x00b5441e -> 0x00000067 unknown
+  0x00b54442 -> 0x00000067 unknown
+  0x00b54466 -> 0x00000067 unknown
+  0x00b5448a -> 0x00000067 unknown
+  0x00b544ae -> 0x00000067 unknown
+  0x00b544d2 -> 0x00000067 unknown
+  0x00b544f6 -> 0x00000067 unknown
+  0x00b5451a -> 0x00000067 unknown
+  0x00b5453e -> 0x00000067 unknown
+  0x00b54562 -> 0x00000067 unknown
+  0x00b545a6 -> 0x00000067 unknown
+  0x00b545cb -> 0x00b54000 FUN_00b54000
+  Total: 19 calls
+
+======================================================================
+BSShaderManager shutdown/current geometry clear @ 0x00b54630
+======================================================================
+  Function: FUN_00b54630 @ 0x00b54630, Size: 1155 bytes
+
+void FUN_00b54630(char param_1)
+
+{
+  int iVar1;
+  int *piVar2;
+  LONG LVar3;
+  void *pvVar4;
+  uint uVar5;
+  int iVar6;
+  undefined1 auStack_104 [256];
+  uint local_4;
+  
+  local_4 = DAT_011c16bc ^ (uint)auStack_104;
+  if (param_1 != '\0') {
+    FUN_00b62a20();
+    FUN_00b59940();
+    FUN_00ba50d0();
+    FUN_00bc0940();
+    FUN_00bc4610();
+    piVar2 = DAT_011f950c;
+    if (DAT_011f950c != (int *)0x0) {
+      LVar3 = InterlockedDecrement(DAT_011f950c + 1);
+      if (LVar3 == 0) {
+        (**(code **)(*piVar2 + 4))();
+      }
+      DAT_011f950c = (int *)0x0;
+    }
+    piVar2 = DAT_011f9510;
+    if (DAT_011f9510 != (int *)0x0) {
+      LVar3 = InterlockedDecrement(DAT_011f9510 + 1);
+      if (LVar3 == 0) {
+        (**(code **)(*piVar2 + 4))();
+      }
+      DAT_011f9510 = (int *)0x0;
+    }
+    piVar2 = DAT_011f9514;
+    if (DAT_011f9514 != (int *)0x0) {
+      LVar3 = InterlockedDecrement(DAT_011f9514 + 1);
+      if (LVar3 == 0) {
+        (**(code **)(*piVar2 + 4))();
+      }
+      DAT_011f9514 = (int *)0x0;
+    }
+    piVar2 = DAT_011f9518;
+    if (DAT_011f9518 != (int *)0x0) {
+      LVar3 = InterlockedDecrement(DAT_011f9518 + 1);
+      if (LVar3 == 0) {
+        (**(code **)(*piVar2 + 4))();
+      }
+      DAT_011f9518 = (int *)0x0;
+    }
+    piVar2 = DAT_011f951c;
+    if (DAT_011f951c != (int *)0x0) {
+      LVar3 = InterlockedDecrement(DAT_011f951c + 1);
+      if (LVar3 == 0) {
+        (**(code **)(*piVar2 + 4))();
+      }
+      DAT_011f951c = (int *)0x0;
+    }
+    piVar2 = DAT_011f9520;
+    if (DAT_011f9520 != (int *)0x0) {
+      LVar3 = InterlockedDecrement(DAT_011f9520 + 1);
+      if (LVar3 == 0) {
+        (**(code **)(*piVar2 + 4))();
+      }
+      DAT_011f9520 = (int *)0x0;
+    }
+    piVar2 = DAT_011f9524;
+    if (DAT_011f9524 != (int *)0x0) {
+      LVar3 = InterlockedDecrement(DAT_011f9524 + 1);
+      if (LVar3 == 0) {
+        (**(code **)(*piVar2 + 4))();
+      }
+      DAT_011f9524 = (int *)0x0;
+    }
+    piVar2 = DAT_011f9528;
+    if (DAT_011f9528 != (int *)0x0) {
+      LVar3 = InterlockedDecrement(DAT_011f9528 + 1);
+      if (LVar3 == 0) {
+        (**(code **)(*piVar2 + 4))();
+      }
+      DAT_011f9528 = (int *)0x0;
+    }
+    piVar2 = DAT_011f952c;
+    if (DAT_011f952c != (int *)0x0) {
+      LVar3 = InterlockedDecrement(DAT_011f952c + 1);
+      if (LVar3 == 0) {
+        (**(code **)(*piVar2 + 4))();
+      }
+      DAT_011f952c = (int *)0x0;
+    }
+    piVar2 = DAT_011f9530;
+    if (DAT_011f9530 != (int *)0x0) {
+      LVar3 = InterlockedDecrement(DAT_011f9530 + 1);
+      if (LVar3 == 0) {
+        (**(code **)(*piVar2 + 4))();
+      }
+      DAT_011f9530 = (int *)0x0;
+    }
+    piVar2 = DAT_011f9534;
+    if (DAT_011f9534 != (int *)0x0) {
+      LVar3 = InterlockedDecrement(DAT_011f9534 + 1);
+      if (LVar3 == 0) {
+        (**(code **)(*piVar2 + 4))();
+      }
+      DAT_011f9534 = (int *)0x0;
+    }
+    piVar2 = DAT_011f9538;
+    if (DAT_011f9538 != (int *)0x0) {
+      LVar3 = InterlockedDecrement(DAT_011f9538 + 1);
+      if (LVar3 == 0) {
+        (**(code **)(*piVar2 + 4))();
+      }
+      DAT_011f9538 = (int *)0x0;
+    }
+    piVar2 = DAT_011f953c;
+    if (DAT_011f953c != (int *)0x0) {
+      LVar3 = InterlockedDecrement(DAT_011f953c + 1);
+      if (LVar3 == 0) {
+        (**(code **)(*piVar2 + 4))();
+      }
+      DAT_011f953c = (int *)0x0;
+    }
+    piVar2 = DAT_011f9540;
+    if (DAT_011f9540 != (int *)0x0) {
+      LVar3 = InterlockedDecrement(DAT_011f9540 + 1);
+      if (LVar3 == 0) {
+        (**(code **)(*piVar2 + 4))();
+      }
+      DAT_011f9540 = (int *)0x0;
+    }
+    piVar2 = DAT_011f9544;
+    if (DAT_011f9544 != (int *)0x0) {
+      LVar3 = InterlockedDecrement(DAT_011f9544 + 1);
+      if (LVar3 == 0) {
+        (**(code **)(*piVar2 + 4))();
+      }
+      DAT_011f9544 = (int *)0x0;
+    }
+    piVar2 = DAT_011f95d4;
+    if (DAT_011f95d4 != (int *)0x0) {
+      LVar3 = InterlockedDecrement(DAT_011f95d4 + 1);
+      if (LVar3 == 0) {
+        (**(code **)(*piVar2 + 4))();
+      }
+      DAT_011f95d4 = (int *)0x0;
+    }
+    iVar6 = DAT_011f91ac;
+    DAT_011f917c = 0;
+    if (DAT_011f91ac != 0) {
+      FUN_00b97690();
+      FUN_00aa4060(iVar6);
+      DAT_011f91ac = 0;
+    }
+    iVar6 = DAT_011f91a8;
+    if (DAT_011f91a8 != 0) {
+      FUN_00b6f0b0();
+      FUN_00aa4060(iVar6);
+      DAT_011f91a8 = 0;
+    }
+    piVar2 = DAT_011f95ec;
+    if (DAT_011f95ec != (int *)0x0) {
+      LVar3 = InterlockedDecrement(DAT_011f95ec + 1);
+      if (LVar3 == 0) {
+        (**(code **)(*piVar2 + 4))();
+      }
+      DAT_011f95ec = (int *)0x0;
+    }
+    iVar6 = 0;
+    do {
+      iVar1 = (&DAT_011f9548)[iVar6];
+      if (iVar1 != 0) {
+        if (1 < *(uint *)(iVar1 + 4)) {
+          FUN_00406d00(auStack_104,0xff,
+                       "Shader %i is leaking.  There are %i references to it on shutdown.",iVar6,
+                       *(undefined4 *)(iVar1 + 4));
+        }
+        piVar2 = (int *)(&DAT_011f9548)[iVar6];
+        if (piVar2 != (int *)0x0) {
+          LVar3 = InterlockedDecrement(piVar2 + 1);
+          if (LVar3 == 0) {
+            (**(code **)(*piVar2 + 4))();
+          }
+          (&DAT_011f9548)[iVar6] = 0;
+        }
+      }
+      piVar2 = DAT_011f94bc;
+      iVar6 = iVar6 + 1;
+    } while (iVar6 < 0x23);
+    if (DAT_011f94bc != (int *)0x0) {
+      if (*DAT_011f94bc != DAT_0109b220) {
+        InterlockedDecrement((LONG *)(*DAT_011f94bc + -8));
+      }
+      FUN_00aa4060(piVar2);
+    }
+    DAT_011f94bc = (int *)0x0;
+    DAT_011f91c6 = 0;
+    FUN_00ba2d80();
+    FUN_00a29680();
+    piVar2 = DAT_011f95f0;
+    if (DAT_011f95f0 != (int *)0x0) {
+      LVar3 = InterlockedDecrement(DAT_011f95f0 + 1);
+      if (LVar3 == 0) {
+        (**(code **)(*piVar2 + 4))();
+      }
+      DAT_011f95f0 = (int *)0x0;
+    }
+  }
+  piVar2 = DAT_011f9508;
+  if (DAT_011f9508 != (int *)0x0) {
+    LVar3 = InterlockedDecrement(DAT_011f9508 + 1);
+    if (LVar3 == 0) {
+      (**(code **)(*piVar2 + 4))();
+    }
+    DAT_011f9508 = (int *)0x0;
+  }
+  piVar2 = DAT_011f95d8;
+  DAT_011f91e0 = 0;
+  if (DAT_011f95d8 != (int *)0x0) {
+    LVar3 = InterlockedDecrement(DAT_011f95d8 + 1);
+    if (LVar3 == 0) {
+      (**(code **)(*piVar2 + 4))();
+    }
+    DAT_011f95d8 = (int *)0x0;
+  }
+  uVar5 = 0;
+  pvVar4 = DAT_011f9170;
+  if (DAT_011f916c != 0) {
+    do {
+      piVar2 = *(int **)((int)pvVar4 + uVar5 * 4);
+      if (piVar2 != (int *)0x0) {
+        LVar3 = InterlockedDecrement(piVar2 + 1);
+        if (LVar3 == 0) {
+          (**(code **)(*piVar2 + 4))();
+        }
+        *(undefined4 *)((int)pvVar4 + uVar5 * 4) = 0;
+        pvVar4 = DAT_011f9170;
+      }
+      uVar5 = uVar5 + 1;
+    } while (uVar5 < DAT_011f916c);
+  }
+  if (pvVar4 != (void *)0x0) {
+    _eh_vector_destructor_iterator_
+              (pvVar4,4,*(int *)((int)pvVar4 + -4),
+               Concurrency::cancellation_token_source::~cancellation_token_source);
+    FUN_00aa4060((int)pvVar4 + -4);
+  }
+  __security_check_cookie(local_4 ^ (uint)auStack_104);
+  return;
+}
+
+
+
+======================================================================
+NATIVE MATERIAL DRAW MATCHES: BSShaderManager shutdown/current geometry clear @ 0x00b54630
+======================================================================
+  L0011:   undefined1 auStack_104 [256];
+  L0014:   local_4 = DAT_011c16bc ^ (uint)auStack_104;
+  L0175:           FUN_00406d00(auStack_104,0xff,
+  L0176:                        "Shader %i is leaking.  There are %i references to it on shutdown.",iVar6,
+  L0219:   DAT_011f91e0 = 0;
+  L0249:   __security_check_cookie(local_4 ^ (uint)auStack_104);
+  Total matched lines: 6
+
+--- Calls FROM BSShaderManager shutdown/current geometry clear (0x00b54630) ---
+  0x00b5465e -> 0x00b62a20 FUN_00b62a20
+  0x00b54663 -> 0x00b59940 FUN_00b59940
+  0x00b54668 -> 0x00ba50d0 FUN_00ba50d0
+  0x00b5466d -> 0x00bc0940 FUN_00bc0940
+  0x00b54672 -> 0x00bc4610 FUN_00bc4610
+  0x00b54686 -> 0x00000067 unknown
+  0x00b546aa -> 0x00000067 unknown
+  0x00b546ce -> 0x00000067 unknown
+  0x00b546f2 -> 0x00000067 unknown
+  0x00b54716 -> 0x00000067 unknown
+  0x00b5473a -> 0x00000067 unknown
+  0x00b5475e -> 0x00000067 unknown
+  0x00b54782 -> 0x00000067 unknown
+  0x00b547a6 -> 0x00000067 unknown
+  0x00b547ca -> 0x00000067 unknown
+  0x00b547ee -> 0x00000067 unknown
+  0x00b54812 -> 0x00000067 unknown
+  0x00b54836 -> 0x00000067 unknown
+  0x00b5485a -> 0x00000067 unknown
+  0x00b5487e -> 0x00000067 unknown
+  0x00b548a2 -> 0x00000067 unknown
+  0x00b548c9 -> 0x00b97690 FUN_00b97690
+  0x00b548d4 -> 0x00aa4060 FUN_00aa4060
+  0x00b548eb -> 0x00b6f0b0 FUN_00b6f0b0
+  0x00b548f6 -> 0x00aa4060 FUN_00aa4060
+  0x00b54910 -> 0x00000067 unknown
+  0x00b54955 -> 0x00406d00 FUN_00406d00
+  0x00b5496c -> 0x00000067 unknown
+  0x00b549a1 -> 0x00000067 unknown
+  0x00b549a9 -> 0x00aa4060 FUN_00aa4060
+  0x00b549c0 -> 0x00ba2d80 FUN_00ba2d80
+  0x00b549c5 -> 0x00a29680 FUN_00a29680
+  0x00b549d9 -> 0x00000067 unknown
+  0x00b549fd -> 0x00000067 unknown
+  0x00b54a27 -> 0x00000067 unknown
+  0x00b54a5e -> 0x00000067 unknown
+  0x00b54a94 -> 0x00ec5fce `eh_vector_destructor_iterator'
+  0x00b54a9f -> 0x00aa4060 FUN_00aa4060
+  0x00b54ab1 -> 0x00ec408c __security_check_cookie
+  Total: 39 calls
+
+======================================================================
+Current geometry writer candidate @ 0x00b578a0
+======================================================================
+  Function: FUN_00b578a0 @ 0x00b578a0, Size: 306 bytes
+
+void FUN_00b578a0(void)
+
+{
+  uint uVar1;
+  int iVar2;
+  int *unaff_FS_OFFSET;
+  int local_c;
+  undefined1 *puStack_8;
+  undefined4 local_4;
+  
+  local_4 = 0xffffffff;
+  puStack_8 = &LAB_00f270a6;
+  local_c = *unaff_FS_OFFSET;
+  uVar1 = DAT_011c16bc ^ (uint)&stack0xffffffe8;
+  *unaff_FS_OFFSET = (int)&local_c;
+  if (DAT_011f91c6 != '\0') {
+    FUN_00b4f9a0(uVar1);
+    FUN_00ba50d0();
+    FUN_00bc0940();
+    FUN_00bc4610();
+    iVar2 = DAT_011f91ac;
+    if (DAT_011f91ac != 0) {
+      FUN_00b97690();
+      FUN_00aa4060(iVar2);
+      DAT_011f91ac = 0;
+    }
+    iVar2 = DAT_011f91a8;
+    if (DAT_011f91a8 != 0) {
+      FUN_00b6f0b0();
+      FUN_00aa4060(iVar2);
+      DAT_011f91a8 = 0;
+    }
+    DAT_011f91e0 = 0;
+    iVar2 = FUN_00aa3e40(0xb0);
+    local_4 = 0;
+    if (iVar2 == 0) {
+      DAT_011f91a8 = 0;
+    }
+    else {
+      DAT_011f91a8 = FUN_00b6dd80();
+    }
+    local_4 = 0xffffffff;
+    if (DAT_011f9508 != 0) {
+      iVar2 = FUN_00aa3e40(0x31c);
+      local_4 = 1;
+      if (iVar2 == 0) {
+        DAT_011f91ac = 0;
+      }
+      else {
+        DAT_011f91ac = FUN_00b97a80();
+      }
+    }
+    local_4 = 0xffffffff;
+    FUN_00b6e450(DAT_011f9508);
+    *unaff_FS_OFFSET = local_c;
+    return;
+  }
+  FUN_00b57420();
+  *unaff_FS_OFFSET = local_c;
+  return;
+}
+
+
+
+======================================================================
+NATIVE MATERIAL DRAW MATCHES: Current geometry writer candidate @ 0x00b578a0
+======================================================================
+  L0009:   undefined1 *puStack_8;
+  L0013:   puStack_8 = &LAB_00f270a6;
+  L0034:     DAT_011f91e0 = 0;
+  Total matched lines: 3
+
+--- Calls FROM Current geometry writer candidate (0x00b578a0) ---
+  0x00b578cd -> 0x00b57420 FUN_00b57420
+  0x00b578e4 -> 0x00b4f9a0 FUN_00b4f9a0
+  0x00b578e9 -> 0x00ba50d0 FUN_00ba50d0
+  0x00b578ee -> 0x00bc0940 FUN_00bc0940
+  0x00b578f3 -> 0x00bc4610 FUN_00bc4610
+  0x00b57904 -> 0x00b97690 FUN_00b97690
+  0x00b5790f -> 0x00aa4060 FUN_00aa4060
+  0x00b57926 -> 0x00b6f0b0 FUN_00b6f0b0
+  0x00b57931 -> 0x00aa4060 FUN_00aa4060
+  0x00b5794c -> 0x00aa3e40 FUN_00aa3e40
+  0x00b5795f -> 0x00b6dd80 FUN_00b6dd80
+  0x00b57986 -> 0x00aa3e40 FUN_00aa3e40
+  0x00b5799d -> 0x00b97a80 FUN_00b97a80
+  0x00b579bb -> 0x00b6e450 FUN_00b6e450
+  Total: 14 calls
+
+======================================================================
+Current geometry writer candidate @ 0x00b63320
+======================================================================
+  Function: FUN_00b63320 @ 0x00b63320, Size: 249 bytes
+
+void FUN_00b63320(undefined4 *param_1,uint param_2)
+
+{
+  undefined4 uVar1;
+  undefined4 uVar2;
+  int iVar3;
+  byte bVar4;
+  
+  uVar2 = DAT_011f4748;
+  DAT_011f91e4 = param_2;
+  DAT_011f91e0 = param_1;
+  iVar3 = FUN_00a59d30(3);
+  if ((iVar3 != 0) && (*(int *)(iVar3 + 0x1c) - 1U < 0xc)) {
+    uVar1 = *(undefined4 *)(iVar3 + 0x6c);
+    if (DAT_011f94a6 != '\0') {
+      FUN_00bbb840();
+    }
+    if ((((param_2 < 0x10) || (0x13 < param_2)) && (param_2 != 0x1c8)) &&
+       (((param_2 != 0x1ca && (param_2 != 0x1c9)) && (param_2 != 0x1cb)))) {
+      FUN_00b704c0(0);
+    }
+    bVar4 = 0;
+    if (*(char *)((int)param_1 + 9) != '\0') {
+      do {
+        FUN_00b71360((uint)bVar4,*(undefined4 *)(param_1[3] + (uint)bVar4 * 4),uVar1);
+        bVar4 = bVar4 + 1;
+      } while (bVar4 < *(byte *)((int)param_1 + 9));
+    }
+    if (DAT_011f91a7 != '\0') {
+      DAT_011fa0d0 = DAT_011a9bd0;
+      DAT_011fa0d4 = DAT_011a9bd4;
+      DAT_011fa0d8 = DAT_011a9bd8;
+      DAT_011fa0dc = DAT_011a9bdc;
+    }
+  }
+  (**(code **)(*(int *)*param_1 + 0xdc))(uVar2);
+  return;
+}
+
+
+
+======================================================================
+NATIVE MATERIAL DRAW MATCHES: Current geometry writer candidate @ 0x00b63320
+======================================================================
+  L0011:   DAT_011f91e4 = param_2;
+  L0012:   DAT_011f91e0 = param_1;
+  L0024:     if (*(char *)((int)param_1 + 9) != '\0') {
+  L0028:       } while (bVar4 < *(byte *)((int)param_1 + 9));
+  L0037:   (**(code **)(*(int *)*param_1 + 0xdc))(uVar2);
+  Total matched lines: 5
+
+--- Calls FROM Current geometry writer candidate (0x00b63320) ---
+  0x00b63341 -> 0x00a59d30 FUN_00a59d30
+  0x00b6336b -> 0x00bbb840 FUN_00bbb840
+  0x00b6339c -> 0x00b704c0 FUN_00b704c0
+  0x00b633c3 -> 0x00b71360 FUN_00b71360
+  Total: 4 calls
+
+======================================================================
+Depth/render texture path, stack geometry proxy writer @ 0x00b651e0
+======================================================================
+  Function: FUN_00b651e0 @ 0x00b651e0, Size: 870 bytes
+
+bool __thiscall FUN_00b651e0(int *param_1,int param_2)
+
+{
+  code *pcVar1;
+  undefined4 *puVar2;
+  int iVar3;
+  undefined4 uVar4;
+  undefined4 uVar5;
+  undefined4 *puVar6;
+  int *piVar7;
+  int *piVar8;
+  uint uVar9;
+  undefined4 uVar10;
+  int iVar11;
+  undefined4 unaff_EBP;
+  int iVar12;
+  int *unaff_FS_OFFSET;
+  undefined4 unaff_retaddr;
+  int iStack_64;
+  int local_5c;
+  int iStack_58;
+  undefined4 uStack_54;
+  undefined4 uStack_50;
+  undefined4 uStack_4c;
+  undefined4 uStack_48;
+  undefined4 uStack_44;
+  undefined4 uStack_40;
+  undefined4 uStack_3c;
+  undefined4 uStack_38;
+  undefined4 uStack_34;
+  ushort uStack_30;
+  undefined1 auStack_2c [8];
+  undefined1 auStack_24 [8];
+  undefined4 local_1c;
+  undefined4 local_18;
+  undefined4 local_14;
+  undefined4 local_10;
+  int local_c;
+  undefined1 *puStack_8;
+  int *piStack_4;
+  
+  piStack_4 = (int *)0xffffffff;
+  puStack_8 = &LAB_00f28058;
+  local_c = *unaff_FS_OFFSET;
+  uVar9 = DAT_011c16bc ^ (uint)&stack0xffffff88;
+  *unaff_FS_OFFSET = (int)&local_c;
+  iVar12 = param_1[0x26];
+  if (iVar12 != 0) {
+    local_5c = iVar12;
+    if (DAT_011f4748[0x80] != 0) {
+      FUN_00b6b790(uVar9);
+    }
+    piVar7 = DAT_011f4748;
+    local_1c = 0;
+    local_18 = 0;
+    local_14 = 0;
+    local_10 = 0;
+    FUN_00b63c60();
+    FUN_00ba8ec0(auStack_2c,0,0,1,0,0);
+    iStack_58 = param_1[2];
+    param_1[2] = param_2;
+    piStack_4 = (int *)0x0;
+    (**(code **)(*piVar7 + 0xb4))(&local_1c);
+    uStack_40 = 0;
+    uStack_3c = 0;
+    uStack_38 = 0;
+    uStack_34 = 0x3f800000;
+    (**(code **)(*piVar7 + 0xac))(&uStack_40);
+    pcVar1 = *(code **)(*param_1 + 0xa4);
+    param_1[6] = (int)(param_1 + 0x24);
+    (*pcVar1)();
+    uStack_30 = 0x25b;
+    puVar6 = (undefined4 *)param_1[0x24];
+    while (puVar6 != (undefined4 *)0x0) {
+      puVar2 = (undefined4 *)*puVar6;
+      piStack_4 = (int *)puVar6[2];
+      iVar3 = piStack_4[0x2a];
+      iVar12 = iStack_64;
+      puVar6 = puVar2;
+      if (((iVar3 != 0) && (*(int *)(iVar3 + 0x1c) == 0x16)) && (iVar3 != 0)) {
+        uVar10 = FUN_00b6b260();
+        FUN_00b6b8d0(3,uVar10);
+        iVar11 = param_1[2];
+        local_5c = *(int *)(iVar11 + 0x70);
+        iStack_58 = *(int *)(iVar11 + 0x7c);
+        uStack_54 = *(undefined4 *)(iVar11 + 0x88);
+        uStack_50 = *(undefined4 *)(iVar11 + 0x6c);
+        uStack_4c = *(undefined4 *)(iVar11 + 0x78);
+        uStack_48 = *(undefined4 *)(iVar11 + 0x84);
+        uStack_44 = *(undefined4 *)(iVar11 + 0x68);
+        uStack_40 = *(undefined4 *)(iVar11 + 0x74);
+        uStack_3c = *(undefined4 *)(iVar11 + 0x80);
+        if (((piVar7[0x80] == 1) || (piVar7[0x80] == 2)) && ((char)piVar7[0x82] == '\x01')) {
+          (**(code **)(*piVar7 + 0x18c))
+                    (iVar11 + 0x8c,&uStack_44,&uStack_50,&local_5c,iVar11 + 0xdc,iVar11 + 0x100);
+        }
+        piVar8 = piStack_4;
+        DAT_011f91e0 = &uStack_34;
+        if ((char)((uint)unaff_EBP >> 0x18) == '\0') {
+          uStack_30 = 0x25a;
+          DAT_011f91e4 = 0x25a;
+          (**(code **)(*piStack_4 + 0xdc))(DAT_011f4748);
+          uStack_30 = 0x259;
+          DAT_011f91e4 = 0x259;
+          iVar11 = *piVar8;
+        }
+        else {
+          DAT_011f91e4 = (uint)uStack_30;
+          iVar11 = *piStack_4;
+        }
+        DAT_011f91e0 = &uStack_34;
+        (**(code **)(iVar11 + 0xdc))(DAT_011f4748);
+        FUN_00b6b790();
+        uVar10 = FUN_00b6b260();
+        FUN_00b6b8d0(0,uVar10);
+        uVar10 = *(undefined4 *)(iVar3 + 100);
+        uVar4 = *(undefined4 *)(iVar3 + 0x68);
+        iVar11 = *(int *)(*(int *)(DAT_011f91ac + 8) + 0x34);
+        uVar5 = *(undefined4 *)(iVar3 + 0x6c);
+        *(undefined4 *)(iVar11 + 0x58) = *(undefined4 *)(iVar3 + 0x60);
+        *(undefined4 *)(iVar11 + 0x5c) = uVar10;
+        *(undefined4 *)(iVar11 + 0x60) = uVar4;
+        *(undefined1 *)(iVar11 + 5) = 1;
+        *(undefined4 *)(iVar11 + 100) = uVar5;
+        FUN_00b97550(0xd,piVar7,unaff_retaddr,unaff_retaddr,0,1);
+      }
+    }
+    FUN_00b71300();
+    (**(code **)(*piVar7 + 0xac))(auStack_24);
+    param_1[2] = iStack_58;
+    FUN_00b63d10();
+    piStack_4 = (int *)0xffffffff;
+    FUN_00ba8cd0();
+  }
+  *unaff_FS_OFFSET = local_c;
+  return iVar12 != 0;
+}
+
+
+
+======================================================================
+NATIVE MATERIAL DRAW MATCHES: Depth/render texture path, stack geometry proxy writer @ 0x00b651e0
+======================================================================
+  L0023:   undefined4 uStack_54;
+  L0024:   undefined4 uStack_50;
+  L0025:   undefined4 uStack_4c;
+  L0026:   undefined4 uStack_48;
+  L0027:   undefined4 uStack_44;
+  L0028:   undefined4 uStack_40;
+  L0029:   undefined4 uStack_3c;
+  L0030:   undefined4 uStack_38;
+  L0031:   undefined4 uStack_34;
+  L0032:   ushort uStack_30;
+  L0033:   undefined1 auStack_2c [8];
+  L0034:   undefined1 auStack_24 [8];
+  L0040:   undefined1 *puStack_8;
+  L0044:   puStack_8 = &LAB_00f28058;
+  L0060:     FUN_00ba8ec0(auStack_2c,0,0,1,0,0);
+  L0065:     uStack_40 = 0;
+  L0066:     uStack_3c = 0;
+  L0067:     uStack_38 = 0;
+  L0068:     uStack_34 = 0x3f800000;
+  L0069:     (**(code **)(*piVar7 + 0xac))(&uStack_40);
+  L0071:     param_1[6] = (int)(param_1 + 0x24);
+  L0073:     uStack_30 = 0x25b;
+  L0087:         uStack_54 = *(undefined4 *)(iVar11 + 0x88);
+  L0088:         uStack_50 = *(undefined4 *)(iVar11 + 0x6c);
+  L0089:         uStack_4c = *(undefined4 *)(iVar11 + 0x78);
+  L0090:         uStack_48 = *(undefined4 *)(iVar11 + 0x84);
+  L0091:         uStack_44 = *(undefined4 *)(iVar11 + 0x68);
+  L0092:         uStack_40 = *(undefined4 *)(iVar11 + 0x74);
+  L0093:         uStack_3c = *(undefined4 *)(iVar11 + 0x80);
+  L0096:                     (iVar11 + 0x8c,&uStack_44,&uStack_50,&local_5c,iVar11 + 0xdc,iVar11 + 0x100);
+  L0099:         DAT_011f91e0 = &uStack_34;
+  L0101:           uStack_30 = 0x25a;
+  L0102:           DAT_011f91e4 = 0x25a;
+  L0103:           (**(code **)(*piStack_4 + 0xdc))(DAT_011f4748);
+  L0104:           uStack_30 = 0x259;
+  L0105:           DAT_011f91e4 = 0x259;
+  L0109:           DAT_011f91e4 = (uint)uStack_30;
+  L0112:         DAT_011f91e0 = &uStack_34;
+  L0113:         (**(code **)(iVar11 + 0xdc))(DAT_011f4748);
+  L0122:         *(undefined4 *)(iVar11 + 0x5c) = uVar10;
+  L0130:     (**(code **)(*piVar7 + 0xac))(auStack_24);
+  Total matched lines: 41
+
+--- Calls FROM Depth/render texture path, stack geometry proxy writer (0x00b651e0) ---
+  0x00b65229 -> 0x00b6b790 FUN_00b6b790
+  0x00b65260 -> 0x00b63c60 FUN_00b63c60
+  0x00b65278 -> 0x00ba8ec0 FUN_00ba8ec0
+  0x00b65349 -> 0x00b6b260 FUN_00b6b260
+  0x00b65351 -> 0x00b6b8d0 FUN_00b6b8d0
+  0x00b65468 -> 0x00b6b790 FUN_00b6b790
+  0x00b65474 -> 0x00b6b260 FUN_00b6b260
+  0x00b6547c -> 0x00b6b8d0 FUN_00b6b8d0
+  0x00b654c1 -> 0x00b97550 FUN_00b97550
+  0x00b654db -> 0x00b71300 FUN_00b71300
+  0x00b65512 -> 0x00b63d10 FUN_00b63d10
+  0x00b65523 -> 0x00ba8cd0 FUN_00ba8cd0
+  Total: 12 calls
+
+======================================================================
+Shader setup reader candidate @ 0x00b7dd50
+======================================================================
+  Function: FUN_00b7dd50 @ 0x00b7dd50, Size: 137 bytes
+
+void __fastcall FUN_00b7dd50(int param_1)
+
+{
+  undefined1 auStack_44 [16];
+  undefined1 auStack_34 [52];
+  
+  FUN_00e7eb00(0);
+  FUN_00b7c3a0();
+  *(undefined4 *)(DAT_011febf0 + 0x20) = 1;
+  *(undefined4 *)(DAT_011fec38 + 0x20) = 1;
+  FUN_00b7c510();
+  FUN_00b7c580();
+  FUN_00b7c600();
+  if ((*(int **)(param_1 + 0x30) != (int *)0x0) && (*(int *)(DAT_0126f74c + 0x44) != 0)) {
+    (**(code **)(**(int **)(param_1 + 0x30) + 0x78))
+              (*(undefined4 *)(DAT_0126f74c + 0x44),0,0,0,0,0,0,auStack_34,auStack_44,0,1);
+  }
+  return;
+}
+
+
+
+======================================================================
+NATIVE MATERIAL DRAW MATCHES: Shader setup reader candidate @ 0x00b7dd50
+======================================================================
+  L0005:   undefined1 auStack_44 [16];
+  L0006:   undefined1 auStack_34 [52];
+  L0015:   if ((*(int **)(param_1 + 0x30) != (int *)0x0) && (*(int *)(DAT_0126f74c + 0x44) != 0)) {
+  L0017:               (*(undefined4 *)(DAT_0126f74c + 0x44),0,0,0,0,0,0,auStack_34,auStack_44,0,1);
+  Total matched lines: 4
+
+--- Calls FROM Shader setup reader candidate (0x00b7dd50) ---
+  0x00b7dd63 -> 0x00e7eb00 FUN_00e7eb00
+  0x00b7dd6a -> 0x00b7c3a0 FUN_00b7c3a0
+  0x00b7dd8a -> 0x00b7c510 FUN_00b7c510
+  0x00b7dd91 -> 0x00b7c580 FUN_00b7c580
+  0x00b7dd98 -> 0x00b7c600 FUN_00b7c600
+  Total: 5 calls
+
+======================================================================
+Current geometry writer candidate @ 0x00b994f0
+======================================================================
+  Function: FUN_00b994f0 @ 0x00b994f0, Size: 315 bytes
+
+void FUN_00b994f0(int *param_1,uint param_2,undefined4 param_3,undefined4 param_4,undefined4 param_5
+                 )
+
+{
+  bool bVar1;
+  char cVar2;
+  int iVar3;
+  undefined4 uVar4;
+  
+  if (*(ushort *)(param_1 + 1) == param_2) {
+    DAT_011f91e4 = param_2;
+    DAT_011f91e0 = param_1;
+    bVar1 = false;
+    if (((DAT_011ffe30 != param_2) || (param_2 == 0x2f6)) ||
+       (*(int *)(*param_1 + 0xc0) != DAT_011ffe2c)) {
+      bVar1 = true;
+      FUN_00b99390(param_2,*(int *)(*param_1 + 0xc0));
+    }
+    if (DAT_011f9421 != '\0') {
+      if ((*(int *)(*param_1 + 0x9c) == 0) ||
+         ((*(ushort *)(*(int *)(*param_1 + 0x9c) + 0x18) >> 9 & 1) == 0)) {
+        uVar4 = 0;
+      }
+      else {
+        uVar4 = 1;
+      }
+      FUN_00b98540(uVar4,0);
+    }
+    cVar2 = FUN_00e72c20(*param_1,0);
+    if (cVar2 == '\0') {
+      iVar3 = (**(code **)(*(int *)*param_1 + 0x30))();
+      if (iVar3 == 0) {
+        iVar3 = (**(code **)(*(int *)*param_1 + 0x34))();
+        if (iVar3 == 0) {
+          FUN_00b98e80(param_1,param_3,param_4,param_5);
+        }
+        else {
+          (**(code **)(*(int *)*param_1 + 0xdc))(DAT_011f4748);
+        }
+      }
+      else {
+        (**(code **)(*(int *)*param_1 + 0xdc))(DAT_011f4748);
+      }
+    }
+    else {
+      FUN_00b99110(param_1,param_3,param_4,param_5);
+    }
+    if ((bVar1) && (DAT_011ffe2c != 0)) {
+      iVar3 = *(int *)(DAT_011ffe2c + 0x68);
+      if ((0 < iVar3) && (iVar3 < 6)) {
+        FUN_00b7ac20(param_2);
+        return;
+      }
+      if (iVar3 == 0x11) {
+        FUN_00bb96d0(param_2);
+      }
+    }
+  }
+  return;
+}
+
+
+
+======================================================================
+NATIVE MATERIAL DRAW MATCHES: Current geometry writer candidate @ 0x00b994f0
+======================================================================
+  L0012:     DAT_011f91e4 = param_2;
+  L0013:     DAT_011f91e0 = param_1;
+  L0016:        (*(int *)(*param_1 + 0xc0) != DAT_011ffe2c)) {
+  L0018:       FUN_00b99390(param_2,*(int *)(*param_1 + 0xc0));
+  L0021:       if ((*(int *)(*param_1 + 0x9c) == 0) ||
+  L0022:          ((*(ushort *)(*(int *)(*param_1 + 0x9c) + 0x18) >> 9 & 1) == 0)) {
+  L0039:           (**(code **)(*(int *)*param_1 + 0xdc))(DAT_011f4748);
+  L0043:         (**(code **)(*(int *)*param_1 + 0xdc))(DAT_011f4748);
+  Total matched lines: 8
+
+--- Calls FROM Current geometry writer candidate (0x00b994f0) ---
+  0x00b99539 -> 0x00b99390 FUN_00b99390
+  0x00b9956c -> 0x00b98540 FUN_00b98540
+  0x00b9957f -> 0x00e72c20 FUN_00e72c20
+  0x00b99598 -> 0x00b99110 FUN_00b99110
+  0x00b995f0 -> 0x00b98e80 FUN_00b98e80
+  0x00b99615 -> 0x00b7ac20 FUN_00b7ac20
+  0x00b99623 -> 0x00bb96d0 FUN_00bb96d0
+  Total: 7 calls
+
+======================================================================
+Current geometry writer candidate @ 0x00b9d020
+======================================================================
+  Function: FUN_00b9d020 @ 0x00b9d020, Size: 304 bytes
+
+undefined4 __thiscall FUN_00b9d020(int param_1,undefined4 param_2)
+
+{
+  undefined4 *puVar1;
+  int iVar2;
+  int iVar3;
+  int iVar4;
+  char cVar5;
+  undefined4 uVar6;
+  
+  if ((*(byte *)(*(int *)(param_1 + 0xf8) + 0x30) & 1) == 0) {
+    puVar1 = *(undefined4 **)(param_1 + 0xe0);
+joined_r0x00b9d03c:
+    if (puVar1 != (undefined4 *)0x0) {
+      iVar2 = puVar1[2];
+      puVar1 = (undefined4 *)*puVar1;
+      if ((iVar2 != 0) && (iVar3 = *(int *)(iVar2 + 0xc0), iVar3 != 0)) {
+        if (DAT_011f91ec != (code *)0x0) {
+          (*DAT_011f91ec)(iVar2);
+        }
+        if (((DAT_011ad82c & 1) != 0) && (iVar3 != 0)) {
+          cVar5 = FUN_00aa0ff0();
+          iVar4 = *(int *)(iVar3 + 0x68);
+          if ((iVar4 < 1) || (5 < iVar4)) {
+            if (iVar4 != 0x11) goto joined_r0x00b9d03c;
+            if (cVar5 == '\0') {
+              DAT_011f91e0 = 0;
+              if (*(int *)(iVar2 + 0xbc) == 0) {
+                DAT_011f91e4 = 0x1c8;
+                uVar6 = 0x1c8;
+              }
+              else {
+                DAT_011f91e4 = 0x1ca;
+                uVar6 = 0x1ca;
+              }
+              FUN_00bbd880(uVar6,0);
+              goto LAB_00b9d11c;
+            }
+          }
+          else if (cVar5 == '\0') {
+            DAT_011f91e0 = 0;
+            if (*(int *)(iVar2 + 0xbc) == 0) {
+              DAT_011f91e4 = 0x58;
+              FUN_00b7a870(0x58,0);
+            }
+            else {
+              DAT_011f91e4 = 0x5c;
+              FUN_00b7a870(0x5c,0);
+            }
+LAB_00b9d11c:
+            (**(code **)(**(int **)(iVar3 + 0x34) + 0x24))();
+            (**(code **)(**(int **)(iVar3 + 0x30) + 0x24))();
+          }
+          FUN_00a59e00(param_2);
+        }
+      }
+      goto joined_r0x00b9d03c;
+    }
+  }
+  return 1;
+}
+
+
+
+======================================================================
+NATIVE MATERIAL DRAW MATCHES: Current geometry writer candidate @ 0x00b9d020
+======================================================================
+  L0018:       if ((iVar2 != 0) && (iVar3 = *(int *)(iVar2 + 0xc0), iVar3 != 0)) {
+  L0028:               DAT_011f91e0 = 0;
+  L0030:                 DAT_011f91e4 = 0x1c8;
+  L0034:                 DAT_011f91e4 = 0x1ca;
+  L0042:             DAT_011f91e0 = 0;
+  L0044:               DAT_011f91e4 = 0x58;
+  L0048:               DAT_011f91e4 = 0x5c;
+  L0052:             (**(code **)(**(int **)(iVar3 + 0x34) + 0x24))();
+  L0053:             (**(code **)(**(int **)(iVar3 + 0x30) + 0x24))();
+  Total matched lines: 9
+
+--- Calls FROM Current geometry writer candidate (0x00b9d020) ---
+  0x00b9d090 -> 0x00aa0ff0 FUN_00aa0ff0
+  0x00b9d0c5 -> 0x00b7a870 FUN_00b7a870
+  0x00b9d0d8 -> 0x00b7a870 FUN_00b7a870
+  0x00b9d117 -> 0x00bbd880 FUN_00bbd880
+  0x00b9d13a -> 0x00a59e00 FUN_00a59e00
+  Total: 5 calls

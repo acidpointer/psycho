@@ -1,0 +1,680 @@
+FNV NATIVE TEXTURE BINDING CONTRACT AUDIT
+
+Questions:
+1. Which engine paths own native SetTexture/SetTextureStageState/SetSamplerState calls?
+2. Which sampler states are tracked by NiDX9RenderState, and which bypass its backup table?
+3. Can Psycho bind extra PBR textures without dirtying persistent engine render state?
+
+Expected compatibility result:
+Bind extra material textures only inside the native material draw hook, capture/restore D3D texture and sampler state, and prefer engine render-state wrappers where their TypeMap proves coverage.
+
+----------------------------------------------------------------------
+References TO 0x011c73b4 (NiDX9Renderer::singleton)
+----------------------------------------------------------------------
+  DATA @ 0x004bc3f3 (in FUN_004bc3f0) MOV ECX,0x11c73b4
+  DATA @ 0x004da4e8 (in FUN_004da4d0) MOV ECX,0x11c73b4
+  DATA @ 0x004da4f6 (in FUN_004da4d0) MOV ECX,0x11c73b4
+  DATA @ 0x004da511 (in FUN_004da4d0) MOV ECX,0x11c73b4
+  DATA @ 0x004da536 (in FUN_004da4d0) MOV ECX,0x11c73b4
+  DATA @ 0x004da55a (in FUN_004da4d0) MOV ECX,0x11c73b4
+  DATA @ 0x004daa55 (in FUN_004da670) MOV ECX,0x11c73b4
+  DATA @ 0x004dabb3 (in FUN_004da670) MOV ECX,0x11c73b4
+  DATA @ 0x004dabc5 (in FUN_004da670) MOV ECX,0x11c73b4
+  DATA @ 0x004dabfc (in FUN_004da670) MOV ECX,0x11c73b4
+  DATA @ 0x004dae28 (in FUN_004da670) MOV ECX,0x11c73b4
+  DATA @ 0x004dae72 (in FUN_004da670) MOV ECX,0x11c73b4
+  DATA @ 0x004db1c8 (in FUN_004da670) MOV ECX,0x11c73b4
+  DATA @ 0x004db672 (in FUN_004da670) MOV ECX,0x11c73b4
+  DATA @ 0x004db6dc (in FUN_004da670) MOV ECX,0x11c73b4
+  DATA @ 0x004dbf71 (in FUN_004da670) MOV ECX,0x11c73b4
+  DATA @ 0x004dc4f3 (in FUN_004dc360) MOV ECX,0x11c73b4
+  DATA @ 0x004dd0e8 (in FUN_004dcef0) MOV ECX,0x11c73b4
+  DATA @ 0x004dd186 (in FUN_004dd180) MOV ECX,0x11c73b4
+  DATA @ 0x004dd1b3 (in FUN_004dd180) MOV ECX,0x11c73b4
+  DATA @ 0x004dd1dd (in FUN_004dd180) MOV ECX,0x11c73b4
+  DATA @ 0x00f415b5 (in FUN_00f415b0) MOV ECX,0x11c73b4
+  DATA @ 0x00fc9a03 (in FUN_00fc9a00) MOV ECX,0x11c73b4
+  Total: 23 refs
+
+----------------------------------------------------------------------
+References TO 0x0126f74c (Current NiD3DPass global)
+----------------------------------------------------------------------
+  WRITE @ 0x00e90933 (in FUN_00e90850) MOV [0x0126f74c],EAX
+  READ @ 0x00b7dd50 (in FUN_00b7dd50) MOV EAX,[0x0126f74c]
+  READ @ 0x00b7dda4 (in FUN_00b7dd50) MOV EAX,[0x0126f74c]
+  READ @ 0x00b7c4ec (in FUN_00b7c3a0) MOV EAX,[0x0126f74c]
+  READ @ 0x00b7ddf5 (in FUN_00b7dde0) MOV ECX,dword ptr [0x0126f74c]
+  READ @ 0x00b7de19 (in FUN_00b7dde0) MOV ECX,dword ptr [0x0126f74c]
+  READ @ 0x00b7de46 (in FUN_00b7dde0) MOV EAX,[0x0126f74c]
+  READ @ 0x00b7de57 (in FUN_00b7dde0) MOV EDX,dword ptr [0x0126f74c]
+  READ @ 0x00b7c785 (in FUN_00b7c750) MOV EAX,[0x0126f74c]
+  READ @ 0x00b7c81d (in FUN_00b7c7b0) MOV EDX,dword ptr [0x0126f74c]
+  READ @ 0x00b7e165 (in FUN_00b7e150) MOV ECX,dword ptr [0x0126f74c]
+  READ @ 0x00b7e189 (in FUN_00b7e150) MOV ECX,dword ptr [0x0126f74c]
+  READ @ 0x00b7e1b6 (in FUN_00b7e150) MOV EAX,[0x0126f74c]
+  READ @ 0x00b7e1f3 (in FUN_00b7e150) MOV EDX,dword ptr [0x0126f74c]
+  READ @ 0x00b7e205 (in FUN_00b7e150) MOV ECX,dword ptr [0x0126f74c]
+  READ @ 0x00b7e218 (in FUN_00b7e150) MOV EAX,[0x0126f74c]
+  READ @ 0x00b7e279 (in FUN_00b7e150) MOV ECX,dword ptr [0x0126f74c]
+  READ @ 0x00b7dee8 (in FUN_00b7ded0) MOV ECX,dword ptr [0x0126f74c]
+  READ @ 0x00b7df0c (in FUN_00b7ded0) MOV ECX,dword ptr [0x0126f74c]
+  READ @ 0x00b7df39 (in FUN_00b7ded0) MOV EAX,[0x0126f74c]
+  READ @ 0x00b7df4a (in FUN_00b7ded0) MOV EDX,dword ptr [0x0126f74c]
+  READ @ 0x00b7df9b (in FUN_00b7ded0) MOV EAX,[0x0126f74c]
+  READ @ 0x00b7c853 (in FUN_00b7c850) MOV ECX,dword ptr [0x0126f74c]
+  READ @ 0x00b7c993 (in FUN_00b7c850) MOV ECX,dword ptr [0x0126f74c]
+  READ @ 0x00b7dffc (in FUN_00b7dfe0) MOV ECX,dword ptr [0x0126f74c]
+  READ @ 0x00b7e020 (in FUN_00b7dfe0) MOV ECX,dword ptr [0x0126f74c]
+  READ @ 0x00b7e04d (in FUN_00b7dfe0) MOV EAX,[0x0126f74c]
+  READ @ 0x00b7e05e (in FUN_00b7dfe0) MOV EDX,dword ptr [0x0126f74c]
+  READ @ 0x00b7e0e5 (in FUN_00b7dfe0) MOV EDX,dword ptr [0x0126f74c]
+  READ @ 0x00b7e10c (in FUN_00b7dfe0) MOV EAX,[0x0126f74c]
+  READ @ 0x00b7cb2a (in FUN_00b7cb00) MOV ECX,dword ptr [0x0126f74c]
+  READ @ 0x00b7cc66 (in FUN_00b7cb00) MOV ECX,dword ptr [0x0126f74c]
+  READ @ 0x00e814ba (in FUN_00e814b0) MOV ESI,dword ptr [0x0126f74c]
+  WRITE @ 0x00e80766 (in FUN_00e806c0) MOV dword ptr [0x0126f74c],EBP
+  WRITE @ 0x00b7af91 (in FUN_00b7af80) MOV [0x0126f74c],EAX
+  READ @ 0x00b7b69d (in FUN_00b7b450) MOV EDX,dword ptr [0x0126f74c]
+  READ @ 0x00b7dcb0 (in FUN_00b7dab0) MOV EAX,[0x0126f74c]
+  READ @ 0x00b7dceb (in FUN_00b7dab0) MOV EAX,[0x0126f74c]
+  WRITE @ 0x00b7ad73 (in FUN_00b7ad00) MOV dword ptr [0x0126f74c],EDI
+  READ @ 0x00b7cf24 (in FUN_00b7ce90) MOV ECX,dword ptr [0x0126f74c]
+  READ @ 0x00b7cf44 (in FUN_00b7ce90) MOV ECX,dword ptr [0x0126f74c]
+  READ @ 0x00b7cf65 (in FUN_00b7ce90) MOV ECX,dword ptr [0x0126f74c]
+  WRITE @ 0x00b7cf9c (in FUN_00b7ce90) MOV dword ptr [0x0126f74c],EBP
+  READ @ 0x00b80cb4 (in FUN_00b80c20) MOV EAX,[0x0126f74c]
+  READ @ 0x00b80cf1 (in FUN_00b80c20) MOV EDX,dword ptr [0x0126f74c]
+  READ @ 0x00b86afc (in FUN_00b864d0) MOV EDX,dword ptr [0x0126f74c]
+  READ @ 0x00b86b39 (in FUN_00b864d0) MOV EDX,dword ptr [0x0126f74c]
+  READ @ 0x00b8a0d3 (in FUN_00b89d80) MOV EAX,[0x0126f74c]
+  READ @ 0x00b8a10f (in FUN_00b89d80) MOV EAX,[0x0126f74c]
+  WRITE @ 0x00b92136 (in FUN_00b91f90) MOV [0x0126f74c],EAX
+  READ @ 0x00bacc85 (in FUN_00bac9c0) MOV EAX,[0x0126f74c]
+  READ @ 0x00baccc1 (in FUN_00bac9c0) MOV EAX,[0x0126f74c]
+  WRITE @ 0x00bb25bd (in FUN_00bb2580) MOV dword ptr [0x0126f74c],ECX
+  READ @ 0x00bb26f8 (in FUN_00bb26d0) MOV EDX,dword ptr [0x0126f74c]
+  READ @ 0x00bb2978 (in FUN_00bb2760) MOV EDX,dword ptr [0x0126f74c]
+  READ @ 0x00bb29b5 (in FUN_00bb2760) MOV EAX,[0x0126f74c]
+  READ @ 0x00bb6adc (in FUN_00bb6a80) MOV EAX,[0x0126f74c]
+  READ @ 0x00bb6b19 (in FUN_00bb6a80) MOV EAX,[0x0126f74c]
+  READ @ 0x00bbf060 (in FUN_00bbef90) MOV EAX,[0x0126f74c]
+  READ @ 0x00bbf4bc (in FUN_00bbef90) MOV EAX,[0x0126f74c]
+  READ @ 0x00bbf4ce (in FUN_00bbef90) MOV EDX,dword ptr [0x0126f74c]
+  READ @ 0x00bbf501 (in FUN_00bbef90) MOV EAX,[0x0126f74c]
+  READ @ 0x00bbf53e (in FUN_00bbef90) MOV EAX,[0x0126f74c]
+  READ @ 0x00bc9bc0 (in FUN_00bc9a50) MOV EAX,[0x0126f74c]
+  READ @ 0x00bc9c35 (in FUN_00bc9a50) MOV EAX,[0x0126f74c]
+  READ @ 0x00bca7a3 (in FUN_00bca760) MOV ECX,dword ptr [0x0126f74c]
+  READ @ 0x00bca7be (in FUN_00bca760) MOV ECX,dword ptr [0x0126f74c]
+  READ @ 0x00bca7dd (in FUN_00bca760) MOV EAX,[0x0126f74c]
+  READ @ 0x00bca803 (in FUN_00bca760) MOV ECX,dword ptr [0x0126f74c]
+  READ @ 0x00bca81c (in FUN_00bca760) MOV EAX,[0x0126f74c]
+  READ @ 0x00bca84e (in FUN_00bca760) MOV ECX,dword ptr [0x0126f74c]
+  READ @ 0x00bca85a (in FUN_00bca760) MOV ECX,dword ptr [0x0126f74c]
+  READ @ 0x00bca87c (in FUN_00bca760) MOV EAX,[0x0126f74c]
+  READ @ 0x00bca8bc (in FUN_00bca760) MOV ECX,dword ptr [0x0126f74c]
+  READ @ 0x00bca8d4 (in FUN_00bca760) MOV ECX,dword ptr [0x0126f74c]
+  READ @ 0x00bcaa5e (in FUN_00bca980) MOV EDX,dword ptr [0x0126f74c]
+  READ @ 0x00bcaaa0 (in FUN_00bca980) MOV EDX,dword ptr [0x0126f74c]
+  READ @ 0x00bcbe7e (in FUN_00bcbce0) MOV EDX,dword ptr [0x0126f74c]
+  READ @ 0x00bcbeb1 (in FUN_00bcbce0) MOV EDX,dword ptr [0x0126f74c]
+  READ @ 0x00b7d066 (in FUN_00b7cfb0) MOV ECX,dword ptr [0x0126f74c]
+  READ @ 0x00b7d07b (in FUN_00b7cfb0) MOV EDX,dword ptr [0x0126f74c]
+  WRITE @ 0x00bcd011 (in FUN_00bcce40) MOV dword ptr [0x0126f74c],EDX
+  WRITE @ 0x00bd1cc0 (in FUN_00bd1c50) MOV dword ptr [0x0126f74c],ECX
+  WRITE @ 0x00bd1cd2 (in FUN_00bd1c50) MOV dword ptr [0x0126f74c],EDX
+  WRITE @ 0x00bd1ce4 (in FUN_00bd1c50) MOV [0x0126f74c],EAX
+  READ @ 0x00bd4c35 (in FUN_00bd4ba0) MOV EAX,[0x0126f74c]
+  READ @ 0x00bd4c61 (in FUN_00bd4ba0) MOV EAX,[0x0126f74c]
+  READ @ 0x00bd4c7f (in FUN_00bd4ba0) MOV EDX,dword ptr [0x0126f74c]
+  READ @ 0x00bd4cbc (in FUN_00bd4ba0) MOV EDX,dword ptr [0x0126f74c]
+  READ @ 0x00be2173 (in FUN_00be2170) MOV EDI,dword ptr [0x0126f74c]
+  READ @ 0x00be21b4 (in FUN_00be21b0) MOV EDI,dword ptr [0x0126f74c]
+  WRITE @ 0x00c042c6 (in FUN_00c04120) MOV [0x0126f74c],EAX
+  READ @ 0x00c04351 (in FUN_00c04310) MOV ECX,dword ptr [0x0126f74c]
+  READ @ 0x00c04428 (in FUN_00c043f0) MOV EAX,[0x0126f74c]
+  READ @ 0x00c0445d (in FUN_00c043f0) MOV EAX,[0x0126f74c]
+  READ @ 0x00c044d1 (in FUN_00c04490) MOV ECX,dword ptr [0x0126f74c]
+  READ @ 0x00c0450b (in FUN_00c04490) MOV ECX,dword ptr [0x0126f74c]
+  WRITE @ 0x00e7c7a2 (in FUN_00e7c790) MOV dword ptr [0x0126f74c],0x0
+  WRITE @ 0x00e7c7bb (in FUN_00e7c790) MOV [0x0126f74c],EAX
+  READ @ 0x00e7c834 (in FUN_00e7c830) MOV ECX,dword ptr [0x0126f74c]
+  READ @ 0x00e7c9d9 (in FUN_00e7c830) MOV ECX,dword ptr [0x0126f74c]
+  READ @ 0x00e7ca20 (in FUN_00e7ca20) CMP dword ptr [0x0126f74c],0x0
+  READ @ 0x00e81201 (in FUN_00e811d0) MOV ECX,dword ptr [0x0126f74c]
+  READ @ 0x00e81236 (in FUN_00e811d0) MOV EDX,dword ptr [0x0126f74c]
+  READ @ 0x00e8127c (in FUN_00e811d0) MOV EDX,dword ptr [0x0126f74c]
+  READ @ 0x00e815a9 (in FUN_00e81510) MOV EBP,dword ptr [0x0126f74c]
+  READ @ 0x00e81664 (in FUN_00e81510) MOV EAX,[0x0126f74c]
+  WRITE @ 0x00e90569 (in FUN_00e90560) MOV dword ptr [0x0126f74c],0x0
+  READ @ 0x00b7cfe3 (in FUN_00b7cfb0) MOV ECX,dword ptr [0x0126f74c]
+  READ @ 0x00b7cff8 (in FUN_00b7cfb0) MOV EDX,dword ptr [0x0126f74c]
+  READ @ 0x00b7d010 (in FUN_00b7cfb0) MOV EAX,[0x0126f74c]
+  READ @ 0x00b7d023 (in FUN_00b7cfb0) MOV ECX,dword ptr [0x0126f74c]
+  READ @ 0x00b7d03b (in FUN_00b7cfb0) MOV EDX,dword ptr [0x0126f74c]
+  READ @ 0x00b7d050 (in FUN_00b7cfb0) MOV EAX,[0x0126f74c]
+  READ @ 0x00b7d0ab (in FUN_00b7cfb0) MOV ECX,dword ptr [0x0126f74c]
+  READ @ 0x00b7d0c0 (in FUN_00b7cfb0) MOV EDX,dword ptr [0x0126f74c]
+  READ @ 0x00b7c150 (in FUN_00b7c150) MOV EAX,[0x0126f74c]
+  READ @ 0x00b7c170 (in FUN_00b7c170) MOV EAX,[0x0126f74c]
+  WRITE @ 0x00bcceba (in FUN_00bcce40) MOV dword ptr [0x0126f74c],EDX
+  WRITE @ 0x00bccecc (in FUN_00bcce40) MOV [0x0126f74c],EAX
+  WRITE @ 0x00bccede (in FUN_00bcce40) MOV dword ptr [0x0126f74c],ECX
+  WRITE @ 0x00bccef1 (in FUN_00bcce40) MOV dword ptr [0x0126f74c],EDX
+  WRITE @ 0x00bccf03 (in FUN_00bcce40) MOV [0x0126f74c],EAX
+  WRITE @ 0x00bccf15 (in FUN_00bcce40) MOV dword ptr [0x0126f74c],ECX
+  WRITE @ 0x00bccf28 (in FUN_00bcce40) MOV dword ptr [0x0126f74c],EDX
+  WRITE @ 0x00bccf3a (in FUN_00bcce40) MOV [0x0126f74c],EAX
+  WRITE @ 0x00bccf4c (in FUN_00bcce40) MOV dword ptr [0x0126f74c],ECX
+  WRITE @ 0x00bccf5f (in FUN_00bcce40) MOV dword ptr [0x0126f74c],EDX
+  WRITE @ 0x00bccf71 (in FUN_00bcce40) MOV [0x0126f74c],EAX
+  WRITE @ 0x00bccf83 (in FUN_00bcce40) MOV dword ptr [0x0126f74c],ECX
+  WRITE @ 0x00bccf96 (in FUN_00bcce40) MOV dword ptr [0x0126f74c],EDX
+  WRITE @ 0x00bccfa8 (in FUN_00bcce40) MOV [0x0126f74c],EAX
+  WRITE @ 0x00bccfba (in FUN_00bcce40) MOV dword ptr [0x0126f74c],ECX
+  WRITE @ 0x00bccfcd (in FUN_00bcce40) MOV dword ptr [0x0126f74c],EDX
+  WRITE @ 0x00bcd041 (in FUN_00bcce40) MOV dword ptr [0x0126f74c],ECX
+  WRITE @ 0x00bcd054 (in FUN_00bcce40) MOV dword ptr [0x0126f74c],EDX
+  WRITE @ 0x00bcd066 (in FUN_00bcce40) MOV [0x0126f74c],EAX
+  WRITE @ 0x00bcd078 (in FUN_00bcce40) MOV dword ptr [0x0126f74c],ECX
+  WRITE @ 0x00bcd08b (in FUN_00bcce40) MOV dword ptr [0x0126f74c],EDX
+  WRITE @ 0x00bcd09d (in FUN_00bcce40) MOV [0x0126f74c],EAX
+  WRITE @ 0x00bcd0af (in FUN_00bcce40) MOV dword ptr [0x0126f74c],ECX
+  WRITE @ 0x00bcd0c2 (in FUN_00bcce40) MOV dword ptr [0x0126f74c],EDX
+  WRITE @ 0x00bcd0d4 (in FUN_00bcce40) MOV [0x0126f74c],EAX
+  WRITE @ 0x00bcd0e6 (in FUN_00bcce40) MOV dword ptr [0x0126f74c],ECX
+  WRITE @ 0x00bcd0f9 (in FUN_00bcce40) MOV dword ptr [0x0126f74c],EDX
+  WRITE @ 0x00bcd10b (in FUN_00bcce40) MOV [0x0126f74c],EAX
+  WRITE @ 0x00bcd11d (in FUN_00bcce40) MOV dword ptr [0x0126f74c],ECX
+  WRITE @ 0x00bcd130 (in FUN_00bcce40) MOV dword ptr [0x0126f74c],EDX
+  WRITE @ 0x00bcd142 (in FUN_00bcce40) MOV [0x0126f74c],EAX
+  WRITE @ 0x00bcd154 (in FUN_00bcce40) MOV dword ptr [0x0126f74c],ECX
+  READ @ 0x00b7a31a (in FUN_00b7a2c0) MOV EDX,dword ptr [0x0126f74c]
+  READ @ 0x00b7a352 (in FUN_00b7a2c0) MOV ECX,dword ptr [0x0126f74c]
+  READ @ 0x00b7d21a (in FUN_00b7d200) MOV EAX,[0x0126f74c]
+  WRITE @ 0x00b805e3 (in ???) MOV [0x0126f74c],EAX
+  WRITE @ 0x00b805ee (in ???) MOV dword ptr [0x0126f74c],ECX
+  READ @ 0x00b863b0 (in ???) MOV ESI,dword ptr [0x0126f74c]
+  WRITE @ 0x00b884f9 (in ???) MOV [0x0126f74c],EAX
+  WRITE @ 0x00b88507 (in ???) MOV dword ptr [0x0126f74c],ECX
+  READ @ 0x00b89cc5 (in ???) MOV EBX,dword ptr [0x0126f74c]
+  WRITE @ 0x00ba52ba (in ???) MOV [0x0126f74c],EAX
+  WRITE @ 0x00ba52c5 (in ???) MOV dword ptr [0x0126f74c],ECX
+  READ @ 0x00ba61c3 (in ???) MOV EDX,dword ptr [0x0126f74c]
+  READ @ 0x00ba6200 (in ???) MOV EAX,[0x0126f74c]
+  READ @ 0x00ba625c (in ???) MOV ECX,dword ptr [0x0126f74c]
+  WRITE @ 0x00baa400 (in ???) MOV [0x0126f74c],EAX
+  WRITE @ 0x00baa41a (in ???) MOV [0x0126f74c],EAX
+  READ @ 0x00bac8d4 (in ???) MOV ECX,dword ptr [0x0126f74c]
+  READ @ 0x00bac954 (in ???) MOV EDX,dword ptr [0x0126f74c]
+  READ @ 0x00bac985 (in ???) MOV ECX,dword ptr [0x0126f74c]
+  WRITE @ 0x00bb1b2f (in ???) MOV [0x0126f74c],EAX
+  WRITE @ 0x00bb1b42 (in ???) MOV dword ptr [0x0126f74c],ECX
+  WRITE @ 0x00bb62c3 (in ???) MOV [0x0126f74c],EAX
+  WRITE @ 0x00bb62dd (in ???) MOV [0x0126f74c],EAX
+  READ @ 0x00bb66c9 (in ???) MOV ECX,dword ptr [0x0126f74c]
+  WRITE @ 0x00bbb82f (in ???) MOV [0x0126f74c],EAX
+  READ @ 0x00bbd05f (in FUN_00bbd000) MOV ESI,dword ptr [0x0126f74c]
+  READ @ 0x00bbd098 (in FUN_00bbd000) MOV ECX,dword ptr [0x0126f74c]
+  WRITE @ 0x00bbe03a (in ???) MOV [0x0126f74c],EAX
+  WRITE @ 0x00bc6c44 (in ???) MOV [0x0126f74c],EAX
+  READ @ 0x00bc8d40 (in ???) MOV EAX,[0x0126f74c]
+  READ @ 0x00bc8f4b (in ???) MOV ECX,dword ptr [0x0126f74c]
+  ... (truncated)
+  Total: 181 refs
+
+----------------------------------------------------------------------
+References TO 0x0126f92c (NiDX9RenderState sampler TypeMap candidate)
+----------------------------------------------------------------------
+  WRITE @ 0x00e885e1 (in FUN_00e881a0) MOV [0x0126f92c],EAX
+  DATA @ 0x00e890c4 (in FUN_00e890c0) MOVZX EAX,word ptr [EAX*0x2 + 0x126f92c]
+  DATA @ 0x00e910f4 (in ???) MOVZX EDX,word ptr [EAX*0x2 + 0x126f92c]
+  DATA @ 0x00e910a5 (in FUN_00e910a0) MOVZX EAX,word ptr [EDI*0x2 + 0x126f92c]
+  DATA @ 0x00e91125 (in FUN_00e91120) MOVZX EDX,word ptr [ESI*0x2 + 0x126f92c]
+  Total: 5 refs
+
+----------------------------------------------------------------------
+References TO 0x0126f958 (NiDX9RenderState texture stage TypeMap candidate)
+----------------------------------------------------------------------
+  DATA @ 0x00e89064 (in FUN_00e89060) MOVZX EAX,word ptr [EAX*0x2 + 0x126f958]
+  DATA @ 0x00e88fc4 (in FUN_00e88fc0) MOVZX EAX,word ptr [EAX*0x2 + 0x126f958]
+  DATA @ 0x00e884b0 (in FUN_00e881a0) PUSH 0x126f958
+  DATA @ 0x00e88984 (in ???) MOVZX EAX,word ptr [EAX*0x2 + 0x126f958]
+  DATA @ 0x00e88935 (in FUN_00e88930) MOVZX EAX,word ptr [EBX*0x2 + 0x126f958]
+  Total: 5 refs
+
+======================================================================
+NiDX9RenderState constructor @ 0x00e881a0
+======================================================================
+  Function: FUN_00e881a0 @ 0x00e881a0, Size: 1220 bytes
+
+/* WARNING: Globals starting with '_' overlap smaller symbols at the same address */
+
+undefined4 * __thiscall FUN_00e881a0(undefined4 *param_1,int *param_2)
+
+{
+  int *piVar1;
+  float fVar2;
+  undefined4 *puVar3;
+  LONG LVar4;
+  int iVar5;
+  
+  *param_1 = &PTR_FUN_0101dce4;
+  param_1[1] = 0;
+  InterlockedIncrement((LONG *)&lpAddend_011f4400);
+  *param_1 = &PTR_FUN_010ef60c;
+  param_1[0x1d] = 0;
+  param_1[0x23] = 0;
+  param_1[0x24] = 0;
+  param_1[0x25] = 0;
+  FUN_00e68810();
+  puVar3 = param_1 + 0x48;
+  iVar5 = 0xff;
+  do {
+    *puVar3 = 0x7fffffff;
+    puVar3 = puVar3 + 2;
+    iVar5 = iVar5 + -1;
+  } while (-1 < iVar5);
+  puVar3 = param_1 + 0x288;
+  iVar5 = 0x7f;
+  do {
+    *puVar3 = 0x7fffffff;
+    puVar3 = puVar3 + 2;
+    iVar5 = iVar5 + -1;
+  } while (-1 < iVar5);
+  puVar3 = param_1 + 0x388;
+  iVar5 = 0x4f;
+  do {
+    *puVar3 = 0x7fffffff;
+    puVar3 = puVar3 + 2;
+    iVar5 = iVar5 + -1;
+  } while (-1 < iVar5);
+  param_1[0x43c] = 0;
+  param_1[0x43e] = 0;
+  param_1[0x43f] = 0;
+  FUN_00e87af0(param_2);
+  param_1[3] = 0;
+  param_1[4] = 1;
+  param_1[5] = 1;
+  param_1[6] = 2;
+  param_1[7] = 3;
+  param_1[0x1b] = 0;
+  param_1[0x1c] = 0;
+  param_2 = (int *)FUN_00aa13e0(0x1c);
+  if (param_2 == (int *)0x0) {
+    param_2 = (int *)0x0;
+  }
+  else {
+    FUN_00a5c200();
+    *param_2 = (int)&PTR_FUN_010162dc;
+    *(undefined2 *)(param_2 + 6) = 0xec;
+    *(undefined1 *)((int)param_2 + 0x1a) = 0;
+  }
+  piVar1 = (int *)param_1[0x1d];
+  if (piVar1 != param_2) {
+    if ((piVar1 != (int *)0x0) && (LVar4 = InterlockedDecrement(piVar1 + 1), LVar4 == 0)) {
+      (**(code **)(*piVar1 + 4))();
+    }
+    param_1[0x1d] = param_2;
+    if (param_2 != (int *)0x0) {
+      InterlockedIncrement(param_2 + 1);
+    }
+  }
+  param_1[0x1e] = 0;
+  param_1[0xb] = 4;
+  param_1[0x1f] = 0;
+  param_1[0x16] = 4;
+  param_1[0x20] = 0;
+  param_1[0x2a] = 4;
+  param_1[0x21] = 0;
+  param_1[0x32] = 4;
+  param_1[0x22] = 0x3f800000;
+  param_1[0xe] = 5;
+  param_1[0x17] = 5;
+  param_1[0x2b] = 5;
+  param_1[0x33] = 5;
+  param_1[8] = 2;
+  param_1[9] = 1;
+  param_1[10] = 3;
+  param_1[0xc] = 9;
+  param_1[0xd] = 10;
+  param_1[0xf] = 6;
+  param_1[0x10] = 7;
+  param_1[0x11] = 8;
+  param_1[0x12] = 0xb;
+  param_1[0x13] = 8;
+  param_1[0x14] = 2;
+  param_1[0x15] = 3;
+  param_1[0x18] = 6;
+  param_1[0x19] = 7;
+  param_1[0x1a] = 1;
+  param_1[0x2e] = 8;
+  param_1[0x28] = 2;
+  param_1[0x29] = 3;
+  param_1[0x2c] = 6;
+  param_1[0x2d] = 7;
+  param_1[0x27] = 1;
+  param_1[0x2f] = 1;
+  param_1[0x30] = 2;
+  param_1[0x31] = 3;
+  param_1[0x34] = 6;
+  param_1[0x35] = 2;
+  param_1[0x37] = 2;
+  param_1[0x39] = 3;
+  param_1[0x3b] = 1;
+  param_1[0x36] = 3;
+  param_1[0x38] = 3;
+  param_1[0x3a] = 2;
+  param_1[0x3c] = 1;
+  param_1[0x3d] = 0;
+  param_1[0x23] = DAT_011f4998;
+  param_1[0x24] = DAT_011f499c;
+  param_1[0x25] = DAT_011f49a0;
+  fVar2 = (float)_DAT_0101e568;
+  param_1[2] = 0;
+  param_1[0x40] = 8;
+  param_1[0x41] = 2;
+  param_1[0x42] = 3;
+  param_1[0x43] = 4;
+  param_1[0x44] = 5;
+  param_1[0x45] = 6;
+  param_1[0x46] = 7;
+  param_1[0x47] = 1;
+  param_1[0x26] =
+       (((int)ROUND((float)param_1[0x23] * fVar2) & 0xffU | 0xffffff00) << 8 |
+       (int)ROUND((float)param_1[0x24] * fVar2) & 0xffU) << 8 |
+       (int)ROUND(fVar2 * (float)param_1[0x25]) & 0xffU;
+  *(undefined1 *)(param_1 + 0x43d) = 0;
+  *(undefined1 *)((int)param_1 + 0x10f5) = 0;
+  _memset(&DAT_0126f958,0xffff,0x42);
+  DAT_0126f95a = 0;
+  _DAT_0126f95e = 2;
+  DAT_0126f95c = 1;
+  _DAT_0126f964 = 5;
+  _DAT_0126f960 = 3;
+  _DAT_0126f962 = 4;
+  DAT_0126f948 = 1;
+  _DAT_0126f966 = 6;
+  _DAT_0126f988 = 7;
+  _DAT_0126f94e = 4;
+  DAT_0126f94a = 2;
+  _DAT_0126f94c = 3;
+  _DAT_0126f954 = 7;
+  _DAT_0126f950 = 5;
+  _DAT_0126f952 = 6;
+  _DAT_0126f956 = 0x18;
+  _DAT_0126f93c = 0xffffffff;
+  _DAT_0126f940 = 0xffffffff;
+  _DAT_0126f944 = 0xffffffff;
+  _DAT_0126f92c = 0xffff;
+  _DAT_0126f930 = 0xffff0001;
+  _DAT_0126f934 = 0x2ffff;
+  _DAT_0126f938 = 0x40003;
+  DAT_0126f918 = 1;
+  DAT_0126f91c = 2;
+  _DAT_0126f920 = 5;
+  _DAT_0126f924 = 6;
+  _DAT_0126f928 = 7;
+  return param_1;
+}
+
+
+
+======================================================================
+NATIVE TEXTURE BINDING MATCHES: NiDX9RenderState constructor @ 0x00e881a0
+======================================================================
+  L0140:   _memset(&DAT_0126f958,0xffff,0x42);
+  L0160:   _DAT_0126f92c = 0xffff;
+  Total matched lines: 2
+
+--- Calls FROM NiDX9RenderState constructor (0x00e881a0) ---
+  0x00e881b7 -> 0x00000066 unknown
+  0x00e881e0 -> 0x00e68810 FUN_00e68810
+  0x00e88256 -> 0x00e87af0 FUN_00e87af0
+  0x00e8827e -> 0x00aa13e0 FUN_00aa13e0
+  0x00e88290 -> 0x00a5c200 FUN_00a5c200
+  0x00e882d1 -> 0x00000067 unknown
+  0x00e882f5 -> 0x00000066 unknown
+  0x00e88535 -> 0x00ec61c0 _memset
+  Total: 8 calls
+
+======================================================================
+NiDX9RenderState texture stage state cache writer candidate @ 0x00e890c0
+======================================================================
+  Function: FUN_00e890c0 @ 0x00e890c0, Size: 304 bytes
+
+void __thiscall FUN_00e890c0(int param_1,int param_2,undefined4 param_3,char param_4,char param_5)
+
+{
+  char *pcVar1;
+  uint uVar2;
+  
+  if (*(ushort *)(&DAT_0126f92c + param_2 * 2) < 5) {
+    uVar2 = (uint)*(ushort *)(&DAT_0126f92c + param_2 * 2);
+    if (param_4 == '\0') {
+      if (*(char *)(uVar2 + 0xa4 + param_1) != '\0') {
+        *(undefined4 *)(param_1 + 0x90 + uVar2 * 4) = param_3;
+        goto LAB_00e89159;
+      }
+      if (*(char *)(uVar2 + 0x80 + param_1) != '\0') {
+        *(undefined1 *)(uVar2 + 0x80 + param_1) = 0;
+        *(int *)(param_1 + 100) = *(int *)(param_1 + 100) + -1;
+        if (*(char *)(uVar2 + 0xb0 + param_1) != '\0') {
+          *(int *)(param_1 + 0xac) = *(int *)(param_1 + 0xac) + -1;
+        }
+        *(undefined1 *)(uVar2 + 0xb0 + param_1) = 0;
+      }
+      *(undefined1 *)(uVar2 + 0xa4 + param_1) = 1;
+      *(undefined4 *)(param_1 + 0x90 + uVar2 * 4) = param_3;
+      *(int *)(param_1 + 0x88) = *(int *)(param_1 + 0x88) + 1;
+    }
+    else {
+      if (*(char *)(uVar2 + 0x80 + param_1) != '\0') {
+        *(undefined4 *)(param_1 + 0x6c + uVar2 * 4) = param_3;
+LAB_00e89159:
+        pcVar1 = (char *)(uVar2 + 0xb0 + param_1);
+        if (param_5 == '\0') {
+          if (*pcVar1 != '\0') {
+            *(int *)(param_1 + 0xac) = *(int *)(param_1 + 0xac) + -1;
+          }
+        }
+        else if (*pcVar1 == '\0') {
+          *(int *)(param_1 + 0xac) = *(int *)(param_1 + 0xac) + 1;
+          *pcVar1 = param_5;
+          return;
+        }
+        *pcVar1 = param_5;
+        return;
+      }
+      if (*(char *)(uVar2 + 0xa4 + param_1) != '\0') {
+        *(undefined1 *)(uVar2 + 0xa4 + param_1) = 0;
+        *(int *)(param_1 + 0x88) = *(int *)(param_1 + 0x88) + -1;
+        if (*(char *)(uVar2 + 0xb0 + param_1) != '\0') {
+          *(int *)(param_1 + 0xac) = *(int *)(param_1 + 0xac) + -1;
+        }
+        *(undefined1 *)(uVar2 + 0xb0 + param_1) = 0;
+      }
+      *(undefined1 *)(uVar2 + 0x80 + param_1) = 1;
+      *(undefined4 *)(param_1 + 0x6c + uVar2 * 4) = param_3;
+      *(int *)(param_1 + 100) = *(int *)(param_1 + 100) + 1;
+    }
+    if (param_5 != '\0') {
+      *(int *)(param_1 + 0xac) = *(int *)(param_1 + 0xac) + 1;
+    }
+    *(char *)(uVar2 + 0xb0 + param_1) = param_5;
+  }
+  return;
+}
+
+
+
+======================================================================
+NATIVE TEXTURE BINDING MATCHES: NiDX9RenderState texture stage state cache writer candidate @ 0x00e890c0
+======================================================================
+  L0008:   if (*(ushort *)(&DAT_0126f92c + param_2 * 2) < 5) {
+  L0009:     uVar2 = (uint)*(ushort *)(&DAT_0126f92c + param_2 * 2);
+  Total matched lines: 2
+
+--- Calls FROM NiDX9RenderState texture stage state cache writer candidate (0x00e890c0) ---
+  Total: 0 calls
+
+======================================================================
+NiDX9RenderState::SetSamplerState @ 0x00e910a0
+======================================================================
+  Function: FUN_00e910a0 @ 0x00e910a0, Size: 74 bytes
+
+void __thiscall FUN_00e910a0(int param_1,int param_2,int param_3,int param_4)
+
+{
+  int *piVar1;
+  
+  if ((*(ushort *)(&DAT_0126f92c + param_3 * 2) < 5) &&
+     (piVar1 = (int *)(param_1 + 0xe20 +
+                      (param_2 * 5 + (uint)*(ushort *)(&DAT_0126f92c + param_3 * 2)) * 8),
+     *piVar1 != param_4)) {
+    *piVar1 = param_4;
+    (**(code **)(**(int **)(param_1 + 0x10f8) + 0x114))
+              (*(int **)(param_1 + 0x10f8),param_2,param_3,param_4);
+  }
+  return;
+}
+
+
+
+======================================================================
+NATIVE TEXTURE BINDING MATCHES: NiDX9RenderState::SetSamplerState @ 0x00e910a0
+======================================================================
+  L0007:   if ((*(ushort *)(&DAT_0126f92c + param_3 * 2) < 5) &&
+  L0009:                       (param_2 * 5 + (uint)*(ushort *)(&DAT_0126f92c + param_3 * 2)) * 8),
+  L0012:     (**(code **)(**(int **)(param_1 + 0x10f8) + 0x114))
+  Total matched lines: 3
+
+--- Calls FROM NiDX9RenderState::SetSamplerState (0x00e910a0) ---
+  Total: 0 calls
+
+======================================================================
+NiDX9RenderState sampler restore/apply candidate @ 0x00e91120
+======================================================================
+  Function: FUN_00e91120 @ 0x00e91120, Size: 61 bytes
+
+void __thiscall FUN_00e91120(int *param_1,int param_2,int param_3)
+
+{
+  if (*(ushort *)(&DAT_0126f92c + param_3 * 2) < 5) {
+    (**(code **)(*param_1 + 0xcc))
+              (param_2,param_3,
+               param_1[(param_2 * 5 + (uint)*(ushort *)(&DAT_0126f92c + param_3 * 2)) * 2 + 0x389],0
+              );
+  }
+  return;
+}
+
+
+
+======================================================================
+NATIVE TEXTURE BINDING MATCHES: NiDX9RenderState sampler restore/apply candidate @ 0x00e91120
+======================================================================
+  L0005:   if (*(ushort *)(&DAT_0126f92c + param_3 * 2) < 5) {
+  L0008:                param_1[(param_2 * 5 + (uint)*(ushort *)(&DAT_0126f92c + param_3 * 2)) * 2 + 0x389],0
+  Total matched lines: 2
+
+--- Calls FROM NiDX9RenderState sampler restore/apply candidate (0x00e91120) ---
+  Total: 0 calls
+
+----------------------------------------------------------------------
+Disassembly NiDX9RenderState::SetSamplerState around 0x00e910a0
+----------------------------------------------------------------------
+  0x00e91068: JZ 0x00e9108e                                       
+  0x00e9106a: CMP byte ptr [ECX + 0x1100],DL                      
+  0x00e91070: JZ 0x00e9108e                                       
+  0x00e91072: CMP dword ptr [ECX + 0x110c],EAX                    
+  0x00e91078: JNZ 0x00e91080                                      
+  0x00e9107a: MOV dword ptr [ECX + 0x110c],EDX                    
+  0x00e91080: CMP dword ptr [ECX + 0x1110],EAX                    
+  0x00e91086: JNZ 0x00e9108e                                      
+  0x00e91088: MOV dword ptr [ECX + 0x1110],EDX                    
+  0x00e9108e: RET 0x4                                             
+  0x00e910a0: PUSH EDI                                             << TARGET
+  0x00e910a1: MOV EDI,dword ptr [ESP + 0xc]                       
+  0x00e910a5: MOVZX EAX,word ptr [EDI*0x2 + 0x126f92c]            
+  0x00e910ad: CMP AX,0x5                                          
+  0x00e910b1: JNC 0x00e910e6                                      
+  0x00e910b3: PUSH ESI                                            
+  0x00e910b4: MOV ESI,dword ptr [ESP + 0xc]                       
+  0x00e910b8: MOVZX EAX,AX                                        
+  0x00e910bb: LEA EDX,[ESI + ESI*0x4]                             
+  0x00e910be: ADD EDX,EAX                                         
+  0x00e910c0: LEA EAX,[ECX + EDX*0x8 + 0xe20]                     
+  0x00e910c7: MOV EDX,dword ptr [ESP + 0x14]                      
+  0x00e910cb: CMP dword ptr [EAX],EDX                             
+  0x00e910cd: JZ 0x00e910e5                                       
+  0x00e910cf: PUSH EDX                                            
+  0x00e910d0: MOV dword ptr [EAX],EDX                             
+  0x00e910d2: MOV EAX,dword ptr [ECX + 0x10f8]                    
+  0x00e910d8: MOV ECX,dword ptr [EAX]                             
+  0x00e910da: MOV EDX,dword ptr [ECX + 0x114]                     
+  0x00e910e0: PUSH EDI                                            
+  0x00e910e1: PUSH ESI                                            
+  0x00e910e2: PUSH EAX                                            
+  0x00e910e3: CALL EDX                                            
+  0x00e910e5: POP ESI                                             
+  0x00e910e6: POP EDI                                             
+  0x00e910e7: RET 0x10                                            
+  0x00e910f0: MOV EAX,dword ptr [ESP + 0x8]                       
+  0x00e910f4: MOVZX EDX,word ptr [EAX*0x2 + 0x126f92c]            
+  0x00e910fc: CMP DX,0x5                                          
+
+----------------------------------------------------------------------
+Disassembly NiDX9RenderState sampler restore/apply candidate around 0x00e91120
+----------------------------------------------------------------------
+  0x00e910fc: CMP DX,0x5                                          
+  0x00e91100: JNC 0x00e91118                                      
+  0x00e91102: MOV EAX,dword ptr [ESP + 0x4]                       
+  0x00e91106: MOVZX EDX,DX                                        
+  0x00e91109: LEA EAX,[EAX + EAX*0x4]                             
+  0x00e9110c: ADD EAX,EDX                                         
+  0x00e9110e: MOV EAX,dword ptr [ECX + EAX*0x8 + 0xe20]           
+  0x00e91115: RET 0x8                                             
+  0x00e91118: XOR EAX,EAX                                         
+  0x00e9111a: RET 0x8                                             
+  0x00e91120: PUSH ESI                                             << TARGET
+  0x00e91121: MOV ESI,dword ptr [ESP + 0xc]                       
+  0x00e91125: MOVZX EDX,word ptr [ESI*0x2 + 0x126f92c]            
+  0x00e9112d: CMP DX,0x5                                          
+  0x00e91131: JNC 0x00e91159                                      
+  0x00e91133: MOV EAX,dword ptr [ESP + 0x8]                       
+  0x00e91137: PUSH EBX                                            
+  0x00e91138: MOVZX EDX,DX                                        
+  0x00e9113b: PUSH EDI                                            
+  0x00e9113c: MOV EDI,dword ptr [ECX]                             
+  0x00e9113e: LEA EBX,[EAX + EAX*0x4]                             
+  0x00e91141: PUSH 0x0                                            
+  0x00e91143: ADD EBX,EDX                                         
+  0x00e91145: MOV EDX,dword ptr [ECX + EBX*0x8 + 0xe24]           
+  0x00e9114c: PUSH EDX                                            
+  0x00e9114d: PUSH ESI                                            
+  0x00e9114e: PUSH EAX                                            
+  0x00e9114f: MOV EAX,dword ptr [EDI + 0xcc]                      
+  0x00e91155: CALL EAX                                            
+  0x00e91157: POP EDI                                             
+  0x00e91158: POP EBX                                             
+  0x00e91159: POP ESI                                             
+  0x00e9115a: RET 0x8                                             
+  0x00e91160: PUSH ESI                                            
+  0x00e91161: MOV ESI,ECX                                         
+  0x00e91163: MOV dword ptr [ESI],0x10f088c                       
+  0x00e91169: CALL 0x00e88b00                                      ; CALL 0x00e88b00 FUN_00e88b00
+  0x00e9116e: TEST byte ptr [ESP + 0x8],0x1                       
+  0x00e91173: JZ 0x00e91183                                       
+
+======================================================================
+Potential IDirect3DDevice9 texture/sampler vtable callsites
+======================================================================
+  IDirect3DDevice9::SetTexture @ 0x00da2a25 (in FUN_00da2990): CALL dword ptr [ESP + 0x1040]
+
+  Total shown for IDirect3DDevice9::GetTexture: 0
+  Total shown for IDirect3DDevice9::SetTexture: 1
+  Total shown for IDirect3DDevice9::GetTextureStageState: 0
+  Total shown for IDirect3DDevice9::SetTextureStageState: 0
+  Total shown for IDirect3DDevice9::GetSamplerState: 0
+  Total shown for IDirect3DDevice9::SetSamplerState: 0

@@ -1,0 +1,1635 @@
+FNV NATIVE TEXTURE STAGE STATE FOLLOW-UP AUDIT
+
+Questions:
+1. What do the functions referencing texture-stage TypeMap 0x0126F958 do?
+2. Which D3D texture/sampler vtable slots are loaded by render-state code?
+3. Which states can Psycho trust engine render-state tracking to restore?
+
+The previous native_texture_binding audit proved sampler TypeMap 0x0126F92C, but did not decompile the texture-stage TypeMap functions and had a weak broad SetTexture scan.
+
+----------------------------------------------------------------------
+References TO 0x0126f958 (NiDX9RenderState texture stage TypeMap candidate)
+----------------------------------------------------------------------
+  DATA @ 0x00e89064 (in FUN_00e89060) MOVZX EAX,word ptr [EAX*0x2 + 0x126f958]
+  DATA @ 0x00e88fc4 (in FUN_00e88fc0) MOVZX EAX,word ptr [EAX*0x2 + 0x126f958]
+  DATA @ 0x00e884b0 (in FUN_00e881a0) PUSH 0x126f958
+  DATA @ 0x00e88984 (in ???) MOVZX EAX,word ptr [EAX*0x2 + 0x126f958]
+  DATA @ 0x00e88935 (in FUN_00e88930) MOVZX EAX,word ptr [EBX*0x2 + 0x126f958]
+  Total: 5 refs
+
+----------------------------------------------------------------------
+References TO 0x0126f92c (NiDX9RenderState sampler TypeMap candidate)
+----------------------------------------------------------------------
+  WRITE @ 0x00e885e1 (in FUN_00e881a0) MOV [0x0126f92c],EAX
+  DATA @ 0x00e890c4 (in FUN_00e890c0) MOVZX EAX,word ptr [EAX*0x2 + 0x126f92c]
+  DATA @ 0x00e910f4 (in ???) MOVZX EDX,word ptr [EAX*0x2 + 0x126f92c]
+  DATA @ 0x00e910a5 (in FUN_00e910a0) MOVZX EAX,word ptr [EDI*0x2 + 0x126f92c]
+  DATA @ 0x00e91125 (in FUN_00e91120) MOVZX EDX,word ptr [ESI*0x2 + 0x126f92c]
+  Total: 5 refs
+
+======================================================================
+NiDX9RenderState constructor @ 0x00e881a0
+======================================================================
+  Function: FUN_00e881a0 @ 0x00e881a0, Size: 1220 bytes
+
+/* WARNING: Globals starting with '_' overlap smaller symbols at the same address */
+
+undefined4 * __thiscall FUN_00e881a0(undefined4 *param_1,int *param_2)
+
+{
+  int *piVar1;
+  float fVar2;
+  undefined4 *puVar3;
+  LONG LVar4;
+  int iVar5;
+  
+  *param_1 = &PTR_FUN_0101dce4;
+  param_1[1] = 0;
+  InterlockedIncrement((LONG *)&lpAddend_011f4400);
+  *param_1 = &PTR_FUN_010ef60c;
+  param_1[0x1d] = 0;
+  param_1[0x23] = 0;
+  param_1[0x24] = 0;
+  param_1[0x25] = 0;
+  FUN_00e68810();
+  puVar3 = param_1 + 0x48;
+  iVar5 = 0xff;
+  do {
+    *puVar3 = 0x7fffffff;
+    puVar3 = puVar3 + 2;
+    iVar5 = iVar5 + -1;
+  } while (-1 < iVar5);
+  puVar3 = param_1 + 0x288;
+  iVar5 = 0x7f;
+  do {
+    *puVar3 = 0x7fffffff;
+    puVar3 = puVar3 + 2;
+    iVar5 = iVar5 + -1;
+  } while (-1 < iVar5);
+  puVar3 = param_1 + 0x388;
+  iVar5 = 0x4f;
+  do {
+    *puVar3 = 0x7fffffff;
+    puVar3 = puVar3 + 2;
+    iVar5 = iVar5 + -1;
+  } while (-1 < iVar5);
+  param_1[0x43c] = 0;
+  param_1[0x43e] = 0;
+  param_1[0x43f] = 0;
+  FUN_00e87af0(param_2);
+  param_1[3] = 0;
+  param_1[4] = 1;
+  param_1[5] = 1;
+  param_1[6] = 2;
+  param_1[7] = 3;
+  param_1[0x1b] = 0;
+  param_1[0x1c] = 0;
+  param_2 = (int *)FUN_00aa13e0(0x1c);
+  if (param_2 == (int *)0x0) {
+    param_2 = (int *)0x0;
+  }
+  else {
+    FUN_00a5c200();
+    *param_2 = (int)&PTR_FUN_010162dc;
+    *(undefined2 *)(param_2 + 6) = 0xec;
+    *(undefined1 *)((int)param_2 + 0x1a) = 0;
+  }
+  piVar1 = (int *)param_1[0x1d];
+  if (piVar1 != param_2) {
+    if ((piVar1 != (int *)0x0) && (LVar4 = InterlockedDecrement(piVar1 + 1), LVar4 == 0)) {
+      (**(code **)(*piVar1 + 4))();
+    }
+    param_1[0x1d] = param_2;
+    if (param_2 != (int *)0x0) {
+      InterlockedIncrement(param_2 + 1);
+    }
+  }
+  param_1[0x1e] = 0;
+  param_1[0xb] = 4;
+  param_1[0x1f] = 0;
+  param_1[0x16] = 4;
+  param_1[0x20] = 0;
+  param_1[0x2a] = 4;
+  param_1[0x21] = 0;
+  param_1[0x32] = 4;
+  param_1[0x22] = 0x3f800000;
+  param_1[0xe] = 5;
+  param_1[0x17] = 5;
+  param_1[0x2b] = 5;
+  param_1[0x33] = 5;
+  param_1[8] = 2;
+  param_1[9] = 1;
+  param_1[10] = 3;
+  param_1[0xc] = 9;
+  param_1[0xd] = 10;
+  param_1[0xf] = 6;
+  param_1[0x10] = 7;
+  param_1[0x11] = 8;
+  param_1[0x12] = 0xb;
+  param_1[0x13] = 8;
+  param_1[0x14] = 2;
+  param_1[0x15] = 3;
+  param_1[0x18] = 6;
+  param_1[0x19] = 7;
+  param_1[0x1a] = 1;
+  param_1[0x2e] = 8;
+  param_1[0x28] = 2;
+  param_1[0x29] = 3;
+  param_1[0x2c] = 6;
+  param_1[0x2d] = 7;
+  param_1[0x27] = 1;
+  param_1[0x2f] = 1;
+  param_1[0x30] = 2;
+  param_1[0x31] = 3;
+  param_1[0x34] = 6;
+  param_1[0x35] = 2;
+  param_1[0x37] = 2;
+  param_1[0x39] = 3;
+  param_1[0x3b] = 1;
+  param_1[0x36] = 3;
+  param_1[0x38] = 3;
+  param_1[0x3a] = 2;
+  param_1[0x3c] = 1;
+  param_1[0x3d] = 0;
+  param_1[0x23] = DAT_011f4998;
+  param_1[0x24] = DAT_011f499c;
+  param_1[0x25] = DAT_011f49a0;
+  fVar2 = (float)_DAT_0101e568;
+  param_1[2] = 0;
+  param_1[0x40] = 8;
+  param_1[0x41] = 2;
+  param_1[0x42] = 3;
+  param_1[0x43] = 4;
+  param_1[0x44] = 5;
+  param_1[0x45] = 6;
+  param_1[0x46] = 7;
+  param_1[0x47] = 1;
+  param_1[0x26] =
+       (((int)ROUND((float)param_1[0x23] * fVar2) & 0xffU | 0xffffff00) << 8 |
+       (int)ROUND((float)param_1[0x24] * fVar2) & 0xffU) << 8 |
+       (int)ROUND(fVar2 * (float)param_1[0x25]) & 0xffU;
+  *(undefined1 *)(param_1 + 0x43d) = 0;
+  *(undefined1 *)((int)param_1 + 0x10f5) = 0;
+  _memset(&DAT_0126f958,0xffff,0x42);
+  DAT_0126f95a = 0;
+  _DAT_0126f95e = 2;
+  DAT_0126f95c = 1;
+  _DAT_0126f964 = 5;
+  _DAT_0126f960 = 3;
+  _DAT_0126f962 = 4;
+  DAT_0126f948 = 1;
+  _DAT_0126f966 = 6;
+  _DAT_0126f988 = 7;
+  _DAT_0126f94e = 4;
+  DAT_0126f94a = 2;
+  _DAT_0126f94c = 3;
+  _DAT_0126f954 = 7;
+  _DAT_0126f950 = 5;
+  _DAT_0126f952 = 6;
+  _DAT_0126f956 = 0x18;
+  _DAT_0126f93c = 0xffffffff;
+  _DAT_0126f940 = 0xffffffff;
+  _DAT_0126f944 = 0xffffffff;
+  _DAT_0126f92c = 0xffff;
+  _DAT_0126f930 = 0xffff0001;
+  _DAT_0126f934 = 0x2ffff;
+  _DAT_0126f938 = 0x40003;
+  DAT_0126f918 = 1;
+  DAT_0126f91c = 2;
+  _DAT_0126f920 = 5;
+  _DAT_0126f924 = 6;
+  _DAT_0126f928 = 7;
+  return param_1;
+}
+
+
+
+======================================================================
+TEXTURE STAGE FOLLOW-UP MATCHES: NiDX9RenderState constructor @ 0x00e881a0
+======================================================================
+  L0140:   _memset(&DAT_0126f958,0xffff,0x42);
+  L0160:   _DAT_0126f92c = 0xffff;
+  Total matched lines: 2
+
+--- Calls FROM NiDX9RenderState constructor (0x00e881a0) ---
+  0x00e881b7 -> 0x00000066 unknown
+  0x00e881e0 -> 0x00e68810 FUN_00e68810
+  0x00e88256 -> 0x00e87af0 FUN_00e87af0
+  0x00e8827e -> 0x00aa13e0 FUN_00aa13e0
+  0x00e88290 -> 0x00a5c200 FUN_00a5c200
+  0x00e882d1 -> 0x00000067 unknown
+  0x00e882f5 -> 0x00000066 unknown
+  0x00e88535 -> 0x00ec61c0 _memset
+  Total: 8 calls
+
+----------------------------------------------------------------------
+Disassembly NiDX9RenderState constructor around 0x00e881a0
+----------------------------------------------------------------------
+  0x00e88184: CMP EAX,dword ptr [0x011bf560]                      
+  0x00e8818a: JC 0x00e88101                                       
+  0x00e88190: POP EDI                                             
+  0x00e88191: POP ESI                                             
+  0x00e88192: POP EBP                                             
+  0x00e88193: POP EBX                                             
+  0x00e88194: ADD ESP,0x8                                         
+  0x00e88197: RET                                                 
+  0x00e881a0: PUSH ECX                                             << TARGET
+  0x00e881a1: PUSH EBX                                            
+  0x00e881a2: PUSH EBP                                            
+  0x00e881a3: PUSH ESI                                            
+  0x00e881a4: PUSH EDI                                            
+  0x00e881a5: MOV ESI,ECX                                         
+  0x00e881a7: XOR EDI,EDI                                         
+  0x00e881a9: PUSH 0x11f4400                                      
+  0x00e881ae: MOV dword ptr [ESI],0x101dce4                       
+  0x00e881b4: MOV dword ptr [ESI + 0x4],EDI                       
+  0x00e881b7: CALL dword ptr [0x00fdf1c0]                          ; CALL 0x00000066 unknown
+  0x00e881bd: FLDZ                                                
+  0x00e881bf: MOV dword ptr [ESI],0x10ef60c                       
+  0x00e881c5: MOV dword ptr [ESI + 0x74],EDI                      
+  0x00e881c8: FST float ptr [ESI + 0x8c]                          
+  0x00e881ce: FST float ptr [ESI + 0x90]                          
+  0x00e881d4: LEA ECX,[ESI + 0xf8]                                
+  0x00e881da: FSTP float ptr [ESI + 0x94]                         
+  0x00e881e0: CALL 0x00e68810                                      ; CALL 0x00e68810 FUN_00e68810
+  0x00e881e5: LEA EAX,[ESI + 0x120]                               
+  0x00e881eb: MOV ECX,0xff                                        
+  0x00e881f0: MOV EBX,0x1                                         
+  0x00e881f5: MOV dword ptr [EAX],0x7fffffff                      
+  0x00e881fb: ADD EAX,0x8                                         
+  0x00e881fe: SUB ECX,EBX                                         
+  0x00e88200: JNS 0x00e881f5                                      
+  0x00e88202: LEA EAX,[ESI + 0xa20]                               
+  0x00e88208: MOV ECX,0x7f                                        
+  0x00e8820d: LEA ECX,[ECX]                                       
+  0x00e88210: MOV dword ptr [EAX],0x7fffffff                      
+  0x00e88216: ADD EAX,0x8                                         
+  0x00e88219: SUB ECX,EBX                                         
+  0x00e8821b: JNS 0x00e88210                                      
+  0x00e8821d: LEA EAX,[ESI + 0xe20]                               
+  0x00e88223: MOV ECX,0x4f                                        
+  0x00e88228: JMP 0x00e88230                                      
+  0x00e88230: MOV dword ptr [EAX],0x7fffffff                      
+
+======================================================================
+NiDX9RenderState texture stage reader/writer candidate @ 0x00e88930
+======================================================================
+  Function: FUN_00e88930 @ 0x00e88930, Size: 79 bytes
+
+void __thiscall FUN_00e88930(int param_1,int param_2,int param_3,int param_4)
+
+{
+  int iVar1;
+  
+  if (*(ushort *)(&DAT_0126f958 + param_3 * 2) < 8) {
+    iVar1 = (uint)*(ushort *)(&DAT_0126f958 + param_3 * 2) + param_2 * 8;
+    if (*(int *)(param_1 + 0xa20 + iVar1 * 8) != param_4) {
+      (**(code **)(**(int **)(param_1 + 0x10f8) + 0x10c))
+                (*(int **)(param_1 + 0x10f8),param_2,param_3,param_4);
+    }
+    *(int *)(param_1 + 0xa20 + iVar1 * 8) = param_4;
+  }
+  return;
+}
+
+
+
+======================================================================
+TEXTURE STAGE FOLLOW-UP MATCHES: NiDX9RenderState texture stage reader/writer candidate @ 0x00e88930
+======================================================================
+  L0007:   if (*(ushort *)(&DAT_0126f958 + param_3 * 2) < 8) {
+  L0008:     iVar1 = (uint)*(ushort *)(&DAT_0126f958 + param_3 * 2) + param_2 * 8;
+  L0010:       (**(code **)(**(int **)(param_1 + 0x10f8) + 0x10c))
+  L0011:                 (*(int **)(param_1 + 0x10f8),param_2,param_3,param_4);
+  Total matched lines: 4
+
+--- Calls FROM NiDX9RenderState texture stage reader/writer candidate (0x00e88930) ---
+  Total: 0 calls
+
+----------------------------------------------------------------------
+Disassembly NiDX9RenderState texture stage reader/writer candidate around 0x00e88930
+----------------------------------------------------------------------
+  0x00e8890a: PUSH EAX                                            
+  0x00e8890b: CALL EDX                                            
+  0x00e8890d: CMP dword ptr [ESI + 0x10ec],EDI                    
+  0x00e88913: JNZ 0x00e8891f                                      
+  0x00e88915: MOV dword ptr [ESI + 0x10ec],0x0                    
+  0x00e8891f: POP EDI                                             
+  0x00e88920: POP ESI                                             
+  0x00e88921: RET 0x4                                             
+  0x00e88930: PUSH EBX                                             << TARGET
+  0x00e88931: MOV EBX,dword ptr [ESP + 0xc]                       
+  0x00e88935: MOVZX EAX,word ptr [EBX*0x2 + 0x126f958]            
+  0x00e8893d: CMP AX,0x8                                          
+  0x00e88941: JNC 0x00e8897b                                      
+  0x00e88943: MOV EDX,dword ptr [ESP + 0x8]                       
+  0x00e88947: MOVZX EAX,AX                                        
+  0x00e8894a: PUSH ESI                                            
+  0x00e8894b: MOV ESI,dword ptr [ESP + 0x14]                      
+  0x00e8894f: LEA EAX,[EAX + EDX*0x8]                             
+  0x00e88952: CMP dword ptr [ECX + EAX*0x8 + 0xa20],ESI           
+  0x00e88959: PUSH EDI                                            
+  0x00e8895a: LEA EDI,[ECX + EAX*0x8 + 0xa20]                     
+  0x00e88961: JZ 0x00e88977                                       
+  0x00e88963: MOV EAX,dword ptr [ECX + 0x10f8]                    
+  0x00e88969: MOV ECX,dword ptr [EAX]                             
+  0x00e8896b: PUSH ESI                                            
+  0x00e8896c: PUSH EBX                                            
+  0x00e8896d: PUSH EDX                                            
+  0x00e8896e: MOV EDX,dword ptr [ECX + 0x10c]                     
+  0x00e88974: PUSH EAX                                            
+  0x00e88975: CALL EDX                                            
+  0x00e88977: MOV dword ptr [EDI],ESI                             
+  0x00e88979: POP EDI                                             
+  0x00e8897a: POP ESI                                             
+  0x00e8897b: POP EBX                                             
+  0x00e8897c: RET 0x10                                            
+  0x00e88980: MOV EAX,dword ptr [ESP + 0x8]                       
+  0x00e88984: MOVZX EAX,word ptr [EAX*0x2 + 0x126f958]            
+  0x00e8898c: CMP AX,0x8                                          
+  0x00e88990: JNC 0x00e889a6                                      
+  0x00e88992: MOVZX EDX,AX                                        
+  0x00e88995: MOV EAX,dword ptr [ESP + 0x4]                       
+  0x00e88999: LEA EDX,[EDX + EAX*0x8]                             
+  0x00e8899c: MOV EAX,dword ptr [ECX + EDX*0x8 + 0xa20]           
+  0x00e889a3: RET 0x8                                             
+  0x00e889a6: XOR EAX,EAX                                         
+
+======================================================================
+NiDX9RenderState texture stage reader/writer candidate @ 0x00e88980
+======================================================================
+  [function not found]
+
+======================================================================
+TEXTURE STAGE FOLLOW-UP MATCHES: NiDX9RenderState texture stage reader/writer candidate @ 0x00e88980
+======================================================================
+  [decompilation failed]
+
+--- Calls FROM NiDX9RenderState texture stage reader/writer candidate (0x00e88980) ---
+  [function not found]
+
+----------------------------------------------------------------------
+Disassembly NiDX9RenderState texture stage reader/writer candidate around 0x00e88980
+----------------------------------------------------------------------
+  0x00e8896e: MOV EDX,dword ptr [ECX + 0x10c]                     
+  0x00e88974: PUSH EAX                                            
+  0x00e88975: CALL EDX                                            
+  0x00e88977: MOV dword ptr [EDI],ESI                             
+  0x00e88979: POP EDI                                             
+  0x00e8897a: POP ESI                                             
+  0x00e8897b: POP EBX                                             
+  0x00e8897c: RET 0x10                                            
+  0x00e88980: MOV EAX,dword ptr [ESP + 0x8]                        << TARGET
+  0x00e88984: MOVZX EAX,word ptr [EAX*0x2 + 0x126f958]            
+  0x00e8898c: CMP AX,0x8                                          
+  0x00e88990: JNC 0x00e889a6                                      
+  0x00e88992: MOVZX EDX,AX                                        
+  0x00e88995: MOV EAX,dword ptr [ESP + 0x4]                       
+  0x00e88999: LEA EDX,[EDX + EAX*0x8]                             
+  0x00e8899c: MOV EAX,dword ptr [ECX + EDX*0x8 + 0xa20]           
+  0x00e889a3: RET 0x8                                             
+  0x00e889a6: XOR EAX,EAX                                         
+  0x00e889a8: RET 0x8                                             
+  0x00e889b0: XOR EAX,EAX                                         
+  0x00e889b2: MOV dword ptr [ECX + 0x10a0],EAX                    
+  0x00e889b8: MOV dword ptr [ECX + 0x10a4],EAX                    
+  0x00e889be: MOV dword ptr [ECX + 0x10a8],EAX                    
+  0x00e889c4: MOV dword ptr [ECX + 0x10ac],EAX                    
+  0x00e889ca: MOV dword ptr [ECX + 0x10b0],EAX                    
+  0x00e889d0: MOV dword ptr [ECX + 0x10b4],EAX                    
+  0x00e889d6: MOV dword ptr [ECX + 0x10b8],EAX                    
+  0x00e889dc: MOV dword ptr [ECX + 0x10bc],EAX                    
+  0x00e889e2: MOV dword ptr [ECX + 0x10c0],EAX                    
+  0x00e889e8: MOV dword ptr [ECX + 0x10c4],EAX                    
+  0x00e889ee: MOV dword ptr [ECX + 0x10c8],EAX                    
+  0x00e889f4: MOV dword ptr [ECX + 0x10cc],EAX                    
+  0x00e889fa: MOV dword ptr [ECX + 0x10d0],EAX                    
+  0x00e88a00: MOV dword ptr [ECX + 0x10d4],EAX                    
+  0x00e88a06: MOV dword ptr [ECX + 0x10d8],EAX                    
+  0x00e88a0c: MOV dword ptr [ECX + 0x10dc],EAX                    
+  0x00e88a12: RET                                                 
+  0x00e88a20: MOV EAX,dword ptr [ESP + 0x4]                       
+  0x00e88a24: MOV EDX,dword ptr [ESP + 0x8]                       
+  0x00e88a28: CMP dword ptr [ECX + EAX*0x4 + 0x10a0],EDX          
+  0x00e88a2f: JZ 0x00e88a4d                                       
+  0x00e88a31: PUSH ESI                                            
+  0x00e88a32: MOV dword ptr [ECX + EAX*0x4 + 0x10a0],EDX          
+  0x00e88a39: MOV ECX,dword ptr [ECX + 0x10f8]                    
+  0x00e88a3f: MOV ESI,dword ptr [ECX]                             
+
+======================================================================
+NiDX9RenderState texture stage state setter candidate @ 0x00e88fc0
+======================================================================
+  Function: FUN_00e88fc0 @ 0x00e88fc0, Size: 159 bytes
+
+void __thiscall FUN_00e88fc0(int param_1,int param_2,undefined4 param_3,char param_4)
+
+{
+  uint uVar1;
+  
+  if (*(ushort *)(&DAT_0126f958 + param_2 * 2) < 8) {
+    uVar1 = (uint)*(ushort *)(&DAT_0126f958 + param_2 * 2);
+    if (param_4 != '\0') {
+      if (*(char *)(uVar1 + 0x2c + param_1) != '\0') {
+        *(undefined4 *)(param_1 + 0xc + uVar1 * 4) = param_3;
+        return;
+      }
+      if (*(char *)(uVar1 + 0x5c + param_1) != '\0') {
+        *(undefined1 *)(uVar1 + 0x5c + param_1) = 0;
+        *(undefined1 *)(uVar1 + 0x2c + param_1) = 1;
+        *(undefined4 *)(param_1 + 0xc + uVar1 * 4) = param_3;
+        *(int *)(param_1 + 0x34) = *(int *)(param_1 + 0x34) + -1;
+        *(int *)(param_1 + 4) = *(int *)(param_1 + 4) + 1;
+      }
+      *(undefined1 *)(uVar1 + 0x2c + param_1) = 1;
+      *(undefined4 *)(param_1 + 0xc + uVar1 * 4) = param_3;
+      *(int *)(param_1 + 4) = *(int *)(param_1 + 4) + 1;
+      return;
+    }
+    if (*(char *)(uVar1 + 0x5c + param_1) != '\0') {
+      *(undefined4 *)(param_1 + 0x3c + uVar1 * 4) = param_3;
+      return;
+    }
+    if (*(char *)(uVar1 + 0x2c + param_1) != '\0') {
+      *(undefined1 *)(uVar1 + 0x2c + param_1) = 0;
+      *(undefined1 *)(uVar1 + 0x5c + param_1) = 1;
+      *(undefined4 *)(param_1 + 0x3c + uVar1 * 4) = param_3;
+      *(int *)(param_1 + 0x34) = *(int *)(param_1 + 0x34) + 1;
+      *(int *)(param_1 + 4) = *(int *)(param_1 + 4) + -1;
+    }
+    *(undefined1 *)(uVar1 + 0x5c + param_1) = 1;
+    *(undefined4 *)(param_1 + 0x3c + uVar1 * 4) = param_3;
+    *(int *)(param_1 + 0x34) = *(int *)(param_1 + 0x34) + 1;
+  }
+  return;
+}
+
+
+
+======================================================================
+TEXTURE STAGE FOLLOW-UP MATCHES: NiDX9RenderState texture stage state setter candidate @ 0x00e88fc0
+======================================================================
+  L0007:   if (*(ushort *)(&DAT_0126f958 + param_2 * 2) < 8) {
+  L0008:     uVar1 = (uint)*(ushort *)(&DAT_0126f958 + param_2 * 2);
+  Total matched lines: 2
+
+--- Calls FROM NiDX9RenderState texture stage state setter candidate (0x00e88fc0) ---
+  Total: 0 calls
+
+----------------------------------------------------------------------
+Disassembly NiDX9RenderState texture stage state setter candidate around 0x00e88fc0
+----------------------------------------------------------------------
+  0x00e88fac: PUSH EAX                                            
+  0x00e88fad: MOV EAX,dword ptr [ESP + 0x14]                      
+  0x00e88fb1: PUSH EDX                                            
+  0x00e88fb2: MOV EDX,dword ptr [ESP + 0x14]                      
+  0x00e88fb6: PUSH EAX                                            
+  0x00e88fb7: PUSH EDX                                            
+  0x00e88fb8: CALL 0x00e88dc0                                      ; CALL 0x00e88dc0 FUN_00e88dc0
+  0x00e88fbd: RET 0xc                                             
+  0x00e88fc0: MOV EAX,dword ptr [ESP + 0x4]                        << TARGET
+  0x00e88fc4: MOVZX EAX,word ptr [EAX*0x2 + 0x126f958]            
+  0x00e88fcc: CMP AX,0x8                                          
+  0x00e88fd0: JNC 0x00e8905c                                      
+  0x00e88fd6: CMP byte ptr [ESP + 0xc],0x0                        
+  0x00e88fdb: MOV EDX,dword ptr [ESP + 0x8]                       
+  0x00e88fdf: PUSH EBX                                            
+  0x00e88fe0: MOVZX EAX,AX                                        
+  0x00e88fe3: JZ 0x00e89022                                       
+  0x00e88fe5: CMP byte ptr [EAX + ECX*0x1 + 0x2c],0x0             
+  0x00e88fea: JZ 0x00e88ff4                                       
+  0x00e88fec: MOV dword ptr [ECX + EAX*0x4 + 0xc],EDX             
+  0x00e88ff0: POP EBX                                             
+  0x00e88ff1: RET 0xc                                             
+  0x00e88ff4: CMP byte ptr [EAX + ECX*0x1 + 0x5c],0x0             
+  0x00e88ff9: MOV EBX,0x1                                         
+  0x00e88ffe: JZ 0x00e89013                                       
+  0x00e89000: MOV byte ptr [EAX + ECX*0x1 + 0x5c],0x0             
+  0x00e89005: MOV byte ptr [EAX + ECX*0x1 + 0x2c],BL              
+  0x00e89009: MOV dword ptr [ECX + EAX*0x4 + 0xc],EDX             
+  0x00e8900d: DEC dword ptr [ECX + 0x34]                          
+  0x00e89010: ADD dword ptr [ECX + 0x4],EBX                       
+  0x00e89013: MOV byte ptr [EAX + ECX*0x1 + 0x2c],BL              
+  0x00e89017: MOV dword ptr [ECX + EAX*0x4 + 0xc],EDX             
+  0x00e8901b: ADD dword ptr [ECX + 0x4],EBX                       
+  0x00e8901e: POP EBX                                             
+  0x00e8901f: RET 0xc                                             
+  0x00e89022: CMP byte ptr [EAX + ECX*0x1 + 0x5c],0x0             
+  0x00e89027: JZ 0x00e89031                                       
+  0x00e89029: MOV dword ptr [ECX + EAX*0x4 + 0x3c],EDX            
+  0x00e8902d: POP EBX                                             
+  0x00e8902e: RET 0xc                                             
+  0x00e89031: CMP byte ptr [EAX + ECX*0x1 + 0x2c],0x0             
+  0x00e89036: MOV EBX,0x1                                         
+  0x00e8903b: JZ 0x00e89050                                       
+  0x00e8903d: MOV byte ptr [EAX + ECX*0x1 + 0x2c],0x0             
+  0x00e89042: MOV byte ptr [EAX + ECX*0x1 + 0x5c],BL              
+
+======================================================================
+NiDX9RenderState texture stage state getter candidate @ 0x00e89060
+======================================================================
+  Function: FUN_00e89060 @ 0x00e89060, Size: 84 bytes
+
+undefined4 __thiscall FUN_00e89060(int param_1,int param_2,undefined4 *param_3,undefined1 *param_4)
+
+{
+  uint uVar1;
+  
+  if (*(ushort *)(&DAT_0126f958 + param_2 * 2) < 8) {
+    uVar1 = (uint)*(ushort *)(&DAT_0126f958 + param_2 * 2);
+    if (*(char *)(uVar1 + 0x5c + param_1) != '\0') {
+      *param_3 = *(undefined4 *)(param_1 + 0x3c + uVar1 * 4);
+      *param_4 = 0;
+      return 1;
+    }
+    if (*(char *)(uVar1 + 0x2c + param_1) != '\0') {
+      *param_3 = *(undefined4 *)(param_1 + 0xc + uVar1 * 4);
+      *param_4 = 1;
+      return 1;
+    }
+  }
+  return 0;
+}
+
+
+
+======================================================================
+TEXTURE STAGE FOLLOW-UP MATCHES: NiDX9RenderState texture stage state getter candidate @ 0x00e89060
+======================================================================
+  L0007:   if (*(ushort *)(&DAT_0126f958 + param_2 * 2) < 8) {
+  L0008:     uVar1 = (uint)*(ushort *)(&DAT_0126f958 + param_2 * 2);
+  Total matched lines: 2
+
+--- Calls FROM NiDX9RenderState texture stage state getter candidate (0x00e89060) ---
+  Total: 0 calls
+
+----------------------------------------------------------------------
+Disassembly NiDX9RenderState texture stage state getter candidate around 0x00e89060
+----------------------------------------------------------------------
+  0x00e89046: MOV dword ptr [ECX + EAX*0x4 + 0x3c],EDX            
+  0x00e8904a: ADD dword ptr [ECX + 0x34],EBX                      
+  0x00e8904d: DEC dword ptr [ECX + 0x4]                           
+  0x00e89050: MOV byte ptr [EAX + ECX*0x1 + 0x5c],BL              
+  0x00e89054: MOV dword ptr [ECX + EAX*0x4 + 0x3c],EDX            
+  0x00e89058: ADD dword ptr [ECX + 0x34],EBX                      
+  0x00e8905b: POP EBX                                             
+  0x00e8905c: RET 0xc                                             
+  0x00e89060: MOV EAX,dword ptr [ESP + 0x4]                        << TARGET
+  0x00e89064: MOVZX EAX,word ptr [EAX*0x2 + 0x126f958]            
+  0x00e8906c: CMP AX,0x8                                          
+  0x00e89070: JNC 0x00e890af                                      
+  0x00e89072: MOVZX EAX,AX                                        
+  0x00e89075: CMP byte ptr [EAX + ECX*0x1 + 0x5c],0x0             
+  0x00e8907a: JZ 0x00e89092                                       
+  0x00e8907c: MOV ECX,dword ptr [ECX + EAX*0x4 + 0x3c]            
+  0x00e89080: MOV EDX,dword ptr [ESP + 0x8]                       
+  0x00e89084: MOV EAX,dword ptr [ESP + 0xc]                       
+  0x00e89088: MOV dword ptr [EDX],ECX                             
+  0x00e8908a: MOV byte ptr [EAX],0x0                              
+  0x00e8908d: MOV AL,0x1                                          
+  0x00e8908f: RET 0xc                                             
+  0x00e89092: CMP byte ptr [EAX + ECX*0x1 + 0x2c],0x0             
+  0x00e89097: JZ 0x00e890af                                       
+  0x00e89099: MOV ECX,dword ptr [ECX + EAX*0x4 + 0xc]             
+  0x00e8909d: MOV EDX,dword ptr [ESP + 0x8]                       
+  0x00e890a1: MOV EAX,dword ptr [ESP + 0xc]                       
+  0x00e890a5: MOV dword ptr [EDX],ECX                             
+  0x00e890a7: MOV byte ptr [EAX],0x1                              
+  0x00e890aa: MOV AL,0x1                                          
+  0x00e890ac: RET 0xc                                             
+  0x00e890af: XOR AL,AL                                           
+  0x00e890b1: RET 0xc                                             
+  0x00e890c0: MOV EAX,dword ptr [ESP + 0x4]                       
+  0x00e890c4: MOVZX EAX,word ptr [EAX*0x2 + 0x126f92c]            
+  0x00e890cc: CMP AX,0x5                                          
+  0x00e890d0: JNC 0x00e891ed                                      
+  0x00e890d6: CMP byte ptr [ESP + 0xc],0x0                        
+  0x00e890db: PUSH EBX                                            
+  0x00e890dc: MOVZX EAX,AX                                        
+  0x00e890df: JZ 0x00e89144                                       
+  0x00e890e1: CMP byte ptr [EAX + ECX*0x1 + 0x80],0x0             
+  0x00e890e9: JZ 0x00e890f5                                       
+  0x00e890eb: MOV EDX,dword ptr [ESP + 0xc]                       
+  0x00e890ef: MOV dword ptr [ECX + EAX*0x4 + 0x6c],EDX            
+
+======================================================================
+NiDX9RenderState sampler cache setup candidate @ 0x00e890c0
+======================================================================
+  Function: FUN_00e890c0 @ 0x00e890c0, Size: 304 bytes
+
+void __thiscall FUN_00e890c0(int param_1,int param_2,undefined4 param_3,char param_4,char param_5)
+
+{
+  char *pcVar1;
+  uint uVar2;
+  
+  if (*(ushort *)(&DAT_0126f92c + param_2 * 2) < 5) {
+    uVar2 = (uint)*(ushort *)(&DAT_0126f92c + param_2 * 2);
+    if (param_4 == '\0') {
+      if (*(char *)(uVar2 + 0xa4 + param_1) != '\0') {
+        *(undefined4 *)(param_1 + 0x90 + uVar2 * 4) = param_3;
+        goto LAB_00e89159;
+      }
+      if (*(char *)(uVar2 + 0x80 + param_1) != '\0') {
+        *(undefined1 *)(uVar2 + 0x80 + param_1) = 0;
+        *(int *)(param_1 + 100) = *(int *)(param_1 + 100) + -1;
+        if (*(char *)(uVar2 + 0xb0 + param_1) != '\0') {
+          *(int *)(param_1 + 0xac) = *(int *)(param_1 + 0xac) + -1;
+        }
+        *(undefined1 *)(uVar2 + 0xb0 + param_1) = 0;
+      }
+      *(undefined1 *)(uVar2 + 0xa4 + param_1) = 1;
+      *(undefined4 *)(param_1 + 0x90 + uVar2 * 4) = param_3;
+      *(int *)(param_1 + 0x88) = *(int *)(param_1 + 0x88) + 1;
+    }
+    else {
+      if (*(char *)(uVar2 + 0x80 + param_1) != '\0') {
+        *(undefined4 *)(param_1 + 0x6c + uVar2 * 4) = param_3;
+LAB_00e89159:
+        pcVar1 = (char *)(uVar2 + 0xb0 + param_1);
+        if (param_5 == '\0') {
+          if (*pcVar1 != '\0') {
+            *(int *)(param_1 + 0xac) = *(int *)(param_1 + 0xac) + -1;
+          }
+        }
+        else if (*pcVar1 == '\0') {
+          *(int *)(param_1 + 0xac) = *(int *)(param_1 + 0xac) + 1;
+          *pcVar1 = param_5;
+          return;
+        }
+        *pcVar1 = param_5;
+        return;
+      }
+      if (*(char *)(uVar2 + 0xa4 + param_1) != '\0') {
+        *(undefined1 *)(uVar2 + 0xa4 + param_1) = 0;
+        *(int *)(param_1 + 0x88) = *(int *)(param_1 + 0x88) + -1;
+        if (*(char *)(uVar2 + 0xb0 + param_1) != '\0') {
+          *(int *)(param_1 + 0xac) = *(int *)(param_1 + 0xac) + -1;
+        }
+        *(undefined1 *)(uVar2 + 0xb0 + param_1) = 0;
+      }
+      *(undefined1 *)(uVar2 + 0x80 + param_1) = 1;
+      *(undefined4 *)(param_1 + 0x6c + uVar2 * 4) = param_3;
+      *(int *)(param_1 + 100) = *(int *)(param_1 + 100) + 1;
+    }
+    if (param_5 != '\0') {
+      *(int *)(param_1 + 0xac) = *(int *)(param_1 + 0xac) + 1;
+    }
+    *(char *)(uVar2 + 0xb0 + param_1) = param_5;
+  }
+  return;
+}
+
+
+
+======================================================================
+TEXTURE STAGE FOLLOW-UP MATCHES: NiDX9RenderState sampler cache setup candidate @ 0x00e890c0
+======================================================================
+  L0008:   if (*(ushort *)(&DAT_0126f92c + param_2 * 2) < 5) {
+  L0009:     uVar2 = (uint)*(ushort *)(&DAT_0126f92c + param_2 * 2);
+  Total matched lines: 2
+
+--- Calls FROM NiDX9RenderState sampler cache setup candidate (0x00e890c0) ---
+  Total: 0 calls
+
+----------------------------------------------------------------------
+Disassembly NiDX9RenderState sampler cache setup candidate around 0x00e890c0
+----------------------------------------------------------------------
+  0x00e8909d: MOV EDX,dword ptr [ESP + 0x8]                       
+  0x00e890a1: MOV EAX,dword ptr [ESP + 0xc]                       
+  0x00e890a5: MOV dword ptr [EDX],ECX                             
+  0x00e890a7: MOV byte ptr [EAX],0x1                              
+  0x00e890aa: MOV AL,0x1                                          
+  0x00e890ac: RET 0xc                                             
+  0x00e890af: XOR AL,AL                                           
+  0x00e890b1: RET 0xc                                             
+  0x00e890c0: MOV EAX,dword ptr [ESP + 0x4]                        << TARGET
+  0x00e890c4: MOVZX EAX,word ptr [EAX*0x2 + 0x126f92c]            
+  0x00e890cc: CMP AX,0x5                                          
+  0x00e890d0: JNC 0x00e891ed                                      
+  0x00e890d6: CMP byte ptr [ESP + 0xc],0x0                        
+  0x00e890db: PUSH EBX                                            
+  0x00e890dc: MOVZX EAX,AX                                        
+  0x00e890df: JZ 0x00e89144                                       
+  0x00e890e1: CMP byte ptr [EAX + ECX*0x1 + 0x80],0x0             
+  0x00e890e9: JZ 0x00e890f5                                       
+  0x00e890eb: MOV EDX,dword ptr [ESP + 0xc]                       
+  0x00e890ef: MOV dword ptr [ECX + EAX*0x4 + 0x6c],EDX            
+  0x00e890f3: JMP 0x00e89159                                      
+  0x00e890f5: CMP byte ptr [EAX + ECX*0x1 + 0xa4],0x0             
+  0x00e890fd: JZ 0x00e89128                                       
+  0x00e890ff: OR EDX,0xffffffff                                   
+  0x00e89102: MOV byte ptr [EAX + ECX*0x1 + 0xa4],0x0             
+  0x00e8910a: ADD dword ptr [ECX + 0x88],EDX                      
+  0x00e89110: CMP byte ptr [EAX + ECX*0x1 + 0xb0],0x0             
+  0x00e89118: JZ 0x00e89120                                       
+  0x00e8911a: ADD dword ptr [ECX + 0xac],EDX                      
+  0x00e89120: MOV byte ptr [EAX + ECX*0x1 + 0xb0],0x0             
+  0x00e89128: MOV EDX,dword ptr [ESP + 0xc]                       
+  0x00e8912c: MOV EBX,0x1                                         
+  0x00e89131: MOV byte ptr [EAX + ECX*0x1 + 0x80],BL              
+  0x00e89138: MOV dword ptr [ECX + EAX*0x4 + 0x6c],EDX            
+  0x00e8913c: ADD dword ptr [ECX + 0x64],EBX                      
+  0x00e8913f: JMP 0x00e891d7                                      
+  0x00e89144: CMP byte ptr [EAX + ECX*0x1 + 0xa4],0x0             
+  0x00e8914c: JZ 0x00e8918a                                       
+  0x00e8914e: MOV EDX,dword ptr [ESP + 0xc]                       
+  0x00e89152: MOV dword ptr [ECX + EAX*0x4 + 0x90],EDX            
+  0x00e89159: MOV DL,byte ptr [ESP + 0x14]                        
+  0x00e8915d: LEA EAX,[EAX + ECX*0x1 + 0xb0]                      
+  0x00e89164: TEST DL,DL                                          
+  0x00e89166: JZ 0x00e89179                                       
+  0x00e89168: CMP byte ptr [EAX],0x0                              
+
+======================================================================
+NiDX9RenderState::SetSamplerState @ 0x00e910a0
+======================================================================
+  Function: FUN_00e910a0 @ 0x00e910a0, Size: 74 bytes
+
+void __thiscall FUN_00e910a0(int param_1,int param_2,int param_3,int param_4)
+
+{
+  int *piVar1;
+  
+  if ((*(ushort *)(&DAT_0126f92c + param_3 * 2) < 5) &&
+     (piVar1 = (int *)(param_1 + 0xe20 +
+                      (param_2 * 5 + (uint)*(ushort *)(&DAT_0126f92c + param_3 * 2)) * 8),
+     *piVar1 != param_4)) {
+    *piVar1 = param_4;
+    (**(code **)(**(int **)(param_1 + 0x10f8) + 0x114))
+              (*(int **)(param_1 + 0x10f8),param_2,param_3,param_4);
+  }
+  return;
+}
+
+
+
+======================================================================
+TEXTURE STAGE FOLLOW-UP MATCHES: NiDX9RenderState::SetSamplerState @ 0x00e910a0
+======================================================================
+  L0007:   if ((*(ushort *)(&DAT_0126f92c + param_3 * 2) < 5) &&
+  L0009:                       (param_2 * 5 + (uint)*(ushort *)(&DAT_0126f92c + param_3 * 2)) * 8),
+  L0012:     (**(code **)(**(int **)(param_1 + 0x10f8) + 0x114))
+  L0013:               (*(int **)(param_1 + 0x10f8),param_2,param_3,param_4);
+  Total matched lines: 4
+
+--- Calls FROM NiDX9RenderState::SetSamplerState (0x00e910a0) ---
+  Total: 0 calls
+
+----------------------------------------------------------------------
+Disassembly NiDX9RenderState::SetSamplerState around 0x00e910a0
+----------------------------------------------------------------------
+  0x00e91070: JZ 0x00e9108e                                       
+  0x00e91072: CMP dword ptr [ECX + 0x110c],EAX                    
+  0x00e91078: JNZ 0x00e91080                                      
+  0x00e9107a: MOV dword ptr [ECX + 0x110c],EDX                    
+  0x00e91080: CMP dword ptr [ECX + 0x1110],EAX                    
+  0x00e91086: JNZ 0x00e9108e                                      
+  0x00e91088: MOV dword ptr [ECX + 0x1110],EDX                    
+  0x00e9108e: RET 0x4                                             
+  0x00e910a0: PUSH EDI                                             << TARGET
+  0x00e910a1: MOV EDI,dword ptr [ESP + 0xc]                       
+  0x00e910a5: MOVZX EAX,word ptr [EDI*0x2 + 0x126f92c]            
+  0x00e910ad: CMP AX,0x5                                          
+  0x00e910b1: JNC 0x00e910e6                                      
+  0x00e910b3: PUSH ESI                                            
+  0x00e910b4: MOV ESI,dword ptr [ESP + 0xc]                       
+  0x00e910b8: MOVZX EAX,AX                                        
+  0x00e910bb: LEA EDX,[ESI + ESI*0x4]                             
+  0x00e910be: ADD EDX,EAX                                         
+  0x00e910c0: LEA EAX,[ECX + EDX*0x8 + 0xe20]                     
+  0x00e910c7: MOV EDX,dword ptr [ESP + 0x14]                      
+  0x00e910cb: CMP dword ptr [EAX],EDX                             
+  0x00e910cd: JZ 0x00e910e5                                       
+  0x00e910cf: PUSH EDX                                            
+  0x00e910d0: MOV dword ptr [EAX],EDX                             
+  0x00e910d2: MOV EAX,dword ptr [ECX + 0x10f8]                    
+  0x00e910d8: MOV ECX,dword ptr [EAX]                             
+  0x00e910da: MOV EDX,dword ptr [ECX + 0x114]                     
+  0x00e910e0: PUSH EDI                                            
+  0x00e910e1: PUSH ESI                                            
+  0x00e910e2: PUSH EAX                                            
+  0x00e910e3: CALL EDX                                            
+  0x00e910e5: POP ESI                                             
+  0x00e910e6: POP EDI                                             
+  0x00e910e7: RET 0x10                                            
+  0x00e910f0: MOV EAX,dword ptr [ESP + 0x8]                       
+  0x00e910f4: MOVZX EDX,word ptr [EAX*0x2 + 0x126f92c]            
+  0x00e910fc: CMP DX,0x5                                          
+  0x00e91100: JNC 0x00e91118                                      
+  0x00e91102: MOV EAX,dword ptr [ESP + 0x4]                       
+  0x00e91106: MOVZX EDX,DX                                        
+  0x00e91109: LEA EAX,[EAX + EAX*0x4]                             
+  0x00e9110c: ADD EAX,EDX                                         
+  0x00e9110e: MOV EAX,dword ptr [ECX + EAX*0x8 + 0xe20]           
+  0x00e91115: RET 0x8                                             
+  0x00e91118: XOR EAX,EAX                                         
+
+======================================================================
+NiDX9RenderState sampler restore/apply candidate @ 0x00e91120
+======================================================================
+  Function: FUN_00e91120 @ 0x00e91120, Size: 61 bytes
+
+void __thiscall FUN_00e91120(int *param_1,int param_2,int param_3)
+
+{
+  if (*(ushort *)(&DAT_0126f92c + param_3 * 2) < 5) {
+    (**(code **)(*param_1 + 0xcc))
+              (param_2,param_3,
+               param_1[(param_2 * 5 + (uint)*(ushort *)(&DAT_0126f92c + param_3 * 2)) * 2 + 0x389],0
+              );
+  }
+  return;
+}
+
+
+
+======================================================================
+TEXTURE STAGE FOLLOW-UP MATCHES: NiDX9RenderState sampler restore/apply candidate @ 0x00e91120
+======================================================================
+  L0005:   if (*(ushort *)(&DAT_0126f92c + param_3 * 2) < 5) {
+  L0008:                param_1[(param_2 * 5 + (uint)*(ushort *)(&DAT_0126f92c + param_3 * 2)) * 2 + 0x389],0
+  Total matched lines: 2
+
+--- Calls FROM NiDX9RenderState sampler restore/apply candidate (0x00e91120) ---
+  Total: 0 calls
+
+----------------------------------------------------------------------
+Disassembly NiDX9RenderState sampler restore/apply candidate around 0x00e91120
+----------------------------------------------------------------------
+  0x00e91102: MOV EAX,dword ptr [ESP + 0x4]                       
+  0x00e91106: MOVZX EDX,DX                                        
+  0x00e91109: LEA EAX,[EAX + EAX*0x4]                             
+  0x00e9110c: ADD EAX,EDX                                         
+  0x00e9110e: MOV EAX,dword ptr [ECX + EAX*0x8 + 0xe20]           
+  0x00e91115: RET 0x8                                             
+  0x00e91118: XOR EAX,EAX                                         
+  0x00e9111a: RET 0x8                                             
+  0x00e91120: PUSH ESI                                             << TARGET
+  0x00e91121: MOV ESI,dword ptr [ESP + 0xc]                       
+  0x00e91125: MOVZX EDX,word ptr [ESI*0x2 + 0x126f92c]            
+  0x00e9112d: CMP DX,0x5                                          
+  0x00e91131: JNC 0x00e91159                                      
+  0x00e91133: MOV EAX,dword ptr [ESP + 0x8]                       
+  0x00e91137: PUSH EBX                                            
+  0x00e91138: MOVZX EDX,DX                                        
+  0x00e9113b: PUSH EDI                                            
+  0x00e9113c: MOV EDI,dword ptr [ECX]                             
+  0x00e9113e: LEA EBX,[EAX + EAX*0x4]                             
+  0x00e91141: PUSH 0x0                                            
+  0x00e91143: ADD EBX,EDX                                         
+  0x00e91145: MOV EDX,dword ptr [ECX + EBX*0x8 + 0xe24]           
+  0x00e9114c: PUSH EDX                                            
+  0x00e9114d: PUSH ESI                                            
+  0x00e9114e: PUSH EAX                                            
+  0x00e9114f: MOV EAX,dword ptr [EDI + 0xcc]                      
+  0x00e91155: CALL EAX                                            
+  0x00e91157: POP EDI                                             
+  0x00e91158: POP EBX                                             
+  0x00e91159: POP ESI                                             
+  0x00e9115a: RET 0x8                                             
+  0x00e91160: PUSH ESI                                            
+  0x00e91161: MOV ESI,ECX                                         
+  0x00e91163: MOV dword ptr [ESI],0x10f088c                       
+  0x00e91169: CALL 0x00e88b00                                      ; CALL 0x00e88b00 FUN_00e88b00
+  0x00e9116e: TEST byte ptr [ESP + 0x8],0x1                       
+  0x00e91173: JZ 0x00e91183                                       
+  0x00e91175: PUSH 0x1248                                         
+  0x00e9117a: PUSH ESI                                            
+  0x00e9117b: CALL 0x00aa1460                                      ; CALL 0x00aa1460 FUN_00aa1460
+  0x00e91180: ADD ESP,0x8                                         
+  0x00e91183: MOV EAX,ESI                                         
+  0x00e91185: POP ESI                                             
+  0x00e91186: RET 0x4                                             
+  0x00e91190: PUSH ESI                                            
+
+======================================================================
+Potential D3D texture/sampler vtable slot loads
+======================================================================
+  IDirect3DDevice9::GetTextureStageState slot load @ 0x00404d13 (in FUN_00404d00): MOV dword ptr [ECX + 0x108],0x0
+  IDirect3DDevice9::GetTextureStageState slot load @ 0x00404d3c (in FUN_00404d30): CMP dword ptr [EAX + 0x108],0x0
+  IDirect3DDevice9::GetTexture slot load @ 0x004174cd (in FUN_00416be0): MOV EDX,dword ptr [EAX + 0x100]
+  IDirect3DDevice9::GetTexture slot load @ 0x00420bad (in FUN_00420ba0): MOV dword ptr [EAX + 0x100],ECX
+  IDirect3DDevice9::GetTexture slot load @ 0x0042324c (in FUN_00422c40): MOV EAX,dword ptr [EDX + 0x100]
+  IDirect3DDevice9::GetTexture slot load @ 0x00424410 (in FUN_004235e0): MOV EDX,dword ptr [EAX + 0x100]
+  IDirect3DDevice9::GetTexture slot load @ 0x004258ca (in FUN_00424960): MOV EDX,dword ptr [EAX + 0x100]
+  IDirect3DDevice9::GetTexture slot load @ 0x00426041 (in FUN_00426020): MOV EAX,dword ptr [EDX + 0x100]
+  IDirect3DDevice9::GetTexture slot load @ 0x0042673b (in FUN_00426720): MOV EAX,dword ptr [EDX + 0x100]
+  IDirect3DDevice9::GetTexture slot load @ 0x004267eb (in FUN_004267d0): MOV EAX,dword ptr [EDX + 0x100]
+  IDirect3DDevice9::GetTexture slot load @ 0x004269db (in FUN_004269c0): MOV EAX,dword ptr [EDX + 0x100]
+  IDirect3DDevice9::GetTexture slot load @ 0x004304f1 (in FUN_00430410): MOV EAX,dword ptr [EDX + 0x100]
+  IDirect3DDevice9::GetTexture slot load @ 0x0043119d (in FUN_00431120): MOV EAX,dword ptr [EDX + 0x100]
+  IDirect3DDevice9::GetTexture slot load @ 0x00437b2c (in FUN_00437ab0): MOV EAX,dword ptr [EDX + 0x100]
+  IDirect3DDevice9::GetTexture slot load @ 0x00445bfc (in FUN_00445a10): MOV EDX,dword ptr [EAX + 0x100]
+  IDirect3DDevice9::GetTexture slot load @ 0x00445ec4 (in FUN_00445a10): MOV EDX,dword ptr [EAX + 0x100]
+  IDirect3DDevice9::GetTexture slot load @ 0x00451eb1 (in FUN_00451ea0): MOV EAX,dword ptr [EDX + 0x100]
+  IDirect3DDevice9::GetTexture slot load @ 0x0045208e (in FUN_00451ef0): MOV EDX,dword ptr [EAX + 0x100]
+  IDirect3DDevice9::GetTexture slot load @ 0x0045218c (in FUN_00451ef0): MOV EAX,dword ptr [EDX + 0x100]
+  IDirect3DDevice9::GetTexture slot load @ 0x00452323 (in FUN_00451ef0): MOV EAX,dword ptr [EDX + 0x100]
+  IDirect3DDevice9::SetTexture slot load @ 0x0045b1a1 (in FUN_0045b070): MOV EAX,dword ptr [EDX + 0x104]
+  IDirect3DDevice9::GetTextureStageState slot load @ 0x0045b8e3 (in FUN_0045b070): MOV EDX,dword ptr [EAX + 0x108]
+  IDirect3DDevice9::GetTextureStageState slot load @ 0x0045b9cf (in FUN_0045b070): MOV EAX,dword ptr [EDX + 0x108]
+  IDirect3DDevice9::SetTexture slot load @ 0x0045bd19 (in FUN_0045bc80): MOV EDX,dword ptr [EAX + 0x104]
+  IDirect3DDevice9::GetTexture slot load @ 0x00469bf8 (in FUN_004698a0): MOV EAX,dword ptr [EDX + 0x100]
+  IDirect3DDevice9::GetTexture slot load @ 0x0046e8ca (in FUN_0046e8c0): MOVZX ECX,byte ptr [EAX + 0x100]
+  IDirect3DDevice9::GetTexture slot load @ 0x0046f49a (in FUN_0046f310): MOV EDX,dword ptr [EAX + 0x100]
+  IDirect3DDevice9::GetSamplerState slot load @ 0x004735d0 (in FUN_004734d0): MOV EAX,dword ptr [EDX + 0x110]
+  IDirect3DDevice9::GetSamplerState slot load @ 0x00473726 (in FUN_004736c0): MOV EDX,dword ptr [EAX + 0x110]
+  IDirect3DDevice9::GetSamplerState slot load @ 0x004737a6 (in FUN_004736c0): MOV EAX,dword ptr [EDX + 0x110]
+  IDirect3DDevice9::SetSamplerState slot load @ 0x004737c5 (in FUN_004736c0): MOV EAX,dword ptr [EDX + 0x114]
+  IDirect3DDevice9::GetTexture slot load @ 0x00475ac1 (in FUN_00475ab0): MOV EAX,dword ptr [EDX + 0x100]
+  IDirect3DDevice9::GetTexture slot load @ 0x00475c93 (in FUN_00475b20): MOV EDX,dword ptr [EAX + 0x100]
+  IDirect3DDevice9::GetTexture slot load @ 0x0047739b (in FUN_004772f0): MOV EAX,dword ptr [EDX + 0x100]
+  IDirect3DDevice9::GetTexture slot load @ 0x0047a6ff (in FUN_0047a560): MOV EAX,dword ptr [EDX + 0x100]
+  IDirect3DDevice9::GetTexture slot load @ 0x0047bcfa (in FUN_0047bcf0): MOVZX ECX,byte ptr [EAX + 0x100]
+  IDirect3DDevice9::GetTexture slot load @ 0x0047cfde (in FUN_0047ce10): MOV EAX,dword ptr [EDX + 0x100]
+  IDirect3DDevice9::GetTextureStageState slot load @ 0x0047d166 (in FUN_0047d130): MOV EAX,dword ptr [EDX + 0x108]
+  IDirect3DDevice9::GetTextureStageState slot load @ 0x0048681b (in FUN_004867a0): MOV EDX,dword ptr [EAX + 0x108]
+  IDirect3DDevice9::GetTextureStageState slot load @ 0x0048b2a9 (in FUN_0048b130): MOV EAX,dword ptr [EDX + 0x108]
+  IDirect3DDevice9::GetTexture slot load @ 0x0048f970 (in FUN_0048f810): MOV dword ptr [ECX + 0x100],0x0
+  IDirect3DDevice9::SetTextureStageState slot load @ 0x0048faaf (in FUN_0048f810): FSTP float ptr [ECX + 0x10c]
+  IDirect3DDevice9::GetSamplerState slot load @ 0x0048faba (in FUN_0048f810): FSTP float ptr [EDX + 0x110]
+  IDirect3DDevice9::SetSamplerState slot load @ 0x0048fac5 (in FUN_0048f810): FSTP float ptr [EAX + 0x114]
+  IDirect3DDevice9::GetTexture slot load @ 0x00490851 (in FUN_00490500): CMP EAX,dword ptr [ECX + 0x100]
+  IDirect3DDevice9::GetTexture slot load @ 0x0049085f (in FUN_00490500): MOV dword ptr [EDX + 0x100],0x0
+  IDirect3DDevice9::GetTexture slot load @ 0x00490902 (in FUN_00490500): CMP dword ptr [ECX + 0x100],0x0
+  IDirect3DDevice9::GetTexture slot load @ 0x00490920 (in FUN_00490500): CMP EAX,dword ptr [ECX + 0x100]
+  IDirect3DDevice9::GetTexture slot load @ 0x0049092e (in FUN_00490500): MOV dword ptr [EDX + 0x100],0x0
+  IDirect3DDevice9::GetTexture slot load @ 0x00490c37 (in FUN_00490500): CMP EAX,dword ptr [EDX + 0x100]
+  IDirect3DDevice9::GetTexture slot load @ 0x00490c45 (in FUN_00490500): MOV dword ptr [ECX + 0x100],0x0
+  IDirect3DDevice9::SetSamplerState slot load @ 0x004911a0 (in FUN_00491180): FMUL float ptr [EAX + 0x114]
+  IDirect3DDevice9::GetTexture slot load @ 0x0049152b (in FUN_00491180): MOV EAX,dword ptr [EDX + 0x100]
+  IDirect3DDevice9::SetSamplerState slot load @ 0x00491964 (in FUN_00491180): FMUL float ptr [EDX + 0x114]
+  IDirect3DDevice9::SetTextureStageState slot load @ 0x00491b4b (in FUN_00491180): FMUL float ptr [EDX + 0x10c]
+  IDirect3DDevice9::GetSamplerState slot load @ 0x00491be8 (in FUN_00491180): FMUL float ptr [ECX + 0x110]
+  IDirect3DDevice9::SetTextureStageState slot load @ 0x00493033 (in FUN_00491180): FLD float ptr [ECX + 0x10c]
+  IDirect3DDevice9::SetTextureStageState slot load @ 0x00493154 (in FUN_00491180): FLD float ptr [ECX + 0x10c]
+  IDirect3DDevice9::GetTexture slot load @ 0x004932b1 (in FUN_00491180): CMP dword ptr [ECX + 0x100],0x0
+  IDirect3DDevice9::GetTexture slot load @ 0x004932c0 (in FUN_00491180): MOV ECX,dword ptr [EDX + 0x100]
+  IDirect3DDevice9::GetTexture slot load @ 0x004932eb (in FUN_00491180): CMP dword ptr [EDX + 0x100],0x0
+  IDirect3DDevice9::GetTexture slot load @ 0x004932fa (in FUN_00491180): MOV ECX,dword ptr [EAX + 0x100]
+  IDirect3DDevice9::GetTexture slot load @ 0x0049330f (in FUN_00491180): MOV dword ptr [ECX + 0x100],0x0
+  IDirect3DDevice9::SetTexture slot load @ 0x00493bba (in FUN_00493bb0): MOV AL,byte ptr [EAX + 0x104]
+  IDirect3DDevice9::SetSamplerState slot load @ 0x004943be (in FUN_00494390): FMUL float ptr [EAX + 0x114]
+  IDirect3DDevice9::SetTextureStageState slot load @ 0x004944ba (in FUN_00494390): FMUL float ptr [EAX + 0x10c]
+  IDirect3DDevice9::GetSamplerState slot load @ 0x0049450e (in FUN_00494390): FMUL float ptr [EDX + 0x110]
+  IDirect3DDevice9::GetTexture slot load @ 0x00495367 (in FUN_004949a0): MOV EAX,dword ptr [EDX + 0x100]
+  IDirect3DDevice9::GetTexture slot load @ 0x00496223 (in FUN_00496080): MOV dword ptr [EAX + 0x100],ECX
+  IDirect3DDevice9::GetTexture slot load @ 0x004987d5 (in FUN_00498670): CMP EAX,dword ptr [ECX + 0x100]
+  IDirect3DDevice9::GetTexture slot load @ 0x004987e0 (in FUN_00498670): MOV dword ptr [EDX + 0x100],0x0
+  IDirect3DDevice9::GetTexture slot load @ 0x00498820 (in FUN_00498670): MOV EDX,dword ptr [ECX + 0x100]
+  IDirect3DDevice9::GetTexture slot load @ 0x00498839 (in FUN_00498670): MOV dword ptr [ECX + 0x100],0x0
+  IDirect3DDevice9::GetTexture slot load @ 0x00499944 (in FUN_004997f0): MOV EAX,dword ptr [EDX + 0x100]
+  IDirect3DDevice9::GetTexture slot load @ 0x00499ebf (in FUN_00499b90): MOV EAX,dword ptr [EDX + 0x100]
+  IDirect3DDevice9::GetTexture slot load @ 0x0049a2c8 (in FUN_0049a1c0): MOV EDX,dword ptr [EAX + 0x100]
+  IDirect3DDevice9::GetTexture slot load @ 0x004a626f (in FUN_004a61f0): MOV dword ptr [ECX + 0x100],0x0
+  IDirect3DDevice9::GetTexture slot load @ 0x004ab678 (in FUN_004ab5b0): MOV EAX,dword ptr [EDX + 0x100]
+  IDirect3DDevice9::GetTexture slot load @ 0x004ab73a (in FUN_004ab730): MOVZX ECX,byte ptr [EAX + 0x100]
+  IDirect3DDevice9::GetTexture slot load @ 0x004ab92b (in FUN_004ab750): MOV EAX,dword ptr [EDX + 0x100]
+  IDirect3DDevice9::GetTexture slot load @ 0x004ad01a (in FUN_004ad010): MOVZX ECX,byte ptr [EAX + 0x100]
+  IDirect3DDevice9::GetTexture slot load @ 0x004af79c (in FUN_004af490): MOV EDX,dword ptr [EAX + 0x100]
+  IDirect3DDevice9::GetTexture slot load @ 0x004af7ed (in FUN_004af490): MOV EAX,dword ptr [EDX + 0x100]
+  IDirect3DDevice9::GetTexture slot load @ 0x004bf118 (in FUN_004bf0e0): MOV EAX,dword ptr [EDX + 0x100]
+  IDirect3DDevice9::GetTexture slot load @ 0x004bf26b (in FUN_004bf220): MOV EDX,dword ptr [EAX + 0x100]
+  IDirect3DDevice9::GetSamplerState slot load @ 0x004c0cb0 (in FUN_004c0c90): FSTP float ptr [EAX + 0x110]
+  IDirect3DDevice9::GetSamplerState slot load @ 0x004c0cbe (in FUN_004c0c90): FSTP float ptr [ECX + 0x110]
+  IDirect3DDevice9::GetTexture slot load @ 0x004c2922 (in FUN_004c1c90): MOV EAX,dword ptr [EDX + 0x100]
+  IDirect3DDevice9::GetTexture slot load @ 0x004c2b12 (in FUN_004c29a0): MOV EAX,dword ptr [EDX + 0x100]
+  IDirect3DDevice9::GetTexture slot load @ 0x004c32f5 (in FUN_004c29a0): MOV EAX,dword ptr [EDX + 0x100]
+  IDirect3DDevice9::GetTexture slot load @ 0x004c38e6 (in FUN_004c37d0): MOV EAX,dword ptr [EDX + 0x100]
+  IDirect3DDevice9::GetTexture slot load @ 0x004c3d71 (in FUN_004c37d0): MOV EDX,dword ptr [EAX + 0x100]
+  IDirect3DDevice9::GetTexture slot load @ 0x004c3ea1 (in FUN_004c37d0): MOV EAX,dword ptr [EDX + 0x100]
+  IDirect3DDevice9::GetTexture slot load @ 0x004c4919 (in FUN_004c37d0): MOV EAX,dword ptr [EDX + 0x100]
+  IDirect3DDevice9::GetTexture slot load @ 0x004c4a3b (in FUN_004c37d0): MOV EDX,dword ptr [EAX + 0x100]
+  IDirect3DDevice9::GetTexture slot load @ 0x004c51ee (in FUN_004c37d0): MOV EAX,dword ptr [EDX + 0x100]
+  IDirect3DDevice9::GetTexture slot load @ 0x004c60b0 (in FUN_004c37d0): MOV EDX,dword ptr [EAX + 0x100]
+  IDirect3DDevice9::GetTexture slot load @ 0x004c6518 (in FUN_004c37d0): MOV EDX,dword ptr [EAX + 0x100]
+  IDirect3DDevice9::GetTexture slot load @ 0x004c66c7 (in FUN_004c37d0): MOV EAX,dword ptr [EDX + 0x100]
+  IDirect3DDevice9::GetTexture slot load @ 0x004c6858 (in FUN_004c37d0): MOV EAX,dword ptr [EDX + 0x100]
+  IDirect3DDevice9::GetTexture slot load @ 0x004c748f (in FUN_004c7400): MOV EAX,dword ptr [EDX + 0x100]
+  IDirect3DDevice9::GetTexture slot load @ 0x004c76fa (in FUN_004c7400): MOV EAX,dword ptr [EDX + 0x100]
+  IDirect3DDevice9::GetTexture slot load @ 0x004c7808 (in FUN_004c7400): MOV EAX,dword ptr [EDX + 0x100]
+  IDirect3DDevice9::GetTexture slot load @ 0x004c7bfe (in FUN_004c7400): MOV EAX,dword ptr [EDX + 0x100]
+  IDirect3DDevice9::GetTexture slot load @ 0x004c7d47 (in FUN_004c7400): MOV EDX,dword ptr [EAX + 0x100]
+  IDirect3DDevice9::GetTexture slot load @ 0x004cb6e1 (in FUN_004cb5f0): MOV EDX,dword ptr [EAX + 0x100]
+  IDirect3DDevice9::GetTextureStageState slot load @ 0x004cdb5a (in FUN_004cd9c0): MOV EAX,dword ptr [EDX + 0x108]
+  IDirect3DDevice9::GetTextureStageState slot load @ 0x004cdf63 (in FUN_004cd9c0): MOV EAX,dword ptr [EDX + 0x108]
+  IDirect3DDevice9::GetTexture slot load @ 0x004ce78b (in FUN_004ce380): MOV EAX,dword ptr [EDX + 0x100]
+  IDirect3DDevice9::GetTexture slot load @ 0x004ce8e9 (in FUN_004ce380): MOV EDX,dword ptr [EAX + 0x100]
+  IDirect3DDevice9::GetTexture slot load @ 0x004cf2de (in FUN_004ce380): MOV EAX,dword ptr [EDX + 0x100]
+  IDirect3DDevice9::GetTexture slot load @ 0x004cf8b7 (in FUN_004ce380): MOV EDX,dword ptr [EAX + 0x100]
+  IDirect3DDevice9::GetTexture slot load @ 0x004d001d (in FUN_004cffe0): MOV EAX,dword ptr [EDX + 0x100]
+  IDirect3DDevice9::GetTexture slot load @ 0x004d0921 (in FUN_004d0900): MOV EAX,dword ptr [EDX + 0x100]
+  IDirect3DDevice9::GetTexture slot load @ 0x004d149b (in FUN_004d1440): MOV EAX,dword ptr [EDX + 0x100]
+  IDirect3DDevice9::GetTexture slot load @ 0x004d9876 (in FUN_004d9800): MOV EDX,dword ptr [EAX + 0x100]
+  IDirect3DDevice9::GetTexture slot load @ 0x004d9984 (in FUN_004d9910): MOV EAX,dword ptr [EDX + 0x100]
+  IDirect3DDevice9::GetTexture slot load @ 0x004da262 (in FUN_004da230): MOV EAX,dword ptr [EDX + 0x100]
+  IDirect3DDevice9::GetTexture slot load @ 0x004da357 (in FUN_004da340): MOV EAX,dword ptr [EDX + 0x100]
+  IDirect3DDevice9::GetSamplerState slot load @ 0x004dae13 (in FUN_004da670): CMP dword ptr [EDX + 0x110],0x20
+  IDirect3DDevice9::GetTexture slot load @ 0x004e38d2 (in FUN_004e3590): FSTP float ptr [EAX + 0x100]
+  IDirect3DDevice9::SetTexture slot load @ 0x004e38e3 (in FUN_004e3590): FSTP float ptr [ECX + 0x104]
+  IDirect3DDevice9::GetTextureStageState slot load @ 0x004e3cea (in FUN_004e3ce0): FLD float ptr [EAX + 0x108]
+  IDirect3DDevice9::SetSamplerState slot load @ 0x004e3d0a (in FUN_004e3d00): FLD float ptr [EAX + 0x114]
+  IDirect3DDevice9::GetTexture slot load @ 0x004e5d46 (in FUN_004e5c80): MOV EAX,dword ptr [EDX + 0x100]
+  IDirect3DDevice9::GetTexture slot load @ 0x004e5e61 (in FUN_004e5e50): MOV EAX,dword ptr [EDX + 0x100]
+  IDirect3DDevice9::GetTexture slot load @ 0x004e5ebe (in FUN_004e5e50): MOV EAX,dword ptr [EDX + 0x100]
+  IDirect3DDevice9::GetTexture slot load @ 0x004e5f08 (in FUN_004e5e50): MOV EAX,dword ptr [EDX + 0x100]
+  IDirect3DDevice9::GetTexture slot load @ 0x004e5f74 (in FUN_004e5e50): MOV EAX,dword ptr [EDX + 0x100]
+  IDirect3DDevice9::GetTexture slot load @ 0x004e6133 (in FUN_004e5fe0): MOV EAX,dword ptr [EDX + 0x100]
+  IDirect3DDevice9::GetTexture slot load @ 0x004e6190 (in FUN_004e5fe0): MOV EAX,dword ptr [EDX + 0x100]
+  IDirect3DDevice9::GetTexture slot load @ 0x004e61da (in FUN_004e5fe0): MOV EAX,dword ptr [EDX + 0x100]
+  IDirect3DDevice9::GetTexture slot load @ 0x004e6269 (in FUN_004e5fe0): MOV EDX,dword ptr [EAX + 0x100]
+  IDirect3DDevice9::GetSamplerState slot load @ 0x004e656a (in FUN_004e6560): MOV AX,word ptr [EAX + 0x110]
+  IDirect3DDevice9::GetTextureStageState slot load @ 0x004f896a (in FUN_004f8960): MOV EAX,dword ptr [EAX + 0x108]
+  IDirect3DDevice9::GetTextureStageState slot load @ 0x004f898c (in FUN_004f8980): CMP dword ptr [EAX + 0x108],0x0
+  IDirect3DDevice9::GetTextureStageState slot load @ 0x004f89aa (in FUN_004f89a0): MOV dword ptr [EAX + 0x108],0x0
+  IDirect3DDevice9::GetTextureStageState slot load @ 0x004f8a77 (in FUN_004f8a60): MOV dword ptr [EAX + 0x108],ECX
+  IDirect3DDevice9::GetTexture slot load @ 0x004fca1b (in FUN_004fc9e0): MOV EAX,dword ptr [EDX + 0x100]
+  IDirect3DDevice9::GetTexture slot load @ 0x004fef8a (in FUN_004feeb0): MOV EAX,dword ptr [EDX + 0x100]
+  IDirect3DDevice9::GetTexture slot load @ 0x004ff0f5 (in FUN_004ff0e0): MOV EAX,dword ptr [EDX + 0x100]
+  IDirect3DDevice9::GetTexture slot load @ 0x0050155a (in FUN_00501310): MOV EAX,dword ptr [EDX + 0x100]
+  IDirect3DDevice9::SetTextureStageState slot load @ 0x005037eb (in FUN_00503670): MOV EAX,dword ptr [EDX + 0x10c]
+  IDirect3DDevice9::SetTexture slot load @ 0x00504b28 (in FUN_005048d0): MOV EAX,dword ptr [EDX + 0x104]
+  IDirect3DDevice9::SetTextureStageState slot load @ 0x00505e5d (in FUN_00505e50): MOV dword ptr [EAX + 0x10c],ECX
+  IDirect3DDevice9::SetTextureStageState slot load @ 0x00506203 (in FUN_005060f0): MOV ECX,dword ptr [EAX + 0x10c]
+  IDirect3DDevice9::SetTextureStageState slot load @ 0x0050620f (in FUN_005060f0): CMP dword ptr [EDX + 0x10c],0x0
+  IDirect3DDevice9::SetTextureStageState slot load @ 0x0050621b (in FUN_005060f0): MOV ECX,dword ptr [EAX + 0x10c]
+  IDirect3DDevice9::SetTextureStageState slot load @ 0x00506238 (in FUN_005060f0): MOV dword ptr [ECX + 0x10c],EDX
+  IDirect3DDevice9::SetTextureStageState slot load @ 0x00506286 (in FUN_005060f0): MOV dword ptr [EAX + 0x10c],ECX
+  IDirect3DDevice9::GetTexture slot load @ 0x005067bb (in FUN_00506510): FSTP float ptr [EAX + 0x100]
+  IDirect3DDevice9::SetTexture slot load @ 0x005067c6 (in FUN_00506510): FSTP float ptr [ECX + 0x104]
+  IDirect3DDevice9::GetTextureStageState slot load @ 0x005067d1 (in FUN_00506510): FSTP float ptr [EDX + 0x108]
+  IDirect3DDevice9::SetTextureStageState slot load @ 0x005067da (in FUN_00506510): MOV dword ptr [EAX + 0x10c],0xffffff
+  IDirect3DDevice9::GetSamplerState slot load @ 0x005067e9 (in FUN_00506510): FSTP float ptr [ECX + 0x110]
+  IDirect3DDevice9::SetSamplerState slot load @ 0x005067f2 (in FUN_00506510): MOV dword ptr [EDX + 0x114],0x1
+  IDirect3DDevice9::GetTexture slot load @ 0x00507145 (in FUN_00507060): FLD float ptr [EAX + 0x100]
+  IDirect3DDevice9::SetTexture slot load @ 0x0050715a (in FUN_00507060): FLD float ptr [ECX + 0x104]
+  IDirect3DDevice9::GetTextureStageState slot load @ 0x0050716f (in FUN_00507060): FLD float ptr [EDX + 0x108]
+  IDirect3DDevice9::GetTexture slot load @ 0x0050772d (in FUN_00507720): FSTP float ptr [EAX + 0x100]
+  IDirect3DDevice9::GetSamplerState slot load @ 0x0050774d (in FUN_00507740): MOV dword ptr [EAX + 0x110],ECX
+  IDirect3DDevice9::SetSamplerState slot load @ 0x0050776d (in FUN_00507760): MOV dword ptr [EAX + 0x114],ECX
+  IDirect3DDevice9::GetSamplerState slot load @ 0x0050807a (in FUN_00508070): FLD float ptr [EAX + 0x110]
+  IDirect3DDevice9::GetTexture slot load @ 0x0050d8e9 (in FUN_0050d810): MOV EAX,dword ptr [EDX + 0x100]
+  IDirect3DDevice9::GetTexture slot load @ 0x0050f880 (in FUN_0050f810): MOV EAX,dword ptr [EDX + 0x100]
+  IDirect3DDevice9::GetTexture slot load @ 0x0050f89a (in FUN_0050f810): MOV EAX,dword ptr [EDX + 0x100]
+  IDirect3DDevice9::GetTexture slot load @ 0x00511434 (in FUN_005113f0): MOV EAX,dword ptr [EDX + 0x100]
+  IDirect3DDevice9::GetTexture slot load @ 0x00516ce7 (in FUN_00516cd0): MOV EAX,dword ptr [EDX + 0x100]
+  IDirect3DDevice9::SetTexture slot load @ 0x0051de2d (in FUN_0051ddf0): FSTP float ptr [EAX + 0x104]
+  IDirect3DDevice9::GetTextureStageState slot load @ 0x0051de3c (in FUN_0051ddf0): FSTP float ptr [ECX + 0x108]
+  IDirect3DDevice9::SetTextureStageState slot load @ 0x0051de47 (in FUN_0051ddf0): FSTP float ptr [EDX + 0x10c]
+  IDirect3DDevice9::GetTexture slot load @ 0x00523191 (in FUN_00523150): MOV EAX,dword ptr [EDX + 0x100]
+  IDirect3DDevice9::GetTexture slot load @ 0x00524506 (in FUN_00523150): MOV EAX,dword ptr [EDX + 0x100]
+  IDirect3DDevice9::GetTexture slot load @ 0x00524b4a (in FUN_00524b40): MOVZX ECX,byte ptr [EAX + 0x100]
+  IDirect3DDevice9::SetTexture slot load @ 0x00524ba0 (in FUN_00524b80): FSUBR float ptr [ECX + 0x104]
+  IDirect3DDevice9::SetTexture slot load @ 0x00524bc5 (in FUN_00524b80): FLD float ptr [EDX + 0x104]
+  IDirect3DDevice9::GetTextureStageState slot load @ 0x00524c00 (in FUN_00524be0): FSUBR float ptr [ECX + 0x108]
+  IDirect3DDevice9::GetTextureStageState slot load @ 0x00524c25 (in FUN_00524be0): FLD float ptr [EDX + 0x108]
+  IDirect3DDevice9::GetTexture slot load @ 0x00524df2 (in FUN_00524db0): MOV EAX,dword ptr [EDX + 0x100]
+  IDirect3DDevice9::GetTexture slot load @ 0x005257b1 (in FUN_005257a0): MOV EAX,dword ptr [EDX + 0x100]
+  IDirect3DDevice9::GetTexture slot load @ 0x0052bde2 (in FUN_0052bd40): MOV byte ptr [ECX + 0x100],0x0
+  IDirect3DDevice9::SetSamplerState slot load @ 0x0052bf74 (in FUN_0052bd40): LEA ECX,[EDX + ECX*0x1 + 0x114]
+  IDirect3DDevice9::SetTextureStageState slot load @ 0x0052c0c0 (in FUN_0052bd40): MOV dword ptr [EDX + 0x10c],0x2
+  IDirect3DDevice9::SetTextureStageState slot load @ 0x0052c1bd (in FUN_0052bd40): MOV EDX,dword ptr [ECX + 0x10c]
+  IDirect3DDevice9::SetTexture slot load @ 0x0052c729 (in FUN_0052bd40): MOV dword ptr [ECX + 0x104],0x2
+  IDirect3DDevice9::SetTexture slot load @ 0x0052c820 (in FUN_0052bd40): MOV EDX,dword ptr [ECX + 0x104]
+  IDirect3DDevice9::GetTextureStageState slot load @ 0x0052c84b (in FUN_0052bd40): MOV dword ptr [EDX + 0x108],0x2
+  IDirect3DDevice9::GetTextureStageState slot load @ 0x0052c942 (in FUN_0052bd40): MOV EAX,dword ptr [EDX + 0x108]
+  IDirect3DDevice9::GetSamplerState slot load @ 0x0052ccd3 (in FUN_0052bd40): MOV dword ptr [EAX + 0x110],0x2
+  IDirect3DDevice9::GetSamplerState slot load @ 0x0052cdca (in FUN_0052bd40): MOV ECX,dword ptr [EAX + 0x110]
+  IDirect3DDevice9::SetSamplerState slot load @ 0x0052d2a4 (in FUN_0052d260): LEA ECX,[EAX + EDX*0x1 + 0x114]
+  IDirect3DDevice9::SetTexture slot load @ 0x0052de74 (in FUN_0052d510): MOV EDX,dword ptr [ECX + 0x104]
+  IDirect3DDevice9::GetTextureStageState slot load @ 0x0052dfe4 (in FUN_0052d510): MOV EDX,dword ptr [ECX + 0x108]
+  IDirect3DDevice9::SetTextureStageState slot load @ 0x0052e2c4 (in FUN_0052d510): MOV EDX,dword ptr [ECX + 0x10c]
+  IDirect3DDevice9::GetSamplerState slot load @ 0x0052e8ff (in FUN_0052d510): MOV EDX,dword ptr [ECX + 0x110]
+  IDirect3DDevice9::SetSamplerState slot load @ 0x0052ecf9 (in FUN_0052d510): LEA ECX,[EDX + ECX*0x1 + 0x114]
+  IDirect3DDevice9::SetSamplerState slot load @ 0x0052edde (in FUN_0052ed90): LEA ECX,[EAX + EDX*0x1 + 0x114]
+  IDirect3DDevice9::SetSamplerState slot load @ 0x0052edfa (in FUN_0052ed90): LEA ESI,[EDI + ESI*0x1 + 0x114]
+  IDirect3DDevice9::SetSamplerState slot load @ 0x0052ee2b (in FUN_0052ed90): LEA EDX,[ECX + EAX*0x1 + 0x114]
+  IDirect3DDevice9::SetSamplerState slot load @ 0x0052ee47 (in FUN_0052ed90): LEA ESI,[EDI + ESI*0x1 + 0x114]
+  IDirect3DDevice9::SetTextureStageState slot load @ 0x0052ef77 (in FUN_0052ed90): MOV dword ptr [ECX + 0x10c],EAX
+  IDirect3DDevice9::SetTexture slot load @ 0x0052f09f (in FUN_0052ed90): MOV dword ptr [ECX + 0x104],EAX
+  IDirect3DDevice9::GetTextureStageState slot load @ 0x0052f0e9 (in FUN_0052ed90): MOV dword ptr [ECX + 0x108],EAX
+  IDirect3DDevice9::GetSamplerState slot load @ 0x0052f211 (in FUN_0052ed90): MOV dword ptr [ECX + 0x110],EAX
+  IDirect3DDevice9::SetTextureStageState slot load @ 0x0052f57b (in FUN_0052f250): IMUL EAX,dword ptr [EDX + 0x10c]
+  IDirect3DDevice9::SetTexture slot load @ 0x0052f903 (in FUN_0052f250): IMUL EAX,dword ptr [EDX + 0x104]
+  IDirect3DDevice9::GetTextureStageState slot load @ 0x0052f9eb (in FUN_0052f250): IMUL EAX,dword ptr [EDX + 0x108]
+  IDirect3DDevice9::GetSamplerState slot load @ 0x0052fe3f (in FUN_0052f250): IMUL EAX,dword ptr [EDX + 0x110]
+  IDirect3DDevice9::SetTextureStageState slot load @ 0x005304f8 (in FUN_00530160): MOV EAX,dword ptr [EDX + 0x10c]
+  IDirect3DDevice9::SetTexture slot load @ 0x005308c0 (in FUN_00530160): MOV EAX,dword ptr [EDX + 0x104]
+  IDirect3DDevice9::GetTextureStageState slot load @ 0x005309b2 (in FUN_00530160): MOV EAX,dword ptr [EDX + 0x108]
+  IDirect3DDevice9::GetSamplerState slot load @ 0x00530df2 (in FUN_00530160): MOV EAX,dword ptr [EDX + 0x110]
+  IDirect3DDevice9::SetSamplerState slot load @ 0x00531074 (in FUN_00530160): LEA ECX,[EAX + EDX*0x1 + 0x114]
+  IDirect3DDevice9::SetTextureStageState slot load @ 0x005311fc (in FUN_005310b0): MOV EAX,dword ptr [EDX + 0x10c]
+  IDirect3DDevice9::SetTexture slot load @ 0x005312cc (in FUN_005310b0): MOV EAX,dword ptr [EDX + 0x104]
+  IDirect3DDevice9::GetTextureStageState slot load @ 0x00531300 (in FUN_005310b0): MOV EAX,dword ptr [EDX + 0x108]
+  IDirect3DDevice9::GetSamplerState slot load @ 0x005313d0 (in FUN_005310b0): MOV EAX,dword ptr [EDX + 0x110]
+  IDirect3DDevice9::SetSamplerState slot load @ 0x005317bd (in FUN_00531720): LEA ECX,[EAX + EDX*0x1 + 0x114]
+  IDirect3DDevice9::SetSamplerState slot load @ 0x005317d9 (in FUN_00531720): LEA ESI,[EDI + ESI*0x1 + 0x114]
+  IDirect3DDevice9::GetTexture slot load @ 0x00531c32 (in FUN_00531720): MOVZX EDX,byte ptr [ECX + 0x100]
+  IDirect3DDevice9::GetTexture slot load @ 0x00531c8a (in FUN_00531720): MOVZX ECX,byte ptr [EAX + 0x100]
+  IDirect3DDevice9::SetSamplerState slot load @ 0x00531da8 (in FUN_00531d20): LEA EAX,[EDX + ECX*0x1 + 0x114]
+  IDirect3DDevice9::SetSamplerState slot load @ 0x00531dc4 (in FUN_00531d20): LEA ESI,[EDI + ESI*0x1 + 0x114]
+  IDirect3DDevice9::SetSamplerState slot load @ 0x005322d2 (in FUN_00532220): LEA EDX,[ECX + EAX*0x1 + 0x114]
+  IDirect3DDevice9::SetSamplerState slot load @ 0x005322f7 (in FUN_00532220): LEA ESI,[EDI + ESI*0x1 + 0x114]
+  IDirect3DDevice9::SetSamplerState slot load @ 0x00532329 (in FUN_00532220): LEA ECX,[EAX + EDX*0x1 + 0x114]
+  IDirect3DDevice9::SetSamplerState slot load @ 0x0053234e (in FUN_00532220): LEA ESI,[EDI + ESI*0x1 + 0x114]
+  IDirect3DDevice9::GetTexture slot load @ 0x00532c91 (in FUN_00532220): MOVZX EDX,byte ptr [ECX + 0x100]
+  IDirect3DDevice9::GetSamplerState slot load @ 0x0053933f (in FUN_00539280): MOV EAX,dword ptr [EDX + 0x110]
+  IDirect3DDevice9::GetSamplerState slot load @ 0x0053eb57 (in FUN_0053e290): MOVZX EAX,byte ptr [ECX + EDX*0x1 + 0x110]
+  IDirect3DDevice9::GetSamplerState slot load @ 0x0053ef9a (in FUN_0053e290): MOVZX EAX,byte ptr [EDX + 0x110]
+  IDirect3DDevice9::GetSamplerState slot load @ 0x00543e88 (in FUN_00543df0): MOV EAX,dword ptr [EDX + 0x110]
+  IDirect3DDevice9::GetTextureStageState slot load @ 0x005473df (in FUN_00547250): MOV EDX,dword ptr [EAX + 0x108]
+  IDirect3DDevice9::SetTexture slot load @ 0x005498a7 (in FUN_005497c0): MOV EAX,dword ptr [EDX + 0x104]
+  IDirect3DDevice9::GetTextureStageState slot load @ 0x00549a31 (in FUN_005497c0): MOV EAX,dword ptr [EDX + 0x108]
+  IDirect3DDevice9::GetSamplerState slot load @ 0x00549a71 (in FUN_005497c0): MOV EAX,dword ptr [EDX + 0x110]
+  IDirect3DDevice9::SetTexture slot load @ 0x00549bba (in FUN_005497c0): MOV EDX,dword ptr [EAX + 0x104]
+  IDirect3DDevice9::SetTexture slot load @ 0x0054a40b (in FUN_0054a070): MOV EDX,dword ptr [EAX + 0x104]
+  IDirect3DDevice9::SetTexture slot load @ 0x0054a4cf (in FUN_0054a070): MOV EDX,dword ptr [EAX + 0x104]
+  IDirect3DDevice9::GetSamplerState slot load @ 0x0055e5c5 (in FUN_0055e4d0): MOV EAX,dword ptr [EDX + 0x110]
+  IDirect3DDevice9::GetTextureStageState slot load @ 0x00580f54 (in FUN_00580990): LEA ECX,[EDX + ECX*0x1 + 0x108]
+  IDirect3DDevice9::GetTextureStageState slot load @ 0x00580feb (in FUN_00580990): LEA EDX,[ECX + EAX*0x1 + 0x108]
+  IDirect3DDevice9::SetTexture slot load @ 0x00581ba8 (in FUN_00581b40): FSTP float ptr [EDX + 0x104]
+  IDirect3DDevice9::SetTexture slot load @ 0x00581d18 (in FUN_00581c00): FSTP float ptr [EDX + 0x104]
+  IDirect3DDevice9::GetTextureStageState slot load @ 0x00581d39 (in FUN_00581c00): MOV dword ptr [EDX + 0x108],0x846c66
+  IDirect3DDevice9::SetTextureStageState slot load @ 0x00581d53 (in FUN_00581c00): MOV dword ptr [ECX + 0x10c],0x71533e
+  IDirect3DDevice9::GetSamplerState slot load @ 0x00581d87 (in FUN_00581c00): MOV dword ptr [EDX + 0x110],0x846d66
+  IDirect3DDevice9::SetSamplerState slot load @ 0x00581da1 (in FUN_00581c00): MOV dword ptr [ECX + 0x114],0x100a05
+  IDirect3DDevice9::SetTextureStageState slot load @ 0x0059506d (in FUN_00594e40): MOV EAX,dword ptr [EDX + 0x10c]
+  IDirect3DDevice9::SetTextureStageState slot load @ 0x00595130 (in FUN_00594e40): MOV EAX,dword ptr [EDX + 0x10c]
+  IDirect3DDevice9::SetTextureStageState slot load @ 0x00596f75 (in FUN_00596d70): MOV EAX,dword ptr [EDX + 0x10c]
+  IDirect3DDevice9::SetTextureStageState slot load @ 0x0059707c (in FUN_00596d70): MOV EAX,dword ptr [EDX + 0x10c]
+  IDirect3DDevice9::SetTextureStageState slot load @ 0x00597183 (in FUN_00596d70): MOV EAX,dword ptr [EDX + 0x10c]
+  IDirect3DDevice9::SetTextureStageState slot load @ 0x0059728a (in FUN_00596d70): MOV EAX,dword ptr [EDX + 0x10c]
+  IDirect3DDevice9::SetTextureStageState slot load @ 0x00597391 (in FUN_00596d70): MOV EAX,dword ptr [EDX + 0x10c]
+  IDirect3DDevice9::SetTextureStageState slot load @ 0x00597498 (in FUN_00596d70): MOV EAX,dword ptr [EDX + 0x10c]
+  IDirect3DDevice9::SetTextureStageState slot load @ 0x005a29ba (in FUN_005a29b0): MOV EAX,dword ptr [EAX + 0x10c]
+  IDirect3DDevice9::SetSamplerState slot load @ 0x005dcbdd (in FUN_005dc9a0): MOV EAX,dword ptr [EDX + 0x114]
+  IDirect3DDevice9::SetTexture slot load @ 0x005f7325 (in FUN_005f7230): MOV dword ptr [ECX + 0x104],0x1048db4
+  IDirect3DDevice9::SetTextureStageState slot load @ 0x005f7332 (in FUN_005f7230): MOV dword ptr [EDX + 0x10c],0x1048d9c
+  IDirect3DDevice9::SetSamplerState slot load @ 0x005f733f (in FUN_005f7230): MOV dword ptr [EAX + 0x114],0x1048d88
+  IDirect3DDevice9::SetTexture slot load @ 0x005f777f (in FUN_005f75e0): MOV dword ptr [ECX + 0x104],0x1049100
+  IDirect3DDevice9::SetTexture slot load @ 0x005f79c2 (in FUN_005f7900): MOV dword ptr [ECX + 0x104],0x1048db4
+  IDirect3DDevice9::SetTextureStageState slot load @ 0x005f79cf (in FUN_005f7900): MOV dword ptr [EDX + 0x10c],0x1048d9c
+  IDirect3DDevice9::SetSamplerState slot load @ 0x005f79dc (in FUN_005f7900): MOV dword ptr [EAX + 0x114],0x1048d88
+  IDirect3DDevice9::GetSamplerState slot load @ 0x005fa8d7 (in FUN_005fa330): MOV EDX,dword ptr [EAX + 0x110]
+  IDirect3DDevice9::SetTexture slot load @ 0x0060124f (in FUN_00601170): MOV dword ptr [ECX + 0x104],0x104a14c
+  IDirect3DDevice9::SetTextureStageState slot load @ 0x0060125c (in FUN_00601170): MOV dword ptr [EDX + 0x10c],0x104a138
+  IDirect3DDevice9::SetTexture slot load @ 0x00601484 (in FUN_006013c0): MOV dword ptr [ECX + 0x104],0x104a14c
+  IDirect3DDevice9::SetTextureStageState slot load @ 0x00601491 (in FUN_006013c0): MOV dword ptr [EDX + 0x10c],0x104a138
+  IDirect3DDevice9::SetSamplerState slot load @ 0x006016e3 (in FUN_00601570): MOV byte ptr [ECX + 0x114],0x5
+  IDirect3DDevice9::SetSamplerState slot load @ 0x00603f15 (in FUN_00603be0): MOV byte ptr [ECX + 0x114],AL
+  IDirect3DDevice9::SetTexture slot load @ 0x00606b8f (in FUN_00606820): MOV EAX,dword ptr [EDX + 0x104]
+  IDirect3DDevice9::SetTexture slot load @ 0x00606f02 (in FUN_00606820): MOV EDX,dword ptr [EAX + 0x104]
+  IDirect3DDevice9::SetTexture slot load @ 0x00606f18 (in FUN_00606820): MOV EAX,dword ptr [EDX + 0x104]
+  IDirect3DDevice9::SetSamplerState slot load @ 0x006070b4 (in FUN_00606820): MOV EAX,dword ptr [EDX + 0x114]
+  IDirect3DDevice9::SetSamplerState slot load @ 0x00607146 (in FUN_00606820): MOV EAX,dword ptr [EDX + 0x114]
+  IDirect3DDevice9::SetSamplerState slot load @ 0x00607569 (in FUN_00607420): MOV EAX,dword ptr [EDX + 0x114]
+  IDirect3DDevice9::SetSamplerState slot load @ 0x006075ef (in FUN_00607420): MOV EAX,dword ptr [EDX + 0x114]
+  IDirect3DDevice9::SetSamplerState slot load @ 0x00607911 (in FUN_006078e0): MOV byte ptr [ECX + EAX*0x1 + 0x114],DL
+  IDirect3DDevice9::GetSamplerState slot load @ 0x006081f3 (in FUN_00607990): MOV EAX,dword ptr [EDX + 0x110]
+  IDirect3DDevice9::SetTexture slot load @ 0x00613db1 (in FUN_00613c50): MOV EAX,dword ptr [EDX + 0x104]
+  IDirect3DDevice9::SetSamplerState slot load @ 0x00613dc7 (in FUN_00613c50): MOV EAX,dword ptr [EDX + 0x114]
+  IDirect3DDevice9::SetTexture slot load @ 0x00613e93 (in FUN_00613c50): MOV EAX,dword ptr [EDX + 0x104]
+  IDirect3DDevice9::SetSamplerState slot load @ 0x00613ea9 (in FUN_00613c50): MOV EAX,dword ptr [EDX + 0x114]
+  IDirect3DDevice9::GetSamplerState slot load @ 0x0061d873 (in FUN_0061d820): MOV EAX,dword ptr [EDX + 0x110]
+  IDirect3DDevice9::GetSamplerState slot load @ 0x00639f60 (in FUN_00639d40): FSTP float ptr [ECX + 0x110]
+  IDirect3DDevice9::GetTextureStageState slot load @ 0x00639fb5 (in FUN_00639d40): MOV dword ptr [EAX + 0x108],0x0
+  IDirect3DDevice9::SetTextureStageState slot load @ 0x00639fce (in FUN_00639d40): FSTP float ptr [ECX + 0x10c]
+  IDirect3DDevice9::GetTextureStageState slot load @ 0x0063aeb3 (in FUN_0063ac70): CMP dword ptr [ECX + 0x108],EAX
+  IDirect3DDevice9::GetTextureStageState slot load @ 0x0063af67 (in FUN_0063ac70): MOV dword ptr [ECX + 0x108],EAX
+  IDirect3DDevice9::SetTexture slot load @ 0x0063affb (in FUN_0063ac70): SUB EAX,dword ptr [ECX + 0x104]
+  IDirect3DDevice9::GetTextureStageState slot load @ 0x0063bb50 (in FUN_0063bb40): LEA EDX,[ECX + EAX*0x1 + 0x108]
+  IDirect3DDevice9::GetSamplerState slot load @ 0x0063d54b (in FUN_0063d1d0): FSUB float ptr [ECX + 0x110]
+  IDirect3DDevice9::GetSamplerState slot load @ 0x0063d56a (in FUN_0063d1d0): FADD float ptr [EDX + 0x110]
+  IDirect3DDevice9::SetTexture slot load @ 0x0063da75 (in FUN_0063d5e0): MOV dword ptr [ECX + 0x104],EAX
+  IDirect3DDevice9::GetSamplerState slot load @ 0x0063e8a7 (in FUN_0063e860): FSTP float ptr [ECX + 0x110]
+  IDirect3DDevice9::GetSamplerState slot load @ 0x0063e8da (in FUN_0063e860): FSTP float ptr [EDX + 0x110]
+  IDirect3DDevice9::SetTexture slot load @ 0x0064497a (in FUN_00644970): FLD float ptr [EAX + 0x104]
+  IDirect3DDevice9::GetSamplerState slot load @ 0x0064a492 (in FUN_0064a310): MOV EAX,dword ptr [EDX + 0x110]
+  IDirect3DDevice9::GetSamplerState slot load @ 0x0064a4ab (in FUN_0064a310): MOV EDX,dword ptr [EAX + 0x110]
+  IDirect3DDevice9::SetSamplerState slot load @ 0x0064a58c (in FUN_0064a520): MOV EAX,dword ptr [EDX + 0x114]
+  IDirect3DDevice9::SetTexture slot load @ 0x0064a793 (in FUN_0064a770): MOV EAX,dword ptr [EDX + 0x104]
+  IDirect3DDevice9::SetTexture slot load @ 0x0064aea7 (in FUN_0064ae60): MOV EDX,dword ptr [EAX + 0x104]
+  IDirect3DDevice9::GetSamplerState slot load @ 0x0064bbc1 (in FUN_0064b630): MOV EDX,dword ptr [EAX + 0x110]
+  IDirect3DDevice9::GetSamplerState slot load @ 0x0064bbf1 (in FUN_0064b630): MOV EDX,dword ptr [EAX + 0x110]
+  IDirect3DDevice9::GetSamplerState slot load @ 0x0064bc19 (in FUN_0064b630): MOV EDX,dword ptr [EAX + 0x110]
+  IDirect3DDevice9::GetTextureStageState slot load @ 0x00662ba4 (in FUN_00662b70): MOV EDX,dword ptr [EAX + 0x108]
+  IDirect3DDevice9::SetTexture slot load @ 0x0066a169 (in FUN_00669fd0): MOV EAX,dword ptr [EDX + 0x104]
+  IDirect3DDevice9::GetSamplerState slot load @ 0x0066a337 (in FUN_00669fd0): MOV EAX,dword ptr [EDX + 0x110]
+  IDirect3DDevice9::SetTextureStageState slot load @ 0x0066a57a (in FUN_00669fd0): MOV EAX,dword ptr [EDX + 0x10c]
+  IDirect3DDevice9::SetTexture slot load @ 0x0066b96e (in FUN_0066b8b0): MOV EAX,dword ptr [EDX + 0x104]
+  IDirect3DDevice9::GetTextureStageState slot load @ 0x0066baee (in FUN_0066ba30): MOV EAX,dword ptr [EDX + 0x108]
+  IDirect3DDevice9::SetTextureStageState slot load @ 0x0066bbc9 (in FUN_0066bbb0): MOV EAX,dword ptr [EDX + 0x10c]
+  IDirect3DDevice9::SetTexture slot load @ 0x0066bc51 (in FUN_0066bc40): MOV EAX,dword ptr [EDX + 0x104]
+  IDirect3DDevice9::GetTextureStageState slot load @ 0x0066bca1 (in FUN_0066bc90): MOV EAX,dword ptr [EDX + 0x108]
+  IDirect3DDevice9::SetTextureStageState slot load @ 0x0066bcf1 (in FUN_0066bce0): MOV EAX,dword ptr [EDX + 0x10c]
+  IDirect3DDevice9::GetSamplerState slot load @ 0x0066bd46 (in FUN_0066bd30): MOV EAX,dword ptr [EDX + 0x110]
+  IDirect3DDevice9::SetSamplerState slot load @ 0x0066bdc6 (in FUN_0066bdb0): MOV EAX,dword ptr [EDX + 0x114]
+  IDirect3DDevice9::GetTextureStageState slot load @ 0x0066cbc2 (in FUN_0066cb40): MOV EAX,dword ptr [EDX + 0x108]
+  IDirect3DDevice9::GetTextureStageState slot load @ 0x0066d7f7 (in FUN_0066d7c0): MOV EAX,dword ptr [EDX + 0x108]
+  IDirect3DDevice9::SetTextureStageState slot load @ 0x006736b5 (in FUN_00673420): MOV EAX,dword ptr [EDX + 0x10c]
+  IDirect3DDevice9::GetTextureStageState slot load @ 0x0068ae60 (in FUN_0068ad20): MOV dword ptr [EAX + 0x108],ECX
+  IDirect3DDevice9::SetSamplerState slot load @ 0x0068af25 (in FUN_0068ad20): FSTP float ptr [EDX + 0x114]
+  IDirect3DDevice9::GetTextureStageState slot load @ 0x0068b0cb (in FUN_0068b080): MOV dword ptr [ECX + 0x108],0x0
+  IDirect3DDevice9::SetSamplerState slot load @ 0x0068b781 (in FUN_0068b4c0): FLD float ptr [ECX + 0x114]
+  IDirect3DDevice9::GetTextureStageState slot load @ 0x0068c69c (in FUN_0068be90): MOV dword ptr [EDX + 0x108],EAX
+  IDirect3DDevice9::GetTextureStageState slot load @ 0x0068c6ad (in FUN_0068be90): MOV dword ptr [ECX + 0x108],EDX
+  IDirect3DDevice9::GetTextureStageState slot load @ 0x0068c6c2 (in FUN_0068be90): MOV EDX,dword ptr [ECX + 0x108]
+  IDirect3DDevice9::GetTextureStageState slot load @ 0x0068c6ce (in FUN_0068be90): MOV ECX,dword ptr [EAX + 0x108]
+  IDirect3DDevice9::SetTexture slot load @ 0x0068c6d6 (in FUN_0068be90): MOV EAX,dword ptr [EDX + 0x104]
+  IDirect3DDevice9::GetTextureStageState slot load @ 0x0068c7ff (in FUN_0068be90): MOV EAX,dword ptr [EDX + 0x108]
+  IDirect3DDevice9::SetSamplerState slot load @ 0x0068e369 (in FUN_0068dea0): FLD float ptr [EAX + 0x114]
+  IDirect3DDevice9::SetTexture slot load @ 0x0068ecc9 (in FUN_0068eb80): MOV dword ptr [ECX + 0x104],0x0
+  IDirect3DDevice9::SetTexture slot load @ 0x0068ee0e (in FUN_0068ed70): CMP dword ptr [EAX + 0x104],0x0
+  IDirect3DDevice9::SetTexture slot load @ 0x0068ee1c (in FUN_0068ed70): MOV ECX,dword ptr [ECX + 0x104]
+  IDirect3DDevice9::SetTexture slot load @ 0x0068efba (in FUN_0068efb0): MOV EAX,dword ptr [EAX + 0x104]
+  IDirect3DDevice9::SetTexture slot load @ 0x00690db9 (in FUN_00690d50): CMP dword ptr [EAX + 0x104],0x0
+  IDirect3DDevice9::SetTexture slot load @ 0x0069343d (in FUN_00692950): MOV dword ptr [ECX + 0x104],0x0
+  IDirect3DDevice9::SetTexture slot load @ 0x006934e1 (in FUN_00692950): CMP dword ptr [ECX + 0x104],0x0
+  IDirect3DDevice9::SetTexture slot load @ 0x006934f0 (in FUN_00692950): MOV dword ptr [EDX + 0x104],0x0
+  IDirect3DDevice9::SetTexture slot load @ 0x00693797 (in FUN_00692950): MOV dword ptr [EDX + 0x104],EAX
+  IDirect3DDevice9::SetTexture slot load @ 0x006937a3 (in FUN_00692950): CMP dword ptr [EAX + 0x104],0x0
+  IDirect3DDevice9::SetTexture slot load @ 0x006937d8 (in FUN_00692950): MOV ECX,dword ptr [ECX + 0x104]
+  IDirect3DDevice9::SetTexture slot load @ 0x006937ff (in FUN_00692950): MOV ECX,dword ptr [EDX + 0x104]
+  IDirect3DDevice9::SetTexture slot load @ 0x00693815 (in FUN_00692950): MOV ECX,dword ptr [EAX + 0x104]
+  IDirect3DDevice9::SetTexture slot load @ 0x006938b3 (in FUN_00692950): CMP dword ptr [EAX + 0x104],0x0
+  IDirect3DDevice9::SetTexture slot load @ 0x00693915 (in FUN_00692950): MOV ECX,dword ptr [EAX + 0x104]
+  IDirect3DDevice9::SetTexture slot load @ 0x00693a29 (in FUN_00692950): CMP dword ptr [EDX + 0x104],0x0
+  IDirect3DDevice9::SetTexture slot load @ 0x00693a55 (in FUN_00692950): MOV ECX,dword ptr [ECX + 0x104]
+  IDirect3DDevice9::SetTexture slot load @ 0x00693a78 (in FUN_00692950): MOV ECX,dword ptr [EAX + 0x104]
+  IDirect3DDevice9::SetTexture slot load @ 0x00693aa2 (in FUN_00692950): MOV ECX,dword ptr [ECX + 0x104]
+  IDirect3DDevice9::SetTexture slot load @ 0x00693ac0 (in FUN_00692950): MOV ECX,dword ptr [EAX + 0x104]
+  IDirect3DDevice9::GetSamplerState slot load @ 0x0069419f (in FUN_006940e0): MOV EAX,dword ptr [EDX + 0x110]
+  IDirect3DDevice9::SetTexture slot load @ 0x006944df (in FUN_006942e0): MOV dword ptr [EAX + 0x104],0x0
+  IDirect3DDevice9::SetTexture slot load @ 0x00694636 (in FUN_00694620): CMP dword ptr [ECX + 0x104],0x0
+  IDirect3DDevice9::SetTexture slot load @ 0x0069464e (in FUN_00694620): MOV ECX,dword ptr [EAX + 0x104]
+  IDirect3DDevice9::GetTextureStageState slot load @ 0x006d30ed (in FUN_006d30e0): MOV dword ptr [EAX + 0x108],ECX
+  IDirect3DDevice9::SetTexture slot load @ 0x006d310d (in FUN_006d3100): MOV dword ptr [EAX + 0x104],ECX
+  IDirect3DDevice9::SetTexture slot load @ 0x006d312a (in FUN_006d3120): MOV dword ptr [EAX + 0x104],0x0
+  IDirect3DDevice9::GetTextureStageState slot load @ 0x006d3137 (in FUN_006d3120): MOV dword ptr [ECX + 0x108],0x0
+  IDirect3DDevice9::SetTexture slot load @ 0x006e4b69 (in FUN_006e4a50): MOV dword ptr [ECX + 0x104],0x0
+  IDirect3DDevice9::GetTextureStageState slot load @ 0x006e4b76 (in FUN_006e4a50): MOV dword ptr [EDX + 0x108],0x0
+  IDirect3DDevice9::SetTexture slot load @ 0x006e4c2b (in FUN_006e4bf0): MOV EDX,dword ptr [ECX + 0x104]
+  IDirect3DDevice9::GetTextureStageState slot load @ 0x006e4c59 (in FUN_006e4bf0): MOV EDX,dword ptr [ECX + 0x108]
+  IDirect3DDevice9::GetSamplerState slot load @ 0x0070347a (in FUN_00703470): MOV AL,byte ptr [EAX + 0x110]
+  IDirect3DDevice9::GetSamplerState slot load @ 0x0070a2dd (in FUN_0070a130): MOV byte ptr [ECX + 0x110],0x0
+  IDirect3DDevice9::SetSamplerState slot load @ 0x0070a515 (in FUN_0070a130): MOV dword ptr [EDX + ECX*0x4 + 0x114],0x0
+  IDirect3DDevice9::SetSamplerState slot load @ 0x00714c8b (in FUN_00714c60): CMP dword ptr [EDX + ECX*0x4 + 0x114],0x0
+  IDirect3DDevice9::SetSamplerState slot load @ 0x00714c9f (in FUN_00714c60): MOV EDX,dword ptr [ECX + EAX*0x4 + 0x114]
+  IDirect3DDevice9::SetSamplerState slot load @ 0x00714d16 (in FUN_00714c60): CMP dword ptr [ECX + EAX*0x4 + 0x114],0x3
+  IDirect3DDevice9::SetSamplerState slot load @ 0x00714d45 (in FUN_00714c60): MOV dword ptr [EAX + EDX*0x4 + 0x114],0x0
+  IDirect3DDevice9::SetSamplerState slot load @ 0x00714da6 (in FUN_00714d90): MOV ECX,dword ptr [EAX + 0x114]
+  IDirect3DDevice9::SetSamplerState slot load @ 0x00714db2 (in FUN_00714d90): MOV dword ptr [EDX + 0x114],0x3
+  IDirect3DDevice9::SetSamplerState slot load @ 0x00714dda (in FUN_00714d90): MOV EAX,dword ptr [EDX + ECX*0x4 + 0x114]
+  IDirect3DDevice9::SetSamplerState slot load @ 0x00714ded (in FUN_00714d90): MOV dword ptr [EDX + ECX*0x4 + 0x114],EAX
+  IDirect3DDevice9::SetSamplerState slot load @ 0x00714e64 (in FUN_00714d90): CMP dword ptr [EDX + ECX*0x4 + 0x114],0x0
+  IDirect3DDevice9::SetSamplerState slot load @ 0x00714e86 (in FUN_00714d90): MOV dword ptr [ECX + EAX*0x4 + 0x114],EDX
+  IDirect3DDevice9::SetSamplerState slot load @ 0x00714ec8 (in FUN_00714d90): CMP dword ptr [ECX + 0x114],0x3e9
+  IDirect3DDevice9::SetSamplerState slot load @ 0x00714f27 (in FUN_00714f00): CMP dword ptr [EDX + ECX*0x4 + 0x114],0x0
+  IDirect3DDevice9::GetSamplerState slot load @ 0x00714f58 (in FUN_00714f00): MOV EAX,dword ptr [EDX + ECX*0x4 + 0x110]
+  IDirect3DDevice9::SetSamplerState slot load @ 0x00714f7d (in FUN_00714f70): MOV EAX,dword ptr [ECX + EAX*0x4 + 0x114]
+  IDirect3DDevice9::SetSamplerState slot load @ 0x00714fdd (in FUN_00714fd0): CMP dword ptr [EAX + 0x114],0x0
+  IDirect3DDevice9::SetSamplerState slot load @ 0x00715024 (in FUN_00714fd0): CMP dword ptr [EDX + ECX*0x4 + 0x114],0x3e9
+  IDirect3DDevice9::SetSamplerState slot load @ 0x00715039 (in FUN_00714fd0): MOV EDX,dword ptr [ECX + EAX*0x4 + 0x114]
+  IDirect3DDevice9::SetSamplerState slot load @ 0x007150a9 (in FUN_00714fd0): MOV EAX,dword ptr [EDX + ECX*0x4 + 0x114]
+  IDirect3DDevice9::SetSamplerState slot load @ 0x007150ca (in FUN_00714fd0): MOV ECX,dword ptr [ESI + ECX*0x4 + 0x114]
+  IDirect3DDevice9::SetSamplerState slot load @ 0x007150d1 (in FUN_00714fd0): MOV dword ptr [EAX + EDX*0x4 + 0x114],ECX
+  IDirect3DDevice9::SetSamplerState slot load @ 0x007150de (in FUN_00714fd0): CMP dword ptr [EAX + EDX*0x4 + 0x114],0x0
+  IDirect3DDevice9::SetSamplerState slot load @ 0x007150ef (in FUN_00714fd0): CMP dword ptr [ECX + 0x114],0x3
+  IDirect3DDevice9::SetSamplerState slot load @ 0x00715140 (in FUN_00714fd0): CMP dword ptr [EAX + 0x114],0x3e9
+  IDirect3DDevice9::GetSamplerState slot load @ 0x00715160 (in FUN_00714fd0): MOV EAX,dword ptr [EDX + ECX*0x4 + 0x110]
+  IDirect3DDevice9::SetTexture slot load @ 0x007200c5 (in FUN_00720040): MOV byte ptr [EAX + 0x104],0x0
+  IDirect3DDevice9::GetTextureStageState slot load @ 0x007200cf (in FUN_00720040): MOV dword ptr [ECX + 0x108],0x0
+  IDirect3DDevice9::GetTextureStageState slot load @ 0x0072cf9d (in FUN_0072ceb0): MOV dword ptr [ECX + 0x108],0x0
+  IDirect3DDevice9::GetTextureStageState slot load @ 0x0072d8c8 (in FUN_0072d770): MOV ECX,dword ptr [EDX + 0x108]
+  IDirect3DDevice9::GetTextureStageState slot load @ 0x0072d8d8 (in FUN_0072d770): MOV ECX,dword ptr [EAX + 0x108]
+  IDirect3DDevice9::GetTextureStageState slot load @ 0x0072d8e1 (in FUN_0072d770): MOV EAX,dword ptr [EDX + 0x108]
+  IDirect3DDevice9::GetTextureStageState slot load @ 0x0072dc62 (in FUN_0072dc30): CMP dword ptr [EAX + 0x108],0x0
+  IDirect3DDevice9::GetTextureStageState slot load @ 0x0072dc6e (in FUN_0072dc30): MOV EDX,dword ptr [ECX + 0x108]
+  IDirect3DDevice9::GetTextureStageState slot load @ 0x0072dc77 (in FUN_0072dc30): MOV ECX,dword ptr [EAX + 0x108]
+  IDirect3DDevice9::GetTextureStageState slot load @ 0x0072dc8b (in FUN_0072dc30): MOV ECX,dword ptr [ECX + 0x108]
+  IDirect3DDevice9::GetTextureStageState slot load @ 0x0072e239 (in FUN_0072dc30): CMP dword ptr [EAX + 0x108],0x0
+  IDirect3DDevice9::GetTextureStageState slot load @ 0x0072e25a (in FUN_0072dc30): MOV dword ptr [EAX + 0x108],EDX
+  IDirect3DDevice9::GetTextureStageState slot load @ 0x0072e263 (in FUN_0072dc30): CMP dword ptr [ECX + 0x108],0x0
+  IDirect3DDevice9::GetTextureStageState slot load @ 0x0072e273 (in FUN_0072dc30): MOV ECX,dword ptr [EDX + 0x108]
+  IDirect3DDevice9::GetTextureStageState slot load @ 0x0072e287 (in FUN_0072dc30): MOV ECX,dword ptr [EAX + 0x108]
+  IDirect3DDevice9::GetTextureStageState slot load @ 0x0072e2b2 (in FUN_0072dc30): MOV ECX,dword ptr [EAX + 0x108]
+  IDirect3DDevice9::GetTextureStageState slot load @ 0x0072e2e2 (in FUN_0072dc30): MOV ECX,dword ptr [ECX + 0x108]
+  IDirect3DDevice9::GetTextureStageState slot load @ 0x0072e2f6 (in FUN_0072dc30): MOV ECX,dword ptr [EDX + 0x108]
+  IDirect3DDevice9::GetTextureStageState slot load @ 0x0072e312 (in FUN_0072dc30): CMP dword ptr [ECX + 0x108],EAX
+  IDirect3DDevice9::GetTextureStageState slot load @ 0x0072e33f (in FUN_0072dc30): MOV ECX,dword ptr [EDX + 0x108]
+  IDirect3DDevice9::GetTextureStageState slot load @ 0x0072e405 (in FUN_0072e370): MOV dword ptr [EDX + 0x108],ECX
+  IDirect3DDevice9::GetTextureStageState slot load @ 0x0072e45c (in FUN_0072e370): MOV dword ptr [EDX + 0x108],ECX
+  IDirect3DDevice9::GetTextureStageState slot load @ 0x0072e471 (in FUN_0072e370): CMP dword ptr [EAX + 0x108],0x0
+  IDirect3DDevice9::GetTextureStageState slot load @ 0x0072e4a8 (in FUN_0072e370): MOV ECX,dword ptr [ECX + 0x108]
+  IDirect3DDevice9::GetTextureStageState slot load @ 0x0072f5c8 (in FUN_0072f4b0): CMP dword ptr [ECX + 0x108],EAX
+  IDirect3DDevice9::GetTextureStageState slot load @ 0x0072f70a (in FUN_0072f6f0): MOV ECX,dword ptr [EAX + 0x108]
+  IDirect3DDevice9::GetTextureStageState slot load @ 0x0072f757 (in FUN_0072f6f0): CMP dword ptr [ECX + 0x108],EAX
+  IDirect3DDevice9::GetTextureStageState slot load @ 0x0072f797 (in FUN_0072f6f0): CMP dword ptr [EAX + 0x108],EDX
+  IDirect3DDevice9::GetTextureStageState slot load @ 0x0072fad3 (in FUN_0072faa0): CMP dword ptr [ECX + 0x108],EAX
+  IDirect3DDevice9::GetTextureStageState slot load @ 0x0072fc44 (in FUN_0072fc30): CMP dword ptr [ECX + 0x108],EAX
+  IDirect3DDevice9::SetTexture slot load @ 0x0073bcff (in FUN_0073bba0): MOV dword ptr [ECX + 0x104],0x0
+  IDirect3DDevice9::SetSamplerState slot load @ 0x0073bd6f (in FUN_0073bba0): MOV dword ptr [EAX + 0x114],0x0
+  IDirect3DDevice9::SetSamplerState slot load @ 0x0073d079 (in FUN_0073d020): MOV dword ptr [EDX + 0x114],EAX
+  IDirect3DDevice9::GetSamplerState slot load @ 0x0073d30e (in FUN_0073d020): FILD dword ptr [EDX + 0x110]
+  IDirect3DDevice9::SetTextureStageState slot load @ 0x0073d31a (in FUN_0073d020): FMUL float ptr [EAX + 0x10c]
+  IDirect3DDevice9::GetSamplerState slot load @ 0x0073d5ba (in FUN_0073d020): FILD dword ptr [EDX + 0x110]
+  IDirect3DDevice9::SetTextureStageState slot load @ 0x0073d5c5 (in FUN_0073d020): FMUL float ptr [EAX + 0x10c]
+  IDirect3DDevice9::GetSamplerState slot load @ 0x0073d5d1 (in FUN_0073d020): FILD dword ptr [ECX + 0x110]
+  IDirect3DDevice9::SetTextureStageState slot load @ 0x0073d5dd (in FUN_0073d020): FMUL float ptr [EDX + 0x10c]
+  IDirect3DDevice9::GetSamplerState slot load @ 0x0073d750 (in FUN_0073d650): MOV dword ptr [EAX + 0x110],0x0
+  IDirect3DDevice9::GetSamplerState slot load @ 0x0073d788 (in FUN_0073d650): MOV dword ptr [ECX + 0x110],EAX
+  IDirect3DDevice9::GetSamplerState slot load @ 0x0073d81c (in FUN_0073d650): ADD EAX,dword ptr [EDX + 0x110]
+  IDirect3DDevice9::GetSamplerState slot load @ 0x0073d825 (in FUN_0073d650): MOV dword ptr [ECX + 0x110],EAX
+  IDirect3DDevice9::SetTexture slot load @ 0x0073ebd7 (in FUN_0073ea90): CMP dword ptr [EAX + 0x104],0x0
+  IDirect3DDevice9::SetTexture slot load @ 0x0073ebe6 (in FUN_0073ea90): MOV ECX,dword ptr [ECX + 0x104]
+  IDirect3DDevice9::SetTexture slot load @ 0x0073ebfc (in FUN_0073ea90): MOV ECX,dword ptr [EDX + 0x104]
+  IDirect3DDevice9::SetTexture slot load @ 0x0073ec1f (in FUN_0073ea90): MOV ECX,dword ptr [EAX + 0x104]
+  IDirect3DDevice9::SetTexture slot load @ 0x0073ec30 (in FUN_0073ea90): MOV dword ptr [ECX + 0x104],EAX
+  IDirect3DDevice9::SetTexture slot load @ 0x0073ed87 (in FUN_0073ea90): MOV dword ptr [EAX + 0x104],0x0
+  IDirect3DDevice9::SetTexture slot load @ 0x0074123b (in FUN_00741060): MOV dword ptr [ECX + 0x104],EAX
+  IDirect3DDevice9::GetTextureStageState slot load @ 0x0074124a (in FUN_00741060): MOV dword ptr [EDX + 0x108],EAX
+  IDirect3DDevice9::SetTextureStageState slot load @ 0x00741259 (in FUN_00741060): FSTP float ptr [ECX + 0x10c]
+  IDirect3DDevice9::GetSamplerState slot load @ 0x00747ef4 (in FUN_00747d30): FILD dword ptr [EDX + 0x110]
+  IDirect3DDevice9::SetTextureStageState slot load @ 0x00747eff (in FUN_00747d30): FMUL float ptr [EAX + 0x10c]
+  IDirect3DDevice9::GetSamplerState slot load @ 0x00747f0b (in FUN_00747d30): FILD dword ptr [ECX + 0x110]
+  IDirect3DDevice9::SetTextureStageState slot load @ 0x00747f17 (in FUN_00747d30): FMUL float ptr [EDX + 0x10c]
+  IDirect3DDevice9::GetSamplerState slot load @ 0x0074a112 (in FUN_0074a090): FILD dword ptr [EDX + 0x110]
+  IDirect3DDevice9::SetTextureStageState slot load @ 0x0074a11d (in FUN_0074a090): FMUL float ptr [EAX + 0x10c]
+  IDirect3DDevice9::GetSamplerState slot load @ 0x0074a129 (in FUN_0074a090): FILD dword ptr [ECX + 0x110]
+  IDirect3DDevice9::SetTextureStageState slot load @ 0x0074a135 (in FUN_0074a090): FMUL float ptr [EDX + 0x10c]
+  IDirect3DDevice9::GetSamplerState slot load @ 0x0074a16f (in FUN_0074a090): MOV ECX,dword ptr [EAX + 0x110]
+  IDirect3DDevice9::SetSamplerState slot load @ 0x0074abc3 (in FUN_0074a2c0): MOV ECX,dword ptr [EAX + 0x114]
+  IDirect3DDevice9::GetTextureStageState slot load @ 0x0074fe44 (in FUN_0074fdc0): CMP dword ptr [EAX + 0x108],0x1
+  IDirect3DDevice9::GetTextureStageState slot load @ 0x0074ff38 (in FUN_0074fdc0): CMP dword ptr [EDX + 0x108],0x3
+  IDirect3DDevice9::GetTextureStageState slot load @ 0x007508b3 (in FUN_0074fdc0): MOV ECX,dword ptr [EAX + 0x108]
+  IDirect3DDevice9::GetTextureStageState slot load @ 0x00750e9d (in FUN_0074fdc0): CMP dword ptr [EDX + 0x108],0x1
+  IDirect3DDevice9::GetTextureStageState slot load @ 0x0075107d (in FUN_0074fdc0): CMP dword ptr [EDX + 0x108],0x3
+  IDirect3DDevice9::GetTextureStageState slot load @ 0x007529b7 (in FUN_0074fdc0): CMP dword ptr [EDX + 0x108],0x1
+  IDirect3DDevice9::GetTextureStageState slot load @ 0x007529ed (in FUN_0074fdc0): CMP dword ptr [EAX + 0x108],0x3
+  IDirect3DDevice9::GetTextureStageState slot load @ 0x00752a24 (in FUN_0074fdc0): CMP dword ptr [EDX + 0x108],0x3
+  IDirect3DDevice9::GetTextureStageState slot load @ 0x0076185d (in FUN_007617a0): FSTP float ptr [EDX + 0x108]
+  IDirect3DDevice9::SetTexture slot load @ 0x0076188f (in FUN_007617a0): MOV byte ptr [ECX + 0x104],0x0
+  IDirect3DDevice9::SetTextureStageState slot load @ 0x007618c6 (in FUN_007617a0): MOV dword ptr [EDX + 0x10c],0x0
+  IDirect3DDevice9::SetTextureStageState slot load @ 0x00762517 (in FUN_007624f0): CMP dword ptr [EDX + 0x10c],0x0
+  IDirect3DDevice9::SetTextureStageState slot load @ 0x0076252d (in FUN_007624f0): SUB EAX,dword ptr [ECX + 0x10c]
+  IDirect3DDevice9::SetTextureStageState slot load @ 0x0076253d (in FUN_007624f0): MOV dword ptr [EDX + 0x10c],0x0
+  IDirect3DDevice9::SetTexture slot load @ 0x00762759 (in FUN_007624f0): MOV byte ptr [ECX + 0x104],0x0
+  IDirect3DDevice9::GetTextureStageState slot load @ 0x007629e9 (in FUN_00762950): FSTP float ptr [EAX + 0x108]
+  IDirect3DDevice9::GetTextureStageState slot load @ 0x00762a37 (in FUN_00762950): FSTP float ptr [EDX + 0x108]
+  IDirect3DDevice9::GetTextureStageState slot load @ 0x00762a79 (in FUN_00762950): FLD float ptr [EAX + 0x108]
+  IDirect3DDevice9::GetTextureStageState slot load @ 0x00762b5c (in FUN_00762950): FADD float ptr [EAX + 0x108]
+  IDirect3DDevice9::GetTextureStageState slot load @ 0x00762b65 (in FUN_00762950): FSTP float ptr [ECX + 0x108]
+  IDirect3DDevice9::GetTextureStageState slot load @ 0x00762b7e (in FUN_00762950): FLD float ptr [EDX + 0x108]
+  IDirect3DDevice9::GetTextureStageState slot load @ 0x00762bce (in FUN_00762950): FSTP float ptr [ECX + 0x108]
+  IDirect3DDevice9::GetTextureStageState slot load @ 0x00762c13 (in FUN_00762950): FSTP float ptr [EDX + 0x108]
+  IDirect3DDevice9::GetTextureStageState slot load @ 0x00762cb2 (in FUN_00762950): FSTP float ptr [EAX + 0x108]
+  IDirect3DDevice9::SetTextureStageState slot load @ 0x00762ccf (in FUN_00762950): MOV dword ptr [EDX + 0x10c],EAX
+  IDirect3DDevice9::GetTextureStageState slot load @ 0x00762d5b (in FUN_00762950): FSTP float ptr [EDX + 0x108]
+  IDirect3DDevice9::GetTextureStageState slot load @ 0x00762df2 (in FUN_00762950): FADD float ptr [EAX + 0x108]
+  IDirect3DDevice9::GetTextureStageState slot load @ 0x00762dfb (in FUN_00762950): FSTP float ptr [ECX + 0x108]
+  IDirect3DDevice9::GetTextureStageState slot load @ 0x00762e14 (in FUN_00762950): FLD float ptr [EDX + 0x108]
+  IDirect3DDevice9::SetTexture slot load @ 0x007630f3 (in FUN_00762ff0): MOV byte ptr [EDX + 0x104],0x1
+  IDirect3DDevice9::SetTexture slot load @ 0x00763355 (in FUN_00762ff0): MOVZX EAX,byte ptr [EDX + 0x104]
+  IDirect3DDevice9::SetTexture slot load @ 0x00763773 (in FUN_00762ff0): MOV byte ptr [EAX + 0x104],0x0
+  IDirect3DDevice9::GetTextureStageState slot load @ 0x00763821 (in FUN_00762ff0): FSTP float ptr [EDX + 0x108]
+  IDirect3DDevice9::SetTextureStageState slot load @ 0x00763fad (in FUN_007638b0): MOV dword ptr [EDX + 0x10c],EAX
+  IDirect3DDevice9::SetTextureStageState slot load @ 0x0076589c (in FUN_00765880): MOV dword ptr [ECX + EAX*0x4 + 0x10c],EDX
+  IDirect3DDevice9::SetTextureStageState slot load @ 0x0076619d (in FUN_00765b80): MOV EAX,dword ptr [EDX + 0x10c]
+  IDirect3DDevice9::SetTextureStageState slot load @ 0x00766226 (in FUN_00765b80): MOV EDX,dword ptr [ECX + 0x10c]
+  IDirect3DDevice9::SetTextureStageState slot load @ 0x007662ae (in FUN_00765b80): MOV ECX,dword ptr [EAX + 0x10c]
+  IDirect3DDevice9::SetTextureStageState slot load @ 0x0076633c (in FUN_00765b80): MOV ECX,dword ptr [EAX + 0x10c]
+  IDirect3DDevice9::SetTextureStageState slot load @ 0x007663ce (in FUN_00765b80): MOV EAX,dword ptr [EDX + 0x10c]
+  IDirect3DDevice9::SetTextureStageState slot load @ 0x00766466 (in FUN_00765b80): MOV EAX,dword ptr [EDX + 0x10c]
+  IDirect3DDevice9::SetTextureStageState slot load @ 0x007664fe (in FUN_00765b80): MOV EAX,dword ptr [EDX + 0x10c]
+  IDirect3DDevice9::SetTextureStageState slot load @ 0x00766596 (in FUN_00765b80): MOV EAX,dword ptr [EDX + 0x10c]
+  IDirect3DDevice9::SetTextureStageState slot load @ 0x0076662e (in FUN_00765b80): MOV EAX,dword ptr [EDX + 0x10c]
+  IDirect3DDevice9::SetTextureStageState slot load @ 0x007666c6 (in FUN_00765b80): MOV EAX,dword ptr [EDX + 0x10c]
+  IDirect3DDevice9::SetTextureStageState slot load @ 0x0076675e (in FUN_00765b80): MOV EAX,dword ptr [EDX + 0x10c]
+  IDirect3DDevice9::SetTextureStageState slot load @ 0x007667f6 (in FUN_00765b80): MOV EAX,dword ptr [EDX + 0x10c]
+  IDirect3DDevice9::SetTextureStageState slot load @ 0x0076688e (in FUN_00765b80): MOV EAX,dword ptr [EDX + 0x10c]
+  IDirect3DDevice9::SetTextureStageState slot load @ 0x00766926 (in FUN_00765b80): MOV EAX,dword ptr [EDX + 0x10c]
+  IDirect3DDevice9::SetTextureStageState slot load @ 0x00766a7f (in FUN_00766a50): CMP dword ptr [ECX + EAX*0x4 + 0x10c],0x0
+  IDirect3DDevice9::SetTextureStageState slot load @ 0x00766bea (in FUN_00766b80): MOV EDX,dword ptr [ECX + EAX*0x4 + 0x10c]
+  IDirect3DDevice9::SetSamplerState slot load @ 0x00766ca0 (in FUN_00766b80): CMP EAX,dword ptr [EDX + 0x114]
+  IDirect3DDevice9::SetSamplerState slot load @ 0x00767e81 (in FUN_00767c90): CMP EAX,dword ptr [ECX + 0x114]
+  IDirect3DDevice9::SetSamplerState slot load @ 0x00768041 (in FUN_00768020): MOV ECX,dword ptr [EAX + 0x114]
+  IDirect3DDevice9::SetSamplerState slot load @ 0x00768056 (in FUN_00768020): MOV ECX,dword ptr [ECX + 0x114]
+  IDirect3DDevice9::GetSamplerState slot load @ 0x00768bdc (in FUN_00768aa0): MOV EDX,dword ptr [ECX + 0x110]
+  IDirect3DDevice9::GetSamplerState slot load @ 0x00768c6d (in FUN_00768aa0): MOV ECX,dword ptr [EAX + 0x110]
+  IDirect3DDevice9::GetSamplerState slot load @ 0x00768d01 (in FUN_00768aa0): MOV EAX,dword ptr [EDX + 0x110]
+  IDirect3DDevice9::GetSamplerState slot load @ 0x00768dad (in FUN_00768aa0): MOV ECX,dword ptr [EAX + 0x110]
+  IDirect3DDevice9::GetSamplerState slot load @ 0x00768ddf (in FUN_00768aa0): MOV ECX,dword ptr [EAX + 0x110]
+  IDirect3DDevice9::GetSamplerState slot load @ 0x00768e4e (in FUN_00768aa0): MOV ECX,dword ptr [ECX + 0x110]
+  IDirect3DDevice9::SetSamplerState slot load @ 0x0076935a (in FUN_00768aa0): MOV EDX,dword ptr [ECX + 0x114]
+  IDirect3DDevice9::SetTextureStageState slot load @ 0x007694a1 (in FUN_00768aa0): MOV ECX,dword ptr [EAX + 0x10c]
+  IDirect3DDevice9::SetSamplerState slot load @ 0x0076a24c (in FUN_00769b50): MOV ECX,dword ptr [EDX + 0x114]
+  IDirect3DDevice9::SetSamplerState slot load @ 0x0076a263 (in FUN_00769b50): MOV ECX,dword ptr [ECX + 0x114]
+  IDirect3DDevice9::SetSamplerState slot load @ 0x0076a27a (in FUN_00769b50): MOV ECX,dword ptr [EAX + 0x114]
+  IDirect3DDevice9::SetSamplerState slot load @ 0x0076a2a1 (in FUN_00769b50): MOV ECX,dword ptr [EDX + 0x114]
+  IDirect3DDevice9::SetSamplerState slot load @ 0x0076a2b8 (in FUN_00769b50): MOV ECX,dword ptr [ECX + 0x114]
+  IDirect3DDevice9::SetSamplerState slot load @ 0x0076a2cf (in FUN_00769b50): MOV ECX,dword ptr [EAX + 0x114]
+  IDirect3DDevice9::SetSamplerState slot load @ 0x0076a2f9 (in FUN_00769b50): MOV ECX,dword ptr [EAX + 0x114]
+  IDirect3DDevice9::SetSamplerState slot load @ 0x0076a346 (in FUN_00769b50): MOV ECX,dword ptr [EAX + 0x114]
+  IDirect3DDevice9::SetSamplerState slot load @ 0x0076a375 (in FUN_00769b50): MOV ECX,dword ptr [EDX + 0x114]
+  IDirect3DDevice9::SetSamplerState slot load @ 0x0076a38a (in FUN_00769b50): MOV ECX,dword ptr [EAX + 0x114]
+  IDirect3DDevice9::GetSamplerState slot load @ 0x0076ad82 (in FUN_0076ad50): MOV ECX,dword ptr [EAX + 0x110]
+  IDirect3DDevice9::SetTextureStageState slot load @ 0x0076b46a (in FUN_0076b300): MOV ECX,dword ptr [EAX + 0x10c]
+  IDirect3DDevice9::SetSamplerState slot load @ 0x0076c18b (in FUN_0076bfe0): MOV dword ptr [ECX + 0x114],EAX
+  IDirect3DDevice9::SetSamplerState slot load @ 0x0076c1b7 (in FUN_0076bfe0): MOV ECX,dword ptr [ECX + 0x114]
+  IDirect3DDevice9::SetSamplerState slot load @ 0x0076c1ef (in FUN_0076bfe0): MOV ECX,dword ptr [EDX + 0x114]
+  IDirect3DDevice9::SetSamplerState slot load @ 0x0076c220 (in FUN_0076bfe0): MOV ECX,dword ptr [EDX + 0x114]
+  IDirect3DDevice9::SetSamplerState slot load @ 0x0076c251 (in FUN_0076bfe0): MOV ECX,dword ptr [EAX + 0x114]
+  IDirect3DDevice9::SetSamplerState slot load @ 0x0076c269 (in FUN_0076bfe0): MOV ECX,dword ptr [ECX + 0x114]
+  IDirect3DDevice9::SetSamplerState slot load @ 0x0076c281 (in FUN_0076bfe0): MOV EAX,dword ptr [EDX + 0x114]
+  IDirect3DDevice9::SetSamplerState slot load @ 0x0076c2d8 (in FUN_0076bfe0): MOV EAX,dword ptr [EDX + 0x114]
+  IDirect3DDevice9::SetSamplerState slot load @ 0x0076c349 (in FUN_0076bfe0): MOV EDX,dword ptr [ECX + 0x114]
+  IDirect3DDevice9::SetSamplerState slot load @ 0x0076c3ad (in FUN_0076bfe0): MOV ECX,dword ptr [EAX + 0x114]
+  IDirect3DDevice9::SetSamplerState slot load @ 0x0076c426 (in FUN_0076bfe0): MOV EAX,dword ptr [EDX + 0x114]
+  IDirect3DDevice9::SetSamplerState slot load @ 0x0076c4d2 (in FUN_0076bfe0): MOV ECX,dword ptr [EAX + 0x114]
+  IDirect3DDevice9::SetSamplerState slot load @ 0x0076c5bc (in FUN_0076bfe0): MOV ECX,dword ptr [EAX + 0x114]
+  IDirect3DDevice9::SetSamplerState slot load @ 0x0076c659 (in FUN_0076bfe0): MOV ECX,dword ptr [EDX + 0x114]
+  IDirect3DDevice9::SetSamplerState slot load @ 0x0076c6fe (in FUN_0076bfe0): MOV ECX,dword ptr [ECX + 0x114]
+  IDirect3DDevice9::SetSamplerState slot load @ 0x0076e104 (in FUN_0076bfe0): MOV ECX,dword ptr [EAX + 0x114]
+  IDirect3DDevice9::SetTexture slot load @ 0x0076ea6f (in FUN_0076bfe0): MOV dword ptr [EDX + 0x104],EAX
+  IDirect3DDevice9::SetTexture slot load @ 0x0076ea8b (in FUN_0076bfe0): MOV ECX,dword ptr [EAX + 0x104]
+  IDirect3DDevice9::SetTexture slot load @ 0x0076eac5 (in FUN_0076bfe0): MOV ECX,dword ptr [ECX + 0x104]
+  IDirect3DDevice9::SetTexture slot load @ 0x0076eaff (in FUN_0076bfe0): MOV ECX,dword ptr [EDX + 0x104]
+  IDirect3DDevice9::SetTexture slot load @ 0x0076eb50 (in FUN_0076bfe0): MOV ECX,dword ptr [ECX + 0x104]
+  IDirect3DDevice9::SetTexture slot load @ 0x0076eb81 (in FUN_0076bfe0): MOV ECX,dword ptr [EAX + 0x104]
+  IDirect3DDevice9::GetTextureStageState slot load @ 0x0076ebac (in FUN_0076bfe0): MOV dword ptr [ECX + 0x108],EAX
+  IDirect3DDevice9::GetTextureStageState slot load @ 0x0076ebc9 (in FUN_0076bfe0): MOV ECX,dword ptr [EDX + 0x108]
+  IDirect3DDevice9::GetTextureStageState slot load @ 0x0076ec02 (in FUN_0076bfe0): MOV ECX,dword ptr [EAX + 0x108]
+  IDirect3DDevice9::GetTextureStageState slot load @ 0x0076ec3c (in FUN_0076bfe0): MOV ECX,dword ptr [ECX + 0x108]
+  IDirect3DDevice9::GetTextureStageState slot load @ 0x0076ec8d (in FUN_0076bfe0): MOV ECX,dword ptr [EAX + 0x108]
+  IDirect3DDevice9::GetTextureStageState slot load @ 0x0076ecdf (in FUN_0076bfe0): MOV ECX,dword ptr [EDX + 0x108]
+  IDirect3DDevice9::SetTextureStageState slot load @ 0x0076ed09 (in FUN_0076bfe0): MOV dword ptr [EDX + 0x10c],EAX
+  IDirect3DDevice9::SetTextureStageState slot load @ 0x0076ed25 (in FUN_0076bfe0): MOV ECX,dword ptr [EAX + 0x10c]
+  IDirect3DDevice9::SetTextureStageState slot load @ 0x0076ed5f (in FUN_0076bfe0): MOV ECX,dword ptr [ECX + 0x10c]
+  IDirect3DDevice9::SetTextureStageState slot load @ 0x0076ed99 (in FUN_0076bfe0): MOV ECX,dword ptr [EDX + 0x10c]
+  IDirect3DDevice9::SetTextureStageState slot load @ 0x0076edea (in FUN_0076bfe0): MOV ECX,dword ptr [ECX + 0x10c]
+  IDirect3DDevice9::SetTextureStageState slot load @ 0x0076ee3b (in FUN_0076bfe0): MOV ECX,dword ptr [EAX + 0x10c]
+  IDirect3DDevice9::GetSamplerState slot load @ 0x0076ee66 (in FUN_0076bfe0): MOV dword ptr [ECX + 0x110],EAX
+  IDirect3DDevice9::GetSamplerState slot load @ 0x0076ee83 (in FUN_0076bfe0): MOV ECX,dword ptr [EDX + 0x110]
+  IDirect3DDevice9::GetSamplerState slot load @ 0x0076eebc (in FUN_0076bfe0): MOV ECX,dword ptr [EAX + 0x110]
+  IDirect3DDevice9::GetSamplerState slot load @ 0x0076eef6 (in FUN_0076bfe0): MOV ECX,dword ptr [ECX + 0x110]
+  IDirect3DDevice9::GetSamplerState slot load @ 0x0076ef47 (in FUN_0076bfe0): MOV ECX,dword ptr [EAX + 0x110]
+  IDirect3DDevice9::GetSamplerState slot load @ 0x0076ef99 (in FUN_0076bfe0): MOV ECX,dword ptr [EDX + 0x110]
+  IDirect3DDevice9::SetSamplerState slot load @ 0x0076f03d (in FUN_0076bfe0): MOV ECX,dword ptr [EDX + 0x114]
+  IDirect3DDevice9::SetSamplerState slot load @ 0x0076f28a (in FUN_0076bfe0): MOV ECX,dword ptr [EDX + 0x114]
+  IDirect3DDevice9::SetSamplerState slot load @ 0x0076f472 (in FUN_0076bfe0): MOV ECX,dword ptr [EDX + 0x114]
+  IDirect3DDevice9::SetSamplerState slot load @ 0x0076f4d4 (in FUN_0076bfe0): MOV ECX,dword ptr [EDX + 0x114]
+  IDirect3DDevice9::SetSamplerState slot load @ 0x007706b9 (in FUN_00770430): MOV ECX,dword ptr [EDX + 0x114]
+  IDirect3DDevice9::SetSamplerState slot load @ 0x007706e4 (in FUN_00770430): MOV ECX,dword ptr [EAX + 0x114]
+  IDirect3DDevice9::SetSamplerState slot load @ 0x0077070b (in FUN_00770430): MOV ECX,dword ptr [EAX + 0x114]
+  IDirect3DDevice9::SetSamplerState slot load @ 0x00770731 (in FUN_00770430): MOV ECX,dword ptr [ECX + 0x114]
+  IDirect3DDevice9::SetSamplerState slot load @ 0x00770756 (in FUN_00770430): MOV ECX,dword ptr [EAX + 0x114]
+  IDirect3DDevice9::SetTexture slot load @ 0x00771241 (in FUN_00770430): SUB ESI,dword ptr [EAX + 0x104]
+  IDirect3DDevice9::GetTextureStageState slot load @ 0x00771277 (in FUN_00770430): FLD float ptr [EDX + 0x108]
+  IDirect3DDevice9::SetSamplerState slot load @ 0x00771d42 (in FUN_00771700): MOV ECX,dword ptr [EAX + 0x114]
+  IDirect3DDevice9::GetTextureStageState slot load @ 0x00772914 (in FUN_007728f0): MOVZX ECX,byte ptr [EAX + 0x108]
+  IDirect3DDevice9::GetTextureStageState slot load @ 0x00772933 (in FUN_007728f0): MOVZX EDX,byte ptr [ECX + 0x108]
+  IDirect3DDevice9::GetTextureStageState slot load @ 0x00775108 (in FUN_00774fd0): FSTP float ptr [EAX + 0x108]
+  IDirect3DDevice9::GetTextureStageState slot load @ 0x00775111 (in FUN_00774fd0): FLD float ptr [ECX + 0x108]
+  IDirect3DDevice9::GetTextureStageState slot load @ 0x00775152 (in FUN_00774fd0): FSTP float ptr [EAX + 0x108]
+  IDirect3DDevice9::SetTexture slot load @ 0x007751bc (in FUN_00774fd0): MOV dword ptr [ECX + 0x104],EAX
+  IDirect3DDevice9::SetTexture slot load @ 0x0077a615 (in FUN_0077a5b0): MOV byte ptr [EAX + 0x104],CL
+  IDirect3DDevice9::SetTexture slot load @ 0x0077b648 (in FUN_0077b430): MOVZX ECX,byte ptr [EAX + 0x104]
+  IDirect3DDevice9::SetTextureStageState slot load @ 0x00788631 (in FUN_00788440): MOV dword ptr [EAX + EDX*0x4 + 0x10c],0x2b
+  IDirect3DDevice9::GetTextureStageState slot load @ 0x00796972 (in FUN_00796740): MOV dword ptr [ECX + 0x108],0x0
+  IDirect3DDevice9::SetSamplerState slot load @ 0x007969fc (in FUN_00796740): MOV dword ptr [EDX + 0x114],0x0
+  IDirect3DDevice9::SetTextureStageState slot load @ 0x00796a13 (in FUN_00796740): MOV dword ptr [ECX + 0x10c],0x0
+  IDirect3DDevice9::GetSamplerState slot load @ 0x00796a20 (in FUN_00796740): MOV byte ptr [EDX + 0x110],0x0
+  IDirect3DDevice9::GetTextureStageState slot load @ 0x00797abf (in FUN_00796fd0): MOV ECX,dword ptr [EAX + 0x108]
+  IDirect3DDevice9::SetTextureStageState slot load @ 0x00798628 (in FUN_007984d0): CMP dword ptr [EDX + 0x10c],0x0
+  IDirect3DDevice9::SetTextureStageState slot load @ 0x00798642 (in FUN_007984d0): MOV ECX,dword ptr [EAX + 0x10c]
+  IDirect3DDevice9::SetTextureStageState slot load @ 0x00798696 (in FUN_007984d0): MOV ECX,dword ptr [ECX + 0x10c]
+  IDirect3DDevice9::SetTextureStageState slot load @ 0x0079cdcf (in FUN_0079cdb0): CMP dword ptr [EAX + 0x10c],0x0
+  IDirect3DDevice9::SetTextureStageState slot load @ 0x0079cdde (in FUN_0079cdb0): MOV ECX,dword ptr [ECX + 0x10c]
+  IDirect3DDevice9::SetTextureStageState slot load @ 0x0079ce0a (in FUN_0079cdb0): CMP dword ptr [EAX + 0x10c],0x0
+  IDirect3DDevice9::SetTextureStageState slot load @ 0x0079ce51 (in FUN_0079cdb0): MOV dword ptr [ECX + 0x10c],EAX
+  IDirect3DDevice9::SetTextureStageState slot load @ 0x0079ce5d (in FUN_0079cdb0): CMP dword ptr [EDX + 0x10c],0x0
+  IDirect3DDevice9::SetTextureStageState slot load @ 0x0079ce6c (in FUN_0079cdb0): MOV ECX,dword ptr [EAX + 0x10c]
+  IDirect3DDevice9::GetSamplerState slot load @ 0x0079ce98 (in FUN_0079cdb0): MOV byte ptr [EDX + 0x110],0x1
+  IDirect3DDevice9::SetTextureStageState slot load @ 0x0079cea5 (in FUN_0079cdb0): CMP dword ptr [EAX + 0x10c],0x0
+  IDirect3DDevice9::SetTextureStageState slot load @ 0x0079cedf (in FUN_0079cdb0): MOV dword ptr [ECX + 0x10c],EDX
+  IDirect3DDevice9::SetTextureStageState slot load @ 0x0079ceeb (in FUN_0079cdb0): CMP dword ptr [EAX + 0x10c],0x0
+  IDirect3DDevice9::SetTextureStageState slot load @ 0x0079cefa (in FUN_0079cdb0): MOV ECX,dword ptr [ECX + 0x10c]
+  IDirect3DDevice9::GetSamplerState slot load @ 0x0079cf26 (in FUN_0079cdb0): MOV byte ptr [EAX + 0x110],0x1
+  IDirect3DDevice9::SetTextureStageState slot load @ 0x0079cf39 (in FUN_0079cdb0): MOV EAX,dword ptr [EDX + 0x10c]
+  IDirect3DDevice9::GetTextureStageState slot load @ 0x0079cf3f (in FUN_0079cdb0): MOV dword ptr [ECX + 0x108],EAX
+  IDirect3DDevice9::SetTextureStageState slot load @ 0x0079cf5b (in FUN_0079cdb0): CMP dword ptr [EDX + 0x10c],0x0
+  IDirect3DDevice9::GetSamplerState slot load @ 0x0079cf83 (in FUN_0079cdb0): MOVZX EDX,byte ptr [ECX + 0x110]
+  IDirect3DDevice9::SetTextureStageState slot load @ 0x0079cf96 (in FUN_0079cdb0): MOV ECX,dword ptr [EAX + 0x10c]
+  IDirect3DDevice9::GetSamplerState slot load @ 0x0079cff5 (in FUN_0079cdb0): MOV byte ptr [EDX + 0x110],0x0
+  IDirect3DDevice9::SetTextureStageState slot load @ 0x0079d0e7 (in FUN_0079cdb0): MOV ECX,dword ptr [EAX + 0x10c]
+  IDirect3DDevice9::SetTextureStageState slot load @ 0x0079d1b8 (in FUN_0079cdb0): CMP ECX,dword ptr [EAX + 0x10c]
+  IDirect3DDevice9::GetTextureStageState slot load @ 0x0079d7f8 (in FUN_0079d410): MOV dword ptr [ECX + 0x108],EDX
+  IDirect3DDevice9::SetSamplerState slot load @ 0x0079dc72 (in FUN_0079dbb0): MOV dword ptr [EDX + 0x114],ECX
+  IDirect3DDevice9::SetSamplerState slot load @ 0x0079dc7e (in FUN_0079dbb0): CMP dword ptr [EDX + 0x114],0x0
+  IDirect3DDevice9::SetSamplerState slot load @ 0x0079dd6a (in FUN_0079dbb0): MOV dword ptr [ECX + 0x114],EAX
+  IDirect3DDevice9::SetSamplerState slot load @ 0x0079dd76 (in FUN_0079dbb0): CMP dword ptr [EDX + 0x114],0x0
+  IDirect3DDevice9::SetSamplerState slot load @ 0x0079dd8b (in FUN_0079dbb0): MOV dword ptr [EAX + 0x114],ECX
+  IDirect3DDevice9::SetSamplerState slot load @ 0x0079ddad (in FUN_0079dbb0): MOV dword ptr [EDX + 0x114],EAX
+  IDirect3DDevice9::SetSamplerState slot load @ 0x0079ddb9 (in FUN_0079dbb0): CMP dword ptr [ECX + 0x114],0x0
+  IDirect3DDevice9::SetSamplerState slot load @ 0x0079ddcc (in FUN_0079dbb0): MOV EAX,dword ptr [EDX + 0x114]
+  IDirect3DDevice9::SetSamplerState slot load @ 0x0079ddd8 (in FUN_0079dbb0): MOV ECX,dword ptr [ECX + 0x114]
+  IDirect3DDevice9::SetSamplerState slot load @ 0x0079de29 (in FUN_0079dbb0): MOV ECX,dword ptr [EDX + 0x114]
+  IDirect3DDevice9::SetTextureStageState slot load @ 0x007a1892 (in FUN_007a1880): MOV ECX,dword ptr [EAX + 0x10c]
+  IDirect3DDevice9::SetTextureStageState slot load @ 0x007a18a4 (in FUN_007a1880): MOV dword ptr [EDX + 0x10c],EAX
+  IDirect3DDevice9::SetTextureStageState slot load @ 0x007a18b0 (in FUN_007a1880): CMP dword ptr [ECX + 0x10c],0x0
+  IDirect3DDevice9::SetTextureStageState slot load @ 0x007a18bf (in FUN_007a1880): MOV ECX,dword ptr [EDX + 0x10c]
+  IDirect3DDevice9::SetTextureStageState slot load @ 0x007a18d3 (in FUN_007a1880): MOV ECX,dword ptr [EAX + 0x10c]
+  IDirect3DDevice9::SetTextureStageState slot load @ 0x007a18e4 (in FUN_007a1880): MOV dword ptr [ECX + 0x10c],EAX
+  IDirect3DDevice9::SetTextureStageState slot load @ 0x007a18f7 (in FUN_007a1880): CMP EAX,dword ptr [EDX + 0x10c]
+  IDirect3DDevice9::GetSamplerState slot load @ 0x007a1906 (in FUN_007a1880): MOV byte ptr [EDX + 0x110],CL
+  IDirect3DDevice9::SetTexture slot load @ 0x007c0959 (in FUN_007c0870): MOV dword ptr [ECX + 0x104],0x0
+  IDirect3DDevice9::SetTexture slot load @ 0x007c160b (in FUN_007c1490): MOV dword ptr [ECX + 0x104],EAX
+  IDirect3DDevice9::SetTextureStageState slot load @ 0x007c1657 (in FUN_007c1490): MOV dword ptr [ECX + 0x10c],EAX
+  IDirect3DDevice9::GetSamplerState slot load @ 0x007c167d (in FUN_007c1490): MOV dword ptr [EDX + 0x110],EAX
+  IDirect3DDevice9::SetTexture slot load @ 0x007c1b9c (in FUN_007c1af0): MOV EAX,dword ptr [EDX + 0x104]
+  IDirect3DDevice9::SetTextureStageState slot load @ 0x007c1c06 (in FUN_007c1af0): MOV EDX,dword ptr [ECX + 0x10c]
+  IDirect3DDevice9::GetSamplerState slot load @ 0x007c1c3b (in FUN_007c1af0): MOV EDX,dword ptr [ECX + 0x110]
+  IDirect3DDevice9::SetTexture slot load @ 0x007c1d17 (in FUN_007c1af0): MOV ECX,dword ptr [ECX + 0x104]
+  IDirect3DDevice9::SetTexture slot load @ 0x007c1f16 (in FUN_007c1af0): MOV EAX,dword ptr [EDX + 0x104]
+  IDirect3DDevice9::SetTextureStageState slot load @ 0x007daa71 (in FUN_007da2c0): MOV ECX,dword ptr [EAX + 0x10c]
+  IDirect3DDevice9::SetTexture slot load @ 0x007db009 (in FUN_007da2c0): MOV ECX,dword ptr [ECX + 0x104]
+  IDirect3DDevice9::SetTexture slot load @ 0x007dba2c (in FUN_007db680): MOV ECX,dword ptr [ECX + 0x104]
+  IDirect3DDevice9::SetTexture slot load @ 0x007dcda6 (in FUN_007dcc80): MOV ECX,dword ptr [EAX + 0x104]
+  IDirect3DDevice9::GetSamplerState slot load @ 0x007de607 (in FUN_007ddf00): MOV ECX,dword ptr [EAX + 0x110]
+  IDirect3DDevice9::GetSamplerState slot load @ 0x007de683 (in FUN_007ddf00): MOV ECX,dword ptr [EAX + 0x110]
+  IDirect3DDevice9::GetSamplerState slot load @ 0x007de764 (in FUN_007ddf00): MOV ECX,dword ptr [ECX + 0x110]
+  IDirect3DDevice9::GetSamplerState slot load @ 0x007de77e (in FUN_007ddf00): MOV ECX,dword ptr [EDX + 0x110]
+  IDirect3DDevice9::SetTexture slot load @ 0x007df84b (in FUN_007df620): MOV ECX,dword ptr [EDX + 0x104]
+  IDirect3DDevice9::SetTextureStageState slot load @ 0x007eb42b (in FUN_007e9200): MOV byte ptr [ECX + 0x10c],0x0
+  IDirect3DDevice9::GetSamplerState slot load @ 0x007eb477 (in FUN_007e9200): MOV byte ptr [ECX + 0x110],0x0
+  IDirect3DDevice9::GetSamplerState slot load @ 0x007ecab8 (in FUN_007ec810): MOVZX ECX,byte ptr [EAX + 0x110]
+  IDirect3DDevice9::GetSamplerState slot load @ 0x007ecadf (in FUN_007ec810): MOV byte ptr [EAX + 0x110],0x1
+  IDirect3DDevice9::GetSamplerState slot load @ 0x007ecb6c (in FUN_007ec810): MOV byte ptr [EAX + 0x110],0x0
+  IDirect3DDevice9::GetSamplerState slot load @ 0x007ecb95 (in FUN_007ec810): MOVZX EDX,byte ptr [ECX + 0x110]
+  IDirect3DDevice9::SetTexture slot load @ 0x007ee4ae (in FUN_007ec810): MOVZX ECX,byte ptr [EAX + 0x104]
+  IDirect3DDevice9::GetSamplerState slot load @ 0x007eed65 (in FUN_007eecb0): MOVZX EDX,byte ptr [ECX + 0x110]
+  IDirect3DDevice9::GetSamplerState slot load @ 0x007eed89 (in FUN_007eecb0): MOV byte ptr [ECX + 0x110],0x0
+  IDirect3DDevice9::GetSamplerState slot load @ 0x007eed98 (in FUN_007eecb0): MOV byte ptr [EDX + 0x110],0x0
+  IDirect3DDevice9::GetSamplerState slot load @ 0x007ef8fd (in FUN_007ef8b0): MOVZX ECX,byte ptr [EAX + 0x110]
+  IDirect3DDevice9::GetSamplerState slot load @ 0x007ef91e (in FUN_007ef8b0): MOV byte ptr [EAX + 0x110],0x1
+  IDirect3DDevice9::SetTexture slot load @ 0x007f118f (in FUN_007f0ea0): MOVZX ECX,byte ptr [EAX + 0x104]
+  IDirect3DDevice9::SetTexture slot load @ 0x007f17e5 (in FUN_007f1290): MOV byte ptr [EDX + 0x104],AL
+  IDirect3DDevice9::SetTextureStageState slot load @ 0x007f3262 (in FUN_007f3070): MOV byte ptr [EDX + 0x10c],0x1
+  IDirect3DDevice9::SetTextureStageState slot load @ 0x007f3300 (in FUN_007f3070): MOVZX EDX,byte ptr [ECX + 0x10c]
+  IDirect3DDevice9::SetTextureStageState slot load @ 0x007f358b (in FUN_007f3070): MOV byte ptr [EDX + 0x10c],0x0
+  IDirect3DDevice9::SetTextureStageState slot load @ 0x007f37a1 (in FUN_007f3070): MOV byte ptr [EAX + 0x10c],0x0
+  IDirect3DDevice9::GetSamplerState slot load @ 0x007f4c15 (in FUN_007f4c00): MOVZX ECX,byte ptr [EAX + 0x110]
+  IDirect3DDevice9::SetTextureStageState slot load @ 0x007f7c00 (in FUN_007f7a70): FSTP float ptr [EAX + EDX*0x4 + 0x10c]
+  IDirect3DDevice9::SetTextureStageState slot load @ 0x007f7e95 (in FUN_007f7e00): FSTP float ptr [EDX + ECX*0x4 + 0x10c]
+  IDirect3DDevice9::SetTextureStageState slot load @ 0x007f8371 (in FUN_007f8320): FLD float ptr [ECX + EAX*0x4 + 0x10c]
+  IDirect3DDevice9::SetTextureStageState slot load @ 0x007f8397 (in FUN_007f8320): FADD float ptr [EDX + ECX*0x4 + 0x10c]
+  IDirect3DDevice9::SetTextureStageState slot load @ 0x007f83a4 (in FUN_007f8320): FSTP float ptr [ECX + EAX*0x4 + 0x10c]
+  IDirect3DDevice9::SetTextureStageState slot load @ 0x007f83b1 (in FUN_007f8320): FLD float ptr [EAX + EDX*0x4 + 0x10c]
+  IDirect3DDevice9::GetSamplerState slot load @ 0x007f8530 (in FUN_007f8320): FLD float ptr [EDX + 0x110]
+  IDirect3DDevice9::GetSamplerState slot load @ 0x007f9e5f (in FUN_007f99d0): FSTP float ptr [EDX + 0x110]
+  IDirect3DDevice9::GetSamplerState slot load @ 0x007f9f86 (in FUN_007f99d0): FLD float ptr [EDX + 0x110]
+  IDirect3DDevice9::SetTexture slot load @ 0x0084620b (in FUN_008461e0): MOV dword ptr [EAX + 0x104],0x0
+  IDirect3DDevice9::SetTexture slot load @ 0x008462a0 (in FUN_008461e0): MOV dword ptr [EAX + 0x104],ECX
+  IDirect3DDevice9::SetTexture slot load @ 0x008462cc (in FUN_008462c0): MOV ECX,dword ptr [EAX + 0x104]
+  IDirect3DDevice9::SetTexture slot load @ 0x00846312 (in ShowToolBar): MOV ECX,dword ptr [EDX + 0x104]
+  IDirect3DDevice9::SetTexture slot load @ 0x008463a5 (in FUN_00846330): MOV ECX,dword ptr [ECX + 0x104]
+  IDirect3DDevice9::SetTexture slot load @ 0x008463e4 (in FUN_008463c0): MOV EDX,dword ptr [ECX + 0x104]
+  IDirect3DDevice9::SetTexture slot load @ 0x008463ed (in FUN_008463c0): MOV ECX,dword ptr [EAX + 0x104]
+  IDirect3DDevice9::SetTexture slot load @ 0x00846427 (in FUN_00846400): MOV ECX,dword ptr [EDX + 0x104]
+  IDirect3DDevice9::SetTexture slot load @ 0x00846474 (in FUN_00846440): MOV EAX,dword ptr [EDX + 0x104]
+  IDirect3DDevice9::SetTexture slot load @ 0x0084647d (in FUN_00846440): MOV ECX,dword ptr [ECX + 0x104]
+  IDirect3DDevice9::SetTexture slot load @ 0x008464ce (in FUN_00846490): MOV ECX,dword ptr [EAX + 0x104]
+  IDirect3DDevice9::SetTexture slot load @ 0x008464d7 (in FUN_00846490): MOV EAX,dword ptr [EDX + 0x104]
+  IDirect3DDevice9::SetTexture slot load @ 0x008545bf (in FUN_00853e10): MOV EAX,dword ptr [EDX + 0x104]
+  IDirect3DDevice9::SetTexture slot load @ 0x0085481a (in FUN_00854810): MOV EAX,dword ptr [EAX + 0x104]
+  IDirect3DDevice9::SetTexture slot load @ 0x00854c4a (in FUN_00854c10): MOV dword ptr [EAX + 0x104],ECX
+  IDirect3DDevice9::GetSamplerState slot load @ 0x00866edb (in FUN_00866e00): MOV dword ptr [EDX + 0x110],EAX
+  IDirect3DDevice9::GetSamplerState slot load @ 0x0087dab5 (in FUN_0087d890): MOV dword ptr [EDX + 0x110],0xff
+  IDirect3DDevice9::GetSamplerState slot load @ 0x008938d9 (in FUN_008935f0): MOV dword ptr [ECX + 0x110],EDX
+  IDirect3DDevice9::GetSamplerState slot load @ 0x00893939 (in FUN_008935f0): MOV dword ptr [EDX + 0x110],EAX
+  IDirect3DDevice9::GetSamplerState slot load @ 0x008a0847 (in FUN_008a06c0): MOV dword ptr [ECX + 0x110],0xff
+  IDirect3DDevice9::GetSamplerState slot load @ 0x008ac340 (in FUN_008ac1e0): MOV dword ptr [EDX + 0x110],0xff
+  IDirect3DDevice9::GetSamplerState slot load @ 0x008ba79c (in FUN_008ba600): CMP dword ptr [EDX + 0x110],0xff
+  IDirect3DDevice9::GetSamplerState slot load @ 0x008ba7b2 (in FUN_008ba600): MOV ECX,dword ptr [EAX + 0x110]
+  IDirect3DDevice9::GetSamplerState slot load @ 0x008ba834 (in FUN_008ba600): MOV dword ptr [ECX + 0x110],0xff
+  IDirect3DDevice9::GetSamplerState slot load @ 0x00903b09 (in FUN_00903a80): MOV byte ptr [ECX + 0x110],0x1
+  IDirect3DDevice9::GetSamplerState slot load @ 0x0091454e (in FUN_00913fe0): MOV byte ptr [EDX + 0x110],0x0
+  IDirect3DDevice9::GetSamplerState slot load @ 0x009283aa (in FUN_009280f0): MOV byte ptr [EAX + 0x110],0x0
+  IDirect3DDevice9::GetSamplerState slot load @ 0x009299e1 (in FUN_00929960): MOVZX EDX,byte ptr [ECX + 0x110]
+  IDirect3DDevice9::GetSamplerState slot load @ 0x00929a84 (in FUN_00929960): MOV byte ptr [EDX + 0x110],0x0
+  IDirect3DDevice9::GetSamplerState slot load @ 0x0098004f (in FUN_0097ff60): FSTP float ptr [EDX + ECX*0x4 + 0x110]
+  IDirect3DDevice9::GetSamplerState slot load @ 0x009bbda4 (in FUN_009bbc70): FSTP float ptr [ECX + 0x110]
+  IDirect3DDevice9::GetSamplerState slot load @ 0x009bc396 (in FUN_009bbef0): FSTP float ptr [ECX + 0x110]
+  IDirect3DDevice9::GetSamplerState slot load @ 0x009c4e99 (in FUN_009c4e60): FADD float ptr [EAX + 0x110]
+  IDirect3DDevice9::GetSamplerState slot load @ 0x009c4ea2 (in FUN_009c4e60): FSTP float ptr [ECX + 0x110]
+  IDirect3DDevice9::GetSamplerState slot load @ 0x009c59a3 (in FUN_009c58e0): FSTP float ptr [EDX + 0x110]
+  IDirect3DDevice9::GetSamplerState slot load @ 0x009cef9d (in FUN_009cef90): FLD float ptr [ECX + EAX*0x4 + 0x110]
+  IDirect3DDevice9::GetSamplerState slot load @ 0x00a57515 (in FUN_00a57500): MOV ESI,dword ptr [ESP + 0x110]
+
+  Total shown for IDirect3DDevice9::GetTexture: 120
+  Total shown for IDirect3DDevice9::SetTexture: 120
+  Total shown for IDirect3DDevice9::GetTextureStageState: 120
+  Total shown for IDirect3DDevice9::SetTextureStageState: 120
+  Total shown for IDirect3DDevice9::GetSamplerState: 120
+  Total shown for IDirect3DDevice9::SetSamplerState: 120

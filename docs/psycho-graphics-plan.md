@@ -661,6 +661,441 @@ Compatibility hazards in TESReloaded that Psycho should not copy by default:
 - broad global SafeWrite patches for unrelated graphics behavior;
 - assuming exclusive ownership of native shader objects.
 
+Ghidra-backed NewVegasReloaded contract findings:
+
+- NewVegasReloaded source does not contain a true roughness/metalness/BRDF PBR
+  implementation. Its useful material prior art is native shader replacement,
+  screen-space specular, wet/snow accumulation, water Fresnel/refraction, and
+  TESR-style camera/environment constants.
+- `graphics_fnv_nvr_shader_replacement_contract_audit.txt` proves NVR's shader
+  object layout patches target vanilla allocation sizes:
+  - `BSShader::CreateVertexShader @ 0x00BE0FE0` allocates `0x3C` bytes at the
+    `0x00BE1690` immediate;
+  - `BSShader::CreatePixelShader @ 0x00BE1750` allocates `0x30` bytes at the
+    `0x00BE1DFB` immediate.
+- Psycho must not copy those allocation-size patches for the compatibility
+  target. Store replacement metadata in side tables keyed by native shader
+  object pointer.
+- `BSShader::SetShaders @ 0x00BE1F90` is a valid draw-time bind point. Its
+  disassembly reads `NiD3DPass @ 0x0126F74C`, then uses pass `+0x5C` as the
+  vertex shader and pass `+0x44` as the pixel shader.
+- `0x0126F74C` is current-pass scratch state with many writers. It is usable
+  only during the draw hook and must not be cached outside that call.
+- `0x011F91E0` is not always a stable `NiGeometry*`. One audited path,
+  `FUN_00B651E0`, writes it to a stack object (`&uStack_34`). Any material
+  context read from this global must be optional and validated by pointer range,
+  vtable, and expected fields before use.
+- `graphics_fnv_native_material_draw_contract_followup_audit.txt` sharpens this:
+  `FUN_00B63320` stores a real caller-provided material/geometry context and
+  reads count-like byte `+0x09`, pointer slot `+0x0C`, and vtable method
+  `+0xDC`, but `FUN_00B651E0` stores a stack proxy and uses shader mode ids
+  `0x25A/0x259/0x25B`. Native material replacement must skip or separately
+  classify these proxy modes.
+- `SetShaderPackage @ 0x00B4F710` writes shader package globals
+  `0x011F91BC/0x011F91C0`, and many shader setup paths read them. NVR forcing
+  package `7` is a global behavior change; Psycho should not do this in default
+  mode.
+- `NiDX9RenderState::SetSamplerState @ 0x00E910A0` uses TypeMap
+  `0x0126F92C` and tracks only mapped states with index `< 5`. Extra PBR
+  samplers/textures need explicit capture/restore when they are outside the
+  engine backup table.
+- `graphics_fnv_native_texture_binding_contract_audit.txt` proves sampler writes
+  reach the D3D device through render-state object `+0x10F8` and D3D vtable
+  slot `+0x114`.
+- `graphics_fnv_native_texture_stage_state_followup_audit.txt` proves
+  texture-stage state uses separate TypeMap `0x0126F958` with mapped indices
+  `< 8`. `FUN_00E88930` calls the D3D device through render-state object
+  `+0x10F8` and vtable slot `+0x10C`, then caches values under render-state
+  `+0xA20`; the inline getter at `0x00E88980` reads that cache. `FUN_00E88FC0`
+  and `FUN_00E89060` manage the engine backup/current stage-state slots at
+  `+0x0C/+0x3C` with flags at `+0x2C/+0x5C`.
+- The broad device-method scans in the texture scripts are not strong proof by
+  themselves because many ordinary engine structs also have fields at
+  `+0x104/+0x10C/+0x114`. Use the decompiled render-state functions as the
+  contract.
+- `graphics_fnv_nvr_environment_color_contract_audit.txt` proves the weather
+  controller is the `0x138` object at `0x011CCB78`, `GetCurrentWeather`
+  returns `controller +0x10`, `CurrentWeatherPercent` reads `controller
+  +0xF4`, and `Sky::singleton @ 0x011DEA20` remains the render-owned sky
+  object source.
+- The same audit proves vanilla weather color/range blending is not the simple
+  NVR source recipe of `Sky::firstWeather`, `secondWeather`, `weatherPercent`,
+  and `TESWeather::colors[10] @ +0x108`. `FUN_00532220` blends generated
+  weather records through object slots like `+0x114 + index*0x30`,
+  `+0x504`, `+0x534`, `+0x60C`, optional fallback flags at `+0xE8/+0x100`,
+  and downstream setters `0x00B8AF10/0x00B8AFB0/0x00B8B000/0x00B8B0D0`.
+  Psycho should not reproduce NVR's raw weather color walk for compatibility.
+- `graphics_fnv_native_render_state_fog_color_contract_audit.txt` proves
+  renderer-owned final fog color. `NiDX9RenderState::SetFog @ 0x00E87C50`
+  writes the final fog color into `NiDX9RenderState +0x8C/+0x90/+0x94`, packs
+  it into `+0x98`, and sends it through `SetRenderState(0x22,
+  D3DRS_FOGCOLOR)`. `GetRenderState @ 0x00E88860` reads the packed cache at
+  `+0x120 + state*8`, so `+0x8C/+0x90/+0x94` is the cleaner normalized
+  `PSY_FogColor` source.
+- `graphics_fnv_native_sun_light_contract_audit.txt` is a partial sun contract,
+  not a final material-lighting contract. It proves `Sky sun/current object
+  getter @ 0x0045CD60` returns `Sky +0x28`, and the world render path
+  `FUN_00870BD0` uses that object to compute a downstream screen-space sun
+  value written by `FUN_00B8B1E0` into globals `0x012023F4/0x012023F8`.
+  Treat those globals as projected/screen sun data only.
+- The same sun-light audit does not prove `Sky +0x6C`, `Sun +0x1C`,
+  `Main +0x1C`, `NiDirectionalLight +0xD4`, or `NiDirectionalLight +0xF0`.
+  At that point those fields remained NVR-source candidates, not native
+  compatibility contracts; later alias/provenance audits reject the
+  `Sun +0x1C/Main +0x1C` path for default PBR.
+- `graphics_fnv_native_sun_light_deep_contract_audit.txt` closes some of the
+  missing native sky/update contract but still does not close final sun color.
+  `Sky update downstream candidate @ 0x0063A630` destroys/replaces
+  `Sky +0x28` and constructs the sun object through `FUN_006404F0`, so the
+  `Sky +0x28` ownership path is now stronger.
+- `graphics_fnv_native_sun_color_direction_followup_audit.txt` proves
+  `0x012023F4/0x012023F8` are screen-space sun coordinates, not color or
+  direction. `FUN_00B8B1E0` copies X/Y from its input vector, `FUN_00C03410`
+  and raw code near `0x00C03363` pass them into `FUN_00B8A790`, and the
+  previously unknown writer near `0x00FBAE5B/0x00FBAE60` only restores defaults
+  from `0x011F4980/0x011F4984`.
+- The same follow-up proves `FUN_0063BCE0` writes `Sky +0xD4/+0xD8/+0xE8` as
+  fog/range/power-style fields, not sun color. The direct helpers return
+  `weather +0x114` and `weather +0x118`; the interior/exterior path calls
+  active fog near/far/power helpers; and the time blend path reads scalar table
+  entries at `weather +0xF0 + index*4`.
+- `FUN_0063C690` is not a final sun-color source for PBR. In the audited sky
+  update it is called with `Sky +0x48`, so it writes a sky/weather vector slot
+  distinct from NVR's claimed `Sky +0x6C sunDirectional`.
+- `FUN_00532220` blends generated/weather records and feeds downstream setters
+  `0x00B8AF10/0x00B8AFB0/0x00B8B000/0x00B8B0D0`, which cache values under
+  object fields like `+0x25C`, `+0x264`, `+0x26C`, and `+0x2A4`. That is
+  useful weather pipeline evidence, but it is not a shader-facing native sun
+  color contract.
+- The Reloaded header claim that `Sun +0x1C` aliases `Main +0x1C
+  directionalLight`, and the `NiDirectionalLight +0xD4/+0xF0` color/direction
+  offsets, entered the alias follow-up as source-level candidates only. That
+  follow-up decompiled the sun constructor `FUN_006404F0`; it sets the Sun
+  vtable and initializes fields but does not prove the `+0x1C` alias.
+- `graphics_fnv_native_directional_light_alias_audit.txt` pushes that further:
+  the Sun vtable at `0x0104F298` has four valid code entries
+  (`0x00640670`, `0x007FA950`, `0x00640810`, `0x00641830`); slot `+0x10` and
+  beyond are adjacent `D:\_Fallout3\...\Sun.cpp` string bytes, not methods.
+  References to the Sun vtable are only the constructor `FUN_006404F0` and
+  destructor/reset helper `FUN_006406A0`.
+- The same alias audit proves `FUN_00633C90` and `FUN_0066B0D0` are managed
+  reference-slot helpers: initialize/assign a pointer, release the old value,
+  and addref the new value. The Sun constructor initializes ref slots
+  `+0x08/+0x0C/+0x10/+0x14/+0x1C/+0x28`, assigns null into
+  `+0x04/+0x08/+0x0C/+0x10/+0x14/+0x1C`, zeros `+0x18/+0x20/+0x24`, and then
+  stores an allocated `0x280` object into `+0x28`. This proves `Sun +0x1C` is
+  a managed object reference slot, not a raw directional-light constant by
+  layout alone.
+- `FUN_006FB3D0` treats `param_1 +0x1C` and `param_1 +0x20` symmetrically as
+  owned object references to remove/release/clear. That is generic ref-slot
+  cleanup evidence, not proof that `Main +0x1C` is the renderer directional
+  light or that it aliases `Sun +0x1C`.
+- `graphics_fnv_native_sun_refslot_writer_provenance_audit.txt` rejects the
+  `Main +0x1C` alias path for this executable contract. `FUN_0044FB20` is the
+  Main/TES constructor candidate, but its decompiled `param_1 +0x1C/+0x1E`
+  fields receive allocated pointer tables and are then zero-filled in loops.
+  They are not a directional-light object. The supposed Main/TES vtable address
+  `0x010724E8` is adjacent string/data passed into construction code, not a
+  vtable.
+- The same provenance audit reinforces `Sky +0x28` as the real Sun object
+  source. `FUN_0063A630` constructs/replaces `Sky +0x20`, `Sky +0x24`,
+  `Sky +0x28`, and later sky fields; `Sky +0x28` is constructed through
+  `FUN_006404F0`. This path does not involve `Main +0x1C`.
+- `FUN_00640810`, the Sun vtable slot 02 setup/update method, maps the Sun
+  managed slots by writer: `+0x10/+0x14` receive objects from `FUN_00A74410`,
+  `+0x08/+0x0C` receive objects from `FUN_0051CF00`, `+0x1C` receives an
+  object from `FUN_00A75C20`, and `+0x28` is created in the constructor through
+  `FUN_00B660D0`. No observed writer assigns `Main +0x1C` into `Sun +0x1C`.
+- The constructors and raw scans still do not prove `NiLight +0xD4` diffuse
+  color or `NiDirectionalLight +0xF0` direction. The `d4/f0` hits in the Sun
+  update output are stack locals or unrelated values, not stable native light
+  fields.
+- The alias audit's targeted scans found no matching `Sky` singleton or Sun
+  vtable references that prove light fields, and no proven reads of
+  `NiLight +0xD4` diffuse color or `NiDirectionalLight +0xF0` direction from an
+  aliased native object. `PSY_SunDirection` should continue to use the already
+  proven sky sun root/projection path; `PSY_SunColor` should remain unavailable
+  or conservative until a real renderer-owned light color source is proven.
+- Conclusion for Psycho PBR: close the Reloaded `Sun +0x1C/Main +0x1C`
+  directional-light alias path. Do not use `Sun +0x1C`, `Main +0x1C`,
+  `NiLight +0xD4`, or `NiDirectionalLight +0xF0` as default material constants,
+  and do not spend more scripts chasing that alias unless a different executable
+  proof appears.
+- `TESR_SunColor` as a Reloaded-style persistent environment constant remains
+  unsuitable for default native material lighting. NewVegasReloaded computes it
+  from raw `TESWeather::colors[eColor_Sun]`, while Psycho should prefer
+  renderer-owned draw-time light data when native material replacement is
+  active.
+- `graphics_fnv_final_sun_color_renderer_contract_audit.txt` proves the final
+  renderer-owned light constant path, but not a phase-stable global sun color.
+  `FUN_00B7E430` registers `LightColors` at `0x011FA0D0` and `Light
+  Direction`/`LightData` at `0x011FD9A8`; `FUN_00BD3000` registers
+  `Ambient Color`, `Diff Color 0/1`, `DirectronalLightDir`, `PointLightPos`,
+  and `LightRadius`; `FUN_00BD5A60` registers `Diffuse Light direction` and
+  `Diffuse Light color` from shader-object fields.
+- The same renderer audit finally proves `NiLight +0xD4/+0xD8/+0xDC` as a real
+  diffuse-color input in the native light-list path. `FUN_00B70820` computes
+  `0x011FA0D0` light colors from light fields, dimmer `+0xC4`, radius/intensity
+  data, and per-draw attenuation; `FUN_00B78A90` walks the active light list,
+  fills `0x011FD9A8` direction/position vectors, and updates shader constant
+  counts through cached handles like `DAT_011FEC38`.
+- For Psycho this is a draw-time material-lighting contract only. The globals
+  `0x011FA0D0` and `0x011FD9A8` are renderer-owned per-draw arrays that can be
+  consumed or mirrored only inside validated material/shader draw hooks. They
+  must not be exposed as persistent `PSY_SunColor`/`PSY_SunDirection`, and they
+  do not resurrect the rejected `Sun +0x1C/Main +0x1C` Reloaded alias.
+- `graphics_fnv_material_texture_property_contract_audit.txt` proves the
+  high-level `BSShaderPPLighting` material setup branch, but not the final mesh
+  texture slot layout. `FUN_00BDF790` reads shader flags from `param_1[8]` and
+  `param_1[9]`, uses `FUN_00A59D30` to walk the geometry property list by
+  virtual property type, falls back to `param_2 +0x9C`, and tests property
+  flags at `+0x18` including bit 0 and bit 9.
+- The material audit also proves `FUN_00BA9EE0` is a pass-entry/state builder,
+  not a texture-discovery function. `FUN_00BD9F90` emits pass ID `4` or `5`,
+  and `FUN_00BDF790` calls it only when shader object `param_1[0x37]`
+  (byte offset `+0xDC`) exists and that object has nonzero `+0x6C`. That is the
+  next concrete texture/material contract gap: identify the `+0xDC` object,
+  its ownership, and whether its fields map to diffuse/normal/glow/specular or
+  some other material resource.
+- Separate landscape/record code proves `BGSTextureSet`-style slot validation
+  through a virtual getter at `TextureSet +0x30 -> vtable +0x8C` for diffuse
+  slot `0` and normal slot `1`, and `FUN_0046E910` enumerates named maps such
+  as `Detail Map`, `Bump Map`, `Glow Map`, `Gloss Map`, `Dark Map`, and
+  `Decal Map`. Those are useful source-material clues, but they are not yet a
+  draw-time mesh PPLighting texture binding contract for PBR.
+- `graphics_fnv_material_texture_slot_layout_followup_audit.txt` strengthens
+  the source material/texture-set side. `FUN_00A6B410` initializes canonical
+  map names: `Base`, `Dark`, `Detail`, `Gloss`, `Glow`, `Bump`, `Normal`,
+  `Parallax`, `Decal`, and `Shader`. The named map accessors prove record-side
+  slot IDs: `Dark=1`, `Detail=2`, `Gloss=3`, `Glow=4`, `Bump=5`, and
+  `Decal=index+8`, all through `FUN_00877A30`, which returns the address of
+  4-byte slot storage at `*(TextureSet+4) + slot*4` rather than the texture
+  object itself. Texture-set count is at `+0x0A` (`FUN_00658930`), while cleanup
+  clears indexed slot storage and zeroes the count/capacity fields around
+  `+0x0A/+0x0C`. `FUN_0046E910` enumerates those maps recursively over geometry
+  and calls `FUN_0046E8E0`, which routes existing maps through `FUN_005585E0`
+  and `FUN_00653270(&DAT_011F444C, ...)`.
+- `graphics_fnv_pplighting_texture_runtime_binding_followup_audit.txt` closes
+  part of the runtime setup contract, but not the writer provenance. Seven
+  vtable/data windows pair `FUN_00BDB4A0` immediately before `FUN_00BDF790`
+  across PPLighting-like shader-property classes including SpeedTree and Beam
+  variants. `FUN_00BDB4A0` uses byte offset `+0xDC`; `FUN_00BDF790` uses the
+  same field as `param_1[0x37]`. In both setup variants, `+0xDC+0x6C` gates
+  `FUN_00BD9F90`, and nonzero `+0xDC` gates the late branch. `FUN_00BD9F90`
+  emits pass IDs `4/5`; `FUN_00BDC030` emits pass IDs `0x250/0x251`.
+- `graphics_fnv_pplighting_dc_field_writer_provenance_audit.txt` proves the
+  first vtable-provenance attempt was too broad. Ghidra reports zero refs to
+  the previously assumed PPLighting-like vtable starts and zero refs to their
+  setup-slot addresses; refs to `FUN_00BDB4A0` and `FUN_00BDF790` remain
+  data-only vtable entries. Broad writers like `FUN_00B5E0F0`/`FUN_00B5AAC0`
+  are therefore not proven `BSShaderPPLighting +0xDC` writers, but the audit
+  exposes the real B-range constructor cluster at
+  `FUN_00539960 -> FUN_00B66F50`.
+- `graphics_fnv_pplighting_brange_constructor_dc_deep_audit.txt` closes that
+  B-range object contract. `FUN_00B66F50` constructs the `0x104` shader-property
+  object and assigns vptr `0x010AE0D0`. The earlier addresses such as
+  `0x010AE1B8` are not true object vtable starts; they are method-table slices
+  inside the same table, with `FUN_00BDB4A0`/`FUN_00BDF790` later in that vtable
+  at `0x010AE1E4/0x010AE1E8`. `FUN_00B66F50`, `FUN_00B67380`,
+  `FUN_00B675C0`, and `FUN_00B676A0` prove refcounted ownership, setter,
+  destructor, and copy semantics for byte offset `+0xDC`.
+- The same B-range audit identifies `+0xDC` as `spTexEffectData`, not material
+  texture data. `FUN_00B690D0` serializes that field under the exact
+  `spTexEffectData` name and reads Fill Color fields at `+0x0C..+0x18`, Edge
+  Color fields at `+0x1C..+0x28`, and Edge Falloff at `+0x54`. Therefore
+  `+0xDC`, `+0xDC+0x6C`, pass IDs `4/5`, and pass IDs `0x250/0x251` are special
+  texture-effect branches. They must not be used as roughness/metalness or
+  general PBR map discovery.
+- The useful runtime texture lead is now the six texture pointer arrays owned by
+  the same object: count `+0xA8`, arrays `+0xAC`, `+0xB0`, `+0xB4`, `+0xB8`,
+  `+0xBC`, and `+0xC0`, and byte flag arrays `+0xC4/+0xCC`. `FUN_00B68660`
+  fills those arrays by calling the source texture provider virtual at `+0x90`
+  for each of six array kinds, while `FUN_00B66640` initializes nine per-layer
+  flags at `+0xC4` for landscape texturing. `FUN_00B690D0` labels the arrays as
+  base/diffuse, normal, glow or skin/hair layer, heightmap, envmap, and envmap
+  mask on the serialization path. This proves runtime slot layout, but not yet
+  final draw-time D3D stage ownership.
+- `FUN_00BC3E40` is an additional non-vtable caller of `FUN_00BD9D00`, but it
+  only runs when `+0xDC`/`spTexEffectData` is nonzero. It does not change the
+  material texture contract for PBR.
+- `graphics_fnv_pplighting_texture_array_stage_binding_audit.txt` corrects the
+  remaining six-array hypothesis. `FUN_00B70590`, `FUN_00B70600`,
+  `FUN_00B70680`, `FUN_00B70700`, and `FUN_00B707D0` are active object/list
+  iterators over `this +0x60`, not iterators over the texture arrays at
+  `+0xAC..+0xC0`. They filter list objects by `object +0x110 != 0xFF` and by a
+  property flag at `*(object +0xF8) +0x30`; the `B70600`/`B70700`/`B707D0`
+  variants also exclude objects with byte `+0xEC == 1`.
+- In the same audit, the only high-level direct six-array draw-setup use found
+  in `FUN_00BDB4A0`/`FUN_00BDF790` is the first entry of `+0xB4` as a branch
+  flag for glow/skin/hair-layer handling. The pass builders are driven by the
+  active object iterators and branch flags, not by a direct final-stage walk of
+  base/normal/glow/height/env/env-mask arrays.
+- `FUN_00BDF790` has a special branch for active objects with nonzero `+0xEC`:
+  it calls `FUN_00BA9EE0(param_2, 0, 1, 1, object, 0, 0, 0)`, then overwrites
+  the created pass entry with IDs `0x231`/`0x232`/`0x233` and sets byte `+8`.
+  This is object/pass-state construction, not a material texture slot binding.
+- `FUN_00BA9EE0` is now proven as a pass-entry append/reuse helper. It reuses or
+  allocates a 0x10-byte pass entry, writes the pass/mode id at `+0`, writes the
+  short parameter at `+4`, writes byte `+7`, resets bytes `+6`, `+8`, and
+  `+0x0B`, and delegates the remaining parameter storage to
+  `FUN_00BA8C50`/`FUN_00BA8EC0`. The next texture-binding gap is therefore the
+  pass-entry layout and apply path, not the PPLighting array layout.
+- PBR rule from this audit: the six runtime arrays are source/runtime layout
+  evidence only. A compatible Psycho implementation should rely on validated
+  draw-time pass state and already-bound vanilla texture stages until the
+  pass-entry apply path proves exact D3D stage ownership. Do not treat
+  `+0xAC..+0xC0` as a direct PBR map feed from a generic draw hook.
+- `graphics_fnv_pplighting_pass_entry_apply_contract_audit.txt` closes the
+  0x10-byte pass-entry storage contract. `FUN_00BA8EC0` constructs entries
+  with pass/mode id at `+0x00`, short parameter at `+0x04`, byte parameter at
+  `+0x07`, used vararg count at `+0x09`, capacity at `+0x0A`, and a heap
+  vararg dword array pointer at `+0x0C`. `FUN_00BA8C50` is the reused-entry
+  vararg setter, `FUN_00BA8CD0` releases the vararg array, and
+  `FUN_00BA9EE0` is confirmed as pass-entry construction/list management only.
+- The same pass-entry apply audit proves `BSShader::SetShaders @ 0x00BE1F90`
+  is shader-only. It reads the current `NiD3DPass` global `0x0126F74C`, applies
+  the pass pixel shader at `+0x44` and vertex shader at `+0x5C`, and does not
+  bind material textures or sampler state.
+- `FUN_00BD1C50` writes the current pass global and updates pass `+0x44` pixel
+  shader ownership; `FUN_00BD4BA0`, `FUN_00BE2170`, `FUN_00BE21B0`,
+  `FUN_00E811D0`, and `FUN_00E814B0` are pass/shader apply helpers. They are
+  useful draw-context evidence, but not final material texture binders.
+- Final texture-stage ownership is now anchored at
+  `NiDX9RenderState::SetTexture @ 0x00E88A20`: it caches 16 texture slots at
+  `renderState +0x10A0 + stage*4` and calls the D3D device vtable `+0x104`
+  only when the cached texture changes. `FUN_00E88930` is the texture-stage
+  state setter and `FUN_00E910A0` is the sampler-state setter. The earlier
+  `0x00DA2990` D3D SetTexture lead is rejected as a diagnostics/error-report
+  path, not a material draw texture binder.
+- At this stage, the remaining PBR texture gap was to map the B7 pass
+  dispatcher and `FUN_00E7EB00` apply path from pass-entry fields to final
+  `E88A20` stage calls. Until that is proven, the compatible default is to
+  observe/capture vanilla texture bindings through `E88A20` in draw scope
+  rather than infer stages from PPLighting runtime arrays or pass-entry IDs.
+- `graphics_fnv_pplighting_pass_dispatch_texture_stage_contract_audit.txt`
+  closes the high-level B7 dispatcher shape but not the final low-level
+  texture-stage mutation. `FUN_00B7DD50` applies one current-pass entry through
+  `E7EB00`, then runs `B7C3A0/B7C510/B7C580/B7C600` and the current pixel
+  shader constant path. `FUN_00B7DDE0`, `FUN_00B7DED0`, `FUN_00B7DFE0`, and
+  `FUN_00B7E150` write current pass `+0x24` entry `+8` values from the active
+  object (`param +0x0C`, object `+0xAC`, virtual `+0xE0/+0xF4`, or
+  `FUN_00C03230`) and then call `E7DE90` and `E7EB00`.
+- The same dispatcher audit proves the B7 helper family is mostly shader
+  constant and light-data upload, not texture binding. `B7C3A0`, `B7C750`,
+  `B7C7B0`, `B7C850`, and `B7CB00` write per-draw constants through the
+  current vertex shader constant table (`pass +0x5C -> +0x20 -> vtable
+  +0x178`) and renderer globals such as `0x011FA0C0`, `0x011FA0D0`, and
+  `0x011FD9A8`. `B7C510` updates byte `+8` on shader constant/resource records
+  in the `0x011FEC34..0x011FEC8C` range from the shader-mode bit table
+  `0x011FC0A0`.
+- `E7DE90` is now proven as a small pass-state helper that calls
+  `E890C0(1, table[mode].x, 0, 0)` and `E890C0(2, table[mode].y, 0, 0)` using
+  the `0x0126F0B0/0x0126F0B4` mode table. `E7EB00` is a cache/apply helper for
+  pass-entry `+0x04/+0x08`: it compares entry `+8` against cache table
+  `0x0126F680 + entry[+4]*4`, updates the cache, calls `E89410(entry[+4])`,
+  and, if needed, calls `E7EA00`.
+- `E7EB00` itself does not call `E88A20`. The script found `E88A20` only as
+  data in the two render-state vtables at `0x010EF6E8` and `0x010F0968`, with
+  zero references to those vtable addresses. Therefore the remaining exact
+  texture gap moved down one level: prove what `E890C0`, `E89410`, and
+  `E7EA00` apply, and whether any of them reach texture, texture-stage,
+  sampler, or render-state device calls.
+- `graphics_fnv_pplighting_render_state_lowlevel_apply_contract_audit.txt`
+  closes most of that lower-level helper path. `E88FC0` and `E89060` are
+  texture-stage-state tracker setter/getter helpers using the TypeMap at
+  `0x0126F958`; they update/read tracked current and backup values under
+  `+0x0C/+0x3C`, flags under `+0x2C/+0x5C`, and counters under `+0x04/+0x34`.
+  They do not call D3D or `NiDX9RenderState::SetTexture`.
+- The same low-level audit proves `E890C0` is the matching sampler-state
+  tracker helper, using the TypeMap at `0x0126F92C` and storing current/backup
+  values under `+0x6C/+0x90`, flags under `+0x80/+0xA4/+0xB0`, and counters
+  under `+0x64/+0x88/+0xAC`. `E7DE90` therefore mutates tracked sampler-state
+  records from the pass-mode table; it is not a final material texture binder.
+- `E7EA00` is now proven as a downstream pass-entry apply helper, but not yet
+  as a texture-stage owner. It checks tracked texture-stage state through
+  `E89060`, then calls virtual slots on renderer globals:
+  `DAT_0126F6C8 +0xC0/+0xDC/+0xCC`, `DAT_0126F6C4 +0x8C4 -> vtable +0x0C`,
+  and, when entry type is `6`, `DAT_0126F6C0 +0x114` with
+  `DAT_011A9608`. `E89410` only dispatches to `E89250` and `E892D0`. Object
+  identities for `DAT_0126F6C0/4/8` are still unproven, so their virtual slots
+  must not be treated as `NiDX9RenderState` or D3D calls by address similarity.
+- The low-level audit again found `E88930`, `E88A20`, `E88A50`, `E88A60`, and
+  `E910A0` only as vtable data refs, with no static direct calls from the
+  B7/E7DE90/E7EB00 path. Immediate rule from this audit: pass-entry IDs and
+  the E7 apply helpers are not a direct PBR texture map. Compatible default PBR
+  should observe/capture actual vanilla texture pointers at `E88A20` in draw
+  scope until the renderer-global virtual methods are identified.
+- `graphics_fnv_pplighting_renderer_global_virtual_apply_contract_audit.txt`
+  proves the renderer-global writer but leaves one final identity gap.
+  `FUN_00E7E8D0(param_1)` sets `DAT_0126F6C4 = param_1`, moves
+  `*(param_1 +0x288)` into `DAT_0126F6C0` with addref/release calls through
+  vtable slots `+0x04/+0x08`, and sets `DAT_0126F6C8 = *(param_1 +0x8B8)`.
+  Passing null releases `DAT_0126F6C0`, clears it, and clears `DAT_0126F6C8`.
+- The same virtual-global audit proves the E7 apply helper cluster is
+  resource/state application, not source-material discovery. `E7EA00` resolves
+  pass-entry resource pointer `param_1[2]` through
+  `DAT_0126F6C4 +0x8C4 -> vtable +0x0C`, applies it through
+  `DAT_0126F6C8 +0xDC`, restores/sets stage and sampler-like state through
+  `DAT_0126F6C8 +0xC0/+0xCC`, then optionally calls `E7DC90` and `E7E940`.
+  For entry type `6`, it also calls `DAT_0126F6C0 +0x114` with
+  `DAT_011A9608`.
+- `E7DC90` conditionally uses `DAT_0126F6C4 +0xA0` flags and calls
+  `DAT_0126F6C8 +0xCC` plus `+0x68`; `E7DD50` resets ranges through
+  `DAT_0126F6C8 +0xDC/+0xC0`; and `E7E940` either clears state `0x18` through
+  `DAT_0126F6C8 +0xC0` or uploads a transformed `0x40`-byte matrix block
+  through `DAT_0126F6C0 +0xB0`. `E7DF90` builds that block at
+  `0x0126F6D0..0x0126F70C` from renderer matrix fields
+  `DAT_0126F6C4 +0xA40..+0xA78` and the pass input matrix.
+- `E89250` and `E892D0` are now proven as the final flush helpers for the
+  tracked state records created by `E88FC0` and `E890C0`: `E89250` walks eight
+  texture-stage tracker slots and calls `DAT_0126F99C +0xC0` using table
+  `0x0126F948`, while `E892D0` walks five sampler tracker slots and calls
+  `DAT_0126F99C +0xCC` using table `0x0126F918`. The later constructor audit
+  proves these virtual routes dispatch through vtable B into `E88930` and
+  `E910A0`.
+- `graphics_fnv_pplighting_render_state_global_identity_followup_audit.txt`
+  proves both render-state globals are seeded from the same renderer field.
+  `E81940` loads `*(renderer +0x8B8)` into `EDI`, calls `E7E8D0(renderer)`,
+  writes `DAT_0126F99C = EDI`, then calls virtual slot `+0x100` on that same
+  object. `E7E8D0(renderer)` independently writes
+  `DAT_0126F6C8 = *(renderer +0x8B8)`, so `DAT_0126F99C` and `DAT_0126F6C8`
+  share the exact runtime pointer during renderer setup. `E819F0` clears
+  `DAT_0126F99C` after `E7E8D0(0)`, matching the shutdown/clear path.
+- The same identity follow-up splits the candidate vtables. Vtable A at
+  `0x010EF60C` maps `+0xC0 -> E88930` and `+0xDC -> E88A20`, but
+  `+0xCC -> 0x00EC60FA`, not the sampler setter. Vtable B at `0x010F088C`
+  maps `+0xC0 -> E88930`, `+0xCC -> E910A0`, and `+0xDC -> E88A20`. `E881A0`
+  constructs vtable A and initializes the texture-stage/sampler TypeMaps and
+  flush tables.
+- `graphics_fnv_pplighting_renderer_8b8_render_state_constructor_audit.txt`
+  closes the remaining texture-stage identity gap. In
+  `NiDX9Renderer::Initialize` candidate `E72E60`, raw code calls
+  `E91590(renderer, renderer +0x28C, 1)`, then writes the returned object into
+  `renderer +0x8B8`, then immediately calls `E81940(renderer)`. `E91590`
+  allocates `0x1248`, calls the vtable-A base constructor `E881A0` on the new
+  object, overwrites the vptr with vtable B `0x010F088C`, copies `0x130` bytes
+  of renderer/device setup data into object `+0x1118`, and calls virtual
+  `+0x104` before returning the object.
+- Therefore `DAT_0126F6C8` and `DAT_0126F99C` are proven vtable-B render-state
+  globals during renderer setup. `E81940`'s virtual `+0x100` setup call reaches
+  vtable-B target `E911E0`, not vtable-A target `E87AB0`. The renderer teardown
+  path `E75A70` calls `E819F0`, releases the `renderer +0x8B8` object through
+  vtable slot `+0x00`, and clears `renderer +0x8B8`.
+- Final PPLighting texture contract: `E7EA00` resolves pass-entry resource
+  pointer `param_1[2]` through `renderer +0x8C4 -> vtable +0x0C`, then calls
+  vtable-B `DAT_0126F6C8 +0xDC`, which is
+  `NiDX9RenderState::SetTexture @ 0x00E88A20`, with stage `param_1[1]` and the
+  resolved texture pointer. Its `+0xC0` calls are final
+  `NiDX9RenderState::SetTextureStageState @ 0x00E88930`, and its `+0xCC` calls
+  are final `NiDX9RenderState::SetSamplerState @ 0x00E910A0`.
+- Current PBR rule: native replacement may use vanilla-bound textures and
+  renderer light constants inside `SetShaders`/draw-time scope. It must not add
+  roughness/metalness discovery through `0x011F91E0`, `NiTexturingProperty`, or
+  `param_1[0x37]`/`+0xDC`. Final texture-stage ownership is now proven through
+  `E7EA00` and `E88A20`, but additional map semantics still need an explicit
+  stage policy or observed final stage bindings; do not resurrect source-array
+  or `spTexEffectData` guesses as PBR map discovery.
+
 ### Fallout Shader Loader
 
 Source directory:
@@ -1079,6 +1514,12 @@ Expected implementation model:
 - if a Psycho replacement exists, create a replacement D3D shader;
 - during `SetShaders`, bind replacement handles and constants;
 - restore/chain cleanly.
+- never patch vanilla `NiD3DVertexShader`/`NiD3DPixelShader` allocation sizes;
+- validate `0x0126F74C` only inside the draw hook;
+- treat `0x011F91E0` as optional material context, not a guaranteed geometry
+  pointer;
+- leave `0x011F91BC/0x011F91C0` untouched unless a separate opt-in mode proves
+  that forcing shader package selection is required and compatible.
 
 This layer should be disabled by default until tested with common graphics mod
 combinations.
@@ -1151,8 +1592,12 @@ Questions:
 - game time source;
 - camera matrix/frustum fields at each phase.
 
-Follow-up scripts now needed:
+Prepared follow-up scripts to run/analyze:
 
+- `analysis/ghidra/scripts/graphics_fnv_effect_phase_contract_audit.py`
+  - prove the safest scene/final image-space boundary;
+  - identify DepthResolve/Shader Loader/NVR collision surfaces;
+  - decide whether a post-first-person, pre-image-space hook is viable.
 - `analysis/ghidra/scripts/graphics_fnv_fog_weather_deep_field_audit.py`
   - search real string/ref callsites for fog/weather fields;
   - prove weather blend/current weather object and fog near/far/color accessors.
@@ -1177,6 +1622,77 @@ They prove the active scene index, shadow scene node array, scene-node
 `+0x134` fog-property pointer, `BSFogProperty` vtable, object size, and the
 float fields used by AO fog fade. They do not prove fog color or a full
 weather/environment constant block.
+
+Completed native material/texture scripts:
+
+- `analysis/ghidra/scripts/graphics_fnv_nvr_shader_replacement_contract_audit.py`
+- `analysis/ghidra/scripts/graphics_fnv_nvr_material_texture_state_audit.py`
+- `analysis/ghidra/scripts/graphics_fnv_nvr_environment_color_contract_audit.py`
+- `analysis/ghidra/scripts/graphics_fnv_native_material_draw_contract_followup_audit.py`
+- `analysis/ghidra/scripts/graphics_fnv_native_directional_light_alias_audit.py`
+- `analysis/ghidra/scripts/graphics_fnv_native_render_state_fog_color_contract_audit.py`
+- `analysis/ghidra/scripts/graphics_fnv_native_sun_color_direction_followup_audit.py`
+- `analysis/ghidra/scripts/graphics_fnv_native_sun_light_contract_audit.py`
+- `analysis/ghidra/scripts/graphics_fnv_native_sun_light_deep_contract_audit.py`
+- `analysis/ghidra/scripts/graphics_fnv_native_sun_refslot_writer_provenance_audit.py`
+- `analysis/ghidra/scripts/graphics_fnv_native_texture_binding_contract_audit.py`
+- `analysis/ghidra/scripts/graphics_fnv_native_texture_stage_state_followup_audit.py`
+- `analysis/ghidra/scripts/graphics_fnv_final_sun_color_renderer_contract_audit.py`
+- `analysis/ghidra/scripts/graphics_fnv_material_texture_property_contract_audit.py`
+- `analysis/ghidra/scripts/graphics_fnv_material_texture_slot_layout_followup_audit.py`
+- `analysis/ghidra/scripts/graphics_fnv_pplighting_texture_runtime_binding_followup_audit.py`
+- `analysis/ghidra/scripts/graphics_fnv_pplighting_dc_field_writer_provenance_audit.py`
+- `analysis/ghidra/scripts/graphics_fnv_pplighting_brange_constructor_dc_deep_audit.py`
+- `analysis/ghidra/scripts/graphics_fnv_pplighting_texture_array_stage_binding_audit.py`
+- `analysis/ghidra/scripts/graphics_fnv_pplighting_pass_entry_apply_contract_audit.py`
+- `analysis/ghidra/scripts/graphics_fnv_pplighting_pass_dispatch_texture_stage_contract_audit.py`
+- `analysis/ghidra/scripts/graphics_fnv_pplighting_render_state_lowlevel_apply_contract_audit.py`
+- `analysis/ghidra/scripts/graphics_fnv_pplighting_renderer_global_virtual_apply_contract_audit.py`
+- `analysis/ghidra/scripts/graphics_fnv_pplighting_render_state_global_identity_followup_audit.py`
+- `analysis/ghidra/scripts/graphics_fnv_pplighting_renderer_8b8_render_state_constructor_audit.py`
+
+They prove the safe draw-time shader bind point, the unsafe/proxy nature of
+`0x011F91E0`, the shader object allocation-size hazard, and the render-state
+sampler/texture-stage tracking maps. They also prove the high-level weather
+controller and transition-percent ownership, while rejecting a simple NVR raw
+weather color walk as a safe compatibility contract. Final renderer fog color is
+now proven through `NiDX9RenderState::SetFog`. The sun-light scripts prove the
+native sky sun object path, screen-space sun coordinates, and some fog/range
+sky fields. They also prove `Sun +0x1C` is a managed reference slot, not a
+layout-safe PBR constant, and reject the Reloaded `Sun +0x1C/Main +0x1C` alias
+path for default PBR. The final sun/color renderer audit proves renderer-owned
+per-draw light arrays (`LightColors`/`LightData`) and real `NiLight +0xD4`
+diffuse-color input through the native light list, but those arrays are
+draw-local constants, not persistent `PSY_SunColor`. The material texture
+property audit proves `BSShaderPPLighting` branch ownership and the
+`param_1[0x37]`/`+0x6C` gate. The slot-layout follow-up proves canonical source
+map names, record-side slot IDs, and the `FUN_00877A30` slot-storage pointer
+layout. The runtime binding follow-up proves the paired `FUN_00BDB4A0` /
+`FUN_00BDF790` setup variants and pass IDs `4/5` plus `0x250/0x251`. The first
+`+0xDC` provenance audit rejects broad renderer writers as unproven because no
+candidate writer references the PPLighting-like vtables, but it exposes
+`FUN_00539960 -> FUN_00B66F50` and the adjacent B-range `+0xDC` helper cluster
+as the next concrete lead. The B-range deep audit proves the real vtable base
+`0x010AE0D0`, corrects the earlier method-slice addresses, establishes
+constructor/setter/destructor/copy ownership for `+0xDC`, and identifies that
+field as `spTexEffectData` rather than material texture data. The remaining PBR
+texture gap is no longer the six runtime arrays themselves or the pass-entry
+layout: the texture-array stage audit proves the `B70590` helper family is an
+active object-list iterator, and the pass-entry apply audit proves
+`BA8C50`/`BA8EC0` storage plus `BA9EE0` construction. The pass-dispatch audit
+proves the B7 dispatcher mutates pass entries and shader constants but does not
+itself reach `E88A20`. The low-level apply audit proves
+`E88FC0`/`E89060` and `E890C0` are tracked texture-stage/sampler-state cache
+helpers. The renderer-global virtual audit proves `E7E8D0` seeds
+`DAT_0126F6C4` from the renderer object, `DAT_0126F6C0` from renderer `+0x288`,
+and `DAT_0126F6C8` from renderer `+0x8B8`; it also proves `E89250/E892D0`
+flush tracked state through `DAT_0126F99C +0xC0/+0xCC`. The global identity
+follow-up proves `DAT_0126F99C` and `DAT_0126F6C8` are both seeded from the
+same `renderer +0x8B8` pointer during renderer setup. The constructor audit
+proves `renderer +0x8B8` is the vtable-B render-state object created by
+`E91590` in `E72E60`, so `E7EA00 +0xDC` is now the final
+`NiDX9RenderState::SetTexture @ 0x00E88A20` route for PPLighting pass-entry
+resources.
 
 ### Runtime Telemetry
 

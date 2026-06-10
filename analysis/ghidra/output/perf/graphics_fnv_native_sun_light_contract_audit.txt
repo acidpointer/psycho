@@ -1,0 +1,3266 @@
+FNV NATIVE SUN LIGHT CONTRACT AUDIT
+
+Questions:
+1. Can PSY_SunDirection use renderer-owned Sun +0x1C / Main +0x1C NiDirectionalLight direction?
+2. Can PSY_SunColor use final Sky +0x6C sunDirectional or NiDirectionalLight +0xD4 diffuse color?
+3. Which source is safer than NewVegasReloaded's raw TESWeather::colors sun-color walk?
+
+Compatibility target:
+Prefer final renderer-owned Sky/Sun/light fields. Do not expose TESWeather color fields unless a separate audit proves that raw layout is compatible with vanilla's generated weather property pipeline.
+
+======================================================================
+Static layout candidates from NewVegasReloaded source to prove
+======================================================================
+  Sky::singleton global: *(Sky**)0x011DEA20
+  Sky +0x28: Sun*
+  Sky +0x60: sunAmbient NiColor candidate
+  Sky +0x6C: sunDirectional NiColor candidate
+  Sky +0xC0: sunFog NiColor candidate
+  Sun +0x1C: NiDirectionalLight* candidate
+  NiLight +0xC4: Dimmer
+  NiLight +0xC8: ambient color
+  NiLight +0xD4: diffuse color
+  NiLight +0xE0: specular color
+  NiDirectionalLight +0xF0: direction
+  Main +0x1C: directionalLight candidate
+  Main +0x68: Sky* candidate
+
+----------------------------------------------------------------------
+References TO 0x0045cd60 (Sky sun/current object getter)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x00553740 (in FUN_00553700) CALL 0x0045cd60
+  UNCONDITIONAL_CALL @ 0x0055374c (in FUN_00553700) CALL 0x0045cd60
+  UNCONDITIONAL_CALL @ 0x005537e3 (in FUN_00553700) CALL 0x0045cd60
+  UNCONDITIONAL_CALL @ 0x00573dac (in FUN_00573800) CALL 0x0045cd60
+  UNCONDITIONAL_CALL @ 0x00573db9 (in FUN_00573800) CALL 0x0045cd60
+  UNCONDITIONAL_CALL @ 0x0071774d (in FUN_00717740) CALL 0x0045cd60
+  UNCONDITIONAL_CALL @ 0x00788c80 (in FUN_00788ab0) CALL 0x0045cd60
+  UNCONDITIONAL_CALL @ 0x0083c634 (in FUN_0083c520) CALL 0x0045cd60
+  UNCONDITIONAL_CALL @ 0x0061cc17 (in FUN_0061cb60) CALL 0x0045cd60
+  UNCONDITIONAL_CALL @ 0x0061caea (in FUN_0061cad0) CALL 0x0045cd60
+  UNCONDITIONAL_CALL @ 0x0061cca2 (in FUN_0061cc90) CALL 0x0045cd60
+  UNCONDITIONAL_CALL @ 0x0061ccae (in FUN_0061cc90) CALL 0x0045cd60
+  UNCONDITIONAL_CALL @ 0x0061e2f3 (in FUN_0061e2b0) CALL 0x0045cd60
+  UNCONDITIONAL_CALL @ 0x0061e316 (in FUN_0061e2b0) CALL 0x0045cd60
+  UNCONDITIONAL_CALL @ 0x0059a0c7 (in FUN_0059a030) CALL 0x0045cd60
+  UNCONDITIONAL_CALL @ 0x0059a143 (in FUN_0059a030) CALL 0x0045cd60
+  UNCONDITIONAL_CALL @ 0x0043cd4c (in FUN_0043ccf0) CALL 0x0045cd60
+  UNCONDITIONAL_CALL @ 0x0043cd72 (in FUN_0043ccf0) CALL 0x0045cd60
+  UNCONDITIONAL_CALL @ 0x0043cddd (in FUN_0043ccf0) CALL 0x0045cd60
+  UNCONDITIONAL_CALL @ 0x0043cdf7 (in FUN_0043ccf0) CALL 0x0045cd60
+  UNCONDITIONAL_CALL @ 0x0043ce6d (in FUN_0043ccf0) CALL 0x0045cd60
+  UNCONDITIONAL_CALL @ 0x0043ced9 (in FUN_0043ccf0) CALL 0x0045cd60
+  UNCONDITIONAL_CALL @ 0x0043d3a9 (in FUN_0043d180) CALL 0x0045cd60
+  UNCONDITIONAL_CALL @ 0x0043d3cb (in FUN_0043d180) CALL 0x0045cd60
+  UNCONDITIONAL_CALL @ 0x00494b46 (in FUN_004949a0) CALL 0x0045cd60
+  UNCONDITIONAL_CALL @ 0x0043e2f4 (in FUN_0043e2a0) CALL 0x0045cd60
+  UNCONDITIONAL_CALL @ 0x0043e37c (in FUN_0043e2a0) CALL 0x0045cd60
+  UNCONDITIONAL_CALL @ 0x0043e3be (in FUN_0043e2a0) CALL 0x0045cd60
+  UNCONDITIONAL_CALL @ 0x0043e42a (in FUN_0043e2a0) CALL 0x0045cd60
+  UNCONDITIONAL_CALL @ 0x0043e4e4 (in FUN_0043e4b0) CALL 0x0045cd60
+  UNCONDITIONAL_CALL @ 0x0043e4ff (in FUN_0043e4b0) CALL 0x0045cd60
+  UNCONDITIONAL_CALL @ 0x0057000a (in FUN_0056fcb0) CALL 0x0045cd60
+  UNCONDITIONAL_CALL @ 0x00573227 (in FUN_00573170) CALL 0x0045cd60
+  UNCONDITIONAL_CALL @ 0x004a8067 (in FUN_004a8050) CALL 0x0045cd60
+  UNCONDITIONAL_CALL @ 0x0045ccc0 (in FUN_0045cbc0) CALL 0x0045cd60
+  UNCONDITIONAL_CALL @ 0x006fee10 (in FUN_006fede0) CALL 0x0045cd60
+  UNCONDITIONAL_CALL @ 0x0063bef0 (in FUN_0063bce0) CALL 0x0045cd60
+  UNCONDITIONAL_CALL @ 0x0063bf0b (in FUN_0063bce0) CALL 0x0045cd60
+  UNCONDITIONAL_CALL @ 0x0085408d (in FUN_00853e10) CALL 0x0045cd60
+  UNCONDITIONAL_CALL @ 0x007279cb (in FUN_00727920) CALL 0x0045cd60
+  UNCONDITIONAL_CALL @ 0x00858094 (in FUN_00858030) CALL 0x0045cd60
+  UNCONDITIONAL_CALL @ 0x0085a729 (in FUN_0085a520) CALL 0x0045cd60
+  UNCONDITIONAL_CALL @ 0x0085a754 (in FUN_0085a520) CALL 0x0045cd60
+  UNCONDITIONAL_CALL @ 0x0085b411 (in FUN_0085b320) CALL 0x0045cd60
+  UNCONDITIONAL_CALL @ 0x0070de65 (in FUN_0070c4a0) CALL 0x0045cd60
+  UNCONDITIONAL_CALL @ 0x0070de71 (in FUN_0070c4a0) CALL 0x0045cd60
+  UNCONDITIONAL_CALL @ 0x0070fda8 (in FUN_0070f6e0) CALL 0x0045cd60
+  UNCONDITIONAL_CALL @ 0x0070fde4 (in FUN_0070f6e0) CALL 0x0045cd60
+  UNCONDITIONAL_CALL @ 0x00712d38 (in FUN_007126c0) CALL 0x0045cd60
+  UNCONDITIONAL_CALL @ 0x00712d66 (in FUN_007126c0) CALL 0x0045cd60
+  UNCONDITIONAL_CALL @ 0x0071be0c (in FUN_0071b210) CALL 0x0045cd60
+  UNCONDITIONAL_CALL @ 0x0071db20 (in FUN_0071d800) CALL 0x0045cd60
+  UNCONDITIONAL_CALL @ 0x007dfaea (in FUN_007dfa30) CALL 0x0045cd60
+  UNCONDITIONAL_CALL @ 0x007dfc31 (in FUN_007dfb00) CALL 0x0045cd60
+  UNCONDITIONAL_CALL @ 0x007dc902 (in FUN_007dc7e0) CALL 0x0045cd60
+  UNCONDITIONAL_CALL @ 0x007dca89 (in FUN_007dc9b0) CALL 0x0045cd60
+  UNCONDITIONAL_CALL @ 0x007e8ca8 (in FUN_007e8890) CALL 0x0045cd60
+  UNCONDITIONAL_CALL @ 0x0057430f (in FUN_00573f40) CALL 0x0045cd60
+  UNCONDITIONAL_CALL @ 0x00871013 (in FUN_00870bd0) CALL 0x0045cd60
+  UNCONDITIONAL_CALL @ 0x00871026 (in FUN_00870bd0) CALL 0x0045cd60
+  UNCONDITIONAL_CALL @ 0x004e1e30 (in FUN_004e1bc0) CALL 0x0045cd60
+  UNCONDITIONAL_CALL @ 0x004e1e85 (in FUN_004e1bc0) CALL 0x0045cd60
+  UNCONDITIONAL_CALL @ 0x00872d68 (in FUN_00872b00) CALL 0x0045cd60
+  UNCONDITIONAL_CALL @ 0x00872dac (in FUN_00872b00) CALL 0x0045cd60
+  UNCONDITIONAL_CALL @ 0x008777b5 (in FUN_00877730) CALL 0x0045cd60
+  UNCONDITIONAL_CALL @ 0x0087791c (in FUN_00877730) CALL 0x0045cd60
+  UNCONDITIONAL_CALL @ 0x008853bd (in FUN_008853a0) CALL 0x0045cd60
+  UNCONDITIONAL_CALL @ 0x00824486 (in FUN_00824400) CALL 0x0045cd60
+  UNCONDITIONAL_CALL @ 0x0089e82c (in FUN_0089d900) CALL 0x0045cd60
+  UNCONDITIONAL_CALL @ 0x0089ebb6 (in FUN_0089d900) CALL 0x0045cd60
+  UNCONDITIONAL_CALL @ 0x0089ed8e (in FUN_0089d900) CALL 0x0045cd60
+  UNCONDITIONAL_CALL @ 0x007e1a90 (in FUN_007e1980) CALL 0x0045cd60
+  UNCONDITIONAL_CALL @ 0x0080cfc9 (in FUN_0080ced0) CALL 0x0045cd60
+  UNCONDITIONAL_CALL @ 0x008a1976 (in FUN_008a1800) CALL 0x0045cd60
+  UNCONDITIONAL_CALL @ 0x00887e25 (in FUN_00887d00) CALL 0x0045cd60
+  UNCONDITIONAL_CALL @ 0x00566a1a (in FUN_00566970) CALL 0x0045cd60
+  UNCONDITIONAL_CALL @ 0x00572ed1 (in FUN_00572e50) CALL 0x0045cd60
+  UNCONDITIONAL_CALL @ 0x00572eff (in FUN_00572e50) CALL 0x0045cd60
+  UNCONDITIONAL_CALL @ 0x008a721f (in FUN_008a6ce0) CALL 0x0045cd60
+  UNCONDITIONAL_CALL @ 0x008a738f (in FUN_008a6ce0) CALL 0x0045cd60
+  UNCONDITIONAL_CALL @ 0x008c46cd (in FUN_008c4640) CALL 0x0045cd60
+  UNCONDITIONAL_CALL @ 0x008cdf28 (in FUN_008cddd0) CALL 0x0045cd60
+  UNCONDITIONAL_CALL @ 0x008cdf3e (in FUN_008cddd0) CALL 0x0045cd60
+  UNCONDITIONAL_CALL @ 0x00931866 (in FUN_00931850) CALL 0x0045cd60
+  UNCONDITIONAL_CALL @ 0x00931967 (in FUN_00931920) CALL 0x0045cd60
+  UNCONDITIONAL_CALL @ 0x00930ccb (in FUN_00930c70) CALL 0x0045cd60
+  UNCONDITIONAL_CALL @ 0x00930cda (in FUN_00930c70) CALL 0x0045cd60
+  UNCONDITIONAL_CALL @ 0x00930cfa (in FUN_00930c70) CALL 0x0045cd60
+  UNCONDITIONAL_CALL @ 0x009313cf (in FUN_00930c70) CALL 0x0045cd60
+  UNCONDITIONAL_CALL @ 0x008bd4a3 (in FUN_008bcdf0) CALL 0x0045cd60
+  UNCONDITIONAL_CALL @ 0x008a7dae (in FUN_008a7d50) CALL 0x0045cd60
+  UNCONDITIONAL_CALL @ 0x008d6318 (in FUN_008d6050) CALL 0x0045cd60
+  UNCONDITIONAL_CALL @ 0x008a0b31 (in FUN_008a0b10) CALL 0x0045cd60
+  UNCONDITIONAL_CALL @ 0x0089b8aa (in FUN_0089a760) CALL 0x0045cd60
+  UNCONDITIONAL_CALL @ 0x0089c9f2 (in FUN_0089a760) CALL 0x0045cd60
+  UNCONDITIONAL_CALL @ 0x00818fb5 (in FUN_00818ce0) CALL 0x0045cd60
+  UNCONDITIONAL_CALL @ 0x008245e9 (in FUN_00824570) CALL 0x0045cd60
+  UNCONDITIONAL_CALL @ 0x008951e0 (in FUN_00895110) CALL 0x0045cd60
+  UNCONDITIONAL_CALL @ 0x0096b240 (in FUN_0096b050) CALL 0x0045cd60
+  UNCONDITIONAL_CALL @ 0x0096e8f7 (in FUN_0096e870) CALL 0x0045cd60
+  UNCONDITIONAL_CALL @ 0x0096f346 (in FUN_0096eb40) CALL 0x0045cd60
+  UNCONDITIONAL_CALL @ 0x0096fa75 (in FUN_0096f600) CALL 0x0045cd60
+  UNCONDITIONAL_CALL @ 0x0096fdcc (in FUN_0096f600) CALL 0x0045cd60
+  UNCONDITIONAL_CALL @ 0x00970432 (in FUN_0096f600) CALL 0x0045cd60
+  UNCONDITIONAL_CALL @ 0x00972e4e (in FUN_00972d30) CALL 0x0045cd60
+  UNCONDITIONAL_CALL @ 0x0097725c (in FUN_00977130) CALL 0x0045cd60
+  UNCONDITIONAL_CALL @ 0x00990143 (in FUN_009900f0) CALL 0x0045cd60
+  UNCONDITIONAL_CALL @ 0x007070aa (in FUN_007070a0) CALL 0x0045cd60
+  UNCONDITIONAL_CALL @ 0x0079c61d (in FUN_0079c5a0) CALL 0x0045cd60
+  UNCONDITIONAL_CALL @ 0x0079c660 (in FUN_0079c5a0) CALL 0x0045cd60
+  UNCONDITIONAL_CALL @ 0x0079cc37 (in FUN_0079c5a0) CALL 0x0045cd60
+  UNCONDITIONAL_CALL @ 0x0079cc9e (in FUN_0079c5a0) CALL 0x0045cd60
+  UNCONDITIONAL_CALL @ 0x0079df86 (in FUN_0079dbb0) CALL 0x0045cd60
+  UNCONDITIONAL_CALL @ 0x0079dff6 (in FUN_0079dbb0) CALL 0x0045cd60
+  UNCONDITIONAL_CALL @ 0x0079ff5c (in FUN_0079f8d0) CALL 0x0045cd60
+  UNCONDITIONAL_CALL @ 0x0084c4de (in FUN_0084c490) CALL 0x0045cd60
+  UNCONDITIONAL_CALL @ 0x0080ff01 (in FUN_0080feb0) CALL 0x0045cd60
+  UNCONDITIONAL_CALL @ 0x005663b4 (in FUN_005659f0) CALL 0x0045cd60
+  UNCONDITIONAL_CALL @ 0x008a17b0 (in FUN_008a1760) CALL 0x0045cd60
+  UNCONDITIONAL_CALL @ 0x00813f81 (in FUN_00813f30) CALL 0x0045cd60
+  UNCONDITIONAL_CALL @ 0x00819cf1 (in FUN_00819ca0) CALL 0x0045cd60
+  UNCONDITIONAL_CALL @ 0x0083e069 (in FUN_0083df80) CALL 0x0045cd60
+  UNCONDITIONAL_CALL @ 0x00758df5 (in FUN_00758d30) CALL 0x0045cd60
+  UNCONDITIONAL_CALL @ 0x00758e94 (in FUN_00758d30) CALL 0x0045cd60
+  UNCONDITIONAL_CALL @ 0x00758f37 (in FUN_00758d30) CALL 0x0045cd60
+  UNCONDITIONAL_CALL @ 0x0076288d (in FUN_00762860) CALL 0x0045cd60
+  UNCONDITIONAL_CALL @ 0x0075e925 (in FUN_0075e8c0) CALL 0x0045cd60
+  UNCONDITIONAL_CALL @ 0x0076306b (in FUN_00762ff0) CALL 0x0045cd60
+  UNCONDITIONAL_CALL @ 0x00763079 (in FUN_00762ff0) CALL 0x0045cd60
+  UNCONDITIONAL_CALL @ 0x00763369 (in FUN_00762ff0) CALL 0x0045cd60
+  UNCONDITIONAL_CALL @ 0x007634cb (in FUN_00762ff0) CALL 0x0045cd60
+  UNCONDITIONAL_CALL @ 0x0083e77f (in FUN_0083e620) CALL 0x0045cd60
+  UNCONDITIONAL_CALL @ 0x0083e96f (in FUN_0083e850) CALL 0x0045cd60
+  UNCONDITIONAL_CALL @ 0x0083ecf7 (in FUN_0083ec30) CALL 0x0045cd60
+  UNCONDITIONAL_CALL @ 0x007b3f58 (in FUN_007b3dd0) CALL 0x0045cd60
+  UNCONDITIONAL_CALL @ 0x007b4826 (in FUN_007b4650) CALL 0x0045cd60
+  UNCONDITIONAL_CALL @ 0x0088c697 (in FUN_0088c650) CALL 0x0045cd60
+  UNCONDITIONAL_CALL @ 0x008d40b8 (in FUN_008d3fa0) CALL 0x0045cd60
+  UNCONDITIONAL_CALL @ 0x007994e0 (in FUN_007993d0) CALL 0x0045cd60
+  UNCONDITIONAL_CALL @ 0x00436917 (in FUN_00436780) CALL 0x0045cd60
+  UNCONDITIONAL_CALL @ 0x00436a64 (in FUN_00436780) CALL 0x0045cd60
+  UNCONDITIONAL_CALL @ 0x0043c1c3 (in FUN_0043c150) CALL 0x0045cd60
+  UNCONDITIONAL_CALL @ 0x0043c1d6 (in FUN_0043c150) CALL 0x0045cd60
+  UNCONDITIONAL_CALL @ 0x0043c371 (in FUN_0043c150) CALL 0x0045cd60
+  UNCONDITIONAL_CALL @ 0x0043c37d (in FUN_0043c150) CALL 0x0045cd60
+  UNCONDITIONAL_CALL @ 0x0043c5a3 (in FUN_0043c550) CALL 0x0045cd60
+  UNCONDITIONAL_CALL @ 0x008b7599 (in FUN_008b73f0) CALL 0x0045cd60
+  UNCONDITIONAL_CALL @ 0x00441e8d (in FUN_00441e40) CALL 0x0045cd60
+  UNCONDITIONAL_CALL @ 0x00441f11 (in FUN_00441e40) CALL 0x0045cd60
+  UNCONDITIONAL_CALL @ 0x00441f49 (in FUN_00441e40) CALL 0x0045cd60
+  UNCONDITIONAL_CALL @ 0x004a5433 (in FUN_004a53e0) CALL 0x0045cd60
+  UNCONDITIONAL_CALL @ 0x004a6533 (in FUN_004a64e0) CALL 0x0045cd60
+  UNCONDITIONAL_CALL @ 0x004a65a6 (in FUN_004a64e0) CALL 0x0045cd60
+  UNCONDITIONAL_CALL @ 0x004a787f (in FUN_004a7830) CALL 0x0045cd60
+  UNCONDITIONAL_CALL @ 0x0059a1fa (in FUN_0059a1e0) CALL 0x0045cd60
+  UNCONDITIONAL_CALL @ 0x0050789f (in FUN_00507830) CALL 0x0045cd60
+  UNCONDITIONAL_CALL @ 0x00518741 (in FUN_005180b0) CALL 0x0045cd60
+  UNCONDITIONAL_CALL @ 0x0056bc81 (in FUN_0056b2d0) CALL 0x0045cd60
+  UNCONDITIONAL_CALL @ 0x00570bd9 (in FUN_005702e0) CALL 0x0045cd60
+  UNCONDITIONAL_CALL @ 0x0057672b (in FUN_00576680) CALL 0x0045cd60
+  UNCONDITIONAL_CALL @ 0x0097269e (in FUN_00972600) CALL 0x0045cd60
+  ... (truncated)
+  Total: 161 refs
+
+----------------------------------------------------------------------
+References TO 0x00870bd0 (Main render world caller / sky sun path)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x0087075e (in FUN_008706b0) CALL 0x00870bd0
+  Total: 1 refs
+
+----------------------------------------------------------------------
+References TO 0x00873200 (Main::RenderWorldSceneGraph)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x00870ae8 (in FUN_00870a00) CALL 0x00873200
+  UNCONDITIONAL_CALL @ 0x00870e18 (in FUN_00870bd0) CALL 0x00873200
+  Total: 2 refs
+
+----------------------------------------------------------------------
+References TO 0x00875110 (Main::RenderFirstPerson)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x0087093d (in FUN_008707c0) CALL 0x00875110
+  UNCONDITIONAL_CALL @ 0x00870b21 (in FUN_00870a00) CALL 0x00875110
+  UNCONDITIONAL_CALL @ 0x00870f74 (in FUN_00870bd0) CALL 0x00875110
+  Total: 3 refs
+
+----------------------------------------------------------------------
+References TO 0x00877730 (Sky render/update refs candidate)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x0086cf8b (in FUN_0086cf20) CALL 0x00877730
+  Total: 1 refs
+
+----------------------------------------------------------------------
+References TO 0x011dea20 (Sky::singleton)
+----------------------------------------------------------------------
+  WRITE @ 0x0086cf86 (in FUN_0086cf20) MOV [0x011dea20],EAX
+  READ @ 0x0086cfaa (in FUN_0086cf20) MOV ECX,dword ptr [0x011dea20]
+  READ @ 0x0086d025 (in FUN_0086cf20) MOV EAX,[0x011dea20]
+  READ @ 0x00871000 (in FUN_00870bd0) CMP dword ptr [0x011dea20],0x0
+  READ @ 0x0087100d (in FUN_00870bd0) MOV ECX,dword ptr [0x011dea20]
+  READ @ 0x00871020 (in FUN_00870bd0) MOV ECX,dword ptr [0x011dea20]
+  READ @ 0x00877795 (in FUN_00877730) MOV ECX,dword ptr [0x011dea20]
+  READ @ 0x008777af (in FUN_00877730) MOV ECX,dword ptr [0x011dea20]
+  READ @ 0x008777d2 (in FUN_00877730) MOV ECX,dword ptr [0x011dea20]
+  READ @ 0x00877916 (in FUN_00877730) MOV ECX,dword ptr [0x011dea20]
+  Total: 10 refs
+
+======================================================================
+CameraVectorGetter_0045BB80 @ 0x0045bb80
+======================================================================
+  Function: FUN_0045bb80 @ 0x0045bb80, Size: 19 bytes
+
+int __fastcall FUN_0045bb80(int param_1)
+
+{
+  return param_1 + 0x8c;
+}
+
+
+
+======================================================================
+SUN LIGHT MATCHES: CameraVectorGetter_0045BB80 @ 0x0045bb80
+======================================================================
+  Total matched lines: 0
+
+--- Calls FROM CameraVectorGetter_0045BB80 (0x0045bb80) ---
+  Total: 0 calls
+
+======================================================================
+CurrentCameraGetter_0045C670 @ 0x0045c670
+======================================================================
+  Function: FUN_0045c670 @ 0x0045c670, Size: 15 bytes
+
+void FUN_0045c670(void)
+
+{
+  FUN_00559450();
+  return;
+}
+
+
+
+======================================================================
+SUN LIGHT MATCHES: CurrentCameraGetter_0045C670 @ 0x0045c670
+======================================================================
+  Total matched lines: 0
+
+--- Calls FROM CurrentCameraGetter_0045C670 (0x0045c670) ---
+  0x0045c678 -> 0x00559450 FUN_00559450
+  Total: 1 calls
+
+======================================================================
+Sky sun/current object getter @ 0x0045cd60
+======================================================================
+  Function: FUN_0045cd60 @ 0x0045cd60, Size: 17 bytes
+
+undefined4 __fastcall FUN_0045cd60(int param_1)
+
+{
+  return *(undefined4 *)(param_1 + 0x28);
+}
+
+
+
+======================================================================
+SUN LIGHT MATCHES: Sky sun/current object getter @ 0x0045cd60
+======================================================================
+  L0002: undefined4 __fastcall FUN_0045cd60(int param_1)
+  L0005:   return *(undefined4 *)(param_1 + 0x28);
+  Total matched lines: 2
+
+--- Calls FROM Sky sun/current object getter (0x0045cd60) ---
+  Total: 0 calls
+
+======================================================================
+CameraOrSceneGetter_006629F0 @ 0x006629f0
+======================================================================
+  Function: FUN_006629f0 @ 0x006629f0, Size: 25 bytes
+
+void __fastcall FUN_006629f0(undefined4 param_1)
+
+{
+  FUN_00559450(param_1);
+  return;
+}
+
+
+
+======================================================================
+SUN LIGHT MATCHES: CameraOrSceneGetter_006629F0 @ 0x006629f0
+======================================================================
+  Total matched lines: 0
+
+--- Calls FROM CameraOrSceneGetter_006629F0 (0x006629f0) ---
+  0x00662a00 -> 0x00559450 FUN_00559450
+  Total: 1 calls
+
+======================================================================
+Main render world caller / sky sun path @ 0x00870bd0
+======================================================================
+  Function: FUN_00870bd0 @ 0x00870bd0, Size: 1604 bytes
+
+/* WARNING: Removing unreachable block (ram,0x00870fc6) */
+/* WARNING: Globals starting with '_' overlap smaller symbols at the same address */
+
+void FUN_00870bd0(int param_1,char param_2)
+
+{
+  char cVar1;
+  int iVar2;
+  float *pfVar3;
+  char *pcVar4;
+  undefined4 uVar5;
+  int *piVar6;
+  undefined4 *puVar7;
+  uint uVar8;
+  float10 fVar9;
+  undefined4 *puVar10;
+  undefined4 *puVar11;
+  undefined4 *puVar12;
+  undefined4 uVar13;
+  char local_b1;
+  undefined4 local_b0;
+  undefined4 local_a0;
+  char local_80;
+  undefined4 local_70;
+  undefined4 local_6c;
+  undefined4 local_68;
+  undefined4 local_64;
+  undefined1 local_5d;
+  undefined4 local_5c;
+  undefined4 local_58;
+  undefined4 local_54;
+  undefined4 local_50;
+  undefined4 local_4c;
+  undefined4 local_48;
+  undefined4 local_44;
+  uint local_40;
+  float local_3c;
+  undefined4 local_38;
+  float local_34;
+  float local_30;
+  undefined4 local_2c;
+  char local_27;
+  char local_26;
+  char local_25;
+  undefined4 local_24;
+  CDocTemplate *local_20;
+  undefined1 local_1a;
+  char local_19;
+  undefined1 local_18;
+  char local_17;
+  char local_16;
+  undefined1 local_15;
+  int local_14;
+  undefined1 local_e;
+  byte local_d;
+  CDocManager *local_c;
+  char local_5;
+  
+  local_24 = FUN_0043c4b0();
+  local_c = (CDocManager *)FUN_004e3270();
+  local_14 = 0;
+  FUN_00950bb0(1);
+  local_5 = FUN_00456610();
+  local_18 = FUN_004dc310();
+  FUN_00872ad0();
+  local_14 = FUN_00872b00();
+  FUN_008727d0();
+  local_e = FUN_008749b0();
+  FUN_00871290();
+  local_2c = FUN_00872f50(local_24,param_1,0,local_18);
+  FUN_00874ac0(local_e);
+  FUN_00874b50(local_2c,local_18,5);
+  if ((local_5 == '\0') && (param_2 == '\0')) {
+    FUN_00705910();
+    iVar2 = FUN_005585e0();
+    if ((iVar2 == 0) && (cVar1 = FUN_00705100(), cVar1 == '\0')) {
+      local_80 = '\x01';
+      goto LAB_00870cb7;
+    }
+  }
+  local_80 = '\0';
+LAB_00870cb7:
+  local_17 = local_80;
+  local_d = 0;
+  if ((local_80 != '\0') && (local_14 != 0)) {
+    FUN_0043b230();
+    local_d = FUN_00456610();
+    uVar13 = 1;
+    FUN_0043b230(1);
+    FUN_00450f90(uVar13);
+  }
+  local_16 = '\x01';
+  cVar1 = FUN_004de080();
+  if (cVar1 != '\0') {
+    local_16 = '\0';
+  }
+  local_26 = FUN_00709cb0();
+  if (local_26 != '\0') {
+    local_40 = FUN_004dee10();
+    local_38 = FUN_004dee70();
+    pfVar3 = (float *)FUN_00403e20();
+    fVar9 = (float10)FUN_00706e70();
+    local_34 = (float)(fVar9 * (float10)*pfVar3 * (float10)_DAT_01011588);
+    local_3c = (float)local_40 * local_34;
+    local_30 = (float)local_40 - local_3c;
+    if (local_16 != '\0') {
+      local_a0 = (undefined4)(longlong)ROUND(local_30);
+      local_b0 = (undefined4)(longlong)ROUND(local_3c);
+      FUN_00b4f540(local_b0,0,local_a0,local_38);
+    }
+  }
+  FUN_00873200(local_14,local_17,0,local_e);
+  if ((local_17 != '\0') && (local_14 != 0)) {
+    uVar8 = (uint)local_d;
+    FUN_0043b230(uVar8);
+    FUN_00450f90(uVar8);
+  }
+  local_20 = CDocManager::GetNextDocTemplate(local_c,(__POSITION **)0x4);
+  local_25 = FUN_00871220();
+  cVar1 = FUN_00b8b390(9);
+  if (((cVar1 == '\0') || (iVar2 = FUN_005f36f0(), iVar2 != 0)) ||
+     (pcVar4 = (char *)FUN_00408d60(), *pcVar4 == '\0')) {
+    local_b1 = '\0';
+  }
+  else {
+    local_b1 = '\x01';
+  }
+  local_27 = local_b1;
+  local_1a = 0;
+  local_15 = 0;
+  local_19 = '\0';
+  if ((local_25 != '\0') && (local_17 != '\0')) {
+    local_19 = '\x01';
+    FUN_008746d0(local_2c);
+    FUN_00874b50(local_2c,local_18,0);
+  }
+  cVar1 = FUN_005b9b00();
+  if (cVar1 != '\0') {
+    FUN_00559450();
+    iVar2 = FUN_00b63a90();
+    if (iVar2 != 0) {
+      uVar13 = local_2c;
+      uVar5 = FUN_00559450(local_2c);
+      FUN_00874920(uVar5,uVar13);
+    }
+  }
+  if (local_17 == '\0') {
+    uVar5 = 0x16;
+    uVar13 = 0;
+    FUN_004ea970(0,0x16);
+    FUN_00ba30f0(uVar13,uVar5);
+    uVar5 = 0x16;
+    uVar13 = 1;
+    FUN_004ea970(1,0x16);
+    FUN_00ba3130(uVar13,uVar5);
+  }
+  else {
+    FUN_00874c10();
+    FUN_00874b50(local_2c,local_18,0);
+    if (local_19 == '\0') {
+      uVar5 = 0x16;
+      uVar13 = 1;
+      FUN_004ea970(1,0x16);
+      FUN_00ba3130(uVar13,uVar5);
+    }
+    FUN_00875110(local_24,0,local_14,local_2c);
+  }
+  if (local_25 != '\0') {
+    uVar13 = local_2c;
+    uVar5 = FUN_00559450(local_2c);
+    FUN_00875e40(uVar5,uVar13);
+  }
+  if (((local_27 != '\0') && (iVar2 = FUN_005f36f0(), iVar2 == 0)) &&
+     ((DAT_011dea20 != 0 && (iVar2 = FUN_0045cd60(), iVar2 != 0)))) {
+    piVar6 = (int *)FUN_0045cd60();
+    (**(code **)(*piVar6 + 4))();
+    puVar7 = (undefined4 *)FUN_0045bb80();
+    local_50 = *puVar7;
+    local_4c = puVar7[1];
+    local_48 = puVar7[2];
+    local_58 = 0;
+    local_5c = 0;
+    local_44 = 0;
+    local_54 = FUN_0045c670();
+    puVar7 = &local_58;
+    puVar12 = &local_5c;
+    puVar11 = &local_44;
+    puVar10 = &local_50;
+    uVar13 = _DAT_010718c0;
+    FUN_006629f0(puVar10,puVar11,puVar12,puVar7,_DAT_010718c0);
+    local_5d = FUN_00a6fdb0(puVar10,puVar11,puVar12,puVar7,uVar13);
+    uVar13 = FUN_00452dc0(local_44,local_5c);
+    FUN_004e3270(uVar13);
+    FUN_00b8b1e0(uVar13);
+  }
+  cVar1 = FUN_008709f0();
+  if (cVar1 == '\0') {
+    if (param_1 != 0) {
+      FUN_00876830(local_18,param_1);
+    }
+  }
+  else {
+    FUN_00875fd0(local_18,local_2c,local_24,param_1);
+    cVar1 = FUN_00871260();
+    if (((cVar1 != '\0') || (cVar1 = FUN_005bac20(), cVar1 != '\0')) &&
+       (cVar1 = FUN_00705a00(), cVar1 == '\0')) {
+      FUN_00876a20(local_24);
+    }
+  }
+  if (local_26 != '\0') {
+    if (local_16 != '\0') {
+      FUN_00b540d0();
+    }
+    cVar1 = FUN_004de080();
+    if (cVar1 != '\0') {
+      piVar6 = (int *)FUN_0043c4b0();
+      (**(code **)(*piVar6 + 0xac))(&DAT_011a9bd0);
+      FUN_00414430(0,0,0,0);
+      local_70 = 0;
+      local_6c = _DAT_01026994;
+      local_68 = 0x3f800000;
+      local_64 = 0;
+      uVar13 = 1;
+      puVar7 = &local_70;
+      FUN_0043c4b0(puVar7,1);
+      FUN_007148c0(puVar7,uVar13);
+      local_70 = _DAT_010340a4;
+      local_6c = 0x3f800000;
+      local_68 = 0x3f800000;
+      local_64 = 0;
+      uVar13 = 1;
+      puVar7 = &local_70;
+      FUN_0043c4b0(puVar7,1);
+      FUN_007148c0(puVar7,uVar13);
+    }
+  }
+  FUN_00876850(local_2c,local_c,local_24,local_14);
+  return;
+}
+
+
+
+======================================================================
+SUN LIGHT MATCHES: Main render world caller / sky sun path @ 0x00870bd0
+======================================================================
+  L0175:      ((DAT_011dea20 != 0 && (iVar2 = FUN_0045cd60(), iVar2 != 0)))) {
+  L0176:     piVar6 = (int *)FUN_0045cd60();
+  L0195:     FUN_00b8b1e0(uVar13);
+  Total matched lines: 3
+
+--- Calls FROM Main render world caller / sky sun path (0x00870bd0) ---
+  0x00870bdd -> 0x0043c4b0 FUN_0043c4b0
+  0x00870be5 -> 0x004e3270 FUN_004e3270
+  0x00870bfc -> 0x00950bb0 FUN_00950bb0
+  0x00870c03 -> 0x00456610 FUN_00456610
+  0x00870c0b -> 0x004dc310 FUN_004dc310
+  0x00870c16 -> 0x00872ad0 FUN_00872ad0
+  0x00870c1e -> 0x00872b00 FUN_00872b00
+  0x00870c29 -> 0x008727d0 FUN_008727d0
+  0x00870c31 -> 0x008749b0 FUN_008749b0
+  0x00870c3c -> 0x00871290 FUN_00871290
+  0x00870c53 -> 0x00872f50 FUN_00872f50
+  0x00870c63 -> 0x00874ac0 FUN_00874ac0
+  0x00870c76 -> 0x00874b50 FUN_00874b50
+  0x00870c8b -> 0x00705910 FUN_00705910
+  0x00870c92 -> 0x005585e0 FUN_005585e0
+  0x00870c9b -> 0x00705100 FUN_00705100
+  0x00870cd2 -> 0x0043b230 FUN_0043b230
+  0x00870cd9 -> 0x00456610 FUN_00456610
+  0x00870ce6 -> 0x0043b230 FUN_0043b230
+  0x00870ced -> 0x00450f90 FUN_00450f90
+  0x00870cf6 -> 0x004de080 FUN_004de080
+  0x00870d06 -> 0x00709cb0 FUN_00709cb0
+  0x00870d1d -> 0x004dee10 FUN_004dee10
+  0x00870d28 -> 0x004dee70 FUN_004dee70
+  0x00870d35 -> 0x00403e20 FUN_00403e20
+  0x00870d3c -> 0x00706e70 FUN_00706e70
+  0x00870dfd -> 0x00b4f540 FUN_00b4f540
+  0x00870e18 -> 0x00873200 Main::RenderWorldSceneGraph
+  0x00870e33 -> 0x0043b230 FUN_0043b230
+  0x00870e3a -> 0x00450f90 FUN_00450f90
+  0x00870e44 -> 0x004ebbc0 GetNextDocTemplate
+  0x00870e4f -> 0x00871220 FUN_00871220
+  0x00870e5c -> 0x00b8b390 FUN_00b8b390
+  0x00870e6e -> 0x005f36f0 FUN_005f36f0
+  0x00870e7c -> 0x00408d60 FUN_00408d60
+  0x00870ed0 -> 0x008746d0 FUN_008746d0
+  0x00870ee3 -> 0x00874b50 FUN_00874b50
+  0x00870ee8 -> 0x005b9b00 FUN_005b9b00
+  0x00870efd -> 0x00559450 FUN_00559450
+  0x00870f04 -> 0x00b63a90 FUN_00b63a90
+  0x00870f1a -> 0x00559450 FUN_00559450
+  0x00870f23 -> 0x00874920 FUN_00874920
+  0x00870f33 -> 0x00874c10 FUN_00874c10
+  0x00870f46 -> 0x00874b50 FUN_00874b50
+  0x00870f57 -> 0x004ea970 FUN_004ea970
+  0x00870f5e -> 0x00ba3130 FUN_00ba3130
+  0x00870f74 -> 0x00875110 Main::RenderFirstPerson
+  0x00870f7f -> 0x004ea970 FUN_004ea970
+  0x00870f86 -> 0x00ba30f0 FUN_00ba30f0
+  0x00870f8f -> 0x004ea970 FUN_004ea970
+  0x00870f96 -> 0x00ba3130 FUN_00ba3130
+  0x00870fb4 -> 0x00559450 FUN_00559450
+  0x00870fbd -> 0x00875e40 FUN_00875e40
+  0x00870fd3 -> 0x00559450 FUN_00559450
+  0x00870fdc -> 0x00875fa0 FUN_00875fa0
+  0x00870ff3 -> 0x005f36f0 FUN_005f36f0
+  0x00871013 -> 0x0045cd60 Sky sun/current object getter
+  0x00871026 -> 0x0045cd60 Sky sun/current object getter
+  0x00871046 -> 0x0045bb80 CameraVectorGetter_0045BB80
+  0x0087106d -> 0x0045c670 CurrentCameraGetter_0045C670
+  0x00871092 -> 0x006629f0 CameraOrSceneGetter_006629F0
+  0x00871099 -> 0x00a6fdb0 FUN_00a6fdb0
+  0x008710b2 -> 0x00452dc0 FUN_00452dc0
+  0x008710b8 -> 0x004e3270 FUN_004e3270
+  0x008710bf -> 0x00b8b1e0 Sun/light screen vector downstream candidate
+  0x008710c4 -> 0x008709f0 FUN_008709f0
+  0x008710e4 -> 0x00875fd0 FUN_00875fd0
+  0x008710e9 -> 0x00871260 FUN_00871260
+  0x008710f5 -> 0x005bac20 FUN_005bac20
+  0x00871101 -> 0x00705a00 FUN_00705a00
+  0x00871114 -> 0x00876a20 FUN_00876a20
+  0x0087112d -> 0x00876830 FUN_00876830
+  0x00871146 -> 0x00b540d0 FUN_00b540d0
+  0x0087114b -> 0x004de080 FUN_004de080
+  0x0087115b -> 0x0043c4b0 FUN_0043c4b0
+  0x0087119c -> 0x00414430 FUN_00414430
+  0x008711bf -> 0x0043c4b0 FUN_0043c4b0
+  0x008711c6 -> 0x007148c0 FUN_007148c0
+  0x008711e9 -> 0x0043c4b0 FUN_0043c4b0
+  0x008711f0 -> 0x007148c0 FUN_007148c0
+  0x00871208 -> 0x00876850 FUN_00876850
+  Total: 81 calls
+
+======================================================================
+Main::RenderWorldSceneGraph @ 0x00873200
+======================================================================
+  Function: FUN_00873200 @ 0x00873200, Size: 4698 bytes
+
+void FUN_00873200(int param_1,undefined4 param_2,char param_3,char param_4)
+
+{
+  char cVar1;
+  uint uVar2;
+  int iVar3;
+  CDocManager *this;
+  int *piVar4;
+  undefined4 uVar5;
+  undefined4 uVar6;
+  int *unaff_FS_OFFSET;
+  undefined4 uVar7;
+  undefined1 *puVar8;
+  undefined4 uVar9;
+  undefined4 uVar10;
+  undefined4 uVar11;
+  undefined4 uVar12;
+  __POSITION **pp_Var13;
+  undefined4 uVar14;
+  int local_1bc;
+  int local_1b8;
+  undefined1 local_1b4;
+  undefined1 local_1b0;
+  int local_1a8;
+  int local_1a4;
+  int local_1a0;
+  int local_19c;
+  uint local_198;
+  int local_194;
+  uint local_190;
+  int local_18c;
+  int local_188;
+  int local_184;
+  int local_180;
+  int local_17c;
+  int local_178;
+  int local_174;
+  int local_170;
+  uint local_16c;
+  int local_168;
+  uint local_164;
+  int local_160;
+  uint local_15c;
+  int local_158;
+  int local_154;
+  uint local_150;
+  int local_14c;
+  int local_148;
+  int local_144;
+  uint local_140;
+  int local_13c;
+  int *local_138;
+  uint local_134;
+  int local_130;
+  uint local_12c;
+  undefined1 local_128 [200];
+  undefined4 local_60;
+  undefined1 local_5c [12];
+  int *local_50;
+  int local_4c;
+  undefined1 local_48 [12];
+  undefined1 local_3c [15];
+  byte local_2d;
+  undefined4 local_2c;
+  undefined4 local_28;
+  CDocTemplate *local_24;
+  undefined4 local_1c;
+  undefined4 local_18;
+  undefined4 local_14;
+  int local_10;
+  undefined1 *puStack_c;
+  int local_8;
+  
+  local_8 = 0xffffffff;
+  puStack_c = &LAB_00f1433b;
+  local_10 = *unaff_FS_OFFSET;
+  uVar2 = DAT_011c16bc ^ (uint)&stack0xfffffffc;
+  *unaff_FS_OFFSET = (int)&local_10;
+  local_28 = FUN_0045c670(uVar2);
+  local_14 = FUN_008d80e0();
+  DAT_011f9684 = FUN_006629f0();
+  if (param_1 != 0) {
+    FUN_00642860();
+  }
+  FUN_00950bb0(1);
+  local_2d = FUN_00456610();
+  uVar12 = 1;
+  FUN_00950bb0(1);
+  FUN_00450f90(uVar12);
+  iVar3 = FUN_00559450();
+  *(char *)(iVar3 + 0x38) = '\x01' - (param_3 != '\0');
+  pp_Var13 = (__POSITION **)0x4;
+  this = (CDocManager *)FUN_004e3270();
+  local_24 = CDocManager::GetNextDocTemplate(this,pp_Var13);
+  if ((param_3 == '\0') && (cVar1 = FUN_00871220(), cVar1 != '\0')) {
+    local_1b0 = 1;
+  }
+  else {
+    local_1b0 = 0;
+  }
+  iVar3 = FUN_00559450();
+  *(undefined1 *)(iVar3 + 0x3a) = local_1b0;
+  if ((param_3 == '\0') && (cVar1 = FUN_00871220(), cVar1 != '\0')) {
+    local_1b4 = 1;
+  }
+  else {
+    local_1b4 = 0;
+  }
+  iVar3 = FUN_00559450();
+  *(undefined1 *)(iVar3 + 0x3a) = local_1b4;
+  FUN_00404eb0(0xf,1,"D:\\_Fallout3\\Platforms\\Common\\Code\\Fallout\\Misc\\Main.cpp",0x1eb7);
+  local_8 = 0;
+  local_1c = 0;
+  local_1c = FUN_006629f0();
+  FUN_0041fd00(local_1c);
+  uVar12 = FUN_0045bbe0();
+  FUN_00a694a0(uVar12);
+  uVar12 = FUN_00559450();
+  FUN_004a0fd0(uVar12);
+  if (DAT_011f94b4 == '\0') {
+    FUN_00b6bee0(local_1c,local_28,local_14);
+  }
+  else {
+    FUN_0048f200();
+    local_8._0_1_ = 1;
+    FUN_0048f200();
+    local_8._0_1_ = 2;
+    FUN_0048f200();
+    local_8 = CONCAT31(local_8._1_3_,3);
+    local_60 = FUN_00450b80(0);
+    local_50 = (int *)0x0;
+    local_4c = 0;
+    local_50 = (int *)FUN_0045bc00(0);
+    if ((local_50 != (int *)0x0) && (cVar1 = FUN_00456610(), cVar1 == '\0')) {
+      FUN_004ed8c0(&local_50);
+    }
+    local_50 = (int *)FUN_0045bc00(1);
+    if ((local_50 != (int *)0x0) && (cVar1 = FUN_00456610(), cVar1 == '\0')) {
+      FUN_004ed8c0(&local_50);
+    }
+    local_50 = (int *)FUN_0045bc00(2);
+    if ((local_50 != (int *)0x0) && (cVar1 = FUN_00456610(), cVar1 == '\0')) {
+      local_4c = (**(code **)(*local_50 + 0xc))();
+    }
+    if (local_4c != 0) {
+      local_50 = (int *)FUN_0045bc00(0);
+      if ((local_50 != (int *)0x0) && (cVar1 = FUN_00456610(), cVar1 == '\0')) {
+        FUN_004ed8c0(&local_50);
+      }
+      local_50 = (int *)FUN_0045bc00(1);
+      if ((local_50 != (int *)0x0) && (cVar1 = FUN_00456610(), cVar1 == '\0')) {
+        FUN_004ed8c0(&local_50);
+      }
+      local_50 = (int *)FUN_0045bc00(2);
+      if ((local_50 != (int *)0x0) && (cVar1 = FUN_00456610(), cVar1 == '\0')) {
+        FUN_004ed8c0(&local_50);
+      }
+    }
+    local_50 = (int *)FUN_0045bc00(3);
+    local_4c = (**(code **)(*local_50 + 0xc))();
+    iVar3 = FUN_005f36f0();
+    if (iVar3 == 0) {
+      if ((local_4c != 0) && (cVar1 = FUN_00456610(), cVar1 == '\0')) {
+        local_12c = 0;
+        while (uVar2 = FUN_0043b480(), local_12c < uVar2) {
+          local_50 = (int *)FUN_0043b4a0(local_12c);
+          if (((local_50 != (int *)0x0) &&
+              (local_130 = (**(code **)(*local_50 + 0xc))(), local_130 != 0)) &&
+             (cVar1 = FUN_00456610(), cVar1 == '\0')) {
+            local_134 = 0;
+            while (uVar2 = FUN_0043b480(), local_134 < uVar2) {
+              local_138 = (int *)FUN_0043b4a0(local_134);
+              if (local_138 != (int *)0x0) {
+                local_13c = (**(code **)(*local_138 + 0xc))();
+                if (local_13c == 0) {
+                  uVar2 = local_12c & 0x80000001;
+                  if ((int)uVar2 < 0) {
+                    uVar2 = (uVar2 - 1 | 0xfffffffe) + 1;
+                  }
+                  if (uVar2 == 0) {
+                    FUN_004ed8c0(&local_138);
+                  }
+                  else {
+                    FUN_004ed8c0(&local_138);
+                  }
+                }
+                else {
+                  cVar1 = FUN_00456610();
+                  if (cVar1 == '\0') {
+                    local_140 = (uint)(local_134 == 6);
+                    while (uVar2 = FUN_0043b480(), local_140 < uVar2) {
+                      local_144 = FUN_0043b4a0(local_140);
+                      if ((local_144 != 0) && (cVar1 = FUN_00456610(), cVar1 == '\0')) {
+                        uVar2 = local_12c & 0x80000001;
+                        if ((int)uVar2 < 0) {
+                          uVar2 = (uVar2 - 1 | 0xfffffffe) + 1;
+                        }
+                        if (uVar2 == 0) {
+                          FUN_004ed8c0(&local_144);
+                        }
+                        else {
+                          FUN_004ed8c0(&local_144);
+                        }
+                      }
+                      local_140 = local_140 + 1;
+                    }
+                  }
+                }
+              }
+              local_134 = local_134 + 1;
+            }
+          }
+          local_12c = local_12c + 1;
+        }
+      }
+    }
+    else {
+      FUN_00450b80(0);
+      cVar1 = FUN_00874650();
+      if (cVar1 == '\0') {
+        local_50 = (int *)FUN_0045bc00(2);
+        if ((((local_50 != (int *)0x0) &&
+             (local_4c = (**(code **)(*local_50 + 0xc))(), local_4c != 0)) &&
+            (cVar1 = FUN_00456610(), cVar1 == '\0')) &&
+           ((local_50 = (int *)FUN_0045bc00(7), local_50 != (int *)0x0 &&
+            (local_4c = (**(code **)(*local_50 + 0xc))(), local_4c != 0)))) {
+          local_16c = 0;
+          while (uVar2 = FUN_0043b480(), local_16c < uVar2) {
+            local_170 = FUN_0043b4a0(local_16c);
+            if ((local_170 != 0) && (cVar1 = FUN_00456610(), cVar1 == '\0')) {
+              uVar2 = local_16c & 0x80000001;
+              if ((int)uVar2 < 0) {
+                uVar2 = (uVar2 - 1 | 0xfffffffe) + 1;
+              }
+              if (uVar2 == 0) {
+                FUN_004ed8c0(&local_170);
+              }
+              else {
+                FUN_004ed8c0(&local_170);
+              }
+            }
+            local_16c = local_16c + 1;
+          }
+        }
+      }
+      else {
+        local_50 = (int *)FUN_0045bc00(0);
+        if ((local_50 != (int *)0x0) && (cVar1 = FUN_00456610(), cVar1 == '\0')) {
+          FUN_004ed8c0(&local_50);
+        }
+        local_50 = (int *)FUN_0045bc00(1);
+        if ((local_50 != (int *)0x0) && (cVar1 = FUN_00456610(), cVar1 == '\0')) {
+          FUN_004ed8c0(&local_50);
+        }
+        local_50 = (int *)FUN_0045bc00(2);
+        if (((local_50 != (int *)0x0) &&
+            (local_4c = (**(code **)(*local_50 + 0xc))(), local_4c != 0)) &&
+           (cVar1 = FUN_00456610(), cVar1 == '\0')) {
+          local_15c = 0;
+          while (uVar2 = FUN_0043b480(), local_15c < uVar2) {
+            local_50 = (int *)FUN_0043b4a0(local_15c);
+            if (((local_50 != (int *)0x0) && (local_15c != 4)) &&
+               ((local_15c != 0 &&
+                ((local_160 = (**(code **)(*local_50 + 0xc))(), local_160 != 0 &&
+                 (cVar1 = FUN_00456610(), cVar1 == '\0')))))) {
+              local_164 = (uint)(local_15c == 6);
+              while (uVar2 = FUN_0043b480(), local_164 < uVar2) {
+                local_168 = FUN_0043b4a0(local_164);
+                if ((local_168 != 0) && (cVar1 = FUN_00456610(), cVar1 == '\0')) {
+                  uVar2 = local_164 & 0x80000001;
+                  if ((int)uVar2 < 0) {
+                    uVar2 = (uVar2 - 1 | 0xfffffffe) + 1;
+                  }
+                  if (uVar2 == 0) {
+                    FUN_004ed8c0(&local_168);
+                  }
+                  else {
+                    FUN_004ed8c0(&local_168);
+                  }
+                }
+                local_164 = local_164 + 1;
+              }
+            }
+            local_15c = local_15c + 1;
+          }
+        }
+      }
+      FUN_00450b80(0);
+      local_154 = FUN_00454b30();
+      if (local_154 == 0) {
+        local_1b8 = 0;
+      }
+      else {
+        local_1b8 = FUN_00436aa0();
+      }
+      local_14c = local_1b8;
+      if (local_1b8 == 0) {
+        local_1bc = 0;
+      }
+      else {
+        local_1bc = FUN_00559450();
+      }
+      local_148 = local_1bc;
+      local_150 = 0;
+      while (local_148 != 0) {
+        piVar4 = &local_148;
+        FUN_00436aa0(piVar4);
+        FUN_0057cbe0(piVar4);
+        local_174 = FUN_00559450();
+        if (local_174 != 0) {
+          FUN_006ab360();
+          cVar1 = FUN_0076b610();
+          if (cVar1 == '\0') {
+            FUN_006ab360();
+            local_178 = FUN_00559450();
+            while (local_178 != 0) {
+              piVar4 = &local_178;
+              FUN_006ab360(piVar4);
+              piVar4 = (int *)FUN_0057cbe0(piVar4);
+              local_17c = *piVar4;
+              if (local_17c != 0) {
+                uVar12 = FUN_0045c4c0();
+                cVar1 = FUN_00c4f320(uVar12);
+                if ((cVar1 != '\0') && (local_180 = FUN_0045c4c0(), local_180 != 0)) {
+                  iVar3 = FUN_00874480();
+                  if ((iVar3 != 0) && (iVar3 = FUN_009b4440(), iVar3 != 0)) {
+                    iVar3 = local_17c;
+                    uVar12 = FUN_0084e3a0(local_17c);
+                    FUN_00450b80(0,uVar12);
+                    FUN_00b5ba80(uVar12,iVar3);
+                  }
+                  uVar2 = local_150 & 0x80000001;
+                  if ((int)uVar2 < 0) {
+                    uVar2 = (uVar2 - 1 | 0xfffffffe) + 1;
+                  }
+                  if (uVar2 == 0) {
+                    local_1a0 = local_180;
+                    FUN_004ed8c0(&local_1a0);
+                  }
+                  else {
+                    local_19c = local_180;
+                    FUN_004ed8c0(&local_19c);
+                  }
+                  local_150 = local_150 + 1;
+                }
+              }
+            }
+          }
+        }
+      }
+      FUN_00450b80(0);
+      cVar1 = FUN_00874650();
+      if (cVar1 != '\0') {
+        FUN_007d6bb0();
+        local_184 = FUN_00559450();
+        while (local_184 != 0) {
+          piVar4 = &local_184;
+          FUN_007d6bb0(piVar4);
+          piVar4 = (int *)FUN_0057cbe0(piVar4);
+          local_188 = *piVar4;
+          if (local_188 != 0) {
+            uVar12 = FUN_0045c4c0();
+            cVar1 = FUN_00c4f320(uVar12);
+            if ((cVar1 != '\0') && (local_18c = FUN_0045c4c0(), local_18c != 0)) {
+              uVar2 = local_150 & 0x80000001;
+              if ((int)uVar2 < 0) {
+                uVar2 = (uVar2 - 1 | 0xfffffffe) + 1;
+              }
+              if (uVar2 == 0) {
+                local_1a8 = local_18c;
+                FUN_004ed8c0(&local_1a8);
+              }
+              else {
+                local_1a4 = local_18c;
+                FUN_004ed8c0(&local_1a4);
+              }
+              local_150 = local_150 + 1;
+            }
+          }
+        }
+      }
+      FUN_00457070();
+      local_158 = FUN_009d9f20();
+      if (local_158 != 0) {
+        local_190 = 0;
+        while (uVar2 = FUN_00c5b5d0(), local_190 < uVar2) {
+          local_194 = FUN_00c5b5a0(local_190);
+          if (local_194 != 0) {
+            FUN_004ed8c0(&local_194);
+          }
+          local_190 = local_190 + 1;
+        }
+      }
+    }
+    local_50 = (int *)FUN_0045bc00(4);
+    if ((local_50 != (int *)0x0) && (cVar1 = FUN_00456610(), cVar1 == '\0')) {
+      FUN_004ed8c0(&local_50);
+    }
+    local_50 = (int *)FUN_0045bc00(5);
+    if ((local_50 != (int *)0x0) && (cVar1 = FUN_00456610(), cVar1 == '\0')) {
+      FUN_004ed8c0(&local_50);
+    }
+    local_50 = (int *)FUN_0045bc00(6);
+    if ((local_50 != (int *)0x0) && (cVar1 = FUN_00456610(), cVar1 == '\0')) {
+      FUN_004ed8c0(&local_50);
+    }
+    local_198 = 7;
+    while (uVar2 = FUN_0043b480(), local_198 < uVar2) {
+      local_50 = (int *)FUN_0043b4a0(local_198);
+      if ((local_50 != (int *)0x0) && (cVar1 = FUN_00456610(), cVar1 == '\0')) {
+        uVar2 = local_198 & 0x80000001;
+        if ((int)uVar2 < 0) {
+          uVar2 = (uVar2 - 1 | 0xfffffffe) + 1;
+        }
+        if (uVar2 == 0) {
+          FUN_004ed8c0(&local_50);
+        }
+        else {
+          FUN_004ed8c0(&local_50);
+        }
+      }
+      local_198 = local_198 + 1;
+    }
+    FUN_0041fd00(local_1c);
+    uVar12 = local_14;
+    FUN_00450b80(0,local_14);
+    FUN_00b5e870(uVar12);
+    FUN_00450b80(0);
+    iVar3 = FUN_00874670();
+    if (iVar3 != 0) {
+      FUN_00450b80(0);
+      FUN_00874670();
+      FUN_00c49850();
+    }
+    piVar4 = (int *)FUN_00559450();
+    (**(code **)(*piVar4 + 0x8c))(local_1c);
+    uVar12 = FUN_00559450();
+    FUN_00b54ac0(uVar12);
+    uVar12 = FUN_00559450();
+    FUN_0043c4b0(uVar12);
+    FUN_004dc540(uVar12);
+    uVar14 = 1;
+    uVar11 = 0x15;
+    uVar10 = 0;
+    uVar5 = FUN_00559450(0,0x15,1);
+    uVar9 = 0;
+    puVar8 = local_5c;
+    uVar7 = 0;
+    FUN_00450b80(0,0,puVar8,0,uVar5);
+    uVar6 = FUN_00874670();
+    uVar12 = local_1c;
+    FUN_004ea970(local_1c,uVar6);
+    FUN_00ba3390(uVar12,uVar6,uVar7,puVar8,uVar9,uVar5,uVar10,uVar11,uVar14);
+    uVar5 = 0x15;
+    uVar12 = 0;
+    FUN_004ea970(0,0x15);
+    FUN_00ba30f0(uVar12,uVar5);
+    *(undefined4 *)(*(int *)(unaff_FS_OFFSET[0xb] + _tls_index * 4) + 700) = 0;
+    FUN_004a0eb0(0);
+    local_8._0_1_ = 4;
+    FUN_0041fd00(local_1c);
+    uVar12 = FUN_00559450();
+    FUN_004a0fd0(uVar12);
+    FUN_00450b80(0);
+    uVar12 = FUN_00874670();
+    FUN_00874460(uVar12);
+    FUN_00b6bfc0(local_1c,local_48,local_128);
+    FUN_00874460(0);
+    FUN_00b6bfc0(local_1c,local_3c,local_128);
+    uVar5 = 0x15;
+    uVar12 = 1;
+    FUN_004ea970(1,0x15);
+    FUN_00ba3130(uVar12,uVar5);
+    FUN_004ed900();
+    FUN_004ed900();
+    local_8._0_1_ = 3;
+    FUN_004a0f60();
+    local_8._0_1_ = 2;
+    FUN_004a1a30();
+    local_8._0_1_ = 1;
+    FUN_004a1a30();
+    local_8 = (uint)local_8._1_3_ << 8;
+    FUN_004a1a30();
+  }
+  uVar12 = FUN_00559450(1);
+  uVar12 = FUN_006629f0(uVar12);
+  FUN_00b6ba20(uVar12);
+  if (param_4 != '\0') {
+    FUN_00b98380(0,1);
+    uVar10 = 0;
+    uVar9 = 0;
+    uVar7 = 0;
+    uVar6 = 1;
+    uVar5 = 2;
+    uVar12 = 0;
+    FUN_00705910(0,2,1,0,0,0);
+    FUN_00800f30(uVar12,uVar5,uVar6,uVar7,uVar9,uVar10);
+    FUN_004eced0(1);
+  }
+  uVar12 = FUN_00559450(1);
+  uVar12 = FUN_006629f0(uVar12);
+  FUN_00b6b930(uVar12);
+  if (DAT_011f94b4 != '\0') {
+    uVar12 = local_14;
+    FUN_00450b80(0,local_14);
+    FUN_00a89af0(uVar12);
+  }
+  FUN_004a0fd0(0);
+  FUN_00404f70();
+  iVar3 = FUN_00559450();
+  *(undefined1 *)(iVar3 + 0x38) = 0;
+  iVar3 = FUN_00559450();
+  *(undefined1 *)(iVar3 + 0x3a) = 0;
+  FUN_008746c0();
+  local_2c = FUN_004a0e90();
+  FUN_0045c670();
+  local_18 = FUN_008d80e0();
+  FUN_004fb0b0(1);
+  FUN_00559450();
+  uVar12 = FUN_006629f0();
+  FUN_00b803b0(uVar12);
+  uVar12 = FUN_00874690();
+  FUN_0041fd00(uVar12);
+  uVar12 = FUN_00559450();
+  FUN_004a0fd0(uVar12);
+  uVar12 = FUN_005bac50(local_18);
+  uVar12 = FUN_00874690(uVar12);
+  FUN_00b6bee0(uVar12);
+  uVar12 = FUN_00559450(0);
+  uVar12 = FUN_00874690(uVar12);
+  FUN_00b6c0d0(uVar12);
+  FUN_004a0fd0(0);
+  FUN_004fb0b0(0);
+  FUN_008746c0();
+  local_2c = FUN_004a0e90();
+  FUN_0045c670();
+  local_18 = FUN_008d80e0();
+  FUN_004fb0b0(1);
+  FUN_00559450();
+  uVar12 = FUN_006629f0();
+  FUN_00b803b0(uVar12);
+  uVar12 = FUN_008746b0();
+  FUN_0041fd00(uVar12);
+  uVar12 = FUN_00559450();
+  FUN_004a0fd0(uVar12);
+  uVar12 = FUN_008746a0(local_18);
+  uVar12 = FUN_008746b0(uVar12);
+  FUN_00b6bee0(uVar12);
+  uVar12 = FUN_00559450(0);
+  uVar12 = FUN_008746b0(uVar12);
+  FUN_00b6c0d0(uVar12);
+  FUN_004a0fd0(0);
+  FUN_004fb0b0(0);
+  piVar4 = (int *)FUN_0043d4d0();
+  if (1 < *piVar4) {
+    FUN_008c80e0(0);
+  }
+  if (DAT_011f94a9 != '\0') {
+    uVar12 = FUN_006629f0();
+    FUN_008744a0(uVar12);
+  }
+  if (param_1 != 0) {
+    FUN_00559450();
+    uVar12 = FUN_006629f0();
+    uVar5 = FUN_00559450(uVar12);
+    FUN_006426a0(1,uVar5,uVar12);
+  }
+  FUN_00872dd0(0,0);
+  uVar2 = (uint)local_2d;
+  FUN_00950bb0(1);
+  FUN_00450f90(uVar2);
+  local_8 = 0xffffffff;
+  FUN_00404ee0();
+  *unaff_FS_OFFSET = local_10;
+  return;
+}
+
+
+
+======================================================================
+SUN LIGHT MATCHES: Main::RenderWorldSceneGraph @ 0x00873200
+======================================================================
+  Total matched lines: 0
+
+--- Calls FROM Main::RenderWorldSceneGraph (0x00873200) ---
+  0x0087322f -> 0x0045c670 CurrentCameraGetter_0045C670
+  0x0087323a -> 0x008d80e0 FUN_008d80e0
+  0x00873245 -> 0x006629f0 CameraOrSceneGetter_006629F0
+  0x00873258 -> 0x00642860 FUN_00642860
+  0x00873265 -> 0x00950bb0 FUN_00950bb0
+  0x0087326c -> 0x00456610 FUN_00456610
+  0x0087327e -> 0x00950bb0 FUN_00950bb0
+  0x00873285 -> 0x00450f90 FUN_00450f90
+  0x008732a1 -> 0x00559450 FUN_00559450
+  0x008732ab -> 0x004e3270 FUN_004e3270
+  0x008732b2 -> 0x004ebbc0 GetNextDocTemplate
+  0x008732c5 -> 0x00871220 FUN_00871220
+  0x008732f3 -> 0x00559450 FUN_00559450
+  0x0087330c -> 0x00871220 FUN_00871220
+  0x0087333a -> 0x00559450 FUN_00559450
+  0x00873359 -> 0x00404eb0 FUN_00404eb0
+  0x0087336f -> 0x006629f0 CameraOrSceneGetter_006629F0
+  0x0087337e -> 0x0041fd00 FUN_0041fd00
+  0x00873386 -> 0x0045bbe0 FUN_0045bbe0
+  0x0087338f -> 0x00a694a0 FUN_00a694a0
+  0x008733a0 -> 0x00559450 FUN_00559450
+  0x008733a9 -> 0x004a0fd0 FUN_004a0fd0
+  0x008733c0 -> 0x0048f200 FUN_0048f200
+  0x008733cc -> 0x0048f200 FUN_0048f200
+  0x008733d8 -> 0x0048f200 FUN_0048f200
+  0x008733e3 -> 0x00450b80 FUN_00450b80
+  0x00873401 -> 0x0045bc00 FUN_0045bc00
+  0x00873412 -> 0x00456610 FUN_00456610
+  0x00873425 -> 0x004ed8c0 FUN_004ed8c0
+  0x0087342f -> 0x0045bc00 FUN_0045bc00
+  0x00873440 -> 0x00456610 FUN_00456610
+  0x00873453 -> 0x004ed8c0 FUN_004ed8c0
+  0x0087345d -> 0x0045bc00 FUN_0045bc00
+  0x0087346e -> 0x00456610 FUN_00456610
+  0x00873499 -> 0x0045bc00 FUN_0045bc00
+  0x008734aa -> 0x00456610 FUN_00456610
+  0x008734bd -> 0x004ed8c0 FUN_004ed8c0
+  0x008734c7 -> 0x0045bc00 FUN_0045bc00
+  0x008734d8 -> 0x00456610 FUN_00456610
+  0x008734eb -> 0x004ed8c0 FUN_004ed8c0
+  0x008734f5 -> 0x0045bc00 FUN_0045bc00
+  0x00873506 -> 0x00456610 FUN_00456610
+  0x00873519 -> 0x004ed8c0 FUN_004ed8c0
+  0x00873523 -> 0x0045bc00 FUN_0045bc00
+  0x00873541 -> 0x005f36f0 FUN_005f36f0
+  0x0087355b -> 0x00456610 FUN_00456610
+  0x00873589 -> 0x0043b480 FUN_0043b480
+  0x008735a4 -> 0x0043b4a0 FUN_0043b4a0
+  0x008735dc -> 0x00456610 FUN_00456610
+  0x0087360d -> 0x0043b480 FUN_0043b480
+  0x0087362b -> 0x0043b4a0 FUN_0043b4a0
+  0x0087366f -> 0x00456610 FUN_00456610
+  0x008736b3 -> 0x0043b480 FUN_0043b480
+  0x008736cd -> 0x0043b4a0 FUN_0043b4a0
+  0x008736e7 -> 0x00456610 FUN_00456610
+  0x00873714 -> 0x004ed8c0 FUN_004ed8c0
+  0x00873725 -> 0x004ed8c0 FUN_004ed8c0
+  0x00873752 -> 0x004ed8c0 FUN_004ed8c0
+  0x00873763 -> 0x004ed8c0 FUN_004ed8c0
+  0x00873779 -> 0x00450b80 FUN_00450b80
+  0x00873783 -> 0x00874650 FUN_00874650
+  0x00873798 -> 0x0045bc00 FUN_0045bc00
+  0x008737a9 -> 0x00456610 FUN_00456610
+  0x008737bc -> 0x004ed8c0 FUN_004ed8c0
+  0x008737c6 -> 0x0045bc00 FUN_0045bc00
+  0x008737d7 -> 0x00456610 FUN_00456610
+  0x008737ea -> 0x004ed8c0 FUN_004ed8c0
+  0x008737f4 -> 0x0045bc00 FUN_0045bc00
+  0x00873823 -> 0x00456610 FUN_00456610
+  0x00873851 -> 0x0043b480 FUN_0043b480
+  0x0087386c -> 0x0043b4a0 FUN_0043b4a0
+  0x008738be -> 0x00456610 FUN_00456610
+  0x00873902 -> 0x0043b480 FUN_0043b480
+  0x0087391c -> 0x0043b4a0 FUN_0043b4a0
+  0x00873936 -> 0x00456610 FUN_00456610
+  0x00873963 -> 0x004ed8c0 FUN_004ed8c0
+  0x00873974 -> 0x004ed8c0 FUN_004ed8c0
+  0x0087398d -> 0x0045bc00 FUN_0045bc00
+  0x008739bc -> 0x00456610 FUN_00456610
+  0x008739d1 -> 0x0045bc00 FUN_0045bc00
+  0x00873a1b -> 0x0043b480 FUN_0043b480
+  0x00873a32 -> 0x0043b4a0 FUN_0043b4a0
+  0x00873a4c -> 0x00456610 FUN_00456610
+  0x00873a79 -> 0x004ed8c0 FUN_004ed8c0
+  0x00873a8a -> 0x004ed8c0 FUN_004ed8c0
+  0x00873a96 -> 0x00450b80 FUN_00450b80
+  0x00873aa0 -> 0x00454b30 FUN_00454b30
+  0x00873aba -> 0x00436aa0 FUN_00436aa0
+  0x00873aec -> 0x00559450 FUN_00559450
+  0x00873b33 -> 0x00436aa0 FUN_00436aa0
+  0x00873b3a -> 0x0057cbe0 FUN_0057cbe0
+  0x00873b41 -> 0x00559450 FUN_00559450
+  0x00873b5f -> 0x006ab360 FUN_006ab360
+  0x00873b66 -> 0x0076b610 FUN_0076b610
+  0x00873b7c -> 0x006ab360 FUN_006ab360
+  0x00873b83 -> 0x00559450 FUN_00559450
+  0x00873ba8 -> 0x006ab360 FUN_006ab360
+  0x00873baf -> 0x0057cbe0 FUN_0057cbe0
+  0x00873bcf -> 0x0045c4c0 FUN_0045c4c0
+  0x00873bd8 -> 0x00c4f320 FUN_00c4f320
+  0x00873bee -> 0x0045c4c0 FUN_0045c4c0
+  0x00873c0c -> 0x00874480 FUN_00874480
+  0x00873c1b -> 0x009b4440 FUN_009b4440
+  0x00873c2e -> 0x0084e3a0 FUN_0084e3a0
+  0x00873c36 -> 0x00450b80 FUN_00450b80
+  0x00873c40 -> 0x00b5ba80 FUN_00b5ba80
+  0x00873c71 -> 0x004ed8c0 FUN_004ed8c0
+  0x00873c8e -> 0x004ed8c0 FUN_004ed8c0
+  0x00873cae -> 0x00450b80 FUN_00450b80
+  0x00873cb8 -> 0x00874650 FUN_00874650
+  0x00873cce -> 0x007d6bb0 FUN_007d6bb0
+  0x00873cd5 -> 0x00559450 FUN_00559450
+  0x00873cfa -> 0x007d6bb0 FUN_007d6bb0
+  0x00873d01 -> 0x0057cbe0 FUN_0057cbe0
+  0x00873d21 -> 0x0045c4c0 FUN_0045c4c0
+  0x00873d2a -> 0x00c4f320 FUN_00c4f320
+  0x00873d3c -> 0x0045c4c0 FUN_0045c4c0
+  0x00873d7d -> 0x004ed8c0 FUN_004ed8c0
+  0x00873d9a -> 0x004ed8c0 FUN_004ed8c0
+  0x00873db9 -> 0x00457070 FUN_00457070
+  0x00873dc0 -> 0x009d9f20 FUN_009d9f20
+  0x00873df5 -> 0x00c5b5d0 FUN_00c5b5d0
+  0x00873e0f -> 0x00c5b5a0 FUN_00c5b5a0
+  0x00873e2d -> 0x004ed8c0 FUN_004ed8c0
+  0x00873e39 -> 0x0045bc00 FUN_0045bc00
+  0x00873e4a -> 0x00456610 FUN_00456610
+  0x00873e5d -> 0x004ed8c0 FUN_004ed8c0
+  0x00873e67 -> 0x0045bc00 FUN_0045bc00
+  0x00873e78 -> 0x00456610 FUN_00456610
+  0x00873e8b -> 0x004ed8c0 FUN_004ed8c0
+  0x00873e95 -> 0x0045bc00 FUN_0045bc00
+  0x00873ea6 -> 0x00456610 FUN_00456610
+  0x00873eb9 -> 0x004ed8c0 FUN_004ed8c0
+  0x00873edc -> 0x0043b480 FUN_0043b480
+  0x00873ef3 -> 0x0043b4a0 FUN_0043b4a0
+  0x00873f04 -> 0x00456610 FUN_00456610
+  0x00873f2e -> 0x004ed8c0 FUN_004ed8c0
+  0x00873f3c -> 0x004ed8c0 FUN_004ed8c0
+  0x00873f4a -> 0x0041fd00 FUN_0041fd00
+  0x00873f55 -> 0x00450b80 FUN_00450b80
+  0x00873f5f -> 0x00b5e870 FUN_00b5e870
+  0x00873f66 -> 0x00450b80 FUN_00450b80
+  0x00873f70 -> 0x00874670 FUN_00874670
+  0x00873f7b -> 0x00450b80 FUN_00450b80
+  0x00873f85 -> 0x00874670 FUN_00874670
+  0x00873f8c -> 0x00c49850 FUN_00c49850
+  0x00873f9d -> 0x00559450 FUN_00559450
+  0x00873fce -> 0x00559450 FUN_00559450
+  0x00873fd4 -> 0x00b54ac0 FUN_00b54ac0
+  0x00873fe8 -> 0x00559450 FUN_00559450
+  0x00873fee -> 0x0043c4b0 FUN_0043c4b0
+  0x00873ff5 -> 0x004dc540 FUN_004dc540
+  0x0087400c -> 0x00559450 FUN_00559450
+  0x0087401c -> 0x00450b80 FUN_00450b80
+  0x00874026 -> 0x00874670 FUN_00874670
+  0x00874030 -> 0x004ea970 FUN_004ea970
+  0x00874037 -> 0x00ba3390 FUN_00ba3390
+  0x00874040 -> 0x004ea970 FUN_004ea970
+  0x00874047 -> 0x00ba30f0 FUN_00ba30f0
+  0x0087406d -> 0x004a0eb0 FUN_004a0eb0
+  0x00874080 -> 0x0041fd00 FUN_0041fd00
+  0x00874091 -> 0x00559450 FUN_00559450
+  0x0087409d -> 0x004a0fd0 FUN_004a0fd0
+  0x008740a4 -> 0x00450b80 FUN_00450b80
+  0x008740ae -> 0x00874670 FUN_00874670
+  0x008740ba -> 0x00874460 FUN_00874460
+  0x008740ce -> 0x00b6bfc0 FUN_00b6bfc0
+  0x008740de -> 0x00874460 FUN_00874460
+  0x008740f2 -> 0x00b6bfc0 FUN_00b6bfc0
+  0x008740fe -> 0x004ea970 FUN_004ea970
+  0x00874105 -> 0x00ba3130 FUN_00ba3130
+  0x0087410d -> 0x004ed900 FUN_004ed900
+  0x00874115 -> 0x004ed900 FUN_004ed900
+  0x00874124 -> 0x004a0f60 FUN_004a0f60
+  0x00874130 -> 0x004a1a30 FUN_004a1a30
+  0x0087413c -> 0x004a1a30 FUN_004a1a30
+  0x00874148 -> 0x004a1a30 FUN_004a1a30
+  0x0087415b -> 0x00b6bee0 FUN_00b6bee0
+  0x00874171 -> 0x00559450 FUN_00559450
+  0x0087417a -> 0x006629f0 CameraOrSceneGetter_006629F0
+  0x00874180 -> 0x00b6ba20 FUN_00b6ba20
+  0x00874194 -> 0x00b98380 FUN_00b98380
+  0x008741a8 -> 0x00705910 FUN_00705910
+  0x008741af -> 0x00800f30 FUN_00800f30
+  0x008741b6 -> 0x004eced0 FUN_004eced0
+  0x008741cc -> 0x00559450 FUN_00559450
+  0x008741d5 -> 0x006629f0 CameraOrSceneGetter_006629F0
+  0x008741db -> 0x00b6b930 FUN_00b6b930
+  0x008741f4 -> 0x00450b80 FUN_00450b80
+  0x008741fe -> 0x00a89af0 FUN_00a89af0
+  0x00874208 -> 0x004a0fd0 FUN_004a0fd0
+  0x00874210 -> 0x00404f70 FUN_00404f70
+  0x00874221 -> 0x00559450 FUN_00559450
+  0x00874236 -> 0x00559450 FUN_00559450
+  0x0087423f -> 0x008746c0 FUN_008746c0
+  0x00874244 -> 0x004a0e90 FUN_004a0e90
+  0x0087424c -> 0x0045c670 CurrentCameraGetter_0045C670
+  0x00874253 -> 0x008d80e0 FUN_008d80e0
+  0x00874260 -> 0x004fb0b0 FUN_004fb0b0
+  0x0087426a -> 0x00559450 FUN_00559450
+  0x00874271 -> 0x006629f0 CameraOrSceneGetter_006629F0
+  0x00874277 -> 0x00b803b0 FUN_00b803b0
+  0x0087427f -> 0x00874690 FUN_00874690
+  0x00874288 -> 0x0041fd00 FUN_0041fd00
+  0x00874299 -> 0x00559450 FUN_00559450
+  0x008742a2 -> 0x004a0fd0 FUN_004a0fd0
+  0x008742ab -> 0x005bac50 FUN_005bac50
+  0x008742b1 -> 0x00874690 FUN_00874690
+  0x008742b7 -> 0x00b6bee0 FUN_00b6bee0
+  0x008742cd -> 0x00559450 FUN_00559450
+  0x008742d3 -> 0x00874690 FUN_00874690
+  0x008742d9 -> 0x00b6c0d0 FUN_00b6c0d0
+  0x008742e6 -> 0x004a0fd0 FUN_004a0fd0
+  0x008742f0 -> 0x004fb0b0 FUN_004fb0b0
+  0x008742f5 -> 0x008746c0 FUN_008746c0
+  0x008742fa -> 0x004a0e90 FUN_004a0e90
+  0x00874302 -> 0x0045c670 CurrentCameraGetter_0045C670
+  0x00874309 -> 0x008d80e0 FUN_008d80e0
+  0x00874316 -> 0x004fb0b0 FUN_004fb0b0
+  0x00874320 -> 0x00559450 FUN_00559450
+  0x00874327 -> 0x006629f0 CameraOrSceneGetter_006629F0
+  0x0087432d -> 0x00b803b0 FUN_00b803b0
+  0x00874335 -> 0x008746b0 FUN_008746b0
+  0x0087433e -> 0x0041fd00 FUN_0041fd00
+  0x0087434f -> 0x00559450 FUN_00559450
+  0x00874358 -> 0x004a0fd0 FUN_004a0fd0
+  0x00874361 -> 0x008746a0 FUN_008746a0
+  0x00874367 -> 0x008746b0 FUN_008746b0
+  0x0087436d -> 0x00b6bee0 FUN_00b6bee0
+  0x00874383 -> 0x00559450 FUN_00559450
+  0x00874389 -> 0x008746b0 FUN_008746b0
+  0x0087438f -> 0x00b6c0d0 FUN_00b6c0d0
+  0x0087439c -> 0x004a0fd0 FUN_004a0fd0
+  0x008743a6 -> 0x004fb0b0 FUN_004fb0b0
+  0x008743b0 -> 0x0043d4d0 FUN_0043d4d0
+  0x008743bc -> 0x008c80e0 FUN_008c80e0
+  0x008743d2 -> 0x006629f0 CameraOrSceneGetter_006629F0
+  0x008743d8 -> 0x008744a0 FUN_008744a0
+  0x008743eb -> 0x00559450 FUN_00559450
+  0x008743f2 -> 0x006629f0 CameraOrSceneGetter_006629F0
+  0x00874404 -> 0x00559450 FUN_00559450
+  0x0087440f -> 0x006426a0 FUN_006426a0
+  0x00874418 -> 0x00872dd0 FUN_00872dd0
+  0x0087442d -> 0x00950bb0 FUN_00950bb0
+  0x00874434 -> 0x00450f90 FUN_00450f90
+  0x00874443 -> 0x00404ee0 FUN_00404ee0
+  Total: 246 calls
+
+======================================================================
+Main::RenderFirstPerson @ 0x00875110
+======================================================================
+  Function: FUN_00875110 @ 0x00875110, Size: 2751 bytes
+
+void __thiscall
+FUN_00875110(int param_1,undefined4 param_2,int param_3,int param_4,undefined4 param_5)
+
+{
+  char cVar1;
+  uint uVar2;
+  int iVar3;
+  int *piVar4;
+  int *piVar5;
+  int iVar6;
+  int *unaff_FS_OFFSET;
+  float10 fVar7;
+  float fVar8;
+  undefined4 uVar9;
+  undefined1 *puVar10;
+  undefined4 uVar11;
+  undefined4 *puVar12;
+  undefined4 uVar13;
+  undefined4 local_d0;
+  undefined1 local_bc [12];
+  undefined1 local_b0 [12];
+  int local_a4;
+  undefined4 local_a0;
+  cancellation_token_source local_8c [4];
+  undefined4 local_88;
+  byte local_81;
+  undefined4 local_80;
+  undefined4 local_7c;
+  undefined1 local_78 [12];
+  undefined4 local_6c;
+  int *local_64;
+  undefined4 local_60;
+  undefined4 local_5c;
+  undefined4 local_58;
+  cancellation_token_source local_54 [7];
+  char local_4d;
+  undefined4 local_4c;
+  undefined4 local_48;
+  undefined4 local_44;
+  undefined4 local_40;
+  undefined4 local_3c;
+  undefined4 local_38;
+  int local_34;
+  cancellation_token_source local_30 [4];
+  int local_2c;
+  undefined4 local_28;
+  undefined4 local_20;
+  undefined4 local_1c;
+  undefined4 local_18;
+  undefined4 local_14;
+  int local_10;
+  undefined1 *puStack_c;
+  uint local_8;
+  
+  local_8 = 0xffffffff;
+  puStack_c = &LAB_00f143d0;
+  local_10 = *unaff_FS_OFFSET;
+  uVar2 = DAT_011c16bc ^ (uint)&stack0xfffffffc;
+  *unaff_FS_OFFSET = (int)&local_10;
+  local_14 = FUN_0045c670(uVar2);
+  local_1c = FUN_008d80e0();
+  local_28 = FUN_00950bb0(1);
+  FUN_00450f90(0);
+  local_18 = FUN_006629f0();
+  local_20 = local_28;
+  uVar11 = 0x16;
+  uVar9 = 1;
+  FUN_004ea970(1,0x16);
+  FUN_00ba3130(uVar9,uVar11);
+  iVar3 = FUN_00559450();
+  *(undefined1 *)(iVar3 + 0x3a) = 0;
+  FUN_00404eb0(0x34,1,"D:\\_Fallout3\\Platforms\\Common\\Code\\Fallout\\Misc\\Main.cpp",0x221f);
+  local_8 = 0;
+  FUN_007148c0(0,4);
+  if (DAT_011f9426 == '\0') {
+LAB_00875266:
+    uVar9 = FUN_00414430(0,0x3f800000,0x3f800000,0);
+    FUN_00559450(uVar9);
+    FUN_00712e60(uVar9);
+  }
+  else {
+    piVar4 = (int *)FUN_0043c4b0();
+    iVar3 = (**(code **)(*piVar4 + 0xcc))();
+    if (iVar3 != 0) {
+      piVar4 = (int *)FUN_0043c4b0();
+      piVar5 = (int *)FUN_0043c4b0();
+      iVar3 = (**(code **)(*piVar5 + 200))();
+      iVar6 = (**(code **)(*piVar4 + 0xcc))();
+      if (iVar6 != iVar3) goto LAB_00875266;
+    }
+    puVar12 = &DAT_011ad840;
+    FUN_00559450(&DAT_011ad840);
+    FUN_00712e60(puVar12);
+  }
+  uVar13 = 0;
+  uVar11 = 0;
+  uVar9 = 0;
+  fVar7 = (float10)FUN_00874900(0,0,0);
+  FUN_00c52020((float)fVar7,uVar9,uVar11,uVar13);
+  fVar7 = (float10)FUN_00874900();
+  FUN_00b54000((float)fVar7);
+  uVar9 = FUN_0045bbe0();
+  FUN_00559450(uVar9);
+  FUN_00a6faf0(uVar9);
+  if (param_3 != 0) {
+    uVar9 = 0;
+    FUN_00707ad0(0);
+    FUN_007fae70(uVar9);
+    FUN_00450f90(0);
+    cVar1 = FUN_007079b0();
+    if (cVar1 != '\0') {
+      cVar1 = FUN_00705a00();
+      if ((cVar1 != '\0') && (cVar1 = FUN_008c51c0(), cVar1 != '\0')) {
+        uVar9 = 1;
+        FUN_00707ad0(1);
+        FUN_007fa950();
+        FUN_00450f90(uVar9);
+      }
+      local_a4 = FUN_00aa13e0(0x280);
+      local_8._0_1_ = 1;
+      if (local_a4 == 0) {
+        local_d0 = 0;
+      }
+      else {
+        local_d0 = FUN_00b660d0(99,1,0x2f7);
+      }
+      local_a0 = local_d0;
+      local_8._0_1_ = 0;
+      FUN_00633c90(local_d0);
+      local_8 = CONCAT31(local_8._1_3_,2);
+      FUN_00c4f270(1);
+      uVar9 = FUN_0040df90();
+      FUN_00707ad0(uVar9);
+      FUN_007fa950();
+      local_2c = FUN_00a59d30(uVar9);
+      if (local_2c != 0) {
+        FUN_0049ed90(0);
+      }
+      uVar9 = 0;
+      FUN_00707ad0(0);
+      FUN_007fae70(uVar9);
+      uVar9 = FUN_00559450();
+      FUN_004a0fd0(uVar9);
+      cVar1 = FUN_00705a00();
+      if ((cVar1 != '\0') && (cVar1 = FUN_008c51c0(), cVar1 != '\0')) {
+        uVar9 = 0;
+        FUN_00705990(0,local_1c);
+        uVar9 = FUN_00875bd0(uVar9);
+        uVar9 = FUN_00559450(uVar9);
+        FUN_00b6bee0(uVar9);
+        uVar9 = 1;
+        FUN_00705990(1,local_1c);
+        uVar9 = FUN_00875bd0(uVar9);
+        uVar9 = FUN_00559450(uVar9);
+        FUN_00b6bee0(uVar9);
+        uVar9 = 2;
+        FUN_00705990(2,local_1c);
+        uVar9 = FUN_00875bd0(uVar9);
+        uVar9 = FUN_00559450(uVar9);
+        FUN_00b6bee0(uVar9);
+      }
+      FUN_00707ad0(local_1c);
+      uVar9 = FUN_007fa950();
+      uVar9 = FUN_00559450(uVar9);
+      FUN_00b6bee0(uVar9);
+      uVar9 = FUN_00559450(0);
+      uVar9 = FUN_00559450(uVar9);
+      FUN_00b6c0d0(uVar9);
+      FUN_004a0fd0(0);
+      FUN_0066b0d0(0);
+      FUN_00c4f2d0();
+      cVar1 = FUN_00705a00();
+      if ((cVar1 != '\0') && (cVar1 = FUN_008c51c0(), cVar1 != '\0')) {
+        uVar9 = 0;
+        FUN_00707ad0(0);
+        FUN_007fa950();
+        FUN_00450f90(uVar9);
+      }
+      local_8 = local_8 & 0xffffff00;
+      Concurrency::cancellation_token_source::~cancellation_token_source(local_30);
+    }
+  }
+  iVar3 = FUN_00707ad0();
+  if (iVar3 != 0) {
+    iVar3 = FUN_00707ad0();
+    iVar6 = FUN_00705990();
+    if (iVar3 != iVar6) goto LAB_00875846;
+  }
+  cVar1 = FUN_00705a00();
+  if ((cVar1 == '\0') || (cVar1 = FUN_008c51c0(), cVar1 == '\0')) {
+    FUN_00b98380(0xf,1);
+    uVar11 = 0x16;
+    uVar9 = 1;
+    FUN_004ea970(1,0x16);
+    FUN_00ba3130(uVar9,uVar11);
+    uVar9 = FUN_00559450(0);
+    uVar9 = FUN_00559450(uVar9);
+    FUN_00b6c0d0(uVar9);
+    FUN_004eced0(1);
+    local_34 = FUN_0043c490();
+    if ((local_34 != 0) && (cVar1 = FUN_004a4460(), cVar1 == '\0')) {
+      FUN_00416870(0,0,0);
+      iVar3 = FUN_007721a0();
+      if (((iVar3 != 0) && (cVar1 = FUN_008a8870(), cVar1 == '\0')) &&
+         (cVar1 = FUN_00525430(), cVar1 == '\0')) {
+        uVar9 = FUN_0045bb80();
+        puVar10 = local_b0;
+        FUN_007721a0(puVar10,uVar9);
+        FUN_0045bb80();
+        puVar12 = (undefined4 *)FUN_00439ef0(puVar10,uVar9);
+        local_4c = *puVar12;
+        local_48 = puVar12[1];
+        local_44 = puVar12[2];
+      }
+      local_38 = FUN_0045c670();
+      local_3c = FUN_006629f0();
+      local_40 = FUN_008d80e0();
+      FUN_00559a40(param_1 + 0x88);
+      local_8 = CONCAT31(local_8._1_3_,3);
+      puVar12 = (undefined4 *)FUN_0045bb80();
+      local_60 = *puVar12;
+      local_5c = puVar12[1];
+      local_58 = puVar12[2];
+      uVar9 = FUN_00439e90(local_bc,&local_4c);
+      FUN_004f00e0(uVar9);
+      uVar9 = FUN_00559450();
+      FUN_004a0fd0(uVar9);
+      uVar9 = 1;
+      FUN_00559450(1);
+      FUN_00936aa0(uVar9);
+      local_4d = '\0';
+      while (local_34 != 0) {
+        FUN_006815c0();
+        local_64 = (int *)FUN_00559450();
+        local_34 = FUN_00726070();
+        if ((local_64 != (int *)0x0) && (cVar1 = (**(code **)(*local_64 + 0xc0))(), cVar1 != '\0'))
+        {
+          local_4d = '\x01';
+          uVar9 = 0;
+          (**(code **)(*local_64 + 0x98))(0);
+          FUN_00450f90(uVar9);
+          uVar9 = (**(code **)(*local_64 + 0x98))(local_40);
+          FUN_00b6bee0(local_3c,uVar9);
+          uVar9 = 1;
+          (**(code **)(*local_64 + 0x98))(1);
+          FUN_00450f90(uVar9);
+        }
+      }
+      if (local_4d != '\0') {
+        uVar9 = FUN_00559450(0);
+        FUN_00b6c0d0(local_3c,uVar9);
+      }
+      FUN_004a0fd0(0);
+      uVar9 = 0;
+      FUN_00559450(0);
+      FUN_00936aa0(uVar9);
+      FUN_0066b0d0(0);
+      FUN_004f00e0(&local_60);
+      local_8 = local_8 & 0xffffff00;
+      Concurrency::cancellation_token_source::~cancellation_token_source(local_54);
+    }
+  }
+LAB_00875846:
+  cVar1 = FUN_005b9b00();
+  if (cVar1 != '\0') {
+    FUN_00404eb0(0x27,1,"D:\\_Fallout3\\Platforms\\Common\\Code\\Fallout\\Misc\\Main.cpp",0x22b5);
+    local_8 = CONCAT31(local_8._1_3_,4);
+    cVar1 = FUN_00705a00();
+    if (((cVar1 != '\0') && (cVar1 = FUN_005b9b00(), cVar1 != '\0')) &&
+       (cVar1 = FUN_008c51c0(), cVar1 != '\0')) {
+      FUN_00b6b790();
+      FUN_00a29680();
+      uVar9 = FUN_00b6b260();
+      FUN_00b6b8d0(6,uVar9);
+      if (DAT_011f9426 != '\0') {
+        puVar12 = &DAT_011ad840;
+        FUN_00524c90(&DAT_011ad840);
+        FUN_00712e60(puVar12);
+      }
+    }
+    local_6c = FUN_0045c670();
+    uVar9 = param_5;
+    uVar11 = FUN_00559450(param_5);
+    FUN_00559450(uVar11);
+    FUN_00b64570(uVar11,uVar9);
+    FUN_00874b50(param_5,0,0);
+    local_8 = local_8 & 0xffffff00;
+    FUN_00404ee0();
+  }
+  if (DAT_011de9d1 != '\0') {
+    FUN_0043d410(0,0,0);
+    FUN_00a59c60(local_78);
+    FUN_00546780(0);
+    FUN_009611e0();
+    puVar12 = (undefined4 *)FUN_0043c490();
+    uVar9 = *puVar12;
+    uVar11 = puVar12[1];
+    uVar13 = puVar12[2];
+    FUN_00450b80(0,uVar9,uVar11,uVar13);
+    FUN_00870790(uVar9,uVar11,uVar13);
+    uVar9 = DAT_011f426c;
+    uVar11 = DAT_011f4270;
+    uVar13 = DAT_011f4274;
+    FUN_00450b80(0,DAT_011f426c,DAT_011f4270,DAT_011f4274);
+    FUN_008750e0(uVar9,uVar11,uVar13);
+  }
+  iVar3 = FUN_0044ddc0();
+  if (iVar3 != 4) {
+    uVar13 = 0;
+    uVar11 = 0;
+    uVar9 = 0;
+    fVar7 = (float10)FUN_00710ab0(0,0,0);
+    fVar8 = (float)fVar7;
+    FUN_0045c670(fVar8);
+    FUN_00c52020(fVar8,uVar9,uVar11,uVar13);
+  }
+  fVar7 = (float10)FUN_00710ab0();
+  FUN_00b54000((float)fVar7);
+  if (param_4 != 0) {
+    FUN_0043b230();
+    cVar1 = FUN_00456610();
+    if (cVar1 == '\0') {
+      FUN_0043b230();
+      local_81 = FUN_00456610();
+      uVar9 = 0;
+      FUN_0043b230(0);
+      FUN_00450f90(uVar9);
+      local_7c = FUN_0045c670();
+      local_80 = FUN_006629f0();
+      local_88 = FUN_008d80e0();
+      FUN_00559a40(param_1 + 0x88);
+      local_8._0_1_ = 5;
+      uVar9 = FUN_00559450();
+      FUN_004a0fd0(uVar9);
+      uVar9 = 1;
+      FUN_00559450(1);
+      FUN_00936aa0(uVar9);
+      uVar9 = FUN_0043b230(local_88);
+      FUN_00b6bee0(local_80,uVar9);
+      uVar9 = FUN_00559450(0);
+      FUN_00b6c0d0(local_80,uVar9);
+      FUN_004a0fd0(0);
+      uVar9 = 0;
+      FUN_00559450(0);
+      FUN_00936aa0(uVar9);
+      FUN_0066b0d0(0);
+      uVar2 = (uint)local_81;
+      FUN_0043b230(uVar2);
+      FUN_00450f90(uVar2);
+      local_8 = (uint)local_8._1_3_ << 8;
+      Concurrency::cancellation_token_source::~cancellation_token_source(local_8c);
+    }
+  }
+  if (param_4 != 0) {
+    FUN_00559450();
+    uVar9 = FUN_006629f0();
+    uVar11 = FUN_00559450(uVar9);
+    FUN_006426a0(2,uVar11,uVar9);
+  }
+  uVar13 = 0;
+  uVar11 = 0;
+  uVar9 = 0;
+  fVar7 = (float10)FUN_00874900(0,0,0);
+  FUN_00c52020((float)fVar7,uVar9,uVar11,uVar13);
+  fVar7 = (float10)FUN_00874900();
+  FUN_00b54000((float)fVar7);
+  local_8 = 0xffffffff;
+  FUN_00404ee0();
+  *unaff_FS_OFFSET = local_10;
+  return;
+}
+
+
+
+======================================================================
+SUN LIGHT MATCHES: Main::RenderFirstPerson @ 0x00875110
+======================================================================
+  L0237:         if ((local_64 != (int *)0x0) && (cVar1 = (**(code **)(*local_64 + 0xc0))(), cVar1 != '\0'))
+  Total matched lines: 1
+
+--- Calls FROM Main::RenderFirstPerson (0x00875110) ---
+  0x0087513f -> 0x0045c670 CurrentCameraGetter_0045C670
+  0x0087514a -> 0x008d80e0 FUN_008d80e0
+  0x0087515a -> 0x00950bb0 FUN_00950bb0
+  0x00875167 -> 0x00450f90 FUN_00450f90
+  0x0087516f -> 0x006629f0 CameraOrSceneGetter_006629F0
+  0x00875181 -> 0x004ea970 FUN_004ea970
+  0x00875188 -> 0x00ba3130 FUN_00ba3130
+  0x00875199 -> 0x00559450 FUN_00559450
+  0x008751b3 -> 0x00404eb0 FUN_00404eb0
+  0x008751c6 -> 0x007148c0 FUN_007148c0
+  0x008751da -> 0x0043c4b0 FUN_0043c4b0
+  0x008751ff -> 0x0043c4b0 FUN_0043c4b0
+  0x0087520a -> 0x0043c4b0 FUN_0043c4b0
+  0x00875258 -> 0x00559450 FUN_00559450
+  0x0087525f -> 0x00712e60 FUN_00712e60
+  0x00875284 -> 0x00414430 FUN_00414430
+  0x00875296 -> 0x00559450 FUN_00559450
+  0x0087529d -> 0x00712e60 FUN_00712e60
+  0x008752ae -> 0x00874900 FUN_00874900
+  0x008752ba -> 0x00c52020 FUN_00c52020
+  0x008752c5 -> 0x00874900 FUN_00874900
+  0x008752ce -> 0x00b54000 FUN_00b54000
+  0x008752d9 -> 0x0045bbe0 FUN_0045bbe0
+  0x008752eb -> 0x00559450 FUN_00559450
+  0x008752f2 -> 0x00a6faf0 FUN_00a6faf0
+  0x00875303 -> 0x00707ad0 FUN_00707ad0
+  0x0087530a -> 0x007fae70 FUN_007fae70
+  0x00875314 -> 0x00450f90 FUN_00450f90
+  0x00875319 -> 0x007079b0 FUN_007079b0
+  0x00875329 -> 0x00705a00 FUN_00705a00
+  0x0087533b -> 0x008c51c0 FUN_008c51c0
+  0x00875349 -> 0x00707ad0 FUN_00707ad0
+  0x00875350 -> 0x007fa950 FUN_007fa950
+  0x00875357 -> 0x00450f90 FUN_00450f90
+  0x00875361 -> 0x00aa13e0 FUN_00aa13e0
+  0x0087538b -> 0x00b660d0 FUN_00b660d0
+  0x008753bc -> 0x00633c90 FUN_00633c90
+  0x008753ca -> 0x00c4f270 FUN_00c4f270
+  0x008753cf -> 0x0040df90 FUN_0040df90
+  0x008753d5 -> 0x00707ad0 FUN_00707ad0
+  0x008753dc -> 0x007fa950 FUN_007fa950
+  0x008753e3 -> 0x00a59d30 FUN_00a59d30
+  0x008753f6 -> 0x0049ed90 FUN_0049ed90
+  0x008753fd -> 0x00707ad0 FUN_00707ad0
+  0x00875404 -> 0x007fae70 FUN_007fae70
+  0x0087540c -> 0x00559450 FUN_00559450
+  0x00875415 -> 0x004a0fd0 FUN_004a0fd0
+  0x0087541a -> 0x00705a00 FUN_00705a00
+  0x00875430 -> 0x008c51c0 FUN_008c51c0
+  0x00875446 -> 0x00705990 FUN_00705990
+  0x0087544d -> 0x00875bd0 FUN_00875bd0
+  0x0087545f -> 0x00559450 FUN_00559450
+  0x00875465 -> 0x00b6bee0 FUN_00b6bee0
+  0x00875473 -> 0x00705990 FUN_00705990
+  0x0087547a -> 0x00875bd0 FUN_00875bd0
+  0x0087548c -> 0x00559450 FUN_00559450
+  0x00875492 -> 0x00b6bee0 FUN_00b6bee0
+  0x008754a0 -> 0x00705990 FUN_00705990
+  0x008754a7 -> 0x00875bd0 FUN_00875bd0
+  0x008754b9 -> 0x00559450 FUN_00559450
+  0x008754bf -> 0x00b6bee0 FUN_00b6bee0
+  0x008754cb -> 0x00707ad0 FUN_00707ad0
+  0x008754d2 -> 0x007fa950 FUN_007fa950
+  0x008754e4 -> 0x00559450 FUN_00559450
+  0x008754ea -> 0x00b6bee0 FUN_00b6bee0
+  0x008754f7 -> 0x00559450 FUN_00559450
+  0x00875509 -> 0x00559450 FUN_00559450
+  0x0087550f -> 0x00b6c0d0 FUN_00b6c0d0
+  0x0087551c -> 0x004a0fd0 FUN_004a0fd0
+  0x00875526 -> 0x0066b0d0 FUN_0066b0d0
+  0x0087552e -> 0x00c4f2d0 FUN_00c4f2d0
+  0x00875533 -> 0x00705a00 FUN_00705a00
+  0x00875545 -> 0x008c51c0 FUN_008c51c0
+  0x00875553 -> 0x00707ad0 FUN_00707ad0
+  0x0087555a -> 0x007fa950 FUN_007fa950
+  0x00875561 -> 0x00450f90 FUN_00450f90
+  0x0087556d -> 0x0045cec0 ~cancellation_token_source
+  0x00875572 -> 0x00707ad0 FUN_00707ad0
+  0x0087557b -> 0x00707ad0 FUN_00707ad0
+  0x00875582 -> 0x00705990 FUN_00705990
+  0x00875590 -> 0x00705a00 FUN_00705a00
+  0x008755a2 -> 0x008c51c0 FUN_008c51c0
+  0x008755b6 -> 0x00b98380 FUN_00b98380
+  0x008755c2 -> 0x004ea970 FUN_004ea970
+  0x008755c9 -> 0x00ba3130 FUN_00ba3130
+  0x008755dc -> 0x00559450 FUN_00559450
+  0x008755ee -> 0x00559450 FUN_00559450
+  0x008755f4 -> 0x00b6c0d0 FUN_00b6c0d0
+  0x008755fe -> 0x004eced0 FUN_004eced0
+  0x0087560b -> 0x0043c490 FUN_0043c490
+  0x00875620 -> 0x004a4460 FUN_004a4460
+  0x00875645 -> 0x00416870 FUN_00416870
+  0x00875650 -> 0x007721a0 FUN_007721a0
+  0x0087565f -> 0x008a8870 FUN_008a8870
+  0x00875670 -> 0x00525430 FUN_00525430
+  0x00875682 -> 0x0045bb80 CameraVectorGetter_0045BB80
+  0x00875695 -> 0x007721a0 FUN_007721a0
+  0x0087569c -> 0x0045bb80 CameraVectorGetter_0045BB80
+  0x008756a3 -> 0x00439ef0 FUN_00439ef0
+  0x008756b9 -> 0x0045c670 CurrentCameraGetter_0045C670
+  0x008756c4 -> 0x006629f0 CameraOrSceneGetter_006629F0
+  0x008756cf -> 0x008d80e0 FUN_008d80e0
+  0x008756e6 -> 0x00559a40 FUN_00559a40
+  0x008756f2 -> 0x0045bb80 CameraVectorGetter_0045BB80
+  0x00875716 -> 0x00439e90 FUN_00439e90
+  0x0087571f -> 0x004f00e0 FUN_004f00e0
+  0x00875727 -> 0x00559450 FUN_00559450
+  0x00875730 -> 0x004a0fd0 FUN_004a0fd0
+  0x0087573a -> 0x00559450 FUN_00559450
+  0x00875741 -> 0x00936aa0 FUN_00936aa0
+  0x00875757 -> 0x006815c0 FUN_006815c0
+  0x0087575e -> 0x00559450 FUN_00559450
+  0x00875769 -> 0x00726070 FUN_00726070
+  0x008757a6 -> 0x00450f90 FUN_00450f90
+  0x008757c4 -> 0x00b6bee0 FUN_00b6bee0
+  0x008757e0 -> 0x00450f90 FUN_00450f90
+  0x008757f7 -> 0x00559450 FUN_00559450
+  0x00875801 -> 0x00b6c0d0 FUN_00b6c0d0
+  0x0087580e -> 0x004a0fd0 FUN_004a0fd0
+  0x00875818 -> 0x00559450 FUN_00559450
+  0x0087581f -> 0x00936aa0 FUN_00936aa0
+  0x00875829 -> 0x0066b0d0 FUN_0066b0d0
+  0x00875835 -> 0x004f00e0 FUN_004f00e0
+  0x00875841 -> 0x0045cec0 ~cancellation_token_source
+  0x00875846 -> 0x005b9b00 FUN_005b9b00
+  0x00875867 -> 0x00404eb0 FUN_00404eb0
+  0x00875870 -> 0x00705a00 FUN_00705a00
+  0x0087587c -> 0x005b9b00 FUN_005b9b00
+  0x0087588e -> 0x008c51c0 FUN_008c51c0
+  0x0087589a -> 0x00b6b790 FUN_00b6b790
+  0x008758a5 -> 0x00a29680 FUN_00a29680
+  0x008758ad -> 0x00b6b260 FUN_00b6b260
+  0x008758b5 -> 0x00b6b8d0 FUN_00b6b8d0
+  0x008758cd -> 0x00524c90 FUN_00524c90
+  0x008758d4 -> 0x00712e60 FUN_00712e60
+  0x008758d9 -> 0x0045c670 CurrentCameraGetter_0045C670
+  0x008758f1 -> 0x00559450 FUN_00559450
+  0x00875903 -> 0x00559450 FUN_00559450
+  0x0087590a -> 0x00b64570 FUN_00b64570
+  0x0087591d -> 0x00874b50 FUN_00874b50
+  0x00875929 -> 0x00404ee0 FUN_00404ee0
+  0x0087594a -> 0x0043d410 FUN_0043d410
+  0x00875956 -> 0x00a59c60 FUN_00a59c60
+  0x00875960 -> 0x00546780 FUN_00546780
+  0x00875968 -> 0x009611e0 FUN_009611e0
+  0x0087596f -> 0x0043c490 FUN_0043c490
+  0x0087598b -> 0x00450b80 FUN_00450b80
+  0x00875995 -> 0x00870790 FUN_00870790
+  0x008759ba -> 0x00450b80 FUN_00450b80
+  0x008759c4 -> 0x008750e0 FUN_008750e0
+  0x008759ce -> 0x0044ddc0 FUN_0044ddc0
+  0x008759e4 -> 0x00710ab0 FUN_00710ab0
+  0x008759ed -> 0x0045c670 CurrentCameraGetter_0045C670
+  0x008759f4 -> 0x00c52020 FUN_00c52020
+  0x008759ff -> 0x00710ab0 FUN_00710ab0
+  0x00875a08 -> 0x00b54000 FUN_00b54000
+  0x00875a1d -> 0x0043b230 FUN_0043b230
+  0x00875a24 -> 0x00456610 FUN_00456610
+  0x00875a37 -> 0x0043b230 FUN_0043b230
+  0x00875a3e -> 0x00456610 FUN_00456610
+  0x00875a4b -> 0x0043b230 FUN_0043b230
+  0x00875a52 -> 0x00450f90 FUN_00450f90
+  0x00875a57 -> 0x0045c670 CurrentCameraGetter_0045C670
+  0x00875a62 -> 0x006629f0 CameraOrSceneGetter_006629F0
+  0x00875a6d -> 0x008d80e0 FUN_008d80e0
+  0x00875a8b -> 0x00559a40 FUN_00559a40
+  0x00875a9a -> 0x00559450 FUN_00559450
+  0x00875aa6 -> 0x004a0fd0 FUN_004a0fd0
+  0x00875ab3 -> 0x00559450 FUN_00559450
+  0x00875aba -> 0x00936aa0 FUN_00936aa0
+  0x00875ac9 -> 0x0043b230 FUN_0043b230
+  0x00875ad3 -> 0x00b6bee0 FUN_00b6bee0
+  0x00875ae3 -> 0x00559450 FUN_00559450
+  0x00875aed -> 0x00b6c0d0 FUN_00b6c0d0
+  0x00875afd -> 0x004a0fd0 FUN_004a0fd0
+  0x00875b0a -> 0x00559450 FUN_00559450
+  0x00875b11 -> 0x00936aa0 FUN_00936aa0
+  0x00875b1e -> 0x0066b0d0 FUN_0066b0d0
+  0x00875b2b -> 0x0043b230 FUN_0043b230
+  0x00875b32 -> 0x00450f90 FUN_00450f90
+  0x00875b41 -> 0x0045cec0 ~cancellation_token_source
+  0x00875b51 -> 0x00559450 FUN_00559450
+  0x00875b58 -> 0x006629f0 CameraOrSceneGetter_006629F0
+  0x00875b6a -> 0x00559450 FUN_00559450
+  0x00875b75 -> 0x006426a0 FUN_006426a0
+  0x00875b86 -> 0x00874900 FUN_00874900
+  0x00875b92 -> 0x00c52020 FUN_00c52020
+  0x00875b9d -> 0x00874900 FUN_00874900
+  0x00875ba6 -> 0x00b54000 FUN_00b54000
+  0x00875bb8 -> 0x00404ee0 FUN_00404ee0
+  Total: 190 calls
+
+======================================================================
+Sky render/update refs candidate @ 0x00877730
+======================================================================
+  Function: FUN_00877730 @ 0x00877730, Size: 543 bytes
+
+void FUN_00877730(void)
+
+{
+  uint uVar1;
+  undefined4 uVar2;
+  undefined4 uVar3;
+  int *piVar4;
+  byte *pbVar5;
+  char *pcVar6;
+  int iVar7;
+  int *unaff_FS_OFFSET;
+  undefined1 *puVar8;
+  undefined4 local_40;
+  undefined1 local_2c [16];
+  undefined1 local_1c [12];
+  int local_10;
+  undefined1 *puStack_c;
+  int local_8;
+  
+  local_8 = 0xffffffff;
+  puStack_c = &LAB_00f14467;
+  local_10 = *unaff_FS_OFFSET;
+  uVar1 = DAT_011c16bc ^ (uint)&stack0xfffffffc;
+  *unaff_FS_OFFSET = (int)&local_10;
+  FUN_00404eb0(0x21,1,"D:\\_Fallout3\\Platforms\\Common\\Code\\Fallout\\Misc\\Main.cpp",0x26bd);
+  local_8 = 0;
+  FUN_0040fbe0("Initializing Sky...",uVar1);
+  uVar2 = FUN_00559450();
+  uVar3 = FUN_00559450(uVar2);
+  FUN_0063a630(uVar3,uVar2);
+  piVar4 = (int *)FUN_00559450();
+  FUN_0045cd60(1);
+  uVar2 = FUN_0043b230();
+  (**(code **)(*piVar4 + 0xdc))(uVar2);
+  uVar2 = FUN_004505a0();
+  FUN_00450b80(0,uVar2);
+  FUN_00b5aac0(uVar2);
+  FUN_00559450();
+  FUN_00a5a040();
+  pbVar5 = (byte *)FUN_00408d60();
+  uVar1 = (uint)*pbVar5;
+  FUN_004e3270(uVar1);
+  FUN_00b8b200(uVar1);
+  pcVar6 = (char *)FUN_00408d60();
+  if (*pcVar6 != '\0') {
+    iVar7 = FUN_00aa13e0(0x24);
+    local_8._0_1_ = 1;
+    if (iVar7 == 0) {
+      local_40 = 0;
+    }
+    else {
+      local_40 = FUN_0049ec80();
+    }
+    local_8 = (uint)local_8._1_3_ << 8;
+    FUN_0049ed90(1);
+    FUN_0049ede0(2);
+    FUN_0050f9a0(0xff);
+    FUN_00559450(local_40);
+    FUN_00439410(local_40);
+  }
+  FUN_0043d410(0,0,0);
+  puVar8 = local_2c;
+  FUN_00559450(puVar8);
+  FUN_00a59c60(puVar8);
+  FUN_00559450();
+  FUN_00a5a040();
+  FUN_0043d410(0,0,0);
+  puVar8 = local_1c;
+  FUN_00559450(puVar8);
+  FUN_00a59c60(puVar8);
+  uVar2 = FUN_00559450(0,0);
+  FUN_00b57e30(uVar2);
+  FUN_0045cd60(0,0);
+  uVar2 = FUN_0043b230();
+  FUN_00b57e30(uVar2);
+  local_8 = 0xffffffff;
+  FUN_00404ee0();
+  *unaff_FS_OFFSET = local_10;
+  return;
+}
+
+
+
+======================================================================
+SUN LIGHT MATCHES: Sky render/update refs candidate @ 0x00877730
+======================================================================
+  L0033:   FUN_0045cd60(1);
+  L0074:   FUN_0045cd60(0,0);
+  Total matched lines: 2
+
+--- Calls FROM Sky render/update refs candidate (0x00877730) ---
+  0x00877766 -> 0x00404eb0 FUN_00404eb0
+  0x00877777 -> 0x0040fbe0 FUN_0040fbe0
+  0x00877784 -> 0x00559450 FUN_00559450
+  0x0087778f -> 0x00559450 FUN_00559450
+  0x0087779b -> 0x0063a630 FUN_0063a630
+  0x008777a5 -> 0x00559450 FUN_00559450
+  0x008777b5 -> 0x0045cd60 Sky sun/current object getter
+  0x008777bc -> 0x0043b230 FUN_0043b230
+  0x008777d8 -> 0x004505a0 FUN_004505a0
+  0x008777e0 -> 0x00450b80 FUN_00450b80
+  0x008777ea -> 0x00b5aac0 FUN_00b5aac0
+  0x008777f4 -> 0x00559450 FUN_00559450
+  0x008777fb -> 0x00a5a040 FUN_00a5a040
+  0x00877805 -> 0x00408d60 FUN_00408d60
+  0x0087780e -> 0x004e3270 FUN_004e3270
+  0x00877815 -> 0x00b8b200 FUN_00b8b200
+  0x0087781f -> 0x00408d60 FUN_00408d60
+  0x0087782d -> 0x00aa13e0 FUN_00aa13e0
+  0x00877845 -> 0x0049ec80 FUN_0049ec80
+  0x0087786b -> 0x0049ed90 FUN_0049ed90
+  0x00877875 -> 0x0049ede0 FUN_0049ede0
+  0x00877882 -> 0x0050f9a0 FUN_0050f9a0
+  0x00877890 -> 0x00559450 FUN_00559450
+  0x00877897 -> 0x00439410 FUN_00439410
+  0x008778a9 -> 0x0043d410 FUN_0043d410
+  0x008778b7 -> 0x00559450 FUN_00559450
+  0x008778be -> 0x00a59c60 FUN_00a59c60
+  0x008778c8 -> 0x00559450 FUN_00559450
+  0x008778cf -> 0x00a5a040 FUN_00a5a040
+  0x008778e1 -> 0x0043d410 FUN_0043d410
+  0x008778ef -> 0x00559450 FUN_00559450
+  0x008778f6 -> 0x00a59c60 FUN_00a59c60
+  0x00877904 -> 0x00559450 FUN_00559450
+  0x0087790a -> 0x00b57e30 FUN_00b57e30
+  0x0087791c -> 0x0045cd60 Sky sun/current object getter
+  0x00877923 -> 0x0043b230 FUN_0043b230
+  0x00877929 -> 0x00b57e30 FUN_00b57e30
+  0x0087793b -> 0x00404ee0 FUN_00404ee0
+  Total: 38 calls
+
+======================================================================
+Sun/light screen vector downstream candidate @ 0x00b8b1e0
+======================================================================
+  Function: FUN_00b8b1e0 @ 0x00b8b1e0, Size: 24 bytes
+
+/* WARNING: Globals starting with '_' overlap smaller symbols at the same address */
+
+void FUN_00b8b1e0(undefined4 *param_1)
+
+{
+  _DAT_012023f4 = *param_1;
+  _DAT_012023f8 = param_1[1];
+  return;
+}
+
+
+
+======================================================================
+SUN LIGHT MATCHES: Sun/light screen vector downstream candidate @ 0x00b8b1e0
+======================================================================
+  L0004: void FUN_00b8b1e0(undefined4 *param_1)
+  Total matched lines: 1
+
+--- Calls FROM Sun/light screen vector downstream candidate (0x00b8b1e0) ---
+  Total: 0 calls
+
+----------------------------------------------------------------------
+Disassembly Main render sky/sun singleton path around 0x00871000
+----------------------------------------------------------------------
+  0x00870fcd: ADD ECX,0x88                                      
+  0x00870fd3: CALL 0x00559450                                   
+    ; CALL 0x00559450 FUN_00559450
+  0x00870fd8: PUSH EAX                                          
+  0x00870fd9: MOV ECX,dword ptr [EBP + -0x78]                   
+  0x00870fdc: CALL 0x00875fa0                                   
+    ; CALL 0x00875fa0 FUN_00875fa0
+  0x00870fe1: MOVZX EAX,byte ptr [EBP + -0x23]                  
+  0x00870fe5: TEST EAX,EAX                                      
+  0x00870fe7: JZ 0x008710c4                                     
+  0x00870fed: MOV ECX,dword ptr [0x011dea10]                    
+  0x00870ff3: CALL 0x005f36f0                                   
+    ; CALL 0x005f36f0 FUN_005f36f0
+  0x00870ff8: TEST EAX,EAX                                      
+  0x00870ffa: JNZ 0x008710c4                                    
+  0x00871000: CMP dword ptr [0x011dea20],0x0                     << TARGET
+  0x00871007: JZ 0x008710c4                                     
+  0x0087100d: MOV ECX,dword ptr [0x011dea20]                    
+  0x00871013: CALL 0x0045cd60                                   
+    ; CALL 0x0045cd60 Sky sun/current object getter
+  0x00871018: TEST EAX,EAX                                      
+  0x0087101a: JZ 0x008710c4                                     
+  0x00871020: MOV ECX,dword ptr [0x011dea20]                    
+  0x00871026: CALL 0x0045cd60                                   
+    ; CALL 0x0045cd60 Sky sun/current object getter
+  0x0087102b: MOV dword ptr [EBP + 0xffffff4c],EAX              
+  0x00871031: MOV ECX,dword ptr [EBP + 0xffffff4c]              
+  0x00871037: MOV EDX,dword ptr [ECX]                           
+  0x00871039: MOV ECX,dword ptr [EBP + 0xffffff4c]              
+  0x0087103f: MOV EAX,dword ptr [EDX + 0x4]                     
+  0x00871042: CALL EAX                                          
+  0x00871044: MOV ECX,EAX                                       
+  0x00871046: CALL 0x0045bb80                                   
+    ; CALL 0x0045bb80 CameraVectorGetter_0045BB80
+  0x0087104b: MOV ECX,dword ptr [EAX]                           
+  0x0087104d: MOV dword ptr [EBP + -0x4c],ECX                   
+  0x00871050: MOV EDX,dword ptr [EAX + 0x4]                     
+  0x00871053: MOV dword ptr [EBP + -0x48],EDX                   
+  0x00871056: MOV EAX,dword ptr [EAX + 0x8]                     
+  0x00871059: MOV dword ptr [EBP + -0x44],EAX                   
+  0x0087105c: FLDZ                                              
+  0x0087105e: FSTP float ptr [EBP + -0x54]                      
+  0x00871061: FLD float ptr [EBP + -0x54]                       
+  0x00871064: FSTP float ptr [EBP + -0x58]                      
+  0x00871067: FLD float ptr [EBP + -0x58]                       
+  0x0087106a: FSTP float ptr [EBP + -0x40]                      
+  0x0087106d: CALL 0x0045c670                                   
+    ; CALL 0x0045c670 CurrentCameraGetter_0045C670
+  0x00871072: MOV dword ptr [EBP + -0x50],EAX                   
+  0x00871075: PUSH ECX                                          
+  0x00871076: FLD float ptr [0x010718c0]                        
+  0x0087107c: FSTP float ptr [ESP]                              
+  0x0087107f: LEA ECX,[EBP + -0x54]                             
+  0x00871082: PUSH ECX                                          
+  0x00871083: LEA EDX,[EBP + -0x58]                             
+  0x00871086: PUSH EDX                                          
+  0x00871087: LEA EAX,[EBP + -0x40]                             
+  0x0087108a: PUSH EAX                                          
+  0x0087108b: LEA ECX,[EBP + -0x4c]                             
+  0x0087108e: PUSH ECX                                          
+  0x0087108f: MOV ECX,dword ptr [EBP + -0x50]                   
+  0x00871092: CALL 0x006629f0                                   
+    ; CALL 0x006629f0 CameraOrSceneGetter_006629F0
+
+----------------------------------------------------------------------
+Disassembly Sky update singleton path around 0x00877780
+----------------------------------------------------------------------
+  0x00877755: PUSH 0x26bd                                       
+  0x0087775a: PUSH 0x10829c4                                    
+  0x0087775f: PUSH 0x1                                          
+  0x00877761: PUSH 0x21                                         
+  0x00877763: LEA ECX,[EBP + -0x1c]                             
+  0x00877766: CALL 0x00404eb0                                   
+    ; CALL 0x00404eb0 FUN_00404eb0
+  0x0087776b: MOV dword ptr [EBP + -0x4],0x0                    
+  0x00877772: PUSH 0x1082ec0                                    
+  0x00877777: CALL 0x0040fbe0                                   
+    ; CALL 0x0040fbe0 FUN_0040fbe0
+  0x0087777c: ADD ESP,0x4                                       
+  0x0087777f: MOV ECX,0x11deb00                                 
+  0x00877784: CALL 0x00559450                                   
+    ; CALL 0x00559450 FUN_00559450
+  0x00877789: PUSH EAX                                          
+  0x0087778a: MOV ECX,0x11deb34                                 
+  0x0087778f: CALL 0x00559450                                   
+    ; CALL 0x00559450 FUN_00559450
+  0x00877794: PUSH EAX                                          
+  0x00877795: MOV ECX,dword ptr [0x011dea20]                    
+  0x0087779b: CALL 0x0063a630                                   
+    ; CALL 0x0063a630 FUN_0063a630
+  0x008777a0: MOV ECX,0x11deda4                                 
+  0x008777a5: CALL 0x00559450                                   
+    ; CALL 0x00559450 FUN_00559450
+  0x008777aa: MOV dword ptr [EBP + -0x38],EAX                   
+  0x008777ad: PUSH 0x1                                          
+  0x008777af: MOV ECX,dword ptr [0x011dea20]                    
+  0x008777b5: CALL 0x0045cd60                                   
+    ; CALL 0x0045cd60 Sky sun/current object getter
+  0x008777ba: MOV ECX,EAX                                       
+  0x008777bc: CALL 0x0043b230                                   
+    ; CALL 0x0043b230 FUN_0043b230
+  0x008777c1: PUSH EAX                                          
+  0x008777c2: MOV EAX,dword ptr [EBP + -0x38]                   
+  0x008777c5: MOV EDX,dword ptr [EAX]                           
+  0x008777c7: MOV ECX,dword ptr [EBP + -0x38]                   
+  0x008777ca: MOV EAX,dword ptr [EDX + 0xdc]                    
+  0x008777d0: CALL EAX                                          
+  0x008777d2: MOV ECX,dword ptr [0x011dea20]                    
+  0x008777d8: CALL 0x004505a0                                   
+    ; CALL 0x004505a0 FUN_004505a0
+  0x008777dd: PUSH EAX                                          
+  0x008777de: PUSH 0x0                                          
+  0x008777e0: CALL 0x00450b80                                   
+    ; CALL 0x00450b80 FUN_00450b80
+  0x008777e5: ADD ESP,0x4                                       
+  0x008777e8: MOV ECX,EAX                                       
+  0x008777ea: CALL 0x00b5aac0                                   
+    ; CALL 0x00b5aac0 FUN_00b5aac0
+  0x008777ef: MOV ECX,0x11deb34                                 
+  0x008777f4: CALL 0x00559450                                   
+    ; CALL 0x00559450 FUN_00559450
+  0x008777f9: MOV ECX,EAX                                       
+  0x008777fb: CALL 0x00a5a040                                   
+    ; CALL 0x00a5a040 FUN_00a5a040
+  0x00877800: MOV ECX,0x11deadc                                 
+  0x00877805: CALL 0x00408d60                                   
+    ; CALL 0x00408d60 FUN_00408d60
+  0x0087780a: MOVZX ECX,byte ptr [EAX]                          
+  0x0087780d: PUSH ECX                                          
+  0x0087780e: CALL 0x004e3270                                   
+    ; CALL 0x004e3270 FUN_004e3270
+  0x00877813: MOV ECX,EAX                                       
+  0x00877815: CALL 0x00b8b200                                   
+    ; CALL 0x00b8b200 FUN_00b8b200
+  0x0087781a: MOV ECX,0x11deadc                                 
+  0x0087781f: CALL 0x00408d60                                   
+    ; CALL 0x00408d60 FUN_00408d60
+  0x00877824: MOVZX EDX,byte ptr [EAX]                          
+  0x00877827: TEST EDX,EDX                                      
+  0x00877829: JZ 0x0087789c                                     
+  0x0087782b: PUSH 0x24                                         
+
+----------------------------------------------------------------------
+Disassembly Main::RenderWorldSceneGraph entry around 0x00873200
+----------------------------------------------------------------------
+  0x008731e9: ADD EAX,0x20                                      
+  0x008731ec: PUSH EAX                                          
+  0x008731ed: MOV ECX,dword ptr [EBP + -0x4]                    
+  0x008731f0: ADD ECX,0x8                                       
+  0x008731f3: CALL 0x006e5cc0                                   
+    ; CALL 0x006e5cc0 FUN_006e5cc0
+  0x008731f8: MOV ESP,EBP                                       
+  0x008731fa: POP EBP                                           
+  0x008731fb: RET                                               
+  0x00873200: PUSH EBP                                           << TARGET
+  0x00873201: MOV EBP,ESP                                       
+  0x00873203: PUSH -0x1                                         
+  0x00873205: PUSH 0xf1433b                                     
+  0x0087320a: MOV EAX,FS:[0x0]                                  
+  0x00873210: PUSH EAX                                          
+  0x00873211: SUB ESP,0x1b0                                     
+  0x00873217: PUSH EBX                                          
+  0x00873218: MOV EAX,[0x011c16bc]                              
+  0x0087321d: XOR EAX,EBP                                       
+  0x0087321f: PUSH EAX                                          
+  0x00873220: LEA EAX,[EBP + -0xc]                              
+  0x00873223: MOV FS:[0x0],EAX                                  
+  0x00873229: MOV dword ptr [EBP + 0xfffffe58],ECX              
+  0x0087322f: CALL 0x0045c670                                   
+    ; CALL 0x0045c670 CurrentCameraGetter_0045C670
+  0x00873234: MOV dword ptr [EBP + -0x24],EAX                   
+  0x00873237: MOV ECX,dword ptr [EBP + -0x24]                   
+  0x0087323a: CALL 0x008d80e0                                   
+    ; CALL 0x008d80e0 FUN_008d80e0
+  0x0087323f: MOV dword ptr [EBP + -0x10],EAX                   
+  0x00873242: MOV ECX,dword ptr [EBP + -0x24]                   
+  0x00873245: CALL 0x006629f0                                   
+    ; CALL 0x006629f0 CameraOrSceneGetter_006629F0
+  0x0087324a: MOV [0x011f9684],EAX                              
+  0x0087324f: CMP dword ptr [EBP + 0x8],0x0                     
+  0x00873253: JZ 0x0087325d                                     
+  0x00873255: MOV ECX,dword ptr [EBP + 0x8]                     
+  0x00873258: CALL 0x00642860                                   
+    ; CALL 0x00642860 FUN_00642860
+  0x0087325d: PUSH 0x1                                          
+  0x0087325f: MOV ECX,dword ptr [0x011dea3c]                    
+  0x00873265: CALL 0x00950bb0                                   
+    ; CALL 0x00950bb0 FUN_00950bb0
+  0x0087326a: MOV ECX,EAX                                       
+  0x0087326c: CALL 0x00456610                                   
+    ; CALL 0x00456610 FUN_00456610
+  0x00873271: MOV byte ptr [EBP + -0x29],AL                     
+  0x00873274: PUSH 0x1                                          
+  0x00873276: PUSH 0x1                                          
+  0x00873278: MOV ECX,dword ptr [0x011dea3c]                    
+  0x0087327e: CALL 0x00950bb0                                   
+    ; CALL 0x00950bb0 FUN_00950bb0
+  0x00873283: MOV ECX,EAX                                       
+  0x00873285: CALL 0x00450f90                                   
+    ; CALL 0x00450f90 FUN_00450f90
+  0x0087328a: MOVZX EBX,byte ptr [EBP + 0x10]                   
+  0x0087328e: NEG EBX                                           
+  0x00873290: SBB EBX,EBX                                       
+  0x00873292: ADD EBX,0x1                                       
+  0x00873295: MOV ECX,dword ptr [EBP + 0xfffffe58]              
+  0x0087329b: ADD ECX,0x88                                      
+  0x008732a1: CALL 0x00559450                                   
+    ; CALL 0x00559450 FUN_00559450
+
+----------------------------------------------------------------------
+Disassembly Main::RenderFirstPerson entry around 0x00875110
+----------------------------------------------------------------------
+  0x008750f2: MOV dword ptr [EAX],ECX                           
+  0x008750f4: MOV EDX,dword ptr [EBP + 0xc]                     
+  0x008750f7: MOV dword ptr [EAX + 0x4],EDX                     
+  0x008750fa: MOV ECX,dword ptr [EBP + 0x10]                    
+  0x008750fd: MOV dword ptr [EAX + 0x8],ECX                     
+  0x00875100: MOV ESP,EBP                                       
+  0x00875102: POP EBP                                           
+  0x00875103: RET 0xc                                           
+  0x00875110: PUSH EBP                                           << TARGET
+  0x00875111: MOV EBP,ESP                                       
+  0x00875113: PUSH -0x1                                         
+  0x00875115: PUSH 0xf143d0                                     
+  0x0087511a: MOV EAX,FS:[0x0]                                  
+  0x00875120: PUSH EAX                                          
+  0x00875121: SUB ESP,0xc0                                      
+  0x00875127: PUSH ESI                                          
+  0x00875128: MOV EAX,[0x011c16bc]                              
+  0x0087512d: XOR EAX,EBP                                       
+  0x0087512f: PUSH EAX                                          
+  0x00875130: LEA EAX,[EBP + -0xc]                              
+  0x00875133: MOV FS:[0x0],EAX                                  
+  0x00875139: MOV dword ptr [EBP + 0xffffff44],ECX              
+  0x0087513f: CALL 0x0045c670                                   
+    ; CALL 0x0045c670 CurrentCameraGetter_0045C670
+  0x00875144: MOV dword ptr [EBP + -0x10],EAX                   
+  0x00875147: MOV ECX,dword ptr [EBP + -0x10]                   
+  0x0087514a: CALL 0x008d80e0                                   
+    ; CALL 0x008d80e0 FUN_008d80e0
+  0x0087514f: MOV dword ptr [EBP + -0x18],EAX                   
+  0x00875152: PUSH 0x1                                          
+  0x00875154: MOV ECX,dword ptr [0x011dea3c]                    
+  0x0087515a: CALL 0x00950bb0                                   
+    ; CALL 0x00950bb0 FUN_00950bb0
+  0x0087515f: MOV dword ptr [EBP + -0x24],EAX                   
+  0x00875162: PUSH 0x0                                          
+  0x00875164: MOV ECX,dword ptr [EBP + -0x24]                   
+  0x00875167: CALL 0x00450f90                                   
+    ; CALL 0x00450f90 FUN_00450f90
+  0x0087516c: MOV ECX,dword ptr [EBP + -0x10]                   
+  0x0087516f: CALL 0x006629f0                                   
+    ; CALL 0x006629f0 CameraOrSceneGetter_006629F0
+  0x00875174: MOV dword ptr [EBP + -0x14],EAX                   
+  0x00875177: MOV EAX,dword ptr [EBP + -0x24]                   
+  0x0087517a: MOV dword ptr [EBP + -0x1c],EAX                   
+  0x0087517d: PUSH 0x16                                         
+  0x0087517f: PUSH 0x1                                          
+  0x00875181: CALL 0x004ea970                                   
+    ; CALL 0x004ea970 FUN_004ea970
+  0x00875186: MOV ECX,EAX                                       
+  0x00875188: CALL 0x00ba3130                                   
+    ; CALL 0x00ba3130 FUN_00ba3130
+  0x0087518d: MOV ECX,dword ptr [EBP + 0xffffff44]              
+  0x00875193: ADD ECX,0x8c                                      
+  0x00875199: CALL 0x00559450                                   
+    ; CALL 0x00559450 FUN_00559450
+  0x0087519e: MOV byte ptr [EAX + 0x3a],0x0                     
+  0x008751a2: PUSH 0x221f                                       
+  0x008751a7: PUSH 0x10829c4                                    
+  0x008751ac: PUSH 0x1                                          
+  0x008751ae: PUSH 0x34                                         
+  0x008751b0: LEA ECX,[EBP + -0x20]                             
+
+======================================================================
+DECOMPILE FUNCTIONS REFERENCING Sky::singleton @ 0x011dea20
+======================================================================
+
+======================================================================
+Sky::singleton ref function FUN_0086cf20 @ 0x0086cf20
+======================================================================
+  Function: FUN_0086cf20 @ 0x0086cf20, Size: 1353 bytes
+
+/* WARNING: Globals starting with '_' overlap smaller symbols at the same address */
+
+void FUN_0086cf20(void)
+
+{
+  bool bVar1;
+  char cVar2;
+  uint uVar3;
+  int iVar4;
+  int *piVar5;
+  char *pcVar6;
+  size_t sVar7;
+  undefined4 uVar8;
+  undefined4 *puVar9;
+  int *unaff_FS_OFFSET;
+  undefined *puVar10;
+  int *local_98;
+  undefined4 local_94;
+  int local_90;
+  int local_5c;
+  undefined1 local_50 [12];
+  int local_44;
+  undefined4 local_40;
+  undefined *local_38;
+  undefined *local_34;
+  undefined *local_30;
+  undefined *local_2c;
+  undefined *local_28;
+  undefined *local_24;
+  undefined *local_20;
+  undefined *local_1c;
+  undefined *local_18;
+  undefined *local_14;
+  int local_10;
+  undefined1 *puStack_c;
+  int local_8;
+  
+  local_8 = 0xffffffff;
+  puStack_c = &LAB_00f1400e;
+  local_10 = *unaff_FS_OFFSET;
+  uVar3 = DAT_011c16bc ^ (uint)&stack0xfffffffc;
+  *unaff_FS_OFFSET = (int)&local_10;
+  FUN_00404eb0(10,1,"D:\\_Fallout3\\Platforms\\Common\\Code\\Fallout\\Misc\\Main.cpp",0xe4f);
+  local_8 = 0;
+  FUN_00404f00(10,1,"D:\\_Fallout3\\Platforms\\Common\\Code\\Fallout\\Misc\\Main.cpp",0xe51);
+  DAT_011dea20 = FUN_0046dd00(uVar3);
+  FUN_00877730();
+  local_40 = FUN_0086d470();
+  iVar4 = FUN_007a1480();
+  local_44 = iVar4;
+  if (iVar4 != 0) {
+    FUN_004505a0(iVar4);
+    FUN_00a89af0(iVar4);
+    piVar5 = (int *)FUN_0045bc00(0);
+    if (piVar5 == (int *)0x0) {
+      local_90 = 0;
+    }
+    else {
+      local_90 = (**(code **)(*piVar5 + 0xc))();
+    }
+    local_44 = local_90;
+  }
+  FUN_0040fbe0("Initializing TES...");
+  iVar4 = FUN_00401000(0xc4);
+  local_8._0_1_ = 1;
+  if (iVar4 == 0) {
+    local_94 = 0;
+  }
+  else {
+    local_94 = FUN_0044fb20(&DAT_010724e8,local_40,local_44,DAT_011dea20,DAT_011dea1c);
+  }
+  local_8 = (uint)local_8._1_3_ << 8;
+  DAT_011dea10 = local_94;
+  FUN_00404f70();
+  FUN_00450c50();
+  FUN_0040fbe0("Initializing TreeManager...");
+  FUN_00664870(0);
+  FUN_0040fbe0("Activating Tasklet Threads...");
+  FUN_00b00a00();
+  FUN_00b00df0();
+  FUN_00526e10();
+  FUN_00990f20();
+  FUN_00404f00(0x19,1,"D:\\_Fallout3\\Platforms\\Common\\Code\\Fallout\\Misc\\Main.cpp",0xe85);
+  FUN_00a5a040();
+  FUN_0043d410(0,0,0);
+  FUN_00a59c60(local_50);
+  FUN_00404f70();
+  bVar1 = false;
+  local_38 = &DAT_011debf0;
+  local_34 = &DAT_011deb88;
+  local_30 = &DAT_011decf8;
+  local_2c = &DAT_011dee9c;
+  local_28 = &DAT_011dec34;
+  local_24 = &DAT_011dee0c;
+  local_20 = &DAT_011ded14;
+  local_1c = &DAT_011dee48;
+  local_18 = &DAT_011dea70;
+  local_14 = &DAT_011ded48;
+  for (local_5c = 0; local_5c < 10; local_5c = local_5c + 1) {
+    iVar4 = FUN_00403df0();
+    if (iVar4 != 0) {
+      pcVar6 = (char *)FUN_00403df0();
+      sVar7 = _strlen(pcVar6);
+      if (sVar7 != 0) {
+        uVar8 = FUN_00403df0(0);
+        uVar8 = FUN_00464f30(uVar8);
+        iVar4 = FUN_00462f40(uVar8);
+        if (iVar4 != 0) {
+          FUN_00471d00(1);
+          bVar1 = true;
+        }
+      }
+    }
+  }
+  puVar10 = PTR_s___Plugins_txt_011a2ffc;
+  uVar8 = FUN_0086d480(PTR_s___Plugins_txt_011a2ffc);
+  cVar2 = FUN_00872430(uVar8,puVar10);
+  if (cVar2 != '\0') {
+    bVar1 = true;
+  }
+  if (!bVar1) {
+    iVar4 = FUN_00462f40("Fallout.esm");
+    if (iVar4 != 0) {
+      FUN_00471d00(1);
+    }
+  }
+  FUN_00404f00(0x34,1,"D:\\_Fallout3\\Platforms\\Common\\Code\\Fallout\\Misc\\Main.cpp",0xecb);
+  iVar4 = FUN_00401000(0xe50);
+  local_8._0_1_ = 2;
+  if (iVar4 == 0) {
+    local_98 = (int *)0x0;
+  }
+  else {
+    local_98 = (int *)FUN_00938180();
+  }
+  local_8 = (uint)local_8._1_3_ << 8;
+  DAT_011dea3c = local_98;
+  (**(code **)(*local_98 + 0x128))(0x14,1);
+  FUN_00404f70();
+  FUN_0040fbe0("Loading Files...");
+  FUN_00463070(0);
+  FUN_005f5880();
+  FUN_00459f10();
+  FUN_0045a370();
+  pcVar6 = (char *)FUN_00408d60();
+  if (*pcVar6 != '\0') {
+    FUN_0045a600();
+  }
+  FUN_0045a1e0();
+  FUN_0068b3e0();
+  FUN_0040fbe0("Initializing Player...");
+  FUN_00404f00(0x34,1,"D:\\_Fallout3\\Platforms\\Common\\Code\\Fallout\\Misc\\Main.cpp",0xf00);
+  uVar8 = FUN_004839c0(7,&PTR_PTR_01183028,&PTR_PTR_01183a1c,0);
+  uVar8 = FUN_00ec43fb(uVar8,0);
+  FUN_00575690(uVar8);
+  uVar8 = FUN_00416870(_DAT_01018bfc,_DAT_01018bfc,0);
+  (**(code **)(*DAT_011dea3c + 0x2a8))(uVar8);
+  FUN_0086d490(&DAT_011f426c);
+  (**(code **)(*DAT_011dea3c + 0x88))();
+  FUN_008c26e0(0);
+  iVar4 = (**(code **)(DAT_011dea3c[0x29] + 8))(0x10);
+  if (iVar4 == 0) {
+    FUN_00484e60(0);
+    uVar8 = FUN_00891170();
+    FUN_0040fbe0("ERROR: Health value is 0 on the Player. Fix \'%s\' with the editor.",uVar8);
+  }
+  FUN_0040fbe0("Initializing Scripts...");
+  FUN_00465040();
+  iVar4 = FUN_004503f0();
+  if (0 < iVar4) {
+    iVar4 = FUN_004503f0();
+    if (iVar4 < 200) {
+      puVar9 = (undefined4 *)FUN_0043d4d0();
+      FUN_0086d4c0(*puVar9);
+    }
+  }
+  local_8 = 0xffffffff;
+  FUN_00404ee0();
+  *unaff_FS_OFFSET = local_10;
+  return;
+}
+
+
+
+======================================================================
+SUN LIGHT MATCHES: Sky::singleton ref function FUN_0086cf20 @ 0x0086cf20
+======================================================================
+  L0047:   DAT_011dea20 = FUN_0046dd00(uVar3);
+  L0071:     local_94 = FUN_0044fb20(&DAT_010724e8,local_40,local_44,DAT_011dea20,DAT_011dea1c);
+  Total matched lines: 2
+
+--- Calls FROM Sky::singleton ref function FUN_0086cf20 (0x0086cf20) ---
+  0x0086cf5f -> 0x00404eb0 FUN_00404eb0
+  0x0086cf7c -> 0x00404f00 FUN_00404f00
+  0x0086cf81 -> 0x0046dd00 FUN_0046dd00
+  0x0086cf8b -> 0x00877730 Sky render/update refs candidate
+  0x0086cf90 -> 0x0086d470 FUN_0086d470
+  0x0086cf98 -> 0x007a1480 FUN_007a1480
+  0x0086cfb0 -> 0x004505a0 FUN_004505a0
+  0x0086cfb7 -> 0x00a89af0 FUN_00a89af0
+  0x0086cfc1 -> 0x0045bc00 FUN_0045bc00
+  0x0086cffc -> 0x0040fbe0 FUN_0040fbe0
+  0x0086d009 -> 0x00401000 FUN_00401000
+  0x0086d03b -> 0x0044fb20 FUN_0044fb20
+  0x0086d06b -> 0x00404f70 FUN_00404f70
+  0x0086d076 -> 0x00450c50 FUN_00450c50
+  0x0086d080 -> 0x0040fbe0 FUN_0040fbe0
+  0x0086d08a -> 0x00664870 FUN_00664870
+  0x0086d097 -> 0x0040fbe0 FUN_0040fbe0
+  0x0086d09f -> 0x00b00a00 FUN_00b00a00
+  0x0086d0a6 -> 0x00b00df0 FUN_00b00df0
+  0x0086d0ab -> 0x00526e10 FUN_00526e10
+  0x0086d0b0 -> 0x00990f20 FUN_00990f20
+  0x0086d0c6 -> 0x00404f00 FUN_00404f00
+  0x0086d0ce -> 0x00a5a040 FUN_00a5a040
+  0x0086d0e0 -> 0x0043d410 FUN_0043d410
+  0x0086d0ec -> 0x00a59c60 FUN_00a59c60
+  0x0086d0f4 -> 0x00404f70 FUN_00404f70
+  0x0086d162 -> 0x00403df0 FUN_00403df0
+  0x0086d172 -> 0x00403df0 FUN_00403df0
+  0x0086d178 -> 0x00ec6130 _strlen
+  0x0086d18d -> 0x00403df0 FUN_00403df0
+  0x0086d193 -> 0x00464f30 FUN_00464f30
+  0x0086d1a2 -> 0x00462f40 FUN_00462f40
+  0x0086d1b5 -> 0x00471d00 FUN_00471d00
+  0x0086d1c7 -> 0x0086d480 FUN_0086d480
+  0x0086d1d3 -> 0x00872430 FUN_00872430
+  0x0086d1f6 -> 0x00462f40 FUN_00462f40
+  0x0086d209 -> 0x00471d00 FUN_00471d00
+  0x0086d21f -> 0x00404f00 FUN_00404f00
+  0x0086d229 -> 0x00401000 FUN_00401000
+  0x0086d241 -> 0x00938180 FUN_00938180
+  0x0086d28a -> 0x00404f70 FUN_00404f70
+  0x0086d294 -> 0x0040fbe0 FUN_0040fbe0
+  0x0086d2a4 -> 0x00463070 FUN_00463070
+  0x0086d2a9 -> 0x005f5880 FUN_005f5880
+  0x0086d2b4 -> 0x00459f10 FUN_00459f10
+  0x0086d2bf -> 0x0045a370 FUN_0045a370
+  0x0086d2c9 -> 0x00408d60 FUN_00408d60
+  0x0086d2db -> 0x0045a600 FUN_0045a600
+  0x0086d2e6 -> 0x0045a1e0 FUN_0045a1e0
+  0x0086d2eb -> 0x0068b3e0 FUN_0068b3e0
+  0x0086d2f5 -> 0x0040fbe0 FUN_0040fbe0
+  0x0086d30e -> 0x00404f00 FUN_00404f00
+  0x0086d321 -> 0x004839c0 FUN_004839c0
+  0x0086d32c -> 0x00ec43fb FUN_00ec43fb
+  0x0086d341 -> 0x00575690 FUN_00575690
+  0x0086d366 -> 0x00416870 FUN_00416870
+  0x0086d38c -> 0x0086d490 FUN_0086d490
+  0x0086d3af -> 0x008c26e0 FUN_008c26e0
+  0x0086d3e1 -> 0x00484e60 FUN_00484e60
+  0x0086d3e8 -> 0x00891170 FUN_00891170
+  0x0086d3f3 -> 0x0040fbe0 FUN_0040fbe0
+  0x0086d400 -> 0x0040fbe0 FUN_0040fbe0
+  0x0086d40e -> 0x00465040 FUN_00465040
+  0x0086d418 -> 0x004503f0 FUN_004503f0
+  0x0086d426 -> 0x004503f0 FUN_004503f0
+  0x0086d437 -> 0x0043d4d0 FUN_0043d4d0
+  0x0086d444 -> 0x0086d4c0 FUN_0086d4c0
+  0x0086d453 -> 0x00404ee0 FUN_00404ee0
+  Total: 68 calls
+
+======================================================================
+Sky::singleton ref function FUN_00870bd0 @ 0x00870bd0
+======================================================================
+  Function: FUN_00870bd0 @ 0x00870bd0, Size: 1604 bytes
+
+/* WARNING: Removing unreachable block (ram,0x00870fc6) */
+/* WARNING: Globals starting with '_' overlap smaller symbols at the same address */
+
+void FUN_00870bd0(int param_1,char param_2)
+
+{
+  char cVar1;
+  int iVar2;
+  float *pfVar3;
+  char *pcVar4;
+  undefined4 uVar5;
+  int *piVar6;
+  undefined4 *puVar7;
+  uint uVar8;
+  float10 fVar9;
+  undefined4 *puVar10;
+  undefined4 *puVar11;
+  undefined4 *puVar12;
+  undefined4 uVar13;
+  char local_b1;
+  undefined4 local_b0;
+  undefined4 local_a0;
+  char local_80;
+  undefined4 local_70;
+  undefined4 local_6c;
+  undefined4 local_68;
+  undefined4 local_64;
+  undefined1 local_5d;
+  undefined4 local_5c;
+  undefined4 local_58;
+  undefined4 local_54;
+  undefined4 local_50;
+  undefined4 local_4c;
+  undefined4 local_48;
+  undefined4 local_44;
+  uint local_40;
+  float local_3c;
+  undefined4 local_38;
+  float local_34;
+  float local_30;
+  undefined4 local_2c;
+  char local_27;
+  char local_26;
+  char local_25;
+  undefined4 local_24;
+  CDocTemplate *local_20;
+  undefined1 local_1a;
+  char local_19;
+  undefined1 local_18;
+  char local_17;
+  char local_16;
+  undefined1 local_15;
+  int local_14;
+  undefined1 local_e;
+  byte local_d;
+  CDocManager *local_c;
+  char local_5;
+  
+  local_24 = FUN_0043c4b0();
+  local_c = (CDocManager *)FUN_004e3270();
+  local_14 = 0;
+  FUN_00950bb0(1);
+  local_5 = FUN_00456610();
+  local_18 = FUN_004dc310();
+  FUN_00872ad0();
+  local_14 = FUN_00872b00();
+  FUN_008727d0();
+  local_e = FUN_008749b0();
+  FUN_00871290();
+  local_2c = FUN_00872f50(local_24,param_1,0,local_18);
+  FUN_00874ac0(local_e);
+  FUN_00874b50(local_2c,local_18,5);
+  if ((local_5 == '\0') && (param_2 == '\0')) {
+    FUN_00705910();
+    iVar2 = FUN_005585e0();
+    if ((iVar2 == 0) && (cVar1 = FUN_00705100(), cVar1 == '\0')) {
+      local_80 = '\x01';
+      goto LAB_00870cb7;
+    }
+  }
+  local_80 = '\0';
+LAB_00870cb7:
+  local_17 = local_80;
+  local_d = 0;
+  if ((local_80 != '\0') && (local_14 != 0)) {
+    FUN_0043b230();
+    local_d = FUN_00456610();
+    uVar13 = 1;
+    FUN_0043b230(1);
+    FUN_00450f90(uVar13);
+  }
+  local_16 = '\x01';
+  cVar1 = FUN_004de080();
+  if (cVar1 != '\0') {
+    local_16 = '\0';
+  }
+  local_26 = FUN_00709cb0();
+  if (local_26 != '\0') {
+    local_40 = FUN_004dee10();
+    local_38 = FUN_004dee70();
+    pfVar3 = (float *)FUN_00403e20();
+    fVar9 = (float10)FUN_00706e70();
+    local_34 = (float)(fVar9 * (float10)*pfVar3 * (float10)_DAT_01011588);
+    local_3c = (float)local_40 * local_34;
+    local_30 = (float)local_40 - local_3c;
+    if (local_16 != '\0') {
+      local_a0 = (undefined4)(longlong)ROUND(local_30);
+      local_b0 = (undefined4)(longlong)ROUND(local_3c);
+      FUN_00b4f540(local_b0,0,local_a0,local_38);
+    }
+  }
+  FUN_00873200(local_14,local_17,0,local_e);
+  if ((local_17 != '\0') && (local_14 != 0)) {
+    uVar8 = (uint)local_d;
+    FUN_0043b230(uVar8);
+    FUN_00450f90(uVar8);
+  }
+  local_20 = CDocManager::GetNextDocTemplate(local_c,(__POSITION **)0x4);
+  local_25 = FUN_00871220();
+  cVar1 = FUN_00b8b390(9);
+  if (((cVar1 == '\0') || (iVar2 = FUN_005f36f0(), iVar2 != 0)) ||
+     (pcVar4 = (char *)FUN_00408d60(), *pcVar4 == '\0')) {
+    local_b1 = '\0';
+  }
+  else {
+    local_b1 = '\x01';
+  }
+  local_27 = local_b1;
+  local_1a = 0;
+  local_15 = 0;
+  local_19 = '\0';
+  if ((local_25 != '\0') && (local_17 != '\0')) {
+    local_19 = '\x01';
+    FUN_008746d0(local_2c);
+    FUN_00874b50(local_2c,local_18,0);
+  }
+  cVar1 = FUN_005b9b00();
+  if (cVar1 != '\0') {
+    FUN_00559450();
+    iVar2 = FUN_00b63a90();
+    if (iVar2 != 0) {
+      uVar13 = local_2c;
+      uVar5 = FUN_00559450(local_2c);
+      FUN_00874920(uVar5,uVar13);
+    }
+  }
+  if (local_17 == '\0') {
+    uVar5 = 0x16;
+    uVar13 = 0;
+    FUN_004ea970(0,0x16);
+    FUN_00ba30f0(uVar13,uVar5);
+    uVar5 = 0x16;
+    uVar13 = 1;
+    FUN_004ea970(1,0x16);
+    FUN_00ba3130(uVar13,uVar5);
+  }
+  else {
+    FUN_00874c10();
+    FUN_00874b50(local_2c,local_18,0);
+    if (local_19 == '\0') {
+      uVar5 = 0x16;
+      uVar13 = 1;
+      FUN_004ea970(1,0x16);
+      FUN_00ba3130(uVar13,uVar5);
+    }
+    FUN_00875110(local_24,0,local_14,local_2c);
+  }
+  if (local_25 != '\0') {
+    uVar13 = local_2c;
+    uVar5 = FUN_00559450(local_2c);
+    FUN_00875e40(uVar5,uVar13);
+  }
+  if (((local_27 != '\0') && (iVar2 = FUN_005f36f0(), iVar2 == 0)) &&
+     ((DAT_011dea20 != 0 && (iVar2 = FUN_0045cd60(), iVar2 != 0)))) {
+    piVar6 = (int *)FUN_0045cd60();
+    (**(code **)(*piVar6 + 4))();
+    puVar7 = (undefined4 *)FUN_0045bb80();
+    local_50 = *puVar7;
+    local_4c = puVar7[1];
+    local_48 = puVar7[2];
+    local_58 = 0;
+    local_5c = 0;
+    local_44 = 0;
+    local_54 = FUN_0045c670();
+    puVar7 = &local_58;
+    puVar12 = &local_5c;
+    puVar11 = &local_44;
+    puVar10 = &local_50;
+    uVar13 = _DAT_010718c0;
+    FUN_006629f0(puVar10,puVar11,puVar12,puVar7,_DAT_010718c0);
+    local_5d = FUN_00a6fdb0(puVar10,puVar11,puVar12,puVar7,uVar13);
+    uVar13 = FUN_00452dc0(local_44,local_5c);
+    FUN_004e3270(uVar13);
+    FUN_00b8b1e0(uVar13);
+  }
+  cVar1 = FUN_008709f0();
+  if (cVar1 == '\0') {
+    if (param_1 != 0) {
+      FUN_00876830(local_18,param_1);
+    }
+  }
+  else {
+    FUN_00875fd0(local_18,local_2c,local_24,param_1);
+    cVar1 = FUN_00871260();
+    if (((cVar1 != '\0') || (cVar1 = FUN_005bac20(), cVar1 != '\0')) &&
+       (cVar1 = FUN_00705a00(), cVar1 == '\0')) {
+      FUN_00876a20(local_24);
+    }
+  }
+  if (local_26 != '\0') {
+    if (local_16 != '\0') {
+      FUN_00b540d0();
+    }
+    cVar1 = FUN_004de080();
+    if (cVar1 != '\0') {
+      piVar6 = (int *)FUN_0043c4b0();
+      (**(code **)(*piVar6 + 0xac))(&DAT_011a9bd0);
+      FUN_00414430(0,0,0,0);
+      local_70 = 0;
+      local_6c = _DAT_01026994;
+      local_68 = 0x3f800000;
+      local_64 = 0;
+      uVar13 = 1;
+      puVar7 = &local_70;
+      FUN_0043c4b0(puVar7,1);
+      FUN_007148c0(puVar7,uVar13);
+      local_70 = _DAT_010340a4;
+      local_6c = 0x3f800000;
+      local_68 = 0x3f800000;
+      local_64 = 0;
+      uVar13 = 1;
+      puVar7 = &local_70;
+      FUN_0043c4b0(puVar7,1);
+      FUN_007148c0(puVar7,uVar13);
+    }
+  }
+  FUN_00876850(local_2c,local_c,local_24,local_14);
+  return;
+}
+
+
+
+======================================================================
+SUN LIGHT MATCHES: Sky::singleton ref function FUN_00870bd0 @ 0x00870bd0
+======================================================================
+  L0175:      ((DAT_011dea20 != 0 && (iVar2 = FUN_0045cd60(), iVar2 != 0)))) {
+  L0176:     piVar6 = (int *)FUN_0045cd60();
+  L0195:     FUN_00b8b1e0(uVar13);
+  Total matched lines: 3
+
+--- Calls FROM Sky::singleton ref function FUN_00870bd0 (0x00870bd0) ---
+  0x00870bdd -> 0x0043c4b0 FUN_0043c4b0
+  0x00870be5 -> 0x004e3270 FUN_004e3270
+  0x00870bfc -> 0x00950bb0 FUN_00950bb0
+  0x00870c03 -> 0x00456610 FUN_00456610
+  0x00870c0b -> 0x004dc310 FUN_004dc310
+  0x00870c16 -> 0x00872ad0 FUN_00872ad0
+  0x00870c1e -> 0x00872b00 FUN_00872b00
+  0x00870c29 -> 0x008727d0 FUN_008727d0
+  0x00870c31 -> 0x008749b0 FUN_008749b0
+  0x00870c3c -> 0x00871290 FUN_00871290
+  0x00870c53 -> 0x00872f50 FUN_00872f50
+  0x00870c63 -> 0x00874ac0 FUN_00874ac0
+  0x00870c76 -> 0x00874b50 FUN_00874b50
+  0x00870c8b -> 0x00705910 FUN_00705910
+  0x00870c92 -> 0x005585e0 FUN_005585e0
+  0x00870c9b -> 0x00705100 FUN_00705100
+  0x00870cd2 -> 0x0043b230 FUN_0043b230
+  0x00870cd9 -> 0x00456610 FUN_00456610
+  0x00870ce6 -> 0x0043b230 FUN_0043b230
+  0x00870ced -> 0x00450f90 FUN_00450f90
+  0x00870cf6 -> 0x004de080 FUN_004de080
+  0x00870d06 -> 0x00709cb0 FUN_00709cb0
+  0x00870d1d -> 0x004dee10 FUN_004dee10
+  0x00870d28 -> 0x004dee70 FUN_004dee70
+  0x00870d35 -> 0x00403e20 FUN_00403e20
+  0x00870d3c -> 0x00706e70 FUN_00706e70
+  0x00870dfd -> 0x00b4f540 FUN_00b4f540
+  0x00870e18 -> 0x00873200 Main::RenderWorldSceneGraph
+  0x00870e33 -> 0x0043b230 FUN_0043b230
+  0x00870e3a -> 0x00450f90 FUN_00450f90
+  0x00870e44 -> 0x004ebbc0 GetNextDocTemplate
+  0x00870e4f -> 0x00871220 FUN_00871220
+  0x00870e5c -> 0x00b8b390 FUN_00b8b390
+  0x00870e6e -> 0x005f36f0 FUN_005f36f0
+  0x00870e7c -> 0x00408d60 FUN_00408d60
+  0x00870ed0 -> 0x008746d0 FUN_008746d0
+  0x00870ee3 -> 0x00874b50 FUN_00874b50
+  0x00870ee8 -> 0x005b9b00 FUN_005b9b00
+  0x00870efd -> 0x00559450 FUN_00559450
+  0x00870f04 -> 0x00b63a90 FUN_00b63a90
+  0x00870f1a -> 0x00559450 FUN_00559450
+  0x00870f23 -> 0x00874920 FUN_00874920
+  0x00870f33 -> 0x00874c10 FUN_00874c10
+  0x00870f46 -> 0x00874b50 FUN_00874b50
+  0x00870f57 -> 0x004ea970 FUN_004ea970
+  0x00870f5e -> 0x00ba3130 FUN_00ba3130
+  0x00870f74 -> 0x00875110 Main::RenderFirstPerson
+  0x00870f7f -> 0x004ea970 FUN_004ea970
+  0x00870f86 -> 0x00ba30f0 FUN_00ba30f0
+  0x00870f8f -> 0x004ea970 FUN_004ea970
+  0x00870f96 -> 0x00ba3130 FUN_00ba3130
+  0x00870fb4 -> 0x00559450 FUN_00559450
+  0x00870fbd -> 0x00875e40 FUN_00875e40
+  0x00870fd3 -> 0x00559450 FUN_00559450
+  0x00870fdc -> 0x00875fa0 FUN_00875fa0
+  0x00870ff3 -> 0x005f36f0 FUN_005f36f0
+  0x00871013 -> 0x0045cd60 Sky sun/current object getter
+  0x00871026 -> 0x0045cd60 Sky sun/current object getter
+  0x00871046 -> 0x0045bb80 CameraVectorGetter_0045BB80
+  0x0087106d -> 0x0045c670 CurrentCameraGetter_0045C670
+  0x00871092 -> 0x006629f0 CameraOrSceneGetter_006629F0
+  0x00871099 -> 0x00a6fdb0 FUN_00a6fdb0
+  0x008710b2 -> 0x00452dc0 FUN_00452dc0
+  0x008710b8 -> 0x004e3270 FUN_004e3270
+  0x008710bf -> 0x00b8b1e0 Sun/light screen vector downstream candidate
+  0x008710c4 -> 0x008709f0 FUN_008709f0
+  0x008710e4 -> 0x00875fd0 FUN_00875fd0
+  0x008710e9 -> 0x00871260 FUN_00871260
+  0x008710f5 -> 0x005bac20 FUN_005bac20
+  0x00871101 -> 0x00705a00 FUN_00705a00
+  0x00871114 -> 0x00876a20 FUN_00876a20
+  0x0087112d -> 0x00876830 FUN_00876830
+  0x00871146 -> 0x00b540d0 FUN_00b540d0
+  0x0087114b -> 0x004de080 FUN_004de080
+  0x0087115b -> 0x0043c4b0 FUN_0043c4b0
+  0x0087119c -> 0x00414430 FUN_00414430
+  0x008711bf -> 0x0043c4b0 FUN_0043c4b0
+  0x008711c6 -> 0x007148c0 FUN_007148c0
+  0x008711e9 -> 0x0043c4b0 FUN_0043c4b0
+  0x008711f0 -> 0x007148c0 FUN_007148c0
+  0x00871208 -> 0x00876850 FUN_00876850
+  Total: 81 calls
+
+======================================================================
+Sky::singleton ref function FUN_00877730 @ 0x00877730
+======================================================================
+  Function: FUN_00877730 @ 0x00877730, Size: 543 bytes
+
+void FUN_00877730(void)
+
+{
+  uint uVar1;
+  undefined4 uVar2;
+  undefined4 uVar3;
+  int *piVar4;
+  byte *pbVar5;
+  char *pcVar6;
+  int iVar7;
+  int *unaff_FS_OFFSET;
+  undefined1 *puVar8;
+  undefined4 local_40;
+  undefined1 local_2c [16];
+  undefined1 local_1c [12];
+  int local_10;
+  undefined1 *puStack_c;
+  int local_8;
+  
+  local_8 = 0xffffffff;
+  puStack_c = &LAB_00f14467;
+  local_10 = *unaff_FS_OFFSET;
+  uVar1 = DAT_011c16bc ^ (uint)&stack0xfffffffc;
+  *unaff_FS_OFFSET = (int)&local_10;
+  FUN_00404eb0(0x21,1,"D:\\_Fallout3\\Platforms\\Common\\Code\\Fallout\\Misc\\Main.cpp",0x26bd);
+  local_8 = 0;
+  FUN_0040fbe0("Initializing Sky...",uVar1);
+  uVar2 = FUN_00559450();
+  uVar3 = FUN_00559450(uVar2);
+  FUN_0063a630(uVar3,uVar2);
+  piVar4 = (int *)FUN_00559450();
+  FUN_0045cd60(1);
+  uVar2 = FUN_0043b230();
+  (**(code **)(*piVar4 + 0xdc))(uVar2);
+  uVar2 = FUN_004505a0();
+  FUN_00450b80(0,uVar2);
+  FUN_00b5aac0(uVar2);
+  FUN_00559450();
+  FUN_00a5a040();
+  pbVar5 = (byte *)FUN_00408d60();
+  uVar1 = (uint)*pbVar5;
+  FUN_004e3270(uVar1);
+  FUN_00b8b200(uVar1);
+  pcVar6 = (char *)FUN_00408d60();
+  if (*pcVar6 != '\0') {
+    iVar7 = FUN_00aa13e0(0x24);
+    local_8._0_1_ = 1;
+    if (iVar7 == 0) {
+      local_40 = 0;
+    }
+    else {
+      local_40 = FUN_0049ec80();
+    }
+    local_8 = (uint)local_8._1_3_ << 8;
+    FUN_0049ed90(1);
+    FUN_0049ede0(2);
+    FUN_0050f9a0(0xff);
+    FUN_00559450(local_40);
+    FUN_00439410(local_40);
+  }
+  FUN_0043d410(0,0,0);
+  puVar8 = local_2c;
+  FUN_00559450(puVar8);
+  FUN_00a59c60(puVar8);
+  FUN_00559450();
+  FUN_00a5a040();
+  FUN_0043d410(0,0,0);
+  puVar8 = local_1c;
+  FUN_00559450(puVar8);
+  FUN_00a59c60(puVar8);
+  uVar2 = FUN_00559450(0,0);
+  FUN_00b57e30(uVar2);
+  FUN_0045cd60(0,0);
+  uVar2 = FUN_0043b230();
+  FUN_00b57e30(uVar2);
+  local_8 = 0xffffffff;
+  FUN_00404ee0();
+  *unaff_FS_OFFSET = local_10;
+  return;
+}
+
+
+
+======================================================================
+SUN LIGHT MATCHES: Sky::singleton ref function FUN_00877730 @ 0x00877730
+======================================================================
+  L0033:   FUN_0045cd60(1);
+  L0074:   FUN_0045cd60(0,0);
+  Total matched lines: 2
+
+--- Calls FROM Sky::singleton ref function FUN_00877730 (0x00877730) ---
+  0x00877766 -> 0x00404eb0 FUN_00404eb0
+  0x00877777 -> 0x0040fbe0 FUN_0040fbe0
+  0x00877784 -> 0x00559450 FUN_00559450
+  0x0087778f -> 0x00559450 FUN_00559450
+  0x0087779b -> 0x0063a630 FUN_0063a630
+  0x008777a5 -> 0x00559450 FUN_00559450
+  0x008777b5 -> 0x0045cd60 Sky sun/current object getter
+  0x008777bc -> 0x0043b230 FUN_0043b230
+  0x008777d8 -> 0x004505a0 FUN_004505a0
+  0x008777e0 -> 0x00450b80 FUN_00450b80
+  0x008777ea -> 0x00b5aac0 FUN_00b5aac0
+  0x008777f4 -> 0x00559450 FUN_00559450
+  0x008777fb -> 0x00a5a040 FUN_00a5a040
+  0x00877805 -> 0x00408d60 FUN_00408d60
+  0x0087780e -> 0x004e3270 FUN_004e3270
+  0x00877815 -> 0x00b8b200 FUN_00b8b200
+  0x0087781f -> 0x00408d60 FUN_00408d60
+  0x0087782d -> 0x00aa13e0 FUN_00aa13e0
+  0x00877845 -> 0x0049ec80 FUN_0049ec80
+  0x0087786b -> 0x0049ed90 FUN_0049ed90
+  0x00877875 -> 0x0049ede0 FUN_0049ede0
+  0x00877882 -> 0x0050f9a0 FUN_0050f9a0
+  0x00877890 -> 0x00559450 FUN_00559450
+  0x00877897 -> 0x00439410 FUN_00439410
+  0x008778a9 -> 0x0043d410 FUN_0043d410
+  0x008778b7 -> 0x00559450 FUN_00559450
+  0x008778be -> 0x00a59c60 FUN_00a59c60
+  0x008778c8 -> 0x00559450 FUN_00559450
+  0x008778cf -> 0x00a5a040 FUN_00a5a040
+  0x008778e1 -> 0x0043d410 FUN_0043d410
+  0x008778ef -> 0x00559450 FUN_00559450
+  0x008778f6 -> 0x00a59c60 FUN_00a59c60
+  0x00877904 -> 0x00559450 FUN_00559450
+  0x0087790a -> 0x00b57e30 FUN_00b57e30
+  0x0087791c -> 0x0045cd60 Sky sun/current object getter
+  0x00877923 -> 0x0043b230 FUN_0043b230
+  0x00877929 -> 0x00b57e30 FUN_00b57e30
+  0x0087793b -> 0x00404ee0 FUN_00404ee0
+  Total: 38 calls
+  Ref functions printed: 3

@@ -1,0 +1,3721 @@
+FNV NATIVE SUN COLOR/DIRECTION FOLLOWUP AUDIT
+
+Questions:
+1. What do Sky update fields +0xD4/+0xD8/+0xE8 represent, and are they safer for material constants than raw TESWeather color tables?
+2. Which helpers feed those fields: time boundaries, fog ranges, sun scalar table, or final renderer light color?
+3. Does the Sun constructor or native methods prove Sun +0x1C points to Main +0x1C directionalLight?
+4. Do 0x012023F4/0x012023F8 readers confirm these are screen-space sun coordinates?
+
+Do not infer final PSY_SunColor from NVR field names. Use only executable reads/writes proved here.
+
+----------------------------------------------------------------------
+References TO 0x004e3d00 (Weather/light range helper for Sky +0xD4)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x004e3961 (in FUN_004e3590) CALL 0x004e3d00
+  UNCONDITIONAL_CALL @ 0x004a0584 (in FUN_004a04c0) CALL 0x004e3d00
+  UNCONDITIONAL_CALL @ 0x0063bd64 (in FUN_0063bce0) CALL 0x004e3d00
+  UNCONDITIONAL_CALL @ 0x008b333f (in FUN_008b3230) CALL 0x004e3d00
+  UNCONDITIONAL_CALL @ 0x00945597 (in FUN_009445b0) CALL 0x004e3d00
+  UNCONDITIONAL_CALL @ 0x00507fcc (in FUN_00507e30) CALL 0x004e3d00
+  UNCONDITIONAL_CALL @ 0x00507fea (in FUN_00507e30) CALL 0x004e3d00
+  UNCONDITIONAL_CALL @ 0x00929e78 (in FUN_00929df0) CALL 0x004e3d00
+  Total printed: 8 refs
+
+----------------------------------------------------------------------
+References TO 0x00507b20 (Weather/light range helper for Sky +0xD8)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x004e3945 (in FUN_004e3590) CALL 0x00507b20
+  UNCONDITIONAL_CALL @ 0x004e3953 (in FUN_004e3590) CALL 0x00507b20
+  UNCONDITIONAL_CALL @ 0x004a066c (in FUN_004a04c0) CALL 0x00507b20
+  UNCONDITIONAL_CALL @ 0x004a1d08 (in FUN_004a1a70) CALL 0x00507b20
+  UNCONDITIONAL_CALL @ 0x0063bd75 (in FUN_0063bce0) CALL 0x00507b20
+  UNCONDITIONAL_CALL @ 0x005f2d40 (in FUN_005f2b60) CALL 0x00507b20
+  UNCONDITIONAL_CALL @ 0x005f3108 (in FUN_005f2b60) CALL 0x00507b20
+  UNCONDITIONAL_CALL @ 0x00507a5b (in FUN_00507830) CALL 0x00507b20
+  UNCONDITIONAL_CALL @ 0x0050800e (in FUN_00507e30) CALL 0x00507b20
+  Total printed: 9 refs
+
+----------------------------------------------------------------------
+References TO 0x00544ab0 (Interior/exterior fog near helper candidate)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x0063c2cb (in FUN_0063bce0) CALL 0x00544ab0
+  Total printed: 1 refs
+
+----------------------------------------------------------------------
+References TO 0x00544b10 (Interior/exterior fog far helper candidate)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x0063c28d (in FUN_0063bce0) CALL 0x00544b10
+  Total printed: 1 refs
+
+----------------------------------------------------------------------
+References TO 0x00544b70 (Fog power helper candidate)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x0063c323 (in FUN_0063bce0) CALL 0x00544b70
+  Total printed: 1 refs
+
+----------------------------------------------------------------------
+References TO 0x00595f50 (Sky sunset/sunrise time helper)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x0063f289 (in FUN_0063ef20) CALL 0x00595f50
+  UNCONDITIONAL_CALL @ 0x0063b652 (in FUN_0063b630) CALL 0x00595f50
+  UNCONDITIONAL_CALL @ 0x0063bf71 (in FUN_0063bce0) CALL 0x00595f50
+  UNCONDITIONAL_CALL @ 0x00595d6e (in FUN_00595d30) CALL 0x00595f50
+  UNCONDITIONAL_CALL @ 0x0064012c (in FUN_00640020) CALL 0x00595f50
+  UNCONDITIONAL_CALL @ 0x00641c74 (in FUN_00641830) CALL 0x00595f50
+  UNCONDITIONAL_CALL @ 0x0093efc8 (in ???) CALL 0x00595f50
+  Total printed: 7 refs
+
+----------------------------------------------------------------------
+References TO 0x00595fc0 (Sky sunset/sunrise time helper)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x0063f294 (in FUN_0063ef20) CALL 0x00595fc0
+  UNCONDITIONAL_CALL @ 0x0063b65d (in FUN_0063b630) CALL 0x00595fc0
+  UNCONDITIONAL_CALL @ 0x0063bf7c (in FUN_0063bce0) CALL 0x00595fc0
+  UNCONDITIONAL_CALL @ 0x00595d9f (in FUN_00595d30) CALL 0x00595fc0
+  UNCONDITIONAL_CALL @ 0x00640116 (in FUN_00640020) CALL 0x00595fc0
+  UNCONDITIONAL_CALL @ 0x00641caa (in FUN_00641830) CALL 0x00595fc0
+  UNCONDITIONAL_CALL @ 0x0093efd6 (in ???) CALL 0x00595fc0
+  Total printed: 7 refs
+
+----------------------------------------------------------------------
+References TO 0x0063b9b0 (Sky sunrise color begin helper)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x0063f27e (in FUN_0063ef20) CALL 0x0063b9b0
+  UNCONDITIONAL_CALL @ 0x0063b647 (in FUN_0063b630) CALL 0x0063b9b0
+  UNCONDITIONAL_CALL @ 0x0063bf66 (in FUN_0063bce0) CALL 0x0063b9b0
+  UNCONDITIONAL_CALL @ 0x00640137 (in FUN_00640020) CALL 0x0063b9b0
+  Total printed: 4 refs
+
+----------------------------------------------------------------------
+References TO 0x0063ba30 (Sky sunset color end helper)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x0063f29f (in FUN_0063ef20) CALL 0x0063ba30
+  UNCONDITIONAL_CALL @ 0x0063b668 (in FUN_0063b630) CALL 0x0063ba30
+  UNCONDITIONAL_CALL @ 0x0063bf87 (in FUN_0063bce0) CALL 0x0063ba30
+  UNCONDITIONAL_CALL @ 0x00640121 (in FUN_00640020) CALL 0x0063ba30
+  Total printed: 4 refs
+
+----------------------------------------------------------------------
+References TO 0x0063c420 (Sky sun/fog scalar table helper)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x0063c05d (in FUN_0063bce0) CALL 0x0063c420
+  UNCONDITIONAL_CALL @ 0x0063c070 (in FUN_0063bce0) CALL 0x0063c420
+  UNCONDITIONAL_CALL @ 0x0063c08c (in FUN_0063bce0) CALL 0x0063c420
+  UNCONDITIONAL_CALL @ 0x0063c09f (in FUN_0063bce0) CALL 0x0063c420
+  UNCONDITIONAL_CALL @ 0x0063c0bb (in FUN_0063bce0) CALL 0x0063c420
+  UNCONDITIONAL_CALL @ 0x0063c0d1 (in FUN_0063bce0) CALL 0x0063c420
+  UNCONDITIONAL_CALL @ 0x0063c12b (in FUN_0063bce0) CALL 0x0063c420
+  UNCONDITIONAL_CALL @ 0x0063c141 (in FUN_0063bce0) CALL 0x0063c420
+  UNCONDITIONAL_CALL @ 0x0063c19d (in FUN_0063bce0) CALL 0x0063c420
+  UNCONDITIONAL_CALL @ 0x0063c1b3 (in FUN_0063bce0) CALL 0x0063c420
+  UNCONDITIONAL_CALL @ 0x0063c20f (in FUN_0063bce0) CALL 0x0063c420
+  UNCONDITIONAL_CALL @ 0x0063c225 (in FUN_0063bce0) CALL 0x0063c420
+  Total printed: 12 refs
+
+----------------------------------------------------------------------
+References TO 0x0063c440 (Sky child weather update helper)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x0063e43b (in FUN_0063e2f0) CALL 0x0063c440
+  UNCONDITIONAL_CALL @ 0x0063e489 (in FUN_0063e2f0) CALL 0x0063c440
+  UNCONDITIONAL_CALL @ 0x0063bebf (in FUN_0063bce0) CALL 0x0063c440
+  Total printed: 3 refs
+
+----------------------------------------------------------------------
+References TO 0x0063c460 (Sky clamp/range update guard)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x0063c35c (in FUN_0063bce0) CALL 0x0063c460
+  Total printed: 1 refs
+
+----------------------------------------------------------------------
+References TO 0x0063c470 (Sky weather update state helper)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x0063bcec (in FUN_0063bce0) CALL 0x0063c470
+  Total printed: 1 refs
+
+----------------------------------------------------------------------
+References TO 0x0063c480 (Sky weather update range helper)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x0063bd8e (in FUN_0063bce0) CALL 0x0063c480
+  Total printed: 1 refs
+
+----------------------------------------------------------------------
+References TO 0x0063c690 (Sky vector/color interpolation writer)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x0063b505 (in FUN_0063b120) CALL 0x0063c690
+  UNCONDITIONAL_CALL @ 0x0063b5b4 (in FUN_0063b120) CALL 0x0063c690
+  UNCONDITIONAL_CALL @ 0x0063be3f (in FUN_0063bce0) CALL 0x0063c690
+  UNCONDITIONAL_CALL @ 0x00551fa8 (in FUN_00551890) CALL 0x0063c690
+  UNCONDITIONAL_CALL @ 0x00552251 (in FUN_00551890) CALL 0x0063c690
+  Total printed: 5 refs
+
+----------------------------------------------------------------------
+References TO 0x006404f0 (Sun constructor candidate)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x0063a935 (in FUN_0063a630) CALL 0x006404f0
+  Total printed: 1 refs
+
+----------------------------------------------------------------------
+References TO 0x00c03410 (Image-space sun screen global reader candidate)
+----------------------------------------------------------------------
+  DATA @ 0x010bc8ac (in ???) 
+  Total printed: 1 refs
+
+----------------------------------------------------------------------
+References TO 0x011dea10 (Main/TES singleton candidate)
+----------------------------------------------------------------------
+  READ @ 0x0086b1b9 (in FUN_0086a850) MOV ECX,dword ptr [0x011dea10]
+  READ @ 0x0086b351 (in FUN_0086a850) MOV ECX,dword ptr [0x011dea10]
+  READ @ 0x0086b774 (in FUN_0086a850) MOV ECX,dword ptr [0x011dea10]
+  READ @ 0x0086b783 (in FUN_0086a850) MOV ECX,dword ptr [0x011dea10]
+  READ @ 0x0086b802 (in FUN_0086a850) MOV EDX,dword ptr [0x011dea10]
+  READ @ 0x00458364 (in FUN_00458200) MOV ECX,dword ptr [0x011dea10]
+  READ @ 0x00458378 (in FUN_00458200) MOV ECX,dword ptr [0x011dea10]
+  READ @ 0x004583a9 (in FUN_00458200) MOV ECX,dword ptr [0x011dea10]
+  READ @ 0x00552c1d (in FUN_00552bd0) MOV ECX,dword ptr [0x011dea10]
+  READ @ 0x00552c45 (in FUN_00552bd0) MOV ECX,dword ptr [0x011dea10]
+  READ @ 0x00552c56 (in FUN_00552bd0) MOV ECX,dword ptr [0x011dea10]
+  READ @ 0x00552c86 (in FUN_00552bd0) MOV ECX,dword ptr [0x011dea10]
+  READ @ 0x00552d34 (in FUN_00552bd0) MOV ECX,dword ptr [0x011dea10]
+  READ @ 0x0055751c (in FUN_005574d0) MOV ECX,dword ptr [0x011dea10]
+  READ @ 0x0055752f (in FUN_005574d0) MOV ECX,dword ptr [0x011dea10]
+  READ @ 0x00561f91 (in FUN_00561ef0) MOV ECX,dword ptr [0x011dea10]
+  READ @ 0x00573a27 (in FUN_00573800) MOV ECX,dword ptr [0x011dea10]
+  READ @ 0x00573b55 (in FUN_00573800) MOV ECX,dword ptr [0x011dea10]
+  READ @ 0x00573bd2 (in FUN_00573800) MOV ECX,dword ptr [0x011dea10]
+  READ @ 0x00548493 (in FUN_00548230) MOV ECX,dword ptr [0x011dea10]
+  READ @ 0x0054859a (in FUN_00548230) MOV ECX,dword ptr [0x011dea10]
+  READ @ 0x0054893e (in FUN_00548880) MOV ECX,dword ptr [0x011dea10]
+  READ @ 0x005492d7 (in FUN_00548880) MOV ECX,dword ptr [0x011dea10]
+  READ @ 0x004e4be6 (in FUN_004e4730) MOV ECX,dword ptr [0x011dea10]
+  READ @ 0x004e4bf5 (in FUN_004e4730) MOV ECX,dword ptr [0x011dea10]
+  READ @ 0x004e4c1d (in FUN_004e4730) MOV ECX,dword ptr [0x011dea10]
+  READ @ 0x006c5635 (in FUN_006c5460) MOV ECX,dword ptr [0x011dea10]
+  READ @ 0x006c567a (in FUN_006c5460) MOV ECX,dword ptr [0x011dea10]
+  READ @ 0x006fb410 (in FUN_006fb3d0) MOV ECX,dword ptr [0x011dea10]
+  READ @ 0x006fb44a (in FUN_006fb3d0) MOV ECX,dword ptr [0x011dea10]
+  READ @ 0x006fb4fa (in FUN_006fb3d0) MOV ECX,dword ptr [0x011dea10]
+  READ @ 0x006fb534 (in FUN_006fb3d0) MOV ECX,dword ptr [0x011dea10]
+  READ @ 0x004ed437 (in FUN_004ed3e0) MOV ECX,dword ptr [0x011dea10]
+  READ @ 0x0078a47f (in FUN_0078a3e0) MOV ECX,dword ptr [0x011dea10]
+  READ @ 0x007cbb56 (in FUN_007cbaf0) MOV ECX,dword ptr [0x011dea10]
+  READ @ 0x00849343 (in FUN_008492b0) MOV ECX,dword ptr [0x011dea10]
+  READ @ 0x008493a0 (in FUN_008492b0) MOV ECX,dword ptr [0x011dea10]
+  READ @ 0x005571b7 (in FUN_005571a0) MOV ECX,dword ptr [0x011dea10]
+  READ @ 0x0084f649 (in FUN_0084f330) MOV ECX,dword ptr [0x011dea10]
+  READ @ 0x0084f729 (in FUN_0084f330) MOV ECX,dword ptr [0x011dea10]
+  READ @ 0x00469d4d (in FUN_004698a0) MOV ECX,dword ptr [0x011dea10]
+  READ @ 0x0049530c (in FUN_004949a0) MOV ECX,dword ptr [0x011dea10]
+  READ @ 0x004aefb3 (in FUN_004aeed0) MOV ECX,dword ptr [0x011dea10]
+  READ @ 0x004b781e (in FUN_004b7660) MOV ECX,dword ptr [0x011dea10]
+  READ @ 0x0056fd11 (in FUN_0056fcb0) MOV ECX,dword ptr [0x011dea10]
+  READ @ 0x0056ff34 (in FUN_0056fcb0) MOV ECX,dword ptr [0x011dea10]
+  READ @ 0x0056ff4e (in FUN_0056fcb0) MOV ECX,dword ptr [0x011dea10]
+  READ @ 0x00570047 (in FUN_0056fcb0) MOV ECX,dword ptr [0x011dea10]
+  READ @ 0x0057b529 (in FUN_0057b520) MOV ECX,dword ptr [0x011dea10]
+  READ @ 0x0057b66c (in FUN_0057b520) MOV ECX,dword ptr [0x011dea10]
+  READ @ 0x0057b67f (in FUN_0057b520) MOV ECX,dword ptr [0x011dea10]
+  READ @ 0x0062fe44 (in FUN_0062fc70) MOV ECX,dword ptr [0x011dea10]
+  READ @ 0x0062ea4b (in FUN_0062e970) MOV ECX,dword ptr [0x011dea10]
+  READ @ 0x0062ea62 (in FUN_0062e970) MOV ECX,dword ptr [0x011dea10]
+  READ @ 0x0062eb04 (in FUN_0062e970) MOV ECX,dword ptr [0x011dea10]
+  READ @ 0x004573b1 (in FUN_004572e0) MOV ECX,dword ptr [0x011dea10]
+  READ @ 0x004e82ed (in FUN_004e8160) MOV ECX,dword ptr [0x011dea10]
+  READ @ 0x0062ee10 (in FUN_0062eb50) MOV ECX,dword ptr [0x011dea10]
+  READ @ 0x006893ae (in FUN_00689310) CMP dword ptr [0x011dea10],0x0
+  READ @ 0x006893ca (in FUN_00689310) MOV ECX,dword ptr [0x011dea10]
+  READ @ 0x0045e016 (in FUN_0045dfe0) MOV ECX,dword ptr [0x011dea10]
+  READ @ 0x0045e021 (in FUN_0045dfe0) MOV ECX,dword ptr [0x011dea10]
+  READ @ 0x0045e02c (in FUN_0045dfe0) MOV ECX,dword ptr [0x011dea10]
+  READ @ 0x0045fa35 (in FUN_0045dfe0) MOV ECX,dword ptr [0x011dea10]
+  READ @ 0x0045fa46 (in FUN_0045dfe0) MOV ECX,dword ptr [0x011dea10]
+  WRITE @ 0x0086d062 (in FUN_0086cf20) MOV dword ptr [0x011dea10],ECX
+  READ @ 0x0086d070 (in FUN_0086cf20) MOV ECX,dword ptr [0x011dea10]
+  READ @ 0x0086d2ae (in FUN_0086cf20) MOV ECX,dword ptr [0x011dea10]
+  READ @ 0x0086d2b9 (in FUN_0086cf20) MOV ECX,dword ptr [0x011dea10]
+  READ @ 0x0086d2d5 (in FUN_0086cf20) MOV ECX,dword ptr [0x011dea10]
+  READ @ 0x0086d2e0 (in FUN_0086cf20) MOV ECX,dword ptr [0x011dea10]
+  READ @ 0x0045a6cd (in FUN_0045a600) MOV ECX,dword ptr [0x011dea10]
+  READ @ 0x004630ed (in FUN_00463070) MOV ECX,dword ptr [0x011dea10]
+  READ @ 0x00463100 (in FUN_00463070) MOV ECX,dword ptr [0x011dea10]
+  READ @ 0x0046310d (in FUN_00463070) MOV ECX,dword ptr [0x011dea10]
+  READ @ 0x00463118 (in FUN_00463070) MOV ECX,dword ptr [0x011dea10]
+  READ @ 0x004646c1 (in FUN_00463070) MOV ECX,dword ptr [0x011dea10]
+  READ @ 0x004646d0 (in FUN_00463070) MOV ECX,dword ptr [0x011dea10]
+  READ @ 0x004e17d4 (in FUN_004e1650) MOV ECX,dword ptr [0x011dea10]
+  READ @ 0x0063f00f (in FUN_0063ef20) MOV ECX,dword ptr [0x011dea10]
+  READ @ 0x0063f04d (in FUN_0063ef20) MOV ECX,dword ptr [0x011dea10]
+  READ @ 0x0063f12b (in FUN_0063ef20) MOV ECX,dword ptr [0x011dea10]
+  READ @ 0x0063f169 (in FUN_0063ef20) MOV ECX,dword ptr [0x011dea10]
+  READ @ 0x00861ecf (in FUN_00861ea0) MOV ECX,dword ptr [0x011dea10]
+  READ @ 0x0086e8cd (in FUN_0086e650) MOV ECX,dword ptr [0x011dea10]
+  READ @ 0x0086e95b (in FUN_0086e650) MOV ECX,dword ptr [0x011dea10]
+  READ @ 0x0086e96d (in FUN_0086e650) MOV ECX,dword ptr [0x011dea10]
+  READ @ 0x0086e981 (in FUN_0086e650) MOV ECX,dword ptr [0x011dea10]
+  READ @ 0x0086e9de (in FUN_0086e650) MOV ECX,dword ptr [0x011dea10]
+  READ @ 0x0086ebc6 (in FUN_0086e650) MOV ECX,dword ptr [0x011dea10]
+  READ @ 0x0086ec12 (in FUN_0086e650) MOV ECX,dword ptr [0x011dea10]
+  READ @ 0x00456097 (in FUN_004556d0) MOV ECX,dword ptr [0x011dea10]
+  READ @ 0x00452ed9 (in FUN_00452ed0) MOV ECX,dword ptr [0x011dea10]
+  READ @ 0x00452fa3 (in FUN_00452ed0) MOV ECX,dword ptr [0x011dea10]
+  READ @ 0x00453151 (in FUN_00452ff0) MOV ECX,dword ptr [0x011dea10]
+  READ @ 0x00454168 (in FUN_00453dc0) MOV ECX,dword ptr [0x011dea10]
+  READ @ 0x004542f9 (in FUN_00453dc0) MOV ECX,dword ptr [0x011dea10]
+  READ @ 0x0045430d (in FUN_00453dc0) MOV ECX,dword ptr [0x011dea10]
+  READ @ 0x0045433e (in FUN_00453dc0) MOV ECX,dword ptr [0x011dea10]
+  READ @ 0x00454994 (in FUN_00454450) MOV ECX,dword ptr [0x011dea10]
+  READ @ 0x004549a8 (in FUN_00454450) MOV ECX,dword ptr [0x011dea10]
+  READ @ 0x004549d9 (in FUN_00454450) MOV ECX,dword ptr [0x011dea10]
+  READ @ 0x004576e6 (in FUN_00457620) MOV ECX,dword ptr [0x011dea10]
+  READ @ 0x0046e5cb (in FUN_0046ddb0) CMP dword ptr [0x011dea10],0x0
+  READ @ 0x0046e627 (in FUN_0046ddb0) MOV ECX,dword ptr [0x011dea10]
+  READ @ 0x0046e71c (in FUN_0046ddb0) MOV ECX,dword ptr [0x011dea10]
+  READ @ 0x004a08c4 (in FUN_004a04c0) MOV ECX,dword ptr [0x011dea10]
+  READ @ 0x004a30ee (in FUN_004a2d50) MOV ECX,dword ptr [0x011dea10]
+  READ @ 0x004a340e (in FUN_004a2d50) MOV ECX,dword ptr [0x011dea10]
+  READ @ 0x004a34c4 (in FUN_004a2d50) MOV ECX,dword ptr [0x011dea10]
+  READ @ 0x00451a2a (in FUN_004519d0) MOV ECX,dword ptr [0x011dea10]
+  READ @ 0x004a8c06 (in FUN_004a8bb0) MOV ECX,dword ptr [0x011dea10]
+  READ @ 0x004a8c19 (in FUN_004a8bb0) MOV ECX,dword ptr [0x011dea10]
+  READ @ 0x004a8d37 (in FUN_004a8bb0) MOV ECX,dword ptr [0x011dea10]
+  READ @ 0x004a7d48 (in FUN_004a7d20) MOV ECX,dword ptr [0x011dea10]
+  READ @ 0x004a8a75 (in FUN_004a82d0) MOV ECX,dword ptr [0x011dea10]
+  READ @ 0x004a9065 (in FUN_004a9050) MOV ECX,dword ptr [0x011dea10]
+  READ @ 0x004a9074 (in FUN_004a9050) MOV ECX,dword ptr [0x011dea10]
+  READ @ 0x00528410 (in FUN_005283c0) MOV ECX,dword ptr [0x011dea10]
+  READ @ 0x00528426 (in FUN_005283c0) MOV ECX,dword ptr [0x011dea10]
+  READ @ 0x0053a4d4 (in FUN_0053a090) MOV ECX,dword ptr [0x011dea10]
+  READ @ 0x0054bd2c (in FUN_0054bcf0) MOV ECX,dword ptr [0x011dea10]
+  READ @ 0x0054bd7d (in FUN_0054bcf0) MOV ECX,dword ptr [0x011dea10]
+  READ @ 0x0056f7f5 (in FUN_0056f700) MOV ECX,dword ptr [0x011dea10]
+  READ @ 0x0057d0e3 (in FUN_0057d0a0) MOV ECX,dword ptr [0x011dea10]
+  READ @ 0x0057d307 (in FUN_0057d0a0) MOV ECX,dword ptr [0x011dea10]
+  READ @ 0x0057d39d (in FUN_0057d0a0) MOV ECX,dword ptr [0x011dea10]
+  READ @ 0x0057e415 (in FUN_0057de00) MOV ECX,dword ptr [0x011dea10]
+  READ @ 0x0057e62b (in FUN_0057de00) MOV ECX,dword ptr [0x011dea10]
+  READ @ 0x0057e81b (in FUN_0057de00) MOV ECX,dword ptr [0x011dea10]
+  READ @ 0x004574da (in FUN_004573f0) MOV ECX,dword ptr [0x011dea10]
+  READ @ 0x004575e6 (in FUN_00457520) MOV ECX,dword ptr [0x011dea10]
+  READ @ 0x00629834 (in FUN_006296d0) MOV ECX,dword ptr [0x011dea10]
+  READ @ 0x0062f4d5 (in FUN_0062f460) MOV ECX,dword ptr [0x011dea10]
+  READ @ 0x0062f545 (in FUN_0062f460) MOV ECX,dword ptr [0x011dea10]
+  READ @ 0x0062f577 (in FUN_0062f460) MOV ECX,dword ptr [0x011dea10]
+  READ @ 0x006653af (in FUN_006652e0) CMP dword ptr [0x011dea10],0x0
+  READ @ 0x006653bc (in FUN_006652e0) MOV ECX,dword ptr [0x011dea10]
+  READ @ 0x006653cf (in FUN_006652e0) MOV ECX,dword ptr [0x011dea10]
+  READ @ 0x006653ef (in FUN_006652e0) MOV ECX,dword ptr [0x011dea10]
+  READ @ 0x00665430 (in FUN_006652e0) MOV ECX,dword ptr [0x011dea10]
+  READ @ 0x0066544a (in FUN_006652e0) MOV ECX,dword ptr [0x011dea10]
+  READ @ 0x0068e6ab (in FUN_0068dea0) MOV ECX,dword ptr [0x011dea10]
+  READ @ 0x006a5cb3 (in FUN_006a5ca0) MOV ECX,dword ptr [0x011dea10]
+  READ @ 0x006c1eb0 (in FUN_006c1ea0) MOV ECX,dword ptr [0x011dea10]
+  READ @ 0x00694529 (in FUN_00694500) MOV ECX,dword ptr [0x011dea10]
+  READ @ 0x006cd2ae (in FUN_006cd1f0) MOV ECX,dword ptr [0x011dea10]
+  READ @ 0x006cd2fd (in FUN_006cd1f0) MOV ECX,dword ptr [0x011dea10]
+  READ @ 0x0045cc4f (in FUN_0045cbc0) MOV ECX,dword ptr [0x011dea10]
+  READ @ 0x0045cc77 (in FUN_0045cbc0) MOV ECX,dword ptr [0x011dea10]
+  READ @ 0x0045ccac (in FUN_0045cbc0) MOV ECX,dword ptr [0x011dea10]
+  READ @ 0x0045ccba (in FUN_0045cbc0) MOV ECX,dword ptr [0x011dea10]
+  READ @ 0x0045cd13 (in FUN_0045cbc0) MOV ECX,dword ptr [0x011dea10]
+  READ @ 0x006ad829 (in FUN_006ad770) MOV ECX,dword ptr [0x011dea10]
+  READ @ 0x006ad91f (in FUN_006ad770) MOV ECX,dword ptr [0x011dea10]
+  READ @ 0x006afe7f (in FUN_006afcc0) MOV ECX,dword ptr [0x011dea10]
+  READ @ 0x006b0140 (in FUN_006afcc0) MOV ECX,dword ptr [0x011dea10]
+  READ @ 0x006b097d (in FUN_006b05f0) MOV ECX,dword ptr [0x011dea10]
+  READ @ 0x006b1c59 (in FUN_006b1970) MOV ECX,dword ptr [0x011dea10]
+  READ @ 0x006ce4be (in FUN_006ce2d0) MOV ECX,dword ptr [0x011dea10]
+  READ @ 0x006ce6ea (in FUN_006ce2d0) MOV ECX,dword ptr [0x011dea10]
+  READ @ 0x006d91f5 (in FUN_006d91d0) MOV ECX,dword ptr [0x011dea10]
+  READ @ 0x006d9204 (in FUN_006d91d0) MOV ECX,dword ptr [0x011dea10]
+  READ @ 0x006d9280 (in FUN_006d91d0) MOV ECX,dword ptr [0x011dea10]
+  READ @ 0x006d92b0 (in FUN_006d91d0) MOV ECX,dword ptr [0x011dea10]
+  READ @ 0x006d6f47 (in FUN_006d6f40) MOV ECX,dword ptr [0x011dea10]
+  READ @ 0x006d6f6b (in FUN_006d6f60) MOV ECX,dword ptr [0x011dea10]
+  READ @ 0x006dde85 (in FUN_006ddc00) MOV ECX,dword ptr [0x011dea10]
+  READ @ 0x006fcb03 (in FUN_006fca90) MOV ECX,dword ptr [0x011dea10]
+  READ @ 0x006fcbd3 (in FUN_006fca90) MOV ECX,dword ptr [0x011dea10]
+  READ @ 0x005400fa (in FUN_005400e0) MOV ECX,dword ptr [0x011dea10]
+  READ @ 0x00540109 (in FUN_005400e0) MOV ECX,dword ptr [0x011dea10]
+  READ @ 0x006fb1eb (in FUN_006fb170) MOV ECX,dword ptr [0x011dea10]
+  READ @ 0x006fb300 (in FUN_006fb170) MOV ECX,dword ptr [0x011dea10]
+  READ @ 0x004e4cb0 (in FUN_004e4c80) MOV ECX,dword ptr [0x011dea10]
+  READ @ 0x006fded4 (in FUN_006fdaa0) MOV ECX,dword ptr [0x011dea10]
+  READ @ 0x006fdee3 (in FUN_006fdaa0) MOV ECX,dword ptr [0x011dea10]
+  READ @ 0x006f78d8 (in FUN_006f77a0) MOV ECX,dword ptr [0x011dea10]
+  READ @ 0x006fedea (in FUN_006fede0) MOV ECX,dword ptr [0x011dea10]
+  READ @ 0x006fee0a (in FUN_006fede0) MOV ECX,dword ptr [0x011dea10]
+  READ @ 0x006fee9a (in FUN_006fee90) MOV ECX,dword ptr [0x011dea10]
+  READ @ 0x006fefbc (in FUN_006fee90) MOV ECX,dword ptr [0x011dea10]
+  READ @ 0x006f5a09 (in FUN_006f5970) MOV ECX,dword ptr [0x011dea10]
+  READ @ 0x006f5a24 (in FUN_006f5970) MOV ECX,dword ptr [0x011dea10]
+  READ @ 0x006ff0da (in FUN_006ff0d0) MOV ECX,dword ptr [0x011dea10]
+  READ @ 0x006ff1c0 (in FUN_006ff0d0) MOV ECX,dword ptr [0x011dea10]
+  READ @ 0x00701178 (in FUN_007010e0) MOV ECX,dword ptr [0x011dea10]
+  READ @ 0x007c065a (in FUN_007c0580) MOV ECX,dword ptr [0x011dea10]
+  READ @ 0x00850a5e (in FUN_00850a40) MOV ECX,dword ptr [0x011dea10]
+  READ @ 0x0063b2e5 (in FUN_0063b120) CMP dword ptr [0x011dea10],0x0
+  READ @ 0x0063b2f2 (in FUN_0063b120) MOV ECX,dword ptr [0x011dea10]
+  READ @ 0x0063b30c (in FUN_0063b120) MOV ECX,dword ptr [0x011dea10]
+  READ @ 0x0063b325 (in FUN_0063b120) MOV ECX,dword ptr [0x011dea10]
+  READ @ 0x0063b33e (in FUN_0063b120) MOV ECX,dword ptr [0x011dea10]
+  READ @ 0x0063c260 (in FUN_0063bce0) CMP dword ptr [0x011dea10],0x0
+  READ @ 0x0063c26d (in FUN_0063bce0) MOV ECX,dword ptr [0x011dea10]
+  READ @ 0x0063c280 (in FUN_0063bce0) MOV ECX,dword ptr [0x011dea10]
+  READ @ 0x0063c2be (in FUN_0063bce0) MOV ECX,dword ptr [0x011dea10]
+  READ @ 0x0063c316 (in FUN_0063bce0) MOV ECX,dword ptr [0x011dea10]
+  READ @ 0x00850ac6 (in FUN_00850a90) MOV ECX,dword ptr [0x011dea10]
+  READ @ 0x00858de4 (in FUN_00858af0) MOV ECX,dword ptr [0x011dea10]
+  READ @ 0x00858df3 (in FUN_00858af0) MOV ECX,dword ptr [0x011dea10]
+  READ @ 0x00858e43 (in FUN_00858af0) MOV ECX,dword ptr [0x011dea10]
+  READ @ 0x00859060 (in FUN_00858af0) MOV ECX,dword ptr [0x011dea10]
+  READ @ 0x0085906f (in FUN_00858af0) MOV ECX,dword ptr [0x011dea10]
+  READ @ 0x0085f8a5 (in FUN_0085f850) MOV ECX,dword ptr [0x011dea10]
+  READ @ 0x00861f53 (in FUN_00861f20) MOV ECX,dword ptr [0x011dea10]
+  READ @ 0x00861f61 (in FUN_00861f20) MOV ECX,dword ptr [0x011dea10]
+  READ @ 0x00861f91 (in FUN_00861f20) MOV ECX,dword ptr [0x011dea10]
+  READ @ 0x00861fa9 (in FUN_00861f20) MOV ECX,dword ptr [0x011dea10]
+  READ @ 0x00858059 (in FUN_00858030) MOV ECX,dword ptr [0x011dea10]
+  READ @ 0x00858080 (in FUN_00858030) MOV ECX,dword ptr [0x011dea10]
+  READ @ 0x0085808e (in FUN_00858030) MOV ECX,dword ptr [0x011dea10]
+  READ @ 0x0085816c (in FUN_00858030) MOV ECX,dword ptr [0x011dea10]
+  READ @ 0x008581c3 (in FUN_00858030) MOV ECX,dword ptr [0x011dea10]
+  READ @ 0x007108e5 (in FUN_00710880) MOV ECX,dword ptr [0x011dea10]
+  READ @ 0x007122d2 (in FUN_00711ea0) MOV ECX,dword ptr [0x011dea10]
+  READ @ 0x0071da72 (in FUN_0071d800) MOV ECX,dword ptr [0x011dea10]
+  READ @ 0x0071da81 (in FUN_0071d800) MOV ECX,dword ptr [0x011dea10]
+  READ @ 0x0071da97 (in FUN_0071d800) MOV ECX,dword ptr [0x011dea10]
+  ... (truncated)
+  Total printed: 220 refs
+
+----------------------------------------------------------------------
+References TO 0x011dea20 (Sky singleton)
+----------------------------------------------------------------------
+  WRITE @ 0x0086cf86 (in FUN_0086cf20) MOV [0x011dea20],EAX
+  READ @ 0x0086cfaa (in FUN_0086cf20) MOV ECX,dword ptr [0x011dea20]
+  READ @ 0x0086d025 (in FUN_0086cf20) MOV EAX,[0x011dea20]
+  READ @ 0x00871000 (in FUN_00870bd0) CMP dword ptr [0x011dea20],0x0
+  READ @ 0x0087100d (in FUN_00870bd0) MOV ECX,dword ptr [0x011dea20]
+  READ @ 0x00871020 (in FUN_00870bd0) MOV ECX,dword ptr [0x011dea20]
+  READ @ 0x00877795 (in FUN_00877730) MOV ECX,dword ptr [0x011dea20]
+  READ @ 0x008777af (in FUN_00877730) MOV ECX,dword ptr [0x011dea20]
+  READ @ 0x008777d2 (in FUN_00877730) MOV ECX,dword ptr [0x011dea20]
+  READ @ 0x00877916 (in FUN_00877730) MOV ECX,dword ptr [0x011dea20]
+  Total printed: 10 refs
+
+----------------------------------------------------------------------
+References TO 0x012023f4 (Sun screen/global value 0)
+----------------------------------------------------------------------
+  WRITE @ 0x00b8b1e6 (in FUN_00b8b1e0) MOV dword ptr [0x012023f4],ECX
+  READ @ 0x00c03550 (in FUN_00c03410) FLD float ptr [0x012023f4]
+  READ @ 0x00c0336d (in ???) FLD float ptr [0x012023f4]
+  WRITE @ 0x00fbae5b (in ???) MOV [0x012023f4],EAX
+  Total printed: 4 refs
+
+----------------------------------------------------------------------
+References TO 0x012023f8 (Sun screen/global value 1)
+----------------------------------------------------------------------
+  WRITE @ 0x00b8b1ef (in FUN_00b8b1e0) MOV dword ptr [0x012023f8],EDX
+  READ @ 0x00c03546 (in FUN_00c03410) FLD float ptr [0x012023f8]
+  READ @ 0x00c03363 (in ???) FLD float ptr [0x012023f8]
+  WRITE @ 0x00fbae60 (in ???) MOV dword ptr [0x012023f8],ECX
+  Total printed: 4 refs
+
+======================================================================
+Float clamp/smoothing helper used after sun range update @ 0x0040ebd0
+======================================================================
+  Function: FUN_0040ebd0 @ 0x0040ebd0, Size: 40 bytes
+
+float10 FUN_0040ebd0(float param_1,float param_2)
+
+{
+  undefined4 local_8;
+  
+  if (param_2 <= param_1) {
+    local_8 = param_2;
+  }
+  else {
+    local_8 = param_1;
+  }
+  return (float10)local_8;
+}
+
+
+
+======================================================================
+SUN COLOR/DIRECTION MATCHES: Float clamp/smoothing helper used after sun range update @ 0x0040ebd0
+======================================================================
+  Total matched lines: 0
+
+--- Calls FROM Float clamp/smoothing helper used after sun range update (0x0040ebd0) ---
+  Total: 0 calls
+
+======================================================================
+Vector getter used by sun screen projection @ 0x0045bb80
+======================================================================
+  Function: FUN_0045bb80 @ 0x0045bb80, Size: 19 bytes
+
+int __fastcall FUN_0045bb80(int param_1)
+
+{
+  return param_1 + 0x8c;
+}
+
+
+
+======================================================================
+SUN COLOR/DIRECTION MATCHES: Vector getter used by sun screen projection @ 0x0045bb80
+======================================================================
+  Total matched lines: 0
+
+--- Calls FROM Vector getter used by sun screen projection (0x0045bb80) ---
+  Total: 0 calls
+
+======================================================================
+Sky sun/current object getter (Sky +0x28) @ 0x0045cd60
+======================================================================
+  Function: FUN_0045cd60 @ 0x0045cd60, Size: 17 bytes
+
+undefined4 __fastcall FUN_0045cd60(int param_1)
+
+{
+  return *(undefined4 *)(param_1 + 0x28);
+}
+
+
+
+======================================================================
+SUN COLOR/DIRECTION MATCHES: Sky sun/current object getter (Sky +0x28) @ 0x0045cd60
+======================================================================
+  L0002: undefined4 __fastcall FUN_0045cd60(int param_1)
+  L0005:   return *(undefined4 *)(param_1 + 0x28);
+  Total matched lines: 2
+
+--- Calls FROM Sky sun/current object getter (Sky +0x28) (0x0045cd60) ---
+  Total: 0 calls
+
+======================================================================
+Weather/light range helper for Sky +0xD4 @ 0x004e3d00
+======================================================================
+  Function: FUN_004e3d00 @ 0x004e3d00, Size: 20 bytes
+
+float10 __fastcall FUN_004e3d00(int param_1)
+
+{
+  return (float10)*(float *)(param_1 + 0x114);
+}
+
+
+
+======================================================================
+SUN COLOR/DIRECTION MATCHES: Weather/light range helper for Sky +0xD4 @ 0x004e3d00
+======================================================================
+  Total matched lines: 0
+
+--- Calls FROM Weather/light range helper for Sky +0xD4 (0x004e3d00) ---
+  Total: 0 calls
+
+======================================================================
+Weather/light range helper for Sky +0xD8 @ 0x00507b20
+======================================================================
+  Function: FUN_00507b20 @ 0x00507b20, Size: 20 bytes
+
+float10 __fastcall FUN_00507b20(int param_1)
+
+{
+  return (float10)*(float *)(param_1 + 0x118);
+}
+
+
+
+======================================================================
+SUN COLOR/DIRECTION MATCHES: Weather/light range helper for Sky +0xD8 @ 0x00507b20
+======================================================================
+  Total matched lines: 0
+
+--- Calls FROM Weather/light range helper for Sky +0xD8 (0x00507b20) ---
+  Total: 0 calls
+
+======================================================================
+Interior/exterior fog near helper candidate @ 0x00544ab0
+======================================================================
+  Function: FUN_00544ab0 @ 0x00544ab0, Size: 86 bytes
+
+float10 __fastcall FUN_00544ab0(undefined4 param_1)
+
+{
+  char cVar1;
+  int iVar2;
+  int iVar3;
+  float10 fVar4;
+  
+  iVar2 = FUN_00544600(param_1);
+  if (iVar2 == 0) {
+    fVar4 = (float10)0;
+  }
+  else {
+    cVar1 = FUN_00558b80(8);
+    if ((cVar1 != '\0') && (iVar3 = FUN_00558b40(), iVar3 != 0)) {
+      FUN_00558b40();
+      fVar4 = (float10)FUN_00526ac0();
+      return fVar4;
+    }
+    fVar4 = (float10)*(float *)(iVar2 + 0xc);
+  }
+  return fVar4;
+}
+
+
+
+======================================================================
+SUN COLOR/DIRECTION MATCHES: Interior/exterior fog near helper candidate @ 0x00544ab0
+======================================================================
+  Total matched lines: 0
+
+--- Calls FROM Interior/exterior fog near helper candidate (0x00544ab0) ---
+  0x00544abc -> 0x00544600 FUN_00544600
+  0x00544acf -> 0x00558b80 FUN_00558b80
+  0x00544ade -> 0x00558b40 FUN_00558b40
+  0x00544aea -> 0x00558b40 FUN_00558b40
+  0x00544af1 -> 0x00526ac0 FUN_00526ac0
+  Total: 5 calls
+
+======================================================================
+Interior/exterior fog far helper candidate @ 0x00544b10
+======================================================================
+  Function: FUN_00544b10 @ 0x00544b10, Size: 86 bytes
+
+float10 __fastcall FUN_00544b10(undefined4 param_1)
+
+{
+  char cVar1;
+  int iVar2;
+  int iVar3;
+  float10 fVar4;
+  
+  iVar2 = FUN_00544600(param_1);
+  if (iVar2 == 0) {
+    fVar4 = (float10)0;
+  }
+  else {
+    cVar1 = FUN_00558b80(0x10);
+    if ((cVar1 != '\0') && (iVar3 = FUN_00558b40(), iVar3 != 0)) {
+      FUN_00558b40();
+      fVar4 = (float10)FUN_00526ae0();
+      return fVar4;
+    }
+    fVar4 = (float10)*(float *)(iVar2 + 0x10);
+  }
+  return fVar4;
+}
+
+
+
+======================================================================
+SUN COLOR/DIRECTION MATCHES: Interior/exterior fog far helper candidate @ 0x00544b10
+======================================================================
+  Total matched lines: 0
+
+--- Calls FROM Interior/exterior fog far helper candidate (0x00544b10) ---
+  0x00544b1c -> 0x00544600 FUN_00544600
+  0x00544b2f -> 0x00558b80 FUN_00558b80
+  0x00544b3e -> 0x00558b40 FUN_00558b40
+  0x00544b4a -> 0x00558b40 FUN_00558b40
+  0x00544b51 -> 0x00526ae0 FUN_00526ae0
+  Total: 5 calls
+
+======================================================================
+Fog power helper candidate @ 0x00544b70
+======================================================================
+  Function: FUN_00544b70 @ 0x00544b70, Size: 89 bytes
+
+float10 __fastcall FUN_00544b70(undefined4 param_1)
+
+{
+  char cVar1;
+  int iVar2;
+  int iVar3;
+  float10 fVar4;
+  
+  iVar2 = FUN_00544600(param_1);
+  if (iVar2 == 0) {
+    fVar4 = (float10)1;
+  }
+  else {
+    cVar1 = FUN_00558b80(0x100);
+    if ((cVar1 != '\0') && (iVar3 = FUN_00558b40(), iVar3 != 0)) {
+      FUN_00558b40();
+      fVar4 = (float10)FUN_00598040();
+      return fVar4;
+    }
+    fVar4 = (float10)*(float *)(iVar2 + 0x24);
+  }
+  return fVar4;
+}
+
+
+
+======================================================================
+SUN COLOR/DIRECTION MATCHES: Fog power helper candidate @ 0x00544b70
+======================================================================
+  Total matched lines: 0
+
+--- Calls FROM Fog power helper candidate (0x00544b70) ---
+  0x00544b7c -> 0x00544600 FUN_00544600
+  0x00544b92 -> 0x00558b80 FUN_00558b80
+  0x00544ba1 -> 0x00558b40 FUN_00558b40
+  0x00544bad -> 0x00558b40 FUN_00558b40
+  0x00544bb4 -> 0x00598040 FUN_00598040
+  Total: 5 calls
+
+======================================================================
+Sky sunset/sunrise time helper @ 0x00595f50
+======================================================================
+  Function: FUN_00595f50 @ 0x00595f50, Size: 102 bytes
+
+/* WARNING: Globals starting with '_' overlap smaller symbols at the same address */
+
+float10 __fastcall FUN_00595f50(int param_1)
+
+{
+  byte bVar1;
+  
+  if (((*(uint *)(param_1 + 0x118) & 0x200) != 0) && (*(int *)(param_1 + 0xc) != 0)) {
+    bVar1 = FUN_00595f10(1);
+    _DAT_011ca9ec = (float)bVar1 / (float)_DAT_01034208;
+    *(uint *)(param_1 + 0x118) = *(uint *)(param_1 + 0x118) & 0xfffffdff;
+  }
+  return (float10)_DAT_011ca9ec;
+}
+
+
+
+======================================================================
+SUN COLOR/DIRECTION MATCHES: Sky sunset/sunrise time helper @ 0x00595f50
+======================================================================
+  Total matched lines: 0
+
+--- Calls FROM Sky sunset/sunrise time helper (0x00595f50) ---
+  0x00595f7b -> 0x00595f10 FUN_00595f10
+  Total: 1 calls
+
+======================================================================
+Sky sunset/sunrise time helper @ 0x00595fc0
+======================================================================
+  Function: FUN_00595fc0 @ 0x00595fc0, Size: 102 bytes
+
+/* WARNING: Globals starting with '_' overlap smaller symbols at the same address */
+
+float10 __fastcall FUN_00595fc0(int param_1)
+
+{
+  byte bVar1;
+  
+  if (((*(uint *)(param_1 + 0x118) & 0x400) != 0) && (*(int *)(param_1 + 0xc) != 0)) {
+    bVar1 = FUN_00595f10(2);
+    _DAT_011ca9f0 = (float)bVar1 / (float)_DAT_01034208;
+    *(uint *)(param_1 + 0x118) = *(uint *)(param_1 + 0x118) & 0xfffffbff;
+  }
+  return (float10)_DAT_011ca9f0;
+}
+
+
+
+======================================================================
+SUN COLOR/DIRECTION MATCHES: Sky sunset/sunrise time helper @ 0x00595fc0
+======================================================================
+  Total matched lines: 0
+
+--- Calls FROM Sky sunset/sunrise time helper (0x00595fc0) ---
+  0x00595feb -> 0x00595f10 FUN_00595f10
+  Total: 1 calls
+
+======================================================================
+Sky sunrise color begin helper @ 0x0063b9b0
+======================================================================
+  Function: FUN_0063b9b0 @ 0x0063b9b0, Size: 115 bytes
+
+/* WARNING: Globals starting with '_' overlap smaller symbols at the same address */
+
+float10 __fastcall FUN_0063b9b0(int param_1)
+
+{
+  float *pfVar1;
+  float10 fVar2;
+  
+  if ((*(uint *)(param_1 + 0x118) & 0x1000) != 0) {
+    fVar2 = (float10)FUN_00595ea0();
+    pfVar1 = (float *)FUN_00403e20();
+    fVar2 = (float10)FUN_00404010(0,(float)fVar2 - *pfVar1);
+    _DAT_011cccfc = (float)fVar2;
+    *(uint *)(param_1 + 0x118) = *(uint *)(param_1 + 0x118) & 0xffffefff;
+  }
+  return (float10)_DAT_011cccfc;
+}
+
+
+
+======================================================================
+SUN COLOR/DIRECTION MATCHES: Sky sunrise color begin helper @ 0x0063b9b0
+======================================================================
+  Total matched lines: 0
+
+--- Calls FROM Sky sunrise color begin helper (0x0063b9b0) ---
+  0x0063b9cd -> 0x00595ea0 FUN_00595ea0
+  0x0063b9da -> 0x00403e20 FUN_00403e20
+  0x0063b9f4 -> 0x00404010 FUN_00404010
+  Total: 3 calls
+
+======================================================================
+Sky sunset color end helper @ 0x0063ba30
+======================================================================
+  Function: FUN_0063ba30 @ 0x0063ba30, Size: 119 bytes
+
+/* WARNING: Globals starting with '_' overlap smaller symbols at the same address */
+
+float10 __fastcall FUN_0063ba30(int param_1)
+
+{
+  float *pfVar1;
+  float10 fVar2;
+  
+  if ((*(uint *)(param_1 + 0x118) & 0x2000) != 0) {
+    fVar2 = (float10)FUN_00596030();
+    pfVar1 = (float *)FUN_00403e20();
+    fVar2 = (float10)FUN_0040ebd0(_DAT_0104ede4,*pfVar1 + (float)fVar2);
+    _DAT_011ccd00 = (float)fVar2;
+    *(uint *)(param_1 + 0x118) = *(uint *)(param_1 + 0x118) & 0xffffdfff;
+  }
+  return (float10)_DAT_011ccd00;
+}
+
+
+
+======================================================================
+SUN COLOR/DIRECTION MATCHES: Sky sunset color end helper @ 0x0063ba30
+======================================================================
+  Total matched lines: 0
+
+--- Calls FROM Sky sunset color end helper (0x0063ba30) ---
+  0x0063ba4d -> 0x00596030 FUN_00596030
+  0x0063ba5a -> 0x00403e20 FUN_00403e20
+  0x0063ba78 -> 0x0040ebd0 Float clamp/smoothing helper used after sun range update
+  Total: 3 calls
+
+======================================================================
+Sky weather sun/fog range update @ 0x0063bce0
+======================================================================
+  Function: FUN_0063bce0 @ 0x0063bce0, Size: 1842 bytes
+
+/* WARNING: Globals starting with '_' overlap smaller symbols at the same address */
+
+void __fastcall FUN_0063bce0(int param_1)
+
+{
+  float fVar1;
+  float fVar2;
+  float fVar3;
+  float fVar4;
+  char cVar5;
+  int iVar6;
+  uint uVar7;
+  int *piVar8;
+  float *pfVar9;
+  bool bVar10;
+  float10 fVar11;
+  float10 fVar12;
+  float local_5c;
+  float local_58;
+  float local_44;
+  int local_3c;
+  undefined4 local_34;
+  undefined4 local_30;
+  undefined4 local_2c;
+  undefined4 local_28;
+  float local_24;
+  float local_20;
+  undefined4 local_1c;
+  undefined4 local_18;
+  float local_14;
+  float local_10;
+  float local_c;
+  int local_8;
+  
+  local_8 = FUN_0063c470();
+  cVar5 = FUN_004e2180();
+  if ((cVar5 != '\0') || (cVar5 = FUN_004e3c40(), cVar5 != '\0')) {
+    FUN_0045c670();
+    FUN_00558310();
+    iVar6 = FUN_0045bb80();
+    local_c = *(float *)(iVar6 + 8);
+    if (local_8 != 0) {
+      cVar5 = FUN_004e3c40();
+      if (cVar5 == '\0') {
+        FUN_008d6f30();
+        fVar11 = (float10)FUN_005471e0();
+        if (fVar11 <= (float10)local_c) goto LAB_0063bf3a;
+      }
+      fVar11 = (float10)FUN_004e3d00();
+      *(float *)(param_1 + 0xd4) = (float)fVar11;
+      fVar11 = (float10)FUN_00507b20();
+      *(float *)(param_1 + 0xd8) = (float)fVar11;
+      *(undefined4 *)(param_1 + 0xe8) = 0x3f800000;
+      fVar11 = (float10)FUN_0063c480();
+      local_14 = (float)fVar11;
+      FUN_008d6f30();
+      fVar11 = (float10)FUN_005471e0();
+      if ((float10)local_c < fVar11) {
+        FUN_008d6f30();
+        fVar11 = (float10)FUN_005471e0();
+        local_14 = (float)fVar11;
+      }
+      local_10 = (local_14 - local_c) * _DAT_011ccc60;
+      if ((float)_DAT_01012070 < local_10) {
+        local_10 = 1.0;
+      }
+      local_34 = FUN_004f9bf0();
+      local_30 = FUN_009ee040();
+      local_2c = 0;
+      local_28 = 0;
+      local_24 = 1.0 - local_10;
+      local_20 = local_10;
+      local_1c = 0;
+      local_18 = 0;
+      FUN_0063c690(param_1 + 0x48,&local_34,0);
+      if ((*(int *)(param_1 + 0xf8) != 3) && (*(int *)(param_1 + 0xf8) != 2)) {
+        return;
+      }
+      bVar10 = (float)_DAT_01011588 < local_10;
+      local_3c = 0;
+      while( true ) {
+        FUN_0055b980();
+        iVar6 = FUN_00634830();
+        if (iVar6 <= local_3c) break;
+        uVar7 = (uint)bVar10;
+        iVar6 = local_3c;
+        FUN_0055b980(local_3c,uVar7);
+        FUN_0063c440(iVar6);
+        FUN_00450f90(uVar7);
+        local_3c = local_3c + 1;
+      }
+      uVar7 = (uint)bVar10;
+      FUN_007af430(uVar7);
+      FUN_005585e0();
+      FUN_00450f90(uVar7);
+      uVar7 = (uint)bVar10;
+      FUN_0045cd60(uVar7);
+      FUN_005585e0();
+      FUN_00450f90(uVar7);
+      uVar7 = (uint)bVar10;
+      FUN_0045cd60(uVar7);
+      FUN_0043b230();
+      FUN_00450f90(uVar7);
+      uVar7 = (uint)bVar10;
+      FUN_00559450(uVar7);
+      FUN_00450f90(uVar7);
+      return;
+    }
+  }
+LAB_0063bf3a:
+  if ((*(int *)(param_1 + 0x10) == 0) ||
+     ((*(int *)(param_1 + 0xf8) != 3 && (*(int *)(param_1 + 0xf8) != 2)))) {
+    if ((*(int *)(param_1 + 0xf8) == 1) &&
+       ((DAT_011dea10 != 0 && (iVar6 = FUN_005f36f0(), iVar6 != 0)))) {
+      FUN_005f36f0();
+      fVar11 = (float10)FUN_00544b10();
+      local_5c = (float)fVar11;
+      if ((local_5c < (float)_DAT_01012060 != (local_5c == (float)_DAT_01012060)) ||
+         ((float)_DAT_0103a480 < local_5c)) {
+        local_5c = _DAT_010317c4;
+      }
+      FUN_005f36f0();
+      fVar11 = (float10)FUN_00544ab0();
+      local_58 = (float)fVar11;
+      if ((local_58 < (float)_DAT_01012060 != (local_58 == (float)_DAT_01012060)) ||
+         (local_5c < local_58)) {
+        local_58 = local_5c * (float)_DAT_0104ee90;
+      }
+      *(float *)(param_1 + 0xd4) = local_58;
+      *(float *)(param_1 + 0xd8) = local_5c;
+      FUN_005f36f0();
+      fVar11 = (float10)FUN_00544b70();
+      *(float *)(param_1 + 0xe8) = (float)fVar11;
+    }
+    else {
+      *(float *)(param_1 + 0xd4) = _DAT_010317c4;
+      *(float *)(param_1 + 0xd8) = _DAT_010317c4;
+      *(undefined4 *)(param_1 + 0xe8) = 0x3f800000;
+    }
+  }
+  else {
+    fVar11 = (float10)FUN_0063b9b0();
+    fVar1 = (float)fVar11;
+    fVar11 = (float10)FUN_00595f50();
+    fVar2 = (float)fVar11;
+    fVar11 = (float10)FUN_00595fc0();
+    fVar3 = (float)fVar11;
+    fVar11 = (float10)FUN_0063ba30();
+    fVar4 = (float)fVar11;
+    if ((*(float *)(param_1 + 0xec) <= fVar1) || (fVar2 <= *(float *)(param_1 + 0xec))) {
+      if ((fVar2 < *(float *)(param_1 + 0xec) == (fVar2 == *(float *)(param_1 + 0xec))) ||
+         (fVar3 < *(float *)(param_1 + 0xec))) {
+        if ((*(float *)(param_1 + 0xec) <= fVar3) || (fVar4 <= *(float *)(param_1 + 0xec))) {
+          local_44 = 0.0;
+        }
+        else {
+          local_44 = (fVar4 - *(float *)(param_1 + 0xec)) / (fVar4 - fVar3);
+        }
+      }
+      else {
+        local_44 = 1.0;
+      }
+    }
+    else {
+      local_44 = (*(float *)(param_1 + 0xec) - fVar1) / (fVar2 - fVar1);
+    }
+    fVar1 = 1.0 - local_44;
+    fVar11 = (float10)FUN_0063c420(0);
+    fVar12 = (float10)FUN_0063c420(2);
+    *(float *)(param_1 + 0xd4) =
+         (float)(fVar12 * (float10)fVar1 + (float10)(double)(fVar11 * (float10)local_44));
+    fVar11 = (float10)FUN_0063c420(1);
+    fVar12 = (float10)FUN_0063c420(3);
+    *(float *)(param_1 + 0xd8) =
+         (float)(fVar12 * (float10)fVar1 + (float10)(double)(fVar11 * (float10)local_44));
+    fVar11 = (float10)FUN_0063c420(4);
+    fVar12 = (float10)FUN_0063c420(5);
+    *(float *)(param_1 + 0xe8) =
+         (float)(fVar12 * (float10)fVar1 + (float10)(double)(fVar11 * (float10)local_44));
+    if (*(int *)(param_1 + 0x14) != 0) {
+      *(float *)(param_1 + 0xd4) = *(float *)(param_1 + 0xd4) * *(float *)(param_1 + 0xf4);
+      fVar2 = *(float *)(param_1 + 0xf4);
+      fVar11 = (float10)FUN_0063c420(0);
+      fVar12 = (float10)FUN_0063c420(2);
+      *(float *)(param_1 + 0xd4) =
+           (float)((fVar12 * (float10)fVar1 + (float10)(double)(fVar11 * (float10)local_44)) *
+                   (float10)(1.0 - fVar2) + (float10)*(float *)(param_1 + 0xd4));
+      *(float *)(param_1 + 0xd8) = *(float *)(param_1 + 0xd8) * *(float *)(param_1 + 0xf4);
+      fVar2 = *(float *)(param_1 + 0xf4);
+      fVar11 = (float10)FUN_0063c420(1);
+      fVar12 = (float10)FUN_0063c420(3);
+      *(float *)(param_1 + 0xd8) =
+           (float)((fVar12 * (float10)fVar1 + (float10)(double)(fVar11 * (float10)local_44)) *
+                   (float10)(1.0 - fVar2) + (float10)*(float *)(param_1 + 0xd8));
+      *(float *)(param_1 + 0xe8) = *(float *)(param_1 + 0xe8) * *(float *)(param_1 + 0xf4);
+      fVar2 = *(float *)(param_1 + 0xf4);
+      fVar11 = (float10)FUN_0063c420(4);
+      fVar12 = (float10)FUN_0063c420(5);
+      *(float *)(param_1 + 0xe8) =
+           (float)((fVar12 * (float10)fVar1 + (float10)(double)(fVar11 * (float10)local_44)) *
+                   (float10)(1.0 - fVar2) + (float10)*(float *)(param_1 + 0xe8));
+    }
+  }
+  cVar5 = FUN_0063c460();
+  if (cVar5 == '\0') {
+    piVar8 = (int *)FUN_0045c670();
+    fVar11 = (float10)(**(code **)(*piVar8 + 0x100))();
+    fVar1 = (float)fVar11;
+    pfVar9 = (float *)FUN_00403e20();
+    *(float *)(param_1 + 0xd4) =
+         *(float *)(param_1 + 0xd4) -
+         (*(float *)(param_1 + 0xd4) - *pfVar9) *
+         ((*(float *)(param_1 + 0xd8) - fVar1) / (*(float *)(param_1 + 0xd8) - *pfVar9));
+    *(float *)(param_1 + 0xd8) = fVar1;
+    fVar11 = (float10)FUN_0040ebd0(fVar1,*(undefined4 *)(param_1 + 0xd4));
+    *(float *)(param_1 + 0xd4) = (float)fVar11;
+  }
+  return;
+}
+
+
+
+======================================================================
+SUN COLOR/DIRECTION MATCHES: Sky weather sun/fog range update @ 0x0063bce0
+======================================================================
+  L0004: void __fastcall FUN_0063bce0(int param_1)
+  L0051:       *(float *)(param_1 + 0xd4) = (float)fVar11;
+  L0053:       *(float *)(param_1 + 0xd8) = (float)fVar11;
+  L0054:       *(undefined4 *)(param_1 + 0xe8) = 0x3f800000;
+  L0076:       FUN_0063c690(param_1 + 0x48,&local_34,0);
+  L0077:       if ((*(int *)(param_1 + 0xf8) != 3) && (*(int *)(param_1 + 0xf8) != 2)) {
+  L0098:       FUN_0045cd60(uVar7);
+  L0102:       FUN_0045cd60(uVar7);
+  L0113:      ((*(int *)(param_1 + 0xf8) != 3 && (*(int *)(param_1 + 0xf8) != 2)))) {
+  L0114:     if ((*(int *)(param_1 + 0xf8) == 1) &&
+  L0115:        ((DAT_011dea10 != 0 && (iVar6 = FUN_005f36f0(), iVar6 != 0)))) {
+  L0130:       *(float *)(param_1 + 0xd4) = local_58;
+  L0131:       *(float *)(param_1 + 0xd8) = local_5c;
+  L0134:       *(float *)(param_1 + 0xe8) = (float)fVar11;
+  L0137:       *(float *)(param_1 + 0xd4) = _DAT_010317c4;
+  L0138:       *(float *)(param_1 + 0xd8) = _DAT_010317c4;
+  L0139:       *(undefined4 *)(param_1 + 0xe8) = 0x3f800000;
+  L0151:     if ((*(float *)(param_1 + 0xec) <= fVar1) || (fVar2 <= *(float *)(param_1 + 0xec))) {
+  L0152:       if ((fVar2 < *(float *)(param_1 + 0xec) == (fVar2 == *(float *)(param_1 + 0xec))) ||
+  L0153:          (fVar3 < *(float *)(param_1 + 0xec))) {
+  L0154:         if ((*(float *)(param_1 + 0xec) <= fVar3) || (fVar4 <= *(float *)(param_1 + 0xec))) {
+  L0158:           local_44 = (fVar4 - *(float *)(param_1 + 0xec)) / (fVar4 - fVar3);
+  L0166:       local_44 = (*(float *)(param_1 + 0xec) - fVar1) / (fVar2 - fVar1);
+  L0169:     fVar11 = (float10)FUN_0063c420(0);
+  L0170:     fVar12 = (float10)FUN_0063c420(2);
+  L0171:     *(float *)(param_1 + 0xd4) =
+  L0173:     fVar11 = (float10)FUN_0063c420(1);
+  L0174:     fVar12 = (float10)FUN_0063c420(3);
+  L0175:     *(float *)(param_1 + 0xd8) =
+  L0177:     fVar11 = (float10)FUN_0063c420(4);
+  L0178:     fVar12 = (float10)FUN_0063c420(5);
+  L0179:     *(float *)(param_1 + 0xe8) =
+  L0182:       *(float *)(param_1 + 0xd4) = *(float *)(param_1 + 0xd4) * *(float *)(param_1 + 0xf4);
+  L0183:       fVar2 = *(float *)(param_1 + 0xf4);
+  L0184:       fVar11 = (float10)FUN_0063c420(0);
+  L0185:       fVar12 = (float10)FUN_0063c420(2);
+  L0186:       *(float *)(param_1 + 0xd4) =
+  L0188:                    (float10)(1.0 - fVar2) + (float10)*(float *)(param_1 + 0xd4));
+  L0189:       *(float *)(param_1 + 0xd8) = *(float *)(param_1 + 0xd8) * *(float *)(param_1 + 0xf4);
+  L0190:       fVar2 = *(float *)(param_1 + 0xf4);
+  L0191:       fVar11 = (float10)FUN_0063c420(1);
+  L0192:       fVar12 = (float10)FUN_0063c420(3);
+  L0193:       *(float *)(param_1 + 0xd8) =
+  L0195:                    (float10)(1.0 - fVar2) + (float10)*(float *)(param_1 + 0xd8));
+  L0196:       *(float *)(param_1 + 0xe8) = *(float *)(param_1 + 0xe8) * *(float *)(param_1 + 0xf4);
+  L0197:       fVar2 = *(float *)(param_1 + 0xf4);
+  L0198:       fVar11 = (float10)FUN_0063c420(4);
+  L0199:       fVar12 = (float10)FUN_0063c420(5);
+  L0200:       *(float *)(param_1 + 0xe8) =
+  L0202:                    (float10)(1.0 - fVar2) + (float10)*(float *)(param_1 + 0xe8));
+  L0211:     *(float *)(param_1 + 0xd4) =
+  L0212:          *(float *)(param_1 + 0xd4) -
+  L0213:          (*(float *)(param_1 + 0xd4) - *pfVar9) *
+  L0214:          ((*(float *)(param_1 + 0xd8) - fVar1) / (*(float *)(param_1 + 0xd8) - *pfVar9));
+  L0215:     *(float *)(param_1 + 0xd8) = fVar1;
+  L0216:     fVar11 = (float10)FUN_0040ebd0(fVar1,*(undefined4 *)(param_1 + 0xd4));
+  L0217:     *(float *)(param_1 + 0xd4) = (float)fVar11;
+  Total matched lines: 57
+
+--- Calls FROM Sky weather sun/fog range update (0x0063bce0) ---
+  0x0063bcec -> 0x0063c470 Sky weather update state helper
+  0x0063bcf4 -> 0x004e2180 FUN_004e2180
+  0x0063bd00 -> 0x004e3c40 FUN_004e3c40
+  0x0063bd10 -> 0x0045c670 FUN_0045c670
+  0x0063bd17 -> 0x00558310 FUN_00558310
+  0x0063bd1e -> 0x0045bb80 Vector getter used by sun screen projection
+  0x0063bd33 -> 0x004e3c40 FUN_004e3c40
+  0x0063bd45 -> 0x008d6f30 FUN_008d6f30
+  0x0063bd4c -> 0x005471e0 FUN_005471e0
+  0x0063bd64 -> 0x004e3d00 Weather/light range helper for Sky +0xD4
+  0x0063bd75 -> 0x00507b20 Weather/light range helper for Sky +0xD8
+  0x0063bd8e -> 0x0063c480 Sky weather update range helper
+  0x0063bd9c -> 0x008d6f30 FUN_008d6f30
+  0x0063bda3 -> 0x005471e0 FUN_005471e0
+  0x0063bdba -> 0x008d6f30 FUN_008d6f30
+  0x0063bdc1 -> 0x005471e0 FUN_005471e0
+  0x0063bdf0 -> 0x004f9bf0 FUN_004f9bf0
+  0x0063bdfb -> 0x009ee040 FUN_009ee040
+  0x0063be3f -> 0x0063c690 Sky vector/color interpolation writer
+  0x0063be9b -> 0x0055b980 FUN_0055b980
+  0x0063bea2 -> 0x00634830 FUN_00634830
+  0x0063beb8 -> 0x0055b980 FUN_0055b980
+  0x0063bebf -> 0x0063c440 Sky child weather update helper
+  0x0063bec6 -> 0x00450f90 FUN_00450f90
+  0x0063bed5 -> 0x007af430 FUN_007af430
+  0x0063bedc -> 0x005585e0 FUN_005585e0
+  0x0063bee3 -> 0x00450f90 FUN_00450f90
+  0x0063bef0 -> 0x0045cd60 Sky sun/current object getter (Sky +0x28)
+  0x0063bef7 -> 0x005585e0 FUN_005585e0
+  0x0063befe -> 0x00450f90 FUN_00450f90
+  0x0063bf0b -> 0x0045cd60 Sky sun/current object getter (Sky +0x28)
+  0x0063bf12 -> 0x0043b230 FUN_0043b230
+  0x0063bf19 -> 0x00450f90 FUN_00450f90
+  0x0063bf29 -> 0x00559450 FUN_00559450
+  0x0063bf30 -> 0x00450f90 FUN_00450f90
+  0x0063bf66 -> 0x0063b9b0 Sky sunrise color begin helper
+  0x0063bf71 -> 0x00595f50 Sky sunset/sunrise time helper
+  0x0063bf7c -> 0x00595fc0 Sky sunset/sunrise time helper
+  0x0063bf87 -> 0x0063ba30 Sky sunset color end helper
+  0x0063c05d -> 0x0063c420 Sky sun/fog scalar table helper
+  0x0063c070 -> 0x0063c420 Sky sun/fog scalar table helper
+  0x0063c08c -> 0x0063c420 Sky sun/fog scalar table helper
+  0x0063c09f -> 0x0063c420 Sky sun/fog scalar table helper
+  0x0063c0bb -> 0x0063c420 Sky sun/fog scalar table helper
+  0x0063c0d1 -> 0x0063c420 Sky sun/fog scalar table helper
+  0x0063c12b -> 0x0063c420 Sky sun/fog scalar table helper
+  0x0063c141 -> 0x0063c420 Sky sun/fog scalar table helper
+  0x0063c19d -> 0x0063c420 Sky sun/fog scalar table helper
+  0x0063c1b3 -> 0x0063c420 Sky sun/fog scalar table helper
+  0x0063c20f -> 0x0063c420 Sky sun/fog scalar table helper
+  0x0063c225 -> 0x0063c420 Sky sun/fog scalar table helper
+  0x0063c273 -> 0x005f36f0 FUN_005f36f0
+  0x0063c286 -> 0x005f36f0 FUN_005f36f0
+  0x0063c28d -> 0x00544b10 Interior/exterior fog far helper candidate
+  0x0063c2c4 -> 0x005f36f0 FUN_005f36f0
+  0x0063c2cb -> 0x00544ab0 Interior/exterior fog near helper candidate
+  0x0063c31c -> 0x005f36f0 FUN_005f36f0
+  0x0063c323 -> 0x00544b70 Fog power helper candidate
+  0x0063c35c -> 0x0063c460 Sky clamp/range update guard
+  0x0063c36c -> 0x0045c670 FUN_0045c670
+  0x0063c395 -> 0x00403e20 FUN_00403e20
+  0x0063c3fd -> 0x0040ebd0 Float clamp/smoothing helper used after sun range update
+  Total: 62 calls
+
+======================================================================
+Sky sun/fog scalar table helper @ 0x0063c420
+======================================================================
+  Function: FUN_0063c420 @ 0x0063c420, Size: 26 bytes
+
+float10 __thiscall FUN_0063c420(int param_1,int param_2)
+
+{
+  return (float10)*(float *)(param_1 + 0xf0 + param_2 * 4);
+}
+
+
+
+======================================================================
+SUN COLOR/DIRECTION MATCHES: Sky sun/fog scalar table helper @ 0x0063c420
+======================================================================
+  L0002: float10 __thiscall FUN_0063c420(int param_1,int param_2)
+  L0005:   return (float10)*(float *)(param_1 + 0xf0 + param_2 * 4);
+  Total matched lines: 2
+
+--- Calls FROM Sky sun/fog scalar table helper (0x0063c420) ---
+  Total: 0 calls
+
+======================================================================
+Sky child weather update helper @ 0x0063c440
+======================================================================
+  Function: FUN_0063c440 @ 0x0063c440, Size: 28 bytes
+
+void __fastcall FUN_0063c440(undefined4 param_1)
+
+{
+  FUN_00559450(param_1);
+  return;
+}
+
+
+
+======================================================================
+SUN COLOR/DIRECTION MATCHES: Sky child weather update helper @ 0x0063c440
+======================================================================
+  Total matched lines: 0
+
+--- Calls FROM Sky child weather update helper (0x0063c440) ---
+  0x0063c451 -> 0x00559450 FUN_00559450
+  Total: 1 calls
+
+======================================================================
+Sky clamp/range update guard @ 0x0063c460
+======================================================================
+  Function: FUN_0063c460 @ 0x0063c460, Size: 10 bytes
+
+undefined1 FUN_0063c460(void)
+
+{
+  return DAT_0119f188;
+}
+
+
+
+======================================================================
+SUN COLOR/DIRECTION MATCHES: Sky clamp/range update guard @ 0x0063c460
+======================================================================
+  Total matched lines: 0
+
+--- Calls FROM Sky clamp/range update guard (0x0063c460) ---
+  Total: 0 calls
+
+======================================================================
+Sky weather update state helper @ 0x0063c470
+======================================================================
+  Function: FUN_0063c470 @ 0x0063c470, Size: 10 bytes
+
+undefined4 FUN_0063c470(void)
+
+{
+  return DAT_011c7a3c;
+}
+
+
+
+======================================================================
+SUN COLOR/DIRECTION MATCHES: Sky weather update state helper @ 0x0063c470
+======================================================================
+  Total matched lines: 0
+
+--- Calls FROM Sky weather update state helper (0x0063c470) ---
+  Total: 0 calls
+
+======================================================================
+Sky weather update range helper @ 0x0063c480
+======================================================================
+  Function: FUN_0063c480 @ 0x0063c480, Size: 11 bytes
+
+/* WARNING: Globals starting with '_' overlap smaller symbols at the same address */
+
+float10 FUN_0063c480(void)
+
+{
+  return (float10)_DAT_011c7a5c;
+}
+
+
+
+======================================================================
+SUN COLOR/DIRECTION MATCHES: Sky weather update range helper @ 0x0063c480
+======================================================================
+  Total matched lines: 0
+
+--- Calls FROM Sky weather update range helper (0x0063c480) ---
+  Total: 0 calls
+
+======================================================================
+Sky vector/color interpolation writer @ 0x0063c690
+======================================================================
+  Function: FUN_0063c690 @ 0x0063c690, Size: 528 bytes
+
+/* WARNING: Globals starting with '_' overlap smaller symbols at the same address */
+
+void __thiscall FUN_0063c690(int param_1,float *param_2,int param_3,undefined4 param_4)
+
+{
+  float fVar1;
+  undefined4 uVar2;
+  float10 fVar3;
+  int local_14;
+  int local_10;
+  int local_c;
+  float local_8;
+  
+  local_8 = 0.0;
+  for (local_c = 0; local_c < 4; local_c = local_c + 1) {
+    local_8 = (float)(*(uint *)(param_3 + local_c * 4) & 0xff) *
+              *(float *)(param_3 + 0x10 + local_c * 4) + local_8;
+  }
+  *param_2 = local_8 * (float)_DAT_010231e8;
+  local_8 = 0.0;
+  for (local_10 = 0; local_10 < 4; local_10 = local_10 + 1) {
+    local_8 = (float)((int)(uint)*(ushort *)(param_3 + local_10 * 4) >> 8) *
+              *(float *)(param_3 + 0x10 + local_10 * 4) + local_8;
+  }
+  param_2[1] = local_8 * (float)_DAT_010231e8;
+  local_8 = 0.0;
+  for (local_14 = 0; local_14 < 4; local_14 = local_14 + 1) {
+    local_8 = (float)(*(uint *)(param_3 + local_14 * 4) >> 0x10 & 0xff) *
+              *(float *)(param_3 + 0x10 + local_14 * 4) + local_8;
+  }
+  param_2[2] = local_8 * (float)_DAT_010231e8;
+  fVar3 = (float10)FUN_0040ebd0(0x3f800000,param_4);
+  fVar1 = (float)fVar3;
+  if ((float)_DAT_01012060 < fVar1) {
+    uVar2 = FUN_00416870(fVar1,fVar1,fVar1);
+    FUN_0063c8a0(uVar2);
+    if (*(int *)(param_1 + 0x10) != 0) {
+      fVar3 = (float10)FUN_004ed230(0xc,0x3f800000,0);
+      FUN_005330e0(param_2,0,(float)fVar3);
+      fVar3 = (float10)FUN_004ed230(0xd,0x3f800000,0);
+      FUN_005330e0(param_2 + 1,0,(float)fVar3);
+      fVar3 = (float10)FUN_004ed230(0xe,0x3f800000,0);
+      FUN_005330e0(param_2 + 2,0,(float)fVar3);
+      return;
+    }
+  }
+  FUN_00a69690();
+  return;
+}
+
+
+
+======================================================================
+SUN COLOR/DIRECTION MATCHES: Sky vector/color interpolation writer @ 0x0063c690
+======================================================================
+  L0004: void __thiscall FUN_0063c690(int param_1,float *param_2,int param_3,undefined4 param_4)
+  Total matched lines: 1
+
+--- Calls FROM Sky vector/color interpolation writer (0x0063c690) ---
+  0x0063c7ad -> 0x0040ebd0 Float clamp/smoothing helper used after sun range update
+  0x0063c7e4 -> 0x00416870 FUN_00416870
+  0x0063c7ed -> 0x0063c8a0 FUN_0063c8a0
+  0x0063c813 -> 0x004ed230 FUN_004ed230
+  0x0063c826 -> 0x005330e0 FUN_005330e0
+  0x0063c841 -> 0x004ed230 FUN_004ed230
+  0x0063c857 -> 0x005330e0 FUN_005330e0
+  0x0063c872 -> 0x004ed230 FUN_004ed230
+  0x0063c888 -> 0x005330e0 FUN_005330e0
+  0x0063c895 -> 0x00a69690 FUN_00a69690
+  Total: 10 calls
+
+======================================================================
+Sun constructor candidate @ 0x006404f0
+======================================================================
+  Function: FUN_006404f0 @ 0x006404f0, Size: 371 bytes
+
+undefined4 * __fastcall FUN_006404f0(undefined4 *param_1)
+
+{
+  uint uVar1;
+  int iVar2;
+  int *unaff_FS_OFFSET;
+  undefined4 local_20;
+  int local_10;
+  undefined1 *puStack_c;
+  undefined4 local_8;
+  
+  local_8 = 0xffffffff;
+  puStack_c = &LAB_00efd36c;
+  local_10 = *unaff_FS_OFFSET;
+  uVar1 = DAT_011c16bc ^ (uint)&stack0xfffffffc;
+  *unaff_FS_OFFSET = (int)&local_10;
+  FUN_0063f830(uVar1);
+  local_8 = 0;
+  *param_1 = &PTR_FUN_0104f298;
+  FUN_00633c90(0);
+  local_8._0_1_ = 1;
+  FUN_00633c90(0);
+  local_8._0_1_ = 2;
+  FUN_00633c90(0);
+  local_8._0_1_ = 3;
+  FUN_00633c90(0);
+  local_8._0_1_ = 4;
+  FUN_00633c90(0);
+  local_8._0_1_ = 5;
+  FUN_00633c90(0);
+  local_8._0_1_ = 6;
+  FUN_0066b0d0(0);
+  FUN_0066b0d0(0);
+  FUN_0066b0d0(0);
+  FUN_0066b0d0(0);
+  FUN_0066b0d0(0);
+  FUN_0066b0d0(0);
+  param_1[6] = 0;
+  param_1[8] = 0;
+  *(undefined1 *)(param_1 + 9) = 0;
+  iVar2 = FUN_00aa13e0(0x280);
+  local_8._0_1_ = 7;
+  if (iVar2 == 0) {
+    local_20 = 0;
+  }
+  else {
+    local_20 = FUN_00b660d0(100,1,1);
+  }
+  local_8 = CONCAT31(local_8._1_3_,6);
+  FUN_0066b0d0(local_20);
+  *unaff_FS_OFFSET = local_10;
+  return param_1;
+}
+
+
+
+======================================================================
+SUN COLOR/DIRECTION MATCHES: Sun constructor candidate @ 0x006404f0
+======================================================================
+  L0002: undefined4 * __fastcall FUN_006404f0(undefined4 *param_1)
+  Total matched lines: 1
+
+--- Calls FROM Sun constructor candidate (0x006404f0) ---
+  0x0064051b -> 0x0063f830 FUN_0063f830
+  0x00640538 -> 0x00633c90 FUN_00633c90
+  0x00640549 -> 0x00633c90 FUN_00633c90
+  0x0064055a -> 0x00633c90 FUN_00633c90
+  0x0064056b -> 0x00633c90 FUN_00633c90
+  0x0064057c -> 0x00633c90 FUN_00633c90
+  0x0064058d -> 0x00633c90 FUN_00633c90
+  0x0064059e -> 0x0066b0d0 FUN_0066b0d0
+  0x006405ab -> 0x0066b0d0 FUN_0066b0d0
+  0x006405b8 -> 0x0066b0d0 FUN_0066b0d0
+  0x006405c5 -> 0x0066b0d0 FUN_0066b0d0
+  0x006405d2 -> 0x0066b0d0 FUN_0066b0d0
+  0x006405df -> 0x0066b0d0 FUN_0066b0d0
+  0x00640602 -> 0x00aa13e0 FUN_00aa13e0
+  0x00640620 -> 0x00b660d0 FUN_00b660d0
+  0x00640645 -> 0x0066b0d0 FUN_0066b0d0
+  Total: 16 calls
+
+======================================================================
+Main render world caller / sky sun screen path @ 0x00870bd0
+======================================================================
+  Function: FUN_00870bd0 @ 0x00870bd0, Size: 1604 bytes
+
+/* WARNING: Removing unreachable block (ram,0x00870fc6) */
+/* WARNING: Globals starting with '_' overlap smaller symbols at the same address */
+
+void FUN_00870bd0(int param_1,char param_2)
+
+{
+  char cVar1;
+  int iVar2;
+  float *pfVar3;
+  char *pcVar4;
+  undefined4 uVar5;
+  int *piVar6;
+  undefined4 *puVar7;
+  uint uVar8;
+  float10 fVar9;
+  undefined4 *puVar10;
+  undefined4 *puVar11;
+  undefined4 *puVar12;
+  undefined4 uVar13;
+  char local_b1;
+  undefined4 local_b0;
+  undefined4 local_a0;
+  char local_80;
+  undefined4 local_70;
+  undefined4 local_6c;
+  undefined4 local_68;
+  undefined4 local_64;
+  undefined1 local_5d;
+  undefined4 local_5c;
+  undefined4 local_58;
+  undefined4 local_54;
+  undefined4 local_50;
+  undefined4 local_4c;
+  undefined4 local_48;
+  undefined4 local_44;
+  uint local_40;
+  float local_3c;
+  undefined4 local_38;
+  float local_34;
+  float local_30;
+  undefined4 local_2c;
+  char local_27;
+  char local_26;
+  char local_25;
+  undefined4 local_24;
+  CDocTemplate *local_20;
+  undefined1 local_1a;
+  char local_19;
+  undefined1 local_18;
+  char local_17;
+  char local_16;
+  undefined1 local_15;
+  int local_14;
+  undefined1 local_e;
+  byte local_d;
+  CDocManager *local_c;
+  char local_5;
+  
+  local_24 = FUN_0043c4b0();
+  local_c = (CDocManager *)FUN_004e3270();
+  local_14 = 0;
+  FUN_00950bb0(1);
+  local_5 = FUN_00456610();
+  local_18 = FUN_004dc310();
+  FUN_00872ad0();
+  local_14 = FUN_00872b00();
+  FUN_008727d0();
+  local_e = FUN_008749b0();
+  FUN_00871290();
+  local_2c = FUN_00872f50(local_24,param_1,0,local_18);
+  FUN_00874ac0(local_e);
+  FUN_00874b50(local_2c,local_18,5);
+  if ((local_5 == '\0') && (param_2 == '\0')) {
+    FUN_00705910();
+    iVar2 = FUN_005585e0();
+    if ((iVar2 == 0) && (cVar1 = FUN_00705100(), cVar1 == '\0')) {
+      local_80 = '\x01';
+      goto LAB_00870cb7;
+    }
+  }
+  local_80 = '\0';
+LAB_00870cb7:
+  local_17 = local_80;
+  local_d = 0;
+  if ((local_80 != '\0') && (local_14 != 0)) {
+    FUN_0043b230();
+    local_d = FUN_00456610();
+    uVar13 = 1;
+    FUN_0043b230(1);
+    FUN_00450f90(uVar13);
+  }
+  local_16 = '\x01';
+  cVar1 = FUN_004de080();
+  if (cVar1 != '\0') {
+    local_16 = '\0';
+  }
+  local_26 = FUN_00709cb0();
+  if (local_26 != '\0') {
+    local_40 = FUN_004dee10();
+    local_38 = FUN_004dee70();
+    pfVar3 = (float *)FUN_00403e20();
+    fVar9 = (float10)FUN_00706e70();
+    local_34 = (float)(fVar9 * (float10)*pfVar3 * (float10)_DAT_01011588);
+    local_3c = (float)local_40 * local_34;
+    local_30 = (float)local_40 - local_3c;
+    if (local_16 != '\0') {
+      local_a0 = (undefined4)(longlong)ROUND(local_30);
+      local_b0 = (undefined4)(longlong)ROUND(local_3c);
+      FUN_00b4f540(local_b0,0,local_a0,local_38);
+    }
+  }
+  FUN_00873200(local_14,local_17,0,local_e);
+  if ((local_17 != '\0') && (local_14 != 0)) {
+    uVar8 = (uint)local_d;
+    FUN_0043b230(uVar8);
+    FUN_00450f90(uVar8);
+  }
+  local_20 = CDocManager::GetNextDocTemplate(local_c,(__POSITION **)0x4);
+  local_25 = FUN_00871220();
+  cVar1 = FUN_00b8b390(9);
+  if (((cVar1 == '\0') || (iVar2 = FUN_005f36f0(), iVar2 != 0)) ||
+     (pcVar4 = (char *)FUN_00408d60(), *pcVar4 == '\0')) {
+    local_b1 = '\0';
+  }
+  else {
+    local_b1 = '\x01';
+  }
+  local_27 = local_b1;
+  local_1a = 0;
+  local_15 = 0;
+  local_19 = '\0';
+  if ((local_25 != '\0') && (local_17 != '\0')) {
+    local_19 = '\x01';
+    FUN_008746d0(local_2c);
+    FUN_00874b50(local_2c,local_18,0);
+  }
+  cVar1 = FUN_005b9b00();
+  if (cVar1 != '\0') {
+    FUN_00559450();
+    iVar2 = FUN_00b63a90();
+    if (iVar2 != 0) {
+      uVar13 = local_2c;
+      uVar5 = FUN_00559450(local_2c);
+      FUN_00874920(uVar5,uVar13);
+    }
+  }
+  if (local_17 == '\0') {
+    uVar5 = 0x16;
+    uVar13 = 0;
+    FUN_004ea970(0,0x16);
+    FUN_00ba30f0(uVar13,uVar5);
+    uVar5 = 0x16;
+    uVar13 = 1;
+    FUN_004ea970(1,0x16);
+    FUN_00ba3130(uVar13,uVar5);
+  }
+  else {
+    FUN_00874c10();
+    FUN_00874b50(local_2c,local_18,0);
+    if (local_19 == '\0') {
+      uVar5 = 0x16;
+      uVar13 = 1;
+      FUN_004ea970(1,0x16);
+      FUN_00ba3130(uVar13,uVar5);
+    }
+    FUN_00875110(local_24,0,local_14,local_2c);
+  }
+  if (local_25 != '\0') {
+    uVar13 = local_2c;
+    uVar5 = FUN_00559450(local_2c);
+    FUN_00875e40(uVar5,uVar13);
+  }
+  if (((local_27 != '\0') && (iVar2 = FUN_005f36f0(), iVar2 == 0)) &&
+     ((DAT_011dea20 != 0 && (iVar2 = FUN_0045cd60(), iVar2 != 0)))) {
+    piVar6 = (int *)FUN_0045cd60();
+    (**(code **)(*piVar6 + 4))();
+    puVar7 = (undefined4 *)FUN_0045bb80();
+    local_50 = *puVar7;
+    local_4c = puVar7[1];
+    local_48 = puVar7[2];
+    local_58 = 0;
+    local_5c = 0;
+    local_44 = 0;
+    local_54 = FUN_0045c670();
+    puVar7 = &local_58;
+    puVar12 = &local_5c;
+    puVar11 = &local_44;
+    puVar10 = &local_50;
+    uVar13 = _DAT_010718c0;
+    FUN_006629f0(puVar10,puVar11,puVar12,puVar7,_DAT_010718c0);
+    local_5d = FUN_00a6fdb0(puVar10,puVar11,puVar12,puVar7,uVar13);
+    uVar13 = FUN_00452dc0(local_44,local_5c);
+    FUN_004e3270(uVar13);
+    FUN_00b8b1e0(uVar13);
+  }
+  cVar1 = FUN_008709f0();
+  if (cVar1 == '\0') {
+    if (param_1 != 0) {
+      FUN_00876830(local_18,param_1);
+    }
+  }
+  else {
+    FUN_00875fd0(local_18,local_2c,local_24,param_1);
+    cVar1 = FUN_00871260();
+    if (((cVar1 != '\0') || (cVar1 = FUN_005bac20(), cVar1 != '\0')) &&
+       (cVar1 = FUN_00705a00(), cVar1 == '\0')) {
+      FUN_00876a20(local_24);
+    }
+  }
+  if (local_26 != '\0') {
+    if (local_16 != '\0') {
+      FUN_00b540d0();
+    }
+    cVar1 = FUN_004de080();
+    if (cVar1 != '\0') {
+      piVar6 = (int *)FUN_0043c4b0();
+      (**(code **)(*piVar6 + 0xac))(&DAT_011a9bd0);
+      FUN_00414430(0,0,0,0);
+      local_70 = 0;
+      local_6c = _DAT_01026994;
+      local_68 = 0x3f800000;
+      local_64 = 0;
+      uVar13 = 1;
+      puVar7 = &local_70;
+      FUN_0043c4b0(puVar7,1);
+      FUN_007148c0(puVar7,uVar13);
+      local_70 = _DAT_010340a4;
+      local_6c = 0x3f800000;
+      local_68 = 0x3f800000;
+      local_64 = 0;
+      uVar13 = 1;
+      puVar7 = &local_70;
+      FUN_0043c4b0(puVar7,1);
+      FUN_007148c0(puVar7,uVar13);
+    }
+  }
+  FUN_00876850(local_2c,local_c,local_24,local_14);
+  return;
+}
+
+
+
+======================================================================
+SUN COLOR/DIRECTION MATCHES: Main render world caller / sky sun screen path @ 0x00870bd0
+======================================================================
+  L0175:      ((DAT_011dea20 != 0 && (iVar2 = FUN_0045cd60(), iVar2 != 0)))) {
+  L0176:     piVar6 = (int *)FUN_0045cd60();
+  Total matched lines: 2
+
+--- Calls FROM Main render world caller / sky sun screen path (0x00870bd0) ---
+  0x00870bdd -> 0x0043c4b0 FUN_0043c4b0
+  0x00870be5 -> 0x004e3270 FUN_004e3270
+  0x00870bfc -> 0x00950bb0 FUN_00950bb0
+  0x00870c03 -> 0x00456610 FUN_00456610
+  0x00870c0b -> 0x004dc310 FUN_004dc310
+  0x00870c16 -> 0x00872ad0 FUN_00872ad0
+  0x00870c1e -> 0x00872b00 FUN_00872b00
+  0x00870c29 -> 0x008727d0 FUN_008727d0
+  0x00870c31 -> 0x008749b0 FUN_008749b0
+  0x00870c3c -> 0x00871290 FUN_00871290
+  0x00870c53 -> 0x00872f50 FUN_00872f50
+  0x00870c63 -> 0x00874ac0 FUN_00874ac0
+  0x00870c76 -> 0x00874b50 FUN_00874b50
+  0x00870c8b -> 0x00705910 FUN_00705910
+  0x00870c92 -> 0x005585e0 FUN_005585e0
+  0x00870c9b -> 0x00705100 FUN_00705100
+  0x00870cd2 -> 0x0043b230 FUN_0043b230
+  0x00870cd9 -> 0x00456610 FUN_00456610
+  0x00870ce6 -> 0x0043b230 FUN_0043b230
+  0x00870ced -> 0x00450f90 FUN_00450f90
+  0x00870cf6 -> 0x004de080 FUN_004de080
+  0x00870d06 -> 0x00709cb0 FUN_00709cb0
+  0x00870d1d -> 0x004dee10 FUN_004dee10
+  0x00870d28 -> 0x004dee70 FUN_004dee70
+  0x00870d35 -> 0x00403e20 FUN_00403e20
+  0x00870d3c -> 0x00706e70 FUN_00706e70
+  0x00870dfd -> 0x00b4f540 FUN_00b4f540
+  0x00870e18 -> 0x00873200 FUN_00873200
+  0x00870e33 -> 0x0043b230 FUN_0043b230
+  0x00870e3a -> 0x00450f90 FUN_00450f90
+  0x00870e44 -> 0x004ebbc0 GetNextDocTemplate
+  0x00870e4f -> 0x00871220 FUN_00871220
+  0x00870e5c -> 0x00b8b390 FUN_00b8b390
+  0x00870e6e -> 0x005f36f0 FUN_005f36f0
+  0x00870e7c -> 0x00408d60 FUN_00408d60
+  0x00870ed0 -> 0x008746d0 FUN_008746d0
+  0x00870ee3 -> 0x00874b50 FUN_00874b50
+  0x00870ee8 -> 0x005b9b00 FUN_005b9b00
+  0x00870efd -> 0x00559450 FUN_00559450
+  0x00870f04 -> 0x00b63a90 FUN_00b63a90
+  0x00870f1a -> 0x00559450 FUN_00559450
+  0x00870f23 -> 0x00874920 FUN_00874920
+  0x00870f33 -> 0x00874c10 FUN_00874c10
+  0x00870f46 -> 0x00874b50 FUN_00874b50
+  0x00870f57 -> 0x004ea970 FUN_004ea970
+  0x00870f5e -> 0x00ba3130 FUN_00ba3130
+  0x00870f74 -> 0x00875110 FUN_00875110
+  0x00870f7f -> 0x004ea970 FUN_004ea970
+  0x00870f86 -> 0x00ba30f0 FUN_00ba30f0
+  0x00870f8f -> 0x004ea970 FUN_004ea970
+  0x00870f96 -> 0x00ba3130 FUN_00ba3130
+  0x00870fb4 -> 0x00559450 FUN_00559450
+  0x00870fbd -> 0x00875e40 FUN_00875e40
+  0x00870fd3 -> 0x00559450 FUN_00559450
+  0x00870fdc -> 0x00875fa0 FUN_00875fa0
+  0x00870ff3 -> 0x005f36f0 FUN_005f36f0
+  0x00871013 -> 0x0045cd60 Sky sun/current object getter (Sky +0x28)
+  0x00871026 -> 0x0045cd60 Sky sun/current object getter (Sky +0x28)
+  0x00871046 -> 0x0045bb80 Vector getter used by sun screen projection
+  0x0087106d -> 0x0045c670 FUN_0045c670
+  0x00871092 -> 0x006629f0 FUN_006629f0
+  0x00871099 -> 0x00a6fdb0 FUN_00a6fdb0
+  0x008710b2 -> 0x00452dc0 FUN_00452dc0
+  0x008710b8 -> 0x004e3270 FUN_004e3270
+  0x008710bf -> 0x00b8b1e0 Sun screen vector globals writer
+  0x008710c4 -> 0x008709f0 FUN_008709f0
+  0x008710e4 -> 0x00875fd0 FUN_00875fd0
+  0x008710e9 -> 0x00871260 FUN_00871260
+  0x008710f5 -> 0x005bac20 FUN_005bac20
+  0x00871101 -> 0x00705a00 FUN_00705a00
+  0x00871114 -> 0x00876a20 FUN_00876a20
+  0x0087112d -> 0x00876830 FUN_00876830
+  0x00871146 -> 0x00b540d0 FUN_00b540d0
+  0x0087114b -> 0x004de080 FUN_004de080
+  0x0087115b -> 0x0043c4b0 FUN_0043c4b0
+  0x0087119c -> 0x00414430 FUN_00414430
+  0x008711bf -> 0x0043c4b0 FUN_0043c4b0
+  0x008711c6 -> 0x007148c0 FUN_007148c0
+  0x008711e9 -> 0x0043c4b0 FUN_0043c4b0
+  0x008711f0 -> 0x007148c0 FUN_007148c0
+  0x00871208 -> 0x00876850 FUN_00876850
+  Total: 81 calls
+
+======================================================================
+Sun screen vector globals writer @ 0x00b8b1e0
+======================================================================
+  Function: FUN_00b8b1e0 @ 0x00b8b1e0, Size: 24 bytes
+
+/* WARNING: Globals starting with '_' overlap smaller symbols at the same address */
+
+void FUN_00b8b1e0(undefined4 *param_1)
+
+{
+  _DAT_012023f4 = *param_1;
+  _DAT_012023f8 = param_1[1];
+  return;
+}
+
+
+
+======================================================================
+SUN COLOR/DIRECTION MATCHES: Sun screen vector globals writer @ 0x00b8b1e0
+======================================================================
+  L0007:   _DAT_012023f4 = *param_1;
+  L0008:   _DAT_012023f8 = param_1[1];
+  Total matched lines: 2
+
+--- Calls FROM Sun screen vector globals writer (0x00b8b1e0) ---
+  Total: 0 calls
+
+======================================================================
+Image-space sun screen global reader candidate @ 0x00c03410
+======================================================================
+  Function: FUN_00c03410 @ 0x00c03410, Size: 358 bytes
+
+/* WARNING: Globals starting with '_' overlap smaller symbols at the same address */
+
+void FUN_00c03410(int param_1)
+
+{
+  int iVar1;
+  uint uVar2;
+  int iVar3;
+  undefined4 uVar4;
+  int *unaff_FS_OFFSET;
+  int local_10;
+  int local_c;
+  undefined1 *puStack_8;
+  undefined4 local_4;
+  
+  local_4 = 0xffffffff;
+  puStack_8 = &LAB_00f274c6;
+  local_c = *unaff_FS_OFFSET;
+  uVar2 = DAT_011c16bc ^ (uint)&stack0xffffffe0;
+  *unaff_FS_OFFSET = (int)&local_c;
+  FUN_00ba3f90(2);
+  FUN_00a90180(3);
+  local_10 = FUN_00aa3e40(0x88);
+  local_4 = 0;
+  if (local_10 == 0) {
+    iVar3 = 0;
+  }
+  else {
+    iVar3 = FUN_00b8a9e0(uVar2);
+  }
+  local_4 = 0xffffffff;
+  FUN_00b8ab10(0,1);
+  local_10 = iVar3;
+  FUN_00ba3aa0(0,&local_10);
+  FUN_00ba3b10(0,1,0);
+  iVar1 = param_1;
+  FUN_00ba3c70(0,*(undefined4 *)(*(int *)(param_1 + 8) + 0x9c),iVar3,2);
+  param_1 = FUN_00aa3e40(0x88);
+  local_4 = 1;
+  if (param_1 == 0) {
+    uVar4 = 0;
+  }
+  else {
+    uVar4 = FUN_00b8a9e0();
+  }
+  local_4 = 0xffffffff;
+  FUN_00b8ab10(0,1);
+  param_1 = uVar4;
+  FUN_00ba3aa0(1,&param_1);
+  FUN_00ba3b10(1,2,0);
+  FUN_00ba3c70(1,*(undefined4 *)(*(int *)(iVar1 + 8) + 0xe4),uVar4,0);
+  FUN_00b8a790(0,_DAT_012023f4,_DAT_012023f8,0,0);
+  *unaff_FS_OFFSET = local_c;
+  return;
+}
+
+
+
+======================================================================
+SUN COLOR/DIRECTION MATCHES: Image-space sun screen global reader candidate @ 0x00c03410
+======================================================================
+  L0053:   FUN_00b8a790(0,_DAT_012023f4,_DAT_012023f8,0,0);
+  Total matched lines: 1
+
+--- Calls FROM Image-space sun screen global reader candidate (0x00c03410) ---
+  0x00c03439 -> 0x00ba3f90 FUN_00ba3f90
+  0x00c03443 -> 0x00a90180 FUN_00a90180
+  0x00c03452 -> 0x00aa3e40 FUN_00aa3e40
+  0x00c03469 -> 0x00b8a9e0 FUN_00b8a9e0
+  0x00c03482 -> 0x00b8ab10 FUN_00b8ab10
+  0x00c03497 -> 0x00ba3aa0 FUN_00ba3aa0
+  0x00c034a4 -> 0x00ba3b10 FUN_00ba3b10
+  0x00c034be -> 0x00ba3c70 FUN_00ba3c70
+  0x00c034cd -> 0x00aa3e40 FUN_00aa3e40
+  0x00c034e4 -> 0x00b8a9e0 FUN_00b8a9e0
+  0x00c034fd -> 0x00b8ab10 FUN_00b8ab10
+  0x00c0350f -> 0x00ba3aa0 FUN_00ba3aa0
+  0x00c0351c -> 0x00ba3b10 FUN_00ba3b10
+  0x00c03532 -> 0x00ba3c70 FUN_00ba3c70
+  0x00c0355b -> 0x00b8a790 FUN_00b8a790
+  Total: 15 calls
+
+----------------------------------------------------------------------
+Disassembly Sky +0xD4 range helper call around 0x0063bd64
+----------------------------------------------------------------------
+  0x0063bd3f: MOV ECX,dword ptr [0x011dea3c]                      
+  0x0063bd45: CALL 0x008d6f30                                      ; CALL 0x008d6f30 FUN_008d6f30
+  0x0063bd4a: MOV ECX,EAX                                         
+  0x0063bd4c: CALL 0x005471e0                                      ; CALL 0x005471e0 FUN_005471e0
+  0x0063bd51: FLD float ptr [EBP + -0x8]                          
+  0x0063bd54: FCOMPP                                              
+  0x0063bd56: FNSTSW AX                                           
+  0x0063bd58: TEST AH,0x5                                         
+  0x0063bd5b: JP 0x0063bf3a                                       
+  0x0063bd61: MOV ECX,dword ptr [EBP + -0x4]                      
+  0x0063bd64: CALL 0x004e3d00                                      << TARGET ; CALL 0x004e3d00 Weather/light range helper for Sky +0xD4
+  0x0063bd69: MOV EAX,dword ptr [EBP + -0x68]                     
+  0x0063bd6c: FSTP float ptr [EAX + 0xd4]                         
+  0x0063bd72: MOV ECX,dword ptr [EBP + -0x4]                      
+  0x0063bd75: CALL 0x00507b20                                      ; CALL 0x00507b20 Weather/light range helper for Sky +0xD8
+  0x0063bd7a: MOV ECX,dword ptr [EBP + -0x68]                     
+  0x0063bd7d: FSTP float ptr [ECX + 0xd8]                         
+  0x0063bd83: MOV EDX,dword ptr [EBP + -0x68]                     
+  0x0063bd86: FLD1                                                
+  0x0063bd88: FSTP float ptr [EDX + 0xe8]                         
+  0x0063bd8e: CALL 0x0063c480                                      ; CALL 0x0063c480 Sky weather update range helper
+  0x0063bd93: FSTP float ptr [EBP + -0x10]                        
+  0x0063bd96: MOV ECX,dword ptr [0x011dea3c]                      
+  0x0063bd9c: CALL 0x008d6f30                                      ; CALL 0x008d6f30 FUN_008d6f30
+  0x0063bda1: MOV ECX,EAX                                         
+  0x0063bda3: CALL 0x005471e0                                      ; CALL 0x005471e0 FUN_005471e0
+  0x0063bda8: FLD float ptr [EBP + -0x8]                          
+  0x0063bdab: FCOMPP                                              
+  0x0063bdad: FNSTSW AX                                           
+  0x0063bdaf: TEST AH,0x5                                         
+  0x0063bdb2: JP 0x0063bdc9                                       
+  0x0063bdb4: MOV ECX,dword ptr [0x011dea3c]                      
+  0x0063bdba: CALL 0x008d6f30                                      ; CALL 0x008d6f30 FUN_008d6f30
+  0x0063bdbf: MOV ECX,EAX                                         
+  0x0063bdc1: CALL 0x005471e0                                      ; CALL 0x005471e0 FUN_005471e0
+  0x0063bdc6: FSTP float ptr [EBP + -0x10]                        
+  0x0063bdc9: FLD float ptr [EBP + -0x10]                         
+  0x0063bdcc: FSUB float ptr [EBP + -0x8]                         
+  0x0063bdcf: FMUL float ptr [0x011ccc60]                         
+
+----------------------------------------------------------------------
+Disassembly Sky +0xD8 range helper call around 0x0063bd75
+----------------------------------------------------------------------
+  0x0063bd51: FLD float ptr [EBP + -0x8]                          
+  0x0063bd54: FCOMPP                                              
+  0x0063bd56: FNSTSW AX                                           
+  0x0063bd58: TEST AH,0x5                                         
+  0x0063bd5b: JP 0x0063bf3a                                       
+  0x0063bd61: MOV ECX,dword ptr [EBP + -0x4]                      
+  0x0063bd64: CALL 0x004e3d00                                      ; CALL 0x004e3d00 Weather/light range helper for Sky +0xD4
+  0x0063bd69: MOV EAX,dword ptr [EBP + -0x68]                     
+  0x0063bd6c: FSTP float ptr [EAX + 0xd4]                         
+  0x0063bd72: MOV ECX,dword ptr [EBP + -0x4]                      
+  0x0063bd75: CALL 0x00507b20                                      << TARGET ; CALL 0x00507b20 Weather/light range helper for Sky +0xD8
+  0x0063bd7a: MOV ECX,dword ptr [EBP + -0x68]                     
+  0x0063bd7d: FSTP float ptr [ECX + 0xd8]                         
+  0x0063bd83: MOV EDX,dword ptr [EBP + -0x68]                     
+  0x0063bd86: FLD1                                                
+  0x0063bd88: FSTP float ptr [EDX + 0xe8]                         
+  0x0063bd8e: CALL 0x0063c480                                      ; CALL 0x0063c480 Sky weather update range helper
+  0x0063bd93: FSTP float ptr [EBP + -0x10]                        
+  0x0063bd96: MOV ECX,dword ptr [0x011dea3c]                      
+  0x0063bd9c: CALL 0x008d6f30                                      ; CALL 0x008d6f30 FUN_008d6f30
+  0x0063bda1: MOV ECX,EAX                                         
+  0x0063bda3: CALL 0x005471e0                                      ; CALL 0x005471e0 FUN_005471e0
+  0x0063bda8: FLD float ptr [EBP + -0x8]                          
+  0x0063bdab: FCOMPP                                              
+  0x0063bdad: FNSTSW AX                                           
+  0x0063bdaf: TEST AH,0x5                                         
+  0x0063bdb2: JP 0x0063bdc9                                       
+  0x0063bdb4: MOV ECX,dword ptr [0x011dea3c]                      
+  0x0063bdba: CALL 0x008d6f30                                      ; CALL 0x008d6f30 FUN_008d6f30
+  0x0063bdbf: MOV ECX,EAX                                         
+  0x0063bdc1: CALL 0x005471e0                                      ; CALL 0x005471e0 FUN_005471e0
+  0x0063bdc6: FSTP float ptr [EBP + -0x10]                        
+  0x0063bdc9: FLD float ptr [EBP + -0x10]                         
+  0x0063bdcc: FSUB float ptr [EBP + -0x8]                         
+  0x0063bdcf: FMUL float ptr [0x011ccc60]                         
+  0x0063bdd5: FSTP float ptr [EBP + -0xc]                         
+  0x0063bdd8: FLD float ptr [EBP + -0xc]                          
+  0x0063bddb: FCOMP double ptr [0x01012070]                       
+  0x0063bde1: FNSTSW AX                                           
+
+----------------------------------------------------------------------
+Disassembly Sky +0x48 vector/color interpolation writer around 0x0063be3f
+----------------------------------------------------------------------
+  0x0063be1e: FSTP float ptr [EBP + -0x1c]                        
+  0x0063be21: FLDZ                                                
+  0x0063be23: FSTP float ptr [EBP + -0x18]                        
+  0x0063be26: FLDZ                                                
+  0x0063be28: FSTP float ptr [EBP + -0x14]                        
+  0x0063be2b: PUSH ECX                                            
+  0x0063be2c: FLDZ                                                
+  0x0063be2e: FSTP float ptr [ESP]                                
+  0x0063be31: LEA EAX,[EBP + -0x30]                               
+  0x0063be34: PUSH EAX                                            
+  0x0063be35: MOV ECX,dword ptr [EBP + -0x68]                     
+  0x0063be38: ADD ECX,0x48                                        
+  0x0063be3b: PUSH ECX                                            
+  0x0063be3c: MOV ECX,dword ptr [EBP + -0x68]                     
+  0x0063be3f: CALL 0x0063c690                                      << TARGET ; CALL 0x0063c690 Sky vector/color interpolation writer
+  0x0063be44: MOV EDX,dword ptr [EBP + -0x68]                     
+  0x0063be47: CMP dword ptr [EDX + 0xf8],0x3                      
+  0x0063be4e: JZ 0x0063be60                                       
+  0x0063be50: MOV EAX,dword ptr [EBP + -0x68]                     
+  0x0063be53: CMP dword ptr [EAX + 0xf8],0x2                      
+  0x0063be5a: JNZ 0x0063bf35                                      
+  0x0063be60: FLD float ptr [EBP + -0xc]                          
+  0x0063be63: FCOMP double ptr [0x01011588]                       
+  0x0063be69: FNSTSW AX                                           
+  0x0063be6b: TEST AH,0x41                                        
+  0x0063be6e: JNZ 0x0063be79                                      
+  0x0063be70: MOV dword ptr [EBP + -0x6c],0x1                     
+  0x0063be77: JMP 0x0063be80                                      
+  0x0063be79: MOV dword ptr [EBP + -0x6c],0x0                     
+  0x0063be80: MOV CL,byte ptr [EBP + -0x6c]                       
+  0x0063be83: MOV byte ptr [EBP + -0x31],CL                       
+  0x0063be86: MOV dword ptr [EBP + -0x38],0x0                     
+  0x0063be8d: JMP 0x0063be98                                      
+  0x0063be8f: MOV EDX,dword ptr [EBP + -0x38]                     
+  0x0063be92: ADD EDX,0x1                                         
+  0x0063be95: MOV dword ptr [EBP + -0x38],EDX                     
+  0x0063be98: MOV ECX,dword ptr [EBP + -0x68]                     
+  0x0063be9b: CALL 0x0055b980                                      ; CALL 0x0055b980 FUN_0055b980
+  0x0063bea0: MOV ECX,EAX                                         
+  0x0063bea2: CALL 0x00634830                                      ; CALL 0x00634830 FUN_00634830
+  0x0063bea7: CMP dword ptr [EBP + -0x38],EAX                     
+  0x0063beaa: JGE 0x0063becd                                      
+  0x0063beac: MOVZX EAX,byte ptr [EBP + -0x31]                    
+  0x0063beb0: PUSH EAX                                            
+  0x0063beb1: MOV ECX,dword ptr [EBP + -0x38]                     
+  0x0063beb4: PUSH ECX                                            
+  0x0063beb5: MOV ECX,dword ptr [EBP + -0x68]                     
+  0x0063beb8: CALL 0x0055b980                                      ; CALL 0x0055b980 FUN_0055b980
+  0x0063bebd: MOV ECX,EAX                                         
+  0x0063bebf: CALL 0x0063c440                                      ; CALL 0x0063c440 Sky child weather update helper
+  0x0063bec4: MOV ECX,EAX                                         
+  0x0063bec6: CALL 0x00450f90                                      ; CALL 0x00450f90 FUN_00450f90
+  0x0063becb: JMP 0x0063be8f                                      
+  0x0063becd: MOVZX EDX,byte ptr [EBP + -0x31]                    
+  0x0063bed1: PUSH EDX                                            
+
+----------------------------------------------------------------------
+Disassembly Sky +0xD4/+0xD8/+0xE8 sun scalar blend around 0x0063c05d
+----------------------------------------------------------------------
+  0x0063c03f: FDIVP                                               
+  0x0063c041: FSTP float ptr [EBP + -0x40]                        
+  0x0063c044: JMP 0x0063c04b                                      
+  0x0063c046: FLDZ                                                
+  0x0063c048: FSTP float ptr [EBP + -0x40]                        
+  0x0063c04b: FLD float ptr [EBP + -0x40]                         
+  0x0063c04e: FLD1                                                
+  0x0063c050: FSUBRP                                              
+  0x0063c052: FSTP float ptr [EBP + -0x50]                        
+  0x0063c055: PUSH 0x0                                            
+  0x0063c057: MOV EDX,dword ptr [EBP + -0x68]                     
+  0x0063c05a: MOV ECX,dword ptr [EDX + 0x10]                      
+  0x0063c05d: CALL 0x0063c420                                      << TARGET ; CALL 0x0063c420 Sky sun/fog scalar table helper
+  0x0063c062: FMUL float ptr [EBP + -0x40]                        
+  0x0063c065: PUSH 0x2                                            
+  0x0063c067: MOV EAX,dword ptr [EBP + -0x68]                     
+  0x0063c06a: MOV ECX,dword ptr [EAX + 0x10]                      
+  0x0063c06d: FSTP double ptr [EBP + -0x74]                       
+  0x0063c070: CALL 0x0063c420                                      ; CALL 0x0063c420 Sky sun/fog scalar table helper
+  0x0063c075: FMUL float ptr [EBP + -0x50]                        
+  0x0063c078: FADD double ptr [EBP + -0x74]                       
+  0x0063c07b: MOV ECX,dword ptr [EBP + -0x68]                     
+  0x0063c07e: FSTP float ptr [ECX + 0xd4]                         
+  0x0063c084: PUSH 0x1                                            
+  0x0063c086: MOV EDX,dword ptr [EBP + -0x68]                     
+  0x0063c089: MOV ECX,dword ptr [EDX + 0x10]                      
+  0x0063c08c: CALL 0x0063c420                                      ; CALL 0x0063c420 Sky sun/fog scalar table helper
+  0x0063c091: FMUL float ptr [EBP + -0x40]                        
+  0x0063c094: PUSH 0x3                                            
+  0x0063c096: MOV EAX,dword ptr [EBP + -0x68]                     
+  0x0063c099: MOV ECX,dword ptr [EAX + 0x10]                      
+  0x0063c09c: FSTP double ptr [EBP + -0x7c]                       
+  0x0063c09f: CALL 0x0063c420                                      ; CALL 0x0063c420 Sky sun/fog scalar table helper
+  0x0063c0a4: FMUL float ptr [EBP + -0x50]                        
+  0x0063c0a7: FADD double ptr [EBP + -0x7c]                       
+  0x0063c0aa: MOV ECX,dword ptr [EBP + -0x68]                     
+  0x0063c0ad: FSTP float ptr [ECX + 0xd8]                         
+  0x0063c0b3: PUSH 0x4                                            
+  0x0063c0b5: MOV EDX,dword ptr [EBP + -0x68]                     
+  0x0063c0b8: MOV ECX,dword ptr [EDX + 0x10]                      
+  0x0063c0bb: CALL 0x0063c420                                      ; CALL 0x0063c420 Sky sun/fog scalar table helper
+  0x0063c0c0: FMUL float ptr [EBP + -0x40]                        
+  0x0063c0c3: PUSH 0x5                                            
+  0x0063c0c5: MOV EAX,dword ptr [EBP + -0x68]                     
+  0x0063c0c8: MOV ECX,dword ptr [EAX + 0x10]                      
+  0x0063c0cb: FSTP double ptr [EBP + 0xffffff7c]                  
+  0x0063c0d1: CALL 0x0063c420                                      ; CALL 0x0063c420 Sky sun/fog scalar table helper
+  0x0063c0d6: FMUL float ptr [EBP + -0x50]                        
+  0x0063c0d9: FADD double ptr [EBP + 0xffffff7c]                  
+  0x0063c0df: MOV ECX,dword ptr [EBP + -0x68]                     
+  0x0063c0e2: FSTP float ptr [ECX + 0xe8]                         
+  0x0063c0e8: MOV EDX,dword ptr [EBP + -0x68]                     
+  0x0063c0eb: CMP dword ptr [EDX + 0x14],0x0                      
+  0x0063c0ef: JZ 0x0063c24b                                       
+  0x0063c0f5: MOV EAX,dword ptr [EBP + -0x68]                     
+  0x0063c0f8: FLD float ptr [EAX + 0xd4]                          
+  0x0063c0fe: MOV ECX,dword ptr [EBP + -0x68]                     
+  0x0063c101: FMUL float ptr [ECX + 0xf4]                         
+  0x0063c107: MOV EDX,dword ptr [EBP + -0x68]                     
+  0x0063c10a: FSTP float ptr [EDX + 0xd4]                         
+  0x0063c110: MOV EAX,dword ptr [EBP + -0x68]                     
+  0x0063c113: FLD float ptr [EAX + 0xf4]                          
+  0x0063c119: FLD1                                                
+  0x0063c11b: FSUBRP                                              
+  0x0063c11d: PUSH 0x0                                            
+  0x0063c11f: MOV ECX,dword ptr [EBP + -0x68]                     
+  0x0063c122: MOV ECX,dword ptr [ECX + 0x14]                      
+  0x0063c125: FSTP double ptr [EBP + 0xffffff74]                  
+  0x0063c12b: CALL 0x0063c420                                      ; CALL 0x0063c420 Sky sun/fog scalar table helper
+  0x0063c130: FMUL float ptr [EBP + -0x40]                        
+  0x0063c133: PUSH 0x2                                            
+  0x0063c135: MOV EDX,dword ptr [EBP + -0x68]                     
+  0x0063c138: MOV ECX,dword ptr [EDX + 0x14]                      
+  0x0063c13b: FSTP double ptr [EBP + 0xffffff6c]                  
+  0x0063c141: CALL 0x0063c420                                      ; CALL 0x0063c420 Sky sun/fog scalar table helper
+  0x0063c146: FMUL float ptr [EBP + -0x50]                        
+  0x0063c149: FADD double ptr [EBP + 0xffffff6c]                  
+  0x0063c14f: FMUL double ptr [EBP + 0xffffff74]                  
+  0x0063c155: MOV EAX,dword ptr [EBP + -0x68]                     
+  0x0063c158: FADD float ptr [EAX + 0xd4]                         
+  0x0063c15e: MOV ECX,dword ptr [EBP + -0x68]                     
+  0x0063c161: FSTP float ptr [ECX + 0xd4]                         
+  0x0063c167: MOV EDX,dword ptr [EBP + -0x68]                     
+
+----------------------------------------------------------------------
+Disassembly Interior/exterior fallback fog range path around 0x0063c273
+----------------------------------------------------------------------
+  0x0063c233: FMUL double ptr [EBP + 0xffffff54]                  
+  0x0063c239: MOV ECX,dword ptr [EBP + -0x68]                     
+  0x0063c23c: FADD float ptr [ECX + 0xe8]                         
+  0x0063c242: MOV EDX,dword ptr [EBP + -0x68]                     
+  0x0063c245: FSTP float ptr [EDX + 0xe8]                         
+  0x0063c24b: JMP 0x0063c35c                                      
+  0x0063c250: MOV EAX,dword ptr [EBP + -0x68]                     
+  0x0063c253: CMP dword ptr [EAX + 0xf8],0x1                      
+  0x0063c25a: JNZ 0x0063c333                                      
+  0x0063c260: CMP dword ptr [0x011dea10],0x0                      
+  0x0063c267: JZ 0x0063c333                                       
+  0x0063c26d: MOV ECX,dword ptr [0x011dea10]                      
+  0x0063c273: CALL 0x005f36f0                                      << TARGET ; CALL 0x005f36f0 FUN_005f36f0
+  0x0063c278: TEST EAX,EAX                                        
+  0x0063c27a: JZ 0x0063c333                                       
+  0x0063c280: MOV ECX,dword ptr [0x011dea10]                      
+  0x0063c286: CALL 0x005f36f0                                      ; CALL 0x005f36f0 FUN_005f36f0
+  0x0063c28b: MOV ECX,EAX                                         
+  0x0063c28d: CALL 0x00544b10                                      ; CALL 0x00544b10 Interior/exterior fog far helper candidate
+  0x0063c292: FSTP float ptr [EBP + -0x58]                        
+  0x0063c295: FLD float ptr [EBP + -0x58]                         
+  0x0063c298: FCOMP double ptr [0x01012060]                       
+  0x0063c29e: FNSTSW AX                                           
+  0x0063c2a0: TEST AH,0x41                                        
+  0x0063c2a3: JNP 0x0063c2b5                                      
+  0x0063c2a5: FLD float ptr [EBP + -0x58]                         
+  0x0063c2a8: FCOMP double ptr [0x0103a480]                       
+  0x0063c2ae: FNSTSW AX                                           
+  0x0063c2b0: TEST AH,0x41                                        
+  0x0063c2b3: JNZ 0x0063c2be                                      
+  0x0063c2b5: FLD float ptr [0x010317c4]                          
+  0x0063c2bb: FSTP float ptr [EBP + -0x58]                        
+  0x0063c2be: MOV ECX,dword ptr [0x011dea10]                      
+  0x0063c2c4: CALL 0x005f36f0                                      ; CALL 0x005f36f0 FUN_005f36f0
+  0x0063c2c9: MOV ECX,EAX                                         
+  0x0063c2cb: CALL 0x00544ab0                                      ; CALL 0x00544ab0 Interior/exterior fog near helper candidate
+  0x0063c2d0: FSTP float ptr [EBP + -0x54]                        
+  0x0063c2d3: FLD float ptr [EBP + -0x54]                         
+  0x0063c2d6: FCOMP double ptr [0x01012060]                       
+  0x0063c2dc: FNSTSW AX                                           
+  0x0063c2de: TEST AH,0x41                                        
+  0x0063c2e1: JNP 0x0063c2f2                                      
+  0x0063c2e3: FLD float ptr [EBP + -0x54]                         
+  0x0063c2e6: FLD float ptr [EBP + -0x58]                         
+  0x0063c2e9: FCOMPP                                              
+  0x0063c2eb: FNSTSW AX                                           
+  0x0063c2ed: TEST AH,0x5                                         
+  0x0063c2f0: JP 0x0063c2fe                                       
+  0x0063c2f2: FLD float ptr [EBP + -0x58]                         
+  0x0063c2f5: FMUL double ptr [0x0104ee90]                        
+  0x0063c2fb: FSTP float ptr [EBP + -0x54]                        
+  0x0063c2fe: MOV ECX,dword ptr [EBP + -0x68]                     
+  0x0063c301: FLD float ptr [EBP + -0x54]                         
+  0x0063c304: FSTP float ptr [ECX + 0xd4]                         
+  0x0063c30a: MOV EDX,dword ptr [EBP + -0x68]                     
+  0x0063c30d: FLD float ptr [EBP + -0x58]                         
+  0x0063c310: FSTP float ptr [EDX + 0xd8]                         
+  0x0063c316: MOV ECX,dword ptr [0x011dea10]                      
+  0x0063c31c: CALL 0x005f36f0                                      ; CALL 0x005f36f0 FUN_005f36f0
+  0x0063c321: MOV ECX,EAX                                         
+  0x0063c323: CALL 0x00544b70                                      ; CALL 0x00544b70 Fog power helper candidate
+  0x0063c328: MOV EAX,dword ptr [EBP + -0x68]                     
+  0x0063c32b: FSTP float ptr [EAX + 0xe8]                         
+  0x0063c331: JMP 0x0063c35c                                      
+  0x0063c333: MOV ECX,dword ptr [EBP + -0x68]                     
+  0x0063c336: FLD float ptr [0x010317c4]                          
+  0x0063c33c: FSTP float ptr [ECX + 0xd4]                         
+  0x0063c342: MOV EDX,dword ptr [EBP + -0x68]                     
+  0x0063c345: FLD float ptr [0x010317c4]                          
+  0x0063c34b: FSTP float ptr [EDX + 0xd8]                         
+  0x0063c351: MOV EAX,dword ptr [EBP + -0x68]                     
+  0x0063c354: FLD1                                                
+  0x0063c356: FSTP float ptr [EAX + 0xe8]                         
+  0x0063c35c: CALL 0x0063c460                                      ; CALL 0x0063c460 Sky clamp/range update guard
+  0x0063c361: MOVZX ECX,AL                                        
+  0x0063c364: TEST ECX,ECX                                        
+  0x0063c366: JNZ 0x0063c40e                                      
+  0x0063c36c: CALL 0x0045c670                                      ; CALL 0x0045c670 FUN_0045c670
+  0x0063c371: MOV dword ptr [EBP + 0xffffff48],EAX                
+  0x0063c377: MOV EDX,dword ptr [EBP + 0xffffff48]                
+  0x0063c37d: MOV EAX,dword ptr [EDX]                             
+  0x0063c37f: MOV ECX,dword ptr [EBP + 0xffffff48]                
+  0x0063c385: MOV EDX,dword ptr [EAX + 0x100]                     
+
+----------------------------------------------------------------------
+Disassembly Camera clamp after Sky +0xD4/+0xD8 around 0x0063c35c
+----------------------------------------------------------------------
+  0x0063c328: MOV EAX,dword ptr [EBP + -0x68]                     
+  0x0063c32b: FSTP float ptr [EAX + 0xe8]                         
+  0x0063c331: JMP 0x0063c35c                                      
+  0x0063c333: MOV ECX,dword ptr [EBP + -0x68]                     
+  0x0063c336: FLD float ptr [0x010317c4]                          
+  0x0063c33c: FSTP float ptr [ECX + 0xd4]                         
+  0x0063c342: MOV EDX,dword ptr [EBP + -0x68]                     
+  0x0063c345: FLD float ptr [0x010317c4]                          
+  0x0063c34b: FSTP float ptr [EDX + 0xd8]                         
+  0x0063c351: MOV EAX,dword ptr [EBP + -0x68]                     
+  0x0063c354: FLD1                                                
+  0x0063c356: FSTP float ptr [EAX + 0xe8]                         
+  0x0063c35c: CALL 0x0063c460                                      << TARGET ; CALL 0x0063c460 Sky clamp/range update guard
+  0x0063c361: MOVZX ECX,AL                                        
+  0x0063c364: TEST ECX,ECX                                        
+  0x0063c366: JNZ 0x0063c40e                                      
+  0x0063c36c: CALL 0x0045c670                                      ; CALL 0x0045c670 FUN_0045c670
+  0x0063c371: MOV dword ptr [EBP + 0xffffff48],EAX                
+  0x0063c377: MOV EDX,dword ptr [EBP + 0xffffff48]                
+  0x0063c37d: MOV EAX,dword ptr [EDX]                             
+  0x0063c37f: MOV ECX,dword ptr [EBP + 0xffffff48]                
+  0x0063c385: MOV EDX,dword ptr [EAX + 0x100]                     
+  0x0063c38b: CALL EDX                                            
+  0x0063c38d: FSTP float ptr [EBP + -0x60]                        
+  0x0063c390: MOV ECX,0x1203144                                   
+  0x0063c395: CALL 0x00403e20                                      ; CALL 0x00403e20 FUN_00403e20
+  0x0063c39a: FLD float ptr [EAX]                                 
+  0x0063c39c: FSTP float ptr [EBP + -0x5c]                        
+  0x0063c39f: MOV EAX,dword ptr [EBP + -0x68]                     
+  0x0063c3a2: FLD float ptr [EAX + 0xd8]                          
+  0x0063c3a8: FSUB float ptr [EBP + -0x60]                        
+  0x0063c3ab: MOV ECX,dword ptr [EBP + -0x68]                     
+  0x0063c3ae: FLD float ptr [ECX + 0xd8]                          
+  0x0063c3b4: FSUB float ptr [EBP + -0x5c]                        
+  0x0063c3b7: FDIVP                                               
+  0x0063c3b9: FSTP float ptr [EBP + -0x64]                        
+  0x0063c3bc: MOV EDX,dword ptr [EBP + -0x68]                     
+  0x0063c3bf: FLD float ptr [EDX + 0xd4]                          
+  0x0063c3c5: FSUB float ptr [EBP + -0x5c]                        
+  0x0063c3c8: FMUL float ptr [EBP + -0x64]                        
+  0x0063c3cb: MOV EAX,dword ptr [EBP + -0x68]                     
+  0x0063c3ce: FSUBR float ptr [EAX + 0xd4]                        
+  0x0063c3d4: MOV ECX,dword ptr [EBP + -0x68]                     
+  0x0063c3d7: FSTP float ptr [ECX + 0xd4]                         
+  0x0063c3dd: MOV EDX,dword ptr [EBP + -0x68]                     
+  0x0063c3e0: FLD float ptr [EBP + -0x60]                         
+  0x0063c3e3: FSTP float ptr [EDX + 0xd8]                         
+  0x0063c3e9: MOV EAX,dword ptr [EBP + -0x68]                     
+  0x0063c3ec: PUSH ECX                                            
+  0x0063c3ed: FLD float ptr [EAX + 0xd4]                          
+  0x0063c3f3: FSTP float ptr [ESP]                                
+  0x0063c3f6: PUSH ECX                                            
+  0x0063c3f7: FLD float ptr [EBP + -0x60]                         
+  0x0063c3fa: FSTP float ptr [ESP]                                
+  0x0063c3fd: CALL 0x0040ebd0                                      ; CALL 0x0040ebd0 Float clamp/smoothing helper used after sun range update
+  0x0063c402: ADD ESP,0x8                                         
+  0x0063c405: MOV ECX,dword ptr [EBP + -0x68]                     
+  0x0063c408: FSTP float ptr [ECX + 0xd4]                         
+  0x0063c40e: MOV ESP,EBP                                         
+  0x0063c410: POP EBP                                             
+  0x0063c411: RET                                                 
+  0x0063c420: PUSH EBP                                            
+  0x0063c421: MOV EBP,ESP                                         
+  0x0063c423: PUSH ECX                                            
+  0x0063c424: MOV dword ptr [EBP + -0x4],ECX                      
+  0x0063c427: MOV EAX,dword ptr [EBP + 0x8]                       
+  0x0063c42a: MOV ECX,dword ptr [EBP + -0x4]                      
+  0x0063c42d: FLD float ptr [ECX + EAX*0x4 + 0xf0]                
+  0x0063c434: MOV ESP,EBP                                         
+  0x0063c436: POP EBP                                             
+  0x0063c437: RET 0x4                                             
+  0x0063c440: PUSH EBP                                            
+  0x0063c441: MOV EBP,ESP                                         
+  0x0063c443: PUSH ECX                                            
+  0x0063c444: MOV dword ptr [EBP + -0x4],ECX                      
+  0x0063c447: MOV EAX,dword ptr [EBP + 0x8]                       
+  0x0063c44a: MOV ECX,dword ptr [EBP + -0x4]                      
+  0x0063c44d: LEA ECX,[ECX + EAX*0x4 + 0x8]                       
+  0x0063c451: CALL 0x00559450                                      ; CALL 0x00559450 FUN_00559450
+  0x0063c456: MOV ESP,EBP                                         
+  0x0063c458: POP EBP                                             
+  0x0063c459: RET 0x4                                             
+  0x0063c460: PUSH EBP                                            
+
+----------------------------------------------------------------------
+Disassembly Sky +0x28 Sun constructor call around 0x0063a91d
+----------------------------------------------------------------------
+  0x0063a8e9: MOV EAX,dword ptr [EDX + 0x28]                      
+  0x0063a8ec: MOV dword ptr [EBP + -0x44],EAX                     
+  0x0063a8ef: MOV ECX,dword ptr [EBP + -0x44]                     
+  0x0063a8f2: MOV dword ptr [EBP + -0x40],ECX                     
+  0x0063a8f5: CMP dword ptr [EBP + -0x40],0x0                     
+  0x0063a8f9: JZ 0x0063a911                                       
+  0x0063a8fb: PUSH 0x1                                            
+  0x0063a8fd: MOV EDX,dword ptr [EBP + -0x40]                     
+  0x0063a900: MOV EAX,dword ptr [EDX]                             
+  0x0063a902: MOV ECX,dword ptr [EBP + -0x40]                     
+  0x0063a905: MOV EDX,dword ptr [EAX]                             
+  0x0063a907: CALL EDX                                            
+  0x0063a909: MOV dword ptr [EBP + 0xffffff64],EAX                
+  0x0063a90f: JMP 0x0063a91b                                      
+  0x0063a911: MOV dword ptr [EBP + 0xffffff64],0x0                
+  0x0063a91b: PUSH 0x2c                                           
+  0x0063a91d: CALL 0x00401000                                      << TARGET ; CALL 0x00401000 FUN_00401000
+  0x0063a922: ADD ESP,0x4                                         
+  0x0063a925: MOV dword ptr [EBP + -0x4c],EAX                     
+  0x0063a928: MOV byte ptr [EBP + -0x4],0x4                       
+  0x0063a92c: CMP dword ptr [EBP + -0x4c],0x0                     
+  0x0063a930: JZ 0x0063a942                                       
+  0x0063a932: MOV ECX,dword ptr [EBP + -0x4c]                     
+  0x0063a935: CALL 0x006404f0                                      ; CALL 0x006404f0 Sun constructor candidate
+  0x0063a93a: MOV dword ptr [EBP + 0xffffff60],EAX                
+  0x0063a940: JMP 0x0063a94c                                      
+  0x0063a942: MOV dword ptr [EBP + 0xffffff60],0x0                
+  0x0063a94c: MOV EAX,dword ptr [EBP + 0xffffff60]                
+  0x0063a952: MOV dword ptr [EBP + -0x48],EAX                     
+  0x0063a955: MOV byte ptr [EBP + -0x4],0x0                       
+  0x0063a959: MOV ECX,dword ptr [EBP + -0x80]                     
+  0x0063a95c: MOV EDX,dword ptr [EBP + -0x48]                     
+  0x0063a95f: MOV dword ptr [ECX + 0x28],EDX                      
+  0x0063a962: MOV ECX,dword ptr [EBP + -0x80]                     
+  0x0063a965: ADD ECX,0x4                                         
+  0x0063a968: CALL 0x00559450                                      ; CALL 0x00559450 FUN_00559450
+  0x0063a96d: PUSH EAX                                            
+  0x0063a96e: MOV EAX,dword ptr [EBP + -0x80]                     
+  0x0063a971: MOV ECX,dword ptr [EAX + 0x28]                      
+  0x0063a974: MOV EDX,dword ptr [EBP + -0x80]                     
+  0x0063a977: MOV EAX,dword ptr [EDX + 0x28]                      
+  0x0063a97a: MOV EDX,dword ptr [ECX]                             
+  0x0063a97c: MOV ECX,EAX                                         
+  0x0063a97e: MOV EAX,dword ptr [EDX + 0x8]                       
+  0x0063a981: CALL EAX                                            
+  0x0063a983: PUSH 0xac                                           
+  0x0063a988: CALL 0x00aa13e0                                      ; CALL 0x00aa13e0 FUN_00aa13e0
+  0x0063a98d: ADD ESP,0x4                                         
+  0x0063a990: MOV dword ptr [EBP + -0x54],EAX                     
+  0x0063a993: MOV byte ptr [EBP + -0x4],0x5                       
+  0x0063a997: CMP dword ptr [EBP + -0x54],0x0                     
+  0x0063a99b: JZ 0x0063a9af                                       
+  0x0063a99d: PUSH 0x0                                            
+  0x0063a99f: MOV ECX,dword ptr [EBP + -0x54]                     
+  0x0063a9a2: CALL 0x00a5ecb0                                      ; CALL 0x00a5ecb0 FUN_00a5ecb0
+  0x0063a9a7: MOV dword ptr [EBP + 0xffffff5c],EAX                
+  0x0063a9ad: JMP 0x0063a9b9                                      
+  0x0063a9af: MOV dword ptr [EBP + 0xffffff5c],0x0                
+  0x0063a9b9: MOV ECX,dword ptr [EBP + 0xffffff5c]                
+  0x0063a9bf: MOV dword ptr [EBP + -0x50],ECX                     
+  0x0063a9c2: MOV byte ptr [EBP + -0x4],0x0                       
+  0x0063a9c6: MOV EDX,dword ptr [EBP + -0x50]                     
+  0x0063a9c9: PUSH EDX                                            
+
+----------------------------------------------------------------------
+Disassembly Render sun screen projection path around 0x00871013
+----------------------------------------------------------------------
+  0x00870fd3: CALL 0x00559450                                      ; CALL 0x00559450 FUN_00559450
+  0x00870fd8: PUSH EAX                                            
+  0x00870fd9: MOV ECX,dword ptr [EBP + -0x78]                     
+  0x00870fdc: CALL 0x00875fa0                                      ; CALL 0x00875fa0 FUN_00875fa0
+  0x00870fe1: MOVZX EAX,byte ptr [EBP + -0x23]                    
+  0x00870fe5: TEST EAX,EAX                                        
+  0x00870fe7: JZ 0x008710c4                                       
+  0x00870fed: MOV ECX,dword ptr [0x011dea10]                      
+  0x00870ff3: CALL 0x005f36f0                                      ; CALL 0x005f36f0 FUN_005f36f0
+  0x00870ff8: TEST EAX,EAX                                        
+  0x00870ffa: JNZ 0x008710c4                                      
+  0x00871000: CMP dword ptr [0x011dea20],0x0                      
+  0x00871007: JZ 0x008710c4                                       
+  0x0087100d: MOV ECX,dword ptr [0x011dea20]                      
+  0x00871013: CALL 0x0045cd60                                      << TARGET ; CALL 0x0045cd60 Sky sun/current object getter (Sky +0x28)
+  0x00871018: TEST EAX,EAX                                        
+  0x0087101a: JZ 0x008710c4                                       
+  0x00871020: MOV ECX,dword ptr [0x011dea20]                      
+  0x00871026: CALL 0x0045cd60                                      ; CALL 0x0045cd60 Sky sun/current object getter (Sky +0x28)
+  0x0087102b: MOV dword ptr [EBP + 0xffffff4c],EAX                
+  0x00871031: MOV ECX,dword ptr [EBP + 0xffffff4c]                
+  0x00871037: MOV EDX,dword ptr [ECX]                             
+  0x00871039: MOV ECX,dword ptr [EBP + 0xffffff4c]                
+  0x0087103f: MOV EAX,dword ptr [EDX + 0x4]                       
+  0x00871042: CALL EAX                                            
+  0x00871044: MOV ECX,EAX                                         
+  0x00871046: CALL 0x0045bb80                                      ; CALL 0x0045bb80 Vector getter used by sun screen projection
+  0x0087104b: MOV ECX,dword ptr [EAX]                             
+  0x0087104d: MOV dword ptr [EBP + -0x4c],ECX                     
+  0x00871050: MOV EDX,dword ptr [EAX + 0x4]                       
+  0x00871053: MOV dword ptr [EBP + -0x48],EDX                     
+  0x00871056: MOV EAX,dword ptr [EAX + 0x8]                       
+  0x00871059: MOV dword ptr [EBP + -0x44],EAX                     
+  0x0087105c: FLDZ                                                
+  0x0087105e: FSTP float ptr [EBP + -0x54]                        
+  0x00871061: FLD float ptr [EBP + -0x54]                         
+  0x00871064: FSTP float ptr [EBP + -0x58]                        
+  0x00871067: FLD float ptr [EBP + -0x58]                         
+  0x0087106a: FSTP float ptr [EBP + -0x40]                        
+  0x0087106d: CALL 0x0045c670                                      ; CALL 0x0045c670 FUN_0045c670
+  0x00871072: MOV dword ptr [EBP + -0x50],EAX                     
+  0x00871075: PUSH ECX                                            
+  0x00871076: FLD float ptr [0x010718c0]                          
+  0x0087107c: FSTP float ptr [ESP]                                
+  0x0087107f: LEA ECX,[EBP + -0x54]                               
+  0x00871082: PUSH ECX                                            
+  0x00871083: LEA EDX,[EBP + -0x58]                               
+  0x00871086: PUSH EDX                                            
+  0x00871087: LEA EAX,[EBP + -0x40]                               
+  0x0087108a: PUSH EAX                                            
+  0x0087108b: LEA ECX,[EBP + -0x4c]                               
+  0x0087108e: PUSH ECX                                            
+  0x0087108f: MOV ECX,dword ptr [EBP + -0x50]                     
+  0x00871092: CALL 0x006629f0                                      ; CALL 0x006629f0 FUN_006629f0
+  0x00871097: MOV ECX,EAX                                         
+  0x00871099: CALL 0x00a6fdb0                                      ; CALL 0x00a6fdb0 FUN_00a6fdb0
+  0x0087109e: MOV byte ptr [EBP + -0x59],AL                       
+  0x008710a1: PUSH ECX                                            
+  0x008710a2: FLD float ptr [EBP + -0x58]                         
+  0x008710a5: FSTP float ptr [ESP]                                
+  0x008710a8: PUSH ECX                                            
+  0x008710a9: FLD float ptr [EBP + -0x40]                         
+  0x008710ac: FSTP float ptr [ESP]                                
+  0x008710af: LEA ECX,[EBP + -0x74]                               
+  0x008710b2: CALL 0x00452dc0                                      ; CALL 0x00452dc0 FUN_00452dc0
+  0x008710b7: PUSH EAX                                            
+  0x008710b8: CALL 0x004e3270                                      ; CALL 0x004e3270 FUN_004e3270
+  0x008710bd: MOV ECX,EAX                                         
+  0x008710bf: CALL 0x00b8b1e0                                      ; CALL 0x00b8b1e0 Sun screen vector globals writer
+  0x008710c4: CALL 0x008709f0                                      ; CALL 0x008709f0 FUN_008709f0
+  0x008710c9: MOVZX EDX,AL                                        
+  0x008710cc: TEST EDX,EDX                                        
+  0x008710ce: JZ 0x0087111b                                       
+  0x008710d0: MOV EAX,dword ptr [EBP + 0x8]                       
+  0x008710d3: PUSH EAX                                            
+  0x008710d4: MOV ECX,dword ptr [EBP + -0x20]                     
+  0x008710d7: PUSH ECX                                            
+  0x008710d8: MOV EDX,dword ptr [EBP + -0x28]                     
+  0x008710db: PUSH EDX                                            
+  0x008710dc: MOVZX EAX,byte ptr [EBP + -0x14]                    
+  0x008710e0: PUSH EAX                                            
+  0x008710e1: MOV ECX,dword ptr [EBP + -0x78]                     
+  0x008710e4: CALL 0x00875fd0                                      ; CALL 0x00875fd0 FUN_00875fd0
+  0x008710e9: CALL 0x00871260                                      ; CALL 0x00871260 FUN_00871260
+  0x008710ee: MOVZX ECX,AL                                        
+  0x008710f1: TEST ECX,ECX                                        
+  0x008710f3: JNZ 0x00871101                                      
+  0x008710f5: CALL 0x005bac20                                      ; CALL 0x005bac20 FUN_005bac20
+  0x008710fa: MOVZX EDX,AL                                        
+  0x008710fd: TEST EDX,EDX                                        
+  0x008710ff: JZ 0x00871119                                       
+  0x00871101: CALL 0x00705a00                                      ; CALL 0x00705a00 FUN_00705a00
+  0x00871106: MOVZX EAX,AL                                        
+  0x00871109: TEST EAX,EAX                                        
+  0x0087110b: JNZ 0x00871119                                      
+
+----------------------------------------------------------------------
+Disassembly Raw reader near 0x012023F8 around 0x00c03363
+----------------------------------------------------------------------
+  0x00c03315: MOV dword ptr [ESP + 0x18],0xffffffff               
+  0x00c0331d: CALL 0x00ba3d30                                      ; CALL 0x00ba3d30 FUN_00ba3d30
+  0x00c03322: MOV ECX,dword ptr [ESP + 0x10]                      
+  0x00c03326: MOV dword ptr FS:[0x0],ECX                          
+  0x00c0332d: POP ECX                                             
+  0x00c0332e: POP ESI                                             
+  0x00c0332f: ADD ESP,0x14                                        
+  0x00c03332: RET                                                 
+  0x00c03340: MOV AL,[0x012023f0]                                 
+  0x00c03345: RET                                                 
+  0x00c03350: FLDZ                                                
+  0x00c03352: MOV EAX,dword ptr [ECX + 0x1c]                      
+  0x00c03355: MOV ECX,dword ptr [EAX + 0x4]                       
+  0x00c03358: SUB ESP,0x10                                        
+  0x00c0335b: FST float ptr [ESP + 0xc]                           
+  0x00c0335f: FSTP float ptr [ESP + 0x8]                          
+  0x00c03363: FLD float ptr [0x012023f8]                           << TARGET
+  0x00c03369: FSTP float ptr [ESP + 0x4]                          
+  0x00c0336d: FLD float ptr [0x012023f4]                          
+  0x00c03373: FSTP float ptr [ESP]                                
+  0x00c03376: PUSH 0x0                                            
+  0x00c03378: CALL 0x00b8a790                                      ; CALL 0x00b8a790 FUN_00b8a790
+  0x00c0337d: MOV dword ptr [0x011ae680],0x80                     
+  0x00c03387: XOR AL,AL                                           
+  0x00c03389: RET 0x4                                             
+  0x00c03390: PUSH ECX                                            
+  0x00c03391: PUSH ESI                                            
+  0x00c03392: MOV ESI,ECX                                         
+  0x00c03394: PUSH EDI                                            
+  0x00c03395: LEA EDI,[ESI + 0x58]                                
+  0x00c03398: PUSH 0x3                                            
+  0x00c0339a: MOV ECX,EDI                                         
+  0x00c0339c: CALL 0x00ba3840                                      ; CALL 0x00ba3840 FUN_00ba3840
+  0x00c033a1: LEA EAX,[ESP + 0x8]                                 
+  0x00c033a5: PUSH EAX                                            
+  0x00c033a6: PUSH 0x2                                            
+  0x00c033a8: LEA ECX,[ESI + 0x28]                                
+  0x00c033ab: MOV dword ptr [ESP + 0x10],EDI                      
+  0x00c033af: CALL 0x00ba3aa0                                      ; CALL 0x00ba3aa0 FUN_00ba3aa0
+  0x00c033b4: POP EDI                                             
+  0x00c033b5: POP ESI                                             
+  0x00c033b6: POP ECX                                             
+  0x00c033b7: RET 0x4                                             
+  0x00c033c0: PUSH ESI                                            
+  0x00c033c1: MOV ESI,ECX                                         
+  0x00c033c3: CALL 0x00ba4080                                      ; CALL 0x00ba4080 FUN_00ba4080
+  0x00c033c8: XOR EAX,EAX                                         
+  0x00c033ca: MOV dword ptr [ESI],0x10bc8a4                       
+  0x00c033d0: MOV byte ptr [ESI + 0x58],AL                        
+  0x00c033d3: MOV byte ptr [ESI + 0x59],AL                        
+  0x00c033d6: MOV byte ptr [ESI + 0x5a],AL                        
+  0x00c033d9: MOV dword ptr [ESI + 0x5c],EAX                      
+  0x00c033dc: MOV dword ptr [ESI + 0x60],EAX                      
+  0x00c033df: MOV dword ptr [ESI + 0x64],EAX                      
+  0x00c033e2: MOV EAX,ESI                                         
+  0x00c033e4: POP ESI                                             
+  0x00c033e5: RET                                                 
+  0x00c033f0: PUSH ESI                                            
+  0x00c033f1: MOV ESI,ECX                                         
+  0x00c033f3: CALL 0x00c03270                                      ; CALL 0x00c03270 FUN_00c03270
+  0x00c033f8: TEST byte ptr [ESP + 0x8],0x1                       
+  0x00c033fd: JZ 0x00c0340a                                       
+  0x00c033ff: PUSH ESI                                            
+  0x00c03400: MOV ECX,0x11f6238                                   
+  0x00c03405: CALL 0x00aa4060                                      ; CALL 0x00aa4060 FUN_00aa4060
+
+----------------------------------------------------------------------
+Disassembly Function reader of 0x012023F8/F4 around 0x00c03546
+----------------------------------------------------------------------
+  0x00c03518: PUSH 0x1                                            
+  0x00c0351a: MOV ECX,ESI                                         
+  0x00c0351c: CALL 0x00ba3b10                                      ; CALL 0x00ba3b10 FUN_00ba3b10
+  0x00c03521: MOV EAX,dword ptr [EBP + 0x8]                       
+  0x00c03524: MOV ECX,dword ptr [EAX + 0xe4]                      
+  0x00c0352a: PUSH 0x0                                            
+  0x00c0352c: PUSH EDI                                            
+  0x00c0352d: PUSH ECX                                            
+  0x00c0352e: PUSH 0x1                                            
+  0x00c03530: MOV ECX,ESI                                         
+  0x00c03532: CALL 0x00ba3c70                                      ; CALL 0x00ba3c70 FUN_00ba3c70
+  0x00c03537: FLDZ                                                
+  0x00c03539: SUB ESP,0x10                                        
+  0x00c0353c: FST float ptr [ESP + 0xc]                           
+  0x00c03540: FSTP float ptr [ESP + 0x8]                          
+  0x00c03544: MOV ECX,EDI                                         
+  0x00c03546: FLD float ptr [0x012023f8]                           << TARGET
+  0x00c0354c: FSTP float ptr [ESP + 0x4]                          
+  0x00c03550: FLD float ptr [0x012023f4]                          
+  0x00c03556: FSTP float ptr [ESP]                                
+  0x00c03559: PUSH 0x0                                            
+  0x00c0355b: CALL 0x00b8a790                                      ; CALL 0x00b8a790 FUN_00b8a790
+  0x00c03560: MOV ECX,dword ptr [ESP + 0x18]                      
+  0x00c03564: MOV dword ptr FS:[0x0],ECX                          
+  0x00c0356b: POP ECX                                             
+  0x00c0356c: POP EDI                                             
+  0x00c0356d: POP ESI                                             
+  0x00c0356e: POP EBP                                             
+  0x00c0356f: POP EBX                                             
+  0x00c03570: ADD ESP,0x10                                        
+  0x00c03573: RET 0x8                                             
+  0x00c03580: PUSH -0x1                                           
+  0x00c03582: PUSH 0xf2d50e                                       
+  0x00c03587: MOV EAX,FS:[0x0]                                    
+  0x00c0358d: PUSH EAX                                            
+  0x00c0358e: SUB ESP,0x8                                         
+  0x00c03591: PUSH EBX                                            
+  0x00c03592: PUSH ESI                                            
+  0x00c03593: PUSH EDI                                            
+  0x00c03594: MOV EAX,[0x011c16bc]                                
+  0x00c03599: XOR EAX,ESP                                         
+  0x00c0359b: PUSH EAX                                            
+  0x00c0359c: LEA EAX,[ESP + 0x18]                                
+  0x00c035a0: MOV FS:[0x0],EAX                                    
+  0x00c035a6: MOV ESI,ECX                                         
+  0x00c035a8: MOV dword ptr [ESP + 0x14],ESI                      
+  0x00c035ac: MOV dword ptr [ESI],0x10bc8d0                       
+  0x00c035b2: MOV EAX,dword ptr [ESI + 0x2c]                      
+  0x00c035b5: XOR EBX,EBX                                         
+  0x00c035b7: MOV dword ptr [ESP + 0x20],0x1                      
+  0x00c035bf: CMP dword ptr [EAX + 0x8],EBX                       
+  0x00c035c2: JZ 0x00c035f0                                       
+  0x00c035c4: MOV EDI,dword ptr [EAX + 0x8]                       
+  0x00c035c7: CMP EDI,EBX                                         
+  0x00c035c9: JZ 0x00c035dd                                       
+  0x00c035cb: MOV ECX,EDI                                         
+  0x00c035cd: CALL 0x00ba3a00                                      ; CALL 0x00ba3a00 FUN_00ba3a00
+  0x00c035d2: PUSH EDI                                            
+  0x00c035d3: MOV ECX,0x11f6238                                   
+  0x00c035d8: CALL 0x00aa4060                                      ; CALL 0x00aa4060 FUN_00aa4060
+  0x00c035dd: LEA EAX,[ESP + 0x10]                                
+  0x00c035e1: PUSH EAX                                            
+  0x00c035e2: PUSH 0x2                                            
+  0x00c035e4: LEA ECX,[ESI + 0x28]                                
+  0x00c035e7: MOV dword ptr [ESP + 0x18],EBX                      
+
+----------------------------------------------------------------------
+Disassembly Unknown write to 0x012023F4/F8 around 0x00fbae5b
+----------------------------------------------------------------------
+  0x00fbae06: PUSH ECX                                            
+  0x00fbae07: FSTP float ptr [ESP]                                
+  0x00fbae0a: PUSH 0x10bc44c                                      
+  0x00fbae0f: MOV ECX,0x12023dc                                   
+  0x00fbae14: CALL 0x0044f440                                      ; CALL 0x0044f440 FUN_0044f440
+  0x00fbae19: PUSH 0xfdd370                                       
+  0x00fbae1e: CALL 0x00ec658f                                      ; CALL 0x00ec658f _atexit
+  0x00fbae23: POP ECX                                             
+  0x00fbae24: RET                                                 
+  0x00fbae30: PUSH 0x11f4428                                      
+  0x00fbae35: PUSH 0x10bc550                                      
+  0x00fbae3a: MOV ECX,0x12023e8                                   
+  0x00fbae3f: CALL 0x00a7b610                                      ; CALL 0x00a7b610 FUN_00a7b610
+  0x00fbae44: RET                                                 
+  0x00fbae50: MOV EAX,[0x011f4980]                                
+  0x00fbae55: MOV ECX,dword ptr [0x011f4984]                      
+  0x00fbae5b: MOV [0x012023f4],EAX                                 << TARGET
+  0x00fbae60: MOV dword ptr [0x012023f8],ECX                      
+  0x00fbae66: RET                                                 
+  0x00fbae70: MOV ECX,0x1202410                                   
+  0x00fbae75: CALL 0x00b8a9e0                                      ; CALL 0x00b8a9e0 FUN_00b8a9e0
+  0x00fbae7a: PUSH 0xfdd390                                       
+  0x00fbae7f: CALL 0x00ec658f                                      ; CALL 0x00ec658f _atexit
+  0x00fbae84: POP ECX                                             
+  0x00fbae85: RET                                                 
+  0x00fbae90: PUSH 0x1                                            
+  0x00fbae92: PUSH 0x10bcacc                                      
+  0x00fbae97: MOV ECX,0x120249c                                   
+  0x00fbae9c: CALL 0x0045cf30                                      ; CALL 0x0045cf30 FUN_0045cf30
+  0x00fbaea1: PUSH 0xfdd3a0                                       
+  0x00fbaea6: CALL 0x00ec658f                                      ; CALL 0x00ec658f _atexit
+  0x00fbaeab: POP ECX                                             
+  0x00fbaeac: RET                                                 
+  0x00fbaeb0: PUSH 0x1200464                                      
+  0x00fbaeb5: PUSH 0x10bcc7c                                      
+  0x00fbaeba: MOV ECX,0x12024b0                                   
+  0x00fbaebf: CALL 0x00a7b610                                      ; CALL 0x00a7b610 FUN_00a7b610
+  0x00fbaec4: RET                                                 
+  0x00fbaed0: PUSH 0x11f4a20                                      
+  0x00fbaed5: PUSH 0x10bcdb4                                      
+  0x00fbaeda: MOV ECX,0x12024b8                                   
+  0x00fbaedf: CALL 0x00a7b610                                      ; CALL 0x00a7b610 FUN_00a7b610
+  0x00fbaee4: RET                                                 
+  0x00fbaef0: PUSH 0x11f4a40                                      
+  0x00fbaef5: PUSH 0x10bced0                                      
+  0x00fbaefa: MOV ECX,0x12024c0                                   
+  0x00fbaeff: CALL 0x00a7b610                                      ; CALL 0x00a7b610 FUN_00a7b610
+  0x00fbaf04: RET                                                 
+  0x00fbaf10: PUSH 0x1200798                                      
+
+======================================================================
+MATCHED FUNCTIONS REFERENCING Main/TES singleton candidate @ 0x011dea10
+======================================================================
+
+======================================================================
+SUN COLOR/DIRECTION MATCHES: Main/TES singleton candidate ref FUN_0086a850 @ 0x0086a850
+======================================================================
+  L0489:         if (DAT_011dea10 != 0) {
+  Total matched lines: 1
+
+--- Calls FROM Main/TES singleton candidate ref FUN_0086a850 (0x0086a850) ---
+  0x0086a86d -> 0x00000035 unknown
+  0x0086a876 -> 0x0000001b unknown
+  0x0086a891 -> 0x000000ae unknown
+  0x0086a8a3 -> 0x0000009d unknown
+  0x0086a8bb -> 0x000000ae unknown
+  0x0086a8e0 -> 0x00408d60 FUN_00408d60
+  0x0086a8ee -> 0x00408d60 FUN_00408d60
+  0x0086a8fc -> 0x00408d60 FUN_00408d60
+  0x0086a90d -> 0x00c3bd30 FUN_00c3bd30
+  0x0086a91a -> 0x00c3bb90 FUN_00c3bb90
+  0x0086a927 -> 0x00c3bbe0 FUN_00c3bbe0
+  0x0086a934 -> 0x00c3bc30 FUN_00c3bc30
+  0x0086a941 -> 0x00c3bc80 FUN_00c3bc80
+  0x0086a950 -> 0x00000034 unknown
+  0x0086a95b -> 0x0043d4d0 FUN_0043d4d0
+  0x0086a96f -> 0x00876ad0 FUN_00876ad0
+  0x0086a97c -> 0x0043d4d0 FUN_0043d4d0
+  0x0086a98b -> 0x0043d4d0 FUN_0043d4d0
+  0x0086a99f -> 0x000000b2 unknown
+  0x0086a9b2 -> 0x000000b1 unknown
+  0x0086a9c5 -> 0x004b4a30 FUN_004b4a30
+  0x0086a9d2 -> 0x00af2640 FID_conflict:_Immortalize<std::_Generic_error_category>
+  0x0086a9d9 -> 0x004fb090 FUN_004fb090
+  0x0086a9e3 -> 0x00af2640 FID_conflict:_Immortalize<std::_Generic_error_category>
+  0x0086a9ea -> 0x008526c0 FUN_008526c0
+  0x0086a9f1 -> 0x006ecd40 FUN_006ecd40
+  0x0086a9f8 -> 0x00aa20b0 FUN_00aa20b0
+  0x0086aa00 -> 0x00c5d4e0 FUN_00c5d4e0
+  0x0086aa05 -> 0x004b7920 FUN_004b7920
+  0x0086aa0a -> 0x00a1c6f0 FUN_00a1c6f0
+  0x0086aa0f -> 0x00bc2940 FUN_00bc2940
+  0x0086aa14 -> 0x0045b020 FUN_0045b020
+  0x0086aa1b -> 0x00404f30 FUN_00404f30
+  0x0086aa28 -> 0x0086bde0 FUN_0086bde0
+  0x0086aa35 -> 0x0086bcd0 FUN_0086bcd0
+  0x0086aa3f -> 0x0086bcc0 FUN_0086bcc0
+  0x0086aa47 -> 0x00c3a6d0 FUN_00c3a6d0
+  0x0086aa4c -> 0x0086bd70 FUN_0086bd70
+  0x0086aa65 -> 0x00404eb0 FUN_00404eb0
+  0x0086aa6a -> 0x00453720 FUN_00453720
+  0x0086aa75 -> 0x00404f70 FUN_00404f70
+  0x0086aa8e -> 0x00404f00 FUN_00404f00
+  0x0086aa93 -> 0x00a61ad0 FUN_00a61ad0
+  0x0086aa9e -> 0x00404f70 FUN_00404f70
+  0x0086aaa3 -> 0x006ff610 FUN_006ff610
+  0x0086aab9 -> 0x00000033 unknown
+  0x0086aac0 -> 0x000000bd unknown
+  0x0086ab4f -> 0x00ecc071 __wcsicmp
+  0x0086ab5d -> 0x006ff580 FUN_006ff580
+  0x0086ab64 -> 0x006ff880 FUN_006ff880
+  0x0086ab75 -> 0x00000019 unknown
+  0x0086ab80 -> 0x00877950 FUN_00877950
+  0x0086ab87 -> 0x005e0200 FUN_005e0200
+  0x0086ab93 -> 0x0044f560 FUN_0044f560
+  0x0086ab9a -> 0x005e0200 FUN_005e0200
+  0x0086ab9f -> 0x004dc110 FUN_004dc110
+  0x0086abb1 -> 0x00406d30 FUN_00406d30
+  0x0086abcc -> 0x00406d50 FUN_00406d50
+  0x0086abdb -> 0x004de490 FUN_004de490
+  0x0086abe2 -> 0x005e0200 FUN_005e0200
+  0x0086abe7 -> 0x004dc110 FUN_004dc110
+  0x0086abf9 -> 0x00406d30 FUN_00406d30
+  0x0086ac13 -> 0x00406d50 FUN_00406d50
+  0x0086ac22 -> 0x0045d180 FUN_0045d180
+  0x0086ac29 -> 0x005e0200 FUN_005e0200
+  0x0086ac35 -> 0x004de490 FUN_004de490
+  0x0086ac3c -> 0x005e0200 FUN_005e0200
+  0x0086ac46 -> 0x0043d4d0 FUN_0043d4d0
+  0x0086ac55 -> 0x0043d4d0 FUN_0043d4d0
+  0x0086ac60 -> 0x004da570 FUN_004da570
+  0x0086ac72 -> 0x004da4d0 FUN_004da4d0
+  0x0086ac7a -> 0x00b00a00 FUN_00b00a00
+  0x0086aca4 -> 0x00876a70 FUN_00876a70
+  0x0086acbd -> 0x00406d50 FUN_00406d50
+  0x0086acd6 -> 0x000000bf unknown
+  0x0086acfb -> 0x00404ee0 FUN_00404ee0
+  0x0086ad10 -> 0x00403df0 FUN_00403df0
+  0x0086ad1b -> 0x00403df0 FUN_00403df0
+  0x0086ad21 -> 0x00aff100 FID_conflict:_Immortalize<std::_Generic_error_category>
+  0x0086ad28 -> 0x00b012f0 FUN_00b012f0
+  0x0086ad2f -> 0x00401000 FUN_00401000
+  0x0086ad4d -> 0x0043d4d0 FUN_0043d4d0
+  0x0086ad5a -> 0x00403df0 FUN_00403df0
+  0x0086ad66 -> 0x00afdc60 FUN_00afdc60
+  0x0086ad8e -> 0x0086bce0 FUN_0086bce0
+  0x0086ada0 -> 0x00408d60 FUN_00408d60
+  0x0086adae -> 0x00408d60 FUN_00408d60
+  0x0086adbc -> 0x00408d60 FUN_00408d60
+  0x0086adcd -> 0x00c3bd30 FUN_00c3bd30
+  0x0086adda -> 0x00c3bb90 FUN_00c3bb90
+  0x0086ade7 -> 0x00c3bbe0 FUN_00c3bbe0
+  0x0086adf4 -> 0x00c3bc30 FUN_00c3bc30
+  0x0086ae01 -> 0x00c3bc80 FUN_00c3bc80
+  0x0086ae1d -> 0x00404f00 FUN_00404f00
+  0x0086ae22 -> 0x0040fbe0 FUN_0040fbe0
+  0x0086ae27 -> 0x00aff100 FID_conflict:_Immortalize<std::_Generic_error_category>
+  0x0086ae2e -> 0x0086bda0 FUN_0086bda0
+  0x0086ae39 -> 0x00404f70 FUN_00404f70
+  0x0086ae52 -> 0x00404f00 FUN_00404f00
+  0x0086ae57 -> 0x00876d20 FUN_00876d20
+  0x0086ae62 -> 0x00404f70 FUN_00404f70
+  0x0086aeb6 -> 0x000000b6 unknown
+  0x0086aedf -> 0x0000009e unknown
+  0x0086af0c -> 0x000000b5 unknown
+  0x0086af42 -> 0x0000009f unknown
+  0x0086af50 -> 0x00401000 FUN_00401000
+  0x0086af75 -> 0x0086c160 FUN_0086c160
+  0x0086afb8 -> 0x00404f00 FUN_00404f00
+  0x0086afbf -> 0x00401000 FUN_00401000
+  0x0086afdc -> 0x007005d0 FUN_007005d0
+  0x0086b010 -> 0x00404f70 FUN_00404f70
+  0x0086b01a -> 0x0040fbe0 FUN_0040fbe0
+  0x0086b028 -> 0x0086d500 FUN_0086d500
+  0x0086b034 -> 0x0043c4b0 FUN_0043c4b0
+  0x0086b03b -> 0x004a0370 FUN_004a0370
+  0x0086b047 -> 0x0043c4b0 FUN_0043c4b0
+  0x0086b04e -> 0x0086bbd0 FUN_0086bbd0
+  0x0086b05a -> 0x0043c4b0 FUN_0043c4b0
+  0x0086b061 -> 0x0086bae0 FUN_0086bae0
+  0x0086b066 -> 0x0086bf70 FUN_0086bf70
+  0x0086b071 -> 0x0086d590 FUN_0086d590
+  0x0086b078 -> 0x00702250 FUN_00702250
+  0x0086b080 -> 0x006519f0 FUN_006519f0
+  0x0086b08d -> 0x00871c90 FUN_00871c90
+  0x0086b092 -> 0x006a2920 FUN_006a2920
+  0x0086b097 -> 0x0086c010 FUN_0086c010
+  0x0086b09c -> 0x0043c4b0 FUN_0043c4b0
+  0x0086b0a3 -> 0x004a03c0 FUN_004a03c0
+  0x0086b0a8 -> 0x00866ff0 FUN_00866ff0
+  0x0086b0c0 -> 0x00403df0 FUN_00403df0
+  0x0086b0cc -> 0x00ec16d0 FUN_00ec16d0
+  0x0086b0d7 -> 0x00404f70 FUN_00404f70
+  0x0086b0dc -> 0x0045c670 FUN_0045c670
+  0x0086b0e8 -> 0x0086cf20 FUN_0086cf20
+  0x0086b0ed -> 0x0045c670 FUN_0045c670
+  0x0086b0f4 -> 0x006629f0 FUN_006629f0
+  0x0086b0fa -> 0x0086be90 FUN_0086be90
+  0x0086b102 -> 0x0045c670 FUN_0045c670
+  0x0086b109 -> 0x006629f0 FUN_006629f0
+  0x0086b10f -> 0x0086be80 FUN_0086be80
+  0x0086b11c -> 0x0043d4d0 FUN_0043d4d0
+  0x0086b126 -> 0x00713d80 FUN_00713d80
+  0x0086b12d -> 0x008c7290 FUN_008c7290
+  0x0086b132 -> 0x006d0870 FUN_006d0870
+  0x0086b137 -> 0x0047d0b0 FID_conflict:_Immortalize<std::_Generic_error_category>
+  0x0086b13e -> 0x006eb8c0 FUN_006eb8c0
+  0x0086b148 -> 0x00408d60 FUN_00408d60
+  0x0086b154 -> 0x006c0720 FUN_006c0720
+  0x0086b15b -> 0x006c07d0 FUN_006c07d0
+  0x0086b160 -> 0x004e0540 FUN_004e0540
+  0x0086b165 -> 0x004deb30 FUN_004deb30
+  0x0086b19f -> 0x00416870 FUN_00416870
+  0x0086b1aa -> 0x00460140 FUN_00460140
+  0x0086b1b1 -> 0x006815c0 FUN_006815c0
+  0x0086b1bf -> 0x00458200 FUN_00458200
+  0x0086b1ca -> 0x0095ee80 FUN_0095ee80
+  0x0086b1d7 -> 0x008a8150 FUN_008a8150
+  0x0086b1e1 -> 0x0040fbe0 FUN_0040fbe0
+  0x0086b1ee -> 0x00970d50 FUN_00970d50
+  0x0086b1f9 -> 0x004614e0 FUN_004614e0
+  0x0086b206 -> 0x007d6bd0 FUN_007d6bd0
+  0x0086b210 -> 0x0040fbe0 FUN_0040fbe0
+  0x0086b223 -> 0x00876dd0 FUN_00876dd0
+  0x0086b230 -> 0x0040fbe0 FUN_0040fbe0
+  0x0086b254 -> 0x00877260 FUN_00877260
+  0x0086b25c -> 0x007022c0 FUN_007022c0
+  0x0086b267 -> 0x00483710 FUN_00483710
+  0x0086b274 -> 0x004f15a0 FUN_004f15a0
+  0x0086b279 -> 0x00af4540 FUN_00af4540
+  0x0086b284 -> 0x008d6f30 FUN_008d6f30
+  0x0086b295 -> 0x004650a0 FUN_004650a0
+  0x0086b29a -> 0x0040fbe0 FUN_0040fbe0
+  0x0086b29f -> 0x007053f0 FUN_007053f0
+  0x0086b2aa -> 0x00ec1800 FUN_00ec1800
+  0x0086b2af -> 0x0040fbe0 FUN_0040fbe0
+  0x0086b2bc -> 0x00ec1800 FUN_00ec1800
+  0x0086b2c7 -> 0x00456520 FUN_00456520
+  0x0086b2d1 -> 0x0040fbe0 FUN_0040fbe0
+  0x0086b2e4 -> 0x00403d30 _Fiopen
+  0x0086b2f2 -> 0x0044ddc0 FUN_0044ddc0
+  0x0086b31d -> 0x00000098 unknown
+  0x0086b32e -> 0x00000097 unknown
+  0x0086b33b -> 0x00000096 unknown
+  0x0086b343 -> 0x000000b0 unknown
+  0x0086b357 -> 0x00451530 FUN_00451530
+  0x0086b368 -> 0x00559450 FUN_00559450
+  0x0086b376 -> 0x00408d60 FUN_00408d60
+  0x0086b386 -> 0x0043c4b0 FUN_0043c4b0
+  0x0086b38d -> 0x004dc020 FUN_004dc020
+  0x0086b3bb -> 0x0043c4b0 FUN_0043c4b0
+  0x0086b3c2 -> 0x0086ba10 FUN_0086ba10
+  0x0086b3c7 -> 0x0043c4b0 FUN_0043c4b0
+  0x0086b3ce -> 0x0086ba90 FUN_0086ba90
+  0x0086b3d5 -> 0x00000037 unknown
+  0x0086b3e3 -> 0x0086e650 FUN_0086e650
+  0x0086b3f8 -> 0x00453a70 FUN_00453a70
+  0x0086b3ff -> 0x00ad8740 FUN_00ad8740
+  0x0086b404 -> 0x00830660 FUN_00830660
+  0x0086b40b -> 0x00832ad0 FUN_00832ad0
+  0x0086b415 -> 0x00453a70 FUN_00453a70
+  0x0086b41c -> 0x00ad7740 FUN_00ad7740
+  0x0086b421 -> 0x00446e10 FUN_00446e10
+  0x0086b445 -> 0x004dc1f0 FUN_004dc1f0
+  0x0086b450 -> 0x004dc200 FUN_004dc200
+  0x0086b46b -> 0x000000ab unknown
+  0x0086b489 -> 0x000000af unknown
+  0x0086b4bf -> 0x0000009a unknown
+  0x0086b4e3 -> 0x0078d020 FUN_0078d020
+  0x0086b506 -> 0x0086bdf0 FUN_0086bdf0
+  0x0086b512 -> 0x0000006a unknown
+  0x0086b520 -> 0x0044edb0 FUN_0044edb0
+  0x0086b529 -> 0x0078cfc0 FUN_0078cfc0
+  0x0086b537 -> 0x00453a70 FUN_00453a70
+  0x0086b53e -> 0x00ad8700 FUN_00ad8700
+  0x0086b543 -> 0x00830640 FUN_00830640
+  0x0086b54a -> 0x00832ad0 FUN_00832ad0
+  0x0086b554 -> 0x00453a70 FUN_00453a70
+  0x0086b55b -> 0x00ad7740 FUN_00ad7740
+  0x0086b566 -> 0x004e2190 FUN_004e2190
+  0x0086b56d -> 0x00b63620 FUN_00b63620
+  0x0086b572 -> 0x0049fef0 FUN_0049fef0
+  0x0086b579 -> 0x004a4340 FUN_004a4340
+  0x0086b57e -> 0x00705910 FUN_00705910
+  0x0086b585 -> 0x008026b0 FUN_008026b0
+  0x0086b58a -> 0x00446e10 FUN_00446e10
+  0x0086b5ae -> 0x004dc1f0 FUN_004dc1f0
+  0x0086b5b9 -> 0x004dc200 FUN_004dc200
+  0x0086b5d4 -> 0x000000ab unknown
+  0x0086b5f2 -> 0x000000af unknown
+  0x0086b628 -> 0x0000009a unknown
+  0x0086b630 -> 0x00000037 unknown
+  0x0086b63c -> 0x005dc960 FUN_005dc960
+  0x0086b650 -> 0x00678ce0 FUN_00678ce0
+  0x0086b664 -> 0x008774a0 FUN_008774a0
+  0x0086b676 -> 0x004f15a0 FUN_004f15a0
+  0x0086b67b -> 0x006ff620 FUN_006ff620
+  0x0086b680 -> 0x00703610 FUN_00703610
+  0x0086b687 -> 0x00706320 FUN_00706320
+  0x0086b694 -> 0x00559450 FUN_00559450
+  0x0086b6a2 -> 0x00559450 FUN_00559450
+  0x0086b6a8 -> 0x004a0ea0 FUN_004a0ea0
+  0x0086b6af -> 0x00b6da10 FUN_00b6da10
+  0x0086b6bb -> 0x0066b0d0 FUN_0066b0d0
+  0x0086b6c5 -> 0x00559450 FUN_00559450
+  0x0086b6d3 -> 0x00559450 FUN_00559450
+  0x0086b6d9 -> 0x004a0ea0 FUN_004a0ea0
+  0x0086b6e0 -> 0x00b6da10 FUN_00b6da10
+  0x0086b6ec -> 0x0066b0d0 FUN_0066b0d0
+  0x0086b6f6 -> 0x00559450 FUN_00559450
+  0x0086b704 -> 0x00559450 FUN_00559450
+  0x0086b70a -> 0x004a0ea0 FUN_004a0ea0
+  0x0086b711 -> 0x00b6da10 FUN_00b6da10
+  0x0086b71d -> 0x0066b0d0 FUN_0066b0d0
+  0x0086b724 -> 0x0086bea0 FUN_0086bea0
+  0x0086b72c -> 0x00683a60 FUN_00683a60
+  0x0086b735 -> 0x00a819e0 FUN_00a819e0
+  0x0086b740 -> 0x00448420 FUN_00448420
+  0x0086b74a -> 0x0043d4d0 FUN_0043d4d0
+  0x0086b754 -> 0x00713d80 FUN_00713d80
+  0x0086b75b -> 0x008c73a0 FUN_008c73a0
+  0x0086b760 -> 0x00867090 FUN_00867090
+  0x0086b765 -> 0x004dc560 FUN_004dc560
+  0x0086b76a -> 0x004dc590 FUN_004dc590
+  0x0086b76f -> 0x00702330 FUN_00702330
+  0x0086b77a -> 0x008d8520 FUN_008d8520
+  0x0086b789 -> 0x008d8520 FUN_008d8520
+  0x0086b790 -> 0x0086be30 FUN_0086be30
+  0x0086b795 -> 0x004e0800 FUN_004e0800
+  0x0086b79a -> 0x004def20 FUN_004def20
+  0x0086b79f -> 0x007ffe00 FUN_007ffe00
+  0x0086b7a4 -> 0x00832010 FUN_00832010
+  0x0086b7a9 -> 0x008304a0 FUN_008304a0
+  0x0086b7ae -> 0x0082f9c0 FUN_0082f9c0
+  0x0086b7b3 -> 0x00453a70 FUN_00453a70
+  0x0086b7d1 -> 0x0040fbe0 FUN_0040fbe0
+  0x0086b7d6 -> 0x0049ff80 FUN_0049ff80
+  0x0086b7db -> 0x00622bc0 FUN_00622bc0
+  0x0086b7e0 -> 0x00626f10 FUN_00626f10
+  0x0086b7ea -> 0x00408d60 FUN_00408d60
+  0x0086b7f6 -> 0x006c0720 FUN_006c0720
+  0x0086b7fd -> 0x006c0900 FUN_006c0900
+  0x0086b82b -> 0x0086bee0 FUN_0086bee0
+  0x0086b842 -> 0x0086beb0 FUN_0086beb0
+  0x0086b847 -> 0x0047d0b0 FID_conflict:_Immortalize<std::_Generic_error_category>
+  0x0086b84e -> 0x006eb980 FUN_006eb980
+  0x0086b853 -> 0x00651ab0 FUN_00651ab0
+  0x0086b858 -> 0x00990ff0 FUN_00990ff0
+  0x0086b85d -> 0x00b00a00 FUN_00b00a00
+  0x0086b87b -> 0x00664940 FUN_00664940
+  0x0086b880 -> 0x00526eb0 FUN_00526eb0
+  0x0086b885 -> 0x00408de0 FUN_00408de0
+  0x0086b88a -> 0x0086bdd0 FUN_0086bdd0
+  0x0086b8b8 -> 0x0086bf10 FUN_0086bf10
+  0x0086b8f7 -> 0x0086bf40 FUN_0086bf40
+  0x0086b918 -> 0x00aff100 FID_conflict:_Immortalize<std::_Generic_error_category>
+  0x0086b936 -> 0x004de490 FUN_004de490
+  0x0086b93d -> 0x00717e50 FUN_00717e50
+  0x0086b943 -> 0x004de490 FUN_004de490
+  0x0086b94a -> 0x005e01b0 FUN_005e01b0
+  0x0086b954 -> 0x0043c4b0 FUN_0043c4b0
+  0x0086b95b -> 0x0086bb20 FUN_0086bb20
+  0x0086b965 -> 0x0043c4b0 FUN_0043c4b0
+  0x0086b96c -> 0x0086bc10 FUN_0086bc10
+  0x0086b971 -> 0x006a29a0 FUN_006a29a0
+  0x0086b976 -> 0x00a62090 FUN_00a62090
+  0x0086b97b -> 0x00bc2960 FUN_00bc2960
+  0x0086b982 -> 0x004da4d0 FUN_004da4d0
+  0x0086b98a -> 0x0086bd00 FUN_0086bd00
+  0x0086b98f -> 0x0045b050 FUN_0045b050
+  0x0086b994 -> 0x00c5d520 FUN_00c5d520
+  0x0086b999 -> 0x004b8cf0 FUN_004b8cf0
+  0x0086b99e -> 0x00a1c790 FUN_00a1c790
+  0x0086b9a3 -> 0x00aa2170 FUN_00aa2170
+  0x0086b9b3 -> 0x008783c0 FUN_008783c0
+  0x0086b9c1 -> 0x00401020 FUN_00401020
+  0x0086b9c8 -> 0x00aa47c0 FUN_00aa47c0
+  0x0086b9dd -> 0x008784d0 FID_conflict:~CXMLParser
+  0x0086b9e8 -> 0x00404ee0 FUN_00404ee0
+  0x0086b9f9 -> 0x00ec408c __security_check_cookie
+  Total: 319 calls
+
+======================================================================
+SUN COLOR/DIRECTION MATCHES: Main/TES singleton candidate ref FUN_00458200 @ 0x00458200
+======================================================================
+  Total matched lines: 0
+
+--- Calls FROM Main/TES singleton candidate ref FUN_00458200 (0x00458200) ---
+  0x00458249 -> 0x00408d60 FUN_00408d60
+  0x00458258 -> 0x005f36f0 FUN_005f36f0
+  0x00458264 -> 0x00453940 FUN_00453940
+  0x0045827f -> 0x00455200 FUN_00455200
+  0x0045828d -> 0x005f36f0 FUN_005f36f0
+  0x0045829b -> 0x00454d50 FUN_00454d50
+  0x004582b1 -> 0x00452490 FUN_00452490
+  0x004582cb -> 0x00458400 FUN_00458400
+  0x004582dc -> 0x00526270 FUN_00526270
+  0x004582ea -> 0x006733e0 FUN_006733e0
+  0x004582f0 -> 0x0058eeb0 FUN_0058eeb0
+  0x004582fb -> 0x00453940 FUN_00453940
+  0x00458303 -> 0x00450d80 FUN_00450d80
+  0x00458308 -> 0x007043c0 FUN_007043c0
+  0x00458311 -> 0x00709d20 FUN_00709d20
+  0x0045831c -> 0x00454b50 FUN_00454b50
+  0x00458339 -> 0x00404eb0 FUN_00404eb0
+  0x0045834a -> 0x00633c90 FUN_00633c90
+  0x0045835e -> 0x00454b50 FUN_00454b50
+  0x0045836a -> 0x004568c0 FUN_004568c0
+  0x00458372 -> 0x00559450 FUN_00559450
+  0x0045837e -> 0x0070ec90 FUN_0070ec90
+  0x00458385 -> 0x0052d3b0 FUN_0052d3b0
+  0x00458391 -> 0x0045cec0 ~cancellation_token_source
+  0x004583a0 -> 0x00404ee0 FUN_00404ee0
+  0x004583af -> 0x0070ec90 FUN_0070ec90
+  0x004583b6 -> 0x0052d3b0 FUN_0052d3b0
+  0x004583be -> 0x005862e0 FUN_005862e0
+  0x004583cf -> 0x004583f0 FUN_004583f0
+  Total: 29 calls
+
+======================================================================
+SUN COLOR/DIRECTION MATCHES: Main/TES singleton candidate ref FUN_00552bd0 @ 0x00552bd0
+======================================================================
+  L0034:     (**(code **)(*piVar4 + 0xe8))(uVar3);
+  Total matched lines: 1
+
+--- Calls FROM Main/TES singleton candidate ref FUN_00552bd0 (0x00552bd0) ---
+  0x00552bdc -> 0x00541ac0 FUN_00541ac0
+  0x00552be4 -> 0x00450fd0 FUN_00450fd0
+  0x00552c01 -> 0x004512a0 FUN_004512a0
+  0x00552c09 -> 0x00557c40 FUN_00557c40
+  0x00552c18 -> 0x00445670 FUN_00445670
+  0x00552c23 -> 0x00452e50 FUN_00452e50
+  0x00552c2d -> 0x0054ba80 FUN_0054ba80
+  0x00552c35 -> 0x00425fd0 FUN_00425fd0
+  0x00552c4b -> 0x00454c20 FUN_00454c20
+  0x00552c5c -> 0x00455130 FUN_00455130
+  0x00552c6c -> 0x00553700 FUN_00553700
+  0x00552c76 -> 0x005577b0 FUN_005577b0
+  0x00552c7e -> 0x00545cf0 FUN_00545cf0
+  0x00552c8c -> 0x0084e3a0 FUN_0084e3a0
+  0x00552cab -> 0x005574d0 FUN_005574d0
+  0x00552cb3 -> 0x005576c0 FUN_005576c0
+  0x00552cbd -> 0x004512a0 FUN_004512a0
+  0x00552cd2 -> 0x00552da0 FUN_00552da0
+  0x00552ce3 -> 0x0054af40 FUN_0054af40
+  0x00552ceb -> 0x00546c70 FUN_00546c70
+  0x00552cf5 -> 0x0054b950 FUN_0054b950
+  0x00552cfe -> 0x00552ba0 FUN_00552ba0
+  0x00552d05 -> 0x006a5bb0 FUN_006a5bb0
+  0x00552d0d -> 0x0084e3a0 FUN_0084e3a0
+  0x00552d19 -> 0x00469860 FUN_00469860
+  0x00552d2f -> 0x0084a7c0 FUN_0084a7c0
+  0x00552d3a -> 0x00452e50 FUN_00452e50
+  0x00552d42 -> 0x009d9f20 FUN_009d9f20
+  0x00552d4d -> 0x0054aa60 FUN_0054aa60
+  0x00552d56 -> 0x00c5ba50 FUN_00c5ba50
+  0x00552d5e -> 0x0054a050 FUN_0054a050
+  0x00552d67 -> 0x00c5ba50 FUN_00c5ba50
+  0x00552d71 -> 0x00456fc0 FUN_00456fc0
+  0x00552d7a -> 0x00c5ba50 FUN_00c5ba50
+  0x00552d82 -> 0x00524cf0 FUN_00524cf0
+  0x00552d8b -> 0x00c5ba50 FUN_00c5ba50
+  0x00552d93 -> 0x00541ae0 FUN_00541ae0
+  Total: 37 calls
+
+======================================================================
+SUN COLOR/DIRECTION MATCHES: Main/TES singleton candidate ref FUN_005574d0 @ 0x005574d0
+======================================================================
+  Total matched lines: 0
+
+--- Calls FROM Main/TES singleton candidate ref FUN_005574d0 (0x005574d0) ---
+  0x005574dc -> 0x00541ac0 FUN_00541ac0
+  0x005574e4 -> 0x009604f0 FUN_009604f0
+  0x005574f9 -> 0x006815c0 FUN_006815c0
+  0x00557517 -> 0x005270b0 FUN_005270b0
+  0x00557522 -> 0x005f36f0 FUN_005f36f0
+  0x00557535 -> 0x004fd3e0 FUN_004fd3e0
+  0x00557541 -> 0x007af430 FUN_007af430
+  0x00557548 -> 0x00549580 FUN_00549580
+  0x00557557 -> 0x00575d70 FUN_00575d70
+  0x00557568 -> 0x00440da0 FUN_00440da0
+  0x0055757b -> 0x00586170 FUN_00586170
+  0x00557582 -> 0x006fd010 FUN_006fd010
+  0x00557592 -> 0x00586170 FUN_00586170
+  0x00557599 -> 0x006fcfa0 FUN_006fcfa0
+  0x005575a3 -> 0x00586170 FUN_00586170
+  0x005575aa -> 0x00929260 FUN_00929260
+  0x005575b2 -> 0x00726070 FUN_00726070
+  0x005575c2 -> 0x00541ae0 FUN_00541ae0
+  Total: 18 calls
+
+======================================================================
+SUN COLOR/DIRECTION MATCHES: Main/TES singleton candidate ref FUN_00561ef0 @ 0x00561ef0
+======================================================================
+  Total matched lines: 0
+
+--- Calls FROM Main/TES singleton candidate ref FUN_00561ef0 (0x00561ef0) ---
+  0x00561efc -> 0x006815c0 FUN_006815c0
+  0x00561f04 -> 0x006815c0 FUN_006815c0
+  0x00561f55 -> 0x00846190 FUN_00846190
+  0x00561f6a -> 0x00587550 FUN_00587550
+  0x00561f75 -> 0x005653d0 FUN_005653d0
+  0x00561f97 -> 0x004511e0 FUN_004511e0
+  0x00561faa -> 0x00575830 FUN_00575830
+  0x00561fc8 -> 0x00575700 FUN_00575700
+  0x00561fd6 -> 0x00425fd0 FUN_00425fd0
+  0x00561fec -> 0x00573800 FUN_00573800
+  0x00562000 -> 0x00573800 FUN_00573800
+  0x0056200b -> 0x00562020 FUN_00562020
+  Total: 12 calls
+
+======================================================================
+SUN COLOR/DIRECTION MATCHES: Main/TES singleton candidate ref FUN_00573800 @ 0x00573800
+======================================================================
+  L0050:       (**(code **)(*param_1 + 0xd4))(0);
+  L0084:           (**(code **)(*param_1 + 0x1cc))(0,0);
+  L0110:               (**(code **)(*piVar10 + 0x28))();
+  L0157:       (**(code **)(*local_14 + 0x48))(8);
+  L0165:         (**(code **)(*param_1 + 0x1c0))();
+  L0179:          (((iVar4 = FUN_0045cd60(), iVar4 == 1 || (iVar4 = FUN_0045cd60(), iVar4 == 0)) &&
+  L0180:           (iVar4 = (**(code **)(*piVar10 + 0x28c))(), iVar4 == 0)))) {
+  L0186:           (**(code **)(*param_1 + 0x1c4))();
+  L0209:       (**(code **)(*param_1 + 0x48))(8);
+  Total matched lines: 9
+
+--- Calls FROM Main/TES singleton candidate ref FUN_00573800 (0x00573800) ---
+  0x00573859 -> 0x009306d0 FUN_009306d0
+  0x00573881 -> 0x00573f20 FUN_00573f20
+  0x0057388f -> 0x006838b0 FUN_006838b0
+  0x005738a0 -> 0x00573eb0 FUN_00573eb0
+  0x005738b1 -> 0x00573ed0 FUN_00573ed0
+  0x005738c3 -> 0x00425fd0 FUN_00425fd0
+  0x005738fb -> 0x00575d70 FUN_00575d70
+  0x00573906 -> 0x008d6f30 FUN_008d6f30
+  0x0057392a -> 0x005d43c0 FUN_005d43c0
+  0x00573931 -> 0x00422c20 FUN_00422c20
+  0x00573978 -> 0x005d43c0 FUN_005d43c0
+  0x0057397f -> 0x0041b320 FUN_0041b320
+  0x0057398f -> 0x005d43c0 FUN_005d43c0
+  0x00573996 -> 0x0041b2a0 FUN_0041b2a0
+  0x005739a4 -> 0x005653d0 FUN_005653d0
+  0x005739b7 -> 0x00588030 FUN_00588030
+  0x005739c5 -> 0x00548230 FUN_00548230
+  0x005739cc -> 0x008c7aa0 FUN_008c7aa0
+  0x005739dc -> 0x004537b0 FUN_004537b0
+  0x005739e3 -> 0x0087b270 FUN_0087b270
+  0x00573a1c -> 0x005620e0 FUN_005620e0
+  0x00573a2d -> 0x004511e0 FUN_004511e0
+  0x00573a51 -> 0x00425fd0 FUN_00425fd0
+  0x00573a83 -> 0x005d43c0 FUN_005d43c0
+  0x00573a8a -> 0x0041b320 FUN_0041b320
+  0x00573a9a -> 0x005d43c0 FUN_005d43c0
+  0x00573aa1 -> 0x0041b2a0 FUN_0041b2a0
+  0x00573aa9 -> 0x005653d0 FUN_005653d0
+  0x00573aca -> 0x00588030 FUN_00588030
+  0x00573ad6 -> 0x00587ff0 FUN_00587ff0
+  0x00573af1 -> 0x00406d90 FUN_00406d90
+  0x00573b16 -> 0x00406d90 FUN_00406d90
+  0x00573b2f -> 0x005875a0 FUN_005875a0
+  0x00573b4a -> 0x00548230 FUN_00548230
+  0x00573b5b -> 0x004511e0 FUN_004511e0
+  0x00573b9b -> 0x008d8520 FUN_008d8520
+  0x00573ba7 -> 0x008d8520 FUN_008d8520
+  0x00573bd8 -> 0x004511e0 FUN_004511e0
+  0x00573be4 -> 0x008c7aa0 FUN_008c7aa0
+  0x00573bf4 -> 0x004537b0 FUN_004537b0
+  0x00573bfb -> 0x0087b270 FUN_0087b270
+  0x00573c23 -> 0x0054ca90 FUN_0054ca90
+  0x00573c45 -> 0x0094df60 FUN_0094df60
+  0x00573c57 -> 0x0047c850 FUN_0047c850
+  0x00573c96 -> 0x0096e870 FUN_0096e870
+  0x00573caa -> 0x009334b0 FUN_009334b0
+  0x00573cb7 -> 0x005653d0 FUN_005653d0
+  0x00573cf0 -> 0x008d0370 FUN_008d0370
+  0x00573d01 -> 0x00849730 FUN_00849730
+  0x00573d20 -> 0x008c7aa0 FUN_008c7aa0
+  0x00573d30 -> 0x004537b0 FUN_004537b0
+  0x00573d37 -> 0x0087b2b0 FUN_0087b2b0
+  0x00573d8c -> 0x00450ff0 FUN_00450ff0
+  0x00573d9b -> 0x008d8520 FUN_008d8520
+  0x00573dac -> 0x0045cd60 Sky sun/current object getter (Sky +0x28)
+  0x00573db9 -> 0x0045cd60 Sky sun/current object getter (Sky +0x28)
+  0x00573de8 -> 0x008c7aa0 FUN_008c7aa0
+  0x00573df8 -> 0x004537b0 FUN_004537b0
+  0x00573dff -> 0x0087b230 FUN_0087b230
+  0x00573e18 -> 0x008c7aa0 FUN_008c7aa0
+  0x00573e28 -> 0x004537b0 FUN_004537b0
+  0x00573e2f -> 0x0087b270 FUN_0087b270
+  0x00573e4b -> 0x008d6f30 FUN_008d6f30
+  0x00573e58 -> 0x005653d0 FUN_005653d0
+  0x00573e9f -> 0x00573ed0 FUN_00573ed0
+  Total: 65 calls
+
+======================================================================
+SUN COLOR/DIRECTION MATCHES: Main/TES singleton candidate ref FUN_00548230 @ 0x00548230
+======================================================================
+  L0048:         (**(code **)(*param_2 + 0x1c4))();
+  L0062:               (**(code **)(*param_2 + 0x1cc))(0,0);
+  Total matched lines: 2
+
+--- Calls FROM Main/TES singleton candidate ref FUN_00548230 (0x00548230) ---
+  0x00548242 -> 0x007af430 FUN_007af430
+  0x00548253 -> 0x00564e60 FUN_00564e60
+  0x00548262 -> 0x00440da0 FUN_00440da0
+  0x00548289 -> 0x005516c0 FUN_005516c0
+  0x00548298 -> 0x00541ac0 FUN_00541ac0
+  0x005482a4 -> 0x009604f0 FUN_009604f0
+  0x005482ab -> 0x005ae3d0 FUN_005ae3d0
+  0x005482b3 -> 0x00541ae0 FUN_00541ae0
+  0x005482bf -> 0x005d43c0 FUN_005d43c0
+  0x005482c6 -> 0x0041d390 FUN_0041d390
+  0x005482ce -> 0x0054ddd0 FUN_0054ddd0
+  0x005482e3 -> 0x00587d10 FUN_00587d10
+  0x005482ee -> 0x004516b0 FUN_004516b0
+  0x00548314 -> 0x008d6f30 FUN_008d6f30
+  0x00548329 -> 0x0054ca90 FUN_0054ca90
+  0x00548331 -> 0x00541ac0 FUN_00541ac0
+  0x0054833d -> 0x009604f0 FUN_009604f0
+  0x00548344 -> 0x005ae3d0 FUN_005ae3d0
+  0x00548360 -> 0x00541ae0 FUN_00541ae0
+  0x00548368 -> 0x00450ff0 FUN_00450ff0
+  0x0054837e -> 0x00526f20 FUN_00526f20
+  0x005483a9 -> 0x00440da0 FUN_00440da0
+  0x005483b8 -> 0x005656d0 FUN_005656d0
+  0x005483cb -> 0x00545560 FUN_00545560
+  0x005483d3 -> 0x0056a250 FUN_0056a250
+  0x005483e6 -> 0x005455c0 FUN_005455c0
+  0x005483ee -> 0x00440da0 FUN_00440da0
+  0x00548420 -> 0x00ec43fb FUN_00ec43fb
+  0x0054844b -> 0x004516b0 FUN_004516b0
+  0x0054846a -> 0x00437b90 FUN_00437b90
+  0x00548499 -> 0x004511e0 FUN_004511e0
+  0x005484bf -> 0x00548880 FUN_00548880
+  0x005484ec -> 0x0094df60 FUN_0094df60
+  0x005484fb -> 0x00548720 FUN_00548720
+  0x00548534 -> 0x0047c850 FUN_0047c850
+  0x00548546 -> 0x0047c850 FUN_0047c850
+  0x00548555 -> 0x00450ff0 FUN_00450ff0
+  0x00548564 -> 0x004523c0 FUN_004523c0
+  0x005485a0 -> 0x00458be0 FUN_00458be0
+  0x005485b0 -> 0x00444850 FUN_00444850
+  0x005485dd -> 0x0096e870 FUN_0096e870
+  0x005485fd -> 0x00405430 FUN_00405430
+  0x0054861f -> 0x0094df60 FUN_0094df60
+  0x00548631 -> 0x0047c850 FUN_0047c850
+  0x0054863d -> 0x008c7aa0 FUN_008c7aa0
+  0x00548663 -> 0x004537b0 FUN_004537b0
+  0x0054866a -> 0x0087b400 FUN_0087b400
+  0x00548674 -> 0x005728c0 FUN_005728c0
+  0x0054867c -> 0x008d6f30 FUN_008d6f30
+  0x00548683 -> 0x00425fd0 FUN_00425fd0
+  0x00548692 -> 0x00548700 FUN_00548700
+  0x005486a7 -> 0x005f65d0 FUN_005f65d0
+  0x005486bc -> 0x005ae3d0 FUN_005ae3d0
+  0x005486c4 -> 0x00885a30 FUN_00885a30
+  0x005486d9 -> 0x005f65d0 FUN_005f65d0
+  0x005486ee -> 0x005ae3d0 FUN_005ae3d0
+  Total: 56 calls
+
+======================================================================
+SUN COLOR/DIRECTION MATCHES: Main/TES singleton candidate ref FUN_00548880 @ 0x00548880
+======================================================================
+  L0180:             local_44 = (**(code **)(*local_48 + 0x1c))();
+  Total matched lines: 1
+
+--- Calls FROM Main/TES singleton candidate ref FUN_00548880 (0x00548880) ---
+  0x005488bb -> 0x0043fcd0 FUN_0043fcd0
+  0x005488cc -> 0x007af430 FUN_007af430
+  0x005488d3 -> 0x00549580 FUN_00549580
+  0x005488e2 -> 0x00575d70 FUN_00575d70
+  0x005488f9 -> 0x00586170 FUN_00586170
+  0x00548900 -> 0x006fcfa0 FUN_006fcfa0
+  0x0054890a -> 0x00586170 FUN_00586170
+  0x00548911 -> 0x00929260 FUN_00929260
+  0x00548919 -> 0x007af430 FUN_007af430
+  0x00548929 -> 0x007af430 FUN_007af430
+  0x00548930 -> 0x00401170 FUN_00401170
+  0x00548944 -> 0x0045ce40 FUN_0045ce40
+  0x0054894f -> 0x004543c0 FUN_004543c0
+  0x00548956 -> 0x0059bb30 FUN_0059bb30
+  0x00548967 -> 0x004543c0 FUN_004543c0
+  0x0054896e -> 0x0059bb30 FUN_0059bb30
+  0x00548975 -> 0x00937090 FUN_00937090
+  0x00548980 -> 0x00425fd0 FUN_00425fd0
+  0x00548992 -> 0x004518e0 FUN_004518e0
+  0x005489bb -> 0x0084e3a0 FUN_0084e3a0
+  0x005489c4 -> 0x0084e3a0 FUN_0084e3a0
+  0x005489cf -> 0x005b5e40 FUN_005b5e40
+  0x005489dc -> 0x00408d60 FUN_00408d60
+  0x00548a13 -> 0x00456fc0 FUN_00456fc0
+  0x00548a23 -> 0x007af430 FUN_007af430
+  0x00548a38 -> 0x00456fc0 FUN_00456fc0
+  0x00548a48 -> 0x007af430 FUN_007af430
+  0x00548a5c -> 0x005d43c0 FUN_005d43c0
+  0x00548a63 -> 0x00420810 FUN_00420810
+  0x00548a76 -> 0x005d43c0 FUN_005d43c0
+  0x00548a7d -> 0x00420ed0 FUN_00420ed0
+  0x00548a8d -> 0x005699b0 FUN_005699b0
+  0x00548aa2 -> 0x00430830 FUN_00430830
+  0x00548abb -> 0x005d43c0 FUN_005d43c0
+  0x00548ac2 -> 0x0041fbe0 FUN_0041fbe0
+  0x00548aec -> 0x00aa13e0 FUN_00aa13e0
+  0x00548b10 -> 0x00c39640 FUN_00c39640
+  0x00548b45 -> 0x00aa13e0 FUN_00aa13e0
+  0x00548b69 -> 0x00c35e00 FUN_00c35e00
+  0x00548ba3 -> 0x00439920 FUN_00439920
+  0x00548baf -> 0x004addc0 FUN_004addc0
+  0x00548bdc -> 0x005d43c0 FUN_005d43c0
+  0x00548be3 -> 0x00420f00 FUN_00420f00
+  0x00548beb -> 0x005d43c0 FUN_005d43c0
+  0x00548bf2 -> 0x00420ed0 FUN_00420ed0
+  0x00548bfd -> 0x006629f0 FUN_006629f0
+  0x00548c04 -> 0x0043b230 FUN_0043b230
+  0x00548c3c -> 0x009d9f20 FUN_009d9f20
+  0x00548c4b -> 0x00c5aef0 FUN_00c5aef0
+  0x00548c58 -> 0x00456fc0 FUN_00456fc0
+  0x00548c68 -> 0x007af430 FUN_007af430
+  0x00548c7c -> 0x004077c0 FUN_004077c0
+  0x00548c8f -> 0x005d43c0 FUN_005d43c0
+  0x00548c96 -> 0x00420dd0 FUN_00420dd0
+  0x00548ca6 -> 0x005d43c0 FUN_005d43c0
+  0x00548cad -> 0x0041fbe0 FUN_0041fbe0
+  0x00548ce3 -> 0x004169f0 FUN_004169f0
+  0x00548cf2 -> 0x0056fa00 FUN_0056fa00
+  0x00548cfb -> 0x00416a70 FUN_00416a70
+  0x00548d07 -> 0x005d43c0 FUN_005d43c0
+  0x00548d0e -> 0x00420e00 FUN_00420e00
+  0x00548d18 -> 0x00aa13e0 FUN_00aa13e0
+  0x00548d40 -> 0x00c4f460 FUN_00c4f460
+  0x00548d7e -> 0x00438170 FUN_00438170
+  0x00548da6 -> 0x00a5b950 FUN_00a5b950
+  0x00548db8 -> 0x004381b0 FUN_004381b0
+  0x00548dc4 -> 0x00549610 FUN_00549610
+  0x00548dcf -> 0x009d9f20 FUN_009d9f20
+  0x00548dda -> 0x00546930 FUN_00546930
+  0x00548e04 -> 0x005d43c0 FUN_005d43c0
+  0x00548e0b -> 0x00420410 FUN_00420410
+  0x00548e54 -> 0x005699b0 FUN_005699b0
+  0x00548e6b -> 0x005d43c0 FUN_005d43c0
+  0x00548e72 -> 0x004208b0 FUN_004208b0
+  0x00548e79 -> 0x005699b0 FUN_005699b0
+  0x00548e8e -> 0x006ab360 FUN_006ab360
+  0x00548e95 -> 0x004ed8c0 FUN_004ed8c0
+  0x00548ea7 -> 0x009707f0 FUN_009707f0
+  0x00548eb5 -> 0x00420ba0 FUN_00420ba0
+  0x00548ec2 -> 0x009d9f20 FUN_009d9f20
+  0x00548ed1 -> 0x00c5b140 FUN_00c5b140
+  0x00548ee3 -> 0x00456fc0 FUN_00456fc0
+  0x00548ef3 -> 0x007af430 FUN_007af430
+  0x00548f0c -> 0x00456fc0 FUN_00456fc0
+  0x00548f17 -> 0x005d43c0 FUN_005d43c0
+  0x00548f1e -> 0x00422120 FUN_00422120
+  0x00548f31 -> 0x00aa13e0 FUN_00aa13e0
+  0x00548f55 -> 0x00c335d0 FUN_00c335d0
+  0x00548f8f -> 0x005d43c0 FUN_005d43c0
+  0x00548f96 -> 0x00422150 FUN_00422150
+  0x00548fa5 -> 0x0056fa00 FUN_0056fa00
+  0x00548fae -> 0x00416a70 FUN_00416a70
+  0x00548fc7 -> 0x004169f0 FUN_004169f0
+  0x00548fcf -> 0x005d43c0 FUN_005d43c0
+  0x00548fd6 -> 0x0041fbe0 FUN_0041fbe0
+  0x00548feb -> 0x00413fc0 FUN_00413fc0
+  0x00549001 -> 0x00452dc0 FUN_00452dc0
+  0x0054900d -> 0x00416a30 FUN_00416a30
+  0x0054901a -> 0x007af430 FUN_007af430
+  0x0054902f -> 0x00456fc0 FUN_00456fc0
+  0x0054903f -> 0x00444ed0 FUN_00444ed0
+  0x0054904e -> 0x007af430 FUN_007af430
+  0x00549055 -> 0x00401170 FUN_00401170
+  0x00549065 -> 0x005495d0 FUN_005495d0
+  0x00549070 -> 0x007af430 FUN_007af430
+  0x00549077 -> 0x00549630 FUN_00549630
+  0x0054908d -> 0x005452c0 FUN_005452c0
+  0x0054909a -> 0x00444ed0 FUN_00444ed0
+  0x005490a9 -> 0x005d43c0 FUN_005d43c0
+  0x005490b0 -> 0x0041fbe0 FUN_0041fbe0
+  0x005490bc -> 0x007af430 FUN_007af430
+  0x005490c3 -> 0x00401170 FUN_00401170
+  0x005490df -> 0x005495f0 FUN_005495f0
+  0x005490f1 -> 0x00456fc0 FUN_00456fc0
+  0x00549101 -> 0x007af430 FUN_007af430
+  0x00549108 -> 0x00401170 FUN_00401170
+  0x00549118 -> 0x005495f0 FUN_005495f0
+  0x00549128 -> 0x007af430 FUN_007af430
+  0x0054912f -> 0x00401170 FUN_00401170
+  0x00549143 -> 0x005452c0 FUN_005452c0
+  0x0054916c -> 0x00456fc0 FUN_00456fc0
+  0x0054917c -> 0x007af430 FUN_007af430
+  0x00549188 -> 0x007af430 FUN_007af430
+  0x0054918f -> 0x00401170 FUN_00401170
+  0x0054919c -> 0x007af430 FUN_007af430
+  0x005491a3 -> 0x00549630 FUN_00549630
+  0x005491b9 -> 0x005452c0 FUN_005452c0
+  0x005491c0 -> 0x00448a80 FUN_00448a80
+  0x005491d8 -> 0x00a5bdd0 FUN_00a5bdd0
+  0x005491ef -> 0x00549690 FUN_00549690
+  0x0054920c -> 0x00565580 FUN_00565580
+  0x00549229 -> 0x005452c0 FUN_005452c0
+  0x00549239 -> 0x00454af0 FUN_00454af0
+  0x00549248 -> 0x005d43c0 FUN_005d43c0
+  0x0054924f -> 0x00421e10 FUN_00421e10
+  0x0054926d -> 0x008d6f30 FUN_008d6f30
+  0x00549274 -> 0x00545960 FUN_00545960
+  0x0054928a -> 0x00456fc0 FUN_00456fc0
+  0x00549295 -> 0x005694c0 FUN_005694c0
+  0x005492ab -> 0x005453b0 FUN_005453b0
+  0x005492b3 -> 0x007af430 FUN_007af430
+  0x005492ba -> 0x00401170 FUN_00401170
+  0x005492ce -> 0x005456b0 FUN_005456b0
+  0x005492dd -> 0x0070ec90 FUN_0070ec90
+  0x005492e4 -> 0x004e46b0 FUN_004e46b0
+  0x0054930c -> 0x00950bb0 FUN_00950bb0
+  0x0054932a -> 0x00950bb0 FUN_00950bb0
+  0x00549331 -> 0x00a5a040 FUN_00a5a040
+  0x0054933e -> 0x00950bb0 FUN_00950bb0
+  0x00549371 -> 0x00476ab0 FUN_00476ab0
+  0x00549380 -> 0x00950bb0 FUN_00950bb0
+  0x0054939e -> 0x00950bb0 FUN_00950bb0
+  0x005493a5 -> 0x00a5a040 FUN_00a5a040
+  0x005493af -> 0x008c7aa0 FUN_008c7aa0
+  0x005493c9 -> 0x005496b0 FUN_005496b0
+  0x005493d8 -> 0x0054abd0 FUN_0054abd0
+  0x005493e3 -> 0x0043fcd0 FUN_0043fcd0
+  0x00549417 -> 0x007af430 FUN_007af430
+  0x0054941e -> 0x00549580 FUN_00549580
+  0x00549432 -> 0x0049ee60 FUN_0049ee60
+  0x0054943c -> 0x00564e60 FUN_00564e60
+  0x00549450 -> 0x00705b10 FUN_00705b10
+  0x0054945a -> 0x00564f00 FUN_00564f00
+  0x0054946e -> 0x00705b10 FUN_00705b10
+  0x0054948d -> 0x00b4dfd0 FUN_00b4dfd0
+  0x00549492 -> 0x00705e80 FUN_00705e80
+  0x005494a4 -> 0x0042ce10 FUN_0042ce10
+  0x005494b6 -> 0x00476ab0 FUN_00476ab0
+  0x005494c8 -> 0x00b6bb30 FUN_00b6bb30
+  0x00549510 -> 0x0045c670 FUN_0045c670
+  0x00549517 -> 0x006629f0 FUN_006629f0
+  0x00549523 -> 0x00b4eb10 FUN_00b4eb10
+  0x0054953f -> 0x005495a0 FUN_005495a0
+  0x00549551 -> 0x00557d10 FUN_00557d10
+  0x00549563 -> 0x00557aa0 FUN_00557aa0
+  Total: 175 calls
+
+======================================================================
+SUN COLOR/DIRECTION MATCHES: Main/TES singleton candidate ref FUN_004e4730 @ 0x004e4730
+======================================================================
+  Total matched lines: 0
+
+--- Calls FROM Main/TES singleton candidate ref FUN_004e4730 (0x004e4730) ---
+  0x004e4763 -> 0x00408d60 FUN_00408d60
+  0x004e478b -> 0x00416870 FUN_00416870
+  0x004e47a9 -> 0x00416870 FUN_00416870
+  0x004e47bc -> 0x004b4500 FUN_004b4500
+  0x004e47d5 -> 0x004a0c10 FUN_004a0c10
+  0x004e47e8 -> 0x004b4500 FUN_004b4500
+  0x004e4801 -> 0x004a0c10 FUN_004a0c10
+  0x004e4811 -> 0x00a69990 FUN_00a69990
+  0x004e4821 -> 0x00a69990 FUN_00a69990
+  0x004e4829 -> 0x007af430 FUN_007af430
+  0x004e483a -> 0x00559450 FUN_00559450
+  0x004e486b -> 0x007b52d0 FUN_007b52d0
+  0x004e488a -> 0x006317a0 FUN_006317a0
+  0x004e48a1 -> 0x006815c0 FUN_006815c0
+  0x004e48ad -> 0x006815c0 FUN_006815c0
+  0x004e48b3 -> 0x0049e2f0 FUN_0049e2f0
+  0x004e48cb -> 0x00403e20 FUN_00403e20
+  0x004e48d9 -> 0x0084d030 FUN_0084d030
+  0x004e48e8 -> 0x0084d030 FUN_0084d030
+  0x004e48f1 -> 0x0049e390 FUN_0049e390
+  0x004e494d -> 0x0084d030 FUN_0084d030
+  0x004e495c -> 0x0084d030 FUN_0084d030
+  0x004e4965 -> 0x0049e390 FUN_0049e390
+  0x004e498a -> 0x0045bb80 Vector getter used by sun screen projection
+  0x004e49a6 -> 0x0084d030 FUN_0084d030
+  0x004e49c4 -> 0x00440460 FUN_00440460
+  0x004e49d0 -> 0x00575830 FUN_00575830
+  0x004e49e2 -> 0x0043d410 FUN_0043d410
+  0x004e4a1a -> 0x008d6f30 FUN_008d6f30
+  0x004e4a2d -> 0x008d6f30 FUN_008d6f30
+  0x004e4a34 -> 0x00547440 FUN_00547440
+  0x004e4a45 -> 0x0084d030 FUN_0084d030
+  0x004e4a62 -> 0x00413f40 FUN_00413f40
+  0x004e4a69 -> 0x0043b1b0 FUN_0043b1b0
+  0x004e4a74 -> 0x005b5e40 FUN_005b5e40
+  0x004e4a8e -> 0x004e3590 FUN_004e3590
+  0x004e4a9d -> 0x0076b660 FUN_0076b660
+  0x004e4aa7 -> 0x0084d030 FUN_0084d030
+  0x004e4ab8 -> 0x0084d030 FUN_0084d030
+  0x004e4aee -> 0x00401000 FUN_00401000
+  0x004e4b12 -> 0x004ed5f0 FUN_004ed5f0
+  0x004e4ba2 -> 0x004e3590 FUN_004e3590
+  0x004e4bb1 -> 0x0076b660 FUN_0076b660
+  0x004e4bcd -> 0x007b5330 FUN_007b5330
+  0x004e4be1 -> 0x004ed8c0 FUN_004ed8c0
+  0x004e4bec -> 0x005f36f0 FUN_005f36f0
+  0x004e4bfb -> 0x004fd3e0 FUN_004fd3e0
+  0x004e4c14 -> 0x0084d030 FUN_0084d030
+  0x004e4c23 -> 0x004fd3e0 FUN_004fd3e0
+  0x004e4c2a -> 0x0045cd80 FUN_0045cd80
+  0x004e4c33 -> 0x0049e390 FUN_0049e390
+  0x004e4c4f -> 0x004e65d0 FUN_004e65d0
+  0x004e4c5a -> 0x004e5640 FUN_004e5640
+  Total: 53 calls
+
+======================================================================
+SUN COLOR/DIRECTION MATCHES: Main/TES singleton candidate ref FUN_006c5460 @ 0x006c5460
+======================================================================
+  Total matched lines: 0
+
+--- Calls FROM Main/TES singleton candidate ref FUN_006c5460 (0x006c5460) ---
+  0x006c549d -> 0x00559450 FUN_00559450
+  0x006c54af -> 0x00559450 FUN_00559450
+  0x006c54b6 -> 0x004def90 FUN_004def90
+  0x006c54c5 -> 0x00aa13e0 FUN_00aa13e0
+  0x006c54e2 -> 0x00a5ecb0 FUN_00a5ecb0
+  0x006c550d -> 0x0066b0d0 FUN_0066b0d0
+  0x006c5514 -> 0x00aa13e0 FUN_00aa13e0
+  0x006c552f -> 0x004391c0 FUN_004391c0
+  0x006c5554 -> 0x00633c90 FUN_00633c90
+  0x006c5565 -> 0x00559450 FUN_00559450
+  0x006c556c -> 0x0049ed90 FUN_0049ed90
+  0x006c5573 -> 0x00aa13e0 FUN_00aa13e0
+  0x006c558b -> 0x00a75650 FUN_00a75650
+  0x006c55ad -> 0x00633c90 FUN_00633c90
+  0x006c55cb -> 0x00416870 FUN_00416870
+  0x006c55d4 -> 0x00559450 FUN_00559450
+  0x006c55db -> 0x004bc450 FUN_004bc450
+  0x006c55ed -> 0x00559450 FUN_00559450
+  0x006c55f4 -> 0x0068c9f0 FUN_0068c9f0
+  0x006c55fc -> 0x00559450 FUN_00559450
+  0x006c560b -> 0x00559450 FUN_00559450
+  0x006c5612 -> 0x00439410 FUN_00439410
+  0x006c561a -> 0x00559450 FUN_00559450
+  0x006c5629 -> 0x00559450 FUN_00559450
+  0x006c5630 -> 0x00439410 FUN_00439410
+  0x006c563b -> 0x0084e3a0 FUN_0084e3a0
+  0x006c564e -> 0x00559450 FUN_00559450
+  0x006c5671 -> 0x0043d410 FUN_0043d410
+  0x006c5680 -> 0x0084e3a0 FUN_0084e3a0
+  0x006c5687 -> 0x00a59c60 FUN_00a59c60
+  0x006c5693 -> 0x0045cec0 ~cancellation_token_source
+  0x006c56a2 -> 0x0045cec0 ~cancellation_token_source
+  0x006c56ad -> 0x004b9ba0 FUN_004b9ba0
+  0x006c56c4 -> 0x00633c90 FUN_00633c90
+  0x006c56e2 -> 0x00559120 FUN_00559120
+  0x006c56fc -> 0x00559450 FUN_00559450
+  0x006c5706 -> 0x0044ddc0 FUN_0044ddc0
+  0x006c571b -> 0x00559450 FUN_00559450
+  0x006c5725 -> 0x00877a30 FUN_00877a30
+  0x006c572e -> 0x00559a40 FUN_00559a40
+  0x006c573c -> 0x00633c90 FUN_00633c90
+  0x006c5750 -> 0x006c5840 FUN_006c5840
+  0x006c575e -> 0x00559450 FUN_00559450
+  0x006c576b -> 0x00559450 FUN_00559450
+  0x006c5788 -> 0x0045cec0 ~cancellation_token_source
+  0x006c5794 -> 0x0045cec0 ~cancellation_token_source
+  0x006c57a8 -> 0x0045cec0 ~cancellation_token_source
+  0x006c57bb -> 0x00559450 FUN_00559450
+  0x006c57c2 -> 0x00a5a040 FUN_00a5a040
+  0x006c57d4 -> 0x0043d410 FUN_0043d410
+  0x006c57e6 -> 0x00559450 FUN_00559450
+  0x006c57ed -> 0x00a59c60 FUN_00a59c60
+  0x006c5807 -> 0x00559450 FUN_00559450
+  0x006c5819 -> 0x00559450 FUN_00559450
+  0x006c5820 -> 0x004def90 FUN_004def90
+  Total: 55 calls
+
+======================================================================
+SUN COLOR/DIRECTION MATCHES: Main/TES singleton candidate ref FUN_006fb3d0 @ 0x006fb3d0
+======================================================================
+  L0013:     if ((iVar1 != 0) && (*(int *)(param_1 + 0x1c) != 0)) {
+  L0020:         uVar5 = *(undefined4 *)(param_1 + 0x1c);
+  L0030:         (**(code **)(*piVar4 + 0xe8))(uVar5);
+  L0032:       if (*(int **)(param_1 + 0x1c) != (int *)0x0) {
+  L0033:         (**(code **)(**(int **)(param_1 + 0x1c) + 0x10))(1);
+  L0035:       *(undefined4 *)(param_1 + 0x1c) = 0;
+  L0055:         (**(code **)(*piVar4 + 0xe8))(uVar5);
+  Total matched lines: 7
+
+--- Calls FROM Main/TES singleton candidate ref FUN_006fb3d0 (0x006fb3d0) ---
+  0x006fb3f6 -> 0x00559450 FUN_00559450
+  0x006fb416 -> 0x0070ec90 FUN_0070ec90
+  0x006fb424 -> 0x00559450 FUN_00559450
+  0x006fb42b -> 0x0043b230 FUN_0043b230
+  0x006fb436 -> 0x00559450 FUN_00559450
+  0x006fb43d -> 0x00559450 FUN_00559450
+  0x006fb450 -> 0x0070ec90 FUN_0070ec90
+  0x006fb457 -> 0x004e5140 FUN_004e5140
+  0x006fb462 -> 0x00559450 FUN_00559450
+  0x006fb46e -> 0x00559450 FUN_00559450
+  0x006fb475 -> 0x00559450 FUN_00559450
+  0x006fb47c -> 0x0043b230 FUN_0043b230
+  0x006fb48a -> 0x00559450 FUN_00559450
+  0x006fb4e0 -> 0x00559450 FUN_00559450
+  0x006fb500 -> 0x0070ec90 FUN_0070ec90
+  0x006fb50e -> 0x00559450 FUN_00559450
+  0x006fb515 -> 0x0043b230 FUN_0043b230
+  0x006fb520 -> 0x00559450 FUN_00559450
+  0x006fb527 -> 0x00559450 FUN_00559450
+  0x006fb53a -> 0x0070ec90 FUN_0070ec90
+  0x006fb541 -> 0x004e5140 FUN_004e5140
+  0x006fb54c -> 0x00559450 FUN_00559450
+  0x006fb558 -> 0x00559450 FUN_00559450
+  0x006fb55f -> 0x00559450 FUN_00559450
+  0x006fb566 -> 0x0043b230 FUN_0043b230
+  0x006fb574 -> 0x00559450 FUN_00559450
+  Total: 26 calls
+
+======================================================================
+SUN COLOR/DIRECTION MATCHES: Main/TES singleton candidate ref FUN_004ed3e0 @ 0x004ed3e0
+======================================================================
+  L0046:     (**(code **)(*piVar3 + 0xe8))(uVar4);
+  Total matched lines: 1
+
+--- Calls FROM Main/TES singleton candidate ref FUN_004ed3e0 (0x004ed3e0) ---
+  0x004ed41a -> 0x0066b0d0 FUN_0066b0d0
+  0x004ed42a -> 0x0066b0d0 FUN_0066b0d0
+  0x004ed43d -> 0x0070ec90 FUN_0070ec90
+  0x004ed444 -> 0x004e58a0 FUN_004e58a0
+  0x004ed459 -> 0x00559450 FUN_00559450
+  0x004ed46a -> 0x00559450 FUN_00559450
+  0x004ed471 -> 0x00726070 FUN_00726070
+  0x004ed483 -> 0x00559450 FUN_00559450
+  0x004ed489 -> 0x004a0ea0 FUN_004a0ea0
+  0x004ed490 -> 0x00b6da10 FUN_00b6da10
+  0x004ed49f -> 0x0066b0d0 FUN_0066b0d0
+  0x004ed4aa -> 0x004ed900 FUN_004ed900
+  0x004ed4b5 -> 0x004ed900 FUN_004ed900
+  0x004ed4c0 -> 0x00559450 FUN_00559450
+  0x004ed4c9 -> 0x004e7ff0 FUN_004e7ff0
+  0x004ed4d7 -> 0x00559450 FUN_00559450
+  0x004ed4f5 -> 0x0066b0d0 FUN_0066b0d0
+  0x004ed507 -> 0x0045cec0 ~cancellation_token_source
+  0x004ed519 -> 0x0045cec0 ~cancellation_token_source
+  0x004ed52b -> 0x0045cec0 ~cancellation_token_source
+  0x004ed53d -> 0x0045cec0 ~cancellation_token_source
+  0x004ed54f -> 0x004a1a30 FUN_004a1a30
+  0x004ed55e -> 0x004a1a30 FUN_004a1a30
+  0x004ed56d -> 0x004a1a30 FUN_004a1a30
+  0x004ed57c -> 0x004a1a30 FUN_004a1a30
+  0x004ed58b -> 0x0045cec0 ~cancellation_token_source
+  0x004ed59a -> 0x0045cec0 ~cancellation_token_source
+  0x004ed5a9 -> 0x004a1a30 FUN_004a1a30
+  0x004ed5b8 -> 0x004a1a30 FUN_004a1a30
+  0x004ed5c7 -> 0x004a1a30 FUN_004a1a30
+  0x004ed5d9 -> 0x004a1a30 FUN_004a1a30
+  Total: 31 calls
+  ... (limit reached)
+  Printed ref functions: 12
+
+======================================================================
+MATCHED FUNCTIONS REFERENCING Sun screen/global value 0 @ 0x012023f4
+======================================================================
+
+======================================================================
+SUN COLOR/DIRECTION MATCHES: Sun screen/global value 0 ref FUN_00b8b1e0 @ 0x00b8b1e0
+======================================================================
+  L0007:   _DAT_012023f4 = *param_1;
+  L0008:   _DAT_012023f8 = param_1[1];
+  Total matched lines: 2
+
+--- Calls FROM Sun screen/global value 0 ref FUN_00b8b1e0 (0x00b8b1e0) ---
+  Total: 0 calls
+
+======================================================================
+SUN COLOR/DIRECTION MATCHES: Sun screen/global value 0 ref FUN_00c03410 @ 0x00c03410
+======================================================================
+  L0053:   FUN_00b8a790(0,_DAT_012023f4,_DAT_012023f8,0,0);
+  Total matched lines: 1
+
+--- Calls FROM Sun screen/global value 0 ref FUN_00c03410 (0x00c03410) ---
+  0x00c03439 -> 0x00ba3f90 FUN_00ba3f90
+  0x00c03443 -> 0x00a90180 FUN_00a90180
+  0x00c03452 -> 0x00aa3e40 FUN_00aa3e40
+  0x00c03469 -> 0x00b8a9e0 FUN_00b8a9e0
+  0x00c03482 -> 0x00b8ab10 FUN_00b8ab10
+  0x00c03497 -> 0x00ba3aa0 FUN_00ba3aa0
+  0x00c034a4 -> 0x00ba3b10 FUN_00ba3b10
+  0x00c034be -> 0x00ba3c70 FUN_00ba3c70
+  0x00c034cd -> 0x00aa3e40 FUN_00aa3e40
+  0x00c034e4 -> 0x00b8a9e0 FUN_00b8a9e0
+  0x00c034fd -> 0x00b8ab10 FUN_00b8ab10
+  0x00c0350f -> 0x00ba3aa0 FUN_00ba3aa0
+  0x00c0351c -> 0x00ba3b10 FUN_00ba3b10
+  0x00c03532 -> 0x00ba3c70 FUN_00ba3c70
+  0x00c0355b -> 0x00b8a790 FUN_00b8a790
+  Total: 15 calls
+  Printed ref functions: 2
+
+======================================================================
+MATCHED FUNCTIONS REFERENCING Sun screen/global value 1 @ 0x012023f8
+======================================================================
+
+======================================================================
+SUN COLOR/DIRECTION MATCHES: Sun screen/global value 1 ref FUN_00b8b1e0 @ 0x00b8b1e0
+======================================================================
+  L0007:   _DAT_012023f4 = *param_1;
+  L0008:   _DAT_012023f8 = param_1[1];
+  Total matched lines: 2
+
+--- Calls FROM Sun screen/global value 1 ref FUN_00b8b1e0 (0x00b8b1e0) ---
+  Total: 0 calls
+
+======================================================================
+SUN COLOR/DIRECTION MATCHES: Sun screen/global value 1 ref FUN_00c03410 @ 0x00c03410
+======================================================================
+  L0053:   FUN_00b8a790(0,_DAT_012023f4,_DAT_012023f8,0,0);
+  Total matched lines: 1
+
+--- Calls FROM Sun screen/global value 1 ref FUN_00c03410 (0x00c03410) ---
+  0x00c03439 -> 0x00ba3f90 FUN_00ba3f90
+  0x00c03443 -> 0x00a90180 FUN_00a90180
+  0x00c03452 -> 0x00aa3e40 FUN_00aa3e40
+  0x00c03469 -> 0x00b8a9e0 FUN_00b8a9e0
+  0x00c03482 -> 0x00b8ab10 FUN_00b8ab10
+  0x00c03497 -> 0x00ba3aa0 FUN_00ba3aa0
+  0x00c034a4 -> 0x00ba3b10 FUN_00ba3b10
+  0x00c034be -> 0x00ba3c70 FUN_00ba3c70
+  0x00c034cd -> 0x00aa3e40 FUN_00aa3e40
+  0x00c034e4 -> 0x00b8a9e0 FUN_00b8a9e0
+  0x00c034fd -> 0x00b8ab10 FUN_00b8ab10
+  0x00c0350f -> 0x00ba3aa0 FUN_00ba3aa0
+  0x00c0351c -> 0x00ba3b10 FUN_00ba3b10
+  0x00c03532 -> 0x00ba3c70 FUN_00ba3c70
+  0x00c0355b -> 0x00b8a790 FUN_00b8a790
+  Total: 15 calls
+  Printed ref functions: 2
