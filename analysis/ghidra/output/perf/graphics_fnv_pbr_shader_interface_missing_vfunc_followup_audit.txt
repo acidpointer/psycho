@@ -1,0 +1,599 @@
+FNV PBR SHADER-INTERFACE MISSING VFUNC FOLLOW-UP AUDIT
+
+Purpose:
+1. Verify shader-interface vtable slots after the interface-record audit.
+2. Force-create/decompile raw helper targets where Ghidra had no function.
+3. Determine whether type 0x40000000 and 0x60000000 helpers bind textures, constants, or render state.
+
+======================================================================
+SHADER-INTERFACE VTABLE SLOT TARGETS
+======================================================================
+  +0x078 expected 0x00e826d0 got 0x00e826d0 OK       apply dispatcher
+  +0x08c expected 0x00e83db0 got 0x00e83db0 OK       type 0x20000000 helper
+  +0x090 expected 0x00e84b60 got 0x00e84b60 OK       type 0x10000000 helper
+  +0x094 expected 0x00e84ba0 got 0x00e84ba0 OK       type 0x30000000 helper
+  +0x098 expected 0x00e84d00 got 0x00e84d00 OK       type 0x40000000 helper target
+  +0x09c expected 0x00e87220 got 0x00e87220 OK       type 0x50000000 helper
+  +0x0a4 expected 0x00e85c40 got 0x00e85c40 OK       type 0x60000000 helper target
+
+----------------------------------------------------------------------
+References TO 0x00e84d00 (type 0x40000000 helper target)
+----------------------------------------------------------------------
+  DATA @ 0x010ef5dc (in ???)
+  Total: 1 refs
+
+======================================================================
+Raw disassembly type 0x40000000 helper target around 0x00e84d00
+======================================================================
+   0x00e84ce4: PUSH EDI                                                   FUN_00e84ba0+0x144
+   0x00e84ce5: CALL EAX                                                   FUN_00e84ba0+0x145
+   0x00e84ce7: TEST AL,AL                                                 FUN_00e84ba0+0x147
+   0x00e84ce9: JNZ 0x00e84cf7                                             FUN_00e84ba0+0x149
+      ref CONDITIONAL_JUMP -> 0x00e84cf7 FUN_00e84ba0+0x157
+   0x00e84ceb: POP EDI                                                    FUN_00e84ba0+0x14b
+   0x00e84cec: POP ESI                                                    FUN_00e84ba0+0x14c
+   0x00e84ced: POP EBP                                                    FUN_00e84ba0+0x14d
+   0x00e84cee: MOV EAX,0x50                                               FUN_00e84ba0+0x14e
+   0x00e84cf3: POP EBX                                                    FUN_00e84ba0+0x153
+   0x00e84cf4: RET 0x34                                                   FUN_00e84ba0+0x154
+   0x00e84cf7: POP EDI                                                    FUN_00e84ba0+0x157
+   0x00e84cf8: POP ESI                                                    FUN_00e84ba0+0x158
+   0x00e84cf9: POP EBP                                                    FUN_00e84ba0+0x159
+   0x00e84cfa: XOR EAX,EAX                                                FUN_00e84ba0+0x15a
+   0x00e84cfc: POP EBX                                                    FUN_00e84ba0+0x15c
+   0x00e84cfd: RET 0x34                                                   FUN_00e84ba0+0x15d
+=> 0x00e84d00: MOV EAX,dword ptr [ESP + 0x8]                              type 0x40000000 helper target
+   0x00e84d04: MOV ECX,dword ptr [EAX + 0x14]                             unknown
+   0x00e84d07: AND ECX,0xff                                               unknown
+   0x00e84d0d: MOV ECX,dword ptr [ECX*0x4 + 0x11f5fc4]                    unknown
+      ref DATA -> 0x011f5fc4 unknown
+   0x00e84d14: PUSH ESI                                                   unknown
+   0x00e84d15: XOR ESI,ESI                                                unknown
+   0x00e84d17: CMP ECX,0x1                                                unknown
+   0x00e84d1a: JNZ 0x00e84d33                                             unknown
+      ref CONDITIONAL_JUMP -> 0x00e84d33 unknown
+   0x00e84d1c: MOV EDX,dword ptr [EAX + 0x30]                             unknown
+   0x00e84d1f: MOVZX ECX,byte ptr [EDX]                                   unknown
+   0x00e84d22: PUSH ESI                                                   unknown
+   0x00e84d23: MOV dword ptr [0x0126f7b0],ECX                             unknown
+      ref WRITE -> 0x0126f7b0 unknown
+   0x00e84d29: PUSH 0x126f7b0                                             unknown
+      ref DATA -> 0x0126f7b0 unknown
+   0x00e84d2e: JMP 0x00e84eb0                                             unknown
+      ref UNCONDITIONAL_JUMP -> 0x00e84eb0 unknown
+   0x00e84d33: CMP ECX,0x3                                                unknown
+   0x00e84d36: JNZ 0x00e84d61                                             unknown
+      ref CONDITIONAL_JUMP -> 0x00e84d61 unknown
+   0x00e84d38: MOV ECX,dword ptr [EAX + 0x30]                             unknown
+   0x00e84d3b: MOV ECX,dword ptr [ECX]                                    unknown
+   0x00e84d3d: PUSH 0x0                                                   unknown
+   0x00e84d3f: MOV dword ptr [0x0126f7b4],ECX                             unknown
+      ref WRITE -> 0x0126f7b4 unknown
+   0x00e84d45: MOV dword ptr [0x0126f7b8],ECX                             unknown
+      ref WRITE -> 0x0126f7b8 unknown
+   0x00e84d4b: MOV dword ptr [0x0126f7bc],ECX                             unknown
+      ref WRITE -> 0x0126f7bc unknown
+   0x00e84d51: MOV dword ptr [0x0126f7c0],ECX                             unknown
+      ref WRITE -> 0x0126f7c0 unknown
+   0x00e84d57: PUSH 0x126f7b4                                             unknown
+      ref DATA -> 0x0126f7b4 unknown
+   0x00e84d5c: JMP 0x00e84eb0                                             unknown
+      ref UNCONDITIONAL_JUMP -> 0x00e84eb0 unknown
+   0x00e84d61: CMP ECX,0x4                                                unknown
+   0x00e84d64: JNZ 0x00e84d88                                             unknown
+      ref CONDITIONAL_JUMP -> 0x00e84d88 unknown
+   0x00e84d66: MOV ECX,dword ptr [EAX + 0x30]                             unknown
+   0x00e84d69: FLD float ptr [ECX]                                        unknown
+   0x00e84d6b: FSTP float ptr [0x0126f7cc]                                unknown
+      ref WRITE -> 0x0126f7cc unknown
+   0x00e84d71: FLD float ptr [0x0126f7cc]                                 unknown
+      ref READ -> 0x0126f7cc unknown
+   0x00e84d77: FST float ptr [0x0126f7d0]                                 unknown
+      ref WRITE -> 0x0126f7d0 unknown
+   0x00e84d7d: FST float ptr [0x0126f7d4]                                 unknown
+      ref WRITE -> 0x0126f7d4 unknown
+   0x00e84d83: JMP 0x00e84ea3                                             unknown
+      ref UNCONDITIONAL_JUMP -> 0x00e84ea3 unknown
+   0x00e84d88: CMP ECX,0x5                                                unknown
+   0x00e84d8b: JNZ 0x00e84db8                                             unknown
+      ref CONDITIONAL_JUMP -> 0x00e84db8 unknown
+   0x00e84d8d: MOV ECX,dword ptr [EAX + 0x30]                             unknown
+   0x00e84d90: FLD float ptr [ECX]                                        unknown
+   0x00e84d92: FSTP float ptr [0x0126f7cc]                                unknown
+      ref WRITE -> 0x0126f7cc unknown
+   0x00e84d98: FLD float ptr [ECX + 0x4]                                  unknown
+   0x00e84d9b: FSTP float ptr [0x0126f7d0]                                unknown
+      ref WRITE -> 0x0126f7d0 unknown
+   0x00e84da1: FLD float ptr [0x0126f7cc]                                 unknown
+      ref READ -> 0x0126f7cc unknown
+   0x00e84da7: FSTP float ptr [0x0126f7d4]                                unknown
+      ref WRITE -> 0x0126f7d4 unknown
+   0x00e84dad: FLD float ptr [0x0126f7d0]                                 unknown
+      ref READ -> 0x0126f7d0 unknown
+   0x00e84db3: JMP 0x00e84ea3                                             unknown
+      ref UNCONDITIONAL_JUMP -> 0x00e84ea3 unknown
+   0x00e84db8: CMP ECX,0x6                                                unknown
+   0x00e84dbb: JNZ 0x00e84de1                                             unknown
+      ref CONDITIONAL_JUMP -> 0x00e84de1 unknown
+   0x00e84dbd: MOV ECX,dword ptr [EAX + 0x30]                             unknown
+   0x00e84dc0: FLD float ptr [ECX]                                        unknown
+   0x00e84dc2: FSTP float ptr [0x0126f7cc]                                unknown
+      ref WRITE -> 0x0126f7cc unknown
+   0x00e84dc8: FLD float ptr [ECX + 0x4]                                  unknown
+   0x00e84dcb: FSTP float ptr [0x0126f7d0]                                unknown
+      ref WRITE -> 0x0126f7d0 unknown
+   0x00e84dd1: FLD float ptr [ECX + 0x8]                                  unknown
+   0x00e84dd4: FSTP float ptr [0x0126f7d4]                                unknown
+      ref WRITE -> 0x0126f7d4 unknown
+   0x00e84dda: FLD1                                                       unknown
+   0x00e84ddc: JMP 0x00e84ea3                                             unknown
+      ref UNCONDITIONAL_JUMP -> 0x00e84ea3 unknown
+   0x00e84de1: CMP ECX,0x7                                                unknown
+   0x00e84de4: JZ 0x00e84e83                                              unknown
+      ref CONDITIONAL_JUMP -> 0x00e84e83 unknown
+   0x00e84dea: CMP ECX,0xa                                                unknown
+   0x00e84ded: JZ 0x00e84e83                                              unknown
+      ref CONDITIONAL_JUMP -> 0x00e84e83 unknown
+   0x00e84df3: CMP ECX,0x8                                                unknown
+   0x00e84df6: JNZ 0x00e84e68                                             unknown
+      ref CONDITIONAL_JUMP -> 0x00e84e68 unknown
+   0x00e84df8: MOV ECX,dword ptr [EAX + 0x30]                             unknown
+   0x00e84dfb: FLD float ptr [ECX]                                        unknown
+   0x00e84dfd: PUSH 0x0                                                   unknown
+   0x00e84dff: FSTP float ptr [0x0126f7e0]                                unknown
+      ref WRITE -> 0x0126f7e0 unknown
+   0x00e84e05: PUSH 0x126f7e0                                             unknown
+      ref DATA -> 0x0126f7e0 unknown
+   0x00e84e0a: FLD float ptr [ECX + 0x4]                                  unknown
+   0x00e84e0d: FSTP float ptr [0x0126f7e4]                                unknown
+      ref WRITE -> 0x0126f7e4 unknown
+   0x00e84e13: FLD float ptr [ECX + 0x8]                                  unknown
+   0x00e84e16: FSTP float ptr [0x0126f7e8]                                unknown
+      ref WRITE -> 0x0126f7e8 unknown
+   0x00e84e1c: FLDZ                                                       unknown
+   0x00e84e1e: FST float ptr [0x0126f7ec]                                 unknown
+      ref WRITE -> 0x0126f7ec unknown
+   0x00e84e24: FLD float ptr [ECX + 0xc]                                  unknown
+   0x00e84e27: FSTP float ptr [0x0126f7f0]                                unknown
+      ref WRITE -> 0x0126f7f0 unknown
+   0x00e84e2d: FLD float ptr [ECX + 0x10]                                 unknown
+   0x00e84e30: FSTP float ptr [0x0126f7f4]                                unknown
+      ref WRITE -> 0x0126f7f4 unknown
+   0x00e84e36: FLD float ptr [ECX + 0x14]                                 unknown
+   0x00e84e39: FSTP float ptr [0x0126f7f8]                                unknown
+      ref WRITE -> 0x0126f7f8 unknown
+   0x00e84e3f: FST float ptr [0x0126f7fc]                                 unknown
+      ref WRITE -> 0x0126f7fc unknown
+   0x00e84e45: FLD float ptr [ECX + 0x18]                                 unknown
+   0x00e84e48: FSTP float ptr [0x0126f800]                                unknown
+      ref WRITE -> 0x0126f800 unknown
+   0x00e84e4e: FLD float ptr [ECX + 0x1c]                                 unknown
+   0x00e84e51: FSTP float ptr [0x0126f804]                                unknown
+      ref WRITE -> 0x0126f804 unknown
+   0x00e84e57: FLD float ptr [ECX + 0x20]                                 unknown
+   0x00e84e5a: FSTP float ptr [0x0126f808]                                unknown
+      ref WRITE -> 0x0126f808 unknown
+   0x00e84e60: FSTP float ptr [0x0126f80c]                                unknown
+      ref WRITE -> 0x0126f80c unknown
+   0x00e84e66: JMP 0x00e84eb0                                             unknown
+      ref UNCONDITIONAL_JUMP -> 0x00e84eb0 unknown
+   0x00e84e68: CMP ECX,0x9                                                unknown
+   0x00e84e6b: JNZ 0x00e84ec5                                             unknown
+      ref CONDITIONAL_JUMP -> 0x00e84ec5 unknown
+   0x00e84e6d: MOV EDX,dword ptr [EAX + 0x30]                             unknown
+   0x00e84e70: MOV ECX,dword ptr [ESP + 0x8]                              unknown
+   0x00e84e74: PUSH EDI                                                   unknown
+   0x00e84e75: MOV EDI,dword ptr [ECX]                                    unknown
+   0x00e84e77: PUSH 0x0                                                   unknown
+   0x00e84e79: PUSH EDX                                                   unknown
+   0x00e84e7a: MOV EDX,dword ptr [EDI + 0x74]                             unknown
+   0x00e84e7d: PUSH EAX                                                   unknown
+   0x00e84e7e: CALL EDX                                                   unknown
+   0x00e84e80: POP EDI                                                    unknown
+   0x00e84e81: JMP 0x00e84ebc                                             unknown
+      ref UNCONDITIONAL_JUMP -> 0x00e84ebc unknown
+   0x00e84e83: MOV ECX,dword ptr [EAX + 0x30]                             unknown
+   0x00e84e86: FLD float ptr [ECX]                                        unknown
+   0x00e84e88: FSTP float ptr [0x0126f7cc]                                unknown
+      ref WRITE -> 0x0126f7cc unknown
+   0x00e84e8e: FLD float ptr [ECX + 0x4]                                  unknown
+   0x00e84e91: FSTP float ptr [0x0126f7d0]                                unknown
+      ref WRITE -> 0x0126f7d0 unknown
+   0x00e84e97: FLD float ptr [ECX + 0x8]                                  unknown
+   0x00e84e9a: FSTP float ptr [0x0126f7d4]                                unknown
+      ref WRITE -> 0x0126f7d4 unknown
+   0x00e84ea0: FLD float ptr [ECX + 0xc]                                  unknown
+   0x00e84ea3: PUSH 0x0                                                   unknown
+   0x00e84ea5: FSTP float ptr [0x0126f7d8]                                unknown
+      ref WRITE -> 0x0126f7d8 unknown
+   0x00e84eab: PUSH 0x126f7cc                                             unknown
+      ref DATA -> 0x0126f7cc unknown
+   0x00e84eb0: MOV ECX,dword ptr [ESP + 0x10]                             unknown
+   0x00e84eb4: MOV EDX,dword ptr [ECX]                                    unknown
+   0x00e84eb6: PUSH EAX                                                   unknown
+   0x00e84eb7: MOV EAX,dword ptr [EDX + 0x74]                             unknown
+   0x00e84eba: CALL EAX                                                   unknown
+   0x00e84ebc: TEST AL,AL                                                 unknown
+   0x00e84ebe: JNZ 0x00e84ec5                                             unknown
+      ref CONDITIONAL_JUMP -> 0x00e84ec5 unknown
+   0x00e84ec0: MOV ESI,0x50                                               unknown
+   0x00e84ec5: MOV EAX,ESI                                                unknown
+
+======================================================================
+type 0x40000000 helper target @ 0x00e84d00
+======================================================================
+  creating function at 0x00e84d00 (type 0x40000000 helper target)
+  Function: pbr_missing_vfunc_00e84d00 @ 0x00e84d00, Size: 459 bytes
+
+/* WARNING: Globals starting with '_' overlap smaller symbols at the same address */
+
+undefined4 pbr_missing_vfunc_00e84d00(int *param_1,int param_2)
+
+{
+  int iVar1;
+  undefined4 *puVar2;
+  char cVar3;
+  undefined4 uVar4;
+  undefined *puVar5;
+  
+  iVar1 = *(int *)(&DAT_011f5fc4 + (*(uint *)(param_2 + 0x14) & 0xff) * 4);
+  uVar4 = 0;
+  if (iVar1 == 1) {
+    _DAT_0126f7b0 = (uint)**(byte **)(param_2 + 0x30);
+    puVar5 = &DAT_0126f7b0;
+  }
+  else if (iVar1 == 3) {
+    _DAT_0126f7b4 = **(undefined4 **)(param_2 + 0x30);
+    puVar5 = &DAT_0126f7b4;
+    _DAT_0126f7b8 = _DAT_0126f7b4;
+    _DAT_0126f7bc = _DAT_0126f7b4;
+    _DAT_0126f7c0 = _DAT_0126f7b4;
+  }
+  else {
+    if (iVar1 == 4) {
+      _DAT_0126f7cc = **(undefined4 **)(param_2 + 0x30);
+      _DAT_0126f7d0 = _DAT_0126f7cc;
+      _DAT_0126f7d4 = _DAT_0126f7cc;
+      _DAT_0126f7d8 = _DAT_0126f7cc;
+    }
+    else if (iVar1 == 5) {
+      _DAT_0126f7cc = **(undefined4 **)(param_2 + 0x30);
+      _DAT_0126f7d0 = (*(undefined4 **)(param_2 + 0x30))[1];
+      _DAT_0126f7d4 = _DAT_0126f7cc;
+      _DAT_0126f7d8 = _DAT_0126f7d0;
+    }
+    else if (iVar1 == 6) {
+      puVar2 = *(undefined4 **)(param_2 + 0x30);
+      _DAT_0126f7cc = *puVar2;
+      _DAT_0126f7d0 = puVar2[1];
+      _DAT_0126f7d4 = puVar2[2];
+      _DAT_0126f7d8 = 0x3f800000;
+    }
+    else {
+      if ((iVar1 != 7) && (iVar1 != 10)) {
+        if (iVar1 != 8) {
+          if (iVar1 != 9) {
+            return 0;
+          }
+          cVar3 = (**(code **)(*param_1 + 0x74))(param_2,*(undefined4 *)(param_2 + 0x30),0);
+          goto LAB_00e84ebc;
+        }
+        puVar2 = *(undefined4 **)(param_2 + 0x30);
+        _DAT_0126f7e0 = *puVar2;
+        puVar5 = &DAT_0126f7e0;
+        _DAT_0126f7e4 = puVar2[1];
+        _DAT_0126f7e8 = puVar2[2];
+        _DAT_0126f7ec = 0;
+        _DAT_0126f7f0 = puVar2[3];
+        _DAT_0126f7f4 = puVar2[4];
+        _DAT_0126f7f8 = puVar2[5];
+        _DAT_0126f7fc = 0;
+        _DAT_0126f800 = puVar2[6];
+        _DAT_0126f804 = puVar2[7];
+        _DAT_0126f808 = puVar2[8];
+        _DAT_0126f80c = 0;
+        goto LAB_00e84eb0;
+      }
+      puVar2 = *(undefined4 **)(param_2 + 0x30);
+      _DAT_0126f7cc = *puVar2;
+      _DAT_0126f7d0 = puVar2[1];
+      _DAT_0126f7d4 = puVar2[2];
+      _DAT_0126f7d8 = puVar2[3];
+    }
+    puVar5 = &DAT_0126f7cc;
+  }
+LAB_00e84eb0:
+  cVar3 = (**(code **)(*param_1 + 0x74))(param_2,puVar5,0);
+LAB_00e84ebc:
+  if (cVar3 == '\0') {
+    uVar4 = 0x50;
+  }
+  return uVar4;
+}
+
+
+
+--- Calls FROM type 0x40000000 helper target (0x00e84d00) ---
+  Total: 0 calls
+
+======================================================================
+MATCHED DECOMPILE LINES: type 0x40000000 helper target @ 0x00e84d00
+======================================================================
+  L4    undefined4 pbr_missing_vfunc_00e84d00(int *param_1,int param_2)
+  L13     iVar1 = *(int *)(&DAT_011f5fc4 + (*(uint *)(param_2 + 0x14) & 0xff) * 4);
+  L16       _DAT_0126f7b0 = (uint)**(byte **)(param_2 + 0x30);
+  L20       _DAT_0126f7b4 = **(undefined4 **)(param_2 + 0x30);
+  L28         _DAT_0126f7cc = **(undefined4 **)(param_2 + 0x30);
+  L34         _DAT_0126f7cc = **(undefined4 **)(param_2 + 0x30);
+  L35         _DAT_0126f7d0 = (*(undefined4 **)(param_2 + 0x30))[1];
+  L40         puVar2 = *(undefined4 **)(param_2 + 0x30);
+  L52             cVar3 = (**(code **)(*param_1 + 0x74))(param_2,*(undefined4 *)(param_2 + 0x30),0);
+  L55           puVar2 = *(undefined4 **)(param_2 + 0x30);
+  L71         puVar2 = *(undefined4 **)(param_2 + 0x30);
+  L80     cVar3 = (**(code **)(*param_1 + 0x74))(param_2,puVar5,0);
+
+----------------------------------------------------------------------
+References TO 0x00e85c40 (type 0x60000000 helper target)
+----------------------------------------------------------------------
+  DATA @ 0x010ef5e8 (in ???)
+  Total: 1 refs
+
+======================================================================
+Raw disassembly type 0x60000000 helper target around 0x00e85c40
+======================================================================
+   0x00e85b90: MOV ECX,EAX                                                FUN_00e84ed0+0xcc0
+   0x00e85b92: CALL 0x0043f8d0                                            FUN_00e84ed0+0xcc2
+      ref UNCONDITIONAL_CALL -> 0x0043f8d0 FUN_0043f8d0
+   0x00e85b97: JMP 0x00e85741                                             FUN_00e84ed0+0xcc7
+      ref UNCONDITIONAL_JUMP -> 0x00e85741 FUN_00e84ed0+0x871
+   0x00e85b9c: MOV EDX,dword ptr [ESP + 0x260]                            FUN_00e84ed0+0xccc
+      ref READ -> 0x00000008 unknown
+   0x00e85ba3: FSTP ST0                                                   FUN_00e84ed0+0xcd3
+   0x00e85ba5: MOV EAX,dword ptr [ESP + 0x25c]                            FUN_00e84ed0+0xcd5
+      ref READ -> 0x00000004 unknown
+   0x00e85bac: PUSH EDX                                                   FUN_00e84ed0+0xcdc
+   0x00e85bad: PUSH 0x0                                                   FUN_00e84ed0+0xcdd
+   0x00e85baf: PUSH EAX                                                   FUN_00e84ed0+0xcdf
+   0x00e85bb0: CALL 0x00ec61c0                                            FUN_00e84ed0+0xce0
+      ref UNCONDITIONAL_CALL -> 0x00ec61c0 _memset
+   0x00e85bb5: ADD ESP,0xc                                                FUN_00e84ed0+0xce5
+   0x00e85bb8: POP EDI                                                    FUN_00e84ed0+0xce8
+   0x00e85bb9: XOR AL,AL                                                  FUN_00e84ed0+0xce9
+   0x00e85bbb: POP ESI                                                    FUN_00e84ed0+0xceb
+   0x00e85bbc: ADD ESP,0x250                                              FUN_00e84ed0+0xcec
+   0x00e85bc2: RET                                                        FUN_00e84ed0+0xcf2
+=> 0x00e85c40: PUSH ECX                                                   type 0x60000000 helper target
+   0x00e85c41: PUSH EBX                                                   unknown
+   0x00e85c42: MOV EBX,dword ptr [ESP + 0x28]                             unknown
+   0x00e85c46: PUSH EBP                                                   unknown
+   0x00e85c47: PUSH ESI                                                   unknown
+   0x00e85c48: MOV ESI,dword ptr [ESP + 0x18]                             unknown
+   0x00e85c4c: MOVZX ECX,byte ptr [ESI + 0x15]                            unknown
+   0x00e85c50: MOV EAX,dword ptr [ESI + 0x18]                             unknown
+   0x00e85c53: MOV ECX,dword ptr [ECX*0x4 + 0x11f5f90]                    unknown
+      ref DATA -> 0x011f5f90 unknown
+   0x00e85c5a: PUSH EDI                                                   unknown
+   0x00e85c5b: PUSH EAX                                                   unknown
+   0x00e85c5c: PUSH ECX                                                   unknown
+   0x00e85c5d: PUSH EBX                                                   unknown
+   0x00e85c5e: MOV dword ptr [ESP + 0x1c],0x0                             unknown
+   0x00e85c66: CALL 0x00a9c130                                            unknown
+      ref UNCONDITIONAL_CALL -> 0x00a9c130 FUN_00a9c130
+   0x00e85c6b: MOV EDI,dword ptr [ESI + 0x10]                             unknown
+   0x00e85c6e: LEA EDX,[ESP + 0x40]                                       unknown
+   0x00e85c72: MOV EBP,EAX                                                unknown
+   0x00e85c74: PUSH EDX                                                   unknown
+   0x00e85c75: LEA EAX,[ESP + 0x2c]                                       unknown
+   0x00e85c79: PUSH EAX                                                   unknown
+   0x00e85c7a: PUSH EDI                                                   unknown
+   0x00e85c7b: CALL 0x00a9bcd0                                            unknown
+      ref UNCONDITIONAL_CALL -> 0x00a9bcd0 FUN_00a9bcd0
+   0x00e85c80: ADD ESP,0x18                                               unknown
+   0x00e85c83: TEST EAX,EAX                                               unknown
+   0x00e85c85: JNZ 0x00e85c94                                             unknown
+      ref CONDITIONAL_JUMP -> 0x00e85c94 unknown
+   0x00e85c87: POP EDI                                                    unknown
+   0x00e85c88: POP ESI                                                    unknown
+   0x00e85c89: POP EBP                                                    unknown
+   0x00e85c8a: MOV EAX,0x10                                               unknown
+   0x00e85c8f: POP EBX                                                    unknown
+   0x00e85c90: POP ECX                                                    unknown
+   0x00e85c91: RET 0x2c                                                   unknown
+   0x00e85c94: MOV ECX,dword ptr [ESP + 0x40]                             unknown
+   0x00e85c98: MOV EDX,dword ptr [ESP + 0x3c]                             unknown
+   0x00e85c9c: MOV EAX,dword ptr [ESP + 0x1c]                             unknown
+   0x00e85ca0: PUSH ECX                                                   unknown
+   0x00e85ca1: MOV ECX,dword ptr [ESP + 0x3c]                             unknown
+   0x00e85ca5: PUSH EDX                                                   unknown
+   0x00e85ca6: MOV EDX,dword ptr [ESP + 0x38]                             unknown
+   0x00e85caa: PUSH ECX                                                   unknown
+   0x00e85cab: MOV ECX,dword ptr [ESP + 0x38]                             unknown
+   0x00e85caf: PUSH EBX                                                   unknown
+   0x00e85cb0: PUSH EDX                                                   unknown
+   0x00e85cb1: MOV EDX,dword ptr [ESP + 0x3c]                             unknown
+   0x00e85cb5: PUSH ECX                                                   unknown
+   0x00e85cb6: MOV ECX,dword ptr [ESP + 0x3c]                             unknown
+   0x00e85cba: PUSH EDX                                                   unknown
+   0x00e85cbb: MOV EDX,dword ptr [ESP + 0x3c]                             unknown
+   0x00e85cbf: PUSH ECX                                                   unknown
+   0x00e85cc0: ADD EAX,EAX                                                unknown
+   0x00e85cc2: PUSH EDX                                                   unknown
+   0x00e85cc3: ADD EAX,EAX                                                unknown
+   0x00e85cc5: PUSH EBP                                                   unknown
+   0x00e85cc6: ADD EAX,EAX                                                unknown
+   0x00e85cc8: PUSH EDI                                                   unknown
+   0x00e85cc9: ADD EAX,EAX                                                unknown
+   0x00e85ccb: PUSH EAX                                                   unknown
+   0x00e85ccc: PUSH 0x126f770                                             unknown
+      ref DATA -> 0x0126f770 unknown
+   0x00e85cd1: CALL 0x00e84ed0                                            unknown
+      ref UNCONDITIONAL_CALL -> 0x00e84ed0 FUN_00e84ed0
+   0x00e85cd6: ADD ESP,0x34                                               unknown
+   0x00e85cd9: TEST AL,AL                                                 unknown
+   0x00e85cdb: JNZ 0x00e85ce5                                             unknown
+      ref CONDITIONAL_JUMP -> 0x00e85ce5 unknown
+   0x00e85cdd: MOV dword ptr [ESP + 0x10],0x60                            unknown
+   0x00e85ce5: MOV ECX,dword ptr [ESP + 0x18]                             unknown
+   0x00e85ce9: MOV EDX,dword ptr [ECX]                                    unknown
+   0x00e85ceb: MOV EAX,dword ptr [EDX + 0x74]                             unknown
+   0x00e85cee: PUSH 0x0                                                   unknown
+   0x00e85cf0: PUSH 0x126f770                                             unknown
+      ref DATA -> 0x0126f770 unknown
+   0x00e85cf5: PUSH ESI                                                   unknown
+   0x00e85cf6: CALL EAX                                                   unknown
+   0x00e85cf8: TEST AL,AL                                                 unknown
+   0x00e85cfa: JNZ 0x00e85d04                                             unknown
+      ref CONDITIONAL_JUMP -> 0x00e85d04 unknown
+   0x00e85cfc: MOV dword ptr [ESP + 0x10],0x50                            unknown
+   0x00e85d04: MOV EAX,dword ptr [ESP + 0x10]                             unknown
+   0x00e85d08: POP EDI                                                    unknown
+   0x00e85d09: POP ESI                                                    unknown
+   0x00e85d0a: POP EBP                                                    unknown
+   0x00e85d0b: POP EBX                                                    unknown
+   0x00e85d0c: POP ECX                                                    unknown
+   0x00e85d0d: RET 0x2c                                                   unknown
+   0x00e85d10: PUSH EBP                                                   FUN_00e85d10
+   0x00e85d11: MOV EBP,ESP                                                FUN_00e85d10+0x1
+   0x00e85d13: AND ESP,0xfffffff0                                         FUN_00e85d10+0x3
+   0x00e85d16: MOV EDX,dword ptr [EBP + 0xc]                              FUN_00e85d10+0x6
+      ref READ -> 0x00000008 unknown
+   0x00e85d19: SUB ESP,0x1e4                                              FUN_00e85d10+0x9
+   0x00e85d1f: PUSH EBX                                                   FUN_00e85d10+0xf
+   0x00e85d20: PUSH ESI                                                   FUN_00e85d10+0x10
+   0x00e85d21: MOV ESI,dword ptr [EDX + 0x10]                             FUN_00e85d10+0x11
+   0x00e85d24: LEA EAX,[ESI + -0x1]                                       FUN_00e85d10+0x14
+   0x00e85d27: PUSH EDI                                                   FUN_00e85d10+0x17
+   0x00e85d28: CMP EAX,0x62                                               FUN_00e85d10+0x18
+   0x00e85d2b: JA 0x00e8695b                                              FUN_00e85d10+0x1b
+      ref CONDITIONAL_JUMP -> 0x00e8695b FUN_00e85d10+0xc4b
+   0x00e85d31: MOVZX EAX,byte ptr [EAX + 0xe869d8]                        FUN_00e85d10+0x21
+      ref DATA -> 0x00e869d7 unknown
+   0x00e85d38: JMP dword ptr [EAX*0x4 + 0xe86968]                         FUN_00e85d10+0x28
+      ref COMPUTED_JUMP -> 0x00e85d3f FUN_00e85d10+0x2f
+      ref COMPUTED_JUMP -> 0x00e85db7 FUN_00e85d10+0xa7
+      ref COMPUTED_JUMP -> 0x00e85e2f FUN_00e85d10+0x11f
+      ref COMPUTED_JUMP -> 0x00e85e9c FUN_00e85d10+0x18c
+      ref COMPUTED_JUMP -> 0x00e85f37 FUN_00e85d10+0x227
+      ref COMPUTED_JUMP -> 0x00e85fb3 FUN_00e85d10+0x2a3
+      ref COMPUTED_JUMP -> 0x00e86060 FUN_00e85d10+0x350
+      ref COMPUTED_JUMP -> 0x00e86104 FUN_00e85d10+0x3f4
+      ref COMPUTED_JUMP -> 0x00e8695b FUN_00e85d10+0xc4b
+      ref COMPUTED_JUMP -> 0x00e8625f FUN_00e85d10+0x54f
+      ref COMPUTED_JUMP -> 0x00e862d5 FUN_00e85d10+0x5c5
+      ref COMPUTED_JUMP -> 0x00e86327 FUN_00e85d10+0x617
+      ref COMPUTED_JUMP -> 0x00e8637c FUN_00e85d10+0x66c
+      ref COMPUTED_JUMP -> 0x00e863d1 FUN_00e85d10+0x6c1
+      ref COMPUTED_JUMP -> 0x00e86426 FUN_00e85d10+0x716
+      ref COMPUTED_JUMP -> 0x00e8647b FUN_00e85d10+0x76b
+      ref COMPUTED_JUMP -> 0x00e864e6 FUN_00e85d10+0x7d6
+      ref COMPUTED_JUMP -> 0x00e86554 FUN_00e85d10+0x844
+      ref COMPUTED_JUMP -> 0x00e865a3 FUN_00e85d10+0x893
+      ref COMPUTED_JUMP -> 0x00e865f2 FUN_00e85d10+0x8e2
+      ref COMPUTED_JUMP -> 0x00e86638 FUN_00e85d10+0x928
+      ref COMPUTED_JUMP -> 0x00e8669b FUN_00e85d10+0x98b
+      ref COMPUTED_JUMP -> 0x00e866e1 FUN_00e85d10+0x9d1
+      ref COMPUTED_JUMP -> 0x00e86731 FUN_00e85d10+0xa21
+      ref COMPUTED_JUMP -> 0x00e86781 FUN_00e85d10+0xa71
+      ref COMPUTED_JUMP -> 0x00e868af FUN_00e85d10+0xb9f
+      ref COMPUTED_JUMP -> 0x00e861cb FUN_00e85d10+0x4bb
+      ref DATA -> 0x00e86968 unknown
+   0x00e85d3f: XOR AL,AL                                                  FUN_00e85d10+0x2f
+   0x00e85d41: MOV byte ptr [ESP + 0x16],AL                               FUN_00e85d10+0x31
+      ref WRITE -> 0x-00001ea unknown
+   0x00e85d45: MOV DL,0x1                                                 FUN_00e85d10+0x35
+   0x00e85d47: CMP ESI,0x2                                                FUN_00e85d10+0x37
+   0x00e85d4a: JZ 0x00e85d51                                              FUN_00e85d10+0x3a
+      ref CONDITIONAL_JUMP -> 0x00e85d51 FUN_00e85d10+0x41
+   0x00e85d4c: CMP ESI,0xe                                                FUN_00e85d10+0x3c
+   0x00e85d4f: JNZ 0x00e85d53                                             FUN_00e85d10+0x3f
+      ref CONDITIONAL_JUMP -> 0x00e85d53 FUN_00e85d10+0x43
+   0x00e85d51: MOV AL,DL                                                  FUN_00e85d10+0x41
+   0x00e85d53: CMP ESI,0xd                                                FUN_00e85d10+0x43
+   0x00e85d56: JZ 0x00e85d5d                                              FUN_00e85d10+0x46
+      ref CONDITIONAL_JUMP -> 0x00e85d5d FUN_00e85d10+0x4d
+   0x00e85d58: CMP ESI,0xe                                                FUN_00e85d10+0x48
+   0x00e85d5b: JNZ 0x00e85d61                                             FUN_00e85d10+0x4b
+      ref CONDITIONAL_JUMP -> 0x00e85d61 FUN_00e85d10+0x51
+   0x00e85d5d: MOV byte ptr [ESP + 0x16],DL                               FUN_00e85d10+0x4d
+      ref WRITE -> 0x-00001ea unknown
+   0x00e85d61: MOV ESI,dword ptr [ECX + 0x3c]                             FUN_00e85d10+0x51
+   0x00e85d64: MOV EBX,dword ptr [EBP + 0x8]                              FUN_00e85d10+0x54
+      ref READ -> 0x00000004 unknown
+   0x00e85d67: ADD ESI,0x9c0                                              FUN_00e85d10+0x57
+   0x00e85d6d: MOV ECX,0x10                                               FUN_00e85d10+0x5d
+   0x00e85d72: LEA EDI,[ESP + 0x30]                                       FUN_00e85d10+0x62
+      ref DATA -> 0x-00001d0 unknown
+   0x00e85d76: MOVSD.REP ES:EDI,ESI                                       FUN_00e85d10+0x66
+   0x00e85d78: SHL EBX,0x6                                                FUN_00e85d10+0x68
+   0x00e85d7b: LEA ESI,[ESP + 0x30]                                       FUN_00e85d10+0x6b
+      ref DATA -> 0x-00001d0 unknown
+   0x00e85d7f: TEST AL,AL                                                 FUN_00e85d10+0x6f
+   0x00e85d81: LEA EBX,[EBX + 0x126f820]                                  FUN_00e85d10+0x71
+      ref DATA -> 0x0126f820 unknown
+   0x00e85d87: MOV ECX,0x10                                               FUN_00e85d10+0x77
+   0x00e85d8c: MOV EDI,EBX                                                FUN_00e85d10+0x7c
+   0x00e85d8e: MOVSD.REP ES:EDI,ESI                                       FUN_00e85d10+0x7e
+      ref DATA -> 0x0126f820 unknown
+      ref DATA -> 0x0126f824 unknown
+
+======================================================================
+type 0x60000000 helper target @ 0x00e85c40
+======================================================================
+  creating function at 0x00e85c40 (type 0x60000000 helper target)
+  Function: pbr_missing_vfunc_00e85c40 @ 0x00e85c40, Size: 208 bytes
+
+undefined4
+pbr_missing_vfunc_00e85c40
+          (int *param_1,int param_2,undefined4 param_3,undefined4 param_4,undefined4 param_5,
+          undefined4 param_6,undefined4 param_7,undefined4 param_8,undefined4 param_9,
+          undefined4 param_10,undefined4 param_11)
+
+{
+  undefined4 uVar1;
+  int iVar2;
+  undefined4 uVar3;
+  char cVar4;
+  undefined4 uVar5;
+  int iVar6;
+  undefined4 unaff_ESI;
+  
+  uVar3 = param_8;
+  iVar2 = param_2;
+  uVar5 = FUN_00a9c130(param_8,*(undefined4 *)(&DAT_011f5f90 + (uint)*(byte *)(param_2 + 0x15) * 4),
+                       *(undefined4 *)(param_2 + 0x18));
+  uVar1 = *(undefined4 *)(iVar2 + 0x10);
+  iVar6 = FUN_00a9bcd0(uVar1,&param_2,&param_8);
+  if (iVar6 == 0) {
+    return 0x10;
+  }
+  FUN_00e84ed0(&DAT_0126f770,param_2 * 0x10,uVar1,uVar5,param_3,param_4,param_5,param_6,param_7,
+               uVar3,param_9,param_10,param_11);
+  cVar4 = (**(code **)(*param_1 + 0x74))(iVar2,&DAT_0126f770,0);
+  if (cVar4 == '\0') {
+    unaff_ESI = 0x50;
+  }
+  return unaff_ESI;
+}
+
+
+
+--- Calls FROM type 0x60000000 helper target (0x00e85c40) ---
+  0x00e85c66 -> 0x00a9c130 FUN_00a9c130
+  0x00e85c7b -> 0x00a9bcd0 FUN_00a9bcd0
+  0x00e85cd1 -> 0x00e84ed0 FUN_00e84ed0
+  Total: 3 calls
+
+======================================================================
+MATCHED DECOMPILE LINES: type 0x60000000 helper target @ 0x00e85c40
+======================================================================
+  L4              (int *param_1,int param_2,undefined4 param_3,undefined4 param_4,undefined4 param_5,
+  L5              undefined4 param_6,undefined4 param_7,undefined4 param_8,undefined4 param_9,
+  L6              undefined4 param_10,undefined4 param_11)
+  L17     uVar3 = param_8;
+  L18     iVar2 = param_2;
+  L19     uVar5 = FUN_00a9c130(param_8,*(undefined4 *)(&DAT_011f5f90 + (uint)*(byte *)(param_2 + 0x15) * 4),
+  L20                          *(undefined4 *)(param_2 + 0x18));
+  L22     iVar6 = FUN_00a9bcd0(uVar1,&param_2,&param_8);
+  L26     FUN_00e84ed0(&DAT_0126f770,param_2 * 0x10,uVar1,uVar5,param_3,param_4,param_5,param_6,param_7,
+  L27                  uVar3,param_9,param_10,param_11);
+  L28     cVar4 = (**(code **)(*param_1 + 0x74))(iVar2,&DAT_0126f770,0);

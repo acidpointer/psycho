@@ -35,6 +35,27 @@ const NID3D_PIXEL_SHADER_VTABLE_ADDR: usize = 0x010EF7D4;
 const NID3D_VERTEX_SHADER_VTABLE_ADDR: usize = 0x010EF87C;
 const PIXEL_SHADER_NATIVE_HANDLE_OFFSET: usize = 0x2C;
 const VERTEX_SHADER_SET_SHADERS_HANDLE_OFFSET: usize = 0x34;
+const PPLIGHTING_VERTEX_GROUP_A_ADDR: usize = 0x011FDD88;
+const PPLIGHTING_VERTEX_GROUP_B_ADDR: usize = 0x011FDE04;
+const PPLIGHTING_VERTEX_GROUP_C_ADDR: usize = 0x011FDE5C;
+const PPLIGHTING_PIXEL_GROUP_A_ADDR: usize = 0x011FDA48;
+const PPLIGHTING_PIXEL_GROUP_B_ADDR: usize = 0x011FDB08;
+const PPLIGHTING_VERTEX_GROUP_A_COUNT: usize = 0x1F;
+const PPLIGHTING_VERTEX_GROUP_B_COUNT: usize = 0x16;
+const PPLIGHTING_VERTEX_GROUP_C_COUNT: usize = 0x67;
+const PPLIGHTING_PIXEL_GROUP_A_COUNT: usize = 0x30;
+const PPLIGHTING_PIXEL_GROUP_B_COUNT: usize = 0xA0;
+const PPLIGHTING_GROUP_NONE: u32 = 0;
+const PPLIGHTING_VERTEX_GROUP_A: u32 = 1;
+const PPLIGHTING_VERTEX_GROUP_B: u32 = 2;
+const PPLIGHTING_VERTEX_GROUP_C: u32 = 3;
+const PPLIGHTING_PIXEL_GROUP_A: u32 = 1;
+const PPLIGHTING_PIXEL_GROUP_B: u32 = 2;
+const PPLIGHTING_FAMILY_NONE: u32 = 0;
+const PPLIGHTING_FAMILY_VERTEX_A_PIXEL_A: u32 = 1;
+const PPLIGHTING_FAMILY_VERTEX_B_PIXEL_A: u32 = 2;
+const PPLIGHTING_FAMILY_VERTEX_C_PIXEL_B: u32 = 3;
+const PPLIGHTING_FAMILY_UNKNOWN_PAIR: u32 = u32::MAX;
 const APPLY_PARAM_RESOURCE_OFFSET: usize = 0x08;
 const SHADER_INTERFACE_PIXEL_OFFSET: usize = 0x30;
 const SHADER_INTERFACE_VERTEX_OFFSET: usize = 0x34;
@@ -61,6 +82,37 @@ const SET_TEXTURE_PROLOGUE: &[u8] = &[
 ];
 const PASS_SHADER_APPLY_PROLOGUE: &[u8] = &[
     0x83, 0xEC, 0x0C, 0xA1, 0xE0, 0x91, 0x1F, 0x01, 0x53, 0x55, 0x56, 0x8B, 0x30, 0x8B, 0x46, 0x20,
+];
+
+const PPLIGHTING_VERTEX_GROUPS: [ShaderArrayGroup; 3] = [
+    ShaderArrayGroup {
+        id: PPLIGHTING_VERTEX_GROUP_A,
+        base: PPLIGHTING_VERTEX_GROUP_A_ADDR,
+        count: PPLIGHTING_VERTEX_GROUP_A_COUNT,
+    },
+    ShaderArrayGroup {
+        id: PPLIGHTING_VERTEX_GROUP_B,
+        base: PPLIGHTING_VERTEX_GROUP_B_ADDR,
+        count: PPLIGHTING_VERTEX_GROUP_B_COUNT,
+    },
+    ShaderArrayGroup {
+        id: PPLIGHTING_VERTEX_GROUP_C,
+        base: PPLIGHTING_VERTEX_GROUP_C_ADDR,
+        count: PPLIGHTING_VERTEX_GROUP_C_COUNT,
+    },
+];
+
+const PPLIGHTING_PIXEL_GROUPS: [ShaderArrayGroup; 2] = [
+    ShaderArrayGroup {
+        id: PPLIGHTING_PIXEL_GROUP_A,
+        base: PPLIGHTING_PIXEL_GROUP_A_ADDR,
+        count: PPLIGHTING_PIXEL_GROUP_A_COUNT,
+    },
+    ShaderArrayGroup {
+        id: PPLIGHTING_PIXEL_GROUP_B,
+        base: PPLIGHTING_PIXEL_GROUP_B_ADDR,
+        count: PPLIGHTING_PIXEL_GROUP_B_COUNT,
+    },
 ];
 
 type SetShadersFn = unsafe extern "thiscall" fn(*mut c_void, u32);
@@ -94,6 +146,26 @@ pub(crate) struct NativePbrSettings {
     pub(crate) experimental_shader_replacement: bool,
     pub(crate) require_vanilla_prologues: bool,
     pub(crate) debug_log_draws: bool,
+}
+
+#[derive(Clone, Copy)]
+struct ShaderArrayGroup {
+    id: u32,
+    base: usize,
+    count: usize,
+}
+
+#[derive(Clone, Copy)]
+struct ShaderArrayMembership {
+    group: u32,
+    index: u32,
+}
+
+impl ShaderArrayMembership {
+    const NONE: Self = Self {
+        group: PPLIGHTING_GROUP_NONE,
+        index: 0,
+    };
 }
 
 impl Default for NativePbrSettings {
@@ -137,6 +209,11 @@ struct DrawCapture {
     pixel_shader: AtomicUsize,
     vertex_shader_handle: AtomicUsize,
     pixel_shader_handle: AtomicUsize,
+    pplighting_family: AtomicU32,
+    pplighting_vertex_group: AtomicU32,
+    pplighting_vertex_index: AtomicU32,
+    pplighting_pixel_group: AtomicU32,
+    pplighting_pixel_index: AtomicU32,
     render_state: AtomicUsize,
     set_shader_calls: AtomicU32,
 }
@@ -150,6 +227,11 @@ impl DrawCapture {
             pixel_shader: AtomicUsize::new(0),
             vertex_shader_handle: AtomicUsize::new(0),
             pixel_shader_handle: AtomicUsize::new(0),
+            pplighting_family: AtomicU32::new(PPLIGHTING_FAMILY_NONE),
+            pplighting_vertex_group: AtomicU32::new(PPLIGHTING_GROUP_NONE),
+            pplighting_vertex_index: AtomicU32::new(0),
+            pplighting_pixel_group: AtomicU32::new(PPLIGHTING_GROUP_NONE),
+            pplighting_pixel_index: AtomicU32::new(0),
             render_state: AtomicUsize::new(0),
             set_shader_calls: AtomicU32::new(0),
         }
@@ -162,6 +244,14 @@ impl DrawCapture {
         self.pixel_shader.store(0, Ordering::Release);
         self.vertex_shader_handle.store(0, Ordering::Release);
         self.pixel_shader_handle.store(0, Ordering::Release);
+        self.pplighting_family
+            .store(PPLIGHTING_FAMILY_NONE, Ordering::Release);
+        self.pplighting_vertex_group
+            .store(PPLIGHTING_GROUP_NONE, Ordering::Release);
+        self.pplighting_vertex_index.store(0, Ordering::Release);
+        self.pplighting_pixel_group
+            .store(PPLIGHTING_GROUP_NONE, Ordering::Release);
+        self.pplighting_pixel_index.store(0, Ordering::Release);
         self.render_state.store(0, Ordering::Release);
     }
 }
@@ -548,6 +638,11 @@ unsafe fn record_draw_context(pass_index: u32) {
             PIXEL_SHADER_NATIVE_HANDLE_OFFSET,
         )
     };
+    let vertex_membership =
+        unsafe { find_shader_array_membership(vertex_shader, &PPLIGHTING_VERTEX_GROUPS) };
+    let pixel_membership =
+        unsafe { find_shader_array_membership(pixel_shader, &PPLIGHTING_PIXEL_GROUPS) };
+    let pplighting_family = classify_pplighting_family(vertex_membership, pixel_membership);
     let render_state = TEXTURE_CAPTURE.render_state.load(Ordering::Acquire);
 
     DRAW_CAPTURE.pass_index.store(pass_index, Ordering::Release);
@@ -565,6 +660,21 @@ unsafe fn record_draw_context(pass_index: u32) {
         .pixel_shader_handle
         .store(pixel_shader_handle as usize, Ordering::Release);
     DRAW_CAPTURE
+        .pplighting_family
+        .store(pplighting_family, Ordering::Release);
+    DRAW_CAPTURE
+        .pplighting_vertex_group
+        .store(vertex_membership.group, Ordering::Release);
+    DRAW_CAPTURE
+        .pplighting_vertex_index
+        .store(vertex_membership.index, Ordering::Release);
+    DRAW_CAPTURE
+        .pplighting_pixel_group
+        .store(pixel_membership.group, Ordering::Release);
+    DRAW_CAPTURE
+        .pplighting_pixel_index
+        .store(pixel_membership.index, Ordering::Release);
+    DRAW_CAPTURE
         .render_state
         .store(render_state, Ordering::Release);
     DRAW_CAPTURE
@@ -579,6 +689,9 @@ unsafe fn record_draw_context(pass_index: u32) {
             pixel_shader,
             vertex_shader_handle,
             pixel_shader_handle,
+            pplighting_family,
+            vertex_membership,
+            pixel_membership,
             render_state,
         );
     }
@@ -863,6 +976,46 @@ unsafe fn read_vtable_slot(object: *mut c_void, slot_offset: usize) -> *mut c_vo
     unsafe { read_ptr_offset(vtable, slot_offset) }
 }
 
+unsafe fn find_shader_array_membership(
+    shader: *mut c_void,
+    groups: &[ShaderArrayGroup],
+) -> ShaderArrayMembership {
+    if shader.is_null() {
+        return ShaderArrayMembership::NONE;
+    }
+
+    for group in groups {
+        let byte_len = group.count * size_of::<*mut c_void>();
+        let base = group.base as *const c_void;
+        if validate_memory_range(base, byte_len).is_err() {
+            continue;
+        }
+
+        for index in 0..group.count {
+            let slot = unsafe { (group.base as *const *mut c_void).add(index) };
+            let candidate = unsafe { slot.read() };
+            if candidate == shader {
+                return ShaderArrayMembership {
+                    group: group.id,
+                    index: index as u32,
+                };
+            }
+        }
+    }
+
+    ShaderArrayMembership::NONE
+}
+
+fn classify_pplighting_family(vertex: ShaderArrayMembership, pixel: ShaderArrayMembership) -> u32 {
+    match (vertex.group, pixel.group) {
+        (PPLIGHTING_GROUP_NONE, PPLIGHTING_GROUP_NONE) => PPLIGHTING_FAMILY_NONE,
+        (PPLIGHTING_VERTEX_GROUP_A, PPLIGHTING_PIXEL_GROUP_A) => PPLIGHTING_FAMILY_VERTEX_A_PIXEL_A,
+        (PPLIGHTING_VERTEX_GROUP_B, PPLIGHTING_PIXEL_GROUP_A) => PPLIGHTING_FAMILY_VERTEX_B_PIXEL_A,
+        (PPLIGHTING_VERTEX_GROUP_C, PPLIGHTING_PIXEL_GROUP_B) => PPLIGHTING_FAMILY_VERTEX_C_PIXEL_B,
+        _ => PPLIGHTING_FAMILY_UNKNOWN_PAIR,
+    }
+}
+
 unsafe fn read_shader_native_handle(
     shader: *mut c_void,
     expected_vtable: usize,
@@ -891,6 +1044,9 @@ fn log_draw_context(
     pixel_shader: *mut c_void,
     vertex_shader_handle: *mut c_void,
     pixel_shader_handle: *mut c_void,
+    pplighting_family: u32,
+    vertex_membership: ShaderArrayMembership,
+    pixel_membership: ShaderArrayMembership,
     render_state: usize,
 ) {
     let count = DRAW_LOGS.fetch_add(1, Ordering::Relaxed);
@@ -900,13 +1056,18 @@ fn log_draw_context(
 
     let stages = &TEXTURE_CAPTURE.stages;
     log::debug!(
-        "[PBR] Draw pass={} pass={:p} vs={:p} ps={:p} vs_handle={:p} ps_handle={:p} render_state=0x{:08X} s0=0x{:08X} s1=0x{:08X} s2=0x{:08X} s3=0x{:08X}",
+        "[PBR] Draw pass={} pass={:p} vs={:p} ps={:p} vs_handle={:p} ps_handle={:p} family={} vgrp={} vidx={} pgrp={} pidx={} render_state=0x{:08X} s0=0x{:08X} s1=0x{:08X} s2=0x{:08X} s3=0x{:08X}",
         pass_index,
         pass,
         vertex_shader,
         pixel_shader,
         vertex_shader_handle,
         pixel_shader_handle,
+        pplighting_family,
+        vertex_membership.group,
+        vertex_membership.index,
+        pixel_membership.group,
+        pixel_membership.index,
         render_state,
         stages[0].load(Ordering::Acquire),
         stages[1].load(Ordering::Acquire),

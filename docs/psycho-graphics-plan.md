@@ -1247,12 +1247,370 @@ Ghidra-backed NewVegasReloaded contract findings:
   object. Ghidra proves vanilla allocations are only `0x3C` and `0x30`, so
   Psycho must not extend those objects. The compatible model is a side table
   keyed by vanilla shader object pointer plus draw-scoped native handle binding.
-- Remaining PBR implementation gap after handle binding: the binding lifecycle
-  is proven, but visible BRDF replacement still needs a concrete replacement
-  shader contract for at least one safe shader family: input semantics,
-  constants, texture-stage policy, fallback behavior, and shader source/bytecode
-  ownership. Until that exists, replacement may capture handles but must not
-  rebind a guessed material shader.
+- `graphics_fnv_pbr_pplighting_pass_shader_pair_contract_audit.txt` closes the
+  first safe PPLighting family-detection contract. Runtime pass writers
+  `FUN_00BE22B0`, `FUN_00BEB070`, and `FUN_00BEB830` copy vertex shader
+  globals `0x011FDD88`/`0x011FDE04` into pass `+0x5C` and pair them with pixel
+  shader global `0x011FDA48` in pass `+0x44`, using the vanilla refcount
+  handoff. `FUN_00BEBD20` and `FUN_00C17510` cover the advanced family by
+  pairing vertex global `0x011FDE5C` with pixel global `0x011FDB08`. The audit
+  also confirms `FUN_00BD1C50` is only the current-pass/global owner updater,
+  while `FUN_00BD4BA0` applies the current pass interfaces and
+  `BSShader::SetShaders @ 0x00BE1F90` binds the same pass `+0x5C/+0x44`
+  shader handles.
+- Safe target detection for native PBR is therefore array membership of the
+  current pass shader object pointers, not guessed shader names or Reloaded
+  extended object fields. Current proven families are:
+  `vertex A + pixel A`, `vertex B + pixel A`, and `vertex C + pixel B`.
+- `graphics_fnv_pbr_pplighting_shader_input_signature_followup_audit.txt`
+  proves the shader creation identity and generic constant-dispatch boundary,
+  but it does not yet close a visible replacement signature. Vertex group A is
+  created from `lighting\1x\v\base.v.hlsl`, profile `vs_2_0`, cache
+  `SLS1%03i.vso`; vertex group B uses cache `SLS1S%03i.vso`, profile
+  `vs_2_0`; vertex group C uses cache `SLS2%03i.vso`, profile `vs_2_0`.
+  Pixel group A is created from the 1x pixel source table including
+  `lighting\1x\p\base.p.hlsl` / `lighting\1x\p\diffusePt.p.hlsl`, profile
+  `ps_2_0`, cache `SLS1%03i.pso`; pixel group B uses profile `ps_2_0` and
+  cache pattern `SLS2%03is%01i.pso`.
+- The same input-signature follow-up confirms `FUN_00BD4BA0` applies the
+  current pass pixel and vertex shader-interface records before
+  `BSShader::SetShaders`, and confirms `FUN_00E826D0` as the generic
+  record dispatcher. `FUN_00E826D0` iterates enabled records, filters by
+  record type class `record +0x14 & 0xF0000000`, uses `record +0x1C` as the
+  register slot when present, and dispatches type classes through the
+  shader-interface vtable helpers `+0x8C/+0x90/+0x94/+0x98/+0x9C/+0xA4` plus
+  renderer constant upload slots. This proves how vanilla applies records, but
+  not the complete per-family record table.
+- `graphics_fnv_pbr_pplighting_interface_record_table_audit.txt` proves the
+  shader-interface record registration and dispatcher shape in more detail.
+  `FUN_00E7F430` is the record register/finalize helper: ECX is the
+  shader-interface owner, stack arg 0 is the record key, stack arg 1 is the
+  record value, and stack arg 2 selects the record list. It writes record
+  node `+0` key and `+4` value, then links the node into either the owner
+  `+8/+4` list or owner `+10/+0C` list. The same audit resolves the concrete
+  `0x010EF544` vtable dispatch chain used by `FUN_00E826D0`: slot `+0x78`
+  is `FUN_00E826D0`, type `0x20000000` goes through slot `+0x8C`
+  (`0x00E83DB0`), type `0x10000000` through `+0x90` (`0x00E84B60`),
+  type `0x30000000` through `+0x94` (`0x00E84BA0`), type `0x40000000`
+  through `+0x98` (`0x00E84D00`), type `0x50000000` through `+0x9C`
+  (`0x00E87220`), and type `0x60000000` through `+0xA4` (`0x00E85C40`).
+- The interface-record audit also decompiles the PPLighting pass-entry helper
+  family and shows the entry IDs passed to `FUN_00BA9EE0`, but it is still not
+  a complete visible PBR contract. It does not normalize the ECX owner and
+  stack-argument order for every callsite, and it does not yet correlate the
+  `FUN_00BA9EE0` entry array values with final `NiDX9RenderState::SetTexture`
+  stages for one shader family.
+- `graphics_fnv_pbr_pplighting_pass_entry_arg_table_followup_audit.txt`
+  normalizes that callsite contract. For `FUN_00E7F430`, ECX is the
+  shader-interface owner and stack args are record key, record value, then
+  list flag. For `FUN_00BA9EE0`, ECX is the pass-entry list owner and stack
+  args map to entry `+0`, entry `+4`, entry `+7`, entry `+9` array count, then
+  entry `+0x0C` array values. The important correction is that the many
+  constants in rows such as `0x58..0x60`, `0x64..0x92`, `0x95..0xC0`,
+  `0xD7..0xFA`, `0x116..0x177`, and `0x1E2..0x256` are usually entry `+4`
+  stage/key values, not necessarily entry `+0` type IDs. Some rows still carry
+  register values or unresolved `?` entries, so they need a stage/resource
+  correlation pass before assigning material semantics.
+- `graphics_fnv_pbr_shader_interface_missing_vfunc_followup_audit.txt` closes
+  the unresolved shader-interface vtable-helper gap. All expected
+  `0x010EF544` slots match the previous audit, including `+0x98 ->
+  0x00E84D00` and `+0xA4 -> 0x00E85C40`. `0x00E84D00` is a constant/data pack
+  helper: it reads record type metadata from `0x011F5FC4`, copies scalar,
+  vector, or matrix-shaped source data from record `+0x30` into scratch globals
+  such as `0x0126F7B0`, `0x0126F7CC`, and `0x0126F7E0`, then uploads through
+  shader-interface virtual slot `+0x74`. `0x00E85C40` resolves source data via
+  `0x00A9C130`/`0x00A9BCD0`, builds a transformed block through
+  `0x00E84ED0`, and uploads it through the same `+0x74` route. Neither helper
+  binds textures or owns sampler/render-state mutation.
+- `graphics_fnv_pbr_pplighting_pass_id_stage_correlation_audit.txt` confirms
+  the final field-to-stage contract but still does not assign material-map
+  semantics. `FUN_00E7EB00` compares entry `+8` against cache table
+  `0x0126F680[entry +4]`, writes the new `+8`, flushes tracked state through
+  `FUN_00E89410(entry +4)`, then calls `FUN_00E7EA00`. `FUN_00E7EA00`
+  consumes entry `+4` as `param_1[1]`, resolves nonzero entry `+8` through
+  `DAT_0126F6C4 +0x8C4 -> vtable +0x0C`, then calls render-state vtable B
+  `+0xDC`, proven as `NiDX9RenderState::SetTexture @ 0x00E88A20`, with
+  `(entry +4, resolved_texture)`. Vtable B also maps `+0xC0` to
+  `SetTextureStageState` and `+0xCC` to `SetSamplerState`.
+- The same correlation audit emits 275 static entry `+4` stage/key values and
+  finds only eight rows where the local push window cannot resolve entry `+4`.
+  This is enough to prove final stage ownership, but not enough for visible PBR:
+  most nonzero resource arrays still pass register values such as `EAX`, `EDX`,
+  or `ECX` into entry `+0x0C`, and those registers must be traced back to
+  source texture providers, active-object getters, fallback globals, or
+  non-texture state before assigning albedo/normal/glow/height/env semantics.
+- `graphics_fnv_pbr_pplighting_pass_resource_provenance_followup_audit.txt`
+  narrows that gap. It scans 285 `FUN_00BA9EE0` PPLighting construction calls
+  and prints 246 resource-bearing or unresolved rows. The important result is
+  that most resource-bearing entries are not direct material field reads at the
+  `BA9EE0` callsite. They are wrapper/helper parameters forwarded as
+  `param_2`, `param_3`, `param_4`, or local values produced earlier by the
+  selector driver. Examples include `00BD9540` forwarding one resource
+  parameter across stage keys `0x58..0x60`, `00BDA0A0` forwarding one resource
+  parameter across `0x64..0x92`, `00BDC0D0` forwarding two resources across
+  `0xD7..0xE8`, `00BDC530` forwarding three resources across `0xE9..0xFA`,
+  and `00BDD050`/`00BDD520` forwarding one or two resources across
+  `0x95..0xC0`.
+- `graphics_fnv_pbr_pplighting_selector_driver_arg_provenance_audit.txt`
+  follows that trail into `FUN_00BDF790` and prints 65 direct helper-call
+  provenance rows. It confirms `param_1[8]`/`param_1[9]` are shader flags,
+  `param_2` is the pass-entry/list owner passed as ECX into helper families,
+  `param_2 +0x60` owns the active object/resource list, and
+  `local_60 = *(DAT_011F95EC +0x194) +0xE0`. The helper family
+  `00B70590`/`00B70600`/`00B70680`/`00B70700`/`00B707D0` is not a material
+  texture array path; it walks active objects from `param_2 +0x60` and filters
+  on fields such as object `+0x110`, `+0xEC`, and `*(object +0xF8) +0x30`.
+- The same selector-driver audit shows the active-object `+0xEC` branch calls
+  `FUN_00BA9EE0` and then overwrites the created entry with pass/stage IDs
+  `0x231`, `0x232`, or `0x233`. BDF790 forwards resource-helper results into
+  helper families, but this is active-object/light/resource provenance, not a
+  safe albedo/normal/glow/height/environment map semantic table.
+- Current hard gap for visible native PBR replacement: `FUN_00E7EA00` is proven
+  to pass `entry +8` through the `renderer +0x8C4` resolver and then bind the
+  returned pointer with `NiDX9RenderState::SetTexture(stage = entry +4)`. The
+  resolver object itself is now identified, but the concrete renderer-data
+  vtables below `entry +8 +0x24` still need to be proven before assigning
+  material-map meanings or emitting a replacement BRDF shader.
+- `graphics_fnv_pbr_pplighting_resource_resolver_vtable_audit.txt` proves the
+  `renderer +0x8C4` lifecycle more narrowly. Renderer init `FUN_00E6B990`
+  zeroes it. Device setup `FUN_00E72E60` allocates `0x10` bytes with
+  `FUN_00AA13E0`, calls `FUN_00E90A80` with `ECX = allocation` and stack arg
+  `renderer`, then stores the return value at `renderer +0x8C4`. Renderer
+  teardown `FUN_00E75A70` calls the object vtable slot `+0x00` with argument
+  `1` and nulls the field. `FUN_00E7EA00` uses vtable slot `+0x0C` for
+  `entry +8` resolution, while renderer main vtable slot `+0xE0` at
+  `FUN_00E69640` loads `renderer +0x8C4` and jumps to resolver vtable
+  slot `+0x10`.
+- `graphics_fnv_pbr_pplighting_resolver_constructor_slot_followup_audit.txt`
+  closes the `+0x8C4` resolver identity gap. `FUN_00E90A80` first initializes
+  the 16-byte allocation as base vtable `0x0101DCE4`, then overwrites it with
+  the live resolver vtable `0x010F086C`. Object fields are:
+  `+0x08 = *(renderer +0x288)` with a virtual add-ref through slot `+0x04`,
+  and `+0x0C = renderer`. The live vtable maps slot `+0x00` to
+  `FUN_00E90AC0` (release `+0x08`, decrement the base refcount, optionally
+  free the 16-byte object), slot `+0x08` to `FUN_00BA8A90`, slot `+0x0C` to
+  `FUN_00E90B10`, slot `+0x10` to `FUN_00E90C70`, and slot `+0x14` to
+  `FUN_00E90D20`.
+- `FUN_00E90B10` is the proven resource resolver used by `FUN_00E7EA00`.
+  It clears three output flags, locks `DAT_011F4748 +0x180`, reads the
+  source/resource object's renderer-data pointer at `resource +0x24`, and if
+  missing uses the `DAT_011F444C` lookup path plus `FUN_00E68EF0` to create
+  renderer data and write it back to `resource +0x24`. It then resolves a
+  returned bindable pointer through renderer-data virtual slots
+  `+0xA4/+0xAC/+0xA8` and wrapper/texture virtual slots `+0x9C/+0xB4`, with
+  extra flags based on renderer-data fields `+0x0C/+0x10` and `resource +0x40`.
+  `FUN_00E90C70` uses the same `resource +0x24`/`FUN_00E68EF0` path as a
+  validity/helper route from renderer main vtable slot `+0xE0`.
+- `graphics_fnv_pbr_pplighting_resolver_texturedata_vtable_followup_audit.txt`
+  closes the concrete source-texture renderer-data path under `entry +8`.
+  `FUN_00E68EF0` allocates a 0x84-byte renderer-data object, writes vtable
+  `0x010ED37C`, stores the source/resource pointer at `+0x08`, width/height at
+  `+0x0C/+0x10`, the bindable texture/wrapper pointer at `+0x64`, and writes
+  the object back to `source +0x24`. `FUN_00E68A80` is a real D3D load path:
+  it uses `D3DXGetImageInfoFromFileInMemory` and creates 2D/cube/volume
+  textures with the corresponding `D3DXCreate*FromFileInMemory` calls.
+- For the `0x010ED37C` renderer-data vtable created by `FUN_00E68EF0`,
+  `FUN_00E90B10` takes the final branch: slot `+0xA4` returns null, slot
+  `+0xAC` returns null, slot `+0xA8` returns `this`, slot `+0xB4` can refresh
+  or rebuild the wrapper, slot `+0x98` returns `*(this +0x68)`, and slot
+  `+0x9C` returns `*(this +0x64)`. Therefore the proven source-texture bind
+  path is now:
+  `BA9EE0 entry +8 resource -> resource +0x24 renderer data ->
+  *(rendererData +0x64) -> NiDX9RenderState::SetTexture(stage = entry +4)`.
+  Other renderer-data vtables may still use non-null `+0xA4/+0xAC` paths, but
+  the normal source-texture path no longer requires guesswork.
+- Updated hard gap: map resource-bearing `FUN_00BA9EE0` rows and their
+  `entry +4` stage keys back to material semantics for one safe PPLighting
+  family. The remaining unknown is no longer the final texture wrapper
+  returned to D3D; it is whether a given `entry +8` resource came from diffuse,
+  bump/normal, glow, gloss, dark/detail/decal, an active-object resource, or a
+  fallback/non-material source. Visible native PBR remains blocked until that
+  semantic map is proven.
+- `graphics_fnv_pbr_pplighting_texture_semantic_stage_followup_audit.txt`
+  rejects the obvious named-map shortcut. The named getters for
+  `Dark/Detail/Gloss/Glow/Bump/Decal Map` are referenced only from
+  `FUN_0046E910`, and `FUN_0046E910` only enumerates extra maps and attaches
+  them through `FUN_0046E8E0 -> FUN_00653270(&DAT_011F444C, texture)`.
+  That is relevant to source-texture renderer data, but it is not the
+  PPLighting draw-stage builder and it does not directly label `BA9EE0`
+  resource rows.
+- The same semantic-stage follow-up confirms the PPLighting rows remain
+  helper-driven. `FUN_00BDF790` reads `FUN_00653290(&DAT_01200788)`,
+  `FUN_00653290(&DAT_012024C8)`, `FUN_00653290(&DAT_012007A0)`, fetches
+  property type `0` through `FUN_00A59D30(0)`, and forwards `local_60 =
+  *(FUN_00B4F5C0() +0x194) +0xE0` through many helper families. The direct
+  active-object branch calls `FUN_00B70590`, appends a `BA9EE0` resource row,
+  then overwrites the final stage to `0x231`, `0x232`, or `0x233`; this is
+  active-object provenance, not an albedo/normal/glow map.
+- `FUN_00BDAF10` is the strongest material-property lead from the new output.
+  It fetches property type `3` with `FUN_00A59D30(3)`, tests arrays under
+  `property +0xAC` and `property +0xB4`, emits stage keys
+  `0x93/0x94/0x1EF/0x1F1/0x1F2/0x1F3/0x1F4/0x1F5`, and sometimes forwards
+  `param_3` or active-object iterator results into `BA9EE0`. This proves the
+  next research target is producer-side field layout under the type-3 property
+  and the texture-array writer path, not final D3D binding.
+- Updated hard gap after semantic-stage follow-up: prove how source
+  `BGSTextureSet` slots and the runtime arrays `+0xAC..+0xC0` populate the
+  type-3 property fields consumed by `FUN_00BDAF10`/`FUN_00BDF790`. The
+  strongest proven source-material clue remains the texture-set virtual getter
+  at `TextureSet +0x30 -> vtable +0x8C`, where landscape validation calls
+  index `0` as diffuse and index `1` as normal, plus the known record-side
+  extra-map slot IDs from `FUN_00877A30`. Visible native PBR is still blocked
+  until these producer fields are mapped to the final `entry +4` stages.
+- `graphics_fnv_pbr_pplighting_texture_property_field_source_audit.txt`
+  closes the anonymous field-layout part of that gap. `FUN_00B690D0`
+  serializes the type-3 property arrays with engine-authored labels:
+  `+0xAC`/`param_1[0x2B]` is base diffuse/base texture, `+0xB0` is base
+  normal/normal map, `+0xB4` is glow map or glow/skin/hair layer texture,
+  `+0xB8` is heightmap texture, `+0xBC` is envmap texture, and `+0xC0` is
+  envmap mask texture. For landscape mode, `+0xA8` is the texture count and the
+  same diffuse/normal/glow arrays are indexed per layer.
+- The same audit proves `FUN_00B68660` is the runtime writer for the six
+  texture arrays beginning at `+0xAC`: it ensures allocation, clears the
+  per-index byte arrays at `+0xC4/+0xCC`, calls a resolver object's virtual
+  slot `+0x90` with texture kind `0..5` and an output pointer, and then derives
+  a normal/specular-like byte flag from the normal-map renderer-data type.
+  `FUN_00B66640` separately initializes the nine `+0xC4` landscape byte flags.
+- The new hard gap is therefore narrower: decompile the two producer callsites
+  `FUN_00539960` and `FUN_0053A090`, recover the exact arguments passed to
+  `FUN_00B68660`/`FUN_00B66640`, and identify the resolver object whose vtable
+  slot `+0x90` fills each array. Until that writer path is connected to
+  `BGSTextureSet +0x30 -> +0x8C` slot indexes or another proven texture source,
+  visible PBR must still avoid treating the type-3 arrays as generic BRDF map
+  inputs.
+- `graphics_fnv_pbr_pplighting_texture_writer_callsite_deep_audit.txt`
+  closes the producer-side callsite shape. Both `FUN_00539960` and
+  `FUN_0053A090` build a type-3 PPLighting property, pass that property as ECX
+  to `FUN_00B68660`, and use stack arg 0 as the destination array index:
+  index `0` for the base texture source at `land/owner +0x20`, then indexes
+  `1..6` for layer sources read from `land/owner +0x30 + layer*4 - 4`.
+  Stack arg 1 is either zero, which clears that indexed entry in all six
+  arrays, or the result of `FUN_00592CF0(FUN_009611E0(textureSource))`.
+  Fallback paths use `FUN_00535AE0() -> FUN_009611E0() -> FUN_00592CF0()` for
+  base index `0`. `FUN_00B66640` then initializes the per-index `+0xC4` flags
+  from `FUN_00541590()` tests over the same base/layer source pointers.
+- The same audit corrects the resolver identity: the renderer-side vtable
+  `0x010F086C +0x90 -> 0x00E90D80` is not the callback object passed by these
+  producer calls. The proven source callback candidate is the
+  `BGSTextureSet +0x30` slot-interface vtable at `0x01033C7C`, where
+  `+0x8C -> FUN_00592E70` returns indexed texture filenames and
+  `+0x90 -> FUN_00592F30` prefixes `Data\\Textures\\`, calls `FUN_00B55840`,
+  and then calls `FUN_006E5CC0` on the loaded smart pointer. The decompiler does
+  not show the second `FUN_00B68660` callback argument being consumed, so the
+  remaining contract gap is raw stack/RET proof that `FUN_00592F30` writes the
+  loaded resource to the `piVar7` out pointer and to map callback kind `0..5`
+  exactly to the engine-labeled diffuse/normal/glow/height/env/env-mask arrays.
+- `graphics_fnv_pbr_pplighting_texture_source_callback_contract_audit.txt`
+  closes that raw callback gap. `FUN_00592CF0` is only a slot-interface getter:
+  it returns `textureSourceRenderer +0x30`. Raw `FUN_00592F30` proves the
+  hidden callback signature as `+0x90(kind, outSlot)`: `[EBP+0x8]` is the
+  callback kind, `[EBP+0xC]` is the caller's output smart-pointer slot, and the
+  function returns with `RET 0x8`. It calls `+0x8C` to fetch a texture path,
+  builds `Data\\Textures\\...`, calls
+  `FUN_00B55840(path, 1, &localSmartPtr, 1, 0)`, then
+  `FUN_006E5CC0(outSlot, &localSmartPtr)`. `FUN_006E5CC0` is a refcounted
+  smart-pointer copy helper; `FUN_00B55840` may leave the result null for a
+  missing, invalid, or no-mip texture.
+- The proven callback-kind map is now:
+  `0 -> +0xAC diffuse/base -> source element 0 (slot-interface +0x08)`,
+  `1 -> +0xB0 normal -> source element 1 (+0x14)`,
+  `2 -> +0xB4 glow/skin/hair layer -> source element 3 (+0x2C)`,
+  `3 -> +0xB8 heightmap -> source element 4 (+0x38)`,
+  `4 -> +0xBC envmap -> source element 5 (+0x44)`,
+  `5 -> +0xC0 envmap mask -> source element 2 (+0x20)`. This is the standard
+  `BGSTextureSet` source order used by the callback, not the separate
+  record-side extra-map getter order.
+- Remaining visible PBR implementation gap after the source callback proof:
+  the material texture source contract is closed, but visible BRDF replacement
+  still needs a concrete replacement shader contract for at least one safe
+  shader family: which material arrays become final texture stages, input
+  semantics, constants, sampler policy, fallback behavior, and shader
+  source/bytecode ownership. Until that exists, replacement may capture handles
+  and texture state but must not rebind a guessed material shader.
+- `graphics_fnv_pbr_pplighting_material_array_stage_contract_audit.txt`
+  proves `FUN_00BDAF10` is not the missing normal/height/env material texture
+  binder. It is called only from `FUN_00BDB4A0 @ 0x00BDBAA7`; raw caller state
+  passes ECX from `ESI` and stack args from the surrounding pass-builder state.
+  Inside `FUN_00BDAF10`, the only type-3 material arrays read are
+  `+0xAC` diffuse/base and `+0xB4` glow/skin/hair layer. There are no
+  `+0xB0` normal, `+0xB8` heightmap, `+0xBC` envmap, or `+0xC0` env-mask reads
+  in this helper.
+- The `FUN_00BDAF10 -> FUN_00BA9EE0` stage keys are now classified. `0x93`
+  and `0x94` are base material rows using `param_3` as the single resource
+  when the row count is `1`. `0x1F2` and `0x1F3` are layer rows gated by
+  `+0xAC[index+1]`; they also use `param_3` as the single resource in the
+  normal non-`DAT_011F91A7` path. `0x1F1` is a zero-resource row gated by base
+  `+0xB4[0]`, and `0x1F4` is a zero-resource row gated by both
+  `+0xAC[index+1]` and `+0xB4[index+1]`. `0x1EF` and `0x1F5` are active-object
+  resource rows from `FUN_00B70600`/`FUN_00B70700`, not material texture array
+  resources.
+- Updated hard gap: find every draw-time consumer of the remaining material
+  arrays `+0xB0/+0xB8/+0xBC/+0xC0`, or prove they are only serialized/runtime
+  flags and not bound by vanilla PPLighting. Until that is closed, the safe
+  visible PBR target is still not available even though diffuse/glow predicate
+  behavior in `FUN_00BDAF10` is known.
+- `graphics_fnv_pbr_pplighting_remaining_array_consumer_followup_audit.txt`
+  narrows the remaining-array gap. `FUN_00B68660` is confirmed as the
+  non-draw writer for all six arrays and the only direct `+0xB0` consumer in
+  the printed draw-adjacent set: it uses the normal array at index `1` only to
+  derive the per-index byte at `+0xCC` when the normal texture renderer data
+  reports type `5`, `6`, or `1`. `FUN_00B690D0` labels and serializes
+  diffuse/base, normal, glow/layer, heightmap, envmap, and envmap-mask fields,
+  but it has no `FUN_00BA9EE0` calls and is not draw binding.
+- The same audit shows the real draw selectors treat the remaining arrays
+  mostly as predicates, not direct resource rows. `FUN_00B69FF0` reads
+  `param_2 +0xB8 +0x28` to choose height-related stage keys but emits
+  zero-resource `FUN_00BA9EE0` rows. `FUN_00BB41E0` tests `+0xBC` to select
+  `0x24C` versus `0x24D`, again with no material resource. The long selector
+  variants `FUN_00BB4740` and `FUN_00C058F0` read `+0xB8`, `+0xBC`, and
+  `+0xB4[0]` as branch predicates for stage families such as
+  `0x1C8..0x1D6`, `0x1BB..0x1BC`, `0x1D0..0x1E0`, and `0x17F..0x1BA`; their
+  resource-bearing rows use fallback/global resources or active-object
+  iterator results, not direct `+0xB0/+0xB8/+0xBC/+0xC0` texture-array slots.
+- `FUN_00BDF790` is more subtle: the decompile only confirms real material
+  reads from `param_2 +0xB8`, `param_2 +0xBC`, and `param_1 +0xB4` as
+  predicates. The raw `[ESP +0xB0/+0xBC/+0xC0]` windows in that function are
+  helper-call stack argument offsets after many pushes, so they must not be
+  treated as direct normal/env/env-mask material-field reads. No draw-stage
+  `+0xC0` env-mask consumer is proven yet, and no direct normal-array
+  `FUN_00BA9EE0` resource row is proven.
+- Updated hard gap: the material source and writer contracts are known, and the
+  final `FUN_00E7EA00 -> NiDX9RenderState::SetTexture` route is known, but the
+  safe PBR replacement still needs an exact semantic closure at the selector
+  boundary: real material-object reads versus stack offsets, pass index
+  ownership, final stage/key, resource count, and fallback behavior for each
+  target row. Until that is proven, runtime code may capture PPLighting state
+  but must not rebind a visible BRDF shader.
+- `graphics_fnv_pbr_pplighting_material_semantic_stage_closure_audit.txt`
+  strengthens that blocker instead of clearing it. The audit separates real
+  material-object reads from stack-offset false positives. The only real
+  material reads in `FUN_00BDF790` are `param_1 +0xB4`,
+  `param_2 +0xB8`, and `param_2 +0xBC`, and they are branch predicates.
+  The apparent `[ESP +0xB0]`, `[ESP +0xBC]`, and `[ESP +0xC0]` reads are
+  helper-call stack offsets. They forward already-selected arguments into
+  helpers such as `FUN_00BDD050`, `FUN_00BDD520`, `FUN_00BDE1D0`,
+  `FUN_00BDCA60`, `FUN_00BDC0D0`, `FUN_00BDC530`, `FUN_00BDDD80`, and
+  `FUN_00BDBF60`; they are not direct normal/env/env-mask material fields.
+- The same closure audit proves that most helper families have no direct
+  material-array reads at all. They emit `FUN_00BA9EE0` rows from helper
+  parameters, active-object iterators, globals, or zero-resource stage rows.
+  `FUN_00BDAF10` remains the only direct material-array helper in the scanned
+  late family, and it reads only `+0xAC` diffuse/base and `+0xB4`
+  glow/layer arrays as predicates. It emits stage keys
+  `0x93`, `0x94`, `0x1EF`, and `0x1F1..0x1F5`, but the resource-bearing rows
+  use either `BDAF10` parameter `param_3` or active-object iterator results;
+  the direct material-array slots are not passed as resources in the printed
+  rows.
+- New hard gap after semantic closure: normalize the only
+  `FUN_00BDB4A0 -> FUN_00BDAF10` callsite with the correct `thiscall`
+  boundary. The broad helper-call table over-collects previous pushes, so the
+  exact ECX owner and six stack arguments at `0x00BDBAA7` must be printed
+  directly. In particular, prove whether `BDAF10` `param_3`, used by rows
+  `0x93/0x94/0x1F2/0x1F3` as the single `entry +8` resource, is the
+  `FUN_00BDB4A0` value `uVar1 = *(FUN_00B4F5C0() +0x194) +0xE0` rather than a
+  direct material texture array. If it is the global/fallback resource, then
+  `BDAF10` is a material predicate helper only, not the safe PBR material-map
+  binding contract.
 - Current Psycho implementation state: `graphics.native_pbr` is default-off and
   prologue-gated. When explicitly enabled it captures the proven contract at
   `BSShader::SetShaders`, `FUN_00BD4BA0`, and
@@ -1263,8 +1621,9 @@ Ghidra-backed NewVegasReloaded contract findings:
   the proven vanilla `0x010EF544 -> 0x00E826D0` constant dispatcher, and it
   captures the final vanilla D3D shader handles from pass `+0x5C` vertex object
   `+0x34` and pass `+0x44` pixel object `+0x2C` only when their vtables match
-  the proven vanilla `0x010EF87C`/`0x010EF7D4` objects. It does not replace
-  shaders yet.
+  the proven vanilla `0x010EF87C`/`0x010EF7D4` objects. It now also classifies
+  the current draw's PPLighting family and array indexes from the proven global
+  shader arrays. It does not replace shaders yet.
 
 ### Fallout Shader Loader
 
@@ -1866,7 +2225,7 @@ proves `renderer +0x8B8` is the vtable-B render-state object created by
 `NiDX9RenderState::SetTexture @ 0x00E88A20` route for PPLighting pass-entry
 resources.
 
-Prepared native PBR follow-up script:
+Prepared native PBR follow-up scripts:
 
 - `analysis/ghidra/scripts/graphics_fnv_pbr_shader_virtual_interface_followup_audit.py`
   - resolve `FUN_00B55560(1)` object identity and the writers for its
@@ -1916,6 +2275,177 @@ Prepared native PBR follow-up script:
     not created a function for it;
   - prove whether PBR replacement should hook getter slots, substitute handles
     inside `SetShaders`, or avoid mutation until a safer binding point exists.
+- `analysis/ghidra/scripts/graphics_fnv_pbr_pplighting_pass_shader_pair_contract_audit.py`
+  - enumerate all functions that read the PPLighting vertex/pixel global shader
+    arrays after creation;
+  - prove how vertex groups `0x011FDD88/0x011FDE04/0x011FDE5C` are paired with
+    pixel groups `0x011FDA48/0x011FDB08`;
+  - prove which pair is written into current pass `+0x5C/+0x44` before
+    `SetShaders`, so the first visible replacement can target one known-safe
+    shader family instead of guessing from array names.
+- `analysis/ghidra/scripts/graphics_fnv_pbr_pplighting_shader_input_signature_followup_audit.py`
+  - inspect PPLighting shader creation callsite windows for source/profile/
+    define arguments that identify a first replacement target family;
+  - trace the current-pass shader-interface apply path and constant-interface
+    helpers that run before `BSShader::SetShaders`;
+  - dump call windows for texture-stage and sampler-state helpers so the first
+    visible replacement can use a proven input/register/texture contract.
+- `analysis/ghidra/scripts/graphics_fnv_pbr_pplighting_interface_record_table_audit.py`
+  - reduce `FUN_00E7F430` record-registration calls in PPLighting setup
+    functions into record-key/value/list tables;
+  - decompile the `0x010EF544` shader-interface vtable helper slots used by
+    `FUN_00E826D0` for record type classes;
+  - decompile the PPLighting pass-entry helper family and print calls to
+    `BA8C50`/`BA8EC0`/`BA9EE0` so texture-stage/resource ownership can be
+    mapped for one replacement family.
+- `analysis/ghidra/scripts/graphics_fnv_pbr_pplighting_pass_entry_arg_table_followup_audit.py`
+  - decompile `E7F430`, `BA9EE0`, `BA8EC0`, and `BA8C50` together so their
+    field writes and variable-array behavior are visible in one output;
+  - emit normalized callsite tables where `stack_arg0` is the callee's first
+    stack argument and ECX owner writes are shown separately for thiscall
+    helpers;
+  - reduce unique `E7F430` record tuples and `BA9EE0` pass-entry tuples by
+    PPLighting setup/helper function without assigning unproven material-map
+    semantics.
+- `analysis/ghidra/scripts/graphics_fnv_pbr_shader_interface_missing_vfunc_followup_audit.py`
+  - verify the `0x010EF544` shader-interface vtable slots after the
+    interface-record audit;
+  - force-create/decompile raw helper targets `0x00E84D00` and `0x00E85C40`
+    where the previous audit resolved slot pointers but Ghidra had no function
+    body;
+  - determine whether record type classes `0x40000000` and `0x60000000`
+    perform texture binding, constants, render state, or another operation.
+- `analysis/ghidra/scripts/graphics_fnv_pbr_pplighting_pass_id_stage_correlation_audit.py`
+  - make the entry `+0` versus entry `+4` distinction explicit for all scanned
+    `FUN_00BA9EE0` PPLighting pass-entry construction rows;
+  - correlate the normalized constructor rows with the proven
+    `FUN_00E7EB00 -> FUN_00E7EA00` apply path, where entry `+4` is consumed as
+    the final texture stage/key on the `NiDX9RenderState::SetTexture` route;
+  - re-print render-state vtable A/B slots and the `E7EA00` matched lines so
+    the remaining output can prove or reject a stage/resource policy before
+    any visible BRDF shader replacement is enabled.
+- `analysis/ghidra/scripts/graphics_fnv_pbr_pplighting_pass_resource_provenance_followup_audit.py`
+  - backtrack register-valued `FUN_00BA9EE0` arguments at resource-bearing or
+    unresolved PPLighting pass-entry construction rows;
+  - identify whether entry `+0x0C` resource-array values originate from source
+    texture arrays, active-object virtual getters, fallback globals, or
+    non-texture state;
+  - keep the visible BRDF replacement blocked until entry `+4` stage keys have
+    concrete resource provenance on the proven `E7EA00 -> E88A20` route.
+- `analysis/ghidra/scripts/graphics_fnv_pbr_pplighting_selector_driver_arg_provenance_audit.py`
+  - decompile `FUN_00BDF790`, the PPLighting selector/pass-entry driver now
+    shown to call the relevant helper families;
+  - normalize the direct arguments passed from `BDF790` into helper families
+    and resource helpers such as `00B70590`, `00B70600`, `00B70680`,
+    `00B70700`, and `00B707D0`;
+  - trace forwarded helper parameters back toward concrete material fields or
+    getters before assigning albedo/normal/glow/height/environment semantics.
+- `analysis/ghidra/scripts/graphics_fnv_pbr_pplighting_resource_resolver_vtable_audit.py`
+  - audit the `FUN_00E7EA00` resource resolver path
+    `DAT_0126F6C4 +0x8C4 -> vtable +0x0C`;
+  - find `renderer +0x8C4` writers/destructors and dump candidate
+    `0x010EDAxx`/`0x010EDBxx` vtables, especially slot `+0x0C`;
+  - prove whether `entry +8` resources resolve to texture objects, persistent
+    source textures, render targets, or non-material resources before visible
+    PBR shader replacement is enabled.
+- `analysis/ghidra/scripts/graphics_fnv_pbr_pplighting_resolver_constructor_slot_followup_audit.py`
+  - force-create/decompile `FUN_00E90A80`, `FUN_00E88EB0`,
+    `FUN_00E69640`, and unresolved adjacent target candidates from the broad
+    resolver audit;
+  - re-print the `FUN_00E72E60` allocation path around
+    `FUN_00AA13E0(0x10) -> FUN_00E90A80 -> renderer +0x8C4`;
+  - scan `FUN_00E90A80` for constructor-written vtable immediates, dump slots
+    `+0x00`, `+0x0C`, and `+0x10`, and decompile those slot targets;
+  - distinguish the actual 16-byte resolver object from adjacent persistent
+    source texture renderer-data teardown records before assigning PBR texture
+    semantics.
+- `analysis/ghidra/scripts/graphics_fnv_pbr_pplighting_resolver_texturedata_vtable_followup_audit.py`
+  - follow `FUN_00E90B10` below the proven resolver slot into
+    `resource +0x24` renderer data and the `FUN_00E68EF0` creation path;
+  - scan `FUN_00E68EF0`, `FUN_00E68A80`, `FUN_00E88EB0`, `FUN_00E90A80`, and
+    `FUN_00BA8A90` for vtable immediates, while also dumping the fixed
+    `0x010EDAxx`/`0x010EDBxx`, `0x010EF718`, and `0x010F086C` candidates;
+  - decompile renderer-data and returned-wrapper slot targets for
+    `+0x98`, `+0x9C`, `+0xA4`, `+0xA8`, `+0xAC`, and `+0xB4`;
+  - prove the final object returned to `NiDX9RenderState::SetTexture` before
+    assigning PBR texture semantics.
+- `analysis/ghidra/scripts/graphics_fnv_pbr_pplighting_texture_semantic_stage_followup_audit.py`
+  - correlate resource-bearing `FUN_00BA9EE0` rows with material texture
+    getters such as Dark/Detail/Gloss/Glow/Bump/Decal Map or active-object
+    resource helpers;
+  - print stage-key/resource callsite windows while preserving the proven
+    `BA9EE0 -> E7EB00/E7EA00 -> E90B10 -> SetTexture` final bind chain;
+  - determine whether one PPLighting family has enough material semantic proof
+    to safely enable a visible BRDF replacement.
+- `analysis/ghidra/scripts/graphics_fnv_pbr_pplighting_texture_property_field_source_audit.py`
+  - audit the producer-side material texture contract after the semantic-stage
+    follow-up rejected direct named-map usage;
+  - dump `BGSTextureSet` vtables, especially `TextureSet +0x30 -> vtable
+    +0x8C`, and decompile texture-set slot helpers such as `FUN_00877A30` and
+    `FUN_0046EBF0`;
+  - decompile and pattern-scan `FUN_00B66640`, `FUN_00B68660`,
+    `FUN_00B690D0`, `FUN_00BDAF10`, `FUN_00BDB4A0`, and `FUN_00BDF790` to map
+    property type `3` fields and arrays `+0xAC..+0xC0` back to
+    diffuse/normal/glow/height/env resources.
+- `analysis/ghidra/scripts/graphics_fnv_pbr_pplighting_texture_writer_callsite_deep_audit.py`
+  - deep-audit `FUN_00539960` and `FUN_0053A090`, the two producer callsites
+    now proven to call both `FUN_00B68660` and `FUN_00B66640`;
+  - recover ECX and stack arguments for each texture-array writer/flag
+    initializer call so the property object, layer/index, and resolver object
+    are explicit;
+  - inspect the resolver virtual slot `+0x90` used by `FUN_00B68660` to fill
+    the six `+0xAC..+0xC0` arrays;
+  - determine whether these writer callsites connect the engine-labeled
+    diffuse/normal/glow/height/env arrays to `BGSTextureSet` slot indexes or to
+    another source-texture producer before visible native PBR is enabled.
+- `analysis/ghidra/scripts/graphics_fnv_pbr_pplighting_texture_source_callback_contract_audit.py`
+  - follow the proven `FUN_00592CF0` object passed into `FUN_00B68660` instead
+    of the unrelated renderer-side `0x010F086C` vtable;
+  - raw-disassemble `FUN_00592F30`, `FUN_006E5CC0`, `FUN_00B55840`,
+    `FUN_00592CF0`, and the `BGSTextureSet +0x30` `+0x8C/+0x90/+0x94` slots;
+  - print barrier-limited stack arguments and RET cleanup for the exact
+    `FUN_00B68660`/`FUN_00B66640` callsites and for the texture-load callback;
+  - prove whether `FUN_00592F30` consumes the second callback argument as the
+    output smart-pointer slot and whether callback kinds `0..5` map directly to
+    diffuse/normal/glow/height/env/env-mask before visible native PBR uses those
+    resources.
+- `analysis/ghidra/scripts/graphics_fnv_pbr_pplighting_material_array_stage_contract_audit.py`
+  - use the now-proven material texture arrays as the input contract and focus
+    on `FUN_00BDAF10`, the material/property helper reached by
+    `FUN_00BDF790`;
+  - print raw `FUN_00BA9EE0` call windows from `FUN_00BDAF10`, including
+    stack args, nearby material array reads, and stage-key pushes for
+    `0x93/0x94/0x1EF/0x1F1..0x1F5`;
+  - prove whether `FUN_00BDAF10` consumes only diffuse/glow arrays or also
+    normal/height/env/env-mask arrays before the first visible native PBR shader
+    relies on those stages.
+- `analysis/ghidra/scripts/graphics_fnv_pbr_pplighting_remaining_array_consumer_followup_audit.py`
+  - scan every `FUN_00BA9EE0` caller plus the known PPLighting pass-helper
+    family for remaining material array reads `+0xB0/+0xB8/+0xBC/+0xC0`;
+  - print candidate summaries, decompile matches, raw material-offset windows,
+    and `FUN_00BA9EE0` stack-argument windows so unrelated stack/object offsets
+    can be separated from real type-3 material-array consumers;
+  - prove whether normal/height/env/env-mask arrays feed any draw-stage
+    resource rows or only writer flags/serialization before visible PBR binds
+    replacement shaders.
+- `analysis/ghidra/scripts/graphics_fnv_pbr_pplighting_material_semantic_stage_closure_audit.py`
+  - filter the remaining-array findings into real material-object field reads
+    versus `[ESP +...]` helper-call stack offsets;
+  - print interpreted `FUN_00BA9EE0` rows with the proven field mapping
+    (`entry +0`, `entry +4`, `entry +7`, `entry +9`, and resource slots at
+    `entry +0x0C`);
+  - print selector-driver helper calls from `FUN_00BDF790`, `FUN_00BB4740`,
+    and `FUN_00C058F0`, then decompile the helper families that emit final
+    stage/key rows, so one safe material-map-to-stage semantic contract can be
+    proven before any visible PBR shader replacement.
+- `analysis/ghidra/scripts/graphics_fnv_pbr_pplighting_bdaf10_callsite_param_closure_audit.py`
+  - normalize the exact `FUN_00BDB4A0 -> FUN_00BDAF10` callsite at
+    `0x00BDBAA7` as a `thiscall`, separating ECX from the six stack arguments;
+  - trace the `BDAF10` `param_3` resource used by stage rows
+    `0x93/0x94/0x1F2/0x1F3` back to its `FUN_00BDB4A0` source;
+  - prove whether `FUN_00BDAF10` binds a material texture resource or only
+    emits predicate-selected rows that use a renderer/global fallback resource
+    and active-object iterator resources.
 
 ### Runtime Telemetry
 

@@ -91,6 +91,7 @@ depth_provider = "fallout_new_vegas"
 #   - BSShader::SetShaders current NiD3DPass context
 #   - current pass shader-interface apply context
 #   - NiDX9RenderState::SetTexture final 16-stage texture cache
+#   - PPLighting shader-family membership from proven vanilla global arrays
 #
 # The hook refuses to install when the target prologues are not vanilla by
 # default, which avoids stacking on top of an unknown shader loader.
@@ -98,8 +99,9 @@ enabled = false
 
 # Placeholder for the later visible BRDF replacement path.
 #
-# The vanilla draw-time shader handle binding contract is proven and captured,
-# but visible replacement still needs a concrete replacement shader contract.
+# The vanilla draw-time shader handle and PPLighting pass-pair contracts are
+# proven and captured, but visible replacement still needs a concrete shader
+# input/constant/texture contract for one selected family.
 # Do not enable for normal play.
 experimental_shader_replacement = false
 
@@ -107,7 +109,7 @@ experimental_shader_replacement = false
 # false = install anyway and rely on inline-hook chaining; use only for testing.
 require_vanilla_prologues = true
 
-# Log the first native draw contexts and captured texture stages.
+# Log the first native draw contexts, PPLighting family IDs, and texture stages.
 debug_log_draws = false
 
 [diagnostics]
