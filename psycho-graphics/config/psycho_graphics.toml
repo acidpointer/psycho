@@ -165,6 +165,9 @@ occlusion_softness = 0.42
 #     pixel group B index 17
 #   - high-light ADTS10 LIGHTS=4 ABI: vertex group C index 22,
 #     pixel group B index 31
+#   - land LOD ABI from NewVegasReloaded_release terrain/SLS2006 references:
+#     vertex group C index 2 and pixel group B index 3 are replaced together;
+#     c31 remains vanilla LODTexParams and PBR uses c32/c33 only on that path
 #
 # This is a runtime shader toggle. It does not control hook installation.
 enabled = true

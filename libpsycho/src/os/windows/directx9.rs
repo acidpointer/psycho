@@ -529,6 +529,19 @@ impl<'a> Device9Ref<'a> {
         unsafe { self.inner.SetVertexShader(shader.as_inner()) }
     }
 
+    /// Set a borrowed raw `IDirect3DVertexShader9` pointer.
+    ///
+    /// # Safety
+    ///
+    /// `shader` must be a live vertex shader for the duration of the call.
+    /// This does not call `AddRef`; it is for engine-owned or otherwise
+    /// lifetime-managed shader objects.
+    pub unsafe fn set_raw_vertex_shader(&self, shader: *mut c_void) -> Direct3DResult<()> {
+        let ptr = NonNull::new(shader).ok_or_else(|| WindowsError::from_hresult(E_POINTER))?;
+        let shader = unsafe { InterfaceRef::<IDirect3DVertexShader9>::from_raw(ptr) };
+        unsafe { self.inner.SetVertexShader(shader) }
+    }
+
     /// Clear the current programmable vertex shader so FVF vertices can be used.
     pub fn clear_vertex_shader(&self) -> Direct3DResult<()> {
         unsafe {
@@ -786,6 +799,11 @@ impl VertexShader9 {
     /// Return the wrapped Windows binding interface.
     pub fn as_inner(&self) -> &IDirect3DVertexShader9 {
         &self.inner
+    }
+
+    /// Return the raw `IDirect3DVertexShader9*` pointer.
+    pub fn as_raw(&self) -> *mut c_void {
+        self.inner.as_raw()
     }
 
     /// Consume the wrapper and return the owned Windows binding interface.

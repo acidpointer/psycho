@@ -1,0 +1,1091 @@
+FNV PBR LANDLOD ABI AUDIT
+
+Known target from runtime reports and prior audits:
+- close-object PBR currently targets family 3 v12/p17 and v22/p31
+- suspected far-distance dropout is family 3 landlod v2/p3
+- do not reuse object PBR shaders until this output proves landlod inputs
+
+Known string/global anchors:
+  0x010AEBD4 vertex source            lighting\2x\v\landlod.v.hlsl
+  0x010AF0F4 pixel source             lighting\2x\p\landlod.p.hlsl
+  0x010AEBC4 define                   MODELSPACENORM
+  0x010AEBB8 define                   LODLANDCLIP
+  0x010AEBAC define                   GEOMORPH
+  0x010AF0E4 define                   LODLANDNOISE
+  0x011FA0B0 LODLandParams global     vertex c19 source candidate
+  0x011FA300 LODTEXPARAMS global      pixel c31 source candidate
+
+======================================================================
+Vertex group C descriptor view, focus v2 landlod
+======================================================================
+
+candidate[0] base=ESP+0x18 from 0x00B74117: LEA EBX,[ESP + 0x18]
+  [000] context entry=ESP+0x18 [no nearby string fields]
+  [001] context entry=ESP+0x64 [no nearby string fields]
+  [002] TARGET  entry=ESP+0xB0 [no nearby string fields]
+  [003] TARGET  entry=ESP+0xFC [no nearby string fields]
+  [004] context entry=ESP+0x148 [no nearby string fields]
+  [005] context entry=ESP+0x194 [no nearby string fields]
+  [012] context entry=ESP+0x3A8 [no nearby string fields]
+  [013] context entry=ESP+0x3F4 [no nearby string fields]
+  [022] context entry=ESP+0x6A0 [no nearby string fields]
+
+candidate[1] base=ESP+0x1EAC from 0x00B74056: LEA EBX,[ESP + 0x1eac]
+  [000] context entry=ESP+0x1EAC [no nearby string fields]
+  [001] context entry=ESP+0x1EF8 [no nearby string fields]
+  [002] TARGET  entry=ESP+0x1F44 [no nearby string fields]
+  [003] TARGET  entry=ESP+0x1F90 [no nearby string fields]
+  [004] context entry=ESP+0x1FDC [no nearby string fields]
+  [005] context entry=ESP+0x2028 [no nearby string fields]
+  [012] context entry=ESP+0x223C [no nearby string fields]
+  [013] context entry=ESP+0x2288 [no nearby string fields]
+  [022] context entry=ESP+0x2534 [no nearby string fields]
+
+candidate[2] base=ESP+0x2534 from 0x00B73FA4: LEA EBX,[ESP + 0x2534]
+  [000] context entry=ESP+0x2534 [no nearby string fields]
+  [001] context entry=ESP+0x2580 [no nearby string fields]
+  [002] TARGET  entry=ESP+0x25CC [no nearby string fields]
+  [003] TARGET  entry=ESP+0x2618 [no nearby string fields]
+  [004] context entry=ESP+0x2664 [no nearby string fields]
+  [005] context entry=ESP+0x26B0 [no nearby string fields]
+  [012] context entry=ESP+0x28C4 [no nearby string fields]
+  [013] context entry=ESP+0x2910 [no nearby string fields]
+  [022] context entry=ESP+0x2BBC [no nearby string fields]
+
+======================================================================
+Pixel group B descriptor view, focus p3 landlod
+======================================================================
+
+candidate[0] base=ESP+0x2C from 0x00B78804: LEA EBX,[ESP + 0x2c]
+  [000] context entry=ESP+0x2C [no nearby string fields]
+  [001] context entry=ESP+0x78 [no nearby string fields]
+  [002] TARGET  entry=ESP+0xC4 [no nearby string fields]
+  [003] TARGET  entry=ESP+0x110 [no nearby string fields]
+  [004] context entry=ESP+0x15C [no nearby string fields]
+  [005] context entry=ESP+0x1A8 [no nearby string fields]
+  [017] context entry=ESP+0x538 [no nearby string fields]
+  [031] context entry=ESP+0x960 [no nearby string fields]
+
+candidate[1] base=ESP+0x2FA0 from 0x00B786C6: LEA EBX,[ESP + 0x2fa0]
+  [000] context entry=ESP+0x2FA0 [no nearby string fields]
+  [001] context entry=ESP+0x2FEC [no nearby string fields]
+  [002] TARGET  entry=ESP+0x3038 [no nearby string fields]
+  [003] TARGET  entry=ESP+0x3084 [no nearby string fields]
+  [004] context entry=ESP+0x30D0 [no nearby string fields]
+  [005] context entry=ESP+0x311C [no nearby string fields]
+  [017] context entry=ESP+0x34AC [no nearby string fields]
+  [031] context entry=ESP+0x38D4 [no nearby string fields]
+
+======================================================================
+DISASM: vertex group C create callsite around 0x00b7419f
+======================================================================
+   0x00b740e7: CMP EBP,EDI
+   0x00b740e9: JZ 0x00b740f5
+      ref CONDITIONAL_JUMP   -> 0x00b740f5 
+   0x00b740eb: ADD EBP,0x4
+   0x00b740ee: PUSH EBP
+   0x00b740ef: CALL dword ptr [0x00fdf1c0]
+      ref READ               -> 0x00fdf1c0 
+      ref COMPUTED_CALL      -> 0x00000066 
+   0x00b740f5: MOV EBX,dword ptr [ESP + 0x10]
+   0x00b740f9: INC ESI
+   0x00b740fa: ADD EBX,0x4c
+   0x00b740fd: CMP ESI,0x16
+   0x00b74100: MOV dword ptr [ESP + 0x10],EBX
+   0x00b74104: JL 0x00b74063
+      ref CONDITIONAL_JUMP   -> 0x00b74063 
+   0x00b7410a: CMP dword ptr [0x011f91c0],0x2
+      ref READ               -> 0x011f91c0 
+   0x00b74111: JL 0x00b741f6
+      ref CONDITIONAL_JUMP   -> 0x00b741f6 
+   0x00b74117: LEA EBX,[ESP + 0x18]
+   0x00b7411b: XOR ESI,ESI
+   0x00b7411d: MOV dword ptr [ESP + 0x10],EBX
+   0x00b74121: MOV EAX,dword ptr [EBX]
+   0x00b74123: CMP EAX,EDI
+   0x00b74125: JNZ 0x00b74159
+      ref CONDITIONAL_JUMP   -> 0x00b74159 
+   0x00b74127: MOV EBX,dword ptr [ESI*0x4 + 0x11fde5c]
+      ref READ               -> 0x011fde5c 
+      ref READ               -> 0x011fde60 
+   0x00b7412e: CMP EBX,EDI
+   0x00b74130: JZ 0x00b741e1
+      ref CONDITIONAL_JUMP   -> 0x00b741e1 
+   0x00b74136: LEA EAX,[EBX + 0x4]
+   0x00b74139: PUSH EAX
+   0x00b7413a: CALL dword ptr [0x00fdf1c4]
+      ref READ               -> 0x00fdf1c4 
+      ref COMPUTED_CALL      -> 0x00000067 
+   0x00b74140: TEST EAX,EAX
+   0x00b74142: JNZ 0x00b7414d
+      ref CONDITIONAL_JUMP   -> 0x00b7414d 
+   0x00b74144: MOV EDX,dword ptr [EBX]
+   0x00b74146: MOV EAX,dword ptr [EDX + 0x4]
+   0x00b74149: MOV ECX,EBX
+   0x00b7414b: CALL EAX
+   0x00b7414d: MOV dword ptr [ESI*0x4 + 0x11fde5c],EDI
+      ref WRITE              -> 0x011fde5c 
+   0x00b74154: JMP 0x00b741e1
+      ref UNCONDITIONAL_JUMP -> 0x00b741e1 
+   0x00b74159: LEA ECX,[ESP + 0x2e68]
+   0x00b74160: PUSH ECX
+   0x00b74161: PUSH EAX
+   0x00b74162: CALL 0x00be0c00
+      ref UNCONDITIONAL_CALL -> 0x00be0c00 
+   0x00b74167: PUSH ESI
+   0x00b74168: PUSH 0x10ae8c8
+      ref DATA               -> 0x010ae8c8 SLS2%03i.vso
+   0x00b7416d: LEA EDX,[ESP + 0x2f7c]
+   0x00b74174: PUSH 0x104
+   0x00b74179: PUSH EDX
+   0x00b7417a: CALL 0x00406d00
+      ref UNCONDITIONAL_CALL -> 0x00406d00 
+   0x00b7417f: ADD ESP,0x18
+   0x00b74182: LEA EAX,[ESP + 0x2f6c]
+   0x00b74189: PUSH EAX
+   0x00b7418a: PUSH 0x10a93e4
+      ref DATA               -> 0x010a93e4 vs_2_0
+   0x00b7418f: ADD EBX,0x4
+   0x00b74192: PUSH EBX
+   0x00b74193: LEA ECX,[ESP + 0x2e74]
+   0x00b7419a: PUSH ECX
+   0x00b7419b: MOV ECX,dword ptr [ESP + 0x24]
+=> 0x00b7419f: CALL 0x00be0fe0
+      ref UNCONDITIONAL_CALL -> 0x00be0fe0 
+   0x00b741a4: MOV EBX,dword ptr [ESI*0x4 + 0x11fde5c]
+      ref READ               -> 0x011fde60 
+   0x00b741ab: MOV EBP,EAX
+   0x00b741ad: CMP EBX,EBP
+   0x00b741af: JZ 0x00b741e1
+      ref CONDITIONAL_JUMP   -> 0x00b741e1 
+   0x00b741b1: CMP EBX,EDI
+   0x00b741b3: JZ 0x00b741cc
+      ref CONDITIONAL_JUMP   -> 0x00b741cc 
+   0x00b741b5: LEA EDX,[EBX + 0x4]
+   0x00b741b8: PUSH EDX
+   0x00b741b9: CALL dword ptr [0x00fdf1c4]
+      ref READ               -> 0x00fdf1c4 
+      ref COMPUTED_CALL      -> 0x00000067 
+   0x00b741bf: TEST EAX,EAX
+   0x00b741c1: JNZ 0x00b741cc
+      ref CONDITIONAL_JUMP   -> 0x00b741cc 
+   0x00b741c3: MOV EAX,dword ptr [EBX]
+   0x00b741c5: MOV EDX,dword ptr [EAX + 0x4]
+   0x00b741c8: MOV ECX,EBX
+   0x00b741ca: CALL EDX
+   0x00b741cc: MOV dword ptr [ESI*0x4 + 0x11fde5c],EBP
+      ref WRITE              -> 0x011fde60 
+   0x00b741d3: CMP EBP,EDI
+   0x00b741d5: JZ 0x00b741e1
+      ref CONDITIONAL_JUMP   -> 0x00b741e1 
+   0x00b741d7: ADD EBP,0x4
+   0x00b741da: PUSH EBP
+   0x00b741db: CALL dword ptr [0x00fdf1c0]
+      ref READ               -> 0x00fdf1c0 
+      ref COMPUTED_CALL      -> 0x00000066 
+   0x00b741e1: MOV EBX,dword ptr [ESP + 0x10]
+   0x00b741e5: INC ESI
+   0x00b741e6: ADD EBX,0x4c
+   0x00b741e9: CMP ESI,0x67
+   0x00b741ec: MOV dword ptr [ESP + 0x10],EBX
+   0x00b741f0: JL 0x00b74121
+      ref CONDITIONAL_JUMP   -> 0x00b74121 
+   0x00b741f6: MOV ECX,dword ptr [ESP + 0x3070]
+   0x00b741fd: POP EDI
+   0x00b741fe: POP ESI
+   0x00b741ff: POP EBP
+   0x00b74200: POP EBX
+
+======================================================================
+DISASM: pixel group B create callsite around 0x00b78907
+======================================================================
+   0x00b7884a: MOV EBX,dword ptr [ESI*0x4 + 0x11fdb08]
+      ref READ               -> 0x011fdb08 
+      ref READ               -> 0x011fdb0c 
+   0x00b78851: CMP EBX,EDI
+   0x00b78853: JZ 0x00b78949
+      ref CONDITIONAL_JUMP   -> 0x00b78949 
+   0x00b78859: LEA EDX,[EBX + 0x4]
+   0x00b7885c: PUSH EDX
+   0x00b7885d: CALL dword ptr [0x00fdf1c4]
+      ref READ               -> 0x00fdf1c4 
+      ref COMPUTED_CALL      -> 0x00000067 
+   0x00b78863: TEST EAX,EAX
+   0x00b78865: JNZ 0x00b78870
+      ref CONDITIONAL_JUMP   -> 0x00b78870 
+   0x00b78867: MOV EAX,dword ptr [EBX]
+   0x00b78869: MOV EDX,dword ptr [EAX + 0x4]
+   0x00b7886c: MOV ECX,EBX
+   0x00b7886e: CALL EDX
+   0x00b78870: MOV dword ptr [ESI*0x4 + 0x11fdb08],EDI
+      ref WRITE              -> 0x011fdb08 
+   0x00b78877: JMP 0x00b78949
+      ref UNCONDITIONAL_JUMP -> 0x00b78949 
+   0x00b7887c: CMP ESI,0x99
+   0x00b78882: JLE 0x00b7888d
+      ref CONDITIONAL_JUMP   -> 0x00b7888d 
+   0x00b78884: CMP EBP,0x5
+   0x00b78887: JL 0x00b78949
+      ref CONDITIONAL_JUMP   -> 0x00b78949 
+   0x00b7888d: LEA ECX,[ESP + 0x3eec]
+   0x00b78894: PUSH ECX
+   0x00b78895: PUSH EAX
+   0x00b78896: CALL 0x00be0c00
+      ref UNCONDITIONAL_CALL -> 0x00be0c00 
+   0x00b7889b: PUSH ESI
+   0x00b7889c: PUSH 0x10aedd8
+      ref DATA               -> 0x010aedd8 SLS2%03i.pso
+   0x00b788a1: LEA EDX,[ESP + 0x3df8]
+   0x00b788a8: PUSH 0x104
+   0x00b788ad: PUSH EDX
+   0x00b788ae: CALL 0x00406d00
+      ref UNCONDITIONAL_CALL -> 0x00406d00 
+   0x00b788b3: ADD ESP,0x18
+   0x00b788b6: CMP ESI,0x98
+   0x00b788bc: JL 0x00b788c0
+      ref CONDITIONAL_JUMP   -> 0x00b788c0 
+   0x00b788be: JLE 0x00b788c8
+      ref CONDITIONAL_JUMP   -> 0x00b788c8 
+   0x00b788c0: LEA EAX,[ESI + -0x46]
+   0x00b788c3: CMP EAX,0x3
+   0x00b788c6: JA 0x00b788ea
+      ref CONDITIONAL_JUMP   -> 0x00b788ea 
+   0x00b788c8: MOV ECX,dword ptr [0x011f91b0]
+      ref READ               -> 0x011f91b0 
+   0x00b788ce: PUSH ECX
+   0x00b788cf: PUSH ESI
+   0x00b788d0: PUSH 0x10aedc4
+      ref DATA               -> 0x010aedc4 SLS2%03is%01i.pso
+   0x00b788d5: LEA EDX,[ESP + 0x3df4]
+   0x00b788dc: PUSH 0x104
+   0x00b788e1: PUSH EDX
+   0x00b788e2: CALL 0x00406d00
+      ref UNCONDITIONAL_CALL -> 0x00406d00 
+   0x00b788e7: ADD ESP,0x14
+   0x00b788ea: LEA EAX,[ESP + 0x3de8]
+   0x00b788f1: PUSH EAX
+   0x00b788f2: PUSH 0x10a93cc
+      ref DATA               -> 0x010a93cc ps_2_0
+   0x00b788f7: ADD EBX,0x4
+   0x00b788fa: PUSH EBX
+   0x00b788fb: LEA ECX,[ESP + 0x3ef8]
+   0x00b78902: PUSH ECX
+   0x00b78903: MOV ECX,dword ptr [ESP + 0x24]
+=> 0x00b78907: CALL 0x00be1750
+      ref UNCONDITIONAL_CALL -> 0x00be1750 
+   0x00b7890c: MOV EBX,dword ptr [ESI*0x4 + 0x11fdb08]
+      ref DATA               -> 0x011fdb08 
+      ref READ               -> 0x011fdb0c 
+   0x00b78913: MOV EBP,EAX
+   0x00b78915: CMP EBX,EBP
+   0x00b78917: JZ 0x00b78949
+      ref CONDITIONAL_JUMP   -> 0x00b78949 
+   0x00b78919: CMP EBX,EDI
+   0x00b7891b: JZ 0x00b78934
+      ref CONDITIONAL_JUMP   -> 0x00b78934 
+   0x00b7891d: LEA EDX,[EBX + 0x4]
+   0x00b78920: PUSH EDX
+   0x00b78921: CALL dword ptr [0x00fdf1c4]
+      ref READ               -> 0x00fdf1c4 
+      ref COMPUTED_CALL      -> 0x00000067 
+   0x00b78927: TEST EAX,EAX
+   0x00b78929: JNZ 0x00b78934
+      ref CONDITIONAL_JUMP   -> 0x00b78934 
+   0x00b7892b: MOV EAX,dword ptr [EBX]
+   0x00b7892d: MOV EDX,dword ptr [EAX + 0x4]
+   0x00b78930: MOV ECX,EBX
+   0x00b78932: CALL EDX
+   0x00b78934: MOV dword ptr [ESI*0x4 + 0x11fdb08],EBP
+      ref DATA               -> 0x011fdb08 
+      ref WRITE              -> 0x011fdb0c 
+   0x00b7893b: CMP EBP,EDI
+   0x00b7893d: JZ 0x00b78949
+      ref CONDITIONAL_JUMP   -> 0x00b78949 
+   0x00b7893f: ADD EBP,0x4
+   0x00b78942: PUSH EBP
+   0x00b78943: CALL dword ptr [0x00fdf1c0]
+      ref READ               -> 0x00fdf1c0 
+      ref COMPUTED_CALL      -> 0x00000066 
+   0x00b78949: MOV EBX,dword ptr [ESP + 0x18]
+   0x00b7894d: INC ESI
+   0x00b7894e: ADD EBX,0x4c
+   0x00b78951: CMP ESI,0xa0
+   0x00b78957: MOV dword ptr [ESP + 0x18],EBX
+   0x00b7895b: JL 0x00b78840
+      ref CONDITIONAL_JUMP   -> 0x00b78840 
+   0x00b78961: MOV ECX,dword ptr [ESP + 0x42b0]
+   0x00b78968: POP EDI
+   0x00b78969: POP ESI
+   0x00b7896a: POP EBP
+   0x00b7896b: POP EBX
+
+----------------------------------------------------------------------
+References TO 0x011fde5c (PPLighting vertex group C global)
+----------------------------------------------------------------------
+  READ @ 0x00bebee9 (in FUN_00bebd20)
+  READ @ 0x00bec1a5 (in FUN_00bebd20)
+  READ @ 0x00becbb2 (in FUN_00bebd20)
+  READ @ 0x00bece6a (in FUN_00bebd20)
+  READ @ 0x00b74127 (in FUN_00b71bf0)
+  WRITE @ 0x00b7414d (in FUN_00b71bf0)
+  Total: 6 refs
+
+----------------------------------------------------------------------
+References TO 0x011fdb08 (PPLighting pixel group B global)
+----------------------------------------------------------------------
+  READ @ 0x00bebf23 (in FUN_00bebd20)
+  READ @ 0x00bed129 (in FUN_00bebd20)
+  READ @ 0x00c1818a (in FUN_00c17510)
+  DATA @ 0x00b7890c (in ???)
+  DATA @ 0x00b78934 (in ???)
+  READ @ 0x00b7884a (in ???)
+  WRITE @ 0x00b78870 (in ???)
+  Total: 7 refs
+
+----------------------------------------------------------------------
+References TO 0x010aebd4 (lighting\2x\v\landlod.v.hlsl)
+----------------------------------------------------------------------
+  DATA @ 0x00b7269f (in FUN_00b71bf0)
+  DATA @ 0x00b7274d (in FUN_00b71bf0)
+  Total: 2 refs
+
+----------------------------------------------------------------------
+References TO 0x010af0f4 (lighting\2x\p\landlod.p.hlsl)
+----------------------------------------------------------------------
+  DATA @ 0x00b74da1 (in ???)
+  DATA @ 0x00b74e5c (in ???)
+  DATA @ 0x00b7818f (in ???)
+  Total: 3 refs
+
+----------------------------------------------------------------------
+References TO 0x011fa0b0 (LODLandParams data global)
+----------------------------------------------------------------------
+  WRITE @ 0x00b79225 (in FUN_00b791f0)
+  WRITE @ 0x00b79271 (in FUN_00b791f0)
+  WRITE @ 0x00b793be (in FUN_00b791f0)
+  DATA @ 0x00b7e6e5 (in FUN_00b7e430)
+  Total: 4 refs
+
+----------------------------------------------------------------------
+References TO 0x011fa300 (LODTEXPARAMS data global)
+----------------------------------------------------------------------
+  WRITE @ 0x00b798fc (in FUN_00b798c0)
+  DATA @ 0x00b7f137 (in FUN_00b7e430)
+  Total: 2 refs
+
+======================================================================
+DECOMPILE REF CALLERS: LODLandParams data global 0x011fa0b0
+======================================================================
+
+======================================================================
+ref caller LODLandParams data global @ 0x00b791f0
+======================================================================
+  Function: FUN_00b791f0 @ 0x00b791f0, Size: 530 bytes
+
+/* WARNING: Globals starting with '_' overlap smaller symbols at the same address */
+
+void FUN_00b791f0(int param_1,int param_2,int param_3)
+
+{
+  float fVar1;
+  float fVar2;
+  float fVar3;
+  float10 fVar4;
+  
+  if (*(char *)(DAT_011fec2c + 8) != '\0') {
+    if (param_1 == 0xfe) {
+      _DAT_011fa0b0 = *(undefined4 *)(param_2 + 0x80);
+      _DAT_011fa0b4 = _DAT_011ad808;
+      _DAT_011fa0b8 = 0.0;
+      _DAT_011fa0bc = 0.0;
+      return;
+    }
+    if (param_1 == 0x61) {
+      _DAT_011fa0b0 = 0x3f800000;
+      _DAT_011fa0b4 = 0;
+      _DAT_011fa0b8 = 0.0;
+      _DAT_011fa0bc = 0.0;
+      return;
+    }
+    if (param_1 == 0x230) {
+      fVar2 = *(float *)(param_3 + 0x8c);
+      fVar3 = *(float *)(param_3 + 0x90);
+      fVar4 = (float10)FUN_00404010(0,(_DAT_011f940c - _DAT_011f94ac) /
+                                      (_DAT_011ad838 * (float)_DAT_01020998));
+      fVar4 = (float10)FUN_0040ebd0(0x3f800000,(float)fVar4);
+      fVar1 = (float)fVar4;
+      if (fVar1 == 1.0) {
+        DAT_011f94aa = 0;
+      }
+      _DAT_011fa0b0 = *(undefined4 *)(param_2 + 0x94);
+      _DAT_011fa0b8 = (fVar1 * (DAT_011f962c - DAT_011f9634) + DAT_011f9634) - fVar2;
+      _DAT_011fa0b4 = *(undefined4 *)(param_2 + 0x98);
+      _DAT_011fa0bc = ((DAT_011f9630 - DAT_011f9638) * fVar1 + DAT_011f9638) - fVar3;
+    }
+  }
+  return;
+}
+
+
+
+======================================================================
+ref caller LODLandParams data global @ 0x00b7e430
+======================================================================
+  Function: FUN_00b7e430 @ 0x00b7e430, Size: 5633 bytes
+
+void __fastcall FUN_00b7e430(int param_1)
+
+{
+  uint uVar1;
+  int iVar2;
+  LONG LVar3;
+  int *piVar4;
+  int *piVar5;
+  int *unaff_FS_OFFSET;
+  int local_c;
+  undefined1 *puStack_8;
+  undefined4 local_4;
+  
+  local_4 = 0xffffffff;
+  puStack_8 = &LAB_00f28e6c;
+  local_c = *unaff_FS_OFFSET;
+  uVar1 = DAT_011c16bc ^ (uint)&stack0xffffffe0;
+  *unaff_FS_OFFSET = (int)&local_c;
+  if (*(int *)(param_1 + 0x34) == 0) {
+    iVar2 = FUN_00aa13e0(0x44,uVar1);
+    piVar5 = (int *)0x0;
+    local_4 = 0;
+    if (iVar2 != 0) {
+      piVar5 = (int *)FUN_00b7e330(*(undefined4 *)(param_1 + 0x18),0);
+    }
+    piVar4 = *(int **)(param_1 + 0x34);
+    local_4 = 0xffffffff;
+    if (piVar4 != piVar5) {
+      if (piVar4 != (int *)0x0) {
+        LVar3 = InterlockedDecrement(piVar4 + 1);
+        if (LVar3 == 0) {
+          (**(code **)(*piVar4 + 4))();
+        }
+      }
+      *(int **)(param_1 + 0x34) = piVar5;
+      if (piVar5 != (int *)0x0) {
+        InterlockedIncrement(piVar5 + 1);
+      }
+    }
+    (**(code **)(**(int **)(param_1 + 0x34) + 0x68))
+              ("WorldViewProjTranspose",0x20000009,0,&lpWindowName_01011584,0,0,0,0);
+    (**(code **)(**(int **)(param_1 + 0x34) + 0x68))
+              ("SkinWorldViewProjTranspose",0x20000009,1,&lpWindowName_01011584,0,0,0,0);
+    (**(code **)(**(int **)(param_1 + 0x34) + 8))
+              ("ShadowProj",0x10000009,0,0x12,4,&lpWindowName_01011584,0x40,4,&DAT_011fd968,0);
+    (**(code **)(**(int **)(param_1 + 0x34) + 8))
+              ("SkinWorldTranspose",0x10000009,0,9,4,&lpWindowName_01011584,0x40,4,&DAT_011fec88,0);
+    (**(code **)(**(int **)(param_1 + 0x34) + 8))
+              ("WorldTranspose",0x10000009,0,8,4,&lpWindowName_01011584,0x40,4,&DAT_011fecc8,0);
+    (**(code **)(**(int **)(param_1 + 0x34) + 8))
+              ("ShadowProjData",0x10000007,0,0x16,1,&lpWindowName_01011584,0x10,4,&DAT_011fd874,0);
+    (**(code **)(**(int **)(param_1 + 0x34) + 8))
+              ("ShadowProjTransform",0x10000007,0,0x17,1,&lpWindowName_01011584,0x10,4,&DAT_011fd884
+               ,0);
+    (**(code **)(**(int **)(param_1 + 0x34) + 8))
+              ("HighDetailRange",0x10000007,0,0xc,1,&lpWindowName_01011584,0x10,4,&DAT_011fa2e0,0);
+    (**(code **)(**(int **)(param_1 + 0x34) + 8))
+              ("LightData",0x10000009,0,0x19,10,&lpWindowName_01011584,0xa0,4,&DAT_011fd9a8,0);
+    (**(code **)(**(int **)(param_1 + 0x34) + 8))
+              ("FogParam | ShadowVolumeFatness",0x10000007,0,0xe,1,&lpWindowName_01011584,0x10,4,
+               &DAT_011fa280,0);
+    (**(code **)(**(int **)(param_1 + 0x34) + 8))
+              ("FogColor | ShadowVolumeExtrudeDistance",0x10000007,0,0xf,1,&lpWindowName_01011584,
+               0x10,4,&DAT_011fa290,0);
+    (**(code **)(**(int **)(param_1 + 0x34) + 8))
+              ("EyePosition",0x10000007,0,0x10,1,&lpWindowName_01011584,0x10,4,&DAT_011fd894,0);
+    (**(code **)(**(int **)(param_1 + 0x34) + 8))
+              ("BoundCenter",0x10000007,0,0x18,1,&lpWindowName_01011584,0x10,4,&DAT_011fd8b4,0);
+    (**(code **)(**(int **)(param_1 + 0x34) + 8))
+              ("LODLandParams",0x10000007,0,0x13,1,&lpWindowName_01011584,0x10,4,&DAT_011fa0b0,0);
+    (**(code **)(**(int **)(param_1 + 0x34) + 8))
+              ("DepthData",0x10000007,0,0x11,1,&lpWindowName_01011584,0x10,4,&DAT_011fd954,0);
+    (**(code **)(**(int **)(param_1 + 0x34) + 8))
+              ("PrevWorldViewPT",0x10000009,0,0x23,4,&lpWindowName_01011584,0x40,4,&DAT_011fed08,0);
+    (**(code **)(**(int **)(param_1 + 0x34) + 8))
+              ("PrevWorldViewT",0x10000009,0,0x27,4,&lpWindowName_01011584,0x40,4,&DAT_011fed48,0);
+    (**(code **)(**(int **)(param_1 + 0x34) + 8))
+              ("BoneMatrix3",0x20000009,0x120000,0x2c,0x36,0,0,0,0,0);
+    (**(code **)(**(int **)(param_1 + 0x34) + 0x68))
+              ("WorldViewTranspose",0x20000009,4,&lpWindowName_01011584,0,0,0,0);
+    (**(code **)(**(int **)(param_1 + 0x34) + 0x68))
+              ("SkinWorldViewTranspose",0x20000009,5,&lpWindowName_01011584,0,0,0,0);
+    (**(code **)(**(int **)(param_1 + 0x34) + 8))
+              (&DAT_01097e74,0x10000004,0,0xd,1,&lpWindowName_01011584,4,4,&DAT_011fd868,0);
+    (**(code **)(**(int **)(param_1 + 0x34) + 8))
+              ("PrevBoneMatrix3",0x10000009,0,0x62,0x36,&lpWindowName_01011584,0x360,4,&DAT_011fa580
+               ,0);
+    piVar4 = (int *)(**(code **)(**(int **)(param_1 + 0x34) + 0x70))("WorldViewProjTranspose");
+    piVar5 = DAT_011febd8;
+    if (DAT_011febd8 != piVar4) {
+      if (DAT_011febd8 != (int *)0x0) {
+        LVar3 = InterlockedDecrement(DAT_011febd8 + 1);
+        if (LVar3 == 0) {
+          (**(code **)(*piVar5 + 4))();
+        }
+      }
+      DAT_011febd8 = piVar4;
+      if (piVar4 != (int *)0x0) {
+        InterlockedIncrement(piVar4 + 1);
+      }
+    }
+    piVar4 = (int *)(**(code **)(**(int **)(param_1 + 0x34) + 0x70))("WorldTranspose");
+    piVar5 = DAT_011febdc;
+    if (DAT_011febdc != piVar4) {
+      if (DAT_011febdc != (int *)0x0) {
+        LVar3 = InterlockedDecrement(DAT_011febdc + 1);
+        if (LVar3 == 0) {
+          (**(code **)(*piVar5 + 4))();
+        }
+      }
+      DAT_011febdc = piVar4;
+      if (piVar4 != (int *)0x0) {
+        InterlockedIncrement(piVar4 + 1);
+      }
+    }
+    piVar4 = (int *)(**(code **)(**(int **)(param_1 + 0x34) + 0x70))("SkinWorldTranspose");
+    piVar5 = DAT_011fec08;
+    if (DAT_011fec08 != piVar4) {
+      if (DAT_011fec08 != (int *)0x0) {
+        LVar3 = InterlockedDecrement(DAT_011fec08 + 1);
+        if (LVar3 == 0) {
+          (**(code **)(*piVar5 + 4))();
+        }
+      }
+      DAT_011fec08 = piVar4;
+      if (piVar4 != (int *)0x0) {
+        InterlockedIncrement(piVar4 + 1);
+      }
+    }
+    piVar4 = (int *)(**(code **)(**(int **)(param_1 + 0x34) + 0x70))("SkinWorldViewProjTranspose");
+    piVar5 = DAT_011febe0;
+    if (DAT_011febe0 != piVar4) {
+      if (DAT_011febe0 != (int *)0x0) {
+        LVar3 = InterlockedDecrement(DAT_011febe0 + 1);
+        if (LVar3 == 0) {
+          (**(code **)(*piVar5 + 4))();
+        }
+      }
+      DAT_011febe0 = piVar4;
+      if (piVar4 != (int *)0x0) {
+        InterlockedIncrement(piVar4 + 1);
+      }
+    }
+    piVar4 = (int *)(**(code **)(**(int **)(param_1 + 0x34) + 0x70))("ShadowProj");
+    piVar5 = DAT_011febe4;
+    if (DAT_011febe4 != piVar4) {
+      if (DAT_011febe4 != (int *)0x0) {
+        LVar3 = InterlockedDecrement(DAT_011febe4 + 1);
+        if (LVar3 == 0) {
+          (**(code **)(*piVar5 + 4))();
+        }
+      }
+      DAT_011febe4 = piVar4;
+      if (piVar4 != (int *)0x0) {
+        InterlockedIncrement(piVar4 + 1);
+      }
+    }
+    piVar4 = (int *)(**(code **)(**(int **)(param_1 + 0x34) + 0x70))("ShadowProjData");
+    piVar5 = DAT_011febe8;
+    if (DAT_011febe8 != piVar4) {
+      if (DAT_011febe8 != (int *)0x0) {
+        LVar3 = InterlockedDecrement(DAT_011febe8 + 1);
+        if (LVar3 == 0) {
+          (**(code **)(*piVar5 + 4))();
+        }
+      }
+      DAT_011febe8 = piVar4;
+      if (piVar4 != (int *)0x0) {
+        InterlockedIncrement(piVar4 + 1);
+      }
+ 
+  Decompiled unique callers: 2
+
+======================================================================
+DECOMPILE REF CALLERS: LODTEXPARAMS data global 0x011fa300
+======================================================================
+
+======================================================================
+ref caller LODTEXPARAMS data global @ 0x00b798c0
+======================================================================
+  Function: FUN_00b798c0 @ 0x00b798c0, Size: 101 bytes
+
+/* WARNING: Globals starting with '_' overlap smaller symbols at the same address */
+
+void FUN_00b798c0(int param_1)
+
+{
+  if (*(char *)(DAT_011fec80 + 8) != '\0') {
+    _DAT_011fa300 = *(undefined4 *)(param_1 + 0xf0);
+    _DAT_011fa304 = *(undefined4 *)(param_1 + 0xf4);
+    _DAT_011fa30c = *(undefined4 *)(param_1 + 0xf8);
+    _DAT_011fa308 = *(undefined4 *)(param_1 + 0xfc);
+  }
+  return;
+}
+
+
+
+======================================================================
+ref caller LODTEXPARAMS data global @ 0x00b7e430
+======================================================================
+  Function: FUN_00b7e430 @ 0x00b7e430, Size: 5633 bytes
+
+void __fastcall FUN_00b7e430(int param_1)
+
+{
+  uint uVar1;
+  int iVar2;
+  LONG LVar3;
+  int *piVar4;
+  int *piVar5;
+  int *unaff_FS_OFFSET;
+  int local_c;
+  undefined1 *puStack_8;
+  undefined4 local_4;
+  
+  local_4 = 0xffffffff;
+  puStack_8 = &LAB_00f28e6c;
+  local_c = *unaff_FS_OFFSET;
+  uVar1 = DAT_011c16bc ^ (uint)&stack0xffffffe0;
+  *unaff_FS_OFFSET = (int)&local_c;
+  if (*(int *)(param_1 + 0x34) == 0) {
+    iVar2 = FUN_00aa13e0(0x44,uVar1);
+    piVar5 = (int *)0x0;
+    local_4 = 0;
+    if (iVar2 != 0) {
+      piVar5 = (int *)FUN_00b7e330(*(undefined4 *)(param_1 + 0x18),0);
+    }
+    piVar4 = *(int **)(param_1 + 0x34);
+    local_4 = 0xffffffff;
+    if (piVar4 != piVar5) {
+      if (piVar4 != (int *)0x0) {
+        LVar3 = InterlockedDecrement(piVar4 + 1);
+        if (LVar3 == 0) {
+          (**(code **)(*piVar4 + 4))();
+        }
+      }
+      *(int **)(param_1 + 0x34) = piVar5;
+      if (piVar5 != (int *)0x0) {
+        InterlockedIncrement(piVar5 + 1);
+      }
+    }
+    (**(code **)(**(int **)(param_1 + 0x34) + 0x68))
+              ("WorldViewProjTranspose",0x20000009,0,&lpWindowName_01011584,0,0,0,0);
+    (**(code **)(**(int **)(param_1 + 0x34) + 0x68))
+              ("SkinWorldViewProjTranspose",0x20000009,1,&lpWindowName_01011584,0,0,0,0);
+    (**(code **)(**(int **)(param_1 + 0x34) + 8))
+              ("ShadowProj",0x10000009,0,0x12,4,&lpWindowName_01011584,0x40,4,&DAT_011fd968,0);
+    (**(code **)(**(int **)(param_1 + 0x34) + 8))
+              ("SkinWorldTranspose",0x10000009,0,9,4,&lpWindowName_01011584,0x40,4,&DAT_011fec88,0);
+    (**(code **)(**(int **)(param_1 + 0x34) + 8))
+              ("WorldTranspose",0x10000009,0,8,4,&lpWindowName_01011584,0x40,4,&DAT_011fecc8,0);
+    (**(code **)(**(int **)(param_1 + 0x34) + 8))
+              ("ShadowProjData",0x10000007,0,0x16,1,&lpWindowName_01011584,0x10,4,&DAT_011fd874,0);
+    (**(code **)(**(int **)(param_1 + 0x34) + 8))
+              ("ShadowProjTransform",0x10000007,0,0x17,1,&lpWindowName_01011584,0x10,4,&DAT_011fd884
+               ,0);
+    (**(code **)(**(int **)(param_1 + 0x34) + 8))
+              ("HighDetailRange",0x10000007,0,0xc,1,&lpWindowName_01011584,0x10,4,&DAT_011fa2e0,0);
+    (**(code **)(**(int **)(param_1 + 0x34) + 8))
+              ("LightData",0x10000009,0,0x19,10,&lpWindowName_01011584,0xa0,4,&DAT_011fd9a8,0);
+    (**(code **)(**(int **)(param_1 + 0x34) + 8))
+              ("FogParam | ShadowVolumeFatness",0x10000007,0,0xe,1,&lpWindowName_01011584,0x10,4,
+               &DAT_011fa280,0);
+    (**(code **)(**(int **)(param_1 + 0x34) + 8))
+              ("FogColor | ShadowVolumeExtrudeDistance",0x10000007,0,0xf,1,&lpWindowName_01011584,
+               0x10,4,&DAT_011fa290,0);
+    (**(code **)(**(int **)(param_1 + 0x34) + 8))
+              ("EyePosition",0x10000007,0,0x10,1,&lpWindowName_01011584,0x10,4,&DAT_011fd894,0);
+    (**(code **)(**(int **)(param_1 + 0x34) + 8))
+              ("BoundCenter",0x10000007,0,0x18,1,&lpWindowName_01011584,0x10,4,&DAT_011fd8b4,0);
+    (**(code **)(**(int **)(param_1 + 0x34) + 8))
+              ("LODLandParams",0x10000007,0,0x13,1,&lpWindowName_01011584,0x10,4,&DAT_011fa0b0,0);
+    (**(code **)(**(int **)(param_1 + 0x34) + 8))
+              ("DepthData",0x10000007,0,0x11,1,&lpWindowName_01011584,0x10,4,&DAT_011fd954,0);
+    (**(code **)(**(int **)(param_1 + 0x34) + 8))
+              ("PrevWorldViewPT",0x10000009,0,0x23,4,&lpWindowName_01011584,0x40,4,&DAT_011fed08,0);
+    (**(code **)(**(int **)(param_1 + 0x34) + 8))
+              ("PrevWorldViewT",0x10000009,0,0x27,4,&lpWindowName_01011584,0x40,4,&DAT_011fed48,0);
+    (**(code **)(**(int **)(param_1 + 0x34) + 8))
+              ("BoneMatrix3",0x20000009,0x120000,0x2c,0x36,0,0,0,0,0);
+    (**(code **)(**(int **)(param_1 + 0x34) + 0x68))
+              ("WorldViewTranspose",0x20000009,4,&lpWindowName_01011584,0,0,0,0);
+    (**(code **)(**(int **)(param_1 + 0x34) + 0x68))
+              ("SkinWorldViewTranspose",0x20000009,5,&lpWindowName_01011584,0,0,0,0);
+    (**(code **)(**(int **)(param_1 + 0x34) + 8))
+              (&DAT_01097e74,0x10000004,0,0xd,1,&lpWindowName_01011584,4,4,&DAT_011fd868,0);
+    (**(code **)(**(int **)(param_1 + 0x34) + 8))
+              ("PrevBoneMatrix3",0x10000009,0,0x62,0x36,&lpWindowName_01011584,0x360,4,&DAT_011fa580
+               ,0);
+    piVar4 = (int *)(**(code **)(**(int **)(param_1 + 0x34) + 0x70))("WorldViewProjTranspose");
+    piVar5 = DAT_011febd8;
+    if (DAT_011febd8 != piVar4) {
+      if (DAT_011febd8 != (int *)0x0) {
+        LVar3 = InterlockedDecrement(DAT_011febd8 + 1);
+        if (LVar3 == 0) {
+          (**(code **)(*piVar5 + 4))();
+        }
+      }
+      DAT_011febd8 = piVar4;
+      if (piVar4 != (int *)0x0) {
+        InterlockedIncrement(piVar4 + 1);
+      }
+    }
+    piVar4 = (int *)(**(code **)(**(int **)(param_1 + 0x34) + 0x70))("WorldTranspose");
+    piVar5 = DAT_011febdc;
+    if (DAT_011febdc != piVar4) {
+      if (DAT_011febdc != (int *)0x0) {
+        LVar3 = InterlockedDecrement(DAT_011febdc + 1);
+        if (LVar3 == 0) {
+          (**(code **)(*piVar5 + 4))();
+        }
+      }
+      DAT_011febdc = piVar4;
+      if (piVar4 != (int *)0x0) {
+        InterlockedIncrement(piVar4 + 1);
+      }
+    }
+    piVar4 = (int *)(**(code **)(**(int **)(param_1 + 0x34) + 0x70))("SkinWorldTranspose");
+    piVar5 = DAT_011fec08;
+    if (DAT_011fec08 != piVar4) {
+      if (DAT_011fec08 != (int *)0x0) {
+        LVar3 = InterlockedDecrement(DAT_011fec08 + 1);
+        if (LVar3 == 0) {
+          (**(code **)(*piVar5 + 4))();
+        }
+      }
+      DAT_011fec08 = piVar4;
+      if (piVar4 != (int *)0x0) {
+        InterlockedIncrement(piVar4 + 1);
+      }
+    }
+    piVar4 = (int *)(**(code **)(**(int **)(param_1 + 0x34) + 0x70))("SkinWorldViewProjTranspose");
+    piVar5 = DAT_011febe0;
+    if (DAT_011febe0 != piVar4) {
+      if (DAT_011febe0 != (int *)0x0) {
+        LVar3 = InterlockedDecrement(DAT_011febe0 + 1);
+        if (LVar3 == 0) {
+          (**(code **)(*piVar5 + 4))();
+        }
+      }
+      DAT_011febe0 = piVar4;
+      if (piVar4 != (int *)0x0) {
+        InterlockedIncrement(piVar4 + 1);
+      }
+    }
+    piVar4 = (int *)(**(code **)(**(int **)(param_1 + 0x34) + 0x70))("ShadowProj");
+    piVar5 = DAT_011febe4;
+    if (DAT_011febe4 != piVar4) {
+      if (DAT_011febe4 != (int *)0x0) {
+        LVar3 = InterlockedDecrement(DAT_011febe4 + 1);
+        if (LVar3 == 0) {
+          (**(code **)(*piVar5 + 4))();
+        }
+      }
+      DAT_011febe4 = piVar4;
+      if (piVar4 != (int *)0x0) {
+        InterlockedIncrement(piVar4 + 1);
+      }
+    }
+    piVar4 = (int *)(**(code **)(**(int **)(param_1 + 0x34) + 0x70))("ShadowProjData");
+    piVar5 = DAT_011febe8;
+    if (DAT_011febe8 != piVar4) {
+      if (DAT_011febe8 != (int *)0x0) {
+        LVar3 = InterlockedDecrement(DAT_011febe8 + 1);
+        if (LVar3 == 0) {
+          (**(code **)(*piVar5 + 4))();
+        }
+      }
+      DAT_011febe8 = piVar4;
+      if (piVar4 != (int *)0x0) {
+        InterlockedIncrement(piVar4 + 1);
+      }
+ 
+  Decompiled unique callers: 2
+
+======================================================================
+BSShader::CreateVertexShader @ 0x00be0fe0
+======================================================================
+  Function: FUN_00be0fe0 @ 0x00be0fe0, Size: 1889 bytes
+
+/* WARNING: Function: __alloca_probe replaced with injection: alloca_probe */
+
+void FUN_00be0fe0(char *param_1,int *param_2,undefined4 param_3,undefined4 param_4)
+
+{
+  undefined4 uVar1;
+  char cVar2;
+  undefined1 uVar3;
+  uint uVar4;
+  int *piVar5;
+  undefined4 uVar6;
+  undefined4 uVar7;
+  FILE *_File;
+  int *piVar8;
+  void *_Str;
+  undefined1 *puVar9;
+  int iVar10;
+  int iVar11;
+  int *unaff_FS_OFFSET;
+  FILE *_File_00;
+  FILE *pFVar12;
+  char *pcVar13;
+  undefined4 uStack_12a4;
+  int *local_12a0;
+  int *local_129c;
+  int *local_1298;
+  int *local_1294;
+  undefined4 local_1290;
+  int *local_128c;
+  undefined4 local_1288;
+  undefined4 local_1284;
+  int iStack_1280;
+  int *local_127c;
+  int *local_1278;
+  undefined4 local_1274;
+  char *local_1270;
+  undefined4 local_126c;
+  undefined4 local_1268;
+  undefined4 local_1264;
+  undefined **ppuStack_1260;
+  char *pcStack_125c;
+  char local_1258 [260];
+  undefined1 local_1154 [256];
+  undefined1 auStack_1054 [4];
+  char acStack_1050 [1300];
+  undefined1 local_b3c [260];
+  char acStack_a38 [1296];
+  undefined1 auStack_528 [4];
+  undefined1 auStack_524 [1300];
+  uint local_10;
+  int local_c;
+  undefined1 *puStack_8;
+  undefined4 uStack_4;
+  
+  uStack_4 = 0xffffffff;
+  puStack_8 = &LAB_00f2d322;
+  local_c = *unaff_FS_OFFSET;
+  local_10 = DAT_011c16bc ^ (uint)&uStack_12a4;
+  uVar4 = DAT_011c16bc ^ (uint)&stack0xffffed4c;
+  *unaff_FS_OFFSET = (int)&local_c;
+  iVar10 = 0;
+  local_1270 = param_1;
+  local_1294 = param_2;
+  local_1264 = param_3;
+  local_1284 = param_4;
+  local_129c = (int *)0x0;
+  local_1298 = (int *)0x0;
+  local_127c = (int *)0x0;
+  local_1268 = 0;
+  local_1290 = 0;
+  FUN_00be0dc0(local_1258,param_1,param_4,&DAT_010bc868,uVar4);
+  uStack_12a4._0_3_ = (uint3)uStack_12a4 & 0xffff;
+  uStack_12a4 = (int *)CONCAT13(1,(uint3)uStack_12a4);
+  if (DAT_011f9498 != 0) {
+    iVar10 = FUN_00b7fac0(param_4);
+  }
+  if ((DAT_011ae638 != '\0') && (iVar10 == 0)) {
+    local_1278 = (int *)0x0;
+    local_1274 = 0;
+    local_128c = (int *)0x0;
+    local_1288 = 0;
+    cVar2 = FUN_00afe7d0(local_1258,&local_128c,0x20);
+    uStack_12a4._0_3_ = CONCAT12(cVar2,(ushort)uStack_12a4);
+    uVar3 = FUN_00afe7d0(param_1,&local_1278,0x20);
+    uStack_12a4._0_2_ = CONCAT11(uVar3,(byte)uStack_12a4);
+    if ((cVar2 == '\0') && (DAT_011f94a7 != '\0')) {
+      if (DAT_011f9200 == '\0') {
+        _strcpy_s(&DAT_011f9200,0x104,"cache:\\");
+        FUN_00be0dc0(local_1258,param_1,param_4,&DAT_010bc868);
+      }
+      cVar2 = FUN_00afe7d0(local_1258,&local_128c,0x20);
+      uStack_12a4._0_3_ = CONCAT12(cVar2,(ushort)uStack_12a4);
+    }
+    if (uStack_12a4._1_1_ == '\0') {
+      FUN_00406d00(local_1154,0x104,"SHADER ERROR : error opening HLSL source file : %s",param_1);
+    }
+    param_2 = local_1294;
+    if (cVar2 == '\0') {
+      uStack_12a4 = (int *)((uint)uStack_12a4 & 0xffffff);
+    }
+  }
+  uVar4 = (uint)uStack_12a4;
+  uStack_12a4._0_2_ = (ushort)(byte)uStack_12a4;
+  piVar5 = uStack_12a4;
+  local_12a0 = (int *)0x0;
+  if (iVar10 == 0) {
+    uStack_12a4._3_1_ = SUB41(uVar4,3);
+    uStack_12a4 = piVar5;
+    if (uStack_12a4._3_1_ == '\0') {
+      local_1278 = (int *)0x0;
+      if (DAT_011f941e != '\0') {
+        iVar10 = *param_2;
+        local_1278 = param_2;
+        while (iVar10 != 0) {
+          local_1278 = local_1278 + 2;
+          iVar10 = *local_1278;
+        }
+        *local_1278 = (int)&DAT_010bc828;
+        local_1278[1] = (int)&lpWindowName_01011584;
+      }
+      piVar5 = (int *)FUN_00afdf20(param_1,0,0x4000,0x20);
+      if (piVar5 != (int *)0x0) {
+        if ((char)piVar5[0xb] != '\0') {
+          uVar6 = (*(code *)((undefined4 *)*piVar5)[10])();
+          uVar7 = FUN_00aa3e40(uVar6);
+          FUN_00462d80(uVar7,uVar6);
+          pcStack_125c = param_1;
+          piVar8 = local_1294 + 1;
+          ppuStack_1260 = &PTR_LAB_010bc610;
+          acStack_1050[0] = '\0';
+          acStack_a38[0] = '\0';
+          iStack_1280 = 8;
+          local_128c = piVar8;
+          do {
+            if ((char *)piVar8[-
+
+======================================================================
+BSShader::CreatePixelShader @ 0x00be1750
+======================================================================
+  Function: FUN_00be1750 @ 0x00be1750, Size: 1884 bytes
+
+/* WARNING: Function: __alloca_probe replaced with injection: alloca_probe */
+
+void FUN_00be1750(char *param_1,int *param_2,char *param_3,undefined4 param_4)
+
+{
+  undefined1 uVar1;
+  char cVar2;
+  uint uVar3;
+  int *piVar4;
+  undefined4 uVar5;
+  undefined4 uVar6;
+  FILE *_File;
+  int *piVar7;
+  void *_Str;
+  undefined1 *puVar8;
+  int iVar9;
+  int iVar10;
+  int *unaff_FS_OFFSET;
+  FILE *_File_00;
+  char *pcVar11;
+  undefined4 uStack_12a8;
+  int *local_12a4;
+  int *local_12a0;
+  int *local_129c;
+  int *local_1298;
+  undefined4 local_1294;
+  char *local_1290;
+  int *local_128c;
+  undefined4 local_1288;
+  int *local_1284;
+  undefined4 local_1280;
+  undefined4 local_127c;
+  char *local_1278;
+  int *local_1274;
+  int iStack_1270;
+  char *local_126c;
+  undefined4 local_1268;
+  undefined4 local_1264;
+  undefined **ppuStack_1260;
+  char *pcStack_125c;
+  char local_1258 [256];
+  undefined1 auStack_1158 [4];
+  char acStack_1154 [1300];
+  undefined1 local_c40 [260];
+  undefined1 local_b3c [260];
+  char acStack_a38 [1296];
+  undefined1 auStack_528 [4];
+  undefined1 auStack_524 [1300];
+  uint local_10;
+  int local_c;
+  undefined1 *puStack_8;
+  undefined4 uStack_4;
+  
+  uStack_4 = 0xffffffff;
+  puStack_8 = &LAB_00f2d362;
+  local_c = *unaff_FS_OFFSET;
+  local_10 = DAT_011c16bc ^ (uint)&uStack_12a8;
+  uVar3 = DAT_011c16bc ^ (uint)&stack0xffffed48;
+  *unaff_FS_OFFSET = (int)&local_c;
+  iVar9 = 0;
+  local_1278 = param_1;
+  local_1298 = param_2;
+  local_126c = param_3;
+  local_127c = param_4;
+  local_12a0 = (int *)0x0;
+  local_129c = (int *)0x0;
+  local_1274 = (int *)0x0;
+  local_1264 = 0;
+  local_1294 = 0;
+  FUN_00be0dc0(local_1258,param_1,param_4,&DAT_010bc8a0,uVar3);
+  uStack_12a8._0_3_ = (uint3)uStack_12a8 & 0xffff;
+  uStack_12a8 = (int *)CONCAT13(1,(uint3)uStack_12a8);
+  if (DAT_011f9498 != 0) {
+    iVar9 = FUN_00b7fac0(param_4);
+  }
+  if ((DAT_011ae638 != '\0') && (iVar9 == 0)) {
+    local_1284 = (int *)0x0;
+    local_1280 = 0;
+    local_128c = (int *)0x0;
+    local_1288 = 0;
+    uVar1 = FUN_00afe7d0(param_1,&local_1284,0x20);
+    uStack_12a8._0_2_ = CONCAT11(uVar1,(byte)uStack_12a8);
+    cVar2 = FUN_00afe7d0(local_1258,&local_128c,0x20);
+    uStack_12a8._0_3_ = CONCAT12(cVar2,(ushort)uStack_12a8);
+    if ((cVar2 == '\0') && (DAT_011f94a7 != '\0')) {
+      if (DAT_011f9200 == '\0') {
+        _strcpy_s(&DAT_011f9200,0x104,"cache:\\");
+        FUN_00be0dc0(local_1258,param_1,param_4,&DAT_010bc8a0);
+      }
+      cVar2 = FUN_00afe7d0(local_1258,&local_128c,0x20);
+      uStack_12a8._0_3_ = CONCAT12(cVar2,(ushort)uStack_12a8);
+    }
+    if (uStack_12a8._1_1_ == '\0') {
+      FUN_00406d00(local_c40,0x104,"SHADER ERROR : error opening HLSL source file : %s",param_1);
+    }
+    param_2 = local_1298;
+    if (cVar2 == '\0') {
+      uStack_12a8 = (int *)((uint)uStack_12a8 & 0xffffff);
+    }
+  }
+  pcVar11 = local_126c;
+  uVar3 = (uint)uStack_12a8;
+  uStack_12a8._0_2_ = (ushort)(byte)uStack_12a8;
+  piVar4 = uStack_12a8;
+  local_12a4 = (int *)0x0;
+  if (iVar9 == 0) {
+    uStack_12a8._3_1_ = SUB41(uVar3,3);
+    uStack_12a8 = piVar4;
+    if (uStack_12a8._3_1_ == '\0') {
+      local_1284 = (int *)0x0;
+      if (DAT_011f941e != '\0') {
+        iVar9 = *param_2;
+        local_1284 = param_2;
+        while (iVar9 != 0) {
+          local_1284 = local_1284 + 2;
+          iVar9 = *local_1284;
+        }
+        *local_1284 = (int)&DAT_010bc828;
+        local_1284[1] = (int)&lpWindowName_01011584;
+      }
+      local_1290 = local_126c;
+      iVar9 = _strncmp(local_126c,"ps_2_0",4);
+      if ((iVar9 == 0) && (local_1290 = (char *)FUN_00b4f380(1), local_1290 == (char *)0x0)) {
+        local_1290 = pcVar11;
+      }
+      piVar4 = (int *)FUN_00afdf20(param_1,0,0x4000,0x20);
+      if (piVar4 != (int *)0x0) {
+        if ((char)piVar4[0xb] != '\0') {
+          uVar5 = (*(code *)((undefined4 *)*piVar4)[10])();
+          uVar6 = FUN_00aa3e40(uVar5);
+          FUN_00462d80(uVar6,uVar5);
+          pcStack_125c = param_1;
+          piVar7 = local_1298 + 1;
+          ppuStack_

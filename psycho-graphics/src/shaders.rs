@@ -1096,20 +1096,28 @@ fn compile_hlsl_shader(path: &Path) -> Result<Vec<u32>> {
     let source = fs::read(path)
         .with_context(|| format!("failed to read shader source {}", path.display()))?;
     let source_name = path.to_string_lossy();
-    let bytecode = compile_hlsl_bytes(&source_name, &source)?;
+    let bytecode = compile_hlsl_bytes(&source_name, &source, "ps_3_0")?;
     log::info!("[SHADERS] Compiled HLSL shader '{}'", path.display());
     Ok(bytecode)
 }
 
 pub(crate) fn compile_hlsl_source(source_name: &str, source: &[u8]) -> Result<Vec<u32>> {
-    compile_hlsl_bytes(source_name, source)
+    compile_hlsl_source_target(source_name, source, "ps_3_0")
 }
 
-fn compile_hlsl_bytes(source_name: &str, source: &[u8]) -> Result<Vec<u32>> {
+pub(crate) fn compile_hlsl_source_target(
+    source_name: &str,
+    source: &[u8],
+    target: &str,
+) -> Result<Vec<u32>> {
+    compile_hlsl_bytes(source_name, source, target)
+}
+
+fn compile_hlsl_bytes(source_name: &str, source: &[u8], target: &str) -> Result<Vec<u32>> {
     let compiler = d3d_compile_fn()?;
     let source_name = CString::new(source_name.as_bytes())?;
     let entry = CString::new("Main")?;
-    let target = CString::new("ps_3_0")?;
+    let target = CString::new(target)?;
     let flags = D3DCOMPILE_ENABLE_BACKWARDS_COMPATIBILITY | D3DCOMPILE_OPTIMIZATION_LEVEL3;
 
     let mut code = null_mut();

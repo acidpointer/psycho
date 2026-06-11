@@ -21,7 +21,7 @@ use anyhow::Result;
 use libpsycho::os::windows::{
     directx9::{
         D3DSAMP_ADDRESSU, D3DSAMP_ADDRESSV, D3DSAMP_MAGFILTER, D3DSAMP_MINFILTER,
-        D3DSAMP_MIPFILTER, D3DTEXF_LINEAR, D3DTEXF_NONE, Device9Ref, PixelShader9,
+        D3DSAMP_MIPFILTER, D3DTEXF_LINEAR, D3DTEXF_NONE, Device9Ref, PixelShader9, VertexShader9,
     },
     hook::inline::inlinehook::InlineHookContainer,
     memory::validate_memory_range,
@@ -69,6 +69,8 @@ const PPLIGHTING_FAMILY_VERTEX_A_PIXEL_A: u32 = 1;
 const PPLIGHTING_FAMILY_VERTEX_B_PIXEL_A: u32 = 2;
 const PPLIGHTING_FAMILY_VERTEX_C_PIXEL_B: u32 = 3;
 const PPLIGHTING_FAMILY_UNKNOWN_PAIR: u32 = u32::MAX;
+const PPLIGHTING_VERTEX_SLS2_LANDLOD_INDEX: u32 = 2;
+const PPLIGHTING_PIXEL_SLS2_LANDLOD_INDEX: u32 = 3;
 const PPLIGHTING_VERTEX_SLS2_ADTS_SPECULAR_INDEX: u32 = 12;
 const PPLIGHTING_VERTEX_SLS2_ADTS_SPECULAR_SKIN_INDEX: u32 = 13;
 const PPLIGHTING_PIXEL_SLS2_ADTS_SPECULAR_INDEX: u32 = 17;
@@ -200,6 +202,7 @@ static REPLACEMENT_APPLIED_COUNT: AtomicU32 = AtomicU32::new(0);
 static REPLACEMENT_RESOURCE_LOGS: AtomicU32 = AtomicU32::new(0);
 static MATERIAL_BIND_LOGS: AtomicU32 = AtomicU32::new(0);
 static REPLACEMENT_SKIP_SUMMARY_LOGS: AtomicU32 = AtomicU32::new(0);
+static REPLACEMENT_UNSUPPORTED_PAIR_LOGS: AtomicU32 = AtomicU32::new(0);
 static REPLACEMENT_SKIP_CHECKS: AtomicU32 = AtomicU32::new(0);
 static REPLACEMENT_SKIP_NO_DIFFUSE: AtomicU32 = AtomicU32::new(0);
 static REPLACEMENT_SKIP_NO_DRAW_CONTEXT: AtomicU32 = AtomicU32::new(0);
@@ -220,6 +223,10 @@ static REPLACEMENT_ADTS_SPECULAR_PIXEL_SHADER_HANDLE: AtomicUsize = AtomicUsize:
 static REPLACEMENT_ADTS_SPECULAR_PIXEL_SHADER_DEVICE: AtomicUsize = AtomicUsize::new(0);
 static REPLACEMENT_ADTS10_LIGHTS4_PIXEL_SHADER_HANDLE: AtomicUsize = AtomicUsize::new(0);
 static REPLACEMENT_ADTS10_LIGHTS4_PIXEL_SHADER_DEVICE: AtomicUsize = AtomicUsize::new(0);
+static REPLACEMENT_LANDLOD_PIXEL_SHADER_HANDLE: AtomicUsize = AtomicUsize::new(0);
+static REPLACEMENT_LANDLOD_PIXEL_SHADER_DEVICE: AtomicUsize = AtomicUsize::new(0);
+static REPLACEMENT_LANDLOD_VERTEX_SHADER_HANDLE: AtomicUsize = AtomicUsize::new(0);
+static REPLACEMENT_LANDLOD_VERTEX_SHADER_DEVICE: AtomicUsize = AtomicUsize::new(0);
 static PBR_ROUGHNESS_SCALE_BITS: AtomicU32 = AtomicU32::new(1.0f32.to_bits());
 static PBR_LIGHT_SCALE_BITS: AtomicU32 = AtomicU32::new(1.0f32.to_bits());
 static PBR_AMBIENT_SCALE_BITS: AtomicU32 = AtomicU32::new(1.0f32.to_bits());
@@ -242,6 +249,10 @@ static PBR_REPLACEMENT: LazyLock<Mutex<PbrReplacementState>> =
 const PBR_REPLACEMENT_PIXEL_SHADER: &[u8] = include_bytes!("native_pbr_pplighting.hlsl");
 const PBR_REPLACEMENT_ADTS10_PIXEL_SHADER: &[u8] =
     include_bytes!("native_pbr_pplighting_adts10.hlsl");
+const PBR_REPLACEMENT_LANDLOD_PIXEL_SHADER: &[u8] =
+    include_bytes!("native_pbr_pplighting_landlod.hlsl");
+const PBR_REPLACEMENT_LANDLOD_VERTEX_SHADER: &[u8] =
+    include_bytes!("native_pbr_pplighting_landlod.vs.hlsl");
 const REQUIRE_VANILLA_PROLOGUES: bool = true;
 
 #[derive(Clone, Copy, Debug)]
@@ -821,6 +832,7 @@ fn texture_resolve_cache_slot(resource: usize) -> usize {
 enum ReplacementShaderKind {
     AdtsSpecular,
     Adts10Lights4,
+    LandLod,
 }
 
 impl ReplacementShaderKind {
@@ -828,6 +840,7 @@ impl ReplacementShaderKind {
         match self {
             Self::AdtsSpecular => "native_pbr_pplighting.hlsl",
             Self::Adts10Lights4 => "native_pbr_pplighting_adts10.hlsl",
+            Self::LandLod => "native_pbr_pplighting_landlod.hlsl",
         }
     }
 
@@ -835,6 +848,21 @@ impl ReplacementShaderKind {
         match self {
             Self::AdtsSpecular => PBR_REPLACEMENT_PIXEL_SHADER,
             Self::Adts10Lights4 => PBR_REPLACEMENT_ADTS10_PIXEL_SHADER,
+            Self::LandLod => PBR_REPLACEMENT_LANDLOD_PIXEL_SHADER,
+        }
+    }
+
+    fn vertex_source_name(self) -> Option<&'static str> {
+        match self {
+            Self::AdtsSpecular | Self::Adts10Lights4 => None,
+            Self::LandLod => Some("native_pbr_pplighting_landlod.vs.hlsl"),
+        }
+    }
+
+    fn vertex_source(self) -> Option<&'static [u8]> {
+        match self {
+            Self::AdtsSpecular | Self::Adts10Lights4 => None,
+            Self::LandLod => Some(PBR_REPLACEMENT_LANDLOD_VERTEX_SHADER),
         }
     }
 
@@ -842,6 +870,7 @@ impl ReplacementShaderKind {
         match self {
             Self::AdtsSpecular => "adts_specular",
             Self::Adts10Lights4 => "adts10_lights4",
+            Self::LandLod => "landlod",
         }
     }
 
@@ -849,6 +878,7 @@ impl ReplacementShaderKind {
         match self {
             Self::AdtsSpecular => &REPLACEMENT_ADTS_SPECULAR_PIXEL_SHADER_DEVICE,
             Self::Adts10Lights4 => &REPLACEMENT_ADTS10_LIGHTS4_PIXEL_SHADER_DEVICE,
+            Self::LandLod => &REPLACEMENT_LANDLOD_PIXEL_SHADER_DEVICE,
         }
     }
 
@@ -856,12 +886,38 @@ impl ReplacementShaderKind {
         match self {
             Self::AdtsSpecular => &REPLACEMENT_ADTS_SPECULAR_PIXEL_SHADER_HANDLE,
             Self::Adts10Lights4 => &REPLACEMENT_ADTS10_LIGHTS4_PIXEL_SHADER_HANDLE,
+            Self::LandLod => &REPLACEMENT_LANDLOD_PIXEL_SHADER_HANDLE,
         }
+    }
+
+    fn cached_vertex_device(self) -> Option<&'static AtomicUsize> {
+        match self {
+            Self::AdtsSpecular | Self::Adts10Lights4 => None,
+            Self::LandLod => Some(&REPLACEMENT_LANDLOD_VERTEX_SHADER_DEVICE),
+        }
+    }
+
+    fn cached_vertex_handle(self) -> Option<&'static AtomicUsize> {
+        match self {
+            Self::AdtsSpecular | Self::Adts10Lights4 => None,
+            Self::LandLod => Some(&REPLACEMENT_LANDLOD_VERTEX_SHADER_HANDLE),
+        }
+    }
+
+    fn replaces_vertex_shader(self) -> bool {
+        self.vertex_source().is_some()
     }
 
     fn uses_extra_material_stages(self) -> bool {
         match self {
-            Self::AdtsSpecular | Self::Adts10Lights4 => false,
+            Self::AdtsSpecular | Self::Adts10Lights4 | Self::LandLod => false,
+        }
+    }
+
+    fn writes_material_flags(self) -> bool {
+        match self {
+            Self::AdtsSpecular | Self::Adts10Lights4 => true,
+            Self::LandLod => false,
         }
     }
 }
@@ -870,6 +926,8 @@ struct PbrReplacementState {
     device: usize,
     adts_specular: PbrShaderSlot,
     adts10_lights4: PbrShaderSlot,
+    landlod: PbrShaderSlot,
+    landlod_vertex: PbrVertexShaderSlot,
 }
 
 impl PbrReplacementState {
@@ -878,6 +936,8 @@ impl PbrReplacementState {
             device: 0,
             adts_specular: PbrShaderSlot::new(),
             adts10_lights4: PbrShaderSlot::new(),
+            landlod: PbrShaderSlot::new(),
+            landlod_vertex: PbrVertexShaderSlot::new(),
         }
     }
 
@@ -885,10 +945,16 @@ impl PbrReplacementState {
         self.device = 0;
         self.adts_specular.release();
         self.adts10_lights4.release();
+        self.landlod.release();
+        self.landlod_vertex.release();
         REPLACEMENT_ADTS_SPECULAR_PIXEL_SHADER_DEVICE.store(0, Ordering::Release);
         REPLACEMENT_ADTS_SPECULAR_PIXEL_SHADER_HANDLE.store(0, Ordering::Release);
         REPLACEMENT_ADTS10_LIGHTS4_PIXEL_SHADER_DEVICE.store(0, Ordering::Release);
         REPLACEMENT_ADTS10_LIGHTS4_PIXEL_SHADER_HANDLE.store(0, Ordering::Release);
+        REPLACEMENT_LANDLOD_PIXEL_SHADER_DEVICE.store(0, Ordering::Release);
+        REPLACEMENT_LANDLOD_PIXEL_SHADER_HANDLE.store(0, Ordering::Release);
+        REPLACEMENT_LANDLOD_VERTEX_SHADER_DEVICE.store(0, Ordering::Release);
+        REPLACEMENT_LANDLOD_VERTEX_SHADER_HANDLE.store(0, Ordering::Release);
     }
 
     fn pixel_shader_handle(
@@ -906,10 +972,30 @@ impl PbrReplacementState {
             .pixel_shader_handle(kind, device, device_ptr)
     }
 
+    fn vertex_shader_handle(
+        &mut self,
+        kind: ReplacementShaderKind,
+        device: &Device9Ref<'_>,
+        device_ptr: usize,
+    ) -> Option<*mut c_void> {
+        if self.device != device_ptr {
+            self.release();
+            self.device = device_ptr;
+        }
+
+        match kind {
+            ReplacementShaderKind::AdtsSpecular | ReplacementShaderKind::Adts10Lights4 => None,
+            ReplacementShaderKind::LandLod => self
+                .landlod_vertex
+                .vertex_shader_handle(kind, device, device_ptr),
+        }
+    }
+
     fn slot_mut(&mut self, kind: ReplacementShaderKind) -> &mut PbrShaderSlot {
         match kind {
             ReplacementShaderKind::AdtsSpecular => &mut self.adts_specular,
             ReplacementShaderKind::Adts10Lights4 => &mut self.adts10_lights4,
+            ReplacementShaderKind::LandLod => &mut self.landlod,
         }
     }
 }
@@ -997,6 +1083,94 @@ impl PbrShaderSlot {
     }
 }
 
+struct PbrVertexShaderSlot {
+    bytecode: Option<Vec<u32>>,
+    vertex_shader: Option<VertexShader9>,
+    compile_failed: bool,
+}
+
+impl PbrVertexShaderSlot {
+    fn new() -> Self {
+        Self {
+            bytecode: None,
+            vertex_shader: None,
+            compile_failed: false,
+        }
+    }
+
+    fn release(&mut self) {
+        self.vertex_shader = None;
+    }
+
+    fn vertex_shader_handle(
+        &mut self,
+        kind: ReplacementShaderKind,
+        device: &Device9Ref<'_>,
+        device_ptr: usize,
+    ) -> Option<*mut c_void> {
+        if let Some(vertex_shader) = &self.vertex_shader {
+            return Some(vertex_shader.as_raw());
+        }
+
+        if self.compile_failed {
+            return None;
+        }
+
+        if self.bytecode.is_none() {
+            let source_name = kind.vertex_source_name()?;
+            let source = kind.vertex_source()?;
+            match crate::shaders::compile_hlsl_source_target(source_name, source, "vs_3_0") {
+                Ok(bytecode) => {
+                    self.bytecode = Some(bytecode);
+                }
+                Err(err) => {
+                    self.compile_failed = true;
+                    log_limited(
+                        &REPLACEMENT_RESOURCE_LOGS,
+                        &format!(
+                            "[PBR] Embedded native PBR {} vertex shader compile failed: {err:#}",
+                            kind.label()
+                        ),
+                    );
+                    return None;
+                }
+            }
+        }
+
+        let Some(bytecode) = self.bytecode.as_deref() else {
+            return None;
+        };
+
+        match device.create_vertex_shader(bytecode) {
+            Ok(vertex_shader) => {
+                let handle = vertex_shader.as_raw();
+                self.vertex_shader = Some(vertex_shader);
+                if let Some(cached_device) = kind.cached_vertex_device() {
+                    cached_device.store(device_ptr, Ordering::Release);
+                }
+                if let Some(cached_handle) = kind.cached_vertex_handle() {
+                    cached_handle.store(handle as usize, Ordering::Release);
+                }
+                log::info!(
+                    "[PBR] Embedded native PBR {} vertex shader created",
+                    kind.label()
+                );
+                Some(handle)
+            }
+            Err(err) => {
+                log_limited(
+                    &REPLACEMENT_RESOURCE_LOGS,
+                    &format!(
+                        "[PBR] Embedded native PBR {} vertex shader creation failed: {err:?}",
+                        kind.label()
+                    ),
+                );
+                None
+            }
+        }
+    }
+}
+
 #[derive(Clone, Copy)]
 struct ReplacementDrawContext {
     pass: *mut c_void,
@@ -1041,6 +1215,23 @@ enum ReplacementSkipReason {
     BindFailed,
     NoVanillaHandle,
     HandleWriteFailed,
+}
+
+impl ReplacementSkipReason {
+    fn label(self) -> &'static str {
+        match self {
+            Self::NoDiffuse => "no_diffuse",
+            Self::NoDrawContext => "no_draw_context",
+            Self::UnsupportedFamily => "unsupported_family",
+            Self::UnsupportedVertexAbi => "unsupported_vertex_abi",
+            Self::NoSelectorRecord => "no_selector_record",
+            Self::NoNormalSource => "no_normal_source",
+            Self::NoReplacementShader => "no_replacement_shader",
+            Self::BindFailed => "bind_failed",
+            Self::NoVanillaHandle => "no_vanilla_handle",
+            Self::HandleWriteFailed => "handle_write_failed",
+        }
+    }
 }
 
 enum ReplacementMaterialResourceError {
@@ -1099,7 +1290,7 @@ pub(crate) fn install(settings: NativePbrSettings) -> Result<()> {
 
     if settings.enabled {
         log::info!(
-            "[PBR] Native PBR material shader enabled for proven PPLighting material variants"
+            "[PBR] Native PBR material shader enabled for proven PPLighting material and land LOD variants"
         );
     }
 
@@ -1529,20 +1720,40 @@ unsafe fn call_set_shaders_with_replacement(
         }
     };
 
-    let Some(replacement_handle) = replacement_pixel_shader_handle(shader_kind) else {
+    let Some(replacement_pixel_handle) = replacement_pixel_shader_handle(shader_kind) else {
         record_replacement_skip(
             ReplacementSkipReason::NoReplacementShader,
             Some(draw_context),
         );
         return false;
     };
-    if replacement_handle.is_null() {
+    if replacement_pixel_handle.is_null() {
         record_replacement_skip(
             ReplacementSkipReason::NoReplacementShader,
             Some(draw_context),
         );
         return false;
     }
+
+    let replacement_vertex_handle = if shader_kind.replaces_vertex_shader() {
+        let Some(handle) = replacement_vertex_shader_handle(shader_kind) else {
+            record_replacement_skip(
+                ReplacementSkipReason::NoReplacementShader,
+                Some(draw_context),
+            );
+            return false;
+        };
+        if handle.is_null() {
+            record_replacement_skip(
+                ReplacementSkipReason::NoReplacementShader,
+                Some(draw_context),
+            );
+            return false;
+        }
+        handle
+    } else {
+        null_mut()
+    };
 
     let Some(material_bindings) =
         (unsafe { bind_replacement_material_textures(material_resources, shader_kind) })
@@ -1551,23 +1762,40 @@ unsafe fn call_set_shaders_with_replacement(
         return false;
     };
 
-    let original_handle = unsafe {
+    let original_pixel_handle = unsafe {
         read_shader_native_handle(
             draw_context.pixel_shader,
             NID3D_PIXEL_SHADER_VTABLE_ADDR,
             PIXEL_SHADER_NATIVE_HANDLE_OFFSET,
         )
     };
-    if original_handle.is_null() || original_handle == replacement_handle {
+    if original_pixel_handle.is_null() || original_pixel_handle == replacement_pixel_handle {
         record_replacement_skip(ReplacementSkipReason::NoVanillaHandle, Some(draw_context));
         return false;
     }
+
+    let original_vertex_handle = if shader_kind.replaces_vertex_shader() {
+        let handle = unsafe {
+            read_shader_native_handle(
+                draw_context.vertex_shader,
+                NID3D_VERTEX_SHADER_VTABLE_ADDR,
+                VERTEX_SHADER_SET_SHADERS_HANDLE_OFFSET,
+            )
+        };
+        if handle.is_null() || handle == replacement_vertex_handle {
+            record_replacement_skip(ReplacementSkipReason::NoVanillaHandle, Some(draw_context));
+            return false;
+        }
+        handle
+    } else {
+        null_mut()
+    };
 
     if !unsafe {
         write_shader_native_handle(
             draw_context.pixel_shader,
             PIXEL_SHADER_NATIVE_HANDLE_OFFSET,
-            replacement_handle,
+            replacement_pixel_handle,
         )
     } {
         log_limited(
@@ -1578,12 +1806,38 @@ unsafe fn call_set_shaders_with_replacement(
         return false;
     }
 
+    if shader_kind.replaces_vertex_shader()
+        && !unsafe {
+            write_shader_native_handle(
+                draw_context.vertex_shader,
+                VERTEX_SHADER_SET_SHADERS_HANDLE_OFFSET,
+                replacement_vertex_handle,
+            )
+        }
+    {
+        let _ = unsafe {
+            write_shader_native_handle(
+                draw_context.pixel_shader,
+                PIXEL_SHADER_NATIVE_HANDLE_OFFSET,
+                original_pixel_handle,
+            )
+        };
+        log_limited(
+            &REPLACEMENT_LOGS,
+            "[PBR] Native PBR replacement skipped because the vertex shader handle slot is not writable",
+        );
+        record_replacement_skip(ReplacementSkipReason::HandleWriteFailed, Some(draw_context));
+        return false;
+    }
+
     log_replacement_apply(
         shader_kind,
         draw_context,
         pass_index,
-        original_handle,
-        replacement_handle,
+        original_pixel_handle,
+        replacement_pixel_handle,
+        original_vertex_handle,
+        replacement_vertex_handle,
         material_bindings,
     );
 
@@ -1591,24 +1845,46 @@ unsafe fn call_set_shaders_with_replacement(
         original(shader, pass_index);
     }
 
-    if !force_replacement_pixel_shader(replacement_handle) {
+    if !force_replacement_pixel_shader(replacement_pixel_handle) {
         log_limited(
             &REPLACEMENT_LOGS,
             "[PBR] Native PBR replacement could not force the final D3D pixel shader state",
         );
     }
-    upload_replacement_material_constants(material_bindings);
+    if shader_kind.replaces_vertex_shader()
+        && !force_replacement_vertex_shader(replacement_vertex_handle)
+    {
+        log_limited(
+            &REPLACEMENT_LOGS,
+            "[PBR] Native PBR replacement could not force the final D3D vertex shader state",
+        );
+    }
+    upload_replacement_material_constants(shader_kind, material_bindings);
 
     if !unsafe {
         write_shader_native_handle(
             draw_context.pixel_shader,
             PIXEL_SHADER_NATIVE_HANDLE_OFFSET,
-            original_handle,
+            original_pixel_handle,
         )
     } {
         log_limited(
             &REPLACEMENT_LOGS,
             "[PBR] Native PBR replacement could not restore the vanilla pixel shader handle",
+        );
+    }
+    if shader_kind.replaces_vertex_shader()
+        && !unsafe {
+            write_shader_native_handle(
+                draw_context.vertex_shader,
+                VERTEX_SHADER_SET_SHADERS_HANDLE_OFFSET,
+                original_vertex_handle,
+            )
+        }
+    {
+        log_limited(
+            &REPLACEMENT_LOGS,
+            "[PBR] Native PBR replacement could not restore the vanilla vertex shader handle",
         );
     }
 
@@ -1624,6 +1900,17 @@ fn force_replacement_pixel_shader(replacement_handle: *mut c_void) -> bool {
     };
 
     unsafe { device.set_raw_pixel_shader(replacement_handle) }.is_ok()
+}
+
+fn force_replacement_vertex_shader(replacement_handle: *mut c_void) -> bool {
+    let Some(device_ptr) = crate::backend::d3d_device_ptr() else {
+        return false;
+    };
+    let Some(device) = (unsafe { Device9Ref::from_raw_void(device_ptr) }) else {
+        return false;
+    };
+
+    unsafe { device.set_raw_vertex_shader(replacement_handle) }.is_ok()
 }
 
 unsafe fn replacement_draw_context() -> Option<ReplacementDrawContext> {
@@ -1671,6 +1958,13 @@ fn replacement_shader_kind(
         return Err(ReplacementSkipReason::UnsupportedFamily);
     }
 
+    if pplighting_pair_uses_sls2_landlod(
+        draw_context.vertex_membership,
+        draw_context.pixel_membership,
+    ) {
+        return Ok(ReplacementShaderKind::LandLod);
+    }
+
     if pplighting_pair_uses_sls2_adts_specular(
         draw_context.vertex_membership,
         draw_context.pixel_membership,
@@ -1686,6 +1980,16 @@ fn replacement_shader_kind(
     }
 
     Err(ReplacementSkipReason::UnsupportedVertexAbi)
+}
+
+fn pplighting_pair_uses_sls2_landlod(
+    vertex: ShaderArrayMembership,
+    pixel: ShaderArrayMembership,
+) -> bool {
+    vertex.group == PPLIGHTING_VERTEX_GROUP_C
+        && vertex.index == PPLIGHTING_VERTEX_SLS2_LANDLOD_INDEX
+        && pixel.group == PPLIGHTING_PIXEL_GROUP_B
+        && pixel.index == PPLIGHTING_PIXEL_SLS2_LANDLOD_INDEX
 }
 
 fn pplighting_pair_uses_sls2_adts_specular(
@@ -1730,6 +2034,32 @@ fn replacement_pixel_shader_handle(kind: ReplacementShaderKind) -> Option<*mut c
     PBR_REPLACEMENT
         .lock()
         .pixel_shader_handle(kind, &device, device_key)
+}
+
+fn replacement_vertex_shader_handle(kind: ReplacementShaderKind) -> Option<*mut c_void> {
+    if !kind.replaces_vertex_shader() {
+        return None;
+    }
+
+    let device_ptr = crate::backend::d3d_device_ptr()?;
+    let device_key = device_ptr as usize;
+    if let (Some(cached_device), Some(cached_handle)) =
+        (kind.cached_vertex_device(), kind.cached_vertex_handle())
+    {
+        let cached_device = cached_device.load(Ordering::Acquire);
+        let cached_handle = cached_handle.load(Ordering::Acquire);
+        if cached_device == device_key && cached_handle != 0 {
+            return Some(cached_handle as *mut c_void);
+        }
+    }
+
+    let Some(device) = (unsafe { Device9Ref::from_raw_void(device_ptr) }) else {
+        return None;
+    };
+
+    PBR_REPLACEMENT
+        .lock()
+        .vertex_shader_handle(kind, &device, device_key)
 }
 
 fn record_texture_binding(render_state: *mut c_void, stage: u32, texture: *mut c_void) {
@@ -1801,6 +2131,7 @@ fn reset_debug_capture_budget() {
     DRAW_LOGS.store(0, Ordering::Release);
     INTERFACE_LOGS.store(0, Ordering::Release);
     SELECTOR_LOGS.store(0, Ordering::Release);
+    REPLACEMENT_UNSUPPORTED_PAIR_LOGS.store(0, Ordering::Release);
     TEXTURE_CAPTURE.set_calls.store(0, Ordering::Release);
 }
 
@@ -2172,7 +2503,10 @@ unsafe fn resolve_material_texture(resource: *mut c_void) -> *mut c_void {
     resolved
 }
 
-fn upload_replacement_material_constants(bindings: ReplacementMaterialBindings) {
+fn upload_replacement_material_constants(
+    shader_kind: ReplacementShaderKind,
+    bindings: ReplacementMaterialBindings,
+) {
     let Some(device_ptr) = crate::backend::d3d_device_ptr() else {
         return;
     };
@@ -2180,13 +2514,15 @@ fn upload_replacement_material_constants(bindings: ReplacementMaterialBindings) 
         return;
     };
 
-    let flags = [[
-        bindings.has_glow as u8 as f32,
-        bindings.has_height as u8 as f32,
-        bindings.has_environment as u8 as f32,
-        bindings.has_environment_mask as u8 as f32,
-    ]];
-    let _ = device.set_pixel_shader_constant_f(PBR_MATERIAL_FLAGS_REGISTER, &flags);
+    if shader_kind.writes_material_flags() {
+        let flags = [[
+            bindings.has_glow as u8 as f32,
+            bindings.has_height as u8 as f32,
+            bindings.has_environment as u8 as f32,
+            bindings.has_environment_mask as u8 as f32,
+        ]];
+        let _ = device.set_pixel_shader_constant_f(PBR_MATERIAL_FLAGS_REGISTER, &flags);
+    }
 
     let pbr_data = [[
         0.0,
@@ -2961,8 +3297,10 @@ fn log_replacement_apply(
     shader_kind: ReplacementShaderKind,
     draw_context: ReplacementDrawContext,
     pass_index: u32,
-    original_handle: *mut c_void,
-    replacement_handle: *mut c_void,
+    original_pixel_handle: *mut c_void,
+    replacement_pixel_handle: *mut c_void,
+    original_vertex_handle: *mut c_void,
+    replacement_vertex_handle: *mut c_void,
     material_bindings: ReplacementMaterialBindings,
 ) {
     REPLACEMENT_APPLIED_COUNT.fetch_add(1, Ordering::Relaxed);
@@ -2973,7 +3311,7 @@ fn log_replacement_apply(
     }
 
     log::info!(
-        "[PBR] Native PBR replacement kind={} pass_index={} pass={:p} vs={:p} ps={:p} family={} vgrp={} vidx={} pgrp={} pidx={} vanilla_ps={:p} replacement_ps={:p} selector=0x{:08X} sel_gen={} maps=n{} g{} h{} e{} m{} s0=0x{:08X} s1=0x{:08X} s2=0x{:08X} s3=0x{:08X} s4=0x{:08X} s5=0x{:08X}",
+        "[PBR] Native PBR replacement kind={} pass_index={} pass={:p} vs={:p} ps={:p} family={} vgrp={} vidx={} pgrp={} pidx={} vanilla_vs={:p} replacement_vs={:p} vanilla_ps={:p} replacement_ps={:p} selector=0x{:08X} sel_gen={} maps=n{} g{} h{} e{} m{} s0=0x{:08X} s1=0x{:08X} s2=0x{:08X} s3=0x{:08X} s4=0x{:08X} s5=0x{:08X}",
         shader_kind.label(),
         pass_index,
         draw_context.pass,
@@ -2984,8 +3322,10 @@ fn log_replacement_apply(
         draw_context.vertex_membership.index,
         draw_context.pixel_membership.group,
         draw_context.pixel_membership.index,
-        original_handle,
-        replacement_handle,
+        original_vertex_handle,
+        replacement_vertex_handle,
+        original_pixel_handle,
+        replacement_pixel_handle,
         material_bindings.selector,
         material_bindings.generation,
         material_bindings.has_normal as u8,
@@ -3049,9 +3389,43 @@ fn record_replacement_skip(
             .store(draw_context.vertex_membership.index, Ordering::Release);
         REPLACEMENT_LAST_PIXEL_GROUP.store(draw_context.pixel_membership.group, Ordering::Release);
         REPLACEMENT_LAST_PIXEL_INDEX.store(draw_context.pixel_membership.index, Ordering::Release);
+        maybe_log_unsupported_replacement_pair(reason, draw_context);
     }
 
     maybe_log_replacement_skip_summary(checks);
+}
+
+fn maybe_log_unsupported_replacement_pair(
+    reason: ReplacementSkipReason,
+    draw_context: ReplacementDrawContext,
+) {
+    if !DEBUG_LOG_DRAWS.load(Ordering::Acquire) {
+        return;
+    }
+    if !matches!(
+        reason,
+        ReplacementSkipReason::UnsupportedFamily | ReplacementSkipReason::UnsupportedVertexAbi
+    ) {
+        return;
+    }
+
+    let count = REPLACEMENT_UNSUPPORTED_PAIR_LOGS.fetch_add(1, Ordering::Relaxed);
+    if count >= MAX_LOGS {
+        return;
+    }
+
+    log::info!(
+        "[PBR] Unsupported replacement pair: reason={} family={} vgrp={} vidx={} pgrp={} pidx={} pass={:p} vs={:p} ps={:p}",
+        reason.label(),
+        draw_context.family,
+        draw_context.vertex_membership.group,
+        draw_context.vertex_membership.index,
+        draw_context.pixel_membership.group,
+        draw_context.pixel_membership.index,
+        draw_context.pass,
+        draw_context.vertex_shader,
+        draw_context.pixel_shader,
+    );
 }
 
 fn maybe_log_replacement_skip_summary(checks: u32) {

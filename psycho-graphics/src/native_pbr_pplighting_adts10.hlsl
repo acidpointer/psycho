@@ -46,11 +46,6 @@ float3 DecodeNormal(float4 normal_sample)
     return SafeNormalize(normal_sample.xyz * 2.0f - 1.0f, float3(0.0f, 0.0f, 1.0f));
 }
 
-float PbrRoughnessScale()
-{
-    return (TESR_PBRData.y > 0.0f) ? TESR_PBRData.y : 1.0f;
-}
-
 float PbrLightMultiplier()
 {
     return (TESR_PBRData.z > 0.0f) ? TESR_PBRData.z : 1.0f;
@@ -66,11 +61,6 @@ float PbrAlbedoSaturation()
     return (TESR_PBRExtraData.x > 0.0f) ? TESR_PBRExtraData.x : 1.0f;
 }
 
-float RoughnessFromGloss(float gloss)
-{
-    return saturate(max(0.043f, 1.0f - saturate(gloss)) * PbrRoughnessScale());
-}
-
 float3 Fresnel(float3 f0, float3 f90, float cosine)
 {
     float f = 1.0f - saturate(cosine);
@@ -83,7 +73,7 @@ float3 LambertianDiffuse(float3 albedo, float3 fresnel)
     return (1.0f - fresnel) * albedo / PI;
 }
 
-float3 PbrDiffuse(float roughness, float3 albedo, float3 normal, float3 view_dir, float3 light_dir, float3 light_color)
+float3 PbrDiffuse(float3 albedo, float3 normal, float3 view_dir, float3 light_dir, float3 light_color)
 {
     float3 reflectance = float3(0.04f, 0.04f, 0.04f);
 
@@ -112,9 +102,9 @@ float3 AmbientLighting(float3 ambient, float3 albedo)
     return ambient * PbrAmbientMultiplier() * albedo;
 }
 
-float3 PointLight(float3 light_vector, float attenuation, float3 light_color, float3 view_dir, float3 normal, float3 albedo, float roughness)
+float3 PointLight(float3 light_vector, float attenuation, float3 light_color, float3 view_dir, float3 normal, float3 albedo)
 {
-    return attenuation * PbrDiffuse(roughness, albedo, normal, view_dir, light_vector, light_color * PbrLightMultiplier());
+    return attenuation * PbrDiffuse(albedo, normal, view_dir, light_vector, light_color * PbrLightMultiplier());
 }
 
 float4 Main(PixelInput input) : COLOR0
@@ -130,13 +120,10 @@ float4 Main(PixelInput input) : COLOR0
         : base_color.rgb * saturate(input.vertex_color.rgb);
     albedo = lerp(Luma(albedo), albedo, PbrAlbedoSaturation());
 
-    float4 normal_sample = tex2D(NormalMap, input.uv.xy);
-    float3 normal = DecodeNormal(normal_sample);
-    float roughness = RoughnessFromGloss(normal_sample.a);
+    float3 normal = DecodeNormal(tex2D(NormalMap, input.uv.xy));
     float3 view_dir = float3(input.light_dir.w, input.light2.w, input.light3.w);
 
     float3 lighting = PbrDiffuse(
-        roughness,
         albedo,
         normal,
         view_dir,
@@ -146,13 +133,13 @@ float4 Main(PixelInput input) : COLOR0
 
     float lights_used = LightControl.a;
     float att = VanillaAtt(PSLightPosition[0].xyz - input.local_position.xyz, PSLightPosition[0].w);
-    lighting += (lights_used > 1.0f ? 1.0f : 0.0f) * PointLight(input.light2.xyz, att, PSLightColor[1].rgb, view_dir, normal, albedo, roughness);
+    lighting += (lights_used > 1.0f ? 1.0f : 0.0f) * PointLight(input.light2.xyz, att, PSLightColor[1].rgb, view_dir, normal, albedo);
 
     att = VanillaAtt(PSLightPosition[1].xyz - input.local_position.xyz, PSLightPosition[1].w);
-    lighting += (lights_used >= 2.0f ? 1.0f : 0.0f) * PointLight(input.light3.xyz, att, PSLightColor[2].rgb, view_dir, normal, albedo, roughness);
+    lighting += (lights_used >= 2.0f ? 1.0f : 0.0f) * PointLight(input.light3.xyz, att, PSLightColor[2].rgb, view_dir, normal, albedo);
 
     att = VanillaAtt(PSLightPosition[2].xyz - input.local_position.xyz, PSLightPosition[2].w);
-    lighting += (lights_used >= 3.0f ? 1.0f : 0.0f) * PointLight(input.light4.xyz, att, PSLightColor[3].rgb, view_dir, normal, albedo, roughness);
+    lighting += (lights_used >= 3.0f ? 1.0f : 0.0f) * PointLight(input.light4.xyz, att, PSLightColor[3].rgb, view_dir, normal, albedo);
 
     lighting += AmbientLighting(AmbientColor.rgb, albedo);
 

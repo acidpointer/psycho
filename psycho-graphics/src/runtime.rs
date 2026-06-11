@@ -56,15 +56,22 @@ const WM_MBUTTONDOWN: u32 = 0x0207;
 const WM_MBUTTONUP: u32 = 0x0208;
 const WM_MOUSEWHEEL: u32 = 0x020A;
 const WM_MOUSEHWHEEL: u32 = 0x020E;
+const DEFAULT_MENU_TOGGLE_KEY: u32 = 0x2D;
+const VK_ESCAPE: usize = 0x1B;
 
 static RUNTIME: LazyLock<Mutex<ScreenShaderRuntime>> =
     LazyLock::new(|| Mutex::new(ScreenShaderRuntime::default()));
 static MENU_OPEN: AtomicBool = AtomicBool::new(false);
 static IMGUI_READY: AtomicBool = AtomicBool::new(false);
-static MENU_TOGGLE_KEY: AtomicU32 = AtomicU32::new(0x2D);
+static MENU_TOGGLE_KEY: AtomicU32 = AtomicU32::new(DEFAULT_MENU_TOGGLE_KEY);
+static MENU_KEY_CAPTURE_ACTIVE: AtomicBool = AtomicBool::new(false);
+static PENDING_MENU_TOGGLE_KEY: AtomicU32 = AtomicU32::new(0);
 
 pub(crate) fn configure(settings: RuntimeSettings) {
-    MENU_TOGGLE_KEY.store(settings.menu_toggle_key, Ordering::Release);
+    MENU_TOGGLE_KEY.store(
+        sanitize_menu_toggle_key(settings.menu_toggle_key),
+        Ordering::Release,
+    );
 
     let mut runtime = RUNTIME.lock();
     runtime.configure(settings);
@@ -173,15 +180,33 @@ pub(crate) fn handle_window_message(
     wparam: usize,
     lparam: isize,
 ) -> Option<isize> {
-    let toggle_key = MENU_TOGGLE_KEY.load(Ordering::Acquire) as usize;
-    if (msg == WM_KEYDOWN || msg == WM_SYSKEYDOWN) && wparam == toggle_key {
-        let open = !MENU_OPEN.load(Ordering::Acquire);
-        MENU_OPEN.store(open, Ordering::Release);
-        crate::input::set_menu_input_blocked(open);
+    let menu_open = MENU_OPEN.load(Ordering::Acquire);
+    if menu_open
+        && MENU_KEY_CAPTURE_ACTIVE.load(Ordering::Acquire)
+        && (msg == WM_KEYDOWN || msg == WM_SYSKEYDOWN)
+    {
+        if wparam == VK_ESCAPE {
+            MENU_KEY_CAPTURE_ACTIVE.store(false, Ordering::Release);
+        } else if let Some(key) = valid_virtual_key(wparam) {
+            PENDING_MENU_TOGGLE_KEY.store(key, Ordering::Release);
+            MENU_KEY_CAPTURE_ACTIVE.store(false, Ordering::Release);
+        }
         return Some(0);
     }
 
-    if !MENU_OPEN.load(Ordering::Acquire) || !IMGUI_READY.load(Ordering::Acquire) {
+    let toggle_key = MENU_TOGGLE_KEY.load(Ordering::Acquire) as usize;
+    if (msg == WM_KEYDOWN || msg == WM_SYSKEYDOWN) && wparam == toggle_key {
+        let open = !menu_open;
+        MENU_OPEN.store(open, Ordering::Release);
+        crate::input::set_menu_input_blocked(open);
+        if !open {
+            MENU_KEY_CAPTURE_ACTIVE.store(false, Ordering::Release);
+            PENDING_MENU_TOGGLE_KEY.store(0, Ordering::Release);
+        }
+        return Some(0);
+    }
+
+    if !menu_open || !IMGUI_READY.load(Ordering::Acquire) {
         return None;
     }
 
@@ -207,7 +232,7 @@ impl Default for RuntimeSettings {
         Self {
             menu_config,
             depth_provider: menu_config.depth_provider.into(),
-            menu_toggle_key: menu_config.menu_toggle_key,
+            menu_toggle_key: sanitize_menu_toggle_key(menu_config.menu_toggle_key),
             shader_scan_interval_ms: menu_config.shader_scan_interval_ms,
         }
     }
@@ -1165,7 +1190,9 @@ impl ScreenShaderRuntime {
 
     fn apply_menu_config_change(&mut self) {
         self.settings.depth_provider = self.settings.menu_config.depth_provider.into();
-        self.settings.menu_toggle_key = self.settings.menu_config.menu_toggle_key;
+        self.settings.menu_toggle_key =
+            sanitize_menu_toggle_key(self.settings.menu_config.menu_toggle_key);
+        self.settings.menu_config.menu_toggle_key = self.settings.menu_toggle_key;
         self.settings.shader_scan_interval_ms = self.settings.menu_config.shader_scan_interval_ms;
         MENU_TOGGLE_KEY.store(self.settings.menu_toggle_key, Ordering::Release);
         crate::pbr::configure_runtime_options(self.settings.menu_config.native_pbr.into());
@@ -1688,18 +1715,7 @@ fn draw_global_config(
     ui.same_line();
     changed |= draw_config_checkbox(ui, "Debug log", "global.debug_log", &mut config.debug_log);
 
-    let mut toggle_key = config.menu_toggle_key.clamp(1, 255) as i32;
-    if draw_int_slider(
-        ui,
-        "Menu toggle virtual-key",
-        "global.menu_toggle_key",
-        &mut toggle_key,
-        1,
-        255,
-    ) {
-        config.menu_toggle_key = toggle_key.clamp(1, 255) as u32;
-        changed = true;
-    }
+    changed |= draw_menu_keybind_control(ui, &mut config.menu_toggle_key);
 
     let mut scan_interval = config.shader_scan_interval_ms.clamp(50, 5_000) as i32;
     if draw_int_slider(
@@ -1732,6 +1748,56 @@ fn draw_config_checkbox(
 ) -> bool {
     let checkbox = cstring(format!("{label}##{id}"));
     ui.checkbox(&checkbox, value)
+}
+
+fn draw_menu_keybind_control(ui: &mut psycho_imgui::Ui<'_>, key: &mut u32) -> bool {
+    let mut changed = false;
+    let pending_key = PENDING_MENU_TOGGLE_KEY.swap(0, Ordering::AcqRel);
+    if pending_key != 0 {
+        *key = sanitize_menu_toggle_key(pending_key);
+        changed = true;
+    }
+
+    let normalized = sanitize_menu_toggle_key(*key);
+    if normalized != *key {
+        *key = normalized;
+        changed = true;
+    }
+
+    let label = cstring("Menu key");
+    ui.text(&label);
+    ui.same_line();
+
+    let key_text = cstring(virtual_key_label(*key));
+    ui.text_colored(MENU_GOOD_TEXT, &key_text);
+    ui.same_line();
+
+    if MENU_KEY_CAPTURE_ACTIVE.load(Ordering::Acquire) {
+        let listening = cstring("Listening...");
+        ui.text_colored(MENU_WARN_TEXT, &listening);
+        ui.same_line();
+
+        let cancel = cstring("Cancel##global.menu_toggle_key.cancel");
+        if ui.button(&cancel) {
+            MENU_KEY_CAPTURE_ACTIVE.store(false, Ordering::Release);
+            PENDING_MENU_TOGGLE_KEY.store(0, Ordering::Release);
+        }
+    } else {
+        let change = cstring("Change##global.menu_toggle_key.capture");
+        if ui.button(&change) {
+            PENDING_MENU_TOGGLE_KEY.store(0, Ordering::Release);
+            MENU_KEY_CAPTURE_ACTIVE.store(true, Ordering::Release);
+        }
+        ui.same_line();
+
+        let reset = cstring("Reset##global.menu_toggle_key.reset");
+        if ui.button(&reset) && *key != DEFAULT_MENU_TOGGLE_KEY {
+            *key = DEFAULT_MENU_TOGGLE_KEY;
+            changed = true;
+        }
+    }
+
+    changed
 }
 
 fn draw_depth_provider_config(
@@ -2167,6 +2233,76 @@ fn clamp_menu_selection(sources: &[ScreenShaderSource], selected_item: &mut Menu
 
 fn valid_hwnd(hwnd: *mut c_void) -> Option<*mut c_void> {
     if is_window(hwnd) { Some(hwnd) } else { None }
+}
+
+fn sanitize_menu_toggle_key(key: u32) -> u32 {
+    if valid_virtual_key(key as usize).is_some() {
+        key
+    } else {
+        DEFAULT_MENU_TOGGLE_KEY
+    }
+}
+
+fn valid_virtual_key(value: usize) -> Option<u32> {
+    (1..=255).contains(&value).then_some(value as u32)
+}
+
+fn virtual_key_label(key: u32) -> String {
+    match key {
+        0x08 => "Backspace".to_owned(),
+        0x09 => "Tab".to_owned(),
+        0x0D => "Enter".to_owned(),
+        0x10 => "Shift".to_owned(),
+        0x11 => "Ctrl".to_owned(),
+        0x12 => "Alt".to_owned(),
+        0x13 => "Pause".to_owned(),
+        0x14 => "Caps Lock".to_owned(),
+        0x1B => "Esc".to_owned(),
+        0x20 => "Space".to_owned(),
+        0x21 => "Page Up".to_owned(),
+        0x22 => "Page Down".to_owned(),
+        0x23 => "End".to_owned(),
+        0x24 => "Home".to_owned(),
+        0x25 => "Left".to_owned(),
+        0x26 => "Up".to_owned(),
+        0x27 => "Right".to_owned(),
+        0x28 => "Down".to_owned(),
+        0x2C => "Print Screen".to_owned(),
+        0x2D => "Insert".to_owned(),
+        0x2E => "Delete".to_owned(),
+        0x30..=0x39 | 0x41..=0x5A => (key as u8 as char).to_string(),
+        0x5B => "Left Win".to_owned(),
+        0x5C => "Right Win".to_owned(),
+        0x5D => "App Menu".to_owned(),
+        0x60..=0x69 => format!("Numpad {}", key - 0x60),
+        0x6A => "Numpad *".to_owned(),
+        0x6B => "Numpad +".to_owned(),
+        0x6C => "Separator".to_owned(),
+        0x6D => "Numpad -".to_owned(),
+        0x6E => "Numpad .".to_owned(),
+        0x6F => "Numpad /".to_owned(),
+        0x70..=0x87 => format!("F{}", key - 0x6F),
+        0x90 => "Num Lock".to_owned(),
+        0x91 => "Scroll Lock".to_owned(),
+        0xA0 => "Left Shift".to_owned(),
+        0xA1 => "Right Shift".to_owned(),
+        0xA2 => "Left Ctrl".to_owned(),
+        0xA3 => "Right Ctrl".to_owned(),
+        0xA4 => "Left Alt".to_owned(),
+        0xA5 => "Right Alt".to_owned(),
+        0xBA => ";".to_owned(),
+        0xBB => "=".to_owned(),
+        0xBC => ",".to_owned(),
+        0xBD => "-".to_owned(),
+        0xBE => ".".to_owned(),
+        0xBF => "/".to_owned(),
+        0xC0 => "`".to_owned(),
+        0xDB => "[".to_owned(),
+        0xDC => "\\".to_owned(),
+        0xDD => "]".to_owned(),
+        0xDE => "'".to_owned(),
+        _ => format!("VK 0x{key:02X}"),
+    }
 }
 
 fn is_input_message(msg: u32) -> bool {

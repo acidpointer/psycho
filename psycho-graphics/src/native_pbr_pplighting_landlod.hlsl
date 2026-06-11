@@ -1,20 +1,22 @@
 float4 AmbientColor : register(c1);
 float4 PSLightColor[10] : register(c3);
-float4 Toggles : register(c27);
-float4 PbrMaterialFlags : register(c31);
+float4 LODTexParams : register(c31);
 float4 TESR_PBRData : register(c32);
 float4 TESR_PBRExtraData : register(c33);
 
 sampler2D BaseMap : register(s0);
 sampler2D NormalMap : register(s1);
+sampler2D LODParentTex : register(s4);
+sampler2D LODParentNormals : register(s6);
+sampler2D LODLandNoise : register(s7);
 
 struct PixelInput
 {
-    float3 vertex_color : COLOR0;
-    float4 fog_color : COLOR1;
     float2 uv : TEXCOORD0;
-    float4 light_dir : TEXCOORD1;
-    float3 view_dir : TEXCOORD6;
+    float4 fog_color : COLOR1;
+    float3 light_dir : TEXCOORD1;
+    float3 local_position : TEXCOORD2;
+    float3 eye_position : TEXCOORD3;
 };
 
 static const float PI = 3.14159265f;
@@ -37,9 +39,9 @@ float3 Luma(float3 value)
     return float3(lum, lum, lum);
 }
 
-float3 DecodeNormal(float4 normal_sample)
+float3 ExpandNormal(float3 value)
 {
-    return SafeNormalize(normal_sample.xyz * 2.0f - 1.0f, float3(0.0f, 0.0f, 1.0f));
+    return SafeNormalize(value * 2.0f - 1.0f, float3(0.0f, 0.0f, 1.0f));
 }
 
 float PbrRoughnessScale()
@@ -108,7 +110,7 @@ float3 PbrSun(float roughness, float3 albedo, float3 normal, float3 eye_dir, flo
     float3 reflectance = float3(0.04f, 0.04f, 0.04f);
 
     normal = SafeNormalize(normal, float3(0.0f, 0.0f, 1.0f));
-    eye_dir = SafeNormalize(eye_dir, float3(0.0f, 0.0f, 1.0f));
+    eye_dir = SafeNormalize(eye_dir, light_dir);
     light_dir = SafeNormalize(light_dir, float3(0.0f, 0.0f, 1.0f));
 
     float3 reflect_dir = reflect(light_dir, normal);
@@ -140,27 +142,36 @@ float3 AmbientLighting(float3 ambient, float3 albedo)
 
 float4 Main(PixelInput input) : COLOR0
 {
-    float4 base_color = tex2D(BaseMap, input.uv.xy);
+    float lod_blend = saturate(LODTexParams.w);
 
-    if (AmbientColor.a < 1.0f) {
-        clip(base_color.a - Toggles.w);
-    }
+    float4 normal_sample = tex2D(NormalMap, input.uv);
+    float4 parent_normal_sample = tex2D(LODParentNormals, (input.uv * 0.5f) + LODTexParams.xy);
+    normal_sample = lerp(parent_normal_sample, normal_sample, lod_blend);
 
-    float4 normal_sample = tex2D(NormalMap, input.uv.xy);
-    float3 normal = DecodeNormal(normal_sample);
-    float roughness = RoughnessFromGloss(normal_sample.a);
+    float2 base_uv = (input.uv * 0.9921875f) + (1.0f / 256.0f);
+    float3 parent_albedo = tex2D(LODParentTex, (0.5f * base_uv) + lerp(LODTexParams.xy, 0.25f, 1.0f / 128.0f)).rgb;
+    float3 base_albedo = tex2D(BaseMap, base_uv).rgb;
+    float3 albedo = lerp(parent_albedo, base_albedo, lod_blend);
 
-    float3 albedo = base_color.rgb;
-    albedo = (Toggles.x <= 0.0f) ? albedo : albedo * saturate(input.vertex_color.rgb);
+    float noise = tex2D(LODLandNoise, input.uv * 1.75f).r;
+    albedo *= (noise * 0.8f) + 0.55f;
     albedo = lerp(Luma(albedo), albedo, PbrAlbedoSaturation());
 
-    float3 light_color = PSLightColor[0].rgb * PbrLightMultiplier();
-    float3 lighting = PbrSun(roughness, albedo, normal, input.view_dir.xyz, input.light_dir.xyz, light_color);
+    float3 normal = ExpandNormal(normal_sample.rgb);
+    float roughness = RoughnessFromGloss(normal_sample.a);
+    float3 light_dir = SafeNormalize(input.light_dir.xyz, float3(0.0f, 0.0f, 1.0f));
+    float3 view_dir = SafeNormalize(input.eye_position - input.local_position, light_dir);
+
+    float3 lighting = PbrSun(
+        roughness,
+        albedo,
+        normal,
+        view_dir,
+        light_dir,
+        PSLightColor[0].rgb * PbrLightMultiplier()
+    );
     lighting += AmbientLighting(AmbientColor.rgb, albedo);
 
-    float3 final_color = (Toggles.y <= 0.0f)
-        ? lighting
-        : lerp(lighting, input.fog_color.rgb, saturate(input.fog_color.a));
-
-    return float4(final_color, base_color.a * AmbientColor.a);
+    float3 final_color = lerp(max(lighting, float3(0.0f, 0.0f, 0.0f)), input.fog_color.rgb, saturate(input.fog_color.a));
+    return float4(final_color, 1.0f);
 }
