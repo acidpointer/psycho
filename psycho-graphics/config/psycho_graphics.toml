@@ -161,6 +161,9 @@ occlusion_softness = 0.42
 #   - current pass shader-interface apply context
 #   - NiDX9RenderState::SetTexture final 16-stage texture cache
 #   - PPLighting shader-family membership from proven vanilla global arrays
+#   - low-light ADTS object OPT/LOD ABI: vertex group C index 0 with
+#     pixel group B index 1, or vertex group C index 1 with pixel group B
+#     index 2
 #   - low-light ADTS specular ABI: vertex group C index 12 or 13,
 #     pixel group B index 17
 #   - high-light ADTS10 LIGHTS=4 ABI: vertex group C index 22,

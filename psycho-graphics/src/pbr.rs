@@ -69,6 +69,10 @@ const PPLIGHTING_FAMILY_VERTEX_A_PIXEL_A: u32 = 1;
 const PPLIGHTING_FAMILY_VERTEX_B_PIXEL_A: u32 = 2;
 const PPLIGHTING_FAMILY_VERTEX_C_PIXEL_B: u32 = 3;
 const PPLIGHTING_FAMILY_UNKNOWN_PAIR: u32 = u32::MAX;
+const PPLIGHTING_VERTEX_SLS2_ADTS_BASE_INDEX: u32 = 0;
+const PPLIGHTING_PIXEL_SLS2_ADTS_OPT_INDEX: u32 = 1;
+const PPLIGHTING_VERTEX_SLS2_ADTS_LOD_INDEX: u32 = 1;
+const PPLIGHTING_PIXEL_SLS2_ADTS_OPT_LOD_INDEX: u32 = 2;
 const PPLIGHTING_VERTEX_SLS2_LANDLOD_INDEX: u32 = 2;
 const PPLIGHTING_PIXEL_SLS2_LANDLOD_INDEX: u32 = 3;
 const PPLIGHTING_VERTEX_SLS2_ADTS_SPECULAR_INDEX: u32 = 12;
@@ -219,6 +223,8 @@ static REPLACEMENT_LAST_VERTEX_GROUP: AtomicU32 = AtomicU32::new(PPLIGHTING_GROU
 static REPLACEMENT_LAST_VERTEX_INDEX: AtomicU32 = AtomicU32::new(0);
 static REPLACEMENT_LAST_PIXEL_GROUP: AtomicU32 = AtomicU32::new(PPLIGHTING_GROUP_NONE);
 static REPLACEMENT_LAST_PIXEL_INDEX: AtomicU32 = AtomicU32::new(0);
+static REPLACEMENT_ADTS_LOD_PIXEL_SHADER_HANDLE: AtomicUsize = AtomicUsize::new(0);
+static REPLACEMENT_ADTS_LOD_PIXEL_SHADER_DEVICE: AtomicUsize = AtomicUsize::new(0);
 static REPLACEMENT_ADTS_SPECULAR_PIXEL_SHADER_HANDLE: AtomicUsize = AtomicUsize::new(0);
 static REPLACEMENT_ADTS_SPECULAR_PIXEL_SHADER_DEVICE: AtomicUsize = AtomicUsize::new(0);
 static REPLACEMENT_ADTS10_LIGHTS4_PIXEL_SHADER_HANDLE: AtomicUsize = AtomicUsize::new(0);
@@ -247,6 +253,8 @@ static PBR_REPLACEMENT: LazyLock<Mutex<PbrReplacementState>> =
     LazyLock::new(|| Mutex::new(PbrReplacementState::new()));
 
 const PBR_REPLACEMENT_PIXEL_SHADER: &[u8] = include_bytes!("native_pbr_pplighting.hlsl");
+const PBR_REPLACEMENT_ADTS_LOD_PIXEL_SHADER: &[u8] =
+    include_bytes!("native_pbr_pplighting_adts_lod.hlsl");
 const PBR_REPLACEMENT_ADTS10_PIXEL_SHADER: &[u8] =
     include_bytes!("native_pbr_pplighting_adts10.hlsl");
 const PBR_REPLACEMENT_LANDLOD_PIXEL_SHADER: &[u8] =
@@ -830,6 +838,7 @@ fn texture_resolve_cache_slot(resource: usize) -> usize {
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum ReplacementShaderKind {
+    AdtsOptLod,
     AdtsSpecular,
     Adts10Lights4,
     LandLod,
@@ -838,6 +847,7 @@ enum ReplacementShaderKind {
 impl ReplacementShaderKind {
     fn source_name(self) -> &'static str {
         match self {
+            Self::AdtsOptLod => "native_pbr_pplighting_adts_lod.hlsl",
             Self::AdtsSpecular => "native_pbr_pplighting.hlsl",
             Self::Adts10Lights4 => "native_pbr_pplighting_adts10.hlsl",
             Self::LandLod => "native_pbr_pplighting_landlod.hlsl",
@@ -846,6 +856,7 @@ impl ReplacementShaderKind {
 
     fn source(self) -> &'static [u8] {
         match self {
+            Self::AdtsOptLod => PBR_REPLACEMENT_ADTS_LOD_PIXEL_SHADER,
             Self::AdtsSpecular => PBR_REPLACEMENT_PIXEL_SHADER,
             Self::Adts10Lights4 => PBR_REPLACEMENT_ADTS10_PIXEL_SHADER,
             Self::LandLod => PBR_REPLACEMENT_LANDLOD_PIXEL_SHADER,
@@ -854,20 +865,21 @@ impl ReplacementShaderKind {
 
     fn vertex_source_name(self) -> Option<&'static str> {
         match self {
-            Self::AdtsSpecular | Self::Adts10Lights4 => None,
+            Self::AdtsOptLod | Self::AdtsSpecular | Self::Adts10Lights4 => None,
             Self::LandLod => Some("native_pbr_pplighting_landlod.vs.hlsl"),
         }
     }
 
     fn vertex_source(self) -> Option<&'static [u8]> {
         match self {
-            Self::AdtsSpecular | Self::Adts10Lights4 => None,
+            Self::AdtsOptLod | Self::AdtsSpecular | Self::Adts10Lights4 => None,
             Self::LandLod => Some(PBR_REPLACEMENT_LANDLOD_VERTEX_SHADER),
         }
     }
 
     fn label(self) -> &'static str {
         match self {
+            Self::AdtsOptLod => "adts_opt_lod",
             Self::AdtsSpecular => "adts_specular",
             Self::Adts10Lights4 => "adts10_lights4",
             Self::LandLod => "landlod",
@@ -876,6 +888,7 @@ impl ReplacementShaderKind {
 
     fn cached_device(self) -> &'static AtomicUsize {
         match self {
+            Self::AdtsOptLod => &REPLACEMENT_ADTS_LOD_PIXEL_SHADER_DEVICE,
             Self::AdtsSpecular => &REPLACEMENT_ADTS_SPECULAR_PIXEL_SHADER_DEVICE,
             Self::Adts10Lights4 => &REPLACEMENT_ADTS10_LIGHTS4_PIXEL_SHADER_DEVICE,
             Self::LandLod => &REPLACEMENT_LANDLOD_PIXEL_SHADER_DEVICE,
@@ -884,6 +897,7 @@ impl ReplacementShaderKind {
 
     fn cached_handle(self) -> &'static AtomicUsize {
         match self {
+            Self::AdtsOptLod => &REPLACEMENT_ADTS_LOD_PIXEL_SHADER_HANDLE,
             Self::AdtsSpecular => &REPLACEMENT_ADTS_SPECULAR_PIXEL_SHADER_HANDLE,
             Self::Adts10Lights4 => &REPLACEMENT_ADTS10_LIGHTS4_PIXEL_SHADER_HANDLE,
             Self::LandLod => &REPLACEMENT_LANDLOD_PIXEL_SHADER_HANDLE,
@@ -892,14 +906,14 @@ impl ReplacementShaderKind {
 
     fn cached_vertex_device(self) -> Option<&'static AtomicUsize> {
         match self {
-            Self::AdtsSpecular | Self::Adts10Lights4 => None,
+            Self::AdtsOptLod | Self::AdtsSpecular | Self::Adts10Lights4 => None,
             Self::LandLod => Some(&REPLACEMENT_LANDLOD_VERTEX_SHADER_DEVICE),
         }
     }
 
     fn cached_vertex_handle(self) -> Option<&'static AtomicUsize> {
         match self {
-            Self::AdtsSpecular | Self::Adts10Lights4 => None,
+            Self::AdtsOptLod | Self::AdtsSpecular | Self::Adts10Lights4 => None,
             Self::LandLod => Some(&REPLACEMENT_LANDLOD_VERTEX_SHADER_HANDLE),
         }
     }
@@ -910,12 +924,13 @@ impl ReplacementShaderKind {
 
     fn uses_extra_material_stages(self) -> bool {
         match self {
-            Self::AdtsSpecular | Self::Adts10Lights4 | Self::LandLod => false,
+            Self::AdtsOptLod | Self::AdtsSpecular | Self::Adts10Lights4 | Self::LandLod => false,
         }
     }
 
     fn writes_material_flags(self) -> bool {
         match self {
+            Self::AdtsOptLod => false,
             Self::AdtsSpecular | Self::Adts10Lights4 => true,
             Self::LandLod => false,
         }
@@ -924,6 +939,7 @@ impl ReplacementShaderKind {
 
 struct PbrReplacementState {
     device: usize,
+    adts_lod: PbrShaderSlot,
     adts_specular: PbrShaderSlot,
     adts10_lights4: PbrShaderSlot,
     landlod: PbrShaderSlot,
@@ -934,6 +950,7 @@ impl PbrReplacementState {
     fn new() -> Self {
         Self {
             device: 0,
+            adts_lod: PbrShaderSlot::new(),
             adts_specular: PbrShaderSlot::new(),
             adts10_lights4: PbrShaderSlot::new(),
             landlod: PbrShaderSlot::new(),
@@ -943,10 +960,13 @@ impl PbrReplacementState {
 
     fn release(&mut self) {
         self.device = 0;
+        self.adts_lod.release();
         self.adts_specular.release();
         self.adts10_lights4.release();
         self.landlod.release();
         self.landlod_vertex.release();
+        REPLACEMENT_ADTS_LOD_PIXEL_SHADER_DEVICE.store(0, Ordering::Release);
+        REPLACEMENT_ADTS_LOD_PIXEL_SHADER_HANDLE.store(0, Ordering::Release);
         REPLACEMENT_ADTS_SPECULAR_PIXEL_SHADER_DEVICE.store(0, Ordering::Release);
         REPLACEMENT_ADTS_SPECULAR_PIXEL_SHADER_HANDLE.store(0, Ordering::Release);
         REPLACEMENT_ADTS10_LIGHTS4_PIXEL_SHADER_DEVICE.store(0, Ordering::Release);
@@ -984,7 +1004,9 @@ impl PbrReplacementState {
         }
 
         match kind {
-            ReplacementShaderKind::AdtsSpecular | ReplacementShaderKind::Adts10Lights4 => None,
+            ReplacementShaderKind::AdtsOptLod
+            | ReplacementShaderKind::AdtsSpecular
+            | ReplacementShaderKind::Adts10Lights4 => None,
             ReplacementShaderKind::LandLod => self
                 .landlod_vertex
                 .vertex_shader_handle(kind, device, device_ptr),
@@ -993,6 +1015,7 @@ impl PbrReplacementState {
 
     fn slot_mut(&mut self, kind: ReplacementShaderKind) -> &mut PbrShaderSlot {
         match kind {
+            ReplacementShaderKind::AdtsOptLod => &mut self.adts_lod,
             ReplacementShaderKind::AdtsSpecular => &mut self.adts_specular,
             ReplacementShaderKind::Adts10Lights4 => &mut self.adts10_lights4,
             ReplacementShaderKind::LandLod => &mut self.landlod,
@@ -1958,6 +1981,13 @@ fn replacement_shader_kind(
         return Err(ReplacementSkipReason::UnsupportedFamily);
     }
 
+    if pplighting_pair_uses_sls2_adts_opt_or_lod(
+        draw_context.vertex_membership,
+        draw_context.pixel_membership,
+    ) {
+        return Ok(ReplacementShaderKind::AdtsOptLod);
+    }
+
     if pplighting_pair_uses_sls2_landlod(
         draw_context.vertex_membership,
         draw_context.pixel_membership,
@@ -1980,6 +2010,20 @@ fn replacement_shader_kind(
     }
 
     Err(ReplacementSkipReason::UnsupportedVertexAbi)
+}
+
+fn pplighting_pair_uses_sls2_adts_opt_or_lod(
+    vertex: ShaderArrayMembership,
+    pixel: ShaderArrayMembership,
+) -> bool {
+    if vertex.group != PPLIGHTING_VERTEX_GROUP_C || pixel.group != PPLIGHTING_PIXEL_GROUP_B {
+        return false;
+    }
+
+    (vertex.index == PPLIGHTING_VERTEX_SLS2_ADTS_BASE_INDEX
+        && pixel.index == PPLIGHTING_PIXEL_SLS2_ADTS_OPT_INDEX)
+        || (vertex.index == PPLIGHTING_VERTEX_SLS2_ADTS_LOD_INDEX
+            && pixel.index == PPLIGHTING_PIXEL_SLS2_ADTS_OPT_LOD_INDEX)
 }
 
 fn pplighting_pair_uses_sls2_landlod(
