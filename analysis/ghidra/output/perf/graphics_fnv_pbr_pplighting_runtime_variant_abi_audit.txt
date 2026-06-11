@@ -1,0 +1,608 @@
+FNV PBR PPLIGHTING RUNTIME VARIANT ABI AUDIT
+
+Runtime evidence from latest playtest:
+- PBR replacement never applied.
+- Dominant skip reason is unsupported_family.
+- Visible scene hits PPLighting family 3: vertex group C + pixel group B.
+- Observed vertex indices include 0, 2, 12, 13, 22; pixel indices include 1, 3, 17, 31.
+
+Goal:
+Map those runtime-hit indices to shader descriptor source paths/defines before widening native PBR replacement.
+
+======================================================================
+String hint references
+======================================================================
+  ESP+0x60 -> 0x010AEBF4 'lighting\2x\v\ADTS.v.hlsl'
+  ESP+0x70 -> 0x010AEBF4 'lighting\2x\v\ADTS.v.hlsl'
+  ESP+0xC8 -> 0x010AEBD4 'lighting\2x\v\landlod.v.hlsl'
+  ESP+0xCC -> 0x010AEBC4 'MODELSPACENORM'
+  ESP+0x120 -> 0x010AEBF4 'lighting\2x\v\ADTS.v.hlsl'
+  ESP+0x178 -> 0x010AEBF4 'lighting\2x\v\ADTS.v.hlsl'
+  ESP+0x17C -> 0x010AEBA0 'PROJ_SHADOW'
+  ESP+0x1C4 -> 0x010AEBD4 'lighting\2x\v\landlod.v.hlsl'
+  ESP+0x1C8 -> 0x010AEBC4 'MODELSPACENORM'
+  ESP+0x1D0 -> 0x010AEBA0 'PROJ_SHADOW'
+  ESP+0x21C -> 0x010AEBF4 'lighting\2x\v\ADTS.v.hlsl'
+  ESP+0x228 -> 0x010AEBA0 'PROJ_SHADOW'
+  ESP+0x274 -> 0x010AEBF4 'lighting\2x\v\ADTS.v.hlsl'
+  ESP+0x27C -> 0x010AEBF4 'lighting\2x\v\ADTS.v.hlsl'
+  ESP+0x288 -> 0x010AEB98 'LIGHTS'
+  ESP+0x2DC -> 0x010AEBF4 'lighting\2x\v\ADTS.v.hlsl'
+  ESP+0x2E0 -> 0x010AEB98 'LIGHTS'
+  ESP+0x334 -> 0x010AEBF4 'lighting\2x\v\ADTS.v.hlsl'
+  ESP+0x338 -> 0x010AEB98 'LIGHTS'
+  ESP+0x340 -> 0x010AEBA0 'PROJ_SHADOW'
+  ESP+0x38C -> 0x010AEBF4 'lighting\2x\v\ADTS.v.hlsl'
+  ESP+0x390 -> 0x010AEB98 'LIGHTS'
+  ESP+0x3A0 -> 0x010AEBA0 'PROJ_SHADOW'
+  ESP+0x3E4 -> 0x010AEBF4 'lighting\2x\v\ADTS.v.hlsl'
+  ESP+0x3E8 -> 0x010AEB8C 'SPECULAR'
+  ESP+0x430 -> 0x010AEBF4 'lighting\2x\v\ADTS.v.hlsl'
+  ESP+0x440 -> 0x010AEB8C 'SPECULAR'
+  ESP+0x44C -> 0x010AEBF4 'lighting\2x\v\ADTS.v.hlsl'
+  ESP+0x450 -> 0x010AEB8C 'SPECULAR'
+  ESP+0x458 -> 0x010AEBA0 'PROJ_SHADOW'
+  ESP+0x4A4 -> 0x010AEBF4 'lighting\2x\v\ADTS.v.hlsl'
+  ESP+0x4A8 -> 0x010AEB8C 'SPECULAR'
+  ESP+0x4B8 -> 0x010AEBA0 'PROJ_SHADOW'
+  ESP+0x4FC -> 0x010AEBF4 'lighting\2x\v\ADTS.v.hlsl'
+  ESP+0x500 -> 0x010AEB8C 'SPECULAR'
+  ESP+0x508 -> 0x010AEB98 'LIGHTS'
+  ESP+0x554 -> 0x010AEBF4 'lighting\2x\v\ADTS.v.hlsl'
+  ESP+0x558 -> 0x010AEB8C 'SPECULAR'
+  ESP+0x560 -> 0x010AEB98 'LIGHTS'
+  ESP+0x5AC -> 0x010AEBF4 'lighting\2x\v\ADTS.v.hlsl'
+  ESP+0x5B0 -> 0x010AEB8C 'SPECULAR'
+  ESP+0x5B8 -> 0x010AEB98 'LIGHTS'
+  ESP+0x5C0 -> 0x010AEBA0 'PROJ_SHADOW'
+  ESP+0x5F8 -> 0x010AEBF4 'lighting\2x\v\ADTS.v.hlsl'
+  ESP+0x5FC -> 0x010AEB8C 'SPECULAR'
+  ESP+0x604 -> 0x010AEB98 'LIGHTS'
+  ESP+0x614 -> 0x010AEBA0 'PROJ_SHADOW'
+  ESP+0x650 -> 0x010AEB70 'lighting\2x\v\ADTS10.v.hlsl'
+  ESP+0x654 -> 0x010AEB98 'LIGHTS'
+  ESP+0x660 -> 0x010AEB70 'lighting\2x\v\ADTS10.v.hlsl'
+  ESP+0x664 -> 0x010AEB98 'LIGHTS'
+  ESP+0x6B8 -> 0x010AEB70 'lighting\2x\v\ADTS10.v.hlsl'
+  ESP+0x6BC -> 0x010AEB98 'LIGHTS'
+  ESP+0x710 -> 0x010AEB70 'lighting\2x\v\ADTS10.v.hlsl'
+  ESP+0x71C -> 0x010AEB98 'LIGHTS'
+  ESP+0x768 -> 0x010AEB70 'lighting\2x\v\ADTS10.v.hlsl'
+  ESP+0x76C -> 0x010AEB98 'LIGHTS'
+  ESP+0x7C0 -> 0x010AEB70 'lighting\2x\v\ADTS10.v.hlsl'
+  ESP+0x7C4 -> 0x010AEB8C 'SPECULAR'
+  ESP+0x7CC -> 0x010AEB98 'LIGHTS'
+  ESP+0x80C -> 0x010AEB70 'lighting\2x\v\ADTS10.v.hlsl'
+  ESP+0x818 -> 0x010AEB8C 'SPECULAR'
+  ESP+0x820 -> 0x010AEB98 'LIGHTS'
+  ESP+0x828 -> 0x010AEB70 'lighting\2x\v\ADTS10.v.hlsl'
+  ESP+0x82C -> 0x010AEB8C 'SPECULAR'
+  ESP+0x834 -> 0x010AEB98 'LIGHTS'
+  ESP+0x880 -> 0x010AEB54 'lighting\2x\v\AD.v.hlsl'
+  ESP+0x884 -> 0x010AEB98 'LIGHTS'
+  ESP+0x8D8 -> 0x010AEB54 'lighting\2x\v\AD.v.hlsl'
+  ESP+0x8DC -> 0x010AEB98 'LIGHTS'
+  ESP+0x930 -> 0x010AEB54 'lighting\2x\v\AD.v.hlsl'
+  ESP+0x934 -> 0x010AEB98 'LIGHTS'
+  ESP+0x93C -> 0x010AEBA0 'PROJ_SHADOW'
+  ESP+0x988 -> 0x010AEB54 'lighting\2x\v\AD.v.hlsl'
+  ESP+0x98C -> 0x010AEB98 'LIGHTS'
+  ESP+0x99C -> 0x010AEBA0 'PROJ_SHADOW'
+  ESP+0x9E0 -> 0x010AEB54 'lighting\2x\v\AD.v.hlsl'
+  ESP+0x9E4 -> 0x010AEB98 'LIGHTS'
+  ESP+0x9E8 -> 0x010AEB54 'lighting\2x\v\AD.v.hlsl'
+  ESP+0x9EC -> 0x010AEB98 'LIGHTS'
+  ESP+0xA48 -> 0x010AEB54 'lighting\2x\v\AD.v.hlsl'
+  ESP+0xA4C -> 0x010AEB98 'LIGHTS'
+  ESP+0xA54 -> 0x010AEBA0 'PROJ_SHADOW'
+  ESP+0xAA0 -> 0x010AEB54 'lighting\2x\v\AD.v.hlsl'
+  ESP+0xAA4 -> 0x010AEB98 'LIGHTS'
+  ESP+0xAB4 -> 0x010AEBA0 'PROJ_SHADOW'
+  ESP+0xAF8 -> 0x010AEB34 'lighting\2x\v\DiffusePt.v.hlsl'
+  ESP+0xAFC -> 0x010AEB98 'LIGHTS'
+  ESP+0xB50 -> 0x010AEB34 'lighting\2x\v\DiffusePt.v.hlsl'
+  ESP+0xB54 -> 0x010AEB98 'LIGHTS'
+  ESP+0xBA8 -> 0x010AEB34 'lighting\2x\v\DiffusePt.v.hlsl'
+  ESP+0xBAC -> 0x010AEB98 'LIGHTS'
+  ESP+0xBB8 -> 0x010AEB34 'lighting\2x\v\DiffusePt.v.hlsl'
+  ESP+0xBBC -> 0x010AEB98 'LIGHTS'
+  ESP+0xC10 -> 0x010AEB14 'lighting\2x\v\Specular.v.hlsl'
+  ESP+0xC60 -> 0x010AEB14 'lighting\2x\v\Specular.v.hlsl'
+  ESP+0xCC0 -> 0x010AEB14 'lighting\2x\v\Specular.v.hlsl'
+  ESP+0xCC4 -> 0x010AEBA0 'PROJ_SHADOW'
+  ESP+0xD18 -> 0x010AEB14 'lighting\2x\v\Specular.v.hlsl'
+  ESP+0xD24 -> 0x010AEBA0 'PROJ_SHADOW'
+  ESP+0xD70 -> 0x010AEB14 'lighting\2x\v\Specular.v.hlsl'
+  ESP+0xD74 -> 0x010AEB0C 'POINT'
+  ESP+0xD80 -> 0x010AEB14 'lighting\2x\v\Specular.v.hlsl'
+  ESP+0xD8C -> 0x010AEB0C 'POINT'
+  ESP+0xDD8 -> 0x010AEB14 'lighting\2x\v\Specular.v.hlsl'
+  ESP+0xDDC -> 0x010AEAFC 'NUM_PT_LIGHTS'
+  ESP+0xDE4 -> 0x010AEB0C 'POINT'
+  ESP+0xE30 -> 0x010AEB14 'lighting\2x\v\Specular.v.hlsl'
+  ESP+0xE34 -> 0x010AEAFC 'NUM_PT_LIGHTS'
+  ESP+0xE44 -> 0x010AEB0C 'POINT'
+  ESP+0xE88 -> 0x010AEB14 'lighting\2x\v\Specular.v.hlsl'
+  ESP+0xE8C -> 0x010AEAFC 'NUM_PT_LIGHTS'
+  ESP+0xE94 -> 0x010AEB0C 'POINT'
+  ESP+0xED4 -> 0x010AEB14 'lighting\2x\v\Specular.v.hlsl'
+  ESP+0xED8 -> 0x010AEAFC 'NUM_PT_LIGHTS'
+  ESP+0xEF4 -> 0x010AEB0C 'POINT'
+  ESP+0xF38 -> 0x010AEAE0 'lighting\2x\v\EnvMap.v.hlsl'
+  ESP+0xF48 -> 0x010AEAE0 'lighting\2x\v\EnvMap.v.hlsl'
+  ESP+0xFA0 -> 0x010AEAE0 'lighting\2x\v\EnvMap.v.hlsl'
+  ESP+0xFF8 -> 0x010AEAB8 'lighting\2x\v\land.v.hlsl'
+  ESP+0xFFC -> 0x010AEBA0 'PROJ_SHADOW'
+  ESP+0x1050 -> 0x010AEAB8 'lighting\2x\v\land.v.hlsl'
+  ESP+0x1054 -> 0x010AEC20 'LANDALPHA'
+  ESP+0x105C -> 0x010AEBA0 'PROJ_SHADOW'
+  ESP+0x10A8 -> 0x010AEA94 'lighting\2x\v\landlighting.v.hlsl'
+  ESP+0x10F8 -> 0x010AEA94 'lighting\2x\v\landlighting.v.hlsl'
+  ESP+0x10FC -> 0x010AEB8C 'SPECULAR'
+  ESP+0x1168 -> 0x010AEA94 'lighting\2x\v\landlighting.v.hlsl'
+  ESP+0x116C -> 0x010AEC20 'LANDALPHA'
+  ESP+0x11C0 -> 0x010AEA94 'lighting\2x\v\landlighting.v.hlsl'
+  ESP+0x11C4 -> 0x010AEC20 'LANDALPHA'
+  ESP+0x11CC -> 0x010AEB8C 'SPECULAR'
+  ESP+0x1270 -> 0x010AEA94 'lighting\2x\v\landlighting.v.hlsl'
+  ESP+0x1274 -> 0x010AEB8C 'SPECULAR'
+  ESP+0x127C -> 0x010AEBA0 'PROJ_SHADOW'
+  ESP+0x12C8 -> 0x010AEA94 'lighting\2x\v\landlighting.v.hlsl'
+  ESP+0x12CC -> 0x010AEC20 'LANDALPHA'
+  ESP+0x12D4 -> 0x010AEB8C 'SPECULAR'
+  ESP+0x12D8 -> 0x010AEA74 'lighting\2x\v\depthmap.v.hlsl'
+  ESP+0x1328 -> 0x010AEA74 'lighting\2x\v\depthmap.v.hlsl'
+  ESP+0x1388 -> 0x010AEA74 'lighting\2x\v\depthmap.v.hlsl'
+  ESP+0x13E0 -> 0x010AEA74 'lighting\2x\v\depthmap.v.hlsl'
+  ESP+0x1438 -> 0x010AEA74 'lighting\2x\v\depthmap.v.hlsl'
+  ESP+0x1490 -> 0x010AEA2C 'lighting\2x\v\renderNormals.v.hlsl'
+  ESP+0x14A0 -> 0x010AEA2C 'lighting\2x\v\renderNormals.v.hlsl'
+  ESP+0x14F8 -> 0x010AEA2C 'lighting\2x\v\renderNormals.v.hlsl'
+  ESP+0x1550 -> 0x010AEA2C 'lighting\2x\v\renderNormals.v.hlsl'
+  ESP+0x15A0 -> 0x010AEA2C 'lighting\2x\v\renderNormals.v.hlsl'
+  ESP+0x1600 -> 0x010AE9F8 'lighting\2x\v\renderDepth.v.hlsl'
+  ESP+0x1658 -> 0x010AE9F8 'lighting\2x\v\renderDepth.v.hlsl'
+  ESP+0x1668 -> 0x010AE9F8 'lighting\2x\v\renderDepth.v.hlsl'
+  ESP+0x166C -> 0x010AEBC4 'MODELSPACENORM'
+  ESP+0x16C0 -> 0x010AE9D4 'lighting\2x\v\renderVelocity.v.hlsl'
+  ESP+0x1718 -> 0x010AE9D4 'lighting\2x\v\renderVelocity.v.hlsl'
+  ESP+0x1770 -> 0x010AEAB8 'lighting\2x\v\land.v.hlsl'
+  ESP+0x17C8 -> 0x010AEAB8 'lighting\2x\v\land.v.hlsl'
+  ESP+0x17CC -> 0x010AEC20 'LANDALPHA'
+  ESP+0x1820 -> 0x010AEAB8 'lighting\2x\v\land.v.hlsl'
+  ESP+0x1828 -> 0x010AEAB8 'lighting\2x\v\land.v.hlsl'
+  ESP+0x182C -> 0x010AEC20 'LANDALPHA'
+  ESP+0x1888 -> 0x010AEAB8 'lighting\2x\v\land.v.hlsl'
+  ESP+0x18E0 -> 0x010AEAB8 'lighting\2x\v\land.v.hlsl'
+  ESP+0x18E4 -> 0x010AEC20 'LANDALPHA'
+  ESP+0x1938 -> 0x010AE9AC 'lighting\2x\v\localMap.v.hlsl'
+  ESP+0x1990 -> 0x010AE9AC 'lighting\2x\v\localMap.v.hlsl'
+  ESP+0x19E8 -> 0x010AE9AC 'lighting\2x\v\localMap.v.hlsl'
+  ESP+0x19F8 -> 0x010AE98C 'lighting\1x\v\texEffect.v.hlsl'
+  ESP+0x1A50 -> 0x010AE98C 'lighting\1x\v\texEffect.v.hlsl'
+  ESP+0x1AA8 -> 0x010AE968 'lighting\2x\v\SimpleShadow.v.hlsl'
+  ESP+0x1AF4 -> 0x010AE968 'lighting\2x\v\SimpleShadow.v.hlsl'
+  ESP+0x1B58 -> 0x010AE968 'lighting\2x\v\SimpleShadow.v.hlsl'
+  ESP+0x1BB0 -> 0x010AE93C 'lighting\2x\v\WaterFog.v.hlsl'
+  ESP+0x1BC0 -> 0x010AE93C 'lighting\2x\v\WaterFog.v.hlsl'
+  ESP+0x1C18 -> 0x010AE93C 'lighting\2x\v\WaterFog.v.hlsl'
+  ESP+0x1C70 -> 0x010AE93C 'lighting\2x\v\WaterFog.v.hlsl'
+  ESP+0x1CC8 -> 0x010AE93C 'lighting\2x\v\WaterFog.v.hlsl'
+  ESP+0x1D20 -> 0x010AE93C 'lighting\2x\v\WaterFog.v.hlsl'
+  ESP+0x1D6C -> 0x010AE93C 'lighting\2x\v\WaterFog.v.hlsl'
+  ESP+0x1D88 -> 0x010AE93C 'lighting\2x\v\WaterFog.v.hlsl'
+  ESP+0x1DE0 -> 0x010AE914 'lighting\2x\v\LandO.v.hlsl'
+  ESP+0x1E38 -> 0x010AE914 'lighting\2x\v\LandO.v.hlsl'
+  ESP+0x1E44 -> 0x010AEBA0 'PROJ_SHADOW'
+  ESP+0x1E90 -> 0x010AE8F8 'lighting\2x\v\adts.v.hlsl'
+  ESP+0x1E94 -> 0x010AEB98 'LIGHTS'
+  ESP+0x1EC4 -> 0x010AEDA8 'lighting\1x\v\base.v.hlsl'
+  ESP+0x1F1C -> 0x010AEDA8 'lighting\1x\v\base.v.hlsl'
+  ESP+0x1F30 -> 0x010AECB0 'NO_TEX'
+  ESP+0x1F74 -> 0x010AEDA8 'lighting\1x\v\base.v.hlsl'
+  ESP+0x1FCC -> 0x010AED88 'lighting\1x\v\diffusePt.v.hlsl'
+  ESP+0x2024 -> 0x010AED68 'lighting\1x\v\diffuseDir.v.hlsl'
+  ESP+0x2034 -> 0x010AEDA8 'lighting\1x\v\base.v.hlsl'
+  ESP+0x208C -> 0x010AEDA8 'lighting\1x\v\base.v.hlsl'
+  ESP+0x20E4 -> 0x010AEDA8 'lighting\1x\v\base.v.hlsl'
+  ESP+0x20F0 -> 0x010AED54 'FACEGENBLEND'
+  ESP+0x213C -> 0x010AED34 'lighting\1x\v\specularPt.v.hlsl'
+  ESP+0x2194 -> 0x010AED10 'lighting\1x\v\specularDir.v.hlsl'
+  ESP+0x21EC -> 0x010AECE4 'lighting\1x\v\ambDiffuseDirTexture.v.hlsl'
+  ESP+0x21FC -> 0x010AECE4 'lighting\1x\v\ambDiffuseDirTexture.v.hlsl'
+  ESP+0x2248 -> 0x010AECE4 'lighting\1x\v\ambDiffuseDirTexture.v.hlsl'
+  ESP+0x22AC -> 0x010AECE4 'lighting\1x\v\ambDiffuseDirTexture.v.hlsl'
+  ESP+0x2304 -> 0x010AECE4 'lighting\1x\v\ambDiffuseDirTexture.v.hlsl'
+  ESP+0x2310 -> 0x010AED54 'FACEGENBLEND'
+  ESP+0x235C -> 0x010AECE4 'lighting\1x\v\ambDiffuseDirTexture.v.hlsl'
+  ESP+0x2368 -> 0x010AED54 'FACEGENBLEND'
+  ESP+0x23B4 -> 0x010AECB8 'lighting\1x\v\ambDiffuseDirAndPt.v.hlsl'
+  ESP+0x23C4 -> 0x010AEC90 'lighting\1x\v\envmap.v.hlsl'
+  ESP+0x24C0 -> 0x010AEDA8 'lighting\1x\v\base.v.hlsl'
+  ESP+0x2540 -> 0x010AEDA8 'lighting\1x\v\base.v.hlsl'
+  ESP+0x2648 -> 0x010AED88 'lighting\1x\v\diffusePt.v.hlsl'
+  ESP+0x26A0 -> 0x010AED68 'lighting\1x\v\diffuseDir.v.hlsl'
+  ESP+0x26F8 -> 0x010AEDA8 'lighting\1x\v\base.v.hlsl'
+  ESP+0x2708 -> 0x010AEDA8 'lighting\1x\v\base.v.hlsl'
+  ESP+0x2760 -> 0x010AEDA8 'lighting\1x\v\base.v.hlsl'
+  ESP+0x2764 -> 0x010AED54 'FACEGENBLEND'
+  ESP+0x27B8 -> 0x010AED34 'lighting\1x\v\specularPt.v.hlsl'
+  ESP+0x2808 -> 0x010AED10 'lighting\1x\v\specularDir.v.hlsl'
+  ESP+0x2868 -> 0x010AECE4 'lighting\1x\v\ambDiffuseDirTexture.v.hlsl'
+  ESP+0x28C0 -> 0x010AECE4 'lighting\1x\v\ambDiffuseDirTexture.v.hlsl'
+  ESP+0x28D0 -> 0x010AECE4 'lighting\1x\v\ambDiffuseDirTexture.v.hlsl'
+  ESP+0x2928 -> 0x010AECE4 'lighting\1x\v\ambDiffuseDirTexture.v.hlsl'
+  ESP+0x2980 -> 0x010AECE4 'lighting\1x\v\ambDiffuseDirTexture.v.hlsl'
+  ESP+0x2984 -> 0x010AED54 'FACEGENBLEND'
+  ESP+0x29D0 -> 0x010AECE4 'lighting\1x\v\ambDiffuseDirTexture.v.hlsl'
+  ESP+0x29DC -> 0x010AED54 'FACEGENBLEND'
+  ESP+0x2A30 -> 0x010AECB8 'lighting\1x\v\ambDiffuseDirAndPt.v.hlsl'
+  ESP+0x2A88 -> 0x010AEDA8 'lighting\1x\v\base.v.hlsl'
+  ESP+0x2A8C -> 0x010AEDA8 'lighting\1x\v\base.v.hlsl'
+  ESP+0x2A94 -> 0x010AECB0 'NO_TEX'
+  ESP+0x2AF0 -> 0x010AEC90 'lighting\1x\v\envmap.v.hlsl'
+  ESP+0x2B48 -> 0x010AEC70 'lighting\1x\v\vertDir.v.hlsl'
+  ESP+0x2BA0 -> 0x010AEC70 'lighting\1x\v\vertDir.v.hlsl'
+  ESP+0x2BF8 -> 0x010AEC4C 'lighting\1x\v\vertDirAndPt.v.hlsl'
+  ESP+0x2C50 -> 0x010AEC4C 'lighting\1x\v\vertDirAndPt.v.hlsl'
+  ESP+0x2C60 -> 0x010AEDA8 'lighting\1x\v\base.v.hlsl'
+  ESP+0x2CB8 -> 0x010AEC2C 'lighting\1x\v\land.v.hlsl'
+  ESP+0x2D10 -> 0x010AEC2C 'lighting\1x\v\land.v.hlsl'
+  ESP+0x2D14 -> 0x010AEC20 'LANDALPHA'
+  ESP+0x2D5C -> 0x010AEC2C 'lighting\1x\v\land.v.hlsl'
+  ESP+0x2D60 -> 0x010AEC20 'LANDALPHA'
+  ESP+0x2DC0 -> 0x010AEC2C 'lighting\1x\v\land.v.hlsl'
+  ESP+0x2E18 -> 0x010AEC2C 'lighting\1x\v\land.v.hlsl'
+  ESP+0x2E1C -> 0x010AEC20 'LANDALPHA'
+
+======================================================================
+vertex group A runtime ABI descriptor audit
+======================================================================
+global=0x011fdd88 callsite=0x00b74000 count=0x1f runtime_indices=[]
+loop base candidates nearest-first:
+  0x00b73fa4 ESP+0x2534  LEA EBX,[ESP + 0x2534]
+selected descriptor base: ESP+0x2534, stride 0x4C
+
+descriptor entries:
+  [000] context     base=ESP+0x2534 +0x0C=0x010AEDA8 'lighting\1x\v\base.v.hlsl'
+  [001] context     base=ESP+0x2580 [no string fields recovered]
+  [002] context     base=ESP+0x25CC [no string fields recovered]
+  [003] context     base=ESP+0x2618 +0x30=0x010AED88 'lighting\1x\v\diffusePt.v.hlsl'
+  [004] context     base=ESP+0x2664 +0x3C=0x010AED68 'lighting\1x\v\diffuseDir.v.hlsl'
+  [005] context     base=ESP+0x26B0 +0x48=0x010AEDA8 'lighting\1x\v\base.v.hlsl'
+  [006] context     base=ESP+0x26FC +0x0C=0x010AEDA8 'lighting\1x\v\base.v.hlsl'; +0x10=0x010AED64 'VC'
+  [007] context     base=ESP+0x2748 +0x18=0x010AEDA8 'lighting\1x\v\base.v.hlsl'; +0x1C=0x010AED54 'FACEGENBLEND'
+
+======================================================================
+DISASM: vertex group A around 0x00b74000
+======================================================================
+   0x00b73f6d: LEA EAX,[ESP + 0x1e98]
+      ref DATA               -> 0x-0001204 
+   0x00b73f74: PUSH EDI
+   0x00b73f75: PUSH EAX
+   0x00b73f76: MOV dword ptr [ESP + 0x1e90],0x10ae8f8
+      ref DATA               -> 0x010ae8f8 lighting\2x\v\adts.v.hlsl
+      ref WRITE              -> 0x-0001214 
+   0x00b73f81: MOV dword ptr [ESP + 0x1e94],EBP
+      ref DATA               -> 0x010aeb98 LIGHTS
+      ref WRITE              -> 0x-0001210 
+   0x00b73f88: MOV dword ptr [ESP + 0x1e98],0x1020760
+      ref DATA               -> 0x01020760 
+      ref WRITE              -> 0x-000120c 
+   0x00b73f93: MOV dword ptr [ESP + 0x1e9c],EDI
+      ref WRITE              -> 0x-0001208 
+   0x00b73f9a: CALL 0x00ec61c0
+      ref UNCONDITIONAL_CALL -> 0x00ec61c0 
+   0x00b73f9f: ADD ESP,0x30
+   0x00b73fa2: XOR ESI,ESI
+   0x00b73fa4: LEA EBX,[ESP + 0x2534]
+      ref DATA               -> 0x-0000b40 
+   0x00b73fab: JMP 0x00b73fb0
+      ref UNCONDITIONAL_JUMP -> 0x00b73fb0 
+   0x00b73fb0: MOV EAX,dword ptr [EBX]
+      ref DATA               -> 0x-0000b40 
+   0x00b73fb2: CMP EAX,EDI
+   0x00b73fb4: JZ 0x00b74049
+      ref CONDITIONAL_JUMP   -> 0x00b74049 
+   0x00b73fba: LEA ECX,[ESP + 0x2e68]
+      ref DATA               -> 0x-000020c 
+   0x00b73fc1: PUSH ECX
+   0x00b73fc2: PUSH EAX
+      ref DATA               -> 0x010aeda8 lighting\1x\v\base.v.hlsl
+   0x00b73fc3: CALL 0x00be0c00
+      ref UNCONDITIONAL_CALL -> 0x00be0c00 
+   0x00b73fc8: PUSH ESI
+   0x00b73fc9: PUSH 0x10ae8e8
+      ref DATA               -> 0x010ae8e8 SLS1%03i.vso
+   0x00b73fce: LEA EDX,[ESP + 0x2f7c]
+      ref DATA               -> 0x-0000108 
+   0x00b73fd5: PUSH 0x104
+   0x00b73fda: PUSH EDX
+   0x00b73fdb: CALL 0x00406d00
+      ref UNCONDITIONAL_CALL -> 0x00406d00 
+   0x00b73fe0: ADD ESP,0x18
+   0x00b73fe3: LEA EAX,[ESP + 0x2f6c]
+      ref DATA               -> 0x-0000108 
+   0x00b73fea: PUSH EAX
+   0x00b73feb: PUSH 0x10a93e4
+      ref DATA               -> 0x010a93e4 vs_2_0
+   0x00b73ff0: LEA ECX,[EBX + 0x4]
+      ref DATA               -> 0x-0000b3c 
+   0x00b73ff3: PUSH ECX
+   0x00b73ff4: MOV ECX,dword ptr [ESP + 0x20]
+      ref READ               -> 0x-0003060 
+   0x00b73ff8: LEA EDX,[ESP + 0x2e74]
+      ref DATA               -> 0x-000020c 
+   0x00b73fff: PUSH EDX
+=> 0x00b74000: CALL 0x00be0fe0
+      ref UNCONDITIONAL_CALL -> 0x00be0fe0 
+   0x00b74005: MOV EBP,dword ptr [ESI*0x4 + 0x11fdd88]
+      ref READ               -> 0x011fdd88 
+   0x00b7400c: MOV dword ptr [ESP + 0x10],EAX
+      ref WRITE              -> 0x-0003064 
+   0x00b74010: CMP EBP,EAX
+   0x00b74012: JZ 0x00b74049
+      ref CONDITIONAL_JUMP   -> 0x00b74049 
+   0x00b74014: CMP EBP,EDI
+   0x00b74016: JZ 0x00b74034
+      ref CONDITIONAL_JUMP   -> 0x00b74034 
+   0x00b74018: LEA EAX,[EBP + 0x4]
+   0x00b7401b: PUSH EAX
+   0x00b7401c: CALL dword ptr [0x00fdf1c4]
+      ref READ               -> 0x00fdf1c4 
+      ref COMPUTED_CALL      -> 0x00000067 
+   0x00b74022: TEST EAX,EAX
+   0x00b74024: JNZ 0x00b74030
+      ref CONDITIONAL_JUMP   -> 0x00b74030 
+   0x00b74026: MOV EDX,dword ptr [EBP]
+   0x00b74029: MOV EAX,dword ptr [EDX + 0x4]
+   0x00b7402c: MOV ECX,EBP
+   0x00b7402e: CALL EAX
+   0x00b74030: MOV EAX,dword ptr [ESP + 0x10]
+      ref READ               -> 0x-0003064 
+   0x00b74034: MOV dword ptr [ESI*0x4 + 0x11fdd88],EAX
+      ref WRITE              -> 0x011fdd88 
+   0x00b7403b: CMP EAX,EDI
+   0x00b7403d: JZ 0x00b74049
+      ref CONDITIONAL_JUMP   -> 0x00b74049 
+   0x00b7403f: ADD EAX,0x4
+   0x00b74042: PUSH EAX
+   0x00b74043: CALL dword ptr [0x00fdf1c0]
+      ref READ               -> 0x00fdf1c0 
+      ref COMPUTED_CALL      -> 0x00000066 
+   0x00b74049: INC ESI
+   0x00b7404a: ADD EBX,0x4c
+   0x00b7404d: CMP ESI,0x1f
+   0x00b74050: JL 0x00b73fb0
+      ref CONDITIONAL_JUMP   -> 0x00b73fb0 
+
+======================================================================
+vertex group B runtime ABI descriptor audit
+======================================================================
+global=0x011fde04 callsite=0x00b740b3 count=0x16 runtime_indices=[]
+loop base candidates nearest-first:
+  0x00b74056 ESP+0x1EAC  LEA EBX,[ESP + 0x1eac]
+  0x00b73fa4 ESP+0x2534  LEA EBX,[ESP + 0x2534]
+selected descriptor base: ESP+0x1EAC, stride 0x4C
+
+descriptor entries:
+  [000] context     base=ESP+0x1EAC +0x18=0x010AEDA8 'lighting\1x\v\base.v.hlsl'; +0x1C=0x010AEC10 'SKIN'
+  [001] context     base=ESP+0x1EF8 +0x24=0x010AEDA8 'lighting\1x\v\base.v.hlsl'; +0x28=0x010AEC10 'SKIN'; +0x30=0x010AECE0 'FOG'; +0x38=0x010AECB0 'NO_TEX'
+  [002] context     base=ESP+0x1F44 +0x30=0x010AEDA8 'lighting\1x\v\base.v.hlsl'; +0x34=0x010AEC10 'SKIN'; +0x3C=0x010AECE0 'FOG'; +0x44=0x010AECAC 'TEX'
+  [003] context     base=ESP+0x1F90 +0x3C=0x010AED88 'lighting\1x\v\diffusePt.v.hlsl'; +0x40=0x010AEC10 'SKIN'
+  [004] context     base=ESP+0x1FDC +0x48=0x010AED68 'lighting\1x\v\diffuseDir.v.hlsl'
+  [005] context     base=ESP+0x2028 +0x00=0x010AEC10 'SKIN'; +0x0C=0x010AEDA8 'lighting\1x\v\base.v.hlsl'; +0x10=0x010AEC10 'SKIN'
+  [006] context     base=ESP+0x2074 +0x18=0x010AEDA8 'lighting\1x\v\base.v.hlsl'; +0x1C=0x010AEC10 'SKIN'; +0x24=0x010AED64 'VC'
+  [007] context     base=ESP+0x20C0 +0x24=0x010AEDA8 'lighting\1x\v\base.v.hlsl'; +0x28=0x010AEC10 'SKIN'; +0x30=0x010AED54 'FACEGENBLEND'
+
+======================================================================
+DISASM: vertex group B around 0x00b740b3
+======================================================================
+   0x00b7403b: CMP EAX,EDI
+   0x00b7403d: JZ 0x00b74049
+      ref CONDITIONAL_JUMP   -> 0x00b74049 
+   0x00b7403f: ADD EAX,0x4
+   0x00b74042: PUSH EAX
+   0x00b74043: CALL dword ptr [0x00fdf1c0]
+      ref READ               -> 0x00fdf1c0 
+      ref COMPUTED_CALL      -> 0x00000066 
+   0x00b74049: INC ESI
+   0x00b7404a: ADD EBX,0x4c
+   0x00b7404d: CMP ESI,0x1f
+   0x00b74050: JL 0x00b73fb0
+      ref CONDITIONAL_JUMP   -> 0x00b73fb0 
+   0x00b74056: LEA EBX,[ESP + 0x1eac]
+   0x00b7405d: XOR ESI,ESI
+   0x00b7405f: MOV dword ptr [ESP + 0x10],EBX
+   0x00b74063: MOV EAX,dword ptr [EBX]
+   0x00b74065: CMP EAX,EDI
+   0x00b74067: JZ 0x00b740f5
+      ref CONDITIONAL_JUMP   -> 0x00b740f5 
+   0x00b7406d: LEA ECX,[ESP + 0x2e68]
+   0x00b74074: PUSH ECX
+   0x00b74075: PUSH EAX
+   0x00b74076: CALL 0x00be0c00
+      ref UNCONDITIONAL_CALL -> 0x00be0c00 
+   0x00b7407b: PUSH ESI
+   0x00b7407c: PUSH 0x10ae8d8
+      ref DATA               -> 0x010ae8d8 SLS1S%03i.vso
+   0x00b74081: LEA EDX,[ESP + 0x2f7c]
+   0x00b74088: PUSH 0x104
+   0x00b7408d: PUSH EDX
+   0x00b7408e: CALL 0x00406d00
+      ref UNCONDITIONAL_CALL -> 0x00406d00 
+   0x00b74093: ADD ESP,0x18
+   0x00b74096: LEA EAX,[ESP + 0x2f6c]
+   0x00b7409d: PUSH EAX
+   0x00b7409e: PUSH 0x10a93e4
+      ref DATA               -> 0x010a93e4 vs_2_0
+   0x00b740a3: ADD EBX,0x4
+   0x00b740a6: PUSH EBX
+   0x00b740a7: LEA ECX,[ESP + 0x2e74]
+   0x00b740ae: PUSH ECX
+   0x00b740af: MOV ECX,dword ptr [ESP + 0x24]
+=> 0x00b740b3: CALL 0x00be0fe0
+      ref UNCONDITIONAL_CALL -> 0x00be0fe0 
+   0x00b740b8: MOV EBX,dword ptr [ESI*0x4 + 0x11fde04]
+      ref READ               -> 0x011fde04 
+   0x00b740bf: MOV EBP,EAX
+   0x00b740c1: CMP EBX,EBP
+   0x00b740c3: JZ 0x00b740f5
+      ref CONDITIONAL_JUMP   -> 0x00b740f5 
+   0x00b740c5: CMP EBX,EDI
+   0x00b740c7: JZ 0x00b740e0
+      ref CONDITIONAL_JUMP   -> 0x00b740e0 
+   0x00b740c9: LEA EDX,[EBX + 0x4]
+   0x00b740cc: PUSH EDX
+   0x00b740cd: CALL dword ptr [0x00fdf1c4]
+      ref READ               -> 0x00fdf1c4 
+      ref COMPUTED_CALL      -> 0x00000067 
+   0x00b740d3: TEST EAX,EAX
+   0x00b740d5: JNZ 0x00b740e0
+      ref CONDITIONAL_JUMP   -> 0x00b740e0 
+   0x00b740d7: MOV EAX,dword ptr [EBX]
+   0x00b740d9: MOV EDX,dword ptr [EAX + 0x4]
+   0x00b740dc: MOV ECX,EBX
+   0x00b740de: CALL EDX
+   0x00b740e0: MOV dword ptr [ESI*0x4 + 0x11fde04],EBP
+      ref WRITE              -> 0x011fde04 
+   0x00b740e7: CMP EBP,EDI
+   0x00b740e9: JZ 0x00b740f5
+      ref CONDITIONAL_JUMP   -> 0x00b740f5 
+   0x00b740eb: ADD EBP,0x4
+   0x00b740ee: PUSH EBP
+   0x00b740ef: CALL dword ptr [0x00fdf1c0]
+      ref READ               -> 0x00fdf1c0 
+      ref COMPUTED_CALL      -> 0x00000066 
+   0x00b740f5: MOV EBX,dword ptr [ESP + 0x10]
+   0x00b740f9: INC ESI
+   0x00b740fa: ADD EBX,0x4c
+   0x00b740fd: CMP ESI,0x16
+   0x00b74100: MOV dword ptr [ESP + 0x10],EBX
+
+======================================================================
+vertex group C runtime ABI descriptor audit
+======================================================================
+global=0x011fde5c callsite=0x00b7419f count=0x67 runtime_indices=[0, 2, 12, 13, 22]
+loop base candidates nearest-first:
+  0x00b74117 ESP+0x18  LEA EBX,[ESP + 0x18]
+  0x00b74056 ESP+0x1EAC  LEA EBX,[ESP + 0x1eac]
+selected descriptor base: ESP+0x18, stride 0x4C
+
+descriptor entries:
+  [000] runtime-hit base=ESP+0x18 +0x48=0x010AEBF4 'lighting\2x\v\ADTS.v.hlsl'
+  [001] context     base=ESP+0x64 +0x0C=0x010AEBF4 'lighting\2x\v\ADTS.v.hlsl'; +0x10=0x01039578 'LOD'
+  [002] runtime-hit base=ESP+0xB0 +0x18=0x010AEBD4 'lighting\2x\v\landlod.v.hlsl'; +0x1C=0x010AEBC4 'MODELSPACENORM'; +0x24=0x010AEBB8 'LODLANDCLIP'; +0x2C=0x010AEBAC 'GEOMORPH'
+  [003] context     base=ESP+0xFC +0x24=0x010AEBF4 'lighting\2x\v\ADTS.v.hlsl'; +0x28=0x010AEC10 'SKIN'
+  [004] context     base=ESP+0x148 +0x30=0x010AEBF4 'lighting\2x\v\ADTS.v.hlsl'; +0x34=0x010AEBA0 'PROJ_SHADOW'
+  [005] context     base=ESP+0x194 +0x30=0x010AEBD4 'lighting\2x\v\landlod.v.hlsl'; +0x34=0x010AEBC4 'MODELSPACENORM'; +0x3C=0x010AEBA0 'PROJ_SHADOW'; +0x44=0x010AEBB8 'LODLANDCLIP'
+  [006] context     base=ESP+0x1E0 +0x00=0x010AEBAC 'GEOMORPH'; +0x3C=0x010AEBF4 'lighting\2x\v\ADTS.v.hlsl'; +0x40=0x010AEC10 'SKIN'; +0x48=0x010AEBA0 'PROJ_SHADOW'
+  [007] context     base=ESP+0x22C +0x48=0x010AEBF4 'lighting\2x\v\ADTS.v.hlsl'
+  [011] context     base=ESP+0x35C +0x30=0x010AEBF4 'lighting\2x\v\ADTS.v.hlsl'; +0x34=0x010AEB98 'LIGHTS'; +0x3C=0x010AEC10 'SKIN'; +0x44=0x010AEBA0 'PROJ_SHADOW'
+  [012] runtime-hit base=ESP+0x3A8 +0x3C=0x010AEBF4 'lighting\2x\v\ADTS.v.hlsl'; +0x40=0x010AEB8C 'SPECULAR'
+  [013] runtime-hit base=ESP+0x3F4 +0x3C=0x010AEBF4 'lighting\2x\v\ADTS.v.hlsl'
+  [014] context     base=ESP+0x440 +0x00=0x010AEB8C 'SPECULAR'; +0x08=0x010AEC10 'SKIN'; +0x0C=0x010AEBF4 'lighting\2x\v\ADTS.v.hlsl'; +0x10=0x010AEB8C 'SPECULAR'; +0x18=0x010AEBA0 'PROJ_SHADOW'
+  [021] context     base=ESP+0x654 +0x00=0x010AEB98 'LIGHTS'; +0x0C=0x010AEB70 'lighting\2x\v\ADTS10.v.hlsl'; +0x10=0x010AEB98 'LIGHTS'; +0x18=0x010AEC10 'SKIN'
+  [022] runtime-hit base=ESP+0x6A0 +0x18=0x010AEB70 'lighting\2x\v\ADTS10.v.hlsl'; +0x1C=0x010AEB98 'LIGHTS'
+  [023] context     base=ESP+0x6EC +0x24=0x010AEB70 'lighting\2x\v\ADTS10.v.hlsl'; +0x28=0x010AEB6C 'OPT'; +0x30=0x010AEB98 'LIGHTS'
+
+======================================================================
+DISASM: vertex group C around 0x00b7419f
+======================================================================
+   0x00b74125: JNZ 0x00b74159
+      ref CONDITIONAL_JUMP   -> 0x00b74159 
+   0x00b74127: MOV EBX,dword ptr [ESI*0x4 + 0x11fde5c]
+      ref READ               -> 0x011fde5c 
+      ref READ               -> 0x011fde60 
+   0x00b7412e: CMP EBX,EDI
+   0x00b74130: JZ 0x00b741e1
+      ref CONDITIONAL_JUMP   -> 0x00b741e1 
+   0x00b74136: LEA EAX,[EBX + 0x4]
+   0x00b74139: PUSH EAX
+   0x00b7413a: CALL dword ptr [0x00fdf1c4]
+      ref READ               -> 0x00fdf1c4 
+      ref COMPUTED_CALL      -> 0x00000067 
+   0x00b74140: TEST EAX,EAX
+   0x00b74142: JNZ 0x00b7414d
+      ref CONDITIONAL_JUMP   -> 0x00b7414d 
+   0x00b74144: MOV EDX,dword ptr [EBX]
+   0x00b74146: MOV EAX,dword ptr [EDX + 0x4]
+   0x00b74149: MOV ECX,EBX
+   0x00b7414b: CALL EAX
+   0x00b7414d: MOV dword ptr [ESI*0x4 + 0x11fde5c],EDI
+      ref WRITE              -> 0x011fde5c 
+   0x00b74154: JMP 0x00b741e1
+      ref UNCONDITIONAL_JUMP -> 0x00b741e1 
+   0x00b74159: LEA ECX,[ESP + 0x2e68]
+   0x00b74160: PUSH ECX
+   0x00b74161: PUSH EAX
+   0x00b74162: CALL 0x00be0c00
+      ref UNCONDITIONAL_CALL -> 0x00be0c00 
+   0x00b74167: PUSH ESI
+   0x00b74168: PUSH 0x10ae8c8
+      ref DATA               -> 0x010ae8c8 SLS2%03i.vso
+   0x00b7416d: LEA EDX,[ESP + 0x2f7c]
+   0x00b74174: PUSH 0x104
+   0x00b74179: PUSH EDX
+   0x00b7417a: CALL 0x00406d00
+      ref UNCONDITIONAL_CALL -> 0x00406d00 
+   0x00b7417f: ADD ESP,0x18
+   0x00b74182: LEA EAX,[ESP + 0x2f6c]
+   0x00b74189: PUSH EAX
+   0x00b7418a: PUSH 0x10a93e4
+      ref DATA               -> 0x010a93e4 vs_2_0
+   0x00b7418f: ADD EBX,0x4
+   0x00b74192: PUSH EBX
+   0x00b74193: LEA ECX,[ESP + 0x2e74]
+   0x00b7419a: PUSH ECX
+   0x00b7419b: MOV ECX,dword ptr [ESP + 0x24]
+=> 0x00b7419f: CALL 0x00be0fe0
+      ref UNCONDITIONAL_CALL -> 0x00be0fe0 
+   0x00b741a4: MOV EBX,dword ptr [ESI*0x4 + 0x11fde5c]
+      ref READ               -> 0x011fde60 
+   0x00b741ab: MOV EBP,EAX
+   0x00b741ad: CMP EBX,EBP
+   0x00b741af: JZ 0x00b741e1
+      ref CONDITIONAL_JUMP   -> 0x00b741e1 
+   0x00b741b1: CMP EBX,EDI
+   0x00b741b3: JZ 0x00b741cc
+      ref CONDITIONAL_JUMP   -> 0x00b741cc 
+   0x00b741b5: LEA EDX,[EBX + 0x4]
+   0x00b741b8: PUSH EDX
+   0x00b741b9: CALL dword ptr [0x00fdf1c4]
+      ref READ               -> 0x00fdf1c4 
+      ref COMPUTED_CALL      -> 0x00000067 
+   0x00b741bf: TEST EAX,EAX
+   0x00b741c1: JNZ 0x00b741cc
+      ref CONDITIONAL_JUMP   -> 0x00b741cc 
+   0x00b741c3: MOV EAX,dword ptr [EBX]
+   0x00b741c5: MOV EDX,dword ptr [EAX + 0x4]
+   0x00b741c8: MOV ECX,EBX
+   0x00b741ca: CALL EDX
+   0x00b741cc: MOV dword ptr [ESI*0x4 + 0x11fde5c],EBP
+      ref WRITE              -> 0x011fde60 
+   0x00b741d3: CMP EBP,EDI
+   0x00b741d5: JZ 0x00b741e1
+      ref CONDITIONAL_JUMP   -> 0x00b741e1 
+   0x00b741d7: ADD EBP,0x4
+   0x00b741da: PUSH EBP
+   0x00b741db: CALL dword ptr [0x00fdf1c0]
+      ref READ               -> 0x00fdf1c0 
+      ref COMPUTED_CALL      -> 0x00000066 
+   0x00b741e1: MOV EBX,dword ptr [ESP + 0x10]
+   0x00b741e5: INC ESI
+   0x00b741e6: ADD EBX,0x4c
+   0x00b741e9: CMP ESI,0x67
+   0x00b741ec: MOV dword ptr [ESP + 0x10],EBX
+
+======================================================================
+pixel group A runtime ABI descriptor audit
+======================================================================
+global=0x011fda48 callsite=0x00b78720 count=0x30 runtime_indices=[]
+  [function not found]
+
+======================================================================
+pixel group B runtime ABI descriptor audit
+======================================================================
+global=0x011fdb08 callsite=0x00b78907 count=0xa0 runtime_indices=[1, 3, 17, 31]
+  [function not found]

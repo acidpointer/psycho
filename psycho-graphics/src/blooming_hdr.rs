@@ -18,8 +18,6 @@ use crate::{
     shaders::{self, ScreenShaderSource},
 };
 
-pub(crate) const SHADER_NAME: &str = "07_blooming_hdr_lite";
-
 const COLOR_WRITE_ALL: u32 = 0x0F;
 const EFFECT_CONSTANT_REGISTER: u32 = 9;
 const BLOOM_SCALE: u32 = 4;
@@ -27,10 +25,6 @@ const BLOOM_SCALE: u32 = 4;
 const EXTRACT_SHADER: &[u8] = include_bytes!("bloom_hdr_extract.hlsl");
 const BLUR_SHADER: &[u8] = include_bytes!("bloom_hdr_blur.hlsl");
 const COMPOSE_SHADER: &[u8] = include_bytes!("bloom_hdr_compose.hlsl");
-
-pub(crate) fn is_config_source(name: &str) -> bool {
-    name == SHADER_NAME
-}
 
 pub(crate) struct BloomingHdrEffect {
     extract_shader: PixelShader9,

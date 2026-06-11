@@ -16,4 +16,5 @@ psycho-imgui = { path = "../psycho-imgui" }
 psycho-loader-api = { path = "../psycho-loader-api" }
 serde = { workspace = true }
 toml = { workspace = true }
+toml_edit = "0.22"
 windows = { workspace = true }

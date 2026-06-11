@@ -1,7 +1,7 @@
 [graphics]
-# Load and apply compiled D3D9 screen-space pixel shaders.
+# Load and apply screen-space effects.
 #
-# Shader files are loaded only from:
+# User shader files are loaded only from:
 #   ./mods/psycho_shaders
 #
 # Supported file extensions:
@@ -9,10 +9,13 @@
 #   .cso
 #   .hlsl
 #
-# Files are applied in filename sort order inside each phase. Each sidecar TOML
-# can set [shader].phase and [shader].passes from 1 to 8. .pso/.cso files must
-# contain D3D9 pixel shader bytecode. .hlsl files are compiled once at startup
-# as ps_3_0 with entry point Main.
+# Files in ./mods/psycho_shaders are for user/developer shader experiments.
+# Each sidecar TOML can set [shader].phase and [shader].passes from 1 to 8.
+# .pso/.cso files must contain D3D9 pixel shader bytecode. .hlsl files are
+# compiled once at startup as ps_3_0 with entry point Main.
+#
+# Embedded engine-owned effects are not represented by files in
+# ./mods/psycho_shaders. Their settings live in [graphics.embedded_effects].
 #
 # Supported shader phases:
 #   "scene_pre_image_space"
@@ -31,15 +34,14 @@
 #       and effects that need full-frame first-person depth.
 #
 # true  = load and apply screen-space shader passes.
-# false = do not install D3D Present/Reset hooks for shader rendering.
+# false = keep the D3D hooks available for the menu, but do not apply
+#         screen-space shader passes.
 screen_space_shaders = true
 
 # In-game shader menu.
 #
-# The menu uses Dear ImGui through psycho-imgui. It is rendered by the D3D9
-# Present hook and lets you enable/disable shaders and edit every sidecar TOML
-# option without restarting the game.
-imgui_menu = true
+# The menu is always enabled and can edit this config plus user shader sidecars
+# without restarting the game.
 
 # Virtual-key code used to toggle the menu.
 #
@@ -82,34 +84,100 @@ shader_scan_interval_ms = 200
 #   s3 = world color before first-person, or current color if unavailable
 depth_provider = "fallout_new_vegas"
 
+[graphics.embedded_effects.fast_ao]
+# Engine-owned ambient occlusion pass. Fixed phase: scene_pre_image_space.
+enabled = true
+strength = 0.73
+radius_scale = 75.5
+max_radius_pixels = 7.6
+range_scale = 0.076
+debug_depth = false
+depth_reversed = true
+min_ambient = 0.18
+luminance_protection = 0.45
+stability = 0.65
+first_person_mask = 1.0
+fog_fade = 1.0
+
+[graphics.embedded_effects.contact_ao]
+# Engine-owned contact ambient occlusion pass. Fixed phase: scene_pre_image_space.
+enabled = true
+strength = 0.58
+radius_pixels = 4.3
+range_scale = 0.031
+bias_scale = 0.0
+depth_reversed = true
+min_ambient = 0.67
+stability = 0.63
+first_person_mask = 1.0
+fog_fade = 1.0
+
+[graphics.embedded_effects.blooming_hdr]
+# Engine-owned bloom/HDR pass. Fixed phase: final_image_space.
+enabled = true
+bloom_intensity = 0.444
+bright_threshold = 0.457
+radius_pixels = 3.354
+soft_knee = 0.219
+exposure_bias = 0.055
+highlight_shoulder = 0.682
+saturation = 1.249
+warmth = 0.543
+shadow_lift = 0.228
+dither = 0.459
+debug_bloom = false
+atmosphere = 0.38
+
+[graphics.embedded_effects.sunshafts]
+# Engine-owned sunshafts pass. Fixed phase: scene_post_image_space.
+enabled = true
+intensity = 0.34
+exposure = 0.52
+decay = 1.005
+density = 1.08
+force = 2.05
+bright_threshold = 0.56
+warmth = 0.64
+first_person_occlusion = 1.0
+sun_falloff = 1.05
+depth_reversed = true
+debug_mask = false
+sun_sample_px = 32
+glare_radius = 0.044
+occlusion_softness = 0.42
+
 [graphics.native_pbr]
-# Native material/PBR engine contract layer.
+# Native material/PBR engine path.
 #
-# This is opt-in because it hooks native FalloutNV material draw functions used
-# by other graphics mods. When enabled, Psycho captures the proven draw-time
+# Psycho always installs the safe native hooks at startup when their target
+# prologues are vanilla. If another graphics mod already owns a target, hooks
+# are skipped and the game remains on the vanilla path.
+#
+# When enabled below, Psycho replaces eligible PPLighting material pixel
+# shaders with embedded Native PBR shader variants. The proven draw-time
 # contract:
+#   - PPLighting selector setup +0xF0/+0xF4 material-array side table
 #   - BSShader::SetShaders current NiD3DPass context
 #   - current pass shader-interface apply context
 #   - NiDX9RenderState::SetTexture final 16-stage texture cache
 #   - PPLighting shader-family membership from proven vanilla global arrays
+#   - low-light ADTS specular ABI: vertex group C index 12 or 13,
+#     pixel group B index 17
+#   - high-light ADTS10 LIGHTS=4 ABI: vertex group C index 22,
+#     pixel group B index 31
 #
-# The hook refuses to install when the target prologues are not vanilla by
-# default, which avoids stacking on top of an unknown shader loader.
-enabled = false
+# This is a runtime shader toggle. It does not control hook installation.
+enabled = true
 
-# Placeholder for the later visible BRDF replacement path.
-#
-# The vanilla draw-time shader handle and PPLighting pass-pair contracts are
-# proven and captured, but visible replacement still needs a concrete shader
-# input/constant/texture contract for one selected family.
-# Do not enable for normal play.
-experimental_shader_replacement = false
+# NVR-compatible PBR registers:
+#   c32.y roughness scale, c32.z light scale, c32.w ambient scale,
+#   c33.x albedo saturation.
+roughness_scale = 1.0
+light_scale = 1.0
+ambient_scale = 1.0
+albedo_saturation = 1.0
 
-# true  = skip native PBR if any native PBR hook target is already patched.
-# false = install anyway and rely on inline-hook chaining; use only for testing.
-require_vanilla_prologues = true
-
-# Log the first native draw contexts, PPLighting family IDs, and texture stages.
+# Log a small bounded native draw-context sample for contract debugging.
 debug_log_draws = false
 
 [diagnostics]

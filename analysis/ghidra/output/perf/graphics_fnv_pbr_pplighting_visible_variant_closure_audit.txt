@@ -1,0 +1,546 @@
+FNV PBR PPLIGHTING VISIBLE VARIANT CLOSURE AUDIT
+
+Purpose:
+- Map latest playtest-visible family-3 pairs before widening native PBR.
+- Confirm whether v13/p17 can share the low-light SLS2017 replacement.
+- Classify v22/p31 as ADTS10 high-light and recover unknown v100/p108 descriptors.
+
+======================================================================
+Vertex group C stack string hints
+======================================================================
+  ESP+0x1E94 -> 0x010AEB98 'LIGHTS'
+
+======================================================================
+Vertex group C descriptor closure
+======================================================================
+global=0x011fde5c callsite=0x00b7419f count=0x67 targets=[0, 12, 13, 14, 15, 22, 25, 26, 27, 100]
+loop base candidates nearest-first:
+  0x00b74117 ESP+0x18  LEA EBX,[ESP + 0x18]
+  0x00b74056 ESP+0x1EAC  LEA EBX,[ESP + 0x1eac]
+  0x00b73fa4 ESP+0x2534  LEA EBX,[ESP + 0x2534]
+
+candidate[0] descriptor base view: ESP+0x18, stride 0x4C
+  [000] target  base=ESP+0x18 [no nearby string fields recovered]
+  [001] context base=ESP+0x64 [no nearby string fields recovered]
+  [011] context base=ESP+0x35C [no nearby string fields recovered]
+  [012] target  base=ESP+0x3A8 [no nearby string fields recovered]
+  [013] target  base=ESP+0x3F4 [no nearby string fields recovered]
+  [014] target  base=ESP+0x440 [no nearby string fields recovered]
+  [015] target  base=ESP+0x48C [no nearby string fields recovered]
+  [016] context base=ESP+0x4D8 [no nearby string fields recovered]
+  [021] context base=ESP+0x654 [no nearby string fields recovered]
+  [022] target  base=ESP+0x6A0 [no nearby string fields recovered]
+  [023] context base=ESP+0x6EC [no nearby string fields recovered]
+  [024] context base=ESP+0x738 [no nearby string fields recovered]
+  [025] target  base=ESP+0x784 [no nearby string fields recovered]
+  [026] target  base=ESP+0x7D0 [no nearby string fields recovered]
+  [027] target  base=ESP+0x81C [no nearby string fields recovered]
+  [028] context base=ESP+0x868 [no nearby string fields recovered]
+  [099] context base=ESP+0x1D7C [no nearby string fields recovered]
+  [100] target  base=ESP+0x1DC8 [no nearby string fields recovered]
+  [101] context base=ESP+0x1E14 [no nearby string fields recovered]
+
+candidate[1] descriptor base view: ESP+0x1EAC, stride 0x4C
+  [000] target  base=ESP+0x1EAC -0x18=0x010AEB98 'LIGHTS'
+  [001] context base=ESP+0x1EF8 [no nearby string fields recovered]
+  [011] context base=ESP+0x21F0 [no nearby string fields recovered]
+  [012] target  base=ESP+0x223C [no nearby string fields recovered]
+  [013] target  base=ESP+0x2288 [no nearby string fields recovered]
+  [014] target  base=ESP+0x22D4 [no nearby string fields recovered]
+  [015] target  base=ESP+0x2320 [no nearby string fields recovered]
+  [016] context base=ESP+0x236C [no nearby string fields recovered]
+  [021] context base=ESP+0x24E8 [no nearby string fields recovered]
+  [022] target  base=ESP+0x2534 [no nearby string fields recovered]
+  [023] context base=ESP+0x2580 [no nearby string fields recovered]
+  [024] context base=ESP+0x25CC [no nearby string fields recovered]
+  [025] target  base=ESP+0x2618 [no nearby string fields recovered]
+  [026] target  base=ESP+0x2664 [no nearby string fields recovered]
+  [027] target  base=ESP+0x26B0 [no nearby string fields recovered]
+  [028] context base=ESP+0x26FC [no nearby string fields recovered]
+  [099] context base=ESP+0x3C10 [no nearby string fields recovered]
+  [100] target  base=ESP+0x3C5C [no nearby string fields recovered]
+  [101] context base=ESP+0x3CA8 [no nearby string fields recovered]
+
+candidate[2] descriptor base view: ESP+0x2534, stride 0x4C
+  [000] target  base=ESP+0x2534 [no nearby string fields recovered]
+  [001] context base=ESP+0x2580 [no nearby string fields recovered]
+  [011] context base=ESP+0x2878 [no nearby string fields recovered]
+  [012] target  base=ESP+0x28C4 [no nearby string fields recovered]
+  [013] target  base=ESP+0x2910 [no nearby string fields recovered]
+  [014] target  base=ESP+0x295C [no nearby string fields recovered]
+  [015] target  base=ESP+0x29A8 [no nearby string fields recovered]
+  [016] context base=ESP+0x29F4 [no nearby string fields recovered]
+  [021] context base=ESP+0x2B70 [no nearby string fields recovered]
+  [022] target  base=ESP+0x2BBC [no nearby string fields recovered]
+  [023] context base=ESP+0x2C08 [no nearby string fields recovered]
+  [024] context base=ESP+0x2C54 [no nearby string fields recovered]
+  [025] target  base=ESP+0x2CA0 [no nearby string fields recovered]
+  [026] target  base=ESP+0x2CEC [no nearby string fields recovered]
+  [027] target  base=ESP+0x2D38 [no nearby string fields recovered]
+  [028] context base=ESP+0x2D84 [no nearby string fields recovered]
+  [099] context base=ESP+0x4298 [no nearby string fields recovered]
+  [100] target  base=ESP+0x42E4 [no nearby string fields recovered]
+  [101] context base=ESP+0x4330 [no nearby string fields recovered]
+
+======================================================================
+Pixel group B stack string hints
+======================================================================
+  ESP+0x2F60 -> 0x010AEF10 'lighting\2x\p\WaterFog.p.hlsl'
+
+======================================================================
+Pixel group B descriptor closure
+======================================================================
+global=0x011fdb08 callsite=0x00b78907 count=0xa0 targets=[4, 17, 18, 19, 31, 34, 35, 36, 108]
+loop base candidates nearest-first:
+  0x00b78804 ESP+0x2C  LEA EBX,[ESP + 0x2c]
+  0x00b786c6 ESP+0x2FA0  LEA EBX,[ESP + 0x2fa0]
+
+candidate[0] descriptor base view: ESP+0x2C, stride 0x4C
+  [003] context base=ESP+0x110 [no nearby string fields recovered]
+  [004] target  base=ESP+0x15C [no nearby string fields recovered]
+  [005] context base=ESP+0x1A8 [no nearby string fields recovered]
+  [016] context base=ESP+0x4EC [no nearby string fields recovered]
+  [017] target  base=ESP+0x538 [no nearby string fields recovered]
+  [018] target  base=ESP+0x584 [no nearby string fields recovered]
+  [019] target  base=ESP+0x5D0 [no nearby string fields recovered]
+  [020] context base=ESP+0x61C [no nearby string fields recovered]
+  [030] context base=ESP+0x914 [no nearby string fields recovered]
+  [031] target  base=ESP+0x960 [no nearby string fields recovered]
+  [032] context base=ESP+0x9AC [no nearby string fields recovered]
+  [033] context base=ESP+0x9F8 [no nearby string fields recovered]
+  [034] target  base=ESP+0xA44 [no nearby string fields recovered]
+  [035] target  base=ESP+0xA90 [no nearby string fields recovered]
+  [036] target  base=ESP+0xADC [no nearby string fields recovered]
+  [037] context base=ESP+0xB28 [no nearby string fields recovered]
+  [107] context base=ESP+0x1FF0 [no nearby string fields recovered]
+  [108] target  base=ESP+0x203C [no nearby string fields recovered]
+  [109] context base=ESP+0x2088 [no nearby string fields recovered]
+
+candidate[1] descriptor base view: ESP+0x2FA0, stride 0x4C
+  [003] context base=ESP+0x3084 [no nearby string fields recovered]
+  [004] target  base=ESP+0x30D0 [no nearby string fields recovered]
+  [005] context base=ESP+0x311C [no nearby string fields recovered]
+  [016] context base=ESP+0x3460 [no nearby string fields recovered]
+  [017] target  base=ESP+0x34AC [no nearby string fields recovered]
+  [018] target  base=ESP+0x34F8 [no nearby string fields recovered]
+  [019] target  base=ESP+0x3544 [no nearby string fields recovered]
+  [020] context base=ESP+0x3590 [no nearby string fields recovered]
+  [030] context base=ESP+0x3888 [no nearby string fields recovered]
+  [031] target  base=ESP+0x38D4 [no nearby string fields recovered]
+  [032] context base=ESP+0x3920 [no nearby string fields recovered]
+  [033] context base=ESP+0x396C [no nearby string fields recovered]
+  [034] target  base=ESP+0x39B8 [no nearby string fields recovered]
+  [035] target  base=ESP+0x3A04 [no nearby string fields recovered]
+  [036] target  base=ESP+0x3A50 [no nearby string fields recovered]
+  [037] context base=ESP+0x3A9C [no nearby string fields recovered]
+  [107] context base=ESP+0x4F64 [no nearby string fields recovered]
+  [108] target  base=ESP+0x4FB0 [no nearby string fields recovered]
+  [109] context base=ESP+0x4FFC [no nearby string fields recovered]
+
+----------------------------------------------------------------------
+References TO 0x011fde5c (PPLighting vertex group C global)
+----------------------------------------------------------------------
+  READ @ 0x00bebee9 (in FUN_00bebd20)
+  READ @ 0x00bec1a5 (in FUN_00bebd20)
+  READ @ 0x00becbb2 (in FUN_00bebd20)
+  READ @ 0x00bece6a (in FUN_00bebd20)
+  READ @ 0x00b74127 (in FUN_00b71bf0)
+  WRITE @ 0x00b7414d (in FUN_00b71bf0)
+  Total: 6 refs
+
+----------------------------------------------------------------------
+References TO 0x011fdb08 (PPLighting pixel group B global)
+----------------------------------------------------------------------
+  READ @ 0x00bebf23 (in FUN_00bebd20)
+  READ @ 0x00bed129 (in FUN_00bebd20)
+  READ @ 0x00c1818a (in FUN_00c17510)
+  DATA @ 0x00b7890c (in ???)
+  DATA @ 0x00b78934 (in ???)
+  READ @ 0x00b7884a (in ???)
+  WRITE @ 0x00b78870 (in ???)
+  Total: 7 refs
+
+----------------------------------------------------------------------
+Calls FROM 0x00be0fe0 (BSShader::CreateVertexShader)
+----------------------------------------------------------------------
+  0x00be0ff3 -> 0x00ec8660
+  0x00be106d -> 0x00be0dc0
+  0x00be108a -> 0x00b7fac0
+  0x00be10c4 -> 0x00afe7d0
+  0x00be10d7 -> 0x00afe7d0
+  0x00be1110 -> 0x00ec65a6
+  0x00be1121 -> 0x00be0dc0
+  0x00be1135 -> 0x00afe7d0
+  0x00be115d -> 0x00406d00
+  0x00be11d4 -> 0x00afdf20
+  0x00be1201 -> 0x00aa3e40
+  0x00be120c -> 0x00462d80
+  0x00be1259 -> 0x00ec6bd2
+  0x00be1270 -> 0x00ec6bd2
+  0x00be1286 -> 0x00ec6bd2
+  0x00be12ab -> 0x00ec6bd2
+  0x00be12c0 -> 0x00ec6bd2
+  0x00be12d7 -> 0x00ec6bd2
+  0x00be12ec -> 0x00ec6bd2
+  0x00be1308 -> 0x00ec6bd2
+  0x00be1322 -> 0x00ec6bd2
+  0x00be135c -> 0x00406d00
+  0x00be1387 -> 0x00ee6e0a
+  0x00be139e -> 0x00aa4060
+  0x00be13dc -> 0x00ec6bd2
+  0x00be1401 -> 0x00ec6bd2
+  0x00be1416 -> 0x00ec6bd2
+  0x00be1430 -> 0x00ec6bd2
+  0x00be146d -> 0x00406d00
+  0x00be14a5 -> 0x00ec9a47
+  0x00be14d4 -> 0x00ecb086
+  0x00be14da -> 0x00ec9907
+  0x00be14e4 -> 0x00af5e40
+  0x00be1518 -> 0x00406d00
+  0x00be154b -> 0x00afdf20
+  0x00be1578 -> 0x00aa3e40
+  0x00be158c -> 0x00462d80
+  0x00be15ed -> 0x00afdf20
+  0x00be161a -> 0x00aa3e40
+  0x00be162c -> 0x00462d80
+  0x00be1658 -> 0x00b7fd90
+  0x00be1691 -> 0x00aa13e0
+  0x00be16b5 -> 0x00be0b30
+  0x00be16eb -> 0x00aa4060
+  0x00be170d -> 0x00406d00
+  0x00be1733 -> 0x00ec408c
+  Total calls: 46
+
+----------------------------------------------------------------------
+Calls FROM 0x00be1750 (BSShader::CreatePixelShader)
+----------------------------------------------------------------------
+  0x00be1763 -> 0x00ec8660
+  0x00be17dd -> 0x00be0dc0
+  0x00be17fa -> 0x00b7fac0
+  0x00be1830 -> 0x00afe7d0
+  0x00be1845 -> 0x00afe7d0
+  0x00be1880 -> 0x00ec65a6
+  0x00be1891 -> 0x00be0dc0
+  0x00be18a5 -> 0x00afe7d0
+  0x00be18cd -> 0x00406d00
+  0x00be194b -> 0x00ec8a19
+  0x00be1959 -> 0x00b4f380
+  0x00be1977 -> 0x00afdf20
+  0x00be19a4 -> 0x00aa3e40
+  0x00be19af -> 0x00462d80
+  0x00be19fc -> 0x00ec6bd2
+  0x00be1a13 -> 0x00ec6bd2
+  0x00be1a29 -> 0x00ec6bd2
+  0x00be1a4e -> 0x00ec6bd2
+  0x00be1a63 -> 0x00ec6bd2
+  0x00be1a7a -> 0x00ec6bd2
+  0x00be1a8f -> 0x00ec6bd2
+  0x00be1aab -> 0x00ec6bd2
+  0x00be1ac5 -> 0x00ec6bd2
+  0x00be1aff -> 0x00406d00
+  0x00be1b2e -> 0x00ee6e0a
+  0x00be1b45 -> 0x00aa4060
+  0x00be1b86 -> 0x00ec6bd2
+  0x00be1bab -> 0x00ec6bd2
+  0x00be1bc0 -> 0x00ec6bd2
+  0x00be1bda -> 0x00ec6bd2
+  0x00be1c16 -> 0x00406d00
+  0x00be1c42 -> 0x00ec9a47
+  0x00be1c6d -> 0x00ecb086
+  0x00be1c73 -> 0x00ecda70
+  0x00be1c79 -> 0x00ec9907
+  0x00be1c83 -> 0x00af5e40
+  0x00be1cb6 -> 0x00afdf20
+  0x00be1ce3 -> 0x00aa3e40
+  0x00be1cf7 -> 0x00462d80
+  0x00be1d58 -> 0x00afdf20
+  0x00be1d85 -> 0x00aa3e40
+  0x00be1d97 -> 0x00462d80
+  0x00be1dc3 -> 0x00b7fd90
+  0x00be1dfc -> 0x00aa13e0
+  0x00be1e20 -> 0x00be08f0
+  0x00be1e56 -> 0x00aa4060
+  0x00be1e78 -> 0x00406d00
+  0x00be1e9e -> 0x00ec408c
+  Total calls: 48
+
+======================================================================
+BSShader::CreateVertexShader @ 0x00be0fe0
+======================================================================
+  Function: FUN_00be0fe0 @ 0x00be0fe0, Size: 1889 bytes
+
+/* WARNING: Function: __alloca_probe replaced with injection: alloca_probe */
+
+void FUN_00be0fe0(char *param_1,int *param_2,undefined4 param_3,undefined4 param_4)
+
+{
+  undefined4 uVar1;
+  char cVar2;
+  undefined1 uVar3;
+  uint uVar4;
+  int *piVar5;
+  undefined4 uVar6;
+  undefined4 uVar7;
+  FILE *_File;
+  int *piVar8;
+  void *_Str;
+  undefined1 *puVar9;
+  int iVar10;
+  int iVar11;
+  int *unaff_FS_OFFSET;
+  FILE *_File_00;
+  FILE *pFVar12;
+  char *pcVar13;
+  undefined4 uStack_12a4;
+  int *local_12a0;
+  int *local_129c;
+  int *local_1298;
+  int *local_1294;
+  undefined4 local_1290;
+  int *local_128c;
+  undefined4 local_1288;
+  undefined4 local_1284;
+  int iStack_1280;
+  int *local_127c;
+  int *local_1278;
+  undefined4 local_1274;
+  char *local_1270;
+  undefined4 local_126c;
+  undefined4 local_1268;
+  undefined4 local_1264;
+  undefined **ppuStack_1260;
+  char *pcStack_125c;
+  char local_1258 [260];
+  undefined1 local_1154 [256];
+  undefined1 auStack_1054 [4];
+  char acStack_1050 [1300];
+  undefined1 local_b3c [260];
+  char acStack_a38 [1296];
+  undefined1 auStack_528 [4];
+  undefined1 auStack_524 [1300];
+  uint local_10;
+  int local_c;
+  undefined1 *puStack_8;
+  undefined4 uStack_4;
+  
+  uStack_4 = 0xffffffff;
+  puStack_8 = &LAB_00f2d322;
+  local_c = *unaff_FS_OFFSET;
+  local_10 = DAT_011c16bc ^ (uint)&uStack_12a4;
+  uVar4 = DAT_011c16bc ^ (uint)&stack0xffffed4c;
+  *unaff_FS_OFFSET = (int)&local_c;
+  iVar10 = 0;
+  local_1270 = param_1;
+  local_1294 = param_2;
+  local_1264 = param_3;
+  local_1284 = param_4;
+  local_129c = (int *)0x0;
+  local_1298 = (int *)0x0;
+  local_127c = (int *)0x0;
+  local_1268 = 0;
+  local_1290 = 0;
+  FUN_00be0dc0(local_1258,param_1,param_4,&DAT_010bc868,uVar4);
+  uStack_12a4._0_3_ = (uint3)uStack_12a4 & 0xffff;
+  uStack_12a4 = (int *)CONCAT13(1,(uint3)uStack_12a4);
+  if (DAT_011f9498 != 0) {
+    iVar10 = FUN_00b7fac0(param_4);
+  }
+  if ((DAT_011ae638 != '\0') && (iVar10 == 0)) {
+    local_1278 = (int *)0x0;
+    local_1274 = 0;
+    local_128c = (int *)0x0;
+    local_1288 = 0;
+    cVar2 = FUN_00afe7d0(local_1258,&local_128c,0x20);
+    uStack_12a4._0_3_ = CONCAT12(cVar2,(ushort)uStack_12a4);
+    uVar3 = FUN_00afe7d0(param_1,&local_1278,0x20);
+    uStack_12a4._0_2_ = CONCAT11(uVar3,(byte)uStack_12a4);
+    if ((cVar2 == '\0') && (DAT_011f94a7 != '\0')) {
+      if (DAT_011f9200 == '\0') {
+        _strcpy_s(&DAT_011f9200,0x104,"cache:\\");
+        FUN_00be0dc0(local_1258,param_1,param_4,&DAT_010bc868);
+      }
+      cVar2 = FUN_00afe7d0(local_1258,&local_128c,0x20);
+      uStack_12a4._0_3_ = CONCAT12(cVar2,(ushort)uStack_12a4);
+    }
+    if (uStack_12a4._1_1_ == '\0') {
+      FUN_00406d00(local_1154,0x104,"SHADER ERROR : error opening HLSL source file : %s",param_1);
+    }
+    param_2 = local_1294;
+    if (cVar2 == '\0') {
+      uStack_12a4 = (int *)((uint)uStack_12a4 & 0xffffff);
+    }
+  }
+  uVar4 = (uint)uStack_12a4;
+  uStack_12a4._0_2_ = (ushort)(byte)uStack_12a4;
+  piVar5 = uStack_12a4;
+  local_12a0 = (int *)0x0;
+  if (iVar10 == 0) {
+    uStack_12a4._3_1_ = SUB41(uVar4,3);
+    uStack_12a4 = piVar5;
+    if (uStack_12a4._3_1_ == '\0') {
+      local_1278 = (int *)0x0;
+      if (DAT_011f941e != '\0') {
+        iVar10 = *param_2;
+        local_1278 = param_2;
+        while (iVar10 != 0) {
+          local_1278 = local_1278 + 2;
+          iVar10 = *local_1278;
+        }
+        *local_1278 = (int)&DAT_010bc828;
+        local_1278[1] = (int)&lpWindowName_01011584;
+      }
+      piVar5 = (int *)FUN_00afdf20(param_1,0,0x4000,0x20);
+      if (piVar5 != (int *)0x0) {
+        if ((char)piVar5[0xb] != '\0') {
+          uVar6 = (*(code *)((undefined4 *)*piVar5)[10])();
+          uVar7 = FUN_00aa3e40(uVar6);
+          FUN_00462d80(uVar7,uVar6);
+          pcStack_125c = param_1;
+          piVar8 = local_1294 + 1;
+          ppuStack_1260 = &PTR_LAB_010bc610;
+          acStack_1050[0] = '\0';
+          acStack_a38[0] = '\0';
+          iStack_1280 = 8;
+          local_128c = piVar8;
+          do {
+            if ((char *)piVar8[-
+
+======================================================================
+BSShader::CreatePixelShader @ 0x00be1750
+======================================================================
+  Function: FUN_00be1750 @ 0x00be1750, Size: 1884 bytes
+
+/* WARNING: Function: __alloca_probe replaced with injection: alloca_probe */
+
+void FUN_00be1750(char *param_1,int *param_2,char *param_3,undefined4 param_4)
+
+{
+  undefined1 uVar1;
+  char cVar2;
+  uint uVar3;
+  int *piVar4;
+  undefined4 uVar5;
+  undefined4 uVar6;
+  FILE *_File;
+  int *piVar7;
+  void *_Str;
+  undefined1 *puVar8;
+  int iVar9;
+  int iVar10;
+  int *unaff_FS_OFFSET;
+  FILE *_File_00;
+  char *pcVar11;
+  undefined4 uStack_12a8;
+  int *local_12a4;
+  int *local_12a0;
+  int *local_129c;
+  int *local_1298;
+  undefined4 local_1294;
+  char *local_1290;
+  int *local_128c;
+  undefined4 local_1288;
+  int *local_1284;
+  undefined4 local_1280;
+  undefined4 local_127c;
+  char *local_1278;
+  int *local_1274;
+  int iStack_1270;
+  char *local_126c;
+  undefined4 local_1268;
+  undefined4 local_1264;
+  undefined **ppuStack_1260;
+  char *pcStack_125c;
+  char local_1258 [256];
+  undefined1 auStack_1158 [4];
+  char acStack_1154 [1300];
+  undefined1 local_c40 [260];
+  undefined1 local_b3c [260];
+  char acStack_a38 [1296];
+  undefined1 auStack_528 [4];
+  undefined1 auStack_524 [1300];
+  uint local_10;
+  int local_c;
+  undefined1 *puStack_8;
+  undefined4 uStack_4;
+  
+  uStack_4 = 0xffffffff;
+  puStack_8 = &LAB_00f2d362;
+  local_c = *unaff_FS_OFFSET;
+  local_10 = DAT_011c16bc ^ (uint)&uStack_12a8;
+  uVar3 = DAT_011c16bc ^ (uint)&stack0xffffed48;
+  *unaff_FS_OFFSET = (int)&local_c;
+  iVar9 = 0;
+  local_1278 = param_1;
+  local_1298 = param_2;
+  local_126c = param_3;
+  local_127c = param_4;
+  local_12a0 = (int *)0x0;
+  local_129c = (int *)0x0;
+  local_1274 = (int *)0x0;
+  local_1264 = 0;
+  local_1294 = 0;
+  FUN_00be0dc0(local_1258,param_1,param_4,&DAT_010bc8a0,uVar3);
+  uStack_12a8._0_3_ = (uint3)uStack_12a8 & 0xffff;
+  uStack_12a8 = (int *)CONCAT13(1,(uint3)uStack_12a8);
+  if (DAT_011f9498 != 0) {
+    iVar9 = FUN_00b7fac0(param_4);
+  }
+  if ((DAT_011ae638 != '\0') && (iVar9 == 0)) {
+    local_1284 = (int *)0x0;
+    local_1280 = 0;
+    local_128c = (int *)0x0;
+    local_1288 = 0;
+    uVar1 = FUN_00afe7d0(param_1,&local_1284,0x20);
+    uStack_12a8._0_2_ = CONCAT11(uVar1,(byte)uStack_12a8);
+    cVar2 = FUN_00afe7d0(local_1258,&local_128c,0x20);
+    uStack_12a8._0_3_ = CONCAT12(cVar2,(ushort)uStack_12a8);
+    if ((cVar2 == '\0') && (DAT_011f94a7 != '\0')) {
+      if (DAT_011f9200 == '\0') {
+        _strcpy_s(&DAT_011f9200,0x104,"cache:\\");
+        FUN_00be0dc0(local_1258,param_1,param_4,&DAT_010bc8a0);
+      }
+      cVar2 = FUN_00afe7d0(local_1258,&local_128c,0x20);
+      uStack_12a8._0_3_ = CONCAT12(cVar2,(ushort)uStack_12a8);
+    }
+    if (uStack_12a8._1_1_ == '\0') {
+      FUN_00406d00(local_c40,0x104,"SHADER ERROR : error opening HLSL source file : %s",param_1);
+    }
+    param_2 = local_1298;
+    if (cVar2 == '\0') {
+      uStack_12a8 = (int *)((uint)uStack_12a8 & 0xffffff);
+    }
+  }
+  pcVar11 = local_126c;
+  uVar3 = (uint)uStack_12a8;
+  uStack_12a8._0_2_ = (ushort)(byte)uStack_12a8;
+  piVar4 = uStack_12a8;
+  local_12a4 = (int *)0x0;
+  if (iVar9 == 0) {
+    uStack_12a8._3_1_ = SUB41(uVar3,3);
+    uStack_12a8 = piVar4;
+    if (uStack_12a8._3_1_ == '\0') {
+      local_1284 = (int *)0x0;
+      if (DAT_011f941e != '\0') {
+        iVar9 = *param_2;
+        local_1284 = param_2;
+        while (iVar9 != 0) {
+          local_1284 = local_1284 + 2;
+          iVar9 = *local_1284;
+        }
+        *local_1284 = (int)&DAT_010bc828;
+        local_1284[1] = (int)&lpWindowName_01011584;
+      }
+      local_1290 = local_126c;
+      iVar9 = _strncmp(local_126c,"ps_2_0",4);
+      if ((iVar9 == 0) && (local_1290 = (char *)FUN_00b4f380(1), local_1290 == (char *)0x0)) {
+        local_1290 = pcVar11;
+      }
+      piVar4 = (int *)FUN_00afdf20(param_1,0,0x4000,0x20);
+      if (piVar4 != (int *)0x0) {
+        if ((char)piVar4[0xb] != '\0') {
+          uVar5 = (*(code *)((undefined4 *)*piVar4)[10])();
+          uVar6 = FUN_00aa3e40(uVar5);
+          FUN_00462d80(uVar6,uVar5);
+          pcStack_125c = param_1;
+          piVar7 = local_1298 + 1;
+          ppuStack_

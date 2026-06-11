@@ -15,23 +15,25 @@ pub(crate) fn initialize() -> Result<()> {
         crate::config::CONFIG_PATH
     );
 
+    let menu_config = crate::config::GraphicsMenuConfig::from(cfg);
     crate::pbr::install(crate::pbr::NativePbrSettings {
         enabled: cfg.graphics.native_pbr.enabled,
-        experimental_shader_replacement: cfg.graphics.native_pbr.experimental_shader_replacement,
-        require_vanilla_prologues: cfg.graphics.native_pbr.require_vanilla_prologues,
         debug_log_draws: cfg.graphics.native_pbr.debug_log_draws,
+        roughness_scale: cfg.graphics.native_pbr.roughness_scale,
+        light_scale: cfg.graphics.native_pbr.light_scale,
+        ambient_scale: cfg.graphics.native_pbr.ambient_scale,
+        albedo_saturation: cfg.graphics.native_pbr.albedo_saturation,
     })?;
 
     if !cfg.graphics.screen_space_shaders {
-        log::info!("[SHADERS] Screen-space shaders disabled by config");
-        return Ok(());
+        log::info!("[SHADERS] Screen-space shader rendering disabled by config");
     }
 
     let depth_provider = cfg.graphics.depth_provider.into();
     crate::backend::startup_log(depth_provider);
     crate::runtime::configure(crate::runtime::RuntimeSettings {
+        menu_config,
         depth_provider,
-        imgui_menu: cfg.graphics.imgui_menu,
         menu_toggle_key: cfg.graphics.menu_toggle_key,
         shader_scan_interval_ms: cfg.graphics.shader_scan_interval_ms,
     });
@@ -43,14 +45,7 @@ pub(crate) fn initialize() -> Result<()> {
         "[SHADERS] Watching screen-space shaders in '{}'",
         crate::shaders::SHADER_DIR
     );
-    log::info!(
-        "[IMGUI] Shader menu {}",
-        if cfg.graphics.imgui_menu {
-            "enabled"
-        } else {
-            "disabled"
-        }
-    );
+    log::info!("[IMGUI] Shader menu enabled");
     crate::hooks::start_install_worker()?;
 
     Ok(())

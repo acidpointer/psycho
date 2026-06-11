@@ -935,6 +935,7 @@ dependencies = [
  "psycho-loader-api",
  "serde",
  "toml",
+ "toml_edit",
  "windows",
 ]
 

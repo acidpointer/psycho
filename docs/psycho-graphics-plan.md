@@ -1611,10 +1611,214 @@ Ghidra-backed NewVegasReloaded contract findings:
   direct material texture array. If it is the global/fallback resource, then
   `BDAF10` is a material predicate helper only, not the safe PBR material-map
   binding contract.
-- Current Psycho implementation state: `graphics.native_pbr` is default-off and
-  prologue-gated. When explicitly enabled it captures the proven contract at
-  `BSShader::SetShaders`, `FUN_00BD4BA0`, and
-  `NiDX9RenderState::SetTexture`. It now also captures selector index `1`,
+- `graphics_fnv_pbr_pplighting_bdaf10_callsite_param_closure_audit.txt`
+  closes that callsite. There is exactly one reference to `FUN_00BDAF10`:
+  `UNCONDITIONAL_CALL @ 0x00BDBAA7` inside `FUN_00BDB4A0`. The raw call
+  sequence loads `ECX = ESI`, then pushes six stack arguments:
+  `param_2 = EDX from [ESP+0x4C]`, `param_3 = ECX from [ESP+0x20]`,
+  `param_4 = EDI`, `param_5 = EBP`, `param_6 = EAX = [ESP+0x5C]`, and
+  `param_7 = 0`.
+- The same audit proves `BDAF10` `param_3` is the `FUN_00BDB4A0` local
+  `uVar1`, not a direct material-array texture. `uVar1` is assigned as
+  `*(FUN_00B4F5C0() +0x194) +0xE0`, and `FUN_00B4F5C0` is only
+  `return DAT_011F95EC`. The raw stack write at `0x00BDB6D5` stores that
+  value into `[ESP+0x20]`, which is the later `PUSH ECX` for `BDAF10`
+  `param_3`.
+- `FUN_00BDAF10` therefore emits stage rows from material predicates, but its
+  resource-bearing rows are not proof of material texture binding.
+  `0x93`, `0x94`, `0x1F2`, and `0x1F3` use `param_3`; the
+  `DAT_011F91A7` path emits zero-resource `0x93`/`0x1F2`; `0x1F1` and
+  `0x1F4` are zero-resource rows gated by glow/diffuse predicates; and
+  `0x1EF`/`0x1F5` use active-object iterator resources from the
+  `FUN_00B70600`/`FUN_00B70700` paths. The only direct type-3 material reads
+  inside `BDAF10` remain `+0xAC` and `+0xB4` as predicates.
+- Updated hard gap: native row replacement is not proven as a visible PBR
+  path. The first safe implementation contract must either capture the known
+  type-3 arrays (`+0xAC/+0xB0/+0xB4/+0xB8/+0xBC/+0xC0`) at a proven draw
+  scope and bind extra PBR textures through a side table with a proven
+  lifetime key, or prove another native row that really carries those material
+  arrays into final apply. Current evidence increasingly rejects
+  `FUN_00BDAF10` as that binder.
+- `graphics_fnv_pbr_pplighting_draw_scope_material_pointer_contract_audit.txt`
+  proves useful structure but does not clear the safe bind contract. The
+  `FUN_00BA8EC0` constructor confirms the `FUN_00BA9EE0` pass-entry layout:
+  `+0` stage/key, `+4` word parameter, `+7` byte parameter, `+9` resource
+  count, `+0x0C` resource array pointer, and `+0x0B` initialized/reset to
+  zero. `FUN_00BA9EE0` resets `+0x0B` for reused entries, and
+  `FUN_00BDAF10` is still the only audited writer that stores the layer byte
+  into the most recently appended entry after `0x1F2`, `0x1F3`, `0x1F4`, and
+  `0x1F5` rows.
+- The same audit shows `FUN_00BD4BA0` is not a material-map recovery point.
+  It reads the current geometry/global draw context from `*DAT_011F91E0`,
+  pulls `*(iVar1 +0xB8)+0x34` and `iVar1 +0xBC`, then dispatches shader
+  interface `vtable +0x78` calls for current pass shader objects at
+  `DAT_0126F74C +0x44/+0x5C`. It does not call `FUN_00A59D30(3)` and does
+  not expose the type-3 material texture arrays.
+- The low-level `FUN_00E7EB00 -> FUN_00E7EA00` route is also not the
+  `FUN_00BA9EE0` pass-entry structure. `FUN_00E7EB00` compares/caches
+  `record +0x8` by `record +0x4`, then calls `FUN_00E7EA00` with `ECX` set to
+  that record. `FUN_00E7EA00` uses `param_1[1]` as the texture stage and
+  `param_1[2]` as the resource/object to resolve and bind. The apparent
+  `+0xC0/+0xCC` hits there are vtable/resolver offsets, not material-array
+  fields. No material property pointer, `FUN_00BA9EE0` entry pointer, or
+  `BDAF10` `entry +0x0B` layer byte is proven to survive into this final
+  low-level apply path.
+- New hard gap after draw-scope audit: prove the bridge from
+  `FUN_00BA9EE0` PPLighting rows to the low-level texture-record apply
+  functions (`FUN_00B7DD50`, `FUN_00B7DDE0`, `FUN_00B7E150`,
+  `FUN_00E7EB00`, `FUN_00E7EA00`). If that bridge discards the material
+  pointer and PPLighting entry identity, the PBR implementation must capture
+  material arrays before the bridge and use a separate, generation-safe
+  side-table instead of trying to infer material maps from final
+  `SetTexture`-level state.
+- `graphics_fnv_pbr_pplighting_entry_to_texture_record_bridge_audit.txt`
+  proves the bridge is not a direct `FUN_00BA9EE0` entry handoff. There are
+  no calls from `FUN_00BA9EE0`, `FUN_00BD4BA0`, or
+  `FUN_00E826D0` into `FUN_00E7EB00`. The audited bridge calls load `ECX`
+  from fixed records under `DAT_0126F74C +0x24`, then call
+  `FUN_00E7EB00(0)`. `FUN_00E7EB00` caches `record +0x8` in
+  `DAT_0126F680[record +0x4]`, validates `record +0x4` through
+  `FUN_00E89410`, and forwards the same record in `ECX` to `FUN_00E7EA00`.
+- The exact current-pass texture-record slots are now partly known.
+  `FUN_00B7DD50` applies the record at `*(DAT_0126F74C +0x24) +0x14`.
+  `FUN_00B7DDE0` writes and applies records at offsets `+0` and `+4` under
+  `*(DAT_0126F74C +0x24)`: slot `+0` gets resource `piVar1[0x2B][0]`, and
+  slot `+4` gets the result of `FUN_00C03230(piVar1, 0)`. `FUN_00B7E150`
+  does the same for slots `+0` and `+4`, and additionally writes/applies slot
+  `+0xC` from `piVar1` vtable `+0xF4(3, 0)` or fallback `DAT_011F951C`.
+  In all cases `piVar1 = *(param_1 +0x0C)`.
+- This closes the final-apply side as a lossy texture-record route for native
+  PBR. `FUN_00E7EA00` only sees record type/key, stage, and resource; it does
+  not see the original `FUN_00BA9EE0` row pointer, the `BDAF10` `entry +0x0B`
+  layer byte, or a type-3 material property pointer. Therefore final
+  `SetTexture`-level interception can observe/override a texture stage, but it
+  cannot independently recover which material-array slot should supply PBR
+  normal/height/env/env-mask maps.
+- New hard gap after bridge audit: prove current-pass texture-record slot
+  provenance. Specifically, classify every `FUN_00E7EB00` caller and trace
+  the source object passed to `FUN_00B7DDE0`/`FUN_00B7E150` as
+  `param_1 +0x0C`. If that source object cannot be tied back to the exact
+  type-3 material arrays and layer index, the compatible PBR design must
+  capture material arrays at selector/pass-row construction time and bind
+  them later through a generation-safe side table keyed by a proven current
+  draw/pass identity.
+- `graphics_fnv_pbr_pplighting_current_pass_texture_record_slot_provenance_audit.txt`
+  closes that slot-provenance gap on the final-apply side. The script found no
+  errors and confirmed the same 22 references into `FUN_00E7EB00`. The
+  material-looking slots are written by current-pass helpers, not by direct
+  `FUN_00BA9EE0` pass-entry handoff.
+- `FUN_00B98E80` is the normal caller for `FUN_00B7DDE0`,
+  `FUN_00B7E150`, `FUN_00B7DED0`, and `FUN_00B7DFE0`. It builds the helper
+  context as `piVar1 = piVar3 +0x27`, stores that pointer to
+  `DAT_011F4748 +0x0C`, and passes the same pointer to those helpers. The
+  helpers then read `*(param +0x0C)` and use that object as `piVar1`. This is
+  a current pass/shader context object derived from the active draw record,
+  not a proven type-3 material property pointer.
+- The current-pass record slots are now concrete: `FUN_00B7DDE0`,
+  `FUN_00B7DED0`, and `FUN_00B7DFE0` write/apply slots `+0` and `+4` under
+  `*(DAT_0126F74C +0x24)` from `piVar1[0x2B][0]` and
+  `FUN_00C03230(piVar1, 0)`. `FUN_00B7E150` writes/applies those same slots
+  and additionally writes/applies slot `+0x0C` from `piVar1` vtable
+  `+0xF4(3, 0)` or fallback `DAT_011F951C`. `FUN_00B7DD50` only applies its
+  fixed record slot and does not recover material-array state.
+- Important implementation constraint: `NiDX9RenderState::SetTexture` or
+  `FUN_00E7EA00` hooks can see final resources/stages, but cannot infer the
+  source material array, selector row, or layer byte once execution has
+  reached the low-level texture-record cache. A compatible native PBR design
+  must capture the type-3 arrays at selector/pass-row construction or another
+  proven earlier draw-scope point, then carry them to final bind time through
+  a generation-safe side table. It must not guess PBR maps from the final
+  stage/resource pair alone.
+- New hard gap after current-pass slot audit: prove the side-table key.
+  Specifically, find whether `DAT_011F4748 +0x0C`, `*DAT_011F91E0`,
+  `DAT_0126F74C`, the `FUN_00BA9EE0` list owner, or the selector/draw context
+  can safely correlate captured material arrays with the later pass apply. If
+  no stable identity survives, the implementation needs a narrower hook point
+  where the material arrays and final bind action are both in scope.
+- `graphics_fnv_pbr_pplighting_selector_side_table_key_contract_audit.txt`
+  narrows the key but does not yet prove the final implementation contract.
+  It found no script errors. `FUN_00B98E80` and `FUN_00B99390` each have one
+  normal caller, `FUN_00B994F0`, so current-pass setup and current-pass draw
+  dispatch share one draw dispatcher boundary.
+- `FUN_00B994F0` writes `DAT_011F91E0 = param_1`, checks the current selector
+  object at `*( *param_1 +0xC0)`, calls `FUN_00B99390(param_2,
+  *( *param_1 +0xC0))` when the selector/pass object changes, and then calls
+  `FUN_00B98E80(param_1, ...)` for the normal draw path. Inside `FUN_00B98E80`,
+  `piVar3 = *param_1`, `piVar5 = piVar3[0x30]`, and `piVar3[0x30]` is the same
+  `+0xC0` selector object field. This makes the selector object pointer the
+  leading side-table key candidate.
+- Selector-side row construction is still rooted in the selector object, not in
+  final texture-record state. `FUN_00BDB4A0` receives the selector object as
+  `this`, reads the type-3 material arrays and pass-entry list from that object
+  (`+0xAC/+0xB4` and `+0x3C` in the audited paths), and calls
+  `FUN_00BDAF10`. `FUN_00BDAF10` appends to `this +0x3C`, then re-reads the
+  last entry from that list to write `entry +0x0B` layer bytes. `FUN_00BDF790`
+  follows the same selector-object model with `param_1[0xF]` / `+0x3C` as the
+  pass-entry list.
+- `FUN_00BD4BA0` is useful for final apply only because it reads
+  `*DAT_011F91E0`, `iVar1 +0xBC`, and `*(iVar1 +0xB8)+0x34`, then calls
+  shader-interface `+0x78` on pass objects from `DAT_0126F74C`. It still does
+  not expose the material arrays directly. `DAT_011F4748 +0x0C` is also not a
+  sufficient stable key by itself: it is current-pass helper state derived as
+  `*current_draw +0x9C`, not the selector object that owns material arrays and
+  the pass-entry list.
+- `graphics_fnv_pbr_pplighting_selector_vtable_draw_identity_bridge_audit.txt`
+  closes the side-table key contract. It found no script errors. Every
+  candidate selector vtable that references `FUN_00BDB4A0` and
+  `FUN_00BDF790` places them at slots `+0xF0` and `+0xF4` respectively:
+  `0x010AE0F4`, `0x010B8354`, `0x010B935C`, `0x010B94B4`, `0x010B9934`,
+  `0x010BAC1C`, and `0x010BCB84` all share that setup pair. The separate
+  apply tables with `FUN_00BD4BA0` and `FUN_00E826D0` at `+0x78` are not the
+  selector setup table.
+- `FUN_00B99390(pass_id, selector)` calls selector vtable `+0xF0`, clears the
+  texture-record cache at `DAT_0126F680..DAT_0126F6BC`, performs current-pass
+  setup, calls selector vtable `+0xF4`, and then stores
+  `DAT_011FFE30 = pass_id`, `DAT_011FFE2C = selector`, and
+  `DAT_011AD8EC = 1`. Raw disassembly confirms the calls are
+  `MOV EAX, [vtable +0xF0/+0xF4]; MOV ECX, selector; CALL EAX`, so
+  `FUN_00BDB4A0` and `FUN_00BDF790` are selector-object setup callbacks.
+- `FUN_00B994F0` supplies the same selector identity to setup and draw:
+  it writes `DAT_011F91E0 = current_draw`, obtains the selector object from
+  `*( *current_draw +0xC0)`, passes it to `FUN_00B99390` when the selector/pass
+  changes, and then calls `FUN_00B98E80(current_draw, ...)`. `FUN_00B98E80`
+  re-reads the selector as `*( *current_draw +0xC0)` (`piVar3[0x30]`) and uses
+  that same object for the apply virtuals at `+0x78/+0x7C/+0x80/+0x84/+0x88`
+  and `+0x8C`.
+- `FUN_00BD4BA0` is a final shader-interface apply scope, not the material
+  owner. It reads `DAT_011F91E0`, loads `ESI = *current_draw`, and then uses
+  pass objects from `DAT_0126F74C +0x44/+0x5C` and interface fields
+  `param_2 +0x30/+0x34`. It can recover the current selector as
+  `*(ESI +0xC0)`, but it does not directly expose the type-3 material arrays.
+- Native PBR implementation rule from the closed bridge: capture material-array
+  state while selector setup callbacks are in scope, key it by selector object
+  pointer, and recover that key during final apply/bind from
+  `*( *DAT_011F91E0 +0xC0)`. `DAT_011FFE2C` is only a last-selector cache and
+  should be treated as telemetry/diagnostic state, not the primary ownership
+  key. Low-level `SetTexture`/`FUN_00E7EA00` hooks may only bind extra PBR
+  resources when the current selector key has a live captured record; otherwise
+  they must no-op to preserve compatibility with arbitrary graphics mods.
+- `graphics_fnv_pbr_pplighting_runtime_variant_abi_audit.txt` and
+  `graphics_fnv_pbr_pplighting_pixel_group_b_runtime_variant_followup.txt`
+  close the first visible replacement target. Runtime-visible object PBR
+  draws use PPLighting family 3: vertex group C (`SLS2%03i.vso`) plus pixel
+  group B (`SLS2%03i.pso`). NewVegasReloaded_release maps the first safe
+  ADTS specular pair to vertex index `12` (`SLS2012`, `SPECULAR`) and pixel
+  index `17` (`SLS2017`, `SPECULAR`). That low-light pair carries
+  `TEXCOORD1` light direction, `TEXCOORD6` view direction, `COLOR0` vertex
+  color, `COLOR1` fog, `c1` ambient, `c3` light colors, `c27` toggles, and
+  NVR PBR constants at `c32/c33`. The visible-runtime follow-up logs also show
+  a common ADTS10 `LIGHTS=4` pair at vertex index `22` and pixel index `31`;
+  that pair uses a different packed input ABI and requires a separate
+  replacement shader.
+- Current Psycho implementation state: Native PBR hooks are installed
+  automatically at startup when all target prologues are vanilla. The runtime
+  `graphics.native_pbr.enabled` option controls only the visible material
+  shader. The hook path captures the proven contract at
+  selector setup slots `FUN_00BDB4A0`/`FUN_00BDF790`, `BSShader::SetShaders`,
+  `FUN_00BD4BA0`, and `NiDX9RenderState::SetTexture`. Selector setup capture
+  is keyed by the proven draw selector pointer from `*( *DAT_011F91E0 +0xC0)`
+  and records the six material-array pointer fields `+0xAC..+0xC0` plus the
+  pass-entry list at `+0x3C`. It now also captures selector index `1`,
   selector/draw-param `+0x30/+0x34` interface pointers, selector alternate
   fields `+0x7C/+0x80`, active copies `+0x84/+0x88`, and their `vtable +0x78`
   function pointers for telemetry. It classifies whether those interfaces match
@@ -1623,7 +1827,28 @@ Ghidra-backed NewVegasReloaded contract findings:
   `+0x34` and pass `+0x44` pixel object `+0x2C` only when their vtables match
   the proven vanilla `0x010EF87C`/`0x010EF7D4` objects. It now also classifies
   the current draw's PPLighting family and array indexes from the proven global
-  shader arrays. It does not replace shaders yet.
+  shader arrays. The first visible replacement path uses the NewVegasReloaded
+  `SetShaders` model: for opt-in PPLighting family-3 ADTS specular draws
+  (`v12/p17` and skinned `v13/p17`) and ADTS10 `LIGHTS=4` draws (`v22/p31`),
+  with vanilla diffuse `s0` bound and a selector/vanilla normal source
+  available, Psycho binds selector material resources through the proven
+  renderer `+0x8C4` resolver, temporarily swaps the native
+  `NiD3DPixelShader +0x2C` handle to an embedded NVR-compatible PBR pixel
+  shader, calls vanilla `BSShader::SetShaders`, uploads the
+  Psycho-owned `c31` material flags and NVR-compatible `c32/c33` PBR defaults,
+  and restores the vanilla handle immediately. The low-light embedded shader
+  follows the Reloaded SLS2017 specular object shader ABI: `c1` ambient,
+  `c3` primary light color array, `c27` toggles, `c32/c33` PBR data, `s0`
+  diffuse/base, `s1` normal, `COLOR0` vertex color, `COLOR1` fog,
+  `TEXCOORD0` UV, `TEXCOORD1` tangent-space light, and `TEXCOORD6`
+  tangent-space view. The ADTS10 shader follows the packed `LIGHTS=4` pixel
+  ABI with local position in `TEXCOORD1`, packed view direction in
+  `TEXCOORD2..4.w`, point-light vectors in `TEXCOORD3..5`, and
+  `PSLightPosition` at `c19`. Texture resolution is cached by
+  resolver/resource pointer to avoid repeated resolver work on repeated
+  material draws.
+  Unsupported families, unsupported vertex indexes, and draws without the
+  required material sources fall back to unmodified vanilla binding.
 
 ### Fallout Shader Loader
 
@@ -2223,7 +2448,14 @@ same `renderer +0x8B8` pointer during renderer setup. The constructor audit
 proves `renderer +0x8B8` is the vtable-B render-state object created by
 `E91590` in `E72E60`, so `E7EA00 +0xDC` is now the final
 `NiDX9RenderState::SetTexture @ 0x00E88A20` route for PPLighting pass-entry
-resources.
+resources. The selector side-table and vtable bridge audits close the PBR
+identity gap: `BDB4A0`/`BDF790` are selector vtable `+0xF0/+0xF4` setup slots,
+`B994F0` passes the selector from `*( *current_draw +0xC0)` into setup and
+draw, `B98E80` uses that same selector for apply virtuals, and final apply can
+recover it through `*DAT_011F91E0`. Native PBR state must therefore be captured
+at selector setup time and keyed by selector object pointer; final texture bind
+is allowed to use only a live captured record for that selector and must
+otherwise no-op.
 
 Prepared native PBR follow-up scripts:
 
@@ -2290,6 +2522,14 @@ Prepared native PBR follow-up scripts:
     helpers that run before `BSShader::SetShaders`;
   - dump call windows for texture-stage and sampler-state helpers so the first
     visible replacement can use a proven input/register/texture contract.
+- `analysis/ghidra/scripts/graphics_fnv_pbr_pplighting_shader_abi_closure_audit.py`
+  - close the replacement ABI by matching vanilla shader source/profile tables
+    to PPLighting global-array indexes;
+  - prove that the current PBR pixel ABI can only target regular/skinned
+    specular vertex indexes `8` and `9` until additional vertex outputs are
+    proven;
+  - record the `vs_2_0`/`ps_2_0` vanilla profile facts and the intentional
+    embedded `ps_3_0` replacement boundary.
 - `analysis/ghidra/scripts/graphics_fnv_pbr_pplighting_interface_record_table_audit.py`
   - reduce `FUN_00E7F430` record-registration calls in PPLighting setup
     functions into record-key/value/list tables;
@@ -2446,6 +2686,68 @@ Prepared native PBR follow-up scripts:
   - prove whether `FUN_00BDAF10` binds a material texture resource or only
     emits predicate-selected rows that use a renderer/global fallback resource
     and active-object iterator resources.
+- `analysis/ghidra/scripts/graphics_fnv_pbr_pplighting_draw_scope_material_pointer_contract_audit.py`
+  - scan `FUN_00BA8C50`, `FUN_00BA8EC0`, `FUN_00BA9EE0`,
+    `FUN_00BDAF10`, `FUN_00BDB4A0`, `FUN_00BDF790`, `FUN_00BD4BA0`,
+    `BSShader::SetShaders @ 0x00BE1F90`, `FUN_00E7EA00`,
+    `FUN_00E7EB00`, `FUN_00E826D0`, and
+    `NiDX9RenderState::SetTexture @ 0x00E88A20`;
+  - prove whether final apply still has a recoverable type-3 material property
+    pointer, whether `entry +0x0B` layer bytes written by `FUN_00BDAF10` are
+    read later, and which pass-entry fields are consumed at draw time;
+  - decide whether a safe native PBR implementation can key a side table by
+    pass-entry owner, entry pointer, shader interface, or current draw scope
+    before binding any extra material textures.
+- `analysis/ghidra/scripts/graphics_fnv_pbr_pplighting_entry_to_texture_record_bridge_audit.py`
+  - focus on the bridge from PPLighting pass-entry rows to low-level
+    texture-record apply by decompiling and printing raw call windows for
+    `FUN_00B7DD50`, `FUN_00B7DDE0`, `FUN_00B7E150`, `FUN_00E7EB00`,
+    `FUN_00E7EA00`, `FUN_00E826D0`, and `FUN_00BD4BA0`;
+  - print register state at every `FUN_00E7EB00` call and at the
+    `FUN_00E7EB00 -> FUN_00E7EA00` transition, especially `ECX`, `EDI`, and
+    stack arguments;
+  - prove whether the low-level texture-record apply path retains a pointer to
+    the original `FUN_00BA9EE0` entry, `entry +0x0B` layer byte, or type-3
+    material property, or whether native PBR must capture those before the
+    bridge.
+- `analysis/ghidra/scripts/graphics_fnv_pbr_pplighting_current_pass_texture_record_slot_provenance_audit.py`
+  - classify every known `FUN_00E7EB00` callsite, including
+    `FUN_00B7DD50`, `FUN_00B7DDE0`, `FUN_00B7DED0`, `FUN_00B7DFE0`,
+    `FUN_00B7E150`, `FUN_00BCA760`, `FUN_00BE2170`, `FUN_00BE21B0`, and
+    `FUN_00C04310`;
+  - trace writers for records under `*(DAT_0126F74C +0x24)`, especially
+    slots `+0`, `+4`, `+0xC`, and `+0x14`, and print call argument/register
+    windows for `FUN_00B7DD50`, `FUN_00B7DDE0`, `FUN_00B7E150`,
+    `FUN_00C03230`, `FUN_00E7DE90`, and `FUN_00E7EB00`;
+  - prove whether the source object at `FUN_00B7DDE0`/`FUN_00B7E150`
+    `param_1 +0x0C` can be tied back to type-3 material arrays and the
+    `BDAF10` layer byte, or whether final texture-record state is too lossy
+    for visible PBR material recovery.
+- `analysis/ghidra/scripts/graphics_fnv_pbr_pplighting_selector_side_table_key_contract_audit.py`
+  - trace `FUN_00B98E80`, `FUN_00B99390`, `FUN_00B994F0`,
+    `FUN_00BD4BA0`, `FUN_00BDB4A0`, `FUN_00BDF790`, `FUN_00BDAF10`,
+    `FUN_00BA9EE0`, `FUN_00BA8EC0`, `FUN_00E826D0`, and the
+    `DAT_011F4748`, `DAT_011F91E0`, and `DAT_0126F74C` globals;
+  - prove whether the current-pass context (`piVar3 +0x27` /
+    `DAT_011F4748 +0x0C`) can be correlated with the selector material arrays,
+    current draw identity, or `FUN_00BA9EE0` pass-entry list owner;
+  - decide which side-table key is safe for native PBR texture capture, or
+    prove that the implementation needs a hook closer to selector/pass-row
+    construction because no stable later identity exists.
+- `analysis/ghidra/scripts/graphics_fnv_pbr_pplighting_selector_vtable_draw_identity_bridge_audit.py`
+  - decode the data references to `FUN_00BDB4A0` and `FUN_00BDF790` as
+    selector-object vtable slots, especially candidate slots `+0xF0/+0xF4`
+    called by `FUN_00B99390`;
+  - prove whether `FUN_00B994F0` passes the same selector object pointer
+    `*( *current_draw +0xC0)` into setup (`FUN_00B99390`) and current draw
+    dispatch (`FUN_00B98E80` / `piVar3[0x30]`);
+  - prove whether final apply can recover that same selector object pointer
+    from `*DAT_011F91E0`, making it a safe side-table key for captured PBR
+    material arrays.
+  - result: proven. All seven candidate selector vtables put
+    `FUN_00BDB4A0` at `+0xF0` and `FUN_00BDF790` at `+0xF4`; `FUN_00B99390`,
+    `FUN_00B994F0`, `FUN_00B98E80`, and `FUN_00BD4BA0` preserve/recover the
+    same selector identity needed for a side-table key.
 
 ### Runtime Telemetry
 

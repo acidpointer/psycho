@@ -1,0 +1,1438 @@
+FNV PBR PPLIGHTING ENTRY TO TEXTURE RECORD BRIDGE AUDIT
+
+======================================================================
+Bridge contract questions
+======================================================================
+1. Are B7DD50/B7DDE0/B7E150 applying low-level texture records, not BA9EE0 PPLighting entries?
+2. At every E7EB00 call, what is ECX, what is EDI, and do those registers carry record +4/+8 state?
+3. Does any bridge caller retain a pointer back to the BA9EE0 entry, its +0x0B layer byte, or the type-3 material property?
+4. If the bridge is lossy, native PBR must capture material arrays before the bridge and key by a proven owner/entry generation.
+
+----------------------------------------------------------------------
+References TO 0x00b7dd50 (low-level texture-record apply caller A)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x00b99422 (in FUN_00b99390) CALL 0x00b7dd50
+  UNCONDITIONAL_CALL @ 0x00b99437 (in FUN_00b99390) CALL 0x00b7dd50
+  Total: 2 refs
+
+----------------------------------------------------------------------
+References TO 0x00b7dde0 (low-level texture-record apply caller B)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x00b98f00 (in FUN_00b98e80) CALL 0x00b7dde0
+  Total: 1 refs
+
+----------------------------------------------------------------------
+References TO 0x00b7e150 (low-level texture-record apply caller C)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x00b98f39 (in FUN_00b98e80) CALL 0x00b7e150
+  Total: 1 refs
+
+----------------------------------------------------------------------
+References TO 0x00e7eb00 (low-level texture-record cache/apply)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x00b7dd63 (in FUN_00b7dd50) CALL 0x00e7eb00
+  UNCONDITIONAL_CALL @ 0x00b7de52 (in FUN_00b7dde0) CALL 0x00e7eb00
+  UNCONDITIONAL_CALL @ 0x00b7de65 (in FUN_00b7dde0) CALL 0x00e7eb00
+  UNCONDITIONAL_CALL @ 0x00b7e200 (in FUN_00b7e150) CALL 0x00e7eb00
+  UNCONDITIONAL_CALL @ 0x00b7e213 (in FUN_00b7e150) CALL 0x00e7eb00
+  UNCONDITIONAL_CALL @ 0x00b7e225 (in FUN_00b7e150) CALL 0x00e7eb00
+  UNCONDITIONAL_CALL @ 0x00b7df45 (in FUN_00b7ded0) CALL 0x00e7eb00
+  UNCONDITIONAL_CALL @ 0x00b7df58 (in FUN_00b7ded0) CALL 0x00e7eb00
+  UNCONDITIONAL_CALL @ 0x00b7e059 (in FUN_00b7dfe0) CALL 0x00e7eb00
+  UNCONDITIONAL_CALL @ 0x00b7e06c (in FUN_00b7dfe0) CALL 0x00e7eb00
+  UNCONDITIONAL_CALL @ 0x00bca913 (in FUN_00bca760) CALL 0x00e7eb00
+  UNCONDITIONAL_CALL @ 0x00bca92d (in FUN_00bca760) CALL 0x00e7eb00
+  UNCONDITIONAL_CALL @ 0x00be219a (in FUN_00be2170) CALL 0x00e7eb00
+  UNCONDITIONAL_CALL @ 0x00be21e2 (in FUN_00be21b0) CALL 0x00e7eb00
+  UNCONDITIONAL_CALL @ 0x00c043a4 (in FUN_00c04310) CALL 0x00e7eb00
+  UNCONDITIONAL_CALL @ 0x00b89cf7 (in ???) CALL 0x00e7eb00
+  UNCONDITIONAL_CALL @ 0x00b89d68 (in ???) CALL 0x00e7eb00
+  UNCONDITIONAL_CALL @ 0x00ba627e (in ???) CALL 0x00e7eb00
+  UNCONDITIONAL_CALL @ 0x00bb66ee (in ???) CALL 0x00e7eb00
+  UNCONDITIONAL_CALL @ 0x00bc8d82 (in ???) CALL 0x00e7eb00
+  UNCONDITIONAL_CALL @ 0x00e7f8d3 (in ???) CALL 0x00e7eb00
+  UNCONDITIONAL_CALL @ 0x00bcbcd0 (in ???) JMP 0x00e7eb00
+  Total: 22 refs
+
+----------------------------------------------------------------------
+References TO 0x00e7ea00 (low-level texture-record resolver/bind)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x00e7eb3e (in FUN_00e7eb00) CALL 0x00e7ea00
+  Total: 1 refs
+
+----------------------------------------------------------------------
+References TO 0x00e826d0 (shader-interface apply dispatcher)
+----------------------------------------------------------------------
+  DATA @ 0x010ef5bc (in ???) 
+  Total: 1 refs
+
+----------------------------------------------------------------------
+References TO 0x00ba9ee0 (PPLighting pass-entry append/reuse helper)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x00b60953 (in FUN_00b60790) CALL 0x00ba9ee0
+  UNCONDITIONAL_CALL @ 0x00b609f9 (in FUN_00b60790) CALL 0x00ba9ee0
+  UNCONDITIONAL_CALL @ 0x00bda07d (in FUN_00bda060) CALL 0x00ba9ee0
+  UNCONDITIONAL_CALL @ 0x00bda093 (in FUN_00bda060) CALL 0x00ba9ee0
+  UNCONDITIONAL_CALL @ 0x00bde196 (in FUN_00bde170) CALL 0x00ba9ee0
+  UNCONDITIONAL_CALL @ 0x00bde1af (in FUN_00bde170) CALL 0x00ba9ee0
+  UNCONDITIONAL_CALL @ 0x00bde1c1 (in FUN_00bde170) CALL 0x00ba9ee0
+  UNCONDITIONAL_CALL @ 0x00bdf67d (in FUN_00bdf650) CALL 0x00ba9ee0
+  UNCONDITIONAL_CALL @ 0x00bdf68c (in FUN_00bdf650) CALL 0x00ba9ee0
+  UNCONDITIONAL_CALL @ 0x00bdf6a2 (in FUN_00bdf650) CALL 0x00ba9ee0
+  UNCONDITIONAL_CALL @ 0x00bdf6b1 (in FUN_00bdf650) CALL 0x00ba9ee0
+  UNCONDITIONAL_CALL @ 0x00bdf742 (in FUN_00bdf6c0) CALL 0x00ba9ee0
+  UNCONDITIONAL_CALL @ 0x00b6a45e (in FUN_00b69ff0) CALL 0x00ba9ee0
+  UNCONDITIONAL_CALL @ 0x00b6a48e (in FUN_00b69ff0) CALL 0x00ba9ee0
+  UNCONDITIONAL_CALL @ 0x00b6a4e3 (in FUN_00b69ff0) CALL 0x00ba9ee0
+  UNCONDITIONAL_CALL @ 0x00bb1047 (in FUN_00bb0fc0) CALL 0x00ba9ee0
+  UNCONDITIONAL_CALL @ 0x00bb4452 (in FUN_00bb41e0) CALL 0x00ba9ee0
+  UNCONDITIONAL_CALL @ 0x00bb481d (in FUN_00bb4740) CALL 0x00ba9ee0
+  UNCONDITIONAL_CALL @ 0x00bb4834 (in FUN_00bb4740) CALL 0x00ba9ee0
+  UNCONDITIONAL_CALL @ 0x00bb486f (in FUN_00bb4740) CALL 0x00ba9ee0
+  UNCONDITIONAL_CALL @ 0x00bb4886 (in FUN_00bb4740) CALL 0x00ba9ee0
+  UNCONDITIONAL_CALL @ 0x00bb4952 (in FUN_00bb4740) CALL 0x00ba9ee0
+  UNCONDITIONAL_CALL @ 0x00bb496a (in FUN_00bb4740) CALL 0x00ba9ee0
+  UNCONDITIONAL_CALL @ 0x00bb4986 (in FUN_00bb4740) CALL 0x00ba9ee0
+  UNCONDITIONAL_CALL @ 0x00bb499e (in FUN_00bb4740) CALL 0x00ba9ee0
+  UNCONDITIONAL_CALL @ 0x00bb49e8 (in FUN_00bb4740) CALL 0x00ba9ee0
+  UNCONDITIONAL_CALL @ 0x00bb4a1b (in FUN_00bb4740) CALL 0x00ba9ee0
+  UNCONDITIONAL_CALL @ 0x00bb4a35 (in FUN_00bb4740) CALL 0x00ba9ee0
+  UNCONDITIONAL_CALL @ 0x00bb4a88 (in FUN_00bb4740) CALL 0x00ba9ee0
+  UNCONDITIONAL_CALL @ 0x00bb4aa0 (in FUN_00bb4740) CALL 0x00ba9ee0
+  UNCONDITIONAL_CALL @ 0x00bb52b9 (in FUN_00bb4740) CALL 0x00ba9ee0
+  UNCONDITIONAL_CALL @ 0x00bb5312 (in FUN_00bb4740) CALL 0x00ba9ee0
+  UNCONDITIONAL_CALL @ 0x00bb5362 (in FUN_00bb4740) CALL 0x00ba9ee0
+  UNCONDITIONAL_CALL @ 0x00bb539f (in FUN_00bb4740) CALL 0x00ba9ee0
+  UNCONDITIONAL_CALL @ 0x00bb59de (in FUN_00bb4740) CALL 0x00ba9ee0
+  UNCONDITIONAL_CALL @ 0x00bb5aa7 (in FUN_00bb4740) CALL 0x00ba9ee0
+  UNCONDITIONAL_CALL @ 0x00bb5b21 (in FUN_00bb4740) CALL 0x00ba9ee0
+  UNCONDITIONAL_CALL @ 0x00bb5b8c (in FUN_00bb4740) CALL 0x00ba9ee0
+  UNCONDITIONAL_CALL @ 0x00bb5bd4 (in FUN_00bb4740) CALL 0x00ba9ee0
+  UNCONDITIONAL_CALL @ 0x00bb5c66 (in FUN_00bb4740) CALL 0x00ba9ee0
+  UNCONDITIONAL_CALL @ 0x00bc3f9b (in FUN_00bc3e40) CALL 0x00ba9ee0
+  UNCONDITIONAL_CALL @ 0x00bc4270 (in FUN_00bc3e40) CALL 0x00ba9ee0
+  UNCONDITIONAL_CALL @ 0x00bd9d2e (in FUN_00bd9d00) CALL 0x00ba9ee0
+  UNCONDITIONAL_CALL @ 0x00bd9d76 (in FUN_00bd9d00) CALL 0x00ba9ee0
+  UNCONDITIONAL_CALL @ 0x00bd957d (in FUN_00bd9540) CALL 0x00ba9ee0
+  UNCONDITIONAL_CALL @ 0x00bd95b2 (in FUN_00bd9540) CALL 0x00ba9ee0
+  UNCONDITIONAL_CALL @ 0x00bd95ee (in FUN_00bd9540) CALL 0x00ba9ee0
+  UNCONDITIONAL_CALL @ 0x00bd962a (in FUN_00bd9540) CALL 0x00ba9ee0
+  UNCONDITIONAL_CALL @ 0x00bd965f (in FUN_00bd9540) CALL 0x00ba9ee0
+  UNCONDITIONAL_CALL @ 0x00bd96a2 (in FUN_00bd9540) CALL 0x00ba9ee0
+  UNCONDITIONAL_CALL @ 0x00bd96d7 (in FUN_00bd9540) CALL 0x00ba9ee0
+  UNCONDITIONAL_CALL @ 0x00bd970f (in FUN_00bd9540) CALL 0x00ba9ee0
+  UNCONDITIONAL_CALL @ 0x00bd9740 (in FUN_00bd9540) CALL 0x00ba9ee0
+  UNCONDITIONAL_CALL @ 0x00bd97a5 (in FUN_00bd9770) CALL 0x00ba9ee0
+  UNCONDITIONAL_CALL @ 0x00bd97d9 (in FUN_00bd9770) CALL 0x00ba9ee0
+  UNCONDITIONAL_CALL @ 0x00bd980d (in FUN_00bd9770) CALL 0x00ba9ee0
+  UNCONDITIONAL_CALL @ 0x00bd9887 (in FUN_00bd9840) CALL 0x00ba9ee0
+  UNCONDITIONAL_CALL @ 0x00bd98be (in FUN_00bd9840) CALL 0x00ba9ee0
+  UNCONDITIONAL_CALL @ 0x00bd98fc (in FUN_00bd9840) CALL 0x00ba9ee0
+  UNCONDITIONAL_CALL @ 0x00bd9933 (in FUN_00bd9840) CALL 0x00ba9ee0
+  UNCONDITIONAL_CALL @ 0x00bd996d (in FUN_00bd9840) CALL 0x00ba9ee0
+  UNCONDITIONAL_CALL @ 0x00bd99a0 (in FUN_00bd9840) CALL 0x00ba9ee0
+  UNCONDITIONAL_CALL @ 0x00bd99fc (in FUN_00bd99c0) CALL 0x00ba9ee0
+  UNCONDITIONAL_CALL @ 0x00bd9a33 (in FUN_00bd99c0) CALL 0x00ba9ee0
+  UNCONDITIONAL_CALL @ 0x00bd9a6d (in FUN_00bd99c0) CALL 0x00ba9ee0
+  UNCONDITIONAL_CALL @ 0x00bd9aa0 (in FUN_00bd99c0) CALL 0x00ba9ee0
+  UNCONDITIONAL_CALL @ 0x00bd9af9 (in FUN_00bd9ac0) CALL 0x00ba9ee0
+  UNCONDITIONAL_CALL @ 0x00bd9b2d (in FUN_00bd9ac0) CALL 0x00ba9ee0
+  UNCONDITIONAL_CALL @ 0x00bd9b64 (in FUN_00bd9ac0) CALL 0x00ba9ee0
+  UNCONDITIONAL_CALL @ 0x00bd9b94 (in FUN_00bd9ac0) CALL 0x00ba9ee0
+  UNCONDITIONAL_CALL @ 0x00bd9c04 (in FUN_00bd9bc0) CALL 0x00ba9ee0
+  UNCONDITIONAL_CALL @ 0x00bd9c38 (in FUN_00bd9bc0) CALL 0x00ba9ee0
+  UNCONDITIONAL_CALL @ 0x00bd9c73 (in FUN_00bd9bc0) CALL 0x00ba9ee0
+  UNCONDITIONAL_CALL @ 0x00bd9ca3 (in FUN_00bd9bc0) CALL 0x00ba9ee0
+  UNCONDITIONAL_CALL @ 0x00bd9cd3 (in FUN_00bd9bc0) CALL 0x00ba9ee0
+  UNCONDITIONAL_CALL @ 0x00bd9dd2 (in FUN_00bd9da0) CALL 0x00ba9ee0
+  UNCONDITIONAL_CALL @ 0x00bd9e09 (in FUN_00bd9da0) CALL 0x00ba9ee0
+  UNCONDITIONAL_CALL @ 0x00bd9e39 (in FUN_00bd9da0) CALL 0x00ba9ee0
+  UNCONDITIONAL_CALL @ 0x00bd9e8e (in FUN_00bd9e60) CALL 0x00ba9ee0
+  UNCONDITIONAL_CALL @ 0x00bd9ed6 (in FUN_00bd9e60) CALL 0x00ba9ee0
+  UNCONDITIONAL_CALL @ 0x00bd9f2b (in FUN_00bd9f00) CALL 0x00ba9ee0
+  UNCONDITIONAL_CALL @ 0x00bd9f65 (in FUN_00bd9f00) CALL 0x00ba9ee0
+  UNCONDITIONAL_CALL @ 0x00bd9fbb (in FUN_00bd9f90) CALL 0x00ba9ee0
+  UNCONDITIONAL_CALL @ 0x00bda000 (in FUN_00bd9f90) CALL 0x00ba9ee0
+  UNCONDITIONAL_CALL @ 0x00bda105 (in FUN_00bda0a0) CALL 0x00ba9ee0
+  UNCONDITIONAL_CALL @ 0x00bda145 (in FUN_00bda0a0) CALL 0x00ba9ee0
+  UNCONDITIONAL_CALL @ 0x00bda18b (in FUN_00bda0a0) CALL 0x00ba9ee0
+  UNCONDITIONAL_CALL @ 0x00bda1c3 (in FUN_00bda0a0) CALL 0x00ba9ee0
+  UNCONDITIONAL_CALL @ 0x00bda1ff (in FUN_00bda0a0) CALL 0x00ba9ee0
+  UNCONDITIONAL_CALL @ 0x00bda234 (in FUN_00bda0a0) CALL 0x00ba9ee0
+  UNCONDITIONAL_CALL @ 0x00bda286 (in FUN_00bda0a0) CALL 0x00ba9ee0
+  UNCONDITIONAL_CALL @ 0x00bda2cc (in FUN_00bda0a0) CALL 0x00ba9ee0
+  UNCONDITIONAL_CALL @ 0x00bda304 (in FUN_00bda0a0) CALL 0x00ba9ee0
+  UNCONDITIONAL_CALL @ 0x00bda340 (in FUN_00bda0a0) CALL 0x00ba9ee0
+  UNCONDITIONAL_CALL @ 0x00bda375 (in FUN_00bda0a0) CALL 0x00ba9ee0
+  UNCONDITIONAL_CALL @ 0x00bda3d1 (in FUN_00bda0a0) CALL 0x00ba9ee0
+  UNCONDITIONAL_CALL @ 0x00bda409 (in FUN_00bda0a0) CALL 0x00ba9ee0
+  UNCONDITIONAL_CALL @ 0x00bda445 (in FUN_00bda0a0) CALL 0x00ba9ee0
+  UNCONDITIONAL_CALL @ 0x00bda47a (in FUN_00bda0a0) CALL 0x00ba9ee0
+  UNCONDITIONAL_CALL @ 0x00bda4cf (in FUN_00bda0a0) CALL 0x00ba9ee0
+  UNCONDITIONAL_CALL @ 0x00bda50f (in FUN_00bda0a0) CALL 0x00ba9ee0
+  UNCONDITIONAL_CALL @ 0x00bda556 (in FUN_00bda0a0) CALL 0x00ba9ee0
+  UNCONDITIONAL_CALL @ 0x00bda595 (in FUN_00bda0a0) CALL 0x00ba9ee0
+  UNCONDITIONAL_CALL @ 0x00bda5ca (in FUN_00bda0a0) CALL 0x00ba9ee0
+  UNCONDITIONAL_CALL @ 0x00bda606 (in FUN_00bda0a0) CALL 0x00ba9ee0
+  UNCONDITIONAL_CALL @ 0x00bda642 (in FUN_00bda0a0) CALL 0x00ba9ee0
+  UNCONDITIONAL_CALL @ 0x00bda677 (in FUN_00bda0a0) CALL 0x00ba9ee0
+  UNCONDITIONAL_CALL @ 0x00bda6e2 (in FUN_00bda0a0) CALL 0x00ba9ee0
+  UNCONDITIONAL_CALL @ 0x00bda722 (in FUN_00bda0a0) CALL 0x00ba9ee0
+  UNCONDITIONAL_CALL @ 0x00bda768 (in FUN_00bda0a0) CALL 0x00ba9ee0
+  UNCONDITIONAL_CALL @ 0x00bda7a0 (in FUN_00bda0a0) CALL 0x00ba9ee0
+  UNCONDITIONAL_CALL @ 0x00bda7dc (in FUN_00bda0a0) CALL 0x00ba9ee0
+  UNCONDITIONAL_CALL @ 0x00bda811 (in FUN_00bda0a0) CALL 0x00ba9ee0
+  UNCONDITIONAL_CALL @ 0x00bda863 (in FUN_00bda0a0) CALL 0x00ba9ee0
+  UNCONDITIONAL_CALL @ 0x00bda8a9 (in FUN_00bda0a0) CALL 0x00ba9ee0
+  UNCONDITIONAL_CALL @ 0x00bda8e1 (in FUN_00bda0a0) CALL 0x00ba9ee0
+  UNCONDITIONAL_CALL @ 0x00bda91d (in FUN_00bda0a0) CALL 0x00ba9ee0
+  UNCONDITIONAL_CALL @ 0x00bda952 (in FUN_00bda0a0) CALL 0x00ba9ee0
+  UNCONDITIONAL_CALL @ 0x00bda9ae (in FUN_00bda0a0) CALL 0x00ba9ee0
+  UNCONDITIONAL_CALL @ 0x00bda9e6 (in FUN_00bda0a0) CALL 0x00ba9ee0
+  UNCONDITIONAL_CALL @ 0x00bdaa22 (in FUN_00bda0a0) CALL 0x00ba9ee0
+  UNCONDITIONAL_CALL @ 0x00bdaa57 (in FUN_00bda0a0) CALL 0x00ba9ee0
+  UNCONDITIONAL_CALL @ 0x00bdaaac (in FUN_00bda0a0) CALL 0x00ba9ee0
+  UNCONDITIONAL_CALL @ 0x00bdaaec (in FUN_00bda0a0) CALL 0x00ba9ee0
+  UNCONDITIONAL_CALL @ 0x00bdab32 (in FUN_00bda0a0) CALL 0x00ba9ee0
+  UNCONDITIONAL_CALL @ 0x00bdab6a (in FUN_00bda0a0) CALL 0x00ba9ee0
+  UNCONDITIONAL_CALL @ 0x00bdaba2 (in FUN_00bda0a0) CALL 0x00ba9ee0
+  UNCONDITIONAL_CALL @ 0x00bdabd3 (in FUN_00bda0a0) CALL 0x00ba9ee0
+  UNCONDITIONAL_CALL @ 0x00bdac82 (in FUN_00bdac00) CALL 0x00ba9ee0
+  UNCONDITIONAL_CALL @ 0x00bdacb1 (in FUN_00bdac00) CALL 0x00ba9ee0
+  UNCONDITIONAL_CALL @ 0x00bdacea (in FUN_00bdac00) CALL 0x00ba9ee0
+  UNCONDITIONAL_CALL @ 0x00bdad19 (in FUN_00bdac00) CALL 0x00ba9ee0
+  UNCONDITIONAL_CALL @ 0x00bdad48 (in FUN_00bdac00) CALL 0x00ba9ee0
+  UNCONDITIONAL_CALL @ 0x00bdad8f (in FUN_00bdac00) CALL 0x00ba9ee0
+  UNCONDITIONAL_CALL @ 0x00bdadc8 (in FUN_00bdac00) CALL 0x00ba9ee0
+  UNCONDITIONAL_CALL @ 0x00bdadf3 (in FUN_00bdac00) CALL 0x00ba9ee0
+  UNCONDITIONAL_CALL @ 0x00bdae28 (in FUN_00bdac00) CALL 0x00ba9ee0
+  UNCONDITIONAL_CALL @ 0x00bdaf89 (in FUN_00bdaf10) CALL 0x00ba9ee0
+  UNCONDITIONAL_CALL @ 0x00bdafe3 (in FUN_00bdaf10) CALL 0x00ba9ee0
+  UNCONDITIONAL_CALL @ 0x00bdb045 (in FUN_00bdaf10) CALL 0x00ba9ee0
+  UNCONDITIONAL_CALL @ 0x00bdb06e (in FUN_00bdaf10) CALL 0x00ba9ee0
+  UNCONDITIONAL_CALL @ 0x00bdb0a7 (in FUN_00bdaf10) CALL 0x00ba9ee0
+  UNCONDITIONAL_CALL @ 0x00bdb139 (in FUN_00bdaf10) CALL 0x00ba9ee0
+  UNCONDITIONAL_CALL @ 0x00bdb1b1 (in FUN_00bdaf10) CALL 0x00ba9ee0
+  UNCONDITIONAL_CALL @ 0x00bdb1ee (in FUN_00bdaf10) CALL 0x00ba9ee0
+  UNCONDITIONAL_CALL @ 0x00bdb278 (in FUN_00bdaf10) CALL 0x00ba9ee0
+  UNCONDITIONAL_CALL @ 0x00bdb31e (in FUN_00bdaf10) CALL 0x00ba9ee0
+  UNCONDITIONAL_CALL @ 0x00bdfd30 (in FUN_00bdf790) CALL 0x00ba9ee0
+  UNCONDITIONAL_CALL @ 0x00bda055 (in FUN_00bda030) CALL 0x00ba9ee0
+  UNCONDITIONAL_CALL @ 0x00bdbfb2 (in FUN_00bdbf60) CALL 0x00ba9ee0
+  UNCONDITIONAL_CALL @ 0x00bdbfdb (in FUN_00bdbf60) CALL 0x00ba9ee0
+  UNCONDITIONAL_CALL @ 0x00bdc012 (in FUN_00bdbf60) CALL 0x00ba9ee0
+  UNCONDITIONAL_CALL @ 0x00bdc05e (in FUN_00bdc030) CALL 0x00ba9ee0
+  UNCONDITIONAL_CALL @ 0x00bdc0a6 (in FUN_00bdc030) CALL 0x00ba9ee0
+  UNCONDITIONAL_CALL @ 0x00bdc134 (in FUN_00bdc0d0) CALL 0x00ba9ee0
+  UNCONDITIONAL_CALL @ 0x00bdc16f (in FUN_00bdc0d0) CALL 0x00ba9ee0
+  UNCONDITIONAL_CALL @ 0x00bdc1b1 (in FUN_00bdc0d0) CALL 0x00ba9ee0
+  UNCONDITIONAL_CALL @ 0x00bdc1ec (in FUN_00bdc0d0) CALL 0x00ba9ee0
+  UNCONDITIONAL_CALL @ 0x00bdc22e (in FUN_00bdc0d0) CALL 0x00ba9ee0
+  UNCONDITIONAL_CALL @ 0x00bdc269 (in FUN_00bdc0d0) CALL 0x00ba9ee0
+  UNCONDITIONAL_CALL @ 0x00bdc2ab (in FUN_00bdc0d0) CALL 0x00ba9ee0
+  UNCONDITIONAL_CALL @ 0x00bdc2e6 (in FUN_00bdc0d0) CALL 0x00ba9ee0
+  UNCONDITIONAL_CALL @ 0x00bdc333 (in FUN_00bdc0d0) CALL 0x00ba9ee0
+  UNCONDITIONAL_CALL @ 0x00bdc36e (in FUN_00bdc0d0) CALL 0x00ba9ee0
+  UNCONDITIONAL_CALL @ 0x00bdc3d1 (in FUN_00bdc0d0) CALL 0x00ba9ee0
+  UNCONDITIONAL_CALL @ 0x00bdc40c (in FUN_00bdc0d0) CALL 0x00ba9ee0
+  UNCONDITIONAL_CALL @ 0x00bdc44e (in FUN_00bdc0d0) CALL 0x00ba9ee0
+  UNCONDITIONAL_CALL @ 0x00bdc489 (in FUN_00bdc0d0) CALL 0x00ba9ee0
+  UNCONDITIONAL_CALL @ 0x00bdc4ce (in FUN_00bdc0d0) CALL 0x00ba9ee0
+  UNCONDITIONAL_CALL @ 0x00bdc505 (in FUN_00bdc0d0) CALL 0x00ba9ee0
+  UNCONDITIONAL_CALL @ 0x00bdc59b (in FUN_00bdc530) CALL 0x00ba9ee0
+  UNCONDITIONAL_CALL @ 0x00bdc5d9 (in FUN_00bdc530) CALL 0x00ba9ee0
+  UNCONDITIONAL_CALL @ 0x00bdc61e (in FUN_00bdc530) CALL 0x00ba9ee0
+  UNCONDITIONAL_CALL @ 0x00bdc65c (in FUN_00bdc530) CALL 0x00ba9ee0
+  UNCONDITIONAL_CALL @ 0x00bdc6a1 (in FUN_00bdc530) CALL 0x00ba9ee0
+  UNCONDITIONAL_CALL @ 0x00bdc6df (in FUN_00bdc530) CALL 0x00ba9ee0
+  UNCONDITIONAL_CALL @ 0x00bdc724 (in FUN_00bdc530) CALL 0x00ba9ee0
+  UNCONDITIONAL_CALL @ 0x00bdc762 (in FUN_00bdc530) CALL 0x00ba9ee0
+  UNCONDITIONAL_CALL @ 0x00bdc7bd (in FUN_00bdc530) CALL 0x00ba9ee0
+  UNCONDITIONAL_CALL @ 0x00bdc7fb (in FUN_00bdc530) CALL 0x00ba9ee0
+  UNCONDITIONAL_CALL @ 0x00bdc840 (in FUN_00bdc530) CALL 0x00ba9ee0
+  ... (truncated)
+  Total: 181 refs
+
+----------------------------------------------------------------------
+References TO 0x0126f680 (per-stage cached texture-record resource table)
+----------------------------------------------------------------------
+  WRITE @ 0x00b993b7 (in FUN_00b99390) MOV [0x0126f680],EAX
+  DATA @ 0x00e7eb10 (in FUN_00e7eb00) CMP ECX,dword ptr [EAX*0x4 + 0x126f680]
+  DATA @ 0x00e7eb1f (in FUN_00e7eb00) MOV dword ptr [EDX*0x4 + 0x126f680],EAX
+  Total: 3 refs
+
+----------------------------------------------------------------------
+References TO 0x0126f6c4 (renderer/device object global A)
+----------------------------------------------------------------------
+  WRITE @ 0x00e7e8d4 (in FUN_00e7e8d0) MOV [0x0126f6c4],EAX
+  READ @ 0x00e7e907 (in FUN_00e7e8d0) MOV EDX,dword ptr [0x0126f6c4]
+  READ @ 0x00e7ea60 (in FUN_00e7ea00) MOV ECX,dword ptr [0x0126f6c4]
+  READ @ 0x00e7dc9e (in FUN_00e7dc90) MOV ECX,dword ptr [0x0126f6c4]
+  READ @ 0x00e7dcb6 (in FUN_00e7dc90) MOV ECX,dword ptr [0x0126f6c4]
+  READ @ 0x00e7dfa8 (in FUN_00e7df90) MOV ECX,dword ptr [0x0126f6c4]
+  READ @ 0x00e7e197 (in FUN_00e7df90) MOV ECX,dword ptr [0x0126f6c4]
+  READ @ 0x00e7e351 (in FUN_00e7df90) MOV ECX,dword ptr [0x0126f6c4]
+  READ @ 0x00e7e4f0 (in FUN_00e7df90) MOV ECX,dword ptr [0x0126f6c4]
+  READ @ 0x00e7e63a (in FUN_00e7df90) MOV ECX,dword ptr [0x0126f6c4]
+  Total: 10 refs
+
+----------------------------------------------------------------------
+References TO 0x0126f6c8 (renderer/device state object global B)
+----------------------------------------------------------------------
+  WRITE @ 0x00e7e913 (in FUN_00e7e8d0) MOV [0x0126f6c8],EAX
+  WRITE @ 0x00e7e935 (in FUN_00e7e8d0) MOV dword ptr [0x0126f6c8],0x0
+  READ @ 0x00e7ea3d (in FUN_00e7ea00) MOV ECX,dword ptr [0x0126f6c8]
+  READ @ 0x00e7ea85 (in FUN_00e7ea00) MOV ECX,dword ptr [0x0126f6c8]
+  READ @ 0x00e7eaa6 (in FUN_00e7ea00) MOV ECX,dword ptr [0x0126f6c8]
+  READ @ 0x00e7dcca (in FUN_00e7dc90) MOV ECX,dword ptr [0x0126f6c8]
+  READ @ 0x00e7dce5 (in FUN_00e7dc90) MOV ECX,dword ptr [0x0126f6c8]
+  READ @ 0x00e7dd10 (in FUN_00e7dc90) MOV ECX,dword ptr [0x0126f6c8]
+  READ @ 0x00e7dd27 (in FUN_00e7dc90) MOV ECX,dword ptr [0x0126f6c8]
+  READ @ 0x00e7e958 (in FUN_00e7e940) MOV ECX,dword ptr [0x0126f6c8]
+  READ @ 0x00e7dd60 (in FUN_00e7dd50) MOV ECX,dword ptr [0x0126f6c8]
+  READ @ 0x00e7dd73 (in FUN_00e7dd50) MOV ECX,dword ptr [0x0126f6c8]
+  READ @ 0x00e7dd8a (in FUN_00e7dd50) MOV ECX,dword ptr [0x0126f6c8]
+  READ @ 0x00e7dda1 (in FUN_00e7dd50) MOV ECX,dword ptr [0x0126f6c8]
+  READ @ 0x00e7ddd0 (in FUN_00e7dd50) MOV ECX,dword ptr [0x0126f6c8]
+  Total: 15 refs
+
+----------------------------------------------------------------------
+References TO 0x0126f74c (current NiD3DPass global)
+----------------------------------------------------------------------
+  WRITE @ 0x00e90933 (in FUN_00e90850) MOV [0x0126f74c],EAX
+  READ @ 0x00b7dd50 (in FUN_00b7dd50) MOV EAX,[0x0126f74c]
+  READ @ 0x00b7dda4 (in FUN_00b7dd50) MOV EAX,[0x0126f74c]
+  READ @ 0x00b7c4ec (in FUN_00b7c3a0) MOV EAX,[0x0126f74c]
+  READ @ 0x00b7ddf5 (in FUN_00b7dde0) MOV ECX,dword ptr [0x0126f74c]
+  READ @ 0x00b7de19 (in FUN_00b7dde0) MOV ECX,dword ptr [0x0126f74c]
+  READ @ 0x00b7de46 (in FUN_00b7dde0) MOV EAX,[0x0126f74c]
+  READ @ 0x00b7de57 (in FUN_00b7dde0) MOV EDX,dword ptr [0x0126f74c]
+  READ @ 0x00b7c785 (in FUN_00b7c750) MOV EAX,[0x0126f74c]
+  READ @ 0x00b7c81d (in FUN_00b7c7b0) MOV EDX,dword ptr [0x0126f74c]
+  READ @ 0x00b7e165 (in FUN_00b7e150) MOV ECX,dword ptr [0x0126f74c]
+  READ @ 0x00b7e189 (in FUN_00b7e150) MOV ECX,dword ptr [0x0126f74c]
+  READ @ 0x00b7e1b6 (in FUN_00b7e150) MOV EAX,[0x0126f74c]
+  READ @ 0x00b7e1f3 (in FUN_00b7e150) MOV EDX,dword ptr [0x0126f74c]
+  READ @ 0x00b7e205 (in FUN_00b7e150) MOV ECX,dword ptr [0x0126f74c]
+  READ @ 0x00b7e218 (in FUN_00b7e150) MOV EAX,[0x0126f74c]
+  READ @ 0x00b7e279 (in FUN_00b7e150) MOV ECX,dword ptr [0x0126f74c]
+  READ @ 0x00b7dee8 (in FUN_00b7ded0) MOV ECX,dword ptr [0x0126f74c]
+  READ @ 0x00b7df0c (in FUN_00b7ded0) MOV ECX,dword ptr [0x0126f74c]
+  READ @ 0x00b7df39 (in FUN_00b7ded0) MOV EAX,[0x0126f74c]
+  READ @ 0x00b7df4a (in FUN_00b7ded0) MOV EDX,dword ptr [0x0126f74c]
+  READ @ 0x00b7df9b (in FUN_00b7ded0) MOV EAX,[0x0126f74c]
+  READ @ 0x00b7c853 (in FUN_00b7c850) MOV ECX,dword ptr [0x0126f74c]
+  READ @ 0x00b7c993 (in FUN_00b7c850) MOV ECX,dword ptr [0x0126f74c]
+  READ @ 0x00b7dffc (in FUN_00b7dfe0) MOV ECX,dword ptr [0x0126f74c]
+  READ @ 0x00b7e020 (in FUN_00b7dfe0) MOV ECX,dword ptr [0x0126f74c]
+  READ @ 0x00b7e04d (in FUN_00b7dfe0) MOV EAX,[0x0126f74c]
+  READ @ 0x00b7e05e (in FUN_00b7dfe0) MOV EDX,dword ptr [0x0126f74c]
+  READ @ 0x00b7e0e5 (in FUN_00b7dfe0) MOV EDX,dword ptr [0x0126f74c]
+  READ @ 0x00b7e10c (in FUN_00b7dfe0) MOV EAX,[0x0126f74c]
+  READ @ 0x00b7cb2a (in FUN_00b7cb00) MOV ECX,dword ptr [0x0126f74c]
+  READ @ 0x00b7cc66 (in FUN_00b7cb00) MOV ECX,dword ptr [0x0126f74c]
+  READ @ 0x00e814ba (in FUN_00e814b0) MOV ESI,dword ptr [0x0126f74c]
+  WRITE @ 0x00e80766 (in FUN_00e806c0) MOV dword ptr [0x0126f74c],EBP
+  WRITE @ 0x00b7af91 (in FUN_00b7af80) MOV [0x0126f74c],EAX
+  READ @ 0x00b7b69d (in FUN_00b7b450) MOV EDX,dword ptr [0x0126f74c]
+  READ @ 0x00b7dcb0 (in FUN_00b7dab0) MOV EAX,[0x0126f74c]
+  READ @ 0x00b7dceb (in FUN_00b7dab0) MOV EAX,[0x0126f74c]
+  WRITE @ 0x00b7ad73 (in FUN_00b7ad00) MOV dword ptr [0x0126f74c],EDI
+  READ @ 0x00b7cf24 (in FUN_00b7ce90) MOV ECX,dword ptr [0x0126f74c]
+  READ @ 0x00b7cf44 (in FUN_00b7ce90) MOV ECX,dword ptr [0x0126f74c]
+  READ @ 0x00b7cf65 (in FUN_00b7ce90) MOV ECX,dword ptr [0x0126f74c]
+  WRITE @ 0x00b7cf9c (in FUN_00b7ce90) MOV dword ptr [0x0126f74c],EBP
+  READ @ 0x00b80cb4 (in FUN_00b80c20) MOV EAX,[0x0126f74c]
+  READ @ 0x00b80cf1 (in FUN_00b80c20) MOV EDX,dword ptr [0x0126f74c]
+  READ @ 0x00b86afc (in FUN_00b864d0) MOV EDX,dword ptr [0x0126f74c]
+  READ @ 0x00b86b39 (in FUN_00b864d0) MOV EDX,dword ptr [0x0126f74c]
+  READ @ 0x00b8a0d3 (in FUN_00b89d80) MOV EAX,[0x0126f74c]
+  READ @ 0x00b8a10f (in FUN_00b89d80) MOV EAX,[0x0126f74c]
+  WRITE @ 0x00b92136 (in FUN_00b91f90) MOV [0x0126f74c],EAX
+  READ @ 0x00bacc85 (in FUN_00bac9c0) MOV EAX,[0x0126f74c]
+  READ @ 0x00baccc1 (in FUN_00bac9c0) MOV EAX,[0x0126f74c]
+  WRITE @ 0x00bb25bd (in FUN_00bb2580) MOV dword ptr [0x0126f74c],ECX
+  READ @ 0x00bb26f8 (in FUN_00bb26d0) MOV EDX,dword ptr [0x0126f74c]
+  READ @ 0x00bb2978 (in FUN_00bb2760) MOV EDX,dword ptr [0x0126f74c]
+  READ @ 0x00bb29b5 (in FUN_00bb2760) MOV EAX,[0x0126f74c]
+  READ @ 0x00bb6adc (in FUN_00bb6a80) MOV EAX,[0x0126f74c]
+  READ @ 0x00bb6b19 (in FUN_00bb6a80) MOV EAX,[0x0126f74c]
+  READ @ 0x00bbf060 (in FUN_00bbef90) MOV EAX,[0x0126f74c]
+  READ @ 0x00bbf4bc (in FUN_00bbef90) MOV EAX,[0x0126f74c]
+  READ @ 0x00bbf4ce (in FUN_00bbef90) MOV EDX,dword ptr [0x0126f74c]
+  READ @ 0x00bbf501 (in FUN_00bbef90) MOV EAX,[0x0126f74c]
+  READ @ 0x00bbf53e (in FUN_00bbef90) MOV EAX,[0x0126f74c]
+  READ @ 0x00bc9bc0 (in FUN_00bc9a50) MOV EAX,[0x0126f74c]
+  READ @ 0x00bc9c35 (in FUN_00bc9a50) MOV EAX,[0x0126f74c]
+  READ @ 0x00bca7a3 (in FUN_00bca760) MOV ECX,dword ptr [0x0126f74c]
+  READ @ 0x00bca7be (in FUN_00bca760) MOV ECX,dword ptr [0x0126f74c]
+  READ @ 0x00bca7dd (in FUN_00bca760) MOV EAX,[0x0126f74c]
+  READ @ 0x00bca803 (in FUN_00bca760) MOV ECX,dword ptr [0x0126f74c]
+  READ @ 0x00bca81c (in FUN_00bca760) MOV EAX,[0x0126f74c]
+  READ @ 0x00bca84e (in FUN_00bca760) MOV ECX,dword ptr [0x0126f74c]
+  READ @ 0x00bca85a (in FUN_00bca760) MOV ECX,dword ptr [0x0126f74c]
+  READ @ 0x00bca87c (in FUN_00bca760) MOV EAX,[0x0126f74c]
+  READ @ 0x00bca8bc (in FUN_00bca760) MOV ECX,dword ptr [0x0126f74c]
+  READ @ 0x00bca8d4 (in FUN_00bca760) MOV ECX,dword ptr [0x0126f74c]
+  READ @ 0x00bcaa5e (in FUN_00bca980) MOV EDX,dword ptr [0x0126f74c]
+  READ @ 0x00bcaaa0 (in FUN_00bca980) MOV EDX,dword ptr [0x0126f74c]
+  READ @ 0x00bcbe7e (in FUN_00bcbce0) MOV EDX,dword ptr [0x0126f74c]
+  READ @ 0x00bcbeb1 (in FUN_00bcbce0) MOV EDX,dword ptr [0x0126f74c]
+  READ @ 0x00b7d066 (in FUN_00b7cfb0) MOV ECX,dword ptr [0x0126f74c]
+  READ @ 0x00b7d07b (in FUN_00b7cfb0) MOV EDX,dword ptr [0x0126f74c]
+  WRITE @ 0x00bcd011 (in FUN_00bcce40) MOV dword ptr [0x0126f74c],EDX
+  WRITE @ 0x00bd1cc0 (in FUN_00bd1c50) MOV dword ptr [0x0126f74c],ECX
+  WRITE @ 0x00bd1cd2 (in FUN_00bd1c50) MOV dword ptr [0x0126f74c],EDX
+  WRITE @ 0x00bd1ce4 (in FUN_00bd1c50) MOV [0x0126f74c],EAX
+  READ @ 0x00bd4c35 (in FUN_00bd4ba0) MOV EAX,[0x0126f74c]
+  READ @ 0x00bd4c61 (in FUN_00bd4ba0) MOV EAX,[0x0126f74c]
+  READ @ 0x00bd4c7f (in FUN_00bd4ba0) MOV EDX,dword ptr [0x0126f74c]
+  READ @ 0x00bd4cbc (in FUN_00bd4ba0) MOV EDX,dword ptr [0x0126f74c]
+  READ @ 0x00be2173 (in FUN_00be2170) MOV EDI,dword ptr [0x0126f74c]
+  READ @ 0x00be21b4 (in FUN_00be21b0) MOV EDI,dword ptr [0x0126f74c]
+  WRITE @ 0x00c042c6 (in FUN_00c04120) MOV [0x0126f74c],EAX
+  READ @ 0x00c04351 (in FUN_00c04310) MOV ECX,dword ptr [0x0126f74c]
+  READ @ 0x00c04428 (in FUN_00c043f0) MOV EAX,[0x0126f74c]
+  READ @ 0x00c0445d (in FUN_00c043f0) MOV EAX,[0x0126f74c]
+  READ @ 0x00c044d1 (in FUN_00c04490) MOV ECX,dword ptr [0x0126f74c]
+  READ @ 0x00c0450b (in FUN_00c04490) MOV ECX,dword ptr [0x0126f74c]
+  WRITE @ 0x00e7c7a2 (in FUN_00e7c790) MOV dword ptr [0x0126f74c],0x0
+  WRITE @ 0x00e7c7bb (in FUN_00e7c790) MOV [0x0126f74c],EAX
+  READ @ 0x00e7c834 (in FUN_00e7c830) MOV ECX,dword ptr [0x0126f74c]
+  READ @ 0x00e7c9d9 (in FUN_00e7c830) MOV ECX,dword ptr [0x0126f74c]
+  READ @ 0x00e7ca20 (in FUN_00e7ca20) CMP dword ptr [0x0126f74c],0x0
+  READ @ 0x00e81201 (in FUN_00e811d0) MOV ECX,dword ptr [0x0126f74c]
+  READ @ 0x00e81236 (in FUN_00e811d0) MOV EDX,dword ptr [0x0126f74c]
+  READ @ 0x00e8127c (in FUN_00e811d0) MOV EDX,dword ptr [0x0126f74c]
+  READ @ 0x00e815a9 (in FUN_00e81510) MOV EBP,dword ptr [0x0126f74c]
+  READ @ 0x00e81664 (in FUN_00e81510) MOV EAX,[0x0126f74c]
+  WRITE @ 0x00e90569 (in FUN_00e90560) MOV dword ptr [0x0126f74c],0x0
+  READ @ 0x00b7cfe3 (in FUN_00b7cfb0) MOV ECX,dword ptr [0x0126f74c]
+  READ @ 0x00b7cff8 (in FUN_00b7cfb0) MOV EDX,dword ptr [0x0126f74c]
+  READ @ 0x00b7d010 (in FUN_00b7cfb0) MOV EAX,[0x0126f74c]
+  READ @ 0x00b7d023 (in FUN_00b7cfb0) MOV ECX,dword ptr [0x0126f74c]
+  READ @ 0x00b7d03b (in FUN_00b7cfb0) MOV EDX,dword ptr [0x0126f74c]
+  READ @ 0x00b7d050 (in FUN_00b7cfb0) MOV EAX,[0x0126f74c]
+  READ @ 0x00b7d0ab (in FUN_00b7cfb0) MOV ECX,dword ptr [0x0126f74c]
+  READ @ 0x00b7d0c0 (in FUN_00b7cfb0) MOV EDX,dword ptr [0x0126f74c]
+  READ @ 0x00b7c150 (in FUN_00b7c150) MOV EAX,[0x0126f74c]
+  READ @ 0x00b7c170 (in FUN_00b7c170) MOV EAX,[0x0126f74c]
+  WRITE @ 0x00bcceba (in FUN_00bcce40) MOV dword ptr [0x0126f74c],EDX
+  WRITE @ 0x00bccecc (in FUN_00bcce40) MOV [0x0126f74c],EAX
+  WRITE @ 0x00bccede (in FUN_00bcce40) MOV dword ptr [0x0126f74c],ECX
+  WRITE @ 0x00bccef1 (in FUN_00bcce40) MOV dword ptr [0x0126f74c],EDX
+  WRITE @ 0x00bccf03 (in FUN_00bcce40) MOV [0x0126f74c],EAX
+  WRITE @ 0x00bccf15 (in FUN_00bcce40) MOV dword ptr [0x0126f74c],ECX
+  WRITE @ 0x00bccf28 (in FUN_00bcce40) MOV dword ptr [0x0126f74c],EDX
+  WRITE @ 0x00bccf3a (in FUN_00bcce40) MOV [0x0126f74c],EAX
+  WRITE @ 0x00bccf4c (in FUN_00bcce40) MOV dword ptr [0x0126f74c],ECX
+  WRITE @ 0x00bccf5f (in FUN_00bcce40) MOV dword ptr [0x0126f74c],EDX
+  WRITE @ 0x00bccf71 (in FUN_00bcce40) MOV [0x0126f74c],EAX
+  WRITE @ 0x00bccf83 (in FUN_00bcce40) MOV dword ptr [0x0126f74c],ECX
+  WRITE @ 0x00bccf96 (in FUN_00bcce40) MOV dword ptr [0x0126f74c],EDX
+  WRITE @ 0x00bccfa8 (in FUN_00bcce40) MOV [0x0126f74c],EAX
+  WRITE @ 0x00bccfba (in FUN_00bcce40) MOV dword ptr [0x0126f74c],ECX
+  WRITE @ 0x00bccfcd (in FUN_00bcce40) MOV dword ptr [0x0126f74c],EDX
+  WRITE @ 0x00bcd041 (in FUN_00bcce40) MOV dword ptr [0x0126f74c],ECX
+  WRITE @ 0x00bcd054 (in FUN_00bcce40) MOV dword ptr [0x0126f74c],EDX
+  WRITE @ 0x00bcd066 (in FUN_00bcce40) MOV [0x0126f74c],EAX
+  WRITE @ 0x00bcd078 (in FUN_00bcce40) MOV dword ptr [0x0126f74c],ECX
+  WRITE @ 0x00bcd08b (in FUN_00bcce40) MOV dword ptr [0x0126f74c],EDX
+  WRITE @ 0x00bcd09d (in FUN_00bcce40) MOV [0x0126f74c],EAX
+  WRITE @ 0x00bcd0af (in FUN_00bcce40) MOV dword ptr [0x0126f74c],ECX
+  WRITE @ 0x00bcd0c2 (in FUN_00bcce40) MOV dword ptr [0x0126f74c],EDX
+  WRITE @ 0x00bcd0d4 (in FUN_00bcce40) MOV [0x0126f74c],EAX
+  WRITE @ 0x00bcd0e6 (in FUN_00bcce40) MOV dword ptr [0x0126f74c],ECX
+  WRITE @ 0x00bcd0f9 (in FUN_00bcce40) MOV dword ptr [0x0126f74c],EDX
+  WRITE @ 0x00bcd10b (in FUN_00bcce40) MOV [0x0126f74c],EAX
+  WRITE @ 0x00bcd11d (in FUN_00bcce40) MOV dword ptr [0x0126f74c],ECX
+  WRITE @ 0x00bcd130 (in FUN_00bcce40) MOV dword ptr [0x0126f74c],EDX
+  WRITE @ 0x00bcd142 (in FUN_00bcce40) MOV [0x0126f74c],EAX
+  WRITE @ 0x00bcd154 (in FUN_00bcce40) MOV dword ptr [0x0126f74c],ECX
+  READ @ 0x00b7a31a (in FUN_00b7a2c0) MOV EDX,dword ptr [0x0126f74c]
+  READ @ 0x00b7a352 (in FUN_00b7a2c0) MOV ECX,dword ptr [0x0126f74c]
+  READ @ 0x00b7d21a (in FUN_00b7d200) MOV EAX,[0x0126f74c]
+  WRITE @ 0x00b805e3 (in ???) MOV [0x0126f74c],EAX
+  WRITE @ 0x00b805ee (in ???) MOV dword ptr [0x0126f74c],ECX
+  READ @ 0x00b863b0 (in ???) MOV ESI,dword ptr [0x0126f74c]
+  WRITE @ 0x00b884f9 (in ???) MOV [0x0126f74c],EAX
+  WRITE @ 0x00b88507 (in ???) MOV dword ptr [0x0126f74c],ECX
+  READ @ 0x00b89cc5 (in ???) MOV EBX,dword ptr [0x0126f74c]
+  WRITE @ 0x00ba52ba (in ???) MOV [0x0126f74c],EAX
+  WRITE @ 0x00ba52c5 (in ???) MOV dword ptr [0x0126f74c],ECX
+  READ @ 0x00ba61c3 (in ???) MOV EDX,dword ptr [0x0126f74c]
+  READ @ 0x00ba6200 (in ???) MOV EAX,[0x0126f74c]
+  READ @ 0x00ba625c (in ???) MOV ECX,dword ptr [0x0126f74c]
+  WRITE @ 0x00baa400 (in ???) MOV [0x0126f74c],EAX
+  WRITE @ 0x00baa41a (in ???) MOV [0x0126f74c],EAX
+  READ @ 0x00bac8d4 (in ???) MOV ECX,dword ptr [0x0126f74c]
+  READ @ 0x00bac954 (in ???) MOV EDX,dword ptr [0x0126f74c]
+  READ @ 0x00bac985 (in ???) MOV ECX,dword ptr [0x0126f74c]
+  WRITE @ 0x00bb1b2f (in ???) MOV [0x0126f74c],EAX
+  WRITE @ 0x00bb1b42 (in ???) MOV dword ptr [0x0126f74c],ECX
+  WRITE @ 0x00bb62c3 (in ???) MOV [0x0126f74c],EAX
+  WRITE @ 0x00bb62dd (in ???) MOV [0x0126f74c],EAX
+  READ @ 0x00bb66c9 (in ???) MOV ECX,dword ptr [0x0126f74c]
+  WRITE @ 0x00bbb82f (in ???) MOV [0x0126f74c],EAX
+  READ @ 0x00bbd05f (in FUN_00bbd000) MOV ESI,dword ptr [0x0126f74c]
+  READ @ 0x00bbd098 (in FUN_00bbd000) MOV ECX,dword ptr [0x0126f74c]
+  WRITE @ 0x00bbe03a (in ???) MOV [0x0126f74c],EAX
+  WRITE @ 0x00bc6c44 (in ???) MOV [0x0126f74c],EAX
+  READ @ 0x00bc8d40 (in ???) MOV EAX,[0x0126f74c]
+  READ @ 0x00bc8f4b (in ???) MOV ECX,dword ptr [0x0126f74c]
+  ... (truncated)
+  Total: 181 refs
+
+--- Calls FROM low-level texture-record apply caller A (0x00b7dd50) ---
+  0x00b7dd63 -> 0x00e7eb00 low-level texture-record cache/apply
+  0x00b7dd6a -> 0x00b7c3a0 FUN_00b7c3a0
+  0x00b7dd8a -> 0x00b7c510 FUN_00b7c510
+  0x00b7dd91 -> 0x00b7c580 FUN_00b7c580
+  0x00b7dd98 -> 0x00b7c600 FUN_00b7c600
+  Total: 5 calls
+
+--- Calls FROM low-level texture-record apply caller B (0x00b7dde0) ---
+  0x00b7de14 -> 0x00e7de90 FUN_00e7de90
+  0x00b7de2a -> 0x00c03230 FUN_00c03230
+  0x00b7de41 -> 0x00e7de90 FUN_00e7de90
+  0x00b7de52 -> 0x00e7eb00 low-level texture-record cache/apply
+  0x00b7de65 -> 0x00e7eb00 low-level texture-record cache/apply
+  0x00b7de7d -> 0x00c4c2d0 FUN_00c4c2d0
+  0x00b7de89 -> 0x00b7c750 FUN_00b7c750
+  0x00b7de95 -> 0x00b7c7b0 FUN_00b7c7b0
+  Total: 8 calls
+
+--- Calls FROM low-level texture-record apply caller C (0x00b7e150) ---
+  0x00b7e184 -> 0x00e7de90 FUN_00e7de90
+  0x00b7e19a -> 0x00c03230 FUN_00c03230
+  0x00b7e1b1 -> 0x00e7de90 FUN_00e7de90
+  0x00b7e200 -> 0x00e7eb00 low-level texture-record cache/apply
+  0x00b7e213 -> 0x00e7eb00 low-level texture-record cache/apply
+  0x00b7e225 -> 0x00e7eb00 low-level texture-record cache/apply
+  0x00b7e23d -> 0x00c4c2d0 FUN_00c4c2d0
+  0x00b7e249 -> 0x00b7c750 FUN_00b7c750
+  0x00b7e255 -> 0x00b7c7b0 FUN_00b7c7b0
+  0x00b7e270 -> 0x00ee6df8 D3DXVec3TransformCoord
+  Total: 10 calls
+
+--- Calls FROM low-level texture-record cache/apply (0x00e7eb00) ---
+  0x00e7eb2d -> 0x00e89410 texture-stage cache/test helper
+  0x00e7eb3e -> 0x00e7ea00 low-level texture-record resolver/bind
+  Total: 2 calls
+
+--- Calls FROM low-level texture-record resolver/bind (0x00e7ea00) ---
+  0x00e7ea2d -> 0x00e89060 texture stage state resolver helper
+  0x00e7eac7 -> 0x00e7dc90 texture bind post-helper A
+  0x00e7eace -> 0x00e7e940 texture bind post-helper B
+  Total: 3 calls
+
+--- Calls FROM shader-interface apply dispatcher (0x00e826d0) ---
+  Total: 0 calls
+
+--- Calls FROM current-pass shader-interface apply candidate (0x00bd4ba0) ---
+  0x00bd4be0 -> 0x00b7dab0 FUN_00b7dab0
+  0x00bd4bed -> 0x00b55520 FUN_00b55520
+  0x00bd4c14 -> 0x00b55560 FUN_00b55560
+  Total: 3 calls
+
+--- Calls FROM PPLighting pass-entry append/reuse helper (0x00ba9ee0) ---
+  0x00ba9f1b -> 0x00aa3e40 FUN_00aa3e40
+  0x00ba9f59 -> 0x00ba8ec0 PPLighting pass-entry constructor
+  0x00ba9f82 -> 0x00ba8d30 FUN_00ba8d30
+  0x00ba9f8f -> 0x00ba3aa0 FUN_00ba3aa0
+  0x00ba9fb6 -> 0x00ba8c50 PPLighting pass-entry resource-array setter
+  Total: 5 calls
+
+======================================================================
+low-level texture-record apply caller A @ 0x00b7dd50
+======================================================================
+  Function: FUN_00b7dd50 @ 0x00b7dd50, Size: 137 bytes
+
+void __fastcall FUN_00b7dd50(int param_1)
+
+{
+  undefined1 auStack_44 [16];
+  undefined1 auStack_34 [52];
+  
+  FUN_00e7eb00(0);
+  FUN_00b7c3a0();
+  *(undefined4 *)(DAT_011febf0 + 0x20) = 1;
+  *(undefined4 *)(DAT_011fec38 + 0x20) = 1;
+  FUN_00b7c510();
+  FUN_00b7c580();
+  FUN_00b7c600();
+  if ((*(int **)(param_1 + 0x30) != (int *)0x0) && (*(int *)(DAT_0126f74c + 0x44) != 0)) {
+    (**(code **)(**(int **)(param_1 + 0x30) + 0x78))
+              (*(undefined4 *)(DAT_0126f74c + 0x44),0,0,0,0,0,0,auStack_34,auStack_44,0,1);
+  }
+  return;
+}
+
+
+
+======================================================================
+Matched decompile lines: low-level texture-record apply caller A @ 0x00b7dd50
+======================================================================
+  L8      FUN_00e7eb00(0);
+  L15     if ((*(int **)(param_1 + 0x30) != (int *)0x0) && (*(int *)(DAT_0126f74c + 0x44) != 0)) {
+  L17                 (*(undefined4 *)(DAT_0126f74c + 0x44),0,0,0,0,0,0,auStack_34,auStack_44,0,1);
+  Total matched lines: 3
+
+======================================================================
+low-level texture-record apply caller B @ 0x00b7dde0
+======================================================================
+  Function: FUN_00b7dde0 @ 0x00b7dde0, Size: 195 bytes
+
+void FUN_00b7dde0(int param_1)
+
+{
+  int *piVar1;
+  int iVar2;
+  int iVar3;
+  undefined4 uVar4;
+  undefined1 auStack_40 [64];
+  
+  piVar1 = *(int **)(param_1 + 0xc);
+  *(undefined4 *)(**(int **)(DAT_0126f74c + 0x24) + 8) = *(undefined4 *)piVar1[0x2b];
+  uVar4 = (**(code **)(*piVar1 + 0xe0))();
+  FUN_00e7de90(uVar4);
+  iVar2 = *(int *)(*(int *)(DAT_0126f74c + 0x24) + 4);
+  uVar4 = FUN_00c03230(piVar1,0);
+  *(undefined4 *)(iVar2 + 8) = uVar4;
+  uVar4 = (**(code **)(*piVar1 + 0xe0))();
+  FUN_00e7de90(uVar4);
+  FUN_00e7eb00(0);
+  FUN_00e7eb00(0);
+  iVar3 = *DAT_011f91e0;
+  iVar2 = iVar3 + 0x68;
+  FUN_00c4c2d0(iVar2,0,auStack_40);
+  FUN_00b7c750(iVar3,iVar2);
+  FUN_00b7c7b0(auStack_40);
+  return;
+}
+
+
+
+======================================================================
+Matched decompile lines: low-level texture-record apply caller B @ 0x00b7dde0
+======================================================================
+  L11     piVar1 = *(int **)(param_1 + 0xc);
+  L12     *(undefined4 *)(**(int **)(DAT_0126f74c + 0x24) + 8) = *(undefined4 *)piVar1[0x2b];
+  L15     iVar2 = *(int *)(*(int *)(DAT_0126f74c + 0x24) + 4);
+  L20     FUN_00e7eb00(0);
+  L21     FUN_00e7eb00(0);
+  Total matched lines: 5
+
+======================================================================
+low-level texture-record apply caller C @ 0x00b7e150
+======================================================================
+  Function: FUN_00b7e150 @ 0x00b7e150, Size: 342 bytes
+
+void FUN_00b7e150(int param_1)
+
+{
+  int *piVar1;
+  int iVar2;
+  undefined4 uVar3;
+  int iVar4;
+  int *piStack_64;
+  undefined4 uStack_60;
+  undefined1 auStack_48 [68];
+  undefined4 uStack_4;
+  
+  piVar1 = *(int **)(param_1 + 0xc);
+  *(undefined4 *)(**(int **)(DAT_0126f74c + 0x24) + 8) = *(undefined4 *)piVar1[0x2b];
+  uStack_60 = 0xb7e181;
+  uStack_60 = (**(code **)(*piVar1 + 0xe0))();
+  piStack_64 = (int *)0xb7e189;
+  FUN_00e7de90();
+  iVar2 = *(int *)(*(int *)(DAT_0126f74c + 0x24) + 4);
+  uStack_60 = 0;
+  piStack_64 = piVar1;
+  uVar3 = FUN_00c03230();
+  *(undefined4 *)(iVar2 + 8) = uVar3;
+  uStack_60 = 0xb7e1ae;
+  uStack_60 = (**(code **)(*piVar1 + 0xe0))();
+  piStack_64 = (int *)0xb7e1b6;
+  FUN_00e7de90();
+  iVar2 = *(int *)(*(int *)(DAT_0126f74c + 0x24) + 0xc);
+  uStack_60 = 0;
+  piStack_64 = (int *)0x3;
+  iVar4 = (**(code **)(*piVar1 + 0xf4))();
+  if (iVar4 == 0) {
+    *(undefined4 *)(iVar2 + 8) = DAT_011f951c;
+  }
+  else {
+    uVar3 = (**(code **)(*piVar1 + 0xf4))(3,0);
+    *(undefined4 *)(iVar2 + 8) = uVar3;
+  }
+  FUN_00e7eb00(0);
+  FUN_00e7eb00(0);
+  FUN_00e7eb00(0);
+  iVar2 = *DAT_011f91e0;
+  FUN_00c4c2d0(iVar2 + 0x68,0,auStack_48);
+  FUN_00b7c750(iVar2,iVar2 + 0x68);
+  FUN_00b7c7b0(auStack_48);
+  uStack_4 = *(undefined4 *)(iVar2 + 0x98);
+  D3DXVec3TransformCoord(&stack0xffffffa8,&DAT_011fa2a0,auStack_48);
+  piVar1 = *(int **)(*(int *)(DAT_0126f74c + 0x5c) + 0x20);
+  (**(code **)(*piVar1 + 0x178))(piVar1,0x10,&piStack_64,1);
+  return;
+}
+
+
+
+======================================================================
+Matched decompile lines: low-level texture-record apply caller C @ 0x00b7e150
+======================================================================
+  L14     piVar1 = *(int **)(param_1 + 0xc);
+  L15     *(undefined4 *)(**(int **)(DAT_0126f74c + 0x24) + 8) = *(undefined4 *)piVar1[0x2b];
+  L20     iVar2 = *(int *)(*(int *)(DAT_0126f74c + 0x24) + 4);
+  L29     iVar2 = *(int *)(*(int *)(DAT_0126f74c + 0x24) + 0xc);
+  L40     FUN_00e7eb00(0);
+  L41     FUN_00e7eb00(0);
+  L42     FUN_00e7eb00(0);
+  L47     uStack_4 = *(undefined4 *)(iVar2 + 0x98);
+  L49     piVar1 = *(int **)(*(int *)(DAT_0126f74c + 0x5c) + 0x20);
+  Total matched lines: 9
+
+======================================================================
+low-level texture-record cache/apply @ 0x00e7eb00
+======================================================================
+  Function: FUN_00e7eb00 @ 0x00e7eb00, Size: 73 bytes
+
+undefined4 __thiscall FUN_00e7eb00(int param_1,char param_2)
+
+{
+  int iVar1;
+  
+  if ((param_2 != '\0') ||
+     (*(int *)(param_1 + 8) != *(int *)(&DAT_0126f680 + *(int *)(param_1 + 4) * 4))) {
+    *(undefined4 *)(&DAT_0126f680 + *(int *)(param_1 + 4) * 4) = *(undefined4 *)(param_1 + 8);
+    iVar1 = FUN_00e89410(*(undefined4 *)(param_1 + 4));
+    if (iVar1 != 0) {
+      return 0;
+    }
+    FUN_00e7ea00();
+  }
+  return 1;
+}
+
+
+
+======================================================================
+Matched decompile lines: low-level texture-record cache/apply @ 0x00e7eb00
+======================================================================
+  L2    undefined4 __thiscall FUN_00e7eb00(int param_1,char param_2)
+  L8         (*(int *)(param_1 + 8) != *(int *)(&DAT_0126f680 + *(int *)(param_1 + 4) * 4))) {
+  L9        *(undefined4 *)(&DAT_0126f680 + *(int *)(param_1 + 4) * 4) = *(undefined4 *)(param_1 + 8);
+  L10       iVar1 = FUN_00e89410(*(undefined4 *)(param_1 + 4));
+  L14       FUN_00e7ea00();
+  Total matched lines: 5
+
+======================================================================
+low-level texture-record resolver/bind @ 0x00e7ea00
+======================================================================
+  Function: FUN_00e7ea00 @ 0x00e7ea00, Size: 250 bytes
+
+void __fastcall FUN_00e7ea00(int *param_1)
+
+{
+  char cVar1;
+  undefined4 unaff_EDI;
+  int iVar2;
+  char cVar3;
+  undefined1 auStack_c [3];
+  undefined1 local_9;
+  int local_8;
+  undefined1 local_4 [4];
+  
+  cVar3 = (char)((uint)unaff_EDI >> 0x18);
+  if ((uint)param_1[1] < DAT_011bf558) {
+    local_8 = 0;
+    auStack_c = (undefined1  [3])CONCAT12(0,auStack_c._0_2_);
+    cVar1 = FUN_00e89060(0xb,&local_8,auStack_c + 2);
+    iVar2 = local_8;
+    if (cVar1 == '\0') {
+      iVar2 = param_1[1];
+    }
+    (**(code **)(*DAT_0126f6c8 + 0xc0))(param_1[1],0xb,iVar2,0);
+  }
+  iVar2 = 0;
+  if (param_1[2] != 0) {
+    iVar2 = (**(code **)(**(int **)(DAT_0126f6c4 + 0x8c4) + 0xc))
+                      (param_1[2],auStack_c + 2,auStack_c + 3,local_4);
+  }
+  (**(code **)(*DAT_0126f6c8 + 0xdc))(param_1[1],iVar2);
+  if (iVar2 != 0) {
+    if (cVar3 == '\0') {
+      (**(code **)(*DAT_0126f6c8 + 0xcc))(param_1[1],7,0,0);
+    }
+    FUN_00e7dc90(_auStack_c);
+    FUN_00e7e940();
+  }
+  if (*param_1 == 6) {
+    (**(code **)(*DAT_0126f6c0 + 0x114))(DAT_0126f6c0,param_1[1],10,DAT_011a9608);
+  }
+  return;
+}
+
+
+
+======================================================================
+Matched decompile lines: low-level texture-record resolver/bind @ 0x00e7ea00
+======================================================================
+  L2    void __fastcall FUN_00e7ea00(int *param_1)
+  L15     if ((uint)param_1[1] < DAT_011bf558) {
+  L18       cVar1 = FUN_00e89060(0xb,&local_8,auStack_c + 2);
+  L21         iVar2 = param_1[1];
+  L23       (**(code **)(*DAT_0126f6c8 + 0xc0))(param_1[1],0xb,iVar2,0);
+  L26     if (param_1[2] != 0) {
+  L27       iVar2 = (**(code **)(**(int **)(DAT_0126f6c4 + 0x8c4) + 0xc))
+  L28                         (param_1[2],auStack_c + 2,auStack_c + 3,local_4);
+  L30     (**(code **)(*DAT_0126f6c8 + 0xdc))(param_1[1],iVar2);
+  L33         (**(code **)(*DAT_0126f6c8 + 0xcc))(param_1[1],7,0,0);
+  L39       (**(code **)(*DAT_0126f6c0 + 0x114))(DAT_0126f6c0,param_1[1],10,DAT_011a9608);
+  Total matched lines: 11
+
+======================================================================
+shader-interface apply dispatcher @ 0x00e826d0
+======================================================================
+  Function: FUN_00e826d0 @ 0x00e826d0, Size: 646 bytes
+
+bool __thiscall
+FUN_00e826d0(int *param_1,int param_2,undefined4 param_3,undefined4 param_4,undefined4 param_5,
+            undefined4 param_6,undefined4 param_7,undefined4 param_8,undefined4 param_9,
+            undefined4 param_10,undefined4 param_11,undefined4 param_12)
+
+{
+  ushort uVar1;
+  int iVar2;
+  bool bVar3;
+  int iVar4;
+  uint uVar5;
+  uint uVar6;
+  
+  uVar1 = *(ushort *)((int)param_1 + 0x26);
+  uVar5 = 0;
+  param_1[0xc] = param_2;
+  bVar3 = true;
+  if (uVar1 != 0) {
+    do {
+      iVar4 = *(int *)(param_1[8] + uVar5 * 4);
+      uVar5 = uVar5 + 1;
+      if ((((iVar4 != 0) && (*(char *)(iVar4 + 8) != '\0')) &&
+          ((*(int *)(iVar4 + 0x1c) != -1 || (*(int *)(iVar4 + 0x24) != 0)))) &&
+         (((*(uint *)(iVar4 + 0x14) & 0xf0000000) == 0x20000000 &&
+          (iVar4 = (**(code **)(*param_1 + 0x8c))
+                             (param_2,iVar4,param_3,param_4,param_5,param_6,param_7,param_8,param_9,
+                              param_10,param_11), iVar4 != 0)))) {
+        bVar3 = false;
+      }
+    } while (uVar5 < uVar1);
+  }
+  uVar1 = *(ushort *)((int)param_1 + 0x16);
+  uVar5 = 0;
+  if (uVar1 != 0) {
+    do {
+      iVar4 = *(int *)(param_1[4] + uVar5 * 4);
+      uVar5 = uVar5 + 1;
+      if ((((iVar4 != 0) && (*(char *)(iVar4 + 8) != '\0')) &&
+          ((iVar2 = *(int *)(iVar4 + 0x1c), iVar2 != -1 || (*(int *)(iVar4 + 0x24) != 0)))) &&
+         (uVar6 = *(uint *)(iVar4 + 0x14) & 0xf0000000, uVar6 != 0x20000000)) {
+        if (uVar6 == 0x10000000) {
+          if (*(int *)(iVar4 + 0x18) == 1) {
+            iVar4 = (**(code **)(*(int *)param_1[0xe] + 0x178))
+                              ((int *)param_1[0xe],iVar2,*(undefined4 *)(iVar4 + 0x30),
+                               *(undefined4 *)(iVar4 + 0x20));
+            uVar6 = (uint)(iVar4 < 0);
+          }
+          else if (*(int *)(iVar4 + 0x18) == 2) {
+            iVar4 = (**(code **)(*(int *)param_1[0xe] + 0x1b4))
+                              ((int *)param_1[0xe],iVar2,*(undefined4 *)(iVar4 + 0x30),
+                               *(undefined4 *)(iVar4 + 0x20));
+            uVar6 = (uint)(iVar4 < 0);
+          }
+          else {
+            uVar6 = (**(code **)(*param_1 + 0x90))(param_2,iVar4,param_11);
+          }
+LAB_00e8292f:
+          if (uVar6 == 0) goto LAB_00e8293c;
+        }
+        else {
+          if (uVar6 == 0x30000000) {
+            uVar6 = (**(code **)(*param_1 + 0x94))
+                              (param_2,iVar4,param_3,param_4,param_5,param_6,param_7,param_8,param_9
+                               ,param_10,param_11,param_12,0);
+            goto LAB_00e8292f;
+          }
+          if (uVar6 == 0x40000000) {
+            uVar6 = (**(code **)(*param_1 + 0x98))(param_2,iVar4,param_11);
+            goto LAB_00e8292f;
+          }
+          if (uVar6 == 0x50000000) {
+            uVar6 = (**(code **)(*param_1 + 0x9c))
+                              (param_2,iVar4,param_3,param_4,param_7,param_8,param_9,param_10,
+                               param_11);
+            goto LAB_00e8292f;
+          }
+          if (uVar6 == 0x60000000) {
+            uVar6 = (**(code **)(*param_1 + 0xa4))
+                              (param_2,iVar4,param_3,param_4,param_5,param_6,param_7,param_8,param_9
+                               ,param_10,param_11);
+            goto LAB_00e8292f;
+          }
+        }
+        bVar3 = false;
+      }
+LAB_00e8293c:
+    } while (uVar5 < uVar1);
+  }
+  return !bVar3;
+}
+
+
+
+======================================================================
+Matched decompile lines: shader-interface apply dispatcher @ 0x00e826d0
+======================================================================
+  L26             (iVar4 = (**(code **)(*param_1 + 0x8c))
+  L56               uVar6 = (**(code **)(*param_1 + 0x90))(param_2,iVar4,param_11);
+  L63               uVar6 = (**(code **)(*param_1 + 0x94))
+  L69               uVar6 = (**(code **)(*param_1 + 0x98))(param_2,iVar4,param_11);
+  L73               uVar6 = (**(code **)(*param_1 + 0x9c))
+  Total matched lines: 5
+
+======================================================================
+current-pass shader-interface apply candidate @ 0x00bd4ba0
+======================================================================
+  Function: FUN_00bd4ba0 @ 0x00bd4ba0, Size: 344 bytes
+
+void __thiscall FUN_00bd4ba0(int *param_1,int param_2)
+
+{
+  int iVar1;
+  undefined4 uVar2;
+  undefined4 uVar3;
+  undefined4 uVar4;
+  int iVar5;
+  int unaff_ESI;
+  undefined4 uVar6;
+  
+  iVar1 = *DAT_011f91e0;
+  uVar6 = *(undefined4 *)(param_2 + 8);
+  uVar2 = *(undefined4 *)(*(int *)(iVar1 + 0xb8) + 0x34);
+  uVar3 = *(undefined4 *)(iVar1 + 0xbc);
+  FUN_00b7dab0(param_2);
+  uVar4 = FUN_00b55520(DAT_011f91c4);
+  (**(code **)(*param_1 + 0x154))(iVar1,uVar4,uVar6);
+  iVar5 = FUN_00b55560(1);
+  uVar4 = uVar2;
+  (**(code **)(**(int **)(iVar5 + 0x30) + 0x78))
+            (*(undefined4 *)(DAT_0126f74c + 0x44),iVar1,uVar3,0,uVar2,param_2,0,iVar1 + 0x68,
+             unaff_ESI,0,1);
+  uVar6 = uVar2;
+  iVar5 = param_2;
+  (**(code **)(**(int **)(unaff_ESI + 0x34) + 0x78))
+            (*(undefined4 *)(DAT_0126f74c + 0x5c),iVar1,uVar3,0,uVar2,param_2,0,iVar1 + 0x68,uVar4,0
+             ,1);
+  if ((*(int **)(iVar5 + 0x30) != (int *)0x0) && (*(int *)(DAT_0126f74c + 0x44) != 0)) {
+    (**(code **)(**(int **)(iVar5 + 0x30) + 0x78))
+              (*(int *)(DAT_0126f74c + 0x44),iVar1,uVar3,0,uVar2,param_2,0,iVar1 + 0x68,uVar6,0,1);
+  }
+  if ((*(int **)(iVar5 + 0x34) != (int *)0x0) && (*(int *)(DAT_0126f74c + 0x5c) != 0)) {
+    (**(code **)(**(int **)(iVar5 + 0x34) + 0x78))
+              (*(int *)(DAT_0126f74c + 0x5c),iVar1,uVar3,0,uVar2,param_2,0,iVar1 + 0x68,uVar6,0,1);
+  }
+  return;
+}
+
+
+
+======================================================================
+Matched decompile lines: current-pass shader-interface apply candidate @ 0x00bd4ba0
+======================================================================
+  L15     uVar2 = *(undefined4 *)(*(int *)(iVar1 + 0xb8) + 0x34);
+  L16     uVar3 = *(undefined4 *)(iVar1 + 0xbc);
+  L23               (*(undefined4 *)(DAT_0126f74c + 0x44),iVar1,uVar3,0,uVar2,param_2,0,iVar1 + 0x68,
+  L28               (*(undefined4 *)(DAT_0126f74c + 0x5c),iVar1,uVar3,0,uVar2,param_2,0,iVar1 + 0x68,uVar4,0
+  L30     if ((*(int **)(iVar5 + 0x30) != (int *)0x0) && (*(int *)(DAT_0126f74c + 0x44) != 0)) {
+  L32                 (*(int *)(DAT_0126f74c + 0x44),iVar1,uVar3,0,uVar2,param_2,0,iVar1 + 0x68,uVar6,0,1);
+  L34     if ((*(int **)(iVar5 + 0x34) != (int *)0x0) && (*(int *)(DAT_0126f74c + 0x5c) != 0)) {
+  L36                 (*(int *)(DAT_0126f74c + 0x5c),iVar1,uVar3,0,uVar2,param_2,0,iVar1 + 0x68,uVar6,0,1);
+  Total matched lines: 8
+
+======================================================================
+Raw disassembly: caller A first E7EB00 call
+======================================================================
+   0x00b7dd33: MOV EDX,dword ptr [ECX]                                    FUN_00b7dab0+0x283
+   0x00b7dd35: PUSH EAX                                                   FUN_00b7dab0+0x285
+   0x00b7dd36: MOV EAX,dword ptr [EDX + 0x24]                             FUN_00b7dab0+0x286
+   0x00b7dd39: CALL EAX                                                   FUN_00b7dab0+0x289
+   0x00b7dd3b: POP EDI                                                    FUN_00b7dab0+0x28b
+   0x00b7dd3c: POP ESI                                                    FUN_00b7dab0+0x28c
+   0x00b7dd3d: POP EBP                                                    FUN_00b7dab0+0x28d
+   0x00b7dd3e: POP EBX                                                    FUN_00b7dab0+0x28e
+   0x00b7dd3f: ADD ESP,0x60                                               FUN_00b7dab0+0x28f
+   0x00b7dd42: RET 0x4                                                    FUN_00b7dab0+0x292
+   0x00b7dd50: MOV EAX,[0x0126f74c]                                       low-level texture-record apply caller A
+      ref READ -> 0x0126f74c current NiD3DPass global
+   0x00b7dd55: SUB ESP,0x44                                               FUN_00b7dd50+0x5
+   0x00b7dd58: PUSH ESI                                                   FUN_00b7dd50+0x8
+   0x00b7dd59: MOV ESI,ECX                                                FUN_00b7dd50+0x9
+   0x00b7dd5b: MOV ECX,dword ptr [EAX + 0x24]                             FUN_00b7dd50+0xb
+   0x00b7dd5e: MOV ECX,dword ptr [ECX + 0x14]                             FUN_00b7dd50+0xe
+   0x00b7dd61: PUSH 0x0                                                   FUN_00b7dd50+0x11
+=> 0x00b7dd63: CALL 0x00e7eb00                                            FUN_00b7dd50+0x13
+      ref UNCONDITIONAL_CALL -> 0x00e7eb00 low-level texture-record cache/apply
+   0x00b7dd68: MOV ECX,ESI                                                FUN_00b7dd50+0x18
+   0x00b7dd6a: CALL 0x00b7c3a0                                            FUN_00b7dd50+0x1a
+      ref UNCONDITIONAL_CALL -> 0x00b7c3a0 FUN_00b7c3a0
+   0x00b7dd6f: MOV EDX,dword ptr [0x011febf0]                             FUN_00b7dd50+0x1f
+      ref READ -> 0x011febf0 unknown
+   0x00b7dd75: MOV dword ptr [EDX + 0x20],0x1                             FUN_00b7dd50+0x25
+   0x00b7dd7c: MOV EAX,[0x011fec38]                                       FUN_00b7dd50+0x2c
+      ref READ -> 0x011fec38 unknown
+   0x00b7dd81: MOV ECX,ESI                                                FUN_00b7dd50+0x31
+   0x00b7dd83: MOV dword ptr [EAX + 0x20],0x1                             FUN_00b7dd50+0x33
+   0x00b7dd8a: CALL 0x00b7c510                                            FUN_00b7dd50+0x3a
+      ref UNCONDITIONAL_CALL -> 0x00b7c510 FUN_00b7c510
+
+======================================================================
+Raw disassembly: caller B first E7EB00 call
+======================================================================
+   0x00b7de22: MOV EBX,dword ptr [EDX + 0x4]                              FUN_00b7dde0+0x42
+   0x00b7de25: PUSH 0x0                                                   FUN_00b7dde0+0x45
+   0x00b7de27: PUSH ESI                                                   FUN_00b7dde0+0x47
+   0x00b7de28: MOV ECX,EDI                                                FUN_00b7dde0+0x48
+   0x00b7de2a: CALL 0x00c03230                                            FUN_00b7dde0+0x4a
+      ref UNCONDITIONAL_CALL -> 0x00c03230 FUN_00c03230
+   0x00b7de2f: MOV dword ptr [EBX + 0x8],EAX                              FUN_00b7dde0+0x4f
+   0x00b7de32: MOV EAX,dword ptr [ESI]                                    FUN_00b7dde0+0x52
+   0x00b7de34: MOV EDX,dword ptr [EAX + 0xe0]                             FUN_00b7dde0+0x54
+   0x00b7de3a: MOV ECX,ESI                                                FUN_00b7dde0+0x5a
+   0x00b7de3c: CALL EDX                                                   FUN_00b7dde0+0x5c
+   0x00b7de3e: PUSH EAX                                                   FUN_00b7dde0+0x5e
+   0x00b7de3f: MOV ECX,EBX                                                FUN_00b7dde0+0x5f
+   0x00b7de41: CALL 0x00e7de90                                            FUN_00b7dde0+0x61
+      ref UNCONDITIONAL_CALL -> 0x00e7de90 FUN_00e7de90
+   0x00b7de46: MOV EAX,[0x0126f74c]                                       FUN_00b7dde0+0x66
+      ref READ -> 0x0126f74c current NiD3DPass global
+   0x00b7de4b: MOV ECX,dword ptr [EAX + 0x24]                             FUN_00b7dde0+0x6b
+   0x00b7de4e: MOV ECX,dword ptr [ECX]                                    FUN_00b7dde0+0x6e
+   0x00b7de50: PUSH 0x0                                                   FUN_00b7dde0+0x70
+=> 0x00b7de52: CALL 0x00e7eb00                                            FUN_00b7dde0+0x72
+      ref UNCONDITIONAL_CALL -> 0x00e7eb00 low-level texture-record cache/apply
+   0x00b7de57: MOV EDX,dword ptr [0x0126f74c]                             FUN_00b7dde0+0x77
+      ref READ -> 0x0126f74c current NiD3DPass global
+   0x00b7de5d: MOV EAX,dword ptr [EDX + 0x24]                             FUN_00b7dde0+0x7d
+   0x00b7de60: MOV ECX,dword ptr [EAX + 0x4]                              FUN_00b7dde0+0x80
+   0x00b7de63: PUSH 0x0                                                   FUN_00b7dde0+0x83
+   0x00b7de65: CALL 0x00e7eb00                                            FUN_00b7dde0+0x85
+      ref UNCONDITIONAL_CALL -> 0x00e7eb00 low-level texture-record cache/apply
+   0x00b7de6a: MOV ECX,dword ptr [0x011f91e0]                             FUN_00b7dde0+0x8a
+      ref READ -> 0x011f91e0 unknown
+   0x00b7de70: MOV ESI,dword ptr [ECX]                                    FUN_00b7dde0+0x90
+   0x00b7de72: LEA EDX,[ESP + 0xc]                                        FUN_00b7dde0+0x92
+   0x00b7de76: PUSH EDX                                                   FUN_00b7dde0+0x96
+   0x00b7de77: LEA EBX,[ESI + 0x68]                                       FUN_00b7dde0+0x97
+   0x00b7de7a: PUSH 0x0                                                   FUN_00b7dde0+0x9a
+
+======================================================================
+Raw disassembly: caller B second E7EB00 call
+======================================================================
+   0x00b7de3a: MOV ECX,ESI                                                FUN_00b7dde0+0x5a
+   0x00b7de3c: CALL EDX                                                   FUN_00b7dde0+0x5c
+   0x00b7de3e: PUSH EAX                                                   FUN_00b7dde0+0x5e
+   0x00b7de3f: MOV ECX,EBX                                                FUN_00b7dde0+0x5f
+   0x00b7de41: CALL 0x00e7de90                                            FUN_00b7dde0+0x61
+      ref UNCONDITIONAL_CALL -> 0x00e7de90 FUN_00e7de90
+   0x00b7de46: MOV EAX,[0x0126f74c]                                       FUN_00b7dde0+0x66
+      ref READ -> 0x0126f74c current NiD3DPass global
+   0x00b7de4b: MOV ECX,dword ptr [EAX + 0x24]                             FUN_00b7dde0+0x6b
+   0x00b7de4e: MOV ECX,dword ptr [ECX]                                    FUN_00b7dde0+0x6e
+   0x00b7de50: PUSH 0x0                                                   FUN_00b7dde0+0x70
+   0x00b7de52: CALL 0x00e7eb00                                            FUN_00b7dde0+0x72
+      ref UNCONDITIONAL_CALL -> 0x00e7eb00 low-level texture-record cache/apply
+   0x00b7de57: MOV EDX,dword ptr [0x0126f74c]                             FUN_00b7dde0+0x77
+      ref READ -> 0x0126f74c current NiD3DPass global
+   0x00b7de5d: MOV EAX,dword ptr [EDX + 0x24]                             FUN_00b7dde0+0x7d
+   0x00b7de60: MOV ECX,dword ptr [EAX + 0x4]                              FUN_00b7dde0+0x80
+   0x00b7de63: PUSH 0x0                                                   FUN_00b7dde0+0x83
+=> 0x00b7de65: CALL 0x00e7eb00                                            FUN_00b7dde0+0x85
+      ref UNCONDITIONAL_CALL -> 0x00e7eb00 low-level texture-record cache/apply
+   0x00b7de6a: MOV ECX,dword ptr [0x011f91e0]                             FUN_00b7dde0+0x8a
+      ref READ -> 0x011f91e0 unknown
+   0x00b7de70: MOV ESI,dword ptr [ECX]                                    FUN_00b7dde0+0x90
+   0x00b7de72: LEA EDX,[ESP + 0xc]                                        FUN_00b7dde0+0x92
+   0x00b7de76: PUSH EDX                                                   FUN_00b7dde0+0x96
+   0x00b7de77: LEA EBX,[ESI + 0x68]                                       FUN_00b7dde0+0x97
+   0x00b7de7a: PUSH 0x0                                                   FUN_00b7dde0+0x9a
+   0x00b7de7c: PUSH EBX                                                   FUN_00b7dde0+0x9c
+   0x00b7de7d: CALL 0x00c4c2d0                                            FUN_00b7dde0+0x9d
+      ref UNCONDITIONAL_CALL -> 0x00c4c2d0 FUN_00c4c2d0
+   0x00b7de82: ADD ESP,0xc                                                FUN_00b7dde0+0xa2
+   0x00b7de85: PUSH EBX                                                   FUN_00b7dde0+0xa5
+   0x00b7de86: PUSH ESI                                                   FUN_00b7dde0+0xa6
+   0x00b7de87: MOV ECX,EDI                                                FUN_00b7dde0+0xa7
+   0x00b7de89: CALL 0x00b7c750                                            FUN_00b7dde0+0xa9
+      ref UNCONDITIONAL_CALL -> 0x00b7c750 FUN_00b7c750
+
+======================================================================
+Raw disassembly: caller C first E7EB00 call
+======================================================================
+   0x00b7e1d1: TEST EAX,EAX                                               FUN_00b7e150+0x81
+   0x00b7e1d3: JZ 0x00b7e1ea                                              FUN_00b7e150+0x83
+      ref CONDITIONAL_JUMP -> 0x00b7e1ea FUN_00b7e150+0x9a
+   0x00b7e1d5: MOV EDX,dword ptr [ESI]                                    FUN_00b7e150+0x85
+   0x00b7e1d7: MOV EAX,dword ptr [EDX + 0xf4]                             FUN_00b7e150+0x87
+   0x00b7e1dd: PUSH 0x0                                                   FUN_00b7e150+0x8d
+   0x00b7e1df: PUSH 0x3                                                   FUN_00b7e150+0x8f
+   0x00b7e1e1: MOV ECX,ESI                                                FUN_00b7e150+0x91
+   0x00b7e1e3: CALL EAX                                                   FUN_00b7e150+0x93
+   0x00b7e1e5: MOV dword ptr [EBX + 0x8],EAX                              FUN_00b7e150+0x95
+   0x00b7e1e8: JMP 0x00b7e1f3                                             FUN_00b7e150+0x98
+      ref UNCONDITIONAL_JUMP -> 0x00b7e1f3 FUN_00b7e150+0xa3
+   0x00b7e1ea: MOV ECX,dword ptr [0x011f951c]                             FUN_00b7e150+0x9a
+      ref READ -> 0x011f951c unknown
+   0x00b7e1f0: MOV dword ptr [EBX + 0x8],ECX                              FUN_00b7e150+0xa0
+   0x00b7e1f3: MOV EDX,dword ptr [0x0126f74c]                             FUN_00b7e150+0xa3
+      ref READ -> 0x0126f74c current NiD3DPass global
+   0x00b7e1f9: MOV EAX,dword ptr [EDX + 0x24]                             FUN_00b7e150+0xa9
+   0x00b7e1fc: MOV ECX,dword ptr [EAX]                                    FUN_00b7e150+0xac
+   0x00b7e1fe: PUSH 0x0                                                   FUN_00b7e150+0xae
+=> 0x00b7e200: CALL 0x00e7eb00                                            FUN_00b7e150+0xb0
+      ref UNCONDITIONAL_CALL -> 0x00e7eb00 low-level texture-record cache/apply
+   0x00b7e205: MOV ECX,dword ptr [0x0126f74c]                             FUN_00b7e150+0xb5
+      ref READ -> 0x0126f74c current NiD3DPass global
+   0x00b7e20b: MOV EDX,dword ptr [ECX + 0x24]                             FUN_00b7e150+0xbb
+   0x00b7e20e: MOV ECX,dword ptr [EDX + 0x4]                              FUN_00b7e150+0xbe
+   0x00b7e211: PUSH 0x0                                                   FUN_00b7e150+0xc1
+   0x00b7e213: CALL 0x00e7eb00                                            FUN_00b7e150+0xc3
+      ref UNCONDITIONAL_CALL -> 0x00e7eb00 low-level texture-record cache/apply
+   0x00b7e218: MOV EAX,[0x0126f74c]                                       FUN_00b7e150+0xc8
+      ref READ -> 0x0126f74c current NiD3DPass global
+   0x00b7e21d: MOV ECX,dword ptr [EAX + 0x24]                             FUN_00b7e150+0xcd
+   0x00b7e220: MOV ECX,dword ptr [ECX + 0xc]                              FUN_00b7e150+0xd0
+   0x00b7e223: PUSH 0x0                                                   FUN_00b7e150+0xd3
+   0x00b7e225: CALL 0x00e7eb00                                            FUN_00b7e150+0xd5
+      ref UNCONDITIONAL_CALL -> 0x00e7eb00 low-level texture-record cache/apply
+
+======================================================================
+Raw disassembly: caller C second E7EB00 call
+======================================================================
+   0x00b7e1e3: CALL EAX                                                   FUN_00b7e150+0x93
+   0x00b7e1e5: MOV dword ptr [EBX + 0x8],EAX                              FUN_00b7e150+0x95
+   0x00b7e1e8: JMP 0x00b7e1f3                                             FUN_00b7e150+0x98
+      ref UNCONDITIONAL_JUMP -> 0x00b7e1f3 FUN_00b7e150+0xa3
+   0x00b7e1ea: MOV ECX,dword ptr [0x011f951c]                             FUN_00b7e150+0x9a
+      ref READ -> 0x011f951c unknown
+   0x00b7e1f0: MOV dword ptr [EBX + 0x8],ECX                              FUN_00b7e150+0xa0
+   0x00b7e1f3: MOV EDX,dword ptr [0x0126f74c]                             FUN_00b7e150+0xa3
+      ref READ -> 0x0126f74c current NiD3DPass global
+   0x00b7e1f9: MOV EAX,dword ptr [EDX + 0x24]                             FUN_00b7e150+0xa9
+   0x00b7e1fc: MOV ECX,dword ptr [EAX]                                    FUN_00b7e150+0xac
+   0x00b7e1fe: PUSH 0x0                                                   FUN_00b7e150+0xae
+   0x00b7e200: CALL 0x00e7eb00                                            FUN_00b7e150+0xb0
+      ref UNCONDITIONAL_CALL -> 0x00e7eb00 low-level texture-record cache/apply
+   0x00b7e205: MOV ECX,dword ptr [0x0126f74c]                             FUN_00b7e150+0xb5
+      ref READ -> 0x0126f74c current NiD3DPass global
+   0x00b7e20b: MOV EDX,dword ptr [ECX + 0x24]                             FUN_00b7e150+0xbb
+   0x00b7e20e: MOV ECX,dword ptr [EDX + 0x4]                              FUN_00b7e150+0xbe
+   0x00b7e211: PUSH 0x0                                                   FUN_00b7e150+0xc1
+=> 0x00b7e213: CALL 0x00e7eb00                                            FUN_00b7e150+0xc3
+      ref UNCONDITIONAL_CALL -> 0x00e7eb00 low-level texture-record cache/apply
+   0x00b7e218: MOV EAX,[0x0126f74c]                                       FUN_00b7e150+0xc8
+      ref READ -> 0x0126f74c current NiD3DPass global
+   0x00b7e21d: MOV ECX,dword ptr [EAX + 0x24]                             FUN_00b7e150+0xcd
+   0x00b7e220: MOV ECX,dword ptr [ECX + 0xc]                              FUN_00b7e150+0xd0
+   0x00b7e223: PUSH 0x0                                                   FUN_00b7e150+0xd3
+   0x00b7e225: CALL 0x00e7eb00                                            FUN_00b7e150+0xd5
+      ref UNCONDITIONAL_CALL -> 0x00e7eb00 low-level texture-record cache/apply
+   0x00b7e22a: MOV EDX,dword ptr [0x011f91e0]                             FUN_00b7e150+0xda
+      ref READ -> 0x011f91e0 unknown
+   0x00b7e230: MOV EBX,dword ptr [EDX]                                    FUN_00b7e150+0xe0
+   0x00b7e232: LEA EAX,[ESP + 0x1c]                                       FUN_00b7e150+0xe2
+   0x00b7e236: PUSH EAX                                                   FUN_00b7e150+0xe6
+   0x00b7e237: LEA ESI,[EBX + 0x68]                                       FUN_00b7e150+0xe7
+   0x00b7e23a: PUSH 0x0                                                   FUN_00b7e150+0xea
+
+======================================================================
+Raw disassembly: caller C third E7EB00 call
+======================================================================
+   0x00b7e1f9: MOV EAX,dword ptr [EDX + 0x24]                             FUN_00b7e150+0xa9
+   0x00b7e1fc: MOV ECX,dword ptr [EAX]                                    FUN_00b7e150+0xac
+   0x00b7e1fe: PUSH 0x0                                                   FUN_00b7e150+0xae
+   0x00b7e200: CALL 0x00e7eb00                                            FUN_00b7e150+0xb0
+      ref UNCONDITIONAL_CALL -> 0x00e7eb00 low-level texture-record cache/apply
+   0x00b7e205: MOV ECX,dword ptr [0x0126f74c]                             FUN_00b7e150+0xb5
+      ref READ -> 0x0126f74c current NiD3DPass global
+   0x00b7e20b: MOV EDX,dword ptr [ECX + 0x24]                             FUN_00b7e150+0xbb
+   0x00b7e20e: MOV ECX,dword ptr [EDX + 0x4]                              FUN_00b7e150+0xbe
+   0x00b7e211: PUSH 0x0                                                   FUN_00b7e150+0xc1
+   0x00b7e213: CALL 0x00e7eb00                                            FUN_00b7e150+0xc3
+      ref UNCONDITIONAL_CALL -> 0x00e7eb00 low-level texture-record cache/apply
+   0x00b7e218: MOV EAX,[0x0126f74c]                                       FUN_00b7e150+0xc8
+      ref READ -> 0x0126f74c current NiD3DPass global
+   0x00b7e21d: MOV ECX,dword ptr [EAX + 0x24]                             FUN_00b7e150+0xcd
+   0x00b7e220: MOV ECX,dword ptr [ECX + 0xc]                              FUN_00b7e150+0xd0
+   0x00b7e223: PUSH 0x0                                                   FUN_00b7e150+0xd3
+=> 0x00b7e225: CALL 0x00e7eb00                                            FUN_00b7e150+0xd5
+      ref UNCONDITIONAL_CALL -> 0x00e7eb00 low-level texture-record cache/apply
+   0x00b7e22a: MOV EDX,dword ptr [0x011f91e0]                             FUN_00b7e150+0xda
+      ref READ -> 0x011f91e0 unknown
+   0x00b7e230: MOV EBX,dword ptr [EDX]                                    FUN_00b7e150+0xe0
+   0x00b7e232: LEA EAX,[ESP + 0x1c]                                       FUN_00b7e150+0xe2
+   0x00b7e236: PUSH EAX                                                   FUN_00b7e150+0xe6
+   0x00b7e237: LEA ESI,[EBX + 0x68]                                       FUN_00b7e150+0xe7
+   0x00b7e23a: PUSH 0x0                                                   FUN_00b7e150+0xea
+   0x00b7e23c: PUSH ESI                                                   FUN_00b7e150+0xec
+   0x00b7e23d: CALL 0x00c4c2d0                                            FUN_00b7e150+0xed
+      ref UNCONDITIONAL_CALL -> 0x00c4c2d0 FUN_00c4c2d0
+   0x00b7e242: ADD ESP,0xc                                                FUN_00b7e150+0xf2
+   0x00b7e245: PUSH ESI                                                   FUN_00b7e150+0xf5
+   0x00b7e246: PUSH EBX                                                   FUN_00b7e150+0xf6
+   0x00b7e247: MOV ECX,EDI                                                FUN_00b7e150+0xf7
+   0x00b7e249: CALL 0x00b7c750                                            FUN_00b7e150+0xf9
+      ref UNCONDITIONAL_CALL -> 0x00b7c750 FUN_00b7c750
+
+======================================================================
+Call argument/register windows: low-level texture-record apply caller A -> low-level texture-record cache/apply
+======================================================================
+
+  CALL @ 0x00b7dd63 -> 0x00e7eb00 low-level texture-record cache/apply
+    recent ECX write: 0x00b7dd5e MOV dword ptr [ECX + 0x14] ; MOV ECX,dword ptr [ECX + 0x14]
+    recent ECX write: 0x00b7dd5b MOV dword ptr [EAX + 0x24] ; MOV ECX,dword ptr [EAX + 0x24]
+    recent ESI write: 0x00b7dd59 MOV ECX ; MOV ESI,ECX
+    recent ESI write: 0x00b7dd58 PUSH <UNSUPPORTED> ; PUSH ESI
+    recent EAX write: 0x00b7dd50 MOV [0x0126f74c] ; MOV EAX,[0x0126f74c]
+    stack_arg0 from PUSH @ 0x00b7dd61: 0x0                      ; PUSH 0x0
+    stack_arg1 from PUSH @ 0x00b7dd58: ESI                      ; PUSH ESI
+    Raw short window:
+   0x00b7dd39: CALL EAX
+   0x00b7dd3b: POP EDI
+   0x00b7dd3c: POP ESI
+   0x00b7dd3d: POP EBP
+   0x00b7dd3e: POP EBX
+   0x00b7dd3f: ADD ESP,0x60
+   0x00b7dd42: RET 0x4
+   0x00b7dd50: MOV EAX,[0x0126f74c]
+   0x00b7dd55: SUB ESP,0x44
+   0x00b7dd58: PUSH ESI
+   0x00b7dd59: MOV ESI,ECX
+   0x00b7dd5b: MOV ECX,dword ptr [EAX + 0x24]
+   0x00b7dd5e: MOV ECX,dword ptr [ECX + 0x14]
+   0x00b7dd61: PUSH 0x0
+=> 0x00b7dd63: CALL 0x00e7eb00
+   0x00b7dd68: MOV ECX,ESI
+   0x00b7dd6a: CALL 0x00b7c3a0
+   0x00b7dd6f: MOV EDX,dword ptr [0x011febf0]
+   0x00b7dd75: MOV dword ptr [EDX + 0x20],0x1
+   0x00b7dd7c: MOV EAX,[0x011fec38]
+  Total printed calls: 1
+
+======================================================================
+Call argument/register windows: low-level texture-record apply caller B -> low-level texture-record cache/apply
+======================================================================
+
+  CALL @ 0x00b7de52 -> 0x00e7eb00 low-level texture-record cache/apply
+    recent ECX write: 0x00b7de4e MOV dword ptr [ECX] ; MOV ECX,dword ptr [ECX]
+    recent ECX write: 0x00b7de4b MOV dword ptr [EAX + 0x24] ; MOV ECX,dword ptr [EAX + 0x24]
+    recent EAX write: 0x00b7de46 MOV [0x0126f74c] ; MOV EAX,[0x0126f74c]
+    stack_arg0 from PUSH @ 0x00b7de50: 0x0                      ; PUSH 0x0
+    Raw short window:
+   0x00b7de28: MOV ECX,EDI
+   0x00b7de2a: CALL 0x00c03230
+   0x00b7de2f: MOV dword ptr [EBX + 0x8],EAX
+   0x00b7de32: MOV EAX,dword ptr [ESI]
+   0x00b7de34: MOV EDX,dword ptr [EAX + 0xe0]
+   0x00b7de3a: MOV ECX,ESI
+   0x00b7de3c: CALL EDX
+   0x00b7de3e: PUSH EAX
+   0x00b7de3f: MOV ECX,EBX
+   0x00b7de41: CALL 0x00e7de90
+   0x00b7de46: MOV EAX,[0x0126f74c]
+   0x00b7de4b: MOV ECX,dword ptr [EAX + 0x24]
+   0x00b7de4e: MOV ECX,dword ptr [ECX]
+   0x00b7de50: PUSH 0x0
+=> 0x00b7de52: CALL 0x00e7eb00
+   0x00b7de57: MOV EDX,dword ptr [0x0126f74c]
+   0x00b7de5d: MOV EAX,dword ptr [EDX + 0x24]
+   0x00b7de60: MOV ECX,dword ptr [EAX + 0x4]
+   0x00b7de63: PUSH 0x0
+   0x00b7de65: CALL 0x00e7eb00
+
+  CALL @ 0x00b7de65 -> 0x00e7eb00 low-level texture-record cache/apply
+    recent ECX write: 0x00b7de60 MOV dword ptr [EAX + 0x4] ; MOV ECX,dword ptr [EAX + 0x4]
+    recent EAX write: 0x00b7de5d MOV dword ptr [EDX + 0x24] ; MOV EAX,dword ptr [EDX + 0x24]
+    recent EDX write: 0x00b7de57 MOV dword ptr [0x0126f74c] ; MOV EDX,dword ptr [0x0126f74c]
+    stack_arg0 from PUSH @ 0x00b7de63: 0x0                      ; PUSH 0x0
+    Raw short window:
+   0x00b7de3a: MOV ECX,ESI
+   0x00b7de3c: CALL EDX
+   0x00b7de3e: PUSH EAX
+   0x00b7de3f: MOV ECX,EBX
+   0x00b7de41: CALL 0x00e7de90
+   0x00b7de46: MOV EAX,[0x0126f74c]
+   0x00b7de4b: MOV ECX,dword ptr [EAX + 0x24]
+   0x00b7de4e: MOV ECX,dword ptr [ECX]
+   0x00b7de50: PUSH 0x0
+   0x00b7de52: CALL 0x00e7eb00
+   0x00b7de57: MOV EDX,dword ptr [0x0126f74c]
+   0x00b7de5d: MOV EAX,dword ptr [EDX + 0x24]
+   0x00b7de60: MOV ECX,dword ptr [EAX + 0x4]
+   0x00b7de63: PUSH 0x0
+=> 0x00b7de65: CALL 0x00e7eb00
+   0x00b7de6a: MOV ECX,dword ptr [0x011f91e0]
+   0x00b7de70: MOV ESI,dword ptr [ECX]
+   0x00b7de72: LEA EDX,[ESP + 0xc]
+   0x00b7de76: PUSH EDX
+   0x00b7de77: LEA EBX,[ESI + 0x68]
+  Total printed calls: 2
+
+======================================================================
+Call argument/register windows: low-level texture-record apply caller C -> low-level texture-record cache/apply
+======================================================================
+
+  CALL @ 0x00b7e200 -> 0x00e7eb00 low-level texture-record cache/apply
+    recent ECX write: 0x00b7e1fc MOV dword ptr [EAX] ; MOV ECX,dword ptr [EAX]
+    recent EAX write: 0x00b7e1f9 MOV dword ptr [EDX + 0x24] ; MOV EAX,dword ptr [EDX + 0x24]
+    recent EDX write: 0x00b7e1f3 MOV dword ptr [0x0126f74c] ; MOV EDX,dword ptr [0x0126f74c]
+    recent ECX write: 0x00b7e1ea MOV dword ptr [0x011f951c] ; MOV ECX,dword ptr [0x011f951c]
+    recent EAX write: 0x00b7e1e3 CALL <UNSUPPORTED> ; CALL EAX
+    stack_arg0 from PUSH @ 0x00b7e1fe: 0x0                      ; PUSH 0x0
+    Raw short window:
+   0x00b7e1d5: MOV EDX,dword ptr [ESI]
+   0x00b7e1d7: MOV EAX,dword ptr [EDX + 0xf4]
+   0x00b7e1dd: PUSH 0x0
+   0x00b7e1df: PUSH 0x3
+   0x00b7e1e1: MOV ECX,ESI
+   0x00b7e1e3: CALL EAX
+   0x00b7e1e5: MOV dword ptr [EBX + 0x8],EAX
+   0x00b7e1e8: JMP 0x00b7e1f3
+   0x00b7e1ea: MOV ECX,dword ptr [0x011f951c]
+   0x00b7e1f0: MOV dword ptr [EBX + 0x8],ECX
+   0x00b7e1f3: MOV EDX,dword ptr [0x0126f74c]
+   0x00b7e1f9: MOV EAX,dword ptr [EDX + 0x24]
+   0x00b7e1fc: MOV ECX,dword ptr [EAX]
+   0x00b7e1fe: PUSH 0x0
+=> 0x00b7e200: CALL 0x00e7eb00
+   0x00b7e205: MOV ECX,dword ptr [0x0126f74c]
+   0x00b7e20b: MOV EDX,dword ptr [ECX + 0x24]
+   0x00b7e20e: MOV ECX,dword ptr [EDX + 0x4]
+   0x00b7e211: PUSH 0x0
+   0x00b7e213: CALL 0x00e7eb00
+
+  CALL @ 0x00b7e213 -> 0x00e7eb00 low-level texture-record cache/apply
+    recent ECX write: 0x00b7e20e MOV dword ptr [EDX + 0x4] ; MOV ECX,dword ptr [EDX + 0x4]
+    recent EDX write: 0x00b7e20b MOV dword ptr [ECX + 0x24] ; MOV EDX,dword ptr [ECX + 0x24]
+    recent ECX write: 0x00b7e205 MOV dword ptr [0x0126f74c] ; MOV ECX,dword ptr [0x0126f74c]
+    stack_arg0 from PUSH @ 0x00b7e211: 0x0                      ; PUSH 0x0
+    Raw short window:
+   0x00b7e1e3: CALL EAX
+   0x00b7e1e5: MOV dword ptr [EBX + 0x8],EAX
+   0x00b7e1e8: JMP 0x00b7e1f3
+   0x00b7e1ea: MOV ECX,dword ptr [0x011f951c]
+   0x00b7e1f0: MOV dword ptr [EBX + 0x8],ECX
+   0x00b7e1f3: MOV EDX,dword ptr [0x0126f74c]
+   0x00b7e1f9: MOV EAX,dword ptr [EDX + 0x24]
+   0x00b7e1fc: MOV ECX,dword ptr [EAX]
+   0x00b7e1fe: PUSH 0x0
+   0x00b7e200: CALL 0x00e7eb00
+   0x00b7e205: MOV ECX,dword ptr [0x0126f74c]
+   0x00b7e20b: MOV EDX,dword ptr [ECX + 0x24]
+   0x00b7e20e: MOV ECX,dword ptr [EDX + 0x4]
+   0x00b7e211: PUSH 0x0
+=> 0x00b7e213: CALL 0x00e7eb00
+   0x00b7e218: MOV EAX,[0x0126f74c]
+   0x00b7e21d: MOV ECX,dword ptr [EAX + 0x24]
+   0x00b7e220: MOV ECX,dword ptr [ECX + 0xc]
+   0x00b7e223: PUSH 0x0
+   0x00b7e225: CALL 0x00e7eb00
+
+  CALL @ 0x00b7e225 -> 0x00e7eb00 low-level texture-record cache/apply
+    recent ECX write: 0x00b7e220 MOV dword ptr [ECX + 0xc] ; MOV ECX,dword ptr [ECX + 0xc]
+    recent ECX write: 0x00b7e21d MOV dword ptr [EAX + 0x24] ; MOV ECX,dword ptr [EAX + 0x24]
+    recent EAX write: 0x00b7e218 MOV [0x0126f74c] ; MOV EAX,[0x0126f74c]
+    stack_arg0 from PUSH @ 0x00b7e223: 0x0                      ; PUSH 0x0
+    Raw short window:
+   0x00b7e1f3: MOV EDX,dword ptr [0x0126f74c]
+   0x00b7e1f9: MOV EAX,dword ptr [EDX + 0x24]
+   0x00b7e1fc: MOV ECX,dword ptr [EAX]
+   0x00b7e1fe: PUSH 0x0
+   0x00b7e200: CALL 0x00e7eb00
+   0x00b7e205: MOV ECX,dword ptr [0x0126f74c]
+   0x00b7e20b: MOV EDX,dword ptr [ECX + 0x24]
+   0x00b7e20e: MOV ECX,dword ptr [EDX + 0x4]
+   0x00b7e211: PUSH 0x0
+   0x00b7e213: CALL 0x00e7eb00
+   0x00b7e218: MOV EAX,[0x0126f74c]
+   0x00b7e21d: MOV ECX,dword ptr [EAX + 0x24]
+   0x00b7e220: MOV ECX,dword ptr [ECX + 0xc]
+   0x00b7e223: PUSH 0x0
+=> 0x00b7e225: CALL 0x00e7eb00
+   0x00b7e22a: MOV EDX,dword ptr [0x011f91e0]
+   0x00b7e230: MOV EBX,dword ptr [EDX]
+   0x00b7e232: LEA EAX,[ESP + 0x1c]
+   0x00b7e236: PUSH EAX
+   0x00b7e237: LEA ESI,[EBX + 0x68]
+  Total printed calls: 3
+
+======================================================================
+Call argument/register windows: low-level texture-record cache/apply -> low-level texture-record cache/apply
+======================================================================
+  [no calls to target in caller]
+  Total printed calls: 0
+
+======================================================================
+Call argument/register windows: low-level texture-record resolver/bind -> low-level texture-record cache/apply
+======================================================================
+  [no calls to target in caller]
+  Total printed calls: 0
+
+======================================================================
+Call argument/register windows: shader-interface apply dispatcher -> low-level texture-record cache/apply
+======================================================================
+  [no calls to target in caller]
+  Total printed calls: 0
+
+======================================================================
+Call argument/register windows: current-pass shader-interface apply candidate -> low-level texture-record cache/apply
+======================================================================
+  [no calls to target in caller]
+  Total printed calls: 0
+
+======================================================================
+Call argument/register windows: PPLighting pass-entry append/reuse helper -> low-level texture-record cache/apply
+======================================================================
+  [no calls to target in caller]
+  Total printed calls: 0
+
+======================================================================
+Call argument/register windows: low-level texture-record cache/apply -> low-level texture-record resolver/bind
+======================================================================
+
+  CALL @ 0x00e7eb3e -> 0x00e7ea00 low-level texture-record resolver/bind
+    recent ECX write: 0x00e7eb3c MOV ESI ; MOV ECX,ESI
+    Raw short window:
+   0x00e7eb17: JZ 0x00e7eb43
+   0x00e7eb19: MOV EDX,dword ptr [ESI + 0x4]
+   0x00e7eb1c: MOV EAX,dword ptr [ESI + 0x8]
+   0x00e7eb1f: MOV dword ptr [EDX*0x4 + 0x126f680],EAX
+   0x00e7eb26: MOV ECX,dword ptr [ESI + 0x4]
+   0x00e7eb29: PUSH ECX
+   0x00e7eb2a: MOV ECX,dword ptr [ESI + 0x10]
+   0x00e7eb2d: CALL 0x00e89410
+   0x00e7eb32: TEST EAX,EAX
+   0x00e7eb34: JZ 0x00e7eb3c
+   0x00e7eb36: XOR AL,AL
+   0x00e7eb38: POP ESI
+   0x00e7eb39: RET 0x4
+   0x00e7eb3c: MOV ECX,ESI
+=> 0x00e7eb3e: CALL 0x00e7ea00
+   0x00e7eb43: MOV AL,0x1
+   0x00e7eb45: POP ESI
+   0x00e7eb46: RET 0x4
+   0x00e7eb50: PUSH ECX
+   0x00e7eb51: PUSH EBX
+  Total printed calls: 1

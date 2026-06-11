@@ -18,8 +18,6 @@ use crate::{
     shaders::{self, ScreenShaderSource},
 };
 
-pub(crate) const SHADER_NAME: &str = "09_sunshafts_lite";
-
 const COLOR_WRITE_ALL: u32 = 0x0F;
 const EFFECT_CONSTANT_REGISTER: u32 = 9;
 const MASK_SCALE: u32 = 2;
@@ -28,10 +26,6 @@ const MASK_SHADER: &[u8] = include_bytes!("sunshafts_mask.hlsl");
 const RADIAL_SHADER: &[u8] = include_bytes!("sunshafts_radial.hlsl");
 const BLUR_SHADER: &[u8] = include_bytes!("sunshafts_blur.hlsl");
 const COMPOSE_SHADER: &[u8] = include_bytes!("sunshafts_compose.hlsl");
-
-pub(crate) fn is_config_source(name: &str) -> bool {
-    name == SHADER_NAME
-}
 
 pub(crate) struct SunshaftsEffect {
     mask_shader: PixelShader9,

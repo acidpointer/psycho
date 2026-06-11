@@ -479,6 +479,19 @@ impl<'a> Device9Ref<'a> {
         unsafe { self.inner.SetPixelShader(shader.as_inner()) }
     }
 
+    /// Set a borrowed raw `IDirect3DPixelShader9` pointer.
+    ///
+    /// # Safety
+    ///
+    /// `shader` must be a live pixel shader for the duration of the call.
+    /// This does not call `AddRef`; it is for engine-owned or otherwise
+    /// lifetime-managed shader objects.
+    pub unsafe fn set_raw_pixel_shader(&self, shader: *mut c_void) -> Direct3DResult<()> {
+        let ptr = NonNull::new(shader).ok_or_else(|| WindowsError::from_hresult(E_POINTER))?;
+        let shader = unsafe { InterfaceRef::<IDirect3DPixelShader9>::from_raw(ptr) };
+        unsafe { self.inner.SetPixelShader(shader) }
+    }
+
     /// Clear the current programmable pixel shader.
     pub fn clear_pixel_shader(&self) -> Direct3DResult<()> {
         unsafe {
@@ -742,6 +755,11 @@ impl PixelShader9 {
     /// Return the wrapped Windows binding interface.
     pub fn as_inner(&self) -> &IDirect3DPixelShader9 {
         &self.inner
+    }
+
+    /// Return the raw `IDirect3DPixelShader9*` pointer.
+    pub fn as_raw(&self) -> *mut c_void {
+        self.inner.as_raw()
     }
 
     /// Consume the wrapper and return the owned Windows binding interface.

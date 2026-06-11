@@ -30,6 +30,16 @@ GRAPHICS_BIN="$BIN_DIR/$GRAPHICS_DLL"
 ENGINE_CFG="$DIR/psycho-engine-fixes/config/$ENGINE_CFGNAME"
 GRAPHICS_CFG="$DIR/psycho-graphics/config/$GRAPHICS_CFGNAME"
 GRAPHICS_SHADER_SRC_DIR="$DIR/psycho-graphics/shaders"
+EMBEDDED_SHADER_STALE_FILES=(
+    "00_fast_ao.hlsl"
+    "00_fast_ao.toml"
+    "02_contact_ao.hlsl"
+    "02_contact_ao.toml"
+    "07_blooming_hdr_lite.hlsl"
+    "07_blooming_hdr_lite.toml"
+    "09_sunshafts_lite.hlsl"
+    "09_sunshafts_lite.toml"
+)
 
 GAME_ROOT="$TARGET_DIR/FalloutNV"
 GAME_MODS_DIR="$GAME_ROOT/mods"
@@ -100,6 +110,10 @@ function install_files() {
     cp "$GRAPHICS_BIN" "$GRAPHICS_PATH"
     cp "$ENGINE_CFG" "$ENGINE_CFG_PATH"
     cp "$GRAPHICS_CFG" "$GRAPHICS_CFG_PATH"
+
+    for stale_shader in "${EMBEDDED_SHADER_STALE_FILES[@]}"; do
+        remove_if_exists "$SHADER_DIR/$stale_shader"
+    done
 
     if [[ -d "$GRAPHICS_SHADER_SRC_DIR" ]]; then
         find "$GRAPHICS_SHADER_SRC_DIR" \

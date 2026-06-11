@@ -18,9 +18,6 @@ use crate::{
     shaders::{self, ScreenShaderSource},
 };
 
-pub(crate) const FAST_AO_SHADER_NAME: &str = "00_fast_ao";
-pub(crate) const CONTACT_AO_SHADER_NAME: &str = "02_contact_ao";
-
 const COLOR_WRITE_ALL: u32 = 0x0F;
 const CONTACT_OPTION_REGISTER: u32 = 7;
 const EFFECT_CONSTANT_REGISTER: u32 = 10;
@@ -29,10 +26,6 @@ const AO_SCALE: u32 = 2;
 const EXTRACT_SHADER: &[u8] = include_bytes!("ambient_occlusion_extract.hlsl");
 const BLUR_SHADER: &[u8] = include_bytes!("ambient_occlusion_blur.hlsl");
 const COMPOSE_SHADER: &[u8] = include_bytes!("ambient_occlusion_compose.hlsl");
-
-pub(crate) fn is_config_source(name: &str) -> bool {
-    name == FAST_AO_SHADER_NAME || name == CONTACT_AO_SHADER_NAME
-}
 
 pub(crate) struct AmbientOcclusionEffect {
     extract_shader: PixelShader9,
