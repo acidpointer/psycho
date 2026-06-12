@@ -16,8 +16,6 @@ struct PixelInput
 };
 
 static const float PI = 3.14159265f;
-static const float SUN_RADIUS = 0.00918043f;
-
 float3 SafeNormalize(float3 value, float3 fallback)
 {
     float len_sq = dot(value, value);
@@ -79,8 +77,9 @@ float3 LambertianDiffuse(float3 albedo, float3 fresnel)
 
 float GGX(float ndoth, float roughness)
 {
-    float a2 = roughness * roughness * roughness * roughness;
-    float d = max((ndoth * a2 - ndoth) * ndoth + 1.0f, 0.00001f);
+    float a = roughness * roughness;
+    float a2 = a * a;
+    float d = (ndoth * a2 - ndoth) * ndoth + 1.0f;
     return a2 / max(PI * d * d, 0.00001f);
 }
 
@@ -109,26 +108,16 @@ float3 PbrSun(float roughness, float3 albedo, float3 normal, float3 eye_dir, flo
     eye_dir = SafeNormalize(eye_dir, float3(0.0f, 0.0f, 1.0f));
     light_dir = SafeNormalize(light_dir, float3(0.0f, 0.0f, 1.0f));
 
-    float3 reflect_dir = reflect(light_dir, normal);
-    float radius = sin(SUN_RADIUS);
-    float dist = cos(SUN_RADIUS);
-    float ldotr = dot(light_dir, reflect_dir);
-    float3 closest_point = reflect_dir - ldotr * light_dir;
-    float3 sun_dir = (ldotr < dist)
-        ? SafeNormalize(dist * light_dir + SafeNormalize(closest_point, reflect_dir) * radius, reflect_dir)
-        : reflect_dir;
-
-    float3 halfway = SafeNormalize(eye_dir + sun_dir, normal);
-    float ndots = max(Shades(normal, sun_dir), 0.00001f);
+    float3 halfway = SafeNormalize(eye_dir + light_dir, normal);
+    float ndotl = max(Shades(normal, light_dir), 0.00001f);
     float ndotv = max(Shades(normal, eye_dir), 0.00001f);
     float ndoth = Shades(normal, halfway);
-    float ndotl = Shades(normal, light_dir);
     float ldoth = Shades(light_dir, halfway);
     float3 fresnel = Fresnel(reflectance, float3(1.0f, 1.0f, 1.0f), ldoth);
     float3 diffuse = LambertianDiffuse(albedo, fresnel);
-    float3 specular = Brdf(roughness, fresnel, ndotv, ndots, ndoth);
+    float3 specular = Brdf(roughness, fresnel, ndotv, ndotl, ndoth);
 
-    return (diffuse * ndotl + specular * ndots) * light_color * PI;
+    return (diffuse + specular) * ndotl * light_color * PI;
 }
 
 float3 AmbientLighting(float3 ambient, float3 albedo)

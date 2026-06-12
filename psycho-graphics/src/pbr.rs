@@ -7,6 +7,7 @@
 
 use std::{
     array,
+    borrow::Cow,
     ffi::c_void,
     mem::{size_of, transmute},
     ptr::null_mut,
@@ -70,16 +71,49 @@ const PPLIGHTING_FAMILY_VERTEX_B_PIXEL_A: u32 = 2;
 const PPLIGHTING_FAMILY_VERTEX_C_PIXEL_B: u32 = 3;
 const PPLIGHTING_FAMILY_UNKNOWN_PAIR: u32 = u32::MAX;
 const PPLIGHTING_VERTEX_SLS2_ADTS_BASE_INDEX: u32 = 0;
+const PPLIGHTING_PIXEL_SLS2_ADTS_DEFAULT_INDEX: u32 = 0;
 const PPLIGHTING_PIXEL_SLS2_ADTS_OPT_INDEX: u32 = 1;
 const PPLIGHTING_VERTEX_SLS2_ADTS_LOD_INDEX: u32 = 1;
 const PPLIGHTING_PIXEL_SLS2_ADTS_OPT_LOD_INDEX: u32 = 2;
 const PPLIGHTING_VERTEX_SLS2_LANDLOD_INDEX: u32 = 2;
 const PPLIGHTING_PIXEL_SLS2_LANDLOD_INDEX: u32 = 3;
+const PPLIGHTING_VERTEX_SLS2_ADTS_SKIN_INDEX: u32 = 3;
+const PPLIGHTING_VERTEX_SLS2_ADTS_PROJECTED_SHADOW_INDEX: u32 = 4;
+const PPLIGHTING_VERTEX_SLS2_LANDLOD_PROJECTED_SHADOW_INDEX: u32 = 5;
+const PPLIGHTING_PIXEL_SLS2_LANDLOD_PROJECTED_SHADOW_INDEX: u32 = 6;
+const PPLIGHTING_VERTEX_SLS2_ADTS_PROJECTED_SHADOW_SKIN_INDEX: u32 = 6;
+const PPLIGHTING_VERTEX_SLS2_ADTS_LIGHTS2_INDEX: u32 = 8;
+const PPLIGHTING_VERTEX_SLS2_ADTS_LIGHTS2_SKIN_INDEX: u32 = 9;
+const PPLIGHTING_VERTEX_SLS2_ADTS_LIGHTS2_PROJECTED_SHADOW_INDEX: u32 = 10;
+const PPLIGHTING_VERTEX_SLS2_ADTS_LIGHTS2_PROJECTED_SHADOW_SKIN_INDEX: u32 = 11;
 const PPLIGHTING_VERTEX_SLS2_ADTS_SPECULAR_INDEX: u32 = 12;
 const PPLIGHTING_VERTEX_SLS2_ADTS_SPECULAR_SKIN_INDEX: u32 = 13;
-const PPLIGHTING_PIXEL_SLS2_ADTS_SPECULAR_INDEX: u32 = 17;
+const PPLIGHTING_VERTEX_SLS2_ADTS_SPECULAR_PROJECTED_SHADOW_INDEX: u32 = 14;
+const PPLIGHTING_VERTEX_SLS2_ADTS_SPECULAR_PROJECTED_SHADOW_SKIN_INDEX: u32 = 15;
+const PPLIGHTING_VERTEX_SLS2_ADTS_SPECULAR_LIGHTS2_INDEX: u32 = 16;
+const PPLIGHTING_VERTEX_SLS2_ADTS_SPECULAR_LIGHTS2_SKIN_INDEX: u32 = 17;
+const PPLIGHTING_VERTEX_SLS2_ADTS_SPECULAR_LIGHTS2_PROJECTED_SHADOW_INDEX: u32 = 18;
+const PPLIGHTING_VERTEX_SLS2_ADTS_SPECULAR_LIGHTS2_PROJECTED_SHADOW_SKIN_INDEX: u32 = 19;
+const PPLIGHTING_VERTEX_SLS2_ADTS10_LIGHTS9_INDEX: u32 = 20;
+const PPLIGHTING_VERTEX_SLS2_ADTS10_LIGHTS9_SKIN_INDEX: u32 = 21;
 const PPLIGHTING_VERTEX_SLS2_ADTS10_LIGHTS4_INDEX: u32 = 22;
+const PPLIGHTING_VERTEX_SLS2_ADTS10_LIGHTS4_OPT_INDEX: u32 = 23;
+const PPLIGHTING_VERTEX_SLS2_ADTS10_LIGHTS4_SKIN_INDEX: u32 = 24;
+const PPLIGHTING_VERTEX_SLS2_ADTS10_SPECULAR_LIGHTS4_INDEX: u32 = 25;
+const PPLIGHTING_VERTEX_SLS2_ADTS10_SPECULAR_LIGHTS4_OPT_INDEX: u32 = 26;
+const PPLIGHTING_VERTEX_SLS2_ADTS10_SPECULAR_LIGHTS4_SKIN_INDEX: u32 = 27;
+const PPLIGHTING_PIXEL_SLS2_ADTS_PROJECTED_SHADOW_INDEX: u32 = 5;
+const PPLIGHTING_PIXEL_SLS2_ADTS_LIGHTS2_INDEX: u32 = 11;
+const PPLIGHTING_PIXEL_SLS2_ADTS_LIGHTS2_PROJECTED_SHADOW_INDEX: u32 = 14;
+const PPLIGHTING_PIXEL_SLS2_ADTS_SPECULAR_INDEX: u32 = 17;
+const PPLIGHTING_PIXEL_SLS2_ADTS_SPECULAR_PROJECTED_SHADOW_INDEX: u32 = 20;
+const PPLIGHTING_PIXEL_SLS2_ADTS_SPECULAR_LIGHTS2_INDEX: u32 = 23;
+const PPLIGHTING_PIXEL_SLS2_ADTS_SPECULAR_LIGHTS2_PROJECTED_SHADOW_INDEX: u32 = 26;
+const PPLIGHTING_PIXEL_SLS2_ADTS10_LIGHTS9_INDEX: u32 = 29;
 const PPLIGHTING_PIXEL_SLS2_ADTS10_LIGHTS4_INDEX: u32 = 31;
+const PPLIGHTING_PIXEL_SLS2_ADTS10_LIGHTS4_OPT_INDEX: u32 = 32;
+const PPLIGHTING_PIXEL_SLS2_ADTS10_SPECULAR_LIGHTS4_INDEX: u32 = 34;
+const PPLIGHTING_PIXEL_SLS2_ADTS10_SPECULAR_LIGHTS4_OPT_INDEX: u32 = 35;
 const APPLY_PARAM_RESOURCE_OFFSET: usize = 0x08;
 const SHADER_INTERFACE_PIXEL_OFFSET: usize = 0x30;
 const SHADER_INTERFACE_VERTEX_OFFSET: usize = 0x34;
@@ -125,6 +159,7 @@ const PBR_GLOW_STAGE: u32 = 2;
 const PBR_HEIGHT_STAGE: u32 = 3;
 const PBR_ENVIRONMENT_STAGE: u32 = 4;
 const PBR_ENVIRONMENT_MASK_STAGE: u32 = 5;
+const REPLACEMENT_SHADER_KIND_COUNT: usize = 15;
 
 const SET_SHADERS_PROLOGUE: &[u8] = &[
     0x8B, 0x0D, 0x4C, 0xF7, 0x26, 0x01, 0x56, 0x57, 0xE8, 0x23, 0xD8, 0x29, 0x00, 0x8B, 0xF0, 0xA1,
@@ -205,6 +240,7 @@ static REPLACEMENT_APPLY_LOGS: AtomicU32 = AtomicU32::new(0);
 static REPLACEMENT_APPLIED_COUNT: AtomicU32 = AtomicU32::new(0);
 static REPLACEMENT_RESOURCE_LOGS: AtomicU32 = AtomicU32::new(0);
 static MATERIAL_BIND_LOGS: AtomicU32 = AtomicU32::new(0);
+static REPLACEMENT_TERRAIN_CANDIDATE_LOGS: AtomicU32 = AtomicU32::new(0);
 static REPLACEMENT_SKIP_SUMMARY_LOGS: AtomicU32 = AtomicU32::new(0);
 static REPLACEMENT_UNSUPPORTED_PAIR_LOGS: AtomicU32 = AtomicU32::new(0);
 static REPLACEMENT_SKIP_CHECKS: AtomicU32 = AtomicU32::new(0);
@@ -223,14 +259,10 @@ static REPLACEMENT_LAST_VERTEX_GROUP: AtomicU32 = AtomicU32::new(PPLIGHTING_GROU
 static REPLACEMENT_LAST_VERTEX_INDEX: AtomicU32 = AtomicU32::new(0);
 static REPLACEMENT_LAST_PIXEL_GROUP: AtomicU32 = AtomicU32::new(PPLIGHTING_GROUP_NONE);
 static REPLACEMENT_LAST_PIXEL_INDEX: AtomicU32 = AtomicU32::new(0);
-static REPLACEMENT_ADTS_LOD_PIXEL_SHADER_HANDLE: AtomicUsize = AtomicUsize::new(0);
-static REPLACEMENT_ADTS_LOD_PIXEL_SHADER_DEVICE: AtomicUsize = AtomicUsize::new(0);
-static REPLACEMENT_ADTS_SPECULAR_PIXEL_SHADER_HANDLE: AtomicUsize = AtomicUsize::new(0);
-static REPLACEMENT_ADTS_SPECULAR_PIXEL_SHADER_DEVICE: AtomicUsize = AtomicUsize::new(0);
-static REPLACEMENT_ADTS10_LIGHTS4_PIXEL_SHADER_HANDLE: AtomicUsize = AtomicUsize::new(0);
-static REPLACEMENT_ADTS10_LIGHTS4_PIXEL_SHADER_DEVICE: AtomicUsize = AtomicUsize::new(0);
-static REPLACEMENT_LANDLOD_PIXEL_SHADER_HANDLE: AtomicUsize = AtomicUsize::new(0);
-static REPLACEMENT_LANDLOD_PIXEL_SHADER_DEVICE: AtomicUsize = AtomicUsize::new(0);
+static REPLACEMENT_PIXEL_SHADER_HANDLES: LazyLock<[AtomicUsize; REPLACEMENT_SHADER_KIND_COUNT]> =
+    LazyLock::new(|| array::from_fn(|_| AtomicUsize::new(0)));
+static REPLACEMENT_PIXEL_SHADER_DEVICES: LazyLock<[AtomicUsize; REPLACEMENT_SHADER_KIND_COUNT]> =
+    LazyLock::new(|| array::from_fn(|_| AtomicUsize::new(0)));
 static REPLACEMENT_LANDLOD_VERTEX_SHADER_HANDLE: AtomicUsize = AtomicUsize::new(0);
 static REPLACEMENT_LANDLOD_VERTEX_SHADER_DEVICE: AtomicUsize = AtomicUsize::new(0);
 static PBR_ROUGHNESS_SCALE_BITS: AtomicU32 = AtomicU32::new(1.0f32.to_bits());
@@ -252,11 +284,7 @@ static PIXEL_SHADER_MEMBERSHIP_CACHE: LazyLock<ShaderMembershipCache> =
 static PBR_REPLACEMENT: LazyLock<Mutex<PbrReplacementState>> =
     LazyLock::new(|| Mutex::new(PbrReplacementState::new()));
 
-const PBR_REPLACEMENT_PIXEL_SHADER: &[u8] = include_bytes!("native_pbr_pplighting.hlsl");
-const PBR_REPLACEMENT_ADTS_LOD_PIXEL_SHADER: &[u8] =
-    include_bytes!("native_pbr_pplighting_adts_lod.hlsl");
-const PBR_REPLACEMENT_ADTS10_PIXEL_SHADER: &[u8] =
-    include_bytes!("native_pbr_pplighting_adts10.hlsl");
+const PBR_REPLACEMENT_OBJECT_PIXEL_SHADER: &str = include_str!("native_pbr_pplighting_object.hlsl");
 const PBR_REPLACEMENT_LANDLOD_PIXEL_SHADER: &[u8] =
     include_bytes!("native_pbr_pplighting_landlod.hlsl");
 const PBR_REPLACEMENT_LANDLOD_VERTEX_SHADER: &[u8] =
@@ -838,82 +866,224 @@ fn texture_resolve_cache_slot(resource: usize) -> usize {
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum ReplacementShaderKind {
-    AdtsOptLod,
-    AdtsSpecular,
-    Adts10Lights4,
+    ObjectLowOpt,
+    ObjectLow,
+    ObjectLowShadow,
+    ObjectLowLights2,
+    ObjectLowLights2Shadow,
+    ObjectLowSpecular,
+    ObjectLowSpecularShadow,
+    ObjectLowSpecularLights2,
+    ObjectLowSpecularLights2Shadow,
+    ObjectHigh6,
+    ObjectHigh4,
+    ObjectHigh4Opt,
+    ObjectHigh3Specular,
+    ObjectHigh3SpecularOpt,
     LandLod,
 }
 
 impl ReplacementShaderKind {
+    fn index(self) -> usize {
+        match self {
+            Self::ObjectLowOpt => 0,
+            Self::ObjectLow => 1,
+            Self::ObjectLowShadow => 2,
+            Self::ObjectLowLights2 => 3,
+            Self::ObjectLowLights2Shadow => 4,
+            Self::ObjectLowSpecular => 5,
+            Self::ObjectLowSpecularShadow => 6,
+            Self::ObjectLowSpecularLights2 => 7,
+            Self::ObjectLowSpecularLights2Shadow => 8,
+            Self::ObjectHigh6 => 9,
+            Self::ObjectHigh4 => 10,
+            Self::ObjectHigh4Opt => 11,
+            Self::ObjectHigh3Specular => 12,
+            Self::ObjectHigh3SpecularOpt => 13,
+            Self::LandLod => 14,
+        }
+    }
+
     fn source_name(self) -> &'static str {
         match self {
-            Self::AdtsOptLod => "native_pbr_pplighting_adts_lod.hlsl",
-            Self::AdtsSpecular => "native_pbr_pplighting.hlsl",
-            Self::Adts10Lights4 => "native_pbr_pplighting_adts10.hlsl",
+            Self::ObjectLowOpt => "native_pbr_pplighting_object_low_opt.hlsl",
+            Self::ObjectLow => "native_pbr_pplighting_object_low.hlsl",
+            Self::ObjectLowShadow => "native_pbr_pplighting_object_low_shadow.hlsl",
+            Self::ObjectLowLights2 => "native_pbr_pplighting_object_low_lights2.hlsl",
+            Self::ObjectLowLights2Shadow => "native_pbr_pplighting_object_low_lights2_shadow.hlsl",
+            Self::ObjectLowSpecular => "native_pbr_pplighting_object_low_specular.hlsl",
+            Self::ObjectLowSpecularShadow => {
+                "native_pbr_pplighting_object_low_specular_shadow.hlsl"
+            }
+            Self::ObjectLowSpecularLights2 => {
+                "native_pbr_pplighting_object_low_specular_lights2.hlsl"
+            }
+            Self::ObjectLowSpecularLights2Shadow => {
+                "native_pbr_pplighting_object_low_specular_lights2_shadow.hlsl"
+            }
+            Self::ObjectHigh6 => "native_pbr_pplighting_object_high6.hlsl",
+            Self::ObjectHigh4 => "native_pbr_pplighting_object_high4.hlsl",
+            Self::ObjectHigh4Opt => "native_pbr_pplighting_object_high4_opt.hlsl",
+            Self::ObjectHigh3Specular => "native_pbr_pplighting_object_high3_specular.hlsl",
+            Self::ObjectHigh3SpecularOpt => "native_pbr_pplighting_object_high3_specular_opt.hlsl",
             Self::LandLod => "native_pbr_pplighting_landlod.hlsl",
         }
     }
 
-    fn source(self) -> &'static [u8] {
+    fn source(self) -> Cow<'static, [u8]> {
+        if let Some(defines) = self.object_shader_defines() {
+            return Cow::Owned(
+                format!("{defines}\n{PBR_REPLACEMENT_OBJECT_PIXEL_SHADER}").into_bytes(),
+            );
+        }
+
+        Cow::Borrowed(PBR_REPLACEMENT_LANDLOD_PIXEL_SHADER)
+    }
+
+    fn object_shader_defines(self) -> Option<&'static str> {
         match self {
-            Self::AdtsOptLod => PBR_REPLACEMENT_ADTS_LOD_PIXEL_SHADER,
-            Self::AdtsSpecular => PBR_REPLACEMENT_PIXEL_SHADER,
-            Self::Adts10Lights4 => PBR_REPLACEMENT_ADTS10_PIXEL_SHADER,
-            Self::LandLod => PBR_REPLACEMENT_LANDLOD_PIXEL_SHADER,
+            Self::ObjectLowOpt => Some(
+                "#define PBR_OBJECT_LOW 1\n#define PBR_OBJECT_OPT 1\n#define PBR_OBJECT_LIGHTS 1",
+            ),
+            Self::ObjectLow => Some("#define PBR_OBJECT_LOW 1\n#define PBR_OBJECT_LIGHTS 1"),
+            Self::ObjectLowShadow => Some(
+                "#define PBR_OBJECT_LOW 1\n#define PBR_OBJECT_LIGHTS 1\n#define PBR_OBJECT_SHADOW 1",
+            ),
+            Self::ObjectLowLights2 => Some("#define PBR_OBJECT_LOW 1\n#define PBR_OBJECT_LIGHTS 2"),
+            Self::ObjectLowLights2Shadow => Some(
+                "#define PBR_OBJECT_LOW 1\n#define PBR_OBJECT_LIGHTS 2\n#define PBR_OBJECT_SHADOW 1",
+            ),
+            Self::ObjectLowSpecular => Some(
+                "#define PBR_OBJECT_LOW 1\n#define PBR_OBJECT_LIGHTS 1\n#define PBR_OBJECT_SPECULAR 1",
+            ),
+            Self::ObjectLowSpecularShadow => Some(
+                "#define PBR_OBJECT_LOW 1\n#define PBR_OBJECT_LIGHTS 1\n#define PBR_OBJECT_SPECULAR 1\n#define PBR_OBJECT_SHADOW 1",
+            ),
+            Self::ObjectLowSpecularLights2 => Some(
+                "#define PBR_OBJECT_LOW 1\n#define PBR_OBJECT_LIGHTS 2\n#define PBR_OBJECT_SPECULAR 1",
+            ),
+            Self::ObjectLowSpecularLights2Shadow => Some(
+                "#define PBR_OBJECT_LOW 1\n#define PBR_OBJECT_LIGHTS 2\n#define PBR_OBJECT_SPECULAR 1\n#define PBR_OBJECT_SHADOW 1",
+            ),
+            Self::ObjectHigh6 => Some("#define PBR_OBJECT_HIGH 1\n#define PBR_OBJECT_LIGHTS 6"),
+            Self::ObjectHigh4 => Some("#define PBR_OBJECT_HIGH 1\n#define PBR_OBJECT_LIGHTS 4"),
+            Self::ObjectHigh4Opt => Some(
+                "#define PBR_OBJECT_HIGH 1\n#define PBR_OBJECT_OPT 1\n#define PBR_OBJECT_LIGHTS 4",
+            ),
+            Self::ObjectHigh3Specular => Some(
+                "#define PBR_OBJECT_HIGH 1\n#define PBR_OBJECT_LIGHTS 3\n#define PBR_OBJECT_SPECULAR 1",
+            ),
+            Self::ObjectHigh3SpecularOpt => Some(
+                "#define PBR_OBJECT_HIGH 1\n#define PBR_OBJECT_OPT 1\n#define PBR_OBJECT_LIGHTS 3\n#define PBR_OBJECT_SPECULAR 1",
+            ),
+            Self::LandLod => None,
         }
     }
 
     fn vertex_source_name(self) -> Option<&'static str> {
         match self {
-            Self::AdtsOptLod | Self::AdtsSpecular | Self::Adts10Lights4 => None,
+            Self::ObjectLowOpt
+            | Self::ObjectLow
+            | Self::ObjectLowShadow
+            | Self::ObjectLowLights2
+            | Self::ObjectLowLights2Shadow
+            | Self::ObjectLowSpecular
+            | Self::ObjectLowSpecularShadow
+            | Self::ObjectLowSpecularLights2
+            | Self::ObjectLowSpecularLights2Shadow
+            | Self::ObjectHigh6
+            | Self::ObjectHigh4
+            | Self::ObjectHigh4Opt
+            | Self::ObjectHigh3Specular
+            | Self::ObjectHigh3SpecularOpt => None,
             Self::LandLod => Some("native_pbr_pplighting_landlod.vs.hlsl"),
         }
     }
 
     fn vertex_source(self) -> Option<&'static [u8]> {
         match self {
-            Self::AdtsOptLod | Self::AdtsSpecular | Self::Adts10Lights4 => None,
+            Self::ObjectLowOpt
+            | Self::ObjectLow
+            | Self::ObjectLowShadow
+            | Self::ObjectLowLights2
+            | Self::ObjectLowLights2Shadow
+            | Self::ObjectLowSpecular
+            | Self::ObjectLowSpecularShadow
+            | Self::ObjectLowSpecularLights2
+            | Self::ObjectLowSpecularLights2Shadow
+            | Self::ObjectHigh6
+            | Self::ObjectHigh4
+            | Self::ObjectHigh4Opt
+            | Self::ObjectHigh3Specular
+            | Self::ObjectHigh3SpecularOpt => None,
             Self::LandLod => Some(PBR_REPLACEMENT_LANDLOD_VERTEX_SHADER),
         }
     }
 
     fn label(self) -> &'static str {
         match self {
-            Self::AdtsOptLod => "adts_opt_lod",
-            Self::AdtsSpecular => "adts_specular",
-            Self::Adts10Lights4 => "adts10_lights4",
+            Self::ObjectLowOpt => "object_low_opt",
+            Self::ObjectLow => "object_low",
+            Self::ObjectLowShadow => "object_low_shadow",
+            Self::ObjectLowLights2 => "object_low_lights2",
+            Self::ObjectLowLights2Shadow => "object_low_lights2_shadow",
+            Self::ObjectLowSpecular => "object_low_specular",
+            Self::ObjectLowSpecularShadow => "object_low_specular_shadow",
+            Self::ObjectLowSpecularLights2 => "object_low_specular_lights2",
+            Self::ObjectLowSpecularLights2Shadow => "object_low_specular_lights2_shadow",
+            Self::ObjectHigh6 => "object_high6",
+            Self::ObjectHigh4 => "object_high4",
+            Self::ObjectHigh4Opt => "object_high4_opt",
+            Self::ObjectHigh3Specular => "object_high3_specular",
+            Self::ObjectHigh3SpecularOpt => "object_high3_specular_opt",
             Self::LandLod => "landlod",
         }
     }
 
     fn cached_device(self) -> &'static AtomicUsize {
-        match self {
-            Self::AdtsOptLod => &REPLACEMENT_ADTS_LOD_PIXEL_SHADER_DEVICE,
-            Self::AdtsSpecular => &REPLACEMENT_ADTS_SPECULAR_PIXEL_SHADER_DEVICE,
-            Self::Adts10Lights4 => &REPLACEMENT_ADTS10_LIGHTS4_PIXEL_SHADER_DEVICE,
-            Self::LandLod => &REPLACEMENT_LANDLOD_PIXEL_SHADER_DEVICE,
-        }
+        &REPLACEMENT_PIXEL_SHADER_DEVICES[self.index()]
     }
 
     fn cached_handle(self) -> &'static AtomicUsize {
-        match self {
-            Self::AdtsOptLod => &REPLACEMENT_ADTS_LOD_PIXEL_SHADER_HANDLE,
-            Self::AdtsSpecular => &REPLACEMENT_ADTS_SPECULAR_PIXEL_SHADER_HANDLE,
-            Self::Adts10Lights4 => &REPLACEMENT_ADTS10_LIGHTS4_PIXEL_SHADER_HANDLE,
-            Self::LandLod => &REPLACEMENT_LANDLOD_PIXEL_SHADER_HANDLE,
-        }
+        &REPLACEMENT_PIXEL_SHADER_HANDLES[self.index()]
     }
 
     fn cached_vertex_device(self) -> Option<&'static AtomicUsize> {
         match self {
-            Self::AdtsOptLod | Self::AdtsSpecular | Self::Adts10Lights4 => None,
+            Self::ObjectLowOpt
+            | Self::ObjectLow
+            | Self::ObjectLowShadow
+            | Self::ObjectLowLights2
+            | Self::ObjectLowLights2Shadow
+            | Self::ObjectLowSpecular
+            | Self::ObjectLowSpecularShadow
+            | Self::ObjectLowSpecularLights2
+            | Self::ObjectLowSpecularLights2Shadow
+            | Self::ObjectHigh6
+            | Self::ObjectHigh4
+            | Self::ObjectHigh4Opt
+            | Self::ObjectHigh3Specular
+            | Self::ObjectHigh3SpecularOpt => None,
             Self::LandLod => Some(&REPLACEMENT_LANDLOD_VERTEX_SHADER_DEVICE),
         }
     }
 
     fn cached_vertex_handle(self) -> Option<&'static AtomicUsize> {
         match self {
-            Self::AdtsOptLod | Self::AdtsSpecular | Self::Adts10Lights4 => None,
+            Self::ObjectLowOpt
+            | Self::ObjectLow
+            | Self::ObjectLowShadow
+            | Self::ObjectLowLights2
+            | Self::ObjectLowLights2Shadow
+            | Self::ObjectLowSpecular
+            | Self::ObjectLowSpecularShadow
+            | Self::ObjectLowSpecularLights2
+            | Self::ObjectLowSpecularLights2Shadow
+            | Self::ObjectHigh6
+            | Self::ObjectHigh4
+            | Self::ObjectHigh4Opt
+            | Self::ObjectHigh3Specular
+            | Self::ObjectHigh3SpecularOpt => None,
             Self::LandLod => Some(&REPLACEMENT_LANDLOD_VERTEX_SHADER_HANDLE),
         }
     }
@@ -923,25 +1093,25 @@ impl ReplacementShaderKind {
     }
 
     fn uses_extra_material_stages(self) -> bool {
-        match self {
-            Self::AdtsOptLod | Self::AdtsSpecular | Self::Adts10Lights4 | Self::LandLod => false,
-        }
+        false
+    }
+
+    fn uses_selector_material_resources(self) -> bool {
+        false
     }
 
     fn writes_material_flags(self) -> bool {
-        match self {
-            Self::AdtsOptLod => false,
-            Self::AdtsSpecular | Self::Adts10Lights4 => true,
-            Self::LandLod => false,
-        }
+        false
+    }
+
+    fn requires_normal_stage(self) -> bool {
+        true
     }
 }
 
 struct PbrReplacementState {
     device: usize,
-    adts_lod: PbrShaderSlot,
-    adts_specular: PbrShaderSlot,
-    adts10_lights4: PbrShaderSlot,
+    pixel_slots: [PbrShaderSlot; REPLACEMENT_SHADER_KIND_COUNT],
     landlod: PbrShaderSlot,
     landlod_vertex: PbrVertexShaderSlot,
 }
@@ -950,9 +1120,7 @@ impl PbrReplacementState {
     fn new() -> Self {
         Self {
             device: 0,
-            adts_lod: PbrShaderSlot::new(),
-            adts_specular: PbrShaderSlot::new(),
-            adts10_lights4: PbrShaderSlot::new(),
+            pixel_slots: array::from_fn(|_| PbrShaderSlot::new()),
             landlod: PbrShaderSlot::new(),
             landlod_vertex: PbrVertexShaderSlot::new(),
         }
@@ -960,19 +1128,17 @@ impl PbrReplacementState {
 
     fn release(&mut self) {
         self.device = 0;
-        self.adts_lod.release();
-        self.adts_specular.release();
-        self.adts10_lights4.release();
+        for slot in &mut self.pixel_slots {
+            slot.release();
+        }
         self.landlod.release();
         self.landlod_vertex.release();
-        REPLACEMENT_ADTS_LOD_PIXEL_SHADER_DEVICE.store(0, Ordering::Release);
-        REPLACEMENT_ADTS_LOD_PIXEL_SHADER_HANDLE.store(0, Ordering::Release);
-        REPLACEMENT_ADTS_SPECULAR_PIXEL_SHADER_DEVICE.store(0, Ordering::Release);
-        REPLACEMENT_ADTS_SPECULAR_PIXEL_SHADER_HANDLE.store(0, Ordering::Release);
-        REPLACEMENT_ADTS10_LIGHTS4_PIXEL_SHADER_DEVICE.store(0, Ordering::Release);
-        REPLACEMENT_ADTS10_LIGHTS4_PIXEL_SHADER_HANDLE.store(0, Ordering::Release);
-        REPLACEMENT_LANDLOD_PIXEL_SHADER_DEVICE.store(0, Ordering::Release);
-        REPLACEMENT_LANDLOD_PIXEL_SHADER_HANDLE.store(0, Ordering::Release);
+        for device in REPLACEMENT_PIXEL_SHADER_DEVICES.iter() {
+            device.store(0, Ordering::Release);
+        }
+        for handle in REPLACEMENT_PIXEL_SHADER_HANDLES.iter() {
+            handle.store(0, Ordering::Release);
+        }
         REPLACEMENT_LANDLOD_VERTEX_SHADER_DEVICE.store(0, Ordering::Release);
         REPLACEMENT_LANDLOD_VERTEX_SHADER_HANDLE.store(0, Ordering::Release);
     }
@@ -1004,9 +1170,20 @@ impl PbrReplacementState {
         }
 
         match kind {
-            ReplacementShaderKind::AdtsOptLod
-            | ReplacementShaderKind::AdtsSpecular
-            | ReplacementShaderKind::Adts10Lights4 => None,
+            ReplacementShaderKind::ObjectLowOpt
+            | ReplacementShaderKind::ObjectLow
+            | ReplacementShaderKind::ObjectLowShadow
+            | ReplacementShaderKind::ObjectLowLights2
+            | ReplacementShaderKind::ObjectLowLights2Shadow
+            | ReplacementShaderKind::ObjectLowSpecular
+            | ReplacementShaderKind::ObjectLowSpecularShadow
+            | ReplacementShaderKind::ObjectLowSpecularLights2
+            | ReplacementShaderKind::ObjectLowSpecularLights2Shadow
+            | ReplacementShaderKind::ObjectHigh6
+            | ReplacementShaderKind::ObjectHigh4
+            | ReplacementShaderKind::ObjectHigh4Opt
+            | ReplacementShaderKind::ObjectHigh3Specular
+            | ReplacementShaderKind::ObjectHigh3SpecularOpt => None,
             ReplacementShaderKind::LandLod => self
                 .landlod_vertex
                 .vertex_shader_handle(kind, device, device_ptr),
@@ -1014,11 +1191,10 @@ impl PbrReplacementState {
     }
 
     fn slot_mut(&mut self, kind: ReplacementShaderKind) -> &mut PbrShaderSlot {
-        match kind {
-            ReplacementShaderKind::AdtsOptLod => &mut self.adts_lod,
-            ReplacementShaderKind::AdtsSpecular => &mut self.adts_specular,
-            ReplacementShaderKind::Adts10Lights4 => &mut self.adts10_lights4,
-            ReplacementShaderKind::LandLod => &mut self.landlod,
+        if kind == ReplacementShaderKind::LandLod {
+            &mut self.landlod
+        } else {
+            &mut self.pixel_slots[kind.index()]
         }
     }
 }
@@ -1057,7 +1233,8 @@ impl PbrShaderSlot {
         }
 
         if self.bytecode.is_none() {
-            match crate::shaders::compile_hlsl_source(kind.source_name(), kind.source()) {
+            let source = kind.source();
+            match crate::shaders::compile_hlsl_source(kind.source_name(), source.as_ref()) {
                 Ok(bytecode) => {
                     self.bytecode = Some(bytecode);
                 }
@@ -1226,6 +1403,21 @@ struct ReplacementMaterialBindings {
     has_environment_mask: bool,
 }
 
+impl ReplacementMaterialBindings {
+    fn vanilla_bound() -> Self {
+        Self {
+            selector: 0,
+            generation: 0,
+            has_normal: TEXTURE_CAPTURE.stages[PBR_NORMAL_STAGE as usize].load(Ordering::Acquire)
+                != 0,
+            has_glow: false,
+            has_height: false,
+            has_environment: false,
+            has_environment_mask: false,
+        }
+    }
+}
+
 #[derive(Clone, Copy)]
 enum ReplacementSkipReason {
     NoDiffuse,
@@ -1313,7 +1505,7 @@ pub(crate) fn install(settings: NativePbrSettings) -> Result<()> {
 
     if settings.enabled {
         log::info!(
-            "[PBR] Native PBR material shader enabled for proven PPLighting material and land LOD variants"
+            "[PBR] Native PBR material shader enabled for NVR ObjectTemplate ADTS/ADTS10 material variants and land LOD"
         );
     }
 
@@ -1731,17 +1923,12 @@ unsafe fn call_set_shaders_with_replacement(
         }
     };
 
-    let material_resources = match unsafe { replacement_material_resources(shader_kind) } {
-        Ok(material_resources) => material_resources,
-        Err(ReplacementMaterialResourceError::NoSelectorRecord) => {
-            record_replacement_skip(ReplacementSkipReason::NoSelectorRecord, Some(draw_context));
-            return false;
-        }
-        Err(ReplacementMaterialResourceError::NoNormalSource) => {
-            record_replacement_skip(ReplacementSkipReason::NoNormalSource, Some(draw_context));
-            return false;
-        }
-    };
+    if shader_kind.requires_normal_stage()
+        && TEXTURE_CAPTURE.stages[PBR_NORMAL_STAGE as usize].load(Ordering::Acquire) == 0
+    {
+        record_replacement_skip(ReplacementSkipReason::NoNormalSource, Some(draw_context));
+        return false;
+    }
 
     let Some(replacement_pixel_handle) = replacement_pixel_shader_handle(shader_kind) else {
         record_replacement_skip(
@@ -1778,11 +1965,31 @@ unsafe fn call_set_shaders_with_replacement(
         null_mut()
     };
 
-    let Some(material_bindings) =
-        (unsafe { bind_replacement_material_textures(material_resources, shader_kind) })
-    else {
-        record_replacement_skip(ReplacementSkipReason::BindFailed, Some(draw_context));
-        return false;
+    let material_bindings = if shader_kind.uses_selector_material_resources() {
+        let material_resources = match unsafe { replacement_material_resources(shader_kind) } {
+            Ok(material_resources) => material_resources,
+            Err(ReplacementMaterialResourceError::NoSelectorRecord) => {
+                record_replacement_skip(
+                    ReplacementSkipReason::NoSelectorRecord,
+                    Some(draw_context),
+                );
+                return false;
+            }
+            Err(ReplacementMaterialResourceError::NoNormalSource) => {
+                record_replacement_skip(ReplacementSkipReason::NoNormalSource, Some(draw_context));
+                return false;
+            }
+        };
+
+        let Some(material_bindings) =
+            (unsafe { bind_replacement_material_textures(material_resources, shader_kind) })
+        else {
+            record_replacement_skip(ReplacementSkipReason::BindFailed, Some(draw_context));
+            return false;
+        };
+        material_bindings
+    } else {
+        ReplacementMaterialBindings::vanilla_bound()
     };
 
     let original_pixel_handle = unsafe {
@@ -1981,13 +2188,6 @@ fn replacement_shader_kind(
         return Err(ReplacementSkipReason::UnsupportedFamily);
     }
 
-    if pplighting_pair_uses_sls2_adts_opt_or_lod(
-        draw_context.vertex_membership,
-        draw_context.pixel_membership,
-    ) {
-        return Ok(ReplacementShaderKind::AdtsOptLod);
-    }
-
     if pplighting_pair_uses_sls2_landlod(
         draw_context.vertex_membership,
         draw_context.pixel_membership,
@@ -1995,24 +2195,114 @@ fn replacement_shader_kind(
         return Ok(ReplacementShaderKind::LandLod);
     }
 
-    if pplighting_pair_uses_sls2_adts_specular(
+    if let Some(shader_kind) = pplighting_sls2_object_replacement_kind(
         draw_context.vertex_membership,
         draw_context.pixel_membership,
     ) {
-        return Ok(ReplacementShaderKind::AdtsSpecular);
-    }
-
-    if pplighting_pair_uses_sls2_adts10_lights4(
-        draw_context.vertex_membership,
-        draw_context.pixel_membership,
-    ) {
-        return Ok(ReplacementShaderKind::Adts10Lights4);
+        return Ok(shader_kind);
     }
 
     Err(ReplacementSkipReason::UnsupportedVertexAbi)
 }
 
-fn pplighting_pair_uses_sls2_adts_opt_or_lod(
+fn pplighting_sls2_object_replacement_kind(
+    vertex: ShaderArrayMembership,
+    pixel: ShaderArrayMembership,
+) -> Option<ReplacementShaderKind> {
+    if vertex.group != PPLIGHTING_VERTEX_GROUP_C || pixel.group != PPLIGHTING_PIXEL_GROUP_B {
+        return None;
+    }
+
+    if is_sls2_adts_base_vertex(vertex.index) {
+        return match pixel.index {
+            PPLIGHTING_PIXEL_SLS2_ADTS_DEFAULT_INDEX => Some(ReplacementShaderKind::ObjectLow),
+            PPLIGHTING_PIXEL_SLS2_ADTS_OPT_INDEX => Some(ReplacementShaderKind::ObjectLowOpt),
+            _ => None,
+        };
+    }
+
+    if vertex.index == PPLIGHTING_VERTEX_SLS2_ADTS_LOD_INDEX
+        && pixel.index == PPLIGHTING_PIXEL_SLS2_ADTS_OPT_LOD_INDEX
+    {
+        return Some(ReplacementShaderKind::ObjectLowOpt);
+    }
+
+    if is_sls2_adts_projected_shadow_vertex(vertex.index)
+        && pixel.index == PPLIGHTING_PIXEL_SLS2_ADTS_PROJECTED_SHADOW_INDEX
+    {
+        return Some(ReplacementShaderKind::ObjectLowShadow);
+    }
+
+    if is_sls2_adts_lights2_vertex(vertex.index)
+        && pixel.index == PPLIGHTING_PIXEL_SLS2_ADTS_LIGHTS2_INDEX
+    {
+        return Some(ReplacementShaderKind::ObjectLowLights2);
+    }
+
+    if is_sls2_adts_lights2_projected_shadow_vertex(vertex.index)
+        && pixel.index == PPLIGHTING_PIXEL_SLS2_ADTS_LIGHTS2_PROJECTED_SHADOW_INDEX
+    {
+        return Some(ReplacementShaderKind::ObjectLowLights2Shadow);
+    }
+
+    if is_sls2_adts_specular_vertex(vertex.index)
+        && pixel.index == PPLIGHTING_PIXEL_SLS2_ADTS_SPECULAR_INDEX
+    {
+        return Some(ReplacementShaderKind::ObjectLowSpecular);
+    }
+
+    if is_sls2_adts_specular_projected_shadow_vertex(vertex.index)
+        && pixel.index == PPLIGHTING_PIXEL_SLS2_ADTS_SPECULAR_PROJECTED_SHADOW_INDEX
+    {
+        return Some(ReplacementShaderKind::ObjectLowSpecularShadow);
+    }
+
+    if is_sls2_adts_specular_lights2_vertex(vertex.index)
+        && pixel.index == PPLIGHTING_PIXEL_SLS2_ADTS_SPECULAR_LIGHTS2_INDEX
+    {
+        return Some(ReplacementShaderKind::ObjectLowSpecularLights2);
+    }
+
+    if is_sls2_adts_specular_lights2_projected_shadow_vertex(vertex.index)
+        && pixel.index == PPLIGHTING_PIXEL_SLS2_ADTS_SPECULAR_LIGHTS2_PROJECTED_SHADOW_INDEX
+    {
+        return Some(ReplacementShaderKind::ObjectLowSpecularLights2Shadow);
+    }
+
+    if is_sls2_adts10_lights9_vertex(vertex.index)
+        && pixel.index == PPLIGHTING_PIXEL_SLS2_ADTS10_LIGHTS9_INDEX
+    {
+        return Some(ReplacementShaderKind::ObjectHigh6);
+    }
+
+    if is_sls2_adts10_lights4_vertex(vertex.index)
+        && pixel.index == PPLIGHTING_PIXEL_SLS2_ADTS10_LIGHTS4_INDEX
+    {
+        return Some(ReplacementShaderKind::ObjectHigh4);
+    }
+
+    if vertex.index == PPLIGHTING_VERTEX_SLS2_ADTS10_LIGHTS4_OPT_INDEX
+        && pixel.index == PPLIGHTING_PIXEL_SLS2_ADTS10_LIGHTS4_OPT_INDEX
+    {
+        return Some(ReplacementShaderKind::ObjectHigh4Opt);
+    }
+
+    if is_sls2_adts10_specular_lights4_vertex(vertex.index)
+        && pixel.index == PPLIGHTING_PIXEL_SLS2_ADTS10_SPECULAR_LIGHTS4_INDEX
+    {
+        return Some(ReplacementShaderKind::ObjectHigh3Specular);
+    }
+
+    if vertex.index == PPLIGHTING_VERTEX_SLS2_ADTS10_SPECULAR_LIGHTS4_OPT_INDEX
+        && pixel.index == PPLIGHTING_PIXEL_SLS2_ADTS10_SPECULAR_LIGHTS4_OPT_INDEX
+    {
+        return Some(ReplacementShaderKind::ObjectHigh3SpecularOpt);
+    }
+
+    None
+}
+
+fn pplighting_pair_uses_sls2_landlod(
     vertex: ShaderArrayMembership,
     pixel: ShaderArrayMembership,
 ) -> bool {
@@ -2020,41 +2310,96 @@ fn pplighting_pair_uses_sls2_adts_opt_or_lod(
         return false;
     }
 
-    (vertex.index == PPLIGHTING_VERTEX_SLS2_ADTS_BASE_INDEX
-        && pixel.index == PPLIGHTING_PIXEL_SLS2_ADTS_OPT_INDEX)
-        || (vertex.index == PPLIGHTING_VERTEX_SLS2_ADTS_LOD_INDEX
-            && pixel.index == PPLIGHTING_PIXEL_SLS2_ADTS_OPT_LOD_INDEX)
+    (vertex.index == PPLIGHTING_VERTEX_SLS2_LANDLOD_INDEX
+        && pixel.index == PPLIGHTING_PIXEL_SLS2_LANDLOD_INDEX)
+        || (vertex.index == PPLIGHTING_VERTEX_SLS2_LANDLOD_PROJECTED_SHADOW_INDEX
+            && pixel.index == PPLIGHTING_PIXEL_SLS2_LANDLOD_PROJECTED_SHADOW_INDEX)
 }
 
-fn pplighting_pair_uses_sls2_landlod(
-    vertex: ShaderArrayMembership,
-    pixel: ShaderArrayMembership,
-) -> bool {
-    vertex.group == PPLIGHTING_VERTEX_GROUP_C
-        && vertex.index == PPLIGHTING_VERTEX_SLS2_LANDLOD_INDEX
-        && pixel.group == PPLIGHTING_PIXEL_GROUP_B
-        && pixel.index == PPLIGHTING_PIXEL_SLS2_LANDLOD_INDEX
+fn is_sls2_adts_base_vertex(index: u32) -> bool {
+    matches!(
+        index,
+        PPLIGHTING_VERTEX_SLS2_ADTS_BASE_INDEX | PPLIGHTING_VERTEX_SLS2_ADTS_SKIN_INDEX
+    )
 }
 
-fn pplighting_pair_uses_sls2_adts_specular(
-    vertex: ShaderArrayMembership,
-    pixel: ShaderArrayMembership,
-) -> bool {
-    vertex.group == PPLIGHTING_VERTEX_GROUP_C
-        && (vertex.index == PPLIGHTING_VERTEX_SLS2_ADTS_SPECULAR_INDEX
-            || vertex.index == PPLIGHTING_VERTEX_SLS2_ADTS_SPECULAR_SKIN_INDEX)
-        && pixel.group == PPLIGHTING_PIXEL_GROUP_B
-        && pixel.index == PPLIGHTING_PIXEL_SLS2_ADTS_SPECULAR_INDEX
+fn is_sls2_adts_projected_shadow_vertex(index: u32) -> bool {
+    matches!(
+        index,
+        PPLIGHTING_VERTEX_SLS2_ADTS_PROJECTED_SHADOW_INDEX
+            | PPLIGHTING_VERTEX_SLS2_ADTS_PROJECTED_SHADOW_SKIN_INDEX
+    )
 }
 
-fn pplighting_pair_uses_sls2_adts10_lights4(
-    vertex: ShaderArrayMembership,
-    pixel: ShaderArrayMembership,
-) -> bool {
-    vertex.group == PPLIGHTING_VERTEX_GROUP_C
-        && vertex.index == PPLIGHTING_VERTEX_SLS2_ADTS10_LIGHTS4_INDEX
-        && pixel.group == PPLIGHTING_PIXEL_GROUP_B
-        && pixel.index == PPLIGHTING_PIXEL_SLS2_ADTS10_LIGHTS4_INDEX
+fn is_sls2_adts_lights2_vertex(index: u32) -> bool {
+    matches!(
+        index,
+        PPLIGHTING_VERTEX_SLS2_ADTS_LIGHTS2_INDEX | PPLIGHTING_VERTEX_SLS2_ADTS_LIGHTS2_SKIN_INDEX
+    )
+}
+
+fn is_sls2_adts_lights2_projected_shadow_vertex(index: u32) -> bool {
+    matches!(
+        index,
+        PPLIGHTING_VERTEX_SLS2_ADTS_LIGHTS2_PROJECTED_SHADOW_INDEX
+            | PPLIGHTING_VERTEX_SLS2_ADTS_LIGHTS2_PROJECTED_SHADOW_SKIN_INDEX
+    )
+}
+
+fn is_sls2_adts_specular_vertex(index: u32) -> bool {
+    matches!(
+        index,
+        PPLIGHTING_VERTEX_SLS2_ADTS_SPECULAR_INDEX
+            | PPLIGHTING_VERTEX_SLS2_ADTS_SPECULAR_SKIN_INDEX
+    )
+}
+
+fn is_sls2_adts_specular_projected_shadow_vertex(index: u32) -> bool {
+    matches!(
+        index,
+        PPLIGHTING_VERTEX_SLS2_ADTS_SPECULAR_PROJECTED_SHADOW_INDEX
+            | PPLIGHTING_VERTEX_SLS2_ADTS_SPECULAR_PROJECTED_SHADOW_SKIN_INDEX
+    )
+}
+
+fn is_sls2_adts_specular_lights2_vertex(index: u32) -> bool {
+    matches!(
+        index,
+        PPLIGHTING_VERTEX_SLS2_ADTS_SPECULAR_LIGHTS2_INDEX
+            | PPLIGHTING_VERTEX_SLS2_ADTS_SPECULAR_LIGHTS2_SKIN_INDEX
+    )
+}
+
+fn is_sls2_adts_specular_lights2_projected_shadow_vertex(index: u32) -> bool {
+    matches!(
+        index,
+        PPLIGHTING_VERTEX_SLS2_ADTS_SPECULAR_LIGHTS2_PROJECTED_SHADOW_INDEX
+            | PPLIGHTING_VERTEX_SLS2_ADTS_SPECULAR_LIGHTS2_PROJECTED_SHADOW_SKIN_INDEX
+    )
+}
+
+fn is_sls2_adts10_lights9_vertex(index: u32) -> bool {
+    matches!(
+        index,
+        PPLIGHTING_VERTEX_SLS2_ADTS10_LIGHTS9_INDEX
+            | PPLIGHTING_VERTEX_SLS2_ADTS10_LIGHTS9_SKIN_INDEX
+    )
+}
+
+fn is_sls2_adts10_lights4_vertex(index: u32) -> bool {
+    matches!(
+        index,
+        PPLIGHTING_VERTEX_SLS2_ADTS10_LIGHTS4_INDEX
+            | PPLIGHTING_VERTEX_SLS2_ADTS10_LIGHTS4_SKIN_INDEX
+    )
+}
+
+fn is_sls2_adts10_specular_lights4_vertex(index: u32) -> bool {
+    matches!(
+        index,
+        PPLIGHTING_VERTEX_SLS2_ADTS10_SPECULAR_LIGHTS4_INDEX
+            | PPLIGHTING_VERTEX_SLS2_ADTS10_SPECULAR_LIGHTS4_SKIN_INDEX
+    )
 }
 
 fn required_diffuse_stage_bound() -> bool {
@@ -3453,6 +3798,8 @@ fn maybe_log_unsupported_replacement_pair(
         return;
     }
 
+    maybe_log_terrain_candidate_pair(reason, draw_context);
+
     let count = REPLACEMENT_UNSUPPORTED_PAIR_LOGS.fetch_add(1, Ordering::Relaxed);
     if count >= MAX_LOGS {
         return;
@@ -3470,6 +3817,59 @@ fn maybe_log_unsupported_replacement_pair(
         draw_context.vertex_shader,
         draw_context.pixel_shader,
     );
+}
+
+fn maybe_log_terrain_candidate_pair(
+    reason: ReplacementSkipReason,
+    draw_context: ReplacementDrawContext,
+) {
+    if draw_context.family != PPLIGHTING_FAMILY_VERTEX_C_PIXEL_B {
+        return;
+    }
+    if draw_context.vertex_membership.group != PPLIGHTING_VERTEX_GROUP_C
+        || draw_context.pixel_membership.group != PPLIGHTING_PIXEL_GROUP_B
+    {
+        return;
+    }
+    if !is_sls2_terrain_vertex_index(draw_context.vertex_membership.index)
+        && !is_sls2_terrain_pixel_index(draw_context.pixel_membership.index)
+    {
+        return;
+    }
+
+    let count = REPLACEMENT_TERRAIN_CANDIDATE_LOGS.fetch_add(1, Ordering::Relaxed);
+    if count >= 64 {
+        return;
+    }
+
+    let stages = &TEXTURE_CAPTURE.stages;
+    log::info!(
+        "[PBR] Terrain candidate pair skipped: reason={} vgrp={} vidx={} pgrp={} pidx={} pass={:p} vs={:p} ps={:p} s0=0x{:08X} s1=0x{:08X} s2=0x{:08X} s3=0x{:08X} s4=0x{:08X} s5=0x{:08X} s6=0x{:08X} s7=0x{:08X}",
+        reason.label(),
+        draw_context.vertex_membership.group,
+        draw_context.vertex_membership.index,
+        draw_context.pixel_membership.group,
+        draw_context.pixel_membership.index,
+        draw_context.pass,
+        draw_context.vertex_shader,
+        draw_context.pixel_shader,
+        stages[0].load(Ordering::Acquire),
+        stages[1].load(Ordering::Acquire),
+        stages[2].load(Ordering::Acquire),
+        stages[3].load(Ordering::Acquire),
+        stages[4].load(Ordering::Acquire),
+        stages[5].load(Ordering::Acquire),
+        stages[6].load(Ordering::Acquire),
+        stages[7].load(Ordering::Acquire),
+    );
+}
+
+fn is_sls2_terrain_vertex_index(index: u32) -> bool {
+    matches!(index, 2 | 5 | 53..=62 | 76..=83 | 100..=101)
+}
+
+fn is_sls2_terrain_pixel_index(index: u32) -> bool {
+    matches!(index, 3 | 6 | 60..=69 | 80..=86 | 92..=149)
 }
 
 fn maybe_log_replacement_skip_summary(checks: u32) {

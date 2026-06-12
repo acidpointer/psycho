@@ -161,16 +161,19 @@ occlusion_softness = 0.42
 #   - current pass shader-interface apply context
 #   - NiDX9RenderState::SetTexture final 16-stage texture cache
 #   - PPLighting shader-family membership from proven vanilla global arrays
-#   - low-light ADTS object OPT/LOD ABI: vertex group C index 0 with
-#     pixel group B index 1, or vertex group C index 1 with pixel group B
-#     index 2
-#   - low-light ADTS specular ABI: vertex group C index 12 or 13,
-#     pixel group B index 17
-#   - high-light ADTS10 LIGHTS=4 ABI: vertex group C index 22,
-#     pixel group B index 31
+#   - NVR ObjectTemplate ADTS non-SI/non-HAIR object ABIs:
+#     base/OPT/LOD, projected shadow, LIGHTS=2, LIGHTS=2 projected shadow,
+#     specular, specular projected shadow, specular LIGHTS=2, and specular
+#     LIGHTS=2 projected shadow
+#   - NVR ObjectTemplate ADTS10 object ABIs:
+#     LIGHTS=9, LIGHTS=4, LIGHTS=4 OPT, SPECULAR LIGHTS=4, and
+#     SPECULAR LIGHTS=4 OPT
 #   - land LOD ABI from NewVegasReloaded_release terrain/SLS2006 references:
 #     vertex group C index 2 and pixel group B index 3 are replaced together;
 #     c31 remains vanilla LODTexParams and PBR uses c32/c33 only on that path
+#
+# SI/HAIR, parallax, and pure only-light helper passes remain on vanilla
+# shaders until their texture and pass contracts are implemented separately.
 #
 # This is a runtime shader toggle. It does not control hook installation.
 enabled = true
@@ -178,10 +181,10 @@ enabled = true
 # NVR-compatible PBR registers:
 #   c32.y roughness scale, c32.z light scale, c32.w ambient scale,
 #   c33.x albedo saturation.
-roughness_scale = 1.0
-light_scale = 1.0
-ambient_scale = 1.0
-albedo_saturation = 1.0
+roughness_scale = 0.7789999842643738
+light_scale = 1.5429999828338623
+ambient_scale = 1.9220000505447388
+albedo_saturation = 1.0169999599456787
 
 # Log a small bounded native draw-context sample for contract debugging.
 debug_log_draws = false
