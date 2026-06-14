@@ -54,6 +54,10 @@ No test suite exists. No `tests/` directories. Verify changes by building: `carg
 
 Do not implement graphics effects as shader-only guesses when the effect needs engine data, intermediate buffers, masks, or render-stage control. Implement and prove the engine-side contract first: required textures, depth/color sources, constants, phase ownership, lifetime, compatibility behavior, and failure fallback. If the engine-side contract is missing or unproven, the correct next step is engine research/instrumentation or runtime buffer implementation, not another shader tweak.
 
+Do not "fix" a broken graphics feature by globally disabling that target feature, removing it from the default runtime path, or narrowing user-facing coverage just to avoid the bug. Temporary disables are allowed only as explicitly labeled diagnostics or emergency safety switches, and must not be presented as the fix. The fix must preserve the intended feature and correct its engine contract, draw selection, resource binding, shader ABI, or performance behavior.
+
+Before changing Fallout NV native PBR, read `docs/graphics_fnv_pbr_errata.md`. It records known PBR terrain/object/light regressions, including the close-terrain `-40 FPS` failure, broken terrain colors, interior wall/floor corruption, and light/shadow blinking. Do not repeat any "do not repeat" pattern from that document.
+
 ## Config
 
 Plugin runtime config: `psycho-engine-fixes/config/psycho_engine_fixes.toml`, deployed beside the core DLL as `<game root>/mods/psycho_engine_fixes.toml`. Important memory setting: `memory.allocator` (`0` = off, `1` = scrap_heap, `2` = gheap + scrap_heap). It also controls zlib, display tweaks, logging, and debug probes.

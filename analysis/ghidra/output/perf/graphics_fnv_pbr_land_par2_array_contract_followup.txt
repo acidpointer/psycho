@@ -1,0 +1,1867 @@
+FNV PBR CLOSE TERRAIN / PAR2 ARRAY CONTRACT FOLLOWUP
+
+Goal: turn the source-string audit into runtime array indices and PAR2 ownership before replacement.
+
+======================================================================
+BSShader::CreateVertexShader @ 0x00be0fe0
+======================================================================
+  Function: FUN_00be0fe0 @ 0x00be0fe0, Size: 1889 bytes
+
+/* WARNING: Function: __alloca_probe replaced with injection: alloca_probe */
+
+void FUN_00be0fe0(char *param_1,int *param_2,undefined4 param_3,undefined4 param_4)
+
+{
+  undefined4 uVar1;
+  char cVar2;
+  undefined1 uVar3;
+  uint uVar4;
+  int *piVar5;
+  undefined4 uVar6;
+  undefined4 uVar7;
+  FILE *_File;
+  int *piVar8;
+  void *_Str;
+  undefined1 *puVar9;
+  int iVar10;
+  int iVar11;
+  int *unaff_FS_OFFSET;
+  FILE *_File_00;
+  FILE *pFVar12;
+  char *pcVar13;
+  undefined4 uStack_12a4;
+  int *local_12a0;
+  int *local_129c;
+  int *local_1298;
+  int *local_1294;
+  undefined4 local_1290;
+  int *local_128c;
+  undefined4 local_1288;
+  undefined4 local_1284;
+  int iStack_1280;
+  int *local_127c;
+  int *local_1278;
+  undefined4 local_1274;
+  char *local_1270;
+  undefined4 local_126c;
+  undefined4 local_1268;
+  undefined4 local_1264;
+  undefined **ppuStack_1260;
+  char *pcStack_125c;
+  char local_1258 [260];
+  undefined1 local_1154 [256];
+  undefined1 auStack_1054 [4];
+  char acStack_1050 [1300];
+  undefined1 local_b3c [260];
+  char acStack_a38 [1296];
+  undefined1 auStack_528 [4];
+  undefined1 auStack_524 [1300];
+  uint local_10;
+  int local_c;
+  undefined1 *puStack_8;
+  undefined4 uStack_4;
+  
+  uStack_4 = 0xffffffff;
+  puStack_8 = &LAB_00f2d322;
+  local_c = *unaff_FS_OFFSET;
+  local_10 = DAT_011c16bc ^ (uint)&uStack_12a4;
+  uVar4 = DAT_011c16bc ^ (uint)&stack0xffffed4c;
+  *unaff_FS_OFFSET = (int)&local_c;
+  iVar10 = 0;
+  local_1270 = param_1;
+  local_1294 = param_2;
+  local_1264 = param_3;
+  local_1284 = param_4;
+  local_129c = (int *)0x0;
+  local_1298 = (int *)0x0;
+  local_127c = (int *)0x0;
+  local_1268 = 0;
+  local_1290 = 0;
+  FUN_00be0dc0(local_1258,param_1,param_4,&DAT_010bc868,uVar4);
+  uStack_12a4._0_3_ = (uint3)uStack_12a4 & 0xffff;
+  uStack_12a4 = (int *)CONCAT13(1,(uint3)uStack_12a4);
+  if (DAT_011f9498 != 0) {
+    iVar10 = FUN_00b7fac0(param_4);
+  }
+  if ((DAT_011ae638 != '\0') && (iVar10 == 0)) {
+    local_1278 = (int *)0x0;
+    local_1274 = 0;
+    local_128c = (int *)0x0;
+    local_1288 = 0;
+    cVar2 = FUN_00afe7d0(local_1258,&local_128c,0x20);
+    uStack_12a4._0_3_ = CONCAT12(cVar2,(ushort)uStack_12a4);
+    uVar3 = FUN_00afe7d0(param_1,&local_1278,0x20);
+    uStack_12a4._0_2_ = CONCAT11(uVar3,(byte)uStack_12a4);
+    if ((cVar2 == '\0') && (DAT_011f94a7 != '\0')) {
+      if (DAT_011f9200 == '\0') {
+        _strcpy_s(&DAT_011f9200,0x104,"cache:\\");
+        FUN_00be0dc0(local_1258,param_1,param_4,&DAT_010bc868);
+      }
+      cVar2 = FUN_00afe7d0(local_1258,&local_128c,0x20);
+      uStack_12a4._0_3_ = CONCAT12(cVar2,(ushort)uStack_12a4);
+    }
+    if (uStack_12a4._1_1_ == '\0') {
+      FUN_00406d00(local_1154,0x104,"SHADER ERROR : error opening HLSL source file : %s",param_1);
+    }
+    param_2 = local_1294;
+    if (cVar2 == '\0') {
+      uStack_12a4 = (int *)((uint)uStack_12a4 & 0xffffff);
+    }
+  }
+  uVar4 = (uint)uStack_12a4;
+  uStack_12a4._0_2_ = (ushort)(byte)uStack_12a4;
+  piVar5 = uStack_12a4;
+  local_12a0 = (int *)0x0;
+  if (iVar10 == 0) {
+    uStack_12a4._3_1_ = SUB41(uVar4,3);
+    uStack_12a4 = piVar5;
+    if (uStack_12a4._3_1_ == '\0') {
+      local_1278 = (int *)0x0;
+      if (DAT_011f941e != '\0') {
+        iVar10 = *param_2;
+        local_1278 = param_2;
+        while (iVar10 != 0) {
+          local_1278 = local_1278 + 2;
+          iVar10 = *local_1278;
+        }
+        *local_1278 = (int)&DAT_010bc828;
+        local_1278[1] = (int)&lpWindowName_01011584;
+      }
+      piVar5 = (int *)FUN_00afdf20(param_1,0,0x4000,0x20);
+      if (piVar5 != (int *)0x0) {
+        if ((char)piVar5[0xb] != '\0') {
+          uVar6 = (*(code *)((undefined4 *)*piVar5)[10])();
+          uVar7 = FUN_00aa3e40(uVar6);
+          FUN_00462d80(uVar7,uVar6);
+          pcStack_125c = param_1;
+          piVar8 = local_1294 + 1;
+          ppuStack_1260 = &PTR_LAB_010bc610;
+          acStack_1050[0] = '\0';
+          acStack_a38[0] = '\0';
+          iStack_1280 = 8;
+          local_128c = piVar8;
+          do {
+            if ((char *)piVar8[-1] != (char *)0x0) {
+              _strcat_s(acStack_1050,0x514,(char *)piVar8[-1]);
+              _strcat_s(acStack_a38,0x514," /D");
+              _strcat_s(acStack_a38,0x514,(char *)piVar8[-1]);
+              if (((char *)*piVar8 == (char *)0x0) || (*(char *)*piVar8 == '\0')) {
+                _strcat_s(acStack_a38,0x514,"=1");
+              }
+              else {
+                _strcat_s(acStack_1050,0x514,"=");
+                _strcat_s(acStack_1050,0x514,(char *)*piVar8);
+                
+
+======================================================================
+BSShader::CreatePixelShader @ 0x00be1750
+======================================================================
+  Function: FUN_00be1750 @ 0x00be1750, Size: 1884 bytes
+
+/* WARNING: Function: __alloca_probe replaced with injection: alloca_probe */
+
+void FUN_00be1750(char *param_1,int *param_2,char *param_3,undefined4 param_4)
+
+{
+  undefined1 uVar1;
+  char cVar2;
+  uint uVar3;
+  int *piVar4;
+  undefined4 uVar5;
+  undefined4 uVar6;
+  FILE *_File;
+  int *piVar7;
+  void *_Str;
+  undefined1 *puVar8;
+  int iVar9;
+  int iVar10;
+  int *unaff_FS_OFFSET;
+  FILE *_File_00;
+  char *pcVar11;
+  undefined4 uStack_12a8;
+  int *local_12a4;
+  int *local_12a0;
+  int *local_129c;
+  int *local_1298;
+  undefined4 local_1294;
+  char *local_1290;
+  int *local_128c;
+  undefined4 local_1288;
+  int *local_1284;
+  undefined4 local_1280;
+  undefined4 local_127c;
+  char *local_1278;
+  int *local_1274;
+  int iStack_1270;
+  char *local_126c;
+  undefined4 local_1268;
+  undefined4 local_1264;
+  undefined **ppuStack_1260;
+  char *pcStack_125c;
+  char local_1258 [256];
+  undefined1 auStack_1158 [4];
+  char acStack_1154 [1300];
+  undefined1 local_c40 [260];
+  undefined1 local_b3c [260];
+  char acStack_a38 [1296];
+  undefined1 auStack_528 [4];
+  undefined1 auStack_524 [1300];
+  uint local_10;
+  int local_c;
+  undefined1 *puStack_8;
+  undefined4 uStack_4;
+  
+  uStack_4 = 0xffffffff;
+  puStack_8 = &LAB_00f2d362;
+  local_c = *unaff_FS_OFFSET;
+  local_10 = DAT_011c16bc ^ (uint)&uStack_12a8;
+  uVar3 = DAT_011c16bc ^ (uint)&stack0xffffed48;
+  *unaff_FS_OFFSET = (int)&local_c;
+  iVar9 = 0;
+  local_1278 = param_1;
+  local_1298 = param_2;
+  local_126c = param_3;
+  local_127c = param_4;
+  local_12a0 = (int *)0x0;
+  local_129c = (int *)0x0;
+  local_1274 = (int *)0x0;
+  local_1264 = 0;
+  local_1294 = 0;
+  FUN_00be0dc0(local_1258,param_1,param_4,&DAT_010bc8a0,uVar3);
+  uStack_12a8._0_3_ = (uint3)uStack_12a8 & 0xffff;
+  uStack_12a8 = (int *)CONCAT13(1,(uint3)uStack_12a8);
+  if (DAT_011f9498 != 0) {
+    iVar9 = FUN_00b7fac0(param_4);
+  }
+  if ((DAT_011ae638 != '\0') && (iVar9 == 0)) {
+    local_1284 = (int *)0x0;
+    local_1280 = 0;
+    local_128c = (int *)0x0;
+    local_1288 = 0;
+    uVar1 = FUN_00afe7d0(param_1,&local_1284,0x20);
+    uStack_12a8._0_2_ = CONCAT11(uVar1,(byte)uStack_12a8);
+    cVar2 = FUN_00afe7d0(local_1258,&local_128c,0x20);
+    uStack_12a8._0_3_ = CONCAT12(cVar2,(ushort)uStack_12a8);
+    if ((cVar2 == '\0') && (DAT_011f94a7 != '\0')) {
+      if (DAT_011f9200 == '\0') {
+        _strcpy_s(&DAT_011f9200,0x104,"cache:\\");
+        FUN_00be0dc0(local_1258,param_1,param_4,&DAT_010bc8a0);
+      }
+      cVar2 = FUN_00afe7d0(local_1258,&local_128c,0x20);
+      uStack_12a8._0_3_ = CONCAT12(cVar2,(ushort)uStack_12a8);
+    }
+    if (uStack_12a8._1_1_ == '\0') {
+      FUN_00406d00(local_c40,0x104,"SHADER ERROR : error opening HLSL source file : %s",param_1);
+    }
+    param_2 = local_1298;
+    if (cVar2 == '\0') {
+      uStack_12a8 = (int *)((uint)uStack_12a8 & 0xffffff);
+    }
+  }
+  pcVar11 = local_126c;
+  uVar3 = (uint)uStack_12a8;
+  uStack_12a8._0_2_ = (ushort)(byte)uStack_12a8;
+  piVar4 = uStack_12a8;
+  local_12a4 = (int *)0x0;
+  if (iVar9 == 0) {
+    uStack_12a8._3_1_ = SUB41(uVar3,3);
+    uStack_12a8 = piVar4;
+    if (uStack_12a8._3_1_ == '\0') {
+      local_1284 = (int *)0x0;
+      if (DAT_011f941e != '\0') {
+        iVar9 = *param_2;
+        local_1284 = param_2;
+        while (iVar9 != 0) {
+          local_1284 = local_1284 + 2;
+          iVar9 = *local_1284;
+        }
+        *local_1284 = (int)&DAT_010bc828;
+        local_1284[1] = (int)&lpWindowName_01011584;
+      }
+      local_1290 = local_126c;
+      iVar9 = _strncmp(local_126c,"ps_2_0",4);
+      if ((iVar9 == 0) && (local_1290 = (char *)FUN_00b4f380(1), local_1290 == (char *)0x0)) {
+        local_1290 = pcVar11;
+      }
+      piVar4 = (int *)FUN_00afdf20(param_1,0,0x4000,0x20);
+      if (piVar4 != (int *)0x0) {
+        if ((char)piVar4[0xb] != '\0') {
+          uVar5 = (*(code *)((undefined4 *)*piVar4)[10])();
+          uVar6 = FUN_00aa3e40(uVar5);
+          FUN_00462d80(uVar6,uVar5);
+          pcStack_125c = param_1;
+          piVar7 = local_1298 + 1;
+          ppuStack_1260 = &PTR_LAB_010bc610;
+          acStack_1154[0] = '\0';
+          acStack_a38[0] = '\0';
+          iStack_1270 = 8;
+          local_128c = piVar7;
+          do {
+            if ((char *)piVar7[-1] != (char *)0x0) {
+              _strcat_s(acStack_1154,0x514,(char *)piVar7[-1]);
+              _strcat_s(acStack_a38,0x514," /D");
+              _strcat_s(acStack_a38,0x514,(char *)piVar7[-1]);
+              if (((char *)*piVar7 == (char *)0x0) || (*(char *)*piVar7 == '\0')) {
+                _str
+
+======================================================================
+Stack-normalized descriptor writes for PPLighting vertex group C
+======================================================================
+  Base LEA @ 0x00b74117: LEA EBX,[ESP + 0x18], esp_delta=-64, normalized_base=0x-28
+  OUTSIDE source=0x010aec2c lighting\1x\v\land.v.hlsl        write=0x00b72066 norm=0x2C90 rel=0x2CB8 index=150 field=0x30 :: MOV dword ptr [ESP + 0x2cb8],EBX
+  OUTSIDE source=0x010aec2c lighting\1x\v\land.v.hlsl        write=0x00b72084 norm=0x2CDC rel=0x2D04 index=151 field=0x30 :: MOV dword ptr [ESP + 0x2d10],EBX
+  OUTSIDE source=0x010aec2c lighting\1x\v\land.v.hlsl        write=0x00b720a9 norm=0x2D28 rel=0x2D50 index=152 field=0x30 :: MOV dword ptr [ESP + 0x2d5c],EBX
+  OUTSIDE source=0x010aec2c lighting\1x\v\land.v.hlsl        write=0x00b720f6 norm=0x2D74 rel=0x2D9C index=153 field=0x30 :: MOV dword ptr [ESP + 0x2dc0],EBX
+  OUTSIDE source=0x010aec2c lighting\1x\v\land.v.hlsl        write=0x00b72126 norm=0x2DC0 rel=0x2DE8 index=154 field=0x30 :: MOV dword ptr [ESP + 0x2e18],EBX
+  IN_RANGE source=0x010aebd4 lighting\2x\v\landlod.v.hlsl     write=0x00b7269f norm=0xA0 rel=0xC8 index=2 field=0x30 :: MOV dword ptr [ESP + 0xc8],0x10aebd4
+  IN_RANGE source=0x010aebd4 lighting\2x\v\landlod.v.hlsl     write=0x00b7274d norm=0x184 rel=0x1AC index=5 field=0x30 :: MOV dword ptr [ESP + 0x1c4],0x10aebd4
+  IN_RANGE source=0x010aeab8 lighting\2x\v\land.v.hlsl        write=0x00b73485 norm=0xFC4 rel=0xFEC index=53 field=0x30 :: MOV dword ptr [ESP + 0xff8],0x10aeab8
+  IN_RANGE source=0x010aeab8 lighting\2x\v\land.v.hlsl        write=0x00b734b9 norm=0x1010 rel=0x1038 index=54 field=0x30 :: MOV dword ptr [ESP + 0x1050],0x10aeab8
+  IN_RANGE source=0x010aeab8 lighting\2x\v\land.v.hlsl        write=0x00b73a19 norm=0x1730 rel=0x1758 index=78 field=0x30 :: MOV dword ptr [ESP + 0x1770],0x10aeab8
+  IN_RANGE source=0x010aeab8 lighting\2x\v\land.v.hlsl        write=0x00b73a3b norm=0x177C rel=0x17A4 index=79 field=0x30 :: MOV dword ptr [ESP + 0x17c8],0x10aeab8
+  IN_RANGE source=0x010aeab8 lighting\2x\v\land.v.hlsl        write=0x00b73a6f norm=0x17C8 rel=0x17F0 index=80 field=0x30 :: MOV dword ptr [ESP + 0x1820],0x10aeab8
+  IN_RANGE source=0x010aeab8 lighting\2x\v\land.v.hlsl        write=0x00b73aaf norm=0x1814 rel=0x183C index=81 field=0x30 :: MOV dword ptr [ESP + 0x1828],0x10aeab8
+  IN_RANGE source=0x010aeab8 lighting\2x\v\land.v.hlsl        write=0x00b73afe norm=0x1860 rel=0x1888 index=82 field=0x30 :: MOV dword ptr [ESP + 0x1888],0x10aeab8
+  IN_RANGE source=0x010aeab8 lighting\2x\v\land.v.hlsl        write=0x00b73b32 norm=0x18AC rel=0x18D4 index=83 field=0x30 :: MOV dword ptr [ESP + 0x18e0],0x10aeab8
+  Records: 15
+
+======================================================================
+Stack-normalized descriptor writes for PPLighting pixel group B
+======================================================================
+  Base LEA @ 0x00b78804: LEA EBX,[ESP + 0x2c], esp_delta=-52, normalized_base=0x-8
+  OUTSIDE source=0x010af13c lighting\1x\p\land.p.hlsl        write=0x00b74b92 norm=0x3B70 rel=0x3B78 index=200 field=0x18 :: MOV dword ptr [ESP + 0x3bc8],EBP
+  OUTSIDE source=0x010af13c lighting\1x\p\land.p.hlsl        write=0x00b74bb3 norm=0x3BBC rel=0x3BC4 index=201 field=0x18 :: MOV dword ptr [ESP + 0x3bd8],EBP
+  OUTSIDE source=0x010af13c lighting\1x\p\land.p.hlsl        write=0x00b74be3 norm=0x3C08 rel=0x3C10 index=202 field=0x18 :: MOV dword ptr [ESP + 0x3c30],EBP
+  OUTSIDE source=0x010af13c lighting\1x\p\land.p.hlsl        write=0x00b74c13 norm=0x3C54 rel=0x3C5C index=203 field=0x18 :: MOV dword ptr [ESP + 0x3c88],EBP
+  OUTSIDE source=0x010af13c lighting\1x\p\land.p.hlsl        write=0x00b74c55 norm=0x3CA0 rel=0x3CA8 index=204 field=0x18 :: MOV dword ptr [ESP + 0x3ce0],EBP
+  OUTSIDE source=0x010af13c lighting\1x\p\land.p.hlsl        write=0x00b74c7a norm=0x3CEC rel=0x3CF4 index=205 field=0x18 :: MOV dword ptr [ESP + 0x3d2c],EBP
+  IN_RANGE source=0x010af0f4 lighting\2x\p\landlod.p.hlsl     write=0x00b74da1 norm=0xF4 rel=0xFC index=3 field=0x18 :: MOV dword ptr [ESP + 0x140],0x10af0f4
+  IN_RANGE source=0x010af0f4 lighting\2x\p\landlod.p.hlsl     write=0x00b74e5c norm=0x1D8 rel=0x1E0 index=6 field=0x18 :: MOV dword ptr [ESP + 0x200],0x10af0f4
+  IN_RANGE source=0x010af030 lighting\2x\p\land.p.hlsl        write=0x00b75ca0 norm=0x11E0 rel=0x11E8 index=60 field=0x18 :: MOV dword ptr [ESP + 0x11fc],EBP
+  IN_RANGE source=0x010af030 lighting\2x\p\land.p.hlsl        write=0x00b75cc7 norm=0x122C rel=0x1234 index=61 field=0x18 :: MOV dword ptr [ESP + 0x124c],EBP
+  IN_RANGE source=0x010af030 lighting\2x\p\land.p.hlsl        write=0x00b76196 norm=0x17D0 rel=0x17D8 index=80 field=0x18 :: MOV dword ptr [ESP + 0x17ec],0x10af030
+  IN_RANGE source=0x010af030 lighting\2x\p\land.p.hlsl        write=0x00b761c3 norm=0x181C rel=0x1824 index=81 field=0x18 :: MOV dword ptr [ESP + 0x1850],0x10af030
+  IN_RANGE source=0x010af030 lighting\2x\p\land.p.hlsl        write=0x00b761f3 norm=0x1868 rel=0x1870 index=82 field=0x18 :: MOV dword ptr [ESP + 0x18a8],0x10af030
+  IN_RANGE source=0x010af030 lighting\2x\p\land.p.hlsl        write=0x00b76235 norm=0x18B4 rel=0x18BC index=83 field=0x18 :: MOV dword ptr [ESP + 0x1900],0x10af030
+  IN_RANGE source=0x010af030 lighting\2x\p\land.p.hlsl        write=0x00b76269 norm=0x1900 rel=0x1908 index=84 field=0x18 :: MOV dword ptr [ESP + 0x1958],0x10af030
+  IN_RANGE source=0x010af030 lighting\2x\p\land.p.hlsl        write=0x00b762ae norm=0x194C rel=0x1954 index=85 field=0x18 :: MOV dword ptr [ESP + 0x1968],0x10af030
+  IN_RANGE source=0x010af030 lighting\2x\p\land.p.hlsl        write=0x00b762e2 norm=0x1998 rel=0x19A0 index=86 field=0x18 :: MOV dword ptr [ESP + 0x19c0],0x10af030
+  IN_RANGE source=0x010af0f4 lighting\2x\p\landlod.p.hlsl     write=0x00b7818f norm=0x2C4C rel=0x2C54 index=149 field=0x18 :: MOV dword ptr [ESP + 0x2c8c],0x10af0f4
+  Records: 18
+
+======================================================================
+DISASM: PPLighting pixel constructor start around 0x00b74210
+======================================================================
+=> 0x00b74210: MOV EAX,0x42a4
+   0x00b74215: CALL 0x00ec8660
+      ref UNCONDITIONAL_CALL -> 0x00ec8660 
+   0x00b7421a: MOV EAX,[0x011c16bc]
+      ref READ               -> 0x011c16bc 
+   0x00b7421f: XOR EAX,ESP
+   0x00b74221: MOV dword ptr [ESP + 0x42a0],EAX
+   0x00b74228: FLD float ptr [0x011adbcc]
+      ref READ               -> 0x011adbcc 
+   0x00b7422e: PUSH EBX
+   0x00b7422f: PUSH EBP
+   0x00b74230: PUSH ESI
+   0x00b74231: PUSH EDI
+   0x00b74232: LEA EAX,[ESP + 0x4150]
+   0x00b74239: PUSH EAX
+   0x00b7423a: PUSH 0xc
+   0x00b7423c: SUB ESP,0x8
+   0x00b7423f: FSTP double ptr [ESP]
+   0x00b74242: MOV dword ptr [ESP + 0x24],ECX
+   0x00b74246: CALL 0x00ecdd16
+      ref UNCONDITIONAL_CALL -> 0x00ecdd16 
+   0x00b7424b: FLD float ptr [0x011adbd0]
+      ref READ               -> 0x011adbd0 
+   0x00b74251: ADD ESP,0x10
+   0x00b74254: LEA ECX,[ESP + 0x3ff0]
+   0x00b7425b: PUSH ECX
+   0x00b7425c: PUSH 0xc
+   0x00b7425e: SUB ESP,0x8
+   0x00b74261: FSTP double ptr [ESP]
+   0x00b74264: CALL 0x00ecdd16
+      ref UNCONDITIONAL_CALL -> 0x00ecdd16 
+   0x00b74269: XOR EDI,EDI
+   0x00b7426b: PUSH 0x44
+   0x00b7426d: LEA EDX,[ESP + 0x2fbc]
+   0x00b74274: PUSH EDI
+   0x00b74275: MOV EBX,0x10af2d4
+      ref DATA               -> 0x010af2d4 lighting\1x\p\base.p.hlsl
+   0x00b7427a: PUSH EDX
+   0x00b7427b: MOV dword ptr [ESP + 0x2fbc],EBX
+      ref DATA               -> 0x010af2d4 lighting\1x\p\base.p.hlsl
+   0x00b74282: MOV dword ptr [ESP + 0x2fc0],EDI
+   0x00b74289: CALL 0x00ec61c0
+      ref UNCONDITIONAL_CALL -> 0x00ec61c0 
+   0x00b7428e: PUSH 0x44
+   0x00b74290: LEA EAX,[ESP + 0x3014]
+   0x00b74297: PUSH EDI
+   0x00b74298: PUSH EAX
+   0x00b74299: MOV dword ptr [ESP + 0x3014],0x10af2b4
+      ref DATA               -> 0x010af2b4 lighting\1x\p\diffusePt.p.hlsl
+   0x00b742a4: MOV dword ptr [ESP + 0x3018],EDI
+   0x00b742ab: CALL 0x00ec61c0
+      ref UNCONDITIONAL_CALL -> 0x00ec61c0 
+   0x00b742b0: PUSH 0x44
+   0x00b742b2: LEA ECX,[ESP + 0x306c]
+   0x00b742b9: PUSH EDI
+   0x00b742ba: PUSH ECX
+   0x00b742bb: MOV dword ptr [ESP + 0x306c],0x10af294
+      ref DATA               -> 0x010af294 lighting\1x\p\diffuseDir.p.hlsl
+   0x00b742c6: MOV dword ptr [ESP + 0x3070],EDI
+   0x00b742cd: CALL 0x00ec61c0
+      ref UNCONDITIONAL_CALL -> 0x00ec61c0 
+   0x00b742d2: PUSH 0x3c
+   0x00b742d4: LEA EDX,[ESP + 0x30cc]
+   0x00b742db: PUSH EDI
+   0x00b742dc: MOV EBP,0x10aecac
+      ref DATA               -> 0x010aecac TEX
+   0x00b742e1: MOV ESI,0x1011584
+      ref DATA               -> 0x01011584 
+   0x00b742e6: PUSH EDX
+   0x00b742e7: MOV dword ptr [ESP + 0x30c4],EBX
+      ref DATA               -> 0x010af2d4 lighting\1x\p\base.p.hlsl
+   0x00b742ee: MOV dword ptr [ESP + 0x30c8],EBP
+      ref DATA               -> 0x010aecac TEX
+   0x00b742f5: MOV dword ptr [ESP + 0x30cc],ESI
+      ref DATA               -> 0x01011584 
+   0x00b742fc: MOV dword ptr [ESP + 0x30d0],EDI
+   0x00b74303: CALL 0x00ec61c0
+      ref UNCONDITIONAL_CALL -> 0x00ec61c0 
+   0x00b74308: ADD ESP,0x40
+   0x00b7430b: PUSH 0x34
+   0x00b7430d: LEA EAX,[ESP + 0x30ec]
+   0x00b74314: PUSH EDI
+   0x00b74315: PUSH EAX
+   0x00b74316: MOV dword ptr [ESP + 0x30dc],EBX
+      ref DATA               -> 0x010af2d4 lighting\1x\p\base.p.hlsl
+
+======================================================================
+DISASM: PPLighting vertex group C compile loop around 0x00b74117
+======================================================================
+   0x00b74088: PUSH 0x104
+   0x00b7408d: PUSH EDX
+   0x00b7408e: CALL 0x00406d00
+      ref UNCONDITIONAL_CALL -> 0x00406d00 
+   0x00b74093: ADD ESP,0x18
+   0x00b74096: LEA EAX,[ESP + 0x2f6c]
+   0x00b7409d: PUSH EAX
+   0x00b7409e: PUSH 0x10a93e4
+      ref DATA               -> 0x010a93e4 vs_2_0
+   0x00b740a3: ADD EBX,0x4
+   0x00b740a6: PUSH EBX
+   0x00b740a7: LEA ECX,[ESP + 0x2e74]
+   0x00b740ae: PUSH ECX
+   0x00b740af: MOV ECX,dword ptr [ESP + 0x24]
+   0x00b740b3: CALL 0x00be0fe0
+      ref UNCONDITIONAL_CALL -> 0x00be0fe0 
+   0x00b740b8: MOV EBX,dword ptr [ESI*0x4 + 0x11fde04]
+      ref READ               -> 0x011fde04 
+   0x00b740bf: MOV EBP,EAX
+   0x00b740c1: CMP EBX,EBP
+   0x00b740c3: JZ 0x00b740f5
+      ref CONDITIONAL_JUMP   -> 0x00b740f5 
+   0x00b740c5: CMP EBX,EDI
+   0x00b740c7: JZ 0x00b740e0
+      ref CONDITIONAL_JUMP   -> 0x00b740e0 
+   0x00b740c9: LEA EDX,[EBX + 0x4]
+   0x00b740cc: PUSH EDX
+   0x00b740cd: CALL dword ptr [0x00fdf1c4]
+      ref READ               -> 0x00fdf1c4 
+      ref COMPUTED_CALL      -> 0x00000067 
+   0x00b740d3: TEST EAX,EAX
+   0x00b740d5: JNZ 0x00b740e0
+      ref CONDITIONAL_JUMP   -> 0x00b740e0 
+   0x00b740d7: MOV EAX,dword ptr [EBX]
+   0x00b740d9: MOV EDX,dword ptr [EAX + 0x4]
+   0x00b740dc: MOV ECX,EBX
+   0x00b740de: CALL EDX
+   0x00b740e0: MOV dword ptr [ESI*0x4 + 0x11fde04],EBP
+      ref WRITE              -> 0x011fde04 
+   0x00b740e7: CMP EBP,EDI
+   0x00b740e9: JZ 0x00b740f5
+      ref CONDITIONAL_JUMP   -> 0x00b740f5 
+   0x00b740eb: ADD EBP,0x4
+   0x00b740ee: PUSH EBP
+   0x00b740ef: CALL dword ptr [0x00fdf1c0]
+      ref READ               -> 0x00fdf1c0 
+      ref COMPUTED_CALL      -> 0x00000066 
+   0x00b740f5: MOV EBX,dword ptr [ESP + 0x10]
+   0x00b740f9: INC ESI
+   0x00b740fa: ADD EBX,0x4c
+   0x00b740fd: CMP ESI,0x16
+   0x00b74100: MOV dword ptr [ESP + 0x10],EBX
+   0x00b74104: JL 0x00b74063
+      ref CONDITIONAL_JUMP   -> 0x00b74063 
+   0x00b7410a: CMP dword ptr [0x011f91c0],0x2
+      ref READ               -> 0x011f91c0 
+   0x00b74111: JL 0x00b741f6
+      ref CONDITIONAL_JUMP   -> 0x00b741f6 
+=> 0x00b74117: LEA EBX,[ESP + 0x18]
+   0x00b7411b: XOR ESI,ESI
+   0x00b7411d: MOV dword ptr [ESP + 0x10],EBX
+   0x00b74121: MOV EAX,dword ptr [EBX]
+   0x00b74123: CMP EAX,EDI
+   0x00b74125: JNZ 0x00b74159
+      ref CONDITIONAL_JUMP   -> 0x00b74159 
+   0x00b74127: MOV EBX,dword ptr [ESI*0x4 + 0x11fde5c]
+      ref READ               -> 0x011fde5c 
+      ref READ               -> 0x011fde60 
+   0x00b7412e: CMP EBX,EDI
+   0x00b74130: JZ 0x00b741e1
+      ref CONDITIONAL_JUMP   -> 0x00b741e1 
+   0x00b74136: LEA EAX,[EBX + 0x4]
+   0x00b74139: PUSH EAX
+   0x00b7413a: CALL dword ptr [0x00fdf1c4]
+      ref READ               -> 0x00fdf1c4 
+      ref COMPUTED_CALL      -> 0x00000067 
+   0x00b74140: TEST EAX,EAX
+   0x00b74142: JNZ 0x00b7414d
+      ref CONDITIONAL_JUMP   -> 0x00b7414d 
+   0x00b74144: MOV EDX,dword ptr [EBX]
+   0x00b74146: MOV EAX,dword ptr [EDX + 0x4]
+   0x00b74149: MOV ECX,EBX
+   0x00b7414b: CALL EAX
+   0x00b7414d: MOV dword ptr [ESI*0x4 + 0x11fde5c],EDI
+      ref WRITE              -> 0x011fde5c 
+   0x00b74154: JMP 0x00b741e1
+      ref UNCONDITIONAL_JUMP -> 0x00b741e1 
+   0x00b74159: LEA ECX,[ESP + 0x2e68]
+   0x00b74160: PUSH ECX
+   0x00b74161: PUSH EAX
+   0x00b74162: CALL 0x00be0c00
+      ref UNCONDITIONAL_CALL -> 0x00be0c00 
+   0x00b74167: PUSH ESI
+   0x00b74168: PUSH 0x10ae8c8
+      ref DATA               -> 0x010ae8c8 SLS2%03i.vso
+   0x00b7416d: LEA EDX,[ESP + 0x2f7c]
+   0x00b74174: PUSH 0x104
+   0x00b74179: PUSH EDX
+   0x00b7417a: CALL 0x00406d00
+      ref UNCONDITIONAL_CALL -> 0x00406d00 
+   0x00b7417f: ADD ESP,0x18
+   0x00b74182: LEA EAX,[ESP + 0x2f6c]
+   0x00b74189: PUSH EAX
+   0x00b7418a: PUSH 0x10a93e4
+      ref DATA               -> 0x010a93e4 vs_2_0
+   0x00b7418f: ADD EBX,0x4
+   0x00b74192: PUSH EBX
+   0x00b74193: LEA ECX,[ESP + 0x2e74]
+   0x00b7419a: PUSH ECX
+   0x00b7419b: MOV ECX,dword ptr [ESP + 0x24]
+   0x00b7419f: CALL 0x00be0fe0
+      ref UNCONDITIONAL_CALL -> 0x00be0fe0 
+   0x00b741a4: MOV EBX,dword ptr [ESI*0x4 + 0x11fde5c]
+      ref READ               -> 0x011fde60 
+   0x00b741ab: MOV EBP,EAX
+   0x00b741ad: CMP EBX,EBP
+   0x00b741af: JZ 0x00b741e1
+      ref CONDITIONAL_JUMP   -> 0x00b741e1 
+   0x00b741b1: CMP EBX,EDI
+   0x00b741b3: JZ 0x00b741cc
+      ref CONDITIONAL_JUMP   -> 0x00b741cc 
+   0x00b741b5: LEA EDX,[EBX + 0x4]
+   0x00b741b8: PUSH EDX
+   0x00b741b9: CALL dword ptr [0x00fdf1c4]
+      ref READ               -> 0x00fdf1c4 
+      ref COMPUTED_CALL      -> 0x00000067 
+   0x00b741bf: TEST EAX,EAX
+   0x00b741c1: JNZ 0x00b741cc
+      ref CONDITIONAL_JUMP   -> 0x00b741cc 
+   0x00b741c3: MOV EAX,dword ptr [EBX]
+   0x00b741c5: MOV EDX,dword ptr [EAX + 0x4]
+   0x00b741c8: MOV ECX,EBX
+   0x00b741ca: CALL EDX
+   0x00b741cc: MOV dword ptr [ESI*0x4 + 0x11fde5c],EBP
+      ref WRITE              -> 0x011fde60 
+   0x00b741d3: CMP EBP,EDI
+   0x00b741d5: JZ 0x00b741e1
+      ref CONDITIONAL_JUMP   -> 0x00b741e1 
+   0x00b741d7: ADD EBP,0x4
+   0x00b741da: PUSH EBP
+   0x00b741db: CALL dword ptr [0x00fdf1c0]
+      ref READ               -> 0x00fdf1c0 
+      ref COMPUTED_CALL      -> 0x00000066 
+   0x00b741e1: MOV EBX,dword ptr [ESP + 0x10]
+   0x00b741e5: INC ESI
+   0x00b741e6: ADD EBX,0x4c
+   0x00b741e9: CMP ESI,0x67
+   0x00b741ec: MOV dword ptr [ESP + 0x10],EBX
+   0x00b741f0: JL 0x00b74121
+      ref CONDITIONAL_JUMP   -> 0x00b74121 
+   0x00b741f6: MOV ECX,dword ptr [ESP + 0x3070]
+   0x00b741fd: POP EDI
+   0x00b741fe: POP ESI
+   0x00b741ff: POP EBP
+   0x00b74200: POP EBX
+   0x00b74201: XOR ECX,ESP
+
+======================================================================
+DISASM: PPLighting pixel group B compile loop around 0x00b78804
+======================================================================
+   0x00b78750: MOV EAX,dword ptr [ESP + 0x10]
+   0x00b78754: MOV dword ptr [ESI*0x4 + 0x11fda48],EAX
+      ref WRITE              -> 0x011fda48 
+   0x00b7875b: CMP EAX,EDI
+   0x00b7875d: JZ 0x00b78769
+      ref CONDITIONAL_JUMP   -> 0x00b78769 
+   0x00b7875f: ADD EAX,0x4
+   0x00b78762: PUSH EAX
+   0x00b78763: CALL dword ptr [0x00fdf1c0]
+      ref READ               -> 0x00fdf1c0 
+      ref COMPUTED_CALL      -> 0x00000066 
+   0x00b78769: INC ESI
+   0x00b7876a: ADD EBX,0x4c
+   0x00b7876d: CMP ESI,0x30
+   0x00b78770: JL 0x00b786d0
+      ref CONDITIONAL_JUMP   -> 0x00b786d0 
+   0x00b78776: MOV EBP,dword ptr [0x011f91c0]
+      ref READ               -> 0x011f91c0 
+   0x00b7877c: CMP EBP,0x2
+   0x00b7877f: MOV dword ptr [ESP + 0x1c],EBP
+   0x00b78783: JL 0x00b78961
+      ref CONDITIONAL_JUMP   -> 0x00b78961 
+   0x00b78789: MOV EAX,[0x011f91bc]
+      ref READ               -> 0x011f91bc 
+   0x00b7878e: MOV ECX,dword ptr [0x010aede8]
+      ref READ               -> 0x010aede8 -0.6
+   0x00b78794: MOV DL,byte ptr [0x010aedec]
+      ref READ               -> 0x010aedec 
+   0x00b7879a: MOV dword ptr [ESP + 0x3de0],ECX
+   0x00b787a1: MOV byte ptr [ESP + 0x3de4],DL
+   0x00b787a8: CMP EAX,0x6
+   0x00b787ab: JZ 0x00b787b2
+      ref CONDITIONAL_JUMP   -> 0x00b787b2 
+   0x00b787ad: CMP EAX,0x4
+   0x00b787b0: JNZ 0x00b787e7
+      ref CONDITIONAL_JUMP   -> 0x00b787e7 
+   0x00b787b2: LEA EAX,[ESP + 0x3de0]
+   0x00b787b9: MOV ECX,EAX
+   0x00b787bb: MOV EDX,EAX
+   0x00b787bd: MOV dword ptr [ESP + 0x2d50],EAX
+   0x00b787c4: MOV dword ptr [ESP + 0x2d9c],ECX
+   0x00b787cb: MOV dword ptr [ESP + 0x2de8],EDX
+   0x00b787d2: MOV dword ptr [ESP + 0x2e34],EAX
+   0x00b787d9: MOV dword ptr [ESP + 0x2e80],ECX
+   0x00b787e0: MOV dword ptr [ESP + 0x2ecc],EDX
+   0x00b787e7: MOV EAX,[0x011f91b0]
+      ref READ               -> 0x011f91b0 
+   0x00b787ec: PUSH EAX
+   0x00b787ed: LEA ECX,[ESP + 0x14]
+   0x00b787f1: PUSH 0x1020774
+      ref DATA               -> 0x01020774 %i
+   0x00b787f6: PUSH ECX
+   0x00b787f7: CALL 0x00ec623a
+      ref UNCONDITIONAL_CALL -> 0x00ec623a 
+   0x00b787fc: LEA EDX,[ESP + 0x1c]
+   0x00b78800: MOV EAX,EDX
+   0x00b78802: MOV ECX,EDX
+=> 0x00b78804: LEA EBX,[ESP + 0x2c]
+   0x00b78808: ADD ESP,0xc
+   0x00b7880b: MOV dword ptr [ESP + 0x2d68],EDX
+   0x00b78812: MOV dword ptr [ESP + 0x2dbc],EAX
+   0x00b78819: MOV dword ptr [ESP + 0x14f8],ECX
+   0x00b78820: MOV dword ptr [ESP + 0x1544],EDX
+   0x00b78827: MOV dword ptr [ESP + 0x1590],EAX
+   0x00b7882e: MOV dword ptr [ESP + 0x15dc],ECX
+   0x00b78835: XOR ESI,ESI
+   0x00b78837: MOV dword ptr [ESP + 0x18],EBX
+   0x00b7883b: JMP 0x00b78844
+      ref UNCONDITIONAL_JUMP -> 0x00b78844 
+   0x00b78840: MOV EBP,dword ptr [ESP + 0x1c]
+   0x00b78844: MOV EAX,dword ptr [EBX]
+   0x00b78846: CMP EAX,EDI
+   0x00b78848: JNZ 0x00b7887c
+      ref CONDITIONAL_JUMP   -> 0x00b7887c 
+   0x00b7884a: MOV EBX,dword ptr [ESI*0x4 + 0x11fdb08]
+      ref READ               -> 0x011fdb08 
+      ref READ               -> 0x011fdb0c 
+   0x00b78851: CMP EBX,EDI
+   0x00b78853: JZ 0x00b78949
+      ref CONDITIONAL_JUMP   -> 0x00b78949 
+   0x00b78859: LEA EDX,[EBX + 0x4]
+   0x00b7885c: PUSH EDX
+   0x00b7885d: CALL dword ptr [0x00fdf1c4]
+      ref READ               -> 0x00fdf1c4 
+      ref COMPUTED_CALL      -> 0x00000067 
+   0x00b78863: TEST EAX,EAX
+   0x00b78865: JNZ 0x00b78870
+      ref CONDITIONAL_JUMP   -> 0x00b78870 
+   0x00b78867: MOV EAX,dword ptr [EBX]
+   0x00b78869: MOV EDX,dword ptr [EAX + 0x4]
+   0x00b7886c: MOV ECX,EBX
+   0x00b7886e: CALL EDX
+   0x00b78870: MOV dword ptr [ESI*0x4 + 0x11fdb08],EDI
+      ref WRITE              -> 0x011fdb08 
+   0x00b78877: JMP 0x00b78949
+      ref UNCONDITIONAL_JUMP -> 0x00b78949 
+   0x00b7887c: CMP ESI,0x99
+   0x00b78882: JLE 0x00b7888d
+      ref CONDITIONAL_JUMP   -> 0x00b7888d 
+   0x00b78884: CMP EBP,0x5
+   0x00b78887: JL 0x00b78949
+      ref CONDITIONAL_JUMP   -> 0x00b78949 
+   0x00b7888d: LEA ECX,[ESP + 0x3eec]
+   0x00b78894: PUSH ECX
+   0x00b78895: PUSH EAX
+   0x00b78896: CALL 0x00be0c00
+      ref UNCONDITIONAL_CALL -> 0x00be0c00 
+   0x00b7889b: PUSH ESI
+   0x00b7889c: PUSH 0x10aedd8
+      ref DATA               -> 0x010aedd8 SLS2%03i.pso
+   0x00b788a1: LEA EDX,[ESP + 0x3df8]
+   0x00b788a8: PUSH 0x104
+   0x00b788ad: PUSH EDX
+   0x00b788ae: CALL 0x00406d00
+      ref UNCONDITIONAL_CALL -> 0x00406d00 
+   0x00b788b3: ADD ESP,0x18
+   0x00b788b6: CMP ESI,0x98
+   0x00b788bc: JL 0x00b788c0
+      ref CONDITIONAL_JUMP   -> 0x00b788c0 
+   0x00b788be: JLE 0x00b788c8
+      ref CONDITIONAL_JUMP   -> 0x00b788c8 
+   0x00b788c0: LEA EAX,[ESI + -0x46]
+   0x00b788c3: CMP EAX,0x3
+   0x00b788c6: JA 0x00b788ea
+      ref CONDITIONAL_JUMP   -> 0x00b788ea 
+   0x00b788c8: MOV ECX,dword ptr [0x011f91b0]
+      ref READ               -> 0x011f91b0 
+   0x00b788ce: PUSH ECX
+   0x00b788cf: PUSH ESI
+   0x00b788d0: PUSH 0x10aedc4
+      ref DATA               -> 0x010aedc4 SLS2%03is%01i.pso
+   0x00b788d5: LEA EDX,[ESP + 0x3df4]
+   0x00b788dc: PUSH 0x104
+   0x00b788e1: PUSH EDX
+   0x00b788e2: CALL 0x00406d00
+      ref UNCONDITIONAL_CALL -> 0x00406d00 
+   0x00b788e7: ADD ESP,0x14
+   0x00b788ea: LEA EAX,[ESP + 0x3de8]
+   0x00b788f1: PUSH EAX
+   0x00b788f2: PUSH 0x10a93cc
+      ref DATA               -> 0x010a93cc ps_2_0
+   0x00b788f7: ADD EBX,0x4
+   0x00b788fa: PUSH EBX
+   0x00b788fb: LEA ECX,[ESP + 0x3ef8]
+   0x00b78902: PUSH ECX
+   0x00b78903: MOV ECX,dword ptr [ESP + 0x24]
+   0x00b78907: CALL 0x00be1750
+      ref UNCONDITIONAL_CALL -> 0x00be1750 
+   0x00b7890c: MOV EBX,dword ptr [ESI*0x4 + 0x11fdb08]
+      ref DATA               -> 0x011fdb08 
+      ref READ               -> 0x011fdb0c 
+   0x00b78913: MOV EBP,EAX
+   0x00b78915: CMP EBX,EBP
+   0x00b78917: JZ 0x00b78949
+      ref CONDITIONAL_JUMP   -> 0x00b78949 
+   0x00b78919: CMP EBX,EDI
+   0x00b7891b: JZ 0x00b78934
+      ref CONDITIONAL_JUMP   -> 0x00b78934 
+   0x00b7891d: LEA EDX,[EBX + 0x4]
+   0x00b78920: PUSH EDX
+   0x00b78921: CALL dword ptr [0x00fdf1c4]
+      ref READ               -> 0x00fdf1c4 
+      ref COMPUTED_CALL      -> 0x00000067 
+   0x00b78927: TEST EAX,EAX
+   0x00b78929: JNZ 0x00b78934
+      ref CONDITIONAL_JUMP   -> 0x00b78934 
+   0x00b7892b: MOV EAX,dword ptr [EBX]
+   0x00b7892d: MOV EDX,dword ptr [EAX + 0x4]
+   0x00b78930: MOV ECX,EBX
+   0x00b78932: CALL EDX
+   0x00b78934: MOV dword ptr [ESI*0x4 + 0x11fdb08],EBP
+      ref DATA               -> 0x011fdb08 
+      ref WRITE              -> 0x011fdb0c 
+   0x00b7893b: CMP EBP,EDI
+   0x00b7893d: JZ 0x00b78949
+      ref CONDITIONAL_JUMP   -> 0x00b78949 
+   0x00b7893f: ADD EBP,0x4
+   0x00b78942: PUSH EBP
+   0x00b78943: CALL dword ptr [0x00fdf1c0]
+      ref READ               -> 0x00fdf1c0 
+      ref COMPUTED_CALL      -> 0x00000066 
+   0x00b78949: MOV EBX,dword ptr [ESP + 0x18]
+   0x00b7894d: INC ESI
+   0x00b7894e: ADD EBX,0x4c
+   0x00b78951: CMP ESI,0xa0
+   0x00b78957: MOV dword ptr [ESP + 0x18],EBX
+   0x00b7895b: JL 0x00b78840
+      ref CONDITIONAL_JUMP   -> 0x00b78840 
+   0x00b78961: MOV ECX,dword ptr [ESP + 0x42b0]
+   0x00b78968: POP EDI
+   0x00b78969: POP ESI
+   0x00b7896a: POP EBP
+   0x00b7896b: POP EBX
+   0x00b7896c: XOR ECX,ESP
+
+======================================================================
+DISASM: PAR2 vertex create and array write around 0x00bccd67
+======================================================================
+   0x00bccc89: PUSH EBX
+   0x00bccc8a: PUSH EDX
+   0x00bccc8b: MOV dword ptr [ESP + 0x5bc],EBP
+      ref DATA               -> 0x010aeb14 lighting\2x\v\Specular.v.hlsl
+   0x00bccc92: MOV dword ptr [ESP + 0x5c0],0x10aeafc
+      ref DATA               -> 0x010aeafc NUM_PT_LIGHTS
+   0x00bccc9d: MOV dword ptr [ESP + 0x5c4],0x1063f3c
+      ref DATA               -> 0x01063f3c 
+   0x00bccca8: MOV dword ptr [ESP + 0x5c8],0x10aeb0c
+      ref DATA               -> 0x010aeb0c POINT
+   0x00bcccb3: MOV dword ptr [ESP + 0x5cc],ESI
+      ref DATA               -> 0x01011584 
+   0x00bcccba: MOV dword ptr [ESP + 0x5d0],EDI
+      ref DATA               -> 0x010ba0bc PARALLAX
+   0x00bcccc1: MOV dword ptr [ESP + 0x5d4],ESI
+      ref DATA               -> 0x01011584 
+   0x00bcccc8: MOV dword ptr [ESP + 0x5d8],EBX
+   0x00bccccf: CALL 0x00ec61c0
+      ref UNCONDITIONAL_CALL -> 0x00ec61c0 
+   0x00bcccd4: ADD ESP,0x48
+   0x00bcccd7: MOV dword ptr [ESP + 0x5c0],EBP
+      ref DATA               -> 0x010aeb14 lighting\2x\v\Specular.v.hlsl
+   0x00bcccde: MOV dword ptr [ESP + 0x5c4],0x10aeafc
+      ref DATA               -> 0x010aeafc NUM_PT_LIGHTS
+   0x00bccce9: MOV dword ptr [ESP + 0x5c8],0x1063f30
+      ref DATA               -> 0x01063f30 
+   0x00bcccf4: MOV dword ptr [ESP + 0x5cc],0x10aeb0c
+      ref DATA               -> 0x010aeb0c POINT
+   0x00bcccff: PUSH 0x2c
+   0x00bccd01: LEA EAX,[ESP + 0x5e4]
+   0x00bccd08: PUSH EBX
+   0x00bccd09: PUSH EAX
+   0x00bccd0a: MOV dword ptr [ESP + 0x5dc],ESI
+      ref DATA               -> 0x01011584 
+   0x00bccd11: MOV dword ptr [ESP + 0x5e0],EDI
+      ref DATA               -> 0x010ba0bc PARALLAX
+   0x00bccd18: MOV dword ptr [ESP + 0x5e4],ESI
+      ref DATA               -> 0x01011584 
+   0x00bccd1f: MOV dword ptr [ESP + 0x5e8],EBX
+   0x00bccd26: CALL 0x00ec61c0
+      ref UNCONDITIONAL_CALL -> 0x00ec61c0 
+   0x00bccd2b: ADD ESP,0xc
+   0x00bccd2e: CMP dword ptr [0x011f91c0],0x2
+      ref READ               -> 0x011f91c0 
+   0x00bccd35: JL 0x00bccdf5
+      ref CONDITIONAL_JUMP   -> 0x00bccdf5 
+   0x00bccd3b: MOV ECX,dword ptr [ESP + 0x18]
+   0x00bccd3f: ADD ECX,0x8c
+   0x00bccd45: MOV dword ptr [ESP + 0x14],EBX
+   0x00bccd49: LEA EBP,[ESP + 0x20]
+   0x00bccd4d: MOV dword ptr [ESP + 0x10],ECX
+   0x00bccd51: MOV EAX,dword ptr [EBP + -0x4]
+   0x00bccd54: LEA EDX,[ESP + 0x60c]
+   0x00bccd5b: PUSH EDX
+   0x00bccd5c: PUSH EAX
+      ref DATA               -> 0x010aebf4 lighting\2x\v\ADTS.v.hlsl
+   0x00bccd5d: CALL 0x00be0c00
+      ref UNCONDITIONAL_CALL -> 0x00be0c00 
+   0x00bccd62: MOV ECX,dword ptr [ESP + 0x1c]
+   0x00bccd66: PUSH ECX
+=> 0x00bccd67: PUSH 0x10bb774
+      ref DATA               -> 0x010bb774 PAR2%03i.vso
+   0x00bccd6c: LEA EDX,[ESP + 0x720]
+   0x00bccd73: PUSH 0x104
+   0x00bccd78: PUSH EDX
+   0x00bccd79: CALL 0x00406d00
+      ref UNCONDITIONAL_CALL -> 0x00406d00 
+   0x00bccd7e: ADD ESP,0x18
+   0x00bccd81: LEA EAX,[ESP + 0x710]
+   0x00bccd88: PUSH EAX
+   0x00bccd89: PUSH 0x10a93e4
+      ref DATA               -> 0x010a93e4 vs_2_0
+   0x00bccd8e: PUSH EBP
+   0x00bccd8f: LEA ECX,[ESP + 0x618]
+   0x00bccd96: PUSH ECX
+   0x00bccd97: MOV ECX,dword ptr [ESP + 0x28]
+   0x00bccd9b: CALL 0x00be0fe0
+      ref UNCONDITIONAL_CALL -> 0x00be0fe0 
+   0x00bccda0: MOV EDX,dword ptr [ESP + 0x10]
+   0x00bccda4: MOV ESI,dword ptr [EDX]
+   0x00bccda6: MOV EDI,EAX
+   0x00bccda8: CMP ESI,EDI
+   0x00bccdaa: JZ 0x00bccddb
+      ref CONDITIONAL_JUMP   -> 0x00bccddb 
+   0x00bccdac: CMP ESI,EBX
+   0x00bccdae: JZ 0x00bccdc7
+      ref CONDITIONAL_JUMP   -> 0x00bccdc7 
+   0x00bccdb0: LEA EAX,[ESI + 0x4]
+   0x00bccdb3: PUSH EAX
+   0x00bccdb4: CALL dword ptr [0x00fdf1c4]
+      ref READ               -> 0x00fdf1c4 
+      ref COMPUTED_CALL      -> 0x00000067 
+   0x00bccdba: TEST EAX,EAX
+   0x00bccdbc: JNZ 0x00bccdc7
+      ref CONDITIONAL_JUMP   -> 0x00bccdc7 
+   0x00bccdbe: MOV EDX,dword ptr [ESI]
+   0x00bccdc0: MOV EAX,dword ptr [EDX + 0x4]
+   0x00bccdc3: MOV ECX,ESI
+   0x00bccdc5: CALL EAX
+   0x00bccdc7: MOV ECX,dword ptr [ESP + 0x10]
+   0x00bccdcb: MOV dword ptr [ECX],EDI
+   0x00bccdcd: CMP EDI,EBX
+   0x00bccdcf: JZ 0x00bccddb
+      ref CONDITIONAL_JUMP   -> 0x00bccddb 
+   0x00bccdd1: ADD EDI,0x4
+   0x00bccdd4: PUSH EDI
+   0x00bccdd5: CALL dword ptr [0x00fdf1c0]
+      ref READ               -> 0x00fdf1c0 
+      ref COMPUTED_CALL      -> 0x00000066 
+   0x00bccddb: MOV EAX,dword ptr [ESP + 0x14]
+   0x00bccddf: ADD dword ptr [ESP + 0x10],0x4
+   0x00bccde4: INC EAX
+   0x00bccde5: ADD EBP,0x4c
+   0x00bccde8: CMP EAX,0x14
+   0x00bccdeb: MOV dword ptr [ESP + 0x14],EAX
+   0x00bccdef: JL 0x00bccd51
+      ref CONDITIONAL_JUMP   -> 0x00bccd51 
+   0x00bccdf5: MOV ECX,dword ptr [ESP + 0x814]
+   0x00bccdfc: POP EDI
+   0x00bccdfd: POP ESI
+   0x00bccdfe: POP EBP
+   0x00bccdff: POP EBX
+   0x00bcce00: XOR ECX,ESP
+   0x00bcce02: CALL 0x00ec408c
+      ref UNCONDITIONAL_CALL -> 0x00ec408c 
+   0x00bcce07: ADD ESP,0x808
+   0x00bcce0d: RET
+   0x00bcce10: PUSH ESI
+   0x00bcce11: PUSH EDI
+   0x00bcce12: MOV EDI,ECX
+   0x00bcce14: MOV ESI,0x1202230
+      ref DATA               -> 0x01202230 
+   0x00bcce19: LEA ESP,[ESP]
+      ref DATA               -> 0x-0000008 
+   0x00bcce20: MOV ECX,dword ptr [ESI]
+      ref READ               -> 0x01202230 
+      ref READ               -> 0x01202234 
+   0x00bcce22: MOV EAX,dword ptr [EDI]
+   0x00bcce24: MOV EDX,dword ptr [EAX + 0x128]
+   0x00bcce2a: PUSH ECX
+   0x00bcce2b: MOV ECX,EDI
+   0x00bcce2d: CALL EDX
+   0x00bcce2f: ADD ESI,0x4
+   0x00bcce32: CMP ESI,0x12022b4
+      ref DATA               -> 0x012022b4 
+   0x00bcce38: JL 0x00bcce20
+      ref CONDITIONAL_JUMP   -> 0x00bcce20 
+   0x00bcce3a: POP EDI
+   0x00bcce3b: POP ESI
+   0x00bcce3c: RET
+   0x00bcce40: PUSH EBX
+   0x00bcce41: PUSH EBP
+   0x00bcce42: PUSH ESI
+   0x00bcce43: PUSH EDI
+   0x00bcce44: MOV EDI,ECX
+   0x00bcce46: MOV ESI,dword ptr [EDI + 0x6c]
+   0x00bcce49: MOV EBX,dword ptr [EDI + 0x28]
+   0x00bcce4c: LEA EBP,[EDI + 0x28]
+   0x00bcce4f: CMP EBX,ESI
+   0x00bcce51: JZ 0x00bcce7f
+      ref CONDITIONAL_JUMP   -> 0x00bcce7f 
+   0x00bcce53: TEST EBX,EBX
+   0x00bcce55: JZ 0x00bcce6e
+      ref CONDITIONAL_JUMP   -> 0x00bcce6e 
+   0x00bcce57: LEA EAX,[EBX + 0x4]
+   0x00bcce5a: PUSH EAX
+   0x00bcce5b: CALL dword ptr [0x00fdf1c4]
+      ref READ               -> 0x00fdf1c4 
+      ref COMPUTED_CALL      -> 0x00000067 
+   0x00bcce61: TEST EAX,EAX
+   0x00bcce63: JNZ 0x00bcce6e
+      ref CONDITIONAL_JUMP   -> 0x00bcce6e 
+   0x00bcce65: MOV EDX,dword ptr [EBX]
+   0x00bcce67: MOV EAX,dword ptr [EDX + 0x4]
+   0x00bcce6a: MOV ECX,EBX
+   0x00bcce6c: CALL EAX
+   0x00bcce6e: MOV dword ptr [EBP],ESI
+   0x00bcce71: TEST ESI,ESI
+   0x00bcce73: JZ 0x00bcce7f
+      ref CONDITIONAL_JUMP   -> 0x00bcce7f 
+   0x00bcce75: ADD ESI,0x4
+   0x00bcce78: PUSH ESI
+   0x00bcce79: CALL dword ptr [0x00fdf1c0]
+      ref READ               -> 0x00fdf1c0 
+      ref COMPUTED_CALL      -> 0x00000066 
+   0x00bcce7f: MOV ESI,dword ptr [ESP + 0x14]
+      ref READ               -> 0x00000004 
+   0x00bcce83: CMP ESI,0x101
+   0x00bcce89: JA 0x00bcd01b
+      ref CONDITIONAL_JUMP   -> 0x00bcd01b 
+   0x00bcce8f: JZ 0x00bcd008
+      ref CONDITIONAL_JUMP   -> 0x00bcd008 
+
+======================================================================
+DISASM: PAR2 pixel primary create and array write around 0x00bce386
+======================================================================
+   0x00bce260: MOV dword ptr [ESP + 0x928],ESI
+      ref DATA               -> 0x01011584 
+   0x00bce267: MOV dword ptr [ESP + 0x92c],EBX
+   0x00bce26e: MOV dword ptr [ESP + 0x954],0x10af114
+      ref DATA               -> 0x010af114 lighting\2x\p\ADTS.p.hlsl
+   0x00bce279: MOV dword ptr [ESP + 0x958],EDX
+      ref DATA               -> 0x010aeb8c SPECULAR
+   0x00bce280: MOV dword ptr [ESP + 0x95c],ESI
+      ref DATA               -> 0x01011584 
+   0x00bce287: MOV dword ptr [ESP + 0x960],EBP
+      ref DATA               -> 0x010aeb98 LIGHTS
+   0x00bce28e: MOV dword ptr [ESP + 0x964],ECX
+      ref DATA               -> 0x01063f3c 
+   0x00bce295: MOV dword ptr [ESP + 0x968],EDI
+      ref DATA               -> 0x010ba0bc PARALLAX
+   0x00bce29c: MOV dword ptr [ESP + 0x96c],ESI
+      ref DATA               -> 0x01011584 
+   0x00bce2a3: MOV dword ptr [ESP + 0x970],0x10aeba0
+      ref DATA               -> 0x010aeba0 PROJ_SHADOW
+   0x00bce2ae: MOV dword ptr [ESP + 0x974],ESI
+      ref DATA               -> 0x01011584 
+   0x00bce2b5: MOV dword ptr [ESP + 0x978],EBX
+   0x00bce2bc: MOV dword ptr [ESP + 0x9a0],0x10af114
+      ref DATA               -> 0x010af114 lighting\2x\p\ADTS.p.hlsl
+   0x00bce2c7: MOV dword ptr [ESP + 0x9a4],EDX
+      ref DATA               -> 0x010aeb8c SPECULAR
+   0x00bce2ce: MOV dword ptr [ESP + 0x9a8],ESI
+      ref DATA               -> 0x01011584 
+   0x00bce2d5: MOV dword ptr [ESP + 0x9ac],EBP
+      ref DATA               -> 0x010aeb98 LIGHTS
+   0x00bce2dc: MOV dword ptr [ESP + 0x9b0],ECX
+      ref DATA               -> 0x01063f3c 
+   0x00bce2e3: MOV dword ptr [ESP + 0x9b4],EDI
+      ref DATA               -> 0x010ba0bc PARALLAX
+   0x00bce2ea: MOV dword ptr [ESP + 0x9b8],ESI
+      ref DATA               -> 0x01011584 
+   0x00bce2f1: MOV dword ptr [ESP + 0x9bc],0x10aec48
+      ref DATA               -> 0x010aec48 SI
+   0x00bce2fc: MOV dword ptr [ESP + 0x9c0],ESI
+      ref DATA               -> 0x01011584 
+   0x00bce303: MOV dword ptr [ESP + 0x9c4],0x10aeba0
+      ref DATA               -> 0x010aeba0 PROJ_SHADOW
+   0x00bce30e: MOV dword ptr [ESP + 0x9c8],ESI
+      ref DATA               -> 0x01011584 
+   0x00bce315: MOV dword ptr [ESP + 0x9cc],EBX
+   0x00bce31c: MOV dword ptr [ESP + 0x9d0],EBX
+   0x00bce323: MOV dword ptr [ESP + 0x9d4],EBX
+   0x00bce32a: MOV dword ptr [ESP + 0x9d8],EBX
+   0x00bce331: MOV dword ptr [ESP + 0x9dc],EBX
+   0x00bce338: MOV dword ptr [ESP + 0x9e0],EBX
+   0x00bce33f: MOV dword ptr [ESP + 0x9e4],EBX
+   0x00bce346: MOV dword ptr [ESP + 0x9e8],EBX
+   0x00bce34d: MOV dword ptr [ESP + 0x1c],EAX
+   0x00bce351: JL 0x00bce4e4
+      ref CONDITIONAL_JUMP   -> 0x00bce4e4 
+   0x00bce357: MOV EDX,dword ptr [ESP + 0x18]
+   0x00bce35b: ADD EDX,0xdc
+   0x00bce361: MOV dword ptr [ESP + 0x14],EBX
+   0x00bce365: LEA EBP,[ESP + 0x24]
+   0x00bce369: MOV dword ptr [ESP + 0x10],EDX
+   0x00bce36d: LEA ECX,[ECX]
+      ref DATA               -> 0x01063f3c 
+   0x00bce370: MOV ECX,dword ptr [EBP + -0x4]
+   0x00bce373: LEA EAX,[ESP + 0x9ec]
+   0x00bce37a: PUSH EAX
+   0x00bce37b: PUSH ECX
+      ref DATA               -> 0x010af114 lighting\2x\p\ADTS.p.hlsl
+   0x00bce37c: CALL 0x00be0c00
+      ref UNCONDITIONAL_CALL -> 0x00be0c00 
+   0x00bce381: MOV EDX,dword ptr [ESP + 0x1c]
+   0x00bce385: PUSH EDX
+=> 0x00bce386: PUSH 0x10bb91c
+      ref DATA               -> 0x010bb91c PAR2%03i.pso
+   0x00bce38b: LEA EAX,[ESP + 0xb00]
+   0x00bce392: PUSH 0x104
+   0x00bce397: PUSH EAX
+   0x00bce398: CALL 0x00406d00
+      ref UNCONDITIONAL_CALL -> 0x00406d00 
+   0x00bce39d: ADD ESP,0x18
+   0x00bce3a0: LEA ECX,[ESP + 0xaf0]
+   0x00bce3a7: PUSH ECX
+   0x00bce3a8: MOV ECX,dword ptr [ESP + 0x1c]
+   0x00bce3ac: PUSH 0x10a93cc
+      ref DATA               -> 0x010a93cc ps_2_0
+   0x00bce3b1: PUSH EBP
+   0x00bce3b2: LEA EDX,[ESP + 0x9f8]
+   0x00bce3b9: PUSH EDX
+   0x00bce3ba: CALL 0x00be1750
+      ref UNCONDITIONAL_CALL -> 0x00be1750 
+   0x00bce3bf: MOV EDI,EAX
+   0x00bce3c1: MOV EAX,dword ptr [ESP + 0x10]
+   0x00bce3c5: MOV ESI,dword ptr [EAX]
+   0x00bce3c7: CMP ESI,EDI
+   0x00bce3c9: JZ 0x00bce3fa
+      ref CONDITIONAL_JUMP   -> 0x00bce3fa 
+   0x00bce3cb: CMP ESI,EBX
+   0x00bce3cd: JZ 0x00bce3e6
+      ref CONDITIONAL_JUMP   -> 0x00bce3e6 
+   0x00bce3cf: LEA ECX,[ESI + 0x4]
+   0x00bce3d2: PUSH ECX
+   0x00bce3d3: CALL dword ptr [0x00fdf1c4]
+      ref READ               -> 0x00fdf1c4 
+      ref COMPUTED_CALL      -> 0x00000067 
+   0x00bce3d9: TEST EAX,EAX
+   0x00bce3db: JNZ 0x00bce3e6
+      ref CONDITIONAL_JUMP   -> 0x00bce3e6 
+   0x00bce3dd: MOV EDX,dword ptr [ESI]
+   0x00bce3df: MOV EAX,dword ptr [EDX + 0x4]
+   0x00bce3e2: MOV ECX,ESI
+   0x00bce3e4: CALL EAX
+   0x00bce3e6: MOV ECX,dword ptr [ESP + 0x10]
+   0x00bce3ea: MOV dword ptr [ECX],EDI
+   0x00bce3ec: CMP EDI,EBX
+   0x00bce3ee: JZ 0x00bce3fa
+      ref CONDITIONAL_JUMP   -> 0x00bce3fa 
+   0x00bce3f0: ADD EDI,0x4
+   0x00bce3f3: PUSH EDI
+   0x00bce3f4: CALL dword ptr [0x00fdf1c0]
+      ref READ               -> 0x00fdf1c0 
+      ref COMPUTED_CALL      -> 0x00000066 
+   0x00bce3fa: MOV EAX,dword ptr [ESP + 0x14]
+   0x00bce3fe: ADD dword ptr [ESP + 0x10],0x4
+   0x00bce403: INC EAX
+   0x00bce404: ADD EBP,0x4c
+   0x00bce407: CMP EAX,0x1d
+   0x00bce40a: MOV dword ptr [ESP + 0x14],EAX
+   0x00bce40e: JL 0x00bce370
+      ref CONDITIONAL_JUMP   -> 0x00bce370 
+   0x00bce414: CMP dword ptr [ESP + 0x1c],0x5
+   0x00bce419: JL 0x00bce4e4
+      ref CONDITIONAL_JUMP   -> 0x00bce4e4 
+   0x00bce41f: MOV EDX,dword ptr [ESP + 0x18]
+   0x00bce423: ADD EDX,0x150
+   0x00bce429: MOV dword ptr [ESP + 0x14],0x1d
+   0x00bce431: LEA EBP,[ESP + 0x8c0]
+   0x00bce438: MOV dword ptr [ESP + 0x10],EDX
+   0x00bce43c: LEA ESP,[ESP]
+   0x00bce440: MOV ECX,dword ptr [EBP + -0x4]
+   0x00bce443: LEA EAX,[ESP + 0x9ec]
+   0x00bce44a: PUSH EAX
+   0x00bce44b: PUSH ECX
+   0x00bce44c: CALL 0x00be0c00
+      ref UNCONDITIONAL_CALL -> 0x00be0c00 
+   0x00bce451: MOV EDX,dword ptr [ESP + 0x1c]
+   0x00bce455: PUSH EDX
+   0x00bce456: PUSH 0x10bb91c
+      ref DATA               -> 0x010bb91c PAR2%03i.pso
+   0x00bce45b: LEA EAX,[ESP + 0xb00]
+   0x00bce462: PUSH 0x104
+   0x00bce467: PUSH EAX
+   0x00bce468: CALL 0x00406d00
+      ref UNCONDITIONAL_CALL -> 0x00406d00 
+   0x00bce46d: ADD ESP,0x18
+   0x00bce470: LEA ECX,[ESP + 0xaf0]
+   0x00bce477: PUSH ECX
+   0x00bce478: MOV ECX,dword ptr [ESP + 0x1c]
+   0x00bce47c: PUSH 0x10a93cc
+      ref DATA               -> 0x010a93cc ps_2_0
+   0x00bce481: PUSH EBP
+   0x00bce482: LEA EDX,[ESP + 0x9f8]
+   0x00bce489: PUSH EDX
+   0x00bce48a: CALL 0x00be1750
+      ref UNCONDITIONAL_CALL -> 0x00be1750 
+   0x00bce48f: MOV EDI,EAX
+   0x00bce491: MOV EAX,dword ptr [ESP + 0x10]
+   0x00bce495: MOV ESI,dword ptr [EAX]
+   0x00bce497: CMP ESI,EDI
+   0x00bce499: JZ 0x00bce4ca
+      ref CONDITIONAL_JUMP   -> 0x00bce4ca 
+   0x00bce49b: CMP ESI,EBX
+   0x00bce49d: JZ 0x00bce4b6
+      ref CONDITIONAL_JUMP   -> 0x00bce4b6 
+   0x00bce49f: LEA ECX,[ESI + 0x4]
+   0x00bce4a2: PUSH ECX
+   0x00bce4a3: CALL dword ptr [0x00fdf1c4]
+      ref READ               -> 0x00fdf1c4 
+      ref COMPUTED_CALL      -> 0x00000067 
+   0x00bce4a9: TEST EAX,EAX
+   0x00bce4ab: JNZ 0x00bce4b6
+      ref CONDITIONAL_JUMP   -> 0x00bce4b6 
+   0x00bce4ad: MOV EDX,dword ptr [ESI]
+   0x00bce4af: MOV EAX,dword ptr [EDX + 0x4]
+   0x00bce4b2: MOV ECX,ESI
+   0x00bce4b4: CALL EAX
+   0x00bce4b6: MOV ECX,dword ptr [ESP + 0x10]
+   0x00bce4ba: MOV dword ptr [ECX],EDI
+   0x00bce4bc: CMP EDI,EBX
+   0x00bce4be: JZ 0x00bce4ca
+      ref CONDITIONAL_JUMP   -> 0x00bce4ca 
+   0x00bce4c0: ADD EDI,0x4
+   0x00bce4c3: PUSH EDI
+   0x00bce4c4: CALL dword ptr [0x00fdf1c0]
+      ref READ               -> 0x00fdf1c0 
+      ref COMPUTED_CALL      -> 0x00000066 
+   0x00bce4ca: MOV EAX,dword ptr [ESP + 0x14]
+   0x00bce4ce: ADD dword ptr [ESP + 0x10],0x4
+   0x00bce4d3: INC EAX
+   0x00bce4d4: ADD EBP,0x4c
+   0x00bce4d7: CMP EAX,0x21
+   0x00bce4da: MOV dword ptr [ESP + 0x14],EAX
+   0x00bce4de: JL 0x00bce440
+      ref CONDITIONAL_JUMP   -> 0x00bce440 
+   0x00bce4e4: MOV ECX,dword ptr [ESP + 0xbf4]
+   0x00bce4eb: POP EDI
+   0x00bce4ec: POP ESI
+   0x00bce4ed: POP EBP
+   0x00bce4ee: POP EBX
+   0x00bce4ef: XOR ECX,ESP
+   0x00bce4f1: CALL 0x00ec408c
+      ref UNCONDITIONAL_CALL -> 0x00ec408c 
+   0x00bce4f6: ADD ESP,0xbe8
+
+======================================================================
+DISASM: PAR2 pixel extended create and array write around 0x00bce456
+======================================================================
+   0x00bce3ba: CALL 0x00be1750
+      ref UNCONDITIONAL_CALL -> 0x00be1750 
+   0x00bce3bf: MOV EDI,EAX
+   0x00bce3c1: MOV EAX,dword ptr [ESP + 0x10]
+   0x00bce3c5: MOV ESI,dword ptr [EAX]
+   0x00bce3c7: CMP ESI,EDI
+   0x00bce3c9: JZ 0x00bce3fa
+      ref CONDITIONAL_JUMP   -> 0x00bce3fa 
+   0x00bce3cb: CMP ESI,EBX
+   0x00bce3cd: JZ 0x00bce3e6
+      ref CONDITIONAL_JUMP   -> 0x00bce3e6 
+   0x00bce3cf: LEA ECX,[ESI + 0x4]
+   0x00bce3d2: PUSH ECX
+   0x00bce3d3: CALL dword ptr [0x00fdf1c4]
+      ref READ               -> 0x00fdf1c4 
+      ref COMPUTED_CALL      -> 0x00000067 
+   0x00bce3d9: TEST EAX,EAX
+   0x00bce3db: JNZ 0x00bce3e6
+      ref CONDITIONAL_JUMP   -> 0x00bce3e6 
+   0x00bce3dd: MOV EDX,dword ptr [ESI]
+   0x00bce3df: MOV EAX,dword ptr [EDX + 0x4]
+   0x00bce3e2: MOV ECX,ESI
+   0x00bce3e4: CALL EAX
+   0x00bce3e6: MOV ECX,dword ptr [ESP + 0x10]
+   0x00bce3ea: MOV dword ptr [ECX],EDI
+   0x00bce3ec: CMP EDI,EBX
+   0x00bce3ee: JZ 0x00bce3fa
+      ref CONDITIONAL_JUMP   -> 0x00bce3fa 
+   0x00bce3f0: ADD EDI,0x4
+   0x00bce3f3: PUSH EDI
+   0x00bce3f4: CALL dword ptr [0x00fdf1c0]
+      ref READ               -> 0x00fdf1c0 
+      ref COMPUTED_CALL      -> 0x00000066 
+   0x00bce3fa: MOV EAX,dword ptr [ESP + 0x14]
+   0x00bce3fe: ADD dword ptr [ESP + 0x10],0x4
+   0x00bce403: INC EAX
+   0x00bce404: ADD EBP,0x4c
+   0x00bce407: CMP EAX,0x1d
+   0x00bce40a: MOV dword ptr [ESP + 0x14],EAX
+   0x00bce40e: JL 0x00bce370
+      ref CONDITIONAL_JUMP   -> 0x00bce370 
+   0x00bce414: CMP dword ptr [ESP + 0x1c],0x5
+   0x00bce419: JL 0x00bce4e4
+      ref CONDITIONAL_JUMP   -> 0x00bce4e4 
+   0x00bce41f: MOV EDX,dword ptr [ESP + 0x18]
+   0x00bce423: ADD EDX,0x150
+   0x00bce429: MOV dword ptr [ESP + 0x14],0x1d
+   0x00bce431: LEA EBP,[ESP + 0x8c0]
+   0x00bce438: MOV dword ptr [ESP + 0x10],EDX
+   0x00bce43c: LEA ESP,[ESP]
+   0x00bce440: MOV ECX,dword ptr [EBP + -0x4]
+   0x00bce443: LEA EAX,[ESP + 0x9ec]
+   0x00bce44a: PUSH EAX
+   0x00bce44b: PUSH ECX
+   0x00bce44c: CALL 0x00be0c00
+      ref UNCONDITIONAL_CALL -> 0x00be0c00 
+   0x00bce451: MOV EDX,dword ptr [ESP + 0x1c]
+   0x00bce455: PUSH EDX
+=> 0x00bce456: PUSH 0x10bb91c
+      ref DATA               -> 0x010bb91c PAR2%03i.pso
+   0x00bce45b: LEA EAX,[ESP + 0xb00]
+   0x00bce462: PUSH 0x104
+   0x00bce467: PUSH EAX
+   0x00bce468: CALL 0x00406d00
+      ref UNCONDITIONAL_CALL -> 0x00406d00 
+   0x00bce46d: ADD ESP,0x18
+   0x00bce470: LEA ECX,[ESP + 0xaf0]
+   0x00bce477: PUSH ECX
+   0x00bce478: MOV ECX,dword ptr [ESP + 0x1c]
+   0x00bce47c: PUSH 0x10a93cc
+      ref DATA               -> 0x010a93cc ps_2_0
+   0x00bce481: PUSH EBP
+   0x00bce482: LEA EDX,[ESP + 0x9f8]
+   0x00bce489: PUSH EDX
+   0x00bce48a: CALL 0x00be1750
+      ref UNCONDITIONAL_CALL -> 0x00be1750 
+   0x00bce48f: MOV EDI,EAX
+   0x00bce491: MOV EAX,dword ptr [ESP + 0x10]
+   0x00bce495: MOV ESI,dword ptr [EAX]
+   0x00bce497: CMP ESI,EDI
+   0x00bce499: JZ 0x00bce4ca
+      ref CONDITIONAL_JUMP   -> 0x00bce4ca 
+   0x00bce49b: CMP ESI,EBX
+   0x00bce49d: JZ 0x00bce4b6
+      ref CONDITIONAL_JUMP   -> 0x00bce4b6 
+   0x00bce49f: LEA ECX,[ESI + 0x4]
+   0x00bce4a2: PUSH ECX
+   0x00bce4a3: CALL dword ptr [0x00fdf1c4]
+      ref READ               -> 0x00fdf1c4 
+      ref COMPUTED_CALL      -> 0x00000067 
+   0x00bce4a9: TEST EAX,EAX
+   0x00bce4ab: JNZ 0x00bce4b6
+      ref CONDITIONAL_JUMP   -> 0x00bce4b6 
+   0x00bce4ad: MOV EDX,dword ptr [ESI]
+   0x00bce4af: MOV EAX,dword ptr [EDX + 0x4]
+   0x00bce4b2: MOV ECX,ESI
+   0x00bce4b4: CALL EAX
+   0x00bce4b6: MOV ECX,dword ptr [ESP + 0x10]
+   0x00bce4ba: MOV dword ptr [ECX],EDI
+   0x00bce4bc: CMP EDI,EBX
+   0x00bce4be: JZ 0x00bce4ca
+      ref CONDITIONAL_JUMP   -> 0x00bce4ca 
+   0x00bce4c0: ADD EDI,0x4
+   0x00bce4c3: PUSH EDI
+   0x00bce4c4: CALL dword ptr [0x00fdf1c0]
+      ref READ               -> 0x00fdf1c0 
+      ref COMPUTED_CALL      -> 0x00000066 
+   0x00bce4ca: MOV EAX,dword ptr [ESP + 0x14]
+   0x00bce4ce: ADD dword ptr [ESP + 0x10],0x4
+   0x00bce4d3: INC EAX
+   0x00bce4d4: ADD EBP,0x4c
+   0x00bce4d7: CMP EAX,0x21
+   0x00bce4da: MOV dword ptr [ESP + 0x14],EAX
+   0x00bce4de: JL 0x00bce440
+      ref CONDITIONAL_JUMP   -> 0x00bce440 
+   0x00bce4e4: MOV ECX,dword ptr [ESP + 0xbf4]
+   0x00bce4eb: POP EDI
+   0x00bce4ec: POP ESI
+   0x00bce4ed: POP EBP
+   0x00bce4ee: POP EBX
+   0x00bce4ef: XOR ECX,ESP
+   0x00bce4f1: CALL 0x00ec408c
+      ref UNCONDITIONAL_CALL -> 0x00ec408c 
+   0x00bce4f6: ADD ESP,0xbe8
+   0x00bce4fc: RET
+   0x00bce500: MOV EAX,[0x011f91e4]
+      ref READ               -> 0x011f91e4 
+   0x00bce505: PUSH ESI
+   0x00bce506: MOV ESI,ECX
+   0x00bce508: MOV ECX,dword ptr [ESP + 0x8]
+   0x00bce50c: PUSH EDI
+   0x00bce50d: MOV EDI,dword ptr [ECX + 0xc]
+   0x00bce510: CMP EAX,0x233
+   0x00bce515: JA 0x00bce6b2
+      ref CONDITIONAL_JUMP   -> 0x00bce6b2 
+   0x00bce51b: CMP EAX,0x231
+   0x00bce520: JNC 0x00bce68c
+      ref CONDITIONAL_JUMP   -> 0x00bce68c 
+   0x00bce526: SUB EAX,0x99
+   0x00bce52b: CMP EAX,0xdb
+   0x00bce530: JA 0x00bce6b2
+      ref CONDITIONAL_JUMP   -> 0x00bce6b2 
+   0x00bce536: MOVZX EAX,byte ptr [EAX + 0xbce6e8]
+      ref DATA               -> 0x00bce6e8 
+   0x00bce53d: JMP dword ptr [EAX*0x4 + 0xbce6c0]
+      ref COMPUTED_JUMP      -> 0x00bce5dc 
+      ref COMPUTED_JUMP      -> 0x00bce5ce 
+      ref COMPUTED_JUMP      -> 0x00bce6b2 
+      ref COMPUTED_JUMP      -> 0x00bce552 
+      ref COMPUTED_JUMP      -> 0x00bce544 
+      ref COMPUTED_JUMP      -> 0x00bce597 
+      ref COMPUTED_JUMP      -> 0x00bce589 
+      ref COMPUTED_JUMP      -> 0x00bce621 
+      ref COMPUTED_JUMP      -> 0x00bce636 
+      ref COMPUTED_JUMP      -> 0x00bce647 
+      ref DATA               -> 0x00bce6c0 
+   0x00bce544: PUSH 0x1
+   0x00bce546: PUSH 0x0
+   0x00bce548: PUSH 0x3
+   0x00bce54a: PUSH EDI
+   0x00bce54b: MOV ECX,ESI
+   0x00bce54d: CALL 0x00b7c1f0
+      ref UNCONDITIONAL_CALL -> 0x00b7c1f0 
+   0x00bce552: PUSH 0x0
+   0x00bce554: PUSH 0x0
+   0x00bce556: PUSH EDI
+   0x00bce557: MOV ECX,ESI
+   0x00bce559: CALL 0x00b7c0a0
+      ref UNCONDITIONAL_CALL -> 0x00b7c0a0 
+   0x00bce55e: PUSH 0x0
+   0x00bce560: PUSH 0x1
+   0x00bce562: PUSH EDI
+   0x00bce563: MOV ECX,ESI
+   0x00bce565: CALL 0x00b7c0e0
+      ref UNCONDITIONAL_CALL -> 0x00b7c0e0 
+   0x00bce56a: PUSH 0x1
+   0x00bce56c: PUSH 0x0
+   0x00bce56e: PUSH 0x2
+   0x00bce570: PUSH EDI
+   0x00bce571: MOV ECX,ESI
+   0x00bce573: CALL 0x00b7c230
+      ref UNCONDITIONAL_CALL -> 0x00b7c230 
+   0x00bce578: MOV EDX,dword ptr [ESI]
+   0x00bce57a: MOV EAX,dword ptr [EDX + 0x108]
+   0x00bce580: MOV ECX,ESI
+   0x00bce582: CALL EAX
+   0x00bce584: POP EDI
+   0x00bce585: POP ESI
+   0x00bce586: RET 0x4
+   0x00bce589: PUSH 0x1
+   0x00bce58b: PUSH 0x0
+   0x00bce58d: PUSH 0x4
+   0x00bce58f: PUSH EDI
+   0x00bce590: MOV ECX,ESI
+   0x00bce592: CALL 0x00b7c1f0
+      ref UNCONDITIONAL_CALL -> 0x00b7c1f0 
+   0x00bce597: PUSH 0x0
+   0x00bce599: PUSH 0x0
+   0x00bce59b: PUSH EDI
+   0x00bce59c: MOV ECX,ESI
+   0x00bce59e: CALL 0x00b7c0a0
+      ref UNCONDITIONAL_CALL -> 0x00b7c0a0 
+   0x00bce5a3: PUSH 0x0
+   0x00bce5a5: PUSH 0x1
+   0x00bce5a7: PUSH EDI
+
+======================================================================
+DISASM: ParallaxShader registration around 0x00fbacc0
+======================================================================
+   0x00fbac6b: RET
+   0x00fbac70: PUSH 0x126f554
+      ref DATA               -> 0x0126f554 
+   0x00fbac75: PUSH 0x10bb760
+      ref DATA               -> 0x010bb760 GeometryDecalShader
+   0x00fbac7a: MOV ECX,0x1202228
+      ref DATA               -> 0x01202228 
+   0x00fbac7f: CALL 0x00a7b610
+      ref UNCONDITIONAL_CALL -> 0x00a7b610 
+   0x00fbac84: RET
+   0x00fbac90: PUSH 0xb79930
+      ref DATA               -> 0x00b79930 
+   0x00fbac95: PUSH 0xb54620
+      ref DATA               -> 0x00b54620 
+   0x00fbac9a: PUSH 0x21
+   0x00fbac9c: PUSH 0x4
+   0x00fbac9e: PUSH 0x1202230
+      ref DATA               -> 0x01202230 
+   0x00fbaca3: CALL 0x00ec782f
+      ref UNCONDITIONAL_CALL -> 0x00ec782f 
+   0x00fbaca8: PUSH 0xfdd310
+      ref DATA               -> 0x00fdd310 
+   0x00fbacad: CALL 0x00ec658f
+      ref UNCONDITIONAL_CALL -> 0x00ec658f 
+   0x00fbacb2: POP ECX
+   0x00fbacb3: RET
+=> 0x00fbacc0: PUSH 0x11fed88
+      ref DATA               -> 0x011fed88 
+   0x00fbacc5: PUSH 0x10bb94c
+      ref DATA               -> 0x010bb94c ParallaxShader
+   0x00fbacca: MOV ECX,0x12022b4
+      ref DATA               -> 0x012022b4 
+   0x00fbaccf: CALL 0x00a7b610
+      ref UNCONDITIONAL_CALL -> 0x00a7b610 
+   0x00fbacd4: RET
+   0x00fbace0: PUSH 0xb79930
+      ref DATA               -> 0x00b79930 
+   0x00fbace5: PUSH 0xb54620
+      ref DATA               -> 0x00b54620 
+   0x00fbacea: PUSH 0x1a
+   0x00fbacec: PUSH 0x4
+   0x00fbacee: PUSH 0x12022c0
+      ref DATA               -> 0x012022c0 
+   0x00fbacf3: CALL 0x00ec782f
+      ref UNCONDITIONAL_CALL -> 0x00ec782f 
+   0x00fbacf8: PUSH 0xfdd330
+      ref DATA               -> 0x00fdd330 
+   0x00fbacfd: CALL 0x00ec658f
+      ref UNCONDITIONAL_CALL -> 0x00ec658f 
+   0x00fbad02: POP ECX
+   0x00fbad03: RET
+   0x00fbad10: PUSH 0x11fed88
+      ref DATA               -> 0x011fed88 
+   0x00fbad15: PUSH 0x10bbadc
+      ref DATA               -> 0x010bbadc SkinShader
+   0x00fbad1a: MOV ECX,0x1202328
+      ref DATA               -> 0x01202328 
+   0x00fbad1f: CALL 0x00a7b610
+      ref UNCONDITIONAL_CALL -> 0x00a7b610 
+   0x00fbad24: RET
+   0x00fbad30: PUSH 0x11fed88
+      ref DATA               -> 0x011fed88 
+   0x00fbad35: PUSH 0x10bbcac
+      ref DATA               -> 0x010bbcac HairShader
+   0x00fbad3a: MOV ECX,0x1202330
+      ref DATA               -> 0x01202330 
+   0x00fbad3f: CALL 0x00a7b610
+      ref UNCONDITIONAL_CALL -> 0x00a7b610 
+   0x00fbad44: RET
+   0x00fbad50: PUSH 0x126f554
+      ref DATA               -> 0x0126f554 
+   0x00fbad55: PUSH 0x10bc028
+      ref DATA               -> 0x010bc028 SpeedTreeFrondShader
+   0x00fbad5a: MOV ECX,0x120233c
+      ref DATA               -> 0x0120233c 
+   0x00fbad5f: CALL 0x00a7b610
+      ref UNCONDITIONAL_CALL -> 0x00a7b610 
+   0x00fbad64: RET
+   0x00fbad70: PUSH 0x11fed88
+      ref DATA               -> 0x011fed88 
+   0x00fbad75: PUSH 0x10bc1d4
+      ref DATA               -> 0x010bc1d4 SpeedTreeBranchShader
+   0x00fbad7a: MOV ECX,0x1202348
+      ref DATA               -> 0x01202348 
+   0x00fbad7f: CALL 0x00a7b610
+      ref UNCONDITIONAL_CALL -> 0x00a7b610 
+   0x00fbad84: RET
+   0x00fbad90: PUSH 0xb79930
+      ref DATA               -> 0x00b79930 
+   0x00fbad95: PUSH 0xb54620
+      ref DATA               -> 0x00b54620 
+   0x00fbad9a: PUSH 0x1e
+   0x00fbad9c: PUSH 0x4
+   0x00fbad9e: PUSH 0x1202350
+      ref DATA               -> 0x01202350 
+   0x00fbada3: CALL 0x00ec782f
+      ref UNCONDITIONAL_CALL -> 0x00ec782f 
+
+======================================================================
+PAR2 array contract notes to verify in output
+======================================================================
+  Vertex create window should show this+0x8C as PAR2 VS array base and loop count gate from 0x011F91C0.
+  Pixel create first window should show this+0xDC as PAR2 PS primary array base, usually indices 0..0x1C.
+  Pixel create second window should show this+0x150 as PAR2 PS extended array base, starting at index 0x1D when shader-model gate allows it.
+  Follow-up implementation must classify live shader pointers from these proven arrays, not from PPLighting group C/B.
+
+----------------------------------------------------------------------
+References TO 0x011f91c0 (shader model / 2x gate)
+----------------------------------------------------------------------
+  READ @ 0x004dc077 (in FUN_004dc060)
+  READ @ 0x004dc0c9 (in FUN_004dc0c0)
+  READ @ 0x00b4f38c (in FUN_00b4f380)
+  READ @ 0x00b4f3e0 (in FUN_00b4f3e0)
+  READ @ 0x00b4f4a0 (in FUN_00b4f4a0)
+  WRITE @ 0x00b4f730 (in FUN_00b4f710)
+  READ @ 0x00b4f786 (in FUN_00b4f710)
+  WRITE @ 0x00b4f797 (in FUN_00b4f710)
+  WRITE @ 0x00b4f7c6 (in FUN_00b4f710)
+  WRITE @ 0x00b4f7e3 (in FUN_00b4f710)
+  WRITE @ 0x00b4f7fc (in FUN_00b4f710)
+  READ @ 0x00b4f83f (in FUN_00b4f710)
+  WRITE @ 0x00b4f850 (in FUN_00b4f710)
+  WRITE @ 0x00b4f887 (in FUN_00b4f710)
+  READ @ 0x00b4f8c0 (in FUN_00b4f710)
+  WRITE @ 0x00b4f8d1 (in FUN_00b4f710)
+  WRITE @ 0x00b4f905 (in FUN_00b4f710)
+  WRITE @ 0x00b4f925 (in FUN_00b4f710)
+  WRITE @ 0x00b4f953 (in FUN_00b4f710)
+  READ @ 0x00b5ea33 (in FUN_00b5e870)
+  READ @ 0x00b619fa (in FUN_00b61980)
+  READ @ 0x00b61d4a (in FUN_00b61980)
+  READ @ 0x00b7a9ce (in FUN_00b7a870)
+  READ @ 0x00b7faf0 (in FUN_00b7faf0)
+  READ @ 0x00b9dd13 (in FUN_00b9dcb0)
+  READ @ 0x00b9e003 (in FUN_00b9dfc0)
+  READ @ 0x00b9eacd (in FUN_00b9e970)
+  READ @ 0x00ba52d9 (in FUN_00ba52d0)
+  READ @ 0x00bb6039 (in FUN_00bb6030)
+  READ @ 0x00bd8c76 (in FUN_00bd8ae0)
+  READ @ 0x00bace2d (in FUN_00bacd00)
+  READ @ 0x00bd5883 (in FUN_00bd5670)
+  READ @ 0x00b82a91 (in FUN_00b827c0)
+  READ @ 0x00b86d1c (in FUN_00b86bd0)
+  READ @ 0x00ba56b8 (in FUN_00ba53f0)
+  READ @ 0x00bc0e98 (in FUN_00bc0c90)
+  READ @ 0x00bbc942 (in FUN_00bbc640)
+  READ @ 0x00bb6db0 (in FUN_00bb6c30)
+  READ @ 0x00bc15dd (in FUN_00bc15a0)
+  READ @ 0x00bc0b8b (in FUN_00bc0b70)
+  READ @ 0x00bc0b49 (in FUN_00bc0b40)
+  READ @ 0x00b5880b (in FUN_00b587c0)
+  READ @ 0x00b58935 (in FUN_00b587c0)
+  READ @ 0x00bd638b (in FUN_00bd6190)
+  READ @ 0x00ba6507 (in FUN_00ba64e0)
+  READ @ 0x00b60860 (in FUN_00b60790)
+  READ @ 0x00b60982 (in FUN_00b60790)
+  READ @ 0x00b68286 (in FUN_00b67be0)
+  READ @ 0x00b7410a (in FUN_00b71bf0)
+  READ @ 0x00b789d3 (in FUN_00b78980)
+  READ @ 0x00ba6c0a (in FUN_00ba69f0)
+  READ @ 0x00babba9 (in FUN_00baafc0)
+  READ @ 0x00bacbca (in FUN_00bac9c0)
+  READ @ 0x00b6034b (in FUN_00b60330)
+  READ @ 0x00b67b52 (in FUN_00b67a40)
+  READ @ 0x00bc1a65 (in FUN_00bc1950)
+  READ @ 0x00bd3f99 (in FUN_00bd3f80)
+  READ @ 0x00bd5565 (in FUN_00bd5490)
+  READ @ 0x00bdaf26 (in FUN_00bdaf10)
+  READ @ 0x00bdf855 (in FUN_00bdf790)
+  READ @ 0x00c1637d (in FUN_00c16350)
+  READ @ 0x00b68409 (in ???)
+  READ @ 0x00b78776 (in ???)
+  READ @ 0x00b7a7eb (in ???)
+  READ @ 0x00ba616d (in ???)
+  READ @ 0x00bb1617 (in ???)
+  READ @ 0x00bb6bc2 (in ???)
+  READ @ 0x00bccd2e (in ???)
+  READ @ 0x00bce231 (in ???)
+  READ @ 0x00bcf196 (in ???)
+  READ @ 0x00bcf6d0 (in ???)
+  READ @ 0x00bd09fe (in ???)
+  READ @ 0x00bd2978 (in ???)
+  READ @ 0x00bd3b79 (in ???)
+  READ @ 0x00bd5070 (in ???)
+  READ @ 0x00c04990 (in ???)
+  WRITE @ 0x00b542f5 (in FUN_00b54280)
+  Total: 77 refs
+
+----------------------------------------------------------------------
+References TO 0x011f91b0 (pixel shader model suffix)
+----------------------------------------------------------------------
+  WRITE @ 0x004dbed6 (in FUN_004da670)
+  READ @ 0x00b9e626 (in FUN_00b9dfc0)
+  READ @ 0x00b9fa89 (in FUN_00b9f780)
+  WRITE @ 0x005bf437 (in FUN_005bf130)
+  READ @ 0x00bf5ff0 (in FUN_00bf0720)
+  READ @ 0x00bf6020 (in FUN_00bf0720)
+  READ @ 0x00bf629b (in FUN_00bf0720)
+  READ @ 0x00bf62cc (in FUN_00bf0720)
+  READ @ 0x00bf6553 (in FUN_00bf0720)
+  READ @ 0x00bf6584 (in FUN_00bf0720)
+  READ @ 0x00c09e2b (in FUN_00c072c0)
+  READ @ 0x00c09f31 (in FUN_00c072c0)
+  READ @ 0x00c0a02c (in FUN_00c072c0)
+  READ @ 0x00c0a143 (in FUN_00c072c0)
+  READ @ 0x00bbb43c (in FUN_00bba5d0)
+  READ @ 0x00b787e7 (in ???)
+  READ @ 0x00b788c8 (in ???)
+  READ @ 0x00c0ce68 (in ???)
+  Total: 18 refs
+
+----------------------------------------------------------------------
+References TO 0x011fed88 (ParallaxShader RTTI/vtable anchor)
+----------------------------------------------------------------------
+  DATA @ 0x00b79dd0 (in ???)
+  DATA @ 0x00fbacc0 (in ???)
+  DATA @ 0x00fbad70 (in ???)
+  DATA @ 0x00fbad30 (in ???)
+  DATA @ 0x00fbad10 (in ???)
+  DATA @ 0x00fb9c5a (in ???)
+  Total: 6 refs
+
+----------------------------------------------------------------------
+References TO 0x012022b4 (ParallaxShader registration/global object candidate)
+----------------------------------------------------------------------
+  DATA @ 0x00bcce32 (in FUN_00bcce10)
+  DATA @ 0x00bcd56c (in FUN_00bcd4a0)
+  DATA @ 0x00bcd66c (in FUN_00bcd5d0)
+  DATA @ 0x00bcd490 (in ???)
+  DATA @ 0x00fbacca (in ???)
+  Total: 5 refs
+
+----------------------------------------------------------------------
+References TO 0x012022c0 (ParallaxShader registration secondary global candidate)
+----------------------------------------------------------------------
+  READ @ 0x00c124fd (in FUN_00c124c0)
+  DATA @ 0x00c12490 (in FUN_00c12480)
+  READ @ 0x00bcf9d3 (in FUN_00bcf920)
+  WRITE @ 0x00bcf9e3 (in FUN_00bcf920)
+  READ @ 0x00bcfad3 (in FUN_00bcfa50)
+  WRITE @ 0x00bcfae3 (in FUN_00bcfa50)
+  READ @ 0x00bcf7d0 (in FUN_00bcf7c0)
+  DATA @ 0x00bcf7c4 (in FUN_00bcf7c0)
+  DATA @ 0x00bcf9cb (in FUN_00bcf920)
+  DATA @ 0x00bcfacb (in FUN_00bcfa50)
+  DATA @ 0x00c12485 (in FUN_00c12480)
+  READ @ 0x00bcfd56 (in ???)
+  DATA @ 0x00fbacee (in ???)
+  DATA @ 0x00fdd339 (in FUN_00fdd330)
+  Total: 14 refs
+
+----------------------------------------------------------------------
+References TO 0x010bb774 (PAR2%03i.vso format)
+----------------------------------------------------------------------
+  DATA @ 0x00bccd67 (in ???)
+  Total: 1 refs
+
+----------------------------------------------------------------------
+References TO 0x010bb91c (PAR2%03i.pso format)
+----------------------------------------------------------------------
+  DATA @ 0x00bce386 (in ???)
+  DATA @ 0x00bce456 (in ???)
+  Total: 2 refs
+
+----------------------------------------------------------------------
+References TO 0x010bb94c (ParallaxShader string)
+----------------------------------------------------------------------
+  DATA @ 0x00fbacc5 (in ???)
+  Total: 1 refs
+
+----------------------------------------------------------------------
+Calls FROM 0x00b71bf0 (PPLighting shader constructor)
+----------------------------------------------------------------------
+  0x00b71bf5 -> 0x00ec8660
+  0x00b71c30 -> 0x00ec61c0
+  0x00b71c4e -> 0x00ec61c0
+  0x00b71c6c -> 0x00ec61c0
+  0x00b71c8e -> 0x00ec61c0
+  0x00b71cb0 -> 0x00ec61c0
+  0x00b71cce -> 0x00ec61c0
+  0x00b71d06 -> 0x00ec61c0
+  0x00b71d36 -> 0x00ec61c0
+  0x00b71d58 -> 0x00ec61c0
+  0x00b71d7a -> 0x00ec61c0
+  0x00b71d9d -> 0x00ec61c0
+  0x00b71dcd -> 0x00ec61c0
+  0x00b71e00 -> 0x00ec61c0
+  0x00b71e42 -> 0x00ec61c0
+  0x00b71e72 -> 0x00ec61c0
+  0x00b71eb5 -> 0x00ec61c0
+  0x00b71ed7 -> 0x00ec61c0
+  0x00b71f15 -> 0x00ec61c0
+  0x00b71f56 -> 0x00ec61c0
+  0x00b71f78 -> 0x00ec61c0
+  0x00b71f9b -> 0x00ec61c0
+  0x00b71fcb -> 0x00ec61c0
+  0x00b71fee -> 0x00ec61c0
+  0x00b7201e -> 0x00ec61c0
+  0x00b72051 -> 0x00ec61c0
+  0x00b72074 -> 0x00ec61c0
+  0x00b720a4 -> 0x00ec61c0
+  0x00b720e6 -> 0x00ec61c0
+  0x00b72116 -> 0x00ec61c0
+  0x00b72158 -> 0x00ec61c0
+  0x00b72179 -> 0x00ec61c0
+  0x00b721aa -> 0x00ec61c0
+  0x00b721fa -> 0x00ec61c0
+  0x00b7224a -> 0x00ec61c0
+  0x00b7227a -> 0x00ec61c0
+  0x00b722aa -> 0x00ec61c0
+  0x00b722d9 -> 0x00ec61c0
+  0x00b72317 -> 0x00ec61c0
+  0x00b72355 -> 0x00ec61c0
+  0x00b72385 -> 0x00ec61c0
+  0x00b723b5 -> 0x00ec61c0
+  0x00b723e5 -> 0x00ec61c0
+  0x00b7242a -> 0x00ec61c0
+  0x00b7246c -> 0x00ec61c0
+  0x00b724c0 -> 0x00ec61c0
+  0x00b72502 -> 0x00ec61c0
+  0x00b72556 -> 0x00ec61c0
+  0x00b72586 -> 0x00ec61c0
+  0x00b725b9 -> 0x00ec61c0
+  0x00b725d7 -> 0x00ec61c0
+  0x00b725f5 -> 0x00ec61c0
+  0x00b72633 -> 0x00ec61c0
+  0x00b72651 -> 0x00ec61c0
+  0x00b7266b -> 0x00ec61c0
+  0x00b7268f -> 0x00ec61c0
+  0x00b726e7 -> 0x00ec61c0
+  0x00b72713 -> 0x00ec61c0
+  0x00b72743 -> 0x00ec61c0
+  0x00b72817 -> 0x00ec61c0
+  0x00b72847 -> 0x00ec61c0
+  0x00b7287f -> 0x00ec61c0
+  0x00b728c1 -> 0x00ec61c0
+  0x00b72907 -> 0x00ec61c0
+  0x00b7295b -> 0x00ec61c0
+  0x00b7298f -> 0x00ec61c0
+  0x00b729d1 -> 0x00ec61c0
+  0x00b72a1a -> 0x00ec61c0
+  0x00b72a6e -> 0x00ec61c0
+  0x00b72ab4 -> 0x00ec61c0
+  0x00b72b08 -> 0x00ec61c0
+  0x00b72b60 -> 0x00ec61c0
+  0x00b72c29 -> 0x00ec61c0
+  0x00b72c6e -> 0x00ec61c0
+  0x00b72ca2 -> 0x00ec61c0
+  0x00b72ce8 -> 0x00ec61c0
+  0x00b72d2a -> 0x00ec61c0
+  0x00b72d70 -> 0x00ec61c0
+  0x00b72dc8 -> 0x00ec61c0
+  0x00b72e1f -> 0x00ec61c0
+  0x00b72e53 -> 0x00ec61c0
+  0x00b72e95 -> 0x00ec61c0
+  0x00b72edb -> 0x00ec61c0
+  0x00b72f2f -> 0x00ec61c0
+  0x00b72f63 -> 0x00ec61c0
+  0x00b72fa8 -> 0x00ec61c0
+  0x00b72fee -> 0x00ec61c0
+  0x00b73042 -> 0x00ec61c0
+  0x00b73076 -> 0x00ec61c0
+  0x00b730b8 -> 0x00ec61c0
+  0x00b730ec -> 0x00ec61c0
+  0x00b73131 -> 0x00ec61c0
+  0x00b73153 -> 0x00ec61c0
+  0x00b73183 -> 0x00ec61c0
+  0x00b731b7 -> 0x00ec61c0
+  0x00b731f9 -> 0x00ec61c0
+  0x00b7322d -> 0x00ec61c0
+  0x00b73272 -> 0x00ec61c0
+  0x00b732bc -> 0x00ec61c0
+  0x00b73314 -> 0x00ec61c0
+  0x00b7335e -> 0x00ec61c0
+  0x00b733b6 -> 0x00ec61c0
+  0x00b733ea -> 0x00ec61c0
+  0x00b7342f -> 0x00ec61c0
+  0x00b73475 -> 0x00ec61c0
+  0x00b734a9 -> 0x00ec61c0
+  0x00b734ef -> 0x00ec61c0
+  0x00b73535 -> 0x00ec61c0
+  0x00b73569 -> 0x00ec61c0
+  0x00b73583 -> 0x00ec61c0
+  0x00b735db -> 0x00ec61c0
+  0x00b73621 -> 0x00ec61c0
+  0x00b73638 -> 0x00ec61c0
+  0x00b7367e -> 0x00ec61c0
+  0x00b736d6 -> 0x00ec61c0
+  0x00b7370d -> 0x00ec61c0
+  0x00b73753 -> 0x00ec61c0
+  0x00b73795 -> 0x00ec61c0
+  0x00b737e9 -> 0x00ec61c0
+  0x00b7382f -> 0x00ec61c0
+  0x00b73851 -> 0x00ec61c0
+  0x00b73884 -> 0x00ec61c0
+  0x00b738b8 -> 0x00ec61c0
+  0x00b738ec -> 0x00ec61c0
+  0x00b7392e -> 0x00ec61c0
+  0x00b73950 -> 0x00ec61c0
+  0x00b73980 -> 0x00ec61c0
+  0x00b739b7 -> 0x00ec61c0
+  0x00b739d9 -> 0x00ec61c0
+  0x00b73a09 -> 0x00ec61c0
+  0x00b73a2b -> 0x00ec61c0
+  0x00b73a5f -> 0x00ec61c0
+  0x00b73aa5 -> 0x00ec61c0
+  0x00b73aee -> 0x00ec61c0
+  0x00b73b22 -> 0x00ec61c0
+  0x00b73b68 -> 0x00ec61c0
+  0x00b73b8a -> 0x00ec61c0
+  0x00b73bba -> 0x00ec61c0
+  0x00b73bee -> 0x00ec61c0
+  0x00b73c13 -> 0x00ec61c0
+  0x00b73c43 -> 0x00ec61c0
+  0x00b73c77 -> 0x00ec61c0
+  0x00b73cb9 -> 0x00ec61c0
+  0x00b73d11 -> 0x00ec61c0
+  0x00b73d33 -> 0x00ec61c0
+  0x00b73d66 -> 0x00ec61c0
+  0x00b73d9a -> 0x00ec61c0
+  0x00b73ddc -> 0x00ec61c0
+  0x00b73e10 -> 0x00ec61c0
+  0x00b73e52 -> 0x00ec61c0
+  0x00b73e98 -> 0x00ec61c0
+  0x00b73eef -> 0x00ec61c0
+  0x00b73f24 -> 0x00ec61c0
+  0x00b73f66 -> 0x00ec61c0
+  0x00b73f9a -> 0x00ec61c0
+  0x00b73fc3 -> 0x00be0c00
+  0x00b73fdb -> 0x00406d00
+  0x00b74000 -> 0x00be0fe0
+  0x00b7401c -> 0x00000067
+  0x00b74043 -> 0x00000066
+  0x00b74076 -> 0x00be0c00
+  0x00b7408e -> 0x00406d00
+  0x00b740b3 -> 0x00be0fe0
+  0x00b740cd -> 0x00000067
+  0x00b740ef -> 0x00000066
+  0x00b7413a -> 0x00000067
+  0x00b74162 -> 0x00be0c00
+  0x00b7417a -> 0x00406d00
+  0x00b7419f -> 0x00be0fe0
+  0x00b741b9 -> 0x00000067
+  0x00b741db -> 0x00000066
+  0x00b74203 -> 0x00ec408c
+  Total calls: 172

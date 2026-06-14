@@ -1,0 +1,3762 @@
+FNV PBR CLOSE TERRAIN SELECTOR MATERIAL LIFETIME AUDIT
+
+Goal:
+- Find writers and clearers for selector material arrays +0xAC..+0xC0, layer flags +0xC4/+0xCC, layer kind/count +0xA8, and pass list +0x3C.
+- Prove whether selector pointer is a stable cache key or needs generation/clear rules.
+- Prove whether setup callbacks always run after material-array mutation before final texture binding.
+
+----------------------------------------------------------------------
+References TO 0x00b66640 (terrain layer flag initializer)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x00539e35 (in FUN_00539960) CALL 0x00b66640
+  UNCONDITIONAL_CALL @ 0x0053a48c (in FUN_0053a090) CALL 0x00b66640
+  Total printed: 2 refs
+
+----------------------------------------------------------------------
+References TO 0x00b68660 (six material array writer)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x00539bcf (in FUN_00539960) CALL 0x00b68660
+  UNCONDITIONAL_CALL @ 0x00539bef (in FUN_00539960) CALL 0x00b68660
+  UNCONDITIONAL_CALL @ 0x00539c4c (in FUN_00539960) CALL 0x00b68660
+  UNCONDITIONAL_CALL @ 0x00539c5c (in FUN_00539960) CALL 0x00b68660
+  UNCONDITIONAL_CALL @ 0x0053a253 (in FUN_0053a090) CALL 0x00b68660
+  UNCONDITIONAL_CALL @ 0x0053a273 (in FUN_0053a090) CALL 0x00b68660
+  UNCONDITIONAL_CALL @ 0x0053a2d0 (in FUN_0053a090) CALL 0x00b68660
+  UNCONDITIONAL_CALL @ 0x0053a2e0 (in FUN_0053a090) CALL 0x00b68660
+  Total printed: 8 refs
+
+----------------------------------------------------------------------
+References TO 0x00b79b00 (PPLighting selector constructor)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x00b7a686 (in FUN_00b7a380) CALL 0x00b79b00
+  UNCONDITIONAL_CALL @ 0x00bd44f3 (in FUN_00bd44c0) CALL 0x00b79b00
+  UNCONDITIONAL_CALL @ 0x00bd12f9 (in FUN_00bd12c0) CALL 0x00b79b00
+  UNCONDITIONAL_CALL @ 0x00bcf829 (in FUN_00bcf7f0) CALL 0x00b79b00
+  UNCONDITIONAL_CALL @ 0x00bcd3c5 (in FUN_00bcd390) CALL 0x00b79b00
+  Total printed: 5 refs
+
+----------------------------------------------------------------------
+References TO 0x00b79de0 (PPLighting selector clone/constructor)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x00b7ce63 (in FUN_00b7ce60) CALL 0x00b79de0
+  UNCONDITIONAL_CALL @ 0x00bcd5ad (in FUN_00bcd4a0) CALL 0x00b79de0
+  UNCONDITIONAL_CALL @ 0x00bcfa2d (in FUN_00bcf920) CALL 0x00b79de0
+  UNCONDITIONAL_CALL @ 0x00bd0f44 (in FUN_00bd0ce0) CALL 0x00b79de0
+  UNCONDITIONAL_CALL @ 0x00bd467d (in FUN_00bd4570) CALL 0x00b79de0
+  Total printed: 5 refs
+
+----------------------------------------------------------------------
+References TO 0x00b99390 (draw selector setup dispatcher)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x00b99539 (in FUN_00b994f0) CALL 0x00b99390
+  Total printed: 1 refs
+
+----------------------------------------------------------------------
+References TO 0x00bdb4a0 (PPLighting selector setup +0xF0 variant)
+----------------------------------------------------------------------
+  DATA @ 0x010ae1e4 (in ???) 
+  DATA @ 0x010b8444 (in ???) 
+  DATA @ 0x010b944c (in ???) 
+  DATA @ 0x010b95a4 (in ???) 
+  DATA @ 0x010b9a24 (in ???) 
+  DATA @ 0x010bad0c (in ???) 
+  DATA @ 0x010bcc74 (in ???) 
+  Total printed: 7 refs
+
+----------------------------------------------------------------------
+References TO 0x00bdf790 (PPLighting selector setup +0xF4 main)
+----------------------------------------------------------------------
+  DATA @ 0x010ae1e8 (in ???) 
+  DATA @ 0x010b8448 (in ???) 
+  DATA @ 0x010b9450 (in ???) 
+  DATA @ 0x010b95a8 (in ???) 
+  DATA @ 0x010b9a28 (in ???) 
+  DATA @ 0x010bad10 (in ???) 
+  DATA @ 0x010bcc78 (in ???) 
+  Total printed: 7 refs
+
+----------------------------------------------------------------------
+References TO 0x010ae0f4 (candidate material-array owner vtable)
+----------------------------------------------------------------------
+  Total printed: 0 refs
+
+----------------------------------------------------------------------
+References TO 0x010af2f8 (PPLighting shader selector vtable)
+----------------------------------------------------------------------
+  DATA @ 0x00b79b34 (in FUN_00b79b00) MOV dword ptr [ESI],0x10af2f8
+  DATA @ 0x00b79e0b (in FUN_00b79de0) MOV dword ptr [EBP],0x10af2f8
+  Total printed: 2 refs
+
+----------------------------------------------------------------------
+References TO 0x011f91e0 (current draw record global)
+----------------------------------------------------------------------
+  WRITE @ 0x00b54a17 (in FUN_00b54630) MOV dword ptr [0x011f91e0],EBP
+  WRITE @ 0x00b57946 (in FUN_00b578a0) MOV dword ptr [0x011f91e0],EBX
+  WRITE @ 0x00b653f6 (in FUN_00b651e0) MOV dword ptr [0x011f91e0],ECX
+  WRITE @ 0x00b65445 (in FUN_00b651e0) MOV dword ptr [0x011f91e0],ECX
+  WRITE @ 0x00b9950c (in FUN_00b994f0) MOV dword ptr [0x011f91e0],ESI
+  READ @ 0x00b7c583 (in FUN_00b7c580) MOV EAX,[0x011f91e0]
+  READ @ 0x00b7c603 (in FUN_00b7c600) MOV EAX,[0x011f91e0]
+  READ @ 0x00b7de6a (in FUN_00b7dde0) MOV ECX,dword ptr [0x011f91e0]
+  READ @ 0x00b7c7b3 (in FUN_00b7c7b0) MOV EAX,[0x011f91e0]
+  READ @ 0x00b7e22a (in FUN_00b7e150) MOV EDX,dword ptr [0x011f91e0]
+  READ @ 0x00b7df5d (in FUN_00b7ded0) MOV ECX,dword ptr [0x011f91e0]
+  READ @ 0x00b7c85a (in FUN_00b7c850) MOV ESI,dword ptr [0x011f91e0]
+  READ @ 0x00b7e071 (in FUN_00b7dfe0) MOV EBX,dword ptr [0x011f91e0]
+  READ @ 0x00b7cb04 (in FUN_00b7cb00) MOV ESI,dword ptr [0x011f91e0]
+  READ @ 0x00b70878 (in FUN_00b70820) MOV ECX,dword ptr [0x011f91e0]
+  READ @ 0x00b70e28 (in FUN_00b70de0) MOV ECX,dword ptr [0x011f91e0]
+  READ @ 0x00b7b679 (in FUN_00b7b450) MOV ECX,dword ptr [0x011f91e0]
+  READ @ 0x00b7b7b3 (in FUN_00b7b730) MOV ESI,dword ptr [0x011f91e0]
+  READ @ 0x00b7baf2 (in FUN_00b7ba70) MOV EDI,dword ptr [0x011f91e0]
+  READ @ 0x00b7bc5c (in FUN_00b7ba70) MOV ECX,dword ptr [0x011f91e0]
+  READ @ 0x00b7be20 (in FUN_00b7be00) MOV EDX,dword ptr [0x011f91e0]
+  READ @ 0x00b7dab3 (in FUN_00b7dab0) MOV EAX,[0x011f91e0]
+  READ @ 0x00b80c23 (in FUN_00b80c20) MOV EAX,[0x011f91e0]
+  READ @ 0x00b864d3 (in FUN_00b864d0) MOV EAX,[0x011f91e0]
+  READ @ 0x00b89d8d (in FUN_00b89d80) MOV ECX,dword ptr [0x011f91e0]
+  READ @ 0x00baa940 (in FUN_00baa850) MOV EAX,[0x011f91e0]
+  READ @ 0x00baaac9 (in FUN_00baa850) MOV EDX,dword ptr [0x011f91e0]
+  READ @ 0x00bac9c3 (in FUN_00bac9c0) MOV EAX,[0x011f91e0]
+  READ @ 0x00bb2765 (in FUN_00bb2760) MOV EBP,dword ptr [0x011f91e0]
+  READ @ 0x00b71360 (in FUN_00b71360) MOV EAX,[0x011f91e0]
+  READ @ 0x00bb6a83 (in FUN_00bb6a80) MOV EAX,[0x011f91e0]
+  READ @ 0x00bbef9c (in FUN_00bbef90) MOV EAX,[0x011f91e0]
+  READ @ 0x00bbf181 (in FUN_00bbef90) MOV ECX,dword ptr [0x011f91e0]
+  READ @ 0x00bc9a5b (in FUN_00bc9a50) MOV ECX,dword ptr [0x011f91e0]
+  READ @ 0x00bca983 (in FUN_00bca980) MOV EAX,[0x011f91e0]
+  READ @ 0x00bcbce3 (in FUN_00bcbce0) MOV EAX,[0x011f91e0]
+  READ @ 0x00bd4ba3 (in FUN_00bd4ba0) MOV EAX,[0x011f91e0]
+  WRITE @ 0x00b9d0b1 (in FUN_00b9d020) MOV dword ptr [0x011f91e0],EBX
+  WRITE @ 0x00b9d0ef (in FUN_00b9d020) MOV dword ptr [0x011f91e0],EBX
+  READ @ 0x00c043f3 (in FUN_00c043f0) MOV EAX,[0x011f91e0]
+  WRITE @ 0x00b63337 (in FUN_00b63320) MOV dword ptr [0x011f91e0],ESI
+  READ @ 0x00b7d204 (in FUN_00b7d200) MOV EDX,dword ptr [0x011f91e0]
+  READ @ 0x00ba5ee0 (in ???) MOV EAX,[0x011f91e0]
+  READ @ 0x00bac98e (in ???) MOV EAX,[0x011f91e0]
+  READ @ 0x00b7c12c (in FUN_00b7c120) MOV EAX,[0x011f91e0]
+  READ @ 0x00bd4987 (in ???) MOV EAX,[0x011f91e0]
+  READ @ 0x00c02ede (in ???) MOV EDX,dword ptr [0x011f91e0]
+  READ @ 0x00c0ce34 (in ???) MOV EDX,dword ptr [0x011f91e0]
+  READ @ 0x00c0c687 (in FUN_00c0bd40) MOV ECX,dword ptr [0x011f91e0]
+  WRITE @ 0x00b542a9 (in FUN_00b54280) MOV dword ptr [0x011f91e0],EBX
+  Total printed: 50 refs
+
+----------------------------------------------------------------------
+References TO 0x011ffe2c (last selector object global)
+----------------------------------------------------------------------
+  WRITE @ 0x00b57744 (in FUN_00b57420) MOV dword ptr [0x011ffe2c],EBX
+  READ @ 0x00b988e0 (in FUN_00b988e0) MOV ECX,dword ptr [0x011ffe2c]
+  READ @ 0x00b98906 (in FUN_00b988e0) MOV ECX,dword ptr [0x011ffe2c]
+  WRITE @ 0x00b98959 (in FUN_00b988e0) MOV dword ptr [0x011ffe2c],EBX
+  READ @ 0x00b9952d (in FUN_00b994f0) CMP EAX,dword ptr [0x011ffe2c]
+  READ @ 0x00b995fd (in FUN_00b994f0) MOV ECX,dword ptr [0x011ffe2c]
+  WRITE @ 0x00b9948b (in FUN_00b99390) MOV dword ptr [0x011ffe2c],ESI
+  Total printed: 7 refs
+
+======================================================================
+VTABLE SLOTS: candidate material-array owner vtable base 0x010ae0f4
+======================================================================
+  +0x000 @ 0x010ae0f4 -> 0x00acbb70 FUN_00acbb70
+  +0x004 @ 0x010ae0f8 -> 0x00acbb70 FUN_00acbb70
+  +0x008 @ 0x010ae0fc -> 0x00acbb70 FUN_00acbb70
+  +0x00c @ 0x010ae100 -> 0x00acbb70 FUN_00acbb70
+  +0x030 @ 0x010ae124 -> 0x00b667e0 FUN_00b667e0
+  +0x034 @ 0x010ae128 -> 0x00b68ed0 FUN_00b68ed0
+  +0x03c @ 0x010ae130 -> 0x00b690d0 FUN_00b690d0
+  +0x078 @ 0x010ae16c -> 0x00b67a40 FUN_00b67a40
+  +0x07c @ 0x010ae170 -> 0x00b67be0 FUN_00b67be0
+  +0x080 @ 0x010ae174 -> 0x00b683e0 unknown
+  +0x084 @ 0x010ae178 -> 0x00a75f10 FUN_00a75f10
+  +0x088 @ 0x010ae17c -> 0x00b66e20 FUN_00b66e20
+  +0x08c @ 0x010ae180 -> 0x00b68880 FUN_00b68880
+  +0x0dc @ 0x010ae1d0 -> 0x00b672e0 unknown
+  +0x0f0 @ 0x010ae1e4 -> 0x00bdb4a0 PPLighting selector setup +0xF0 variant
+  +0x0f4 @ 0x010ae1e8 -> 0x00bdf790 PPLighting selector setup +0xF4 main
+  +0x144 @ 0x010ae238 -> 0x20732509 unknown
+  +0x148 @ 0x010ae23c -> 0x6d6f6547 unknown
+  +0x14c @ 0x010ae240 -> 0x79727465 unknown
+  +0x150 @ 0x010ae244 -> 0x73616820 unknown
+
+----------------------------------------------------------------------
+References TO 0x010ae0f4 (candidate material-array owner vtable)
+----------------------------------------------------------------------
+  Total printed: 0 refs
+
+======================================================================
+VTABLE SLOTS: PPLighting shader selector vtable base 0x010af2f8
+======================================================================
+  +0x000 @ 0x010af2f8 -> 0x00b7ce60 FUN_00b7ce60
+  +0x004 @ 0x010af2fc -> 0x00cfcc20 FUN_00cfcc20
+  +0x008 @ 0x010af300 -> 0x00b79dd0 unknown
+  +0x00c @ 0x010af304 -> 0x00e7cd40 FUN_00e7cd40
+  +0x030 @ 0x010af328 -> 0x00e7cd40 FUN_00e7cd40
+  +0x034 @ 0x010af32c -> 0x00e7cd40 FUN_00e7cd40
+  +0x03c @ 0x010af334 -> 0x00e7cd40 FUN_00e7cd40
+  +0x078 @ 0x010af370 -> 0x00b7d200 FUN_00b7d200
+  +0x07c @ 0x010af374 -> 0x00b7dab0 FUN_00b7dab0
+  +0x080 @ 0x010af378 -> 0x00be1ff0 FUN_00be1ff0
+  +0x084 @ 0x010af37c -> 0x00be20b0 unknown
+  +0x088 @ 0x010af380 -> 0x00be20e0 unknown
+  +0x08c @ 0x010af384 -> 0x00b7c320 unknown
+  +0x0dc @ 0x010af3d4 -> 0x00e81500 unknown
+  +0x0f0 @ 0x010af3e8 -> 0x00b7af80 FUN_00b7af80
+  +0x0f4 @ 0x010af3ec -> 0x00be1f90 unknown
+  +0x144 @ 0x010af43c -> 0x00bd0470 FUN_00bd0470
+  +0x148 @ 0x010af440 -> 0x00b71bf0 FUN_00b71bf0
+  +0x14c @ 0x010af444 -> 0x00b74210 unknown
+  +0x150 @ 0x010af448 -> 0x00b7a730 unknown
+
+----------------------------------------------------------------------
+References TO 0x010af2f8 (PPLighting shader selector vtable)
+----------------------------------------------------------------------
+  DATA @ 0x00b79b34 (in FUN_00b79b00) MOV dword ptr [ESI],0x10af2f8
+  DATA @ 0x00b79e0b (in FUN_00b79de0) MOV dword ptr [EBP],0x10af2f8
+  Total printed: 2 refs
+
+======================================================================
+ref owner for PPLighting shader selector vtable @ 0x00b79b00
+======================================================================
+  Function: FUN_00b79b00 @ 0x00b79b00, Size: 612 bytes
+
+/* WARNING: Globals starting with '_' overlap smaller symbols at the same address */
+
+undefined4 * __thiscall
+FUN_00b79b00(undefined4 *param_1,int *param_2,int *param_3,int *param_4,int *param_5)
+
+{
+  int *piVar1;
+  uint uVar2;
+  LONG LVar3;
+  int *unaff_FS_OFFSET;
+  int local_c;
+  undefined1 *puStack_8;
+  undefined4 local_4;
+  
+  local_4 = 0xffffffff;
+  puStack_8 = &LAB_00f28d09;
+  local_c = *unaff_FS_OFFSET;
+  uVar2 = DAT_011c16bc ^ (uint)&stack0xffffffd0;
+  *unaff_FS_OFFSET = (int)&local_c;
+  FUN_00be2200(uVar2);
+  *param_1 = &PTR_FUN_010af2f8;
+  param_1[0x1b] = 0;
+  param_1[0x1c] = 0;
+  param_1[0x1d] = 0;
+  param_1[0x1e] = 0;
+  param_1[0x1f] = 0;
+  param_1[0x20] = 0;
+  param_1[0x21] = 0;
+  param_1[0x22] = 0;
+  param_1[0x1a] = 1;
+  piVar1 = (int *)param_1[10];
+  local_4 = 8;
+  if (piVar1 != param_2) {
+    if (piVar1 != (int *)0x0) {
+      LVar3 = InterlockedDecrement(piVar1 + 1);
+      if (LVar3 == 0) {
+        (**(code **)(*piVar1 + 4))();
+      }
+    }
+    param_1[10] = param_2;
+    if (param_2 != (int *)0x0) {
+      InterlockedIncrement(param_2 + 1);
+    }
+  }
+  piVar1 = (int *)param_1[0x1b];
+  if (piVar1 != param_2) {
+    if (piVar1 != (int *)0x0) {
+      LVar3 = InterlockedDecrement(piVar1 + 1);
+      if (LVar3 == 0) {
+        (**(code **)(*piVar1 + 4))();
+      }
+    }
+    param_1[0x1b] = param_2;
+    if (param_2 != (int *)0x0) {
+      InterlockedIncrement(param_2 + 1);
+    }
+  }
+  piVar1 = (int *)param_1[0x1c];
+  if (piVar1 != param_3) {
+    if (piVar1 != (int *)0x0) {
+      LVar3 = InterlockedDecrement(piVar1 + 1);
+      if (LVar3 == 0) {
+        (**(code **)(*piVar1 + 4))();
+      }
+    }
+    param_1[0x1c] = param_3;
+    if (param_3 != (int *)0x0) {
+      InterlockedIncrement(param_3 + 1);
+    }
+  }
+  piVar1 = (int *)param_1[0x1d];
+  if (piVar1 != param_4) {
+    if (piVar1 != (int *)0x0) {
+      LVar3 = InterlockedDecrement(piVar1 + 1);
+      if (LVar3 == 0) {
+        (**(code **)(*piVar1 + 4))();
+      }
+    }
+    param_1[0x1d] = param_4;
+    if (param_4 != (int *)0x0) {
+      InterlockedIncrement(param_4 + 1);
+    }
+  }
+  piVar1 = (int *)param_1[0x1e];
+  if (piVar1 != param_5) {
+    if (piVar1 != (int *)0x0) {
+      LVar3 = InterlockedDecrement(piVar1 + 1);
+      if (LVar3 == 0) {
+        (**(code **)(*piVar1 + 4))();
+      }
+    }
+    param_1[0x1e] = param_5;
+    if (param_5 != (int *)0x0) {
+      InterlockedIncrement(param_5 + 1);
+    }
+  }
+  piVar1 = (int *)param_1[0x20];
+  if (piVar1 != (int *)0x0) {
+    LVar3 = InterlockedDecrement(piVar1 + 1);
+    if (LVar3 == 0) {
+      (**(code **)(*piVar1 + 4))();
+    }
+    param_1[0x20] = 0;
+  }
+  piVar1 = (int *)param_1[0x1f];
+  if (piVar1 != (int *)0x0) {
+    LVar3 = InterlockedDecrement(piVar1 + 1);
+    if (LVar3 == 0) {
+      (**(code **)(*piVar1 + 4))();
+    }
+    param_1[0x1f] = 0;
+  }
+  piVar1 = (int *)param_1[0x22];
+  if (piVar1 != (int *)0x0) {
+    LVar3 = InterlockedDecrement(piVar1 + 1);
+    if (LVar3 == 0) {
+      (**(code **)(*piVar1 + 4))();
+    }
+    param_1[0x22] = 0;
+  }
+  piVar1 = (int *)param_1[0x21];
+  if (piVar1 != (int *)0x0) {
+    LVar3 = InterlockedDecrement(piVar1 + 1);
+    if (LVar3 == 0) {
+      (**(code **)(*piVar1 + 4))();
+    }
+    param_1[0x21] = 0;
+  }
+  _DAT_011fd954 = 1.0 / _DAT_012023e0;
+  _DAT_011fd95c = 0;
+  _DAT_011fd958 = 0;
+  _DAT_011fd960 = 0;
+  param_1[0x18] = 0;
+  *unaff_FS_OFFSET = local_c;
+  return param_1;
+}
+
+
+
+======================================================================
+Matched decompile lines: ref owner for PPLighting shader selector vtable @ 0x00b79b00
+======================================================================
+  Total matched lines: 0
+
+======================================================================
+FIELD INSTRUCTION HITS: ref owner for PPLighting shader selector vtable @ 0x00b79b00
+======================================================================
+  0x00b79bd8: MOV EBX,dword ptr [ESP + 0x3c]                             FUN_00b79b00+0xd8
+  Total field hits: 1
+
+======================================================================
+ref owner for PPLighting shader selector vtable @ 0x00b79de0
+======================================================================
+  Function: FUN_00b79de0 @ 0x00b79de0, Size: 905 bytes
+
+void __fastcall FUN_00b79de0(undefined4 *param_1)
+
+{
+  int *piVar1;
+  LONG LVar2;
+  int *piVar3;
+  int *unaff_FS_OFFSET;
+  int local_c;
+  undefined1 *puStack_8;
+  int local_4;
+  
+  puStack_8 = &LAB_00f28d99;
+  local_c = *unaff_FS_OFFSET;
+  *unaff_FS_OFFSET = (int)&local_c;
+  *param_1 = &PTR_FUN_010af2f8;
+  local_4 = 8;
+  piVar3 = &DAT_011fdd88;
+  do {
+    piVar1 = (int *)*piVar3;
+    if (piVar1 != (int *)0x0) {
+      LVar2 = InterlockedDecrement(piVar1 + 1);
+      if (LVar2 == 0) {
+        (**(code **)(*piVar1 + 4))();
+      }
+      *piVar3 = 0;
+    }
+    piVar3 = piVar3 + 1;
+  } while ((int)piVar3 < 0x11fdff8);
+  piVar3 = &DAT_011fda48;
+  do {
+    piVar1 = (int *)*piVar3;
+    if (piVar1 != (int *)0x0) {
+      LVar2 = InterlockedDecrement(piVar1 + 1);
+      if (LVar2 == 0) {
+        (**(code **)(*piVar1 + 4))();
+      }
+      *piVar3 = 0;
+    }
+    piVar3 = piVar3 + 1;
+  } while ((int)piVar3 < 0x11fdd88);
+  piVar3 = &DAT_011fdff8;
+  do {
+    if (*piVar3 != 0) {
+      piVar1 = (int *)(*piVar3 + 100);
+      *piVar1 = *piVar1 + -1;
+      if (*piVar1 == 0) {
+        FUN_00e80190();
+      }
+      *piVar3 = 0;
+    }
+    piVar3 = piVar3 + 1;
+  } while ((int)piVar3 < 0x11febd4);
+  piVar3 = &DAT_011febd8;
+  do {
+    piVar1 = (int *)*piVar3;
+    if (piVar1 != (int *)0x0) {
+      LVar2 = InterlockedDecrement(piVar1 + 1);
+      if (LVar2 == 0) {
+        (**(code **)(*piVar1 + 4))();
+      }
+      *piVar3 = 0;
+    }
+    piVar3 = piVar3 + 1;
+  } while ((int)piVar3 < 0x11fec30);
+  piVar3 = &DAT_011fec30;
+  do {
+    piVar1 = (int *)*piVar3;
+    if (piVar1 != (int *)0x0) {
+      LVar2 = InterlockedDecrement(piVar1 + 1);
+      if (LVar2 == 0) {
+        (**(code **)(*piVar1 + 4))();
+      }
+      *piVar3 = 0;
+    }
+    piVar3 = piVar3 + 1;
+  } while ((int)piVar3 < 0x11fec88);
+  piVar3 = (int *)param_1[10];
+  if (piVar3 != (int *)0x0) {
+    LVar2 = InterlockedDecrement(piVar3 + 1);
+    if (LVar2 == 0) {
+      (**(code **)(*piVar3 + 4))();
+    }
+    param_1[10] = 0;
+  }
+  piVar3 = (int *)param_1[0x1b];
+  if (piVar3 != (int *)0x0) {
+    LVar2 = InterlockedDecrement(piVar3 + 1);
+    if (LVar2 == 0) {
+      (**(code **)(*piVar3 + 4))();
+    }
+    param_1[0x1b] = 0;
+  }
+  piVar3 = (int *)param_1[0x1c];
+  if (piVar3 != (int *)0x0) {
+    LVar2 = InterlockedDecrement(piVar3 + 1);
+    if (LVar2 == 0) {
+      (**(code **)(*piVar3 + 4))();
+    }
+    param_1[0x1c] = 0;
+  }
+  piVar3 = (int *)param_1[0x1d];
+  if (piVar3 != (int *)0x0) {
+    LVar2 = InterlockedDecrement(piVar3 + 1);
+    if (LVar2 == 0) {
+      (**(code **)(*piVar3 + 4))();
+    }
+    param_1[0x1d] = 0;
+  }
+  piVar3 = (int *)param_1[0x1e];
+  if (piVar3 != (int *)0x0) {
+    LVar2 = InterlockedDecrement(piVar3 + 1);
+    if (LVar2 == 0) {
+      (**(code **)(*piVar3 + 4))();
+    }
+    param_1[0x1e] = 0;
+  }
+  piVar3 = (int *)param_1[0x20];
+  if (piVar3 != (int *)0x0) {
+    LVar2 = InterlockedDecrement(piVar3 + 1);
+    if (LVar2 == 0) {
+      (**(code **)(*piVar3 + 4))();
+    }
+    param_1[0x20] = 0;
+  }
+  piVar3 = (int *)param_1[0x1f];
+  if (piVar3 != (int *)0x0) {
+    LVar2 = InterlockedDecrement(piVar3 + 1);
+    if (LVar2 == 0) {
+      (**(code **)(*piVar3 + 4))();
+    }
+    param_1[0x1f] = 0;
+  }
+  piVar3 = (int *)param_1[0x22];
+  if (piVar3 != (int *)0x0) {
+    LVar2 = InterlockedDecrement(piVar3 + 1);
+    if (LVar2 == 0) {
+      (**(code **)(*piVar3 + 4))();
+    }
+    param_1[0x22] = 0;
+  }
+  piVar3 = (int *)param_1[0x21];
+  if (piVar3 != (int *)0x0) {
+    LVar2 = InterlockedDecrement(piVar3 + 1);
+    if (LVar2 == 0) {
+      (**(code **)(*piVar3 + 4))();
+    }
+    param_1[0x21] = 0;
+  }
+  piVar3 = (int *)param_1[0x22];
+  local_4._0_1_ = 7;
+  if (piVar3 != (int *)0x0) {
+    LVar2 = InterlockedDecrement(piVar3 + 1);
+    if (LVar2 == 0) {
+      (**(code **)(*piVar3 + 4))();
+    }
+  }
+  piVar3 = (int *)param_1[0x21];
+  local_4._0_1_ = 6;
+  if (piVar3 != (int *)0x0) {
+    LVar2 = InterlockedDecrement(piVar3 + 1);
+    if (LVar2 == 0) {
+      (**(code **)(*piVar3 + 4))();
+    }
+  }
+  piVar3 = (int *)param_1[0x20];
+  local_4._0_1_ = 5;
+  if (piVar3 != (int *)0x0) {
+    LVar2 = InterlockedDecrement(piVar3 + 1);
+    if (LVar2 == 0) {
+      (**(code **)(*piVar3 + 4))();
+    }
+  }
+  piVar3 = (int *)param_1[0x1f];
+  local_4._0_1_ = 4;
+  if (piVar3 != (int *)0x0) {
+    LVar2 = InterlockedDecrement(piVar3 + 1);
+    if (LVar2 == 0) {
+      (**(code **)(*piVar3 + 4))();
+    }
+  }
+  piVar3 = (int *)param_1[0x1e];
+  local_4._0_1_ = 3;
+  if (piVar3 != (int *)0x0) {
+    LVar2 = InterlockedDecrement(piVar3 + 1);
+    if (LVar2 == 0) {
+      (**(code **)(*piVar3 + 4))();
+    }
+  }
+  piVar3 = (int *)param_1[0x1d];
+  local_4._0_1_ = 2;
+  if (piVar3 != (int *)0x0) {
+    LVar2 = InterlockedDecrement(piVar3 + 1);
+    if (LVar2 == 0) {
+      (**(code **)(*piVar3 + 4))();
+    }
+  }
+  piVar3 = (int *)param_1[0x1c];
+  local_4._0_1_ = 1;
+  if (piVar3 != (int *)0x0) {
+    LVar2 = InterlockedDecrement(piVar3 + 1);
+    if (LVar2 == 0) {
+      (**(code **)(*piVar3 + 4))();
+    }
+  }
+  piVar3 = (int *)param_1[0x1b];
+  local_4 = (uint)local_4._1_3_ << 8;
+  if (piVar3 != (int *)0x0) {
+    LVar2 = InterlockedDecrement(piVar3 + 1);
+    if (LVar2 == 0) {
+      (**(code **)(*piVar3 + 4))();
+    }
+  }
+  local_4 = 0xffffffff;
+  FUN_00be0f10();
+  *unaff_FS_OFFSET = local_c;
+  return;
+}
+
+
+
+======================================================================
+Matched decompile lines: ref owner for PPLighting shader selector vtable @ 0x00b79de0
+======================================================================
+  Total matched lines: 0
+
+======================================================================
+FIELD INSTRUCTION HITS: ref owner for PPLighting shader selector vtable @ 0x00b79de0
+======================================================================
+  Total field hits: 0
+
+--- Calls FROM terrain texture writer callsite A (0x00539960) ---
+  0x0053999c -> 0x00404eb0 FUN_00404eb0
+  0x005399d7 -> 0x00404ee0 FUN_00404ee0
+  0x005399ff -> 0x00414430 FUN_00414430
+  0x00539aaa -> 0x005394c0 FUN_005394c0
+  0x00539adb -> 0x00aa13e0 FUN_00aa13e0
+  0x00539b08 -> 0x00539f50 FID_conflict:RealizedChore
+  0x00539b2d -> 0x00539f40 FUN_00539f40
+  0x00539b41 -> 0x00a5bc40 FUN_00a5bc40
+  0x00539b4b -> 0x00aa13e0 FUN_00aa13e0
+  0x00539b63 -> 0x00b66f50 FUN_00b66f50
+  0x00539b89 -> 0x005a8060 FUN_005a8060
+  0x00539bb1 -> 0x009611e0 FUN_009611e0
+  0x00539bbd -> 0x009611e0 FUN_009611e0
+  0x00539bc4 -> 0x00592cf0 FUN_00592cf0
+  0x00539bcf -> 0x00b68660 six material array writer
+  0x00539bd6 -> 0x00535ae0 FUN_00535ae0
+  0x00539bdd -> 0x009611e0 FUN_009611e0
+  0x00539be4 -> 0x00592cf0 FUN_00592cf0
+  0x00539bef -> 0x00b68660 six material array writer
+  0x00539c2c -> 0x009611e0 FUN_009611e0
+  0x00539c38 -> 0x009611e0 FUN_009611e0
+  0x00539c3f -> 0x00592cf0 FUN_00592cf0
+  0x00539c4c -> 0x00b68660 six material array writer
+  0x00539c5c -> 0x00b68660 six material array writer
+  0x00539c86 -> 0x00541590 FUN_00541590
+  0x00539cbd -> 0x00541590 FUN_00541590
+  0x00539cf4 -> 0x00541590 FUN_00541590
+  0x00539d31 -> 0x00541590 FUN_00541590
+  0x00539d6e -> 0x00541590 FUN_00541590
+  0x00539da9 -> 0x00541590 FUN_00541590
+  0x00539de0 -> 0x00541590 FUN_00541590
+  0x00539e35 -> 0x00b66640 terrain layer flag initializer
+  0x00539e4a -> 0x0045bc00 FUN_0045bc00
+  0x00539e56 -> 0x00b54b60 FUN_00b54b60
+  0x00539e68 -> 0x00539f20 FUN_00539f20
+  0x00539e8b -> 0x00539ef0 FUN_00539ef0
+  0x00539e97 -> 0x00439410 FUN_00439410
+  0x00539eaf -> 0x00b57e30 FUN_00b57e30
+  0x00539eca -> 0x00404ee0 FUN_00404ee0
+  Total: 39 calls
+
+======================================================================
+terrain texture writer callsite A @ 0x00539960
+======================================================================
+  Function: FUN_00539960 @ 0x00539960, Size: 1409 bytes
+
+undefined4 __fastcall FUN_00539960(int param_1)
+
+{
+  undefined1 uVar1;
+  undefined1 uVar2;
+  undefined1 uVar3;
+  undefined1 uVar4;
+  undefined1 uVar5;
+  undefined1 uVar6;
+  undefined1 uVar7;
+  uint uVar8;
+  int iVar9;
+  undefined4 uVar10;
+  undefined4 uVar11;
+  undefined4 *puVar12;
+  int *unaff_FS_OFFSET;
+  int *local_7c;
+  undefined4 local_78;
+  int local_58;
+  undefined4 local_30;
+  undefined4 local_2c;
+  undefined4 local_28;
+  undefined4 local_24;
+  int local_1c;
+  int local_18;
+  int local_14;
+  int local_10;
+  undefined1 *puStack_c;
+  int local_8;
+  
+  local_8 = 0xffffffff;
+  puStack_c = &LAB_00ef5b19;
+  local_10 = *unaff_FS_OFFSET;
+  uVar8 = DAT_011c16bc ^ (uint)&stack0xfffffffc;
+  *unaff_FS_OFFSET = (int)&local_10;
+  FUN_00404eb0(0x1b,1,"D:\\_Fallout3\\Platforms\\Common\\Code\\Fallout Shared\\TESLand.cpp",0xca4);
+  local_8 = 0;
+  if (((*(int *)(param_1 + 0x28) == 0) || (**(int **)(param_1 + 0x28) == 0)) ||
+     (*(int *)**(undefined4 **)(param_1 + 0x28) == 0)) {
+    local_8 = 0xffffffff;
+    FUN_00404ee0(uVar8);
+    uVar10 = 0;
+  }
+  else {
+    FUN_00414430(0x3f800000,0x3f800000,0x3f800000,0);
+    if ((*(uint *)(param_1 + 0x1c) & 2) == 0) {
+      for (local_1c = 0; local_1c < 4; local_1c = local_1c + 1) {
+        for (local_14 = 0; local_14 < 0x11; local_14 = local_14 + 1) {
+          for (local_18 = 0; local_18 < 0x11; local_18 = local_18 + 1) {
+            puVar12 = (undefined4 *)
+                      (*(int *)(*(int *)(*(int *)(param_1 + 0x28) + 0xc) + local_1c * 4) +
+                      (local_14 * 0x11 + local_18) * 0x10);
+            *puVar12 = local_30;
+            puVar12[1] = local_2c;
+            puVar12[2] = local_28;
+            puVar12[3] = local_24;
+          }
+        }
+      }
+    }
+    FUN_005394c0(1);
+    for (local_1c = 0; local_1c < 4; local_1c = local_1c + 1) {
+      if (*(int *)(param_1 + 0x28) != -0x40) {
+        iVar9 = FUN_00aa13e0(0x14);
+        local_8._0_1_ = 1;
+        if (iVar9 == 0) {
+          local_78 = 0;
+        }
+        else {
+          local_78 = FID_conflict_RealizedChore
+                               (0x2420,**(undefined4 **)
+                                         (*(int *)(param_1 + 0x28) + 0x40 + local_1c * 4));
+        }
+        local_8 = (uint)local_8._1_3_ << 8;
+        uVar10 = FUN_00539f40(local_78);
+        FUN_00a5bc40(uVar10,local_78);
+      }
+      iVar9 = FUN_00aa13e0(0x104);
+      local_8._0_1_ = 2;
+      if (iVar9 == 0) {
+        local_7c = (int *)0x0;
+      }
+      else {
+        local_7c = (int *)FUN_00b66f50();
+      }
+      local_8 = (uint)local_8._1_3_ << 8;
+      FUN_005a8060(1);
+      if (local_7c != (int *)0x0) {
+        if (*(int *)(*(int *)(param_1 + 0x28) + 0x20 + local_1c * 4) == 0) {
+LAB_00539bd6:
+          FUN_00535ae0();
+          FUN_009611e0();
+          uVar10 = FUN_00592cf0();
+          FUN_00b68660(0,uVar10);
+        }
+        else {
+          iVar9 = FUN_009611e0();
+          if (iVar9 == 0) goto LAB_00539bd6;
+          FUN_009611e0();
+          uVar10 = FUN_00592cf0();
+          FUN_00b68660(0,uVar10);
+        }
+        for (local_58 = 1; local_58 < 7; local_58 = local_58 + 1) {
+          if (*(int *)(*(int *)(*(int *)(param_1 + 0x28) + 0x30 + local_1c * 4) + -4 + local_58 * 4)
+              == 0) {
+LAB_00539c53:
+            FUN_00b68660(local_58,0);
+          }
+          else {
+            iVar9 = FUN_009611e0();
+            if (iVar9 == 0) goto LAB_00539c53;
+            FUN_009611e0();
+            uVar10 = FUN_00592cf0();
+            FUN_00b68660(local_58,uVar10);
+          }
+        }
+        if (*(int *)(*(int *)(*(int *)(param_1 + 0x28) + 0x30 + local_1c * 4) + 0x14) == 0) {
+          uVar1 = 0;
+        }
+        else {
+          uVar1 = FUN_00541590();
+        }
+        if (*(int *)(*(int *)(*(int *)(param_1 + 0x28) + 0x30 + local_1c * 4) + 0x10) == 0) {
+          uVar2 = 0;
+        }
+        else {
+          uVar2 = FUN_00541590();
+        }
+        if (*(int *)(*(int *)(*(int *)(param_1 + 0x28) + 0x30 + local_1c * 4) + 0xc) == 0) {
+          uVar3 = 0;
+        }
+        else {
+          uVar3 = FUN_00541590();
+        }
+        if (*(int *)(*(int *)(*(int *)(param_1 + 0x28) + 0x30 + local_1c * 4) + 8) == 0) {
+          uVar4 = 0;
+        }
+        else {
+          uVar4 = FUN_00541590();
+        }
+        if (*(int *)(*(int *)(*(int *)(param_1 + 0x28) + 0x30 + local_1c * 4) + 4) == 0) {
+          uVar5 = 0;
+        }
+        else {
+          uVar5 = FUN_00541590();
+        }
+        if (**(int **)(*(int *)(param_1 + 0x28) + 0x30 + local_1c * 4) == 0) {
+          uVar6 = 0;
+        }
+        else {
+          uVar6 = FUN_00541590();
+        }
+        if (*(int *)(*(int *)(param_1 + 0x28) + 0x20 + local_1c * 4) == 0) {
+          uVar7 = 0;
+        }
+        else {
+          uVar7 = FUN_00541590();
+        }
+        FUN_00b66640(uVar7,uVar6,uVar5,uVar4,uVar3,uVar2,uVar1,0,0,0);
+        uVar10 = FUN_0045bc00(0);
+        uVar11 = FUN_00b54b60(uVar10);
+        FUN_00539f20(uVar11);
+        uVar10 = (**(code **)(*local_7c + 0xd4))(uVar10);
+        FUN_00539ef0(uVar10);
+        FUN_00439410(local_7c);
+        FUN_00b57e30(*(undefined4 *)(**(int **)(param_1 + 0x28) + local_1c * 4),0,0);
+      }
+    }
+    local_8 = 0xffffffff;
+    FUN_00404ee0(uVar8);
+    uVar10 = 1;
+  }
+  *unaff_FS_OFFSET = local_10;
+  return uVar10;
+}
+
+
+
+======================================================================
+Matched decompile lines: terrain texture writer callsite A @ 0x00539960
+======================================================================
+  L95             FUN_00b68660(0,uVar10);
+  L102            FUN_00b68660(0,uVar10);
+  L108              FUN_00b68660(local_58,0);
+  L115              FUN_00b68660(local_58,uVar10);
+  L160          FUN_00b66640(uVar7,uVar6,uVar5,uVar4,uVar3,uVar2,uVar1,0,0,0);
+  Total matched lines: 5
+
+======================================================================
+FIELD INSTRUCTION HITS: terrain texture writer callsite A @ 0x00539960
+======================================================================
+  Total field hits: 0
+
+--- Calls FROM terrain texture writer callsite B (0x0053a090) ---
+  0x0053a0cb -> 0x00535af0 FUN_00535af0
+  0x0053a0ee -> 0x0045bc00 FUN_0045bc00
+  0x0053a128 -> 0x00456650 FUN_00456650
+  0x0053a134 -> 0x0049ec60 FUN_0049ec60
+  0x0053a148 -> 0x00537b10 FUN_00537b10
+  0x0053a14f -> 0x00a7ee30 FUN_00a7ee30
+  0x0053a159 -> 0x005495f0 FUN_005495f0
+  0x0053a160 -> 0x00a67090 FUN_00a67090
+  0x0053a16a -> 0x00a59d30 FUN_00a59d30
+  0x0053a184 -> 0x00441110 FUN_00441110
+  0x0053a191 -> 0x00441110 FUN_00441110
+  0x0053a1c7 -> 0x005495f0 FUN_005495f0
+  0x0053a1ce -> 0x0059bb30 FUN_0059bb30
+  0x0053a1ef -> 0x00401460 FUN_00401460
+  0x0053a1fc -> 0x005495f0 FUN_005495f0
+  0x0053a203 -> 0x00a66a60 FUN_00a66a60
+  0x0053a235 -> 0x009611e0 FUN_009611e0
+  0x0053a241 -> 0x009611e0 FUN_009611e0
+  0x0053a248 -> 0x00592cf0 FUN_00592cf0
+  0x0053a253 -> 0x00b68660 six material array writer
+  0x0053a25a -> 0x00535ae0 FUN_00535ae0
+  0x0053a261 -> 0x009611e0 FUN_009611e0
+  0x0053a268 -> 0x00592cf0 FUN_00592cf0
+  0x0053a273 -> 0x00b68660 six material array writer
+  0x0053a2b0 -> 0x009611e0 FUN_009611e0
+  0x0053a2bc -> 0x009611e0 FUN_009611e0
+  0x0053a2c3 -> 0x00592cf0 FUN_00592cf0
+  0x0053a2d0 -> 0x00b68660 six material array writer
+  0x0053a2e0 -> 0x00b68660 six material array writer
+  0x0053a30a -> 0x00541590 FUN_00541590
+  0x0053a341 -> 0x00541590 FUN_00541590
+  0x0053a378 -> 0x00541590 FUN_00541590
+  0x0053a3af -> 0x00541590 FUN_00541590
+  0x0053a3e6 -> 0x00541590 FUN_00541590
+  0x0053a41b -> 0x00541590 FUN_00541590
+  0x0053a44c -> 0x00541590 FUN_00541590
+  0x0053a48c -> 0x00b66640 terrain layer flag initializer
+  0x0053a494 -> 0x00baa000 FUN_00baa000
+  0x0053a4a6 -> 0x0043d410 FUN_0043d410
+  0x0053a4b2 -> 0x00a59c60 FUN_00a59c60
+  0x0053a4c2 -> 0x00a5a040 FUN_00a5a040
+  0x0053a4da -> 0x00528790 FUN_00528790
+  0x0053a4e6 -> 0x0053fa40 FUN_0053fa40
+  0x0053a4f2 -> 0x00539500 FUN_00539500
+  0x0053a4fa -> 0x005374f0 FUN_005374f0
+  Total: 45 calls
+
+======================================================================
+terrain texture writer callsite B @ 0x0053a090
+======================================================================
+  Function: FUN_0053a090 @ 0x0053a090, Size: 1141 bytes
+
+void __thiscall FUN_0053a090(int param_1,char param_2)
+
+{
+  byte bVar1;
+  undefined1 uVar2;
+  undefined1 uVar3;
+  undefined1 uVar4;
+  undefined1 uVar5;
+  undefined1 uVar6;
+  undefined1 uVar7;
+  undefined1 uVar8;
+  ushort uVar9;
+  int *piVar10;
+  undefined4 uVar11;
+  int iVar12;
+  uint uVar13;
+  int local_44;
+  int local_3c;
+  undefined1 local_18 [12];
+  int local_c;
+  int local_8;
+  
+  if (**(int **)(param_1 + 0x28) == 0) {
+    FUN_00539500(0);
+    FUN_005374f0();
+  }
+  else {
+    for (local_8 = 0; local_8 < 4; local_8 = local_8 + 1) {
+      local_c = FUN_00535af0(local_8);
+      if (local_c != 0) {
+        if (param_2 != '\0') {
+          piVar10 = (int *)FUN_0045bc00(0);
+          if (piVar10 == (int *)0x0) {
+            local_44 = 0;
+          }
+          else {
+            local_44 = (**(code **)(*piVar10 + 0x18))();
+          }
+          if (local_44 != 0) {
+            uVar9 = FUN_00456650();
+            uVar11 = FUN_0049ec60();
+            uVar13 = (uint)uVar9;
+            FUN_00537b10(uVar13,uVar11);
+            FUN_00a7ee30(uVar13,uVar11);
+            uVar11 = 0xf;
+            FUN_005495f0(0xf);
+            FUN_00a67090(uVar11);
+            uVar13 = FUN_00a59d30(3);
+            if (uVar13 == 0) {
+              bVar1 = 0;
+            }
+            else {
+              iVar12 = FUN_00441110();
+              if ((iVar12 < 8) || (iVar12 = FUN_00441110(), 0xc < iVar12)) {
+                bVar1 = 0;
+              }
+              else {
+                bVar1 = 1;
+              }
+            }
+            if ((int *)(-(uint)bVar1 & uVar13) != (int *)0x0) {
+              FUN_005495f0();
+              uVar11 = FUN_0059bb30();
+              FUN_00401460(uVar11,*(undefined4 *)
+                                   (*(int *)(*(int *)(param_1 + 0x28) + 8) + local_8 * 4),0xd8c);
+              uVar11 = 0;
+              FUN_005495f0(0);
+              FUN_00a66a60(uVar11);
+              (**(code **)(*(int *)(-(uint)bVar1 & uVar13) + 0x9c))(local_44);
+              if ((*(int *)(*(int *)(param_1 + 0x28) + 0x20 + local_8 * 4) == 0) ||
+                 (iVar12 = FUN_009611e0(), iVar12 == 0)) {
+                FUN_00535ae0();
+                FUN_009611e0();
+                uVar11 = FUN_00592cf0();
+                FUN_00b68660(0,uVar11);
+              }
+              else {
+                FUN_009611e0();
+                uVar11 = FUN_00592cf0();
+                FUN_00b68660(0,uVar11);
+              }
+              for (local_3c = 1; local_3c < 7; local_3c = local_3c + 1) {
+                if ((*(int *)(*(int *)(*(int *)(param_1 + 0x28) + 0x30 + local_8 * 4) + -4 +
+                             local_3c * 4) == 0) || (iVar12 = FUN_009611e0(), iVar12 == 0)) {
+                  FUN_00b68660(local_3c,0);
+                }
+                else {
+                  FUN_009611e0();
+                  uVar11 = FUN_00592cf0();
+                  FUN_00b68660(local_3c,uVar11);
+                }
+              }
+              if (*(int *)(*(int *)(*(int *)(param_1 + 0x28) + 0x30 + local_8 * 4) + 0x14) == 0) {
+                uVar2 = 0;
+              }
+              else {
+                uVar2 = FUN_00541590();
+              }
+              if (*(int *)(*(int *)(*(int *)(param_1 + 0x28) + 0x30 + local_8 * 4) + 0x10) == 0) {
+                uVar3 = 0;
+              }
+              else {
+                uVar3 = FUN_00541590();
+              }
+              if (*(int *)(*(int *)(*(int *)(param_1 + 0x28) + 0x30 + local_8 * 4) + 0xc) == 0) {
+                uVar4 = 0;
+              }
+              else {
+                uVar4 = FUN_00541590();
+              }
+              if (*(int *)(*(int *)(*(int *)(param_1 + 0x28) + 0x30 + local_8 * 4) + 8) == 0) {
+                uVar5 = 0;
+              }
+              else {
+                uVar5 = FUN_00541590();
+              }
+              if (*(int *)(*(int *)(*(int *)(param_1 + 0x28) + 0x30 + local_8 * 4) + 4) == 0) {
+                uVar6 = 0;
+              }
+              else {
+                uVar6 = FUN_00541590();
+              }
+              if (**(int **)(*(int *)(param_1 + 0x28) + 0x30 + local_8 * 4) == 0) {
+                uVar7 = 0;
+              }
+              else {
+                uVar7 = FUN_00541590();
+              }
+              if (*(int *)(*(int *)(param_1 + 0x28) + 0x20 + local_8 * 4) == 0) {
+                uVar8 = 0;
+              }
+              else {
+                uVar8 = FUN_00541590();
+              }
+              FUN_00b66640(uVar8,uVar7,uVar6,uVar5,uVar4,uVar3,uVar2,0,0,0);
+              FUN_00baa000();
+            }
+          }
+        }
+        FUN_0043d410(0,0,0);
+        FUN_00a59c60(local_18);
+        if (param_2 != '\0') {
+          FUN_00a5a040();
+        }
+      }
+    }
+    if (param_2 != '\0') {
+      uVar2 = FUN_00528790();
+      FUN_0053fa40(uVar2);
+    }
+  }
+  return;
+}
+
+
+
+======================================================================
+Matched decompile lines: terrain texture writer callsite B @ 0x0053a090
+======================================================================
+  L76                   FUN_00b68660(0,uVar11);
+  L81                   FUN_00b68660(0,uVar11);
+  L86                     FUN_00b68660(local_3c,0);
+  L91                     FUN_00b68660(local_3c,uVar11);
+  L136                FUN_00b66640(uVar8,uVar7,uVar6,uVar5,uVar4,uVar3,uVar2,0,0,0);
+  Total matched lines: 5
+
+======================================================================
+FIELD INSTRUCTION HITS: terrain texture writer callsite B @ 0x0053a090
+======================================================================
+  Total field hits: 0
+
+--- Calls FROM terrain layer flag initializer (0x00b66640) ---
+  Total: 0 calls
+
+======================================================================
+terrain layer flag initializer @ 0x00b66640
+======================================================================
+  Function: FUN_00b66640 @ 0x00b66640, Size: 129 bytes
+
+void __thiscall
+FUN_00b66640(int param_1,undefined1 param_2,undefined1 param_3,undefined1 param_4,undefined1 param_5
+            ,undefined1 param_6,undefined1 param_7,undefined1 param_8,undefined1 param_9,
+            undefined1 param_10)
+
+{
+  if (*(short *)(param_1 + 0xa8) == 9) {
+    **(undefined1 **)(param_1 + 0xc4) = param_2;
+    *(undefined1 *)(*(int *)(param_1 + 0xc4) + 1) = param_3;
+    *(undefined1 *)(*(int *)(param_1 + 0xc4) + 2) = param_4;
+    *(undefined1 *)(*(int *)(param_1 + 0xc4) + 3) = param_5;
+    *(undefined1 *)(*(int *)(param_1 + 0xc4) + 4) = param_6;
+    *(undefined1 *)(*(int *)(param_1 + 0xc4) + 5) = param_7;
+    *(undefined1 *)(*(int *)(param_1 + 0xc4) + 6) = param_8;
+    *(undefined1 *)(*(int *)(param_1 + 0xc4) + 7) = param_9;
+    *(undefined1 *)(*(int *)(param_1 + 0xc4) + 8) = param_10;
+  }
+  return;
+}
+
+
+
+======================================================================
+Matched decompile lines: terrain layer flag initializer @ 0x00b66640
+======================================================================
+  L3    FUN_00b66640(int param_1,undefined1 param_2,undefined1 param_3,undefined1 param_4,undefined1 param_5
+  L8      if (*(short *)(param_1 + 0xa8) == 9) {
+  L9        **(undefined1 **)(param_1 + 0xc4) = param_2;
+  L10       *(undefined1 *)(*(int *)(param_1 + 0xc4) + 1) = param_3;
+  L11       *(undefined1 *)(*(int *)(param_1 + 0xc4) + 2) = param_4;
+  L12       *(undefined1 *)(*(int *)(param_1 + 0xc4) + 3) = param_5;
+  L13       *(undefined1 *)(*(int *)(param_1 + 0xc4) + 4) = param_6;
+  L14       *(undefined1 *)(*(int *)(param_1 + 0xc4) + 5) = param_7;
+  L15       *(undefined1 *)(*(int *)(param_1 + 0xc4) + 6) = param_8;
+  L16       *(undefined1 *)(*(int *)(param_1 + 0xc4) + 7) = param_9;
+  L17       *(undefined1 *)(*(int *)(param_1 + 0xc4) + 8) = param_10;
+  Total matched lines: 11
+
+======================================================================
+FIELD INSTRUCTION HITS: terrain layer flag initializer @ 0x00b66640
+======================================================================
+  0x00b66640: CMP word ptr [ECX + 0xa8],0x9                              terrain layer flag initializer
+  0x00b6664a: MOV EAX,dword ptr [ECX + 0xc4]                             FUN_00b66640+0xa
+  0x00b66656: MOV EAX,dword ptr [ECX + 0xc4]                             FUN_00b66640+0x16
+  0x00b66663: MOV EAX,dword ptr [ECX + 0xc4]                             FUN_00b66640+0x23
+  0x00b66670: MOV EAX,dword ptr [ECX + 0xc4]                             FUN_00b66640+0x30
+  0x00b6667d: MOV EAX,dword ptr [ECX + 0xc4]                             FUN_00b66640+0x3d
+  0x00b6668a: MOV EAX,dword ptr [ECX + 0xc4]                             FUN_00b66640+0x4a
+  0x00b66697: MOV EAX,dword ptr [ECX + 0xc4]                             FUN_00b66640+0x57
+  0x00b666a4: MOV EAX,dword ptr [ECX + 0xc4]                             FUN_00b66640+0x64
+  0x00b666b1: MOV EAX,dword ptr [ECX + 0xc4]                             FUN_00b66640+0x71
+  Total field hits: 10
+
+--- Calls FROM six material array writer (0x00b68660) ---
+  0x00b6866d -> 0x00b68450 FUN_00b68450
+  0x00b686c0 -> 0x00000067 unknown
+  Total: 2 calls
+
+======================================================================
+six material array writer @ 0x00b68660
+======================================================================
+  Function: FUN_00b68660 @ 0x00b68660, Size: 261 bytes
+
+void __thiscall FUN_00b68660(int param_1,int param_2,int *param_3)
+
+{
+  int *piVar1;
+  int iVar2;
+  undefined1 uVar3;
+  ushort uVar4;
+  LONG LVar5;
+  int iVar6;
+  int *piVar7;
+  
+  if (*(ushort *)(param_1 + 0xa8) < 10) {
+    FUN_00b68450();
+  }
+  *(undefined1 *)(param_2 + *(int *)(param_1 + 0xcc)) = 0;
+  *(undefined1 *)(param_2 + *(int *)(param_1 + 0xc4)) = 0;
+  iVar6 = 0;
+  do {
+    piVar7 = (int *)(*(int *)(param_1 + 0xac + iVar6 * 4) + param_2 * 4);
+    if (param_3 == (int *)0x0) {
+      piVar1 = (int *)*piVar7;
+      if (piVar1 != (int *)0x0) {
+        LVar5 = InterlockedDecrement(piVar1 + 1);
+        if (LVar5 == 0) {
+          (**(code **)(*piVar1 + 4))();
+        }
+        *piVar7 = 0;
+      }
+    }
+    else {
+      (**(code **)(*param_3 + 0x90))(iVar6,piVar7);
+    }
+    if ((((iVar6 == 1) && (iVar2 = *(int *)(*(int *)(param_1 + 0xb0) + param_2 * 4), iVar2 != 0)) &&
+        (iVar2 = *(int *)(iVar2 + 0x24), iVar2 != 0)) && (iVar2 != -0x14)) {
+      iVar2 = *(int *)(iVar2 + 0x18);
+      if (((iVar2 == 5) || (iVar2 == 6)) || (iVar2 == 1)) {
+        uVar3 = 1;
+      }
+      else {
+        uVar3 = 0;
+      }
+      *(undefined1 *)(param_2 + *(int *)(param_1 + 0xcc)) = uVar3;
+    }
+    iVar6 = iVar6 + 1;
+  } while (iVar6 < 6);
+  uVar4 = 0;
+  do {
+    if (*(int *)(*(int *)(param_1 + 0xac) + (uint)uVar4 * 4) == 0) break;
+    uVar4 = uVar4 + 1;
+  } while (uVar4 < 9);
+  if (uVar4 == 0) {
+    *(undefined2 *)(param_1 + 200) = 0;
+    return;
+  }
+  *(ushort *)(param_1 + 200) = uVar4 - 1;
+  return;
+}
+
+
+
+======================================================================
+Matched decompile lines: six material array writer @ 0x00b68660
+======================================================================
+  L2    void __thiscall FUN_00b68660(int param_1,int param_2,int *param_3)
+  L13     if (*(ushort *)(param_1 + 0xa8) < 10) {
+  L16     *(undefined1 *)(param_2 + *(int *)(param_1 + 0xcc)) = 0;
+  L17     *(undefined1 *)(param_2 + *(int *)(param_1 + 0xc4)) = 0;
+  L20       piVar7 = (int *)(*(int *)(param_1 + 0xac + iVar6 * 4) + param_2 * 4);
+  L34       if ((((iVar6 == 1) && (iVar2 = *(int *)(*(int *)(param_1 + 0xb0) + param_2 * 4), iVar2 != 0)) &&
+  L43         *(undefined1 *)(param_2 + *(int *)(param_1 + 0xcc)) = uVar3;
+  L49       if (*(int *)(*(int *)(param_1 + 0xac) + (uint)uVar4 * 4) == 0) break;
+  Total matched lines: 8
+
+======================================================================
+FIELD INSTRUCTION HITS: six material array writer @ 0x00b68660
+======================================================================
+  0x00b68663: CMP word ptr [EBP + 0xa8],0xa                              FUN_00b68660+0x3
+  0x00b68672: MOV EAX,dword ptr [EBP + 0xcc]                             FUN_00b68660+0x12
+  0x00b68683: MOV ECX,dword ptr [EBP + 0xc4]                             FUN_00b68660+0x23
+  0x00b68690: MOV ESI,dword ptr [EBP + EBX*0x4 + 0xac]                   FUN_00b68660+0x30
+  0x00b686e2: MOV ECX,dword ptr [EBP + EBX*0x4 + 0xac]                   FUN_00b68660+0x82
+  0x00b68716: MOV EDX,dword ptr [EBP + 0xcc]                             FUN_00b68660+0xb6
+  0x00b68729: MOV ECX,dword ptr [EBP + 0xac]                             FUN_00b68660+0xc9
+  Total field hits: 7
+
+--- Calls FROM PPLighting selector constructor (0x00b79b00) ---
+  0x00b79b2d -> 0x00be2200 FUN_00be2200
+  0x00b79b7e -> 0x00000067 unknown
+  0x00b79b9c -> 0x00000066 unknown
+  0x00b79bb1 -> 0x00000067 unknown
+  0x00b79bcf -> 0x00000066 unknown
+  0x00b79be8 -> 0x00000067 unknown
+  0x00b79c06 -> 0x00000066 unknown
+  0x00b79c1f -> 0x00000067 unknown
+  0x00b79c3d -> 0x00000066 unknown
+  0x00b79c56 -> 0x00000067 unknown
+  0x00b79c74 -> 0x00000066 unknown
+  0x00b79c8e -> 0x00000067 unknown
+  0x00b79cae -> 0x00000067 unknown
+  0x00b79cce -> 0x00000067 unknown
+  0x00b79cf1 -> 0x00000067 unknown
+  Total: 15 calls
+
+======================================================================
+PPLighting selector constructor @ 0x00b79b00
+======================================================================
+  Function: FUN_00b79b00 @ 0x00b79b00, Size: 612 bytes
+
+/* WARNING: Globals starting with '_' overlap smaller symbols at the same address */
+
+undefined4 * __thiscall
+FUN_00b79b00(undefined4 *param_1,int *param_2,int *param_3,int *param_4,int *param_5)
+
+{
+  int *piVar1;
+  uint uVar2;
+  LONG LVar3;
+  int *unaff_FS_OFFSET;
+  int local_c;
+  undefined1 *puStack_8;
+  undefined4 local_4;
+  
+  local_4 = 0xffffffff;
+  puStack_8 = &LAB_00f28d09;
+  local_c = *unaff_FS_OFFSET;
+  uVar2 = DAT_011c16bc ^ (uint)&stack0xffffffd0;
+  *unaff_FS_OFFSET = (int)&local_c;
+  FUN_00be2200(uVar2);
+  *param_1 = &PTR_FUN_010af2f8;
+  param_1[0x1b] = 0;
+  param_1[0x1c] = 0;
+  param_1[0x1d] = 0;
+  param_1[0x1e] = 0;
+  param_1[0x1f] = 0;
+  param_1[0x20] = 0;
+  param_1[0x21] = 0;
+  param_1[0x22] = 0;
+  param_1[0x1a] = 1;
+  piVar1 = (int *)param_1[10];
+  local_4 = 8;
+  if (piVar1 != param_2) {
+    if (piVar1 != (int *)0x0) {
+      LVar3 = InterlockedDecrement(piVar1 + 1);
+      if (LVar3 == 0) {
+        (**(code **)(*piVar1 + 4))();
+      }
+    }
+    param_1[10] = param_2;
+    if (param_2 != (int *)0x0) {
+      InterlockedIncrement(param_2 + 1);
+    }
+  }
+  piVar1 = (int *)param_1[0x1b];
+  if (piVar1 != param_2) {
+    if (piVar1 != (int *)0x0) {
+      LVar3 = InterlockedDecrement(piVar1 + 1);
+      if (LVar3 == 0) {
+        (**(code **)(*piVar1 + 4))();
+      }
+    }
+    param_1[0x1b] = param_2;
+    if (param_2 != (int *)0x0) {
+      InterlockedIncrement(param_2 + 1);
+    }
+  }
+  piVar1 = (int *)param_1[0x1c];
+  if (piVar1 != param_3) {
+    if (piVar1 != (int *)0x0) {
+      LVar3 = InterlockedDecrement(piVar1 + 1);
+      if (LVar3 == 0) {
+        (**(code **)(*piVar1 + 4))();
+      }
+    }
+    param_1[0x1c] = param_3;
+    if (param_3 != (int *)0x0) {
+      InterlockedIncrement(param_3 + 1);
+    }
+  }
+  piVar1 = (int *)param_1[0x1d];
+  if (piVar1 != param_4) {
+    if (piVar1 != (int *)0x0) {
+      LVar3 = InterlockedDecrement(piVar1 + 1);
+      if (LVar3 == 0) {
+        (**(code **)(*piVar1 + 4))();
+      }
+    }
+    param_1[0x1d] = param_4;
+    if (param_4 != (int *)0x0) {
+      InterlockedIncrement(param_4 + 1);
+    }
+  }
+  piVar1 = (int *)param_1[0x1e];
+  if (piVar1 != param_5) {
+    if (piVar1 != (int *)0x0) {
+      LVar3 = InterlockedDecrement(piVar1 + 1);
+      if (LVar3 == 0) {
+        (**(code **)(*piVar1 + 4))();
+      }
+    }
+    param_1[0x1e] = param_5;
+    if (param_5 != (int *)0x0) {
+      InterlockedIncrement(param_5 + 1);
+    }
+  }
+  piVar1 = (int *)param_1[0x20];
+  if (piVar1 != (int *)0x0) {
+    LVar3 = InterlockedDecrement(piVar1 + 1);
+    if (LVar3 == 0) {
+      (**(code **)(*piVar1 + 4))();
+    }
+    param_1[0x20] = 0;
+  }
+  piVar1 = (int *)param_1[0x1f];
+  if (piVar1 != (int *)0x0) {
+    LVar3 = InterlockedDecrement(piVar1 + 1);
+    if (LVar3 == 0) {
+      (**(code **)(*piVar1 + 4))();
+    }
+    param_1[0x1f] = 0;
+  }
+  piVar1 = (int *)param_1[0x22];
+  if (piVar1 != (int *)0x0) {
+    LVar3 = InterlockedDecrement(piVar1 + 1);
+    if (LVar3 == 0) {
+      (**(code **)(*piVar1 + 4))();
+    }
+    param_1[0x22] = 0;
+  }
+  piVar1 = (int *)param_1[0x21];
+  if (piVar1 != (int *)0x0) {
+    LVar3 = InterlockedDecrement(piVar1 + 1);
+    if (LVar3 == 0) {
+      (**(code **)(*piVar1 + 4))();
+    }
+    param_1[0x21] = 0;
+  }
+  _DAT_011fd954 = 1.0 / _DAT_012023e0;
+  _DAT_011fd95c = 0;
+  _DAT_011fd958 = 0;
+  _DAT_011fd960 = 0;
+  param_1[0x18] = 0;
+  *unaff_FS_OFFSET = local_c;
+  return param_1;
+}
+
+
+
+======================================================================
+Matched decompile lines: PPLighting selector constructor @ 0x00b79b00
+======================================================================
+  Total matched lines: 0
+
+======================================================================
+FIELD INSTRUCTION HITS: PPLighting selector constructor @ 0x00b79b00
+======================================================================
+  0x00b79bd8: MOV EBX,dword ptr [ESP + 0x3c]                             FUN_00b79b00+0xd8
+  Total field hits: 1
+
+--- Calls FROM PPLighting selector clone/constructor (0x00b79de0) ---
+  0x00b79e2f -> 0x00000067 unknown
+  0x00b79e5e -> 0x00000067 unknown
+  0x00b79e8f -> 0x00e80190 FUN_00e80190
+  0x00b79eb4 -> 0x00000067 unknown
+  0x00b79eea -> 0x00000067 unknown
+  0x00b79f15 -> 0x00000067 unknown
+  0x00b79f36 -> 0x00000067 unknown
+  0x00b79f57 -> 0x00000067 unknown
+  0x00b79f78 -> 0x00000067 unknown
+  0x00b79f99 -> 0x00000067 unknown
+  0x00b79fbd -> 0x00000067 unknown
+  0x00b79fe1 -> 0x00000067 unknown
+  0x00b7a005 -> 0x00000067 unknown
+  0x00b7a02c -> 0x00000067 unknown
+  0x00b7a058 -> 0x00000067 unknown
+  0x00b7a07a -> 0x00000067 unknown
+  0x00b7a09c -> 0x00000067 unknown
+  0x00b7a0bb -> 0x00000067 unknown
+  0x00b7a0da -> 0x00000067 unknown
+  0x00b7a0f9 -> 0x00000067 unknown
+  0x00b7a118 -> 0x00000067 unknown
+  0x00b7a137 -> 0x00000067 unknown
+  0x00b7a150 -> 0x00be0f10 FUN_00be0f10
+  Total: 23 calls
+
+======================================================================
+PPLighting selector clone/constructor @ 0x00b79de0
+======================================================================
+  Function: FUN_00b79de0 @ 0x00b79de0, Size: 905 bytes
+
+void __fastcall FUN_00b79de0(undefined4 *param_1)
+
+{
+  int *piVar1;
+  LONG LVar2;
+  int *piVar3;
+  int *unaff_FS_OFFSET;
+  int local_c;
+  undefined1 *puStack_8;
+  int local_4;
+  
+  puStack_8 = &LAB_00f28d99;
+  local_c = *unaff_FS_OFFSET;
+  *unaff_FS_OFFSET = (int)&local_c;
+  *param_1 = &PTR_FUN_010af2f8;
+  local_4 = 8;
+  piVar3 = &DAT_011fdd88;
+  do {
+    piVar1 = (int *)*piVar3;
+    if (piVar1 != (int *)0x0) {
+      LVar2 = InterlockedDecrement(piVar1 + 1);
+      if (LVar2 == 0) {
+        (**(code **)(*piVar1 + 4))();
+      }
+      *piVar3 = 0;
+    }
+    piVar3 = piVar3 + 1;
+  } while ((int)piVar3 < 0x11fdff8);
+  piVar3 = &DAT_011fda48;
+  do {
+    piVar1 = (int *)*piVar3;
+    if (piVar1 != (int *)0x0) {
+      LVar2 = InterlockedDecrement(piVar1 + 1);
+      if (LVar2 == 0) {
+        (**(code **)(*piVar1 + 4))();
+      }
+      *piVar3 = 0;
+    }
+    piVar3 = piVar3 + 1;
+  } while ((int)piVar3 < 0x11fdd88);
+  piVar3 = &DAT_011fdff8;
+  do {
+    if (*piVar3 != 0) {
+      piVar1 = (int *)(*piVar3 + 100);
+      *piVar1 = *piVar1 + -1;
+      if (*piVar1 == 0) {
+        FUN_00e80190();
+      }
+      *piVar3 = 0;
+    }
+    piVar3 = piVar3 + 1;
+  } while ((int)piVar3 < 0x11febd4);
+  piVar3 = &DAT_011febd8;
+  do {
+    piVar1 = (int *)*piVar3;
+    if (piVar1 != (int *)0x0) {
+      LVar2 = InterlockedDecrement(piVar1 + 1);
+      if (LVar2 == 0) {
+        (**(code **)(*piVar1 + 4))();
+      }
+      *piVar3 = 0;
+    }
+    piVar3 = piVar3 + 1;
+  } while ((int)piVar3 < 0x11fec30);
+  piVar3 = &DAT_011fec30;
+  do {
+    piVar1 = (int *)*piVar3;
+    if (piVar1 != (int *)0x0) {
+      LVar2 = InterlockedDecrement(piVar1 + 1);
+      if (LVar2 == 0) {
+        (**(code **)(*piVar1 + 4))();
+      }
+      *piVar3 = 0;
+    }
+    piVar3 = piVar3 + 1;
+  } while ((int)piVar3 < 0x11fec88);
+  piVar3 = (int *)param_1[10];
+  if (piVar3 != (int *)0x0) {
+    LVar2 = InterlockedDecrement(piVar3 + 1);
+    if (LVar2 == 0) {
+      (**(code **)(*piVar3 + 4))();
+    }
+    param_1[10] = 0;
+  }
+  piVar3 = (int *)param_1[0x1b];
+  if (piVar3 != (int *)0x0) {
+    LVar2 = InterlockedDecrement(piVar3 + 1);
+    if (LVar2 == 0) {
+      (**(code **)(*piVar3 + 4))();
+    }
+    param_1[0x1b] = 0;
+  }
+  piVar3 = (int *)param_1[0x1c];
+  if (piVar3 != (int *)0x0) {
+    LVar2 = InterlockedDecrement(piVar3 + 1);
+    if (LVar2 == 0) {
+      (**(code **)(*piVar3 + 4))();
+    }
+    param_1[0x1c] = 0;
+  }
+  piVar3 = (int *)param_1[0x1d];
+  if (piVar3 != (int *)0x0) {
+    LVar2 = InterlockedDecrement(piVar3 + 1);
+    if (LVar2 == 0) {
+      (**(code **)(*piVar3 + 4))();
+    }
+    param_1[0x1d] = 0;
+  }
+  piVar3 = (int *)param_1[0x1e];
+  if (piVar3 != (int *)0x0) {
+    LVar2 = InterlockedDecrement(piVar3 + 1);
+    if (LVar2 == 0) {
+      (**(code **)(*piVar3 + 4))();
+    }
+    param_1[0x1e] = 0;
+  }
+  piVar3 = (int *)param_1[0x20];
+  if (piVar3 != (int *)0x0) {
+    LVar2 = InterlockedDecrement(piVar3 + 1);
+    if (LVar2 == 0) {
+      (**(code **)(*piVar3 + 4))();
+    }
+    param_1[0x20] = 0;
+  }
+  piVar3 = (int *)param_1[0x1f];
+  if (piVar3 != (int *)0x0) {
+    LVar2 = InterlockedDecrement(piVar3 + 1);
+    if (LVar2 == 0) {
+      (**(code **)(*piVar3 + 4))();
+    }
+    param_1[0x1f] = 0;
+  }
+  piVar3 = (int *)param_1[0x22];
+  if (piVar3 != (int *)0x0) {
+    LVar2 = InterlockedDecrement(piVar3 + 1);
+    if (LVar2 == 0) {
+      (**(code **)(*piVar3 + 4))();
+    }
+    param_1[0x22] = 0;
+  }
+  piVar3 = (int *)param_1[0x21];
+  if (piVar3 != (int *)0x0) {
+    LVar2 = InterlockedDecrement(piVar3 + 1);
+    if (LVar2 == 0) {
+      (**(code **)(*piVar3 + 4))();
+    }
+    param_1[0x21] = 0;
+  }
+  piVar3 = (int *)param_1[0x22];
+  local_4._0_1_ = 7;
+  if (piVar3 != (int *)0x0) {
+    LVar2 = InterlockedDecrement(piVar3 + 1);
+    if (LVar2 == 0) {
+      (**(code **)(*piVar3 + 4))();
+    }
+  }
+  piVar3 = (int *)param_1[0x21];
+  local_4._0_1_ = 6;
+  if (piVar3 != (int *)0x0) {
+    LVar2 = InterlockedDecrement(piVar3 + 1);
+    if (LVar2 == 0) {
+      (**(code **)(*piVar3 + 4))();
+    }
+  }
+  piVar3 = (int *)param_1[0x20];
+  local_4._0_1_ = 5;
+  if (piVar3 != (int *)0x0) {
+    LVar2 = InterlockedDecrement(piVar3 + 1);
+    if (LVar2 == 0) {
+      (**(code **)(*piVar3 + 4))();
+    }
+  }
+  piVar3 = (int *)param_1[0x1f];
+  local_4._0_1_ = 4;
+  if (piVar3 != (int *)0x0) {
+    LVar2 = InterlockedDecrement(piVar3 + 1);
+    if (LVar2 == 0) {
+      (**(code **)(*piVar3 + 4))();
+    }
+  }
+  piVar3 = (int *)param_1[0x1e];
+  local_4._0_1_ = 3;
+  if (piVar3 != (int *)0x0) {
+    LVar2 = InterlockedDecrement(piVar3 + 1);
+    if (LVar2 == 0) {
+      (**(code **)(*piVar3 + 4))();
+    }
+  }
+  piVar3 = (int *)param_1[0x1d];
+  local_4._0_1_ = 2;
+  if (piVar3 != (int *)0x0) {
+    LVar2 = InterlockedDecrement(piVar3 + 1);
+    if (LVar2 == 0) {
+      (**(code **)(*piVar3 + 4))();
+    }
+  }
+  piVar3 = (int *)param_1[0x1c];
+  local_4._0_1_ = 1;
+  if (piVar3 != (int *)0x0) {
+    LVar2 = InterlockedDecrement(piVar3 + 1);
+    if (LVar2 == 0) {
+      (**(code **)(*piVar3 + 4))();
+    }
+  }
+  piVar3 = (int *)param_1[0x1b];
+  local_4 = (uint)local_4._1_3_ << 8;
+  if (piVar3 != (int *)0x0) {
+    LVar2 = InterlockedDecrement(piVar3 + 1);
+    if (LVar2 == 0) {
+      (**(code **)(*piVar3 + 4))();
+    }
+  }
+  local_4 = 0xffffffff;
+  FUN_00be0f10();
+  *unaff_FS_OFFSET = local_c;
+  return;
+}
+
+
+
+======================================================================
+Matched decompile lines: PPLighting selector clone/constructor @ 0x00b79de0
+======================================================================
+  Total matched lines: 0
+
+======================================================================
+FIELD INSTRUCTION HITS: PPLighting selector clone/constructor @ 0x00b79de0
+======================================================================
+  Total field hits: 0
+
+--- Calls FROM PPLighting selector factory (0x00b7a380) ---
+  0x00b7a3af -> 0x00e76700 FUN_00e76700
+  0x00b7a3c1 -> 0x00e76700 FUN_00e76700
+  0x00b7a3d3 -> 0x00e76700 FUN_00e76700
+  0x00b7a3e4 -> 0x00e76700 FUN_00e76700
+  0x00b7a668 -> 0x00aa13e0 FUN_00aa13e0
+  0x00b7a686 -> 0x00b79b00 PPLighting selector constructor
+  Total: 6 calls
+
+======================================================================
+PPLighting selector factory @ 0x00b7a380
+======================================================================
+  Function: FUN_00b7a380 @ 0x00b7a380, Size: 873 bytes
+
+int * FUN_00b7a380(void)
+
+{
+  uint uVar1;
+  int *piVar2;
+  int *piVar3;
+  int *piVar4;
+  int *piVar5;
+  int iVar6;
+  int *unaff_FS_OFFSET;
+  int local_c;
+  undefined1 *puStack_8;
+  undefined4 uStack_4;
+  
+  uStack_4 = 0xffffffff;
+  puStack_8 = &LAB_00f28dd2;
+  local_c = *unaff_FS_OFFSET;
+  uVar1 = DAT_011c16bc ^ (uint)&stack0xffffffe0;
+  *unaff_FS_OFFSET = (int)&local_c;
+  piVar2 = (int *)FUN_00e76700(DAT_011f9508,6,1,uVar1);
+  piVar3 = (int *)FUN_00e76700(DAT_011f9508,8,1);
+  piVar4 = (int *)FUN_00e76700(DAT_011f9508,3,1);
+  piVar5 = (int *)FUN_00e76700(DAT_011f9508,8,1);
+  (**(code **)(*piVar2 + 0x8c))(0,0,0,2,0);
+  (**(code **)(*piVar2 + 0x8c))(1,3,3,2,0);
+  (**(code **)(*piVar2 + 0x8c))(2,5,4,3,0);
+  (**(code **)(*piVar2 + 0x8c))(3,7,5,1,0);
+  (**(code **)(*piVar2 + 0x8c))(4,0xe,0xd,2,0);
+  (**(code **)(*piVar2 + 0x8c))(5,0xf,0xe,2,0);
+  (**(code **)(*piVar2 + 0xb4))();
+  (**(code **)(*piVar3 + 0x8c))(0,0,0,2,0);
+  (**(code **)(*piVar3 + 0x8c))(1,1,1,3,0);
+  (**(code **)(*piVar3 + 0x8c))(2,2,2,4,0);
+  (**(code **)(*piVar3 + 0x8c))(3,3,3,2,0);
+  (**(code **)(*piVar3 + 0x8c))(4,5,4,3,0);
+  (**(code **)(*piVar3 + 0x8c))(5,7,5,1,0);
+  (**(code **)(*piVar3 + 0x8c))(6,0xe,0xd,2,0);
+  (**(code **)(*piVar3 + 0x8c))(7,0xf,0xe,2,0);
+  (**(code **)(*piVar3 + 0xb4))();
+  (**(code **)(*piVar4 + 0x8c))(0,0,0,2,0);
+  (**(code **)(*piVar4 + 0x8c))(1,3,5,1,0);
+  (**(code **)(*piVar4 + 0x94))(0,2,5,0x80000000,0,5,1,0);
+  (**(code **)(*piVar4 + 0xb4))();
+  (**(code **)(*piVar5 + 0x8c))(0,0,0,2,0);
+  (**(code **)(*piVar5 + 0x8c))(1,3,3,2,0);
+  (**(code **)(*piVar5 + 0x8c))(2,5,4,3,0);
+  (**(code **)(*piVar5 + 0x8c))(3,7,5,1,0);
+  (**(code **)(*piVar5 + 0x8c))(4,0xe,0xd,2,0);
+  (**(code **)(*piVar5 + 0x8c))(5,0xf,0xe,2,0);
+  (**(code **)(*piVar5 + 0x94))(0,6,8,0x80000000,3,5,1,0);
+  (**(code **)(*piVar5 + 0x94))(0,7,9,0x80000001,3,5,2,0);
+  (**(code **)(*piVar5 + 0xb4))();
+  iVar6 = FUN_00aa13e0(0x8c);
+  if (iVar6 == 0) {
+    piVar3 = (int *)0x0;
+  }
+  else {
+    piVar3 = (int *)FUN_00b79b00(piVar2,piVar3,piVar4,piVar5);
+  }
+  (**(code **)(*piVar3 + 0x4c))();
+  (**(code **)(*piVar3 + 0x144))();
+  (**(code **)(*piVar3 + 0x150))();
+  (**(code **)(*piVar3 + 0x11c))();
+  (**(code **)(*piVar3 + 0xc0))(piVar2);
+  *unaff_FS_OFFSET = iVar6;
+  return piVar3;
+}
+
+
+
+======================================================================
+Matched decompile lines: PPLighting selector factory @ 0x00b7a380
+======================================================================
+  L31     (**(code **)(*piVar2 + 0xb4))();
+  L40     (**(code **)(*piVar3 + 0xb4))();
+  L44     (**(code **)(*piVar4 + 0xb4))();
+  L53     (**(code **)(*piVar5 + 0xb4))();
+  L65     (**(code **)(*piVar3 + 0xc0))(piVar2);
+  Total matched lines: 5
+
+======================================================================
+FIELD INSTRUCTION HITS: PPLighting selector factory @ 0x00b7a380
+======================================================================
+  0x00b7a476: MOV EAX,dword ptr [EDX + 0xb4]                             FUN_00b7a380+0xf6
+  0x00b7a530: MOV EAX,dword ptr [EDX + 0xb4]                             FUN_00b7a380+0x1b0
+  0x00b7a58b: MOV EAX,dword ptr [EDX + 0xb4]                             FUN_00b7a380+0x20b
+  0x00b7a659: MOV EAX,dword ptr [EDX + 0xb4]                             FUN_00b7a380+0x2d9
+  0x00b7a6c8: MOV EAX,dword ptr [EDX + 0xc0]                             FUN_00b7a380+0x348
+  Total field hits: 5
+
+--- Calls FROM draw selector setup dispatcher (0x00b99390) ---
+  0x00b99392 -> 0x00b988e0 FUN_00b988e0
+  0x00b99422 -> 0x00b7dd50 FUN_00b7dd50
+  0x00b9942b -> 0x00b97de0 FUN_00b97de0
+  0x00b99437 -> 0x00b7dd50 FUN_00b7dd50
+  0x00b99440 -> 0x00b7deb0 FUN_00b7deb0
+  0x00b99449 -> 0x00b7deb0 FUN_00b7deb0
+  Total: 6 calls
+
+======================================================================
+draw selector setup dispatcher @ 0x00b99390
+======================================================================
+  Function: FUN_00b99390 @ 0x00b99390, Size: 266 bytes
+
+/* WARNING: Globals starting with '_' overlap smaller symbols at the same address */
+
+void FUN_00b99390(undefined4 param_1,int *param_2)
+
+{
+  FUN_00b988e0();
+  _DAT_011ae63c = 0xffff;
+  (**(code **)(*param_2 + 0xf0))(param_1);
+  _DAT_0126f680 = 0;
+  _DAT_0126f684 = 0;
+  _DAT_0126f688 = 0;
+  _DAT_0126f68c = 0;
+  _DAT_0126f690 = 0;
+  _DAT_0126f694 = 0;
+  _DAT_0126f698 = 0;
+  _DAT_0126f69c = 0;
+  _DAT_0126f6a0 = 0;
+  _DAT_0126f6a4 = 0;
+  _DAT_0126f6a8 = 0;
+  _DAT_0126f6ac = 0;
+  _DAT_0126f6b0 = 0;
+  _DAT_0126f6b4 = 0;
+  _DAT_0126f6b8 = 0;
+  _DAT_0126f6bc = 0;
+  switch(param_1) {
+  case 0xca:
+    FUN_00b7deb0();
+    break;
+  default:
+    (**(code **)(*param_2 + 0xfc))(param_1);
+    (**(code **)(*param_2 + 0xf8))(param_1);
+    (**(code **)(*param_2 + 0x100))(param_1);
+    break;
+  case 0xd1:
+    FUN_00b7deb0();
+    break;
+  case 0xfc:
+  case 0xfd:
+    FUN_00b7dd50();
+    FUN_00b97de0(1,0);
+    break;
+  case 0x102:
+    FUN_00b7dd50();
+  }
+  (**(code **)(*param_2 + 0xf4))(param_1);
+  DAT_011ffe30 = param_1;
+  DAT_011ffe2c = param_2;
+  DAT_011ad8ec = 1;
+  return;
+}
+
+
+
+======================================================================
+Matched decompile lines: draw selector setup dispatcher @ 0x00b99390
+======================================================================
+  L48     DAT_011ffe2c = param_2;
+  Total matched lines: 1
+
+======================================================================
+FIELD INSTRUCTION HITS: draw selector setup dispatcher @ 0x00b99390
+======================================================================
+  Total field hits: 0
+
+--- Calls FROM current draw dispatcher (0x00b994f0) ---
+  0x00b99539 -> 0x00b99390 draw selector setup dispatcher
+  0x00b9956c -> 0x00b98540 FUN_00b98540
+  0x00b9957f -> 0x00e72c20 FUN_00e72c20
+  0x00b99598 -> 0x00b99110 FUN_00b99110
+  0x00b995f0 -> 0x00b98e80 FUN_00b98e80
+  0x00b99615 -> 0x00b7ac20 FUN_00b7ac20
+  0x00b99623 -> 0x00bb96d0 FUN_00bb96d0
+  Total: 7 calls
+
+======================================================================
+current draw dispatcher @ 0x00b994f0
+======================================================================
+  Function: FUN_00b994f0 @ 0x00b994f0, Size: 315 bytes
+
+void FUN_00b994f0(int *param_1,uint param_2,undefined4 param_3,undefined4 param_4,undefined4 param_5
+                 )
+
+{
+  bool bVar1;
+  char cVar2;
+  int iVar3;
+  undefined4 uVar4;
+  
+  if (*(ushort *)(param_1 + 1) == param_2) {
+    DAT_011f91e4 = param_2;
+    DAT_011f91e0 = param_1;
+    bVar1 = false;
+    if (((DAT_011ffe30 != param_2) || (param_2 == 0x2f6)) ||
+       (*(int *)(*param_1 + 0xc0) != DAT_011ffe2c)) {
+      bVar1 = true;
+      FUN_00b99390(param_2,*(int *)(*param_1 + 0xc0));
+    }
+    if (DAT_011f9421 != '\0') {
+      if ((*(int *)(*param_1 + 0x9c) == 0) ||
+         ((*(ushort *)(*(int *)(*param_1 + 0x9c) + 0x18) >> 9 & 1) == 0)) {
+        uVar4 = 0;
+      }
+      else {
+        uVar4 = 1;
+      }
+      FUN_00b98540(uVar4,0);
+    }
+    cVar2 = FUN_00e72c20(*param_1,0);
+    if (cVar2 == '\0') {
+      iVar3 = (**(code **)(*(int *)*param_1 + 0x30))();
+      if (iVar3 == 0) {
+        iVar3 = (**(code **)(*(int *)*param_1 + 0x34))();
+        if (iVar3 == 0) {
+          FUN_00b98e80(param_1,param_3,param_4,param_5);
+        }
+        else {
+          (**(code **)(*(int *)*param_1 + 0xdc))(DAT_011f4748);
+        }
+      }
+      else {
+        (**(code **)(*(int *)*param_1 + 0xdc))(DAT_011f4748);
+      }
+    }
+    else {
+      FUN_00b99110(param_1,param_3,param_4,param_5);
+    }
+    if ((bVar1) && (DAT_011ffe2c != 0)) {
+      iVar3 = *(int *)(DAT_011ffe2c + 0x68);
+      if ((0 < iVar3) && (iVar3 < 6)) {
+        FUN_00b7ac20(param_2);
+        return;
+      }
+      if (iVar3 == 0x11) {
+        FUN_00bb96d0(param_2);
+      }
+    }
+  }
+  return;
+}
+
+
+
+======================================================================
+Matched decompile lines: current draw dispatcher @ 0x00b994f0
+======================================================================
+  L13       DAT_011f91e0 = param_1;
+  L16          (*(int *)(*param_1 + 0xc0) != DAT_011ffe2c)) {
+  L18         FUN_00b99390(param_2,*(int *)(*param_1 + 0xc0));
+  L49       if ((bVar1) && (DAT_011ffe2c != 0)) {
+  L50         iVar3 = *(int *)(DAT_011ffe2c + 0x68);
+  Total matched lines: 5
+
+======================================================================
+FIELD INSTRUCTION HITS: current draw dispatcher @ 0x00b994f0
+======================================================================
+  0x00b99514: MOV EAX,dword ptr [ECX + 0xc0]                             FUN_00b994f0+0x24
+  Total field hits: 1
+
+--- Calls FROM PPLighting selector setup +0xF0 variant (0x00bdb4a0) ---
+  0x00bdb523 -> 0x00653290 FUN_00653290
+  0x00bdb538 -> 0x00653290 FUN_00653290
+  0x00bdb54b -> 0x00653290 FUN_00653290
+  0x00bdb5f1 -> 0x00a59d30 FUN_00a59d30
+  0x00bdb6c4 -> 0x00b4f5c0 FUN_00b4f5c0
+  0x00bdb6ee -> 0x00439090 FUN_00439090
+  0x00bdb734 -> 0x00bd9f00 FUN_00bd9f00
+  0x00bdb773 -> 0x00bd9e60 FUN_00bd9e60
+  0x00bdb77e -> 0x00b707d0 FUN_00b707d0
+  0x00bdb7d4 -> 0x00b70600 FUN_00b70600
+  0x00bdb80d -> 0x00bd9770 FUN_00bd9770
+  0x00bdb841 -> 0x00bd9540 FUN_00bd9540
+  0x00bdb85b -> 0x00439090 FUN_00439090
+  0x00bdb881 -> 0x00bd9840 FUN_00bd9840
+  0x00bdb89b -> 0x00439090 FUN_00439090
+  0x00bdb8c1 -> 0x00bd9840 FUN_00bd9840
+  0x00bdb8cd -> 0x00b70700 FUN_00b70700
+  0x00bdb8f5 -> 0x00439090 FUN_00439090
+  0x00bdb91b -> 0x00bd9840 FUN_00bd9840
+  0x00bdb927 -> 0x00b70700 FUN_00b70700
+  0x00bdb95e -> 0x00bdac00 FUN_00bdac00
+  0x00bdb975 -> 0x00b70600 FUN_00b70600
+  0x00bdb99a -> 0x00439090 FUN_00439090
+  0x00bdb9c7 -> 0x00bd99c0 FUN_00bd99c0
+  0x00bdb9f2 -> 0x00bd99c0 FUN_00bd99c0
+  0x00bdb9fe -> 0x00b70700 FUN_00b70700
+  0x00bdba25 -> 0x00439090 FUN_00439090
+  0x00bdba52 -> 0x00bd99c0 FUN_00bd99c0
+  0x00bdba5e -> 0x00b70700 FUN_00b70700
+  0x00bdba86 -> 0x00bd9ac0 FUN_00bd9ac0
+  0x00bdbaa7 -> 0x00bdaf10 FUN_00bdaf10
+  0x00bdbad8 -> 0x00bd9bc0 FUN_00bd9bc0
+  0x00bdbafc -> 0x00bd9f90 FUN_00bd9f90
+  0x00bdbb14 -> 0x00bd9d00 FUN_00bd9d00
+  0x00bdbb3c -> 0x00bdb380 FUN_00bdb380
+  0x00bdbb9e -> 0x00bda0a0 FUN_00bda0a0
+  0x00bdbbd9 -> 0x00bda0a0 FUN_00bda0a0
+  0x00bdbc18 -> 0x00bd99c0 FUN_00bd99c0
+  0x00bdbc5c -> 0x00bd9540 FUN_00bd9540
+  0x00bdbc81 -> 0x00439090 FUN_00439090
+  0x00bdbca7 -> 0x00bd9840 FUN_00bd9840
+  0x00bdbcbb -> 0x00b70600 FUN_00b70600
+  0x00bdbce5 -> 0x00439090 FUN_00439090
+  0x00bdbd0b -> 0x00bd9840 FUN_00bd9840
+  0x00bdbd17 -> 0x00b70700 FUN_00b70700
+  0x00bdbd55 -> 0x00bdac00 FUN_00bdac00
+  0x00bdbd7f -> 0x00b70600 FUN_00b70600
+  0x00bdbda4 -> 0x00439090 FUN_00439090
+  0x00bdbdd1 -> 0x00bd99c0 FUN_00bd99c0
+  0x00bdbdfd -> 0x00439090 FUN_00439090
+  0x00bdbe2a -> 0x00bd99c0 FUN_00bd99c0
+  0x00bdbe36 -> 0x00b70700 FUN_00b70700
+  0x00bdbe65 -> 0x00439090 FUN_00439090
+  0x00bdbe92 -> 0x00bd99c0 FUN_00bd99c0
+  0x00bdbe9e -> 0x00b70700 FUN_00b70700
+  0x00bdbed5 -> 0x00bd9ac0 FUN_00bd9ac0
+  0x00bdbf49 -> 0x00bd9da0 FUN_00bd9da0
+  Total: 57 calls
+
+======================================================================
+PPLighting selector setup +0xF0 variant @ 0x00bdb4a0
+======================================================================
+  Function: FUN_00bdb4a0 @ 0x00bdb4a0, Size: 2737 bytes
+
+/* WARNING: Globals starting with '_' overlap smaller symbols at the same address */
+
+void __thiscall
+FUN_00bdb4a0(int param_1,int param_2,uint param_3,int param_4,int param_5,uint param_6,
+            undefined4 param_7)
+
+{
+  undefined4 uVar1;
+  bool bVar2;
+  bool bVar3;
+  bool bVar4;
+  char cVar5;
+  bool bVar6;
+  bool bVar7;
+  undefined4 uVar8;
+  bool bVar9;
+  char cVar10;
+  char cVar11;
+  short sVar12;
+  int iVar13;
+  int iVar14;
+  int iVar15;
+  int iVar16;
+  uint uVar17;
+  bool bVar18;
+  bool bVar19;
+  bool bVar20;
+  bool bVar21;
+  bool bVar22;
+  bool bVar23;
+  bool bVar24;
+  bool bVar25;
+  bool bVar26;
+  
+  uVar17 = *(uint *)(param_1 + 0x20);
+  bVar18 = (uVar17 & 1) != 0;
+  bVar19 = (uVar17 & 0x80) != 0;
+  bVar20 = (uVar17 & 2) != 0;
+  if (((uVar17 & 0x20) != 0) || (bVar6 = false, param_5 == 3)) {
+    bVar6 = true;
+  }
+  bVar21 = **(int **)(param_1 + 0xb4) != 0;
+  bVar22 = (uVar17 & 0x400) != 0;
+  bVar9 = *(int *)(*(int *)(param_2 + 0xb8) + 0x28) != 0 || (*(byte *)(param_1 + 0x24) & 0x20) != 0;
+  iVar13 = FUN_00653290(&DAT_01200788);
+  bVar23 = iVar13 != 0;
+  iVar13 = FUN_00653290(&DAT_012024c8);
+  iVar14 = FUN_00653290(&DAT_012007a0);
+  uVar17 = *(uint *)(param_1 + 0x20);
+  bVar24 = (uVar17 & 0x4000) == 0;
+  bVar25 = (uVar17 & 0x10000) != 0;
+  param_5 = CONCAT31(param_5._1_3_,(uVar17 & 0x200) != 0);
+  if (((uVar17 & 0x100000) == 0) || (bVar2 = false, DAT_011f91a7 != '\0')) {
+    bVar2 = true;
+  }
+  bVar26 = (uVar17 & 0x40000) != 0;
+  if (((uVar17 & 0x4000000) != 0) || (bVar4 = false, (uVar17 & 0x8000000) != 0)) {
+    bVar4 = true;
+  }
+  if (((*(byte *)(*(int *)(param_2 + 0x9c) + 0x18) & 1) == 0) &&
+     (((*(int *)(param_6 + 0x34) == 2 || ((*(uint *)(param_1 + 0x24) & 4) != 0)) ||
+      ((*(uint *)(param_1 + 0x24) & 2) != 0)))) {
+    bVar3 = true;
+  }
+  else {
+    bVar3 = false;
+  }
+  iVar15 = FUN_00a59d30(0);
+  if ((iVar15 == 0) || (cVar11 = '\x01', (*(ushort *)(iVar15 + 0x18) >> 9 & 1) == 0)) {
+    cVar11 = '\0';
+  }
+  if (((iVar15 != 0) && ((*(byte *)(iVar15 + 0x18) & 1) != 0)) ||
+     (cVar5 = '\0', *(float *)(param_1 + 0x28) < 1.0)) {
+    cVar5 = '\x01';
+  }
+  if ((*(uint *)(param_1 + 0x20) & 0x20000) == 0) {
+    bVar7 = bVar18;
+    if ((_DAT_011f9460 != 0.0) && (_DAT_011f9460 <= *(float *)(param_1 + 0x34))) {
+      bVar19 = false;
+    }
+  }
+  else if ((_DAT_011f9468 == 0.0) || (*(float *)(param_1 + 0x34) < _DAT_011f9468)) {
+    bVar19 = true;
+    bVar7 = false;
+  }
+  else {
+    bVar19 = false;
+    bVar7 = false;
+  }
+  if ((_DAT_011f9458 != 0.0) && (_DAT_011f9458 <= *(float *)(param_1 + 0x34))) {
+    bVar7 = false;
+  }
+  iVar15 = FUN_00b4f5c0();
+  uVar1 = *(undefined4 *)(*(int *)(iVar15 + 0x194) + 0xe0);
+  if (bVar7) {
+    cVar10 = FUN_00439090(&DAT_011f4998);
+    param_6 = CONCAT31(param_6._1_3_,1);
+    if (cVar10 == '\0') goto LAB_00bdb6fc;
+  }
+  else {
+LAB_00bdb6fc:
+    param_6 = param_6 & 0xffffff00;
+  }
+  uVar8 = param_7;
+  iVar15 = param_4;
+  if (cVar5 != '\0') {
+    param_4 = CONCAT31(param_4._1_3_,1);
+    if ((char)param_5 != '\0') {
+      FUN_00bd9f00(param_2,iVar15,param_7,&param_4,bVar20,cVar11);
+      bVar7 = false;
+    }
+    bVar6 = true;
+  }
+  param_5._0_1_ = 1;
+  if (((uVar17 & 0x8000) != 0) || (bVar25)) {
+    FUN_00bd9da0(param_2,iVar15,uVar8,&param_5,bVar20,bVar25);
+    DAT_00000006 = 6;
+    return;
+  }
+  if ((*(byte *)(param_1 + 0x24) & 0x40) != 0) {
+    iVar16 = FUN_00bd9e60(param_2,iVar15,uVar8,&param_5,bVar20);
+    *(undefined1 *)(iVar16 + 6) = 7;
+  }
+  sVar12 = FUN_00b707d0();
+  if (bVar2) {
+    if (bVar6) {
+LAB_00bdb7b3:
+      if (sVar12 == 0) {
+        if ((bVar6) || ((char)param_6 == '\0')) goto LAB_00bdbb61;
+LAB_00bdbbaa:
+        FUN_00bda0a0(param_2,uVar1,iVar15,uVar8,&param_5,bVar20,cVar11,bVar21,bVar22,0,bVar9,bVar23)
+        ;
+LAB_00bdbbde:
+        if (((char)param_6 != '\0') && (!bVar6)) {
+          FUN_00bd99c0(param_2,uVar1,iVar15,uVar8,&param_5,bVar20,0,0,bVar18,0,bVar23);
+        }
+      }
+      else {
+        if (bVar6) {
+LAB_00bdbb61:
+          if ((iVar13 != 0) || (iVar14 != 0)) goto LAB_00bdbbaa;
+          FUN_00bda0a0(param_2,uVar1,iVar15,uVar8,&param_5,bVar20,cVar11,bVar21,bVar22,1,bVar9,
+                       bVar23);
+          bVar6 = true;
+          goto LAB_00bdbbde;
+        }
+        param_7 = 0;
+        param_4 = FUN_00b70600(&param_7);
+        if (((cVar11 != '\0') || (bVar20)) || (bVar21)) {
+          if ((param_3 & 1) != 0) {
+            FUN_00bd9540(param_2,uVar1,iVar15,uVar8,&param_5,bVar20,cVar11,bVar21,bVar23);
+          }
+          cVar11 = FUN_00439090(&DAT_011f4998);
+          if (cVar11 != '\0') {
+            FUN_00bd9840(param_2,uVar1,iVar15,uVar8,&param_5,bVar20,0,0,bVar23);
+          }
+          cVar11 = FUN_00439090(&DAT_011f4998);
+          if (cVar11 != '\0') {
+            FUN_00bd9840(param_2,param_4,iVar15,uVar8,&param_5,bVar20,1,0,bVar23);
+          }
+        }
+        else {
+          FUN_00bd9770(param_2,uVar1,param_4,iVar15,uVar8,&param_5,0,bVar23);
+        }
+        param_4 = FUN_00b70700(&param_7);
+        while (param_4 != 0) {
+          cVar11 = FUN_00439090(&DAT_011f4998);
+          if (cVar11 != '\0') {
+            FUN_00bd9840(param_2,param_4,iVar15,uVar8,&param_5,bVar20,1,0,bVar23);
+          }
+          param_4 = FUN_00b70700(&param_7);
+        }
+        FUN_00bdac00(param_2,uVar1,iVar15,uVar8,&param_5,bVar20,0,bVar22,bVar9,bVar23,bVar26);
+        if (bVar7) {
+          param_4 = FUN_00b70600(&param_7);
+          if (((char)param_6 == '\0') || (cVar11 = FUN_00439090(&DAT_011f4998), cVar11 == '\0')) {
+            FUN_00bd99c0(param_2,param_4,iVar15,uVar8,&param_5,bVar20,1,0,bVar18,0,bVar23);
+            param_4 = FUN_00b70700(&param_7);
+          }
+          else {
+            FUN_00bd99c0(param_2,uVar1,iVar15,uVar8,&param_5,bVar20,0,0,bVar18,0,bVar23);
+          }
+          while (param_4 != 0) {
+            cVar11 = FUN_00439090(&DAT_011f4998);
+            if (cVar11 != '\0') {
+              FUN_00bd99c0(param_2,param_4,iVar15,uVar8,&param_5,bVar20,1,0,bVar18,0,bVar23);
+            }
+            param_4 = FUN_00b70700(&param_7);
+          }
+        }
+      }
+      if (bVar19) {
+        FUN_00bd9ac0(param_2,iVar15,uVar8,&param_5,bVar20,bVar9);
+      }
+      if (bVar24) goto LAB_00bdbaac;
+    }
+    else {
+      if (param_3 != DAT_010a91d4) goto LAB_00bdbc22;
+      if (bVar24) goto LAB_00bdb7b3;
+    }
+  }
+  else {
+LAB_00bdbc22:
+    if (bVar24) {
+      param_5._0_1_ = 1;
+      if ((param_3 & 1) != 0) {
+        FUN_00bd9540(param_2,uVar1,iVar15,uVar8,&param_5,bVar20,cVar11,bVar21,bVar23);
+      }
+      if ((param_3 & 2) != 0) {
+        cVar11 = FUN_00439090(&DAT_011f4998);
+        if (cVar11 != '\0') {
+          FUN_00bd9840(param_2,uVar1,iVar15,uVar8,&param_5,bVar20,0,0,bVar23);
+        }
+        param_7 = 0;
+        param_4 = FUN_00b70600(&param_7);
+        while (param_4 != 0) {
+          cVar11 = FUN_00439090(&DAT_011f4998);
+          if (cVar11 != '\0') {
+            FUN_00bd9840(param_2,param_4,iVar15,uVar8,&param_5,bVar20,1,0,bVar23);
+          }
+          param_4 = FUN_00b70700(&param_7);
+        }
+      }
+      if ((param_3 & 4) != 0) {
+        FUN_00bdac00(param_2,uVar1,iVar15,uVar8,&param_5,bVar20,0,bVar22,bVar9,bVar23,bVar26);
+      }
+      if ((bVar7) && ((param_3 & 8) != 0)) {
+        param_7 = 0;
+        param_4 = FUN_00b70600(&param_7);
+        if (((char)param_6 == '\0') || (cVar11 = FUN_00439090(&DAT_011f4998), cVar11 == '\0')) {
+          if (param_4 == 0) goto LAB_00bdbeab;
+          cVar11 = FUN_00439090(&DAT_011f4998);
+          if (cVar11 != '\0') {
+            FUN_00bd99c0(param_2,param_4,iVar15,uVar8,&param_5,bVar20,1,0,bVar18,0,bVar23);
+            param_4 = FUN_00b70700(&param_7);
+          }
+        }
+        else {
+          FUN_00bd99c0(param_2,uVar1,iVar15,uVar8,&param_5,bVar20,0,0,bVar18,0,bVar23);
+          param_5._0_1_ = 0;
+        }
+        while (param_4 != 0) {
+          cVar11 = FUN_00439090(&DAT_011f4998);
+          if (cVar11 != '\0') {
+            FUN_00bd99c0(param_2,param_4,iVar15,uVar8,&param_5,bVar20,1,0,bVar18,0,bVar23);
+          }
+          param_4 = FUN_00b70700(&param_7);
+        }
+      }
+LAB_00bdbeab:
+      if ((bVar19) && ((param_3 & 8) != 0)) {
+        FUN_00bd9ac0(param_2,iVar15,uVar8,&param_5,bVar20,bVar9);
+      }
+      goto LAB_00bdbaac;
+    }
+  }
+  FUN_00bdaf10(param_2,uVar1,iVar15,uVar8,&param_5,0);
+LAB_00bdbaac:
+  if ((param_3 == DAT_010a91d4) && (!bVar6)) {
+    FUN_00bd9bc0(param_2,iVar15,uVar8,&param_5,bVar20,bVar23,cVar5);
+  }
+  if (*(int *)(param_1 + 0xdc) != 0) {
+    if (*(int *)(*(int *)(param_1 + 0xdc) + 0x6c) != 0) {
+      iVar13 = FUN_00bd9f90(param_2,iVar15,uVar8,&param_5,bVar20);
+      *(undefined1 *)(iVar13 + 6) = 1;
+    }
+    iVar13 = FUN_00bd9d00(param_2,iVar15,uVar8,&param_5,bVar20);
+    *(undefined1 *)(iVar13 + 6) = 1;
+  }
+  if ((DAT_011f9422 != '\0') && ((param_3 & 1) != 0)) {
+    FUN_00bdb380(param_2,iVar15,uVar8,bVar20,bVar21);
+  }
+  cVar11 = '\0';
+  if (bVar3) {
+    cVar11 = '\n';
+  }
+  else if (bVar4) {
+    cVar11 = (-((*(uint *)(param_1 + 0x24) & 0x200000) != 0) & 0xfdU) + 4;
+  }
+  else if (cVar5 != '\0') {
+    cVar11 = '\x01';
+  }
+  iVar13 = *(int *)(param_1 + 0x3c);
+  uVar17 = 0;
+  if (*(int *)(iVar13 + 0x10) == 0) {
+    return;
+  }
+  do {
+    iVar13 = *(int *)(*(int *)(iVar13 + 4) + uVar17 * 4);
+    if (*(char *)(iVar13 + 6) == '\0') {
+      *(char *)(iVar13 + 6) = cVar11;
+    }
+    iVar13 = *(int *)(param_1 + 0x3c);
+    uVar17 = uVar17 + 1;
+  } while (uVar17 < *(uint *)(iVar13 + 0x10));
+  return;
+}
+
+
+
+======================================================================
+Matched decompile lines: PPLighting selector setup +0xF0 variant @ 0x00bdb4a0
+======================================================================
+  L5    FUN_00bdb4a0(int param_1,int param_2,uint param_3,int param_4,int param_5,uint param_6,
+  L43     bVar21 = **(int **)(param_1 + 0xb4) != 0;
+  L45     bVar9 = *(int *)(*(int *)(param_2 + 0xb8) + 0x28) != 0 || (*(byte *)(param_1 + 0x24) & 0x20) != 0;
+  L284    iVar13 = *(int *)(param_1 + 0x3c);
+  L294      iVar13 = *(int *)(param_1 + 0x3c);
+  Total matched lines: 5
+
+======================================================================
+FIELD INSTRUCTION HITS: PPLighting selector setup +0xF0 variant @ 0x00bdb4a0
+======================================================================
+  0x00bdb4e1: MOV ECX,dword ptr [ESI + 0xb4]                             FUN_00bdb4a0+0x41
+  0x00bdb4ee: MOV ECX,dword ptr [EDI + 0xb8]                             FUN_00bdb4a0+0x4e
+  0x00bdb70e: MOV EBX,dword ptr [ESP + 0x3c]                             FUN_00bdb4a0+0x26e
+      ref READ               -> 0x-000000c unknown
+  0x00bdb7e4: CMP byte ptr [ESP + 0x3c],0x0                              FUN_00bdb4a0+0x344
+      ref READ               -> 0x-000000c unknown
+  0x00bdbf09: MOV EAX,dword ptr [ESI + 0x3c]                             FUN_00bdb4a0+0xa69
+  0x00bdbf22: MOV EAX,dword ptr [ESI + 0x3c]                             FUN_00bdb4a0+0xa82
+  Total field hits: 6
+
+--- Calls FROM PPLighting selector setup +0xF4 main (0x00bdf790) ---
+  0x00bdf897 -> 0x00b4f5c0 FUN_00b4f5c0
+  0x00bdf8ab -> 0x00b4f5c0 FUN_00b4f5c0
+  0x00bdf8d0 -> 0x00653290 FUN_00653290
+  0x00bdf8e3 -> 0x00653290 FUN_00653290
+  0x00bdf8f6 -> 0x00653290 FUN_00653290
+  0x00bdf9c1 -> 0x00a59d30 FUN_00a59d30
+  0x00bdfad1 -> 0x00b4f5c0 FUN_00b4f5c0
+  0x00bdfafe -> 0x00439090 FUN_00439090
+  0x00bdfb78 -> 0x00bd9f00 FUN_00bd9f00
+  0x00bdfbdd -> 0x00bd9f90 FUN_00bd9f90
+  0x00bdfbf5 -> 0x00b707d0 FUN_00b707d0
+  0x00bdfca8 -> 0x00bd9e60 FUN_00bd9e60
+  0x00bdfcda -> 0x005bf7b0 FUN_005bf7b0
+  0x00bdfd06 -> 0x00b70590 FUN_00b70590
+  0x00bdfd30 -> 0x00ba9ee0 FUN_00ba9ee0
+  0x00bdfd7e -> 0x00b70680 FUN_00b70680
+  0x00bdfea9 -> 0x00bdd050 FUN_00bdd050
+  0x00bdfebf -> 0x00b70600 FUN_00b70600
+  0x00bdfefc -> 0x00bdd520 FUN_00bdd520
+  0x00bdff56 -> 0x00bde1d0 FUN_00bde1d0
+  0x00bdff6c -> 0x00b70600 FUN_00b70600
+  0x00bdffa9 -> 0x00bdca60 FUN_00bdca60
+  0x00bdffed -> 0x004390c0 FUN_004390c0
+  0x00be000f -> 0x00439090 FUN_00439090
+  0x00be0020 -> 0x004a2020 FUN_004a2020
+  0x00be004e -> 0x004a2020 FUN_004a2020
+  0x00be005b -> 0x004a2020 FUN_004a2020
+  0x00be0068 -> 0x004a2020 FUN_004a2020
+  0x00be0075 -> 0x004a2020 FUN_004a2020
+  0x00be0082 -> 0x004a2020 FUN_004a2020
+  0x00be016c -> 0x00bde9b0 FUN_00bde9b0
+  0x00be0205 -> 0x00bde1d0 FUN_00bde1d0
+  0x00be0213 -> 0x00b70600 FUN_00b70600
+  0x00be0250 -> 0x00bdca60 FUN_00bdca60
+  0x00be0280 -> 0x00b70600 FUN_00b70600
+  0x00be02c0 -> 0x00bdc0d0 FUN_00bdc0d0
+  0x00be02e2 -> 0x00b70700 FUN_00b70700
+  0x00be031f -> 0x00bdc530 FUN_00bdc530
+  0x00be0356 -> 0x00bd9540 FUN_00bd9540
+  0x00be038d -> 0x00bd9840 FUN_00bd9840
+  0x00be0399 -> 0x00b70600 FUN_00b70600
+  0x00be03a7 -> 0x00b70700 FUN_00b70700
+  0x00be03ce -> 0x00b70700 FUN_00b70700
+  0x00be03fc -> 0x00bdda20 FUN_00bdda20
+  0x00be041e -> 0x00b70700 FUN_00b70700
+  0x00be042e -> 0x00b70700 FUN_00b70700
+  0x00be0461 -> 0x00bddbc0 FUN_00bddbc0
+  0x00be0472 -> 0x00b70700 FUN_00b70700
+  0x00be04be -> 0x00bddd80 FUN_00bddd80
+  0x00be050a -> 0x00bdef40 FUN_00bdef40
+  0x00be0516 -> 0x00b70600 FUN_00b70600
+  0x00be0537 -> 0x00b70700 FUN_00b70700
+  0x00be0547 -> 0x00b70700 FUN_00b70700
+  0x00be057b -> 0x00bddfb0 FUN_00bddfb0
+  0x00be0593 -> 0x00b70700 FUN_00b70700
+  0x00be05bf -> 0x00bdde10 FUN_00bdde10
+  0x00be05fc -> 0x00bdef40 FUN_00bdef40
+  0x00be060c -> 0x00b70700 FUN_00b70700
+  0x00be062b -> 0x00b70600 FUN_00b70600
+  0x00be0659 -> 0x00bdbf60 FUN_00bdbf60
+  0x00be0680 -> 0x00bdf3e0 FUN_00bdf3e0
+  0x00be06e7 -> 0x00bd9bc0 FUN_00bd9bc0
+  0x00be070b -> 0x00bdc030 FUN_00bdc030
+  0x00be074a -> 0x00bdb380 FUN_00bdb380
+  0x00be078a -> 0x00bda030 FUN_00bda030
+  0x00be084d -> 0x00bd9da0 FUN_00bd9da0
+  Total: 66 calls
+
+======================================================================
+PPLighting selector setup +0xF4 main @ 0x00bdf790
+======================================================================
+  Function: FUN_00bdf790 @ 0x00bdf790, Size: 4311 bytes
+
+/* WARNING: Globals starting with '_' overlap smaller symbols at the same address */
+
+void __thiscall
+FUN_00bdf790(int *param_1,int param_2,uint param_3,undefined4 param_4,int param_5,int param_6,
+            undefined4 param_7)
+
+{
+  undefined4 uVar1;
+  char cVar2;
+  short sVar3;
+  ushort uVar4;
+  int iVar5;
+  int iVar6;
+  undefined4 uVar7;
+  uint uVar8;
+  undefined1 uVar9;
+  bool bVar10;
+  ushort in_FPUControlWord;
+  undefined1 local_7a;
+  char local_79;
+  undefined4 local_78;
+  char local_74;
+  char local_73;
+  char local_72;
+  char local_71;
+  undefined4 local_70;
+  undefined4 local_6c;
+  undefined4 local_68;
+  uint local_64;
+  undefined4 local_60;
+  char local_5c;
+  char local_5b;
+  char local_5a;
+  uint local_59;
+  char local_55;
+  undefined4 local_54;
+  undefined4 local_50;
+  int local_4c;
+  char local_47;
+  char local_46;
+  char local_45;
+  uint local_44;
+  undefined4 local_40;
+  uint local_3c;
+  int local_38;
+  uint local_33;
+  char local_2f;
+  char local_2e;
+  char local_2d;
+  undefined4 local_2c;
+  undefined4 local_28;
+  int local_24;
+  uint local_20;
+  undefined4 local_1c;
+  undefined4 local_18;
+  int local_14;
+  undefined4 local_10;
+  undefined4 local_c;
+  undefined8 local_8;
+  
+  uVar8 = param_1[8];
+  local_33 = CONCAT31(local_33._1_3_,(uVar8 & 1) != 0);
+  local_79 = (uVar8 & 0x80) != 0;
+  local_10 = CONCAT31(local_10._1_3_,(uVar8 & 0x20000) != 0);
+  local_78 = CONCAT31(local_78._1_3_,(uVar8 & 2) != 0);
+  local_c = CONCAT31(local_c._1_3_,(uVar8 & 0x200000) != 0);
+  if (((uVar8 & 0x20) != 0) || (local_74 = '\0', param_5 == 3)) {
+    local_74 = '\x01';
+  }
+  local_45 = (uVar8 & 0x100) != 0;
+  bVar10 = (uVar8 & 0x400) != 0;
+  local_70 = CONCAT31(local_70._1_3_,bVar10);
+  local_50 = CONCAT31(local_50._1_3_,*(int *)param_1[0x2d] != 0 && !bVar10);
+  local_18 = CONCAT31(local_18._1_3_,
+                      *(int *)(*(int *)(param_2 + 0xb8) + 0x28) != 0 ||
+                      (*(byte *)(param_1 + 9) & 0x20) != 0);
+  if ((((DAT_011f9427 == '\0') && (DAT_011f95e4 != 0)) && (((byte)DAT_011f91d8 & 0x20) != 0)) &&
+     ((1 < DAT_011f91c0 && ((uVar8 & 0x2000) == 0)))) {
+    local_38 = CONCAT22(local_38._2_2_,in_FPUControlWord);
+    local_20 = in_FPUControlWord | 0xc00;
+    local_8 = (ulonglong)ROUND(DAT_011fd890);
+    if (((int)local_8 == 0) ||
+       (iVar5 = FUN_00b4f5c0(), *(char *)(*(int *)(iVar5 + 0x194) + 0x120) == '\x01'))
+    goto LAB_00bdf8c4;
+    iVar5 = FUN_00b4f5c0();
+    local_59 = CONCAT31(local_59._1_3_,1);
+    if (*(char *)(*(int *)(iVar5 + 0x194) + 0x120) == '\x03') goto LAB_00bdf8c4;
+  }
+  else {
+LAB_00bdf8c4:
+    local_59 = local_59 & 0xffffff00;
+  }
+  iVar5 = FUN_00653290(&DAT_01200788);
+  local_28 = CONCAT31(local_28._1_3_,iVar5 != 0);
+  iVar5 = FUN_00653290(&DAT_012024c8);
+  local_2f = iVar5 != 0;
+  iVar5 = FUN_00653290(&DAT_012007a0);
+  local_2e = iVar5 != 0;
+  uVar8 = param_1[8];
+  local_1c = CONCAT31(local_1c._1_3_,(uVar8 & 0x400000) != 0);
+  local_6c = CONCAT31(local_6c._1_3_,(uVar8 & 0x800) != 0);
+  local_2c = CONCAT31(local_2c._1_3_,(uVar8 & 0x1000) != 0);
+  local_73 = (uVar8 & 0x4000) != 0;
+  local_2d = (uVar8 & 0x8000) != 0;
+  local_40 = CONCAT31(local_40._1_3_,(uVar8 & 0x10000) != 0);
+  local_71 = (uVar8 & 0x200) != 0;
+  if (((uVar8 & 0x100000) == 0) || (local_46 = '\0', DAT_011f91a7 != '\0')) {
+    local_46 = '\x01';
+  }
+  local_54 = CONCAT31(local_54._1_3_,(uVar8 & 0x40000) != 0);
+  if (((uVar8 & 0x4000000) != 0) || (local_47 = '\0', (uVar8 & 0x8000000) != 0)) {
+    local_47 = '\x01';
+  }
+  if (((*(byte *)(*(int *)(param_2 + 0x9c) + 0x18) & 1) == 0) &&
+     (((*(int *)(param_6 + 0x34) == 2 || ((param_1[9] & 4U) != 0)) || ((param_1[9] & 2U) != 0)))) {
+    local_5c = '\x01';
+  }
+  else {
+    local_5c = '\0';
+  }
+  local_14 = FUN_00a59d30(0);
+  if (local_14 == 0) {
+    if ((int *)(param_2 + 0x9c) == (int *)0x0) {
+      local_14 = 0;
+    }
+    else {
+      local_14 = *(int *)(param_2 + 0x9c);
+      if (local_14 != 0) goto LAB_00bdf9e0;
+    }
+LAB_00bdf9e6:
+    if (((float)param_1[10] < 1.0) || ((float)param_1[0xb] < 1.0)) goto LAB_00bdfa0b;
+    local_24 = (uint)local_24._1_3_ << 8;
+  }
+  else {
+LAB_00bdf9e0:
+    if ((*(byte *)(local_14 + 0x18) & 1) == 0) goto LAB_00bdf9e6;
+LAB_00bdfa0b:
+    local_24 = CONCAT31(local_24._1_3_,1);
+  }
+  iVar5 = local_14;
+  if ((local_14 == 0) || ((*(ushort *)(local_14 + 0x18) >> 9 & 1) == 0)) {
+    local_4c = (uint)local_4c._1_3_ << 8;
+  }
+  else {
+    local_4c = CONCAT31(local_4c._1_3_,1);
+    local_45 = '\0';
+  }
+  if ((param_1[9] & 0x800000U) == 0) {
+    if ((char)local_10 == '\0') {
+      if ((_DAT_011f9460 != 0.0) && (_DAT_011f9460 <= (float)param_1[0xd])) {
+        local_79 = '\0';
+      }
+    }
+    else if ((_DAT_011f9468 == 0.0) || ((float)param_1[0xd] < _DAT_011f9468)) {
+      local_79 = '\x01';
+      local_33 = (uint)local_33._1_3_ << 8;
+    }
+    else {
+      local_79 = '\0';
+      local_33 = (uint)local_33._1_3_ << 8;
+    }
+    if ((_DAT_011f9458 != 0.0) && (_DAT_011f9458 <= (float)param_1[0xd])) {
+      local_33 = local_33 & 0xffffff00;
+    }
+  }
+  iVar6 = FUN_00b4f5c0();
+  local_60 = *(undefined4 *)(*(int *)(iVar6 + 0x194) + 0xe0);
+  if ((char)local_33 == '\0') {
+LAB_00bdfb0c:
+    local_5b = '\0';
+  }
+  else {
+    cVar2 = FUN_00439090(&DAT_011f4998);
+    local_5b = '\x01';
+    if (cVar2 == '\0') goto LAB_00bdfb0c;
+  }
+  if ((char)local_24 != '\0') {
+    local_72 = '\x01';
+    if ((((local_71 != '\0') || ((float)param_1[0xb] < 1.0)) &&
+        ((iVar5 == 0 || ((*(byte *)(iVar5 + 0x18) & 1) == 0)))) &&
+       (((param_1[8] & 0x8000U) == 0 && ((param_1[8] & 0x10000U) == 0)))) {
+      FUN_00bd9f00(param_2,param_4,param_7,&local_72,local_78,local_4c);
+      if (((float)param_1[0xb] < 1.0) || ((float)param_1[10] < 1.0)) {
+        *(undefined1 *)
+         (*(int *)(*(int *)(param_1[0xf] + 4) + -4 + *(int *)(param_1[0xf] + 0x10) * 4) + 6) = 0xe;
+      }
+      local_33 = local_33 & 0xffffff00;
+    }
+    local_74 = '\x01';
+  }
+  local_7a = 1;
+  if ((param_1[0x37] != 0) && (*(int *)(param_1[0x37] + 0x6c) != 0)) {
+    FUN_00bd9f90(param_2,param_4,param_7,&local_7a,local_78);
+    *(undefined1 *)
+     (*(int *)(*(int *)(param_1[0xf] + 4) + -4 + *(int *)(param_1[0xf] + 0x10) * 4) + 6) = 0xe;
+  }
+  local_44 = FUN_00b707d0();
+  local_44 = local_44 & 0xffff;
+  local_38 = CONCAT31(local_38._1_3_,(param_3 & 1) != 0);
+  local_5a = (param_3 & 2) != 0;
+  local_8 = CONCAT44(local_8._4_4_,param_3) & 0xffffffff00000001;
+  local_55 = (param_3 & 4) != 0;
+  if ((param_3 & 8) == 0) {
+LAB_00bdfc3c:
+    local_64 = local_64 & 0xffffff00;
+  }
+  else {
+    local_64 = CONCAT31(local_64._1_3_,1);
+    if ((char)local_33 == '\0') goto LAB_00bdfc3c;
+  }
+  if ((local_79 == '\0') || (local_71 = '\x01', (param_3 & 8) == 0)) {
+    local_71 = '\0';
+  }
+  local_79 = (DAT_010a91d4 & param_3) == DAT_010a91d4;
+  local_72 = '\x01';
+  local_3c = local_44;
+  local_20 = local_44;
+  if ((local_2d != '\0') || ((char)local_40 != '\0')) {
+    FUN_00bd9da0(param_2,param_4,param_7,&local_7a,local_78,local_40);
+    *(undefined1 *)
+     (*(int *)(*(int *)(param_1[0xf] + 4) + -4 + *(int *)(param_1[0xf] + 0x10) * 4) + 6) = 6;
+    return;
+  }
+  if ((*(byte *)(param_1 + 9) & 0x40) != 0) {
+    FUN_00bd9e60(param_2,param_4,param_7,&local_7a,local_78);
+    *(undefined1 *)
+     (*(int *)(*(int *)(param_1[0xf] + 4) + -4 + *(int *)(param_1[0xf] + 0x10) * 4) + 6) = 7;
+  }
+  if ((local_2f != '\0') || (local_2e != '\0')) {
+    (**(code **)(*param_1 + 0x114))
+              (param_2,param_3,param_4,*(undefined4 *)(param_6 + 0x19c),param_6,param_7);
+    return;
+  }
+  local_68 = 0;
+  cVar2 = FUN_005bf7b0();
+  if (((cVar2 != '\0') && (local_5c == '\0')) && ((char)local_2c == '\0')) {
+    local_40 = 0;
+    iVar5 = FUN_00b70590(&local_40);
+    while (iVar5 != 0) {
+      if (*(char *)(iVar5 + 0xec) != '\0') {
+        FUN_00ba9ee0(param_2,0,1,1,iVar5,0,0,0);
+        iVar5 = *(int *)(*(int *)(param_1[0xf] + 4) + -4 + *(int *)(param_1[0xf] + 0x10) * 4);
+        if ((char)local_78 == '\0') {
+          if (local_73 == '\0') {
+            sVar3 = (-(ushort)((char)local_28 != '\0') & 3) + 0x231;
+          }
+          else {
+            sVar3 = 0x233;
+          }
+        }
+        else {
+          sVar3 = 0x232;
+        }
+        *(short *)(iVar5 + 4) = sVar3;
+        *(undefined1 *)(iVar5 + 8) = 1;
+      }
+      iVar5 = FUN_00b70680(&local_40);
+    }
+  }
+  uVar1 = local_28;
+  if (local_73 == '\0') {
+    if (local_46 == '\0') goto LAB_00be0685;
+    if ((char)local_38 == '\0') {
+LAB_00be035b:
+      if (local_5a != '\0') {
+        if (local_72 == '\0') {
+          local_4c = FUN_00b70700(&local_68);
+        }
+        else {
+          FUN_00bd9840(param_2,local_60,param_4,param_7,&local_7a,local_78,0,0,uVar1);
+          local_4c = FUN_00b70600(&local_68);
+        }
+        while (local_4c != 0) {
+          if (local_44 < 3) {
+            uVar7 = FUN_00b70700(&local_68);
+            FUN_00bdda20(param_2,local_4c,uVar7,param_4,param_7,&local_7a,local_78,local_70,0,
+                         local_6c,uVar1);
+            if (local_44 < 2) {
+              local_44 = 0;
+            }
+            else {
+              local_44 = local_44 - 2;
+            }
+          }
+          else {
+            local_40 = FUN_00b70700(&local_68);
+            uVar7 = FUN_00b70700(&local_68);
+            FUN_00bddbc0(param_2,local_4c,local_40,uVar7,param_4,param_7,&local_7a,local_78,local_70
+                         ,0,local_6c,uVar1);
+            local_44 = local_44 - 3;
+          }
+          local_4c = FUN_00b70700(&local_68);
+        }
+      }
+      if (local_55 != '\0') {
+        FUN_00bddd80(param_2,local_60,param_4,param_7,&local_7a,local_78,0,local_70,local_18,uVar1,0
+                     ,local_6c,local_54);
+      }
+      if ((char)local_64 != '\0') {
+LAB_00be04ce:
+        local_64 = local_20;
+        if (local_5b != '\0') {
+          FUN_00bdef40(param_2,local_60,param_4,param_7,&local_7a,local_78,0,local_59,local_6c,uVar1
+                       ,local_54);
+        }
+        local_3c = FUN_00b70600(&local_68);
+        while (local_3c != 0) {
+          if ((int)local_64 < 3) {
+            if ((int)local_64 < 2) {
+              if (0 < (int)local_64) {
+                FUN_00bdef40(param_2,local_3c,param_4,param_7,&local_7a,local_78,0,local_59,local_6c
+                             ,uVar1,local_54);
+                local_64 = local_64 - 1;
+              }
+            }
+            else {
+              uVar7 = FUN_00b70700(&local_68);
+              FUN_00bdde10(param_2,local_3c,uVar7,param_4,param_7,&local_7a,local_78,local_6c,uVar1,
+                           local_54);
+              local_64 = local_64 - 2;
+            }
+          }
+          else {
+            local_18 = FUN_00b70700(&local_68);
+            uVar7 = FUN_00b70700(&local_68);
+            FUN_00bddfb0(param_2,local_3c,local_18,uVar7,param_4,param_7,&local_7a,local_78,local_6c
+                         ,uVar1,local_54);
+            local_64 = local_64 - 3;
+          }
+          local_3c = FUN_00b70700(&local_68);
+        }
+      }
+    }
+    else {
+      if (DAT_011f9422 != '\0') {
+LAB_00be017b:
+        if (local_5a == '\0') {
+LAB_00be0330:
+          FUN_00bd9540(param_2,local_60,param_4,param_7,&local_7a,local_78,local_4c,local_50,uVar1);
+          goto LAB_00be035b;
+        }
+        if (((local_55 == '\0') || (((char)local_70 != '\0' && (DAT_011f9427 != '\0')))) ||
+           ((1 < (ushort)local_3c && (local_74 == '\0')))) {
+          if (((char)local_70 == '\0') || (DAT_011f9427 == '\0')) {
+            uVar7 = FUN_00b70600(&local_68);
+            if ((ushort)local_3c < 2) {
+              FUN_00bdc0d0(param_2,local_60,uVar7,param_4,param_7,&local_7a,local_78,local_50,
+                           local_70,0,local_59,local_6c,uVar1);
+              local_44 = 0;
+              local_72 = '\0';
+            }
+            else {
+              local_40 = uVar7;
+              uVar7 = FUN_00b70700(&local_68);
+              FUN_00bdc530(param_2,local_60,local_40,uVar7,param_4,param_7,&local_7a,local_78,
+                           local_50,local_70,0,local_59,local_6c,uVar1);
+              local_44 = local_44 - 2;
+              local_72 = '\0';
+            }
+            goto LAB_00be035b;
+          }
+          goto LAB_00be0330;
+        }
+        if ((ushort)local_3c == 0) {
+          FUN_00bde1d0(param_2,local_60,param_4,param_7,&local_7a,local_78,local_50,local_70,0,
+                       local_59,local_6c,local_2c,uVar1,local_1c,local_54,local_4c);
+        }
+        else {
+          uVar7 = FUN_00b70600(&local_68);
+          FUN_00bdca60(param_2,local_60,uVar7,param_4,param_7,&local_7a,local_78,local_50,local_70,0
+                       ,local_59,local_6c,uVar1,local_54);
+        }
+        if ((char)local_64 == '\0') {
+          local_79 = '\0';
+          goto LAB_00be061d;
+        }
+        goto LAB_00be04ce;
+      }
+      if ((local_74 == '\0') && ((char)local_24 == '\0')) {
+        if (local_5a != '\0') {
+          if (((local_55 == '\0') || (local_45 != '\0')) || ((char)local_1c != '\0'))
+          goto LAB_00be017b;
+          goto LAB_00bdfdf3;
+        }
+        goto LAB_00be0330;
+      }
+LAB_00bdfdf3:
+      uVar4 = (ushort)local_3c;
+      if (((uVar4 < 2) && (local_5b != '\0')) &&
+         (((uVar4 == 0 || ((char)local_59 == '\0')) &&
+          (((char)local_64 != '\0' && ((char)local_70 == '\0')))))) {
+LAB_00bdfe62:
+        if ((char)local_64 == '\0') goto LAB_00bdff0b;
+        if (uVar4 == 0) {
+          FUN_00bdd050(param_2,local_60,param_4,param_7,&local_7a,local_78,local_50,local_70,0,
+                       local_59,local_6c,local_28,local_54);
+          local_79 = '\0';
+        }
+        else {
+          uVar7 = FUN_00b70600(&local_68);
+          FUN_00bdd520(param_2,local_60,uVar7,param_4,param_7,&local_7a,local_78,local_50,local_70,0
+                       ,local_59,local_6c,uVar1,local_54);
+          local_79 = '\0';
+        }
+      }
+      else {
+        if ((local_74 == '\0') ||
+           ((((((char)local_6c == '\0' && ((char)local_54 == '\0')) && ((char)local_59 == '\0')) &&
+             (((char)local_2c == '\0' && ((char)local_28 == '\0')))) && ((char)local_50 == '\0'))))
+        {
+          local_38 = 1;
+          if (((((DAT_011ad80d == '\0') ||
+                ((*(int *)(param_2 + 0xa4) != 0 &&
+                 (cVar2 = FUN_004390c0(&DAT_011f4998), cVar2 == '\0')))) ||
+               (cVar2 = FUN_00439090(&DAT_011f4998), cVar2 != '\0')) ||
+              (((cVar2 = FUN_004a2020(0x25), cVar2 == '\0' ||
+                (((local_14 != 0 && ((*(ushort *)(local_14 + 0x18) >> 9 & 1) != 0)) &&
+                 ((float)param_1[0xb] < 1.0)))) ||
+               ((((cVar2 = FUN_004a2020(0x1a), cVar2 != '\0' ||
+                  (cVar2 = FUN_004a2020(0x1b), cVar2 != '\0')) ||
+                 (cVar2 = FUN_004a2020(7), cVar2 != '\0')) ||
+                ((cVar2 = FUN_004a2020(0x15), cVar2 != '\0' ||
+                 (cVar2 = FUN_004a2020(0x11), cVar2 != '\0')))))))) ||
+             (*(int *)(param_2 + 0xbc) != 0)) {
+            local_38 = 0;
+          }
+          if (local_74 == '\0') {
+            if ((((((local_38 + 5 < (int)local_20) || ((char)local_64 != '\0')) ||
+                  ((char)local_70 != '\0')) &&
+                 (((local_38 + 4 < (int)local_20 || ((char)local_64 != '\0')) ||
+                  ((char)local_70 == '\0')))) &&
+                (((local_38 + 2 < (int)local_20 || ((char)local_64 == '\0')) ||
+                 ((char)local_70 != '\0')))) ||
+               ((((((ushort)local_3c < 2 && ((char)local_33 == '\0')) || ((char)local_6c != '\0'))
+                 || (((char)local_54 != '\0' || ((char)local_59 != '\0')))) ||
+                (((char)local_2c != '\0' || (((char)local_28 != '\0' || ((char)local_50 != '\0')))))
+                ))) goto LAB_00be017b;
+          }
+          FUN_00bde9b0(param_2,local_60,param_4,param_7,&local_7a,local_78,local_50,local_64,
+                       local_70,local_38 != 0);
+          local_79 = '\0';
+          goto LAB_00be061d;
+        }
+        if ((char)local_70 == '\0') goto LAB_00bdfe62;
+LAB_00bdff0b:
+        if (uVar4 == 0) {
+          FUN_00bde1d0(param_2,local_60,param_4,param_7,&local_7a,local_78,local_50,local_70,0,
+                       local_59,local_6c,local_2c,local_28,local_1c,local_54,local_4c);
+          local_79 = '\0';
+        }
+        else {
+          uVar7 = FUN_00b70600(&local_68);
+          FUN_00bdca60(param_2,local_60,uVar7,param_4,param_7,&local_7a,local_78,local_50,local_70,0
+                       ,local_59,local_6c,uVar1,local_54);
+          local_79 = '\0';
+        }
+      }
+    }
+LAB_00be061d:
+    if (local_71 == '\0') goto LAB_00be0685;
+    uVar7 = FUN_00b70600(&local_68);
+    FUN_00bdbf60(param_2,local_60,uVar7,param_4,param_7,&local_7a,local_78,local_10,local_c);
+  }
+  else {
+    FUN_00bdf3e0(param_2,local_60,param_4,param_7,&local_7a,local_33,local_59);
+LAB_00be0685:
+    if (local_79 == '\0') {
+      iVar5 = param_1[0xf];
+      if ((*(int *)(iVar5 + 0x10) != 0) && (local_73 == '\0')) {
+        iVar5 = *(int *)(*(int *)(iVar5 + 4) + -4 + *(int *)(iVar5 + 0x10) * 4);
+        sVar3 = *(short *)(iVar5 + 4);
+        if ((sVar3 != 0x252) && (sVar3 != 0x254)) {
+          *(undefined1 *)(iVar5 + 8) = 1;
+        }
+      }
+      goto LAB_00be06ec;
+    }
+    if (local_73 != '\0') goto LAB_00be06ec;
+  }
+  FUN_00bd9bc0(param_2,param_4,param_7,&local_7a,local_78,uVar1,local_24);
+LAB_00be06ec:
+  if (param_1[0x37] != 0) {
+    FUN_00bdc030(param_2,param_4,param_7,&local_7a,local_78);
+    *(undefined1 *)
+     (*(int *)(*(int *)(param_1[0xf] + 4) + -4 + *(int *)(param_1[0xf] + 0x10) * 4) + 6) = 1;
+  }
+  if (DAT_011f9422 != '\0') {
+    if ((int)local_8 != 0) {
+      FUN_00bdb380(param_2,param_4,param_7,local_78,local_50);
+    }
+    if (((((char)local_28 == '\0') && ((char)local_1c == '\0')) && ((char)local_6c == '\0')) &&
+       ((((char)local_2c == '\0' && (local_73 == '\0')) && ((char)local_54 == '\0')))) {
+      FUN_00bda030(param_2,param_4,param_7,local_78);
+    }
+  }
+  uVar9 = 0;
+  if (local_5c == '\0') {
+    if (local_47 == '\0') {
+      if (((char)local_24 != '\0') && (uVar9 = 0xe, 1.0 <= (float)param_1[0xb])) {
+        uVar9 = 1;
+      }
+    }
+    else {
+      uVar9 = 4;
+    }
+  }
+  else {
+    uVar9 = 10;
+  }
+  iVar5 = param_1[0xf];
+  if ((iVar5 != 0) && (uVar8 = 0, *(int *)(iVar5 + 0x10) != 0)) {
+    do {
+      iVar5 = *(int *)(*(int *)(iVar5 + 4) + uVar8 * 4);
+      if (*(char *)(iVar5 + 6) == '\0') {
+        *(undefined1 *)(iVar5 + 6) = uVar9;
+      }
+      iVar5 = param_1[0xf];
+      uVar8 = uVar8 + 1;
+    } while (uVar8 < *(uint *)(iVar5 + 0x10));
+    return;
+  }
+  return;
+}
+
+
+
+======================================================================
+Matched decompile lines: PPLighting selector setup +0xF4 main @ 0x00bdf790
+======================================================================
+  L5    FUN_00bdf790(int *param_1,int param_2,uint param_3,undefined4 param_4,int param_5,int param_6,
+  L74     local_50 = CONCAT31(local_50._1_3_,*(int *)param_1[0x2d] != 0 && !bVar10);
+  L76                         *(int *)(*(int *)(param_2 + 0xb8) + 0x28) != 0 ||
+  L186           (*(int *)(*(int *)(param_1[0xf] + 4) + -4 + *(int *)(param_1[0xf] + 0x10) * 4) + 6) = 0xe;
+  L196       (*(int *)(*(int *)(param_1[0xf] + 4) + -4 + *(int *)(param_1[0xf] + 0x10) * 4) + 6) = 0xe;
+  L222       (*(int *)(*(int *)(param_1[0xf] + 4) + -4 + *(int *)(param_1[0xf] + 0x10) * 4) + 6) = 6;
+  L228       (*(int *)(*(int *)(param_1[0xf] + 4) + -4 + *(int *)(param_1[0xf] + 0x10) * 4) + 6) = 7;
+  L243          iVar5 = *(int *)(*(int *)(param_1[0xf] + 4) + -4 + *(int *)(param_1[0xf] + 0x10) * 4);
+  L425               (*(int *)(param_2 + 0xbc) != 0)) {
+  L469        iVar5 = param_1[0xf];
+  L486       (*(int *)(*(int *)(param_1[0xf] + 4) + -4 + *(int *)(param_1[0xf] + 0x10) * 4) + 6) = 1;
+  L511    iVar5 = param_1[0xf];
+  L518        iVar5 = param_1[0xf];
+  Total matched lines: 13
+
+======================================================================
+FIELD INSTRUCTION HITS: PPLighting selector setup +0xF4 main @ 0x00bdf790
+======================================================================
+  0x00bdf7e7: MOV ECX,dword ptr [ESI + 0xb4]                             FUN_00bdf790+0x57
+  0x00bdf817: MOV EDX,dword ptr [EBP + 0xb8]                             FUN_00bdf790+0x87
+  0x00bdf81d: MOV byte ptr [ESP + 0x3c],CL                               FUN_00bdf790+0x8d
+      ref WRITE              -> 0x-0000050 unknown
+  0x00bdfb97: MOV EAX,dword ptr [ESI + 0x3c]                             FUN_00bdf790+0x407
+  0x00bdfbe2: MOV EAX,dword ptr [ESI + 0x3c]                             FUN_00bdf790+0x452
+  0x00bdfcad: MOV EAX,dword ptr [ESI + 0x3c]                             FUN_00bdf790+0x51d
+  0x00bdfd1f: MOV ECX,dword ptr [ESI + 0x3c]                             FUN_00bdf790+0x58f
+  0x00bdfd3a: MOV EAX,dword ptr [ESI + 0x3c]                             FUN_00bdf790+0x5aa
+  0x00bdfe4c: CMP byte ptr [ESP + 0x3c],0x0                              FUN_00bdf790+0x6bc
+      ref READ               -> 0x-0000050 unknown
+  0x00bdfe97: MOV ECX,dword ptr [ESP + 0xb0]                             FUN_00bdf790+0x707
+      ref READ               -> 0x00000004 unknown
+  0x00bdfef1: MOV EAX,dword ptr [ESP + 0xc0]                             FUN_00bdf790+0x761
+      ref READ               -> 0x00000004 unknown
+  0x00bdff44: MOV EAX,dword ptr [ESP + 0xbc]                             FUN_00bdf790+0x7b4
+      ref READ               -> 0x00000004 unknown
+  0x00bdff92: MOV ECX,dword ptr [ESP + 0xb0]                             FUN_00bdf790+0x802
+      ref READ               -> 0x00000004 unknown
+  0x00be0092: CMP dword ptr [EDX + 0xbc],0x0                             FUN_00bdf790+0x902
+  0x00be012f: CMP byte ptr [ESP + 0x3c],0x0                              FUN_00bdf790+0x99f
+      ref READ               -> 0x-0000050 unknown
+  0x00be0155: MOV ECX,dword ptr [ESP + 0x3c]                             FUN_00bdf790+0x9c5
+      ref READ               -> 0x-0000060 unknown
+  0x00be01f3: MOV EDX,dword ptr [ESP + 0xbc]                             FUN_00bdf790+0xa63
+      ref READ               -> 0x00000004 unknown
+  0x00be0245: MOV EAX,dword ptr [ESP + 0xc0]                             FUN_00bdf790+0xab5
+      ref READ               -> 0x00000004 unknown
+  0x00be02b5: MOV EAX,dword ptr [ESP + 0xbc]                             FUN_00bdf790+0xb25
+      ref READ               -> 0x00000004 unknown
+  0x00be030c: MOV EDX,dword ptr [ESP + 0xb0]                             FUN_00bdf790+0xb7c
+      ref READ               -> 0x00000004 unknown
+  0x00be0330: MOV EAX,dword ptr [ESP + 0x3c]                             FUN_00bdf790+0xba0
+      ref READ               -> 0x-0000050 unknown
+  0x00be044e: MOV EDX,dword ptr [ESP + 0xa8]                             FUN_00bdf790+0xcbe
+      ref READ               -> 0x00000004 unknown
+  0x00be04ac: MOV EDX,dword ptr [ESP + 0xb0]                             FUN_00bdf790+0xd1c
+      ref READ               -> 0x00000004 unknown
+  0x00be04f1: MOV EAX,dword ptr [ESP + 0x3c]                             FUN_00bdf790+0xd61
+      ref READ               -> 0x-0000060 unknown
+  0x00be04f8: MOV ECX,dword ptr [ESP + 0xa8]                             FUN_00bdf790+0xd68
+      ref READ               -> 0x00000004 unknown
+  0x00be05ea: MOV EDX,dword ptr [ESP + 0xa8]                             FUN_00bdf790+0xe5a
+      ref READ               -> 0x00000004 unknown
+  0x00be064e: MOV EAX,dword ptr [ESP + 0xac]                             FUN_00bdf790+0xebe
+      ref READ               -> 0x00000004 unknown
+  0x00be068c: MOV EAX,dword ptr [ESI + 0x3c]                             FUN_00bdf790+0xefc
+  0x00be0710: MOV EAX,dword ptr [ESI + 0x3c]                             FUN_00bdf790+0xf80
+  0x00be0734: MOV ECX,dword ptr [ESP + 0x3c]                             FUN_00bdf790+0xfa4
+      ref READ               -> 0x-0000050 unknown
+  0x00be07c9: MOV EAX,dword ptr [ESI + 0x3c]                             FUN_00bdf790+0x1039
+  0x00be07ef: MOV EAX,dword ptr [ESI + 0x3c]                             FUN_00bdf790+0x105f
+  0x00be0852: MOV ESI,dword ptr [ESI + 0x3c]                             FUN_00bdf790+0x10c2
+  Total field hits: 33
+
+======================================================================
+DISASM: terrain layer flag initializer around 0x00b66640
+======================================================================
+   0x00b66617: MOV ECX,ESI                                                unknown
+   0x00b66619: CALL EDX                                                   unknown
+   0x00b6661b: POP EDI                                                    unknown
+   0x00b6661c: POP ESI                                                    unknown
+   0x00b6661d: RET 0x4                                                    unknown
+   0x00b66620: MOV EAX,dword ptr [ESP + 0x4]                              unknown
+   0x00b66624: SUB EAX,0x3                                                unknown
+   0x00b66627: NEG EAX                                                    unknown
+   0x00b66629: SBB EAX,EAX                                                unknown
+   0x00b6662b: AND EAX,0x3                                                unknown
+   0x00b6662e: MOV dword ptr [ECX + 0xd8],EAX                             unknown
+   0x00b66634: RET 0x4                                                    unknown
+=> 0x00b66640: CMP word ptr [ECX + 0xa8],0x9                              terrain layer flag initializer
+   0x00b66648: JNZ 0x00b666be                                             FUN_00b66640+0x8
+      ref CONDITIONAL_JUMP   -> 0x00b666be FUN_00b66640+0x7e
+   0x00b6664a: MOV EAX,dword ptr [ECX + 0xc4]                             FUN_00b66640+0xa
+   0x00b66650: MOV DL,byte ptr [ESP + 0x4]                                FUN_00b66640+0x10
+      ref READ               -> 0x00000004 unknown
+   0x00b66654: MOV byte ptr [EAX],DL                                      FUN_00b66640+0x14
+   0x00b66656: MOV EAX,dword ptr [ECX + 0xc4]                             FUN_00b66640+0x16
+   0x00b6665c: MOV DL,byte ptr [ESP + 0x8]                                FUN_00b66640+0x1c
+      ref READ               -> 0x00000008 unknown
+   0x00b66660: MOV byte ptr [EAX + 0x1],DL                                FUN_00b66640+0x20
+   0x00b66663: MOV EAX,dword ptr [ECX + 0xc4]                             FUN_00b66640+0x23
+   0x00b66669: MOV DL,byte ptr [ESP + 0xc]                                FUN_00b66640+0x29
+      ref READ               -> 0x0000000c unknown
+   0x00b6666d: MOV byte ptr [EAX + 0x2],DL                                FUN_00b66640+0x2d
+   0x00b66670: MOV EAX,dword ptr [ECX + 0xc4]                             FUN_00b66640+0x30
+   0x00b66676: MOV DL,byte ptr [ESP + 0x10]                               FUN_00b66640+0x36
+      ref READ               -> 0x00000010 unknown
+   0x00b6667a: MOV byte ptr [EAX + 0x3],DL                                FUN_00b66640+0x3a
+   0x00b6667d: MOV EAX,dword ptr [ECX + 0xc4]                             FUN_00b66640+0x3d
+   0x00b66683: MOV DL,byte ptr [ESP + 0x14]                               FUN_00b66640+0x43
+      ref READ               -> 0x00000014 unknown
+   0x00b66687: MOV byte ptr [EAX + 0x4],DL                                FUN_00b66640+0x47
+   0x00b6668a: MOV EAX,dword ptr [ECX + 0xc4]                             FUN_00b66640+0x4a
+   0x00b66690: MOV DL,byte ptr [ESP + 0x18]                               FUN_00b66640+0x50
+      ref READ               -> 0x00000018 unknown
+   0x00b66694: MOV byte ptr [EAX + 0x5],DL                                FUN_00b66640+0x54
+   0x00b66697: MOV EAX,dword ptr [ECX + 0xc4]                             FUN_00b66640+0x57
+   0x00b6669d: MOV DL,byte ptr [ESP + 0x1c]                               FUN_00b66640+0x5d
+      ref READ               -> 0x0000001c unknown
+   0x00b666a1: MOV byte ptr [EAX + 0x6],DL                                FUN_00b66640+0x61
+   0x00b666a4: MOV EAX,dword ptr [ECX + 0xc4]                             FUN_00b66640+0x64
+   0x00b666aa: MOV DL,byte ptr [ESP + 0x20]                               FUN_00b66640+0x6a
+      ref READ               -> 0x00000020 unknown
+   0x00b666ae: MOV byte ptr [EAX + 0x7],DL                                FUN_00b66640+0x6e
+   0x00b666b1: MOV EAX,dword ptr [ECX + 0xc4]                             FUN_00b66640+0x71
+   0x00b666b7: MOV CL,byte ptr [ESP + 0x24]                               FUN_00b66640+0x77
+      ref READ               -> 0x00000024 unknown
+   0x00b666bb: MOV byte ptr [EAX + 0x8],CL                                FUN_00b66640+0x7b
+   0x00b666be: RET 0x28                                                   FUN_00b66640+0x7e
+   0x00b666d0: PUSH EBX                                                   FUN_00b666d0
+   0x00b666d1: MOV EBX,dword ptr [ESP + 0x8]                              FUN_00b666d0+0x1
+      ref READ               -> 0x00000004 unknown
+   0x00b666d5: PUSH ESI                                                   FUN_00b666d0+0x5
+   0x00b666d6: PUSH EDI                                                   FUN_00b666d0+0x6
+   0x00b666d7: XOR ESI,ESI                                                FUN_00b666d0+0x7
+   0x00b666d9: LEA EDI,[ECX + 0xac]                                       FUN_00b666d0+0x9
+   0x00b666df: NOP                                                        FUN_00b666d0+0xf
+   0x00b666e0: MOV ECX,dword ptr [EDI]                                    FUN_00b666d0+0x10
+   0x00b666e2: MOV EAX,dword ptr [EBX]                                    FUN_00b666d0+0x12
+   0x00b666e4: MOV EDX,dword ptr [EAX + 0x90]                             FUN_00b666d0+0x14
+   0x00b666ea: PUSH ECX                                                   FUN_00b666d0+0x1a
+   0x00b666eb: PUSH ESI                                                   FUN_00b666d0+0x1b
+   0x00b666ec: MOV ECX,EBX                                                FUN_00b666d0+0x1c
+   0x00b666ee: CALL EDX                                                   FUN_00b666d0+0x1e
+   0x00b666f0: INC ESI                                                    FUN_00b666d0+0x20
+   0x00b666f1: ADD EDI,0x4                                                FUN_00b666d0+0x21
+   0x00b666f4: CMP ESI,0x6                                                FUN_00b666d0+0x24
+   0x00b666f7: JC 0x00b666e0                                              FUN_00b666d0+0x27
+      ref CONDITIONAL_JUMP   -> 0x00b666e0 FUN_00b666d0+0x10
+   0x00b666f9: POP EDI                                                    FUN_00b666d0+0x29
+   0x00b666fa: POP ESI                                                    FUN_00b666d0+0x2a
+   0x00b666fb: POP EBX                                                    FUN_00b666d0+0x2b
+   0x00b666fc: RET 0x4                                                    FUN_00b666d0+0x2c
+   0x00b66700: FLD float ptr [ESP + 0x4]                                  FUN_00b66700
+      ref READ               -> 0x00000004 unknown
+   0x00b66704: FCOM double ptr [0x01012060]                               FUN_00b66700+0x4
+      ref READ               -> 0x01012060 unknown
+   0x00b6670a: FNSTSW AX                                                  FUN_00b66700+0xa
+   0x00b6670c: TEST AH,0x5                                                FUN_00b66700+0xc
+   0x00b6670f: JP 0x00b6672e                                              FUN_00b66700+0xf
+      ref CONDITIONAL_JUMP   -> 0x00b6672e FUN_00b66700+0x2e
+   0x00b66711: FSTP ST0                                                   FUN_00b66700+0x11
+   0x00b66713: FLDZ                                                       FUN_00b66700+0x13
+   0x00b66715: FSTP float ptr [ESP + 0x4]                                 FUN_00b66700+0x15
+      ref WRITE              -> 0x00000004 unknown
+   0x00b66719: FLD float ptr [ESP + 0x4]                                  FUN_00b66700+0x19
+      ref READ               -> 0x00000004 unknown
+   0x00b6671d: FSTP float ptr [ESP + 0x4]                                 FUN_00b66700+0x1d
+      ref WRITE              -> 0x00000004 unknown
+   0x00b66721: FLD float ptr [ESP + 0x4]                                  FUN_00b66700+0x21
+      ref READ               -> 0x00000004 unknown
+   0x00b66725: FSTP float ptr [ECX + 0xe0]                                FUN_00b66700+0x25
+   0x00b6672b: RET 0x4                                                    FUN_00b66700+0x2b
+   0x00b6672e: FST float ptr [ESP + 0x4]                                  FUN_00b66700+0x2e
+      ref WRITE              -> 0x00000004 unknown
+   0x00b66732: FLD1                                                       FUN_00b66700+0x32
+   0x00b66734: FCOM                                                       FUN_00b66700+0x34
+   0x00b66736: FNSTSW AX                                                  FUN_00b66700+0x36
+   0x00b66738: FSTP ST1                                                   FUN_00b66700+0x38
+   0x00b6673a: TEST AH,0x41                                               FUN_00b66700+0x3a
+   0x00b6673d: JNZ 0x00b66745                                             FUN_00b66700+0x3d
+      ref CONDITIONAL_JUMP   -> 0x00b66745 FUN_00b66700+0x45
+   0x00b6673f: FSTP ST0                                                   FUN_00b66700+0x3f
+   0x00b66741: FLD float ptr [ESP + 0x4]                                  FUN_00b66700+0x41
+      ref READ               -> 0x00000004 unknown
+   0x00b66745: FSTP float ptr [ESP + 0x4]                                 FUN_00b66700+0x45
+      ref WRITE              -> 0x00000004 unknown
+   0x00b66749: FLD float ptr [ESP + 0x4]                                  FUN_00b66700+0x49
+      ref READ               -> 0x00000004 unknown
+   0x00b6674d: FSTP float ptr [ECX + 0xe0]                                FUN_00b66700+0x4d
+   0x00b66753: RET 0x4                                                    FUN_00b66700+0x53
+   0x00b66760: MOV EAX,dword ptr [ESP + 0x4]                              FUN_00b66760
+      ref READ               -> 0x00000004 unknown
+   0x00b66764: CMP EAX,0xfc                                               FUN_00b66760+0x4
+   0x00b66769: JZ 0x00b66775                                              FUN_00b66760+0x9
+      ref CONDITIONAL_JUMP   -> 0x00b66775 FUN_00b66760+0x15
+   0x00b6676b: CMP EAX,0x102                                              FUN_00b66760+0xb
+   0x00b66770: JZ 0x00b66775                                              FUN_00b66760+0x10
+      ref CONDITIONAL_JUMP   -> 0x00b66775 FUN_00b66760+0x15
+   0x00b66772: XOR EAX,EAX                                                FUN_00b66760+0x12
+   0x00b66774: RET                                                        FUN_00b66760+0x14
+   0x00b66775: MOV EAX,0x1                                                FUN_00b66760+0x15
+   0x00b6677a: RET                                                        FUN_00b66760+0x1a
+   0x00b66780: PUSH EBX                                                   FUN_00b66780
+   0x00b66781: PUSH ESI                                                   FUN_00b66780+0x1
+   0x00b66782: PUSH EDI                                                   FUN_00b66780+0x2
+   0x00b66783: MOV EDI,dword ptr [ESP + 0x10]                             FUN_00b66780+0x3
+      ref READ               -> 0x00000004 unknown
+   0x00b66787: PUSH EDI                                                   FUN_00b66780+0x7
+   0x00b66788: MOV ESI,ECX                                                FUN_00b66780+0x8
+   0x00b6678a: CALL 0x00b6f460                                            FUN_00b66780+0xa
+      ref UNCONDITIONAL_CALL -> 0x00b6f460 thunk_FUN_00a5c0e0
+   0x00b6678f: MOV ECX,EDI                                                FUN_00b66780+0xf
+   0x00b66791: CALL 0x00a63430                                            FUN_00b66780+0x11
+      ref UNCONDITIONAL_CALL -> 0x00a63430 FUN_00a63430
+   0x00b66796: MOV EBX,dword ptr [ESI + 0xa4]                             FUN_00b66780+0x16
+   0x00b6679c: MOV EDI,EAX                                                FUN_00b66780+0x1c
+   0x00b6679e: CMP EBX,EDI                                                FUN_00b66780+0x1e
+   0x00b667a0: JZ 0x00b667d1                                              FUN_00b66780+0x20
+      ref CONDITIONAL_JUMP   -> 0x00b667d1 FUN_00b66780+0x51
+   0x00b667a2: TEST EBX,EBX                                               FUN_00b66780+0x22
+   0x00b667a4: JZ 0x00b667bd                                              FUN_00b66780+0x24
+      ref CONDITIONAL_JUMP   -> 0x00b667bd FUN_00b66780+0x3d
+   0x00b667a6: LEA EAX,[EBX + 0x4]                                        FUN_00b66780+0x26
+   0x00b667a9: PUSH EAX                                                   FUN_00b66780+0x29
+   0x00b667aa: CALL dword ptr [0x00fdf1c4]                                FUN_00b66780+0x2a
+      ref READ               -> 0x00fdf1c4 unknown
+      ref COMPUTED_CALL      -> 0x00000067 unknown
+   0x00b667b0: TEST EAX,EAX                                               FUN_00b66780+0x30
+   0x00b667b2: JNZ 0x00b667bd                                             FUN_00b66780+0x32
+      ref CONDITIONAL_JUMP   -> 0x00b667bd FUN_00b66780+0x3d
+   0x00b667b4: MOV EDX,dword ptr [EBX]                                    FUN_00b66780+0x34
+   0x00b667b6: MOV EAX,dword ptr [EDX + 0x4]                              FUN_00b66780+0x36
+   0x00b667b9: MOV ECX,EBX                                                FUN_00b66780+0x39
+   0x00b667bb: CALL EAX                                                   FUN_00b66780+0x3b
+   0x00b667bd: MOV dword ptr [ESI + 0xa4],EDI                             FUN_00b66780+0x3d
+   0x00b667c3: TEST EDI,EDI                                               FUN_00b66780+0x43
+   0x00b667c5: JZ 0x00b667d1                                              FUN_00b66780+0x45
+      ref CONDITIONAL_JUMP   -> 0x00b667d1 FUN_00b66780+0x51
+   0x00b667c7: ADD EDI,0x4                                                FUN_00b66780+0x47
+   0x00b667ca: PUSH EDI                                                   FUN_00b66780+0x4a
+   0x00b667cb: CALL dword ptr [0x00fdf1c0]                                FUN_00b66780+0x4b
+      ref READ               -> 0x00fdf1c0 unknown
+      ref COMPUTED_CALL      -> 0x00000066 unknown
+   0x00b667d1: POP EDI                                                    FUN_00b66780+0x51
+   0x00b667d2: POP ESI                                                    FUN_00b66780+0x52
+   0x00b667d3: POP EBX                                                    FUN_00b66780+0x53
+   0x00b667d4: RET 0x4                                                    FUN_00b66780+0x54
+
+======================================================================
+DISASM: six material array writer around 0x00b68660
+======================================================================
+   0x00b68636: MOV EDX,0xa                                                FUN_00b68450+0x1e6
+   0x00b6863b: MOV dword ptr [ESI + 0xc4],EAX                             FUN_00b68450+0x1eb
+   0x00b68641: MOV word ptr [ESI + 0xa8],DX                               FUN_00b68450+0x1f1
+   0x00b68648: MOV ECX,dword ptr [ESP + 0x3c]                             FUN_00b68450+0x1f8
+      ref READ               -> 0x-000000c unknown
+   0x00b6864c: MOV dword ptr FS:[0x0],ECX                                 FUN_00b68450+0x1fc
+   0x00b68653: POP ECX                                                    FUN_00b68450+0x203
+   0x00b68654: POP EDI                                                    FUN_00b68450+0x204
+   0x00b68655: POP ESI                                                    FUN_00b68450+0x205
+   0x00b68656: POP EBP                                                    FUN_00b68450+0x206
+   0x00b68657: POP EBX                                                    FUN_00b68450+0x207
+   0x00b68658: ADD ESP,0x34                                               FUN_00b68450+0x208
+   0x00b6865b: RET                                                        FUN_00b68450+0x20b
+=> 0x00b68660: PUSH EBP                                                   six material array writer
+   0x00b68661: MOV EBP,ECX                                                FUN_00b68660+0x1
+   0x00b68663: CMP word ptr [EBP + 0xa8],0xa                              FUN_00b68660+0x3
+   0x00b6866b: JNC 0x00b68672                                             FUN_00b68660+0xb
+      ref CONDITIONAL_JUMP   -> 0x00b68672 FUN_00b68660+0x12
+   0x00b6866d: CALL 0x00b68450                                            FUN_00b68660+0xd
+      ref UNCONDITIONAL_CALL -> 0x00b68450 FUN_00b68450
+   0x00b68672: MOV EAX,dword ptr [EBP + 0xcc]                             FUN_00b68660+0x12
+   0x00b68678: PUSH EBX                                                   FUN_00b68660+0x18
+   0x00b68679: PUSH ESI                                                   FUN_00b68660+0x19
+   0x00b6867a: PUSH EDI                                                   FUN_00b68660+0x1a
+   0x00b6867b: MOV EDI,dword ptr [ESP + 0x14]                             FUN_00b68660+0x1b
+      ref READ               -> 0x00000004 unknown
+   0x00b6867f: MOV byte ptr [EDI + EAX*0x1],0x0                           FUN_00b68660+0x1f
+   0x00b68683: MOV ECX,dword ptr [EBP + 0xc4]                             FUN_00b68660+0x23
+   0x00b68689: MOV byte ptr [EDI + ECX*0x1],0x0                           FUN_00b68660+0x29
+   0x00b6868d: XOR EBX,EBX                                                FUN_00b68660+0x2d
+   0x00b6868f: NOP                                                        FUN_00b68660+0x2f
+   0x00b68690: MOV ESI,dword ptr [EBP + EBX*0x4 + 0xac]                   FUN_00b68660+0x30
+   0x00b68697: MOV ECX,dword ptr [ESP + 0x18]                             FUN_00b68660+0x37
+      ref READ               -> 0x00000008 unknown
+   0x00b6869b: LEA EAX,[EDI*0x4 + 0x0]                                    FUN_00b68660+0x3b
+   0x00b686a2: ADD ESI,EAX                                                FUN_00b68660+0x42
+   0x00b686a4: TEST ECX,ECX                                               FUN_00b68660+0x44
+   0x00b686a6: JZ 0x00b686b6                                              FUN_00b68660+0x46
+      ref CONDITIONAL_JUMP   -> 0x00b686b6 FUN_00b68660+0x56
+   0x00b686a8: MOV EDX,dword ptr [ECX]                                    FUN_00b68660+0x48
+   0x00b686aa: MOV EAX,dword ptr [EDX + 0x90]                             FUN_00b68660+0x4a
+   0x00b686b0: PUSH ESI                                                   FUN_00b68660+0x50
+   0x00b686b1: PUSH EBX                                                   FUN_00b68660+0x51
+   0x00b686b2: CALL EAX                                                   FUN_00b68660+0x52
+   0x00b686b4: JMP 0x00b686dd                                             FUN_00b68660+0x54
+      ref UNCONDITIONAL_JUMP -> 0x00b686dd FUN_00b68660+0x7d
+   0x00b686b6: MOV EDI,dword ptr [ESI]                                    FUN_00b68660+0x56
+   0x00b686b8: TEST EDI,EDI                                               FUN_00b68660+0x58
+   0x00b686ba: JZ 0x00b686d9                                              FUN_00b68660+0x5a
+      ref CONDITIONAL_JUMP   -> 0x00b686d9 FUN_00b68660+0x79
+   0x00b686bc: LEA ECX,[EDI + 0x4]                                        FUN_00b68660+0x5c
+   0x00b686bf: PUSH ECX                                                   FUN_00b68660+0x5f
+   0x00b686c0: CALL dword ptr [0x00fdf1c4]                                FUN_00b68660+0x60
+      ref READ               -> 0x00fdf1c4 unknown
+      ref COMPUTED_CALL      -> 0x00000067 unknown
+   0x00b686c6: TEST EAX,EAX                                               FUN_00b68660+0x66
+   0x00b686c8: JNZ 0x00b686d3                                             FUN_00b68660+0x68
+      ref CONDITIONAL_JUMP   -> 0x00b686d3 FUN_00b68660+0x73
+   0x00b686ca: MOV EDX,dword ptr [EDI]                                    FUN_00b68660+0x6a
+   0x00b686cc: MOV EAX,dword ptr [EDX + 0x4]                              FUN_00b68660+0x6c
+   0x00b686cf: MOV ECX,EDI                                                FUN_00b68660+0x6f
+   0x00b686d1: CALL EAX                                                   FUN_00b68660+0x71
+   0x00b686d3: MOV dword ptr [ESI],0x0                                    FUN_00b68660+0x73
+   0x00b686d9: MOV EDI,dword ptr [ESP + 0x14]                             FUN_00b68660+0x79
+   0x00b686dd: CMP EBX,0x1                                                FUN_00b68660+0x7d
+   0x00b686e0: JNZ 0x00b6871f                                             FUN_00b68660+0x80
+      ref CONDITIONAL_JUMP   -> 0x00b6871f FUN_00b68660+0xbf
+   0x00b686e2: MOV ECX,dword ptr [EBP + EBX*0x4 + 0xac]                   FUN_00b68660+0x82
+   0x00b686e9: MOV EAX,dword ptr [ECX + EDI*0x4]                          FUN_00b68660+0x89
+   0x00b686ec: TEST EAX,EAX                                               FUN_00b68660+0x8c
+   0x00b686ee: JZ 0x00b6871f                                              FUN_00b68660+0x8e
+      ref CONDITIONAL_JUMP   -> 0x00b6871f FUN_00b68660+0xbf
+   0x00b686f0: MOV EAX,dword ptr [EAX + 0x24]                             FUN_00b68660+0x90
+   0x00b686f3: TEST EAX,EAX                                               FUN_00b68660+0x93
+   0x00b686f5: JZ 0x00b6871f                                              FUN_00b68660+0x95
+      ref CONDITIONAL_JUMP   -> 0x00b6871f FUN_00b68660+0xbf
+   0x00b686f7: ADD EAX,0x14                                               FUN_00b68660+0x97
+   0x00b686fa: JZ 0x00b6871f                                              FUN_00b68660+0x9a
+      ref CONDITIONAL_JUMP   -> 0x00b6871f FUN_00b68660+0xbf
+   0x00b686fc: MOV EAX,dword ptr [EAX + 0x4]                              FUN_00b68660+0x9c
+   0x00b686ff: CMP EAX,0x5                                                FUN_00b68660+0x9f
+   0x00b68702: JZ 0x00b68711                                              FUN_00b68660+0xa2
+      ref CONDITIONAL_JUMP   -> 0x00b68711 FUN_00b68660+0xb1
+   0x00b68704: CMP EAX,0x6                                                FUN_00b68660+0xa4
+   0x00b68707: JZ 0x00b68711                                              FUN_00b68660+0xa7
+      ref CONDITIONAL_JUMP   -> 0x00b68711 FUN_00b68660+0xb1
+   0x00b68709: CMP EAX,EBX                                                FUN_00b68660+0xa9
+   0x00b6870b: JZ 0x00b68711                                              FUN_00b68660+0xab
+      ref CONDITIONAL_JUMP   -> 0x00b68711 FUN_00b68660+0xb1
+   0x00b6870d: XOR EAX,EAX                                                FUN_00b68660+0xad
+   0x00b6870f: JMP 0x00b68716                                             FUN_00b68660+0xaf
+      ref UNCONDITIONAL_JUMP -> 0x00b68716 FUN_00b68660+0xb6
+   0x00b68711: MOV EAX,0x1                                                FUN_00b68660+0xb1
+   0x00b68716: MOV EDX,dword ptr [EBP + 0xcc]                             FUN_00b68660+0xb6
+   0x00b6871c: MOV byte ptr [EDI + EDX*0x1],AL                            FUN_00b68660+0xbc
+   0x00b6871f: INC EBX                                                    FUN_00b68660+0xbf
+   0x00b68720: CMP EBX,0x6                                                FUN_00b68660+0xc0
+   0x00b68723: JL 0x00b68690                                              FUN_00b68660+0xc3
+      ref CONDITIONAL_JUMP   -> 0x00b68690 FUN_00b68660+0x30
+   0x00b68729: MOV ECX,dword ptr [EBP + 0xac]                             FUN_00b68660+0xc9
+   0x00b6872f: POP EDI                                                    FUN_00b68660+0xcf
+   0x00b68730: POP ESI                                                    FUN_00b68660+0xd0
+   0x00b68731: XOR EAX,EAX                                                FUN_00b68660+0xd1
+   0x00b68733: POP EBX                                                    FUN_00b68660+0xd3
+   0x00b68734: MOVZX EDX,AX                                               FUN_00b68660+0xd4
+   0x00b68737: CMP dword ptr [ECX + EDX*0x4],0x0                          FUN_00b68660+0xd7
+   0x00b6873b: JZ 0x00b68744                                              FUN_00b68660+0xdb
+      ref CONDITIONAL_JUMP   -> 0x00b68744 FUN_00b68660+0xe4
+   0x00b6873d: INC EAX                                                    FUN_00b68660+0xdd
+   0x00b6873e: CMP AX,0x9                                                 FUN_00b68660+0xde
+   0x00b68742: JC 0x00b68734                                              FUN_00b68660+0xe2
+      ref CONDITIONAL_JUMP   -> 0x00b68734 FUN_00b68660+0xd4
+   0x00b68744: TEST AX,AX                                                 FUN_00b68660+0xe4
+   0x00b68747: JBE 0x00b68758                                             FUN_00b68660+0xe7
+      ref CONDITIONAL_JUMP   -> 0x00b68758 FUN_00b68660+0xf8
+   0x00b68749: MOVZX EAX,AX                                               FUN_00b68660+0xe9
+   0x00b6874c: DEC EAX                                                    FUN_00b68660+0xec
+   0x00b6874d: MOV word ptr [EBP + 0xc8],AX                               FUN_00b68660+0xed
+   0x00b68754: POP EBP                                                    FUN_00b68660+0xf4
+   0x00b68755: RET 0x8                                                    FUN_00b68660+0xf5
+   0x00b68758: XOR EAX,EAX                                                FUN_00b68660+0xf8
+   0x00b6875a: MOV word ptr [EBP + 0xc8],AX                               FUN_00b68660+0xfa
+   0x00b68761: POP EBP                                                    FUN_00b68660+0x101
+   0x00b68762: RET 0x8                                                    FUN_00b68660+0x102
+   0x00b68770: PUSH ESI                                                   FUN_00b68770
+   0x00b68771: MOV ESI,dword ptr [ESP + 0x8]                              FUN_00b68770+0x1
+      ref READ               -> 0x00000004 unknown
+   0x00b68775: TEST ESI,ESI                                               FUN_00b68770+0x5
+   0x00b68777: JZ 0x00b68879                                              FUN_00b68770+0x7
+      ref CONDITIONAL_JUMP   -> 0x00b68879 FUN_00b68770+0x109
+   0x00b6877d: MOV EAX,dword ptr [ESI]                                    FUN_00b68770+0xd
+   0x00b6877f: MOV EDX,dword ptr [EAX + 0x1c]                             FUN_00b68770+0xf
+   0x00b68782: PUSH EBX                                                   FUN_00b68770+0x12
+   0x00b68783: MOV ECX,ESI                                                FUN_00b68770+0x13
+   0x00b68785: CALL EDX                                                   FUN_00b68770+0x15
+   0x00b68787: TEST EAX,EAX                                               FUN_00b68770+0x17
+   0x00b68789: JZ 0x00b6881e                                              FUN_00b68770+0x19
+      ref CONDITIONAL_JUMP   -> 0x00b6881e FUN_00b68770+0xae
+   0x00b6878f: MOV ESI,dword ptr [ESI + 0xa8]                             FUN_00b68770+0x1f
+   0x00b68795: TEST ESI,ESI                                               FUN_00b68770+0x25
+   0x00b68797: JZ 0x00b68878                                              FUN_00b68770+0x27
+      ref CONDITIONAL_JUMP   -> 0x00b68878 FUN_00b68770+0x108
+   0x00b6879d: MOV EAX,dword ptr [ESI + 0x1c]                             FUN_00b68770+0x2d
+   0x00b687a0: CMP EAX,0x8                                                FUN_00b68770+0x30
+   0x00b687a3: JL 0x00b68878                                              FUN_00b68770+0x33
+      ref CONDITIONAL_JUMP   -> 0x00b68878 FUN_00b68770+0x108
+   0x00b687a9: CMP EAX,0xc                                                FUN_00b68770+0x39
+   0x00b687ac: JG 0x00b68878                                              FUN_00b68770+0x3c
+      ref CONDITIONAL_JUMP   -> 0x00b68878 FUN_00b68770+0x108
+   0x00b687b2: MOV EBX,dword ptr [ESP + 0x10]                             FUN_00b68770+0x42
+   0x00b687b6: PUSH EBX                                                   FUN_00b68770+0x46
+   0x00b687b7: PUSH 0xf                                                   FUN_00b68770+0x47
+   0x00b687b9: MOV ECX,ESI                                                FUN_00b68770+0x49
+   0x00b687bb: CALL 0x00441130                                            FUN_00b68770+0x4b
+      ref UNCONDITIONAL_CALL -> 0x00441130 FUN_00441130
+   0x00b687c0: TEST BL,BL                                                 FUN_00b68770+0x50
+   0x00b687c2: JZ 0x00b687cf                                              FUN_00b68770+0x52
+      ref CONDITIONAL_JUMP   -> 0x00b687cf FUN_00b68770+0x5f
+   0x00b687c4: CMP byte ptr [ESP + 0x18],0x0                              FUN_00b68770+0x54
+   0x00b687c9: JZ 0x00b687cf                                              FUN_00b68770+0x59
+      ref CONDITIONAL_JUMP   -> 0x00b687cf FUN_00b68770+0x5f
+   0x00b687cb: MOV AL,0x1                                                 FUN_00b68770+0x5b
+   0x00b687cd: JMP 0x00b687d1                                             FUN_00b68770+0x5d
+      ref UNCONDITIONAL_JUMP -> 0x00b687d1 FUN_00b68770+0x61
+   0x00b687cf: XOR AL,AL                                                  FUN_00b68770+0x5f
+   0x00b687d1: PUSH EAX                                                   FUN_00b68770+0x61
+   0x00b687d2: PUSH 0x10                                                  FUN_00b68770+0x62
+   0x00b687d4: MOV ECX,ESI                                                FUN_00b68770+0x64
+   0x00b687d6: CALL 0x00441130                                            FUN_00b68770+0x66
+      ref UNCONDITIONAL_CALL -> 0x00441130 FUN_00441130
+   0x00b687db: TEST BL,BL                                                 FUN_00b68770+0x6b
+   0x00b687dd: JZ 0x00b687ea                                              FUN_00b68770+0x6d
+      ref CONDITIONAL_JUMP   -> 0x00b687ea FUN_00b68770+0x7a
+   0x00b687df: CMP byte ptr [ESP + 0x20],0x0                              FUN_00b68770+0x6f
+   0x00b687e4: JZ 0x00b687ea                                              FUN_00b68770+0x74
+      ref CONDITIONAL_JUMP   -> 0x00b687ea FUN_00b68770+0x7a
+   0x00b687e6: MOV AL,0x1                                                 FUN_00b68770+0x76
+   0x00b687e8: JMP 0x00b687ec                                             FUN_00b68770+0x78
+      ref UNCONDITIONAL_JUMP -> 0x00b687ec FUN_00b68770+0x7c
+   0x00b687ea: XOR AL,AL                                                  FUN_00b68770+0x7a
+   0x00b687ec: PUSH EAX                                                   FUN_00b68770+0x7c
+   0x00b687ed: PUSH 0x24                                                  FUN_00b68770+0x7d
+   0x00b687ef: MOV ECX,ESI                                                FUN_00b68770+0x7f
+   0x00b687f1: CALL 0x00441130                                            FUN_00b68770+0x81
+      ref UNCONDITIONAL_CALL -> 0x00441130 FUN_00441130
+   0x00b687f6: FLD float ptr [ESP + 0x14]                                 FUN_00b68770+0x86
+   0x00b687fa: PUSH ECX                                                   FUN_00b68770+0x8a
+   0x00b687fb: MOV ECX,ESI                                                FUN_00b68770+0x8b
+   0x00b687fd: FSTP float ptr [ESP]                                       FUN_00b68770+0x8d
+   0x00b68800: CALL 0x00b66700                                            FUN_00b68770+0x90
+      ref UNCONDITIONAL_CALL -> 0x00b66700 FUN_00b66700
+   0x00b68805: CMP byte ptr [ESP + 0x18],0x0                              FUN_00b68770+0x95
+   0x00b6880a: JZ 0x00b68878                                              FUN_00b68770+0x9a
+      ref CONDITIONAL_JUMP   -> 0x00b68878 FUN_00b68770+0x108
+   0x00b6880c: FLD float ptr [ESP + 0x1c]                                 FUN_00b68770+0x9c
+   0x00b68810: CALL 0x00ec62c0                                            FUN_00b68770+0xa0
+      ref UNCONDITIONAL_CALL -> 0x00ec62c0 FUN_00ec62c0
+   0x00b68815: POP EBX                                                    FUN_00b68770+0xa5
+   0x00b68816: MOV dword ptr [ESI + 0xe4],EAX                             FUN_00b68770+0xa6
+   0x00b6881c: POP ESI                                                    FUN_00b68770+0xac
+   0x00b6881d: RET                                                        FUN_00b68770+0xad
+   0x00b6881e: MOV EAX,dword ptr [ESI]                                    FUN_00b68770+0xae
+   0x00b68820: MOV EDX,dword ptr [EAX + 0xc]                              FUN_00b68770+0xb0
+   0x00b68823: PUSH EDI                                                   FUN_00b68770+0xb3
+   0x00b68824: MOV ECX,ESI                                                FUN_00b68770+0xb4
+   0x00b68826: CALL EDX                                                   FUN_00b68770+0xb6
+   0x00b68828: MOV EDI,EAX                                                FUN_00b68770+0xb8
+   0x00b6882a: TEST EDI,EDI                                               FUN_00b68770+0xba
+   0x00b6882c: JZ 0x00b68877                                              FUN_00b68770+0xbc
+      ref CONDITIONAL_JUMP   -> 0x00b68877 FUN_00b68770+0x107
+   0x00b6882e: MOVZX EBX,word ptr [EDI + 0xa6]                            FUN_00b68770+0xbe
+   0x00b68835: XOR ESI,ESI                                                FUN_00b68770+0xc5
+   0x00b68837: TEST EBX,EBX                                               FUN_00b68770+0xc7
+   0x00b68839: JBE 0x00b68877                                             FUN_00b68770+0xc9
+      ref CONDITIONAL_JUMP   -> 0x00b68877 FUN_00b68770+0x107
+   0x00b6883b: PUSH EBP                                                   FUN_00b68770+0xcb
+
+======================================================================
+DISASM: selector setup dispatcher around 0x00b99390
+======================================================================
+   0x00b99370: MOV EDX,dword ptr [EAX + 0x8c]                             FUN_00b99110+0x260
+   0x00b99376: PUSH ECX                                                   FUN_00b99110+0x266
+   0x00b99377: MOV ECX,ESI                                                FUN_00b99110+0x267
+   0x00b99379: CALL EDX                                                   FUN_00b99110+0x269
+   0x00b9937b: POP EDI                                                    FUN_00b99110+0x26b
+   0x00b9937c: POP ESI                                                    FUN_00b99110+0x26c
+   0x00b9937d: POP EBP                                                    FUN_00b99110+0x26d
+   0x00b9937e: POP EBX                                                    FUN_00b99110+0x26e
+   0x00b9937f: ADD ESP,0x30                                               FUN_00b99110+0x26f
+   0x00b99382: RET                                                        FUN_00b99110+0x272
+=> 0x00b99390: PUSH ESI                                                   draw selector setup dispatcher
+   0x00b99391: PUSH EDI                                                   FUN_00b99390+0x1
+   0x00b99392: CALL 0x00b988e0                                            FUN_00b99390+0x2
+      ref UNCONDITIONAL_CALL -> 0x00b988e0 FUN_00b988e0
+   0x00b99397: MOV ESI,dword ptr [ESP + 0x10]                             FUN_00b99390+0x7
+      ref READ               -> 0x00000008 unknown
+   0x00b9939b: MOV EDI,dword ptr [ESP + 0xc]                              FUN_00b99390+0xb
+      ref READ               -> 0x00000004 unknown
+   0x00b9939f: OR EAX,0xffffffff                                          FUN_00b99390+0xf
+   0x00b993a2: MOV [0x011ae63c],AX                                        FUN_00b99390+0x12
+      ref WRITE              -> 0x011ae63c unknown
+   0x00b993a8: MOV EDX,dword ptr [ESI]                                    FUN_00b99390+0x18
+   0x00b993aa: MOV EAX,dword ptr [EDX + 0xf0]                             FUN_00b99390+0x1a
+   0x00b993b0: PUSH EDI                                                   FUN_00b99390+0x20
+   0x00b993b1: MOV ECX,ESI                                                FUN_00b99390+0x21
+   0x00b993b3: CALL EAX                                                   FUN_00b99390+0x23
+   0x00b993b5: XOR EAX,EAX                                                FUN_00b99390+0x25
+   0x00b993b7: MOV [0x0126f680],EAX                                       FUN_00b99390+0x27
+      ref WRITE              -> 0x0126f680 unknown
+   0x00b993bc: MOV [0x0126f684],EAX                                       FUN_00b99390+0x2c
+      ref WRITE              -> 0x0126f684 unknown
+   0x00b993c1: MOV [0x0126f688],EAX                                       FUN_00b99390+0x31
+      ref WRITE              -> 0x0126f688 unknown
+   0x00b993c6: MOV [0x0126f68c],EAX                                       FUN_00b99390+0x36
+      ref WRITE              -> 0x0126f68c unknown
+   0x00b993cb: MOV [0x0126f690],EAX                                       FUN_00b99390+0x3b
+      ref WRITE              -> 0x0126f690 unknown
+   0x00b993d0: MOV [0x0126f694],EAX                                       FUN_00b99390+0x40
+      ref WRITE              -> 0x0126f694 unknown
+   0x00b993d5: MOV [0x0126f698],EAX                                       FUN_00b99390+0x45
+      ref WRITE              -> 0x0126f698 unknown
+   0x00b993da: MOV [0x0126f69c],EAX                                       FUN_00b99390+0x4a
+      ref WRITE              -> 0x0126f69c unknown
+   0x00b993df: MOV [0x0126f6a0],EAX                                       FUN_00b99390+0x4f
+      ref WRITE              -> 0x0126f6a0 unknown
+   0x00b993e4: MOV [0x0126f6a4],EAX                                       FUN_00b99390+0x54
+      ref WRITE              -> 0x0126f6a4 unknown
+   0x00b993e9: MOV [0x0126f6a8],EAX                                       FUN_00b99390+0x59
+      ref WRITE              -> 0x0126f6a8 unknown
+   0x00b993ee: MOV [0x0126f6ac],EAX                                       FUN_00b99390+0x5e
+      ref WRITE              -> 0x0126f6ac unknown
+   0x00b993f3: MOV [0x0126f6b0],EAX                                       FUN_00b99390+0x63
+      ref WRITE              -> 0x0126f6b0 unknown
+   0x00b993f8: MOV [0x0126f6b4],EAX                                       FUN_00b99390+0x68
+      ref WRITE              -> 0x0126f6b4 unknown
+   0x00b993fd: MOV [0x0126f6b8],EAX                                       FUN_00b99390+0x6d
+      ref WRITE              -> 0x0126f6b8 unknown
+   0x00b99402: MOV [0x0126f6bc],EAX                                       FUN_00b99390+0x72
+      ref WRITE              -> 0x0126f6bc unknown
+   0x00b99407: LEA EAX,[EDI + 0xffffff36]                                 FUN_00b99390+0x77
+   0x00b9940d: CMP EAX,0x38                                               FUN_00b99390+0x7d
+   0x00b99410: JA 0x00b99450                                              FUN_00b99390+0x80
+      ref CONDITIONAL_JUMP   -> 0x00b99450 FUN_00b99390+0xc0
+   0x00b99412: MOVZX ECX,byte ptr [EAX + 0xb994b0]                        FUN_00b99390+0x82
+      ref DATA               -> 0x00b994b0 unknown
+   0x00b99419: JMP dword ptr [ECX*0x4 + 0xb9949c]                         FUN_00b99390+0x89
+      ref COMPUTED_JUMP      -> 0x00b9943e FUN_00b99390+0xae
+      ref COMPUTED_JUMP      -> 0x00b99450 FUN_00b99390+0xc0
+      ref COMPUTED_JUMP      -> 0x00b99447 FUN_00b99390+0xb7
+      ref COMPUTED_JUMP      -> 0x00b99420 FUN_00b99390+0x90
+      ref COMPUTED_JUMP      -> 0x00b99435 FUN_00b99390+0xa5
+      ref DATA               -> 0x00b9949c unknown
+   0x00b99420: MOV ECX,ESI                                                FUN_00b99390+0x90
+   0x00b99422: CALL 0x00b7dd50                                            FUN_00b99390+0x92
+      ref UNCONDITIONAL_CALL -> 0x00b7dd50 FUN_00b7dd50
+   0x00b99427: PUSH 0x0                                                   FUN_00b99390+0x97
+   0x00b99429: PUSH 0x1                                                   FUN_00b99390+0x99
+   0x00b9942b: CALL 0x00b97de0                                            FUN_00b99390+0x9b
+      ref UNCONDITIONAL_CALL -> 0x00b97de0 FUN_00b97de0
+   0x00b99430: ADD ESP,0x8                                                FUN_00b99390+0xa0
+   0x00b99433: JMP 0x00b99477                                             FUN_00b99390+0xa3
+      ref UNCONDITIONAL_JUMP -> 0x00b99477 FUN_00b99390+0xe7
+   0x00b99435: MOV ECX,ESI                                                FUN_00b99390+0xa5
+   0x00b99437: CALL 0x00b7dd50                                            FUN_00b99390+0xa7
+      ref UNCONDITIONAL_CALL -> 0x00b7dd50 FUN_00b7dd50
+   0x00b9943c: JMP 0x00b99477                                             FUN_00b99390+0xac
+      ref UNCONDITIONAL_JUMP -> 0x00b99477 FUN_00b99390+0xe7
+   0x00b9943e: MOV ECX,ESI                                                FUN_00b99390+0xae
+   0x00b99440: CALL 0x00b7deb0                                            FUN_00b99390+0xb0
+      ref UNCONDITIONAL_CALL -> 0x00b7deb0 FUN_00b7deb0
+   0x00b99445: JMP 0x00b99477                                             FUN_00b99390+0xb5
+      ref UNCONDITIONAL_JUMP -> 0x00b99477 FUN_00b99390+0xe7
+   0x00b99447: MOV ECX,ESI                                                FUN_00b99390+0xb7
+   0x00b99449: CALL 0x00b7deb0                                            FUN_00b99390+0xb9
+      ref UNCONDITIONAL_CALL -> 0x00b7deb0 FUN_00b7deb0
+   0x00b9944e: JMP 0x00b99477                                             FUN_00b99390+0xbe
+      ref UNCONDITIONAL_JUMP -> 0x00b99477 FUN_00b99390+0xe7
+   0x00b99450: MOV EDX,dword ptr [ESI]                                    FUN_00b99390+0xc0
+   0x00b99452: MOV EAX,dword ptr [EDX + 0xfc]                             FUN_00b99390+0xc2
+   0x00b99458: PUSH EDI                                                   FUN_00b99390+0xc8
+   0x00b99459: MOV ECX,ESI                                                FUN_00b99390+0xc9
+   0x00b9945b: CALL EAX                                                   FUN_00b99390+0xcb
+   0x00b9945d: MOV EDX,dword ptr [ESI]                                    FUN_00b99390+0xcd
+   0x00b9945f: MOV EAX,dword ptr [EDX + 0xf8]                             FUN_00b99390+0xcf
+   0x00b99465: PUSH EDI                                                   FUN_00b99390+0xd5
+   0x00b99466: MOV ECX,ESI                                                FUN_00b99390+0xd6
+   0x00b99468: CALL EAX                                                   FUN_00b99390+0xd8
+   0x00b9946a: MOV EDX,dword ptr [ESI]                                    FUN_00b99390+0xda
+   0x00b9946c: MOV EAX,dword ptr [EDX + 0x100]                            FUN_00b99390+0xdc
+   0x00b99472: PUSH EDI                                                   FUN_00b99390+0xe2
+   0x00b99473: MOV ECX,ESI                                                FUN_00b99390+0xe3
+   0x00b99475: CALL EAX                                                   FUN_00b99390+0xe5
+   0x00b99477: MOV EDX,dword ptr [ESI]                                    FUN_00b99390+0xe7
+   0x00b99479: MOV EAX,dword ptr [EDX + 0xf4]                             FUN_00b99390+0xe9
+   0x00b9947f: PUSH EDI                                                   FUN_00b99390+0xef
+   0x00b99480: MOV ECX,ESI                                                FUN_00b99390+0xf0
+   0x00b99482: CALL EAX                                                   FUN_00b99390+0xf2
+   0x00b99484: MOV dword ptr [0x011ffe30],EDI                             FUN_00b99390+0xf4
+      ref WRITE              -> 0x011ffe30 unknown
+   0x00b9948a: POP EDI                                                    FUN_00b99390+0xfa
+   0x00b9948b: MOV dword ptr [0x011ffe2c],ESI                             FUN_00b99390+0xfb
+      ref WRITE              -> 0x011ffe2c last selector object global
+   0x00b99491: MOV byte ptr [0x011ad8ec],0x1                              FUN_00b99390+0x101
+      ref WRITE              -> 0x011ad8ec unknown
+   0x00b99498: POP ESI                                                    FUN_00b99390+0x108
+   0x00b99499: RET                                                        FUN_00b99390+0x109
+   0x00b994f0: PUSH ESI                                                   current draw dispatcher
+   0x00b994f1: MOV ESI,dword ptr [ESP + 0x8]                              FUN_00b994f0+0x1
+      ref READ               -> 0x00000004 unknown
+   0x00b994f5: MOVZX EAX,word ptr [ESI + 0x4]                             FUN_00b994f0+0x5
+   0x00b994f9: PUSH EDI                                                   FUN_00b994f0+0x9
+   0x00b994fa: MOV EDI,dword ptr [ESP + 0x10]                             FUN_00b994f0+0xa
+      ref READ               -> 0x00000008 unknown
+   0x00b994fe: CMP EAX,EDI                                                FUN_00b994f0+0xe
+   0x00b99500: JNZ 0x00b99628                                             FUN_00b994f0+0x10
+      ref CONDITIONAL_JUMP   -> 0x00b99628 FUN_00b994f0+0x138
+   0x00b99506: MOV dword ptr [0x011f91e4],EDI                             FUN_00b994f0+0x16
+      ref WRITE              -> 0x011f91e4 unknown
+   0x00b9950c: MOV dword ptr [0x011f91e0],ESI                             FUN_00b994f0+0x1c
+      ref WRITE              -> 0x011f91e0 current draw record global
+   0x00b99512: MOV ECX,dword ptr [ESI]                                    FUN_00b994f0+0x22
+   0x00b99514: MOV EAX,dword ptr [ECX + 0xc0]                             FUN_00b994f0+0x24
+   0x00b9951a: PUSH EBX                                                   FUN_00b994f0+0x2a
+   0x00b9951b: XOR BL,BL                                                  FUN_00b994f0+0x2b
+   0x00b9951d: CMP dword ptr [0x011ffe30],EDI                             FUN_00b994f0+0x2d
+      ref READ               -> 0x011ffe30 unknown
+   0x00b99523: JNZ 0x00b99535                                             FUN_00b994f0+0x33
+      ref CONDITIONAL_JUMP   -> 0x00b99535 FUN_00b994f0+0x45
+   0x00b99525: CMP EDI,0x2f6                                              FUN_00b994f0+0x35
+   0x00b9952b: JZ 0x00b99535                                              FUN_00b994f0+0x3b
+      ref CONDITIONAL_JUMP   -> 0x00b99535 FUN_00b994f0+0x45
+   0x00b9952d: CMP EAX,dword ptr [0x011ffe2c]                             FUN_00b994f0+0x3d
+      ref READ               -> 0x011ffe2c last selector object global
+   0x00b99533: JZ 0x00b99541                                              FUN_00b994f0+0x43
+      ref CONDITIONAL_JUMP   -> 0x00b99541 FUN_00b994f0+0x51
+   0x00b99535: PUSH EAX                                                   FUN_00b994f0+0x45
+
+======================================================================
+DISASM: current draw dispatcher around 0x00b994f0
+======================================================================
+   0x00b99479: MOV EAX,dword ptr [EDX + 0xf4]                             FUN_00b99390+0xe9
+   0x00b9947f: PUSH EDI                                                   FUN_00b99390+0xef
+   0x00b99480: MOV ECX,ESI                                                FUN_00b99390+0xf0
+   0x00b99482: CALL EAX                                                   FUN_00b99390+0xf2
+   0x00b99484: MOV dword ptr [0x011ffe30],EDI                             FUN_00b99390+0xf4
+      ref WRITE              -> 0x011ffe30 unknown
+   0x00b9948a: POP EDI                                                    FUN_00b99390+0xfa
+   0x00b9948b: MOV dword ptr [0x011ffe2c],ESI                             FUN_00b99390+0xfb
+      ref WRITE              -> 0x011ffe2c last selector object global
+   0x00b99491: MOV byte ptr [0x011ad8ec],0x1                              FUN_00b99390+0x101
+      ref WRITE              -> 0x011ad8ec unknown
+   0x00b99498: POP ESI                                                    FUN_00b99390+0x108
+   0x00b99499: RET                                                        FUN_00b99390+0x109
+=> 0x00b994f0: PUSH ESI                                                   current draw dispatcher
+   0x00b994f1: MOV ESI,dword ptr [ESP + 0x8]                              FUN_00b994f0+0x1
+      ref READ               -> 0x00000004 unknown
+   0x00b994f5: MOVZX EAX,word ptr [ESI + 0x4]                             FUN_00b994f0+0x5
+   0x00b994f9: PUSH EDI                                                   FUN_00b994f0+0x9
+   0x00b994fa: MOV EDI,dword ptr [ESP + 0x10]                             FUN_00b994f0+0xa
+      ref READ               -> 0x00000008 unknown
+   0x00b994fe: CMP EAX,EDI                                                FUN_00b994f0+0xe
+   0x00b99500: JNZ 0x00b99628                                             FUN_00b994f0+0x10
+      ref CONDITIONAL_JUMP   -> 0x00b99628 FUN_00b994f0+0x138
+   0x00b99506: MOV dword ptr [0x011f91e4],EDI                             FUN_00b994f0+0x16
+      ref WRITE              -> 0x011f91e4 unknown
+   0x00b9950c: MOV dword ptr [0x011f91e0],ESI                             FUN_00b994f0+0x1c
+      ref WRITE              -> 0x011f91e0 current draw record global
+   0x00b99512: MOV ECX,dword ptr [ESI]                                    FUN_00b994f0+0x22
+   0x00b99514: MOV EAX,dword ptr [ECX + 0xc0]                             FUN_00b994f0+0x24
+   0x00b9951a: PUSH EBX                                                   FUN_00b994f0+0x2a
+   0x00b9951b: XOR BL,BL                                                  FUN_00b994f0+0x2b
+   0x00b9951d: CMP dword ptr [0x011ffe30],EDI                             FUN_00b994f0+0x2d
+      ref READ               -> 0x011ffe30 unknown
+   0x00b99523: JNZ 0x00b99535                                             FUN_00b994f0+0x33
+      ref CONDITIONAL_JUMP   -> 0x00b99535 FUN_00b994f0+0x45
+   0x00b99525: CMP EDI,0x2f6                                              FUN_00b994f0+0x35
+   0x00b9952b: JZ 0x00b99535                                              FUN_00b994f0+0x3b
+      ref CONDITIONAL_JUMP   -> 0x00b99535 FUN_00b994f0+0x45
+   0x00b9952d: CMP EAX,dword ptr [0x011ffe2c]                             FUN_00b994f0+0x3d
+      ref READ               -> 0x011ffe2c last selector object global
+   0x00b99533: JZ 0x00b99541                                              FUN_00b994f0+0x43
+      ref CONDITIONAL_JUMP   -> 0x00b99541 FUN_00b994f0+0x51
+   0x00b99535: PUSH EAX                                                   FUN_00b994f0+0x45
+   0x00b99536: PUSH EDI                                                   FUN_00b994f0+0x46
+   0x00b99537: MOV BL,0x1                                                 FUN_00b994f0+0x47
+   0x00b99539: CALL 0x00b99390                                            FUN_00b994f0+0x49
+      ref UNCONDITIONAL_CALL -> 0x00b99390 draw selector setup dispatcher
+   0x00b9953e: ADD ESP,0x8                                                FUN_00b994f0+0x4e
+   0x00b99541: CMP byte ptr [0x011f9421],0x0                              FUN_00b994f0+0x51
+      ref READ               -> 0x011f9421 unknown
+   0x00b99548: JZ 0x00b99574                                              FUN_00b994f0+0x58
+      ref CONDITIONAL_JUMP   -> 0x00b99574 FUN_00b994f0+0x84
+   0x00b9954a: MOV EDX,dword ptr [ESI]                                    FUN_00b994f0+0x5a
+   0x00b9954c: MOV EAX,dword ptr [EDX + 0x9c]                             FUN_00b994f0+0x5c
+   0x00b99552: TEST EAX,EAX                                               FUN_00b994f0+0x62
+   0x00b99554: JZ 0x00b99568                                              FUN_00b994f0+0x64
+      ref CONDITIONAL_JUMP   -> 0x00b99568 FUN_00b994f0+0x78
+   0x00b99556: MOV AX,word ptr [EAX + 0x18]                               FUN_00b994f0+0x66
+   0x00b9955a: SHR AX,0x9                                                 FUN_00b994f0+0x6a
+   0x00b9955e: TEST AL,0x1                                                FUN_00b994f0+0x6e
+   0x00b99560: JZ 0x00b99568                                              FUN_00b994f0+0x70
+      ref CONDITIONAL_JUMP   -> 0x00b99568 FUN_00b994f0+0x78
+   0x00b99562: PUSH 0x0                                                   FUN_00b994f0+0x72
+   0x00b99564: PUSH 0x1                                                   FUN_00b994f0+0x74
+   0x00b99566: JMP 0x00b9956c                                             FUN_00b994f0+0x76
+      ref UNCONDITIONAL_JUMP -> 0x00b9956c FUN_00b994f0+0x7c
+   0x00b99568: PUSH 0x0                                                   FUN_00b994f0+0x78
+   0x00b9956a: PUSH 0x0                                                   FUN_00b994f0+0x7a
+   0x00b9956c: CALL 0x00b98540                                            FUN_00b994f0+0x7c
+      ref UNCONDITIONAL_CALL -> 0x00b98540 FUN_00b98540
+   0x00b99571: ADD ESP,0x8                                                FUN_00b994f0+0x81
+   0x00b99574: MOV ECX,dword ptr [ESI]                                    FUN_00b994f0+0x84
+   0x00b99576: PUSH 0x0                                                   FUN_00b994f0+0x86
+   0x00b99578: PUSH ECX                                                   FUN_00b994f0+0x88
+   0x00b99579: MOV ECX,dword ptr [0x011f9508]                             FUN_00b994f0+0x89
+      ref READ               -> 0x011f9508 unknown
+   0x00b9957f: CALL 0x00e72c20                                            FUN_00b994f0+0x8f
+      ref UNCONDITIONAL_CALL -> 0x00e72c20 FUN_00e72c20
+   0x00b99584: TEST AL,AL                                                 FUN_00b994f0+0x94
+   0x00b99586: JZ 0x00b9959f                                              FUN_00b994f0+0x96
+      ref CONDITIONAL_JUMP   -> 0x00b9959f FUN_00b994f0+0xaf
+   0x00b99588: MOV EDX,dword ptr [ESP + 0x20]                             FUN_00b994f0+0x98
+      ref READ               -> 0x00000014 unknown
+   0x00b9958c: MOV EAX,dword ptr [ESP + 0x1c]                             FUN_00b994f0+0x9c
+      ref READ               -> 0x00000010 unknown
+   0x00b99590: MOV ECX,dword ptr [ESP + 0x18]                             FUN_00b994f0+0xa0
+      ref READ               -> 0x0000000c unknown
+   0x00b99594: PUSH EDX                                                   FUN_00b994f0+0xa4
+   0x00b99595: PUSH EAX                                                   FUN_00b994f0+0xa5
+   0x00b99596: PUSH ECX                                                   FUN_00b994f0+0xa6
+   0x00b99597: PUSH ESI                                                   FUN_00b994f0+0xa7
+   0x00b99598: CALL 0x00b99110                                            FUN_00b994f0+0xa8
+      ref UNCONDITIONAL_CALL -> 0x00b99110 FUN_00b99110
+   0x00b9959d: JMP 0x00b995f5                                             FUN_00b994f0+0xad
+      ref UNCONDITIONAL_JUMP -> 0x00b995f5 FUN_00b994f0+0x105
+   0x00b9959f: MOV ECX,dword ptr [ESI]                                    FUN_00b994f0+0xaf
+   0x00b995a1: MOV EDX,dword ptr [ECX]                                    FUN_00b994f0+0xb1
+   0x00b995a3: MOV EAX,dword ptr [EDX + 0x30]                             FUN_00b994f0+0xb3
+   0x00b995a6: CALL EAX                                                   FUN_00b994f0+0xb6
+   0x00b995a8: MOV ECX,dword ptr [ESI]                                    FUN_00b994f0+0xb8
+   0x00b995aa: TEST EAX,EAX                                               FUN_00b994f0+0xba
+   0x00b995ac: JZ 0x00b995c0                                              FUN_00b994f0+0xbc
+      ref CONDITIONAL_JUMP   -> 0x00b995c0 FUN_00b994f0+0xd0
+   0x00b995ae: MOV EDX,dword ptr [ECX]                                    FUN_00b994f0+0xbe
+   0x00b995b0: MOV EAX,[0x011f4748]                                       FUN_00b994f0+0xc0
+      ref READ               -> 0x011f4748 unknown
+   0x00b995b5: MOV EDX,dword ptr [EDX + 0xdc]                             FUN_00b994f0+0xc5
+   0x00b995bb: PUSH EAX                                                   FUN_00b994f0+0xcb
+   0x00b995bc: CALL EDX                                                   FUN_00b994f0+0xcc
+   0x00b995be: JMP 0x00b995f8                                             FUN_00b994f0+0xce
+      ref UNCONDITIONAL_JUMP -> 0x00b995f8 FUN_00b994f0+0x108
+   0x00b995c0: MOV EAX,dword ptr [ECX]                                    FUN_00b994f0+0xd0
+   0x00b995c2: MOV EDX,dword ptr [EAX + 0x34]                             FUN_00b994f0+0xd2
+   0x00b995c5: CALL EDX                                                   FUN_00b994f0+0xd5
+   0x00b995c7: TEST EAX,EAX                                               FUN_00b994f0+0xd7
+   0x00b995c9: JZ 0x00b995e0                                              FUN_00b994f0+0xd9
+      ref CONDITIONAL_JUMP   -> 0x00b995e0 FUN_00b994f0+0xf0
+   0x00b995cb: MOV ECX,dword ptr [ESI]                                    FUN_00b994f0+0xdb
+   0x00b995cd: MOV EAX,dword ptr [ECX]                                    FUN_00b994f0+0xdd
+   0x00b995cf: MOV EDX,dword ptr [0x011f4748]                             FUN_00b994f0+0xdf
+      ref READ               -> 0x011f4748 unknown
+   0x00b995d5: MOV EAX,dword ptr [EAX + 0xdc]                             FUN_00b994f0+0xe5
+   0x00b995db: PUSH EDX                                                   FUN_00b994f0+0xeb
+   0x00b995dc: CALL EAX                                                   FUN_00b994f0+0xec
+   0x00b995de: JMP 0x00b995f8                                             FUN_00b994f0+0xee
+      ref UNCONDITIONAL_JUMP -> 0x00b995f8 FUN_00b994f0+0x108
+   0x00b995e0: MOV ECX,dword ptr [ESP + 0x20]                             FUN_00b994f0+0xf0
+   0x00b995e4: MOV EDX,dword ptr [ESP + 0x1c]                             FUN_00b994f0+0xf4
+   0x00b995e8: MOV EAX,dword ptr [ESP + 0x18]                             FUN_00b994f0+0xf8
+   0x00b995ec: PUSH ECX                                                   FUN_00b994f0+0xfc
+   0x00b995ed: PUSH EDX                                                   FUN_00b994f0+0xfd
+   0x00b995ee: PUSH EAX                                                   FUN_00b994f0+0xfe
+   0x00b995ef: PUSH ESI                                                   FUN_00b994f0+0xff
+   0x00b995f0: CALL 0x00b98e80                                            FUN_00b994f0+0x100
+      ref UNCONDITIONAL_CALL -> 0x00b98e80 FUN_00b98e80
+   0x00b995f5: ADD ESP,0x10                                               FUN_00b994f0+0x105
+   0x00b995f8: TEST BL,BL                                                 FUN_00b994f0+0x108
+   0x00b995fa: POP EBX                                                    FUN_00b994f0+0x10a
+   0x00b995fb: JZ 0x00b99628                                              FUN_00b994f0+0x10b
+      ref CONDITIONAL_JUMP   -> 0x00b99628 FUN_00b994f0+0x138
+   0x00b995fd: MOV ECX,dword ptr [0x011ffe2c]                             FUN_00b994f0+0x10d
+      ref READ               -> 0x011ffe2c last selector object global
+   0x00b99603: TEST ECX,ECX                                               FUN_00b994f0+0x113
+   0x00b99605: JZ 0x00b99628                                              FUN_00b994f0+0x115
+      ref CONDITIONAL_JUMP   -> 0x00b99628 FUN_00b994f0+0x138
+   0x00b99607: MOV EAX,dword ptr [ECX + 0x68]                             FUN_00b994f0+0x117
+   0x00b9960a: CMP EAX,0x1                                                FUN_00b994f0+0x11a
+   0x00b9960d: JL 0x00b9961d                                              FUN_00b994f0+0x11d
+      ref CONDITIONAL_JUMP   -> 0x00b9961d FUN_00b994f0+0x12d
+   0x00b9960f: CMP EAX,0x5                                                FUN_00b994f0+0x11f
+   0x00b99612: JG 0x00b9961d                                              FUN_00b994f0+0x122
+      ref CONDITIONAL_JUMP   -> 0x00b9961d FUN_00b994f0+0x12d
+   0x00b99614: PUSH EDI                                                   FUN_00b994f0+0x124
+   0x00b99615: CALL 0x00b7ac20                                            FUN_00b994f0+0x125
+      ref UNCONDITIONAL_CALL -> 0x00b7ac20 FUN_00b7ac20
+   0x00b9961a: POP EDI                                                    FUN_00b994f0+0x12a
+   0x00b9961b: POP ESI                                                    FUN_00b994f0+0x12b
+   0x00b9961c: RET                                                        FUN_00b994f0+0x12c
+   0x00b9961d: CMP EAX,0x11                                               FUN_00b994f0+0x12d
+   0x00b99620: JNZ 0x00b99628                                             FUN_00b994f0+0x130
+      ref CONDITIONAL_JUMP   -> 0x00b99628 FUN_00b994f0+0x138
+   0x00b99622: PUSH EDI                                                   FUN_00b994f0+0x132
+   0x00b99623: CALL 0x00bb96d0                                            FUN_00b994f0+0x133
+      ref UNCONDITIONAL_CALL -> 0x00bb96d0 FUN_00bb96d0
+   0x00b99628: POP EDI                                                    FUN_00b994f0+0x138
+   0x00b99629: POP ESI                                                    FUN_00b994f0+0x139
+   0x00b9962a: RET                                                        FUN_00b994f0+0x13a
+   0x00b99630: SUB ESP,0x10                                               FUN_00b99630
+   0x00b99633: PUSH ESI                                                   FUN_00b99630+0x3
+   0x00b99634: MOV ESI,ECX                                                FUN_00b99630+0x4
+   0x00b99636: MOV dword ptr [ESP + 0x10],ESI                             FUN_00b99630+0x6
+      ref WRITE              -> 0x-0000004 unknown
+   0x00b9963a: CALL 0x00b63e90                                            FUN_00b99630+0xa
+      ref UNCONDITIONAL_CALL -> 0x00b63e90 FUN_00b63e90
+   0x00b9963f: XOR EAX,EAX                                                FUN_00b99630+0xf
+   0x00b99641: CMP dword ptr [ESI + 0x4],EAX                              FUN_00b99630+0x11
+   0x00b99644: JZ 0x00b99726                                              FUN_00b99630+0x14
+      ref CONDITIONAL_JUMP   -> 0x00b99726 FUN_00b99630+0xf6
+   0x00b9964a: PUSH EBX                                                   FUN_00b99630+0x1a
+   0x00b9964b: PUSH EBP                                                   FUN_00b99630+0x1b
+   0x00b9964c: MOV dword ptr [ESP + 0x10],0x1                             FUN_00b99630+0x1c
+      ref WRITE              -> 0x-000000c unknown
+   0x00b99654: PUSH EDI                                                   FUN_00b99630+0x24
+   0x00b99655: MOV EDI,dword ptr [ESI + 0x4]                              FUN_00b99630+0x25
+   0x00b99658: MOV EDX,dword ptr [ESP + 0x14]                             FUN_00b99630+0x28
+      ref READ               -> 0x-000000c unknown
+   0x00b9965c: XOR ECX,ECX                                                FUN_00b99630+0x2c
+   0x00b9965e: MOV dword ptr [ESI + 0x4],EAX                              FUN_00b99630+0x2e
+   0x00b99661: MOV dword ptr [ESP + 0x10],ECX                             FUN_00b99630+0x31
+      ref WRITE              -> 0x-0000010 unknown
+   0x00b99665: MOV dword ptr [ESP + 0x18],EAX                             FUN_00b99630+0x35
+      ref WRITE              -> 0x-0000008 unknown
+   0x00b99669: CMP EDI,EAX                                                FUN_00b99630+0x39
+   0x00b9966b: JZ 0x00b9970b                                              FUN_00b99630+0x3b
+      ref CONDITIONAL_JUMP   -> 0x00b9970b FUN_00b99630+0xdb
+   0x00b99671: INC dword ptr [ESP + 0x18]                                 FUN_00b99630+0x41
+      ref READ_WRITE         -> 0x-0000008 unknown
+   0x00b99675: XOR EBX,EBX                                                FUN_00b99630+0x45
+   0x00b99677: XOR EAX,EAX                                                FUN_00b99630+0x47
+   0x00b99679: MOV ESI,EDI                                                FUN_00b99630+0x49
+   0x00b9967b: TEST EDX,EDX                                               FUN_00b99630+0x4b
+   0x00b9967d: JBE 0x00b9968c                                             FUN_00b99630+0x4d
+      ref CONDITIONAL_JUMP   -> 0x00b9968c FUN_00b99630+0x5c
+   0x00b9967f: NOP                                                        FUN_00b99630+0x4f

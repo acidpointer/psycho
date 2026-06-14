@@ -14,9 +14,10 @@ use windows::Win32::Graphics::Direct3D9::{
     D3DDEVTYPE_HAL, D3DDISPLAYMODE, D3DFMT_A8R8G8B8, D3DFORMAT, D3DPOOL, D3DPOOL_DEFAULT,
     D3DPRESENT_PARAMETERS, D3DPRIMITIVETYPE, D3DRENDERSTATETYPE, D3DRESOURCETYPE, D3DRTYPE_SURFACE,
     D3DSAMPLERSTATETYPE, D3DSTATEBLOCKTYPE, D3DSURFACE_DESC, D3DTEXTUREFILTERTYPE,
-    D3DTEXTURESTAGESTATETYPE, D3DUSAGE_DEPTHSTENCIL, D3DUSAGE_RENDERTARGET, D3DVIEWPORT9,
-    IDirect3D9, IDirect3DBaseTexture9, IDirect3DDevice9, IDirect3DPixelShader9,
-    IDirect3DStateBlock9, IDirect3DSurface9, IDirect3DTexture9, IDirect3DVertexShader9,
+    D3DTEXTURESTAGESTATETYPE, D3DUSAGE_DEPTHSTENCIL, D3DUSAGE_RENDERTARGET, D3DVERTEXELEMENT9,
+    D3DVIEWPORT9, IDirect3D9, IDirect3DBaseTexture9, IDirect3DDevice9, IDirect3DPixelShader9,
+    IDirect3DStateBlock9, IDirect3DSurface9, IDirect3DTexture9, IDirect3DVertexBuffer9,
+    IDirect3DVertexShader9,
 };
 pub use windows::Win32::Graphics::Direct3D9::{
     D3DCULL, D3DCULL_CCW, D3DCULL_CW, D3DCULL_NONE, D3DFVF_DIFFUSE, D3DFVF_TEX1, D3DFVF_XYZ,
@@ -58,6 +59,16 @@ pub const DEVICE9_VTBL_DRAW_INDEXED_PRIMITIVE: usize = 0x148;
 pub const DEVICE9_VTBL_DRAW_PRIMITIVE_UP: usize = 0x14c;
 /// Byte offset of `IDirect3DDevice9::DrawIndexedPrimitiveUP` in the device vtable.
 pub const DEVICE9_VTBL_DRAW_INDEXED_PRIMITIVE_UP: usize = 0x150;
+/// Byte offset of `IDirect3DDevice9::CreateVertexDeclaration` in the device vtable.
+pub const DEVICE9_VTBL_CREATE_VERTEX_DECLARATION: usize = 0x158;
+/// Byte offset of `IDirect3DDevice9::SetVertexDeclaration` in the device vtable.
+pub const DEVICE9_VTBL_SET_VERTEX_DECLARATION: usize = 0x15c;
+/// Byte offset of `IDirect3DDevice9::GetVertexDeclaration` in the device vtable.
+pub const DEVICE9_VTBL_GET_VERTEX_DECLARATION: usize = 0x160;
+/// Byte offset of `IDirect3DDevice9::SetFVF` in the device vtable.
+pub const DEVICE9_VTBL_SET_FVF: usize = 0x164;
+/// Byte offset of `IDirect3DDevice9::GetFVF` in the device vtable.
+pub const DEVICE9_VTBL_GET_FVF: usize = 0x168;
 /// Byte offset of `IDirect3DDevice9::CreateVertexShader` in the device vtable.
 pub const DEVICE9_VTBL_CREATE_VERTEX_SHADER: usize = 0x16c;
 /// Byte offset of `IDirect3DDevice9::CreatePixelShader` in the device vtable.
@@ -68,6 +79,25 @@ pub const NIDX9_RENDERER_DEVICE_OFFSET: usize = 0x288;
 
 /// Result type returned by Direct3D wrapper calls.
 pub type Direct3DResult<T> = WindowsResult<T>;
+
+/// Maximum D3D9 vertex declaration elements captured for diagnostics.
+pub const MAX_VERTEX_DECLARATION_ELEMENTS: usize = 32;
+
+/// Snapshot of the currently bound D3D9 vertex declaration.
+#[derive(Clone, Copy, Debug)]
+pub struct VertexDeclarationSnapshot {
+    pub handle: *mut c_void,
+    pub element_count: u32,
+    pub elements: [D3DVERTEXELEMENT9; MAX_VERTEX_DECLARATION_ELEMENTS],
+}
+
+/// Snapshot of one D3D9 vertex stream binding.
+#[derive(Clone, Copy, Debug)]
+pub struct VertexStreamSourceSnapshot {
+    pub buffer: *mut c_void,
+    pub offset: u32,
+    pub stride: u32,
+}
 
 /// D3D9 INTZ depth texture format used for shader-readable depth.
 pub const D3DFMT_INTZ: D3DFORMAT = D3DFORMAT(make_fourcc(b'I', b'N', b'T', b'Z'));
@@ -436,6 +466,39 @@ impl<'a> Device9Ref<'a> {
         let mut fvf = 0;
         unsafe { self.inner.GetFVF(&mut fvf)? };
         Ok(fvf)
+    }
+
+    /// Capture the currently bound programmable vertex declaration.
+    pub fn vertex_declaration_snapshot(&self) -> Direct3DResult<VertexDeclarationSnapshot> {
+        let declaration = unsafe { self.inner.GetVertexDeclaration()? };
+        let handle = declaration.as_raw();
+        let mut elements = [D3DVERTEXELEMENT9::default(); MAX_VERTEX_DECLARATION_ELEMENTS];
+        let mut element_count = elements.len() as u32;
+        unsafe { declaration.GetDeclaration(elements.as_mut_ptr(), &mut element_count)? };
+        Ok(VertexDeclarationSnapshot {
+            handle,
+            element_count: element_count.min(MAX_VERTEX_DECLARATION_ELEMENTS as u32),
+            elements,
+        })
+    }
+
+    /// Capture one currently bound vertex stream source.
+    pub fn stream_source(&self, stream: u32) -> Direct3DResult<VertexStreamSourceSnapshot> {
+        let mut buffer = None::<IDirect3DVertexBuffer9>;
+        let mut offset = 0;
+        let mut stride = 0;
+        unsafe {
+            self.inner
+                .GetStreamSource(stream, &mut buffer, &mut offset, &mut stride)?
+        };
+        Ok(VertexStreamSourceSnapshot {
+            buffer: buffer
+                .as_ref()
+                .map(Interface::as_raw)
+                .unwrap_or_else(null_mut),
+            offset,
+            stride,
+        })
     }
 
     /// Set the fixed-function vertex format.

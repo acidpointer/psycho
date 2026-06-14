@@ -1,0 +1,2955 @@
+FNV PBR CLOSE TERRAIN MATERIAL MUTATION CONTRACT CLOSURE
+
+Goal:
+- Prove which functions mutate selector material arrays, layer flags, and active layer count.
+- Decide whether selector snapshot generation must be incremented from B68660/B66640, not just setup callbacks.
+- Recover callsite argument shape for a safe runtime hook or telemetry point.
+
+----------------------------------------------------------------------
+References TO 0x00592cf0 (terrain texture resolver/callback constructor)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x00539bc4 (in FUN_00539960) CALL 0x00592cf0
+  UNCONDITIONAL_CALL @ 0x00539be4 (in FUN_00539960) CALL 0x00592cf0
+  UNCONDITIONAL_CALL @ 0x00539c3f (in FUN_00539960) CALL 0x00592cf0
+  UNCONDITIONAL_CALL @ 0x0053a248 (in FUN_0053a090) CALL 0x00592cf0
+  UNCONDITIONAL_CALL @ 0x0053a268 (in FUN_0053a090) CALL 0x00592cf0
+  UNCONDITIONAL_CALL @ 0x0053a2c3 (in FUN_0053a090) CALL 0x00592cf0
+  UNCONDITIONAL_CALL @ 0x0068c0f9 (in FUN_0068be90) CALL 0x00592cf0
+  Total printed: 7 refs
+
+----------------------------------------------------------------------
+References TO 0x00592f30 (terrain texture resolver/callback slot target)
+----------------------------------------------------------------------
+  DATA @ 0x01033d0c (in ???) 
+  Total printed: 1 refs
+
+----------------------------------------------------------------------
+References TO 0x00b66640 (terrain layer flag initializer)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x00539e35 (in FUN_00539960) CALL 0x00b66640
+  UNCONDITIONAL_CALL @ 0x0053a48c (in FUN_0053a090) CALL 0x00b66640
+  Total printed: 2 refs
+
+----------------------------------------------------------------------
+References TO 0x00b68450 (selector material array initializer)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x00b6866d (in FUN_00b68660) CALL 0x00b68450
+  Total printed: 1 refs
+
+----------------------------------------------------------------------
+References TO 0x00b68660 (six material array writer)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x00539bcf (in FUN_00539960) CALL 0x00b68660
+  UNCONDITIONAL_CALL @ 0x00539bef (in FUN_00539960) CALL 0x00b68660
+  UNCONDITIONAL_CALL @ 0x00539c4c (in FUN_00539960) CALL 0x00b68660
+  UNCONDITIONAL_CALL @ 0x00539c5c (in FUN_00539960) CALL 0x00b68660
+  UNCONDITIONAL_CALL @ 0x0053a253 (in FUN_0053a090) CALL 0x00b68660
+  UNCONDITIONAL_CALL @ 0x0053a273 (in FUN_0053a090) CALL 0x00b68660
+  UNCONDITIONAL_CALL @ 0x0053a2d0 (in FUN_0053a090) CALL 0x00b68660
+  UNCONDITIONAL_CALL @ 0x0053a2e0 (in FUN_0053a090) CALL 0x00b68660
+  Total printed: 8 refs
+
+----------------------------------------------------------------------
+References TO 0x00b690d0 (selector material array related method)
+----------------------------------------------------------------------
+  DATA @ 0x010ae130 (in ???) 
+  UNCONDITIONAL_CALL @ 0x00ba8787 (in FUN_00ba8780) CALL 0x00b690d0
+  UNCONDITIONAL_CALL @ 0x00bb5fa7 (in FUN_00bb5fa0) CALL 0x00b690d0
+  UNCONDITIONAL_CALL @ 0x00bc446a (in ???) CALL 0x00b690d0
+  UNCONDITIONAL_CALL @ 0x00bb3380 (in ???) JMP 0x00b690d0
+  Total printed: 5 refs
+
+======================================================================
+terrain texture writer callsite A @ 0x00539960
+======================================================================
+  Function: FUN_00539960 @ 0x00539960, Size: 1409 bytes
+
+undefined4 __fastcall FUN_00539960(int param_1)
+
+{
+  undefined1 uVar1;
+  undefined1 uVar2;
+  undefined1 uVar3;
+  undefined1 uVar4;
+  undefined1 uVar5;
+  undefined1 uVar6;
+  undefined1 uVar7;
+  uint uVar8;
+  int iVar9;
+  undefined4 uVar10;
+  undefined4 uVar11;
+  undefined4 *puVar12;
+  int *unaff_FS_OFFSET;
+  int *local_7c;
+  undefined4 local_78;
+  int local_58;
+  undefined4 local_30;
+  undefined4 local_2c;
+  undefined4 local_28;
+  undefined4 local_24;
+  int local_1c;
+  int local_18;
+  int local_14;
+  int local_10;
+  undefined1 *puStack_c;
+  int local_8;
+  
+  local_8 = 0xffffffff;
+  puStack_c = &LAB_00ef5b19;
+  local_10 = *unaff_FS_OFFSET;
+  uVar8 = DAT_011c16bc ^ (uint)&stack0xfffffffc;
+  *unaff_FS_OFFSET = (int)&local_10;
+  FUN_00404eb0(0x1b,1,"D:\\_Fallout3\\Platforms\\Common\\Code\\Fallout Shared\\TESLand.cpp",0xca4);
+  local_8 = 0;
+  if (((*(int *)(param_1 + 0x28) == 0) || (**(int **)(param_1 + 0x28) == 0)) ||
+     (*(int *)**(undefined4 **)(param_1 + 0x28) == 0)) {
+    local_8 = 0xffffffff;
+    FUN_00404ee0(uVar8);
+    uVar10 = 0;
+  }
+  else {
+    FUN_00414430(0x3f800000,0x3f800000,0x3f800000,0);
+    if ((*(uint *)(param_1 + 0x1c) & 2) == 0) {
+      for (local_1c = 0; local_1c < 4; local_1c = local_1c + 1) {
+        for (local_14 = 0; local_14 < 0x11; local_14 = local_14 + 1) {
+          for (local_18 = 0; local_18 < 0x11; local_18 = local_18 + 1) {
+            puVar12 = (undefined4 *)
+                      (*(int *)(*(int *)(*(int *)(param_1 + 0x28) + 0xc) + local_1c * 4) +
+                      (local_14 * 0x11 + local_18) * 0x10);
+            *puVar12 = local_30;
+            puVar12[1] = local_2c;
+            puVar12[2] = local_28;
+            puVar12[3] = local_24;
+          }
+        }
+      }
+    }
+    FUN_005394c0(1);
+    for (local_1c = 0; local_1c < 4; local_1c = local_1c + 1) {
+      if (*(int *)(param_1 + 0x28) != -0x40) {
+        iVar9 = FUN_00aa13e0(0x14);
+        local_8._0_1_ = 1;
+        if (iVar9 == 0) {
+          local_78 = 0;
+        }
+        else {
+          local_78 = FID_conflict_RealizedChore
+                               (0x2420,**(undefined4 **)
+                                         (*(int *)(param_1 + 0x28) + 0x40 + local_1c * 4));
+        }
+        local_8 = (uint)local_8._1_3_ << 8;
+        uVar10 = FUN_00539f40(local_78);
+        FUN_00a5bc40(uVar10,local_78);
+      }
+      iVar9 = FUN_00aa13e0(0x104);
+      local_8._0_1_ = 2;
+      if (iVar9 == 0) {
+        local_7c = (int *)0x0;
+      }
+      else {
+        local_7c = (int *)FUN_00b66f50();
+      }
+      local_8 = (uint)local_8._1_3_ << 8;
+      FUN_005a8060(1);
+      if (local_7c != (int *)0x0) {
+        if (*(int *)(*(int *)(param_1 + 0x28) + 0x20 + local_1c * 4) == 0) {
+LAB_00539bd6:
+          FUN_00535ae0();
+          FUN_009611e0();
+          uVar10 = FUN_00592cf0();
+          FUN_00b68660(0,uVar10);
+        }
+        else {
+          iVar9 = FUN_009611e0();
+          if (iVar9 == 0) goto LAB_00539bd6;
+          FUN_009611e0();
+          uVar10 = FUN_00592cf0();
+          FUN_00b68660(0,uVar10);
+        }
+        for (local_58 = 1; local_58 < 7; local_58 = local_58 + 1) {
+          if (*(int *)(*(int *)(*(int *)(param_1 + 0x28) + 0x30 + local_1c * 4) + -4 + local_58 * 4)
+              == 0) {
+LAB_00539c53:
+            FUN_00b68660(local_58,0);
+          }
+          else {
+            iVar9 = FUN_009611e0();
+            if (iVar9 == 0) goto LAB_00539c53;
+            FUN_009611e0();
+            uVar10 = FUN_00592cf0();
+            FUN_00b68660(local_58,uVar10);
+          }
+        }
+        if (*(int *)(*(int *)(*(int *)(param_1 + 0x28) + 0x30 + local_1c * 4) + 0x14) == 0) {
+          uVar1 = 0;
+        }
+        else {
+          uVar1 = FUN_00541590();
+        }
+        if (*(int *)(*(int *)(*(int *)(param_1 + 0x28) + 0x30 + local_1c * 4) + 0x10) == 0) {
+          uVar2 = 0;
+        }
+        else {
+          uVar2 = FUN_00541590();
+        }
+        if (*(int *)(*(int *)(*(int *)(param_1 + 0x28) + 0x30 + local_1c * 4) + 0xc) == 0) {
+          uVar3 = 0;
+        }
+        else {
+          uVar3 = FUN_00541590();
+        }
+        if (*(int *)(*(int *)(*(int *)(param_1 + 0x28) + 0x30 + local_1c * 4) + 8) == 0) {
+          uVar4 = 0;
+        }
+        else {
+          uVar4 = FUN_00541590();
+        }
+        if (*(int *)(*(int *)(*(int *)(param_1 + 0x28) + 0x30 + local_1c * 4) + 4) == 0) {
+          uVar5 = 0;
+        }
+        else {
+          uVar5 = FUN_00541590();
+        }
+        if (**(int **)(*(int *)(param_1 + 0x28) + 0x30 + local_1c * 4) == 0) {
+          uVar6 = 0;
+        }
+        else {
+          uVar6 = FUN_00541590();
+        }
+        if (*(int *)(*(int *)(param_1 + 0x28) + 0x20 + local_1c * 4) == 0) {
+          uVar7 = 0;
+        }
+        else {
+          uVar7 = FUN_00541590();
+        }
+        FUN_00b66640(uVar7,uVar6,uVar5,uVar4,uVar3,uVar2,uVar1,0,0,0);
+        uVar10 = FUN_0045bc00(0);
+        uVar11 = FUN_00b54b60(uVar10);
+        FUN_00539f20(uVar11);
+        uVar10 = (**(code **)(*local_7c + 0xd4))(uVar10);
+        FUN_00539ef0(uVar10);
+        FUN_00439410(local_7c);
+        FUN_00b57e30(*(undefined4 *)(**(int **)(param_1 + 0x28) + local_1c * 4),0,0);
+      }
+    }
+    local_8 = 0xffffffff;
+    FUN_00404ee0(uVar8);
+    uVar10 = 1;
+  }
+  *unaff_FS_OFFSET = local_10;
+  return uVar10;
+}
+
+
+
+======================================================================
+MATCHED MUTATION LINES: terrain texture writer callsite A
+======================================================================
+  L94             uVar10 = FUN_00592cf0();
+  L95             FUN_00b68660(0,uVar10);
+  L101            uVar10 = FUN_00592cf0();
+  L102            FUN_00b68660(0,uVar10);
+  L108              FUN_00b68660(local_58,0);
+  L114              uVar10 = FUN_00592cf0();
+  L115              FUN_00b68660(local_58,uVar10);
+  L160          FUN_00b66640(uVar7,uVar6,uVar5,uVar4,uVar3,uVar2,uVar1,0,0,0);
+  Total matched lines: 8
+
+======================================================================
+terrain texture writer callsite B @ 0x0053a090
+======================================================================
+  Function: FUN_0053a090 @ 0x0053a090, Size: 1141 bytes
+
+void __thiscall FUN_0053a090(int param_1,char param_2)
+
+{
+  byte bVar1;
+  undefined1 uVar2;
+  undefined1 uVar3;
+  undefined1 uVar4;
+  undefined1 uVar5;
+  undefined1 uVar6;
+  undefined1 uVar7;
+  undefined1 uVar8;
+  ushort uVar9;
+  int *piVar10;
+  undefined4 uVar11;
+  int iVar12;
+  uint uVar13;
+  int local_44;
+  int local_3c;
+  undefined1 local_18 [12];
+  int local_c;
+  int local_8;
+  
+  if (**(int **)(param_1 + 0x28) == 0) {
+    FUN_00539500(0);
+    FUN_005374f0();
+  }
+  else {
+    for (local_8 = 0; local_8 < 4; local_8 = local_8 + 1) {
+      local_c = FUN_00535af0(local_8);
+      if (local_c != 0) {
+        if (param_2 != '\0') {
+          piVar10 = (int *)FUN_0045bc00(0);
+          if (piVar10 == (int *)0x0) {
+            local_44 = 0;
+          }
+          else {
+            local_44 = (**(code **)(*piVar10 + 0x18))();
+          }
+          if (local_44 != 0) {
+            uVar9 = FUN_00456650();
+            uVar11 = FUN_0049ec60();
+            uVar13 = (uint)uVar9;
+            FUN_00537b10(uVar13,uVar11);
+            FUN_00a7ee30(uVar13,uVar11);
+            uVar11 = 0xf;
+            FUN_005495f0(0xf);
+            FUN_00a67090(uVar11);
+            uVar13 = FUN_00a59d30(3);
+            if (uVar13 == 0) {
+              bVar1 = 0;
+            }
+            else {
+              iVar12 = FUN_00441110();
+              if ((iVar12 < 8) || (iVar12 = FUN_00441110(), 0xc < iVar12)) {
+                bVar1 = 0;
+              }
+              else {
+                bVar1 = 1;
+              }
+            }
+            if ((int *)(-(uint)bVar1 & uVar13) != (int *)0x0) {
+              FUN_005495f0();
+              uVar11 = FUN_0059bb30();
+              FUN_00401460(uVar11,*(undefined4 *)
+                                   (*(int *)(*(int *)(param_1 + 0x28) + 8) + local_8 * 4),0xd8c);
+              uVar11 = 0;
+              FUN_005495f0(0);
+              FUN_00a66a60(uVar11);
+              (**(code **)(*(int *)(-(uint)bVar1 & uVar13) + 0x9c))(local_44);
+              if ((*(int *)(*(int *)(param_1 + 0x28) + 0x20 + local_8 * 4) == 0) ||
+                 (iVar12 = FUN_009611e0(), iVar12 == 0)) {
+                FUN_00535ae0();
+                FUN_009611e0();
+                uVar11 = FUN_00592cf0();
+                FUN_00b68660(0,uVar11);
+              }
+              else {
+                FUN_009611e0();
+                uVar11 = FUN_00592cf0();
+                FUN_00b68660(0,uVar11);
+              }
+              for (local_3c = 1; local_3c < 7; local_3c = local_3c + 1) {
+                if ((*(int *)(*(int *)(*(int *)(param_1 + 0x28) + 0x30 + local_8 * 4) + -4 +
+                             local_3c * 4) == 0) || (iVar12 = FUN_009611e0(), iVar12 == 0)) {
+                  FUN_00b68660(local_3c,0);
+                }
+                else {
+                  FUN_009611e0();
+                  uVar11 = FUN_00592cf0();
+                  FUN_00b68660(local_3c,uVar11);
+                }
+              }
+              if (*(int *)(*(int *)(*(int *)(param_1 + 0x28) + 0x30 + local_8 * 4) + 0x14) == 0) {
+                uVar2 = 0;
+              }
+              else {
+                uVar2 = FUN_00541590();
+              }
+              if (*(int *)(*(int *)(*(int *)(param_1 + 0x28) + 0x30 + local_8 * 4) + 0x10) == 0) {
+                uVar3 = 0;
+              }
+              else {
+                uVar3 = FUN_00541590();
+              }
+              if (*(int *)(*(int *)(*(int *)(param_1 + 0x28) + 0x30 + local_8 * 4) + 0xc) == 0) {
+                uVar4 = 0;
+              }
+              else {
+                uVar4 = FUN_00541590();
+              }
+              if (*(int *)(*(int *)(*(int *)(param_1 + 0x28) + 0x30 + local_8 * 4) + 8) == 0) {
+                uVar5 = 0;
+              }
+              else {
+                uVar5 = FUN_00541590();
+              }
+              if (*(int *)(*(int *)(*(int *)(param_1 + 0x28) + 0x30 + local_8 * 4) + 4) == 0) {
+                uVar6 = 0;
+              }
+              else {
+                uVar6 = FUN_00541590();
+              }
+              if (**(int **)(*(int *)(param_1 + 0x28) + 0x30 + local_8 * 4) == 0) {
+                uVar7 = 0;
+              }
+              else {
+                uVar7 = FUN_00541590();
+              }
+              if (*(int *)(*(int *)(param_1 + 0x28) + 0x20 + local_8 * 4) == 0) {
+                uVar8 = 0;
+              }
+              else {
+                uVar8 = FUN_00541590();
+              }
+              FUN_00b66640(uVar8,uVar7,uVar6,uVar5,uVar4,uVar3,uVar2,0,0,0);
+              FUN_00baa000();
+            }
+          }
+        }
+        FUN_0043d410(0,0,0);
+        FUN_00a59c60(local_18);
+        if (param_2 != '\0') {
+          FUN_00a5a040();
+        }
+      }
+    }
+    if (param_2 != '\0') {
+      uVar2 = FUN_00528790();
+      FUN_0053fa40(uVar2);
+    }
+  }
+  return;
+}
+
+
+
+======================================================================
+MATCHED MUTATION LINES: terrain texture writer callsite B
+======================================================================
+  L75                   uVar11 = FUN_00592cf0();
+  L76                   FUN_00b68660(0,uVar11);
+  L80                   uVar11 = FUN_00592cf0();
+  L81                   FUN_00b68660(0,uVar11);
+  L86                     FUN_00b68660(local_3c,0);
+  L90                     uVar11 = FUN_00592cf0();
+  L91                     FUN_00b68660(local_3c,uVar11);
+  L136                FUN_00b66640(uVar8,uVar7,uVar6,uVar5,uVar4,uVar3,uVar2,0,0,0);
+  Total matched lines: 8
+
+======================================================================
+terrain texture resolver/callback constructor @ 0x00592cf0
+======================================================================
+  Function: FUN_00592cf0 @ 0x00592cf0, Size: 40 bytes
+
+int __fastcall FUN_00592cf0(int param_1)
+
+{
+  undefined4 local_c;
+  
+  if (param_1 == 0) {
+    local_c = 0;
+  }
+  else {
+    local_c = param_1 + 0x30;
+  }
+  return local_c;
+}
+
+
+
+======================================================================
+MATCHED MUTATION LINES: terrain texture resolver/callback constructor
+======================================================================
+  L2    int __fastcall FUN_00592cf0(int param_1)
+  Total matched lines: 1
+
+======================================================================
+terrain texture resolver/callback slot target @ 0x00592f30
+======================================================================
+  Function: FUN_00592f30 @ 0x00592f30, Size: 251 bytes
+
+void __thiscall FUN_00592f30(int *param_1,undefined4 param_2)
+
+{
+  uint uVar1;
+  int *unaff_FS_OFFSET;
+  cancellation_token_source local_124 [4];
+  undefined1 local_120 [264];
+  uint local_18;
+  char *local_14;
+  int local_10;
+  undefined1 *puStack_c;
+  undefined4 local_8;
+  
+  local_8 = 0xffffffff;
+  puStack_c = &LAB_00ef84fb;
+  local_10 = *unaff_FS_OFFSET;
+  uVar1 = DAT_011c16bc ^ (uint)&stack0xfffffffc;
+  *unaff_FS_OFFSET = (int)&local_10;
+  local_18 = uVar1;
+  FUN_00633c90(0);
+  local_8 = 0;
+  local_14 = (char *)(**(code **)(*param_1 + 0x8c))(param_2,uVar1);
+  if ((local_14 != (char *)0x0) && (*local_14 != '\0')) {
+    FUN_00406d30(local_120,0x104,"Data\\Textures\\");
+    FUN_00406d50(local_120,0x104,local_14);
+    FUN_00b55840(local_120,1,local_124,1,0);
+  }
+  FUN_006e5cc0(local_124);
+  local_8 = 0xffffffff;
+  Concurrency::cancellation_token_source::~cancellation_token_source(local_124);
+  *unaff_FS_OFFSET = local_10;
+  __security_check_cookie(local_18 ^ (uint)&stack0xfffffffc);
+  return;
+}
+
+
+
+======================================================================
+MATCHED MUTATION LINES: terrain texture resolver/callback slot target
+======================================================================
+  L2    void __thiscall FUN_00592f30(int *param_1,undefined4 param_2)
+  Total matched lines: 1
+
+======================================================================
+terrain layer flag initializer @ 0x00b66640
+======================================================================
+  Function: FUN_00b66640 @ 0x00b66640, Size: 129 bytes
+
+void __thiscall
+FUN_00b66640(int param_1,undefined1 param_2,undefined1 param_3,undefined1 param_4,undefined1 param_5
+            ,undefined1 param_6,undefined1 param_7,undefined1 param_8,undefined1 param_9,
+            undefined1 param_10)
+
+{
+  if (*(short *)(param_1 + 0xa8) == 9) {
+    **(undefined1 **)(param_1 + 0xc4) = param_2;
+    *(undefined1 *)(*(int *)(param_1 + 0xc4) + 1) = param_3;
+    *(undefined1 *)(*(int *)(param_1 + 0xc4) + 2) = param_4;
+    *(undefined1 *)(*(int *)(param_1 + 0xc4) + 3) = param_5;
+    *(undefined1 *)(*(int *)(param_1 + 0xc4) + 4) = param_6;
+    *(undefined1 *)(*(int *)(param_1 + 0xc4) + 5) = param_7;
+    *(undefined1 *)(*(int *)(param_1 + 0xc4) + 6) = param_8;
+    *(undefined1 *)(*(int *)(param_1 + 0xc4) + 7) = param_9;
+    *(undefined1 *)(*(int *)(param_1 + 0xc4) + 8) = param_10;
+  }
+  return;
+}
+
+
+
+======================================================================
+MATCHED MUTATION LINES: terrain layer flag initializer
+======================================================================
+  L3    FUN_00b66640(int param_1,undefined1 param_2,undefined1 param_3,undefined1 param_4,undefined1 param_5
+  L8      if (*(short *)(param_1 + 0xa8) == 9) {
+  L9        **(undefined1 **)(param_1 + 0xc4) = param_2;
+  L10       *(undefined1 *)(*(int *)(param_1 + 0xc4) + 1) = param_3;
+  L11       *(undefined1 *)(*(int *)(param_1 + 0xc4) + 2) = param_4;
+  L12       *(undefined1 *)(*(int *)(param_1 + 0xc4) + 3) = param_5;
+  L13       *(undefined1 *)(*(int *)(param_1 + 0xc4) + 4) = param_6;
+  L14       *(undefined1 *)(*(int *)(param_1 + 0xc4) + 5) = param_7;
+  L15       *(undefined1 *)(*(int *)(param_1 + 0xc4) + 6) = param_8;
+  L16       *(undefined1 *)(*(int *)(param_1 + 0xc4) + 7) = param_9;
+  L17       *(undefined1 *)(*(int *)(param_1 + 0xc4) + 8) = param_10;
+  Total matched lines: 11
+
+======================================================================
+selector material array initializer @ 0x00b68450
+======================================================================
+  Function: FUN_00b68450 @ 0x00b68450, Size: 524 bytes
+
+void __fastcall FUN_00b68450(int param_1)
+
+{
+  int *piVar1;
+  int iVar2;
+  int iVar3;
+  void *pvVar4;
+  undefined4 *puVar5;
+  LONG LVar6;
+  undefined4 uVar7;
+  int iVar8;
+  int *piVar9;
+  int *piVar10;
+  int *unaff_FS_OFFSET;
+  int local_34;
+  int aiStack_24 [6];
+  int local_c;
+  undefined1 *puStack_8;
+  undefined4 local_4;
+  
+  local_4 = 0xffffffff;
+  puStack_8 = &LAB_00f283bb;
+  local_c = *unaff_FS_OFFSET;
+  *unaff_FS_OFFSET = (int)&local_c;
+  if (*(ushort *)(param_1 + 0xa8) < 10) {
+    local_34 = 0;
+    do {
+      puVar5 = (undefined4 *)FUN_00aa3e40(0x2c);
+      iVar8 = 0;
+      local_4 = 0;
+      if (puVar5 == (undefined4 *)0x0) {
+        piVar9 = (int *)0x0;
+      }
+      else {
+        piVar9 = puVar5 + 1;
+        *puVar5 = 10;
+        _eh_vector_constructor_iterator_
+                  (piVar9,4,10,FUN_006694e0,
+                   Concurrency::cancellation_token_source::~cancellation_token_source);
+      }
+      local_4 = 0xffffffff;
+      aiStack_24[local_34] = (int)piVar9;
+      if (*(short *)(param_1 + 0xa8) != 0) {
+        do {
+          piVar1 = (int *)*piVar9;
+          if (piVar1 != (int *)0x0) {
+            LVar6 = InterlockedDecrement(piVar1 + 1);
+            if (LVar6 == 0) {
+              (**(code **)(*piVar1 + 4))();
+            }
+            *piVar9 = 0;
+          }
+          iVar8 = iVar8 + 1;
+          piVar9 = piVar9 + 1;
+        } while (iVar8 < (int)(uint)*(ushort *)(param_1 + 0xa8));
+      }
+      local_34 = local_34 + 1;
+    } while (local_34 < 6);
+    piVar9 = (int *)(param_1 + 0xac);
+    local_34 = 0;
+    do {
+      iVar8 = 0;
+      if (*(short *)(param_1 + 0xa8) != 0) {
+        iVar2 = aiStack_24[local_34];
+        do {
+          piVar1 = *(int **)(iVar2 + iVar8 * 4);
+          piVar10 = (int *)(*piVar9 + iVar8 * 4);
+          if (piVar1 != (int *)*piVar10) {
+            if ((piVar1 != (int *)0x0) && (LVar6 = InterlockedDecrement(piVar1 + 1), LVar6 == 0)) {
+              (**(code **)(*piVar1 + 4))();
+            }
+            iVar3 = *piVar10;
+            *(int *)(iVar2 + iVar8 * 4) = iVar3;
+            if (iVar3 != 0) {
+              InterlockedIncrement((LONG *)(iVar3 + 4));
+            }
+          }
+          iVar8 = iVar8 + 1;
+        } while (iVar8 < (int)(uint)*(ushort *)(param_1 + 0xa8));
+      }
+      pvVar4 = (void *)*piVar9;
+      if (pvVar4 != (void *)0x0) {
+        _eh_vector_destructor_iterator_
+                  (pvVar4,4,*(int *)((int)pvVar4 + -4),
+                   Concurrency::cancellation_token_source::~cancellation_token_source);
+        FUN_00aa4060((int)pvVar4 + -4);
+      }
+      piVar1 = aiStack_24 + local_34;
+      local_34 = local_34 + 1;
+      *piVar9 = *piVar1;
+      piVar9 = piVar9 + 1;
+    } while (local_34 < 6);
+    FUN_00aa4060(*(undefined4 *)(param_1 + 0xcc));
+    uVar7 = FUN_00aa3e40(10);
+    *(undefined4 *)(param_1 + 0xcc) = uVar7;
+    FUN_00aa4060(*(undefined4 *)(param_1 + 0xc4));
+    uVar7 = FUN_00aa3e40(10);
+    *(undefined4 *)(param_1 + 0xc4) = uVar7;
+    *(undefined2 *)(param_1 + 0xa8) = 10;
+  }
+  *unaff_FS_OFFSET = local_c;
+  return;
+}
+
+
+
+======================================================================
+MATCHED MUTATION LINES: selector material array initializer
+======================================================================
+  L2    void __fastcall FUN_00b68450(int param_1)
+  L26     if (*(ushort *)(param_1 + 0xa8) < 10) {
+  L44         if (*(short *)(param_1 + 0xa8) != 0) {
+  L48               LVar6 = InterlockedDecrement(piVar1 + 1);
+  L56           } while (iVar8 < (int)(uint)*(ushort *)(param_1 + 0xa8));
+  L60       piVar9 = (int *)(param_1 + 0xac);
+  L64         if (*(short *)(param_1 + 0xa8) != 0) {
+  L70               if ((piVar1 != (int *)0x0) && (LVar6 = InterlockedDecrement(piVar1 + 1), LVar6 == 0)) {
+  L80           } while (iVar8 < (int)(uint)*(ushort *)(param_1 + 0xa8));
+  L94       FUN_00aa4060(*(undefined4 *)(param_1 + 0xcc));
+  L96       *(undefined4 *)(param_1 + 0xcc) = uVar7;
+  L97       FUN_00aa4060(*(undefined4 *)(param_1 + 0xc4));
+  L99       *(undefined4 *)(param_1 + 0xc4) = uVar7;
+  L100      *(undefined2 *)(param_1 + 0xa8) = 10;
+  Total matched lines: 14
+
+======================================================================
+six material array writer @ 0x00b68660
+======================================================================
+  Function: FUN_00b68660 @ 0x00b68660, Size: 261 bytes
+
+void __thiscall FUN_00b68660(int param_1,int param_2,int *param_3)
+
+{
+  int *piVar1;
+  int iVar2;
+  undefined1 uVar3;
+  ushort uVar4;
+  LONG LVar5;
+  int iVar6;
+  int *piVar7;
+  
+  if (*(ushort *)(param_1 + 0xa8) < 10) {
+    FUN_00b68450();
+  }
+  *(undefined1 *)(param_2 + *(int *)(param_1 + 0xcc)) = 0;
+  *(undefined1 *)(param_2 + *(int *)(param_1 + 0xc4)) = 0;
+  iVar6 = 0;
+  do {
+    piVar7 = (int *)(*(int *)(param_1 + 0xac + iVar6 * 4) + param_2 * 4);
+    if (param_3 == (int *)0x0) {
+      piVar1 = (int *)*piVar7;
+      if (piVar1 != (int *)0x0) {
+        LVar5 = InterlockedDecrement(piVar1 + 1);
+        if (LVar5 == 0) {
+          (**(code **)(*piVar1 + 4))();
+        }
+        *piVar7 = 0;
+      }
+    }
+    else {
+      (**(code **)(*param_3 + 0x90))(iVar6,piVar7);
+    }
+    if ((((iVar6 == 1) && (iVar2 = *(int *)(*(int *)(param_1 + 0xb0) + param_2 * 4), iVar2 != 0)) &&
+        (iVar2 = *(int *)(iVar2 + 0x24), iVar2 != 0)) && (iVar2 != -0x14)) {
+      iVar2 = *(int *)(iVar2 + 0x18);
+      if (((iVar2 == 5) || (iVar2 == 6)) || (iVar2 == 1)) {
+        uVar3 = 1;
+      }
+      else {
+        uVar3 = 0;
+      }
+      *(undefined1 *)(param_2 + *(int *)(param_1 + 0xcc)) = uVar3;
+    }
+    iVar6 = iVar6 + 1;
+  } while (iVar6 < 6);
+  uVar4 = 0;
+  do {
+    if (*(int *)(*(int *)(param_1 + 0xac) + (uint)uVar4 * 4) == 0) break;
+    uVar4 = uVar4 + 1;
+  } while (uVar4 < 9);
+  if (uVar4 == 0) {
+    *(undefined2 *)(param_1 + 200) = 0;
+    return;
+  }
+  *(ushort *)(param_1 + 200) = uVar4 - 1;
+  return;
+}
+
+
+
+======================================================================
+MATCHED MUTATION LINES: six material array writer
+======================================================================
+  L2    void __thiscall FUN_00b68660(int param_1,int param_2,int *param_3)
+  L13     if (*(ushort *)(param_1 + 0xa8) < 10) {
+  L14       FUN_00b68450();
+  L16     *(undefined1 *)(param_2 + *(int *)(param_1 + 0xcc)) = 0;
+  L17     *(undefined1 *)(param_2 + *(int *)(param_1 + 0xc4)) = 0;
+  L20       piVar7 = (int *)(*(int *)(param_1 + 0xac + iVar6 * 4) + param_2 * 4);
+  L24           LVar5 = InterlockedDecrement(piVar1 + 1);
+  L32         (**(code **)(*param_3 + 0x90))(iVar6,piVar7);
+  L34       if ((((iVar6 == 1) && (iVar2 = *(int *)(*(int *)(param_1 + 0xb0) + param_2 * 4), iVar2 != 0)) &&
+  L43         *(undefined1 *)(param_2 + *(int *)(param_1 + 0xcc)) = uVar3;
+  L49       if (*(int *)(*(int *)(param_1 + 0xac) + (uint)uVar4 * 4) == 0) break;
+  Total matched lines: 11
+
+======================================================================
+selector material array related method @ 0x00b690d0
+======================================================================
+  Function: FUN_00b690d0 @ 0x00b690d0, Size: 2821 bytes
+
+void __thiscall FUN_00b690d0(int *param_1,int param_2)
+
+{
+  int iVar1;
+  int iVar2;
+  int iVar3;
+  uint uVar4;
+  float10 fVar5;
+  
+  iVar1 = param_2;
+  FUN_00b71450(param_2);
+  param_2 = FUN_00a7d330(DAT_011fa010);
+  uVar4 = (uint)*(ushort *)(iVar1 + 10);
+  if (*(ushort *)(iVar1 + 8) <= uVar4) {
+    FUN_0096ad30(*(ushort *)(iVar1 + 0xe) + uVar4);
+  }
+  FUN_0096ae90(uVar4,&param_2);
+  if ((param_1[8] & 0x4000U) == 0) {
+    iVar2 = FUN_00c4bb40(*(undefined4 *)param_1[0x2b]);
+    if (iVar2 == 0) {
+      param_2 = FUN_00a7d5a0("base diff",*(undefined4 *)param_1[0x2b]);
+      uVar4 = (uint)*(ushort *)(iVar1 + 10);
+      if (*(ushort *)(iVar1 + 8) <= uVar4) {
+        FUN_0096ad30(*(ushort *)(iVar1 + 0xe) + uVar4);
+      }
+    }
+    else {
+      param_2 = FUN_00a7d5e0("base diff",iVar2);
+      uVar4 = (uint)*(ushort *)(iVar1 + 10);
+      if (*(ushort *)(iVar1 + 8) <= uVar4) {
+        FUN_0096ad30(*(ushort *)(iVar1 + 0xe) + uVar4);
+      }
+    }
+    FUN_0096ae90(uVar4,&param_2);
+    iVar2 = FUN_00c4bb40(*(undefined4 *)param_1[0x2c]);
+    if (iVar2 == 0) {
+      param_2 = FUN_00a7d5a0("base normal",*(undefined4 *)param_1[0x2c]);
+      uVar4 = (uint)*(ushort *)(iVar1 + 10);
+      if (*(ushort *)(iVar1 + 8) <= uVar4) {
+        FUN_0096ad30(*(ushort *)(iVar1 + 0xe) + uVar4);
+      }
+    }
+    else {
+      param_2 = FUN_00a7d5e0("base normal",iVar2);
+      uVar4 = (uint)*(ushort *)(iVar1 + 10);
+      if (*(ushort *)(iVar1 + 8) <= uVar4) {
+        FUN_0096ad30(*(ushort *)(iVar1 + 0xe) + uVar4);
+      }
+    }
+    FUN_0096ae90(uVar4,&param_2);
+    if (*(int *)(param_1[0x2b] + 4) != 0) {
+      iVar2 = FUN_00c4bb40(*(int *)(param_1[0x2b] + 4));
+      if (iVar2 == 0) {
+        param_2 = FUN_00a7d5a0("multi diff",*(undefined4 *)(param_1[0x2b] + 4));
+      }
+      else {
+        param_2 = FUN_00a7d5e0("multi diff",iVar2);
+      }
+      FUN_0096a610(&param_2);
+    }
+    if (*(int *)(param_1[0x2c] + 4) != 0) {
+      iVar2 = FUN_00c4bb40(*(int *)(param_1[0x2c] + 4));
+      if (iVar2 == 0) {
+        param_2 = FUN_00a7d5a0("multi normal",*(undefined4 *)(param_1[0x2c] + 4));
+        FUN_0096a610(&param_2);
+      }
+      else {
+        param_2 = FUN_00a7d5e0("multi normal",iVar2);
+        FUN_0096a610(&param_2);
+      }
+    }
+  }
+  else {
+    param_2 = FUN_00a7d370("landscape texturing",1);
+    uVar4 = (uint)*(ushort *)(iVar1 + 10);
+    if (*(ushort *)(iVar1 + 8) <= uVar4) {
+      FUN_0096ad30(*(ushort *)(iVar1 + 0xe) + uVar4);
+    }
+    FUN_0096ae90(uVar4,&param_2);
+    param_2 = FUN_00a7d490("landscape textures",(short)param_1[0x2a]);
+    uVar4 = (uint)*(ushort *)(iVar1 + 10);
+    if (*(ushort *)(iVar1 + 8) <= uVar4) {
+      FUN_0096ad30(*(ushort *)(iVar1 + 0xe) + uVar4);
+    }
+    FUN_0096ae90(uVar4,&param_2);
+    iVar2 = 0;
+    do {
+      if (*(int *)(param_1[0x2b] + iVar2 * 4) != 0) {
+        iVar3 = FUN_00c4bb40(*(undefined4 *)(param_1[0x2b] + iVar2 * 4));
+        if (iVar3 == 0) {
+          param_2 = FUN_00a7d5a0("base tex",*(undefined4 *)(param_1[0x2b] + iVar2 * 4));
+          uVar4 = (uint)*(ushort *)(iVar1 + 10);
+          if (*(ushort *)(iVar1 + 8) <= uVar4) {
+            FUN_0096ad30(*(ushort *)(iVar1 + 0xe) + uVar4);
+          }
+        }
+        else {
+          param_2 = FUN_00a7d5e0("base tex",iVar3);
+          uVar4 = (uint)*(ushort *)(iVar1 + 10);
+          if (*(ushort *)(iVar1 + 8) <= uVar4) {
+            FUN_0096ad30(*(ushort *)(iVar1 + 0xe) + uVar4);
+          }
+        }
+        FUN_0096ae90(uVar4,&param_2);
+        iVar3 = *(int *)(param_1[0x2c] + iVar2 * 4);
+        if (iVar3 != 0) {
+          iVar3 = FUN_00c4bb40(iVar3);
+          if (iVar3 == 0) {
+            param_2 = FUN_00a7d5a0(" normal map",*(undefined4 *)(param_1[0x2c] + iVar2 * 4));
+          }
+          else {
+            param_2 = FUN_00a7d5e0(" normal map",iVar3);
+          }
+          FUN_0096a610(&param_2);
+        }
+        if (*(char *)(iVar2 + param_1[0x33]) != '\0') {
+          param_2 = FUN_00a7d370(" specular",1);
+          uVar4 = (uint)*(ushort *)(iVar1 + 10);
+          if (*(ushort *)(iVar1 + 8) <= uVar4) {
+            FUN_0096ad30(*(ushort *)(iVar1 + 0xe) + uVar4);
+          }
+          FUN_0096ae90(uVar4,&param_2);
+        }
+        iVar3 = *(int *)(param_1[0x2d] + iVar2 * 4);
+        if (iVar3 != 0) {
+          iVar3 = FUN_00c4bb40(iVar3);
+          if (iVar3 == 0) {
+            param_2 = FUN_00a7d5a0(" glow map",*(undefined4 *)(param_1[0x2d] + iVar2 * 4));
+          }
+          else {
+            param_2 = FUN_00a7d5e0(" glow map",iVar3);
+          }
+          FUN_0096a610(&param_2);
+        }
+      }
+      iVar2 = iVar2 + 1;
+    } while (iVar2 < 9);
+  }
+  if (*(int *)param_1[0x2e] != 0) {
+    iVar2 = FUN_00c4bb40(*(int *)param_1[0x2e]);
+    if (iVar2 == 0) {
+      param_2 = FUN_00a7d5a0("heightmap texture",*(undefined4 *)param_1[0x2e]);
+      uVar4 = (uint)*(ushort *)(iVar1 + 10);
+      if (*(ushort *)(iVar1 + 8) <= uVar4) {
+        FUN_0096ad30(*(ushort *)(iVar1 + 0xe) + uVar4);
+      }
+    }
+    else {
+      param_2 = FUN_00a7d5e0("heightmap texture",iVar2);
+      uVar4 = (uint)*(ushort *)(iVar1 + 10);
+      if (*(ushort *)(iVar1 + 8) <= uVar4) {
+        FUN_0096ad30(*(ushort *)(iVar1 + 0xe) + uVar4);
+      }
+    }
+    FUN_0096ae90(uVar4,&param_2);
+  }
+  if (*(int *)param_1[0x2d] != 0) {
+    iVar2 = FUN_00c4bb40(*(int *)param_1[0x2d]);
+    if (iVar2 == 0) {
+      param_2 = FUN_00a7d5a0("glow/skin sst/hair layer texture",*(undefined4 *)param_1[0x2d]);
+      uVar4 = (uint)*(ushort *)(iVar1 + 10);
+      if (*(ushort *)(iVar1 + 8) <= uVar4) {
+        FUN_0096ad30(*(ushort *)(iVar1 + 0xe) + uVar4);
+      }
+    }
+    else {
+      param_2 = FUN_00a7d5e0("glow/skin sst/hair layer texture",iVar2);
+      uVar4 = (uint)*(ushort *)(iVar1 + 10);
+      if (*(ushort *)(iVar1 + 8) <= uVar4) {
+        FUN_0096ad30(*(ushort *)(iVar1 + 0xe) + uVar4);
+      }
+    }
+    FUN_0096ae90(uVar4,&param_2);
+  }
+  if (*(int *)param_1[0x2f] != 0) {
+    iVar2 = FUN_00c4bb40(*(int *)param_1[0x2f]);
+    if (iVar2 == 0) {
+      param_2 = FUN_00a7d5a0("envmap texture",*(undefined4 *)param_1[0x2f]);
+      uVar4 = (uint)*(ushort *)(iVar1 + 10);
+      if (*(ushort *)(iVar1 + 8) <= uVar4) {
+        FUN_0096ad30(*(ushort *)(iVar1 + 0xe) + uVar4);
+      }
+    }
+    else {
+      param_2 = FUN_00a7d5e0("envmap texture",iVar2);
+      uVar4 = (uint)*(ushort *)(iVar1 + 10);
+      if (*(ushort *)(iVar1 + 8) <= uVar4) {
+        FUN_0096ad30(*(ushort *)(iVar1 + 0xe) + uVar4);
+      }
+    }
+    FUN_0096ae90(uVar4,&param_2);
+  }
+  if (*(int *)param_1[0x30] != 0) {
+    iVar2 = FUN_00c4bb40(*(int *)param_1[0x30]);
+    if (iVar2 == 0) {
+      param_2 = FUN_00a7d5a0("envmap mask texture",*(undefined4 *)param_1[0x30]);
+      uVar4 = (uint)*(ushort *)(iVar1 + 10);
+      if (*(ushort *)(iVar1 + 8) <= uVar4) {
+        FUN_0096ad30(*(ushort *)(iVar1 + 0xe) + uVar4);
+      }
+    }
+    else {
+      param_2 = FUN_00a7d5e0("envmap mask texture",iVar2);
+      uVar4 = (uint)*(ushort *)(iVar1 + 10);
+      if (*(ushort *)(iVar1 + 8) <= uVar4) {
+        FUN_0096ad30(*(ushort *)(iVar1 + 0xe) + uVar4);
+      }
+    }
+    FUN_0096ae90(uVar4,&param_2);
+  }
+  iVar2 = (**(code **)(*param_1 + 0xe0))();
+  if (iVar2 == 0) {
+    param_2 = FUN_00a7d370("clamp",1);
+    uVar4 = (uint)*(ushort *)(iVar1 + 10);
+    if (*(ushort *)(iVar1 + 8) <= uVar4) {
+      FUN_0096ad30(*(ushort *)(iVar1 + 0xe) + uVar4);
+    }
+    FUN_0096ae90(uVar4,&param_2);
+  }
+  if ((param_1[8] & 0x8000U) == 0) {
+    if ((param_1[8] & 0x10000U) == 0) goto LAB_00b6987f;
+    param_2 = FUN_00a7d550("refraction power",param_1[0x38]);
+    uVar4 = (uint)*(ushort *)(iVar1 + 10);
+    if (*(ushort *)(iVar1 + 8) <= uVar4) {
+      FUN_0096ad30(*(ushort *)(iVar1 + 0xe) + uVar4);
+    }
+    FUN_0096ae90(uVar4,&param_2);
+    param_2 = FUN_00a7d4d0("refraction period",param_1[0x39]);
+    uVar4 = (uint)*(ushort *)(iVar1 + 10);
+    if (*(ushort *)(iVar1 + 8) <= uVar4) {
+      FUN_0096ad30(*(ushort *)(iVar1 + 0xe) + uVar4);
+    }
+  }
+  else {
+    param_2 = FUN_00a7d550("refraction power",param_1[0x38]);
+    uVar4 = (uint)*(ushort *)(iVar1 + 10);
+    if (*(ushort *)(iVar1 + 8) <= uVar4) {
+      FUN_0096ad30(*(ushort *)(iVar1 + 0xe) + uVar4);
+    }
+  }
+  FUN_0096ae90(uVar4,&param_2);
+LAB_00b6987f:
+  if ((*(byte *)(param_1 + 8) & 1) != 0) {
+    fVar5 = (float10)(**(code **)(*param_1 + 0x10c))();
+    param_2 = FUN_00a7d550("specular lod",(float)fVar5);
+    uVar4 = (uint)*(ushort *)(iVar1 + 10);
+    if (*(ushort *)(iVar1 + 8) <= uVar4) {
+      FUN_0096ad30(*(ushort *)(iVar1 + 0xe) + uVar4);
+    }
+    FUN_0096ae90(uVar4,&param_2);
+  }
+  if ((param_1[8] & 0x80U) != 0) {
+    fVar5 = (float10)(**(code **)(*param_1 + 0x110))();
+    param_2 = FUN_00a7d550("envmap lod",(float)fVar5);
+    uVar4 = (uint)*(ushort *)(iVar1 + 10);
+    if (*(ushort *)(iVar1 + 8) <= uVar4) {
+      FUN_0096ad30(*(ushort *)(iVar1 + 0xe) + uVar4);
+    }
+    FUN_0096ae90(uVar4,&param_2);
+  }
+  if (param_1[0x37] != 0) {
+    param_2 = FUN_00a7d5a0("spTexEffectData",param_1[0x37]);
+    uVar4 = (uint)*(ushort *)(iVar1 + 10);
+    if (*(ushort *)(iVar1 + 8) <= uVar4) {
+      FUN_0096ad30(*(ushort *)(iVar1 + 0xe) + uVar4);
+    }
+    FUN_0096ae90(uVar4,&param_2);
+    param_2 = FUN_00a7d550("Fill Color R",*(undefined4 *)(param_1[0x37] + 0xc));
+    uVar4 = (uint)*(ushort *)(iVar1 + 10);
+    if (*(ushort *)(iVar1 + 8) <= uVar4) {
+      FUN_0096ad30(*(ushort *)(iVar1 + 0xe) + uVar4);
+    }
+    FUN_0096ae90(uVar4,&param_2);
+    param_2 = FUN_00a7d550("Fill Color G",*(undefined4 *)(param_1[0x37] + 0x10));
+    uVar4 = (uint)*(ushort *)(iVar1 + 10);
+    if (*(ushort *)(iVar1 + 8) <= uVar4) {
+      FUN_0096ad30(*(ushort *)(iVar1 + 0xe) + uVar4);
+    }
+    FUN_0096ae90(uVar4,&param_2);
+    param_2 = FUN_00a7d550("Fill Color R",*(undefined4 *)(param_1[0x37] + 0x14));
+    uVar4 = (uint)*(ushort *)(iVar1 + 10);
+    if (*(ushort *)(iVar1 + 8) <= uVar4) {
+      FUN_0096ad30(*(ushort *)(iVar1 + 0xe) + uVar4);
+    }
+    FUN_0096ae90(uVar4,&param_2);
+    param_2 = FUN_00a7d550("Fill Color A",*(undefined4 *)(param_1[0x37] + 0x18));
+    uVar4 = (uint)*(ushort *)(iVar1 + 10);
+    if (*(ushort *)(iVar1 + 8) <= uVar4) {
+      FUN_0096ad30(*(ushort *)(iVar1 + 0xe) + uVar4);
+    }
+    FUN_0096ae90(uVar4,&param_2);
+    param_2 = FUN_00a7d550("Edge Color R",*(undefined4 *)(param_1[0x37] + 0x1c));
+    uVar4 = (uint)*(ushort *)(iVar1 + 10);
+    if (*(ushort *)(iVar1 + 8) <= uVar4) {
+      FUN_0096ad30(*(ushort *)(iVar1 + 0xe) + uVar4);
+    }
+    FUN_0096ae90(uVar4,&param_2);
+    param_2 = FUN_00a7d550("Edge Color G",*(undefined4 *)(param_1[0x37] + 0x20));
+    uVar4 = (uint)*(ushort *)(iVar1 + 10);
+    if (*(ushort *)(iVar1 + 8) <= uVar4) {
+      FUN_0096ad30(*(ushort *)(iVar1 + 0xe) + uVar4);
+    }
+    FUN_0096ae90(uVar4,&param_2);
+    param_2 = FUN_00a7d550("Edge Color R",*(undefined4 *)(param_1[0x37] + 0x24));
+    uVar4 = (uint)*(ushort *)(iVar1 + 10);
+    if (*(ushort *)(iVar1 + 8) <= uVar4) {
+      FUN_0096ad30(*(ushort *)(iVar1 + 0xe) + uVar4);
+    }
+    FUN_0096ae90(uVar4,&param_2);
+    param_2 = FUN_00a7d550("Edge Color A",*(undefined4 *)(param_1[0x37] + 0x28));
+    uVar4 = (uint)*(ushort *)(iVar1 + 10);
+    if (*(ushort *)(iVar1 + 8) <= uVar4) {
+      FUN_0096ad30(*(ushort *)(iVar1 + 0xe) + uVar4);
+    }
+    FUN_0096ae90(uVar4,&param_2);
+    param_2 = FUN_00a7d550("Edge Falloff",*(undefined4 *)(param_1[0x37] + 0x54));
+    uVar4 = (uint)*(ushort *)(iVar1 + 10);
+    if (*(ushort *)(iVar1 + 8) <= uVar4) {
+      FUN_0096ad30(*(ushort *)(iVar1 + 0xe) + uVar4);
+    }
+    FUN_0096ae90(uVar4,&param_2);
+  }
+  return;
+}
+
+
+
+======================================================================
+MATCHED MUTATION LINES: selector material array related method
+======================================================================
+  Total matched lines: 0
+
+======================================================================
+selector setup +0xF0 variant @ 0x00bdb4a0
+======================================================================
+  Function: FUN_00bdb4a0 @ 0x00bdb4a0, Size: 2737 bytes
+
+/* WARNING: Globals starting with '_' overlap smaller symbols at the same address */
+
+void __thiscall
+FUN_00bdb4a0(int param_1,int param_2,uint param_3,int param_4,int param_5,uint param_6,
+            undefined4 param_7)
+
+{
+  undefined4 uVar1;
+  bool bVar2;
+  bool bVar3;
+  bool bVar4;
+  char cVar5;
+  bool bVar6;
+  bool bVar7;
+  undefined4 uVar8;
+  bool bVar9;
+  char cVar10;
+  char cVar11;
+  short sVar12;
+  int iVar13;
+  int iVar14;
+  int iVar15;
+  int iVar16;
+  uint uVar17;
+  bool bVar18;
+  bool bVar19;
+  bool bVar20;
+  bool bVar21;
+  bool bVar22;
+  bool bVar23;
+  bool bVar24;
+  bool bVar25;
+  bool bVar26;
+  
+  uVar17 = *(uint *)(param_1 + 0x20);
+  bVar18 = (uVar17 & 1) != 0;
+  bVar19 = (uVar17 & 0x80) != 0;
+  bVar20 = (uVar17 & 2) != 0;
+  if (((uVar17 & 0x20) != 0) || (bVar6 = false, param_5 == 3)) {
+    bVar6 = true;
+  }
+  bVar21 = **(int **)(param_1 + 0xb4) != 0;
+  bVar22 = (uVar17 & 0x400) != 0;
+  bVar9 = *(int *)(*(int *)(param_2 + 0xb8) + 0x28) != 0 || (*(byte *)(param_1 + 0x24) & 0x20) != 0;
+  iVar13 = FUN_00653290(&DAT_01200788);
+  bVar23 = iVar13 != 0;
+  iVar13 = FUN_00653290(&DAT_012024c8);
+  iVar14 = FUN_00653290(&DAT_012007a0);
+  uVar17 = *(uint *)(param_1 + 0x20);
+  bVar24 = (uVar17 & 0x4000) == 0;
+  bVar25 = (uVar17 & 0x10000) != 0;
+  param_5 = CONCAT31(param_5._1_3_,(uVar17 & 0x200) != 0);
+  if (((uVar17 & 0x100000) == 0) || (bVar2 = false, DAT_011f91a7 != '\0')) {
+    bVar2 = true;
+  }
+  bVar26 = (uVar17 & 0x40000) != 0;
+  if (((uVar17 & 0x4000000) != 0) || (bVar4 = false, (uVar17 & 0x8000000) != 0)) {
+    bVar4 = true;
+  }
+  if (((*(byte *)(*(int *)(param_2 + 0x9c) + 0x18) & 1) == 0) &&
+     (((*(int *)(param_6 + 0x34) == 2 || ((*(uint *)(param_1 + 0x24) & 4) != 0)) ||
+      ((*(uint *)(param_1 + 0x24) & 2) != 0)))) {
+    bVar3 = true;
+  }
+  else {
+    bVar3 = false;
+  }
+  iVar15 = FUN_00a59d30(0);
+  if ((iVar15 == 0) || (cVar11 = '\x01', (*(ushort *)(iVar15 + 0x18) >> 9 & 1) == 0)) {
+    cVar11 = '\0';
+  }
+  if (((iVar15 != 0) && ((*(byte *)(iVar15 + 0x18) & 1) != 0)) ||
+     (cVar5 = '\0', *(float *)(param_1 + 0x28) < 1.0)) {
+    cVar5 = '\x01';
+  }
+  if ((*(uint *)(param_1 + 0x20) & 0x20000) == 0) {
+    bVar7 = bVar18;
+    if ((_DAT_011f9460 != 0.0) && (_DAT_011f9460 <= *(float *)(param_1 + 0x34))) {
+      bVar19 = false;
+    }
+  }
+  else if ((_DAT_011f9468 == 0.0) || (*(float *)(param_1 + 0x34) < _DAT_011f9468)) {
+    bVar19 = true;
+    bVar7 = false;
+  }
+  else {
+    bVar19 = false;
+    bVar7 = false;
+  }
+  if ((_DAT_011f9458 != 0.0) && (_DAT_011f9458 <= *(float *)(param_1 + 0x34))) {
+    bVar7 = false;
+  }
+  iVar15 = FUN_00b4f5c0();
+  uVar1 = *(undefined4 *)(*(int *)(iVar15 + 0x194) + 0xe0);
+  if (bVar7) {
+    cVar10 = FUN_00439090(&DAT_011f4998);
+    param_6 = CONCAT31(param_6._1_3_,1);
+    if (cVar10 == '\0') goto LAB_00bdb6fc;
+  }
+  else {
+LAB_00bdb6fc:
+    param_6 = param_6 & 0xffffff00;
+  }
+  uVar8 = param_7;
+  iVar15 = param_4;
+  if (cVar5 != '\0') {
+    param_4 = CONCAT31(param_4._1_3_,1);
+    if ((char)param_5 != '\0') {
+      FUN_00bd9f00(param_2,iVar15,param_7,&param_4,bVar20,cVar11);
+      bVar7 = false;
+    }
+    bVar6 = true;
+  }
+  param_5._0_1_ = 1;
+  if (((uVar17 & 0x8000) != 0) || (bVar25)) {
+    FUN_00bd9da0(param_2,iVar15,uVar8,&param_5,bVar20,bVar25);
+    DAT_00000006 = 6;
+    return;
+  }
+  if ((*(byte *)(param_1 + 0x24) & 0x40) != 0) {
+    iVar16 = FUN_00bd9e60(param_2,iVar15,uVar8,&param_5,bVar20);
+    *(undefined1 *)(iVar16 + 6) = 7;
+  }
+  sVar12 = FUN_00b707d0();
+  if (bVar2) {
+    if (bVar6) {
+LAB_00bdb7b3:
+      if (sVar12 == 0) {
+        if ((bVar6) || ((char)param_6 == '\0')) goto LAB_00bdbb61;
+LAB_00bdbbaa:
+        FUN_00bda0a0(param_2,uVar1,iVar15,uVar8,&param_5,bVar20,cVar11,bVar21,bVar22,0,bVar9,bVar23)
+        ;
+LAB_00bdbbde:
+        if (((char)param_6 != '\0') && (!bVar6)) {
+          FUN_00bd99c0(param_2,uVar1,iVar15,uVar8,&param_5,bVar20,0,0,bVar18,0,bVar23);
+        }
+      }
+      else {
+        if (bVar6) {
+LAB_00bdbb61:
+          if ((iVar13 != 0) || (iVar14 != 0)) goto LAB_00bdbbaa;
+          FUN_00bda0a0(param_2,uVar1,iVar15,uVar8,&param_5,bVar20,cVar11,bVar21,bVar22,1,bVar9,
+                       bVar23);
+          bVar6 = true;
+          goto LAB_00bdbbde;
+        }
+        param_7 = 0;
+        param_4 = FUN_00b70600(&param_7);
+        if (((cVar11 != '\0') || (bVar20)) || (bVar21)) {
+          if ((param_3 & 1) != 0) {
+            FUN_00bd9540(param_2,uVar1,iVar15,uVar8,&param_5,bVar20,cVar11,bVar21,bVar23);
+          }
+          cVar11 = FUN_00439090(&DAT_011f4998);
+          if (cVar11 != '\0') {
+            FUN_00bd9840(param_2,uVar1,iVar15,uVar8,&param_5,bVar20,0,0,bVar23);
+          }
+          cVar11 = FUN_00439090(&DAT_011f4998);
+          if (cVar11 != '\0') {
+            FUN_00bd9840(param_2,param_4,iVar15,uVar8,&param_5,bVar20,1,0,bVar23);
+          }
+        }
+        else {
+          FUN_00bd9770(param_2,uVar1,param_4,iVar15,uVar8,&param_5,0,bVar23);
+        }
+        param_4 = FUN_00b70700(&param_7);
+        while (param_4 != 0) {
+          cVar11 = FUN_00439090(&DAT_011f4998);
+          if (cVar11 != '\0') {
+            FUN_00bd9840(param_2,param_4,iVar15,uVar8,&param_5,bVar20,1,0,bVar23);
+          }
+          param_4 = FUN_00b70700(&param_7);
+        }
+        FUN_00bdac00(param_2,uVar1,iVar15,uVar8,&param_5,bVar20,0,bVar22,bVar9,bVar23,bVar26);
+        if (bVar7) {
+          param_4 = FUN_00b70600(&param_7);
+          if (((char)param_6 == '\0') || (cVar11 = FUN_00439090(&DAT_011f4998), cVar11 == '\0')) {
+            FUN_00bd99c0(param_2,param_4,iVar15,uVar8,&param_5,bVar20,1,0,bVar18,0,bVar23);
+            param_4 = FUN_00b70700(&param_7);
+          }
+          else {
+            FUN_00bd99c0(param_2,uVar1,iVar15,uVar8,&param_5,bVar20,0,0,bVar18,0,bVar23);
+          }
+          while (param_4 != 0) {
+            cVar11 = FUN_00439090(&DAT_011f4998);
+            if (cVar11 != '\0') {
+              FUN_00bd99c0(param_2,param_4,iVar15,uVar8,&param_5,bVar20,1,0,bVar18,0,bVar23);
+            }
+            param_4 = FUN_00b70700(&param_7);
+          }
+        }
+      }
+      if (bVar19) {
+        FUN_00bd9ac0(param_2,iVar15,uVar8,&param_5,bVar20,bVar9);
+      }
+      if (bVar24) goto LAB_00bdbaac;
+    }
+    else {
+      if (param_3 != DAT_010a91d4) goto LAB_00bdbc22;
+      if (bVar24) goto LAB_00bdb7b3;
+    }
+  }
+  else {
+LAB_00bdbc22:
+    if (bVar24) {
+      param_5._0_1_ = 1;
+      if ((param_3 & 1) != 0) {
+        FUN_00bd9540(param_2,uVar1,iVar15,uVar8,&param_5,bVar20,cVar11,bVar21,bVar23);
+      }
+      if ((param_3 & 2) != 0) {
+        cVar11 = FUN_00439090(&DAT_011f4998);
+        if (cVar11 != '\0') {
+          FUN_00bd9840(param_2,uVar1,iVar15,uVar8,&param_5,bVar20,0,0,bVar23);
+        }
+        param_7 = 0;
+        param_4 = FUN_00b70600(&param_7);
+        while (param_4 != 0) {
+          cVar11 = FUN_00439090(&DAT_011f4998);
+          if (cVar11 != '\0') {
+            FUN_00bd9840(param_2,param_4,iVar15,uVar8,&param_5,bVar20,1,0,bVar23);
+          }
+          param_4 = FUN_00b70700(&param_7);
+        }
+      }
+      if ((param_3 & 4) != 0) {
+        FUN_00bdac00(param_2,uVar1,iVar15,uVar8,&param_5,bVar20,0,bVar22,bVar9,bVar23,bVar26);
+      }
+      if ((bVar7) && ((param_3 & 8) != 0)) {
+        param_7 = 0;
+        param_4 = FUN_00b70600(&param_7);
+        if (((char)param_6 == '\0') || (cVar11 = FUN_00439090(&DAT_011f4998), cVar11 == '\0')) {
+          if (param_4 == 0) goto LAB_00bdbeab;
+          cVar11 = FUN_00439090(&DAT_011f4998);
+          if (cVar11 != '\0') {
+            FUN_00bd99c0(param_2,param_4,iVar15,uVar8,&param_5,bVar20,1,0,bVar18,0,bVar23);
+            param_4 = FUN_00b70700(&param_7);
+          }
+        }
+        else {
+          FUN_00bd99c0(param_2,uVar1,iVar15,uVar8,&param_5,bVar20,0,0,bVar18,0,bVar23);
+          param_5._0_1_ = 0;
+        }
+        while (param_4 != 0) {
+          cVar11 = FUN_00439090(&DAT_011f4998);
+          if (cVar11 != '\0') {
+            FUN_00bd99c0(param_2,param_4,iVar15,uVar8,&param_5,bVar20,1,0,bVar18,0,bVar23);
+          }
+          param_4 = FUN_00b70700(&param_7);
+        }
+      }
+LAB_00bdbeab:
+      if ((bVar19) && ((param_3 & 8) != 0)) {
+        FUN_00bd9ac0(param_2,iVar15,uVar8,&param_5,bVar20,bVar9);
+      }
+      goto LAB_00bdbaac;
+    }
+  }
+  FUN_00bdaf10(param_2,uVar1,iVar15,uVar8,&param_5,0);
+LAB_00bdbaac:
+  if ((param_3 == DAT_010a91d4) && (!bVar6)) {
+    FUN_00bd9bc0(param_2,iVar15,uVar8,&param_5,bVar20,bVar23,cVar5);
+  }
+  if (*(int *)(param_1 + 0xdc) != 0) {
+    if (*(int *)(*(int *)(param_1 + 0xdc) + 0x6c) != 0) {
+      iVar13 = FUN_00bd9f90(param_2,iVar15,uVar8,&param_5,bVar20);
+      *(undefined1 *)(iVar13 + 6) = 1;
+    }
+    iVar13 = FUN_00bd9d00(param_2,iVar15,uVar8,&param_5,bVar20);
+    *(undefined1 *)(iVar13 + 6) = 1;
+  }
+  if ((DAT_011f9422 != '\0') && ((param_3 & 1) != 0)) {
+    FUN_00bdb380(param_2,iVar15,uVar8,bVar20,bVar21);
+  }
+  cVar11 = '\0';
+  if (bVar3) {
+    cVar11 = '\n';
+  }
+  else if (bVar4) {
+    cVar11 = (-((*(uint *)(param_1 + 0x24) & 0x200000) != 0) & 0xfdU) + 4;
+  }
+  else if (cVar5 != '\0') {
+    cVar11 = '\x01';
+  }
+  iVar13 = *(int *)(param_1 + 0x3c);
+  uVar17 = 0;
+  if (*(int *)(iVar13 + 0x10) == 0) {
+    return;
+  }
+  do {
+    iVar13 = *(int *)(*(int *)(iVar13 + 4) + uVar17 * 4);
+    if (*(char *)(iVar13 + 6) == '\0') {
+      *(char *)(iVar13 + 6) = cVar11;
+    }
+    iVar13 = *(int *)(param_1 + 0x3c);
+    uVar17 = uVar17 + 1;
+  } while (uVar17 < *(uint *)(iVar13 + 0x10));
+  return;
+}
+
+
+
+======================================================================
+MATCHED MUTATION LINES: selector setup +0xF0 variant
+======================================================================
+  L43     bVar21 = **(int **)(param_1 + 0xb4) != 0;
+  L45     bVar9 = *(int *)(*(int *)(param_2 + 0xb8) + 0x28) != 0 || (*(byte *)(param_1 + 0x24) & 0x20) != 0;
+  Total matched lines: 2
+
+======================================================================
+selector setup +0xF4 main @ 0x00bdf790
+======================================================================
+  Function: FUN_00bdf790 @ 0x00bdf790, Size: 4311 bytes
+
+/* WARNING: Globals starting with '_' overlap smaller symbols at the same address */
+
+void __thiscall
+FUN_00bdf790(int *param_1,int param_2,uint param_3,undefined4 param_4,int param_5,int param_6,
+            undefined4 param_7)
+
+{
+  undefined4 uVar1;
+  char cVar2;
+  short sVar3;
+  ushort uVar4;
+  int iVar5;
+  int iVar6;
+  undefined4 uVar7;
+  uint uVar8;
+  undefined1 uVar9;
+  bool bVar10;
+  ushort in_FPUControlWord;
+  undefined1 local_7a;
+  char local_79;
+  undefined4 local_78;
+  char local_74;
+  char local_73;
+  char local_72;
+  char local_71;
+  undefined4 local_70;
+  undefined4 local_6c;
+  undefined4 local_68;
+  uint local_64;
+  undefined4 local_60;
+  char local_5c;
+  char local_5b;
+  char local_5a;
+  uint local_59;
+  char local_55;
+  undefined4 local_54;
+  undefined4 local_50;
+  int local_4c;
+  char local_47;
+  char local_46;
+  char local_45;
+  uint local_44;
+  undefined4 local_40;
+  uint local_3c;
+  int local_38;
+  uint local_33;
+  char local_2f;
+  char local_2e;
+  char local_2d;
+  undefined4 local_2c;
+  undefined4 local_28;
+  int local_24;
+  uint local_20;
+  undefined4 local_1c;
+  undefined4 local_18;
+  int local_14;
+  undefined4 local_10;
+  undefined4 local_c;
+  undefined8 local_8;
+  
+  uVar8 = param_1[8];
+  local_33 = CONCAT31(local_33._1_3_,(uVar8 & 1) != 0);
+  local_79 = (uVar8 & 0x80) != 0;
+  local_10 = CONCAT31(local_10._1_3_,(uVar8 & 0x20000) != 0);
+  local_78 = CONCAT31(local_78._1_3_,(uVar8 & 2) != 0);
+  local_c = CONCAT31(local_c._1_3_,(uVar8 & 0x200000) != 0);
+  if (((uVar8 & 0x20) != 0) || (local_74 = '\0', param_5 == 3)) {
+    local_74 = '\x01';
+  }
+  local_45 = (uVar8 & 0x100) != 0;
+  bVar10 = (uVar8 & 0x400) != 0;
+  local_70 = CONCAT31(local_70._1_3_,bVar10);
+  local_50 = CONCAT31(local_50._1_3_,*(int *)param_1[0x2d] != 0 && !bVar10);
+  local_18 = CONCAT31(local_18._1_3_,
+                      *(int *)(*(int *)(param_2 + 0xb8) + 0x28) != 0 ||
+                      (*(byte *)(param_1 + 9) & 0x20) != 0);
+  if ((((DAT_011f9427 == '\0') && (DAT_011f95e4 != 0)) && (((byte)DAT_011f91d8 & 0x20) != 0)) &&
+     ((1 < DAT_011f91c0 && ((uVar8 & 0x2000) == 0)))) {
+    local_38 = CONCAT22(local_38._2_2_,in_FPUControlWord);
+    local_20 = in_FPUControlWord | 0xc00;
+    local_8 = (ulonglong)ROUND(DAT_011fd890);
+    if (((int)local_8 == 0) ||
+       (iVar5 = FUN_00b4f5c0(), *(char *)(*(int *)(iVar5 + 0x194) + 0x120) == '\x01'))
+    goto LAB_00bdf8c4;
+    iVar5 = FUN_00b4f5c0();
+    local_59 = CONCAT31(local_59._1_3_,1);
+    if (*(char *)(*(int *)(iVar5 + 0x194) + 0x120) == '\x03') goto LAB_00bdf8c4;
+  }
+  else {
+LAB_00bdf8c4:
+    local_59 = local_59 & 0xffffff00;
+  }
+  iVar5 = FUN_00653290(&DAT_01200788);
+  local_28 = CONCAT31(local_28._1_3_,iVar5 != 0);
+  iVar5 = FUN_00653290(&DAT_012024c8);
+  local_2f = iVar5 != 0;
+  iVar5 = FUN_00653290(&DAT_012007a0);
+  local_2e = iVar5 != 0;
+  uVar8 = param_1[8];
+  local_1c = CONCAT31(local_1c._1_3_,(uVar8 & 0x400000) != 0);
+  local_6c = CONCAT31(local_6c._1_3_,(uVar8 & 0x800) != 0);
+  local_2c = CONCAT31(local_2c._1_3_,(uVar8 & 0x1000) != 0);
+  local_73 = (uVar8 & 0x4000) != 0;
+  local_2d = (uVar8 & 0x8000) != 0;
+  local_40 = CONCAT31(local_40._1_3_,(uVar8 & 0x10000) != 0);
+  local_71 = (uVar8 & 0x200) != 0;
+  if (((uVar8 & 0x100000) == 0) || (local_46 = '\0', DAT_011f91a7 != '\0')) {
+    local_46 = '\x01';
+  }
+  local_54 = CONCAT31(local_54._1_3_,(uVar8 & 0x40000) != 0);
+  if (((uVar8 & 0x4000000) != 0) || (local_47 = '\0', (uVar8 & 0x8000000) != 0)) {
+    local_47 = '\x01';
+  }
+  if (((*(byte *)(*(int *)(param_2 + 0x9c) + 0x18) & 1) == 0) &&
+     (((*(int *)(param_6 + 0x34) == 2 || ((param_1[9] & 4U) != 0)) || ((param_1[9] & 2U) != 0)))) {
+    local_5c = '\x01';
+  }
+  else {
+    local_5c = '\0';
+  }
+  local_14 = FUN_00a59d30(0);
+  if (local_14 == 0) {
+    if ((int *)(param_2 + 0x9c) == (int *)0x0) {
+      local_14 = 0;
+    }
+    else {
+      local_14 = *(int *)(param_2 + 0x9c);
+      if (local_14 != 0) goto LAB_00bdf9e0;
+    }
+LAB_00bdf9e6:
+    if (((float)param_1[10] < 1.0) || ((float)param_1[0xb] < 1.0)) goto LAB_00bdfa0b;
+    local_24 = (uint)local_24._1_3_ << 8;
+  }
+  else {
+LAB_00bdf9e0:
+    if ((*(byte *)(local_14 + 0x18) & 1) == 0) goto LAB_00bdf9e6;
+LAB_00bdfa0b:
+    local_24 = CONCAT31(local_24._1_3_,1);
+  }
+  iVar5 = local_14;
+  if ((local_14 == 0) || ((*(ushort *)(local_14 + 0x18) >> 9 & 1) == 0)) {
+    local_4c = (uint)local_4c._1_3_ << 8;
+  }
+  else {
+    local_4c = CONCAT31(local_4c._1_3_,1);
+    local_45 = '\0';
+  }
+  if ((param_1[9] & 0x800000U) == 0) {
+    if ((char)local_10 == '\0') {
+      if ((_DAT_011f9460 != 0.0) && (_DAT_011f9460 <= (float)param_1[0xd])) {
+        local_79 = '\0';
+      }
+    }
+    else if ((_DAT_011f9468 == 0.0) || ((float)param_1[0xd] < _DAT_011f9468)) {
+      local_79 = '\x01';
+      local_33 = (uint)local_33._1_3_ << 8;
+    }
+    else {
+      local_79 = '\0';
+      local_33 = (uint)local_33._1_3_ << 8;
+    }
+    if ((_DAT_011f9458 != 0.0) && (_DAT_011f9458 <= (float)param_1[0xd])) {
+      local_33 = local_33 & 0xffffff00;
+    }
+  }
+  iVar6 = FUN_00b4f5c0();
+  local_60 = *(undefined4 *)(*(int *)(iVar6 + 0x194) + 0xe0);
+  if ((char)local_33 == '\0') {
+LAB_00bdfb0c:
+    local_5b = '\0';
+  }
+  else {
+    cVar2 = FUN_00439090(&DAT_011f4998);
+    local_5b = '\x01';
+    if (cVar2 == '\0') goto LAB_00bdfb0c;
+  }
+  if ((char)local_24 != '\0') {
+    local_72 = '\x01';
+    if ((((local_71 != '\0') || ((float)param_1[0xb] < 1.0)) &&
+        ((iVar5 == 0 || ((*(byte *)(iVar5 + 0x18) & 1) == 0)))) &&
+       (((param_1[8] & 0x8000U) == 0 && ((param_1[8] & 0x10000U) == 0)))) {
+      FUN_00bd9f00(param_2,param_4,param_7,&local_72,local_78,local_4c);
+      if (((float)param_1[0xb] < 1.0) || ((float)param_1[10] < 1.0)) {
+        *(undefined1 *)
+         (*(int *)(*(int *)(param_1[0xf] + 4) + -4 + *(int *)(param_1[0xf] + 0x10) * 4) + 6) = 0xe;
+      }
+      local_33 = local_33 & 0xffffff00;
+    }
+    local_74 = '\x01';
+  }
+  local_7a = 1;
+  if ((param_1[0x37] != 0) && (*(int *)(param_1[0x37] + 0x6c) != 0)) {
+    FUN_00bd9f90(param_2,param_4,param_7,&local_7a,local_78);
+    *(undefined1 *)
+     (*(int *)(*(int *)(param_1[0xf] + 4) + -4 + *(int *)(param_1[0xf] + 0x10) * 4) + 6) = 0xe;
+  }
+  local_44 = FUN_00b707d0();
+  local_44 = local_44 & 0xffff;
+  local_38 = CONCAT31(local_38._1_3_,(param_3 & 1) != 0);
+  local_5a = (param_3 & 2) != 0;
+  local_8 = CONCAT44(local_8._4_4_,param_3) & 0xffffffff00000001;
+  local_55 = (param_3 & 4) != 0;
+  if ((param_3 & 8) == 0) {
+LAB_00bdfc3c:
+    local_64 = local_64 & 0xffffff00;
+  }
+  else {
+    local_64 = CONCAT31(local_64._1_3_,1);
+    if ((char)local_33 == '\0') goto LAB_00bdfc3c;
+  }
+  if ((local_79 == '\0') || (local_71 = '\x01', (param_3 & 8) == 0)) {
+    local_71 = '\0';
+  }
+  local_79 = (DAT_010a91d4 & param_3) == DAT_010a91d4;
+  local_72 = '\x01';
+  local_3c = local_44;
+  local_20 = local_44;
+  if ((local_2d != '\0') || ((char)local_40 != '\0')) {
+    FUN_00bd9da0(param_2,param_4,param_7,&local_7a,local_78,local_40);
+    *(undefined1 *)
+     (*(int *)(*(int *)(param_1[0xf] + 4) + -4 + *(int *)(param_1[0xf] + 0x10) * 4) + 6) = 6;
+    return;
+  }
+  if ((*(byte *)(param_1 + 9) & 0x40) != 0) {
+    FUN_00bd9e60(param_2,param_4,param_7,&local_7a,local_78);
+    *(undefined1 *)
+     (*(int *)(*(int *)(param_1[0xf] + 4) + -4 + *(int *)(param_1[0xf] + 0x10) * 4) + 6) = 7;
+  }
+  if ((local_2f != '\0') || (local_2e != '\0')) {
+    (**(code **)(*param_1 + 0x114))
+              (param_2,param_3,param_4,*(undefined4 *)(param_6 + 0x19c),param_6,param_7);
+    return;
+  }
+  local_68 = 0;
+  cVar2 = FUN_005bf7b0();
+  if (((cVar2 != '\0') && (local_5c == '\0')) && ((char)local_2c == '\0')) {
+    local_40 = 0;
+    iVar5 = FUN_00b70590(&local_40);
+    while (iVar5 != 0) {
+      if (*(char *)(iVar5 + 0xec) != '\0') {
+        FUN_00ba9ee0(param_2,0,1,1,iVar5,0,0,0);
+        iVar5 = *(int *)(*(int *)(param_1[0xf] + 4) + -4 + *(int *)(param_1[0xf] + 0x10) * 4);
+        if ((char)local_78 == '\0') {
+          if (local_73 == '\0') {
+            sVar3 = (-(ushort)((char)local_28 != '\0') & 3) + 0x231;
+          }
+          else {
+            sVar3 = 0x233;
+          }
+        }
+        else {
+          sVar3 = 0x232;
+        }
+        *(short *)(iVar5 + 4) = sVar3;
+        *(undefined1 *)(iVar5 + 8) = 1;
+      }
+      iVar5 = FUN_00b70680(&local_40);
+    }
+  }
+  uVar1 = local_28;
+  if (local_73 == '\0') {
+    if (local_46 == '\0') goto LAB_00be0685;
+    if ((char)local_38 == '\0') {
+LAB_00be035b:
+      if (local_5a != '\0') {
+        if (local_72 == '\0') {
+          local_4c = FUN_00b70700(&local_68);
+        }
+        else {
+          FUN_00bd9840(param_2,local_60,param_4,param_7,&local_7a,local_78,0,0,uVar1);
+          local_4c = FUN_00b70600(&local_68);
+        }
+        while (local_4c != 0) {
+          if (local_44 < 3) {
+            uVar7 = FUN_00b70700(&local_68);
+            FUN_00bdda20(param_2,local_4c,uVar7,param_4,param_7,&local_7a,local_78,local_70,0,
+                         local_6c,uVar1);
+            if (local_44 < 2) {
+              local_44 = 0;
+            }
+            else {
+              local_44 = local_44 - 2;
+            }
+          }
+          else {
+            local_40 = FUN_00b70700(&local_68);
+            uVar7 = FUN_00b70700(&local_68);
+            FUN_00bddbc0(param_2,local_4c,local_40,uVar7,param_4,param_7,&local_7a,local_78,local_70
+                         ,0,local_6c,uVar1);
+            local_44 = local_44 - 3;
+          }
+          local_4c = FUN_00b70700(&local_68);
+        }
+      }
+      if (local_55 != '\0') {
+        FUN_00bddd80(param_2,local_60,param_4,param_7,&local_7a,local_78,0,local_70,local_18,uVar1,0
+                     ,local_6c,local_54);
+      }
+      if ((char)local_64 != '\0') {
+LAB_00be04ce:
+        local_64 = local_20;
+        if (local_5b != '\0') {
+          FUN_00bdef40(param_2,local_60,param_4,param_7,&local_7a,local_78,0,local_59,local_6c,uVar1
+                       ,local_54);
+        }
+        local_3c = FUN_00b70600(&local_68);
+        while (local_3c != 0) {
+          if ((int)local_64 < 3) {
+            if ((int)local_64 < 2) {
+              if (0 < (int)local_64) {
+                FUN_00bdef40(param_2,local_3c,param_4,param_7,&local_7a,local_78,0,local_59,local_6c
+                             ,uVar1,local_54);
+                local_64 = local_64 - 1;
+              }
+            }
+            else {
+              uVar7 = FUN_00b70700(&local_68);
+              FUN_00bdde10(param_2,local_3c,uVar7,param_4,param_7,&local_7a,local_78,local_6c,uVar1,
+                           local_54);
+              local_64 = local_64 - 2;
+            }
+          }
+          else {
+            local_18 = FUN_00b70700(&local_68);
+            uVar7 = FUN_00b70700(&local_68);
+            FUN_00bddfb0(param_2,local_3c,local_18,uVar7,param_4,param_7,&local_7a,local_78,local_6c
+                         ,uVar1,local_54);
+            local_64 = local_64 - 3;
+          }
+          local_3c = FUN_00b70700(&local_68);
+        }
+      }
+    }
+    else {
+      if (DAT_011f9422 != '\0') {
+LAB_00be017b:
+        if (local_5a == '\0') {
+LAB_00be0330:
+          FUN_00bd9540(param_2,local_60,param_4,param_7,&local_7a,local_78,local_4c,local_50,uVar1);
+          goto LAB_00be035b;
+        }
+        if (((local_55 == '\0') || (((char)local_70 != '\0' && (DAT_011f9427 != '\0')))) ||
+           ((1 < (ushort)local_3c && (local_74 == '\0')))) {
+          if (((char)local_70 == '\0') || (DAT_011f9427 == '\0')) {
+            uVar7 = FUN_00b70600(&local_68);
+            if ((ushort)local_3c < 2) {
+              FUN_00bdc0d0(param_2,local_60,uVar7,param_4,param_7,&local_7a,local_78,local_50,
+                           local_70,0,local_59,local_6c,uVar1);
+              local_44 = 0;
+              local_72 = '\0';
+            }
+            else {
+              local_40 = uVar7;
+              uVar7 = FUN_00b70700(&local_68);
+              FUN_00bdc530(param_2,local_60,local_40,uVar7,param_4,param_7,&local_7a,local_78,
+                           local_50,local_70,0,local_59,local_6c,uVar1);
+              local_44 = local_44 - 2;
+              local_72 = '\0';
+            }
+            goto LAB_00be035b;
+          }
+          goto LAB_00be0330;
+        }
+        if ((ushort)local_3c == 0) {
+          FUN_00bde1d0(param_2,local_60,param_4,param_7,&local_7a,local_78,local_50,local_70,0,
+                       local_59,local_6c,local_2c,uVar1,local_1c,local_54,local_4c);
+        }
+        else {
+          uVar7 = FUN_00b70600(&local_68);
+          FUN_00bdca60(param_2,local_60,uVar7,param_4,param_7,&local_7a,local_78,local_50,local_70,0
+                       ,local_59,local_6c,uVar1,local_54);
+        }
+        if ((char)local_64 == '\0') {
+          local_79 = '\0';
+          goto LAB_00be061d;
+        }
+        goto LAB_00be04ce;
+      }
+      if ((local_74 == '\0') && ((char)local_24 == '\0')) {
+        if (local_5a != '\0') {
+          if (((local_55 == '\0') || (local_45 != '\0')) || ((char)local_1c != '\0'))
+          goto LAB_00be017b;
+          goto LAB_00bdfdf3;
+        }
+        goto LAB_00be0330;
+      }
+LAB_00bdfdf3:
+      uVar4 = (ushort)local_3c;
+      if (((uVar4 < 2) && (local_5b != '\0')) &&
+         (((uVar4 == 0 || ((char)local_59 == '\0')) &&
+          (((char)local_64 != '\0' && ((char)local_70 == '\0')))))) {
+LAB_00bdfe62:
+        if ((char)local_64 == '\0') goto LAB_00bdff0b;
+        if (uVar4 == 0) {
+          FUN_00bdd050(param_2,local_60,param_4,param_7,&local_7a,local_78,local_50,local_70,0,
+                       local_59,local_6c,local_28,local_54);
+          local_79 = '\0';
+        }
+        else {
+          uVar7 = FUN_00b70600(&local_68);
+          FUN_00bdd520(param_2,local_60,uVar7,param_4,param_7,&local_7a,local_78,local_50,local_70,0
+                       ,local_59,local_6c,uVar1,local_54);
+          local_79 = '\0';
+        }
+      }
+      else {
+        if ((local_74 == '\0') ||
+           ((((((char)local_6c == '\0' && ((char)local_54 == '\0')) && ((char)local_59 == '\0')) &&
+             (((char)local_2c == '\0' && ((char)local_28 == '\0')))) && ((char)local_50 == '\0'))))
+        {
+          local_38 = 1;
+          if (((((DAT_011ad80d == '\0') ||
+                ((*(int *)(param_2 + 0xa4) != 0 &&
+                 (cVar2 = FUN_004390c0(&DAT_011f4998), cVar2 == '\0')))) ||
+               (cVar2 = FUN_00439090(&DAT_011f4998), cVar2 != '\0')) ||
+              (((cVar2 = FUN_004a2020(0x25), cVar2 == '\0' ||
+                (((local_14 != 0 && ((*(ushort *)(local_14 + 0x18) >> 9 & 1) != 0)) &&
+                 ((float)param_1[0xb] < 1.0)))) ||
+               ((((cVar2 = FUN_004a2020(0x1a), cVar2 != '\0' ||
+                  (cVar2 = FUN_004a2020(0x1b), cVar2 != '\0')) ||
+                 (cVar2 = FUN_004a2020(7), cVar2 != '\0')) ||
+                ((cVar2 = FUN_004a2020(0x15), cVar2 != '\0' ||
+                 (cVar2 = FUN_004a2020(0x11), cVar2 != '\0')))))))) ||
+             (*(int *)(param_2 + 0xbc) != 0)) {
+            local_38 = 0;
+          }
+          if (local_74 == '\0') {
+            if ((((((local_38 + 5 < (int)local_20) || ((char)local_64 != '\0')) ||
+                  ((char)local_70 != '\0')) &&
+                 (((local_38 + 4 < (int)local_20 || ((char)local_64 != '\0')) ||
+                  ((char)local_70 == '\0')))) &&
+                (((local_38 + 2 < (int)local_20 || ((char)local_64 == '\0')) ||
+                 ((char)local_70 != '\0')))) ||
+               ((((((ushort)local_3c < 2 && ((char)local_33 == '\0')) || ((char)local_6c != '\0'))
+                 || (((char)local_54 != '\0' || ((char)local_59 != '\0')))) ||
+                (((char)local_2c != '\0' || (((char)local_28 != '\0' || ((char)local_50 != '\0')))))
+                ))) goto LAB_00be017b;
+          }
+          FUN_00bde9b0(param_2,local_60,param_4,param_7,&local_7a,local_78,local_50,local_64,
+                       local_70,local_38 != 0);
+          local_79 = '\0';
+          goto LAB_00be061d;
+        }
+        if ((char)local_70 == '\0') goto LAB_00bdfe62;
+LAB_00bdff0b:
+        if (uVar4 == 0) {
+          FUN_00bde1d0(param_2,local_60,param_4,param_7,&local_7a,local_78,local_50,local_70,0,
+                       local_59,local_6c,local_2c,local_28,local_1c,local_54,local_4c);
+          local_79 = '\0';
+        }
+        else {
+          uVar7 = FUN_00b70600(&local_68);
+          FUN_00bdca60(param_2,local_60,uVar7,param_4,param_7,&local_7a,local_78,local_50,local_70,0
+                       ,local_59,local_6c,uVar1,local_54);
+          local_79 = '\0';
+        }
+      }
+    }
+LAB_00be061d:
+    if (local_71 == '\0') goto LAB_00be0685;
+    uVar7 = FUN_00b70600(&local_68);
+    FUN_00bdbf60(param_2,local_60,uVar7,param_4,param_7,&local_7a,local_78,local_10,local_c);
+  }
+  else {
+    FUN_00bdf3e0(param_2,local_60,param_4,param_7,&local_7a,local_33,local_59);
+LAB_00be0685:
+    if (local_79 == '\0') {
+      iVar5 = param_1[0xf];
+      if ((*(int *)(iVar5 + 0x10) != 0) && (local_73 == '\0')) {
+        iVar5 = *(int *)(*(int *)(iVar5 + 4) + -4 + *(int *)(iVar5 + 0x10) * 4);
+        sVar3 = *(short *)(iVar5 + 4);
+        if ((sVar3 != 0x252) && (sVar3 != 0x254)) {
+          *(undefined1 *)(iVar5 + 8) = 1;
+        }
+      }
+      goto LAB_00be06ec;
+    }
+    if (local_73 != '\0') goto LAB_00be06ec;
+  }
+  FUN_00bd9bc0(param_2,param_4,param_7,&local_7a,local_78,uVar1,local_24);
+LAB_00be06ec:
+  if (param_1[0x37] != 0) {
+    FUN_00bdc030(param_2,param_4,param_7,&local_7a,local_78);
+    *(undefined1 *)
+     (*(int *)(*(int *)(param_1[0xf] + 4) + -4 + *(int *)(param_1[0xf] + 0x10) * 4) + 6) = 1;
+  }
+  if (DAT_011f9422 != '\0') {
+    if ((int)local_8 != 0) {
+      FUN_00bdb380(param_2,param_4,param_7,local_78,local_50);
+    }
+    if (((((char)local_28 == '\0') && ((char)local_1c == '\0')) && ((char)local_6c == '\0')) &&
+       ((((char)local_2c == '\0' && (local_73 == '\0')) && ((char)local_54 == '\0')))) {
+      FUN_00bda030(param_2,param_4,param_7,local_78);
+    }
+  }
+  uVar9 = 0;
+  if (local_5c == '\0') {
+    if (local_47 == '\0') {
+      if (((char)local_24 != '\0') && (uVar9 = 0xe, 1.0 <= (float)param_1[0xb])) {
+        uVar9 = 1;
+      }
+    }
+    else {
+      uVar9 = 4;
+    }
+  }
+  else {
+    uVar9 = 10;
+  }
+  iVar5 = param_1[0xf];
+  if ((iVar5 != 0) && (uVar8 = 0, *(int *)(iVar5 + 0x10) != 0)) {
+    do {
+      iVar5 = *(int *)(*(int *)(iVar5 + 4) + uVar8 * 4);
+      if (*(char *)(iVar5 + 6) == '\0') {
+        *(undefined1 *)(iVar5 + 6) = uVar9;
+      }
+      iVar5 = param_1[0xf];
+      uVar8 = uVar8 + 1;
+    } while (uVar8 < *(uint *)(iVar5 + 0x10));
+    return;
+  }
+  return;
+}
+
+
+
+======================================================================
+MATCHED MUTATION LINES: selector setup +0xF4 main
+======================================================================
+  L76                         *(int *)(*(int *)(param_2 + 0xb8) + 0x28) != 0 ||
+  L81       local_20 = in_FPUControlWord | 0xc00;
+  L425               (*(int *)(param_2 + 0xbc) != 0)) {
+  Total matched lines: 3
+
+======================================================================
+CALL WINDOWS TO MUTATION TARGETS
+======================================================================
+
+======================================================================
+DISASM: terrain layer flag initializer caller FUN_00539960 around 0x00539e35
+======================================================================
+   0x00539dfa: PUSH 0x0                                                   FUN_00539960
+   0x00539dfc: PUSH 0x0                                                   FUN_00539960
+   0x00539dfe: PUSH 0x0                                                   FUN_00539960
+   0x00539e00: MOVZX EAX,byte ptr [EBP + -0x7c]                           FUN_00539960
+      ref READ               -> 0x-0000080 unknown
+   0x00539e04: PUSH EAX                                                   FUN_00539960
+   0x00539e05: MOVZX ECX,byte ptr [EBP + -0x80]                           FUN_00539960
+      ref READ               -> 0x-0000084 unknown
+   0x00539e09: PUSH ECX                                                   FUN_00539960
+   0x00539e0a: MOVZX EDX,byte ptr [EBP + 0xffffff7c]                      FUN_00539960
+      ref READ               -> 0x-0000088 unknown
+   0x00539e11: PUSH EDX                                                   FUN_00539960
+   0x00539e12: MOVZX EAX,byte ptr [EBP + 0xffffff78]                      FUN_00539960
+      ref READ               -> 0x-000008c unknown
+   0x00539e19: PUSH EAX                                                   FUN_00539960
+   0x00539e1a: MOVZX ECX,byte ptr [EBP + 0xffffff74]                      FUN_00539960
+      ref READ               -> 0x-0000090 unknown
+   0x00539e21: PUSH ECX                                                   FUN_00539960
+   0x00539e22: MOVZX EDX,byte ptr [EBP + 0xffffff70]                      FUN_00539960
+      ref READ               -> 0x-0000094 unknown
+   0x00539e29: PUSH EDX                                                   FUN_00539960
+   0x00539e2a: MOVZX EAX,byte ptr [EBP + 0xffffff6c]                      FUN_00539960
+      ref READ               -> 0x-0000098 unknown
+   0x00539e31: PUSH EAX                                                   FUN_00539960
+   0x00539e32: MOV ECX,dword ptr [EBP + -0x38]                            FUN_00539960
+      ref READ               -> 0x-000003c unknown
+=> 0x00539e35: CALL 0x00b66640                                            FUN_00539960
+      ref UNCONDITIONAL_CALL -> 0x00b66640 terrain layer flag initializer
+   0x00539e3a: PUSH 0x0                                                   FUN_00539960
+   0x00539e3c: MOV ECX,dword ptr [EBP + -0x70]                            FUN_00539960
+      ref READ               -> 0x-0000074 unknown
+   0x00539e3f: MOV EDX,dword ptr [ECX + 0x28]                             FUN_00539960
+   0x00539e42: MOV EAX,dword ptr [EDX]                                    FUN_00539960
+   0x00539e44: MOV ECX,dword ptr [EBP + -0x18]                            FUN_00539960
+      ref READ               -> 0x-000001c unknown
+   0x00539e47: MOV ECX,dword ptr [EAX + ECX*0x4]                          FUN_00539960
+   0x00539e4a: CALL 0x0045bc00                                            FUN_00539960
+      ref UNCONDITIONAL_CALL -> 0x0045bc00 FUN_0045bc00
+   0x00539e4f: MOV dword ptr [EBP + -0x48],EAX                            FUN_00539960
+      ref WRITE              -> 0x-000004c unknown
+   0x00539e52: MOV EDX,dword ptr [EBP + -0x48]                            FUN_00539960
+      ref READ               -> 0x-000004c unknown
+   0x00539e55: PUSH EDX                                                   FUN_00539960
+
+======================================================================
+DISASM: terrain layer flag initializer caller FUN_0053a090 around 0x0053a48c
+======================================================================
+   0x0053a460: PUSH 0x0                                                   FUN_0053a090
+   0x0053a462: PUSH 0x0                                                   FUN_0053a090
+   0x0053a464: PUSH 0x0                                                   FUN_0053a090
+   0x0053a466: MOVZX EAX,byte ptr [EBP + -0x4c]                           FUN_0053a090
+      ref READ               -> 0x-0000050 unknown
+   0x0053a46a: PUSH EAX                                                   FUN_0053a090
+   0x0053a46b: MOVZX ECX,byte ptr [EBP + -0x50]                           FUN_0053a090
+      ref READ               -> 0x-0000054 unknown
+   0x0053a46f: PUSH ECX                                                   FUN_0053a090
+   0x0053a470: MOVZX EDX,byte ptr [EBP + -0x54]                           FUN_0053a090
+      ref READ               -> 0x-0000058 unknown
+   0x0053a474: PUSH EDX                                                   FUN_0053a090
+   0x0053a475: MOVZX EAX,byte ptr [EBP + -0x58]                           FUN_0053a090
+      ref READ               -> 0x-000005c unknown
+   0x0053a479: PUSH EAX                                                   FUN_0053a090
+   0x0053a47a: MOVZX ECX,byte ptr [EBP + -0x5c]                           FUN_0053a090
+      ref READ               -> 0x-0000060 unknown
+   0x0053a47e: PUSH ECX                                                   FUN_0053a090
+   0x0053a47f: MOVZX EDX,byte ptr [EBP + -0x60]                           FUN_0053a090
+      ref READ               -> 0x-0000064 unknown
+   0x0053a483: PUSH EDX                                                   FUN_0053a090
+   0x0053a484: MOVZX EAX,byte ptr [EBP + -0x64]                           FUN_0053a090
+      ref READ               -> 0x-0000068 unknown
+   0x0053a488: PUSH EAX                                                   FUN_0053a090
+   0x0053a489: MOV ECX,dword ptr [EBP + -0x28]                            FUN_0053a090
+      ref READ               -> 0x-000002c unknown
+=> 0x0053a48c: CALL 0x00b66640                                            FUN_0053a090
+      ref UNCONDITIONAL_CALL -> 0x00b66640 terrain layer flag initializer
+   0x0053a491: MOV ECX,dword ptr [EBP + -0x28]                            FUN_0053a090
+      ref READ               -> 0x-000002c unknown
+   0x0053a494: CALL 0x00baa000                                            FUN_0053a090
+      ref UNCONDITIONAL_CALL -> 0x00baa000 FUN_00baa000
+   0x0053a499: PUSH 0x0                                                   FUN_0053a090
+   0x0053a49b: PUSH 0x0                                                   FUN_0053a090
+   0x0053a49d: PUSH ECX                                                   FUN_0053a090
+   0x0053a49e: FLDZ                                                       FUN_0053a090
+   0x0053a4a0: FSTP float ptr [ESP]                                       FUN_0053a090
+      ref DATA               -> 0x-0000074 unknown
+   0x0053a4a3: LEA ECX,[EBP + -0x14]                                      FUN_0053a090
+      ref DATA               -> 0x-0000018 unknown
+   0x0053a4a6: CALL 0x0043d410                                            FUN_0053a090
+      ref UNCONDITIONAL_CALL -> 0x0043d410 FUN_0043d410
+   0x0053a4ab: LEA ECX,[EBP + -0x14]                                      FUN_0053a090
+      ref DATA               -> 0x-0000018 unknown
+
+======================================================================
+DISASM: six material array writer caller FUN_00539960 around 0x00539bcf
+======================================================================
+   0x00539b98: MOV ECX,dword ptr [EBP + -0x70]                            FUN_00539960
+      ref READ               -> 0x-0000074 unknown
+   0x00539b9b: MOV EDX,dword ptr [ECX + 0x28]                             FUN_00539960
+   0x00539b9e: MOV EAX,dword ptr [EBP + -0x18]                            FUN_00539960
+      ref READ               -> 0x-000001c unknown
+   0x00539ba1: MOV ECX,dword ptr [EDX + EAX*0x4 + 0x20]                   FUN_00539960
+   0x00539ba5: MOV dword ptr [EBP + -0x44],ECX                            FUN_00539960
+      ref WRITE              -> 0x-0000048 unknown
+   0x00539ba8: CMP dword ptr [EBP + -0x44],0x0                            FUN_00539960
+      ref READ               -> 0x-0000048 unknown
+   0x00539bac: JZ 0x00539bd6                                              FUN_00539960
+      ref CONDITIONAL_JUMP   -> 0x00539bd6 FUN_00539960+0x276
+   0x00539bae: MOV ECX,dword ptr [EBP + -0x44]                            FUN_00539960
+      ref READ               -> 0x-0000048 unknown
+   0x00539bb1: CALL 0x009611e0                                            FUN_00539960
+      ref UNCONDITIONAL_CALL -> 0x009611e0 FUN_009611e0
+   0x00539bb6: TEST EAX,EAX                                               FUN_00539960
+   0x00539bb8: JZ 0x00539bd6                                              FUN_00539960
+      ref CONDITIONAL_JUMP   -> 0x00539bd6 FUN_00539960+0x276
+   0x00539bba: MOV ECX,dword ptr [EBP + -0x44]                            FUN_00539960
+      ref READ               -> 0x-0000048 unknown
+   0x00539bbd: CALL 0x009611e0                                            FUN_00539960
+      ref UNCONDITIONAL_CALL -> 0x009611e0 FUN_009611e0
+   0x00539bc2: MOV ECX,EAX                                                FUN_00539960
+   0x00539bc4: CALL 0x00592cf0                                            FUN_00539960
+      ref UNCONDITIONAL_CALL -> 0x00592cf0 terrain texture resolver/callback constructor
+   0x00539bc9: PUSH EAX                                                   FUN_00539960
+   0x00539bca: PUSH 0x0                                                   FUN_00539960
+   0x00539bcc: MOV ECX,dword ptr [EBP + -0x38]                            FUN_00539960
+      ref READ               -> 0x-000003c unknown
+=> 0x00539bcf: CALL 0x00b68660                                            FUN_00539960
+      ref UNCONDITIONAL_CALL -> 0x00b68660 six material array writer
+   0x00539bd4: JMP 0x00539bf4                                             FUN_00539960
+      ref UNCONDITIONAL_JUMP -> 0x00539bf4 FUN_00539960+0x294
+   0x00539bd6: CALL 0x00535ae0                                            FUN_00539960
+      ref UNCONDITIONAL_CALL -> 0x00535ae0 FUN_00535ae0
+   0x00539bdb: MOV ECX,EAX                                                FUN_00539960
+   0x00539bdd: CALL 0x009611e0                                            FUN_00539960
+      ref UNCONDITIONAL_CALL -> 0x009611e0 FUN_009611e0
+   0x00539be2: MOV ECX,EAX                                                FUN_00539960
+   0x00539be4: CALL 0x00592cf0                                            FUN_00539960
+      ref UNCONDITIONAL_CALL -> 0x00592cf0 terrain texture resolver/callback constructor
+   0x00539be9: PUSH EAX                                                   FUN_00539960
+   0x00539bea: PUSH 0x0                                                   FUN_00539960
+   0x00539bec: MOV ECX,dword ptr [EBP + -0x38]                            FUN_00539960
+      ref READ               -> 0x-000003c unknown
+   0x00539bef: CALL 0x00b68660                                            FUN_00539960
+      ref UNCONDITIONAL_CALL -> 0x00b68660 six material array writer
+
+======================================================================
+DISASM: six material array writer caller FUN_00539960 around 0x00539bef
+======================================================================
+   0x00539bb8: JZ 0x00539bd6                                              FUN_00539960
+      ref CONDITIONAL_JUMP   -> 0x00539bd6 FUN_00539960+0x276
+   0x00539bba: MOV ECX,dword ptr [EBP + -0x44]                            FUN_00539960
+      ref READ               -> 0x-0000048 unknown
+   0x00539bbd: CALL 0x009611e0                                            FUN_00539960
+      ref UNCONDITIONAL_CALL -> 0x009611e0 FUN_009611e0
+   0x00539bc2: MOV ECX,EAX                                                FUN_00539960
+   0x00539bc4: CALL 0x00592cf0                                            FUN_00539960
+      ref UNCONDITIONAL_CALL -> 0x00592cf0 terrain texture resolver/callback constructor
+   0x00539bc9: PUSH EAX                                                   FUN_00539960
+   0x00539bca: PUSH 0x0                                                   FUN_00539960
+   0x00539bcc: MOV ECX,dword ptr [EBP + -0x38]                            FUN_00539960
+      ref READ               -> 0x-000003c unknown
+   0x00539bcf: CALL 0x00b68660                                            FUN_00539960
+      ref UNCONDITIONAL_CALL -> 0x00b68660 six material array writer
+   0x00539bd4: JMP 0x00539bf4                                             FUN_00539960
+      ref UNCONDITIONAL_JUMP -> 0x00539bf4 FUN_00539960+0x294
+   0x00539bd6: CALL 0x00535ae0                                            FUN_00539960
+      ref UNCONDITIONAL_CALL -> 0x00535ae0 FUN_00535ae0
+   0x00539bdb: MOV ECX,EAX                                                FUN_00539960
+   0x00539bdd: CALL 0x009611e0                                            FUN_00539960
+      ref UNCONDITIONAL_CALL -> 0x009611e0 FUN_009611e0
+   0x00539be2: MOV ECX,EAX                                                FUN_00539960
+   0x00539be4: CALL 0x00592cf0                                            FUN_00539960
+      ref UNCONDITIONAL_CALL -> 0x00592cf0 terrain texture resolver/callback constructor
+   0x00539be9: PUSH EAX                                                   FUN_00539960
+   0x00539bea: PUSH 0x0                                                   FUN_00539960
+   0x00539bec: MOV ECX,dword ptr [EBP + -0x38]                            FUN_00539960
+      ref READ               -> 0x-000003c unknown
+=> 0x00539bef: CALL 0x00b68660                                            FUN_00539960
+      ref UNCONDITIONAL_CALL -> 0x00b68660 six material array writer
+   0x00539bf4: MOV dword ptr [EBP + -0x54],0x1                            FUN_00539960
+      ref WRITE              -> 0x-0000058 unknown
+   0x00539bfb: JMP 0x00539c06                                             FUN_00539960
+      ref UNCONDITIONAL_JUMP -> 0x00539c06 FUN_00539960+0x2a6
+   0x00539bfd: MOV EDX,dword ptr [EBP + -0x54]                            FUN_00539960
+      ref READ               -> 0x-0000058 unknown
+   0x00539c00: ADD EDX,0x1                                                FUN_00539960
+   0x00539c03: MOV dword ptr [EBP + -0x54],EDX                            FUN_00539960
+      ref WRITE              -> 0x-0000058 unknown
+   0x00539c06: CMP dword ptr [EBP + -0x54],0x7                            FUN_00539960
+      ref READ               -> 0x-0000058 unknown
+   0x00539c0a: JGE 0x00539c63                                             FUN_00539960
+      ref CONDITIONAL_JUMP   -> 0x00539c63 FUN_00539960+0x303
+   0x00539c0c: MOV EAX,dword ptr [EBP + -0x70]                            FUN_00539960
+      ref READ               -> 0x-0000074 unknown
+   0x00539c0f: MOV ECX,dword ptr [EAX + 0x28]                             FUN_00539960
+   0x00539c12: MOV EDX,dword ptr [EBP + -0x18]                            FUN_00539960
+      ref READ               -> 0x-000001c unknown
+
+======================================================================
+DISASM: six material array writer caller FUN_00539960 around 0x00539c4c
+======================================================================
+   0x00539c15: MOV EAX,dword ptr [ECX + EDX*0x4 + 0x30]                   FUN_00539960
+   0x00539c19: MOV ECX,dword ptr [EBP + -0x54]                            FUN_00539960
+      ref READ               -> 0x-0000058 unknown
+   0x00539c1c: MOV EDX,dword ptr [EAX + ECX*0x4 + -0x4]                   FUN_00539960
+   0x00539c20: MOV dword ptr [EBP + -0x44],EDX                            FUN_00539960
+      ref WRITE              -> 0x-0000048 unknown
+   0x00539c23: CMP dword ptr [EBP + -0x44],0x0                            FUN_00539960
+      ref READ               -> 0x-0000048 unknown
+   0x00539c27: JZ 0x00539c53                                              FUN_00539960
+      ref CONDITIONAL_JUMP   -> 0x00539c53 FUN_00539960+0x2f3
+   0x00539c29: MOV ECX,dword ptr [EBP + -0x44]                            FUN_00539960
+      ref READ               -> 0x-0000048 unknown
+   0x00539c2c: CALL 0x009611e0                                            FUN_00539960
+      ref UNCONDITIONAL_CALL -> 0x009611e0 FUN_009611e0
+   0x00539c31: TEST EAX,EAX                                               FUN_00539960
+   0x00539c33: JZ 0x00539c53                                              FUN_00539960
+      ref CONDITIONAL_JUMP   -> 0x00539c53 FUN_00539960+0x2f3
+   0x00539c35: MOV ECX,dword ptr [EBP + -0x44]                            FUN_00539960
+      ref READ               -> 0x-0000048 unknown
+   0x00539c38: CALL 0x009611e0                                            FUN_00539960
+      ref UNCONDITIONAL_CALL -> 0x009611e0 FUN_009611e0
+   0x00539c3d: MOV ECX,EAX                                                FUN_00539960
+   0x00539c3f: CALL 0x00592cf0                                            FUN_00539960
+      ref UNCONDITIONAL_CALL -> 0x00592cf0 terrain texture resolver/callback constructor
+   0x00539c44: PUSH EAX                                                   FUN_00539960
+   0x00539c45: MOV EAX,dword ptr [EBP + -0x54]                            FUN_00539960
+      ref READ               -> 0x-0000058 unknown
+   0x00539c48: PUSH EAX                                                   FUN_00539960
+   0x00539c49: MOV ECX,dword ptr [EBP + -0x38]                            FUN_00539960
+      ref READ               -> 0x-000003c unknown
+=> 0x00539c4c: CALL 0x00b68660                                            FUN_00539960
+      ref UNCONDITIONAL_CALL -> 0x00b68660 six material array writer
+   0x00539c51: JMP 0x00539c61                                             FUN_00539960
+      ref UNCONDITIONAL_JUMP -> 0x00539c61 FUN_00539960+0x301
+   0x00539c53: PUSH 0x0                                                   FUN_00539960
+   0x00539c55: MOV ECX,dword ptr [EBP + -0x54]                            FUN_00539960
+      ref READ               -> 0x-0000058 unknown
+   0x00539c58: PUSH ECX                                                   FUN_00539960
+   0x00539c59: MOV ECX,dword ptr [EBP + -0x38]                            FUN_00539960
+      ref READ               -> 0x-000003c unknown
+   0x00539c5c: CALL 0x00b68660                                            FUN_00539960
+      ref UNCONDITIONAL_CALL -> 0x00b68660 six material array writer
+   0x00539c61: JMP 0x00539bfd                                             FUN_00539960
+      ref UNCONDITIONAL_JUMP -> 0x00539bfd FUN_00539960+0x29d
+   0x00539c63: MOV EDX,dword ptr [EBP + -0x70]                            FUN_00539960
+      ref READ               -> 0x-0000074 unknown
+   0x00539c66: MOV EAX,dword ptr [EDX + 0x28]                             FUN_00539960
+   0x00539c69: MOV ECX,dword ptr [EBP + -0x18]                            FUN_00539960
+      ref READ               -> 0x-000001c unknown
+
+======================================================================
+DISASM: six material array writer caller FUN_00539960 around 0x00539c5c
+======================================================================
+   0x00539c29: MOV ECX,dword ptr [EBP + -0x44]                            FUN_00539960
+      ref READ               -> 0x-0000048 unknown
+   0x00539c2c: CALL 0x009611e0                                            FUN_00539960
+      ref UNCONDITIONAL_CALL -> 0x009611e0 FUN_009611e0
+   0x00539c31: TEST EAX,EAX                                               FUN_00539960
+   0x00539c33: JZ 0x00539c53                                              FUN_00539960
+      ref CONDITIONAL_JUMP   -> 0x00539c53 FUN_00539960+0x2f3
+   0x00539c35: MOV ECX,dword ptr [EBP + -0x44]                            FUN_00539960
+      ref READ               -> 0x-0000048 unknown
+   0x00539c38: CALL 0x009611e0                                            FUN_00539960
+      ref UNCONDITIONAL_CALL -> 0x009611e0 FUN_009611e0
+   0x00539c3d: MOV ECX,EAX                                                FUN_00539960
+   0x00539c3f: CALL 0x00592cf0                                            FUN_00539960
+      ref UNCONDITIONAL_CALL -> 0x00592cf0 terrain texture resolver/callback constructor
+   0x00539c44: PUSH EAX                                                   FUN_00539960
+   0x00539c45: MOV EAX,dword ptr [EBP + -0x54]                            FUN_00539960
+      ref READ               -> 0x-0000058 unknown
+   0x00539c48: PUSH EAX                                                   FUN_00539960
+   0x00539c49: MOV ECX,dword ptr [EBP + -0x38]                            FUN_00539960
+      ref READ               -> 0x-000003c unknown
+   0x00539c4c: CALL 0x00b68660                                            FUN_00539960
+      ref UNCONDITIONAL_CALL -> 0x00b68660 six material array writer
+   0x00539c51: JMP 0x00539c61                                             FUN_00539960
+      ref UNCONDITIONAL_JUMP -> 0x00539c61 FUN_00539960+0x301
+   0x00539c53: PUSH 0x0                                                   FUN_00539960
+   0x00539c55: MOV ECX,dword ptr [EBP + -0x54]                            FUN_00539960
+      ref READ               -> 0x-0000058 unknown
+   0x00539c58: PUSH ECX                                                   FUN_00539960
+   0x00539c59: MOV ECX,dword ptr [EBP + -0x38]                            FUN_00539960
+      ref READ               -> 0x-000003c unknown
+=> 0x00539c5c: CALL 0x00b68660                                            FUN_00539960
+      ref UNCONDITIONAL_CALL -> 0x00b68660 six material array writer
+   0x00539c61: JMP 0x00539bfd                                             FUN_00539960
+      ref UNCONDITIONAL_JUMP -> 0x00539bfd FUN_00539960+0x29d
+   0x00539c63: MOV EDX,dword ptr [EBP + -0x70]                            FUN_00539960
+      ref READ               -> 0x-0000074 unknown
+   0x00539c66: MOV EAX,dword ptr [EDX + 0x28]                             FUN_00539960
+   0x00539c69: MOV ECX,dword ptr [EBP + -0x18]                            FUN_00539960
+      ref READ               -> 0x-000001c unknown
+   0x00539c6c: MOV EDX,dword ptr [EAX + ECX*0x4 + 0x30]                   FUN_00539960
+   0x00539c70: CMP dword ptr [EDX + 0x14],0x0                             FUN_00539960
+   0x00539c74: JZ 0x00539c93                                              FUN_00539960
+      ref CONDITIONAL_JUMP   -> 0x00539c93 FUN_00539960+0x333
+   0x00539c76: MOV EAX,dword ptr [EBP + -0x70]                            FUN_00539960
+      ref READ               -> 0x-0000074 unknown
+   0x00539c79: MOV ECX,dword ptr [EAX + 0x28]                             FUN_00539960
+   0x00539c7c: MOV EDX,dword ptr [EBP + -0x18]                            FUN_00539960
+      ref READ               -> 0x-000001c unknown
+
+======================================================================
+DISASM: six material array writer caller FUN_0053a090 around 0x0053a253
+======================================================================
+   0x0053a21c: MOV ECX,dword ptr [EBP + -0x3c]                            FUN_0053a090
+      ref READ               -> 0x-0000040 unknown
+   0x0053a21f: MOV EDX,dword ptr [ECX + 0x28]                             FUN_0053a090
+   0x0053a222: MOV EAX,dword ptr [EBP + -0x4]                             FUN_0053a090
+      ref READ               -> 0x-0000008 unknown
+   0x0053a225: MOV ECX,dword ptr [EDX + EAX*0x4 + 0x20]                   FUN_0053a090
+   0x0053a229: MOV dword ptr [EBP + -0x30],ECX                            FUN_0053a090
+      ref WRITE              -> 0x-0000034 unknown
+   0x0053a22c: CMP dword ptr [EBP + -0x30],0x0                            FUN_0053a090
+      ref READ               -> 0x-0000034 unknown
+   0x0053a230: JZ 0x0053a25a                                              FUN_0053a090
+      ref CONDITIONAL_JUMP   -> 0x0053a25a FUN_0053a090+0x1ca
+   0x0053a232: MOV ECX,dword ptr [EBP + -0x30]                            FUN_0053a090
+      ref READ               -> 0x-0000034 unknown
+   0x0053a235: CALL 0x009611e0                                            FUN_0053a090
+      ref UNCONDITIONAL_CALL -> 0x009611e0 FUN_009611e0
+   0x0053a23a: TEST EAX,EAX                                               FUN_0053a090
+   0x0053a23c: JZ 0x0053a25a                                              FUN_0053a090
+      ref CONDITIONAL_JUMP   -> 0x0053a25a FUN_0053a090+0x1ca
+   0x0053a23e: MOV ECX,dword ptr [EBP + -0x30]                            FUN_0053a090
+      ref READ               -> 0x-0000034 unknown
+   0x0053a241: CALL 0x009611e0                                            FUN_0053a090
+      ref UNCONDITIONAL_CALL -> 0x009611e0 FUN_009611e0
+   0x0053a246: MOV ECX,EAX                                                FUN_0053a090
+   0x0053a248: CALL 0x00592cf0                                            FUN_0053a090
+      ref UNCONDITIONAL_CALL -> 0x00592cf0 terrain texture resolver/callback constructor
+   0x0053a24d: PUSH EAX                                                   FUN_0053a090
+   0x0053a24e: PUSH 0x0                                                   FUN_0053a090
+   0x0053a250: MOV ECX,dword ptr [EBP + -0x28]                            FUN_0053a090
+      ref READ               -> 0x-000002c unknown
+=> 0x0053a253: CALL 0x00b68660                                            FUN_0053a090
+      ref UNCONDITIONAL_CALL -> 0x00b68660 six material array writer
+   0x0053a258: JMP 0x0053a278                                             FUN_0053a090
+      ref UNCONDITIONAL_JUMP -> 0x0053a278 FUN_0053a090+0x1e8
+   0x0053a25a: CALL 0x00535ae0                                            FUN_0053a090
+      ref UNCONDITIONAL_CALL -> 0x00535ae0 FUN_00535ae0
+   0x0053a25f: MOV ECX,EAX                                                FUN_0053a090
+   0x0053a261: CALL 0x009611e0                                            FUN_0053a090
+      ref UNCONDITIONAL_CALL -> 0x009611e0 FUN_009611e0
+   0x0053a266: MOV ECX,EAX                                                FUN_0053a090
+   0x0053a268: CALL 0x00592cf0                                            FUN_0053a090
+      ref UNCONDITIONAL_CALL -> 0x00592cf0 terrain texture resolver/callback constructor
+   0x0053a26d: PUSH EAX                                                   FUN_0053a090
+   0x0053a26e: PUSH 0x0                                                   FUN_0053a090
+   0x0053a270: MOV ECX,dword ptr [EBP + -0x28]                            FUN_0053a090
+      ref READ               -> 0x-000002c unknown
+   0x0053a273: CALL 0x00b68660                                            FUN_0053a090
+      ref UNCONDITIONAL_CALL -> 0x00b68660 six material array writer
+
+======================================================================
+DISASM: six material array writer caller FUN_0053a090 around 0x0053a273
+======================================================================
+   0x0053a23c: JZ 0x0053a25a                                              FUN_0053a090
+      ref CONDITIONAL_JUMP   -> 0x0053a25a FUN_0053a090+0x1ca
+   0x0053a23e: MOV ECX,dword ptr [EBP + -0x30]                            FUN_0053a090
+      ref READ               -> 0x-0000034 unknown
+   0x0053a241: CALL 0x009611e0                                            FUN_0053a090
+      ref UNCONDITIONAL_CALL -> 0x009611e0 FUN_009611e0
+   0x0053a246: MOV ECX,EAX                                                FUN_0053a090
+   0x0053a248: CALL 0x00592cf0                                            FUN_0053a090
+      ref UNCONDITIONAL_CALL -> 0x00592cf0 terrain texture resolver/callback constructor
+   0x0053a24d: PUSH EAX                                                   FUN_0053a090
+   0x0053a24e: PUSH 0x0                                                   FUN_0053a090
+   0x0053a250: MOV ECX,dword ptr [EBP + -0x28]                            FUN_0053a090
+      ref READ               -> 0x-000002c unknown
+   0x0053a253: CALL 0x00b68660                                            FUN_0053a090
+      ref UNCONDITIONAL_CALL -> 0x00b68660 six material array writer
+   0x0053a258: JMP 0x0053a278                                             FUN_0053a090
+      ref UNCONDITIONAL_JUMP -> 0x0053a278 FUN_0053a090+0x1e8
+   0x0053a25a: CALL 0x00535ae0                                            FUN_0053a090
+      ref UNCONDITIONAL_CALL -> 0x00535ae0 FUN_00535ae0
+   0x0053a25f: MOV ECX,EAX                                                FUN_0053a090
+   0x0053a261: CALL 0x009611e0                                            FUN_0053a090
+      ref UNCONDITIONAL_CALL -> 0x009611e0 FUN_009611e0
+   0x0053a266: MOV ECX,EAX                                                FUN_0053a090
+   0x0053a268: CALL 0x00592cf0                                            FUN_0053a090
+      ref UNCONDITIONAL_CALL -> 0x00592cf0 terrain texture resolver/callback constructor
+   0x0053a26d: PUSH EAX                                                   FUN_0053a090
+   0x0053a26e: PUSH 0x0                                                   FUN_0053a090
+   0x0053a270: MOV ECX,dword ptr [EBP + -0x28]                            FUN_0053a090
+      ref READ               -> 0x-000002c unknown
+=> 0x0053a273: CALL 0x00b68660                                            FUN_0053a090
+      ref UNCONDITIONAL_CALL -> 0x00b68660 six material array writer
+   0x0053a278: MOV dword ptr [EBP + -0x38],0x1                            FUN_0053a090
+      ref WRITE              -> 0x-000003c unknown
+   0x0053a27f: JMP 0x0053a28a                                             FUN_0053a090
+      ref UNCONDITIONAL_JUMP -> 0x0053a28a FUN_0053a090+0x1fa
+   0x0053a281: MOV EDX,dword ptr [EBP + -0x38]                            FUN_0053a090
+      ref READ               -> 0x-000003c unknown
+   0x0053a284: ADD EDX,0x1                                                FUN_0053a090
+   0x0053a287: MOV dword ptr [EBP + -0x38],EDX                            FUN_0053a090
+      ref WRITE              -> 0x-000003c unknown
+   0x0053a28a: CMP dword ptr [EBP + -0x38],0x7                            FUN_0053a090
+      ref READ               -> 0x-000003c unknown
+   0x0053a28e: JGE 0x0053a2e7                                             FUN_0053a090
+      ref CONDITIONAL_JUMP   -> 0x0053a2e7 FUN_0053a090+0x257
+   0x0053a290: MOV EAX,dword ptr [EBP + -0x3c]                            FUN_0053a090
+      ref READ               -> 0x-0000040 unknown
+   0x0053a293: MOV ECX,dword ptr [EAX + 0x28]                             FUN_0053a090
+   0x0053a296: MOV EDX,dword ptr [EBP + -0x4]                             FUN_0053a090
+      ref READ               -> 0x-0000008 unknown
+
+======================================================================
+DISASM: six material array writer caller FUN_0053a090 around 0x0053a2d0
+======================================================================
+   0x0053a299: MOV EAX,dword ptr [ECX + EDX*0x4 + 0x30]                   FUN_0053a090
+   0x0053a29d: MOV ECX,dword ptr [EBP + -0x38]                            FUN_0053a090
+      ref READ               -> 0x-000003c unknown
+   0x0053a2a0: MOV EDX,dword ptr [EAX + ECX*0x4 + -0x4]                   FUN_0053a090
+   0x0053a2a4: MOV dword ptr [EBP + -0x30],EDX                            FUN_0053a090
+      ref WRITE              -> 0x-0000034 unknown
+   0x0053a2a7: CMP dword ptr [EBP + -0x30],0x0                            FUN_0053a090
+      ref READ               -> 0x-0000034 unknown
+   0x0053a2ab: JZ 0x0053a2d7                                              FUN_0053a090
+      ref CONDITIONAL_JUMP   -> 0x0053a2d7 FUN_0053a090+0x247
+   0x0053a2ad: MOV ECX,dword ptr [EBP + -0x30]                            FUN_0053a090
+      ref READ               -> 0x-0000034 unknown
+   0x0053a2b0: CALL 0x009611e0                                            FUN_0053a090
+      ref UNCONDITIONAL_CALL -> 0x009611e0 FUN_009611e0
+   0x0053a2b5: TEST EAX,EAX                                               FUN_0053a090
+   0x0053a2b7: JZ 0x0053a2d7                                              FUN_0053a090
+      ref CONDITIONAL_JUMP   -> 0x0053a2d7 FUN_0053a090+0x247
+   0x0053a2b9: MOV ECX,dword ptr [EBP + -0x30]                            FUN_0053a090
+      ref READ               -> 0x-0000034 unknown
+   0x0053a2bc: CALL 0x009611e0                                            FUN_0053a090
+      ref UNCONDITIONAL_CALL -> 0x009611e0 FUN_009611e0
+   0x0053a2c1: MOV ECX,EAX                                                FUN_0053a090
+   0x0053a2c3: CALL 0x00592cf0                                            FUN_0053a090
+      ref UNCONDITIONAL_CALL -> 0x00592cf0 terrain texture resolver/callback constructor
+   0x0053a2c8: PUSH EAX                                                   FUN_0053a090
+   0x0053a2c9: MOV EAX,dword ptr [EBP + -0x38]                            FUN_0053a090
+      ref READ               -> 0x-000003c unknown
+   0x0053a2cc: PUSH EAX                                                   FUN_0053a090
+   0x0053a2cd: MOV ECX,dword ptr [EBP + -0x28]                            FUN_0053a090
+      ref READ               -> 0x-000002c unknown
+=> 0x0053a2d0: CALL 0x00b68660                                            FUN_0053a090
+      ref UNCONDITIONAL_CALL -> 0x00b68660 six material array writer
+   0x0053a2d5: JMP 0x0053a2e5                                             FUN_0053a090
+      ref UNCONDITIONAL_JUMP -> 0x0053a2e5 FUN_0053a090+0x255
+   0x0053a2d7: PUSH 0x0                                                   FUN_0053a090
+   0x0053a2d9: MOV ECX,dword ptr [EBP + -0x38]                            FUN_0053a090
+      ref READ               -> 0x-000003c unknown
+   0x0053a2dc: PUSH ECX                                                   FUN_0053a090
+   0x0053a2dd: MOV ECX,dword ptr [EBP + -0x28]                            FUN_0053a090
+      ref READ               -> 0x-000002c unknown
+   0x0053a2e0: CALL 0x00b68660                                            FUN_0053a090
+      ref UNCONDITIONAL_CALL -> 0x00b68660 six material array writer
+   0x0053a2e5: JMP 0x0053a281                                             FUN_0053a090
+      ref UNCONDITIONAL_JUMP -> 0x0053a281 FUN_0053a090+0x1f1
+   0x0053a2e7: MOV EDX,dword ptr [EBP + -0x3c]                            FUN_0053a090
+      ref READ               -> 0x-0000040 unknown
+   0x0053a2ea: MOV EAX,dword ptr [EDX + 0x28]                             FUN_0053a090
+   0x0053a2ed: MOV ECX,dword ptr [EBP + -0x4]                             FUN_0053a090
+      ref READ               -> 0x-0000008 unknown
+
+======================================================================
+DISASM: six material array writer caller FUN_0053a090 around 0x0053a2e0
+======================================================================
+   0x0053a2ad: MOV ECX,dword ptr [EBP + -0x30]                            FUN_0053a090
+      ref READ               -> 0x-0000034 unknown
+   0x0053a2b0: CALL 0x009611e0                                            FUN_0053a090
+      ref UNCONDITIONAL_CALL -> 0x009611e0 FUN_009611e0
+   0x0053a2b5: TEST EAX,EAX                                               FUN_0053a090
+   0x0053a2b7: JZ 0x0053a2d7                                              FUN_0053a090
+      ref CONDITIONAL_JUMP   -> 0x0053a2d7 FUN_0053a090+0x247
+   0x0053a2b9: MOV ECX,dword ptr [EBP + -0x30]                            FUN_0053a090
+      ref READ               -> 0x-0000034 unknown
+   0x0053a2bc: CALL 0x009611e0                                            FUN_0053a090
+      ref UNCONDITIONAL_CALL -> 0x009611e0 FUN_009611e0
+   0x0053a2c1: MOV ECX,EAX                                                FUN_0053a090
+   0x0053a2c3: CALL 0x00592cf0                                            FUN_0053a090
+      ref UNCONDITIONAL_CALL -> 0x00592cf0 terrain texture resolver/callback constructor
+   0x0053a2c8: PUSH EAX                                                   FUN_0053a090
+   0x0053a2c9: MOV EAX,dword ptr [EBP + -0x38]                            FUN_0053a090
+      ref READ               -> 0x-000003c unknown
+   0x0053a2cc: PUSH EAX                                                   FUN_0053a090
+   0x0053a2cd: MOV ECX,dword ptr [EBP + -0x28]                            FUN_0053a090
+      ref READ               -> 0x-000002c unknown
+   0x0053a2d0: CALL 0x00b68660                                            FUN_0053a090
+      ref UNCONDITIONAL_CALL -> 0x00b68660 six material array writer
+   0x0053a2d5: JMP 0x0053a2e5                                             FUN_0053a090
+      ref UNCONDITIONAL_JUMP -> 0x0053a2e5 FUN_0053a090+0x255
+   0x0053a2d7: PUSH 0x0                                                   FUN_0053a090
+   0x0053a2d9: MOV ECX,dword ptr [EBP + -0x38]                            FUN_0053a090
+      ref READ               -> 0x-000003c unknown
+   0x0053a2dc: PUSH ECX                                                   FUN_0053a090
+   0x0053a2dd: MOV ECX,dword ptr [EBP + -0x28]                            FUN_0053a090
+      ref READ               -> 0x-000002c unknown
+=> 0x0053a2e0: CALL 0x00b68660                                            FUN_0053a090
+      ref UNCONDITIONAL_CALL -> 0x00b68660 six material array writer
+   0x0053a2e5: JMP 0x0053a281                                             FUN_0053a090
+      ref UNCONDITIONAL_JUMP -> 0x0053a281 FUN_0053a090+0x1f1
+   0x0053a2e7: MOV EDX,dword ptr [EBP + -0x3c]                            FUN_0053a090
+      ref READ               -> 0x-0000040 unknown
+   0x0053a2ea: MOV EAX,dword ptr [EDX + 0x28]                             FUN_0053a090
+   0x0053a2ed: MOV ECX,dword ptr [EBP + -0x4]                             FUN_0053a090
+      ref READ               -> 0x-0000008 unknown
+   0x0053a2f0: MOV EDX,dword ptr [EAX + ECX*0x4 + 0x30]                   FUN_0053a090
+   0x0053a2f4: CMP dword ptr [EDX + 0x14],0x0                             FUN_0053a090
+   0x0053a2f8: JZ 0x0053a317                                              FUN_0053a090
+      ref CONDITIONAL_JUMP   -> 0x0053a317 FUN_0053a090+0x287
+   0x0053a2fa: MOV EAX,dword ptr [EBP + -0x3c]                            FUN_0053a090
+      ref READ               -> 0x-0000040 unknown
+   0x0053a2fd: MOV ECX,dword ptr [EAX + 0x28]                             FUN_0053a090
+   0x0053a300: MOV EDX,dword ptr [EBP + -0x4]                             FUN_0053a090
+      ref READ               -> 0x-0000008 unknown
+
+======================================================================
+DISASM: terrain texture resolver/callback constructor caller FUN_00539960 around 0x00539bc4
+======================================================================
+   0x00539b86: MOV ECX,dword ptr [EBP + -0x38]                            FUN_00539960
+      ref READ               -> 0x-000003c unknown
+   0x00539b89: CALL 0x005a8060                                            FUN_00539960
+      ref UNCONDITIONAL_CALL -> 0x005a8060 FUN_005a8060
+   0x00539b8e: CMP dword ptr [EBP + -0x38],0x0                            FUN_00539960
+      ref READ               -> 0x-000003c unknown
+   0x00539b92: JZ 0x00539eb7                                              FUN_00539960
+      ref CONDITIONAL_JUMP   -> 0x00539eb7 FUN_00539960+0x557
+   0x00539b98: MOV ECX,dword ptr [EBP + -0x70]                            FUN_00539960
+      ref READ               -> 0x-0000074 unknown
+   0x00539b9b: MOV EDX,dword ptr [ECX + 0x28]                             FUN_00539960
+   0x00539b9e: MOV EAX,dword ptr [EBP + -0x18]                            FUN_00539960
+      ref READ               -> 0x-000001c unknown
+   0x00539ba1: MOV ECX,dword ptr [EDX + EAX*0x4 + 0x20]                   FUN_00539960
+   0x00539ba5: MOV dword ptr [EBP + -0x44],ECX                            FUN_00539960
+      ref WRITE              -> 0x-0000048 unknown
+   0x00539ba8: CMP dword ptr [EBP + -0x44],0x0                            FUN_00539960
+      ref READ               -> 0x-0000048 unknown
+   0x00539bac: JZ 0x00539bd6                                              FUN_00539960
+      ref CONDITIONAL_JUMP   -> 0x00539bd6 FUN_00539960+0x276
+   0x00539bae: MOV ECX,dword ptr [EBP + -0x44]                            FUN_00539960
+      ref READ               -> 0x-0000048 unknown
+   0x00539bb1: CALL 0x009611e0                                            FUN_00539960
+      ref UNCONDITIONAL_CALL -> 0x009611e0 FUN_009611e0
+   0x00539bb6: TEST EAX,EAX                                               FUN_00539960
+   0x00539bb8: JZ 0x00539bd6                                              FUN_00539960
+      ref CONDITIONAL_JUMP   -> 0x00539bd6 FUN_00539960+0x276
+   0x00539bba: MOV ECX,dword ptr [EBP + -0x44]                            FUN_00539960
+      ref READ               -> 0x-0000048 unknown
+   0x00539bbd: CALL 0x009611e0                                            FUN_00539960
+      ref UNCONDITIONAL_CALL -> 0x009611e0 FUN_009611e0
+   0x00539bc2: MOV ECX,EAX                                                FUN_00539960
+=> 0x00539bc4: CALL 0x00592cf0                                            FUN_00539960
+      ref UNCONDITIONAL_CALL -> 0x00592cf0 terrain texture resolver/callback constructor
+   0x00539bc9: PUSH EAX                                                   FUN_00539960
+   0x00539bca: PUSH 0x0                                                   FUN_00539960
+   0x00539bcc: MOV ECX,dword ptr [EBP + -0x38]                            FUN_00539960
+      ref READ               -> 0x-000003c unknown
+   0x00539bcf: CALL 0x00b68660                                            FUN_00539960
+      ref UNCONDITIONAL_CALL -> 0x00b68660 six material array writer
+   0x00539bd4: JMP 0x00539bf4                                             FUN_00539960
+      ref UNCONDITIONAL_JUMP -> 0x00539bf4 FUN_00539960+0x294
+   0x00539bd6: CALL 0x00535ae0                                            FUN_00539960
+      ref UNCONDITIONAL_CALL -> 0x00535ae0 FUN_00535ae0
+   0x00539bdb: MOV ECX,EAX                                                FUN_00539960
+   0x00539bdd: CALL 0x009611e0                                            FUN_00539960
+      ref UNCONDITIONAL_CALL -> 0x009611e0 FUN_009611e0
+   0x00539be2: MOV ECX,EAX                                                FUN_00539960
+   0x00539be4: CALL 0x00592cf0                                            FUN_00539960
+      ref UNCONDITIONAL_CALL -> 0x00592cf0 terrain texture resolver/callback constructor
+
+======================================================================
+DISASM: terrain texture resolver/callback constructor caller FUN_00539960 around 0x00539be4
+======================================================================
+   0x00539bac: JZ 0x00539bd6                                              FUN_00539960
+      ref CONDITIONAL_JUMP   -> 0x00539bd6 FUN_00539960+0x276
+   0x00539bae: MOV ECX,dword ptr [EBP + -0x44]                            FUN_00539960
+      ref READ               -> 0x-0000048 unknown
+   0x00539bb1: CALL 0x009611e0                                            FUN_00539960
+      ref UNCONDITIONAL_CALL -> 0x009611e0 FUN_009611e0
+   0x00539bb6: TEST EAX,EAX                                               FUN_00539960
+   0x00539bb8: JZ 0x00539bd6                                              FUN_00539960
+      ref CONDITIONAL_JUMP   -> 0x00539bd6 FUN_00539960+0x276
+   0x00539bba: MOV ECX,dword ptr [EBP + -0x44]                            FUN_00539960
+      ref READ               -> 0x-0000048 unknown
+   0x00539bbd: CALL 0x009611e0                                            FUN_00539960
+      ref UNCONDITIONAL_CALL -> 0x009611e0 FUN_009611e0
+   0x00539bc2: MOV ECX,EAX                                                FUN_00539960
+   0x00539bc4: CALL 0x00592cf0                                            FUN_00539960
+      ref UNCONDITIONAL_CALL -> 0x00592cf0 terrain texture resolver/callback constructor
+   0x00539bc9: PUSH EAX                                                   FUN_00539960
+   0x00539bca: PUSH 0x0                                                   FUN_00539960
+   0x00539bcc: MOV ECX,dword ptr [EBP + -0x38]                            FUN_00539960
+      ref READ               -> 0x-000003c unknown
+   0x00539bcf: CALL 0x00b68660                                            FUN_00539960
+      ref UNCONDITIONAL_CALL -> 0x00b68660 six material array writer
+   0x00539bd4: JMP 0x00539bf4                                             FUN_00539960
+      ref UNCONDITIONAL_JUMP -> 0x00539bf4 FUN_00539960+0x294
+   0x00539bd6: CALL 0x00535ae0                                            FUN_00539960
+      ref UNCONDITIONAL_CALL -> 0x00535ae0 FUN_00535ae0
+   0x00539bdb: MOV ECX,EAX                                                FUN_00539960
+   0x00539bdd: CALL 0x009611e0                                            FUN_00539960
+      ref UNCONDITIONAL_CALL -> 0x009611e0 FUN_009611e0
+   0x00539be2: MOV ECX,EAX                                                FUN_00539960
+=> 0x00539be4: CALL 0x00592cf0                                            FUN_00539960
+      ref UNCONDITIONAL_CALL -> 0x00592cf0 terrain texture resolver/callback constructor
+   0x00539be9: PUSH EAX                                                   FUN_00539960
+   0x00539bea: PUSH 0x0                                                   FUN_00539960
+   0x00539bec: MOV ECX,dword ptr [EBP + -0x38]                            FUN_00539960
+      ref READ               -> 0x-000003c unknown
+   0x00539bef: CALL 0x00b68660                                            FUN_00539960
+      ref UNCONDITIONAL_CALL -> 0x00b68660 six material array writer
+   0x00539bf4: MOV dword ptr [EBP + -0x54],0x1                            FUN_00539960
+      ref WRITE              -> 0x-0000058 unknown
+   0x00539bfb: JMP 0x00539c06                                             FUN_00539960
+      ref UNCONDITIONAL_JUMP -> 0x00539c06 FUN_00539960+0x2a6
+   0x00539bfd: MOV EDX,dword ptr [EBP + -0x54]                            FUN_00539960
+      ref READ               -> 0x-0000058 unknown
+   0x00539c00: ADD EDX,0x1                                                FUN_00539960
+   0x00539c03: MOV dword ptr [EBP + -0x54],EDX                            FUN_00539960
+      ref WRITE              -> 0x-0000058 unknown
+   0x00539c06: CMP dword ptr [EBP + -0x54],0x7                            FUN_00539960
+      ref READ               -> 0x-0000058 unknown
+
+======================================================================
+DISASM: terrain texture resolver/callback constructor caller FUN_00539960 around 0x00539c3f
+======================================================================
+   0x00539c06: CMP dword ptr [EBP + -0x54],0x7                            FUN_00539960
+      ref READ               -> 0x-0000058 unknown
+   0x00539c0a: JGE 0x00539c63                                             FUN_00539960
+      ref CONDITIONAL_JUMP   -> 0x00539c63 FUN_00539960+0x303
+   0x00539c0c: MOV EAX,dword ptr [EBP + -0x70]                            FUN_00539960
+      ref READ               -> 0x-0000074 unknown
+   0x00539c0f: MOV ECX,dword ptr [EAX + 0x28]                             FUN_00539960
+   0x00539c12: MOV EDX,dword ptr [EBP + -0x18]                            FUN_00539960
+      ref READ               -> 0x-000001c unknown
+   0x00539c15: MOV EAX,dword ptr [ECX + EDX*0x4 + 0x30]                   FUN_00539960
+   0x00539c19: MOV ECX,dword ptr [EBP + -0x54]                            FUN_00539960
+      ref READ               -> 0x-0000058 unknown
+   0x00539c1c: MOV EDX,dword ptr [EAX + ECX*0x4 + -0x4]                   FUN_00539960
+   0x00539c20: MOV dword ptr [EBP + -0x44],EDX                            FUN_00539960
+      ref WRITE              -> 0x-0000048 unknown
+   0x00539c23: CMP dword ptr [EBP + -0x44],0x0                            FUN_00539960
+      ref READ               -> 0x-0000048 unknown
+   0x00539c27: JZ 0x00539c53                                              FUN_00539960
+      ref CONDITIONAL_JUMP   -> 0x00539c53 FUN_00539960+0x2f3
+   0x00539c29: MOV ECX,dword ptr [EBP + -0x44]                            FUN_00539960
+      ref READ               -> 0x-0000048 unknown
+   0x00539c2c: CALL 0x009611e0                                            FUN_00539960
+      ref UNCONDITIONAL_CALL -> 0x009611e0 FUN_009611e0
+   0x00539c31: TEST EAX,EAX                                               FUN_00539960
+   0x00539c33: JZ 0x00539c53                                              FUN_00539960
+      ref CONDITIONAL_JUMP   -> 0x00539c53 FUN_00539960+0x2f3
+   0x00539c35: MOV ECX,dword ptr [EBP + -0x44]                            FUN_00539960
+      ref READ               -> 0x-0000048 unknown
+   0x00539c38: CALL 0x009611e0                                            FUN_00539960
+      ref UNCONDITIONAL_CALL -> 0x009611e0 FUN_009611e0
+   0x00539c3d: MOV ECX,EAX                                                FUN_00539960
+=> 0x00539c3f: CALL 0x00592cf0                                            FUN_00539960
+      ref UNCONDITIONAL_CALL -> 0x00592cf0 terrain texture resolver/callback constructor
+   0x00539c44: PUSH EAX                                                   FUN_00539960
+   0x00539c45: MOV EAX,dword ptr [EBP + -0x54]                            FUN_00539960
+      ref READ               -> 0x-0000058 unknown
+   0x00539c48: PUSH EAX                                                   FUN_00539960
+   0x00539c49: MOV ECX,dword ptr [EBP + -0x38]                            FUN_00539960
+      ref READ               -> 0x-000003c unknown
+   0x00539c4c: CALL 0x00b68660                                            FUN_00539960
+      ref UNCONDITIONAL_CALL -> 0x00b68660 six material array writer
+   0x00539c51: JMP 0x00539c61                                             FUN_00539960
+      ref UNCONDITIONAL_JUMP -> 0x00539c61 FUN_00539960+0x301
+   0x00539c53: PUSH 0x0                                                   FUN_00539960
+   0x00539c55: MOV ECX,dword ptr [EBP + -0x54]                            FUN_00539960
+      ref READ               -> 0x-0000058 unknown
+   0x00539c58: PUSH ECX                                                   FUN_00539960
+   0x00539c59: MOV ECX,dword ptr [EBP + -0x38]                            FUN_00539960
+      ref READ               -> 0x-000003c unknown
+
+======================================================================
+DISASM: terrain texture resolver/callback constructor caller FUN_0053a090 around 0x0053a248
+======================================================================
+   0x0053a20f: MOV EDX,dword ptr [EAX]                                    FUN_0053a090
+   0x0053a211: MOV ECX,dword ptr [EBP + -0x28]                            FUN_0053a090
+      ref READ               -> 0x-000002c unknown
+   0x0053a214: MOV EAX,dword ptr [EDX + 0x9c]                             FUN_0053a090
+   0x0053a21a: CALL EAX                                                   FUN_0053a090
+   0x0053a21c: MOV ECX,dword ptr [EBP + -0x3c]                            FUN_0053a090
+      ref READ               -> 0x-0000040 unknown
+   0x0053a21f: MOV EDX,dword ptr [ECX + 0x28]                             FUN_0053a090
+   0x0053a222: MOV EAX,dword ptr [EBP + -0x4]                             FUN_0053a090
+      ref READ               -> 0x-0000008 unknown
+   0x0053a225: MOV ECX,dword ptr [EDX + EAX*0x4 + 0x20]                   FUN_0053a090
+   0x0053a229: MOV dword ptr [EBP + -0x30],ECX                            FUN_0053a090
+      ref WRITE              -> 0x-0000034 unknown
+   0x0053a22c: CMP dword ptr [EBP + -0x30],0x0                            FUN_0053a090
+      ref READ               -> 0x-0000034 unknown
+   0x0053a230: JZ 0x0053a25a                                              FUN_0053a090
+      ref CONDITIONAL_JUMP   -> 0x0053a25a FUN_0053a090+0x1ca
+   0x0053a232: MOV ECX,dword ptr [EBP + -0x30]                            FUN_0053a090
+      ref READ               -> 0x-0000034 unknown
+   0x0053a235: CALL 0x009611e0                                            FUN_0053a090
+      ref UNCONDITIONAL_CALL -> 0x009611e0 FUN_009611e0
+   0x0053a23a: TEST EAX,EAX                                               FUN_0053a090
+   0x0053a23c: JZ 0x0053a25a                                              FUN_0053a090
+      ref CONDITIONAL_JUMP   -> 0x0053a25a FUN_0053a090+0x1ca
+   0x0053a23e: MOV ECX,dword ptr [EBP + -0x30]                            FUN_0053a090
+      ref READ               -> 0x-0000034 unknown
+   0x0053a241: CALL 0x009611e0                                            FUN_0053a090
+      ref UNCONDITIONAL_CALL -> 0x009611e0 FUN_009611e0
+   0x0053a246: MOV ECX,EAX                                                FUN_0053a090
+=> 0x0053a248: CALL 0x00592cf0                                            FUN_0053a090
+      ref UNCONDITIONAL_CALL -> 0x00592cf0 terrain texture resolver/callback constructor
+   0x0053a24d: PUSH EAX                                                   FUN_0053a090
+   0x0053a24e: PUSH 0x0                                                   FUN_0053a090
+   0x0053a250: MOV ECX,dword ptr [EBP + -0x28]                            FUN_0053a090
+      ref READ               -> 0x-000002c unknown
+   0x0053a253: CALL 0x00b68660                                            FUN_0053a090
+      ref UNCONDITIONAL_CALL -> 0x00b68660 six material array writer
+   0x0053a258: JMP 0x0053a278                                             FUN_0053a090
+      ref UNCONDITIONAL_JUMP -> 0x0053a278 FUN_0053a090+0x1e8
+   0x0053a25a: CALL 0x00535ae0                                            FUN_0053a090
+      ref UNCONDITIONAL_CALL -> 0x00535ae0 FUN_00535ae0
+   0x0053a25f: MOV ECX,EAX                                                FUN_0053a090
+   0x0053a261: CALL 0x009611e0                                            FUN_0053a090
+      ref UNCONDITIONAL_CALL -> 0x009611e0 FUN_009611e0
+   0x0053a266: MOV ECX,EAX                                                FUN_0053a090
+   0x0053a268: CALL 0x00592cf0                                            FUN_0053a090
+      ref UNCONDITIONAL_CALL -> 0x00592cf0 terrain texture resolver/callback constructor
+
+======================================================================
+DISASM: terrain texture resolver/callback constructor caller FUN_0053a090 around 0x0053a268
+======================================================================
+   0x0053a230: JZ 0x0053a25a                                              FUN_0053a090
+      ref CONDITIONAL_JUMP   -> 0x0053a25a FUN_0053a090+0x1ca
+   0x0053a232: MOV ECX,dword ptr [EBP + -0x30]                            FUN_0053a090
+      ref READ               -> 0x-0000034 unknown
+   0x0053a235: CALL 0x009611e0                                            FUN_0053a090
+      ref UNCONDITIONAL_CALL -> 0x009611e0 FUN_009611e0
+   0x0053a23a: TEST EAX,EAX                                               FUN_0053a090
+   0x0053a23c: JZ 0x0053a25a                                              FUN_0053a090
+      ref CONDITIONAL_JUMP   -> 0x0053a25a FUN_0053a090+0x1ca
+   0x0053a23e: MOV ECX,dword ptr [EBP + -0x30]                            FUN_0053a090
+      ref READ               -> 0x-0000034 unknown
+   0x0053a241: CALL 0x009611e0                                            FUN_0053a090
+      ref UNCONDITIONAL_CALL -> 0x009611e0 FUN_009611e0
+   0x0053a246: MOV ECX,EAX                                                FUN_0053a090
+   0x0053a248: CALL 0x00592cf0                                            FUN_0053a090
+      ref UNCONDITIONAL_CALL -> 0x00592cf0 terrain texture resolver/callback constructor
+   0x0053a24d: PUSH EAX                                                   FUN_0053a090
+   0x0053a24e: PUSH 0x0                                                   FUN_0053a090
+   0x0053a250: MOV ECX,dword ptr [EBP + -0x28]                            FUN_0053a090
+      ref READ               -> 0x-000002c unknown
+   0x0053a253: CALL 0x00b68660                                            FUN_0053a090
+      ref UNCONDITIONAL_CALL -> 0x00b68660 six material array writer
+   0x0053a258: JMP 0x0053a278                                             FUN_0053a090
+      ref UNCONDITIONAL_JUMP -> 0x0053a278 FUN_0053a090+0x1e8
+   0x0053a25a: CALL 0x00535ae0                                            FUN_0053a090
+      ref UNCONDITIONAL_CALL -> 0x00535ae0 FUN_00535ae0
+   0x0053a25f: MOV ECX,EAX                                                FUN_0053a090
+   0x0053a261: CALL 0x009611e0                                            FUN_0053a090
+      ref UNCONDITIONAL_CALL -> 0x009611e0 FUN_009611e0
+   0x0053a266: MOV ECX,EAX                                                FUN_0053a090
+=> 0x0053a268: CALL 0x00592cf0                                            FUN_0053a090
+      ref UNCONDITIONAL_CALL -> 0x00592cf0 terrain texture resolver/callback constructor
+   0x0053a26d: PUSH EAX                                                   FUN_0053a090
+   0x0053a26e: PUSH 0x0                                                   FUN_0053a090
+   0x0053a270: MOV ECX,dword ptr [EBP + -0x28]                            FUN_0053a090
+      ref READ               -> 0x-000002c unknown
+   0x0053a273: CALL 0x00b68660                                            FUN_0053a090
+      ref UNCONDITIONAL_CALL -> 0x00b68660 six material array writer
+   0x0053a278: MOV dword ptr [EBP + -0x38],0x1                            FUN_0053a090
+      ref WRITE              -> 0x-000003c unknown
+   0x0053a27f: JMP 0x0053a28a                                             FUN_0053a090
+      ref UNCONDITIONAL_JUMP -> 0x0053a28a FUN_0053a090+0x1fa
+   0x0053a281: MOV EDX,dword ptr [EBP + -0x38]                            FUN_0053a090
+      ref READ               -> 0x-000003c unknown
+   0x0053a284: ADD EDX,0x1                                                FUN_0053a090
+   0x0053a287: MOV dword ptr [EBP + -0x38],EDX                            FUN_0053a090
+      ref WRITE              -> 0x-000003c unknown
+   0x0053a28a: CMP dword ptr [EBP + -0x38],0x7                            FUN_0053a090
+      ref READ               -> 0x-000003c unknown
+
+======================================================================
+DISASM: terrain texture resolver/callback constructor caller FUN_0053a090 around 0x0053a2c3
+======================================================================
+   0x0053a28a: CMP dword ptr [EBP + -0x38],0x7                            FUN_0053a090
+      ref READ               -> 0x-000003c unknown
+   0x0053a28e: JGE 0x0053a2e7                                             FUN_0053a090
+      ref CONDITIONAL_JUMP   -> 0x0053a2e7 FUN_0053a090+0x257
+   0x0053a290: MOV EAX,dword ptr [EBP + -0x3c]                            FUN_0053a090
+      ref READ               -> 0x-0000040 unknown
+   0x0053a293: MOV ECX,dword ptr [EAX + 0x28]                             FUN_0053a090
+   0x0053a296: MOV EDX,dword ptr [EBP + -0x4]                             FUN_0053a090
+      ref READ               -> 0x-0000008 unknown
+   0x0053a299: MOV EAX,dword ptr [ECX + EDX*0x4 + 0x30]                   FUN_0053a090
+   0x0053a29d: MOV ECX,dword ptr [EBP + -0x38]                            FUN_0053a090
+      ref READ               -> 0x-000003c unknown
+   0x0053a2a0: MOV EDX,dword ptr [EAX + ECX*0x4 + -0x4]                   FUN_0053a090
+   0x0053a2a4: MOV dword ptr [EBP + -0x30],EDX                            FUN_0053a090
+      ref WRITE              -> 0x-0000034 unknown
+   0x0053a2a7: CMP dword ptr [EBP + -0x30],0x0                            FUN_0053a090
+      ref READ               -> 0x-0000034 unknown
+   0x0053a2ab: JZ 0x0053a2d7                                              FUN_0053a090
+      ref CONDITIONAL_JUMP   -> 0x0053a2d7 FUN_0053a090+0x247
+   0x0053a2ad: MOV ECX,dword ptr [EBP + -0x30]                            FUN_0053a090
+      ref READ               -> 0x-0000034 unknown
+   0x0053a2b0: CALL 0x009611e0                                            FUN_0053a090
+      ref UNCONDITIONAL_CALL -> 0x009611e0 FUN_009611e0
+   0x0053a2b5: TEST EAX,EAX                                               FUN_0053a090
+   0x0053a2b7: JZ 0x0053a2d7                                              FUN_0053a090
+      ref CONDITIONAL_JUMP   -> 0x0053a2d7 FUN_0053a090+0x247
+   0x0053a2b9: MOV ECX,dword ptr [EBP + -0x30]                            FUN_0053a090
+      ref READ               -> 0x-0000034 unknown
+   0x0053a2bc: CALL 0x009611e0                                            FUN_0053a090
+      ref UNCONDITIONAL_CALL -> 0x009611e0 FUN_009611e0
+   0x0053a2c1: MOV ECX,EAX                                                FUN_0053a090
+=> 0x0053a2c3: CALL 0x00592cf0                                            FUN_0053a090
+      ref UNCONDITIONAL_CALL -> 0x00592cf0 terrain texture resolver/callback constructor
+   0x0053a2c8: PUSH EAX                                                   FUN_0053a090
+   0x0053a2c9: MOV EAX,dword ptr [EBP + -0x38]                            FUN_0053a090
+      ref READ               -> 0x-000003c unknown
+   0x0053a2cc: PUSH EAX                                                   FUN_0053a090
+   0x0053a2cd: MOV ECX,dword ptr [EBP + -0x28]                            FUN_0053a090
+      ref READ               -> 0x-000002c unknown
+   0x0053a2d0: CALL 0x00b68660                                            FUN_0053a090
+      ref UNCONDITIONAL_CALL -> 0x00b68660 six material array writer
+   0x0053a2d5: JMP 0x0053a2e5                                             FUN_0053a090
+      ref UNCONDITIONAL_JUMP -> 0x0053a2e5 FUN_0053a090+0x255
+   0x0053a2d7: PUSH 0x0                                                   FUN_0053a090
+   0x0053a2d9: MOV ECX,dword ptr [EBP + -0x38]                            FUN_0053a090
+      ref READ               -> 0x-000003c unknown
+   0x0053a2dc: PUSH ECX                                                   FUN_0053a090
+   0x0053a2dd: MOV ECX,dword ptr [EBP + -0x28]                            FUN_0053a090
+      ref READ               -> 0x-000002c unknown
+
+======================================================================
+DISASM: terrain texture resolver/callback constructor caller FUN_0068be90 around 0x0068c0f9
+======================================================================
+   0x0068c0a7: CALL 0x00bb4520                                            FUN_0068be90
+      ref UNCONDITIONAL_CALL -> 0x00bb4520 FUN_00bb4520
+   0x0068c0ac: MOV dword ptr [EBP + 0xffffff3c],EAX                       FUN_0068be90
+      ref WRITE              -> 0x-00000c8 unknown
+   0x0068c0b2: JMP 0x0068c0be                                             FUN_0068be90
+      ref UNCONDITIONAL_JUMP -> 0x0068c0be FUN_0068be90+0x22e
+   0x0068c0b4: MOV dword ptr [EBP + 0xffffff3c],0x0                       FUN_0068be90
+      ref WRITE              -> 0x-00000c8 unknown
+   0x0068c0be: MOV ECX,dword ptr [EBP + 0xffffff3c]                       FUN_0068be90
+      ref READ               -> 0x-00000c8 unknown
+   0x0068c0c4: MOV dword ptr [EBP + 0xffffff7c],ECX                       FUN_0068be90
+      ref WRITE              -> 0x-0000088 unknown
+   0x0068c0ca: MOV dword ptr [EBP + -0x4],0xffffffff                      FUN_0068be90
+      ref WRITE              -> 0x-0000008 unknown
+   0x0068c0d1: MOV EDX,dword ptr [EBP + 0xffffff7c]                       FUN_0068be90
+      ref READ               -> 0x-0000088 unknown
+   0x0068c0d7: MOV dword ptr [EBP + -0x20],EDX                            FUN_0068be90
+      ref WRITE              -> 0x-0000024 unknown
+   0x0068c0da: PUSH 0x1d                                                  FUN_0068be90
+   0x0068c0dc: MOV ECX,dword ptr [EBP + -0x20]                            FUN_0068be90
+      ref READ               -> 0x-0000024 unknown
+   0x0068c0df: CALL 0x005a8060                                            FUN_0068be90
+      ref UNCONDITIONAL_CALL -> 0x005a8060 FUN_005a8060
+   0x0068c0e4: PUSH 0x1                                                   FUN_0068be90
+   0x0068c0e6: PUSH 0x5                                                   FUN_0068be90
+   0x0068c0e8: MOV ECX,dword ptr [EBP + -0x20]                            FUN_0068be90
+      ref READ               -> 0x-0000024 unknown
+   0x0068c0eb: CALL 0x00441130                                            FUN_0068be90
+      ref UNCONDITIONAL_CALL -> 0x00441130 FUN_00441130
+   0x0068c0f0: MOV EAX,dword ptr [EBP + 0xffffff4c]                       FUN_0068be90
+      ref READ               -> 0x-00000b8 unknown
+   0x0068c0f6: MOV ECX,dword ptr [EAX + 0x30]                             FUN_0068be90
+=> 0x0068c0f9: CALL 0x00592cf0                                            FUN_0068be90
+      ref UNCONDITIONAL_CALL -> 0x00592cf0 terrain texture resolver/callback constructor
+   0x0068c0fe: PUSH EAX                                                   FUN_0068be90
+   0x0068c0ff: PUSH 0x0                                                   FUN_0068be90
+   0x0068c101: MOV ECX,dword ptr [EBP + -0x20]                            FUN_0068be90
+      ref READ               -> 0x-0000024 unknown
+   0x0068c104: CALL 0x00b66ad0                                            FUN_0068be90
+      ref UNCONDITIONAL_CALL -> 0x00b66ad0 FUN_00b66ad0
+   0x0068c109: PUSH 0x0                                                   FUN_0068be90
+   0x0068c10b: PUSH 0x1                                                   FUN_0068be90
+   0x0068c10d: MOV ECX,dword ptr [EBP + -0x20]                            FUN_0068be90
+      ref READ               -> 0x-0000024 unknown
+   0x0068c110: MOV EDX,dword ptr [ECX]                                    FUN_0068be90
+   0x0068c112: MOV ECX,dword ptr [EBP + -0x20]                            FUN_0068be90
+      ref READ               -> 0x-0000024 unknown
+   0x0068c115: MOV EAX,dword ptr [EDX + 0xf4]                             FUN_0068be90
+
+======================================================================
+MATERIAL FIELD INSTRUCTION HITS
+======================================================================
+
+--- terrain texture writer callsite A ---
+  Total field hits: 0
+
+--- terrain texture writer callsite B ---
+  Total field hits: 0
+
+--- terrain texture resolver/callback constructor ---
+  Total field hits: 0
+
+--- terrain texture resolver/callback slot target ---
+  Total field hits: 0
+
+--- terrain layer flag initializer ---
+  0x00b66640: CMP word ptr [ECX + 0xa8],0x9
+  0x00b6664a: MOV EAX,dword ptr [ECX + 0xc4]
+  0x00b66656: MOV EAX,dword ptr [ECX + 0xc4]
+  0x00b66663: MOV EAX,dword ptr [ECX + 0xc4]
+  0x00b66670: MOV EAX,dword ptr [ECX + 0xc4]
+  0x00b6667d: MOV EAX,dword ptr [ECX + 0xc4]
+  0x00b6668a: MOV EAX,dword ptr [ECX + 0xc4]
+  0x00b66697: MOV EAX,dword ptr [ECX + 0xc4]
+  0x00b666a4: MOV EAX,dword ptr [ECX + 0xc4]
+  0x00b666b1: MOV EAX,dword ptr [ECX + 0xc4]
+  Total field hits: 10
+
+--- selector material array initializer ---
+  0x00b6847d: CMP word ptr [EBP + 0xa8],0xa
+  0x00b684da: CMP AX,word ptr [EBP + 0xa8]
+  0x00b68508: MOVZX ECX,word ptr [EBP + 0xa8]
+  0x00b6852b: LEA EBX,[EBP + 0xac]
+  0x00b68541: CMP DX,word ptr [EAX + 0xa8]
+  0x00b6859e: MOVZX EAX,word ptr [EDX + 0xa8]
+  0x00b685f6: MOV EAX,dword ptr [ESI + 0xcc]
+  0x00b68613: MOV ECX,dword ptr [ESI + 0xc4]
+  0x00b6861f: MOV dword ptr [ESI + 0xcc],EAX
+  0x00b6863b: MOV dword ptr [ESI + 0xc4],EAX
+  0x00b68641: MOV word ptr [ESI + 0xa8],DX
+  Total field hits: 11
+
+--- six material array writer ---
+  0x00b68663: CMP word ptr [EBP + 0xa8],0xa
+  0x00b68672: MOV EAX,dword ptr [EBP + 0xcc]
+  0x00b68683: MOV ECX,dword ptr [EBP + 0xc4]
+  0x00b68690: MOV ESI,dword ptr [EBP + EBX*0x4 + 0xac]
+  0x00b686e2: MOV ECX,dword ptr [EBP + EBX*0x4 + 0xac]
+  0x00b68716: MOV EDX,dword ptr [EBP + 0xcc]
+  0x00b68729: MOV ECX,dword ptr [EBP + 0xac]
+  0x00b6874d: MOV word ptr [EBP + 0xc8],AX
+  0x00b6875a: MOV word ptr [EBP + 0xc8],AX
+  Total field hits: 9
+
+--- selector material array related method ---
+  0x00b69125: MOV ECX,dword ptr [EDI + 0xac]
+  0x00b6916d: MOV EDX,dword ptr [EDI + 0xac]
+  0x00b691ae: MOV EAX,dword ptr [EDI + 0xb0]
+  0x00b691f6: MOV ECX,dword ptr [EDI + 0xb0]
+  0x00b69237: MOV EDX,dword ptr [EDI + 0xac]
+  0x00b6926a: MOV ECX,dword ptr [EDI + 0xac]
+  0x00b69291: MOV EAX,dword ptr [EDI + 0xb0]
+  0x00b692d2: MOV EDX,dword ptr [EDI + 0xb0]
+  0x00b69338: MOVZX ECX,word ptr [EDI + 0xa8]
+  0x00b69380: MOV EDX,dword ptr [EDI + 0xac]
+  0x00b693d5: MOV EAX,dword ptr [EDI + 0xac]
+  0x00b69417: MOV ECX,dword ptr [EDI + 0xb0]
+  0x00b69446: MOV EAX,dword ptr [EDI + 0xb0]
+  0x00b6946d: MOV EDX,dword ptr [EDI + 0xcc]
+  0x00b694b3: MOV EAX,dword ptr [EDI + 0xb4]
+  0x00b694e6: MOV EDX,dword ptr [EDI + 0xb4]
+  0x00b69518: MOV EAX,dword ptr [EDI + 0xb8]
+  0x00b69569: MOV ECX,dword ptr [EDI + 0xb8]
+  0x00b695aa: MOV EAX,dword ptr [EDI + 0xb4]
+  0x00b695fb: MOV EDX,dword ptr [EDI + 0xb4]
+  0x00b6963c: MOV EAX,dword ptr [EDI + 0xbc]
+  0x00b6968d: MOV EAX,dword ptr [EDI + 0xbc]
+  0x00b696ce: MOV EAX,dword ptr [EDI + 0xc0]
+  0x00b6971f: MOV ECX,dword ptr [EDI + 0xc0]
+  Total field hits: 24
+
+--- selector setup +0xF0 variant ---
+  0x00bdb4e1: MOV ECX,dword ptr [ESI + 0xb4]
+  0x00bdb4ee: MOV ECX,dword ptr [EDI + 0xb8]
+  Total field hits: 2
+
+--- selector setup +0xF4 main ---
+  0x00bdf7e7: MOV ECX,dword ptr [ESI + 0xb4]
+  0x00bdf817: MOV EDX,dword ptr [EBP + 0xb8]
+  0x00bdf874: OR EAX,0xc00
+  0x00bdfe97: MOV ECX,dword ptr [ESP + 0xb0]
+      ref READ               -> 0x00000004 unknown
+  0x00bdfef1: MOV EAX,dword ptr [ESP + 0xc0]
+      ref READ               -> 0x00000004 unknown
+  0x00bdff44: MOV EAX,dword ptr [ESP + 0xbc]
+      ref READ               -> 0x00000004 unknown
+  0x00bdff92: MOV ECX,dword ptr [ESP + 0xb0]
+      ref READ               -> 0x00000004 unknown
+  0x00be0092: CMP dword ptr [EDX + 0xbc],0x0
+  0x00be01f3: MOV EDX,dword ptr [ESP + 0xbc]
+      ref READ               -> 0x00000004 unknown
+  0x00be0245: MOV EAX,dword ptr [ESP + 0xc0]
+      ref READ               -> 0x00000004 unknown
+  0x00be02b5: MOV EAX,dword ptr [ESP + 0xbc]
+      ref READ               -> 0x00000004 unknown
+  0x00be030c: MOV EDX,dword ptr [ESP + 0xb0]
+      ref READ               -> 0x00000004 unknown
+  0x00be044e: MOV EDX,dword ptr [ESP + 0xa8]
+      ref READ               -> 0x00000004 unknown
+  0x00be04ac: MOV EDX,dword ptr [ESP + 0xb0]
+      ref READ               -> 0x00000004 unknown
+  0x00be04f8: MOV ECX,dword ptr [ESP + 0xa8]
+      ref READ               -> 0x00000004 unknown
+  0x00be05ea: MOV EDX,dword ptr [ESP + 0xa8]
+      ref READ               -> 0x00000004 unknown
+  0x00be064e: MOV EAX,dword ptr [ESP + 0xac]
+      ref READ               -> 0x00000004 unknown
+  Total field hits: 17
