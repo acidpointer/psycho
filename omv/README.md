@@ -34,7 +34,7 @@ Runtime requirements:
 ## Features
 
 - In-game OMV graphics menu, toggled with `Insert` by default.
-- Loose screen-space shader loading from `Data/omv/shaders`.
+- Loose screen-space shader loading from `Data/NVSE/plugins/omv/shaders`.
 - Embedded ambient occlusion, contact AO, bloom/HDR, and sunshafts.
 - Native PBR work for renderer paths whose shader contract is known.
 - Dependency logging for VPT, Fallout Shader Loader, and LOD Flicker Fix.
@@ -46,14 +46,14 @@ native graphics overhaul unless that combination has been tested.
 
 ```text
 Data/NVSE/plugins/omv.dll
-Data/omv/omv.toml
-Data/omv/shaders/*.hlsl|*.pso|*.cso|*.toml
+Data/NVSE/plugins/omv/omv.toml
+Data/NVSE/plugins/omv/shaders/*.hlsl|*.pso|*.cso|*.toml
 ```
 
 Config and logs:
 
 ```text
-Data/omv/omv.toml
+Data/NVSE/plugins/omv/omv.toml
 <FalloutNV>/omv-latest.log
 ```
 
@@ -62,13 +62,13 @@ Data/omv/omv.toml
 Loose user/developer shaders live in:
 
 ```text
-Data/omv/shaders
+Data/NVSE/plugins/omv/shaders
 ```
 
 Source-tree shader layout:
 
 ```text
-omv/shaders/runtime/     Loose shaders packaged to Data/omv/shaders
+omv/shaders/runtime/     Loose shaders packaged to Data/NVSE/plugins/omv/shaders
 omv/shaders/embedded/    HLSL compiled into omv.dll
 ```
 
@@ -87,7 +87,8 @@ omv/src/shaders.rs       Loose shader loading and HLSL compilation
 Native PBR is contract-gated.
 
 - Object PBR is limited to proven PPLighting object shader families.
-- LandLOD remains experimental and must not be treated as final terrain PBR.
+- LandLOD uses the VPT terrain register contract and is disabled when that
+  contract is unavailable.
 - Close terrain PBR must use the VPT/FSL/LODFF contract.
 - SI, hair, parallax/POM, skin, and helper-only lighting passes are separate
   shader contracts.

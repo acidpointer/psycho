@@ -1848,6 +1848,13 @@ fn draw_native_pbr_config(
     };
     let status_text = cstring(status_text);
     ui.text_colored(status_color, &status_text);
+    let terrain_text = if status.terrain_contract_available {
+        "Terrain contract: VPT/FSL/LODFF available"
+    } else {
+        "Terrain contract: missing, LandLOD/terrain PBR disabled"
+    };
+    let terrain_text = cstring(terrain_text);
+    ui.text_colored(MENU_MUTED_TEXT, &terrain_text);
     let reload_note = cstring("Hooks install automatically at startup; shader toggle is runtime");
     ui.text_colored(MENU_MUTED_TEXT, &reload_note);
     ui.separator();
@@ -1867,9 +1874,9 @@ fn draw_native_pbr_config(
         &mut config.debug_log_draws,
     );
     if config.enabled {
-        let text = cstring("Visible scope: ADTS specular and ADTS10 LIGHTS=4 material draws");
+        let text = cstring("Visible scope: non-skin ADTS/ADTS10 objects; VPT-gated LandLOD");
         ui.text_colored(MENU_WARN_TEXT, &text);
-        let text = cstring("Uses PBR data registers and SetShaders handle substitution");
+        let text = cstring("Object PBR uses c32/c33; terrain PBR uses c38/c89/c90");
         ui.text_colored(MENU_MUTED_TEXT, &text);
         ui.separator();
         changed |= draw_float_slider(
@@ -1957,7 +1964,7 @@ fn draw_feature_list(
         }
     }
     if external_count == 0 {
-        let empty = cstring("No .hlsl files in ./Data/omv/shaders");
+        let empty = cstring(format!("No .hlsl files in {}", crate::shaders::SHADER_DIR));
         ui.text_colored(MENU_MUTED_TEXT, &empty);
     }
 }

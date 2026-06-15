@@ -9,6 +9,7 @@ Updated project rule: OMV is allowed to depend on Shader Loader, Vanilla Plus Te
 ## Sources
 
 - `docs/graphics_fnv_pbr_errata.md`
+- `docs/graphics_fnv_omv_real_pbr_port_plan.md`
 - `docs/graphics_fnv_omv_dependency_compatibility_plan.md`
 - `omv/src/effects/pbr.rs`
 - `omv/shaders/embedded/native_pbr_pplighting_object.hlsl`
@@ -56,7 +57,7 @@ Updated project rule: OMV is allowed to depend on Shader Loader, Vanilla Plus Te
 3. TESReloaded10 NVR requires `LODFlickerFix.dll` and `VanillaPlusTerrain.dll` at post-load. For OMV, this is reference evidence that terrain PBR should use the VPT contract, not that OMV should depend on or modify NVR.
 4. NVR coexistence is not a requirement. Do not spend implementation budget on NVR hook chaining unless that goal is explicitly reopened.
 5. The existing Ghidra research proves close-land shader table slots and material-array layout, but TESReloaded10/VPT source now answers the pass formula and constant ABI more directly.
-6. The biggest register mismatch is `c32/c33`: the current `omv` implementation uses these as generic PBR controls for object and current LandLOD replacements, while NVR/VPT terrain uses them as `LandSpec`. NVR terrain PBR controls are `c89/c90`.
+6. Object and terrain PBR registers must remain separate. OMV object PBR uses `c32/c33`; LandLOD has been moved to terrain-style `c38/c89/c90`; close terrain must follow the same terrain split.
 
 ## TESReloaded10 Source Contract Update
 
@@ -81,8 +82,8 @@ Current OMV-specific correction:
 `omv/src/effects/pbr.rs` currently gates replacement to PPLighting family vertex group C / pixel group B. The accepted replacements are:
 
 - Object ADTS and ADTS10 variants from the NVR object-style ABI.
-- LandLOD base pair `VS[2] / PS[3]`.
-- LandLOD projected-shadow pair `VS[5] / PS[6]`, currently mapped to the same LandLOD replacement kind.
+- LandLOD base pair `VS[2] / PS[3]`, gated on the VPT terrain contract.
+- LandLOD projected-shadow pair `VS[5] / PS[6]` is intentionally not mapped to the base LandLOD shader until its ABI is proven.
 
 The current replacement kind explicitly reports:
 
@@ -171,11 +172,12 @@ NVR/VPT shader ABI:
   - `c38` `LandLODSpec`
   - NVR terrain include also reads `c89/c90` for terrain tuning/noise controls.
 
-Current OMV mismatch:
+Current OMV status:
 
-- `native_pbr_pplighting_landlod.hlsl` uses `c32/c33` for PBR tuning, not NVR terrain `c89/c90`.
-- It does not consume `LandLODSpec c38`; roughness is derived directly from normal alpha.
-- `pbr.rs` maps both LandLOD base and LandLOD projected-shadow shader pairs to the same `LandLod` replacement kind. The projected-shadow pair needs its own proof before it should share the base LandLOD shader.
+- `native_pbr_pplighting_landlod.hlsl` now uses terrain tuning registers `c89/c90`.
+- It consumes VPT `LandLODSpec c38` before deriving roughness from normal alpha.
+- `pbr.rs` gates base LandLOD on VPT/FSL/LODFF being present.
+- `pbr.rs` no longer maps projected-shadow LandLOD to the base replacement shader; that pair remains disabled until separately proven.
 
 ### Close Terrain PBR
 

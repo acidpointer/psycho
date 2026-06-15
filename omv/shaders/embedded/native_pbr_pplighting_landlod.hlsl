@@ -1,8 +1,9 @@
 float4 AmbientColor : register(c1);
 float4 PSLightColor[10] : register(c3);
 float4 LODTexParams : register(c31);
-float4 TESR_PBRData : register(c32);
-float4 TESR_PBRExtraData : register(c33);
+float4 LandLODSpec : register(c38);
+float4 TESR_TerrainData : register(c89);
+float4 TESR_TerrainExtraData : register(c90);
 
 sampler2D BaseMap : register(s0);
 sampler2D NormalMap : register(s1);
@@ -46,22 +47,22 @@ float3 ExpandNormal(float3 value)
 
 float PbrRoughnessScale()
 {
-    return (TESR_PBRData.y > 0.0f) ? TESR_PBRData.y : 1.0f;
+    return (TESR_TerrainData.y > 0.0f) ? TESR_TerrainData.y : 1.0f;
 }
 
 float PbrLightMultiplier()
 {
-    return (TESR_PBRData.z > 0.0f) ? TESR_PBRData.z : 1.0f;
+    return (TESR_TerrainData.z > 0.0f) ? TESR_TerrainData.z : 1.0f;
 }
 
 float PbrAmbientMultiplier()
 {
-    return (TESR_PBRData.w > 0.0f) ? TESR_PBRData.w : 1.0f;
+    return (TESR_TerrainData.w > 0.0f) ? TESR_TerrainData.w : 1.0f;
 }
 
 float PbrAlbedoSaturation()
 {
-    return (TESR_PBRExtraData.x > 0.0f) ? TESR_PBRExtraData.x : 1.0f;
+    return (TESR_TerrainExtraData.y > 0.0f) ? TESR_TerrainExtraData.y : 1.0f;
 }
 
 float RoughnessFromGloss(float gloss)
@@ -153,12 +154,13 @@ float4 Main(PixelInput input) : COLOR0
     float3 base_albedo = tex2D(BaseMap, base_uv).rgb;
     float3 albedo = lerp(parent_albedo, base_albedo, lod_blend);
 
-    float noise = tex2D(LODLandNoise, input.uv * 1.75f).r;
-    albedo *= (noise * 0.8f) + 0.55f;
+    float noise_tile = (TESR_TerrainExtraData.w > 0.0f) ? TESR_TerrainExtraData.w : 1.75f;
+    float noise = tex2D(LODLandNoise, input.uv * noise_tile).r;
     albedo = lerp(Luma(albedo), albedo, PbrAlbedoSaturation());
 
     float3 normal = ExpandNormal(normal_sample.rgb);
-    float roughness = RoughnessFromGloss(normal_sample.a);
+    float gloss = normal_sample.a * ((LandLODSpec.x > 0.0f) ? 1.0f : 0.0f);
+    float roughness = RoughnessFromGloss(gloss);
     float3 light_dir = SafeNormalize(input.light_dir.xyz, float3(0.0f, 0.0f, 1.0f));
     float3 view_dir = SafeNormalize(input.eye_position - input.local_position, light_dir);
 
@@ -171,6 +173,9 @@ float4 Main(PixelInput input) : COLOR0
         PSLightColor[0].rgb * PbrLightMultiplier()
     );
     lighting += AmbientLighting(AmbientColor.rgb, albedo);
+
+    float noise_scale = saturate(TESR_TerrainExtraData.z);
+    lighting = lerp(lighting, lighting * ((noise * 0.8f) + 0.55f), noise_scale);
 
     float3 final_color = lerp(max(lighting, float3(0.0f, 0.0f, 0.0f)), input.fog_color.rgb, saturate(input.fog_color.a));
     return float4(final_color, 1.0f);

@@ -10,7 +10,7 @@ use toml_edit::{DocumentMut, value};
 
 use crate::shaders::ShaderPhase;
 
-pub(crate) const CONFIG_PATH: &str = "Data/omv/omv.toml";
+pub(crate) const CONFIG_PATH: &str = "Data/NVSE/plugins/omv/omv.toml";
 
 static CONFIG: OnceLock<PsychoGraphicsConfig> = OnceLock::new();
 

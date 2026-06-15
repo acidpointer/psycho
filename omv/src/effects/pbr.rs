@@ -148,6 +148,8 @@ const MIN_READABLE_ADDRESS: usize = 0x10000;
 const PBR_MATERIAL_FLAGS_REGISTER: u32 = 31;
 const PBR_DATA_REGISTER: u32 = 32;
 const PBR_EXTRA_DATA_REGISTER: u32 = 33;
+const TERRAIN_DATA_REGISTER: u32 = 89;
+const TERRAIN_EXTRA_DATA_REGISTER: u32 = 90;
 const PBR_MATERIAL_SLOT_NORMAL: usize = 1;
 const PBR_MATERIAL_SLOT_GLOW: usize = 2;
 const PBR_MATERIAL_SLOT_HEIGHT: usize = 3;
@@ -247,6 +249,9 @@ static REPLACEMENT_SKIP_NO_DIFFUSE: AtomicU32 = AtomicU32::new(0);
 static REPLACEMENT_SKIP_NO_DRAW_CONTEXT: AtomicU32 = AtomicU32::new(0);
 static REPLACEMENT_SKIP_UNSUPPORTED_FAMILY: AtomicU32 = AtomicU32::new(0);
 static REPLACEMENT_SKIP_UNSUPPORTED_VERTEX_ABI: AtomicU32 = AtomicU32::new(0);
+static REPLACEMENT_SKIP_SKIN_VERTEX_ABI: AtomicU32 = AtomicU32::new(0);
+static REPLACEMENT_SKIP_MISSING_TERRAIN_CONTRACT: AtomicU32 = AtomicU32::new(0);
+static REPLACEMENT_SKIP_UNPROVEN_LANDLOD_SHADOW: AtomicU32 = AtomicU32::new(0);
 static REPLACEMENT_SKIP_NO_SELECTOR_RECORD: AtomicU32 = AtomicU32::new(0);
 static REPLACEMENT_SKIP_NO_NORMAL_SOURCE: AtomicU32 = AtomicU32::new(0);
 static REPLACEMENT_SKIP_NO_REPLACEMENT_SHADER: AtomicU32 = AtomicU32::new(0);
@@ -268,6 +273,7 @@ static PBR_ROUGHNESS_SCALE_BITS: AtomicU32 = AtomicU32::new(1.0f32.to_bits());
 static PBR_LIGHT_SCALE_BITS: AtomicU32 = AtomicU32::new(1.0f32.to_bits());
 static PBR_AMBIENT_SCALE_BITS: AtomicU32 = AtomicU32::new(1.0f32.to_bits());
 static PBR_ALBEDO_SATURATION_BITS: AtomicU32 = AtomicU32::new(1.0f32.to_bits());
+static TERRAIN_CONTRACT_AVAILABLE: AtomicBool = AtomicBool::new(false);
 
 static TEXTURE_CAPTURE: LazyLock<TextureCapture> = LazyLock::new(TextureCapture::new);
 static DRAW_CAPTURE: LazyLock<DrawCapture> = LazyLock::new(DrawCapture::new);
@@ -307,6 +313,7 @@ pub(crate) struct NativePbrSettings {
 pub(crate) struct NativePbrRuntimeStatus {
     pub(crate) installed: bool,
     pub(crate) shader_enabled: bool,
+    pub(crate) terrain_contract_available: bool,
     pub(crate) block_reason: Option<&'static str>,
 }
 
@@ -1427,6 +1434,9 @@ enum ReplacementSkipReason {
     NoDrawContext,
     UnsupportedFamily,
     UnsupportedVertexAbi,
+    SkinVertexAbi,
+    MissingTerrainContract,
+    UnprovenLandLodProjectedShadow,
     NoSelectorRecord,
     NoNormalSource,
     NoReplacementShader,
@@ -1442,6 +1452,9 @@ impl ReplacementSkipReason {
             Self::NoDrawContext => "no_draw_context",
             Self::UnsupportedFamily => "unsupported_family",
             Self::UnsupportedVertexAbi => "unsupported_vertex_abi",
+            Self::SkinVertexAbi => "skin_vertex_abi",
+            Self::MissingTerrainContract => "missing_terrain_contract",
+            Self::UnprovenLandLodProjectedShadow => "unproven_landlod_projected_shadow",
             Self::NoSelectorRecord => "no_selector_record",
             Self::NoNormalSource => "no_normal_source",
             Self::NoReplacementShader => "no_replacement_shader",
@@ -1514,12 +1527,24 @@ pub(crate) fn install(settings: NativePbrSettings) -> Result<()> {
     log::info!("[PBR] Native PBR selector, draw, texture, and shader-interface hooks installed");
 
     if settings.enabled {
-        log::info!(
-            "[PBR] Native PBR material shader enabled for object material variants and land LOD"
-        );
+        log::info!("[PBR] Native PBR material shader enabled for object material variants");
+        if TERRAIN_CONTRACT_AVAILABLE.load(Ordering::Acquire) {
+            log::info!("[PBR] VPT terrain contract available; LandLOD terrain PBR may run");
+        } else {
+            log::info!(
+                "[PBR] VPT terrain contract missing; LandLOD and close terrain PBR stay disabled"
+            );
+        }
     }
 
     Ok(())
+}
+
+pub(crate) fn configure_terrain_contract(available: bool) {
+    let was_available = TERRAIN_CONTRACT_AVAILABLE.swap(available, Ordering::AcqRel);
+    if available != was_available {
+        reset_replacement_skip_budget();
+    }
 }
 
 pub(crate) fn configure_runtime_options(settings: NativePbrSettings) {
@@ -1557,6 +1582,7 @@ pub(crate) fn runtime_status() -> NativePbrRuntimeStatus {
     NativePbrRuntimeStatus {
         installed: INSTALLED.load(Ordering::Acquire),
         shader_enabled: MATERIAL_SHADER_ENABLED.load(Ordering::Acquire),
+        terrain_contract_available: TERRAIN_CONTRACT_AVAILABLE.load(Ordering::Acquire),
         block_reason: *INSTALL_BLOCK_REASON.lock(),
     }
 }
@@ -2207,7 +2233,20 @@ fn replacement_shader_kind(
         draw_context.vertex_membership,
         draw_context.pixel_membership,
     ) {
+        if !TERRAIN_CONTRACT_AVAILABLE.load(Ordering::Acquire) {
+            return Err(ReplacementSkipReason::MissingTerrainContract);
+        }
         return Ok(ReplacementShaderKind::LandLod);
+    }
+    if pplighting_pair_uses_sls2_landlod_projected_shadow(
+        draw_context.vertex_membership,
+        draw_context.pixel_membership,
+    ) {
+        return Err(ReplacementSkipReason::UnprovenLandLodProjectedShadow);
+    }
+
+    if is_sls2_skin_vertex_index(draw_context.vertex_membership.index) {
+        return Err(ReplacementSkipReason::SkinVertexAbi);
     }
 
     if let Some(shader_kind) = pplighting_sls2_object_replacement_kind(
@@ -2325,94 +2364,79 @@ fn pplighting_pair_uses_sls2_landlod(
         return false;
     }
 
-    (vertex.index == PPLIGHTING_VERTEX_SLS2_LANDLOD_INDEX
-        && pixel.index == PPLIGHTING_PIXEL_SLS2_LANDLOD_INDEX)
-        || (vertex.index == PPLIGHTING_VERTEX_SLS2_LANDLOD_PROJECTED_SHADOW_INDEX
-            && pixel.index == PPLIGHTING_PIXEL_SLS2_LANDLOD_PROJECTED_SHADOW_INDEX)
+    vertex.index == PPLIGHTING_VERTEX_SLS2_LANDLOD_INDEX
+        && pixel.index == PPLIGHTING_PIXEL_SLS2_LANDLOD_INDEX
+}
+
+fn pplighting_pair_uses_sls2_landlod_projected_shadow(
+    vertex: ShaderArrayMembership,
+    pixel: ShaderArrayMembership,
+) -> bool {
+    if vertex.group != PPLIGHTING_VERTEX_GROUP_C || pixel.group != PPLIGHTING_PIXEL_GROUP_B {
+        return false;
+    }
+
+    vertex.index == PPLIGHTING_VERTEX_SLS2_LANDLOD_PROJECTED_SHADOW_INDEX
+        && pixel.index == PPLIGHTING_PIXEL_SLS2_LANDLOD_PROJECTED_SHADOW_INDEX
 }
 
 fn is_sls2_adts_base_vertex(index: u32) -> bool {
-    matches!(
-        index,
-        PPLIGHTING_VERTEX_SLS2_ADTS_BASE_INDEX | PPLIGHTING_VERTEX_SLS2_ADTS_SKIN_INDEX
-    )
+    index == PPLIGHTING_VERTEX_SLS2_ADTS_BASE_INDEX
 }
 
 fn is_sls2_adts_projected_shadow_vertex(index: u32) -> bool {
-    matches!(
-        index,
-        PPLIGHTING_VERTEX_SLS2_ADTS_PROJECTED_SHADOW_INDEX
-            | PPLIGHTING_VERTEX_SLS2_ADTS_PROJECTED_SHADOW_SKIN_INDEX
-    )
+    index == PPLIGHTING_VERTEX_SLS2_ADTS_PROJECTED_SHADOW_INDEX
 }
 
 fn is_sls2_adts_lights2_vertex(index: u32) -> bool {
-    matches!(
-        index,
-        PPLIGHTING_VERTEX_SLS2_ADTS_LIGHTS2_INDEX | PPLIGHTING_VERTEX_SLS2_ADTS_LIGHTS2_SKIN_INDEX
-    )
+    index == PPLIGHTING_VERTEX_SLS2_ADTS_LIGHTS2_INDEX
 }
 
 fn is_sls2_adts_lights2_projected_shadow_vertex(index: u32) -> bool {
-    matches!(
-        index,
-        PPLIGHTING_VERTEX_SLS2_ADTS_LIGHTS2_PROJECTED_SHADOW_INDEX
-            | PPLIGHTING_VERTEX_SLS2_ADTS_LIGHTS2_PROJECTED_SHADOW_SKIN_INDEX
-    )
+    index == PPLIGHTING_VERTEX_SLS2_ADTS_LIGHTS2_PROJECTED_SHADOW_INDEX
 }
 
 fn is_sls2_adts_specular_vertex(index: u32) -> bool {
-    matches!(
-        index,
-        PPLIGHTING_VERTEX_SLS2_ADTS_SPECULAR_INDEX
-            | PPLIGHTING_VERTEX_SLS2_ADTS_SPECULAR_SKIN_INDEX
-    )
+    index == PPLIGHTING_VERTEX_SLS2_ADTS_SPECULAR_INDEX
 }
 
 fn is_sls2_adts_specular_projected_shadow_vertex(index: u32) -> bool {
-    matches!(
-        index,
-        PPLIGHTING_VERTEX_SLS2_ADTS_SPECULAR_PROJECTED_SHADOW_INDEX
-            | PPLIGHTING_VERTEX_SLS2_ADTS_SPECULAR_PROJECTED_SHADOW_SKIN_INDEX
-    )
+    index == PPLIGHTING_VERTEX_SLS2_ADTS_SPECULAR_PROJECTED_SHADOW_INDEX
 }
 
 fn is_sls2_adts_specular_lights2_vertex(index: u32) -> bool {
-    matches!(
-        index,
-        PPLIGHTING_VERTEX_SLS2_ADTS_SPECULAR_LIGHTS2_INDEX
-            | PPLIGHTING_VERTEX_SLS2_ADTS_SPECULAR_LIGHTS2_SKIN_INDEX
-    )
+    index == PPLIGHTING_VERTEX_SLS2_ADTS_SPECULAR_LIGHTS2_INDEX
 }
 
 fn is_sls2_adts_specular_lights2_projected_shadow_vertex(index: u32) -> bool {
-    matches!(
-        index,
-        PPLIGHTING_VERTEX_SLS2_ADTS_SPECULAR_LIGHTS2_PROJECTED_SHADOW_INDEX
-            | PPLIGHTING_VERTEX_SLS2_ADTS_SPECULAR_LIGHTS2_PROJECTED_SHADOW_SKIN_INDEX
-    )
+    index == PPLIGHTING_VERTEX_SLS2_ADTS_SPECULAR_LIGHTS2_PROJECTED_SHADOW_INDEX
 }
 
 fn is_sls2_adts10_lights9_vertex(index: u32) -> bool {
-    matches!(
-        index,
-        PPLIGHTING_VERTEX_SLS2_ADTS10_LIGHTS9_INDEX
-            | PPLIGHTING_VERTEX_SLS2_ADTS10_LIGHTS9_SKIN_INDEX
-    )
+    index == PPLIGHTING_VERTEX_SLS2_ADTS10_LIGHTS9_INDEX
 }
 
 fn is_sls2_adts10_lights4_vertex(index: u32) -> bool {
-    matches!(
-        index,
-        PPLIGHTING_VERTEX_SLS2_ADTS10_LIGHTS4_INDEX
-            | PPLIGHTING_VERTEX_SLS2_ADTS10_LIGHTS4_SKIN_INDEX
-    )
+    index == PPLIGHTING_VERTEX_SLS2_ADTS10_LIGHTS4_INDEX
 }
 
 fn is_sls2_adts10_specular_lights4_vertex(index: u32) -> bool {
+    index == PPLIGHTING_VERTEX_SLS2_ADTS10_SPECULAR_LIGHTS4_INDEX
+}
+
+fn is_sls2_skin_vertex_index(index: u32) -> bool {
     matches!(
         index,
-        PPLIGHTING_VERTEX_SLS2_ADTS10_SPECULAR_LIGHTS4_INDEX
+        PPLIGHTING_VERTEX_SLS2_ADTS_SKIN_INDEX
+            | PPLIGHTING_VERTEX_SLS2_ADTS_PROJECTED_SHADOW_SKIN_INDEX
+            | PPLIGHTING_VERTEX_SLS2_ADTS_LIGHTS2_SKIN_INDEX
+            | PPLIGHTING_VERTEX_SLS2_ADTS_LIGHTS2_PROJECTED_SHADOW_SKIN_INDEX
+            | PPLIGHTING_VERTEX_SLS2_ADTS_SPECULAR_SKIN_INDEX
+            | PPLIGHTING_VERTEX_SLS2_ADTS_SPECULAR_PROJECTED_SHADOW_SKIN_INDEX
+            | PPLIGHTING_VERTEX_SLS2_ADTS_SPECULAR_LIGHTS2_SKIN_INDEX
+            | PPLIGHTING_VERTEX_SLS2_ADTS_SPECULAR_LIGHTS2_PROJECTED_SHADOW_SKIN_INDEX
+            | PPLIGHTING_VERTEX_SLS2_ADTS10_LIGHTS9_SKIN_INDEX
+            | PPLIGHTING_VERTEX_SLS2_ADTS10_LIGHTS4_SKIN_INDEX
             | PPLIGHTING_VERTEX_SLS2_ADTS10_SPECULAR_LIGHTS4_SKIN_INDEX
     )
 }
@@ -2548,6 +2572,9 @@ fn reset_replacement_skip_budget() {
     REPLACEMENT_SKIP_NO_DRAW_CONTEXT.store(0, Ordering::Release);
     REPLACEMENT_SKIP_UNSUPPORTED_FAMILY.store(0, Ordering::Release);
     REPLACEMENT_SKIP_UNSUPPORTED_VERTEX_ABI.store(0, Ordering::Release);
+    REPLACEMENT_SKIP_SKIN_VERTEX_ABI.store(0, Ordering::Release);
+    REPLACEMENT_SKIP_MISSING_TERRAIN_CONTRACT.store(0, Ordering::Release);
+    REPLACEMENT_SKIP_UNPROVEN_LANDLOD_SHADOW.store(0, Ordering::Release);
     REPLACEMENT_SKIP_NO_SELECTOR_RECORD.store(0, Ordering::Release);
     REPLACEMENT_SKIP_NO_NORMAL_SOURCE.store(0, Ordering::Release);
     REPLACEMENT_SKIP_NO_REPLACEMENT_SHADER.store(0, Ordering::Release);
@@ -2917,6 +2944,20 @@ fn upload_replacement_material_constants(
     let Some(device) = (unsafe { Device9Ref::from_raw_void(device_ptr) }) else {
         return;
     };
+
+    if shader_kind == ReplacementShaderKind::LandLod {
+        let terrain_data = [[
+            0.0,
+            atomic_pbr_f32(&PBR_ROUGHNESS_SCALE_BITS),
+            atomic_pbr_f32(&PBR_LIGHT_SCALE_BITS),
+            atomic_pbr_f32(&PBR_AMBIENT_SCALE_BITS),
+        ]];
+        let terrain_extra_data = [[1.0, atomic_pbr_f32(&PBR_ALBEDO_SATURATION_BITS), 1.0, 1.75]];
+        let _ = device.set_pixel_shader_constant_f(TERRAIN_DATA_REGISTER, &terrain_data);
+        let _ =
+            device.set_pixel_shader_constant_f(TERRAIN_EXTRA_DATA_REGISTER, &terrain_extra_data);
+        return;
+    }
 
     if shader_kind.writes_material_flags() {
         let flags = [[
@@ -3765,6 +3806,15 @@ fn record_replacement_skip(
         ReplacementSkipReason::UnsupportedVertexAbi => {
             REPLACEMENT_SKIP_UNSUPPORTED_VERTEX_ABI.fetch_add(1, Ordering::Relaxed);
         }
+        ReplacementSkipReason::SkinVertexAbi => {
+            REPLACEMENT_SKIP_SKIN_VERTEX_ABI.fetch_add(1, Ordering::Relaxed);
+        }
+        ReplacementSkipReason::MissingTerrainContract => {
+            REPLACEMENT_SKIP_MISSING_TERRAIN_CONTRACT.fetch_add(1, Ordering::Relaxed);
+        }
+        ReplacementSkipReason::UnprovenLandLodProjectedShadow => {
+            REPLACEMENT_SKIP_UNPROVEN_LANDLOD_SHADOW.fetch_add(1, Ordering::Relaxed);
+        }
         ReplacementSkipReason::NoSelectorRecord => {
             REPLACEMENT_SKIP_NO_SELECTOR_RECORD.fetch_add(1, Ordering::Relaxed);
         }
@@ -3808,7 +3858,11 @@ fn maybe_log_unsupported_replacement_pair(
     }
     if !matches!(
         reason,
-        ReplacementSkipReason::UnsupportedFamily | ReplacementSkipReason::UnsupportedVertexAbi
+        ReplacementSkipReason::UnsupportedFamily
+            | ReplacementSkipReason::UnsupportedVertexAbi
+            | ReplacementSkipReason::SkinVertexAbi
+            | ReplacementSkipReason::MissingTerrainContract
+            | ReplacementSkipReason::UnprovenLandLodProjectedShadow
     ) {
         return;
     }
@@ -3901,12 +3955,15 @@ fn maybe_log_replacement_skip_summary(checks: u32) {
     }
 
     log::info!(
-        "[PBR] Native PBR replacement has not applied yet: checks={} no_diffuse={} no_context={} unsupported_family={} unsupported_vertex_abi={} no_selector={} no_normal={} no_shader={} bind_failed={} no_vanilla_handle={} handle_write_failed={} last_family={} last_vgrp={} last_vidx={} last_pgrp={} last_pidx={}",
+        "[PBR] Native PBR replacement has not applied yet: checks={} no_diffuse={} no_context={} unsupported_family={} unsupported_vertex_abi={} skin_vertex_abi={} missing_terrain_contract={} unproven_landlod_shadow={} no_selector={} no_normal={} no_shader={} bind_failed={} no_vanilla_handle={} handle_write_failed={} last_family={} last_vgrp={} last_vidx={} last_pgrp={} last_pidx={}",
         checks,
         REPLACEMENT_SKIP_NO_DIFFUSE.load(Ordering::Acquire),
         REPLACEMENT_SKIP_NO_DRAW_CONTEXT.load(Ordering::Acquire),
         REPLACEMENT_SKIP_UNSUPPORTED_FAMILY.load(Ordering::Acquire),
         REPLACEMENT_SKIP_UNSUPPORTED_VERTEX_ABI.load(Ordering::Acquire),
+        REPLACEMENT_SKIP_SKIN_VERTEX_ABI.load(Ordering::Acquire),
+        REPLACEMENT_SKIP_MISSING_TERRAIN_CONTRACT.load(Ordering::Acquire),
+        REPLACEMENT_SKIP_UNPROVEN_LANDLOD_SHADOW.load(Ordering::Acquire),
         REPLACEMENT_SKIP_NO_SELECTOR_RECORD.load(Ordering::Acquire),
         REPLACEMENT_SKIP_NO_NORMAL_SOURCE.load(Ordering::Acquire),
         REPLACEMENT_SKIP_NO_REPLACEMENT_SHADER.load(Ordering::Acquire),

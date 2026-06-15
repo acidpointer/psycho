@@ -48,9 +48,12 @@ MO2_MODS_DIR="$TARGET_DIR/mods"
 # Keep the xNVSE plugin path compatible with the old psycho-nvse installer.
 NVSE_PLUGIN_DIR="$TARGET_DIR/mods/psycho_nvse/nvse/plugins"
 OMV_MOD_DIR="$MO2_MODS_DIR/omv"
-OMV_PLUGIN_DIR="$OMV_MOD_DIR/nvse/plugins"
-OMV_DATA_DIR="$OMV_MOD_DIR/omv"
+OMV_PLUGIN_DIR="$OMV_MOD_DIR/NVSE/plugins"
+OMV_DATA_DIR="$OMV_PLUGIN_DIR/omv"
 OMV_SHADER_DIR="$OMV_DATA_DIR/shaders"
+OMV_LEGACY_PLUGIN_DIR="$OMV_MOD_DIR/nvse/plugins"
+OMV_LEGACY_DATA_DIR="$OMV_MOD_DIR/omv"
+OMV_LEGACY_SHADER_DIR="$OMV_LEGACY_DATA_DIR/shaders"
 
 LOADER_PATH="$GAME_ROOT/$LOADER_DLL"
 CORE_PATH="$GAME_MODS_DIR/$CORE_DLL"
@@ -141,6 +144,24 @@ function remove_legacy_files() {
 
     remove_if_exists "$GAME_MODS_DIR/psycho.toml"
     remove_if_exists "$GAME_MODS_DIR/psycho.dll"
+
+    remove_if_exists "$OMV_LEGACY_PLUGIN_DIR/$OMV_DLL"
+    remove_if_exists "$OMV_LEGACY_DATA_DIR/$OMV_CFGNAME"
+
+    for stale_shader in "${EMBEDDED_SHADER_STALE_FILES[@]}"; do
+        remove_if_exists "$OMV_LEGACY_SHADER_DIR/$stale_shader"
+    done
+
+    if [[ -d "$OMV_SHADER_SRC_DIR" && -d "$OMV_LEGACY_SHADER_DIR" ]]; then
+        while IFS= read -r shader_path; do
+            remove_if_exists "$OMV_LEGACY_SHADER_DIR/$(basename "$shader_path")"
+        done < <(
+            find "$OMV_SHADER_SRC_DIR" \
+                -maxdepth 1 \
+                -type f \
+                \( -iname '*.hlsl' -o -iname '*.pso' -o -iname '*.cso' -o -iname '*.toml' \)
+        )
+    fi
 }
 
 build_rust

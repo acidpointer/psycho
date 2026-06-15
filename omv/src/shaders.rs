@@ -24,7 +24,7 @@ use crate::config::{
     BloomingHdrConfig, ContactAoConfig, EmbeddedEffectsConfig, FastAoConfig, SunshaftsConfig,
 };
 
-pub(crate) const SHADER_DIR: &str = "./Data/omv/shaders";
+pub(crate) const SHADER_DIR: &str = "./Data/NVSE/plugins/omv/shaders";
 const FIRST_OPTION_REGISTER: u32 = 3;
 const ENVIRONMENT_REGISTER: u32 = 6;
 const SUN_REGISTER: u32 = 8;

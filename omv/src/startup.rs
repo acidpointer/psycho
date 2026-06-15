@@ -89,6 +89,7 @@ pub(crate) fn install_deferred_hooks() -> Result<()> {
     let compatibility = crate::compat::GraphicsCompatibility::detect();
     log_compatibility_report(compatibility);
 
+    crate::effects::pbr::configure_terrain_contract(compatibility.has_vpt_terrain_contract());
     crate::effects::pbr::install(settings.native_pbr)?;
 
     if settings.screen_space_shaders

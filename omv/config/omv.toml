@@ -2,20 +2,20 @@
 # Load and apply screen-space effects.
 #
 # User shader files are loaded only from:
-#   ./Data/omv/shaders
+#   ./Data/NVSE/plugins/omv/shaders
 #
 # Supported file extensions:
 #   .pso
 #   .cso
 #   .hlsl
 #
-# Files in ./Data/omv/shaders are for user/developer shader experiments.
+# Files in ./Data/NVSE/plugins/omv/shaders are for user/developer shader experiments.
 # Each sidecar TOML can set [shader].phase and [shader].passes from 1 to 8.
 # .pso/.cso files must contain D3D9 pixel shader bytecode. .hlsl files are
 # compiled once at startup as ps_3_0 with entry point Main.
 #
 # Embedded engine-owned effects are not represented by files in
-# ./Data/omv/shaders. Their settings live in [graphics.embedded_effects].
+# ./Data/NVSE/plugins/omv/shaders. Their settings live in [graphics.embedded_effects].
 #
 # Supported shader phases:
 #   "scene_pre_image_space"
@@ -167,9 +167,10 @@ occlusion_softness = 0.42
 #   - ObjectTemplate ADTS10 object ABIs:
 #     LIGHTS=9, LIGHTS=4, LIGHTS=4 OPT, SPECULAR LIGHTS=4, and
 #     SPECULAR LIGHTS=4 OPT
-#   - experimental land LOD ABI from current OMV research:
+#   - VPT-backed land LOD ABI:
 #     vertex group C index 2 and pixel group B index 3 are replaced together;
-#     c31 remains vanilla LODTexParams and current PBR still uses c32/c33
+#     c31 remains vanilla LODTexParams, c38 is VPT LandLODSpec, and
+#     terrain tuning uses c89/c90 instead of object c32/c33
 #
 # SI/HAIR, parallax, and pure only-light helper passes remain on vanilla
 # shaders until their texture and pass contracts are implemented separately.
@@ -177,9 +178,14 @@ occlusion_softness = 0.42
 # This is a runtime shader toggle. It does not control hook installation.
 enabled = true
 
-# PBR registers:
+# Object PBR registers:
 #   c32.y roughness scale, c32.z light scale, c32.w ambient scale,
 #   c33.x albedo saturation.
+#
+# Terrain/LandLOD PBR registers:
+#   c89.y roughness scale, c89.z light scale, c89.w ambient scale,
+#   c90.x use PBR, c90.y saturation, c90.z LOD noise scale,
+#   c90.w LOD noise tile.
 roughness_scale = 0.7789999842643738
 light_scale = 1.5429999828338623
 ambient_scale = 1.9220000505447388
