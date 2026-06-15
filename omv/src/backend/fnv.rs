@@ -18,7 +18,7 @@ use parking_lot::Mutex;
 use windows::Win32::Graphics::Direct3D9::D3DSURFACE_DESC;
 use windows::core::Error as WindowsError;
 
-use super::{CameraFrame, DepthResolveSlot, EnvironmentFrame, SunFrame};
+use super::{CameraFrame, DepthResolveSlot, EnvironmentFrame, MaterialStateFrame, SunFrame};
 
 const NIDX9_RENDERER_SINGLETON_PTR: usize = 0x011C73B4;
 const NIDX9_RENDERER_DEVICE_OFFSET: usize = 0x288;
@@ -26,6 +26,7 @@ const BSSHADERMANAGER_CAMERA_PTR: usize = 0x011F917C;
 const BSSHADERMANAGER_SCENE_GRAPH_INDEX: usize = 0x011F91C4;
 const BSSHADERMANAGER_SHADOW_SCENE_NODE_ARRAY: usize = 0x011F91C8;
 const BSSHADERMANAGER_SHADOW_SCENE_NODE_COUNT: usize = 4;
+const PLAYER_CHARACTER_PTR: usize = 0x011DEA3C;
 const SKY_SINGLETON_PTR: usize = 0x011DEA20;
 const TIME_GLOBALS_BASE: usize = 0x011DE7B8;
 const TIME_GLOBALS_GAME_HOUR_OFFSET: usize = 0x0C;
@@ -71,6 +72,10 @@ const BSFOGPROPERTY_SIZE: usize = 0x64;
 const BSFOGPROPERTY_START_DISTANCE_OFFSET: usize = 0x2C;
 const BSFOGPROPERTY_END_DISTANCE_OFFSET: usize = 0x30;
 const BSFOGPROPERTY_POWER_OFFSET: usize = 0x60;
+const TESOBJECTREFR_PARENT_CELL_OFFSET: usize = 0x40;
+const TESOBJECTCELL_FLAGS0_OFFSET: usize = 0x24;
+const TESOBJECTCELL_WORLDSPACE_OFFSET: usize = 0xC0;
+const TESOBJECTCELL_FLAGS0_INTERIOR: u8 = 1 << 0;
 const MAX_DEPTH_RESOLVE_LOGS: u32 = 16;
 
 static DEPTH_RESOLVE_LOGS: AtomicU32 = AtomicU32::new(0);
@@ -133,6 +138,10 @@ pub(super) fn environment_frame() -> EnvironmentFrame {
 
 pub(super) fn sun_frame() -> SunFrame {
     unsafe { read_sun_frame().unwrap_or_default() }
+}
+
+pub(super) fn material_state_frame() -> MaterialStateFrame {
+    unsafe { read_material_state_frame().unwrap_or_default() }
 }
 
 pub(super) fn depth_texture_ptr() -> Option<*mut c_void> {
@@ -455,6 +464,40 @@ unsafe fn read_sun_frame() -> Option<SunFrame> {
     })
 }
 
+unsafe fn read_material_state_frame() -> Option<MaterialStateFrame> {
+    let sky = unsafe { read_ptr(SKY_SINGLETON_PTR) };
+    let transition_curve = sky
+        .filter(|sky| !sky.is_null())
+        .and_then(|sky| unsafe { read_transition_curve(sky) })
+        .unwrap_or(1.0);
+    let exterior = unsafe { read_player_is_exterior() };
+
+    Some(MaterialStateFrame {
+        transition_curve,
+        exterior_known: exterior.is_some(),
+        is_exterior: exterior.unwrap_or(true),
+    })
+}
+
+unsafe fn read_player_is_exterior() -> Option<bool> {
+    let player = unsafe { read_ptr(PLAYER_CHARACTER_PTR)? };
+    if player.is_null() {
+        return None;
+    }
+
+    let cell = unsafe { read_ptr(player as usize + TESOBJECTREFR_PARENT_CELL_OFFSET)? };
+    if cell.is_null() {
+        return None;
+    }
+
+    if let Some(flags) = unsafe { read_u8(cell as usize + TESOBJECTCELL_FLAGS0_OFFSET) } {
+        return Some((flags & TESOBJECTCELL_FLAGS0_INTERIOR) == 0);
+    }
+
+    let worldspace = unsafe { read_ptr(cell as usize + TESOBJECTCELL_WORLDSPACE_OFFSET)? };
+    Some(!worldspace.is_null())
+}
+
 unsafe fn read_daylight_strength(sky: *mut u8) -> Option<f32> {
     let game_hour =
         unsafe { read_sky_game_hour(sky) }.or_else(|| unsafe { read_global_game_hour() })?;
@@ -462,6 +505,15 @@ unsafe fn read_daylight_strength(sky: *mut u8) -> Option<f32> {
     let times = unsafe { read_cached_daylight_times() }
         .or_else(|| unsafe { read_climate_daylight_times(sky) })?;
     Some(times.daylight_at(game_hour))
+}
+
+unsafe fn read_transition_curve(sky: *mut u8) -> Option<f32> {
+    let game_hour =
+        unsafe { read_sky_game_hour(sky) }.or_else(|| unsafe { read_global_game_hour() })?;
+
+    let times = unsafe { read_cached_daylight_times() }
+        .or_else(|| unsafe { read_climate_daylight_times(sky) })?;
+    Some(times.transition_curve_at(game_hour))
 }
 
 unsafe fn read_sky_game_hour(sky: *mut u8) -> Option<f32> {
@@ -556,6 +608,12 @@ impl DaylightTimes {
 
         1.0 - smooth01((day_time - self.sunset_begin) / (self.sunset_end - self.sunset_begin))
     }
+
+    fn transition_curve_at(self, day_time: f32) -> f32 {
+        let sunrise = step(self.sunrise_begin - 1.0, self.sunrise_end - 1.0, day_time);
+        let sunset = step(self.sunset_end + 1.0, self.sunset_begin + 1.0, day_time);
+        smooth01(sunrise * sunset)
+    }
 }
 
 fn is_valid_day_hour(value: f32) -> bool {
@@ -565,6 +623,10 @@ fn is_valid_day_hour(value: f32) -> bool {
 fn smooth01(value: f32) -> f32 {
     let value = value.clamp(0.0, 1.0);
     value * value * (3.0 - 2.0 * value)
+}
+
+fn step(start: f32, end: f32, value: f32) -> f32 {
+    ((value - start) / (end - start)).clamp(0.0, 1.0)
 }
 
 #[derive(Clone, Copy)]

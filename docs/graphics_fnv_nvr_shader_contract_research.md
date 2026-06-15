@@ -59,7 +59,10 @@ Current native PBR surface:
 - pass shader object offsets `+0x5C` vertex and `+0x44` pixel.
 - final texture stage capture and limited rebinding.
 - explicit object-style `TESR_PBRData c32` and `TESR_PBRExtraData c33` uploads.
-- LandLOD replacement uses a custom vertex shader and currently reuses object-style `c32/c33`.
+- LandLOD base replacement uses a custom vertex shader, VPT `LandLODSpec c38`,
+  and terrain controls `TESR_TerrainData c89` / `TESR_TerrainExtraData c90`.
+- LandLOD replacement is gated on the detected VPT terrain contract. The
+  projected-shadow LandLOD pair remains disabled until separately proven.
 
 Current post-effect surface:
 
@@ -75,6 +78,51 @@ Current post-effect surface:
 
 This means selected post-effect math can be reused more easily than native NVR shader families, but only after translating it to OMV's explicit texture/register model.
 
+## 2026-06-15 Source Pass After Playtest
+
+The current playtest baseline is good: OMV works at roughly the pre-rework
+state with object/LandLOD PBR gates active and close terrain still disabled.
+Research should preserve that baseline. The next code changes should be small,
+measurable, and reversible by feature gate.
+
+Fresh TESReloaded10 and VPT source changes the port strategy in these ways:
+
+- NVR object PBR is a settings/constant problem plus a variant coverage problem.
+  `PBRShaders::UpdateConstants` blends default, rain, night, night-rain, and
+  interior settings using the WetWorld rain/puddle factor and the shader
+  manager transition curve. OMV currently uploads static config values. That is
+  acceptable for the first stable port, but final quality needs the state blend.
+- NVR terrain PBR is not a generic `TESR_*` shader-record feature. NVR registers
+  `TESR_TerrainData c89` and `TESR_TerrainExtraData c90`, but VPT still owns
+  `LandSpec`, `LandHeight`, fog, `LandLODSpec`, point-light colors/positions,
+  and point-light count through `ShadowLightShader` constant-map entries.
+- Fallout Shader Loader only replaces shader creation by loading bytecode from
+  `Data\Shaders\Loose` or the shader package. It does not create the VPT
+  terrain constants or own terrain sampler binding. For close terrain, OMV must
+  rely on VPT for pass rows/constants and must not treat FSL presence alone as a
+  terrain contract.
+- VPT owns the close-terrain performance-sensitive work: row selection,
+  light bucketing, EyePosition flags for land passes, and constant-map enable
+  toggles. OMV close-terrain replacement must key off the VPT row/pass identity
+  and active layer count. It must not repeat broad selector scans or bind 14
+  textures on land-looking draws.
+- NVR enables EyePosition for all SLS rows `88..560`. OMV currently avoids
+  object vertex shader replacement, so ordinary object PBR can continue to use
+  vanilla interpolated view directions. If OMV later replaces object vertex
+  shaders, an EyePosition flag strategy becomes mandatory.
+
+Immediate implementation consequence:
+
+1. Deliver ordinary object PBR variant coverage with cheap counters, not broad
+   telemetry as a separate goal.
+2. Treat corrected base LandLOD as a separate terrain-path feature. Keep
+   projected-shadow LandLOD vanilla until its ABI is proven.
+3. For close terrain, deliver a narrow VPT-backed sun-only exterior slice behind
+   an experimental flag. Bounded row/pass diagnostics are guard rails inside
+   that slice, not a standalone milestone.
+4. Keep terrain parallax, skin, water, sky, and NVR shadows outside the PBR
+   survival gate.
+
 ## Native Shader Family Findings
 
 ### Ordinary Object PBR
@@ -85,7 +133,10 @@ This remains the only near-term native PBR path.
 - Uses ordinary object material textures: base `s0`, normal `s1`, optional glow/shadow samplers by variant.
 - Uses object PBR controls `TESR_PBRData c32` and `TESR_PBRExtraData c33`.
 - Current risk is variant coverage, especially projected shadow, light-count, specular, and interior-visible variants.
-- The current implementation also accepts several skin vertex indices into ordinary object replacement helpers. TESReloaded10 leaves the `SKIN` collection disabled in `GetShaderCollection` because the shaders are half broken. Skin must be excluded or separately implemented before object PBR is called stable.
+- Current OMV rejects skin vertex indices before ordinary object matching. Keep
+  that as a release invariant. TESReloaded10 leaves the `SKIN` collection
+  disabled in `GetShaderCollection` because the shaders are half broken, so skin
+  remains a separate future project.
 
 Decision: keep researching/finalizing this before any broader native shader work.
 
@@ -118,14 +169,17 @@ Decision: high-pain. Do not include in the PBR survival gate.
 
 ### LandLOD
 
-LandLOD is partially reachable but not currently NVR-correct.
+LandLOD is reachable and partially corrected.
 
 - NVR/VPT LandLOD expects `LandLODSpec c38`.
 - NVR terrain include also reads `TESR_TerrainData c89` / `TESR_TerrainExtraData c90`.
-- Current LandLOD uses object-style `c32/c33`.
+- Current OMV base LandLOD uses `c38/c89/c90` and a custom vertex shader.
 - Projected-shadow LandLOD is still not proven safe to share the base replacement.
+- The remaining work is runtime visual/performance validation and a decision on
+  fade/projected-shadow coverage.
 
-Decision: medium/high. Either make LandLOD explicitly OMV-specific or implement the missing terrain-style constants; do not present current LandLOD as NVR parity.
+Decision: medium. Keep base LandLOD gated on VPT, but do not expand it to
+projected-shadow or fade until those ABIs are proven.
 
 ### Close Terrain And Terrain POM
 
@@ -214,7 +268,9 @@ PBR should survive only if this bounded target works:
 6. PAR2, skin, water, sky, shadows, refraction, and terrain POM are excluded from the survival gate.
 7. NVR hook-chain compatibility is out of scope unless the project explicitly reopens that goal.
 
-If ordinary object PBR plus corrected LandLOD cannot meet this bar, native PBR should be dropped as user-facing functionality and kept as research/instrumentation only.
+If ordinary object PBR plus corrected LandLOD cannot meet this bar, native PBR
+should be dropped as user-facing functionality. Close terrain is not required
+for the first native PBR release.
 
 ## Next Research Probes
 
@@ -229,5 +285,5 @@ Runtime:
 - unsupported pair log aggregation by location/interior/exterior;
 - shadow/light blinking attribution to object variant, LandLOD variant, close terrain row, or light-only/specular row;
 - check whether EyePosition vertex constant flags are present for rows replaced by OMV, especially before any object vertex shader replacement expansion;
-- VPT terrain row/pass capture only if we decide to implement close terrain;
+- VPT terrain row/pass counters inside the close-terrain experimental slice;
 - PAR2 pass-pair and height-map provenance only after ordinary object PBR is stable.

@@ -269,10 +269,18 @@ static REPLACEMENT_PIXEL_SHADER_DEVICES: LazyLock<[AtomicUsize; REPLACEMENT_SHAD
     LazyLock::new(|| array::from_fn(|_| AtomicUsize::new(0)));
 static REPLACEMENT_LANDLOD_VERTEX_SHADER_HANDLE: AtomicUsize = AtomicUsize::new(0);
 static REPLACEMENT_LANDLOD_VERTEX_SHADER_DEVICE: AtomicUsize = AtomicUsize::new(0);
+static PBR_METALLICNESS_BITS: AtomicU32 = AtomicU32::new(0.0f32.to_bits());
 static PBR_ROUGHNESS_SCALE_BITS: AtomicU32 = AtomicU32::new(1.0f32.to_bits());
 static PBR_LIGHT_SCALE_BITS: AtomicU32 = AtomicU32::new(1.0f32.to_bits());
 static PBR_AMBIENT_SCALE_BITS: AtomicU32 = AtomicU32::new(1.0f32.to_bits());
 static PBR_ALBEDO_SATURATION_BITS: AtomicU32 = AtomicU32::new(1.0f32.to_bits());
+static PBR_OBJECT_PROFILE_BITS: LazyLock<
+    [[AtomicU32; PBR_PROFILE_VALUE_COUNT]; PBR_PROFILE_COUNT],
+> = LazyLock::new(|| array::from_fn(|_| array::from_fn(|_| AtomicU32::new(0))));
+static PBR_STATE_REFRESH_TICK: AtomicU32 = AtomicU32::new(0);
+static PBR_STATE_TRANSITION_CURVE_BITS: AtomicU32 = AtomicU32::new(1.0f32.to_bits());
+static PBR_STATE_EXTERIOR_KNOWN: AtomicBool = AtomicBool::new(false);
+static PBR_STATE_IS_EXTERIOR: AtomicBool = AtomicBool::new(true);
 static TERRAIN_CONTRACT_AVAILABLE: AtomicBool = AtomicBool::new(false);
 
 static TEXTURE_CAPTURE: LazyLock<TextureCapture> = LazyLock::new(TextureCapture::new);
@@ -298,15 +306,44 @@ const PBR_REPLACEMENT_LANDLOD_PIXEL_SHADER: &[u8] =
 const PBR_REPLACEMENT_LANDLOD_VERTEX_SHADER: &[u8] =
     include_bytes!("../../shaders/embedded/native_pbr_pplighting_landlod.vs.hlsl");
 const REQUIRE_VANILLA_PROLOGUES: bool = true;
+const PBR_PROFILE_DEFAULT: usize = 0;
+const PBR_PROFILE_RAIN: usize = 1;
+const PBR_PROFILE_NIGHT: usize = 2;
+const PBR_PROFILE_NIGHT_RAIN: usize = 3;
+const PBR_PROFILE_INTERIOR: usize = 4;
+const PBR_PROFILE_COUNT: usize = 5;
+const PBR_PROFILE_METALLICNESS: usize = 0;
+const PBR_PROFILE_ROUGHNESS_SCALE: usize = 1;
+const PBR_PROFILE_LIGHT_SCALE: usize = 2;
+const PBR_PROFILE_AMBIENT_SCALE: usize = 3;
+const PBR_PROFILE_ALBEDO_SATURATION: usize = 4;
+const PBR_PROFILE_VALUE_COUNT: usize = 5;
+const PBR_STATE_REFRESH_INTERVAL: u32 = 256;
 
 #[derive(Clone, Copy, Debug)]
 pub(crate) struct NativePbrSettings {
-    pub(crate) enabled: bool,
-    pub(crate) debug_log_draws: bool,
-    pub(crate) roughness_scale: f32,
-    pub(crate) light_scale: f32,
-    pub(crate) ambient_scale: f32,
-    pub(crate) albedo_saturation: f32,
+    enabled: bool,
+    debug_log_draws: bool,
+    terrain_lod: PbrProfileSettings,
+    object: NativePbrObjectProfiles,
+}
+
+#[derive(Clone, Copy, Debug)]
+struct NativePbrObjectProfiles {
+    default: PbrProfileSettings,
+    rain: PbrProfileSettings,
+    night: PbrProfileSettings,
+    night_rain: PbrProfileSettings,
+    interior: PbrProfileSettings,
+}
+
+#[derive(Clone, Copy, Debug)]
+struct PbrProfileSettings {
+    metallicness: f32,
+    roughness_scale: f32,
+    light_scale: f32,
+    ambient_scale: f32,
+    albedo_saturation: f32,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -404,6 +441,29 @@ impl Default for NativePbrSettings {
         Self {
             enabled: false,
             debug_log_draws: false,
+            terrain_lod: PbrProfileSettings::default(),
+            object: NativePbrObjectProfiles::default(),
+        }
+    }
+}
+
+impl Default for NativePbrObjectProfiles {
+    fn default() -> Self {
+        let default = PbrProfileSettings::default();
+        Self {
+            default,
+            rain: default,
+            night: default,
+            night_rain: default,
+            interior: default,
+        }
+    }
+}
+
+impl Default for PbrProfileSettings {
+    fn default() -> Self {
+        Self {
+            metallicness: 0.0,
             roughness_scale: 1.0,
             light_scale: 1.0,
             ambient_scale: 1.0,
@@ -414,13 +474,41 @@ impl Default for NativePbrSettings {
 
 impl From<crate::config::NativePbrConfig> for NativePbrSettings {
     fn from(value: crate::config::NativePbrConfig) -> Self {
-        Self {
-            enabled: value.enabled,
-            debug_log_draws: value.debug_log_draws,
+        let legacy = PbrProfileSettings {
+            metallicness: value.metallicness,
             roughness_scale: value.roughness_scale,
             light_scale: value.light_scale,
             ambient_scale: value.ambient_scale,
             albedo_saturation: value.albedo_saturation,
+        };
+        Self {
+            enabled: value.enabled,
+            debug_log_draws: value.debug_log_draws,
+            terrain_lod: legacy,
+            object: NativePbrObjectProfiles {
+                default: PbrProfileSettings::from_config(value.object_default, legacy),
+                rain: PbrProfileSettings::from_config(value.object_rain, legacy),
+                night: PbrProfileSettings::from_config(value.object_night, legacy),
+                night_rain: PbrProfileSettings::from_config(value.object_night_rain, legacy),
+                interior: PbrProfileSettings::from_config(value.object_interior, legacy),
+            },
+        }
+    }
+}
+
+impl PbrProfileSettings {
+    fn from_config(
+        value: crate::config::NativePbrProfileConfig,
+        fallback: PbrProfileSettings,
+    ) -> Self {
+        Self {
+            metallicness: value.metallicness.unwrap_or(fallback.metallicness),
+            roughness_scale: value.roughness_scale.unwrap_or(fallback.roughness_scale),
+            light_scale: value.light_scale.unwrap_or(fallback.light_scale),
+            ambient_scale: value.ambient_scale.unwrap_or(fallback.ambient_scale),
+            albedo_saturation: value
+                .albedo_saturation
+                .unwrap_or(fallback.albedo_saturation),
         }
     }
 }
@@ -1550,22 +1638,28 @@ pub(crate) fn configure_terrain_contract(available: bool) {
 pub(crate) fn configure_runtime_options(settings: NativePbrSettings) {
     let installed = INSTALLED.load(Ordering::Acquire);
     HOOKS_ACTIVE.store(installed, Ordering::Release);
+    store_object_pbr_profiles(settings.object);
+    PBR_METALLICNESS_BITS.store(
+        sanitize_pbr_scale(settings.terrain_lod.metallicness, 0.0, 0.0, 1.0).to_bits(),
+        Ordering::Release,
+    );
     PBR_ROUGHNESS_SCALE_BITS.store(
-        sanitize_pbr_scale(settings.roughness_scale, 1.0, 0.05, 4.0).to_bits(),
+        sanitize_pbr_scale(settings.terrain_lod.roughness_scale, 1.0, 0.05, 4.0).to_bits(),
         Ordering::Release,
     );
     PBR_LIGHT_SCALE_BITS.store(
-        sanitize_pbr_scale(settings.light_scale, 1.0, 0.0, 4.0).to_bits(),
+        sanitize_pbr_scale(settings.terrain_lod.light_scale, 1.0, 0.0, 4.0).to_bits(),
         Ordering::Release,
     );
     PBR_AMBIENT_SCALE_BITS.store(
-        sanitize_pbr_scale(settings.ambient_scale, 1.0, 0.0, 4.0).to_bits(),
+        sanitize_pbr_scale(settings.terrain_lod.ambient_scale, 1.0, 0.0, 4.0).to_bits(),
         Ordering::Release,
     );
     PBR_ALBEDO_SATURATION_BITS.store(
-        sanitize_pbr_scale(settings.albedo_saturation, 1.0, 0.0, 2.0).to_bits(),
+        sanitize_pbr_scale(settings.terrain_lod.albedo_saturation, 1.0, 0.0, 2.0).to_bits(),
         Ordering::Release,
     );
+    PBR_STATE_REFRESH_TICK.store(0, Ordering::Release);
 
     let debug_was_enabled = DEBUG_LOG_DRAWS.swap(settings.debug_log_draws, Ordering::AcqRel);
     let material_was_enabled = MATERIAL_SHADER_ENABLED.swap(settings.enabled, Ordering::AcqRel);
@@ -1575,6 +1669,28 @@ pub(crate) fn configure_runtime_options(settings: NativePbrSettings) {
     }
     if settings.enabled && !material_was_enabled {
         reset_replacement_skip_budget();
+    }
+}
+
+fn store_object_pbr_profiles(profiles: NativePbrObjectProfiles) {
+    store_object_pbr_profile(PBR_PROFILE_DEFAULT, profiles.default);
+    store_object_pbr_profile(PBR_PROFILE_RAIN, profiles.rain);
+    store_object_pbr_profile(PBR_PROFILE_NIGHT, profiles.night);
+    store_object_pbr_profile(PBR_PROFILE_NIGHT_RAIN, profiles.night_rain);
+    store_object_pbr_profile(PBR_PROFILE_INTERIOR, profiles.interior);
+}
+
+fn store_object_pbr_profile(index: usize, profile: PbrProfileSettings) {
+    let values = [
+        sanitize_pbr_scale(profile.metallicness, 0.0, 0.0, 1.0),
+        sanitize_pbr_scale(profile.roughness_scale, 1.0, 0.05, 4.0),
+        sanitize_pbr_scale(profile.light_scale, 1.0, 0.0, 4.0),
+        sanitize_pbr_scale(profile.ambient_scale, 1.0, 0.0, 4.0),
+        sanitize_pbr_scale(profile.albedo_saturation, 1.0, 0.0, 2.0),
+    ];
+
+    for (slot, value) in PBR_OBJECT_PROFILE_BITS[index].iter().zip(values) {
+        slot.store(value.to_bits(), Ordering::Release);
     }
 }
 
@@ -2947,7 +3063,7 @@ fn upload_replacement_material_constants(
 
     if shader_kind == ReplacementShaderKind::LandLod {
         let terrain_data = [[
-            0.0,
+            atomic_pbr_f32(&PBR_METALLICNESS_BITS),
             atomic_pbr_f32(&PBR_ROUGHNESS_SCALE_BITS),
             atomic_pbr_f32(&PBR_LIGHT_SCALE_BITS),
             atomic_pbr_f32(&PBR_AMBIENT_SCALE_BITS),
@@ -2969,15 +3085,86 @@ fn upload_replacement_material_constants(
         let _ = device.set_pixel_shader_constant_f(PBR_MATERIAL_FLAGS_REGISTER, &flags);
     }
 
+    let profile = current_object_pbr_profile();
     let pbr_data = [[
-        0.0,
-        atomic_pbr_f32(&PBR_ROUGHNESS_SCALE_BITS),
-        atomic_pbr_f32(&PBR_LIGHT_SCALE_BITS),
-        atomic_pbr_f32(&PBR_AMBIENT_SCALE_BITS),
+        profile.metallicness,
+        profile.roughness_scale,
+        profile.light_scale,
+        profile.ambient_scale,
     ]];
-    let pbr_extra_data = [[atomic_pbr_f32(&PBR_ALBEDO_SATURATION_BITS), 0.0, 0.0, 0.0]];
+    let pbr_extra_data = [[profile.albedo_saturation, 0.0, 0.0, 0.0]];
     let _ = device.set_pixel_shader_constant_f(PBR_DATA_REGISTER, &pbr_data);
     let _ = device.set_pixel_shader_constant_f(PBR_EXTRA_DATA_REGISTER, &pbr_extra_data);
+}
+
+fn current_object_pbr_profile() -> PbrProfileSettings {
+    let state = cached_material_state_frame();
+    if state.exterior_known && !state.is_exterior {
+        return load_object_pbr_profile(PBR_PROFILE_INTERIOR);
+    }
+
+    let transition = state.transition_curve.clamp(0.0, 1.0);
+    let dry = lerp_pbr_profile(
+        load_object_pbr_profile(PBR_PROFILE_NIGHT),
+        load_object_pbr_profile(PBR_PROFILE_DEFAULT),
+        transition,
+    );
+    let wet = lerp_pbr_profile(
+        load_object_pbr_profile(PBR_PROFILE_NIGHT_RAIN),
+        load_object_pbr_profile(PBR_PROFILE_RAIN),
+        transition,
+    );
+
+    // Rain/wet profiles are part of the NVR object PBR contract, but OMV does
+    // not yet own a proven WetWorld-equivalent runtime signal.
+    let rain_factor = 0.0;
+    lerp_pbr_profile(dry, wet, rain_factor)
+}
+
+fn cached_material_state_frame() -> crate::backend::MaterialStateFrame {
+    let refresh_tick = PBR_STATE_REFRESH_TICK.fetch_add(1, Ordering::Relaxed);
+    if refresh_tick % PBR_STATE_REFRESH_INTERVAL == 0 {
+        let state = crate::backend::material_state_frame();
+        PBR_STATE_TRANSITION_CURVE_BITS.store(state.transition_curve.to_bits(), Ordering::Release);
+        PBR_STATE_EXTERIOR_KNOWN.store(state.exterior_known, Ordering::Release);
+        PBR_STATE_IS_EXTERIOR.store(state.is_exterior, Ordering::Release);
+        return state;
+    }
+
+    crate::backend::MaterialStateFrame {
+        transition_curve: f32::from_bits(PBR_STATE_TRANSITION_CURVE_BITS.load(Ordering::Acquire)),
+        exterior_known: PBR_STATE_EXTERIOR_KNOWN.load(Ordering::Acquire),
+        is_exterior: PBR_STATE_IS_EXTERIOR.load(Ordering::Acquire),
+    }
+}
+
+fn load_object_pbr_profile(index: usize) -> PbrProfileSettings {
+    let profile = &PBR_OBJECT_PROFILE_BITS[index];
+    PbrProfileSettings {
+        metallicness: f32::from_bits(profile[PBR_PROFILE_METALLICNESS].load(Ordering::Acquire)),
+        roughness_scale: f32::from_bits(
+            profile[PBR_PROFILE_ROUGHNESS_SCALE].load(Ordering::Acquire),
+        ),
+        light_scale: f32::from_bits(profile[PBR_PROFILE_LIGHT_SCALE].load(Ordering::Acquire)),
+        ambient_scale: f32::from_bits(profile[PBR_PROFILE_AMBIENT_SCALE].load(Ordering::Acquire)),
+        albedo_saturation: f32::from_bits(
+            profile[PBR_PROFILE_ALBEDO_SATURATION].load(Ordering::Acquire),
+        ),
+    }
+}
+
+fn lerp_pbr_profile(a: PbrProfileSettings, b: PbrProfileSettings, t: f32) -> PbrProfileSettings {
+    PbrProfileSettings {
+        metallicness: lerp_f32(a.metallicness, b.metallicness, t),
+        roughness_scale: lerp_f32(a.roughness_scale, b.roughness_scale, t),
+        light_scale: lerp_f32(a.light_scale, b.light_scale, t),
+        ambient_scale: lerp_f32(a.ambient_scale, b.ambient_scale, t),
+        albedo_saturation: lerp_f32(a.albedo_saturation, b.albedo_saturation, t),
+    }
+}
+
+fn lerp_f32(a: f32, b: f32, t: f32) -> f32 {
+    a + (b - a) * t
 }
 
 fn atomic_pbr_f32(value: &AtomicU32) -> f32 {

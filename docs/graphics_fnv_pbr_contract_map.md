@@ -75,7 +75,10 @@ TESReloaded10 is the strongest current NVR reference. The source shows these con
 
 Current OMV-specific correction:
 
-- `pbr.rs` accepts several `*_SKIN_INDEX` vertex variants and maps them into ordinary object replacement kinds. TESReloaded10 explicitly does not route `SKIN` through its skin collection. Skin should be excluded from the object PBR survival gate until separately proven.
+- `pbr.rs` now rejects `*_SKIN_INDEX` vertex variants before ordinary object
+  matching. TESReloaded10 explicitly does not route `SKIN` through its skin
+  collection, so this exclusion is a release invariant until a separate skin
+  contract is proven.
 
 ## Current Implementation State
 
@@ -457,7 +460,7 @@ Conclusion:
 
 Lighting/shadow bugs are expected if pass variants are collapsed. Each variant needs its own proven resources, constants, samplers, and fallback behavior.
 
-### 4. LandLOD PBR Is Only Partially Matched
+### 4. LandLOD PBR Is Corrected But Still Partial
 
 Observed problem:
 
@@ -469,16 +472,17 @@ Contract mapping:
 - NVR terrain include reads `TESR_TerrainData c89` and `TESR_TerrainExtraData c90`.
 - Terrain fade uses a separate `TerrainFadeTemplate.hlsl` and `LandLODSpec c38`.
 
-Current mismatch:
+Current state:
 
-- Current LandLOD uses `c32/c33` for PBR tuning.
-- Current LandLOD ignores `c38`.
+- Base LandLOD now uses `c38/c89/c90`.
 - OMV does not implement terrain fade pass `560`.
 - LandLOD projected shadow is not proven as safe to share the base LandLOD replacement.
 
 Conclusion:
 
-LandLOD should be treated as implemented-but-incomplete. It is not a valid template for close terrain.
+LandLOD should be treated as implemented-but-incomplete. It is not a valid
+template for close terrain, and projected-shadow/fade must remain separate
+contracts.
 
 ### 5. Object PBR Coverage Is Not Full NVR Coverage
 
@@ -494,7 +498,8 @@ Contract mapping:
 Current mismatch:
 
 - SI/HAIR/parallax/helper/light-only variants are excluded.
-- Skin variants are not actually excluded today; the matcher accepts `*_SKIN_INDEX` vertex variants for several object kinds. This should be fixed before calling object PBR stable.
+- Skin variants are now excluded before ordinary object matching. Keep this as a
+  release invariant.
 - PAR2/parallax is not a missing PPLighting index; it is a separate `ParallaxShader` array contract.
 - If a visible interior or exterior object uses an unsupported variant, it will not receive OMV PBR.
 

@@ -101,12 +101,12 @@ OMV/NVR terrain constants still need OMV-side ownership if OMV supplies the shad
 
 ### LandLOD
 
-Current OMV LandLOD is not NVR/VPT-correct because it uses object-style `c32/c33`. The correct path is:
+Current OMV base LandLOD now follows the NVR/VPT terrain register split:
 
 - use VPT `LandLODSpec c38`;
 - use terrain controls `c89/c90` for NVR-style terrain tuning;
 - split base LandLOD from projected-shadow/fade if runtime proof shows different ABI;
-- do not call current LandLOD final until the register conflict is removed.
+- keep projected-shadow/fade disabled until their ABI is proven.
 
 ### PAR/POM
 

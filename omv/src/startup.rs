@@ -34,14 +34,7 @@ pub(crate) fn initialize_for_nvse() -> Result<()> {
     );
 
     let menu_config = crate::config::GraphicsMenuConfig::from(cfg);
-    let native_pbr = crate::effects::pbr::NativePbrSettings {
-        enabled: cfg.graphics.native_pbr.enabled,
-        debug_log_draws: cfg.graphics.native_pbr.debug_log_draws,
-        roughness_scale: cfg.graphics.native_pbr.roughness_scale,
-        light_scale: cfg.graphics.native_pbr.light_scale,
-        ambient_scale: cfg.graphics.native_pbr.ambient_scale,
-        albedo_saturation: cfg.graphics.native_pbr.albedo_saturation,
-    };
+    let native_pbr = cfg.graphics.native_pbr.into();
 
     if !cfg.graphics.screen_space_shaders {
         log::info!("[SHADERS] Screen-space shader rendering disabled by config");

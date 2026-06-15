@@ -1881,6 +1881,14 @@ fn draw_native_pbr_config(
         ui.separator();
         changed |= draw_float_slider(
             ui,
+            "Metallicness",
+            "native_pbr.metallicness",
+            &mut config.metallicness,
+            0.0,
+            1.0,
+        );
+        changed |= draw_float_slider(
+            ui,
             "Roughness scale",
             "native_pbr.roughness_scale",
             &mut config.roughness_scale,

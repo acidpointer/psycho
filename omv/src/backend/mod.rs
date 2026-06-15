@@ -38,6 +38,10 @@ pub(crate) fn sun_frame(depth_provider: DepthProvider) -> SunFrame {
     }
 }
 
+pub(crate) fn material_state_frame() -> MaterialStateFrame {
+    fnv::material_state_frame()
+}
+
 pub(crate) fn depth_texture_ptr(depth_provider: DepthProvider) -> Option<*mut c_void> {
     match depth_provider {
         DepthProvider::None => None,
@@ -256,6 +260,23 @@ pub(crate) struct SunFrame {
 impl SunFrame {
     pub(crate) fn available_f32(self) -> f32 {
         if self.available { 1.0 } else { 0.0 }
+    }
+}
+
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct MaterialStateFrame {
+    pub(crate) transition_curve: f32,
+    pub(crate) exterior_known: bool,
+    pub(crate) is_exterior: bool,
+}
+
+impl Default for MaterialStateFrame {
+    fn default() -> Self {
+        Self {
+            transition_curve: 1.0,
+            exterior_known: false,
+            is_exterior: true,
+        }
     }
 }
 

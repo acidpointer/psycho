@@ -6,14 +6,40 @@ NVR is reference material only. OMV will not patch NVR, depend on NVR, or spend 
 
 ## Decision
 
-The port is viable, but only as a staged contract port:
+The port is viable as a delivery-first contract port:
 
-1. Make ordinary object PBR match the NVR object shader contract.
-2. Fix LandLOD so it uses the NVR/VPT terrain register contract, not object PBR registers.
-3. Add VPT-backed close terrain PBR using VPT pass rows and constant maps.
+1. Ship ordinary object PBR against the NVR object shader contract.
+2. Ship base LandLOD PBR against the NVR/VPT terrain register contract.
+3. Add VPT-backed close terrain PBR as a narrow exterior sun-only slice using VPT pass rows and constant maps.
 4. Leave terrain parallax, skin, only-light/specular-only rows, water, sky, and NVR shadows out of the first shippable PBR target.
 
 Do not try another broad close-terrain shader swap. That already failed, cost about `-40 FPS`, and caused terrain/interior/light corruption because the engine-side contract was incomplete.
+
+## 2026-06-15 Delivery Plan Change
+
+Telemetry is not the product. It stays as bounded diagnostics that make each
+feature slice debuggable without turning terrain into a logging benchmark.
+
+The current delivery target is:
+
+1. Ship ordinary object PBR as the first visible feature.
+2. Ship base LandLOD PBR as the first terrain/LOD feature.
+3. Deliver close terrain only as a VPT-backed exterior sun-only slice behind an
+   experimental flag.
+4. Expand to terrain fade and terrain point lights after base terrain is
+   visually correct and performance-stable.
+5. Keep parallax, skin, water, sky, NVR shadows, and broad shader-family
+   replacement out of this delivery cycle.
+
+Quality and performance rules:
+
+- Unsupported variants must stay vanilla; do not block the whole feature on
+  skin, PAR/POM, point-light terrain, or projected-shadow terrain.
+- A feature cannot ship if it corrupts interiors, uses wrong row identity,
+  aliases object and terrain registers, or causes a broad FPS regression.
+- Do not add unbounded terrain logs, per-draw broad selector scans,
+  active-layer fallback to layer 0, or seven-layer sampling when `TEX_COUNT` is
+  smaller.
 
 ## Sources Used
 
@@ -69,14 +95,11 @@ NVR close terrain requires:
 
 The old close-terrain attempts failed because they treated land-looking shader pairs as terrain identity. That is not enough. Ghidra proves land-like slots can belong to helper rows, projected-shadow rows, point-light rows, SI, LandO, landlo-fog, fade, and interior/static paths.
 
-### 2. LandLOD Uses The Wrong Registers
+### 2. LandLOD Register Ownership Is Corrected, But Not Finished
 
-Current OMV LandLOD shader uses object-style:
-
-- `TESR_PBRData c32`
-- `TESR_PBRExtraData c33`
-
-NVR/VPT LandLOD expects:
+Previous OMV LandLOD used object-style `c32/c33`, which conflicted with terrain
+`LandSpec`. Current OMV base LandLOD has been moved to the NVR/VPT terrain-style
+contract:
 
 - `LODTexParams c31`
 - `LandLODSpec c38`
@@ -84,16 +107,23 @@ NVR/VPT LandLOD expects:
 - `TESR_TerrainExtraData c90`
 - samplers `s0`, `s1`, `s4`, `s6`, `s7`
 
-This is a real ABI conflict. `c32/c33` are object PBR registers for object shaders, but terrain uses `c32/c33` for `LandSpec`. LandLOD must be moved to terrain-style constants before it can be called a real NVR-derived PBR port.
+Remaining LandLOD work:
 
-### 3. Object PBR Is Close But Too Broad
+- validate base LandLOD quality/performance in exterior playtests;
+- keep projected-shadow LandLOD disabled until its ABI is proven;
+- keep terrain fade row `560` as a separate feature, not as base LandLOD.
+
+### 3. Object PBR Is Close But Still Needs Variant Accounting
 
 Current OMV object replacement already targets PPLighting family C/B variants and uploads object PBR registers:
 
 - `TESR_PBRData c32`
 - `TESR_PBRExtraData c33`
 
-This matches NVR object PBR, but the matcher currently accepts several skin vertex indices as ordinary object variants. TESReloaded10 leaves the skin collection route disabled because those shaders are half broken. OMV must exclude skin from ordinary object PBR until a true skin shader contract exists.
+This matches NVR object PBR. Current OMV rejects skin vertex indices before
+ordinary object matching; keep that invariant. TESReloaded10 leaves the skin
+collection route disabled because those shaders are half broken, so skin remains
+out of the first shippable target.
 
 Object projected-shadow and high-light variants also need a stricter survival gate. They can remain candidates, but the logs must prove which variant is active before blaming broader shadow bugs on terrain or lighting.
 
@@ -178,7 +208,7 @@ OMV should not duplicate VPT terrain hooks. If VPT is missing, close terrain/fad
 
 ## Shader Families To Implement
 
-### Phase 1: Object PBR
+### Phase 1: Object PBR Delivery
 
 Port NVR `ObjectTemplate.hlsl` and `Includes/PBR.hlsl` into OMV's embedded shader layout.
 
@@ -212,22 +242,31 @@ Exclude for now:
 
 Required code changes:
 
-- Remove all `*_SKIN_INDEX` acceptance from ordinary object matcher helpers.
-- Split object variant metadata from the current single `ReplacementShaderKind` table into a table that records shader family, vertex group/index, pixel group/index, defines, and risk tier.
+- Keep all `*_SKIN_INDEX` routes rejected from ordinary object matcher helpers.
+- Split object variant metadata from the current single `ReplacementShaderKind`
+  table into a table that records shader family, vertex group/index, pixel
+  group/index, defines, and risk tier.
 - Keep object PBR constants at `c32/c33`.
-- Add replacement counters per object variant.
+- Add NVR-style state-blended PBR settings for default, rain, night,
+  night-rain, and interior states. Static config values can remain the first
+  implementation, but the config layout should not block the NVR blend.
+- Add cheap replacement counters per object variant.
 - Add skip counters for skin, SI/hair, light-only/specular-only, unknown object, and unsupported family.
 
 Acceptance:
 
 - Object PBR applies in exterior and interior ordinary material draws.
 - No skin faces/body meshes are routed through ordinary object PBR.
-- Projected-shadow object variants either work with logs or are excluded explicitly.
+- Projected-shadow object variants either work with bounded counters/logs or are
+  excluded explicitly.
 - No close terrain or LandLOD path consumes object `c32/c33`.
+- No broad performance regression in ordinary object-heavy exterior or interior
+  views.
 
-### Phase 2: LandLOD PBR Cleanup
+### Phase 2: Base LandLOD PBR Delivery
 
-Replace the current OMV LandLOD shader with an NVR/VPT-derived LandLOD shader.
+Current OMV base LandLOD already uses the corrected terrain register contract.
+This phase delivers that path as a tuned feature instead of rewriting it again.
 
 Implement:
 
@@ -241,22 +280,30 @@ Implement:
 
 Required code changes:
 
-- Add terrain constant upload path alongside object constant upload.
-- Replace `native_pbr_pplighting_landlod.hlsl` register usage.
-- Rename LandLOD replacement kind to a terrain kind, not object material PBR.
+- Keep terrain constant upload separate from object constant upload.
+- Keep `native_pbr_pplighting_landlod.hlsl` on `c38/c89/c90`.
+- Rename or document LandLOD replacement kind as a terrain kind, not object
+  material PBR.
 - Stop mapping projected-shadow LandLOD to base LandLOD without proof.
-- Use VPT dependency report to mark LandLOD terrain-contract confidence. If VPT is missing, either disable LandLOD PBR or run a clearly named OMV-specific fallback that does not claim NVR parity.
+- Use VPT dependency report to mark LandLOD terrain-contract confidence. If VPT
+  is missing, either disable LandLOD PBR or run a clearly named OMV-specific
+  fallback that does not claim NVR parity.
+- Tune exposed terrain controls for far terrain lighting response without
+  changing close terrain behavior.
 
 Acceptance:
 
 - No LandLOD shader reads object `c32/c33`.
 - LandLOD uses `c38/c89/c90`.
 - Far terrain does not blink between object-style and terrain-style lighting.
+- Projected-shadow LandLOD and fade remain separate vanilla paths until proven.
 - Missing VPT/FSL/LODFF is logged with the exact disabled feature.
 
 ### Phase 3: VPT-Backed Close Terrain Base PBR
 
-Implement only after phases 1 and 2 are stable.
+Start after object PBR and base LandLOD are build-clean and playtest-ok. Do not
+wait on broad telemetry work, but keep the first close-terrain slice narrow and
+experimental.
 
 Use VPT pass formula:
 
@@ -281,31 +328,30 @@ fade row:
 Shader variants:
 
 - `TEX_COUNT=1..7`
-- no point lights
-- point-light buckets `6`, `12`, `24`
+- no point lights in the first slice
+- point-light buckets `6`, `12`, `24` only in the point-light phase
 - canopy/projected-shadow rows only after base rows are proven
 
 Initial close terrain target:
 
 - exterior only
 - sun-only base rows first
+- VPT/FSL/LODFF present
+- `TEX_COUNT=1..7` specialization
 - no parallax
 - no fade
 - no point lights
 - no projected-shadow rows
+- hard experimental config flag until playtest passes
 
 Required code changes:
 
 - Add a terrain replacement classifier that uses VPT pass row identity, not just shader pair identity.
-- Capture pass-entry fields from selector `+0x3C`:
-  - row at entry `+0x04`
-  - selector flag at `+0x07`
-  - runtime mutation flag at `+0x08`
-  - arg count at `+0x09`
-  - layer byte at `+0x0B`
-  - arg table at `+0x0C`
-- Capture active layer count from the row formula or proven selector state.
-- Bind only active diffuse/normal layers.
+- Keep bounded pass-entry diagnostics for selector `+0x3C` as guard rails, not
+  as a separate pre-feature milestone.
+- Derive active layer count from the VPT row formula or proven selector state.
+- Bind only active diffuse/normal layers, or leave dependency-owned stages
+  untouched if runtime evidence proves they are already correct at the OMV hook.
 - Do not fallback active missing layers to layer 0.
 - Cache resolved terrain resources by a proven selector/material/pass key.
 - Compile terrain shaders per `TEX_COUNT`; do not sample all seven layers for every draw.
@@ -318,6 +364,7 @@ Acceptance:
 - Base exterior terrain color matches vanilla material identity and only changes lighting response.
 - No `-40 FPS` class regression in the known exterior repro.
 - No active-layer fallback to wrong textures.
+- If this phase fails, object PBR and base LandLOD remain shippable.
 
 ### Phase 4: Terrain Fade
 
@@ -417,9 +464,10 @@ Feature decisions:
 
 Fallout Shader Loader version `>= 131` is required by VPT source. If OMV can query FSL version safely, log it. If not, document that OMV relies on VPT's own version check.
 
-## Instrumentation Required Before Enabling Terrain
+## Bounded Diagnostics Required During Delivery
 
-Add bounded logs with stable counters:
+Diagnostics are guard rails, not a blocking milestone. Add bounded logs with
+stable counters:
 
 - object variant apply counts;
 - terrain dependency status;
@@ -437,15 +485,18 @@ Add bounded logs with stable counters:
   - unproven vertex ABI;
   - constant upload unavailable;
 - terrain shader compile errors by `TEX_COUNT` and light bucket;
-- one-time debug dump of pass-entry fields for terrain candidates.
+- one-time debug dump of pass-entry fields for terrain candidates when an
+  explicit debug config is enabled.
 
 Do not log every terrain draw unbounded. Terrain is too hot.
 
 ## Ghidra And Runtime Research Still Needed
 
-No new Ghidra script is needed before starting phases 1 and 2.
+No new Ghidra script is needed before the delivery slices above. TESReloaded10,
+VPT, and existing Ghidra output are enough to start object PBR, base LandLOD,
+and the narrow VPT-backed sun-only close-terrain slice.
 
-Before phase 3, use runtime logs to close what static Ghidra did not:
+Use runtime logs during phase 3 to validate what static Ghidra did not:
 
 - exact current pass-entry row for VPT close terrain draws;
 - exact active-layer count at draw time;
@@ -454,32 +505,42 @@ Before phase 3, use runtime logs to close what static Ghidra did not:
 
 If runtime logs contradict VPT source, prepare a focused Ghidra script for that one gap. Do not guess.
 
-## Implementation Order
+## Delivery Order
 
-1. Refactor PBR variant metadata into object and terrain tables.
-2. Remove skin from ordinary object matcher.
-3. Port NVR object BRDF/ObjectTemplate subset into OMV object shader.
-4. Add object variant counters and skip counters.
-5. Add terrain constant upload for `c89/c90`, with `c91/c92` disabled.
-6. Rewrite LandLOD shader to use `c38/c89/c90`.
-7. Split or disable projected-shadow LandLOD until proven.
-8. Add VPT/FSL/LODFF feature gate messages to runtime status/UI/logs.
-9. Add close terrain row/pass-entry capture without replacement.
-10. Enable sun-only close terrain `TEX_COUNT=1..7` replacement behind an experimental flag.
-11. Add terrain fade row `560`.
-12. Add point-light terrain buckets.
-13. Add terrain parallax as a separate disabled-by-default feature.
+1. Object PBR delivery:
+   - keep skin rejected from ordinary object matcher;
+   - keep supported ADTS/ADTS10 material variants only;
+   - port the useful NVR object BRDF/template subset;
+   - add NVR-style state-blended settings/config;
+   - add cheap variant counters and skip counters;
+   - playtest exterior and interior ordinary materials.
+2. Base LandLOD delivery:
+   - keep base LandLOD on `c38/c89/c90`;
+   - keep projected-shadow LandLOD and fade vanilla;
+   - tune/validate far terrain quality and performance;
+   - log dependency gates clearly.
+3. Close terrain first slice:
+   - require VPT/FSL/LODFF;
+   - support exterior sun-only rows;
+   - compile active `TEX_COUNT=1..7` variants;
+   - exclude point lights, fade, parallax, canopy, and projected-shadow rows;
+   - keep an experimental flag until visuals and FPS pass.
+4. Terrain fade row `560`.
+5. Terrain point-light buckets.
+6. Terrain parallax only after stable base/fade/light terrain.
+7. Separate later projects: PAR2, skin, water, sky, and shadows.
 
 ## Release Gate
 
-Native PBR is not shippable until:
+Native PBR can ship as object PBR plus base LandLOD while close terrain remains
+experimental or disabled. The release gate is:
 
-- object PBR no longer accepts skin;
-- LandLOD no longer uses object PBR registers;
+- object PBR keeps rejecting skin;
+- LandLOD keeps using terrain registers, not object PBR registers;
 - close terrain is disabled unless VPT/FSL/LODFF are present;
 - interior draws do not receive close terrain PBR;
-- terrain replacement uses row identity and active-layer specialization;
-- known shadow/light blinking is attributed to a variant and either fixed or excluded;
+- any enabled close-terrain replacement uses row identity and active-layer specialization;
+- known shadow/light blinking is attributed to an enabled variant and either fixed or excluded;
 - logs explain every disabled or skipped PBR feature.
 
 If phases 1 and 2 cannot be stabilized, drop native PBR as a user-facing feature and keep only the diagnostics/research path. If phases 1 and 2 stabilize but phase 3 does not, ship object PBR plus corrected LandLOD and keep close terrain off.

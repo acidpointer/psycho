@@ -59,10 +59,16 @@ impl Default for GraphicsConfig {
 pub(crate) struct NativePbrConfig {
     pub(crate) enabled: bool,
     pub(crate) debug_log_draws: bool,
+    pub(crate) metallicness: f32,
     pub(crate) roughness_scale: f32,
     pub(crate) light_scale: f32,
     pub(crate) ambient_scale: f32,
     pub(crate) albedo_saturation: f32,
+    pub(crate) object_default: NativePbrProfileConfig,
+    pub(crate) object_rain: NativePbrProfileConfig,
+    pub(crate) object_night: NativePbrProfileConfig,
+    pub(crate) object_night_rain: NativePbrProfileConfig,
+    pub(crate) object_interior: NativePbrProfileConfig,
 }
 
 impl Default for NativePbrConfig {
@@ -70,12 +76,28 @@ impl Default for NativePbrConfig {
         Self {
             enabled: false,
             debug_log_draws: false,
+            metallicness: 0.0,
             roughness_scale: 1.0,
             light_scale: 1.0,
             ambient_scale: 1.0,
             albedo_saturation: 1.0,
+            object_default: NativePbrProfileConfig::default(),
+            object_rain: NativePbrProfileConfig::default(),
+            object_night: NativePbrProfileConfig::default(),
+            object_night_rain: NativePbrProfileConfig::default(),
+            object_interior: NativePbrProfileConfig::default(),
         }
     }
+}
+
+#[derive(Clone, Copy, Debug, Default, Deserialize, Serialize)]
+#[serde(default)]
+pub(crate) struct NativePbrProfileConfig {
+    pub(crate) metallicness: Option<f32>,
+    pub(crate) roughness_scale: Option<f32>,
+    pub(crate) light_scale: Option<f32>,
+    pub(crate) ambient_scale: Option<f32>,
+    pub(crate) albedo_saturation: Option<f32>,
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, Serialize)]
@@ -358,6 +380,7 @@ pub(crate) fn save_menu_config(config: &GraphicsMenuConfig) -> Result<()> {
     save_embedded_effect_config(&mut doc, &config.embedded_effects);
     doc["graphics"]["native_pbr"]["enabled"] = value(config.native_pbr.enabled);
     doc["graphics"]["native_pbr"]["debug_log_draws"] = value(config.native_pbr.debug_log_draws);
+    doc["graphics"]["native_pbr"]["metallicness"] = value(config.native_pbr.metallicness as f64);
     doc["graphics"]["native_pbr"]["roughness_scale"] =
         value(config.native_pbr.roughness_scale as f64);
     doc["graphics"]["native_pbr"]["light_scale"] = value(config.native_pbr.light_scale as f64);
