@@ -1919,6 +1919,22 @@ fn draw_native_pbr_config(
             0.0,
             2.0,
         );
+        changed |= draw_float_slider(
+            ui,
+            "LandLOD noise",
+            "native_pbr.terrain_lod_noise_scale",
+            &mut config.terrain_lod_noise_scale,
+            0.0,
+            4.0,
+        );
+        changed |= draw_float_slider(
+            ui,
+            "LandLOD noise tile",
+            "native_pbr.terrain_lod_noise_tile",
+            &mut config.terrain_lod_noise_tile,
+            0.05,
+            16.0,
+        );
     }
 
     changed

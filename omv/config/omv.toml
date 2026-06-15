@@ -183,7 +183,8 @@ enabled = true
 #   c32.w ambient scale, c33.x albedo saturation.
 #
 # Terrain/LandLOD PBR registers:
-#   c89.y roughness scale, c89.z light scale, c89.w ambient scale,
+#   c89.x metallicness, c89.y roughness scale,
+#   c89.z light scale, c89.w ambient scale,
 #   c90.x use PBR, c90.y saturation, c90.z LOD noise scale,
 #   c90.w LOD noise tile.
 metallicness = 0.0
@@ -191,11 +192,13 @@ roughness_scale = 0.7789999842643738
 light_scale = 1.5429999828338623
 ambient_scale = 1.9220000505447388
 albedo_saturation = 1.0169999599456787
+terrain_lod_noise_scale = 1.0
+terrain_lod_noise_tile = 1.75
 
-# Optional object profile overrides. If omitted, each profile falls back to the
-# scalar values above. OMV currently blends default/night/interior. Rain and
-# night-rain profiles are part of the NVR contract, but stay inactive until the
-# rain/wet runtime contract is proven.
+# Optional profile overrides. If omitted, each profile falls back to the scalar
+# values above. OMV blends object default/night/interior and terrain
+# default/night. Rain and night-rain profiles are part of the NVR contract, but
+# stay inactive until the rain/wet runtime contract is proven.
 #
 # [graphics.native_pbr.object_default]
 # metallicness = 0.0
@@ -226,6 +229,34 @@ albedo_saturation = 1.0169999599456787
 # albedo_saturation = 1.0
 #
 # [graphics.native_pbr.object_night_rain]
+# metallicness = 0.0
+# roughness_scale = 1.0
+# light_scale = 1.0
+# ambient_scale = 1.0
+# albedo_saturation = 1.0
+#
+# [graphics.native_pbr.terrain_default]
+# metallicness = 0.0
+# roughness_scale = 0.779
+# light_scale = 1.543
+# ambient_scale = 1.922
+# albedo_saturation = 1.017
+#
+# [graphics.native_pbr.terrain_night]
+# metallicness = 0.0
+# roughness_scale = 1.0
+# light_scale = 1.0
+# ambient_scale = 1.0
+# albedo_saturation = 1.0
+#
+# [graphics.native_pbr.terrain_rain]
+# metallicness = 0.0
+# roughness_scale = 1.0
+# light_scale = 1.0
+# ambient_scale = 1.0
+# albedo_saturation = 1.0
+#
+# [graphics.native_pbr.terrain_night_rain]
 # metallicness = 0.0
 # roughness_scale = 1.0
 # light_scale = 1.0

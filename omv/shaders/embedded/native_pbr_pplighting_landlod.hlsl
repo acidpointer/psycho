@@ -50,6 +50,11 @@ float PbrRoughnessScale()
     return (TESR_TerrainData.y > 0.0f) ? TESR_TerrainData.y : 1.0f;
 }
 
+float PbrMetallicness()
+{
+    return saturate(TESR_TerrainData.x);
+}
+
 float PbrLightMultiplier()
 {
     return (TESR_TerrainData.z > 0.0f) ? TESR_TerrainData.z : 1.0f;
@@ -108,7 +113,8 @@ float3 Brdf(float roughness, float3 fresnel, float ndotv, float ndotl, float ndo
 
 float3 PbrSun(float roughness, float3 albedo, float3 normal, float3 eye_dir, float3 light_dir, float3 light_color)
 {
-    float3 reflectance = float3(0.04f, 0.04f, 0.04f);
+    float metallic = PbrMetallicness();
+    float3 reflectance = lerp(float3(0.04f, 0.04f, 0.04f), albedo, metallic);
 
     normal = SafeNormalize(normal, float3(0.0f, 0.0f, 1.0f));
     eye_dir = SafeNormalize(eye_dir, light_dir);
@@ -130,7 +136,7 @@ float3 PbrSun(float roughness, float3 albedo, float3 normal, float3 eye_dir, flo
     float ndotl = Shades(normal, light_dir);
     float ldoth = Shades(light_dir, halfway);
     float3 fresnel = Fresnel(reflectance, float3(1.0f, 1.0f, 1.0f), ldoth);
-    float3 diffuse = LambertianDiffuse(albedo, fresnel);
+    float3 diffuse = LambertianDiffuse(albedo, fresnel) * (1.0f - metallic);
     float3 specular = Brdf(roughness, fresnel, ndotv, ndots, ndoth);
 
     return (diffuse * ndotl + specular * ndots) * light_color * PI;

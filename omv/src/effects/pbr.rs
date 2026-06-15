@@ -251,6 +251,7 @@ static REPLACEMENT_SKIP_UNSUPPORTED_FAMILY: AtomicU32 = AtomicU32::new(0);
 static REPLACEMENT_SKIP_UNSUPPORTED_VERTEX_ABI: AtomicU32 = AtomicU32::new(0);
 static REPLACEMENT_SKIP_SKIN_VERTEX_ABI: AtomicU32 = AtomicU32::new(0);
 static REPLACEMENT_SKIP_MISSING_TERRAIN_CONTRACT: AtomicU32 = AtomicU32::new(0);
+static REPLACEMENT_SKIP_INTERIOR_TERRAIN_DISABLED: AtomicU32 = AtomicU32::new(0);
 static REPLACEMENT_SKIP_UNPROVEN_LANDLOD_SHADOW: AtomicU32 = AtomicU32::new(0);
 static REPLACEMENT_SKIP_NO_SELECTOR_RECORD: AtomicU32 = AtomicU32::new(0);
 static REPLACEMENT_SKIP_NO_NORMAL_SOURCE: AtomicU32 = AtomicU32::new(0);
@@ -269,14 +270,17 @@ static REPLACEMENT_PIXEL_SHADER_DEVICES: LazyLock<[AtomicUsize; REPLACEMENT_SHAD
     LazyLock::new(|| array::from_fn(|_| AtomicUsize::new(0)));
 static REPLACEMENT_LANDLOD_VERTEX_SHADER_HANDLE: AtomicUsize = AtomicUsize::new(0);
 static REPLACEMENT_LANDLOD_VERTEX_SHADER_DEVICE: AtomicUsize = AtomicUsize::new(0);
-static PBR_METALLICNESS_BITS: AtomicU32 = AtomicU32::new(0.0f32.to_bits());
-static PBR_ROUGHNESS_SCALE_BITS: AtomicU32 = AtomicU32::new(1.0f32.to_bits());
-static PBR_LIGHT_SCALE_BITS: AtomicU32 = AtomicU32::new(1.0f32.to_bits());
-static PBR_AMBIENT_SCALE_BITS: AtomicU32 = AtomicU32::new(1.0f32.to_bits());
-static PBR_ALBEDO_SATURATION_BITS: AtomicU32 = AtomicU32::new(1.0f32.to_bits());
+static REPLACEMENT_APPLY_SUMMARY_LOGS: AtomicU32 = AtomicU32::new(0);
+static REPLACEMENT_APPLY_KIND_COUNTS: LazyLock<[AtomicU32; REPLACEMENT_SHADER_KIND_COUNT]> =
+    LazyLock::new(|| array::from_fn(|_| AtomicU32::new(0)));
 static PBR_OBJECT_PROFILE_BITS: LazyLock<
     [[AtomicU32; PBR_PROFILE_VALUE_COUNT]; PBR_PROFILE_COUNT],
 > = LazyLock::new(|| array::from_fn(|_| array::from_fn(|_| AtomicU32::new(0))));
+static PBR_TERRAIN_PROFILE_BITS: LazyLock<
+    [[AtomicU32; PBR_PROFILE_VALUE_COUNT]; PBR_PROFILE_COUNT],
+> = LazyLock::new(|| array::from_fn(|_| array::from_fn(|_| AtomicU32::new(0))));
+static PBR_TERRAIN_LOD_NOISE_SCALE_BITS: AtomicU32 = AtomicU32::new(1.0f32.to_bits());
+static PBR_TERRAIN_LOD_NOISE_TILE_BITS: AtomicU32 = AtomicU32::new(1.75f32.to_bits());
 static PBR_STATE_REFRESH_TICK: AtomicU32 = AtomicU32::new(0);
 static PBR_STATE_TRANSITION_CURVE_BITS: AtomicU32 = AtomicU32::new(1.0f32.to_bits());
 static PBR_STATE_EXTERIOR_KNOWN: AtomicBool = AtomicBool::new(false);
@@ -324,8 +328,10 @@ const PBR_STATE_REFRESH_INTERVAL: u32 = 256;
 pub(crate) struct NativePbrSettings {
     enabled: bool,
     debug_log_draws: bool,
-    terrain_lod: PbrProfileSettings,
     object: NativePbrObjectProfiles,
+    terrain: NativePbrTerrainProfiles,
+    terrain_lod_noise_scale: f32,
+    terrain_lod_noise_tile: f32,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -335,6 +341,14 @@ struct NativePbrObjectProfiles {
     night: PbrProfileSettings,
     night_rain: PbrProfileSettings,
     interior: PbrProfileSettings,
+}
+
+#[derive(Clone, Copy, Debug)]
+struct NativePbrTerrainProfiles {
+    default: PbrProfileSettings,
+    rain: PbrProfileSettings,
+    night: PbrProfileSettings,
+    night_rain: PbrProfileSettings,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -441,8 +455,10 @@ impl Default for NativePbrSettings {
         Self {
             enabled: false,
             debug_log_draws: false,
-            terrain_lod: PbrProfileSettings::default(),
             object: NativePbrObjectProfiles::default(),
+            terrain: NativePbrTerrainProfiles::default(),
+            terrain_lod_noise_scale: 1.0,
+            terrain_lod_noise_tile: 1.75,
         }
     }
 }
@@ -456,6 +472,18 @@ impl Default for NativePbrObjectProfiles {
             night: default,
             night_rain: default,
             interior: default,
+        }
+    }
+}
+
+impl Default for NativePbrTerrainProfiles {
+    fn default() -> Self {
+        let default = PbrProfileSettings::default();
+        Self {
+            default,
+            rain: default,
+            night: default,
+            night_rain: default,
         }
     }
 }
@@ -484,7 +512,6 @@ impl From<crate::config::NativePbrConfig> for NativePbrSettings {
         Self {
             enabled: value.enabled,
             debug_log_draws: value.debug_log_draws,
-            terrain_lod: legacy,
             object: NativePbrObjectProfiles {
                 default: PbrProfileSettings::from_config(value.object_default, legacy),
                 rain: PbrProfileSettings::from_config(value.object_rain, legacy),
@@ -492,6 +519,14 @@ impl From<crate::config::NativePbrConfig> for NativePbrSettings {
                 night_rain: PbrProfileSettings::from_config(value.object_night_rain, legacy),
                 interior: PbrProfileSettings::from_config(value.object_interior, legacy),
             },
+            terrain: NativePbrTerrainProfiles {
+                default: PbrProfileSettings::from_config(value.terrain_default, legacy),
+                rain: PbrProfileSettings::from_config(value.terrain_rain, legacy),
+                night: PbrProfileSettings::from_config(value.terrain_night, legacy),
+                night_rain: PbrProfileSettings::from_config(value.terrain_night_rain, legacy),
+            },
+            terrain_lod_noise_scale: value.terrain_lod_noise_scale,
+            terrain_lod_noise_tile: value.terrain_lod_noise_tile,
         }
     }
 }
@@ -510,6 +545,26 @@ impl PbrProfileSettings {
                 .albedo_saturation
                 .unwrap_or(fallback.albedo_saturation),
         }
+    }
+
+    fn neutral_terrain() -> Self {
+        Self {
+            metallicness: 0.0,
+            roughness_scale: 1.0,
+            light_scale: 1.0,
+            ambient_scale: 1.0,
+            albedo_saturation: 1.0,
+        }
+    }
+
+    fn sanitized_values(self) -> [f32; PBR_PROFILE_VALUE_COUNT] {
+        [
+            sanitize_pbr_scale(self.metallicness, 0.0, 0.0, 1.0),
+            sanitize_pbr_scale(self.roughness_scale, 1.0, 0.05, 4.0),
+            sanitize_pbr_scale(self.light_scale, 1.0, 0.0, 4.0),
+            sanitize_pbr_scale(self.ambient_scale, 1.0, 0.0, 4.0),
+            sanitize_pbr_scale(self.albedo_saturation, 1.0, 0.0, 2.0),
+        ]
     }
 }
 
@@ -1524,6 +1579,7 @@ enum ReplacementSkipReason {
     UnsupportedVertexAbi,
     SkinVertexAbi,
     MissingTerrainContract,
+    InteriorTerrainDisabled,
     UnprovenLandLodProjectedShadow,
     NoSelectorRecord,
     NoNormalSource,
@@ -1542,6 +1598,7 @@ impl ReplacementSkipReason {
             Self::UnsupportedVertexAbi => "unsupported_vertex_abi",
             Self::SkinVertexAbi => "skin_vertex_abi",
             Self::MissingTerrainContract => "missing_terrain_contract",
+            Self::InteriorTerrainDisabled => "interior_terrain_disabled",
             Self::UnprovenLandLodProjectedShadow => "unproven_landlod_projected_shadow",
             Self::NoSelectorRecord => "no_selector_record",
             Self::NoNormalSource => "no_normal_source",
@@ -1639,24 +1696,13 @@ pub(crate) fn configure_runtime_options(settings: NativePbrSettings) {
     let installed = INSTALLED.load(Ordering::Acquire);
     HOOKS_ACTIVE.store(installed, Ordering::Release);
     store_object_pbr_profiles(settings.object);
-    PBR_METALLICNESS_BITS.store(
-        sanitize_pbr_scale(settings.terrain_lod.metallicness, 0.0, 0.0, 1.0).to_bits(),
+    store_terrain_pbr_profiles(settings.terrain);
+    PBR_TERRAIN_LOD_NOISE_SCALE_BITS.store(
+        sanitize_pbr_scale(settings.terrain_lod_noise_scale, 1.0, 0.0, 4.0).to_bits(),
         Ordering::Release,
     );
-    PBR_ROUGHNESS_SCALE_BITS.store(
-        sanitize_pbr_scale(settings.terrain_lod.roughness_scale, 1.0, 0.05, 4.0).to_bits(),
-        Ordering::Release,
-    );
-    PBR_LIGHT_SCALE_BITS.store(
-        sanitize_pbr_scale(settings.terrain_lod.light_scale, 1.0, 0.0, 4.0).to_bits(),
-        Ordering::Release,
-    );
-    PBR_AMBIENT_SCALE_BITS.store(
-        sanitize_pbr_scale(settings.terrain_lod.ambient_scale, 1.0, 0.0, 4.0).to_bits(),
-        Ordering::Release,
-    );
-    PBR_ALBEDO_SATURATION_BITS.store(
-        sanitize_pbr_scale(settings.terrain_lod.albedo_saturation, 1.0, 0.0, 2.0).to_bits(),
+    PBR_TERRAIN_LOD_NOISE_TILE_BITS.store(
+        sanitize_pbr_scale(settings.terrain_lod_noise_tile, 1.75, 0.05, 16.0).to_bits(),
         Ordering::Release,
     );
     PBR_STATE_REFRESH_TICK.store(0, Ordering::Release);
@@ -1681,15 +1727,28 @@ fn store_object_pbr_profiles(profiles: NativePbrObjectProfiles) {
 }
 
 fn store_object_pbr_profile(index: usize, profile: PbrProfileSettings) {
-    let values = [
-        sanitize_pbr_scale(profile.metallicness, 0.0, 0.0, 1.0),
-        sanitize_pbr_scale(profile.roughness_scale, 1.0, 0.05, 4.0),
-        sanitize_pbr_scale(profile.light_scale, 1.0, 0.0, 4.0),
-        sanitize_pbr_scale(profile.ambient_scale, 1.0, 0.0, 4.0),
-        sanitize_pbr_scale(profile.albedo_saturation, 1.0, 0.0, 2.0),
-    ];
+    store_pbr_profile(&PBR_OBJECT_PROFILE_BITS, index, profile);
+}
 
-    for (slot, value) in PBR_OBJECT_PROFILE_BITS[index].iter().zip(values) {
+fn store_terrain_pbr_profiles(profiles: NativePbrTerrainProfiles) {
+    store_terrain_pbr_profile(PBR_PROFILE_DEFAULT, profiles.default);
+    store_terrain_pbr_profile(PBR_PROFILE_RAIN, profiles.rain);
+    store_terrain_pbr_profile(PBR_PROFILE_NIGHT, profiles.night);
+    store_terrain_pbr_profile(PBR_PROFILE_NIGHT_RAIN, profiles.night_rain);
+    store_terrain_pbr_profile(PBR_PROFILE_INTERIOR, PbrProfileSettings::neutral_terrain());
+}
+
+fn store_terrain_pbr_profile(index: usize, profile: PbrProfileSettings) {
+    store_pbr_profile(&PBR_TERRAIN_PROFILE_BITS, index, profile);
+}
+
+fn store_pbr_profile(
+    storage: &[[AtomicU32; PBR_PROFILE_VALUE_COUNT]; PBR_PROFILE_COUNT],
+    index: usize,
+    profile: PbrProfileSettings,
+) {
+    let values = profile.sanitized_values();
+    for (slot, value) in storage[index].iter().zip(values) {
         slot.store(value.to_bits(), Ordering::Release);
     }
 }
@@ -2352,6 +2411,10 @@ fn replacement_shader_kind(
         if !TERRAIN_CONTRACT_AVAILABLE.load(Ordering::Acquire) {
             return Err(ReplacementSkipReason::MissingTerrainContract);
         }
+        let material_state = cached_material_state_frame();
+        if material_state.exterior_known && !material_state.is_exterior {
+            return Err(ReplacementSkipReason::InteriorTerrainDisabled);
+        }
         return Ok(ReplacementShaderKind::LandLod);
     }
     if pplighting_pair_uses_sls2_landlod_projected_shadow(
@@ -2682,6 +2745,10 @@ fn reset_debug_capture_budget() {
 fn reset_replacement_skip_budget() {
     REPLACEMENT_APPLIED_COUNT.store(0, Ordering::Release);
     REPLACEMENT_APPLY_LOGS.store(0, Ordering::Release);
+    REPLACEMENT_APPLY_SUMMARY_LOGS.store(0, Ordering::Release);
+    for count in REPLACEMENT_APPLY_KIND_COUNTS.iter() {
+        count.store(0, Ordering::Release);
+    }
     REPLACEMENT_SKIP_SUMMARY_LOGS.store(0, Ordering::Release);
     REPLACEMENT_SKIP_CHECKS.store(0, Ordering::Release);
     REPLACEMENT_SKIP_NO_DIFFUSE.store(0, Ordering::Release);
@@ -2690,6 +2757,7 @@ fn reset_replacement_skip_budget() {
     REPLACEMENT_SKIP_UNSUPPORTED_VERTEX_ABI.store(0, Ordering::Release);
     REPLACEMENT_SKIP_SKIN_VERTEX_ABI.store(0, Ordering::Release);
     REPLACEMENT_SKIP_MISSING_TERRAIN_CONTRACT.store(0, Ordering::Release);
+    REPLACEMENT_SKIP_INTERIOR_TERRAIN_DISABLED.store(0, Ordering::Release);
     REPLACEMENT_SKIP_UNPROVEN_LANDLOD_SHADOW.store(0, Ordering::Release);
     REPLACEMENT_SKIP_NO_SELECTOR_RECORD.store(0, Ordering::Release);
     REPLACEMENT_SKIP_NO_NORMAL_SOURCE.store(0, Ordering::Release);
@@ -3062,13 +3130,19 @@ fn upload_replacement_material_constants(
     };
 
     if shader_kind == ReplacementShaderKind::LandLod {
+        let (terrain_enabled, profile) = current_terrain_pbr_profile();
         let terrain_data = [[
-            atomic_pbr_f32(&PBR_METALLICNESS_BITS),
-            atomic_pbr_f32(&PBR_ROUGHNESS_SCALE_BITS),
-            atomic_pbr_f32(&PBR_LIGHT_SCALE_BITS),
-            atomic_pbr_f32(&PBR_AMBIENT_SCALE_BITS),
+            profile.metallicness,
+            profile.roughness_scale,
+            profile.light_scale,
+            profile.ambient_scale,
         ]];
-        let terrain_extra_data = [[1.0, atomic_pbr_f32(&PBR_ALBEDO_SATURATION_BITS), 1.0, 1.75]];
+        let terrain_extra_data = [[
+            terrain_enabled as u8 as f32,
+            profile.albedo_saturation,
+            atomic_pbr_f32(&PBR_TERRAIN_LOD_NOISE_SCALE_BITS),
+            atomic_pbr_f32(&PBR_TERRAIN_LOD_NOISE_TILE_BITS),
+        ]];
         let _ = device.set_pixel_shader_constant_f(TERRAIN_DATA_REGISTER, &terrain_data);
         let _ =
             device.set_pixel_shader_constant_f(TERRAIN_EXTRA_DATA_REGISTER, &terrain_extra_data);
@@ -3121,6 +3195,30 @@ fn current_object_pbr_profile() -> PbrProfileSettings {
     lerp_pbr_profile(dry, wet, rain_factor)
 }
 
+fn current_terrain_pbr_profile() -> (bool, PbrProfileSettings) {
+    let state = cached_material_state_frame();
+    if state.exterior_known && !state.is_exterior {
+        return (false, load_terrain_pbr_profile(PBR_PROFILE_INTERIOR));
+    }
+
+    let transition = state.transition_curve.clamp(0.0, 1.0);
+    let dry = lerp_pbr_profile(
+        load_terrain_pbr_profile(PBR_PROFILE_NIGHT),
+        load_terrain_pbr_profile(PBR_PROFILE_DEFAULT),
+        transition,
+    );
+    let wet = lerp_pbr_profile(
+        load_terrain_pbr_profile(PBR_PROFILE_NIGHT_RAIN),
+        load_terrain_pbr_profile(PBR_PROFILE_RAIN),
+        transition,
+    );
+
+    // NVR terrain blends rain through WetWorld. OMV does not yet own that
+    // signal, so rain terrain profiles remain parsed but inactive.
+    let rain_factor = 0.0;
+    (true, lerp_pbr_profile(dry, wet, rain_factor))
+}
+
 fn cached_material_state_frame() -> crate::backend::MaterialStateFrame {
     let refresh_tick = PBR_STATE_REFRESH_TICK.fetch_add(1, Ordering::Relaxed);
     if refresh_tick % PBR_STATE_REFRESH_INTERVAL == 0 {
@@ -3139,7 +3237,18 @@ fn cached_material_state_frame() -> crate::backend::MaterialStateFrame {
 }
 
 fn load_object_pbr_profile(index: usize) -> PbrProfileSettings {
-    let profile = &PBR_OBJECT_PROFILE_BITS[index];
+    load_pbr_profile(&PBR_OBJECT_PROFILE_BITS, index)
+}
+
+fn load_terrain_pbr_profile(index: usize) -> PbrProfileSettings {
+    load_pbr_profile(&PBR_TERRAIN_PROFILE_BITS, index)
+}
+
+fn load_pbr_profile(
+    storage: &[[AtomicU32; PBR_PROFILE_VALUE_COUNT]; PBR_PROFILE_COUNT],
+    index: usize,
+) -> PbrProfileSettings {
+    let profile = &storage[index];
     PbrProfileSettings {
         metallicness: f32::from_bits(profile[PBR_PROFILE_METALLICNESS].load(Ordering::Acquire)),
         roughness_scale: f32::from_bits(
@@ -3935,7 +4044,9 @@ fn log_replacement_apply(
     replacement_vertex_handle: *mut c_void,
     material_bindings: ReplacementMaterialBindings,
 ) {
-    REPLACEMENT_APPLIED_COUNT.fetch_add(1, Ordering::Relaxed);
+    let applied = REPLACEMENT_APPLIED_COUNT.fetch_add(1, Ordering::Relaxed) + 1;
+    REPLACEMENT_APPLY_KIND_COUNTS[shader_kind.index()].fetch_add(1, Ordering::Relaxed);
+    maybe_log_replacement_apply_summary(applied);
 
     let count = REPLACEMENT_APPLY_LOGS.fetch_add(1, Ordering::Relaxed);
     if count >= 8 {
@@ -3974,6 +4085,56 @@ fn log_replacement_apply(
     );
 }
 
+fn maybe_log_replacement_apply_summary(applied: u32) {
+    if applied < 64 || !applied.is_power_of_two() {
+        return;
+    }
+
+    let count = REPLACEMENT_APPLY_SUMMARY_LOGS.fetch_add(1, Ordering::Relaxed);
+    if count >= 8 {
+        return;
+    }
+
+    log::info!(
+        "[PBR] Native PBR apply summary: applied={} object_low_opt={} object_low={} object_low_shadow={} object_low_lights2={} object_low_lights2_shadow={} object_low_specular={} object_low_specular_shadow={} object_low_specular_lights2={} object_low_specular_lights2_shadow={} object_high6={} object_high4={} object_high4_opt={} object_high3_specular={} object_high3_specular_opt={} landlod={} skips={} no_diffuse={} no_context={} unsupported_family={} unsupported_vertex_abi={} skin_vertex_abi={} missing_terrain_contract={} interior_terrain_disabled={} unproven_landlod_shadow={} no_selector={} no_normal={} no_shader={} bind_failed={} no_vanilla_handle={} handle_write_failed={}",
+        applied,
+        apply_kind_count(ReplacementShaderKind::ObjectLowOpt),
+        apply_kind_count(ReplacementShaderKind::ObjectLow),
+        apply_kind_count(ReplacementShaderKind::ObjectLowShadow),
+        apply_kind_count(ReplacementShaderKind::ObjectLowLights2),
+        apply_kind_count(ReplacementShaderKind::ObjectLowLights2Shadow),
+        apply_kind_count(ReplacementShaderKind::ObjectLowSpecular),
+        apply_kind_count(ReplacementShaderKind::ObjectLowSpecularShadow),
+        apply_kind_count(ReplacementShaderKind::ObjectLowSpecularLights2),
+        apply_kind_count(ReplacementShaderKind::ObjectLowSpecularLights2Shadow),
+        apply_kind_count(ReplacementShaderKind::ObjectHigh6),
+        apply_kind_count(ReplacementShaderKind::ObjectHigh4),
+        apply_kind_count(ReplacementShaderKind::ObjectHigh4Opt),
+        apply_kind_count(ReplacementShaderKind::ObjectHigh3Specular),
+        apply_kind_count(ReplacementShaderKind::ObjectHigh3SpecularOpt),
+        apply_kind_count(ReplacementShaderKind::LandLod),
+        REPLACEMENT_SKIP_CHECKS.load(Ordering::Acquire),
+        REPLACEMENT_SKIP_NO_DIFFUSE.load(Ordering::Acquire),
+        REPLACEMENT_SKIP_NO_DRAW_CONTEXT.load(Ordering::Acquire),
+        REPLACEMENT_SKIP_UNSUPPORTED_FAMILY.load(Ordering::Acquire),
+        REPLACEMENT_SKIP_UNSUPPORTED_VERTEX_ABI.load(Ordering::Acquire),
+        REPLACEMENT_SKIP_SKIN_VERTEX_ABI.load(Ordering::Acquire),
+        REPLACEMENT_SKIP_MISSING_TERRAIN_CONTRACT.load(Ordering::Acquire),
+        REPLACEMENT_SKIP_INTERIOR_TERRAIN_DISABLED.load(Ordering::Acquire),
+        REPLACEMENT_SKIP_UNPROVEN_LANDLOD_SHADOW.load(Ordering::Acquire),
+        REPLACEMENT_SKIP_NO_SELECTOR_RECORD.load(Ordering::Acquire),
+        REPLACEMENT_SKIP_NO_NORMAL_SOURCE.load(Ordering::Acquire),
+        REPLACEMENT_SKIP_NO_REPLACEMENT_SHADER.load(Ordering::Acquire),
+        REPLACEMENT_SKIP_BIND_FAILED.load(Ordering::Acquire),
+        REPLACEMENT_SKIP_NO_VANILLA_HANDLE.load(Ordering::Acquire),
+        REPLACEMENT_SKIP_HANDLE_WRITE_FAILED.load(Ordering::Acquire),
+    );
+}
+
+fn apply_kind_count(kind: ReplacementShaderKind) -> u32 {
+    REPLACEMENT_APPLY_KIND_COUNTS[kind.index()].load(Ordering::Acquire)
+}
+
 fn record_replacement_skip(
     reason: ReplacementSkipReason,
     draw_context: Option<ReplacementDrawContext>,
@@ -3998,6 +4159,9 @@ fn record_replacement_skip(
         }
         ReplacementSkipReason::MissingTerrainContract => {
             REPLACEMENT_SKIP_MISSING_TERRAIN_CONTRACT.fetch_add(1, Ordering::Relaxed);
+        }
+        ReplacementSkipReason::InteriorTerrainDisabled => {
+            REPLACEMENT_SKIP_INTERIOR_TERRAIN_DISABLED.fetch_add(1, Ordering::Relaxed);
         }
         ReplacementSkipReason::UnprovenLandLodProjectedShadow => {
             REPLACEMENT_SKIP_UNPROVEN_LANDLOD_SHADOW.fetch_add(1, Ordering::Relaxed);
@@ -4049,6 +4213,7 @@ fn maybe_log_unsupported_replacement_pair(
             | ReplacementSkipReason::UnsupportedVertexAbi
             | ReplacementSkipReason::SkinVertexAbi
             | ReplacementSkipReason::MissingTerrainContract
+            | ReplacementSkipReason::InteriorTerrainDisabled
             | ReplacementSkipReason::UnprovenLandLodProjectedShadow
     ) {
         return;
@@ -4142,7 +4307,7 @@ fn maybe_log_replacement_skip_summary(checks: u32) {
     }
 
     log::info!(
-        "[PBR] Native PBR replacement has not applied yet: checks={} no_diffuse={} no_context={} unsupported_family={} unsupported_vertex_abi={} skin_vertex_abi={} missing_terrain_contract={} unproven_landlod_shadow={} no_selector={} no_normal={} no_shader={} bind_failed={} no_vanilla_handle={} handle_write_failed={} last_family={} last_vgrp={} last_vidx={} last_pgrp={} last_pidx={}",
+        "[PBR] Native PBR replacement has not applied yet: checks={} no_diffuse={} no_context={} unsupported_family={} unsupported_vertex_abi={} skin_vertex_abi={} missing_terrain_contract={} interior_terrain_disabled={} unproven_landlod_shadow={} no_selector={} no_normal={} no_shader={} bind_failed={} no_vanilla_handle={} handle_write_failed={} last_family={} last_vgrp={} last_vidx={} last_pgrp={} last_pidx={}",
         checks,
         REPLACEMENT_SKIP_NO_DIFFUSE.load(Ordering::Acquire),
         REPLACEMENT_SKIP_NO_DRAW_CONTEXT.load(Ordering::Acquire),
@@ -4150,6 +4315,7 @@ fn maybe_log_replacement_skip_summary(checks: u32) {
         REPLACEMENT_SKIP_UNSUPPORTED_VERTEX_ABI.load(Ordering::Acquire),
         REPLACEMENT_SKIP_SKIN_VERTEX_ABI.load(Ordering::Acquire),
         REPLACEMENT_SKIP_MISSING_TERRAIN_CONTRACT.load(Ordering::Acquire),
+        REPLACEMENT_SKIP_INTERIOR_TERRAIN_DISABLED.load(Ordering::Acquire),
         REPLACEMENT_SKIP_UNPROVEN_LANDLOD_SHADOW.load(Ordering::Acquire),
         REPLACEMENT_SKIP_NO_SELECTOR_RECORD.load(Ordering::Acquire),
         REPLACEMENT_SKIP_NO_NORMAL_SOURCE.load(Ordering::Acquire),

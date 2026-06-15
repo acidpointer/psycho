@@ -64,11 +64,17 @@ pub(crate) struct NativePbrConfig {
     pub(crate) light_scale: f32,
     pub(crate) ambient_scale: f32,
     pub(crate) albedo_saturation: f32,
+    pub(crate) terrain_lod_noise_scale: f32,
+    pub(crate) terrain_lod_noise_tile: f32,
     pub(crate) object_default: NativePbrProfileConfig,
     pub(crate) object_rain: NativePbrProfileConfig,
     pub(crate) object_night: NativePbrProfileConfig,
     pub(crate) object_night_rain: NativePbrProfileConfig,
     pub(crate) object_interior: NativePbrProfileConfig,
+    pub(crate) terrain_default: NativePbrProfileConfig,
+    pub(crate) terrain_rain: NativePbrProfileConfig,
+    pub(crate) terrain_night: NativePbrProfileConfig,
+    pub(crate) terrain_night_rain: NativePbrProfileConfig,
 }
 
 impl Default for NativePbrConfig {
@@ -81,11 +87,17 @@ impl Default for NativePbrConfig {
             light_scale: 1.0,
             ambient_scale: 1.0,
             albedo_saturation: 1.0,
+            terrain_lod_noise_scale: 1.0,
+            terrain_lod_noise_tile: 1.75,
             object_default: NativePbrProfileConfig::default(),
             object_rain: NativePbrProfileConfig::default(),
             object_night: NativePbrProfileConfig::default(),
             object_night_rain: NativePbrProfileConfig::default(),
             object_interior: NativePbrProfileConfig::default(),
+            terrain_default: NativePbrProfileConfig::default(),
+            terrain_rain: NativePbrProfileConfig::default(),
+            terrain_night: NativePbrProfileConfig::default(),
+            terrain_night_rain: NativePbrProfileConfig::default(),
         }
     }
 }
@@ -387,6 +399,10 @@ pub(crate) fn save_menu_config(config: &GraphicsMenuConfig) -> Result<()> {
     doc["graphics"]["native_pbr"]["ambient_scale"] = value(config.native_pbr.ambient_scale as f64);
     doc["graphics"]["native_pbr"]["albedo_saturation"] =
         value(config.native_pbr.albedo_saturation as f64);
+    doc["graphics"]["native_pbr"]["terrain_lod_noise_scale"] =
+        value(config.native_pbr.terrain_lod_noise_scale as f64);
+    doc["graphics"]["native_pbr"]["terrain_lod_noise_tile"] =
+        value(config.native_pbr.terrain_lod_noise_tile as f64);
     if let Some(native_pbr) = doc["graphics"]["native_pbr"].as_table_mut() {
         native_pbr.remove("experimental_shader_replacement");
         native_pbr.remove("require_vanilla_prologues");
