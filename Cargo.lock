@@ -802,6 +802,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "omv"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "libnvse",
+ "libpsycho",
+ "log",
+ "parking_lot",
+ "psycho-imgui",
+ "serde",
+ "toml",
+ "toml_edit",
+ "windows",
+]
+
+[[package]]
 name = "once_cell"
 version = "1.21.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -920,22 +936,6 @@ dependencies = [
  "libnvse",
  "libpsycho",
  "log",
- "windows",
-]
-
-[[package]]
-name = "psycho-graphics"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "libpsycho",
- "log",
- "parking_lot",
- "psycho-imgui",
- "psycho-loader-api",
- "serde",
- "toml",
- "toml_edit",
  "windows",
 ]
 

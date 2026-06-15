@@ -1,5 +1,5 @@
 # @category Analysis
-# @description Audit FNV graphics hook collision surface and inline-hook safety for Psycho Graphics
+# @description Audit FNV graphics hook collision surface and inline-hook safety for OMV
 
 from ghidra.app.decompiler import DecompInterface
 

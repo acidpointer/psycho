@@ -1,5 +1,5 @@
 # @category Analysis
-# @description Audit FNV NiTexture to D3D texture binding chain for psycho-graphics
+# @description Audit FNV NiTexture to D3D texture binding chain for omv
 
 from ghidra.app.decompiler import DecompInterface
 
@@ -169,7 +169,7 @@ def analyze_disassembly():
 def main():
 	write("FNV NITEXTURE D3D CHAIN AUDIT")
 	write("")
-	write("Goal: prove or disprove the chain used by psycho-graphics:")
+	write("Goal: prove or disprove the chain used by omv:")
 	write("  ImageSpaceManager::GetDepthTexture -> NiTexture*")
 	write("  NiTexture + 0x24 -> NiTexture::RendererData*")
 	write("  NiDX9TextureData + 0x64 -> IDirect3DBaseTexture9*")

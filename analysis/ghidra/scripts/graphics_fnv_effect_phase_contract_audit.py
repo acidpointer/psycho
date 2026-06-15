@@ -1,5 +1,5 @@
 # @category Analysis
-# @description Audit FNV effect phase boundaries for Psycho Graphics scene/final shader dispatch
+# @description Audit FNV effect phase boundaries for OMV scene/final shader dispatch
 
 from ghidra.app.decompiler import DecompInterface
 

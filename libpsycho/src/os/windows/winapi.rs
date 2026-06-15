@@ -1282,10 +1282,6 @@ pub unsafe fn patch_memory_nop(ptr: *mut c_void, size: usize) -> WinapiResult<()
 ///
 /// # Errors
 /// Returns `WinapiError::CallTargetOutOfRange` if target is out of range on x86_64.
-///
-/// # Source
-/// Based on: https://github.com/WallSoGB/Fallout-zlibUpdate/blob/main/zlibUpdate/main.cpp#L26
-///
 pub unsafe fn replace_call(jump_src: *mut c_void, func: *mut c_void) -> WinapiResult<()> {
     let jump_src_addr = jump_src as usize;
     let jump_tgt_addr = func as usize;

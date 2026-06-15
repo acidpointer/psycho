@@ -1,5 +1,5 @@
 # @category Analysis
-# @description Audit FNV depth access contract independent from DepthResolve for Psycho Graphics
+# @description Audit FNV depth access contract independent from DepthResolve for OMV
 
 from ghidra.app.decompiler import DecompInterface
 

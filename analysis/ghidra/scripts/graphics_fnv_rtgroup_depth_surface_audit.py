@@ -1,5 +1,5 @@
 # @category Analysis
-# @description Audit FNV render target group depth surface chain for Psycho Graphics
+# @description Audit FNV render target group depth surface chain for OMV
 
 from ghidra.app.decompiler import DecompInterface
 

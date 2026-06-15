@@ -2,8 +2,7 @@
 //!
 //! This module owns the proven engine-side contract for material PBR:
 //! draw-scoped current pass capture, final vanilla texture-stage capture, and
-//! an opt-in NVR-style pixel shader handle substitution for one proven
-//! PPLighting family.
+//! an opt-in pixel shader handle substitution for one proven PPLighting family.
 
 use std::{
     array,
@@ -147,8 +146,8 @@ const MAX_TEXTURE_STAGES: usize = 16;
 const MAX_LOGS: u32 = 16;
 const MIN_READABLE_ADDRESS: usize = 0x10000;
 const PBR_MATERIAL_FLAGS_REGISTER: u32 = 31;
-const PBR_NVR_DATA_REGISTER: u32 = 32;
-const PBR_NVR_EXTRA_DATA_REGISTER: u32 = 33;
+const PBR_DATA_REGISTER: u32 = 32;
+const PBR_EXTRA_DATA_REGISTER: u32 = 33;
 const PBR_MATERIAL_SLOT_NORMAL: usize = 1;
 const PBR_MATERIAL_SLOT_GLOW: usize = 2;
 const PBR_MATERIAL_SLOT_HEIGHT: usize = 3;
@@ -283,12 +282,15 @@ static PIXEL_SHADER_MEMBERSHIP_CACHE: LazyLock<ShaderMembershipCache> =
     LazyLock::new(ShaderMembershipCache::new);
 static PBR_REPLACEMENT: LazyLock<Mutex<PbrReplacementState>> =
     LazyLock::new(|| Mutex::new(PbrReplacementState::new()));
+static INSTALL_BLOCK_REASON: LazyLock<Mutex<Option<&'static str>>> =
+    LazyLock::new(|| Mutex::new(None));
 
-const PBR_REPLACEMENT_OBJECT_PIXEL_SHADER: &str = include_str!("native_pbr_pplighting_object.hlsl");
+const PBR_REPLACEMENT_OBJECT_PIXEL_SHADER: &str =
+    include_str!("../../shaders/embedded/native_pbr_pplighting_object.hlsl");
 const PBR_REPLACEMENT_LANDLOD_PIXEL_SHADER: &[u8] =
-    include_bytes!("native_pbr_pplighting_landlod.hlsl");
+    include_bytes!("../../shaders/embedded/native_pbr_pplighting_landlod.hlsl");
 const PBR_REPLACEMENT_LANDLOD_VERTEX_SHADER: &[u8] =
-    include_bytes!("native_pbr_pplighting_landlod.vs.hlsl");
+    include_bytes!("../../shaders/embedded/native_pbr_pplighting_landlod.vs.hlsl");
 const REQUIRE_VANILLA_PROLOGUES: bool = true;
 
 #[derive(Clone, Copy, Debug)]
@@ -305,6 +307,7 @@ pub(crate) struct NativePbrSettings {
 pub(crate) struct NativePbrRuntimeStatus {
     pub(crate) installed: bool,
     pub(crate) shader_enabled: bool,
+    pub(crate) block_reason: Option<&'static str>,
 }
 
 #[derive(Clone, Copy)]
@@ -1463,12 +1466,14 @@ pub(crate) fn install(settings: NativePbrSettings) -> Result<()> {
 
     if REQUIRE_VANILLA_PROLOGUES && !verify_hook_prologues() {
         HOOKS_ACTIVE.store(false, Ordering::Release);
+        set_block_reason(Some("target prologue is not vanilla"));
         log::warn!("[PBR] Native PBR hooks skipped because a target prologue is not vanilla");
         return Ok(());
     }
 
     if INSTALLED.swap(true, Ordering::AcqRel) {
         HOOKS_ACTIVE.store(true, Ordering::Release);
+        set_block_reason(None);
         log::info!("[PBR] Native PBR hooks already installed");
         return Ok(());
     }
@@ -1476,6 +1481,7 @@ pub(crate) fn install(settings: NativePbrSettings) -> Result<()> {
     if !install_selector_setup_hooks() {
         INSTALLED.store(false, Ordering::Release);
         HOOKS_ACTIVE.store(false, Ordering::Release);
+        set_block_reason(Some("selector setup hook install failed"));
         return Ok(());
     }
 
@@ -1483,6 +1489,7 @@ pub(crate) fn install(settings: NativePbrSettings) -> Result<()> {
         disable_all_hooks();
         INSTALLED.store(false, Ordering::Release);
         HOOKS_ACTIVE.store(false, Ordering::Release);
+        set_block_reason(Some("SetTexture hook install failed"));
         return Ok(());
     }
 
@@ -1490,6 +1497,7 @@ pub(crate) fn install(settings: NativePbrSettings) -> Result<()> {
         disable_all_hooks();
         INSTALLED.store(false, Ordering::Release);
         HOOKS_ACTIVE.store(false, Ordering::Release);
+        set_block_reason(Some("SetShaders hook install failed"));
         return Ok(());
     }
 
@@ -1497,15 +1505,17 @@ pub(crate) fn install(settings: NativePbrSettings) -> Result<()> {
         disable_all_hooks();
         INSTALLED.store(false, Ordering::Release);
         HOOKS_ACTIVE.store(false, Ordering::Release);
+        set_block_reason(Some("pass shader-interface hook install failed"));
         return Ok(());
     }
 
     HOOKS_ACTIVE.store(true, Ordering::Release);
+    set_block_reason(None);
     log::info!("[PBR] Native PBR selector, draw, texture, and shader-interface hooks installed");
 
     if settings.enabled {
         log::info!(
-            "[PBR] Native PBR material shader enabled for NVR ObjectTemplate ADTS/ADTS10 material variants and land LOD"
+            "[PBR] Native PBR material shader enabled for object material variants and land LOD"
         );
     }
 
@@ -1547,7 +1557,12 @@ pub(crate) fn runtime_status() -> NativePbrRuntimeStatus {
     NativePbrRuntimeStatus {
         installed: INSTALLED.load(Ordering::Acquire),
         shader_enabled: MATERIAL_SHADER_ENABLED.load(Ordering::Acquire),
+        block_reason: *INSTALL_BLOCK_REASON.lock(),
     }
+}
+
+fn set_block_reason(reason: Option<&'static str>) {
+    *INSTALL_BLOCK_REASON.lock() = reason;
 }
 
 pub(crate) fn reset_runtime_state() {
@@ -2920,8 +2935,8 @@ fn upload_replacement_material_constants(
         atomic_pbr_f32(&PBR_AMBIENT_SCALE_BITS),
     ]];
     let pbr_extra_data = [[atomic_pbr_f32(&PBR_ALBEDO_SATURATION_BITS), 0.0, 0.0, 0.0]];
-    let _ = device.set_pixel_shader_constant_f(PBR_NVR_DATA_REGISTER, &pbr_data);
-    let _ = device.set_pixel_shader_constant_f(PBR_NVR_EXTRA_DATA_REGISTER, &pbr_extra_data);
+    let _ = device.set_pixel_shader_constant_f(PBR_DATA_REGISTER, &pbr_data);
+    let _ = device.set_pixel_shader_constant_f(PBR_EXTRA_DATA_REGISTER, &pbr_extra_data);
 }
 
 fn atomic_pbr_f32(value: &AtomicU32) -> f32 {

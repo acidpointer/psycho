@@ -9,7 +9,7 @@ members = [
   "psycho-loader",
   "psycho-engine-fixes",
   "psycho-engine-fixes-helper",
-  "psycho-graphics",
+  "omv",
   "psycho-imgui"
 ]
 

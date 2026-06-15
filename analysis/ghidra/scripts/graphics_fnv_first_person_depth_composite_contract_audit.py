@@ -1,5 +1,5 @@
 # @category Analysis
-# @description Audit FNV first-person wall-clip depth and color composite contract for Psycho Graphics
+# @description Audit FNV first-person wall-clip depth and color composite contract for OMV
 
 from ghidra.app.decompiler import DecompInterface
 

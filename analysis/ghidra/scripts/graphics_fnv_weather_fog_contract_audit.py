@@ -1,5 +1,5 @@
 # @category Analysis
-# @description Audit FNV weather and fog data contract for Psycho Graphics AO and sunshafts
+# @description Audit FNV weather and fog data contract for OMV AO and sunshafts
 
 from ghidra.app.decompiler import DecompInterface
 

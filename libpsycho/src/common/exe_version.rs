@@ -1,6 +1,4 @@
-//! This is full port of executable versioning from F4SE project to Rust.
-//!
-//! Should be compatible with other `Bethesda` games, but tested only with `Fallout 4`.
+//! Packed executable version helpers used by Bethesda script-extender APIs.
 
 // Macro equivalents as Rust functions
 #[inline]
@@ -36,12 +34,8 @@ pub const fn get_exe_version_sub(version: u32) -> u32 {
 
 /// ExeVersion
 ///
-/// Fallout 4 use binary packing technique to store version numbers.
-/// To work with it, we have ExeVersion type, which offers all must
-/// have functionality.
-///
-/// All core logic is re-written from F4SE source code with slight
-/// additional improvements specific for Rust.
+/// Bethesda script-extender APIs use a packed integer to store version numbers.
+/// `ExeVersion` wraps that representation and exposes readable components.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct ExeVersion {
     major: u32,

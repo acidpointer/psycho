@@ -1,5 +1,5 @@
 # @category Analysis
-# @description Audit FalloutNV first-person render state and depth contract for Psycho Graphics
+# @description Audit FalloutNV first-person render state and depth contract for OMV
 
 from ghidra.app.decompiler import DecompInterface
 

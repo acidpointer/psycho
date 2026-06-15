@@ -1,5 +1,5 @@
 # @category Analysis
-# @description Audit FNV sky sun and camera projection contract for Psycho Graphics sunshafts
+# @description Audit FNV sky sun and camera projection contract for OMV sunshafts
 
 from ghidra.app.decompiler import DecompInterface
 

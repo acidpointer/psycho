@@ -1,5 +1,5 @@
 # @category Analysis
-# @description Audit FNV BSFogProperty layout and active scene-node fog pointer contract for Psycho Graphics
+# @description Audit FNV BSFogProperty layout and active scene-node fog pointer contract for OMV
 
 from ghidra.app.decompiler import DecompInterface
 

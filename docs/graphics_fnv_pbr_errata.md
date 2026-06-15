@@ -1,6 +1,6 @@
 # FNV PBR Errata
 
-This document records known Psycho Graphics PBR failures, their causes, and the rules that prevent repeating them. It is part of the graphics engineering contract for this repo.
+This document records known Oh My Vegas / OMV PBR failures, their causes, and the rules that prevent repeating them. It is part of the graphics engineering contract for this repo.
 
 Before touching native PBR, read this together with `AGENTS.md` and the relevant Ghidra output in `analysis/ghidra/output/perf/`.
 
@@ -27,10 +27,21 @@ Use these sources before making terrain or lighting changes:
 - `analysis/ghidra/output/perf/graphics_fnv_pbr_close_terrain_pass_entry_runtime_contract.txt`
 - `analysis/ghidra/output/perf/graphics_fnv_pbr_close_terrain_vertex_abi_contract.txt`
 - `analysis/ghidra/output/perf/graphics_fnv_pbr_close_terrain_vertex_declaration_contract.txt`
-- `.research/NewVegasReloaded_release/Shaders/TerrainTemplate.hlsl`
-- `.research/NewVegasReloaded_release/Shaders/Includes/Terrain.hlsl`
-- `.research/NewVegasReloaded_release/Shaders/TerrainLODTemplate.hlsl`
-- `.research/NewVegasReloaded_release/Shaders/ObjectTemplate.hlsl`
+- `.research/TESReloaded10-master/NewVegasReloaded/Main.cpp`
+- `.research/TESReloaded10-master/src/effects/Terrain.cpp`
+- `.research/TESReloaded10-master/src/effects/PBR.cpp`
+- `.research/TESReloaded10-master/src/effects/POM.cpp`
+- `.research/TESReloaded10-master/src/core/ShaderManager.cpp`
+- `.research/TESReloaded10-master/src/core/ShaderRecord.cpp`
+- `.research/TESReloaded10-master/src/hlsl/NewVegas/Shaders/TerrainTemplate.hlsl`
+- `.research/TESReloaded10-master/src/hlsl/NewVegas/Shaders/Includes/Terrain.hlsl`
+- `.research/TESReloaded10-master/src/hlsl/NewVegas/Shaders/TerrainLODTemplate.hlsl`
+- `.research/TESReloaded10-master/src/hlsl/NewVegas/Shaders/ObjectTemplate.hlsl`
+- `.research/fnv-vanilla-plus-terrain-main/VanillaPlusTerrain/main.cpp`
+- `.research/fnv-vanilla-plus-terrain-main/shaders/TerrainTemplate.hlsl`
+- `.research/fnv-vanilla-plus-terrain-main/shaders/TerrainLODTemplate.hlsl`
+- `.research/fnv-vanilla-plus-terrain-main/shaders/TerrainFadeTemplate.hlsl`
+- `.research/Fallout-Shader-Loader-main/ShaderLoader/main.cpp`
 
 Important proven facts:
 
@@ -64,11 +75,11 @@ Latest close-terrain audits add these constraints:
 - `FUN_00BD4BA0` and `FUN_00B7DAB0` pass the current geometry shader-args block at `geometry+0x68` into shader-interface virtual `+0x78` for both pixel and vertex paths. This closes the runtime apply bridge, but it still does not prove the exact D3D vertex declaration for each selected mesh row.
 - `graphics_fnv_pbr_close_terrain_vertex_declaration_contract.txt` did not find a static `D3DVERTEXELEMENT9` declaration candidate matching the NVR terrain ABI. Its D3D9 method-offset scan is broad and noisy; it does not identify the exact close-terrain declaration or FVF path.
 - NVR close terrain expects a complete shader ABI: `BaseMap[7]` at `s0..s6`, `NormalMap[7]` at `s7..s13`, `LandSpec` at `c32/c33`, `LandHeight` at `c34/c35`, fog and sun constants, `TEX_COUNT` matching active layers, and NVR-owned terrain controls at `c89/c90`.
-- Vanilla PPLighting registers do not prove the NVR close-terrain constant ABI. `c35`/`c39` hits in the closure audit are `PrevWorldViewPT`/`PrevWorldViewT`, and `c32`/`c37` hits inside setup functions are branch/test immediates, not terrain constant bindings. Psycho must either upload the NVR terrain constants explicitly or remove those assumptions from the replacement shader.
+- Vanilla PPLighting registers do not prove the NVR close-terrain constant ABI. `c35`/`c39` hits in the closure audit are `PrevWorldViewPT`/`PrevWorldViewT`, and `c32`/`c37` hits inside setup functions are branch/test immediates, not terrain constant bindings. OMV must either upload the NVR terrain constants explicitly or remove those assumptions from the replacement shader.
 - The point-light terrain variant additionally needs `PointLightColor`, `PointLightPosition`, and `PointLightCount` constants. Do not enable it until those rows and constants are proven at runtime.
-- Current Psycho terrain replacement shader is not complete against the NVR contract: it does not implement the proven `LandHeight c34/c35` parallax contract and does not compile per-row `TEX_COUNT` variants. Treat it as diagnostic/experimental until the engine-side constants and active-layer specialization are implemented.
+- Current OMV terrain replacement shader is not complete against the NVR contract: it does not implement the proven `LandHeight c34/c35` parallax contract and does not compile per-row `TEX_COUNT` variants. Treat it as diagnostic/experimental until the engine-side constants and active-layer specialization are implemented.
 
-Compare these closure outputs with `[PBR_CONTRACT]` runtime logs from `psycho-graphics/src/pbr.rs` before changing replacement policy.
+Compare these closure outputs with `[PBR_CONTRACT]` runtime logs from `omv/src/effects/pbr.rs` before changing replacement policy.
 
 Remaining vertex declaration gap:
 
@@ -311,7 +322,7 @@ A future close terrain fix must prove all of this first:
 
 - Diffuse and normal layer sampler ownership.
 - Shadow, light, and fallback sampler ownership.
-- Constants: `AmbientColor`, `SunColor`, `SunDir`, `LandSpec`, `LandHeight`, fog, point lights, and Psycho/NVR PBR registers.
+- Constants: `AmbientColor`, `SunColor`, `SunDir`, `LandSpec`, `LandHeight`, fog, point lights, and OMV/NVR PBR registers.
 
 4. Fallback behavior
 

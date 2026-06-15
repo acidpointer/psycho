@@ -1,19 +1,19 @@
 [package]
-name = "psycho-graphics"
+name = "omv"
 version = "0.1.0"
 edition = "2024"
 
 [lib]
-name = "psycho_graphics"
+name = "omv"
 crate-type = ["cdylib", "rlib"]
 
 [dependencies]
 anyhow = { workspace = true }
 libpsycho = { path = "../libpsycho" }
+libnvse = { path = "../libnvse" }
 log = { workspace = true }
 parking_lot = { workspace = true }
 psycho-imgui = { path = "../psycho-imgui" }
-psycho-loader-api = { path = "../psycho-loader-api" }
 serde = { workspace = true }
 toml = { workspace = true }
 toml_edit = "0.22"

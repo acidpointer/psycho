@@ -433,7 +433,7 @@ def main():
 	write("1. Which engine branches prove a draw is real close landscape, not merely a land shader slot?")
 	write("2. Which selector/geometry flags and material arrays differ for landscape versus interior/static draws?")
 	write("3. Which land helper pass entries carry real texture resources, projected shadow rows, and point-light rows?")
-	write("4. What should Psycho Graphics require before replacing close terrain shaders?")
+	write("4. What should OMV require before replacing close terrain shaders?")
 	print_land_string_refs()
 	print_function_list(FOCUS_FUNCTIONS)
 

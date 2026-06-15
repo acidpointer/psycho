@@ -1,5 +1,5 @@
 # @category Analysis
-# @description Audit FNV post-depth render hook sites for Psycho Graphics
+# @description Audit FNV post-depth render hook sites for OMV
 
 from ghidra.app.decompiler import DecompInterface
 
@@ -254,7 +254,7 @@ def main():
 	write("=" * 70)
 	write("FNV POST-DEPTH HOOK AUDIT")
 	write("=" * 70)
-	write("Goal: verify exact FNV render hook surface before Psycho Graphics patches it.")
+	write("Goal: verify exact FNV render hook surface before OMV patches it.")
 	analyze_hook_sites()
 	analyze_related_functions()
 	analyze_globals()

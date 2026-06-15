@@ -1,6 +1,6 @@
-//! Direct3D 9 wrappers used by loader-hosted graphics modules.
+//! Direct3D 9 wrappers used by injected rendering modules.
 //!
-//! The game owns the renderer and its `IDirect3DDevice9`. Use `Device9Ref`
+//! Host applications own their renderer and `IDirect3DDevice9`. Use `Device9Ref`
 //! for borrowed device pointers so Rust does not call `Release` on objects it
 //! does not own. Resource wrappers in this module are owned COM references.
 
@@ -74,9 +74,6 @@ pub const DEVICE9_VTBL_CREATE_VERTEX_SHADER: usize = 0x16c;
 /// Byte offset of `IDirect3DDevice9::CreatePixelShader` in the device vtable.
 pub const DEVICE9_VTBL_CREATE_PIXEL_SHADER: usize = 0x1a8;
 
-/// Gamebryo `NiDX9Renderer::m_pkD3DDevice9` offset confirmed by Ghidra output.
-pub const NIDX9_RENDERER_DEVICE_OFFSET: usize = 0x288;
-
 /// Result type returned by Direct3D wrapper calls.
 pub type Direct3DResult<T> = WindowsResult<T>;
 
@@ -117,7 +114,7 @@ const fn make_fourcc(a: u8, b: u8, c: u8, d: u8) -> u32 {
 /// Borrowed `IDirect3DDevice9` pointer.
 ///
 /// This wrapper does not call `AddRef` or `Release`. It is meant for pointers
-/// read from the game renderer, where ownership remains with the engine.
+/// read from a host renderer, where ownership remains with the host.
 #[derive(Clone, Copy)]
 pub struct Device9Ref<'a> {
     inner: InterfaceRef<'a, IDirect3DDevice9>,

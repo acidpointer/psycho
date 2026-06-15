@@ -192,7 +192,7 @@ def scan_function_for_texture_offsets(addr_int, label):
 def main():
 	write("FNV NIDX9 TEXTURE DATA AUDIT")
 	write("")
-	write("Goal: prove renderer-data offset use and D3D texture field for psycho-graphics depth binding.")
+	write("Goal: prove renderer-data offset use and D3D texture field for omv depth binding.")
 	find_refs_to(RTTI_NITEXTURE, "RTTI_NiTexture")
 	find_refs_to(RTTI_NIDX9_TEXTURE_DATA, "RTTI_NiDX9TextureData")
 	find_refs_to(RTTI_NIDX9_PERSISTENT_SRC_TEXTURE_RENDERER_DATA, "RTTI_NiDX9PersistentSrcTextureRendererData")

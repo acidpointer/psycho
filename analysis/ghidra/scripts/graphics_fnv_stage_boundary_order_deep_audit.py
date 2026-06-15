@@ -1,5 +1,5 @@
 # @category Analysis
-# @description Audit FNV render-stage ordering for Psycho Graphics scene/final shader boundaries
+# @description Audit FNV render-stage ordering for OMV scene/final shader boundaries
 
 from ghidra.app.decompiler import DecompInterface
 

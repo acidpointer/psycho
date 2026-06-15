@@ -27,7 +27,7 @@ use windows::Win32::{
 };
 use windows::core::HRESULT;
 
-use crate::{backend, pbr, runtime};
+use crate::{backend, effects::pbr, runtime};
 
 type PresentFn = unsafe extern "system" fn(
     *mut c_void,
@@ -64,7 +64,7 @@ pub(crate) fn start_install_worker() -> Result<()> {
     }
 
     thread::Builder::new()
-        .name("psycho-graphics-d3d-hook".to_owned())
+        .name("omv-d3d-hook".to_owned())
         .spawn(install_worker)
         .context("failed to start Direct3D hook worker")?;
 

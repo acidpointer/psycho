@@ -1,5 +1,5 @@
 # @category Analysis
-# @description Audit FNV NiCamera matrix frustum and projection contract for Psycho Graphics
+# @description Audit FNV NiCamera matrix frustum and projection contract for OMV
 
 from ghidra.app.decompiler import DecompInterface
 

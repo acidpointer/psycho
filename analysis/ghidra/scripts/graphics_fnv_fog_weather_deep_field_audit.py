@@ -1,5 +1,5 @@
 # @category Analysis
-# @description Deep scan FNV fog weather strings refs and field accessors for Psycho Graphics
+# @description Deep scan FNV fog weather strings refs and field accessors for OMV
 
 from ghidra.app.decompiler import DecompInterface
 

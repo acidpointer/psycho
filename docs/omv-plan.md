@@ -1,16 +1,16 @@
-# Psycho Graphics Research And Implementation Plan
+# OMV Research And Implementation Plan
 
 Date: 2026-06-08
 
 This document records the current research state and implementation plan for
-`psycho-graphics`. The target is not another final-frame post-processor. The
+`omv`. The target is not another final-frame post-processor. The
 target is a graphics layer that can run early enough in the FNV render pipeline
 to cooperate with vanilla fog/image-space effects, while remaining compatible
 with other graphics mods.
 
 ## Primary Goal
 
-`psycho-graphics` must support deeper graphics features than the current
+`omv` must support deeper graphics features than the current
 screen-space final pass:
 
 - ambient occlusion that is composed before vanilla fog/image-space effects;
@@ -19,7 +19,7 @@ screen-space final pass:
 - live shader loading and configuration without breaking other graphics mods.
 
 The hard requirement is compatibility. TESReloaded/NewVegasReloaded is trusted
-prior art and is time proven, but Psycho must not blindly copy its invasive
+prior art and is time proven, but OMV must not blindly copy its invasive
 patching model. We should reuse the ideas and avoid the compatibility hazards.
 
 ## Current Problem
@@ -31,7 +31,7 @@ real engine effect.
 
 Current hook path:
 
-- `psycho-graphics/src/fnv_render.rs`
+- `omv/src/fnv_render.rs`
   - `ProcessImageSpaceShaders @ 0x00B55AC0`
   - `RenderWorldSceneGraph @ 0x00873200`
   - `RenderFirstPerson @ 0x00875110`
@@ -47,11 +47,11 @@ This is a valid phase for final AA/CAS/debug overlays. It is the wrong phase for
 AO, contact shadows, depth-based lighting, godray occlusion masks, and other
 effects that should participate in later vanilla composition.
 
-## Current Psycho Implementation Baseline
+## Current OMV Implementation Baseline
 
 ### Hooks
 
-`psycho-graphics/src/fnv_render.rs` installs three hooks:
+`omv/src/fnv_render.rs` installs three hooks:
 
 - `0x00B55AC0` - `ImageSpaceManager::ProcessImageSpaceShaders`
 - `0x00873200` - `Main::RenderWorldSceneGraph`
@@ -59,13 +59,13 @@ effects that should participate in later vanilla composition.
 
 Current behavior:
 
-- after `RenderWorldSceneGraph`, Psycho resolves world depth and captures world
+- after `RenderWorldSceneGraph`, OMV resolves world depth and captures world
   color;
-- after `RenderFirstPerson`, Psycho resolves first-person depth;
-- at the start of `ProcessImageSpaceShaders`, Psycho draws
+- after `RenderFirstPerson`, OMV resolves first-person depth;
+- at the start of `ProcessImageSpaceShaders`, OMV draws
   `scene_pre_image_space` passes into the vanilla source `BSRenderedTexture`
   before vanilla image-space effects consume it;
-- after `ProcessImageSpaceShaders`, Psycho draws `scene_post_image_space` and
+- after `ProcessImageSpaceShaders`, OMV draws `scene_post_image_space` and
   `final_image_space` passes.
 
 This gives AO/contact-shadow passes a real pre-vanilla-image-space timing while
@@ -84,7 +84,7 @@ Important correction from runtime testing:
 
 ### Depth Resolve
 
-`psycho-graphics/src/backend/fnv.rs` currently resolves the active D3D depth
+`omv/src/backend/fnv.rs` currently resolves the active D3D depth
 surface using INTZ/RESZ:
 
 - D3D device is read from `NiDX9Renderer::singleton @ 0x011C73B4`.
@@ -92,12 +92,12 @@ surface using INTZ/RESZ:
 - Near/far are read from camera offsets `0xEC` and `0xF0`.
 - World and first-person depth textures are stored separately.
 
-Important: Psycho's depth chain is independent from DepthResolve. This is good
+Important: OMV's depth chain is independent from DepthResolve. This is good
 for compatibility and should remain true.
 
 ### Runtime Shader Model
 
-`psycho-graphics/src/runtime.rs` currently treats every shader as the same kind
+`omv/src/runtime.rs` currently treats every shader as the same kind
 of fullscreen screen pass:
 
 - source color/current render target copy is bound to `s0`;
@@ -191,7 +191,7 @@ Known chain:
 
 Important conclusion:
 
-- Psycho should not require DepthResolve's
+- OMV should not require DepthResolve's
   `ImageSpaceManager::GetDepthTexture` replacement.
 
 DepthResolve-owned sites that must remain off-limits:
@@ -216,7 +216,7 @@ Known facts:
 - First-person camera/depth values are modified and restored around this path.
 
 TESReloaded patches the first-person depth clear and re-renders first-person.
-That may be valid for NVR, but it is not compatibility-first. Psycho should keep
+That may be valid for NVR, but it is not compatibility-first. OMV should keep
 separate first-person depth and use masks before considering this kind of patch.
 
 ### Camera And Projection
@@ -295,7 +295,7 @@ Known candidate data:
 
 The output explicitly says not to implement sun projection until these offsets
 are proven. Since TESReloaded is trusted prior art, we do not need to prove that
-the concept works, but we still need a safe Psycho data contract before shipping
+the concept works, but we still need a safe OMV data contract before shipping
 code that dereferences game memory and advertises compatibility.
 
 Current sunshafts runtime finding:
@@ -305,7 +305,7 @@ Current sunshafts runtime finding:
   directory but does not delete old shader files;
 - that shader did not auto-detect the sun. It used manual screen UV sliders at
   `c4.xy`;
-- the shader read its third option block from `c6`, but Psycho reserves `c6` for
+- the shader read its third option block from `c6`, but OMV reserves `c6` for
   environment constants. Its TOML wrote `sun_sample_px` and `glare_radius` to
   `c7`, so the shader was reading fog data where it expected sunshafts options;
 - the tracked interim `09_sunshafts_lite` fixed the option register to `c7`,
@@ -350,7 +350,7 @@ Current sunshafts runtime finding:
   This was caused by trying to solve a multi-buffer effect inside the generic
   single-pass shader path. That path is now considered invalid for sunshafts.
 - `09_sunshafts_lite` now runs in `scene_post_image_space`, so it is composed
-  after vanilla image-space but before Psycho final passes such as bloom/AA.
+  after vanilla image-space but before OMV final passes such as bloom/AA.
   This is closer to a lighting contribution than a final overlay.
 - `.research/soc_shaders` contains a strong S.T.A.L.K.E.R. SoC reference
   implementation in `shaders/r2/_sun_shafts.h`, `shafts.h`, and
@@ -358,11 +358,11 @@ Current sunshafts runtime finding:
   sampling, sun-distance exposure fades, low-luminance boost, high-luminance
   compression, sun-color/halo contribution, and composing before final
   bloom/combine. Its 100-160 sample paths and multiple engine textures are not
-  appropriate for the current Psycho single-pass `ps_3_0` full-resolution path.
-- The current Psycho variant no longer treats sunshafts as a normal live
+  appropriate for the current OMV single-pass `ps_3_0` full-resolution path.
+- The current OMV variant no longer treats sunshafts as a normal live
   screen-space shader. `09_sunshafts_lite.hlsl` is only a config/menu anchor;
   the actual effect is a named engine-side runtime pipeline in
-  `psycho-graphics/src/sunshafts.rs`.
+  `omv/src/effects/sunshafts.rs`.
 - The engine-side pipeline owns the missing SoC-like buffers:
   - half-resolution source/occlusion mask render target;
   - half-resolution radial accumulation render target;
@@ -405,8 +405,8 @@ Current sunshafts runtime finding:
   defaults: intensity around `0.34`, exposure around `0.52`, force around
   `2.05`, decay around `1.005`, density around `1.08`, wider sun sampling, and
   softer occlusion. This is intentionally closer to SoC's broad, smooth shaft
-  feel while staying within Psycho's current buffer contract.
-- Remaining gap against SoC: Psycho still does not have SoC's material/alpha
+  feel while staying within OMV's current buffer contract.
+- Remaining gap against SoC: OMV still does not have SoC's material/alpha
   buffers, weather sun color, cloud mask, dust/noise textures, or shadow-map
   sun visibility. Those require new engine-side contracts before shader work.
 
@@ -419,7 +419,7 @@ Current Blooming HDR runtime finding:
   highlight softening.
 - The current implementation treats `07_blooming_hdr_lite.hlsl` as a
   config/menu anchor. The actual effect is a named engine-side final-image
-  pipeline in `psycho-graphics/src/blooming_hdr.rs`.
+  pipeline in `omv/src/effects/blooming_hdr.rs`.
 - The Blooming HDR pipeline owns the missing buffers:
   - quarter-resolution bright/atmosphere extraction target;
   - quarter-resolution blur ping-pong target;
@@ -531,7 +531,7 @@ The deep fog/weather audit adds stronger weather-controller knowledge:
 
 Conclusion:
 
-- Psycho should not expose raw sky/weather fields directly to shaders.
+- OMV should not expose raw sky/weather fields directly to shaders.
 - The runtime should eventually expose a normalized environment block produced
   by engine-side readers: fog color/range, weather blend, time phase weights,
   sun color/direction, and exterior/interior flags.
@@ -654,7 +654,7 @@ Important TESReloaded effect order:
 This order is the main lesson for the current AO bug: AO is not a final overlay.
 It belongs before later fog/volumetric/final composition.
 
-Compatibility hazards in TESReloaded that Psycho should not copy by default:
+Compatibility hazards in TESReloaded that OMV should not copy by default:
 
 - extending `NiD3DVertexShader`/`NiD3DPixelShader` object sizes with raw writes;
 - patching `0x008751C0` to stop first-person depth clear;
@@ -673,7 +673,7 @@ Ghidra-backed NewVegasReloaded contract findings:
     `0x00BE1690` immediate;
   - `BSShader::CreatePixelShader @ 0x00BE1750` allocates `0x30` bytes at the
     `0x00BE1DFB` immediate.
-- Psycho must not copy those allocation-size patches for the compatibility
+- OMV must not copy those allocation-size patches for the compatibility
   target. Store replacement metadata in side tables keyed by native shader
   object pointer.
 - `BSShader::SetShaders @ 0x00BE1F90` is a valid draw-time bind point. Its
@@ -693,7 +693,7 @@ Ghidra-backed NewVegasReloaded contract findings:
   classify these proxy modes.
 - `SetShaderPackage @ 0x00B4F710` writes shader package globals
   `0x011F91BC/0x011F91C0`, and many shader setup paths read them. NVR forcing
-  package `7` is a global behavior change; Psycho should not do this in default
+  package `7` is a global behavior change; OMV should not do this in default
   mode.
 - `NiDX9RenderState::SetSamplerState @ 0x00E910A0` uses TypeMap
   `0x0126F92C` and tracks only mapped states with index `< 5`. Extra PBR
@@ -724,7 +724,7 @@ Ghidra-backed NewVegasReloaded contract findings:
   weather records through object slots like `+0x114 + index*0x30`,
   `+0x504`, `+0x534`, `+0x60C`, optional fallback flags at `+0xE8/+0x100`,
   and downstream setters `0x00B8AF10/0x00B8AFB0/0x00B8B000/0x00B8B0D0`.
-  Psycho should not reproduce NVR's raw weather color walk for compatibility.
+  OMV should not reproduce NVR's raw weather color walk for compatibility.
 - `graphics_fnv_native_render_state_fog_color_contract_audit.txt` proves
   renderer-owned final fog color. `NiDX9RenderState::SetFog @ 0x00E87C50`
   writes the final fog color into `NiDX9RenderState +0x8C/+0x90/+0x94`, packs
@@ -816,14 +816,14 @@ Ghidra-backed NewVegasReloaded contract findings:
   aliased native object. `PSY_SunDirection` should continue to use the already
   proven sky sun root/projection path; `PSY_SunColor` should remain unavailable
   or conservative until a real renderer-owned light color source is proven.
-- Conclusion for Psycho PBR: close the Reloaded `Sun +0x1C/Main +0x1C`
+- Conclusion for OMV PBR: close the Reloaded `Sun +0x1C/Main +0x1C`
   directional-light alias path. Do not use `Sun +0x1C`, `Main +0x1C`,
   `NiLight +0xD4`, or `NiDirectionalLight +0xF0` as default material constants,
   and do not spend more scripts chasing that alias unless a different executable
   proof appears.
 - `TESR_SunColor` as a Reloaded-style persistent environment constant remains
   unsuitable for default native material lighting. NewVegasReloaded computes it
-  from raw `TESWeather::colors[eColor_Sun]`, while Psycho should prefer
+  from raw `TESWeather::colors[eColor_Sun]`, while OMV should prefer
   renderer-owned draw-time light data when native material replacement is
   active.
 - `graphics_fnv_final_sun_color_renderer_contract_audit.txt` proves the final
@@ -839,7 +839,7 @@ Ghidra-backed NewVegasReloaded contract findings:
   data, and per-draw attenuation; `FUN_00B78A90` walks the active light list,
   fills `0x011FD9A8` direction/position vectors, and updates shader constant
   counts through cached handles like `DAT_011FEC38`.
-- For Psycho this is a draw-time material-lighting contract only. The globals
+- For OMV this is a draw-time material-lighting contract only. The globals
   `0x011FA0D0` and `0x011FD9A8` are renderer-owned per-draw arrays that can be
   consumed or mirrored only inside validated material/shader draw hooks. They
   must not be exposed as persistent `PSY_SunColor`/`PSY_SunDirection`, and they
@@ -941,7 +941,7 @@ Ghidra-backed NewVegasReloaded contract findings:
   `FUN_00BA8C50`/`FUN_00BA8EC0`. The next texture-binding gap is therefore the
   pass-entry layout and apply path, not the PPLighting array layout.
 - PBR rule from this audit: the six runtime arrays are source/runtime layout
-  evidence only. A compatible Psycho implementation should rely on validated
+  evidence only. A compatible OMV implementation should rely on validated
   draw-time pass state and already-bound vanilla texture stages until the
   pass-entry apply path proves exact D3D stage ownership. Do not treat
   `+0xAC..+0xC0` as a direct PBR map feed from a generic draw hook.
@@ -1105,7 +1105,7 @@ Ghidra-backed NewVegasReloaded contract findings:
 - The same PBR interface audit confirms vanilla shader object allocation
   sizes: pixel shader objects are allocated at `0x30` bytes and initialized via
   `FUN_00BE08F0`; vertex shader objects are allocated at `0x3C` bytes and
-  initialized via `FUN_00BE0B30`. Psycho must keep using side tables/replacement
+  initialized via `FUN_00BE0B30`. OMV must keep using side tables/replacement
   handles rather than extending native object layouts.
 - `FUN_00BD1C50` is confirmed as the current-pass writer and pass `+0x44`
   pixel-shader ownership updater. `FUN_00BD4BA0` is the stronger PBR lead: it
@@ -1241,11 +1241,11 @@ Ghidra-backed NewVegasReloaded contract findings:
   helper vtable `+0x7C`. It returns immediately after those binds. This makes
   `SetShaders` a proven post-constant shader-handle binding boundary.
 - NewVegasReloaded's source path is now explicitly rejected as a compatibility
-  model for Psycho: it casts vanilla `NiD3DVertexShader`/`NiD3DPixelShader`
+  model for OMV: it casts vanilla `NiD3DVertexShader`/`NiD3DPixelShader`
   allocations to larger `NiD3D*ShaderEx` structs and appends fields such as
   replacement shader records, backup handles, and names after the vanilla
   object. Ghidra proves vanilla allocations are only `0x3C` and `0x30`, so
-  Psycho must not extend those objects. The compatible model is a side table
+  OMV must not extend those objects. The compatible model is a side table
   keyed by vanilla shader object pointer plus draw-scoped native handle binding.
 - `graphics_fnv_pbr_pplighting_pass_shader_pair_contract_audit.txt` closes the
   first safe PPLighting family-detection contract. Runtime pass writers
@@ -1810,7 +1810,7 @@ Ghidra-backed NewVegasReloaded contract findings:
   a common ADTS10 `LIGHTS=4` pair at vertex index `22` and pixel index `31`;
   that pair uses a different packed input ABI and requires a separate
   replacement shader.
-- Current Psycho implementation state: Native PBR hooks are installed
+- Current OMV implementation state: Native PBR hooks are installed
   automatically at startup when all target prologues are vanilla. The runtime
   `graphics.native_pbr.enabled` option controls only the visible material
   shader. The hook path captures the proven contract at
@@ -1831,11 +1831,11 @@ Ghidra-backed NewVegasReloaded contract findings:
   `SetShaders` model: for opt-in PPLighting family-3 ADTS specular draws
   (`v12/p17` and skinned `v13/p17`) and ADTS10 `LIGHTS=4` draws (`v22/p31`),
   with vanilla diffuse `s0` bound and a selector/vanilla normal source
-  available, Psycho binds selector material resources through the proven
+  available, OMV binds selector material resources through the proven
   renderer `+0x8C4` resolver, temporarily swaps the native
   `NiD3DPixelShader +0x2C` handle to an embedded NVR-compatible PBR pixel
   shader, calls vanilla `BSShader::SetShaders`, uploads the
-  Psycho-owned `c31` material flags and NVR-compatible `c32/c33` PBR defaults,
+  OMV-owned `c31` material flags and NVR-compatible `c32/c33` PBR defaults,
   and restores the vanilla handle immediately. The low-light embedded shader
   follows the Reloaded SLS2017 specular object shader ABI: `c1` ambient,
   `c3` primary light color array, `c27` toggles, `c32/c33` PBR data, `s0`
@@ -1869,7 +1869,7 @@ Useful ideas:
 Compatibility lesson:
 
 - these hook points are already used by active graphics mods;
-- if Psycho later uses them, it must chain cleanly or disable that feature;
+- if OMV later uses them, it must chain cleanly or disable that feature;
 - native shader loading must not assume sole ownership.
 
 ### DepthResolve
@@ -1893,7 +1893,7 @@ Compatibility hazards:
 - patches `0x00B64057`, `0x00B65C43`, `0x00B65C4C`;
 - replaces calls at `0x00B6657D` and `0x00B665AC`.
 
-Psycho's current independent active-depth resolve is preferable for
+OMV's current independent active-depth resolve is preferable for
 compatibility. We should not depend on DepthResolve being installed.
 
 ### Vanilla Plus AO
@@ -1918,7 +1918,7 @@ Compatibility lesson:
 
 - staged AO is worthwhile;
 - hard dependencies on Shader Loader and DepthResolve are not acceptable for
-  Psycho's compatibility goal;
+  OMV's compatibility goal;
 - fog-aware AO logic is necessary even when AO is moved earlier.
 
 ## Compatibility-First Rules
@@ -1927,19 +1927,19 @@ These rules override feature ambition.
 
 1. Default mode must be non-invasive.
 
-   Default Psycho graphics should use independent depth resolve, fullscreen
+   Default OMV graphics should use independent depth resolve, fullscreen
    passes, robust state restore, and read-only game data. It must not require
    native shader replacement.
 
 2. Native shader replacement is opt-in.
 
    PBR/material work should be disabled unless explicitly enabled. If another
-   graphics mod owns the same surface, Psycho should log and disable that layer
+   graphics mod owns the same surface, OMV should log and disable that layer
    unless a tested compatibility path exists.
 
 3. Do not extend native object layouts by default.
 
-   TESReloaded extends shader object sizes. Psycho should prefer side tables
+   TESReloaded extends shader object sizes. OMV should prefer side tables
    keyed by native pointers.
 
 4. Do not patch DepthResolve-owned callsites.
@@ -2093,7 +2093,7 @@ For complex shaders, add a named binding model inspired by TESReloaded:
 - shader sidecar can request named blocks;
 - native material replacement can use parsed shader constant tables later.
 
-Example names for Psycho:
+Example names for OMV:
 
 - `PSY_View`
 - `PSY_Projection`
@@ -2174,7 +2174,7 @@ References:
 
 Implementation note:
 
-- Psycho now exposes `EnvironmentData` in pixel shader constant `c6` as
+- OMV now exposes `EnvironmentData` in pixel shader constant `c6` as
   `fog_start`, `fog_end`, `fog_power`, and `fog_available`.
 - AO/contact AO multiply their darkening by a fog visibility term so far-fog
   pixels fade back toward unmodified color.
@@ -2265,7 +2265,7 @@ Tasks:
 Expected implementation model:
 
 - when vanilla creates a shader, record name/path and native handle;
-- if a Psycho replacement exists, create a replacement D3D shader;
+- if a OMV replacement exists, create a replacement D3D shader;
 - during the proven shader-interface/`SetShaders` boundary, bind replacement
   handles and constants only after the virtual `+0x78` contract is proven;
 - restore/chain cleanly.
@@ -2812,7 +2812,7 @@ Expected result:
 
 ## Final Direction
 
-Psycho should become a phase-aware graphics runtime first and a native shader
+OMV should become a phase-aware graphics runtime first and a native shader
 replacement system second.
 
 The correct order is:

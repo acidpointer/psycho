@@ -358,7 +358,7 @@ def main():
 	write("3. What exactly is stored in entry +0x09/+0x0A arg counts, +0x0B layer byte, and +0x0C arg table?")
 	write("4. Can runtime PBR replacement key from selector +0x3C rows instead of shader pair alone?")
 	write("")
-	write("Runtime probe fields added in psycho-graphics should be compared against this output:")
+	write("Runtime probe fields added in omv should be compared against this output:")
 	write("  list +0x04 entry pointers, +0x08 count_low, +0x0C capacity, +0x0E grow_count, +0x10 active_count")
 	write("  entry +0x00 resource, +0x04 row, +0x07 selector_flag, +0x09 arg_count, +0x0A arg_capacity, +0x0B layer, +0x0C args")
 	print_reference_targets()

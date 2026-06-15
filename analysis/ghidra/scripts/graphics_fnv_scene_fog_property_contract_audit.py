@@ -1,5 +1,5 @@
 # @category Analysis
-# @description Audit FNV active scene fog property and camera frustum contracts for Psycho Graphics
+# @description Audit FNV active scene fog property and camera frustum contracts for OMV
 
 from ghidra.app.decompiler import DecompInterface
 

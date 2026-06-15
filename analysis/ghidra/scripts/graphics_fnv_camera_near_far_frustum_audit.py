@@ -1,5 +1,5 @@
 # @category Analysis
-# @description Audit exact FNV camera near/far frustum and matrix fields for Psycho Graphics
+# @description Audit exact FNV camera near/far frustum and matrix fields for OMV
 
 from ghidra.app.decompiler import DecompInterface
 

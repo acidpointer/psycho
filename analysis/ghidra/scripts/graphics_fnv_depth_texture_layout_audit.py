@@ -1,5 +1,5 @@
 # @category Analysis
-# @description Audit FNV native depth texture object layout used by psycho-graphics
+# @description Audit FNV native depth texture object layout used by omv
 
 from ghidra.app.decompiler import DecompInterface
 
@@ -134,7 +134,7 @@ def disasm_window(center_int, before_count, after_count, label):
 def print_offset_contracts():
 	write("")
 	write("=" * 70)
-	write("psycho-graphics raw offset contract to verify")
+	write("omv raw offset contract to verify")
 	write("=" * 70)
 	write("NiTexture::m_pkRendererData expected offset: 0x24")
 	write("NiDX9TextureData::m_pkD3DTexture expected offset: 0x64")

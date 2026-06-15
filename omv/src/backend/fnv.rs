@@ -10,8 +10,7 @@ use libpsycho::os::windows::{
     directx9::{
         D3DCULL_NONE, D3DFMT_INTZ, D3DPT_POINTLIST, D3DRESZ_POINT_SIZE, D3DRS_ALPHABLENDENABLE,
         D3DRS_COLORWRITEENABLE, D3DRS_CULLMODE, D3DRS_POINTSIZE, D3DRS_ZENABLE, D3DRS_ZWRITEENABLE,
-        D3DSBT_ALL, Device9Ref, Direct3DResult, NIDX9_RENDERER_DEVICE_OFFSET, PositionVertex,
-        StateBlock9, Surface9, Texture9,
+        D3DSBT_ALL, Device9Ref, Direct3DResult, PositionVertex, StateBlock9, Surface9, Texture9,
     },
     memory::validate_memory_range,
 };
@@ -22,6 +21,7 @@ use windows::core::Error as WindowsError;
 use super::{CameraFrame, DepthResolveSlot, EnvironmentFrame, SunFrame};
 
 const NIDX9_RENDERER_SINGLETON_PTR: usize = 0x011C73B4;
+const NIDX9_RENDERER_DEVICE_OFFSET: usize = 0x288;
 const BSSHADERMANAGER_CAMERA_PTR: usize = 0x011F917C;
 const BSSHADERMANAGER_SCENE_GRAPH_INDEX: usize = 0x011F91C4;
 const BSSHADERMANAGER_SHADOW_SCENE_NODE_ARRAY: usize = 0x011F91C8;

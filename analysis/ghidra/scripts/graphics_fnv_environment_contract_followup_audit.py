@@ -1,5 +1,5 @@
 # @category Analysis
-# @description Follow up FNV camera fog weather environment contracts for Psycho Graphics
+# @description Follow up FNV camera fog weather environment contracts for OMV
 
 from ghidra.app.decompiler import DecompInterface
 

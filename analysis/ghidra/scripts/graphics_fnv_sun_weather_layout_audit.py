@@ -1,5 +1,5 @@
 # @category Analysis
-# @description Audit FNV sky sun weather time and camera layout for Psycho Graphics environment constants
+# @description Audit FNV sky sun weather time and camera layout for OMV environment constants
 
 from ghidra.app.decompiler import DecompInterface
 

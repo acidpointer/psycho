@@ -30,12 +30,10 @@ use windows::{
 };
 
 use crate::{
-    ambient_occlusion,
     backend::{self, DepthFrame, DepthProvider, DepthTexture},
-    blooming_hdr,
     config::{DepthProviderConfig, GraphicsMenuConfig},
+    effects::{ambient_occlusion, blooming_hdr, pbr, sunshafts},
     shaders::{self, EmbeddedEffectKind, ScreenShaderSource, ShaderOptionValue, ShaderPhase},
-    sunshafts,
 };
 
 const FIRST_OPTION_REGISTER: u32 = 3;
@@ -312,7 +310,7 @@ impl Default for ScreenShaderRuntime {
 
 impl ScreenShaderRuntime {
     fn configure(&mut self, settings: RuntimeSettings) {
-        crate::pbr::configure_runtime_options(settings.menu_config.native_pbr.into());
+        pbr::configure_runtime_options(settings.menu_config.native_pbr.into());
         self.settings = settings;
         self.compiled = None;
         self.next_scan = None;
@@ -1168,7 +1166,7 @@ impl ScreenShaderRuntime {
 
         let menu_config_changed = {
             let frame_pacing = self.frame_pacing.snapshot();
-            let pbr_status = crate::pbr::runtime_status();
+            let pbr_status = pbr::runtime_status();
             let mut ui = imgui.new_frame(true);
             draw_shader_menu(
                 &mut ui,
@@ -1195,7 +1193,7 @@ impl ScreenShaderRuntime {
         self.settings.menu_config.menu_toggle_key = self.settings.menu_toggle_key;
         self.settings.shader_scan_interval_ms = self.settings.menu_config.shader_scan_interval_ms;
         MENU_TOGGLE_KEY.store(self.settings.menu_toggle_key, Ordering::Release);
-        crate::pbr::configure_runtime_options(self.settings.menu_config.native_pbr.into());
+        pbr::configure_runtime_options(self.settings.menu_config.native_pbr.into());
 
         match crate::config::save_menu_config(&self.settings.menu_config) {
             Ok(()) => self.menu_config_error = None,
@@ -1569,13 +1567,13 @@ fn draw_shader_menu(
     sources: &mut [ScreenShaderSource],
     selected_item: &mut MenuSelection,
     frame_pacing: &FramePacingSnapshot,
-    pbr_status: crate::pbr::NativePbrRuntimeStatus,
+    pbr_status: pbr::NativePbrRuntimeStatus,
     menu_config_error: Option<&str>,
 ) -> bool {
     ui.set_next_window_pos(24.0, 36.0, psycho_imgui::Condition::FirstUseEver);
     ui.set_next_window_size(860.0, 680.0, psycho_imgui::Condition::FirstUseEver);
 
-    let title = cstring("Psycho Graphics");
+    let title = cstring("Oh My Vegas!");
     let window = ui.window(&title, None);
     if !window.is_visible() {
         return false;
@@ -1826,7 +1824,7 @@ fn draw_depth_provider_config(
 fn draw_native_pbr_config(
     ui: &mut psycho_imgui::Ui<'_>,
     config: &mut crate::config::NativePbrConfig,
-    status: crate::pbr::NativePbrRuntimeStatus,
+    status: pbr::NativePbrRuntimeStatus,
 ) -> bool {
     let heading = cstring("Native PBR");
     ui.text_colored(MENU_ACCENT_TEXT, &heading);
@@ -1836,15 +1834,17 @@ fn draw_native_pbr_config(
     let path = cstring(format!("Config: {}", crate::config::CONFIG_PATH));
     ui.text_wrapped(&path);
 
-    let (status_color, status_text) = if status.installed && status.shader_enabled {
-        (MENU_GOOD_TEXT, "PBR shader: active")
+    let (status_color, status_text) = if let Some(reason) = status.block_reason {
+        (MENU_WARN_TEXT, format!("PBR blocked: {reason}"))
+    } else if status.installed && status.shader_enabled {
+        (MENU_GOOD_TEXT, "PBR shader: active".to_owned())
     } else if status.installed {
-        (MENU_WARN_TEXT, "PBR hooks: active, shader disabled")
-    } else {
         (
             MENU_WARN_TEXT,
-            "PBR hooks: not installed; target prologue is not vanilla",
+            "PBR hooks: active, shader disabled".to_owned(),
         )
+    } else {
+        (MENU_WARN_TEXT, "PBR hooks: not installed".to_owned())
     };
     let status_text = cstring(status_text);
     ui.text_colored(status_color, &status_text);
@@ -1869,7 +1869,7 @@ fn draw_native_pbr_config(
     if config.enabled {
         let text = cstring("Visible scope: ADTS specular and ADTS10 LIGHTS=4 material draws");
         ui.text_colored(MENU_WARN_TEXT, &text);
-        let text = cstring("Uses NVR-style PBR registers and SetShaders handle substitution");
+        let text = cstring("Uses PBR data registers and SetShaders handle substitution");
         ui.text_colored(MENU_MUTED_TEXT, &text);
         ui.separator();
         changed |= draw_float_slider(
@@ -1914,7 +1914,7 @@ fn draw_feature_list(
     config: &GraphicsMenuConfig,
     sources: &[ScreenShaderSource],
     selected_item: &mut MenuSelection,
-    pbr_status: crate::pbr::NativePbrRuntimeStatus,
+    pbr_status: pbr::NativePbrRuntimeStatus,
 ) {
     let heading = cstring("Engine features");
     ui.text_colored(MENU_ACCENT_TEXT, &heading);
@@ -1957,7 +1957,7 @@ fn draw_feature_list(
         }
     }
     if external_count == 0 {
-        let empty = cstring("No .hlsl files in ./mods/psycho_shaders");
+        let empty = cstring("No .hlsl files in ./Data/omv/shaders");
         ui.text_colored(MENU_MUTED_TEXT, &empty);
     }
 }
@@ -2188,12 +2188,11 @@ fn shader_list_label(source: &ScreenShaderSource, index: usize) -> String {
     format!("{status}  {}##shader_select_{index}", source.name)
 }
 
-fn native_pbr_list_label(
-    configured_enabled: bool,
-    status: crate::pbr::NativePbrRuntimeStatus,
-) -> String {
+fn native_pbr_list_label(configured_enabled: bool, status: pbr::NativePbrRuntimeStatus) -> String {
     let status = if status.installed && configured_enabled {
         "ON "
+    } else if status.block_reason.is_some() {
+        "BLK"
     } else if status.installed {
         "HOK"
     } else if configured_enabled {
