@@ -25,8 +25,9 @@ use std::{
 use anyhow::Result;
 use libpsycho::os::windows::{
     directx9::{
-        D3DSAMP_ADDRESSU, D3DSAMP_ADDRESSV, D3DSAMP_MAGFILTER, D3DSAMP_MINFILTER,
-        D3DSAMP_MIPFILTER, D3DTEXF_LINEAR, D3DTEXF_NONE, Device9Ref, PixelShader9, VertexShader9,
+        D3DFMT_A8R8G8B8, D3DPOOL_MANAGED, D3DSAMP_ADDRESSU, D3DSAMP_ADDRESSV, D3DSAMP_MAGFILTER,
+        D3DSAMP_MINFILTER, D3DSAMP_MIPFILTER, D3DTEXF_LINEAR, D3DTEXF_NONE, Device9Ref,
+        PixelShader9, Texture9, VertexShader9,
     },
     hook::inline::inlinehook::InlineHookContainer,
     memory::validate_memory_range,
@@ -86,6 +87,7 @@ const PPLIGHTING_VERTEX_SLS2_ADTS_PROJECTED_SHADOW_INDEX: u32 = 4;
 const PPLIGHTING_VERTEX_SLS2_LANDLOD_PROJECTED_SHADOW_INDEX: u32 = 5;
 const PPLIGHTING_PIXEL_SLS2_LANDLOD_PROJECTED_SHADOW_INDEX: u32 = 6;
 const PPLIGHTING_VERTEX_SLS2_ADTS_PROJECTED_SHADOW_SKIN_INDEX: u32 = 6;
+const PPLIGHTING_VERTEX_SLS2_ADTS_STBB_INDEX: u32 = 7;
 const PPLIGHTING_VERTEX_SLS2_ADTS_LIGHTS2_INDEX: u32 = 8;
 const PPLIGHTING_VERTEX_SLS2_ADTS_LIGHTS2_SKIN_INDEX: u32 = 9;
 const PPLIGHTING_VERTEX_SLS2_ADTS_LIGHTS2_PROJECTED_SHADOW_INDEX: u32 = 10;
@@ -109,6 +111,7 @@ const PPLIGHTING_VERTEX_SLS2_ADTS10_SPECULAR_LIGHTS4_SKIN_INDEX: u32 = 27;
 const PPLIGHTING_PIXEL_SLS2_ADTS_SI_INDEX: u32 = 4;
 const PPLIGHTING_PIXEL_SLS2_ADTS_PROJECTED_SHADOW_INDEX: u32 = 5;
 const PPLIGHTING_PIXEL_SLS2_ADTS_SI_PROJECTED_SHADOW_INDEX: u32 = 7;
+const PPLIGHTING_PIXEL_SLS2_ADTS_STBB_INDEX: u32 = 8;
 const PPLIGHTING_PIXEL_SLS2_ADTS_LIGHTS2_INDEX: u32 = 11;
 const PPLIGHTING_PIXEL_SLS2_ADTS_LIGHTS2_SI_INDEX: u32 = 12;
 const PPLIGHTING_PIXEL_SLS2_ADTS_LIGHTS2_PROJECTED_SHADOW_INDEX: u32 = 14;
@@ -225,7 +228,7 @@ const PBR_GLOW_STAGE: u32 = 2;
 const PBR_HEIGHT_STAGE: u32 = 3;
 const PBR_ENVIRONMENT_STAGE: u32 = 4;
 const PBR_ENVIRONMENT_MASK_STAGE: u32 = 5;
-const REPLACEMENT_SHADER_KIND_COUNT: usize = 69;
+const REPLACEMENT_SHADER_KIND_COUNT: usize = 70;
 
 const SET_SHADERS_PROLOGUE: &[u8] = &[
     0x8B, 0x0D, 0x4C, 0xF7, 0x26, 0x01, 0x56, 0x57, 0xE8, 0x23, 0xD8, 0x29, 0x00, 0x8B, 0xF0, 0xA1,
@@ -357,7 +360,6 @@ static PBR_TERRAIN_PROFILE_BITS: LazyLock<
 > = LazyLock::new(|| array::from_fn(|_| array::from_fn(|_| AtomicU32::new(0))));
 static PBR_TERRAIN_LOD_NOISE_SCALE_BITS: AtomicU32 = AtomicU32::new(1.0f32.to_bits());
 static PBR_TERRAIN_LOD_NOISE_TILE_BITS: AtomicU32 = AtomicU32::new(1.75f32.to_bits());
-static PBR_STATE_REFRESH_TICK: AtomicU32 = AtomicU32::new(0);
 static PBR_STATE_TRANSITION_CURVE_BITS: AtomicU32 = AtomicU32::new(1.0f32.to_bits());
 static PBR_STATE_EXTERIOR_KNOWN: AtomicBool = AtomicBool::new(false);
 static PBR_STATE_IS_EXTERIOR: AtomicBool = AtomicBool::new(true);
@@ -411,15 +413,14 @@ const PBR_PROFILE_LIGHT_SCALE: usize = 2;
 const PBR_PROFILE_AMBIENT_SCALE: usize = 3;
 const PBR_PROFILE_ALBEDO_SATURATION: usize = 4;
 const PBR_PROFILE_VALUE_COUNT: usize = 5;
-const PBR_STATE_REFRESH_INTERVAL: u32 = 256;
-const REPLACEMENT_SHADER_PREWARM_INTERVAL: u32 = 32;
+const REPLACEMENT_SHADER_PREWARM_INTERVAL: u32 = 1;
 const REPLACEMENT_SHADER_CREATE_BUDGET: usize = 2;
 const REPLACEMENT_COMPILE_WORKER_COUNT: usize = 2;
-const REPLACEMENT_SHADER_CACHE_DIR: &str = "./Data/NVSE/plugins/omv/cache/native_pbr";
 const REPLACEMENT_BYTECODE_MISSING: u32 = 0;
 const REPLACEMENT_BYTECODE_QUEUED: u32 = 1;
 const REPLACEMENT_BYTECODE_READY: u32 = 2;
 const REPLACEMENT_BYTECODE_FAILED: u32 = 3;
+const NEUTRAL_NORMAL_ARGB: u32 = 0x0080_80FF;
 
 #[derive(Clone, Copy, Debug)]
 pub(crate) struct NativePbrSettings {
@@ -633,6 +634,10 @@ impl PbrProfileSettings {
         value: crate::config::NativePbrProfileConfig,
         fallback: PbrProfileSettings,
     ) -> Self {
+        if native_pbr_profile_is_neutral_block(value) {
+            return fallback;
+        }
+
         Self {
             metallicness: value.metallicness.unwrap_or(fallback.metallicness),
             roughness_scale: value.roughness_scale.unwrap_or(fallback.roughness_scale),
@@ -663,6 +668,14 @@ impl PbrProfileSettings {
             sanitize_pbr_scale(self.albedo_saturation, 1.0, 0.0, 2.0),
         ]
     }
+}
+
+fn native_pbr_profile_is_neutral_block(value: crate::config::NativePbrProfileConfig) -> bool {
+    value.metallicness == Some(0.0)
+        && value.roughness_scale == Some(1.0)
+        && value.light_scale == Some(1.0)
+        && value.ambient_scale == Some(1.0)
+        && value.albedo_saturation == Some(1.0)
 }
 
 struct TextureCapture {
@@ -1133,6 +1146,7 @@ enum ReplacementShaderKind {
     ObjectLowSpecularLights2Si,
     ObjectLowSpecularLights2Shadow,
     ObjectLowSpecularLights2SiShadow,
+    ObjectLowStbb,
     ObjectHigh6,
     ObjectHigh6Si,
     ObjectHigh4,
@@ -1181,6 +1195,7 @@ const REPLACEMENT_SHADER_KINDS: [ReplacementShaderKind; REPLACEMENT_SHADER_KIND_
     ReplacementShaderKind::ObjectLowSpecularLights2Si,
     ReplacementShaderKind::ObjectLowSpecularLights2Shadow,
     ReplacementShaderKind::ObjectLowSpecularLights2SiShadow,
+    ReplacementShaderKind::ObjectLowStbb,
     ReplacementShaderKind::ObjectHigh6,
     ReplacementShaderKind::ObjectHigh6Si,
     ReplacementShaderKind::ObjectHigh4,
@@ -1342,7 +1357,7 @@ const fn object_row(
 }
 
 // Source-derived from NVR PBRShaders::Templates(). This is the current
-// implemented subset only; missing skin, hair, STBB, and hair helper rows remain
+// implemented subset only; missing skin, hair, and hair helper rows remain
 // deliberate vanilla fallbacks until their vertex/resource contracts are closed.
 const OBJECT_ROW_CONTRACTS: &[ObjectRowContract] = &[
     // ADTS base/object rows.
@@ -1435,6 +1450,11 @@ const OBJECT_ROW_CONTRACTS: &[ObjectRowContract] = &[
         PPLIGHTING_VERTEX_SLS2_ADTS_SPECULAR_LIGHTS2_PROJECTED_SHADOW_INDEX,
         PPLIGHTING_PIXEL_SLS2_ADTS_SPECULAR_LIGHTS2_SI_PROJECTED_SHADOW_INDEX,
         ReplacementShaderKind::ObjectLowSpecularLights2SiShadow,
+    ),
+    object_row(
+        PPLIGHTING_VERTEX_SLS2_ADTS_STBB_INDEX,
+        PPLIGHTING_PIXEL_SLS2_ADTS_STBB_INDEX,
+        ReplacementShaderKind::ObjectLowStbb,
     ),
     // ADTS10 high-light rows.
     object_row(
@@ -1584,34 +1604,35 @@ impl ReplacementShaderKind {
             Self::ObjectLowSpecularLights2Si => 14,
             Self::ObjectLowSpecularLights2Shadow => 15,
             Self::ObjectLowSpecularLights2SiShadow => 16,
-            Self::ObjectHigh6 => 17,
-            Self::ObjectHigh6Si => 18,
-            Self::ObjectHigh4 => 19,
-            Self::ObjectHigh4Si => 20,
-            Self::ObjectHigh4Opt => 21,
-            Self::ObjectHigh3Specular => 22,
-            Self::ObjectHigh3SpecularSi => 23,
-            Self::ObjectHigh3SpecularOpt => 24,
-            Self::LandLod => 25,
+            Self::ObjectLowStbb => 17,
+            Self::ObjectHigh6 => 18,
+            Self::ObjectHigh6Si => 19,
+            Self::ObjectHigh4 => 20,
+            Self::ObjectHigh4Si => 21,
+            Self::ObjectHigh4Opt => 22,
+            Self::ObjectHigh3Specular => 23,
+            Self::ObjectHigh3SpecularSi => 24,
+            Self::ObjectHigh3SpecularOpt => 25,
+            Self::LandLod => 26,
             Self::CloseTerrain {
                 tex_count,
                 point_light_count,
-            } => 26 + close_terrain_variant_offset(tex_count, point_light_count),
-            Self::ObjectOnlyLightLights2 => 54,
-            Self::ObjectOnlyLightLights2Si => 55,
-            Self::ObjectOnlyLightLights2Shadow => 56,
-            Self::ObjectOnlyLightLights2SiShadow => 57,
-            Self::ObjectOnlyLightLights3 => 58,
-            Self::ObjectOnlyLightLights3Si => 59,
-            Self::ObjectOnlyLightLights3Shadow => 60,
-            Self::ObjectOnlyLightLights3SiShadow => 61,
-            Self::ObjectDiffuseLights2 => 62,
-            Self::ObjectDiffuseLights3 => 63,
-            Self::ObjectOnlySpecular => 64,
-            Self::ObjectOnlySpecularShadow => 65,
-            Self::ObjectOnlySpecularPoint => 66,
-            Self::ObjectOnlySpecularPointLights2 => 67,
-            Self::ObjectOnlySpecularPointLights3 => 68,
+            } => 27 + close_terrain_variant_offset(tex_count, point_light_count),
+            Self::ObjectOnlyLightLights2 => 55,
+            Self::ObjectOnlyLightLights2Si => 56,
+            Self::ObjectOnlyLightLights2Shadow => 57,
+            Self::ObjectOnlyLightLights2SiShadow => 58,
+            Self::ObjectOnlyLightLights3 => 59,
+            Self::ObjectOnlyLightLights3Si => 60,
+            Self::ObjectOnlyLightLights3Shadow => 61,
+            Self::ObjectOnlyLightLights3SiShadow => 62,
+            Self::ObjectDiffuseLights2 => 63,
+            Self::ObjectDiffuseLights3 => 64,
+            Self::ObjectOnlySpecular => 65,
+            Self::ObjectOnlySpecularShadow => 66,
+            Self::ObjectOnlySpecularPoint => 67,
+            Self::ObjectOnlySpecularPointLights2 => 68,
+            Self::ObjectOnlySpecularPointLights3 => 69,
         }
     }
 
@@ -1648,6 +1669,7 @@ impl ReplacementShaderKind {
             Self::ObjectLowSpecularLights2SiShadow => {
                 "native_pbr_pplighting_object_low_specular_lights2_si_shadow.hlsl"
             }
+            Self::ObjectLowStbb => "native_pbr_pplighting_object_low_stbb.hlsl",
             Self::ObjectHigh6 => "native_pbr_pplighting_object_high6.hlsl",
             Self::ObjectHigh6Si => "native_pbr_pplighting_object_high6_si.hlsl",
             Self::ObjectHigh4 => "native_pbr_pplighting_object_high4.hlsl",
@@ -1792,6 +1814,9 @@ impl ReplacementShaderKind {
             Self::ObjectHigh3SpecularOpt => Some(
                 "#define PBR_OBJECT_HIGH 1\n#define PBR_OBJECT_OPT 1\n#define PBR_OBJECT_LIGHTS 3\n#define PBR_OBJECT_SPECULAR 1",
             ),
+            Self::ObjectLowStbb => Some(
+                "#define PBR_OBJECT_LOW 1\n#define PBR_OBJECT_LIGHTS 1\n#define PBR_OBJECT_STBB 1",
+            ),
             Self::ObjectOnlyLightLights2 => Some(
                 "#define PBR_OBJECT_LOW 1\n#define PBR_OBJECT_OPT 1\n#define PBR_OBJECT_ONLY_LIGHT 1\n#define PBR_OBJECT_LIGHTS 2",
             ),
@@ -1881,6 +1906,7 @@ impl ReplacementShaderKind {
             Self::ObjectLowSpecularLights2Si => "object_low_specular_lights2_si",
             Self::ObjectLowSpecularLights2Shadow => "object_low_specular_lights2_shadow",
             Self::ObjectLowSpecularLights2SiShadow => "object_low_specular_lights2_si_shadow",
+            Self::ObjectLowStbb => "object_low_stbb",
             Self::ObjectHigh6 => "object_high6",
             Self::ObjectHigh6Si => "object_high6_si",
             Self::ObjectHigh4 => "object_high4",
@@ -2049,6 +2075,16 @@ impl ReplacementShaderKind {
         matches!(self, Self::LandLod) || self.is_object_kind()
     }
 
+    fn runtime_enabled(self) -> bool {
+        !matches!(
+            self,
+            Self::CloseTerrain {
+                point_light_count: 6 | 12 | 24,
+                ..
+            }
+        )
+    }
+
     fn uses_terrain_constants(self) -> bool {
         matches!(self, Self::LandLod | Self::CloseTerrain { .. })
     }
@@ -2087,6 +2123,10 @@ impl ReplacementShaderKind {
             | Self::ObjectOnlySpecularPointLights3 => Some(0),
             _ => Some(PBR_NORMAL_STAGE),
         }
+    }
+
+    fn allows_neutral_normal_fallback(self) -> bool {
+        self.is_object_kind()
     }
 
     fn glow_stage(self) -> Option<u32> {
@@ -2179,6 +2219,9 @@ fn vpt_close_terrain_kind_from_pixel_index(pixel_index: u32) -> Option<Replaceme
         2 => 12,
         _ => 24,
     };
+    if point_light_count != 0 {
+        return None;
+    }
 
     Some(ReplacementShaderKind::CloseTerrain {
         tex_count,
@@ -2192,6 +2235,7 @@ struct PbrReplacementState {
     vertex_slots: [PbrVertexShaderSlot; REPLACEMENT_SHADER_KIND_COUNT],
     landlod: PbrShaderSlot,
     landlod_vertex: PbrVertexShaderSlot,
+    neutral_normal: Option<Texture9>,
 }
 
 impl PbrReplacementState {
@@ -2202,6 +2246,7 @@ impl PbrReplacementState {
             vertex_slots: array::from_fn(|_| PbrVertexShaderSlot::new()),
             landlod: PbrShaderSlot::new(),
             landlod_vertex: PbrVertexShaderSlot::new(),
+            neutral_normal: None,
         }
     }
 
@@ -2215,6 +2260,7 @@ impl PbrReplacementState {
         }
         self.landlod.release();
         self.landlod_vertex.release();
+        self.neutral_normal = None;
         for device in REPLACEMENT_PIXEL_SHADER_DEVICES.iter() {
             device.store(0, Ordering::Release);
         }
@@ -2266,6 +2312,48 @@ impl PbrReplacementState {
             }
             _ => None,
         }
+    }
+
+    fn neutral_normal_handle(
+        &mut self,
+        device: &Device9Ref<'_>,
+        device_ptr: usize,
+    ) -> Option<*mut c_void> {
+        if self.device != device_ptr {
+            self.release();
+            self.device = device_ptr;
+        }
+
+        if self.neutral_normal.is_none() {
+            let texture = match device.create_texture(1, 1, 1, 0, D3DFMT_A8R8G8B8, D3DPOOL_MANAGED)
+            {
+                Ok(texture) => texture,
+                Err(err) => {
+                    log_limited(
+                        &REPLACEMENT_RESOURCE_LOGS,
+                        &format!(
+                            "[PBR] Native PBR neutral normal texture creation failed: {err:?}"
+                        ),
+                    );
+                    return None;
+                }
+            };
+
+            if let Err(err) = texture.write_level0_argb_pixel(NEUTRAL_NORMAL_ARGB) {
+                log_limited(
+                    &REPLACEMENT_RESOURCE_LOGS,
+                    &format!("[PBR] Native PBR neutral normal texture upload failed: {err:?}"),
+                );
+                return None;
+            }
+
+            log::info!("[PBR] Native PBR neutral normal texture created");
+            self.neutral_normal = Some(texture);
+        }
+
+        self.neutral_normal
+            .as_ref()
+            .map(Texture9::as_raw_base_texture)
     }
 
     fn slot_mut(&mut self, kind: ReplacementShaderKind) -> &mut PbrShaderSlot {
@@ -2349,6 +2437,9 @@ fn replacement_compile_jobs() -> Vec<ReplacementCompileJob> {
     let terrain_contract_available = TERRAIN_CONTRACT_AVAILABLE.load(Ordering::Acquire);
 
     for kind in PREWARM_SHADER_KINDS {
+        if !kind.runtime_enabled() {
+            continue;
+        }
         if kind.uses_terrain_constants() && !terrain_contract_available {
             continue;
         }
@@ -2497,7 +2588,10 @@ fn fnv1a_hash_bytes(mut hash: u64, bytes: &[u8]) -> u64 {
 }
 
 fn replacement_shader_cache_path(job: ReplacementCompileJob, source_hash: u64) -> PathBuf {
-    let mut path = PathBuf::from(REPLACEMENT_SHADER_CACHE_DIR);
+    let mut path = PathBuf::from(crate::config::CONFIG_PATH);
+    let _ = path.pop();
+    path.push("cache");
+    path.push("native_pbr");
     path.push(format!(
         "{}_{}_{source_hash:016x}.cso",
         job.kind.label(),
@@ -2800,23 +2894,6 @@ struct ReplacementMaterialBindings {
     has_environment_mask: bool,
 }
 
-impl ReplacementMaterialBindings {
-    fn vanilla_bound(shader_kind: ReplacementShaderKind) -> Self {
-        let normal_stage = shader_kind.normal_stage().unwrap_or(PBR_NORMAL_STAGE);
-        Self {
-            selector: 0,
-            generation: 0,
-            has_normal: TEXTURE_CAPTURE.stages[normal_stage as usize].load(Ordering::Acquire) != 0,
-            has_glow: shader_kind.glow_stage().is_some_and(|stage| {
-                TEXTURE_CAPTURE.stages[stage as usize].load(Ordering::Acquire) != 0
-            }),
-            has_height: false,
-            has_environment: false,
-            has_environment_mask: false,
-        }
-    }
-}
-
 #[derive(Clone, Copy)]
 struct ReplacementRecord {
     kind: ReplacementShaderKind,
@@ -2838,16 +2915,16 @@ impl ReplacementRecord {
     }
 
     fn validate_textures(self) -> std::result::Result<(), ReplacementSkipReason> {
-        self.samplers.validate()
+        self.samplers.validate(self.kind)
     }
 
     unsafe fn material_bindings(
         self,
     ) -> std::result::Result<ReplacementMaterialBindings, ReplacementSkipReason> {
         match self.material_source {
-            ReplacementMaterialSource::VanillaBound => {
-                Ok(ReplacementMaterialBindings::vanilla_bound(self.kind))
-            }
+            ReplacementMaterialSource::VanillaBound => unsafe {
+                bind_vanilla_or_neutral_material_textures(self.kind)
+            },
             ReplacementMaterialSource::SelectorMaterialArrays => {
                 let material_resources = match unsafe { replacement_material_resources(self.kind) }
                 {
@@ -2963,9 +3040,12 @@ impl ReplacementSamplerContract {
         }
     }
 
-    fn validate(self) -> std::result::Result<(), ReplacementSkipReason> {
-        self.diffuse.validate()?;
-        self.normal.validate()?;
+    fn validate(
+        self,
+        kind: ReplacementShaderKind,
+    ) -> std::result::Result<(), ReplacementSkipReason> {
+        self.diffuse.validate(kind)?;
+        self.normal.validate(kind)?;
 
         if let Some(stage) = self.glow_stage {
             validate_sampler_stage(stage, ReplacementSkipReason::NoGlowSource)?;
@@ -2976,7 +3056,7 @@ impl ReplacementSamplerContract {
             validate_sampler_stage(shadow_mask_stage, ReplacementSkipReason::NoShadowSource)?;
         }
 
-        self.extra.validate()
+        self.extra.validate(kind)
     }
 }
 
@@ -2995,10 +3075,21 @@ enum RequiredSamplerSet {
 }
 
 impl RequiredSamplerSet {
-    fn validate(self) -> std::result::Result<(), ReplacementSkipReason> {
+    fn validate(
+        self,
+        kind: ReplacementShaderKind,
+    ) -> std::result::Result<(), ReplacementSkipReason> {
         match self {
             Self::None => Ok(()),
-            Self::Single { stage, reason } => validate_sampler_stage(stage, reason),
+            Self::Single { stage, reason } => match validate_sampler_stage(stage, reason) {
+                Ok(()) => Ok(()),
+                Err(ReplacementSkipReason::NoNormalSource)
+                    if kind.allows_neutral_normal_fallback() =>
+                {
+                    Ok(())
+                }
+                Err(reason) => Err(reason),
+            },
             Self::Range {
                 first_stage,
                 count,
@@ -3020,7 +3111,10 @@ enum ReplacementExtraSamplerContract {
 }
 
 impl ReplacementExtraSamplerContract {
-    fn validate(self) -> std::result::Result<(), ReplacementSkipReason> {
+    fn validate(
+        self,
+        _kind: ReplacementShaderKind,
+    ) -> std::result::Result<(), ReplacementSkipReason> {
         match self {
             Self::None => Ok(()),
             Self::LandLod => {
@@ -3220,7 +3314,7 @@ pub(crate) fn configure_runtime_options(settings: NativePbrSettings) {
         sanitize_pbr_scale(settings.terrain_lod_noise_tile, 1.75, 0.05, 16.0).to_bits(),
         Ordering::Release,
     );
-    PBR_STATE_REFRESH_TICK.store(0, Ordering::Release);
+    refresh_material_state_frame();
 
     let debug_was_enabled = DEBUG_LOG_DRAWS.swap(settings.debug_log_draws, Ordering::AcqRel);
     let material_was_enabled = MATERIAL_SHADER_ENABLED.swap(settings.enabled, Ordering::AcqRel);
@@ -3283,6 +3377,16 @@ pub(crate) fn runtime_status() -> NativePbrRuntimeStatus {
 
 fn set_block_reason(reason: Option<&'static str>) {
     *INSTALL_BLOCK_REASON.lock() = reason;
+}
+
+pub(crate) fn service_present_frame() {
+    refresh_material_state_frame();
+
+    if !HOOKS_ACTIVE.load(Ordering::Acquire) || !MATERIAL_SHADER_ENABLED.load(Ordering::Acquire) {
+        return;
+    }
+
+    maybe_prewarm_replacement_shader();
 }
 
 pub(crate) fn reset_runtime_state() {
@@ -3599,10 +3703,6 @@ unsafe extern "thiscall" fn hook_set_shaders(shader: *mut c_void, pass_index: u3
         log_limited(&DRAW_LOGS, "[PBR] Missing original SetShaders function");
         return;
     };
-
-    if hooks_active && MATERIAL_SHADER_ENABLED.load(Ordering::Acquire) {
-        maybe_prewarm_replacement_shader();
-    }
 
     if hooks_active
         && MATERIAL_SHADER_ENABLED.load(Ordering::Acquire)
@@ -4153,6 +4253,9 @@ fn maybe_prewarm_replacement_shader() {
         {
             continue;
         }
+        if !shader_kind.runtime_enabled() {
+            continue;
+        }
         if replacement_shader_created(shader_kind) {
             continue;
         }
@@ -4219,6 +4322,9 @@ fn replacement_shader_preload_failed(kind: ReplacementShaderKind) -> bool {
 
 fn all_replacement_prewarms_complete() -> bool {
     PREWARM_SHADER_KINDS.iter().all(|kind| {
+        if !kind.runtime_enabled() {
+            return true;
+        }
         if kind.uses_terrain_constants() && !TERRAIN_CONTRACT_AVAILABLE.load(Ordering::Acquire) {
             return true;
         }
@@ -4374,6 +4480,71 @@ unsafe fn selector_material_snapshot(
         pass_entry_list,
         material_arrays,
     })
+}
+
+unsafe fn bind_vanilla_or_neutral_material_textures(
+    shader_kind: ReplacementShaderKind,
+) -> std::result::Result<ReplacementMaterialBindings, ReplacementSkipReason> {
+    let normal_stage = shader_kind.normal_stage().unwrap_or(PBR_NORMAL_STAGE);
+    let mut has_normal = TEXTURE_CAPTURE.stages[normal_stage as usize].load(Ordering::Acquire) != 0;
+
+    if !has_normal && shader_kind.allows_neutral_normal_fallback() {
+        has_normal = unsafe { bind_neutral_normal_texture(normal_stage) };
+    }
+
+    if !has_normal && shader_kind.normal_stage().is_some() {
+        return Err(ReplacementSkipReason::NoNormalSource);
+    }
+
+    Ok(ReplacementMaterialBindings {
+        selector: 0,
+        generation: 0,
+        has_normal,
+        has_glow: shader_kind.glow_stage().is_some_and(|stage| {
+            TEXTURE_CAPTURE.stages[stage as usize].load(Ordering::Acquire) != 0
+        }),
+        has_height: false,
+        has_environment: false,
+        has_environment_mask: false,
+    })
+}
+
+unsafe fn bind_neutral_normal_texture(stage: u32) -> bool {
+    if stage as usize >= MAX_TEXTURE_STAGES {
+        return false;
+    }
+
+    let render_state = TEXTURE_CAPTURE.render_state.load(Ordering::Acquire) as *mut c_void;
+    if render_state.is_null() {
+        return false;
+    }
+
+    let Ok(set_texture) = SET_TEXTURE_HOOK.original() else {
+        log_limited(
+            &MATERIAL_BIND_LOGS,
+            "[PBR] Native PBR neutral normal binding skipped because original SetTexture is unavailable",
+        );
+        return false;
+    };
+
+    let Some(texture) = neutral_normal_texture_handle() else {
+        return false;
+    };
+
+    unsafe {
+        set_texture(render_state, stage, texture);
+    }
+    TEXTURE_CAPTURE.stages[stage as usize].store(texture as usize, Ordering::Release);
+    true
+}
+
+fn neutral_normal_texture_handle() -> Option<*mut c_void> {
+    let device_ptr = crate::backend::d3d_device_ptr()?;
+    let device_key = device_ptr as usize;
+    let device = unsafe { Device9Ref::from_raw_void(device_ptr) }?;
+    PBR_REPLACEMENT
+        .lock()
+        .neutral_normal_handle(&device, device_key)
 }
 
 unsafe fn replacement_material_resources(
@@ -4687,7 +4858,7 @@ fn upload_replacement_record_constants(
     };
 
     if matches!(constants, ReplacementConstantContract::TerrainPbr) {
-        let (terrain_enabled, profile) = current_terrain_pbr_profile();
+        let profile = current_terrain_pbr_profile();
         let terrain_data = [[
             profile.metallicness,
             profile.roughness_scale,
@@ -4695,7 +4866,7 @@ fn upload_replacement_record_constants(
             profile.ambient_scale,
         ]];
         let terrain_extra_data = [[
-            terrain_enabled as u8 as f32,
+            1.0,
             profile.albedo_saturation,
             atomic_pbr_f32(&PBR_TERRAIN_LOD_NOISE_SCALE_BITS),
             atomic_pbr_f32(&PBR_TERRAIN_LOD_NOISE_TILE_BITS),
@@ -4760,10 +4931,10 @@ fn current_object_pbr_profile() -> PbrProfileSettings {
     lerp_pbr_profile(dry, wet, rain_factor)
 }
 
-fn current_terrain_pbr_profile() -> (bool, PbrProfileSettings) {
+fn current_terrain_pbr_profile() -> PbrProfileSettings {
     let state = cached_material_state_frame();
-    if !state.exterior_known || !state.is_exterior {
-        return (false, load_terrain_pbr_profile(PBR_PROFILE_INTERIOR));
+    if state.exterior_known && !state.is_exterior {
+        return load_terrain_pbr_profile(PBR_PROFILE_INTERIOR);
     }
 
     let transition = state.transition_curve.clamp(0.0, 1.0);
@@ -4781,7 +4952,7 @@ fn current_terrain_pbr_profile() -> (bool, PbrProfileSettings) {
     // NVR terrain blends rain through WetWorld. OMV does not yet own that
     // signal, so rain terrain profiles remain parsed but inactive.
     let rain_factor = 0.0;
-    (true, lerp_pbr_profile(dry, wet, rain_factor))
+    lerp_pbr_profile(dry, wet, rain_factor)
 }
 
 fn current_material_state_is_known_exterior() -> bool {
@@ -4790,11 +4961,6 @@ fn current_material_state_is_known_exterior() -> bool {
 }
 
 fn cached_material_state_frame() -> crate::backend::MaterialStateFrame {
-    let refresh_tick = PBR_STATE_REFRESH_TICK.fetch_add(1, Ordering::Relaxed);
-    if refresh_tick % PBR_STATE_REFRESH_INTERVAL == 0 {
-        return refresh_material_state_frame();
-    }
-
     crate::backend::MaterialStateFrame {
         transition_curve: f32::from_bits(PBR_STATE_TRANSITION_CURVE_BITS.load(Ordering::Acquire)),
         exterior_known: PBR_STATE_EXTERIOR_KNOWN.load(Ordering::Acquire),
@@ -5728,7 +5894,7 @@ fn maybe_log_replacement_apply_summary(applied: u32) {
     }
 
     log::info!(
-        "[PBR] Native PBR apply summary: applied={} object_low_opt={} object_low={} object_low_shadow={} object_low_lights2={} object_low_lights2_shadow={} object_low_specular={} object_low_specular_shadow={} object_low_specular_lights2={} object_low_specular_lights2_shadow={} object_high6={} object_high4={} object_high4_opt={} object_high3_specular={} object_high3_specular_opt={} object_si={} landlod={} close_terrain={} close_terrain_lights0={} close_terrain_lights6={} close_terrain_lights12={} close_terrain_lights24={} close_terrain_tex1={} close_terrain_tex2={} close_terrain_tex3={} close_terrain_tex4={} close_terrain_tex5={} close_terrain_tex6={} close_terrain_tex7={} skips={} no_diffuse={} no_context={} unsupported_family={} unsupported_vertex_abi={} missing_object_row_contract={} skin_vertex_abi={} missing_terrain_contract={} interior_terrain_disabled={} interior_object_light_pass_disabled={} unproven_landlod_shadow={} no_selector={} no_normal={} no_glow={} no_shadow={} no_shader={} bind_failed={} no_vanilla_handle={} handle_write_failed={}",
+        "[PBR] Native PBR apply summary: applied={} object_low_opt={} object_low={} object_low_shadow={} object_low_lights2={} object_low_lights2_shadow={} object_low_specular={} object_low_specular_shadow={} object_low_specular_lights2={} object_low_specular_lights2_shadow={} object_low_stbb={} object_high6={} object_high4={} object_high4_opt={} object_high3_specular={} object_high3_specular_opt={} object_si={} landlod={} close_terrain={} close_terrain_lights0={} close_terrain_lights6={} close_terrain_lights12={} close_terrain_lights24={} close_terrain_tex1={} close_terrain_tex2={} close_terrain_tex3={} close_terrain_tex4={} close_terrain_tex5={} close_terrain_tex6={} close_terrain_tex7={} skips={} no_diffuse={} no_context={} unsupported_family={} unsupported_vertex_abi={} missing_object_row_contract={} skin_vertex_abi={} missing_terrain_contract={} interior_terrain_disabled={} interior_object_light_pass_disabled={} unproven_landlod_shadow={} no_selector={} no_normal={} no_glow={} no_shadow={} no_shader={} bind_failed={} no_vanilla_handle={} handle_write_failed={}",
         applied,
         apply_kind_count(ReplacementShaderKind::ObjectLowOpt),
         apply_kind_count(ReplacementShaderKind::ObjectLow),
@@ -5739,6 +5905,7 @@ fn maybe_log_replacement_apply_summary(applied: u32) {
         apply_kind_count(ReplacementShaderKind::ObjectLowSpecularShadow),
         apply_kind_count(ReplacementShaderKind::ObjectLowSpecularLights2),
         apply_kind_count(ReplacementShaderKind::ObjectLowSpecularLights2Shadow),
+        apply_kind_count(ReplacementShaderKind::ObjectLowStbb),
         apply_kind_count(ReplacementShaderKind::ObjectHigh6),
         apply_kind_count(ReplacementShaderKind::ObjectHigh4),
         apply_kind_count(ReplacementShaderKind::ObjectHigh4Opt),
@@ -5925,7 +6092,9 @@ fn maybe_log_unsupported_replacement_pair(
     reason: ReplacementSkipReason,
     draw_context: ReplacementDrawContext,
 ) {
-    if !DEBUG_LOG_DRAWS.load(Ordering::Acquire) {
+    let always_log_missing_object_contract =
+        matches!(reason, ReplacementSkipReason::MissingObjectRowContract);
+    if !DEBUG_LOG_DRAWS.load(Ordering::Acquire) && !always_log_missing_object_contract {
         return;
     }
 
@@ -6016,7 +6185,7 @@ fn sls2_object_candidate_label(
         PPLIGHTING_PIXEL_SLS2_ADTS_SI_INDEX => "adts_si",
         PPLIGHTING_PIXEL_SLS2_ADTS_PROJECTED_SHADOW_INDEX => "adts_shadow",
         PPLIGHTING_PIXEL_SLS2_ADTS_SI_PROJECTED_SHADOW_INDEX => "adts_si_shadow",
-        8 => "adts_stbb",
+        PPLIGHTING_PIXEL_SLS2_ADTS_STBB_INDEX => "adts_stbb",
         9 => "adts_hair",
         10 => "adts_hair_shadow",
         PPLIGHTING_PIXEL_SLS2_ADTS_LIGHTS2_INDEX => "adts_lights2",

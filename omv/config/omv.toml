@@ -174,8 +174,9 @@ occlusion_softness = 0.42
 #
 # SI hair, parallax/POM, skin, terrain fade, and helper passes remain on
 # vanilla shaders until their texture and pass contracts are implemented
-# separately. VPT close-terrain point-light rows are covered when the VPT
-# terrain contract is present.
+# separately. VPT close-terrain base rows are covered when the VPT terrain
+# contract is present; point-light terrain rows remain vanilla until that
+# separate lighting contract is proven.
 #
 # This is a runtime shader toggle. It does not control hook installation.
 enabled = true

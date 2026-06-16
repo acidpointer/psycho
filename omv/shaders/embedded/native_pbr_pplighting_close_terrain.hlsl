@@ -495,21 +495,9 @@ PixelOutput Main(PixelInput input)
         LandSpec[1].y,
         LandSpec[1].z
     };
-    float height_status[7] = {
-        LandHeight[0].x,
-        LandHeight[0].y,
-        LandHeight[0].z,
-        LandHeight[0].w,
-        LandHeight[1].x,
-        LandHeight[1].y,
-        LandHeight[1].z
-    };
-
-    float distance = length(input.eye_position - input.local_position);
-    float2 dx = ddx(input.uv.xy);
-    float2 dy = ddy(input.uv.xy);
     float weights[7] = { 0, 0, 0, 0, 0, 0, 0 };
-    float2 terrain_uv = ParallaxCoords(distance, input.uv.xy, dx, dy, view_dir, blends, height_status, weights);
+    CopyTerrainWeights(blends, weights);
+    float2 terrain_uv = input.uv.xy;
 
     float gloss = 0.0f;
     float spec_exponent = 0.0f;
@@ -519,7 +507,7 @@ PixelOutput Main(PixelInput input)
     float roughness = RoughnessFromGloss(gloss);
 
     float3 light_ts = mul(tbn, SunDir.xyz);
-    float parallax_shadow = ParallaxShadowMultiplier(distance, terrain_uv, dx, dy, light_ts, blends, height_status);
+    float parallax_shadow = 1.0f;
     float3 lighting = SunLighting(light_ts, SunColor.rgb, view_dir, normal, AmbientColor.rgb, albedo, gloss, spec_exponent, roughness, parallax_shadow);
 
 #if PBR_TERRAIN_POINT_LIGHTS > 0

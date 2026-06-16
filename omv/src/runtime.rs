@@ -332,6 +332,8 @@ impl ScreenShaderRuntime {
             self.device_ptr = device_ptr as usize;
         }
 
+        pbr::service_present_frame();
+
         self.ensure_imgui(&device, hwnd_hint);
 
         let menu_open = MENU_OPEN.load(Ordering::Acquire);

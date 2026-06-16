@@ -146,19 +146,19 @@ Current OMV:
   `omv/src/effects/pbr.rs:3426`.
 - Skinned vertex rows are explicitly rejected in
   `omv/src/effects/pbr.rs:3382`.
-- Hair/STBB rows are not mapped to replacement kinds in
+- Hair rows are not mapped to replacement kinds in
   `pplighting_sls2_object_replacement_kind`.
-- Replacement object vertex shaders are not provided. `vertex_source()` returns a
-  shader only for `LandLod` in `omv/src/effects/pbr.rs:1593`.
+- STBB is mapped as the NVR constant-shadow object row.
+- Replacement object vertex shaders are provided for mapped object rows, but
+  source-equivalence to every NVR vertex variant is still incomplete.
 
 Gap:
 
 - Skinned object PBR is missing.
 - Hair object PBR is missing.
-- STBB object PBR is missing.
 - Hair variants of `ONLY_SPECULAR` helper rows are missing.
 - Object vertex replacement is not source-equivalent to NVR; OMV relies on
-  vanilla vertex outputs for all object replacement pixels.
+  vanilla-equivalent outputs for the mapped object replacement pixels.
 
 Impact:
 
@@ -170,7 +170,7 @@ Impact:
 Fix direction:
 
 - Build an explicit row-completion table from NVR `PBR.h`.
-- Treat missing hair/STBB/skin/helper variants as blockers for "complete object
+- Treat missing hair/skin/helper variants as blockers for "complete object
   PBR".
 - For every object pixel row, either prove the vanilla vertex ABI is compatible
   or add the matching NVR-derived vertex replacement.
@@ -347,8 +347,8 @@ Current OMV:
 
 - Object rain factor is hardcoded to `0.0` in `omv/src/effects/pbr.rs:4497`.
 - Terrain rain factor is hardcoded to `0.0` in `omv/src/effects/pbr.rs:4521`.
-- Material state is refreshed every `PBR_STATE_REFRESH_INTERVAL` PBR checks, not
-  every frame, in `omv/src/effects/pbr.rs:4532`.
+- Material state is now refreshed from the present-frame service, but the
+  WetWorld/rain source is still missing.
 
 Gap:
 
@@ -450,7 +450,7 @@ Gap:
 Fix direction:
 
 - Update config comments after the row-completion table is formalized.
-- Keep comments explicit about incomplete rows: skin, hair, STBB, terrain fade,
+- Keep comments explicit about incomplete rows: skin, hair, terrain fade,
   projected LandLOD, WetWorld, terrain parallax.
 
 ## Symptom Mapping
@@ -463,7 +463,7 @@ Most likely contract causes:
 - row-specific sampler binding is not owned;
 - `SetCT` equivalent is incomplete;
 - projected shadow/helper sampler slots can be stale;
-- skinned/hair/STBB/object special rows can switch to vanilla.
+- skinned/hair/object special rows can switch to vanilla.
 
 The first suspect should not be the BRDF formula. The NVR contract document says
 the first suspect is missing helper/point-light row coverage or stale
@@ -474,7 +474,7 @@ constants/samplers.
 Most likely contract causes:
 
 - object row switches between replaced and vanilla variants;
-- LOD/hair/STBB/skin/special pass rows are incomplete;
+- LOD/hair/skin/special pass rows are incomplete;
 - vanilla vertex ABI is assumed rather than proven for every replaced pixel row;
 - sampler state from the prior pass leaks into the replacement pass.
 
@@ -514,7 +514,7 @@ resource scans.
    buffers, and deterministic fallback.
 
 5. Complete object row coverage.
-   Hair, STBB, skin, and helper variants must be handled or explicitly logged as
+   Hair, skin, and helper variants must be handled or explicitly logged as
    vanilla fallback. Complete object PBR cannot be claimed until this table is
    closed.
 

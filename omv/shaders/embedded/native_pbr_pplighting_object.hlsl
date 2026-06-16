@@ -18,6 +18,10 @@
 #define PBR_OBJECT_SHADOW 0
 #endif
 
+#ifndef PBR_OBJECT_STBB
+#define PBR_OBJECT_STBB 0
+#endif
+
 #ifndef PBR_OBJECT_SPECULAR
 #define PBR_OBJECT_SPECULAR 0
 #endif
@@ -336,7 +340,9 @@ float3 ObjectAlbedo(float4 base_color, float3 vertex_color)
 
 float3 ShadowMultiplier(PixelInput input)
 {
-#if PBR_OBJECT_SHADOW
+#if PBR_OBJECT_STBB
+    return float3(0.85f, 0.85f, 0.85f);
+#elif PBR_OBJECT_SHADOW
     float3 shadow = tex2D(ShadowMap, input.shadow_uvs.xy).rgb;
     float shadow_mask = tex2D(ShadowMaskMap, input.shadow_uvs.zw).x;
     return lerp(float3(1.0f, 1.0f, 1.0f), shadow, shadow_mask);
