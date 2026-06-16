@@ -337,6 +337,10 @@ static REPLACEMENT_PIXEL_SHADER_HANDLES: LazyLock<[AtomicUsize; REPLACEMENT_SHAD
     LazyLock::new(|| array::from_fn(|_| AtomicUsize::new(0)));
 static REPLACEMENT_PIXEL_SHADER_DEVICES: LazyLock<[AtomicUsize; REPLACEMENT_SHADER_KIND_COUNT]> =
     LazyLock::new(|| array::from_fn(|_| AtomicUsize::new(0)));
+static REPLACEMENT_VERTEX_SHADER_HANDLES: LazyLock<[AtomicUsize; REPLACEMENT_SHADER_KIND_COUNT]> =
+    LazyLock::new(|| array::from_fn(|_| AtomicUsize::new(0)));
+static REPLACEMENT_VERTEX_SHADER_DEVICES: LazyLock<[AtomicUsize; REPLACEMENT_SHADER_KIND_COUNT]> =
+    LazyLock::new(|| array::from_fn(|_| AtomicUsize::new(0)));
 static REPLACEMENT_LANDLOD_VERTEX_SHADER_HANDLE: AtomicUsize = AtomicUsize::new(0);
 static REPLACEMENT_LANDLOD_VERTEX_SHADER_DEVICE: AtomicUsize = AtomicUsize::new(0);
 static REPLACEMENT_APPLY_SUMMARY_LOGS: AtomicU32 = AtomicU32::new(0);
@@ -376,6 +380,8 @@ static INSTALL_BLOCK_REASON: LazyLock<Mutex<Option<&'static str>>> =
     LazyLock::new(|| Mutex::new(None));
 static REPLACEMENT_PIXEL_BYTECODE_STATES: LazyLock<[AtomicU32; REPLACEMENT_SHADER_KIND_COUNT]> =
     LazyLock::new(|| array::from_fn(|_| AtomicU32::new(REPLACEMENT_BYTECODE_MISSING)));
+static REPLACEMENT_VERTEX_BYTECODE_STATES: LazyLock<[AtomicU32; REPLACEMENT_SHADER_KIND_COUNT]> =
+    LazyLock::new(|| array::from_fn(|_| AtomicU32::new(REPLACEMENT_BYTECODE_MISSING)));
 static REPLACEMENT_LANDLOD_VERTEX_BYTECODE_STATE: AtomicU32 =
     AtomicU32::new(REPLACEMENT_BYTECODE_MISSING);
 static REPLACEMENT_COMPILE_WORKERS_STARTED: AtomicBool = AtomicBool::new(false);
@@ -384,6 +390,8 @@ static REPLACEMENT_COMPILED_BYTECODE: LazyLock<Mutex<Vec<CompiledReplacementShad
 
 const PBR_REPLACEMENT_OBJECT_PIXEL_SHADER: &str =
     include_str!("../../shaders/embedded/native_pbr_pplighting_object.hlsl");
+const PBR_REPLACEMENT_OBJECT_VERTEX_SHADER: &str =
+    include_str!("../../shaders/embedded/native_pbr_pplighting_object.vs.hlsl");
 const PBR_REPLACEMENT_CLOSE_TERRAIN_PIXEL_SHADER: &str =
     include_str!("../../shaders/embedded/native_pbr_pplighting_close_terrain.hlsl");
 const PBR_REPLACEMENT_LANDLOD_PIXEL_SHADER: &[u8] =
@@ -1711,6 +1719,10 @@ impl ReplacementShaderKind {
         Cow::Borrowed(PBR_REPLACEMENT_LANDLOD_PIXEL_SHADER)
     }
 
+    fn is_object_kind(self) -> bool {
+        !matches!(self, Self::LandLod | Self::CloseTerrain { .. })
+    }
+
     fn object_shader_defines(self) -> Option<&'static str> {
         match self {
             Self::ObjectLowOpt => Some(
@@ -1832,13 +1844,20 @@ impl ReplacementShaderKind {
     fn vertex_source_name(self) -> Option<&'static str> {
         match self {
             Self::LandLod => Some("native_pbr_pplighting_landlod.vs.hlsl"),
+            _ if self.is_object_kind() => Some("native_pbr_pplighting_object.vs.hlsl"),
             _ => None,
         }
     }
 
-    fn vertex_source(self) -> Option<&'static [u8]> {
+    fn vertex_source(self) -> Option<Cow<'static, [u8]>> {
+        if let Some(defines) = self.object_shader_defines() {
+            return Some(Cow::Owned(
+                format!("{defines}\n{PBR_REPLACEMENT_OBJECT_VERTEX_SHADER}").into_bytes(),
+            ));
+        }
+
         match self {
-            Self::LandLod => Some(PBR_REPLACEMENT_LANDLOD_VERTEX_SHADER),
+            Self::LandLod => Some(Cow::Borrowed(PBR_REPLACEMENT_LANDLOD_VERTEX_SHADER)),
             _ => None,
         }
     }
@@ -2013,6 +2032,7 @@ impl ReplacementShaderKind {
     fn cached_vertex_device(self) -> Option<&'static AtomicUsize> {
         match self {
             Self::LandLod => Some(&REPLACEMENT_LANDLOD_VERTEX_SHADER_DEVICE),
+            _ if self.is_object_kind() => Some(&REPLACEMENT_VERTEX_SHADER_DEVICES[self.index()]),
             _ => None,
         }
     }
@@ -2020,12 +2040,13 @@ impl ReplacementShaderKind {
     fn cached_vertex_handle(self) -> Option<&'static AtomicUsize> {
         match self {
             Self::LandLod => Some(&REPLACEMENT_LANDLOD_VERTEX_SHADER_HANDLE),
+            _ if self.is_object_kind() => Some(&REPLACEMENT_VERTEX_SHADER_HANDLES[self.index()]),
             _ => None,
         }
     }
 
     fn replaces_vertex_shader(self) -> bool {
-        self.vertex_source().is_some()
+        matches!(self, Self::LandLod) || self.is_object_kind()
     }
 
     fn uses_terrain_constants(self) -> bool {
@@ -2148,6 +2169,9 @@ fn vpt_close_terrain_kind_from_pixel_index(pixel_index: u32) -> Option<Replaceme
     }
 
     let local_index = pixel_index - PPLIGHTING_PIXEL_SLS2_VPT_CLOSE_TERRAIN_FIRST_INDEX;
+    if local_index % 2 != 0 {
+        return None;
+    }
     let tex_count = ((local_index / 8) + 1) as u8;
     let point_light_count = match (local_index % 8) / 2 {
         0 => 0,
@@ -2165,6 +2189,7 @@ fn vpt_close_terrain_kind_from_pixel_index(pixel_index: u32) -> Option<Replaceme
 struct PbrReplacementState {
     device: usize,
     pixel_slots: [PbrShaderSlot; REPLACEMENT_SHADER_KIND_COUNT],
+    vertex_slots: [PbrVertexShaderSlot; REPLACEMENT_SHADER_KIND_COUNT],
     landlod: PbrShaderSlot,
     landlod_vertex: PbrVertexShaderSlot,
 }
@@ -2174,6 +2199,7 @@ impl PbrReplacementState {
         Self {
             device: 0,
             pixel_slots: array::from_fn(|_| PbrShaderSlot::new()),
+            vertex_slots: array::from_fn(|_| PbrVertexShaderSlot::new()),
             landlod: PbrShaderSlot::new(),
             landlod_vertex: PbrVertexShaderSlot::new(),
         }
@@ -2184,12 +2210,21 @@ impl PbrReplacementState {
         for slot in &mut self.pixel_slots {
             slot.release();
         }
+        for slot in &mut self.vertex_slots {
+            slot.release();
+        }
         self.landlod.release();
         self.landlod_vertex.release();
         for device in REPLACEMENT_PIXEL_SHADER_DEVICES.iter() {
             device.store(0, Ordering::Release);
         }
         for handle in REPLACEMENT_PIXEL_SHADER_HANDLES.iter() {
+            handle.store(0, Ordering::Release);
+        }
+        for device in REPLACEMENT_VERTEX_SHADER_DEVICES.iter() {
+            device.store(0, Ordering::Release);
+        }
+        for handle in REPLACEMENT_VERTEX_SHADER_HANDLES.iter() {
             handle.store(0, Ordering::Release);
         }
         REPLACEMENT_LANDLOD_VERTEX_SHADER_DEVICE.store(0, Ordering::Release);
@@ -2226,6 +2261,9 @@ impl PbrReplacementState {
             ReplacementShaderKind::LandLod => self
                 .landlod_vertex
                 .vertex_shader_handle(kind, device, device_ptr),
+            _ if kind.replaces_vertex_shader() => {
+                self.vertex_slots[kind.index()].vertex_shader_handle(kind, device, device_ptr)
+            }
             _ => None,
         }
     }
@@ -2438,7 +2476,7 @@ fn replacement_shader_source(
             let Some(source) = job.kind.vertex_source() else {
                 anyhow::bail!("replacement shader has no vertex source bytes");
             };
-            Ok((source_name, Cow::Borrowed(source)))
+            Ok((source_name, source))
         }
     }
 }
@@ -2562,6 +2600,9 @@ fn replacement_shader_bytecode_state(
         ReplacementShaderTarget::Pixel => Some(&REPLACEMENT_PIXEL_BYTECODE_STATES[kind.index()]),
         ReplacementShaderTarget::Vertex => match kind {
             ReplacementShaderKind::LandLod => Some(&REPLACEMENT_LANDLOD_VERTEX_BYTECODE_STATE),
+            _ if kind.replaces_vertex_shader() => {
+                Some(&REPLACEMENT_VERTEX_BYTECODE_STATES[kind.index()])
+            }
             _ => None,
         },
     }
@@ -4126,6 +4167,11 @@ fn maybe_prewarm_replacement_shader() {
             continue;
         }
         if replacement_shader_bytecode_pending(shader_kind, ReplacementShaderTarget::Pixel) {
+            continue;
+        }
+        if shader_kind.replaces_vertex_shader()
+            && replacement_shader_bytecode_pending(shader_kind, ReplacementShaderTarget::Vertex)
+        {
             continue;
         }
 
