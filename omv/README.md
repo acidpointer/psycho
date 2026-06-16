@@ -90,8 +90,8 @@ Native PBR is contract-gated.
 - LandLOD uses the VPT terrain register contract and is disabled when that
   contract is unavailable.
 - Close terrain PBR must use the VPT/FSL/LODFF contract.
-- SI, hair, parallax/POM, skin, and helper-only lighting passes are separate
-  shader contracts.
+- SI hair, parallax/POM, skin, and terrain point-light passes are separate
+  shader contracts and stay vanilla until proven.
 - New Vegas Reloaded coexistence is not supported.
 
 The log should always explain whether a feature installed, was disabled by

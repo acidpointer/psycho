@@ -299,7 +299,7 @@ pub(crate) struct DiagnosticsConfig {
 
 impl Default for DiagnosticsConfig {
     fn default() -> Self {
-        Self { debug_log: true }
+        Self { debug_log: false }
     }
 }
 

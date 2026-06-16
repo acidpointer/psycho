@@ -172,8 +172,10 @@ occlusion_softness = 0.42
 #     c31 remains vanilla LODTexParams, c38 is VPT LandLODSpec, and
 #     terrain tuning uses c89/c90 instead of object c32/c33
 #
-# SI/HAIR, parallax, and pure only-light helper passes remain on vanilla
-# shaders until their texture and pass contracts are implemented separately.
+# SI hair, parallax/POM, skin, terrain fade, and helper passes remain on
+# vanilla shaders until their texture and pass contracts are implemented
+# separately. VPT close-terrain point-light rows are covered when the VPT
+# terrain contract is present.
 #
 # This is a runtime shader toggle. It does not control hook installation.
 enabled = true
@@ -214,12 +216,12 @@ terrain_lod_noise_tile = 1.75
 # ambient_scale = 1.0
 # albedo_saturation = 1.0
 #
-# [graphics.native_pbr.object_interior]
-# metallicness = 0.0
-# roughness_scale = 1.0
-# light_scale = 1.0
-# ambient_scale = 1.0
-# albedo_saturation = 1.0
+[graphics.native_pbr.object_interior]
+metallicness = 0.0
+roughness_scale = 1.0
+light_scale = 1.0
+ambient_scale = 1.0
+albedo_saturation = 1.0
 #
 # [graphics.native_pbr.object_rain]
 # metallicness = 0.0
@@ -235,33 +237,33 @@ terrain_lod_noise_tile = 1.75
 # ambient_scale = 1.0
 # albedo_saturation = 1.0
 #
-# [graphics.native_pbr.terrain_default]
-# metallicness = 0.0
-# roughness_scale = 0.779
-# light_scale = 1.543
-# ambient_scale = 1.922
-# albedo_saturation = 1.017
-#
-# [graphics.native_pbr.terrain_night]
-# metallicness = 0.0
-# roughness_scale = 1.0
-# light_scale = 1.0
-# ambient_scale = 1.0
-# albedo_saturation = 1.0
-#
-# [graphics.native_pbr.terrain_rain]
-# metallicness = 0.0
-# roughness_scale = 1.0
-# light_scale = 1.0
-# ambient_scale = 1.0
-# albedo_saturation = 1.0
-#
-# [graphics.native_pbr.terrain_night_rain]
-# metallicness = 0.0
-# roughness_scale = 1.0
-# light_scale = 1.0
-# ambient_scale = 1.0
-# albedo_saturation = 1.0
+[graphics.native_pbr.terrain_default]
+metallicness = 0.0
+roughness_scale = 1.0
+light_scale = 1.0
+ambient_scale = 1.0
+albedo_saturation = 1.0
+
+[graphics.native_pbr.terrain_night]
+metallicness = 0.0
+roughness_scale = 1.0
+light_scale = 1.0
+ambient_scale = 1.0
+albedo_saturation = 1.0
+
+[graphics.native_pbr.terrain_rain]
+metallicness = 0.0
+roughness_scale = 0.7
+light_scale = 1.0
+ambient_scale = 1.0
+albedo_saturation = 1.0
+
+[graphics.native_pbr.terrain_night_rain]
+metallicness = 0.0
+roughness_scale = 0.6
+light_scale = 1.0
+ambient_scale = 1.0
+albedo_saturation = 1.0
 
 # Log a small bounded native draw-context sample for contract debugging.
 debug_log_draws = false
@@ -274,4 +276,4 @@ debug_log_draws = false
 #
 # true  = write detailed startup and shader loading diagnostics.
 # false = write only normal informational logs.
-debug_log = true
+debug_log = false

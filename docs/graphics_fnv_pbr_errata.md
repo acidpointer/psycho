@@ -8,7 +8,7 @@ Before touching native PBR, read this together with `AGENTS.md` and the relevant
 
 Object PBR and LandLOD PBR are separate paths and should not be blocked solely by close-terrain failures.
 
-Close terrain PBR is blocked. It must stay disabled or experimental until the exact vanilla/NVR close-landscape draw contract is proven.
+Close terrain PBR is still experimental. OMV may replace the VPT close-terrain exterior shader-row family when VPT/FSL/LODFF are available, the material state is known exterior, and all active diffuse/normal samplers are already bound by the engine. Broad vanilla close terrain, interior terrain, and terrain fade remain blocked until their full draw and constant contracts are proven.
 
 The last close-terrain runtime gate attempt was a failed fix: it caused about `-40 FPS` and produced no useful visual improvement.
 
@@ -76,8 +76,8 @@ Latest close-terrain audits add these constraints:
 - `graphics_fnv_pbr_close_terrain_vertex_declaration_contract.txt` did not find a static `D3DVERTEXELEMENT9` declaration candidate matching the NVR terrain ABI. Its D3D9 method-offset scan is broad and noisy; it does not identify the exact close-terrain declaration or FVF path.
 - NVR close terrain expects a complete shader ABI: `BaseMap[7]` at `s0..s6`, `NormalMap[7]` at `s7..s13`, `LandSpec` at `c32/c33`, `LandHeight` at `c34/c35`, fog and sun constants, `TEX_COUNT` matching active layers, and NVR-owned terrain controls at `c89/c90`.
 - Vanilla PPLighting registers do not prove the NVR close-terrain constant ABI. `c35`/`c39` hits in the closure audit are `PrevWorldViewPT`/`PrevWorldViewT`, and `c32`/`c37` hits inside setup functions are branch/test immediates, not terrain constant bindings. OMV must either upload the NVR terrain constants explicitly or remove those assumptions from the replacement shader.
-- The point-light terrain variant additionally needs `PointLightColor`, `PointLightPosition`, and `PointLightCount` constants. Do not enable it until those rows and constants are proven at runtime.
-- Current OMV terrain replacement shader is not complete against the NVR contract: it does not implement the proven `LandHeight c34/c35` parallax contract and does not compile per-row `TEX_COUNT` variants. Treat it as diagnostic/experimental until the engine-side constants and active-layer specialization are implemented.
+- The point-light terrain variant additionally needs `PointLightColor`, `PointLightPosition`, and `PointLightCount` constants. VPT provides those constants for landscape rows `503..558`; do not enable point-light terrain without the VPT terrain contract.
+- Current OMV terrain replacement shader is not complete against the full NVR contract: it does not implement the proven `LandHeight c34/c35` parallax contract and terrain fade is still separate/unimplemented. Treat broader terrain PBR as blocked until the remaining engine-side constants and pass families are implemented.
 
 Compare these closure outputs with `[PBR_CONTRACT]` runtime logs from `omv/src/effects/pbr.rs` before changing replacement policy.
 
@@ -141,7 +141,7 @@ The failed patch left close terrain replacement active in the hottest terrain pa
 
 Do not repeat:
 
-- Do not enable close terrain PBR by default until the exact contract is proven.
+- Do not enable broader close terrain PBR by default until the exact contract is proven.
 - Do not bind 14 terrain textures per draw as a generic fix.
 - Do not repeatedly call the material resolver in terrain hot paths without a proven stable cache key.
 - Do not sample/blend all seven layers unconditionally.
@@ -299,7 +299,7 @@ Correct fix path:
 - Replace vertex and pixel shaders as a pair when required.
 - Keep a vanilla fallback for every unproven vertex ABI.
 
-## Required Proof Before Re-Enabling Close Terrain PBR
+## Required Proof Before Broadening Close Terrain PBR
 
 A future close terrain fix must prove all of this first:
 
@@ -341,5 +341,5 @@ A future close terrain fix must prove all of this first:
 
 - If a graphics effect needs engine data, buffers, masks, or stage ownership, prove the engine contract before shader work.
 - If Ghidra output does not explain ownership, lifetime, and the safe intervention point, write more Ghidra scripts instead of patching.
-- Do not enable close terrain PBR by default again until this errata's proof requirements are satisfied.
+- Do not broaden close terrain PBR beyond the VPT exterior row family until this errata's proof requirements are satisfied.
 - A patch that costs FPS and does not visibly improve the target scene is a regression.

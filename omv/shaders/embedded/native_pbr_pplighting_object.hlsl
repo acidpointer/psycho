@@ -22,13 +22,49 @@
 #define PBR_OBJECT_SPECULAR 0
 #endif
 
+#ifndef PBR_OBJECT_SI
+#define PBR_OBJECT_SI 0
+#endif
+
+#ifndef PBR_OBJECT_ONLY_LIGHT
+#define PBR_OBJECT_ONLY_LIGHT 0
+#endif
+
+#ifndef PBR_OBJECT_DIFFUSE
+#define PBR_OBJECT_DIFFUSE 0
+#endif
+
+#ifndef PBR_OBJECT_ONLY_SPECULAR
+#define PBR_OBJECT_ONLY_SPECULAR 0
+#endif
+
+#ifndef PBR_OBJECT_POINT
+#define PBR_OBJECT_POINT 0
+#endif
+
 float4 AmbientColor : register(c1);
 float4 PSLightColor[10] : register(c3);
 float4 TESR_PBRData : register(c32);
 float4 TESR_PBRExtraData : register(c33);
 
+#if PBR_OBJECT_DIFFUSE || PBR_OBJECT_ONLY_SPECULAR
+sampler2D NormalMap : register(s0);
+#else
 sampler2D BaseMap : register(s0);
 sampler2D NormalMap : register(s1);
+#endif
+
+#if PBR_OBJECT_SI || (PBR_OBJECT_HIGH && !PBR_OBJECT_OPT)
+float4 EmittanceColor : register(c2);
+#endif
+
+#if PBR_OBJECT_SI
+#if PBR_OBJECT_ONLY_LIGHT
+sampler2D GlowMap : register(s3);
+#else
+sampler2D GlowMap : register(s4);
+#endif
+#endif
 
 #if PBR_OBJECT_HIGH
 float4 PSLightPosition[8] : register(c19);
@@ -36,7 +72,6 @@ float4 PSLightPosition[8] : register(c19);
 #define PbrObjectLightsUsed PSLightColor[0].a
 #define PbrObjectLightOffset 1
 #else
-float4 EmittanceColor : register(c2);
 float4 Toggles : register(c27);
 #define PbrObjectLightsUsed EmittanceColor.a
 #define PbrObjectLightOffset 0
@@ -46,16 +81,26 @@ float4 Toggles : register(c27);
 float4 Toggles : register(c27);
 #endif
 #if PBR_OBJECT_SHADOW
+#if PBR_OBJECT_ONLY_SPECULAR
+sampler2D ShadowMap : register(s4);
+sampler2D ShadowMaskMap : register(s5);
+#elif PBR_OBJECT_ONLY_LIGHT
+sampler2D ShadowMap : register(s5);
+sampler2D ShadowMaskMap : register(s6);
+#else
 sampler2D ShadowMap : register(s6);
 sampler2D ShadowMaskMap : register(s7);
+#endif
 #endif
 #endif
 
 #if PBR_OBJECT_LOW
 struct PixelInput
 {
+#if !PBR_OBJECT_ONLY_LIGHT
     float3 vertex_color : COLOR0;
     float4 fog_color : COLOR1;
+#endif
     float2 uv : TEXCOORD0;
     float4 light_dir : TEXCOORD1;
 #if PBR_OBJECT_LIGHTS > 1
@@ -124,6 +169,11 @@ float PbrRoughnessScale()
 float PbrMetallicness()
 {
     return saturate(TESR_PBRData.x);
+}
+
+float PbrDirectMetallicness()
+{
+    return 0.0f;
 }
 
 float PbrLightMultiplier()
@@ -200,7 +250,7 @@ float3 PbrDiffuseOnly(float3 albedo, float3 normal, float3 view_dir, float3 ligh
 
 float3 PbrFull(float roughness, float3 albedo, float3 normal, float3 view_dir, float3 light_dir, float3 light_color)
 {
-    float metallic = PbrMetallicness();
+    float metallic = PbrDirectMetallicness();
     float3 reflectance = lerp(float3(0.04f, 0.04f, 0.04f), albedo, metallic);
 
     normal = SafeNormalize(normal, float3(0.0f, 0.0f, 1.0f));
@@ -219,9 +269,30 @@ float3 PbrFull(float roughness, float3 albedo, float3 normal, float3 view_dir, f
     return (diffuse + specular) * ndotl * light_color * PI;
 }
 
+float3 PbrSpecularOnly(float roughness, float3 albedo, float3 normal, float3 view_dir, float3 light_dir, float3 light_color)
+{
+    float metallic = PbrDirectMetallicness();
+    float3 reflectance = lerp(float3(0.04f, 0.04f, 0.04f), albedo, metallic);
+
+    normal = SafeNormalize(normal, float3(0.0f, 0.0f, 1.0f));
+    view_dir = SafeNormalize(view_dir, float3(0.0f, 0.0f, 1.0f));
+    light_dir = SafeNormalize(light_dir, float3(0.0f, 0.0f, 1.0f));
+
+    float3 halfway = SafeNormalize(view_dir + light_dir, normal);
+    float ndotl = max(Shades(normal, light_dir), 0.00001f);
+    float ndotv = max(Shades(normal, view_dir), 0.00001f);
+    float ndoth = Shades(normal, halfway);
+    float ldoth = Shades(light_dir, halfway);
+    float3 fresnel = Fresnel(reflectance, float3(1.0f, 1.0f, 1.0f), ldoth);
+
+    return Brdf(roughness, fresnel, ndotv, ndotl, ndoth) * ndotl * light_color * PI;
+}
+
 float3 PbrDirect(float roughness, float3 albedo, float3 normal, float3 view_dir, float3 light_dir, float3 light_color)
 {
-#if PBR_OBJECT_SPECULAR
+#if PBR_OBJECT_ONLY_SPECULAR
+    return PbrSpecularOnly(roughness, albedo, normal, view_dir, light_dir, light_color);
+#elif PBR_OBJECT_SPECULAR
     return PbrFull(roughness, albedo, normal, view_dir, light_dir, light_color);
 #else
     return PbrDiffuseOnly(albedo, normal, view_dir, light_dir, light_color);
@@ -276,21 +347,43 @@ float3 ShadowMultiplier(PixelInput input)
 
 float4 Main(PixelInput input) : COLOR0
 {
+#if PBR_OBJECT_DIFFUSE || PBR_OBJECT_ONLY_SPECULAR
+    float4 base_color = float4(1.0f, 1.0f, 1.0f, 1.0f);
+#else
     float4 base_color = tex2D(BaseMap, input.uv.xy);
+#if PBR_OBJECT_ONLY_LIGHT
+    base_color.rgb = 1.0f;
+#endif
+#endif
 
-#if !PBR_OBJECT_OPT
+#if !PBR_OBJECT_OPT && !PBR_OBJECT_ONLY_SPECULAR
     if (AmbientColor.a < 1.0f) {
         clip(base_color.a - Toggles.w);
     }
 #endif
 
+#if PBR_OBJECT_ONLY_LIGHT
+    float3 albedo = lerp(Luma(base_color.rgb), base_color.rgb, PbrAlbedoSaturation());
+#else
     float3 albedo = ObjectAlbedo(base_color, input.vertex_color.rgb);
+#endif
     float4 normal_sample = tex2D(NormalMap, input.uv.xy);
     float3 normal = DecodeNormal(normal_sample);
     float roughness = RoughnessFromGloss(normal_sample.a);
 
 #if PBR_OBJECT_LOW
     float3 view_dir = input.view_dir.xyz;
+#if PBR_OBJECT_DIFFUSE || PBR_OBJECT_POINT
+    float3 lighting = PointLight(
+        input.light_dir.xyz,
+        input.light_dir.w,
+        PSLightColor[0].rgb * ShadowMultiplier(input),
+        view_dir,
+        normal,
+        albedo,
+        roughness
+    );
+#else
     float3 lighting = PbrDirect(
         roughness,
         albedo,
@@ -299,6 +392,7 @@ float4 Main(PixelInput input) : COLOR0
         input.light_dir.xyz,
         PSLightColor[0].rgb * ShadowMultiplier(input) * PbrLightMultiplier()
     );
+#endif
 
 #if PBR_OBJECT_LIGHTS > 1
     lighting += PointLight(input.light2_dir.xyz, input.light2_dir.w, PSLightColor[1].rgb, view_dir, normal, albedo, roughness);
@@ -359,8 +453,18 @@ float4 Main(PixelInput input) : COLOR0
 #endif
 #endif
 
-    lighting += AmbientLighting(AmbientColor.rgb, albedo);
+#if PBR_OBJECT_SI
+    float3 glow = tex2D(GlowMap, input.uv.xy).rgb;
+    lighting += albedo * glow * EmittanceColor.rgb;
+#endif
 
+#if !PBR_OBJECT_DIFFUSE && !PBR_OBJECT_ONLY_SPECULAR
+    lighting += AmbientLighting(AmbientColor.rgb, albedo);
+#endif
+
+#if PBR_OBJECT_ONLY_LIGHT
+    float3 final_color = lighting;
+#else
 #if PBR_OBJECT_OPT
     float3 final_color = lerp(lighting, input.fog_color.rgb, saturate(input.fog_color.a));
 #else
@@ -368,6 +472,15 @@ float4 Main(PixelInput input) : COLOR0
         ? lighting
         : lerp(lighting, input.fog_color.rgb, saturate(input.fog_color.a));
 #endif
+#endif
 
+#if PBR_OBJECT_DIFFUSE
+    return float4(final_color, 1.0f);
+#elif PBR_OBJECT_ONLY_SPECULAR
+    return float4(final_color, saturate(dot(final_color, float3(0.299f, 0.587f, 0.114f))));
+#elif PBR_OBJECT_ONLY_LIGHT
+    return float4(final_color, base_color.a);
+#else
     return float4(final_color, base_color.a * AmbientColor.a);
+#endif
 }
